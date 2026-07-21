@@ -223,7 +223,7 @@ def main():
                 fast_send_file(page, file)
             page.keyboard.press("Enter")
             print( "所有文件发送完成")
-        time.sleep(5.0)    
+        time.sleep(10.0)    
         # 4. 全流程完成后，只在最后校验 1 次
         wait_for_last_message_sent(page, timeout=60)
                 
