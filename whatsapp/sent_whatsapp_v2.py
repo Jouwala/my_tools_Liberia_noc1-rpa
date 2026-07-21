@@ -30,35 +30,16 @@ Path(DEBUG_DIR).mkdir(exist_ok=True)
 # Selectors
 SELECTORS = {
     "SEARCH_BOX": ['#side div[contenteditable="true"]', '#side [role="textbox"]'],
-   "ATTACH": [
-        'div[data-icon="plus"]',
-        'span[data-icon="plus"]',
-        'button[aria-label="Attach"]',
-        'button[aria-label="附加"]',
-        'div[aria-label="Attach"]' # 新增：兼容 div 容器
-    ],
-    "IMAGE_INPUT": ['input[type=file][accept*="image"]', 'input[type=file]'],
-    "FILE_INPUT": ['input[type=file]'],
-    "CAPTION": ['div[data-testid="conversation-compose-box-input"]'],
-    "PREVIEW": ['div[role="dialog"]', '[aria-label="Media preview"]'],
-    "SEND": ['span[data-icon="send"]', 'div[aria-label="Send"]', 'div[aria-label="发送"]'],
     "MAIN": ["#main"]
 }
 
 # ==========================================================
 # Part 1B: 公共工具
 # ==========================================================
-# ==========================================================
-# Part 1B: 公共工具 (Corrected)
-# ==========================================================
 def info(msg): print(f"[INFO ] {msg}")
 def success(msg): print(f"[ OK  ] {msg}")
 def warn(msg): print(f"[WARN ] {msg}")
-def error(msg): print(f"[ERROR] {msg}") # Added missing function
-
-def save_debug(page, name):
-    try: page.screenshot(path=f"{DEBUG_DIR}/{name}.png", full_page=True)
-    except: pass
+def error(msg): print(f"[ERROR] {msg}")
 
 def retry(func):
     def wrapper(*args, **kwargs):
@@ -71,16 +52,6 @@ def retry(func):
         raise last
     return wrapper
 
-def in_preview(page):
-    # Added missing function to detect Media Preview dialog
-    selectors = ["div[role=dialog]", "[aria-label='Media preview']"]
-    for s in selectors:
-        try:
-            page.locator(s).wait_for(timeout=500)
-            return True
-        except: pass
-    return False
-
 def start_browser():
     playwright = sync_playwright().start()
     browser = playwright.chromium.launch_persistent_context(
@@ -92,7 +63,7 @@ def start_browser():
     )
     page = browser.new_page()
     page.goto(WHATSAPP_URL, wait_until="domcontentloaded")
-    page.locator("#side").wait_for(timeout=60000)
+    page.locator("#side").wait_for(timeout=180000)
     success("登录成功")
     return playwright, browser, page
 
@@ -104,13 +75,6 @@ def find_first(page, key):
         except: pass
     return None
 
-def find_all(page, key):
-    for selector in SELECTORS[key]:
-        try:
-            loc = page.locator(selector)
-            if loc.count() > 0: return loc
-        except: pass
-    return None
 # ==========================================================
 # Part 2: 搜索联系人
 # ==========================================================
@@ -123,195 +87,145 @@ def search_and_open(page, contact_name):
     search_box.click()
     search_box.fill("")
     search_box.fill(contact_name)
-    time.sleep(2)
+    time.sleep(0.5)
     page.keyboard.press("Enter")
-    time.sleep(2)
+    time.sleep(0.8)
     
-    # 确保进入了聊天窗口
     if not page.locator(SELECTORS["MAIN"][0]).is_visible():
         raise Exception("未能进入聊天窗口")
     success(f"成功进入: {contact_name}")
 
 # ==========================================================
-# Part 3: 剪贴板工具函数
+# Part 3: 高速剪贴板 API
 # ==========================================================
-
-def wait_for_message_sent11(page: Page, timeout: int = 30):
-    """
-    动态监控最后一条消息的发送状态，直到检测到发送成功图标（单勾/双勾）或超时
-    timeout: 最大等待秒数
-    """
-    info("正在等待消息发送确认（动态监控状态图标）...")
-    last_message = page.locator("div[role='row']").last
-    
-    if last_message.count() == 0:
-        warn("未找到任何消息行，跳过状态检测。")
-        return
-
-    # WhatsApp 消息状态图标的选择器：
-    # msg-time / clock = 正在发送/排队
-    # msg-check = 已发送到服务器 (单灰勾)
-    # msg-dblcheck = 已送达/已读 (双勾，包含灰双勾或蓝双勾)
-    status_selector = "span[data-icon='msg-check'], span[data-icon='msg-dblcheck']"
-    
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        try:
-            # 检查最后一条消息里是否已经出现了发送成功或送达的图标
-            icon_loc = last_message.locator(status_selector)
-            if icon_loc.count() > 0:
-                success("检测到消息已成功发送（出现状态勾号图标）")
-                return
-        except Exception:
-            pass
-        
-        time.sleep(0.5)
-        
-    warn(f"等待发送图标超时 ({timeout}秒)，但消息可能已发出，继续执行...")
-
-
-def wait_for_message_sent(page: Page, timeout=120):
-
-    info("等待发送成功...")
-
-    before = page.locator(
-        "div[data-testid='msg-container']"
-    ).count()
-
-    start = time.time()
-
-    while time.time() - start < timeout:
-
-        msgs = page.locator(
-            "div[data-testid='msg-container']"
-        )
-
-        if msgs.count() > before:
-
-            last = msgs.last
-
-            # 双勾
-            if last.locator(
-                "span[data-icon='msg-dblcheck']"
-            ).count():
-
-                success("✓✓ 已送达")
-
-                return
-
-            # 单勾
-            if last.locator(
-                "span[data-icon='msg-check']"
-            ).count():
-
-                success("✓ 已发送")
-
-                return
-
-        time.sleep(0.3)
-
-    warn("等待发送状态超时")
-
-
 def copy_image_to_clipboard(image_path):
-    """用 PowerShell 将图片复制到系统剪贴板"""
+    """极速写入图片到剪贴板"""
     abs_path = os.path.abspath(image_path)
     ps_cmd = (
         f"Add-Type -AssemblyName System.Windows.Forms; "
         f"$img = [System.Drawing.Image]::FromFile('{abs_path}'); "
-        f"[System.Windows.Forms.Clipboard]::SetImage($img)"
+        f"[System.Windows.Forms.Clipboard]::SetImage($img); "
+        f"$img.Dispose()"
     )
-    subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True, timeout=10)
+    subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True)
 
 def copy_text_to_clipboard(text):
-    """用 PowerShell 将文本复制到系统剪贴板"""
+    """极速写入文本到剪贴板"""
     ps_cmd = f"Set-Clipboard -Value '{text}'"
-    subprocess.run(["powershell", "-Command", ps_cmd], check=True, timeout=10)
+    subprocess.run(["powershell", "-Command", ps_cmd], check=True)
 
-# ==========================================================
-# Part 4: 逐组粘贴图片+备注，每组粘贴后立即回车发送
-# ==========================================================
-
-@retry
-def paste_and_send_one_by_one(page, photo_caption_pairs):
-    """
-    逐组粘贴图片+备注，每组完成后按回车发送并等待发送确认
-    photo_caption_pairs: [(image_path, caption), ...]
-    """
-    for i, (photo, cap) in enumerate(photo_caption_pairs):
-        if not os.path.exists(photo):
-            warn(f"找不到照片，跳过: {photo}")
-            continue
-
-        # 1. 点击聊天区域获取焦点
-        page.locator('#main').click()
-        time.sleep(0.5)
-
-        # 2. 复制图片到剪贴板并粘贴
-        info(f"[{i+1}] 粘贴图片: {os.path.basename(photo)}")
-        copy_image_to_clipboard(photo)
-        page.keyboard.press("Control+v")
-        time.sleep(2)
-
-        # 3. 复制备注文本到剪贴板并粘贴
-        info(f"[{i+1}] 粘贴备注: {cap}")
-        copy_text_to_clipboard(cap)
-        page.keyboard.press("Control+v")
-        time.sleep(1)
-
-        # 4. 按回车发送当前这组
-        page.keyboard.press("Enter")
-        wait_for_message_sent(page)
-        success(f"[{i+1}] 发送完成: {os.path.basename(photo)}")
-
-    success(f"全部发送完成，共 {len(photo_caption_pairs)} 组")
-
-@retry
-def send_document(page, file_path):
-    """通过剪贴板粘贴发送文件"""
-    info(f"发送文件: {os.path.basename(file_path)}")
+def copy_file_to_clipboard(file_path):
+    """极速写入文件句柄到剪贴板"""
     abs_path = os.path.abspath(file_path)
-    # 将文件路径复制到剪贴板（以文件对象形式）
     ps_cmd = (
         f"Add-Type -AssemblyName System.Windows.Forms; "
         f"$files = '{abs_path}'; "
-        f"$collection = New-Object System.Collections.Specialized.StringCollection; "
-        f"$collection.Add($files); "
-        f"[System.Windows.Forms.Clipboard]::SetFileDropList($collection)"
+        f"$col = New-Object System.Collections.Specialized.StringCollection; "
+        f"$col.Add($files); "
+        f"[System.Windows.Forms.Clipboard]::SetFileDropList($col)"
     )
-    subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True, timeout=10)
-    time.sleep(1)
-
-    # 点击聊天区域并粘贴
-    page.locator('#main').click()
-    time.sleep(0.5)
-    page.keyboard.press("Control+v")
-    time.sleep(3)
-
-    # 按回车发送
-    page.keyboard.press("Enter")
-    wait_for_message_sent(page)
-    success(f"文件发送完成: {os.path.basename(file_path)}")
+    subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True)
 
 # ==========================================================
-# Part 5: Main
+# Part 4: 极限连击发送逻辑 (Copy -> Paste -> Enter 无缝衔接)
+# ==========================================================
+def fast_send_photos(page, photo_caption_pairs):
+    """连发模式：贴图 -> 贴字 -> 回车，零顿挫"""
+    page.locator('#main').click()
+    
+    for i, (photo, cap) in enumerate(photo_caption_pairs):
+        if not os.path.exists(photo):
+            warn(f"跳过不存在图片: {photo}")
+            continue
+
+        info(f"⚡ [爆发发送] ({i+1}/{len(photo_caption_pairs)}) {os.path.basename(photo)}")
+        
+        # 1. 贴图片
+        copy_image_to_clipboard(photo)
+        page.keyboard.press("Control+v")
+        time.sleep(0.3) # 预留媒体弹窗生成时间
+
+        # 2. 贴备注
+        if cap:
+            copy_text_to_clipboard(cap)
+            page.keyboard.press("Control+v")
+            time.sleep(0.1)
+
+    # 3. 立即按回车发送
+    page.keyboard.press("Enter")
+    time.sleep(0.3) # 释放输入框焦点准备下一条
+
+def fast_send_file(page, file_path):
+    """极速发送文件"""
+    if not file_path or not os.path.exists(file_path):
+        return
+        
+    info(f"⚡ [爆发发送] 文件: {os.path.basename(file_path)}")
+    copy_file_to_clipboard(file_path)
+    
+    page.locator('#main').click()
+    page.keyboard.press("Control+v")
+    time.sleep(0.5)
+    #page.keyboard.press("Enter")
+    #time.sleep(0.3)
+
+# ==========================================================
+# Part 5: 最终单次状态校验
+# ==========================================================
+def wait_for_last_message_sent(page: Page, timeout=120):
+    """全自动校验最后一条消息是否被服务端接收/送达"""
+    info("🔍 所有任务完成，正在等待服务器回执确认...")
+    
+    DBL_CHECK_SELECTOR = (
+        "span[data-icon='msg-dblcheck'], "
+        "span[aria-label*='已读'], span[aria-label*='Read'], span[aria-label*='Delivered'], "
+        "svg:has(title:has-text('wds-ic-read'))"
+    )
+    SINGLE_CHECK_SELECTOR = (
+        "span[data-icon='msg-check'], "
+        "span[aria-label*='已发送'], span[aria-label*='Sent'], "
+        "svg:has(title:has-text('wds-ic-sent'))"
+    )
+
+    start = time.time()
+    while time.time() - start < timeout:
+        msgs = page.locator("div[role='row'], div[data-testid='msg-container']")
+        if msgs.count() > 0:
+            last_msg = msgs.last
+            if last_msg.locator(DBL_CHECK_SELECTOR).count() > 0:
+                success("✓✓ 最终确认：全套已送达/已读")
+                return True
+            if last_msg.locator(SINGLE_CHECK_SELECTOR).count() > 0:
+                success("✓ 最终确认：全套已发送至服务器")
+                return True
+        time.sleep(0.5)
+
+    warn(f"⚠️ 状态确认超时，请人工检查界面！")
+    return False
+
+# ==========================================================
+# Part 6: 主流程
 # ==========================================================
 def main():
     p, browser, page = start_browser()
     
     try:
         for group in GROUPS:
+            # 1. 切换群聊
             search_and_open(page, group)
             
-            # 逐组粘贴图片+备注并发送
+            # 2. 极限连击：发送所有图片+备注
             pairs = list(zip(PHOTOS, CAPTIONS))
-            paste_and_send_one_by_one(page, pairs)
+            fast_send_photos(page, pairs)
             
-            # 发送文件
+            # 3. 极限连击：发送文件
             for file in FILES:
-                if os.path.exists(file):
-                    send_document(page, file)
-                else: warn(f"找不到文件: {file}")
+                fast_send_file(page, file)
+            page.keyboard.press("Enter")
+            print( "所有文件发送完成")
+        time.sleep(5.0)    
+        # 4. 全流程完成后，只在最后校验 1 次
+        wait_for_last_message_sent(page, timeout=60)
                 
     except Exception as e:
         error(f"任务中断: {e}")
@@ -319,5 +233,6 @@ def main():
     finally:
         browser.close()
         p.stop()
+
 if __name__ == "__main__":
     main()
