@@ -1,0 +1,277 @@
+{
+  "_comment": "OpenClaw API 候选清单。密钥统一放 .env（按 api_key_env 读取）。未设置密钥的远端会被跳过。preferred_models 按优先级排列；脚本会级联尝试直到找到可用模型。prefer_free=true 时优先 :free / 零价模型。",
+  "providers": [
+    {
+      "key": "zhipu",
+      "name": "ZhiPu GLM 智谱",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "ZHIPU_API_KEY",
+      "test_model": "glm-4-flash",
+      "context_window": 128000,
+      "preferred_models": [
+        "glm-4-flash",
+        "glm-4-flash-250414",
+        "glm-z1-flash",
+        "glm-4.5-flash",
+        "glm-4-air",
+        "glm-4.5",
+        "glm-5"
+      ],
+      "enabled": true
+    },
+    {
+      "key": "nvidia",
+      "name": "NVIDIA NIM",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "NVIDIA_API_KEY",
+      "test_model": "meta/llama-3.1-8b-instruct",
+      "context_window": 128000,
+      "preferred_models": [
+        "meta/llama-3.1-8b-instruct",
+        "llama-3.1-8b",
+        "llama-3.2-3b",
+        "gemma-2-9b",
+        "mistral-7b",
+        "qwen2.5-7b",
+        "llama-3.3-70b"
+      ],
+      "enabled": true
+    },
+    {
+      "key": "openrouter",
+      "name": "OpenRouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "test_model": "openrouter/free",
+      "context_window": 200000,
+      "prefer_free": true,
+      "extra_headers": {
+        "HTTP-Referer": "https://openclaw.local",
+        "X-Title": "OpenClaw"
+      },
+      "preferred_models": [
+        "openrouter/free",
+        "google/gemma-4-26b-a4b-it:free",
+        "liquid/lfm-2.5-1.2b-instruct:free",
+        "nvidia/nemotron-nano-9b-v2:free",
+        "meta-llama/llama-3.2-3b-instruct:free",
+        "openai/gpt-oss-20b:free",
+        ":free"
+      ],
+      "enabled": true
+    },
+    {
+      "key": "ollama-cloud",
+      "name": "Ollama Cloud",
+      "base_url": "https://ollama.com",
+      "style": "ollama",
+      "openclaw_api": null,
+      "api_key_env": "OLLAMA_CLOUD_API_KEY",
+      "test_model": "gemma3:4b",
+      "context_window": 128000,
+      "preferred_models": [
+        "gemma3:4b",
+        "ministral-3:8b",
+        "gemma3:12b",
+        "llama3.2",
+        "ministral-3:14b",
+        "gemma3:27b"
+      ],
+      "enabled": true
+    },
+    {
+      "key": "zhipu5",
+      "name": "ZhiPu GLM-5 智谱",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "ZHIPU_GLM5_API_KEY",
+      "test_model": "glm-5",
+      "context_window": 128000,
+      "preferred_models": [
+        "glm-4-flash",
+        "glm-z1-flash",
+        "glm-5",
+        "glm-5-turbo",
+        "glm-4.5"
+      ],
+      "enabled": true
+    },
+    {
+      "key": "siliconflow",
+      "name": "SiliconFlow 硅基流动",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "SILICONFLOW_API_KEY",
+      "test_model": "Qwen/Qwen3-8B",
+      "context_window": 32768,
+      "preferred_models": [
+        "Qwen/Qwen3-8B",
+        "Qwen/Qwen2.5-7B-Instruct",
+        "Qwen/Qwen3-4B",
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+        "THUDM/glm-4-9b-chat",
+        "Qwen/Qwen2.5-14B"
+      ],
+      "enabled": true
+    },
+    {
+      "key": "minimax-cn",
+      "name": "MiniMax CN",
+      "base_url": "https://api.minimaxi.com/v1",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "MINIMAX_API_KEY",
+      "test_model": "MiniMax-M2",
+      "context_window": 200000,
+      "preferred_models": [
+        "MiniMax-M2",
+        "MiniMax-M2.1",
+        "MiniMax-M2.5",
+        "MiniMax-M2.1-highspeed",
+        "MiniMax-M3"
+      ],
+      "enabled": true
+    },
+    {
+      "key": "stepfun",
+      "name": "StepFun 阶跃星辰",
+      "base_url": "https://api.stepfun.com/v1",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "STEPFUN_API_KEY",
+      "test_model": "step-2-mini",
+      "context_window": 128000,
+      "preferred_models": [
+        "step-2-mini",
+        "step-1.5v-mini",
+        "step-1-flash",
+        "step-3.5-flash",
+        "step-2",
+        "step-3.5"
+      ],
+      "enabled": true
+    },
+    {
+      "key": "dahl",
+      "name": "DAHL 推理",
+      "base_url": "https://inference.dahl.global/v1",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "DAHL_API_KEY",
+      "test_model": "deepseek-chat",
+      "context_window": 64000,
+      "preferred_models": ["deepseek-chat", "deepseek", "glm", "qwen"],
+      "enabled": true
+    },
+    {
+      "key": "together",
+      "name": "Together AI",
+      "base_url": "https://api.together.xyz/v1",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "TOGETHER_API_KEY",
+      "test_model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+      "context_window": 128000,
+      "preferred_models": ["Llama-3.1-8B", "Llama-3.2-3B", "Qwen2.5-7B", "llama-3.3"],
+      "enabled": true
+    },
+    {
+      "key": "groq",
+      "name": "Groq",
+      "base_url": "https://api.groq.com/openai/v1",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "GROQ_API_KEY",
+      "test_model": "llama-3.1-8b-instant",
+      "context_window": 128000,
+      "preferred_models": ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "gemma2-9b", "qwen"],
+      "enabled": true
+    },
+    {
+      "key": "deepinfra",
+      "name": "DeepInfra",
+      "base_url": "https://api.deepinfra.com/v1/openai",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "DEEPINFRA_API_KEY",
+      "test_model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+      "context_window": 128000,
+      "preferred_models": ["Llama-3.1-8B", "Llama-3.2-3B", "Qwen2.5-7B", "llama-3.3"],
+      "enabled": true
+    },
+    {
+      "key": "fireworks",
+      "name": "Fireworks AI",
+      "base_url": "https://api.fireworks.ai/inference/v1",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "FIREWORKS_API_KEY",
+      "test_model": "accounts/fireworks/models/llama-v3p1-8b-instruct",
+      "context_window": 128000,
+      "preferred_models": ["llama-v3p1-8b", "llama-v3p2-3b", "qwen", "mistral"],
+      "enabled": true
+    },
+    {
+      "key": "moonshot",
+      "name": "Moonshot (Kimi)",
+      "base_url": "https://api.moonshot.cn/v1",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "MOONSHOT_API_KEY",
+      "test_model": "moonshot-v1-8k",
+      "context_window": 200000,
+      "preferred_models": ["moonshot-v1-8k", "moonshot-v1-32k", "kimi"],
+      "enabled": true
+    },
+    {
+      "key": "google",
+      "name": "Google Gemini",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "style": "gemini",
+      "openclaw_api": "google-generative-ai",
+      "api_key_env": "GEMINI_API_KEY",
+      "test_model": "gemini-2.0-flash",
+      "context_window": 1048576,
+      "preferred_models": ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash", "gemini-2.0-flash-lite"],
+      "enabled": true
+    },
+    {
+      "key": "ollama",
+      "name": "Local Ollama",
+      "base_url": "http://127.0.0.1:11434",
+      "style": "ollama",
+      "openclaw_api": null,
+      "api_key_env": null,
+      "test_model": "gemma4-16k",
+      "context_window": 16384,
+      "preferred_models": ["gemma4-16k", "gemma3:4b", "phi4-mini", "qwen3:4b", "gemma4"],
+      "enabled": true,
+      "local": true
+    },
+    {
+      "key": "sensenova",
+      "name": "SenseNova 商汤",
+      "base_url": "https://token.sensenova.cn/v1",
+      "style": "openai",
+      "openclaw_api": "openai-completions",
+      "api_key_env": "SENSENOVA_API_KEY",
+      "test_model": "sensenova-6.7-flash-lite",
+      "context_window": 128000,
+      "preferred_models": [
+        "sensenova-6.7-flash-lite",
+        "sensenova-6.7-flash",
+        "sensenova-v6.7",
+        "sensenova-v6.7-lite"
+      ],
+      "enabled": true
+    }
+  ]
+}

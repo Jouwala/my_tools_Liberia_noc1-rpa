@@ -1,0 +1,137 @@
+{
+  "auth": {
+    "profiles": {
+      "minimax-cn:default": {
+        "provider": "minimax-cn",
+        "mode": "api_key"
+      }
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "minimax-cn": {
+        "baseUrl": "https://api.minimaxi.com/anthropic",
+        "apiKey": "sk-cp-tPLgq6LsP0wweUQmCOJh53PmJgVQ3l21LlROjTKBbiOaxBXBhnDe3_MH8GULQ4S0_s6fqH-7Ia4_sk50f1n6RVI6fp3RISQdnA59u3uXvuIxu8q8zpHv1_A",
+        "api": "anthropic-messages",
+        "models": [
+          {
+            "id": "MiniMax-M2.5",
+            "name": "MiniMax M2.5",
+            "reasoning": true,
+            "input": ["text"],
+            "cost": {
+              "input": 0.3,
+              "output": 1.2,
+              "cacheRead": 0.03,
+              "cacheWrite": 0.12
+            },
+            "contextWindow": 200000,
+            "maxTokens": 8192,
+            "api": "anthropic-messages"
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "C:\\Users\\ZTEEMS\\.openclaw\\workspace",
+      "model": {
+        "primary": "minimax-cn/MiniMax-M2.5"
+      },
+      "models": {
+        "minimax-cn/MiniMax-M2.5": {
+          "alias": "Minimax"
+        }
+      }
+    },
+    "list": [
+      {
+        "id": "main",
+        "model": {
+          "primary": "minimax-cn/MiniMax-M2.5"
+        },
+        "tools": {
+          "profile": "full"
+        }
+      }
+    ]
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "4b4e63382fef1dc91bc9a77a089c08a499d0c3171f92fed9"
+    },
+    "port": 18789,
+    "bind": "loopback",
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    },
+    "controlUi": {
+      "allowInsecureAuth": true
+    },
+    "nodes": {
+      "denyCommands": [
+        "camera.snap",
+        "camera.clip",
+        "screen.record",
+        "contacts.add",
+        "calendar.add",
+        "reminders.add",
+        "sms.send",
+        "sms.search"
+      ]
+    }
+  },
+  "session": {
+    "dmScope": "per-channel-peer"
+  },
+  "tools": {
+    "profile": "coding"
+  },
+  "plugins": {
+    "entries": {
+      "openclaw-weixin": {
+        "enabled": true
+      },
+      "minimax": {
+        "enabled": true
+      }
+    }
+  },
+  "channels": {
+    "openclaw-weixin": {
+      "enabled": true
+    }
+  },
+  "skills": {
+    "install": {
+      "nodeManager": "npm"
+    }
+  },
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "boot-md": { "enabled": true },
+        "bootstrap-extra-files": { "enabled": true },
+        "command-logger": { "enabled": true },
+        "compaction-notifier": { "enabled": true },
+        "session-memory": { "enabled": true }
+      }
+    }
+  },
+  "wizard": {
+    "lastRunAt": "2026-06-18T19:13:30.346Z",
+    "lastRunVersion": "2026.6.8",
+    "lastRunCommand": "onboard",
+    "lastRunMode": "local"
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.6.8",
+    "lastTouchedAt": "2026-06-18T19:13:30.465Z"
+  }
+}

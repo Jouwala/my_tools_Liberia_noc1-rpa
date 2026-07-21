@@ -1,0 +1,368 @@
+{
+  "run_at": "2026-07-21T03:00:52",
+  "threshold_ms": 5000,
+  "results": [
+    {
+      "key": "zhipu",
+      "name": "ZhiPu GLM 智谱",
+      "available": true,
+      "latency_ms": 1762,
+      "model": "glm-4-flash",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
+      "local": false,
+      "tried_models": [
+        {
+          "model": "glm-4-flash",
+          "ok": true,
+          "latency_ms": 1762,
+          "status": "ok",
+          "error": null
+        }
+      ]
+    },
+    {
+      "key": "nvidia",
+      "name": "NVIDIA NIM",
+      "available": true,
+      "latency_ms": 836,
+      "model": "meta/llama-3.1-8b-instruct",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
+      "local": false,
+      "tried_models": [
+        {
+          "model": "meta/llama-3.1-8b-instruct",
+          "ok": true,
+          "latency_ms": 836,
+          "status": "ok",
+          "error": null
+        }
+      ]
+    },
+    {
+      "key": "openrouter",
+      "name": "OpenRouter",
+      "available": true,
+      "latency_ms": 7695,
+      "model": "openrouter/free",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
+      "local": false,
+      "tried_models": [
+        {
+          "model": "openrouter/free",
+          "ok": true,
+          "latency_ms": 7695,
+          "status": "ok",
+          "error": null
+        }
+      ]
+    },
+    {
+      "key": "ollama-cloud",
+      "name": "Ollama Cloud",
+      "available": false,
+      "latency_ms": null,
+      "model": "gemma3:27b",
+      "error": "HTTP 410",
+      "status": "http_error",
+      "reason": "HTTP 410",
+      "local": false,
+      "tried_models": [
+        {
+          "model": "gemma3:4b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "http_error",
+          "error": "HTTP 410"
+        },
+        {
+          "model": "ministral-3:8b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "http_error",
+          "error": "HTTP 410"
+        },
+        {
+          "model": "gemma3:12b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "http_error",
+          "error": "HTTP 410"
+        },
+        {
+          "model": "ministral-3:14b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "http_error",
+          "error": "HTTP 410"
+        },
+        {
+          "model": "gemma3:27b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "http_error",
+          "error": "HTTP 410"
+        }
+      ]
+    },
+    {
+      "key": "zhipu5",
+      "name": "ZhiPu GLM-5 智谱",
+      "available": true,
+      "latency_ms": 1794,
+      "model": "glm-4-flash",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
+      "local": false,
+      "tried_models": [
+        {
+          "model": "glm-4-flash",
+          "ok": true,
+          "latency_ms": 1794,
+          "status": "ok",
+          "error": null
+        }
+      ]
+    },
+    {
+      "key": "siliconflow",
+      "name": "SiliconFlow 硅基流动",
+      "available": false,
+      "latency_ms": null,
+      "model": "Qwen/Qwen3-8B",
+      "error": "HTTP 403",
+      "status": "balance",
+      "reason": "余额/配额不足",
+      "local": false,
+      "tried_models": [
+        {
+          "model": "Qwen/Qwen3-8B",
+          "ok": false,
+          "latency_ms": null,
+          "status": "balance",
+          "error": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "key": "minimax-cn",
+      "name": "MiniMax CN",
+      "available": false,
+      "latency_ms": null,
+      "model": "MiniMax-M2",
+      "error": "HTTP 429",
+      "status": "balance",
+      "reason": "余额/配额不足",
+      "local": false,
+      "tried_models": [
+        {
+          "model": "MiniMax-M2",
+          "ok": false,
+          "latency_ms": null,
+          "status": "balance",
+          "error": "HTTP 429"
+        }
+      ]
+    },
+    {
+      "key": "stepfun",
+      "name": "StepFun 阶跃星辰",
+      "available": false,
+      "latency_ms": null,
+      "model": "step-2-mini",
+      "error": "HTTP 402",
+      "status": "payment_required",
+      "reason": "需付费/余额不足 (402)",
+      "local": false,
+      "tried_models": [
+        {
+          "model": "step-2-mini",
+          "ok": false,
+          "latency_ms": null,
+          "status": "payment_required",
+          "error": "HTTP 402"
+        }
+      ]
+    },
+    {
+      "key": "dahl",
+      "name": "DAHL 推理",
+      "available": false,
+      "latency_ms": null,
+      "model": "deepseek-chat",
+      "error": "HTTP 403",
+      "status": "forbidden",
+      "reason": "无权限 (403)",
+      "local": false,
+      "tried_models": [
+        {
+          "model": "deepseek-chat",
+          "ok": false,
+          "latency_ms": null,
+          "status": "forbidden",
+          "error": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "key": "together",
+      "name": "Together AI",
+      "available": false,
+      "latency_ms": null,
+      "model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+      "error": "缺少 API 密钥",
+      "status": "no_key",
+      "reason": "未配置密钥·跳过",
+      "local": false,
+      "tried_models": []
+    },
+    {
+      "key": "groq",
+      "name": "Groq",
+      "available": false,
+      "latency_ms": null,
+      "model": "llama-3.1-8b-instant",
+      "error": "缺少 API 密钥",
+      "status": "no_key",
+      "reason": "未配置密钥·跳过",
+      "local": false,
+      "tried_models": []
+    },
+    {
+      "key": "deepinfra",
+      "name": "DeepInfra",
+      "available": false,
+      "latency_ms": null,
+      "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+      "error": "缺少 API 密钥",
+      "status": "no_key",
+      "reason": "未配置密钥·跳过",
+      "local": false,
+      "tried_models": []
+    },
+    {
+      "key": "fireworks",
+      "name": "Fireworks AI",
+      "available": false,
+      "latency_ms": null,
+      "model": "accounts/fireworks/models/llama-v3p1-8b-instruct",
+      "error": "缺少 API 密钥",
+      "status": "no_key",
+      "reason": "未配置密钥·跳过",
+      "local": false,
+      "tried_models": []
+    },
+    {
+      "key": "moonshot",
+      "name": "Moonshot (Kimi)",
+      "available": false,
+      "latency_ms": null,
+      "model": "moonshot-v1-8k",
+      "error": "缺少 API 密钥",
+      "status": "no_key",
+      "reason": "未配置密钥·跳过",
+      "local": false,
+      "tried_models": []
+    },
+    {
+      "key": "google",
+      "name": "Google Gemini",
+      "available": false,
+      "latency_ms": null,
+      "model": "gemini-2.0-flash",
+      "error": "缺少 API 密钥",
+      "status": "no_key",
+      "reason": "未配置密钥·跳过",
+      "local": false,
+      "tried_models": []
+    },
+    {
+      "key": "ollama",
+      "name": "Local Ollama",
+      "available": true,
+      "latency_ms": 7933,
+      "model": "gemma4-16k:latest",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
+      "local": true,
+      "tried_models": [
+        {
+          "model": "gemma4-16k:latest",
+          "ok": true,
+          "latency_ms": 7933,
+          "status": "ok",
+          "error": null
+        }
+      ]
+    },
+    {
+      "key": "sensenova",
+      "name": "SenseNova 商汤",
+      "available": true,
+      "latency_ms": 3124,
+      "model": "deepseek-v4-flash",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
+      "local": false,
+      "tried_models": [
+        {
+          "model": "sensenova-6.7-flash-lite",
+          "ok": false,
+          "latency_ms": null,
+          "status": "server_error",
+          "error": "HTTP 502"
+        },
+        {
+          "model": "sensenova-6.7-flash",
+          "ok": false,
+          "latency_ms": null,
+          "status": "model_unavailable",
+          "error": "HTTP 404"
+        },
+        {
+          "model": "sensenova-v6.7",
+          "ok": false,
+          "latency_ms": null,
+          "status": "model_unavailable",
+          "error": "HTTP 404"
+        },
+        {
+          "model": "sensenova-v6.7-lite",
+          "ok": false,
+          "latency_ms": null,
+          "status": "model_unavailable",
+          "error": "HTTP 404"
+        },
+        {
+          "model": "deepseek-v4-flash",
+          "ok": true,
+          "latency_ms": 3124,
+          "status": "ok",
+          "error": null
+        }
+      ]
+    }
+  ],
+  "primary": "nvidia/meta/llama-3.1-8b-instruct",
+  "fallbacks": [
+    "ollama/gemma4-16k:latest",
+    "ollama/gemma4-64k:latest",
+    "ollama/gemma4-32k:latest",
+    "ollama/gemma3:4b",
+    "ollama/phi4-mini:3.8b",
+    "ollama/gemma4:e2b",
+    "ollama/qwen3:4b",
+    "zhipu/glm-4-flash",
+    "zhipu5/glm-4-flash",
+    "sensenova/deepseek-v4-flash",
+    "ollama-cloud/gemma3:27b"
+  ]
+}

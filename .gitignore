@@ -1,0 +1,66 @@
+# Excel files
+*.xlsx
+*.xls
+
+# Database files
+*.db
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Browser sessions & binaries
+chrome-win/
+whatsapp_session/
+Site_outage/browser_session/
+Site_outage/screenshots/
+
+# IDE / tool files
+.qoder/
+.workbuddy/
+
+# Temporary & debug files
+TMP/
+V_Tmp/
+debug/
+scheduler_logs/
+data/
+
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Archives & executables
+*.zip
+*.exe
+
+# Documents (non-code)
+*.pptx
+*.csv
+
+# Logs
+*.log
+
+# Node
+node_modules/
+dist/
+
+# Environment
+.env
+
+# Browser data
+*.pak
+*.dll
+*.dat
+
+# Cloned repo
+my_tools_Liberia_noc1-rpa/
+
+# Misc
+*.json.bak

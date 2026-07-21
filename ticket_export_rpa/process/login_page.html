@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<meta charset="utf-8" />
+<title id="com_zte_ums_ict_portal_login_title" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></title>
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta content="" name="description" />
+<meta content="" name="author" />
+<meta http-equiv="Windows-Target" contect="_top">
+<meta http-equiv="Cache" contect="no-cache">
+<meta http-equiv="expires" content="0">
+<meta http-equiv="pragma" content="no-cache">
+<meta http-equiv="cache-control" content="no-cache">
+<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-eval' 'unsafe-inline'; object-src 'self' 'unsafe-eval' 'unsafe-inline'">
+<link rel="shortcut icon" href="../../../iui/sm/oauth2/thirdparty/imgs/1px.png?t=2512201058">
+<link href="../../../iui/sm/oauth2/thirdparty/js/bootstrap/css/bootstrap.min.css?t=2512201058" rel="stylesheet" />
+<link rel="stylesheet" type="text/css" href="../../../iui/sm/oauth2/thirdparty/css/ZteIctIcons/style.css?t=2512201058">
+<link rel="stylesheet" type="text/css" href="../../../iui/sm/oauth2/thirdparty/css/login.css?t=2512201058">
+<link rel="stylesheet" type="text/css" href="../../../iui/sm/oauth2/thirdparty/css/keyboard.css?t=2512201058">
+<link rel="stylesheet" type="text/css" href="../../../iui/sm/oauth2/thirdparty/css/pwdRetrieval.css?t=2512201058">
+<link rel="stylesheet" type="text/css" href="../../../iui/sm/oauth2/thirdparty/css/ukey.css?t=2512201058">
+<link rel="stylesheet" type="text/css" href="../../../uportal/framework/assets/css/smlogin.css">
+
+<script type="text/javascript">
+if (self === top){
+
+} else {
+top.location = self.location;
+}
+var multi_tenant = "false";
+var portalpath = "../../../uportal";
+var bureauName = "";
+var relativePath = "../../..";
+
+var loginParameters = "7F238EAB45CF492339C38A8FD9FD39DB7CFD439838CBDD96BA2D4C951FCA4D1B0C4F50DD4D670034DDBDBB2BE85B0CA60F33B52D412619CEF26A7D3DFAA8A2A1BEB1B5AE3CB8247E965441B34803852B1EFECBB4A372380704A9EBD2E84FF83F46D3525DED54D4ECB10EE02DF66757$10";
+var loginSMS = "false";
+var confImgVerification = "false";
+var loginImgVerification = confImgVerification;
+var sm_i18n_type = "false";
+var isShowError = "false";
+var showErrorI18 = "";
+var showlanguageOption = "true";
+var language_option = "";
+var showPasswordEye = "false";
+//是否展示上级系统
+var showSuperiorSystemAuth = "%showSuperiorSystemAuth%";
+//上级系统的地址
+var superiorSystemAuthPortalPath = "%superiorSystemAuthPortalPath%";
+//
+var showPassRetrievalButton = "0";
+var uKeyJsUrl = "%ukeyjsurl%";
+var ukey_public_key = "%ukey_public_key%";
+
+function logoImgErrorfun(){ //避免图标因异常进入死循环
+var img=event.srcElement;
+if(!relativePath){
+relativePath="";
+}
+img.src= relativePath+ "../../../iui/sm/oauth2/thirdparty/imgs/logo.png?t=2512201058";
+img.onerror=null;
+}
+</script>
+</head>
+
+<body>
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="width: 100%;height: 100%;position: absolute;z-index:0;">
+<linearGradient x1="0%" y1="0%" x2="0%" y2="100%" id="gradient">
+<stop stop-color="#00abff" stop-opacity="1" offset="0%"/>
+<stop stop-color="#7681ff" stop-opacity="1" offset="100%"/>
+</linearGradient>
+<rect width="100%" height="100%" style="fill:url(#gradient)" />
+</svg>
+<div class="jparticle-top" style=""></div>
+<div class="jparticle-right" style=""></div>
+<div class="login-top" ></div>
+<div class="lanOption" id="lanOptionDiv" style="display:none">
+<span class="optionText" id="lanOptionZh" onclick="languageSelect('zh-CN')">中文</span>
+<span class="optionText" id="lanOptionEn" onclick="languageSelect('en-US')">English</span>
+</div>
+<div class="lanOption" id="lanSelectDiv" style="display:none">
+<select class="moreLangaugeSelect" id="moreLangaugeSelect">
+</select>
+</div>
+<div class = "main">
+<div class="logo">
+<img src="../../../iui/sm/oauth2/thirdparty/imgs/1px.png?t=2512201058" onerror='logoImgErrorfun();'>
+<p><span id="com_zte_ums_ict_portal_instrucition1" name_i18n="sm_ui_i18n_login_instrucition"></span></p>
+<p><span id="com_zte_ums_ict_portal_instrucition2" name_i18n="sm_ui_i18n_login_instrucition"></span></p>
+<p><span id="com_zte_ums_ict_portal_instrucition3" name_i18n="sm_ui_i18n_login_instrucition"></span></p>
+<p><span id="com_zte_ums_ict_portal_instrucition4" name_i18n="sm_ui_i18n_login_instrucition"></span></p>
+<p><span id="com_zte_ums_ict_portal_instrucition5" name_i18n="sm_ui_i18n_login_instrucition"></span></p>
+</div>
+<div class="login">
+<div class="login-form">
+<input type="hidden" name="csrftime" id="csrftime" value="t1784324657180s"/>
+
+<h2 id="com_zte_ums_aos_portal_login_login" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></h2>
+<h2 class="display-hide" id="com_zte_ums_aos_portal_ukey_login" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></h2>
+
+<div class="alert alert-notice" id="checkVersion" style="display:none">
+<span class="plx-ico-warning-f-20 warning-icon"></span>
+<div id="browerVersionTip" style="display:inline;"></div>
+</div>
+
+<div class="alert display-hide" id="loginConnError" tipstatus="normal">
+<span class="plx-ico-warning-f-20 error-icon"></span>
+<button type="button" class="close close_icon" data-close="alert" onclick="hidetip('loginConnError');"></button>
+<div id="com_zte_ums_ict_portal_login_serv_error" name_i18n="com_zte_ums_ict_framework_ui_i18n_login" style="display:inline"></div>
+</div>
+
+<div class="alert display-hide" id="nameOrpwdError" tipstatus="normal">
+<span id="nameOrpwdError_icon" class="plx-ico-warning-f-20 error-icon"></span>
+<button type="button" class="close close_icon" data-close="alert" onclick="hidetip('nameOrpwdError');"></button>
+<div id="com_zte_ums_ict_portal_login_userPassword" style="display:inline;word-wrap: break-word;"></div>
+</div>
+
+
+<div class="alert display-hide alert-success" id="pwdRetrievalSuccess" tipstatus="normal" style="display: none;">
+<span id="nameOrpwdError_icon" class="plx-ico-sucess-f-20 success-icon"></span>
+<button type="button" class="close close_icon" data-close="alert" onclick="hidetip('pwdRetrievalSuccess');"></button>
+<div id="pass_retrieval_success_login_again" name_i18n="com_zte_ums_ict_framework_ui_i18n_login" style="display:inline;word-wrap: break-word;color: #4D4D4D"></div>
+</div>
+
+<div id="usernameRow" class="usernameRow display-hide">
+<label class="usernameRow-title" id="com_zte_ums_pass_retrieval_ukey_not_found" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></label>
+<label class="usernameRow-title" id="com_zte_ums_pass_retrieval_ukey_username" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></label>
+<span class="usernameRow-name" id="userNameDisplay"></span>
+</div>
+
+<div id="certSelect" class="input-icon display-hide">
+<span class="plx-ico-file-key-16"></span>
+<select class="login__user limited certSelect" id="selectUKey" autocomplete="off" name="pin" name_i18n="com_zte_ums_ict_framework_ui_i18n_login">
+<option class="cert-file" value=""></option>
+</select>
+<button class="plx-ico-refresh-16 refresh-button" id="inlineRefreshBtn" onclick="initUKey()">
+</button>
+</div>
+
+
+<div class="input-icon">
+<span class="plx-ico-sm-user-16" id="userIcon"></span>
+<input class="login__user limited" maxlength="128" id="inputUserName" type="text" autocomplete="off" name="username" placeholder="" name_i18n="com_zte_ums_ict_framework_ui_i18n_login" />
+<span class="plx-ico-PCI-16 display-hide" id="pinIcon"></span>
+<input class="login__user limited display-hide" id="inputPin" type="password" autocomplete="off" name="pin" placeholder="" name_i18n="com_zte_ums_ict_framework_ui_i18n_login" />
+</div>
+
+<div class="input-icon">
+<input type="password" autocomplete="off" style="display: none;">
+<span class="plx-ico-lock-16"></span>
+<input class="login__user limited inputPassword" maxlength="128" id="inputCiphercode" oncopy="return false" oncut="return false" type="password" autocomplete="off" name="cipher_code" placeholder="" name_i18n="com_zte_ums_ict_framework_ui_i18n_login" />
+
+<div id="capital_inputPassword"  class="help-block error-input" style="display:none">
+<span id="com_zte_ums_ict_portal_login_capslock_on" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</div>
+</div>
+
+
+<div class="resolve_high_collapse" id="image_but_div" >
+<div class="input-icon" id="divVerifyCode" style="width: 60%;float: left;display: none;">
+<span class="plx-ico-sm-admin-16"></span>
+<input class="login__user limited" maxlength="7" id="inputVerifyCode" type="text" autocomplete="off" name="verifyCode" style="font-size: 11px;"
+placeholder=""
+name_i18n="com_zte_ums_ict_framework_ui_i18n_login">
+</div>
+<button id="verifyCodeBtn" class="plx-btn plx-btn-verification-code" style="display: none;">
+<img id="verifyCodeImg" src="" class="plx-img-verification-code"/>
+</button>
+</div>
+
+
+<div class="login_remember_username" id="remember_username">
+<label>
+<input type="checkbox" id="com_zte_ums_aos_portal_login_remember_username" class="plx-checkbox  remember_username_checkbox">
+<div class="checkbox-substitute"></div>
+<span id="com_zte_ums_aos_portal_login_remember_username_i18n" class="remember_username_text"></span>
+</label>
+</div>
+
+</div>
+
+
+
+<button id="loginBut" class="btn loginButoon">
+<span id="com_zte_ums_aos_portal_login_login" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</button>
+<button id="uKeyLoginBut" class="btn loginButoon display-hide">
+<span id="com_zte_ums_aos_portal_login_login" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</button>
+<div id="registButDiv" style="display:none"></div>
+
+<div id ="change-pass-dialog" style="display:none">
+<h2 id="com_zte_ums_aos_portal_ui_changemm" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></h2>
+<div class="alert alert-danger mdf-psw" id = "FirstChangePassword">
+<span class="plx-ico-warning-f-20 error-icon"></span>
+<div id="loginChangePasswordError" style="display:inline"></div>
+</div>
+<div class="input-icon">
+<span class="plx-ico-lock-16"></span>
+<input class="login__user change-pass-input limited" type="password" autocomplete="off" name="cipher_code" placeholder="" id="com_zte_ums_aos_sm_user_password" name_i18n="com_zte_ums_ict_framework_ui_i18n_login">
+<div id="capital_inputNewPassword"  class="help-block" style="display:none">
+<span id="com_zte_ums_ict_portal_login_capslock_on1" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</div>
+</div>
+
+<div class="input-icon">
+<span class="plx-ico-lock-16"></span>
+<input class="login__user change-pass-input limited" type="password" autocomplete="off" name="cipher_code" placeholder="" id="com_zte_ums_aos_sm_user_confirmpassword" name_i18n="com_zte_ums_ict_framework_ui_i18n_login">
+<div id="capital_confirmNewPassword"  class="help-block" style="display:none">
+<span id="com_zte_ums_ict_portal_login_capslock_on2" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</div>
+</div>
+<div   style ='text-align: center;'>
+<button type="submit" id="submitPwdBtn" onClick="submitChangePass()" class="plx-btn plx-btn-primary">
+<span id="com_zte_ums_aos_sm_user_confirm" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</button>
+<button data-dismiss="modal" aria-hidden="true" id="cancelBtn" onClick="changepass_dlg_close()" class="plx-btn">
+<span id="com_zte_ums_aos_sm_user_continue_login" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</button>
+</div>
+</div>
+
+<div id="loginSuperiorSystem" class="cookie-tips">
+<span id="com_zte_ums_sm_login_otcp_sso_other_login" ></span>
+<a class="cookie-tips-cookie" id="com_zte_ums_sm_login_otcp_sso" ></a>
+</div>
+
+<div id="loginSuperiorLocal" class="cookie-tips display-hide">
+<a class="cookie-tips-cookie" id="com_zte_ums_aos_sm_pwd_login_type" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></a>
+</div>
+
+<div id="cookieTips" class="cookie-tips">
+<span id="com_zte_ums_ict_portal_cookie_tips_cn" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+<span class="cookie-tips-cookie" id="com_zte_ums_ict_portal_cookie_tips_cookie" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+<span id="com_zte_ums_ict_portal_cookie_tips_en" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</div>
+<div id="cookieSpan"class="cookie-wrap">
+<div class="cookie-wrap-span">
+<span id="com_zte_ums_ict_portal_cookie_span" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</div>
+</div>
+
+
+<div class="login-pass-retrieval-img-form" style="display:none">
+
+<h4 class="pass_retrieval_page_title" id="com_zte_ums_aos_portal_pass_retrieval_title" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></h4>
+
+<hr class="pass_retrieval_dividing_line">
+
+<div class="pass_retrieval_input_icon">
+<span class="pass_retrieval_input_Title" id="com_zte_ums_pass_retrieval_username" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"> </span>
+<span class="pass_retrieval_required_Field">*</span>
+<br>
+<span class="plx-ico-sm-user-16 pass_retrieval_icon_picture" style="margin-top: 7px"></span>
+<input class="pass_retrieval_input_form" maxlength="128" id="pass_retrieval_user_limited_inputUserName" type="text"
+autocomplete="off" name="username" placeholder="" name_i18n="com_zte_ums_ict_framework_ui_i18n_login" oninput="inputUserNameChange()"  style="margin-top: 10px;">
+</div>
+
+
+<div class="pass_retrieval_input_icon" id="pass_retrieval_divVerifyCode">
+<span class="pass_retrieval_input_Title" id="com_zte_ums_pass_retrieval_img_verify_code" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+<span class="pass_retrieval_required_Field">*</span>
+<br>
+<span class="plx-ico-sm-admin-16 pass_retrieval_icon_picture" style="margin-top: 7px"></span>
+<div>
+<input class="pass_retrieval_input_form" maxlength="7" id="pass_retrieval_inputVerifyCode" type="text" autocomplete="off"
+name="verifyCode" oninput="inputVerifyCodeChange()"
+placeholder="" name_i18n="com_zte_ums_ict_framework_ui_i18n_login" style="margin-top: 10px;width: 60%;">
+<button id="pass_retrieval_verifyCodeBtn" class="plx-btn plx-btn-verification-code" onclick="refreshPassImgCode()"
+style="margin-top: 5px;">
+<img id="pass_retrieval_verifyCodeImg" src="" class="pass_retrieval_verification_code">
+</button>
+</div>
+</div>
+
+
+<div style="margin-top: 32px;">
+<button type="submit" id="pass_retrieval_submitPwdBtn1"  onclick="passRetrievalCheckImgCode()" class="plx-btn plx-btn-primary" style="margin-left: 25%;">
+<span id="com_zte_ums_pass_retrieval_next_step" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</button>
+<button data-dismiss="modal" aria-hidden="true" id="pass_retrieval_cancelBtn1" onclick="passRetrieval_close()" class="plx-btn" >
+<span id="com_zte_ums_pass_retrieval_cancel_buttion" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</button>
+</div>
+
+</div>
+
+
+<div class="login-pass-retrieval-email-sms-form" style="display:none">
+
+<h4 class="pass_retrieval_page_title" id="com_zte_ums_aos_portal_pass_retrieval_title" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></h4>
+
+<hr class="pass_retrieval_dividing_line">
+
+
+<div >
+<p id="com_zte_ums_pass_retrieval_username_view" class="pass_retrieval_user_name_view"></p>
+</div>
+
+
+<div class="pass_retrieval_input_icon" >
+<span class="pass_retrieval_input_Title" id="com_zte_ums_pass_retrieval_code_send_type" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"> </span>
+<span class="pass_retrieval_required_Field">*</span>
+<br>
+<input class="code_send_email" id="com_zte_ums_pass_retrieval_code_send_email_input" type="radio"
+autocomplete="off" name="sendCodetype" value="eamil" style="display:none;" checked="true" >
+<label class="pass_retrieval_input_Title code_send_email" id="com_zte_ums_pass_retrieval_code_send_email"  name_i18n="com_zte_ums_ict_framework_ui_i18n_login" for="com_zte_ums_pass_retrieval_code_send_email_input" style="display:none;width: 40%;margin-top: 10px;">
+</label>
+<input class="code_send_sms" id="com_zte_ums_pass_retrieval_code_send_sms_input" type="radio"
+autocomplete="off" name="sendCodetype" value="sms" style="display:none;"  checked="true">
+<label  class="pass_retrieval_input_Title code_send_sms"  id="com_zte_ums_pass_retrieval_code_send_sms" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"  for="com_zte_ums_pass_retrieval_code_send_sms_input"  style="display:none;width: 40%;margin-top: 10px;">
+</label>
+</div>
+
+
+
+<div class="pass_retrieval_input_icon" id="pass_retrieval_divSMS" >
+<span class="pass_retrieval_input_Title" id= "com_zte_ums_pass_retrieval_check_verify_code" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+<span class="pass_retrieval_required_Field">*</span>
+<br>
+
+<div >
+<span class="plx-ico-message-16" style="margin-top: 5px" ></span>
+<input class="pass_retrieval_input_form" maxlength="8" id="pass_retrieval_inputSMS" type="text" autocomplete="off" name="sms"
+placeholder="" name_i18n="com_zte_ums_ict_framework_ui_i18n_login" oninput="sendEmailCodeChange()" style="width: 67%">
+<button id="com_zte_ums_pass_retrieval_send_code_button" class="plx-btn pass_retrieval_button_send_sms" onclick="sendEmailSmsCode()" style="width: 30%;" >
+<span id="com_zte_ums_pass_retrieval_send_code_action" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</button>
+</div>
+
+</div>
+
+
+
+<div style="margin-top: 32px;">
+<button type="submit" id="pass_retrieval_submitPwdBtn2"  onclick="passRetrievalCheckEmailSmsCode()" class="plx-btn plx-btn-primary" style="margin-left: 25%;">
+<span id="com_zte_ums_pass_retrieval_next_step" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</button>
+<button data-dismiss="modal" aria-hidden="true" id="pass_retrieval_cancelBtn2" onclick="CheckEmailSmsCode_close()" class="plx-btn" >
+<span id="com_zte_ums_pass_retrieval_cancel_buttion" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</button>
+</div>
+
+</div>
+
+
+
+<div class="login-pass-retrieval-modify-form" style="display:none">
+
+<h4 class="pass_retrieval_page_title" id="com_zte_ums_pass_retrieval_reset_pass_title" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></h4>
+
+<hr class="pass_retrieval_dividing_line">
+
+
+<div >
+<p class="pass_retrieval_user_name_view" id="com_zte_ums_pass_retrieval_username_view_modify_pass"></p>
+</div>
+
+
+
+<div class="pass_retrieval_input_icon">
+<span class="pass_retrieval_input_Title" id="com_zte_ums_pass_retrieval_reset_pass_new" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+<span class="pass_retrieval_required_Field">*</span>
+<br>
+<span class="plx-ico-lock-16" style="margin-top: 1px;"></span>
+<input class="pass_retrieval_input_form login__user change-pass-input limited" oninput="retrievalResetPassChange()" type="password" autocomplete="off" name="cipher_code" placeholder="" id="pass_retrieval_reset_new_button"  style="margin-top: 5px;" >
+<div id="capital_inputNewPassword"  class="help-block" style="display: none;">
+<span id="com_zte_ums_ict_portal_login_capslock_on1" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</div>
+</div>
+
+<div class="pass_retrieval_input_icon">
+<span class="pass_retrieval_input_Title" id="com_zte_ums_pass_retrieval_reset_pass_new_sure" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+<span class="pass_retrieval_required_Field">*</span>
+<br>
+<span class="plx-ico-lock-16" style="margin-top: 1px;"></span>
+<input class="pass_retrieval_input_form login__user change-pass-input limited" oninput="retrievalResetPassConfirmChange()" type="password" autocomplete="off" name="cipher_code" placeholder="" id="pass_retrieval_reset_new_sure_button" style="margin-top: 5px;">
+<div id="capital_confirmNewPassword"  class="help-block" style="display: none; ">
+<span id="com_zte_ums_ict_portal_login_capslock_on2" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</div>
+</div>
+
+
+<div style="margin-top: 32px;">
+<button type="submit" id="pass_retrieval_modifyPwdBtn"  onclick="passRetrievalModify()" class="plx-btn plx-btn-primary" style="margin-left: 25%;">
+<span id="com_zte_ums_aos_sm_user_confirm" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</button>
+<button data-dismiss="modal" aria-hidden="true" id="pass_retrieval_modifyPwd_cancelBtn" onclick="modifyPWD_close()" class="plx-btn" >
+<span id="com_zte_ums_pass_retrieval_cancel_buttion" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</button>
+</div>
+
+</div>
+
+
+
+<p class="copyright">
+<span class="copyright-left" id="tipsBtn">
+<span id="com_zte_ums_aos_portal_login_browser_introduce" name_i18n="com_zte_ums_ict_framework_ui_i18n_login" ></span>
+<i class="plx-ico-down-16"></i>
+</span>
+<span class="copyright-right" id="com_zte_ums_ict_portal_login_companyName" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</p>
+<div class="tips-wrap">
+<ul>
+<li>
+<img src="../../../iui/sm/oauth2/thirdparty/imgs/chrome.png?t=2512201058" alt="chrome">
+<span id="com_zte_ums_aos_portal_login_browser_chrome" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</li>
+<li>
+<img src="../../../iui/sm/oauth2/thirdparty/imgs/ff.png?t=2512201058" alt="firefox">
+<span id="com_zte_ums_aos_portal_login_browser_Firefox" name_i18n="com_zte_ums_ict_framework_ui_i18n_login"></span>
+</li>
+</ul>
+</p>
+</div>
+</div>
+</div>
+<div class="login-middle" ></div>
+<div class="earth-wrap">
+<div class="earth"></div>
+</div>
+<div class="login-bottom" ></div>
+</body>
+
+<script src="../../../iui/sm/oauth2/thirdparty/js/jquery.min.js?t=2512201058" type="text/javascript"></script>
+<script src="../../../iui/sm/oauth2/thirdparty/js/jquery.i18n.min.js?t=2512201058" type="text/javascript"></script>
+<script src="../../../iui/sm/oauth2/thirdparty/js/bootstrap/js/bootstrap.min.js?t=2512201058" type="text/javascript"></script>
+<script src="../../../iui/sm/oauth2/thirdparty/js/security.min.js?t=2512201058" type="text/javascript" ></script>
+<!--<script src="../../../iui/sm/oauth2/thirdparty/js/aes.js" type="text/javascript"></script>-->
+<script src="../../../iui/sm/oauth2/thirdparty/js/pwdRetrieval.min.js?t=2512201058" type="text/javascript"></script>
+<script src="../../../uportal/framework/assets/js/portal.js?t=2512201058"  type="text/javascript"></script>
+<script src="../../../iui/sm/oauth2/thirdparty/js/common.min.js?t=2512201058"  type="text/javascript"></script>
+<script src="../../../iui/sm/oauth2/thirdparty/js/login.min.js?t=2512201058"  type="text/javascript"></script>
+<script src="../../../iui/sm/oauth2/thirdparty/js/framework-util.min.js?t=2512201058" type="text/javascript"></script>
+<script src="../../../iui/sm/oauth2/thirdparty/js/maxlength.min.js?t=2512201058" type="text/javascript"></script>
+<script src="../../../iui/sm/oauth2/thirdparty/js/keyboard.min.js?t=2512201058"></script>
+<script src="../../../iui/sm/oauth2/thirdparty/js/ukey.min.js?t=2512201058"></script>
+<!--<script src="/iui/sm/oauth2/2.21.20.06P01SP01/js/jsencrypt.min.js"></script>-->
+<!--oi_form_login-->
+<script type="text/javascript">
+$(function(){
+$('.inputPassword').keyboard({
+lang:'en'
+});
+$('#inputCiphercode').css({"padding-right":"42px"});
+if(showPasswordEye === "true"){
+var $eyeIco = $('<span class="eye_ico"></span>');
+$("#inputCiphercode").after($eyeIco);
+$('#inputCiphercode').css({"padding-right":"70px"});
+$eyeIco.click(function(){
+$eyeIco.toggleClass('active');
+if($eyeIco.hasClass('active')){
+$("#inputCiphercode").attr("type","text");
+}else{
+$("#inputCiphercode").attr("type","password");
+}
+});
+}
+})
+$(document).ready(function() {
+$("#com_zte_ums_ict_framework_img_login_logo").css('display', 'inline');
+$("#com_zte_ums_ict_framework_img_login_logo_white").css('display', 'inline');
+// 计算copyright左右部分宽度
+var leftWidth = $('.copyright-left').outerWidth();
+var rightWidth = $('.copyright-right').outerWidth();
+if (leftWidth + rightWidth > 400) {
+$('.copyright').css({
+'bottom': '-51px',
+'display': 'flex',
+'flex-direction': 'column-reverse',
+'flex-wrap': 'wrap',
+'box-sizing': 'border-box'
+});
+}
+
+// var lang = getLanguage();
+// loadi18n_login(lang);
+cookieEnabled();
+Login.init();
+UKeyLogin.init();
+
+var publicKey = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1/QjcIvCwaQDFIg0OnPWGxNgoAUO6jKYY8qwfPpgJKBBhiJaREny5vrTLyI6BNKM5KotXRSOsHm1ND682/d/rCntgt2jOmgs8XKxDsWEmuN6rllLJYVfUi8pVUbWhEt+VWhCLSc2g+o2pPlgX4nuWWfwJu+Mep6EHxkjLWlRQr3meHEIZi1ZODb3gwve+kDlMd60csBKENdXc6i6mJ9rgYWX84elcWqBHGN0UBc/E/GZens9l7JBJ7lfskRLGgdjQ5qpDS+8HrASLRr46cXIWrBj5V4Y/yT/TiTGMepMp58677ZPxMMg1NgdCIpKIyLqDUEqMUCUYLAffcKr4qaapwIDAQAB";
+if(publicKey){
+store("public_key_login", publicKey);
+}
+
+$('input.limited').maxlength({
+'feedback': '.charsLeft'
+});
+
+$(".login__user").on("focus", function() {
+$(this).prev().addClass("login-user-ico-focus");
+}).on("blur", function() {
+$(this).prev().removeClass("login-user-ico-focus");
+});
+
+window.addEventListener("storage",function(event){
+if(event.key == getLocalstorageKey("verificationCodeId")){
+var verCodeId = store("verificationCodeId");
+if(verCodeId){
+getVerficationCodeImage(verCodeId);
+}
+}
+if(event.key != getLocalstorageKey("userloginstatus")){
+return;
+}
+var userloginstatus = store("userloginstatus");
+if(userloginstatus){
+window.location.reload();
+}
+});
+setTimeout(function(){
+checkRsa();
+}, 300000);
+});
+if (self === top){
+
+} else {
+top.location = self.location;
+}
+
+</script>
+
+</html>
