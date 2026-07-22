@@ -114,4 +114,73 @@ def navigate_to_dashboard(page):
 
 - 缩短单次尝试的超时：`wait_for(state="attached", timeout=3000)`、`inner_text(timeout=2000)`
 - 减少重试间隔：`page.wait_for_timeout(3000)` → `page.wait_for_timeout(1500)`
-- 减少
+- 减少最大尝试次数：5 → 3（实际场景中 iframe 通常第 1-2 次就能找到）
+
+#### 变更 5：优化 `get_dropdown_options()` 函数
+
+- 点击展开后：用 `frame.wait_for_selector("[role='option'], option, [class*='option']", timeout=5000)` 替代 `time.sleep(2)`
+- 关闭下拉后：用 `frame.wait_for_timeout(300)` 替代 `time.sleep(0.5)`
+- 增加点击展开失败的重试（最多 2 次）
+
+#### 变更 6：优化 `select_and_screenshot()` 函数
+
+- 选择选项后：用 `wait_for_data_refresh()` 替代 `time.sleep(5)`
+- 增加选择验证：选择后检查下拉框当前值是否匹配目标文本
+- 增加单选项重试逻辑（最多 2 次）
+- 增加截图文件验证（检查文件存在且大小 > 0）
+
+```python
+def select_and_screenshot(page, frame, option, screenshot_dir, max_retries=2):
+    for attempt in range(1, max_retries + 1):
+        try:
+            # ... 选择逻辑 ...
+            wait_for_data_refresh(frame, trigger_action)
+            # 验证 + 截图
+            screenshot_path = os.path.join(screenshot_dir, f"{safe_name}.png")
+            page.screenshot(path=screenshot_path, full_page=True)
+            if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
+                success(f"已截图: {safe_name}.png")
+                return
+            else:
+                warn(f"截图文件异常，重试 ({attempt}/{max_retries})")
+        except Exception as e:
+            if attempt == max_retries:
+                raise
+            warn(f"选择失败，重试 ({attempt}/{max_retries}): {e}")
+```
+
+#### 变更 7：优化 `click_fullscreen()` 函数
+
+- `time.sleep(2)` → `frame.wait_for_timeout(500)`（全屏动画通常 < 500ms）
+
+#### 变更 8：移除诊断截图（可选，提升速度）
+
+- `navigate_to_dashboard()` 中的 `page.screenshot(path="debug_after_navigate.png")` 在正常运行时不需要，改为仅在异常时保存
+
+## 预期效果
+
+| 指标 | 优化前 | 优化后 |
+|------|--------|--------|
+| 固定等待时间 | ~47s + 5s×N | ~5s + 1-2s×N（仅保留必要短等待） |
+| 单选项截图周期 | ~7s（5s sleep + 2s 操作） | ~2-3s（networkidle + 操作） |
+| iframe 检测最坏情况 | ~90s（5轮×18s） | ~27s（3轮×9s） |
+| 选项选择失败恢复 | 直接跳过 | 自动重试 2 次 |
+| 截图完整性 | 无验证 | 文件大小验证 |
+
+## 假设与决策
+
+1. **保留 `launch_persistent_context`**：持久化会话可跳过登录，是重要的速度优化，保持不变
+2. **不改变整体架构**：保持 login → navigate → get_options → screenshot 的流程不变
+3. **保留多选择器降级策略**：ZTE 网管 DOM 结构可能变化，候选选择器列表是必要的
+4. **`time.sleep` 不完全消除**：在 DOM 操作后保留极短等待（300-500ms）以应对渲染延迟
+5. **不修改 `yingdao_to_python.py`**：共享模块不在本次优化范围内
+
+## 验证步骤
+
+1. 运行 `python d:\01_RPA\Site_outage\screenshot_site_outage.py`，观察：
+   - 控制台日志中无 `time.sleep` 导致的长时间无输出
+   - 每个选项截图周期 < 5s（网络正常时）
+   - 所有选项均成功截图（screenshots 目录下文件数 = 选项数）
+2. 检查 `screenshots/` 目录下所有 PNG 文件大小 > 0
+3. 模拟网络慢场景：确认 `wait_for_network_idle` 超时后不会阻塞，脚本继续执行
+4. 总运行时间对比：优化后应比优化前减少 30-50%

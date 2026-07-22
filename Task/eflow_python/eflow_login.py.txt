@@ -1,0 +1,262 @@
+"""
+eFlow Login Module
+从 ZTE eFlow 网管系统登录并获取鉴权 Cookie / forgery token
+可独立运行，也可被其他脚本导入使用。
+"""
+
+import ssl
+import socket
+import sys
+import json
+import time
+import re
+import base64
+
+
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except Exception:
+    pass
+
+HOST = "10.100.20.8"
+PORT = 28001
+USERNAME = "admin"
+PASSWORD = "Brysj*8*"
+
+# 备用鉴权信息：当自动登录失败时回退使用
+FALLBACK_COOKIE = (
+    "X-Rm-Data-Version-zenap=1773367620002_0_0_0_0_0_0_0_0; "
+    "Z-AUTH-CODE-28001=1154983705_f188b025b7b64878ae0f4511e90ab1a2; "
+    "x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; "
+    "forgerydefense-28001=cfe68ff2abd4792b0b08eadcd739630fa22737448c5908a53f1c688d2f28c08a"
+)
+FALLBACK_FORGERY = "cfe68ff2abd4792b0b08eadcd739630fa22737448c5908a53f1c688d2f28c08a"
+
+
+def _create_ssl_socket():
+    """创建绕过证书校验的 TLS socket。"""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    ctx.set_ciphers('ALL:@SECLEVEL=0')
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(30)
+    ssock = ctx.wrap_socket(sock)
+    ssock.connect((HOST, PORT))
+    return ssock
+
+
+def _decode_chunked(data):
+    """解码 HTTP chunked 响应体。"""
+    result = b""
+    pos = 0
+    while pos < len(data):
+        line_end = data.find(b"\r\n", pos)
+        if line_end == -1:
+            break
+        chunk_size_str = data[pos:line_end].decode('utf-8', errors='replace').strip()
+        try:
+            chunk_size = int(chunk_size_str, 16)
+        except ValueError:
+            break
+        if chunk_size == 0:
+            break
+        pos = line_end + 2
+        result += data[pos:pos + chunk_size]
+        pos += chunk_size + 2
+    return result
+
+
+def _http_request(method, path, headers_extra=None, body=None):
+    """发送原始 HTTP 请求并返回状态行、响应头字典、原始头文本和响应体字节。"""
+    ssock = _create_ssl_socket()
+
+    headers = (
+        f"{method} {path} HTTP/1.1\r\n"
+        f"Host: {HOST}:{PORT}\r\n"
+        f"Accept: application/json, text/plain, */*\r\n"
+        f"Accept-Language: en-US,en;q=0.9\r\n"
+        f"Accept-Encoding: identity\r\n"
+        f"Connection: close\r\n"
+        f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36\r\n"
+    )
+    if headers_extra:
+        headers += headers_extra
+    if body:
+        headers += f"Content-Length: {len(body)}\r\n"
+    headers += "\r\n"
+
+    request_bytes = headers.encode('utf-8')
+    if body:
+        request_bytes += body if isinstance(body, bytes) else body.encode('utf-8')
+
+    ssock.sendall(request_bytes)
+
+    response_data = b""
+    while True:
+        try:
+            chunk = ssock.recv(65536)
+            if not chunk:
+                break
+            response_data += chunk
+        except socket.timeout:
+            break
+    ssock.close()
+
+    header_end = response_data.find(b"\r\n\r\n")
+    if header_end == -1:
+        raise Exception("Cannot parse HTTP response")
+
+    header_part = response_data[:header_end].decode('utf-8', errors='replace')
+    resp_body = response_data[header_end + 4:]
+
+    status_line = header_part.split("\r\n")[0]
+
+    resp_headers = {}
+    for line in header_part.split("\r\n")[1:]:
+        if ": " in line:
+            k, v = line.split(": ", 1)
+            resp_headers[k.lower()] = v
+
+    if "chunked" in resp_headers.get("transfer-encoding", ""):
+        resp_body = _decode_chunked(resp_body)
+
+    return status_line, resp_headers, header_part, resp_body
+
+
+def _rsa_encrypt_pem(plaintext, public_key_b64):
+    """使用 RSA 公钥（Base64 编码）对明文进行 PKCS1v15 加密，返回 Base64 密文。"""
+    from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
+    from cryptography.hazmat.primitives import serialization
+
+    pem = f"-----BEGIN PUBLIC KEY-----\n{public_key_b64}\n-----END PUBLIC KEY-----"
+    public_key = serialization.load_pem_public_key(pem.encode())
+
+    encrypted = public_key.encrypt(
+        plaintext.encode('utf-8'),
+        asym_padding.PKCS1v15()
+    )
+    return base64.b64encode(encrypted).decode('ascii')
+
+
+def login():
+    """
+    执行 eFlow 登录流程。
+    返回包含 cookie 和 forgery_token 的字典；失败时回退到 FALLBACK_COOKIE。
+    """
+    print("[LOGIN] Starting authentication...")
+    session_cookie = ""
+    forgery_token = ""
+
+    try:
+        print("[LOGIN] Step 1: Getting authorize page...")
+        status, hdrs, raw_hdrs, body = _http_request(
+            "GET",
+            "/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html"
+        )
+        print(f"[LOGIN] Status: {status}")
+
+        init_cookies = []
+        for line in raw_hdrs.split("\r\n"):
+            if line.lower().startswith("set-cookie:"):
+                cookie_val = line.split(": ", 1)[1].split(";")[0]
+                if cookie_val.split("=")[1]:
+                    init_cookies.append(cookie_val)
+                    if "forgerydefense" in cookie_val:
+                        forgery_token = cookie_val.split("=", 1)[1]
+
+        init_cookie_str = "; ".join(init_cookies)
+        print(f"[LOGIN] Got {len(init_cookies)} cookies")
+
+        html = body.decode('utf-8', errors='replace')
+        lp_match = re.search(r'var\s+loginParameters\s*=\s*["\']([^"\']+)["\']', html)
+        login_parameters = lp_match.group(1) if lp_match else ""
+        print(f"[LOGIN] Got loginParameters ({len(login_parameters)} chars)")
+
+        print("[LOGIN] Step 2: Getting RSA public key from API...")
+        rsa_headers = f"Cookie: {init_cookie_str}\r\nX-Requested-With: XMLHttpRequest\r\n"
+        status, hdrs, raw_hdrs, body = _http_request(
+            "GET", "/api/oauth2/v1/login/publickey",
+            headers_extra=rsa_headers,
+        )
+        print(f"[LOGIN] Public key API status: {status}")
+
+        public_key_b64 = ""
+        if "200" in status:
+            pk_data = json.loads(body.decode('utf-8'))
+            public_key_b64 = pk_data.get("rsaPublicKey", "")
+            print(f"[LOGIN] Got rsaPublicKey ({len(public_key_b64)} chars)")
+        else:
+            print("[LOGIN] API failed, using HTML embedded key")
+
+        print("[LOGIN] Step 3: Encrypting password with RSA...")
+        encrypted_pwd = _rsa_encrypt_pem(PASSWORD, public_key_b64)
+        print(f"[LOGIN] Encrypted ({len(encrypted_pwd)} chars)")
+
+        print("[LOGIN] Step 4: Submitting login...")
+        login_payload = json.dumps({
+            "username": USERNAME,
+            "password": encrypted_pwd,
+            "parameters": login_parameters,
+        })
+
+        login_headers = (
+            f"Content-Type: application/json\r\n"
+            f"Cookie: {init_cookie_str}\r\n"
+            f"Referer: https://{HOST}:{PORT}/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html\r\n"
+            f"X-Requested-With: XMLHttpRequest\r\n"
+        )
+        if forgery_token:
+            login_headers += f"forgerydefense: {forgery_token}\r\n"
+
+        status, hdrs, raw_hdrs, body = _http_request(
+            "POST",
+            "/api/oauth2/v1/login_rsa",
+            headers_extra=login_headers,
+            body=login_payload,
+        )
+        print(f"[LOGIN] Login status: {status}")
+
+        cookies = list(init_cookies)
+        for line in raw_hdrs.split("\r\n"):
+            if line.lower().startswith("set-cookie:"):
+                cookie_val = line.split(": ", 1)[1].split(";")[0]
+                if cookie_val.split("=")[1]:
+                    cookie_name = cookie_val.split("=")[0]
+                    cookies = [c for c in cookies if not c.startswith(cookie_name + "=")]
+                    cookies.append(cookie_val)
+                    if "forgerydefense" in cookie_val:
+                        forgery_token = cookie_val.split("=", 1)[1]
+
+        session_cookie = "; ".join(cookies)
+
+        resp_text = body.decode('utf-8', errors='replace')
+        if "302" in status or "default.html" in resp_text or len(cookies) > 3:
+            print(f"[LOGIN] SUCCESS - {len(cookies)} cookies")
+        else:
+            print(f"[LOGIN] Response: {resp_text[:300]}")
+            if not any("Z-AUTH-CODE" in c for c in cookies):
+                raise Exception("Login failed - no auth cookie obtained")
+
+        print(f"[LOGIN] Cookie: {session_cookie[:100]}...")
+
+    except Exception as e:
+        print(f"[LOGIN] FAILED: {e}")
+        print("[LOGIN] Falling back to hardcoded cookies...")
+        session_cookie = FALLBACK_COOKIE
+        forgery_token = FALLBACK_FORGERY
+
+    return {
+        "cookie": session_cookie,
+        "forgery_token": forgery_token,
+    }
+
+
+if __name__ == "__main__":
+    start = time.time()
+    print(f"[MAIN] eFlow login started at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    result = login()
+    elapsed = time.time() - start
+    print(f"[MAIN] Login completed in {elapsed:.2f} seconds")
+    print(f"[MAIN] Cookie length: {len(result['cookie'])}")
+    print(f"[MAIN] Forgery token length: {len(result['forgery_token'])}")

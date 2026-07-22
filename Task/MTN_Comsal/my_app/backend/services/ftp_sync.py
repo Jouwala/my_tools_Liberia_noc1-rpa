@@ -10,16 +10,23 @@ from datetime import datetime
 
 logger = logging.getLogger("ftp_sync")
 
-# SFTP配置 (来源: download_and_convert.py)
+# SFTP配置
 SFTP_HOST = "10.201.47.62"
 SFTP_PORT = 22
 SFTP_USER = "ubuntu"
 SFTP_PASS = "CloudStudio__123"
-REMOTE_DIR = "/home/ubuntu/reports/Last-2month-All-TTs/"
+
+# TT 数据：/home/ubuntu/data 下最新文件
+TT_REMOTE_DIR = "/home/ubuntu/data"
+
+# 站点列表：/home/ubuntu/reports/SiteList/ 下最新 SiteList.csv
+SITE_LIST_REMOTE_DIR = "/home/ubuntu/reports/SiteList"
+SITE_LIST_FILENAME = "SiteList.csv"
 
 # 本地配置
 DB_DIR = Path(__file__).resolve().parent.parent.parent / "db"
 LOCAL_TT = DB_DIR / "Last-month-All-TTs.xlsx"
+LOCAL_SITE_LIST = DB_DIR / SITE_LIST_FILENAME
 
 # 文件名匹配模式
 TT_PATTERNS = re.compile(r"Last.*TTs?", re.IGNORECASE)
@@ -48,6 +55,28 @@ def find_latest_xlsx_on_sftp(sftp, remote_dir: str) -> dict | None:
                         latest = {"path": full_path, "mtime": mtime, "name": entry.filename}
 
     walk(remote_dir)
+    return latest
+
+
+def find_latest_csv_on_sftp(sftp, remote_dir: str, filename_pattern: str = "") -> dict | None:
+    """查找SFTP目录下最新的CSV文件，可按文件名过滤"""
+    latest = None
+
+    try:
+        entries = sftp.listdir_attr(remote_dir)
+    except IOError as e:
+        logger.warning(f"无法列出目录 {remote_dir}: {e}")
+        return None
+
+    for entry in entries:
+        full_path = remote_dir.rstrip("/") + "/" + entry.filename
+        if not stat.S_ISDIR(entry.st_mode) and entry.filename.endswith('.csv'):
+            if filename_pattern and filename_pattern.lower() not in entry.filename.lower():
+                continue
+            mtime = entry.st_mtime
+            if latest is None or mtime > latest["mtime"]:
+                latest = {"path": full_path, "mtime": mtime, "name": entry.filename}
+
     return latest
 
 
@@ -131,18 +160,23 @@ def sync_from_ftp() -> dict:
         logger.info(f"SFTP连接成功")
 
         try:
-            # 查找最新TT文件
-            tt_file = find_latest_xlsx_on_sftp(sftp, REMOTE_DIR)
-
+            # 1. 查找并下载最新 TT 文件
+            tt_file = find_latest_xlsx_on_sftp(sftp, TT_REMOTE_DIR)
             if tt_file is None:
-                result["errors"].append(f"SFTP目录 {REMOTE_DIR} 下未找到匹配的TT文件")
-                return result
+                result["errors"].append(f"SFTP目录 {TT_REMOTE_DIR} 下未找到匹配的TT文件")
+            else:
+                logger.info(f"发现TT文件: {tt_file['path']} (修改时间戳: {tt_file['mtime']})")
+                if download_file_sftp(sftp, tt_file['path'], LOCAL_TT):
+                    result["downloaded"].append(f"TT: {tt_file['name']}")
 
-            logger.info(f"发现TT文件: {tt_file['path']} (修改时间戳: {tt_file['mtime']})")
-
-            # 下载TT文件
-            if download_file_sftp(sftp, tt_file['path'], LOCAL_TT):
-                result["downloaded"].append(f"TT: {tt_file['name']}")
+            # 2. 查找并下载最新 SiteList.csv
+            site_file = find_latest_csv_on_sftp(sftp, SITE_LIST_REMOTE_DIR, SITE_LIST_FILENAME)
+            if site_file is None:
+                result["errors"].append(f"SFTP目录 {SITE_LIST_REMOTE_DIR} 下未找到 {SITE_LIST_FILENAME}")
+            else:
+                logger.info(f"发现SiteList文件: {site_file['path']} (修改时间戳: {site_file['mtime']})")
+                if download_file_sftp(sftp, site_file['path'], LOCAL_SITE_LIST):
+                    result["downloaded"].append(f"SiteList: {site_file['name']}")
 
         finally:
             sftp.close()

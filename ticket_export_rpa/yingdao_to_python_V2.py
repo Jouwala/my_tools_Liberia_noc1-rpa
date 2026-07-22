@@ -56,6 +56,9 @@ HEADLESS = os.environ.get("YD_HEADLESS", "0") == "1"
 # 是否执行登录后的导出流程
 ENABLE_EXPORT_FLOW = os.environ.get("YD_EXPORT", "1") == "1"
 
+# 是否启用调试截图（生产环境关闭以提速）
+ENABLE_SCREENSHOTS = os.environ.get("YD_SCREENSHOT", "0") == "1"
+
 # Trouble Ticket / Work Order 页面地址
 TT_URL = "https://10.100.20.8:28001/uportal/framework/default.html#/_troubleticket"
 WO_URL = "https://10.100.20.8:28001/uportal/framework/default.html#/_wo"
@@ -220,6 +223,8 @@ def detect_selector(page, candidates: list[str]) -> str | None:
 
 def safe_screenshot(page_or_frame, name: str) -> None:
     """截图到项目内的 process/ 目录，方便调试。兼容 Page 和 Frame。"""
+    if not ENABLE_SCREENSHOTS:
+        return
     try:
         shot_dir = BASE_DIR / "process"
         shot_dir.mkdir(parents=True, exist_ok=True)
@@ -372,87 +377,7 @@ def click_by_text_or_selector(page, text: str, selectors: list[str] | None = Non
     return False
 
 
-def get_tt_frame11(page, max_attempts: int = 5) -> object:
-    """定位 Trouble Ticket 页面所在的 iframe 并返回其 content frame。
 
-    ZTE uSmartNet 把业务页面渲染在 iframe[class^="page-mainIframe"] 中，
-    因此 All Tickets / Advanced Query / Export 等按钮都在 iframe 里，
-    必须切到 iframe frame 再操作。
-
-    这个过程会枚举页面所有 iframe，输出诊断日志。
-    如果没有找到合适 iframe，则回退到顶层 page。
-    """
-    # Step 1: 枚举页面上所有 iframe（诊断日志）
-    try:
-        all_iframes = page.locator("iframe").all()
-        log(f"页面上共有 {len(all_iframes)} 个 iframe:")
-        for idx, ifr in enumerate(all_iframes):
-            src = (ifr.get_attribute("src") or "(无 src)")[:120]
-            cls = (ifr.get_attribute("class") or "(无 class)")[:80]
-            try:
-                vis = ifr.is_visible()
-            except Exception:
-                vis = "error"
-            log(f"  iframe[{idx}]: class={cls}  src={src}  visible={vis}")
-    except Exception as exc:
-        log(f"枚举 iframe 时出错（可能是页面未加载完成）：{exc}")
-
-    # Step 2: 尝试所有可能的 iframe，只要内容加载了就返回
-    for attempt in range(1, max_attempts + 1):
-        log(f"尝试定位 Trouble Ticket iframe（第 {attempt}/{max_attempts} 次）...")
-        # 2a: 尝试各种 iframe 选择器
-        iframe_selectors = [
-            'iframe[class^="page-mainIframe"]',
-            'iframe[src*="troubleticket"]',
-            'iframe[src*="ticket"]',
-            "iframe",
-        ]
-        for sel in iframe_selectors:
-            try:
-                iframe = page.locator(sel).first
-                if iframe.count() == 0:
-                    continue
-                iframe.wait_for(state="attached", timeout=5000)
-                # 注意：locator.content_frame 是 FrameLocator（不是 Frame），
-                # 必须通过 element_handle().content_frame() 才能拿到真正的 Frame
-                try:
-                    if_elem = iframe.element_handle(timeout=5000)
-                    frame = if_elem.content_frame()
-                except Exception:
-                    frame = None
-                if frame is None:
-                    continue
-                # 等待 iframe 加载
-                try:
-                    frame.wait_for_load_state("domcontentloaded", timeout=10000)
-                    frame.wait_for_timeout(2000)
-                except Exception:
-                    pass
-                # 检查是否有内容
-                try:
-                    body_text = frame.locator("body").inner_text(timeout=3000)
-                    if len(body_text.strip()) > 50:
-                        log(f"发现 iframe（选择器: {sel}），含 {len(body_text.strip())} 字符内容，已使用")
-                        return frame
-                except Exception:
-                    pass
-            except Exception:
-                continue
-        page.wait_for_timeout(3000)
-
-    # Step 3: 备选 — 如果有 iframe 但都无内容，返回第一个
-    try:
-        iframe = page.locator("iframe").first
-        if iframe.count():
-            frame = iframe.content_frame()
-            if frame is not None:
-                log("未找到有内容的 iframe，使用第一个 iframe 的 frame")
-                return frame
-    except Exception:
-        pass
-
-    log("未找到任何可用的 iframe，回退到顶层 page")
-    return page
 
 def get_tt_frame(page, max_attempts: int = 5) -> object:
     """定位 Trouble Ticket 页面所在的 iframe 并返回其 content frame。"""
@@ -497,7 +422,7 @@ def get_tt_frame(page, max_attempts: int = 5) -> object:
                 # 等待 iframe 加载
                 try:
                     frame.wait_for_load_state("domcontentloaded", timeout=10000)
-                    frame.wait_for_timeout(2000)
+                    frame.wait_for_timeout(1000)
                 except Exception:
                     pass
                 # 检查是否有内容
@@ -511,7 +436,7 @@ def get_tt_frame(page, max_attempts: int = 5) -> object:
             except Exception as e:
                 log(f"定位 iframe 失败：{e}")
                 continue
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(1500)
 
     # Step 3: 备选 — 如果有 iframe 但都无内容，返回第一个
     try:
@@ -577,7 +502,7 @@ def run_export_flow(page, context, target_url=None, default_table_type="eflow-tt
     except Exception:
         pass
 
-    page.wait_for_timeout(2000)
+    page.wait_for_timeout(1000)
     safe_screenshot(page, "01_tt_page")
 
     # 关键：业务页面渲染在 iframe 中，必须切到 iframe frame 才能点击按钮
@@ -596,7 +521,7 @@ def run_export_flow(page, context, target_url=None, default_table_type="eflow-tt
         "[class*='tab']:has-text('All Tickets')",
     ]):
         log("已点击 All Tickets 标签")
-        frame.wait_for_timeout(2000)
+        frame.wait_for_timeout(1000)
     else:
         log("未找到 All Tickets 标签，继续执行")
 
@@ -635,7 +560,7 @@ def run_export_flow(page, context, target_url=None, default_table_type="eflow-tt
         safe_screenshot(page, "02_no_advanced_query")
         return
 
-    frame.wait_for_timeout(2000)
+    frame.wait_for_timeout(1000)
     safe_screenshot(page, "02_advanced_query_form")
 
     # 3. 填写 Last Modified Time 的开始时间为 2025-12-01 00:00:00，结束时间保持默认
@@ -711,7 +636,7 @@ def run_export_flow(page, context, target_url=None, default_table_type="eflow-tt
 
     # 6a. 弹窗内：点击 Clear，再勾选 Available 前的复选框
     # Export Setting 弹窗使用 plx-picklist 自定义组件，需要精确选择器
-    frame.wait_for_timeout(1500)
+    frame.wait_for_timeout(800)
 
     # 点击 Clear 按钮（plx-picklist 组件内的清除按钮）
     clear_clicked = False
@@ -902,7 +827,7 @@ def run_export_flow(page, context, target_url=None, default_table_type="eflow-tt
                 pass
     if not confirm_clicked:
         log("未找到 Confirm 按钮，继续执行")
-    frame.wait_for_timeout(3000)
+    frame.wait_for_timeout(1500)
     safe_screenshot(page, "07_export_confirmed")
 
     # 7. 点击 Export -> My Export
@@ -917,7 +842,7 @@ def run_export_flow(page, context, target_url=None, default_table_type="eflow-tt
         for ctx in [page, frame]:
             if safe_click_by_text(ctx, "My Export"):
                 break
-    frame.wait_for_timeout(3000)
+    frame.wait_for_timeout(1500)
     safe_screenshot(page, "08_my_export_list")
 
     # 8. 轮询 My Export：每 5 秒刷新，等最新记录 Status=Success 后点击 Download
@@ -1730,7 +1655,7 @@ def _wait_for_new_file(directory: Path, before_files: set, timeout_sec: int = 12
     return None
 
 
-def wait_my_export_and_download(frame, page, context, download_request_info: dict, max_attempts: int = 60, interval: int = 5, table_type: str = "eflow-tt") -> None:
+def wait_my_export_and_download(frame, page, context, download_request_info: dict, max_attempts: int = 60, interval: int = 3, table_type: str = "eflow-tt") -> None:
     """在 My Export 弹窗中：每隔 interval 秒点击刷新按钮，
     等待第一行（本次导出任务）的 Progress 变为 100% / Status 变为 Success，
     然后点击第一行的 Download。
@@ -2575,7 +2500,7 @@ def wait_my_export_and_download(frame, page, context, download_request_info: dic
                 log(f"API 确认所有 {total} 个文件已就绪并开始下载")
                 api_export_ready = True
                 if downloaded_any:
-                    page.wait_for_timeout(3000)
+                    page.wait_for_timeout(1500)
                     downloaded_zips = [f for f in OUTPUT_DIR.iterdir() if f.is_file() and f.name.endswith('.zip')]
                     if downloaded_zips:
                         success = True
@@ -2588,7 +2513,7 @@ def wait_my_export_and_download(frame, page, context, download_request_info: dic
                     _click_first_download()
                     if _wait_download(30):
                         downloaded_any = True
-                    page.wait_for_timeout(2000)
+                    page.wait_for_timeout(1000)
                 if downloaded_any:
                     success = True
                     break
@@ -2632,7 +2557,6 @@ def wait_my_export_and_download(frame, page, context, download_request_info: dic
 def merge_downloads_to_excel(output_name: str = "Eflow_TT_FB.xlsx") -> None:
     """读取 downloads/ 目录中所有 ZIP 文件，解压其中的 xlsx 并合并写入指定 Excel，完成后删除 ZIP。"""
     import zipfile
-    import io
     import glob
     import pandas as pd
 
@@ -2664,11 +2588,11 @@ def merge_downloads_to_excel(output_name: str = "Eflow_TT_FB.xlsx") -> None:
                     try:
                         info = zf.getinfo(xlsx_name)
                         file_size_kb = info.file_size / 1024
-                        data = zf.read(xlsx_name)
                         log(f"    读取 {xlsx_name} ({file_size_kb:.1f} KB)...")
                         
-                        # 读取所有 sheet（防止数据在非第一个 sheet 中）
-                        xls_data = pd.read_excel(io.BytesIO(data), sheet_name=None, engine="openpyxl")
+                        # 流式读取：直接从 ZIP 句柄读取，避免 BytesIO 中转
+                        with zf.open(xlsx_name) as xlsx_fp:
+                            xls_data = pd.read_excel(xlsx_fp, sheet_name=None, engine="openpyxl")
                         file_row_count = 0
                         for sheet_name, sheet_df in xls_data.items():
                             if sheet_df.empty:
@@ -3020,7 +2944,7 @@ def run() -> None:
                     web_page.goto("about:blank", timeout=15000)
                 except Exception:
                     pass
-                web_page.wait_for_timeout(2000)
+                web_page.wait_for_timeout(1000)
         else:
             log("导出流程已禁用")
 
@@ -3028,7 +2952,7 @@ def run() -> None:
 
 
 def _safe_finish(browser, page, context) -> None:
-    """收尾：无头模式截图+输出最终URL后关闭；桌面模式保留浏览器等待回车。"""
+    """收尾：截图+输出最终URL后自动关闭浏览器（桌面模式等待10秒）。"""
     try:
         shot_dir = BASE_DIR / "process"
         shot_dir.mkdir(parents=True, exist_ok=True)
@@ -3054,7 +2978,9 @@ def _safe_finish(browser, page, context) -> None:
     if HEADLESS:
         browser.close()
     else:
-        input("\n按回车键关闭浏览器...")
+        log("任务完成，10 秒后自动关闭浏览器...")
+        time.sleep(10)
+        log("正在关闭浏览器...")
         browser.close()
 
 

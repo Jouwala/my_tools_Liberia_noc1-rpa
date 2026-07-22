@@ -7,7 +7,7 @@ import subprocess
 from datetime import datetime
 
 PYTHON = r"d:\01_RPA\.venv\Scripts\python.exe"
-
+INTERVAL_MINUTES = 60  # 每小时执行一次，即 60 分钟间隔
 SCRIPTS = [
     r"D:\01_RPA\Site_outage\fetch_site_outage_v2.py",
     r"D:\01_RPA\Site_outage\screenshot_site_outage.py",

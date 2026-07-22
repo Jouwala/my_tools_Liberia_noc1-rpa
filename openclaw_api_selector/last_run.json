@@ -1,12 +1,12 @@
 {
-  "run_at": "2026-07-21T03:00:52",
+  "run_at": "2026-07-22T03:00:30",
   "threshold_ms": 5000,
   "results": [
     {
       "key": "zhipu",
       "name": "ZhiPu GLM 智谱",
       "available": true,
-      "latency_ms": 1762,
+      "latency_ms": 2916,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -16,7 +16,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1762,
+          "latency_ms": 2916,
           "status": "ok",
           "error": null
         }
@@ -26,7 +26,7 @@
       "key": "nvidia",
       "name": "NVIDIA NIM",
       "available": true,
-      "latency_ms": 836,
+      "latency_ms": 1140,
       "model": "meta/llama-3.1-8b-instruct",
       "error": null,
       "status": "ok",
@@ -36,7 +36,7 @@
         {
           "model": "meta/llama-3.1-8b-instruct",
           "ok": true,
-          "latency_ms": 836,
+          "latency_ms": 1140,
           "status": "ok",
           "error": null
         }
@@ -46,7 +46,7 @@
       "key": "openrouter",
       "name": "OpenRouter",
       "available": true,
-      "latency_ms": 7695,
+      "latency_ms": 2697,
       "model": "openrouter/free",
       "error": null,
       "status": "ok",
@@ -56,7 +56,7 @@
         {
           "model": "openrouter/free",
           "ok": true,
-          "latency_ms": 7695,
+          "latency_ms": 2697,
           "status": "ok",
           "error": null
         }
@@ -114,7 +114,7 @@
       "key": "zhipu5",
       "name": "ZhiPu GLM-5 智谱",
       "available": true,
-      "latency_ms": 1794,
+      "latency_ms": 2437,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -124,7 +124,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1794,
+          "latency_ms": 2437,
           "status": "ok",
           "error": null
         }
@@ -286,17 +286,31 @@
       "key": "ollama",
       "name": "Local Ollama",
       "available": true,
-      "latency_ms": 7933,
-      "model": "gemma4-16k:latest",
+      "latency_ms": 9448,
+      "model": "phi4-mini:3.8b",
       "error": null,
       "status": "ok",
       "reason": "正常",
       "local": true,
       "tried_models": [
         {
-          "model": "gemma4-16k:latest",
+          "model": "gemma4-16k",
+          "ok": false,
+          "latency_ms": null,
+          "status": "model_unavailable",
+          "error": "HTTP 404"
+        },
+        {
+          "model": "gemma3:4b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "model_unavailable",
+          "error": "HTTP 404"
+        },
+        {
+          "model": "phi4-mini:3.8b",
           "ok": true,
-          "latency_ms": 7933,
+          "latency_ms": 9448,
           "status": "ok",
           "error": null
         }
@@ -306,8 +320,8 @@
       "key": "sensenova",
       "name": "SenseNova 商汤",
       "available": true,
-      "latency_ms": 3124,
-      "model": "deepseek-v4-flash",
+      "latency_ms": 4044,
+      "model": "sensenova-6.7-flash-lite",
       "error": null,
       "status": "ok",
       "reason": "正常",
@@ -315,36 +329,8 @@
       "tried_models": [
         {
           "model": "sensenova-6.7-flash-lite",
-          "ok": false,
-          "latency_ms": null,
-          "status": "server_error",
-          "error": "HTTP 502"
-        },
-        {
-          "model": "sensenova-6.7-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "model_unavailable",
-          "error": "HTTP 404"
-        },
-        {
-          "model": "sensenova-v6.7",
-          "ok": false,
-          "latency_ms": null,
-          "status": "model_unavailable",
-          "error": "HTTP 404"
-        },
-        {
-          "model": "sensenova-v6.7-lite",
-          "ok": false,
-          "latency_ms": null,
-          "status": "model_unavailable",
-          "error": "HTTP 404"
-        },
-        {
-          "model": "deepseek-v4-flash",
           "ok": true,
-          "latency_ms": 3124,
+          "latency_ms": 4044,
           "status": "ok",
           "error": null
         }
@@ -353,16 +339,12 @@
   ],
   "primary": "nvidia/meta/llama-3.1-8b-instruct",
   "fallbacks": [
-    "ollama/gemma4-16k:latest",
-    "ollama/gemma4-64k:latest",
     "ollama/gemma4-32k:latest",
-    "ollama/gemma3:4b",
     "ollama/phi4-mini:3.8b",
-    "ollama/gemma4:e2b",
-    "ollama/qwen3:4b",
-    "zhipu/glm-4-flash",
     "zhipu5/glm-4-flash",
-    "sensenova/deepseek-v4-flash",
+    "openrouter/openrouter/free",
+    "zhipu/glm-4-flash",
+    "sensenova/sensenova-6.7-flash-lite",
     "ollama-cloud/gemma3:27b"
   ]
 }

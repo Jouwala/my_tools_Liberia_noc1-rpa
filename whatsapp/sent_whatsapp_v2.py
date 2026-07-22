@@ -6,7 +6,8 @@ from pathlib import Path
 import traceback, time, os, subprocess, glob
 
 # Configuration
-GROUPS = ["15638281623"]
+# GROUPS = ["15638281623"]
+GROUPS = ["*OLR ZTE Quality Control*","*OLR ZTE Incidents Mgt* 2"]
 PHOTOS = [
     r"D:\01_RPA\Site_outage\screenshots\ERA.png",
     r"D:\01_RPA\Site_outage\screenshots\REGULAR.png",
@@ -58,13 +59,22 @@ def start_browser():
         USER_DATA_DIR,
         executable_path=r"D:\01_RPA\chrome-win\chrome-win\chrome.exe",
         headless=HEADLESS,
-        args=["--start-maximized"],
+        args=["--start-maximized","--prevent-first-run-default-browser-prompts"],
         no_viewport=True
     )
     page = browser.new_page()
     page.goto(WHATSAPP_URL, wait_until="domcontentloaded")
+    info("等待 WhatsApp Web 加载，请扫码登录（如有需要）...")
     page.locator("#side").wait_for(timeout=180000)
     success("登录成功")
+    # 登录成功后，最小化到任务栏（start-maximized 只是初始状态，CDP 可动态切换）
+    try:
+        cdp = page.context.new_cdp_session(page)
+        wid = cdp.send("Browser.getWindowForTarget")["windowId"]
+        cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "minimized"}})
+        info("已最小化窗口到任务栏")
+    except Exception as e:
+        warn(f"最小化失败: {e}")
     return playwright, browser, page
 
 def find_first(page, key):
@@ -131,7 +141,7 @@ def copy_file_to_clipboard(file_path):
 # ==========================================================
 def fast_send_photos(page, photo_caption_pairs):
     """连发模式：贴图 -> 贴字 -> 回车，零顿挫"""
-    page.locator('#main').click()
+    page.locator('#main').click(force=True)
     
     for i, (photo, cap) in enumerate(photo_caption_pairs):
         if not os.path.exists(photo):
@@ -163,7 +173,7 @@ def fast_send_file(page, file_path):
     info(f"⚡ [爆发发送] 文件: {os.path.basename(file_path)}")
     copy_file_to_clipboard(file_path)
     
-    page.locator('#main').click()
+    page.locator('#main').click(force=True)
     page.keyboard.press("Control+v")
     time.sleep(0.5)
     #page.keyboard.press("Enter")
