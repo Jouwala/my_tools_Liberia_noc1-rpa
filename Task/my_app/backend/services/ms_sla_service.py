@@ -507,82 +507,100 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
 # RAN UME 登录
 # ============================================================
 
-def _ume_login():
-    """执行 RAN UME 登录流程，返回 cookie 和 forgery_token。"""
+def _ume_login(max_retries=2):
+    """执行 RAN UME 登录流程，返回 cookie 和 forgery_token。
+
+    Args:
+        max_retries: 登录失败时最大重试次数（含首次），默认2次
+    """
     logger.info("[LOGIN] 开始鉴权...")
     session_cookie = ""
     forgery_token = ""
-    try:
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET",
-            "/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html"
-        )
-        init_cookies = []
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=")[1]:
-                    init_cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-        init_cookie_str = "; ".join(init_cookies)
+    last_error = None
 
-        html = body.decode('utf-8', errors='replace')
-        lp_match = re.search(r'var\s+loginParameters\s*=\s*["\']([^"\']+)["\']', html)
-        login_parameters = lp_match.group(1) if lp_match else ""
+    for attempt in range(1, max_retries + 1):
+        try:
+            if attempt > 1:
+                wait = 2 ** (attempt - 1)
+                logger.info(f"[LOGIN] 第 {attempt}/{max_retries} 次尝试，等待 {wait}s...")
+                time.sleep(wait)
 
-        rsa_headers = f"Cookie: {init_cookie_str}\r\nX-Requested-With: XMLHttpRequest\r\n"
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET", "/api/oauth2/v1/login/publickey", headers_extra=rsa_headers,
-        )
-        public_key_b64 = ""
-        if "200" in status:
-            pk_data = json.loads(body.decode('utf-8'))
-            public_key_b64 = pk_data.get("rsaPublicKey", "")
+            status, hdrs, raw_hdrs, body = _http_request(
+                "GET",
+                "/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html"
+            )
+            init_cookies = []
+            for line in raw_hdrs.split("\r\n"):
+                if line.lower().startswith("set-cookie:"):
+                    cookie_val = line.split(": ", 1)[1].split(";")[0]
+                    if cookie_val.split("=")[1]:
+                        init_cookies.append(cookie_val)
+                        if "forgerydefense" in cookie_val:
+                            forgery_token = cookie_val.split("=", 1)[1]
+            init_cookie_str = "; ".join(init_cookies)
 
-        encrypted_pwd = _rsa_encrypt_pem(UME_PASSWORD, public_key_b64)
+            html = body.decode('utf-8', errors='replace')
+            lp_match = re.search(r'var\s+loginParameters\s*=\s*["\']([^"\']+)["\']', html)
+            login_parameters = lp_match.group(1) if lp_match else ""
 
-        login_payload = json.dumps({
-            "username": UME_USERNAME,
-            "password": encrypted_pwd,
-            "parameters": login_parameters,
-        })
-        login_headers = (
-            f"Content-Type: application/json\r\n"
-            f"Cookie: {init_cookie_str}\r\n"
-            f"Referer: https://{UME_HOST}:{UME_PORT}/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html\r\n"
-            f"X-Requested-With: XMLHttpRequest\r\n"
-        )
-        if forgery_token:
-            login_headers += f"forgerydefense: {forgery_token}\r\n"
+            rsa_headers = f"Cookie: {init_cookie_str}\r\nX-Requested-With: XMLHttpRequest\r\n"
+            status, hdrs, raw_hdrs, body = _http_request(
+                "GET", "/api/oauth2/v1/login/publickey", headers_extra=rsa_headers,
+            )
+            public_key_b64 = ""
+            if "200" in status:
+                pk_data = json.loads(body.decode('utf-8'))
+                public_key_b64 = pk_data.get("rsaPublicKey", "")
 
-        status, hdrs, raw_hdrs, body = _http_request(
-            "POST", "/api/oauth2/v1/login_rsa",
-            headers_extra=login_headers, body=login_payload,
-        )
+            encrypted_pwd = _rsa_encrypt_pem(UME_PASSWORD, public_key_b64)
 
-        cookies = list(init_cookies)
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=")[1]:
-                    cookie_name = cookie_val.split("=")[0]
-                    cookies = [c for c in cookies if not c.startswith(cookie_name + "=")]
-                    cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
+            login_payload = json.dumps({
+                "username": UME_USERNAME,
+                "password": encrypted_pwd,
+                "parameters": login_parameters,
+            })
+            login_headers = (
+                f"Content-Type: application/json\r\n"
+                f"Cookie: {init_cookie_str}\r\n"
+                f"Referer: https://{UME_HOST}:{UME_PORT}/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html\r\n"
+                f"X-Requested-With: XMLHttpRequest\r\n"
+            )
+            if forgery_token:
+                login_headers += f"forgerydefense: {forgery_token}\r\n"
 
-        session_cookie = "; ".join(cookies)
-        if "302" in status or len(cookies) > 3:
-            logger.info(f"[LOGIN] 成功 - {len(cookies)} cookies")
-        else:
-            if not any("Z-AUTH-CODE" in c for c in cookies):
-                raise Exception("Login failed - no auth cookie")
-    except Exception as e:
-        logger.warning(f"[LOGIN] 失败: {e}，使用备用 Cookie")
-        session_cookie = FALLBACK_COOKIE
-        forgery_token = FALLBACK_FORGERY
+            status, hdrs, raw_hdrs, body = _http_request(
+                "POST", "/api/oauth2/v1/login_rsa",
+                headers_extra=login_headers, body=login_payload,
+            )
 
+            cookies = list(init_cookies)
+            for line in raw_hdrs.split("\r\n"):
+                if line.lower().startswith("set-cookie:"):
+                    cookie_val = line.split(": ", 1)[1].split(";")[0]
+                    if cookie_val.split("=")[1]:
+                        cookie_name = cookie_val.split("=")[0]
+                        cookies = [c for c in cookies if not c.startswith(cookie_name + "=")]
+                        cookies.append(cookie_val)
+                        if "forgerydefense" in cookie_val:
+                            forgery_token = cookie_val.split("=", 1)[1]
+
+            session_cookie = "; ".join(cookies)
+            if "302" in status or len(cookies) > 3:
+                logger.info(f"[LOGIN] 成功 - {len(cookies)} cookies")
+                return {"cookie": session_cookie, "forgery_token": forgery_token}
+            else:
+                if not any("Z-AUTH-CODE" in c for c in cookies):
+                    raise Exception("Login failed - no auth cookie")
+                # 有 Z-AUTH-CODE 但条件不满足，也算成功
+                logger.info(f"[LOGIN] 成功 - {len(cookies)} cookies")
+                return {"cookie": session_cookie, "forgery_token": forgery_token}
+        except Exception as e:
+            last_error = e
+            logger.warning(f"[LOGIN] 第 {attempt}/{max_retries} 次失败: {e}")
+
+    logger.warning(f"[LOGIN] 所有 {max_retries} 次尝试均失败: {last_error}，使用备用 Cookie")
+    session_cookie = FALLBACK_COOKIE
+    forgery_token = FALLBACK_FORGERY
     return {"cookie": session_cookie, "forgery_token": forgery_token}
 
 
@@ -1861,8 +1879,15 @@ def _find_font(size=11):
         return ImageFont.load_default()
 
 
-def export_sheet_to_png(src_file, sheet_name, output_path):
-    """将 Excel 单个 sheet 导出为 PNG 图片"""
+def export_sheet_to_png(src_file, sheet_name, output_path, max_col=None):
+    """将 Excel 单个 sheet 导出为 PNG 图片
+
+    Args:
+        src_file: 源 Excel 文件路径
+        sheet_name: sheet 名称
+        output_path: 输出 PNG 路径
+        max_col: 可选，限制导出的最大列数（仅导出 1 ~ max_col 列），默认导出全部列
+    """
     if not HAS_PIL:
         logger.info(f"  PNG导出跳过 (Pillow未安装)")
         return
@@ -1875,7 +1900,8 @@ def export_sheet_to_png(src_file, sheet_name, output_path):
     achieve_cols, sub_header_row = _detect_achieve_cols(ws)
     has_achieve_cols = len(achieve_cols) > 0
     max_row = ws.max_row
-    max_col = ws.max_column
+    if max_col is None:
+        max_col = ws.max_column
     if max_row == 0 or max_col == 0:
         wb.close()
         return
@@ -2326,7 +2352,7 @@ def run_contract_kpis_report():
 
     kpi_png_name = f"ZTE OLR MS Contract KPIs Achievements Daily Report_{today_str}.png"
     kpi_png_path = DATA_DIR / kpi_png_name
-    export_sheet_to_png(TARGET_FILE, TARGET_SHEET, kpi_png_path)
+    export_sheet_to_png(TARGET_FILE, TARGET_SHEET, kpi_png_path, max_col=TARGET_COL_TTR_P4)
     if os.path.exists(str(kpi_png_path)):
         export_files.append(str(kpi_png_path))
 
