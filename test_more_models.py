@@ -55,6 +55,23 @@ models_to_test = [
     "minimaxai/minimax-m3",
 ]
 
+# ---------- Agnes AI (separate host + key) ----------
+AGNES_API_KEY = "sk-p2urnUzv9gyCRGh8iyfqc1ilJrXBJ4hSHtcCFOJW981Q4Iq6"
+agnes_client = OpenAI(
+    base_url="https://apihub.agnes-ai.com/v1",
+    api_key=AGNES_API_KEY,
+)
+
+# 文本模型（chat.completions）
+agnes_text_models = [
+    "agnes-2.0-flash",
+]
+
+# 图片模型（images.generate）
+agnes_image_models = [
+    "agnes-image-2.1-flash",
+]
+
 results = {}
 
 def test_model(model_id):
@@ -70,15 +87,51 @@ def test_model(model_id):
     except Exception as e:
         return model_id, "FAIL", str(e)[:100]
 
+def test_agnes_text(model_id):
+    try:
+        completion = agnes_client.chat.completions.create(
+            model=model_id,
+            messages=[{"role": "user", "content": "Say OK"}],
+            temperature=0.7,
+            max_tokens=20,
+            stream=False
+        )
+        return model_id, "OK", completion.choices[0].message.content
+    except Exception as e:
+        return model_id, "FAIL", str(e)[:200]
+
+def test_agnes_image(model_id):
+    try:
+        resp = agnes_client.images.generate(
+            model=model_id,
+            prompt="a cute orange cat wearing sunglasses on a surfboard at sunset, cartoon style",
+            n=1,
+            size="1024x1024",
+        )
+        urls = [d.url for d in resp.data if getattr(d, "url", None)]
+        b64 = [d.b64_json for d in resp.data if getattr(d, "b64_json", None)]
+        info = f"returned url={len(urls)} b64={len(b64)}"
+        return model_id, "OK", info
+    except Exception as e:
+        return model_id, "FAIL", str(e)[:200]
+
+# 汇总所有测试：NVIDIA 文本 + Agnes 文本 + Agnes 图片
+all_tests = [(m, test_model) for m in models_to_test]
+all_tests += [(m, test_agnes_text) for m in agnes_text_models]
+all_tests += [(m, test_agnes_image) for m in agnes_image_models]
+
 with ThreadPoolExecutor(max_workers=10) as executor:
-    futures = {executor.submit(test_model, m): m for m in models_to_test}
+    futures = {executor.submit(fn, m): (m, fn) for m, fn in all_tests}
     for future in as_completed(futures):
+        model_id, fn = futures[future]
         model_id, status, info = future.result()
-        results[model_id] = (status, info)
+        tag = "agnes" if fn in (test_agnes_text, test_agnes_image) else "nvidia"
+        key = f"{tag}/{model_id}"
+        results[key] = (status, info)
         if status == "OK":
-            sys.stdout.write(f"[+] {model_id}: {info}\n")
+            sys.stdout.write(f"[+] {key}: {info}\n")
         else:
-            sys.stdout.write(f"[-] {model_id}: {info}\n")
+            sys.stdout.write(f"[-] {key}: {info}\n")
         sys.stdout.flush()
 
 print("\n" + "=" * 60)

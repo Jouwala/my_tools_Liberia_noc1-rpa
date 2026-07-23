@@ -91,13 +91,13 @@ def login(page):
     if ok:
         success("登录成功，已进入 portal")
         # 登录成功后最小化窗口
-        try:
-            cdp = page.context.new_cdp_session(page)
-            wid = cdp.send("Browser.getWindowForTarget")["windowId"]
-            cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "minimized"}})
-            info("已最小化窗口到任务栏")
-        except Exception:
-            pass
+        #try:
+            #cdp = page.context.new_cdp_session(page)
+            #wid = cdp.send("Browser.getWindowForTarget")["windowId"]
+            #cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "minimized"}})
+            #info("已最小化窗口到任务栏")
+        #except Exception:
+            #pass
     else:
         warn("登录可能失败")
         page.screenshot(path=os.path.join(OUTPUT_DIR, "debug_login_result.png"))
@@ -323,6 +323,7 @@ def select_and_screenshot(page, frame, option, screenshot_dir, max_retries=2):
                 def _do_select():
                     select_el.select_option(index=idx)
                 wait_for_data_refresh(frame, _do_select)
+                time.sleep(3)
                 screenshot_path = os.path.join(screenshot_dir, f"{safe_name}.png")
                 page.screenshot(path=screenshot_path, full_page=True)
                 time.sleep(3)

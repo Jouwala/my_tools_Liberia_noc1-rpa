@@ -15,6 +15,7 @@ import re
 import base64
 import sqlite3
 import glob
+import shutil
 from datetime import datetime, timezone
 
 
@@ -39,6 +40,9 @@ OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 SESSION_COOKIE = ""
 FORGERY_TOKEN = ""
+
+# 并发下载端点数；CMDB + eFlow 共 6 个端点，默认 4 个并发以平衡速度与服务端压力
+MAX_PARALLEL_DOWNLOADS = 4
 
 
 def _create_ssl_socket():
@@ -275,6 +279,47 @@ TT_PAYLOAD_BASE = {
 
 TT_REFERER = f"https://{HOST}:{PORT}/iui/ticket-mgt/v1/"
 
+TT_EXPORT_COLUMNS = [
+    "displayName", "woInfo", "status", "pendingStatus", "ttSource", "ticketType", "projectName", "templateName",
+    "creator", "creatorContactInfo", "ticketSeverity", "alarmCategory", "alarmSubcategory", "alarmSeverity",
+    "alarmType", "alarmCode", "subAlarmName", "subAlarmNeName", "subAlarmNeIp", "appendingAlarmName",
+    "appendingAlarmNeName", "appendingAlarmNeIp", "netWorkType", "neName", "neId", "neIP", "impactedServiceOrNo",
+    "impactedServiceWireless", "siteOutageOrNo", "reasonType", "slaTotalDuration", "slaStatus", "remainingTime",
+    "targetFinishTime", "groupSlaTime", "groupSlaStatus", "groupSlaRemainsTime", "regionLevel1Name", "regionLevel2Name",
+    "assetName", "siteId", "assetType", "siteClass", "candidateOperator", "vendor", "createTime", "lastModifiedTime",
+    "alarmOccurTime", "alarmClearTime", "faultDurationTime", "procId", "opName", "assignmentSuggestions",
+    "description", "specificProblem", "position", "additionalInfo", "severity", "alarmServerTime", "neType",
+    "alarmId", "alarmDescription", "downSiteCount", "downSiteList", "downSiteCount2g", "downSiteList2g",
+    "downSiteCount3g", "downSiteList3g", "downSiteCount4g", "downSiteList4g", "downSiteCount5g", "downSiteList5g",
+    "downSiteCountVip", "downSiteListVip", "preprocessed", "processTime", "aiMindFailReason", "aiMindDiagnosisResult",
+    "aiMindMaintenanceSuggestions", "groupSlaDeadlineTime", "category", "subCategory", "detailCategory",
+    "actualFinishTime", "faultResolvedBy", "faultRecoveryTime", "processingDescription", "siteInformation",
+    "vipSite", "hubsite", "upperLevelOpticalFiberAccessPoint", "opticalFiberAccessPoint",
+    "nextLevelOpticalFiberAccessPoint", "regionId", "assetId", "orgId", "fixedGeneratorId", "fixedGeneratorModel",
+    "fixedGeneratorManufacturer", "latestRefuelingTime", "latestPowerGenerationTime", "maintenanceTeam",
+    "maintenanceTeamContractNo", "lastMaintenanceTime", "mobileGeneratorId", "mobileGeneratorModel",
+    "mobileGeneratorManufacturer", "latestRefuelingTicketNo", "latestPowerGenerationTicketNo", "batteryCount",
+    "battery1Id", "battery1Model", "battery1Manufacturer", "battery2Id", "battery2Model", "battery2Manufacturer",
+    "battery3Id", "battery3Model", "battery3Manufacturer", "spareRequired", "spareAvailable", "spareDomain",
+    "spareDevice", "spareName", "spareNo", "SuspendDetail", "LastSuspendStatus", "LastSuspendOperator",
+    "LastSuspendOperatorGroup", "LastSuspendTime", "LastResumeOperator", "LastResumeOperatorGroup",
+    "LastResumeTime", "LastProcesser", "LastProcesserGroup", "LastProcessTime", "faultResolved", "woNum",
+    "CreateDetail", "FOAcceptDetail", "FOProcessDetail", "BOAcceptDetail", "BOProcessDetail",
+    "ThirdAcceptDetail", "ThirdProcessDetail", "ConfirmDetail", "ClosedDetail", "createAttachment",
+    "foAcceptAttachment", "foProcessAttachment", "boAcceptAttachment", "boProcessAttachment",
+    "thirdAcceptAttachment", "thirdProcessAttachment", "confirmAttachment", "createWOAttachment",
+    "woProcessAttachment", "woBONPOProcessAttachment",
+]
+
+TT_EXPORT_CONFIG = {
+    "type": "Export",
+    "serviceName": "eflow-ticket",
+    "config": json.dumps(TT_EXPORT_COLUMNS),
+}
+
+TT_USERHABITS_PATH = "/api/eflow-ticket/v1/userhabits/add/eflow-tt"
+TT_DOWNLOAD_PATH = "/api/eflow-ticket/v1/attachment/download/eflow-tt"
+
 
 WO_FIELDS = "woId,procId,opName,ttWoid,pendingStatus,woNum,parentwoNum,status,displayName,creator,createTime,lastModifiedTime,candidateOperator,siteId,ticketSeverity,spareDomain,neName,neType,neIp,vendor,subSource,alarmOccurTime,alarmClearTime,expectedFinishTime,source,projectName,templateName,creatorContactInfo,alarmCategory,alarmSubcategory,alarmSeverity,reasonType,alarmId,alarmCode,subAlarmName,subAlarmNEName,subAlarmNEIP,appendingAlarmName,appendingAlarmNEName,appendingAlarmNEIP,networkType,neId,impactedServiceOrNo,impactedService,siteOutageOrNo,aiMindFailReasonType,faultDurationTime,slaTotalDuration,slaStatus,remainingTime,targetFinishTime,groupSlaTime,groupSlaStatus,groupSlaRemainsTime,groupSlaDeadlineTime,rcaFillingMode,regionLevel1Name,regionLevel2Name,assetName,assetType,siteClass,spareRequired,spareavailable,rejectCategory,etc,arriveSiteTime,travelTime"
 
@@ -288,6 +333,66 @@ WO_PAYLOAD_BASE = {
 }
 
 WO_REFERER = f"https://{HOST}:{PORT}/iui/wo-mgt/v1/"
+
+WO_EXPORT_COLUMNS = [
+    "woNum", "parentwoNum", "displayName", "status", "pendingStatus", "creator", "createTime",
+    "lastModifiedTime", "opName", "candidateOperator", "ticketSeverity", "neType", "vendor",
+    "alarmOccurTime", "alarmClearTime", "expectedFinishTime", "source", "projectName",
+    "templateName", "assignmentSuggestions", "creatorContactInfo", "description", "positionInfo",
+    "alarmServerTime", "alarmCategory", "alarmSubcategory", "alarmSeverity", "alarmType",
+    "reasonType", "alarmId", "alarmCode", "alarmDescription", "subAlarmName", "subAlarmNEName",
+    "subAlarmNEIP", "appendingAlarmName", "appendingAlarmNEName", "appendingAlarmNEIP",
+    "networkType", "neName", "neId", "neIp", "impactedServiceOrNo", "impactedService",
+    "siteOutageOrNo", "downSiteCount", "downsitelist", "downSiteCount2g", "downSiteList2g",
+    "downSiteCount3g", "downSiteList3g", "downSiteCount4g", "downSiteList4g", "downSiteCount5g",
+    "downSiteList5g", "downSiteCountVip", "downSiteListVip", "aiMindPreProcessed",
+    "aiMindProcessTime", "aiMindFailReason", "aiMindFailReasonType", "aiMindDiagnosisResult",
+    "aiMindMaintenanceSuggestions", "faultDurationTime", "slaTotalDuration", "slaStatus",
+    "remainingTime", "targetFinishTime", "groupSlaTime", "groupSlaStatus", "groupSlaRemainsTime",
+    "groupSlaDeadlineTime", "category", "subCategory", "detailCategory", "additionalInformation",
+    "rcaFillingMode", "actualFinishTime", "faultResolvedBy", "faultResolvingTime",
+    "processingDescription", "regionId", "assetId", "assetName", "siteId", "siteName", "siteType",
+    "siteInformation", "siteClass", "orgId", "vipSite", "hubSite", "regionLevel1Name",
+    "regionLevel2Name", "cableLineSection", "upperNodeFiberAccessPoint", "currentFiberAccessPoint",
+    "nextNodeFiberAccessPoint", "fixedGeneratorId", "fixedGeneratorModel",
+    "fixedGeneratorManufacturer", "fixLatestRefuelingTime", "latestPowerGenerationTime",
+    "maintenanceTeamContractNo", "lastMaintenanceTime", "mobileGeneratorId", "mobileGeneratorModel",
+    "mobileGeneratorManufacturer", "dgLatestRefuelingTime", "latestRefuelingTicketNo",
+    "latestPowerGenerationTicketNo", "batteryCount", "battery1ID", "battery1Model",
+    "battery1Manufacturer", "battery2ID", "battery2Model", "battery2Manufacturer", "battery3ID",
+    "battery3Model", "battery3Manufacturer", "spareRequired", "spareavailable", "sparedomain",
+    "sparedevice", "sparename", "spareno", "rejectCategory", "detailedProgressDescription", "etc",
+    "arriveSiteTime", "travelTime", "SuspendDetail", "LastSuspendStatus", "LastSuspendOperator",
+    "LastSuspendOperatorGroup", "LastSuspendTime", "LastResumeOperator", "LastResumeOperatorGroup",
+    "LastResumeTime", "LastRejector", "LastRejectorGroup", "LastRejectTime", "LastProcesser",
+    "LastProcesserGroup", "LastProcessTime", "FaultResolved", "rejectInfo", "rejectReason",
+    "CreateDetail", "AcceptDetail", "SPApplicationDetail", "StartTripDetail", "ArriveSiteDetail",
+    "BONPOProcessDetail", "ProcessDetail", "ConfirmDetail", "LeaveSiteDetail", "ClosedDetail",
+    "createAttachment", "acceptAttachment", "startTripAttachment", "arriveSiteAttachment",
+    "processAttachment", "spApplicationAttachment", "bonpoProcessAttachment", "leaveSiteAttachment",
+    "confirmAttachment",
+]
+
+WO_EXPORT_CONFIG = {
+    "type": "Export",
+    "serviceName": "eflow-wo",
+    "config": json.dumps(WO_EXPORT_COLUMNS),
+}
+
+WO_ASYNC_PATH = "/api/eflow-wo/v1/export/async/eflow-wo"
+WO_USERHABITS_PATH = "/api/eflow-wo/v1/userhabits/add/eflow-wo"
+WO_DOWNLOAD_PATH = "/api/eflow-wo/v1/attachment/download/eflow-wo"
+
+# WO 导出 fieldDetails 元数据：与浏览器手动导出请求保持一致
+WO_FIELD_DETAILS_NAME_OVERRIDES = {
+    "displayName": "field.woDisplayName",
+}
+
+WO_FIELD_DETAILS_RELATION_FILTER = {
+    "alarmCode", "alarmId", "alarmType", "assetId", "assetName",
+    "battery1ID", "battery2ID", "battery3ID", "category", "createTime",
+    "creator", "etc", "hubSite",
+}
 
 
 CR_FIELDS = "woId,procId,opName,woNum,status,changeType,displayName,creator,requesterWorkGroupName,createTime,candidateOperator,mopMaker,mopChecker,ipRelatedActivity,implementer,implementResult,plannedStartTime,plannedEndTime,actualImplementationStartTime,actualImplementationEndTime,downtimeStart,downtimeEnd,rollbackStartTime,rollbackEndTime,closeTime,lastModifiedTime"
@@ -303,6 +408,32 @@ CR_PAYLOAD_BASE = {
 
 CR_REFERER = f"https://{HOST}:{PORT}/iui/am-mgt/v1/"
 
+CR_EXPORT_COLUMNS = [
+    "woNum", "status", "changeType", "displayName", "description", "triggerForChange",
+    "changeCategory", "subCategory", "creator", "createTime", "candidateOperator", "implementer",
+    "implementerContactNumber", "implementResult", "ipRelatedActivity", "mopMaker", "mopChecker",
+    "plannedStartTime", "plannedEndTime", "actualImplementationStartTime", "actualImplementationEndTime",
+    "downtimeStart", "downtimeEnd", "rollbackStartTime", "rollbackEndTime", "closeTime", "vendor",
+    "predictedChangeImpact", "affectedSite", "downtimeRequired", "alarmSuppressedObject",
+    "lastModifiedTime", "operatingCircleOrSubCenter", "operatingDivisionOrDistrictOrThana",
+    "requesterUserName", "requesterWorkGroupName", "requesterCompany", "requesterContactNumber",
+    "requesterEmail", "CreateDetail", "UpdateDetail", "AnalysisDetail", "ResultFeedbackDetail",
+    "DomainApproveDetail", "CRManagerConfirmDetail", "StartImplementingDetail",
+    "DomainLeadConfirmDetail", "NOCApproveDetail", "L1ApproveDetail", "L2ApproveDetail",
+    "L3ApproveDetail", "L4ApproveDetail", "L5ApproveDetail", "L6ApproveDetail", "L7ApproveDetail",
+    "L8ApproveDetail", "ClosedDetail",
+]
+
+CR_EXPORT_CONFIG = {
+    "type": "Export",
+    "serviceName": "eflow-asset",
+    "config": json.dumps(CR_EXPORT_COLUMNS),
+}
+
+CR_ASYNC_PATH = "/api/eflow-asset/v1/export/async/eflow-cr"
+CR_USERHABITS_PATH = "/api/eflow-asset/v1/userhabits/add/eflow-cr"
+CR_DOWNLOAD_PATH = "/api/eflow-asset/v1/attachment/download/eflow-cr"
+
 
 PM_FIELDS = "woId,procId,opName,ftpFilePath,woNum,status,displayName,serviceClassification,creator,createTime,lastModifiedTime,candidateOperator,pmManagerRealName,assetName,assetId,source,parentWoNum,planBeginTime,planEndTime,templateName,filename,pmContentCompletedNum,pmContentTotalNum,pmtOverdue"
 
@@ -317,6 +448,29 @@ PM_PAYLOAD_BASE = {
 }
 
 PM_REFERER = f"https://{HOST}:{PORT}/iui/pm-mgt/v1/"
+
+PM_EXPORT_COLUMNS = [
+    "woNum", "status", "displayName", "serviceClassification", "pmtOverdue", "creator", "createTime",
+    "lastModifiedTime", "candidateOperator", "pmManagerRealName", "assetId", "assetName", "source",
+    "parentWoNum", "planBeginTime", "planEndTime", "templateName", "pmContentCompletedNum",
+    "pmContentTotalNum", "CreateDetail", "CreateLastOperator", "CreateLastGroup", "CreateLastTime",
+    "ScheduleDetail", "ScheduleLastOperator", "ScheduleLastGroup", "ScheduleLastTime",
+    "PMManagerApproveDetail", "PMManagerApproveLastOperator", "PMManagerApproveLastGroup",
+    "PMManagerApproveLastTime", "FLMLeaderApproveDetail", "FLMLeaderApproveLastOperator",
+    "FLMLeaderApproveLastGroup", "FLMLeaderApproveLastTime", "ProcessDetail", "ProcessLastOperator",
+    "ProcessLastGroup", "ProcessLastTime", "AcceptDetail", "AcceptLastOperator", "AcceptLastGroup",
+    "AcceptLastTime", "ClosedDetail", "ClosedLastOperator", "ClosedLastGroup", "ClosedLastTime",
+]
+
+PM_EXPORT_CONFIG = {
+    "type": "Export",
+    "serviceName": "eflow-pm",
+    "config": json.dumps(PM_EXPORT_COLUMNS),
+}
+
+PM_ASYNC_PATH = "/api/eflow-pm/v1/export/async/eflow-pm-task"
+PM_USERHABITS_PATH = "/api/eflow-pm/v1/userhabits/add/eflow-pm-task"
+PM_DOWNLOAD_PATH = "/api/eflow-pm/v1/attachment/download/eflow-pm-task"
 
 
 SITE_PAYLOAD_BASE = {
@@ -337,6 +491,11 @@ PERSON_PAYLOAD_BASE = {
 }
 
 PERSON_REFERER = f"https://{HOST}:{PORT}/iui/cmdb/"
+
+SITE_ASYNC_PATH = "/api/cmdb/v1/data/export/Site"
+SITE_DOWNLOAD_PATH = "/api/cmdb/v1/attachment/download/Site"
+PERSON_ASYNC_PATH = "/api/cmdb/v1/data/export/Person"
+PERSON_DOWNLOAD_PATH = "/api/cmdb/v1/attachment/download/Person"
 
 
 def _get_time_range_ms():
@@ -427,12 +586,1329 @@ def fetch_eflow_tt_data(payload_base=TT_PAYLOAD_BASE):
     return fetch_paginated_data(TT_API_PATH, payload_base, TT_REFERER, "eFlow TT")
 
 
-def fetch_eflow_wo_data(payload_base=WO_PAYLOAD_BASE):
-    return fetch_paginated_data(WO_API_PATH, payload_base, WO_REFERER, "eFlow WO")
+def create_tt_export_task(filter_str, output_dir=OUTPUT_DIR):
+    headers_extra = _export_headers_extra(TT_REFERER)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    file_name = f"eflow-tt-export-{USERNAME}-{timestamp}"
+    field_details = {col: {"value": col, "name": f"field.{col}", "checked": True} for col in TT_EXPORT_COLUMNS}
+    payload = {
+        "fileName": file_name,
+        "type": "xlsx",
+        "createTimeRange": "",
+        "exportType": "0",
+        "customInfo": {"pageType": "allTicket"},
+        "field": TT_EXPORT_COLUMNS,
+        "fieldDetails": field_details,
+        "filter": filter_str,
+        "relationFilter": {"eflow_ticket_ticket_export_op": "", "eflow_ticket_ticket_attachment_export": ""},
+        "relationTable": [],
+        "tableName": "eflow_ticket_ticket_wo",
+        "tableType": "eflow-tt",
+    }
+    body = json.dumps(payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", "/api/eflow-ticket/v1/export/async/eflow-tt", headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Create TT export task: {status}, {len(resp_body)} bytes")
+    print(f"[DEBUG] export async headers: {raw_hdrs[:500]}")
+
+    # 处理 gzip 压缩
+    if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+        try:
+            import gzip
+            resp_body = gzip.decompress(resp_body)
+            print(f"[INFO] Decompressed async response: {len(resp_body)} bytes")
+        except Exception as e:
+            print(f"[WARN] Failed to decompress async response: {e}")
+
+    ftp_file_path = ""
+    if "200" in status:
+        try:
+            resp_text = resp_body.decode('utf-8')
+            print(f"[DEBUG] export async response: {resp_text[:500]}")
+            resp_data = json.loads(resp_text)
+            if isinstance(resp_data, dict):
+                ftp_file_path = resp_data.get("ftpFilePath", "")
+                if not ftp_file_path and isinstance(resp_data.get("data"), dict):
+                    ftp_file_path = resp_data["data"].get("ftpFilePath", "")
+                print(f"[INFO] Export ftpFilePath: {ftp_file_path}")
+            else:
+                print(f"[WARN] export async response is not dict: {type(resp_data)}, value={resp_data}")
+        except Exception as e:
+            print(f"[WARN] Failed to parse export async response: {e}")
+    return ftp_file_path, file_name
+
+
+def prepare_tt_export(filter_str):
+    headers_extra = _export_headers_extra(TT_REFERER)
+    payload = {
+        "customInfo": {"pageType": "allTicket"},
+        "field": TT_FIELDS,
+        "filter": filter_str,
+        "length": 1,
+        "order": "lastModifiedTime desc",
+        "relationFilter": {"eflow_ticket_ticket_asset_all": ""},
+        "start": 0,
+    }
+    body = json.dumps(payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", TT_API_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Prepare TT export (base/list): {status}, {len(resp_body)} bytes")
+    return status
+
+
+def find_matching_success_export(filter_str):
+    headers_extra = _export_headers_extra(TT_REFERER)
+    body = json.dumps({})
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", "/api/eflow-ticket/v1/export/list/eflow-tt", headers_extra=headers_extra, body=body,
+    )
+
+    if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+        try:
+            import gzip
+            resp_body = gzip.decompress(resp_body)
+        except Exception as e:
+            print(f"[WARN] Failed to decompress export list response: {e}")
+
+    try:
+        data = json.loads(resp_body.decode('utf-8'))
+        items = data if isinstance(data, list) else data.get("result", data.get("data", []))
+        for item in items:
+            item_filter = item.get("filter", "")
+            is_success = item.get("status", "").lower() in ("success", "sucess") or item.get("rate", "") == "100%"
+            if is_success and item_filter == filter_str:
+                uuid_val = item.get("uuid", "")
+                ftp_path = item.get("ftpFilePath", "")
+                if not ftp_path and uuid_val:
+                    ftp_path = f"{uuid_val}.zip"
+                file_name = item.get("fileName", "")
+                if file_name.endswith(".zip"):
+                    file_name = file_name[:-4]
+                print(f"[INFO] Found existing success export: {file_name}, ftpFilePath={ftp_path}")
+                return file_name, ftp_path, item
+    except Exception as e:
+        print(f"[WARN] Failed to find existing export: {e}")
+    return "", "", None
+
+
+def wait_tt_export_ready(file_name, max_wait=120, interval=5):
+    headers_extra = _export_headers_extra(TT_REFERER)
+    body = json.dumps({})
+
+    for attempt in range(max_wait // interval):
+        status, hdrs, raw_hdrs, resp_body = _http_request(
+            "POST", "/api/eflow-ticket/v1/export/list/eflow-tt", headers_extra=headers_extra, body=body,
+        )
+
+        # 处理 gzip 压缩
+        if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+            try:
+                import gzip
+                resp_body = gzip.decompress(resp_body)
+            except Exception as e:
+                print(f"[WARN] Failed to decompress export list response: {e}")
+
+        try:
+            resp_text = resp_body.decode('utf-8')
+            print(f"[DEBUG] export list response: {resp_text[:500]}")
+            data = json.loads(resp_text)
+
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                items = data.get("result", data.get("data", []))
+
+            for item in items:
+                item_file_name = item.get("fileName", "")
+                if file_name in item_file_name or item_file_name == file_name:
+                    status_str = item.get("status", "")
+                    uuid_val = item.get("uuid", "")
+                    rate = item.get("rate", "")
+                    print(f"[INFO] Export task {item_file_name}: status={status_str}, rate={rate}, uuid={uuid_val}")
+                    if status_str.lower() in ("success", "sucess") or rate == "100%":
+                        ftp_path = item.get("ftpFilePath", "")
+                        if not ftp_path and uuid_val:
+                            ftp_path = f"{uuid_val}.zip"
+                        return ftp_path, item
+        except Exception as e:
+            print(f"[WARN] Failed to parse export list: {e}")
+
+        print(f"[INFO] Waiting export ready... ({attempt + 1}/{max_wait // interval})")
+        time.sleep(interval)
+
+    return "", None
+
+
+def _export_headers_extra(referer):
+    return (
+        f"Cookie: {SESSION_COOKIE}\r\n"
+        f"language-option: en-US\r\n"
+        f"timeZoneInfo: Default,Atlantic/Reykjavik,\r\n"
+        f"X-Requested-With: XMLHttpRequest\r\n"
+        f"Referer: {referer}\r\n"
+        f"forgerydefense: {FORGERY_TOKEN}\r\n"
+        f"Content-Type: application/json\r\n"
+        f"Origin: https://{HOST}:{PORT}\r\n"
+    )
+
+
+def set_tt_export_columns():
+    headers_extra = _export_headers_extra(TT_REFERER)
+    body = json.dumps(TT_EXPORT_CONFIG)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", TT_USERHABITS_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Set TT export columns: {status}")
+
+    ftp_file_path = ""
+    if "200" in status:
+        try:
+            resp_text = resp_body.decode('utf-8')
+            print(f"[DEBUG] userhabits response: {resp_text[:300]}")
+            resp_data = json.loads(resp_text)
+            if isinstance(resp_data, dict):
+                ftp_file_path = resp_data.get("ftpFilePath", "")
+                print(f"[INFO] Export ftpFilePath: {ftp_file_path}")
+            else:
+                print(f"[WARN] userhabits response is not dict: {type(resp_data)}, value={resp_data}")
+        except Exception as e:
+            print(f"[WARN] Failed to parse userhabits response: {e}")
+    return ftp_file_path
+
+
+def download_tt_export_zip(file_name, ftp_file_path="", output_dir=OUTPUT_DIR):
+    headers_extra = _export_headers_extra(TT_REFERER)
+    file_name_body = file_name if file_name.endswith(".zip") else f"{file_name}.zip"
+    ftp_path_body = ftp_file_path if ftp_file_path.endswith(".zip") else f"{ftp_file_path}.zip"
+    body_payload = {
+        "fileName": file_name_body,
+        "tableType": "eflow-tt",
+    }
+    if ftp_file_path:
+        body_payload["ftpFilePath"] = ftp_path_body
+    body = json.dumps(body_payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", TT_DOWNLOAD_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Download TT export: {status}, {len(resp_body)} bytes")
+
+    if "200" not in status:
+        try:
+            err_text = resp_body.decode('utf-8')
+            print(f"[DEBUG] Download error response: {err_text[:500]}")
+        except Exception:
+            pass
+        raise Exception(f"Download failed: {status}")
+
+    filename = file_name if file_name.endswith(".zip") else f"{file_name}.zip"
+    cd = hdrs.get("content-disposition", "")
+    if cd:
+        fn_match = re.search(r'filename=["\']?([^"\';]+)', cd)
+        if fn_match:
+            filename = fn_match.group(1)
+
+    zip_path = os.path.join(output_dir, filename)
+    seq = 1
+    while os.path.exists(zip_path):
+        base, ext = os.path.splitext(filename)
+        zip_path = os.path.join(output_dir, f"{base}_{seq}{ext}")
+        seq += 1
+
+    with open(zip_path, "wb") as f:
+        f.write(resp_body)
+    print(f"[INFO] ZIP saved: {zip_path}")
+    return zip_path
+
+
+def _read_data_file(path):
+    """读取单个数据文件（CSV 或 Excel），用于 ZIP 内多文件并行读取。"""
+    import pandas as pd
+    if path.lower().endswith(".csv"):
+        return pd.read_csv(path)
+    return pd.read_excel(path)
+
+
+def _read_data_files_parallel(file_paths, max_workers=4):
+    """并行读取多个数据文件并合并为 DataFrame。"""
+    import pandas as pd
+    from concurrent.futures import ThreadPoolExecutor
+
+    if not file_paths:
+        return pd.DataFrame()
+
+    dfs = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = executor.map(_read_data_file, file_paths)
+        for df in results:
+            dfs.append(df)
+
+    if dfs:
+        return pd.concat(dfs, ignore_index=True)
+    return pd.DataFrame()
+
+
+def read_tt_export_zip(zip_path):
+    import zipfile
+    import pandas as pd
+
+    extract_dir = os.path.splitext(zip_path)[0]
+    os.makedirs(extract_dir, exist_ok=True)
+
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extractall(extract_dir)
+        files = z.namelist()
+        print(f"[INFO] ZIP extracted: {len(files)} files -> {extract_dir}")
+
+    data_files = [f for f in files if f.lower().endswith((".xlsx", ".xls", ".csv"))]
+    if not data_files:
+        raise Exception("No data file found in ZIP")
+    print(f"[INFO] TT ZIP data files: {len(data_files)} -> {data_files}")
+
+    read_start = time.time()
+    file_paths = [os.path.join(extract_dir, f) for f in data_files]
+    df = _read_data_files_parallel(file_paths, max_workers=4)
+
+    print(f"[INFO] TT export data: {len(df)} rows, {len(df.columns)} columns (read {time.time() - read_start:.2f}s)")
+    records = df.to_dict("records")
+    try:
+        shutil.rmtree(extract_dir)
+        print(f"[CLEAN] Removed TT extract dir: {extract_dir}")
+    except OSError as e:
+        print(f"[WARN] Cannot remove TT extract dir {extract_dir}: {e}")
+    return records
+
+
+def create_wo_export_task(filter_str, output_dir=OUTPUT_DIR):
+    headers_extra = _export_headers_extra(WO_REFERER)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    file_name = f"eflow-wo-export-{USERNAME}-{timestamp}"
+    field_details = {}
+    for col in WO_EXPORT_COLUMNS:
+        meta = {"value": col, "name": WO_FIELD_DETAILS_NAME_OVERRIDES.get(col, f"field.{col}"), "checked": True}
+        if col.endswith("Detail") or col.endswith("Attachment"):
+            meta["hide"] = True
+        if col in WO_FIELD_DETAILS_RELATION_FILTER:
+            meta["relationFilter"] = "eflow_wo_wo_export_op"
+        field_details[col] = meta
+    payload = {
+        "fileName": file_name,
+        "type": "xlsx",
+        "createTimeRange": "",
+        "exportType": "0",
+        "field": WO_EXPORT_COLUMNS,
+        "fieldDetails": field_details,
+        "filter": filter_str,
+        "relationFilter": {"eflow_wo_wo_export_op": "", "eflow_wo_wo_attachment_export": ""},
+        "relationTable": [],
+        "tableName": "eflow_wo_wo_wo",
+        "tableType": "eflow-wo",
+    }
+    body = json.dumps(payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", WO_ASYNC_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Create WO export task: {status}, {len(resp_body)} bytes")
+
+    if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+        try:
+            import gzip
+            resp_body = gzip.decompress(resp_body)
+        except Exception as e:
+            print(f"[WARN] Failed to decompress WO async response: {e}")
+
+    ftp_file_path = ""
+    if "200" in status:
+        try:
+            resp_text = resp_body.decode('utf-8')
+            resp_data = json.loads(resp_text)
+            if isinstance(resp_data, dict):
+                ftp_file_path = resp_data.get("ftpFilePath", "")
+                if not ftp_file_path and isinstance(resp_data.get("data"), dict):
+                    ftp_file_path = resp_data["data"].get("ftpFilePath", "")
+        except Exception as e:
+            print(f"[WARN] Failed to parse WO export async response: {e}")
+    return ftp_file_path, file_name
+
+
+def prepare_wo_export(filter_str):
+    headers_extra = _export_headers_extra(WO_REFERER)
+    payload = {
+        "customInfo": {"pageType": "allTicket"},
+        "field": WO_FIELDS,
+        "filter": filter_str,
+        "length": 1,
+        "order": "lastModifiedTime desc",
+        "relationFilter": {"eflow_wo_wo_asset": ""},
+        "start": 0,
+    }
+    body = json.dumps(payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", WO_API_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Prepare WO export (base/list): {status}, {len(resp_body)} bytes")
+    return status
+
+
+def wait_wo_export_ready(file_name, max_wait=120, interval=5):
+    headers_extra = _export_headers_extra(WO_REFERER)
+    body = json.dumps({})
+
+    for attempt in range(max_wait // interval):
+        status, hdrs, raw_hdrs, resp_body = _http_request(
+            "POST", "/api/eflow-wo/v1/export/list/eflow-wo", headers_extra=headers_extra, body=body,
+        )
+
+        if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+            try:
+                import gzip
+                resp_body = gzip.decompress(resp_body)
+            except Exception as e:
+                print(f"[WARN] Failed to decompress WO export list response: {e}")
+
+        try:
+            resp_text = resp_body.decode('utf-8')
+            data = json.loads(resp_text)
+
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                items = data.get("result", data.get("data", []))
+
+            for item in items:
+                item_file_name = item.get("fileName", "")
+                if file_name in item_file_name or item_file_name == file_name:
+                    status_str = item.get("status", "")
+                    uuid_val = item.get("uuid", "")
+                    rate = item.get("rate", "")
+                    print(f"[INFO] WO export task {item_file_name}: status={status_str}, rate={rate}, uuid={uuid_val}")
+                    if status_str.lower() in ("success", "sucess") or rate == "100%":
+                        ftp_path = item.get("ftpFilePath", "")
+                        if not ftp_path and uuid_val:
+                            ftp_path = f"{uuid_val}.zip"
+                        return ftp_path, item
+        except Exception as e:
+            print(f"[WARN] Failed to parse WO export list: {e}")
+
+        print(f"[INFO] Waiting WO export ready... ({attempt + 1}/{max_wait // interval})")
+        time.sleep(interval)
+
+    return "", None
+
+
+def set_wo_export_columns():
+    headers_extra = _export_headers_extra(WO_REFERER)
+    body = json.dumps(WO_EXPORT_CONFIG)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", WO_USERHABITS_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Set WO export columns: {status}")
+    return ""
+
+
+def download_wo_export_zip(file_name, ftp_file_path="", output_dir=OUTPUT_DIR):
+    headers_extra = _export_headers_extra(WO_REFERER)
+    file_name_body = file_name if file_name.endswith(".zip") else f"{file_name}.zip"
+    ftp_path_body = ftp_file_path if ftp_file_path.endswith(".zip") else f"{ftp_file_path}.zip"
+    body_payload = {
+        "fileName": file_name_body,
+        "tableType": "eflow-wo",
+    }
+    if ftp_file_path:
+        body_payload["ftpFilePath"] = ftp_path_body
+    body = json.dumps(body_payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", WO_DOWNLOAD_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Download WO export: {status}, {len(resp_body)} bytes")
+
+    if "200" not in status:
+        try:
+            err_text = resp_body.decode('utf-8')
+            print(f"[DEBUG] WO Download error response: {err_text[:500]}")
+        except Exception:
+            pass
+        raise Exception(f"WO Download failed: {status}")
+
+    filename = file_name if file_name.endswith(".zip") else f"{file_name}.zip"
+    cd = hdrs.get("content-disposition", "")
+    if cd:
+        fn_match = re.search(r'filename=["\']?([^"\';]+)', cd)
+        if fn_match:
+            filename = fn_match.group(1)
+
+    zip_path = os.path.join(output_dir, filename)
+    seq = 1
+    while os.path.exists(zip_path):
+        base, ext = os.path.splitext(filename)
+        zip_path = os.path.join(output_dir, f"{base}_{seq}{ext}")
+        seq += 1
+
+    with open(zip_path, "wb") as f:
+        f.write(resp_body)
+    print(f"[INFO] WO ZIP saved: {zip_path}")
+    return zip_path
+
+
+def read_wo_export_zip(zip_path):
+    import zipfile
+    import pandas as pd
+
+    extract_dir = os.path.splitext(zip_path)[0]
+    os.makedirs(extract_dir, exist_ok=True)
+
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extractall(extract_dir)
+        files = z.namelist()
+        print(f"[INFO] WO ZIP extracted: {len(files)} files -> {extract_dir}")
+
+    data_files = [f for f in files if f.lower().endswith((".xlsx", ".xls", ".csv"))]
+    if not data_files:
+        raise Exception("No data file found in WO ZIP")
+    print(f"[INFO] WO ZIP data files: {len(data_files)} -> {data_files}")
+
+    read_start = time.time()
+    file_paths = [os.path.join(extract_dir, f) for f in data_files]
+    df = _read_data_files_parallel(file_paths, max_workers=4)
+
+    print(f"[INFO] WO export data: {len(df)} rows, {len(df.columns)} columns (read {time.time() - read_start:.2f}s)")
+    records = df.to_dict("records")
+    try:
+        shutil.rmtree(extract_dir)
+        print(f"[CLEAN] Removed WO extract dir: {extract_dir}")
+    except OSError as e:
+        print(f"[WARN] Cannot remove WO extract dir {extract_dir}: {e}")
+    return records
+
+
+def create_cr_export_task(filter_str, output_dir=OUTPUT_DIR):
+    headers_extra = _export_headers_extra(CR_REFERER)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    file_name = f"eflow-cr-export-{USERNAME}-{timestamp}"
+    field_details = {}
+    for col in CR_EXPORT_COLUMNS:
+        meta = {"value": col, "name": f"field.{col}", "checked": True}
+        if col.endswith("Detail"):
+            meta["hide"] = True
+        field_details[col] = meta
+    payload = {
+        "fileName": file_name,
+        "type": "xlsx",
+        "createTimeRange": "",
+        "exportType": "0",
+        "field": CR_EXPORT_COLUMNS,
+        "fieldDetails": field_details,
+        "filter": filter_str,
+        "relationFilter": {"eflow_am_cr_op": ""},
+        "relationTable": [],
+        "tableName": "eflow_am_cr_wo",
+        "tableType": "eflow-cr",
+    }
+    body = json.dumps(payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", CR_ASYNC_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Create CR export task: {status}, {len(resp_body)} bytes")
+
+    if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+        try:
+            import gzip
+            resp_body = gzip.decompress(resp_body)
+        except Exception as e:
+            print(f"[WARN] Failed to decompress CR async response: {e}")
+
+    ftp_file_path = ""
+    if "200" in status:
+        try:
+            resp_text = resp_body.decode('utf-8')
+            resp_data = json.loads(resp_text)
+            if isinstance(resp_data, dict):
+                ftp_file_path = resp_data.get("ftpFilePath", "")
+                if not ftp_file_path and isinstance(resp_data.get("data"), dict):
+                    ftp_file_path = resp_data["data"].get("ftpFilePath", "")
+        except Exception as e:
+            print(f"[WARN] Failed to parse CR export async response: {e}")
+    return ftp_file_path, file_name
+
+
+def prepare_cr_export(filter_str):
+    headers_extra = _export_headers_extra(CR_REFERER)
+    payload = {
+        "customInfo": {"pageType": "allTicket"},
+        "field": CR_FIELDS,
+        "filter": filter_str,
+        "length": 1,
+        "order": "lastModifiedTime desc",
+        "start": 0,
+    }
+    body = json.dumps(payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", CR_API_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Prepare CR export (base/list): {status}, {len(resp_body)} bytes")
+    return status
+
+
+def wait_cr_export_ready(file_name, max_wait=120, interval=5):
+    headers_extra = _export_headers_extra(CR_REFERER)
+    body = json.dumps({})
+
+    for attempt in range(max_wait // interval):
+        status, hdrs, raw_hdrs, resp_body = _http_request(
+            "POST", "/api/eflow-asset/v1/export/list/eflow-cr", headers_extra=headers_extra, body=body,
+        )
+
+        if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+            try:
+                import gzip
+                resp_body = gzip.decompress(resp_body)
+            except Exception as e:
+                print(f"[WARN] Failed to decompress CR export list response: {e}")
+
+        try:
+            resp_text = resp_body.decode('utf-8')
+            data = json.loads(resp_text)
+
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                items = data.get("result", data.get("data", []))
+
+            for item in items:
+                item_file_name = item.get("fileName", "")
+                if file_name in item_file_name or item_file_name == file_name:
+                    status_str = item.get("status", "")
+                    uuid_val = item.get("uuid", "")
+                    rate = item.get("rate", "")
+                    print(f"[INFO] CR export task {item_file_name}: status={status_str}, rate={rate}, uuid={uuid_val}")
+                    if status_str.lower() in ("success", "sucess") or rate == "100%":
+                        ftp_path = item.get("ftpFilePath", "")
+                        if not ftp_path and uuid_val:
+                            ftp_path = f"{uuid_val}.zip"
+                        return ftp_path, item
+        except Exception as e:
+            print(f"[WARN] Failed to parse CR export list: {e}")
+
+        print(f"[INFO] Waiting CR export ready... ({attempt + 1}/{max_wait // interval})")
+        time.sleep(interval)
+
+    return "", None
+
+
+def set_cr_export_columns():
+    headers_extra = _export_headers_extra(CR_REFERER)
+    body = json.dumps(CR_EXPORT_CONFIG)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", CR_USERHABITS_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Set CR export columns: {status}")
+    return ""
+
+
+def download_cr_export_zip(file_name, ftp_file_path="", output_dir=OUTPUT_DIR):
+    headers_extra = _export_headers_extra(CR_REFERER)
+    file_name_body = file_name if file_name.endswith(".zip") else f"{file_name}.zip"
+    ftp_path_body = ftp_file_path if ftp_file_path.endswith(".zip") else f"{ftp_file_path}.zip"
+    body_payload = {
+        "fileName": file_name_body,
+        "tableType": "eflow-cr",
+    }
+    if ftp_file_path:
+        body_payload["ftpFilePath"] = ftp_path_body
+    body = json.dumps(body_payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", CR_DOWNLOAD_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Download CR export: {status}, {len(resp_body)} bytes")
+
+    if "200" not in status:
+        try:
+            err_text = resp_body.decode('utf-8')
+            print(f"[DEBUG] CR Download error response: {err_text[:500]}")
+        except Exception:
+            pass
+        raise Exception(f"CR Download failed: {status}")
+
+    filename = file_name if file_name.endswith(".zip") else f"{file_name}.zip"
+    cd = hdrs.get("content-disposition", "")
+    if cd:
+        fn_match = re.search(r'filename=["\']?([^"\';]+)', cd)
+        if fn_match:
+            filename = fn_match.group(1)
+
+    zip_path = os.path.join(output_dir, filename)
+    seq = 1
+    while os.path.exists(zip_path):
+        base, ext = os.path.splitext(filename)
+        zip_path = os.path.join(output_dir, f"{base}_{seq}{ext}")
+        seq += 1
+
+    with open(zip_path, "wb") as f:
+        f.write(resp_body)
+    print(f"[INFO] CR ZIP saved: {zip_path}")
+    return zip_path
+
+
+def read_cr_export_zip(zip_path):
+    import zipfile
+    import pandas as pd
+
+    extract_dir = os.path.splitext(zip_path)[0]
+    os.makedirs(extract_dir, exist_ok=True)
+
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extractall(extract_dir)
+        files = z.namelist()
+        print(f"[INFO] CR ZIP extracted: {len(files)} files -> {extract_dir}")
+
+    data_files = [f for f in files if f.lower().endswith((".xlsx", ".xls", ".csv"))]
+    if not data_files:
+        raise Exception("No data file found in CR ZIP")
+    print(f"[INFO] CR ZIP data files: {len(data_files)} -> {data_files}")
+
+    read_start = time.time()
+    file_paths = [os.path.join(extract_dir, f) for f in data_files]
+    df = _read_data_files_parallel(file_paths, max_workers=4)
+
+    print(f"[INFO] CR export data: {len(df)} rows, {len(df.columns)} columns (read {time.time() - read_start:.2f}s)")
+    records = df.to_dict("records")
+    try:
+        shutil.rmtree(extract_dir)
+        print(f"[CLEAN] Removed CR extract dir: {extract_dir}")
+    except OSError as e:
+        print(f"[WARN] Cannot remove CR extract dir {extract_dir}: {e}")
+    return records
 
 
 def fetch_eflow_cr_data(payload_base=CR_PAYLOAD_BASE):
     return fetch_paginated_data(CR_API_PATH, payload_base, CR_REFERER, "eFlow CR")
+
+
+def create_pm_export_task(filter_str, output_dir=OUTPUT_DIR):
+    headers_extra = _export_headers_extra(PM_REFERER)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    file_name = f"eflow-pm-task-export-{USERNAME}-{timestamp}"
+    field_details = {}
+    for col in PM_EXPORT_COLUMNS:
+        meta = {"value": col, "name": f"field.{col}", "checked": True}
+        if col.endswith("Detail"):
+            meta["hide"] = True
+        field_details[col] = meta
+    payload = {
+        "fileName": file_name,
+        "type": "xlsx",
+        "createTimeRange": "",
+        "exportType": "0",
+        "field": PM_EXPORT_COLUMNS,
+        "fieldDetails": field_details,
+        "filter": filter_str,
+        "relationFilter": {"eflow_pm_export_op": ""},
+        "relationTable": [],
+        "tableName": "eflow_pm_task_wo",
+        "tableType": "eflow-pm-task",
+    }
+    body = json.dumps(payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", PM_ASYNC_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Create PM export task: {status}, {len(resp_body)} bytes")
+
+    if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+        try:
+            import gzip
+            resp_body = gzip.decompress(resp_body)
+        except Exception as e:
+            print(f"[WARN] Failed to decompress PM async response: {e}")
+
+    ftp_file_path = ""
+    if "200" in status:
+        try:
+            resp_text = resp_body.decode('utf-8')
+            resp_data = json.loads(resp_text)
+            if isinstance(resp_data, dict):
+                ftp_file_path = resp_data.get("ftpFilePath", "")
+                if not ftp_file_path and isinstance(resp_data.get("data"), dict):
+                    ftp_file_path = resp_data["data"].get("ftpFilePath", "")
+        except Exception as e:
+            print(f"[WARN] Failed to parse PM export async response: {e}")
+    return ftp_file_path, file_name
+
+
+def prepare_pm_export(filter_str):
+    headers_extra = _export_headers_extra(PM_REFERER)
+    payload = {
+        "customInfo": {"pageType": "allTicket"},
+        "field": PM_FIELDS,
+        "filter": filter_str,
+        "length": 1,
+        "order": "lastModifiedTime desc",
+        "relationFilter": {"eflow_pm_task_asset": ""},
+        "start": 0,
+    }
+    body = json.dumps(payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", PM_API_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Prepare PM export (base/list): {status}, {len(resp_body)} bytes")
+    return status
+
+
+def wait_pm_export_ready(file_name, max_wait=120, interval=5):
+    headers_extra = _export_headers_extra(PM_REFERER)
+    body = json.dumps({})
+
+    for attempt in range(max_wait // interval):
+        status, hdrs, raw_hdrs, resp_body = _http_request(
+            "POST", "/api/eflow-pm/v1/export/list/eflow-pm-task", headers_extra=headers_extra, body=body,
+        )
+
+        if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+            try:
+                import gzip
+                resp_body = gzip.decompress(resp_body)
+            except Exception as e:
+                print(f"[WARN] Failed to decompress PM export list response: {e}")
+
+        try:
+            resp_text = resp_body.decode('utf-8')
+            data = json.loads(resp_text)
+
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                items = data.get("result", data.get("data", []))
+
+            for item in items:
+                item_file_name = item.get("fileName", "")
+                if file_name in item_file_name or item_file_name == file_name:
+                    status_str = item.get("status", "")
+                    uuid_val = item.get("uuid", "")
+                    rate = item.get("rate", "")
+                    print(f"[INFO] PM export task {item_file_name}: status={status_str}, rate={rate}, uuid={uuid_val}")
+                    if status_str.lower() in ("success", "sucess") or rate == "100%":
+                        ftp_path = item.get("ftpFilePath", "")
+                        if not ftp_path and uuid_val:
+                            ftp_path = f"{uuid_val}.zip"
+                        return ftp_path, item
+        except Exception as e:
+            print(f"[WARN] Failed to parse PM export list: {e}")
+
+        print(f"[INFO] Waiting PM export ready... ({attempt + 1}/{max_wait // interval})")
+        time.sleep(interval)
+
+    return "", None
+
+
+def set_pm_export_columns():
+    headers_extra = _export_headers_extra(PM_REFERER)
+    body = json.dumps(PM_EXPORT_CONFIG)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", PM_USERHABITS_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Set PM export columns: {status}")
+    return ""
+
+
+def download_pm_export_zip(file_name, ftp_file_path="", output_dir=OUTPUT_DIR):
+    headers_extra = _export_headers_extra(PM_REFERER)
+    file_name_body = file_name if file_name.endswith(".zip") else f"{file_name}.zip"
+    ftp_path_body = ftp_file_path if ftp_file_path.endswith(".zip") else f"{ftp_file_path}.zip"
+    body_payload = {
+        "fileName": file_name_body,
+        "tableType": "eflow-pm-task",
+    }
+    if ftp_file_path:
+        body_payload["ftpFilePath"] = ftp_path_body
+    body = json.dumps(body_payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", PM_DOWNLOAD_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Download PM export: {status}, {len(resp_body)} bytes")
+
+    if "200" not in status:
+        try:
+            err_text = resp_body.decode('utf-8')
+            print(f"[DEBUG] PM Download error response: {err_text[:500]}")
+        except Exception:
+            pass
+        raise Exception(f"PM Download failed: {status}")
+
+    filename = file_name if file_name.endswith(".zip") else f"{file_name}.zip"
+    cd = hdrs.get("content-disposition", "")
+    if cd:
+        fn_match = re.search(r'filename=["\']?([^"\';]+)', cd)
+        if fn_match:
+            filename = fn_match.group(1)
+
+    zip_path = os.path.join(output_dir, filename)
+    seq = 1
+    while os.path.exists(zip_path):
+        base, ext = os.path.splitext(filename)
+        zip_path = os.path.join(output_dir, f"{base}_{seq}{ext}")
+        seq += 1
+
+    with open(zip_path, "wb") as f:
+        f.write(resp_body)
+    print(f"[INFO] PM ZIP saved: {zip_path}")
+    return zip_path
+
+
+def read_pm_export_zip(zip_path):
+    import zipfile
+    import pandas as pd
+
+    extract_dir = os.path.splitext(zip_path)[0]
+    os.makedirs(extract_dir, exist_ok=True)
+
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extractall(extract_dir)
+        files = z.namelist()
+        print(f"[INFO] PM ZIP extracted: {len(files)} files -> {extract_dir}")
+
+    data_files = [f for f in files if f.lower().endswith((".xlsx", ".xls", ".csv"))]
+    if not data_files:
+        raise Exception("No data file found in PM ZIP")
+    print(f"[INFO] PM ZIP data files: {len(data_files)} -> {data_files}")
+
+    read_start = time.time()
+    file_paths = [os.path.join(extract_dir, f) for f in data_files]
+    df = _read_data_files_parallel(file_paths, max_workers=4)
+
+    print(f"[INFO] PM export data: {len(df)} rows, {len(df.columns)} columns (read {time.time() - read_start:.2f}s)")
+    records = df.to_dict("records")
+    try:
+        shutil.rmtree(extract_dir)
+        print(f"[CLEAN] Removed PM extract dir: {extract_dir}")
+    except OSError as e:
+        print(f"[WARN] Cannot remove PM extract dir {extract_dir}: {e}")
+    return records
+
+
+def create_site_export_task(output_dir=OUTPUT_DIR):
+    headers_extra = _export_headers_extra(SITE_REFERER)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    file_name = f"Site-export-{USERNAME}-{timestamp}"
+    payload = {
+        "fileName": file_name,
+        "callScene": "ui",
+    }
+    body = json.dumps(payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", SITE_ASYNC_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Create Site export task: {status}, {len(resp_body)} bytes")
+
+    if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+        try:
+            import gzip
+            resp_body = gzip.decompress(resp_body)
+        except Exception as e:
+            print(f"[WARN] Failed to decompress Site async response: {e}")
+
+    ftp_file_path = ""
+    if "200" in status:
+        try:
+            resp_text = resp_body.decode('utf-8')
+            resp_data = json.loads(resp_text)
+            if isinstance(resp_data, dict):
+                ftp_file_path = resp_data.get("ftpFilePath", "")
+                if not ftp_file_path and isinstance(resp_data.get("data"), dict):
+                    ftp_file_path = resp_data["data"].get("ftpFilePath", "")
+        except Exception as e:
+            print(f"[WARN] Failed to parse Site export async response: {e}")
+    return ftp_file_path, file_name
+
+
+def wait_site_export_ready(file_name, max_wait=120, interval=5):
+    headers_extra = _export_headers_extra(SITE_REFERER)
+    body = json.dumps({})
+
+    for attempt in range(max_wait // interval):
+        status, hdrs, raw_hdrs, resp_body = _http_request(
+            "POST", "/api/cmdb/v1/export/list/Site", headers_extra=headers_extra, body=body,
+        )
+
+        if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+            try:
+                import gzip
+                resp_body = gzip.decompress(resp_body)
+            except Exception as e:
+                print(f"[WARN] Failed to decompress Site export list response: {e}")
+
+        try:
+            resp_text = resp_body.decode('utf-8')
+            data = json.loads(resp_text)
+
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                items = data.get("result", data.get("data", []))
+
+            for item in items:
+                item_file_name = item.get("fileName", "")
+                if file_name in item_file_name or item_file_name == file_name:
+                    status_str = item.get("status", "")
+                    uuid_val = item.get("uuid", "")
+                    rate = item.get("rate", "")
+                    print(f"[INFO] Site export task {item_file_name}: status={status_str}, rate={rate}, uuid={uuid_val}")
+                    if status_str.lower() in ("success", "sucess") or rate == "100%":
+                        ftp_path = item.get("ftpFilePath", "")
+                        if not ftp_path and uuid_val:
+                            ftp_path = f"{uuid_val}.zip"
+                        return ftp_path, item
+        except Exception as e:
+            print(f"[WARN] Failed to parse Site export list: {e}")
+
+        print(f"[INFO] Waiting Site export ready... ({attempt + 1}/{max_wait // interval})")
+        time.sleep(interval)
+
+    return "", None
+
+
+def download_site_export_zip(file_name, ftp_file_path="", output_dir=OUTPUT_DIR):
+    headers_extra = _export_headers_extra(SITE_REFERER)
+    file_name_body = file_name if file_name.endswith(".zip") else f"{file_name}.zip"
+    ftp_path_body = ftp_file_path if ftp_file_path.endswith(".zip") else f"{ftp_file_path}.zip"
+    body_payload = {
+        "fileName": file_name_body,
+        "tableType": "Site",
+    }
+    if ftp_file_path:
+        body_payload["ftpFilePath"] = ftp_path_body
+    body = json.dumps(body_payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", SITE_DOWNLOAD_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Download Site export: {status}, {len(resp_body)} bytes")
+
+    if "200" not in status:
+        try:
+            err_text = resp_body.decode('utf-8')
+            print(f"[DEBUG] Site Download error response: {err_text[:500]}")
+        except Exception:
+            pass
+        raise Exception(f"Site Download failed: {status}")
+
+    filename = file_name if file_name.endswith(".zip") else f"{file_name}.zip"
+    cd = hdrs.get("content-disposition", "")
+    if cd:
+        fn_match = re.search(r'filename=["\']?([^"\';]+)', cd)
+        if fn_match:
+            filename = fn_match.group(1)
+
+    zip_path = os.path.join(output_dir, filename)
+    seq = 1
+    while os.path.exists(zip_path):
+        base, ext = os.path.splitext(filename)
+        zip_path = os.path.join(output_dir, f"{base}_{seq}{ext}")
+        seq += 1
+
+    with open(zip_path, "wb") as f:
+        f.write(resp_body)
+    print(f"[INFO] Site ZIP saved: {zip_path}")
+    return zip_path
+
+
+def read_site_export_zip(zip_path):
+    import zipfile
+    import pandas as pd
+
+    extract_dir = os.path.splitext(zip_path)[0]
+    os.makedirs(extract_dir, exist_ok=True)
+
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extractall(extract_dir)
+        files = z.namelist()
+        print(f"[INFO] Site ZIP extracted: {len(files)} files -> {extract_dir}")
+
+    data_files = [f for f in files if f.lower().endswith((".xlsx", ".xls", ".csv"))]
+    if not data_files:
+        raise Exception("No data file found in Site ZIP")
+
+    dfs = []
+    for data_file in data_files:
+        full_path = os.path.join(extract_dir, data_file)
+        if full_path.lower().endswith(".csv"):
+            dfs.append(pd.read_csv(full_path))
+        else:
+            dfs.append(pd.read_excel(full_path))
+
+    if dfs:
+        df = pd.concat(dfs, ignore_index=True)
+    else:
+        df = pd.DataFrame()
+
+    print(f"[INFO] Site export data: {len(df)} rows, {len(df.columns)} columns")
+    records = df.to_dict("records")
+    try:
+        shutil.rmtree(extract_dir)
+        print(f"[CLEAN] Removed Site extract dir: {extract_dir}")
+    except OSError as e:
+        print(f"[WARN] Cannot remove Site extract dir {extract_dir}: {e}")
+    return records
+
+
+def create_person_export_task(output_dir=OUTPUT_DIR):
+    headers_extra = _export_headers_extra(PERSON_REFERER)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    file_name = f"Person-export-{USERNAME}-{timestamp}"
+    payload = {
+        "fileName": file_name,
+        "callScene": "ui",
+    }
+    body = json.dumps(payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", PERSON_ASYNC_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Create Person export task: {status}, {len(resp_body)} bytes")
+
+    if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+        try:
+            import gzip
+            resp_body = gzip.decompress(resp_body)
+        except Exception as e:
+            print(f"[WARN] Failed to decompress Person async response: {e}")
+
+    ftp_file_path = ""
+    if "200" in status:
+        try:
+            resp_text = resp_body.decode('utf-8')
+            resp_data = json.loads(resp_text)
+            if isinstance(resp_data, dict):
+                ftp_file_path = resp_data.get("ftpFilePath", "")
+                if not ftp_file_path and isinstance(resp_data.get("data"), dict):
+                    ftp_file_path = resp_data["data"].get("ftpFilePath", "")
+        except Exception as e:
+            print(f"[WARN] Failed to parse Person export async response: {e}")
+    return ftp_file_path, file_name
+
+
+def wait_person_export_ready(file_name, max_wait=120, interval=5):
+    headers_extra = _export_headers_extra(PERSON_REFERER)
+    body = json.dumps({})
+
+    for attempt in range(max_wait // interval):
+        status, hdrs, raw_hdrs, resp_body = _http_request(
+            "POST", "/api/cmdb/v1/export/list/Person", headers_extra=headers_extra, body=body,
+        )
+
+        if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
+            try:
+                import gzip
+                resp_body = gzip.decompress(resp_body)
+            except Exception as e:
+                print(f"[WARN] Failed to decompress Person export list response: {e}")
+
+        try:
+            resp_text = resp_body.decode('utf-8')
+            data = json.loads(resp_text)
+
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                items = data.get("result", data.get("data", []))
+
+            for item in items:
+                item_file_name = item.get("fileName", "")
+                if file_name in item_file_name or item_file_name == file_name:
+                    status_str = item.get("status", "")
+                    uuid_val = item.get("uuid", "")
+                    rate = item.get("rate", "")
+                    print(f"[INFO] Person export task {item_file_name}: status={status_str}, rate={rate}, uuid={uuid_val}")
+                    if status_str.lower() in ("success", "sucess") or rate == "100%":
+                        ftp_path = item.get("ftpFilePath", "")
+                        if not ftp_path and uuid_val:
+                            ftp_path = f"{uuid_val}.zip"
+                        return ftp_path, item
+        except Exception as e:
+            print(f"[WARN] Failed to parse Person export list: {e}")
+
+        print(f"[INFO] Waiting Person export ready... ({attempt + 1}/{max_wait // interval})")
+        time.sleep(interval)
+
+    return "", None
+
+
+def download_person_export_zip(file_name, ftp_file_path="", output_dir=OUTPUT_DIR):
+    headers_extra = _export_headers_extra(PERSON_REFERER)
+    file_name_body = file_name if file_name.endswith(".zip") else f"{file_name}.zip"
+    ftp_path_body = ftp_file_path if ftp_file_path.endswith(".zip") else f"{ftp_file_path}.zip"
+    body_payload = {
+        "fileName": file_name_body,
+        "tableType": "Person",
+    }
+    if ftp_file_path:
+        body_payload["ftpFilePath"] = ftp_path_body
+    body = json.dumps(body_payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", PERSON_DOWNLOAD_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Download Person export: {status}, {len(resp_body)} bytes")
+
+    if "200" not in status:
+        try:
+            err_text = resp_body.decode('utf-8')
+            print(f"[DEBUG] Person Download error response: {err_text[:500]}")
+        except Exception:
+            pass
+        raise Exception(f"Person Download failed: {status}")
+
+    filename = file_name if file_name.endswith(".zip") else f"{file_name}.zip"
+    cd = hdrs.get("content-disposition", "")
+    if cd:
+        fn_match = re.search(r'filename=["\']?([^"\';]+)', cd)
+        if fn_match:
+            filename = fn_match.group(1)
+
+    zip_path = os.path.join(output_dir, filename)
+    seq = 1
+    while os.path.exists(zip_path):
+        base, ext = os.path.splitext(filename)
+        zip_path = os.path.join(output_dir, f"{base}_{seq}{ext}")
+        seq += 1
+
+    with open(zip_path, "wb") as f:
+        f.write(resp_body)
+    print(f"[INFO] Person ZIP saved: {zip_path}")
+    return zip_path
+
+
+def read_person_export_zip(zip_path):
+    import zipfile
+    import pandas as pd
+
+    extract_dir = os.path.splitext(zip_path)[0]
+    os.makedirs(extract_dir, exist_ok=True)
+
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extractall(extract_dir)
+        files = z.namelist()
+        print(f"[INFO] Person ZIP extracted: {len(files)} files -> {extract_dir}")
+
+    data_files = [f for f in files if f.lower().endswith((".xlsx", ".xls", ".csv"))]
+    if not data_files:
+        raise Exception("No data file found in Person ZIP")
+
+    dfs = []
+    for data_file in data_files:
+        full_path = os.path.join(extract_dir, data_file)
+        if full_path.lower().endswith(".csv"):
+            dfs.append(pd.read_csv(full_path))
+        else:
+            dfs.append(pd.read_excel(full_path))
+
+    if dfs:
+        df = pd.concat(dfs, ignore_index=True)
+    else:
+        df = pd.DataFrame()
+
+    print(f"[INFO] Person export data: {len(df)} rows, {len(df.columns)} columns")
+    records = df.to_dict("records")
+    try:
+        shutil.rmtree(extract_dir)
+        print(f"[CLEAN] Removed Person extract dir: {extract_dir}")
+    except OSError as e:
+        print(f"[WARN] Cannot remove Person extract dir {extract_dir}: {e}")
+    return records
+
+
+def fetch_site_export_xlsx(output_dir=OUTPUT_DIR):
+    """CMDB Site 导出为同步下载，响应体即为 Site.xlsx 文件。"""
+    headers_extra = _export_headers_extra(SITE_REFERER)
+    payload = {"callScene": "ui"}
+    body = json.dumps(payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", SITE_ASYNC_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Site export: {status}, {len(resp_body)} bytes")
+
+    if "200" not in status:
+        try:
+            err_text = resp_body.decode('utf-8')
+            print(f"[DEBUG] Site export error response: {err_text[:500]}")
+        except Exception:
+            pass
+        raise Exception(f"Site export failed: {status}")
+
+    filename = "Site.xlsx"
+    cd = hdrs.get("content-disposition", "")
+    if cd:
+        fn_match = re.search(r'filename=["\']?([^"\';]+)', cd)
+        if fn_match:
+            filename = fn_match.group(1)
+
+    xlsx_path = os.path.join(output_dir, filename)
+    seq = 1
+    while os.path.exists(xlsx_path):
+        base, ext = os.path.splitext(filename)
+        xlsx_path = os.path.join(output_dir, f"{base}_{seq}{ext}")
+        seq += 1
+
+    with open(xlsx_path, "wb") as f:
+        f.write(resp_body)
+    print(f"[INFO] Site XLSX saved: {xlsx_path}")
+    return xlsx_path
+
+
+def read_site_xlsx(xlsx_path):
+    import pandas as pd
+    t0 = time.time()
+    df = pd.read_excel(xlsx_path)
+    print(f"[INFO] Site export data: {len(df)} rows, {len(df.columns)} columns (read {time.time() - t0:.2f}s)")
+    return df.to_dict("records")
+
+
+def fetch_person_export_xlsx(output_dir=OUTPUT_DIR):
+    """CMDB Person 导出为同步下载，响应体即为 Person.xlsx 文件。"""
+    headers_extra = _export_headers_extra(PERSON_REFERER)
+    payload = {"callScene": "ui"}
+    body = json.dumps(payload)
+    status, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", PERSON_ASYNC_PATH, headers_extra=headers_extra, body=body,
+    )
+    print(f"[INFO] Person export: {status}, {len(resp_body)} bytes")
+
+    if "200" not in status:
+        try:
+            err_text = resp_body.decode('utf-8')
+            print(f"[DEBUG] Person export error response: {err_text[:500]}")
+        except Exception:
+            pass
+        raise Exception(f"Person export failed: {status}")
+
+    filename = "Person.xlsx"
+    cd = hdrs.get("content-disposition", "")
+    if cd:
+        fn_match = re.search(r'filename=["\']?([^"\';]+)', cd)
+        if fn_match:
+            filename = fn_match.group(1)
+
+    xlsx_path = os.path.join(output_dir, filename)
+    seq = 1
+    while os.path.exists(xlsx_path):
+        base, ext = os.path.splitext(filename)
+        xlsx_path = os.path.join(output_dir, f"{base}_{seq}{ext}")
+        seq += 1
+
+    with open(xlsx_path, "wb") as f:
+        f.write(resp_body)
+    print(f"[INFO] Person XLSX saved: {xlsx_path}")
+    return xlsx_path
+
+
+def read_person_xlsx(xlsx_path):
+    import pandas as pd
+    t0 = time.time()
+    df = pd.read_excel(xlsx_path)
+    print(f"[INFO] Person export data: {len(df)} rows, {len(df.columns)} columns (read {time.time() - t0:.2f}s)")
+    return df.to_dict("records")
 
 
 def fetch_eflow_pm_data(payload_base=PM_PAYLOAD_BASE):
@@ -484,24 +1960,32 @@ def parse_response(data, label=""):
 
 def _write_sheet(writer, df, sheet_name):
     import pandas as pd
-    from openpyxl.styles import PatternFill, Font
 
     df.to_excel(writer, index=False, sheet_name=sheet_name)
-    ws = writer.sheets[sheet_name]
+    worksheet = writer.sheets[sheet_name]
+    workbook = writer.book
 
-    for col_idx, col in enumerate(df.columns, 1):
-        max_len = max(
-            len(str(col)),
-            df[col].astype(str).str.len().max() if len(df) > 0 else 0,
-        )
-        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max_len + 2, 50)
+    header_format = workbook.add_format({
+        "bold": True,
+        "bg_color": "#4472C4",
+        "font_color": "#FFFFFF",
+    })
+    worksheet.set_row(0, None, header_format)
 
-    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-    header_font = Font(color="FFFFFF", bold=True)
-    for col_idx in range(1, len(df.columns) + 1):
-        cell = ws.cell(row=1, column=col_idx)
-        cell.fill = header_fill
-        cell.font = header_font
+    # 列宽采样计算，xlsxwriter 比 openpyxl 快一个数量级
+    sample_limit = 10000
+    for col_idx, col in enumerate(df.columns):
+        col_len = len(str(col))
+        if len(df) > 0:
+            if len(df) > sample_limit:
+                sample = df[col].iloc[:sample_limit].astype(str).str.len().max()
+            else:
+                sample = df[col].astype(str).str.len().max()
+            sample_int = int(sample) if pd.notna(sample) else 0
+            max_len = max(col_len, sample_int)
+        else:
+            max_len = col_len
+        worksheet.set_column(col_idx, col_idx, min(max_len + 2, 50))
 
 
 def _table_name(sheet_name):
@@ -511,30 +1995,35 @@ def _table_name(sheet_name):
 def save_to_sqlite(sheets_data):
     import pandas as pd
 
+    start_time = time.time()
     db_path = os.path.join(OUTPUT_DIR, "eflow.sqlite3")
     conn = sqlite3.connect(db_path)
 
     for sheet_name, rows in sheets_data:
+        t0 = time.time()
         if not isinstance(rows, list) or not rows:
             print(f"[SKIP] {sheet_name}: no data")
             continue
         df = pd.DataFrame(rows)
-        # SQLite 不支持 list/dict 类型，转换为 JSON 字符串
-        for col in df.columns:
+        # SQLite 不支持 list/dict 类型，仅对 object/str 列检测并转换
+        object_cols = df.select_dtypes(include=["object", "str"]).columns
+        for col in object_cols:
             if df[col].apply(lambda x: isinstance(x, (list, dict))).any():
                 df[col] = df[col].apply(lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (list, dict)) else x)
         table = _table_name(sheet_name)
-        df.to_sql(table, conn, if_exists="replace", index=False)
-        print(f"[INFO] SQLite table '{table}': {len(df)} rows, {len(df.columns)} columns")
+        # 不使用 method='multi'，避免列数多（如 158 列）触发 SQLite "too many SQL variables"
+        df.to_sql(table, conn, if_exists="replace", index=False, chunksize=5000)
+        print(f"[INFO] SQLite table '{table}': {len(df)} rows, {len(df.columns)} columns ({time.time() - t0:.2f}s)")
 
     conn.close()
-    print(f"[INFO] SQLite saved: {db_path}")
+    print(f"[INFO] SQLite saved: {db_path} (total {time.time() - start_time:.2f}s)")
     return db_path
 
 
 def write_excel_from_sqlite(sheets_data):
     import pandas as pd
 
+    start_time = time.time()
     db_path = os.path.join(OUTPUT_DIR, "eflow.sqlite3")
     conn = sqlite3.connect(db_path)
 
@@ -546,18 +2035,19 @@ def write_excel_from_sqlite(sheets_data):
         output_file = os.path.join(OUTPUT_DIR, f"eflow_{timestamp}_{seq}.xlsx")
         seq += 1
 
-    with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+    with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
         for sheet_name, _ in sheets_data:
+            t0 = time.time()
             table = _table_name(sheet_name)
             df = pd.read_sql_query(f'SELECT * FROM "{table}"', conn)
             if df.empty:
                 print(f"[SKIP] {sheet_name}: no data")
                 continue
             _write_sheet(writer, df, sheet_name)
-            print(f"[INFO] Excel {sheet_name}: {len(df)} rows, {len(df.columns)} columns")
+            print(f"[INFO] Excel {sheet_name}: {len(df)} rows, {len(df.columns)} columns ({time.time() - t0:.2f}s)")
 
     conn.close()
-    print(f"[INFO] Excel saved: {output_file}")
+    print(f"[INFO] Excel saved: {output_file} (total {time.time() - start_time:.2f}s)")
 
     # 删除旧 Excel 文件，只保留最新
     for old_file in glob.glob(os.path.join(OUTPUT_DIR, "eflow_*.xlsx")):
@@ -571,8 +2061,142 @@ def write_excel_from_sqlite(sheets_data):
     return output_file
 
 
+def cleanup_old_export_files(output_dir=OUTPUT_DIR):
+    """SQLite 生成后，按类型只保留最新导出文件，删除旧文件和解压目录。"""
+    zip_patterns = [
+        "eflow-tt-export-*.zip",
+        "eflow-wo-export-*.zip",
+        "eflow-cr-export-*.zip",
+        "eflow-pm-task-export-*.zip",
+        "Site-export-*.zip",
+        "Person-export-*.zip",
+    ]
+
+    # 按类型保留最新 ZIP，删除旧 ZIP
+    for pattern in zip_patterns:
+        files = glob.glob(os.path.join(output_dir, pattern))
+        if len(files) <= 1:
+            continue
+        files.sort(key=os.path.getmtime)
+        for old_file in files[:-1]:
+            try:
+                os.remove(old_file)
+                print(f"[CLEAN] Deleted old export ZIP: {os.path.basename(old_file)}")
+            except OSError as e:
+                print(f"[WARN] Cannot delete {old_file}: {e}")
+
+    # Site/Person 为同步 XLSX 下载，保留最新，删除旧 XLSX
+    xlsx_patterns = [
+        "Site*.xlsx",
+        "Person*.xlsx",
+    ]
+    for pattern in xlsx_patterns:
+        files = glob.glob(os.path.join(output_dir, pattern))
+        if len(files) <= 1:
+            continue
+        files.sort(key=os.path.getmtime)
+        for old_file in files[:-1]:
+            try:
+                os.remove(old_file)
+                print(f"[CLEAN] Deleted old export XLSX: {os.path.basename(old_file)}")
+            except OSError as e:
+                print(f"[WARN] Cannot delete {old_file}: {e}")
+
+    # 删除残留的解压目录（正常情况下读取后已删除，这里兜底）
+    for name in os.listdir(output_dir):
+        full_path = os.path.join(output_dir, name)
+        if not os.path.isdir(full_path):
+            continue
+        if (
+            name.startswith("eflow-tt-export-")
+            or name.startswith("eflow-wo-export-")
+            or name.startswith("eflow-cr-export-")
+            or name.startswith("eflow-pm-task-export-")
+            or name.startswith("Site-export-")
+            or name.startswith("Person-export-")
+        ):
+            try:
+                shutil.rmtree(full_path)
+                print(f"[CLEAN] Deleted old extract dir: {name}")
+            except OSError as e:
+                print(f"[WARN] Cannot delete dir {full_path}: {e}")
+
+
+def _fetch_tt_pipeline(start_ms, end_ms):
+    tt_filter = TIME_FILTER_TEMPLATE.format(status_filter=TT_STATUS_FILTER, start_ms=start_ms, end_ms=end_ms)
+    prepare_tt_export(tt_filter)
+    set_tt_export_columns()
+    ftp_file_path, file_name = create_tt_export_task(tt_filter)
+    print(f"[INFO] Created TT export task file name: {file_name}")
+    print(f"[INFO] Waiting 10s before polling TT export status...")
+    time.sleep(10)
+    ftp_file_path, _ = wait_tt_export_ready(file_name, max_wait=600, interval=10)
+    print(f"[INFO] TT export ready ftpFilePath: {ftp_file_path}")
+    zip_path = download_tt_export_zip(file_name, ftp_file_path)
+    rows = read_tt_export_zip(zip_path)
+    return ("eFlow TT", rows)
+
+
+def _fetch_wo_pipeline(start_ms, end_ms):
+    wo_filter = TIME_FILTER_TEMPLATE.format(status_filter=WO_STATUS_FILTER, start_ms=start_ms, end_ms=end_ms)
+    prepare_wo_export(wo_filter)
+    set_wo_export_columns()
+    ftp_file_path, file_name = create_wo_export_task(wo_filter)
+    print(f"[INFO] Created WO export task file name: {file_name}")
+    print(f"[INFO] Waiting 10s before polling WO export status...")
+    time.sleep(10)
+    ftp_file_path, _ = wait_wo_export_ready(file_name, max_wait=600, interval=10)
+    print(f"[INFO] WO export ready ftpFilePath: {ftp_file_path}")
+    zip_path = download_wo_export_zip(file_name, ftp_file_path)
+    rows = read_wo_export_zip(zip_path)
+    return ("eFlow WO", rows)
+
+
+def _fetch_cr_pipeline(start_ms, end_ms):
+    cr_filter = TIME_FILTER_TEMPLATE.format(status_filter=CR_STATUS_FILTER, start_ms=start_ms, end_ms=end_ms)
+    prepare_cr_export(cr_filter)
+    set_cr_export_columns()
+    ftp_file_path, file_name = create_cr_export_task(cr_filter)
+    print(f"[INFO] Created CR export task file name: {file_name}")
+    print(f"[INFO] Waiting 10s before polling CR export status...")
+    time.sleep(10)
+    ftp_file_path, _ = wait_cr_export_ready(file_name, max_wait=600, interval=10)
+    print(f"[INFO] CR export ready ftpFilePath: {ftp_file_path}")
+    zip_path = download_cr_export_zip(file_name, ftp_file_path)
+    rows = read_cr_export_zip(zip_path)
+    return ("eFlow CR", rows)
+
+
+def _fetch_pm_pipeline(start_ms, end_ms):
+    pm_filter = TIME_FILTER_TEMPLATE.format(status_filter=PM_STATUS_FILTER, start_ms=start_ms, end_ms=end_ms)
+    prepare_pm_export(pm_filter)
+    set_pm_export_columns()
+    ftp_file_path, file_name = create_pm_export_task(pm_filter)
+    print(f"[INFO] Created PM export task file name: {file_name}")
+    print(f"[INFO] Waiting 10s before polling PM export status...")
+    time.sleep(10)
+    ftp_file_path, _ = wait_pm_export_ready(file_name, max_wait=600, interval=10)
+    print(f"[INFO] PM export ready ftpFilePath: {ftp_file_path}")
+    zip_path = download_pm_export_zip(file_name, ftp_file_path)
+    rows = read_pm_export_zip(zip_path)
+    return ("eFlow PM", rows)
+
+
+def _fetch_site_pipeline():
+    xlsx_path = fetch_site_export_xlsx()
+    rows = read_site_xlsx(xlsx_path)
+    return ("Site", rows)
+
+
+def _fetch_person_pipeline():
+    xlsx_path = fetch_person_export_xlsx()
+    rows = read_person_xlsx(xlsx_path)
+    return ("Person", rows)
+
+
 def main():
     import pandas as pd
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     start_time = time.time()
     print("=" * 60)
@@ -585,35 +2209,40 @@ def main():
         start_ms, end_ms = _get_time_range_ms()
         print(f"[INFO] Time range: {start_ms} to {end_ms}")
 
-        tt_payload = dict(TT_PAYLOAD_BASE)
-        tt_payload["filter"] = TIME_FILTER_TEMPLATE.format(status_filter=TT_STATUS_FILTER, start_ms=start_ms, end_ms=end_ms)
-        tt_rows = fetch_eflow_tt_data(payload_base=tt_payload)
+        pipelines = [
+            ("tt", lambda: _fetch_tt_pipeline(start_ms, end_ms)),
+            ("wo", lambda: _fetch_wo_pipeline(start_ms, end_ms)),
+            ("cr", lambda: _fetch_cr_pipeline(start_ms, end_ms)),
+            ("pm", lambda: _fetch_pm_pipeline(start_ms, end_ms)),
+            ("site", _fetch_site_pipeline),
+            ("person", _fetch_person_pipeline),
+        ]
 
-        wo_payload = dict(WO_PAYLOAD_BASE)
-        wo_payload["filter"] = TIME_FILTER_TEMPLATE.format(status_filter=WO_STATUS_FILTER, start_ms=start_ms, end_ms=end_ms)
-        wo_rows = fetch_eflow_wo_data(payload_base=wo_payload)
-
-        cr_payload = dict(CR_PAYLOAD_BASE)
-        cr_payload["filter"] = TIME_FILTER_TEMPLATE.format(status_filter=CR_STATUS_FILTER, start_ms=start_ms, end_ms=end_ms)
-        cr_rows = fetch_eflow_cr_data(payload_base=cr_payload)
-
-        pm_payload = dict(PM_PAYLOAD_BASE)
-        pm_payload["filter"] = TIME_FILTER_TEMPLATE.format(status_filter=PM_STATUS_FILTER, start_ms=start_ms, end_ms=end_ms)
-        pm_rows = fetch_eflow_pm_data(payload_base=pm_payload)
-
-        site_rows = fetch_site_data()
-        person_rows = fetch_person_data()
+        results = {}
+        print(f"[INFO] Starting parallel export pipelines (max_workers={MAX_PARALLEL_DOWNLOADS})...")
+        with ThreadPoolExecutor(max_workers=MAX_PARALLEL_DOWNLOADS) as executor:
+            future_to_key = {executor.submit(fn): key for key, fn in pipelines}
+            for future in as_completed(future_to_key):
+                key = future_to_key[future]
+                try:
+                    sheet_name, rows = future.result()
+                    results[sheet_name] = rows
+                    print(f"[INFO] {sheet_name} pipeline completed: {len(rows)} rows")
+                except Exception as e:
+                    print(f"[ERROR] {key} pipeline failed: {e}")
+                    import traceback
+                    traceback.print_exc()
 
         sheets_data = [
-            ("eFlow TT", tt_rows),
-            ("eFlow WO", wo_rows),
-            ("eFlow CR", cr_rows),
-            ("eFlow PM", pm_rows),
-            ("Site", site_rows),
-            ("Person", person_rows),
+            ("eFlow TT", results.get("eFlow TT", [])),
+            ("eFlow WO", results.get("eFlow WO", [])),
+            ("eFlow CR", results.get("eFlow CR", [])),
+            ("eFlow PM", results.get("eFlow PM", [])),
+            ("Site", results.get("Site", [])),
+            ("Person", results.get("Person", [])),
         ]
         save_to_sqlite(sheets_data)
-        write_excel_from_sqlite(sheets_data)
+        cleanup_old_export_files()
 
     except Exception as e:
         import traceback

@@ -48,7 +48,7 @@ export default function TableBrowser() {
   const [selectedTable, setSelectedTable] = useState<string>('')
   const [tableData, setTableData] = useState<any[]>([])
   const [tableColumns, setTableColumns] = useState<any[]>([])
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 50, total: 0 })
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 })
   const [loading, setLoading] = useState(false)
   const [profileData, setProfileData] = useState<ProfileResult | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
@@ -72,7 +72,7 @@ export default function TableBrowser() {
 
   const loadTableData = (page: number) => {
     setLoading(true)
-    const params: any = { page, page_size: 50 }
+    const params: any = { page, page_size: 20 }
     if (searchText) params.search = searchText
 
     api.get(`/tables/${selectedTable}/data`, { params })

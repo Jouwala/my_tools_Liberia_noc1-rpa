@@ -1,4 +1,4 @@
-"""Excel文件转SQLite数据库初始化脚本"""
+"""数据库初始化脚本：支持从 eFlow API 直接获取数据或 Excel 文件初始化"""
 import os
 import re
 import sys
@@ -157,10 +157,32 @@ def load_excel_to_db(excel_path: Path, table_prefix: str, conn: sqlite3.Connecti
     xls.close()
 
 
+def init_from_eflow_api(conn: sqlite3.Connection) -> bool:
+    """从 eFlow API 直接获取数据初始化数据库"""
+    print(f"\n{'='*60}")
+    print(f"从 eFlow API 直接获取数据初始化")
+    print(f"{'='*60}")
+
+    # 调用同步服务
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from services.sync_from_eflow_api import sync_from_eflow_api
+    result = sync_from_eflow_api()
+
+    print(f"\n同步结果: {'成功' if result['success'] else '失败'}")
+    for table, count in result['tables_synced'].items():
+        print(f"  {table}: {count} 行")
+    if result['errors']:
+        for err in result['errors']:
+            print(f"  [ERROR] {err}")
+
+    return result['success']
+
+
 def main():
     start_time = time.time()
     print(f"数据库路径: {DB_PATH}")
     print(f"Excel目录: {EXCEL_DIR}")
+    print(f"eFlow数据源: {EFLOW_DB_PATH}")
 
     # 确保目录存在
     DB_DIR.mkdir(parents=True, exist_ok=True)
@@ -170,18 +192,25 @@ def main():
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
 
-    # 处理每个Excel文件
-    for filename, table_prefix in FILE_TABLE_MAP.items():
-        excel_path = EXCEL_DIR / filename
-        if not excel_path.exists():
-            print(f"\n[WARNING] 文件不存在: {excel_path}")
-            continue
+    # 优先尝试 eFlow API 数据源
+    try_api = True  # 默认尝试 API
 
-        if table_prefix is None:
-            # 多sheet文件，使用SHEET_TABLE_MAP
-            load_excel_to_db(excel_path, "", conn, sheet_map=SHEET_TABLE_MAP)
-        else:
-            load_excel_to_db(excel_path, table_prefix, conn)
+    if try_api:
+        print("\n>>> 尝试 eFlow API 直接获取数据初始化 <<<")
+        api_success = init_from_eflow_api(conn)
+        if not api_success:
+            print("\n>>> API 失败，回退到 Excel 文件初始化 <<<")
+            # 处理每个Excel文件
+            for filename, table_prefix in FILE_TABLE_MAP.items():
+                excel_path = EXCEL_DIR / filename
+                if not excel_path.exists():
+                    print(f"\n[WARNING] 文件不存在: {excel_path}")
+                    continue
+
+                if table_prefix is None:
+                    load_excel_to_db(excel_path, "", conn, sheet_map=SHEET_TABLE_MAP)
+                else:
+                    load_excel_to_db(excel_path, table_prefix, conn)
 
     # 创建元数据表 - 记录所有数据表信息
     cursor = conn.execute("""

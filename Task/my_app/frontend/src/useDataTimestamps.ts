@@ -3,7 +3,7 @@ import api from './api'
 import { useI18n } from './i18n'
 
 interface DataTimestamps {
-  last_ftp_sync: string | null
+  last_sync: string | null
   latest_data_time: string | null
   latest_tt_time: string | null
   latest_wo_time: string | null
@@ -26,8 +26,8 @@ export function useDataTimestamps() {
     return isoStr.replace('T', ' ').substring(0, 19)
   }
 
-  const lastSyncDisplay = timestamps?.last_ftp_sync
-    ? formatTime(timestamps.last_ftp_sync)
+  const lastSyncDisplay = timestamps?.last_sync
+    ? formatTime(timestamps.last_sync)
     : null
 
   const latestDataDisplay = timestamps?.latest_data_time

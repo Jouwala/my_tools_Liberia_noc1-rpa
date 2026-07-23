@@ -1,0 +1,4 @@
+# MS SLA/NUR 服务额外依赖
+# openpyxl 已在 backend/requirements.txt 中
+Pillow>=10.0.0
+cryptography>=41.0.0

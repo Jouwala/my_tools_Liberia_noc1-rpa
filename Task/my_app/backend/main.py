@@ -16,7 +16,7 @@ from pathlib import Path
 from backend.database import Base, engine, DB_PATH
 from backend.models.analysis import AnalysisArchive, UploadedFile
 from backend.routers import tables, upload, analysis, gis, tt_wo_dashboard
-from apscheduler.schedulers.background import BackgroundScheduler
+from backend.services import task_runner
 
 start_time = time.time()
 
@@ -43,25 +43,120 @@ app.include_router(gis.router)
 app.include_router(tt_wo_dashboard.router)
 
 
-# FTP同步调度器
-ftp_scheduler = BackgroundScheduler()
-
-# FTP同步状态记录
-ftp_sync_history = []
+# ========== 通用任务调度系统 ==========
+# sync_history 保留兼容旧 eFlow API
+sync_history = []
 
 
-def scheduled_ftp_sync():
-    """定时FTP同步任务"""
-    from backend.services.ftp_sync import sync_from_ftp
+def scheduled_eflow_sync():
+    """定时 eFlow API 数据同步任务（兼容旧接口）"""
+    from backend.services.sync_from_eflow_api import sync_from_eflow_api
     import logging
-    logger = logging.getLogger("ftp_sync")
-    logger.info("定时FTP同步开始 (每小时第22分钟)")
-    result = sync_from_ftp()
-    ftp_sync_history.append(result)
-    # 只保留最近20条记录
-    while len(ftp_sync_history) > 20:
-        ftp_sync_history.pop(0)
-    logger.info(f"FTP同步完成: success={result['success']}, downloaded={result['downloaded']}")
+    logger = logging.getLogger("eflow_sync")
+    logger.info("定时 eFlow API 同步开始")
+    result = sync_from_eflow_api()
+    sync_history.append(result)
+    while len(sync_history) > 20:
+        sync_history.pop(0)
+    logger.info(f"eFlow 同步完成: success={result['success']}, tables={result['tables_synced']}")
+
+
+def _register_all_tasks():
+    """注册所有可调度的任务"""
+
+    # 1. eFlow API 数据同步（每小时第22分钟）
+    task_runner.register_task(
+        task_id="eflow_sync",
+        name="eFlow 数据同步",
+        func=scheduled_eflow_sync,
+        description="从 ZTE eFlow API 获取 TT/WO/CR/PM/Site/Person/Alarm 数据",
+        default_cron="22 * * * *",  # 每小时第22分钟
+        category="eflow",
+    )
+
+    # 2. RAN UME PM 数据 + Availability 报表（每天凌晨2点）
+    def _run_ran_ume():
+        from backend.services.ran_ume_service import run_ran_ume_full_task
+        return run_ran_ume_full_task()
+
+    task_runner.register_task(
+        task_id="ran_ume_daily",
+        name="RAN UME 日报",
+        func=_run_ran_ume,
+        description="RAN UME PM 数据获取 + Daily Availability KPI 报表生成 + FTP 上传",
+        default_cron="0 2 * * *",  # 每天凌晨2点
+        category="ran_ume",
+    )
+
+    # 3. Site Outage 截图（每天凌晨1点）
+    def _run_site_outage():
+        from backend.services.site_outage_service import run_site_outage_screenshot
+        return run_site_outage_screenshot()
+
+    task_runner.register_task(
+        task_id="site_outage_screenshot",
+        name="Site Outage 截图",
+        func=_run_site_outage,
+        description="Site Down Dashboard 自动截图（ERA/Regular/ALL）",
+        default_cron="0 1 * * *",  # 每天凌晨1点
+        category="site_outage",
+    )
+
+    # 4. WhatsApp 发送（每天凌晨3点，在截图之后）
+    def _run_whatsapp():
+        from backend.services.whatsapp_service import run_whatsapp_send
+        return run_whatsapp_send()
+
+    task_runner.register_task(
+        task_id="whatsapp_send",
+        name="WhatsApp 消息发送",
+        func=_run_whatsapp,
+        description="发送 Site Outage 截图和文件到 WhatsApp 群组",
+        default_cron="0 3 * * *",  # 每天凌晨3点
+        category="whatsapp",
+    )
+
+    # 5. MS SLA 完整同步（每6小时）
+    def _run_ms_sla_full():
+        from backend.services.ms_sla_service import run_full_sync
+        return run_full_sync()
+
+    task_runner.register_task(
+        task_id="ms_sla_full",
+        name="MS SLA 完整同步",
+        func=_run_ms_sla_full,
+        description="SLA 指标同步 + Contract KPIs 报表更新（项目自包含，无需外部文件）",
+        default_cron="0 */6 * * *",  # 每6小时
+        category="ms_sla",
+    )
+
+    # 6. eFlow 实时告警同步（每30分钟）
+    def _run_eflow_active_alarm():
+        from backend.services.eflow_api_client import fetch_and_save_active_alarm
+        return fetch_and_save_active_alarm()
+
+    task_runner.register_task(
+        task_id="eflow_active_alarm",
+        name="eFlow 实时告警同步",
+        func=_run_eflow_active_alarm,
+        description="从 eFlow FM Active 接口获取实时告警，保存 CSV + SQLite",
+        default_cron="*/30 * * * *",  # 每30分钟
+        category="eflow",
+    )
+
+    # 7. eFlow 历史告警同步（每3小时）
+    def _run_eflow_history_alarm():
+        from backend.services.eflow_api_client import fetch_and_save_history_alarm
+        return fetch_and_save_history_alarm()
+
+    task_runner.register_task(
+        task_id="eflow_history_alarm",
+        name="eFlow 历史告警同步",
+        func=_run_eflow_history_alarm,
+        description="从 eFlow FM History 接口获取近7天历史告警，过滤 TT ID，保存 CSV + SQLite",
+        default_cron="0 */3 * * *",  # 每3小时
+        category="eflow",
+    )
 
 
 @app.on_event("startup")
@@ -70,7 +165,7 @@ async def startup_event():
     # 创建ORM模型表
     Base.metadata.create_all(bind=engine)
 
-    # 确保uploaded_files表存在（如果init_db没创建）
+    # 确保uploaded_files表存在
     import sqlite3
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("""
@@ -89,20 +184,15 @@ async def startup_event():
     conn.commit()
     conn.close()
 
-    # 启动FTP同步调度器 - 每小时第22分钟
-    ftp_scheduler.add_job(
-        scheduled_ftp_sync,
-        trigger='cron',
-        minute=22,
-        id='ftp_sync_hourly',
-        replace_existing=True,
-    )
-    ftp_scheduler.start()
+    # 注册所有任务并启动调度器
+    _register_all_tasks()
+    task_runner.schedule_all_tasks()
+    task_runner.start_scheduler()
 
     elapsed = time.time() - start_time
     print(f"服务启动完成，耗时: {elapsed:.2f}秒")
     print(f"数据库: {DB_PATH}")
-    print(f"FTP同步调度已启动 (每小时第22分钟)")
+    print(f"已注册 {len(task_runner.list_tasks())} 个定时任务")
 
 
 @app.get("/api/health")
@@ -114,67 +204,131 @@ def health_check():
     }
 
 
-@app.post("/api/ftp/sync")
-def trigger_ftp_sync():
-    """手动触发FTP同步"""
-    from backend.services.ftp_sync import sync_from_ftp
-    result = sync_from_ftp()
-    ftp_sync_history.append(result)
-    while len(ftp_sync_history) > 20:
-        ftp_sync_history.pop(0)
+@app.post("/api/eflow/sync")
+def trigger_eflow_sync():
+    """手动触发 eFlow API 数据同步（兼容旧接口）"""
+    result = task_runner.run_task("eflow_sync", trigger="manual")
+    if result.get("result") and isinstance(result["result"], dict):
+        # 兼容旧接口返回格式
+        inner = result["result"]
+        if "tables_synced" in inner:
+            sync_history.append(inner)
+            while len(sync_history) > 20:
+                sync_history.pop(0)
+            return inner
     return result
 
 
-@app.get("/api/ftp/status")
-def ftp_sync_status():
-    """FTP同步状态"""
-    job = ftp_scheduler.get_job('ftp_sync_hourly')
+@app.get("/api/eflow/status")
+def eflow_sync_status():
+    """eFlow API 同步状态（兼容旧接口）"""
+    detail = task_runner.get_task_detail("eflow_sync")
     return {
-        "scheduler_running": ftp_scheduler.running,
-        "next_run": str(job.next_run_time) if job else None,
+        "scheduler_running": task_runner.get_scheduler().running,
+        "next_run": detail.get("next_run") if detail else None,
         "schedule": "每小时第22分钟",
-        "history": ftp_sync_history[-10:],  # 最近10条
+        "history": sync_history[-10:],
     }
+
+
+# ========== 通用任务管理 API ==========
+@app.get("/api/tasks")
+def list_all_tasks():
+    """列出所有已注册的定时任务"""
+    return {"tasks": task_runner.list_tasks()}
+
+
+@app.get("/api/tasks/history")
+def get_tasks_history(limit: int = 20):
+    """获取任务执行历史"""
+    return {"history": task_runner.get_task_history(limit)}
+
+
+@app.get("/api/tasks/{task_id}")
+def get_task_info(task_id: str):
+    """获取任务详情（含最近执行记录）"""
+    detail = task_runner.get_task_detail(task_id)
+    if not detail:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"任务 {task_id} 未找到")
+    return detail
+
+
+@app.post("/api/tasks/{task_id}/run")
+def run_task_now(task_id: str):
+    """立即执行指定任务"""
+    result = task_runner.run_task(task_id, trigger="manual")
+    return result
+
+
+@app.post("/api/tasks/{task_id}/schedule")
+def update_task_schedule(task_id: str, body: dict):
+    """更新任务调度频率
+    body: {"cron": "分 时 日 月 周"}
+    示例: {"cron": "0 8 * * *"} 每天8点
+          {"cron": "30 7 * * 1-5"} 工作日7:30
+          {"cron": "0 */4 * * *"} 每4小时
+    """
+    cron = body.get("cron", "")
+    if not cron:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="缺少 cron 表达式")
+    return task_runner.update_task_schedule(task_id, cron)
+
+
+@app.post("/api/tasks/{task_id}/toggle")
+def toggle_task_enabled(task_id: str, body: dict):
+    """启用/禁用任务
+    body: {"enabled": true/false}
+    """
+    enabled = body.get("enabled", True)
+    return task_runner.toggle_task(task_id, enabled)
 
 
 @app.get("/api/data-source/timestamps")
 def get_data_timestamps():
-    """数据源时间信息：FTP同步时间 + 数据最新时间"""
+    """数据源时间信息：eFlow 同步时间 + 数据最新时间"""
     import sqlite3
 
-    # FTP最近一次成功同步时间（优先内存记录，其次文件修改时间）
+    # eFlow 最近一次成功同步时间
     last_sync = None
-    for h in reversed(ftp_sync_history):
+    for h in reversed(sync_history):
         if h.get("success"):
             last_sync = h.get("timestamp")
             break
 
-    # 内存无记录时，用本地文件的修改时间作为fallback
-    if not last_sync:
-        from pathlib import Path
-        from backend.services.ftp_sync import LOCAL_TT, LOCAL_WO
-        mtimes = []
-        for f in [LOCAL_TT, LOCAL_WO]:
-            if f.exists():
-                mtimes.append(f.stat().st_mtime)
-        if mtimes:
-            last_sync = datetime.fromtimestamp(max(mtimes)).isoformat()
-
     # 数据源最新时间
     conn = sqlite3.connect(str(DB_PATH))
-    latest_tt = conn.execute(
-        "SELECT MAX(created_time) FROM eflow_tt WHERE created_time IS NOT NULL"
-    ).fetchone()[0]
-    latest_wo = conn.execute(
-        "SELECT MAX(created_time) FROM eflow_wo WHERE created_time IS NOT NULL"
-    ).fetchone()[0]
+
+    # 内存无记录时，尝试从数据库获取最近同步时间
+    if not last_sync:
+        try:
+            row = conn.execute("SELECT MAX(_sync_time) FROM eflow_tt").fetchone()
+            if row and row[0]:
+                last_sync = row[0]
+        except Exception:
+            pass
+    latest_tt = None
+    latest_wo = None
+    try:
+        latest_tt = conn.execute(
+            "SELECT MAX(created_time) FROM eflow_tt WHERE created_time IS NOT NULL"
+        ).fetchone()[0]
+    except Exception:
+        pass
+    try:
+        latest_wo = conn.execute(
+            "SELECT MAX(created_time) FROM eflow_wo WHERE created_time IS NOT NULL"
+        ).fetchone()[0]
+    except Exception:
+        pass
     conn.close()
 
     # 取TT/WO中较晚的一个
     latest_data = max(filter(None, [latest_tt, latest_wo]), default=None)
 
     return {
-        "last_ftp_sync": last_sync,
+        "last_sync": last_sync,
         "latest_data_time": latest_data,
         "latest_tt_time": latest_tt,
         "latest_wo_time": latest_wo,

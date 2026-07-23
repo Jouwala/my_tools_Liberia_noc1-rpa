@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Card, Row, Col, Select, Spin, Drawer, Descriptions, Table, Tag, Statistic, Tabs, Space, Badge, DatePicker, Segmented, Tooltip, Switch, Button, Input } from 'antd'
-import { DownloadOutlined, SearchOutlined } from '@ant-design/icons'
+import { DownloadOutlined, SearchOutlined, FilterOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Polygon, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -24,6 +24,13 @@ interface Site {
   open_tt: number
   closed_tt: number
   wo_count: number
+  // 筛选列
+  trm_type?: string
+  area?: string
+  hubsite?: string
+  site_information?: string
+  supervisor?: string
+  updated_fme_name_new?: string
 }
 
 interface DrilldownData {
@@ -83,6 +90,11 @@ export default function GISMap() {
   const [showRegions, setShowRegions] = useState(true)
   const [ttSearch, setTtSearch] = useState('')
   const [woSearch, setWoSearch] = useState('')
+
+  // 筛选列状态
+  const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
+  const [selectedFilters, setSelectedFilters] = useState<Record<string, string | undefined>>({})
+  const [showFilters, setShowFilters] = useState(false)
   const { t } = useI18n()
   const { lastSync, latestData, isSynced } = useDataTimestamps()
 
@@ -116,6 +128,9 @@ export default function GISMap() {
       .then(res => {
         setSites(res.data.sites || [])
         if (regions.length === 0) setRegions(res.data.regions || [])
+        if (Object.keys(filterOptions).length === 0 && res.data.filter_options) {
+          setFilterOptions(res.data.filter_options || {})
+        }
       })
       .finally(() => setLoading(false))
   }
@@ -167,8 +182,16 @@ export default function GISMap() {
   }
 
   const filteredSites = useMemo(() => {
-    return sites.filter(site => !hiddenLegends.has(getSiteCategory(site)))
-  }, [sites, hiddenLegends])
+    return sites.filter(site => {
+      // 图例筛选
+      if (hiddenLegends.has(getSiteCategory(site))) return false
+      // 多列筛选
+      for (const [key, val] of Object.entries(selectedFilters)) {
+        if (val && (site as any)[key] !== val) return false
+      }
+      return true
+    })
+  }, [sites, hiddenLegends, selectedFilters])
 
   const center: [number, number] = sites.length > 0
     ? [
@@ -210,6 +233,28 @@ export default function GISMap() {
   ]
 
   // 统计当前时间窗口内的分类数量
+  // 筛选列配置
+  const FILTER_CONFIG = [
+    { key: 'trm_type', label: 'TRM Type' },
+    { key: 'site_type', label: 'Site Type' },
+    { key: 'area', label: 'Area' },
+    { key: 'hubsite', label: 'Hub Site' },
+    { key: 'site_information', label: 'Site Info' },
+    { key: 'vip_site', label: 'VIP Site' },
+    { key: 'supervisor', label: 'Supervisor' },
+    { key: 'updated_fme_name_new', label: 'FME Name' },
+  ]
+
+  const activeFilterCount = Object.values(selectedFilters).filter(Boolean).length
+
+  const handleFilterChange = (key: string, value: string | undefined) => {
+    setSelectedFilters(prev => ({ ...prev, [key]: value }))
+  }
+
+  const clearAllFilters = () => {
+    setSelectedFilters({})
+  }
+
   const categoryCounts = useMemo(() => {
     const counts = { critical: 0, warning: 0, vip: 0, normal: 0 }
     sites.forEach(s => {
@@ -471,6 +516,53 @@ export default function GISMap() {
             </>
           )}
         </div>
+        {/* 多列筛选器 */}
+        <div style={{ marginTop: 8 }}>
+          <Space size={8} wrap>
+            <Button
+              size="small"
+              type={showFilters ? 'primary' : 'default'}
+              icon={<FilterOutlined />}
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              {t('gis.advancedFilter')}
+              {activeFilterCount > 0 && <Badge count={activeFilterCount} size="small" style={{ marginLeft: 4 }} />}
+            </Button>
+            {activeFilterCount > 0 && (
+              <Button size="small" type="link" onClick={clearAllFilters}>
+                {t('gis.clearFilters')}
+              </Button>
+            )}
+            {activeFilterCount > 0 && (
+              <Tag color="blue">{t('gis.totalSites')}: {filteredSites.length}/{sites.length}</Tag>
+            )}
+          </Space>
+          {showFilters && (
+            <Row gutter={[8, 8]} style={{ marginTop: 8 }}>
+              {FILTER_CONFIG.map(fc => {
+                const opts = filterOptions[fc.key] || []
+                if (opts.length === 0) return null
+                return (
+                  <Col key={fc.key}>
+                    <Select
+                      size="small"
+                      style={{ width: 140 }}
+                      allowClear
+                      showSearch
+                      placeholder={fc.label}
+                      value={selectedFilters[fc.key]}
+                      onChange={(v) => handleFilterChange(fc.key, v)}
+                      options={opts.map(v => ({ value: v, label: v }))}
+                      filterOption={(input, option) =>
+                        String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                      }
+                    />
+                  </Col>
+                )
+              })}
+            </Row>
+          )}
+        </div>
       </Card>
 
       <Card styles={{ body: { padding: 0 } }}>
@@ -480,7 +572,7 @@ export default function GISMap() {
           <MapContainer
             center={center}
             zoom={8}
-            style={{ height: 'calc(100vh - 245px)', width: '100%' }}
+            style={{ height: 'calc(100vh - 290px)', width: '100%' }}
             scrollWheelZoom={true}
           >
             <TileLayer

@@ -88,18 +88,38 @@ def _load_boundary_file(filename: str):
         return None
 
 
+# GIS 筛选列配置：(param_name, db_column, label)
+_GIS_FILTER_COLS = [
+    ("trm_type", "trm_type", "TRM Type"),
+    ("site_type", "site_type", "Site Type"),
+    ("area", "area", "Area"),
+    ("hubsite", "hub_site", "Hub Site"),
+    ("site_information", "site_information", "Site Information"),
+    ("vip_site", "vip_site", "VIP Site"),
+    ("supervisor", "supervisor", "Supervisor"),
+    ("updated_fme_name_new", "updated_fme_name_new", "FME Name"),
+]
+
+
 @router.get("/sites")
 def get_sites(
     region: str = Query(None),
+    trm_type: str = Query(None),
     site_type: str = Query(None),
+    area: str = Query(None),
+    hubsite: str = Query(None),
+    site_information: str = Query(None),
+    vip_site: str = Query(None),
+    supervisor: str = Query(None),
+    updated_fme_name_new: str = Query(None),
     network_type: str = Query(None),
     time_start: str = Query(None, description="时间窗口开始 YYYY-MM-DD"),
     time_end: str = Query(None, description="时间窗口结束 YYYY-MM-DD"),
 ):
-    """获取站点GIS数据 - 含TT/WO统计，支持时间窗口过滤（自适应数据库结构）"""
+    """获取站点GIS数据 - 含TT/WO统计，支持时间窗口和多列筛选（自适应数据库结构）"""
     S = _detect_gis_schema()
     if not S["site_table"]:
-        return {"sites": [], "total": 0, "regions": []}
+        return {"sites": [], "total": 0, "regions": [], "filter_options": {}}
 
     conn = get_raw_connection()
     st = S["site_table"]
@@ -112,12 +132,21 @@ def get_sites(
     ]
     params = []
 
+    # 动态筛选参数
+    filter_params = {
+        "trm_type": trm_type, "site_type": site_type, "area": area,
+        "hubsite": hubsite, "site_information": site_information,
+        "vip_site": vip_site, "supervisor": supervisor,
+        "updated_fme_name_new": updated_fme_name_new,
+    }
+    for param_name, db_col, _ in _GIS_FILTER_COLS:
+        val = filter_params.get(param_name)
+        if val and db_col in S["site_cols"]:
+            where_parts.append(f"{db_col} = ?")
+            params.append(val)
     if region:
         where_parts.append("region = ?")
         params.append(region)
-    if site_type and "site_type" in S["site_cols"]:
-        where_parts.append("site_type = ?")
-        params.append(site_type)
     if network_type and "network_type" in S["site_cols"]:
         where_parts.append("network_type = ?")
         params.append(network_type)
@@ -142,13 +171,24 @@ def get_sites(
     vip_sel = S["vip_col"] if S["vip_col"] else "NULL"
     hub_sel = S["hub_col"] if S["hub_col"] else "NULL"
 
+    # 筛选列动态 SELECT
+    filter_select_parts = []
+    filter_col_indices = {}  # param_name -> index in row
+    base_cols = 10  # site_id, site_name, lat, lng, region, prov, network, site_type, vip, hub
+    for i, (param_name, db_col, _) in enumerate(_GIS_FILTER_COLS):
+        if db_col in S["site_cols"]:
+            filter_select_parts.append(db_col)
+            filter_col_indices[param_name] = base_cols + len(filter_select_parts) - 1
+
+    filter_select_sql = ", " + ", ".join(filter_select_parts) if filter_select_parts else ""
+
     sql = f"""
         SELECT 
             site_id, site_name,
             CAST(latitude AS REAL) as lat,
             CAST(longitude AS REAL) as lng,
             region, {prov_sel}, network_type, site_type,
-            {vip_sel}, {hub_sel}
+            {vip_sel}, {hub_sel}{filter_select_sql}
         FROM {st}
         WHERE {where_clause}
     """
@@ -159,6 +199,15 @@ def get_sites(
     regions = [r[0] for r in conn.execute(
         f"SELECT DISTINCT region FROM {st} WHERE region IS NOT NULL AND region != '' ORDER BY region"
     ).fetchall()]
+
+    # 获取筛选列的唯一值（用向量化 dict 操作，保证最快）
+    filter_options = {}
+    for param_name, db_col, _ in _GIS_FILTER_COLS:
+        if db_col in S["site_cols"]:
+            vals = [r[0] for r in conn.execute(
+                f"SELECT DISTINCT {db_col} FROM {st} WHERE {db_col} IS NOT NULL AND {db_col} != '' ORDER BY {db_col}"
+            ).fetchall()]
+            filter_options[param_name] = vals
 
     # 预计算TT统计（自适应关联字段）
     tt_stats = {}
@@ -193,7 +242,7 @@ def get_sites(
         # 自动修正明显交换的经纬度
         if lat < 0 and 0 < lng < 10:
             lat, lng = lng, lat
-        site_list.append({
+        site_dict = {
             "site_id": sid,
             "site_name": str(row[1] or ''),
             "lat": lat,
@@ -208,12 +257,17 @@ def get_sites(
             "open_tt": tt[1],
             "closed_tt": tt[2],
             "wo_count": wo_stats.get(sid, 0),
-        })
+        }
+        # 添加筛选列值
+        for param_name, idx in filter_col_indices.items():
+            site_dict[param_name] = str(row[idx] or '') if idx < len(row) else ''
+        site_list.append(site_dict)
 
     return {
         "sites": site_list,
         "total": len(site_list),
         "regions": regions,
+        "filter_options": filter_options,
     }
 
 

@@ -6,12 +6,12 @@ from pathlib import Path
 import traceback, time, os, subprocess, glob
 
 # Configuration
-# GROUPS = ["15638281623"]
-GROUPS = ["*OLR ZTE Quality Control*","*OLR ZTE Incidents Mgt* 2"]
+GROUPS = ["*OLR ZTE Quality Control*", "*OLR ZTE Incidents Mgt*"]
+#GROUPS = ["test123", "Test234"]
 PHOTOS = [
-    r"D:\01_RPA\Site_outage\screenshots\ERA.png",
-    r"D:\01_RPA\Site_outage\screenshots\REGULAR.png",
-    r"D:\01_RPA\Site_outage\screenshots\ALL.png",
+    r"E:\01_RPA\Site_outage\screenshots\ERA.png",
+    r"E:\01_RPA\Site_outage\screenshots\REGULAR.png",
+    r"E:\01_RPA\Site_outage\screenshots\ALL.png",
 ]
 CAPTIONS = ["*ERA*", "*REGULAR*", "*ALL*"]
 
@@ -24,14 +24,21 @@ def get_latest_site_outage():
     return max(files, key=lambda f: os.path.getmtime(f))
 
 FILES = [get_latest_site_outage()]
-HEADLESS, MAX_RETRY, WAIT_TIMEOUT = False, 3, 30000
+HEADLESS, MAX_RETRY, WAIT_TIMEOUT = False, 3, 180000
 USER_DATA_DIR, DEBUG_DIR, WHATSAPP_URL = "whatsapp_session", "debug", "https://web.whatsapp.com"
 Path(DEBUG_DIR).mkdir(exist_ok=True)
 
 # Selectors
 SELECTORS = {
     "SEARCH_BOX": ['#side div[contenteditable="true"]', '#side [role="textbox"]'],
-    "MAIN": ["#main"]
+    "MAIN": ["#main"],
+    # 媒体预览弹窗中的文字输入框选择器
+    "CAPTION_INPUT": [
+        'div[aria-label="添加小标题"]', 
+        'div[aria-label="Add a caption"]',
+        'div[contenteditable="true"][data-tab="10"]',
+        'div._ak1r div[contenteditable="true"]'
+    ]
 }
 
 # ==========================================================
@@ -57,7 +64,7 @@ def start_browser():
     playwright = sync_playwright().start()
     browser = playwright.chromium.launch_persistent_context(
         USER_DATA_DIR,
-        executable_path=r"D:\01_RPA\chrome-win\chrome-win\chrome.exe",
+        executable_path=r"E:\01_RPA\chrome-win\chrome-win\chrome.exe",
         headless=HEADLESS,
         args=["--start-maximized","--prevent-first-run-default-browser-prompts"],
         no_viewport=True
@@ -67,21 +74,22 @@ def start_browser():
     info("等待 WhatsApp Web 加载，请扫码登录（如有需要）...")
     page.locator("#side").wait_for(timeout=180000)
     success("登录成功")
-    # 登录成功后，最小化到任务栏（start-maximized 只是初始状态，CDP 可动态切换）
-    try:
-        cdp = page.context.new_cdp_session(page)
-        wid = cdp.send("Browser.getWindowForTarget")["windowId"]
-        cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "minimized"}})
-        info("已最小化窗口到任务栏")
-    except Exception as e:
-        warn(f"最小化失败: {e}")
+    
+    #try:
+        #cdp = page.context.new_cdp_session(page)
+        #wid = cdp.send("Browser.getWindowForTarget")["windowId"]
+        #cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "minimized"}})
+        #info("已最小化窗口到任务栏")
+    #except Exception as e:
+        #warn(f"最小化失败: {e}")
     return playwright, browser, page
 
 def find_first(page, key):
     for selector in SELECTORS[key]:
         try:
             loc = page.locator(selector)
-            if loc.count() > 0: return loc.first
+            if loc.count() > 0 and loc.first.is_visible(): 
+                return loc.first
         except: pass
     return None
 
@@ -95,21 +103,21 @@ def search_and_open(page, contact_name):
     if not search_box: raise Exception("找不到搜索框")
     
     search_box.click()
-    search_box.fill("")
+    page.keyboard.press("Control+a")
+    page.keyboard.press("Backspace")
     search_box.fill(contact_name)
-    time.sleep(0.5)
+    time.sleep(2)
     page.keyboard.press("Enter")
-    time.sleep(0.8)
+    time.sleep(2)
     
     if not page.locator(SELECTORS["MAIN"][0]).is_visible():
         raise Exception("未能进入聊天窗口")
     success(f"成功进入: {contact_name}")
 
 # ==========================================================
-# Part 3: 高速剪贴板 API
+# Part 3: 剪贴板 API
 # ==========================================================
 def copy_image_to_clipboard(image_path):
-    """极速写入图片到剪贴板"""
     abs_path = os.path.abspath(image_path)
     ps_cmd = (
         f"Add-Type -AssemblyName System.Windows.Forms; "
@@ -119,13 +127,7 @@ def copy_image_to_clipboard(image_path):
     )
     subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True)
 
-def copy_text_to_clipboard(text):
-    """极速写入文本到剪贴板"""
-    ps_cmd = f"Set-Clipboard -Value '{text}'"
-    subprocess.run(["powershell", "-Command", ps_cmd], check=True)
-
 def copy_file_to_clipboard(file_path):
-    """极速写入文件句柄到剪贴板"""
     abs_path = os.path.abspath(file_path)
     ps_cmd = (
         f"Add-Type -AssemblyName System.Windows.Forms; "
@@ -137,10 +139,10 @@ def copy_file_to_clipboard(file_path):
     subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True)
 
 # ==========================================================
-# Part 4: 极限连击发送逻辑 (Copy -> Paste -> Enter 无缝衔接)
+# Part 4: 准确图片与备注匹配发送
 # ==========================================================
 def fast_send_photos(page, photo_caption_pairs):
-    """连发模式：贴图 -> 贴字 -> 回车，零顿挫"""
+    """确保单图单备注精准配对发送"""
     page.locator('#main').click(force=True)
     
     for i, (photo, cap) in enumerate(photo_caption_pairs):
@@ -148,43 +150,43 @@ def fast_send_photos(page, photo_caption_pairs):
             warn(f"跳过不存在图片: {photo}")
             continue
 
-        info(f"⚡ [爆发发送] ({i+1}/{len(photo_caption_pairs)}) {os.path.basename(photo)}")
+        info(f"⚡ [精确发送] ({i+1}/{len(photo_caption_pairs)}) {os.path.basename(photo)} -> {cap}")
         
-        # 1. 贴图片
+        # 1. 写入图片到剪贴板并粘贴
         copy_image_to_clipboard(photo)
         page.keyboard.press("Control+v")
-        time.sleep(0.3) # 预留媒体弹窗生成时间
+        
+        # 2. 等待预览界面弹窗出现
+        time.sleep(2)
+        page.keyboard.type(cap)
+        
+        
 
-        # 2. 贴备注
-        if cap:
-            copy_text_to_clipboard(cap)
-            page.keyboard.press("Control+v")
-            time.sleep(0.1)
-
-    # 3. 立即按回车发送
+    # 4. 按 Enter 发送当前单张图片+备注
     page.keyboard.press("Enter")
-    time.sleep(0.3) # 释放输入框焦点准备下一条
+        
+    # 5. 给系统留出发送并关闭预览层的时间，防止影响下一张
+    time.sleep(2.0)
 
 def fast_send_file(page, file_path):
     """极速发送文件"""
     if not file_path or not os.path.exists(file_path):
         return
         
-    info(f"⚡ [爆发发送] 文件: {os.path.basename(file_path)}")
+    info(f"⚡ [发送文件] {os.path.basename(file_path)}")
     copy_file_to_clipboard(file_path)
     
     page.locator('#main').click(force=True)
     page.keyboard.press("Control+v")
-    time.sleep(0.5)
-    #page.keyboard.press("Enter")
-    #time.sleep(0.3)
+    time.sleep(1.5)
+    page.keyboard.press("Enter")
+    time.sleep(1.5)
 
 # ==========================================================
-# Part 5: 最终单次状态校验
+# Part 5: 最终状态校验
 # ==========================================================
-def wait_for_last_message_sent(page: Page, timeout=120):
-    """全自动校验最后一条消息是否被服务端接收/送达"""
-    info("🔍 所有任务完成，正在等待服务器回执确认...")
+def wait_for_last_message_sent(page: Page, timeout=60):
+    info("🔍 正在等待服务器回执确认...")
     
     DBL_CHECK_SELECTOR = (
         "span[data-icon='msg-dblcheck'], "
@@ -224,23 +226,25 @@ def main():
             # 1. 切换群聊
             search_and_open(page, group)
             
-            # 2. 极限连击：发送所有图片+备注
+            # 2. 发送图片+备注 (单图单备注循环)
             pairs = list(zip(PHOTOS, CAPTIONS))
             fast_send_photos(page, pairs)
             
-            # 3. 极限连击：发送文件
+            # 3. 发送文件
             for file in FILES:
                 fast_send_file(page, file)
-            page.keyboard.press("Enter")
-            print( "所有文件发送完成")
-        time.sleep(10.0)    
-        # 4. 全流程完成后，只在最后校验 1 次
-        wait_for_last_message_sent(page, timeout=60)
+                
+            info(f"群 [{group}] 发送完毕")
+            time.sleep(3.0)
+            
+        # 4. 全流程校验
+        wait_for_last_message_sent(page, timeout=30)
                 
     except Exception as e:
         error(f"任务中断: {e}")
         traceback.print_exc()
     finally:
+        time.sleep(60.0)
         browser.close()
         p.stop()
 
