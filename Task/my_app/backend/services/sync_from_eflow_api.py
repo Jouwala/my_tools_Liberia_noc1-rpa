@@ -448,6 +448,8 @@ def sync_from_eflow_api() -> dict:
         "errors": [],
         "timestamp": datetime.now().isoformat(),
         "elapsed_seconds": 0,
+        "excel_path": None,
+        "ftp_upload": False,
     }
 
     logger.info("开始 eFlow API 数据同步（直连模式）")
@@ -507,6 +509,20 @@ def sync_from_eflow_api() -> dict:
 
         dst_conn.close()
         result["success"] = len(result["errors"]) == 0
+
+        # 生成 Excel 报告并上传到 FTP
+        try:
+            from backend.services.eflow_api_client import generate_excel_report
+            report_result = generate_excel_report(data=all_data, upload_ftp=True)
+            if report_result.get("excel_path"):
+                logger.info(f"Excel 报告已生成: {report_result['excel_path']}")
+            if report_result.get("upload_success"):
+                logger.info("Excel 报告已上传到 FTP")
+            result["excel_path"] = report_result.get("excel_path")
+            result["ftp_upload"] = report_result.get("upload_success")
+        except Exception as e:
+            logger.warning(f"Excel 报告生成/上传失败: {e}")
+            result["excel_upload_error"] = str(e)
 
     except Exception as e:
         err_msg = f"同步异常: {e}"

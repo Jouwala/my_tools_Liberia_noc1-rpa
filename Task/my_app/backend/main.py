@@ -158,6 +158,34 @@ def _register_all_tasks():
         category="eflow",
     )
 
+    # 8. RAN UME Main KPI 同步（每天凌晨4点）
+    def _run_main_kpi_sync():
+        from backend.services.ran_ume_main_kpi import run_main_kpi_sync
+        return run_main_kpi_sync()
+
+    task_runner.register_task(
+        task_id="main_kpi_sync",
+        name="RAN Main KPI 同步",
+        func=_run_main_kpi_sync,
+        description="RAN UME Main KPI 历史指标同步（2G/3G/4G × Cells/Sites/Group/NW），导出 Excel 并增量更新 SQLite + FTP 上传",
+        default_cron="0 4 * * *",  # 每天凌晨4点
+        category="main_kpi",
+    )
+
+    # 9. RAN UME Network KPI（Zeenshan）同步（每天凌晨5点）
+    def _run_network_kpi_sync():
+        from backend.services.ran_ume_network_kpi import run_network_kpi_sync
+        return run_network_kpi_sync()
+
+    task_runner.register_task(
+        task_id="network_kpi_sync",
+        name="RAN Network KPI 同步",
+        func=_run_network_kpi_sync,
+        description="RAN UME Network KPI（Zeenshan）历史指标同步（2G/3G/4G × Group/NW），导出 Excel 并导入 SQLite + FTP 上传",
+        default_cron="0 5 * * *",  # 每天凌晨5点
+        category="network_kpi",
+    )
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -183,6 +211,9 @@ async def startup_event():
     """)
     conn.commit()
     conn.close()
+
+    # 初始化调度配置表（用户自定义cron持久化）
+    task_runner._init_schedule_table()
 
     # 注册所有任务并启动调度器
     _register_all_tasks()

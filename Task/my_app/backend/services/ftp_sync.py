@@ -8,6 +8,8 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 logger = logging.getLogger("ftp_sync")
 
 # FTP配置
@@ -133,6 +135,7 @@ def run_init_db():
             env=env,
             encoding='utf-8',
             errors='replace',
+            creationflags=_SUBPROCESS_FLAGS,
         )
         if result.returncode == 0:
             logger.info("数据库初始化完成")

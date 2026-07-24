@@ -13,11 +13,14 @@ import uuid
 import logging
 import gzip
 import os
+import glob
 import shutil
 import csv
 import sqlite3
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import pandas as pd
+import ftplib
 
 logger = logging.getLogger("eflow_api")
 
@@ -27,6 +30,17 @@ PORT = int(os.environ.get("EFLOW_PORT", "28001"))
 USERNAME = os.environ.get("EFLOW_USER", "admin")
 PASSWORD = os.environ.get("EFLOW_PASS", "Brysj*8*")
 MAX_PARALLEL_DOWNLOADS = 4
+
+# ========== 重试配置 ==========
+HTTP_MAX_RETRIES = 3
+HTTP_RETRY_DELAY = 2
+
+# ========== FTP 配置 ==========
+FTP_HOST = os.environ.get("FTP_HOST", "192.168.100.19")
+FTP_PORT = int(os.environ.get("FTP_PORT", "21"))
+FTP_USER = os.environ.get("FTP_USER", "FINEBI")
+FTP_PASS = os.environ.get("FTP_PASS", "DX")
+FTP_REMOTE_DIR = os.environ.get("FTP_REMOTE_DIR", "/webroot/WEB-INF/reportlets/excel")
 
 # ========== API 路径 ==========
 TT_API_PATH = "/api/eflow-ticket/v1/eflow-tt/base/list"
@@ -80,8 +94,23 @@ def _decode_chunked(data):
     return result
 
 
-def _http_request(method, path, headers_extra=None, body=None):
-    ssock = _create_ssl_socket()
+def _http_request(method, path, headers_extra=None, body=None, retry=0):
+    """
+    发送 HTTP 请求，带重试机制。
+    
+    Args:
+        retry: 内部使用，表示当前是第几次重试（不传则为首次）
+    """
+    try:
+        ssock = _create_ssl_socket()
+    except (ssl.SSLError, socket.timeout, ConnectionError, OSError) as e:
+        if retry < HTTP_MAX_RETRIES:
+            delay = HTTP_RETRY_DELAY * (2 ** retry)
+            logger.warning(f"Socket connect failed (attempt {retry+1}/{HTTP_MAX_RETRIES+1}): {e}, retrying in {delay}s")
+            time.sleep(delay)
+            return _http_request(method, path, headers_extra=headers_extra, body=body, retry=retry + 1)
+        raise
+
     headers = (
         f"{method} {path} HTTP/1.1\r\n"
         f"Host: {HOST}:{PORT}\r\n"
@@ -101,9 +130,22 @@ def _http_request(method, path, headers_extra=None, body=None):
     if body:
         request_bytes += body if isinstance(body, bytes) else body.encode('utf-8')
 
-    ssock.sendall(request_bytes)
+    try:
+        ssock.sendall(request_bytes)
+    except (socket.timeout, ConnectionError, OSError) as e:
+        ssock.close()
+        if retry < HTTP_MAX_RETRIES:
+            delay = HTTP_RETRY_DELAY * (2 ** retry)
+            logger.warning(f"Socket send failed (attempt {retry+1}/{HTTP_MAX_RETRIES+1}): {e}, retrying in {delay}s")
+            time.sleep(delay)
+            return _http_request(method, path, headers_extra=headers_extra, body=body, retry=retry + 1)
+        raise
 
     response_data = b""
+    content_length = None
+    header_end_found = False
+    header_end_pos = 0
+
     while True:
         try:
             chunk = ssock.recv(65536)
@@ -112,10 +154,43 @@ def _http_request(method, path, headers_extra=None, body=None):
             response_data += chunk
         except socket.timeout:
             break
+
+        # 解析 Content-Length（首次收到数据后立即解析）
+        if not header_end_found:
+            pos = response_data.find(b"\r\n\r\n")
+            if pos != -1:
+                header_end_found = True
+                header_end_pos = pos
+                header_part = response_data[:pos].decode('utf-8', errors='replace')
+                for line in header_part.split("\r\n"):
+                    if line.lower().startswith("content-length:"):
+                        try:
+                            content_length = int(line.split(":", 1)[1].strip())
+                        except ValueError:
+                            pass
+                        break
+
+        # 如果已知 Content-Length 且已收满，提前退出
+        if header_end_found and content_length is not None:
+            body_data = response_data[header_end_pos + 4:]
+            if len(body_data) >= content_length:
+                break
+
     ssock.close()
+
+    # Content-Length 预期与实际不符，视为部分数据
+    if header_end_found and content_length is not None:
+        body_data = response_data[header_end_pos + 4:]
+        if len(body_data) < content_length:
+            logger.warning(f"Response body truncated: {len(body_data)}/{content_length} bytes")
 
     header_end = response_data.find(b"\r\n\r\n")
     if header_end == -1:
+        if retry < HTTP_MAX_RETRIES:
+            delay = HTTP_RETRY_DELAY * (2 ** retry)
+            logger.warning(f"Cannot parse HTTP response (attempt {retry+1}/{HTTP_MAX_RETRIES+1}), retrying in {delay}s")
+            time.sleep(delay)
+            return _http_request(method, path, headers_extra=headers_extra, body=body, retry=retry + 1)
         raise Exception("Cannot parse HTTP response")
 
     header_part = response_data[:header_end].decode('utf-8', errors='replace')
@@ -149,86 +224,17 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
 def login():
     global _session_cookie, _forgery_token
 
-    logger.info("Starting eFlow authentication...")
-
     try:
-        # Step 1: Get authorize page
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET",
-            "/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html"
-        )
-
-        init_cookies = []
-        forgery_token = ""
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=")[1]:
-                    init_cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-
-        init_cookie_str = "; ".join(init_cookies)
-
-        html = body.decode('utf-8', errors='replace')
-        lp_match = re.search(r'var\s+loginParameters\s*=\s*["\']([^"\']+)["\']', html)
-        login_parameters = lp_match.group(1) if lp_match else ""
-
-        # Step 2: Get RSA public key
-        rsa_headers = f"Cookie: {init_cookie_str}\r\nX-Requested-With: XMLHttpRequest\r\n"
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET", "/api/oauth2/v1/login/publickey", headers_extra=rsa_headers,
-        )
-
-        public_key_b64 = ""
-        if "200" in status:
-            pk_data = json.loads(body.decode('utf-8'))
-            public_key_b64 = pk_data.get("rsaPublicKey", "")
-
-        # Step 3: Encrypt password
-        encrypted_pwd = _rsa_encrypt_pem(PASSWORD, public_key_b64)
-
-        # Step 4: Submit login
-        login_payload = json.dumps({
-            "username": USERNAME,
-            "password": encrypted_pwd,
-            "parameters": login_parameters,
-        })
-        login_headers = (
-            f"Content-Type: application/json\r\n"
-            f"Cookie: {init_cookie_str}\r\n"
-            f"Referer: https://{HOST}:{PORT}/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html\r\n"
-            f"X-Requested-With: XMLHttpRequest\r\n"
-        )
-        if forgery_token:
-            login_headers += f"forgerydefense: {forgery_token}\r\n"
-
-        status, hdrs, raw_hdrs, body = _http_request(
-            "POST", "/api/oauth2/v1/login_rsa",
-            headers_extra=login_headers, body=login_payload,
-        )
-
-        cookies = list(init_cookies)
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=")[1]:
-                    cookie_name = cookie_val.split("=")[0]
-                    cookies = [c for c in cookies if not c.startswith(cookie_name + "=")]
-                    cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-
-        _session_cookie = "; ".join(cookies)
-        _forgery_token = forgery_token
-
-        if not any("Z-AUTH-CODE" in c for c in cookies):
-            raise Exception("Login failed - no auth cookie obtained")
-
-        logger.info(f"eFlow login success ({len(cookies)} cookies)")
-
+        import sys as _sys
+        _sys.path.insert(0, r"d:\01_RPA\Task")
+        from auth_manager import get_auth
+        result = get_auth(HOST, PORT, USERNAME, PASSWORD)
+        source = "缓存" if result["from_cache"] else "重新登录"
+        logger.info(f"eFlow 鉴权成功（来源: {source}）")
+        _session_cookie = result["cookie"]
+        _forgery_token = result["forgery_token"]
     except Exception as e:
-        logger.error(f"eFlow login failed: {e}")
+        logger.error(f"eFlow auth_manager 失败: {e}")
         raise
 
     return _session_cookie
@@ -273,6 +279,31 @@ def parse_response(data, label=""):
     else:
         rows = []
     return rows if isinstance(rows, list) else []
+
+
+def _safe_json_loads(resp_body, label=""):
+    """
+    安全解析 JSON，当 JSON 被截断时尝试恢复。
+    返回 (parsed_dict_or_list, success_flag)
+    """
+    try:
+        data = json.loads(resp_body)
+        return data, True
+    except json.JSONDecodeError as e:
+        logger.warning(f"{label} JSON decode error: {e}, attempting recovery ({len(resp_body)} bytes)")
+        # 尝试找到最后一个完整的对象/数组边界
+        text = resp_body
+        for char in ('}', ']'):
+            last_pos = text.rfind(char)
+            if last_pos > 0:
+                try:
+                    data = json.loads(text[:last_pos + 1])
+                    logger.info(f"{label} JSON recovered by truncating at last '{char}'")
+                    return data, True
+                except json.JSONDecodeError:
+                    continue
+        logger.error(f"{label} JSON unrecoverable")
+        return {}, False
 
 
 # ========== 分页查询 ==========
@@ -1127,9 +1158,8 @@ def _fetch_history_alarm_pipeline():
 
         logger.info(f"History alarm offset={offset}: {len(resp_body)} bytes, {status_line}")
 
-        data = json.loads(resp_body.decode('utf-8'))
-
-        if not isinstance(data, dict):
+        data, parse_ok = _safe_json_loads(resp_body.decode('utf-8'), label=f"History(offset={offset})")
+        if not parse_ok or not isinstance(data, dict):
             logger.warning(f"Unexpected history response type: {type(data)}")
             break
 
@@ -1200,9 +1230,8 @@ def write_alarm_sqlite(data):
     cursor = conn.cursor()
 
     col_defs = ", ".join([f'"{col}" TEXT' for col in ALARM_COLUMNS])
-    cursor.execute(f"CREATE TABLE IF NOT EXISTS realtime_alarm ({col_defs})")
-
-    cursor.execute("DELETE FROM realtime_alarm")
+    cursor.execute("DROP TABLE IF EXISTS realtime_alarm")
+    cursor.execute(f"CREATE TABLE realtime_alarm ({col_defs})")
 
     rows_to_insert = []
     for row in data:
@@ -1254,9 +1283,8 @@ def write_history_alarm_sqlite(data):
     cursor = conn.cursor()
 
     col_defs = ", ".join([f'"{col}" TEXT' for col in ALARM_COLUMNS])
-    cursor.execute(f"CREATE TABLE IF NOT EXISTS history_alarm ({col_defs})")
-
-    cursor.execute("DELETE FROM history_alarm")
+    cursor.execute("DROP TABLE IF EXISTS history_alarm")
+    cursor.execute(f"CREATE TABLE history_alarm ({col_defs})")
 
     rows_to_insert = []
     for row in data:
@@ -1353,6 +1381,302 @@ def fetch_and_save_alarm_data():
     return result
 
 
+# ========== Excel 写入工具 ==========
+def _write_sheet(writer, df, sheet_name):
+    """将 DataFrame 写入 Excel sheet，带格式（标题行蓝色白字 + 自适应列宽）"""
+    df.to_excel(writer, index=False, sheet_name=sheet_name)
+    worksheet = writer.sheets[sheet_name]
+    workbook = writer.book
+
+    header_format = workbook.add_format({
+        "bold": True,
+        "bg_color": "#4472C4",
+        "font_color": "#FFFFFF",
+    })
+    worksheet.set_row(0, None, header_format)
+
+    # 列宽采样计算
+    sample_limit = 10000
+    for col_idx, col in enumerate(df.columns):
+        col_len = len(str(col))
+        if len(df) > 0:
+            if len(df) > sample_limit:
+                sample = df[col].iloc[:sample_limit].astype(str).str.len().max()
+            else:
+                sample = df[col].astype(str).str.len().max()
+            sample_int = int(sample) if pd.notna(sample) else 0
+            max_len = max(col_len, sample_int)
+        else:
+            max_len = col_len
+        worksheet.set_column(col_idx, col_idx, min(max_len + 2, 50))
+
+
+def _table_name(sheet_name):
+    """将 sheet 名转换为 SQLite 表名（小写 + 下划线）"""
+    return sheet_name.replace(" ", "_").lower()
+
+
+def save_to_sqlite(sheets_data):
+    """
+    将数据保存到 SQLite 数据库。
+    
+    Args:
+        sheets_data: 可以是 dict{sheet_name: rows} 或 list[(sheet_name, rows), ...]
+    
+    Returns:
+        db_path: SQLite 文件路径
+    """
+    import pandas as pd
+
+    start_time = time.time()
+    db_path = os.path.join(DATA_DIR, "eflow.sqlite3")
+    conn = sqlite3.connect(db_path)
+
+    items = sheets_data.items() if isinstance(sheets_data, dict) else sheets_data
+    for entry in items:
+        sheet_name, rows = entry if isinstance(entry, tuple) else (entry[0], entry[1])
+        t0 = time.time()
+        if not isinstance(rows, list) or not rows:
+            logger.warning(f"[SKIP] {sheet_name}: no data")
+            continue
+        df = pd.DataFrame(rows)
+        # SQLite 不支持 list/dict 类型，对 object/str 列检测并转换
+        object_cols = df.select_dtypes(include=["object", "str"]).columns
+        for col in object_cols:
+            if df[col].apply(lambda x: isinstance(x, (list, dict))).any():
+                df[col] = df[col].apply(lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (list, dict)) else x)
+        table = _table_name(sheet_name)
+        df.to_sql(table, conn, if_exists="replace", index=False, chunksize=5000)
+        logger.info(f"SQLite table '{table}': {len(df)} rows, {len(df.columns)} columns ({time.time() - t0:.2f}s)")
+
+    conn.close()
+    logger.info(f"SQLite saved: {db_path} (total {time.time() - start_time:.2f}s)")
+    return db_path
+
+
+def write_excel_from_sqlite(sheets_data):
+    """
+    从 SQLite 读取数据并生成格式化 Excel 报告。
+    
+    Args:
+        sheets_data: 可以是 dict{sheet_name: rows} 或 list[(sheet_name, rows), ...]
+    
+    Returns:
+        output_file: Excel 文件路径
+    """
+    import pandas as pd
+
+    start_time = time.time()
+    db_path = os.path.join(DATA_DIR, "eflow.sqlite3")
+    conn = sqlite3.connect(db_path)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = os.path.join(DATA_DIR, f"eflow_{timestamp}.xlsx")
+
+    seq = 1
+    while os.path.exists(output_file):
+        output_file = os.path.join(DATA_DIR, f"eflow_{timestamp}_{seq}.xlsx")
+        seq += 1
+
+    items = sheets_data.items() if isinstance(sheets_data, dict) else sheets_data
+    with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
+        for entry in items:
+            sheet_name, _ = entry if isinstance(entry, tuple) else (entry[0], entry[1])
+            t0 = time.time()
+            table = _table_name(sheet_name)
+            df = pd.read_sql_query(f'SELECT * FROM "{table}"', conn)
+            if df.empty:
+                logger.warning(f"[SKIP] {sheet_name}: no data")
+                continue
+            _write_sheet(writer, df, sheet_name)
+            logger.info(f"Excel {sheet_name}: {len(df)} rows, {len(df.columns)} columns ({time.time() - t0:.2f}s)")
+
+    conn.close()
+    logger.info(f"Excel saved: {output_file} (total {time.time() - start_time:.2f}s)")
+
+    # 删除旧 Excel 文件，只保留最新
+    for old_file in glob.glob(os.path.join(DATA_DIR, "eflow_*.xlsx")):
+        if os.path.abspath(old_file) != os.path.abspath(output_file):
+            try:
+                os.remove(old_file)
+                logger.info(f"[CLEAN] Deleted old file: {os.path.basename(old_file)}")
+            except OSError:
+                logger.warning(f"[WARN] Cannot delete (in use): {os.path.basename(old_file)}")
+
+    return output_file
+
+
+def cleanup_old_export_files(output_dir=None):
+    """SQLite 生成后，按类型只保留最新导出文件，删除旧文件和解压目录。"""
+    if output_dir is None:
+        output_dir = DATA_DIR
+
+    zip_patterns = [
+        "eflow-tt-export-*.zip",
+        "eflow-wo-export-*.zip",
+        "eflow-cr-export-*.zip",
+        "eflow-pm-task-export-*.zip",
+        "Site-export-*.zip",
+        "Person-export-*.zip",
+    ]
+
+    # 按类型保留最新 ZIP，删除旧 ZIP
+    for pattern in zip_patterns:
+        files = glob.glob(os.path.join(output_dir, pattern))
+        if len(files) <= 1:
+            continue
+        files.sort(key=os.path.getmtime)
+        for old_file in files[:-1]:
+            try:
+                os.remove(old_file)
+                logger.info(f"[CLEAN] Deleted old export ZIP: {os.path.basename(old_file)}")
+            except OSError as e:
+                logger.warning(f"[WARN] Cannot delete {old_file}: {e}")
+
+    # Site/Person 为同步 XLSX 下载，保留最新，删除旧 XLSX
+    xlsx_patterns = [
+        "Site*.xlsx",
+        "Person*.xlsx",
+    ]
+    for pattern in xlsx_patterns:
+        files = glob.glob(os.path.join(output_dir, pattern))
+        if len(files) <= 1:
+            continue
+        files.sort(key=os.path.getmtime)
+        for old_file in files[:-1]:
+            try:
+                os.remove(old_file)
+                logger.info(f"[CLEAN] Deleted old export XLSX: {os.path.basename(old_file)}")
+            except OSError as e:
+                logger.warning(f"[WARN] Cannot delete {old_file}: {e}")
+
+    # 删除残留的解压目录
+    for name in os.listdir(output_dir):
+        full_path = os.path.join(output_dir, name)
+        if not os.path.isdir(full_path):
+            continue
+        if (
+            name.startswith("eflow-tt-export-")
+            or name.startswith("eflow-wo-export-")
+            or name.startswith("eflow-cr-export-")
+            or name.startswith("eflow-pm-task-export-")
+            or name.startswith("Site-export-")
+            or name.startswith("Person-export-")
+        ):
+            try:
+                shutil.rmtree(full_path)
+                logger.info(f"[CLEAN] Deleted old extract dir: {name}")
+            except OSError as e:
+                logger.warning(f"[WARN] Cannot delete dir {full_path}: {e}")
+
+
+def upload_to_ftp(local_file_path, remote_filename=None):
+    """
+    将本地文件上传到 FTP 服务器。
+    
+    Args:
+        local_file_path: 本地文件路径
+        remote_filename: 远程文件名，默认使用本地文件名
+    
+    Returns:
+        bool: 是否上传成功
+    """
+    if not local_file_path or not os.path.exists(local_file_path):
+        logger.warning(f"FTP upload skipped: file not found - {local_file_path}")
+        return False
+
+    if remote_filename is None:
+        remote_filename = os.path.basename(local_file_path)
+
+    try:
+        logger.info(f"Connecting to FTP {FTP_HOST}:{FTP_PORT}...")
+        ftp = ftplib.FTP()
+        ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
+        ftp.login(FTP_USER, FTP_PASS)
+        logger.info(f"FTP login success")
+
+        # 确保远程目录存在，逐级创建
+        dirs = FTP_REMOTE_DIR.strip("/").split("/")
+        current_path = ""
+        for d in dirs:
+            current_path += f"/{d}"
+            try:
+                ftp.cwd(current_path)
+            except ftplib.error_perm:
+                try:
+                    ftp.mkd(current_path)
+                    ftp.cwd(current_path)
+                    logger.info(f"FTP created dir: {current_path}")
+                except ftplib.error_perm as e:
+                    logger.warning(f"FTP cannot create dir {current_path}: {e}")
+                    ftp.cwd("/")
+                    break
+
+        with open(local_file_path, "rb") as f:
+            ftp.storbinary(f"STOR {remote_filename}", f)
+
+        ftp.quit()
+        logger.info(f"FTP upload success: {remote_filename} -> {FTP_REMOTE_DIR}/")
+        return True
+
+    except (ftplib.all_errors, socket.timeout, ConnectionError, OSError) as e:
+        logger.error(f"FTP upload failed: {e}")
+        try:
+            ftp.quit()
+        except Exception:
+            pass
+        return False
+
+
+def generate_excel_report(data=None, save_sqlite=True, save_excel=True, cleanup=True, upload_ftp=False):
+    """
+    从获取的数据生成 SQLite 和 Excel 报告，并可选择上传到 FTP。
+    
+    如果未提供 data，则调用 fetch_all_data() 先获取数据。
+    
+    Args:
+        data: dict{sheet_name: rows} 或 None
+        save_sqlite: 是否保存到 SQLite
+        save_excel: 是否生成 Excel
+        cleanup: 是否清理旧导出文件
+        upload_ftp: 是否上传 Excel 到 FTP
+    
+    Returns:
+        dict: {"db_path": ..., "excel_path": ..., "sheets": ..., "upload_success": ...}
+    """
+    start_time = time.time()
+
+    if data is None:
+        logger.info("No data provided, fetching all eFlow data first...")
+        data = fetch_all_data()
+
+    result = {"db_path": None, "excel_path": None, "sheets": {}, "upload_success": False}
+
+    if save_sqlite:
+        db_path = save_to_sqlite(data)
+        result["db_path"] = db_path
+
+    if save_excel:
+        excel_path = write_excel_from_sqlite(data)
+        result["excel_path"] = excel_path
+
+    if cleanup:
+        cleanup_old_export_files()
+
+    # FTP 上传
+    if upload_ftp and result["excel_path"]:
+        upload_success = upload_to_ftp(result["excel_path"])
+        result["upload_success"] = upload_success
+
+    elapsed = time.time() - start_time
+    logger.info(f"Excel report generated in {elapsed:.2f}s")
+
+    for sheet_name, rows in data.items():
+        result["sheets"][sheet_name] = len(rows)
+
+    return result
+
+
 # ========== 主入口 ==========
 def fetch_all_data(tmp_dir: str = None) -> dict:
     """
@@ -1445,9 +1769,36 @@ if __name__ == "__main__":
         print(f"Active alarm: {len(result['realtime_alarm'])} records")
         print(f"History alarm: {len(result['history_alarm'])} records")
         print(f"Total: {time.time() - t0:.2f}s")
+    elif mode == "report":
+        t0 = time.time()
+        # 解析可选参数：python eflow_api_client.py report [upload]
+        upload_to_ftp_flag = len(sys.argv) > 2 and sys.argv[2] == "upload"
+        result = generate_excel_report(upload_ftp=upload_to_ftp_flag)
+        print(f"\n=== Excel Report Summary ===")
+        print(f"  SQLite DB: {result.get('db_path')}")
+        print(f"  Excel:     {result.get('excel_path')}")
+        print(f"  Sheets:    {len(result.get('sheets', {}))}")
+        for name, count in result.get('sheets', {}).items():
+            print(f"    - {name}: {count} rows")
+        if result.get('upload_success'):
+            print(f"  FTP:       uploaded OK")
+        print(f"\nTotal: {time.time() - t0:.2f}s")
     else:
         t0 = time.time()
         data = fetch_all_data()
+        print(f"\n=== Data Fetch Summary ===")
         for name, rows in data.items():
             print(f"  {name}: {len(rows)} rows")
         print(f"\nTotal: {time.time() - t0:.2f}s")
+
+        # 同时生成 Excel 报告（使用已有数据，即使部分管道失败）
+        report_t0 = time.time()
+        print(f"\n--- Generating Excel report ---")
+        report = generate_excel_report(data=data, upload_ftp=True)
+        print(f"  SQLite DB: {report.get('db_path')}")
+        print(f"  Excel:     {report.get('excel_path')}")
+        if report.get('upload_success'):
+            print(f"  FTP:       uploaded OK")
+        else:
+            print(f"  FTP:       upload skipped or failed")
+        print(f"  Report time: {time.time() - report_t0:.2f}s")

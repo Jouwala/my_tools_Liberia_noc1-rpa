@@ -7,10 +7,13 @@ import sys
 import time
 import glob
 import subprocess
+import sys
 import logging
 from pathlib import Path
 
 logger = logging.getLogger("whatsapp_service")
+
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 # ========== 配置 ==========
 #GROUPS = ["*OLR ZTE Quality Control*", "*OLR ZTE Incidents Mgt*"]
@@ -64,7 +67,7 @@ def _copy_image_to_clipboard(image_path):
         f"[System.Windows.Forms.Clipboard]::SetImage($img); "
         f"$img.Dispose()"
     )
-    subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True)
+    subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True, creationflags=_SUBPROCESS_FLAGS)
 
 
 def _copy_file_to_clipboard(file_path):
@@ -76,7 +79,7 @@ def _copy_file_to_clipboard(file_path):
         f"$col.Add($files); "
         f"[System.Windows.Forms.Clipboard]::SetFileDropList($col)"
     )
-    subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True)
+    subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True, creationflags=_SUBPROCESS_FLAGS)
 
 
 # ==========================================================

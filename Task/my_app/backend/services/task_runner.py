@@ -39,6 +39,64 @@ def get_scheduler() -> BackgroundScheduler:
 
 
 # ========== 任务注册 ==========
+def _init_schedule_table():
+    """初始化调度配置表"""
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_schedule_config (
+                task_id TEXT PRIMARY KEY,
+                cron TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        # 兼容旧表：尝试添加 enabled 列（表已存在时不会自动加）
+        try:
+            conn.execute("ALTER TABLE task_schedule_config ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+        except Exception:
+            pass  # 列已存在，忽略
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"初始化调度配置表失败: {e}")
+
+
+def _load_schedule_config(task_id: str) -> tuple:
+    """从数据库加载用户自定义的调度配置和启用状态"""
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        row = conn.execute(
+            "SELECT cron, enabled FROM task_schedule_config WHERE task_id = ?",
+            (task_id,)
+        ).fetchone()
+        conn.close()
+        return (row[0], bool(row[1])) if row else (None, None)
+    except Exception as e:
+        logger.warning(f"加载调度配置失败 ({task_id}): {e}")
+        return (None, None)
+
+
+def _save_schedule_config(task_id: str, cron: str, enabled: bool = None):
+    """保存用户自定义的调度配置到数据库"""
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        if enabled is not None:
+            conn.execute("""
+                INSERT OR REPLACE INTO task_schedule_config (task_id, cron, enabled, updated_at)
+                VALUES (?, ?, ?, ?)
+            """, (task_id, cron, 1 if enabled else 0, datetime.now().isoformat()))
+        else:
+            conn.execute("""
+                INSERT OR REPLACE INTO task_schedule_config (task_id, cron, enabled, updated_at)
+                VALUES (?, ?, COALESCE((SELECT enabled FROM task_schedule_config WHERE task_id = ?), 1), ?)
+            """, (task_id, cron, task_id, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"保存调度配置失败 ({task_id}): {e}")
+
+
 def register_task(
     task_id: str,
     name: str,
@@ -60,18 +118,23 @@ def register_task(
         category: 分类 (eflow / ran_ume / whatsapp / site_outage / general)
         enabled: 是否启用
     """
+    # 尝试加载用户自定义的调度配置
+    saved_cron, saved_enabled = _load_schedule_config(task_id)
+    current_cron = saved_cron if saved_cron else default_cron
+    final_enabled = saved_enabled if saved_enabled is not None else enabled
+
     _task_registry[task_id] = {
         "task_id": task_id,
         "name": name,
         "func": func,
         "description": description,
         "default_cron": default_cron,
-        "current_cron": default_cron,
+        "current_cron": current_cron,
         "category": category,
-        "enabled": enabled,
+        "enabled": final_enabled,
         "registered_at": datetime.now().isoformat(),
     }
-    logger.info(f"任务已注册: {task_id} ({name})")
+    logger.info(f"任务已注册: {task_id} ({name}), cron={current_cron}")
 
 
 def unregister_task(task_id: str):
@@ -204,7 +267,7 @@ def schedule_task(task_id: str, cron_expr: str = None):
     if not task:
         raise ValueError(f"任务 {task_id} 未找到")
 
-    cron = cron_expr or task["default_cron"]
+    cron = cron_expr or task["current_cron"] or task["default_cron"]
     parts = cron.strip().split()
     if len(parts) != 5:
         raise ValueError(f"无效的 cron 表达式: {cron}")
@@ -361,6 +424,8 @@ def update_task_schedule(task_id: str, cron_expr: str) -> dict:
 
     try:
         schedule_task(task_id, cron_expr)
+        # 持久化用户自定义的调度配置
+        _save_schedule_config(task_id, cron_expr)
         return {
             "success": True,
             "task_id": task_id,
@@ -378,6 +443,9 @@ def toggle_task(task_id: str, enabled: bool) -> dict:
         return {"success": False, "error": f"任务 {task_id} 未找到"}
 
     task["enabled"] = enabled
+
+    # 持久化启用状态
+    _save_schedule_config(task_id, task["current_cron"], enabled=enabled)
 
     sched = get_scheduler()
     job_id = f"task_{task_id}"

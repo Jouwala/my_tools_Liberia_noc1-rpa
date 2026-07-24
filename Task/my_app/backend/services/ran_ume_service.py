@@ -236,81 +236,23 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
 
 
 # ========== 登录 ==========
-def _login():
-    logger.info("[RAN_UME] Starting authentication...")
-    session_cookie = ""
-    forgery_token = ""
+def _login(max_retries=2):
+    """执行 RAN UME 登录流程（优先使用共享缓存，避免同账户重复登录）。
 
+    Args:
+        max_retries: 登录失败时最大重试次数（含首次），默认2次
+    """
     try:
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET",
-            "/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html"
-        )
-
-        init_cookies = []
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=")[1]:
-                    init_cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-
-        init_cookie_str = "; ".join(init_cookies)
-        html = body.decode('utf-8', errors='replace')
-        lp_match = re.search(r'var\s+loginParameters\s*=\s*["\']([^"\']+)["\']', html)
-        login_parameters = lp_match.group(1) if lp_match else ""
-
-        rsa_headers = f"Cookie: {init_cookie_str}\r\nX-Requested-With: XMLHttpRequest\r\n"
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET", "/api/oauth2/v1/login/publickey", headers_extra=rsa_headers,
-        )
-
-        public_key_b64 = ""
-        if "200" in status:
-            pk_data = json.loads(body.decode('utf-8'))
-            public_key_b64 = pk_data.get("rsaPublicKey", "")
-
-        encrypted_pwd = _rsa_encrypt_pem(PASSWORD, public_key_b64)
-
-        login_payload = json.dumps({
-            "username": USERNAME, "password": encrypted_pwd, "parameters": login_parameters,
-        })
-        login_headers = (
-            f"Content-Type: application/json\r\n"
-            f"Cookie: {init_cookie_str}\r\n"
-            f"Referer: https://{HOST}:{PORT}/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html\r\n"
-            f"X-Requested-With: XMLHttpRequest\r\n"
-        )
-        if forgery_token:
-            login_headers += f"forgerydefense: {forgery_token}\r\n"
-
-        status, hdrs, raw_hdrs, body = _http_request(
-            "POST", "/api/oauth2/v1/login_rsa", headers_extra=login_headers, body=login_payload,
-        )
-
-        cookies = list(init_cookies)
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=")[1]:
-                    cookie_name = cookie_val.split("=")[0]
-                    cookies = [c for c in cookies if not c.startswith(cookie_name + "=")]
-                    cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-
-        session_cookie = "; ".join(cookies)
-        if not any("Z-AUTH-CODE" in c for c in cookies):
-            raise Exception("Login failed - no auth cookie obtained")
-        logger.info(f"[RAN_UME] Login success ({len(cookies)} cookies)")
-
+        import sys as _sys
+        _sys.path.insert(0, r"d:\01_RPA\Task")
+        from auth_manager import get_auth
+        result = get_auth(HOST, PORT, USERNAME, PASSWORD)
+        source = "缓存" if result["from_cache"] else "重新登录"
+        logger.info(f"[RAN_UME] 鉴权成功（来源: {source}）")
+        return {"cookie": result["cookie"], "forgery_token": result["forgery_token"]}
     except Exception as e:
-        logger.error(f"[RAN_UME] Login failed: {e}, using fallback cookies")
-        session_cookie = FALLBACK_COOKIE
-        forgery_token = FALLBACK_FORGERY
-
-    return {"cookie": session_cookie, "forgery_token": forgery_token}
+        logger.error(f"[RAN_UME] auth_manager 失败: {e}, using fallback cookies")
+        return {"cookie": FALLBACK_COOKIE, "forgery_token": FALLBACK_FORGERY}
 
 
 # ========== PM 查询 ==========

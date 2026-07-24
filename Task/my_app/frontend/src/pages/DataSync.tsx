@@ -22,6 +22,7 @@ import {
   MessageOutlined,
   InfoCircleOutlined,
   BarChartOutlined,
+  FundOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
@@ -130,6 +131,8 @@ const CATEGORY_CONFIG: Record<string, { color: string; icon: React.ReactNode; la
   site_outage: { color: '#fa8c16', icon: <CameraOutlined />, label_zh: 'Site Outage', label_en: 'Site Outage' },
   whatsapp: { color: '#25D366', icon: <MessageOutlined />, label_zh: 'WhatsApp', label_en: 'WhatsApp' },
   ms_sla: { color: '#722ed1', icon: <BarChartOutlined />, label_zh: 'MS SLA/NUR', label_en: 'MS SLA/NUR' },
+  main_kpi: { color: '#13c2c2', icon: <FundOutlined />, label_zh: 'Main KPI', label_en: 'Main KPI' },
+  network_kpi: { color: '#eb2f96', icon: <BarChartOutlined />, label_zh: 'Network KPI', label_en: 'Network KPI' },
   general: { color: '#8c8c8c', icon: <SettingOutlined />, label_zh: '通用', label_en: 'General' },
 }
 
@@ -445,6 +448,151 @@ export default function DataSync() {
     }
   }
 
+  // 定义行分组（按 task_id）
+  const ROW_GROUPS: { label_zh: string; label_en: string; task_ids: string[] }[] = [
+    {
+      label_zh: 'eFlow 数据同步',
+      label_en: 'eFlow Data Sync',
+      task_ids: ['eflow_sync', 'eflow_history_alarm', 'eflow_active_alarm'],
+    },
+    {
+      label_zh: 'RAN UME 数据同步',
+      label_en: 'RAN UME Data Sync',
+      task_ids: ['ran_ume_daily', 'main_kpi_sync', 'network_kpi_sync'],
+    },
+    {
+      label_zh: '其他任务',
+      label_en: 'Other Tasks',
+      task_ids: ['site_outage_screenshot', 'whatsapp_send', 'ms_sla_full'],
+    },
+  ]
+
+  // 根据 task_id 快速查找任务
+  const taskMap = new Map(tasks.map(t => [t.task_id, t]))
+
+  const renderTaskCard = (taskId: string) => {
+    const task = taskMap.get(taskId)
+    if (!task) return null
+
+    const catCfg = getCategoryConfig(task.category)
+    const lastRun = getLastRun(task.task_id)
+    const isRunning = runningTasks.has(task.task_id)
+
+    return (
+      <Col key={task.task_id} xs={24} sm={24} md={8} lg={8} xl={8}>
+        <Card
+          size="small"
+          style={{
+            borderLeft: `4px solid ${task.enabled ? catCfg.color : '#d9d9d9'}`,
+            opacity: task.enabled ? 1 : 0.7,
+            height: '100%',
+          }}
+          styles={{ body: { padding: '16px 20px' } }}
+        >
+          {/* Task header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+            <div>
+              <Space size={4} align="center">
+                <span style={{ fontSize: 16, color: catCfg.color }}>{catCfg.icon}</span>
+                <Text strong style={{ fontSize: 15 }}>{task.name}</Text>
+              </Space>
+              <div style={{ marginTop: 4 }}>
+                <Tag color={catCfg.color} style={{ fontSize: 11 }}>{locale === 'zh' ? catCfg.label_zh : catCfg.label_en}</Tag>
+                {task.enabled ? (
+                  <Badge status="success" text={<Text type="secondary" style={{ fontSize: 11 }}>{locale === 'zh' ? '已启用' : 'Enabled'}</Text>} />
+                ) : (
+                  <Badge status="default" text={<Text type="secondary" style={{ fontSize: 11 }}>{locale === 'zh' ? '已禁用' : 'Disabled'}</Text>} />
+                )}
+              </div>
+            </div>
+            <Switch
+              size="small"
+              checked={task.enabled}
+              onChange={(checked) => handleToggle(task.task_id, checked)}
+            />
+          </div>
+
+          {/* Description */}
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.5 }}>
+            {task.description}
+          </Text>
+
+          {/* Schedule info */}
+          <div style={{
+            background: '#f6f8fa',
+            borderRadius: 8,
+            padding: '10px 14px',
+            marginBottom: 12,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <Space size={4}>
+                <ClockCircleOutlined style={{ color: '#1677ff' }} />
+                <Text style={{ fontSize: 13 }}>
+                  {cronToHuman(task.current_cron, locale)}
+                </Text>
+              </Space>
+              <Tooltip title={locale === 'zh' ? '编辑调度' : 'Edit Schedule'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => setEditTask(task)}
+                />
+              </Tooltip>
+            </div>
+            <div style={{ fontSize: 12, color: '#888' }}>
+              <Text code style={{ fontSize: 11 }}>{task.current_cron}</Text>
+              {task.next_run && (
+                <span style={{ marginLeft: 12 }}>
+                  ⏭ {locale === 'zh' ? '下次：' : 'Next: '}{getNextRunTime(task)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Last run */}
+          {lastRun && (
+            <div style={{ marginBottom: 12, fontSize: 12 }}>
+              <Space size={8}>
+                {lastRun.success
+                  ? <CheckCircleFilled style={{ color: '#52c41a' }} />
+                  : <CloseCircleFilled style={{ color: '#ff4d4f' }} />
+                }
+                <Text type="secondary">
+                  {locale === 'zh' ? '上次：' : 'Last: '}
+                  {formatTime(lastRun.started_at)}
+                </Text>
+                <Text type="secondary">⏱ {(lastRun.elapsed_seconds ?? 0).toFixed(1)}s</Text>
+                {lastRun.error && <Text type="danger">❌</Text>}
+              </Space>
+            </div>
+          )}
+
+          {/* Actions */}
+          <Space>
+            <Button
+              type="primary"
+              size="small"
+              icon={<PlayCircleOutlined />}
+              loading={isRunning}
+              onClick={() => handleRun(task.task_id)}
+              disabled={!task.enabled}
+            >
+              {isRunning ? (locale === 'zh' ? '执行中...' : 'Running...') : (locale === 'zh' ? '立即执行' : 'Run Now')}
+            </Button>
+            <Button
+              size="small"
+              icon={<HistoryOutlined />}
+              onClick={() => setHistoryTask(taskDetails[task.task_id] || null)}
+            >
+              {locale === 'zh' ? '历史' : 'History'}
+            </Button>
+          </Space>
+        </Card>
+      </Col>
+    )
+  }
+
   return (
     <div>
       {/* Header */}
@@ -461,128 +609,34 @@ export default function DataSync() {
         </Button>
       </div>
 
-      {/* Task Cards */}
+      {/* Task Cards - Grouped by Rows */}
       <Spin spinning={loading}>
-        <Row gutter={[16, 16]}>
-          {tasks.map(task => {
-            const catCfg = getCategoryConfig(task.category)
-            const lastRun = getLastRun(task.task_id)
-            const isRunning = runningTasks.has(task.task_id)
-
-            return (
-              <Col key={task.task_id} xs={24} sm={24} md={12} lg={12} xl={8}>
-                <Card
-                  size="small"
-                  style={{
-                    borderLeft: `4px solid ${task.enabled ? catCfg.color : '#d9d9d9'}`,
-                    opacity: task.enabled ? 1 : 0.7,
-                  }}
-                  styles={{ body: { padding: '16px 20px' } }}
-                >
-                  {/* Task header */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <div>
-                      <Space size={4} align="center">
-                        <span style={{ fontSize: 16, color: catCfg.color }}>{catCfg.icon}</span>
-                        <Text strong style={{ fontSize: 15 }}>{task.name}</Text>
-                      </Space>
-                      <div style={{ marginTop: 4 }}>
-                        <Tag color={catCfg.color} style={{ fontSize: 11 }}>{locale === 'zh' ? catCfg.label_zh : catCfg.label_en}</Tag>
-                        {task.enabled ? (
-                          <Badge status="success" text={<Text type="secondary" style={{ fontSize: 11 }}>{locale === 'zh' ? '已启用' : 'Enabled'}</Text>} />
-                        ) : (
-                          <Badge status="default" text={<Text type="secondary" style={{ fontSize: 11 }}>{locale === 'zh' ? '已禁用' : 'Disabled'}</Text>} />
-                        )}
-                      </div>
-                    </div>
-                    <Switch
-                      size="small"
-                      checked={task.enabled}
-                      onChange={(checked) => handleToggle(task.task_id, checked)}
-                    />
-                  </div>
-
-                  {/* Description */}
-                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.5 }}>
-                    {task.description}
-                  </Text>
-
-                  {/* Schedule info */}
-                  <div style={{
-                    background: '#f6f8fa',
-                    borderRadius: 8,
-                    padding: '10px 14px',
-                    marginBottom: 12,
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <Space size={4}>
-                        <ClockCircleOutlined style={{ color: '#1677ff' }} />
-                        <Text style={{ fontSize: 13 }}>
-                          {cronToHuman(task.current_cron, locale)}
-                        </Text>
-                      </Space>
-                      <Tooltip title={locale === 'zh' ? '编辑调度' : 'Edit Schedule'}>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<EditOutlined />}
-                          onClick={() => setEditTask(task)}
-                        />
-                      </Tooltip>
-                    </div>
-                    <div style={{ fontSize: 12, color: '#888' }}>
-                      <Text code style={{ fontSize: 11 }}>{task.current_cron}</Text>
-                      {task.next_run && (
-                        <span style={{ marginLeft: 12 }}>
-                          ⏭ {locale === 'zh' ? '下次：' : 'Next: '}{getNextRunTime(task)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Last run */}
-                  {lastRun && (
-                    <div style={{ marginBottom: 12, fontSize: 12 }}>
-                      <Space size={8}>
-                        {lastRun.success
-                          ? <CheckCircleFilled style={{ color: '#52c41a' }} />
-                          : <CloseCircleFilled style={{ color: '#ff4d4f' }} />
-                        }
-                        <Text type="secondary">
-                          {locale === 'zh' ? '上次：' : 'Last: '}
-                          {formatTime(lastRun.started_at)}
-                        </Text>
-                        <Text type="secondary">⏱ {(lastRun.elapsed_seconds ?? 0).toFixed(1)}s</Text>
-                        {lastRun.error && <Text type="danger">❌</Text>}
-                      </Space>
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <Space>
-                    <Button
-                      type="primary"
-                      size="small"
-                      icon={<PlayCircleOutlined />}
-                      loading={isRunning}
-                      onClick={() => handleRun(task.task_id)}
-                      disabled={!task.enabled}
-                    >
-                      {isRunning ? (locale === 'zh' ? '执行中...' : 'Running...') : (locale === 'zh' ? '立即执行' : 'Run Now')}
-                    </Button>
-                    <Button
-                      size="small"
-                      icon={<HistoryOutlined />}
-                      onClick={() => setHistoryTask(taskDetails[task.task_id] || null)}
-                    >
-                      {locale === 'zh' ? '历史' : 'History'}
-                    </Button>
-                  </Space>
-                </Card>
-              </Col>
-            )
-          })}
-        </Row>
+        {ROW_GROUPS.map((group, gi) => (
+          <div key={gi} style={{ marginBottom: 24 }}>
+            {/* Row title */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              marginBottom: 12,
+              padding: '4px 0',
+              borderBottom: '1px solid #e8e8e8',
+            }}>
+              <div style={{
+                width: 4,
+                height: 18,
+                borderRadius: 2,
+                background: gi === 0 ? '#1677ff' : gi === 1 ? '#52c41a' : '#fa8c16',
+                marginRight: 10,
+              }} />
+              <Text style={{ fontSize: 14, fontWeight: 600 }}>
+                {locale === 'zh' ? group.label_zh : group.label_en}
+              </Text>
+            </div>
+            <Row gutter={[16, 16]}>
+              {group.task_ids.map(taskId => renderTaskCard(taskId))}
+            </Row>
+          </div>
+        ))}
       </Spin>
 
       {/* Schedule Editor Modal */}
