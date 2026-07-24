@@ -125,103 +125,16 @@ FALLBACK_FORGERY = "cfe68ff2abd4792b0b08eadcd739630fa22737448c5908a53f1c688d2f28
 def login():
     global SESSION_COOKIE, FORGERY_TOKEN
 
-    print("[LOGIN] Starting authentication...")
-
     try:
-        print("[LOGIN] Step 1: Getting authorize page...")
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET",
-            "/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html"
-        )
-        print(f"[LOGIN] Status: {status}")
-
-        init_cookies = []
-        forgery_token = ""
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=")[1]:
-                    init_cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-
-        init_cookie_str = "; ".join(init_cookies)
-        print(f"[LOGIN] Got {len(init_cookies)} cookies")
-
-        html = body.decode('utf-8', errors='replace')
-        lp_match = re.search(r'var\s+loginParameters\s*=\s*["\']([^"\']+)["\']', html)
-        login_parameters = lp_match.group(1) if lp_match else ""
-        print(f"[LOGIN] Got loginParameters ({len(login_parameters)} chars)")
-
-        print("[LOGIN] Step 2: Getting RSA public key from API...")
-        rsa_headers = f"Cookie: {init_cookie_str}\r\nX-Requested-With: XMLHttpRequest\r\n"
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET", "/api/oauth2/v1/login/publickey",
-            headers_extra=rsa_headers,
-        )
-        print(f"[LOGIN] Public key API status: {status}")
-
-        if "200" in status:
-            pk_data = json.loads(body.decode('utf-8'))
-            public_key_b64 = pk_data.get("rsaPublicKey", "")
-            print(f"[LOGIN] Got rsaPublicKey ({len(public_key_b64)} chars)")
-        else:
-            print("[LOGIN] API failed, using HTML embedded key")
-
-        print("[LOGIN] Step 3: Encrypting password with RSA...")
-        encrypted_pwd = _rsa_encrypt_pem(PASSWORD, public_key_b64)
-        print(f"[LOGIN] Encrypted ({len(encrypted_pwd)} chars)")
-
-        print("[LOGIN] Step 4: Submitting login...")
-        login_payload = json.dumps({
-            "username": USERNAME,
-            "password": encrypted_pwd,
-            "parameters": login_parameters,
-        })
-
-        login_headers = (
-            f"Content-Type: application/json\r\n"
-            f"Cookie: {init_cookie_str}\r\n"
-            f"Referer: https://{HOST}:{PORT}/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html\r\n"
-            f"X-Requested-With: XMLHttpRequest\r\n"
-        )
-        if forgery_token:
-            login_headers += f"forgerydefense: {forgery_token}\r\n"
-
-        status, hdrs, raw_hdrs, body = _http_request(
-            "POST",
-            "/api/oauth2/v1/login_rsa",
-            headers_extra=login_headers,
-            body=login_payload,
-        )
-        print(f"[LOGIN] Login status: {status}")
-
-        cookies = list(init_cookies)
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=")[1]:
-                    cookie_name = cookie_val.split("=")[0]
-                    cookies = [c for c in cookies if not c.startswith(cookie_name + "=")]
-                    cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-
-        SESSION_COOKIE = "; ".join(cookies)
-        FORGERY_TOKEN = forgery_token
-
-        resp_text = body.decode('utf-8', errors='replace')
-        if "302" in status or "default.html" in resp_text or len(cookies) > 3:
-            print(f"[LOGIN] SUCCESS - {len(cookies)} cookies")
-        else:
-            print(f"[LOGIN] Response: {resp_text[:300]}")
-            if not any("Z-AUTH-CODE" in c for c in cookies):
-                raise Exception("Login failed - no auth cookie obtained")
-
-        print(f"[LOGIN] Cookie: {SESSION_COOKIE[:100]}...")
-
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Task"))
+        from auth_manager import get_auth
+        result = get_auth(HOST, PORT, USERNAME, PASSWORD)
+        source = "缓存" if result["from_cache"] else "重新登录"
+        print(f"[LOGIN] 鉴权成功（来源: {source}）")
+        SESSION_COOKIE = result["cookie"]
+        FORGERY_TOKEN = result["forgery_token"]
     except Exception as e:
-        print(f"[LOGIN] FAILED: {e}")
+        print(f"[LOGIN] auth_manager 失败: {e}")
         print("[LOGIN] Falling back to hardcoded cookies...")
         SESSION_COOKIE = FALLBACK_COOKIE
         FORGERY_TOKEN = FALLBACK_FORGERY
@@ -2194,6 +2107,265 @@ def _fetch_person_pipeline():
     return ("Person", rows)
 
 
+# ============================================================
+# 获取数据后生成 Excel 报告与图片（复用 mail_126.py 的方法）
+# ============================================================
+TT_REPORT_SUBDIR = "tt_reports"          # 报告与图片输出子目录
+SEND_EMAIL_AFTER_REPORT = False          # 是否在生成报告后发送邮件（需配置 to_receiver.txt）
+
+# eFlow TT 导出列名 -> mail_126.ExcelDataProcessor 期望列名
+_TT_COLUMN_RENAME = {
+    "TT No.": "Ticket No.",
+    "Asset Name": "Site Name",
+    "Site Class": "Site Category",
+    "SLA Total Duration": "SLA Time",
+    "Occurrence Time": "Alarm Occur Time",
+    "Alarm Clearing Time": "Alarm Clear Time",
+    "SLA Remaining Duration": "SLA Remain Time",
+}
+
+# Site 表中作为 TX 值来源的列名（传输类型）
+SITE_TX_SOURCE_COL = "TRM Type"
+
+
+def _build_site_tx_map(sheets_data, processor_cls):
+    """从 Site 数据构建 (site_id_map, site_name_map) -> TX(TRM Type) 映射。
+
+    site_id_map: normalize_id(Site ID) -> TX
+    site_name_map: strip(Site Name) -> TX
+    返回 (id_map, name_map)；Site 无数据或无 TX 列时返回 ({}, {})。
+    """
+    import pandas as pd
+
+    site_rows = []
+    for sheet_name, rows in sheets_data:
+        if sheet_name == "Site":
+            site_rows = rows or []
+            break
+    if not site_rows:
+        return {}, {}
+
+    df_site = pd.DataFrame(site_rows)
+    df_site = processor_cls.clean_columns(df_site)
+    if SITE_TX_SOURCE_COL not in df_site.columns:
+        print(f"[WARN] Site 表无 '{SITE_TX_SOURCE_COL}' 列，无法生成 TX 映射")
+        return {}, {}
+
+    id_map = {}
+    name_map = {}
+    for _, r in df_site.iterrows():
+        tx_val = r.get(SITE_TX_SOURCE_COL)
+        if pd.isna(tx_val):
+            tx_val = ""
+        tx_val = str(tx_val).strip()
+        sid = processor_cls.normalize_id(r.get("Site ID"))
+        sname = str(r.get("Site Name", "")).strip()
+        if sid:
+            id_map[sid] = tx_val
+        if sname:
+            name_map[sname] = tx_val
+    print(f"[INFO] TX 映射构建完成: {len(id_map)} by Site ID, {len(name_map)} by Site Name")
+    return id_map, name_map
+
+
+def _import_excel_processor():
+    """安全导入 mail_126.ExcelDataProcessor。
+
+    mail_126.py 顶部依赖 `from process_site_person import process`，
+    且 EmailSender 类级属性会执行 pd.read_csv("to_receiver.txt")；
+    本函数在导入前注入占位模块并补齐 to_receiver.txt，避免 ImportError。
+    返回 (ExcelDataProcessor, EmailSender)。
+    """
+    import sys
+    import types
+
+    script_dir = OUTPUT_DIR
+
+    # 1) 注入 process_site_person 占位模块（mail_126.py 顶部 import 依赖）
+    if "process_site_person" not in sys.modules:
+        stub = types.ModuleType("process_site_person")
+        stub.process = lambda *args, **kwargs: None
+        sys.modules["process_site_person"] = stub
+
+    # 2) 确保 to_receiver.txt 存在（EmailSender 类级 pd.read_csv 依赖，相对 CWD）
+    receiver_file = os.path.join(script_dir, "to_receiver.txt")
+    if not os.path.exists(receiver_file):
+        with open(receiver_file, "w", encoding="utf-8") as f:
+            f.write("nobody@example.invalid\n")
+        print(f"[INFO] Created placeholder {receiver_file} (请替换为真实收件人邮箱以启用邮件发送)")
+
+    # 3) 将脚本目录加入 sys.path
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
+
+    # 4) 切到脚本目录导入（pd.read_csv("to_receiver.txt") 依赖 CWD），导入后恢复
+    prev_cwd = os.getcwd()
+    try:
+        os.chdir(script_dir)
+        from mail_126 import ExcelDataProcessor, EmailSender
+    finally:
+        os.chdir(prev_cwd)
+    return ExcelDataProcessor, EmailSender
+
+
+def generate_excel_and_images(sheets_data, output_dir=None, send_email=None):
+    """获取数据后生成 Excel 报告与图片，复用 mail_126.py 的方法。
+
+    流程：提取 eFlow TT 数据 → 列名映射 → 字段提取 → Hourly Report →
+          8 Hours Report → TT Summary 计算 → Summary Report → 图片（→ 邮件）。
+    跳过 read_excel_data 以避免 Site_Maintainer_Category.xlsx 主数据依赖。
+    返回生成文件路径字典；失败返回 None。
+    """
+    import pandas as pd
+
+    total_start = time.time()
+    start_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if output_dir is None:
+        output_dir = os.path.join(OUTPUT_DIR, TT_REPORT_SUBDIR)
+    if send_email is None:
+        send_email = SEND_EMAIL_AFTER_REPORT
+
+    print("\n" + "=" * 60)
+    print(f"Generate Excel & Images - {start_time_str}")
+    print("=" * 60)
+
+    # 导入 mail_126（处理其导入期依赖）
+    try:
+        ExcelDataProcessor, EmailSender = _import_excel_processor()
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] 无法导入 mail_126.ExcelDataProcessor: {e}")
+        traceback.print_exc()
+        return None
+
+    # 1. 提取 eFlow TT 数据
+    tt_rows = []
+    for sheet_name, rows in sheets_data:
+        if sheet_name == "eFlow TT":
+            tt_rows = rows or []
+            break
+    if not tt_rows:
+        print("[WARN] No eFlow TT data, skip report generation")
+        return None
+    print(f"[INFO] eFlow TT rows: {len(tt_rows)}")
+
+    # 2. 构建 DataFrame 并重命名列以匹配 ExcelDataProcessor 期望
+    df_source = pd.DataFrame(tt_rows)
+    df_source = ExcelDataProcessor.clean_columns(df_source)
+    rename_map = {k: v for k, v in _TT_COLUMN_RENAME.items() if k in df_source.columns}
+    if rename_map:
+        df_source = df_source.rename(columns=rename_map)
+    print(f"[INFO] TT DataFrame: {df_source.shape}, renamed: {rename_map}")
+
+    # 2.5 添加 TX 列：从 Site 表的 TRM Type 按 Site ID/Name 匹配
+    id_map, name_map = _build_site_tx_map(sheets_data, ExcelDataProcessor)
+    if "Site ID" in df_source.columns:
+        df_source["Site ID"] = df_source["Site ID"].apply(ExcelDataProcessor.normalize_id)
+    if id_map or name_map:
+        df_source["TX"] = df_source["Site ID"].map(id_map) if "Site ID" in df_source.columns else ""
+        # Site ID 匹配不上的，用 Site Name 后备匹配
+        mask = df_source["TX"].isna()
+        if mask.any() and name_map and "Site Name" in df_source.columns:
+            df_source.loc[mask, "TX"] = (
+                df_source.loc[mask, "Site Name"].astype(str).str.strip().map(name_map)
+            )
+        df_source["TX"] = df_source["TX"].fillna("")
+        matched = (df_source["TX"].astype(str).str.strip() != "").sum()
+        print(f"[INFO] TX 列已添加，匹配率: {matched}/{len(df_source)} "
+              f"({matched / max(len(df_source), 1) * 100:.1f}%)")
+    else:
+        df_source["TX"] = ""
+        print("[WARN] TX 列为空（Site 表无 TRM Type 数据）")
+
+    # 3. 直接设置数据源（跳过 read_excel_data，避免主数据文件依赖）
+    ExcelDataProcessor.df_master_cache = None
+    ExcelDataProcessor.df_eflow_source = df_source
+
+    hourly_file = eight_hour_file = eight_hour_img = summary_file = None
+    image_paths = []
+    try:
+        # 4. 字段提取
+        step_start = time.time()
+        print("\n📌 步骤1: 提取字段...")
+        df_extracted = ExcelDataProcessor.extract_fields()
+        print(f"   ⏱️ 用时: {time.time() - step_start:.2f}s")
+
+        # 5. Hourly Report
+        step_start = time.time()
+        print("\n📌 步骤2: 生成 Hourly Report...")
+        hourly_file, _ = ExcelDataProcessor.write_hourly_report(
+            df_extracted, output_dir=output_dir)
+        print(f"   ⏱️ 用时: {time.time() - step_start:.2f}s")
+
+        # 6. 8 Hours Report
+        step_start = time.time()
+        print("\n📌 步骤3: 生成 8 Hours Report...")
+        eight_hour_file, eight_hour_img, _ = ExcelDataProcessor.write_8hours_report(
+            df_extracted, output_dir=output_dir)
+        print(f"   ⏱️ 用时: {time.time() - step_start:.2f}s")
+
+        # 7. TT Summary 计算
+        step_start = time.time()
+        print("\n📌 步骤4: 计算 SLA Status / Summary...")
+        df_open, open_tickets, prolong_tickets, summary_df, raw_df = \
+            ExcelDataProcessor.compute_tt_summary(df_extracted)
+        print(f"   Open Tickets: {len(open_tickets)}, Prolong: {len(prolong_tickets)}")
+        print(f"   ⏱️ 用时: {time.time() - step_start:.2f}s")
+
+        # 8. TT Summary Report
+        step_start = time.time()
+        print("\n📌 步骤5: 生成 TT Summary Report...")
+        summary_file = ExcelDataProcessor.write_summary_report(
+            open_tickets, prolong_tickets, summary_df, raw_df, output_dir=output_dir)
+        print(f"   ⏱️ 用时: {time.time() - step_start:.2f}s")
+
+        # 9. 图片
+        step_start = time.time()
+        print("\n📌 步骤6: 生成图片（matplotlib）...")
+        image_paths = ExcelDataProcessor.generate_summary_images(
+            summary_df, open_tickets, prolong_tickets, output_dir)
+        print(f"   ⏱️ 用时: {time.time() - step_start:.2f}s")
+
+        # 10. 邮件（可选）
+        if send_email:
+            step_start = time.time()
+            print("\n📌 步骤7: 发送邮件...")
+            try:
+                EmailSender.send_report_email(summary_file, summary_df, image_paths=image_paths)
+            except Exception as e:
+                print(f"❌ 邮件发送失败: {e}")
+            print(f"   ⏱️ 用时: {time.time() - step_start:.2f}s")
+
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] 报告生成失败: {e}")
+        traceback.print_exc()
+        return None
+
+    total_elapsed = time.time() - total_start
+    end_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"\n🎉 报告生成完成!")
+    print(f"⏰ 开始时间: {start_time_str}")
+    print(f"⏰ 结束时间: {end_time_str}")
+    print(f"⏱️ 总用时: {total_elapsed:.2f}s")
+    if hourly_file:
+        print(f"📁 Hourly Report: {hourly_file}")
+    if eight_hour_file:
+        print(f"📁 8 Hours Report: {eight_hour_file}")
+    if summary_file:
+        print(f"📁 Summary Report: {summary_file}")
+    for p in image_paths:
+        print(f"🖼️  图片: {p}")
+
+    return {
+        "hourly_file": hourly_file,
+        "eight_hour_file": eight_hour_file,
+        "eight_hour_img": eight_hour_img,
+        "summary_file": summary_file,
+        "image_paths": image_paths,
+    }
+
+
 def main():
     import pandas as pd
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -2243,6 +2415,9 @@ def main():
         ]
         save_to_sqlite(sheets_data)
         cleanup_old_export_files()
+
+        # 获取数据后生成 Excel 报告与图片（复用 mail_126.py 的方法）
+        generate_excel_and_images(sheets_data)
 
     except Exception as e:
         import traceback

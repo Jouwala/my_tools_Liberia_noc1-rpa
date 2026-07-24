@@ -241,15 +241,42 @@ def run_whatsapp_send() -> dict:
     browser = None
     try:
         pw = sync_playwright().start()
-        browser = pw.chromium.launch_persistent_context(
-            USER_DATA_DIR,
+
+        # 可选代理配置：设置环境变量 WHATSAPP_PROXY，例如 http://127.0.0.1:7890
+        launch_kwargs = dict(
             executable_path=CHROME_PATH,
             headless=HEADLESS,
             args=["--start-maximized", "--prevent-first-run-default-browser-prompts"],
             no_viewport=True,
         )
+        proxy = os.environ.get("WHATSAPP_PROXY", "").strip()
+        if proxy:
+            launch_kwargs["proxy"] = {"server": proxy}
+            _info(f"使用代理: {proxy}")
+
+        browser = pw.chromium.launch_persistent_context(USER_DATA_DIR, **launch_kwargs)
         page = browser.new_page()
-        page.goto(WHATSAPP_URL, wait_until="domcontentloaded", timeout=180000)
+
+        # 带重试的页面加载（最多3次）+ ERR_CONNECTION_RESET 容错
+        for attempt in range(1, 4):
+            try:
+                page.goto(WHATSAPP_URL, wait_until="domcontentloaded", timeout=180000)
+                break
+            except Exception as e:
+                err_msg = str(e)
+                # 页面实际已加载但后台连接被重置(代理/WebSocket导致)，视为成功
+                if "ERR_CONNECTION_RESET" in err_msg:
+                    try:
+                        page.wait_for_selector("#app, #side, div[data-testid='intro-wrapper'], canvas", timeout=15000)
+                        _warn("goto报ERR_CONNECTION_RESET但页面已正常加载，继续执行")
+                        break
+                    except Exception:
+                        pass  # 页面确实没加载出来，走正常重试
+                _warn(f"页面加载失败 (第{attempt}/3次): {e}")
+                if attempt == 3:
+                    raise
+                time.sleep(30)
+
         _info("等待 WhatsApp Web 加载，请扫码登录（如有需要）...")
         page.locator("#side").wait_for(timeout=180000)
         _success("登录成功")

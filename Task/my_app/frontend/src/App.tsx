@@ -10,6 +10,7 @@ import {
   BarChartOutlined,
   TranslationOutlined,
   SyncOutlined,
+  AlertOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -23,18 +24,20 @@ import ArchiveList from './pages/ArchiveList'
 import DataSync from './pages/DataSync'
 import Overview from './pages/Overview'
 import TTWODashboard from './pages/TTWODashboard'
+import AlarmDashboard from './pages/AlarmDashboard'
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'ttwo' | 'gis' | 'archive' | 'sync'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'archive' | 'sync'
 
 function AppContent() {
-  const [currentPage, setCurrentPage] = useState<PageKey>('ttwo')
+  const [currentPage, setCurrentPage] = useState<PageKey>('alarm')
   const [collapsed, setCollapsed] = useState(false)
   const { t, locale, toggleLocale } = useI18n()
 
   const menuItems = [
     { key: 'dashboard', icon: <DashboardOutlined />, label: t('nav.dashboard') },
+    { key: 'alarm', icon: <AlertOutlined />, label: t('nav.alarm') },
     { key: 'ttwo', icon: <BarChartOutlined />, label: t('nav.ttwo') },
     { key: 'gis', icon: <GlobalOutlined />, label: t('nav.gis') },
     { key: 'overview', icon: <BarChartOutlined />, label: t('nav.overview') },
@@ -54,6 +57,8 @@ function AppContent() {
         return <DataUpload />
       case 'dashboard':
         return <Dashboard />
+      case 'alarm':
+        return <AlarmDashboard />
       case 'ttwo':
         return <TTWODashboard />
       case 'gis':

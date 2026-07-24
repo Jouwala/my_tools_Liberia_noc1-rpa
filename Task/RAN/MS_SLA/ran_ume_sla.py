@@ -48,6 +48,8 @@ except Exception:
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 # ============================================================
 # 配置
 # ============================================================
@@ -288,115 +290,20 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
 # ============================================================
 def login():
     """
-    执行 RAN UME 登录流程。
+    执行 RAN UME 登录流程（优先使用共享缓存，避免同账户重复登录）。
     返回包含 cookie 和 forgery_token 的字典；失败时回退到 FALLBACK_COOKIE。
     """
-    print("[LOGIN] Starting authentication...")
-    session_cookie = ""
-    forgery_token = ""
-
     try:
-        print("[LOGIN] Step 1: Getting authorize page...")
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET",
-            "/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html"
-        )
-        print(f"[LOGIN] Status: {status}")
-
-        init_cookies = []
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=")[1]:
-                    init_cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-
-        init_cookie_str = "; ".join(init_cookies)
-        print(f"[LOGIN] Got {len(init_cookies)} cookies")
-
-        html = body.decode('utf-8', errors='replace')
-        lp_match = re.search(r'var\s+loginParameters\s*=\s*["\']([^"\']+)["\']', html)
-        login_parameters = lp_match.group(1) if lp_match else ""
-        print(f"[LOGIN] Got loginParameters ({len(login_parameters)} chars)")
-
-        print("[LOGIN] Step 2: Getting RSA public key from API...")
-        rsa_headers = f"Cookie: {init_cookie_str}\r\nX-Requested-With: XMLHttpRequest\r\n"
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET", "/api/oauth2/v1/login/publickey",
-            headers_extra=rsa_headers,
-        )
-        print(f"[LOGIN] Public key API status: {status}")
-
-        public_key_b64 = ""
-        if "200" in status:
-            pk_data = json.loads(body.decode('utf-8'))
-            public_key_b64 = pk_data.get("rsaPublicKey", "")
-            print(f"[LOGIN] Got rsaPublicKey ({len(public_key_b64)} chars)")
-        else:
-            print("[LOGIN] API failed, using HTML embedded key")
-
-        print("[LOGIN] Step 3: Encrypting password with RSA...")
-        encrypted_pwd = _rsa_encrypt_pem(PASSWORD, public_key_b64)
-        print(f"[LOGIN] Encrypted ({len(encrypted_pwd)} chars)")
-
-        print("[LOGIN] Step 4: Submitting login...")
-        login_payload = json.dumps({
-            "username": USERNAME,
-            "password": encrypted_pwd,
-            "parameters": login_parameters,
-        })
-
-        login_headers = (
-            f"Content-Type: application/json\r\n"
-            f"Cookie: {init_cookie_str}\r\n"
-            f"Referer: https://{HOST}:{PORT}/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html\r\n"
-            f"X-Requested-With: XMLHttpRequest\r\n"
-        )
-        if forgery_token:
-            login_headers += f"forgerydefense: {forgery_token}\r\n"
-
-        status, hdrs, raw_hdrs, body = _http_request(
-            "POST",
-            "/api/oauth2/v1/login_rsa",
-            headers_extra=login_headers,
-            body=login_payload,
-        )
-        print(f"[LOGIN] Login status: {status}")
-
-        cookies = list(init_cookies)
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=")[1]:
-                    cookie_name = cookie_val.split("=")[0]
-                    cookies = [c for c in cookies if not c.startswith(cookie_name + "=")]
-                    cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-
-        session_cookie = "; ".join(cookies)
-
-        resp_text = body.decode('utf-8', errors='replace')
-        if "302" in status or "default.html" in resp_text or len(cookies) > 3:
-            print(f"[LOGIN] SUCCESS - {len(cookies)} cookies")
-        else:
-            print(f"[LOGIN] Response: {resp_text[:300]}")
-            if not any("Z-AUTH-CODE" in c for c in cookies):
-                raise Exception("Login failed - no auth cookie obtained")
-
-        print(f"[LOGIN] Cookie: {session_cookie[:100]}...")
-
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+        from auth_manager import get_auth
+        result = get_auth(HOST, PORT, USERNAME, PASSWORD)
+        source = "缓存" if result["from_cache"] else "重新登录"
+        print(f"[LOGIN] 鉴权成功（来源: {source}）")
+        return {"cookie": result["cookie"], "forgery_token": result["forgery_token"]}
     except Exception as e:
-        print(f"[LOGIN] FAILED: {e}")
+        print(f"[LOGIN] auth_manager 失败: {e}")
         print("[LOGIN] Falling back to hardcoded cookies...")
-        session_cookie = FALLBACK_COOKIE
-        forgery_token = FALLBACK_FORGERY
-
-    return {
-        "cookie": session_cookie,
-        "forgery_token": forgery_token,
-    }
+        return {"cookie": FALLBACK_COOKIE, "forgery_token": FALLBACK_FORGERY}
 
 
 # ============================================================
@@ -944,7 +851,8 @@ def cleanup_sla_exports(output_dir: str = OUTPUT_DIR) -> int:
                             subprocess.run(
                                 ['powershell', '-Command',
                                  f'Remove-Item -Path "{fpath}" -Force -ErrorAction Stop'],
-                                capture_output=True, timeout=15
+                                capture_output=True, timeout=15,
+                                creationflags=_SUBPROCESS_FLAGS,
                             )
                             if not os.path.exists(fpath):
                                 print(f"[CLEANUP] deleted (force): {os.path.basename(fpath)}")

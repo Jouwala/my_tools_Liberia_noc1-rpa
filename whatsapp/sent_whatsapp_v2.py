@@ -3,7 +3,9 @@
 # ==========================================================
 from playwright.sync_api import sync_playwright, TimeoutError, Page
 from pathlib import Path
-import traceback, time, os, subprocess, glob
+import traceback, time, os, sys, subprocess, glob
+
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 # Configuration
 GROUPS = ["*OLR ZTE Quality Control*", "*OLR ZTE Incidents Mgt*"]
@@ -60,28 +62,50 @@ def retry(func):
         raise last
     return wrapper
 
+@retry
 def start_browser():
     playwright = sync_playwright().start()
-    browser = playwright.chromium.launch_persistent_context(
-        USER_DATA_DIR,
+    
+    # 可选代理配置：设置环境变量 WHATSAPP_PROXY，例如 http://127.0.0.1:7890
+    launch_kwargs = dict(
         executable_path=r"E:\01_RPA\chrome-win\chrome-win\chrome.exe",
         headless=HEADLESS,
-        args=["--start-maximized","--prevent-first-run-default-browser-prompts"],
-        no_viewport=True
+        args=["--start-maximized", "--prevent-first-run-default-browser-prompts"],
+        no_viewport=True,
     )
+    proxy = os.environ.get("WHATSAPP_PROXY", "").strip()
+    if proxy:
+        launch_kwargs["proxy"] = {"server": proxy}
+        info(f"使用代理: {proxy}")
+    
+    browser = playwright.chromium.launch_persistent_context(USER_DATA_DIR, **launch_kwargs)
     page = browser.new_page()
-    page.goto(WHATSAPP_URL, wait_until="domcontentloaded")
+    
+    # 带重试的页面加载（最多3次，每次超时180秒）
+    for attempt in range(1, 4):
+        try:
+            page.goto(WHATSAPP_URL, wait_until="domcontentloaded", timeout=180000)
+            break
+        except Exception as e:
+            err_msg = str(e)
+            # 页面实际已加载但后台连接被重置(代理/WebSocket导致)，视为成功
+            if "ERR_CONNECTION_RESET" in err_msg:
+                try:
+                    page.wait_for_selector("#app, #side, div[data-testid='intro-wrapper'], canvas", timeout=15000)
+                    warn(f"goto报ERR_CONNECTION_RESET但页面已正常加载，继续执行")
+                    break
+                except Exception:
+                    pass  # 页面确实没加载出来，走正常重试
+            warn(f"页面加载失败 (第{attempt}/3次): {e}")
+            if attempt == 3:
+                browser.close()
+                playwright.stop()
+                raise
+            time.sleep(30)  # 等待30秒后重试
+    
     info("等待 WhatsApp Web 加载，请扫码登录（如有需要）...")
     page.locator("#side").wait_for(timeout=180000)
     success("登录成功")
-    
-    #try:
-        #cdp = page.context.new_cdp_session(page)
-        #wid = cdp.send("Browser.getWindowForTarget")["windowId"]
-        #cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "minimized"}})
-        #info("已最小化窗口到任务栏")
-    #except Exception as e:
-        #warn(f"最小化失败: {e}")
     return playwright, browser, page
 
 def find_first(page, key):
@@ -125,7 +149,7 @@ def copy_image_to_clipboard(image_path):
         f"[System.Windows.Forms.Clipboard]::SetImage($img); "
         f"$img.Dispose()"
     )
-    subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True)
+    subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True, creationflags=_SUBPROCESS_FLAGS)
 
 def copy_file_to_clipboard(file_path):
     abs_path = os.path.abspath(file_path)
@@ -136,7 +160,7 @@ def copy_file_to_clipboard(file_path):
         f"$col.Add($files); "
         f"[System.Windows.Forms.Clipboard]::SetFileDropList($col)"
     )
-    subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True)
+    subprocess.run(["powershell", "-STA", "-Command", ps_cmd], check=True, creationflags=_SUBPROCESS_FLAGS)
 
 # ==========================================================
 # Part 4: 准确图片与备注匹配发送

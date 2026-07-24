@@ -431,6 +431,27 @@ def _sync_realtime_alarm(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
     return len(df)
 
 
+def _sync_history_alarm(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
+    """同步历史告警数据"""
+    t0 = time.time()
+    if df.empty:
+        logger.warning("history_alarm 数据为空")
+        return 0
+
+    df.columns = [_clean_column_name(c) for c in df.columns]
+    df['_sync_time'] = datetime.now().isoformat()
+    df.to_sql('history_alarm', dst_conn, if_exists='replace', index=False, chunksize=5000)
+
+    for idx_col in ['site_id', 'tt_id', 'region', 'alarmraisedtime']:
+        if idx_col in df.columns:
+            dst_conn.execute(f'CREATE INDEX IF NOT EXISTS idx_history_alarm_{idx_col} ON history_alarm({idx_col})')
+    dst_conn.commit()
+
+    elapsed = time.time() - t0
+    logger.info(f"history_alarm 同步完成: {len(df)} 行, {elapsed:.2f}s")
+    return len(df)
+
+
 # ========== 主同步函数 ==========
 def sync_from_eflow_api() -> dict:
     """
@@ -479,6 +500,7 @@ def sync_from_eflow_api() -> dict:
             ("Site", "site", _sync_site),
             ("Person", "person", lambda df, c: _sync_generic(df, c, "person")),
             ("realtime_alarm", "realtime_alarm", _sync_realtime_alarm),
+            ("history_alarm", "history_alarm", _sync_history_alarm),
         ]
 
         for api_key, table_name, sync_func in sync_tasks:

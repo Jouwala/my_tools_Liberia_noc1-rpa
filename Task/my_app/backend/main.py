@@ -15,7 +15,7 @@ from pathlib import Path
 
 from backend.database import Base, engine, DB_PATH
 from backend.models.analysis import AnalysisArchive, UploadedFile
-from backend.routers import tables, upload, analysis, gis, tt_wo_dashboard
+from backend.routers import tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard
 from backend.services import task_runner
 
 start_time = time.time()
@@ -41,6 +41,7 @@ app.include_router(upload.router)
 app.include_router(analysis.router)
 app.include_router(gis.router)
 app.include_router(tt_wo_dashboard.router)
+app.include_router(alarm_dashboard.router)
 
 
 # ========== 通用任务调度系统 ==========

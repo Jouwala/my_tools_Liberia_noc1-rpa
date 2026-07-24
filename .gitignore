@@ -16,8 +16,9 @@ __pycache__/
 # Browser sessions & binaries
 chrome-win/
 whatsapp_session/
-Site_outage/browser_session/
+**/browser_session/
 Site_outage/screenshots/
+Task/whatsapp_session/
 
 # IDE / tool files
 .qoder/
@@ -61,6 +62,12 @@ dist/
 
 # Cloned repo
 my_tools_Liberia_noc1-rpa/
+
+# Test reports
+Task/my_app/tests/reports/
+
+# Auth cache (sensitive)
+Task/auth_cache/
 
 # Misc
 *.json.bak

@@ -146,104 +146,16 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
 def login():
     global SESSION_COOKIE, FORGERY_TOKEN
 
-    print("[LOGIN] Starting authentication...")
-
     try:
-        print("[LOGIN] Step 1: Getting authorize page...")
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET",
-            "/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html"
-        )
-        print(f"[LOGIN] Status: {status}")
-
-        init_cookies = []
-        forgery_token = ""
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=")[1]:
-                    init_cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-
-        init_cookie_str = "; ".join(init_cookies)
-        print(f"[LOGIN] Got {len(init_cookies)} cookies")
-
-        html = body.decode('utf-8', errors='replace')
-        lp_match = re.search(r'var\s+loginParameters\s*=\s*["\']([^"\']+)["\']', html)
-        login_parameters = lp_match.group(1) if lp_match else ""
-        print(f"[LOGIN] Got loginParameters ({len(login_parameters)} chars)")
-
-        print("[LOGIN] Step 2: Getting RSA public key from API...")
-        rsa_headers = f"Cookie: {init_cookie_str}\r\nX-Requested-With: XMLHttpRequest\r\n"
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET", "/api/oauth2/v1/login/publickey",
-            headers_extra=rsa_headers,
-        )
-        print(f"[LOGIN] Public key API status: {status}")
-
-        public_key_b64 = ""
-        if "200" in status:
-            pk_data = json.loads(body.decode('utf-8'))
-            public_key_b64 = pk_data.get("rsaPublicKey", "")
-            print(f"[LOGIN] Got rsaPublicKey ({len(public_key_b64)} chars)")
-        else:
-            print("[LOGIN] API failed, using HTML embedded key")
-
-        print("[LOGIN] Step 3: Encrypting password with RSA...")
-        encrypted_pwd = _rsa_encrypt_pem(PASSWORD, public_key_b64)
-        print(f"[LOGIN] Encrypted ({len(encrypted_pwd)} chars)")
-
-        print("[LOGIN] Step 4: Submitting login...")
-        login_payload = json.dumps({
-            "username": USERNAME,
-            "password": encrypted_pwd,
-            "parameters": login_parameters,
-        })
-
-        login_headers = (
-            f"Content-Type: application/json\r\n"
-            f"Cookie: {init_cookie_str}\r\n"
-            f"Referer: https://{HOST}:{PORT}/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html\r\n"
-            f"X-Requested-With: XMLHttpRequest\r\n"
-        )
-        if forgery_token:
-            login_headers += f"forgerydefense: {forgery_token}\r\n"
-
-        status, hdrs, raw_hdrs, body = _http_request(
-            "POST",
-            "/api/oauth2/v1/login_rsa",
-            headers_extra=login_headers,
-            body=login_payload,
-        )
-        print(f"[LOGIN] Login status: {status}")
-
-        cookies = list(init_cookies)
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=")[1]:
-                    cookie_name = cookie_val.split("=")[0]
-                    cookies = [c for c in cookies if not c.startswith(cookie_name + "=")]
-                    cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-
-        SESSION_COOKIE = "; ".join(cookies)
-        FORGERY_TOKEN = forgery_token
-
-        resp_text = body.decode('utf-8', errors='replace')
-        if "302" in status or "default.html" in resp_text or len(cookies) > 3:
-            print(f"[LOGIN] SUCCESS - {len(cookies)} cookies")
-        else:
-            print(f"[LOGIN] Response: {resp_text[:300]}")
-            if not any("Z-AUTH-CODE" in c for c in cookies):
-                raise Exception("Login failed - no auth cookie obtained")
-
-        print(f"[LOGIN] Cookie: {SESSION_COOKIE[:100]}...")
-
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Task"))
+        from auth_manager import get_auth
+        result = get_auth(HOST, PORT, USERNAME, PASSWORD)
+        source = "缓存" if result["from_cache"] else "重新登录"
+        print(f"[LOGIN] 鉴权成功（来源: {source}）")
+        SESSION_COOKIE = result["cookie"]
+        FORGERY_TOKEN = result["forgery_token"]
     except Exception as e:
-        print(f"[LOGIN] FAILED: {e}")
+        print(f"[LOGIN] auth_manager 失败: {e}")
         raise
 
     return SESSION_COOKIE

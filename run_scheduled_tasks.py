@@ -1,10 +1,13 @@
 """
 定时执行脚本：每小时第 56 分钟执行一次
 """
+import sys
 import time
 import os
 import subprocess
 from datetime import datetime
+
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 PYTHON = r"d:\01_RPA\.venv\Scripts\python.exe"
 INTERVAL_MINUTES = 60  # 每小时执行一次，即 60 分钟间隔
@@ -24,7 +27,8 @@ def kill_chrome_processes():
     try:
         result = subprocess.run(
             ["powershell", "-Command", ps_cmd],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10,
+            creationflags=_SUBPROCESS_FLAGS,
         )
         if result.stdout.strip():
             pids = result.stdout.strip().split("\n")
@@ -58,6 +62,7 @@ def run_script(path):
                 timeout=600,
                 cwd=os.path.dirname(path),
                 env=env,
+                creationflags=_SUBPROCESS_FLAGS,
             )
         if result.returncode == 0:
             print(f"[{datetime.now():%H:%M:%S}] 完成: {name}")

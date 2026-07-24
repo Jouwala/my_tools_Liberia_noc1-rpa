@@ -952,8 +952,8 @@ ALARM_CONDITION = {
     "querymetype": 2, "refresh": True,
 }
 
-# FM History Alarm 查询条件：近 7 天（动态计算）
-HIS_ALARM_DAYS_BACK = int(os.environ.get("EFLOW_HIS_ALARM_DAYS", "7"))
+# FM History Alarm 查询条件：近 3 天（动态计算）
+HIS_ALARM_DAYS_BACK = int(os.environ.get("EFLOW_HIS_ALARM_DAYS", "3"))
 
 
 def _get_his_alarm_time_range():

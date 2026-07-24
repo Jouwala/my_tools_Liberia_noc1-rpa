@@ -32,6 +32,8 @@ from multiprocessing import Process, Manager
 from concurrent.futures import ProcessPoolExecutor
 from ftplib import FTP, error_perm
 
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 try:
     from python_calamine import CalamineWorkbook
     HAS_CALAMINE = True
@@ -664,7 +666,8 @@ def main():
                 subprocess.run(
                     ['powershell', '-Command',
                      f'Remove-Item -Path "{fpath}" -Force -ErrorAction Stop'],
-                    capture_output=True, timeout=15
+                    capture_output=True, timeout=15,
+                    creationflags=_SUBPROCESS_FLAGS,
                 )
                 if not os.path.exists(fpath):
                     print(f"  deleted (force): {os.path.basename(fpath)}")
