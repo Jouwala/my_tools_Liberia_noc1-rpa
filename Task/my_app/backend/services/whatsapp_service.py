@@ -246,7 +246,7 @@ def run_whatsapp_send() -> dict:
             no_viewport=True,
         )
         page = browser.new_page()
-        page.goto(WHATSAPP_URL, wait_until="domcontentloaded")
+        page.goto(WHATSAPP_URL, wait_until="domcontentloaded", timeout=180000)
         _info("等待 WhatsApp Web 加载，请扫码登录（如有需要）...")
         page.locator("#side").wait_for(timeout=180000)
         _success("登录成功")
