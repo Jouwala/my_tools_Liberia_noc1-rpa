@@ -47,6 +47,9 @@ def _detect_gis_schema() -> dict:
     has_wo = "eflow_wo" in tables
     # topology表
     has_topology = "topology" in tables
+    # 告警表
+    has_realtime_alarm = "realtime_alarm" in tables
+    has_history_alarm = "history_alarm" in tables
 
     conn.close()
 
@@ -55,6 +58,7 @@ def _detect_gis_schema() -> dict:
         "province_col": province_col, "vip_col": vip_col, "hub_col": hub_col,
         "tt_site_key": tt_site_key, "has_wo": has_wo, "has_topology": has_topology,
         "tt_cols": tt_cols,
+        "has_realtime_alarm": has_realtime_alarm, "has_history_alarm": has_history_alarm,
     }
     return _gis_schema_cache
 
@@ -228,6 +232,29 @@ def get_sites(
         for sid, cnt in conn.execute(wo_sql).fetchall():
             wo_stats[str(sid)] = cnt or 0
 
+    # 实时告警统计（按site_id分组）
+    rt_alarm_stats = {}
+    if S["has_realtime_alarm"]:
+        for sid, cnt in conn.execute(
+            "SELECT site_id, COUNT(*) FROM realtime_alarm WHERE site_id IS NOT NULL GROUP BY site_id"
+        ).fetchall():
+            rt_alarm_stats[str(sid)] = cnt or 0
+
+    # 历史告警统计（按site_id分组，受时间窗口限制）
+    his_alarm_stats = {}
+    if S["has_history_alarm"]:
+        his_time_where = ""
+        if time_start:
+            his_time_where += f" AND alarmraisedtime >= {int(__import__('datetime').datetime.strptime(time_start, '%Y-%m-%d').timestamp() * 1000)}"
+        if time_end:
+            from datetime import datetime as _dt, timedelta as _td
+            end_dt2 = _dt.strptime(time_end, "%Y-%m-%d") + _td(days=1)
+            his_time_where += f" AND alarmraisedtime < {int(end_dt2.timestamp() * 1000)}"
+        for sid, cnt in conn.execute(
+            f"SELECT site_id, COUNT(*) FROM history_alarm WHERE site_id IS NOT NULL{his_time_where} GROUP BY site_id"
+        ).fetchall():
+            his_alarm_stats[str(sid)] = cnt or 0
+
     conn.close()
 
     site_list = []
@@ -257,6 +284,8 @@ def get_sites(
             "open_tt": tt[1],
             "closed_tt": tt[2],
             "wo_count": wo_stats.get(sid, 0),
+            "rt_alarm_count": rt_alarm_stats.get(sid, 0),
+            "his_alarm_count": his_alarm_stats.get(sid, 0),
         }
         # 添加筛选列值
         for param_name, idx in filter_col_indices.items():
@@ -379,6 +408,47 @@ def get_site_drilldown(site_id: str):
     """, tt_site_params)
     sla_row = sla_cursor.fetchone()
 
+    # 实时告警列表
+    rt_alarm_list = []
+    if S["has_realtime_alarm"]:
+        try:
+            rt_site_match = "(site_id = ? OR site_id = ?)" if site_id.isdigit() else "site_id = ?"
+            rt_site_params = (site_id, int(site_id)) if site_id.isdigit() else (site_id,)
+            rt_cursor = conn.execute(f"""
+                SELECT alarm_title, codename, perceivedseverity, durationname,
+                       alarmraisedtime, servertime, site_name, region,
+                       restypename, networktype, site_attribute, site_status,
+                       transmission_type, ran_type, neip
+                FROM realtime_alarm
+                WHERE {rt_site_match}
+                ORDER BY alarmraisedtime DESC
+                LIMIT 100
+            """, rt_site_params)
+            rt_cols = [desc[0] for desc in rt_cursor.description]
+            rt_alarm_list = [dict(zip(rt_cols, row)) for row in rt_cursor.fetchall()]
+        except Exception:
+            pass
+
+    # 历史告警列表
+    his_alarm_list = []
+    if S["has_history_alarm"]:
+        try:
+            his_site_match = "(site_id = ? OR site_id = ?)" if site_id.isdigit() else "site_id = ?"
+            his_site_params = (site_id, int(site_id)) if site_id.isdigit() else (site_id,)
+            his_cursor = conn.execute(f"""
+                SELECT alarm_title, codename, perceivedseverity, durationname,
+                       alarmraisedtime, servertime, assigned_time, assign_delay,
+                       tt_id, site_name, region, restypename, site_attribute
+                FROM history_alarm
+                WHERE {his_site_match}
+                ORDER BY alarmraisedtime DESC
+                LIMIT 100
+            """, his_site_params)
+            his_cols = [desc[0] for desc in his_cursor.description]
+            his_alarm_list = [dict(zip(his_cols, row)) for row in his_cursor.fetchall()]
+        except Exception:
+            pass
+
     conn.close()
 
     return {
@@ -387,6 +457,10 @@ def get_site_drilldown(site_id: str):
         "tt_count": len(tt_list),
         "wo_list": wo_list,
         "wo_count": len(wo_list),
+        "rt_alarm_list": rt_alarm_list,
+        "rt_alarm_count": len(rt_alarm_list),
+        "his_alarm_list": his_alarm_list,
+        "his_alarm_count": len(his_alarm_list),
         "sla_stats": {
             "total_tt": sla_row[0] or 0,
             "closed_tt": sla_row[1] or 0,

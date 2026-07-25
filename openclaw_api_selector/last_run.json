@@ -1,13 +1,13 @@
 {
-  "run_at": "2026-07-24T03:02:32",
+  "run_at": "2026-07-25T03:01:56",
   "threshold_ms": 5000,
   "results": [
     {
       "key": "zhipu",
       "name": "ZhiPu GLM 智谱",
       "available": true,
-      "latency_ms": 1947,
-      "model": "glm-4-flash-250414",
+      "latency_ms": 2549,
+      "model": "glm-4-flash",
       "error": null,
       "status": "ok",
       "reason": "正常",
@@ -15,15 +15,8 @@
       "tried_models": [
         {
           "model": "glm-4-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "timeout",
-          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
-        },
-        {
-          "model": "glm-4-flash-250414",
           "ok": true,
-          "latency_ms": 1947,
+          "latency_ms": 2549,
           "status": "ok",
           "error": null
         }
@@ -32,48 +25,20 @@
     {
       "key": "nvidia",
       "name": "NVIDIA NIM",
-      "available": false,
-      "latency_ms": null,
-      "model": "mistral-7b",
-      "error": "HTTP 404",
-      "status": "model_unavailable",
-      "reason": "模型不可用/不存在",
+      "available": true,
+      "latency_ms": 4513,
+      "model": "meta/llama-3.1-8b-instruct",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
       "local": false,
       "tried_models": [
         {
           "model": "meta/llama-3.1-8b-instruct",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10054] An existing connection was forcibly closed by the remote host>"
-        },
-        {
-          "model": "llama-3.1-8b",
-          "ok": false,
-          "latency_ms": null,
-          "status": "model_unavailable",
-          "error": "HTTP 404"
-        },
-        {
-          "model": "llama-3.2-3b",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10054] An existing connection was forcibly closed by the remote host>"
-        },
-        {
-          "model": "gemma-2-9b",
-          "ok": false,
-          "latency_ms": null,
-          "status": "model_unavailable",
-          "error": "HTTP 404"
-        },
-        {
-          "model": "mistral-7b",
-          "ok": false,
-          "latency_ms": null,
-          "status": "model_unavailable",
-          "error": "HTTP 404"
+          "ok": true,
+          "latency_ms": 4513,
+          "status": "ok",
+          "error": null
         }
       ]
     },
@@ -81,7 +46,7 @@
       "key": "openrouter",
       "name": "OpenRouter",
       "available": true,
-      "latency_ms": 4868,
+      "latency_ms": 3440,
       "model": "openrouter/free",
       "error": null,
       "status": "ok",
@@ -91,7 +56,7 @@
         {
           "model": "openrouter/free",
           "ok": true,
-          "latency_ms": 4868,
+          "latency_ms": 3440,
           "status": "ok",
           "error": null
         }
@@ -149,7 +114,7 @@
       "key": "zhipu5",
       "name": "ZhiPu GLM-5 智谱",
       "available": true,
-      "latency_ms": 2604,
+      "latency_ms": 2145,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -159,7 +124,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 2604,
+          "latency_ms": 2145,
           "status": "ok",
           "error": null
         }
@@ -321,7 +286,7 @@
       "key": "ollama",
       "name": "Local Ollama",
       "available": true,
-      "latency_ms": 755,
+      "latency_ms": 7664,
       "model": "phi4-mini:3.8b",
       "error": null,
       "status": "ok",
@@ -345,7 +310,7 @@
         {
           "model": "phi4-mini:3.8b",
           "ok": true,
-          "latency_ms": 755,
+          "latency_ms": 7664,
           "status": "ok",
           "error": null
         }
@@ -355,7 +320,7 @@
       "key": "sensenova",
       "name": "SenseNova 商汤",
       "available": true,
-      "latency_ms": 1541,
+      "latency_ms": 1316,
       "model": "sensenova-6.7-flash-lite",
       "error": null,
       "status": "ok",
@@ -365,7 +330,7 @@
         {
           "model": "sensenova-6.7-flash-lite",
           "ok": true,
-          "latency_ms": 1541,
+          "latency_ms": 1316,
           "status": "ok",
           "error": null
         }
@@ -376,9 +341,10 @@
   "fallbacks": [
     "ollama/gemma4-32k:latest",
     "ollama/phi4-mini:3.8b",
-    "zhipu/glm-4-flash-250414",
     "zhipu5/glm-4-flash",
+    "zhipu/glm-4-flash",
     "openrouter/openrouter/free",
+    "nvidia/meta/llama-3.1-8b-instruct",
     "ollama-cloud/gemma3:27b"
   ]
 }

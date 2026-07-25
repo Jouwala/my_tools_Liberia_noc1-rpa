@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Card, Row, Col, Select, Spin, Drawer, Descriptions, Table, Tag, Statistic, Tabs, Space, Badge, DatePicker, Segmented, Tooltip, Switch, Button, Input } from 'antd'
-import { DownloadOutlined, SearchOutlined, FilterOutlined } from '@ant-design/icons'
+import { DownloadOutlined, SearchOutlined, FilterOutlined, AlertOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Polygon, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -24,6 +24,8 @@ interface Site {
   open_tt: number
   closed_tt: number
   wo_count: number
+  rt_alarm_count: number
+  his_alarm_count: number
   // 筛选列
   trm_type?: string
   area?: string
@@ -39,6 +41,10 @@ interface DrilldownData {
   tt_count: number
   wo_list: any[]
   wo_count: number
+  rt_alarm_list: any[]
+  rt_alarm_count: number
+  his_alarm_list: any[]
+  his_alarm_count: number
   sla_stats: {
     total_tt: number
     closed_tt: number
@@ -60,7 +66,8 @@ interface TopologyLink {
   lng_b: number
 }
 
-type LegendKey = 'critical' | 'warning' | 'vip' | 'normal'
+type LegendKey = 'critical' | 'warning' | 'vip' | 'normal' | 'rt_alarm' | 'his_alarm'
+type LayerKey = 'rt_alarm' | 'his_alarm' | 'tt' | 'wo'
 
 function MapController({ center, zoom }: { center: [number, number]; zoom: number }) {
   const map = useMap()
@@ -90,6 +97,11 @@ export default function GISMap() {
   const [showRegions, setShowRegions] = useState(true)
   const [ttSearch, setTtSearch] = useState('')
   const [woSearch, setWoSearch] = useState('')
+  const [rtAlarmSearch, setRtAlarmSearch] = useState('')
+  const [hisAlarmSearch, setHisAlarmSearch] = useState('')
+
+  // 图层筛选状态（默认全部开启）
+  const [activeLayers, setActiveLayers] = useState<Set<LayerKey>>(new Set(['rt_alarm', 'his_alarm', 'tt', 'wo']))
 
   // 筛选列状态
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
@@ -175,8 +187,10 @@ export default function GISMap() {
   }
 
   const getSiteCategory = (site: Site): LegendKey => {
-    if (site.open_tt > 5) return 'critical'
-    if (site.open_tt > 0) return 'warning'
+    if (activeLayers.has('rt_alarm') && site.rt_alarm_count > 0) return 'rt_alarm'
+    if (activeLayers.has('his_alarm') && site.his_alarm_count > 0) return 'his_alarm'
+    if (activeLayers.has('tt') && site.open_tt > 5) return 'critical'
+    if (activeLayers.has('tt') && site.open_tt > 0) return 'warning'
     if (site.vip_site === 'Y' || site.vip_site === 'Yes') return 'vip'
     return 'normal'
   }
@@ -203,6 +217,8 @@ export default function GISMap() {
   const getMarkerColor = (site: Site) => {
     const cat = getSiteCategory(site)
     switch (cat) {
+      case 'rt_alarm': return '#f5222d'
+      case 'his_alarm': return '#fa541c'
       case 'critical': return '#ff4d4f'
       case 'warning': return '#faad14'
       case 'vip': return '#722ed1'
@@ -211,6 +227,9 @@ export default function GISMap() {
   }
 
   const getMarkerRadius = (site: Site) => {
+    // 有实时告警的站点更大更醒目
+    if (activeLayers.has('rt_alarm') && site.rt_alarm_count > 0) return 10
+    if (activeLayers.has('his_alarm') && site.his_alarm_count > 5) return 9
     const total = site.tt_count + site.wo_count
     if (total > 50) return 10
     if (total > 20) return 8
@@ -256,18 +275,37 @@ export default function GISMap() {
   }
 
   const categoryCounts = useMemo(() => {
-    const counts = { critical: 0, warning: 0, vip: 0, normal: 0 }
+    const counts = { critical: 0, warning: 0, vip: 0, normal: 0, rt_alarm: 0, his_alarm: 0 }
     sites.forEach(s => {
       counts[getSiteCategory(s)]++
     })
     return counts
-  }, [sites])
+  }, [sites, activeLayers])
 
   const legendItems: { key: LegendKey; color: string; label: string; count: number }[] = [
+    { key: 'rt_alarm', color: '#f5222d', label: t('gis.legend.rtAlarm'), count: categoryCounts.rt_alarm },
+    { key: 'his_alarm', color: '#fa541c', label: t('gis.legend.hisAlarm'), count: categoryCounts.his_alarm },
     { key: 'critical', color: '#ff4d4f', label: t('gis.legend.critical'), count: categoryCounts.critical },
     { key: 'warning', color: '#faad14', label: t('gis.legend.warning'), count: categoryCounts.warning },
     { key: 'vip', color: '#722ed1', label: t('gis.legend.vip'), count: categoryCounts.vip },
     { key: 'normal', color: '#52c41a', label: t('gis.legend.normal'), count: categoryCounts.normal },
+  ]
+
+  // 图层切换
+  const toggleLayer = (key: LayerKey) => {
+    setActiveLayers(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const layerOptions: { key: LayerKey; label: string; color: string }[] = [
+    { key: 'rt_alarm', label: t('gis.layer.rtAlarm'), color: '#f5222d' },
+    { key: 'his_alarm', label: t('gis.layer.hisAlarm'), color: '#fa541c' },
+    { key: 'tt', label: t('gis.layer.tt'), color: '#1677ff' },
+    { key: 'wo', label: t('gis.layer.wo'), color: '#52c41a' },
   ]
 
   // 模糊搜索过滤
@@ -288,6 +326,16 @@ export default function GISMap() {
     if (!drilldown?.wo_list) return []
     return filterBySearch(drilldown.wo_list, woSearch)
   }, [drilldown?.wo_list, woSearch])
+
+  const filteredRtAlarm = useMemo(() => {
+    if (!drilldown?.rt_alarm_list) return []
+    return filterBySearch(drilldown.rt_alarm_list, rtAlarmSearch)
+  }, [drilldown?.rt_alarm_list, rtAlarmSearch])
+
+  const filteredHisAlarm = useMemo(() => {
+    if (!drilldown?.his_alarm_list) return []
+    return filterBySearch(drilldown.his_alarm_list, hisAlarmSearch)
+  }, [drilldown?.his_alarm_list, hisAlarmSearch])
 
   // 导出Excel
   const exportToExcel = useCallback((data: any[], filename: string, columns: { title: string; dataIndex: string }[]) => {
@@ -404,6 +452,51 @@ export default function GISMap() {
     ]
   }, [drilldown?.wo_list, t])
 
+  // 实时告警表格列定义
+  const rtAlarmColumns = useMemo(() => [
+    { title: 'Alarm Title', dataIndex: 'alarm_title', key: 'alarm_title', ellipsis: true, width: 180, sorter: (a: any, b: any) => strSorter(a, b, 'alarm_title') },
+    { title: 'Code Name', dataIndex: 'codename', key: 'codename', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'codename') },
+    { title: 'Severity', dataIndex: 'perceivedseverity', key: 'perceivedseverity', width: 80,
+      sorter: (a: any, b: any) => (a.perceivedseverity || 0) - (b.perceivedseverity || 0),
+      render: (v: number) => {
+        const map: Record<number, { label: string; color: string }> = { 1: { label: 'Critical', color: 'red' }, 2: { label: 'Major', color: 'orange' }, 3: { label: 'Warning', color: 'gold' }, 4: { label: 'Info', color: 'blue' } }
+        const item = map[v] || { label: `P${v}`, color: 'default' }
+        return <Tag color={item.color}>{item.label}</Tag>
+      } },
+    { title: 'Duration', dataIndex: 'durationname', key: 'durationname', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'durationname') },
+    { title: 'Alarm Raised', dataIndex: 'alarmraisedtime', key: 'alarmraisedtime', width: 160,
+      sorter: (a: any, b: any) => (a.alarmraisedtime || 0) - (b.alarmraisedtime || 0),
+      defaultSortOrder: 'descend' as const,
+      render: (v: number) => v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '-' },
+    { title: 'NE Type', dataIndex: 'restypename', key: 'restypename', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'restypename') },
+    { title: 'Network', dataIndex: 'networktype', key: 'networktype', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'networktype') },
+    { title: 'Site Attr', dataIndex: 'site_attribute', key: 'site_attribute', width: 90, sorter: (a: any, b: any) => strSorter(a, b, 'site_attribute') },
+    { title: 'Site Status', dataIndex: 'site_status', key: 'site_status', width: 90, sorter: (a: any, b: any) => strSorter(a, b, 'site_status') },
+    { title: 'NE IP', dataIndex: 'neip', key: 'neip', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'neip') },
+  ], [])
+
+  // 历史告警表格列定义
+  const hisAlarmColumns = useMemo(() => [
+    { title: 'Alarm Title', dataIndex: 'alarm_title', key: 'alarm_title', ellipsis: true, width: 180, sorter: (a: any, b: any) => strSorter(a, b, 'alarm_title') },
+    { title: 'Code Name', dataIndex: 'codename', key: 'codename', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'codename') },
+    { title: 'Severity', dataIndex: 'perceivedseverity', key: 'perceivedseverity', width: 80,
+      sorter: (a: any, b: any) => (a.perceivedseverity || 0) - (b.perceivedseverity || 0),
+      render: (v: number) => {
+        const map: Record<number, { label: string; color: string }> = { 1: { label: 'Critical', color: 'red' }, 2: { label: 'Major', color: 'orange' }, 3: { label: 'Warning', color: 'gold' }, 4: { label: 'Info', color: 'blue' } }
+        const item = map[v] || { label: `P${v}`, color: 'default' }
+        return <Tag color={item.color}>{item.label}</Tag>
+      } },
+    { title: 'Duration', dataIndex: 'durationname', key: 'durationname', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'durationname') },
+    { title: 'Alarm Raised', dataIndex: 'alarmraisedtime', key: 'alarmraisedtime', width: 160,
+      sorter: (a: any, b: any) => (a.alarmraisedtime || 0) - (b.alarmraisedtime || 0),
+      defaultSortOrder: 'descend' as const,
+      render: (v: number) => v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '-' },
+    { title: 'TT ID', dataIndex: 'tt_id', key: 'tt_id', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'tt_id') },
+    { title: 'Assign Delay', dataIndex: 'assign_delay', key: 'assign_delay', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'assign_delay') },
+    { title: 'NE Type', dataIndex: 'restypename', key: 'restypename', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'restypename') },
+    { title: 'Site Attr', dataIndex: 'site_attribute', key: 'site_attribute', width: 90, sorter: (a: any, b: any) => strSorter(a, b, 'site_attribute') },
+  ], [])
+
   return (
     <div>
       <Card style={{ marginBottom: 16 }}>
@@ -445,6 +538,29 @@ export default function GISMap() {
                 />
                 <span style={{ fontSize: 13 }}>{t('gis.regionOverlay')}</span>
               </Space>
+            </Space>
+          </Col>
+          <Col>
+            <Space size="small" wrap>
+              <span style={{ fontSize: 13, fontWeight: 500 }}>{t('gis.layerFilter')}</span>
+              {layerOptions.map(lo => (
+                <Tag
+                  key={lo.key}
+                  color={activeLayers.has(lo.key) ? lo.color : undefined}
+                  style={{
+                    cursor: 'pointer',
+                    opacity: activeLayers.has(lo.key) ? 1 : 0.4,
+                    textDecoration: activeLayers.has(lo.key) ? 'none' : 'line-through',
+                    borderRadius: 12,
+                    padding: '2px 10px',
+                    fontSize: 12,
+                    transition: 'all 0.2s',
+                  }}
+                  onClick={() => toggleLayer(lo.key)}
+                >
+                  {lo.label}
+                </Tag>
+              ))}
             </Space>
           </Col>
           <Col>
@@ -593,12 +709,18 @@ export default function GISMap() {
                 eventHandlers={{ click: () => handleSiteClick(site) }}
               >
                 <Popup>
-                  <div style={{ minWidth: 200 }}>
+                  <div style={{ minWidth: 220 }}>
                     <strong>{site.site_name}</strong> ({site.site_id})<br />
                     {t('gis.popup.region')}: {site.region}<br />
                     {t('gis.popup.type')}: {site.site_type} | {site.network_type}<br />
-                    TT: {site.tt_count} (Open: {site.open_tt})<br />
-                    WO: {site.wo_count}<br />
+                    {activeLayers.has('rt_alarm') && site.rt_alarm_count > 0 && (
+                      <span style={{ color: '#f5222d', fontWeight: 600 }}>⚠ {t('gis.popup.rtAlarm')}: {site.rt_alarm_count}<br /></span>
+                    )}
+                    {activeLayers.has('his_alarm') && site.his_alarm_count > 0 && (
+                      <span style={{ color: '#fa541c' }}>{t('gis.popup.hisAlarm')}: {site.his_alarm_count}<br /></span>
+                    )}
+                    {activeLayers.has('tt') && <>TT: {site.tt_count} (Open: {site.open_tt})<br /></>}
+                    {activeLayers.has('wo') && <>WO: {site.wo_count}<br /></>}
                     <em style={{ color: '#1677ff' }}>{t('gis.popup.clickDetail')}</em>
                   </div>
                 </Popup>
@@ -669,13 +791,16 @@ export default function GISMap() {
             </Card>
 
             <Row gutter={8} style={{ marginBottom: 16 }}>
-              <Col span={8}>
+              <Col span={6}>
                 <Card size="small"><Statistic title={t('gis.drilldown.totalTT')} value={drilldown.tt_count} /></Card>
               </Col>
-              <Col span={8}>
+              <Col span={6}>
                 <Card size="small"><Statistic title={t('gis.drilldown.totalWO')} value={drilldown.wo_count} /></Card>
               </Col>
-              <Col span={8}>
+              <Col span={6}>
+                <Card size="small"><Statistic title={t('gis.drilldown.rtAlarm')} value={drilldown.rt_alarm_count} valueStyle={{ color: drilldown.rt_alarm_count > 0 ? '#f5222d' : undefined }} /></Card>
+              </Col>
+              <Col span={6}>
                 <Card size="small">
                   <Statistic
                     title={t('gis.drilldown.slaAchievement')}
@@ -692,6 +817,84 @@ export default function GISMap() {
 
             <Tabs
               items={[
+                {
+                  key: 'rt_alarm',
+                  label: <span><ThunderboltOutlined style={{ color: '#f5222d' }} /> {t('gis.drilldown.rtAlarmTab')} ({drilldown.rt_alarm_count})</span>,
+                  children: (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <Input
+                          prefix={<SearchOutlined />}
+                          placeholder={t('table.searchPlaceholder')}
+                          allowClear
+                          size="small"
+                          style={{ width: 250 }}
+                          value={rtAlarmSearch}
+                          onChange={e => setRtAlarmSearch(e.target.value)}
+                        />
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<DownloadOutlined />}
+                          onClick={() => exportToExcel(
+                            filteredRtAlarm,
+                            `RT_Alarm_${drilldown.site_info?.site_name || selectedSite}`,
+                            rtAlarmColumns
+                          )}
+                        >
+                          {t('gis.exportRT')}
+                        </Button>
+                      </div>
+                      <Table
+                        dataSource={filteredRtAlarm}
+                        columns={rtAlarmColumns}
+                        size="small"
+                        rowKey={(r: any, i?: number) => `rt-${r.alarmraisedtime}-${i}`}
+                        pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }}
+                        scroll={{ x: 'max-content' }}
+                      />
+                    </>
+                  ),
+                },
+                {
+                  key: 'his_alarm',
+                  label: <span><AlertOutlined style={{ color: '#fa541c' }} /> {t('gis.drilldown.hisAlarmTab')} ({drilldown.his_alarm_count})</span>,
+                  children: (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <Input
+                          prefix={<SearchOutlined />}
+                          placeholder={t('table.searchPlaceholder')}
+                          allowClear
+                          size="small"
+                          style={{ width: 250 }}
+                          value={hisAlarmSearch}
+                          onChange={e => setHisAlarmSearch(e.target.value)}
+                        />
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<DownloadOutlined />}
+                          onClick={() => exportToExcel(
+                            filteredHisAlarm,
+                            `His_Alarm_${drilldown.site_info?.site_name || selectedSite}`,
+                            hisAlarmColumns
+                          )}
+                        >
+                          {t('gis.exportHIS')}
+                        </Button>
+                      </div>
+                      <Table
+                        dataSource={filteredHisAlarm}
+                        columns={hisAlarmColumns}
+                        size="small"
+                        rowKey={(r: any, i?: number) => `his-${r.alarmraisedtime}-${i}`}
+                        pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }}
+                        scroll={{ x: 'max-content' }}
+                      />
+                    </>
+                  ),
+                },
                 {
                   key: 'tt',
                   label: `${t('gis.drilldown.ttTab')} (${drilldown.tt_count})`,
