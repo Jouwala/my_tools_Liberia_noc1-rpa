@@ -71,3 +71,6 @@ Task/auth_cache/
 
 # Misc
 *.json.bak
+
+# auth cache (runtime tokens)
+auth_cache/

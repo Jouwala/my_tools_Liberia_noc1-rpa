@@ -29,7 +29,7 @@ HOST = os.environ.get("EFLOW_HOST", "10.100.20.8")
 PORT = int(os.environ.get("EFLOW_PORT", "28001"))
 USERNAME = os.environ.get("EFLOW_USER", "admin")
 PASSWORD = os.environ.get("EFLOW_PASS", "Brysj*8*")
-MAX_PARALLEL_DOWNLOADS = 4
+MAX_PARALLEL_DOWNLOADS = 8
 
 # ========== 重试配置 ==========
 HTTP_MAX_RETRIES = 3
@@ -55,6 +55,24 @@ HIS_ALARM_API_PATH = "/api/fm-history/v1/hisalarms/pageinfo"
 # ========== 数据目录 ==========
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "eflow")
 os.makedirs(DATA_DIR, exist_ok=True)
+
+# ========== 小时报告与图片生成配置 ==========
+TT_REPORT_SUBDIR = "tt_reports"          # 报告与图片输出子目录
+SEND_EMAIL_AFTER_REPORT = False          # 是否在生成报告后发送邮件
+
+# eFlow TT 导出列名 -> mail_126.ExcelDataProcessor 期望列名
+_TT_COLUMN_RENAME = {
+    "TT No.": "Ticket No.",
+    "Asset Name": "Site Name",
+    "Site Class": "Site Category",
+    "SLA Total Duration": "SLA Time",
+    "Occurrence Time": "Alarm Occur Time",
+    "Alarm Clearing Time": "Alarm Clear Time",
+    "SLA Remaining Duration": "SLA Remain Time",
+}
+
+# Site 表中作为 TX 值来源的列名（传输类型）
+SITE_TX_SOURCE_COL = "TRM Type"
 
 # ========== 会话状态 ==========
 _session_cookie = ""
@@ -225,9 +243,10 @@ def login():
     global _session_cookie, _forgery_token
 
     try:
-        import sys as _sys
-        _sys.path.insert(0, r"d:\01_RPA\Task")
-        from auth_manager import get_auth
+        try:
+            from backend.services.auth_manager import get_auth
+        except ImportError:
+            from auth_manager import get_auth
         result = get_auth(HOST, PORT, USERNAME, PASSWORD)
         source = "缓存" if result["from_cache"] else "重新登录"
         logger.info(f"eFlow 鉴权成功（来源: {source}）")
@@ -577,7 +596,7 @@ def _create_export_task(async_path, referer, payload, label):
     return ftp_file_path, file_name
 
 
-def _wait_export_ready(list_path, referer, file_name, label, max_wait=600, interval=10):
+def _wait_export_ready(list_path, referer, file_name, label, max_wait=300, interval=10):
     """轮询等待导出完成，返回 (ftp_path, item)"""
     headers_extra = _headers_extra(referer)
     body = json.dumps({})
@@ -727,8 +746,8 @@ def _fetch_tt_pipeline(start_ms, end_ms, tmp_dir):
     }
     ftp_file_path, _ = _create_export_task(TT_ASYNC_PATH, TT_REFERER, payload, "TT")
 
-    logger.info("TT: waiting 10s before polling...")
-    time.sleep(10)
+    logger.info("TT: waiting 5s before polling...")
+    time.sleep(5)
 
     # List path for TT
     tt_list_path = "/api/eflow-ticket/v1/export/list/eflow-tt"
@@ -768,8 +787,8 @@ def _fetch_wo_pipeline(start_ms, end_ms, tmp_dir):
     }
     ftp_file_path, _ = _create_export_task(WO_ASYNC_PATH, WO_REFERER, payload, "WO")
 
-    logger.info("WO: waiting 10s before polling...")
-    time.sleep(10)
+    logger.info("WO: waiting 5s before polling...")
+    time.sleep(5)
 
     wo_list_path = "/api/eflow-wo/v1/export/list/eflow-wo"
     ftp_file_path, _ = _wait_export_ready(wo_list_path, WO_REFERER, file_name, "WO")
@@ -805,8 +824,8 @@ def _fetch_cr_pipeline(start_ms, end_ms, tmp_dir):
     }
     ftp_file_path, _ = _create_export_task(CR_ASYNC_PATH, CR_REFERER, payload, "CR")
 
-    logger.info("CR: waiting 10s before polling...")
-    time.sleep(10)
+    logger.info("CR: waiting 5s before polling...")
+    time.sleep(5)
 
     cr_list_path = "/api/eflow-asset/v1/export/list/eflow-cr"
     ftp_file_path, _ = _wait_export_ready(cr_list_path, CR_REFERER, file_name, "CR")
@@ -843,8 +862,8 @@ def _fetch_pm_pipeline(start_ms, end_ms, tmp_dir):
     }
     ftp_file_path, _ = _create_export_task(PM_ASYNC_PATH, PM_REFERER, payload, "PM")
 
-    logger.info("PM: waiting 10s before polling...")
-    time.sleep(10)
+    logger.info("PM: waiting 5s before polling...")
+    time.sleep(5)
 
     pm_list_path = "/api/eflow-pm/v1/export/list/eflow-pm-task"
     ftp_file_path, _ = _wait_export_ready(pm_list_path, PM_REFERER, file_name, "PM")
@@ -1308,7 +1327,7 @@ def write_history_alarm_sqlite(data):
 # ========== 告警独立入口 ==========
 def fetch_and_save_active_alarm():
     """
-    仅同步实时告警：登录 eFlow -> 获取实时告警 -> 保存 CSV + SQLite
+    仅同步实时告警：登录 eFlow -> 获取实时告警 -> 保存 SQLite（不生成 CSV）
     """
     logger.info("Starting active alarm sync...")
     start_time = time.time()
@@ -1318,7 +1337,6 @@ def fetch_and_save_active_alarm():
 
     alarm_result = _fetch_alarm_pipeline()
     _, alarm_rows = alarm_result if isinstance(alarm_result, tuple) else ("realtime_alarm", alarm_result)
-    write_alarm_csv(alarm_rows)
     write_alarm_sqlite(alarm_rows)
 
     elapsed = time.time() - start_time
@@ -1328,7 +1346,7 @@ def fetch_and_save_active_alarm():
 
 def fetch_and_save_history_alarm():
     """
-    仅同步历史告警：登录 eFlow -> 获取历史告警 -> 过滤 TT ID -> 保存 CSV + SQLite
+    仅同步历史告警：登录 eFlow -> 获取历史告警 -> 过滤 TT ID -> 保存 SQLite（不生成 CSV）
     """
     logger.info("Starting history alarm sync...")
     start_time = time.time()
@@ -1338,7 +1356,6 @@ def fetch_and_save_history_alarm():
 
     his_result = _fetch_history_alarm_pipeline()
     _, his_rows = his_result if isinstance(his_result, tuple) else ("history_alarm", his_result)
-    write_history_alarm_csv(his_rows)
     filtered_his_rows = _filter_rows_with_tt_id(his_rows)
     logger.info(
         f"History alarm filtered: {len(his_rows)} -> {len(filtered_his_rows)} "
@@ -1628,6 +1645,255 @@ def upload_to_ftp(local_file_path, remote_filename=None):
         return False
 
 
+# ============================================================
+# 小时报告与图片生成（复用 mail_126.py 的方法）
+# ============================================================
+
+
+def _build_site_tx_map(sheets_data, processor_cls):
+    """从 Site 数据构建 (site_id_map, site_name_map) -> TX(TRM Type) 映射。
+
+    site_id_map: normalize_id(Site ID) -> TX
+    site_name_map: strip(Site Name) -> TX
+    返回 (id_map, name_map)；Site 无数据或无 TX 列时返回 ({}, {})。
+    """
+    import pandas as pd
+
+    site_rows = []
+    for sheet_name, rows in sheets_data:
+        if sheet_name == "Site":
+            site_rows = rows or []
+            break
+    if not site_rows:
+        return {}, {}
+
+    df_site = pd.DataFrame(site_rows)
+    df_site = processor_cls.clean_columns(df_site)
+    if SITE_TX_SOURCE_COL not in df_site.columns:
+        logger.warning(f"Site 表无 '{SITE_TX_SOURCE_COL}' 列，无法生成 TX 映射")
+        return {}, {}
+
+    id_map = {}
+    name_map = {}
+    for _, r in df_site.iterrows():
+        tx_val = r.get(SITE_TX_SOURCE_COL)
+        if pd.isna(tx_val):
+            tx_val = ""
+        tx_val = str(tx_val).strip()
+        sid = processor_cls.normalize_id(r.get("Site ID"))
+        sname = str(r.get("Site Name", "")).strip()
+        if sid:
+            id_map[sid] = tx_val
+        if sname:
+            name_map[sname] = tx_val
+    logger.info(f"TX 映射构建完成: {len(id_map)} by Site ID, {len(name_map)} by Site Name")
+    return id_map, name_map
+
+
+# mail_126.py 所在目录（项目内部 backend/services/report/）
+_TICKET_EXPORT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "report")
+
+
+def _import_excel_processor():
+    """安全导入 mail_126.ExcelDataProcessor。
+
+    mail_126.py 已复制到项目内部 backend/services/report/ 目录，
+    无需外部依赖。EmailSender 类级属性会执行 pd.read_csv("to_receiver.txt")，
+    本函数在导入前补齐 to_receiver.txt，避免 FileNotFoundError。
+    返回 (ExcelDataProcessor, EmailSender)。
+    """
+    import sys
+
+    script_dir = _TICKET_EXPORT_DIR
+
+    # 1) 确保 to_receiver.txt 存在
+    receiver_file = os.path.join(script_dir, "to_receiver.txt")
+    if not os.path.exists(receiver_file):
+        with open(receiver_file, "w", encoding="utf-8") as f:
+            f.write("nobody@example.invalid\n")
+        logger.info(f"Created placeholder {receiver_file}")
+
+    # 2) 将脚本目录加入 sys.path
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
+
+    # 3) 切到脚本目录导入（pd.read_csv("to_receiver.txt") 依赖 CWD），导入后恢复
+    prev_cwd = os.getcwd()
+    try:
+        os.chdir(script_dir)
+        from mail_126 import ExcelDataProcessor, EmailSender
+    finally:
+        os.chdir(prev_cwd)
+    return ExcelDataProcessor, EmailSender
+
+
+# ============================================================
+# 主入口：获取数据后生成 Hourly Report / Summary Report / 图片
+# ============================================================
+
+def generate_hourly_report_with_images(data: dict, send_email: bool = None) -> dict:
+    """
+    从 eFlow 同步数据生成小时报告、Summary 报告和图片，复用 mail_126.py 的 ExcelDataProcessor。
+
+    Args:
+        data: fetch_all_data() 返回的 {sheet_name: rows} 字典
+        send_email: 是否发送邮件（默认 False）
+
+    Returns:
+        dict: 生成的文件路径字典；失败返回 {"success": False}
+    """
+    import pandas as pd
+
+    total_start = time.time()
+    start_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    output_dir = os.path.join(DATA_DIR, TT_REPORT_SUBDIR)
+    if send_email is None:
+        send_email = SEND_EMAIL_AFTER_REPORT
+
+    logger.info(f"开始生成小时报告与图片 - {start_time_str}")
+
+    # 导入 mail_126
+    try:
+        ExcelDataProcessor, EmailSender = _import_excel_processor()
+    except Exception as e:
+        import traceback
+        logger.error(f"无法导入 mail_126.ExcelDataProcessor: {e}")
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+    # 转换 data dict 为 sheets_data 列表格式
+    sheets_data = [(k, v) for k, v in data.items()]
+
+    # 1. 提取 eFlow TT 数据
+    tt_rows = []
+    for sheet_name, rows in sheets_data:
+        if sheet_name == "eFlow TT":
+            tt_rows = rows or []
+            break
+    if not tt_rows:
+        logger.warning("没有 eFlow TT 数据，跳过报告生成")
+        return {"success": False, "error": "No eFlow TT data"}
+    logger.info(f"eFlow TT 行数: {len(tt_rows)}")
+
+    # 2. 构建 DataFrame 并重命名列
+    df_source = pd.DataFrame(tt_rows)
+    df_source = ExcelDataProcessor.clean_columns(df_source)
+    rename_map = {k: v for k, v in _TT_COLUMN_RENAME.items() if k in df_source.columns}
+    if rename_map:
+        df_source = df_source.rename(columns=rename_map)
+    logger.info(f"TT DataFrame: {df_source.shape}, 重命名: {rename_map}")
+
+    # 2.5 添加 TX 列
+    id_map, name_map = _build_site_tx_map(sheets_data, ExcelDataProcessor)
+    if "Site ID" in df_source.columns:
+        df_source["Site ID"] = df_source["Site ID"].apply(ExcelDataProcessor.normalize_id)
+    if id_map or name_map:
+        df_source["TX"] = df_source["Site ID"].map(id_map) if "Site ID" in df_source.columns else ""
+        mask = df_source["TX"].isna()
+        if mask.any() and name_map and "Site Name" in df_source.columns:
+            df_source.loc[mask, "TX"] = (
+                df_source.loc[mask, "Site Name"].astype(str).str.strip().map(name_map)
+            )
+        df_source["TX"] = df_source["TX"].fillna("")
+        matched = (df_source["TX"].astype(str).str.strip() != "").sum()
+        logger.info(f"TX 列已添加，匹配率: {matched}/{len(df_source)}")
+    else:
+        df_source["TX"] = ""
+        logger.warning("TX 列为空（Site 表无 TRM Type 数据）")
+
+    # 3. 直接设置数据源
+    ExcelDataProcessor.df_master_cache = None
+    ExcelDataProcessor.df_eflow_source = df_source
+
+    result = {
+        "success": True,
+        "hourly_file": None,
+        "eight_hour_file": None,
+        "eight_hour_img": None,
+        "summary_file": None,
+        "image_paths": [],
+    }
+
+    try:
+        # 4. 字段提取
+        step_start = time.time()
+        logger.info("步骤1: 提取字段...")
+        df_extracted = ExcelDataProcessor.extract_fields()
+        logger.info(f"   用时: {time.time() - step_start:.2f}s")
+
+        # 5. Hourly Report
+        step_start = time.time()
+        logger.info("步骤2: 生成 Hourly Report...")
+        hourly_file, _ = ExcelDataProcessor.write_hourly_report(
+            df_extracted, output_dir=output_dir)
+        result["hourly_file"] = hourly_file
+        logger.info(f"   用时: {time.time() - step_start:.2f}s")
+
+        # 6. 8 Hours Report
+        step_start = time.time()
+        logger.info("步骤3: 生成 8 Hours Report...")
+        eight_hour_file, eight_hour_img, _ = ExcelDataProcessor.write_8hours_report(
+            df_extracted, output_dir=output_dir)
+        result["eight_hour_file"] = eight_hour_file
+        result["eight_hour_img"] = eight_hour_img
+        logger.info(f"   用时: {time.time() - step_start:.2f}s")
+
+        # 7. TT Summary 计算
+        step_start = time.time()
+        logger.info("步骤4: 计算 SLA Status / Summary...")
+        df_open, open_tickets, prolong_tickets, summary_df, raw_df = \
+            ExcelDataProcessor.compute_tt_summary(df_extracted)
+        logger.info(f"   Open Tickets: {len(open_tickets)}, Prolong: {len(prolong_tickets)}")
+        logger.info(f"   用时: {time.time() - step_start:.2f}s")
+
+        # 8. TT Summary Report
+        step_start = time.time()
+        logger.info("步骤5: 生成 TT Summary Report...")
+        summary_file = ExcelDataProcessor.write_summary_report(
+            open_tickets, prolong_tickets, summary_df, raw_df, output_dir=output_dir)
+        result["summary_file"] = summary_file
+        logger.info(f"   用时: {time.time() - step_start:.2f}s")
+
+        # 9. 图片
+        step_start = time.time()
+        logger.info("步骤6: 生成图片（matplotlib）...")
+        image_paths = ExcelDataProcessor.generate_summary_images(
+            summary_df, open_tickets, prolong_tickets, output_dir)
+        result["image_paths"] = image_paths
+        logger.info(f"   用时: {time.time() - step_start:.2f}s")
+
+        # 10. 邮件（可选）
+        if send_email:
+            step_start = time.time()
+            logger.info("步骤7: 发送邮件...")
+            try:
+                EmailSender.send_report_email(summary_file, summary_df, image_paths=image_paths)
+            except Exception as e:
+                logger.error(f"邮件发送失败: {e}")
+            logger.info(f"   用时: {time.time() - step_start:.2f}s")
+
+    except Exception as e:
+        import traceback
+        logger.error(f"报告生成失败: {e}")
+        traceback.print_exc()
+        result["success"] = False
+        result["error"] = str(e)
+
+    total_elapsed = time.time() - total_start
+    end_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logger.info(f"报告生成完成! 开始: {start_time_str}, 结束: {end_time_str}, 用时: {total_elapsed:.2f}s")
+    if result.get("hourly_file"):
+        logger.info(f"  Hourly Report: {result['hourly_file']}")
+    if result.get("eight_hour_file"):
+        logger.info(f"  8 Hours Report: {result['eight_hour_file']}")
+    if result.get("summary_file"):
+        logger.info(f"  Summary Report: {result['summary_file']}")
+    for p in result.get("image_paths", []):
+        logger.info(f"  图片: {p}")
+
+    return result
+
+
 def generate_excel_report(data=None, save_sqlite=True, save_excel=True, cleanup=True, upload_ftp=False):
     """
     从获取的数据生成 SQLite 和 Excel 报告，并可选择上传到 FTP。
@@ -1702,6 +1968,7 @@ def fetch_all_data(tmp_dir: str = None) -> dict:
         start_ms, end_ms = _get_time_range_ms()
         logger.info(f"Time range: {start_ms} to {end_ms}")
 
+        # 仅包含工单/资产类数据；告警由独立任务 eflow_active_alarm / eflow_history_alarm 负责
         pipelines = [
             ("tt", lambda: _fetch_tt_pipeline(start_ms, end_ms, tmp_dir)),
             ("wo", lambda: _fetch_wo_pipeline(start_ms, end_ms, tmp_dir)),
@@ -1709,8 +1976,6 @@ def fetch_all_data(tmp_dir: str = None) -> dict:
             ("pm", lambda: _fetch_pm_pipeline(start_ms, end_ms, tmp_dir)),
             ("site", lambda: _fetch_site_pipeline(tmp_dir)),
             ("person", lambda: _fetch_person_pipeline(tmp_dir)),
-            ("alarm", _fetch_alarm_pipeline),
-            ("history_alarm", _fetch_history_alarm_pipeline),
         ]
 
         results = {}

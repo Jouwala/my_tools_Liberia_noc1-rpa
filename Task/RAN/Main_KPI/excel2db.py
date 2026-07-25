@@ -37,6 +37,16 @@ FTP_UPLOAD_USER = "ZTEEMS"
 FTP_UPLOAD_PASS = "DX"
 FTP_UPLOAD_REMOTE_DIR = "/01_RPA/LBR_Tools/KPI/RAN"
 
+# 远程写入 API 配置（替代 FTP 下载/上传）
+import sys as _sys
+_sys.path.insert(0, r"d:\01_RPA\Task\data_base")
+try:
+    from db_writer_client import DbWriterClient
+    _db_writer = DbWriterClient()
+except ImportError:
+    _db_writer = None
+    print("[WARNING] db_writer_client 未找到，将回退到 FTP 模式")
+
 
 def quote_identifier(name):
     """
@@ -309,14 +319,26 @@ def main():
       3. 同步数据到 db.sqlite3
       4. 上传更新后的 db.sqlite3 到 FTP
     """
-    # ---------- 1. 从 FTP 下载数据库 ----------
+    # ---------- 1. 检查远程 API 可用性 ----------
     logger.info("=" * 60)
-    logger.info("步骤 1: 从 FTP 下载数据库")
-    logger.info("=" * 60)
-    downloaded = download_from_ftp(FTP_REMOTE_DIR, DB_NAME, DB_PATH)
-    if not downloaded:
-        logger.error("无法从 FTP 下载数据库，流程终止")
-        return
+    if _db_writer is not None:
+        try:
+            health = _db_writer.health()
+            logger.info(f"步骤 1: 远程 API 可用 ({health.get('status', 'unknown')})")
+        except Exception as e:
+            logger.warning(f"远程 API 不可用: {e}，回退到 FTP 模式")
+            _db_writer_local = None
+        else:
+            _db_writer_local = _db_writer
+    else:
+        _db_writer_local = None
+
+    if _db_writer_local is None:
+        logger.info("步骤 1: 从 FTP 下载数据库（回退模式）")
+        downloaded = download_from_ftp(FTP_REMOTE_DIR, DB_NAME, DB_PATH)
+        if not downloaded:
+            logger.error("无法从 FTP 下载数据库，流程终止")
+            return
 
     # ---------- 2 & 3. 查找文件并同步 ----------
     logger.info("=" * 60)
@@ -359,12 +381,27 @@ def main():
                 logger.warning(f"未找到匹配 '{pattern}' 的 Excel 文件，跳过")
                 continue
             logger.info(f"匹配 '{pattern}' -> {latest_file}")
-            sync_excel_to_db_table(
-                latest_file,
-                task['db_table'],
-                DB_PATH,
-                task['add_group_column']
-            )
+            if _db_writer_local is not None:
+                try:
+                    result = _db_writer_local.upload_excel(
+                        db=DB_NAME,
+                        table=task['db_table'],
+                        excel_path=latest_file,
+                        table_type="Group",
+                        add_group_column=task['add_group_column'],
+                        group_value="NW",
+                    )
+                    logger.info(f"API 写入: {task['db_table']} +{result.get('rows_written', 0)} 行")
+                except Exception as e:
+                    logger.error(f"API 写入失败: {e}，回退到本地")
+                    sync_excel_to_db_table(latest_file, task['db_table'], DB_PATH, task['add_group_column'])
+            else:
+                sync_excel_to_db_table(
+                    latest_file,
+                    task['db_table'],
+                    DB_PATH,
+                    task['add_group_column']
+                )
         except Exception as e:
             logger.error(f"处理任务失败: {task}, 错误: {e}")
 
@@ -372,12 +409,15 @@ def main():
     logger.info("=" * 60)
     logger.info("步骤 3: 上传更新后的数据库到 FTP")
     logger.info("=" * 60)
-    uploaded = upload_to_ftp(DB_PATH, FTP_UPLOAD_REMOTE_DIR, DB_NAME,
-                             user=FTP_UPLOAD_USER, password=FTP_UPLOAD_PASS)
-    if uploaded:
-        logger.info("数据库已成功上传到 FTP 服务器")
+    if _db_writer_local is None:
+        uploaded = upload_to_ftp(DB_PATH, FTP_UPLOAD_REMOTE_DIR, DB_NAME,
+                                 user=FTP_UPLOAD_USER, password=FTP_UPLOAD_PASS)
+        if uploaded:
+            logger.info("数据库已成功上传到 FTP 服务器")
+        else:
+            logger.error("数据库上传 FTP 失败")
     else:
-        logger.error("数据库上传 FTP 失败")
+        logger.info("数据已通过远程 API 直接写入，无需 FTP 上传")
 
     logger.info("所有同步任务完成")
 

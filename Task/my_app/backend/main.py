@@ -70,7 +70,7 @@ def _register_all_tasks():
         task_id="eflow_sync",
         name="eFlow 数据同步",
         func=scheduled_eflow_sync,
-        description="从 ZTE eFlow API 获取 TT/WO/CR/PM/Site/Person/Alarm 数据",
+        description="从 ZTE eFlow API 获取 TT/WO/CR/PM/Site/Person 数据",
         default_cron="22 * * * *",  # 每小时第22分钟
         category="eflow",
     )

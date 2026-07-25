@@ -9,15 +9,14 @@ RAN UME Main KPI 每日同步脚本
    - 聚合层级：Cells、Sites、Group、NW
    - 时间粒度：1Day（86400 秒）
 3. 轮询查询进度直到完成，导出为 Excel 文件。
-4. 从 FTP /Python 下载现有 db.sqlite3，按主键去重后增量更新数据库。
-5. 上传更新后的 db.sqlite3 到 FTP /01_RPA/LBR_Tools/KPI/RAN。
-6. 清理本地已处理的 xlsx 文件。
+4. 通过 HTTP API 将 Excel 数据直接写入远程 SQLite 数据库（WAL 模式安全）。
+5. 清理本地已处理的 xlsx 文件。
 
-数据库更新方式参考 excel2db.py：
-- 使用 pandas + sqlite3
-- 自动添加缺失列
-- 按主键比对，仅插入新数据
+数据库写入方式：
+- 使用 DbWriterClient 通过 HTTP POST 上传 Excel 到远程服务
+- 远程服务按主键去重后增量插入
 - NW 层级数据自动添加 Group='NW' 列
+- 回退方案：如果 API 不可用，自动回退到 FTP 下载/上传模式
 """
 
 import base64
@@ -76,18 +75,17 @@ HISTORY_REFERER = f"https://{HOST}:{PORT}/iui/pm/angularTask/dist/pmManagement.h
 
 # 数据库配置
 DB_NAME = "db.sqlite3"
-DB_PATH = os.path.join(SCRIPT_DIR, DB_NAME)
 
-# FTP 下载配置（源数据库）
-FTP_HOST = "192.168.100.19"
-FTP_USER = "FINEBI"
-FTP_PASS = "DX"
-FTP_REMOTE_DIR = "/Python"
-
-# FTP 上传配置（目标数据库）
-FTP_UPLOAD_USER = "ZTEEMS"
-FTP_UPLOAD_PASS = "DX"
-FTP_UPLOAD_REMOTE_DIR = "/01_RPA/LBR_Tools/KPI/RAN"
+# 远程写入 API 配置（替代 FTP 下载/上传）
+try:
+    from backend.services.db_writer_client import DbWriterClient
+except ImportError:
+    from db_writer_client import DbWriterClient
+try:
+    _db_writer = DbWriterClient()
+except Exception:
+    _db_writer = None
+    print("[WARNING] db_writer_client 初始化失败，将回退到 FTP 模式")
 
 # 备用鉴权信息
 FALLBACK_COOKIE = (
@@ -326,9 +324,10 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
 def login():
     """执行 RAN UME 登录流程（优先使用共享缓存，避免同账户重复登录）。"""
     try:
-        import sys as _sys
-        _sys.path.insert(0, r"d:\01_RPA\Task")
-        from auth_manager import get_auth
+        try:
+            from backend.services.auth_manager import get_auth
+        except ImportError:
+            from auth_manager import get_auth
         result = get_auth(HOST, PORT, USERNAME, PASSWORD)
         source = "缓存" if result["from_cache"] else "重新登录"
         print(f"[LOGIN] 鉴权成功（来源: {source}）")
@@ -612,12 +611,21 @@ def build_filename(templatename: str, grouplayer: str, gr_seconds: str) -> str:
 
 
 # ============================================================
-# FTP 下载 / 上传（参考 excel2db.py）
+# FTP 下载 / 上传（已废弃，保留备用）
 # ============================================================
+FTP_HOST = "192.168.100.19"
+FTP_USER = "FINEBI"
+FTP_PASS = "DX"
+FTP_REMOTE_DIR = "/Python"
+FTP_UPLOAD_USER = "ZTEEMS"
+FTP_UPLOAD_PASS = "DX"
+FTP_UPLOAD_REMOTE_DIR = "/01_RPA/LBR_Tools/KPI/RAN"
+
+
 def download_from_ftp(remote_dir: str, filename: str, local_path: str,
                       user: str | None = None, password: str | None = None,
                       max_retries: int = 2) -> bool:
-    """从 FTP 服务器下载文件（带重试机制）。"""
+    """[已废弃] 从 FTP 服务器下载文件。请使用 DbWriterClient 代替。"""
     _user = user or FTP_USER
     _pass = password or FTP_PASS
     for attempt in range(1, max_retries + 1):
@@ -626,11 +634,7 @@ def download_from_ftp(remote_dir: str, filename: str, local_path: str,
         try:
             ftp = FTP(FTP_HOST, timeout=30)
             ftp.encoding = "utf-8"
-            if attempt > 1:
-                ftp.set_debuglevel(1)
             ftp.login(_user, _pass)
-            print(f"  登录成功: {_user}")
-
             ftp.cwd("/")
             parts = remote_dir.strip("/").split("/")
             for i in range(len(parts)):
@@ -638,16 +642,9 @@ def download_from_ftp(remote_dir: str, filename: str, local_path: str,
                 try:
                     ftp.cwd(abs_path)
                 except error_perm:
-                    print(f"  远程目录不存在: {abs_path}")
                     raise
-
-            current_dir = ftp.pwd()
-            print(f"  远程目录: {current_dir}")
-
             with open(local_path, "wb") as f:
                 ftp.retrbinary(f"RETR {filename}", f.write)
-
-            print(f"  [OK] 已下载: {filename} -> {local_path}")
             ftp.quit()
             return True
         except Exception as e:
@@ -663,7 +660,7 @@ def download_from_ftp(remote_dir: str, filename: str, local_path: str,
 def upload_to_ftp(local_path: str, remote_dir: str, filename: str,
                   user: str | None = None, password: str | None = None,
                   max_retries: int = 2) -> bool:
-    """上传文件到 FTP 服务器（带重试机制）。"""
+    """[已废弃] 上传文件到 FTP 服务器。请使用 DbWriterClient 代替。"""
     _user = user or FTP_USER
     _pass = password or FTP_PASS
     for attempt in range(1, max_retries + 1):
@@ -672,11 +669,7 @@ def upload_to_ftp(local_path: str, remote_dir: str, filename: str,
         try:
             ftp = FTP(FTP_HOST, timeout=30)
             ftp.encoding = "utf-8"
-            if attempt > 1:
-                ftp.set_debuglevel(1)
             ftp.login(_user, _pass)
-            print(f"  登录成功: {_user}")
-
             ftp.cwd("/")
             parts = remote_dir.strip("/").split("/")
             for i in range(len(parts)):
@@ -687,20 +680,10 @@ def upload_to_ftp(local_path: str, remote_dir: str, filename: str,
                     try:
                         ftp.mkd(abs_path)
                         ftp.cwd(abs_path)
-                    except error_perm as e2:
-                        print(f"  [WARNING] 无法创建目录 {abs_path}: {e2}")
-
-            current_dir = ftp.pwd()
-            print(f"  远程目录: {current_dir}")
-            expected = "/" + "/".join(parts)
-            if current_dir != expected:
-                print(f"  [WARNING] 目录不匹配，期望 {expected}，实际 {current_dir}")
-                ftp.cwd(expected)
-
+                    except error_perm:
+                        pass
             with open(local_path, "rb") as f:
                 ftp.storbinary(f"STOR {filename}", f)
-
-            print(f"  [OK] 已上传: {filename}")
             ftp.quit()
             return True
         except Exception as e:
@@ -974,7 +957,7 @@ def cleanup_kpi_exports(output_dir: str = OUTPUT_DIR) -> int:
 
 def run_main_kpi_sync(cookie: str | None = None, forgery_token: str | None = None,
                       max_workers: int = MAX_PARALLEL_WORKERS) -> dict:
-    """执行完整的 Main KPI 同步流程：获取 -> 下载DB -> 更新 -> 上传 -> 清理。"""
+    """执行完整的 Main KPI 同步流程：获取 -> 通过 HTTP API 写入远程数据库 -> 清理。"""
     if not cookie or not forgery_token:
         auth = login()
         cookie = auth["cookie"]
@@ -1000,49 +983,54 @@ def run_main_kpi_sync(cookie: str | None = None, forgery_token: str | None = Non
 
     if not download_results:
         print("[MAIN] No files downloaded, skipping DB import.")
-        return {"downloaded": 0, "imported_rows": 0, "tables": [], "ftp_ok": False}
+        return {"downloaded": 0, "imported_rows": 0, "tables": [], "api_ok": False}
 
-    # 2. 从 FTP 下载现有数据库
-    print("\n[FTP Download]")
-    print(f"  downloading: {DB_NAME} from {FTP_REMOTE_DIR}")
-    download_ok = download_from_ftp(FTP_REMOTE_DIR, DB_NAME, DB_PATH, user=FTP_USER, password=FTP_PASS)
-    if not download_ok:
-        print(f"  [WARNING] 无法从 FTP 下载现有数据库，将使用本地数据库（如果存在）")
-
-    # 3. 顺序导入数据库
-    print(f"\n[DB] Importing {len(download_results)} files to {DB_PATH}")
+    # 2. 通过 HTTP API 写入远程数据库（替代 FTP 下载→本地修改→FTP 上传）
+    print(f"\n[API] 通过远程写入 API 导入 {len(download_results)} 个文件")
     total_imported = 0
     imported_tables = []
-    for item in download_results:
-        try:
-            rows = sync_excel_to_db(
-                item["path"],
-                item["table"],
-                DB_PATH,
-                table_type=item["table_type"],
-                add_group_column=item["add_group_column"],
-            )
-            total_imported += rows
-            if item["table"] not in imported_tables:
-                imported_tables.append(item["table"])
-        except Exception as e:
-            print(f"[DB] Failed to import {os.path.basename(item['path'])}: {e}")
+    api_ok = True
 
-    # 4. 上传数据库到 FTP（测试阶段注释掉，避免影响生产环境）
-    print("\n[FTP Upload]")
-    print("  [SKIP] FTP 上传已禁用（测试阶段），如需启用请取消 run_main_kpi_sync 中的注释")
-    upload_ok = False
-    print(f"  uploading: {DB_NAME} to {FTP_UPLOAD_REMOTE_DIR}")
-    upload_ok = upload_to_ftp(
-        DB_PATH, FTP_UPLOAD_REMOTE_DIR, DB_NAME,
-        user=FTP_UPLOAD_USER, password=FTP_UPLOAD_PASS,
-    )
-    if upload_ok:
-        print(f"  [OK] 数据库已上传: {DB_NAME}")
+    if _db_writer is None:
+        print("[API] [ERROR] db_writer_client 不可用，回退到 FTP 模式")
+        # 回退：使用旧的 FTP 流程
+        DB_PATH = os.path.join(SCRIPT_DIR, DB_NAME)
+        download_from_ftp(FTP_REMOTE_DIR, DB_NAME, DB_PATH, user=FTP_USER, password=FTP_PASS)
+        for item in download_results:
+            try:
+                rows = sync_excel_to_db(
+                    item["path"], item["table"], DB_PATH,
+                    table_type=item["table_type"],
+                    add_group_column=item["add_group_column"],
+                )
+                total_imported += rows
+                if item["table"] not in imported_tables:
+                    imported_tables.append(item["table"])
+            except Exception as e:
+                print(f"[DB] Failed to import {os.path.basename(item['path'])}: {e}")
+        upload_to_ftp(DB_PATH, FTP_UPLOAD_REMOTE_DIR, DB_NAME,
+                      user=FTP_UPLOAD_USER, password=FTP_UPLOAD_PASS)
     else:
-        print(f"  [FAIL] 数据库上传失败: {DB_NAME}")
+        for item in download_results:
+            try:
+                result = _db_writer.upload_excel(
+                    db=DB_NAME,
+                    table=item["table"],
+                    excel_path=item["path"],
+                    table_type=item["table_type"],
+                    add_group_column=item["add_group_column"],
+                    group_value="NW",
+                )
+                rows = result.get("rows_written", 0)
+                total_imported += rows
+                if item["table"] not in imported_tables:
+                    imported_tables.append(item["table"])
+                print(f"[API] {item['table']}: +{rows} 行")
+            except Exception as e:
+                print(f"[API] [ERROR] 写入 {item['table']} 失败: {e}")
+                api_ok = False
 
-    # 5. 清理本地 xlsx 文件
+    # 3. 清理本地 xlsx 文件
     print("\n[cleanup]")
     deleted_count = cleanup_kpi_exports()
     print(f"  total deleted: {deleted_count} files")
@@ -1053,7 +1041,7 @@ def run_main_kpi_sync(cookie: str | None = None, forgery_token: str | None = Non
         "downloaded": len(download_results),
         "imported_rows": total_imported,
         "tables": imported_tables,
-        "ftp_ok": upload_ok,
+        "api_ok": api_ok,
     }
 
 
@@ -1064,7 +1052,7 @@ if __name__ == "__main__":
     total_start = time.time()
     print(f"[MAIN] RAN UME Main KPI sync started at {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"[MAIN] Output dir: {OUTPUT_DIR}")
-    print(f"[MAIN] DB path: {DB_PATH}")
+    print(f"[MAIN] DB target: {DB_NAME} (via remote API)")
 
     stats = run_main_kpi_sync()
 
@@ -1074,4 +1062,4 @@ if __name__ == "__main__":
     print(f"[MAIN] Downloaded: {stats['downloaded']} files")
     print(f"[MAIN] Imported rows: {stats['imported_rows']}")
     print(f"[MAIN] Tables: {stats['tables']}")
-    print(f"[MAIN] FTP upload: {'OK' if stats['ftp_ok'] else 'FAILED'}")
+    print(f"[MAIN] Remote write: {'OK' if stats['api_ok'] else 'FAILED'}")

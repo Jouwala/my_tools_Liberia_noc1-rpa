@@ -516,9 +516,10 @@ def _ume_login(max_retries=2):
         max_retries: 登录失败时最大重试次数（含首次），默认2次
     """
     try:
-        import sys as _sys
-        _sys.path.insert(0, r"d:\01_RPA\Task")
-        from auth_manager import get_auth
+        try:
+            from backend.services.auth_manager import get_auth
+        except ImportError:
+            from auth_manager import get_auth
         result = get_auth(UME_HOST, UME_PORT, UME_USERNAME, UME_PASSWORD)
         source = "缓存" if result["from_cache"] else "重新登录"
         logger.info(f"[LOGIN] 鉴权成功（来源: {source}）")

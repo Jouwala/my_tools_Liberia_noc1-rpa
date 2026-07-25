@@ -492,6 +492,7 @@ def sync_from_eflow_api() -> dict:
         dst_conn.execute("PRAGMA synchronous=NORMAL")
 
         # 同步任务映射: (API key, 目标表名, 同步函数)
+        # 告警由独立任务 eflow_active_alarm / eflow_history_alarm 负责，不在此处同步
         sync_tasks = [
             ("eFlow TT", "eflow_tt", _sync_tt),
             ("eFlow WO", "eflow_wo", _sync_wo),
@@ -499,8 +500,6 @@ def sync_from_eflow_api() -> dict:
             ("eFlow PM", "eflow_pm", lambda df, c: _sync_generic(df, c, "eflow_pm")),
             ("Site", "site", _sync_site),
             ("Person", "person", lambda df, c: _sync_generic(df, c, "person")),
-            ("realtime_alarm", "realtime_alarm", _sync_realtime_alarm),
-            ("history_alarm", "history_alarm", _sync_history_alarm),
         ]
 
         for api_key, table_name, sync_func in sync_tasks:
@@ -545,6 +544,25 @@ def sync_from_eflow_api() -> dict:
         except Exception as e:
             logger.warning(f"Excel 报告生成/上传失败: {e}")
             result["excel_upload_error"] = str(e)
+
+        # 生成小时报告与图片（复用 mail_126.py 的方法）
+        try:
+            from backend.services.eflow_api_client import generate_hourly_report_with_images
+            hourly_result = generate_hourly_report_with_images(all_data)
+            if hourly_result.get("success"):
+                logger.info(f"小时报告与图片已生成")
+                if hourly_result.get("hourly_file"):
+                    logger.info(f"  Hourly Report: {hourly_result['hourly_file']}")
+                if hourly_result.get("eight_hour_file"):
+                    logger.info(f"  8 Hours Report: {hourly_result['eight_hour_file']}")
+                if hourly_result.get("summary_file"):
+                    logger.info(f"  Summary Report: {hourly_result['summary_file']}")
+                for p in hourly_result.get("image_paths", []):
+                    logger.info(f"  图片: {p}")
+            else:
+                logger.warning(f"小时报告生成未完成: {hourly_result.get('error', '未知错误')}")
+        except Exception as e:
+            logger.warning(f"小时报告生成失败: {e}")
 
     except Exception as e:
         err_msg = f"同步异常: {e}"

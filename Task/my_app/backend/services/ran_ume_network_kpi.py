@@ -83,6 +83,17 @@ FTP_USER = "ZTEEMS"
 FTP_PASS = "DX"
 FTP_REMOTE_DIR = "/01_RPA/LBR_Tools/KPI/RAN"
 
+# 远程写入 API 配置
+try:
+    from backend.services.db_writer_client import DbWriterClient
+except ImportError:
+    from db_writer_client import DbWriterClient
+try:
+    _db_writer = DbWriterClient()
+except Exception:
+    _db_writer = None
+    print("[WARNING] db_writer_client init failed, fallback to FTP")
+
 # 备用鉴权信息
 FALLBACK_COOKIE = (
     "X-Rm-Data-Version-zenap=1773367620002_0_0_0_0_0_0_0_0; "
@@ -317,9 +328,10 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
 def login():
     """执行 RAN UME 登录流程（优先使用共享缓存，避免同账户重复登录）。"""
     try:
-        import sys as _sys
-        _sys.path.insert(0, r"d:\01_RPA\Task")
-        from auth_manager import get_auth
+        try:
+            from backend.services.auth_manager import get_auth
+        except ImportError:
+            from auth_manager import get_auth
         result = get_auth(HOST, PORT, USERNAME, PASSWORD)
         source = "缓存" if result["from_cache"] else "重新登录"
         print(f"[LOGIN] 鉴权成功（来源: {source}）")
@@ -921,8 +933,26 @@ def import_to_database():
 
         print(f"  merged: {len(merged_data)} rows, {len(merged_headers)} cols -> {table_name}")
 
-        row_count = write_to_db(DB_PATH, table_name, merged_headers, merged_data)
-        print(f"  written: {row_count} rows")
+        # 优克通迄编程取入取入/，回退到本在张大
+        if _db_writer is not None:
+            try:
+                result = _db_writer.write_data(
+                    db=DB_NAME,
+                    table=table_name,
+                    columns=merged_headers,
+                    rows=merged_data,
+                    mode="upsert",
+                    pk_columns=["Begin Time", "Group"],
+                )
+                row_count = result.get("rows_written", 0)
+                print(f"  [API] written: {row_count} rows")
+            except Exception as e:
+                print(f"  [API] 写入失败: {e}，回退到本在大")
+                row_count = write_to_db(DB_PATH, table_name, merged_headers, merged_data)
+                print(f"  [LOCAL] written: {row_count} rows")
+        else:
+            row_count = write_to_db(DB_PATH, table_name, merged_headers, merged_data)
+            print(f"  [LOCAL] written: {row_count} rows")
         total_imported += row_count
 
         # 释放本迭代大对象
@@ -931,13 +961,16 @@ def import_to_database():
         merged_headers = merged_data = None
         gc.collect()
 
-    # ---- FTP 上传数据库 ----
-    print("\n[FTP Upload]")
-    print(f"  uploading: {DB_NAME}")
-    if upload_to_ftp(DB_PATH, FTP_REMOTE_DIR, DB_NAME):
-        print(f"  [OK] 数据库已上传: {DB_NAME}")
+    # ---- FTP upload (conditional) ----
+    if _db_writer is None:
+        print("\n[FTP Upload]")
+        print(f"  uploading: {DB_NAME}")
+        if upload_to_ftp(DB_PATH, FTP_REMOTE_DIR, DB_NAME):
+            print(f"  [OK] uploaded: {DB_NAME}")
+        else:
+            print(f"  [FAIL] upload failed: {DB_NAME}")
     else:
-        print(f"  [FAIL] 数据库上传失败: {DB_NAME}")
+        print("\n[API] data written via remote API, no FTP needed")
 
     # ---- 清理已导入的 xlsx 文件 ----
     print("\n[cleanup]")

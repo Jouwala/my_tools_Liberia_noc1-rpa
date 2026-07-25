@@ -1,0 +1,8 @@
+﻿# db_writer_api.py 远程写入服务依赖（部署在 192.168.100.19）
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pandas>=1.5.0
+openpyxl>=3.0.0
+python-multipart>=0.0.6
+
+# db_writer_client.py 无额外依赖（纯标准库 urllib.request 实现）
