@@ -1,0 +1,1765 @@
+                    // 特殊处理Severity列（可能是 "Ticket Severity" 或 "Severity" 等）- 使用美化徽章
+                    else if (colLower.includes('severity')) {
+                        const sev = String(value).toUpperCase();
+                        const isP1 = sev === 'P1';
+                        cellContent = `<td class="px-3 py-2.5 ${isP1 ? 'p1-alert' : ''}"><div class="flex items-center justify-center">${createSeverityBadge(value)}</div></td>`;
+                    }
+                    // 特殊处理Status列 - 使用颜色但取消粗体
+                    else if (colLower.includes('status')) {
+                        const statusColor = getStatusColor(value);
+                        cellContent = `<td class="px-3 py-2.5 ${statusColor} text-[15px] font-['Inter']">${escapeHtml(value)}</td>`;
+                    }
+                    // 处理Duration列
+                    else if (colLower.includes('duration')) {
+                        // 如果是数字，格式化显示
+                        const numValue = typeof value === 'number' ? value.toFixed(2) : value;
+                        cellContent = `<td class="px-3 py-2.5 font-mono text-[15px]">${escapeHtml(numValue)}</td>`;
+                    }
+                    // 处理Handler列
+                    else if (colLower.includes('handler') || colLower.includes('current handler')) {
+                        cellContent = `<td class="px-3 py-2.5 text-slate-400 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                    }
+                    // 处理Title/Description列
+                    else if (colLower.includes('title') || colLower.includes('description')) {
+                        cellContent = `<td class="px-3 py-2.5 truncate max-w-[200px]" title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
+                    }
+                    // 处理FB_ORG/Domain列
+                    else if (colLower.includes('fb_org') || colLower.includes('domain') || colLower.includes('org')) {
+                        cellContent = `<td class="px-3 py-2.5 font-bold text-slate-400 text-[15px]">${escapeHtml(value)}</td>`;
+                    }
+                    // 处理数字类型的列
+                    else if (typeof value === 'number') {
+                        cellContent = `<td class="px-3 py-2.5 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                    }
+                    // 处理时间列
+                    else if (colLower.includes('time') || colLower.includes('created') || colLower.includes('occur')) {
+                        cellContent = `<td class="px-3 py-2.5 text-slate-400 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                    }
+                    // 默认样式
+                    else {
+                        cellContent = `<td class="px-3 py-2.5 text-[var(--text-primary)]/90 font-['Inter'] text-[15px]">${escapeHtml(value)}</td>`;
+                    }
+                }
+                return cellContent;
+            }).join('');
+
+            row.innerHTML = cells;
+            tbody.appendChild(row);
+        });
+
+        // 更新记录数（使用统一的函数）
+        updateDetailsRecordCount(filteredDetailsData.length);
+        
+        // 检查是否需要通知
+        check3rdPowerHandler();
+    }
+    
+    // ==================== Virtual Assistant Feature ====================
+    
+    // Virtual Assistant Configuration
+    let assistantConfig = {
+        notifyPhone: false, // Default off (requires enterprise service)
+        notifySMS: false, // Default off (requires enterprise service)
+        notifyBrowser: true, // Browser voice notification (recommended for personal users, free)
+        notifyDesktop: true, // Desktop notification (recommended for personal users, free)
+        phoneNumber: '',
+        monitorInterval: 60,
+        aiPromptTemplate: 'Generate a professional and concise notification message based on the following ticket information for phone or SMS notification. The message should include: ticket number, severity, current status, SLA percentage, and brief description. The language should be professional, clear and concise, not exceeding 100 words.\n\nTicket Information:\n{{TICKET_INFO}}',
+        lastCheckedTickets: new Set() // Processed ticket IDs
+    };
+    
+    let monitorIntervalId = null;
+    
+    // Load Assistant Configuration
+    function loadAssistantConfig() {
+        const saved = localStorage.getItem('assistant_config');
+        if (saved) {
+            try {
+                const config = JSON.parse(saved);
+                assistantConfig = { ...assistantConfig, ...config };
+                assistantConfig.lastCheckedTickets = new Set(config.lastCheckedTickets || []);
+                
+                // 更新UI
+                document.getElementById('notify-phone').checked = assistantConfig.notifyPhone;
+                document.getElementById('notify-sms').checked = assistantConfig.notifySMS;
+                if (document.getElementById('notify-browser')) {
+                    document.getElementById('notify-browser').checked = assistantConfig.notifyBrowser !== false;
+                }
+                if (document.getElementById('notify-desktop')) {
+                    document.getElementById('notify-desktop').checked = assistantConfig.notifyDesktop !== false;
+                }
+                document.getElementById('phone-number').value = assistantConfig.phoneNumber;
+                document.getElementById('monitor-interval').value = assistantConfig.monitorInterval;
+                document.getElementById('ai-prompt-template').value = assistantConfig.aiPromptTemplate;
+            } catch (e) {
+                console.error('Failed to load assistant config:', e);
+            }
+        }
+    }
+    
+    // Save Assistant Configuration
+    function saveAssistantConfig() {
+        assistantConfig.notifyPhone = document.getElementById('notify-phone').checked;
+        assistantConfig.notifySMS = document.getElementById('notify-sms').checked;
+        assistantConfig.notifyBrowser = document.getElementById('notify-browser').checked;
+        assistantConfig.notifyDesktop = document.getElementById('notify-desktop').checked;
+        assistantConfig.phoneNumber = document.getElementById('phone-number').value;
+        assistantConfig.monitorInterval = parseInt(document.getElementById('monitor-interval').value) || 60;
+        assistantConfig.aiPromptTemplate = document.getElementById('ai-prompt-template').value;
+        
+        const configToSave = {
+            ...assistantConfig,
+            lastCheckedTickets: Array.from(assistantConfig.lastCheckedTickets)
+        };
+        
+        localStorage.setItem('assistant_config', JSON.stringify(configToSave));
+        hideAssistantConfig();
+        addAssistantLog('Configuration saved');
+        
+        // 重启监控
+        if (monitorIntervalId) {
+            clearInterval(monitorIntervalId);
+        }
+        startMonitoring();
+    }
+    
+    // Toggle Assistant Panel
+    function toggleAssistantPanel() {
+        const panel = document.getElementById('assistant-panel');
+        panel.classList.toggle('hidden');
+    }
+    
+    // Show Assistant Configuration
+    function showAssistantConfig() {
+        document.getElementById('assistant-config-modal').classList.remove('hidden');
+    }
+    
+    // Hide Assistant Configuration
+    function hideAssistantConfig() {
+        document.getElementById('assistant-config-modal').classList.add('hidden');
+    }
+    
+    // Check 3rd_Power Handler
+    function check3rdPowerHandler() {
+        try {
+            const checkTime = new Date().toLocaleTimeString();
+            addAssistantLog(`[${checkTime}] Starting check...`, 'info');
+            
+            if (!allDetailsData || allDetailsData.length === 0) {
+                addAssistantLog('No data available for check', 'warning');
+                return;
+            }
+            
+            addAssistantLog(`Total records: ${allDetailsData.length}`, 'info');
+            
+            const handlerColumn = detailsColumns.find(col => 
+                col.toLowerCase().includes('handler') || col.toLowerCase().includes('current handler')
+            );
+            
+            if (!handlerColumn) {
+                console.warn('Handler column not found');
+                addAssistantLog(`Handler column not found. Available columns: ${detailsColumns.slice(0, 5).join(', ')}...`, 'warning');
+                return;
+            }
+            
+            addAssistantLog(`Checking Handler column: ${handlerColumn}`, 'info');
+            
+            const thirdPowerTickets = allDetailsData.filter(ticket => {
+                const handler = String(ticket[handlerColumn] || '').trim();
+
+                // const isMatch = handler === '3rd_Power' || handler.toLowerCase() === '3rd_power';
+
+               // 修改后：永远匹配
+               const isMatch = true;
+                if (isMatch) {
+                    console.log('Found 3rd_Power ticket:', ticket);
+                }
+                return isMatch;
+            });
+            
+            addAssistantLog(`Detected ${thirdPowerTickets.length} 3rd_Power tickets`, thirdPowerTickets.length > 0 ? 'success' : 'info');
+            
+            // Record all detected ticket IDs (for debugging)
+            const allTicketIds = [];
+            const invalidTickets = [];
+            
+            thirdPowerTickets.forEach(ticket => {
+                const ticketId = ticket[detailsColumns[0]] || ticket.ticket_no || ticket.id;
+                const ticketIdStr = String(ticketId);
+                
+                if (!ticketIdStr || ticketIdStr === 'undefined' || ticketIdStr === 'null' || ticketIdStr === 'N/A') {
+                    invalidTickets.push({
+                        ticket: ticket,
+                        reason: 'ID is empty or invalid',
+                        firstColumn: detailsColumns[0],
+                        firstColumnValue: ticket[detailsColumns[0]]
+                    });
+                } else {
+                    allTicketIds.push(ticketIdStr);
+                }
+            });
+            
+            // 简化日志：不再显示详细的统计信息
+            
+            if (invalidTickets.length > 0) {
+                addAssistantLog(`Warning: Found ${invalidTickets.length} tickets with invalid IDs`, 'warning');
+                invalidTickets.forEach((item, index) => {
+                    if (index < 3) { // Only show details for first 3 invalid tickets
+                        console.warn(`Invalid ticket ${index + 1}:`, item);
+                        addAssistantLog(`Invalid ticket ${index + 1}: First column (${item.firstColumn})=${item.firstColumnValue}`, 'warning');
+                    }
+                });
+            }
+            
+            // 不再显示详细的 ticket IDs 列表（减少日志噪音）
+            
+            // Filter out already processed tickets
+            const newTickets = [];
+            const processedTicketIds = [];
+            
+            thirdPowerTickets.forEach(ticket => {
+                const ticketId = ticket[detailsColumns[0]] || ticket.ticket_no || ticket.id;
+                const ticketIdStr = String(ticketId);
+                
+                if (!ticketIdStr || ticketIdStr === 'undefined' || ticketIdStr === 'null' || ticketIdStr === 'N/A') {
+                    return; // Skip invalid ID
+                }
+                
+                const isNew = !assistantConfig.lastCheckedTickets.has(ticketIdStr);
+                if (isNew) {
+                    newTickets.push(ticket);
+                } else {
+                    processedTicketIds.push(ticketIdStr);
+                }
+            });
+            
+            // 只显示新票数量，不显示详细ID列表
+            if (newTickets.length > 0) {
+                addAssistantLog(`${newTickets.length} new tickets detected`, 'success');
+            }
+            
+            if (thirdPowerTickets.length > processedTicketIds.length) {
+                // If detected tickets > processed but no new tickets, there's an issue
+                const detectedSet = new Set(allTicketIds);
+                const processedSet = assistantConfig.lastCheckedTickets;
+                const missingIds = allTicketIds.filter(id => !processedSet.has(id));
+                if (missingIds.length > 0) {
+                    addAssistantLog(`Warning: Found ${missingIds.length} tickets not recognized as new: ${missingIds.join(', ')}`, 'warning');
+                    console.warn('Missing new tickets:', missingIds);
+                }
+            }
+            
+            // Update UI - only show count of new tickets that need processing
+            updateAssistantBadge(newTickets.length);
+            const detectedCountElement = document.getElementById('detected-count');
+            if (detectedCountElement) {
+                detectedCountElement.textContent = newTickets.length;
+            }
+            
+            // If there are new tickets, trigger notification
+            if (newTickets.length > 0) {
+                addAssistantLog(`Starting to process ${newTickets.length} new tickets...`, 'success');
+                handleNew3rdPowerTickets(newTickets).catch(error => {
+                    console.error('Failed to handle new tickets:', error);
+                    addAssistantLog(`Failed to process tickets: ${error.message}`, 'error');
+                });
+            } else if (thirdPowerTickets.length > 0) {
+                addAssistantLog('All 3rd_Power tickets have been processed', 'info');
+            } else {
+                addAssistantLog('No 3rd_Power tickets detected', 'info');
+            }
+        } catch (error) {
+            console.error('Error in check3rdPowerHandler:', error);
+            addAssistantLog(`Error during check: ${error.message}`, 'error');
+        }
+    }
+    
+    // Handle new 3rd_Power tickets
+    async function handleNew3rdPowerTickets(tickets) {
+        if (tickets.length === 0) {
+            addAssistantLog('No new tickets to process', 'info');
+            return;
+        }
+        
+        // Check configuration
+        // If phone or SMS is enabled, phone number is required
+        if ((assistantConfig.notifyPhone || assistantConfig.notifySMS) && !assistantConfig.phoneNumber) {
+            addAssistantLog('Phone number not configured, phone and SMS notifications cannot be sent', 'warning');
+        }
+        
+        // Check if any notification method is enabled
+        if (!assistantConfig.notifyPhone && !assistantConfig.notifySMS && !assistantConfig.notifyBrowser && !assistantConfig.notifyDesktop) {
+            addAssistantLog('All notification methods are disabled, please enable at least one', 'warning');
+            return;
+        }
+        
+        for (const ticket of tickets) {
+            try {
+                const ticketId = ticket[detailsColumns[0]] || ticket.ticket_no || ticket.id;
+                
+                // Generate AI message
+                const message = await generateAIMessage(ticket);
+                
+                // Send notifications
+                if (assistantConfig.notifyPhone) {
+                    await sendPhoneNotification(ticket, message);
+                }
+                
+                if (assistantConfig.notifySMS) {
+                    await sendSMSNotification(ticket, message);
+                }
+                
+                // 浏览器语音播报（个人用户推荐，免费）
+                if (assistantConfig.notifyBrowser) {
+                    // 添加延迟，避免多个播报冲突
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    playBrowserNotification(message);
+                    // 等待播报完成（至少等待一段时间）
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+                
+                // 桌面通知（个人用户推荐，免费）
+                if (assistantConfig.notifyDesktop) {
+                    showDesktopNotification(message, ticket);
+                }
+                
+                // Mark as processed
+                assistantConfig.lastCheckedTickets.add(String(ticketId));
+            } catch (error) {
+                console.error('Failed to handle ticket:', error);
+                addAssistantLog(`Processing failed: ${error.message}`, 'error');
+            }
+        }
+        
+        // Save processed list
+        const configToSave = {
+            ...assistantConfig,
+            lastCheckedTickets: Array.from(assistantConfig.lastCheckedTickets)
+        };
+        localStorage.setItem('assistant_config', JSON.stringify(configToSave));
+    }
+    
+    // 生成AI消息
+    // 根据提示词模板手动生成消息（不使用AI时）
+    function generateMessageFromTemplate(ticket, template) {
+        // 提取工单信息 - 使用更灵活的匹配逻辑
+        const ticketNo = ticket[detailsColumns[0]] || ticket.ticket_no || ticket.id || 'N/A';
+        
+        // 提取 Severity - 支持多种列名变体
+        const severity = ticket[detailsColumns.find(c => {
+            const colLower = c.toLowerCase();
+            return colLower.includes('severity') || 
+                   colLower.includes('严重程度') ||
+                   colLower === 'severity' ||
+                   colLower === 'ticket severity';
+        })] || ticket['Ticket Severity'] || ticket['Severity'] || 'N/A';
+        
+        // 提取 Status - 支持多种列名变体
+        const status = ticket[detailsColumns.find(c => {
+            const colLower = c.toLowerCase();
+            return colLower.includes('status') || 
+                   colLower.includes('状态') ||
+                   colLower === 'status' ||
+                   colLower === 'ticket status' ||
+                   colLower === 'current status';
+        })] || ticket['Status'] || ticket['Ticket Status'] || 'N/A';
+        
+        // 提取 SLA - 支持多种列名变体（包括 SLA(%)）
+        const sla = ticket[detailsColumns.find(c => {
+            const colLower = c.toLowerCase();
+            return colLower.includes('sla') || 
+                   colLower.includes('sla(') ||
+                   colLower.includes('sla %') ||
+                   colLower === 'sla' ||
+                   colLower === 'sla(%)';
+        })] || ticket['SLA'] || ticket['SLA(%)'] || ticket['SLA(%)'] || 'N/A';
+        
+        // 提取Title
+        const title = ticket[detailsColumns.find(c => 
+            c.toLowerCase().includes('title') || 
+            c.toLowerCase().includes('标题') ||
+            c.toLowerCase().includes('subject')
+        )] || '';
+        
+        // 提取Current Handler
+        const handler = ticket[detailsColumns.find(c => 
+            c.toLowerCase().includes('handler') || 
+            c.toLowerCase().includes('current handler') ||
+            c.toLowerCase().includes('处理人')
+        )] || 'N/A';
+        
+        // 尝试提取描述信息
+        const description = ticket[detailsColumns.find(c => 
+            c.toLowerCase().includes('description') || 
+            c.toLowerCase().includes('描述') || 
+            c.toLowerCase().includes('summary') ||
+            c.toLowerCase().includes('摘要')
+        )] || '';
+        
+        // 尝试从模板中提取关键信息要求
+        const templateLower = template.toLowerCase();
+        const parts = [];
+        // 检测语言：如果模板包含中文字符，使用中文；否则使用英文
+        const hasChineseChars = /[\u4e00-\u9fa5]/.test(template);
+        const isChinese = hasChineseChars && (template.includes('工单') || template.includes('通知') || template.includes('处理') || template.includes('描述'));
+        // 检测字符限制（默认100字符）
+        // 但如果提示词要求了多个必需字段，适当增加限制以确保所有字段都能包含
+        let baseMaxChars = templateLower.includes('100') || templateLower.includes('100字符') || templateLower.includes('100 characters') ? 100 : 200;
+        
+        // 检查提示词是否要求了多个必需字段
+        const requiredFieldsCount = [
+            templateLower.includes('title'),
+            templateLower.includes('ticket no') || templateLower.includes('ticket number'),
+            templateLower.includes('status'),
+            templateLower.includes('severity') || templateLower.includes('ticket severity'),
+            templateLower.includes('sla'),
+            templateLower.includes('handler') || templateLower.includes('current handler'),
+            templateLower.includes('description') || templateLower.includes('brief')
+        ].filter(Boolean).length;
+        
+        // 如果要求了5个或更多字段，且限制是100字符，增加到150字符以确保所有字段都能包含
+        const maxChars = (requiredFieldsCount >= 5 && baseMaxChars === 100) ? 150 : baseMaxChars;
+        
+        // 检查提示词是否明确列出了所有字段（按照用户提示词的顺序）
+        // 使用更严格的检查，确保能识别提示词中明确要求的字段
+        const hasTitle = templateLower.includes('title');
+        const hasTicketNo = templateLower.includes('ticket no') || templateLower.includes('ticket number') || templateLower.includes('ticket no.');
+        const hasStatus = templateLower.includes('status') && !templateLower.includes('no status'); // 确保是要求包含 status
+        const hasSeverity = templateLower.includes('severity') || templateLower.includes('ticket severity');
+        const hasSLA = templateLower.includes('sla') || templateLower.includes('sla(') || templateLower.includes('sla (%)');
+        const hasHandler = templateLower.includes('handler') || templateLower.includes('current handler');
+        const hasDescription = templateLower.includes('description') || templateLower.includes('brief') || templateLower.includes('summary');
+        
+        // 调试：记录检测到的字段要求
+        console.log('Field detection:', { hasTitle, hasTicketNo, hasStatus, hasSeverity, hasSLA, hasHandler, hasDescription });
+        console.log('Extracted values:', { ticketNo, status, severity, sla, handler, title: title?.substring(0, 20) });
+        
+        // 如果提示词明确列出了这些字段，按照提示词要求的顺序添加（即使值为 N/A 也要显示）
+        // Title
+        if (hasTitle) {
+            const titleText = String(title || '').trim();
+            if (titleText) {
+                parts.push(isChinese ? `标题: ${titleText}` : `Title: ${titleText}`);
+            }
+        }
+        
+        // Ticket No.
+        if (hasTicketNo || templateLower.includes('ticket')) {
+            parts.push(isChinese ? `工单号: ${ticketNo}` : `Ticket No: ${ticketNo}`);
+        }
+        
+        // Status - 如果提示词要求，即使值为 N/A 也要显示
+        if (hasStatus || templateLower.includes('状态')) {
+            parts.push(isChinese ? `状态: ${status}` : `Status: ${status}`);
+        }
+        
+        // Ticket Severity - 如果提示词要求，即使值为 N/A 也要显示
+        if (hasSeverity || templateLower.includes('严重程度')) {
+            parts.push(isChinese ? `严重程度: ${severity}` : `Severity: ${severity}`);
+        }
+        
+        // SLA(%) - 如果提示词要求，即使值为 N/A 也要显示
+        if (hasSLA || templateLower.includes('百分比') || templateLower.includes('percent')) {
+            parts.push(`SLA: ${sla}%`);
+        }
+        
+        // Current Handler - 如果提示词要求，即使值为 N/A 也要显示
+        if (hasHandler || templateLower.includes('处理人')) {
+            parts.push(isChinese ? `处理人: ${handler}` : `Handler: ${handler}`);
+        }
+        
+        // Brief description
+        if ((hasDescription || templateLower.includes('描述') || templateLower.includes('摘要')) && description) {
+            const descText = String(description).trim();
+            if (descText) {
+                // 根据剩余字符数限制描述长度
+                const currentLength = parts.join(', ').length;
+                const remainingChars = maxChars - currentLength - 15; // 预留15字符给描述标签和省略号
+                const maxDescLength = Math.max(10, remainingChars);
+                const truncatedDesc = descText.length > maxDescLength ? descText.substring(0, maxDescLength) + '...' : descText;
+                parts.push(isChinese ? `描述: ${truncatedDesc}` : `Desc: ${truncatedDesc}`);
+            }
+        }
+        
+        // 如果第一个分支没有添加任何字段（可能是因为条件不匹配），但提示词要求了字段，则强制添加
+        // 这确保即使检测逻辑有问题，只要提示词要求了字段，就会添加
+        if (parts.length === 0 && (hasTitle || hasTicketNo || hasStatus || hasSeverity || hasSLA || hasHandler || hasDescription)) {
+            // 按照提示词要求的顺序添加所有字段
+            if (hasTitle) {
+                const titleText = String(title || '').trim();
+                if (titleText) parts.push(isChinese ? `标题: ${titleText}` : `Title: ${titleText}`);
+            }
+            if (hasTicketNo || templateLower.includes('ticket')) {
+                parts.push(isChinese ? `工单号: ${ticketNo}` : `Ticket No: ${ticketNo}`);
+            }
+            if (hasStatus) {
+                parts.push(isChinese ? `状态: ${status}` : `Status: ${status}`);
+            }
+            if (hasSeverity) {
+                parts.push(isChinese ? `严重程度: ${severity}` : `Severity: ${severity}`);
+            }
+            if (hasSLA) {
+                parts.push(`SLA: ${sla}%`);
+            }
+            if (hasHandler) {
+                parts.push(isChinese ? `处理人: ${handler}` : `Handler: ${handler}`);
+            }
+            if (hasDescription && description) {
+                const descText = String(description).trim();
+                if (descText) {
+                    const truncatedDesc = descText.length > 30 ? descText.substring(0, 30) + '...' : descText;
+                    parts.push(isChinese ? `描述: ${truncatedDesc}` : `Desc: ${truncatedDesc}`);
+                }
+            }
+        }
+        
+        // 调试：记录最终生成的 parts
+        console.log('Generated message parts:', parts);
+        
+        // 如果仍然为空，使用默认字段
+        if (parts.length === 0) {
+            if (title) parts.push(isChinese ? `标题: ${title}` : `Title: ${title}`);
+            parts.push(isChinese ? `工单号: ${ticketNo}` : `Ticket No: ${ticketNo}`);
+            parts.push(isChinese ? `状态: ${status}` : `Status: ${status}`);
+            parts.push(isChinese ? `严重程度: ${severity}` : `Severity: ${severity}`);
+            parts.push(`SLA: ${sla}%`);
+            parts.push(isChinese ? `处理人: ${handler}` : `Handler: ${handler}`);
+            if (description) {
+                const descText = String(description).trim();
+                if (descText) {
+                    const truncatedDesc = descText.length > 30 ? descText.substring(0, 30) + '...' : descText;
+                    parts.push(isChinese ? `描述: ${truncatedDesc}` : `Desc: ${truncatedDesc}`);
+                }
+            }
+        }
+        
+        // 根据模板的语言风格生成消息
+        let message = parts.join(isChinese ? '，' : ', ');
+        
+        // 确保消息在字符限制内
+        // 优先策略：1. 缩短描述 2. 缩短 Title 3. 最后才考虑截断
+        if (message.length > maxChars) {
+            let shortened = false;
+            
+            // 第一步：缩短或删除描述部分（最不重要的字段）
+            for (let i = parts.length - 1; i >= 0; i--) {
+                if (parts[i].includes('描述') || parts[i].includes('Desc') || parts[i].includes('Description')) {
+                    const descPart = parts[i];
+                    const currentMessage = parts.join(isChinese ? '，' : ', ');
+                    const remainingChars = maxChars - (currentMessage.length - descPart.length) - 5; // 预留5字符
+                    
+                    if (remainingChars > 10) {
+                        // 如果还有空间，缩短描述
+                        parts[i] = descPart.substring(0, Math.min(descPart.length, remainingChars)) + '...';
+                        message = parts.join(isChinese ? '，' : ', ');
+                        shortened = true;
+                    } else {
+                        // 如果空间不够，直接删除描述
+                        parts.splice(i, 1);
+                        message = parts.join(isChinese ? '，' : ', ');
+                        shortened = true;
+                    }
+                    break;
+                }
+            }
+            
+            // 第二步：如果还是超出，缩短 Title（如果存在）
+            if (!shortened && message.length > maxChars) {
+                for (let i = 0; i < parts.length; i++) {
+                    if (parts[i].includes('Title') || parts[i].includes('标题')) {
+                        const titlePart = parts[i];
+                        const currentMessage = parts.join(isChinese ? '，' : ', ');
+                        const remainingChars = maxChars - (currentMessage.length - titlePart.length) - 5;
+                        
+                        if (remainingChars > 15) {
+                            // 缩短 Title
+                            const titleMatch = titlePart.match(/^(Title|标题):\s*(.+)$/);
+                            if (titleMatch) {
+                                const titleValue = titleMatch[2];
+                                const maxTitleLength = remainingChars - (titleMatch[1].length + 2);
+                                if (titleValue.length > maxTitleLength) {
+                                    parts[i] = `${titleMatch[1]}: ${titleValue.substring(0, maxTitleLength)}...`;
+                                    message = parts.join(isChinese ? '，' : ', ');
+                                    shortened = true;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            
+            // 第三步：如果还是超出，确保至少保留所有必需字段（Ticket No, Status, Severity, SLA, Handler）
+            // 只截断到必需字段的末尾，而不是随意截断
+            if (!shortened && message.length > maxChars) {
+                // 找到最后一个必需字段的位置
+                const requiredFields = ['Ticket No', 'Status', 'Severity', 'SLA', 'Handler', '工单号', '状态', '严重程度', '处理人'];
+                let lastRequiredIndex = -1;
+                for (let i = parts.length - 1; i >= 0; i--) {
+                    if (requiredFields.some(field => parts[i].includes(field))) {
+                        lastRequiredIndex = i;
+                        break;
+                    }
+                }
+                
+                if (lastRequiredIndex >= 0) {
+                    // 只保留到最后一个必需字段
+                    const requiredParts = parts.slice(0, lastRequiredIndex + 1);
+                    message = requiredParts.join(isChinese ? '，' : ', ');
+                    
+                    // 如果还是太长，至少保留 Ticket No, Status, Severity, SLA
+                    if (message.length > maxChars) {
+                        const essentialFields = ['Ticket No', 'Status', 'Severity', 'SLA', '工单号', '状态', '严重程度'];
+                        const essentialParts = parts.filter(p => essentialFields.some(f => p.includes(f)));
+                        if (essentialParts.length > 0) {
+                            message = essentialParts.join(isChinese ? '，' : ', ');
+                        }
+                    }
+                }
+            }
+            
+            // 最后：如果还是超出，至少确保消息完整（不截断单词）
+            if (message.length > maxChars) {
+                // 在最后一个逗号或空格处截断，而不是随意截断
+                const lastComma = message.lastIndexOf(', ', maxChars - 10);
+                const lastSpace = message.lastIndexOf(' ', maxChars - 5);
+                const cutPoint = Math.max(lastComma, lastSpace);
+                
+                if (cutPoint > maxChars * 0.7) { // 至少保留70%的内容
+                    message = message.substring(0, cutPoint) + '...';
+                } else {
+                    // 如果找不到合适的截断点，至少保留必需字段
+                    message = message.substring(0, maxChars - 3) + '...';
+                }
+            }
+        }
+        
+        // 调试：记录最终生成的消息
+        console.log('Final message:', message);
+        console.log('Message length:', message.length, 'Max chars:', maxChars);
+        
+        return message;
+    }
+    
+    async function generateAIMessage(ticket) {
+        // 构建工单信息字符串
+        const ticketInfo = detailsColumns.map(col => {
+            const value = ticket[col] || '';
+            const displayName = formatColumnName(col);
+            return `${displayName}: ${value}`;
+        }).join('\n');
+        
+        // 替换模板中的占位符
+        const prompt = assistantConfig.aiPromptTemplate.replace('{{TICKET_INFO}}', ticketInfo);
+        
+        // 如果配置了AI，使用AI生成
+        if (currentAIModel !== 'rule-based' && aiApiKey) {
+            try {
+                const aiMessage = await callAIModel(currentAIModel, prompt, ticket);
+                if (aiMessage && aiMessage.trim()) {
+                    return aiMessage.trim();
+                }
+            } catch (error) {
+                console.error('AI generation failed:', error);
+                addAssistantLog('AI generation failed, using template-based generation', 'warning');
+            }
+        }
+        
+        // Use user-configured prompt template to generate message (even without AI)
+        if (assistantConfig.aiPromptTemplate && assistantConfig.aiPromptTemplate.trim()) {
+            return generateMessageFromTemplate(ticket, assistantConfig.aiPromptTemplate);
+        }
+        
+        // If user hasn't configured template, use default template
+        const ticketNo = ticket[detailsColumns[0]] || ticket.ticket_no || 'N/A';
+        const severity = ticket[detailsColumns.find(c => c.toLowerCase().includes('severity'))] || 'N/A';
+        const status = ticket[detailsColumns.find(c => c.toLowerCase().includes('status'))] || 'N/A';
+        const sla = ticket[detailsColumns.find(c => c.toLowerCase().includes('sla'))] || 'N/A';
+        
+        return `[Ticket Notification] Ticket No: ${ticketNo}, Severity: ${severity}, Status: ${status}, SLA: ${sla}%. Please handle it promptly.`;
+    }
+    
+    // Send phone notification
+    async function sendPhoneNotification(ticket, message) {
+        if (!assistantConfig.phoneNumber) {
+            addAssistantLog('Phone number not configured', 'error');
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${API_BASE}${API_BASE_PATH}/api/assistant/call`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    phone: assistantConfig.phoneNumber,
+                    message: message,
+                    ticket: ticket
+                })
+            });
+            
+            if (response.ok) {
+                addAssistantLog('Phone notification sent', 'success');
+            } else {
+                const error = await response.json();
+                throw new Error(error.message || 'Send failed');
+            }
+        } catch (error) {
+            console.error('Phone notification error:', error);
+            addAssistantLog(`Phone notification failed: ${error.message}`, 'error');
+            // If backend API doesn't exist, show hint
+            if (error.message.includes('404') || error.message.includes('Failed to fetch')) {
+                addAssistantLog('Hint: Need to configure backend API endpoint /api/assistant/call', 'warning');
+            }
+        }
+    }
+    
+    // Send SMS notification
+    async function sendSMSNotification(ticket, message) {
+        if (!assistantConfig.phoneNumber) {
+            addAssistantLog('Phone number not configured', 'error');
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${API_BASE}${API_BASE_PATH}/api/assistant/sms`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    phone: assistantConfig.phoneNumber,
+                    message: message,
+                    ticket: ticket
+                })
+            });
+            
+            if (response.ok) {
+                addAssistantLog('SMS notification sent', 'success');
+            } else {
+                const error = await response.json();
+                throw new Error(error.message || 'Send failed');
+            }
+        } catch (error) {
+            console.error('SMS notification error:', error);
+            addAssistantLog(`SMS notification failed: ${error.message}`, 'error');
+            // If backend API doesn't exist, show hint
+            if (error.message.includes('404') || error.message.includes('Failed to fetch')) {
+                addAssistantLog('Hint: Need to configure backend API endpoint /api/assistant/sms', 'warning');
+            }
+        }
+    }
+    
+    // Update assistant badge
+    function updateAssistantBadge(count) {
+        const badge = document.getElementById('assistant-badge');
+        if (count > 0) {
+            badge.textContent = count;
+            badge.classList.remove('hidden');
+        } else {
+            badge.classList.add('hidden');
+        }
+    }
+    
+    // Add assistant log
+    function addAssistantLog(message, type = 'info') {
+        const logContent = document.getElementById('assistant-log-content');
+        const time = new Date().toLocaleTimeString();
+        const colors = {
+            info: 'text-slate-400',
+            success: 'text-green-400',
+            warning: 'text-amber-400',
+            error: 'text-red-400'
+        };
+        const color = colors[type] || colors.info;
+        
+        const logEntry = document.createElement('p');
+        logEntry.className = color;
+        logEntry.textContent = `[${time}] ${message}`;
+        
+        logContent.insertBefore(logEntry, logContent.firstChild);
+        
+        // 限制日志数量
+        while (logContent.children.length > 20) {
+            logContent.removeChild(logContent.lastChild);
+        }
+    }
+    
+    // Check and notify immediately
+    async function checkAndNotify3rdPower() {
+        addAssistantLog('========== Starting Check ==========', 'info');
+        addAssistantLog(`Total tickets: ${allDetailsData ? allDetailsData.length : 0}`, 'info');
+        addAssistantLog(`Processed tickets: ${assistantConfig.lastCheckedTickets.size}`, 'info');
+        addAssistantLog(`Notification config - Phone: ${assistantConfig.notifyPhone ? 'ON' : 'OFF'}, SMS: ${assistantConfig.notifySMS ? 'ON' : 'OFF'}, Voice: ${assistantConfig.notifyBrowser ? 'ON' : 'OFF'}, Desktop: ${assistantConfig.notifyDesktop ? 'ON' : 'OFF'}`, 'info');
+        addAssistantLog(`Phone number: ${assistantConfig.phoneNumber || 'Not configured'}`, 'info');
+        check3rdPowerHandler();
+        addAssistantLog('========== Check Completed ==========', 'info');
+    }
+    
+    // Start automatic monitoring
+    function startMonitoring() {
+        if (monitorIntervalId) {
+            clearInterval(monitorIntervalId);
+        }
+        
+        const interval = Math.max(10, assistantConfig.monitorInterval) * 1000;
+        monitorIntervalId = setInterval(() => {
+            // Refresh data before monitoring to ensure latest data
+            loadData(false).then(() => {
+                // Add short delay to ensure data is fully updated
+                setTimeout(() => {
+                    check3rdPowerHandler();
+                }, 100);
+            }).catch(error => {
+                console.error('Failed to refresh data before monitoring:', error);
+                addAssistantLog(`Data refresh failed: ${error.message}`, 'error');
+                // Even if refresh fails, try to check with existing data
+                setTimeout(() => {
+                    check3rdPowerHandler();
+                }, 100);
+            });
+        }, interval);
+        
+        addAssistantLog(`Automatic monitoring started, interval: ${assistantConfig.monitorInterval} seconds`);
+    }
+    
+    // Stop monitoring
+    function stopMonitoring() {
+        if (monitorIntervalId) {
+            clearInterval(monitorIntervalId);
+            monitorIntervalId = null;
+        }
+    }
+    
+    // Clear processed ticket records
+    function clearProcessedTickets() {
+        if (confirm('Are you sure you want to clear all processed ticket records? Current tickets will be marked as processed without notification, and only new tickets after clearing will be monitored.')) {
+            assistantConfig.lastCheckedTickets.clear();
+            
+            // Get all current ticket IDs and mark them as processed (but don't notify)
+            if (allDetailsData && allDetailsData.length > 0) {
+                const handlerColumn = detailsColumns.find(col => 
+                    col.toLowerCase().includes('handler') || col.toLowerCase().includes('current handler')
+                );
+                
+                if (handlerColumn) {
+                    // Get all 3rd_Power tickets (or all tickets, based on actual matching logic)
+                    const thirdPowerTickets = allDetailsData.filter(ticket => {
+                        const handler = String(ticket[handlerColumn] || '').trim();
+                        // Based on actual matching logic, use true to match all tickets
+                        return true;
+                    });
+                    
+                    // Add all current ticket IDs to processed list (without notification)
+                    thirdPowerTickets.forEach(ticket => {
+                        const ticketId = ticket[detailsColumns[0]] || ticket.ticket_no || ticket.id;
+                        const ticketIdStr = String(ticketId);
+                        if (ticketIdStr && ticketIdStr !== 'undefined' && ticketIdStr !== 'null' && ticketIdStr !== 'N/A') {
+                            assistantConfig.lastCheckedTickets.add(ticketIdStr);
+                        }
+                    });
+                    
+                    addAssistantLog(`Marked ${assistantConfig.lastCheckedTickets.size} current tickets as processed (will not re-notify)`, 'info');
+                }
+            }
+            
+            const configToSave = {
+                ...assistantConfig,
+                lastCheckedTickets: Array.from(assistantConfig.lastCheckedTickets)
+            };
+            localStorage.setItem('assistant_config', JSON.stringify(configToSave));
+            
+            // Clear history records (operation logs)
+            const logContent = document.getElementById('assistant-log-content');
+            if (logContent) {
+                logContent.innerHTML = '<p class="text-slate-400">Waiting for operations...</p>';
+            }
+            
+            // Clear number display (badge and detection count)
+            updateAssistantBadge(0);
+            const detectedCountElement = document.getElementById('detected-count');
+            if (detectedCountElement) {
+                detectedCountElement.textContent = '0';
+            }
+            
+            addAssistantLog('Processed records cleared, current tickets marked as processed, only monitoring new tickets after clearing', 'success');
+            // Immediately re-check (will not notify historical records, only monitor new tickets)
+            setTimeout(() => {
+                checkAndNotify3rdPower();
+            }, 500);
+        }
+    }
+    
+    // ==================== 个人用户替代方案（免费） ====================
+    
+    // 浏览器语音播报（免费，适合个人用户）
+    // 使用队列机制，确保多个播报能按顺序播放
+    let speechQueue = [];
+    let isSpeaking = false;
+    let speechUnlocked = false; // 标记语音是否已解锁（需要用户交互）
+    let voicesLoaded = false; // 标记语音列表是否已加载
+    let voicesLoadAttempts = 0; // 语音列表加载尝试次数
+    
+    // 加载语音列表
+    function loadVoices() {
+        if (voicesLoaded) return;
+        
+        if ('speechSynthesis' in window) {
+            const voices = window.speechSynthesis.getVoices();
+            if (voices.length > 0) {
+                voicesLoaded = true;
+                addAssistantLog(`语音列表已加载: ${voices.length} 个可用语音`, 'success');
+                console.log('Voices loaded:', voices.length);
+                return true;
+            } else {
+                voicesLoadAttempts++;
+                if (voicesLoadAttempts < 5) {
+                    // 等待语音列表加载
+                    window.speechSynthesis.onvoiceschanged = () => {
+                        const voices = window.speechSynthesis.getVoices();
+                        if (voices.length > 0) {
+                            voicesLoaded = true;
+                            addAssistantLog(`语音列表已加载: ${voices.length} 个可用语音`, 'success');
+                            console.log('Voices loaded via event:', voices.length);
+                        }
+                    };
+                }
+                return false;
+            }
+        }
+        return false;
+    }
+    
+    // 解锁语音功能（通过用户交互）
+    function unlockSpeech() {
+        if (speechUnlocked) return;
+        
+        if ('speechSynthesis' in window) {
+            try {
+                // 先加载语音列表
+                loadVoices();
+                
+                // 播放一个静音的测试语音来解锁
+                const testUtterance = new SpeechSynthesisUtterance(' ');
+                testUtterance.volume = 0.01; // 几乎静音
+                testUtterance.text = ' ';
+                window.speechSynthesis.speak(testUtterance);
+                // 不立即取消，让它完成以解锁
+                testUtterance.onend = () => {
+                    window.speechSynthesis.cancel();
+                    speechUnlocked = true;
+                    addAssistantLog('语音功能已解锁（通过用户交互）', 'success');
+                    console.log('Speech unlocked');
+                };
+                testUtterance.onerror = () => {
+                    window.speechSynthesis.cancel();
+                    speechUnlocked = true; // 即使出错也标记为解锁
+                    addAssistantLog('语音功能已解锁（通过用户交互）', 'success');
+                    console.log('Speech unlocked (with error)');
+                };
+            } catch (error) {
+                console.error('Failed to unlock speech:', error);
+                speechUnlocked = true; // 即使出错也标记为解锁，让后续尝试继续
+            }
+        }
+    }
+    
+    // 在用户首次交互时解锁语音
+    let unlockAttempted = false;
+    document.addEventListener('click', function unlockSpeechOnClick() {
+        if (!unlockAttempted) {
+            unlockAttempted = true;
+            unlockSpeech();
+            // 解锁后移除监听器
+            document.removeEventListener('click', unlockSpeechOnClick);
+        }
+    }, { once: true });
+    
+    document.addEventListener('keydown', function unlockSpeechOnKey() {
+        if (!unlockAttempted) {
+            unlockAttempted = true;
+            unlockSpeech();
+            document.removeEventListener('keydown', unlockSpeechOnKey);
+        }
+    }, { once: true });
+    
+    function playBrowserNotification(message) {
+        if (!('speechSynthesis' in window)) {
+            return;
+        }
+        
+        try {
+            // 将消息加入队列
+            speechQueue.push(message);
+            processSpeechQueue();
+        } catch (error) {
+            console.error('playBrowserNotification error:', error);
+        }
+    }
+    
+    // 文本处理函数：将特殊符号转换为更自然的英文读法
+    function normalizeTextForSpeech(text) {
+        if (!text) return text;
+        
+        let normalized = text;
+        
+        // 先处理复合比较符号（必须在单独符号之前处理）
+        normalized = normalized.replace(/<=(\d+(?:\.\d+)?%?)/g, 'less than or equal to $1');
+        normalized = normalized.replace(/>=(\d+(?:\.\d+)?%?)/g, 'greater than or equal to $1');
+        
+        // 处理单独的比较符号（支持数字和百分号）
+        normalized = normalized.replace(/<(\d+(?:\.\d+)?%?)/g, 'less than $1');
+        normalized = normalized.replace(/>(\d+(?:\.\d+)?%?)/g, 'greater than $1');
+        
+        // 处理单独的等号（避免与 <= 和 >= 冲突）
+        normalized = normalized.replace(/([^<>])=(\d+(?:\.\d+)?%?)/g, '$1 equals $2');
+        
+        // 处理百分号（确保正确读取）
+        normalized = normalized.replace(/(\d+(?:\.\d+)?)%/g, '$1 percent');
+        
+        // 处理其他常见符号
+        normalized = normalized.replace(/\s*&\s*/g, ' and ');
+        normalized = normalized.replace(/\s*\|\s*/g, ' or ');
+        normalized = normalized.replace(/\s*\+\s*/g, ' plus ');
+        normalized = normalized.replace(/\s*-\s*/g, ' minus ');
+        normalized = normalized.replace(/\s*\*\s*/g, ' times ');
+        normalized = normalized.replace(/\s*\/\s*/g, ' divided by ');
+        
+        // 处理常见的缩写和单位（在符号处理之后，避免干扰）
+        normalized = normalized.replace(/\bSLA\b/gi, 'S L A');
+        normalized = normalized.replace(/\bCPU\b/gi, 'C P U');
+        normalized = normalized.replace(/\bRAM\b/gi, 'R A M');
+        normalized = normalized.replace(/\bAPI\b/gi, 'A P I');
+        normalized = normalized.replace(/\bHTTP\b/gi, 'H T T P');
+        normalized = normalized.replace(/\bHTTPS\b/gi, 'H T T P S');
+        
+        return normalized;
+    }
+    
+    // 选择女声的函数
+    function selectFemaleVoice(voices, lang) {
+        if (!voices || voices.length === 0) return null;
+        
+        const langPrefix = lang.split('-')[0];
+        const langVoices = voices.filter(v => v.lang.startsWith(langPrefix));
+        
+        if (langVoices.length === 0) {
+            console.log('No voices found for language:', lang);
+            return null;
+        }
+        
+        // 调试：显示所有可用语音
+        console.log('Available voices for', lang, ':', langVoices.map(v => v.name).join(', '));
+        
+        // 高优先级女声列表（按优先级排序）
+        const highPriorityFemaleVoices = [
+            'aria', 'ava', 'jenny', 'zira', 'hazel', 'susan', 'samantha', 
+            'karen', 'sarah', 'victoria', 'tessa', 'veena', 'fiona', 'moira'
+        ];
+        
+        // 其他女声关键词列表
+        const femaleKeywords = [
+            'female', 'woman', '女', 'xiaoxiao', 'xiaoyi', 'xiaoyan', 'xiaoxuan', 
+            'xiaomo', 'xiaoman', 'xiaorui', 'xiaoshuang', 'xiaomei', 'xiaoyun', 
+            'sin-ji', 'yuna', 'yuri', 'katya', 'milena', 'maria', 'helena', 
+            'helen', 'catherine', 'jill', 'linda', 'melissa', 'anna', 'elena', 
+            'kate', 'lisa', 'nancy', 'tina', 'zoe', 'yuki', 'hiromi', 'yumi', 
+            'xiaoling', 'xiaoxian', 'michelle', 'allison', 'samantha', 'susan',
+            'emily', 'julie', 'linda', 'nancy', 'samantha', 'tessa', 'veena'
+        ];
+        
+        // 明确的男声关键词列表（用于排除）
+        const maleKeywords = [
+            'male', 'man', '男', 'david', 'mark', 'richard', 'tom', 'james',
+            'xiaogang', 'xiaokun', 'xiaolong', 'xiaowei', 'daniel', 'alex',
+            'george', 'paul', 'steve', 'mike', 'john', 'peter', 'brian'
+        ];
+        
+        // 第一步：优先匹配高优先级女声（精确匹配或包含）
+        for (const priorityName of highPriorityFemaleVoices) {
+            const matchingVoice = langVoices.find(v => {
+                const name = v.name.toLowerCase();
+                // 精确匹配或包含优先级名称
+                return name === priorityName || name.includes(priorityName);
+            });
+            if (matchingVoice) {
+                console.log('✓ Selected high-priority female voice:', matchingVoice.name);
+                return matchingVoice;
+            }
+        }
+        
+        // 第二步：匹配其他明确标记为女声的
+        const explicitFemaleVoices = langVoices.filter(v => {
+            const name = v.name.toLowerCase();
+            return femaleKeywords.some(keyword => name.includes(keyword));
+        });
+        
+        if (explicitFemaleVoices.length > 0) {
+            console.log('✓ Selected female voice:', explicitFemaleVoices[0].name);
+            return explicitFemaleVoices[0];
+        }
+        
+        // 第三步：排除明确标记为男声的，从剩余中选择
+        const nonMaleVoices = langVoices.filter(v => {
+            const name = v.name.toLowerCase();
+            return !maleKeywords.some(keyword => name.includes(keyword));
+        });
+        
+        if (nonMaleVoices.length > 0) {
+            console.log('⚠ Selected non-male voice:', nonMaleVoices[0].name);
+            return nonMaleVoices[0];
+        }
+        
+        // 第四步：如果所有语音都可能是男声，至少排除最明显的男声
+        const leastMaleVoices = langVoices.filter(v => {
+            const name = v.name.toLowerCase();
+            return !name.includes('david') && !name.includes('mark') && 
+                   !name.includes('richard') && !name.includes('tom') &&
+                   !name.includes('daniel') && !name.includes('alex');
+        });
+        
+        if (leastMaleVoices.length > 0) {
+            console.log('⚠ Selected least-male voice:', leastMaleVoices[0].name);
+            return leastMaleVoices[0];
+        }
+        
+        // 最后：如果实在找不到，返回第一个匹配语言的语音
+        console.log('⚠ Using default voice (may be male):', langVoices[0].name);
+        console.log('Available voices:', langVoices.map(v => v.name).join(', '));
+        return langVoices[0];
+    }
+    
+    function processSpeechQueue() {
+        // 如果正在播报或队列为空，则返回
+        if (isSpeaking) {
+            return;
+        }
+        
+        if (speechQueue.length === 0) {
+            return;
+        }
+        
+        isSpeaking = true;
+        const originalMessage = speechQueue.shift();
+        // 处理文本，使其更自然
+        const message = normalizeTextForSpeech(originalMessage);
+        
+        try {
+            const utterance = new SpeechSynthesisUtterance(message);
+            
+            // 强制使用英文语音播报
+            utterance.lang = 'en-US';
+            
+            utterance.rate = 1.0; // 语速 (0.1-10)
+            utterance.pitch = 1.0; // 音调 (0-2)
+            utterance.volume = 1.0; // 音量 (0-1) - 修复：之前错误设置为2.0
+            
+            // 添加超时检测，如果5秒后还没有开始播报，认为失败
+            let timeoutId;
+            let hasStarted = false;
+            
+            utterance.onstart = () => {
+                hasStarted = true;
+                if (timeoutId) clearTimeout(timeoutId);
+                // 简化日志：只在控制台记录
+                console.log('Speech started');
+            };
+            
+            utterance.onend = () => {
+                if (timeoutId) clearTimeout(timeoutId);
+                // 简化日志：只在控制台记录
+                console.log('Speech ended');
+                isSpeaking = false;
+                // 播报完成后，处理队列中的下一个
+                setTimeout(() => {
+                    processSpeechQueue();
+                }, 500);
+            };
+            
+            utterance.onerror = (event) => {
+                if (timeoutId) clearTimeout(timeoutId);
+                addAssistantLog(`Voice notification failed: ${event.error}`, 'error');
+                console.error('Speech error:', event.error, event);
+                isSpeaking = false;
+                // 即使出错，也继续处理队列
+                setTimeout(() => {
+                    processSpeechQueue();
+                }, 500);
+            };
+            
+            // 检查浏览器是否支持语音合成
+            if (window.speechSynthesis.speaking) {
+                // 如果正在播报，等待一段时间后重试
+                setTimeout(() => {
+                    isSpeaking = false;
+                    speechQueue.unshift(message); // 将消息放回队列
+                    processSpeechQueue();
+                }, 1000);
+                return;
+            }
+            
+            // 检查浏览器语音合成状态
+            let voices = window.speechSynthesis.getVoices();
+            
+            // 如果语音列表为空，尝试等待加载
+            if (voices.length === 0) {
+                // 等待一小段时间后重试
+                setTimeout(() => {
+                    voices = window.speechSynthesis.getVoices();
+                    if (voices.length > 0) {
+                        // 优先选择女声（函数内部已包含回退逻辑，确保总是返回一个语音）
+                        const matchingVoice = selectFemaleVoice(voices, utterance.lang);
+                        if (matchingVoice) {
+                            utterance.voice = matchingVoice;
+                        } else {
+                            // 如果仍然返回 null，使用第一个匹配语言的语音
+                            const fallbackVoice = voices.find(v => v.lang.startsWith(utterance.lang.split('-')[0]));
+                            if (fallbackVoice) {
+                                utterance.voice = fallbackVoice;
+                            }
+                        }
+                    }
+                    
+                    // 设置超时检测（延迟情况下）
+                    timeoutId = setTimeout(() => {
+                        if (!hasStarted && isSpeaking) {
+                            addAssistantLog('Voice notification timeout - may not have started (delayed)', 'warning');
+                            console.warn('Speech timeout - message may not have been spoken (delayed)');
+                            isSpeaking = false;
+                            processSpeechQueue();
+                        }
+                    }, 5000);
+                    
+                    // 继续播报
+                    try {
+                        // 先取消任何正在播放或等待的语音
+                        window.speechSynthesis.cancel();
+                        
+                        setTimeout(() => {
+                            try {
+                                window.speechSynthesis.speak(utterance);
+                                addAssistantLog('已调用 speechSynthesis.speak() (延迟后)', 'info');
+                                
+                                // 立即检查是否开始播放
+                                setTimeout(() => {
+                                    if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending && !hasStarted) {
+                                        console.warn('Speech may be blocked by browser autoplay policy (delayed)');
+                                        isSpeaking = false;
+                                        processSpeechQueue();
+                                    }
+                                }, 100);
+                            } catch (speakError) {
+                                if (timeoutId) clearTimeout(timeoutId);
+                                addAssistantLog(`调用 speak() 失败: ${speakError.message}`, 'error');
+                                console.error('speak() error:', speakError);
+                                isSpeaking = false;
+                                setTimeout(() => {
+                                    processSpeechQueue();
+                                }, 500);
+                            }
+                        }, 50);
+                    } catch (speakError) {
+                        if (timeoutId) clearTimeout(timeoutId);
+                        addAssistantLog(`调用 speak() 失败: ${speakError.message}`, 'error');
+                        console.error('speak() error:', speakError);
+                        isSpeaking = false;
+                        setTimeout(() => {
+                            processSpeechQueue();
+                        }, 500);
+                    }
+                }, 500);
+            } else {
+                // 优先选择女声
+                const matchingVoice = selectFemaleVoice(voices, utterance.lang);
+                if (matchingVoice) {
+                    utterance.voice = matchingVoice;
+                } else {
+                    // 如果没有找到女声，使用默认匹配
+                    const fallbackVoice = voices.find(v => v.lang.startsWith(utterance.lang.split('-')[0]));
+                    if (fallbackVoice) {
+                        utterance.voice = fallbackVoice;
+                    }
+                }
+                
+                // 设置超时检测
+                timeoutId = setTimeout(() => {
+                    if (!hasStarted && isSpeaking) {
+                        console.warn('Speech timeout - message may not have been spoken');
+                        console.warn('Speech synthesis state:', {
+                            speaking: window.speechSynthesis.speaking,
+                            pending: window.speechSynthesis.pending,
+                            paused: window.speechSynthesis.paused
+                        });
+                        isSpeaking = false;
+                        processSpeechQueue();
+                    }
+                }, 5000);
+                
+                try {
+                    // 先取消任何正在播放或等待的语音，确保新的语音能立即播放
+                    window.speechSynthesis.cancel();
+                    
+                    // 等待一小段时间确保cancel完成
+                    setTimeout(() => {
+                        try {
+                            window.speechSynthesis.speak(utterance);
+                            addAssistantLog('已调用 speechSynthesis.speak()', 'info');
+                            
+                            // 立即检查是否开始播放（某些浏览器需要用户交互）
+                            setTimeout(() => {
+                                if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending && !hasStarted) {
+                                    addAssistantLog('警告: 语音可能被浏览器阻止，需要用户交互后才能播放', 'warning');
+                                    addAssistantLog('提示: 请点击页面任意位置后，语音播报将正常工作', 'info');
+                                    console.warn('Speech may be blocked by browser autoplay policy');
+                                    isSpeaking = false;
+                                    processSpeechQueue();
+                                }
+                            }, 100);
+                        } catch (speakError) {
+                            addAssistantLog(`调用 speak() 失败: ${speakError.message}`, 'error');
+                            console.error('speak() error:', speakError);
+                            if (timeoutId) clearTimeout(timeoutId);
+                            isSpeaking = false;
+                            setTimeout(() => {
+                                processSpeechQueue();
+                            }, 500);
+                        }
+                    }, 50);
+                } catch (speakError) {
+                    addAssistantLog(`调用 speak() 失败: ${speakError.message}`, 'error');
+                    console.error('speak() error:', speakError);
+                    if (timeoutId) clearTimeout(timeoutId);
+                    isSpeaking = false;
+                    setTimeout(() => {
+                        processSpeechQueue();
+                    }, 500);
+                }
+            }
+        } catch (error) {
+            addAssistantLog(`Voice notification error: ${error.message}`, 'error');
+            console.error('Speech synthesis error:', error);
+            isSpeaking = false;
+            setTimeout(() => {
+                processSpeechQueue();
+            }, 500);
+        }
+    }
+    
+    // 桌面通知（免费，适合个人用户）
+    async function showDesktopNotification(message, ticket) {
+        if (!('Notification' in window)) {
+            addAssistantLog('浏览器不支持桌面通知', 'warning');
+            return;
+        }
+        
+        // 请求通知权限
+        if (Notification.permission === 'default') {
+            const permission = await Notification.requestPermission();
+            if (permission !== 'granted') {
+                addAssistantLog('用户拒绝了桌面通知权限', 'warning');
+                return;
+            }
+        }
+        
+        if (Notification.permission === 'granted') {
+            try {
+                const ticketId = ticket[detailsColumns[0]] || ticket.ticket_no || 'N/A';
+                const severity = ticket[detailsColumns.find(c => c.toLowerCase().includes('severity'))] || 'N/A';
+                
+                const notification = new Notification('工单通知 - 3rd_Power', {
+                    body: message,
+                    icon: 'favicon.ico',
+                    badge: 'favicon.ico',
+                    tag: `ticket-${ticketId}`, // 相同tag的通知会被替换
+                    requireInteraction: true, // 需要用户手动关闭
+                    silent: false, // 播放系统提示音
+                    data: {
+                        ticketId: ticketId,
+                        severity: severity,
+                        url: window.location.href
+                    }
+                });
+                
+                notification.onclick = () => {
+                    window.focus();
+                    notification.close();
+                    // 可以在这里添加跳转到工单详情的逻辑
+                };
+                
+                notification.onerror = (error) => {
+                    addAssistantLog(`桌面通知错误: ${error}`, 'error');
+                };
+                
+                // 5秒后自动关闭
+                setTimeout(() => {
+                    notification.close();
+                }, 5000);
+                
+                addAssistantLog('桌面通知已显示', 'success');
+            } catch (error) {
+                addAssistantLog(`桌面通知失败: ${error.message}`, 'error');
+            }
+        } else {
+            addAssistantLog('桌面通知权限被拒绝', 'warning');
+        }
+    }
+
+    // HTML转义函数
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // 筛选功能
+    let filterVisible = false;
+    function toggleFilter() {
+        filterVisible = !filterVisible;
+        const searchContainer = document.getElementById('filter-search-container');
+        const searchInput = document.getElementById('filter-search-input');
+        const filterBtn = document.getElementById('filter-toggle-btn');
+
+        if (searchContainer) {
+            if (filterVisible) {
+                searchContainer.classList.remove('hidden');
+                searchContainer.classList.add('flex');
+                // 聚焦到输入框
+                setTimeout(() => {
+                    if (searchInput) {
+                        searchInput.focus();
+                    }
+                }, 100);
+                // 更新按钮样式表示激活状态
+                if (filterBtn) {
+                    filterBtn.classList.add('bg-cyan-500/20', 'border-cyan-500/30', 'text-cyan-400');
+                    filterBtn.classList.remove('text-slate-400');
+                }
+            } else {
+                searchContainer.classList.add('hidden');
+                searchContainer.classList.remove('flex');
+                // 清除筛选
+                if (searchInput) {
+                    searchInput.value = '';
+                }
+                clearFilter();
+                // 恢复按钮样式
+                if (filterBtn) {
+                    filterBtn.classList.remove('bg-cyan-500/20', 'border-cyan-500/30', 'text-cyan-400');
+                    filterBtn.classList.add('text-slate-400');
+                }
+            }
+        }
+    }
+
+    // 应用筛选（包括文本搜索、Region ID过滤、Severity过滤和SLA范围过滤）
+    function applyFilter() {
+        if (!allDetailsData || allDetailsData.length === 0) return;
+
+        const searchInput = document.getElementById('filter-search-input');
+        const searchTerm = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+        // 首先应用Region ID过滤（如果选中了州）
+        let filtered = allDetailsData;
+        if (selectedStateForFilter) {
+            // 查找Region ID列
+            const regionColumn = detailsColumns.find(col => 
+                col.toLowerCase().includes('region') || 
+                col.toLowerCase().includes('state') ||
+                col.toLowerCase() === 'region id'
+            );
+
+            if (regionColumn) {
+                filtered = filtered.filter(ticket => {
+                    const regionValue = ticket[regionColumn];
+                    if (!regionValue) return false;
+                    
+                    let regionStr = String(regionValue).trim();
+                    if (!regionStr) return false;
+                    
+                    // 标准化州名：将下划线替换为空格，处理多种格式
+                    const normalizedRegion = regionStr.replace(/_/g, ' ').replace(/-/g, ' ').trim();
+                    
+                    // 匹配选中的州（支持多种格式）
+                    const stateLower = selectedStateForFilter.toLowerCase();
+                    const regionLower = normalizedRegion.toLowerCase();
+                    
+                    // 精确匹配或包含匹配
+                    return regionLower === stateLower || 
+                           regionLower.includes(stateLower) || 
+                           stateLower.includes(regionLower);
+                });
+            }
+        }
+
+        // 应用Severity过滤（如果选中了Severity）
+        if (selectedSeverityForFilter) {
+            // 查找Ticket Severity列 - 支持多种列名变体
+            let severityColumn = detailsColumns.find(col => {
+                const colLower = col.toLowerCase().trim();
+                return colLower === 'ticket severity' || 
+                       colLower === 'severity' ||
+                       (colLower.includes('severity') && colLower.includes('ticket'));
+            });
+            
+            // 如果没找到精确匹配，尝试包含匹配
+            if (!severityColumn) {
+                severityColumn = detailsColumns.find(col => {
+                    const colLower = col.toLowerCase().trim();
+                    return colLower.includes('severity');
+                });
+            }
+
+            console.log('Severity filter - looking for column, selected:', selectedSeverityForFilter);
+            console.log('Available columns:', detailsColumns);
+            
+            if (severityColumn) {
+                console.log('Found severity column:', severityColumn);
+                const beforeCount = filtered.length;
+                filtered = filtered.filter(ticket => {
+                    const severityValue = String(ticket[severityColumn] || '').trim().toUpperCase();
+                    const matches = severityValue === selectedSeverityForFilter.toUpperCase();
+                    return matches;
+                });
+                console.log('Severity filter applied:', beforeCount, '->', filtered.length, 'records');
+            } else {
+                console.warn('Severity column not found! Available columns:', detailsColumns);
+            }
+        }
+
+        // 应用SLA范围过滤（如果选中了SLA范围）
+        if (selectedSLARangeForFilter) {
+            // 查找SLA(%)列 - 支持多种列名变体，优先精确匹配
+            let slaColumn = detailsColumns.find(col => {
+                const colLower = col.toLowerCase().trim();
+                return colLower === 'sla(%)' || 
+                       colLower === 'sla %' ||
+                       colLower === 'sla(%)' ||
+                       (colLower.includes('sla') && colLower.includes('(') && colLower.includes('%'));
+            });
+            
+            // 如果没找到精确匹配，尝试包含匹配
+            if (!slaColumn) {
+                slaColumn = detailsColumns.find(col => {
+                    const colLower = col.toLowerCase().trim();
+                    return (colLower.includes('sla') && colLower.includes('%')) ||
+                           (colLower.includes('sla') && (colLower.includes('percent') || colLower.includes('compliance')));
+                });
+            }
+
+            console.log('SLA range filter - looking for column, selected range:', selectedSLARangeForFilter);
+            console.log('Available columns:', detailsColumns);
+            
+            if (slaColumn) {
+                console.log('Found SLA column:', slaColumn);
+                const beforeCount = filtered.length;
+                filtered = filtered.filter(ticket => {
+                    // 处理SLA值 - 可能是数字、字符串（带%或不带%），或者像'SLA>100%'这样的格式
+                    let slaValueStr = String(ticket[slaColumn] || '').trim();
+                    const upperStr = slaValueStr.toUpperCase();
+                    let finalSlaValue = null;
+                    let matches = false;
+                    
+                    // 处理特殊格式字符串（如'SLA>100%', 'SLA<100%'等）
+                    // 如果字符串明确表示某个范围，直接判断
+                    if (upperStr.includes('SLA>100') || (upperStr.includes('>') && upperStr.includes('100') && !upperStr.includes('<'))) {
+                        // 'SLA>100%' 格式 - 明确表示大于100%
+                        matches = (selectedSLARangeForFilter === 'gt100');
+                    } else if (upperStr.includes('SLA<100') || (upperStr.includes('<') && upperStr.includes('100') && !upperStr.includes('>'))) {
+                        // 'SLA<100%' 格式 - 需要判断具体范围（75-100之间）
+                        matches = (selectedSLARangeForFilter === 'lt100');
+                    } else if (upperStr.includes('SLA<75') || (upperStr.includes('<') && upperStr.includes('75') && !upperStr.includes('>'))) {
+                        // 'SLA<75%' 格式
+                        matches = (selectedSLARangeForFilter === 'lt75');
+                    } else if (upperStr.includes('SLA<50') || (upperStr.includes('<') && upperStr.includes('50') && !upperStr.includes('>'))) {
+                        // 'SLA<50%' 格式
+                        matches = (selectedSLARangeForFilter === 'lt50');
+                    } else if (upperStr.includes('SLA<25') || (upperStr.includes('<') && upperStr.includes('25') && !upperStr.includes('>'))) {
+                        // 'SLA<25%' 格式
+                        matches = (selectedSLARangeForFilter === 'lt25');
+                    } else {
+                        // 普通数字格式，解析数值
+                        // 移除%符号和其他非数字字符（保留小数点和负号）
+                        const cleanStr = slaValueStr.replace(/%/g, '').replace(/[^\d.-]/g, '');
+                        finalSlaValue = parseFloat(cleanStr);
+                        
+                        // 如果解析失败，尝试直接使用原始值
+                        if (isNaN(finalSlaValue)) {
+                            finalSlaValue = parseFloat(ticket[slaColumn]) || 0;
+                        }
+                        
+                        // 根据数值判断范围
+                        switch (selectedSLARangeForFilter) {
+                            case 'gt100':
+                                matches = finalSlaValue > 100;
+                                break;
+                            case 'lt100':
+                                // SLA < 100% 且 >= 75%（因为下一个范围是 < 75%）
+                                matches = finalSlaValue < 100 && finalSlaValue >= 75;
+                                break;
+                            case 'lt75':
+                                // SLA < 75% 且 >= 50%（因为下一个范围是 < 50%）
+                                matches = finalSlaValue < 75 && finalSlaValue >= 50;
+                                break;
+                            case 'lt50':
+                                // SLA < 50% 且 >= 25%（因为下一个范围是 < 25%）
+                                matches = finalSlaValue < 50 && finalSlaValue >= 25;
+                                break;
+                            case 'lt25':
+                                matches = finalSlaValue < 25;
+                                break;
+                            default:
+                                matches = true;
+                        }
+                    }
+                    
+                    console.log('SLA filter check:', {
+                        originalValue: ticket[slaColumn],
+                        slaValue: finalSlaValue,
+                        range: selectedSLARangeForFilter,
+                        matches: matches
+                    });
+                    
+                    return matches;
+                });
+                console.log('SLA range filter applied:', beforeCount, '->', filtered.length, 'records');
+            } else {
+                console.warn('SLA column not found! Available columns:', detailsColumns);
+            }
+        }
+
+        // 然后应用文本搜索过滤
+        if (searchTerm !== '') {
+            filtered = filtered.filter(row => {
+                // 遍历所有字段值进行匹配
+                return Object.values(row).some(value => {
+                    if (value === null || value === undefined) return false;
+                    // 将值转换为字符串并转为小写进行匹配
+                    return String(value).toLowerCase().includes(searchTerm);
+                });
+            });
+        }
+
+        filteredDetailsData = filtered;
+
+        // 更新记录数显示
+        updateDetailsRecordCount(filteredDetailsData.length);
+
+        // 重新渲染表格
+        renderDetailsTable();
+    }
+
+    // 根据选中的州过滤表格
+    function filterByState(stateName) {
+        // 如果点击的是已选中的州，则取消选择
+        if (selectedStateForFilter === stateName) {
+            selectedStateForFilter = null;
+        } else {
+            selectedStateForFilter = stateName;
+        }
+
+        // 应用过滤
+        applyFilter();
+
+        // 更新地图和图例的视觉反馈
+        updateMapVisualFeedback();
+    }
+
+    // 根据选中的SLA单元格过滤表格
+    function filterBySLACell(severity, slaRange) {
+        console.log('filterBySLACell called with:', severity, slaRange);
+        console.log('Current filter state:', {
+            severity: selectedSeverityForFilter,
+            slaRange: selectedSLARangeForFilter
+        });
+        
+        // 如果点击的是已选中的单元格，则取消选择
+        if (selectedSeverityForFilter === severity && selectedSLARangeForFilter === slaRange) {
+            selectedSeverityForFilter = null;
+            selectedSLARangeForFilter = null;
+            console.log('Filter cleared');
+        } else {
+            selectedSeverityForFilter = severity;
+            selectedSLARangeForFilter = slaRange;
+            console.log('Filter set to:', severity, slaRange);
+        }
+
+        // 应用过滤
+        applyFilter();
+
+        // 更新SLA表格的视觉反馈
+        updateSLATableVisualFeedback();
+        
+        console.log('Filter applied, filtered data count:', filteredDetailsData.length);
+    }
+
+    // 清除筛选
+    function clearFilter() {
+        const searchInput = document.getElementById('filter-search-input');
+        if (searchInput) {
+            searchInput.value = '';
+        }
+        // 清除所有过滤
+        selectedStateForFilter = null;
+        selectedSeverityForFilter = null;
+        selectedSLARangeForFilter = null;
+        filteredDetailsData = [...allDetailsData];
+        updateDetailsRecordCount(filteredDetailsData.length);
+        renderDetailsTable();
+        // 更新地图和图例的视觉反馈
+        updateMapVisualFeedback();
+        // 更新SLA表格的视觉反馈
+        updateSLATableVisualFeedback();
+    }
+
+    // 导出功能
+    function exportData() {
+        if (!filteredDetailsData || filteredDetailsData.length === 0) {
+            alert('没有数据可导出');
+            return;
+        }
+
+        // 使用保存的列顺序（Excel原始顺序）
+        const columns = detailsColumns.length > 0 ? detailsColumns : Object.keys(filteredDetailsData[0] || {});
+        const headers = columns.map(col => formatColumnName(col));
+
+        // 生成CSV内容
+        let csvContent = headers.join(',') + '\n';
+
+        filteredDetailsData.forEach(row => {
+            const values = columns.map(col => {
+                let value = row[col] || '';
+                // 处理包含逗号、引号或换行符的值
+                if (String(value).includes(',') || String(value).includes('"') || String(value).includes('\n')) {
+                    value = `"${String(value).replace(/"/g, '""')}"`;
+                }
+                return value;
+            });
+            csvContent += values.join(',') + '\n';
+        });
+
+        // 创建下载链接
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `incident_log_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    // AI分析函数
+    async function generateAIAnalysis(data) {
+        let overallText = '';
+        let severityText = '';
+        let slaText = '';
+
+        // 如果配置了AI模型，尝试使用AI分析
+        if (currentAIModel !== 'rule-based' && aiApiKey && AI_MODELS[currentAIModel]) {
+            try {
+                // 并行调用三个AI分析
+                const [overallResult, severityResult, slaResult] = await Promise.allSettled([
+                    callAIModel(currentAIModel, generateAIPrompt('overall', data), data),
+                    callAIModel(currentAIModel, generateAIPrompt('severity', data), data),

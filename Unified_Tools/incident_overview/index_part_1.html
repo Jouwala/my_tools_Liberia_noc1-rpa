@@ -1,0 +1,1765 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link rel="icon" type="image/x-icon" href="favicon.ico"/>
+<title>OLR Incident Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4leaflet/1.0.2/proj4leaflet.min.js"></script>
+<style type="text/tailwindcss">
+        :root {
+            --bg-main: #000000;
+            --bg-card: #0a0a0a;
+            --bg-card-hover: #1a1a1a;
+            --text-primary: #4dd0e1;
+            --text-secondary: #66bb6a;
+            --border-color: rgba(0, 212, 255, 0.2);
+            --corporate-blue: rgba(0, 255, 65, 0.3);
+            --emerald-success: #00d4ff;
+            --soft-amber: #ffaa00;
+            --soft-red: #ff0040;
+            --accent-glow: rgba(0, 212, 255, 0.3);
+            --hud-red: #ff0040;
+            --hud-orange: #ff6600;
+            --hud-amber: #ffaa00;
+            --hud-blue: #00ff41;
+            --hud-green: #00d4ff;
+
+            /* 优化的字体大小体系 - 提升可读性 */
+            /* 极小字体：辅助信息、时间戳 */
+            --font-xs: 12px;
+            /* 小字体：表格数据、标签、图标说明 */
+            --font-sm: 14px;
+            /* 基础字体：正文、描述文字 */
+            --font-base: 16px;
+            /* 中等字体：小标题、重要数据 */
+            --font-md: 18px;
+            /* 大字体：标题、关键数字 */
+            --font-lg: 24px;
+            /* 超大字体：主标题、大数字 */
+            --font-xl: 32px;
+            --font-2xl: 36px;
+            --font-3xl: 42px;
+            
+            /* 行高优化 - 提升可读性 */
+            --line-height-tight: 1.4;
+            --line-height-normal: 1.6;
+            --line-height-relaxed: 1.8;
+        }
+        body {
+            background: linear-gradient(135deg, #000000 0%, #0a0a0a 50%, #000000 100%);
+            background-attachment: fixed;
+            color: var(--text-primary);
+            font-family: 'Inter', 'Roboto', 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-weight: 400;
+            font-size: 16px;
+            line-height: var(--line-height-normal);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            letter-spacing: 0.01em;
+        }
+        
+        /* 移动端基础优化 */
+        @media (max-width: 768px) {
+            body {
+                font-size: 14px;
+                line-height: 1.6;
+                -webkit-tap-highlight-color: transparent;
+                touch-action: manipulation;
+            }
+            
+            /* 优化移动端滚动 */
+            * {
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            /* 防止移动端文本选择（按钮等） */
+            button, .material-symbols-outlined {
+                -webkit-user-select: none;
+                user-select: none;
+            }
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .status-line::after {
+            content: '';
+            position: absolute;
+            top: 1.25rem;
+            left: 50%;
+            width: calc(100% - 1rem);
+            height: 2px;
+            background: linear-gradient(90deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.5) 50%, rgba(255, 255, 255, 0.3) 100%);
+            box-shadow: 0 0 6px rgba(255, 255, 255, 0.4);
+            z-index: 0;
+        }
+        .status-line::before {
+            content: '';
+            position: absolute;
+            top: 1.25rem;
+            right: 0;
+            width: 0;
+            height: 0;
+            border-left: 8px solid rgba(255, 255, 255, 0.5);
+            border-top: 4px solid transparent;
+            border-bottom: 4px solid transparent;
+            z-index: 1;
+            filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.5));
+        }
+        .status-line:last-child::after {
+            display: none;
+        }
+        .status-line:last-child::before {
+            display: none;
+        }
+        .glow-red { box-shadow: 0 0 15px rgba(239, 68, 68, 0.1); }
+        .glow-orange { box-shadow: 0 0 15px rgba(245, 158, 11, 0.1); }
+        .glow-yellow { box-shadow: 0 0 15px rgba(251, 191, 36, 0.1); }
+        .glow-blue { box-shadow: 0 0 15px rgba(59, 130, 246, 0.1); }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0B0F19;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2D3748;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4A5568;
+        }
+        .table-dark-row:nth-child(even) {
+            background-color: rgba(255, 255, 255, 0.02);
+        }
+        .resizable {
+            resize: both;
+            overflow: auto;
+            min-width: 300px;
+            min-height: 400px;
+            max-width: 90%;
+            max-height: 95vh;
+        }
+        .resizable::-webkit-resizer {
+            background: rgba(59, 130, 246, 0.3);
+            border-radius: 4px;
+        }
+        .resizable:hover::-webkit-resizer {
+            background: rgba(59, 130, 246, 0.5);
+        }
+        .resize-handle {
+            pointer-events: auto;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .resize-handle:hover {
+            background: rgba(59, 130, 246, 0.6) !important;
+        }
+        .resize-handle[data-resizing] {
+            background: rgba(59, 130, 246, 0.8) !important;
+        }
+        .resize-handle-horizontal {
+            width: 4px;
+            height: 100%;
+            right: 0;
+            top: 0;
+            cursor: col-resize;
+        }
+        .resize-handle-vertical {
+            height: 4px;
+            width: 100%;
+            bottom: 0;
+            left: 0;
+            cursor: row-resize;
+        }
+        /* 确保调整手柄在容器上方 */
+        [data-ai-analysis-container],
+        [data-severity-container],
+        [data-sla-container],
+        [data-details-container] {
+            position: relative;
+        }
+
+        /* HUD能量槽样式 */
+        .hud-bar-container {
+            position: relative;
+            width: 100%;
+            height: 26px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid rgba(0, 212, 255, 0.3);
+            border-radius: 2px;
+            overflow: hidden;
+            box-shadow:
+                inset 0 0 10px rgba(0, 0, 0, 0.5),
+                0 0 10px rgba(0, 212, 255, 0.2),
+                0 0 20px rgba(0, 212, 255, 0.1);
+        }
+
+        .hud-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg,
+                rgba(0, 212, 255, 0.8) 0%,
+                rgba(0, 212, 255, 1) 50%,
+                rgba(0, 212, 255, 0.8) 100%);
+            box-shadow:
+                0 0 10px rgba(0, 212, 255, 0.6),
+                inset 0 0 10px rgba(255, 255, 255, 0.2);
+            position: relative;
+            transition: width 0.3s ease;
+        }
+
+        .hud-bar-red .hud-bar-fill {
+            background: linear-gradient(90deg,
+                rgba(255, 0, 64, 0.8) 0%,
+                rgba(255, 0, 64, 1) 50%,
+                rgba(255, 0, 64, 0.8) 100%);
+            box-shadow:
+                0 0 15px rgba(255, 0, 64, 0.8),
+                inset 0 0 10px rgba(255, 255, 255, 0.2);
+        }
+
+        .hud-bar-red {
+            border-color: rgba(255, 0, 64, 0.5);
+            box-shadow:
+                inset 0 0 10px rgba(0, 0, 0, 0.5),
+                0 0 15px rgba(255, 0, 64, 0.3),
+                0 0 25px rgba(255, 0, 64, 0.2);
+        }
+
+        .hud-bar-orange .hud-bar-fill {
+            background: linear-gradient(90deg,
+                rgba(255, 102, 0, 0.8) 0%,
+                rgba(255, 102, 0, 1) 50%,
+                rgba(255, 102, 0, 0.8) 100%);
+            box-shadow:
+                0 0 12px rgba(255, 102, 0, 0.7),
+                inset 0 0 10px rgba(255, 255, 255, 0.2);
+        }
+
+        .hud-bar-orange {
+            border-color: rgba(255, 102, 0, 0.4);
+            box-shadow:
+                inset 0 0 10px rgba(0, 0, 0, 0.5),
+                0 0 12px rgba(255, 102, 0, 0.3),
+                0 0 20px rgba(255, 102, 0, 0.2);
+        }
+
+        .hud-bar-amber .hud-bar-fill {
+            background: linear-gradient(90deg,
+                rgba(255, 170, 0, 0.8) 0%,
+                rgba(255, 170, 0, 1) 50%,
+                rgba(255, 170, 0, 0.8) 100%);
+            box-shadow:
+                0 0 10px rgba(255, 170, 0, 0.6),
+                inset 0 0 10px rgba(255, 255, 255, 0.2);
+        }
+
+        .hud-bar-amber {
+            border-color: rgba(255, 170, 0, 0.4);
+            box-shadow:
+                inset 0 0 10px rgba(0, 0, 0, 0.5),
+                0 0 10px rgba(255, 170, 0, 0.3),
+                0 0 18px rgba(255, 170, 0, 0.2);
+        }
+
+        .hud-bar-blue .hud-bar-fill {
+            background: linear-gradient(90deg,
+                rgba(0, 212, 255, 0.8) 0%,
+                rgba(0, 212, 255, 1) 50%,
+                rgba(0, 212, 255, 0.8) 100%);
+            box-shadow:
+                0 0 10px rgba(0, 212, 255, 0.6),
+                inset 0 0 10px rgba(255, 255, 255, 0.2);
+        }
+
+        .hud-bar-blue {
+            border-color: rgba(0, 212, 255, 0.4);
+            box-shadow:
+                inset 0 0 10px rgba(0, 0, 0, 0.5),
+                0 0 10px rgba(0, 212, 255, 0.3),
+                0 0 18px rgba(0, 212, 255, 0.2);
+        }
+
+        .hud-bar-label {
+            position: absolute;
+            top: 50%;
+            left: 8px;
+            transform: translateY(-50%);
+            font-family: 'Inter', 'Roboto', sans-serif;
+            font-weight: 600;
+            font-size: 11px;
+            color: #ffffff;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .hud-bar-value {
+            position: absolute;
+            top: 50%;
+            right: 8px;
+            transform: translateY(-50%);
+            font-family: 'Inter', 'Roboto', sans-serif;
+            font-weight: 500;
+            font-size: 14px;
+            color: #ffffff;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* P1告警样式（无动画） */
+        .p1-alert {
+            box-shadow: 0 0 20px rgba(255, 0, 64, 0.5);
+        }
+
+        /* 工业风格边框 */
+        .industrial-border {
+            border: 2px solid rgba(0, 212, 255, 0.3);
+            box-shadow:
+                inset 0 0 20px rgba(0, 212, 255, 0.1),
+                0 0 20px rgba(0, 212, 255, 0.2),
+                0 0 40px rgba(0, 212, 255, 0.1);
+        }
+
+        /* 重新设计的字体大小体系 - 美观清晰的层次结构 */
+        /* 使用属性选择器匹配Tailwind动态类名，应用新的字体大小体系 */
+
+        /* 极小字体（8-10px）→ 统一为10px - 辅助信息、时间戳 */
+        [class*="text-[8px]"],
+        [class*="text-[9.6px]"],
+        [class*="text-[10px]"] {
+            font-size: var(--font-xs) !important;
+        }
+
+        /* 小字体（11-12px）→ 统一为12px - 表格数据、标签 */
+        [class*="text-[11.2px]"],
+        [class*="text-[11.76px]"],
+        [class*="text-[12px]"] {
+            font-size: var(--font-sm) !important;
+        }
+
+        /* 基础字体（14-15px）→ 统一为14px - 正文、描述文字、表格内容 */
+        [class*="text-[14px]"],
+        [class*="text-[14.4px]"],
+        [class*="text-[15px]"] {
+            font-size: var(--font-base) !important;
+        }
+
+        /* 中等字体（16-18px）→ 统一为16px - 小标题、重要数据 */
+        [class*="text-[16px]"],
+        [class*="text-[18px]"] {
+            font-size: var(--font-md) !important;
+        }
+
+        /* 大字体（20-22px）→ 统一为20px - 标题、关键数字 */
+        [class*="text-[20px]"],
+        [class*="text-[22px]"],
+        [class*="text-[24px]"] {
+            font-size: var(--font-lg) !important;
+        }
+
+        /* 超大字体（28px及以上）→ 统一为28px/32px/36px - 主标题、大数字 */
+        [class*="text-[28px]"],
+        [class*="text-[32px]"] {
+            font-size: var(--font-xl) !important;
+        }
+        [class*="text-[36px]"],
+        [class*="text-[40px]"],
+        [class*="text-[42px]"],
+        [class*="text-[43.2px]"] {
+            font-size: var(--font-2xl) !important;
+        }
+
+        /* screen-mode下的标题规则 - 使用新的字体体系 */
+        .screen-mode h1 {
+            font-size: var(--font-3xl) !important;
+        }
+        .screen-mode h2 {
+            font-size: var(--font-2xl) !important;
+        }
+        .screen-mode h3 {
+            font-size: var(--font-xl) !important;
+        }
+        .screen-mode p,
+        .screen-mode span {
+            font-size: var(--font-base) !important;
+        }
+
+        /* 表格内容保持清晰可读 - 使用基础字体 */
+        [data-details-container] [class*="text-[8px]"],
+        [data-details-container] [class*="text-[9.6px]"],
+        [data-details-container] [class*="text-[10px]"] {
+            font-size: var(--font-xs) !important;
+        }
+        [data-details-container] [class*="text-[11.2px]"],
+        [data-details-container] [class*="text-[11.76px]"],
+        [data-details-container] [class*="text-[12px]"] {
+            font-size: var(--font-sm) !important;
+        }
+        [data-details-container] [class*="text-[14px]"],
+        [data-details-container] [class*="text-[14.4px]"],
+        [data-details-container] [class*="text-[15px]"] {
+            font-size: var(--font-base) !important;
+        }
+        [data-details-container] [class*="text-[16px]"],
+        [data-details-container] [class*="text-[18px]"] {
+            font-size: var(--font-md) !important;
+        }
+
+        /* HUD bar value - 与表格内容保持一致 */
+        .hud-bar-value {
+            font-size: var(--font-base) !important;
+        }
+
+        /* 大屏模式基础设置 */
+        .screen-mode {
+            font-size: 1em;
+        }
+        
+        /* 文字可读性优化 */
+        p, span, div, td, th {
+            line-height: var(--line-height-normal);
+        }
+        
+        h1, h2, h3, h4, h5, h6 {
+            line-height: var(--line-height-tight);
+            font-weight: 600;
+        }
+        
+        /* SLA和Severity美化徽章样式 */
+        .badge-sla {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.375rem 0.75rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            font-size: 13px;
+            min-width: 60px;
+            text-align: center;
+        }
+        
+        .badge-sla-red {
+            background: rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.4);
+        }
+        
+        .badge-sla-orange {
+            background: rgba(249, 115, 22, 0.15);
+            color: #fdba74;
+            border: 1px solid rgba(249, 115, 22, 0.4);
+        }
+        
+        .badge-sla-amber {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fcd34d;
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }
+        
+        .badge-sla-blue {
+            background: rgba(59, 130, 246, 0.15);
+            color: #93c5fd;
+            border: 1px solid rgba(59, 130, 246, 0.4);
+        }
+        
+        .badge-sla-green {
+            background: rgba(34, 197, 94, 0.15);
+            color: #86efac;
+            border: 1px solid rgba(34, 197, 94, 0.4);
+        }
+        
+        .badge-severity {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 700;
+            font-size: 13px;
+            min-width: 50px;
+            text-align: center;
+            letter-spacing: 0.05em;
+        }
+        
+        .badge-severity-p1 {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.15));
+            color: #fca5a5;
+            border: 2px solid rgba(239, 68, 68, 0.5);
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+        }
+        
+        .badge-severity-p2 {
+            background: linear-gradient(135deg, rgba(249, 115, 22, 0.2), rgba(234, 88, 12, 0.15));
+            color: #fdba74;
+            border: 2px solid rgba(249, 115, 22, 0.5);
+            box-shadow: 0 0 6px rgba(249, 115, 22, 0.3);
+        }
+        
+        .badge-severity-p3 {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(217, 119, 6, 0.15));
+            color: #fcd34d;
+            border: 2px solid rgba(245, 158, 11, 0.5);
+            box-shadow: 0 0 6px rgba(245, 158, 11, 0.3);
+        }
+        
+        .badge-severity-p4 {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.15));
+            color: #93c5fd;
+            border: 2px solid rgba(59, 130, 246, 0.5);
+            box-shadow: 0 0 6px rgba(59, 130, 246, 0.3);
+        }
+        
+        /* ACTIVE INCIDENT LOG 表格优化 */
+        [data-details-container] table {
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        
+        [data-details-container] thead th {
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+        
+        [data-details-container] tbody td {
+            vertical-align: middle;
+            white-space: nowrap;
+        }
+        
+        [data-details-container] tbody tr {
+            transition: background-color 0.2s ease;
+        }
+        
+        [data-details-container] tbody tr:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+        
+        /* Severity 和 SLA 组件虚线表格边框 */
+        /* Severity 子组件虚线边框 - 保留左侧彩色边框，添加其他边的虚线 */
+        [data-severity-container] > div > div {
+            border-top: 1px dashed rgba(77, 208, 225, 0.5) !important;
+            border-right: 1px dashed rgba(77, 208, 225, 0.5) !important;
+            border-bottom: 1px dashed rgba(77, 208, 225, 0.5) !important;
+            /* 左侧边框保持原有的 border-l-4 样式，不覆盖 */
+        }
+        
+        /* Severity 表格虚线边框 */
+        [data-severity-container] table {
+            border-collapse: collapse;
+            border-spacing: 0;
+            width: 100%;
+        }
+        
+        [data-severity-container] table thead th {
+            border-bottom: 1px dashed rgba(77, 208, 225, 0.4) !important;
+            border-right: 1px dashed rgba(77, 208, 225, 0.3) !important;
+        }
+        
+        [data-severity-container] table thead th:last-child {
+            border-right: none !important;
+        }
+        
+        [data-severity-container] table tbody td {
+            border-bottom: 1px dashed rgba(77, 208, 225, 0.3) !important;
+            border-right: 1px dashed rgba(77, 208, 225, 0.25) !important;
+        }
+        
+        [data-severity-container] table tbody td:last-child {
+            border-right: none !important;
+        }
+        
+        [data-severity-container] table tbody tr:last-child td {
+            border-bottom: none !important;
+        }
+        
+        /* SLA 子组件虚线边框 */
+        [data-sla-card] {
+            border: 1px dashed rgba(77, 208, 225, 0.5) !important;
+            border-radius: 0.75rem;
+        }
+        
+        /* SLA 表格虚线边框 */
+        [data-sla-card] table {
+            border-collapse: collapse;
+            border-spacing: 0;
+            width: 100%;
+        }
+        
+        [data-sla-card] table thead th {
+            border-bottom: 1px dashed rgba(77, 208, 225, 0.4) !important;
+            border-right: 1px dashed rgba(77, 208, 225, 0.3) !important;
+        }
+        
+        [data-sla-card] table thead th:last-child {
+            border-right: none !important;
+        }
+        
+        [data-sla-card] table tbody td {
+            border-bottom: 1px dashed rgba(77, 208, 225, 0.3) !important;
+            border-right: 1px dashed rgba(77, 208, 225, 0.25) !important;
+        }
+        
+        [data-sla-card] table tbody td:last-child {
+            border-right: none !important;
+        }
+        
+        [data-sla-card] table tbody tr:last-child td {
+            border-bottom: none !important;
+        }
+        
+        /* 移动端响应式优化 */
+        @media (max-width: 768px) {
+            :root {
+                --font-xs: 11px;
+                --font-sm: 13px;
+                --font-base: 14px;
+                --font-md: 16px;
+                --font-lg: 20px;
+                --font-xl: 24px;
+                --font-2xl: 28px;
+                --font-3xl: 32px;
+            }
+            
+            /* 移动端容器优化 */
+            header {
+                padding: 0.75rem 1rem !important;
+                flex-wrap: wrap;
+                gap: 0.75rem !important;
+            }
+            
+            header > div:first-child {
+                flex: 1 1 100%;
+                min-width: 0;
+            }
+            
+            header > div:last-child {
+                flex: 1 1 auto;
+                justify-content: flex-end;
+            }
+            
+            header h1 {
+                font-size: 18px !important;
+                line-height: 1.3;
+            }
+            
+            header h1 span {
+                font-size: 10px !important;
+                display: block;
+                margin-top: 2px;
+            }
+            
+            header img {
+                width: 40px !important;
+                height: 40px !important;
+            }
+            
+            #noc-timestamp {
+                font-size: 10px !important;
+            }
+            
+            .container, main {
+                padding: 0.75rem !important;
+            }
+            
+            main > * + * {
+                margin-top: 1.5rem;
+            }
+            
+            /* 移动端地图组件优化 */
+            .flex.gap-4.mb-6.h-full {
+                flex-direction: column !important;
+                min-height: auto !important;
+                height: auto !important;
+            }
+            
+            .flex-\[2\] {
+                min-height: 60vh !important;
+                width: 100% !important;
+            }
+            
+            .flex-\[2\] .p-6 {
+                padding: 1rem !important;
+                flex-direction: column !important;
+                height: 100% !important;
+            }
+            
+            #map-legend {
+                width: 100% !important;
+                margin-right: 0 !important;
+                margin-bottom: 1rem !important;
+                max-height: 150px !important;
+            }
+            
+            #map-legend .flex-wrap {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                gap: 0.5rem !important;
+            }
+            
+            #map-legend .flex-wrap > div {
+                flex: 1 1 calc(50% - 0.5rem) !important;
+                min-width: 120px !important;
+            }
+            
+            #liberia-map {
+                min-height: 300px !important;
+                height: 100% !important;
+                width: 100% !important;
+            }
+            
+            /* 确保地图容器在移动端有足够的高度 */
+            .flex-\[2\] {
+                display: flex !important;
+                flex-direction: column !important;
+            }
+            
+            .flex-\[2\] > div:nth-child(2) {
+                flex: 1 1 auto !important;
+                min-height: 400px !important;
+            }
+            
+            /* 移动端顶部统计卡片和状态流程优化 */
+            main > div:first-child {
+                flex-direction: column !important;
+                gap: 1rem !important;
+            }
+            
+            main > div:first-child > div:first-child {
+                flex: 1 1 100% !important;
+                width: 100% !important;
+            }
+            
+            main > div:first-child > div:last-child {
+                flex: 1 1 100% !important;
+                width: 100% !important;
+                grid-template-columns: repeat(3, 1fr) !important;
+                gap: 0.5rem !important;
+            }
+            
+            /* 状态流程圆圈优化 */
+            .status-line {
+                margin-bottom: 0.5rem;
+            }
+            
+            .status-line > div:first-child {
+                width: 48px !important;
+                height: 48px !important;
+            }
+            
+            .status-line > div:first-child span {
+                font-size: 18px !important;
+            }
+            
+            .status-line > span:last-child {
+                font-size: 11px !important;
+                line-height: 1.2;
+            }
+            
+            /* 主内容区域纵向堆叠 */
+            main > div:last-child,
+            main > div:nth-child(2) {
+                flex-direction: column !important;
+                gap: 1rem !important;
+                min-height: auto !important;
+                height: auto !important;
+                overflow: visible !important;
+                align-items: stretch !important;
+            }
+            
+            main > div:last-child > div,
+            main > div:nth-child(2) > div {
+                flex: 0 0 auto !important;
+                width: 100% !important;
+                min-height: auto !important;
+                height: auto !important;
+                position: relative !important;
+            }
+            
+            /* AI分析面板优化 */
+            [data-ai-analysis-container] {
+                width: 100% !important;
+            }
+            
+            /* Severity面板优化 - 每个占一行，铺满宽度 */
+            [data-severity-container] {
+                width: calc(100% + 1.5rem) !important;
+                max-width: calc(100% + 1.5rem) !important;
+                flex: 0 0 auto !important;
+                order: 2;
+                margin-left: -0.75rem !important;
+                margin-right: -0.75rem !important;
+                margin-bottom: 1.5rem !important;
+                margin-top: 0 !important;
+                padding-left: 0.75rem !important;
+                padding-right: 0.75rem !important;
+                position: relative !important;
+                overflow: visible !important;
+                clear: both !important;
+                height: auto !important;
+                min-height: auto !important;
+                max-height: none !important;
+                z-index: 1 !important;
+            }
+            
+            /* Severity内部grid布局优化 - 每个子组件单独一行 */
+            [data-severity-container] > div {
+                grid-template-columns: 1fr !important;
+                grid-template-rows: repeat(4, auto) !important;
+                gap: 0.75rem !important;
+                position: relative !important;
+                height: auto !important;
+                min-height: auto !important;
+                max-height: none !important;
+            }
+            
+            /* Severity子组件每个占一行 */
+            [data-severity-container] > div > div {
+                width: 100% !important;
+                position: relative !important;
+                height: auto !important;
+            }
+            
+            /* SLA面板优化 - 每个占一行，铺满宽度 */
+            [data-sla-container] {
+                width: calc(100% + 1.5rem) !important;
+                max-width: calc(100% + 1.5rem) !important;
+                flex: 0 0 auto !important;
+                order: 3;
+                margin-left: -0.75rem !important;
+                margin-right: -0.75rem !important;
+                margin-bottom: 1rem !important;
+                margin-top: 0 !important;
+                padding-left: 0.75rem !important;
+                padding-right: 0.75rem !important;
+                position: relative !important;
+                overflow: visible !important;
+                clear: both !important;
+                height: auto !important;
+                min-height: auto !important;
+                max-height: none !important;
+                z-index: 2 !important;
+            }
+            
+            /* SLA内部子组件每个单独一行 */
+            [data-sla-container] > div {
+                flex-direction: column !important;
+                gap: 0.75rem !important;
+                position: relative !important;
+                height: auto !important;
+                min-height: auto !important;
+            }
+            
+            /* SLA子卡片每个占一行 */
+            [data-sla-card] {
+                width: 100% !important;
+                flex: 1 1 auto !important;
+                min-height: auto !important;
+                position: relative !important;
+            }
+            
+            /* AI分析面板保持原样 */
+            [data-ai-analysis-container] {
+                order: 1;
+            }
+            
+            /* 移动端表格优化 */
+            table {
+                font-size: 11px !important;
+            }
+            
+            th, td {
+                padding: 0.4rem 0.3rem !important;
+                font-size: 11px !important;
+            }
+            
+            /* 表格容器优化 */
+            .overflow-x-auto {
+                -webkit-overflow-scrolling: touch;
+                overflow-x: auto;
+                overflow-y: visible;
+            }
+            
+            /* 移动端卡片优化 */
+            [class*="bg-"] {
+                padding: 0.75rem !important;
+            }
+            
+            /* 移动端按钮优化 */
+            button {
+                min-height: 44px;
+                min-width: 44px;
+                padding: 0.5rem !important;
+            }
+            
+            /* 移动端HUD条优化 */
+            .hud-bar-container {
+                height: 32px;
+            }
+            
+            .hud-bar-label {
+                font-size: 10px;
+            }
+            
+            .hud-bar-value {
+                font-size: 13px;
+            }
+            
+            /* 移动端隐藏不必要的装饰 */
+            .status-line::after,
+            .status-line::before {
+                display: none;
+            }
+            
+            /* 表格标题优化 */
+            h3 {
+                font-size: 16px !important;
+            }
+            
+            /* 面板标题优化 */
+            .text-\[26\.4px\] {
+                font-size: 18px !important;
+            }
+            
+            /* AI分析内容优化 */
+            #ai-analysis-content {
+                font-size: 13px !important;
+            }
+            
+            #ai-analysis-content p {
+                font-size: 13px !important;
+                line-height: 1.6;
+            }
+            
+            /* Active Incident Log表格优化 */
+            [data-details-container] {
+                margin-top: 1rem;
+            }
+            
+            [data-details-container] .overflow-x-auto {
+                max-height: 400px;
+            }
+            
+            /* 移动端地图组件优化 */
+            .flex.gap-4.mb-6.h-full {
+                flex-direction: column !important;
+                min-height: auto !important;
+                height: auto !important;
+            }
+            
+            .flex-\[2\] {
+                min-height: 60vh !important;
+                width: 100% !important;
+            }
+            
+            .flex-\[2\] .p-6 {
+                padding: 1rem !important;
+                flex-direction: column !important;
+                height: 100% !important;
+            }
+            
+            #map-legend {
+                width: 100% !important;
+                margin-right: 0 !important;
+                margin-bottom: 1rem !important;
+                max-height: 150px !important;
+            }
+            
+            #map-legend .flex-wrap {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                gap: 0.5rem !important;
+            }
+            
+            #map-legend .flex-wrap > div {
+                flex: 1 1 calc(50% - 0.5rem) !important;
+                min-width: 120px !important;
+            }
+            
+            #liberia-map {
+                min-height: 300px !important;
+                height: 100% !important;
+                width: 100% !important;
+            }
+            
+            /* 确保地图容器在移动端有足够的高度 */
+            .flex-\[2\] {
+                display: flex !important;
+                flex-direction: column !important;
+            }
+            
+            .flex-\[2\] > div:nth-child(2) {
+                flex: 1 1 auto !important;
+                min-height: 400px !important;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            :root {
+                --font-xs: 10px;
+                --font-sm: 12px;
+                --font-base: 13px;
+                --font-md: 15px;
+                --font-lg: 18px;
+                --font-xl: 22px;
+                --font-2xl: 26px;
+                --font-3xl: 30px;
+            }
+            
+            header {
+                padding: 0.5rem 0.75rem !important;
+            }
+            
+            header h1 {
+                font-size: 14px !important;
+            }
+            
+            header h1 span {
+                font-size: 9px !important;
+            }
+            
+            header img {
+                width: 32px !important;
+                height: 32px !important;
+            }
+            
+            #noc-timestamp {
+                font-size: 9px !important;
+            }
+            
+            /* 小屏幕进一步优化 */
+            main {
+                padding: 0.5rem !important;
+            }
+            
+            main > * + * {
+                margin-top: 1rem;
+            }
+            
+            /* 确保Severity和SLA组件各自占一行，铺满宽度 */
+            [data-severity-container] {
+                width: calc(100% + 1rem) !important;
+                max-width: calc(100% + 1rem) !important;
+                flex: 0 0 auto !important;
+                order: 2;
+                margin-left: -0.5rem !important;
+                margin-right: -0.5rem !important;
+                margin-bottom: 1.5rem !important;
+                margin-top: 0 !important;
+                padding-left: 0.5rem !important;
+                padding-right: 0.5rem !important;
+                position: relative !important;
+                overflow: visible !important;
+                clear: both !important;
+                height: auto !important;
+                min-height: auto !important;
+                max-height: none !important;
+                z-index: 1 !important;
+            }
+            
+            [data-sla-container] {
+                width: calc(100% + 1rem) !important;
+                max-width: calc(100% + 1rem) !important;
+                flex: 0 0 auto !important;
+                order: 3;
+                margin-left: -0.5rem !important;
+                margin-right: -0.5rem !important;
+                margin-bottom: 1rem !important;
+                margin-top: 0 !important;
+                padding-left: 0.5rem !important;
+                padding-right: 0.5rem !important;
+                position: relative !important;
+                overflow: visible !important;
+                clear: both !important;
+                height: auto !important;
+                min-height: auto !important;
+                max-height: none !important;
+                z-index: 2 !important;
+            }
+            
+            [data-ai-analysis-container] {
+                order: 1;
+            }
+            
+            /* Severity内部grid布局优化 - 每个子组件单独一行 */
+            [data-severity-container] > div {
+                grid-template-columns: 1fr !important;
+                grid-template-rows: repeat(4, auto) !important;
+                gap: 0.75rem !important;
+                position: relative !important;
+                height: auto !important;
+                min-height: auto !important;
+            }
+            
+            /* Severity子组件每个占一行 */
+            [data-severity-container] > div > div {
+                width: 100% !important;
+                position: relative !important;
+            }
+            
+            /* SLA内部子组件每个单独一行 */
+            [data-sla-container] > div {
+                flex-direction: column !important;
+                gap: 0.75rem !important;
+                position: relative !important;
+                height: auto !important;
+                min-height: auto !important;
+            }
+            
+            /* SLA子卡片每个占一行 */
+            [data-sla-card] {
+                width: 100% !important;
+                flex: 1 1 auto !important;
+                min-height: auto !important;
+                position: relative !important;
+            }
+            
+            /* SLA子卡片每个占一行 */
+            [data-sla-card] {
+                width: 100% !important;
+                flex: 1 1 auto !important;
+                min-height: auto !important;
+            }
+            
+            /* 状态流程改为2列 */
+            main > div:first-child > div:last-child {
+                grid-template-columns: repeat(2, 1fr) !important;
+                gap: 0.75rem !important;
+            }
+            
+            .status-line > div:first-child {
+                width: 44px !important;
+                height: 44px !important;
+            }
+            
+            .status-line > div:first-child span {
+                font-size: 16px !important;
+            }
+            
+            .status-line > span:last-child {
+                font-size: 10px !important;
+            }
+            
+            /* 表格进一步优化 */
+            table {
+                font-size: 10px !important;
+            }
+            
+            th, td {
+                padding: 0.35rem 0.25rem !important;
+                font-size: 10px !important;
+            }
+            
+            /* 表格横向滚动 */
+            .overflow-x-auto {
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            /* 移动端徽章优化 */
+            .badge-sla, .badge-severity {
+                font-size: 10px;
+                padding: 0.2rem 0.4rem;
+                min-width: 40px;
+            }
+            
+            /* 统计数字优化 */
+            [data-metric] {
+                font-size: 24px !important;
+            }
+            
+            /* 面板标题进一步缩小 */
+            h3 {
+                font-size: 14px !important;
+            }
+            
+            .text-\[26\.4px\] {
+                font-size: 16px !important;
+            }
+            
+            /* AI分析内容进一步优化 */
+            #ai-analysis-content {
+                font-size: 12px !important;
+            }
+            
+            #ai-analysis-content p {
+                font-size: 12px !important;
+            }
+        }
+        
+        /* 中等屏幕优化 (768px - 1024px) */
+        @media (min-width: 769px) and (max-width: 1024px) {
+            main {
+                padding: 1rem !important;
+            }
+            
+            main > div:first-child > div:last-child {
+                grid-template-columns: repeat(3, 1fr) !important;
+            }
+            
+            main > div:last-child,
+            main > div:nth-child(2) {
+                flex-wrap: wrap;
+            }
+            
+            main > div:last-child > div,
+            main > div:nth-child(2) > div {
+                flex: 1 1 calc(50% - 0.75rem) !important;
+                min-width: 300px;
+            }
+        }
+        
+        /* Virtual Assistant Styles */
+        /* Animation removed to prevent flashing */
+        
+        #assistant-toggle-btn:hover {
+            transform: scale(1.1);
+        }
+        
+        #assistant-panel {
+            animation: slideUp 0.3s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        #assistant-log-content {
+            font-family: 'Courier New', monospace;
+        }
+        
+        /* Mobile Virtual Assistant Optimization */
+        @media (max-width: 768px) {
+            #virtual-assistant {
+                bottom: 1rem;
+                right: 1rem;
+            }
+            
+            #assistant-panel {
+                width: calc(100vw - 2rem);
+                max-width: 400px;
+                right: 0;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen screen-mode">
+<script>
+    // API基础URL（支持子路径部署）
+    const API_BASE = window.location.origin;
+    const API_BASE_PATH = window.location.pathname.split('/').slice(0, -1).join('/') || '';
+
+    // AI模型配置
+    const AI_MODELS = {
+        'openai': { name: 'OpenAI GPT', endpoint: '/api/ai/openai' },
+        'gemini': { name: 'Google Gemini', endpoint: '/api/ai/gemini' },
+        'doubao': { name: '字节豆包', endpoint: '/api/ai/doubao' },
+        'qianwen': { name: '通义千问', endpoint: '/api/ai/qianwen' },
+        'glm-coding': { name: 'GLM Coding', endpoint: '/api/ai/glm-coding' },
+        'deepseek': { name: 'DeepSeek', endpoint: '/api/ai/deepseek' }
+    };
+
+    // 当前选择的AI模型（默认使用规则生成，如果配置了API则使用AI）
+    let currentAIModel = localStorage.getItem('ai_model') || 'rule-based';
+    let aiApiKey = localStorage.getItem('ai_api_key') || '';
+    let doubaoModel = localStorage.getItem('doubao_model') || 'doubao-seed-1-8-251228';
+
+    // 格式化数字显示
+    function formatNumber(num) {
+        return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    // 调用AI模型进行分析
+    async function callAIModel(model, prompt, data) {
+        if (!AI_MODELS[model] || !aiApiKey) {
+            return null;
+        }
+
+        try {
+            // DeepSeek 支持流式响应，但这里我们使用非流式模式以便与其他模型保持一致
+            const isDeepSeek = model === 'deepseek';
+            const requestBody = {
+                api_key: aiApiKey,
+                prompt: prompt,
+                data: data,
+                stream: false,  // 使用非流式模式，统一处理
+                model: currentAIModel === 'doubao' ? doubaoModel : undefined
+            };
+
+            const response = await fetch(`${API_BASE}${API_BASE_PATH}${AI_MODELS[model].endpoint}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+                console.error(`${AI_MODELS[model].name} API error:`, errorData);
+                throw new Error(errorData.error || errorData.detail || `API returned ${response.status}`);
+            }
+
+            const result = await response.json();
+            if (result.error) {
+                console.error(`${AI_MODELS[model].name} API error:`, result.error);
+                throw new Error(result.error);
+            }
+
+            // DeepSeek 返回的格式可能包含 reasoning 字段
+            if (isDeepSeek && result.reasoning && result.analysis) {
+                // 如果有推理过程，可以选择是否包含在最终结果中
+                // 这里只返回最终答案
+                return result.analysis || null;
+            }
+
+            return result.analysis || result.text || null;
+        } catch (error) {
+            console.error(`Error calling ${AI_MODELS[model].name}:`, error);
+            // 不抛出错误，返回null让系统回退到规则生成
+            return null;
+        }
+    }
+
+    // 生成AI分析提示词
+    function generateAIPrompt(analysisType, data) {
+        let prompt = '';
+
+        if (analysisType === 'overall') {
+            prompt = `Analyze the following incident management data and provide insights:
+
+Total Incidents: ${data.tt_quality?.['Total Incidents'] || data.tt_quality?.['Total'] || 0}
+Closed: ${data.tt_quality?.['Closed'] || 0}
+Unclosed: ${data.tt_quality?.['Unclosed'] || data.tt_quality?.['UnClosed'] || 0}
+
+Status Distribution:
+${JSON.stringify(data.status || {}, null, 2)}
+
+Provide a concise analysis (2-3 sentences) focusing on:
+1. Overall system health
+2. Key bottlenecks or concerns
+3. Recommendations if any issues are identified
+
+Respond in English.`;
+        } else if (analysisType === 'severity') {
+            const severityData = {};
+            ['P1', 'P2', 'P3', 'P4'].forEach(sev => {
+                if (data.severity?.[sev]) {
+                    severityData[sev] = {
+                        total: data.severity[sev].total || 0,
+                        statuses: data.severity[sev].statuses || {}
+                    };
+                }
+            });
+
+            prompt = `Analyze the severity distribution of incidents:
+
+Severity Data:
+${JSON.stringify(severityData, null, 2)}
+
+Provide analysis covering:
+1. Severity distribution (P1/P2/P3/P4 percentages)
+2. Status bottlenecks (which status has most tickets)
+3. Organization workload (which domain/org has most tickets: FO/BO/FE/IPT/Fiber/Orange/3rd)
+
+Format: Three separate points, each starting with "Severity distribution:", "Status analysis:", and "Organization analysis:"
+Respond in English.`;
+        } else if (analysisType === 'sla') {
+            prompt = `Analyze SLA performance data:
+
+ZTE Vendor SLA:
+${JSON.stringify(data.sla_zte || {}, null, 2)}
+
+3rd Party Vendor SLA:
+${JSON.stringify(data.sla_3rd || {}, null, 2)}
+
+Provide analysis covering:
+1. Overall SLA compliance status
+2. Comparison between ZTE and 3rd party vendors
+3. Key violations and compliance rates
+
+Format: Start with overall status, then vendor comparison.
+Respond in English.`;
+        }
+
+        return prompt;
+    }
+
+    // 生成美化的SLA徽章HTML
+    function createSLABadge(value) {
+        if (!value) {
+            return `<span class="badge-sla badge-sla-blue">-</span>`;
+        }
+        
+        const slaLower = String(value).toLowerCase();
+        let numValue = 0;
+        let badgeClass = 'badge-sla-blue';
+        
+        // 尝试提取数字
+        const match = String(value).match(/(\d+(?:\.\d+)?)/);
+        if (match) {
+            numValue = parseFloat(match[1]);
+        }
+        
+        // 根据SLA值确定颜色
+        if (slaLower.includes('>100') || slaLower.includes('gt100') || numValue > 100) {
+            badgeClass = 'badge-sla-red';
+        } else if (slaLower.includes('<100') || slaLower.includes('lt100') || (numValue > 75 && numValue <= 100)) {
+            badgeClass = 'badge-sla-orange';
+        } else if (slaLower.includes('<75') || slaLower.includes('lt75') || (numValue > 50 && numValue <= 75)) {
+            badgeClass = 'badge-sla-amber';
+        } else if (slaLower.includes('<50') || slaLower.includes('lt50') || (numValue > 25 && numValue <= 50)) {
+            badgeClass = 'badge-sla-blue';
+        } else if (slaLower.includes('<25') || slaLower.includes('lt25') || numValue <= 25) {
+            badgeClass = 'badge-sla-green';
+        } else if (numValue > 0) {
+            if (numValue > 75) badgeClass = 'badge-sla-red';
+            else if (numValue > 50) badgeClass = 'badge-sla-orange';
+            else if (numValue > 25) badgeClass = 'badge-sla-amber';
+            else badgeClass = 'badge-sla-green';
+        }
+        
+        return `<span class="badge-sla ${badgeClass}">${escapeHtml(String(value))}</span>`;
+    }
+    
+    // 生成美化的Severity徽章HTML
+    function createSeverityBadge(value) {
+        if (!value) {
+            return `<span class="badge-severity badge-severity-p4">-</span>`;
+        }
+        
+        const sev = String(value).toUpperCase();
+        let badgeClass = 'badge-severity-p4';
+        
+        if (sev === 'P1') {
+            badgeClass = 'badge-severity-p1';
+        } else if (sev === 'P2') {
+            badgeClass = 'badge-severity-p2';
+        } else if (sev === 'P3') {
+            badgeClass = 'badge-severity-p3';
+        } else if (sev === 'P4') {
+            badgeClass = 'badge-severity-p4';
+        }
+        
+        return `<span class="badge-severity ${badgeClass}">${escapeHtml(sev)}</span>`;
+    }
+
+    // 生成HUD能量槽HTML（保留用于其他地方）
+    function createHudBar(value, type, label = '') {
+        let percentage = 0;
+        let barClass = 'hud-bar-green';
+        let displayValue = value;
+
+        if (type === 'severity') {
+            const sev = String(value).toUpperCase();
+            if (sev === 'P1') {
+                percentage = 100;
+                barClass = 'hud-bar-red';
+                displayValue = 'P1';
+            } else if (sev === 'P2') {
+                percentage = 75;
+                barClass = 'hud-bar-orange';
+                displayValue = 'P2';
+            } else if (sev === 'P3') {
+                percentage = 50;
+                barClass = 'hud-bar-amber';
+                displayValue = 'P3';
+            } else if (sev === 'P4') {
+                percentage = 25;
+                barClass = 'hud-bar-blue';
+                displayValue = 'P4';
+            }
+        } else if (type === 'sla') {
+            const slaLower = String(value).toLowerCase();
+            let numValue = 0;
+
+            // 尝试提取数字
+            const match = String(value).match(/(\d+(?:\.\d+)?)/);
+            if (match) {
+                numValue = parseFloat(match[1]);
+            }
+
+            if (slaLower.includes('>100') || slaLower.includes('gt100') || numValue > 100) {
+                percentage = 100;
+                barClass = 'hud-bar-red';
+            } else if (slaLower.includes('<100') || slaLower.includes('lt100') || (numValue > 75 && numValue <= 100)) {
+                percentage = 80;
+                barClass = 'hud-bar-orange';
+            } else if (slaLower.includes('<75') || slaLower.includes('lt75') || (numValue > 50 && numValue <= 75)) {
+                percentage = 60;
+                barClass = 'hud-bar-amber';
+            } else if (slaLower.includes('<50') || slaLower.includes('lt50') || (numValue > 25 && numValue <= 50)) {
+                percentage = 40;
+                barClass = 'hud-bar-blue';
+            } else if (slaLower.includes('<25') || slaLower.includes('lt25') || numValue <= 25) {
+                percentage = 20;
+                barClass = 'hud-bar-green';
+            } else if (numValue > 0) {
+                percentage = Math.min(100, Math.max(0, numValue));
+                if (percentage > 75) barClass = 'hud-bar-red';
+                else if (percentage > 50) barClass = 'hud-bar-orange';
+                else if (percentage > 25) barClass = 'hud-bar-amber';
+                else barClass = 'hud-bar-green';
+            }
+
+            displayValue = String(value);
+        }
+
+        return `
+            <div class="hud-bar-container ${barClass}" style="min-width: 100px;">
+                ${label ? `<span class="hud-bar-label">${label}</span>` : ''}
+                <div class="hud-bar-fill" style="width: ${percentage}%;"></div>
+                <span class="hud-bar-value">${escapeHtml(displayValue)}</span>
+            </div>
+        `;
+    }
+
+    // 获取SLA合规性样式（保留用于兼容，但主要使用HUD能量槽）
+    function getSlaComplianceStyle(sla) {
+        if (!sla) return 'bg-white/5 text-slate-500 border-white/5';
+        const slaLower = sla.toLowerCase();
+        if (slaLower.includes('>100') || slaLower.includes('gt100')) {
+            return 'bg-red-500/20 text-red-400 border-red-500/30';
+        } else if (slaLower.includes('<100') || slaLower.includes('lt100')) {
+            return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+        } else if (slaLower.includes('<75') || slaLower.includes('lt75')) {
+            return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+        } else if (slaLower.includes('<50') || slaLower.includes('lt50')) {
+            return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+        } else if (slaLower.includes('<25') || slaLower.includes('lt25')) {
+            return 'bg-emerald-600 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)]';
+        }
+        return 'bg-white/5 text-slate-500 border-white/5';
+    }
+
+    // 获取严重度样式（保留用于兼容，但主要使用HUD能量槽）
+    function getSeverityStyle(severity) {
+        if (!severity) return 'bg-white/5 text-slate-400';
+        const sev = severity.toUpperCase();
+        if (sev === 'P1') return 'bg-red-500/20 text-red-400 border-red-500/30';
+        if (sev === 'P2') return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+        if (sev === 'P3') return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+        if (sev === 'P4') return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+        return 'bg-white/5 text-slate-400';
+    }
+
+    // 获取严重度数值样式（用于表格中的数值显示）
+    function getSeverityValueStyle(severity, value) {
+        if (!value || value === 0) return 'bg-white/5 text-slate-500 border-white/5';
+        const sev = severity.toUpperCase();
+        if (sev === 'P1') return 'bg-red-500/20 text-red-400 border-red-500/30';
+        if (sev === 'P2') return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+        if (sev === 'P3') return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+        if (sev === 'P4') return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+        return 'bg-white/5 text-slate-500 border-white/5';
+    }
+    
+    // 获取Status列的颜色样式
+    function getStatusColor(status) {
+        if (!status) return 'text-slate-400';
+        const statusUpper = status.toUpperCase();
+        if (statusUpper === 'REASSIGN') return 'text-purple-400';
+        if (statusUpper === 'WAITINGCONFIRM') return 'text-slate-300';
+        if (statusUpper === 'WAITINGACCEPT') return 'text-cyan-400';
+        if (statusUpper === 'WAITINGPROCESS') return 'text-amber-400';
+        if (statusUpper === 'WAITINGCLOSE') return 'text-red-400';
+        if (statusUpper === 'CLOSED') return 'text-emerald-400';
+        return 'text-slate-400';
+    }
+    
+    // 检查Status是否需要加粗
+    function getStatusBold(status) {
+        if (!status) return '';
+        const statusUpper = status.toUpperCase();
+        if (statusUpper === 'WAITINGCLOSE') return 'font-bold';
+        return '';
+    }
+
+    // 更新状态概览
+    function updateStatus(data) {
+        if (!data || typeof data !== 'object') {
+            data = {};
+        }
+        const statusOrder = ['Reassign','WaitingConfirm', 'WaitingAccept', 'WaitingProcess',  'WaitingClose', 'Closed'];
+        statusOrder.forEach(status => {
+            const element = document.querySelector(`[data-status="${status}"]`);
+            if (element) {
+                const value = data[status] || 0;
+                element.textContent = formatNumber(value);
+            }
+        });
+    }
+
+    // 更新TT Quality Metrics
+    function updateTTQuality(data) {
+        if (!data || typeof data !== 'object') {
+            data = {};
+        }
+        const totalIncidents = data['Total Incidents'] || data['Total'] || data['total'] || data['TotalIncidents'] || 0;
+        const closed = data['Closed'] || data['closed'] || 0;
+        const unclosed = data['Unclosed'] || data['UnClosed'] || data['unclosed'] || (totalIncidents - closed);
+
+        const totalEl = document.querySelector('[data-metric="total_incidents"]');
+        if (totalEl) totalEl.textContent = formatNumber(totalIncidents);
+
+        const closedEl = document.querySelector('[data-metric="closed"]');
+        if (closedEl) closedEl.textContent = formatNumber(closed);
+
+        const unclosedEl = document.querySelector('[data-metric="unclosed"]');
+        if (unclosedEl) unclosedEl.textContent = formatNumber(unclosed);
+    }
+
+    // 更新严重度卡片
+    function updateSeverity(data) {
+        if (!data || typeof data !== 'object') {
+            data = {};
+        }
+        ['P1', 'P2', 'P3', 'P4'].forEach(severity => {
+            const sevData = data[severity] || {};
+            const total = sevData.total || 0;
+            const statuses = sevData.statuses || {};
+
+            // 更新总数
+            const totalEl = document.querySelector(`[data-severity="${severity}"][data-field="total"]`);
+            if (totalEl) totalEl.textContent = formatNumber(total);
+
+            // 更新表格数据
+            const tbody = document.getElementById(`severity-${severity.toLowerCase()}-table`);
+            if (tbody) {
+                tbody.innerHTML = '';
+
+                // 状态顺序（按照图片显示的顺序）
+                const statusOrder = ['Reassign','WaitingConfirm', 'WaitingAccept', 'WaitingProcess',  'WaitingClose'];
+                const domains = ['FO', 'BO', 'FE', 'IPT', 'Fiber', 'Orange', '3rd'];
+
+                // 确保每个严重度都显示4个状态，即使数据为空或0
+                statusOrder.forEach(status => {
+                    const statusData = statuses[status] || {
+                        'FO': 0,
+                        'BO': 0,
+                        'FE': 0,
+                        'IPT': 0,
+                        'Fiber': 0,
+                        'Orange': 0,
+                        '3rd': 0,
+                        'Total': 0
+                    };
+
+                    const row = document.createElement('tr');
+                    row.className = 'border-b border-white/5 hover:bg-white/5';
+
+                    // STATUS列
+                    const statusCell = document.createElement('td');
+                    statusCell.className = `py-2 text-left ${getStatusColor(status)} ${getStatusBold(status)} text-[11.76px]`;
+                    statusCell.textContent = status;
+
+                    // Domain列
+                    const domainCells = domains.map(domain => {
+                        const cell = document.createElement('td');
+                        cell.className = 'py-2 text-center text-[11.76px] px-1';
+                        const value = statusData[domain] || 0;
+                        const valueStyle = getSeverityValueStyle(severity, value);
+                        const div = document.createElement('div');
+                        div.className = `${valueStyle} font-bold py-1.5 rounded-full border text-[11.76px]`;
+                        div.textContent = formatNumber(value);
+                        cell.appendChild(div);
+                        return cell;
+                    });
+
+                    // Total列
+                    const totalCell = document.createElement('td');
+                    totalCell.className = 'py-2 text-center text-[11.76px] px-1';
+                    const totalValue = statusData['Total'] || 0;
+                    const totalStyle = getSeverityValueStyle(severity, totalValue);
+                    const totalDiv = document.createElement('div');
+                    totalDiv.className = `${totalStyle} font-bold py-1.5 rounded-full border text-[11.76px]`;
+                    totalDiv.textContent = formatNumber(totalValue);
+                    totalCell.appendChild(totalDiv);
+
+                    row.appendChild(statusCell);
+                    domainCells.forEach(cell => row.appendChild(cell));
+                    row.appendChild(totalCell);
+
+                    tbody.appendChild(row);
+                });
+            }
+        });
+    }
+
+    // 更新SLA表格
+    function updateSLATable(vendor, data) {
+        // 使用data-sla-card属性直接查找容器，更可靠
+        const vendorKey = vendor === 'ZTE' ? 'zte' : '3rd';
+        const container = document.querySelector(`[data-sla-card="${vendorKey}"]`);
+        if (!container) {
+            console.warn(`SLA container not found for vendor: ${vendor}`);
+            return;
+        }
+
+        const table = container.querySelector('tbody');
+        if (!table) {
+            console.warn(`SLA table not found for vendor: ${vendor}`);
+            return;
+        }
+
+        let total = 0;
+        const rows = table.querySelectorAll('tr');
+        rows.forEach(row => {
+            const sevCell = row.querySelector('td.text-left');
+            if (sevCell) {
+                const severity = sevCell.textContent.trim();
+                const sevData = data[severity] || {};
+
+                const cells = row.querySelectorAll('td:not(:first-child)');
+                const keys = ['gt100', 'lt100', 'lt75', 'lt50', 'lt25'];
+                cells.forEach((cell, index) => {
+                    if (index < keys.length) {
+                        const value = sevData[keys[index]] || 0;
+                        total += value;
+                        const div = cell.querySelector('div');
+                        if (div) {
+                            div.textContent = formatNumber(value);
+                            
+                            // 检查是否被选中
+                            const isSelected = selectedSeverityForFilter === severity && selectedSLARangeForFilter === keys[index];
+                            
+                            // 更新样式
+                            let baseClasses = 'font-bold py-1.5 rounded border text-[11.76px] cursor-pointer transition-all hover:scale-105';
+                            if (isSelected) {
+                                baseClasses += ' ring-2 ring-cyan-400 ring-offset-2 ring-offset-[var(--bg-card)]';
+                            }
+                            
+                            if (value > 0) {
+                                if (keys[index] === 'gt100') {
+                                    div.className = `${baseClasses} ${isSelected ? 'bg-red-500/40 text-red-300 border-red-400' : 'bg-red-500/20 text-red-400 border-red-500/30'}`;
+                                } else if (keys[index] === 'lt100') {
+                                    div.className = `${baseClasses} ${isSelected ? 'bg-orange-500/40 text-orange-300 border-orange-400' : 'bg-orange-500/20 text-orange-400 border-orange-500/30'}`;
+                                } else if (keys[index] === 'lt75') {
+                                    div.className = `${baseClasses} ${isSelected ? 'bg-amber-500/40 text-amber-300 border-amber-400' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'}`;
+                                } else if (keys[index] === 'lt50') {
+                                    div.className = `${baseClasses} ${isSelected ? 'bg-emerald-500/40 text-emerald-300 border-emerald-400' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'}`;
+                                } else if (keys[index] === 'lt25') {
+                                    div.className = `${baseClasses} ${isSelected ? 'bg-emerald-700 text-emerald-200 border-emerald-500' : 'bg-emerald-600 text-white border-emerald-500/30'} shadow-[0_0_10px_rgba(16,185,129,0.3)]`;
+                                }
+                            } else {
+                                div.className = `${baseClasses} bg-white/5 text-slate-500 border-white/5`;
+                            }
+                            
+                            // 存储数据属性以便后续更新和事件委托
+                            div.setAttribute('data-severity', severity);
+                            div.setAttribute('data-sla-range', keys[index]);
+                            div.setAttribute('data-clickable', 'true');
+                            // 添加样式提示可点击

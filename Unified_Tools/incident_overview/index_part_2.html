@@ -1,0 +1,1765 @@
+                            div.style.cursor = 'pointer';
+                        }
+                    }
+                });
+            }
+        });
+
+        // 更新总数 - 使用更可靠的选择器
+        const totalEl = document.querySelector(`[data-sla-vendor="${vendor}"][data-field="total"]`);
+        if (totalEl) {
+            totalEl.textContent = formatNumber(total);
+        } else {
+            console.warn(`SLA total element not found for vendor: ${vendor}`);
+        }
+
+        console.log(`SLA ${vendor} total updated:`, total);
+        
+        // 更新视觉反馈
+        updateSLATableVisualFeedback();
+    }
+    
+    // 存储原始数据用于筛选和导出
+    let allDetailsData = [];
+    let filteredDetailsData = [];
+    // 存储当前选中的州（用于Region ID过滤）
+    let selectedStateForFilter = null;
+    // 存储当前选中的Severity（用于Ticket Severity过滤）
+    let selectedSeverityForFilter = null;
+    // 存储当前选中的SLA范围（用于SLA(%)过滤）
+    let selectedSLARangeForFilter = null;
+
+    // 存储Incident Log数据
+    let allIncidentLogData = [];
+    let filteredIncidentLogData = [];
+    let incidentLogColumns = [];
+    let incidentLogTotal = 0;
+    let incidentLogCurrentPage = 1;
+    let incidentLogLimit = 20;
+    let incidentLogLoading = false;
+    let incidentLogHasMore = false;  // 由 API 返回后设置，初始隐藏「加载更多」
+    let incidentLogFullDataInMemory = false;  // 下载全部后为 true，滚动时从内存追加行
+    let incidentLogDisplayedCount = 0;        // 当前表格已显示的行数（仅用于下载后的内存追加）
+
+    // 格式化列名显示
+    function formatColumnName(key) {
+        // 如果已经是格式化的名称（包含空格或特殊字符），直接返回
+        if (key.includes(' ') || key.includes('.') || key.includes('(')) {
+            return key;
+        }
+        // 将snake_case转换为Title Case
+        return key.split('_').map(word => {
+            if (word.toLowerCase() === 'no') return 'No.';
+            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        }).join(' ');
+    }
+
+    // 更新活动工单列表
+    function updateDetails(data, columns) {
+        if (!data || data.length === 0) {
+            console.log('updateDetails: No data provided');
+            // 显示空数据提示
+            const tbody = document.getElementById('details-body');
+            if (tbody) {
+                tbody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-slate-500">No data available</td></tr>';
+            }
+            // 更新记录数显示
+            updateDetailsRecordCount(0);
+            return;
+        }
+
+        console.log('updateDetails: Data received', data.length, 'records');
+        console.log('updateDetails: Columns order from backend', columns);
+
+        allDetailsData = data;
+        filteredDetailsData = [...data];
+        // 清除之前的过滤（数据更新时重置）
+        selectedStateForFilter = null;
+        selectedSeverityForFilter = null;
+        selectedSLARangeForFilter = null;
+
+        // 使用后端返回的列顺序，如果没有则从第一条数据获取
+        if (columns && columns.length > 0) {
+            detailsColumns = columns;
+        } else {
+            detailsColumns = Object.keys(data[0] || {});
+            console.warn('updateDetails: No column order provided, using Object.keys()');
+        }
+
+        if (detailsColumns.length === 0) {
+            console.error('updateDetails: No columns found');
+            return;
+        }
+
+        // 生成表头（按照Excel列顺序）
+        const thead = document.getElementById('details-header');
+        if (thead) {
+            // 添加序号列
+            let headerHTML = '<th class="px-4 py-2.5 text-[15px] font-[\'Inter\'] font-semibold text-[var(--text-primary)] min-w-[60px]">SN</th>';
+            headerHTML += detailsColumns.map(col => {
+                const displayName = formatColumnName(col);
+                const colLower = col.toLowerCase();
+                // 根据列类型设置不同的宽度
+                let widthClass = 'min-w-[100px]';
+                if (colLower.includes('no') || colLower.includes('ticket')) {
+                    widthClass = 'min-w-[120px]';
+                } else if (colLower.includes('sla')) {
+                    widthClass = 'min-w-[110px]';
+                } else if (colLower.includes('severity')) {
+                    widthClass = 'min-w-[80px]';
+                } else if (colLower.includes('title') || colLower.includes('description')) {
+                    widthClass = 'min-w-[200px]';
+                } else if (colLower.includes('time') || colLower.includes('created') || colLower.includes('occur')) {
+                    widthClass = 'min-w-[150px]';
+                } else if (colLower.includes('handler')) {
+                    widthClass = 'min-w-[120px]';
+                }
+                const paddingClass = 'px-3 py-2.5';
+                return `<th class="${paddingClass} ${widthClass} text-[15px] font-[\'Inter\'] font-semibold text-[var(--text-primary)]">${displayName}</th>`;
+            }).join('');
+            thead.innerHTML = headerHTML;
+            console.log('updateDetails: Header generated with', detailsColumns.length, 'columns in Excel order');
+        } else {
+            console.error('updateDetails: Header element not found');
+        }
+
+        // 更新记录数显示
+        updateDetailsRecordCount(filteredDetailsData.length);
+
+        // 清空并生成表格行
+        renderDetailsTable();
+        
+        // 更新地图
+        updateLiberiaMap(data);
+    }
+
+    // 更新Details表格的记录数显示
+    function updateDetailsRecordCount(count) {
+        // 直接通过ID更新记录数
+        const recordCountEl = document.getElementById('details-record-count');
+        if (recordCountEl) {
+            recordCountEl.textContent = `${formatNumber(count)} RECORDS`;
+        } else {
+            // 如果找不到，尝试通过父元素查找
+            const detailsContainer = document.querySelector('[data-details-container]');
+            if (detailsContainer) {
+                const header = detailsContainer.querySelector('h3');
+                if (header) {
+                    const existingSpan = header.nextElementSibling;
+                    if (existingSpan && existingSpan.tagName === 'SPAN') {
+                        existingSpan.textContent = `${formatNumber(count)} RECORDS`;
+                    }
+                }
+            }
+        }
+
+        // 更新"Viewing"文本
+        const viewingLabels = Array.from(document.querySelectorAll('p'));
+        const viewingEl = viewingLabels.find(el => el.textContent.includes('Viewing'));
+        if (viewingEl) {
+            viewingEl.textContent = `Viewing ${formatNumber(count)} of ${formatNumber(count)} operational incidents`;
+        }
+    }
+
+    // ==================== Incident Log Functions ====================
+
+    // 更新Incident Log表格
+    function updateIncidentLog(data, columns) {
+        if (!data || data.length === 0) {
+            console.log('updateIncidentLog: No data provided');
+            // 显示空数据提示
+            const tbody = document.getElementById('incident-log-body');
+            if (tbody) {
+                tbody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-slate-500">No data available</td></tr>';
+            }
+            // 更新记录数显示
+            updateIncidentLogRecordCount();
+            return;
+        }
+
+        console.log('updateIncidentLog: Data received', data.length, 'records');
+        console.log('updateIncidentLog: Columns order from backend', columns);
+
+        allIncidentLogData = data;
+        filteredIncidentLogData = [...data];
+
+        // 使用后端返回的列顺序，如果没有则从第一条数据获取
+        if (columns && columns.length > 0) {
+            incidentLogColumns = columns;
+        } else {
+            incidentLogColumns = Object.keys(data[0] || {});
+            console.warn('updateIncidentLog: No column order provided, using Object.keys()');
+        }
+
+        if (incidentLogColumns.length === 0) {
+            console.error('updateIncidentLog: No columns found');
+            return;
+        }
+
+        // 生成表头（按照Excel列顺序）
+        const thead = document.getElementById('incident-log-header');
+        if (thead) {
+            // 添加序号列
+            let headerHTML = '<th class="px-4 py-2.5 text-[15px] font-[\'Inter\'] font-semibold text-[var(--text-primary)] min-w-[60px]">SN</th>';
+            headerHTML += incidentLogColumns.map(col => {
+                const displayName = formatColumnName(col);
+                const colLower = col.toLowerCase();
+                // 根据列类型设置不同的宽度
+                let widthClass = 'min-w-[100px]';
+                if (colLower.includes('no') || colLower.includes('ticket')) {
+                    widthClass = 'min-w-[120px]';
+                } else if (colLower.includes('sla')) {
+                    widthClass = 'min-w-[110px]';
+                } else if (colLower.includes('severity')) {
+                    widthClass = 'min-w-[80px]';
+                } else if (colLower.includes('title') || colLower.includes('description')) {
+                    widthClass = 'min-w-[200px]';
+                } else if (colLower.includes('time') || colLower.includes('created') || colLower.includes('occur')) {
+                    widthClass = 'min-w-[150px]';
+                } else if (colLower.includes('handler')) {
+                    widthClass = 'min-w-[120px]';
+                }
+                const paddingClass = 'px-3 py-2.5';
+                return `<th class="${paddingClass} ${widthClass} text-[15px] font-[\'Inter\'] font-semibold text-[var(--text-primary)]">${displayName}</th>`;
+            }).join('');
+            thead.innerHTML = headerHTML;
+            console.log('updateIncidentLog: Header generated with', incidentLogColumns.length, 'columns in Excel order');
+        } else {
+            console.error('updateIncidentLog: Header element not found');
+        }
+
+        // 更新记录数显示
+        updateIncidentLogRecordCount();
+
+        // 清空并生成表格行
+        renderIncidentLogTable();
+    }
+
+    // 更新 Incident Log 记录数显示（始终用 incidentLogTotal）
+    function updateIncidentLogRecordCount() {
+        const recordCountEl = document.getElementById('incident-log-record-count');
+        if (recordCountEl) {
+            recordCountEl.textContent = `${formatNumber(incidentLogTotal)} RECORDS`;
+        } else {
+            const incidentLogContainer = document.querySelector('[data-incident-log-container]');
+            if (incidentLogContainer) {
+                const header = incidentLogContainer.querySelector('h3');
+                const existingSpan = header && header.nextElementSibling && header.nextElementSibling.tagName === 'SPAN' ? header.nextElementSibling : null;
+                if (existingSpan) existingSpan.textContent = `${formatNumber(incidentLogTotal)} RECORDS`;
+            }
+        }
+    }
+
+    // 渲染Incident Log表格
+    function renderIncidentLogTable() {
+        const tbody = document.getElementById('incident-log-body');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+
+        const dataToShow = filteredIncidentLogData;
+        // 使用保存的列顺序
+        const columns = incidentLogColumns.length > 0 ? incidentLogColumns : Object.keys(allIncidentLogData[0] || {});
+
+        dataToShow.forEach((ticket, rowIndex) => {
+            const row = document.createElement('tr');
+            row.className = 'hover:bg-white/5 transition-colors table-dark-row';
+
+            // 添加序号列
+            let cells = `<td class="px-4 py-2.5 font-[\'Inter\'] font-semibold text-[var(--text-primary)] text-[15px]">${rowIndex + 1}</td>`;
+
+            cells += columns.map((col, idx) => {
+                const value = ticket[col] || '';
+                let cellContent = '';
+                const colLower = col.toLowerCase();
+
+                // 第一列（通常是Ticket No.）使用特殊样式
+                if (idx === 0) {
+                    cellContent = `<td class="px-3 py-2.5 font-[\'Inter\'] font-semibold text-[var(--text-secondary)] text-[15px]">${escapeHtml(value)}</td>`;
+                } else {
+                    // 特殊处理SLA列（可能是 "SLA(%)" 或 "SLA Compliance" 等）- 使用美化徽章
+                    if (colLower.includes('sla')) {
+                        cellContent = `<td class="px-3 py-2.5"><div class="flex items-center justify-center">${createSLABadge(value)}</div></td>`;
+                    }
+                    // 特殊处理Severity列（可能是 "Ticket Severity" 或 "Severity" 等）- 使用美化徽章
+                    else if (colLower.includes('severity')) {
+                        const sev = String(value).toUpperCase();
+                        const isP1 = sev === 'P1';
+                        cellContent = `<td class="px-3 py-2.5 ${isP1 ? 'p1-alert' : ''}"><div class="flex items-center justify-center">${createSeverityBadge(value)}</div></td>`;
+                    }
+                    // 特殊处理Status列 - 使用颜色但取消粗体
+                    else if (colLower.includes('status')) {
+                        const statusColor = getStatusColor(value);
+                        cellContent = `<td class="px-3 py-2.5 ${statusColor} text-[15px] font-[\'Inter\']">${escapeHtml(value)}</td>`;
+                    }
+                    // 处理Duration列
+                    else if (colLower.includes('duration')) {
+                        // 如果是数字，格式化显示
+                        const numValue = typeof value === 'number' ? value.toFixed(2) : value;
+                        cellContent = `<td class="px-3 py-2.5 font-mono text-[15px]">${escapeHtml(numValue)}</td>`;
+                    }
+                    // 处理Handler列
+                    else if (colLower.includes('handler') || colLower.includes('current handler')) {
+                        cellContent = `<td class="px-3 py-2.5 text-slate-400 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                    }
+                    // 处理Title/Description列
+                    else if (colLower.includes('title') || colLower.includes('description')) {
+                        cellContent = `<td class="px-3 py-2.5 truncate max-w-[200px]" title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
+                    }
+                    // 处理FB_ORG/Domain列
+                    else if (colLower.includes('fb_org') || colLower.includes('domain') || colLower.includes('org')) {
+                        cellContent = `<td class="px-3 py-2.5 font-bold text-slate-400 text-[15px]">${escapeHtml(value)}</td>`;
+                    }
+                    // 处理数字类型的列
+                    else if (typeof value === 'number') {
+                        cellContent = `<td class="px-3 py-2.5 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                    }
+                    // 处理时间列
+                    else if (colLower.includes('time') || colLower.includes('created') || colLower.includes('occur')) {
+                        cellContent = `<td class="px-3 py-2.5 text-slate-400 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                    }
+                    // 默认样式
+                    else {
+                        cellContent = `<td class="px-3 py-2.5 text-[var(--text-primary)]/90 font-[\'Inter\'] text-[15px]">${escapeHtml(value)}</td>`;
+                    }
+                }
+                return cellContent;
+            }).join('');
+
+            row.innerHTML = cells;
+            tbody.appendChild(row);
+        });
+
+        updateIncidentLogRecordCount();
+        // 更新表格底部的查看信息
+        const incidentLogContainer = document.querySelector('[data-incident-log-container]');
+        if (incidentLogContainer) {
+            const viewingEl = incidentLogContainer.querySelector('p');
+            if (viewingEl) {
+                viewingEl.textContent = `Viewing ${formatNumber(filteredIncidentLogData.length)} of ${formatNumber(incidentLogTotal)} incidents`;
+            }
+        }
+    }
+
+    // 构建单行 tr（仅用于“下载后从内存追加”，与 renderIncidentLogTable 内逻辑一致，不改动原表格结构）
+    function buildIncidentLogRow(ticket, rowIndex) {
+        const columns = incidentLogColumns.length > 0 ? incidentLogColumns : Object.keys(allIncidentLogData[0] || {});
+        const row = document.createElement('tr');
+        row.className = 'hover:bg-white/5 transition-colors table-dark-row';
+        let cells = `<td class="px-4 py-2.5 font-[\'Inter\'] font-semibold text-[var(--text-primary)] text-[15px]">${rowIndex + 1}</td>`;
+        cells += columns.map((col, idx) => {
+            const value = ticket[col] || '';
+            let cellContent = '';
+            const colLower = col.toLowerCase();
+            if (idx === 0) {
+                cellContent = `<td class="px-3 py-2.5 font-[\'Inter\'] font-semibold text-[var(--text-secondary)] text-[15px]">${escapeHtml(value)}</td>`;
+            } else {
+                if (colLower.includes('sla')) {
+                    cellContent = `<td class="px-3 py-2.5"><div class="flex items-center justify-center">${createSLABadge(value)}</div></td>`;
+                } else if (colLower.includes('severity')) {
+                    const sev = String(value).toUpperCase();
+                    const isP1 = sev === 'P1';
+                    cellContent = `<td class="px-3 py-2.5 ${isP1 ? 'p1-alert' : ''}"><div class="flex items-center justify-center">${createSeverityBadge(value)}</div></td>`;
+                } else if (colLower.includes('status')) {
+                    const statusColor = getStatusColor(value);
+                    cellContent = `<td class="px-3 py-2.5 ${statusColor} text-[15px] font-[\'Inter\']">${escapeHtml(value)}</td>`;
+                } else if (colLower.includes('duration')) {
+                    const numValue = typeof value === 'number' ? value.toFixed(2) : value;
+                    cellContent = `<td class="px-3 py-2.5 font-mono text-[15px]">${escapeHtml(numValue)}</td>`;
+                } else if (colLower.includes('handler') || colLower.includes('current handler')) {
+                    cellContent = `<td class="px-3 py-2.5 text-slate-400 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                } else if (colLower.includes('title') || colLower.includes('description')) {
+                    cellContent = `<td class="px-3 py-2.5 truncate max-w-[200px]" title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
+                } else if (colLower.includes('fb_org') || colLower.includes('domain') || colLower.includes('org')) {
+                    cellContent = `<td class="px-3 py-2.5 font-bold text-slate-400 text-[15px]">${escapeHtml(value)}</td>`;
+                } else if (typeof value === 'number') {
+                    cellContent = `<td class="px-3 py-2.5 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                } else if (colLower.includes('time') || colLower.includes('created') || colLower.includes('occur')) {
+                    cellContent = `<td class="px-3 py-2.5 text-slate-400 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                } else {
+                    cellContent = `<td class="px-3 py-2.5 text-[var(--text-primary)]/90 font-[\'Inter\'] text-[15px]">${escapeHtml(value)}</td>`;
+                }
+            }
+            return cellContent;
+        }).join('');
+        row.innerHTML = cells;
+        return row;
+    }
+
+    // 向表格末尾追加 [start, end) 行（仅用于下载后从内存滚动加载，不重绘整表）
+    function appendIncidentLogRows(start, end) {
+        const tbody = document.getElementById('incident-log-body');
+        if (!tbody) return;
+        const data = filteredIncidentLogData;
+        const toEnd = Math.min(end, data.length);
+        for (let i = start; i < toEnd; i++) {
+            tbody.appendChild(buildIncidentLogRow(data[i], i));
+        }
+        const incidentLogContainer = document.querySelector('[data-incident-log-container]');
+        if (incidentLogContainer) {
+            const viewingEl = incidentLogContainer.querySelector('p');
+            if (viewingEl) {
+                viewingEl.textContent = `Viewing ${formatNumber(toEnd)} of ${formatNumber(incidentLogTotal)} incidents`;
+            }
+        }
+    }
+
+    // 加载Incident Log数据（支持分页）
+    async function loadIncidentLogData(page = 1, append = false) {
+        try {
+            console.log(`Loading Incident Log data - Page ${page}...`);
+            
+            // 设置加载状态
+            incidentLogLoading = true;
+            updateIncidentLogLoadMoreButton();
+            
+            // 如果是第一页，显示加载状态
+            if (page === 1 && !append) {
+                const tbody = document.getElementById('incident-log-body');
+                if (tbody) {
+                    tbody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-slate-500">Loading data...</td></tr>';
+                }
+            } else if (append) {
+                // 如果是追加数据，在表格底部显示加载更多状态
+                const tbody = document.getElementById('incident-log-body');
+                if (tbody) {
+                    const loadingRow = document.createElement('tr');
+                    loadingRow.id = 'incident-log-loading-row';
+                    loadingRow.innerHTML = '<td colspan="100%" class="text-center py-4 text-slate-500">Loading more...</td>';
+                    tbody.appendChild(loadingRow);
+                }
+            }
+            
+            const response = await fetch(`${API_BASE}${API_BASE_PATH}/api/incident_log?page=${page}&limit=${incidentLogLimit}`, {
+                method: 'GET',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (data.error) {
+                console.error('Error loading Incident Log data:', data.error);
+                const tbody = document.getElementById('incident-log-body');
+                if (tbody) tbody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-red-500">Error loading data</td></tr>';
+                incidentLogLoading = false;
+                incidentLogHasMore = false;
+                updateIncidentLogLoadMoreButton();
+                return;
+            }
+
+            console.log('Incident Log data loaded successfully:', data.data ? data.data.length : 0, 'records');
+            
+            incidentLogTotal = data.total != null ? data.total : (data.data ? data.data.length : 0);
+            incidentLogCurrentPage = page;
+            // 有 total 用分页判断；无 total 时若本页满页则假定还有更多
+            incidentLogHasMore = (incidentLogTotal > 0 && (page * incidentLogLimit) < incidentLogTotal) ||
+                (data.data && data.data.length >= incidentLogLimit);
+            
+            // 更新Incident Log表格
+            if (page === 1 && !append) {
+                incidentLogFullDataInMemory = false; // 正常分页模式，滚动走 API
+                // 第一页，替换数据
+                allIncidentLogData = data.data || [];
+                filteredIncidentLogData = [...allIncidentLogData];
+                incidentLogColumns = data.columns || [];
+                // 使用updateIncidentLog函数来更新表格，包括表头
+                updateIncidentLog(data.data, data.columns);
+            } else if (append) {
+                // 追加数据
+                const newData = data.data || [];
+                allIncidentLogData = [...allIncidentLogData, ...newData];
+                filteredIncidentLogData = [...allIncidentLogData];
+                // 移除加载行
+                const loadingRow = document.getElementById('incident-log-loading-row');
+                if (loadingRow) {
+                    loadingRow.remove();
+                }
+                // 渲染新数据
+                renderIncidentLogTable();
+            }
+            
+            updateIncidentLogRecordCount();
+            // 重置加载状态
+            incidentLogLoading = false;
+            updateIncidentLogLoadMoreButton();
+            // 仅当内容不足一屏（无滚动条）且还有更多时，自动再拉一页
+            if (incidentLogHasMore && !incidentLogFullDataInMemory && data.data && data.data.length > 0) {
+                setTimeout(function() {
+                    var el = document.querySelector('[data-incident-log-container] [data-incident-log-scroll]');
+                    if (el && el.scrollHeight <= el.clientHeight + 50) loadMoreIncidentLogData();
+                }, 400);
+            }
+        } catch (error) {
+            console.error('Error in loadIncidentLogData:', error);
+            const tbody = document.getElementById('incident-log-body');
+            if (tbody) tbody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-red-500">Error loading data</td></tr>';
+            incidentLogLoading = false;
+            incidentLogHasMore = false;
+            updateIncidentLogLoadMoreButton();
+        }
+    }
+
+    // 加载更多Incident Log数据
+    function loadMoreIncidentLogData() {
+        if (incidentLogFullDataInMemory) {
+            loadMoreIncidentLogFromMemory();
+            return;
+        }
+        if (!incidentLogLoading && incidentLogHasMore) {
+            const nextPage = incidentLogCurrentPage + 1;
+            loadIncidentLogData(nextPage, true);
+        }
+    }
+
+    // 下载后从内存追加下一批行（不请求 API，不重绘整表）
+    function loadMoreIncidentLogFromMemory() {
+        if (incidentLogLoading || !incidentLogHasMore || !incidentLogFullDataInMemory) return;
+        incidentLogLoading = true;
+        const start = incidentLogDisplayedCount;
+        const end = Math.min(start + incidentLogLimit, filteredIncidentLogData.length);
+        appendIncidentLogRows(start, end);
+        incidentLogDisplayedCount = end;
+        incidentLogHasMore = end < filteredIncidentLogData.length;
+        incidentLogLoading = false;
+        updateIncidentLogLoadMoreButton();
+    }
+
+    // 下载所有Incident Log数据
+    async function downloadIncidentLogData() {
+        try {
+            console.log('Downloading all Incident Log data...');
+            
+            const response = await fetch(`${API_BASE}${API_BASE_PATH}/api/incident_log?download=true`, {
+                method: 'GET',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (data.error) {
+                console.error('Error downloading Incident Log data:', data.error);
+                alert('Error downloading data');
+                return;
+            }
+
+            console.log('Incident Log data downloaded successfully:', data.data ? data.data.length : 0, 'records');
+            
+            // 仅保存到内存并生成文件，不刷新表格，避免一次渲染数千行导致页面卡死
+            const fullData = data.data || [];
+            allIncidentLogData = fullData;
+            filteredIncidentLogData = [...fullData];
+            incidentLogColumns = data.columns || [];
+            incidentLogTotal = fullData.length;
+            incidentLogFullDataInMemory = true;
+            incidentLogDisplayedCount = incidentLogLimit; // 表格当前仍是下载前的 20 条
+            incidentLogHasMore = incidentLogDisplayedCount < fullData.length;
+            const incidentLogContainer = document.querySelector('[data-incident-log-container]');
+            if (incidentLogContainer) {
+                const viewingEl = incidentLogContainer.querySelector('p');
+                if (viewingEl) viewingEl.textContent = `Viewing ${formatNumber(incidentLogDisplayedCount)} of ${formatNumber(incidentLogTotal)} incidents`;
+            }
+            updateIncidentLogLoadMoreButton();
+
+            // 生成 CSV 并触发浏览器文件下载
+            const columns = data.columns && data.columns.length > 0 ? data.columns : (data.data && data.data[0] ? Object.keys(data.data[0]) : []);
+            const headers = columns.map(col => formatColumnName(col));
+            let csvContent = '\uFEFF'; // UTF-8 BOM，便于 Excel 正确打开
+            csvContent += headers.join(',') + '\n';
+            (data.data || []).forEach(row => {
+                const values = columns.map(col => {
+                    let value = row[col] ?? '';
+                    if (String(value).includes(',') || String(value).includes('"') || String(value).includes('\n')) {
+                        value = `"${String(value).replace(/"/g, '""')}"`;
+                    }
+                    return value;
+                });
+                csvContent += values.join(',') + '\n';
+            });
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.href = url;
+            link.download = `incident_log_${new Date().toISOString().split('T')[0]}.csv`;
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            
+            // 提示用户下载完成
+            alert(`已成功下载 ${data.data.length} 条记录，文件已保存为 incident_log_*.csv`);
+        } catch (error) {
+            console.error('Error in downloadIncidentLogData:', error);
+            alert('Error downloading data');
+        }
+    }
+
+    // 更新「加载更多」按钮：有更多则显示，加载中则禁用并显示「加载中...」
+    function updateIncidentLogLoadMoreButton() {
+        const btn = document.getElementById('incident-log-load-more-btn');
+        if (!btn) return;
+        if (incidentLogHasMore) {
+            btn.classList.remove('hidden');
+            btn.disabled = !!incidentLogLoading;
+            btn.textContent = incidentLogLoading ? 'Loading...' : 'Loading More';
+        } else {
+            btn.classList.add('hidden');
+        }
+    }
+
+    // 无限滚动：表格内滚动触底 或 哨兵进入视口 时加载更多
+    function setupIncidentLogScrollListener() {
+        const tableContainer = document.querySelector('[data-incident-log-container] [data-incident-log-scroll]');
+        const sentinel = document.getElementById('incident-log-sentinel');
+        if (!tableContainer) return;
+
+        function tryLoadMore() {
+            if (incidentLogLoading || !incidentLogHasMore) return;
+            var sh = tableContainer.scrollHeight, ch = tableContainer.clientHeight, st = tableContainer.scrollTop;
+            if (sh <= ch + 80 || st + ch >= sh - 80) loadMoreIncidentLogData();
+        }
+
+        tableContainer.addEventListener('scroll', tryLoadMore);
+        if (sentinel && typeof IntersectionObserver !== 'undefined') {
+            new IntersectionObserver(function(entries) {
+                if (entries[0].isIntersecting) tryLoadMore();
+            }, { root: tableContainer, rootMargin: '0px 0px 80px 0px', threshold: 0 }).observe(sentinel);
+        }
+    }
+
+    // ==================== Incident Log Filter Functions ====================
+
+    // 切换Incident Log过滤搜索框的显示/隐藏
+    function toggleIncidentLogFilter() {
+        const filterContainer = document.getElementById('incident-log-filter-search-container');
+        if (filterContainer) {
+            filterContainer.classList.toggle('hidden');
+            // 如果显示了搜索框，自动聚焦
+            if (!filterContainer.classList.contains('hidden')) {
+                const searchInput = document.getElementById('incident-log-filter-search-input');
+                if (searchInput) {
+                    searchInput.focus();
+                }
+            }
+        }
+    }
+
+    // 应用Incident Log过滤
+    function applyIncidentLogFilter() {
+        const searchInput = document.getElementById('incident-log-filter-search-input');
+        if (!searchInput) return;
+        
+        const searchTerm = searchInput.value.trim().toLowerCase();
+        
+        if (!searchTerm) {
+            // 如果搜索词为空，显示所有数据
+            filteredIncidentLogData = [...allIncidentLogData];
+        } else {
+            // 否则，根据搜索词过滤数据
+            filteredIncidentLogData = allIncidentLogData.filter(ticket => {
+                // 检查所有列的值是否包含搜索词
+                return Object.values(ticket).some(value => {
+                    if (value === null || value === undefined) return false;
+                    return String(value).toLowerCase().includes(searchTerm);
+                });
+            });
+        }
+        
+        // 重新渲染表格
+        renderIncidentLogTable();
+    }
+
+    // 清除Incident Log过滤
+    function clearIncidentLogFilter() {
+        const searchInput = document.getElementById('incident-log-filter-search-input');
+        if (searchInput) {
+            searchInput.value = '';
+        }
+        
+        // 重置过滤数据
+        filteredIncidentLogData = [...allIncidentLogData];
+        
+        // 重新渲染表格
+        renderIncidentLogTable();
+        
+        // 隐藏搜索框
+        toggleIncidentLogFilter();
+    }
+
+    // 利比里亚地图相关变量
+    let liberiaMap = null;
+    window.mapMarkers = [];
+    window.stateLayers = []; // 存储州边界图层
+    let liberiaGeoJSON = null; // 存储GeoJSON数据
+    const liberiaStates = [
+        'Bomi', 'Bong', 'Gbarpolu', 'Grand Bassa', 'Grand Cape Mount', 
+        'Grand Gedeh', 'Grand Kru', 'Lofa', 'Margibi', 'Maryland', 
+        'Montserrado', 'Nimba', 'River Cess', 'River Gee', 'Sinoe'
+    ];
+    
+    // 州名映射（从GeoJSON中的名称映射到标准名称）
+    const stateNameMapping = {
+        'Gbapolu': 'Gbarpolu',
+        'Bomi': 'Bomi',
+        'Bong': 'Bong',
+        'Grand Bassa': 'Grand Bassa',
+        'Grand Cape Mount': 'Grand Cape Mount',
+        'Grand Gedeh': 'Grand Gedeh',
+        'Grand Kru': 'Grand Kru',
+        'Lofa': 'Lofa',
+        'Margibi': 'Margibi',
+        'Maryland': 'Maryland',
+        'Montserrado': 'Montserrado',
+        'Nimba': 'Nimba',
+        'River Cess': 'River Cess',
+        'River Gee': 'River Gee',
+        'Sinoe': 'Sinoe'
+    };
+    
+    // 利比里亚各州的简化边界数据（使用矩形近似，中心点和宽高）- 保留用于标签定位
+    const liberiaStateBoundaries = {
+        'Bomi': { center: [6.5, -10.7], width: 0.6, height: 0.5 },
+        'Bong': { center: [7.0, -9.4], width: 0.8, height: 0.7 },
+        'Gbarpolu': { center: [7.5, -10.1], width: 0.7, height: 0.6 },
+        'Grand Bassa': { center: [6.0, -9.8], width: 0.6, height: 0.5 },
+        'Grand Cape Mount': { center: [7.0, -11.2], width: 0.5, height: 0.4 },
+        'Grand Gedeh': { center: [6.0, -8.1], width: 0.8, height: 0.7 },
+        'Grand Kru': { center: [4.8, -8.2], width: 0.5, height: 0.4 },
+        'Lofa': { center: [8.0, -9.7], width: 0.9, height: 0.8 },
+        'Margibi': { center: [6.3, -10.3], width: 0.5, height: 0.4 },
+        'Maryland': { center: [4.7, -7.6], width: 0.4, height: 0.3 },
+        'Montserrado': { center: [6.3, -10.8], width: 0.4, height: 0.3 },
+        'Nimba': { center: [7.5, -8.5], width: 1.0, height: 0.9 },
+        'River Cess': { center: [5.5, -9.6], width: 0.5, height: 0.4 },
+        'River Gee': { center: [5.2, -7.9], width: 0.5, height: 0.4 },
+        'Sinoe': { center: [5.3, -8.7], width: 0.7, height: 0.6 }
+    };
+    
+    // 从GeoJSON feature中获取州名
+    function getStateNameFromFeature(feature) {
+        if (!feature || !feature.properties) return null;
+        return feature.properties.name || feature.properties['alt-name'] || null;
+    }
+    
+    // 加载GeoJSON数据并转换坐标
+    async function loadLiberiaGeoJSON() {
+        if (liberiaGeoJSON) {
+            return liberiaGeoJSON;
+        }
+        
+        try {
+            const response = await fetch('lr-all.geo.json');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                const text = await response.text();
+                console.error('响应不是JSON格式:', text.substring(0, 200));
+                throw new Error('响应不是JSON格式，可能是HTML页面');
+            }
+            const geoData = await response.json();
+            
+            // 获取转换参数（Highcharts格式）
+            const transform = geoData['hc-transform'] && geoData['hc-transform'].default;
+            if (!transform) {
+                console.error('GeoJSON文件缺少hc-transform信息');
+                return null;
+            }
+            
+            // 转换参数
+            const scale = transform.scale || 0.00150223556379;
+            const jsonres = transform.jsonres || 15.5;
+            const xoffset = transform.xoffset || 226372.825013;
+            const yoffset = transform.yoffset || 946626.856929;
+            const jsonmarginX = transform.jsonmarginX || -999;
+            const jsonmarginY = transform.jsonmarginY || 9851.0;
+            
+            // 检查proj4是否可用
+            if (typeof proj4 === 'undefined') {
+                console.error('proj4库未加载！无法转换坐标。');
+                return null;
+            }
+            
+            console.log('开始转换GeoJSON坐标，features数量:', geoData.features.length);
+            let transformErrorCount = 0;
+            let successCount = 0;
+            let outOfRangeCount = 0;
+            
+            // 首先收集所有features的参考点（使用properties中的经纬度）
+            const referencePoints = [];
+            geoData.features.forEach(feature => {
+                if (feature.properties && feature.properties.longitude && feature.properties.latitude) {
+                    const refLon = parseFloat(feature.properties.longitude);
+                    const refLat = parseFloat(feature.properties.latitude);
+                    // 找到对应的几何中心点（使用hc-middle-x和hc-middle-y，或者计算边界框中心）
+                    if (feature.geometry && feature.geometry.coordinates) {
+                        // 计算边界框
+                        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                        let hasValidCoords = false;
+                        function getBounds(coords) {
+                            if (!Array.isArray(coords) || coords.length === 0) return;
+                            if (Array.isArray(coords[0]) && coords[0].length >= 2 && typeof coords[0][0] === 'number' && typeof coords[0][1] === 'number') {
+                                coords.forEach(c => {
+                                    if (Array.isArray(c) && c.length >= 2 && typeof c[0] === 'number' && typeof c[1] === 'number') {
+                                        minX = Math.min(minX, c[0]);
+                                        maxX = Math.max(maxX, c[0]);
+                                        minY = Math.min(minY, c[1]);
+                                        maxY = Math.max(maxY, c[1]);
+                                        hasValidCoords = true;
+                                    }
+                                });
+                            } else if (Array.isArray(coords[0])) {
+                                coords.forEach(getBounds);
+                            }
+                        }
+                        getBounds(feature.geometry.coordinates);
+                        if (hasValidCoords && isFinite(minX) && isFinite(maxX) && isFinite(minY) && isFinite(maxY)) {
+                            const centerX = (minX + maxX) / 2;
+                            const centerY = (minY + maxY) / 2;
+                            referencePoints.push({
+                                pixel: [centerX, centerY],
+                                geo: [refLat, refLon]
+                            });
+                        }
+                    }
+                }
+            });
+            
+            // 使用参考点计算转换参数（如果参考点足够多）
+            let useReferencePoints = referencePoints.length >= 3;
+            let transformMatrix = null;
+            
+            if (useReferencePoints) {
+                console.log(`找到 ${referencePoints.length} 个参考点，使用参考点进行转换`);
+                // 计算简单的线性变换（使用前两个参考点）
+                const p1 = referencePoints[0];
+                const p2 = referencePoints[1];
+                
+                // 计算像素坐标到地理坐标的缩放和偏移
+                const pixelDeltaX = p2.pixel[0] - p1.pixel[0];
+                const pixelDeltaY = p2.pixel[1] - p1.pixel[1];
+                const geoDeltaLat = p2.geo[0] - p1.geo[0];
+                const geoDeltaLon = p2.geo[1] - p1.geo[1];
+                
+                const scaleX = pixelDeltaX !== 0 ? geoDeltaLon / pixelDeltaX : 0;
+                const scaleY = pixelDeltaY !== 0 ? geoDeltaLat / pixelDeltaY : 0;
+                
+                // 计算偏移
+                const offsetLon = p1.geo[1] - p1.pixel[0] * scaleX;
+                const offsetLat = p1.geo[0] - p1.pixel[1] * scaleY;
+                
+                transformMatrix = { scaleX, scaleY, offsetLon, offsetLat };
+                console.log('转换矩阵:', transformMatrix);
+            }
+            
+            // 转换每个feature的坐标（从Highcharts像素坐标转换为经纬度）
+            let sampleCoords = [];
+            geoData.features.forEach((feature, idx) => {
+                if (feature.geometry && feature.geometry.coordinates) {
+                    const coords = feature.geometry.coordinates;
+                    let firstCoord = null;
+                    
+                    function transformCoordinates(coords) {
+                        if (Array.isArray(coords[0]) && typeof coords[0][0] === 'number') {
+                            // 这是一个坐标数组 [x, y]
+                            return coords.map((coord, coordIdx) => {
+                                try {
+                                    let lat, lon;
+                                    
+                                    if (useReferencePoints && transformMatrix) {
+                                        // 使用参考点转换
+                                        lon = coord[0] * transformMatrix.scaleX + transformMatrix.offsetLon;
+                                        lat = coord[1] * transformMatrix.scaleY + transformMatrix.offsetLat;
+                                    } else {
+                                        // 使用原始Highcharts转换公式
+                                        const x = (coord[0] + jsonmarginX) * scale + xoffset;
+                                        const y = (coord[1] + jsonmarginY) * scale + yoffset;
+                                        
+                                        const utm29 = '+proj=utm +zone=29 +datum=WGS84 +units=m +no_defs';
+                                        const wgs84 = '+proj=longlat +datum=WGS84 +no_defs';
+                                        [lon, lat] = proj4(utm29, wgs84, [x, y]);
+                                    }
+                                    
+                                    // 保存第一个坐标作为样本
+                                    if (firstCoord === null && coordIdx === 0) {
+                                        firstCoord = {
+                                            original: coord,
+                                            wgs84: [lon, lat], // GeoJSON标准格式是[lon, lat]
+                                            state: feature.properties?.name || 'unknown',
+                                            method: useReferencePoints ? 'reference' : 'utm'
+                                        };
+                                        if (!useReferencePoints) {
+                                            const x = (coord[0] + jsonmarginX) * scale + xoffset;
+                                            const y = (coord[1] + jsonmarginY) * scale + yoffset;
+                                            firstCoord.utm = [x, y];
+                                        }
+                                        sampleCoords.push(firstCoord);
+                                    }
+                                    
+                                    // 验证坐标是否合理（利比里亚的大致范围）
+                                    if (lat < 4 || lat > 9 || lon < -12 || lon > -7) {
+                                        outOfRangeCount++;
+                                        if (outOfRangeCount <= 3) { // 只显示前3个警告
+                                            console.warn(`坐标超出范围: [${lat.toFixed(4)}, ${lon.toFixed(4)}] for coord [${coord[0]}, ${coord[1]}]`);
+                                        }
+                                    }
+                                    
+                                    successCount++;
+                                    return [lon, lat]; // GeoJSON标准格式是[lon, lat]
+                                } catch (e) {
+                                    transformErrorCount++;
+                                    if (transformErrorCount <= 5) { // 只显示前5个错误
+                                        console.warn('坐标转换错误:', e.message, 'coord:', coord);
+                                    }
+                                    // 如果转换失败，尝试使用properties中的经纬度作为参考
+                                    if (feature.properties && feature.properties.longitude && feature.properties.latitude) {
+                                        // GeoJSON标准格式是[lon, lat]
+                                        return [parseFloat(feature.properties.longitude), parseFloat(feature.properties.latitude)];
+                                    }
+                                    return [0, 0];
+                                }
+                            });
+                        } else {
+                            // 嵌套数组，递归处理
+                            return coords.map(transformCoordinates);
+                        }
+                    }
+                    
+                    feature.geometry.coordinates = transformCoordinates(coords);
+                }
+            });
+            
+            // 输出样本坐标用于调试
+            if (sampleCoords.length > 0) {
+                console.log('坐标转换样本（前3个）:');
+                sampleCoords.slice(0, 3).forEach((sample, i) => {
+                    let utmStr = sample.utm ? `UTM[${sample.utm[0].toFixed(2)}, ${sample.utm[1].toFixed(2)}]` : 'N/A';
+                    console.log(`  ${i+1}. ${sample.state}: 原始[${sample.original[0]}, ${sample.original[1]}] -> ${utmStr} -> WGS84[${sample.wgs84[0].toFixed(4)}, ${sample.wgs84[1].toFixed(4)}] (方法: ${sample.method})`);
+                });
+            }
+            
+            console.log(`坐标转换完成: 成功 ${successCount} 个, 错误 ${transformErrorCount} 个, 超出范围 ${outOfRangeCount} 个`);
+            
+            // 检查转换后的坐标范围
+            let minLat = Infinity, maxLat = -Infinity;
+            let minLon = Infinity, maxLon = -Infinity;
+            geoData.features.forEach(feature => {
+                if (feature.geometry && feature.geometry.coordinates) {
+                    function checkBounds(coords) {
+                        if (!Array.isArray(coords) || coords.length === 0) return;
+                        if (Array.isArray(coords[0]) && coords[0].length >= 2 && typeof coords[0][0] === 'number' && typeof coords[0][1] === 'number') {
+                            coords.forEach(coord => {
+                                if (Array.isArray(coord) && coord.length >= 2) {
+                                    // GeoJSON标准格式是[lon, lat]
+                                    const lon = coord[0];
+                                    const lat = coord[1];
+                                    if (typeof lat === 'number' && typeof lon === 'number' && !isNaN(lat) && !isNaN(lon) && isFinite(lat) && isFinite(lon)) {
+                                        minLat = Math.min(minLat, lat);
+                                        maxLat = Math.max(maxLat, lat);
+                                        minLon = Math.min(minLon, lon);
+                                        maxLon = Math.max(maxLon, lon);
+                                    }
+                                }
+                            });
+                        } else if (Array.isArray(coords[0])) {
+                            coords.forEach(checkBounds);
+                        }
+                    }
+                    checkBounds(feature.geometry.coordinates);
+                }
+            });
+            console.log(`转换后的坐标范围: 纬度 [${minLat.toFixed(4)}, ${maxLat.toFixed(4)}], 经度 [${minLon.toFixed(4)}, ${maxLon.toFixed(4)}]`);
+            
+            liberiaGeoJSON = geoData;
+            return geoData;
+        } catch (error) {
+            console.error('加载GeoJSON文件失败:', error);
+            if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+                console.error('可能是网络错误或文件路径不正确。请确保Flask服务器正在运行，并且lr-all.geo.json文件存在。');
+            }
+            return null;
+        }
+    }
+    
+    // 使用矩形作为后备方案（如果GeoJSON加载失败）
+    function updateLiberiaMapWithRectangles(data) {
+        // 这里保留原来的矩形绘制逻辑作为后备
+        // 为了简化，我们直接调用原来的逻辑
+        console.warn('使用矩形作为后备方案');
+    }
+
+    // 初始化利比里亚地图
+    function initLiberiaMap() {
+        const mapContainer = document.getElementById('liberia-map');
+        if (!mapContainer || liberiaMap) return;
+
+        // 初始化Leaflet地图，中心点在利比里亚
+        liberiaMap = L.map('liberia-map', {
+            center: [6.4281, -9.4295], // 利比里亚中心坐标
+            zoom: 7,
+            zoomControl: true,
+            attributionControl: false
+        });
+
+        // 创建一个简单的深色SVG瓦片作为默认背景
+        const darkTileSvg = 'data:image/svg+xml;base64,' + btoa(`
+            <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+                <rect width="256" height="256" fill="#0a0a0a"/>
+                <rect x="0" y="0" width="256" height="256" fill="#1a1a1a" opacity="0.3"/>
+            </svg>
+        `);
+        
+        // 使用简单可靠的浅色瓦片服务
+        // 方案1：使用Esri WorldDarkGrayCanvas（深灰色，非常可靠）
+        const esriLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+            attribution: '&copy; <a href="https://www.esri.com/">Esri</a>',
+            maxZoom: 16,
+            errorTileUrl: darkTileSvg
+        });
+        
+        // 方案2：使用CartoDB DarkMatter（深色主题，备用）
+        const cartoLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            maxZoom: 19,
+            subdomains: 'abcd',
+            errorTileUrl: darkTileSvg
+        });
+        
+        // 方案3：使用OpenStreetMap（最后备用）
+        const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 19,
+            subdomains: 'abc',
+            errorTileUrl: darkTileSvg
+        });
+        
+        // 先尝试Esri图层
+        esriLayer.addTo(liberiaMap);
+        
+        // 监听瓦片加载错误，自动切换到备用图层
+        let errorCount = 0;
+        const maxErrors = 3;
+        let currentLayer = esriLayer;
+        
+        function switchToBackupLayer() {
+            if (currentLayer === esriLayer && !cartoLayer._map) {
+                liberiaMap.removeLayer(esriLayer);
+                cartoLayer.addTo(liberiaMap);
+                currentLayer = cartoLayer;
+                errorCount = 0;
+            } else if (currentLayer === cartoLayer && !osmLayer._map) {
+                liberiaMap.removeLayer(cartoLayer);
+                osmLayer.addTo(liberiaMap);
+                currentLayer = osmLayer;
+                errorCount = 0;
+            }
+        }
+        
+        esriLayer.on('tileerror', function() {
+            errorCount++;
+            if (errorCount >= maxErrors) {
+                switchToBackupLayer();
+            }
+        });
+        
+        cartoLayer.on('tileerror', function() {
+            if (currentLayer === cartoLayer) {
+                errorCount++;
+                if (errorCount >= maxErrors) {
+                    switchToBackupLayer();
+                }
+            }
+        });
+        
+        // 重置错误计数（当瓦片成功加载时）
+        esriLayer.on('tileload', function() {
+            if (errorCount > 0) errorCount = Math.max(0, errorCount - 1);
+        });
+        cartoLayer.on('tileload', function() {
+            if (errorCount > 0) errorCount = Math.max(0, errorCount - 1);
+        });
+
+        // 添加自定义样式
+        const style = document.createElement('style');
+        style.textContent = `
+            .leaflet-container {
+                background: #0a0a0a !important;
+            }
+            /* 确保加载失败的瓦片显示深色背景 */
+            .leaflet-tile-pane {
+                background-color: #0a0a0a !important;
+            }
+            .leaflet-tile-container {
+                background-color: #0a0a0a !important;
+            }
+            .leaflet-tile {
+                background-color: #0a0a0a !important;
+                border: none !important;
+            }
+            .leaflet-tile-container img {
+                background-color: #0a0a0a !important;
+            }
+            .leaflet-tile-loaded {
+                background-color: transparent !important;
+            }
+            /* 隐藏加载失败的瓦片，显示深色背景 */
+            .leaflet-tile-container img[src=""],
+            .leaflet-tile-container img:not([src]),
+            .leaflet-tile-container img[src*="error"] {
+                opacity: 0 !important;
+                background-color: #0a0a0a !important;
+            }
+            /* 确保地图容器背景是深色 */
+            #liberia-map {
+                background-color: #0a0a0a !important;
+            }
+            .leaflet-popup-content-wrapper {
+                background: #1a2234 !important;
+                color: #4dd0e1 !important;
+                border: 1px solid rgba(77, 208, 225, 0.3) !important;
+            }
+            .leaflet-popup-tip {
+                background: #1a2234 !important;
+            }
+            .state-label {
+                background: transparent !important;
+                border: none !important;
+                padding: 0 !important;
+                font-size: 11px !important;
+                font-weight: bold !important;
+                color: #4dd0e1 !important;
+                text-shadow: 0 0 3px rgba(0, 212, 255, 0.8), 0 0 6px rgba(0, 212, 255, 0.6) !important;
+                white-space: nowrap !important;
+                pointer-events: none !important;
+            }
+            .state-label,
+            .state-label *,
+            .leaflet-div-icon.state-label,
+            .leaflet-div-icon.state-label *,
+            .leaflet-marker-icon.state-label,
+            .leaflet-marker-icon.state-label *,
+            .leaflet-marker-icon[class*="state-label"],
+            .leaflet-marker-icon[class*="state-label"] * {
+                background: transparent !important;
+                background-color: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                outline: none !important;
+            }
+            .state-label div,
+            .state-label > div,
+            .state-label div div {
+                background: transparent !important;
+                background-color: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+            }
+            /* 确保Leaflet divIcon容器本身也没有背景 */
+            .leaflet-div-icon {
+                background: transparent !important;
+                border: none !important;
+            }
+            .leaflet-div-icon.state-label {
+                background: transparent !important;
+                background-color: transparent !important;
+                border: none !important;
+            }
+            .leaflet-container,
+            .leaflet-pane,
+            .leaflet-map-pane,
+            .leaflet-tile-pane,
+            .leaflet-overlay-pane,
+            .leaflet-shadow-pane,
+            .leaflet-marker-pane,
+            .leaflet-tooltip-pane,
+            .leaflet-popup-pane {
+                z-index: 1 !important;
+            }
+            .leaflet-control-container {
+                z-index: 2 !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // 更新利比里亚地图
+    async function updateLiberiaMap(data) {
+        // 初始化地图（如果还没有初始化）
+        if (!liberiaMap) {
+            initLiberiaMap();
+        }
+
+        // 加载GeoJSON数据
+        const geoData = await loadLiberiaGeoJSON();
+        if (!geoData) {
+            console.error('无法加载GeoJSON数据，使用矩形作为后备方案');
+            // 如果无法加载GeoJSON，回退到矩形方案
+            updateLiberiaMapWithRectangles(data);
+            return;
+        }
+
+        if (!data || data.length === 0) {
+            console.log('updateLiberiaMap: No data provided');
+            updateMapRecordCount(0);
+            // 清除之前的标记和图层
+            mapMarkers.forEach(marker => liberiaMap.removeLayer(marker));
+            mapMarkers = [];
+            stateLayers.forEach(layer => liberiaMap.removeLayer(layer));
+            stateLayers = [];
+            // 显示所有州为无数据状态（使用GeoJSON）
+            geoData.features.forEach(feature => {
+                const stateName = getStateNameFromFeature(feature);
+                if (stateName) {
+                    const layer = L.geoJSON(feature, {
+                        style: {
+                            fillColor: '#e8e8e8',
+                            color: '#cccccc',
+                            weight: 1,
+                            opacity: 1,
+                            fillOpacity: 0.3
+                        }
+                    }).addTo(liberiaMap);
+                    stateLayers.push(layer);
+                }
+            });
+            updateMapLegend({}, 1);
+            return;
+        }
+
+        // 查找Region ID字段
+        const regionColumn = detailsColumns.find(col => 
+            col.toLowerCase().includes('region') || 
+            col.toLowerCase().includes('state') ||
+            col.toLowerCase() === 'region id'
+        );
+
+        if (!regionColumn) {
+            console.warn('updateLiberiaMap: Region ID column not found. Available columns:', detailsColumns);
+            // 尝试查找包含"region"或"state"的列
+            const possibleColumns = detailsColumns.filter(col => 
+                col.toLowerCase().includes('region') || col.toLowerCase().includes('state')
+            );
+            if (possibleColumns.length > 0) {
+                console.log('updateLiberiaMap: Found possible columns:', possibleColumns);
+            }
+            // 即使找不到Region ID列，也要显示图例
+            updateMapLegend({}, 1);
+            return;
+        }
+
+        // 统计各州的单据数量
+        const stateCounts = {};
+        let totalCount = 0;
+
+        data.forEach(ticket => {
+            const regionValue = ticket[regionColumn];
+            if (regionValue) {
+                let regionStr = String(regionValue).trim();
+                if (!regionStr) return;
+                
+                // 标准化州名：将下划线替换为空格，处理多种格式
+                const normalizedRegion = regionStr.replace(/_/g, ' ').replace(/-/g, ' ').trim();
+                
+                // 尝试匹配州名（不区分大小写，支持多种格式）
+                let matchedState = null;
+                
+                // 首先尝试标准化后的名称
+                matchedState = liberiaStates.find(state => 
+                    state.toLowerCase() === normalizedRegion.toLowerCase()
+                );
+                
+                // 如果没匹配到，尝试原始名称
+                if (!matchedState) {
+                    matchedState = liberiaStates.find(state => 
+                        state.toLowerCase() === regionStr.toLowerCase()
+                    );
+                }
+                
+                // 如果还没匹配到，尝试包含匹配
+                if (!matchedState) {
+                    matchedState = liberiaStates.find(state => {
+                        const stateLower = state.toLowerCase();
+                        const regionLower = normalizedRegion.toLowerCase();
+                        return regionLower.includes(stateLower) || stateLower.includes(regionLower);
+                    });
+                }
+                
+                // 处理常见的变体名称（支持下划线和空格）
+                const stateVariants = {
+                    'grand bassa': 'Grand Bassa',
+                    'grand_bassa': 'Grand Bassa',
+                    'grand cape mount': 'Grand Cape Mount',
+                    'grand_cape_mount': 'Grand Cape Mount',
+                    'grand gedeh': 'Grand Gedeh',
+                    'grand_gedeh': 'Grand Gedeh',
+                    'grand kru': 'Grand Kru',
+                    'grand_kru': 'Grand Kru',
+                    'river cess': 'River Cess',
+                    'river_cess': 'River Cess',
+                    'river gee': 'River Gee',
+                    'river_gee': 'River Gee',
+                    'gbarpolu': 'Gbarpolu',
+                    'gbapolu': 'Gbarpolu'  // GeoJSON中的拼写
+                };
+                
+                if (!matchedState) {
+                    const variantKey = normalizedRegion.toLowerCase();
+                    if (stateVariants[variantKey]) {
+                        matchedState = stateVariants[variantKey];
+                    } else if (stateVariants[regionStr.toLowerCase()]) {
+                        matchedState = stateVariants[regionStr.toLowerCase()];
+                    }
+                }
+                
+                if (matchedState) {
+                    stateCounts[matchedState] = (stateCounts[matchedState] || 0) + 1;
+                    totalCount++;
+                } else {
+                    // 如果没有匹配到已知州名，也记录原始值（可能是不在列表中的州名或数据格式问题）
+                    console.log('updateLiberiaMap: Unmatched region:', regionStr, '(normalized:', normalizedRegion + ')');
+                    // 尝试使用标准化后的名称
+                    const finalState = normalizedRegion || regionStr;
+                    stateCounts[finalState] = (stateCounts[finalState] || 0) + 1;
+                    totalCount++;
+                }
+            }
+        });
+
+        console.log('updateLiberiaMap: State counts:', stateCounts);
+        console.log('updateLiberiaMap: Total records:', totalCount);
+
+        // 更新记录数显示
+        updateMapRecordCount(totalCount);
+
+        // 清除之前的标记和图层
+        mapMarkers.forEach(marker => liberiaMap.removeLayer(marker));
+        mapMarkers = [];
+        stateLayers.forEach(layer => liberiaMap.removeLayer(layer));
+        stateLayers = [];
+
+        // 获取最大数量用于颜色映射
+        const maxCount = Math.max(...Object.values(stateCounts), 1);
+
+        // 为每个州创建区域填充（Choropleth Map）- 使用GeoJSON真实边界
+        console.log('开始绘制地图，features数量:', geoData.features.length);
+        let layerCount = 0;
+        const renderedStates = new Set(); // 跟踪已渲染的州
+        
+        geoData.features.forEach((feature, idx) => {
+            const geoStateName = getStateNameFromFeature(feature);
+            if (!geoStateName) {
+                console.warn(`Feature ${idx} 没有州名`);
+                return;
+            }
+            
+            // 映射到标准州名
+            const stateName = stateNameMapping[geoStateName] || geoStateName;
+            
+            // 查找count，支持多种格式（空格、下划线等）
+            let count = stateCounts[stateName] || 0;
+            if (count === 0) {
+                // 尝试下划线格式
+                const underscoreName = stateName.replace(/ /g, '_');
+                count = stateCounts[underscoreName] || 0;
+            }
+            if (count === 0) {
+                // 尝试小写格式
+                const lowerName = stateName.toLowerCase();
+                for (const key in stateCounts) {
+                    if (key.toLowerCase() === lowerName) {
+                        count = stateCounts[key];
+                        break;
+                    }
+                }
+            }
+            
+            // 根据数量设置颜色
+            const intensity = maxCount > 0 ? count / maxCount : 0;
+            let fillColor = '#e8e8e8'; // 默认浅灰色（无数据）
+            let borderColor = '#cccccc';
+            let borderWidth = 1;
+            
+            if (count > 0) {
+                if (intensity > 0.7) {
+                    fillColor = '#ff0040'; // 红色（多）
+                    borderColor = '#cc0033';
+                    borderWidth = 2;
+                } else if (intensity > 0.4) {
+                    fillColor = '#ff6600'; // 橙红色
+                    borderColor = '#cc5200';
+                    borderWidth = 2;
+                } else if (intensity > 0.2) {
+                    fillColor = '#ffaa00'; // 橙色（中）
+                    borderColor = '#cc8800';
+                    borderWidth = 2;
+                } else {
+                    fillColor = '#00ff41'; // 绿色（少）
+                    borderColor = '#00cc33';
+                    borderWidth = 2;
+                }
+            }
+
+            try {
+                // 创建GeoJSON图层（真实州边界）
+                const layer = L.geoJSON(feature, {
+                    style: {
+                        fillColor: fillColor,
+                        color: borderColor,
+                        weight: borderWidth,
+                        opacity: 1,
+                        fillOpacity: count > 0 ? 0.7 : 0.3
+                    }
+                });
+                
+                // 检查坐标是否有效
+                if (layer.getLayers().length === 0) {
+                    console.warn(`州 ${stateName} 的图层为空，可能坐标转换失败`);
+                } else {
+                    layer.addTo(liberiaMap);
+                    layerCount++;
+                    renderedStates.add(stateName);
+
+                    // 添加弹出窗口（确保显示数量，即使为0）
+                    layer.bindPopup(`
+                        <div style="text-align: center;">
+                            <strong style="color: #4dd0e1; font-size: 14px;">${stateName}</strong><br/>
+                            <span style="color: ${count > 0 ? '#66bb6a' : '#888'}; font-size: 16px; font-weight: bold;">${count}</span><br/>
+                            <span style="color: #888; font-size: 12px;">Incidents</span>
+                        </div>
+                    `);
+
+                    // 添加鼠标悬停效果
+                    layer.on('mouseover', function(e) {
+                        const layer = e.target;
+                        // 如果这个州被选中，使用不同的悬停样式
+                        if (selectedStateForFilter === stateName) {
+                            layer.setStyle({
+                                fillOpacity: count > 0 ? 0.95 : 0.6,
+                                weight: 5,
+                                color: '#00ffff'
+                            });
+                        } else {
+                            layer.setStyle({
+                                fillOpacity: count > 0 ? 0.9 : 0.5,
+                                weight: borderWidth + 1
+                            });
+                        }
+                    });
+                    
+                    layer.on('mouseout', function(e) {
+                        const layer = e.target;
+                        // 如果这个州被选中，保持高亮样式
+                        if (selectedStateForFilter === stateName) {
+                            layer.setStyle({
+                                fillOpacity: count > 0 ? 0.9 : 0.6,
+                                weight: 4,
+                                color: '#00ffff'
+                            });
+                        } else {
+                            // 恢复原始样式
+                            if (layer.originalStyle) {
+                                layer.setStyle(layer.originalStyle);
+                            } else {
+                                layer.setStyle({
+                                    fillOpacity: count > 0 ? 0.7 : 0.3,
+                                    weight: borderWidth
+                                });
+                            }
+                        }
+                    });
+
+                    // 添加点击事件来过滤表格
+                    layer.on('click', function(e) {
+                        filterByState(stateName);
+                    });
+
+                    // 存储州名和原始样式到图层，以便后续更新样式
+                    layer.stateName = stateName;
+                    layer.originalStyle = {
+                        fillColor: fillColor,
+                        color: borderColor,
+                        weight: borderWidth,
+                        fillOpacity: count > 0 ? 0.7 : 0.3
+                    };
+                    stateLayers.push(layer);
+                }
+            } catch (e) {
+                console.error(`创建州 ${stateName} 的图层时出错:`, e);
+            }
+
+            // 在州中心添加标签显示州名和数量
+            if (count > 0 && liberiaStateBoundaries[stateName]) {
+                const boundary = liberiaStateBoundaries[stateName];
+                const labelHtml = `<div style="text-align: center; line-height: 1.2; background: transparent !important; background-color: transparent !important; border: none !important;">
+                    <div style="font-size: 11px; color: #4dd0e1; font-weight: bold; background: transparent !important; background-color: transparent !important; text-shadow: 0 0 3px rgba(0, 0, 0, 0.8), 0 0 6px rgba(0, 0, 0, 0.6);">${stateName}</div>
+                    <div style="font-size: 13px; color: ${fillColor}; font-weight: bold; background: transparent !important; background-color: transparent !important; text-shadow: 0 0 3px rgba(0, 0, 0, 0.8), 0 0 6px rgba(0, 0, 0, 0.6);">${count}</div>
+                </div>`;
+                
+                const labelMarker = L.marker(boundary.center, {
+                    icon: L.divIcon({
+                        className: 'state-label',
+                        html: labelHtml,
+                        iconSize: [100, 50],
+                        iconAnchor: [50, 25],
+                        popupAnchor: [0, -10]
+                    })
+                }).addTo(liberiaMap);
+
+                // 添加点击事件到标签
+                labelMarker.on('click', function(e) {
+                    filterByState(stateName);
+                });
+
+                // 存储州名到标签，以便后续更新样式
+                labelMarker.stateName = stateName;
+                mapMarkers.push(labelMarker);
+            }
+        });
+        
+        console.log(`地图绘制完成: 成功创建 ${layerCount} 个图层, 总features: ${geoData.features.length}`);
+        console.log(`已渲染的州: ${Array.from(renderedStates).sort().join(', ')}`);
+        
+        // 检查是否有州没有被渲染
+        const allStates = new Set(liberiaStates);
+        const missingStates = Array.from(allStates).filter(state => !renderedStates.has(state));
+        if (missingStates.length > 0) {
+            console.warn(`以下州未被渲染: ${missingStates.join(', ')}`);
+        }
+        
+        // 调整地图视图以适应所有图层
+        if (stateLayers.length > 0) {
+            try {
+                const group = new L.featureGroup(stateLayers);
+                const bounds = group.getBounds();
+                if (bounds.isValid()) {
+                    liberiaMap.fitBounds(bounds, { padding: [20, 20] });
+                    console.log('地图视图已调整以适应所有州边界');
+                } else {
+                    console.warn('无法获取有效的地图边界，使用默认视图');
+                }
+            } catch (e) {
+                console.warn('调整地图视图时出错:', e);
+            }
+        }
+
+        // 更新图例
+        updateMapLegend(stateCounts, maxCount);
+        
+        // 更新视觉反馈（如果有选中的州，恢复高亮）
+        updateMapVisualFeedback();
+    }
+
+    // 更新地图记录数显示
+    function updateMapRecordCount(count) {
+        const mapRecordCountEl = document.getElementById('map-record-count');
+        if (mapRecordCountEl) {
+            mapRecordCountEl.textContent = `${formatNumber(count)} RECORDS`;
+        }
+    }
+
+    // 更新地图图例
+    function updateMapLegend(stateCounts, maxCount) {
+        const legendContainer = document.getElementById('map-legend');
+        if (!legendContainer) return;
+
+        // 按数量排序
+        const sortedStates = Object.entries(stateCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10); // 只显示前10个
+
+        if (sortedStates.length === 0) {
+            legendContainer.innerHTML = '<p class="text-slate-400 text-[12px]">No data available</p>';
+            return;
+        }
+
+        let legendHTML = '<div class="text-[var(--text-primary)] text-[11px] font-bold mb-2">Top States by Incident Count:</div>';
+        legendHTML += '<div class="flex flex-wrap gap-2">';
+
+        sortedStates.forEach(([state, count]) => {
+            const intensity = count / maxCount;
+            let color = '#00ff41';
+            if (intensity > 0.7) {
+                color = '#ff0040';
+            } else if (intensity > 0.4) {
+                color = '#ffaa00';
+            } else if (intensity > 0.2) {
+                color = '#ff6600';
+            }
+
+            // 如果这个州被选中，添加高亮样式
+            const isSelected = selectedStateForFilter === state;
+            const borderStyle = isSelected ? 'border-cyan-500 border-2' : 'border-white/10';
+            const bgStyle = isSelected ? 'bg-cyan-500/20' : 'bg-white/5';
+            const cursorStyle = 'cursor-pointer hover:bg-white/10 transition-colors';
+            // 转义州名中的单引号，避免onclick中的语法错误
+            const escapedState = state.replace(/'/g, "\\'");
+
+            legendHTML += `
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded border ${borderStyle} ${bgStyle} ${cursorStyle} w-full sm:w-auto" 
+                     onclick="filterByState('${escapedState}')" 
+                     data-legend-state="${state.replace(/"/g, '&quot;')}"
+                     title="点击过滤 ${state.replace(/"/g, '&quot;')} 的数据">
+                    <div class="w-3 h-3 rounded-full" style="background-color: ${color};"></div>
+                    <span class="text-white font-semibold">${state}:</span>
+                    <span class="text-[var(--text-primary)] font-bold">${count}</span>
+                </div>
+            `;
+        });
+
+        legendHTML += '</div>';
+        legendContainer.innerHTML = legendHTML;
+    }
+
+    // 更新地图和图例的视觉反馈（高亮选中的州）
+    function updateMapVisualFeedback() {
+        // 更新地图图层的样式
+        stateLayers.forEach(layer => {
+            if (layer.stateName && layer.originalStyle) {
+                const stateName = layer.stateName;
+                const isSelected = selectedStateForFilter === stateName;
+                
+                if (isSelected) {
+                    // 高亮选中的州
+                    layer.setStyle({
+                        weight: 4,
+                        color: '#00ffff',
+                        fillOpacity: 0.9,
+                        opacity: 1
+                    });
+                } else {
+                    // 恢复原始样式
+                    layer.setStyle(layer.originalStyle);
+                }
+            }
+        });
+
+        // 更新图例项的样式
+        const legendContainer = document.getElementById('map-legend');
+        if (legendContainer) {
+            const legendItems = legendContainer.querySelectorAll('[data-legend-state]');
+            legendItems.forEach(item => {
+                const stateName = item.getAttribute('data-legend-state');
+                const isSelected = selectedStateForFilter === stateName;
+                
+                if (isSelected) {
+                    item.classList.remove('border-white/10', 'bg-white/5');
+                    item.classList.add('border-cyan-500', 'border-2', 'bg-cyan-500/20');
+                } else {
+                    item.classList.remove('border-cyan-500', 'border-2', 'bg-cyan-500/20');
+                    item.classList.add('border-white/10', 'bg-white/5');
+                }
+            });
+        }
+    }
+
+    // 更新SLA表格的视觉反馈（高亮选中的单元格）
+    function updateSLATableVisualFeedback() {
+        // 查找所有SLA表格
+        const slaContainers = document.querySelectorAll('[data-sla-card]');
+        slaContainers.forEach(container => {
+            const table = container.querySelector('tbody');
+            if (!table) return;
+
+            const rows = table.querySelectorAll('tr');
+            rows.forEach(row => {
+                const sevCell = row.querySelector('td.text-left');
+                if (!sevCell) return;
+
+                const severity = sevCell.textContent.trim();
+                const cells = row.querySelectorAll('td:not(:first-child)');
+                const keys = ['gt100', 'lt100', 'lt75', 'lt50', 'lt25'];
+                
+                cells.forEach((cell, index) => {
+                    if (index < keys.length) {
+                        const div = cell.querySelector('div');
+                        if (div) {
+                            // 确保data属性存在（如果不存在则设置）
+                            if (!div.hasAttribute('data-severity')) {
+                                div.setAttribute('data-severity', severity);
+                            }
+                            if (!div.hasAttribute('data-sla-range')) {
+                                div.setAttribute('data-sla-range', keys[index]);
+                            }
+                            if (!div.hasAttribute('data-clickable')) {
+                                div.setAttribute('data-clickable', 'true');
+                            }
+                            // 确保cursor样式存在
+                            div.style.cursor = 'pointer';
+                            
+                            const isSelected = selectedSeverityForFilter === severity && selectedSLARangeForFilter === keys[index];
+                            const value = parseInt(div.textContent.replace(/,/g, '')) || 0;
+                            
+                            // 更新样式
+                            let baseClasses = 'font-bold py-1.5 rounded border text-[11.76px] cursor-pointer transition-all hover:scale-105';
+                            if (isSelected) {
+                                baseClasses += ' ring-2 ring-cyan-400 ring-offset-2 ring-offset-[var(--bg-card)]';
+                            }
+                            
+                            if (value > 0) {
+                                if (keys[index] === 'gt100') {
+                                    div.className = `${baseClasses} ${isSelected ? 'bg-red-500/40 text-red-300 border-red-400' : 'bg-red-500/20 text-red-400 border-red-500/30'}`;
+                                } else if (keys[index] === 'lt100') {
+                                    div.className = `${baseClasses} ${isSelected ? 'bg-orange-500/40 text-orange-300 border-orange-400' : 'bg-orange-500/20 text-orange-400 border-orange-500/30'}`;
+                                } else if (keys[index] === 'lt75') {
+                                    div.className = `${baseClasses} ${isSelected ? 'bg-amber-500/40 text-amber-300 border-amber-400' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'}`;
+                                } else if (keys[index] === 'lt50') {
+                                    div.className = `${baseClasses} ${isSelected ? 'bg-emerald-500/40 text-emerald-300 border-emerald-400' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'}`;
+                                } else if (keys[index] === 'lt25') {
+                                    div.className = `${baseClasses} ${isSelected ? 'bg-emerald-700 text-emerald-200 border-emerald-500' : 'bg-emerald-600 text-white border-emerald-500/30'} shadow-[0_0_10px_rgba(16,185,129,0.3)]`;
+                                }
+                            } else {
+                                div.className = `${baseClasses} bg-white/5 text-slate-500 border-white/5`;
+                            }
+                        }
+                    }
+                });
+            });
+        });
+    }
+
+    // 渲染表格
+    function renderDetailsTable() {
+        const tbody = document.getElementById('details-body');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+
+        const dataToShow = filteredDetailsData;
+        // 使用保存的列顺序
+        const columns = detailsColumns.length > 0 ? detailsColumns : Object.keys(allDetailsData[0] || {});
+
+        dataToShow.forEach((ticket, rowIndex) => {
+            const row = document.createElement('tr');
+            row.className = 'hover:bg-white/5 transition-colors table-dark-row';
+
+            // 添加序号列
+            let cells = `<td class="px-4 py-2.5 font-['Inter'] font-semibold text-[var(--text-primary)] text-[15px]">${rowIndex + 1}</td>`;
+
+            cells += columns.map((col, idx) => {
+                const value = ticket[col] || '';
+                let cellContent = '';
+                const colLower = col.toLowerCase();
+
+                // 第一列（通常是Ticket No.）使用特殊样式
+                if (idx === 0) {
+                    cellContent = `<td class="px-3 py-2.5 font-['Inter'] font-semibold text-[var(--text-secondary)] text-[15px]">${escapeHtml(value)}</td>`;
+                } else {
+                    // 特殊处理SLA列（可能是 "SLA(%)" 或 "SLA Compliance" 等）- 使用美化徽章
+                    if (colLower.includes('sla')) {
+                        cellContent = `<td class="px-3 py-2.5"><div class="flex items-center justify-center">${createSLABadge(value)}</div></td>`;
+                    }

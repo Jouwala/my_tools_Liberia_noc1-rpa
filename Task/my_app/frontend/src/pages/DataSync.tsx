@@ -23,6 +23,7 @@ import {
   InfoCircleOutlined,
   BarChartOutlined,
   FundOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
@@ -137,6 +138,7 @@ const CATEGORY_CONFIG: Record<string, { color: string; icon: React.ReactNode; la
   network_kpi: { color: '#eb2f96', icon: <BarChartOutlined />, label_zh: 'Network KPI', label_en: 'Network KPI' },
   cnn_kpi: { color: '#fa541c', icon: <CloudServerOutlined />, label_zh: 'CNN UME', label_en: 'CNN UME' },
   general: { color: '#8c8c8c', icon: <SettingOutlined />, label_zh: '通用', label_en: 'General' },
+  sp: { color: '#faad14', icon: <AppstoreOutlined />, label_zh: 'SP 备件', label_en: 'SP Spare' },
 }
 
 function formatTime(isoStr: string | null): string {
@@ -513,6 +515,11 @@ export default function DataSync() {
       label_zh: '其他任务',
       label_en: 'Other Tasks',
       task_ids: ['site_outage_screenshot', 'whatsapp_send', 'ms_sla_full'],
+    },
+    {
+      label_zh: 'SP 备件数据同步',
+      label_en: 'SP Spare Data Sync',
+      task_ids: ['sp_data_sync'],
     },
     {
       label_zh: 'CNN UME 数据同步',

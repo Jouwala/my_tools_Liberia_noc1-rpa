@@ -1,0 +1,1764 @@
+                    callAIModel(currentAIModel, generateAIPrompt('sla', data), data)
+                ]);
+
+                if (overallResult.status === 'fulfilled' && overallResult.value) {
+                    overallText = overallResult.value;
+                }
+                if (severityResult.status === 'fulfilled' && severityResult.value) {
+                    severityText = severityResult.value;
+                }
+                if (slaResult.status === 'fulfilled' && slaResult.value) {
+                    slaText = slaResult.value;
+                }
+
+                // 检查是否有失败的调用
+                const failedCalls = [];
+                if (overallResult.status === 'rejected') failedCalls.push('Overall');
+                if (severityResult.status === 'rejected') failedCalls.push('Severity');
+                if (slaResult.status === 'rejected') failedCalls.push('SLA');
+
+                if (failedCalls.length > 0) {
+                    console.warn(`AI analysis partially failed for: ${failedCalls.join(', ')}. Falling back to rule-based.`);
+                }
+
+                // 如果AI调用成功，直接使用AI结果并更新UI
+                if (overallText || severityText || slaText) {
+                    const overallEl = document.getElementById('ai-overall');
+                    const severityEl = document.getElementById('ai-severity');
+                    const slaEl = document.getElementById('ai-sla');
+
+                    if (overallEl) {
+                        overallEl.textContent = overallText || (overallResult.status === 'rejected' ?
+                            `[AI Error] Falling back to rule-based analysis...` : 'AI analysis in progress...');
+                    }
+                    if (severityEl) {
+                        severityEl.textContent = severityText || (severityResult.status === 'rejected' ?
+                            `[AI Error] Falling back to rule-based analysis...` : 'AI severity analysis pending...');
+                    }
+                    if (slaEl) {
+                        slaEl.textContent = slaText || (slaResult.status === 'rejected' ?
+                            `[AI Error] Falling back to rule-based analysis...` : 'AI SLA analysis pending...');
+                    }
+
+                    // 检查是否所有AI调用都成功返回了结果
+                    if (overallText && severityText && slaText) {
+                        // 所有三个分析都有AI结果，直接返回，不执行规则生成
+                        return;
+                    }
+
+                    // 如果部分成功，继续执行规则生成逻辑来填充失败的项
+                    // 规则生成逻辑会在后面检查，只在AI没有返回结果时才生成
+                } else {
+                    console.warn('All AI calls returned empty, falling back to rule-based');
+                }
+            } catch (error) {
+                console.warn('AI analysis failed, falling back to rule-based:', error);
+            }
+        }
+
+        // 回退到规则生成（原有逻辑）
+        // 注意：如果AI已经成功返回了某些结果，这里只会为失败的项生成规则分析
+
+        // 整体分析（包含状态分析）
+        const statusAnalysis = [];
+        let totalStatus = 0;
+
+        // 分析状态分布
+        if (data.status) {
+            const statusOrder = ['Reassign','WaitingConfirm', 'WaitingAccept', 'WaitingProcess',  'WaitingClose', 'Closed'];
+            const statusCounts = {};
+
+            statusOrder.forEach(status => {
+                const count = data.status[status] || 0;
+                statusCounts[status] = count;
+                totalStatus += count;
+            });
+
+            // 找出主要状态
+            const maxStatus = Object.entries(statusCounts).reduce((a, b) => a[1] > b[1] ? a : b);
+            const maxStatusName = maxStatus[0];
+            const maxStatusCount = maxStatus[1];
+            const maxStatusPercent = totalStatus > 0 ? ((maxStatusCount / totalStatus) * 100).toFixed(1) : 0;
+
+            // 状态分析逻辑
+            if (maxStatusName === 'WaitingAccept' && maxStatusCount > 0) {
+                statusAnalysis.push(`Primary bottleneck: ${formatNumber(maxStatusCount)} tickets (${maxStatusPercent}%) in WaitingAccept, indicating acceptance queue pressure.`);
+            } else if (maxStatusName === 'Reassign' && maxStatusCount > 0) {
+                statusAnalysis.push(`Reassignment activity: ${formatNumber(maxStatusCount)} tickets (${maxStatusPercent}%) in Reassign status, indicating ticket reassignment needs.`);
+            } else if (maxStatusName === 'WaitingClose' && maxStatusCount > 0) {
+                statusAnalysis.push(`Majority ${formatNumber(maxStatusCount)} tickets (${maxStatusPercent}%) awaiting closure, suggesting closure process efficiency needs review.`);
+            } else if (maxStatusName === 'Closed' && maxStatusCount > 0) {
+                statusAnalysis.push(`Strong closure performance: ${formatNumber(maxStatusCount)} tickets (${maxStatusPercent}%) successfully closed.`);
+            }
+
+            // 分析等待处理的工单（包括 Reassign）
+            const waitingTotal = (statusCounts.WaitingAccept || 0) + (statusCounts.WaitingProcess || 0) + (statusCounts.Reassign || 0) + (statusCounts.WaitingClose || 0) + (statusCounts.WaitingConfirm || 0);
+            const waitingPercent = totalStatus > 0 ? ((waitingTotal / totalStatus) * 100).toFixed(1) : 0;
+
+            if (waitingPercent > 60) {
+                statusAnalysis.push(`High active workload: ${formatNumber(waitingTotal)} tickets (${waitingPercent}%) in various waiting stages.`);
+            }
+
+            // 分析Closed比例
+            const closedCount = statusCounts.Closed || 0;
+            const closedPercent = totalStatus > 0 ? ((closedCount / totalStatus) * 100).toFixed(1) : 0;
+            statusAnalysis.push(`Closure rate: ${formatNumber(closedCount)} (${closedPercent}%) completed.`);
+        }
+
+        // TT Quality分析（只在AI没有返回结果时生成）
+        if (!overallText && data.tt_quality) {
+            const total = data.tt_quality['Total Incidents'] || data.tt_quality['Total'] || 0;
+            const closed = data.tt_quality['Closed'] || 0;
+            const unclosed = data.tt_quality['Unclosed'] || data.tt_quality['UnClosed'] || 0;
+            const closeRate = total > 0 ? ((closed / total) * 100).toFixed(1) : 0;
+
+            if (closeRate >= 50) {
+                overallText = `System shows healthy closure rate of ${closeRate}% with ${formatNumber(closed)} closed incidents. ${formatNumber(unclosed)} incidents remain active.`;
+            } else if (closeRate >= 30) {
+                overallText = `Moderate closure rate of ${closeRate}%. ${formatNumber(unclosed)} unclosed incidents indicate potential capacity constraints.`;
+            } else {
+                overallText = `Low closure rate of ${closeRate}% suggests operational challenges. ${formatNumber(unclosed)} active incidents need immediate escalation.`;
+            }
+
+            // 合并状态分析
+            if (statusAnalysis.length > 0) {
+                overallText += ' ' + statusAnalysis.join(' ');
+            }
+        } else if (!overallText && statusAnalysis.length > 0) {
+            overallText = statusAnalysis.join(' ');
+        }
+
+        // 严重度分析（只在AI没有返回结果时生成）
+        if (!severityText && data.severity) {
+            const severityCounts = {};
+            let totalSeverity = 0;
+            ['P1', 'P2', 'P3', 'P4'].forEach(sev => {
+                const count = data.severity[sev]?.total || 0;
+                severityCounts[sev] = count;
+                totalSeverity += count;
+            });
+
+            let severityAnalysis = [];
+
+            // 1. 严重度分布分析
+            if (totalSeverity > 0) {
+                const p1Count = severityCounts.P1 || 0;
+                const p2Count = severityCounts.P2 || 0;
+                const p3Count = severityCounts.P3 || 0;
+                const p4Count = severityCounts.P4 || 0;
+
+                const p1Percent = ((p1Count / totalSeverity) * 100).toFixed(1);
+                const p2Percent = ((p2Count / totalSeverity) * 100).toFixed(1);
+                const p3Percent = ((p3Count / totalSeverity) * 100).toFixed(1);
+                const p4Percent = ((p4Count / totalSeverity) * 100).toFixed(1);
+
+                severityAnalysis.push(`Severity distribution: P1: ${formatNumber(p1Count)} (${p1Percent}%), P2: ${formatNumber(p2Count)} (${p2Percent}%), P3: ${formatNumber(p3Count)} (${p3Percent}%), P4: ${formatNumber(p4Count)} (${p4Percent}%).`);
+
+                // 找出主要严重度
+                const maxSeverity = Object.entries(severityCounts).reduce((a, b) => severityCounts[a[0]] > severityCounts[b[0]] ? a : b);
+                const maxSev = maxSeverity[0];
+                const maxCount = maxSeverity[1];
+                const maxPercentage = ((maxCount / totalSeverity) * 100).toFixed(1);
+
+                if (maxSev === 'P1' && maxCount > 0) {
+                    severityAnalysis.push(`Critical priority: ${maxSev} incidents dominate (${maxPercentage}%), requiring immediate attention.`);
+                } else if (maxSev === 'P2' && maxCount > 0) {
+                    severityAnalysis.push(`Primary focus: ${maxSev} incidents are most common (${maxPercentage}%).`);
+                }
+            }
+
+            // 2. STATUS分析
+            const statusOrder = ['Reassign', 'WaitingConfirm', 'WaitingAccept', 'WaitingProcess', 'WaitingClose'];
+            const statusTotals = {};
+            let totalStatusTickets = 0;
+
+            statusOrder.forEach(status => {
+                let statusTotal = 0;
+                ['P1', 'P2', 'P3', 'P4'].forEach(sev => {
+                    const sevData = data.severity[sev];
+                    if (sevData && sevData.statuses && sevData.statuses[status]) {
+                        statusTotal += (sevData.statuses[status].Total || 0);
+                    }
+                });
+                statusTotals[status] = statusTotal;
+                totalStatusTickets += statusTotal;
+            });
+
+            if (totalStatusTickets > 0) {
+                const maxStatus = Object.entries(statusTotals).reduce((a, b) => a[1] > b[1] ? a : b);
+                const maxStatusName = maxStatus[0];
+                const maxStatusCount = maxStatus[1];
+                const maxStatusPercent = ((maxStatusCount / totalStatusTickets) * 100).toFixed(1);
+
+                severityAnalysis.push(`Status analysis: ${maxStatusName} has ${formatNumber(maxStatusCount)} tickets (${maxStatusPercent}%), indicating potential bottleneck.`);
+            }
+
+            // 3. 组织（Domain）分析
+            const domains = ['FO', 'BO', 'FE', 'IPT', 'Fiber', 'Orange', '3rd'];
+            const domainTotals = {};
+            let totalDomainTickets = 0;
+
+            domains.forEach(domain => {
+                let domainTotal = 0;
+                ['P1', 'P2', 'P3', 'P4'].forEach(sev => {
+                    const sevData = data.severity[sev];
+                    if (sevData && sevData.statuses) {
+                        statusOrder.forEach(status => {
+                            const statusData = sevData.statuses[status];
+                            if (statusData) {
+                                domainTotal += (statusData[domain] || 0);
+                            }
+                        });
+                    }
+                });
+                domainTotals[domain] = domainTotal;
+                totalDomainTickets += domainTotal;
+            });
+
+            if (totalDomainTickets > 0) {
+                const maxDomain = Object.entries(domainTotals).reduce((a, b) => a[1] > b[1] ? a : b);
+                const maxDomainName = maxDomain[0];
+                const maxDomainCount = maxDomain[1];
+                const maxDomainPercent = ((maxDomainCount / totalDomainTickets) * 100).toFixed(1);
+
+                severityAnalysis.push(`Organization analysis: ${maxDomainName} has ${formatNumber(maxDomainCount)} tickets (${maxDomainPercent}%), highest workload among all domains.`);
+            }
+
+            severityText = severityAnalysis.join(' ');
+        }
+
+        // SLA分析（只在AI没有返回结果时生成）
+        if (!slaText && (data.sla_zte || data.sla_3rd)) {
+            let totalSlaViolations = 0;
+            let totalSlaGood = 0;
+            const vendorStats = {
+                'ZTE': { violations: 0, good: 0, total: 0 },
+                '3rd': { violations: 0, good: 0, total: 0 }
+            };
+
+            ['ZTE', '3rd'].forEach(vendor => {
+                const slaData = vendor === 'ZTE' ? data.sla_zte : data.sla_3rd;
+                if (slaData) {
+                    ['P1', 'P2', 'P3', 'P4'].forEach(sev => {
+                        const sevData = slaData[sev] || {};
+                        const violations = (sevData.gt100 || 0);
+                        const good = (sevData.lt25 || 0);
+                        const total = violations + (sevData.lt100 || 0) + (sevData.lt75 || 0) + (sevData.lt50 || 0) + good;
+
+                        vendorStats[vendor].violations += violations;
+                        vendorStats[vendor].good += good;
+                        vendorStats[vendor].total += total;
+
+                        totalSlaViolations += violations;
+                        totalSlaGood += good;
+                    });
+                }
+            });
+
+            let slaAnalysis = [];
+
+            // 总体SLA分析
+            if (totalSlaViolations > totalSlaGood) {
+                slaAnalysis.push(`SLA compliance concerns: ${formatNumber(totalSlaViolations)} violations exceed ${formatNumber(totalSlaGood)} compliant tickets.`);
+            } else if (totalSlaGood > 0) {
+                slaAnalysis.push(`Positive SLA trend: ${formatNumber(totalSlaGood)} tickets within 25% threshold. ${formatNumber(totalSlaViolations)} violations require attention.`);
+            } else {
+                slaAnalysis.push(`SLA monitoring active. ${formatNumber(totalSlaViolations)} violations detected.`);
+            }
+
+            // Vendor分析
+            const vendorComparison = [];
+            if (vendorStats['ZTE'].total > 0) {
+                const zteViolationRate = vendorStats['ZTE'].total > 0 ? ((vendorStats['ZTE'].violations / vendorStats['ZTE'].total) * 100).toFixed(1) : 0;
+                const zteGoodRate = vendorStats['ZTE'].total > 0 ? ((vendorStats['ZTE'].good / vendorStats['ZTE'].total) * 100).toFixed(1) : 0;
+                vendorComparison.push(`ZTE: ${formatNumber(vendorStats['ZTE'].violations)} violations (${zteViolationRate}%), ${formatNumber(vendorStats['ZTE'].good)} compliant (${zteGoodRate}%)`);
+            }
+
+            if (vendorStats['3rd'].total > 0) {
+                const thirdViolationRate = vendorStats['3rd'].total > 0 ? ((vendorStats['3rd'].violations / vendorStats['3rd'].total) * 100).toFixed(1) : 0;
+                const thirdGoodRate = vendorStats['3rd'].total > 0 ? ((vendorStats['3rd'].good / vendorStats['3rd'].total) * 100).toFixed(1) : 0;
+                vendorComparison.push(`3rd: ${formatNumber(vendorStats['3rd'].violations)} violations (${thirdViolationRate}%), ${formatNumber(vendorStats['3rd'].good)} compliant (${thirdGoodRate}%)`);
+            }
+
+            if (vendorComparison.length > 0) {
+                // 比较两个vendor的表现
+                if (vendorStats['ZTE'].total > 0 && vendorStats['3rd'].total > 0) {
+                    const zteViolationRate = (vendorStats['ZTE'].violations / vendorStats['ZTE'].total) * 100;
+                    const thirdViolationRate = (vendorStats['3rd'].violations / vendorStats['3rd'].total) * 100;
+
+                    if (zteViolationRate > thirdViolationRate + 5) {
+                        slaAnalysis.push(`Vendor comparison: 3rd party shows better compliance (${thirdViolationRate.toFixed(1)}% vs ${zteViolationRate.toFixed(1)}% violation rate).`);
+                    } else if (thirdViolationRate > zteViolationRate + 5) {
+                        slaAnalysis.push(`Vendor comparison: ZTE shows better compliance (${zteViolationRate.toFixed(1)}% vs ${thirdViolationRate.toFixed(1)}% violation rate).`);
+                    } else {
+                        slaAnalysis.push(`Vendor performance: Both vendors show similar compliance rates.`);
+                    }
+                } else {
+                    slaAnalysis.push(`Vendor breakdown: ${vendorComparison.join('; ')}.`);
+                }
+            }
+
+            slaText = slaAnalysis.join(' ');
+        }
+
+        // 更新UI
+        const overallEl = document.getElementById('ai-overall');
+        const severityEl = document.getElementById('ai-severity');
+        const slaEl = document.getElementById('ai-sla');
+
+        if (overallEl) overallEl.textContent = overallText || 'Data analysis in progress...';
+        if (severityEl) severityEl.textContent = severityText || 'Severity analysis pending...';
+        if (slaEl) slaEl.textContent = slaText || 'SLA analysis pending...';
+    }
+
+    // 自动更新相关变量
+    let dataRefreshInterval = null;
+    let isPageVisible = true;
+    const DATA_REFRESH_INTERVAL = 5 * 60 * 1000; // 5分钟（毫秒）
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 3;
+
+    // 加载所有数据
+    async function loadData(showError = false) {
+        try {
+            const response = await fetch(`${API_BASE}${API_BASE_PATH}/api/all`, {
+                method: 'GET',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (data.error) {
+                console.error('Error loading data:', data.error);
+                consecutiveErrors++;
+                if (showError) {
+                    console.warn('Data loading failed, will retry on next interval');
+                }
+                return;
+            }
+
+            // 重置错误计数
+            consecutiveErrors = 0;
+
+            // 添加数据更新动画效果
+            const mainContent = document.querySelector('main');
+            if (mainContent) {
+                mainContent.style.opacity = '0.7';
+                mainContent.style.transition = 'opacity 0.3s';
+            }
+
+            // 更新各个部分（即使数据为空也调用，以便显示占位符）
+            updateStatus(data.status || {});
+            updateTTQuality(data.tt_quality || {});
+            updateSeverity(data.severity || {});
+            if (data.sla_zte) updateSLATable('ZTE', data.sla_zte);
+            if (data.sla_3rd) updateSLATable('3rd', data.sla_3rd);
+            updateDetails(data.details || [], data.details_columns || []);
+            
+            // Incident Log数据通过单独的API调用获取，避免影响其他组件加载速度
+            loadIncidentLogData();
+
+            // 生成AI分析
+            await generateAIAnalysis(data);
+
+            // 恢复透明度
+            if (mainContent) {
+                setTimeout(() => {
+                    mainContent.style.opacity = '1';
+                }, 100);
+            }
+
+            // 更新时间戳
+            updateTimestamp();
+
+            console.log('Data refreshed successfully at', new Date().toLocaleTimeString());
+
+        } catch (error) {
+            consecutiveErrors++;
+            console.error('Error loading data:', error);
+
+            // 如果连续错误次数过多，暂停自动更新
+            if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                console.warn('Too many consecutive errors, pausing auto-refresh. Please check the server connection.');
+                stopAutoRefresh();
+            }
+        }
+    }
+
+    // 启动自动刷新
+    function startAutoRefresh() {
+        // 清除现有定时器（如果存在）
+        if (dataRefreshInterval) {
+            clearInterval(dataRefreshInterval);
+        }
+
+        // 只在页面可见时启动定时器
+        if (isPageVisible) {
+            dataRefreshInterval = setInterval(() => {
+                if (isPageVisible) {
+                    loadData();
+                }
+            }, DATA_REFRESH_INTERVAL);
+
+            console.log('Auto-refresh started: every 5 minutes');
+        }
+    }
+
+    // 停止自动刷新
+    function stopAutoRefresh() {
+        if (dataRefreshInterval) {
+            clearInterval(dataRefreshInterval);
+            dataRefreshInterval = null;
+            console.log('Auto-refresh stopped');
+        }
+    }
+
+    // 页面可见性检测
+    function handleVisibilityChange() {
+        if (document.hidden) {
+            // 页面不可见，暂停自动刷新
+            isPageVisible = false;
+            stopAutoRefresh();
+            console.log('Page hidden, auto-refresh paused');
+        } else {
+            // 页面可见，恢复自动刷新并立即刷新数据
+            isPageVisible = true;
+            loadData(); // 立即刷新数据
+            startAutoRefresh(); // 重新启动定时器
+            console.log('Page visible, auto-refresh resumed');
+        }
+    }
+
+    // 监听页面可见性变化
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // 监听页面卸载，清理定时器
+    window.addEventListener('beforeunload', () => {
+        stopAutoRefresh();
+    });
+
+    // 更新时间戳函数
+    function updateTimestamp() {
+        const timestampEl = document.getElementById('noc-timestamp');
+        if (timestampEl) {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            timestampEl.textContent = `NOC Operational Layer // ${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+        }
+    }
+
+    // 通用的调整大小功能
+    function createResizeHandle(container, direction, options = {}) {
+        const { minSize = 200, maxSize = null, onResize = null } = options;
+        const isHorizontal = direction === 'horizontal' || direction === 'width';
+        const isVertical = direction === 'vertical' || direction === 'height';
+
+        // 创建调整手柄
+        const handle = document.createElement('div');
+        handle.className = `resize-handle resize-handle-${direction}`;
+        handle.style.cssText = `
+            position: absolute;
+            background: rgba(59, 130, 246, 0.3);
+            transition: background 0.2s;
+            z-index: 100;
+            ${isHorizontal ? 'width: 4px; height: 100%; right: 0; top: 0; cursor: col-resize;' : ''}
+            ${isVertical ? 'height: 4px; width: 100%; bottom: 0; left: 0; cursor: row-resize;' : ''}
+        `;
+
+        // 确保容器是相对定位
+        if (getComputedStyle(container).position === 'static') {
+            container.style.position = 'relative';
+        }
+
+        container.appendChild(handle);
+
+        let isResizing = false;
+        let startPos = 0;
+        let startSize = 0;
+
+        const handleMouseEnter = () => {
+            if (!isResizing) {
+                handle.style.background = 'rgba(59, 130, 246, 0.6)';
+            }
+        };
+
+        const handleMouseLeave = () => {
+            if (!isResizing) {
+                handle.style.background = 'rgba(59, 130, 246, 0.3)';
+            }
+        };
+
+        handle.addEventListener('mouseenter', handleMouseEnter);
+        handle.addEventListener('mouseleave', handleMouseLeave);
+
+        const handleMouseDown = (e) => {
+            isResizing = true;
+            handle.dataset.resizing = 'true';
+            document.body.style.cursor = isHorizontal ? 'col-resize' : 'row-resize';
+            document.body.style.userSelect = 'none';
+            handle.style.background = 'rgba(59, 130, 246, 0.8)';
+
+            if (isHorizontal) {
+                startPos = e.clientX;
+                startSize = container.offsetWidth;
+            } else {
+                startPos = e.clientY;
+                startSize = container.offsetHeight;
+            }
+
+            e.preventDefault();
+            e.stopPropagation();
+        };
+
+        handle.addEventListener('mousedown', handleMouseDown);
+
+        const handleMouseMove = (e) => {
+            if (!isResizing) return;
+
+            let diff, newSize;
+            if (isHorizontal) {
+                diff = e.clientX - startPos;
+                newSize = startSize + diff;
+            } else {
+                diff = e.clientY - startPos;
+                newSize = startSize + diff;
+            }
+
+            const maxSizeLimit = maxSize || (isHorizontal ? window.innerWidth * 0.9 : window.innerHeight * 0.9);
+
+            if (newSize >= minSize && newSize <= maxSizeLimit) {
+                if (isHorizontal) {
+                    container.style.width = `${newSize}px`;
+                    container.style.flex = `0 0 ${newSize}px`;
+                } else {
+                    container.style.height = `${newSize}px`;
+                    container.style.flex = `0 0 ${newSize}px`;
+                }
+
+                if (onResize) {
+                    onResize(newSize, isHorizontal ? 'width' : 'height');
+                }
+            }
+        };
+
+        const handleMouseUp = () => {
+            if (isResizing) {
+                isResizing = false;
+                delete handle.dataset.resizing;
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                handle.style.background = 'rgba(59, 130, 246, 0.3)';
+            }
+        };
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('mouseup', handleMouseUp);
+
+        return handle;
+    }
+
+    // 拖拽调整组件大小（水平方向 - Severity和SLA之间）
+    function initResizable() {
+        const severityContainer = document.querySelector('[data-severity-container]');
+        const slaContainer = document.querySelector('[data-sla-container]');
+
+        if (!severityContainer || !slaContainer) return;
+
+        // 检查是否已经存在分隔条
+        if (document.querySelector('.resize-divider-horizontal')) return;
+
+        // 创建分隔条
+        const divider = document.createElement('div');
+        divider.className = 'resize-divider-horizontal';
+        divider.style.cssText = 'width: 4px; background: rgba(59, 130, 246, 0.3); cursor: col-resize; position: relative; flex-shrink: 0; transition: background 0.2s; margin: 0 2px;';
+        divider.addEventListener('mouseenter', () => {
+            divider.style.background = 'rgba(59, 130, 246, 0.6)';
+        });
+        divider.addEventListener('mouseleave', () => {
+            if (!divider.dataset.resizing) {
+                divider.style.background = 'rgba(59, 130, 246, 0.3)';
+            }
+        });
+
+        // 插入分隔条到Severity容器之后
+        severityContainer.parentElement.insertBefore(divider, slaContainer);
+
+        let isResizing = false;
+        let startX = 0;
+        let startWidth = 0;
+
+        divider.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            divider.dataset.resizing = 'true';
+            startX = e.clientX;
+            startWidth = severityContainer.offsetWidth;
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            divider.style.background = 'rgba(59, 130, 246, 0.8)';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+
+            const diff = e.clientX - startX;
+            const newWidth = startWidth + diff;
+            const minWidth = 300;
+            const maxWidth = window.innerWidth * 0.8;
+
+            if (newWidth >= minWidth && newWidth <= maxWidth) {
+                severityContainer.style.flex = `0 0 ${newWidth}px`;
+                severityContainer.style.width = `${newWidth}px`;
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                delete divider.dataset.resizing;
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                divider.style.background = 'rgba(59, 130, 246, 0.3)';
+            }
+        });
+    }
+
+    // 初始化所有组件的调整大小功能
+    function initAllResizable() {
+        // 等待DOM完全加载
+        setTimeout(() => {
+            // AI Analysis 面板 - 可调整宽度和高度
+            const aiAnalysisContainer = document.querySelector('[data-ai-analysis-container]');
+            if (aiAnalysisContainer) {
+                // 确保容器有正确的样式
+                aiAnalysisContainer.style.position = 'relative';
+                aiAnalysisContainer.style.overflow = 'visible';
+
+                createResizeHandle(aiAnalysisContainer, 'horizontal', {
+                    minSize: 200,
+                    maxSize: window.innerWidth * 0.4,
+                    onResize: (size) => {
+                        aiAnalysisContainer.style.flex = `0 0 ${size}px`;
+                    }
+                });
+
+                createResizeHandle(aiAnalysisContainer, 'vertical', {
+                    minSize: 300,
+                    maxSize: window.innerHeight * 0.8
+                });
+            }
+
+            // Severity 容器 - 可调整高度（宽度已由分隔条控制）
+            const severityContainer = document.querySelector('[data-severity-container]');
+            if (severityContainer) {
+                severityContainer.style.position = 'relative';
+                severityContainer.style.overflow = 'visible';
+
+                createResizeHandle(severityContainer, 'vertical', {
+                    minSize: 400,
+                    maxSize: window.innerHeight * 0.9
+                });
+            }
+
+            // SLA 容器 - 可调整宽度（高度已由内部分隔条控制）
+            const slaContainer = document.querySelector('[data-sla-container]');
+            if (slaContainer) {
+                slaContainer.style.position = 'relative';
+                slaContainer.style.overflow = 'visible';
+
+                createResizeHandle(slaContainer, 'horizontal', {
+                    minSize: 300,
+                    maxSize: window.innerWidth * 0.5,
+                    onResize: (size) => {
+                        slaContainer.style.flex = `0 0 ${size}px`;
+                    }
+                });
+            }
+
+            // Details 表格容器 - 可调整高度
+            const detailsContainer = document.querySelector('[data-details-container]');
+            if (detailsContainer) {
+                const tableWrapper = detailsContainer.querySelector('.overflow-x-auto');
+                if (tableWrapper) {
+                    // 确保父容器是相对定位
+                    detailsContainer.style.position = 'relative';
+                    tableWrapper.style.position = 'relative';
+
+                    createResizeHandle(tableWrapper, 'vertical', {
+                        minSize: 200,
+                        maxSize: window.innerHeight * 0.6
+                    });
+                }
+            }
+
+            // SLA Performance - Vendor 3rd 组件 - 可调整高度
+            const vendor3rdCard = document.querySelector('[data-sla-card="3rd"]');
+            if (vendor3rdCard) {
+                vendor3rdCard.style.position = 'relative';
+                vendor3rdCard.style.overflow = 'visible';
+
+                createResizeHandle(vendor3rdCard, 'vertical', {
+                    minSize: 200,
+                    maxSize: window.innerHeight * 0.6,
+                    onResize: (size) => {
+                        // 当调整高度时，确保组件保持固定高度
+                        vendor3rdCard.style.flex = 'none';
+                        vendor3rdCard.style.height = `${size}px`;
+                        vendor3rdCard.style.minHeight = `${size}px`;
+                        vendor3rdCard.style.maxHeight = `${size}px`;
+                    }
+                });
+            }
+        }, 100);
+    }
+
+    // 拖拽调整SLA组件高度
+    function initSLAHeightResizable() {
+        const slaContainer = document.querySelector('[data-sla-container]');
+        const zteCard = document.querySelector('[data-sla-card="zte"]');
+        const thirdCard = document.querySelector('[data-sla-card="3rd"]');
+        const divider = document.querySelector('.sla-resize-divider');
+
+        if (!slaContainer || !zteCard || !thirdCard || !divider) {
+            console.warn('SLA resize elements not found', { slaContainer, zteCard, thirdCard, divider });
+            return;
+        }
+
+        // 确保分隔条可以接收事件
+        divider.style.pointerEvents = 'auto';
+        divider.style.userSelect = 'none';
+        divider.style.webkitUserSelect = 'none';
+        divider.style.position = 'relative';
+        divider.style.zIndex = '100';
+
+        console.log('SLA resize initialized', {
+            containerHeight: slaContainer.offsetHeight,
+            zteHeight: zteCard.offsetHeight,
+            thirdHeight: thirdCard.offsetHeight,
+            dividerHeight: divider.offsetHeight,
+            dividerStyle: window.getComputedStyle(divider).pointerEvents
+        });
+
+        // 分隔条悬停效果
+        divider.addEventListener('mouseenter', (e) => {
+            divider.style.background = 'rgba(59, 130, 246, 0.6)';
+            divider.style.height = '12px';
+            divider.style.cursor = 'row-resize';
+        });
+        divider.addEventListener('mouseleave', (e) => {
+            if (!divider.dataset.resizing) {
+                divider.style.background = 'rgba(59, 130, 246, 0.3)';
+                divider.style.height = '8px';
+            }
+        });
+
+        let isResizing = false;
+        let startY = 0;
+        let startZteHeight = 0;
+        let startThirdHeight = 0;
+        let startDividerTop = 0;
+
+        divider.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            isResizing = true;
+            divider.dataset.resizing = 'true';
+            startY = e.clientY;
+
+            const containerRect = slaContainer.getBoundingClientRect();
+            const zteRect = zteCard.getBoundingClientRect();
+            const dividerRect = divider.getBoundingClientRect();
+
+            startZteHeight = zteCard.offsetHeight;
+            startThirdHeight = thirdCard.offsetHeight;
+            startDividerTop = dividerRect.top - containerRect.top;
+
+            document.body.style.cursor = 'row-resize';
+            document.body.style.userSelect = 'none';
+            divider.style.background = 'rgba(59, 130, 246, 0.8)';
+            divider.style.height = '12px';
+
+            console.log('Resize started', {
+                startY,
+                startZteHeight,
+                startThirdHeight,
+                containerHeight: slaContainer.offsetHeight
+            });
+        });
+
+        const handleMouseMove = (e) => {
+            if (!isResizing) return;
+
+            e.preventDefault();
+            const diff = e.clientY - startY;
+            const newZteHeight = startZteHeight + diff;
+            const newThirdHeight = startThirdHeight - diff;
+            const minHeight = 150; // 最小高度限制
+
+            const containerHeight = slaContainer.offsetHeight;
+            const dividerHeight = divider.offsetHeight || 10;
+            const margins = 20; // 上下margin总和
+
+            const availableHeight = containerHeight - dividerHeight - margins;
+            const totalHeight = newZteHeight + newThirdHeight;
+
+            if (newZteHeight >= minHeight && newThirdHeight >= minHeight) {
+                // 直接设置高度，确保立即生效
+                zteCard.style.flex = 'none';
+                zteCard.style.height = `${newZteHeight}px`;
+                zteCard.style.minHeight = `${newZteHeight}px`;
+                zteCard.style.maxHeight = `${newZteHeight}px`;
+                zteCard.style.overflow = 'hidden';
+
+                thirdCard.style.flex = 'none';
+                thirdCard.style.height = `${newThirdHeight}px`;
+                thirdCard.style.minHeight = `${newThirdHeight}px`;
+                thirdCard.style.maxHeight = `${newThirdHeight}px`;
+                thirdCard.style.overflow = 'hidden';
+
+                // 强制重新计算布局
+                void zteCard.offsetHeight;
+                void thirdCard.offsetHeight;
+
+                console.log('Resizing', {
+                    newZteHeight,
+                    newThirdHeight,
+                    zteActualHeight: zteCard.offsetHeight,
+                    thirdActualHeight: thirdCard.offsetHeight,
+                    availableHeight
+                });
+            }
+        };
+
+        const handleMouseUp = () => {
+            if (isResizing) {
+                isResizing = false;
+                delete divider.dataset.resizing;
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                divider.style.background = 'rgba(59, 130, 246, 0.3)';
+                divider.style.height = '8px';
+                console.log('Resize ended');
+            }
+        };
+
+        // 使用捕获阶段确保事件被处理
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('mouseup', handleMouseUp); // 确保即使鼠标移出窗口也能结束拖拽
+    }
+
+    // 切换豆包模型选择器显示
+    function toggleDoubaoModel() {
+        const modelSelect = document.getElementById('ai-model-select');
+        const doubaoContainer = document.getElementById('doubao-model-container');
+        if (modelSelect && doubaoContainer) {
+            if (modelSelect.value === 'doubao') {
+                doubaoContainer.classList.remove('hidden');
+            } else {
+                doubaoContainer.classList.add('hidden');
+            }
+        }
+    }
+
+    // AI配置相关函数
+    function showAIConfig() {
+        const modal = document.getElementById('ai-config-modal');
+        const modelSelect = document.getElementById('ai-model-select');
+        const apiKeyInput = document.getElementById('ai-api-key-input');
+        const doubaoModelSelect = document.getElementById('doubao-model-select');
+
+        if (modal && modelSelect && apiKeyInput) {
+            modelSelect.value = currentAIModel;
+            apiKeyInput.value = aiApiKey;
+            if (doubaoModelSelect) {
+                doubaoModelSelect.value = doubaoModel;
+            }
+            toggleDoubaoModel(); // 根据当前选择显示/隐藏豆包模型选择器
+            modal.classList.remove('hidden');
+        }
+    }
+
+    function hideAIConfig() {
+        const modal = document.getElementById('ai-config-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+    }
+
+    function saveAIConfig() {
+        const modelSelect = document.getElementById('ai-model-select');
+        const apiKeyInput = document.getElementById('ai-api-key-input');
+        const doubaoModelSelect = document.getElementById('doubao-model-select');
+
+        if (modelSelect && apiKeyInput) {
+            currentAIModel = modelSelect.value;
+            aiApiKey = apiKeyInput.value;
+            if (doubaoModelSelect) {
+                doubaoModel = doubaoModelSelect.value;
+            }
+
+            localStorage.setItem('ai_model', currentAIModel);
+            localStorage.setItem('ai_api_key', aiApiKey);
+            localStorage.setItem('doubao_model', doubaoModel);
+
+            // 更新徽章显示
+            const badge = document.getElementById('ai-model-badge');
+            if (badge) {
+                if (currentAIModel === 'rule-based') {
+                    badge.textContent = 'Rule-based';
+                    badge.className = 'text-[10px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30';
+                } else {
+                    badge.textContent = AI_MODELS[currentAIModel]?.name || currentAIModel;
+                    badge.className = 'text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+                }
+            }
+
+            hideAIConfig();
+
+            // 重新生成分析
+            loadData().then(() => {
+                console.log('AI configuration saved and analysis regenerated');
+            });
+        }
+    }
+
+    // 初始化AI配置显示
+    function initAIConfig() {
+        const badge = document.getElementById('ai-model-badge');
+        if (badge) {
+            if (currentAIModel === 'rule-based') {
+                badge.textContent = 'Rule-based';
+                badge.className = 'text-[10px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30';
+            } else {
+                badge.textContent = AI_MODELS[currentAIModel]?.name || currentAIModel;
+                badge.className = 'text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+            }
+        }
+    }
+
+    // 确保所有容器高度一致
+    // 同步SLA组件宽度与严重度组件一致
+    function syncSLAWidthWithSeverity() {
+        const severityContainer = document.querySelector('[data-severity-container]');
+        const slaContainers = document.querySelectorAll('[data-sla-container]');
+        
+        if (severityContainer && slaContainers.length > 0) {
+            const severityWidth = severityContainer.offsetWidth;
+            slaContainers.forEach(slaContainer => {
+                if (!slaContainer.classList.contains('hidden')) {
+                    slaContainer.style.width = severityWidth/2 + 'px';
+                    slaContainer.style.flex = '0 0 auto';
+                }
+            });
+        }
+    }
+    
+    function ensureAllContainersHeight() {
+        const slaContainer = document.querySelector('[data-sla-container]');
+        const severityContainer = document.querySelector('[data-severity-container]');
+        const aiAnalysisContainer = document.querySelector('[data-ai-analysis-container]');
+
+        if (!slaContainer || !severityContainer || !aiAnalysisContainer) {
+            return;
+        }
+
+        // 移动端不强制设置高度，让内容自然流动
+        if (window.innerWidth <= 768) {
+            // 清除之前设置的高度，让CSS媒体查询控制
+            severityContainer.style.height = '';
+            severityContainer.style.minHeight = '';
+            
+            const aiCard = aiAnalysisContainer.querySelector('div');
+            if (aiCard) {
+                aiCard.style.height = '';
+                aiCard.style.minHeight = '';
+            }
+            
+            slaContainer.style.height = '';
+            slaContainer.style.minHeight = '';
+            return;
+        }
+
+        // 使用setTimeout确保在布局计算完成后执行
+        setTimeout(() => {
+            // 获取三个容器的实际高度
+            const severityHeight = severityContainer.offsetHeight;
+            const aiCard = aiAnalysisContainer.querySelector('div');
+            const aiHeight = aiCard ? aiCard.offsetHeight : 0;
+            const slaHeight = slaContainer.offsetHeight;
+
+            // 计算最小高度（95.04vh，严重度组件高度增加10%）
+            const minHeightVh = window.innerHeight * 0.9504; // 95.04vh in pixels (86.4vh * 1.1)
+
+            // 计算目标高度：取三个容器中的最大高度，但至少是最小高度
+            const maxContainerHeight = Math.max(severityHeight, aiHeight, slaHeight);
+            const finalHeight = Math.max(maxContainerHeight, minHeightVh);
+
+            // 强制设置所有容器的高度，确保它们一致
+            // 即使当前高度为0，也要设置
+            if (finalHeight > 50) { // 降低阈值，确保即使在小分辨率下也能设置
+                // 同步所有容器的高度
+                severityContainer.style.height = `${finalHeight}px`;
+                severityContainer.style.minHeight = `${finalHeight}px`;
+
+                if (aiCard) {
+                    aiCard.style.height = `${finalHeight}px`;
+                    aiCard.style.minHeight = `${finalHeight}px`;
+                }
+
+                slaContainer.style.height = `${finalHeight}px`;
+                slaContainer.style.minHeight = `${finalHeight}px`;
+
+                console.log('Containers height synchronized:', {
+                    severity: severityHeight,
+                    ai: aiHeight,
+                    sla: slaHeight,
+                    final: finalHeight,
+                    minHeightVh: minHeightVh,
+                    viewportHeight: window.innerHeight
+                });
+            }
+        }, 100);
+    }
+
+    // 页面加载时获取数据
+    document.addEventListener('DOMContentLoaded', function() {
+        updateTimestamp(); // 立即更新时间
+        initAIConfig(); // 初始化AI配置显示
+        loadAssistantConfig(); // 初始化虚拟助手配置
+        initLiberiaMap(); // 立即初始化地图，确保在移动端也能正确显示
+        loadData(); // 立即加载数据
+        startAutoRefresh(); // 启动自动刷新（每5分钟）
+        startMonitoring(); // 启动虚拟助手监控
+        // 每秒更新时间
+        setInterval(updateTimestamp, 1000);
+        // 初始化可调整大小功能
+        initResizable();
+        // 初始化SLA高度调整功能
+        initSLAHeightResizable();
+        // 初始化所有组件的调整大小功能
+        initAllResizable();
+        
+        // 初始化Incident Log滚动监听器
+        setupIncidentLogScrollListener();
+        
+        // 添加SLA表格的事件委托（确保即使元素被重新创建也能工作）
+        document.addEventListener('click', function(e) {
+            const target = e.target;
+            console.log('Click event captured:', target, target.tagName, target.className);
+            
+            // 检查是否点击了SLA表格中的数字单元格
+            if (target) {
+                // 检查是否是带有data-clickable属性的元素
+                const clickableElement = target.closest('[data-clickable="true"]');
+                console.log('Clickable element found:', clickableElement);
+                
+                if (clickableElement) {
+                    // 检查是否在SLA表格容器内
+                    const slaContainer = clickableElement.closest('[data-sla-card]');
+                    console.log('SLA container found:', slaContainer);
+                    
+                    if (slaContainer) {
+                        const severity = clickableElement.getAttribute('data-severity');
+                        const slaRange = clickableElement.getAttribute('data-sla-range');
+                        console.log('SLA cell clicked:', severity, slaRange, clickableElement);
+                        
+                        if (severity && slaRange) {
+                            console.log('Calling filterBySLACell with:', severity, slaRange);
+                            filterBySLACell(severity, slaRange);
+                            e.stopPropagation();
+                            e.preventDefault();
+                            return false;
+                        } else {
+                            console.warn('Missing severity or slaRange attributes:', { severity, slaRange });
+                        }
+                    }
+                }
+            }
+        }, true); // 使用捕获阶段，确保能捕获到事件
+        // 确保所有容器高度一致（多次执行，确保布局完成）
+        // 立即执行一次
+        ensureAllContainersHeight();
+        syncSLAWidthWithSeverity();
+        // 延迟执行，确保布局完成
+        setTimeout(() => {
+            ensureAllContainersHeight();
+            syncSLAWidthWithSeverity();
+        }, 500);
+        // 再次延迟执行，确保所有内容加载完成
+        setTimeout(() => {
+            ensureAllContainersHeight();
+            syncSLAWidthWithSeverity();
+        }, 1000);
+        // 在窗口大小改变时也同步高度和宽度
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                ensureAllContainersHeight();
+                syncSLAWidthWithSeverity();
+            }, 150);
+        });
+    });
+</script>
+<header class="w-full bg-[#000000] border-b-2 border-[var(--text-primary)]/30 px-8 py-6 flex items-center justify-between sticky top-0 z-50 industrial-border" style="box-shadow: 0 4px 20px rgba(0, 212, 255, 0.2);">
+<div class="flex items-center gap-4">
+<div class="shadow-[0_0_15px_rgba(59,130,246,0.3)] inline-block overflow-hidden" style="background-color: var(--corporate-blue);">
+<img src="favicon.ico" alt="Logo" class="w-14 h-14 block"/>
+</div>
+<div>
+<h1 class="text-[24px] font-bold tracking-tight text-white font-['Inter']">OLR INCIDENT DASHBOARD<span class="text-[var(--text-primary)] text-[12px] font-medium" style="color: #00d4ff;">_BY ZTE</span></h1>
+<p id="noc-timestamp" class="text-[12px] text-[#00ff41] font-['Inter'] tracking-wider">NOC Operational Layer // </p>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<div class="flex items-center gap-2 bg-[#1A2234] px-4 py-2 rounded border border-white/5">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+<span class="text-[14.4px] text-slate-300 font-semibold">Live Monitoring</span>
+</div>
+<button onclick="loadData()" class="bg-[#1A2234] border border-white/5 hover:bg-[#252D42] p-2 rounded transition-colors text-slate-300">
+<span class="material-symbols-outlined">refresh</span>
+</button>
+</div>
+</header>
+<main class="p-8 space-y-10 w-full">
+                <div class="flex gap-6 items-start">
+                    <div class="flex-[1] bg-[var(--bg-card)] p-6 rounded-xl border-2 border-[var(--text-primary)]/20 flex flex-col shadow-2xl industrial-border">
+                        <div class="flex gap-2 flex-1 items-center justify-center">
+                            <div class="flex-1 text-center">
+                                <p class="text-[var(--text-primary)]/90 text-[16px] font-semibold mb-1 font-['Inter']">Total</p>
+                                <p class="text-[40px] font-bold text-white font-['Inter']" data-metric="total_incidents">2,045</p>
+                            </div>
+                            <div class="flex-1 bg-emerald-500/10 p-1.5 rounded-lg border border-emerald-500/20 text-center">
+                                <div class="flex items-center justify-center gap-1 mb-0.5">
+                                    <span class="material-symbols-outlined text-emerald-500 text-[14.4px]">check_circle</span>
+                                    <p class="text-emerald-500 text-[9.6px] font-bold">Closed</p>
+                                </div>
+                                <p class="text-[32px] font-bold text-white font-['Inter']" data-metric="closed">748</p>
+                            </div>
+                            <div class="flex-1 bg-red-500/10 p-1.5 rounded-lg border border-red-500/20 text-center">
+                                <div class="flex items-center justify-center gap-1 mb-0.5">
+                                    <span class="material-symbols-outlined text-red-500 text-[14.4px]">warning</span>
+                                    <p class="text-red-500 text-[9.6px] font-bold">Unclosed</p>
+                                </div>
+                                <p class="text-[32px] font-bold text-white font-['Inter']" data-metric="unclosed">1,297</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex-[4] grid grid-cols-6 gap-0 relative">
+                        <div class="flex flex-col items-center gap-3 status-line relative z-10">
+                            <div class="w-14 h-14 rounded-full bg-purple-900/30 border-2 border-purple-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgba(147, 51, 234, 0.5);">
+                                <span class="text-[24px] font-bold text-purple-400 font-['Inter']" data-status="Reassign">0</span>
+                            </div>
+                            <span class="text-[16px] tracking-widest text-purple-400 font-bold font-['Inter']">Reassign</span>
+                        </div>
+                        <div class="flex flex-col items-center gap-3 status-line relative z-10">
+                            <div class="w-14 h-14 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgba(148, 163, 184, 0.3);">
+                                <span class="text-[24px] font-bold text-slate-300 font-['Inter']" data-status="WaitingConfirm">3</span>
+                            </div>
+                            <span class="text-[16px] tracking-widest text-slate-300 font-bold font-['Inter']">WaitingConfirm</span>
+                        </div>
+                        <div class="flex flex-col items-center gap-3 status-line relative z-10">
+                            <div class="w-14 h-14 rounded-full bg-cyan-900/30 border-2 border-cyan-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 20px rgba(6, 182, 212, 0.6);">
+                                <span class="text-[24px] font-bold text-cyan-400 font-['Inter']" data-status="WaitingAccept">343</span>
+                            </div>
+                            <span class="text-[16px] tracking-widest text-cyan-400 font-bold font-['Inter']">WaitingAccept</span>
+                        </div>
+                        <div class="flex flex-col items-center gap-3 status-line relative z-10">
+                            <div class="w-14 h-14 rounded-full bg-amber-900/30 border-2 border-amber-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgba(255, 170, 0, 0.5);">
+                                <span class="text-[24px] font-bold text-amber-400 font-['Inter']" data-status="WaitingProcess">17</span>
+                            </div>
+                            <span class="text-[16px] tracking-widest text-amber-400 font-bold font-['Inter']">WaitingProcess</span>
+                        </div>
+                        <div class="flex flex-col items-center gap-3 status-line relative z-10">
+                            <div class="w-14 h-14 rounded-full bg-red-900/30 border-2 border-red-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);">
+                                <span class="text-[24px] font-bold text-red-400 font-['Inter']" data-status="WaitingClose">934</span>
+                            </div>
+                            <span class="text-[16px] tracking-widest text-red-400 font-bold font-['Inter']">WaitingClose</span>
+                        </div>
+                        <div class="flex flex-col items-center gap-3 status-line relative z-10">
+                            <div class="w-14 h-14 rounded-full bg-emerald-900/30 border-2 border-emerald-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);">
+                                <span class="text-[24px] font-bold text-emerald-400 font-['Inter']" data-status="Closed">748</span>
+                            </div>
+                            <span class="text-[16px] tracking-widest text-emerald-400 font-bold font-['Inter']">Closed</span>
+                        </div>
+                    </div>
+                </div>
+<div class="flex gap-6 items-stretch h-full" style="min-height: 86.4vh;">
+<div class="flex flex-col h-full" style="flex: 0 0 16.67%; align-self: stretch;" data-ai-analysis-container>
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col flex-1 industrial-border" style="min-height: 86.4vh;">
+<div class="bg-gradient-to-r from-purple-500/20 to-blue-500/20 px-4 py-3 border-b border-white/5 flex items-center justify-between gap-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-purple-400 text-[28.8px]">psychology</span>
+<span class="text-[26.4px] font-bold text-[var(--text-primary)] tracking-wider font-['Inter']">AI Analysis</span>
+<span id="ai-model-badge" class="text-[12px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">Rule-based</span>
+</div>
+<button onclick="showAIConfig()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors" title="AI配置">
+<span class="material-symbols-outlined text-[21.6px]">settings</span>
+</button>
+</div>
+<div class="p-5 flex flex-col flex-1 space-y-4 overflow-y-auto min-h-0">
+<div id="ai-analysis-content" class="space-y-4 text-[16.8px]">
+<div class="flex items-start gap-3">
+<span class="material-symbols-outlined text-blue-400 text-[21.6px] mt-0.5">insights</span>
+<div>
+<p class="text-[var(--text-primary)] font-semibold mb-1.5 text-[19.2px] font-['Inter']">OVERALL STATUS</p>
+                <p class="text-[var(--text-primary)]/90 text-[16.8px] leading-relaxed font-['Inter']" id="ai-overall">Analyzing data...</p>
+</div>
+</div>
+<div class="flex items-start gap-3">
+<span class="material-symbols-outlined text-amber-400 text-[21.6px] mt-0.5">warning</span>
+<div>
+<p class="text-[var(--text-primary)] font-semibold mb-1.5 text-[19.2px] font-['Inter']">SEVERITY ANALYSIS</p>
+<p class="text-[var(--text-primary)]/90 text-[16.8px] leading-relaxed font-['Inter']" id="ai-severity">Analyzing severity distribution...</p>
+</div>
+</div>
+<div class="flex items-start gap-3">
+<span class="material-symbols-outlined text-emerald-400 text-[21.6px] mt-0.5">trending_up</span>
+<div>
+<p class="text-[var(--text-primary)] font-semibold mb-1.5 text-[19.2px] font-['Inter']">SLA PERFORMANCE</p>
+<p class="text-[var(--text-primary)]/90 text-[16.8px] leading-relaxed font-['Inter']" id="ai-sla">Analyzing SLA compliance...</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+                <div class="h-full resizable" style="flex: 1 1 auto; min-height: 95.04vh; position: relative;" data-severity-container>
+                <div class="grid grid-cols-2 grid-rows-2 gap-4 h-full">
+                <!-- Severity P1 -->
+                <div class="bg-[var(--bg-card)] rounded-xl border-l-4 border-l-red-600 border border-white/5 p-6 flex flex-col glow-red overflow-hidden p1-alert industrial-border">
+                <div class="flex justify-between items-center mb-3">
+                <span class="text-[18px] font-bold text-red-400 tracking-widest bg-red-500/20 px-4 py-2 rounded-full border-2 border-red-500/50 font-['Inter']">Severity P1</span>
+                <span class="material-symbols-outlined text-red-500 text-[24px]">priority_high</span>
+                </div>
+                <div class="flex items-baseline gap-2 mb-3">
+                <p class="text-[42px] font-bold text-white font-['Inter']" data-severity="P1" data-field="total">0</p>
+                <p class="text-[11.2px] text-[var(--text-primary)]/90 font-medium font-['Inter']">Tickets</p>
+                </div>
+                <div class="flex-1 overflow-auto">
+                <table class="w-full text-[9.8px] font-['Inter']">
+                <thead>
+                <tr class="text-cyan-400 font-bold border-b border-white/5">
+                <th class="text-left py-1.5 text-[14px]">Status</th>
+                <th class="text-center py-1.5 text-[14px]">FO</th>
+                <th class="text-center py-1.5 text-[14px]">BO</th>
+                <th class="text-center py-1.5 text-[14px]">FE</th>
+                <th class="text-center py-1.5 text-[14px]">IPT</th>
+                <th class="text-center py-1.5 text-[14px]">Fiber</th>
+                <th class="text-center py-1.5 text-[14px]">OLR</th>
+                <th class="text-center py-1.5 text-[14px]">3rd</th>
+                <th class="text-center py-1.5 text-[14px]">Total</th>
+                </tr>
+                </thead>
+                <tbody class="text-white" id="severity-p1-table">
+                <!-- 数据将由JavaScript动态生成 -->
+                </tbody>
+                </table>
+                </div>
+                </div>
+                <!-- Severity P2 -->
+                <div class="bg-[var(--bg-card)] rounded-xl border-l-4 border-l-orange-500 border border-white/5 p-6 flex flex-col glow-orange overflow-hidden industrial-border">
+                <div class="flex justify-between items-center mb-3">
+                <span class="text-[20px] font-bold text-orange-400 tracking-widest bg-orange-500/20 px-4 py-2 rounded-full border-2 border-orange-500/50 font-['Inter']">Severity P2</span>
+                <span class="material-symbols-outlined text-orange-500 text-[24px]">warning</span>
+                </div>
+                <div class="flex items-baseline gap-2 mb-3">
+                <p class="text-[42px] font-bold text-white font-['Inter']" data-severity="P2" data-field="total">0</p>
+                <p class="text-[14px] text-[var(--text-primary)]/90 font-medium font-['Inter']">Tickets</p>
+                </div>
+                <div class="flex-1 overflow-auto">
+                <table class="w-full text-[9.8px] font-['Inter']">
+                <thead>
+                <tr class="text-cyan-400 font-bold border-b border-white/5">
+                <th class="text-left py-1.5 text-[14px]">Status</th>
+                <th class="text-center py-1.5 text-[14px]">FO</th>
+                <th class="text-center py-1.5 text-[14px]">BO</th>
+                <th class="text-center py-1.5 text-[14px]">FE</th>
+                <th class="text-center py-1.5 text-[14px]">IPT</th>
+                <th class="text-center py-1.5 text-[14px]">Fiber</th>
+                <th class="text-center py-1.5 text-[14px]">OLR</th>
+                <th class="text-center py-1.5 text-[14px]">3rd</th>
+                <th class="text-center py-1.5 text-[14px]">Total</th>
+                </tr>
+                </thead>
+                <tbody class="text-white" id="severity-p2-table">
+                <!-- 数据将由JavaScript动态生成 -->
+                </tbody>
+                </table>
+                </div>
+                </div>
+                <!-- Severity P3 -->
+                <div class="bg-[var(--bg-card)] rounded-xl border-l-4 border-l-amber-400 border border-white/5 p-6 flex flex-col glow-yellow overflow-hidden industrial-border">
+                <div class="flex justify-between items-center mb-3">
+                <span class="text-[20px] font-bold text-amber-400 tracking-widest bg-amber-500/20 px-4 py-2 rounded-full border-2 border-amber-500/50 font-['Inter']">Severity P3</span>
+                <span class="material-symbols-outlined text-amber-500 text-[24px]">error_outline</span>
+                </div>
+                <div class="flex items-baseline gap-2 mb-3">
+                <p class="text-[42px] font-bold text-white font-['Inter']" data-severity="P3" data-field="total">0</p>
+                <p class="text-[14px] text-[var(--text-primary)]/90 font-medium font-['Inter']">Tickets</p>
+                </div>
+                <div class="flex-1 overflow-auto">
+                <table class="w-full text-[9.8px] font-['Inter']">
+                <thead>
+                <tr class="text-cyan-400 font-bold border-b border-white/5">
+                <th class="text-left py-1.5 text-[14px]">Status</th>
+                <th class="text-center py-1.5 text-[14px]">FO</th>
+                <th class="text-center py-1.5 text-[14px]">BO</th>
+                <th class="text-center py-1.5 text-[14px]">FE</th>
+                <th class="text-center py-1.5 text-[14px]">IPT</th>
+                <th class="text-center py-1.5 text-[14px]">Fiber</th>
+                <th class="text-center py-1.5 text-[14px]">OLR</th>
+                <th class="text-center py-1.5 text-[14px]">3rd</th>
+                <th class="text-center py-1.5 text-[14px]">Total</th>
+                </tr>
+                </thead>
+                <tbody class="text-white" id="severity-p3-table">
+                <!-- 数据将由JavaScript动态生成 -->
+                </tbody>
+                </table>
+                </div>
+                </div>
+                <!-- Severity P4 -->
+                <div class="bg-[var(--bg-card)] rounded-xl border-l-4 border-l-blue-500 border border-white/5 p-6 flex flex-col glow-blue overflow-hidden industrial-border">
+                <div class="flex justify-between items-center mb-3">
+                <span class="text-[20px] font-bold text-blue-400 tracking-widest bg-blue-500/20 px-4 py-2 rounded-full border-2 border-blue-500/50 font-['Inter']">Severity P4</span>
+                <span class="material-symbols-outlined text-blue-500 text-[24px]">info</span>
+                </div>
+                <div class="flex items-baseline gap-2 mb-3">
+                <p class="text-[42px] font-bold text-white font-['Inter']" data-severity="P4" data-field="total">0</p>
+                <p class="text-[14px] text-[var(--text-primary)]/90 font-medium font-['Inter']">Tickets</p>
+                </div>
+                <div class="flex-1 overflow-auto">
+                <table class="w-full text-[9.8px] font-['Inter']">
+                <thead>
+                <tr class="text-cyan-400 font-bold border-b border-white/5">
+                <th class="text-left py-1.5 text-[14px]">Status</th>
+                <th class="text-center py-1.5 text-[14px]">FO</th>
+                <th class="text-center py-1.5 text-[14px]">BO</th>
+                <th class="text-center py-1.5 text-[14px]">FE</th>
+                <th class="text-center py-1.5 text-[14px]">IPT</th>
+                <th class="text-center py-1.5 text-[14px]">Fiber</th>
+                <th class="text-center py-1.5 text-[14px]">OLR</th>
+                <th class="text-center py-1.5 text-[14px]">3rd</th>
+                <th class="text-center py-1.5 text-[14px]">Total</th>
+                </tr>
+                </thead>
+                <tbody class="text-white" id="severity-p4-table">
+                <!-- 数据将由JavaScript动态生成 -->
+                </tbody>
+                </table>
+                </div>
+                </div>
+                </div>
+                </div>
+<!-- SLA组件已移动到地图那一行 -->
+
+</div>
+</div>
+<!-- Liberia States Map Component with SLA -->
+<div class="flex gap-4 mb-6 h-full map-container">
+<div class="flex-[2] bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl industrial-border map-main-container">
+<div class="px-8 py-6 border-b-2 border-[var(--text-primary)]/20 flex justify-between items-center bg-black/50">
+<div class="flex items-center gap-4">
+<h3 class="text-[22px] font-bold text-white tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);">Liberia States Incident Distribution</h3>
+<span class="px-2 py-0.5 rounded bg-green-500/20 text-green-400 text-[12px] font-bold border border-green-500/30" id="map-record-count">0 RECORDS</span>
+</div>
+</div>
+<div class="p-6 flex h-full">
+<div id="map-legend" class="w-64 mr-4 flex flex-col gap-2 text-[12px] overflow-y-auto"></div>
+<div id="liberia-map" style="flex: 1; width: 100%; background: #0a0a0a; border-radius: 8px; min-height: 400px;"></div>
+</div>
+</div>
+
+<!-- SLA Components -->
+<div class="resizable" style="flex: 0 0 calc(83.33% * 0.5 - 2rem); align-self: stretch; position: relative;" data-sla-container>
+<div class="flex flex-col w-full gap-2 h-full" style="min-height: 0;">
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col industrial-border" data-sla-card="zte" style="flex: 1 1 0; min-height: 0;">
+<div class="bg-white/5 px-6 py-3 border-b border-white/5 flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-[var(--corporate-blue)]"></span>
+<span class="text-[18px] font-bold text-[var(--text-primary)] uppercase tracking-wider font-['Inter']">SLA Performance - Vendor ZTE</span>
+</div>
+<div class="p-4 flex flex-col flex-1 min-h-0">
+<div class="flex items-baseline gap-2 mb-3">
+<p class="text-[42px] font-bold text-white font-['Inter']" data-sla-vendor="ZTE" data-field="total">0</p>
+<p class="text-[14px] text-[var(--text-primary)]/90 font-medium font-['Inter']">Tickets</p>
+</div>
+<div class="flex-1 overflow-auto">
+<table class="w-full text-[9.8px] font-['Inter']">
+<thead>
+<tr class="text-cyan-400 font-bold border-b border-white/5">
+<th class="text-left py-1.5 text-[14px]">SEV</th>
+<th class="text-center py-1.5 text-[14px]">SLA &gt; 100%</th>
+<th class="text-center py-1.5 text-[14px]">SLA &lt; 100%</th>
+<th class="text-center py-1.5 text-[14px]">SLA &lt; 75%</th>
+<th class="text-center py-1.5 text-[14px]">SLA &lt; 50%</th>
+<th class="text-center py-1.5 text-[14px]">SLA &lt; 25%</th>
+</tr>
+</thead>
+<tbody class="text-white">
+<tr>
+<td class="text-left py-2 font-bold">P1</td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="gt100" onclick="filterBySLACell('P1', 'gt100')" class="inline-block px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-[14px] font-bold border border-red-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt100" onclick="filterBySLACell('P1', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt75" onclick="filterBySLACell('P1', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt50" onclick="filterBySLACell('P1', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt25" onclick="filterBySLACell('P1', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+</tr>
+<tr>
+<td class="text-left py-2 font-bold">P2</td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="gt100" onclick="filterBySLACell('P2', 'gt100')" class="inline-block px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-[14px] font-bold border border-red-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt100" onclick="filterBySLACell('P2', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt75" onclick="filterBySLACell('P2', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt50" onclick="filterBySLACell('P2', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt25" onclick="filterBySLACell('P2', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+</tr>
+<tr>
+<td class="text-left py-2 font-bold">P3</td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="gt100" onclick="filterBySLACell('P3', 'gt100')" class="inline-block px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-[14px] font-bold border border-red-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt100" onclick="filterBySLACell('P3', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt75" onclick="filterBySLACell('P3', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt50" onclick="filterBySLACell('P3', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt25" onclick="filterBySLACell('P3', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+</tr>
+<tr>
+<td class="text-left py-2 font-bold">P4</td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="gt100" onclick="filterBySLACell('P4', 'gt100')" class="inline-block px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-[14px] font-bold border border-red-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt100" onclick="filterBySLACell('P4', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt75" onclick="filterBySLACell('P4', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt50" onclick="filterBySLACell('P4', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt25" onclick="filterBySLACell('P4', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<div class="sla-resize-divider" style="height: 10px; background: rgba(59, 130, 246, 0.3); cursor: row-resize; position: relative; flex-shrink: 0; transition: background 0.2s; margin: 6px 0; border-radius: 4px; z-index: 100; pointer-events: auto; user-select: none; -webkit-user-select: none;"></div>
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col industrial-border" data-sla-card="3rd" style="flex: 1 1 0; min-height: 0;">
+<div class="bg-white/5 px-6 py-3 border-b border-white/5 flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-slate-500"></span>
+<span class="text-[18px] font-bold text-[var(--text-primary)] uppercase tracking-wider font-['Inter']">SLA Performance - Vendor 3rd</span>
+</div>
+<div class="p-4 flex flex-col flex-1 min-h-0">
+<div class="flex items-baseline gap-2 mb-3">
+<p class="text-[42px] font-bold text-white font-['Inter']" data-sla-vendor="3rd" data-field="total">0</p>
+<p class="text-[14px] text-[var(--text-primary)]/90 font-medium font-['Inter']">Tickets</p>
+</div>
+<div class="flex-1 overflow-auto">
+<table class="w-full text-[9.8px] font-['Inter']">
+<thead>
+<tr class="text-cyan-400 font-bold border-b border-white/5">
+<th class="text-left py-1.5 text-[14px]">SEV</th>
+<th class="text-center py-1.5 text-[14px]">SLA &gt; 100%</th>
+<th class="text-center py-1.5 text-[14px]">SLA &lt; 100%</th>
+<th class="text-center py-1.5 text-[14px]">SLA &lt; 75%</th>
+<th class="text-center py-1.5 text-[14px]">SLA &lt; 50%</th>
+<th class="text-center py-1.5 text-[14px]">SLA &lt; 25%</th>
+</tr>
+</thead>
+<tbody class="text-white">
+<tr>
+<td class="text-left py-2 font-bold">P1</td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="gt100" onclick="filterBySLACell('P1', 'gt100')" class="inline-block px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-[14px] font-bold border border-red-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt100" onclick="filterBySLACell('P1', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt75" onclick="filterBySLACell('P1', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt50" onclick="filterBySLACell('P1', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt25" onclick="filterBySLACell('P1', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+</tr>
+<tr>
+<td class="text-left py-2 font-bold">P2</td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="gt100" onclick="filterBySLACell('P2', 'gt100')" class="inline-block px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-[14px] font-bold border border-red-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt100" onclick="filterBySLACell('P2', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt75" onclick="filterBySLACell('P2', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt50" onclick="filterBySLACell('P2', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt25" onclick="filterBySLACell('P2', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+</tr>
+<tr>
+<td class="text-left py-2 font-bold">P3</td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="gt100" onclick="filterBySLACell('P3', 'gt100')" class="inline-block px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-[14px] font-bold border border-red-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt100" onclick="filterBySLACell('P3', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt75" onclick="filterBySLACell('P3', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt50" onclick="filterBySLACell('P3', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt25" onclick="filterBySLACell('P3', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+</tr>
+<tr>
+<td class="text-left py-2 font-bold">P4</td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="gt100" onclick="filterBySLACell('P4', 'gt100')" class="inline-block px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-[14px] font-bold border border-red-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt100" onclick="filterBySLACell('P4', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt75" onclick="filterBySLACell('P4', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt50" onclick="filterBySLACell('P4', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt25" onclick="filterBySLACell('P4', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl w-full industrial-border" data-details-container>
+<div class="px-8 py-6 border-b-2 border-[var(--text-primary)]/20 flex justify-between items-center bg-black/50">
+<div class="flex items-center gap-4">
+<h3 class="text-[22px] font-bold text-white tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);">Active Incident Log(SLA>50%)</h3>
+<span class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[12px] font-bold border border-blue-500/30" id="details-record-count">26 RECORDS</span>
+</div>
+<div class="flex gap-2 items-center">
+                        <div id="filter-search-container" class="hidden flex items-center gap-2">
+                            <input type="text" id="filter-search-input" placeholder="输入关键词进行模糊搜索..."
+                                class="bg-[#1A2234] border border-white/10 rounded px-3 py-1.5 text-slate-300 placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 text-[13px] w-64 transition-all"
+                                oninput="applyFilter()"
+                                onkeydown="if(event.key === 'Escape') toggleFilter()">
+                            <button onclick="clearFilter()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors border border-white/10 bg-white/5" title="清除筛选">
+                                <span class="material-symbols-outlined text-[11.76px]">close</span>
+                            </button>
+                        </div>
+                        <button onclick="toggleFilter()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors border border-white/10 bg-white/5" title="筛选" id="filter-toggle-btn">
+                            <span class="material-symbols-outlined text-[11.76px]">filter_alt</span>
+                        </button>
+                        <button onclick="exportData()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors border border-white/10 bg-white/5" title="导出">
+                            <span class="material-symbols-outlined text-[11.76px]">download</span>
+                        </button>
+</div>
+</div>
+<div class="overflow-x-auto max-h-[450px] w-full" style="position: relative;">
+<table class="min-w-full text-left text-[15px] whitespace-nowrap font-['Inter']" style="table-layout: auto;">
+<thead class="bg-black/80 sticky top-0 z-10 border-b-2 border-[var(--text-primary)]/30" style="backdrop-filter: blur(10px);">
+                        <tr class="text-slate-500 font-bold" id="details-header">
+                            <!-- 表头将由JavaScript动态生成 -->
+                        </tr>
+</thead>
+                        <tbody class="font-medium text-[var(--text-primary)]/90 divide-y divide-[var(--text-primary)]/10" id="details-body" style="line-height: 1.5;">
+                            <!-- 数据行将由JavaScript动态生成 -->
+                        </tbody>
+</table>
+</div>
+<div class="px-6 py-4 bg-white/5 border-t border-white/5 flex items-center justify-between">
+<p class="text-[12px] text-slate-500 uppercase font-bold tracking-tight">Viewing 4 of 26 operational incidents</p>
+<div class="flex items-center gap-1">
+<button class="w-8 h-8 rounded border border-white/10 flex items-center justify-center text-slate-500 hover:bg-white/10 hover:text-white transition-colors"><span class="material-symbols-outlined text-[11.76px]">chevron_left</span></button>
+<div class="px-3 py-1 bg-[var(--corporate-blue)] text-white rounded text-[14.4px] font-bold shadow-[0_0_10px_rgba(59,130,246,0.4)]">1</div>
+<button class="w-8 h-8 rounded border border-white/10 flex items-center justify-center text-slate-500 hover:bg-white/10 hover:text-white transition-colors"><span class="material-symbols-outlined text-[11.76px]">chevron_right</span></button>
+</div>
+</div>
+</div>
+
+<!-- Incident Log Component -->
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl w-full industrial-border mt-6" data-incident-log-container>
+<div class="px-8 py-6 border-b-2 border-[var(--text-primary)]/20 flex justify-between items-center bg-black/50">
+<div class="flex items-center gap-4">
+<h3 class="text-[22px] font-bold text-white tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);">Incident Log</h3>
+<span class="px-2 py-0.5 rounded bg-green-500/20 text-green-400 text-[12px] font-bold border border-green-500/30" id="incident-log-record-count">0 RECORDS</span>
+</div>
+<div class="flex gap-2 items-center">
+                        <div id="incident-log-filter-search-container" class="hidden flex items-center gap-2">
+                            <input type="text" id="incident-log-filter-search-input" placeholder="输入关键词进行模糊搜索..."
+                                class="bg-[#1A2234] border border-white/10 rounded px-3 py-1.5 text-slate-300 placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 text-[13px] w-64 transition-all"
+                                oninput="applyIncidentLogFilter()"
+                                onkeydown="if(event.key === 'Escape') toggleIncidentLogFilter()">
+                            <button onclick="clearIncidentLogFilter()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors border border-white/10 bg-white/5" title="清除筛选">
+                                <span class="material-symbols-outlined text-[11.76px]">close</span>
+                            </button>
+                        </div>
+                        <button onclick="toggleIncidentLogFilter()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors border border-white/10 bg-white/5" title="筛选" id="incident-log-filter-toggle-btn">
+                            <span class="material-symbols-outlined text-[11.76px]">filter_alt</span>
+                        </button>
+                        <button onclick="downloadIncidentLogData()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors border border-white/10 bg-white/5" title="下载全部数据">
+                            <span class="material-symbols-outlined text-[11.76px]">download</span>
+                        </button>
+</div>
+</div>
+<div class="overflow-x-auto max-h-[450px] w-full" style="position: relative; overflow-y: auto;" data-incident-log-scroll>
+<table class="min-w-full text-left text-[15px] whitespace-nowrap font-['Inter']" style="table-layout: auto;">
+<thead class="bg-black/80 sticky top-0 z-10 border-b-2 border-[var(--text-primary)]/30" style="backdrop-filter: blur(10px);">
+                        <tr class="text-slate-500 font-bold" id="incident-log-header">
+                            <!-- 表头将由JavaScript动态生成 -->
+                        </tr>
+</thead>
+                        <tbody class="font-medium text-[var(--text-primary)]/90 divide-y divide-[var(--text-primary)]/10" id="incident-log-body" style="line-height: 1.5;">
+                            <!-- 数据行将由JavaScript动态生成 -->
+                        </tbody>
+</table>
+<div id="incident-log-sentinel" style="height:2px;min-height:2px;visibility:hidden;pointer-events:none" aria-hidden="true"></div>
+</div>
+<div class="px-6 py-4 bg-white/5 border-t border-white/5 flex items-center justify-between">
+<p class="text-[12px] text-slate-500 uppercase font-bold tracking-tight">Viewing 0 of 0 incidents</p>
+<div class="flex items-center gap-2">
+<button type="button" id="incident-log-load-more-btn" class="hidden px-4 py-2 rounded border border-cyan-500/50 bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 text-[12px] font-bold transition-colors" onclick="loadMoreIncidentLogData()">Loading More</button>
+<div class="flex items-center gap-1">
+<button class="w-8 h-8 rounded border border-white/10 flex items-center justify-center text-slate-500 hover:bg-white/10 hover:text-white transition-colors"><span class="material-symbols-outlined text-[11.76px]">chevron_left</span></button>
+<div class="px-3 py-1 bg-[var(--corporate-blue)] text-white rounded text-[14.4px] font-bold shadow-[0_0_10px_rgba(59,130,246,0.4)]">1</div>
+<button class="w-8 h-8 rounded border border-white/10 flex items-center justify-center text-slate-500 hover:bg-white/10 hover:text-white transition-colors"><span class="material-symbols-outlined text-[11.76px]">chevron_right</span></button>
+</div>
+</div>
+</div>
+</main>
+<!-- AI配置对话框 -->
+<div id="ai-config-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+<div class="bg-[var(--bg-card)] rounded-xl border border-white/5 p-6 max-w-md w-full mx-4 shadow-2xl">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-[18px] font-bold text-white">AI模型配置</h3>
+<button onclick="hideAIConfig()" class="text-slate-400 hover:text-white">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<div class="space-y-4">
+<div>
+<label class="block text-[14px] text-slate-300 mb-2">选择AI模型</label>
+<select id="ai-model-select" class="w-full bg-[#1A2234] border border-white/10 rounded px-3 py-2 text-slate-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50" onchange="toggleDoubaoModel()">
+<option value="rule-based">规则生成 (Rule-based)</option>
+<option value="openai">OpenAI GPT</option>
+<option value="gemini">Google Gemini</option>
+<option value="doubao">字节豆包 (Doubao)</option>
+<option value="qianwen">通义千问 (Qianwen)</option>
+<option value="glm-coding">GLM Coding</option>
+<option value="deepseek">DeepSeek</option>
+</select>
+</div>
+<div id="doubao-model-container" class="hidden">
+<label class="block text-[14px] text-slate-300 mb-2">豆包模型</label>
+<select id="doubao-model-select" class="w-full bg-[#1A2234] border border-white/10 rounded px-3 py-2 text-slate-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50">
+<option value="doubao-seed-1-8-251228">Doubao Seed 1.8 (doubao-seed-1-8-251228)</option>
+<option value="doubao-seed-1-6-flash-250828">Doubao Flash (doubao-seed-1-6-flash-250828)</option>
+<option value="doubao-1-5-pro-32k-250115">Doubao Pro 32k (doubao-1-5-pro-32k-250115)</option>
+<option value="kimi-k2-thinking-251104">Kimi K2 Thinking (kimi-k2-thinking-251104)</option>
+</select>
+</div>
+<div>
+<label class="block text-[14px] text-slate-300 mb-2">API密钥</label>
+<input type="password" id="ai-api-key-input" placeholder="输入API密钥..." class="w-full bg-[#1A2234] border border-white/10 rounded px-3 py-2 text-slate-300 placeholder-slate-500 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50" />
+<p class="text-[12px] text-slate-500 mt-1">密钥仅存储在本地浏览器，不会上传到服务器</p>
+</div>
+<div class="flex gap-2 pt-2">
+<button onclick="saveAIConfig()" class="flex-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 px-4 py-2 rounded border border-purple-500/30 transition-colors font-semibold">保存配置</button>
+<button onclick="hideAIConfig()" class="px-4 py-2 text-slate-400 hover:text-slate-300 transition-colors">取消</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Virtual Assistant Component -->
+<div id="virtual-assistant" class="fixed bottom-6 right-6 z-50">
+    <!-- Floating Button -->
+    <button id="assistant-toggle-btn" onclick="toggleAssistantPanel()" class="w-7 h-7 rounded-full bg-gradient-to-r from-purple-500 to-blue-500 shadow-lg hover:shadow-xl transition-all flex items-center justify-center group" title="Virtual Assistant">
+        <span class="material-symbols-outlined text-white text-[14px]">smart_toy</span>
+        <span id="assistant-badge" class="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center text-white text-[8px] font-bold hidden">0</span>
+    </button>
+    
+    <!-- Assistant Panel -->
+    <div id="assistant-panel" class="hidden absolute bottom-20 right-0 w-96 bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 shadow-2xl overflow-hidden">
+        <div class="bg-gradient-to-r from-purple-500/20 to-blue-500/20 px-4 py-3 border-b border-white/5 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-purple-400 text-[24px]">smart_toy</span>
+                <h3 class="text-[18px] font-bold text-white">Virtual Assistant</h3>
+            </div>
+            <button onclick="toggleAssistantPanel()" class="text-slate-400 hover:text-white">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div class="p-4 max-h-[500px] overflow-y-auto">
+            <div id="assistant-status" class="mb-4">
+                <p class="text-[14px] text-slate-300 mb-2">Monitoring Status: <span id="monitor-status" class="text-green-400">Running</span></p>
+                <p class="text-[12px] text-slate-500">Detected <span id="detected-count" class="text-cyan-400 font-bold">0</span> records requiring processing</p>
+            </div>
+            <div id="assistant-actions" class="space-y-2">
+                <button onclick="checkAndNotify3rdPower()" class="w-full bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 px-4 py-2 rounded border border-cyan-500/30 transition-colors font-semibold text-[14px]">
+                    <span class="material-symbols-outlined text-[18px] align-middle mr-2">notifications_active</span>
+                    Check & Notify Now
+                </button>
+                <button onclick="clearProcessedTickets()" class="w-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 px-4 py-2 rounded border border-amber-500/30 transition-colors font-semibold text-[14px]">
+                    <span class="material-symbols-outlined text-[18px] align-middle mr-2">refresh</span>
+                    Clear Processed Records
+                </button>
+                <button onclick="showAssistantConfig()" class="w-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 px-4 py-2 rounded border border-purple-500/30 transition-colors font-semibold text-[14px]">
+                    <span class="material-symbols-outlined text-[18px] align-middle mr-2">settings</span>
+                    Configure Notifications
+                </button>
+            </div>
+            <div id="assistant-logs" class="mt-4 space-y-2 max-h-[200px] overflow-y-auto">
+                <p class="text-[12px] text-slate-500 font-semibold">Operation Log:</p>
+                <div id="assistant-log-content" class="space-y-1 text-[11px] text-slate-400">
+                    <p>Waiting for operations...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Virtual Assistant Configuration Dialog -->
+<div id="assistant-config-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+    <div class="bg-[var(--bg-card)] rounded-xl border border-white/5 p-6 max-w-md w-full mx-4 shadow-2xl">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-[18px] font-bold text-white">Virtual Assistant Configuration</h3>
+            <button onclick="hideAssistantConfig()" class="text-slate-400 hover:text-white">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-[14px] text-slate-300 mb-2">Notification Methods</label>
+                <div class="space-y-2">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="notify-phone" class="rounded">
+                        <span class="text-[14px] text-slate-300">Phone Notification</span>
+                        <span class="text-[11px] text-amber-400 ml-1">(Enterprise Service)</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="notify-sms" class="rounded">
+                        <span class="text-[14px] text-slate-300">SMS Notification</span>
+                        <span class="text-[11px] text-amber-400 ml-1">(Enterprise Service)</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="notify-browser" class="rounded" checked>
+                        <span class="text-[14px] text-slate-300">Browser Voice Notification</span>
+                        <span class="text-[11px] text-green-400 ml-1">(Free, Recommended)</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="notify-desktop" class="rounded" checked>
+                        <span class="text-[14px] text-slate-300">Desktop Notification</span>
+                        <span class="text-[11px] text-green-400 ml-1">(Free, Recommended)</span>
+                    </label>
+                </div>
+            </div>
+            <div>
+                <label class="block text-[14px] text-slate-300 mb-2">Recipient Phone Number</label>
+                <input type="tel" id="phone-number" placeholder="+86 138 0000 0000" class="w-full bg-[#1A2234] border border-white/10 rounded px-3 py-2 text-slate-300 placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50" />
+            </div>
+            <div>
+                <label class="block text-[14px] text-slate-300 mb-2">Auto Monitoring Interval (seconds)</label>
+                <input type="number" id="monitor-interval" value="60" min="10" class="w-full bg-[#1A2234] border border-white/10 rounded px-3 py-2 text-slate-300 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50" />
+            </div>
+            <div>
+                <label class="block text-[14px] text-slate-300 mb-2">AI Message Generation Prompt</label>
+                <textarea id="ai-prompt-template" rows="4" class="w-full bg-[#1A2234] border border-white/10 rounded px-3 py-2 text-slate-300 placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50" placeholder="Generate a professional and concise notification message based on the following ticket information...">Generate a professional and concise notification message based on the following ticket information for phone or SMS notification. The message should include: ticket number, severity, current status, SLA percentage, and brief description. The language should be professional, clear and concise, not exceeding 100 words.
+
+Ticket Information:
+{{TICKET_INFO}}</textarea>
+            </div>
+            <div class="flex gap-2 pt-2">
+                <button onclick="saveAssistantConfig()" class="flex-1 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 px-4 py-2 rounded border border-cyan-500/30 transition-colors font-semibold">Save Configuration</button>
+                <button onclick="hideAssistantConfig()" class="px-4 py-2 text-slate-400 hover:text-slate-300 transition-colors">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+</body></html>
+</body></html>

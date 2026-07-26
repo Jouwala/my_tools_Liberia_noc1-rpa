@@ -2,6 +2,7 @@ import { useState, lazy, Suspense } from 'react'
 import { ConfigProvider, Layout, Menu, theme, Button, Spin } from 'antd'
 import {
   DatabaseOutlined,
+  AppstoreOutlined,
   UploadOutlined,
   DashboardOutlined,
   GlobalOutlined,
@@ -25,51 +26,55 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const GISMap = lazy(() => import('./pages/GISMap'))
 const ArchiveList = lazy(() => import('./pages/ArchiveList'))
 const DataSync = lazy(() => import('./pages/DataSync'))
+const WarehouseDashboard = lazy(() => import('./pages/WarehouseDashboard'))
 const Overview = lazy(() => import('./pages/Overview'))
 const TTWODashboard = lazy(() => import('./pages/TTWODashboard'))
 const AlarmDashboard = lazy(() => import('./pages/AlarmDashboard'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'archive' | 'sync'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'archive' | 'sync' | 'warehouse'
 
 function AppContent() {
-  const [currentPage, setCurrentPage] = useState<PageKey>('alarm')
+  const [currentPage, setCurrentPage] = useState<PageKey>('sync')
   const [collapsed, setCollapsed] = useState(false)
   const { t, locale, toggleLocale } = useI18n()
 
   const menuItems = [
-    { key: 'dashboard', icon: <DashboardOutlined />, label: t('nav.dashboard') },
+    { key: 'sync', icon: <SyncOutlined />, label: t('nav.sync') },
     { key: 'alarm', icon: <AlertOutlined />, label: t('nav.alarm') },
     { key: 'ttwo', icon: <BarChartOutlined />, label: t('nav.ttwo') },
     { key: 'gis', icon: <GlobalOutlined />, label: t('nav.gis') },
+    { key: 'warehouse', icon: <AppstoreOutlined />, label: t('nav.sp') },
     { key: 'overview', icon: <BarChartOutlined />, label: t('nav.overview') },
     { key: 'tables', icon: <TableOutlined />, label: t('nav.tables') },
     { key: 'upload', icon: <UploadOutlined />, label: t('nav.upload') },
     { key: 'archive', icon: <HistoryOutlined />, label: t('nav.archive') },
-    { key: 'sync', icon: <SyncOutlined />, label: t('nav.sync') },
+    { key: 'dashboard', icon: <DashboardOutlined />, label: t('nav.dashboard') },
   ]
 
   const renderPage = () => {
     switch (currentPage) {
-      case 'overview':
-        return <Overview />
-      case 'tables':
-        return <TableBrowser />
-      case 'upload':
-        return <DataUpload />
-      case 'dashboard':
-        return <Dashboard />
+      case 'sync':
+        return <DataSync />
       case 'alarm':
         return <AlarmDashboard />
       case 'ttwo':
         return <TTWODashboard />
       case 'gis':
         return <GISMap />
+      case 'warehouse':
+        return <WarehouseDashboard />
+      case 'overview':
+        return <Overview />
+      case 'tables':
+        return <TableBrowser />
+      case 'upload':
+        return <DataUpload />
       case 'archive':
         return <ArchiveList />
-      case 'sync':
-        return <DataSync />
+      case 'dashboard':
+        return <Dashboard />
       default:
         return <Overview />
     }

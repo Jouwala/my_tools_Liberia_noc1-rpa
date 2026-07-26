@@ -75,7 +75,7 @@ def _load_history_df():
     df["_m_fetch_delay"] = m_fetch_delay
     df["_m_overdue"] = m_overdue
 
-    # 最新数据时间
+    # 最新数据时间（告警本身的最新 servertime，仅作回退）
     latest_ms = df["servertime"].max()
     latest_iso = (
         datetime.fromtimestamp(latest_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -84,13 +84,16 @@ def _load_history_df():
 
     has_tt = df["tt_id"].notna() & (df["tt_id"].astype(str).str.strip() != "") & (df["tt_id"].astype(str) != "-")
 
+    # 真正的“数据更新时间” = realtime_alarm 最后成功同步的时刻（eflow_active_alarm 任务）
+    sync_iso = _last_alarm_sync_iso()
+
     metrics = {
         "total": int(len(df)),
         "with_tt": int(has_tt.sum()),
         "dispatch_delay_eflow": int(m_dispatch_delay.sum()),
         "alarm_fetch_delay": int(m_fetch_delay.sum()),
         "dispatch_overdue_total": int(m_overdue.sum()),
-        "generated_at": latest_iso,
+        "generated_at": sync_iso or latest_iso,
     }
     return df, metrics
 
@@ -124,6 +127,25 @@ def _ms_to_min(ms):
         return round(float(ms) / 60000, 1)
     except (ValueError, TypeError):
         return None
+
+
+def _last_alarm_sync_iso() -> str:
+    """realtime_alarm 数据实际最后成功同步的时间（eflow_active_alarm 任务最后成功完成的时刻）。
+    优先返回真实刷新时间；无记录时回退到 None（由调用方回退到最新告警 servertime）。"""
+    try:
+        conn = get_raw_connection()
+        row = conn.execute(
+            "SELECT completed_at FROM task_execution_log "
+            "WHERE task_id='eflow_active_alarm' AND success=1 AND completed_at IS NOT NULL "
+            "ORDER BY completed_at DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if row and row["completed_at"]:
+            s = str(row["completed_at"]).replace("T", " ").replace("Z", "")
+            return (s[:16] + " UTC") if len(s) >= 16 else (s + " UTC")
+    except Exception:
+        pass
+    return None
 
 
 def _parse_duration_to_hours(s: str) -> float:
@@ -316,7 +338,7 @@ def alarm_dashboard_overview():
     _, history_metrics = _load_history_df()
 
     return {
-        "generated_at": server_iso,
+        "generated_at": _last_alarm_sync_iso() or server_iso,
         "total_alarms": total,
         "affected_sites": affected_sites,
         "total_alarm_hours": round(total_alarm_hours, 1),
@@ -338,7 +360,7 @@ def alarm_dashboard_overview():
         "column_order": COL_ORDER,
         "history": history_metrics or {
             "total": 0, "with_tt": 0, "dispatch_delay_eflow": 0,
-            "alarm_fetch_delay": 0, "dispatch_overdue_total": 0, "generated_at": "N/A",
+            "generated_at": _last_alarm_sync_iso() or server_iso,
         },
     }
 

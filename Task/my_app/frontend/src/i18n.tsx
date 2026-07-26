@@ -16,6 +16,22 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.ttwo': 'TT&WO Dashboard',
     'nav.gis': 'GIS地图',
     'nav.archive': '分析归档',
+    'nav.sp': '仓库看板',
+
+    // 仓库看板（SP 备件）
+    'sp.lastSync': '最近同步',
+    'sp.inbound': 'Inbound 工单',
+    'sp.outbound': 'Outbound 工单',
+    'sp.inventory': '库存',
+    'sp.ocRule': 'OC 规则',
+    'sp.transfer': '调拨',
+    'sp.closed': '已关闭',
+    'sp.unclosed': '未关闭',
+    'sp.countByTable': '各表数据量',
+    'sp.invTypeDist': '库存物料类型分布',
+    'sp.detailTables': '明细数据',
+    'sp.searchPlaceholder': '模糊搜索…',
+    'sp.loadRowsError': '明细加载失败',
 
     // Common
     'common.rows': '行',
@@ -278,6 +294,22 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.ttwo': 'TT&WO Dashboard',
     'nav.gis': 'GIS Map',
     'nav.archive': 'Archive',
+    'nav.sp': 'Warehouse',
+
+    // Warehouse Dashboard (SP spare parts)
+    'sp.lastSync': 'Last sync',
+    'sp.inbound': 'Inbound Tickets',
+    'sp.outbound': 'Outbound Tickets',
+    'sp.inventory': 'Inventory',
+    'sp.ocRule': 'OC Rule',
+    'sp.transfer': 'Transfer',
+    'sp.closed': 'Closed',
+    'sp.unclosed': 'Unclosed',
+    'sp.countByTable': 'Records by Table',
+    'sp.invTypeDist': 'Inventory Material Type',
+    'sp.detailTables': 'Detail Data',
+    'sp.searchPlaceholder': 'Fuzzy search…',
+    'sp.loadRowsError': 'Failed to load detail',
 
     // Common
     'common.rows': 'rows',

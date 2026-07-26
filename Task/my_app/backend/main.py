@@ -17,6 +17,11 @@ from backend.database import Base, engine, DB_PATH
 from backend.models.analysis import AnalysisArchive, UploadedFile
 from backend.routers import tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard
 from backend.services import task_runner
+from backend.services.sp_dashboard import (
+    get_dashboard_data,
+    get_warehouses as sp_list_warehouses,
+    get_detail_rows,
+)
 
 start_time = time.time()
 
@@ -221,6 +226,22 @@ def _register_all_tasks():
         category="cnn_kpi",
     )
 
+    # 11. SP 备件数据同步（每天凌晨7点）
+    def _run_sp_data_sync():
+        from backend.services.get_sp_table import run_sp_data_sync
+        return run_sp_data_sync()
+
+    task_runner.register_task(
+        task_id="sp_data_sync",
+        name="SP 备件数据同步",
+        name_en="SP Spare Data Sync",
+        func=_run_sp_data_sync,
+        description="从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db",
+        description_en="Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db",
+        default_cron="0 7 * * *",  # 每天凌晨7点
+        category="sp",
+    )
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -336,6 +357,83 @@ def run_task_now(task_id: str):
 def task_run_status(task_id: str):
     """查询任务是否正在运行"""
     return {"task_id": task_id, "running": task_runner.is_task_running(task_id)}
+
+
+# ========== SP 备件仓库看板 API ==========
+@app.get("/api/sp-data/summary")
+def sp_data_summary():
+    """各 SP 表的总行数、列、最近同步时间、衍生指标（供仓库看板）"""
+    from backend.services.get_sp_table import get_sp_summary
+    return get_sp_summary()
+
+
+@app.get("/api/sp-data/rows")
+def sp_data_rows(table: str, page: int = 1, size: int = 50, search: str = ""):
+    """分页 + 模糊搜索返回某 SP 表的数据"""
+    from backend.services.get_sp_table import get_sp_rows, SP_TABLES
+    if table not in SP_TABLES:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"未知表: {table}")
+    return get_sp_rows(table, page=page, size=size, search=search)
+
+
+# ========== SP 备件仓库看板（对齐 Unified_Tools/WareHouseDashBoard）==========
+# 计算逻辑完整复用 app_sp_optimized.py（见 backend/services/sp_dashboard.py），
+# 返回结构对齐参考 Flask 的 /api/data、/api/warehouses、/api/details。
+
+
+@app.get("/api/data")
+def sp_dashboard_data(date_start: str | None = None, date_end: str | None = None,
+                      warehouse: str | None = None):
+    """仓库看板主数据，结构对齐参考 Flask /api/data。"""
+    data = get_dashboard_data(date_start, date_end, warehouse)
+    return {"status": "success", "data": data}
+
+
+@app.get("/api/warehouses")
+def sp_dashboard_warehouses():
+    """仓库下拉列表。"""
+    return {"status": "success", "warehouses": sp_list_warehouses()}
+
+
+@app.get("/api/details")
+def sp_dashboard_details(
+    type: str,
+    column: str | None = None,
+    value: str | None = None,
+    mode: str = "exact",
+    first_column: str | None = None,
+    first_value: str | None = None,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    warehouse: str | None = None,
+    status_column: str | None = None,
+    status_value: str | None = None,
+    status_mode: str = "exact",
+    sla_filter: bool = False,
+    sla_type: str | None = None,
+):
+    """明细查询，对齐参考 Flask /api/details。"""
+    if type not in ("inband", "outband", "inventory"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"未知明细类型: {type}")
+    result = get_detail_rows(
+        detail_type=type,
+        filter_column=column,
+        filter_value=value,
+        filter_mode=mode,
+        first_column=first_column,
+        first_value=first_value,
+        date_start=date_start,
+        date_end=date_end,
+        warehouse=warehouse,
+        status_column=status_column,
+        status_value=status_value,
+        status_mode=status_mode,
+        sla_filter=sla_filter,
+        sla_type=sla_type,
+    )
+    return {"status": "success", **result}
 
 
 @app.post("/api/tasks/{task_id}/schedule")
