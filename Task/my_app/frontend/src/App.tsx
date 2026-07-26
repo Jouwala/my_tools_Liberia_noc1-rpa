@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ConfigProvider, Layout, Menu, theme, Button } from 'antd'
+import { useState, lazy, Suspense } from 'react'
+import { ConfigProvider, Layout, Menu, theme, Button, Spin } from 'antd'
 import {
   DatabaseOutlined,
   UploadOutlined,
@@ -16,15 +16,18 @@ import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
 
 import { I18nProvider, useI18n } from './i18n'
-import TableBrowser from './pages/TableBrowser'
-import DataUpload from './pages/DataUpload'
-import Dashboard from './pages/Dashboard'
-import GISMap from './pages/GISMap'
-import ArchiveList from './pages/ArchiveList'
-import DataSync from './pages/DataSync'
-import Overview from './pages/Overview'
-import TTWODashboard from './pages/TTWODashboard'
-import AlarmDashboard from './pages/AlarmDashboard'
+import { TaskStatusProvider } from './TaskStatusContext'
+
+// 路由级代码分割：每个页面独立成 chunk，按需加载，首屏不再一次性下载全部页面
+const TableBrowser = lazy(() => import('./pages/TableBrowser'))
+const DataUpload = lazy(() => import('./pages/DataUpload'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const GISMap = lazy(() => import('./pages/GISMap'))
+const ArchiveList = lazy(() => import('./pages/ArchiveList'))
+const DataSync = lazy(() => import('./pages/DataSync'))
+const Overview = lazy(() => import('./pages/Overview'))
+const TTWODashboard = lazy(() => import('./pages/TTWODashboard'))
+const AlarmDashboard = lazy(() => import('./pages/AlarmDashboard'))
 
 const { Header, Sider, Content } = Layout
 
@@ -132,7 +135,13 @@ function AppContent() {
             </Button>
           </Header>
           <Content style={{ margin: 16, padding: 4, overflow: 'auto', background: '#f5f7fa', borderRadius: 8 }}>
-            {renderPage()}
+            <Suspense fallback={
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+                <Spin size="large" />
+              </div>
+            }>
+              {renderPage()}
+            </Suspense>
           </Content>
         </Layout>
       </Layout>
@@ -143,7 +152,9 @@ function AppContent() {
 function App() {
   return (
     <I18nProvider>
-      <AppContent />
+      <TaskStatusProvider>
+        <AppContent />
+      </TaskStatusProvider>
     </I18nProvider>
   )
 }

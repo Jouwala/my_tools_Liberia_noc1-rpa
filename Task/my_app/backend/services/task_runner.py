@@ -26,6 +26,10 @@ _task_history: list[dict] = []
 MAX_HISTORY = 50
 _lock = threading.Lock()
 
+# 任务执行中状态（供前端轮询展示"运行中"）
+_active_runs: dict[str, dict] = {}
+_active_lock = threading.Lock()
+
 # 全局调度器
 _scheduler: Optional[BackgroundScheduler] = None
 
@@ -105,15 +109,19 @@ def register_task(
     default_cron: str = "0 2 * * *",   # 默认每天凌晨2点
     category: str = "general",
     enabled: bool = True,
+    name_en: str = "",
+    description_en: str = "",
 ):
     """
     注册一个可调度的任务。
 
     Args:
         task_id: 唯一标识符
-        name: 显示名称
+        name: 显示名称（中文）
+        name_en: 显示名称（英文，留空则回退到 name）
         func: 执行函数，返回 dict 或 str
-        description: 任务描述
+        description: 任务描述（中文）
+        description_en: 任务描述（英文，留空则回退到 description）
         default_cron: 默认 cron 表达式 (分 时 日 月 周)
         category: 分类 (eflow / ran_ume / whatsapp / site_outage / general)
         enabled: 是否启用
@@ -126,8 +134,10 @@ def register_task(
     _task_registry[task_id] = {
         "task_id": task_id,
         "name": name,
+        "name_en": name_en or name,
         "func": func,
         "description": description,
+        "description_en": description_en or description,
         "default_cron": default_cron,
         "current_cron": current_cron,
         "category": category,
@@ -135,6 +145,13 @@ def register_task(
         "registered_at": datetime.now().isoformat(),
     }
     logger.info(f"任务已注册: {task_id} ({name}), cron={current_cron}")
+
+
+def _localize(task: dict, lang: str) -> tuple:
+    """根据 lang 返回 (显示名, 显示描述)；非法值回退中文。"""
+    if lang == "en":
+        return task.get("name_en") or task.get("name"), task.get("description_en") or task.get("description")
+    return task.get("name"), task.get("description")
 
 
 def unregister_task(task_id: str):
@@ -213,6 +230,51 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
     return result
 
 
+# ========== 异步执行 & 运行状态跟踪 ==========
+def _execute_task(task_id: str, trigger: str):
+    """在后台线程中执行任务，并维护 running 状态（供前端轮询）。"""
+    with _active_lock:
+        _active_runs[task_id] = {"started_at": datetime.now().isoformat()}
+    try:
+        run_task(task_id, trigger)
+    finally:
+        with _active_lock:
+            _active_runs.pop(task_id, None)
+
+
+def _scheduled_run(task_id: str, trigger: str = "scheduled"):
+    """调度器回调：复用 _execute_task 以便跟踪运行状态。"""
+    _execute_task(task_id, trigger)
+
+
+def run_task_async(task_id: str, trigger: str = "manual") -> dict:
+    """
+    立即执行任务（后台线程，立即返回）。
+    返回 {accepted, running}；若已在运行或校验失败则返回错误。
+    """
+    task = _task_registry.get(task_id)
+    if not task:
+        return {"success": False, "accepted": False, "error": f"任务 {task_id} 未找到"}
+    if not task["enabled"]:
+        return {"success": False, "accepted": False, "error": f"任务 {task_id} 已禁用"}
+    with _active_lock:
+        if task_id in _active_runs:
+            return {"accepted": False, "running": True, "error": "任务正在运行中"}
+    threading.Thread(target=_execute_task, args=(task_id, trigger), daemon=True).start()
+    return {"accepted": True, "running": True, "task_id": task_id,
+            "started_at": datetime.now().isoformat()}
+
+
+def is_task_running(task_id: str) -> bool:
+    with _active_lock:
+        return task_id in _active_runs
+
+
+def get_active_runs() -> dict:
+    with _active_lock:
+        return dict(_active_runs)
+
+
 def _save_task_result(result: dict):
     """将任务执行结果保存到 app.db"""
     try:
@@ -285,7 +347,7 @@ def schedule_task(task_id: str, cron_expr: str = None):
         sched.remove_job(job_id)
 
     sched.add_job(
-        run_task,
+        _scheduled_run,
         trigger=trigger,
         args=[task_id, "scheduled"],
         id=job_id,
@@ -323,27 +385,65 @@ def stop_scheduler():
 
 
 # ========== 查询接口 ==========
-def list_tasks() -> list[dict]:
-    """列出所有已注册的任务"""
+def _fetch_latest_runs() -> dict:
+    """
+    一次性查出每个任务的最新一条执行记录（单条 SQL + 子查询分组），
+    避免前端 list + 逐任务 detail 产生的 N+1 请求。
+    返回 {task_id: [run_dict]}（每个任务仅含最新 1 条，足够卡片展示）。
+    """
+    result: dict = {}
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        rows = conn.execute(
+            """SELECT l.task_id, l.task_name, l.category, l.trigger_type, l.success,
+                      l.started_at, l.completed_at, l.elapsed_seconds, l.error
+               FROM task_execution_log l
+               INNER JOIN (
+                   SELECT task_id, MAX(id) AS max_id
+                   FROM task_execution_log
+                   GROUP BY task_id
+               ) m ON l.task_id = m.task_id AND l.id = m.max_id"""
+        ).fetchall()
+        for r in rows:
+            result[r[0]] = [{
+                "task_id": r[0], "task_name": r[1], "category": r[2],
+                "trigger": r[3], "success": bool(r[4]),
+                "started_at": r[5], "completed_at": r[6],
+                "elapsed_seconds": r[7], "error": r[8],
+            }]
+        conn.close()
+    except Exception as e:
+        logger.warning(f"批量查询最新执行记录失败: {e}")
+    return result
+
+
+def list_tasks(include_runs: bool = False, lang: str = "zh") -> list[dict]:
+    """列出所有已注册的任务（include_runs=True 时附带每个任务最新一条执行记录）"""
     sched = get_scheduler()
+    latest_runs = _fetch_latest_runs() if include_runs else {}
     tasks = []
     for task_id, task in _task_registry.items():
         job = sched.get_job(f"task_{task_id}")
-        tasks.append({
+        disp_name, disp_desc = _localize(task, lang)
+        entry = {
             "task_id": task_id,
-            "name": task["name"],
-            "description": task["description"],
+            "name": disp_name,
+            "description": disp_desc,
             "category": task["category"],
             "enabled": task["enabled"],
             "current_cron": task["current_cron"],
             "default_cron": task["default_cron"],
             "next_run": str(job.next_run_time) if job else None,
             "registered_at": task["registered_at"],
-        })
+            "running": is_task_running(task_id),
+        }
+        if include_runs:
+            entry["recent_runs"] = latest_runs.get(task_id, [])
+        tasks.append(entry)
     return tasks
 
 
-def get_task_detail(task_id: str) -> Optional[dict]:
+def get_task_detail(task_id: str, lang: str = "zh") -> Optional[dict]:
     """获取任务详情"""
     task = _task_registry.get(task_id)
     if not task:
@@ -351,17 +451,19 @@ def get_task_detail(task_id: str) -> Optional[dict]:
 
     sched = get_scheduler()
     job = sched.get_job(f"task_{task_id}")
+    disp_name, disp_desc = _localize(task, lang)
 
     detail = {
         "task_id": task_id,
-        "name": task["name"],
-        "description": task["description"],
+        "name": disp_name,
+        "description": disp_desc,
         "category": task["category"],
         "enabled": task["enabled"],
         "current_cron": task["current_cron"],
         "default_cron": task["default_cron"],
         "next_run": str(job.next_run_time) if job else None,
         "registered_at": task["registered_at"],
+        "running": is_task_running(task_id),
     }
 
     # 从数据库获取最近执行记录

@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
+import { cachedGet } from '../cache'
 import { Card, Row, Col, Select, Spin, Drawer, Descriptions, Table, Tag, Statistic, Tabs, Space, Badge, DatePicker, Segmented, Tooltip, Switch, Button, Input } from 'antd'
 import { DownloadOutlined, SearchOutlined, FilterOutlined, AlertOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
@@ -135,8 +136,9 @@ export default function GISMap() {
       params.time_start = timeRange.start
       params.time_end = timeRange.end
     }
+    const cacheKey = `gis:sites:${selectedRegion || ''}:${timeRange?.start || ''}:${timeRange?.end || ''}`
 
-    api.get('/gis/sites', { params })
+    cachedGet(cacheKey, () => api.get('/gis/sites', { params }))
       .then(res => {
         setSites(res.data.sites || [])
         if (regions.length === 0) setRegions(res.data.regions || [])
@@ -156,9 +158,9 @@ export default function GISMap() {
     }
   }, [showTopology])
 
-  // 加载Region边界
+  // 加载Region边界（全局数据，缓存避免切页重复请求）
   useEffect(() => {
-    api.get('/gis/region-boundaries')
+    cachedGet('gis:region-boundaries', () => api.get('/gis/region-boundaries'))
       .then(res => setRegionBoundaries(res.data.regions || []))
       .catch(() => {})
   }, [])

@@ -43,6 +43,18 @@ except ImportError:
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
+# 远程写入 API 配置（DB Orange: ran_kpi_daily_202606.sqlite3）
+DB_ORANGE_NAME = "ran_kpi_daily_202606.sqlite3"
+try:
+    from backend.services.db_writer_client import DbWriterClient
+except ImportError:
+    from db_writer_client import DbWriterClient
+try:
+    _db_writer = DbWriterClient()
+except Exception:
+    _db_writer = None
+    print("[WARNING] db_writer_client 初始化失败，DB Orange 写入不可用")
+
 # ========== 配置 ==========
 HOST = os.environ.get("RAN_UME_HOST", "10.100.28.27")
 PORT = int(os.environ.get("RAN_UME_PORT", "28001"))
@@ -652,6 +664,26 @@ def run_ran_ume_pm_sync() -> dict:
                 row_count = _write_to_db(db_path, table_name, merged_headers, merged_data)
                 result["tables"][table_name] = row_count
                 total_imported += row_count
+
+                # [API] 同步写入 DB Orange（ran_kpi_daily_202606.sqlite3）
+                if _db_writer is not None:
+                    try:
+                        str_data = []
+                        for row in merged_data:
+                            str_row = [str(v) if v is not None else None for v in row]
+                            str_data.append(str_row)
+                        api_result = _db_writer.write_data(
+                            db=DB_ORANGE_NAME,
+                            table=table_name,
+                            columns=merged_headers,
+                            rows=str_data,
+                            mode="upsert",
+                            pk_columns=["Begin Time", "Group"],
+                        )
+                        api_rows = api_result.get("rows_written", 0)
+                        logger.info(f"[RAN_UME][API] DB Orange {table_name}: {api_rows} rows")
+                    except Exception as e:
+                        logger.warning(f"[RAN_UME][API] DB Orange {table_name} 写入失败: {e}")
 
         # FTP upload
         if os.path.exists(db_path):

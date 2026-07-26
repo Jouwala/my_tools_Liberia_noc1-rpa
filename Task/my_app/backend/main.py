@@ -7,7 +7,7 @@ from datetime import datetime
 # 确保可以import backend模块
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -69,8 +69,10 @@ def _register_all_tasks():
     task_runner.register_task(
         task_id="eflow_sync",
         name="eFlow 数据同步",
+        name_en="eFlow Data Sync",
         func=scheduled_eflow_sync,
         description="从 ZTE eFlow API 获取 TT/WO/CR/PM/Site/Person 数据",
+        description_en="Fetch TT/WO/CR/PM/Site/Person data from ZTE eFlow API",
         default_cron="22 * * * *",  # 每小时第22分钟
         category="eflow",
     )
@@ -83,8 +85,10 @@ def _register_all_tasks():
     task_runner.register_task(
         task_id="ran_ume_daily",
         name="RAN UME 日报",
+        name_en="RAN UME Daily Report",
         func=_run_ran_ume,
         description="RAN UME PM 数据获取 + Daily Availability KPI 报表生成 + FTP 上传",
+        description_en="RAN UME PM data fetch + Daily Availability KPI report generation + FTP upload",
         default_cron="0 2 * * *",  # 每天凌晨2点
         category="ran_ume",
     )
@@ -97,8 +101,10 @@ def _register_all_tasks():
     task_runner.register_task(
         task_id="site_outage_screenshot",
         name="Site Outage 截图",
+        name_en="Site Outage Screenshot",
         func=_run_site_outage,
         description="Site Down Dashboard 自动截图（ERA/Regular/ALL）",
+        description_en="Auto screenshot of Site Down Dashboard (ERA/Regular/ALL)",
         default_cron="0 1 * * *",  # 每天凌晨1点
         category="site_outage",
     )
@@ -111,8 +117,10 @@ def _register_all_tasks():
     task_runner.register_task(
         task_id="whatsapp_send",
         name="WhatsApp 消息发送",
+        name_en="WhatsApp Message Send",
         func=_run_whatsapp,
         description="发送 Site Outage 截图和文件到 WhatsApp 群组",
+        description_en="Send Site Outage screenshots and files to WhatsApp groups",
         default_cron="0 3 * * *",  # 每天凌晨3点
         category="whatsapp",
     )
@@ -125,8 +133,10 @@ def _register_all_tasks():
     task_runner.register_task(
         task_id="ms_sla_full",
         name="MS SLA 完整同步",
+        name_en="MS SLA Full Sync",
         func=_run_ms_sla_full,
         description="SLA 指标同步 + Contract KPIs 报表更新（项目自包含，无需外部文件）",
+        description_en="SLA metrics sync + Contract KPIs report update (self-contained, no external files)",
         default_cron="0 */6 * * *",  # 每6小时
         category="ms_sla",
     )
@@ -139,8 +149,10 @@ def _register_all_tasks():
     task_runner.register_task(
         task_id="eflow_active_alarm",
         name="eFlow 实时告警同步",
+        name_en="eFlow Realtime Alarm Sync",
         func=_run_eflow_active_alarm,
         description="从 eFlow FM Active 接口获取实时告警，保存 CSV + SQLite",
+        description_en="Fetch realtime alarms from eFlow FM Active API, save to CSV + SQLite",
         default_cron="*/30 * * * *",  # 每30分钟
         category="eflow",
     )
@@ -153,8 +165,10 @@ def _register_all_tasks():
     task_runner.register_task(
         task_id="eflow_history_alarm",
         name="eFlow 历史告警同步",
+        name_en="eFlow History Alarm Sync",
         func=_run_eflow_history_alarm,
         description="从 eFlow FM History 接口获取近7天历史告警，过滤 TT ID，保存 CSV + SQLite",
+        description_en="Fetch last 7 days history alarms from eFlow FM History API, filter TT ID, save to CSV + SQLite",
         default_cron="0 */3 * * *",  # 每3小时
         category="eflow",
     )
@@ -167,8 +181,10 @@ def _register_all_tasks():
     task_runner.register_task(
         task_id="main_kpi_sync",
         name="RAN Main KPI 同步",
+        name_en="RAN Main KPI Sync",
         func=_run_main_kpi_sync,
         description="RAN UME Main KPI 历史指标同步（2G/3G/4G × Cells/Sites/Group/NW），导出 Excel 并增量更新 SQLite + FTP 上传",
+        description_en="RAN UME Main KPI history sync (2G/3G/4G × Cells/Sites/Group/NW), export Excel and incremental SQLite update + FTP upload",
         default_cron="0 4 * * *",  # 每天凌晨4点
         category="main_kpi",
     )
@@ -181,10 +197,28 @@ def _register_all_tasks():
     task_runner.register_task(
         task_id="network_kpi_sync",
         name="RAN Network KPI 同步",
+        name_en="RAN Network KPI Sync",
         func=_run_network_kpi_sync,
         description="RAN UME Network KPI（Zeenshan）历史指标同步（2G/3G/4G × Group/NW），导出 Excel 并导入 SQLite + FTP 上传",
-        default_cron="0 5 * * *",  # 每天凌晨5点
+        description_en="RAN UME Network KPI (Zeenshan) history sync (2G/3G/4G × Group/NW), export Excel and import to SQLite + FTP upload",
+        default_cron="0 5 * * *",  # 每天凌暨5点
         category="network_kpi",
+    )
+    
+    # 10. CNN UME KPI 同步（每天凌暨6点）
+    def _run_cnn_kpi_sync():
+        from backend.services.ccn_ume_kpi_service import run_cnn_kpi_sync
+        return run_cnn_kpi_sync()
+    
+    task_runner.register_task(
+        task_id="cnn_kpi_sync",
+        name="CNN UME KPI 同步",
+        name_en="CNN UME KPI Sync",
+        func=_run_cnn_kpi_sync,
+        description="CNN UME 核心网 KPI 同步（xGW License/CPU/Voice/VLR/Data/3G/4G/Free Rating），API 写入 DB CNN",
+        description_en="CNN UME Core Network KPI sync (xGW License/CPU/Voice/VLR/Data/3G/4G/Free Rating), API write to DB CNN",
+        default_cron="0 6 * * *",  # 每天凌暨6点
+        category="cnn_kpi",
     )
 
 
@@ -264,10 +298,16 @@ def eflow_sync_status():
 
 
 # ========== 通用任务管理 API ==========
+def _req_lang(request: Request) -> str:
+    """从 Accept-Language 头推断语言（en 优先，其余回退 zh）。"""
+    accept = (request.headers.get("Accept-Language") or "").lower()
+    return "en" if accept.startswith("en") else "zh"
+
+
 @app.get("/api/tasks")
-def list_all_tasks():
-    """列出所有已注册的定时任务"""
-    return {"tasks": task_runner.list_tasks()}
+def list_all_tasks(request: Request):
+    """列出所有已注册的定时任务（含最新执行记录，单次返回，避免前端 N+1）"""
+    return {"tasks": task_runner.list_tasks(include_runs=True, lang=_req_lang(request))}
 
 
 @app.get("/api/tasks/history")
@@ -277,9 +317,9 @@ def get_tasks_history(limit: int = 20):
 
 
 @app.get("/api/tasks/{task_id}")
-def get_task_info(task_id: str):
+def get_task_info(task_id: str, request: Request):
     """获取任务详情（含最近执行记录）"""
-    detail = task_runner.get_task_detail(task_id)
+    detail = task_runner.get_task_detail(task_id, lang=_req_lang(request))
     if not detail:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"任务 {task_id} 未找到")
@@ -288,9 +328,14 @@ def get_task_info(task_id: str):
 
 @app.post("/api/tasks/{task_id}/run")
 def run_task_now(task_id: str):
-    """立即执行指定任务"""
-    result = task_runner.run_task(task_id, trigger="manual")
-    return result
+    """立即执行指定任务（后台异步执行，立即返回 accepted）"""
+    return task_runner.run_task_async(task_id, trigger="manual")
+
+
+@app.get("/api/tasks/{task_id}/status")
+def task_run_status(task_id: str):
+    """查询任务是否正在运行"""
+    return {"task_id": task_id, "running": task_runner.is_task_running(task_id)}
 
 
 @app.post("/api/tasks/{task_id}/schedule")
@@ -393,8 +438,10 @@ def db_info():
 
 
 # 提供前端静态文件（生产环境）
+# 注意：必须校验 assets 目录真实存在，否则 StaticFiles 会因目录缺失而抛出
+# RuntimeError，导致整个 uvicorn 应用导入失败、后端无法启动（开发模式下前端由 Vite 提供，无需此挂载）。
 frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
-if frontend_dist.exists():
+if (frontend_dist / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="static")
 
     @app.get("/{full_path:path}")
@@ -403,6 +450,8 @@ if frontend_dist.exists():
         if file_path.is_file():
             return FileResponse(file_path)
         return FileResponse(frontend_dist / "index.html")
+else:
+    print("WARNING: frontend/dist/assets 不存在，跳过静态资源挂载（开发模式由 Vite 提供前端，不影响 API）")
 
 
 if __name__ == "__main__":

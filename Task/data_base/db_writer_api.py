@@ -43,7 +43,8 @@ except Exception:
 # 数据库文件路径（根据实际部署路径修改）
 DB_MAIN_PATH = r"C:\FineBI6.0\webapps\Python\db.sqlite3"
 DB_DAILY_PATH = r"E:\01_RPA\LBR_Tools\KPI\RAN\ran_kpi_daily.sqlite3"
-DB_DAILY_PATH = r"E:\01_RPA\LBR_Tools\KPI\RAN\ran_kpi_daily_202606.sqlite3"
+DB_ORANGE_PATH = r"E:\01_RPA\LBR_Tools\KPI\RAN\ran_kpi_daily_202606.sqlite3"
+DB_CNN_PATH = r"E:\01_RPA\LBR_Tools\KPI\CNN\db_ps_cs_cn.sqlite3"
 
 
 API_HOST = "0.0.0.0"
@@ -77,6 +78,8 @@ def _get_db_path(db_name: str) -> str:
     mapping = {
         "db.sqlite3": DB_MAIN_PATH,
         "ran_kpi_daily.sqlite3": DB_DAILY_PATH,
+        "ran_kpi_daily_202606.sqlite3": DB_ORANGE_PATH,
+        "db_ps_cs_cn.sqlite3": DB_CNN_PATH,
     }
     path = mapping.get(db_name)
     if not path:
@@ -170,6 +173,10 @@ def health():
         "db_main_exists": os.path.exists(DB_MAIN_PATH),
         "db_daily": DB_DAILY_PATH,
         "db_daily_exists": os.path.exists(DB_DAILY_PATH),
+        "db_orange": DB_ORANGE_PATH,
+        "db_orange_exists": os.path.exists(DB_ORANGE_PATH),
+        "db_cnn": DB_CNN_PATH,
+        "db_cnn_exists": os.path.exists(DB_CNN_PATH),
     }
 
 
@@ -597,8 +604,10 @@ def list_tables(db: str):
 if __name__ == "__main__":
     total_start = time.time()
     print(f"[API] SQLite Writer API starting...")
-    print(f"[API] DB Main: {DB_MAIN_PATH} (exists={os.path.exists(DB_MAIN_PATH)})")
-    print(f"[API] DB Daily: {DB_DAILY_PATH} (exists={os.path.exists(DB_DAILY_PATH)})")
+    print(f"[API] DB Main:   {DB_MAIN_PATH} (exists={os.path.exists(DB_MAIN_PATH)})")
+    print(f"[API] DB Daily:  {DB_DAILY_PATH} (exists={os.path.exists(DB_DAILY_PATH)})")
+    print(f"[API] DB Orange: {DB_ORANGE_PATH} (exists={os.path.exists(DB_ORANGE_PATH)})")
+    print(f"[API] DB CNN:    {DB_CNN_PATH} (exists={os.path.exists(DB_CNN_PATH)})")
     print(f"[API] Listening on {API_HOST}:{API_PORT}")
 
     uvicorn.run(app, host=API_HOST, port=API_PORT, log_level="info")

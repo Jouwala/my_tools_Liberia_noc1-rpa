@@ -12,6 +12,8 @@ import ReactECharts from 'echarts-for-react'
 import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
 import api from '../api'
+import { cachedGet } from '../cache'
+import { useI18n } from '../i18n'
 
 // ========== 样式常量 ==========
 const cardShadow = { boxShadow: '0 2px 12px rgba(0,0,0,0.04)', borderRadius: 12, border: '1px solid #f0f0f0' }
@@ -66,7 +68,9 @@ const SummaryCard = ({ icon, value, label, color, bg }: {
 const HistoryMetricCard = ({ icon, value, label, sub, color, bg, onClick }: {
   icon: React.ReactNode; value: string | number; label: string; sub: string;
   color: string; bg: string; onClick: () => void
-}) => (
+}) => {
+  const { t } = useI18n()
+  return (
   <Card size="small" hoverable onClick={onClick} style={{
     background: bg, border: `1px solid ${color}25`, borderRadius: 12,
     boxShadow: `0 4px 12px ${color}12`, cursor: 'pointer', transition: 'all .2s',
@@ -80,10 +84,11 @@ const HistoryMetricCard = ({ icon, value, label, sub, color, bg, onClick }: {
       <span style={{ fontSize: 34, opacity: 0.15, color, flexShrink: 0 }}>{icon}</span>
     </div>
     <div style={{ textAlign: 'right', fontSize: 10, color: color, fontWeight: 600, marginTop: 2 }}>
-      点击下钻明细 →
+      {t('alarm.drillHint')}
     </div>
   </Card>
-)
+  )
+}
 
 // 通用排序器（与 TT&WO Dashboard 一致）
 const strSorter = (a: any, b: any, key: string) => {
@@ -102,6 +107,7 @@ export default function AlarmDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<any>(null)
+  const { t } = useI18n()
 
   // ========== 历史告警下钻状态（与 TT&WO Dashboard 一致） ==========
   const [drillOpen, setDrillOpen] = useState(false)
@@ -115,7 +121,7 @@ export default function AlarmDashboard() {
   useEffect(() => {
     setLoading(true)
     setError(null)
-    api.get('/alarm-dashboard/overview')
+    cachedGet('alarm:overview', () => api.get('/alarm-dashboard/overview'))
       .then(res => { setData(res.data); setError(null) })
       .catch(err => { console.error('Alarm Dashboard API error:', err); setError(err.message || 'Failed to load') })
       .finally(() => setLoading(false))
@@ -439,7 +445,7 @@ export default function AlarmDashboard() {
             icon={<HistoryOutlined />}
             value={fmt(hist.total || 0)}
             label="Total History Alarms"
-            sub={`已派单 ${fmt(hist.with_tt || 0)} 条 (with TT)`}
+            sub={t('alarm.dispatchedWithTT', { n: fmt(hist.with_tt || 0) })}
             color="#1677ff"
             bg="linear-gradient(135deg, #e6f4ff 0%, #f0f8ff 100%)"
             onClick={() => openDrilldown('all')} />
@@ -469,7 +475,7 @@ export default function AlarmDashboard() {
             icon={<HourglassOutlined />}
             value={fmt(hist.dispatch_overdue_total || 0)}
             label="Dispatch Overdue Total"
-            sub="Assigned - AlarmRaised > 5min 且超时限+10%"
+            sub={t('alarm.overdueDesc')}
             color="#f5222d"
             bg="linear-gradient(135deg, #fff1f0 0%, #fff7f7 100%)"
             onClick={() => openDrilldown('dispatch_overdue_total')} />
@@ -611,7 +617,7 @@ export default function AlarmDashboard() {
 
       {/* ====== 历史告警下钻弹窗（与 TT&WO Dashboard 一致） ====== */}
       <Modal
-        title={<span>{drillTitle} <Tag color="blue">{filteredDrillData.length} records</Tag>{drillTotal > drillData.length && <Tag color="red">共 {fmt(drillTotal)} 条 · 展示最新 {drillData.length} 条</Tag>}</span>}
+        title={<span>{drillTitle} <Tag color="blue">{filteredDrillData.length} records</Tag>{drillTotal > drillData.length && <Tag color="red">{t('alarm.recordCount', { total: fmt(drillTotal), shown: drillData.length })}</Tag>}</span>}
         open={drillOpen}
         onCancel={() => setDrillOpen(false)}
         footer={null}

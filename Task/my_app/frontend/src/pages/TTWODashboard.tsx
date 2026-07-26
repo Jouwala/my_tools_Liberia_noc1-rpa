@@ -1,5 +1,6 @@
 // TT&WO Dashboard 前端页面 - 下钻版
 import { useEffect, useState, useMemo, useCallback } from 'react'
+import { cachedGet } from '../cache'
 import { Card, Row, Col, Select, Segmented, DatePicker, Space, Tag, Tooltip, Statistic, Empty, Spin, Alert, Modal, Table, Input, Button } from 'antd'
 import {
   ThunderboltOutlined, FileTextOutlined, NumberOutlined, ClockCircleOutlined,
@@ -113,7 +114,7 @@ export default function TTWODashboard() {
     }
   }, [timePreset, customRange])
 
-  // 加载数据
+  // 加载数据（切页复用缓存，30s 内不重复请求）
   useEffect(() => {
     setLoading(true)
     setError(null)
@@ -123,7 +124,8 @@ export default function TTWODashboard() {
       params.time_end = timeRange.end
     }
     if (selectedRegion) params.region = selectedRegion
-    api.get('/tt-wo-dashboard/overview', { params })
+    const cacheKey = `ttwo:overview:${timeRange?.start || ''}:${timeRange?.end || ''}:${selectedRegion || ''}`
+    cachedGet(cacheKey, () => api.get('/tt-wo-dashboard/overview', { params }))
       .then(res => {
         setData(res.data)
         setError(null)

@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react'
+import { setApiLocale } from './api'
 
 export type Locale = 'zh' | 'en'
 
@@ -237,6 +238,14 @@ const translations: Record<Locale, Record<string, string>> = {
     'sync.syncSuccess': '同步成功',
     'sync.syncFailed': '同步失败',
     'sync.noHistory': '暂无记录',
+    'sync.runStarted': '任务 {name} 已启动',
+    'sync.cronPlaceholder': '分 时 日 月 周',
+
+    // Alarm Dashboard（遗留未国际化文案）
+    'alarm.drillHint': '点击下钻明细 →',
+    'alarm.dispatchedWithTT': '已派单 {n} 条 (with TT)',
+    'alarm.overdueDesc': 'Assigned - AlarmRaised > 5min 且超时限+10%',
+    'alarm.recordCount': '共 {total} 条 · 展示最新 {shown} 条',
 
     // Archive
     'archive.searchPlaceholder': '搜索分析名称、描述、结论...',
@@ -489,6 +498,14 @@ const translations: Record<Locale, Record<string, string>> = {
     'sync.syncSuccess': 'Sync successful',
     'sync.syncFailed': 'Sync failed',
     'sync.noHistory': 'No history',
+    'sync.runStarted': 'Task {name} started',
+    'sync.cronPlaceholder': 'min hr day mon dow',
+
+    // Alarm Dashboard (legacy untranslated strings)
+    'alarm.drillHint': 'Click to drill down →',
+    'alarm.dispatchedWithTT': 'Dispatched {n} (with TT)',
+    'alarm.overdueDesc': 'Assigned - AlarmRaised > 5min & over SLA+10%',
+    'alarm.recordCount': 'Total {total} · showing latest {shown}',
 
     // Archive
     'archive.searchPlaceholder': 'Search analysis name, description, conclusions...',
@@ -534,6 +551,11 @@ function detectLocale(): Locale {
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(detectLocale)
+
+  // 语言变化时同步给后端（任务名等数据字段需要按语言返回）
+  useEffect(() => {
+    setApiLocale(locale)
+  }, [locale])
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l)

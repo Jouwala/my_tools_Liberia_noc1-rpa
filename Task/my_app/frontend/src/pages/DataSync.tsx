@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Card, Button, Tag, Space, List, Spin, message, Modal, Select,
   Input, Switch, Tooltip, Badge, Progress, Row, Col, Typography,
@@ -26,6 +26,8 @@ import {
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
+import { useTaskStatus } from '../TaskStatusContext'
+import { cachedGet, invalidateCache } from '../cache'
 
 const { Text, Title } = Typography
 
@@ -133,6 +135,7 @@ const CATEGORY_CONFIG: Record<string, { color: string; icon: React.ReactNode; la
   ms_sla: { color: '#722ed1', icon: <BarChartOutlined />, label_zh: 'MS SLA/NUR', label_en: 'MS SLA/NUR' },
   main_kpi: { color: '#13c2c2', icon: <FundOutlined />, label_zh: 'Main KPI', label_en: 'Main KPI' },
   network_kpi: { color: '#eb2f96', icon: <BarChartOutlined />, label_zh: 'Network KPI', label_en: 'Network KPI' },
+  cnn_kpi: { color: '#fa541c', icon: <CloudServerOutlined />, label_zh: 'CNN UME', label_en: 'CNN UME' },
   general: { color: '#8c8c8c', icon: <SettingOutlined />, label_zh: '通用', label_en: 'General' },
 }
 
@@ -151,6 +154,7 @@ function ScheduleEditor({
   onClose: () => void
   onSave: (taskId: string, cron: string) => Promise<void>
 }) {
+  const { t } = useI18n()
   const [cronInput, setCronInput] = useState('')
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -234,7 +238,7 @@ function ScheduleEditor({
             <Input
               value={cronInput}
               onChange={e => { setCronInput(e.target.value); setSelectedPreset(null) }}
-              placeholder="分 时 日 月 周"
+              placeholder={t('sync.cronPlaceholder')}
               style={{ fontFamily: 'monospace', fontSize: 14 }}
             />
             <div style={{ marginTop: 8, color: '#888', fontSize: 12 }}>
@@ -347,56 +351,91 @@ function TaskHistoryModal({
 // ===== Main Component =====
 export default function DataSync() {
   const { t, locale } = useI18n()
+  const { runningMap } = useTaskStatus()
   const [tasks, setTasks] = useState<TaskInfo[]>([])
   const [taskDetails, setTaskDetails] = useState<Record<string, TaskDetail>>({})
   const [loading, setLoading] = useState(false)
-  const [runningTasks, setRunningTasks] = useState<Set<string>>(new Set())
+  // 本地乐观状态：仅用于点击后到后端轮询确认"运行中"之间的过渡，最终以后端 runningMap 为准
+  const [localRunning, setLocalRunning] = useState<Set<string>>(new Set())
+  const startedRef = useRef<Set<string>>(new Set())
+  const prevRunningRef = useRef<Record<string, boolean>>({})
 
   // Modal states
   const [editTask, setEditTask] = useState<TaskInfo | null>(null)
   const [historyTask, setHistoryTask] = useState<TaskDetail | null>(null)
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (force = false) => {
+    if (force) invalidateCache('sync:')
     setLoading(true)
     try {
-      const res = await api.get('/tasks')
+      // 单次请求即返回全部任务 + 最新执行记录（后端已合并，不再 N+1）
+      // 缓存键与请求头均带 locale，保证中/英切换后立即拉取对应语言的任务名
+      const res = await cachedGet(
+        `sync:tasks:${locale}`,
+        () => api.get('/tasks', { headers: { 'Accept-Language': locale === 'en' ? 'en' : 'zh-CN' } }),
+        15000,
+      )
       const list: TaskInfo[] = res.data.tasks || []
       setTasks(list)
-
-      // Load details for each task
+      // 由列表响应直接构建详情（recent_runs 已含最新 1 条，足够卡片展示）
       const details: Record<string, TaskDetail> = {}
-      await Promise.all(
-        list.map(async (task) => {
-          try {
-            const dRes = await api.get(`/tasks/${task.task_id}`)
-            details[task.task_id] = dRes.data
-          } catch { /* ignore */ }
-        })
-      )
+      list.forEach(task => { details[task.task_id] = task as TaskDetail })
       setTaskDetails(details)
     } catch {
       message.error(t('sync.loadError'))
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }, [t, locale])
 
   useEffect(() => { loadTasks() }, [loadTasks])
 
+  // 监听后端 running 状态：完成（running true->false）时刷新卡片并提示结果
+  useEffect(() => {
+    const prev = prevRunningRef.current
+    Object.keys(runningMap).forEach(id => {
+      const wasRunning = !!prev[id]
+      const nowRunning = !!runningMap[id]
+      // 后端已确认运行中 -> 交还给后端指标，移除本地乐观标记
+      if (nowRunning && localRunning.has(id)) {
+        setLocalRunning(s => { const n = new Set(s); n.delete(id); return n })
+      }
+      // 检测到执行完成
+      if (wasRunning && !nowRunning) {
+        loadTasks(true)
+        if (startedRef.current.has(id)) {
+          startedRef.current.delete(id)
+          api.get(`/tasks/${id}`).then(res => {
+            const run = res.data.recent_runs?.[0]
+            if (run) {
+              if (run.success) message.success(t('sync.runSuccess', { name: run.task_name || id }))
+              else message.error(t('sync.runFailed', { name: id }))
+            }
+          }).catch(() => {})
+        }
+      }
+    })
+    prevRunningRef.current = { ...runningMap }
+  }, [runningMap, loadTasks])
+
   const handleRun = async (taskId: string) => {
-    setRunningTasks(prev => new Set(prev).add(taskId))
+    // 乐观标记，立即反馈；真实状态由后端轮询接管
+    setLocalRunning(prev => new Set(prev).add(taskId))
+    startedRef.current.add(taskId)
     try {
       const res = await api.post(`/tasks/${taskId}/run`)
-      if (res.data.success) {
-        message.success(t('sync.runSuccess', { name: tasks.find(t2 => t2.task_id === taskId)?.name || taskId }))
-      } else {
-        message.error(t('sync.runFailed', { name: taskId }))
+      if (res.data.accepted) {
+        message.success(t('sync.runStarted', { name: tasks.find(t2 => t2.task_id === taskId)?.name || taskId }))
+      } else if (res.data.error) {
+        // 未真正启动（如已在运行/已禁用）
+        message.error(res.data.error)
+        setLocalRunning(prev => { const s = new Set(prev); s.delete(taskId); return s })
+        startedRef.current.delete(taskId)
       }
-      loadTasks()
     } catch {
       message.error(t('sync.runFailed', { name: taskId }))
-    } finally {
-      setRunningTasks(prev => { const s = new Set(prev); s.delete(taskId); return s })
+      setLocalRunning(prev => { const s = new Set(prev); s.delete(taskId); return s })
+      startedRef.current.delete(taskId)
     }
   }
 
@@ -405,7 +444,7 @@ export default function DataSync() {
       const res = await api.post(`/tasks/${taskId}/schedule`, { cron })
       if (res.data.success) {
         message.success(t('sync.scheduleUpdated'))
-        loadTasks()
+        loadTasks(true)
       } else {
         message.error(res.data.error || t('sync.scheduleUpdateFailed'))
       }
@@ -419,10 +458,20 @@ export default function DataSync() {
       const res = await api.post(`/tasks/${taskId}/toggle`, { enabled })
       if (res.data.success) {
         message.success(enabled ? t('sync.taskEnabled') : t('sync.taskDisabled'))
-        loadTasks()
+        loadTasks(true)
       }
     } catch {
       message.error(t('sync.toggleFailed'))
+    }
+  }
+
+  // 历史弹窗：打开时按需拉取该任务完整执行记录（10 条），避免首屏 N+1
+  const handleOpenHistory = async (taskId: string) => {
+    try {
+      const res = await api.get(`/tasks/${taskId}`)
+      setHistoryTask(res.data)
+    } catch {
+      message.error(t('sync.loadError'))
     }
   }
 
@@ -465,6 +514,11 @@ export default function DataSync() {
       label_en: 'Other Tasks',
       task_ids: ['site_outage_screenshot', 'whatsapp_send', 'ms_sla_full'],
     },
+    {
+      label_zh: 'CNN UME 数据同步',
+      label_en: 'CNN UME Data Sync',
+      task_ids: ['cnn_kpi_sync'],
+    },
   ]
 
   // 根据 task_id 快速查找任务
@@ -476,7 +530,7 @@ export default function DataSync() {
 
     const catCfg = getCategoryConfig(task.category)
     const lastRun = getLastRun(task.task_id)
-    const isRunning = runningTasks.has(task.task_id)
+    const isRunning = runningMap[task.task_id] || localRunning.has(task.task_id)
 
     return (
       <Col key={task.task_id} xs={24} sm={24} md={8} lg={8} xl={8}>
@@ -583,7 +637,7 @@ export default function DataSync() {
             <Button
               size="small"
               icon={<HistoryOutlined />}
-              onClick={() => setHistoryTask(taskDetails[task.task_id] || null)}
+              onClick={() => handleOpenHistory(task.task_id)}
             >
               {locale === 'zh' ? '历史' : 'History'}
             </Button>
@@ -604,7 +658,7 @@ export default function DataSync() {
           </Title>
           <Text type="secondary">{t('sync.taskManagerDesc')}</Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={loadTasks} loading={loading}>
+        <Button icon={<ReloadOutlined />} onClick={() => loadTasks(true)} loading={loading}>
           {t('common.refresh')}
         </Button>
       </div>
@@ -625,7 +679,7 @@ export default function DataSync() {
                 width: 4,
                 height: 18,
                 borderRadius: 2,
-                background: gi === 0 ? '#1677ff' : gi === 1 ? '#52c41a' : '#fa8c16',
+                background: gi === 0 ? '#1677ff' : gi === 1 ? '#52c41a' : gi === 2 ? '#fa8c16' : '#fa541c',
                 marginRight: 10,
               }} />
               <Text style={{ fontSize: 14, fontWeight: 600 }}>
