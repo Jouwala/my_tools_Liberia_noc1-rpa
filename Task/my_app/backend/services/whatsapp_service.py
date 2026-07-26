@@ -115,6 +115,68 @@ def _find_first(page, key):
     return None
 
 
+def _kill_stale_chrome():
+    """杀掉残留 chrome 进程，避免持久化 profile 被锁导致页面加载异常"""
+    try:
+        ps_cmd = ("Get-Process chrome -ErrorAction SilentlyContinue | "
+                  "ForEach-Object { $_.Kill(); Write-Output $($_.Id) }")
+        subprocess.run(["powershell", "-Command", ps_cmd],
+                       capture_output=True, text=True, timeout=10,
+                       creationflags=_SUBPROCESS_FLAGS)
+    except Exception:
+        pass
+    time.sleep(1)
+    _info("已清理残留 chrome 进程")
+
+
+def _is_logged_in(page) -> bool:
+    """多选择器判断登录态：聊天列表/搜索框/#side 任一存在即认为已登录。
+
+    关键改进：不再强依赖单一元素的“可见性”判断。
+    WhatsApp Web 登录后一定存在 #side，而二维码页没有 #side，
+    因此“元素存在于 DOM”本身就是已登录的强信号。
+    """
+    for sel in ("#side", "[data-testid='chat-list']",
+                "[data-testid='conversation-list']", "div[data-testid='search']"):
+        try:
+            loc = page.locator(sel)
+            if loc.count() > 0:
+                # 优先看可见性；可见性判断偶发失败（如零视口）时退化为“元素存在”
+                try:
+                    if loc.first.is_visible(timeout=1500):
+                        return True
+                except Exception:
+                    pass
+                # 元素存在即大概率已登录（二维码页不会出现 #side）
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _is_qr_screen(page) -> bool:
+    """判断是否停留在扫码登录页（会话过期）"""
+    try:
+        loc = page.locator("div[data-testid='intro-wrapper'], canvas[aria-label*='Scan'], [data-testid='qr-code']")
+        return loc.count() > 0 and loc.first.is_visible(timeout=2000)
+    except Exception:
+        return False
+
+
+def _click_reconnect_if_needed(page):
+    """出现“连接断开，点击重连”横幅时自动点击"""
+    try:
+        reconnect = page.locator(
+            "button:has-text('重连'), button:has-text('Reconnect'), "
+            "div[role='button']:has-text('重新连接'), div[role='button']:has-text('Reconnect')"
+        )
+        if reconnect.count() > 0 and reconnect.first.is_visible(timeout=2000):
+            reconnect.first.click(timeout=3000)
+            _info("检测到连接断开，已自动点击重连")
+    except Exception:
+        pass
+
+
 @_retry
 def _search_and_open(page, contact_name):
     """搜索并打开联系人/群组聊天窗口"""
@@ -240,6 +302,9 @@ def run_whatsapp_send() -> dict:
     pw = None
     browser = None
     try:
+        # 启动前先清理可能残留的 chrome（持久化 profile 锁可能导致页面加载异常）
+        _kill_stale_chrome()
+
         pw = sync_playwright().start()
 
         # 可选代理配置：设置环境变量 WHATSAPP_PROXY，例如 http://127.0.0.1:7890
@@ -257,29 +322,42 @@ def run_whatsapp_send() -> dict:
         browser = pw.chromium.launch_persistent_context(USER_DATA_DIR, **launch_kwargs)
         page = browser.new_page()
 
-        # 带重试的页面加载（最多3次）+ ERR_CONNECTION_RESET 容错
+        # 多轮导航 + 登录态检测：不再单靠 #side 的严格可见性判断
+        logged_in = False
         for attempt in range(1, 4):
             try:
                 page.goto(WHATSAPP_URL, wait_until="domcontentloaded", timeout=180000)
-                break
             except Exception as e:
                 err_msg = str(e)
-                # 页面实际已加载但后台连接被重置(代理/WebSocket导致)，视为成功
                 if "ERR_CONNECTION_RESET" in err_msg:
-                    try:
-                        page.wait_for_selector("#app, #side, div[data-testid='intro-wrapper'], canvas", timeout=15000)
-                        _warn("goto报ERR_CONNECTION_RESET但页面已正常加载，继续执行")
-                        break
-                    except Exception:
-                        pass  # 页面确实没加载出来，走正常重试
-                _warn(f"页面加载失败 (第{attempt}/3次): {e}")
-                if attempt == 3:
-                    raise
-                time.sleep(30)
+                    _warn("goto 报 ERR_CONNECTION_RESET，页面可能已渲染，继续检测登录态")
+                else:
+                    _warn(f"页面导航异常(第{attempt}/3次): {e}")
 
-        _info("等待 WhatsApp Web 加载，请扫码登录（如有需要）...")
-        page.locator("#side").wait_for(timeout=180000)
-        _success("登录成功")
+            # 每轮最多等 60s 主动检测登录态
+            for _ in range(20):
+                if _is_logged_in(page):
+                    logged_in = True
+                    break
+                if _is_qr_screen(page):
+                    result["errors"].append("WhatsApp 会话已过期，停留在二维码页面，需要扫码登录")
+                    return result
+                _click_reconnect_if_needed(page)
+                time.sleep(3)
+            if logged_in:
+                break
+            _warn(f"第{attempt}次未检测到登录态，尝试刷新页面后重试")
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=60000)
+            except Exception:
+                pass
+
+        if not logged_in:
+            result["errors"].append(
+                "等待登录超时：#side/聊天列表 未出现（疑似页面加载失败或连接被重置）"
+            )
+            return result
+        _success("登录成功（已检测到聊天列表）")
 
         # 获取文件列表
         site_outage_file = _get_latest_site_outage()
