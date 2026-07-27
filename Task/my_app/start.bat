@@ -19,6 +19,10 @@ for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /C:"IPv4"') do (
 )
 :found_ip
 
+:: 降低 UME 网络 KPI 拉取并发，缓解局方网络/网关早高峰抖动
+:: （对应 ran_ume_network_kpi.MAX_PARALLEL_WORKERS，仅用环境变量控制，不改代码）
+set NW_KPI_PARALLEL_WORKERS=2
+
 :: Start backend
 echo [*] Starting backend server (port 7038)...
 start "Backend" /MIN python -m uvicorn backend.main:app --host 0.0.0.0 --port 7038

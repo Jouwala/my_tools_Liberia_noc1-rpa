@@ -370,7 +370,7 @@ def _http_request_with_retry(
     path,
     headers_extra=None,
     body=None,
-    max_retries: int = 2,
+    max_retries: int = 4,
     retry_statuses: tuple | None = None,
 ) -> tuple:
     """带重试的 HTTP 请求封装，对 499/5xx 进行指数退避重试。"""
@@ -504,7 +504,7 @@ def create_history_query(cookie: str, forgery_token: str, payload: dict) -> str:
 
     try:
         status, hdrs, raw_hdrs, resp_body = _http_request_with_retry(
-            "POST", HISTORY_PATH, headers_extra=headers, body=body.encode('utf-8'), max_retries=2,
+            "POST", HISTORY_PATH, headers_extra=headers, body=body.encode('utf-8'), max_retries=3,
         )
     except Exception as e:
         print(f"[KPI] Create query failed after retries: {e}")
@@ -537,7 +537,7 @@ def wait_history_ready(cookie: str, forgery_token: str, queryid: str,
     deadline = time.time() + timeout
     while time.time() < deadline:
         status, hdrs, raw_hdrs, resp_body = _http_request_with_retry(
-            "GET", path, headers_extra=headers, max_retries=1,
+            "GET", path, headers_extra=headers, max_retries=3,
         )
         resp_text = resp_body.decode('utf-8', errors='replace')
         data = json.loads(resp_text)
@@ -577,7 +577,7 @@ def export_history(cookie: str, forgery_token: str, queryid: str, filename: str,
     headers = _auth_headers(cookie, forgery_token)
 
     status, hdrs, raw_hdrs, resp_body = _http_request_with_retry(
-        "POST", HISTORY_EXPORT_PATH, headers_extra=headers, body=body.encode('utf-8'), max_retries=2,
+        "POST", HISTORY_EXPORT_PATH, headers_extra=headers, body=body.encode('utf-8'), max_retries=3,
     )
     print(f"[KPI] Export status: {status}")
 

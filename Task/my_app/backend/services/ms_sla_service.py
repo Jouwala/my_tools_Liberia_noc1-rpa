@@ -25,6 +25,7 @@ import copy
 import logging
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from datetime import datetime, date, timezone, timedelta
 from ftplib import FTP, error_perm
 from pathlib import Path
@@ -293,6 +294,50 @@ PERSITE_COLS = list(range(TARGET_COL_PS_NUR_2G, TARGET_COL_PS_RADIO_CONG + 1))
 # ============================================================
 # 通用工具函数
 # ============================================================
+
+def _safe_load_workbook(filepath, max_retries=3, **kwargs):
+    """带重试的 load_workbook，处理文件被占用的情况"""
+    for attempt in range(1, max_retries + 1):
+        try:
+            return load_workbook(str(filepath), **kwargs)
+        except PermissionError:
+            if attempt < max_retries:
+                wait = attempt * 2
+                logger.warning(f"文件被占用({attempt}/{max_retries})，等待{wait}s: {os.path.basename(str(filepath))}")
+                time.sleep(wait)
+            else:
+                raise
+    return load_workbook(str(filepath), **kwargs)
+
+
+@contextmanager
+def _safe_open_workbook(filepath, max_retries=3, **kwargs):
+    """带重试和自动关闭的 load_workbook 上下文管理器"""
+    wb = _safe_load_workbook(filepath, max_retries=max_retries, **kwargs)
+    try:
+        yield wb
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
+
+
+def _safe_save_workbook(wb, filepath, max_retries=3):
+    """带重试的 workbook.save，处理文件被占用的情况"""
+    for attempt in range(1, max_retries + 1):
+        try:
+            wb.save(str(filepath))
+            return
+        except PermissionError:
+            if attempt < max_retries:
+                wait = attempt * 2
+                logger.warning(f"保存文件被占用({attempt}/{max_retries})，等待{wait}s: {os.path.basename(str(filepath))}")
+                time.sleep(wait)
+            else:
+                raise
+    wb.save(str(filepath))
+
 
 def read_xlsx_streaming(filepath):
     """流式读取xlsx文件，返回 (headers, data)"""
@@ -1167,11 +1212,13 @@ def update_wo_sla_report(kpi_list_file):
     """更新 WOs SLA achievement Report sheet"""
     logger.info("更新 WOs SLA achievement Report...")
     wb_kpi = load_workbook(kpi_list_file, data_only=True)
-    sla_detail_daily = read_sla_detail_daily(wb_kpi["KPI List SLA Daily"])
-    sla_detail_monthly = read_sla_detail_monthly(wb_kpi["KPI List SLA Monthly"])
-    wb_kpi.close()
+    try:
+        sla_detail_daily = read_sla_detail_daily(wb_kpi["KPI List SLA Daily"])
+        sla_detail_monthly = read_sla_detail_monthly(wb_kpi["KPI List SLA Monthly"])
+    finally:
+        wb_kpi.close()
 
-    wb_target = load_workbook(str(TARGET_FILE))
+    wb_target = _safe_load_workbook(TARGET_FILE)
     ws = wb_target[WO_SHEET]
 
     COL_MAP = {
@@ -1196,7 +1243,6 @@ def update_wo_sla_report(kpi_list_file):
 
     if month_row is None:
         logger.warning("WOs SLA: 未找到 Month 行")
-        wb_target.close()
         return
 
     current_month = datetime.now().strftime("%Y-%m")
@@ -1265,8 +1311,10 @@ def update_wo_sla_report(kpi_list_file):
                 ws.cell(row=row_idx, column=cols["achieve"]).value = None
 
     apply_wo_sla_formatting(ws)
-    wb_target.save(str(TARGET_FILE))
-    wb_target.close()
+    try:
+        _safe_save_workbook(wb_target, TARGET_FILE)
+    finally:
+        wb_target.close()
     logger.info(f"  WOs SLA 更新完成: {updated} 行")
 
 
@@ -1450,69 +1498,81 @@ def export_without_sla_tt_details(kpi_list_file, upload_ftp=True):
     """从 KPI List 导出当月 WithoutSLATTDetails"""
     logger.info("导出 WithoutSLATTDetails...")
     sheet_name = "WithoutSLATTDetails"
+
+    wb_src = None
+    wb_new = None
+    output_path = None
     try:
-        wb_src = load_workbook(kpi_list_file)
-    except Exception as e:
-        logger.warning(f"无法打开 KPI List: {e}")
-        return
-    if sheet_name not in wb_src.sheetnames:
-        logger.warning(f"未找到 sheet: {sheet_name}")
-        wb_src.close()
-        return
+        try:
+            wb_src = _safe_load_workbook(kpi_list_file)
+        except Exception as e:
+            logger.warning(f"无法打开 KPI List: {e}")
+            return
+        if sheet_name not in wb_src.sheetnames:
+            logger.warning(f"未找到 sheet: {sheet_name}")
+            return
 
-    ws_src = wb_src[sheet_name]
-    alarm_col = None
-    for c in range(1, ws_src.max_column + 1):
-        val = ws_src.cell(row=1, column=c).value
-        if val is not None and "alarm occur time" in str(val).strip().lower():
-            alarm_col = c
-            break
-    if alarm_col is None:
-        wb_src.close()
-        return
+        ws_src = wb_src[sheet_name]
+        alarm_col = None
+        for c in range(1, ws_src.max_column + 1):
+            val = ws_src.cell(row=1, column=c).value
+            if val is not None and "alarm occur time" in str(val).strip().lower():
+                alarm_col = c
+                break
+        if alarm_col is None:
+            return
 
-    current_month = datetime.now().strftime("%Y-%m")
-    rows_to_keep = [1]
-    for r in range(2, ws_src.max_row + 1):
-        cell_val = ws_src.cell(row=r, column=alarm_col).value
-        if cell_val is None:
-            continue
-        if isinstance(cell_val, datetime):
-            month_str = cell_val.strftime("%Y-%m")
-        elif isinstance(cell_val, date):
-            month_str = cell_val.strftime("%Y-%m")
-        elif isinstance(cell_val, str):
-            month_str = cell_val.strip()[:7]
-        else:
-            continue
-        if month_str == current_month:
-            rows_to_keep.append(r)
+        current_month = datetime.now().strftime("%Y-%m")
+        rows_to_keep = [1]
+        for r in range(2, ws_src.max_row + 1):
+            cell_val = ws_src.cell(row=r, column=alarm_col).value
+            if cell_val is None:
+                continue
+            if isinstance(cell_val, datetime):
+                month_str = cell_val.strftime("%Y-%m")
+            elif isinstance(cell_val, date):
+                month_str = cell_val.strftime("%Y-%m")
+            elif isinstance(cell_val, str):
+                month_str = cell_val.strip()[:7]
+            else:
+                continue
+            if month_str == current_month:
+                rows_to_keep.append(r)
 
-    wb_new = load_workbook(kpi_list_file)
-    sheets_to_remove = [s for s in wb_new.sheetnames if s != sheet_name]
-    for s in sheets_to_remove:
-        del wb_new[s]
-    ws_new = wb_new[sheet_name]
+        wb_new = _safe_load_workbook(kpi_list_file)
+        sheets_to_remove = [s for s in wb_new.sheetnames if s != sheet_name]
+        for s in sheets_to_remove:
+            del wb_new[s]
+        ws_new = wb_new[sheet_name]
 
-    all_rows = set(range(1, ws_src.max_row + 1))
-    keep_set = set(rows_to_keep)
-    rows_to_delete = sorted(all_rows - keep_set, reverse=True)
-    for r in rows_to_delete:
-        ws_new.delete_rows(r, 1)
+        all_rows = set(range(1, ws_src.max_row + 1))
+        keep_set = set(rows_to_keep)
+        rows_to_delete = sorted(all_rows - keep_set, reverse=True)
+        for r in rows_to_delete:
+            ws_new.delete_rows(r, 1)
 
-    for c in range(1, ws_src.max_column + 1):
-        col_letter = get_column_letter(c)
-        if col_letter in ws_src.column_dimensions:
-            ws_new.column_dimensions[col_letter].width = ws_src.column_dimensions[col_letter].width
+        for c in range(1, ws_src.max_column + 1):
+            col_letter = get_column_letter(c)
+            if col_letter in ws_src.column_dimensions:
+                ws_new.column_dimensions[col_letter].width = ws_src.column_dimensions[col_letter].width
 
-    output_name = f"WithoutSLATTDetails_{current_month}.xlsx"
-    output_path = DATA_DIR / output_name
-    wb_new.save(str(output_path))
-    wb_new.close()
-    wb_src.close()
-    logger.info(f"  保存: {output_name}")
+        output_name = f"WithoutSLATTDetails_{current_month}.xlsx"
+        output_path = DATA_DIR / output_name
+        wb_new.save(str(output_path))
+        logger.info(f"  保存: {output_name}")
+    finally:
+        if wb_new:
+            try:
+                wb_new.close()
+            except Exception:
+                pass
+        if wb_src:
+            try:
+                wb_src.close()
+            except Exception:
+                pass
 
-    if upload_ftp:
+    if upload_ftp and output_path:
         upload_files_to_ftp([str(output_path)])
 
 
@@ -1607,12 +1667,16 @@ def export_sheet_to_xlsx(src_file, sheet_name, output_path):
             else:
                 logger.warning(f"文件被占用，无法导出: {os.path.basename(str(output_path))}")
                 return
-    wb = load_workbook(str(output_path))
-    sheets_to_remove = [s for s in wb.sheetnames if s != sheet_name]
-    for s in sheets_to_remove:
-        del wb[s]
-    wb.save(str(output_path))
-    wb.close()
+    wb = None
+    try:
+        wb = load_workbook(str(output_path))
+        sheets_to_remove = [s for s in wb.sheetnames if s != sheet_name]
+        for s in sheets_to_remove:
+            del wb[s]
+        wb.save(str(output_path))
+    finally:
+        if wb:
+            wb.close()
     logger.info(f"  导出 xlsx: {os.path.basename(str(output_path))}")
 
 
@@ -1707,80 +1771,79 @@ def _detect_achieve_cols(ws):
 def export_sheet_to_html(src_file, sheet_name, output_path):
     """将 Excel 单个 sheet 导出为 HTML 表格"""
     try:
-        wb = load_workbook(str(src_file), data_only=True)
+        with _safe_open_workbook(src_file, data_only=True) as wb:
+            ws = wb[sheet_name]
+            achieve_cols, sub_header_row = _detect_achieve_cols(ws)
+            has_achieve_cols = len(achieve_cols) > 0
+            merged_ranges = list(ws.merged_cells.ranges)
+            merged_cells_set = set()
+            merge_info = {}
+            for mr in merged_ranges:
+                start_r, start_c = mr.min_row, mr.min_col
+                end_r, end_c = mr.max_row, mr.max_col
+                rowspan = end_r - start_r + 1
+                colspan = end_c - start_c + 1
+                merge_info[(start_r, start_c)] = (rowspan, colspan)
+                for r in range(start_r, end_r + 1):
+                    for c in range(start_c, end_c + 1):
+                        if r != start_r or c != start_c:
+                            merged_cells_set.add((r, c))
+            col_widths = {}
+            for col_idx in range(1, ws.max_column + 1):
+                col_letter = get_column_letter(col_idx)
+                dim = ws.column_dimensions.get(col_letter)
+                col_widths[col_idx] = dim.width if dim and dim.width else 12
+
+            html_parts = ["<!DOCTYPE html>", "<html><head><meta charset='utf-8'>", "<style>",
+                          "body { font-family: 'Calibri', 'Arial', sans-serif; font-size: 11px; margin: 10px; }",
+                          "table { border-collapse: collapse; empty-cells: show; }",
+                          "td, th { border: 1px solid #B0B0B0; padding: 3px 6px; text-align: center; vertical-align: middle; white-space: nowrap; }",
+                          "</style>", "</head><body>", "<table>"]
+
+            for row_idx in range(1, ws.max_row + 1):
+                html_parts.append("<tr>")
+                for col_idx in range(1, ws.max_column + 1):
+                    if (row_idx, col_idx) in merged_cells_set:
+                        continue
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    merge_attr = ""
+                    if (row_idx, col_idx) in merge_info:
+                        rowspan, colspan = merge_info[(row_idx, col_idx)]
+                        if rowspan > 1:
+                            merge_attr += f' rowspan="{rowspan}"'
+                        if colspan > 1:
+                            merge_attr += f' colspan="{colspan}"'
+                    styles = []
+                    bg = get_cell_color_hex(cell)
+                    if bg:
+                        styles.append(f"background-color: #{bg}")
+                    font_info = get_cell_font_info(cell)
+                    if font_info["bold"]:
+                        styles.append("font-weight: bold")
+                    if font_info["color"] and font_info["color"] != "000000":
+                        styles.append(f"color: #{font_info['color']}")
+                    if font_info["size"]:
+                        styles.append(f"font-size: {font_info['size']}px")
+                    if cell.alignment and cell.alignment.horizontal:
+                        styles.append(f"text-align: {cell.alignment.horizontal}")
+                    w = col_widths.get(col_idx, 12)
+                    styles.append(f"min-width: {int(w * 7)}px")
+                    style_attr = f' style={"; ".join(styles)}' if styles else ""
+                    if has_achieve_cols and sub_header_row and row_idx >= sub_header_row:
+                        is_pct = (col_idx in achieve_cols) if row_idx > sub_header_row else None
+                    else:
+                        is_pct = None
+                    val = format_cell_value(cell.value, is_percentage_col=is_pct)
+                    html_parts.append(f"<td{merge_attr}{style_attr}>{val}</td>")
+                html_parts.append("</tr>")
+
+            html_parts.append("</table>")
+            html_parts.append("</body></html>")
+            with open(str(output_path), "w", encoding="utf-8") as f:
+                f.write("\n".join(html_parts))
     except PermissionError:
         logger.warning(f"文件被占用，无法导出HTML: {os.path.basename(str(output_path))}")
         return
-    ws = wb[sheet_name]
-    achieve_cols, sub_header_row = _detect_achieve_cols(ws)
-    has_achieve_cols = len(achieve_cols) > 0
-    merged_ranges = list(ws.merged_cells.ranges)
-    merged_cells_set = set()
-    merge_info = {}
-    for mr in merged_ranges:
-        start_r, start_c = mr.min_row, mr.min_col
-        end_r, end_c = mr.max_row, mr.max_col
-        rowspan = end_r - start_r + 1
-        colspan = end_c - start_c + 1
-        merge_info[(start_r, start_c)] = (rowspan, colspan)
-        for r in range(start_r, end_r + 1):
-            for c in range(start_c, end_c + 1):
-                if r != start_r or c != start_c:
-                    merged_cells_set.add((r, c))
-    col_widths = {}
-    for col_idx in range(1, ws.max_column + 1):
-        col_letter = get_column_letter(col_idx)
-        dim = ws.column_dimensions.get(col_letter)
-        col_widths[col_idx] = dim.width if dim and dim.width else 12
-
-    html_parts = ["<!DOCTYPE html>", "<html><head><meta charset='utf-8'>", "<style>",
-                  "body { font-family: 'Calibri', 'Arial', sans-serif; font-size: 11px; margin: 10px; }",
-                  "table { border-collapse: collapse; empty-cells: show; }",
-                  "td, th { border: 1px solid #B0B0B0; padding: 3px 6px; text-align: center; vertical-align: middle; white-space: nowrap; }",
-                  "</style>", "</head><body>", "<table>"]
-
-    for row_idx in range(1, ws.max_row + 1):
-        html_parts.append("<tr>")
-        for col_idx in range(1, ws.max_column + 1):
-            if (row_idx, col_idx) in merged_cells_set:
-                continue
-            cell = ws.cell(row=row_idx, column=col_idx)
-            merge_attr = ""
-            if (row_idx, col_idx) in merge_info:
-                rowspan, colspan = merge_info[(row_idx, col_idx)]
-                if rowspan > 1:
-                    merge_attr += f' rowspan="{rowspan}"'
-                if colspan > 1:
-                    merge_attr += f' colspan="{colspan}"'
-            styles = []
-            bg = get_cell_color_hex(cell)
-            if bg:
-                styles.append(f"background-color: #{bg}")
-            font_info = get_cell_font_info(cell)
-            if font_info["bold"]:
-                styles.append("font-weight: bold")
-            if font_info["color"] and font_info["color"] != "000000":
-                styles.append(f"color: #{font_info['color']}")
-            if font_info["size"]:
-                styles.append(f"font-size: {font_info['size']}px")
-            if cell.alignment and cell.alignment.horizontal:
-                styles.append(f"text-align: {cell.alignment.horizontal}")
-            w = col_widths.get(col_idx, 12)
-            styles.append(f"min-width: {int(w * 7)}px")
-            style_attr = f' style="{"; ".join(styles)}"' if styles else ""
-            if has_achieve_cols and sub_header_row and row_idx >= sub_header_row:
-                is_pct = (col_idx in achieve_cols) if row_idx > sub_header_row else None
-            else:
-                is_pct = None
-            val = format_cell_value(cell.value, is_percentage_col=is_pct)
-            html_parts.append(f"<td{merge_attr}{style_attr}>{val}</td>")
-        html_parts.append("</tr>")
-
-    html_parts.append("</table>")
-    html_parts.append("</body></html>")
-    with open(str(output_path), "w", encoding="utf-8") as f:
-        f.write("\n".join(html_parts))
-    wb.close()
     logger.info(f"  导出 html: {os.path.basename(str(output_path))}")
 
 
@@ -1818,109 +1881,107 @@ def export_sheet_to_png(src_file, sheet_name, output_path, max_col=None):
         logger.info(f"  PNG导出跳过 (Pillow未安装)")
         return
     try:
-        wb = load_workbook(str(src_file), data_only=True)
+        with _safe_open_workbook(src_file, data_only=True) as wb:
+            ws = wb[sheet_name]
+            achieve_cols, sub_header_row = _detect_achieve_cols(ws)
+            has_achieve_cols = len(achieve_cols) > 0
+            max_row = ws.max_row
+            if max_col is None:
+                max_col = ws.max_column
+            if max_row == 0 or max_col == 0:
+                return
+
+            font = _find_font(11)
+            font_bold = _find_font(12)
+            col_widths = {}
+            for c in range(1, max_col + 1):
+                cl = get_column_letter(c)
+                dim = ws.column_dimensions.get(cl)
+                w = dim.width if dim and dim.width else 12
+                col_widths[c] = max(int(w * 7.5), 50)
+            row_height = 22
+            header_row_height = 28
+            img_width = sum(col_widths[c] for c in range(1, max_col + 1)) + 2
+            img_height = header_row_height + (max_row - 1) * row_height + 2
+            img = Image.new("RGB", (img_width, img_height), "white")
+            draw = ImageDraw.Draw(img)
+
+            merged_map = {}
+            skip_cells = set()
+            for mr in ws.merged_cells.ranges:
+                sr, sc = mr.min_row, mr.min_col
+                er, ec = mr.max_row, mr.max_col
+                merged_map[(sr, sc)] = (er - sr + 1, ec - sc + 1)
+                for r in range(sr, er + 1):
+                    for c in range(sc, ec + 1):
+                        if r != sr or c != sc:
+                            skip_cells.add((r, c))
+
+            col_x = [0] * (max_col + 2)
+            for c in range(1, max_col + 1):
+                col_x[c] = col_x[c - 1] + col_widths.get(c, 80)
+            col_x[max_col + 1] = img_width
+
+            def row_y(r):
+                if r == 1:
+                    return 0
+                return header_row_height + (r - 2) * row_height
+
+            def cell_width(c, colspan=1):
+                w = 0
+                for i in range(colspan):
+                    w += col_widths.get(c + i, 80)
+                return w
+
+            def cell_height(r, rowspan=1):
+                h_base = header_row_height if r == 1 else row_height
+                if rowspan == 1:
+                    return h_base
+                h = 0
+                for i in range(rowspan):
+                    rr = r + i
+                    h += header_row_height if rr == 1 else row_height
+                return h
+
+            for r in range(1, max_row + 1):
+                for c in range(1, max_col + 1):
+                    if (r, c) in skip_cells:
+                        continue
+                    cell = ws.cell(row=r, column=c)
+                    x0 = col_x[c - 1]
+                    y0 = row_y(r)
+                    rs, cs_span = 1, 1
+                    if (r, c) in merged_map:
+                        rs, cs_span = merged_map[(r, c)]
+                    w = cell_width(c, cs_span)
+                    h = cell_height(r, rs)
+                    x1 = x0 + w
+                    y1 = y0 + h
+                    bg = get_cell_color_hex(cell)
+                    fill_color = f"#{bg}" if bg else "white"
+                    draw.rectangle([x0, y0, x1, y1], fill=fill_color, outline="#B0B0B0")
+                    if has_achieve_cols and sub_header_row and r >= sub_header_row:
+                        is_pct = (c in achieve_cols) if r > sub_header_row else None
+                    else:
+                        is_pct = None
+                    val = format_cell_value(cell.value, is_percentage_col=is_pct)
+                    if val:
+                        font_info = get_cell_font_info(cell)
+                        use_font = font_bold if font_info["bold"] else font
+                        text_color = f"#{font_info['color']}" if font_info["color"] and font_info["color"] != "000000" else "black"
+                        bbox = draw.textbbox((0, 0), val, font=use_font)
+                        tw = bbox[2] - bbox[0]
+                        th = bbox[3] - bbox[1]
+                        tx = x0 + (w - tw) // 2
+                        ty = y0 + (h - th) // 2
+                        tx = max(tx, x0 + 2)
+                        ty = max(ty, y0 + 1)
+                        draw.text((tx, ty), val, fill=text_color, font=use_font)
+
+            img.save(str(output_path), "PNG")
     except PermissionError:
         logger.warning(f"文件被占用，无法导出PNG: {os.path.basename(str(output_path))}")
         return
-    ws = wb[sheet_name]
-    achieve_cols, sub_header_row = _detect_achieve_cols(ws)
-    has_achieve_cols = len(achieve_cols) > 0
-    max_row = ws.max_row
-    if max_col is None:
-        max_col = ws.max_column
-    if max_row == 0 or max_col == 0:
-        wb.close()
-        return
-
-    font = _find_font(11)
-    font_bold = _find_font(12)
-    col_widths = {}
-    for c in range(1, max_col + 1):
-        cl = get_column_letter(c)
-        dim = ws.column_dimensions.get(cl)
-        w = dim.width if dim and dim.width else 12
-        col_widths[c] = max(int(w * 7.5), 50)
-    row_height = 22
-    header_row_height = 28
-    img_width = sum(col_widths[c] for c in range(1, max_col + 1)) + 2
-    img_height = header_row_height + (max_row - 1) * row_height + 2
-    img = Image.new("RGB", (img_width, img_height), "white")
-    draw = ImageDraw.Draw(img)
-
-    merged_map = {}
-    skip_cells = set()
-    for mr in ws.merged_cells.ranges:
-        sr, sc = mr.min_row, mr.min_col
-        er, ec = mr.max_row, mr.max_col
-        merged_map[(sr, sc)] = (er - sr + 1, ec - sc + 1)
-        for r in range(sr, er + 1):
-            for c in range(sc, ec + 1):
-                if r != sr or c != sc:
-                    skip_cells.add((r, c))
-
-    col_x = [0] * (max_col + 2)
-    for c in range(1, max_col + 1):
-        col_x[c] = col_x[c - 1] + col_widths.get(c, 80)
-    col_x[max_col + 1] = img_width
-
-    def row_y(r):
-        if r == 1:
-            return 0
-        return header_row_height + (r - 2) * row_height
-
-    def cell_width(c, colspan=1):
-        w = 0
-        for i in range(colspan):
-            w += col_widths.get(c + i, 80)
-        return w
-
-    def cell_height(r, rowspan=1):
-        h_base = header_row_height if r == 1 else row_height
-        if rowspan == 1:
-            return h_base
-        h = 0
-        for i in range(rowspan):
-            rr = r + i
-            h += header_row_height if rr == 1 else row_height
-        return h
-
-    for r in range(1, max_row + 1):
-        for c in range(1, max_col + 1):
-            if (r, c) in skip_cells:
-                continue
-            cell = ws.cell(row=r, column=c)
-            x0 = col_x[c - 1]
-            y0 = row_y(r)
-            rs, cs_span = 1, 1
-            if (r, c) in merged_map:
-                rs, cs_span = merged_map[(r, c)]
-            w = cell_width(c, cs_span)
-            h = cell_height(r, rs)
-            x1 = x0 + w
-            y1 = y0 + h
-            bg = get_cell_color_hex(cell)
-            fill_color = f"#{bg}" if bg else "white"
-            draw.rectangle([x0, y0, x1, y1], fill=fill_color, outline="#B0B0B0")
-            if has_achieve_cols and sub_header_row and r >= sub_header_row:
-                is_pct = (c in achieve_cols) if r > sub_header_row else None
-            else:
-                is_pct = None
-            val = format_cell_value(cell.value, is_percentage_col=is_pct)
-            if val:
-                font_info = get_cell_font_info(cell)
-                use_font = font_bold if font_info["bold"] else font
-                text_color = f"#{font_info['color']}" if font_info["color"] and font_info["color"] != "000000" else "black"
-                bbox = draw.textbbox((0, 0), val, font=use_font)
-                tw = bbox[2] - bbox[0]
-                th = bbox[3] - bbox[1]
-                tx = x0 + (w - tw) // 2
-                ty = y0 + (h - th) // 2
-                tx = max(tx, x0 + 2)
-                ty = max(ty, y0 + 1)
-                draw.text((tx, ty), val, fill=text_color, font=use_font)
-
-    img.save(str(output_path), "PNG")
-    wb.close()
     logger.info(f"  导出 png: {os.path.basename(str(output_path))}")
 
 
@@ -2086,6 +2147,7 @@ def _seed_template_files():
         ws2.cell(row=2 + i, column=1, value=d)
 
     wb.save(str(TARGET_FILE))
+    wb.close()
     logger.info(f"最小模板已创建: {TARGET_FILE}")
     return True
 
@@ -2131,28 +2193,28 @@ def run_contract_kpis_report():
     # 1. 读取 KPI List
     logger.info("[1] 读取 KPI List 数据...")
     wb_kpi = load_workbook(str(KPI_LIST_FILE), data_only=True)
+    try:
+        nur_daily_data = {}
+        if "KPI List NUR Daily" in wb_kpi.sheetnames:
+            nur_daily_data = read_nur_daily(wb_kpi["KPI List NUR Daily"])
+            logger.info(f"  NUR Daily: {len(nur_daily_data)} 天")
 
-    nur_daily_data = {}
-    if "KPI List NUR Daily" in wb_kpi.sheetnames:
-        nur_daily_data = read_nur_daily(wb_kpi["KPI List NUR Daily"])
-        logger.info(f"  NUR Daily: {len(nur_daily_data)} 天")
+        nur_monthly_data = {}
+        if "KPI List NUR Monthly" in wb_kpi.sheetnames:
+            nur_monthly_data = read_nur_monthly(wb_kpi["KPI List NUR Monthly"])
+            logger.info(f"  NUR Monthly: {len(nur_monthly_data)} 月")
 
-    nur_monthly_data = {}
-    if "KPI List NUR Monthly" in wb_kpi.sheetnames:
-        nur_monthly_data = read_nur_monthly(wb_kpi["KPI List NUR Monthly"])
-        logger.info(f"  NUR Monthly: {len(nur_monthly_data)} 月")
+        sla_daily_data = {}
+        if "KPI List SLA Daily" in wb_kpi.sheetnames:
+            sla_daily_data = read_sla_daily(wb_kpi["KPI List SLA Daily"])
+            logger.info(f"  SLA Daily: {len(sla_daily_data)} 天")
 
-    sla_daily_data = {}
-    if "KPI List SLA Daily" in wb_kpi.sheetnames:
-        sla_daily_data = read_sla_daily(wb_kpi["KPI List SLA Daily"])
-        logger.info(f"  SLA Daily: {len(sla_daily_data)} 天")
-
-    sla_monthly_data = {}
-    if "KPI List SLA Monthly" in wb_kpi.sheetnames:
-        sla_monthly_data = read_sla_monthly(wb_kpi["KPI List SLA Monthly"])
-        logger.info(f"  SLA Monthly: {len(sla_monthly_data)} 月")
-
-    wb_kpi.close()
+        sla_monthly_data = {}
+        if "KPI List SLA Monthly" in wb_kpi.sheetnames:
+            sla_monthly_data = read_sla_monthly(wb_kpi["KPI List SLA Monthly"])
+            logger.info(f"  SLA Monthly: {len(sla_monthly_data)} 月")
+    finally:
+        wb_kpi.close()
 
     # 2. 连接数据库
     logger.info("[2] 连接数据库...")
@@ -2160,7 +2222,7 @@ def run_contract_kpis_report():
 
     # 3. 更新目标文件
     logger.info("[3] 更新目标文件...")
-    wb_target = load_workbook(str(TARGET_FILE))
+    wb_target = _safe_load_workbook(TARGET_FILE)
     ws = wb_target[TARGET_SHEET]
 
     month_row = None
@@ -2250,8 +2312,10 @@ def run_contract_kpis_report():
 
     clean_sparse_date_rows(ws, month_row, date_rows)
     apply_conditional_formatting(ws, month_row, date_rows)
-    wb_target.save(str(TARGET_FILE))
-    wb_target.close()
+    try:
+        _safe_save_workbook(wb_target, TARGET_FILE)
+    finally:
+        wb_target.close()
     conn.close()
     logger.info(f"  Contract KPIs Report 更新: 日度 {updated_daily} 行, 月度 1 行")
 
