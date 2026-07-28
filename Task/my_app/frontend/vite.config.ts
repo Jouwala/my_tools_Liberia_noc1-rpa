@@ -2,12 +2,19 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  // 让前端资源从 /myapp/ 子路径加载，配合 nginx 的 location /myapp/ 反代
+  base: '/myapp/',
   plugins: [react()],
   server: {
     host: '0.0.0.0',
     port: 7090,
     proxy: {
       '/api': {
+        target: 'http://localhost:7038',
+        changeOrigin: true,
+      },
+      // 经 nginx 的 /myapp/ 反代(不剥前缀)后，前端会以 /myapp/api 调接口
+      '/myapp/api': {
         target: 'http://localhost:7038',
         changeOrigin: true,
       },

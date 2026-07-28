@@ -4,6 +4,13 @@ import sys
 import os
 from datetime import datetime
 
+# 修复非UTF-8控制台环境下中文输出崩溃
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
 # 确保可以import backend模块
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

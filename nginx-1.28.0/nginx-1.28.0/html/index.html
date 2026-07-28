@@ -1,23 +1,45 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-<title>Welcome to nginx!</title>
+<meta charset="utf-8">
+<title>本机服务导航</title>
 <style>
-html { color-scheme: light dark; }
-body { width: 35em; margin: 0 auto;
-font-family: Tahoma, Verdana, Arial, sans-serif; }
+  :root { color-scheme: light dark; }
+  body { font-family: "Segoe UI", Tahoma, Verdana, Arial, sans-serif;
+         max-width: 720px; margin: 40px auto; padding: 0 20px; }
+  h1 { font-size: 22px; }
+  .card { display: block; text-decoration: none; color: inherit;
+          border: 1px solid #d0d0d0; border-radius: 10px; padding: 16px 18px;
+          margin: 12px 0; transition: .15s; }
+  .card:hover { border-color: #2f7de1; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+  .name { font-size: 17px; font-weight: 600; }
+  .url  { color: #2f7de1; font-size: 14px; margin-top: 4px; }
+  .desc { color: #666; font-size: 13px; margin-top: 6px; }
+  footer { color: #999; font-size: 12px; margin-top: 24px; }
 </style>
 </head>
 <body>
-<h1>Welcome to nginx!</h1>
-<p>If you see this page, the nginx web server is successfully installed and
-working. Further configuration is required.</p>
+  <h1>本机服务导航</h1>
+  <p>所有服务都收在 80 端口，用路径区分，浏览器里无需输入端口号、不依赖子域名。</p>
 
-<p>For online documentation and support please refer to
-<a href="http://nginx.org/">nginx.org</a>.<br/>
-Commercial support is available at
-<a href="http://nginx.com/">nginx.com</a>.</p>
+  <a class="card" href="/myapp/">
+    <div class="name">my_app 任务管理器</div>
+    <div class="url">http://localhost/myapp/</div>
+    <div class="desc">定时任务看板 / 执行 / 日志（前端 7090，后端 7038）</div>
+  </a>
 
-<p><em>Thank you for using nginx.</em></p>
+  <a class="card" href="/ollama/">
+    <div class="name">Ollama</div>
+    <div class="url">http://localhost/ollama/</div>
+    <div class="desc">本地大模型服务（11434）</div>
+  </a>
+
+  <a class="card" href="/openclaw/">
+    <div class="name">OpenClaw 网关</div>
+    <div class="url">http://localhost/openclaw/</div>
+    <div class="desc">AI 网关（18789）</div>
+  </a>
+
+  <footer>新增服务：编辑 nginx.conf 加一个 location 块，复制模板改路径与端口即可。</footer>
 </body>
 </html>

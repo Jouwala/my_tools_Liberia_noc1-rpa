@@ -182,7 +182,7 @@ def main():
     start_time = time.time()
     print(f"数据库路径: {DB_PATH}")
     print(f"Excel目录: {EXCEL_DIR}")
-    print(f"eFlow数据源: {EFLOW_DB_PATH}")
+    print(f"eFlow数据源: eFlow API (sync_from_eflow_api)")
 
     # 确保目录存在
     DB_DIR.mkdir(parents=True, exist_ok=True)
@@ -197,7 +197,11 @@ def main():
 
     if try_api:
         print("\n>>> 尝试 eFlow API 直接获取数据初始化 <<<")
-        api_success = init_from_eflow_api(conn)
+        try:
+            api_success = init_from_eflow_api(conn)
+        except Exception as e:
+            print(f"\n>>> API 初始化异常: {e}，回退到 Excel 文件初始化 <<<")
+            api_success = False
         if not api_success:
             print("\n>>> API 失败，回退到 Excel 文件初始化 <<<")
             # 处理每个Excel文件

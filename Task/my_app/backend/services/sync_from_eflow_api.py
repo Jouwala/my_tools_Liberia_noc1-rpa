@@ -477,7 +477,10 @@ def sync_from_eflow_api() -> dict:
 
     try:
         # 从 API 获取所有数据
-        from backend.services.eflow_api_client import fetch_all_data
+        try:
+            from backend.services.eflow_api_client import fetch_all_data
+        except ImportError:
+            from services.eflow_api_client import fetch_all_data
         all_data = fetch_all_data()
 
         if not all_data:
@@ -533,7 +536,10 @@ def sync_from_eflow_api() -> dict:
 
         # 生成 Excel 报告并上传到 FTP
         try:
-            from backend.services.eflow_api_client import generate_excel_report
+            try:
+                from backend.services.eflow_api_client import generate_excel_report
+            except ImportError:
+                from services.eflow_api_client import generate_excel_report
             report_result = generate_excel_report(data=all_data, upload_ftp=True)  # TEMP 诊断：跳过 FTP 上传以定位图片生成问题
             if report_result.get("excel_path"):
                 logger.info(f"Excel 报告已生成: {report_result['excel_path']}")
@@ -547,7 +553,10 @@ def sync_from_eflow_api() -> dict:
 
         # 生成小时报告与图片（复用 mail_126.py 的方法）
         try:
-            from backend.services.eflow_api_client import generate_hourly_report_with_images
+            try:
+                from backend.services.eflow_api_client import generate_hourly_report_with_images
+            except ImportError:
+                from services.eflow_api_client import generate_hourly_report_with_images
             hourly_result = generate_hourly_report_with_images(all_data)
             if hourly_result.get("success"):
                 logger.info(f"小时报告与图片已生成")
