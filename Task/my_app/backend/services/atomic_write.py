@@ -16,6 +16,7 @@ import time
 import logging
 from pathlib import Path
 from contextlib import contextmanager
+from pandas import ExcelWriter  # 模块级导入：atomic_to_excel / atomic_excel_writer 共用
 
 logger = logging.getLogger("atomic_write")
 
@@ -31,32 +32,46 @@ def _cleanup(tmp):
 
 
 def _atomic_replace(tmp, final, max_retries, base_wait):
-    """把 tmp 原子替换到 final，重试扛文件锁。"""
+    """把 tmp 原子替换到 final，重试扛文件锁。
+
+    间歇性锁场景（如云同步/杀软/索引服务周期扫描 xlsx）下，固定间隔重试
+    比指数退避更稳：无论锁何时释放，长窗口内总能穿过。
+    对 WinError 5/13 这类独占锁，每几次额外尝试「先删旧文件再 rename」兜底。
+    """
     last_err = None
     for attempt in range(max_retries + 1):
+        # 策略 A：原子替换（最干净）
         try:
             os.replace(str(tmp), str(final))
             return True
         except _RETRYABLE as e:
             last_err = e
+            # 策略 B：独占锁导致 replace 失败时，尝试删旧文件再 rename
+            if attempt > 0 and attempt % 4 == 0:
+                try:
+                    if os.path.exists(str(final)):
+                        os.remove(str(final))
+                    os.rename(str(tmp), str(final))
+                    return True
+                except _RETRYABLE as e2:
+                    last_err = e2
             if attempt < max_retries:
-                wait = base_wait * (2 ** attempt)
+                time.sleep(base_wait)
                 logger.warning(
-                    "原子替换被拒(Permission denied?)，%ss 后重试 (%d/%d): %s",
-                    wait, attempt + 1, max_retries, final,
+                    "原子替换被拒(文件被占用?)，%ss 后重试 (%d/%d): %s",
+                    base_wait, attempt + 1, max_retries, final,
                 )
-                time.sleep(wait)
             else:
                 break
     _cleanup(tmp)
     raise last_err or OSError(f"atomic replace failed: {final}")
 
 
-def atomic_save_workbook(wb, path, max_retries=4, base_wait=1.0):
+def atomic_save_workbook(wb, path, max_retries=45, base_wait=2.0):
     """openpyxl Workbook 的原子落盘（覆盖写）。wb 对象由调用方管理生命周期。"""
     final = Path(path)
     final.parent.mkdir(parents=True, exist_ok=True)
-    tmp = final.with_suffix(final.suffix + f".{os.getpid()}.tmp")
+    tmp = final.with_name(f"{final.stem}.{os.getpid()}.tmp.xlsx")
 
     last_err = None
     for attempt in range(max_retries + 1):
@@ -66,7 +81,7 @@ def atomic_save_workbook(wb, path, max_retries=4, base_wait=1.0):
         except _RETRYABLE as e:
             last_err = e
             if attempt < max_retries:
-                time.sleep(base_wait * (2 ** attempt))
+                time.sleep(base_wait)
             else:
                 _cleanup(tmp)
                 raise
@@ -74,12 +89,11 @@ def atomic_save_workbook(wb, path, max_retries=4, base_wait=1.0):
 
 
 def atomic_to_excel(df, path, sheet_name="Sheet1", index=False,
-                    max_retries=4, base_wait=1.0):
+                    max_retries=45, base_wait=2.0):
     """pandas DataFrame 的原子落盘（覆盖写）。"""
-    from pandas import ExcelWriter
     final = Path(path)
     final.parent.mkdir(parents=True, exist_ok=True)
-    tmp = final.with_suffix(final.suffix + f".{os.getpid()}.tmp")
+    tmp = final.with_name(f"{final.stem}.{os.getpid()}.tmp.xlsx")
     try:
         with ExcelWriter(str(tmp), engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name=sheet_name, index=index)
@@ -89,8 +103,16 @@ def atomic_to_excel(df, path, sheet_name="Sheet1", index=False,
     _atomic_replace(tmp, final, max_retries, base_wait)
 
 
+def atomic_replace_file(src, dst, max_retries=45, base_wait=2.0):
+    """把已存在的临时文件 src 原子替换到最终路径 dst，重试扛文件锁。
+
+    用于 sftp.get 等「先下载到临时文件、再落定」的场景。
+    """
+    _atomic_replace(str(src), str(dst), max_retries, base_wait)
+
+
 @contextmanager
-def atomic_excel_writer(path, engine="openpyxl", max_retries=4, base_wait=1.0):
+def atomic_excel_writer(path, engine="openpyxl", max_retries=45, base_wait=2.0):
     """多 sheet 场景：yield 一个写到临时文件的 ExcelWriter，退出时原子替换。
 
     用法：
@@ -100,7 +122,7 @@ def atomic_excel_writer(path, engine="openpyxl", max_retries=4, base_wait=1.0):
     """
     final = Path(path)
     final.parent.mkdir(parents=True, exist_ok=True)
-    tmp = final.with_suffix(final.suffix + f".{os.getpid()}.tmp")
+    tmp = final.with_name(f"{final.stem}.{os.getpid()}.tmp.xlsx")
     try:
         with ExcelWriter(str(tmp), engine=engine) as writer:
             yield writer

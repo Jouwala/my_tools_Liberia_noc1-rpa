@@ -670,13 +670,30 @@ def write_to_db(db_path, table_name, headers, data):
     """将数据写入 SQLite 数据库。
     以 'Begin Time' 和 'Group' 列为联合主键，使用 INSERT OR REPLACE 实现更新/替换。
     """
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    # 性能优化
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA synchronous=OFF")
-    cursor.execute("PRAGMA cache_size=-64000")
+    # 打开/初始化数据库时若遇到文件锁(SMB 读锁/云同步/索引服务等)会直接报
+    # "readonly database"，这里加重试 + 长超时(busy_timeout)，让锁释放窗口内的
+    # 写入能自动穿过。连接重试窗口拉到 ~50s 以抗间歇性独占锁。
+    last_err = None
+    for _attempt in range(1, 11):
+        try:
+            conn = sqlite3.connect(db_path, timeout=60)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=OFF")
+            cursor.execute("PRAGMA cache_size=-64000")
+            cursor.execute("PRAGMA busy_timeout=60000")
+            break
+        except sqlite3.OperationalError as e:
+            last_err = e
+            try:
+                conn.close()
+            except Exception:
+                pass
+            if _attempt < 10:
+                print(f"  [DB] 打开/初始化失败（可能文件被锁），5s 后重试 ({_attempt}/10): {e}")
+                time.sleep(5)
+    else:
+        raise last_err or sqlite3.OperationalError("write_to_db connect failed")
 
     if "Begin Time" not in headers or "Group" not in headers:
         print(f"  [DB] 表 {table_name} 缺少 'Begin Time' 或 'Group' 列，跳过。")

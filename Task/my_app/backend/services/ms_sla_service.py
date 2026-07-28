@@ -3,7 +3,7 @@
 MS SLA / NUR 服务集成
 整合 ran_ume_sla.py + update_contract_kpis_report.py
 功能：
-  1. RAN UME SLA 指标同步（API 查询 → xlsx → SQLite → FTP 上传）
+  1. RAN UME SLA 指标同步（API 查询 → xlsx → SQLite → API写入远程/FTP回退）
   2. Contract KPIs 报表自动更新（FTP 下载 → 数据更新 → 导出 → FTP 上传）
 """
 import base64
@@ -36,6 +36,11 @@ from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill, Font
 
 try:
+    from .atomic_write import atomic_save_workbook
+except ImportError:
+    from atomic_write import atomic_save_workbook
+
+try:
     from PIL import Image, ImageDraw, ImageFont
     HAS_PIL = True
 except ImportError:
@@ -44,6 +49,17 @@ except ImportError:
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+
+# 远程写入 API 配置（替代 FTP 上传整个 db 文件）
+try:
+    from backend.services.db_writer_client import DbWriterClient
+except ImportError:
+    from db_writer_client import DbWriterClient
+try:
+    _db_writer = DbWriterClient()
+except Exception:
+    _db_writer = None
+    print("[WARNING] db_writer_client 初始化失败，将回退到 FTP 模式")
 
 logger = logging.getLogger("ms_sla_service")
 
@@ -323,20 +339,9 @@ def _safe_open_workbook(filepath, max_retries=3, **kwargs):
             pass
 
 
-def _safe_save_workbook(wb, filepath, max_retries=3):
-    """带重试的 workbook.save，处理文件被占用的情况"""
-    for attempt in range(1, max_retries + 1):
-        try:
-            wb.save(str(filepath))
-            return
-        except PermissionError:
-            if attempt < max_retries:
-                wait = attempt * 2
-                logger.warning(f"保存文件被占用({attempt}/{max_retries})，等待{wait}s: {os.path.basename(str(filepath))}")
-                time.sleep(wait)
-            else:
-                raise
-    wb.save(str(filepath))
+def _safe_save_workbook(wb, filepath, max_retries=45):
+    """原子落盘 workbook：先写临时文件再 os.replace（固定间隔重试），专治文件被占用(Permission denied)。"""
+    atomic_save_workbook(wb, filepath, max_retries=max_retries, base_wait=2.0)
 
 
 def read_xlsx_streaming(filepath):
@@ -875,6 +880,7 @@ def run_ms_sla_sync(max_workers=None):
     logger.info(f"  导入 {len(download_results)} 个文件到数据库...")
     total_imported = 0
     imported_tables = []
+    table_data_cache = []  # 缓存 (table_name, headers, data) 用于 API 写入
     for item in download_results:
         filepath = item["path"]
         table_name = item["table_name"]
@@ -883,15 +889,45 @@ def run_ms_sla_sync(max_workers=None):
             row_count = write_to_db(DB_PATH, table_name, headers, data)
             total_imported += row_count
             imported_tables.append(table_name)
+            table_data_cache.append((table_name, headers, data))
             logger.info(f"    {table_name}: {row_count} 行")
-            del headers, data
-            gc.collect()
         except Exception as e:
             logger.warning(f"    导入失败 {os.path.basename(filepath)}: {e}")
 
-    # 5. FTP 上传数据库
-    ftp_ok = _upload_to_ftp(str(DB_PATH), FTP_UP_REMOTE_DIR, DB_NAME)
-    logger.info(f"  FTP上传: {'成功' if ftp_ok else '失败'}")
+    # 5. API 优先写入远程数据库，失败则回退 FTP 上传
+    api_ok = False
+    if _db_writer is not None:
+        api_ok = True
+        for table_name, headers, data in table_data_cache:
+            try:
+                str_data = [[str(v) if v is not None else None for v in row] for row in data]
+                api_result = _db_writer.write_data(
+                    db=DB_NAME,
+                    table=table_name,
+                    columns=headers,
+                    rows=str_data,
+                    mode="upsert",
+                    pk_columns=[headers[0]] if headers else None,
+                )
+                api_rows = api_result.get("rows_written", 0)
+                logger.info(f"  [API] {table_name}: {api_rows} rows")
+            except Exception as e:
+                logger.warning(f"  [API] {table_name} 写入失败: {e}")
+                api_ok = False
+        if api_ok:
+            logger.info("  [API] 远程写入完成，跳过 FTP 上传")
+        else:
+            logger.warning("  [API] 部分表写入失败，回退到 FTP 上传")
+
+    if not api_ok:
+        ftp_ok = _upload_to_ftp(str(DB_PATH), FTP_UP_REMOTE_DIR, DB_NAME)
+        logger.info(f"  FTP上传: {'成功' if ftp_ok else '失败'}")
+    else:
+        ftp_ok = True  # API 成功视为上传成功
+
+    # 释放缓存
+    del table_data_cache
+    gc.collect()
 
     # 6. 清理本地 xlsx 文件
     deleted = _cleanup_sla_exports()
@@ -905,6 +941,7 @@ def run_ms_sla_sync(max_workers=None):
         "downloaded": len(download_results),
         "total_rows": total_imported,
         "tables": imported_tables,
+        "api_ok": api_ok,
         "ftp_uploaded": ftp_ok,
         "files_cleaned": deleted,
         "elapsed_seconds": round(elapsed, 2),
@@ -1558,7 +1595,7 @@ def export_without_sla_tt_details(kpi_list_file, upload_ftp=True):
 
         output_name = f"WithoutSLATTDetails_{current_month}.xlsx"
         output_path = DATA_DIR / output_name
-        wb_new.save(str(output_path))
+        atomic_save_workbook(wb_new, output_path)
         logger.info(f"  保存: {output_name}")
     finally:
         if wb_new:
@@ -1673,7 +1710,7 @@ def export_sheet_to_xlsx(src_file, sheet_name, output_path):
         sheets_to_remove = [s for s in wb.sheetnames if s != sheet_name]
         for s in sheets_to_remove:
             del wb[s]
-        wb.save(str(output_path))
+        atomic_save_workbook(wb, output_path)
     finally:
         if wb:
             wb.close()
@@ -2146,7 +2183,7 @@ def _seed_template_files():
         d = today - timedelta(days=i)
         ws2.cell(row=2 + i, column=1, value=d)
 
-    wb.save(str(TARGET_FILE))
+    atomic_save_workbook(wb, TARGET_FILE)
     wb.close()
     logger.info(f"最小模板已创建: {TARGET_FILE}")
     return True

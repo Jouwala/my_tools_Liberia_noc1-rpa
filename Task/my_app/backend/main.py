@@ -65,6 +65,7 @@ def scheduled_eflow_sync():
     while len(sync_history) > 20:
         sync_history.pop(0)
     logger.info(f"eFlow 同步完成: success={result['success']}, tables={result['tables_synced']}")
+    return result
 
 
 def _register_all_tasks():
@@ -243,33 +244,46 @@ def _register_all_tasks():
     )
 
 
+def _init_db_with_retry(max_retries: int = 12, wait: int = 5):
+    """db 初始化可能因后台进程(Windows Search 索引 / 杀软实时扫描)临时锁住
+    app.db 而失败，这里加重试穿过锁释放窗口，避免后端启动卡死。"""
+    import sqlite3
+    last_err = None
+    for i in range(1, max_retries + 1):
+        try:
+            # 创建ORM模型表
+            Base.metadata.create_all(bind=engine)
+            # 确保uploaded_files表存在
+            conn = sqlite3.connect(str(DB_PATH), timeout=30)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS uploaded_files (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    filename TEXT NOT NULL,
+                    original_name TEXT,
+                    table_name TEXT,
+                    row_count INTEGER,
+                    col_count INTEGER,
+                    columns_info TEXT,
+                    quality_issues TEXT,
+                    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+            conn.close()
+            # 初始化调度配置表
+            task_runner._init_schedule_table()
+            return
+        except Exception as e:
+            last_err = e
+            print(f"[startup] db 初始化遇锁({type(e).__name__})，{wait}s 后重试 ({i}/{max_retries}): {e}")
+            time.sleep(wait)
+    raise last_err or RuntimeError("db init failed after retries")
+
+
 @app.on_event("startup")
 async def startup_event():
-    """启动时创建必要的表和索引"""
-    # 创建ORM模型表
-    Base.metadata.create_all(bind=engine)
-
-    # 确保uploaded_files表存在
-    import sqlite3
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS uploaded_files (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT NOT NULL,
-            original_name TEXT,
-            table_name TEXT,
-            row_count INTEGER,
-            col_count INTEGER,
-            columns_info TEXT,
-            quality_issues TEXT,
-            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-    # 初始化调度配置表（用户自定义cron持久化）
-    task_runner._init_schedule_table()
+    """启动时创建必要的表和索引（app.db 可能被后台索引/杀软临时锁住，加重试穿过）"""
+    _init_db_with_retry()
 
     # 注册所有任务并启动调度器
     _register_all_tasks()

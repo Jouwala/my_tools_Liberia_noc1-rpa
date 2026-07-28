@@ -6,14 +6,26 @@ echo.
 
 set FOUND=0
 
-:: Stop backend (port 8000)
+:: Stop backend (port 7038, the actual running instance)
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7038" ^| findstr "LISTENING" 2^>nul') do (
+    taskkill /PID %%a /F >nul 2>&1
+    echo [*] Killed backend PID=%%a
+    set FOUND=1
+)
+
+:: Stop backend (port 8000, legacy/duplicate section)
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000" ^| findstr "LISTENING" 2^>nul') do (
     taskkill /PID %%a /F >nul 2>&1
     echo [*] Killed backend PID=%%a
     set FOUND=1
 )
 
-:: Stop frontend (port 5173)
+:: Stop frontend (port 7090 / 5173)
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7090" ^| findstr "LISTENING" 2^>nul') do (
+    taskkill /PID %%a /F >nul 2>&1
+    echo [*] Killed frontend PID=%%a
+    set FOUND=1
+)
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5173" ^| findstr "LISTENING" 2^>nul') do (
     taskkill /PID %%a /F >nul 2>&1
     echo [*] Killed frontend PID=%%a

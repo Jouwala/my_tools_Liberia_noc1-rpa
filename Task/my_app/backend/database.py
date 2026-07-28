@@ -9,7 +9,7 @@ DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": 30},
     echo=False,
     pool_pre_ping=True,
 )
@@ -30,7 +30,7 @@ def get_db():
 def get_raw_connection():
     """获取原始SQLite连接（用于动态表查询）"""
     import sqlite3
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(DB_PATH), timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
 

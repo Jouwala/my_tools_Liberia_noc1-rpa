@@ -41,6 +41,11 @@ except ImportError:
     plt = None
     np = None
 
+try:
+    from .atomic_write import atomic_excel_writer
+except ImportError:
+    from atomic_write import atomic_excel_writer
+
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 # 远程写入 API 配置（DB Orange: ran_kpi_daily_202606.sqlite3）
@@ -69,14 +74,13 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 MAX_PARALLEL_WORKERS = 4
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+# ran_kpi_daily.sqlite3 仅用于 Availability 报表读取（由 ran_ume_network_kpi.py 写入）
 DB_PATH = RAN_UME_DATA_DIR / "ran_kpi_daily.sqlite3"
-UPLOAD_DB_NAME = "ran_kpi_daily.sqlite3"
 
-# FTP 配置
+# FTP 配置（仅用于 Availability 图表图片上传）
 FTP_HOST = "192.168.100.19"
 FTP_USER = "ZTEEMS"
 FTP_PASS = "DX"
-FTP_REMOTE_DIR = "/01_RPA/LBR_Tools/KPI/RAN"
 
 # 技术类型
 TECHS = ["2G", "3G", "FDD", "TDD"]
@@ -478,55 +482,6 @@ def _read_xlsx(filepath):
     return headers, data
 
 
-def _write_to_db(db_path, table_name, headers, data):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    if "Begin Time" not in headers or "Group" not in headers:
-        conn.close()
-        return 0
-
-    table_exists = cursor.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
-    ).fetchone() is not None
-
-    if not table_exists:
-        cursor.execute(
-            f'CREATE TABLE "{table_name}" ("Begin Time" TEXT NOT NULL, "Group" TEXT NOT NULL, PRIMARY KEY ("Begin Time", "Group"))'
-        )
-
-    for h in headers:
-        if h in ("Begin Time", "Group"):
-            continue
-        try:
-            cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{h.replace(chr(34), chr(34)+chr(34))}" TEXT')
-        except sqlite3.OperationalError:
-            pass
-
-    quoted_headers = [f'"{h.replace(chr(34), chr(34)+chr(34))}"' for h in headers]
-    placeholders = ", ".join(["?"] * len(headers))
-    insert_sql = f'INSERT OR REPLACE INTO "{table_name}" ({", ".join(quoted_headers)}) VALUES ({placeholders})'
-
-    row_count = 0
-    batch = []
-    for row in data:
-        if len(row) < len(headers):
-            row.extend([None] * (len(headers) - len(row)))
-        elif len(row) > len(headers):
-            row = row[:len(headers)]
-        str_row = [str(v) if v is not None else None for v in row]
-        batch.append(str_row)
-        row_count += 1
-        if len(batch) >= 500:
-            cursor.executemany(insert_sql, batch)
-            batch.clear()
-    if batch:
-        cursor.executemany(insert_sql, batch)
-
-    conn.commit()
-    conn.close()
-    return row_count
-
 
 def _find_latest_xlsx(pattern_prefix, search_dir=OUTPUT_DIR):
     pattern = os.path.join(search_dir, f"{pattern_prefix}*.xlsx")
@@ -537,32 +492,6 @@ def _find_latest_xlsx(pattern_prefix, search_dir=OUTPUT_DIR):
     return files[0]
 
 
-def _upload_to_ftp(local_path, remote_dir, filename):
-    for attempt in range(1, 3):
-        try:
-            ftp = FTP(FTP_HOST, timeout=30)
-            ftp.encoding = "utf-8"
-            ftp.login(FTP_USER, FTP_PASS)
-            parts = remote_dir.strip("/").split("/")
-            for i in range(len(parts)):
-                abs_path = "/" + "/".join(parts[:i + 1])
-                try:
-                    ftp.cwd(abs_path)
-                except error_perm:
-                    try:
-                        ftp.mkd(abs_path)
-                        ftp.cwd(abs_path)
-                    except error_perm:
-                        pass
-            with open(local_path, "rb") as f:
-                ftp.storbinary(f"STOR {filename}", f)
-            ftp.quit()
-            logger.info(f"[FTP] Uploaded: {filename}")
-            return True
-        except Exception as e:
-            logger.warning(f"[FTP] Upload failed (attempt {attempt}): {e}")
-    return False
-
 
 # ========== 主任务函数 ==========
 def run_ran_ume_pm_sync() -> dict:
@@ -570,8 +499,7 @@ def run_ran_ume_pm_sync() -> dict:
     RAN UME PM 数据获取任务：
     1. 登录 RAN UME
     2. 并行查询 2G/3G/FDD/TDD × NW/Group = 8 个 PM 指标
-    3. 写入 SQLite 数据库
-    4. 上传 FTP
+    3. 通过 API 写入远程 ran_kpi_daily_202606.sqlite3（DB Orange）
 
     Returns: dict with success, tables, errors, etc.
     """
@@ -608,9 +536,17 @@ def run_ran_ume_pm_sync() -> dict:
                     logger.error(err)
                     result["errors"].append(err)
 
-        # Process xlsx → DB
+        # Process xlsx → API 写入远程 DB Orange (ran_kpi_daily_202606.sqlite3)
         total_imported = 0
-        db_path = str(DB_PATH)
+        api_all_ok = True
+
+        if _db_writer is None:
+            logger.error("[RAN_UME] db_writer_client 不可用，无法写入远程数据库")
+            result["errors"].append("db_writer_client 不可用")
+            result["success"] = False
+            result["total_rows"] = 0
+            return result
+
         for tech in TECHS:
             nw_file = _find_latest_xlsx(f"{tech} OLIB Network KPIs_NW")
             region_file = _find_latest_xlsx(f"{tech} OLIB Network KPIs_Region")
@@ -661,33 +597,32 @@ def run_ran_ume_pm_sync() -> dict:
                     merged_data.extend(d)
 
             if merged_headers and merged_data:
-                row_count = _write_to_db(db_path, table_name, merged_headers, merged_data)
+                row_count = len(merged_data)
                 result["tables"][table_name] = row_count
                 total_imported += row_count
 
-                # [API] 同步写入 DB Orange（ran_kpi_daily_202606.sqlite3）
-                if _db_writer is not None:
-                    try:
-                        str_data = []
-                        for row in merged_data:
-                            str_row = [str(v) if v is not None else None for v in row]
-                            str_data.append(str_row)
-                        api_result = _db_writer.write_data(
-                            db=DB_ORANGE_NAME,
-                            table=table_name,
-                            columns=merged_headers,
-                            rows=str_data,
-                            mode="upsert",
-                            pk_columns=["Begin Time", "Group"],
-                        )
-                        api_rows = api_result.get("rows_written", 0)
-                        logger.info(f"[RAN_UME][API] DB Orange {table_name}: {api_rows} rows")
-                    except Exception as e:
-                        logger.warning(f"[RAN_UME][API] DB Orange {table_name} 写入失败: {e}")
+                # [API] 写入远程 DB Orange（ran_kpi_daily_202606.sqlite3）
+                try:
+                    str_data = [[str(v) if v is not None else None for v in row] for row in merged_data]
+                    api_result = _db_writer.write_data(
+                        db=DB_ORANGE_NAME,
+                        table=table_name,
+                        columns=merged_headers,
+                        rows=str_data,
+                        mode="upsert",
+                        pk_columns=["Begin Time", "Group"],
+                    )
+                    api_rows = api_result.get("rows_written", 0)
+                    logger.info(f"[RAN_UME][API] DB Orange {table_name}: {api_rows} rows")
+                except Exception as e:
+                    logger.warning(f"[RAN_UME][API] DB Orange {table_name} 写入失败: {e}")
+                    api_all_ok = False
 
-        # FTP upload
-        if os.path.exists(db_path):
-            _upload_to_ftp(db_path, FTP_REMOTE_DIR, UPLOAD_DB_NAME)
+        if api_all_ok:
+            logger.info("[RAN_UME][API] 远程写入全部完成")
+        else:
+            logger.warning("[RAN_UME][API] 部分表写入失败")
+            result["errors"].append("API 写入部分失败")
 
         result["success"] = len(result["errors"]) == 0
         result["total_rows"] = total_imported
@@ -878,9 +813,9 @@ def run_availability_report() -> dict:
                 agg['Cell Availability'] = agg[avail_col]
                 sheet_rows[sheet_name].append(agg[['Begin Time', 'Cell Group', 'Cell Availability']])
 
-        # Write Excel
+        # Write Excel（原子写：先写临时文件，再 os.replace，重试扛文件锁）
         output_excel = str(AVAILABILITY_OUTPUT_DIR / "Daily_Aailability_KPI.xlsx")
-        with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+        with atomic_excel_writer(output_excel) as writer:
             for sheet_name in TARGET_SHEETS:
                 frames = sheet_rows.get(sheet_name, [])
                 if frames:

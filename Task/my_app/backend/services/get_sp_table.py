@@ -17,11 +17,18 @@ import os
 import stat
 import sys
 import io
+import time
+import socket
 from datetime import datetime
 from pathlib import Path
 
 import paramiko
 import pandas as pd
+
+try:
+    from .atomic_write import atomic_to_excel
+except ImportError:
+    from atomic_write import atomic_to_excel
 
 # 强制 stdout / stderr 为 utf-8，避免中文乱码
 if sys.stdout.encoding != 'utf-8':
@@ -179,13 +186,23 @@ def download_file(sftp, remote_file, local_path, convert_to_excel=False):
         temp_csv = str(SP_DATA_DIR / "_temp_ocrule.csv")
         sftp.get(remote_file, temp_csv)
         df = pd.read_csv(temp_csv)
-        df.to_excel(local_path, index=False)
+        atomic_to_excel(df, local_path, index=False)
         try:
             os.remove(temp_csv)
         except OSError:
             pass
     else:
-        sftp.get(remote_file, local_path)
+        # 关键修复：先下载到临时文件，再原子替换到最终路径。
+        # 直接 sftp.get(remote_file, local_path) 会在目标被锁(Excel/SMB读)时
+        # 直接报 Permission denied；临时文件+os.replace 重试可穿过短暂锁。
+        final = Path(local_path)
+        tmp = final.with_suffix(final.suffix + f".{os.getpid()}.tmp")
+        sftp.get(remote_file, str(tmp))
+        try:
+            from .atomic_write import atomic_replace_file
+        except ImportError:
+            from atomic_write import atomic_replace_file
+        atomic_replace_file(str(tmp), str(final))
 
 
 # ====== 字段归一化（与 WareHouseDashBoard/excel2db.py 保持一致）======
@@ -260,9 +277,32 @@ def _table_exists(conn, table_name: str) -> bool:
     return cur.fetchone() is not None
 
 
+# ====== SFTP 连接（带 keepalive / 超时，便于断线自愈）======
+SFTP_CONNECT_TIMEOUT = 30
+SFTP_KEEPALIVE = 30
+SFTP_MAX_ATTEMPTS = 3          # 整体连接/同步重试次数
+SFTP_ATTEMPT_BACKOFF = 5       # 退避基数（秒），第 n 次整体重试等待 n*base
+SFTP_TABLE_RETRY = 2           # 单表下载失败后，重建连接重试次数
+
+
+def _connect_sftp():
+    """建立带 keepalive 与超时保护的 SFTP 连接，返回 (client, sftp)。"""
+    sock = socket.create_connection((SFTP_HOST, SFTP_PORT), timeout=SFTP_CONNECT_TIMEOUT)
+    client = paramiko.Transport(sock)
+    client.set_keepalive(SFTP_KEEPALIVE)
+    client.connect(username=SFTP_USER, password=SFTP_PASS)
+    sftp = paramiko.SFTPClient.from_transport(client)
+    return client, sftp
+
+
 # ====== 主流程 ======
 def run_sp_data_sync() -> dict:
-    """拉取 5 份 SP 报表并写入 db/app.db，返回执行结果。"""
+    """拉取 5 份 SP 报表并写入 db/app.db，返回执行结果。
+
+    健壮性增强：
+      - 整体 SFTP 连接/同步失败会按指数退避自动重试；
+      - 单表下载中途断线会先重建连接再重试该表，避免一次网络抖动拖垮整轮。
+    """
     os.makedirs(SP_DATA_DIR, exist_ok=True)
     now = datetime.now()
     synced_at = now.strftime('%Y-%m-%d %H:%M:%S')
@@ -271,64 +311,88 @@ def run_sp_data_sync() -> dict:
         "message": "",
         "synced_at": synced_at,
         "tables": {},
+        "attempts": 0,
     }
 
-    client = None
-    sftp = None
-    try:
-        client = paramiko.Transport((SFTP_HOST, SFTP_PORT))
-        client.connect(username=SFTP_USER, password=SFTP_PASS)
-        sftp = paramiko.SFTPClient.from_transport(client)
+    last_err = None
+    for attempt in range(1, SFTP_MAX_ATTEMPTS + 1):
+        result["attempts"] = attempt
+        client = None
+        sftp = None
+        try:
+            client, sftp = _connect_sftp()
+            conn = __import__('sqlite3').connect(str(DB_PATH))
+            _ensure_log_table(conn)
 
-        conn = __import__('sqlite3').connect(str(DB_PATH))
-        _ensure_log_table(conn)
+            for table_name, cfg in SP_TABLES.items():
+                local_path = SP_DATA_DIR / cfg["local_name"]
+                remote_file = None
+                # 单表重试：失败则重建连接后重试该表
+                for sub in range(1, SFTP_TABLE_RETRY + 2):
+                    try:
+                        if cfg["nested"]:
+                            remote_file = find_latest_excel_in_nested(sftp, cfg["remote_folder"])
+                        elif cfg["recursive"]:
+                            if cfg["csv"]:
+                                remote_file = find_latest_ocrule_csv_recursive(sftp, cfg["remote_folder"])
+                            else:
+                                remote_file = find_latest_transfer_xlsx_recursive(sftp, cfg["remote_folder"])
+                        if not remote_file:
+                            msg = f"[警告] {table_name} 未找到远端文件，跳过"
+                            print(msg)
+                            result["tables"][table_name] = {"rows": 0, "status": "skipped", "detail": msg}
+                            break
 
-        for table_name, cfg in SP_TABLES.items():
-            local_path = SP_DATA_DIR / cfg["local_name"]
-            remote_file = None
+                        download_file(sftp, remote_file, str(local_path), cfg["csv"])
+                        df = pd.read_excel(local_path)
+                        _write_table(conn, table_name, df)
+                        conn.execute(
+                            "INSERT INTO sp_sync_log (table_name, rows, synced_at) VALUES (?,?,?)",
+                            (table_name, len(df), synced_at),
+                        )
+                        conn.commit()
+                        result["tables"][table_name] = {"rows": len(df), "status": "ok"}
+                        print(f"[成功] {table_name}: {len(df)} 行 (来源 {remote_file})")
+                        break
+                    except Exception as e:
+                        print(f"[错误] {table_name} 第{sub}次尝试失败: {e}")
+                        if sub <= SFTP_TABLE_RETRY:
+                            # 连接可能已断，重建后重试该表
+                            try:
+                                sftp.close(); client.close()
+                            except Exception:
+                                pass
+                            client, sftp = _connect_sftp()
+                            continue
+                        result["tables"][table_name] = {"rows": 0, "status": "error", "detail": str(e)}
+                        result["success"] = False
+
+            conn.close()
+            ok = sum(1 for v in result["tables"].values() if v.get("status") == "ok")
+            result["message"] = f"SP 数据同步完成：{ok}/{len(SP_TABLES)} 个表成功（第{attempt}次尝试）"
+            print(f"[完成] {result['message']}")
+            break  # 整轮成功，退出整体重试循环
+        except Exception as e:
+            last_err = e
+            result["success"] = False
+            result["message"] = f"SFTP 连接/同步失败(第{attempt}次尝试): {e}"
+            print(f"[致命] {result['message']}")
+            if attempt < SFTP_MAX_ATTEMPTS:
+                wait = SFTP_ATTEMPT_BACKOFF * attempt
+                print(f"[重试] {wait}s 后整体重试 ({attempt}/{SFTP_MAX_ATTEMPTS})...")
+                time.sleep(wait)
+        finally:
             try:
-                if cfg["nested"]:
-                    remote_file = find_latest_excel_in_nested(sftp, cfg["remote_folder"])
-                elif cfg["recursive"]:
-                    if cfg["csv"]:
-                        remote_file = find_latest_ocrule_csv_recursive(sftp, cfg["remote_folder"])
-                    else:
-                        remote_file = find_latest_transfer_xlsx_recursive(sftp, cfg["remote_folder"])
-                if not remote_file:
-                    msg = f"[警告] {table_name} 未找到远端文件，跳过"
-                    print(msg)
-                    result["tables"][table_name] = {"rows": 0, "status": "skipped", "detail": msg}
-                    continue
+                if sftp:
+                    sftp.close()
+                if client:
+                    client.close()
+            except Exception:
+                pass
 
-                download_file(sftp, remote_file, str(local_path), cfg["csv"])
-                df = pd.read_excel(local_path)
-                _write_table(conn, table_name, df)
-                conn.execute(
-                    "INSERT INTO sp_sync_log (table_name, rows, synced_at) VALUES (?,?,?)",
-                    (table_name, len(df), synced_at),
-                )
-                conn.commit()
-                result["tables"][table_name] = {"rows": len(df), "status": "ok"}
-                print(f"[成功] {table_name}: {len(df)} 行 (来源 {remote_file})")
-            except Exception as e:
-                err = f"{table_name} 处理失败: {e}"
-                print(f"[错误] {err}")
-                result["tables"][table_name] = {"rows": 0, "status": "error", "detail": str(e)}
-                result["success"] = False
-
-        conn.close()
-        ok = sum(1 for v in result["tables"].values() if v.get("status") == "ok")
-        result["message"] = f"SP 数据同步完成：{ok}/{len(SP_TABLES)} 个表成功"
-    except Exception as e:
+    if last_err is not None and not result["tables"]:
+        # 所有尝试都未能建立连接：明确标记为失败
         result["success"] = False
-        result["message"] = f"SFTP 连接/同步失败: {e}"
-        print(f"[致命] {result['message']}")
-    finally:
-        if sftp:
-            sftp.close()
-        if client:
-            client.close()
-
     return result
 
 

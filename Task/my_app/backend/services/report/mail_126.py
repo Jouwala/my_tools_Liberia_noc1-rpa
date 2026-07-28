@@ -874,11 +874,34 @@ class ExcelDataProcessor:
                             cell.set_facecolor('#87CEEB')
                             cell.set_text_props(ha='center', fontsize=base_fontsize)
 
-        plt.savefig(image_path, dpi=dpi, bbox_inches='tight', pad_inches=0.05,
-                    facecolor='#FAFBFC', edgecolor='none', format='png')
+        # 原子写入：先写临时 png 再 os.replace 覆盖，遇文件锁时固定间隔重试，
+        # 避免直接写目标路径触发 PermissionError（WPS云同步/Defender 可能锁定 30~60s）。
+        final_path = str(image_path)
+        last_err = None
+        _max_attempts = 30
+        _wait_sec = 3
+        for attempt in range(_max_attempts):
+            tmp_path = f"{final_path}.{os.getpid()}.{attempt}.tmp.png"
+            try:
+                plt.savefig(tmp_path, dpi=dpi, bbox_inches='tight', pad_inches=0.05,
+                            facecolor='#FAFBFC', edgecolor='none', format='png')
+                os.replace(tmp_path, final_path)
+                break
+            except (PermissionError, OSError) as e:
+                last_err = e
+                try:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except OSError:
+                    pass
+                if attempt < _max_attempts - 1:
+                    print(f"⚠️ 图片写入被占用({attempt + 1}/{_max_attempts})，等待{_wait_sec}s: {os.path.basename(final_path)}")
+                    time.sleep(_wait_sec)
+                else:
+                    raise
         plt.close(fig)
-        print(f"✅ 图片生成: {image_path} ({rows}行×{cols}列)")
-        return image_path
+        print(f"✅ 图片生成: {final_path} ({rows}行×{cols}列)")
+        return final_path
 
     # ============================================================
     # 生成所有 Summary 图片

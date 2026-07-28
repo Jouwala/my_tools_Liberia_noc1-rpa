@@ -191,7 +191,7 @@ def write_data(payload: dict):
         "table": "表名",
         "columns": ["col1", "col2", ...],
         "rows": [[val1, val2, ...], ...],
-        "mode": "upsert" | "dedup_insert",
+        "mode": "upsert" | "dedup_insert" | "full_replace",
         "pk_columns": ["Begin Time", "Group"],       // upsert 模式必须
         "table_type": "Cells" | "Sites" | "Group" | "NW"  // dedup_insert 模式可选
     }
@@ -367,6 +367,35 @@ def write_data(payload: dict):
                 conn.commit()
 
                 return {"success": True, "rows_written": inserted, "table": table_name, "mode": "dedup_insert"}
+
+            elif mode == "full_replace":
+                # ---- 全量替换模式：DROP 旧表 → 重建 → 写入 ----
+                if table_exists:
+                    cursor.execute(f'DROP TABLE "{table_name}"')
+
+                col_defs = ", ".join(f'"{ c.replace(chr(34), chr(34)+chr(34)) }" TEXT' for c in columns)
+                cursor.execute(f'CREATE TABLE "{table_name}" ({col_defs})')
+
+                quoted_cols = [f'"{ c.replace(chr(34), chr(34)+chr(34)) }"' for c in columns]
+                placeholders = ", ".join(["?"] * col_count)
+                insert_sql = f'INSERT INTO "{table_name}" ({", ".join(quoted_cols)}) VALUES ({placeholders})'
+
+                batch_size = 5000
+                inserted = 0
+                for i in range(0, row_count, batch_size):
+                    batch = rows[i:i + batch_size]
+                    clean_batch = []
+                    for row in batch:
+                        if len(row) < col_count:
+                            row = row + [None] * (col_count - len(row))
+                        elif len(row) > col_count:
+                            row = row[:col_count]
+                        clean_batch.append([str(v) if v is not None else None for v in row])
+                    cursor.executemany(insert_sql, clean_batch)
+                    inserted += len(clean_batch)
+
+                conn.commit()
+                return {"success": True, "rows_written": inserted, "table": table_name, "mode": "full_replace"}
 
             else:
                 raise HTTPException(status_code=400, detail=f"Unknown mode: {mode}")

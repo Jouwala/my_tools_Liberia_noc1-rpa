@@ -11,7 +11,7 @@ CNN UME KPI 数据同步服务（Core Network - xGW License Occupancy）
 
 集成方式：
 - 通过 Task Manager 调度（task_id="cnn_kpi_sync"）
-- 数据写入：HTTP API → DB CNN (E:\\01_RPA\\LBR_Tools\\KPI\\CNN\\db_ps_cs_cn.sqlite3)
+- 数据写入：HTTP API → DB CNN (E:\\01_RPA\\LBR_Tools\\KPI\\db_ps_cs_cn.sqlite3)
 """
 
 import base64
@@ -58,7 +58,7 @@ CNN_UME_DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR = str(CNN_UME_DATA_DIR / "exports")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 查询时间范围：固定为 1 个自然月
+# 查询时间范围：上个月同一天 → 今天（滚动 1 个月）
 MONTHS_BACK = int(os.environ.get("CNN_KPI_MONTHS_BACK", "1"))
 
 # 并行查询线程数
@@ -772,8 +772,7 @@ def import_to_database():
                     table=table_name,
                     columns=headers,
                     rows=str_data,
-                    mode="dedup_insert",
-                    pk_columns=key_cols,
+                    mode="full_replace",
                 )
                 row_count = result.get("rows_written", 0)
                 logger.info(f"[CNN][DB][API] {table_name}: written {row_count} rows")

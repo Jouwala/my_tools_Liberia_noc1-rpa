@@ -46,7 +46,7 @@ def get_scheduler() -> BackgroundScheduler:
 def _init_schedule_table():
     """初始化调度配置表"""
     try:
-        conn = sqlite3.connect(str(DB_PATH))
+        conn = sqlite3.connect(str(DB_PATH), timeout=30)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS task_schedule_config (
                 task_id TEXT PRIMARY KEY,
@@ -69,7 +69,7 @@ def _init_schedule_table():
 def _load_schedule_config(task_id: str) -> tuple:
     """从数据库加载用户自定义的调度配置和启用状态"""
     try:
-        conn = sqlite3.connect(str(DB_PATH))
+        conn = sqlite3.connect(str(DB_PATH), timeout=30)
         row = conn.execute(
             "SELECT cron, enabled FROM task_schedule_config WHERE task_id = ?",
             (task_id,)
@@ -84,7 +84,7 @@ def _load_schedule_config(task_id: str) -> tuple:
 def _save_schedule_config(task_id: str, cron: str, enabled: bool = None):
     """保存用户自定义的调度配置到数据库"""
     try:
-        conn = sqlite3.connect(str(DB_PATH))
+        conn = sqlite3.connect(str(DB_PATH), timeout=30)
         if enabled is not None:
             conn.execute("""
                 INSERT OR REPLACE INTO task_schedule_config (task_id, cron, enabled, updated_at)
@@ -278,7 +278,7 @@ def get_active_runs() -> dict:
 def _save_task_result(result: dict):
     """将任务执行结果保存到 app.db"""
     try:
-        conn = sqlite3.connect(str(DB_PATH))
+        conn = sqlite3.connect(str(DB_PATH), timeout=30)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS task_execution_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -393,7 +393,7 @@ def _fetch_latest_runs() -> dict:
     """
     result: dict = {}
     try:
-        conn = sqlite3.connect(str(DB_PATH))
+        conn = sqlite3.connect(str(DB_PATH), timeout=30)
         rows = conn.execute(
             """SELECT l.task_id, l.task_name, l.category, l.trigger_type, l.success,
                       l.started_at, l.completed_at, l.elapsed_seconds, l.error
@@ -468,7 +468,7 @@ def get_task_detail(task_id: str, lang: str = "zh") -> Optional[dict]:
 
     # 从数据库获取最近执行记录
     try:
-        conn = sqlite3.connect(str(DB_PATH))
+        conn = sqlite3.connect(str(DB_PATH), timeout=30)
         rows = conn.execute(
             """SELECT task_id, task_name, category, trigger_type, success,
                       started_at, completed_at, elapsed_seconds, error
@@ -496,7 +496,7 @@ def get_task_detail(task_id: str, lang: str = "zh") -> Optional[dict]:
 def get_task_history(limit: int = 20) -> list[dict]:
     """获取最近的任务执行历史"""
     try:
-        conn = sqlite3.connect(str(DB_PATH))
+        conn = sqlite3.connect(str(DB_PATH), timeout=30)
         rows = conn.execute(
             """SELECT task_id, task_name, category, trigger_type, success,
                       started_at, completed_at, elapsed_seconds, error
