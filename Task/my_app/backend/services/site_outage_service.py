@@ -236,27 +236,19 @@ def _collapse_sidebar(page):
 
 
 def _wait_for_charts_rendered(frame, timeout=30000):
-    """等待右侧图表真正渲染完成（不仅是 loading 消失）。
-
-    检测策略：
-    1. loading / spinner / skeleton 消失
-    2. 核心指标文本出现（如 "Site Down:"）
-    3. SVG / canvas 元素数量稳定（图表库通常用 SVG/canvas 渲染）
-    4. 图表容器内出现具体数据文本（证明真实数据已填充）
-    5. 额外缓冲，等图表着色动画完成
-    """
+    """等待右侧图表真正渲染完成（仅条件等待，无固定长 sleep）。"""
     deadline = time.time() + timeout / 1000
 
     # 1. loading 消失
     wait_for_loading_gone(frame, timeout=timeout)
 
-    # 2. 等待核心指标文本出现（最长等 timeout）
+    # 2. 核心指标文本
     try:
-        frame.wait_for_selector("text=/Site Down:/i", timeout=timeout)
+        frame.wait_for_selector("text=/Site Down:/i", timeout=min(timeout, 15000))
     except Exception:
         pass
 
-    # 3. 等待 SVG/canvas 数量稳定
+    # 3. SVG/canvas 数量短暂稳定（最多约 3s，不再死等）
     last_svg_count = -1
     stable_count = 0
     while time.time() < deadline:
@@ -264,27 +256,26 @@ def _wait_for_charts_rendered(frame, timeout=30000):
             svg_count = frame.locator("svg, canvas").count()
             if svg_count == last_svg_count and svg_count > 0:
                 stable_count += 1
-                if stable_count >= 3:  # 连续 3 次稳定
+                if stable_count >= 2:
                     break
             else:
                 stable_count = 0
             last_svg_count = svg_count
         except Exception:
             pass
-        time.sleep(0.5)
+        time.sleep(0.35)
 
-    # 4. 等待图表容器出现具体数据文本（如数字、区间标签）
+    # 4. 图表区出现带数字的文本（最多约 6s）
     try:
         charts = frame.locator(
             "[class*='chart'], [class*='Chart'], .ant-card-body, [class*='dashboard']"
         )
         if charts.count() > 0:
-            for _ in range(30):
+            for _ in range(20):
                 has_data = False
-                for i in range(min(charts.count(), 10)):
+                for i in range(min(charts.count(), 8)):
                     try:
-                        text = charts.nth(i).inner_text(timeout=500).strip()
-                        # 至少包含数字，且不是纯 loading 文本
+                        text = charts.nth(i).inner_text(timeout=400).strip()
                         if (len(text) > 5
                                 and not text.lower().startswith("loading")
                                 and any(c.isdigit() for c in text)):
@@ -294,13 +285,12 @@ def _wait_for_charts_rendered(frame, timeout=30000):
                         continue
                 if has_data:
                     break
-                time.sleep(0.3)
+                time.sleep(0.25)
     except Exception:
         pass
 
-    # 5. 额外缓冲，让图表着色动画完成（灰色骨架 → 真实颜色）
-    frame.wait_for_timeout(2500)
-
+    # 5. 极短缓冲（着色动画），替代原来的 2500ms
+    frame.wait_for_timeout(400)
 
 def _wait_for_data_refresh(frame, trigger_action, timeout=15000):
     """触发数据刷新后，等待网络空闲、loading 消失、图表渲染完成。"""
@@ -574,13 +564,30 @@ def _verify_screenshot(screenshot_path: str) -> bool:
 
 
 def _cleanup_dropdown_state(frame):
-    """失败后清理：关闭可能残留的下拉框，避免影响下一个选项。"""
+    """失败后清场：关下拉 + 点空白，避免污染下一选项。"""
     try:
         frame.keyboard.press("Escape")
-        frame.wait_for_timeout(300)
+        frame.wait_for_timeout(200)
     except Exception:
         pass
-
+    try:
+        body = frame.locator("body").first
+        if body.count() > 0:
+            box = body.bounding_box()
+            if box:
+                # 点中央偏下，避开顶栏/右上角按钮
+                frame.mouse.click(
+                    box["x"] + box["width"] * 0.5,
+                    box["y"] + box["height"] * 0.55,
+                )
+                frame.wait_for_timeout(200)
+    except Exception:
+        pass
+    try:
+        frame.keyboard.press("Escape")
+        frame.wait_for_timeout(150)
+    except Exception:
+        pass
 
 def _close_popups(frame):
     """关闭 iframe 内可能遮挡截图的弹窗、提示框、新手引导等。"""

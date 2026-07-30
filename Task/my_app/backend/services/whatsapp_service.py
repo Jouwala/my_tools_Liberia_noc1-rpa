@@ -16,24 +16,72 @@ logger = logging.getLogger("whatsapp_service")
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 # ========== 配置 ==========
-#GROUPS = ["*OLR ZTE Quality Control*", "*OLR ZTE Incidents Mgt*"]
-GROUPS = ["test123", "Test234"]
+# ========== 配置（环境变量优先，便于 Windows 部署） ==========
+_BASE = Path(os.environ.get("RPA_BASE", r"D:\01_RPA\Task\my_app\backend\services\data\site_outage"))
+SITE_OUTAGE_DIR = Path(os.environ.get("SITE_OUTAGE_DIR", _BASE / "data" / "site_outage"))
 
-PHOTOS = [
-    r"d:\01_RPA\Task\my_app\data\site_outage\ERA.png",
-    r"d:\01_RPA\Task\my_app\data\site_outage\REGULAR.png",
-    r"d:\01_RPA\Task\my_app\data\site_outage\ALL.png",
-]
-CAPTIONS = ["*ERA*", "*REGULAR*", "*ALL*"]
+# 群组：逗号分隔，例如 "test123,Test234"
+_GROUPS_ENV = os.environ.get("WHATSAPP_GROUPS", "test123,Test234")
+GROUPS = [g.strip() for g in _GROUPS_ENV.split(",") if g.strip()]
 
-SITE_OUTAGE_DIR = r"d:\01_RPA\Task\my_app\data\site_outage"
+# 图片：若设置了 WHATSAPP_PHOTOS（逗号分隔绝对路径）则用配置；
+# 否则自动扫描 SITE_OUTAGE_DIR 下 png（排除 debug）
+_PHOTOS_ENV = os.environ.get("WHATSAPP_PHOTOS", "").strip()
+if _PHOTOS_ENV:
+    PHOTOS = [p.strip() for p in _PHOTOS_ENV.split(",") if p.strip()]
+else:
+    PHOTOS = sorted(
+        str(p) for p in SITE_OUTAGE_DIR.glob("*.png")
+        if "debug" not in p.name.lower()
+    )
 
-HEADLESS = False
-MAX_RETRY = 3
-WAIT_TIMEOUT = 180000
+# 备注：与 PHOTOS 一一对应；不足则用文件名（去扩展名）
+_CAPTIONS_ENV = os.environ.get("WHATSAPP_CAPTIONS", "").strip()
+if _CAPTIONS_ENV:
+    CAPTIONS = [c.strip() for c in _CAPTIONS_ENV.split(",") if c.strip()]
+else:
+    CAPTIONS = [f"*{Path(p).stem}*" for p in PHOTOS]
 
-USER_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "whatsapp_session")
-DEBUG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "scheduler_logs")
+HEADLESS = os.environ.get("WHATSAPP_HEADLESS", "false").lower() in ("1", "true", "yes")
+MAX_RETRY = int(os.environ.get("WHATSAPP_MAX_RETRY", "3"))
+WAIT_TIMEOUT = int(os.environ.get("WHATSAPP_WAIT_TIMEOUT", "180000"))
+CLOSE_DELAY = float(os.environ.get("WHATSAPP_CLOSE_DELAY", "8"))
+
+USER_DATA_DIR = os.environ.get(
+    "WHATSAPP_SESSION",
+    str(Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))))) / "whatsapp_session"),
+)
+DEBUG_DIR = os.environ.get(
+    "WHATSAPP_DEBUG_DIR",
+    str(Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))))) / "scheduler_logs"),
+)
+WHATSAPP_URL = "https://web.whatsapp.com"
+
+CHROME_PATH = os.environ.get(
+    "CHROME_PATH",
+    r"D:\01_RPA\chrome-win\chrome-win\chrome.exe",
+)
+
+SELECTORS = {
+    "SEARCH_BOX": ['#side div[contenteditable="true"]', '#side [role="textbox"]'],
+    "MAIN": ["#main"],
+    "CAPTION_INPUT": [
+        'div[aria-label="添加小标题"]',
+        'div[aria-label="Add a caption"]',
+        'div[contenteditable="true"][data-tab="10"]',
+        'div._ak1r div[contenteditable="true"]',
+    ],
+    "ATTACH": [
+        '[data-icon="plus"]',
+        '[data-testid="attach-menu-plus"]',
+        'span[data-icon="clip"]',
+        'div[title*="Attach"]',
+        'div[title*="附件"]',
+        'span[data-icon="attach-menu-plus"]',
+    ],
+}
 WHATSAPP_URL = "https://web.whatsapp.com"
 
 CHROME_PATH = r"D:\01_RPA\chrome-win\chrome-win\chrome.exe"
@@ -115,19 +163,28 @@ def _find_first(page, key):
     return None
 
 
-def _kill_stale_chrome():
-    """杀掉残留 chrome 进程，避免持久化 profile 被锁导致页面加载异常"""
+def _kill_stale_chrome(user_data_dir: str | None = None):
+    """只杀可能锁住 WhatsApp profile 的 chrome，避免误杀用户浏览器。"""
+    udd = (user_data_dir or USER_DATA_DIR).replace("'", "''")
     try:
-        ps_cmd = ("Get-Process chrome -ErrorAction SilentlyContinue | "
-                  "ForEach-Object { $_.Kill(); Write-Output $($_.Id) }")
-        subprocess.run(["powershell", "-Command", ps_cmd],
-                       capture_output=True, text=True, timeout=10,
-                       creationflags=_SUBPROCESS_FLAGS)
+        ps_cmd = (
+            f"$p = '{udd}'; "
+            "Get-CimInstance Win32_Process -Filter \"name='chrome.exe'\" | "
+            "Where-Object { $_.CommandLine -and ($_.CommandLine -like ('*' + $p + '*')) } | "
+            "ForEach-Object { "
+            "  Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; "
+            "  Write-Output $_.ProcessId "
+            "}"
+        )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
+            capture_output=True, text=True, timeout=15,
+            creationflags=_SUBPROCESS_FLAGS,
+        )
     except Exception:
         pass
-    time.sleep(1)
-    _info("已清理残留 chrome 进程")
-
+    time.sleep(0.8)
+    _info("已清理占用 session 的 chrome 进程（如有）")
 
 def _is_logged_in(page) -> bool:
     """多选择器判断登录态：聊天列表/搜索框/#side 任一存在即认为已登录。
@@ -197,10 +254,100 @@ def _search_and_open(page, contact_name):
         raise Exception("未能进入聊天窗口")
     _success(f"成功进入: {contact_name}")
 
+def _find_attach_button(page):
+    for sel in SELECTORS["ATTACH"]:
+        try:
+            loc = page.locator(sel)
+            if loc.count() > 0 and loc.first.is_visible(timeout=1500):
+                return loc.first
+        except Exception:
+            continue
+    return None
+
+
+def _send_one_photo_via_input(page, photo_path: str, caption: str) -> bool:
+    """通过附件按钮 + input[type=file] 发送单图+备注。成功返回 True。"""
+    attach = _find_attach_button(page)
+    if not attach:
+        return False
+    try:
+        attach.click(timeout=5000)
+        page.wait_for_timeout(400)
+
+        # WhatsApp 点附件后会出现 accept 含 image 的 file input
+        file_input = page.locator('input[type="file"]').filter(
+            has=page.locator('[accept*="image"], [accept*="*"]')
+        )
+        # 兼容：直接取所有 file input 中可见或已挂到 DOM 的
+        inputs = page.locator('input[type="file"]')
+        if inputs.count() == 0:
+            return False
+
+        # 优先选 accept 含 image 的
+        target = None
+        for i in range(inputs.count()):
+            el = inputs.nth(i)
+            try:
+                acc = (el.get_attribute("accept") or "").lower()
+                if "image" in acc or acc == "" or "*/*" in acc:
+                    target = el
+                    break
+            except Exception:
+                continue
+        if target is None:
+            target = inputs.last
+
+        target.set_input_files(photo_path)
+
+        # 等预览/caption 区域
+        page.wait_for_timeout(600)
+        try:
+            page.wait_for_selector(
+                'div[contenteditable="true"][data-tab="10"], '
+                'div[aria-label*="caption" i], div[aria-label*="小标题"], '
+                'div[aria-label*="Add a caption"]',
+                timeout=10000,
+            )
+        except Exception:
+            pass
+
+        caption_box = _find_first(page, "CAPTION_INPUT")
+        if caption_box:
+            try:
+                caption_box.click(timeout=2000)
+                caption_box.fill("")
+                caption_box.type(caption, delay=20)
+            except Exception:
+                page.keyboard.type(caption)
+        else:
+            page.keyboard.type(caption)
+
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(700)
+        return True
+    except Exception as e:
+        _warn(f"file input 发送失败，将尝试剪贴板: {e}")
+        try:
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+        except Exception:
+            pass
+        return False
+
+
+def _send_one_photo_via_clipboard(page, photo_path: str, caption: str) -> None:
+    """剪贴板 fallback（Windows PowerShell）。"""
+    _copy_image_to_clipboard(photo_path)
+    page.locator("#main").click(force=True)
+    page.keyboard.press("Control+v")
+    page.wait_for_timeout(1200)
+    page.keyboard.type(caption)
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(700)
 
 def _fast_send_photos(page, photo_caption_pairs):
-    """确保单图单备注精准配对发送"""
-    page.locator('#main').click(force=True)
+    """单图单备注发送：优先 file input，失败再剪贴板。"""
+    page.locator("#main").click(force=True)
 
     for i, (photo, cap) in enumerate(photo_caption_pairs):
         if not os.path.exists(photo):
@@ -209,35 +356,49 @@ def _fast_send_photos(page, photo_caption_pairs):
 
         _info(f"发送图片 ({i+1}/{len(photo_caption_pairs)}): {os.path.basename(photo)} -> {cap}")
 
-        # 1. 写入图片到剪贴板并粘贴
-        _copy_image_to_clipboard(photo)
-        page.keyboard.press("Control+v")
+        ok = _send_one_photo_via_input(page, photo, cap)
+        if not ok:
+            _warn("改用剪贴板发送")
+            _send_one_photo_via_clipboard(page, photo, cap)
 
-        # 2. 等待预览界面弹窗出现，然后直接键盘输入备注
-        time.sleep(2)
-        page.keyboard.type(cap)
-
-    # 3. 按 Enter 发送所有图片+备注
-    page.keyboard.press("Enter")
-
-    # 4. 等待发送完成
-    time.sleep(2.0)
-
+        page.wait_for_timeout(500)
 
 def _fast_send_file(page, file_path):
-    """极速发送文件"""
+    """优先附件 input，失败再剪贴板。"""
     if not file_path or not os.path.exists(file_path):
         return
 
     _info(f"发送文件: {os.path.basename(file_path)}")
-    _copy_file_to_clipboard(file_path)
+    page.locator("#main").click(force=True)
 
-    page.locator('#main').click(force=True)
-    page.keyboard.press("Control+v")
-    time.sleep(1.5)
-    page.keyboard.press("Enter")
-    time.sleep(1.5)
+    sent = False
+    attach = _find_attach_button(page)
+    if attach:
+        try:
+            attach.click(timeout=5000)
+            page.wait_for_timeout(400)
+            inputs = page.locator('input[type="file"]')
+            if inputs.count() > 0:
+                # 文档类 input 通常 accept 不含 image，取最后一个或任意
+                inputs.last.set_input_files(file_path)
+                page.wait_for_timeout(1000)
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(800)
+                sent = True
+        except Exception as e:
+            _warn(f"file input 发文件失败: {e}")
+            try:
+                page.keyboard.press("Escape")
+            except Exception:
+                pass
 
+    if not sent:
+        _copy_file_to_clipboard(file_path)
+        page.locator("#main").click(force=True)
+        page.keyboard.press("Control+v")
+        page.wait_for_timeout(1200)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(800)
 
 def _wait_for_last_message_sent(page, timeout=60):
     """等待最终消息送达确认"""
@@ -303,7 +464,8 @@ def run_whatsapp_send() -> dict:
     browser = None
     try:
         # 启动前先清理可能残留的 chrome（持久化 profile 锁可能导致页面加载异常）
-        _kill_stale_chrome()
+        
+        _kill_stale_chrome(USER_DATA_DIR)
 
         pw = sync_playwright().start()
 
@@ -370,6 +532,8 @@ def run_whatsapp_send() -> dict:
 
                 # 2. 发送图片+备注（单图单备注循环）
                 pairs = list(zip(PHOTOS, CAPTIONS))
+                if len(PHOTOS) != len(CAPTIONS):
+                    _warn(f"图片数({len(PHOTOS)})与备注数({len(CAPTIONS)})不一致，已按较短一方配对")
                 _fast_send_photos(page, pairs)
 
                 # 3. 发送文件

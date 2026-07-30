@@ -18,6 +18,8 @@ import os
 import sqlite3
 import warnings
 import logging
+import threading
+import random
 from ftplib import FTP, error_perm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
@@ -71,7 +73,13 @@ RAN_UME_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_DIR = str(RAN_UME_DATA_DIR / "exports")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-MAX_PARALLEL_WORKERS = 4
+MAX_PARALLEL_WORKERS = max(1, int(os.environ.get("RAN_UME_MAX_PARALLEL", "4")))
+
+# ========== 重试 / 超时配置（环境变量可调） ==========
+HTTP_MAX_RETRIES = max(0, int(os.environ.get("RAN_UME_HTTP_MAX_RETRIES", "3")))
+HTTP_RETRY_DELAY = float(os.environ.get("RAN_UME_HTTP_RETRY_DELAY", "1"))
+HTTP_CONNECT_TIMEOUT = float(os.environ.get("RAN_UME_CONNECT_TIMEOUT", "15"))
+HTTP_READ_TIMEOUT = float(os.environ.get("RAN_UME_READ_TIMEOUT", "90"))
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 # ran_kpi_daily.sqlite3 仅用于 Availability 报表读取（由 ran_ume_network_kpi.py 写入）
@@ -150,21 +158,53 @@ MIN_LABEL_COLOR = '#ED7D31'
 FTP_UPLOAD_PATH = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE"
 
 
-# ========== SSL / HTTP ==========
+# ========== SSL / HTTP（连接复用 + bytearray + 截断检测） ==========
+_http_local = threading.local()
+
+
 def _create_ssl_socket():
+    """Create one TLS connection."""
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     ctx.set_ciphers('ALL:@SECLEVEL=0')
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(30)
+    sock.settimeout(HTTP_CONNECT_TIMEOUT)
     ssock = ctx.wrap_socket(sock)
     ssock.connect((HOST, PORT))
+    ssock.settimeout(HTTP_READ_TIMEOUT)
     return ssock
 
 
+def _get_thread_socket():
+    """Per-thread TLS connection reuse, avoiding re-handshake per request."""
+    ssock = getattr(_http_local, "socket", None)
+    if ssock is None:
+        ssock = _create_ssl_socket()
+        _http_local.socket = ssock
+    return ssock
+
+
+def _close_thread_socket():
+    ssock = getattr(_http_local, "socket", None)
+    _http_local.socket = None
+    if ssock is not None:
+        try:
+            ssock.close()
+        except OSError:
+            pass
+
+
+def _run_with_cleanup(fn, *args, **kwargs):
+    """Wrap a pipeline task to ensure its TLS connection is released afterwards."""
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        _close_thread_socket()
+
+
 def _decode_chunked(data):
-    result = b""
+    result = bytearray()
     pos = 0
     while pos < len(data):
         line_end = data.find(b"\r\n", pos)
@@ -178,20 +218,30 @@ def _decode_chunked(data):
         if chunk_size == 0:
             break
         pos = line_end + 2
-        result += data[pos:pos + chunk_size]
+        result.extend(data[pos:pos + chunk_size])
         pos += chunk_size + 2
-    return result
+    return bytes(result)
 
 
-def _http_request(method, path, headers_extra=None, body=None):
-    ssock = _create_ssl_socket()
+def _http_request(method, path, headers_extra=None, body=None, retry=0):
+    """HTTP request with per-thread connection reuse, bytearray recv, truncation detection."""
+    try:
+        ssock = _get_thread_socket()
+    except (ssl.SSLError, socket.timeout, ConnectionError, OSError) as e:
+        if retry < HTTP_MAX_RETRIES:
+            delay = HTTP_RETRY_DELAY * (2 ** retry) + random.uniform(0, 0.25)
+            logger.warning(f"Socket connect failed (attempt {retry+1}): {e}, retry in {delay:.1f}s")
+            time.sleep(delay)
+            return _http_request(method, path, headers_extra=headers_extra, body=body, retry=retry + 1)
+        raise
+
     headers = (
         f"{method} {path} HTTP/1.1\r\n"
         f"Host: {HOST}:{PORT}\r\n"
         f"Accept: application/json, text/plain, */*\r\n"
         f"Accept-Language: en-US,en;q=0.9\r\n"
         f"Accept-Encoding: identity\r\n"
-        f"Connection: close\r\n"
+        f"Connection: keep-alive\r\n"
         f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
     )
     if headers_extra:
@@ -204,25 +254,69 @@ def _http_request(method, path, headers_extra=None, body=None):
     if body:
         request_bytes += body if isinstance(body, bytes) else body.encode('utf-8')
 
-    ssock.sendall(request_bytes)
+    try:
+        ssock.sendall(request_bytes)
+    except (socket.timeout, ConnectionError, OSError) as e:
+        _close_thread_socket()
+        if retry < HTTP_MAX_RETRIES:
+            delay = HTTP_RETRY_DELAY * (2 ** retry) + random.uniform(0, 0.25)
+            logger.warning(f"Socket send failed (attempt {retry+1}): {e}, retry in {delay:.1f}s")
+            time.sleep(delay)
+            return _http_request(method, path, headers_extra=headers_extra, body=body, retry=retry + 1)
+        raise
 
-    response_data = b""
+    # bytearray avoids O(n²) copying for large responses
+    response_data = bytearray()
+    content_length = None
+    header_end_found = False
+    header_end_pos = 0
+
     while True:
         try:
             chunk = ssock.recv(65536)
             if not chunk:
                 break
-            response_data += chunk
+            response_data.extend(chunk)
         except socket.timeout:
             break
-    ssock.close()
+
+        if not header_end_found:
+            pos = response_data.find(b"\r\n\r\n")
+            if pos != -1:
+                header_end_found = True
+                header_end_pos = pos
+                header_part = response_data[:pos].decode('utf-8', errors='replace')
+                for line in header_part.split("\r\n"):
+                    if line.lower().startswith("content-length:"):
+                        try:
+                            content_length = int(line.split(":", 1)[1].strip())
+                        except ValueError:
+                            pass
+                        break
+
+        if header_end_found and content_length is not None:
+            if len(response_data) - (header_end_pos + 4) >= content_length:
+                break
+
+    # Truncation detection: fail fast on incomplete response
+    if header_end_found and content_length is not None:
+        body_data = response_data[header_end_pos + 4:]
+        if len(body_data) < content_length:
+            _close_thread_socket()
+            raise ConnectionError(f"Response truncated: {len(body_data)}/{content_length} bytes")
 
     header_end = response_data.find(b"\r\n\r\n")
     if header_end == -1:
+        _close_thread_socket()
+        if retry < HTTP_MAX_RETRIES:
+            delay = HTTP_RETRY_DELAY * (2 ** retry) + random.uniform(0, 0.25)
+            logger.warning(f"Cannot parse response (attempt {retry+1}), retry in {delay:.1f}s")
+            time.sleep(delay)
+            return _http_request(method, path, headers_extra=headers_extra, body=body, retry=retry + 1)
         raise Exception("Cannot parse HTTP response")
 
     header_part = response_data[:header_end].decode('utf-8', errors='replace')
-    resp_body = response_data[header_end + 4:]
+    resp_body = bytes(response_data[header_end + 4:])
     status_line = header_part.split("\r\n")[0]
 
     resp_headers = {}
@@ -233,6 +327,10 @@ def _http_request(method, path, headers_extra=None, body=None):
 
     if "chunked" in resp_headers.get("transfer-encoding", ""):
         resp_body = _decode_chunked(resp_body)
+        _close_thread_socket()
+    elif "close" in resp_headers.get("connection", "").lower() or content_length is None:
+        _close_thread_socket()
+
     if "gzip" in resp_headers.get("content-encoding", ""):
         try:
             resp_body = gzip.decompress(resp_body)
@@ -523,7 +621,7 @@ def run_ran_ume_pm_sync() -> dict:
         exported_files = []
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
             futures = {
-                executor.submit(_run_single_pm_query, cookie, forgery_token, cfg): cfg
+                executor.submit(_run_with_cleanup, _run_single_pm_query, cookie, forgery_token, cfg): cfg
                 for cfg in pm_configs
             }
             for future in as_completed(futures):

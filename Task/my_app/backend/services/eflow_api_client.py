@@ -6,6 +6,7 @@ eFlow API Client - 集成版
 import ssl
 import socket
 import json
+import io
 import time
 import re
 import base64
@@ -13,10 +14,12 @@ import uuid
 import logging
 import gzip
 import os
+import random
 import glob
 import shutil
 import csv
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
@@ -29,11 +32,13 @@ HOST = os.environ.get("EFLOW_HOST", "10.100.20.8")
 PORT = int(os.environ.get("EFLOW_PORT", "28001"))
 USERNAME = os.environ.get("EFLOW_USER", "admin")
 PASSWORD = os.environ.get("EFLOW_PASS", "Brysj*8*")
-MAX_PARALLEL_DOWNLOADS = 8
+MAX_PARALLEL_DOWNLOADS = max(1, int(os.environ.get("EFLOW_MAX_PARALLEL_DOWNLOADS", "6")))
 
 # ========== 重试配置 ==========
-HTTP_MAX_RETRIES = 3
-HTTP_RETRY_DELAY = 2
+HTTP_MAX_RETRIES = max(0, int(os.environ.get("EFLOW_HTTP_MAX_RETRIES", "3")))
+HTTP_RETRY_DELAY = float(os.environ.get("EFLOW_HTTP_RETRY_DELAY", "1"))
+HTTP_CONNECT_TIMEOUT = float(os.environ.get("EFLOW_CONNECT_TIMEOUT", "15"))
+HTTP_READ_TIMEOUT = float(os.environ.get("EFLOW_READ_TIMEOUT", "90"))
 
 # ========== FTP 配置 ==========
 FTP_HOST = os.environ.get("FTP_HOST", "192.168.100.19")
@@ -80,23 +85,49 @@ SITE_TX_SOURCE_COL = "TRM Type"
 # ========== 会话状态 ==========
 _session_cookie = ""
 _forgery_token = ""
+_http_local = threading.local()
 
 
 # ========== SSL / HTTP 基础 ==========
 def _create_ssl_socket():
+    """Create one TLS connection. Connections are reused per worker thread."""
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     ctx.set_ciphers('ALL:@SECLEVEL=0')
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(30)
+    sock.settimeout(HTTP_CONNECT_TIMEOUT)
     ssock = ctx.wrap_socket(sock)
     ssock.connect((HOST, PORT))
+    ssock.settimeout(HTTP_READ_TIMEOUT)
     return ssock
 
 
+def _get_thread_socket():
+    ssock = getattr(_http_local, "socket", None)
+    if ssock is None:
+        ssock = _create_ssl_socket()
+        _http_local.socket = ssock
+    return ssock
+
+
+def _close_thread_socket():
+    ssock = getattr(_http_local, "socket", None)
+    _http_local.socket = None
+    if ssock is not None:
+        try:
+            ssock.close()
+        except OSError:
+            pass
+
+
+def _retry_delay(attempt: int) -> float:
+    """Bounded exponential backoff with jitter, preventing retry bursts."""
+    return min(20.0, HTTP_RETRY_DELAY * (2 ** attempt)) + random.uniform(0, 0.25)
+
+
 def _decode_chunked(data):
-    result = b""
+    result = bytearray()
     pos = 0
     while pos < len(data):
         line_end = data.find(b"\r\n", pos)
@@ -110,9 +141,9 @@ def _decode_chunked(data):
         if chunk_size == 0:
             break
         pos = line_end + 2
-        result += data[pos:pos + chunk_size]
+        result.extend(data[pos:pos + chunk_size])
         pos += chunk_size + 2
-    return result
+    return bytes(result)
 
 
 def _http_request(method, path, headers_extra=None, body=None, retry=0):
@@ -123,7 +154,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
         retry: 内部使用，表示当前是第几次重试（不传则为首次）
     """
     try:
-        ssock = _create_ssl_socket()
+        ssock = _get_thread_socket()
     except (ssl.SSLError, socket.timeout, ConnectionError, OSError) as e:
         if retry < HTTP_MAX_RETRIES:
             delay = HTTP_RETRY_DELAY * (2 ** retry)
@@ -138,7 +169,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
         f"Accept: application/json, text/plain, */*\r\n"
         f"Accept-Language: en-US,en;q=0.9\r\n"
         f"Accept-Encoding: identity\r\n"
-        f"Connection: close\r\n"
+        f"Connection: keep-alive\r\n"
         f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
     )
     if headers_extra:
@@ -154,7 +185,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
     try:
         ssock.sendall(request_bytes)
     except (socket.timeout, ConnectionError, OSError) as e:
-        ssock.close()
+        _close_thread_socket()
         if retry < HTTP_MAX_RETRIES:
             delay = HTTP_RETRY_DELAY * (2 ** retry)
             logger.warning(f"Socket send failed (attempt {retry+1}/{HTTP_MAX_RETRIES+1}): {e}, retrying in {delay}s")
@@ -162,7 +193,8 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
             return _http_request(method, path, headers_extra=headers_extra, body=body, retry=retry + 1)
         raise
 
-    response_data = b""
+    # bytearray avoids quadratic copying for large ZIP/XLSX exports.
+    response_data = bytearray()
     content_length = None
     header_end_found = False
     header_end_pos = 0
@@ -172,7 +204,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
             chunk = ssock.recv(65536)
             if not chunk:
                 break
-            response_data += chunk
+            response_data.extend(chunk)
         except socket.timeout:
             break
 
@@ -197,13 +229,15 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
             if len(body_data) >= content_length:
                 break
 
-    ssock.close()
+    # Keep a fully read Content-Length response alive for the next request on
+    # this worker.  Any incomplete or ambiguous response closes the socket.
 
     # Content-Length 预期与实际不符，视为部分数据
     if header_end_found and content_length is not None:
         body_data = response_data[header_end_pos + 4:]
         if len(body_data) < content_length:
-            logger.warning(f"Response body truncated: {len(body_data)}/{content_length} bytes")
+            _close_thread_socket()
+            raise ConnectionError(f"Response body truncated: {len(body_data)}/{content_length} bytes")
 
     header_end = response_data.find(b"\r\n\r\n")
     if header_end == -1:
@@ -226,6 +260,10 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
 
     if "chunked" in resp_headers.get("transfer-encoding", ""):
         resp_body = _decode_chunked(resp_body)
+        # Chunked framing has no Content-Length; do not reuse this connection.
+        _close_thread_socket()
+    elif "close" in resp_headers.get("connection", "").lower() or content_length is None:
+        _close_thread_socket()
 
     return status_line, resp_headers, header_part, resp_body
 
@@ -676,11 +714,7 @@ def _read_export_zip(zip_path, label):
     import zipfile
     import pandas as pd
 
-    extract_dir = os.path.splitext(zip_path)[0]
-    os.makedirs(extract_dir, exist_ok=True)
-
     with zipfile.ZipFile(zip_path, "r") as z:
-        z.extractall(extract_dir)
         files = z.namelist()
 
     data_files = [f for f in files if f.lower().endswith((".xlsx", ".xls", ".csv"))]
@@ -689,20 +723,18 @@ def _read_export_zip(zip_path, label):
 
     read_start = time.time()
     dfs = []
-    for data_file in data_files:
-        full_path = os.path.join(extract_dir, data_file)
-        if full_path.lower().endswith(".csv"):
-            dfs.append(pd.read_csv(full_path))
-        else:
-            dfs.append(pd.read_excel(full_path))
+    with zipfile.ZipFile(zip_path, "r") as z:
+        for data_file in data_files:
+            # Parse directly from the archive: much less disk I/O and no
+            # extract-directory contention when all pipelines finish together.
+            content = io.BytesIO(z.read(data_file))
+            if data_file.lower().endswith(".csv"):
+                dfs.append(pd.read_csv(content))
+            else:
+                dfs.append(pd.read_excel(content))
 
     df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
     logger.info(f"{label}: {len(df)} rows, {len(df.columns)} columns (read {time.time() - read_start:.2f}s)")
-
-    try:
-        shutil.rmtree(extract_dir)
-    except OSError:
-        pass
 
     return df.to_dict("records")
 
@@ -876,7 +908,7 @@ def _fetch_pm_pipeline(start_ms, end_ms, tmp_dir):
 
 
 def _fetch_site_pipeline(tmp_dir):
-    """CMDB Site 导出为同步下载"""
+    """CMDB Site 导出为同步下载，内存直读不落盘"""
     import pandas as pd
     headers_extra = _headers_extra(SITE_REFERER)
     payload = {"callScene": "ui"}
@@ -886,31 +918,14 @@ def _fetch_site_pipeline(tmp_dir):
     if "200" not in status:
         raise Exception(f"Site export failed: {status}")
 
-    filename = "Site.xlsx"
-    cd = hdrs.get("content-disposition", "")
-    if cd:
-        fn_match = re.search(r'filename=["\']?([^"\';]+)', cd)
-        if fn_match:
-            filename = fn_match.group(1)
-
-    xlsx_path = os.path.join(tmp_dir, filename)
-    seq = 1
-    while os.path.exists(xlsx_path):
-        base, ext = os.path.splitext(filename)
-        xlsx_path = os.path.join(tmp_dir, f"{base}_{seq}{ext}")
-        seq += 1
-
-    with open(xlsx_path, "wb") as f:
-        f.write(resp_body)
-
     t0 = time.time()
-    df = pd.read_excel(xlsx_path)
+    df = pd.read_excel(io.BytesIO(bytes(resp_body)))
     logger.info(f"Site: {len(df)} rows, {len(df.columns)} columns (read {time.time() - t0:.2f}s)")
     return ("Site", df.to_dict("records"))
 
 
 def _fetch_person_pipeline(tmp_dir):
-    """CMDB Person 导出为同步下载"""
+    """CMDB Person 导出为同步下载，内存直读不落盘"""
     import pandas as pd
     headers_extra = _headers_extra(PERSON_REFERER)
     payload = {"callScene": "ui"}
@@ -920,25 +935,8 @@ def _fetch_person_pipeline(tmp_dir):
     if "200" not in status:
         raise Exception(f"Person export failed: {status}")
 
-    filename = "Person.xlsx"
-    cd = hdrs.get("content-disposition", "")
-    if cd:
-        fn_match = re.search(r'filename=["\']?([^"\';]+)', cd)
-        if fn_match:
-            filename = fn_match.group(1)
-
-    xlsx_path = os.path.join(tmp_dir, filename)
-    seq = 1
-    while os.path.exists(xlsx_path):
-        base, ext = os.path.splitext(filename)
-        xlsx_path = os.path.join(tmp_dir, f"{base}_{seq}{ext}")
-        seq += 1
-
-    with open(xlsx_path, "wb") as f:
-        f.write(resp_body)
-
     t0 = time.time()
-    df = pd.read_excel(xlsx_path)
+    df = pd.read_excel(io.BytesIO(bytes(resp_body)))
     logger.info(f"Person: {len(df)} rows, {len(df.columns)} columns (read {time.time() - t0:.2f}s)")
     return ("Person", df.to_dict("records"))
 
@@ -1800,6 +1798,109 @@ def upload_tt_reports_to_ftp(local_dir=None):
         return False
 
 
+# FINEBI FTP 上传路径（Eflow_TT_FB / Eflow_WO_FB）
+FTP_FB_REMOTE_DIR = "/webroot/WEB-INF/reportlets/excel"
+
+
+def generate_and_upload_fb_excel(all_data: dict) -> dict:
+    """
+    从 eFlow 同步数据生成 Eflow_TT_FB.xlsx 和 Eflow_WO_FB.xlsx，
+    保存到 db/ 目录并上传到 FTP /webroot/WEB-INF/reportlets/excel。
+
+    Args:
+        all_data: fetch_all_data() 返回的 {sheet_name: rows} 字典
+
+    Returns:
+        dict: {"tt_path": ..., "wo_path": ..., "upload_success": bool}
+    """
+    import pandas as pd
+
+    t0 = time.time()
+    db_dir = os.path.dirname(APP_DB_PATH)
+    result = {"tt_path": None, "wo_path": None, "upload_success": False}
+
+    # 生成 Eflow_TT_FB.xlsx
+    tt_rows = all_data.get("eFlow TT") or []
+    if tt_rows:
+        df_tt = pd.DataFrame(tt_rows)
+        tt_path = os.path.join(db_dir, "Eflow_TT_FB.xlsx")
+        try:
+            df_tt.to_excel(tt_path, index=False, engine="openpyxl")
+            result["tt_path"] = tt_path
+            logger.info(f"Eflow_TT_FB.xlsx 已生成: {len(df_tt)} 行 -> {tt_path}")
+        except PermissionError:
+            tt_path = os.path.join(db_dir, "Eflow_TT_FB_1.xlsx")
+            df_tt.to_excel(tt_path, index=False, engine="openpyxl")
+            result["tt_path"] = tt_path
+            logger.info(f"Eflow_TT_FB_1.xlsx 已生成(原文件被占用): {len(df_tt)} 行")
+    else:
+        logger.warning("无 eFlow TT 数据，跳过 Eflow_TT_FB.xlsx")
+
+    # 生成 Eflow_WO_FB.xlsx
+    wo_rows = all_data.get("eFlow WO") or []
+    if wo_rows:
+        df_wo = pd.DataFrame(wo_rows)
+        wo_path = os.path.join(db_dir, "Eflow_WO_FB.xlsx")
+        try:
+            df_wo.to_excel(wo_path, index=False, engine="openpyxl")
+            result["wo_path"] = wo_path
+            logger.info(f"Eflow_WO_FB.xlsx 已生成: {len(df_wo)} 行 -> {wo_path}")
+        except PermissionError:
+            wo_path = os.path.join(db_dir, "Eflow_WO_FB_1.xlsx")
+            df_wo.to_excel(wo_path, index=False, engine="openpyxl")
+            result["wo_path"] = wo_path
+            logger.info(f"Eflow_WO_FB_1.xlsx 已生成(原文件被占用): {len(df_wo)} 行")
+    else:
+        logger.warning("无 eFlow WO 数据，跳过 Eflow_WO_FB.xlsx")
+
+    # 上传到 FTP /webroot/WEB-INF/reportlets/excel
+    uploaded = 0
+    total_files = 0
+    ftp = None
+    files_to_upload = [(result["tt_path"], "Eflow_TT_FB.xlsx"), (result["wo_path"], "Eflow_WO_FB.xlsx")]
+    try:
+        ftp = ftplib.FTP()
+        ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
+        ftp.login(FTP_USER, FTP_PASS)
+
+        # 切换到目标目录
+        dirs = FTP_FB_REMOTE_DIR.strip("/").split("/")
+        current_path = ""
+        for d in dirs:
+            current_path += f"/{d}"
+            try:
+                ftp.cwd(current_path)
+            except ftplib.error_perm:
+                try:
+                    ftp.mkd(current_path)
+                    ftp.cwd(current_path)
+                except ftplib.error_perm:
+                    ftp.cwd("/")
+                    break
+
+        for local_path, remote_name in files_to_upload:
+            if not local_path or not os.path.exists(local_path):
+                continue
+            total_files += 1
+            with open(local_path, "rb") as f:
+                ftp.storbinary(f"STOR {remote_name}", f)
+            uploaded += 1
+            logger.info(f"FTP 上传成功: {remote_name} -> {FTP_FB_REMOTE_DIR}/")
+
+        ftp.quit()
+        result["upload_success"] = uploaded == total_files and total_files > 0
+        logger.info(f"FB Excel FTP 上传完成: {uploaded}/{total_files}, 用时 {time.time() - t0:.2f}s")
+    except (ftplib.all_errors, socket.timeout, ConnectionError, OSError) as e:
+        logger.error(f"FB Excel FTP 上传失败: {e}")
+        try:
+            if ftp:
+                ftp.quit()
+        except Exception:
+            pass
+
+    return result
+
+
 # ============================================================
 # 小时报告与图片生成（复用 mail_126.py 的方法）
 # ============================================================
@@ -2169,6 +2270,14 @@ def generate_excel_report(data=None, save_sqlite=True, save_excel=True, cleanup=
 
 
 # ========== 主入口 ==========
+def _run_pipeline_with_connection_cleanup(pipeline):
+    """Prevent worker-local keep-alive sockets from leaking between sync runs."""
+    try:
+        return pipeline()
+    finally:
+        _close_thread_socket()
+
+
 def fetch_all_data(tmp_dir: str = None) -> dict:
     """
     从 eFlow API 获取所有数据，返回 {sheet_name: records_list} 字典
@@ -2206,7 +2315,10 @@ def fetch_all_data(tmp_dir: str = None) -> dict:
         results = {}
         logger.info(f"Starting parallel pipelines (max_workers={MAX_PARALLEL_DOWNLOADS})...")
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_DOWNLOADS) as executor:
-            future_to_key = {executor.submit(fn): key for key, fn in pipelines}
+            future_to_key = {
+                executor.submit(_run_pipeline_with_connection_cleanup, fn): key
+                for key, fn in pipelines
+            }
             for future in as_completed(future_to_key):
                 key = future_to_key[future]
                 try:
