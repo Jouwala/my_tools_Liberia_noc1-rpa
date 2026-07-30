@@ -5,6 +5,7 @@ import ReactECharts from 'echarts-for-react'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { useDataTimestamps } from '../useDataTimestamps'
+import { WH, WH_COLORS, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
 
 interface ChartData {
   type: string
@@ -16,10 +17,6 @@ interface ChartData {
   y_labels?: string[]
   data: any[]
 }
-
-// 统一卡片样式
-const chartCardStyle = { borderRadius: 12, boxShadow: '0 2px 12px rgba(0,0,0,0.04)', border: '1px solid #f0f0f0' }
-const controlBarStyle = { borderRadius: 12, boxShadow: '0 2px 12px rgba(0,0,0,0.04)', border: '1px solid #f0f0f0', marginBottom: 16 }
 
 export default function Dashboard() {
   const [tables, setTables] = useState<{ name: string; row_count: number }[]>([])
@@ -39,7 +36,6 @@ export default function Dashboard() {
       const tbls = res.data.tables.filter((t: any) => !t.name.startsWith('_') && t.row_count > 10)
       setTables(tbls)
       if (tbls.length > 0) {
-        // 默认选中 eflow_tt，否则选第一个
         const ttTable = tbls.find((t: any) => t.name === 'eflow_tt')
         setSelectedTable(ttTable ? ttTable.name : tbls[0].name)
       }
@@ -100,7 +96,6 @@ export default function Dashboard() {
     return (chart.column === linkedFilter.column || chart.x_column === linkedFilter.column)
   }
 
-  // 根据chart_key翻译图表标题
   const translateChartTitle = (chart: ChartData): string => {
     const key = (chart as any).chart_key
     if (!key) return chart.title
@@ -132,34 +127,36 @@ export default function Dashboard() {
     switch (chart.type) {
       case 'pie':
         option = {
-          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14 } },
-          tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-          legend: { bottom: 0, type: 'scroll' },
+          backgroundColor: 'transparent',
+          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: WH.text } },
+          tooltip: { ...darkTooltip(), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+          legend: { bottom: 0, type: 'scroll', textStyle: { color: WH.textMuted } },
           series: [{
             type: 'pie',
             radius: ['30%', '60%'],
             center: ['50%', '45%'],
-            data: chart.data,
-            emphasis: { itemStyle: { shadowBlur: 10 } },
-            label: { formatter: '{b}\n{d}%' },
+            data: chart.data.map((d: any, i: number) => ({ ...d, itemStyle: { color: WH_COLORS[i % WH_COLORS.length] } })),
+            emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(100,255,218,0.35)' } },
+            label: { color: WH.text, formatter: '{b}\n{d}%' },
           }],
         }
         break
 
       case 'bar':
         option = {
-          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14 } },
-          tooltip: { trigger: 'axis' },
+          backgroundColor: 'transparent',
+          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: WH.text } },
+          tooltip: { ...darkTooltip(), trigger: 'axis' },
           xAxis: {
             type: 'category',
             data: chart.data.map((d: any) => d.name),
-            axisLabel: { rotate: 30, fontSize: 10 },
+            axisLabel: { ...axisLabel(), rotate: 30 },
+            axisLine: axisLine(),
           },
-          yAxis: { type: 'value' },
+          yAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
           series: [{
             type: 'bar',
-            data: chart.data.map((d: any) => d.value),
-            itemStyle: { color: '#1677ff', borderRadius: [4, 4, 0, 0] },
+            data: chart.data.map((d: any, i: number) => ({ value: d.value, itemStyle: { color: WH_COLORS[i % WH_COLORS.length], borderRadius: [4, 4, 0, 0] } })),
           }],
           grid: { left: 60, right: 20, bottom: 80, top: 50 },
         }
@@ -167,38 +164,45 @@ export default function Dashboard() {
 
       case 'line':
         option = {
-          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14 } },
-          tooltip: { trigger: 'axis' },
+          backgroundColor: 'transparent',
+          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: WH.text } },
+          tooltip: { ...darkTooltip(), trigger: 'axis' },
           xAxis: {
             type: 'category',
             data: chart.data.map((d: any) => d.date),
-            axisLabel: { rotate: 30, fontSize: 10 },
+            axisLabel: { ...axisLabel(), rotate: 30 },
+            axisLine: axisLine(),
           },
-          yAxis: { type: 'value' },
+          yAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
           series: [{
             type: 'line',
             data: chart.data.map((d: any) => d.count),
             smooth: true,
-            areaStyle: { opacity: 0.3 },
-            lineStyle: { width: 2 },
+            areaStyle: { opacity: 0.3, color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(100,255,218,0.35)' }, { offset: 1, color: 'rgba(100,255,218,0.02)' }] } },
+            lineStyle: { width: 2, color: WH.teal },
+            itemStyle: { color: WH.teal },
           }],
           grid: { left: 60, right: 20, bottom: 80, top: 50 },
-          dataZoom: [{ type: 'slider' }],
+          dataZoom: [{ type: 'slider', textStyle: { color: WH.textMuted } }],
         }
         break
 
       case 'radar':
         option = {
-          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14 } },
-          tooltip: {},
+          backgroundColor: 'transparent',
+          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: WH.text } },
+          tooltip: { ...darkTooltip() },
           radar: {
             indicator: chart.data.map((d: any) => ({ name: d.name, max: 100 })),
             radius: '60%',
+            axisName: { color: WH.textMuted },
+            splitArea: { areaStyle: { color: ['rgba(100,255,218,0.03)', 'rgba(100,255,218,0.06)'] } },
+            axisLine: { lineStyle: { color: 'rgba(100,255,218,0.15)' } },
+            splitLine: { lineStyle: { color: 'rgba(100,255,218,0.1)' } },
           },
           series: [{
             type: 'radar',
-            data: [{ value: chart.data.map((d: any) => d.score), name: t('dashboard.qualityScore') }],
-            areaStyle: { opacity: 0.3 },
+            data: [{ value: chart.data.map((d: any) => d.score), name: t('dashboard.qualityScore'), areaStyle: { opacity: 0.3, color: WH.teal }, lineStyle: { color: WH.teal } }],
           }],
         }
         break
@@ -208,22 +212,26 @@ export default function Dashboard() {
         const yLabels = chart.y_labels || []
         const maxVal = Math.max(...chart.data.map((d: any) => d[2]), 1)
         option = {
-          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14 } },
+          backgroundColor: 'transparent',
+          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: WH.text } },
           tooltip: {
+            ...darkTooltip(),
             position: 'top',
             formatter: (p: any) => `${yLabels[p.data[1]]} × ${xLabels[p.data[0]]}: ${p.data[2]}`,
           },
           xAxis: {
             type: 'category',
             data: xLabels,
-            splitArea: { show: true },
-            axisLabel: { rotate: 30, fontSize: 10 },
+            splitArea: { show: true, areaStyle: { color: ['rgba(100,255,218,0.03)', 'rgba(100,255,218,0.06)'] } },
+            axisLabel: { ...axisLabel(), rotate: 30 },
+            axisLine: axisLine(),
           },
           yAxis: {
             type: 'category',
             data: yLabels,
-            splitArea: { show: true },
-            axisLabel: { fontSize: 10 },
+            splitArea: { show: true, areaStyle: { color: ['rgba(100,255,218,0.03)', 'rgba(100,255,218,0.06)'] } },
+            axisLabel: { ...axisLabel(), color: WH.text },
+            axisLine: axisLine(),
           },
           visualMap: {
             min: 0,
@@ -232,13 +240,14 @@ export default function Dashboard() {
             orient: 'horizontal',
             left: 'center',
             bottom: 0,
-            inRange: { color: ['#e0f3f8', '#045a8d'] },
+            textStyle: { color: WH.textMuted },
+            inRange: { color: ['#0d2138', '#4fc3f7', '#64ffda'] },
           },
           series: [{
             type: 'heatmap',
             data: chart.data,
-            label: { show: true, fontSize: 10 },
-            emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0, 0, 0, 0.5)' } },
+            label: { show: true, fontSize: 10, color: WH.text },
+            emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(100,255,218,0.35)' } },
           }],
           grid: { left: 80, right: 20, bottom: 60, top: 50 },
         }
@@ -252,11 +261,11 @@ export default function Dashboard() {
       <Col span={12} key={idx}>
         <Card
           size="small"
-          style={{ ...chartCardStyle, borderColor: highlighted ? '#1677ff' : '#f0f0f0' }}
+          style={{ ...cardStyle, borderColor: highlighted ? WH.teal : WH.cardBorder, boxShadow: highlighted ? `0 0 16px ${WH.teal}44` : cardStyle.boxShadow }}
           title={
             highlighted && linkedFilter
-              ? <span style={{ color: '#1677ff', fontSize: 14, fontWeight: 600 }}>{displayTitle} <Tag color="blue">{t('dashboard.filter')}: {linkedFilter.value}</Tag></span>
-              : <span style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>{displayTitle}</span>
+              ? <span style={{ color: WH.teal, fontSize: 14, fontWeight: 600 }}>{displayTitle} <Tag color="cyan">{t('dashboard.filter')}: {linkedFilter.value}</Tag></span>
+              : <span style={{ fontSize: 14, fontWeight: 600, color: WH.text }}>{displayTitle}</span>
           }
         >
           <ReactECharts
@@ -271,11 +280,11 @@ export default function Dashboard() {
   }
 
   return (
-    <div>
-      <Card style={controlBarStyle}>
+    <div style={pageWrap}>
+      <Card style={controlCardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <Space size="middle" wrap>
-            <span style={{ fontWeight: 500, color: '#374151' }}>{t('dashboard.selectTable')}</span>
+            <span style={{ fontWeight: 500, color: WH.text }}>{t('dashboard.selectTable')}</span>
             <Select
               value={selectedTable}
               onChange={setSelectedTable}
@@ -305,7 +314,7 @@ export default function Dashboard() {
               {t('dashboard.linkedFilter')} {linkedEnabled ? 'ON' : 'OFF'}
             </Button>
             {linkedFilter && (
-              <Tag closable onClose={() => setLinkedFilter(null)} color="blue">
+              <Tag closable onClose={() => setLinkedFilter(null)} color="cyan">
                 {t('dashboard.currentFilter')}: {linkedFilter.column} = {linkedFilter.value}
               </Tag>
             )}
@@ -329,8 +338,8 @@ export default function Dashboard() {
           {charts.map((chart, idx) => renderChart(chart, idx))}
         </Row>
       ) : (
-        <Card style={chartCardStyle}>
-          <div style={{ textAlign: 'center', padding: 50, color: '#999' }}>
+        <Card style={cardStyle}>
+          <div style={{ textAlign: 'center', padding: 50, color: WH.textMuted }}>
             {t('dashboard.emptyPrompt')}
           </div>
         </Card>

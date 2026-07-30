@@ -55,7 +55,7 @@ export default function WarehouseDashboard() {
     <div style={{ width: '100%' }}>
       <iframe
         ref={iframeRef}
-        src="/warehouse-dashboard.html"
+        src={`${import.meta.env.BASE_URL}warehouse-dashboard.html`}
         title="Warehouse Dashboard"
         style={{
           width: '100%',

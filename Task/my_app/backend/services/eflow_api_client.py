@@ -40,7 +40,7 @@ FTP_HOST = os.environ.get("FTP_HOST", "192.168.100.19")
 FTP_PORT = int(os.environ.get("FTP_PORT", "21"))
 FTP_USER = os.environ.get("FTP_USER", "FINEBI")
 FTP_PASS = os.environ.get("FTP_PASS", "DX")
-FTP_REMOTE_DIR = os.environ.get("FTP_REMOTE_DIR", "/webroot/WEB-INF/reportlets/excel")
+FTP_REMOTE_DIR = os.environ.get("FTP_REMOTE_DIR", "/Python")
 
 # ========== API 路径 ==========
 TT_API_PATH = "/api/eflow-ticket/v1/eflow-tt/base/list"
@@ -55,6 +55,9 @@ HIS_ALARM_API_PATH = "/api/fm-history/v1/hisalarms/pageinfo"
 # ========== 数据目录 ==========
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "eflow")
 os.makedirs(DATA_DIR, exist_ok=True)
+
+# 仪表盘统一主库（GIS Map / RealTime Alarm Map / Alarm Dashboard 从此处读取）
+APP_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "db", "app.db")
 
 # ========== 小时报告与图片生成配置 ==========
 TT_REPORT_SUBDIR = "tt_reports"          # 报告与图片输出子目录
@@ -1324,6 +1327,66 @@ def write_history_alarm_sqlite(data):
     return db_file
 
 
+# ========== 告警写入仪表盘主库 db/app.db ==========
+def _clean_column_name(col: str) -> str:
+    """通用列名清洗：转 snake_case（本地副本，避免跨模块依赖）。"""
+    if not isinstance(col, str):
+        col = str(col)
+    col = col.strip()
+    col = re.sub(r'[^\w\s]', '_', col)
+    col = re.sub(r'\s+', '_', col)
+    col = re.sub(r'_+', '_', col)
+    col = col.strip('_').lower()
+    if col and col[0].isdigit():
+        col = f'col_{col}'
+    return col or 'unnamed'
+
+
+def _write_alarm_to_appdb(table_name: str, rows, index_cols: list):
+    """将完整告警数据（全字段 + snake_case 归一化）写入仪表盘主库 db/app.db。
+
+    仪表盘的 routers（gis.py / alarm_dashboard.py）从 db/app.db 读取 realtime_alarm /
+    history_alarm，之前的 write_alarm_sqlite 只写入 data/eflow/eflow.sqlite3，导致
+    任务显示 Success 但仪表盘数据不更新。此函数补全写入主库，列结构与 routers 期望一致。
+    """
+    if not isinstance(rows, list) or not rows:
+        logger.warning(f"{table_name} -> app.db: no data, skip")
+        return
+    try:
+        df = pd.DataFrame(rows)
+        # 列名归一化为 snake_case（与 sync_from_eflow_api._sync_*_alarm 一致）
+        new_cols = [_clean_column_name(c) for c in df.columns]
+        seen = {}
+        final_cols = []
+        for c in new_cols:
+            if c in seen:
+                seen[c] += 1
+                final_cols.append(f"{c}_{seen[c]}")
+            else:
+                seen[c] = 0
+                final_cols.append(c)
+        df.columns = final_cols
+        # list/dict 列序列化为 JSON（SQLite 不支持）
+        object_cols = df.select_dtypes(include=["object"]).columns
+        for col in object_cols:
+            if df[col].apply(lambda x: isinstance(x, (list, dict))).any():
+                df[col] = df[col].apply(lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (list, dict)) else x)
+        df["_sync_time"] = datetime.now().isoformat()
+
+        conn = sqlite3.connect(APP_DB_PATH)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        df.to_sql(table_name, conn, if_exists="replace", index=False, chunksize=5000)
+        for idx_col in index_cols:
+            if idx_col in df.columns:
+                conn.execute(f'CREATE INDEX IF NOT EXISTS idx_{table_name}_{idx_col} ON {table_name}({idx_col})')
+        conn.commit()
+        conn.close()
+        logger.info(f"{table_name} 已写入 app.db: {len(df)} 行, {len(df.columns)} 列")
+    except Exception as e:
+        logger.error(f"{table_name} 写入 app.db 失败: {e}")
+
+
 # ========== 告警独立入口 ==========
 def fetch_and_save_active_alarm():
     """
@@ -1338,6 +1401,7 @@ def fetch_and_save_active_alarm():
     alarm_result = _fetch_alarm_pipeline()
     _, alarm_rows = alarm_result if isinstance(alarm_result, tuple) else ("realtime_alarm", alarm_result)
     write_alarm_sqlite(alarm_rows)
+    _write_alarm_to_appdb("realtime_alarm", alarm_rows, ["site_id", "tt_id", "alarmraisedtime", "site_name"])
 
     elapsed = time.time() - start_time
     logger.info(f"Active alarm sync completed in {elapsed:.2f}s, {len(alarm_rows)} records")
@@ -1362,6 +1426,7 @@ def fetch_and_save_history_alarm():
         f"(removed {len(his_rows) - len(filtered_his_rows)} rows with empty/invalid TT ID)"
     )
     write_history_alarm_sqlite(filtered_his_rows)
+    _write_alarm_to_appdb("history_alarm", filtered_his_rows, ["site_id", "tt_id", "alarmraisedtime", "region"])
 
     elapsed = time.time() - start_time
     logger.info(f"History alarm sync completed in {elapsed:.2f}s, {len(filtered_his_rows)} records")
@@ -1645,19 +1710,129 @@ def upload_to_ftp(local_file_path, remote_filename=None):
         return False
 
 
+def upload_tt_reports_to_ftp(local_dir=None):
+    """
+    将 tt_reports 目录下的所有文件上传到 FTP，并删除远端之前上传的旧文件，只保留最新一份。
+
+    Args:
+        local_dir: 本地 tt_reports 目录路径，默认使用 DATA_DIR/tt_reports
+
+    Returns:
+        bool: 是否全部上传成功
+    """
+    if local_dir is None:
+        local_dir = os.path.join(DATA_DIR, TT_REPORT_SUBDIR)
+
+    if not os.path.isdir(local_dir):
+        logger.warning(f"FTP upload skipped: tt_reports dir not found - {local_dir}")
+        return False
+
+    # 收集本地文件
+    local_files = [f for f in os.listdir(local_dir) if os.path.isfile(os.path.join(local_dir, f))]
+    if not local_files:
+        logger.warning("FTP upload skipped: tt_reports is empty")
+        return False
+
+    ftp = None
+    try:
+        logger.info(f"Connecting to FTP {FTP_HOST}:{FTP_PORT} for tt_reports upload...")
+        ftp = ftplib.FTP()
+        ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
+        ftp.login(FTP_USER, FTP_PASS)
+        logger.info("FTP login success")
+
+        # 确保远程目录存在
+        dirs = FTP_REMOTE_DIR.strip("/").split("/")
+        current_path = ""
+        for d in dirs:
+            current_path += f"/{d}"
+            try:
+                ftp.cwd(current_path)
+            except ftplib.error_perm:
+                try:
+                    ftp.mkd(current_path)
+                    ftp.cwd(current_path)
+                    logger.info(f"FTP created dir: {current_path}")
+                except ftplib.error_perm as e:
+                    logger.warning(f"FTP cannot create dir {current_path}: {e}")
+                    ftp.cwd("/")
+                    break
+
+        # 删除远端旧文件（只保留本次上传的）
+        try:
+            remote_files = ftp.nlst()
+            for rf in remote_files:
+                if rf in (".", ".."):
+                    continue
+                # 只删除与 tt_reports 同类型的文件（xlsx/png）
+                if rf.endswith((".xlsx", ".png")):
+                    try:
+                        ftp.delete(rf)
+                        logger.info(f"FTP deleted old file: {rf}")
+                    except ftplib.error_perm as e:
+                        logger.warning(f"FTP cannot delete {rf}: {e}")
+        except ftplib.error_perm as e:
+            logger.warning(f"FTP list remote files failed: {e}")
+
+        # 上传本地 tt_reports 中的所有文件
+        success_count = 0
+        for filename in local_files:
+            filepath = os.path.join(local_dir, filename)
+            try:
+                with open(filepath, "rb") as f:
+                    ftp.storbinary(f"STOR {filename}", f)
+                success_count += 1
+                logger.info(f"FTP uploaded: {filename}")
+            except (ftplib.all_errors, OSError) as e:
+                logger.error(f"FTP upload failed for {filename}: {e}")
+
+        ftp.quit()
+        logger.info(f"FTP tt_reports upload done: {success_count}/{len(local_files)} files -> {FTP_REMOTE_DIR}/")
+        return success_count == len(local_files)
+
+    except (ftplib.all_errors, socket.timeout, ConnectionError, OSError) as e:
+        logger.error(f"FTP tt_reports upload failed: {e}")
+        try:
+            if ftp:
+                ftp.quit()
+        except Exception:
+            pass
+        return False
+
+
 # ============================================================
 # 小时报告与图片生成（复用 mail_126.py 的方法）
 # ============================================================
 
 
-def _build_site_tx_map(sheets_data, processor_cls):
-    """从 Site 数据构建 (site_id_map, site_name_map) -> TX(TRM Type) 映射。
+def _find_col_fuzzy(df, keyword):
+    """在 DataFrame 列中模糊查找包含 keyword（不区分大小写）的列名，返回第一个匹配或 None。"""
+    kw = keyword.lower()
+    for col in df.columns:
+        if kw in str(col).lower():
+            return col
+    return None
 
-    site_id_map: normalize_id(Site ID) -> TX
-    site_name_map: strip(Site Name) -> TX
-    返回 (id_map, name_map)；Site 无数据或无 TX 列时返回 ({}, {})。
+
+def _build_site_attr_map(sheets_data, processor_cls):
+    """从 Site 数据构建 TRM Type / FME / Supervisor 的映射。
+
+    返回 dict:
+        {
+            "trm_type": (id_map, name_map),
+            "fme": (id_map, name_map),
+            "supervisor": (id_map, name_map),
+        }
+    每个 id_map: normalize_id(Site ID) -> value
+    每个 name_map: strip(Site Name) -> value
     """
     import pandas as pd
+
+    empty_result = {
+        "trm_type": ({}, {}),
+        "fme": ({}, {}),
+        "supervisor": ({}, {}),
+    }
 
     site_rows = []
     for sheet_name, rows in sheets_data:
@@ -1665,29 +1840,43 @@ def _build_site_tx_map(sheets_data, processor_cls):
             site_rows = rows or []
             break
     if not site_rows:
-        return {}, {}
+        return empty_result
 
     df_site = pd.DataFrame(site_rows)
     df_site = processor_cls.clean_columns(df_site)
-    if SITE_TX_SOURCE_COL not in df_site.columns:
-        logger.warning(f"Site 表无 '{SITE_TX_SOURCE_COL}' 列，无法生成 TX 映射")
-        return {}, {}
 
-    id_map = {}
-    name_map = {}
-    for _, r in df_site.iterrows():
-        tx_val = r.get(SITE_TX_SOURCE_COL)
-        if pd.isna(tx_val):
-            tx_val = ""
-        tx_val = str(tx_val).strip()
-        sid = processor_cls.normalize_id(r.get("Site ID"))
-        sname = str(r.get("Site Name", "")).strip()
-        if sid:
-            id_map[sid] = tx_val
-        if sname:
-            name_map[sname] = tx_val
-    logger.info(f"TX 映射构建完成: {len(id_map)} by Site ID, {len(name_map)} by Site Name")
-    return id_map, name_map
+    # 确定各属性对应的列名
+    trm_col = SITE_TX_SOURCE_COL if SITE_TX_SOURCE_COL in df_site.columns else _find_col_fuzzy(df_site, "TRM")
+    fme_col = _find_col_fuzzy(df_site, "FME Name") or _find_col_fuzzy(df_site, "FME") or _find_col_fuzzy(df_site, "Maintainer")
+    sup_col = _find_col_fuzzy(df_site, "Supervisor")
+
+    logger.info(f"Site 属性列: TRM='{trm_col}', FME='{fme_col}', Supervisor='{sup_col}'")
+
+    # 构建映射
+    attr_cols = {"trm_type": trm_col, "fme": fme_col, "supervisor": sup_col}
+    result = {}
+    for attr_key, col_name in attr_cols.items():
+        id_map = {}
+        name_map = {}
+        if col_name and col_name in df_site.columns:
+            for _, r in df_site.iterrows():
+                val = r.get(col_name)
+                if pd.isna(val):
+                    val = ""
+                val = str(val).strip()
+                sid = processor_cls.normalize_id(r.get("Site ID"))
+                sname = str(r.get("Site Name", "")).strip()
+                if sid:
+                    id_map[sid] = val
+                if sname:
+                    name_map[sname] = val
+        else:
+            if col_name:
+                logger.warning(f"Site 表无 '{col_name}' 列，无法生成 {attr_key} 映射")
+        result[attr_key] = (id_map, name_map)
+        logger.info(f"{attr_key} 映射: {len(id_map)} by ID, {len(name_map)} by Name")
+
+    return result
 
 
 # mail_126.py 所在目录（项目内部 backend/services/report/）
@@ -1783,23 +1972,27 @@ def generate_hourly_report_with_images(data: dict, send_email: bool = None) -> d
         df_source = df_source.rename(columns=rename_map)
     logger.info(f"TT DataFrame: {df_source.shape}, 重命名: {rename_map}")
 
-    # 2.5 添加 TX 列
-    id_map, name_map = _build_site_tx_map(sheets_data, ExcelDataProcessor)
+    # 2.5 从 Site 数据添加 TRM Type / FME / Supervisor 列
+    attr_maps = _build_site_attr_map(sheets_data, ExcelDataProcessor)
     if "Site ID" in df_source.columns:
         df_source["Site ID"] = df_source["Site ID"].apply(ExcelDataProcessor.normalize_id)
-    if id_map or name_map:
-        df_source["TX"] = df_source["Site ID"].map(id_map) if "Site ID" in df_source.columns else ""
-        mask = df_source["TX"].isna()
-        if mask.any() and name_map and "Site Name" in df_source.columns:
-            df_source.loc[mask, "TX"] = (
-                df_source.loc[mask, "Site Name"].astype(str).str.strip().map(name_map)
-            )
-        df_source["TX"] = df_source["TX"].fillna("")
-        matched = (df_source["TX"].astype(str).str.strip() != "").sum()
-        logger.info(f"TX 列已添加，匹配率: {matched}/{len(df_source)}")
-    else:
-        df_source["TX"] = ""
-        logger.warning("TX 列为空（Site 表无 TRM Type 数据）")
+
+    _attr_col_names = {"trm_type": "TRM Type", "fme": "FME", "supervisor": "Supervisor"}
+    for attr_key, col_label in _attr_col_names.items():
+        id_map, name_map = attr_maps.get(attr_key, ({}, {}))
+        if id_map or name_map:
+            df_source[col_label] = df_source["Site ID"].map(id_map) if "Site ID" in df_source.columns else ""
+            mask = df_source[col_label].isna()
+            if mask.any() and name_map and "Site Name" in df_source.columns:
+                df_source.loc[mask, col_label] = (
+                    df_source.loc[mask, "Site Name"].astype(str).str.strip().map(name_map)
+                )
+            df_source[col_label] = df_source[col_label].fillna("")
+            matched = (df_source[col_label].astype(str).str.strip() != "").sum()
+            logger.info(f"{col_label} 列已添加，匹配率: {matched}/{len(df_source)}")
+        else:
+            df_source[col_label] = ""
+            logger.warning(f"{col_label} 列为空（Site 表无对应数据）")
 
     # 3. 直接设置数据源
     ExcelDataProcessor.df_master_cache = None
@@ -2059,11 +2252,7 @@ if __name__ == "__main__":
         # 同时生成 Excel 报告（使用已有数据，即使部分管道失败）
         report_t0 = time.time()
         print(f"\n--- Generating Excel report ---")
-        report = generate_excel_report(data=data, upload_ftp=True)
+        report = generate_excel_report(data=data, upload_ftp=False)
         print(f"  SQLite DB: {report.get('db_path')}")
         print(f"  Excel:     {report.get('excel_path')}")
-        if report.get('upload_success'):
-            print(f"  FTP:       uploaded OK")
-        else:
-            print(f"  FTP:       upload skipped or failed")
         print(f"  Report time: {time.time() - report_t0:.2f}s")

@@ -676,6 +676,9 @@
     // 点击模态框外部关闭
     function setupModalCloseHandlers() {
       document.querySelectorAll('.modal-overlay').forEach(modal => {
+        // 明细弹窗(detail-modal)故意不绑定“点遮罩关闭”，只通过 × / Esc 关闭，
+        // 否则弹窗异步打开后鼠标落在遮罩上的二次点击会被误判为关闭，导致“弹一下就消失”。
+        if (modal.id === 'detail-modal') return;
         modal.addEventListener('click', function(e) {
           if (e.target === this) {
             this.classList.remove('show');
@@ -1943,6 +1946,313 @@
         console.error('发送邮件错误:', error);
       }
     }
+  </script>
+
+  <!-- 明细弹窗（复用项目 modal-overlay / modal-content 样式） -->
+  <div id="detail-modal" class="modal-overlay">
+    <div class="modal-content detail-modal-content" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <div class="modal-title" id="detail-modal-title">Details</div>
+        <div class="flex items-center gap-2">
+          <label class="flex items-center gap-2 w-[160px] md:w-[220px]">
+            <i class="fa fa-search text-accent-2"></i>
+            <input type="text" id="detail-modal-search" placeholder="Fuzzy search…"
+              class="w-full bg-bg-dark border border-border-color rounded px-2 py-1 text-sm text-text-primary placeholder-text-secondary focus:border-accent-2 focus:outline-none" />
+          </label>
+          <button type="button" id="detail-modal-download"
+            class="bg-bg-highlight border border-border-color hover:border-accent-2 text-accent-1 px-3 py-1 rounded text-sm font-semibold flex items-center gap-2 transition-colors whitespace-nowrap">
+            <i class="fa fa-download"></i> <span class="hidden sm:inline">Download</span>
+          </button>
+          <button type="button" class="modal-close" id="detail-modal-close" title="Close">&times;</button>
+        </div>
+      </div>
+      <div class="overflow-auto scrollbar-thin detail-modal-body">
+        <table class="w-full border-collapse min-w-[600px]">
+          <thead>
+            <tr id="detail-modal-thead-row" class="bg-bg-highlight text-xs font-semibold uppercase tracking-widest"></tr>
+          </thead>
+          <tbody id="detail-modal-tbody" class="text-sm font-medium"></tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <div id="detail-modal-count" class="text-sm text-text-secondary">Total 0 rows</div>
+        <div class="flex items-center gap-3 text-sm">
+          <button type="button" id="detail-modal-prev"
+            class="px-3 py-1.5 rounded border border-border-color hover:border-accent-2 text-text-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Prev</button>
+          <span id="detail-modal-page-info" class="text-text-secondary font-bold">Page 1 / 1</span>
+          <button type="button" id="detail-modal-next"
+            class="px-3 py-1.5 rounded border border-border-color hover:border-accent-2 text-text-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Next</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    /* 明细弹窗尺寸覆盖：宽大表格视图（其余样式复用 .modal-overlay/.modal-content）
+       用 #detail-modal 提高特异性，覆盖后面定义的 .modal-content 基础样式 */
+    #detail-modal .detail-modal-content {
+      max-width: 92vw;
+      width: 92vw;
+      max-height: 88vh;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 1.25rem 1.5rem;
+    }
+    /* 拖拽时由 JS 改为 fixed 定位，这里仅做视觉提示 */
+    #detail-modal .detail-modal-content.dragging {
+      user-select: none;
+    }
+    #detail-modal .modal-header { gap: 1rem; flex-wrap: wrap; cursor: move; }
+    .detail-modal-body {
+      flex: 1 1 auto;
+      min-height: 120px;
+      overflow: auto;
+    }
+    .detail-modal-body table th,
+    .detail-modal-body table td {
+      white-space: nowrap;
+      max-width: 320px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #detail-modal .modal-header { gap: 1rem; flex-wrap: wrap; }
+  </style>
+
+  <script>
+    /* =====================================================================
+     * 明细弹窗（Detail Modal）：点击过滤的同时弹出明细，可导出、20 条/页
+     * ===================================================================== */
+    const MODAL_PAGE_SIZE = 20;
+    let modalSearchKeyword = '';
+    let modalCurrentPage = 1;
+    // 过滤器联动刷新（refreshCurrentDetail）时不重新弹窗，仅用户主动点击时弹
+    let suppressDetailModal = false;
+    // 弹窗刚打开后的极短宽限期：忽略此窗口内的关闭操作，
+    // 避免“点击下钻后鼠标在遮罩上抬起 / 连点”被误判为点击遮罩而立即关弹窗。
+    let modalJustOpened = false;
+    // 记录最近一次触发下钻的鼠标点击位置，用于“以点击位置为中心”弹出弹窗。
+    const detailAnchor = { x: null, y: null };
+    document.addEventListener('mousedown', function (e) {
+      // 点击弹窗内部（标题栏/按钮等）不更新锚点，避免拖拽或内部点击影响定位
+      if (e.target.closest && e.target.closest('#detail-modal')) return;
+      detailAnchor.x = e.clientX;
+      detailAnchor.y = e.clientY;
+    }, true);
+
+    function getModalFilteredData() {
+      const k = (modalSearchKeyword || '').trim().toLowerCase();
+      if (!k) return detailTableData;
+      return detailTableData.filter(row =>
+        Object.values(row).some(v => String(v ?? '').toLowerCase().includes(k))
+      );
+    }
+
+    function renderModalRows(rows) {
+      const tbody = document.getElementById('detail-modal-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      rows.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-border-color hover:bg-bg-highlight transition-colors';
+        tr.innerHTML = detailColumns.map(col => {
+          const v = item[col];
+          return `<td class="py-2 px-3 text-base text-text-primary">${escapeHtml(v == null ? '' : String(v))}</td>`;
+        }).join('');
+        tbody.appendChild(tr);
+      });
+    }
+
+    function applyModalSearchAndPage() {
+      const filtered = getModalFilteredData();
+      const total = filtered.length;
+      const totalPages = Math.max(1, Math.ceil(total / MODAL_PAGE_SIZE));
+      const page = Math.min(Math.max(1, modalCurrentPage), totalPages);
+      modalCurrentPage = page;
+      const start = (page - 1) * MODAL_PAGE_SIZE;
+      const pageData = filtered.slice(start, start + MODAL_PAGE_SIZE);
+      renderModalRows(pageData);
+      const countEl = document.getElementById('detail-modal-count');
+      if (countEl) countEl.textContent = total === 0 ? 'Total 0 rows' : `Total ${total} rows (${start + 1}-${start + pageData.length})`;
+      const pageInfo = document.getElementById('detail-modal-page-info');
+      if (pageInfo) pageInfo.textContent = `Page ${page} / ${totalPages}`;
+      const prevBtn = document.getElementById('detail-modal-prev');
+      const nextBtn = document.getElementById('detail-modal-next');
+      if (prevBtn) prevBtn.disabled = page <= 1;
+      if (nextBtn) nextBtn.disabled = page >= totalPages;
+    }
+
+    function openDetailModal(recenter) {
+      if (recenter === undefined) recenter = true;
+      const modal = document.getElementById('detail-modal');
+      if (!modal) return;
+      const content = modal.querySelector('.modal-content');
+      // 用户主动打开（recenter=true）时重置拖拽产生的内联定位，再按锚点重新定位；
+      // 静默刷新（recenter=false，弹窗已开）时保持当前位置不变。
+      if (recenter && content) {
+        content.classList.remove('dragging');
+        content.style.position = '';
+        content.style.left = '';
+        content.style.top = '';
+        content.style.margin = '';
+        content.style.transform = '';
+        content.style.width = '';
+        content.style.height = '';
+      }
+      const titleEl = document.getElementById('detail-modal-title');
+      if (titleEl) titleEl.textContent = detailTitle || 'Details';
+      const theadRow = document.getElementById('detail-modal-thead-row');
+      if (theadRow) {
+        theadRow.innerHTML = detailColumns.map(c =>
+          `<th class="py-3 px-3 text-left text-sm font-semibold uppercase tracking-widest border-b border-border-color">${escapeHtml(c)}</th>`
+        ).join('');
+      }
+      modalSearchKeyword = '';
+      modalCurrentPage = 1;
+      const searchInput = document.getElementById('detail-modal-search');
+      if (searchInput) searchInput.value = '';
+      applyModalSearchAndPage();
+      // 以点击位置为中心：先按 flex 布局读取弹窗尺寸（隐藏态也已布局，可读到宽高），
+      // 再切到 fixed 定位并居中到锚点，避免“先页面居中再跳到锚点”的闪烁。
+      if (recenter && content && detailAnchor.x != null) {
+        const rect = content.getBoundingClientRect();
+        let left = detailAnchor.x - rect.width / 2;
+        let top = detailAnchor.y - rect.height / 2;
+        left = Math.max(0, Math.min(left, window.innerWidth - rect.width));
+        top = Math.max(0, Math.min(top, window.innerHeight - rect.height));
+        content.style.position = 'fixed';
+        content.style.margin = '0';
+        content.style.transform = 'none';
+        content.style.left = left + 'px';
+        content.style.top = top + 'px';
+      }
+      modal.classList.add('show');
+      // 进入宽限期：短时间内忽略关闭（覆盖鼠标抬起/连点落在遮罩上的情况）
+      modalJustOpened = true;
+      setTimeout(() => { modalJustOpened = false; }, 450);
+    }
+
+    function closeDetailModal() {
+      if (modalJustOpened) return; // 宽限期内忽略关闭，防止误触
+      const modal = document.getElementById('detail-modal');
+      if (modal) modal.classList.remove('show');
+    }
+
+    function downloadModalCsv() {
+      if (detailColumns.length === 0) return;
+      const filtered = getModalFilteredData();
+      const head = detailColumns.join(',');
+      const rows = filtered.map(row => detailColumns.map(c => {
+        const v = row[c];
+        const s = (v == null ? '' : String(v)).replace(/"/g, '""');
+        return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s}"` : s;
+      }).join(','));
+      const csv = '\uFEFF' + [head, ...rows].join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (detailTitle || 'Detail').replace(/\s+/g, '_') + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    /* 包装 fetchAndShowDetails / showSLADetails：数据加载完成后弹出明细弹窗。
+       refreshCurrentDetail（日期/仓库过滤器变化触发的静默刷新）不弹窗。 */
+    (function () {
+      const origFetch = fetchAndShowDetails;
+      fetchAndShowDetails = async function (...args) {
+        const silent = suppressDetailModal;
+        await origFetch.apply(this, args);
+        if (!silent && detailColumns.length > 0) openDetailModal(true);
+        else if (silent && document.getElementById('detail-modal')?.classList.contains('show')) {
+          // 弹窗开着时被静默刷新（改了过滤器），就地更新弹窗内容，保持当前位置
+          openDetailModal(false);
+        }
+      };
+      const origSLA = showSLADetails;
+      showSLADetails = async function (...args) {
+        const silent = suppressDetailModal;
+        await origSLA.apply(this, args);
+        if (!silent && detailColumns.length > 0) openDetailModal(true);
+      };
+      const origRefresh = refreshCurrentDetail;
+      refreshCurrentDetail = function (...args) {
+        suppressDetailModal = true;
+        try { return origRefresh.apply(this, args); }
+        finally { setTimeout(() => { suppressDetailModal = false; }, 0); }
+      };
+    })();
+
+    // 拖拽：在弹窗头部按下并移动即可拖动；点击头部内的按钮/输入框不触发拖拽。
+    function makeDetailModalDraggable() {
+      const modal = document.getElementById('detail-modal');
+      if (!modal) return;
+      const content = modal.querySelector('.modal-content');
+      const header = modal.querySelector('.modal-header');
+      if (!content || !header) return;
+
+      let dragging = false, sx = 0, sy = 0, startLeft = 0, startTop = 0;
+
+      header.addEventListener('mousedown', function (e) {
+        // 头部内的控件（关闭/搜索按钮等）不触发拖拽
+        if (e.target.closest('button') || e.target.closest('input') || e.target.closest('a')) return;
+        const rect = content.getBoundingClientRect();
+        // 由 flex 居中切换到 fixed 定位，保持当前位置
+        content.style.position = 'fixed';
+        content.style.margin = '0';
+        content.style.transform = 'none';
+        content.style.left = rect.left + 'px';
+        content.style.top = rect.top + 'px';
+        content.style.width = rect.width + 'px';
+        content.style.height = rect.height + 'px';
+        content.classList.add('dragging');
+        dragging = true;
+        sx = e.clientX; sy = e.clientY;
+        startLeft = rect.left; startTop = rect.top;
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', function (e) {
+        if (!dragging) return;
+        let nx = startLeft + (e.clientX - sx);
+        let ny = startTop + (e.clientY - sy);
+        // 限制在视口内
+        nx = Math.max(0, Math.min(nx, window.innerWidth - content.offsetWidth));
+        ny = Math.max(0, Math.min(ny, window.innerHeight - content.offsetHeight));
+        content.style.left = nx + 'px';
+        content.style.top = ny + 'px';
+      });
+
+      document.addEventListener('mouseup', function () {
+        if (!dragging) return;
+        dragging = false;
+        content.classList.remove('dragging');
+        document.body.style.userSelect = '';
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      makeDetailModalDraggable();
+      document.getElementById('detail-modal-close')?.addEventListener('click', closeDetailModal);
+      // 注意：明细弹窗不再监听“点遮罩关闭”，只保留 × 与 Esc，避免异步打开后误关。
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeDetailModal();
+      });
+      document.getElementById('detail-modal-search')?.addEventListener('input', function () {
+        modalSearchKeyword = this.value;
+        modalCurrentPage = 1;
+        applyModalSearchAndPage();
+      });
+      document.getElementById('detail-modal-prev')?.addEventListener('click', function () {
+        if (modalCurrentPage > 1) { modalCurrentPage--; applyModalSearchAndPage(); }
+      });
+      document.getElementById('detail-modal-next')?.addEventListener('click', function () {
+        const totalPages = Math.max(1, Math.ceil(getModalFilteredData().length / MODAL_PAGE_SIZE));
+        if (modalCurrentPage < totalPages) { modalCurrentPage++; applyModalSearchAndPage(); }
+      });
+      document.getElementById('detail-modal-download')?.addEventListener('click', downloadModalCsv);
+    });
   </script>
 
   <!-- 悬浮的发送邮件按钮 -->

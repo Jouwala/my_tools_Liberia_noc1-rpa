@@ -286,7 +286,7 @@ class ExcelDataProcessor:
             'Site ID', 'Site Name', 'Site Category',
             'Status', 'Creator', 'Ticket Severity',
             'SLA Time', 'SLA Status',
-            'Region ID', 'FME', 'Supervisor',
+            'Region ID', 'TRM Type', 'FME', 'Supervisor',
             'Created Time', 'Alarm Occur Time',
             'Alarm Clear Time', 'Root Cause',
             'Sub Root Cause', 'Root Cause Description', 'SLA Remain Time',

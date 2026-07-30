@@ -212,6 +212,13 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
         result["success"] = False
         result["error"] = str(e)
         logger.error(f"[{task_id}] 执行失败: {e}")
+    except BaseException as e:
+        # 捕获 SystemExit / KeyboardInterrupt 等被强行中断的情况
+        # （例如 WorkBuddy safe-delete 守卫在 os.remove 时 raise SystemExit）。
+        # 必须记录执行历史，否则会出现“任务执行了但历史为空”。
+        result["success"] = False
+        result["error"] = f"{type(e).__name__}: {e}"
+        logger.error(f"[{task_id}] 执行被强行中断({type(e).__name__}): {e}")
 
     elapsed = time.time() - start_time
     result["elapsed_seconds"] = round(elapsed, 2)

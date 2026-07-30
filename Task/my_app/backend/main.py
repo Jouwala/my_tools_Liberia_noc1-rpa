@@ -250,6 +250,22 @@ def _register_all_tasks():
         category="sp",
     )
 
+    # 12. iPRAN UME KPI 同步（每天凌晨8点）
+    def _run_ipran_kpi_sync():
+        from backend.services.ipran_ume_kpi_service import run_ipran_kpi_sync
+        return run_ipran_kpi_sync()
+
+    task_runner.register_task(
+        task_id="ipran_kpi_sync",
+        name="iPRAN UME KPI 同步",
+        name_en="iPRAN UME KPI Sync",
+        func=_run_ipran_kpi_sync,
+        description="iPRAN UME M6000 路由器 KPI 同步（HQ M6K-FW 等），导出 Excel 并导入 SQLite + FTP 上传",
+        description_en="iPRAN UME M6000 router KPI sync (HQ M6K-FW etc.), export Excel and import to SQLite + FTP upload",
+        default_cron="0 8 * * *",  # 每天凌晨8点
+        category="ipran_kpi",
+    )
+
 
 def _init_db_with_retry(max_retries: int = 12, wait: int = 5):
     """db 初始化可能因后台进程(Windows Search 索引 / 杀软实时扫描)临时锁住

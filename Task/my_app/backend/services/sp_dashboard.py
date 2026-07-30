@@ -71,7 +71,8 @@ def _connect() -> sqlite3.Connection:
 
 def _cond_sql(date_start: Optional[str], date_end: Optional[str], warehouse: Optional[str],
              col_time: str, col_wh: str) -> (str, list):
-    """拼装日期 + 仓库过滤条件。date 列与 warehouse 列已为真实列名（带引号由调用方处理）。"""
+    """拼装日期 + 仓库过滤条件，返回以 ` AND ` 开头的片段（不含 WHERE 关键字），
+    便于在已有 WHERE 子句后直接拼接，或配合 `WHERE 1=1` 使用。"""
     parts: List[str] = []
     params: List[Any] = []
     if date_start:
@@ -83,8 +84,8 @@ def _cond_sql(date_start: Optional[str], date_end: Optional[str], warehouse: Opt
     if warehouse:
         parts.append(f"`{col_wh}` = ?")
         params.append(warehouse)
-    where = (" WHERE " + " AND ".join(parts)) if parts else ""
-    return where, params
+    cond = (" AND " + " AND ".join(parts)) if parts else ""
+    return cond, params
 
 
 # 探测列名（模块加载时即确定，对应 app_sp_optimized.init_column_names）
@@ -144,7 +145,7 @@ def load_inband_stats(date_start=None, date_end=None, warehouse=None) -> Dict[st
         if date_start or date_end or warehouse:
             where, params = _cond_sql(date_start, date_end, warehouse, t, w)
             rows = conn.execute(
-                f'SELECT DISTINCT "{c}" FROM inband_details{where}', params
+                f'SELECT DISTINCT "{c}" FROM inband_details WHERE 1=1{where}', params
             ).fetchall()
             ticket_ids = [r[c] for r in rows if r[c]]
             if not ticket_ids:
@@ -189,7 +190,7 @@ def load_inbound_details(date_start=None, date_end=None, warehouse=None) -> List
         if date_start or date_end or warehouse:
             where, params = _cond_sql(date_start, date_end, warehouse, t, w)
             rows = conn.execute(
-                f'SELECT DISTINCT "{c}" FROM inband_details{where}', params
+                f'SELECT DISTINCT "{c}" FROM inband_details WHERE 1=1{where}', params
             ).fetchall()
             ticket_ids = [row[c] for row in rows if row[c]]
             if not ticket_ids:
@@ -210,7 +211,7 @@ def load_inbound_details(date_start=None, date_end=None, warehouse=None) -> List
                 if not is_closed:
                     ticket_status[inbound_no] = True
             rows2 = conn.execute(
-                f'SELECT "{c}", "{ty}", "{q}" FROM inband_details{where}', params
+                f'SELECT "{c}", "{ty}", "{q}" FROM inband_details WHERE 1=1{where}', params
             ).fetchall()
         else:
             rows = conn.execute(f'SELECT "{c}", "{s}", "{ty}", "{q}" FROM inband_details').fetchall()
@@ -275,7 +276,7 @@ def load_outband_stats(date_start=None, date_end=None, warehouse=None) -> Dict[s
     try:
         where, params = _cond_sql(date_start, date_end, warehouse, t, w)
         rows = conn.execute(
-            f'SELECT "{c}", "{s}" FROM outband_details{where}', params
+            f'SELECT "{c}", "{s}" FROM outband_details WHERE 1=1{where}', params
         ).fetchall()
         outbound_nos, closed_nos, unclosed_nos = set(), set(), set()
         for row in rows:
@@ -305,7 +306,7 @@ def load_outbound_details(date_start=None, date_end=None, warehouse=None) -> Lis
     try:
         where, params = _cond_sql(date_start, date_end, warehouse, t, w)
         rows = conn.execute(
-            f'SELECT "{c}", "{s}", "{ty}", "{q}" FROM outband_details{where}', params
+            f'SELECT "{c}", "{s}", "{ty}", "{q}" FROM outband_details WHERE 1=1{where}', params
         ).fetchall()
         type_stats: Dict[str, Dict[str, Any]] = {}
         for row in rows:

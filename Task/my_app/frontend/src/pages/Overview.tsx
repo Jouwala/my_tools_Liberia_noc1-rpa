@@ -4,6 +4,7 @@ import { DatabaseOutlined, TableOutlined, FieldNumberOutlined, CheckCircleOutlin
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
 import { useI18n } from '../i18n'
+import { WH, WH_COLORS, cardStyle, pageWrap } from '../theme'
 
 interface DbInfo {
   database: string
@@ -24,9 +25,13 @@ export default function Overview() {
       .finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />
+  if (loading) return (
+    <div style={{ ...pageWrap, textAlign: 'center', padding: 100 }}>
+      <Spin size="large" />
+    </div>
+  )
 
-  if (!info) return <div>{t('overview.loadError')}</div>
+  if (!info) return <div style={{ ...pageWrap, color: WH.textMuted }}>{t('overview.loadError')}</div>
 
   const topTables = info.tables
     .filter(t => !t.name.startsWith('_') && t.name !== 'analysis_archive' && t.name !== 'uploaded_files')
@@ -34,70 +39,75 @@ export default function Overview() {
     .slice(0, 10)
 
   const barOption = {
-    tooltip: { trigger: 'axis' as const },
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', backgroundColor: 'rgba(10,25,41,0.95)', borderColor: '#64ffda', textStyle: { color: '#e6f4ff' } },
     xAxis: {
-      type: 'category' as const,
+      type: 'category',
       data: topTables.map(t => t.name),
-      axisLabel: { rotate: 30, fontSize: 10 },
+      axisLabel: { rotate: 30, fontSize: 11, color: '#94a3b8' },
+      axisLine: { lineStyle: { color: '#22324d' } },
     },
-    yAxis: { type: 'value' as const },
+    yAxis: { type: 'value', splitLine: { lineStyle: { type: 'dashed', color: 'rgba(255,255,255,0.06)' } }, axisLabel: { color: '#94a3b8' } },
     series: [{
       type: 'bar',
-      data: topTables.map(t => t.rows),
-      itemStyle: { color: '#1677ff', borderRadius: [4, 4, 0, 0] },
+      data: topTables.map((t, i) => ({ value: t.rows, itemStyle: { color: WH_COLORS[i % WH_COLORS.length], borderRadius: [4, 4, 0, 0] } })),
     }],
     grid: { left: 60, right: 20, bottom: 80, top: 20 },
   }
 
   const pieOption = {
-    tooltip: { trigger: 'item' as const },
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'item', backgroundColor: 'rgba(10,25,41,0.95)', borderColor: '#64ffda', textStyle: { color: '#e6f4ff' }, formatter: '{b}: {c} ({d}%)' },
+    legend: { bottom: 0, type: 'scroll', textStyle: { color: '#94a3b8' } },
     series: [{
       type: 'pie',
       radius: ['40%', '70%'],
-      data: topTables.map(t => ({ name: t.name, value: t.rows })),
-      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0, 0, 0, 0.5)' } },
+      data: topTables.map((t, i) => ({ name: t.name, value: t.rows, itemStyle: { color: WH_COLORS[i % WH_COLORS.length] } })),
+      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(100,255,218,0.35)' } },
+      label: { color: '#e6f4ff', formatter: '{b}\n{d}%' },
     }],
   }
 
   return (
-    <div>
+    <div style={pageWrap}>
       <Row gutter={[16, 16]}>
         <Col span={6}>
-          <Card>
+          <Card style={cardStyle}>
             <Statistic
-              title={t('overview.totalTables')}
+              title={<span style={{ color: WH.textMuted }}>{t('overview.totalTables')}</span>}
               value={info.total_tables}
-              prefix={<TableOutlined />}
-              valueStyle={{ color: '#3f8600' }}
+              prefix={<TableOutlined style={{ color: WH.teal }} />}
+              valueStyle={{ color: WH.teal, fontWeight: 700 }}
             />
           </Card>
         </Col>
         <Col span={6}>
-          <Card>
+          <Card style={cardStyle}>
             <Statistic
-              title={t('overview.totalRows')}
+              title={<span style={{ color: WH.textMuted }}>{t('overview.totalRows')}</span>}
               value={info.total_rows}
-              prefix={<FieldNumberOutlined />}
-              valueStyle={{ color: '#3f8600' }}
+              prefix={<FieldNumberOutlined style={{ color: WH.blue }} />}
+              valueStyle={{ color: WH.blue, fontWeight: 700 }}
             />
           </Card>
         </Col>
         <Col span={6}>
-          <Card>
+          <Card style={cardStyle}>
             <Statistic
-              title={t('overview.coreTables')}
+              title={<span style={{ color: WH.textMuted }}>{t('overview.coreTables')}</span>}
               value={info.tables.filter(t => !t.name.startsWith('_')).length}
-              prefix={<DatabaseOutlined />}
-              valueStyle={{ color: '#3f8600' }}
+              prefix={<DatabaseOutlined style={{ color: WH.indigo }} />}
+              valueStyle={{ color: WH.indigo, fontWeight: 700 }}
             />
           </Card>
         </Col>
         <Col span={6}>
-          <Card>
+          <Card style={cardStyle}>
             <Statistic
-              title={t('overview.status')}
+              title={<span style={{ color: WH.textMuted }}>{t('overview.status')}</span>}
               value={t('overview.statusOk')}
-              prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
+              prefix={<CheckCircleOutlined style={{ color: '#51cf66' }} />}
+              valueStyle={{ color: '#51cf66', fontWeight: 700 }}
             />
           </Card>
         </Col>
@@ -105,12 +115,12 @@ export default function Overview() {
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col span={14}>
-          <Card title={t('overview.rankTitle')}>
+          <Card title={<span style={{ color: WH.text, fontWeight: 600 }}>{t('overview.rankTitle')}</span>} style={cardStyle}>
             <ReactECharts option={barOption} style={{ height: 350 }} />
           </Card>
         </Col>
         <Col span={10}>
-          <Card title={t('overview.distTitle')}>
+          <Card title={<span style={{ color: WH.text, fontWeight: 600 }}>{t('overview.distTitle')}</span>} style={cardStyle}>
             <ReactECharts option={pieOption} style={{ height: 350 }} />
           </Card>
         </Col>
@@ -118,12 +128,12 @@ export default function Overview() {
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col span={24}>
-          <Card title={t('overview.allTables')}>
+          <Card title={<span style={{ color: WH.text, fontWeight: 600 }}>{t('overview.allTables')}</span>} style={cardStyle}>
             <Table
               dataSource={info.tables.filter(t => !t.name.startsWith('_'))}
               columns={[
-                { title: t('overview.tableName'), dataIndex: 'name', key: 'name', render: (v: string) => <Tag color="blue">{v}</Tag> },
-                { title: t('overview.rowCount'), dataIndex: 'rows', key: 'rows', sorter: (a: any, b: any) => a.rows - b.rows },
+                { title: <span style={{ color: WH.textMuted }}>{t('overview.tableName')}</span>, dataIndex: 'name', key: 'name', render: (v: string) => <Tag color="cyan">{v}</Tag> },
+                { title: <span style={{ color: WH.textMuted }}>{t('overview.rowCount')}</span>, dataIndex: 'rows', key: 'rows', sorter: (a: any, b: any) => a.rows - b.rows },
               ]}
               pagination={false}
               size="small"

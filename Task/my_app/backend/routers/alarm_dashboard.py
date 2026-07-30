@@ -1,5 +1,6 @@
 """Alarm Dashboard API - 实时告警综合看板"""
 import re
+import time
 from datetime import datetime, timezone
 import pandas as pd
 from fastapi import APIRouter, Query
@@ -98,6 +99,82 @@ def _load_history_df():
     return df, metrics
 
 
+# ---- 轻量 TTL 缓存：避免看板并发/自动刷新时重复全表扫描 ----
+_CACHE_TTL = 60  # 秒
+_cache: dict = {}  # key -> (expires_ts, value)
+
+
+def _cache_get(key):
+    item = _cache.get(key)
+    if item and item[0] > time.time():
+        return item[1]
+    return None
+
+
+def _cache_set(key, value):
+    _cache[key] = (time.time() + _CACHE_TTL, value)
+    return value
+
+
+def _history_metrics_sql():
+    """用纯 SQL 聚合计算历史告警派单时效 5 项指标（免 pandas 全表载入）。
+    与 _load_history_df 的向量化口径完全一致（已比对验证）。"""
+    cached = _cache_get("history_metrics")
+    if cached is not None:
+        return cached
+
+    conn = get_raw_connection()
+    if not _table_exists(conn, "history_alarm"):
+        conn.close()
+        return None
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS total,
+          SUM(CASE WHEN tt_id IS NOT NULL AND TRIM(CAST(tt_id AS TEXT))!=''
+                    AND CAST(tt_id AS TEXT)!='-' THEN 1 ELSE 0 END) AS with_tt,
+          SUM(CASE WHEN (CAST(assigned_time AS REAL) - CAST(servertime AS REAL))
+                    > CAST(assign_delay AS REAL)*1.1*1000 THEN 1 ELSE 0 END) AS dispatch_delay,
+          SUM(CASE WHEN (CAST(servertime AS REAL) - CAST(alarmraisedtime AS REAL))
+                    > 300000 THEN 1 ELSE 0 END) AS fetch_delay,
+          SUM(CASE WHEN (CAST(assigned_time AS REAL) - CAST(alarmraisedtime AS REAL)) > 300000
+                    AND (CAST(assigned_time AS REAL) - CAST(alarmraisedtime AS REAL))
+                        > CAST(assign_delay AS REAL)*1.1*1000 THEN 1 ELSE 0 END) AS overdue,
+          MAX(CAST(servertime AS REAL)) AS latest_ms
+        FROM history_alarm
+        """
+    ).fetchone()
+    conn.close()
+
+    if not row or not row["total"]:
+        return None
+
+    latest_ms = row["latest_ms"]
+    latest_iso = (
+        datetime.fromtimestamp(latest_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        if latest_ms else "N/A"
+    )
+    metrics = {
+        "total": int(row["total"]),
+        "with_tt": int(row["with_tt"] or 0),
+        "dispatch_delay_eflow": int(row["dispatch_delay"] or 0),
+        "alarm_fetch_delay": int(row["fetch_delay"] or 0),
+        "dispatch_overdue_total": int(row["overdue"] or 0),
+        "generated_at": _last_alarm_sync_iso() or latest_iso,
+    }
+    return _cache_set("history_metrics", metrics)
+
+
+def _load_history_df_cached():
+    """下钻用：带 60s 缓存的全量 DataFrame 载入。"""
+    cached = _cache_get("history_df")
+    if cached is not None:
+        return cached
+    result = _load_history_df()
+    if result[0] is not None:
+        _cache_set("history_df", result)
+    return result
+
+
 METRIC_MASK_COL = {
     "dispatch_delay_eflow": "_m_dispatch_delay",
     "alarm_fetch_delay": "_m_fetch_delay",
@@ -109,6 +186,80 @@ METRIC_TITLE = {
     "alarm_fetch_delay": "告警获取时间大 (Server - AlarmRaised > 5min)",
     "dispatch_overdue_total": "总的派单超期单数 (Assigned - AlarmRaised > 5min 且超时限10%)",
 }
+
+# ========== 实时告警下钻（realtime_alarm 各维度筛选）==========
+SEVERITY_MAP = {1: "Critical", 2: "Major", 3: "Warning", 4: "Info"}
+
+
+def _load_realtime_rows():
+    """加载 realtime_alarm 并预计算增强字段（技术制式/时长桶/区域码），带 60s 缓存。"""
+    cached = _cache_get("realtime_rows")
+    if cached is not None:
+        return cached
+    conn = get_raw_connection()
+    rows = [dict(r) for r in conn.execute("SELECT * FROM realtime_alarm").fetchall()]
+    conn.close()
+    for r in rows:
+        r["_tech"] = _tech_from_record(r)
+        r["_hours"] = _parse_duration_to_hours(r.get("durationname") or "")
+        r["_bucket"] = _duration_bucket(r["_hours"])
+        r["_region_code"] = REGION_CODE.get(r.get("region") or "", "--")
+    return _cache_set("realtime_rows", rows)
+
+
+# 各维度筛选器（与前端图表/卡片口径一致）
+REALTIME_DIMENSION_FILTER = {
+    "severity": lambda rows, v: [
+        r for r in rows
+        if SEVERITY_MAP.get(r.get("perceivedseverity") or 0, f"P{r.get('perceivedseverity')}") == v
+    ],
+    "tech": lambda rows, v: [r for r in rows if r.get("_tech") == v],
+    "region": lambda rows, v: [r for r in rows if r.get("_region_code") == v],
+    "alarm_type": lambda rows, v: [
+        r for r in rows if (r.get("alarm_title") or r.get("codename") or "--") == v
+    ],
+    "site_attribute": lambda rows, v: [
+        r for r in rows if _safe_str(r.get("site_attribute")) == v
+    ],
+    "networktype": lambda rows, v: [
+        r for r in rows if _safe_str(r.get("networktype")) == v
+    ],
+    "duration": lambda rows, v: [r for r in rows if r.get("_bucket") == v],
+}
+
+REALTIME_DIMENSION_TITLE = {
+    "all": "实时告警 (全部 Active Alarms)",
+    "severity": "严重等级 = {v}",
+    "tech": "技术制式 = {v}",
+    "region": "区域 = {v}",
+    "alarm_type": "告警类型 = {v}",
+    "site_attribute": "站点属性 = {v}",
+    "networktype": "网络类型 = {v}",
+    "duration": "持续时长 = {v}",
+}
+
+
+def _realtime_record(r: dict) -> dict:
+    sev = r.get("perceivedseverity")
+    sev_label = SEVERITY_MAP.get(sev, f"P{sev}" if sev is not None else "--")
+    return {
+        "site_id": _safe_str(r.get("site_id")),
+        "site_name": _safe_str(r.get("site_name")),
+        "region": _safe_str(r.get("region")),
+        "tech": _safe_str(r.get("_tech")),
+        "alarm_title": _safe_str(r.get("alarm_title") or r.get("codename")),
+        "severity": sev_label,
+        "networktype": _safe_str(r.get("networktype")),
+        "site_attribute": _safe_str(r.get("site_attribute")),
+        "duration": _safe_str(r.get("durationname")),
+        "alarm_raised_time": _ms_to_str(r.get("alarmraisedtime")),
+        "server_time": _ms_to_str(r.get("servertime")),
+        "assigned_time": _ms_to_str(r.get("assigned_time")),
+        "assigned_status": _safe_str(r.get("assigned_status")),
+        "tt_id": _safe_str(r.get("tt_id")),
+        "vendor": _safe_str(r.get("vendor")),
+        "transmission_type": _safe_str(r.get("transmission_type")),
+    }
 
 
 def _ms_to_str(ms):
@@ -298,11 +449,14 @@ def alarm_dashboard_overview():
             region_alarm_count[rc] = region_alarm_count.get(rc, 0) + 1
             if r.get("transmission_type") == "MW":
                 region_mains_count[rc] = region_mains_count.get(rc, 0) + 1
-    # 受影响站点数
+    # 受影响站点数（单次遍历，按区域收集唯一站点）
+    _region_sites = {}
     for r in rows:
         rc = r["_region_code"]
         if rc in region_sites_count:
-            region_sites_count[rc] = len({r2.get("site_id") for r2 in rows if r2["_region_code"] == rc})
+            _region_sites.setdefault(rc, set()).add(r.get("site_id"))
+    for rc, sites in _region_sites.items():
+        region_sites_count[rc] = len(sites)
 
     # ---- 告警类型(Top) ----
     alarm_type_stats = {}
@@ -334,8 +488,8 @@ def alarm_dashboard_overview():
                 rtypes[at] = rtypes.get(at, 0) + 1
             region_alarm_type[rc] = dict(sorted(rtypes.items(), key=lambda x: x[1], reverse=True)[:5])
 
-    # ---- 历史告警派单时效指标 ----
-    _, history_metrics = _load_history_df()
+    # ---- 历史告警派单时效指标（纯 SQL 聚合 + 60s 缓存，免 10 万行 pandas 载入）----
+    history_metrics = _history_metrics_sql()
 
     return {
         "generated_at": _last_alarm_sync_iso() or server_iso,
@@ -374,7 +528,7 @@ def alarm_history_drilldown(
     metric: all | dispatch_delay_eflow | alarm_fetch_delay | dispatch_overdue_total
     limit: 返回明细行数上限（默认500）
     """
-    df, _ = _load_history_df()
+    df, _ = _load_history_df_cached()
     if df is None or df.empty:
         return {"title": METRIC_TITLE.get(metric, metric), "count": 0, "total": 0, "data": []}
 
@@ -411,6 +565,45 @@ def alarm_history_drilldown(
 
     return {
         "title": METRIC_TITLE.get(metric, metric),
+        "count": len(records),
+        "total": total_matched,
+        "data": records,
+    }
+
+
+@router.get("/realtime-drilldown")
+def alarm_realtime_drilldown(
+    dimension: str = Query("all"),
+    value: str = Query(""),
+    limit: int = Query(500, ge=1, le=5000),
+):
+    """实时告警明细下钻。
+    dimension: all | severity | tech | region | alarm_type | site_attribute | networktype | duration
+    value: 维度对应的取值（severity/tech/region/alarm_type/site_attribute/networktype/duration 需要）
+    limit: 返回明细行数上限（默认500）
+    """
+    rows = _load_realtime_rows()
+    if not rows:
+        return {"title": "No data", "count": 0, "total": 0, "data": []}
+
+    if dimension in ("all", "", None):
+        filtered = rows
+    else:
+        fn = REALTIME_DIMENSION_FILTER.get(dimension)
+        filtered = fn(rows, value) if fn else rows
+
+    total_matched = len(filtered)
+    filtered_sorted = sorted(
+        filtered, key=lambda r: r.get("servertime") or 0, reverse=True
+    )[:limit]
+
+    records = [_realtime_record(r) for r in filtered_sorted]
+
+    title_tmpl = REALTIME_DIMENSION_TITLE.get(dimension, dimension)
+    title = title_tmpl.format(v=value) if "{v}" in title_tmpl else title_tmpl
+
+    return {
+        "title": title,
         "count": len(records),
         "total": total_matched,
         "data": records,

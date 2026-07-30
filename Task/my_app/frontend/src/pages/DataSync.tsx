@@ -24,11 +24,13 @@ import {
   BarChartOutlined,
   FundOutlined,
   AppstoreOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { useTaskStatus } from '../TaskStatusContext'
 import { cachedGet, invalidateCache } from '../cache'
+import { WH, cardStyle, controlCardStyle, pageWrap } from '../theme'
 
 const { Text, Title } = Typography
 
@@ -139,6 +141,7 @@ const CATEGORY_CONFIG: Record<string, { color: string; icon: React.ReactNode; la
   cnn_kpi: { color: '#fa541c', icon: <CloudServerOutlined />, label_zh: 'CNN UME', label_en: 'CNN UME' },
   general: { color: '#8c8c8c', icon: <SettingOutlined />, label_zh: '通用', label_en: 'General' },
   sp: { color: '#faad14', icon: <AppstoreOutlined />, label_zh: 'SP 备件', label_en: 'SP Spare' },
+  ipran_kpi: { color: '#2f54eb', icon: <GlobalOutlined />, label_zh: 'iPRAN UME', label_en: 'iPRAN UME' },
 }
 
 function formatTime(isoStr: string | null): string {
@@ -189,8 +192,8 @@ function ScheduleEditor({
   return (
     <Modal
       title={
-        <span>
-          <ScheduleOutlined style={{ marginRight: 8 }} />
+        <span style={{ color: WH.text }}>
+          <ScheduleOutlined style={{ marginRight: 8, color: WH.teal }} />
           {locale === 'zh' ? `编辑调度 - ${task?.name}` : `Edit Schedule - ${task?.name}`}
         </span>
       }
@@ -201,21 +204,26 @@ function ScheduleEditor({
       okText={locale === 'zh' ? '保存' : 'Save'}
       cancelText={locale === 'zh' ? '取消' : 'Cancel'}
       width={640}
+      styles={{
+        root: { background: WH.bg },
+        header: { background: '#0a1929', borderBottom: '1px solid rgba(100,255,218,0.15)' },
+        body: { background: WH.bg },
+      }}
     >
       {task && (
         <div>
           {/* Current schedule */}
           <div style={{ marginBottom: 16 }}>
-            <Text type="secondary">{locale === 'zh' ? '当前调度：' : 'Current: '}</Text>
+            <Text style={{ color: WH.textMuted }}>{locale === 'zh' ? '当前调度：' : 'Current: '}</Text>
             <Tag color="blue" style={{ marginLeft: 8 }}>
               {cronToHuman(task.current_cron, locale)}
             </Tag>
-            <Text code style={{ marginLeft: 8 }}>{task.current_cron}</Text>
+            <Text code style={{ marginLeft: 8, color: WH.textMuted, background: 'rgba(255,255,255,0.06)' }}>{task.current_cron}</Text>
           </div>
 
           {/* Presets */}
           <div style={{ marginBottom: 16 }}>
-            <Text strong style={{ display: 'block', marginBottom: 8 }}>
+            <Text strong style={{ display: 'block', marginBottom: 8, color: WH.text }}>
               {locale === 'zh' ? '⏰ 快捷预设' : '⏰ Quick Presets'}
             </Text>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -225,6 +233,7 @@ function ScheduleEditor({
                   size="small"
                   type={selectedPreset === p.cron ? 'primary' : 'default'}
                   onClick={() => handlePreset(p.cron)}
+                  style={selectedPreset !== p.cron ? { color: WH.text, borderColor: 'rgba(100,255,218,0.25)', background: 'rgba(100,255,218,0.06)' } : undefined}
                 >
                   {locale === 'zh' ? p.label_zh : p.label_en}
                 </Button>
@@ -234,16 +243,16 @@ function ScheduleEditor({
 
           {/* Custom cron */}
           <div style={{ marginBottom: 16 }}>
-            <Text strong style={{ display: 'block', marginBottom: 8 }}>
+            <Text strong style={{ display: 'block', marginBottom: 8, color: WH.text }}>
               {locale === 'zh' ? '✏️ 自定义 Cron 表达式' : '✏️ Custom Cron Expression'}
             </Text>
             <Input
               value={cronInput}
               onChange={e => { setCronInput(e.target.value); setSelectedPreset(null) }}
               placeholder={t('sync.cronPlaceholder')}
-              style={{ fontFamily: 'monospace', fontSize: 14 }}
+              style={{ fontFamily: 'monospace', fontSize: 14, background: 'rgba(255,255,255,0.05)', color: WH.text, borderColor: 'rgba(100,255,218,0.18)' }}
             />
-            <div style={{ marginTop: 8, color: '#888', fontSize: 12 }}>
+            <div style={{ marginTop: 8, color: WH.textDim, fontSize: 12 }}>
               {locale === 'zh'
                 ? '格式: 分 时 日 月 周  示例: 0 8 * * * = 每天8点 | 0 */4 * * * = 每4小时 | 30 7 * * 1-5 = 工作日7:30'
                 : 'Format: min hr day mon dow  e.g.: 0 8 * * * = Daily 8am | 0 */4 * * * = Every 4h | 30 7 * * 1-5 = Weekdays 7:30'
@@ -251,7 +260,7 @@ function ScheduleEditor({
             </div>
             {cronInput && (
               <div style={{ marginTop: 8 }}>
-                <Text type="secondary">{locale === 'zh' ? '预览：' : 'Preview: '}</Text>
+                <Text style={{ color: WH.textMuted }}>{locale === 'zh' ? '预览：' : 'Preview: '}</Text>
                 <Tag color="green" style={{ marginLeft: 8 }}>
                   {cronToHuman(cronInput, locale)}
                 </Tag>
@@ -261,13 +270,14 @@ function ScheduleEditor({
 
           {/* Default cron */}
           <div>
-            <Text type="secondary">
+            <Text style={{ color: WH.textMuted }}>
               {locale === 'zh' ? '默认值：' : 'Default: '}
             </Text>
             <Button
               size="small"
               type="link"
               onClick={() => handlePreset(task.default_cron)}
+              style={{ color: WH.teal }}
             >
               {cronToHuman(task.default_cron, locale)} ({task.default_cron})
             </Button>
@@ -290,8 +300,8 @@ function TaskHistoryModal({
   return (
     <Modal
       title={
-        <span>
-          <HistoryOutlined style={{ marginRight: 8 }} />
+        <span style={{ color: WH.text }}>
+          <HistoryOutlined style={{ marginRight: 8, color: WH.teal }} />
           {locale === 'zh' ? `执行历史 - ${task?.name}` : `Run History - ${task?.name}`}
         </span>
       }
@@ -299,6 +309,11 @@ function TaskHistoryModal({
       onCancel={onClose}
       footer={null}
       width={700}
+      styles={{
+        root: { background: WH.bg },
+        header: { background: '#0a1929', borderBottom: '1px solid rgba(100,255,218,0.15)' },
+        body: { background: WH.bg },
+      }}
     >
       {task?.recent_runs && task.recent_runs.length > 0 ? (
         <List
@@ -322,16 +337,16 @@ function TaskHistoryModal({
                     <Tag color={run.success ? 'green' : 'red'}>
                       {run.success ? (locale === 'zh' ? '成功' : 'Success') : (locale === 'zh' ? '失败' : 'Failed')}
                     </Tag>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
+                    <Text style={{ fontSize: 12, color: WH.textMuted }}>
                       {run.trigger === 'manual' ? '🔧' : '⏰'} {formatTime(run.started_at)}
                     </Text>
                   </Space>
                 }
                 description={
                   <div>
-                    <Text style={{ fontSize: 12 }}>⏱ {(run.elapsed_seconds ?? 0).toFixed(2)}s</Text>
+                    <Text style={{ fontSize: 12, color: WH.textDim }}>⏱ {(run.elapsed_seconds ?? 0).toFixed(2)}s</Text>
                     {run.error && (
-                      <Text type="danger" style={{ fontSize: 12, marginLeft: 12 }}>
+                      <Text style={{ fontSize: 12, marginLeft: 12, color: '#ff6b6b' }}>
                         ❌ {run.error}
                       </Text>
                     )}
@@ -342,7 +357,7 @@ function TaskHistoryModal({
           )}
         />
       ) : (
-        <div style={{ textAlign: 'center', color: '#999', padding: 24 }}>
+        <div style={{ textAlign: 'center', color: WH.textMuted, padding: 24 }}>
           {locale === 'zh' ? '暂无执行记录' : 'No run history'}
         </div>
       )}
@@ -526,6 +541,11 @@ export default function DataSync() {
       label_en: 'CNN UME Data Sync',
       task_ids: ['cnn_kpi_sync'],
     },
+    {
+      label_zh: 'iPRAN UME 数据同步',
+      label_en: 'iPRAN UME Data Sync',
+      task_ids: ['ipran_kpi_sync'],
+    },
   ]
 
   // 根据 task_id 快速查找任务
@@ -544,8 +564,9 @@ export default function DataSync() {
         <Card
           size="small"
           style={{
-            borderLeft: `4px solid ${task.enabled ? catCfg.color : '#d9d9d9'}`,
-            opacity: task.enabled ? 1 : 0.7,
+            ...cardStyle,
+            borderLeft: `4px solid ${task.enabled ? catCfg.color : '#64748b'}`,
+            opacity: task.enabled ? 1 : 0.65,
             height: '100%',
           }}
           styles={{ body: { padding: '16px 20px' } }}
@@ -555,14 +576,14 @@ export default function DataSync() {
             <div>
               <Space size={4} align="center">
                 <span style={{ fontSize: 16, color: catCfg.color }}>{catCfg.icon}</span>
-                <Text strong style={{ fontSize: 15 }}>{task.name}</Text>
+                <Text strong style={{ fontSize: 15, color: WH.text }}>{task.name}</Text>
               </Space>
               <div style={{ marginTop: 4 }}>
                 <Tag color={catCfg.color} style={{ fontSize: 11 }}>{locale === 'zh' ? catCfg.label_zh : catCfg.label_en}</Tag>
                 {task.enabled ? (
-                  <Badge status="success" text={<Text type="secondary" style={{ fontSize: 11 }}>{locale === 'zh' ? '已启用' : 'Enabled'}</Text>} />
+                  <Badge status="success" text={<Text style={{ fontSize: 11, color: WH.textMuted }}>{locale === 'zh' ? '已启用' : 'Enabled'}</Text>} />
                 ) : (
-                  <Badge status="default" text={<Text type="secondary" style={{ fontSize: 11 }}>{locale === 'zh' ? '已禁用' : 'Disabled'}</Text>} />
+                  <Badge status="default" text={<Text style={{ fontSize: 11, color: WH.textDim }}>{locale === 'zh' ? '已禁用' : 'Disabled'}</Text>} />
                 )}
               </div>
             </div>
@@ -574,21 +595,22 @@ export default function DataSync() {
           </div>
 
           {/* Description */}
-          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.5 }}>
+          <Text style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.5, color: WH.textMuted }}>
             {task.description}
           </Text>
 
           {/* Schedule info */}
           <div style={{
-            background: '#f6f8fa',
+            background: 'rgba(255,255,255,0.05)',
             borderRadius: 8,
             padding: '10px 14px',
             marginBottom: 12,
+            border: '1px solid rgba(100,255,218,0.1)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <Space size={4}>
-                <ClockCircleOutlined style={{ color: '#1677ff' }} />
-                <Text style={{ fontSize: 13 }}>
+                <ClockCircleOutlined style={{ color: WH.blue }} />
+                <Text style={{ fontSize: 13, color: WH.text }}>
                   {cronToHuman(task.current_cron, locale)}
                 </Text>
               </Space>
@@ -596,15 +618,16 @@ export default function DataSync() {
                 <Button
                   type="text"
                   size="small"
-                  icon={<EditOutlined />}
+                  icon={<EditOutlined style={{ color: WH.teal }} />}
                   onClick={() => setEditTask(task)}
+                  style={{ color: WH.teal }}
                 />
               </Tooltip>
             </div>
-            <div style={{ fontSize: 12, color: '#888' }}>
-              <Text code style={{ fontSize: 11 }}>{task.current_cron}</Text>
+            <div style={{ fontSize: 12, color: WH.textDim }}>
+              <Text code style={{ fontSize: 11, color: WH.textMuted, background: 'rgba(255,255,255,0.06)' }}>{task.current_cron}</Text>
               {task.next_run && (
-                <span style={{ marginLeft: 12 }}>
+                <span style={{ marginLeft: 12, color: WH.textMuted }}>
                   ⏭ {locale === 'zh' ? '下次：' : 'Next: '}{getNextRunTime(task)}
                 </span>
               )}
@@ -616,15 +639,15 @@ export default function DataSync() {
             <div style={{ marginBottom: 12, fontSize: 12 }}>
               <Space size={8}>
                 {lastRun.success
-                  ? <CheckCircleFilled style={{ color: '#52c41a' }} />
-                  : <CloseCircleFilled style={{ color: '#ff4d4f' }} />
+                  ? <CheckCircleFilled style={{ color: '#51cf66' }} />
+                  : <CloseCircleFilled style={{ color: '#ff6b6b' }} />
                 }
-                <Text type="secondary">
+                <Text style={{ color: WH.textMuted }}>
                   {locale === 'zh' ? '上次：' : 'Last: '}
                   {formatTime(lastRun.started_at)}
                 </Text>
-                <Text type="secondary">⏱ {(lastRun.elapsed_seconds ?? 0).toFixed(1)}s</Text>
-                {lastRun.error && <Text type="danger">❌</Text>}
+                <Text style={{ color: WH.textDim }}>⏱ {(lastRun.elapsed_seconds ?? 0).toFixed(1)}s</Text>
+                {lastRun.error && <Text style={{ color: '#ff6b6b' }}>❌</Text>}
               </Space>
             </div>
           )}
@@ -645,6 +668,7 @@ export default function DataSync() {
               size="small"
               icon={<HistoryOutlined />}
               onClick={() => handleOpenHistory(task.task_id)}
+              style={{ color: WH.text, borderColor: 'rgba(100,255,218,0.25)', background: 'rgba(100,255,218,0.06)' }}
             >
               {locale === 'zh' ? '历史' : 'History'}
             </Button>
@@ -655,17 +679,17 @@ export default function DataSync() {
   }
 
   return (
-    <div>
+    <div style={pageWrap}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <Title level={4} style={{ margin: 0 }}>
-            <ThunderboltOutlined style={{ marginRight: 8, color: '#1677ff' }} />
+          <Title level={4} style={{ margin: 0, color: WH.text }}>
+            <ThunderboltOutlined style={{ marginRight: 8, color: WH.blue }} />
             {t('sync.taskManager')}
           </Title>
-          <Text type="secondary">{t('sync.taskManagerDesc')}</Text>
+          <Text style={{ color: WH.textMuted }}>{t('sync.taskManagerDesc')}</Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => loadTasks(true)} loading={loading}>
+        <Button icon={<ReloadOutlined />} onClick={() => loadTasks(true)} loading={loading} style={{ color: WH.text, borderColor: 'rgba(100,255,218,0.35)', background: 'rgba(100,255,218,0.08)' }}>
           {t('common.refresh')}
         </Button>
       </div>
@@ -680,16 +704,16 @@ export default function DataSync() {
               alignItems: 'center',
               marginBottom: 12,
               padding: '4px 0',
-              borderBottom: '1px solid #e8e8e8',
+              borderBottom: '1px solid rgba(100,255,218,0.18)',
             }}>
               <div style={{
                 width: 4,
                 height: 18,
                 borderRadius: 2,
-                background: gi === 0 ? '#1677ff' : gi === 1 ? '#52c41a' : gi === 2 ? '#fa8c16' : '#fa541c',
+                background: gi === 0 ? WH.blue : gi === 1 ? '#51cf66' : gi === 2 ? '#ffa94d' : '#ff6b6b',
                 marginRight: 10,
               }} />
-              <Text style={{ fontSize: 14, fontWeight: 600 }}>
+              <Text style={{ fontSize: 14, fontWeight: 600, color: WH.text }}>
                 {locale === 'zh' ? group.label_zh : group.label_en}
               </Text>
             </div>

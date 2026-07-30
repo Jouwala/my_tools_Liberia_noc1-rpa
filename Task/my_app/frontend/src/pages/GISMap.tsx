@@ -3,12 +3,13 @@ import { cachedGet } from '../cache'
 import { Card, Row, Col, Select, Spin, Drawer, Descriptions, Table, Tag, Statistic, Tabs, Space, Badge, DatePicker, Segmented, Tooltip, Switch, Button, Input } from 'antd'
 import { DownloadOutlined, SearchOutlined, FilterOutlined, AlertOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
-import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Polygon, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Polygon, Pane, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import dayjs, { Dayjs } from 'dayjs'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { useDataTimestamps } from '../useDataTimestamps'
+import { WH, WH_COLORS, cardStyle, controlCardStyle, pageWrap } from '../theme'
 
 interface Site {
   site_id: string
@@ -27,7 +28,8 @@ interface Site {
   wo_count: number
   rt_alarm_count: number
   his_alarm_count: number
-  // 筛选列
+  rt_tt_count?: number
+  rt_wo_count?: number
   trm_type?: string
   area?: string
   hubsite?: string
@@ -67,7 +69,7 @@ interface TopologyLink {
   lng_b: number
 }
 
-type LegendKey = 'critical' | 'warning' | 'vip' | 'normal' | 'rt_alarm' | 'his_alarm'
+type LegendKey = 'tt' | 'wo' | 'vip' | 'normal' | 'rt_alarm' | 'his_alarm'
 type LayerKey = 'rt_alarm' | 'his_alarm' | 'tt' | 'wo'
 
 function MapController({ center, zoom }: { center: [number, number]; zoom: number }) {
@@ -80,7 +82,7 @@ function MapController({ center, zoom }: { center: [number, number]; zoom: numbe
 
 type TimePreset = 'all' | '7d' | '30d' | '90d' | '180d' | 'custom'
 
-export default function GISMap() {
+export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) {
   const [sites, setSites] = useState<Site[]>([])
   const [regions, setRegions] = useState<string[]>([])
   const [selectedRegion, setSelectedRegion] = useState<string | undefined>(undefined)
@@ -90,7 +92,7 @@ export default function GISMap() {
   const [drawerVisible, setDrawerVisible] = useState(false)
   const [selectedSite, setSelectedSite] = useState<string>('')
   const [hiddenLegends, setHiddenLegends] = useState<Set<LegendKey>>(new Set())
-  const [timePreset, setTimePreset] = useState<TimePreset>('7d')
+  const [timePreset, setTimePreset] = useState<TimePreset>(mode === 'realtime' ? 'all' : '7d')
   const [customRange, setCustomRange] = useState<[Dayjs, Dayjs] | null>(null)
   const [showTopology, setShowTopology] = useState(false)
   const [topologyLinks, setTopologyLinks] = useState<TopologyLink[]>([])
@@ -101,17 +103,16 @@ export default function GISMap() {
   const [rtAlarmSearch, setRtAlarmSearch] = useState('')
   const [hisAlarmSearch, setHisAlarmSearch] = useState('')
 
-  // 图层筛选状态（默认全部开启）
-  const [activeLayers, setActiveLayers] = useState<Set<LayerKey>>(new Set(['rt_alarm', 'his_alarm', 'tt', 'wo']))
+  const [activeLayers, setActiveLayers] = useState<Set<LayerKey>>(
+    new Set(mode === 'realtime' ? ['rt_alarm', 'tt', 'wo'] : ['rt_alarm', 'his_alarm', 'tt', 'wo'])
+  )
 
-  // 筛选列状态
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
   const [selectedFilters, setSelectedFilters] = useState<Record<string, string | undefined>>({})
   const [showFilters, setShowFilters] = useState(false)
   const { t } = useI18n()
   const { lastSync, latestData, isSynced } = useDataTimestamps()
 
-  // 根据preset计算实际时间范围
   const timeRange = useMemo((): { start: string; end: string } | null => {
     if (timePreset === 'all') return null
     if (timePreset === 'custom' && customRange) {
@@ -136,9 +137,9 @@ export default function GISMap() {
       params.time_start = timeRange.start
       params.time_end = timeRange.end
     }
-    const cacheKey = `gis:sites:${selectedRegion || ''}:${timeRange?.start || ''}:${timeRange?.end || ''}`
+    const cacheKey = `gis:${mode}:sites:${selectedRegion || ''}:${timeRange?.start || ''}:${timeRange?.end || ''}`
 
-    cachedGet(cacheKey, () => api.get('/gis/sites', { params }))
+    cachedGet(cacheKey, () => api.get(mode === 'realtime' ? '/gis/realtime/sites' : '/gis/sites', { params }))
       .then(res => {
         setSites(res.data.sites || [])
         if (regions.length === 0) setRegions(res.data.regions || [])
@@ -149,7 +150,6 @@ export default function GISMap() {
       .finally(() => setLoading(false))
   }
 
-  // 加载拓扑数据
   useEffect(() => {
     if (showTopology && topologyLinks.length === 0) {
       api.get('/gis/topology')
@@ -158,7 +158,6 @@ export default function GISMap() {
     }
   }, [showTopology])
 
-  // 加载Region边界（全局数据，缓存避免切页重复请求）
   useEffect(() => {
     cachedGet('gis:region-boundaries', () => api.get('/gis/region-boundaries'))
       .then(res => setRegionBoundaries(res.data.regions || []))
@@ -170,7 +169,7 @@ export default function GISMap() {
     setDrilldownLoading(true)
     setDrawerVisible(true)
 
-    api.get(`/gis/drilldown/${site.site_id}`)
+    api.get(`/${mode === 'realtime' ? 'gis/realtime/drilldown' : 'gis/drilldown'}/${site.site_id}`)
       .then(res => setDrilldown(res.data))
       .catch(() => setDrilldown(null))
       .finally(() => setDrilldownLoading(false))
@@ -179,35 +178,49 @@ export default function GISMap() {
   const toggleLegend = (key: LegendKey) => {
     setHiddenLegends(prev => {
       const next = new Set(prev)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
-      }
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
 
   const getSiteCategory = (site: Site): LegendKey => {
+    if (mode === 'realtime') {
+      // 实时告警地图：TT/WO 由实时告警 tt_id 派生，优先着色以直观体现关联
+      if (activeLayers.has('tt') && (site.rt_tt_count || 0) > 0) return 'tt'
+      if (activeLayers.has('wo') && (site.rt_wo_count || 0) > 0) return 'wo'
+      if (activeLayers.has('rt_alarm') && site.rt_alarm_count > 0) return 'rt_alarm'
+      if (site.vip_site === 'Y' || site.vip_site === 'Yes') return 'vip'
+      return 'normal'
+    }
     if (activeLayers.has('rt_alarm') && site.rt_alarm_count > 0) return 'rt_alarm'
     if (activeLayers.has('his_alarm') && site.his_alarm_count > 0) return 'his_alarm'
-    if (activeLayers.has('tt') && site.open_tt > 5) return 'critical'
-    if (activeLayers.has('tt') && site.open_tt > 0) return 'warning'
+    if (activeLayers.has('tt') && site.open_tt > 0) return 'tt'
+    if (activeLayers.has('wo') && site.wo_count > 0) return 'wo'
     if (site.vip_site === 'Y' || site.vip_site === 'Yes') return 'vip'
     return 'normal'
   }
 
   const filteredSites = useMemo(() => {
     return sites.filter(site => {
-      // 图例筛选
-      if (hiddenLegends.has(getSiteCategory(site))) return false
-      // 多列筛选
+      if (mode === 'realtime') {
+        const cats = [
+          site.rt_alarm_count > 0 && 'rt_alarm',
+          (site.rt_tt_count || 0) > 0 && 'tt',
+          (site.rt_wo_count || 0) > 0 && 'wo',
+          (site.vip_site === 'Y' || site.vip_site === 'Yes') && 'vip',
+        ].filter(Boolean) as LegendKey[]
+        const visible = cats.some(c => activeLayers.has(c as LayerKey) && !hiddenLegends.has(c))
+        if (!visible) return false
+      } else {
+        if (hiddenLegends.has(getSiteCategory(site))) return false
+      }
       for (const [key, val] of Object.entries(selectedFilters)) {
         if (val && (site as any)[key] !== val) return false
       }
       return true
     })
-  }, [sites, hiddenLegends, selectedFilters])
+  }, [sites, hiddenLegends, selectedFilters, activeLayers, mode])
 
   const center: [number, number] = sites.length > 0
     ? [
@@ -219,19 +232,32 @@ export default function GISMap() {
   const getMarkerColor = (site: Site) => {
     const cat = getSiteCategory(site)
     switch (cat) {
-      case 'rt_alarm': return '#f5222d'
-      case 'his_alarm': return '#fa541c'
-      case 'critical': return '#ff4d4f'
-      case 'warning': return '#faad14'
-      case 'vip': return '#722ed1'
-      default: return '#52c41a'
+      case 'rt_alarm': return '#ff6b6b'
+      case 'his_alarm': return '#ffa94d'
+      case 'tt': return '#4fc3f7'
+      case 'wo': return '#51cf66'
+      case 'vip': return '#b197fc'
+      default: return '#94a3b8'
     }
   }
 
   const getMarkerRadius = (site: Site) => {
-    // 有实时告警的站点更大更醒目
+    if (mode === 'realtime') {
+      const ttVal = site.rt_tt_count || 0
+      const woVal = site.rt_wo_count || 0
+      if (activeLayers.has('tt') && ttVal > 5) return 9
+      if (activeLayers.has('tt') && ttVal > 0) return 7
+      if (activeLayers.has('wo') && woVal > 5) return 8
+      if (activeLayers.has('wo') && woVal > 0) return 6
+      if (activeLayers.has('rt_alarm') && site.rt_alarm_count > 0) return 10
+      return 4
+    }
     if (activeLayers.has('rt_alarm') && site.rt_alarm_count > 0) return 10
     if (activeLayers.has('his_alarm') && site.his_alarm_count > 5) return 9
+    if (activeLayers.has('tt') && site.open_tt > 5) return 9
+    if (activeLayers.has('tt') && site.open_tt > 0) return 7
+    if (activeLayers.has('wo') && site.wo_count > 5) return 8
+    if (activeLayers.has('wo') && site.wo_count > 0) return 6
     const total = site.tt_count + site.wo_count
     if (total > 50) return 10
     if (total > 20) return 8
@@ -245,16 +271,14 @@ export default function GISMap() {
   }, {})
 
   const presetOptions = [
-    { value: 'all', label: t('gis.timeAll') },
-    { value: '7d', label: t('gis.timeLast7') },
-    { value: '30d', label: t('gis.timeLast30') },
-    { value: '90d', label: t('gis.timeLast90') },
-    { value: '180d', label: t('gis.timeLast180') },
-    { value: 'custom', label: t('gis.timeCustom') },
+    { value: 'all', label: <span style={{ color: timePreset === 'all' ? WH.teal : WH.text }}>{t('gis.timeAll')}</span> },
+    { value: '7d', label: <span style={{ color: timePreset === '7d' ? WH.teal : WH.text }}>{t('gis.timeLast7')}</span> },
+    { value: '30d', label: <span style={{ color: timePreset === '30d' ? WH.teal : WH.text }}>{t('gis.timeLast30')}</span> },
+    { value: '90d', label: <span style={{ color: timePreset === '90d' ? WH.teal : WH.text }}>{t('gis.timeLast90')}</span> },
+    { value: '180d', label: <span style={{ color: timePreset === '180d' ? WH.teal : WH.text }}>{t('gis.timeLast180')}</span> },
+    { value: 'custom', label: <span style={{ color: timePreset === 'custom' ? WH.teal : WH.text }}>{t('gis.timeCustom')}</span> },
   ]
 
-  // 统计当前时间窗口内的分类数量
-  // 筛选列配置
   const FILTER_CONFIG = [
     { key: 'trm_type', label: 'TRM Type' },
     { key: 'site_type', label: 'Site Type' },
@@ -277,23 +301,32 @@ export default function GISMap() {
   }
 
   const categoryCounts = useMemo(() => {
-    const counts = { critical: 0, warning: 0, vip: 0, normal: 0, rt_alarm: 0, his_alarm: 0 }
-    sites.forEach(s => {
-      counts[getSiteCategory(s)]++
-    })
+    const counts = { tt: 0, wo: 0, vip: 0, normal: 0, rt_alarm: 0, his_alarm: 0 }
+    if (mode === 'realtime') {
+      sites.forEach(s => {
+        if (s.rt_alarm_count > 0) counts.rt_alarm++
+        if ((s.rt_tt_count || 0) > 0) counts.tt++
+        if ((s.rt_wo_count || 0) > 0) counts.wo++
+        if (s.vip_site === 'Y' || s.vip_site === 'Yes') counts.vip++
+        else if (s.rt_alarm_count === 0 && (s.rt_tt_count || 0) === 0 && (s.rt_wo_count || 0) === 0) counts.normal++
+      })
+    } else {
+      sites.forEach(s => {
+        counts[getSiteCategory(s)]++
+      })
+    }
     return counts
-  }, [sites, activeLayers])
+  }, [sites, activeLayers, mode])
 
   const legendItems: { key: LegendKey; color: string; label: string; count: number }[] = [
-    { key: 'rt_alarm', color: '#f5222d', label: t('gis.legend.rtAlarm'), count: categoryCounts.rt_alarm },
-    { key: 'his_alarm', color: '#fa541c', label: t('gis.legend.hisAlarm'), count: categoryCounts.his_alarm },
-    { key: 'critical', color: '#ff4d4f', label: t('gis.legend.critical'), count: categoryCounts.critical },
-    { key: 'warning', color: '#faad14', label: t('gis.legend.warning'), count: categoryCounts.warning },
-    { key: 'vip', color: '#722ed1', label: t('gis.legend.vip'), count: categoryCounts.vip },
-    { key: 'normal', color: '#52c41a', label: t('gis.legend.normal'), count: categoryCounts.normal },
-  ]
+    { key: 'rt_alarm', color: '#ff6b6b', label: t('gis.legend.rtAlarm'), count: categoryCounts.rt_alarm },
+    { key: 'his_alarm', color: '#ffa94d', label: t('gis.legend.hisAlarm'), count: categoryCounts.his_alarm },
+    { key: 'tt', color: '#4fc3f7', label: t('gis.legend.tt'), count: categoryCounts.tt },
+    { key: 'wo', color: '#51cf66', label: t('gis.legend.wo'), count: categoryCounts.wo },
+    { key: 'vip', color: '#b197fc', label: t('gis.legend.vip'), count: categoryCounts.vip },
+    { key: 'normal', color: '#94a3b8', label: t('gis.legend.normal'), count: categoryCounts.normal },
+  ].filter(item => mode === 'realtime' ? item.key !== 'his_alarm' : true) as { key: LegendKey; color: string; label: string; count: number }[]
 
-  // 图层切换
   const toggleLayer = (key: LayerKey) => {
     setActiveLayers(prev => {
       const next = new Set(prev)
@@ -304,13 +337,12 @@ export default function GISMap() {
   }
 
   const layerOptions: { key: LayerKey; label: string; color: string }[] = [
-    { key: 'rt_alarm', label: t('gis.layer.rtAlarm'), color: '#f5222d' },
-    { key: 'his_alarm', label: t('gis.layer.hisAlarm'), color: '#fa541c' },
-    { key: 'tt', label: t('gis.layer.tt'), color: '#1677ff' },
-    { key: 'wo', label: t('gis.layer.wo'), color: '#52c41a' },
-  ]
+    { key: 'rt_alarm', label: t('gis.layer.rtAlarm'), color: '#ff6b6b' },
+    { key: 'his_alarm', label: t('gis.layer.hisAlarm'), color: '#ffa94d' },
+    { key: 'tt', label: t('gis.layer.tt'), color: '#4fc3f7' },
+    { key: 'wo', label: t('gis.layer.wo'), color: '#51cf66' },
+  ].filter(lo => mode === 'realtime' ? lo.key !== 'his_alarm' : true) as { key: LayerKey; label: string; color: string }[]
 
-  // 模糊搜索过滤
   const filterBySearch = (data: any[], search: string) => {
     if (!search.trim()) return data
     const lower = search.toLowerCase()
@@ -339,7 +371,6 @@ export default function GISMap() {
     return filterBySearch(drilldown.his_alarm_list, hisAlarmSearch)
   }, [drilldown?.his_alarm_list, hisAlarmSearch])
 
-  // 导出Excel
   const exportToExcel = useCallback((data: any[], filename: string, columns: { title: string; dataIndex: string }[]) => {
     if (!data.length) return
     const header = columns.map(c => c.title)
@@ -349,27 +380,23 @@ export default function GISMap() {
       return v == null ? '' : String(v)
     }))
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows])
-    // 设置列宽
     ws['!cols'] = columns.map(() => ({ wch: 18 }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, filename)
     XLSX.writeFile(wb, `${filename}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`)
   }, [])
 
-  // 通用排序器
   const strSorter = (a: any, b: any, key: string) => {
     const va = a[key] ?? '', vb = b[key] ?? ''
     return String(va).localeCompare(String(vb))
   }
 
-  // 生成唯一filter列表
   const getUniqueFilters = (data: any[], key: string) => {
     const vals = new Set<string>()
     data.forEach(r => { if (r[key] != null && r[key] !== '') vals.add(String(r[key])) })
     return Array.from(vals).map(v => ({ text: v, value: v }))
   }
 
-  // TT表格列定义
   const ttColumns = useMemo(() => {
     const data = drilldown?.tt_list || []
     return [
@@ -383,7 +410,7 @@ export default function GISMap() {
       { title: t('gis.drilldown.colStatus'), dataIndex: 'status', key: 'status', width: 80,
         sorter: (a: any, b: any) => strSorter(a, b, 'status'),
         filters: getUniqueFilters(data, 'status'), onFilter: (v: any, r: any) => r.status === v,
-        render: (v: string) => <Tag>{v}</Tag> },
+        render: (v: string) => <Tag color="cyan">{v}</Tag> },
       { title: t('gis.drilldown.colCreator'), dataIndex: 'creator', key: 'creator', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'creator'),
         filters: getUniqueFilters(data, 'creator'), onFilter: (v: any, r: any) => r.creator === v },
       { title: t('gis.drilldown.colSeverity'), dataIndex: 'ticket_severity', key: 'ticket_severity', width: 90,
@@ -408,7 +435,6 @@ export default function GISMap() {
     ]
   }, [drilldown?.tt_list, t])
 
-  // WO表格列定义
   const woColumns = useMemo(() => {
     const data = drilldown?.wo_list || []
     return [
@@ -418,7 +444,7 @@ export default function GISMap() {
       { title: t('gis.drilldown.colStatus'), dataIndex: 'status', key: 'status', width: 80,
         sorter: (a: any, b: any) => strSorter(a, b, 'status'),
         filters: getUniqueFilters(data, 'status'), onFilter: (v: any, r: any) => r.status === v,
-        render: (v: string) => <Tag>{v}</Tag> },
+        render: (v: string) => <Tag color="cyan">{v}</Tag> },
       { title: t('gis.drilldown.colCreator'), dataIndex: 'creator', key: 'creator', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'creator'),
         filters: getUniqueFilters(data, 'creator'), onFilter: (v: any, r: any) => r.creator === v },
       { title: t('gis.drilldown.colCreated'), dataIndex: 'created_time', key: 'created_time', width: 140, sorter: (a: any, b: any) => strSorter(a, b, 'created_time') },
@@ -454,58 +480,95 @@ export default function GISMap() {
     ]
   }, [drilldown?.wo_list, t])
 
-  // 实时告警表格列定义
-  const rtAlarmColumns = useMemo(() => [
-    { title: 'Alarm Title', dataIndex: 'alarm_title', key: 'alarm_title', ellipsis: true, width: 180, sorter: (a: any, b: any) => strSorter(a, b, 'alarm_title') },
-    { title: 'Code Name', dataIndex: 'codename', key: 'codename', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'codename') },
-    { title: 'Severity', dataIndex: 'perceivedseverity', key: 'perceivedseverity', width: 80,
-      sorter: (a: any, b: any) => (a.perceivedseverity || 0) - (b.perceivedseverity || 0),
-      render: (v: number) => {
-        const map: Record<number, { label: string; color: string }> = { 1: { label: 'Critical', color: 'red' }, 2: { label: 'Major', color: 'orange' }, 3: { label: 'Warning', color: 'gold' }, 4: { label: 'Info', color: 'blue' } }
-        const item = map[v] || { label: `P${v}`, color: 'default' }
-        return <Tag color={item.color}>{item.label}</Tag>
-      } },
-    { title: 'Duration', dataIndex: 'durationname', key: 'durationname', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'durationname') },
-    { title: 'Alarm Raised', dataIndex: 'alarmraisedtime', key: 'alarmraisedtime', width: 160,
-      sorter: (a: any, b: any) => (a.alarmraisedtime || 0) - (b.alarmraisedtime || 0),
-      defaultSortOrder: 'descend' as const,
-      render: (v: number) => v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '-' },
-    { title: 'NE Type', dataIndex: 'restypename', key: 'restypename', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'restypename') },
-    { title: 'Network', dataIndex: 'networktype', key: 'networktype', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'networktype') },
-    { title: 'Site Attr', dataIndex: 'site_attribute', key: 'site_attribute', width: 90, sorter: (a: any, b: any) => strSorter(a, b, 'site_attribute') },
-    { title: 'Site Status', dataIndex: 'site_status', key: 'site_status', width: 90, sorter: (a: any, b: any) => strSorter(a, b, 'site_status') },
-    { title: 'NE IP', dataIndex: 'neip', key: 'neip', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'neip') },
-  ], [])
+  // 动态构建告警列：展示下钻接口返回的全部列（后端现已 SELECT *）
+  const ALARM_COL_TITLES: Record<string, string> = {
+    alarm_title: 'Alarm Title', codename: 'Code Name', perceivedseverity: 'Severity',
+    perceivedseverityname: 'Severity Name', durationname: 'Duration', duration: 'Duration(s)',
+    alarmraisedtime: 'Alarm Raised', servertime: 'Server Time', alarmchangedtime: 'Alarm Changed',
+    acktime: 'Ack Time', assigned_time: 'Assigned Time', assigned_status: 'Assigned Status',
+    assign_start_time: 'Assign Start', assign_delay: 'Assign Delay', assigned_user: 'Assigned User',
+    tt_id: 'TT ID', tt_info: 'TT Info', site_id: 'Site ID', site_name: 'Site Name',
+    site_status: 'Site Status', site_attribute: 'Site Attr', site_class: 'Site Class',
+    site_vip_level: 'VIP Level', networktype: 'Network', restypename: 'NE Type', restype: 'RE Type',
+    neip: 'NE IP', region: 'Region', division: 'Division', district: 'District', thana: 'Thana',
+    province: 'Province', ran_type: 'RAN Type', transmission_type: 'Transmission', moc: 'MOC',
+    mocname: 'MOC Name', alarmtype: 'Alarm Type', alarmtypename: 'Alarm Type Name',
+    alarmcode: 'Alarm Code', reasoncode: 'Reason Code', reasonname: 'Reason Name',
+    ackstate: 'Ack State', clearstate: 'Clear State', positionname: 'Position',
+    object_name: 'Object Name', me: 'ME', mename: 'ME Name', vendor: 'Vendor',
+    additionaltext: 'Additional Text', alarmsource: 'Alarm Source', alarm_source: 'Alarm Source',
+    ackstatename: 'Ack State Name', clearstatename: 'Clear State Name', admc: 'ADMC',
+    admcname: 'ADMC Name', subcenter: 'Sub Center', circle: 'Circle',
+  }
+  const humanizeCol = (col: string): string =>
+    ALARM_COL_TITLES[col] || col.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 
-  // 历史告警表格列定义
-  const hisAlarmColumns = useMemo(() => [
-    { title: 'Alarm Title', dataIndex: 'alarm_title', key: 'alarm_title', ellipsis: true, width: 180, sorter: (a: any, b: any) => strSorter(a, b, 'alarm_title') },
-    { title: 'Code Name', dataIndex: 'codename', key: 'codename', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'codename') },
-    { title: 'Severity', dataIndex: 'perceivedseverity', key: 'perceivedseverity', width: 80,
-      sorter: (a: any, b: any) => (a.perceivedseverity || 0) - (b.perceivedseverity || 0),
-      render: (v: number) => {
-        const map: Record<number, { label: string; color: string }> = { 1: { label: 'Critical', color: 'red' }, 2: { label: 'Major', color: 'orange' }, 3: { label: 'Warning', color: 'gold' }, 4: { label: 'Info', color: 'blue' } }
-        const item = map[v] || { label: `P${v}`, color: 'default' }
-        return <Tag color={item.color}>{item.label}</Tag>
-      } },
-    { title: 'Duration', dataIndex: 'durationname', key: 'durationname', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'durationname') },
-    { title: 'Alarm Raised', dataIndex: 'alarmraisedtime', key: 'alarmraisedtime', width: 160,
-      sorter: (a: any, b: any) => (a.alarmraisedtime || 0) - (b.alarmraisedtime || 0),
-      defaultSortOrder: 'descend' as const,
-      render: (v: number) => v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '-' },
-    { title: 'TT ID', dataIndex: 'tt_id', key: 'tt_id', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'tt_id') },
-    { title: 'Assign Delay', dataIndex: 'assign_delay', key: 'assign_delay', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'assign_delay') },
-    { title: 'NE Type', dataIndex: 'restypename', key: 'restypename', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'restypename') },
-    { title: 'Site Attr', dataIndex: 'site_attribute', key: 'site_attribute', width: 90, sorter: (a: any, b: any) => strSorter(a, b, 'site_attribute') },
-  ], [])
+  const fmtTs = (v: any): string => {
+    if (v == null) return '-'
+    if (typeof v === 'number') {
+      let ms = v
+      if (v > 1e11) ms = v
+      else if (v > 1e8) ms = v * 1000
+      else return String(v)
+      const d = dayjs(ms)
+      return d.isValid() ? d.format('YYYY-MM-DD HH:mm:ss') : String(v)
+    }
+    return String(v)
+  }
+
+  const isTsCol = (col: string): boolean => col.endsWith('time') || col === 'duration'
+
+  const buildAlarmColumns = (rows: any[]) => {
+    if (!rows || rows.length === 0) return []
+    const keys = Object.keys(rows[0])
+    return keys.map(k => {
+      const isTs = isTsCol(k)
+      const isSev = k === 'perceivedseverity'
+      const isLong = ['additionaltext', 'tt_info', 'respath', 'root_cause_description',
+        'alarm_title', 'commenttext', 'operations', 'link_path', 'impact_site_list', 'alarmsource'].includes(k)
+      return {
+        title: humanizeCol(k),
+        dataIndex: k,
+        key: k,
+        width: isLong ? 200 : isTs ? 170 : 130,
+        ellipsis: isLong,
+        sorter: (a: any, b: any) => {
+          const av = a[k], bv = b[k]
+          if (av == null) return bv == null ? 0 : -1
+          if (bv == null) return 1
+          if (typeof av === 'number' && typeof bv === 'number') return av - bv
+          return String(av).localeCompare(String(bv))
+        },
+        render: (v: any) => {
+          if (isSev) {
+            const map: Record<number, { label: string; color: string }> = {
+              1: { label: 'Critical', color: 'red' }, 2: { label: 'Major', color: 'orange' },
+              3: { label: 'Warning', color: 'gold' }, 4: { label: 'Info', color: 'blue' },
+            }
+            const item = map[v] || { label: `P${v}`, color: 'default' }
+            return <Tag color={item.color}>{item.label}</Tag>
+          }
+          if (isTs) return fmtTs(v)
+          if (v == null) return '-'
+          if (typeof v === 'string' && v.length > 60) return <span title={v}>{v.slice(0, 60)}…</span>
+          return v
+        },
+      }
+    })
+  }
+
+  const rtAlarmColumns = useMemo(() => buildAlarmColumns(drilldown?.rt_alarm_list || []), [drilldown?.rt_alarm_list])
+  const hisAlarmColumns = useMemo(() => buildAlarmColumns(drilldown?.his_alarm_list || []), [drilldown?.his_alarm_list])
+
+  const labelStyle = { color: WH.textMuted, fontSize: 13, fontWeight: 500 }
 
   return (
-    <div>
-      <Card style={{ marginBottom: 16 }}>
+    <div style={pageWrap}>
+      <Card style={controlCardStyle} styles={{ body: { padding: 16 } }}>
         <Row gutter={[16, 12]} align="middle">
           <Col>
             <Space size="middle" wrap>
-              <span>{t('gis.regionFilter')}</span>
+              <span style={labelStyle}>{t('gis.regionFilter')}</span>
               <Select
                 value={selectedRegion}
                 onChange={setSelectedRegion}
@@ -514,7 +577,7 @@ export default function GISMap() {
                 placeholder={t('gis.allRegions')}
                 options={regions.map(r => ({ value: r, label: `${r} (${regionStats[r] || 0})` }))}
               />
-              <Tag color="blue">{t('gis.totalSites')}: {sites.length}</Tag>
+              <Tag color="cyan">{t('gis.totalSites')}: {sites.length}</Tag>
               <Tooltip title={t('datasource.lastSync')}>
                 <Tag color={isSynced ? 'green' : 'red'}>
                   {isSynced ? t('datasource.synced') : t('datasource.notSynced')}
@@ -525,26 +588,18 @@ export default function GISMap() {
                 <Tag color="geekblue">{t('datasource.latestData')}: {latestData}</Tag>
               </Tooltip>
               <Space size={4}>
-                <Switch
-                  size="small"
-                  checked={showTopology}
-                  onChange={setShowTopology}
-                />
-                <span style={{ fontSize: 13 }}>{t('gis.topologyToggle')}</span>
+                <Switch size="small" checked={showTopology} onChange={setShowTopology} />
+                <span style={{ fontSize: 13, color: WH.text }}>{t('gis.topologyToggle')}</span>
               </Space>
               <Space size={4}>
-                <Switch
-                  size="small"
-                  checked={showRegions}
-                  onChange={setShowRegions}
-                />
-                <span style={{ fontSize: 13 }}>{t('gis.regionOverlay')}</span>
+                <Switch size="small" checked={showRegions} onChange={setShowRegions} />
+                <span style={{ fontSize: 13, color: WH.text }}>{t('gis.regionOverlay')}</span>
               </Space>
             </Space>
           </Col>
           <Col>
             <Space size="small" wrap>
-              <span style={{ fontSize: 13, fontWeight: 500 }}>{t('gis.layerFilter')}</span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: WH.text }}>{t('gis.layerFilter')}</span>
               {layerOptions.map(lo => (
                 <Tag
                   key={lo.key}
@@ -567,12 +622,13 @@ export default function GISMap() {
           </Col>
           <Col>
             <Space size="small" wrap>
-              <span>{t('gis.timeFilter')}</span>
+              <span style={labelStyle}>{t('gis.timeFilter')}</span>
               <Segmented
                 value={timePreset}
                 onChange={(v) => setTimePreset(v as TimePreset)}
                 options={presetOptions}
                 size="small"
+                style={{ background: 'rgba(255,255,255,0.06)' }}
               />
               {timePreset === 'custom' && (
                 <DatePicker.RangePicker
@@ -607,6 +663,7 @@ export default function GISMap() {
                   fontSize: 12,
                   transition: 'opacity 0.2s',
                   marginRight: 16,
+                  color: WH.text,
                 }}
               >
                 <span style={{
@@ -617,24 +674,28 @@ export default function GISMap() {
                   backgroundColor: item.color,
                 }} />
                 {item.label} ({item.count})
-                {hidden && <span style={{ fontSize: 10, color: '#999' }}>({t('gis.legend.hidden')})</span>}
+                {hidden && <span style={{ fontSize: 10, color: WH.textDim }}>({t('gis.legend.hidden')})</span>}
               </span>
             )
           })}
           {showTopology && (
             <>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, marginRight: 16 }}>
-                <span style={{ display: 'inline-block', width: 20, height: 3, backgroundColor: '#ff6b35', borderRadius: 2 }} />
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, marginRight: 16, color: WH.text }}>
+                <span style={{ display: 'inline-block', width: 20, height: 3, backgroundColor: '#ff6b6b', borderRadius: 2 }} />
                 {t('gis.topologyHubLink')} ({topologyLinks.filter(l => l.is_hub_link).length})
               </span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, marginRight: 16 }}>
-                <span style={{ display: 'inline-block', width: 20, height: 2, backgroundColor: '#4a90d9', borderRadius: 1 }} />
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, marginRight: 16, color: WH.text }}>
+                <span style={{ display: 'inline-block', width: 20, height: 2, backgroundColor: '#4fc3f7', borderRadius: 1 }} />
                 {t('gis.topologyNormalLink')} ({topologyLinks.filter(l => !l.is_hub_link).length})
               </span>
             </>
           )}
         </div>
-        {/* 多列筛选器 */}
+        <div style={{ marginTop: 6 }}>
+          <span style={{ fontSize: 11, color: WH.textDim }}>
+            {t('gis.legendNote')}
+          </span>
+        </div>
         <div style={{ marginTop: 8 }}>
           <Space size={8} wrap>
             <Button
@@ -647,12 +708,12 @@ export default function GISMap() {
               {activeFilterCount > 0 && <Badge count={activeFilterCount} size="small" style={{ marginLeft: 4 }} />}
             </Button>
             {activeFilterCount > 0 && (
-              <Button size="small" type="link" onClick={clearAllFilters}>
+              <Button size="small" type="link" onClick={clearAllFilters} style={{ color: WH.teal }}>
                 {t('gis.clearFilters')}
               </Button>
             )}
             {activeFilterCount > 0 && (
-              <Tag color="blue">{t('gis.totalSites')}: {filteredSites.length}/{sites.length}</Tag>
+              <Tag color="cyan">{t('gis.totalSites')}: {filteredSites.length}/{sites.length}</Tag>
             )}
           </Space>
           {showFilters && (
@@ -683,14 +744,14 @@ export default function GISMap() {
         </div>
       </Card>
 
-      <Card styles={{ body: { padding: 0 } }}>
+      <Card styles={{ body: { padding: 0 } }} style={{ ...cardStyle, overflow: 'hidden' }}>
         {loading ? (
           <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />
         ) : (
           <MapContainer
             center={center}
             zoom={8}
-            style={{ height: 'calc(100vh - 290px)', width: '100%' }}
+            style={{ height: 'calc(100vh - 290px)', width: '100%', background: '#0a1929' }}
             scrollWheelZoom={true}
           >
             <TileLayer
@@ -698,9 +759,11 @@ export default function GISMap() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             <MapController center={center} zoom={8} />
+            <Pane name="sitePane" style={{ zIndex: 650 }} />
             {filteredSites.map(site => (
               <CircleMarker
                 key={site.site_id}
+                pane="sitePane"
                 center={[site.lat, site.lng]}
                 radius={getMarkerRadius(site)}
                 fillColor={getMarkerColor(site)}
@@ -716,14 +779,22 @@ export default function GISMap() {
                     {t('gis.popup.region')}: {site.region}<br />
                     {t('gis.popup.type')}: {site.site_type} | {site.network_type}<br />
                     {activeLayers.has('rt_alarm') && site.rt_alarm_count > 0 && (
-                      <span style={{ color: '#f5222d', fontWeight: 600 }}>⚠ {t('gis.popup.rtAlarm')}: {site.rt_alarm_count}<br /></span>
+                      <span style={{ color: '#ff6b6b', fontWeight: 600 }}>⚠ {t('gis.popup.rtAlarm')}: {site.rt_alarm_count}<br /></span>
                     )}
-                    {activeLayers.has('his_alarm') && site.his_alarm_count > 0 && (
-                      <span style={{ color: '#fa541c' }}>{t('gis.popup.hisAlarm')}: {site.his_alarm_count}<br /></span>
+                    {mode === 'all' && activeLayers.has('his_alarm') && site.his_alarm_count > 0 && (
+                      <span style={{ color: '#ffa94d' }}>{t('gis.popup.hisAlarm')}: {site.his_alarm_count}<br /></span>
                     )}
-                    {activeLayers.has('tt') && <>TT: {site.tt_count} (Open: {site.open_tt})<br /></>}
-                    {activeLayers.has('wo') && <>WO: {site.wo_count}<br /></>}
-                    <em style={{ color: '#1677ff' }}>{t('gis.popup.clickDetail')}</em>
+                    {(() => {
+                      const ttVal = mode === 'realtime' ? (site.rt_tt_count || 0) : site.tt_count
+                      const woVal = mode === 'realtime' ? (site.rt_wo_count || 0) : site.wo_count
+                      return (
+                        <>
+                          {activeLayers.has('tt') && <>TT: {ttVal} (Open: {mode === 'realtime' ? ttVal : site.open_tt})<br /></>}
+                          {activeLayers.has('wo') && <>WO: {woVal}<br /></>}
+                        </>
+                      )
+                    })()}
+                    <em style={{ color: '#4fc3f7' }}>{t('gis.popup.clickDetail')}</em>
                   </div>
                 </Popup>
               </CircleMarker>
@@ -746,7 +817,7 @@ export default function GISMap() {
                 key={`topo-${idx}`}
                 positions={[[link.lat_a, link.lng_a], [link.lat_b, link.lng_b]]}
                 pathOptions={{
-                  color: link.is_hub_link ? '#ff6b35' : '#4a90d9',
+                  color: link.is_hub_link ? '#ff6b6b' : '#4fc3f7',
                   weight: link.is_hub_link ? 3 : 1.5,
                   opacity: 0.6,
                 }}
@@ -758,12 +829,16 @@ export default function GISMap() {
 
       <Drawer
         title={
-          <span>
+          <span style={{ color: WH.text }}>
             {t('gis.drilldown.title')} - {drilldown?.site_info?.site_name || selectedSite}
             {drilldown?.site_info?.vip_site === 'Yes' && <Tag color="purple" style={{ marginLeft: 8 }}>VIP</Tag>}
           </span>
         }
-        styles={{ wrapper: { width: 720 } }}
+        styles={{
+          wrapper: { width: 720 },
+          body: { background: WH.bg },
+          header: { background: '#0a1929', borderBottom: '1px solid rgba(100,255,218,0.15)' },
+        }}
         open={drawerVisible}
         onClose={() => setDrawerVisible(false)}
       >
@@ -771,47 +846,64 @@ export default function GISMap() {
           <Spin style={{ display: 'block', margin: '50px auto' }} />
         ) : drilldown ? (
           <div>
-            <Card size="small" title={t('gis.drilldown.basicInfo')} style={{ marginBottom: 16 }}>
+            <Card size="small" title={<span style={{ color: WH.text }}>{t('gis.drilldown.basicInfo')}</span>} style={{ ...cardStyle, marginBottom: 16 }}>
               <Descriptions column={2} size="small">
-                <Descriptions.Item label={t('gis.drilldown.siteId')}>{drilldown.site_info.site_id}</Descriptions.Item>
-                <Descriptions.Item label={t('gis.drilldown.siteName')}>{drilldown.site_info.site_name}</Descriptions.Item>
-                <Descriptions.Item label={t('gis.drilldown.region')}>{drilldown.site_info.region}</Descriptions.Item>
-                <Descriptions.Item label={t('gis.drilldown.province')}>{drilldown.site_info.province_county}</Descriptions.Item>
-                <Descriptions.Item label={t('gis.drilldown.networkType')}>{drilldown.site_info.network_type}</Descriptions.Item>
-                <Descriptions.Item label={t('gis.drilldown.siteType')}>{drilldown.site_info.site_type}</Descriptions.Item>
-                <Descriptions.Item label={t('gis.drilldown.vipSite')}>
+                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteId')}</span>}>
+                  <span style={{ color: WH.text }}>{drilldown.site_info.site_id}</span>
+                </Descriptions.Item>
+                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteName')}</span>}>
+                  <span style={{ color: WH.text }}>{drilldown.site_info.site_name}</span>
+                </Descriptions.Item>
+                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.region')}</span>}>
+                  <span style={{ color: WH.text }}>{drilldown.site_info.region}</span>
+                </Descriptions.Item>
+                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.province')}</span>}>
+                  <span style={{ color: WH.text }}>{drilldown.site_info.province_county}</span>
+                </Descriptions.Item>
+                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.networkType')}</span>}>
+                  <span style={{ color: WH.text }}>{drilldown.site_info.network_type}</span>
+                </Descriptions.Item>
+                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteType')}</span>}>
+                  <span style={{ color: WH.text }}>{drilldown.site_info.site_type}</span>
+                </Descriptions.Item>
+                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.vipSite')}</span>}>
                   {drilldown.site_info.vip_site === 'Yes' || drilldown.site_info.vip_site === 'Y'
                     ? <Tag color="purple">{t('common.yes')}</Tag>
                     : <Tag>{t('common.no')}</Tag>}
                 </Descriptions.Item>
-                <Descriptions.Item label={t('gis.drilldown.siteCategory')}>{drilldown.site_info.site_class || '-'}</Descriptions.Item>
-                <Descriptions.Item label={t('gis.drilldown.coords')}>
-                  {drilldown.site_info.latitude?.toFixed(4)}, {drilldown.site_info.longitude?.toFixed(4)}
+                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteCategory')}</span>}>
+                  <span style={{ color: WH.text }}>{drilldown.site_info.site_class || '-'}</span>
                 </Descriptions.Item>
-                <Descriptions.Item label={t('gis.drilldown.powerSource')}>{drilldown.site_info.power_sources}</Descriptions.Item>
+                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.coords')}</span>}>
+                  <span style={{ color: WH.text }}>{drilldown.site_info.latitude?.toFixed(4)}, {drilldown.site_info.longitude?.toFixed(4)}</span>
+                </Descriptions.Item>
+                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.powerSource')}</span>}>
+                  <span style={{ color: WH.text }}>{drilldown.site_info.power_sources}</span>
+                </Descriptions.Item>
               </Descriptions>
             </Card>
 
             <Row gutter={8} style={{ marginBottom: 16 }}>
               <Col span={6}>
-                <Card size="small"><Statistic title={t('gis.drilldown.totalTT')} value={drilldown.tt_count} /></Card>
+                <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.totalTT')}</span>} value={drilldown.tt_count} valueStyle={{ color: WH.teal, fontWeight: 700 }} /></Card>
               </Col>
               <Col span={6}>
-                <Card size="small"><Statistic title={t('gis.drilldown.totalWO')} value={drilldown.wo_count} /></Card>
+                <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.totalWO')}</span>} value={drilldown.wo_count} valueStyle={{ color: WH.blue, fontWeight: 700 }} /></Card>
               </Col>
               <Col span={6}>
-                <Card size="small"><Statistic title={t('gis.drilldown.rtAlarm')} value={drilldown.rt_alarm_count} valueStyle={{ color: drilldown.rt_alarm_count > 0 ? '#f5222d' : undefined }} /></Card>
+                <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.rtAlarm')}</span>} value={drilldown.rt_alarm_count} valueStyle={{ color: drilldown.rt_alarm_count > 0 ? '#ff6b6b' : WH.text, fontWeight: 700 }} /></Card>
               </Col>
               <Col span={6}>
-                <Card size="small">
+                <Card size="small" style={cardStyle}>
                   <Statistic
-                    title={t('gis.drilldown.slaAchievement')}
+                    title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.slaAchievement')}</span>}
                     value={
                       drilldown.sla_stats.total_tt > 0
                         ? Math.round((drilldown.sla_stats.sla_met || 0) / drilldown.sla_stats.total_tt * 100)
                         : 0
                     }
                     suffix="%"
+                    valueStyle={{ color: WH.teal, fontWeight: 700 }}
                   />
                 </Card>
               </Col>
@@ -821,157 +913,53 @@ export default function GISMap() {
               items={[
                 {
                   key: 'rt_alarm',
-                  label: <span><ThunderboltOutlined style={{ color: '#f5222d' }} /> {t('gis.drilldown.rtAlarmTab')} ({drilldown.rt_alarm_count})</span>,
+                  label: <span style={{ color: WH.text }}><ThunderboltOutlined style={{ color: '#ff6b6b' }} /> {t('gis.drilldown.rtAlarmTab')} ({drilldown.rt_alarm_count})</span>,
                   children: (
                     <>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <Input
-                          prefix={<SearchOutlined />}
-                          placeholder={t('table.searchPlaceholder')}
-                          allowClear
-                          size="small"
-                          style={{ width: 250 }}
-                          value={rtAlarmSearch}
-                          onChange={e => setRtAlarmSearch(e.target.value)}
-                        />
-                        <Button
-                          type="primary"
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          onClick={() => exportToExcel(
-                            filteredRtAlarm,
-                            `RT_Alarm_${drilldown.site_info?.site_name || selectedSite}`,
-                            rtAlarmColumns
-                          )}
-                        >
-                          {t('gis.exportRT')}
-                        </Button>
+                        <Input prefix={<SearchOutlined />} placeholder={t('table.searchPlaceholder')} allowClear size="small" style={{ width: 250 }} value={rtAlarmSearch} onChange={e => setRtAlarmSearch(e.target.value)} />
+                        <Button type="primary" size="small" icon={<DownloadOutlined />} onClick={() => exportToExcel(filteredRtAlarm, `RT_Alarm_${drilldown.site_info?.site_name || selectedSite}`, rtAlarmColumns)}>{t('gis.exportRT')}</Button>
                       </div>
-                      <Table
-                        dataSource={filteredRtAlarm}
-                        columns={rtAlarmColumns}
-                        size="small"
-                        rowKey={(r: any, i?: number) => `rt-${r.alarmraisedtime}-${i}`}
-                        pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }}
-                        scroll={{ x: 'max-content' }}
-                      />
+                      <Table dataSource={filteredRtAlarm} columns={rtAlarmColumns} size="small" rowKey={(r: any, i?: number) => `rt-${r.alarmraisedtime}-${i}`} pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }} scroll={{ x: 'max-content' }} />
                     </>
                   ),
                 },
-                {
+                ...(mode === 'all' ? [{
                   key: 'his_alarm',
-                  label: <span><AlertOutlined style={{ color: '#fa541c' }} /> {t('gis.drilldown.hisAlarmTab')} ({drilldown.his_alarm_count})</span>,
+                  label: <span style={{ color: WH.text }}><AlertOutlined style={{ color: '#ffa94d' }} /> {t('gis.drilldown.hisAlarmTab')} ({drilldown.his_alarm_count})</span>,
                   children: (
                     <>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <Input
-                          prefix={<SearchOutlined />}
-                          placeholder={t('table.searchPlaceholder')}
-                          allowClear
-                          size="small"
-                          style={{ width: 250 }}
-                          value={hisAlarmSearch}
-                          onChange={e => setHisAlarmSearch(e.target.value)}
-                        />
-                        <Button
-                          type="primary"
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          onClick={() => exportToExcel(
-                            filteredHisAlarm,
-                            `His_Alarm_${drilldown.site_info?.site_name || selectedSite}`,
-                            hisAlarmColumns
-                          )}
-                        >
-                          {t('gis.exportHIS')}
-                        </Button>
+                        <Input prefix={<SearchOutlined />} placeholder={t('table.searchPlaceholder')} allowClear size="small" style={{ width: 250 }} value={hisAlarmSearch} onChange={e => setHisAlarmSearch(e.target.value)} />
+                        <Button type="primary" size="small" icon={<DownloadOutlined />} onClick={() => exportToExcel(filteredHisAlarm, `His_Alarm_${drilldown.site_info?.site_name || selectedSite}`, hisAlarmColumns)}>{t('gis.exportHIS')}</Button>
                       </div>
-                      <Table
-                        dataSource={filteredHisAlarm}
-                        columns={hisAlarmColumns}
-                        size="small"
-                        rowKey={(r: any, i?: number) => `his-${r.alarmraisedtime}-${i}`}
-                        pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }}
-                        scroll={{ x: 'max-content' }}
-                      />
+                      <Table dataSource={filteredHisAlarm} columns={hisAlarmColumns} size="small" rowKey={(r: any, i?: number) => `his-${r.alarmraisedtime}-${i}`} pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }} scroll={{ x: 'max-content' }} />
                     </>
                   ),
-                },
+                }] : []),
                 {
                   key: 'tt',
-                  label: `${t('gis.drilldown.ttTab')} (${drilldown.tt_count})`,
+                  label: <span style={{ color: WH.text }}>{t('gis.drilldown.ttTab')} ({drilldown.tt_count})</span>,
                   children: (
                     <>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <Input
-                          prefix={<SearchOutlined />}
-                          placeholder={t('table.searchPlaceholder')}
-                          allowClear
-                          size="small"
-                          style={{ width: 250 }}
-                          value={ttSearch}
-                          onChange={e => setTtSearch(e.target.value)}
-                        />
-                        <Button
-                          type="primary"
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          onClick={() => exportToExcel(
-                            filteredTT,
-                            `TT_${drilldown.site_info?.site_name || selectedSite}`,
-                            ttColumns
-                          )}
-                        >
-                          {t('gis.exportTT')}
-                        </Button>
+                        <Input prefix={<SearchOutlined />} placeholder={t('table.searchPlaceholder')} allowClear size="small" style={{ width: 250 }} value={ttSearch} onChange={e => setTtSearch(e.target.value)} />
+                        <Button type="primary" size="small" icon={<DownloadOutlined />} onClick={() => exportToExcel(filteredTT, `TT_${drilldown.site_info?.site_name || selectedSite}`, ttColumns)}>{t('gis.exportTT')}</Button>
                       </div>
-                      <Table
-                        dataSource={filteredTT}
-                        columns={ttColumns}
-                        size="small"
-                        rowKey={(r: any, i?: number) => `${r.title}-${i}`}
-                        pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }}
-                        scroll={{ x: 'max-content' }}
-                      />
+                      <Table dataSource={filteredTT} columns={ttColumns} size="small" rowKey={(r: any, i?: number) => `${r.title}-${i}`} pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }} scroll={{ x: 'max-content' }} />
                     </>
                   ),
                 },
                 {
                   key: 'wo',
-                  label: `${t('gis.drilldown.woTab')} (${drilldown.wo_count})`,
+                  label: <span style={{ color: WH.text }}>{t('gis.drilldown.woTab')} ({drilldown.wo_count})</span>,
                   children: (
                     <>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <Input
-                          prefix={<SearchOutlined />}
-                          placeholder={t('table.searchPlaceholder')}
-                          allowClear
-                          size="small"
-                          style={{ width: 250 }}
-                          value={woSearch}
-                          onChange={e => setWoSearch(e.target.value)}
-                        />
-                        <Button
-                          type="primary"
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          onClick={() => exportToExcel(
-                            filteredWO,
-                            `WO_${drilldown.site_info?.site_name || selectedSite}`,
-                            woColumns
-                          )}
-                        >
-                          {t('gis.exportWO')}
-                        </Button>
+                        <Input prefix={<SearchOutlined />} placeholder={t('table.searchPlaceholder')} allowClear size="small" style={{ width: 250 }} value={woSearch} onChange={e => setWoSearch(e.target.value)} />
+                        <Button type="primary" size="small" icon={<DownloadOutlined />} onClick={() => exportToExcel(filteredWO, `WO_${drilldown.site_info?.site_name || selectedSite}`, woColumns)}>{t('gis.exportWO')}</Button>
                       </div>
-                      <Table
-                        dataSource={filteredWO}
-                        columns={woColumns}
-                        size="small"
-                        rowKey={(r: any, i?: number) => `${r.wo_no}-${i}`}
-                        pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }}
-                        scroll={{ x: 'max-content' }}
-                      />
+                      <Table dataSource={filteredWO} columns={woColumns} size="small" rowKey={(r: any, i?: number) => `${r.wo_no}-${i}`} pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }} scroll={{ x: 'max-content' }} />
                     </>
                   ),
                 },
@@ -979,7 +967,7 @@ export default function GISMap() {
             />
           </div>
         ) : (
-          <div>{t('gis.drilldown.loadError')}</div>
+          <div style={{ color: WH.textMuted }}>{t('gis.drilldown.loadError')}</div>
         )}
       </Drawer>
     </div>

@@ -415,10 +415,7 @@ def get_site_drilldown(site_id: str):
             rt_site_match = "(site_id = ? OR site_id = ?)" if site_id.isdigit() else "site_id = ?"
             rt_site_params = (site_id, int(site_id)) if site_id.isdigit() else (site_id,)
             rt_cursor = conn.execute(f"""
-                SELECT alarm_title, codename, perceivedseverity, durationname,
-                       alarmraisedtime, servertime, site_name, region,
-                       restypename, networktype, site_attribute, site_status,
-                       transmission_type, ran_type, neip
+                SELECT *
                 FROM realtime_alarm
                 WHERE {rt_site_match}
                 ORDER BY alarmraisedtime DESC
@@ -436,9 +433,7 @@ def get_site_drilldown(site_id: str):
             his_site_match = "(site_id = ? OR site_id = ?)" if site_id.isdigit() else "site_id = ?"
             his_site_params = (site_id, int(site_id)) if site_id.isdigit() else (site_id,)
             his_cursor = conn.execute(f"""
-                SELECT alarm_title, codename, perceivedseverity, durationname,
-                       alarmraisedtime, servertime, assigned_time, assign_delay,
-                       tt_id, site_name, region, restypename, site_attribute
+                SELECT *
                 FROM history_alarm
                 WHERE {his_site_match}
                 ORDER BY alarmraisedtime DESC
@@ -467,6 +462,252 @@ def get_site_drilldown(site_id: str):
             "sla_met": sla_row[2] or 0,
             "sla_violated": sla_row[3] or 0,
         },
+    }
+
+
+@router.get("/realtime/sites")
+def get_realtime_sites(
+    region: str = Query(None),
+    trm_type: str = Query(None),
+    site_type: str = Query(None),
+    area: str = Query(None),
+    hubsite: str = Query(None),
+    site_information: str = Query(None),
+    vip_site: str = Query(None),
+    supervisor: str = Query(None),
+    updated_fme_name_new: str = Query(None),
+    network_type: str = Query(None),
+    time_start: str = Query(None, description="时间窗口开始 YYYY-MM-DD"),
+    time_end: str = Query(None, description="时间窗口结束 YYYY-MM-DD"),
+):
+    """RealTime Alarm Map 站点：仅含实时告警站点，TT/WO 关联实时告警 tt_id"""
+    from datetime import datetime, timedelta
+    S = _detect_gis_schema()
+    if not S["site_table"]:
+        return {"sites": [], "total": 0, "regions": [], "filter_options": {}}
+    conn = get_raw_connection()
+    st = S["site_table"]
+
+    where_parts = [
+        "latitude IS NOT NULL", "longitude IS NOT NULL",
+        "CAST(latitude AS REAL) != 0", "CAST(longitude AS REAL) != 0",
+    ]
+    params = []
+    filter_params = {
+        "trm_type": trm_type, "site_type": site_type, "area": area,
+        "hubsite": hubsite, "site_information": site_information,
+        "vip_site": vip_site, "supervisor": supervisor,
+        "updated_fme_name_new": updated_fme_name_new,
+    }
+    for param_name, db_col, _ in _GIS_FILTER_COLS:
+        val = filter_params.get(param_name)
+        if val and db_col in S["site_cols"]:
+            where_parts.append(f"{db_col} = ?")
+            params.append(val)
+    if region:
+        where_parts.append("region = ?")
+        params.append(region)
+    if network_type and "network_type" in S["site_cols"]:
+        where_parts.append("network_type = ?")
+        params.append(network_type)
+    where_clause = " AND ".join(where_parts)
+
+    prov_sel = S["province_col"] if S["province_col"] else "NULL"
+    vip_sel = S["vip_col"] if S["vip_col"] else "NULL"
+    hub_sel = S["hub_col"] if S["hub_col"] else "NULL"
+    filter_select_parts = []
+    filter_col_indices = {}
+    base_cols = 10
+    for i, (param_name, db_col, _) in enumerate(_GIS_FILTER_COLS):
+        if db_col in S["site_cols"]:
+            filter_select_parts.append(db_col)
+            filter_col_indices[param_name] = base_cols + len(filter_select_parts) - 1
+    filter_select_sql = ", " + ", ".join(filter_select_parts) if filter_select_parts else ""
+
+    sql = f"""
+        SELECT site_id, site_name, CAST(latitude AS REAL) as lat, CAST(longitude AS REAL) as lng,
+               region, {prov_sel}, network_type, site_type, {vip_sel}, {hub_sel}{filter_select_sql}
+        FROM {st} WHERE {where_clause}
+    """
+    cursor = conn.execute(sql, params)
+    rows = cursor.fetchall()
+    regions = [r[0] for r in conn.execute(
+        f"SELECT DISTINCT region FROM {st} WHERE region IS NOT NULL AND region != '' ORDER BY region"
+    ).fetchall()]
+    filter_options = {}
+    for param_name, db_col, _ in _GIS_FILTER_COLS:
+        if db_col in S["site_cols"]:
+            vals = [r[0] for r in conn.execute(
+                f"SELECT DISTINCT {db_col} FROM {st} WHERE {db_col} IS NOT NULL AND {db_col} != '' ORDER BY {db_col}"
+            ).fetchall()]
+            filter_options[param_name] = vals
+
+    # 时间窗口作用于实时告警的 alarmraisedtime(ms)
+    rt_params: list = []
+    rt_time_where = ""
+    if time_start:
+        rt_params.append(int(datetime.strptime(time_start, "%Y-%m-%d").timestamp() * 1000))
+        rt_time_where += " AND alarmraisedtime >= ?"
+    if time_end:
+        end_dt = datetime.strptime(time_end, "%Y-%m-%d") + timedelta(days=1)
+        rt_params.append(int(end_dt.timestamp() * 1000))
+        rt_time_where += " AND alarmraisedtime < ?"
+
+    rt_alarm_stats: dict = {}
+    if S["has_realtime_alarm"]:
+        for sid, cnt in conn.execute(
+            f"SELECT CAST(site_id AS TEXT), COUNT(*) FROM realtime_alarm WHERE 1=1{rt_time_where} GROUP BY CAST(site_id AS TEXT)",
+            rt_params
+        ).fetchall():
+            rt_alarm_stats[str(sid)] = cnt or 0
+
+    site_ttids: dict = {}
+    if S["has_realtime_alarm"]:
+        for sid, tid in conn.execute(
+            f"SELECT CAST(site_id AS TEXT), tt_id FROM realtime_alarm WHERE tt_id IS NOT NULL AND tt_id != '' AND tt_id LIKE 'TT%'{rt_time_where}",
+            rt_params
+        ).fetchall():
+            site_ttids.setdefault(str(sid), []).append(tid)
+
+    site_list = []
+    for row in rows:
+        sid = str(row[0] or '')
+        rt_cnt = rt_alarm_stats.get(sid, 0)
+        if rt_cnt == 0:
+            continue
+        lat = round(float(row[2]), 6) if row[2] else 0
+        lng = round(float(row[3]), 6) if row[3] else 0
+        if lat < 0 and 0 < lng < 10:
+            lat, lng = lng, lat
+        tids = site_ttids.get(sid, [])
+        rt_tt_count = 0
+        rt_wo_count = 0
+        if tids:
+            ph = ",".join("?" * len(tids))
+            rt_tt_count = conn.execute(f"SELECT COUNT(*) FROM eflow_tt WHERE tt_no IN ({ph})", tids).fetchone()[0] or 0
+            wo_nos = [r[0] for r in conn.execute(
+                f"SELECT DISTINCT wo_no FROM eflow_tt WHERE tt_no IN ({ph}) AND wo_no IS NOT NULL AND wo_no != ''", tids
+            )]
+            if wo_nos:
+                wph = ",".join("?" * len(wo_nos))
+                rt_wo_count = conn.execute(f"SELECT COUNT(*) FROM eflow_wo WHERE wo_no IN ({wph})", wo_nos).fetchone()[0] or 0
+        site_dict = {
+            "site_id": sid, "site_name": str(row[1] or ''),
+            "lat": lat, "lng": lng,
+            "region": str(row[4] or ''), "province_county": str(row[5] or ''),
+            "network_type": str(row[6] or ''), "site_type": str(row[7] or ''),
+            "vip_site": str(row[8] or ''), "hub_site": str(row[9] or ''),
+            "tt_count": rt_tt_count, "open_tt": 0, "closed_tt": 0,
+            "wo_count": rt_wo_count, "rt_alarm_count": rt_cnt, "his_alarm_count": 0,
+            "rt_tt_count": rt_tt_count, "rt_wo_count": rt_wo_count,
+        }
+        for param_name, idx in filter_col_indices.items():
+            site_dict[param_name] = str(row[idx] or '') if idx < len(row) else ''
+        site_list.append(site_dict)
+    conn.close()
+    return {"sites": site_list, "total": len(site_list), "regions": regions, "filter_options": filter_options}
+
+
+@router.get("/realtime/drilldown/{site_id}")
+def get_realtime_drilldown(site_id: str):
+    """RealTime Alarm Map 下钻：实时告警 + 关联 tt_id 的 TT + 其 WO（无历史告警）"""
+    S = _detect_gis_schema()
+    if not S["site_table"]:
+        raise HTTPException(status_code=404, detail="站点表不存在")
+    conn = get_raw_connection()
+    st = S["site_table"]
+
+    pragma = conn.execute(f"PRAGMA table_info({st})").fetchall()
+    col_names = [c[1] for c in pragma]
+    try:
+        site_id_int = int(site_id)
+        site_match = "(site_id = ? OR site_id = ?)"
+        site_params = (site_id, site_id_int)
+    except (ValueError, TypeError):
+        site_match = "site_id = ?"
+        site_params = (site_id,)
+    site_row = conn.execute(f"SELECT * FROM {st} WHERE {site_match}", site_params).fetchone()
+    if not site_row:
+        site_match = "site_name = ?"
+        site_params = (site_id,)
+        site_row = conn.execute(f"SELECT * FROM {st} WHERE {site_match}", site_params).fetchone()
+    if not site_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"站点 {site_id} 不存在")
+    site_detail = dict(zip(col_names, site_row))
+
+    # 实时告警 tt_id 集合（本站点）
+    tids = [r[0] for r in conn.execute(
+        "SELECT DISTINCT tt_id FROM realtime_alarm WHERE CAST(site_id AS TEXT)=? AND tt_id IS NOT NULL AND tt_id != '' AND tt_id LIKE 'TT%'",
+        (str(site_id),)
+    )]
+
+    # TT 列表（动态列）
+    tt_available_cols = []
+    for col in ["title", "ticket_no", "wo_no", "site_id", "site_name", "site_class",
+                "status", "creator", "owner", "ticket_severity", "sla_time", "sla_status",
+                "region_id", "region_level1", "created_time", "alarm_occur_time",
+                "alarm_clear_time", "root_cause", "sub_root_cause",
+                "root_cause_description", "sla_remain_time", "fo_process_detail", "domain"]:
+        if col in S["tt_cols"]:
+            tt_available_cols.append(col)
+    tt_select = ", ".join(tt_available_cols) if tt_available_cols else "*"
+    tt_list = []
+    if tids:
+        ph = ",".join("?" * len(tids))
+        tt_cursor = conn.execute(
+            f"SELECT {tt_select} FROM eflow_tt WHERE ticket_no IN ({ph}) ORDER BY alarm_occur_time DESC LIMIT 50",
+            tids
+        )
+        tt_cols = [desc[0] for desc in tt_cursor.description]
+        tt_list = [dict(zip(tt_cols, r)) for r in tt_cursor.fetchall()]
+
+    # WO 列表（来自 TT 的 wo_no）
+    wo_list = []
+    wo_nos = [t.get("wo_no") for t in tt_list if t.get("wo_no")]
+    if S["has_wo"] and wo_nos:
+        wph = ",".join("?" * len(wo_nos))
+        try:
+            wo_cursor = conn.execute(f"""
+                SELECT wo_no, tt_no, title, status, creator, created_time,
+                       alarm_occur_time, alarm_clear_time, source,
+                       rc_main_category, rc_sub_category, ticket_severity
+                FROM eflow_wo WHERE wo_no IN ({wph}) ORDER BY alarm_occur_time DESC LIMIT 50
+            """, wo_nos)
+            wo_cols = [desc[0] for desc in wo_cursor.description]
+            wo_list = [dict(zip(wo_cols, r)) for r in wo_cursor.fetchall()]
+        except Exception:
+            pass
+
+    # SLA（基于关联 TT）
+    total_tt = len(tt_list)
+    closed_tt = sum(1 for t in tt_list if str(t.get("status")) == "Closed")
+    sla_met = sum(1 for t in tt_list if str(t.get("sla_status")) in ("Pass", "Within SLA"))
+    sla_violated = sum(1 for t in tt_list if str(t.get("sla_status")) == "Failed")
+
+    # 实时告警列表
+    rt_alarm_list = []
+    if S["has_realtime_alarm"]:
+        try:
+            rt_site_match = "(site_id = ? OR site_id = ?)" if str(site_id).isdigit() else "site_id = ?"
+            rt_site_params = (str(site_id), int(site_id)) if str(site_id).isdigit() else (str(site_id),)
+            rt_cursor = conn.execute(f"""
+                SELECT *
+                FROM realtime_alarm WHERE {rt_site_match} ORDER BY alarmraisedtime DESC LIMIT 100
+            """, rt_site_params)
+            rt_cols = [desc[0] for desc in rt_cursor.description]
+            rt_alarm_list = [dict(zip(rt_cols, r)) for r in rt_cursor.fetchall()]
+        except Exception:
+            pass
+
+    conn.close()
+    return {
+        "site_info": site_detail,
+        "tt_list": tt_list, "tt_count": len(tt_list),
+        "wo_list": wo_list, "wo_count": len(wo_list),
+        "rt_alarm_list": rt_alarm_list, "rt_alarm_count": len(rt_alarm_list),
+        "his_alarm_list": [], "his_alarm_count": 0,
+        "sla_stats": {"total_tt": total_tt, "closed_tt": closed_tt, "sla_met": sla_met, "sla_violated": sla_violated},
     }
 
 

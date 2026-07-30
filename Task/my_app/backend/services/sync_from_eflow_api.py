@@ -534,21 +534,18 @@ def sync_from_eflow_api() -> dict:
         dst_conn.close()
         result["success"] = len(result["errors"]) == 0
 
-        # 生成 Excel 报告并上传到 FTP
+        # 生成 Excel 报告（不上传 eflow_*.xlsx 到 FTP，仅本地保存）
         try:
             try:
                 from backend.services.eflow_api_client import generate_excel_report
             except ImportError:
                 from services.eflow_api_client import generate_excel_report
-            report_result = generate_excel_report(data=all_data, upload_ftp=True)  # TEMP 诊断：跳过 FTP 上传以定位图片生成问题
+            report_result = generate_excel_report(data=all_data, upload_ftp=False)
             if report_result.get("excel_path"):
                 logger.info(f"Excel 报告已生成: {report_result['excel_path']}")
-            if report_result.get("upload_success"):
-                logger.info("Excel 报告已上传到 FTP")
             result["excel_path"] = report_result.get("excel_path")
-            result["ftp_upload"] = report_result.get("upload_success")
         except Exception as e:
-            logger.warning(f"Excel 报告生成/上传失败: {e}")
+            logger.warning(f"Excel 报告生成失败: {e}")
             result["excel_upload_error"] = str(e)
 
         # 生成小时报告与图片（复用 mail_126.py 的方法）
@@ -572,6 +569,22 @@ def sync_from_eflow_api() -> dict:
                 logger.warning(f"小时报告生成未完成: {hourly_result.get('error', '未知错误')}")
         except Exception as e:
             logger.warning(f"小时报告生成失败: {e}")
+
+        # 上传 tt_reports 到 FTP（删除远端旧文件，只保留最新一份）
+        try:
+            try:
+                from backend.services.eflow_api_client import upload_tt_reports_to_ftp
+            except ImportError:
+                from services.eflow_api_client import upload_tt_reports_to_ftp
+            ftp_ok = upload_tt_reports_to_ftp()
+            result["ftp_upload"] = ftp_ok
+            if ftp_ok:
+                logger.info("tt_reports 已上传到 FTP（远端旧文件已清理）")
+            else:
+                logger.warning("tt_reports FTP 上传失败或部分失败")
+        except Exception as e:
+            logger.warning(f"tt_reports FTP 上传异常: {e}")
+            result["ftp_upload"] = False
 
     except Exception as e:
         err_msg = f"同步异常: {e}"

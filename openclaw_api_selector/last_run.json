@@ -1,13 +1,13 @@
 {
-  "run_at": "2026-07-28T03:07:39",
+  "run_at": "2026-07-30T03:02:43",
   "threshold_ms": 5000,
   "results": [
     {
       "key": "zhipu",
       "name": "ZhiPu GLM 智谱",
       "available": true,
-      "latency_ms": 7947,
-      "model": "glm-4-flash",
+      "latency_ms": 1279,
+      "model": "glm-4-flash-250414",
       "error": null,
       "status": "ok",
       "reason": "正常",
@@ -15,8 +15,15 @@
       "tried_models": [
         {
           "model": "glm-4-flash",
+          "ok": false,
+          "latency_ms": null,
+          "status": "timeout",
+          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
+        },
+        {
+          "model": "glm-4-flash-250414",
           "ok": true,
-          "latency_ms": 7947,
+          "latency_ms": 1279,
           "status": "ok",
           "error": null
         }
@@ -26,8 +33,8 @@
       "key": "nvidia",
       "name": "NVIDIA NIM",
       "available": true,
-      "latency_ms": 19699,
-      "model": "meta/llama-3.2-3b-instruct",
+      "latency_ms": 953,
+      "model": "meta/llama-3.1-8b-instruct",
       "error": null,
       "status": "ok",
       "reason": "正常",
@@ -35,22 +42,8 @@
       "tried_models": [
         {
           "model": "meta/llama-3.1-8b-instruct",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "llama-3.1-8b",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10054] An existing connection was forcibly closed by the remote host>"
-        },
-        {
-          "model": "meta/llama-3.2-3b-instruct",
           "ok": true,
-          "latency_ms": 19699,
+          "latency_ms": 953,
           "status": "ok",
           "error": null
         }
@@ -60,8 +53,8 @@
       "key": "openrouter",
       "name": "OpenRouter",
       "available": true,
-      "latency_ms": 35038,
-      "model": "google/gemma-4-26b-a4b-it:free",
+      "latency_ms": 2426,
+      "model": "openrouter/free",
       "error": null,
       "status": "ok",
       "reason": "正常",
@@ -69,15 +62,8 @@
       "tried_models": [
         {
           "model": "openrouter/free",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "google/gemma-4-26b-a4b-it:free",
           "ok": true,
-          "latency_ms": 35038,
+          "latency_ms": 2426,
           "status": "ok",
           "error": null
         }
@@ -89,24 +75,24 @@
       "available": false,
       "latency_ms": null,
       "model": "gemma3:27b",
-      "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti",
-      "status": "error",
-      "reason": "<urlopen error [WinError 10060] A connection attempt failed because the connecte",
+      "error": "HTTP 410",
+      "status": "http_error",
+      "reason": "HTTP 410",
       "local": false,
       "tried_models": [
         {
           "model": "gemma3:4b",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "http_error",
+          "error": "HTTP 410"
         },
         {
           "model": "ministral-3:8b",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "http_error",
+          "error": "HTTP 410"
         },
         {
           "model": "gemma3:12b",
@@ -126,42 +112,28 @@
           "model": "gemma3:27b",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "http_error",
+          "error": "HTTP 410"
         }
       ]
     },
     {
       "key": "zhipu5",
       "name": "ZhiPu GLM-5 智谱",
-      "available": false,
-      "latency_ms": null,
-      "model": "glm-5",
-      "error": "HTTP 429",
-      "status": "balance",
-      "reason": "余额/配额不足",
+      "available": true,
+      "latency_ms": 2578,
+      "model": "glm-4-flash",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
       "local": false,
       "tried_models": [
         {
           "model": "glm-4-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "glm-z1-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "glm-5",
-          "ok": false,
-          "latency_ms": null,
-          "status": "balance",
-          "error": "HTTP 429"
+          "ok": true,
+          "latency_ms": 2578,
+          "status": "ok",
+          "error": null
         }
       ]
     },
@@ -170,46 +142,18 @@
       "name": "SiliconFlow 硅基流动",
       "available": false,
       "latency_ms": null,
-      "model": "THUDM/glm-4-9b-chat",
-      "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti",
-      "status": "error",
-      "reason": "<urlopen error [WinError 10060] A connection attempt failed because the connecte",
+      "model": "Qwen/Qwen3-8B",
+      "error": "HTTP 402",
+      "status": "payment_required",
+      "reason": "需付费/余额不足 (402)",
       "local": false,
       "tried_models": [
         {
           "model": "Qwen/Qwen3-8B",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "Qwen/Qwen2.5-7B-Instruct",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "Qwen/Qwen3-4B",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10054] An existing connection was forcibly closed by the remote host>"
-        },
-        {
-          "model": "THUDM/glm-4-9b-chat",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "payment_required",
+          "error": "HTTP 402"
         }
       ]
     },
@@ -230,7 +174,7 @@
       "name": "StepFun 阶跃星辰",
       "available": false,
       "latency_ms": null,
-      "model": "step-2",
+      "model": "step-2-mini",
       "error": "HTTP 402",
       "status": "payment_required",
       "reason": "需付费/余额不足 (402)",
@@ -238,34 +182,6 @@
       "tried_models": [
         {
           "model": "step-2-mini",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "step-1.5v-mini",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "step-1-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "step-3.5-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "step-2",
           "ok": false,
           "latency_ms": null,
           "status": "payment_required",
@@ -369,7 +285,7 @@
       "key": "ollama",
       "name": "Local Ollama",
       "available": true,
-      "latency_ms": 11841,
+      "latency_ms": 8254,
       "model": "phi4-mini:3.8b",
       "error": null,
       "status": "ok",
@@ -393,7 +309,7 @@
         {
           "model": "phi4-mini:3.8b",
           "ok": true,
-          "latency_ms": 11841,
+          "latency_ms": 8254,
           "status": "ok",
           "error": null
         }
@@ -402,57 +318,32 @@
     {
       "key": "sensenova",
       "name": "SenseNova 商汤",
-      "available": false,
-      "latency_ms": null,
-      "model": "deepseek-v4-flash",
-      "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti",
-      "status": "error",
-      "reason": "<urlopen error [WinError 10060] A connection attempt failed because the connecte",
+      "available": true,
+      "latency_ms": 2144,
+      "model": "sensenova-6.7-flash-lite",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
       "local": false,
       "tried_models": [
         {
           "model": "sensenova-6.7-flash-lite",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "sensenova-6.7-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "sensenova-v6.7",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "sensenova-v6.7-lite",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "deepseek-v4-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "ok": true,
+          "latency_ms": 2144,
+          "status": "ok",
+          "error": null
         }
       ]
     }
   ],
-  "primary": "ollama/phi4-mini:3.8b",
+  "primary": "nvidia/meta/llama-3.1-8b-instruct",
   "fallbacks": [
     "ollama/gemma4-32k:latest",
-    "ollama-cloud/gemma3:27b",
-    "siliconflow/THUDM/glm-4-9b-chat",
-    "sensenova/deepseek-v4-flash"
+    "ollama/phi4-mini:3.8b",
+    "zhipu/glm-4-flash-250414",
+    "sensenova/sensenova-6.7-flash-lite",
+    "openrouter/openrouter/free",
+    "zhipu5/glm-4-flash",
+    "ollama-cloud/gemma3:27b"
   ]
 }
