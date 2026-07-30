@@ -367,7 +367,7 @@ def _sync_generic(df: pd.DataFrame, dst_conn: sqlite3.Connection, table_name: st
 
 
 def _sync_site(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
-    """同步 Site 数据 → master_site_db"""
+    """同步 eFlow Site 数据 → eflow_site（独立表，不替换 master_site_db）"""
     t0 = time.time()
     if df.empty:
         logger.warning("Site 数据为空")
@@ -377,36 +377,15 @@ def _sync_site(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
     df['_sync_time'] = datetime.now().isoformat()
     df['_sync_source'] = 'eflow_api'
 
-    # 保留 master_site_db 已有的扩展列（如 vip_site, hub_site, power_sources 等）
-    old_df = None
-    try:
-        old_df = pd.read_sql_query('SELECT * FROM master_site_db LIMIT 1', dst_conn)
-    except Exception:
-        pass
-
-    if old_df is not None and not old_df.empty:
-        old_cols = set(old_df.columns)
-        new_cols = set(df.columns)
-        extra_cols = old_cols - new_cols - {'_source_file', '_source_sheet', '_import_time'}
-        if extra_cols:
-            old_full = pd.read_sql_query('SELECT * FROM master_site_db', dst_conn)
-            join_cols = ['site_id'] + list(extra_cols)
-            join_cols = [c for c in join_cols if c in old_full.columns]
-            if join_cols:
-                old_extra = old_full[join_cols].copy()
-                df['site_id'] = df['site_id'].astype(str)
-                old_extra['site_id'] = old_extra['site_id'].astype(str)
-                df = df.merge(old_extra, on='site_id', how='left', suffixes=('', '_old'))
-
-    df.to_sql('master_site_db', dst_conn, if_exists='replace', index=False, chunksize=5000)
+    df.to_sql('eflow_site', dst_conn, if_exists='replace', index=False, chunksize=5000)
 
     for idx_col in ['site_id', 'region', 'site_type']:
         if idx_col in df.columns:
-            dst_conn.execute(f'CREATE INDEX IF NOT EXISTS idx_master_site_db_{idx_col} ON master_site_db({idx_col})')
+            dst_conn.execute(f'CREATE INDEX IF NOT EXISTS idx_eflow_site_{idx_col} ON eflow_site({idx_col})')
     dst_conn.commit()
 
     elapsed = time.time() - t0
-    logger.info(f"master_site_db 同步完成: {len(df)} 行, {elapsed:.2f}s")
+    logger.info(f"eflow_site 同步完成: {len(df)} 行, {elapsed:.2f}s")
     return len(df)
 
 
@@ -501,7 +480,7 @@ def sync_from_eflow_api() -> dict:
             ("eFlow WO", "eflow_wo", _sync_wo),
             ("eFlow CR", "eflow_cr", lambda df, c: _sync_generic(df, c, "eflow_cr")),
             ("eFlow PM", "eflow_pm", lambda df, c: _sync_generic(df, c, "eflow_pm")),
-            ("Site", "site", _sync_site),
+            ("Site", "eflow_site", _sync_site),
             ("Person", "person", lambda df, c: _sync_generic(df, c, "person")),
         ]
 

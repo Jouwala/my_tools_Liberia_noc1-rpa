@@ -613,9 +613,11 @@ def run_ran_ume_pm_sync() -> dict:
                         pk_columns=["Begin Time", "Group"],
                     )
                     api_rows = api_result.get("rows_written", 0)
+                    if api_rows == 0:
+                        raise Exception(f"API 返回 0 行写入: {table_name}")
                     logger.info(f"[RAN_UME][API] DB Orange {table_name}: {api_rows} rows")
                 except Exception as e:
-                    logger.warning(f"[RAN_UME][API] DB Orange {table_name} 写入失败: {e}")
+                    logger.error(f"[RAN_UME][API] DB Orange {table_name} 写入失败: {e}")
                     api_all_ok = False
 
         if api_all_ok:

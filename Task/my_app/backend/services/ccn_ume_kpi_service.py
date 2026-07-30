@@ -752,8 +752,9 @@ def import_to_database():
 
         key_cols = detect_key_cols(headers)
         if not key_cols:
-            logger.warning(f"[CNN][DB] {table_name}: 缺少 Begin Time 列，跳过")
-            continue
+            raise Exception(f"[CNN][DB] {table_name}: 缺少 Begin Time 列，解析失败")
+        if not data:
+            raise Exception(f"[CNN][DB] {table_name}: 解析后无数据行")
 
         # 通过 API 写入
         if _db_writer is not None:
@@ -775,13 +776,13 @@ def import_to_database():
                     mode="full_replace",
                 )
                 row_count = result.get("rows_written", 0)
+                if row_count == 0:
+                    raise Exception(f"API 返回 0 行写入")
                 logger.info(f"[CNN][DB][API] {table_name}: written {row_count} rows")
             except Exception as e:
-                logger.error(f"[CNN][DB][API] {table_name}: 写入失败: {e}")
-                row_count = 0
+                raise Exception(f"[CNN][DB][API] {table_name}: 写入失败: {e}")
         else:
-            logger.error(f"[CNN][DB] db_writer 不可用，跳过 {table_name}")
-            row_count = 0
+            raise Exception(f"[CNN][DB] db_writer 不可用，无法写入 {table_name}")
 
         total_imported += row_count
         headers = data = None

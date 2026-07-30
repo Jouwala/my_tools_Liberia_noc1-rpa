@@ -1815,7 +1815,10 @@ def _find_col_fuzzy(df, keyword):
 
 
 def _build_site_attr_map(sheets_data, processor_cls):
-    """从 Site 数据构建 TRM Type / FME / Supervisor 的映射。
+    """构建 TRM Type / FME / Supervisor 的映射。
+
+    - TRM Type: 从 eFlow Site 数据获取
+    - FME / Supervisor: 从 master_site_db 表的 fme_name / supervisor 列获取
 
     返回 dict:
         {
@@ -1834,49 +1837,78 @@ def _build_site_attr_map(sheets_data, processor_cls):
         "supervisor": ({}, {}),
     }
 
+    # --- TRM Type: 从 eFlow Site 数据获取 ---
     site_rows = []
     for sheet_name, rows in sheets_data:
         if sheet_name == "Site":
             site_rows = rows or []
             break
-    if not site_rows:
-        return empty_result
 
-    df_site = pd.DataFrame(site_rows)
-    df_site = processor_cls.clean_columns(df_site)
-
-    # 确定各属性对应的列名
-    trm_col = SITE_TX_SOURCE_COL if SITE_TX_SOURCE_COL in df_site.columns else _find_col_fuzzy(df_site, "TRM")
-    fme_col = _find_col_fuzzy(df_site, "FME Name") or _find_col_fuzzy(df_site, "FME") or _find_col_fuzzy(df_site, "Maintainer")
-    sup_col = _find_col_fuzzy(df_site, "Supervisor")
-
-    logger.info(f"Site 属性列: TRM='{trm_col}', FME='{fme_col}', Supervisor='{sup_col}'")
-
-    # 构建映射
-    attr_cols = {"trm_type": trm_col, "fme": fme_col, "supervisor": sup_col}
-    result = {}
-    for attr_key, col_name in attr_cols.items():
-        id_map = {}
-        name_map = {}
-        if col_name and col_name in df_site.columns:
+    trm_result = ({}, {})
+    if site_rows:
+        df_site = pd.DataFrame(site_rows)
+        df_site = processor_cls.clean_columns(df_site)
+        trm_col = SITE_TX_SOURCE_COL if SITE_TX_SOURCE_COL in df_site.columns else _find_col_fuzzy(df_site, "TRM")
+        logger.info(f"Site TRM 列: '{trm_col}'")
+        if trm_col and trm_col in df_site.columns:
+            id_map, name_map = {}, {}
             for _, r in df_site.iterrows():
-                val = r.get(col_name)
-                if pd.isna(val):
-                    val = ""
-                val = str(val).strip()
+                val = str(r.get(trm_col, "")).strip() if pd.notna(r.get(trm_col)) else ""
                 sid = processor_cls.normalize_id(r.get("Site ID"))
                 sname = str(r.get("Site Name", "")).strip()
                 if sid:
                     id_map[sid] = val
                 if sname:
                     name_map[sname] = val
-        else:
-            if col_name:
-                logger.warning(f"Site 表无 '{col_name}' 列，无法生成 {attr_key} 映射")
-        result[attr_key] = (id_map, name_map)
-        logger.info(f"{attr_key} 映射: {len(id_map)} by ID, {len(name_map)} by Name")
+            trm_result = (id_map, name_map)
+            logger.info(f"trm_type 映射: {len(id_map)} by ID, {len(name_map)} by Name")
 
-    return result
+    # --- FME / Supervisor: 从 master_site_db 读取 ---
+    fme_result = ({}, {})
+    sup_result = ({}, {})
+    try:
+        if os.path.exists(APP_DB_PATH):
+            conn = sqlite3.connect(APP_DB_PATH)
+            df_master = pd.read_sql_query(
+                'SELECT site_id, site_name, fme_name, supervisor FROM master_site_db', conn)
+            conn.close()
+            logger.info(f"master_site_db 读取: {len(df_master)} 行")
+
+            # FME 映射
+            fme_id, fme_name_map = {}, {}
+            for _, r in df_master.iterrows():
+                val = str(r.get("fme_name", "")).strip() if pd.notna(r.get("fme_name")) else ""
+                sid = processor_cls.normalize_id(r.get("site_id"))
+                sname = str(r.get("site_name", "")).strip()
+                if sid:
+                    fme_id[sid] = val
+                if sname:
+                    fme_name_map[sname] = val
+            fme_result = (fme_id, fme_name_map)
+            logger.info(f"fme 映射(master_site_db): {len(fme_id)} by ID, {len(fme_name_map)} by Name")
+
+            # Supervisor 映射
+            sup_id, sup_name_map = {}, {}
+            for _, r in df_master.iterrows():
+                val = str(r.get("supervisor", "")).strip() if pd.notna(r.get("supervisor")) else ""
+                sid = processor_cls.normalize_id(r.get("site_id"))
+                sname = str(r.get("site_name", "")).strip()
+                if sid:
+                    sup_id[sid] = val
+                if sname:
+                    sup_name_map[sname] = val
+            sup_result = (sup_id, sup_name_map)
+            logger.info(f"supervisor 映射(master_site_db): {len(sup_id)} by ID, {len(sup_name_map)} by Name")
+        else:
+            logger.warning(f"master_site_db 不可用: {APP_DB_PATH} 不存在")
+    except Exception as e:
+        logger.warning(f"从 master_site_db 读取 FME/Supervisor 失败: {e}")
+
+    return {
+        "trm_type": trm_result,
+        "fme": fme_result,
+        "supervisor": sup_result,
+    }
 
 
 # mail_126.py 所在目录（项目内部 backend/services/report/）

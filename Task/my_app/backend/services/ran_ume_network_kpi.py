@@ -950,7 +950,10 @@ def import_to_database():
 
         print(f"  merged: {len(merged_data)} rows, {len(merged_headers)} cols -> {table_name}")
 
-        # 优克通迄编程取入取入/，回退到本在张大
+        if not merged_data:
+            raise Exception(f"[Network KPI] {table_name}: 合并后无数据行，解析失败")
+
+        # API 优先写入，回退到本地 SQLite
         if _db_writer is not None:
             try:
                 result = _db_writer.write_data(
@@ -962,14 +965,19 @@ def import_to_database():
                     pk_columns=["Begin Time", "Group"],
                 )
                 row_count = result.get("rows_written", 0)
+                if row_count == 0:
+                    raise Exception("API 返回 0 行写入")
                 print(f"  [API] written: {row_count} rows")
             except Exception as e:
-                print(f"  [API] 写入失败: {e}，回退到本在大")
+                print(f"  [API] 写入失败: {e}，回退到本地")
                 row_count = write_to_db(DB_PATH, table_name, merged_headers, merged_data)
                 print(f"  [LOCAL] written: {row_count} rows")
         else:
             row_count = write_to_db(DB_PATH, table_name, merged_headers, merged_data)
             print(f"  [LOCAL] written: {row_count} rows")
+
+        if row_count == 0:
+            raise Exception(f"[Network KPI] {table_name}: 写入 0 行，数据丢失")
         total_imported += row_count
 
         # 释放本迭代大对象

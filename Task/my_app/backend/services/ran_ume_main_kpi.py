@@ -1022,6 +1022,8 @@ def run_main_kpi_sync(cookie: str | None = None, forgery_token: str | None = Non
                     group_value="NW",
                 )
                 rows = result.get("rows_written", 0)
+                if rows == 0:
+                    raise Exception(f"API 返回 0 行写入: {item['table']}")
                 total_imported += rows
                 if item["table"] not in imported_tables:
                     imported_tables.append(item["table"])
