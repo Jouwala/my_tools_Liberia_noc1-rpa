@@ -154,27 +154,34 @@ class DbWriterClient:
         """
         if not os.path.exists(excel_path):
             raise FileNotFoundError(f"Excel 文件不存在: {excel_path}")
-
+        with open(excel_path, 'rb') as f:
+            file_bytes = f.read()
         filename = os.path.basename(excel_path)
-        file_size = os.path.getsize(excel_path)
-        print(f"[DbWriter] 上传 {filename} ({file_size / 1024:.1f} KB) -> {db}/{table}")
+        return self.upload_excel_bytes(db, table, file_bytes, filename,
+                                        table_type, add_group_column, group_value)
 
-        # 构造 multipart/form-data
+    def upload_excel_bytes(self, db: str, table: str, file_bytes: bytes,
+                           filename: str = "export.xlsx",
+                           table_type: str = "Group",
+                           add_group_column: bool = False,
+                           group_value: str = "NW") -> dict:
+        """
+        直接从内存字节上传 Excel 并导入数据库（不落盘）。
+        """
+        print(f"[DbWriter] 上传 {filename} ({len(file_bytes) / 1024:.1f} KB) -> {db}/{table}")
+
         boundary = f"----DbWriter{uuid.uuid4().hex}"
         body_parts = []
 
-        # 文件字段
         content_type_file = mimetypes.guess_type(filename)[0] or "application/octet-stream"
         body_parts.append(
             f'--{boundary}\r\n'
             f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
             f'Content-Type: {content_type_file}\r\n\r\n'.encode('utf-8')
         )
-        with open(excel_path, 'rb') as f:
-            body_parts.append(f.read())
+        body_parts.append(file_bytes)
         body_parts.append(b'\r\n')
 
-        # 表单字段
         form_fields = {
             "db": db,
             "table": table,

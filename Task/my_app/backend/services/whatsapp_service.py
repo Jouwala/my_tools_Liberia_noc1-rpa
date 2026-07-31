@@ -7,7 +7,6 @@ import sys
 import time
 import glob
 import subprocess
-import sys
 import logging
 from pathlib import Path
 
@@ -15,23 +14,27 @@ logger = logging.getLogger("whatsapp_service")
 
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
-# ========== 配置 ==========
 # ========== 配置（环境变量优先，便于 Windows 部署） ==========
-_BASE = Path(os.environ.get("RPA_BASE", r"D:\01_RPA\Task\my_app\backend\services\data\site_outage"))
-SITE_OUTAGE_DIR = Path(os.environ.get("SITE_OUTAGE_DIR", _BASE / "data" / "site_outage"))
+# 图片/数据文件所在目录
+DEFAULT_DIR = r"D:\01_RPA\Task\my_app\backend\services\data\site_outage"
+SITE_OUTAGE_DIR = Path(os.environ.get("SITE_OUTAGE_DIR", DEFAULT_DIR))
 
 # 群组：逗号分隔，例如 "test123,Test234"
 _GROUPS_ENV = os.environ.get("WHATSAPP_GROUPS", "test123,Test234")
 GROUPS = [g.strip() for g in _GROUPS_ENV.split(",") if g.strip()]
 
-# 图片：若设置了 WHATSAPP_PHOTOS（逗号分隔绝对路径）则用配置；
-# 否则自动扫描 SITE_OUTAGE_DIR 下 png（排除 debug）
+# 图片获取逻辑
 _PHOTOS_ENV = os.environ.get("WHATSAPP_PHOTOS", "").strip()
 if _PHOTOS_ENV:
     PHOTOS = [p.strip() for p in _PHOTOS_ENV.split(",") if p.strip()]
 else:
+    valid_extensions = ("*.png", "*.PNG", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG")
+    found_photos = set()  # 使用 set 自动去重，防止 Windows 环境重复匹配
+    for ext in valid_extensions:
+        found_photos.update(SITE_OUTAGE_DIR.glob(ext))
+    
     PHOTOS = sorted(
-        str(p) for p in SITE_OUTAGE_DIR.glob("*.png")
+        str(p) for p in found_photos
         if "debug" not in p.name.lower()
     )
 
@@ -64,6 +67,7 @@ CHROME_PATH = os.environ.get(
     r"D:\01_RPA\chrome-win\chrome-win\chrome.exe",
 )
 
+# 完整的 选择器 字典，保留了 ATTACH Key
 SELECTORS = {
     "SEARCH_BOX": ['#side div[contenteditable="true"]', '#side [role="textbox"]'],
     "MAIN": ["#main"],
@@ -81,20 +85,6 @@ SELECTORS = {
         'div[title*="附件"]',
         'span[data-icon="attach-menu-plus"]',
     ],
-}
-WHATSAPP_URL = "https://web.whatsapp.com"
-
-CHROME_PATH = r"D:\01_RPA\chrome-win\chrome-win\chrome.exe"
-
-SELECTORS = {
-    "SEARCH_BOX": ['#side div[contenteditable="true"]', '#side [role="textbox"]'],
-    "MAIN": ["#main"],
-    "CAPTION_INPUT": [
-        'div[aria-label="添加小标题"]',
-        'div[aria-label="Add a caption"]',
-        'div[contenteditable="true"][data-tab="10"]',
-        'div._ak1r div[contenteditable="true"]'
-    ]
 }
 
 
@@ -186,25 +176,19 @@ def _kill_stale_chrome(user_data_dir: str | None = None):
     time.sleep(0.8)
     _info("已清理占用 session 的 chrome 进程（如有）")
 
-def _is_logged_in(page) -> bool:
-    """多选择器判断登录态：聊天列表/搜索框/#side 任一存在即认为已登录。
 
-    关键改进：不再强依赖单一元素的“可见性”判断。
-    WhatsApp Web 登录后一定存在 #side，而二维码页没有 #side，
-    因此“元素存在于 DOM”本身就是已登录的强信号。
-    """
+def _is_logged_in(page) -> bool:
+    """多选择器判断登录态：聊天列表/搜索框/#side 任一存在即认为已登录。"""
     for sel in ("#side", "[data-testid='chat-list']",
                 "[data-testid='conversation-list']", "div[data-testid='search']"):
         try:
             loc = page.locator(sel)
             if loc.count() > 0:
-                # 优先看可见性；可见性判断偶发失败（如零视口）时退化为“元素存在”
                 try:
                     if loc.first.is_visible(timeout=1500):
                         return True
                 except Exception:
                     pass
-                # 元素存在即大概率已登录（二维码页不会出现 #side）
                 return True
         except Exception:
             pass
@@ -254,6 +238,7 @@ def _search_and_open(page, contact_name):
         raise Exception("未能进入聊天窗口")
     _success(f"成功进入: {contact_name}")
 
+
 def _find_attach_button(page):
     for sel in SELECTORS["ATTACH"]:
         try:
@@ -274,16 +259,10 @@ def _send_one_photo_via_input(page, photo_path: str, caption: str) -> bool:
         attach.click(timeout=5000)
         page.wait_for_timeout(400)
 
-        # WhatsApp 点附件后会出现 accept 含 image 的 file input
-        file_input = page.locator('input[type="file"]').filter(
-            has=page.locator('[accept*="image"], [accept*="*"]')
-        )
-        # 兼容：直接取所有 file input 中可见或已挂到 DOM 的
         inputs = page.locator('input[type="file"]')
         if inputs.count() == 0:
             return False
 
-        # 优先选 accept 含 image 的
         target = None
         for i in range(inputs.count()):
             el = inputs.nth(i)
@@ -299,7 +278,6 @@ def _send_one_photo_via_input(page, photo_path: str, caption: str) -> bool:
 
         target.set_input_files(photo_path)
 
-        # 等预览/caption 区域
         page.wait_for_timeout(600)
         try:
             page.wait_for_selector(
@@ -345,6 +323,7 @@ def _send_one_photo_via_clipboard(page, photo_path: str, caption: str) -> None:
     page.keyboard.press("Enter")
     page.wait_for_timeout(700)
 
+
 def _fast_send_photos(page, photo_caption_pairs):
     """单图单备注发送：优先 file input，失败再剪贴板。"""
     page.locator("#main").click(force=True)
@@ -363,6 +342,7 @@ def _fast_send_photos(page, photo_caption_pairs):
 
         page.wait_for_timeout(500)
 
+
 def _fast_send_file(page, file_path):
     """优先附件 input，失败再剪贴板。"""
     if not file_path or not os.path.exists(file_path):
@@ -379,7 +359,6 @@ def _fast_send_file(page, file_path):
             page.wait_for_timeout(400)
             inputs = page.locator('input[type="file"]')
             if inputs.count() > 0:
-                # 文档类 input 通常 accept 不含 image，取最后一个或任意
                 inputs.last.set_input_files(file_path)
                 page.wait_for_timeout(1000)
                 page.keyboard.press("Enter")
@@ -399,6 +378,7 @@ def _fast_send_file(page, file_path):
         page.wait_for_timeout(1200)
         page.keyboard.press("Enter")
         page.wait_for_timeout(800)
+
 
 def _wait_for_last_message_sent(page, timeout=60):
     """等待最终消息送达确认"""
@@ -436,14 +416,6 @@ def _wait_for_last_message_sent(page, timeout=60):
 # 主入口
 # ==========================================================
 def run_whatsapp_send() -> dict:
-    """
-    WhatsApp 消息发送任务：
-    1. 启动 Playwright 浏览器
-    2. 登录 WhatsApp Web
-    3. 逐个群组发送图片 + 文件
-
-    Returns: dict
-    """
     start_time = time.time()
     result = {
         "success": False,
@@ -463,13 +435,10 @@ def run_whatsapp_send() -> dict:
     pw = None
     browser = None
     try:
-        # 启动前先清理可能残留的 chrome（持久化 profile 锁可能导致页面加载异常）
-        
         _kill_stale_chrome(USER_DATA_DIR)
 
         pw = sync_playwright().start()
 
-        # 可选代理配置：设置环境变量 WHATSAPP_PROXY，例如 http://127.0.0.1:7890
         launch_kwargs = dict(
             executable_path=CHROME_PATH,
             headless=HEADLESS,
@@ -484,7 +453,6 @@ def run_whatsapp_send() -> dict:
         browser = pw.chromium.launch_persistent_context(USER_DATA_DIR, **launch_kwargs)
         page = browser.new_page()
 
-        # 多轮导航 + 登录态检测：不再单靠 #side 的严格可见性判断
         logged_in = False
         for attempt in range(1, 4):
             try:
@@ -496,7 +464,6 @@ def run_whatsapp_send() -> dict:
                 else:
                     _warn(f"页面导航异常(第{attempt}/3次): {e}")
 
-            # 每轮最多等 60s 主动检测登录态
             for _ in range(20):
                 if _is_logged_in(page):
                     logged_in = True
@@ -521,22 +488,18 @@ def run_whatsapp_send() -> dict:
             return result
         _success("登录成功（已检测到聊天列表）")
 
-        # 获取文件列表
         site_outage_file = _get_latest_site_outage()
         files_to_send = [site_outage_file] if site_outage_file else []
 
         for group in GROUPS:
             try:
-                # 1. 切换群聊
                 _search_and_open(page, group)
 
-                # 2. 发送图片+备注（单图单备注循环）
                 pairs = list(zip(PHOTOS, CAPTIONS))
                 if len(PHOTOS) != len(CAPTIONS):
                     _warn(f"图片数({len(PHOTOS)})与备注数({len(CAPTIONS)})不一致，已按较短一方配对")
                 _fast_send_photos(page, pairs)
 
-                # 3. 发送文件
                 for file_path in files_to_send:
                     _fast_send_file(page, file_path)
 
@@ -549,7 +512,6 @@ def run_whatsapp_send() -> dict:
                 _error(err)
                 result["errors"].append(err)
 
-        # 4. 全流程校验
         _wait_for_last_message_sent(page, timeout=30)
 
         result["success"] = len(result["errors"]) == 0
@@ -560,7 +522,7 @@ def run_whatsapp_send() -> dict:
 
     finally:
         if browser:
-            time.sleep(60.0)
+            time.sleep(CLOSE_DELAY)
             browser.close()
         if pw:
             pw.stop()
@@ -577,6 +539,10 @@ if __name__ == "__main__":
     except Exception:
         pass
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
+
+    # 启动前日志辅助排查
+    print(f"当前扫描目录: {SITE_OUTAGE_DIR.resolve()}")
+    print(f"扫描到的图片列表: {PHOTOS}")
 
     result = run_whatsapp_send()
     print(f"\nWhatsApp 发送结果: {'成功' if result['success'] else '失败'}")

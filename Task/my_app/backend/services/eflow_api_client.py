@@ -2053,6 +2053,20 @@ def _import_excel_processor():
 # 主入口：获取数据后生成 Hourly Report / Summary Report / 图片
 # ============================================================
 
+
+
+def _cleanup_old_tt_reports(output_dir):
+    """tt_reports 名类型景以本一件."""
+    pats = ["Liberia Orange Site Down hourly Report_*.xlsx", "Liberia Orange Site Down 8 hours Report_*.xlsx", "Liberia Orange TT Summary Report_*.xlsx"]
+    for pat in pats:
+        matched = sorted(glob.glob(os.path.join(output_dir, pat)), key=os.path.getmtime, reverse=True)
+        for old_f in matched[1:]:
+            try:
+                os.remove(old_f)
+                logger.info(f"[CLEAN] {os.path.basename(old_f)}")
+            except OSError:
+                pass
+
 def generate_hourly_report_with_images(data: dict, send_email: bool = None) -> dict:
     """
     从 eFlow 同步数据生成小时报告、Summary 报告和图片，复用 mail_126.py 的 ExcelDataProcessor。
@@ -2204,6 +2218,10 @@ def generate_hourly_report_with_images(data: dict, send_email: bool = None) -> d
         traceback.print_exc()
         result["success"] = False
         result["error"] = str(e)
+
+
+    # cleanup old tt_reports
+    _cleanup_old_tt_reports(output_dir)
 
     total_elapsed = time.time() - total_start
     end_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

@@ -28,6 +28,8 @@ interface Site {
   wo_count: number
   rt_alarm_count: number
   his_alarm_count: number
+  rt_alarm_overdue?: number
+  rt_alarm_ontime?: number
   rt_tt_count?: number
   rt_wo_count?: number
   trm_type?: string
@@ -69,7 +71,7 @@ interface TopologyLink {
   lng_b: number
 }
 
-type LegendKey = 'tt' | 'wo' | 'vip' | 'normal' | 'rt_alarm' | 'his_alarm'
+type LegendKey = 'tt' | 'wo' | 'vip' | 'normal' | 'rt_alarm' | 'rt_alarm_overdue' | 'rt_alarm_ontime' | 'his_alarm'
 type LayerKey = 'rt_alarm' | 'his_alarm' | 'tt' | 'wo'
 
 function MapController({ center, zoom }: { center: [number, number]; zoom: number }) {
@@ -102,6 +104,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const [woSearch, setWoSearch] = useState('')
   const [rtAlarmSearch, setRtAlarmSearch] = useState('')
   const [hisAlarmSearch, setHisAlarmSearch] = useState('')
+  const [ossStats, setOssStats] = useState<{ oss_specific_problem: string; count: number; sites: number }[]>([])
 
   const [activeLayers, setActiveLayers] = useState<Set<LayerKey>>(
     new Set(mode === 'realtime' ? ['rt_alarm', 'tt', 'wo'] : ['rt_alarm', 'his_alarm', 'tt', 'wo'])
@@ -113,7 +116,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const { t } = useI18n()
   const { lastSync, latestData, isSynced } = useDataTimestamps()
 
+  // 实时数据：RealTime Alarm Map 不使用时间范围
   const timeRange = useMemo((): { start: string; end: string } | null => {
+    if (mode === 'realtime') return null
     if (timePreset === 'all') return null
     if (timePreset === 'custom' && customRange) {
       return { start: customRange[0].format('YYYY-MM-DD'), end: customRange[1].format('YYYY-MM-DD') }
@@ -123,7 +128,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     const end = dayjs().format('YYYY-MM-DD')
     const start = dayjs().subtract(days, 'day').format('YYYY-MM-DD')
     return { start, end }
-  }, [timePreset, customRange])
+  }, [timePreset, customRange, mode])
 
   useEffect(() => {
     loadSites()
@@ -142,6 +147,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     cachedGet(cacheKey, () => api.get(mode === 'realtime' ? '/gis/realtime/sites' : '/gis/sites', { params }))
       .then(res => {
         setSites(res.data.sites || [])
+        if (mode === 'realtime' && res.data.realtime_alarm_summary) {
+          setOssStats(res.data.realtime_alarm_summary.oss_problem_stats || [])
+        }
         if (regions.length === 0) setRegions(res.data.regions || [])
         if (Object.keys(filterOptions).length === 0 && res.data.filter_options) {
           setFilterOptions(res.data.filter_options || {})
@@ -186,10 +194,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
 
   const getSiteCategory = (site: Site): LegendKey => {
     if (mode === 'realtime') {
-      // 实时告警地图：TT/WO 由实时告警 tt_id 派生，优先着色以直观体现关联
+      // 实时告警地图：TT/WO 由实时告警 tt_id 派生，优先着色以直观体现关联（TT/WO 颜色保持不变）
       if (activeLayers.has('tt') && (site.rt_tt_count || 0) > 0) return 'tt'
       if (activeLayers.has('wo') && (site.rt_wo_count || 0) > 0) return 'wo'
-      if (activeLayers.has('rt_alarm') && site.rt_alarm_count > 0) return 'rt_alarm'
+      if (activeLayers.has('rt_alarm')) {
+        // 超时(当前时间 - servertime > assign_delay) => 大红；否则 => 黄
+        if ((site.rt_alarm_overdue || 0) > 0) return 'rt_alarm_overdue'
+        if (site.rt_alarm_count > 0) return 'rt_alarm_ontime'
+      }
       if (site.vip_site === 'Y' || site.vip_site === 'Yes') return 'vip'
       return 'normal'
     }
@@ -205,12 +217,17 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     return sites.filter(site => {
       if (mode === 'realtime') {
         const cats = [
-          site.rt_alarm_count > 0 && 'rt_alarm',
+          (site.rt_alarm_overdue || 0) > 0 && 'rt_alarm_overdue',
+          (site.rt_alarm_ontime || 0) > 0 && 'rt_alarm_ontime',
           (site.rt_tt_count || 0) > 0 && 'tt',
           (site.rt_wo_count || 0) > 0 && 'wo',
           (site.vip_site === 'Y' || site.vip_site === 'Yes') && 'vip',
         ].filter(Boolean) as LegendKey[]
-        const visible = cats.some(c => activeLayers.has(c as LayerKey) && !hiddenLegends.has(c))
+        // rt_alarm_overdue / rt_alarm_ontime 均受 rt_alarm 图层开关控制
+        const visible = cats.some(c => {
+          const layer = (c === 'rt_alarm_overdue' || c === 'rt_alarm_ontime') ? 'rt_alarm' : c
+          return activeLayers.has(layer as LayerKey) && !hiddenLegends.has(c)
+        })
         if (!visible) return false
       } else {
         if (hiddenLegends.has(getSiteCategory(site))) return false
@@ -222,17 +239,21 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     })
   }, [sites, hiddenLegends, selectedFilters, activeLayers, mode])
 
-  const center: [number, number] = sites.length > 0
-    ? [
-        sites.reduce((s, p) => s + p.lat, 0) / sites.length,
-        sites.reduce((s, p) => s + p.lng, 0) / sites.length,
-      ]
-    : [6.4, -9.4]
+  // 记忆化：避免每次渲染都生成新数组导致 MapController 反复 setView（会重置用户的平移/缩放）
+  const center = useMemo<[number, number]>(() => {
+    if (sites.length === 0) return [6.4, -9.4]
+    return [
+      sites.reduce((s, p) => s + p.lat, 0) / sites.length,
+      sites.reduce((s, p) => s + p.lng, 0) / sites.length,
+    ]
+  }, [sites])
 
   const getMarkerColor = (site: Site) => {
     const cat = getSiteCategory(site)
     switch (cat) {
       case 'rt_alarm': return '#ff6b6b'
+      case 'rt_alarm_overdue': return '#ff1e1e'
+      case 'rt_alarm_ontime': return '#ffd400'
       case 'his_alarm': return '#ffa94d'
       case 'tt': return '#4fc3f7'
       case 'wo': return '#51cf66'
@@ -301,10 +322,11 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   }
 
   const categoryCounts = useMemo(() => {
-    const counts = { tt: 0, wo: 0, vip: 0, normal: 0, rt_alarm: 0, his_alarm: 0 }
+    const counts = { tt: 0, wo: 0, vip: 0, normal: 0, rt_alarm: 0, rt_alarm_overdue: 0, rt_alarm_ontime: 0, his_alarm: 0 }
     if (mode === 'realtime') {
       sites.forEach(s => {
-        if (s.rt_alarm_count > 0) counts.rt_alarm++
+        if ((s.rt_alarm_overdue || 0) > 0) counts.rt_alarm_overdue++
+        else if (s.rt_alarm_count > 0) counts.rt_alarm_ontime++
         if ((s.rt_tt_count || 0) > 0) counts.tt++
         if ((s.rt_wo_count || 0) > 0) counts.wo++
         if (s.vip_site === 'Y' || s.vip_site === 'Yes') counts.vip++
@@ -319,13 +341,19 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   }, [sites, activeLayers, mode])
 
   const legendItems: { key: LegendKey; color: string; label: string; count: number }[] = [
+    { key: 'rt_alarm_overdue', color: '#ff1e1e', label: t('gis.legend.rtAlarmOverdue'), count: categoryCounts.rt_alarm_overdue },
+    { key: 'rt_alarm_ontime', color: '#ffd400', label: t('gis.legend.rtAlarmOnTime'), count: categoryCounts.rt_alarm_ontime },
     { key: 'rt_alarm', color: '#ff6b6b', label: t('gis.legend.rtAlarm'), count: categoryCounts.rt_alarm },
     { key: 'his_alarm', color: '#ffa94d', label: t('gis.legend.hisAlarm'), count: categoryCounts.his_alarm },
     { key: 'tt', color: '#4fc3f7', label: t('gis.legend.tt'), count: categoryCounts.tt },
     { key: 'wo', color: '#51cf66', label: t('gis.legend.wo'), count: categoryCounts.wo },
     { key: 'vip', color: '#b197fc', label: t('gis.legend.vip'), count: categoryCounts.vip },
     { key: 'normal', color: '#94a3b8', label: t('gis.legend.normal'), count: categoryCounts.normal },
-  ].filter(item => mode === 'realtime' ? item.key !== 'his_alarm' : true) as { key: LegendKey; color: string; label: string; count: number }[]
+  ].filter(item =>
+    mode === 'realtime'
+      ? (item.key !== 'rt_alarm' && item.key !== 'his_alarm')
+      : true
+  ) as { key: LegendKey; color: string; label: string; count: number }[]
 
   const toggleLayer = (key: LayerKey) => {
     setActiveLayers(prev => {
@@ -620,30 +648,37 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               ))}
             </Space>
           </Col>
-          <Col>
-            <Space size="small" wrap>
-              <span style={labelStyle}>{t('gis.timeFilter')}</span>
-              <Segmented
-                value={timePreset}
-                onChange={(v) => setTimePreset(v as TimePreset)}
-                options={presetOptions}
-                size="small"
-                style={{ background: 'rgba(255,255,255,0.06)' }}
-              />
-              {timePreset === 'custom' && (
-                <DatePicker.RangePicker
-                  value={customRange}
-                  onChange={(dates) => setCustomRange(dates as [Dayjs, Dayjs] | null)}
+          {mode !== 'realtime' && (
+            <Col>
+              <Space size="small" wrap>
+                <span style={labelStyle}>{t('gis.timeFilter')}</span>
+                <Segmented
+                  value={timePreset}
+                  onChange={(v) => setTimePreset(v as TimePreset)}
+                  options={presetOptions}
                   size="small"
-                  format="YYYY-MM-DD"
-                  placeholder={[t('gis.timeRangeLabel'), t('gis.timeRangeLabel')]}
+                  style={{ background: 'rgba(255,255,255,0.06)' }}
                 />
-              )}
-              {timeRange && (
-                <Tag color="orange">{timeRange.start} ~ {timeRange.end}</Tag>
-              )}
-            </Space>
-          </Col>
+                {timePreset === 'custom' && (
+                  <DatePicker.RangePicker
+                    value={customRange}
+                    onChange={(dates) => setCustomRange(dates as [Dayjs, Dayjs] | null)}
+                    size="small"
+                    format="YYYY-MM-DD"
+                    placeholder={[t('gis.timeRangeLabel'), t('gis.timeRangeLabel')]}
+                  />
+                )}
+                {timeRange && (
+                  <Tag color="orange">{timeRange.start} ~ {timeRange.end}</Tag>
+                )}
+              </Space>
+            </Col>
+          )}
+          {mode === 'realtime' && (
+            <Col>
+              <Tag color="red" style={{ borderRadius: 12 }}>{t('gis.realtimeLive')}</Tag>
+            </Col>
+          )}
         </Row>
         <div style={{ marginTop: 8 }}>
           {legendItems.map(item => {
@@ -744,6 +779,31 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         </div>
       </Card>
 
+      {mode === 'realtime' && ossStats.length > 0 && (
+        <Card size="small" style={{ ...cardStyle, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: WH.text, marginBottom: 8 }}>
+            {t('gis.ossStatsTitle')} ({ossStats.reduce((s, i) => s + i.count, 0)})
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {ossStats.map(item => {
+              const max = ossStats[0]?.count || 1
+              const pct = Math.max(4, Math.round((item.count / max) * 100))
+              return (
+                <div key={item.oss_specific_problem} style={{ minWidth: 170, flex: '1 1 170px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: 12, color: WH.text }}>
+                    <span title={item.oss_specific_problem} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>{item.oss_specific_problem}</span>
+                    <span style={{ color: WH.textMuted, whiteSpace: 'nowrap' }}>{item.count} / {item.sites}</span>
+                  </div>
+                  <div style={{ height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 3, marginTop: 3 }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: WH.teal, borderRadius: 3 }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+
       <Card styles={{ body: { padding: 0 } }} style={{ ...cardStyle, overflow: 'hidden' }}>
         {loading ? (
           <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />
@@ -778,7 +838,19 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                     <strong>{site.site_name}</strong> ({site.site_id})<br />
                     {t('gis.popup.region')}: {site.region}<br />
                     {t('gis.popup.type')}: {site.site_type} | {site.network_type}<br />
-                    {activeLayers.has('rt_alarm') && site.rt_alarm_count > 0 && (
+                    {mode === 'realtime' && activeLayers.has('rt_alarm') && site.rt_alarm_count > 0 && (
+                      <span style={{ fontWeight: 600 }}>
+                        ⚠ {t('gis.popup.rtAlarm')}: {site.rt_alarm_count}
+                        {(site.rt_alarm_overdue || 0) > 0 && (
+                          <span style={{ color: '#ff1e1e' }}> ({t('gis.popup.overdue')}: {site.rt_alarm_overdue})</span>
+                        )}
+                        {(site.rt_alarm_ontime || 0) > 0 && (
+                          <span style={{ color: '#ffd400' }}> ({t('gis.popup.ontime')}: {site.rt_alarm_ontime})</span>
+                        )}
+                        <br />
+                      </span>
+                    )}
+                    {mode === 'all' && activeLayers.has('rt_alarm') && site.rt_alarm_count > 0 && (
                       <span style={{ color: '#ff6b6b', fontWeight: 600 }}>⚠ {t('gis.popup.rtAlarm')}: {site.rt_alarm_count}<br /></span>
                     )}
                     {mode === 'all' && activeLayers.has('his_alarm') && site.his_alarm_count > 0 && (

@@ -64,7 +64,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 MONTHS_BACK = int(os.environ.get("CNN_KPI_MONTHS_BACK", "1"))
 
 # 并行查询线程数
-MAX_PARALLEL_WORKERS = int(os.environ.get("CNN_KPI_PARALLEL_WORKERS", "4"))
+MAX_PARALLEL_WORKERS = int(os.environ.get("CNN_KPI_PARALLEL_WORKERS", "8"))
 
 # ========== 重试 / 超时配置（环境变量可调） ==========
 HTTP_MAX_RETRIES = max(0, int(os.environ.get("CNN_KPI_HTTP_MAX_RETRIES", "3")))
@@ -735,7 +735,8 @@ def _extract_xlsx_bytes(resp_bytes):
     return resp_bytes
 
 
-def export_history(cookie: str, forgery_token: str, queryid: str, filename: str) -> str:
+def export_history(cookie: str, forgery_token: str, queryid: str, filename: str) -> bytes:
+    """导出 KPI 历史数据，直接返回 xlsx 字节（不落盘）。"""
     payload = {
         "id": queryid, "filename": filename, "chartlayout": 1, "contentmode": 0,
         "customizefieldtype": "0", "exportfiletype": 1, "exportserialnumber": False,
@@ -750,22 +751,9 @@ def export_history(cookie: str, forgery_token: str, queryid: str, filename: str)
     if "200" not in status:
         raise Exception(f"Export KPI history failed: {status}")
 
-    resp_body = _extract_xlsx_bytes(resp_body)
-    output_path = os.path.join(OUTPUT_DIR, f"{filename}.xlsx")
-    idx = 0
-    while True:
-        try:
-            with open(output_path, "wb") as f:
-                f.write(resp_body)
-            break
-        except PermissionError:
-            idx += 1
-            if idx > 999:
-                raise
-            output_path = os.path.join(OUTPUT_DIR, f"{filename}_{idx}.xlsx")
-
-    logger.info(f"[CNN] Exported: {os.path.basename(output_path)} ({len(resp_body)} bytes)")
-    return output_path
+    xlsx_bytes = _extract_xlsx_bytes(resp_body)
+    logger.info(f"[CNN] Exported: {filename}.xlsx ({len(xlsx_bytes)} bytes, in-memory)")
+    return xlsx_bytes
 
 
 # ============================================================
@@ -794,6 +782,11 @@ def build_filename(cfg: dict) -> str:
 def read_xlsx(filepath):
     with open(filepath, 'rb') as f:
         file_bytes = f.read()
+    return read_xlsx_bytes(file_bytes)
+
+
+def read_xlsx_bytes(file_bytes: bytes):
+    """从内存字节直接解析 xlsx，不经磁盘。"""
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
     try:
         ws = wb.active
@@ -819,8 +812,13 @@ def detect_key_cols(headers):
 # ============================================================
 # 数据库导入（通过 API 写入远程 DB CNN）
 # ============================================================
-def import_to_database():
-    """将导出的 xlsx 文件通过 API 写入远程 CNN 数据库。"""
+def import_to_database(export_results: dict = None):
+    """将导出的 xlsx 数据通过 API 写入远程 CNN 数据库。
+
+    Args:
+        export_results: {file_prefix: xlsx_bytes} 内存数据。
+                        如果为 None 则回退到磁盘读取（兼容旧模式）。
+    """
     logger.info("[CNN][DB] 开始导入数据库（API 模式）")
     total_imported = 0
     files_to_delete = []
@@ -830,18 +828,23 @@ def import_to_database():
         table_name = cfg["table_name"]
         file_prefix = build_filename(cfg)
 
-        # 查找最新 xlsx
-        pattern = os.path.join(OUTPUT_DIR, f"{file_prefix}*.xlsx")
-        files = [f for f in glob.glob(pattern) if not os.path.basename(f).startswith("~$")]
-        if not files:
-            logger.info(f"[CNN][DB] {table_name}: no file found (prefix={file_prefix})")
-            continue
-        files.sort(key=os.path.getmtime, reverse=True)
-        xlsx_file = files[0]
-        files_to_delete.append(xlsx_file)
+        # 优先从内存获取，回退磁盘
+        xlsx_bytes = export_results.get(file_prefix) if export_results else None
+        if xlsx_bytes:
+            logger.info(f"[CNN][DB] {table_name}: reading from memory ({len(xlsx_bytes)} bytes)")
+            headers, data = read_xlsx_bytes(xlsx_bytes)
+        else:
+            pattern = os.path.join(OUTPUT_DIR, f"{file_prefix}*.xlsx")
+            files = [f for f in glob.glob(pattern) if not os.path.basename(f).startswith("~$")]
+            if not files:
+                logger.info(f"[CNN][DB] {table_name}: no file found (prefix={file_prefix})")
+                continue
+            files.sort(key=os.path.getmtime, reverse=True)
+            xlsx_file = files[0]
+            files_to_delete.append(xlsx_file)
+            logger.info(f"[CNN][DB] {table_name}: reading {os.path.basename(xlsx_file)}")
+            headers, data = read_xlsx(xlsx_file)
 
-        logger.info(f"[CNN][DB] {table_name}: reading {os.path.basename(xlsx_file)}")
-        headers, data = read_xlsx(xlsx_file)
         logger.info(f"[CNN][DB] {table_name}: {len(data)} rows, {len(headers)} cols")
 
         key_cols = detect_key_cols(headers)
@@ -853,7 +856,6 @@ def import_to_database():
         # 通过 API 写入
         if _db_writer is not None:
             try:
-                # 预处理行数据为字符串
                 str_data = []
                 for row in data:
                     if len(row) < len(headers):
@@ -882,7 +884,7 @@ def import_to_database():
         headers = data = None
         gc.collect()
 
-    # 清理 xlsx 文件
+    # 清理磁盘残留（仅回退模式）
     for fpath in files_to_delete:
         try:
             os.remove(fpath)
@@ -897,6 +899,7 @@ def import_to_database():
 # 单任务执行
 # ============================================================
 def _run_single_kpi_query(auth: dict, task: dict, start_index: int = 0) -> tuple:
+    """执行单个 KPI 查询 + 导出，返回 (file_prefix, xlsx_bytes) 内存数据。"""
     cfg = CNN_KPI_QUERY_CONFIGS[task["key"]]
     file_prefix = build_filename(cfg)
 
@@ -914,19 +917,9 @@ def _run_single_kpi_query(auth: dict, task: dict, start_index: int = 0) -> tuple
 
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     filename = f"{file_prefix}_{timestamp}"
-    saved_path = export_history(cookie, forgery_token, queryid, filename)
+    xlsx_bytes = export_history(cookie, forgery_token, queryid, filename)
 
-    # 清理同前缀旧文件
-    pattern = os.path.join(OUTPUT_DIR, f"{file_prefix}_*.xlsx")
-    old_files = [f for f in glob.glob(pattern) if not os.path.basename(f).startswith("~$")]
-    old_files.sort(key=os.path.getmtime, reverse=True)
-    for f in old_files[1:]:
-        try:
-            os.remove(f)
-        except Exception:
-            pass
-
-    return file_prefix, saved_path
+    return file_prefix, xlsx_bytes
 
 
 # ============================================================
@@ -944,8 +937,8 @@ def run_cnn_kpi_sync() -> dict:
         # 1. 登录
         auth = _login()
 
-        # 2. 并行查询
-        results = []
+        # 2. 并行查询（全程内存，不落盘）
+        export_data = {}  # {file_prefix: xlsx_bytes}
         errors = []
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
             future_to_task = {}
@@ -957,21 +950,21 @@ def run_cnn_kpi_sync() -> dict:
                 task = future_to_task[future]
                 task_label = task["key"]
                 try:
-                    file_prefix, saved_path = future.result()
-                    results.append((file_prefix, saved_path))
-                    logger.info(f"[CNN] [{task_label}] exported: {os.path.basename(saved_path)}")
+                    file_prefix, xlsx_bytes = future.result()
+                    export_data[file_prefix] = xlsx_bytes
+                    logger.info(f"[CNN] [{task_label}] exported: {len(xlsx_bytes)} bytes (in-memory)")
                 except Exception as e:
                     errors.append(f"[{task_label}] {e}")
                     logger.error(f"[CNN] [{task_label}] failed: {e}")
 
         result["errors"] = errors
 
-        # 3. 数据库导入（API 写入）
-        if results:
-            total_rows = import_to_database()
+        # 3. 数据库导入（API 写入，直接从内存读取）
+        if export_data:
+            total_rows = import_to_database(export_results=export_data)
             result["total_rows"] = total_rows
         else:
-            logger.warning("[CNN] No files exported, skip database import.")
+            logger.warning("[CNN] No data exported, skip database import.")
             result["total_rows"] = 0
 
         result["success"] = len(errors) == 0

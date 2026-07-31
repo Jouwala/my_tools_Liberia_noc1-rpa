@@ -44,9 +44,9 @@ except ImportError:
     np = None
 
 try:
-    from .atomic_write import atomic_excel_writer
+    from .atomic_write import atomic_excel_writer, AtomicReplaceFallback, cleanup_stale_tmp_files
 except ImportError:
-    from atomic_write import atomic_excel_writer
+    from atomic_write import atomic_excel_writer, AtomicReplaceFallback, cleanup_stale_tmp_files
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
@@ -552,15 +552,10 @@ def _run_single_pm_query(cookie, forgery_token, cfg):
     if "200" not in status:
         raise Exception(f"Export failed: {status}")
 
-    output_path = os.path.join(OUTPUT_DIR, f"{filename}.xlsx")
-    seq = 1
-    while os.path.exists(output_path):
-        output_path = os.path.join(OUTPUT_DIR, f"{filename}_{seq}.xlsx")
-        seq += 1
-    with open(output_path, "wb") as f:
-        f.write(resp_body)
-    logger.info(f"[PM] [{network_type}/{suffix}] saved: {output_path} ({len(resp_body)} bytes)")
-    return output_path
+    # 内存直传，不落盘
+    file_key = f"{network_type} OLIB Network KPIs_{file_suffix}"
+    logger.info(f"[PM] [{network_type}/{suffix}] exported: {len(resp_body)} bytes (in-memory)")
+    return file_key, resp_body
 
 
 # ========== DB 写入 ==========
@@ -569,6 +564,13 @@ def _read_xlsx(filepath):
         raise ImportError("缺少 openpyxl")
     with open(filepath, 'rb') as f:
         file_bytes = f.read()
+    return _read_xlsx_bytes(file_bytes)
+
+
+def _read_xlsx_bytes(file_bytes: bytes):
+    """从内存字节直接解析 xlsx。"""
+    if openpyxl is None:
+        raise ImportError("缺少 openpyxl")
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True)
     try:
         ws = wb.active
@@ -618,7 +620,7 @@ def run_ran_ume_pm_sync() -> dict:
 
         # Parallel queries
         logger.info(f"[RAN_UME] Starting {len(pm_configs)} PM queries...")
-        exported_files = []
+        exported_data = {}  # {file_key: xlsx_bytes}
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
             futures = {
                 executor.submit(_run_with_cleanup, _run_single_pm_query, cookie, forgery_token, cfg): cfg
@@ -627,8 +629,8 @@ def run_ran_ume_pm_sync() -> dict:
             for future in as_completed(futures):
                 cfg = futures[future]
                 try:
-                    path = future.result()
-                    exported_files.append(path)
+                    file_key, xlsx_bytes = future.result()
+                    exported_data[file_key] = xlsx_bytes
                 except Exception as e:
                     err = f"[{cfg['network_type']}/{cfg['suffix']}] failed: {e}"
                     logger.error(err)
@@ -646,15 +648,15 @@ def run_ran_ume_pm_sync() -> dict:
             return result
 
         for tech in TECHS:
-            nw_file = _find_latest_xlsx(f"{tech} OLIB Network KPIs_NW")
-            region_file = _find_latest_xlsx(f"{tech} OLIB Network KPIs_Region")
+            nw_bytes = exported_data.get(f"{tech} OLIB Network KPIs_NW")
+            region_bytes = exported_data.get(f"{tech} OLIB Network KPIs_Region")
             table_name = f"{tech}_OLIB_Network_KPIs"
 
             merged_headers = None
             merged_data = []
 
-            if nw_file:
-                h, d = _read_xlsx(nw_file)
+            if nw_bytes:
+                h, d = _read_xlsx_bytes(nw_bytes)
                 if "Group" not in h:
                     h.append("Group")
                     for row in d:
@@ -666,8 +668,8 @@ def run_ran_ume_pm_sync() -> dict:
                 merged_headers = list(h)
                 merged_data.extend(d)
 
-            if region_file:
-                h, d = _read_xlsx(region_file)
+            if region_bytes:
+                h, d = _read_xlsx_bytes(region_bytes)
                 if merged_headers:
                     # 将 Region 数据按 merged_headers 顺序重排，避免列错位
                     # Region 文件列顺序可能和 NW 不同（Group 位置不同）
@@ -915,14 +917,19 @@ def run_availability_report() -> dict:
 
         # Write Excel（原子写：先写临时文件，再 os.replace，重试扛文件锁）
         output_excel = str(AVAILABILITY_OUTPUT_DIR / "Daily_Aailability_KPI.xlsx")
-        with atomic_excel_writer(output_excel) as writer:
-            for sheet_name in TARGET_SHEETS:
-                frames = sheet_rows.get(sheet_name, [])
-                if frames:
-                    df = pd.concat(frames, ignore_index=True).sort_values(['Cell Group', 'Begin Time'])
-                else:
-                    df = pd.DataFrame(columns=['Begin Time', 'Cell Group', 'Cell Availability'])
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
+        try:
+            with atomic_excel_writer(output_excel) as writer:
+                for sheet_name in TARGET_SHEETS:
+                    frames = sheet_rows.get(sheet_name, [])
+                    if frames:
+                        df = pd.concat(frames, ignore_index=True).sort_values(['Cell Group', 'Begin Time'])
+                    else:
+                        df = pd.DataFrame(columns=['Begin Time', 'Cell Group', 'Cell Availability'])
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+        except AtomicReplaceFallback as fb:
+            logger.warning(f"[Availability] 文件被锁，数据已保存到备用路径: {fb.fallback_path}")
+            result["errors"].append(f"文件被锁，数据已保存到: {fb.fallback_path}")
+            output_excel = fb.fallback_path
         result["generated_files"].append(output_excel)
 
         # Generate charts
@@ -979,6 +986,9 @@ def run_ran_ume_full_task() -> dict:
     """
     start_time = time.time()
     result = {"success": False, "steps": {}, "errors": [], "elapsed_seconds": 0}
+
+    # 清理上次异常退出残留的临时文件
+    cleanup_stale_tmp_files(RAN_UME_DATA_DIR)
 
     # Step 1: PM data fetch
     logger.info("[RAN_UME] Step 1: PM data fetch...")

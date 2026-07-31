@@ -266,6 +266,118 @@ def _register_all_tasks():
         category="ipran_kpi",
     )
 
+    # 13. Liberia 站点宕 1 小时报告邮件（每小时第5分钟）
+    def _run_liberia_email_1h():
+        from backend.services.liberia_email_report import run_1h_report
+        return run_1h_report()
+
+    task_runner.register_task(
+        task_id="liberia_email_1h",
+        name="Liberia 宕站 1小时报告邮件",
+        name_en="Liberia Site-Down 1H Report Email",
+        func=_run_liberia_email_1h,
+        description="发送 Liberia Orange Site Down hourly Report（内嵌图 + Excel）到主送/抄送名单",
+        description_en="Email Liberia Orange Site Down hourly Report (inline images + Excel) to recipient lists",
+        default_cron="5 * * * *",  # 每小时第5分钟
+        category="email",
+    )
+
+    # 14. Liberia 站点宕 8 小时报告邮件（每8小时第10分钟）
+    def _run_liberia_email_8h():
+        from backend.services.liberia_email_report import run_8h_report
+        return run_8h_report()
+
+    task_runner.register_task(
+        task_id="liberia_email_8h",
+        name="Liberia 宕站 8小时报告邮件",
+        name_en="Liberia Site-Down 8H Report Email",
+        func=_run_liberia_email_8h,
+        description="发送 Liberia Orange Site Down 8 hours Report（内嵌图 + Excel）到主送/抄送名单",
+        description_en="Email Liberia Orange Site Down 8 hours Report (inline images + Excel) to recipient lists",
+        default_cron="10 */8 * * *",  # 每8小时第10分钟
+        category="email",
+    )
+
+    # 15. MS Contract KPIs Achievements Daily Report 邮件（数据本地 ms_sla）
+    def _run_kpi_ms_contract():
+        from backend.services.kpi_email_report import run_ms_contract_kpi
+        return run_ms_contract_kpi()
+
+    task_runner.register_task(
+        task_id="kpi_ms_contract",
+        name="MS Contract KPIs 日报邮件",
+        name_en="MS Contract KPIs Daily Report Email",
+        func=_run_kpi_ms_contract,
+        description="发送 MS Contract KPIs Achievements Daily Report（本地数据 + 远程名单）",
+        description_en="Email MS Contract KPIs Achievements Daily Report (local data + remote recipient list)",
+        default_cron="30 17 * * *",
+        category="kpi_email",
+    )
+
+    # 16. MS WOs SLA Achievements Daily Report 邮件（数据本地 ms_sla）
+    def _run_kpi_ms_wo_sla():
+        from backend.services.kpi_email_report import run_ms_wo_sla
+        return run_ms_wo_sla()
+
+    task_runner.register_task(
+        task_id="kpi_ms_wo_sla",
+        name="MS WOs SLA 日报邮件",
+        name_en="MS WOs SLA Daily Report Email",
+        func=_run_kpi_ms_wo_sla,
+        description="发送 MS WOs SLA Achievements Daily Report（本地数据 + 远程名单）",
+        description_en="Email MS WOs SLA Achievements Daily Report (local data + remote recipient list)",
+        default_cron="35 17 * * *",
+        category="kpi_email",
+    )
+
+    # 17. SpareParts 备件报表邮件（数据远程 FTP）
+    def _run_kpi_sp_spareparts():
+        from backend.services.kpi_email_report import run_sp_spareparts
+        return run_sp_spareparts()
+
+    task_runner.register_task(
+        task_id="kpi_sp_spareparts",
+        name="SpareParts 备件报表邮件",
+        name_en="SpareParts Report Email",
+        func=_run_kpi_sp_spareparts,
+        description="发送 SpareParts 报表（远程 FTP 数据 + 远程名单）",
+        description_en="Email SpareParts report (remote FTP data + remote recipient list)",
+        default_cron="45 9 * * *",
+        category="kpi_email",
+    )
+
+    # 18. Comsumables 耗材报表邮件（数据远程 FTP）
+    def _run_kpi_sp_consumables():
+        from backend.services.kpi_email_report import run_sp_consumables
+        return run_sp_consumables()
+
+    task_runner.register_task(
+        task_id="kpi_sp_consumables",
+        name="Comsumables 耗材报表邮件",
+        name_en="Comsumables Report Email",
+        func=_run_kpi_sp_consumables,
+        description="发送 Comsumables 报表（远程 FTP 数据 + 远程名单）",
+        description_en="Email Comsumables report (remote FTP data + remote recipient list)",
+        default_cron="50 9 * * *",
+        category="kpi_email",
+    )
+
+    # 19. MS Network Availability Daily Report 邮件（远程 FTP 图片，无 Excel）
+    def _run_kpi_ran_availability():
+        from backend.services.kpi_email_report import run_ran_availability
+        return run_ran_availability()
+
+    task_runner.register_task(
+        task_id="kpi_ran_availability",
+        name="MS Network Availability 日报邮件",
+        name_en="MS Network Availability Daily Report Email",
+        func=_run_kpi_ran_availability,
+        description="发送 MS Network Availability Daily Report（远程 FTP 图片 + 远程名单，无 Excel）",
+        description_en="Email MS Network Availability Daily Report (remote FTP images + remote recipient list, no Excel)",
+        default_cron="30 9 * * *",
+        category="kpi_email",
+    )
+
 
 def _init_db_with_retry(max_retries: int = 12, wait: int = 5):
     """db 初始化可能因后台进程(Windows Search 索引 / 杀软实时扫描)临时锁住

@@ -932,14 +932,8 @@ def run_sla_sync(
         except Exception as e:
             print(f"[DB] Failed to import {os.path.basename(filepath)}: {e}")
 
-    # 3. FTP 上传数据库
-    print("\n[FTP Upload]")
-    print(f"  uploading: {DB_NAME}")
-    upload_ok = upload_to_ftp(DB_PATH, FTP_REMOTE_DIR, DB_NAME)
-    if upload_ok:
-        print(f"  [OK] 数据库已上传: {DB_NAME}")
-    else:
-        print(f"  [FAIL] 数据库上传失败: {DB_NAME}")
+    # 3. FTP 上传已移除（数据通过 API 写入远程）
+    print("\n[INFO] FTP 上传已移除，数据由 my_app API 写入远程")
 
     # 4. 清理本地 xlsx 文件
     print("\n[cleanup]")

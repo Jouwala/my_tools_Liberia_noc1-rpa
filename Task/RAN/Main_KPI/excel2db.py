@@ -407,15 +407,10 @@ def main():
 
     # ---------- 4. 上传数据库到 FTP ----------
     logger.info("=" * 60)
-    logger.info("步骤 3: 上传更新后的数据库到 FTP")
+    logger.info("步骤 3: FTP 上传已移除（数据通过 API 写入远程）")
     logger.info("=" * 60)
     if _db_writer_local is None:
-        uploaded = upload_to_ftp(DB_PATH, FTP_UPLOAD_REMOTE_DIR, DB_NAME,
-                                 user=FTP_UPLOAD_USER, password=FTP_UPLOAD_PASS)
-        if uploaded:
-            logger.info("数据库已成功上传到 FTP 服务器")
-        else:
-            logger.error("数据库上传 FTP 失败")
+        logger.info("[INFO] FTP 上传已移除，数据由 my_app API 写入远程")
     else:
         logger.info("数据已通过远程 API 直接写入，无需 FTP 上传")
 

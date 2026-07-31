@@ -25,6 +25,7 @@ import {
   FundOutlined,
   AppstoreOutlined,
   GlobalOutlined,
+  MailOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
@@ -142,6 +143,8 @@ const CATEGORY_CONFIG: Record<string, { color: string; icon: React.ReactNode; la
   general: { color: '#8c8c8c', icon: <SettingOutlined />, label_zh: '通用', label_en: 'General' },
   sp: { color: '#faad14', icon: <AppstoreOutlined />, label_zh: 'SP 备件', label_en: 'SP Spare' },
   ipran_kpi: { color: '#2f54eb', icon: <GlobalOutlined />, label_zh: 'iPRAN UME', label_en: 'iPRAN UME' },
+  email: { color: '#08979c', icon: <MailOutlined />, label_zh: '邮件报告', label_en: 'Email Report' },
+  kpi_email: { color: '#722ed1', icon: <MailOutlined />, label_zh: 'KPI/SP/RAN 报告邮件', label_en: 'KPI/SP/RAN Report Email' },
 }
 
 function formatTime(isoStr: string | null): string {
@@ -545,6 +548,22 @@ export default function DataSync() {
       label_zh: 'iPRAN UME 数据同步',
       label_en: 'iPRAN UME Data Sync',
       task_ids: ['ipran_kpi_sync'],
+    },
+    {
+      label_zh: 'Liberia 宕站报告邮件',
+      label_en: 'Liberia Site-Down Email',
+      task_ids: ['liberia_email_1h', 'liberia_email_8h'],
+    },
+    {
+      label_zh: 'KPI / SP / RAN 报告邮件',
+      label_en: 'KPI / SP / RAN Report Email',
+      task_ids: [
+        'kpi_ms_contract',
+        'kpi_ms_wo_sla',
+        'kpi_sp_spareparts',
+        'kpi_sp_consumables',
+        'kpi_ran_availability',
+      ],
     },
   ]
 

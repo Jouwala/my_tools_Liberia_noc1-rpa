@@ -519,7 +519,7 @@ def sync_from_eflow_api() -> dict:
                 from backend.services.eflow_api_client import generate_excel_report
             except ImportError:
                 from services.eflow_api_client import generate_excel_report
-            report_result = generate_excel_report(data=all_data, upload_ftp=False)
+            report_result = generate_excel_report(data=all_data, save_excel=False, upload_ftp=False)
             if report_result.get("excel_path"):
                 logger.info(f"Excel 报告已生成: {report_result['excel_path']}")
             result["excel_path"] = report_result.get("excel_path")

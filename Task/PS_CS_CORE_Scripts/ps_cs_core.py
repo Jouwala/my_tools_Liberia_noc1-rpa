@@ -3,9 +3,9 @@
 PS_CS_CORE 自动化脚本
 功能：
   1. 从下载文件夹找到最新的 CSV 和 ZIP 文件
-  2. 解析 CSV（直接读取）和 ZIP（内含 xlsx）
-  3. 写入 SQLite 数据库 db_ps_cs_cn.sqlite3
-  4. 上传到 FTP 服务器
+  2. 解析 CSV（直接读取）和 ZIP（内含 xlsx，内存直读不落盘）
+  3. 通过 API 写入远程数据库 db_ps_cs_cn.sqlite3
+  4. API 失败时回退到本地 SQLite + FTP 上传
 """
 
 import os
@@ -13,10 +13,14 @@ import re
 import csv
 import sys
 import glob
+import io
+import json
+import time
 import shutil
 import sqlite3
 import zipfile
-import tempfile
+import urllib.request
+import urllib.error
 from datetime import datetime
 from ftplib import FTP, error_perm
 from openpyxl import load_workbook
@@ -38,6 +42,13 @@ ZIP_SEARCH_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 DB_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_NAME = "db_ps_cs_cn.sqlite3"
 DB_PATH = os.path.join(DB_DIR, DB_NAME)
+
+# 远程写入 API 配置（API 优先，FTP 回退）
+API_HOST = os.environ.get("DB_WRITER_HOST", "192.168.100.19")
+API_PORT = int(os.environ.get("DB_WRITER_PORT", "8765"))
+API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
+API_TIMEOUT = 900  # 秒
+API_MAX_RETRIES = 3
 
 FTP_HOST = "192.168.100.19"
 FTP_USER = "ZTEEMS"
@@ -148,41 +159,33 @@ def write_csv_to_db(conn, table_name, headers, rows):
 
 
 # ============================================================
-# ZIP/XLSX 解析（列表2）
+# ZIP/XLSX 解析（列表2）—— 内存直读，不解压到临时目录
 # ============================================================
 def parse_zip_xlsx(filepath, keyword):
     """
-    解压 ZIP，读取其中 xlsx 文件内容。
+    从 ZIP 内存直读 xlsx 文件内容（不落盘）。
     返回 (headers, rows) 或 (None, []) 如果失败。
     """
-    tmp_dir = tempfile.mkdtemp(prefix="pscs_")
-    try:
-        with zipfile.ZipFile(filepath, "r") as zf:
-            zf.extractall(tmp_dir)
-
-        # 找到 xlsx 文件
-        xlsx_files = [
-            os.path.join(tmp_dir, f)
-            for f in os.listdir(tmp_dir)
-            if f.lower().endswith(".xlsx")
-        ]
-        if not xlsx_files:
+    with zipfile.ZipFile(filepath, "r") as zf:
+        xlsx_names = [n for n in zf.namelist() if n.lower().endswith(".xlsx")]
+        if not xlsx_names:
             print(f"  [WARNING] ZIP 中未找到 xlsx: {filepath}")
             return None, []
 
-        xlsx_path = xlsx_files[0]
-        wb = load_workbook(xlsx_path, data_only=True)
-        ws = wb.active
+        xlsx_bytes = zf.read(xlsx_names[0])
 
+    wb = load_workbook(io.BytesIO(xlsx_bytes), data_only=True, read_only=True)
+    try:
+        ws = wb.active
         rows_iter = ws.iter_rows(values_only=True)
-        headers = [str(c) if c is not None else "" for c in next(rows_iter)]
+        headers = [str(c).strip() if c is not None else "" for c in next(rows_iter)]
         rows = []
         for row in rows_iter:
             rows.append(tuple(str(c) if c is not None else "" for c in row))
-
-        return headers, rows
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        wb.close()
+
+    return headers, rows
 
 
 def write_xlsx_to_db(conn, table_name, headers, rows):
@@ -201,7 +204,48 @@ def write_xlsx_to_db(conn, table_name, headers, rows):
 
 
 # ============================================================
-# FTP 上传
+# API 写入（优先）
+# ============================================================
+def write_via_api(table_name, headers, rows):
+    """通过 HTTP API 写入远程数据库，返回 (success, rows_written)"""
+    payload = {
+        "db": DB_NAME,
+        "table": table_name,
+        "columns": headers,
+        "rows": [list(r) for r in rows],
+        "mode": "full_replace",
+    }
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+    for attempt in range(1, API_MAX_RETRIES + 1):
+        try:
+            req = urllib.request.Request(
+                f"{API_BASE_URL}/api/write",
+                data=data,
+                method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=API_TIMEOUT) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+            rows_written = result.get("rows_written", 0)
+            if rows_written == 0:
+                raise Exception(f"API 返回 0 行写入")
+            return True, rows_written
+        except Exception as e:
+            if attempt < API_MAX_RETRIES:
+                wait = 2 ** attempt
+                print(f"  [API] 失败({e})，{wait}s 后重试 ({attempt}/{API_MAX_RETRIES})...")
+                time.sleep(wait)
+            else:
+                print(f"  [API] 最终失败: {e}")
+    return False, 0
+
+
+# ============================================================
+# 本地 SQLite 写入（回退）
+# ============================================================
+# ============================================================
+# FTP 上传（仅回退模式使用）
 # ============================================================
 def upload_to_ftp(local_path, remote_dir, filename, max_retries=2):
     """上传文件到 FTP 服务器（带重试机制）"""
@@ -261,18 +305,18 @@ def upload_to_ftp(local_path, remote_dir, filename, max_retries=2):
 # 主流程
 # ============================================================
 def main():
+    t_start = time.time()
     print("=" * 60)
     print(f"PS_CS_CORE 自动化脚本 - {datetime.now():%Y-%m-%d %H:%M:%S}")
     print("=" * 60)
     print(f"数据源:   CSV -> {CSV_SEARCH_DIR}")
     print(f"          ZIP -> {ZIP_SEARCH_DIR}")
-    print(f"数据库:   {DB_PATH}")
+    print(f"写入目标: API {API_BASE_URL} -> {DB_NAME}")
+    print(f"回退:     本地 {DB_PATH} + FTP")
 
-    # 连接（或创建）SQLite 数据库
+    # 本地 SQLite 仅用于 _update_log 跟踪 + API 失败时的回退写入
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
-    # 记录更新时间
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS _update_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -285,6 +329,7 @@ def main():
     conn.commit()
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    api_failed_tables = []  # 记录 API 写入失败的表，最后回退本地+FTP
 
     # ---- 处理列表1：CSV 文件 ----
     print("\n--- 处理 CSV 文件（列表1）搜索目录: " + CSV_SEARCH_DIR + " ---")
@@ -308,7 +353,6 @@ def main():
         )
         last_source = cursor.fetchone()[0]
         if last_source:
-            # 从文件名中提取时间戳进行比较
             def extract_ts(filename):
                 m = re.search(r'(\d{14})', filename)
                 return m.group(1) if m else ""
@@ -320,7 +364,14 @@ def main():
 
         headers, rows, meta = parse_csv_file(filepath)
         if headers and rows:
-            write_csv_to_db(conn, table_name, headers, rows)
+            # API 优先写入
+            ok, rows_written = write_via_api(table_name, headers, rows)
+            if ok:
+                print(f"  [API] 表 '{table_name}'：{rows_written} 行")
+            else:
+                # 回退到本地 SQLite
+                write_csv_to_db(conn, table_name, headers, rows)
+                api_failed_tables.append(table_name)
 
             # 删除已处理的 CSV 文件
             try:
@@ -354,7 +405,15 @@ def main():
         headers, rows = parse_zip_xlsx(filepath, template)
         if headers and rows:
             table_name = sanitize_table_name(template) + "_UME"
-            write_xlsx_to_db(conn, table_name, headers, rows)
+
+            # API 优先写入
+            ok, rows_written = write_via_api(table_name, headers, rows)
+            if ok:
+                print(f"  [API] 表 '{table_name}'：{rows_written} 行")
+            else:
+                # 回退到本地 SQLite
+                write_xlsx_to_db(conn, table_name, headers, rows)
+                api_failed_tables.append(table_name)
 
             # 删除已处理的 ZIP 文件
             try:
@@ -372,24 +431,18 @@ def main():
 
     print(f"\nZIP/XLSX 处理完成: {zip_count}/{len(ZIP_TEMPLATES)} 个模板")
 
-    # 显示数据库表列表
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-    tables = [r[0] for r in cursor.fetchall()]
-    print(f"\n数据库表 ({len(tables)}):")
-    for t in tables:
-        cursor.execute(f'SELECT COUNT(*) FROM "{t}"')
-        cnt = cursor.fetchone()[0]
-        print(f"  - {t}: {cnt} 行")
-
     conn.close()
 
-    # ---- 上传到 FTP ----
-    print("\n--- 上传到 FTP ---")
-    upload_ok = upload_to_ftp(DB_PATH, FTP_REMOTE_DIR, DB_NAME)
+    # ---- API 失败时回退写本地 SQLite（不做 FTP 上传）----
+    if api_failed_tables:
+        print(f"\n[回退] {len(api_failed_tables)} 个表已写入本地 SQLite: {DB_PATH}")
+    else:
+        print("\n[结果] 全部通过 API 写入远程")
 
+    elapsed = time.time() - t_start
     print("\n" + "=" * 60)
-    print(f"执行完毕！数据库: {DB_PATH}")
-    print(f"FTP 上传: {'成功' if upload_ok else '失败'}")
+    print(f"执行完毕！用时: {elapsed:.2f} 秒")
+    print(f"写入方式: {'API 全部成功' if not api_failed_tables else f'API 失败 {len(api_failed_tables)} 个表，已回退 FTP'}")
     print("=" * 60)
 
 

@@ -1067,14 +1067,8 @@ def import_to_database():
         headers = data = None
         gc.collect()
 
-    # ---- FTP 上传数据库（已注释，方便测试） ----
-    print("\n[FTP Upload]")
-    print(f"  uploading: {DB_NAME}")
-    if upload_to_ftp(DB_PATH, FTP_REMOTE_DIR, DB_NAME):
-        print(f"  [OK] 数据库已上传: {DB_NAME}")
-    else:
-        print(f"  [FAIL] 数据库上传失败: {DB_NAME}")
-    print("\n[FTP Upload] 跳过 FTP 上传（测试模式）")
+    # ---- FTP 上传已移除（数据通过 API 写入远程） ----
+    print("\n[INFO] FTP 上传已移除，数据由 my_app API 写入远程")
 
     # ---- 清理已导入的 xlsx 文件 ----
     print("\n[cleanup]")

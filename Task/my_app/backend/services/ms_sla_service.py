@@ -38,9 +38,9 @@ from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill, Font
 
 try:
-    from .atomic_write import atomic_save_workbook
+    from .atomic_write import atomic_save_workbook, AtomicReplaceFallback, cleanup_stale_tmp_files
 except ImportError:
-    from atomic_write import atomic_save_workbook
+    from atomic_write import atomic_save_workbook, AtomicReplaceFallback, cleanup_stale_tmp_files
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -348,14 +348,26 @@ def _safe_open_workbook(filepath, max_retries=3, **kwargs):
 
 
 def _safe_save_workbook(wb, filepath, max_retries=45):
-    """原子落盘 workbook：先写临时文件再 os.replace（固定间隔重试），专治文件被占用(Permission denied)。"""
-    atomic_save_workbook(wb, filepath, max_retries=max_retries, base_wait=2.0)
+    """原子落盘 workbook：先写临时文件再 os.replace（固定间隔重试），专治文件被占用(Permission denied)。
+    重试耗尽后走 fallback 备用路径，数据不丢失，返回 fallback 路径或 None。
+    """
+    try:
+        atomic_save_workbook(wb, filepath, max_retries=max_retries, base_wait=2.0)
+        return None
+    except AtomicReplaceFallback as e:
+        logger.warning(f"文件被锁，数据已保存到备用路径: {e.fallback_path}")
+        return e.fallback_path
 
 
 def read_xlsx_streaming(filepath):
     """流式读取xlsx文件，返回 (headers, data)"""
     with open(filepath, 'rb') as f:
         file_bytes = f.read()
+    return read_xlsx_bytes(file_bytes)
+
+
+def read_xlsx_bytes(file_bytes: bytes):
+    """从内存字节直接解析 xlsx，不经磁盘。"""
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
     try:
         ws = wb.active
@@ -807,8 +819,8 @@ def _wait_sla_history_ready(cookie, forgery_token, queryid, timeout=300, interva
     raise Exception(f"SLA query timed out after {timeout}s")
 
 
-def _export_sla_history(cookie, forgery_token, queryid, filename, output_path=None):
-    """导出并下载 SLA 历史指标结果。"""
+def _export_sla_history(cookie, forgery_token, queryid, filename, output_path=None) -> bytes:
+    """导出并下载 SLA 历史指标结果，直接返回 xlsx 字节（不落盘）。"""
     payload = {
         "id": queryid, "filename": filename, "chartlayout": 1, "contentmode": 0,
         "customizefieldtype": "0", "exportfiletype": 1, "exportserialnumber": False,
@@ -822,12 +834,8 @@ def _export_sla_history(cookie, forgery_token, queryid, filename, output_path=No
     )
     if "200" not in status:
         raise Exception(f"Export SLA history failed: {status}")
-    if not output_path:
-        output_path = os.path.join(SLA_OUTPUT_DIR, f"{filename}.xlsx")
-    with open(output_path, "wb") as f:
-        f.write(resp_body)
-    logger.info(f"[SLA] 已保存: {os.path.basename(output_path)} ({len(resp_body)} bytes)")
-    return output_path
+    logger.info(f"[SLA] 已导出: {filename}.xlsx ({len(resp_body)} bytes, in-memory)")
+    return resp_body
 
 
 # ============================================================
@@ -881,9 +889,9 @@ def _run_single_sla_query(cookie, forgery_token, task_cfg):
     status = _wait_sla_history_ready(cookie, forgery_token, queryid)
     logger.info(f"[SLA] 查询完成 [{tech}/{grouplayer}/{gr_seconds}]: totalcount={status.get('totalcount')}")
 
-    saved_path = _export_sla_history(cookie, forgery_token, queryid, filename=filename, output_path=output_path)
+    xlsx_bytes = _export_sla_history(cookie, forgery_token, queryid, filename=filename)
     table_name = _build_legacy_table_name(tech, grouplayer, gr_seconds)
-    return {"path": saved_path, "table_name": table_name}
+    return {"xlsx_bytes": xlsx_bytes, "table_name": table_name}
 
 
 def _cleanup_sla_exports():
@@ -969,23 +977,23 @@ def run_ms_sla_sync(max_workers=None):
         logger.error("SLA 同步失败: 无文件下载")
         return {"success": False, "error": "无文件下载", "elapsed_seconds": round(elapsed, 2)}
 
-    # 4. 顺序导入数据库
+    # 4. 顺序导入数据库（从内存读取）
     logger.info(f"  导入 {len(download_results)} 个文件到数据库...")
     total_imported = 0
     imported_tables = []
     table_data_cache = []  # 缓存 (table_name, headers, data) 用于 API 写入
     for item in download_results:
-        filepath = item["path"]
+        xlsx_bytes = item["xlsx_bytes"]
         table_name = item["table_name"]
         try:
-            headers, data = read_xlsx_streaming(filepath)
+            headers, data = read_xlsx_bytes(xlsx_bytes)
             row_count = write_to_db(DB_PATH, table_name, headers, data)
             total_imported += row_count
             imported_tables.append(table_name)
             table_data_cache.append((table_name, headers, data))
             logger.info(f"    {table_name}: {row_count} 行")
         except Exception as e:
-            logger.warning(f"    导入失败 {os.path.basename(filepath)}: {e}")
+            logger.warning(f"    导入失败 {table_name}: {e}")
 
     # 5. API 优先写入远程数据库，失败则回退 FTP 上传
     api_ok = False
@@ -1017,10 +1025,7 @@ def run_ms_sla_sync(max_workers=None):
             logger.warning("  [API] 部分表写入失败，回退到 FTP 上传")
 
     if not api_ok:
-        ftp_ok = _upload_to_ftp(str(DB_PATH), FTP_UP_REMOTE_DIR, DB_NAME)
-        logger.info(f"  FTP上传: {'成功' if ftp_ok else '失败'}")
-    else:
-        ftp_ok = True  # API 成功视为上传成功
+        logger.warning("  [API] 部分表写入失败，数据已保留在本地 SQLite")
 
     # 释放缓存
     del table_data_cache
@@ -1039,7 +1044,7 @@ def run_ms_sla_sync(max_workers=None):
         "total_rows": total_imported,
         "tables": imported_tables,
         "api_ok": api_ok,
-        "ftp_uploaded": ftp_ok,
+        "ftp_uploaded": False,
         "files_cleaned": deleted,
         "elapsed_seconds": round(elapsed, 2),
     }
@@ -2514,6 +2519,9 @@ def run_full_sync():
     logger.info("=" * 60)
     logger.info("完整同步开始: SLA 同步 + Contract KPIs 报表更新")
     logger.info("=" * 60)
+
+    # 清理上次异常退出残留的临时文件
+    cleanup_stale_tmp_files(DATA_DIR)
 
     result = {"success": True}
 

@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 import warnings
 from datetime import datetime, timezone
@@ -62,6 +63,14 @@ IPRAN_DATA_DIR.mkdir(parents=True, exist_ok=True)
 MONTHS_BACK = int(os.environ.get("IPRAN_KPI_MONTHS_BACK", "1"))
 # 并发线程数：匹配当前 6 个 KPI 查询任务
 MAX_PARALLEL_WORKERS = int(os.environ.get("IPRAN_KPI_PARALLEL_WORKERS", "6"))
+# 创建查询遇到 Repeated query（服务端旧查询未释放）时的退避重试上限与间隔。
+# UMW 会自然释放卡住的查询（观察周期约 1h），因此用较长重试窗口等待其释放后再提交。
+# 注意：UME 会话约 30 分钟过期，长耗时任务容易踩中，故 request_with_retry 内置自动重登录。
+# 这里用「固定间隔 × 次数」覆盖约 60 分钟，足以等到 UME 释放窗口，且不至于无限拉长。
+MAX_CREATE_RETRIES = int(os.environ.get("IPRAN_KPI_CREATE_RETRIES", "30"))
+CREATE_RETRY_WAIT = int(os.environ.get("IPRAN_KPI_CREATE_WAIT", "120"))
+# 会话主动刷新阈值（秒）。小于 UME 30 分钟过期时间，保证长耗时任务中途自动续期，避免 401。
+SESSION_REFRESH_SEC = int(os.environ.get("IPRAN_KPI_SESSION_REFRESH", "1500"))
 
 # PM 接口路径
 HISTORY_PATH = "/api/pm-analysis/v2/history"
@@ -118,6 +127,52 @@ _HQ_M6K_FW_CONFIG = {
     "itemsposition1": [0, 0],
     "containvcell": 0,
     "indexfillingtype": "zeroDenominator",
+    # NOTE: uilocations / reslocation 必须存在，否则 UME 返回
+    # 499 {"errorcode":"0001610001","message":"Parameter[uilocations,locations] is not valid."}
+    "uilocations": [
+        {
+            "id": "f72f2173-766a-4ae2-9215-c33fd7fe2b07$ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_3}",
+            "moc": "bnag",
+            "model": "bnag",
+        }
+    ],
+    "reslocation": [
+        {
+            "id": "ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_3}",
+            "displayName": '{"en_US":"SmartGroup:3","zh_CN":"SmartGroup:3"}',
+            "nbiId": "ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_3}",
+            "labelDn": "HQ-M6K-8S_Plus_PS01#SmartGroup:3",
+            "moc": "bnag",
+            "path": [
+                {
+                    "id": "f72f2173-766a-4ae2-9215-c33fd7fe2b07",
+                    "displayName": "HQ-M6K-8S_Plus_PS01",
+                    "model": "wlme",
+                    "nbiId": "BN:ME{431941261}",
+                },
+                {
+                    "id": "ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_3}",
+                    "displayName": "SmartGroup:3",
+                    "model": "bnag",
+                    "nbiId": "ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_3}",
+                },
+            ],
+        }
+    ],
+    "chartsetting": (
+        '{"showchart":true,"layout":1,"showMarkLineLabel":false,"showDataZoom":true,'
+        '"charts":[{"id":"03059aec-6875-bca7-06bb9cd39805d826","legendmode":0,"displayMode":0,'
+        '"mos":["f72f2173-766a-4ae2-9215-c33fd7fe2b07$ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_3}"],'
+        '"mosNames":["\\"HQ-M6K-8S_Plus_PS01\\"-SmartGroup:3"],'
+        '"itemids":["order_8","order_9"],'
+        '"selectedlegend":["order_8","order_9"],'
+        '"markingsettings":[],"custommarkingsettings":[],"showsetting":[]}],'
+        '"thresholdIds":[],'
+        '"countersInfo":['
+        '{"key":"order_8","id":"C019901990","itemposition":0,"itemposition1":0},'
+        '{"key":"order_9","id":"C019911991","itemposition":0,"itemposition1":0}'
+        ']}'
+    ),
     "favorite_id": "4e033c70f47943318d2d77717b80eb4e",
     "table_name": "HQ_M6K_FW_bnctp_15mins",
 }
@@ -245,6 +300,16 @@ IPRAN_KPI_TASKS = [
 # ============================================================
 # HTTP Session 高并发客户端
 # ============================================================
+class UmeBusinessError(Exception):
+    """UME 返回 HTTP 499 + errorcode 的永久性业务错误（查询条件非法等），重试无效"""
+    pass
+
+
+class UmeRepeatedQueryError(UmeBusinessError):
+    """Repeated query：服务端已有同名查询在跑或尚未释放，属暂时性错误，可退避重试"""
+    pass
+
+
 class UmeSessionClient:
     """封装 requests.Session，配有连接池与重试机制，专为并发优化"""
     def __init__(self, host: str, port: int):
@@ -268,6 +333,9 @@ class UmeSessionClient:
             "Connection": "keep-alive"
         })
         self.forgery_token = ""
+        # 会话续期：记录登录时间，供主动刷新与 401 自动重登录使用
+        self._login_lock = threading.Lock()
+        self.logged_in_at = None
 
     def rsa_encrypt(self, plaintext: str, public_key_b64: str) -> str:
         from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
@@ -331,6 +399,16 @@ class UmeSessionClient:
             self.session.headers["forgerydefense"] = self.forgery_token
 
         logger.info("[LOGIN] SUCCESS - Session pool ready for parallel queries.")
+        self.logged_in_at = time.time()
+
+    def ensure_session_fresh(self, max_age: int = SESSION_REFRESH_SEC):
+        """多任务共用同一 UME 会话（单账号单会话限制），需加锁避免并发重复登录。
+        会话超过 max_age 秒则主动重新登录，防止长耗时任务中途 401。"""
+        with self._login_lock:
+            if self.logged_in_at is None or (time.time() - self.logged_in_at) > max_age:
+                logger.info("[LOGIN] Proactive session refresh (age exceeded threshold)")
+                self.login()
+                self.logged_in_at = time.time()
 
     def request_with_retry(self, method: str, path: str, **kwargs) -> requests.Response:
         url = f"{self.base_url}{path}" if path.startswith("/") else path
@@ -339,12 +417,34 @@ class UmeSessionClient:
         for attempt in range(max_retries + 1):
             try:
                 resp = self.session.request(method, url, timeout=req_timeout, **kwargs)
+                # 401 = UME 会话过期（约 30 分钟），重新登录一次后立即用新会话重试。
+                # 多任务共用同一 session，加锁避免并发重复登录把彼此踢下线。
+                if resp.status_code == 401:
+                    logger.warning(f"[HTTP] 401 session expired on {method} {path} -> re-login & retry")
+                    with self._login_lock:
+                        self.login()
+                        self.logged_in_at = time.time()
+                    resp = self.session.request(method, url, timeout=req_timeout, **kwargs)
+                # UME 用 HTTP 499 同时表达「业务条件不合法」和「网关中断」。
+                # 业务错误响应体带 errorcode，属永久性失败，重试无意义，直接抛出并带上原因。
+                if resp.status_code == 499:
+                    body = (resp.text or "")[:400]
+                    if "errorcode" in body:
+                        if "Repeated query" in body:
+                            raise UmeRepeatedQueryError(f"{method} {path} -> 499 {body}")
+                        raise UmeBusinessError(f"{method} {path} -> 499 {body}")
                 if resp.status_code in (499, 500, 502, 503, 504):
                     if attempt < max_retries:
                         time.sleep(2 ** attempt)
                         continue
-                resp.raise_for_status()
+                if not resp.ok:
+                    raise requests.HTTPError(
+                        f"{resp.status_code} {method} {path} -> {(resp.text or '')[:400]}",
+                        response=resp,
+                    )
                 return resp
+            except (UmeBusinessError, UmeRepeatedQueryError):
+                raise
             except Exception as e:
                 if attempt < max_retries:
                     wait = 2 ** attempt
@@ -352,6 +452,7 @@ class UmeSessionClient:
                     time.sleep(wait)
                 else:
                     raise e
+        return resp
 
 
 # ============================================================
@@ -624,33 +725,72 @@ def _run_single_kpi_pipeline(client: UmeSessionClient, task: dict) -> tuple[str,
     cfg = IPRAN_KPI_QUERY_CONFIGS[task["key"]]
     table_name = cfg.get("table_name") or sanitize_table_name(build_filename(cfg))
     file_prefix = build_filename(cfg)
-
     payload = build_ipran_kpi_payload(cfg)
-    queryid = create_history_query(client, payload)
-    
-    # 轮询等待计算就绪
-    adaptive_poll_history_ready(client, queryid, cfg["favoriteconditionname"])
 
-    # 导出到内存
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    filename = f"{file_prefix}_{timestamp}"
-    stream = export_history_to_memory(client, queryid, filename)
+    # 长耗时任务中途续期会话，避免 401
+    client.ensure_session_fresh()
 
-    # 内存快速解析
-    headers, data = parse_xlsx_in_memory(stream)
-    stream.close()
+    # 创建查询：遇 Repeated query（服务端旧查询未释放）退避重试，等待其释放
+    queryid = None
+    last_err = None
+    for attempt in range(MAX_CREATE_RETRIES):
+        try:
+            queryid = create_history_query(client, payload)
+            break
+        except UmeRepeatedQueryError as e:
+            last_err = e
+            if attempt < MAX_CREATE_RETRIES - 1:
+                wait = CREATE_RETRY_WAIT
+                logger.warning(
+                    f"[KPI][{task['key']}] Repeated query, 退避 {wait}s 后重试 ({attempt+1}/{MAX_CREATE_RETRIES})"
+                )
+                # 等待期间会话可能过期，重试前续期
+                client.ensure_session_fresh()
+                time.sleep(wait)
+            else:
+                logger.error(f"[KPI][{task['key']}] Repeated query 重试耗尽，放弃")
+        except Exception as e:
+            last_err = e
+            break
+    if queryid is None:
+        raise last_err or Exception("create query failed")
 
-    # 解析失败必须抛异常，避免静默记为成功
-    if not headers:
-        raise Exception(f"Excel 解析失败: 未找到 'Begin Time' 表头 (sheets 可能为空或格式异常)")
-    if not data:
-        raise Exception(f"Excel 解析后无数据行 (表头已定位但数据为空)")
+    try:
+        # 轮询等待计算就绪
+        adaptive_poll_history_ready(client, queryid, cfg["favoriteconditionname"])
 
-    # 原生高效写入/覆盖
-    rows_written = save_data_to_db_or_api(table_name, headers, data)
-    if rows_written == 0:
-        raise Exception(f"数据写入失败: save_data_to_db_or_api 返回 0 行")
-    return task["key"], rows_written
+        # 导出前再次续期，防止长轮询后会话已过期
+        client.ensure_session_fresh()
+
+        # 导出到内存
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        filename = f"{file_prefix}_{timestamp}"
+        stream = export_history_to_memory(client, queryid, filename)
+
+        # 内存快速解析
+        headers, data = parse_xlsx_in_memory(stream)
+        stream.close()
+
+        # 解析失败必须抛异常，避免静默记为成功
+        if not headers:
+            raise Exception(f"Excel 解析失败: 未找到 'Begin Time' 表头 (sheets 可能为空或格式异常)")
+        if not data:
+            raise Exception(f"Excel 解析后无数据行 (表头已定位但数据为空)")
+
+        # 原生高效写入/覆盖
+        rows_written = save_data_to_db_or_api(table_name, headers, data)
+        if rows_written == 0:
+            raise Exception(f"数据写入失败: save_data_to_db_or_api 返回 0 行")
+        return task["key"], rows_written
+    finally:
+        # 关键：释放服务端查询占用，避免堆积导致后续 Repeated query
+        if queryid:
+            try:
+                del_url = f"{client.base_url}{HISTORY_POLL_PATH}?queryid={queryid}"
+                rr = client.session.delete(del_url, headers=client.session.headers, timeout=20, verify=False)
+                logger.info(f"[KPI][{task['key']}] 释放查询 {queryid} -> {rr.status_code}")
+            except Exception as e:
+                logger.warning(f"[KPI][{task['key']}] 释放查询 {queryid} 失败: {e}")
 
 
 def run_ipran_kpi_sync():

@@ -650,8 +650,8 @@ def wait_history_ready(cookie: str, forgery_token: str, queryid: str,
 
 
 def export_history(cookie: str, forgery_token: str, queryid: str, filename: str,
-                   output_path: str | None = None) -> str:
-    """导出并下载 KPI 历史指标结果，返回保存的文件路径。"""
+                   output_path: str | None = None) -> bytes:
+    """导出并下载 KPI 历史指标结果，直接返回 xlsx 字节（不落盘）。"""
     payload = {
         "id": queryid,
         "filename": filename,
@@ -679,13 +679,8 @@ def export_history(cookie: str, forgery_token: str, queryid: str, filename: str,
     if "200" not in status:
         raise Exception(f"Export KPI history failed: {status}")
 
-    if not output_path:
-        output_path = os.path.join(OUTPUT_DIR, f"{filename}.xlsx")
-
-    with open(output_path, "wb") as f:
-        f.write(resp_body)
-    print(f"[KPI] Saved to: {output_path} ({len(resp_body)} bytes)")
-    return output_path
+    print(f"[KPI] Exported: {filename}.xlsx ({len(resp_body)} bytes, in-memory)")
+    return resp_body
 
 
 # ============================================================
@@ -999,11 +994,12 @@ def _run_single_kpi_query(cookie: str, forgery_token: str, task: dict, task_inde
     status = wait_history_ready(cookie, forgery_token, queryid)
     print(f"[MAIN] KPI query [{tech}/{layer}] ready: totalcount={status.get('totalcount')}")
 
-    saved_path = export_history(cookie, forgery_token, queryid, filename=filename, output_path=output_path)
-    print(f"[MAIN] KPI export [{tech}/{layer}] saved: {saved_path}")
+    saved_bytes = export_history(cookie, forgery_token, queryid, filename=filename)
+    print(f"[MAIN] KPI export [{tech}/{layer}] done: {len(saved_bytes)} bytes (in-memory)")
 
     return {
-        "path": saved_path,
+        "xlsx_bytes": saved_bytes,
+        "filename": f"{filename}.xlsx",
         "table": task["table"],
         "table_type": layer,
         "add_group_column": task["add_group_column"],
@@ -1077,38 +1073,23 @@ def run_main_kpi_sync(cookie: str | None = None, forgery_token: str | None = Non
         print("[MAIN] No files downloaded, skipping DB import.")
         return {"downloaded": 0, "imported_rows": 0, "tables": [], "api_ok": False}
 
-    # 2. 通过 HTTP API 写入远程数据库（替代 FTP 下载→本地修改→FTP 上传）
+    # 2. 通过 HTTP API 写入远程数据库（全程内存，不落盘）
     print(f"\n[API] 通过远程写入 API 导入 {len(download_results)} 个文件")
     total_imported = 0
     imported_tables = []
     api_ok = True
 
     if _db_writer is None:
-        print("[API] [ERROR] db_writer_client 不可用，回退到 FTP 模式")
-        # 回退：使用旧的 FTP 流程
-        DB_PATH = os.path.join(SCRIPT_DIR, DB_NAME)
-        download_from_ftp(FTP_REMOTE_DIR, DB_NAME, DB_PATH, user=FTP_USER, password=FTP_PASS)
-        for item in download_results:
-            try:
-                rows = sync_excel_to_db(
-                    item["path"], item["table"], DB_PATH,
-                    table_type=item["table_type"],
-                    add_group_column=item["add_group_column"],
-                )
-                total_imported += rows
-                if item["table"] not in imported_tables:
-                    imported_tables.append(item["table"])
-            except Exception as e:
-                print(f"[DB] Failed to import {os.path.basename(item['path'])}: {e}")
-        upload_to_ftp(DB_PATH, FTP_UPLOAD_REMOTE_DIR, DB_NAME,
-                      user=FTP_UPLOAD_USER, password=FTP_UPLOAD_PASS)
+        print("[API] [ERROR] db_writer_client 不可用，无法写入")
+        api_ok = False
     else:
         for item in download_results:
             try:
-                result = _db_writer.upload_excel(
+                result = _db_writer.upload_excel_bytes(
                     db=DB_NAME,
                     table=item["table"],
-                    excel_path=item["path"],
+                    file_bytes=item["xlsx_bytes"],
+                    filename=item["filename"],
                     table_type=item["table_type"],
                     add_group_column=item["add_group_column"],
                     group_value="NW",
@@ -1124,11 +1105,8 @@ def run_main_kpi_sync(cookie: str | None = None, forgery_token: str | None = Non
                 print(f"[API] [ERROR] 写入 {item['table']} 失败: {e}")
                 api_ok = False
 
-    # 3. 清理本地 xlsx 文件
-    print("\n[cleanup]")
-    deleted_count = cleanup_kpi_exports()
-    print(f"  total deleted: {deleted_count} files")
-
+    # 3. 释放内存
+    download_results = None
     gc.collect()
 
     return {

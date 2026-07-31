@@ -105,6 +105,82 @@ _GIS_FILTER_COLS = [
 ]
 
 
+def _parse_ts_ms(v):
+    """将 servertime / alarmraisedtime 等字段统一解析为毫秒时间戳；无法解析返回 None"""
+    if v is None:
+        return None
+    try:
+        if isinstance(v, (int, float)):
+            x = float(v)
+        else:
+            s = str(v).strip()
+            if s == "" or s.lower() == "none":
+                return None
+            x = float(s)
+        if x <= 0:
+            return None
+        # 秒级(<1e11) 与 毫秒级 兼容
+        if x < 1e11:
+            x = x * 1000
+        return x
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_delay_sec(v):
+    """将 assign_delay ('900s' / '14400s' / 纯秒数) 解析为秒；无法解析返回 None"""
+    if v is None:
+        return None
+    s = str(v).strip().lower()
+    if s == "" or s == "none":
+        return None
+    if s.endswith("s"):
+        s = s[:-1]
+    try:
+        val = float(s)
+    except ValueError:
+        return None
+    return val if val >= 0 else None
+
+
+# ========== 性能优化：静态元数据缓存 + 索引自愈 ==========
+_meta_cache: dict = {}       # {"ts": epoch, "regions": [...], "filter_options": {...}}
+_META_TTL = 300              # 秒；region / 筛选下拉项属于近似静态数据
+_indexes_ensured = False
+
+
+def _ensure_perf_indexes(conn):
+    """确保关联查询所需索引存在（eflow_tt.tt_no 缺失会导致全表扫描）"""
+    global _indexes_ensured
+    if _indexes_ensured:
+        return
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_eflow_tt_tt_no ON eflow_tt(tt_no)")
+        conn.commit()
+    except Exception:
+        pass
+    _indexes_ensured = True
+
+
+def _get_site_meta(conn, st, site_cols):
+    """获取 regions + filter_options（带 TTL 缓存，避免每次请求跑 9 条 DISTINCT）"""
+    import time as _time
+    now = _time.time()
+    if _meta_cache and (now - _meta_cache.get("ts", 0)) < _META_TTL:
+        return _meta_cache["regions"], _meta_cache["filter_options"]
+    regions = [r[0] for r in conn.execute(
+        f"SELECT DISTINCT region FROM {st} WHERE region IS NOT NULL AND region != '' ORDER BY region"
+    ).fetchall()]
+    filter_options = {}
+    for param_name, db_col, _ in _GIS_FILTER_COLS:
+        if db_col in site_cols:
+            filter_options[param_name] = [r[0] for r in conn.execute(
+                f"SELECT DISTINCT {db_col} FROM {st} WHERE {db_col} IS NOT NULL AND {db_col} != '' ORDER BY {db_col}"
+            ).fetchall()]
+    _meta_cache.update({"ts": now, "regions": regions, "filter_options": filter_options})
+    return regions, filter_options
+
+
 @router.get("/sites")
 def get_sites(
     region: str = Query(None),
@@ -199,19 +275,8 @@ def get_sites(
     cursor = conn.execute(sql, params)
     rows = cursor.fetchall()
 
-    # 获取region列表
-    regions = [r[0] for r in conn.execute(
-        f"SELECT DISTINCT region FROM {st} WHERE region IS NOT NULL AND region != '' ORDER BY region"
-    ).fetchall()]
-
-    # 获取筛选列的唯一值（用向量化 dict 操作，保证最快）
-    filter_options = {}
-    for param_name, db_col, _ in _GIS_FILTER_COLS:
-        if db_col in S["site_cols"]:
-            vals = [r[0] for r in conn.execute(
-                f"SELECT DISTINCT {db_col} FROM {st} WHERE {db_col} IS NOT NULL AND {db_col} != '' ORDER BY {db_col}"
-            ).fetchall()]
-            filter_options[param_name] = vals
+    # region 列表 + 筛选列唯一值（带 TTL 缓存）
+    regions, filter_options = _get_site_meta(conn, st, S["site_cols"])
 
     # 预计算TT统计（自适应关联字段）
     tt_stats = {}
@@ -477,22 +542,88 @@ def get_realtime_sites(
     supervisor: str = Query(None),
     updated_fme_name_new: str = Query(None),
     network_type: str = Query(None),
-    time_start: str = Query(None, description="时间窗口开始 YYYY-MM-DD"),
-    time_end: str = Query(None, description="时间窗口结束 YYYY-MM-DD"),
 ):
-    """RealTime Alarm Map 站点：仅含实时告警站点，TT/WO 关联实时告警 tt_id"""
-    from datetime import datetime, timedelta
+    """RealTime Alarm Map 站点：仅含实时告警站点，TT/WO 关联实时告警 tt_id
+
+    实时数据，不做时间窗口过滤（始终取 realtime_alarm 全量当前快照）。
+    性能：realtime_alarm 单次扫描 + TT/WO 批量关联，避免 per-site N+1 查询。
+    """
+    from datetime import datetime
     S = _detect_gis_schema()
     if not S["site_table"]:
         return {"sites": [], "total": 0, "regions": [], "filter_options": {}}
     conn = get_raw_connection()
+    _ensure_perf_indexes(conn)
     st = S["site_table"]
 
+    # ===== 1) 单次扫描 realtime_alarm，一次性算出：每站告警数 / tt_id / 超时 / OSS 统计 =====
+    rt_alarm_stats: dict = {}
+    site_ttids: dict = {}
+    overdue_map: dict = {}
+    ontime_map: dict = {}
+    oss_counts: dict = {}
+    oss_sites: dict = {}
+    if S["has_realtime_alarm"]:
+        now_ms = int(datetime.now().timestamp() * 1000)
+        alarm_rows = conn.execute(
+            """
+            SELECT CAST(site_id AS TEXT), tt_id, servertime, assign_delay,
+                   COALESCE(oss_specific_problem, '')
+            FROM realtime_alarm
+            WHERE site_id IS NOT NULL
+            """
+        ).fetchall()
+        for sid, tid, st_raw, ad_raw, osp in alarm_rows:
+            sid = str(sid)
+            rt_alarm_stats[sid] = rt_alarm_stats.get(sid, 0) + 1
+            if tid and str(tid).startswith("TT"):
+                site_ttids.setdefault(sid, []).append(tid)
+            st_ms = _parse_ts_ms(st_raw)
+            ad_sec = _parse_delay_sec(ad_raw)
+            if st_ms is not None and ad_sec is not None and (now_ms - st_ms) / 1000.0 > ad_sec:
+                overdue_map[sid] = overdue_map.get(sid, 0) + 1
+            else:
+                ontime_map[sid] = ontime_map.get(sid, 0) + 1
+            key = osp if osp and osp != "empty" else "Unknown"
+            oss_counts[key] = oss_counts.get(key, 0) + 1
+            oss_sites.setdefault(key, set()).add(sid)
+
+    if not rt_alarm_stats:
+        regions, filter_options = _get_site_meta(conn, st, S["site_cols"])
+        conn.close()
+        return {
+            "sites": [], "total": 0, "regions": regions, "filter_options": filter_options,
+            "realtime_alarm_summary": {"oss_problem_stats": [], "overdue_sites": 0, "ontime_sites": 0},
+        }
+
+    # ===== 2) 批量关联 TT / WO（2 条查询代替 per-site 3 条） =====
+    all_tids = sorted({t for tids in site_ttids.values() for t in tids})
+    tt_to_wo: dict = {}       # tt_no -> wo_no（存在于 eflow_tt 的才算命中）
+    existing_tts: set = set()
+    if all_tids:
+        ph = ",".join("?" * len(all_tids))
+        for tno, wno in conn.execute(
+            f"SELECT tt_no, wo_no FROM eflow_tt WHERE tt_no IN ({ph})", all_tids
+        ).fetchall():
+            existing_tts.add(tno)
+            if wno:
+                tt_to_wo[tno] = wno
+    valid_wos: set = set()
+    all_wos = sorted(set(tt_to_wo.values()))
+    if all_wos:
+        wph = ",".join("?" * len(all_wos))
+        valid_wos = {r[0] for r in conn.execute(
+            f"SELECT wo_no FROM eflow_wo WHERE wo_no IN ({wph})", all_wos
+        ).fetchall()}
+
+    # ===== 3) 仅查询「有实时告警」的站点，而不是全表 805 站 =====
+    alarm_site_ids = list(rt_alarm_stats.keys())
     where_parts = [
         "latitude IS NOT NULL", "longitude IS NOT NULL",
         "CAST(latitude AS REAL) != 0", "CAST(longitude AS REAL) != 0",
+        f"CAST(site_id AS TEXT) IN ({','.join('?' * len(alarm_site_ids))})",
     ]
-    params = []
+    params: list = list(alarm_site_ids)
     filter_params = {
         "trm_type": trm_type, "site_type": site_type, "area": area,
         "hubsite": hubsite, "site_information": site_information,
@@ -518,57 +649,22 @@ def get_realtime_sites(
     filter_select_parts = []
     filter_col_indices = {}
     base_cols = 10
-    for i, (param_name, db_col, _) in enumerate(_GIS_FILTER_COLS):
+    for param_name, db_col, _ in _GIS_FILTER_COLS:
         if db_col in S["site_cols"]:
             filter_select_parts.append(db_col)
             filter_col_indices[param_name] = base_cols + len(filter_select_parts) - 1
     filter_select_sql = ", " + ", ".join(filter_select_parts) if filter_select_parts else ""
 
-    sql = f"""
+    rows = conn.execute(f"""
         SELECT site_id, site_name, CAST(latitude AS REAL) as lat, CAST(longitude AS REAL) as lng,
                region, {prov_sel}, network_type, site_type, {vip_sel}, {hub_sel}{filter_select_sql}
         FROM {st} WHERE {where_clause}
-    """
-    cursor = conn.execute(sql, params)
-    rows = cursor.fetchall()
-    regions = [r[0] for r in conn.execute(
-        f"SELECT DISTINCT region FROM {st} WHERE region IS NOT NULL AND region != '' ORDER BY region"
-    ).fetchall()]
-    filter_options = {}
-    for param_name, db_col, _ in _GIS_FILTER_COLS:
-        if db_col in S["site_cols"]:
-            vals = [r[0] for r in conn.execute(
-                f"SELECT DISTINCT {db_col} FROM {st} WHERE {db_col} IS NOT NULL AND {db_col} != '' ORDER BY {db_col}"
-            ).fetchall()]
-            filter_options[param_name] = vals
+    """, params).fetchall()
 
-    # 时间窗口作用于实时告警的 alarmraisedtime(ms)
-    rt_params: list = []
-    rt_time_where = ""
-    if time_start:
-        rt_params.append(int(datetime.strptime(time_start, "%Y-%m-%d").timestamp() * 1000))
-        rt_time_where += " AND alarmraisedtime >= ?"
-    if time_end:
-        end_dt = datetime.strptime(time_end, "%Y-%m-%d") + timedelta(days=1)
-        rt_params.append(int(end_dt.timestamp() * 1000))
-        rt_time_where += " AND alarmraisedtime < ?"
+    regions, filter_options = _get_site_meta(conn, st, S["site_cols"])
+    conn.close()
 
-    rt_alarm_stats: dict = {}
-    if S["has_realtime_alarm"]:
-        for sid, cnt in conn.execute(
-            f"SELECT CAST(site_id AS TEXT), COUNT(*) FROM realtime_alarm WHERE 1=1{rt_time_where} GROUP BY CAST(site_id AS TEXT)",
-            rt_params
-        ).fetchall():
-            rt_alarm_stats[str(sid)] = cnt or 0
-
-    site_ttids: dict = {}
-    if S["has_realtime_alarm"]:
-        for sid, tid in conn.execute(
-            f"SELECT CAST(site_id AS TEXT), tt_id FROM realtime_alarm WHERE tt_id IS NOT NULL AND tt_id != '' AND tt_id LIKE 'TT%'{rt_time_where}",
-            rt_params
-        ).fetchall():
-            site_ttids.setdefault(str(sid), []).append(tid)
-
+    # ===== 4) 组装（纯内存，无 SQL） =====
     site_list = []
     for row in rows:
         sid = str(row[0] or '')
@@ -580,17 +676,8 @@ def get_realtime_sites(
         if lat < 0 and 0 < lng < 10:
             lat, lng = lng, lat
         tids = site_ttids.get(sid, [])
-        rt_tt_count = 0
-        rt_wo_count = 0
-        if tids:
-            ph = ",".join("?" * len(tids))
-            rt_tt_count = conn.execute(f"SELECT COUNT(*) FROM eflow_tt WHERE tt_no IN ({ph})", tids).fetchone()[0] or 0
-            wo_nos = [r[0] for r in conn.execute(
-                f"SELECT DISTINCT wo_no FROM eflow_tt WHERE tt_no IN ({ph}) AND wo_no IS NOT NULL AND wo_no != ''", tids
-            )]
-            if wo_nos:
-                wph = ",".join("?" * len(wo_nos))
-                rt_wo_count = conn.execute(f"SELECT COUNT(*) FROM eflow_wo WHERE wo_no IN ({wph})", wo_nos).fetchone()[0] or 0
+        rt_tt_count = sum(1 for t in tids if t in existing_tts)
+        rt_wo_count = len({tt_to_wo[t] for t in tids if t in tt_to_wo and tt_to_wo[t] in valid_wos})
         site_dict = {
             "site_id": sid, "site_name": str(row[1] or ''),
             "lat": lat, "lng": lng,
@@ -600,12 +687,30 @@ def get_realtime_sites(
             "tt_count": rt_tt_count, "open_tt": 0, "closed_tt": 0,
             "wo_count": rt_wo_count, "rt_alarm_count": rt_cnt, "his_alarm_count": 0,
             "rt_tt_count": rt_tt_count, "rt_wo_count": rt_wo_count,
+            "rt_alarm_overdue": overdue_map.get(sid, 0),
+            "rt_alarm_ontime": ontime_map.get(sid, 0),
         }
         for param_name, idx in filter_col_indices.items():
             site_dict[param_name] = str(row[idx] or '') if idx < len(row) else ''
         site_list.append(site_dict)
-    conn.close()
-    return {"sites": site_list, "total": len(site_list), "regions": regions, "filter_options": filter_options}
+
+    oss_problem_stats = [
+        {"oss_specific_problem": k, "count": v, "sites": len(oss_sites.get(k, set()))}
+        for k, v in sorted(oss_counts.items(), key=lambda x: -x[1])
+    ]
+    overdue_sites = sum(1 for s in site_list if s["rt_alarm_overdue"] > 0)
+    ontime_sites = sum(1 for s in site_list if s["rt_alarm_overdue"] == 0 and s["rt_alarm_count"] > 0)
+    return {
+        "sites": site_list,
+        "total": len(site_list),
+        "regions": regions,
+        "filter_options": filter_options,
+        "realtime_alarm_summary": {
+            "oss_problem_stats": oss_problem_stats,
+            "overdue_sites": overdue_sites,
+            "ontime_sites": ontime_sites,
+        },
+    }
 
 
 @router.get("/realtime/drilldown/{site_id}")
@@ -764,9 +869,16 @@ def get_topology():
     return {"links": links, "total": len(links)}
 
 
+_boundaries_cache: dict = {}   # {"ts": epoch, "data": {...}}
+_BOUNDARIES_TTL = 1800         # Voronoi 计算约 1.3s，站点坐标近乎静态，缓存 30 分钟
+
+
 @router.get("/region-boundaries")
 def get_region_boundaries():
     """获取各Region的Voronoi分区边界（用于地图蒙层，自适应数据库结构）"""
+    import time as _time
+    if _boundaries_cache and (_time.time() - _boundaries_cache.get("ts", 0)) < _BOUNDARIES_TTL:
+        return _boundaries_cache["data"]
     S = _detect_gis_schema()
     if not S["site_table"]:
         return {"regions": []}
@@ -1013,4 +1125,6 @@ def get_region_boundaries():
             "site_count": region_site_counts.get(region_name, 0),
         })
 
-    return {"regions": result}
+    payload = {"regions": result}
+    _boundaries_cache.update({"ts": _time.time(), "data": payload})
+    return payload

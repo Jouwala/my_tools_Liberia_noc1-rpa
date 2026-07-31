@@ -1,0 +1,5 @@
+# orange_email 模块依赖
+# 安装：pip install -r requirements.txt
+
+# OWA (Exchange Web Services) 邮件登录与发送 —— owa_mail_service.py 使用
+exchangelib>=5.6.0

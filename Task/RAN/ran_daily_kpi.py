@@ -366,13 +366,8 @@ def main():
         gc.collect()
 
     # ---- FTP 上传数据库文件 ----
-    print("\n[FTP Upload]")
-    db_filename = os.path.basename(DB_PATH)
-    print(f"  uploading: {db_filename}")
-    if upload_to_ftp(DB_PATH, FTP_REMOTE_DIR, db_filename):
-        print(f"  [OK] 数据库已上传: {db_filename}")
-    else:
-        print(f"  [FAIL] 数据库上传失败: {db_filename}")
+    # ---- FTP 上传已移除（数据通过 API 写入远程） ----
+    print("\n[INFO] FTP 上传已移除，数据由 my_app API 写入远程")
 
     # ---- 清理已导入的xlsx文件 ----
     print("\n[cleanup]")

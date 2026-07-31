@@ -646,8 +646,8 @@ def wait_history_ready(cookie: str, forgery_token: str, queryid: str,
 
 
 def export_history(cookie: str, forgery_token: str, queryid: str, filename: str,
-                   output_path: str | None = None) -> str:
-    """导出并下载 KPI 历史指标结果，返回保存的文件路径。"""
+                   output_path: str | None = None) -> bytes:
+    """导出并下载 KPI 历史指标结果，直接返回 xlsx 字节（不落盘）。"""
     payload = {
         "id": queryid,
         "filename": filename,
@@ -675,13 +675,8 @@ def export_history(cookie: str, forgery_token: str, queryid: str, filename: str,
     if "200" not in status:
         raise Exception(f"Export KPI history failed: {status}")
 
-    if not output_path:
-        output_path = os.path.join(OUTPUT_DIR, f"{filename}.xlsx")
-
-    with open(output_path, "wb") as f:
-        f.write(resp_body)
-    print(f"[KPI] Saved to: {output_path} ({len(resp_body)} bytes)")
-    return output_path
+    print(f"[KPI] Exported: {filename}.xlsx ({len(resp_body)} bytes, in-memory)")
+    return resp_body
 
 
 # ============================================================
@@ -735,10 +730,14 @@ def find_latest_xlsx(prefix):
 
 
 def read_xlsx(filepath):
-    """读取 xlsx 文件，返回 (headers, data)。流式读取，先读入内存再解析。"""
+    """读取 xlsx 文件，返回 (headers, data)。"""
     with open(filepath, 'rb') as f:
         file_bytes = f.read()
+    return read_xlsx_bytes(file_bytes)
 
+
+def read_xlsx_bytes(file_bytes: bytes):
+    """从内存字节直接解析 xlsx，不经磁盘。"""
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
     try:
         ws = wb.active
@@ -752,8 +751,6 @@ def read_xlsx(filepath):
             data.append(list(row))
     finally:
         wb.close()
-
-    del file_bytes
     return headers, data
 
 
@@ -909,13 +906,12 @@ def upload_to_ftp(local_path, remote_dir, filename, max_retries=2):
     return False
 
 
-def import_to_database():
-    """将导出的 NW 和 Group xlsx 文件导入 SQLite 数据库。
-    参考 ran_daily_kpi.py 的处理逻辑：
-    - 对 NW 文件增加 Group 列（值为 {tech}_NW）和 Source File 列
-    - 对 Group 文件增加 Source File 列
-    - 合并 NW 和 Group 数据后写入表 {tech}_OLIB_Network_KPIs
-    - 以 (Begin Time, Group) 为联合主键，INSERT OR REPLACE
+def import_to_database(export_results: dict = None):
+    """将导出的 NW 和 Group xlsx 数据导入 SQLite 数据库。
+
+    Args:
+        export_results: {file_prefix: xlsx_bytes} 内存数据。
+                        如果为 None 则回退到磁盘读取。
     """
     print("\n" + "=" * 70)
     print("[DB] 开始导入数据库")
@@ -931,24 +927,30 @@ def import_to_database():
         group_prefix = f"{tech}_OLIB_Network_KPIs_Group_1Day"
         table_name = f"{tech}_OLIB_Network_KPIs"
 
-        nw_file = find_latest_xlsx(nw_prefix)
-        group_file = find_latest_xlsx(group_prefix)
+        nw_bytes = export_results.get(nw_prefix) if export_results else None
+        group_bytes = export_results.get(group_prefix) if export_results else None
+
+        nw_file = None if nw_bytes else find_latest_xlsx(nw_prefix)
+        group_file = None if group_bytes else find_latest_xlsx(group_prefix)
 
         print(f"\n[{tech}]")
 
-        # ---- 处理 _NW 文件 ----
+        # ---- 处理 _NW 数据 ----
         nw_headers = None
         nw_data = None
         nw_source = f"{tech} OLIB Network KPIs_NW"
-        if nw_file:
-            files_to_delete.append(nw_file)
-            print(f"  _NW: {os.path.basename(nw_file)}")
+        if nw_bytes or nw_file:
+            if nw_file:
+                files_to_delete.append(nw_file)
+                print(f"  _NW: {os.path.basename(nw_file)}")
+            else:
+                print(f"  _NW: from memory ({len(nw_bytes)} bytes)")
 
             # NW 数据的 Group 值
             group_value = f"{tech}_NW"
             print(f"  _NW Group: {group_value}")
 
-            nw_headers, nw_data = read_xlsx(nw_file)
+            nw_headers, nw_data = read_xlsx_bytes(nw_bytes) if nw_bytes else read_xlsx(nw_file)
             print(f"  _NW: {len(nw_data)} rows, {len(nw_headers)} cols")
 
             # 增加 "Group" 列
@@ -973,15 +975,18 @@ def import_to_database():
         else:
             print(f"  _NW: not found")
 
-        # ---- 处理 _Group 文件 ----
+        # ---- 处理 _Group 数据 ----
         grp_headers = None
         grp_data = None
         grp_source = f"{tech} OLIB Network KPIs_Group"
-        if group_file:
-            files_to_delete.append(group_file)
-            print(f"  _Group: {os.path.basename(group_file)}")
+        if group_bytes or group_file:
+            if group_file:
+                files_to_delete.append(group_file)
+                print(f"  _Group: {os.path.basename(group_file)}")
+            else:
+                print(f"  _Group: from memory ({len(group_bytes)} bytes)")
 
-            grp_headers, grp_data = read_xlsx(group_file)
+            grp_headers, grp_data = read_xlsx_bytes(group_bytes) if group_bytes else read_xlsx(group_file)
             print(f"  _Group: {len(grp_data)} rows, {len(grp_headers)} cols")
 
             # 增加 "Source File" 列
@@ -1077,16 +1082,11 @@ def import_to_database():
         merged_headers = merged_data = None
         gc.collect()
 
-    # ---- FTP upload (conditional) ----
+    # ---- 写入结果日志 ----
     if _db_writer is None:
-        print("\n[FTP Upload]")
-        print(f"  uploading: {DB_NAME}")
-        if upload_to_ftp(DB_PATH, FTP_REMOTE_DIR, DB_NAME):
-            print(f"  [OK] uploaded: {DB_NAME}")
-        else:
-            print(f"  [FAIL] upload failed: {DB_NAME}")
+        print("\n[LOCAL] 数据已写入本地 SQLite（API 不可用）")
     else:
-        print("\n[API] data written via remote API, no FTP needed")
+        print("\n[API] 数据已通过远程 API 写入")
 
     # ---- 清理已导入的 xlsx 文件 ----
     print("\n[cleanup]")
@@ -1142,8 +1142,8 @@ def import_to_database():
 # ============================================================
 # 单任务执行
 # ============================================================
-def _run_single_kpi_query(auth: dict, task: dict, start_index: int) -> tuple[str, str]:
-    """执行单个 KPI 查询任务，返回 (file_prefix, saved_path) 或抛异常。"""
+def _run_single_kpi_query(auth: dict, task: dict, start_index: int) -> tuple[str, bytes]:
+    """执行单个 KPI 查询任务，返回 (file_prefix, xlsx_bytes) 或抛异常。"""
     tech = task["tech"]
     layer = task["layer"]
     gr = task["gr"]
@@ -1170,12 +1170,9 @@ def _run_single_kpi_query(auth: dict, task: dict, start_index: int) -> tuple[str
 
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     filename = f"{file_prefix}_{timestamp}"
-    saved_path = export_history(cookie, forgery_token, queryid, filename)
+    xlsx_bytes = export_history(cookie, forgery_token, queryid, filename)
 
-    # 清理同前缀旧文件
-    cleanup_old_exports(file_prefix)
-
-    return file_prefix, saved_path
+    return file_prefix, xlsx_bytes
 
 
 # ============================================================
@@ -1194,8 +1191,8 @@ def run_network_kpi_sync():
     # 1. 登录
     auth = login()
 
-    # 2. 并行执行查询
-    results = []
+    # 2. 并行执行查询（全程内存）
+    export_data = {}  # {file_prefix: xlsx_bytes}
     errors = []
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
@@ -1208,9 +1205,9 @@ def run_network_kpi_sync():
             task = future_to_task[future]
             task_label = f"{task['tech']}/{task['layer']}"
             try:
-                file_prefix, saved_path = future.result()
-                results.append((file_prefix, saved_path))
-                print(f"[MAIN] KPI query [{task_label}] succeeded: {os.path.basename(saved_path)}")
+                file_prefix, xlsx_bytes = future.result()
+                export_data[file_prefix] = xlsx_bytes
+                print(f"[MAIN] KPI query [{task_label}] succeeded: {len(xlsx_bytes)} bytes (in-memory)")
             except Exception as e:
                 errors.append((task_label, str(e)))
                 print(f"[MAIN] KPI query [{task_label}] failed: {e}")
@@ -1219,28 +1216,27 @@ def run_network_kpi_sync():
     elapsed = time.time() - t_start
     print("\n" + "=" * 70)
     print(f"[MAIN] Export completed in {elapsed:.2f} seconds")
-    print(f"[MAIN] Successfully exported {len(results)} files:")
-    for prefix, path in results:
-        print(f"  - {os.path.basename(path)}")
+    print(f"[MAIN] Successfully exported {len(export_data)} tables (in-memory)")
 
     if errors:
         print(f"[MAIN] Failed queries ({len(errors)}):")
         for label, err in errors:
             print(f"  - {label}: {err}")
 
-    # 释放资源
-    gc.collect()
-
-    # 4. 数据库导入（参考 ran_daily_kpi.py）
-    if results:
-        import_to_database()
+    # 4. 数据库导入（从内存读取）
+    if export_data:
+        import_to_database(export_results=export_data)
     else:
-        print("\n[MAIN] No files exported, skip database import.")
+        print("\n[MAIN] No data exported, skip database import.")
+
+    # 释放内存
+    export_data = None
+    gc.collect()
 
     elapsed_total = time.time() - t_start
     print(f"\n[MAIN] Total completed in {elapsed_total:.2f} seconds")
     print(f"[MAIN] Done.")
-    return results
+    return export_data
 
 
 if __name__ == "__main__":

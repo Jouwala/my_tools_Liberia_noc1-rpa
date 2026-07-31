@@ -1,13 +1,13 @@
 {
-  "run_at": "2026-07-30T03:02:43",
+  "run_at": "2026-07-31T03:01:34",
   "threshold_ms": 5000,
   "results": [
     {
       "key": "zhipu",
       "name": "ZhiPu GLM 智谱",
       "available": true,
-      "latency_ms": 1279,
-      "model": "glm-4-flash-250414",
+      "latency_ms": 1832,
+      "model": "glm-4-flash",
       "error": null,
       "status": "ok",
       "reason": "正常",
@@ -15,15 +15,8 @@
       "tried_models": [
         {
           "model": "glm-4-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "timeout",
-          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
-        },
-        {
-          "model": "glm-4-flash-250414",
           "ok": true,
-          "latency_ms": 1279,
+          "latency_ms": 1832,
           "status": "ok",
           "error": null
         }
@@ -33,7 +26,7 @@
       "key": "nvidia",
       "name": "NVIDIA NIM",
       "available": true,
-      "latency_ms": 953,
+      "latency_ms": 14686,
       "model": "meta/llama-3.1-8b-instruct",
       "error": null,
       "status": "ok",
@@ -43,7 +36,7 @@
         {
           "model": "meta/llama-3.1-8b-instruct",
           "ok": true,
-          "latency_ms": 953,
+          "latency_ms": 14686,
           "status": "ok",
           "error": null
         }
@@ -53,7 +46,7 @@
       "key": "openrouter",
       "name": "OpenRouter",
       "available": true,
-      "latency_ms": 2426,
+      "latency_ms": 3813,
       "model": "openrouter/free",
       "error": null,
       "status": "ok",
@@ -63,7 +56,7 @@
         {
           "model": "openrouter/free",
           "ok": true,
-          "latency_ms": 2426,
+          "latency_ms": 3813,
           "status": "ok",
           "error": null
         }
@@ -121,7 +114,7 @@
       "key": "zhipu5",
       "name": "ZhiPu GLM-5 智谱",
       "available": true,
-      "latency_ms": 2578,
+      "latency_ms": 1569,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -131,7 +124,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 2578,
+          "latency_ms": 1569,
           "status": "ok",
           "error": null
         }
@@ -284,12 +277,12 @@
     {
       "key": "ollama",
       "name": "Local Ollama",
-      "available": true,
-      "latency_ms": 8254,
-      "model": "phi4-mini:3.8b",
-      "error": null,
-      "status": "ok",
-      "reason": "正常",
+      "available": false,
+      "latency_ms": null,
+      "model": "qwen3:4b",
+      "error": "HTTP 404",
+      "status": "model_unavailable",
+      "reason": "模型不可用/不存在",
       "local": true,
       "tried_models": [
         {
@@ -308,10 +301,24 @@
         },
         {
           "model": "phi4-mini:3.8b",
-          "ok": true,
-          "latency_ms": 8254,
-          "status": "ok",
-          "error": null
+          "ok": false,
+          "latency_ms": null,
+          "status": "server_error",
+          "error": "HTTP 500"
+        },
+        {
+          "model": "phi4-mini",
+          "ok": false,
+          "latency_ms": null,
+          "status": "model_unavailable",
+          "error": "HTTP 404"
+        },
+        {
+          "model": "qwen3:4b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "model_unavailable",
+          "error": "HTTP 404"
         }
       ]
     },
@@ -319,7 +326,7 @@
       "key": "sensenova",
       "name": "SenseNova 商汤",
       "available": true,
-      "latency_ms": 2144,
+      "latency_ms": 2052,
       "model": "sensenova-6.7-flash-lite",
       "error": null,
       "status": "ok",
@@ -329,21 +336,20 @@
         {
           "model": "sensenova-6.7-flash-lite",
           "ok": true,
-          "latency_ms": 2144,
+          "latency_ms": 2052,
           "status": "ok",
           "error": null
         }
       ]
     }
   ],
-  "primary": "nvidia/meta/llama-3.1-8b-instruct",
+  "primary": "zhipu5/glm-4-flash",
   "fallbacks": [
     "ollama/gemma4-32k:latest",
     "ollama/phi4-mini:3.8b",
-    "zhipu/glm-4-flash-250414",
+    "zhipu/glm-4-flash",
     "sensenova/sensenova-6.7-flash-lite",
     "openrouter/openrouter/free",
-    "zhipu5/glm-4-flash",
     "ollama-cloud/gemma3:27b"
   ]
 }
