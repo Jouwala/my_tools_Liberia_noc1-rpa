@@ -45,6 +45,7 @@ DB_MAIN_PATH = r"C:\FineBI6.0\webapps\Python\db.sqlite3"
 DB_DAILY_PATH = r"E:\01_RPA\LBR_Tools\KPI\RAN\ran_kpi_daily.sqlite3"
 DB_ORANGE_PATH = r"E:\01_RPA\LBR_Tools\KPI\RAN\ran_kpi_daily_202606.sqlite3"
 DB_CNN_PATH = r"E:\01_RPA\LBR_Tools\KPI\CNN\db_ps_cs_cn.sqlite3"
+DB_IPRAN_PATH = r"E:\01_RPA\LBR_Tools\KPI\IPRAN\ipran_ume_kpi.sqlite3"
 
 
 API_HOST = "0.0.0.0"
@@ -80,6 +81,7 @@ def _get_db_path(db_name: str) -> str:
         "ran_kpi_daily.sqlite3": DB_DAILY_PATH,
         "ran_kpi_daily_202606.sqlite3": DB_ORANGE_PATH,
         "db_ps_cs_cn.sqlite3": DB_CNN_PATH,
+        "ipran_ume_kpi.sqlite3": DB_IPRAN_PATH,
     }
     path = mapping.get(db_name)
     if not path:
@@ -373,8 +375,19 @@ def write_data(payload: dict):
                 if table_exists:
                     cursor.execute(f'DROP TABLE "{table_name}"')
 
-                col_defs = ", ".join(f'"{ c.replace(chr(34), chr(34)+chr(34)) }" TEXT' for c in columns)
-                cursor.execute(f'CREATE TABLE "{table_name}" ({col_defs})')
+                # 主键列（仅保留实际存在的列；不存在则不过滤成 PK）
+                pk_cols = [c for c in (pk_columns or []) if c in columns]
+                col_defs = []
+                for c in columns:
+                    safe = c.replace(chr(34), chr(34) + chr(34))
+                    if c in pk_cols:
+                        col_defs.append(f'"{safe}" TEXT NOT NULL')
+                    else:
+                        col_defs.append(f'"{safe}" TEXT')
+                if pk_cols:
+                    pk_str = ", ".join(f'"{c.replace(chr(34), chr(34) + chr(34))}"' for c in pk_cols)
+                    col_defs.append(f"PRIMARY KEY ({pk_str})")
+                cursor.execute(f'CREATE TABLE "{table_name}" ({", ".join(col_defs)})')
 
                 quoted_cols = [f'"{ c.replace(chr(34), chr(34)+chr(34)) }"' for c in columns]
                 placeholders = ", ".join(["?"] * col_count)

@@ -329,6 +329,11 @@ def _save_task_result(result: dict):
             json.dumps(result.get("result"), ensure_ascii=False, default=str) if result.get("result") else None,
             result.get("error"),
         ))
+        # 清理超过3天的旧日志
+        conn.execute("""
+            DELETE FROM task_execution_log
+            WHERE started_at < datetime('now', '-1 days')
+        """)
         conn.commit()
         conn.close()
     except Exception as e:
@@ -493,7 +498,7 @@ def get_task_detail(task_id: str, lang: str = "zh") -> Optional[dict]:
                       started_at, completed_at, elapsed_seconds, error
                FROM task_execution_log
                WHERE task_id = ?
-               ORDER BY id DESC LIMIT 10""",
+               ORDER BY started_at DESC LIMIT 10""",
             (task_id,)
         ).fetchall()
         detail["recent_runs"] = [
@@ -520,7 +525,7 @@ def get_task_history(limit: int = 20) -> list[dict]:
             """SELECT task_id, task_name, category, trigger_type, success,
                       started_at, completed_at, elapsed_seconds, error
                FROM task_execution_log
-               ORDER BY id DESC LIMIT ?""",
+               ORDER BY started_at DESC LIMIT ?""",
             (limit,)
         ).fetchall()
         conn.close()

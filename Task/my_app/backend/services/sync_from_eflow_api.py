@@ -565,7 +565,7 @@ def sync_from_eflow_api() -> dict:
             logger.warning(f"tt_reports FTP 上传异常: {e}")
             result["ftp_upload"] = False
 
-        # 生成 Eflow_TT_FB.xlsx / Eflow_WO_FB.xlsx 并上传到 FINEBI FTP
+        # 通过 API 将 TT/WO 数据写入远程 DB Main
         try:
             try:
                 from backend.services.eflow_api_client import generate_and_upload_fb_excel
@@ -574,11 +574,11 @@ def sync_from_eflow_api() -> dict:
             fb_result = generate_and_upload_fb_excel(all_data)
             result["fb_excel_upload"] = fb_result.get("upload_success", False)
             if fb_result.get("upload_success"):
-                logger.info("Eflow_TT_FB/WO_FB 已生成并上传到 FINEBI FTP")
+                logger.info("Eflow_TT_FB/WO_FB 已通过 API 写入远程 DB Main")
             else:
-                logger.warning("Eflow_TT_FB/WO_FB 上传未完成")
+                logger.warning("Eflow_TT_FB/WO_FB API 写入未完成")
         except Exception as e:
-            logger.warning(f"FB Excel 生成/上传异常: {e}")
+            logger.warning(f"FB API写入异常: {e}")
             result["fb_excel_upload"] = False
 
     except Exception as e:

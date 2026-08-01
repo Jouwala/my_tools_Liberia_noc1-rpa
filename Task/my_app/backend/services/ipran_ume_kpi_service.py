@@ -101,6 +101,9 @@ except Exception:
 
 IDENTITY_COL_CANDIDATES = ["NE", "ME", "Managed Element", "SERVICE", "Measurement Object"]
 
+# 复合主键候选（按用户要求：Begin Time / ME / Measure Object / Counter；仅取实际存在的列）
+IPRAN_PK_CANDIDATES = ["Begin Time", "ME", "Measure Object", "Counter"]
+
 GR_RENAME = {
     "900": "15mins",
     "3600": "1hour",
@@ -672,11 +675,17 @@ def sanitize_table_name(name: str) -> str:
 
 
 def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
-    """使用 INSERT OR REPLACE 实现原生超高速覆盖写入"""
+    """全量替换写入：每次入库前清空原表，按复合主键(Begin Time/ME/Measure Object/Counter，存在才用)去重。
+
+    优先写远程写服务（db_writer_api，full_replace 模式），失败则兜底写本地 SQLite。
+    """
     if not headers or not data:
         return 0
 
-    # 1. API 客户端优先机制
+    # 复合主键：仅取表头中实际存在的列（用户要求 Begin Time/ME/Measure Object/Counter）
+    pk_cols = [c for c in IPRAN_PK_CANDIDATES if c in headers]
+
+    # 1. API 客户端优先机制（远程写服务：full_replace = 清空后全量写入）
     if _db_writer is not None:
         try:
             str_data = [[str(v) if v is not None else None for v in row] for row in data]
@@ -686,35 +695,42 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
                 columns=headers,
                 rows=str_data,
                 mode="full_replace",
+                pk_columns=pk_cols,
             )
             rows_written = res.get("rows_written", 0)
-            logger.info(f"[DB][API] {table_name}: Written {rows_written} rows")
+            logger.info(f"[DB][API] {table_name}: Written {rows_written} rows (pk={pk_cols})")
             return rows_written
         except Exception as e:
             logger.error(f"[DB][API] {table_name}: API write failed ({e}), falling back to local SQLite")
 
-    # 2. SQLite 高并发 WAL 模式写入
+    # 2. SQLite 高并发 WAL 模式写入（兜底；同样清空后全量写入 + 复合主键）
     import sqlite3
     conn = sqlite3.connect(DB_PATH, timeout=60.0)
     cursor = conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA synchronous=OFF")
 
-    key_cols = detect_key_cols(headers)
-    def _q(col): return f'"{col.replace('"', '""')}"'
+    # 兜底时若用户指定的列都不存在，回退到原有 detect_key_cols
+    if not pk_cols:
+        pk_cols = detect_key_cols(headers)
 
-    cols_decl = [f"{_q(h)} TEXT" for h in headers]
-    pk_clause = f", PRIMARY KEY ({', '.join(_q(k) for k in key_cols)})" if key_cols else ""
-    create_sql = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({", ".join(cols_decl)}{pk_clause})'
-    
-    try:
-        cursor.execute(create_sql)
-    except sqlite3.OperationalError:
-        cursor.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({", ".join(cols_decl)})')
+    def _q(col): return f'"{col.replace(chr(34), chr(34) + chr(34))}"'
+
+    # 清空原数据（full_replace 语义）：先 DROP，再按复合主键结构重建
+    cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+    cols_decl = []
+    for h in headers:
+        if h in pk_cols:
+            cols_decl.append(f"{_q(h)} TEXT NOT NULL")
+        else:
+            cols_decl.append(f"{_q(h)} TEXT")
+    pk_clause = f", PRIMARY KEY ({', '.join(_q(k) for k in pk_cols)})" if pk_cols else ""
+    create_sql = f'CREATE TABLE "{table_name}" ({", ".join(cols_decl)}{pk_clause})'
+    cursor.execute(create_sql)
 
     cols_str = ", ".join(_q(h) for h in headers)
     placeholders = ", ".join(["?"] * len(headers))
-    insert_sql = f'INSERT OR REPLACE INTO "{table_name}" ({cols_str}) VALUES ({placeholders})'
+    insert_sql = f'INSERT INTO "{table_name}" ({cols_str}) VALUES ({placeholders})'
 
     formatted_data = []
     for row in data:
@@ -726,7 +742,7 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
     conn.commit()
     conn.close()
 
-    logger.info(f"[DB][LOCAL] {table_name}: Inserted/Replaced {len(formatted_data)} rows into SQLite")
+    logger.info(f"[DB][LOCAL] {table_name}: Inserted {len(formatted_data)} rows into SQLite (full_replace, pk={pk_cols})")
     return len(formatted_data)
 
 

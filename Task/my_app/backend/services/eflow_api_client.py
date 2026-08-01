@@ -1799,105 +1799,64 @@ def upload_tt_reports_to_ftp(local_dir=None):
         return False
 
 
-# FINEBI FTP 上传路径（Eflow_TT_FB / Eflow_WO_FB）
-FTP_FB_REMOTE_DIR = "/webroot/WEB-INF/reportlets/excel"
-
-
 def generate_and_upload_fb_excel(all_data: dict) -> dict:
     """
-    从 eFlow 同步数据生成 Eflow_TT_FB.xlsx 和 Eflow_WO_FB.xlsx，
-    保存到 db/ 目录并上传到 FTP /webroot/WEB-INF/reportlets/excel。
+    从 eFlow 同步数据，通过 DbWriterClient API 全量替换写入远程 DB Main (db.sqlite3)。
 
     Args:
         all_data: fetch_all_data() 返回的 {sheet_name: rows} 字典
 
     Returns:
-        dict: {"tt_path": ..., "wo_path": ..., "upload_success": bool}
+        dict: {"upload_success": bool}
     """
     import pandas as pd
 
     t0 = time.time()
-    db_dir = os.path.dirname(APP_DB_PATH)
-    result = {"tt_path": None, "wo_path": None, "upload_success": False}
+    result = {"upload_success": False}
 
-    # 生成 Eflow_TT_FB.xlsx
     tt_rows = all_data.get("eFlow TT") or []
-    if tt_rows:
-        df_tt = pd.DataFrame(tt_rows)
-        tt_path = os.path.join(db_dir, "Eflow_TT_FB.xlsx")
-        try:
-            df_tt.to_excel(tt_path, index=False, engine="openpyxl")
-            result["tt_path"] = tt_path
-            logger.info(f"Eflow_TT_FB.xlsx 已生成: {len(df_tt)} 行 -> {tt_path}")
-        except PermissionError:
-            tt_path = os.path.join(db_dir, "Eflow_TT_FB_1.xlsx")
-            df_tt.to_excel(tt_path, index=False, engine="openpyxl")
-            result["tt_path"] = tt_path
-            logger.info(f"Eflow_TT_FB_1.xlsx 已生成(原文件被占用): {len(df_tt)} 行")
-    else:
-        logger.warning("无 eFlow TT 数据，跳过 Eflow_TT_FB.xlsx")
-
-    # 生成 Eflow_WO_FB.xlsx
     wo_rows = all_data.get("eFlow WO") or []
-    if wo_rows:
-        df_wo = pd.DataFrame(wo_rows)
-        wo_path = os.path.join(db_dir, "Eflow_WO_FB.xlsx")
-        try:
-            df_wo.to_excel(wo_path, index=False, engine="openpyxl")
-            result["wo_path"] = wo_path
-            logger.info(f"Eflow_WO_FB.xlsx 已生成: {len(df_wo)} 行 -> {wo_path}")
-        except PermissionError:
-            wo_path = os.path.join(db_dir, "Eflow_WO_FB_1.xlsx")
-            df_wo.to_excel(wo_path, index=False, engine="openpyxl")
-            result["wo_path"] = wo_path
-            logger.info(f"Eflow_WO_FB_1.xlsx 已生成(原文件被占用): {len(df_wo)} 行")
-    else:
-        logger.warning("无 eFlow WO 数据，跳过 Eflow_WO_FB.xlsx")
+    df_tt = pd.DataFrame(tt_rows) if tt_rows else None
+    df_wo = pd.DataFrame(wo_rows) if wo_rows else None
 
-    # 上传到 FTP /webroot/WEB-INF/reportlets/excel
-    uploaded = 0
-    total_files = 0
-    ftp = None
-    files_to_upload = [(result["tt_path"], "Eflow_TT_FB.xlsx"), (result["wo_path"], "Eflow_WO_FB.xlsx")]
+    if df_tt is None and df_wo is None:
+        logger.warning("无 eFlow TT/WO 数据，跳过 API 写入")
+        return result
+
+    # 通过 API 写入远程 DB Main (db.sqlite3)
+    written = 0
+    total_tables = 0
     try:
-        ftp = ftplib.FTP()
-        ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
-        ftp.login(FTP_USER, FTP_PASS)
-
-        # 切换到目标目录
-        dirs = FTP_FB_REMOTE_DIR.strip("/").split("/")
-        current_path = ""
-        for d in dirs:
-            current_path += f"/{d}"
-            try:
-                ftp.cwd(current_path)
-            except ftplib.error_perm:
-                try:
-                    ftp.mkd(current_path)
-                    ftp.cwd(current_path)
-                except ftplib.error_perm:
-                    ftp.cwd("/")
-                    break
-
-        for local_path, remote_name in files_to_upload:
-            if not local_path or not os.path.exists(local_path):
-                continue
-            total_files += 1
-            with open(local_path, "rb") as f:
-                ftp.storbinary(f"STOR {remote_name}", f)
-            uploaded += 1
-            logger.info(f"FTP 上传成功: {remote_name} -> {FTP_FB_REMOTE_DIR}/")
-
-        ftp.quit()
-        result["upload_success"] = uploaded == total_files and total_files > 0
-        logger.info(f"FB Excel FTP 上传完成: {uploaded}/{total_files}, 用时 {time.time() - t0:.2f}s")
-    except (ftplib.all_errors, socket.timeout, ConnectionError, OSError) as e:
-        logger.error(f"FB Excel FTP 上传失败: {e}")
         try:
-            if ftp:
-                ftp.quit()
-        except Exception:
-            pass
+            from backend.services.db_writer_client import DbWriterClient
+        except ImportError:
+            from services.db_writer_client import DbWriterClient
+        client = DbWriterClient()
+        client.health()
+
+        for df, table_name in [(df_tt, "Eflow_TT_FB"), (df_wo, "Eflow_WO_FB")]:
+            if df is None:
+                continue
+            total_tables += 1
+            columns = list(df.columns)
+            rows = df.values.tolist()
+            write_result = client.write_data(
+                db="db.sqlite3",
+                table=table_name,
+                columns=columns,
+                rows=rows,
+                mode="full_replace",
+            )
+            if write_result.get("success"):
+                written += 1
+                logger.info(f"API 写入成功: {table_name} -> db.sqlite3 ({write_result.get('rows_written', 0)} 行)")
+            else:
+                logger.warning(f"API 写入返回失败: {table_name} -> {write_result}")
+
+        result["upload_success"] = written == total_tables and total_tables > 0
+        logger.info(f"FB Excel API 写入完成: {written}/{total_tables}, 用时 {time.time() - t0:.2f}s")
+    except (ConnectionError, Exception) as e:
+        logger.error(f"FB Excel API 写入失败: {e}")
 
     return result
 
