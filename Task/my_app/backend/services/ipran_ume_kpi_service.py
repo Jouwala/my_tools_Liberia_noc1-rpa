@@ -23,7 +23,7 @@ import sys
 import threading
 import time
 import warnings
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -61,6 +61,8 @@ IPRAN_DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\ipran_ume")
 IPRAN_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 MONTHS_BACK = int(os.environ.get("IPRAN_KPI_MONTHS_BACK", "1"))
+# 查询时间范围：支持 "7days" / "14days" / "1month"（默认），优先级高于 MONTHS_BACK
+TIME_RANGE = os.environ.get("IPRAN_KPI_TIME_RANGE", "7days").strip().lower()
 # 并发线程数：匹配当前 6 个 KPI 查询任务
 MAX_PARALLEL_WORKERS = int(os.environ.get("IPRAN_KPI_PARALLEL_WORKERS", "6"))
 # 创建查询遇到 Repeated query（服务端旧查询未释放）时的退避重试上限与间隔。
@@ -469,10 +471,21 @@ def _subtract_months(dt, months):
     return dt.replace(year=year, month=month, day=min(dt.day, last_day))
 
 
+def _calc_start_dt(now_utc: datetime) -> datetime:
+    """根据 TIME_RANGE 计算查询起始时间（UTC 00:00:00）"""
+    base = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    if TIME_RANGE == "7days":
+        return base - timedelta(days=7)
+    elif TIME_RANGE == "14days":
+        return base - timedelta(days=14)
+    else:  # 默认 1month
+        return _subtract_months(base, MONTHS_BACK)
+
+
 def build_ipran_kpi_payload(cfg: dict) -> dict:
     now = datetime.now(timezone.utc)
     end_iso = now.replace(hour=23, minute=59, second=59, microsecond=0).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    start_dt = _subtract_months(now.replace(hour=0, minute=0, second=0, microsecond=0), MONTHS_BACK)
+    start_dt = _calc_start_dt(now)
     start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
     payload = {

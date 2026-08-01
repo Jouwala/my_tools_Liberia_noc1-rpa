@@ -69,10 +69,11 @@ TT_REPORT_SUBDIR = "tt_reports"          # 报告与图片输出子目录
 SEND_EMAIL_AFTER_REPORT = False          # 是否在生成报告后发送邮件
 
 # eFlow TT 导出列名 -> mail_126.ExcelDataProcessor 期望列名
+# 注意：Site Category 不再取 TT 自带的 Site Class（P1-P4 严重级别），
+# 而是由 generate_hourly_report_with_images 步骤2.5 从 master_site_db.site_caregory 匹配填充
 _TT_COLUMN_RENAME = {
     "TT No.": "Ticket No.",
     "Asset Name": "Site Name",
-    "Site Class": "Site Category",
     "SLA Total Duration": "SLA Time",
     "Occurrence Time": "Alarm Occur Time",
     "Alarm Clearing Time": "Alarm Clear Time",
@@ -972,8 +973,8 @@ ALARM_CONDITION = {
     "querymetype": 2, "refresh": True,
 }
 
-# FM History Alarm 查询条件：近 3 天（动态计算）
-HIS_ALARM_DAYS_BACK = int(os.environ.get("EFLOW_HIS_ALARM_DAYS", "3"))
+# FM History Alarm 查询条件：近 1 天回溯（动态计算，原默认 3 天 → 2026-08-01 缩为 1 天以降低上游慢接口耗时）
+HIS_ALARM_DAYS_BACK = int(os.environ.get("EFLOW_HIS_ALARM_DAYS", "1"))
 
 
 def _get_his_alarm_time_range():
@@ -1916,16 +1917,18 @@ def _find_col_fuzzy(df, keyword):
 
 
 def _build_site_attr_map(sheets_data, processor_cls):
-    """构建 TRM Type / FME / Supervisor 的映射。
+    """构建 TRM Type / FME / Supervisor / Site Category 的映射。
 
     - TRM Type: 从 eFlow Site 数据获取
-    - FME / Supervisor: 从 master_site_db 表的 fme_name / supervisor 列获取
+    - FME / Supervisor / Site Category: 从 master_site_db 表的
+      fme_name / supervisor / site_caregory 列获取
 
     返回 dict:
         {
             "trm_type": (id_map, name_map),
             "fme": (id_map, name_map),
             "supervisor": (id_map, name_map),
+            "site_category": (id_map, name_map),
         }
     每个 id_map: normalize_id(Site ID) -> value
     每个 name_map: strip(Site Name) -> value
@@ -1936,6 +1939,7 @@ def _build_site_attr_map(sheets_data, processor_cls):
         "trm_type": ({}, {}),
         "fme": ({}, {}),
         "supervisor": ({}, {}),
+        "site_category": ({}, {}),
     }
 
     # --- TRM Type: 从 eFlow Site 数据获取 ---
@@ -1964,14 +1968,15 @@ def _build_site_attr_map(sheets_data, processor_cls):
             trm_result = (id_map, name_map)
             logger.info(f"trm_type 映射: {len(id_map)} by ID, {len(name_map)} by Name")
 
-    # --- FME / Supervisor: 从 master_site_db 读取 ---
+    # --- FME / Supervisor / Site Category: 从 master_site_db 读取 ---
     fme_result = ({}, {})
     sup_result = ({}, {})
+    category_result = ({}, {})
     try:
         if os.path.exists(APP_DB_PATH):
             conn = sqlite3.connect(APP_DB_PATH)
             df_master = pd.read_sql_query(
-                'SELECT site_id, site_name, fme_name, supervisor FROM master_site_db', conn)
+                'SELECT site_id, site_name, fme_name, supervisor, site_caregory FROM master_site_db', conn)
             conn.close()
             logger.info(f"master_site_db 读取: {len(df_master)} 行")
 
@@ -2000,15 +2005,29 @@ def _build_site_attr_map(sheets_data, processor_cls):
                     sup_name_map[sname] = val
             sup_result = (sup_id, sup_name_map)
             logger.info(f"supervisor 映射(master_site_db): {len(sup_id)} by ID, {len(sup_name_map)} by Name")
+
+            # Site Category 映射（列名 site_caregory 为 master_site_db 原始拼写）
+            cat_id, cat_name_map = {}, {}
+            for _, r in df_master.iterrows():
+                val = str(r.get("site_caregory", "")).strip() if pd.notna(r.get("site_caregory")) else ""
+                sid = processor_cls.normalize_id(r.get("site_id"))
+                sname = str(r.get("site_name", "")).strip()
+                if sid:
+                    cat_id[sid] = val
+                if sname:
+                    cat_name_map[sname] = val
+            category_result = (cat_id, cat_name_map)
+            logger.info(f"site_category 映射(master_site_db): {len(cat_id)} by ID, {len(cat_name_map)} by Name")
         else:
             logger.warning(f"master_site_db 不可用: {APP_DB_PATH} 不存在")
     except Exception as e:
-        logger.warning(f"从 master_site_db 读取 FME/Supervisor 失败: {e}")
+        logger.warning(f"从 master_site_db 读取 FME/Supervisor/Site Category 失败: {e}")
 
     return {
         "trm_type": trm_result,
         "fme": fme_result,
         "supervisor": sup_result,
+        "site_category": category_result,
     }
 
 
@@ -2119,12 +2138,17 @@ def generate_hourly_report_with_images(data: dict, send_email: bool = None) -> d
         df_source = df_source.rename(columns=rename_map)
     logger.info(f"TT DataFrame: {df_source.shape}, 重命名: {rename_map}")
 
-    # 2.5 从 Site 数据添加 TRM Type / FME / Supervisor 列
+    # 2.5 从 Site 数据添加 TRM Type / FME / Supervisor / Site Category 列
     attr_maps = _build_site_attr_map(sheets_data, ExcelDataProcessor)
     if "Site ID" in df_source.columns:
         df_source["Site ID"] = df_source["Site ID"].apply(ExcelDataProcessor.normalize_id)
 
-    _attr_col_names = {"trm_type": "TRM Type", "fme": "FME", "supervisor": "Supervisor"}
+    _attr_col_names = {
+        "trm_type": "TRM Type",
+        "fme": "FME",
+        "supervisor": "Supervisor",
+        "site_category": "Site Category",
+    }
     for attr_key, col_label in _attr_col_names.items():
         id_map, name_map = attr_maps.get(attr_key, ({}, {}))
         if id_map or name_map:

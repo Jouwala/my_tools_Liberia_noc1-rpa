@@ -42,7 +42,8 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| IPRAN_KPI_MONTHS_BACK | 1 | 查询回溯月数 |
+| IPRAN_KPI_TIME_RANGE | 1month | 查询时间范围，可选值：`7days` / `14days` / `1month`（优先级高于 MONTHS_BACK） |
+| IPRAN_KPI_MONTHS_BACK | 1 | 查询回溯月数（仅在 TIME_RANGE=1month 时生效） |
 | IPRAN_KPI_PARALLEL_WORKERS | 4 | 并行查询线程数 |
 
 ## 依赖

@@ -250,7 +250,19 @@ def _execute_task(task_id: str, trigger: str):
 
 
 def _scheduled_run(task_id: str, trigger: str = "scheduled"):
-    """调度器回调：复用 _execute_task 以便跟踪运行状态。"""
+    """调度器回调：复用 _execute_task 以便跟踪运行状态。
+
+    单飞保护（single-flight）：若同一任务的上一轮调度仍在运行
+    （例如任务耗时超过其调度间隔，或 UME 单账号单会话被并发互踢导致变慢），
+    则跳过本次触发，避免起第二个实例造成资源争用 / 401 互踢。
+    手动触发路径（run_task_async）已有相同保护，这里补齐调度路径。
+    """
+    with _active_lock:
+        if task_id in _active_runs:
+            logger.warning(
+                f"[{task_id}] 跳过本次调度触发：上一轮执行仍在运行中（单飞保护）"
+            )
+            return
     _execute_task(task_id, trigger)
 
 

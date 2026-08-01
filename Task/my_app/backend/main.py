@@ -157,7 +157,10 @@ def _register_all_tasks():
     # 6. eFlow 实时告警同步（每30分钟）
     def _run_eflow_active_alarm():
         from backend.services.eflow_api_client import fetch_and_save_active_alarm
-        return fetch_and_save_active_alarm()
+        res = fetch_and_save_active_alarm()
+        rows = res.get("realtime_alarm", []) if isinstance(res, dict) else []
+        # 仅记录条数摘要，避免把完整告警列表(每次约 300KB)写入执行日志 result_json
+        return {"realtime_alarm_count": len(rows)}
 
     task_runner.register_task(
         task_id="eflow_active_alarm",
@@ -173,7 +176,10 @@ def _register_all_tasks():
     # 7. eFlow 历史告警同步（每3小时）
     def _run_eflow_history_alarm():
         from backend.services.eflow_api_client import fetch_and_save_history_alarm
-        return fetch_and_save_history_alarm()
+        res = fetch_and_save_history_alarm()
+        rows = res.get("history_alarm", []) if isinstance(res, dict) else []
+        # 仅记录条数摘要，避免把完整历史告警列表写入执行日志 result_json
+        return {"history_alarm_count": len(rows)}
 
     task_runner.register_task(
         task_id="eflow_history_alarm",

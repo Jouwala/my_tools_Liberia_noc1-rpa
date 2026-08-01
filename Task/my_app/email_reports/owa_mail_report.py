@@ -77,8 +77,15 @@ from exchangelib import (  # noqa: E402
     HTMLBody,
     Mailbox,
     Message,
+    Version,
 )
 from exchangelib.protocol import NoVerifyHTTPAdapter, Protocol  # noqa: E402
+from exchangelib.version import EXCHANGE_2016  # noqa: E402
+
+# EWS 服务器已探测为 Microsoft Exchange Server 2016（build 15.1.2507.61）。
+# 显式锁定版本，跳过 exchangelib 的 Version.guess() 握手——该握手偶发被远端
+# 10054 强制断开，是 kpi_ms_wo_sla / kpi_sp_consumables 等邮件任务瞬断失败的根因。
+EWS_VERSION = Version(build=EXCHANGE_2016, api_version="Exchange2016")
 
 # =====================================================================
 # 配置（环境变量优先，便于集成调度）
@@ -193,6 +200,7 @@ def get_account(
         server=server,
         credentials=creds,
         auth_type=_AUTH_MAP[auth_type],
+        version=EWS_VERSION,
         max_connections=OWA_MAX_CONNECTIONS,
         retry_policy=FaultTolerance(max_wait=OWA_RETRY_MAX_WAIT),
     )

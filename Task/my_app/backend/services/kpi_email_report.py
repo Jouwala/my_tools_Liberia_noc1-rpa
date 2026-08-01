@@ -35,6 +35,7 @@ KPI / SP / RAN 各类日报邮件任务
 """
 from __future__ import annotations
 
+import random
 import subprocess
 import sys
 import time
@@ -116,9 +117,14 @@ def _run_script(
     subject_prefix: str = "",
     excel: Optional[Path] = None,
     body_file: Optional[Path] = None,
-    retries: int = 2,
+    retries: int = 3,
 ) -> dict:
-    """调用通用邮件脚本，返回 {success, message/detail/error}。"""
+    """调用通用邮件脚本，返回 {success, message/detail/error}。
+
+    对 EWS / FTP 偶发连接重置（10054 / ConnectionReset / TransportError 等）做
+    指数退避重试：Orange 邮件网关在版本协商握手阶段偶发被远端强制断开，但通常在
+    数秒~数十秒内自愈（同窗口内其他邮件任务即已成功）。多试几次可显著降低日报漏发。
+    """
     py = _resolve_python()
     script = EMAIL_REPORTS_DIR / "owa_mail_report.py"
     if not script.is_file():
@@ -163,13 +169,15 @@ def _run_script(
             last_err = f"returncode={proc.returncode}\n{out[-2000:]}"
             if (not transient) or attempt == retries:
                 return {"success": False, "error": last_err}
-            time.sleep(5)
+            backoff = min(60, 5 * (2 ** (attempt - 1))) + random.uniform(0, 3)
+            time.sleep(backoff)
             continue
         except subprocess.TimeoutExpired as e:
             last_err = f"timeout: {e}"
             if attempt == retries:
                 return {"success": False, "error": last_err}
-            time.sleep(5)
+            backoff = min(60, 5 * (2 ** (attempt - 1))) + random.uniform(0, 3)
+            time.sleep(backoff)
     return {"success": False, "error": last_err or "unknown error"}
 
 
