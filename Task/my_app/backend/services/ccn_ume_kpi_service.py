@@ -61,7 +61,7 @@ OUTPUT_DIR = str(CNN_UME_DATA_DIR / "exports")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # 查询时间范围：上个月同一天 → 今天（滚动 1 个月）
-MONTHS_BACK = int(os.environ.get("CNN_KPI_MONTHS_BACK", "1"))
+CNN_KPI_DAYS_BACK = int(os.environ.get("CNN_KPI_DAYS_BACK", "7"))
 
 # 并行查询线程数
 MAX_PARALLEL_WORKERS = int(os.environ.get("CNN_KPI_PARALLEL_WORKERS", "8"))
@@ -90,8 +90,15 @@ except Exception:
     _db_writer = None
     logger.warning("[CNN] db_writer_client 初始化失败")
 
-# 标识列候选（用于联合主键去重）
-IDENTITY_COL_CANDIDATES = ["NE", "SERVICE", "Measurement Object"]
+# 标识列候选（用于联合主键去重；ME 级导出常见 "ME"/"Managed Element"，
+# 注意导出中可能带不间断空格 \xa0。必须取**全部存在**的候选列，只取第一个
+# 会导致同一 Begin Time 下多行（不同 NE/计数器）被 upsert 塌缩）
+IDENTITY_COL_CANDIDATES = [
+    "ME", "NE", "Managed Element", "Managed\xa0Element", "ManagedElement",
+    "SERVICE", "Measurement Object", "Counter", "Object", "MO",
+    "NodeB", "NodeB Name", "eNodeB", "eNodeB Name", "Cell", "Cell Name",
+    "Group", "SubNetwork", "NE Name", "Name",
+]
 
 # gr 显示名称替换规则
 GR_RENAME = {
@@ -617,7 +624,7 @@ def build_cnn_kpi_payload(cfg: dict, start_iso: str = None, end_iso: str = None)
     if end_iso is None:
         end_iso = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     if start_iso is None:
-        start_dt = _subtract_months(now.replace(hour=0, minute=0, second=0, microsecond=0), MONTHS_BACK)
+        start_dt = (now.replace(hour=0, minute=0, second=0, microsecond=0)) - timedelta(days=CNN_KPI_DAYS_BACK)
         start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
     timeinfo = {
@@ -799,13 +806,30 @@ def read_xlsx_bytes(file_bytes: bytes):
     return headers, data
 
 
+def _cols_unique(headers: list, data: list, cols: list) -> bool:
+    """判断当批数据按 cols 组合是否唯一（用于避免 upsert 主键塌缩）。"""
+    idxs = [headers.index(c) for c in cols if c in headers]
+    if not idxs:
+        return False
+    seen = set()
+    for row in data:
+        key = tuple((row[i] if i < len(row) else None) for i in idxs)
+        if key in seen:
+            return False
+        seen.add(key)
+    return True
+
+
 def detect_key_cols(headers):
     if "Begin Time" not in headers:
         return None
     key_cols = ["Begin Time"]
     for cand in IDENTITY_COL_CANDIDATES:
-        if cand in headers:
+        if cand in headers and cand not in key_cols:
             key_cols.append(cand)
+    # 无网元标识列时退而用 End Time，避免同一天所有行被 upsert 塌缩成一行
+    if len(key_cols) == 1 and "End Time" in headers:
+        key_cols.append("End Time")
     return key_cols
 
 
@@ -852,24 +876,49 @@ def import_to_database(export_results: dict = None):
             raise Exception(f"[CNN][DB] {table_name}: 缺少 Begin Time 列，解析失败")
         if not data:
             raise Exception(f"[CNN][DB] {table_name}: 解析后无数据行")
+        logger.info(f"[CNN][DB] {table_name}: 主键列 = {key_cols}")
+
+        # 校验所选主键在当批数据内是否唯一；不唯一则尝试扩展，再不行报错（避免 upsert 静默塌缩）
+        if not _cols_unique(headers, data, key_cols):
+            logger.warning(f"[CNN][DB] {table_name}: 自然主键 {key_cols} 在数据中不唯一，尝试扩展")
+            for cand in headers:
+                if cand in key_cols:
+                    continue
+                expanded = key_cols + [cand]
+                if _cols_unique(headers, data, expanded):
+                    logger.warning(f"[CNN][DB] {table_name}: 主键扩展为 {expanded}")
+                    key_cols = expanded
+                    break
+            else:
+                raise Exception(
+                    f"[CNN][DB] {table_name}: 无法凑出唯一主键(自然键={key_cols!r})，"
+                    f"放弃 upsert 以免数据塌缩。请检查导出表结构。"
+                )
 
         # 通过 API 写入
         if _db_writer is not None:
             try:
                 str_data = []
+                key_idx = [headers.index(k) for k in key_cols if k in headers]
                 for row in data:
                     if len(row) < len(headers):
                         row.extend([None] * (len(headers) - len(row)))
                     elif len(row) > len(headers):
                         row = row[:len(headers)]
-                    str_data.append([str(v) if v is not None else None for v in row])
+                    clean_row = [str(v) if v is not None else None for v in row]
+                    # 主键列空值填 ""，避免服务端建表时 NOT NULL 主键写入失败
+                    for i in key_idx:
+                        if clean_row[i] is None:
+                            clean_row[i] = ""
+                    str_data.append(clean_row)
 
                 result = _db_writer.write_data(
                     db=DB_NAME,
                     table=table_name,
                     columns=headers,
                     rows=str_data,
-                    mode="full_replace",
+                    mode="upsert",
+                    pk_columns=key_cols,
                 )
                 row_count = result.get("rows_written", 0)
                 if row_count == 0:

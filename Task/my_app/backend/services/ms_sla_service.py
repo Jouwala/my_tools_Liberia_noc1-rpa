@@ -119,7 +119,69 @@ HTTP_RETRY_DELAY = float(os.environ.get("SLA_HTTP_RETRY_DELAY", "1"))
 HTTP_CONNECT_TIMEOUT = float(os.environ.get("SLA_CONNECT_TIMEOUT", "15"))
 HTTP_READ_TIMEOUT = float(os.environ.get("SLA_READ_TIMEOUT", "90"))
 # 时间范围：默认最近 32 天
-DAYS_BACK = int(os.environ.get("SLA_DAYS_BACK", "32"))
+DAYS_BACK = int(os.environ.get("SLA_DAYS_BACK", "7"))
+# 1Month 粒度查询的回溯窗口：保持覆盖整月（报表 Month 行依赖月度值）
+SLA_MONTH_DAYS_BACK = int(os.environ.get("SLA_MONTH_DAYS_BACK", "32"))
+
+# _SITE 表主键的站点/网元标识列（精确匹配，避免 SubnetWork ID 等被关键字误选）
+_SITE_PK_COLUMN_CANDIDATES = [
+    "SITE ID", "Site ID", "NodeB ID", "NodeBId",
+    "eNodeB ID", "eNodeBId", "ENodeB ID",
+    "ME ID", "ManagedElement ID", "Managed\xa0Element", "ME",
+]
+
+
+def _detect_site_pk_column(headers: list) -> str | None:
+    """在 _SITE 表头中查找真正的站点/网元标识列。"""
+    for cand in _SITE_PK_COLUMN_CANDIDATES:
+        if cand in headers:
+            return cand
+    return None
+
+
+def _cols_unique(headers: list, data: list, cols: list) -> bool:
+    """判断当批数据按 cols 组合是否唯一（用于避免 upsert 主键塌缩）。"""
+    idxs = [headers.index(c) for c in cols if c in headers]
+    if not idxs:
+        return False
+    seen = set()
+    for row in data:
+        key = tuple((row[i] if i < len(row) else None) for i in idxs)
+        if key in seen:
+            return False
+        seen.add(key)
+    return True
+
+
+def _choose_pk_columns(headers: list, data: list, table_name: str) -> list:
+    """为 ms_sla 表选择 upsert 主键，保证所选主键在当批数据内唯一。
+
+    - _SITE 表：首列(时间) + 站点/网元列
+    - 非 _SITE 表：首列(时间)；若首列不唯一，依次附加后续列直到唯一
+    - 实在凑不出唯一键则抛异常（调用方据此报错/降级，而非静默塌缩）
+    """
+    if not headers or not data:
+        raise Exception(f"[{table_name}] 无表头或数据，无法选择主键")
+    pk_cols = [headers[0]]
+    if "_SITE" in table_name:
+        site_pk = _detect_site_pk_column(headers)
+        if site_pk:
+            pk_cols.append(site_pk)
+    if _cols_unique(headers, data, pk_cols):
+        return pk_cols
+    # 首列（或 _SITE 主键）不唯一 -> 尝试附加后续列凑出唯一键
+    for extra in headers[1:]:
+        if extra in pk_cols:
+            continue
+        cand = pk_cols + [extra]
+        if _cols_unique(headers, data, cand):
+            logger.warning(f"[{table_name}] 主键首列非唯一，已扩展为 {cand}")
+            return cand
+    raise Exception(
+        f"[{table_name}] 无法凑出唯一主键（首列={headers[0]!r}，"
+        f"附加其余列仍不能去重），放弃 upsert 以免数据塌缩。请检查导出表结构。"
+    )
+
 
 # SLA 接口路径
 SLA_HISTORY_PATH = "/api/pm-analysis/v2/history"
@@ -387,7 +449,10 @@ def read_xlsx_bytes(file_bytes: bytes):
 
 
 def write_to_db(db_path, table_name, headers, data):
-    """将数据写入SQLite数据库（全量替换策略）"""
+    """将数据增量写入 SQLite 数据库（按主键 upsert，保留历史）。
+
+    主键：首列（时间）+ _SITE 表的站点/网元标识列，与远程 API 写入的 pk 规则保持一致。
+    """
     conn = sqlite3.connect(str(db_path))
     cursor = conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
@@ -395,16 +460,46 @@ def write_to_db(db_path, table_name, headers, data):
     cursor.execute("PRAGMA cache_size=-64000")
     cursor.execute("PRAGMA temp_store=MEMORY")
 
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
-    if cursor.fetchone():
-        cursor.execute(f'DROP TABLE "{table_name}"')
+    def _q(col):
+        return f'"{col.replace(chr(34), chr(34)+chr(34))}"'
 
-    col_defs = ", ".join(f'"{h.replace(chr(34), chr(34)+chr(34))}" TEXT' for h in headers)
-    cursor.execute(f'CREATE TABLE "{table_name}" ({col_defs})')
+    # 建表（幂等，全部 TEXT，不强制 NOT NULL）
+    col_defs = ", ".join(f"{_q(h)} TEXT" for h in headers)
+    cursor.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({col_defs})')
 
-    quoted_headers = [f'"{h.replace(chr(34), chr(34)+chr(34))}"' for h in headers]
+    # 补充缺失列
+    exist_cols = {r[1] for r in cursor.execute(f'PRAGMA table_info("{table_name}")').fetchall()}
+    for h in headers:
+        if h not in exist_cols:
+            cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(h)} TEXT')
+
+    # 主键：优先用 _choose_pk_columns（保证唯一，避免 upsert 塌缩）；
+    # 若实在凑不出唯一键，降级为"无唯一索引的普通写入"（不塌缩、仅可能重复）并告警
+    try:
+        pk_cols = _choose_pk_columns(headers, data, table_name)
+    except Exception as pk_err:
+        logger.warning(f"[{table_name}] 无法选出唯一主键({pk_err})，本地写入降级为无唯一索引模式(不塌缩)")
+        pk_cols = None
+
+    # 保证唯一约束存在：先清理历史重复行，再建唯一索引（upsert 才能生效）
+    if pk_cols:
+        pk_q = ", ".join(_q(k) for k in pk_cols)
+        try:
+            cursor.execute(
+                f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
+                f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
+            )
+            # 先删除旧的同名唯一索引，避免主键列变更后 IF NOT EXISTS 跳过导致旧索引残留
+            cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
+            cursor.execute(
+                f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({pk_q})'
+            )
+        except Exception:
+            conn.rollback()
+
+    quoted_headers = [_q(h) for h in headers]
     placeholders = ", ".join(["?"] * len(headers))
-    insert_sql = f'INSERT INTO "{table_name}" ({", ".join(quoted_headers)}) VALUES ({placeholders})'
+    insert_sql = f'INSERT OR REPLACE INTO "{table_name}" ({", ".join(quoted_headers)}) VALUES ({placeholders})'
 
     row_count = 0
     batch = []
@@ -740,7 +835,9 @@ def _build_sla_payload(tech, grouplayer, gr_seconds, start_iso=None, end_iso=Non
     if end_iso is None:
         end_iso = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     if start_iso is None:
-        start_dt = (now - timedelta(days=DAYS_BACK)).replace(hour=0, minute=0, second=0, microsecond=0)
+        # 1Day 查询用小窗口（本地库增量累积），1Month 查询保持整月窗口
+        days_back = SLA_MONTH_DAYS_BACK if gr_seconds == "2592000" else DAYS_BACK
+        start_dt = (now - timedelta(days=days_back)).replace(hour=0, minute=0, second=0, microsecond=0)
         start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
     items = cfg["items"]
@@ -1004,13 +1101,16 @@ def run_ms_sla_sync(max_workers=None):
                 if not data:
                     raise Exception(f"解析后无数据行: {table_name}")
                 str_data = [[str(v) if v is not None else None for v in row] for row in data]
+                # 主键：用 _choose_pk_columns 保证唯一，避免 upsert 静默塌缩；
+                # 凑不出唯一键时抛出明确异常（被下方 except 捕获并标记 API 失败，不塌缩）
+                pk_cols = _choose_pk_columns(headers, data, table_name)
                 api_result = _db_writer.write_data(
                     db=DB_NAME,
                     table=table_name,
                     columns=headers,
                     rows=str_data,
                     mode="upsert",
-                    pk_columns=[headers[0]] if headers else None,
+                    pk_columns=pk_cols if headers else None,
                 )
                 api_rows = api_result.get("rows_written", 0)
                 if api_rows == 0:

@@ -44,8 +44,9 @@ except Exception:
 DB_MAIN_PATH = r"C:\FineBI6.0\webapps\Python\db.sqlite3"
 DB_DAILY_PATH = r"E:\01_RPA\LBR_Tools\KPI\RAN\ran_kpi_daily.sqlite3"
 DB_ORANGE_PATH = r"E:\01_RPA\LBR_Tools\KPI\RAN\ran_kpi_daily_202606.sqlite3"
-DB_CNN_PATH = r"E:\01_RPA\LBR_Tools\KPI\CNN\db_ps_cs_cn.sqlite3"
+DB_CNN_PATH = r"E:\01_RPA\LBR_Tools\KPI\db_ps_cs_cn.sqlite3"
 DB_IPRAN_PATH = r"E:\01_RPA\LBR_Tools\KPI\IPRAN\ipran_ume_kpi.sqlite3"
+DB_MS_SLA_PATH = r"E:\01_RPA\LBR_Tools\KPI\MS_SLA\lbr_ms_sla_kpi.sqlite3"
 
 
 API_HOST = "0.0.0.0"
@@ -82,6 +83,7 @@ def _get_db_path(db_name: str) -> str:
         "ran_kpi_daily_202606.sqlite3": DB_ORANGE_PATH,
         "db_ps_cs_cn.sqlite3": DB_CNN_PATH,
         "ipran_ume_kpi.sqlite3": DB_IPRAN_PATH,
+        "lbr_ms_sla_kpi.sqlite3": DB_MS_SLA_PATH,
     }
     path = mapping.get(db_name)
     if not path:
@@ -179,6 +181,10 @@ def health():
         "db_orange_exists": os.path.exists(DB_ORANGE_PATH),
         "db_cnn": DB_CNN_PATH,
         "db_cnn_exists": os.path.exists(DB_CNN_PATH),
+        "db_ipran": DB_IPRAN_PATH,
+        "db_ipran_exists": os.path.exists(DB_IPRAN_PATH),
+        "db_ms_sla": DB_MS_SLA_PATH,
+        "db_ms_sla_exists": os.path.exists(DB_MS_SLA_PATH),
     }
 
 
@@ -251,6 +257,19 @@ def write_data(payload: dict):
                     cursor.execute(create_sql)
                 else:
                     _add_missing_columns(conn, table_name, columns)
+                    # 旧表可能没有主键约束：先按 pk 清理重复行并建唯一索引，
+                    # 否则 INSERT OR REPLACE 无法真正替换（会累积重复行）
+                    db_cols = _get_table_columns(conn, table_name)
+                    pk_exist = [c for c in pk_columns if c in db_cols]
+                    if pk_exist:
+                        pk_q = ", ".join(f'"{c.replace(chr(34), chr(34)+chr(34))}"' for c in pk_exist)
+                        cursor.execute(
+                            f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
+                            f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
+                        )
+                        cursor.execute(
+                            f'CREATE UNIQUE INDEX IF NOT EXISTS "u_{table_name}" ON "{table_name}" ({pk_q})'
+                        )
 
                 # 批量 INSERT OR REPLACE
                 quoted_cols = [f'"{c.replace(chr(34), chr(34)+chr(34))}"' for c in columns]
@@ -650,6 +669,8 @@ if __name__ == "__main__":
     print(f"[API] DB Daily:  {DB_DAILY_PATH} (exists={os.path.exists(DB_DAILY_PATH)})")
     print(f"[API] DB Orange: {DB_ORANGE_PATH} (exists={os.path.exists(DB_ORANGE_PATH)})")
     print(f"[API] DB CNN:    {DB_CNN_PATH} (exists={os.path.exists(DB_CNN_PATH)})")
+    print(f"[API] DB IPRAN:  {DB_IPRAN_PATH} (exists={os.path.exists(DB_IPRAN_PATH)})")
+    print(f"[API] DB MS SLA: {DB_MS_SLA_PATH} (exists={os.path.exists(DB_MS_SLA_PATH)})")
     print(f"[API] Listening on {API_HOST}:{API_PORT}")
 
     uvicorn.run(app, host=API_HOST, port=API_PORT, log_level="info")

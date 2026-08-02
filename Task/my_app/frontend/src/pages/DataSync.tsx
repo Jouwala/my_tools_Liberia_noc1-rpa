@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Card, Button, Tag, Space, List, Spin, message, Modal, Select,
-  Input, Switch, Tooltip, Badge, Progress, Row, Col, Typography,
+  Input, Switch, Tooltip, Badge, Progress, Row, Col, Typography, Collapse, Alert,
 } from 'antd'
 import {
   ClockCircleOutlined,
@@ -46,6 +46,8 @@ interface TaskInfo {
   default_cron: string
   next_run: string | null
   registered_at: string
+  call_chain?: string[]
+  recent_runs?: RunRecord[]
 }
 
 interface TaskDetail extends TaskInfo {
@@ -62,7 +64,12 @@ interface RunRecord {
   completed_at: string
   elapsed_seconds: number
   error: string | null
+  error_trace?: string | null
 }
+
+// 取错误首行（截断），用于卡片/横幅的一行摘要
+const firstLine = (s: string | null | undefined): string =>
+  (s || '').split('\n')[0].slice(0, 80)
 
 // ===== Cron Helpers =====
 const CRON_PRESETS: Record<string, { label_zh: string; label_en: string; cron: string }[]> = {
@@ -349,9 +356,53 @@ function TaskHistoryModal({
                   <div>
                     <Text style={{ fontSize: 12, color: WH.textDim }}>⏱ {(run.elapsed_seconds ?? 0).toFixed(2)}s</Text>
                     {run.error && (
-                      <Text style={{ fontSize: 12, marginLeft: 12, color: '#ff6b6b' }}>
-                        ❌ {run.error}
-                      </Text>
+                      <div style={{ marginTop: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ fontSize: 12, color: '#ff6b6b', fontWeight: 600 }}>
+                            ❌ {locale === 'zh' ? '错误信息' : 'Error'}
+                          </Text>
+                          <Button
+                            type="link"
+                            size="small"
+                            style={{ fontSize: 11, padding: 0, height: 'auto', color: WH.teal }}
+                            onClick={() => {
+                              navigator.clipboard?.writeText(run.error || '')
+                                .then(() => message.success(locale === 'zh' ? '已复制错误' : 'Copied'))
+                                .catch(() => {})
+                            }}
+                          >
+                            {locale === 'zh' ? '复制' : 'Copy'}
+                          </Button>
+                        </div>
+                        <pre style={{
+                          margin: '4px 0 0', padding: '8px 10px', fontSize: 11, lineHeight: 1.5,
+                          color: '#ffb3b3', background: 'rgba(255,77,79,0.08)', borderRadius: 6,
+                          border: '1px solid rgba(255,77,79,0.2)', whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word', maxHeight: 160, overflow: 'auto',
+                        }}>
+                          {run.error}
+                        </pre>
+                        {run.error_trace && (
+                          <Collapse
+                            ghost
+                            size="small"
+                            style={{ marginTop: 6 }}
+                            items={[{
+                              key: 'trace',
+                              label: <Text style={{ fontSize: 11, color: WH.textMuted }}>{locale === 'zh' ? '堆栈 / 详情' : 'Stack Trace'}</Text>,
+                              children: (
+                                <pre style={{
+                                  margin: 0, padding: '8px 10px', fontSize: 10.5, lineHeight: 1.45,
+                                  color: WH.textDim, background: 'rgba(0,0,0,0.25)', borderRadius: 6,
+                                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 240, overflow: 'auto',
+                                }}>
+                                  {run.error_trace}
+                                </pre>
+                              ),
+                            }]}
+                          />
+                        )}
+                      </div>
                     )}
                   </div>
                 }
@@ -570,6 +621,11 @@ export default function DataSync() {
   // 根据 task_id 快速查找任务
   const taskMap = new Map(tasks.map(t => [t.task_id, t]))
 
+  // 当前处于失败状态的任务（取各任务最新一条执行记录判断），用于顶部汇总横幅
+  const failedTasks = tasks.filter(
+    t => t.recent_runs && t.recent_runs.length > 0 && !t.recent_runs[0].success,
+  )
+
   const renderTaskCard = (taskId: string) => {
     const task = taskMap.get(taskId)
     if (!task) return null
@@ -595,7 +651,39 @@ export default function DataSync() {
             <div>
               <Space size={4} align="center">
                 <span style={{ fontSize: 16, color: catCfg.color }}>{catCfg.icon}</span>
-                <Text strong style={{ fontSize: 15, color: WH.text }}>{task.name}</Text>
+                <Tooltip
+                  placement="topLeft"
+                  title={
+                    <div style={{ maxWidth: 380 }}>
+                      <div style={{ fontWeight: 600, marginBottom: 6, color: '#fff' }}>
+                        {locale === 'zh' ? '脚本调用链' : 'Call Chain'}
+                      </div>
+                      {task.call_chain && task.call_chain.length > 0 ? (
+                        <pre
+                          style={{
+                            margin: 0,
+                            fontFamily: 'Consolas, Menlo, monospace',
+                            fontSize: 12,
+                            lineHeight: 1.6,
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-all',
+                            color: '#e6e6e6',
+                          }}
+                        >
+                          {`${task.name}\n` + task.call_chain.map(c => `  ${c}`).join('\n')}
+                        </pre>
+                      ) : (
+                        <div style={{ fontSize: 12, color: '#aaa' }}>
+                          {locale === 'zh' ? '无可用信息' : 'N/A'}
+                        </div>
+                      )}
+                    </div>
+                  }
+                >
+                  <Text strong style={{ fontSize: 15, color: WH.text, cursor: 'help' }}>
+                    {task.name}
+                  </Text>
+                </Tooltip>
               </Space>
               <div style={{ marginTop: 4 }}>
                 <Tag color={catCfg.color} style={{ fontSize: 11 }}>{locale === 'zh' ? catCfg.label_zh : catCfg.label_en}</Tag>
@@ -666,7 +754,22 @@ export default function DataSync() {
                   {formatTime(lastRun.started_at)}
                 </Text>
                 <Text style={{ color: WH.textDim }}>⏱ {(lastRun.elapsed_seconds ?? 0).toFixed(1)}s</Text>
-                {lastRun.error && <Text style={{ color: '#ff6b6b' }}>❌</Text>}
+                {lastRun.error && (
+                  <Tooltip title={lastRun.error_trace || lastRun.error}>
+                    <Text
+                      code
+                      onClick={() => handleOpenHistory(task.task_id)}
+                      style={{
+                        color: '#ff8788', fontSize: 11, maxWidth: 240,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        cursor: 'pointer', background: 'rgba(255,77,79,0.1)',
+                        borderColor: 'rgba(255,77,79,0.25)',
+                      }}
+                    >
+                      ❌ {firstLine(lastRun.error)}
+                    </Text>
+                  </Tooltip>
+                )}
               </Space>
             </div>
           )}
@@ -712,6 +815,42 @@ export default function DataSync() {
           {t('common.refresh')}
         </Button>
       </div>
+
+      {/* 失败任务汇总横幅：一眼看到当前哪些任务在持续失败，点击错误可直达历史 */}
+      {failedTasks.length > 0 && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 20, borderColor: 'rgba(255,77,79,0.4)' }}
+          message={
+            <Text strong style={{ color: '#ff7875' }}>
+              {locale === 'zh'
+                ? `⚠️ ${failedTasks.length} 个任务执行失败`
+                : `⚠️ ${failedTasks.length} task(s) failed`}
+            </Text>
+          }
+          description={
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+              {failedTasks.map(t => (
+                <div key={t.task_id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <Text style={{ color: WH.text, fontSize: 12 }}>• {t.name}</Text>
+                  <Text
+                    code
+                    onClick={() => handleOpenHistory(t.task_id)}
+                    style={{
+                      color: '#ff8788', fontSize: 11, maxWidth: 360, overflow: 'hidden',
+                      textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer',
+                      background: 'rgba(255,77,79,0.1)', borderColor: 'rgba(255,77,79,0.25)',
+                    }}
+                  >
+                    {firstLine(t.recent_runs?.[0]?.error || '未知错误')}
+                  </Text>
+                </div>
+              ))}
+            </div>
+          }
+        />
+      )}
 
       {/* Task Cards - Grouped by Rows */}
       <Spin spinning={loading}>

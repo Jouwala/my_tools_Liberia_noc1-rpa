@@ -73,7 +73,7 @@ HTTP_CONNECT_TIMEOUT = float(os.environ.get("NW_KPI_CONNECT_TIMEOUT", "15"))
 HTTP_READ_TIMEOUT = float(os.environ.get("NW_KPI_READ_TIMEOUT", "90"))
 
 # 时间范围：今天之前的 367 天（覆盖一年）
-DAYS_BACK = int(os.environ.get("NW_KPI_DAYS_BACK", "367"))
+DAYS_BACK = int(os.environ.get("NW_KPI_DAYS_BACK", "14"))
 
 # PM 接口路径
 HISTORY_PATH = "/api/pm-analysis/v2/history"

@@ -166,7 +166,7 @@ def init_from_eflow_api(conn: sqlite3.Connection) -> bool:
     # 调用同步服务
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from services.sync_from_eflow_api import sync_from_eflow_api
-    result = sync_from_eflow_api()
+    result = sync_from_eflow_api(mode="full")
 
     print(f"\n同步结果: {'成功' if result['success'] else '失败'}")
     for table, count in result['tables_synced'].items():

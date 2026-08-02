@@ -52,6 +52,10 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 # 远程写入 API 配置（DB Orange: ran_kpi_daily_202606.sqlite3）
 DB_ORANGE_NAME = "ran_kpi_daily_202606.sqlite3"
+
+# 查询时间范围：按天粒度 PM 指标，远程为 upsert 写入（历史保留），
+# 每日运行只需回补最近几天即可覆盖漏跑与 UME 修正。
+RAN_UME_DAYS_BACK = int(os.environ.get("RAN_UME_DAYS_BACK", "7"))
 try:
     from backend.services.db_writer_client import DbWriterClient
 except ImportError:
@@ -469,7 +473,7 @@ def _build_pm_payload(network_type, groupbygroup=True):
 
     now = datetime.now(timezone.utc)
     end_iso = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    start_iso = (now - timedelta(days=91)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    start_iso = (now - timedelta(days=RAN_UME_DAYS_BACK)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
     suffix = "Group" if groupbygroup else "NW"
     templatename = f"{cfg['base_name']}{suffix}"

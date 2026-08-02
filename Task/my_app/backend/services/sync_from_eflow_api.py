@@ -293,6 +293,51 @@ def _convert_ms_timestamps(df: pd.DataFrame, ms_columns: list) -> pd.DataFrame:
 
 
 # ========== 各表同步函数 ==========
+def _upsert_df(dst_conn: sqlite3.Connection, table_name: str, df: pd.DataFrame,
+               key_cols: list) -> int:
+    """按主键 INSERT OR REPLACE 增量写入，保留历史数据。
+
+    与远程 db_writer_api 的 upsert 语义一致：先保证唯一索引存在（清理历史重复行），
+    再按主键覆盖写入。
+    """
+    if df is None or df.empty:
+        return 0
+
+    cols = list(df.columns)
+    keys = [c for c in key_cols if c in cols] or [cols[0]]
+
+    def _q(c):
+        return f'"{c.replace(chr(34), chr(34) + chr(34))}"'
+
+    col_defs = ", ".join(f"{_q(c)} TEXT" for c in cols)
+    dst_conn.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({col_defs})')
+
+    exist = {r[1] for r in dst_conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()}
+    for c in cols:
+        if c not in exist:
+            dst_conn.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(c)} TEXT')
+
+    key_q = ", ".join(_q(k) for k in keys)
+    dst_conn.execute(
+        f'DELETE FROM "{table_name}" WHERE rowid NOT IN '
+        f'(SELECT MIN(rowid) FROM "{table_name}" GROUP BY {key_q})'
+    )
+    # 先删除旧的同名唯一索引（主键列可能变更，IF NOT EXISTS 会跳过导致旧索引残留）
+    dst_conn.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
+    dst_conn.execute(f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({key_q})')
+
+    sql = (
+        f'INSERT OR REPLACE INTO "{table_name}" ({", ".join(_q(c) for c in cols)}) '
+        f'VALUES ({", ".join(["?"] * len(cols))})'
+    )
+    rows = df.astype(object).where(pd.notnull(df), None).values.tolist()
+    rows = [[None if v is None else str(v) for v in row] for row in rows]
+    for i in range(0, len(rows), 5000):
+        dst_conn.executemany(sql, rows[i:i + 5000])
+    dst_conn.commit()
+    return len(rows)
+
+
 def _sync_tt(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
     """同步 TT 数据"""
     t0 = time.time()
@@ -312,7 +357,8 @@ def _sync_tt(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
     df['_sync_time'] = datetime.now().isoformat()
     df['_sync_source'] = 'eflow_api'
 
-    df.to_sql('eflow_tt', dst_conn, if_exists='replace', index=False, chunksize=5000)
+    # TT No. 是 TT 表的唯一键（同一 WO No. 可能对应多条 TT/告警行）
+    _upsert_df(dst_conn, 'eflow_tt', df, ['tt_no'])
 
     for idx_col in ['site_id', 'status', 'created_time', 'alarm_occur_time', 'domain', 'ticket_no']:
         if idx_col in df.columns:
@@ -320,7 +366,7 @@ def _sync_tt(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
     dst_conn.commit()
 
     elapsed = time.time() - t0
-    logger.info(f"eflow_tt 同步完成: {len(df)} 行, {elapsed:.2f}s")
+    logger.info(f"eflow_tt 同步完成(upsert): {len(df)} 行, {elapsed:.2f}s")
     return len(df)
 
 
@@ -337,7 +383,7 @@ def _sync_wo(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
     df['_sync_time'] = datetime.now().isoformat()
     df['_sync_source'] = 'eflow_api'
 
-    df.to_sql('eflow_wo', dst_conn, if_exists='replace', index=False, chunksize=5000)
+    _upsert_df(dst_conn, 'eflow_wo', df, ['wo_no'])
 
     for idx_col in ['site_id', 'status', 'created_time', 'alarm_occur_time', 'domain', 'wo_no']:
         if idx_col in df.columns:
@@ -345,7 +391,7 @@ def _sync_wo(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
     dst_conn.commit()
 
     elapsed = time.time() - t0
-    logger.info(f"eflow_wo 同步完成: {len(df)} 行, {elapsed:.2f}s")
+    logger.info(f"eflow_wo 同步完成(upsert): {len(df)} 行, {elapsed:.2f}s")
     return len(df)
 
 
@@ -358,11 +404,12 @@ def _sync_generic(df: pd.DataFrame, dst_conn: sqlite3.Connection, table_name: st
 
     df.columns = [_clean_column_name(c) for c in df.columns]
     df['_sync_time'] = datetime.now().isoformat()
-    df.to_sql(table_name, dst_conn, if_exists='replace', index=False, chunksize=5000)
-    dst_conn.commit()
+    key = ([c for c in ('change_request_id', 'pmt_no', 'wo_no') if c in df.columns]
+           or [df.columns[0]])
+    _upsert_df(dst_conn, table_name, df, key)
 
     elapsed = time.time() - t0
-    logger.info(f"{table_name} 同步完成: {len(df)} 行, {elapsed:.2f}s")
+    logger.info(f"{table_name} 同步完成(upsert): {len(df)} 行, {elapsed:.2f}s")
     return len(df)
 
 
@@ -377,7 +424,7 @@ def _sync_site(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
     df['_sync_time'] = datetime.now().isoformat()
     df['_sync_source'] = 'eflow_api'
 
-    df.to_sql('eflow_site', dst_conn, if_exists='replace', index=False, chunksize=5000)
+    _upsert_df(dst_conn, 'eflow_site', df, ['site_id'])
 
     for idx_col in ['site_id', 'region', 'site_type']:
         if idx_col in df.columns:
@@ -385,7 +432,7 @@ def _sync_site(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
     dst_conn.commit()
 
     elapsed = time.time() - t0
-    logger.info(f"eflow_site 同步完成: {len(df)} 行, {elapsed:.2f}s")
+    logger.info(f"eflow_site 同步完成(upsert): {len(df)} 行, {elapsed:.2f}s")
     return len(df)
 
 
@@ -432,7 +479,7 @@ def _sync_history_alarm(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
 
 
 # ========== 主同步函数 ==========
-def sync_from_eflow_api() -> dict:
+def sync_from_eflow_api(mode: str = "delta") -> dict:
     """
     主同步函数：从 eFlow API 直接获取数据，映射字段后写入 app.db
     
@@ -450,6 +497,7 @@ def sync_from_eflow_api() -> dict:
         "elapsed_seconds": 0,
         "excel_path": None,
         "ftp_upload": False,
+        "mode": mode,
     }
 
     logger.info("开始 eFlow API 数据同步（直连模式）")
@@ -460,7 +508,13 @@ def sync_from_eflow_api() -> dict:
             from backend.services.eflow_api_client import fetch_all_data
         except ImportError:
             from services.eflow_api_client import fetch_all_data
-        all_data = fetch_all_data()
+        try:
+            from backend.services.eflow_api_client import EFLOW_FULL_DAYS
+        except ImportError:
+            from services.eflow_api_client import EFLOW_FULL_DAYS
+        # delta: 最近 EFLOW_DELTA_DAYS 天; full: 0=全量(2026-01-01) 或 N 天
+        days_back = EFLOW_FULL_DAYS if mode == "full" else None
+        all_data = fetch_all_data(days_back=days_back)
 
         if not all_data:
             msg = "API 未返回任何数据"
@@ -513,13 +567,26 @@ def sync_from_eflow_api() -> dict:
         dst_conn.close()
         result["success"] = len(result["errors"]) == 0
 
+        # 报告数据源：delta 模式快照不完整，从本地累计库读取完整工单/站点数据
+        if mode == "full":
+            report_data = all_data
+        else:
+            try:
+                from backend.services.eflow_api_client import load_report_data_from_db
+            except ImportError:
+                from services.eflow_api_client import load_report_data_from_db
+            report_data = load_report_data_from_db()
+            if not report_data.get("eFlow TT"):
+                logger.warning("本地累计库无 eFlow TT 数据，报告回退到本次抓取快照")
+                report_data = all_data
+
         # 生成 Excel 报告（不上传 eflow_*.xlsx 到 FTP，仅本地保存）
         try:
             try:
                 from backend.services.eflow_api_client import generate_excel_report
             except ImportError:
                 from services.eflow_api_client import generate_excel_report
-            report_result = generate_excel_report(data=all_data, save_excel=False, upload_ftp=False)
+            report_result = generate_excel_report(data=report_data, save_excel=False, upload_ftp=False)
             if report_result.get("excel_path"):
                 logger.info(f"Excel 报告已生成: {report_result['excel_path']}")
             result["excel_path"] = report_result.get("excel_path")
@@ -533,7 +600,7 @@ def sync_from_eflow_api() -> dict:
                 from backend.services.eflow_api_client import generate_hourly_report_with_images
             except ImportError:
                 from services.eflow_api_client import generate_hourly_report_with_images
-            hourly_result = generate_hourly_report_with_images(all_data)
+            hourly_result = generate_hourly_report_with_images(report_data)
             if hourly_result.get("success"):
                 logger.info(f"小时报告与图片已生成")
                 if hourly_result.get("hourly_file"):

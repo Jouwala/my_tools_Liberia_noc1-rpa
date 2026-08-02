@@ -20,7 +20,7 @@ import shutil
 import csv
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import ftplib
@@ -67,6 +67,12 @@ APP_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.pa
 # ========== 小时报告与图片生成配置 ==========
 TT_REPORT_SUBDIR = "tt_reports"          # 报告与图片输出子目录
 SEND_EMAIL_AFTER_REPORT = False          # 是否在生成报告后发送邮件
+
+# ========== 抓取时间窗口 ==========
+# delta 模式（每小时）：只抓最近 N 天修改过的工单，配合增量写入保留历史
+EFLOW_DELTA_DAYS = int(os.environ.get("EFLOW_DELTA_DAYS", "3"))
+# full 模式（每日兜底）：0 = 自 2026-01-01 全量（保持原始语义），>0 = 最近 N 天
+EFLOW_FULL_DAYS = int(os.environ.get("EFLOW_FULL_DAYS", "0"))
 
 # eFlow TT 导出列名 -> mail_126.ExcelDataProcessor 期望列名
 # 注意：Site Category 不再取 TT 自带的 Site Class（P1-P4 严重级别），
@@ -477,9 +483,20 @@ PERSON_REFERER = f"https://{HOST}:{PORT}/iui/cmdb/"
 TIME_FILTER_TEMPLATE = '{status_filter} and (lastModifiedTime ge {start_ms}) and (lastModifiedTime le {end_ms})'
 
 
-def _get_time_range_ms():
-    start_dt = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+def _get_time_range_ms(days_back: int | None = None):
+    """返回查询起止毫秒时间戳。
+
+    days_back: None 或省略 -> 使用 delta 窗口（EFLOW_DELTA_DAYS）
+               0      -> 自 2026-01-01 全量（保持原始语义）
+               >0     -> 最近 N 天
+    """
+    if days_back is None:
+        days_back = EFLOW_DELTA_DAYS
     end_dt = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59, microsecond=0)
+    if days_back and days_back > 0:
+        start_dt = (end_dt - timedelta(days=days_back)).replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        start_dt = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     return int(start_dt.timestamp() * 1000), int(end_dt.timestamp() * 1000)
 
 
@@ -1799,9 +1816,138 @@ def upload_tt_reports_to_ftp(local_dir=None):
         return False
 
 
+# 远端 FB 表兼容列别名：查看器/报表期望的列名 -> 原始导出列名（按顺序取第一个存在的列）
+# 保证远端 Eflow_TT_FB / Eflow_WO_FB 同时包含原始列和这些加工列名，取值相同。
+_FB_ALIASES = {
+    "Eflow_TT_FB": {
+        "Ticket No.": ["TT No.", "Ticket No."],
+        "TT Source": ["Source"],
+        "Domain": ["Network Type", "Domain"],
+        "SLA Time": ["SLA Total Duration"],
+        "SLA Remain Time": ["SLA Remaining Duration"],
+        "SLA Deadline": ["SLA Expected Finish Time", "SLA Deadline"],
+        "Site Name": ["Asset Name", "Site Name"],
+        "Site Type": ["Asset Type", "Site Type"],
+        "Proc ID": ["Process Instance ID", "Proc ID", "procid"],
+        "procld": ["Process Instance ID", "Proc ID", "procid"],
+        "procId": ["Process Instance ID", "Proc ID", "procid"],
+        "Operation Step": ["Operation Step", "Operation Type"],
+        "Server Time": ["Alarm Server Time"],
+        "Group SLA Deadline": ["Group SLA Deadline Time"],
+        "Processing Description": ["Process Description", "Processing Description"],
+        "Spare Sub Domain": ["Spare Domain", "Spare Sub Domain"],
+        "SpareName": ["Spare Name", "SpareName"],
+        "Spare TTicket No": ["Spare No.", "Spare Ticket No", "Spare TTicket No"],
+        "Spare Ticket No": ["Spare No.", "Spare Ticket No"],
+        "NE Type": ["MOC"],
+        "Vendor": ["Vender", "Vendor"],
+        "Alarm Occur Time": ["Occurrence Time"],
+        "Alarm Clear Time": ["Alarm Clearing Time"],
+        "Template": ["Template Name"],
+        "Alarm SubCategory": ["Alarm Sub Category"],
+        "Impact/Down Site Count(Number of Down Site)": ["Down Site Count"],
+        "Impact/Down Site Count (Number of Down Site)": ["Down Site Count"],
+        "E2E SLA Status": ["Group SLA Status"],
+        "E2E SLA Remains Time": ["Group SLA Remains Time"],
+        "Expected Finish Time(E2E SLA Deadline Time)": ["Group SLA Deadline Time", "SLA Expected Finish Time"],
+        "Expected Finish Time (E2E SLA Deadline Time)": ["Group SLA Deadline Time", "SLA Expected Finish Time"],
+        "Latest Power Generation Time": ["Latest Power Generation Time"],
+        "LatesPower Generation Time": ["Latest Power Generation Time"],
+        "Update Time": ["Last Modified Time"],
+    },
+    "Eflow_WO_FB": {
+        "procId": ["Process Instance ID", "Proc ID", "procid"],
+        "Title": ["Work Order Title"],
+        "NE Type": ["MOC"],
+        "Vendor": ["Vender", "Vendor"],
+        "Alarm Occur Time": ["Occurrence Time"],
+        "Alarm Clear Time": ["Alarm Clearing Time"],
+        "Template": ["Template Name"],
+        "Alarm SubCategory": ["Alarm Sub Category"],
+        "Alarm Reason Type": ["Reason Type"],
+        "Alarm Code": ["Alarm Code", "Alarm ID"],
+        "Impact/Down Site Count(Number of Down Site)": ["Impact/Down Site Count"],
+        "Impact/Down Site Count (Number of Down Site)": ["Impact/Down Site Count"],
+        "E2E SLA Status": ["Group SLA Status"],
+        "E2E SLA Remains Time": ["Group SLA Remains Time"],
+        "Expected Finish Time(E2E SLA Deadline Time)": ["Group SLA Deadline Time", "Expected Finish Time"],
+        "Expected Finish Time (E2E SLA Deadline Time)": ["Group SLA Deadline Time", "Expected Finish Time"],
+        "Site Information": ["Site Information", "Site Informtion"],
+        "Region Level1": [],
+        "Region Level2": [],
+        "Latest Power Generation Time": [],
+        "LatesPower Generation Time": [],
+        "Update Time": ["Last Modified Time"],
+    },
+}
+
+
+def _rename_fb_columns(df, table_name: str):
+    """把远端 FB 表列名统一成查看器/报表期望的规范名（与远端已重命名的列一致）。
+
+    远端 Eflow_WO_FB / Eflow_TT_FB 已通过 ALTER TABLE RENAME 改成这些列名，
+    客户端写入前也做同样重命名，保证删表重建后列名不会回到旧拼写。
+    """
+    mapping = {
+        "Eflow_TT_FB": {
+            "Region ID": "Region Id",
+            "Organization Id": "Organization ID",
+        },
+        "Eflow_WO_FB": {
+            "TT NO.": "TT No.",
+            "Region ID": "Region Id",
+            "Organization Id": "Organization ID",
+        },
+    }.get(table_name, {})
+    if not mapping or df is None:
+        return df
+    rename_map = {k: v for k, v in mapping.items() if k in df.columns}
+    if rename_map:
+        df = df.rename(columns=rename_map)
+    return df
+
+
+def _apply_fb_aliases(df, table_name: str):
+    """给远端 FB 表数据补充兼容列名（值取自原始列，取不到则留空）。"""
+    aliases = _FB_ALIASES.get(table_name, {})
+    if not aliases or df is None:
+        return df
+    df = df.copy()
+    for alias, sources in aliases.items():
+        if alias in df.columns:
+            continue
+        src = next((s for s in sources if s in df.columns), None)
+        df[alias] = df[src] if src is not None else None
+    return df
+
+
+def _fill_wo_from_tt(df_wo, df_tt, columns: list):
+    """WO 表的空列按 WO No. 关联 TT 表回填（取每个 WO 首个非空值）。"""
+    if df_wo is None or df_tt is None or df_wo.empty or df_tt.empty:
+        return df_wo
+    key = "WO No."
+    if key not in df_wo.columns or key not in df_tt.columns:
+        return df_wo
+    tt = df_tt[[key] + [c for c in columns if c in df_tt.columns]].dropna(subset=[key])
+    if tt.empty:
+        return df_wo
+    df_wo = df_wo.copy()
+    for col in columns:
+        if col not in tt.columns:
+            continue
+        sub = tt[[key, col]].dropna(subset=[col])
+        if sub.empty:
+            continue
+        first = sub.drop_duplicates(subset=[key], keep="first")
+        mapping = dict(zip(first[key].astype(str), first[col]))
+        df_wo[col] = df_wo[key].astype(str).map(mapping)
+    return df_wo
+
+
 def generate_and_upload_fb_excel(all_data: dict) -> dict:
     """
-    从 eFlow 同步数据，通过 DbWriterClient API 全量替换写入远程 DB Main (db.sqlite3)。
+    从 eFlow 同步数据，通过 DbWriterClient API 增量写入远程 DB Main (db.sqlite3)。
+    使用 upsert（INSERT OR REPLACE）按工单号（WO No.）更新，保留远程历史数据。
 
     Args:
         all_data: fetch_all_data() 返回的 {sheet_name: rows} 字典
@@ -1834,18 +1980,36 @@ def generate_and_upload_fb_excel(all_data: dict) -> dict:
         client = DbWriterClient()
         client.health()
 
-        for df, table_name in [(df_tt, "Eflow_TT_FB"), (df_wo, "Eflow_WO_FB")]:
+        if df_tt is not None:
+            df_tt = _rename_fb_columns(df_tt, "Eflow_TT_FB")
+            df_tt = _apply_fb_aliases(df_tt, "Eflow_TT_FB")
+        if df_wo is not None:
+            df_wo = _rename_fb_columns(df_wo, "Eflow_WO_FB")
+            df_wo = _apply_fb_aliases(df_wo, "Eflow_WO_FB")
+            # WO 的 Region Level / 发电时间在 WO 导出中不存在，用 TT 数据按 WO No. 回填
+            df_wo = _fill_wo_from_tt(
+                df_wo, df_tt,
+                ["Region Level1", "Region Level2",
+                 "Latest Power Generation Time", "LatesPower Generation Time"],
+            )
+
+        for df, table_name, pk_cols in [
+            (df_tt, "Eflow_TT_FB", ["TT No."]),
+            (df_wo, "Eflow_WO_FB", ["WO No."]),
+        ]:
             if df is None:
                 continue
             total_tables += 1
             columns = list(df.columns)
             rows = df.values.tolist()
+            logger.info(f"[FB] {table_name}: {len(columns)} columns sent (含兼容列), rows={len(rows)}")
             write_result = client.write_data(
                 db="db.sqlite3",
                 table=table_name,
                 columns=columns,
                 rows=rows,
-                mode="full_replace",
+                mode="upsert",
+                pk_columns=pk_cols,
             )
             if write_result.get("success"):
                 written += 1
@@ -2025,6 +2189,56 @@ def _import_excel_processor():
     finally:
         os.chdir(prev_cwd)
     return ExcelDataProcessor, EmailSender
+
+
+def load_report_data_from_db() -> dict:
+    """从 app.db 累计表读取完整工单/站点数据，重建报告生成所需的原始列名结构。
+
+    抓取改为 delta 增量后，当次快照只含最近修改的工单，而小时/8小时/Summary 报告
+    依赖完整的 open 工单集合，因此从本地累计库（增量写入）读取原始列名数据。
+
+    Returns:
+        {"eFlow TT": [row_dict...], "Site": [row_dict...]} 与 fetch_all_data 的键一致
+    """
+    import sqlite3
+    from backend.services.sync_from_eflow_api import SITE_COLUMN_MAP, TT_COLUMN_MAP
+
+    out: dict = {}
+    conn = sqlite3.connect(APP_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+        if "eflow_tt" in tables:
+            inv = {}
+            for raw, mapped in TT_COLUMN_MAP.items():
+                inv.setdefault(mapped, raw)
+            rows = conn.execute("SELECT * FROM eflow_tt").fetchall()
+            tt_rows = []
+            for r in rows:
+                d = {}
+                for k in r.keys():
+                    d[inv.get(k, k)] = r[k]
+                tt_rows.append(d)
+            out["eFlow TT"] = tt_rows
+            logger.info(f"[REPORT-DB] eflow_tt loaded: {len(tt_rows)} rows")
+
+        if "eflow_site" in tables:
+            inv = {}
+            for raw, mapped in SITE_COLUMN_MAP.items():
+                inv.setdefault(mapped, raw)
+            rows = conn.execute("SELECT * FROM eflow_site").fetchall()
+            site_rows = []
+            for r in rows:
+                d = {}
+                for k in r.keys():
+                    d[inv.get(k, k)] = r[k]
+                site_rows.append(d)
+            out["Site"] = site_rows
+            logger.info(f"[REPORT-DB] eflow_site loaded: {len(site_rows)} rows")
+    finally:
+        conn.close()
+    return out
 
 
 # ============================================================
@@ -2279,7 +2493,7 @@ def _run_pipeline_with_connection_cleanup(pipeline):
         _close_thread_socket()
 
 
-def fetch_all_data(tmp_dir: str = None) -> dict:
+def fetch_all_data(tmp_dir: str = None, days_back: int | None = None) -> dict:
     """
     从 eFlow API 获取所有数据，返回 {sheet_name: records_list} 字典
     
@@ -2300,7 +2514,7 @@ def fetch_all_data(tmp_dir: str = None) -> dict:
         auto_tmp = True
 
     try:
-        start_ms, end_ms = _get_time_range_ms()
+        start_ms, end_ms = _get_time_range_ms(days_back)
         logger.info(f"Time range: {start_ms} to {end_ms}")
 
         # 仅包含工单/资产类数据；告警由独立任务 eflow_active_alarm / eflow_history_alarm 负责

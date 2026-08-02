@@ -61,8 +61,9 @@ IPRAN_DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\ipran_ume")
 IPRAN_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 MONTHS_BACK = int(os.environ.get("IPRAN_KPI_MONTHS_BACK", "1"))
-# 查询时间范围：支持 "7days" / "14days" / "1month"（默认），优先级高于 MONTHS_BACK
-TIME_RANGE = os.environ.get("IPRAN_KPI_TIME_RANGE", "7days").strip().lower()
+# 查询时间范围：支持 "3days" / "7days" / "14days" / "1month"（默认 3days），
+# 优先级高于 MONTHS_BACK
+TIME_RANGE = os.environ.get("IPRAN_KPI_TIME_RANGE", "3days").strip().lower()
 # 并发线程数：匹配当前 6 个 KPI 查询任务
 MAX_PARALLEL_WORKERS = int(os.environ.get("IPRAN_KPI_PARALLEL_WORKERS", "6"))
 # 创建查询遇到 Repeated query（服务端旧查询未释放）时的退避重试上限与间隔。
@@ -477,7 +478,9 @@ def _subtract_months(dt, months):
 def _calc_start_dt(now_utc: datetime) -> datetime:
     """根据 TIME_RANGE 计算查询起始时间（UTC 00:00:00）"""
     base = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-    if TIME_RANGE == "7days":
+    if TIME_RANGE == "3days":
+        return base - timedelta(days=3)
+    elif TIME_RANGE == "7days":
         return base - timedelta(days=7)
     elif TIME_RANGE == "14days":
         return base - timedelta(days=14)
@@ -675,17 +678,15 @@ def sanitize_table_name(name: str) -> str:
 
 
 def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
-    """全量替换写入：每次入库前清空原表，按复合主键(Begin Time/ME/Measure Object/Counter，存在才用)去重。
-
-    优先写远程写服务（db_writer_api，full_replace 模式），失败则兜底写本地 SQLite。
-    """
+    """增量写入：优先远程写服务（db_writer_api，upsert 模式，保留历史），
+    失败则兜底写本地 SQLite（同样按复合主键 upsert，保留历史）。"""
     if not headers or not data:
         return 0
 
     # 复合主键：仅取表头中实际存在的列（用户要求 Begin Time/ME/Measure Object/Counter）
     pk_cols = [c for c in IPRAN_PK_CANDIDATES if c in headers]
 
-    # 1. API 客户端优先机制（远程写服务：full_replace = 清空后全量写入）
+    # 1. API 客户端优先机制（远程写服务：upsert = INSERT OR REPLACE，保留历史）
     if _db_writer is not None:
         try:
             str_data = [[str(v) if v is not None else None for v in row] for row in data]
@@ -694,7 +695,7 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
                 table=table_name,
                 columns=headers,
                 rows=str_data,
-                mode="full_replace",
+                mode="upsert",
                 pk_columns=pk_cols,
             )
             rows_written = res.get("rows_written", 0)
@@ -703,7 +704,7 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
         except Exception as e:
             logger.error(f"[DB][API] {table_name}: API write failed ({e}), falling back to local SQLite")
 
-    # 2. SQLite 高并发 WAL 模式写入（兜底；同样清空后全量写入 + 复合主键）
+    # 2. SQLite 高并发 WAL 模式写入（兜底；同样按复合主键 upsert，保留历史）
     import sqlite3
     conn = sqlite3.connect(DB_PATH, timeout=60.0)
     cursor = conn.cursor()
@@ -716,21 +717,31 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
 
     def _q(col): return f'"{col.replace(chr(34), chr(34) + chr(34))}"'
 
-    # 清空原数据（full_replace 语义）：先 DROP，再按复合主键结构重建
-    cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')
-    cols_decl = []
+    # 建表（幂等，全部 TEXT，不强制 NOT NULL，避免脏数据导致写入失败）
+    cols_decl = ", ".join(f"{_q(h)} TEXT" for h in headers)
+    cursor.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({cols_decl})')
+    # 补列
+    exist_cols = {r[1] for r in cursor.execute(f'PRAGMA table_info("{table_name}")').fetchall()}
     for h in headers:
-        if h in pk_cols:
-            cols_decl.append(f"{_q(h)} TEXT NOT NULL")
-        else:
-            cols_decl.append(f"{_q(h)} TEXT")
-    pk_clause = f", PRIMARY KEY ({', '.join(_q(k) for k in pk_cols)})" if pk_cols else ""
-    create_sql = f'CREATE TABLE "{table_name}" ({", ".join(cols_decl)}{pk_clause})'
-    cursor.execute(create_sql)
+        if h not in exist_cols:
+            cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(h)} TEXT')
+
+    # 确保唯一约束存在（先清理历史重复行，再建唯一索引，upsert 才能生效）
+    if pk_cols:
+        pk_q = ", ".join(_q(k) for k in pk_cols)
+        cursor.execute(
+            f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
+            f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
+        )
+        # 先删除旧的同名唯一索引，避免主键列变更后 IF NOT EXISTS 跳过导致旧索引残留
+        cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
+        cursor.execute(
+            f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({pk_q})'
+        )
 
     cols_str = ", ".join(_q(h) for h in headers)
     placeholders = ", ".join(["?"] * len(headers))
-    insert_sql = f'INSERT INTO "{table_name}" ({cols_str}) VALUES ({placeholders})'
+    insert_sql = f'INSERT OR REPLACE INTO "{table_name}" ({cols_str}) VALUES ({placeholders})'
 
     formatted_data = []
     for row in data:
@@ -742,7 +753,7 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
     conn.commit()
     conn.close()
 
-    logger.info(f"[DB][LOCAL] {table_name}: Inserted {len(formatted_data)} rows into SQLite (full_replace, pk={pk_cols})")
+    logger.info(f"[DB][LOCAL] {table_name}: Upserted {len(formatted_data)} rows into SQLite (pk={pk_cols})")
     return len(formatted_data)
 
 

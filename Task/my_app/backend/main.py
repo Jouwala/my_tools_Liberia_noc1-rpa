@@ -67,11 +67,22 @@ def scheduled_eflow_sync():
     import logging
     logger = logging.getLogger("eflow_sync")
     logger.info("定时 eFlow API 同步开始")
-    result = sync_from_eflow_api()
+    result = sync_from_eflow_api(mode="delta")
     sync_history.append(result)
     while len(sync_history) > 20:
         sync_history.pop(0)
     logger.info(f"eFlow 同步完成: success={result['success']}, tables={result['tables_synced']}")
+    return result
+
+
+def scheduled_eflow_sync_full():
+    """每日 eFlow 全量兜底同步：拉全量窗口，补齐增量遗漏并刷新报告"""
+    from backend.services.sync_from_eflow_api import sync_from_eflow_api
+    import logging
+    logger = logging.getLogger("eflow_sync_full")
+    logger.info("每日 eFlow 全量兜底同步开始")
+    result = sync_from_eflow_api(mode="full")
+    logger.info(f"eFlow 全量同步完成: success={result['success']}, tables={result['tables_synced']}")
     return result
 
 
@@ -94,6 +105,18 @@ def _register_all_tasks():
     def _run_ran_ume():
         from backend.services.ran_ume_service import run_ran_ume_full_task
         return run_ran_ume_full_task()
+
+    # 1b. eFlow 每日全量兜底（每天凌晨1点）
+    task_runner.register_task(
+        task_id="eflow_sync_full",
+        name="eFlow 每日全量同步",
+        name_en="eFlow Daily Full Sync",
+        func=scheduled_eflow_sync_full,
+        description="eFlow 全量兜底同步：拉取全量窗口（默认自 2026-01-01），补齐增量遗漏并刷新报告",
+        description_en="eFlow daily full backfill sync (full window), refresh reports",
+        default_cron="0 1 * * *",
+        category="eflow",
+    )
 
     task_runner.register_task(
         task_id="ran_ume_daily",
