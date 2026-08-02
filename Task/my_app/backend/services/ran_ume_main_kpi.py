@@ -1106,11 +1106,12 @@ def run_main_kpi_sync(cookie: str | None = None, forgery_token: str | None = Non
                 api_ok = False
 
     # 3. 释放内存
+    downloaded_count = len(download_results)
     download_results = None
     gc.collect()
 
     return {
-        "downloaded": len(download_results),
+        "downloaded": downloaded_count,
         "imported_rows": total_imported,
         "tables": imported_tables,
         "api_ok": api_ok,

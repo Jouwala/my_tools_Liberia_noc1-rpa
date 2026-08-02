@@ -1,16 +1,16 @@
 # OpenClaw API 优选 — 探测结果
 
-运行时间: 2026-08-01 03:01  |  时延阈值: 5000 ms
+运行时间: 2026-08-02 03:00  |  时延阈值: 5000 ms
 
 ## 汇总
 
 | 提供者 | 可用 | 时延(ms) | 选用模型 | 状态/原因 |
 |---|---|---|---|---|
-| ZhiPu GLM 智谱 | 是 | 1373 | `glm-4-flash` | 正常 |
+| ZhiPu GLM 智谱 | 是 | 1875 | `glm-4-flash` | 正常 |
 | NVIDIA NIM | 是 | 955 | `meta/llama-3.1-8b-instruct` | 正常 |
-| OpenRouter | 是 | 3194 | `openrouter/free` | 正常 |
+| OpenRouter | 是 | 2169 | `openrouter/free` | 正常 |
 | Ollama Cloud | 否 | - | `gemma3:27b` | HTTP 410 |
-| ZhiPu GLM-5 智谱 | 是 | 724 | `glm-z1-flash` | 正常 |
+| ZhiPu GLM-5 智谱 | 是 | 2479 | `glm-4-flash` | 正常 |
 | SiliconFlow 硅基流动 | 否 | - | `Qwen/Qwen3-8B` | 需付费/余额不足 (402) |
 | MiniMax CN | 否 | - | `MiniMax-M2` | 未配置密钥·跳过 |
 | StepFun 阶跃星辰 | 否 | - | `step-2-mini` | 需付费/余额不足 (402) |
@@ -21,23 +21,23 @@
 | Fireworks AI | 否 | - | `accounts/fireworks/models/llama-v3p1-8b-instruct` | 未配置密钥·跳过 |
 | Moonshot (Kimi) | 否 | - | `moonshot-v1-8k` | 未配置密钥·跳过 |
 | Google Gemini | 否 | - | `gemini-2.0-flash` | 未配置密钥·跳过 |
-| Local Ollama | 是 | 741 | `phi4-mini:3.8b` | 正常 |
-| SenseNova 商汤 | 是 | 8333 | `sensenova-6.7-flash-lite` | 正常 |
+| Local Ollama | 是 | 7683 | `phi4-mini:3.8b` | 正常 |
+| SenseNova 商汤 | 是 | 1361 | `sensenova-6.7-flash-lite` | 正常 |
 
 ## 结论
-- 主用 (primary): **zhipu5/glm-z1-flash**（724 ms）
-- 备用 (fallbacks): ollama/gemma4-32k:latest, ollama/phi4-mini:3.8b, nvidia/meta/llama-3.1-8b-instruct, zhipu/glm-4-flash, openrouter/openrouter/free, ollama-cloud/gemma3:27b
+- 主用 (primary): **nvidia/meta/llama-3.1-8b-instruct**（955 ms）
+- 备用 (fallbacks): ollama/gemma4-32k:latest, ollama/phi4-mini:3.8b, sensenova/sensenova-6.7-flash-lite, zhipu/glm-4-flash, openrouter/openrouter/free, zhipu5/glm-4-flash, ollama-cloud/gemma3:27b
 
 ## 级联尝试明细
 
 ### ZhiPu GLM 智谱
-- `glm-4-flash` → OK 1373 ms
+- `glm-4-flash` → OK 1875 ms
 
 ### NVIDIA NIM
 - `meta/llama-3.1-8b-instruct` → OK 955 ms
 
 ### OpenRouter
-- `openrouter/free` → OK 3194 ms
+- `openrouter/free` → OK 2169 ms
 
 ### Ollama Cloud
 - `gemma3:4b` → FAIL http_error
@@ -47,8 +47,7 @@
 - `gemma3:27b` → FAIL http_error
 
 ### ZhiPu GLM-5 智谱
-- `glm-4-flash` → FAIL error
-- `glm-z1-flash` → OK 724 ms
+- `glm-4-flash` → OK 2479 ms
 
 ### SiliconFlow 硅基流动
 - `Qwen/Qwen3-8B` → FAIL payment_required
@@ -62,8 +61,8 @@
 ### Local Ollama
 - `gemma4-16k` → FAIL model_unavailable
 - `gemma3:4b` → FAIL model_unavailable
-- `phi4-mini:3.8b` → OK 741 ms
+- `phi4-mini:3.8b` → OK 7683 ms
 
 ### SenseNova 商汤
-- `sensenova-6.7-flash-lite` → OK 8333 ms
+- `sensenova-6.7-flash-lite` → OK 1361 ms
 

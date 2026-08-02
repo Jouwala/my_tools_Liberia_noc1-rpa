@@ -1,12 +1,12 @@
 {
-  "run_at": "2026-08-01T03:01:18",
+  "run_at": "2026-08-02T03:00:25",
   "threshold_ms": 5000,
   "results": [
     {
       "key": "zhipu",
       "name": "ZhiPu GLM 智谱",
       "available": true,
-      "latency_ms": 1373,
+      "latency_ms": 1875,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -16,7 +16,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1373,
+          "latency_ms": 1875,
           "status": "ok",
           "error": null
         }
@@ -46,7 +46,7 @@
       "key": "openrouter",
       "name": "OpenRouter",
       "available": true,
-      "latency_ms": 3194,
+      "latency_ms": 2169,
       "model": "openrouter/free",
       "error": null,
       "status": "ok",
@@ -56,7 +56,7 @@
         {
           "model": "openrouter/free",
           "ok": true,
-          "latency_ms": 3194,
+          "latency_ms": 2169,
           "status": "ok",
           "error": null
         }
@@ -114,8 +114,8 @@
       "key": "zhipu5",
       "name": "ZhiPu GLM-5 智谱",
       "available": true,
-      "latency_ms": 724,
-      "model": "glm-z1-flash",
+      "latency_ms": 2479,
+      "model": "glm-4-flash",
       "error": null,
       "status": "ok",
       "reason": "正常",
@@ -123,15 +123,8 @@
       "tried_models": [
         {
           "model": "glm-4-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10054] An existing connection was forcibly closed by the remote host>"
-        },
-        {
-          "model": "glm-z1-flash",
           "ok": true,
-          "latency_ms": 724,
+          "latency_ms": 2479,
           "status": "ok",
           "error": null
         }
@@ -285,7 +278,7 @@
       "key": "ollama",
       "name": "Local Ollama",
       "available": true,
-      "latency_ms": 741,
+      "latency_ms": 7683,
       "model": "phi4-mini:3.8b",
       "error": null,
       "status": "ok",
@@ -309,7 +302,7 @@
         {
           "model": "phi4-mini:3.8b",
           "ok": true,
-          "latency_ms": 741,
+          "latency_ms": 7683,
           "status": "ok",
           "error": null
         }
@@ -319,7 +312,7 @@
       "key": "sensenova",
       "name": "SenseNova 商汤",
       "available": true,
-      "latency_ms": 8333,
+      "latency_ms": 1361,
       "model": "sensenova-6.7-flash-lite",
       "error": null,
       "status": "ok",
@@ -329,20 +322,21 @@
         {
           "model": "sensenova-6.7-flash-lite",
           "ok": true,
-          "latency_ms": 8333,
+          "latency_ms": 1361,
           "status": "ok",
           "error": null
         }
       ]
     }
   ],
-  "primary": "zhipu5/glm-z1-flash",
+  "primary": "nvidia/meta/llama-3.1-8b-instruct",
   "fallbacks": [
     "ollama/gemma4-32k:latest",
     "ollama/phi4-mini:3.8b",
-    "nvidia/meta/llama-3.1-8b-instruct",
+    "sensenova/sensenova-6.7-flash-lite",
     "zhipu/glm-4-flash",
     "openrouter/openrouter/free",
+    "zhipu5/glm-4-flash",
     "ollama-cloud/gemma3:27b"
   ]
 }
