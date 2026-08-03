@@ -1,3 +1,4 @@
+import logging
 import sys
 import io
 
@@ -229,6 +230,7 @@ class ExcelDataProcessor:
         try:
             x = str(int(float(x)))
         except (ValueError, TypeError):
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] normalize_id: exception swallowed", exc_info=True)
             pass
         return x
 
@@ -893,6 +895,7 @@ class ExcelDataProcessor:
                     if os.path.exists(tmp_path):
                         os.remove(tmp_path)
                 except OSError:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] df_to_image: exception swallowed", exc_info=True)
                     pass
                 if attempt < _max_attempts - 1:
                     print(f"⚠️ 图片写入被占用({attempt + 1}/{_max_attempts})，等待{_wait_sec}s: {os.path.basename(final_path)}")

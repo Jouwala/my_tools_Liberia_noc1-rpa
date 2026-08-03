@@ -38,6 +38,7 @@ if sys.platform == 'win32':
         try:
             msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
         except (IOError, OSError):
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _lock_shared: exception swallowed", exc_info=True)
             pass
 
     def _lock_exclusive(f):
@@ -45,6 +46,7 @@ if sys.platform == 'win32':
         try:
             msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
         except (IOError, OSError):
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _lock_exclusive: exception swallowed", exc_info=True)
             pass
 
     def _unlock(f):
@@ -52,6 +54,7 @@ if sys.platform == 'win32':
             f.seek(0)
             msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
         except (IOError, OSError):
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _unlock: exception swallowed", exc_info=True)
             pass
 else:
     import fcntl
@@ -68,6 +71,7 @@ else:
 try:
     sys.stdout.reconfigure(encoding='utf-8')
 except Exception:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:auth_manager>: exception swallowed", exc_info=True)
     pass
 
 logger = logging.getLogger("auth_manager")
@@ -110,6 +114,7 @@ def _decode_chunked(data: bytes) -> bytes:
         try:
             chunk_size = int(chunk_size_str, 16)
         except ValueError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _decode_chunked: exception swallowed", exc_info=True)
             break
         if chunk_size == 0:
             break
@@ -154,6 +159,7 @@ def _http_request(host: str, port: int, method: str, path: str,
                 break
             response_data += chunk
         except socket.timeout:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request: exception swallowed", exc_info=True)
             break
     ssock.close()
 
@@ -212,6 +218,7 @@ def _read_cache(host: str, port: int) -> dict | None:
             data = json.load(f)
             _unlock(f)
     except (json.JSONDecodeError, IOError, OSError):
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _read_cache: exception swallowed", exc_info=True)
         return None
 
     # 检查过期
@@ -223,6 +230,7 @@ def _read_cache(host: str, port: int) -> dict | None:
             logger.info(f"[AUTH] 缓存已过期 ({host}:{port})")
             return None
     except (ValueError, TypeError):
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _read_cache: exception swallowed", exc_info=True)
         return None
 
     # 验证必要字段
@@ -263,6 +271,7 @@ def invalidate_cache(host: str, port: int):
             cache_file.unlink()
             logger.info(f"[AUTH] 缓存已清除 ({host}:{port})")
         except OSError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] invalidate_cache: exception swallowed", exc_info=True)
             pass
 
 

@@ -64,9 +64,11 @@ def wait_for_visible(page, selectors: Iterable[str], timeout: int = 10000,
                             return loc.first
                     except Exception:
                         # 不可见但存在于 DOM，仍可能是页面在加载，继续等
+                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] wait_for_visible: exception swallowed", exc_info=True)
                         last_err = f"{sel} exists but not visible"
                         continue
             except Exception as e:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] wait_for_visible: exception swallowed", exc_info=True)
                 last_err = f"{sel}: {e}"
                 continue
         time.sleep(poll_interval)
@@ -86,6 +88,7 @@ def wait_for_any(page, selectors: Iterable[str], timeout: int = 10000) -> bool:
                 if page.locator(sel).count() > 0:
                     return True
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] wait_for_any: exception swallowed", exc_info=True)
                 continue
         time.sleep(0.3)
     return False
@@ -212,6 +215,7 @@ def wait_for_loading_gone(frame, timeout: int = 15000):
         if loading.count() > 0:
             loading.first.wait_for(state="hidden", timeout=timeout)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] wait_for_loading_gone: exception swallowed", exc_info=True)
         pass
 
 
@@ -229,9 +233,11 @@ def is_screenshot_blank(image_path: str, variance_threshold: float = 100.0) -> b
         import statistics
     except ImportError:
         # 无 Pillow 退化为只检查 size > 0
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] is_screenshot_blank: exception swallowed", exc_info=True)
         try:
             return os.path.getsize(image_path) < 1024
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] is_screenshot_blank: exception swallowed", exc_info=True)
             return True
 
     try:
@@ -240,6 +246,7 @@ def is_screenshot_blank(image_path: str, variance_threshold: float = 100.0) -> b
         var = statistics.pvariance(pixels)
         return var < variance_threshold
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] is_screenshot_blank: exception swallowed", exc_info=True)
         return False
 
 
@@ -320,6 +327,7 @@ def with_debug_snapshot(debug_dir: str, step: str):
                 try:
                     save_debug_snapshot(page, debug_dir, step)
                 except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] wrapper: exception swallowed", exc_info=True)
                     pass
                 raise
         return wrapper

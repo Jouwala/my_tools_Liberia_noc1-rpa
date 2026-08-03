@@ -10,6 +10,12 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# build scratch dir left by the xlsx 0.20.3 upgrade (rebuild used a temp outDir)
+dist_new
+dist_new_rm
+# one-off scratch build/test output dirs (never commit)
+dist_rebuild
+dist_test
 *.local
 
 # Editor directories and files

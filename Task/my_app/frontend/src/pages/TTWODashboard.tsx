@@ -136,9 +136,9 @@ export default function TTWODashboard() {
     setDrillLoading(true)
     setDrillData([])
     setDrillSearch('')
-    setDrillDimension(dimension)
+    setDrillDimension(dimension || '')
     setDrillValue(value || '')
-    const params: Record<string, string> = { dimension }
+    const params: Record<string, string> = { dimension: dimension || '' }
     if (value) params.value = value
     if (timeRange) {
       params.time_start = timeRange.start
@@ -566,8 +566,10 @@ export default function TTWODashboard() {
       {/* MTTR 周趋势 */}
       <SectionTitle icon={<BarChartOutlined />} title="MTTR Weekly Trend" />
       <Card size="small" style={cardStyle}>
-        <ReactECharts option={mttrOption} style={{ height: CHART_HEIGHT }}
-          onEvents={onChartClick('week')} />
+        <div role="img" aria-label="MTTR Weekly Trend chart">
+          <ReactECharts option={mttrOption} style={{ height: CHART_HEIGHT }}
+            onEvents={onChartClick('week')} />
+        </div>
       </Card>
 
       {/* Domain + Root Cause */}
@@ -575,20 +577,26 @@ export default function TTWODashboard() {
       <Row gutter={[16, 16]}>
         <Col span={10}>
           <Card title={<span style={cardTitleStyle}>TT by Domain</span>} size="small" style={cardStyle}>
-            <ReactECharts option={domainOption} style={{ height: CHART_HEIGHT }}
-              onEvents={onChartClick('domain')} />
+            <div role="img" aria-label="TT by Domain chart">
+              <ReactECharts option={domainOption} style={{ height: CHART_HEIGHT }}
+                onEvents={onChartClick('domain')} />
+            </div>
           </Card>
         </Col>
         <Col span={7}>
           <Card title={<span style={cardTitleStyle}>Root Cause (Main)</span>} size="small" style={cardStyle}>
-            <ReactECharts option={rcMainOption} style={{ height: CHART_HEIGHT }}
-              onEvents={onChartClick('rc_main')} />
+            <div role="img" aria-label="Root Cause Main chart">
+              <ReactECharts option={rcMainOption} style={{ height: CHART_HEIGHT }}
+                onEvents={onChartClick('rc_main')} />
+            </div>
           </Card>
         </Col>
         <Col span={7}>
           <Card title={<span style={cardTitleStyle}>Root Cause (Sub)</span>} size="small" style={cardStyle}>
-            <ReactECharts option={rcSubOption} style={{ height: CHART_HEIGHT }}
-              onEvents={onChartClick('rc_sub')} />
+            <div role="img" aria-label="Root Cause Sub chart">
+              <ReactECharts option={rcSubOption} style={{ height: CHART_HEIGHT }}
+                onEvents={onChartClick('rc_sub')} />
+            </div>
           </Card>
         </Col>
       </Row>
@@ -599,14 +607,18 @@ export default function TTWODashboard() {
         <Row gutter={[16, 16]}>
           <Col span={12}>
             <Card title={<span style={cardTitleStyle}>WO by Source</span>} size="small" style={cardStyle}>
-              <ReactECharts option={woSourceOption} style={{ height: CHART_HEIGHT }}
-                onEvents={onChartClick('wo_source')} />
+              <div role="img" aria-label="WO by Source chart">
+                <ReactECharts option={woSourceOption} style={{ height: CHART_HEIGHT }}
+                  onEvents={onChartClick('wo_source')} />
+              </div>
             </Card>
           </Col>
           <Col span={12}>
             <Card title={<span style={cardTitleStyle}>WO by Status</span>} size="small" style={cardStyle}>
-              <ReactECharts option={woStatusOption} style={{ height: CHART_HEIGHT }}
-                onEvents={onChartClick('wo_status')} />
+              <div role="img" aria-label="WO by Status chart">
+                <ReactECharts option={woStatusOption} style={{ height: CHART_HEIGHT }}
+                  onEvents={onChartClick('wo_status')} />
+              </div>
             </Card>
           </Col>
         </Row>

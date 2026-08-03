@@ -1,88 +1,17 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { cachedGet } from '../cache'
-import { Card, Row, Col, Select, Spin, Drawer, Descriptions, Table, Tag, Statistic, Tabs, Space, Badge, DatePicker, Segmented, Tooltip, Switch, Button, Input } from 'antd'
-import { DownloadOutlined, SearchOutlined, FilterOutlined, AlertOutlined, ThunderboltOutlined } from '@ant-design/icons'
-import * as XLSX from 'xlsx'
-import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Polygon, Pane, useMap } from 'react-leaflet'
+import { Card, Row, Col, Select, Spin, Tag, Space, Badge, DatePicker, Segmented, Tooltip, Switch, Button } from 'antd'
+import { FilterOutlined } from '@ant-design/icons'
+import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Polygon, Pane } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import dayjs, { Dayjs } from 'dayjs'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { useDataTimestamps } from '../useDataTimestamps'
 import { WH, WH_COLORS, cardStyle, controlCardStyle, pageWrap } from '../theme'
-
-interface Site {
-  site_id: string
-  site_name: string
-  lat: number
-  lng: number
-  region: string
-  province_county: string
-  network_type: string
-  site_type: string
-  vip_site: string
-  hub_site: string
-  tt_count: number
-  open_tt: number
-  closed_tt: number
-  wo_count: number
-  rt_alarm_count: number
-  his_alarm_count: number
-  rt_alarm_overdue?: number
-  rt_alarm_ontime?: number
-  rt_tt_count?: number
-  rt_wo_count?: number
-  trm_type?: string
-  area?: string
-  hubsite?: string
-  site_information?: string
-  supervisor?: string
-  updated_fme_name_new?: string
-}
-
-interface DrilldownData {
-  site_info: Record<string, any>
-  tt_list: any[]
-  tt_count: number
-  wo_list: any[]
-  wo_count: number
-  rt_alarm_list: any[]
-  rt_alarm_count: number
-  his_alarm_list: any[]
-  his_alarm_count: number
-  sla_stats: {
-    total_tt: number
-    closed_tt: number
-    sla_met: number
-    sla_violated: number
-  }
-}
-
-interface TopologyLink {
-  site_a_id: string
-  site_a_name: string
-  site_b_id: string
-  site_b_name: string
-  hop_count: number
-  is_hub_link: boolean
-  lat_a: number
-  lng_a: number
-  lat_b: number
-  lng_b: number
-}
-
-type LegendKey = 'tt' | 'wo' | 'vip' | 'normal' | 'rt_alarm' | 'rt_alarm_overdue' | 'rt_alarm_ontime' | 'his_alarm'
-type LayerKey = 'rt_alarm' | 'his_alarm' | 'tt' | 'wo'
-
-function MapController({ center, zoom }: { center: [number, number]; zoom: number }) {
-  const map = useMap()
-  useEffect(() => {
-    map.setView(center, zoom)
-  }, [center, zoom, map])
-  return null
-}
-
-type TimePreset = 'all' | '7d' | '30d' | '90d' | '180d' | 'custom'
+import { MapController } from './gismap/MapController'
+import { SiteDrilldownDrawer } from './gismap/SiteDrilldownDrawer'
+import type { Site, DrilldownData, TopologyLink, LegendKey, LayerKey, TimePreset } from './gismap/types'
 
 export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) {
   const [sites, setSites] = useState<Site[]>([])
@@ -100,10 +29,6 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const [topologyLinks, setTopologyLinks] = useState<TopologyLink[]>([])
   const [regionBoundaries, setRegionBoundaries] = useState<{ region: string; polygon: [number, number][]; color: string; site_count: number }[]>([])
   const [showRegions, setShowRegions] = useState(true)
-  const [ttSearch, setTtSearch] = useState('')
-  const [woSearch, setWoSearch] = useState('')
-  const [rtAlarmSearch, setRtAlarmSearch] = useState('')
-  const [hisAlarmSearch, setHisAlarmSearch] = useState('')
   const [ossStats, setOssStats] = useState<{ oss_specific_problem: string; count: number; sites: number }[]>([])
 
   const [activeLayers, setActiveLayers] = useState<Set<LayerKey>>(
@@ -371,223 +296,6 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     { key: 'wo', label: t('gis.layer.wo'), color: '#51cf66' },
   ].filter(lo => mode === 'realtime' ? lo.key !== 'his_alarm' : true) as { key: LayerKey; label: string; color: string }[]
 
-  const filterBySearch = (data: any[], search: string) => {
-    if (!search.trim()) return data
-    const lower = search.toLowerCase()
-    return data.filter(row =>
-      Object.values(row).some(v => v != null && String(v).toLowerCase().includes(lower))
-    )
-  }
-
-  const filteredTT = useMemo(() => {
-    if (!drilldown?.tt_list) return []
-    return filterBySearch(drilldown.tt_list, ttSearch)
-  }, [drilldown?.tt_list, ttSearch])
-
-  const filteredWO = useMemo(() => {
-    if (!drilldown?.wo_list) return []
-    return filterBySearch(drilldown.wo_list, woSearch)
-  }, [drilldown?.wo_list, woSearch])
-
-  const filteredRtAlarm = useMemo(() => {
-    if (!drilldown?.rt_alarm_list) return []
-    return filterBySearch(drilldown.rt_alarm_list, rtAlarmSearch)
-  }, [drilldown?.rt_alarm_list, rtAlarmSearch])
-
-  const filteredHisAlarm = useMemo(() => {
-    if (!drilldown?.his_alarm_list) return []
-    return filterBySearch(drilldown.his_alarm_list, hisAlarmSearch)
-  }, [drilldown?.his_alarm_list, hisAlarmSearch])
-
-  const exportToExcel = useCallback((data: any[], filename: string, columns: { title: string; dataIndex: string }[]) => {
-    if (!data.length) return
-    const header = columns.map(c => c.title)
-    const keys = columns.map(c => c.dataIndex)
-    const rows = data.map(row => keys.map(k => {
-      const v = row[k]
-      return v == null ? '' : String(v)
-    }))
-    const ws = XLSX.utils.aoa_to_sheet([header, ...rows])
-    ws['!cols'] = columns.map(() => ({ wch: 18 }))
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, filename)
-    XLSX.writeFile(wb, `${filename}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`)
-  }, [])
-
-  const strSorter = (a: any, b: any, key: string) => {
-    const va = a[key] ?? '', vb = b[key] ?? ''
-    return String(va).localeCompare(String(vb))
-  }
-
-  const getUniqueFilters = (data: any[], key: string) => {
-    const vals = new Set<string>()
-    data.forEach(r => { if (r[key] != null && r[key] !== '') vals.add(String(r[key])) })
-    return Array.from(vals).map(v => ({ text: v, value: v }))
-  }
-
-  const ttColumns = useMemo(() => {
-    const data = drilldown?.tt_list || []
-    return [
-      { title: t('gis.drilldown.colTitle'), dataIndex: 'title', key: 'title', ellipsis: true, width: 180, sorter: (a: any, b: any) => strSorter(a, b, 'title') },
-      { title: t('gis.drilldown.colTicketNo'), dataIndex: 'ticket_no', key: 'ticket_no', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'ticket_no') },
-      { title: t('gis.drilldown.colWONo'), dataIndex: 'wo_no', key: 'wo_no', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'wo_no') },
-      { title: t('gis.drilldown.colSiteId'), dataIndex: 'site_id', key: 'site_id', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'site_id') },
-      { title: t('gis.drilldown.colSiteName'), dataIndex: 'site_name', key: 'site_name', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'site_name') },
-      { title: t('gis.drilldown.colSiteClass'), dataIndex: 'site_class', key: 'site_class', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'site_class'),
-        filters: getUniqueFilters(data, 'site_class'), onFilter: (v: any, r: any) => r.site_class === v },
-      { title: t('gis.drilldown.colStatus'), dataIndex: 'status', key: 'status', width: 80,
-        sorter: (a: any, b: any) => strSorter(a, b, 'status'),
-        filters: getUniqueFilters(data, 'status'), onFilter: (v: any, r: any) => r.status === v,
-        render: (v: string) => <Tag color="cyan">{v}</Tag> },
-      { title: t('gis.drilldown.colCreator'), dataIndex: 'creator', key: 'creator', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'creator'),
-        filters: getUniqueFilters(data, 'creator'), onFilter: (v: any, r: any) => r.creator === v },
-      { title: t('gis.drilldown.colSeverity'), dataIndex: 'ticket_severity', key: 'ticket_severity', width: 90,
-        sorter: (a: any, b: any) => strSorter(a, b, 'ticket_severity'),
-        filters: getUniqueFilters(data, 'ticket_severity'), onFilter: (v: any, r: any) => r.ticket_severity === v },
-      { title: t('gis.drilldown.colSLATime'), dataIndex: 'sla_time', key: 'sla_time', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'sla_time') },
-      { title: t('gis.drilldown.colSLA'), dataIndex: 'sla_status', key: 'sla_status', width: 80,
-        sorter: (a: any, b: any) => strSorter(a, b, 'sla_status'),
-        filters: getUniqueFilters(data, 'sla_status'), onFilter: (v: any, r: any) => r.sla_status === v,
-        render: (v: string) => v ? <Tag color={(v === 'Pass' || v === 'Within SLA') ? 'green' : 'red'}>{v}</Tag> : '-' },
-      { title: t('gis.drilldown.colRegionId'), dataIndex: 'region_id', key: 'region_id', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'region_id') },
-      { title: t('gis.drilldown.colCreated'), dataIndex: 'created_time', key: 'created_time', width: 140, sorter: (a: any, b: any) => strSorter(a, b, 'created_time') },
-      { title: t('gis.drilldown.colAlarmOccur'), dataIndex: 'alarm_occur_time', key: 'alarm_occur_time', width: 140,
-        sorter: (a: any, b: any) => strSorter(a, b, 'alarm_occur_time'), defaultSortOrder: 'descend' as const },
-      { title: t('gis.drilldown.colAlarmClear'), dataIndex: 'alarm_clear_time', key: 'alarm_clear_time', width: 140, sorter: (a: any, b: any) => strSorter(a, b, 'alarm_clear_time') },
-      { title: t('gis.drilldown.colRootCause'), dataIndex: 'root_cause', key: 'root_cause', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'root_cause'),
-        filters: getUniqueFilters(data, 'root_cause'), onFilter: (v: any, r: any) => r.root_cause === v },
-      { title: t('gis.drilldown.colSubRootCause'), dataIndex: 'sub_root_cause', key: 'sub_root_cause', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'sub_root_cause') },
-      { title: t('gis.drilldown.colRootCauseDesc'), dataIndex: 'root_cause_description', key: 'root_cause_description', ellipsis: true, width: 150, sorter: (a: any, b: any) => strSorter(a, b, 'root_cause_description') },
-      { title: t('gis.drilldown.colSLARemain'), dataIndex: 'sla_remain_time', key: 'sla_remain_time', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'sla_remain_time') },
-      { title: t('gis.drilldown.colFOProcess'), dataIndex: 'fo_process_detail', key: 'fo_process_detail', ellipsis: true, width: 150, sorter: (a: any, b: any) => strSorter(a, b, 'fo_process_detail') },
-    ]
-  }, [drilldown?.tt_list, t])
-
-  const woColumns = useMemo(() => {
-    const data = drilldown?.wo_list || []
-    return [
-      { title: t('gis.drilldown.colWONo'), dataIndex: 'wo_no', key: 'wo_no', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'wo_no') },
-      { title: t('gis.drilldown.colTTNo'), dataIndex: 'tt_no', key: 'tt_no', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'tt_no') },
-      { title: t('gis.drilldown.colTitle'), dataIndex: 'title', key: 'title', ellipsis: true, width: 180, sorter: (a: any, b: any) => strSorter(a, b, 'title') },
-      { title: t('gis.drilldown.colStatus'), dataIndex: 'status', key: 'status', width: 80,
-        sorter: (a: any, b: any) => strSorter(a, b, 'status'),
-        filters: getUniqueFilters(data, 'status'), onFilter: (v: any, r: any) => r.status === v,
-        render: (v: string) => <Tag color="cyan">{v}</Tag> },
-      { title: t('gis.drilldown.colCreator'), dataIndex: 'creator', key: 'creator', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'creator'),
-        filters: getUniqueFilters(data, 'creator'), onFilter: (v: any, r: any) => r.creator === v },
-      { title: t('gis.drilldown.colCreated'), dataIndex: 'created_time', key: 'created_time', width: 140, sorter: (a: any, b: any) => strSorter(a, b, 'created_time') },
-      { title: t('gis.drilldown.colLastModified'), dataIndex: 'last_modified_time', key: 'last_modified_time', width: 140, sorter: (a: any, b: any) => strSorter(a, b, 'last_modified_time') },
-      { title: t('gis.drilldown.colOpStep'), dataIndex: 'operation_step', key: 'operation_step', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'operation_step') },
-      { title: t('gis.drilldown.colSeverity'), dataIndex: 'ticket_severity', key: 'ticket_severity', width: 90,
-        sorter: (a: any, b: any) => strSorter(a, b, 'ticket_severity'),
-        filters: getUniqueFilters(data, 'ticket_severity'), onFilter: (v: any, r: any) => r.ticket_severity === v },
-      { title: t('gis.drilldown.colNEType'), dataIndex: 'ne_type', key: 'ne_type', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'ne_type') },
-      { title: t('gis.drilldown.colVendor'), dataIndex: 'vendor', key: 'vendor', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'vendor') },
-      { title: t('gis.drilldown.colAlarmOccur'), dataIndex: 'alarm_occur_time', key: 'alarm_occur_time', width: 140,
-        sorter: (a: any, b: any) => strSorter(a, b, 'alarm_occur_time'), defaultSortOrder: 'descend' as const },
-      { title: t('gis.drilldown.colAlarmClear'), dataIndex: 'alarm_clear_time', key: 'alarm_clear_time', width: 140, sorter: (a: any, b: any) => strSorter(a, b, 'alarm_clear_time') },
-      { title: t('gis.drilldown.colSource'), dataIndex: 'source', key: 'source', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'source') },
-      { title: t('gis.drilldown.colProjectName'), dataIndex: 'project_name', key: 'project_name', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'project_name') },
-      { title: t('gis.drilldown.colTemplate'), dataIndex: 'template', key: 'template', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'template') },
-      { title: t('gis.drilldown.colDescription'), dataIndex: 'description', key: 'description', ellipsis: true, width: 150, sorter: (a: any, b: any) => strSorter(a, b, 'description') },
-      { title: t('gis.drilldown.colAlarmSeverity'), dataIndex: 'alarm_severity', key: 'alarm_severity', width: 90,
-        sorter: (a: any, b: any) => strSorter(a, b, 'alarm_severity'),
-        filters: getUniqueFilters(data, 'alarm_severity'), onFilter: (v: any, r: any) => r.alarm_severity === v },
-      { title: t('gis.drilldown.colFaultDuration'), dataIndex: 'fault_duration_time', key: 'fault_duration_time', width: 110, sorter: (a: any, b: any) => strSorter(a, b, 'fault_duration_time') },
-      { title: t('gis.drilldown.colSLATime'), dataIndex: 'sla_time', key: 'sla_time', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'sla_time') },
-      { title: t('gis.drilldown.colExpectedFinish'), dataIndex: 'expected_finish_time_e2e_sla_deadline_time', key: 'expected_finish_time', width: 160, sorter: (a: any, b: any) => strSorter(a, b, 'expected_finish_time_e2e_sla_deadline_time') },
-      { title: t('gis.drilldown.colRegionId'), dataIndex: 'region_id', key: 'region_id', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'region_id') },
-      { title: t('gis.drilldown.colSiteId'), dataIndex: 'site_id', key: 'site_id', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'site_id') },
-      { title: t('gis.drilldown.colSiteName'), dataIndex: 'site_name', key: 'site_name', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'site_name') },
-      { title: t('gis.drilldown.colSiteType'), dataIndex: 'site_type', key: 'site_type', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'site_type') },
-      { title: t('gis.drilldown.colSiteInfo'), dataIndex: 'site_information', key: 'site_information', ellipsis: true, width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'site_information') },
-      { title: t('gis.drilldown.colSiteClass'), dataIndex: 'site_class', key: 'site_class', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'site_class') },
-      { title: t('gis.drilldown.colOrgId'), dataIndex: 'organization_id', key: 'organization_id', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'organization_id') },
-      { title: t('gis.drilldown.colVipSite'), dataIndex: 'vip_site', key: 'vip_site', width: 70, sorter: (a: any, b: any) => strSorter(a, b, 'vip_site') },
-      { title: t('gis.drilldown.colHubSite'), dataIndex: 'hub_site', key: 'hub_site', width: 70, sorter: (a: any, b: any) => strSorter(a, b, 'hub_site') },
-    ]
-  }, [drilldown?.wo_list, t])
-
-  // 动态构建告警列：展示下钻接口返回的全部列（后端现已 SELECT *）
-  const ALARM_COL_TITLES: Record<string, string> = {
-    alarm_title: 'Alarm Title', codename: 'Code Name', perceivedseverity: 'Severity',
-    perceivedseverityname: 'Severity Name', durationname: 'Duration', duration: 'Duration(s)',
-    alarmraisedtime: 'Alarm Raised', servertime: 'Server Time', alarmchangedtime: 'Alarm Changed',
-    acktime: 'Ack Time', assigned_time: 'Assigned Time', assigned_status: 'Assigned Status',
-    assign_start_time: 'Assign Start', assign_delay: 'Assign Delay', assigned_user: 'Assigned User',
-    tt_id: 'TT ID', tt_info: 'TT Info', site_id: 'Site ID', site_name: 'Site Name',
-    site_status: 'Site Status', site_attribute: 'Site Attr', site_class: 'Site Class',
-    site_vip_level: 'VIP Level', networktype: 'Network', restypename: 'NE Type', restype: 'RE Type',
-    neip: 'NE IP', region: 'Region', division: 'Division', district: 'District', thana: 'Thana',
-    province: 'Province', ran_type: 'RAN Type', transmission_type: 'Transmission', moc: 'MOC',
-    mocname: 'MOC Name', alarmtype: 'Alarm Type', alarmtypename: 'Alarm Type Name',
-    alarmcode: 'Alarm Code', reasoncode: 'Reason Code', reasonname: 'Reason Name',
-    ackstate: 'Ack State', clearstate: 'Clear State', positionname: 'Position',
-    object_name: 'Object Name', me: 'ME', mename: 'ME Name', vendor: 'Vendor',
-    additionaltext: 'Additional Text', alarmsource: 'Alarm Source', alarm_source: 'Alarm Source',
-    ackstatename: 'Ack State Name', clearstatename: 'Clear State Name', admc: 'ADMC',
-    admcname: 'ADMC Name', subcenter: 'Sub Center', circle: 'Circle',
-  }
-  const humanizeCol = (col: string): string =>
-    ALARM_COL_TITLES[col] || col.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-
-  const fmtTs = (v: any): string => {
-    if (v == null) return '-'
-    if (typeof v === 'number') {
-      let ms = v
-      if (v > 1e11) ms = v
-      else if (v > 1e8) ms = v * 1000
-      else return String(v)
-      const d = dayjs(ms)
-      return d.isValid() ? d.format('YYYY-MM-DD HH:mm:ss') : String(v)
-    }
-    return String(v)
-  }
-
-  const isTsCol = (col: string): boolean => col.endsWith('time') || col === 'duration'
-
-  const buildAlarmColumns = (rows: any[]) => {
-    if (!rows || rows.length === 0) return []
-    const keys = Object.keys(rows[0])
-    return keys.map(k => {
-      const isTs = isTsCol(k)
-      const isSev = k === 'perceivedseverity'
-      const isLong = ['additionaltext', 'tt_info', 'respath', 'root_cause_description',
-        'alarm_title', 'commenttext', 'operations', 'link_path', 'impact_site_list', 'alarmsource'].includes(k)
-      return {
-        title: humanizeCol(k),
-        dataIndex: k,
-        key: k,
-        width: isLong ? 200 : isTs ? 170 : 130,
-        ellipsis: isLong,
-        sorter: (a: any, b: any) => {
-          const av = a[k], bv = b[k]
-          if (av == null) return bv == null ? 0 : -1
-          if (bv == null) return 1
-          if (typeof av === 'number' && typeof bv === 'number') return av - bv
-          return String(av).localeCompare(String(bv))
-        },
-        render: (v: any) => {
-          if (isSev) {
-            const map: Record<number, { label: string; color: string }> = {
-              1: { label: 'Critical', color: 'red' }, 2: { label: 'Major', color: 'orange' },
-              3: { label: 'Warning', color: 'gold' }, 4: { label: 'Info', color: 'blue' },
-            }
-            const item = map[v] || { label: `P${v}`, color: 'default' }
-            return <Tag color={item.color}>{item.label}</Tag>
-          }
-          if (isTs) return fmtTs(v)
-          if (v == null) return '-'
-          if (typeof v === 'string' && v.length > 60) return <span title={v}>{v.slice(0, 60)}…</span>
-          return v
-        },
-      }
-    })
-  }
-
-  const rtAlarmColumns = useMemo(() => buildAlarmColumns(drilldown?.rt_alarm_list || []), [drilldown?.rt_alarm_list])
-  const hisAlarmColumns = useMemo(() => buildAlarmColumns(drilldown?.his_alarm_list || []), [drilldown?.his_alarm_list])
-
   const labelStyle = { color: WH.textMuted, fontSize: 13, fontWeight: 500 }
 
   return (
@@ -603,6 +311,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 style={{ width: 200 }}
                 allowClear
                 placeholder={t('gis.allRegions')}
+                aria-label={t('gis.regionFilter')}
                 options={regions.map(r => ({ value: r, label: `${r} (${regionStats[r] || 0})` }))}
               />
               <Tag color="cyan">{t('gis.totalSites')}: {sites.length}</Tag>
@@ -632,6 +341,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 <Tag
                   key={lo.key}
                   color={activeLayers.has(lo.key) ? lo.color : undefined}
+                  role="switch"
+                  aria-checked={activeLayers.has(lo.key)}
+                  aria-label={lo.label}
                   style={{
                     cursor: 'pointer',
                     opacity: activeLayers.has(lo.key) ? 1 : 0.4,
@@ -687,6 +399,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               <span
                 key={item.key}
                 onClick={() => toggleLegend(item.key)}
+                role="switch"
+                aria-checked={!hiddenLegends.has(item.key)}
+                aria-label={`${item.label} (${item.count})`}
                 style={{
                   cursor: 'pointer',
                   opacity: hidden ? 0.35 : 1,
@@ -899,149 +614,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         )}
       </Card>
 
-      <Drawer
-        title={
-          <span style={{ color: WH.text }}>
-            {t('gis.drilldown.title')} - {drilldown?.site_info?.site_name || selectedSite}
-            {drilldown?.site_info?.vip_site === 'Yes' && <Tag color="purple" style={{ marginLeft: 8 }}>VIP</Tag>}
-          </span>
-        }
-        styles={{
-          wrapper: { width: 720 },
-          body: { background: WH.bg },
-          header: { background: '#0a1929', borderBottom: '1px solid rgba(100,255,218,0.15)' },
-        }}
+      <SiteDrilldownDrawer
         open={drawerVisible}
         onClose={() => setDrawerVisible(false)}
-      >
-        {drilldownLoading ? (
-          <Spin style={{ display: 'block', margin: '50px auto' }} />
-        ) : drilldown ? (
-          <div>
-            <Card size="small" title={<span style={{ color: WH.text }}>{t('gis.drilldown.basicInfo')}</span>} style={{ ...cardStyle, marginBottom: 16 }}>
-              <Descriptions column={2} size="small">
-                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteId')}</span>}>
-                  <span style={{ color: WH.text }}>{drilldown.site_info.site_id}</span>
-                </Descriptions.Item>
-                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteName')}</span>}>
-                  <span style={{ color: WH.text }}>{drilldown.site_info.site_name}</span>
-                </Descriptions.Item>
-                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.region')}</span>}>
-                  <span style={{ color: WH.text }}>{drilldown.site_info.region}</span>
-                </Descriptions.Item>
-                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.province')}</span>}>
-                  <span style={{ color: WH.text }}>{drilldown.site_info.province_county}</span>
-                </Descriptions.Item>
-                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.networkType')}</span>}>
-                  <span style={{ color: WH.text }}>{drilldown.site_info.network_type}</span>
-                </Descriptions.Item>
-                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteType')}</span>}>
-                  <span style={{ color: WH.text }}>{drilldown.site_info.site_type}</span>
-                </Descriptions.Item>
-                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.vipSite')}</span>}>
-                  {drilldown.site_info.vip_site === 'Yes' || drilldown.site_info.vip_site === 'Y'
-                    ? <Tag color="purple">{t('common.yes')}</Tag>
-                    : <Tag>{t('common.no')}</Tag>}
-                </Descriptions.Item>
-                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteCategory')}</span>}>
-                  <span style={{ color: WH.text }}>{drilldown.site_info.site_class || '-'}</span>
-                </Descriptions.Item>
-                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.coords')}</span>}>
-                  <span style={{ color: WH.text }}>{drilldown.site_info.latitude?.toFixed(4)}, {drilldown.site_info.longitude?.toFixed(4)}</span>
-                </Descriptions.Item>
-                <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.powerSource')}</span>}>
-                  <span style={{ color: WH.text }}>{drilldown.site_info.power_sources}</span>
-                </Descriptions.Item>
-              </Descriptions>
-            </Card>
-
-            <Row gutter={8} style={{ marginBottom: 16 }}>
-              <Col span={6}>
-                <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.totalTT')}</span>} value={drilldown.tt_count} valueStyle={{ color: WH.teal, fontWeight: 700 }} /></Card>
-              </Col>
-              <Col span={6}>
-                <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.totalWO')}</span>} value={drilldown.wo_count} valueStyle={{ color: WH.blue, fontWeight: 700 }} /></Card>
-              </Col>
-              <Col span={6}>
-                <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.rtAlarm')}</span>} value={drilldown.rt_alarm_count} valueStyle={{ color: drilldown.rt_alarm_count > 0 ? '#ff6b6b' : WH.text, fontWeight: 700 }} /></Card>
-              </Col>
-              <Col span={6}>
-                <Card size="small" style={cardStyle}>
-                  <Statistic
-                    title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.slaAchievement')}</span>}
-                    value={
-                      drilldown.sla_stats.total_tt > 0
-                        ? Math.round((drilldown.sla_stats.sla_met || 0) / drilldown.sla_stats.total_tt * 100)
-                        : 0
-                    }
-                    suffix="%"
-                    valueStyle={{ color: WH.teal, fontWeight: 700 }}
-                  />
-                </Card>
-              </Col>
-            </Row>
-
-            <Tabs
-              items={[
-                {
-                  key: 'rt_alarm',
-                  label: <span style={{ color: WH.text }}><ThunderboltOutlined style={{ color: '#ff6b6b' }} /> {t('gis.drilldown.rtAlarmTab')} ({drilldown.rt_alarm_count})</span>,
-                  children: (
-                    <>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <Input prefix={<SearchOutlined />} placeholder={t('table.searchPlaceholder')} allowClear size="small" style={{ width: 250 }} value={rtAlarmSearch} onChange={e => setRtAlarmSearch(e.target.value)} />
-                        <Button type="primary" size="small" icon={<DownloadOutlined />} onClick={() => exportToExcel(filteredRtAlarm, `RT_Alarm_${drilldown.site_info?.site_name || selectedSite}`, rtAlarmColumns)}>{t('gis.exportRT')}</Button>
-                      </div>
-                      <Table dataSource={filteredRtAlarm} columns={rtAlarmColumns} size="small" rowKey={(r: any, i?: number) => `rt-${r.alarmraisedtime}-${i}`} pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }} scroll={{ x: 'max-content' }} />
-                    </>
-                  ),
-                },
-                ...(mode === 'all' ? [{
-                  key: 'his_alarm',
-                  label: <span style={{ color: WH.text }}><AlertOutlined style={{ color: '#ffa94d' }} /> {t('gis.drilldown.hisAlarmTab')} ({drilldown.his_alarm_count})</span>,
-                  children: (
-                    <>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <Input prefix={<SearchOutlined />} placeholder={t('table.searchPlaceholder')} allowClear size="small" style={{ width: 250 }} value={hisAlarmSearch} onChange={e => setHisAlarmSearch(e.target.value)} />
-                        <Button type="primary" size="small" icon={<DownloadOutlined />} onClick={() => exportToExcel(filteredHisAlarm, `His_Alarm_${drilldown.site_info?.site_name || selectedSite}`, hisAlarmColumns)}>{t('gis.exportHIS')}</Button>
-                      </div>
-                      <Table dataSource={filteredHisAlarm} columns={hisAlarmColumns} size="small" rowKey={(r: any, i?: number) => `his-${r.alarmraisedtime}-${i}`} pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }} scroll={{ x: 'max-content' }} />
-                    </>
-                  ),
-                }] : []),
-                {
-                  key: 'tt',
-                  label: <span style={{ color: WH.text }}>{t('gis.drilldown.ttTab')} ({drilldown.tt_count})</span>,
-                  children: (
-                    <>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <Input prefix={<SearchOutlined />} placeholder={t('table.searchPlaceholder')} allowClear size="small" style={{ width: 250 }} value={ttSearch} onChange={e => setTtSearch(e.target.value)} />
-                        <Button type="primary" size="small" icon={<DownloadOutlined />} onClick={() => exportToExcel(filteredTT, `TT_${drilldown.site_info?.site_name || selectedSite}`, ttColumns)}>{t('gis.exportTT')}</Button>
-                      </div>
-                      <Table dataSource={filteredTT} columns={ttColumns} size="small" rowKey={(r: any, i?: number) => `${r.title}-${i}`} pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }} scroll={{ x: 'max-content' }} />
-                    </>
-                  ),
-                },
-                {
-                  key: 'wo',
-                  label: <span style={{ color: WH.text }}>{t('gis.drilldown.woTab')} ({drilldown.wo_count})</span>,
-                  children: (
-                    <>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <Input prefix={<SearchOutlined />} placeholder={t('table.searchPlaceholder')} allowClear size="small" style={{ width: 250 }} value={woSearch} onChange={e => setWoSearch(e.target.value)} />
-                        <Button type="primary" size="small" icon={<DownloadOutlined />} onClick={() => exportToExcel(filteredWO, `WO_${drilldown.site_info?.site_name || selectedSite}`, woColumns)}>{t('gis.exportWO')}</Button>
-                      </div>
-                      <Table dataSource={filteredWO} columns={woColumns} size="small" rowKey={(r: any, i?: number) => `${r.wo_no}-${i}`} pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `${t} items` }} scroll={{ x: 'max-content' }} />
-                    </>
-                  ),
-                },
-              ]}
-            />
-          </div>
-        ) : (
-          <div style={{ color: WH.textMuted }}>{t('gis.drilldown.loadError')}</div>
-        )}
-      </Drawer>
+        loading={drilldownLoading}
+        drilldown={drilldown}
+        selectedSite={selectedSite}
+        mode={mode}
+      />
     </div>
   )
 }

@@ -1,4 +1,5 @@
 """分析归档 API"""
+import logging
 import json
 import sqlite3
 from datetime import datetime
@@ -30,61 +31,61 @@ class AnalysisUpdate(BaseModel):
 @router.post("")
 def create_analysis(req: AnalysisCreate):
     """创建分析任务，自动生成图表配置和结论并归档"""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
+    with get_raw_connection(str(DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
 
-    # 检查表是否存在
-    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-    if req.table_name not in tables:
-        conn.close()
-        raise HTTPException(status_code=404, detail=f"表 {req.table_name} 不存在")
+        # 检查表是否存在
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        if req.table_name not in tables:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"表 {req.table_name} 不存在")
 
-    # 读取数据生成分析
-    df = pd.read_sql_query(f'SELECT * FROM "{req.table_name}" LIMIT 10000', conn)
+        # 读取数据生成分析
+        df = pd.read_sql_query(f'SELECT * FROM "{req.table_name}" LIMIT 10000', conn)
 
-    profile = DataProfiler.profile_table(df)
-    auto_conclusions = DataProfiler.generate_conclusions(profile)
+        profile = DataProfiler.profile_table(df)
+        auto_conclusions = DataProfiler.generate_conclusions(profile)
 
-    # 自动生成图表配置
-    chart_config = _generate_chart_config(df, profile, req.table_name)
+        # 自动生成图表配置
+        chart_config = _generate_chart_config(df, profile, req.table_name)
 
-    # 合并用户结论和自动结论
-    all_conclusions = (req.conclusions or []) + auto_conclusions
+        # 合并用户结论和自动结论
+        all_conclusions = (req.conclusions or []) + auto_conclusions
 
-    # 快照数据：关键统计
-    snapshot = {
-        "profile_summary": {
-            "total_rows": profile["total_rows"],
-            "total_cols": profile["total_cols"],
-            "quality_score": profile["quality_score"],
-            "issue_count": len(profile["issues_summary"]),
-        },
-        "top_issues": profile["issues_summary"][:20],
-        "column_types": {c["name"]: c["type_category"] for c in profile["columns"]},
-    }
+        # 快照数据：关键统计
+        snapshot = {
+            "profile_summary": {
+                "total_rows": profile["total_rows"],
+                "total_cols": profile["total_cols"],
+                "quality_score": profile["quality_score"],
+                "issue_count": len(profile["issues_summary"]),
+            },
+            "top_issues": profile["issues_summary"][:20],
+            "column_types": {c["name"]: c["type_category"] for c in profile["columns"]},
+        }
 
-    cursor = conn.execute("""
+        cursor = conn.execute("""
         INSERT INTO analysis_archive (name, description, table_name, chart_config, conclusions, snapshot_data)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (
-        req.name,
-        req.description,
-        req.table_name,
-        json.dumps(chart_config, ensure_ascii=False),
-        json.dumps(all_conclusions, ensure_ascii=False),
-        json.dumps(snapshot, ensure_ascii=False),
-    ))
-    conn.commit()
-    analysis_id = cursor.lastrowid
-    conn.close()
+        """, (
+            req.name,
+            req.description,
+            req.table_name,
+            json.dumps(chart_config, ensure_ascii=False),
+            json.dumps(all_conclusions, ensure_ascii=False),
+            json.dumps(snapshot, ensure_ascii=False),
+        ))
+        conn.commit()
+        analysis_id = cursor.lastrowid
+        conn.close()
 
-    return {
-        "id": analysis_id,
-        "name": req.name,
-        "table_name": req.table_name,
-        "chart_config": chart_config,
-        "conclusions": all_conclusions,
-    }
+        return {
+            "id": analysis_id,
+            "name": req.name,
+            "table_name": req.table_name,
+            "chart_config": chart_config,
+            "conclusions": all_conclusions,
+        }
 
 
 @router.get("")
@@ -95,75 +96,76 @@ def list_analyses(
     page_size: int = Query(20, ge=1, le=100),
 ):
     """查询历史分析列表（归档检索）"""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
+    with get_raw_connection(str(DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
 
-    where_parts = []
-    params = []
+        where_parts = []
+        params = []
 
-    if search:
-        where_parts.append("(name LIKE ? OR description LIKE ? OR conclusions LIKE ?)")
-        params.extend([f'%{search}%', f'%{search}%', f'%{search}%'])
+        if search:
+            where_parts.append("(name LIKE ? OR description LIKE ? OR conclusions LIKE ?)")
+            params.extend([f'%{search}%', f'%{search}%', f'%{search}%'])
 
-    if table_name:
-        where_parts.append("table_name = ?")
-        params.append(table_name)
+        if table_name:
+            where_parts.append("table_name = ?")
+            params.append(table_name)
 
-    where_clause = " WHERE " + " AND ".join(where_parts) if where_parts else ""
-    offset = (page - 1) * page_size
+        where_clause = " WHERE " + " AND ".join(where_parts) if where_parts else ""
+        offset = (page - 1) * page_size
 
-    total = conn.execute(f"SELECT COUNT(*) FROM analysis_archive{where_clause}", params).fetchone()[0]
-    rows = conn.execute(
-        f"SELECT id, name, description, table_name, created_at, updated_at FROM analysis_archive{where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?",
-        params + [page_size, offset]
-    ).fetchall()
+        total = conn.execute(f"SELECT COUNT(*) FROM analysis_archive{where_clause}", params).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT id, name, description, table_name, created_at, updated_at FROM analysis_archive{where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            params + [page_size, offset]
+        ).fetchall()
 
-    conn.close()
+        conn.close()
 
-    return {
-        "analyses": [dict(r) for r in rows],
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-    }
+        return {
+            "analyses": [dict(r) for r in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
 
 @router.get("/{analysis_id}")
 def get_analysis(analysis_id: int):
     """获取单个分析详情"""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
+    with get_raw_connection(str(DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
 
-    row = conn.execute("SELECT * FROM analysis_archive WHERE id = ?", (analysis_id,)).fetchone()
-    if not row:
+        row = conn.execute("SELECT * FROM analysis_archive WHERE id = ?", (analysis_id,)).fetchone()
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="分析记录不存在")
+
+        result = dict(row)
+        # 解析JSON字段
+        for field in ['chart_config', 'conclusions', 'snapshot_data']:
+            if result.get(field):
+                try:
+                    result[field] = json.loads(result[field])
+                except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_analysis: exception swallowed", exc_info=True)
+                    pass
+
         conn.close()
-        raise HTTPException(status_code=404, detail="分析记录不存在")
-
-    result = dict(row)
-    # 解析JSON字段
-    for field in ['chart_config', 'conclusions', 'snapshot_data']:
-        if result.get(field):
-            try:
-                result[field] = json.loads(result[field])
-            except:
-                pass
-
-    conn.close()
-    return result
+        return result
 
 
 @router.delete("/{analysis_id}")
 def delete_analysis(analysis_id: int):
     """删除分析记录"""
-    conn = sqlite3.connect(str(DB_PATH))
-    cursor = conn.execute("DELETE FROM analysis_archive WHERE id = ?", (analysis_id,))
-    conn.commit()
-    conn.close()
+    with get_raw_connection(str(DB_PATH)) as conn:
+        cursor = conn.execute("DELETE FROM analysis_archive WHERE id = ?", (analysis_id,))
+        conn.commit()
+        conn.close()
 
-    if cursor.rowcount == 0:
-        raise HTTPException(status_code=404, detail="分析记录不存在")
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="分析记录不存在")
 
-    return {"deleted": True, "id": analysis_id}
+        return {"deleted": True, "id": analysis_id}
 
 
 def _generate_chart_config(df: pd.DataFrame, profile: dict, table_name: str) -> dict:
@@ -221,7 +223,8 @@ def _generate_chart_config(df: pd.DataFrame, profile: dict, table_name: str) -> 
                         "x_column": time_col["name"],
                         "data": [{"date": str(k), "count": int(v)} for k, v in daily.tail(60).items()],
                     })
-            except:
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _generate_chart_config: exception swallowed", exc_info=True)
                 pass
 
     # 4. 质量分数雷达图
@@ -262,7 +265,8 @@ def _generate_chart_config(df: pd.DataFrame, profile: dict, table_name: str) -> 
                         "y_labels": [str(y) for y in y_cats],
                         "data": heatmap_data,
                     })
-                except:
+                except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] _generate_chart_config: exception swallowed", exc_info=True)
                     pass
 
     # 6. 状态vs分类 热力图
@@ -291,7 +295,8 @@ def _generate_chart_config(df: pd.DataFrame, profile: dict, table_name: str) -> 
                         "y_labels": [str(y) for y in y2],
                         "data": hm2,
                     })
-                except:
+                except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] _generate_chart_config: exception swallowed", exc_info=True)
                     pass
 
     return {

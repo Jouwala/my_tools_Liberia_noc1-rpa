@@ -6,6 +6,7 @@ import time
 import sqlite3
 import pandas as pd
 from pathlib import Path
+from backend.database import get_raw_connection
 
 # 配置
 DB_DIR = Path(__file__).resolve().parent.parent.parent / "db"
@@ -188,63 +189,63 @@ def main():
     DB_DIR.mkdir(parents=True, exist_ok=True)
 
     # 连接数据库
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    with get_raw_connection(str(DB_PATH)) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
 
-    # 优先尝试 eFlow API 数据源
-    try_api = True  # 默认尝试 API
+        # 优先尝试 eFlow API 数据源
+        try_api = True  # 默认尝试 API
 
-    if try_api:
-        print("\n>>> 尝试 eFlow API 直接获取数据初始化 <<<")
-        try:
-            api_success = init_from_eflow_api(conn)
-        except Exception as e:
-            print(f"\n>>> API 初始化异常: {e}，回退到 Excel 文件初始化 <<<")
-            api_success = False
-        if not api_success:
-            print("\n>>> API 失败，回退到 Excel 文件初始化 <<<")
-            # 处理每个Excel文件
-            for filename, table_prefix in FILE_TABLE_MAP.items():
-                excel_path = EXCEL_DIR / filename
-                if not excel_path.exists():
-                    print(f"\n[WARNING] 文件不存在: {excel_path}")
-                    continue
+        if try_api:
+            print("\n>>> 尝试 eFlow API 直接获取数据初始化 <<<")
+            try:
+                api_success = init_from_eflow_api(conn)
+            except Exception as e:
+                print(f"\n>>> API 初始化异常: {e}，回退到 Excel 文件初始化 <<<")
+                api_success = False
+            if not api_success:
+                print("\n>>> API 失败，回退到 Excel 文件初始化 <<<")
+                # 处理每个Excel文件
+                for filename, table_prefix in FILE_TABLE_MAP.items():
+                    excel_path = EXCEL_DIR / filename
+                    if not excel_path.exists():
+                        print(f"\n[WARNING] 文件不存在: {excel_path}")
+                        continue
 
-                if table_prefix is None:
-                    load_excel_to_db(excel_path, "", conn, sheet_map=SHEET_TABLE_MAP)
-                else:
-                    load_excel_to_db(excel_path, table_prefix, conn)
+                    if table_prefix is None:
+                        load_excel_to_db(excel_path, "", conn, sheet_map=SHEET_TABLE_MAP)
+                    else:
+                        load_excel_to_db(excel_path, table_prefix, conn)
 
-    # 创建元数据表 - 记录所有数据表信息
-    cursor = conn.execute("""
+        # 创建元数据表 - 记录所有数据表信息
+        cursor = conn.execute("""
         SELECT name FROM sqlite_master 
         WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '_metadata'
         ORDER BY name
-    """)
-    tables = [row[0] for row in cursor.fetchall()]
+        """)
+        tables = [row[0] for row in cursor.fetchall()]
 
-    metadata_rows = []
-    for table_name in tables:
-        row_count = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
-        col_info = conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
-        col_count = len(col_info)
-        columns = [{"name": c[1], "type": c[2]} for c in col_info]
-        metadata_rows.append({
-            "table_name": table_name,
-            "row_count": row_count,
-            "col_count": col_count,
-            "columns_json": str(columns),
-        })
+        metadata_rows = []
+        for table_name in tables:
+            row_count = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
+            col_info = conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
+            col_count = len(col_info)
+            columns = [{"name": c[1], "type": c[2]} for c in col_info]
+            metadata_rows.append({
+                "table_name": table_name,
+                "row_count": row_count,
+                "col_count": col_count,
+                "columns_json": str(columns),
+            })
 
-    if metadata_rows:
-        meta_df = pd.DataFrame(metadata_rows)
-        meta_df.to_sql('_metadata', conn, if_exists='replace', index=False)
-        print(f"\n{'='*60}")
-        print(f"元数据表 _metadata: {len(metadata_rows)}条记录")
+        if metadata_rows:
+            meta_df = pd.DataFrame(metadata_rows)
+            meta_df.to_sql('_metadata', conn, if_exists='replace', index=False)
+            print(f"\n{'='*60}")
+            print(f"元数据表 _metadata: {len(metadata_rows)}条记录")
 
-    # 创建分析归档表
-    conn.execute("""
+        # 创建分析归档表
+        conn.execute("""
         CREATE TABLE IF NOT EXISTS analysis_archive (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -256,20 +257,20 @@ def main():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """)
-    conn.commit()
+        """)
+        conn.commit()
 
-    # 打印汇总
-    print(f"\n{'='*60}")
-    print("数据库汇总:")
-    print(f"{'='*60}")
-    for table_name in tables:
-        row_count = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
-        print(f"  {table_name}: {row_count} 行")
+        # 打印汇总
+        print(f"\n{'='*60}")
+        print("数据库汇总:")
+        print(f"{'='*60}")
+        for table_name in tables:
+            row_count = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
+            print(f"  {table_name}: {row_count} 行")
 
-    conn.close()
-    elapsed = time.time() - start_time
-    print(f"\n总耗时: {elapsed:.2f}秒")
+        conn.close()
+        elapsed = time.time() - start_time
+        print(f"\n总耗时: {elapsed:.2f}秒")
 
 
 if __name__ == "__main__":

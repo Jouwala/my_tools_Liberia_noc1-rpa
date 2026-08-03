@@ -69,13 +69,18 @@ import warnings
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-# ---- 强制 stdout/stderr 使用 UTF-8 ----
+# ---- 强制 stdout/stderr 使用 UTF-8（兼容 IDLE/PyCharm 等无 reconfigure/buffer 的环境）----
 try:
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
     sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
 except Exception:
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
+    try:
+        if hasattr(sys.stdout, "buffer"):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+        if hasattr(sys.stderr, "buffer"):
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
+    except Exception:
+        pass
 
 # ---- 抑制 urllib3 InsecureRequestWarning（仅当关闭 SSL 校验时）----
 import urllib3
@@ -210,6 +215,9 @@ def _wrap_plain_to_html(body: str) -> str:
 # 核心：登录 + 发送邮件
 # =====================================================================
 EWS_VERSION = Version(build=EXCHANGE_2016, api_version="Exchange2016")
+# 缩短 EWS SOAP/连接超时（默认 120s → 60s）：Protocol 是缓存工厂，不能
+# 直接 Protocol(timeout=60) 构造（会 KeyError: 'config'），只能改类属性。
+Protocol.TIMEOUT = OWA_SOAP_TIMEOUT
 
 
 def get_account(
@@ -230,7 +238,6 @@ def get_account(
         auth_type=_AUTH_MAP[auth_type],
         version=EWS_VERSION,
         max_connections=OWA_MAX_CONNECTIONS,
-        protocol=Protocol(timeout=OWA_SOAP_TIMEOUT),
         # Retries transient EWS throttling / server-busy failures only. Do not
         # add an application-level retry around send_mail(), which could send
         # the same email twice if the server accepted it before a timeout.
@@ -509,8 +516,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     except Exception as e:
         print(f"[LOGIN][FAIL] {type(e).__name__}: {e}")
         return 2
-    inbox_count = account.inbox.total_count
-    print(f"[LOGIN][OK] 登录成功，收件箱邮件数: {inbox_count}")
+    try:
+        inbox_count = account.inbox.total_count
+        print(f"[LOGIN][OK] 登录成功，收件箱邮件数: {inbox_count}")
+    except Exception as e:
+        # 收件箱计数只是诊断信息，GetFolder 偶发超时不应阻断发送
+        print(f"[LOGIN][OK] 登录成功（收件箱计数跳过: {type(e).__name__}: {e}）")
 
     print("[SEND] 准备发送邮件...")
     print(f"       To : {to}")

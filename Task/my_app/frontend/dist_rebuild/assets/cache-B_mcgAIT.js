@@ -1,1 +1,0 @@
-var e=new Map;function t(t,n,r=3e4){let i=e.get(t);return i&&Date.now()-i.ts<r?Promise.resolve({data:i.data}):n().then(n=>(e.set(t,{ts:Date.now(),data:n.data}),n))}function n(t){if(!t){e.clear();return}for(let n of Array.from(e.keys()))n.startsWith(t)&&e.delete(n)}export{n,t};

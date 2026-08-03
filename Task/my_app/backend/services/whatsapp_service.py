@@ -149,6 +149,7 @@ def _find_first(page, key):
             if loc.count() > 0 and loc.first.is_visible():
                 return loc.first
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _find_first: exception swallowed", exc_info=True)
             pass
     return None
 
@@ -172,6 +173,7 @@ def _kill_stale_chrome(user_data_dir: str | None = None):
             creationflags=_SUBPROCESS_FLAGS,
         )
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _kill_stale_chrome: exception swallowed", exc_info=True)
         pass
     time.sleep(0.8)
     _info("已清理占用 session 的 chrome 进程（如有）")
@@ -188,9 +190,11 @@ def _is_logged_in(page) -> bool:
                     if loc.first.is_visible(timeout=1500):
                         return True
                 except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] _is_logged_in: exception swallowed", exc_info=True)
                     pass
                 return True
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _is_logged_in: exception swallowed", exc_info=True)
             pass
     return False
 
@@ -201,6 +205,7 @@ def _is_qr_screen(page) -> bool:
         loc = page.locator("div[data-testid='intro-wrapper'], canvas[aria-label*='Scan'], [data-testid='qr-code']")
         return loc.count() > 0 and loc.first.is_visible(timeout=2000)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _is_qr_screen: exception swallowed", exc_info=True)
         return False
 
 
@@ -215,6 +220,7 @@ def _click_reconnect_if_needed(page):
             reconnect.first.click(timeout=3000)
             _info("检测到连接断开，已自动点击重连")
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _click_reconnect_if_needed: exception swallowed", exc_info=True)
         pass
 
 
@@ -246,6 +252,7 @@ def _find_attach_button(page):
             if loc.count() > 0 and loc.first.is_visible(timeout=1500):
                 return loc.first
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _find_attach_button: exception swallowed", exc_info=True)
             continue
     return None
 
@@ -272,6 +279,7 @@ def _send_one_photo_via_input(page, photo_path: str, caption: str) -> bool:
                     target = el
                     break
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _send_one_photo_via_input: exception swallowed", exc_info=True)
                 continue
         if target is None:
             target = inputs.last
@@ -287,6 +295,7 @@ def _send_one_photo_via_input(page, photo_path: str, caption: str) -> bool:
                 timeout=10000,
             )
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _send_one_photo_via_input: exception swallowed", exc_info=True)
             pass
 
         caption_box = _find_first(page, "CAPTION_INPUT")
@@ -296,6 +305,7 @@ def _send_one_photo_via_input(page, photo_path: str, caption: str) -> bool:
                 caption_box.fill("")
                 caption_box.type(caption, delay=20)
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _send_one_photo_via_input: exception swallowed", exc_info=True)
                 page.keyboard.type(caption)
         else:
             page.keyboard.type(caption)
@@ -309,6 +319,7 @@ def _send_one_photo_via_input(page, photo_path: str, caption: str) -> bool:
             page.keyboard.press("Escape")
             page.wait_for_timeout(300)
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _send_one_photo_via_input: exception swallowed", exc_info=True)
             pass
         return False
 
@@ -369,6 +380,7 @@ def _fast_send_file(page, file_path):
             try:
                 page.keyboard.press("Escape")
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _fast_send_file: exception swallowed", exc_info=True)
                 pass
 
     if not sent:
@@ -427,6 +439,7 @@ def run_whatsapp_send() -> dict:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] run_whatsapp_send: exception swallowed", exc_info=True)
         result["errors"].append("缺少 playwright 依赖，请运行: pip install playwright && playwright install chromium")
         return result
 
@@ -479,6 +492,7 @@ def run_whatsapp_send() -> dict:
             try:
                 page.reload(wait_until="domcontentloaded", timeout=60000)
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] run_whatsapp_send: exception swallowed", exc_info=True)
                 pass
 
         if not logged_in:
@@ -537,6 +551,7 @@ if __name__ == "__main__":
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:whatsapp_service>: exception swallowed", exc_info=True)
         pass
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
 

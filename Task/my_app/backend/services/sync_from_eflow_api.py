@@ -11,6 +11,7 @@ import logging
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+from backend.database import get_raw_connection
 
 logger = logging.getLogger("eflow_sync")
 
@@ -285,9 +286,11 @@ def _convert_ms_timestamps(df: pd.DataFrame, ms_columns: list) -> pd.DataFrame:
                         ts = float(val) / 1000
                         return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
                     except (ValueError, TypeError, OSError):
+                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] ms_to_str: exception swallowed", exc_info=True)
                         return str(val) if pd.notna(val) else None
                 df[col] = df[col].apply(ms_to_str)
         except (ValueError, TypeError):
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _convert_ms_timestamps: exception swallowed", exc_info=True)
             pass
     return df
 
@@ -507,10 +510,12 @@ def sync_from_eflow_api(mode: str = "delta") -> dict:
         try:
             from backend.services.eflow_api_client import fetch_all_data
         except ImportError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] sync_from_eflow_api: exception swallowed", exc_info=True)
             from services.eflow_api_client import fetch_all_data
         try:
             from backend.services.eflow_api_client import EFLOW_FULL_DAYS
         except ImportError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] sync_from_eflow_api: exception swallowed", exc_info=True)
             from services.eflow_api_client import EFLOW_FULL_DAYS
         # delta: 最近 EFLOW_DELTA_DAYS 天; full: 0=全量(2026-01-01) 或 N 天
         days_back = EFLOW_FULL_DAYS if mode == "full" else None
@@ -523,130 +528,135 @@ def sync_from_eflow_api(mode: str = "delta") -> dict:
             return result
 
         # 连接目标数据库
-        dst_conn = sqlite3.connect(str(DB_PATH))
-        dst_conn.execute("PRAGMA journal_mode=WAL")
-        dst_conn.execute("PRAGMA synchronous=NORMAL")
+        with get_raw_connection(str(DB_PATH)) as dst_conn:
+            dst_conn.execute("PRAGMA journal_mode=WAL")
+            dst_conn.execute("PRAGMA synchronous=NORMAL")
 
-        # 同步任务映射: (API key, 目标表名, 同步函数)
-        # 告警由独立任务 eflow_active_alarm / eflow_history_alarm 负责，不在此处同步
-        sync_tasks = [
-            ("eFlow TT", "eflow_tt", _sync_tt),
-            ("eFlow WO", "eflow_wo", _sync_wo),
-            ("eFlow CR", "eflow_cr", lambda df, c: _sync_generic(df, c, "eflow_cr")),
-            ("eFlow PM", "eflow_pm", lambda df, c: _sync_generic(df, c, "eflow_pm")),
-            ("Site", "eflow_site", _sync_site),
-            ("Person", "person", lambda df, c: _sync_generic(df, c, "person")),
-        ]
+            # 同步任务映射: (API key, 目标表名, 同步函数)
+            # 告警由独立任务 eflow_active_alarm / eflow_history_alarm 负责，不在此处同步
+            sync_tasks = [
+                ("eFlow TT", "eflow_tt", _sync_tt),
+                ("eFlow WO", "eflow_wo", _sync_wo),
+                ("eFlow CR", "eflow_cr", lambda df, c: _sync_generic(df, c, "eflow_cr")),
+                ("eFlow PM", "eflow_pm", lambda df, c: _sync_generic(df, c, "eflow_pm")),
+                ("Site", "eflow_site", _sync_site),
+                ("Person", "person", lambda df, c: _sync_generic(df, c, "person")),
+            ]
 
-        for api_key, table_name, sync_func in sync_tasks:
-            if api_key not in all_data:
-                logger.info(f"跳过 {table_name}: API 未返回数据")
-                continue
-            try:
-                df = pd.DataFrame(all_data[api_key])
-                # 处理 list/dict 类型列
-                object_cols = df.select_dtypes(include=["object", "str"]).columns
-                import json
-                for col in object_cols:
-                    if df[col].apply(lambda x: isinstance(x, (list, dict))).any():
-                        df[col] = df[col].apply(lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (list, dict)) else x)
+            for api_key, table_name, sync_func in sync_tasks:
+                if api_key not in all_data:
+                    logger.info(f"跳过 {table_name}: API 未返回数据")
+                    continue
+                try:
+                    df = pd.DataFrame(all_data[api_key])
+                    # 处理 list/dict 类型列
+                    object_cols = df.select_dtypes(include=["object", "str"]).columns
+                    import json
+                    for col in object_cols:
+                        if df[col].apply(lambda x: isinstance(x, (list, dict))).any():
+                            df[col] = df[col].apply(lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (list, dict)) else x)
 
-                row_count = sync_func(df, dst_conn)
-                result["tables_synced"][table_name] = row_count
-            except Exception as e:
-                err_msg = f"{table_name} 同步失败: {e}"
-                logger.error(err_msg)
-                result["errors"].append(err_msg)
+                    row_count = sync_func(df, dst_conn)
+                    result["tables_synced"][table_name] = row_count
+                except Exception as e:
+                    err_msg = f"{table_name} 同步失败: {e}"
+                    logger.error(err_msg)
+                    result["errors"].append(err_msg)
 
-        # 清理旧表
-        _cleanup_old_tables(dst_conn)
+            # 清理旧表
+            _cleanup_old_tables(dst_conn)
 
-        # 更新 _metadata 表
-        _update_metadata(dst_conn)
+            # 更新 _metadata 表
+            _update_metadata(dst_conn)
 
-        dst_conn.close()
-        result["success"] = len(result["errors"]) == 0
+            dst_conn.close()
+            result["success"] = len(result["errors"]) == 0
 
-        # 报告数据源：delta 模式快照不完整，从本地累计库读取完整工单/站点数据
-        if mode == "full":
-            report_data = all_data
-        else:
-            try:
-                from backend.services.eflow_api_client import load_report_data_from_db
-            except ImportError:
-                from services.eflow_api_client import load_report_data_from_db
-            report_data = load_report_data_from_db()
-            if not report_data.get("eFlow TT"):
-                logger.warning("本地累计库无 eFlow TT 数据，报告回退到本次抓取快照")
+            # 报告数据源：delta 模式快照不完整，从本地累计库读取完整工单/站点数据
+            if mode == "full":
                 report_data = all_data
-
-        # 生成 Excel 报告（不上传 eflow_*.xlsx 到 FTP，仅本地保存）
-        try:
-            try:
-                from backend.services.eflow_api_client import generate_excel_report
-            except ImportError:
-                from services.eflow_api_client import generate_excel_report
-            report_result = generate_excel_report(data=report_data, save_excel=False, upload_ftp=False)
-            if report_result.get("excel_path"):
-                logger.info(f"Excel 报告已生成: {report_result['excel_path']}")
-            result["excel_path"] = report_result.get("excel_path")
-        except Exception as e:
-            logger.warning(f"Excel 报告生成失败: {e}")
-            result["excel_upload_error"] = str(e)
-
-        # 生成小时报告与图片（复用 mail_126.py 的方法）
-        try:
-            try:
-                from backend.services.eflow_api_client import generate_hourly_report_with_images
-            except ImportError:
-                from services.eflow_api_client import generate_hourly_report_with_images
-            hourly_result = generate_hourly_report_with_images(report_data)
-            if hourly_result.get("success"):
-                logger.info(f"小时报告与图片已生成")
-                if hourly_result.get("hourly_file"):
-                    logger.info(f"  Hourly Report: {hourly_result['hourly_file']}")
-                if hourly_result.get("eight_hour_file"):
-                    logger.info(f"  8 Hours Report: {hourly_result['eight_hour_file']}")
-                if hourly_result.get("summary_file"):
-                    logger.info(f"  Summary Report: {hourly_result['summary_file']}")
-                for p in hourly_result.get("image_paths", []):
-                    logger.info(f"  图片: {p}")
             else:
-                logger.warning(f"小时报告生成未完成: {hourly_result.get('error', '未知错误')}")
-        except Exception as e:
-            logger.warning(f"小时报告生成失败: {e}")
+                try:
+                    from backend.services.eflow_api_client import load_report_data_from_db
+                except ImportError:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] sync_from_eflow_api: exception swallowed", exc_info=True)
+                    from services.eflow_api_client import load_report_data_from_db
+                report_data = load_report_data_from_db()
+                if not report_data.get("eFlow TT"):
+                    logger.warning("本地累计库无 eFlow TT 数据，报告回退到本次抓取快照")
+                    report_data = all_data
 
-        # 上传 tt_reports 到 FTP（删除远端旧文件，只保留最新一份）
-        try:
+            # 生成 Excel 报告（不上传 eflow_*.xlsx 到 FTP，仅本地保存）
             try:
-                from backend.services.eflow_api_client import upload_tt_reports_to_ftp
-            except ImportError:
-                from services.eflow_api_client import upload_tt_reports_to_ftp
-            ftp_ok = upload_tt_reports_to_ftp()
-            result["ftp_upload"] = ftp_ok
-            if ftp_ok:
-                logger.info("tt_reports 已上传到 FTP（远端旧文件已清理）")
-            else:
-                logger.warning("tt_reports FTP 上传失败或部分失败")
-        except Exception as e:
-            logger.warning(f"tt_reports FTP 上传异常: {e}")
-            result["ftp_upload"] = False
+                try:
+                    from backend.services.eflow_api_client import generate_excel_report
+                except ImportError:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] sync_from_eflow_api: exception swallowed", exc_info=True)
+                    from services.eflow_api_client import generate_excel_report
+                report_result = generate_excel_report(data=report_data, save_excel=False, upload_ftp=False)
+                if report_result.get("excel_path"):
+                    logger.info(f"Excel 报告已生成: {report_result['excel_path']}")
+                result["excel_path"] = report_result.get("excel_path")
+            except Exception as e:
+                logger.warning(f"Excel 报告生成失败: {e}")
+                result["excel_upload_error"] = str(e)
 
-        # 通过 API 将 TT/WO 数据写入远程 DB Main
-        try:
+            # 生成小时报告与图片（复用 mail_126.py 的方法）
             try:
-                from backend.services.eflow_api_client import generate_and_upload_fb_excel
-            except ImportError:
-                from services.eflow_api_client import generate_and_upload_fb_excel
-            fb_result = generate_and_upload_fb_excel(all_data)
-            result["fb_excel_upload"] = fb_result.get("upload_success", False)
-            if fb_result.get("upload_success"):
-                logger.info("Eflow_TT_FB/WO_FB 已通过 API 写入远程 DB Main")
-            else:
-                logger.warning("Eflow_TT_FB/WO_FB API 写入未完成")
-        except Exception as e:
-            logger.warning(f"FB API写入异常: {e}")
-            result["fb_excel_upload"] = False
+                try:
+                    from backend.services.eflow_api_client import generate_hourly_report_with_images
+                except ImportError:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] sync_from_eflow_api: exception swallowed", exc_info=True)
+                    from services.eflow_api_client import generate_hourly_report_with_images
+                hourly_result = generate_hourly_report_with_images(report_data)
+                if hourly_result.get("success"):
+                    logger.info(f"小时报告与图片已生成")
+                    if hourly_result.get("hourly_file"):
+                        logger.info(f"  Hourly Report: {hourly_result['hourly_file']}")
+                    if hourly_result.get("eight_hour_file"):
+                        logger.info(f"  8 Hours Report: {hourly_result['eight_hour_file']}")
+                    if hourly_result.get("summary_file"):
+                        logger.info(f"  Summary Report: {hourly_result['summary_file']}")
+                    for p in hourly_result.get("image_paths", []):
+                        logger.info(f"  图片: {p}")
+                else:
+                    logger.warning(f"小时报告生成未完成: {hourly_result.get('error', '未知错误')}")
+            except Exception as e:
+                logger.warning(f"小时报告生成失败: {e}")
+
+            # 上传 tt_reports 到 FTP（删除远端旧文件，只保留最新一份）
+            try:
+                try:
+                    from backend.services.eflow_api_client import upload_tt_reports_to_ftp
+                except ImportError:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] sync_from_eflow_api: exception swallowed", exc_info=True)
+                    from services.eflow_api_client import upload_tt_reports_to_ftp
+                ftp_ok = upload_tt_reports_to_ftp()
+                result["ftp_upload"] = ftp_ok
+                if ftp_ok:
+                    logger.info("tt_reports 已上传到 FTP（远端旧文件已清理）")
+                else:
+                    logger.warning("tt_reports FTP 上传失败或部分失败")
+            except Exception as e:
+                logger.warning(f"tt_reports FTP 上传异常: {e}")
+                result["ftp_upload"] = False
+
+            # 通过 API 将 TT/WO 数据写入远程 DB Main
+            try:
+                try:
+                    from backend.services.eflow_api_client import generate_and_upload_fb_excel
+                except ImportError:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] sync_from_eflow_api: exception swallowed", exc_info=True)
+                    from services.eflow_api_client import generate_and_upload_fb_excel
+                fb_result = generate_and_upload_fb_excel(all_data)
+                result["fb_excel_upload"] = fb_result.get("upload_success", False)
+                if fb_result.get("upload_success"):
+                    logger.info("Eflow_TT_FB/WO_FB 已通过 API 写入远程 DB Main")
+                else:
+                    logger.warning("Eflow_TT_FB/WO_FB API 写入未完成")
+            except Exception as e:
+                logger.warning(f"FB API写入异常: {e}")
+                result["fb_excel_upload"] = False
 
     except Exception as e:
         err_msg = f"同步异常: {e}"
@@ -711,6 +721,7 @@ if __name__ == "__main__":
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:sync_from_eflow_api>: exception swallowed", exc_info=True)
         pass
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')

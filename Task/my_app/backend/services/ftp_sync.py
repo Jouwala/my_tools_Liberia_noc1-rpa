@@ -70,10 +70,12 @@ def find_latest_files_on_ftp(ftp: ftplib.FTP) -> dict:
                             mdtm = datetime.min
                     except Exception:
                         # 如果MDTM不可用，使用文件大小作为备选
+                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] walk_dir: exception swallowed", exc_info=True)
                         try:
                             size = ftp.size(full_path)
                             mdtm = datetime(2000, 1, 1)  # fallback
                         except Exception:
+                            logging.getLogger(__name__).warning("[SILENT-EXCEPT] walk_dir: exception swallowed", exc_info=True)
                             continue
 
                     if TT_PATTERNS.search(name):

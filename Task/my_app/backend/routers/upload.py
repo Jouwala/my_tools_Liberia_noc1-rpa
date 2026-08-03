@@ -1,4 +1,5 @@
 """文件上传 API"""
+import logging
 import os
 import re
 import uuid
@@ -7,10 +8,11 @@ import time
 import pandas as pd
 import sqlite3
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Depends
 
 from backend.database import get_raw_connection, DB_PATH
 from backend.services.profiler import DataProfiler
+from backend.security import require_protected
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
@@ -31,7 +33,7 @@ def clean_column_name(col: str) -> str:
     return col or 'unnamed'
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_protected)])
 async def upload_excel(file: UploadFile = File(...)):
     """上传Excel文件，自动建表入库，返回字段识别和质量问题"""
     if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
@@ -39,9 +41,14 @@ async def upload_excel(file: UploadFile = File(...)):
 
     start_time = time.time()
 
-    # 保存文件
-    safe_name = f"{uuid.uuid4().hex[:8]}_{file.filename}"
-    file_path = UPLOAD_DIR / safe_name
+    # 保存文件（防御路径穿越：剥离文件名中的目录分隔符/空字符，强制落在 UPLOAD_DIR 内）
+    raw_name = file.filename or "upload.xlsx"
+    _base = re.sub(r'[\/\\]', '_', raw_name).split('\x00')[0]
+    _base = re.sub(r'[^\w.\-]', '_', _base) or "upload.xlsx"
+    safe_name = f"{uuid.uuid4().hex[:8]}_{_base}"
+    file_path = (UPLOAD_DIR / safe_name).resolve()
+    if not str(file_path).startswith(str(UPLOAD_DIR.resolve()) + os.sep):
+        raise HTTPException(status_code=400, detail="非法文件名")
     with open(file_path, "wb") as f:
         content = await file.read()
         f.write(content)
@@ -57,92 +64,93 @@ async def upload_excel(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"文件解析失败: {str(e)}")
 
-    conn = sqlite3.connect(str(DB_PATH))
-    results = []
+    with get_raw_connection(str(DB_PATH)) as conn:
+        results = []
 
-    for sheet_name, df in xls_sheets.items():
-        if df.empty:
-            continue
+        for sheet_name, df in xls_sheets.items():
+            if df.empty:
+                continue
 
-        # 清洗列名
-        df.columns = [clean_column_name(c) for c in df.columns]
+            # 清洗列名
+            df.columns = [clean_column_name(c) for c in df.columns]
 
-        # 处理重复列名
-        seen = {}
-        new_cols = []
-        for c in df.columns:
-            if c in seen:
-                seen[c] += 1
-                new_cols.append(f"{c}_{seen[c]}")
-            else:
-                seen[c] = 0
-                new_cols.append(c)
-        df.columns = new_cols
+            # 处理重复列名
+            seen = {}
+            new_cols = []
+            for c in df.columns:
+                if c in seen:
+                    seen[c] += 1
+                    new_cols.append(f"{c}_{seen[c]}")
+                else:
+                    seen[c] = 0
+                    new_cols.append(c)
+            df.columns = new_cols
 
-        # 删除全空列
-        df = df.dropna(axis=1, how='all')
+            # 删除全空列
+            df = df.dropna(axis=1, how='all')
 
-        # 生成表名
-        table_name = clean_column_name(Path(file.filename).stem)
-        if len(xls_sheets) > 1:
-            table_name = f"{table_name}_{clean_column_name(sheet_name)}"
+            # 生成表名：隔离在 upload_ 命名空间并加 uuid，避免覆盖系统表（如 master_site_db）
+            table_name = f"upload_{uuid.uuid4().hex[:8]}_{clean_column_name(Path(raw_name).stem) or 'tbl'}"
+            if len(xls_sheets) > 1:
+                table_name = f"{table_name}_{clean_column_name(sheet_name)}"
 
-        # 写入数据库
-        df.to_sql(table_name, conn, if_exists='replace', index=False, chunksize=5000)
+            # 写入数据库
+            df.to_sql(table_name, conn, if_exists='replace', index=False, chunksize=5000)
 
-        # 建立索引
-        for idx_col in ['site_id', 'region_level1', 'region', 'status', 'created_time']:
-            if idx_col in df.columns:
-                conn.execute(f'CREATE INDEX IF NOT EXISTS idx_{table_name}_{idx_col} ON "{table_name}"({idx_col})')
+            # 建立索引
+            for idx_col in ['site_id', 'region_level1', 'region', 'status', 'created_time']:
+                if idx_col in df.columns:
+                    conn.execute(f'CREATE INDEX IF NOT EXISTS idx_{table_name}_{idx_col} ON "{table_name}"({idx_col})')
 
-        conn.commit()
+            conn.commit()
 
-        # 数据质量分析
-        profile = DataProfiler.profile_table(df)
-        conclusions = DataProfiler.generate_conclusions(profile)
+            # 数据质量分析
+            profile = DataProfiler.profile_table(df)
+            conclusions = DataProfiler.generate_conclusions(profile)
 
-        # 记录上传信息
-        conn.execute("""
+            # 记录上传信息
+            conn.execute("""
             INSERT INTO uploaded_files (filename, original_name, table_name, row_count, col_count, columns_info, quality_issues, uploaded_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        """, (safe_name, file.filename, table_name, len(df), len(df.columns),
-              json.dumps([{"name": c["name"], "type": c["dtype"], "type_category": c["type_category"]} for c in profile["columns"]], ensure_ascii=False),
-              json.dumps(profile["issues_summary"], ensure_ascii=False)))
-        conn.commit()
+            """, (safe_name, file.filename, table_name, len(df), len(df.columns),
+                  json.dumps([{"name": c["name"], "type": c["dtype"], "type_category": c["type_category"]} for c in profile["columns"]], ensure_ascii=False),
+                  json.dumps(profile["issues_summary"], ensure_ascii=False)))
+            conn.commit()
 
-        results.append({
-            "sheet_name": sheet_name,
-            "table_name": table_name,
-            "row_count": len(df),
-            "col_count": len(df.columns),
-            "profile_summary": {
-                "quality_score": profile["quality_score"],
-                "issue_count": len(profile["issues_summary"]),
-                "issues": profile["issues_summary"][:10],
-            },
-            "conclusions": conclusions,
-        })
+            results.append({
+                "sheet_name": sheet_name,
+                "table_name": table_name,
+                "row_count": len(df),
+                "col_count": len(df.columns),
+                "profile_summary": {
+                    "quality_score": profile["quality_score"],
+                    "issue_count": len(profile["issues_summary"]),
+                    "issues": profile["issues_summary"][:10],
+                },
+                "conclusions": conclusions,
+            })
 
-    conn.close()
-    elapsed = time.time() - start_time
+        conn.close()
+        elapsed = time.time() - start_time
 
-    return {
-        "filename": file.filename,
-        "tables": results,
-        "elapsed_seconds": round(elapsed, 2),
-    }
+        return {
+            "filename": file.filename,
+            "tables": results,
+            "elapsed_seconds": round(elapsed, 2),
+        }
 
 
 @router.get("/history")
 def get_upload_history():
     """获取上传历史"""
-    conn = get_raw_connection()
-    try:
-        cursor = conn.execute("SELECT * FROM uploaded_files ORDER BY uploaded_at DESC LIMIT 50")
-        columns = [desc[0] for desc in cursor.description]
-        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
-        return {"uploads": rows}
-    except:
-        return {"uploads": []}
-    finally:
-        conn.close()
+    with get_raw_connection() as conn:
+        try:
+            cursor = conn.execute("SELECT * FROM uploaded_files ORDER BY uploaded_at DESC LIMIT 50")
+            columns = [desc[0] for desc in cursor.description]
+            rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            return {"uploads": rows}
+        except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_upload_history: exception swallowed", exc_info=True)
+            return {"uploads": []}
+        finally:
+            conn.close()

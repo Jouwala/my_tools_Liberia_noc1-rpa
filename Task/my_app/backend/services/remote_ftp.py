@@ -46,29 +46,31 @@ def _connect(remote_path: str) -> ftplib.FTP:
 
 def read_text(remote_path: str) -> str:
     """读取远程文本文件内容（UTF-8，解码失败用 replace）。"""
-    ftp = _connect(remote_path)
-    try:
-        buf = bytearray()
-        ftp.retrbinary(f"RETR {remote_path}", lambda b: buf.extend(b))
-        return bytes(buf).decode("utf-8", "replace")
-    finally:
+    with _connect(remote_path) as ftp:
         try:
-            ftp.quit()
-        except Exception:
-            pass
+            buf = bytearray()
+            ftp.retrbinary(f"RETR {remote_path}", lambda b: buf.extend(b))
+            return bytes(buf).decode("utf-8", "replace")
+        finally:
+            try:
+                ftp.quit()
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] read_text: exception swallowed", exc_info=True)
+                pass
 
 
 def list_names(remote_dir: str) -> List[str]:
     """列出 remote_dir 下的文件名（basename）。"""
     base = remote_dir.rstrip("/")
-    ftp = _connect(base)
-    try:
-        return [n.split("/")[-1] for n in ftp.nlst(base)]
-    finally:
+    with _connect(base) as ftp:
         try:
-            ftp.quit()
-        except Exception:
-            pass
+            return [n.split("/")[-1] for n in ftp.nlst(base)]
+        finally:
+            try:
+                ftp.quit()
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] list_names: exception swallowed", exc_info=True)
+                pass
 
 
 def download_filtered(
@@ -84,54 +86,59 @@ def download_filtered(
     local_dir = Path(local_dir)
     local_dir.mkdir(parents=True, exist_ok=True)
 
-    ftp = _connect(base)
-    try:
+    with _connect(base) as ftp:
         try:
-            names = ftp.nlst(base)
-        except Exception:
-            return []
-        out: List[Path] = []
-        for full in names:
-            nm = full.split("/")[-1]
-            if nm in (".", ".."):
-                continue
-            item = f"{base}/{nm}"
-            # 目录检测：能 cwd 进去的就是目录，跳过
             try:
-                ftp.cwd(item)
-                ftp.cwd(base)
-                continue
+                names = ftp.nlst(base)
             except Exception:
-                pass
-            if name_filter and name_filter not in nm:
-                continue
-            local = local_dir / nm
-            # 先下载到临时文件，再原子替换到最终路径，扛目标被锁(Permission denied)。
-            # 直接 open(local,'wb') 会在目标被其他进程独占时立刻报 [Errno 13]。
-            tmp = local.with_suffix(local.suffix + f".{os.getpid()}.tmp")
-            try:
-                with open(tmp, "wb") as f:
-                    ftp.retrbinary(f"RETR {item}", f.write)
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] download_filtered: exception swallowed", exc_info=True)
+                return []
+            out: List[Path] = []
+            for full in names:
+                nm = full.split("/")[-1]
+                if nm in (".", ".."):
+                    continue
+                item = f"{base}/{nm}"
+                # 目录检测：能 cwd 进去的就是目录，跳过
                 try:
-                    from .atomic_write import atomic_replace_file
-                except ImportError:
-                    from atomic_write import atomic_replace_file
-                atomic_replace_file(str(tmp), str(local))
-            except Exception as e:
-                try:
-                    if os.path.exists(str(tmp)):
-                        os.remove(str(tmp))
-                except OSError:
+                    ftp.cwd(item)
+                    ftp.cwd(base)
+                    continue
+                except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] download_filtered: exception swallowed", exc_info=True)
                     pass
-                logger.error("下载失败(已跳过): %s -> %s: %s", item, local, e)
-                continue
-            out.append(local)
-        return out
-    finally:
-        try:
-            ftp.quit()
-        except Exception:
-            pass
+                if name_filter and name_filter not in nm:
+                    continue
+                local = local_dir / nm
+                # 先下载到临时文件，再原子替换到最终路径，扛目标被锁(Permission denied)。
+                # 直接 open(local,'wb') 会在目标被其他进程独占时立刻报 [Errno 13]。
+                tmp = local.with_suffix(local.suffix + f".{os.getpid()}.tmp")
+                try:
+                    with open(tmp, "wb") as f:
+                        ftp.retrbinary(f"RETR {item}", f.write)
+                    try:
+                        from .atomic_write import atomic_replace_file
+                    except ImportError:
+                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] download_filtered: exception swallowed", exc_info=True)
+                        from atomic_write import atomic_replace_file
+                    atomic_replace_file(str(tmp), str(local))
+                except Exception as e:
+                    try:
+                        if os.path.exists(str(tmp)):
+                            os.remove(str(tmp))
+                    except OSError:
+                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] download_filtered: exception swallowed", exc_info=True)
+                        pass
+                    logger.error("下载失败(已跳过): %s -> %s: %s", item, local, e)
+                    continue
+                out.append(local)
+            return out
+        finally:
+            try:
+                ftp.quit()
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] download_filtered: exception swallowed", exc_info=True)
+                pass
 
 
 def parse_addresses(text: str) -> List[str]:

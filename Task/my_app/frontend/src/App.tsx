@@ -12,6 +12,7 @@ import {
   TranslationOutlined,
   SyncOutlined,
   AlertOutlined,
+  DisconnectOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -31,10 +32,11 @@ const WarehouseDashboard = lazy(() => import('./pages/WarehouseDashboard'))
 const Overview = lazy(() => import('./pages/Overview'))
 const TTWODashboard = lazy(() => import('./pages/TTWODashboard'))
 const AlarmDashboard = lazy(() => import('./pages/AlarmDashboard'))
+const PacketLossDashboard = lazy(() => import('./pages/PacketLossDashboard'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'archive' | 'sync' | 'warehouse'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse'
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageKey>('sync')
@@ -47,6 +49,7 @@ function AppContent() {
     { key: 'ttwo', icon: <BarChartOutlined />, label: t('nav.ttwo') },
     { key: 'gis', icon: <GlobalOutlined />, label: t('nav.gis') },
     { key: 'realtime_alarm', icon: <AlertOutlined />, label: t('nav.realtimeAlarm') },
+    { key: 'packet_loss', icon: <DisconnectOutlined />, label: t('nav.packetLoss') },
     { key: 'warehouse', icon: <AppstoreOutlined />, label: t('nav.sp') },
     { key: 'overview', icon: <BarChartOutlined />, label: t('nav.overview') },
     { key: 'tables', icon: <TableOutlined />, label: t('nav.tables') },
@@ -67,6 +70,8 @@ function AppContent() {
         return <GISMap />
       case 'realtime_alarm':
         return <GISMap mode="realtime" />
+      case 'packet_loss':
+        return <PacketLossDashboard />
       case 'warehouse':
         return <WarehouseDashboard />
       case 'overview':

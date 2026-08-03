@@ -45,6 +45,7 @@ def _cleanup(tmp):
         if os.path.exists(str(tmp)):
             os.remove(str(tmp))
     except OSError:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _cleanup: exception swallowed", exc_info=True)
         pass
 
 
@@ -73,6 +74,7 @@ def find_lock_owners(final):
             if owners:
                 return owners
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] find_lock_owners: exception swallowed", exc_info=True)
         pass
     return []
 
@@ -89,6 +91,7 @@ def _diagnose_lock(final):
         if writable:
             ctypes.windll.kernel32.CloseHandle(handle)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _diagnose_lock: exception swallowed", exc_info=True)
         writable = None
 
     owners = find_lock_owners(final)
@@ -146,6 +149,7 @@ def _atomic_replace(tmp, final, max_retries, base_wait):
                     os.rename(str(tmp), str(final))
                     return True
                 except _RETRYABLE as e2:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] _atomic_replace: exception swallowed", exc_info=True)
                     last_err = e2
             if attempt < max_retries:
                 time.sleep(base_wait)
@@ -168,6 +172,7 @@ def _atomic_replace(tmp, final, max_retries, base_wait):
             _cleanup(tmp)
             return True
         except _RETRYABLE:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _atomic_replace: exception swallowed", exc_info=True)
             time.sleep(base_wait)
 
     # 重试耗尽：诊断 + fallback
@@ -201,6 +206,7 @@ def cleanup_stale_tmp_files(directory, pattern="*.tmp.xlsx"):
             cleaned += 1
             logger.info("清理残留临时文件: %s", os.path.basename(fpath))
         except OSError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] cleanup_stale_tmp_files: exception swallowed", exc_info=True)
             pass
     return cleaned
 

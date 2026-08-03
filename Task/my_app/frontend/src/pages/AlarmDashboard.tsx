@@ -29,7 +29,7 @@ const WH = {
   text: '#e6f4ff',
   textMuted: '#94a3b8',
   textDim: '#64748b',
-  sev: { Critical: '#ff4757', Major: '#ff922b', Warning: '#ffd43b', Info: '#4fc3f7' },
+  sev: { Critical: '#ff4757', Major: '#ff922b', Warning: '#ffd43b', Info: '#4fc3f7' } as Record<string, string>,
   accentGrad: 'linear-gradient(135deg, #64ffda, #4fc3f7)',
 }
 const WH_COLORS = ['#64ffda', '#4fc3f7', '#7986cb', '#ffd43b', '#ff6b6b', '#51cf66', '#b197fc', '#ffa94d', '#63e6be', '#5c7cfa']
@@ -537,17 +537,17 @@ export default function AlarmDashboard() {
       <Row gutter={[12, 12]}>
         <Col span={8}>
           <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Technology Distribution</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <ReactECharts option={techPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'tech', value: p.name, title: `Tech = ${p.name}` })) }} />
+            <div role="img" aria-label="Technology Distribution chart"><ReactECharts option={techPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'tech', value: p.name, title: `Tech = ${p.name}` })) }} /></div>
           </Card>
         </Col>
         <Col span={8}>
           <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Severity Distribution</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <ReactECharts option={sevPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'severity', value: p.name, title: `Severity = ${p.name}` })) }} />
+            <div role="img" aria-label="Severity Distribution chart"><ReactECharts option={sevPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'severity', value: p.name, title: `Severity = ${p.name}` })) }} /></div>
           </Card>
         </Col>
         <Col span={8}>
           <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Network Type</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <ReactECharts option={netTypeOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'networktype', value: p.name, title: `Network = ${p.name}` })) }} />
+            <div role="img" aria-label="Network Type chart"><ReactECharts option={netTypeOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'networktype', value: p.name, title: `Network = ${p.name}` })) }} /></div>
           </Card>
         </Col>
       </Row>
@@ -591,12 +591,12 @@ export default function AlarmDashboard() {
       <Row gutter={[12, 12]}>
         <Col span={12}>
           <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Alarm Duration Distribution</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <ReactECharts option={durationOption} style={{ height: CHART_HEIGHT + 30 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'duration', value: String(p.name), title: `Duration = ${p.name}` })) }} />
+            <div role="img" aria-label="Alarm Duration Distribution chart"><ReactECharts option={durationOption} style={{ height: CHART_HEIGHT + 30 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'duration', value: String(p.name), title: `Duration = ${p.name}` })) }} /></div>
           </Card>
         </Col>
         <Col span={12}>
           <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Alarms by Region</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <ReactECharts option={regionOption} style={{ height: CHART_HEIGHT + 30 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'region', value: String(p.name), title: `Region = ${p.name}` })) }} />
+            <div role="img" aria-label="Alarms by Region chart"><ReactECharts option={regionOption} style={{ height: CHART_HEIGHT + 30 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'region', value: String(p.name), title: `Region = ${p.name}` })) }} /></div>
           </Card>
         </Col>
       </Row>
@@ -606,12 +606,12 @@ export default function AlarmDashboard() {
       <Row gutter={[12, 12]}>
         <Col span={14}>
           <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Top Alarm Types</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <ReactECharts option={alarmTypeOption} style={{ height: CHART_HEIGHT + 40 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'alarm_type', value: String(p.name), title: `Alarm Type = ${p.name}` })) }} />
+            <div role="img" aria-label="Top Alarm Types chart"><ReactECharts option={alarmTypeOption} style={{ height: CHART_HEIGHT + 40 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'alarm_type', value: String(p.name), title: `Alarm Type = ${p.name}` })) }} /></div>
           </Card>
         </Col>
         <Col span={5}>
           <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Site Attribute</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <ReactECharts option={siteAttrOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'site_attribute', value: String(p.name), title: `Site Attr = ${p.name}` })) }} />
+            <div role="img" aria-label="Site Attribute chart"><ReactECharts option={siteAttrOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'site_attribute', value: String(p.name), title: `Site Attr = ${p.name}` })) }} /></div>
           </Card>
         </Col>
         <Col span={5}>

@@ -36,16 +36,19 @@ import openpyxl
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill, Font
+from backend.database import get_raw_connection
 
 try:
     from .atomic_write import atomic_save_workbook, AtomicReplaceFallback, cleanup_stale_tmp_files
 except ImportError:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ms_sla_service>: exception swallowed", exc_info=True)
     from atomic_write import atomic_save_workbook, AtomicReplaceFallback, cleanup_stale_tmp_files
 
 try:
     from PIL import Image, ImageDraw, ImageFont
     HAS_PIL = True
 except ImportError:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ms_sla_service>: exception swallowed", exc_info=True)
     HAS_PIL = False
 
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -56,6 +59,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 try:
     from backend.services.db_writer_client import DbWriterClient
 except ImportError:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ms_sla_service>: exception swallowed", exc_info=True)
     from db_writer_client import DbWriterClient
 try:
     _db_writer = DbWriterClient()
@@ -406,6 +410,7 @@ def _safe_open_workbook(filepath, max_retries=3, **kwargs):
         try:
             wb.close()
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _safe_open_workbook: exception swallowed", exc_info=True)
             pass
 
 
@@ -453,80 +458,82 @@ def write_to_db(db_path, table_name, headers, data):
 
     主键：首列（时间）+ _SITE 表的站点/网元标识列，与远程 API 写入的 pk 规则保持一致。
     """
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA synchronous=OFF")
-    cursor.execute("PRAGMA cache_size=-64000")
-    cursor.execute("PRAGMA temp_store=MEMORY")
+    with get_raw_connection(str(db_path)) as conn:
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=OFF")
+        cursor.execute("PRAGMA cache_size=-64000")
+        cursor.execute("PRAGMA temp_store=MEMORY")
 
-    def _q(col):
-        return f'"{col.replace(chr(34), chr(34)+chr(34))}"'
+        def _q(col):
+            return f'"{col.replace(chr(34), chr(34)+chr(34))}"'
 
-    # 建表（幂等，全部 TEXT，不强制 NOT NULL）
-    col_defs = ", ".join(f"{_q(h)} TEXT" for h in headers)
-    cursor.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({col_defs})')
+        # 建表（幂等，全部 TEXT，不强制 NOT NULL）
+        col_defs = ", ".join(f"{_q(h)} TEXT" for h in headers)
+        cursor.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({col_defs})')
 
-    # 补充缺失列
-    exist_cols = {r[1] for r in cursor.execute(f'PRAGMA table_info("{table_name}")').fetchall()}
-    for h in headers:
-        if h not in exist_cols:
-            cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(h)} TEXT')
+        # 补充缺失列
+        exist_cols = {r[1] for r in cursor.execute(f'PRAGMA table_info("{table_name}")').fetchall()}
+        for h in headers:
+            if h not in exist_cols:
+                cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(h)} TEXT')
 
-    # 主键：优先用 _choose_pk_columns（保证唯一，避免 upsert 塌缩）；
-    # 若实在凑不出唯一键，降级为"无唯一索引的普通写入"（不塌缩、仅可能重复）并告警
-    try:
-        pk_cols = _choose_pk_columns(headers, data, table_name)
-    except Exception as pk_err:
-        logger.warning(f"[{table_name}] 无法选出唯一主键({pk_err})，本地写入降级为无唯一索引模式(不塌缩)")
-        pk_cols = None
-
-    # 保证唯一约束存在：先清理历史重复行，再建唯一索引（upsert 才能生效）
-    if pk_cols:
-        pk_q = ", ".join(_q(k) for k in pk_cols)
+        # 主键：优先用 _choose_pk_columns（保证唯一，避免 upsert 塌缩）；
+        # 若实在凑不出唯一键，降级为"无唯一索引的普通写入"（不塌缩、仅可能重复）并告警
         try:
-            cursor.execute(
-                f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
-                f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
-            )
-            # 先删除旧的同名唯一索引，避免主键列变更后 IF NOT EXISTS 跳过导致旧索引残留
-            cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
-            cursor.execute(
-                f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({pk_q})'
-            )
-        except Exception:
-            conn.rollback()
+            pk_cols = _choose_pk_columns(headers, data, table_name)
+        except Exception as pk_err:
+            logger.warning(f"[{table_name}] 无法选出唯一主键({pk_err})，本地写入降级为无唯一索引模式(不塌缩)")
+            pk_cols = None
 
-    quoted_headers = [_q(h) for h in headers]
-    placeholders = ", ".join(["?"] * len(headers))
-    insert_sql = f'INSERT OR REPLACE INTO "{table_name}" ({", ".join(quoted_headers)}) VALUES ({placeholders})'
+        # 保证唯一约束存在：先清理历史重复行，再建唯一索引（upsert 才能生效）
+        if pk_cols:
+            pk_q = ", ".join(_q(k) for k in pk_cols)
+            try:
+                cursor.execute(
+                    f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
+                    f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
+                )
+                # 先删除旧的同名唯一索引，避免主键列变更后 IF NOT EXISTS 跳过导致旧索引残留
+                cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
+                cursor.execute(
+                    f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({pk_q})'
+                )
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] write_to_db: exception swallowed", exc_info=True)
+                conn.rollback()
 
-    row_count = 0
-    batch = []
-    for row in data:
-        if len(row) < len(headers):
-            row.extend([None] * (len(headers) - len(row)))
-        elif len(row) > len(headers):
-            row = row[:len(headers)]
-        str_row = [str(v) if v is not None else None for v in row]
-        batch.append(str_row)
-        row_count += 1
-        if len(batch) >= BATCH_SIZE:
+        quoted_headers = [_q(h) for h in headers]
+        placeholders = ", ".join(["?"] * len(headers))
+        insert_sql = f'INSERT OR REPLACE INTO "{table_name}" ({", ".join(quoted_headers)}) VALUES ({placeholders})'
+
+        row_count = 0
+        batch = []
+        for row in data:
+            if len(row) < len(headers):
+                row.extend([None] * (len(headers) - len(row)))
+            elif len(row) > len(headers):
+                row = row[:len(headers)]
+            str_row = [str(v) if v is not None else None for v in row]
+            batch.append(str_row)
+            row_count += 1
+            if len(batch) >= BATCH_SIZE:
+                cursor.executemany(insert_sql, batch)
+                batch.clear()
+        if batch:
             cursor.executemany(insert_sql, batch)
-            batch.clear()
-    if batch:
-        cursor.executemany(insert_sql, batch)
-    conn.commit()
+        conn.commit()
 
-    if headers:
-        first_col = headers[0].replace('"', '""')
-        try:
-            cursor.execute(f'CREATE INDEX IF NOT EXISTS "idx_{table_name}_{first_col}" ON "{table_name}" ("{first_col}")')
-            conn.commit()
-        except Exception:
-            pass
-    conn.close()
-    return row_count
+        if headers:
+            first_col = headers[0].replace('"', '""')
+            try:
+                cursor.execute(f'CREATE INDEX IF NOT EXISTS "idx_{table_name}_{first_col}" ON "{table_name}" ("{first_col}")')
+                conn.commit()
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] write_to_db: exception swallowed", exc_info=True)
+                pass
+        conn.close()
+        return row_count
 
 
 def _upload_to_ftp(local_path, remote_dir, filename, max_retries=2):
@@ -544,10 +551,12 @@ def _upload_to_ftp(local_path, remote_dir, filename, max_retries=2):
                 try:
                     ftp.cwd(abs_path)
                 except error_perm:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] _upload_to_ftp: exception swallowed", exc_info=True)
                     try:
                         ftp.mkd(abs_path)
                         ftp.cwd(abs_path)
                     except error_perm:
+                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _upload_to_ftp: exception swallowed", exc_info=True)
                         pass
             with open(local_path, "rb") as f:
                 ftp.storbinary(f"STOR {filename}", f)
@@ -559,6 +568,7 @@ def _upload_to_ftp(local_path, remote_dir, filename, max_retries=2):
                 try:
                     ftp.close()
                 except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] _upload_to_ftp: exception swallowed", exc_info=True)
                     pass
     return False
 
@@ -598,6 +608,7 @@ def _close_thread_socket():
         try:
             ssock.close()
         except OSError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _close_thread_socket: exception swallowed", exc_info=True)
             pass
 
 
@@ -621,6 +632,7 @@ def _decode_chunked(data):
         try:
             chunk_size = int(chunk_size_str, 16)
         except ValueError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _decode_chunked: exception swallowed", exc_info=True)
             break
         if chunk_size == 0:
             break
@@ -684,6 +696,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
                 break
             response_data.extend(chunk)
         except socket.timeout:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request: exception swallowed", exc_info=True)
             break
 
         if not header_end_found:
@@ -697,6 +710,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
                         try:
                             content_length = int(line.split(":", 1)[1].strip())
                         except ValueError:
+                            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request: exception swallowed", exc_info=True)
                             pass
                         break
 
@@ -769,6 +783,7 @@ def _ume_login(max_retries=2):
         try:
             from backend.services.auth_manager import get_auth
         except ImportError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _ume_login: exception swallowed", exc_info=True)
             from auth_manager import get_auth
         result = get_auth(UME_HOST, UME_PORT, UME_USERNAME, UME_PASSWORD)
         source = "缓存" if result["from_cache"] else "重新登录"
@@ -818,6 +833,7 @@ def _http_request_with_retry(method, path, headers_extra=None, body=None, max_re
                     continue
             return status, hdrs, raw_hdrs, resp_body
         except Exception as e:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request_with_retry: exception swallowed", exc_info=True)
             last_exception = e
             if attempt < max_retries:
                 time.sleep(2 ** attempt)
@@ -1007,6 +1023,7 @@ def _cleanup_sla_exports():
                         os.remove(fpath)
                         deleted += 1
                     except PermissionError:
+                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _cleanup_sla_exports: exception swallowed", exc_info=True)
                         try:
                             subprocess.run(
                                 ['powershell', '-Command', f'Remove-Item -Path "{fpath}" -Force -ErrorAction Stop'],
@@ -1016,8 +1033,10 @@ def _cleanup_sla_exports():
                             if not os.path.exists(fpath):
                                 deleted += 1
                         except Exception:
+                            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _cleanup_sla_exports: exception swallowed", exc_info=True)
                             pass
                     except Exception:
+                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _cleanup_sla_exports: exception swallowed", exc_info=True)
                         pass
     return deleted
 
@@ -1168,6 +1187,7 @@ def read_nur_daily(ws):
             dt = datetime.strptime(header, "%Y-%m-%d")
             date_cols[col_idx] = dt.strftime("%Y-%m-%d")
         except ValueError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] read_nur_daily: exception swallowed", exc_info=True)
             continue
     metric_map = {
         "Global_NUR_Daily": "NUR_NETWORK",
@@ -1240,6 +1260,7 @@ def read_sla_daily(ws):
                 dt = datetime.strptime(val_str, "%Y-%m-%d")
                 date_cols[col] = dt.strftime("%Y-%m-%d")
             except ValueError:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] read_sla_daily: exception swallowed", exc_info=True)
                 continue
     severity_map = {"Global": "TTR", "P1": "TTR_P1", "P2": "TTR_P2", "P3": "TTR_P3", "P4": "TTR_P4"}
     for row_idx in range(3, ws.max_row + 1):
@@ -1320,6 +1341,7 @@ def get_db_value(conn, table_name, column_name, date_str):
                 return int(f)
             return f
         except (ValueError, TypeError):
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] to_number: exception swallowed", exc_info=True)
             return val
 
     try:
@@ -1334,6 +1356,7 @@ def get_db_value(conn, table_name, column_name, date_str):
         if result:
             return to_number(result[0])
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_db_value: exception swallowed", exc_info=True)
         pass
     return None
 
@@ -1373,6 +1396,7 @@ def get_persite_ratio(conn, table_name, column_name, date_str, op, threshold):
             return None
         return compliant / total if total > 0 else None
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_persite_ratio: exception swallowed", exc_info=True)
         return None
 
 
@@ -1392,6 +1416,7 @@ def read_sla_detail_daily(ws):
                 dt = datetime.strptime(val_str, "%Y-%m-%d")
                 date_cols[col] = dt.strftime("%Y-%m-%d")
             except ValueError:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] read_sla_detail_daily: exception swallowed", exc_info=True)
                 continue
     severity_map = {"Global": "TTR", "P1": "TTR_P1", "P2": "TTR_P2", "P3": "TTR_P3", "P4": "TTR_P4"}
     for row_idx in range(3, ws.max_row + 1):
@@ -1509,6 +1534,7 @@ def update_wo_sla_report(kpi_list_file):
                 date_key = cell_date.strip()[:10]
                 datetime.strptime(date_key, "%Y-%m-%d")
             except ValueError:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] update_wo_sla_report: exception swallowed", exc_info=True)
                 continue
         else:
             continue
@@ -1540,6 +1566,7 @@ def update_wo_sla_report(kpi_list_file):
                 date_key = cell_date.strip()[:10]
                 datetime.strptime(date_key, "%Y-%m-%d")
             except ValueError:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] update_wo_sla_report: exception swallowed", exc_info=True)
                 continue
         else:
             continue
@@ -1579,6 +1606,7 @@ def apply_conditional_formatting(ws, month_row, date_rows):
             try:
                 targets[col] = float(tv)
             except (ValueError, TypeError):
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] apply_conditional_formatting: exception swallowed", exc_info=True)
                 pass
 
     data_rows = [month_row] + date_rows if month_row else date_rows
@@ -1591,6 +1619,7 @@ def apply_conditional_formatting(ws, month_row, date_rows):
             try:
                 v = float(val)
             except (ValueError, TypeError):
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] apply_conditional_formatting: exception swallowed", exc_info=True)
                 continue
             target = targets.get(col)
             if target is None:
@@ -1606,6 +1635,7 @@ def apply_conditional_formatting(ws, month_row, date_rows):
             try:
                 v = float(val)
             except (ValueError, TypeError):
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] apply_conditional_formatting: exception swallowed", exc_info=True)
                 continue
             target = targets.get(col)
             if target is None:
@@ -1621,6 +1651,7 @@ def apply_conditional_formatting(ws, month_row, date_rows):
             try:
                 v = float(val)
             except (ValueError, TypeError):
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] apply_conditional_formatting: exception swallowed", exc_info=True)
                 continue
             target = targets.get(col)
             if target is None:
@@ -1639,6 +1670,7 @@ def apply_conditional_formatting(ws, month_row, date_rows):
             try:
                 v = float(val)
             except (ValueError, TypeError):
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] apply_conditional_formatting: exception swallowed", exc_info=True)
                 continue
             cell.fill = FILL_GREEN if v >= 0.9 else FILL_RED
             cell.font = FONT_WHITE
@@ -1674,6 +1706,7 @@ def apply_wo_sla_formatting(ws):
             try:
                 targets[col] = float(tv)
             except (ValueError, TypeError):
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] apply_wo_sla_formatting: exception swallowed", exc_info=True)
                 targets[col] = 0.98
         else:
             targets[col] = 0.98
@@ -1708,6 +1741,7 @@ def apply_wo_sla_formatting(ws):
             try:
                 v = float(val)
             except (ValueError, TypeError):
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] apply_wo_sla_formatting: exception swallowed", exc_info=True)
                 continue
             target = targets.get(col, 0.98)
             cell.fill = FILL_GREEN if v >= target else FILL_RED
@@ -1804,11 +1838,13 @@ def export_without_sla_tt_details(kpi_list_file, upload_ftp=True):
             try:
                 wb_new.close()
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] export_without_sla_tt_details: exception swallowed", exc_info=True)
                 pass
         if wb_src:
             try:
                 wb_src.close()
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] export_without_sla_tt_details: exception swallowed", exc_info=True)
                 pass
 
     if upload_ftp and output_path:
@@ -1839,6 +1875,7 @@ def cleanup_old_exports(local_dir, today_str, current_month=None):
             try:
                 os.remove(fpath)
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] cleanup_old_exports: exception swallowed", exc_info=True)
                 pass
 
     # FTP 清理
@@ -1855,6 +1892,7 @@ def cleanup_old_exports(local_dir, today_str, current_month=None):
             try:
                 ftp.cwd(current)
             except error_perm:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] cleanup_old_exports: exception swallowed", exc_info=True)
                 ftp.mkd(current)
                 ftp.cwd(current)
         items = []
@@ -1878,6 +1916,7 @@ def cleanup_old_exports(local_dir, today_str, current_month=None):
                             try:
                                 ftp.delete(name)
                             except Exception:
+                                logging.getLogger(__name__).warning("[SILENT-EXCEPT] cleanup_old_exports: exception swallowed", exc_info=True)
                                 pass
                         break
         ftp.quit()
@@ -1887,6 +1926,7 @@ def cleanup_old_exports(local_dir, today_str, current_month=None):
             try:
                 ftp.close()
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] cleanup_old_exports: exception swallowed", exc_info=True)
                 pass
 
 
@@ -1931,6 +1971,7 @@ def get_cell_color_hex(cell):
                 return rgb
         return None
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_cell_color_hex: exception swallowed", exc_info=True)
         return None
 
 
@@ -1949,6 +1990,7 @@ def get_cell_font_info(cell):
         size = font.size if font and font.size else None
         return {"bold": bold, "color": color, "size": size}
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_cell_font_info: exception swallowed", exc_info=True)
         return {"bold": False, "color": None, "size": None}
 
 
@@ -2100,10 +2142,12 @@ def _find_font(size=11):
             try:
                 return ImageFont.truetype(fp, size)
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _find_font: exception swallowed", exc_info=True)
                 continue
     try:
         return ImageFont.truetype("arial", size)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _find_font: exception swallowed", exc_info=True)
         return ImageFont.load_default()
 
 
@@ -2243,6 +2287,7 @@ def upload_files_to_ftp(file_paths):
             try:
                 ftp.cwd(current)
             except error_perm:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] upload_files_to_ftp: exception swallowed", exc_info=True)
                 ftp.mkd(current)
                 ftp.cwd(current)
         uploaded = 0
@@ -2263,6 +2308,7 @@ def upload_files_to_ftp(file_paths):
             try:
                 ftp.close()
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] upload_files_to_ftp: exception swallowed", exc_info=True)
                 pass
         return 0
 
@@ -2291,6 +2337,7 @@ def download_kpi_list_from_ftp(local_path):
                         dt = datetime.strptime(name, "%Y-%m-%d")
                         date_dirs.append((name, dt))
                     except ValueError:
+                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] download_kpi_list_from_ftp: exception swallowed", exc_info=True)
                         continue
         if not date_dirs:
             logger.warning("  未找到日期文件夹")
@@ -2328,6 +2375,7 @@ def download_kpi_list_from_ftp(local_path):
                             if not found_any:
                                 found_any.append(full_path)
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] find_xlsx: exception swallowed", exc_info=True)
                 pass
             return found_any[0] if found_any else None
 
@@ -2350,6 +2398,7 @@ def download_kpi_list_from_ftp(local_path):
             try:
                 ftp.close()
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] download_kpi_list_from_ftp: exception swallowed", exc_info=True)
                 pass
         return False
 
@@ -2401,35 +2450,11 @@ def _seed_kpi_list_file():
 
 
 # ============================================================
-# 入口函数 3: Contract KPIs 报表更新
+# 入口函数 3: Contract KPIs 报表更新（P2#8 拆分：原 203 行 → 单一职责助手 + 编排）
 # ============================================================
 
-def run_contract_kpis_report():
-    """Contract KPIs 报表自动更新主流程"""
-    t_start = time.time()
-    logger.info("Contract KPIs 报表更新开始")
-
-    # 确保模板文件存在
-    _seed_template_files()
-
-    # 检查目标文件和数据库
-    for fpath, fname in [(TARGET_FILE, "目标文件"), (DB_PATH, "数据库")]:
-        if not os.path.exists(str(fpath)):
-            msg = f"{fname}不存在: {fpath}"
-            logger.error(msg)
-            return {"success": False, "error": msg}
-
-    # 0. 从FTP下载最新 KPI List
-    ftp_ok = download_kpi_list_from_ftp(KPI_LIST_FILE)
-    if not ftp_ok:
-        logger.warning("  FTP下载失败，尝试使用本地文件...")
-        _seed_kpi_list_file()
-    if not os.path.exists(str(KPI_LIST_FILE)):
-        msg = f"KPI List 文件不存在: {KPI_LIST_FILE}"
-        logger.error(msg)
-        return {"success": False, "error": msg}
-
-    # 1. 读取 KPI List
+def _load_kpi_list_datasets():
+    """读取 KPI List 工作簿的 4 个 sheet 数据集，返回 dict"""
     logger.info("[1] 读取 KPI List 数据...")
     wb_kpi = load_workbook(str(KPI_LIST_FILE), data_only=True)
     try:
@@ -2454,16 +2479,16 @@ def run_contract_kpis_report():
             logger.info(f"  SLA Monthly: {len(sla_monthly_data)} 月")
     finally:
         wb_kpi.close()
+    return {
+        "nur_daily": nur_daily_data,
+        "nur_monthly": nur_monthly_data,
+        "sla_daily": sla_daily_data,
+        "sla_monthly": sla_monthly_data,
+    }
 
-    # 2. 连接数据库
-    logger.info("[2] 连接数据库...")
-    conn = sqlite3.connect(str(DB_PATH))
 
-    # 3. 更新目标文件
-    logger.info("[3] 更新目标文件...")
-    wb_target = _safe_load_workbook(TARGET_FILE)
-    ws = wb_target[TARGET_SHEET]
-
+def _locate_report_rows(ws):
+    """扫描目标 sheet 第 1 列，定位 Month 行与日期行，返回 (month_row, date_rows)"""
     month_row = None
     date_rows = []
     for row_idx in range(1, ws.max_row + 1):
@@ -2473,18 +2498,11 @@ def run_contract_kpis_report():
                 month_row = row_idx
             elif hasattr(cell_val, 'year'):
                 date_rows.append(row_idx)
+    return month_row, date_rows
 
-    if month_row is None:
-        wb_target.close()
-        conn.close()
-        return {"success": False, "error": "未找到 Month 行"}
 
-    current_month = datetime.now().strftime("%Y-%m")
-    nur_monthly = nur_monthly_data.get(current_month, {})
-    sla_monthly = sla_monthly_data.get(current_month, {})
-    updated_daily = 0
-
-    # 更新 Month 行
+def _update_month_row(ws, month_row, conn, nur_monthly, sla_monthly, current_month):
+    """用月度 NUR/SLA 数据与数据库月度 KPI 更新 Month 行"""
     ws.cell(row=month_row, column=TARGET_COL_NUR_NETWORK).value = nur_monthly.get("NUR_NETWORK")
     ws.cell(row=month_row, column=TARGET_COL_NUR_2G).value = nur_monthly.get("NUR_2G")
     ws.cell(row=month_row, column=TARGET_COL_NUR_3G).value = nur_monthly.get("NUR_3G")
@@ -2505,21 +2523,28 @@ def run_contract_kpis_report():
         if value is not None:
             ws.cell(row=month_row, column=kpi_config["target_col"]).value = value
 
-    # 更新每日数据行
+
+def _row_date_key(cell_date):
+    """将行首单元格值规范化为 YYYY-MM-DD 字符串，无法解析返回 None"""
+    if cell_date is None:
+        return None
+    if isinstance(cell_date, (datetime, date)):
+        return cell_date.strftime("%Y-%m-%d")
+    if isinstance(cell_date, str):
+        try:
+            return datetime.strptime(cell_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+        except ValueError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _row_date_key: exception swallowed", exc_info=True)
+            return None
+    return None
+
+
+def _update_daily_rows(ws, date_rows, conn, nur_daily_data, sla_daily_data):
+    """逐行更新每日数据（NUR/SLA + 数据库日度 KPI），返回更新行数"""
+    updated_daily = 0
     for row_idx in date_rows:
-        cell_date = ws.cell(row=row_idx, column=1).value
-        if cell_date is None:
-            continue
-        if isinstance(cell_date, datetime):
-            date_key = cell_date.strftime("%Y-%m-%d")
-        elif isinstance(cell_date, date):
-            date_key = cell_date.strftime("%Y-%m-%d")
-        elif isinstance(cell_date, str):
-            try:
-                date_key = datetime.strptime(cell_date, "%Y-%m-%d").strftime("%Y-%m-%d")
-            except ValueError:
-                continue
-        else:
+        date_key = _row_date_key(ws.cell(row=row_idx, column=1).value)
+        if date_key is None:
             continue
 
         nur = nur_daily_data.get(date_key, {})
@@ -2548,65 +2573,114 @@ def run_contract_kpis_report():
                 ws.cell(row=row_idx, column=kpi_config["target_col"]).value = value
 
         updated_daily += 1
+    return updated_daily
 
-    clean_sparse_date_rows(ws, month_row, date_rows)
-    apply_conditional_formatting(ws, month_row, date_rows)
-    try:
-        _safe_save_workbook(wb_target, TARGET_FILE)
-    finally:
-        wb_target.close()
-    conn.close()
-    logger.info(f"  Contract KPIs Report 更新: 日度 {updated_daily} 行, 月度 1 行")
 
-    # 4. 更新 WOs SLA achievement Report
-    update_wo_sla_report(str(KPI_LIST_FILE))
-
-    # 4b. 导出 WithoutSLATTDetails
-    export_without_sla_tt_details(str(KPI_LIST_FILE))
-
-    # 5. 导出并上传
-    today_str = datetime.now().strftime("%Y-%m-%d")
+def _export_and_upload_reports(today_str, current_month):
+    """导出 Contract KPIs / WOs SLA 报表（xlsx/html/png）并上传 FTP，返回导出文件数"""
     logger.info("[5] 导出并上传...")
     export_files = []
 
-    kpi_xlsx_name = f"ZTE OLR MS Contract KPIs Achievements Daily Report_{today_str}.xlsx"
-    kpi_xlsx_path = DATA_DIR / kpi_xlsx_name
-    export_sheet_to_xlsx(TARGET_FILE, TARGET_SHEET, kpi_xlsx_path)
-    export_files.append(str(kpi_xlsx_path))
+    # (名称前缀, sheet, 导出格式, png 的 max_col)
+    export_specs = [
+        ("ZTE OLR MS Contract KPIs Achievements Daily Report", TARGET_SHEET, True, TARGET_COL_TTR_P4),
+        ("ZTE OLR MS WOs SLA Achievements Daily Report", WO_SHEET, True, None),
+    ]
+    for name_prefix, sheet, _with_png, png_max_col in export_specs:
+        xlsx_path = DATA_DIR / f"{name_prefix}_{today_str}.xlsx"
+        export_sheet_to_xlsx(TARGET_FILE, sheet, xlsx_path)
+        export_files.append(str(xlsx_path))
 
-    kpi_html_name = f"ZTE OLR MS Contract KPIs Achievements Daily Report_{today_str}.html"
-    kpi_html_path = DATA_DIR / kpi_html_name
-    export_sheet_to_html(TARGET_FILE, TARGET_SHEET, kpi_html_path)
-    export_files.append(str(kpi_html_path))
+        html_path = DATA_DIR / f"{name_prefix}_{today_str}.html"
+        export_sheet_to_html(TARGET_FILE, sheet, html_path)
+        export_files.append(str(html_path))
 
-    kpi_png_name = f"ZTE OLR MS Contract KPIs Achievements Daily Report_{today_str}.png"
-    kpi_png_path = DATA_DIR / kpi_png_name
-    export_sheet_to_png(TARGET_FILE, TARGET_SHEET, kpi_png_path, max_col=TARGET_COL_TTR_P4)
-    if os.path.exists(str(kpi_png_path)):
-        export_files.append(str(kpi_png_path))
-
-    wo_xlsx_name = f"ZTE OLR MS WOs SLA Achievements Daily Report_{today_str}.xlsx"
-    wo_xlsx_path = DATA_DIR / wo_xlsx_name
-    export_sheet_to_xlsx(TARGET_FILE, WO_SHEET, wo_xlsx_path)
-    export_files.append(str(wo_xlsx_path))
-
-    wo_html_name = f"ZTE OLR MS WOs SLA Achievements Daily Report_{today_str}.html"
-    wo_html_path = DATA_DIR / wo_html_name
-    export_sheet_to_html(TARGET_FILE, WO_SHEET, wo_html_path)
-    export_files.append(str(wo_html_path))
-
-    wo_png_name = f"ZTE OLR MS WOs SLA Achievements Daily Report_{today_str}.png"
-    wo_png_path = DATA_DIR / wo_png_name
-    export_sheet_to_png(TARGET_FILE, WO_SHEET, wo_png_path)
-    if os.path.exists(str(wo_png_path)):
-        export_files.append(str(wo_png_path))
+        png_path = DATA_DIR / f"{name_prefix}_{today_str}.png"
+        if png_max_col is not None:
+            export_sheet_to_png(TARGET_FILE, sheet, png_path, max_col=png_max_col)
+        else:
+            export_sheet_to_png(TARGET_FILE, sheet, png_path)
+        if os.path.exists(str(png_path)):
+            export_files.append(str(png_path))
 
     upload_files_to_ftp(export_files)
     cleanup_old_exports(DATA_DIR, today_str, current_month)
+    return len(export_files)
 
-    elapsed = time.time() - t_start
-    logger.info(f"Contract KPIs 报表更新完成: {elapsed:.1f}s")
-    return {"success": True, "daily_rows_updated": updated_daily, "exported_files": len(export_files), "elapsed_seconds": round(elapsed, 2)}
+
+def run_contract_kpis_report():
+    """Contract KPIs 报表自动更新主流程（编排层）"""
+    t_start = time.time()
+    logger.info("Contract KPIs 报表更新开始")
+
+    # 确保模板文件存在
+    _seed_template_files()
+
+    # 检查目标文件和数据库
+    for fpath, fname in [(TARGET_FILE, "目标文件"), (DB_PATH, "数据库")]:
+        if not os.path.exists(str(fpath)):
+            msg = f"{fname}不存在: {fpath}"
+            logger.error(msg)
+            return {"success": False, "error": msg}
+
+    # 0. 从FTP下载最新 KPI List
+    ftp_ok = download_kpi_list_from_ftp(KPI_LIST_FILE)
+    if not ftp_ok:
+        logger.warning("  FTP下载失败，尝试使用本地文件...")
+        _seed_kpi_list_file()
+    if not os.path.exists(str(KPI_LIST_FILE)):
+        msg = f"KPI List 文件不存在: {KPI_LIST_FILE}"
+        logger.error(msg)
+        return {"success": False, "error": msg}
+
+    # 1. 读取 KPI List 数据集
+    datasets = _load_kpi_list_datasets()
+
+    # 2. 连接数据库
+    logger.info("[2] 连接数据库...")
+    with get_raw_connection(str(DB_PATH)) as conn:
+
+        # 3. 更新目标文件
+        logger.info("[3] 更新目标文件...")
+        wb_target = _safe_load_workbook(TARGET_FILE)
+        ws = wb_target[TARGET_SHEET]
+
+        month_row, date_rows = _locate_report_rows(ws)
+        if month_row is None:
+            wb_target.close()
+            conn.close()
+            return {"success": False, "error": "未找到 Month 行"}
+
+        current_month = datetime.now().strftime("%Y-%m")
+        nur_monthly = datasets["nur_monthly"].get(current_month, {})
+        sla_monthly = datasets["sla_monthly"].get(current_month, {})
+
+        # 更新 Month 行与每日数据行
+        _update_month_row(ws, month_row, conn, nur_monthly, sla_monthly, current_month)
+        updated_daily = _update_daily_rows(ws, date_rows, conn, datasets["nur_daily"], datasets["sla_daily"])
+
+        clean_sparse_date_rows(ws, month_row, date_rows)
+        apply_conditional_formatting(ws, month_row, date_rows)
+        try:
+            _safe_save_workbook(wb_target, TARGET_FILE)
+        finally:
+            wb_target.close()
+        conn.close()
+        logger.info(f"  Contract KPIs Report 更新: 日度 {updated_daily} 行, 月度 1 行")
+
+        # 4. 更新 WOs SLA achievement Report
+        update_wo_sla_report(str(KPI_LIST_FILE))
+
+        # 4b. 导出 WithoutSLATTDetails
+        export_without_sla_tt_details(str(KPI_LIST_FILE))
+
+        # 5. 导出并上传
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        exported_count = _export_and_upload_reports(today_str, current_month)
+
+        elapsed = time.time() - t_start
+        logger.info(f"Contract KPIs 报表更新完成: {elapsed:.1f}s")
+        return {"success": True, "daily_rows_updated": updated_daily, "exported_files": exported_count, "elapsed_seconds": round(elapsed, 2)}
 
 
 # ============================================================
@@ -2657,6 +2731,7 @@ if __name__ == "__main__":
         sys.stdout.reconfigure(encoding='utf-8')
         sys.stderr.reconfigure(encoding='utf-8')
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ms_sla_service>: exception swallowed", exc_info=True)
         pass
     total_start = time.time()
     print(f"[MAIN] MS SLA service started at {time.strftime('%Y-%m-%d %H:%M:%S')}")

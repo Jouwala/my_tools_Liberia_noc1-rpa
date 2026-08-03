@@ -97,6 +97,7 @@ def _send_wecom(text: str):
             return True, ""
         return False, str(body)
     except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _send_wecom: exception swallowed", exc_info=True)
         return False, f"{type(e).__name__}: {e}"
 
 
@@ -113,6 +114,7 @@ def _send_serverchan(text: str):
             return True, ""
         return False, str(body)
     except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _send_serverchan: exception swallowed", exc_info=True)
         return False, f"{type(e).__name__}: {e}"
 
 
@@ -130,6 +132,7 @@ def _send_pushplus(text: str):
             return True, ""
         return False, str(body)
     except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _send_pushplus: exception swallowed", exc_info=True)
         return False, f"{type(e).__name__}: {e}"
 
 

@@ -44,6 +44,7 @@ def _detect_selector(page, candidates):
             if locator.count() > 0 and locator.first.is_visible(timeout=500):
                 return selector
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _detect_selector: exception swallowed", exc_info=True)
             continue
     return None
 
@@ -81,6 +82,7 @@ def _zte_login(page):
     try:
         page.locator(username_sel).wait_for(state="visible", timeout=10000)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _zte_login: exception swallowed", exc_info=True)
         pass
 
     logger.info("填写用户名")
@@ -91,6 +93,7 @@ def _zte_login(page):
         try:
             page.locator(password_sel).fill(PASSWORD)
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _zte_login: exception swallowed", exc_info=True)
             page.locator(password_sel).focus(force=True)
             page.keyboard.type(PASSWORD, delay=50)
     else:
@@ -101,9 +104,11 @@ def _zte_login(page):
         try:
             page.locator(login_sel).click()
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _zte_login: exception swallowed", exc_info=True)
             try:
                 page.locator(login_sel).click(force=True)
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _zte_login: exception swallowed", exc_info=True)
                 page.evaluate(f"""() => {{
                     const btn = document.querySelector('{login_sel}');
                     if (btn) btn.click();
@@ -171,6 +176,7 @@ def _wait_for_network_idle(page_or_frame, timeout=10000):
     try:
         page_or_frame.wait_for_load_state("networkidle", timeout=timeout)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _wait_for_network_idle: exception swallowed", exc_info=True)
         pass
 
 
@@ -200,6 +206,7 @@ def _collapse_sidebar(page):
                     page.wait_for_timeout(800)
                     return True
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _collapse_sidebar: exception swallowed", exc_info=True)
             continue
 
     # 方案2: 通过 evaluate 直接隐藏顶层左侧菜单
@@ -230,6 +237,7 @@ def _collapse_sidebar(page):
             page.wait_for_timeout(500)
             return True
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _collapse_sidebar: exception swallowed", exc_info=True)
         pass
 
     return False
@@ -246,6 +254,7 @@ def _wait_for_charts_rendered(frame, timeout=30000):
     try:
         frame.wait_for_selector("text=/Site Down:/i", timeout=min(timeout, 15000))
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _wait_for_charts_rendered: exception swallowed", exc_info=True)
         pass
 
     # 3. SVG/canvas 数量短暂稳定（最多约 3s，不再死等）
@@ -262,6 +271,7 @@ def _wait_for_charts_rendered(frame, timeout=30000):
                 stable_count = 0
             last_svg_count = svg_count
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _wait_for_charts_rendered: exception swallowed", exc_info=True)
             pass
         time.sleep(0.35)
 
@@ -282,11 +292,13 @@ def _wait_for_charts_rendered(frame, timeout=30000):
                             has_data = True
                             break
                     except Exception:
+                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _wait_for_charts_rendered: exception swallowed", exc_info=True)
                         continue
                 if has_data:
                     break
                 time.sleep(0.25)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _wait_for_charts_rendered: exception swallowed", exc_info=True)
         pass
 
     # 5. 极短缓冲（着色动画），替代原来的 2500ms
@@ -298,6 +310,7 @@ def _wait_for_data_refresh(frame, trigger_action, timeout=15000):
     try:
         frame.wait_for_load_state("networkidle", timeout=timeout)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _wait_for_data_refresh: exception swallowed", exc_info=True)
         pass
     # 等待图表真正渲染完成（替代简单的 loading 检测）
     _wait_for_charts_rendered(frame, timeout=timeout)
@@ -354,6 +367,7 @@ def _get_dashboard_frame(page, max_attempts=3):
                     if_elem = iframe.element_handle(timeout=3000)
                     frame = if_elem.content_frame()
                 except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] _get_dashboard_frame: exception swallowed", exc_info=True)
                     frame = None
                 if frame is None:
                     continue
@@ -364,8 +378,10 @@ def _get_dashboard_frame(page, max_attempts=3):
                     if len(body_text.strip()) > 50:
                         return frame
                 except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] _get_dashboard_frame: exception swallowed", exc_info=True)
                     pass
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _get_dashboard_frame: exception swallowed", exc_info=True)
                 continue
         page.wait_for_timeout(1500)
 
@@ -419,6 +435,7 @@ def _navigate_to_dashboard(page):
             frame.wait_for_selector(wait_sel, timeout=15000)
             break
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _navigate_to_dashboard: exception swallowed", exc_info=True)
             continue
 
     return frame
@@ -455,6 +472,7 @@ def _get_dropdown_options(frame):
                 try:
                     frame.wait_for_selector("[role='option'], option, [class*='option'], li", timeout=5000)
                 except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] _get_dropdown_options: exception swallowed", exc_info=True)
                     frame.wait_for_timeout(500)
                 for opt_sel in ["option", "[role='option']", "[class*='option']", "li"]:
                     items = frame.locator(opt_sel)
@@ -465,6 +483,7 @@ def _get_dropdown_options(frame):
                             try:
                                 text = item.inner_text(timeout=2000).strip()
                             except Exception:
+                                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _get_dropdown_options: exception swallowed", exc_info=True)
                                 text = ""
                             if text and text not in [o["text"] for o in options]:
                                 options.append({"value": text, "text": text, "index": i})
@@ -492,6 +511,7 @@ def _get_dropdown_options(frame):
                 timeout=5000
             )
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _get_dropdown_options: exception swallowed", exc_info=True)
             frame.wait_for_timeout(500)
         items = frame.locator(
             ".ant-select-item-option, "
@@ -556,6 +576,7 @@ def _verify_screenshot(screenshot_path: str) -> bool:
             )
             return False
     except ImportError:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _verify_screenshot: exception swallowed", exc_info=True)
         pass
     except Exception as e:
         logger.warning(f"[SiteOutage] 遮挡检测失败（跳过）: {e}")
@@ -569,6 +590,7 @@ def _cleanup_dropdown_state(frame):
         frame.keyboard.press("Escape")
         frame.wait_for_timeout(200)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _cleanup_dropdown_state: exception swallowed", exc_info=True)
         pass
     try:
         body = frame.locator("body").first
@@ -582,11 +604,13 @@ def _cleanup_dropdown_state(frame):
                 )
                 frame.wait_for_timeout(200)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _cleanup_dropdown_state: exception swallowed", exc_info=True)
         pass
     try:
         frame.keyboard.press("Escape")
         frame.wait_for_timeout(150)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _cleanup_dropdown_state: exception swallowed", exc_info=True)
         pass
 
 def _close_popups(frame):
@@ -629,8 +653,10 @@ def _close_popups(frame):
                         frame.wait_for_timeout(300)
                         closed = True
                 except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] _close_popups: exception swallowed", exc_info=True)
                     continue
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _close_popups: exception swallowed", exc_info=True)
             continue
 
     # 方案2: 按 Escape 键关闭通用弹窗
@@ -638,6 +664,7 @@ def _close_popups(frame):
         frame.keyboard.press("Escape")
         frame.wait_for_timeout(300)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _close_popups: exception swallowed", exc_info=True)
         pass
 
     # 方案3: 点击 iframe 中央区域，让悬浮提示消失
@@ -650,6 +677,7 @@ def _close_popups(frame):
                 frame.mouse.click(box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.4)
                 frame.wait_for_timeout(300)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _close_popups: exception swallowed", exc_info=True)
         pass
 
     return closed
@@ -743,6 +771,7 @@ def _enter_dashboard_fullscreen(frame):
     try:
         viewport = frame.evaluate("() => ({w: window.innerWidth, h: window.innerHeight})")
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _enter_dashboard_fullscreen: exception swallowed", exc_info=True)
         pass
 
     # 候选 selector：class / data-icon / svg title 包含全屏语义
@@ -781,6 +810,7 @@ def _enter_dashboard_fullscreen(frame):
                     frame.wait_for_timeout(1500)
                     return True
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _enter_dashboard_fullscreen: exception swallowed", exc_info=True)
             continue
 
     # 方案2: 兜底，找右上角所有可见图标按钮，尝试点击最后一个
@@ -797,6 +827,7 @@ def _enter_dashboard_fullscreen(frame):
                     if _is_top_right(box):
                         candidates.append((box["x"], btn))
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _enter_dashboard_fullscreen: exception swallowed", exc_info=True)
                 continue
         # 按 x 排序，最右边的优先
         candidates.sort(key=lambda x: x[0], reverse=True)
@@ -807,8 +838,10 @@ def _enter_dashboard_fullscreen(frame):
                 frame.wait_for_timeout(1500)
                 return True
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _enter_dashboard_fullscreen: exception swallowed", exc_info=True)
                 continue
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _enter_dashboard_fullscreen: exception swallowed", exc_info=True)
         pass
 
     return False
@@ -820,6 +853,7 @@ def _exit_dashboard_fullscreen(frame):
         frame.keyboard.press("Escape")
         frame.wait_for_timeout(500)
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _exit_dashboard_fullscreen: exception swallowed", exc_info=True)
         pass
 
 
@@ -828,6 +862,7 @@ def _maximize_and_fullscreen(page):
     try:
         page.set_viewport_size({"width": 1920, "height": 1080})
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _maximize_and_fullscreen: exception swallowed", exc_info=True)
         pass
 
 
@@ -907,6 +942,7 @@ def _select_and_screenshot(page, frame, option, screenshot_dir):
                             try:
                                 frame.locator(f"text='{text}'").first.click(timeout=5000)
                             except Exception:
+                                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _do: exception swallowed", exc_info=True)
                                 items = frame.locator("[role='option'], [class*='option'], option, li")
                                 if idx < items.count():
                                     items.nth(idx).click()
@@ -1108,11 +1144,13 @@ def _run_site_outage_once() -> dict:
             try:
                 browser.close()
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _run_site_outage_once: exception swallowed", exc_info=True)
                 pass
         if pw:
             try:
                 pw.stop()
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _run_site_outage_once: exception swallowed", exc_info=True)
                 pass
 
     elapsed = time.time() - start_time
@@ -1178,6 +1216,7 @@ if __name__ == "__main__":
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:site_outage_service>: exception swallowed", exc_info=True)
         pass
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
 

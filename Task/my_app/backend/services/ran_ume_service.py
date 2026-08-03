@@ -24,12 +24,14 @@ from ftplib import FTP, error_perm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from backend.database import get_raw_connection
 
 logger = logging.getLogger("ran_ume_service")
 
 try:
     import openpyxl
 except ImportError:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ran_ume_service>: exception swallowed", exc_info=True)
     openpyxl = None
 
 try:
@@ -39,6 +41,7 @@ try:
     import matplotlib.pyplot as plt
     import numpy as np
 except ImportError:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ran_ume_service>: exception swallowed", exc_info=True)
     pd = None
     plt = None
     np = None
@@ -46,6 +49,7 @@ except ImportError:
 try:
     from .atomic_write import atomic_excel_writer, AtomicReplaceFallback, cleanup_stale_tmp_files
 except ImportError:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ran_ume_service>: exception swallowed", exc_info=True)
     from atomic_write import atomic_excel_writer, AtomicReplaceFallback, cleanup_stale_tmp_files
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
@@ -59,6 +63,7 @@ RAN_UME_DAYS_BACK = int(os.environ.get("RAN_UME_DAYS_BACK", "7"))
 try:
     from backend.services.db_writer_client import DbWriterClient
 except ImportError:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ran_ume_service>: exception swallowed", exc_info=True)
     from db_writer_client import DbWriterClient
 try:
     _db_writer = DbWriterClient()
@@ -196,6 +201,7 @@ def _close_thread_socket():
         try:
             ssock.close()
         except OSError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _close_thread_socket: exception swallowed", exc_info=True)
             pass
 
 
@@ -218,6 +224,7 @@ def _decode_chunked(data):
         try:
             chunk_size = int(chunk_size_str, 16)
         except ValueError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _decode_chunked: exception swallowed", exc_info=True)
             break
         if chunk_size == 0:
             break
@@ -282,6 +289,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
                 break
             response_data.extend(chunk)
         except socket.timeout:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request: exception swallowed", exc_info=True)
             break
 
         if not header_end_found:
@@ -295,6 +303,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
                         try:
                             content_length = int(line.split(":", 1)[1].strip())
                         except ValueError:
+                            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request: exception swallowed", exc_info=True)
                             pass
                         break
 
@@ -364,6 +373,7 @@ def _login(max_retries=2):
         try:
             from backend.services.auth_manager import get_auth
         except ImportError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _login: exception swallowed", exc_info=True)
             from auth_manager import get_auth
         result = get_auth(HOST, PORT, USERNAME, PASSWORD)
         source = "缓存" if result["from_cache"] else "重新登录"
@@ -875,105 +885,107 @@ def run_availability_report() -> dict:
         return result
 
     try:
-        conn = sqlite3.connect(db_path)
-        tables = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall() if r[0] in TECH_MAP]
+        with get_raw_connection(db_path) as conn:
+            tables = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall() if r[0] in TECH_MAP]
 
-        table_dfs = {}
-        for table in tables:
-            table_dfs[table] = pd.read_sql_query(f'SELECT * FROM "{table}"', conn)
-        conn.close()
+            table_dfs = {}
+            for table in tables:
+                table_dfs[table] = pd.read_sql_query(f'SELECT * FROM "{table}"', conn)
+            conn.close()
 
-        if not table_dfs:
-            result["errors"].append("数据库中未找到 OLIB Network KPIs 表")
-            return result
+            if not table_dfs:
+                result["errors"].append("数据库中未找到 OLIB Network KPIs 表")
+                return result
 
-        # Build availability data
-        sheet_rows = {sheet: [] for sheet in TARGET_SHEETS}
-        for table_name, df in table_dfs.items():
-            tech = TECH_MAP[table_name]
-            if "Begin Time" not in df.columns or "Group" not in df.columns:
-                continue
-            avail_col = _find_availability_column(list(df.columns), table_name)
-            if not avail_col:
-                continue
-
-            df = df.copy()
-            df['Begin Time'] = df['Begin Time'].apply(lambda x: str(x).split('T')[0] if x else "")
-            df[avail_col] = pd.to_numeric(df[avail_col], errors='coerce')
-            if not df[avail_col].dropna().empty and df[avail_col].dropna().max() > 1:
-                df[avail_col] = df[avail_col] / 100.0
-
-            for sheet_name, cfg in SHEET_CONFIG.items():
-                if tech not in cfg['tech_groups']:
+            # Build availability data
+            sheet_rows = {sheet: [] for sheet in TARGET_SHEETS}
+            for table_name, df in table_dfs.items():
+                tech = TECH_MAP[table_name]
+                if "Begin Time" not in df.columns or "Group" not in df.columns:
                     continue
-                mask = df['Group'].apply(
-                    lambda x: any(re.search(p, str(x), re.IGNORECASE) for p in cfg['patterns']) if x else False
-                )
-                sub = df[mask].copy()
-                if sub.empty:
+                avail_col = _find_availability_column(list(df.columns), table_name)
+                if not avail_col:
                     continue
-                agg = sub.groupby('Begin Time')[avail_col].mean().reset_index()
-                agg['Cell Group'] = cfg['tech_groups'][tech]
-                agg['Cell Availability'] = agg[avail_col]
-                sheet_rows[sheet_name].append(agg[['Begin Time', 'Cell Group', 'Cell Availability']])
 
-        # Write Excel（原子写：先写临时文件，再 os.replace，重试扛文件锁）
-        output_excel = str(AVAILABILITY_OUTPUT_DIR / "Daily_Aailability_KPI.xlsx")
-        try:
-            with atomic_excel_writer(output_excel) as writer:
-                for sheet_name in TARGET_SHEETS:
-                    frames = sheet_rows.get(sheet_name, [])
-                    if frames:
-                        df = pd.concat(frames, ignore_index=True).sort_values(['Cell Group', 'Begin Time'])
-                    else:
-                        df = pd.DataFrame(columns=['Begin Time', 'Cell Group', 'Cell Availability'])
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-        except AtomicReplaceFallback as fb:
-            logger.warning(f"[Availability] 文件被锁，数据已保存到备用路径: {fb.fallback_path}")
-            result["errors"].append(f"文件被锁，数据已保存到: {fb.fallback_path}")
-            output_excel = fb.fallback_path
-        result["generated_files"].append(output_excel)
+                df = df.copy()
+                df['Begin Time'] = df['Begin Time'].apply(lambda x: str(x).split('T')[0] if x else "")
+                df[avail_col] = pd.to_numeric(df[avail_col], errors='coerce')
+                if not df[avail_col].dropna().empty and df[avail_col].dropna().max() > 1:
+                    df[avail_col] = df[avail_col] / 100.0
 
-        # Generate charts
-        output_dir = str(AVAILABILITY_OUTPUT_DIR)
-        generated_images = []
-        for sheet_name in TARGET_SHEETS:
-            frames = sheet_rows.get(sheet_name, [])
-            if frames:
-                df = pd.concat(frames, ignore_index=True).sort_values(['Cell Group', 'Begin Time'])
-            else:
-                df = pd.DataFrame()
-            img_path = _generate_chart(df, sheet_name, output_dir)
-            if img_path:
-                generated_images.append(img_path)
-                result["generated_files"].append(img_path)
+                for sheet_name, cfg in SHEET_CONFIG.items():
+                    if tech not in cfg['tech_groups']:
+                        continue
+                    mask = df['Group'].apply(
+                        lambda x: any(re.search(p, str(x), re.IGNORECASE) for p in cfg['patterns']) if x else False
+                    )
+                    sub = df[mask].copy()
+                    if sub.empty:
+                        continue
+                    agg = sub.groupby('Begin Time')[avail_col].mean().reset_index()
+                    agg['Cell Group'] = cfg['tech_groups'][tech]
+                    agg['Cell Availability'] = agg[avail_col]
+                    sheet_rows[sheet_name].append(agg[['Begin Time', 'Cell Group', 'Cell Availability']])
 
-        # Upload images to FTP
-        for img_path in generated_images:
+            # Write Excel（原子写：先写临时文件，再 os.replace，重试扛文件锁）
+            output_excel = str(AVAILABILITY_OUTPUT_DIR / "Daily_Aailability_KPI.xlsx")
             try:
-                ftp = FTP()
-                ftp.connect(FTP_HOST, 21, timeout=30)
-                ftp.encoding = "utf-8"
-                ftp.login(FTP_USER, FTP_PASS)
-                parts = FTP_UPLOAD_PATH.strip('/').split('/')
-                current = ''
-                for part in parts:
-                    current += f'/{part}'
-                    try:
-                        ftp.cwd(current)
-                    except error_perm:
-                        ftp.mkd(current)
-                        ftp.cwd(current)
-                fname = os.path.basename(img_path)
-                with open(img_path, 'rb') as f:
-                    ftp.storbinary(f'STOR {fname}', f)
-                ftp.quit()
-            except Exception as e:
-                result["errors"].append(f"FTP upload {os.path.basename(img_path)} failed: {e}")
+                with atomic_excel_writer(output_excel) as writer:
+                    for sheet_name in TARGET_SHEETS:
+                        frames = sheet_rows.get(sheet_name, [])
+                        if frames:
+                            df = pd.concat(frames, ignore_index=True).sort_values(['Cell Group', 'Begin Time'])
+                        else:
+                            df = pd.DataFrame(columns=['Begin Time', 'Cell Group', 'Cell Availability'])
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+            except AtomicReplaceFallback as fb:
+                logger.warning(f"[Availability] 文件被锁，数据已保存到备用路径: {fb.fallback_path}")
+                result["errors"].append(f"文件被锁，数据已保存到: {fb.fallback_path}")
+                output_excel = fb.fallback_path
+            result["generated_files"].append(output_excel)
 
-        result["success"] = len(result["errors"]) == 0
+            # Generate charts
+            output_dir = str(AVAILABILITY_OUTPUT_DIR)
+            generated_images = []
+            for sheet_name in TARGET_SHEETS:
+                frames = sheet_rows.get(sheet_name, [])
+                if frames:
+                    df = pd.concat(frames, ignore_index=True).sort_values(['Cell Group', 'Begin Time'])
+                else:
+                    df = pd.DataFrame()
+                img_path = _generate_chart(df, sheet_name, output_dir)
+                if img_path:
+                    generated_images.append(img_path)
+                    result["generated_files"].append(img_path)
+
+            # Upload images to FTP
+            for img_path in generated_images:
+                try:
+                    ftp = FTP()
+                    ftp.connect(FTP_HOST, 21, timeout=30)
+                    ftp.encoding = "utf-8"
+                    ftp.login(FTP_USER, FTP_PASS)
+                    parts = FTP_UPLOAD_PATH.strip('/').split('/')
+                    current = ''
+                    for part in parts:
+                        current += f'/{part}'
+                        try:
+                            ftp.cwd(current)
+                        except error_perm:
+                            logging.getLogger(__name__).warning("[SILENT-EXCEPT] run_availability_report: exception swallowed", exc_info=True)
+                            ftp.mkd(current)
+                            ftp.cwd(current)
+                    fname = os.path.basename(img_path)
+                    with open(img_path, 'rb') as f:
+                        ftp.storbinary(f'STOR {fname}', f)
+                    ftp.quit()
+                except Exception as e:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] run_availability_report: exception swallowed", exc_info=True)
+                    result["errors"].append(f"FTP upload {os.path.basename(img_path)} failed: {e}")
+
+            result["success"] = len(result["errors"]) == 0
 
     except Exception as e:
         result["errors"].append(str(e))
@@ -1021,6 +1033,7 @@ if __name__ == "__main__":
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ran_ume_service>: exception swallowed", exc_info=True)
         pass
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
 

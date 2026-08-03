@@ -15,7 +15,7 @@
     "isolatedModules": true,
 
     /* Linting */
-    "strict": false,
+    "strict": true,
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"]

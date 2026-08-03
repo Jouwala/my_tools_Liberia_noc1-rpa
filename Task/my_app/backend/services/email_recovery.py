@@ -25,6 +25,7 @@ import subprocess
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from backend.database import get_raw_connection
 
 logger = logging.getLogger("email_recovery")
 
@@ -73,6 +74,7 @@ def _load_state() -> dict:
         if RECOVERY_STATE_FILE.exists():
             return json.loads(RECOVERY_STATE_FILE.read_text(encoding="utf-8"))
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _load_state: exception swallowed", exc_info=True)
         pass
     return {}
 
@@ -165,6 +167,7 @@ def _run_task(orig_task_id: str) -> dict:
             from backend.services.kpi_email_report import run_ran_availability
             return run_ran_availability()
     except Exception as e:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _run_task: exception swallowed", exc_info=True)
         return {"success": False, "error": f"调用失败: {e}"}
     return {"success": False, "error": f"未知任务: {orig_task_id}"}
 
@@ -176,16 +179,16 @@ def recover_failed_emails() -> dict:
 
     try:
         import sqlite3
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
-        since = (datetime.now() - timedelta(hours=WINDOW_HOURS)).isoformat(timespec="seconds")
-        rows = conn.execute(
-            """SELECT id, task_id, started_at, error
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            since = (datetime.now() - timedelta(hours=WINDOW_HOURS)).isoformat(timespec="seconds")
+            rows = conn.execute(
+                """SELECT id, task_id, started_at, error
                FROM task_execution_log
                WHERE task_id IN (%s) AND success=0 AND started_at >= ?
                ORDER BY started_at DESC""" % ",".join("?" * len(EMAIL_TASK_IDS)),
-            list(EMAIL_TASK_IDS) + [since],
-        ).fetchall()
-        conn.close()
+                list(EMAIL_TASK_IDS) + [since],
+            ).fetchall()
+            conn.close()
     except Exception as e:
         logger.error("查询失败邮件记录异常: %s", e)
         return {"recovered": 0, "attempted": 0, "skipped": 0, "reason": f"db_error:{e}"}
@@ -246,15 +249,16 @@ def _already_recovered_since(task_id: str, failed_started_at: str) -> bool:
     """失败后是否已有成功记录（说明正常调度已经补发过）。"""
     try:
         import sqlite3
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
-        n = conn.execute(
-            """SELECT COUNT(*) FROM task_execution_log
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            n = conn.execute(
+                """SELECT COUNT(*) FROM task_execution_log
                WHERE task_id=? AND success=1 AND started_at > ?""",
-            (task_id, failed_started_at),
-        ).fetchone()[0]
-        conn.close()
-        return n > 0
+                (task_id, failed_started_at),
+            ).fetchone()[0]
+            conn.close()
+            return n > 0
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _already_recovered_since: exception swallowed", exc_info=True)
         return False
 
 

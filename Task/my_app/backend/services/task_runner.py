@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Callable, Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from backend.database import get_raw_connection
 
 logger = logging.getLogger("task_runner")
 
@@ -60,8 +61,8 @@ def get_scheduler() -> BackgroundScheduler:
 def _init_schedule_table():
     """初始化调度配置表"""
     try:
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
-        conn.execute("""
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS task_schedule_config (
                 task_id TEXT PRIMARY KEY,
                 cron TEXT NOT NULL,
@@ -69,13 +70,12 @@ def _init_schedule_table():
                 updated_at TEXT NOT NULL
             )
         """)
-        # 兼容旧表：尝试添加 enabled 列（表已存在时不会自动加）
-        try:
-            conn.execute("ALTER TABLE task_schedule_config ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
-        except Exception:
-            pass  # 列已存在，忽略
-        conn.commit()
-        conn.close()
+            # 兼容旧表：仅在 enabled 列不存在时才添加（幂等迁移，避免重复加列抛异常）
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(task_schedule_config)").fetchall()]
+            if "enabled" not in cols:
+                conn.execute("ALTER TABLE task_schedule_config ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+            conn.commit()
+            conn.close()
     except Exception as e:
         logger.warning(f"初始化调度配置表失败: {e}")
 
@@ -83,13 +83,13 @@ def _init_schedule_table():
 def _load_schedule_config(task_id: str) -> tuple:
     """从数据库加载用户自定义的调度配置和启用状态"""
     try:
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
-        row = conn.execute(
-            "SELECT cron, enabled FROM task_schedule_config WHERE task_id = ?",
-            (task_id,)
-        ).fetchone()
-        conn.close()
-        return (row[0], bool(row[1])) if row else (None, None)
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            row = conn.execute(
+                "SELECT cron, enabled FROM task_schedule_config WHERE task_id = ?",
+                (task_id,)
+            ).fetchone()
+            conn.close()
+            return (row[0], bool(row[1])) if row else (None, None)
     except Exception as e:
         logger.warning(f"加载调度配置失败 ({task_id}): {e}")
         return (None, None)
@@ -98,19 +98,19 @@ def _load_schedule_config(task_id: str) -> tuple:
 def _save_schedule_config(task_id: str, cron: str, enabled: bool = None):
     """保存用户自定义的调度配置到数据库"""
     try:
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
-        if enabled is not None:
-            conn.execute("""
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            if enabled is not None:
+                conn.execute("""
                 INSERT OR REPLACE INTO task_schedule_config (task_id, cron, enabled, updated_at)
                 VALUES (?, ?, ?, ?)
             """, (task_id, cron, 1 if enabled else 0, datetime.now().isoformat()))
-        else:
-            conn.execute("""
+            else:
+                conn.execute("""
                 INSERT OR REPLACE INTO task_schedule_config (task_id, cron, enabled, updated_at)
                 VALUES (?, ?, COALESCE((SELECT enabled FROM task_schedule_config WHERE task_id = ?), 1), ?)
             """, (task_id, cron, task_id, datetime.now().isoformat()))
-        conn.commit()
-        conn.close()
+            conn.commit()
+            conn.close()
     except Exception as e:
         logger.warning(f"保存调度配置失败 ({task_id}): {e}")
 
@@ -155,6 +155,7 @@ def _rel(path: str) -> str:
     try:
         return os.path.relpath(path, BACKEND_DIR).replace("\\", "/")
     except ValueError:
+        # 跨盘符路径（如 C: vs D:）无法求相对路径，回退到文件名即可
         return os.path.basename(path)
 
 
@@ -164,7 +165,11 @@ def _module_file(modname: str) -> str | None:
         return None
     try:
         spec = importlib.util.find_spec(modname)
-    except Exception:  # noqa: BLE001 - 相对导入 / 包不存在
+    except ModuleNotFoundError:
+        # 模块不存在是 find_spec 的正常"未找到"契约，无需告警
+        return None
+    except Exception:  # noqa: BLE001 - 其他导入系统异常（命名空间包解析失败等）
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _module_file: exception swallowed", exc_info=True)
         return None
     origin = getattr(spec, "origin", None)
     return origin if origin and origin.endswith(".py") else None
@@ -179,6 +184,7 @@ def _parse_file(path: str):
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             tree = ast.parse(f.read())
     except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _parse_file: exception swallowed", exc_info=True)
         tree = None
     _AST_CACHE[path] = tree
     return tree
@@ -202,6 +208,7 @@ def _locate(func) -> str:
         if srcfile:
             return f"{_rel(srcfile)}:{lineno}"
     except (OSError, TypeError):
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _locate: exception swallowed", exc_info=True)
         pass
     return ""
 
@@ -216,6 +223,7 @@ def _import_map(node) -> dict:
                 for a in n.names:
                     out[a.asname or a.name] = (n.module, a.name)
     except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _import_map: exception swallowed", exc_info=True)
         pass
     return out
 
@@ -319,6 +327,7 @@ def _auto_call_chain(func, _depth=0, _seen=None):
         raw = _calls_in(tree, {self_name})
     except (OSError, TypeError, SyntaxError):
         # 兜底：源码不可得时，用字节码引用的全局名
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _auto_call_chain: exception swallowed", exc_info=True)
         for name in getattr(getattr(func, "__code__", None), "co_names", ()):
             if "." in name:  # 过滤 import from 产生的完整模块路径
                 continue
@@ -354,6 +363,7 @@ def _auto_call_chain(func, _depth=0, _seen=None):
                 for sub in _chain_from_file(sub_mod, sub_name, CALL_CHAIN_DEPTH - _depth - 1):
                     out.append(f"  → {sub}")
         except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _auto_call_chain: exception swallowed", exc_info=True)
             pass
     return out[:15]
 
@@ -608,37 +618,38 @@ def _ensure_task_log_table(conn):
 def _save_task_result(result: dict):
     """将任务执行结果保存到 app.db"""
     try:
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
-        _ensure_task_log_table(conn)
-        conn.execute("""
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_task_log_table(conn)
+            conn.execute("""
             INSERT INTO task_execution_log
             (task_id, task_name, category, trigger_type, success, started_at, completed_at, elapsed_seconds, result_json, error, error_trace)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            result["task_id"],
-            result.get("task_name"),
-            result.get("category"),
-            result.get("trigger"),
-            1 if result["success"] else 0,
-            result.get("started_at"),
-            result.get("completed_at"),
-            result.get("elapsed_seconds"),
-            json.dumps(result.get("result"), ensure_ascii=False, default=str) if result.get("result") else None,
-            result.get("error"),
-            result.get("error_trace"),
-        ))
-        # 清理超过保留期的旧日志（默认 3 天，可用环境变量 TASK_LOG_RETENTION_DAYS 调整）。
-        # 注意：之前此处写死 -1 days（与“3天”注释不符），每日任务的失败记录一天后即被清掉，
-        # 导致隔天查看时已无失败信息。改为可配置，默认 3 天。
-        try:
-            _retention_days = max(1, int(os.environ.get("TASK_LOG_RETENTION_DAYS", "3")))
-        except (TypeError, ValueError):
-            _retention_days = 3
-        conn.execute(
-            f"DELETE FROM task_execution_log WHERE started_at < datetime('now', '-{_retention_days} days')"
-        )
-        conn.commit()
-        conn.close()
+                result["task_id"],
+                result.get("task_name"),
+                result.get("category"),
+                result.get("trigger"),
+                1 if result["success"] else 0,
+                result.get("started_at"),
+                result.get("completed_at"),
+                result.get("elapsed_seconds"),
+                json.dumps(result.get("result"), ensure_ascii=False, default=str) if result.get("result") else None,
+                result.get("error"),
+                result.get("error_trace"),
+            ))
+            # 清理超过保留期的旧日志（默认 3 天，可用环境变量 TASK_LOG_RETENTION_DAYS 调整）。
+            # 注意：之前此处写死 -1 days（与“3天”注释不符），每日任务的失败记录一天后即被清掉，
+            # 导致隔天查看时已无失败信息。改为可配置，默认 3 天。
+            try:
+                _retention_days = max(1, int(os.environ.get("TASK_LOG_RETENTION_DAYS", "3")))
+            except (TypeError, ValueError):
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _save_task_result: exception swallowed", exc_info=True)
+                _retention_days = 3
+            conn.execute(
+                f"DELETE FROM task_execution_log WHERE started_at < datetime('now', '-{_retention_days} days')"
+            )
+            conn.commit()
+            conn.close()
     except Exception as e:
         logger.warning(f"保存任务日志失败: {e}")
 
@@ -720,10 +731,10 @@ def _fetch_latest_runs() -> dict:
     """
     result: dict = {}
     try:
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
-        _ensure_task_log_table(conn)
-        rows = conn.execute(
-            """            SELECT l.task_id, l.task_name, l.category, l.trigger_type, l.success,
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_task_log_table(conn)
+            rows = conn.execute(
+                """            SELECT l.task_id, l.task_name, l.category, l.trigger_type, l.success,
                       l.started_at, l.completed_at, l.elapsed_seconds, l.error, l.error_trace
                FROM task_execution_log l
                INNER JOIN (
@@ -731,15 +742,15 @@ def _fetch_latest_runs() -> dict:
                    FROM task_execution_log
                    GROUP BY task_id
                ) m ON l.task_id = m.task_id AND l.id = m.max_id"""
-        ).fetchall()
-        for r in rows:
-            result[r[0]] = [{
-                "task_id": r[0], "task_name": r[1], "category": r[2],
-                "trigger": r[3], "success": bool(r[4]),
-                "started_at": r[5], "completed_at": r[6],
-                "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
-            }]
-        conn.close()
+            ).fetchall()
+            for r in rows:
+                result[r[0]] = [{
+                    "task_id": r[0], "task_name": r[1], "category": r[2],
+                    "trigger": r[3], "success": bool(r[4]),
+                    "started_at": r[5], "completed_at": r[6],
+                    "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
+                }]
+            conn.close()
     except Exception as e:
         logger.warning(f"批量查询最新执行记录失败: {e}")
     return result
@@ -798,27 +809,28 @@ def get_task_detail(task_id: str, lang: str = "zh") -> Optional[dict]:
 
     # 从数据库获取最近执行记录
     try:
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
-        _ensure_task_log_table(conn)
-        rows = conn.execute(
-            """            SELECT task_id, task_name, category, trigger_type, success,
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_task_log_table(conn)
+            rows = conn.execute(
+                """            SELECT task_id, task_name, category, trigger_type, success,
                       started_at, completed_at, elapsed_seconds, error, error_trace
                FROM task_execution_log
                WHERE task_id = ?
                ORDER BY started_at DESC LIMIT 10""",
-            (task_id,)
-        ).fetchall()
-        detail["recent_runs"] = [
-            {
-                "task_id": r[0], "task_name": r[1], "category": r[2],
-                "trigger": r[3], "success": bool(r[4]),
-                "started_at": r[5], "completed_at": r[6],
-                "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
-            }
-            for r in rows
-        ]
-        conn.close()
+                (task_id,)
+            ).fetchall()
+            detail["recent_runs"] = [
+                {
+                    "task_id": r[0], "task_name": r[1], "category": r[2],
+                    "trigger": r[3], "success": bool(r[4]),
+                    "started_at": r[5], "completed_at": r[6],
+                    "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
+                }
+                for r in rows
+            ]
+            conn.close()
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_task_detail: exception swallowed", exc_info=True)
         detail["recent_runs"] = []
 
     return detail
@@ -838,34 +850,34 @@ def get_task_stats(task_id: str, days: int | None = None) -> dict:
         "last_seen": None,
     }
     try:
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
-        _ensure_task_log_table(conn)
-        where = "WHERE task_id = ?"
-        params: list = [task_id]
-        if days:
-            where += " AND started_at >= datetime('now', ?)"
-            params.append(f"-{days} days")
-        row = conn.execute(
-            f"""SELECT COUNT(*), COALESCE(SUM(success),0),
-                       AVG(elapsed_seconds), MAX(elapsed_seconds),
-                       MIN(started_at), MAX(started_at)
-                FROM task_execution_log {where}""",
-            params,
-        ).fetchone()
-        conn.close()
-        if row and row[0]:
-            total = row[0]
-            succ = row[1]
-            result.update({
-                "total_runs": total,
-                "success_runs": succ,
-                "failed_runs": total - succ,
-                "success_rate": round(succ / total, 4) if total else None,
-                "avg_elapsed": round(row[2], 2) if row[2] is not None else None,
-                "max_elapsed": round(row[3], 2) if row[3] is not None else None,
-                "first_seen": row[4],
-                "last_seen": row[5],
-            })
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_task_log_table(conn)
+            where = "WHERE task_id = ?"
+            params: list = [task_id]
+            if days:
+                where += " AND started_at >= datetime('now', ?)"
+                params.append(f"-{days} days")
+            row = conn.execute(
+                f"""SELECT COUNT(*), COALESCE(SUM(success),0),
+                           AVG(elapsed_seconds), MAX(elapsed_seconds),
+                           MIN(started_at), MAX(started_at)
+                    FROM task_execution_log {where}""",
+                params,
+            ).fetchone()
+            conn.close()
+            if row and row[0]:
+                total = row[0]
+                succ = row[1]
+                result.update({
+                    "total_runs": total,
+                    "success_runs": succ,
+                    "failed_runs": total - succ,
+                    "success_rate": round(succ / total, 4) if total else None,
+                    "avg_elapsed": round(row[2], 2) if row[2] is not None else None,
+                    "max_elapsed": round(row[3], 2) if row[3] is not None else None,
+                    "first_seen": row[4],
+                    "last_seen": row[5],
+                })
     except Exception as e:
         logger.warning(f"统计任务健康度失败 ({task_id}): {e}")
     return result
@@ -875,27 +887,27 @@ def get_recent_failures(days: int = 3, limit: int = 200) -> dict:
     """按 error 首行聚类近期失败，便于快速判断是否为同一根因。"""
     clusters: dict[str, dict] = {}
     try:
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
-        _ensure_task_log_table(conn)
-        rows = conn.execute(
-            """SELECT task_id, task_name, error, started_at
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_task_log_table(conn)
+            rows = conn.execute(
+                """SELECT task_id, task_name, error, started_at
                FROM task_execution_log
                WHERE success = 0
                  AND started_at >= datetime('now', ?)
                ORDER BY started_at DESC LIMIT ?""",
-            (f"-{days} days", limit),
-        ).fetchall()
-        conn.close()
-        for task_id, task_name, error, started_at in rows:
-            key = (error or "未知错误").split("\n")[0][:120]
-            c = clusters.get(key)
-            if not c:
-                c = {"error_first_line": key, "count": 0, "tasks": {}, "last_seen": None}
-                clusters[key] = c
-            c["count"] += 1
-            c["tasks"][task_id] = c["tasks"].get(task_id, 0) + 1
-            if not c["last_seen"] or (started_at or "") > c["last_seen"]:
-                c["last_seen"] = started_at
+                (f"-{days} days", limit),
+            ).fetchall()
+            conn.close()
+            for task_id, task_name, error, started_at in rows:
+                key = (error or "未知错误").split("\n")[0][:120]
+                c = clusters.get(key)
+                if not c:
+                    c = {"error_first_line": key, "count": 0, "tasks": {}, "last_seen": None}
+                    clusters[key] = c
+                c["count"] += 1
+                c["tasks"][task_id] = c["tasks"].get(task_id, 0) + 1
+                if not c["last_seen"] or (started_at or "") > c["last_seen"]:
+                    c["last_seen"] = started_at
     except Exception as e:
         logger.warning(f"聚合失败记录失败: {e}")
     items = sorted(clusters.values(), key=lambda x: x["count"], reverse=True)
@@ -906,23 +918,23 @@ def get_task_history_by_task(task_id: str, limit: int = 200) -> list[dict]:
     """某任务的执行历史（按时间倒序），供前端历史弹窗分页 / 导出。"""
     rows: list[dict] = []
     try:
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
-        _ensure_task_log_table(conn)
-        cur = conn.execute(
-            "SELECT task_id, task_name, category, trigger_type, success, "
-            "started_at, completed_at, elapsed_seconds, error, error_trace "
-            "FROM task_execution_log WHERE task_id = ? "
-            "ORDER BY started_at DESC LIMIT ?",
-            (task_id, limit),
-        )
-        for r in cur.fetchall():
-            rows.append({
-                "task_id": r[0], "task_name": r[1], "category": r[2],
-                "trigger": r[3], "success": bool(r[4]),
-                "started_at": r[5], "completed_at": r[6],
-                "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
-            })
-        conn.close()
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_task_log_table(conn)
+            cur = conn.execute(
+                "SELECT task_id, task_name, category, trigger_type, success, "
+                "started_at, completed_at, elapsed_seconds, error, error_trace "
+                "FROM task_execution_log WHERE task_id = ? "
+                "ORDER BY started_at DESC LIMIT ?",
+                (task_id, limit),
+            )
+            for r in cur.fetchall():
+                rows.append({
+                    "task_id": r[0], "task_name": r[1], "category": r[2],
+                    "trigger": r[3], "success": bool(r[4]),
+                    "started_at": r[5], "completed_at": r[6],
+                    "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
+                })
+            conn.close()
     except Exception as e:
         logger.warning(f"查询任务历史失败 ({task_id}): {e}")
     return rows
@@ -931,26 +943,27 @@ def get_task_history_by_task(task_id: str, limit: int = 200) -> list[dict]:
 def get_task_history(limit: int = 20) -> list[dict]:
     """获取最近的任务执行历史"""
     try:
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
-        _ensure_task_log_table(conn)
-        rows = conn.execute(
-            """            SELECT task_id, task_name, category, trigger_type, success,
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_task_log_table(conn)
+            rows = conn.execute(
+                """            SELECT task_id, task_name, category, trigger_type, success,
                       started_at, completed_at, elapsed_seconds, error, error_trace
                FROM task_execution_log
                ORDER BY started_at DESC LIMIT ?""",
-            (limit,)
-        ).fetchall()
-        conn.close()
-        return [
-            {
-                "task_id": r[0], "task_name": r[1], "category": r[2],
-                "trigger": r[3], "success": bool(r[4]),
-                "started_at": r[5], "completed_at": r[6],
-                "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
-            }
-            for r in rows
-        ]
+                (limit,)
+            ).fetchall()
+            conn.close()
+            return [
+                {
+                    "task_id": r[0], "task_name": r[1], "category": r[2],
+                    "trigger": r[3], "success": bool(r[4]),
+                    "started_at": r[5], "completed_at": r[6],
+                    "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
+                }
+                for r in rows
+            ]
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_task_history: exception swallowed", exc_info=True)
         return list(reversed(_task_history[-limit:]))
 
 
@@ -971,6 +984,7 @@ def update_task_schedule(task_id: str, cron_expr: str) -> dict:
             "message": f"任务 {task['name']} 调度已更新为: {cron_expr}",
         }
     except Exception as e:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] update_task_schedule: exception swallowed", exc_info=True)
         return {"success": False, "error": str(e)}
 
 

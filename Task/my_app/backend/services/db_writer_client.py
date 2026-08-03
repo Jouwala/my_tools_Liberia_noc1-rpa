@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """
+import logging
 SQLite 远程写入客户端模块
 
 供本地 RPA 脚本调用，将数据通过 HTTP POST 写入远程服务器上的 SQLite 数据库。
@@ -42,6 +43,7 @@ try:
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 except Exception:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:db_writer_client>: exception swallowed", exc_info=True)
     pass
 
 # ============================================================
@@ -80,11 +82,13 @@ class DbWriterClient:
                     body = resp.read().decode('utf-8')
                     return json.loads(body)
             except urllib.error.HTTPError as e:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _request: exception swallowed", exc_info=True)
                 body = e.read().decode('utf-8', errors='replace')
                 last_error = f"HTTP {e.code}: {body[:500]}"
                 if e.code < 500:
                     break  # 4xx 不重试
             except Exception as e:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _request: exception swallowed", exc_info=True)
                 last_error = str(e)
 
             if attempt < max_retries:

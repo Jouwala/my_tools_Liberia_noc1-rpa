@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """
+import logging
 KPI / SP / RAN 各类日报邮件任务
 ================================
 
@@ -182,6 +183,7 @@ def _run_script(
                 time.sleep(backoff)
                 continue
             except subprocess.TimeoutExpired as e:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _attempt_all: exception swallowed", exc_info=True)
                 last_err = f"timeout: {e}"
                 if attempt == retries:
                     return {"success": False, "error": last_err}

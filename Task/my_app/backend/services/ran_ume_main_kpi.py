@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """
+import logging
 RAN UME Main KPI 每日同步脚本
 
 功能：
@@ -41,11 +42,13 @@ from datetime import datetime, timezone, timedelta
 from ftplib import FTP, error_perm
 
 import pandas as pd
+from backend.database import get_raw_connection
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 except Exception:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ran_ume_main_kpi>: exception swallowed", exc_info=True)
     pass
 
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -88,6 +91,7 @@ DB_NAME = "db.sqlite3"
 try:
     from backend.services.db_writer_client import DbWriterClient
 except ImportError:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ran_ume_main_kpi>: exception swallowed", exc_info=True)
     from db_writer_client import DbWriterClient
 try:
     _db_writer = DbWriterClient()
@@ -246,6 +250,7 @@ def _close_thread_socket():
         try:
             ssock.close()
         except OSError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _close_thread_socket: exception swallowed", exc_info=True)
             pass
 
 
@@ -269,6 +274,7 @@ def _decode_chunked(data):
         try:
             chunk_size = int(chunk_size_str, 16)
         except ValueError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _decode_chunked: exception swallowed", exc_info=True)
             break
         if chunk_size == 0:
             break
@@ -332,6 +338,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
                 break
             response_data.extend(chunk)
         except socket.timeout:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request: exception swallowed", exc_info=True)
             break
 
         if not header_end_found:
@@ -345,6 +352,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
                         try:
                             content_length = int(line.split(":", 1)[1].strip())
                         except ValueError:
+                            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request: exception swallowed", exc_info=True)
                             pass
                         break
 
@@ -419,6 +427,7 @@ def login():
         try:
             from backend.services.auth_manager import get_auth
         except ImportError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] login: exception swallowed", exc_info=True)
             from auth_manager import get_auth
         result = get_auth(HOST, PORT, USERNAME, PASSWORD)
         source = "缓存" if result["from_cache"] else "重新登录"
@@ -740,6 +749,7 @@ def download_from_ftp(remote_dir: str, filename: str, local_path: str,
                 try:
                     ftp.close()
                 except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] download_from_ftp: exception swallowed", exc_info=True)
                     pass
     return False
 
@@ -764,10 +774,12 @@ def upload_to_ftp(local_path: str, remote_dir: str, filename: str,
                 try:
                     ftp.cwd(abs_path)
                 except error_perm:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] upload_to_ftp: exception swallowed", exc_info=True)
                     try:
                         ftp.mkd(abs_path)
                         ftp.cwd(abs_path)
                     except error_perm:
+                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] upload_to_ftp: exception swallowed", exc_info=True)
                         pass
             with open(local_path, "rb") as f:
                 ftp.storbinary(f"STOR {filename}", f)
@@ -779,6 +791,7 @@ def upload_to_ftp(local_path: str, remote_dir: str, filename: str,
                 try:
                     ftp.close()
                 except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] upload_to_ftp: exception swallowed", exc_info=True)
                     pass
     return False
 
@@ -868,99 +881,99 @@ def sync_excel_to_db(excel_file_path: str, db_table: str, db_path: str,
         excel_df['Group'] = 'NW'
         print(f"  已添加 'Group' 列，值为 'NW'")
 
-    conn = sqlite3.connect(db_path)
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            f"SELECT name FROM sqlite_master WHERE type='table' AND name={quote_identifier(db_table)};"
-        )
-        table_exists = cursor.fetchone() is not None
+    with get_raw_connection(db_path) as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"SELECT name FROM sqlite_master WHERE type='table' AND name={quote_identifier(db_table)};"
+            )
+            table_exists = cursor.fetchone() is not None
 
-        if not table_exists:
-            # 表不存在，直接创建并插入
-            excel_df.to_sql(db_table, conn, if_exists='replace', index=False)
-            print(f"  表 {db_table} 不存在，已创建并插入 {len(excel_df)} 条记录")
-            return len(excel_df)
+            if not table_exists:
+                # 表不存在，直接创建并插入
+                excel_df.to_sql(db_table, conn, if_exists='replace', index=False)
+                print(f"  表 {db_table} 不存在，已创建并插入 {len(excel_df)} 条记录")
+                return len(excel_df)
 
-        # 自动添加缺失列（已支持 strip item_id 前缀匹配）
-        add_missing_columns(conn, db_table, excel_df.columns.tolist())
+            # 自动添加缺失列（已支持 strip item_id 前缀匹配）
+            add_missing_columns(conn, db_table, excel_df.columns.tolist())
 
-        # 获取数据库列信息，建立 Excel 列名到 DB 列名的映射
-        db_columns = get_table_info(conn, db_table)
-        excel_columns = excel_df.columns.tolist()
+            # 获取数据库列信息，建立 Excel 列名到 DB 列名的映射
+            db_columns = get_table_info(conn, db_table)
+            excel_columns = excel_df.columns.tolist()
 
-        # 建立规范化列名映射：normalized_name -> db_column_name
-        db_norm_map = {_strip_item_prefix(c): c for c in db_columns}
+            # 建立规范化列名映射：normalized_name -> db_column_name
+            db_norm_map = {_strip_item_prefix(c): c for c in db_columns}
 
-        # 将 Excel 列名映射到 DB 列名（优先匹配精确名称，再匹配规范化名称）
-        excel_to_db = {}
-        for ec in excel_columns:
-            if ec in db_columns:
-                excel_to_db[ec] = ec
+            # 将 Excel 列名映射到 DB 列名（优先匹配精确名称，再匹配规范化名称）
+            excel_to_db = {}
+            for ec in excel_columns:
+                if ec in db_columns:
+                    excel_to_db[ec] = ec
+                else:
+                    norm = _strip_item_prefix(ec)
+                    if norm in db_norm_map:
+                        excel_to_db[ec] = db_norm_map[norm]
+
+            # 重命名 Excel DataFrame 列名为 DB 列名（仅对能映射的列）
+            if excel_to_db:
+                excel_df = excel_df.rename(columns=excel_to_db)
+
+            # 只取 Excel 和 DB 共有的列
+            common_columns = [col for col in db_columns if col in excel_df.columns.tolist()]
+            if not common_columns:
+                print(f"  [ERROR] Excel 文件和数据库表 {db_table} 没有共同的列，无法同步")
+                return 0
+
+            excel_df = excel_df[common_columns]
+
+            # 检测主键列
+            pk_cols = detect_primary_keys(table_type, common_columns)
+            if len(pk_cols) < 2:
+                print(f"  [WARNING] 未检测到足够主键列，回退到使用所有共同列去重")
+                pk_cols = common_columns
+
+            print(f"  使用主键列去重: {pk_cols}")
+
+            # 将 Excel 数据写入临时表
+            temp_table = f"_temp_{db_table}"
+            cursor.execute(f'DROP TABLE IF EXISTS "{temp_table}"')
+            excel_df.to_sql(temp_table, conn, if_exists='replace', index=False)
+
+            # 用 SQL LEFT JOIN 按主键去重，仅插入新行
+            pk_conditions = " AND ".join(
+                f't."{pk}" = m."{pk}"' for pk in pk_cols
+            )
+            cols_str = ", ".join(f'"{c}"' for c in common_columns)
+            # SELECT 需要带 t. 前缀，避免与 m 表列名歧义
+            cols_str_t = ", ".join(f't."{c}"' for c in common_columns)
+
+            sql = (
+                f'INSERT INTO "{db_table}" ({cols_str}) '
+                f'SELECT {cols_str_t} FROM "{temp_table}" t '
+                f'LEFT JOIN "{db_table}" m ON {pk_conditions} '
+                f'WHERE m."{pk_cols[0]}" IS NULL'
+            )
+
+            cursor.execute(sql)
+            inserted = cursor.rowcount
+            conn.commit()
+
+            # 清理临时表
+            cursor.execute(f'DROP TABLE IF EXISTS "{temp_table}"')
+            conn.commit()
+
+            if inserted > 0:
+                print(f"  表 {db_table} 有更新，插入了 {inserted} 条新记录")
             else:
-                norm = _strip_item_prefix(ec)
-                if norm in db_norm_map:
-                    excel_to_db[ec] = db_norm_map[norm]
+                print(f"  表 {db_table} 无更新，无需操作")
+            return inserted
 
-        # 重命名 Excel DataFrame 列名为 DB 列名（仅对能映射的列）
-        if excel_to_db:
-            excel_df = excel_df.rename(columns=excel_to_db)
-
-        # 只取 Excel 和 DB 共有的列
-        common_columns = [col for col in db_columns if col in excel_df.columns.tolist()]
-        if not common_columns:
-            print(f"  [ERROR] Excel 文件和数据库表 {db_table} 没有共同的列，无法同步")
-            return 0
-
-        excel_df = excel_df[common_columns]
-
-        # 检测主键列
-        pk_cols = detect_primary_keys(table_type, common_columns)
-        if len(pk_cols) < 2:
-            print(f"  [WARNING] 未检测到足够主键列，回退到使用所有共同列去重")
-            pk_cols = common_columns
-
-        print(f"  使用主键列去重: {pk_cols}")
-
-        # 将 Excel 数据写入临时表
-        temp_table = f"_temp_{db_table}"
-        cursor.execute(f'DROP TABLE IF EXISTS "{temp_table}"')
-        excel_df.to_sql(temp_table, conn, if_exists='replace', index=False)
-
-        # 用 SQL LEFT JOIN 按主键去重，仅插入新行
-        pk_conditions = " AND ".join(
-            f't."{pk}" = m."{pk}"' for pk in pk_cols
-        )
-        cols_str = ", ".join(f'"{c}"' for c in common_columns)
-        # SELECT 需要带 t. 前缀，避免与 m 表列名歧义
-        cols_str_t = ", ".join(f't."{c}"' for c in common_columns)
-
-        sql = (
-            f'INSERT INTO "{db_table}" ({cols_str}) '
-            f'SELECT {cols_str_t} FROM "{temp_table}" t '
-            f'LEFT JOIN "{db_table}" m ON {pk_conditions} '
-            f'WHERE m."{pk_cols[0]}" IS NULL'
-        )
-
-        cursor.execute(sql)
-        inserted = cursor.rowcount
-        conn.commit()
-
-        # 清理临时表
-        cursor.execute(f'DROP TABLE IF EXISTS "{temp_table}"')
-        conn.commit()
-
-        if inserted > 0:
-            print(f"  表 {db_table} 有更新，插入了 {inserted} 条新记录")
-        else:
-            print(f"  表 {db_table} 无更新，无需操作")
-        return inserted
-
-    except Exception as e:
-        print(f"  [ERROR] 同步 {excel_file_path} 到表 {db_table} 时出错: {e}")
-        raise
-    finally:
-        conn.close()
+        except Exception as e:
+            print(f"  [ERROR] 同步 {excel_file_path} 到表 {db_table} 时出错: {e}")
+            raise
+        finally:
+            conn.close()
 
 
 # ============================================================

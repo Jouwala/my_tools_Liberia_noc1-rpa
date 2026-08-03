@@ -32,9 +32,11 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 from urllib3.exceptions import InsecureRequestWarning
+from backend.database import get_raw_connection
+from backend.security_tls import tls_verify, silence_insecure_warning
 
-# 禁用未安全校验 HTTPS 警告
-requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+# 仅在校验关闭时才抑制不安全的 HTTPS 警告（见 backend/security_tls.py）
+silence_insecure_warning(tls_verify("ume"))
 
 logger = logging.getLogger("ipran_ume_kpi_service")
 
@@ -43,6 +45,7 @@ try:
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 except Exception:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ipran_ume_kpi_service>: exception swallowed", exc_info=True)
     pass
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
@@ -89,9 +92,11 @@ DB_PATH = str(IPRAN_DATA_DIR / DB_NAME)
 try:
     from backend.services.db_writer_client import DbWriterClient
 except ImportError:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ipran_ume_kpi_service>: exception swallowed", exc_info=True)
     try:
         from db_writer_client import DbWriterClient
     except ImportError:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ipran_ume_kpi_service>: exception swallowed", exc_info=True)
         DbWriterClient = None
 
 try:
@@ -321,7 +326,8 @@ class UmeSessionClient:
     def __init__(self, host: str, port: int):
         self.base_url = f"https://{host}:{port}"
         self.session = requests.Session()
-        self.session.verify = False
+        # TLS 校验策略由 backend/security_tls.py 统一控制（env UME_TLS_VERIFY，默认关闭以兼容自签证书）
+        self.session.verify = tls_verify("ume")
 
         # 高并发连接池适配器配置
         adapter = HTTPAdapter(
@@ -636,6 +642,7 @@ def parse_xlsx_in_memory(stream: io.BytesIO) -> tuple[list, list]:
         try:
             xls = pd.ExcelFile(stream, engine='calamine')
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] parse_xlsx_in_memory: exception swallowed", exc_info=True)
             xls = pd.ExcelFile(stream, engine='openpyxl')
 
         for sname in xls.sheet_names:
@@ -706,55 +713,55 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
 
     # 2. SQLite 高并发 WAL 模式写入（兜底；同样按复合主键 upsert，保留历史）
     import sqlite3
-    conn = sqlite3.connect(DB_PATH, timeout=60.0)
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA synchronous=OFF")
+    with get_raw_connection(DB_PATH, timeout=60.0) as conn:
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=OFF")
 
-    # 兜底时若用户指定的列都不存在，回退到原有 detect_key_cols
-    if not pk_cols:
-        pk_cols = detect_key_cols(headers)
+        # 兜底时若用户指定的列都不存在，回退到原有 detect_key_cols
+        if not pk_cols:
+            pk_cols = detect_key_cols(headers)
 
-    def _q(col): return f'"{col.replace(chr(34), chr(34) + chr(34))}"'
+        def _q(col): return f'"{col.replace(chr(34), chr(34) + chr(34))}"'
 
-    # 建表（幂等，全部 TEXT，不强制 NOT NULL，避免脏数据导致写入失败）
-    cols_decl = ", ".join(f"{_q(h)} TEXT" for h in headers)
-    cursor.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({cols_decl})')
-    # 补列
-    exist_cols = {r[1] for r in cursor.execute(f'PRAGMA table_info("{table_name}")').fetchall()}
-    for h in headers:
-        if h not in exist_cols:
-            cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(h)} TEXT')
+        # 建表（幂等，全部 TEXT，不强制 NOT NULL，避免脏数据导致写入失败）
+        cols_decl = ", ".join(f"{_q(h)} TEXT" for h in headers)
+        cursor.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({cols_decl})')
+        # 补列
+        exist_cols = {r[1] for r in cursor.execute(f'PRAGMA table_info("{table_name}")').fetchall()}
+        for h in headers:
+            if h not in exist_cols:
+                cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(h)} TEXT')
 
-    # 确保唯一约束存在（先清理历史重复行，再建唯一索引，upsert 才能生效）
-    if pk_cols:
-        pk_q = ", ".join(_q(k) for k in pk_cols)
-        cursor.execute(
-            f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
-            f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
-        )
-        # 先删除旧的同名唯一索引，避免主键列变更后 IF NOT EXISTS 跳过导致旧索引残留
-        cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
-        cursor.execute(
-            f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({pk_q})'
-        )
+        # 确保唯一约束存在（先清理历史重复行，再建唯一索引，upsert 才能生效）
+        if pk_cols:
+            pk_q = ", ".join(_q(k) for k in pk_cols)
+            cursor.execute(
+                f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
+                f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
+            )
+            # 先删除旧的同名唯一索引，避免主键列变更后 IF NOT EXISTS 跳过导致旧索引残留
+            cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
+            cursor.execute(
+                f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({pk_q})'
+            )
 
-    cols_str = ", ".join(_q(h) for h in headers)
-    placeholders = ", ".join(["?"] * len(headers))
-    insert_sql = f'INSERT OR REPLACE INTO "{table_name}" ({cols_str}) VALUES ({placeholders})'
+        cols_str = ", ".join(_q(h) for h in headers)
+        placeholders = ", ".join(["?"] * len(headers))
+        insert_sql = f'INSERT OR REPLACE INTO "{table_name}" ({cols_str}) VALUES ({placeholders})'
 
-    formatted_data = []
-    for row in data:
-        if len(row) < len(headers):
-            row.extend([None] * (len(headers) - len(row)))
-        formatted_data.append([str(v) if v is not None else None for v in row[:len(headers)]])
+        formatted_data = []
+        for row in data:
+            if len(row) < len(headers):
+                row.extend([None] * (len(headers) - len(row)))
+            formatted_data.append([str(v) if v is not None else None for v in row[:len(headers)]])
 
-    cursor.executemany(insert_sql, formatted_data)
-    conn.commit()
-    conn.close()
+        cursor.executemany(insert_sql, formatted_data)
+        conn.commit()
+        conn.close()
 
-    logger.info(f"[DB][LOCAL] {table_name}: Upserted {len(formatted_data)} rows into SQLite (pk={pk_cols})")
-    return len(formatted_data)
+        logger.info(f"[DB][LOCAL] {table_name}: Upserted {len(formatted_data)} rows into SQLite (pk={pk_cols})")
+        return len(formatted_data)
 
 
 # ============================================================
@@ -790,6 +797,7 @@ def _run_single_kpi_pipeline(client: UmeSessionClient, task: dict) -> tuple[str,
             else:
                 logger.error(f"[KPI][{task['key']}] Repeated query 重试耗尽，放弃")
         except Exception as e:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _run_single_kpi_pipeline: exception swallowed", exc_info=True)
             last_err = e
             break
     if queryid is None:
@@ -827,7 +835,10 @@ def _run_single_kpi_pipeline(client: UmeSessionClient, task: dict) -> tuple[str,
         if queryid:
             try:
                 del_url = f"{client.base_url}{HISTORY_POLL_PATH}?queryid={queryid}"
-                rr = client.session.delete(del_url, headers=client.session.headers, timeout=20, verify=False)
+                # 默认启用 TLS 证书校验（安全）；仅当 UME 使用自签证书时
+                # 才设置环境变量 UME_TLS_VERIFY=false 显式关闭。
+                _verify = os.environ.get("UME_TLS_VERIFY", "true").lower() not in ("0", "false", "no", "off")
+                rr = client.session.delete(del_url, headers=client.session.headers, timeout=20, verify=_verify)
                 logger.info(f"[KPI][{task['key']}] 释放查询 {queryid} -> {rr.status_code}")
             except Exception as e:
                 logger.warning(f"[KPI][{task['key']}] 释放查询 {queryid} 失败: {e}")

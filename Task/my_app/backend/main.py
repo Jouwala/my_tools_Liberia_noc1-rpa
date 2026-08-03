@@ -2,6 +2,7 @@
 import time
 import sys
 import os
+import logging
 from datetime import datetime
 
 # 修复非UTF-8控制台环境下中文输出崩溃
@@ -9,12 +10,13 @@ try:
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 except Exception:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:main>: exception swallowed", exc_info=True)
     pass
 
 # 确保可以import backend模块
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -22,8 +24,10 @@ from pathlib import Path
 
 from backend.database import Base, engine, DB_PATH
 from backend.models.analysis import AnalysisArchive, UploadedFile
-from backend.routers import tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard
+from backend.routers import tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard, packet_loss_dashboard
 from backend.services import task_runner
+from backend.security import require_protected
+from backend.database import get_raw_connection
 from backend.services.sp_dashboard import (
     get_dashboard_data,
     get_warehouses as sp_list_warehouses,
@@ -38,10 +42,17 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS配置 - 允许前端开发服务器
+# CORS配置 - 仅允许明确来源（避免 allow_origins="*" + 凭据的跨域风险）
+# 可用环境变量 MY_APP_CORS_ORIGINS 覆盖，逗号分隔
+_ALLOWED_ORIGINS = [
+    o.strip() for o in os.environ.get(
+        "MY_APP_CORS_ORIGINS",
+        "http://127.0.0.1:7038,http://localhost:7038,http://127.0.0.1:5173,http://localhost:5173",
+    ).split(",") if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -54,375 +65,19 @@ app.include_router(analysis.router)
 app.include_router(gis.router)
 app.include_router(tt_wo_dashboard.router)
 app.include_router(alarm_dashboard.router)
+app.include_router(packet_loss_dashboard.router)
 
 
 # ========== 通用任务调度系统 ==========
-# sync_history 保留兼容旧 eFlow API
-sync_history = []
-
-
-def scheduled_eflow_sync():
-    """定时 eFlow API 数据同步任务（兼容旧接口）"""
-    from backend.services.sync_from_eflow_api import sync_from_eflow_api
-    import logging
-    logger = logging.getLogger("eflow_sync")
-    logger.info("定时 eFlow API 同步开始")
-    result = sync_from_eflow_api(mode="delta")
-    sync_history.append(result)
-    while len(sync_history) > 20:
-        sync_history.pop(0)
-    logger.info(f"eFlow 同步完成: success={result['success']}, tables={result['tables_synced']}")
-    return result
-
-
-def scheduled_eflow_sync_full():
-    """每日 eFlow 全量兜底同步：拉全量窗口，补齐增量遗漏并刷新报告"""
-    from backend.services.sync_from_eflow_api import sync_from_eflow_api
-    import logging
-    logger = logging.getLogger("eflow_sync_full")
-    logger.info("每日 eFlow 全量兜底同步开始")
-    result = sync_from_eflow_api(mode="full")
-    logger.info(f"eFlow 全量同步完成: success={result['success']}, tables={result['tables_synced']}")
-    return result
+# 任务定义与注册已迁移至 backend/task_registry.py（P2#8 拆分）：
+# 原 _register_all_tasks 336 行 → 声明式 TASK_SPECS + 通用注册循环；
+# sync_history 亦由 task_registry 统一维护（旧 eFlow API 兼容）。
+from backend.task_registry import sync_history, register_all_tasks
 
 
 def _register_all_tasks():
-    """注册所有可调度的任务"""
-
-    # 1. eFlow API 数据同步（每小时第22分钟）
-    task_runner.register_task(
-        task_id="eflow_sync",
-        name="eFlow 数据同步",
-        name_en="eFlow Data Sync",
-        func=scheduled_eflow_sync,
-        description="从 ZTE eFlow API 获取 TT/WO/CR/PM/Site/Person 数据",
-        description_en="Fetch TT/WO/CR/PM/Site/Person data from ZTE eFlow API",
-        default_cron="22 * * * *",  # 每小时第22分钟
-        category="eflow",
-    )
-
-    # 2. RAN UME PM 数据 + Availability 报表（每天凌晨2点）
-    def _run_ran_ume():
-        from backend.services.ran_ume_service import run_ran_ume_full_task
-        return run_ran_ume_full_task()
-
-    # 1b. eFlow 每日全量兜底（每天凌晨1点）
-    task_runner.register_task(
-        task_id="eflow_sync_full",
-        name="eFlow 每日全量同步",
-        name_en="eFlow Daily Full Sync",
-        func=scheduled_eflow_sync_full,
-        description="eFlow 全量兜底同步：拉取全量窗口（默认自 2026-01-01），补齐增量遗漏并刷新报告",
-        description_en="eFlow daily full backfill sync (full window), refresh reports",
-        default_cron="0 1 * * *",
-        category="eflow",
-    )
-
-    task_runner.register_task(
-        task_id="ran_ume_daily",
-        name="RAN UME 日报",
-        name_en="RAN UME Daily Report",
-        func=_run_ran_ume,
-        description="RAN UME PM 数据获取 + Daily Availability KPI 报表生成 + FTP 上传",
-        description_en="RAN UME PM data fetch + Daily Availability KPI report generation + FTP upload",
-        default_cron="0 2 * * *",  # 每天凌晨2点
-        category="ran_ume",
-    )
-
-    # 3. Site Outage 截图（每天凌晨1点）
-    def _run_site_outage():
-        from backend.services.site_outage_service import run_site_outage_screenshot
-        return run_site_outage_screenshot()
-
-    task_runner.register_task(
-        task_id="site_outage_screenshot",
-        name="Site Outage 截图",
-        name_en="Site Outage Screenshot",
-        func=_run_site_outage,
-        description="Site Down Dashboard 自动截图（ERA/Regular/ALL）",
-        description_en="Auto screenshot of Site Down Dashboard (ERA/Regular/ALL)",
-        default_cron="0 1 * * *",  # 每天凌晨1点
-        category="site_outage",
-    )
-
-    # 4. WhatsApp 发送（每天凌晨3点，在截图之后）
-    def _run_whatsapp():
-        from backend.services.whatsapp_service import run_whatsapp_send
-        return run_whatsapp_send()
-
-    task_runner.register_task(
-        task_id="whatsapp_send",
-        name="WhatsApp 消息发送",
-        name_en="WhatsApp Message Send",
-        func=_run_whatsapp,
-        description="发送 Site Outage 截图和文件到 WhatsApp 群组",
-        description_en="Send Site Outage screenshots and files to WhatsApp groups",
-        default_cron="0 3 * * *",  # 每天凌晨3点
-        category="whatsapp",
-    )
-
-    # 5. MS SLA 完整同步（每6小时）
-    def _run_ms_sla_full():
-        from backend.services.ms_sla_service import run_full_sync
-        return run_full_sync()
-
-    task_runner.register_task(
-        task_id="ms_sla_full",
-        name="MS SLA 完整同步",
-        name_en="MS SLA Full Sync",
-        func=_run_ms_sla_full,
-        description="SLA 指标同步 + Contract KPIs 报表更新（项目自包含，无需外部文件）",
-        description_en="SLA metrics sync + Contract KPIs report update (self-contained, no external files)",
-        default_cron="0 */6 * * *",  # 每6小时
-        category="ms_sla",
-    )
-
-    # 6. eFlow 实时告警同步（每30分钟）
-    def _run_eflow_active_alarm():
-        from backend.services.eflow_api_client import fetch_and_save_active_alarm
-        res = fetch_and_save_active_alarm()
-        rows = res.get("realtime_alarm", []) if isinstance(res, dict) else []
-        # 仅记录条数摘要，避免把完整告警列表(每次约 300KB)写入执行日志 result_json
-        return {"realtime_alarm_count": len(rows)}
-
-    task_runner.register_task(
-        task_id="eflow_active_alarm",
-        name="eFlow 实时告警同步",
-        name_en="eFlow Realtime Alarm Sync",
-        func=_run_eflow_active_alarm,
-        description="从 eFlow FM Active 接口获取实时告警，保存 CSV + SQLite",
-        description_en="Fetch realtime alarms from eFlow FM Active API, save to CSV + SQLite",
-        default_cron="*/30 * * * *",  # 每30分钟
-        category="eflow",
-    )
-
-    # 7. eFlow 历史告警同步（每3小时）
-    def _run_eflow_history_alarm():
-        from backend.services.eflow_api_client import fetch_and_save_history_alarm
-        res = fetch_and_save_history_alarm()
-        rows = res.get("history_alarm", []) if isinstance(res, dict) else []
-        # 仅记录条数摘要，避免把完整历史告警列表写入执行日志 result_json
-        return {"history_alarm_count": len(rows)}
-
-    task_runner.register_task(
-        task_id="eflow_history_alarm",
-        name="eFlow 历史告警同步",
-        name_en="eFlow History Alarm Sync",
-        func=_run_eflow_history_alarm,
-        description="从 eFlow FM History 接口获取近7天历史告警，过滤 TT ID，保存 CSV + SQLite",
-        description_en="Fetch last 7 days history alarms from eFlow FM History API, filter TT ID, save to CSV + SQLite",
-        default_cron="0 */3 * * *",  # 每3小时
-        category="eflow",
-    )
-
-    # 8. RAN UME Main KPI 同步（每天凌晨4点）
-    def _run_main_kpi_sync():
-        from backend.services.ran_ume_main_kpi import run_main_kpi_sync
-        return run_main_kpi_sync()
-
-    task_runner.register_task(
-        task_id="main_kpi_sync",
-        name="RAN Main KPI 同步",
-        name_en="RAN Main KPI Sync",
-        func=_run_main_kpi_sync,
-        description="RAN UME Main KPI 历史指标同步（2G/3G/4G × Cells/Sites/Group/NW），导出 Excel 并增量更新 SQLite + FTP 上传",
-        description_en="RAN UME Main KPI history sync (2G/3G/4G × Cells/Sites/Group/NW), export Excel and incremental SQLite update + FTP upload",
-        default_cron="0 4 * * *",  # 每天凌晨4点
-        category="main_kpi",
-    )
-
-    # 9. RAN UME Network KPI（Zeenshan）同步（每天凌晨5点）
-    def _run_network_kpi_sync():
-        from backend.services.ran_ume_network_kpi import run_network_kpi_sync
-        return run_network_kpi_sync()
-
-    task_runner.register_task(
-        task_id="network_kpi_sync",
-        name="RAN Network KPI 同步",
-        name_en="RAN Network KPI Sync",
-        func=_run_network_kpi_sync,
-        description="RAN UME Network KPI（Zeenshan）历史指标同步（2G/3G/4G × Group/NW），导出 Excel 并导入 SQLite + FTP 上传",
-        description_en="RAN UME Network KPI (Zeenshan) history sync (2G/3G/4G × Group/NW), export Excel and import to SQLite + FTP upload",
-        default_cron="0 5 * * *",  # 每天凌暨5点
-        category="network_kpi",
-    )
-    
-    # 10. CNN UME KPI 同步（每天凌暨6点）
-    def _run_cnn_kpi_sync():
-        from backend.services.ccn_ume_kpi_service import run_cnn_kpi_sync
-        return run_cnn_kpi_sync()
-    
-    task_runner.register_task(
-        task_id="cnn_kpi_sync",
-        name="CNN UME KPI 同步",
-        name_en="CNN UME KPI Sync",
-        func=_run_cnn_kpi_sync,
-        description="CNN UME 核心网 KPI 同步（xGW License/CPU/Voice/VLR/Data/3G/4G/Free Rating），API 写入 DB CNN",
-        description_en="CNN UME Core Network KPI sync (xGW License/CPU/Voice/VLR/Data/3G/4G/Free Rating), API write to DB CNN",
-        default_cron="0 6 * * *",  # 每天凌暨6点
-        category="cnn_kpi",
-    )
-
-    # 11. SP 备件数据同步（每天凌晨7点）
-    def _run_sp_data_sync():
-        from backend.services.get_sp_table import run_sp_data_sync
-        return run_sp_data_sync()
-
-    task_runner.register_task(
-        task_id="sp_data_sync",
-        name="SP 备件数据同步",
-        name_en="SP Spare Data Sync",
-        func=_run_sp_data_sync,
-        description="从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db",
-        description_en="Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db",
-        default_cron="0 7 * * *",  # 每天凌晨7点
-        category="sp",
-    )
-
-    # 12. iPRAN UME KPI 同步（每天凌晨8点）
-    def _run_ipran_kpi_sync():
-        from backend.services.ipran_ume_kpi_service import run_ipran_kpi_sync
-        return run_ipran_kpi_sync()
-
-    task_runner.register_task(
-        task_id="ipran_kpi_sync",
-        name="iPRAN UME KPI 同步",
-        name_en="iPRAN UME KPI Sync",
-        func=_run_ipran_kpi_sync,
-        description="iPRAN UME M6000 路由器 KPI 同步（HQ M6K-FW 等），导出 Excel 并导入 SQLite + FTP 上传",
-        description_en="iPRAN UME M6000 router KPI sync (HQ M6K-FW etc.), export Excel and import to SQLite + FTP upload",
-        default_cron="0 8 * * *",  # 每天凌晨8点
-        category="ipran_kpi",
-    )
-
-    # 13. Liberia 站点宕 1 小时报告邮件（每小时第5分钟）
-    def _run_liberia_email_1h():
-        from backend.services.liberia_email_report import run_1h_report
-        return run_1h_report()
-
-    task_runner.register_task(
-        task_id="liberia_email_1h",
-        name="Liberia 宕站 1小时报告邮件",
-        name_en="Liberia Site-Down 1H Report Email",
-        func=_run_liberia_email_1h,
-        description="发送 Liberia Orange Site Down hourly Report（内嵌图 + Excel）到主送/抄送名单",
-        description_en="Email Liberia Orange Site Down hourly Report (inline images + Excel) to recipient lists",
-        default_cron="5 * * * *",  # 每小时第5分钟
-        category="email",
-    )
-
-    # 14. Liberia 站点宕 8 小时报告邮件（每8小时第10分钟）
-    def _run_liberia_email_8h():
-        from backend.services.liberia_email_report import run_8h_report
-        return run_8h_report()
-
-    task_runner.register_task(
-        task_id="liberia_email_8h",
-        name="Liberia 宕站 8小时报告邮件",
-        name_en="Liberia Site-Down 8H Report Email",
-        func=_run_liberia_email_8h,
-        description="发送 Liberia Orange Site Down 8 hours Report（内嵌图 + Excel）到主送/抄送名单",
-        description_en="Email Liberia Orange Site Down 8 hours Report (inline images + Excel) to recipient lists",
-        default_cron="10 */8 * * *",  # 每8小时第10分钟
-        category="email",
-    )
-
-    # 15. MS Contract KPIs Achievements Daily Report 邮件（数据本地 ms_sla）
-    def _run_kpi_ms_contract():
-        from backend.services.kpi_email_report import run_ms_contract_kpi
-        return run_ms_contract_kpi()
-
-    task_runner.register_task(
-        task_id="kpi_ms_contract",
-        name="MS Contract KPIs 日报邮件",
-        name_en="MS Contract KPIs Daily Report Email",
-        func=_run_kpi_ms_contract,
-        description="发送 MS Contract KPIs Achievements Daily Report（本地数据 + 远程名单）",
-        description_en="Email MS Contract KPIs Achievements Daily Report (local data + remote recipient list)",
-        default_cron="30 17 * * *",
-        category="kpi_email",
-    )
-
-    # 16. MS WOs SLA Achievements Daily Report 邮件（数据本地 ms_sla）
-    def _run_kpi_ms_wo_sla():
-        from backend.services.kpi_email_report import run_ms_wo_sla
-        return run_ms_wo_sla()
-
-    task_runner.register_task(
-        task_id="kpi_ms_wo_sla",
-        name="MS WOs SLA 日报邮件",
-        name_en="MS WOs SLA Daily Report Email",
-        func=_run_kpi_ms_wo_sla,
-        description="发送 MS WOs SLA Achievements Daily Report（本地数据 + 远程名单）",
-        description_en="Email MS WOs SLA Achievements Daily Report (local data + remote recipient list)",
-        default_cron="35 17 * * *",
-        category="kpi_email",
-    )
-
-    # 17. SpareParts 备件报表邮件（数据远程 FTP）
-    def _run_kpi_sp_spareparts():
-        from backend.services.kpi_email_report import run_sp_spareparts
-        return run_sp_spareparts()
-
-    task_runner.register_task(
-        task_id="kpi_sp_spareparts",
-        name="SpareParts 备件报表邮件",
-        name_en="SpareParts Report Email",
-        func=_run_kpi_sp_spareparts,
-        description="发送 SpareParts 报表（远程 FTP 数据 + 远程名单）",
-        description_en="Email SpareParts report (remote FTP data + remote recipient list)",
-        default_cron="45 9 * * *",
-        category="kpi_email",
-    )
-
-    # 18. Comsumables 耗材报表邮件（数据远程 FTP）
-    def _run_kpi_sp_consumables():
-        from backend.services.kpi_email_report import run_sp_consumables
-        return run_sp_consumables()
-
-    task_runner.register_task(
-        task_id="kpi_sp_consumables",
-        name="Comsumables 耗材报表邮件",
-        name_en="Comsumables Report Email",
-        func=_run_kpi_sp_consumables,
-        description="发送 Comsumables 报表（远程 FTP 数据 + 远程名单）",
-        description_en="Email Comsumables report (remote FTP data + remote recipient list)",
-        default_cron="50 9 * * *",
-        category="kpi_email",
-    )
-
-    # 19. MS Network Availability Daily Report 邮件（远程 FTP 图片，无 Excel）
-    def _run_kpi_ran_availability():
-        from backend.services.kpi_email_report import run_ran_availability
-        return run_ran_availability()
-
-    task_runner.register_task(
-        task_id="kpi_ran_availability",
-        name="MS Network Availability 日报邮件",
-        name_en="MS Network Availability Daily Report Email",
-        func=_run_kpi_ran_availability,
-        description="发送 MS Network Availability Daily Report（远程 FTP 图片 + 远程名单，无 Excel）",
-        description_en="Email MS Network Availability Daily Report (remote FTP images + remote recipient list, no Excel)",
-        default_cron="30 9 * * *",
-        category="kpi_email",
-    )
-
-    # 20. EWS 恢复后自动补发失败邮件（每 20 分钟探测 EWS 可用性并补发）
-    def _run_email_recovery():
-        from backend.services.email_recovery import run_email_recovery_task
-        return run_email_recovery_task()
-
-    task_runner.register_task(
-        task_id="email_recovery",
-        name="EWS 恢复后邮件补发",
-        name_en="Email Recovery after EWS Restored",
-        func=_run_email_recovery,
-        description="探测 EWS 是否恢复；恢复后自动补发近 3 小时内因 EWS 超时失败的邮件任务",
-        description_en="Probe EWS reachability; auto re-send email tasks that failed due to EWS timeout in last 3h once server is back",
-        default_cron="*/20 * * * *",
-        category="email",
-    )
-
+    """注册所有可调度的任务（声明式定义见 backend/task_registry.py）"""
+    return register_all_tasks(task_runner)
 
 def _init_db_with_retry(max_retries: int = 12, wait: int = 5):
     """db 初始化可能因后台进程(Windows Search 索引 / 杀软实时扫描)临时锁住
@@ -434,8 +89,8 @@ def _init_db_with_retry(max_retries: int = 12, wait: int = 5):
             # 创建ORM模型表
             Base.metadata.create_all(bind=engine)
             # 确保uploaded_files表存在
-            conn = sqlite3.connect(str(DB_PATH), timeout=30)
-            conn.execute("""
+            with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+                conn.execute("""
                 CREATE TABLE IF NOT EXISTS uploaded_files (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     filename TEXT NOT NULL,
@@ -448,11 +103,11 @@ def _init_db_with_retry(max_retries: int = 12, wait: int = 5):
                     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            conn.commit()
-            conn.close()
-            # 初始化调度配置表
-            task_runner._init_schedule_table()
-            return
+                conn.commit()
+                conn.close()
+                # 初始化调度配置表
+                task_runner._init_schedule_table()
+                return
         except Exception as e:
             last_err = e
             print(f"[startup] db 初始化遇锁({type(e).__name__})，{wait}s 后重试 ({i}/{max_retries}): {e}")
@@ -485,7 +140,7 @@ def health_check():
     }
 
 
-@app.post("/api/eflow/sync")
+@app.post("/api/eflow/sync", dependencies=[Depends(require_protected)])
 def trigger_eflow_sync():
     """手动触发 eFlow API 数据同步（兼容旧接口）"""
     result = task_runner.run_task("eflow_sync", trigger="manual")
@@ -547,7 +202,7 @@ def get_task_info(task_id: str, request: Request):
     return detail
 
 
-@app.post("/api/tasks/{task_id}/run")
+@app.post("/api/tasks/{task_id}/run", dependencies=[Depends(require_protected)])
 def run_task_now(task_id: str):
     """立即执行指定任务（后台异步执行，立即返回 accepted）"""
     return task_runner.run_task_async(task_id, trigger="manual")
@@ -685,66 +340,69 @@ def get_data_timestamps():
             break
 
     # 数据源最新时间
-    conn = sqlite3.connect(str(DB_PATH))
+    with get_raw_connection(str(DB_PATH)) as conn:
 
-    # 内存无记录时，尝试从数据库获取最近同步时间
-    if not last_sync:
+        # 内存无记录时，尝试从数据库获取最近同步时间
+        if not last_sync:
+            try:
+                row = conn.execute("SELECT MAX(_sync_time) FROM eflow_tt").fetchone()
+                if row and row[0]:
+                    last_sync = row[0]
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_data_timestamps: exception swallowed", exc_info=True)
+                pass
+        latest_tt = None
+        latest_wo = None
         try:
-            row = conn.execute("SELECT MAX(_sync_time) FROM eflow_tt").fetchone()
-            if row and row[0]:
-                last_sync = row[0]
+            latest_tt = conn.execute(
+                "SELECT MAX(created_time) FROM eflow_tt WHERE created_time IS NOT NULL"
+            ).fetchone()[0]
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_data_timestamps: exception swallowed", exc_info=True)
             pass
-    latest_tt = None
-    latest_wo = None
-    try:
-        latest_tt = conn.execute(
-            "SELECT MAX(created_time) FROM eflow_tt WHERE created_time IS NOT NULL"
-        ).fetchone()[0]
-    except Exception:
-        pass
-    try:
-        latest_wo = conn.execute(
-            "SELECT MAX(created_time) FROM eflow_wo WHERE created_time IS NOT NULL"
-        ).fetchone()[0]
-    except Exception:
-        pass
-    conn.close()
+        try:
+            latest_wo = conn.execute(
+                "SELECT MAX(created_time) FROM eflow_wo WHERE created_time IS NOT NULL"
+            ).fetchone()[0]
+        except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_data_timestamps: exception swallowed", exc_info=True)
+            pass
+        conn.close()
 
-    # 取TT/WO中较晚的一个
-    latest_data = max(filter(None, [latest_tt, latest_wo]), default=None)
+        # 取TT/WO中较晚的一个
+        latest_data = max(filter(None, [latest_tt, latest_wo]), default=None)
 
-    return {
-        "last_sync": last_sync,
-        "latest_data_time": latest_data,
-        "latest_tt_time": latest_tt,
-        "latest_wo_time": latest_wo,
-    }
+        return {
+            "last_sync": last_sync,
+            "latest_data_time": latest_data,
+            "latest_tt_time": latest_tt,
+            "latest_wo_time": latest_wo,
+        }
 
 
 @app.get("/api/db/info")
 def db_info():
     """数据库概览信息"""
     import sqlite3
-    conn = sqlite3.connect(str(DB_PATH))
-    tables = [r[0] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-    ).fetchall()]
+    with get_raw_connection(str(DB_PATH)) as conn:
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ).fetchall()]
 
-    total_rows = 0
-    table_info = []
-    for t in tables:
-        count = conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
-        total_rows += count
-        table_info.append({"name": t, "rows": count})
+        total_rows = 0
+        table_info = []
+        for t in tables:
+            count = conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
+            total_rows += count
+            table_info.append({"name": t, "rows": count})
 
-    conn.close()
-    return {
-        "database": str(DB_PATH),
-        "total_tables": len(tables),
-        "total_rows": total_rows,
-        "tables": table_info,
-    }
+        conn.close()
+        return {
+            "database": str(DB_PATH),
+            "total_tables": len(tables),
+            "total_rows": total_rows,
+            "tables": table_info,
+        }
 
 
 # 提供前端静态文件（生产环境）

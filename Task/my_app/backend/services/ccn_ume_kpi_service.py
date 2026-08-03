@@ -41,6 +41,7 @@ try:
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 except Exception:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ccn_ume_kpi_service>: exception swallowed", exc_info=True)
     pass
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
@@ -83,6 +84,7 @@ DB_NAME = "db_ps_cs_cn.sqlite3"
 try:
     from backend.services.db_writer_client import DbWriterClient
 except ImportError:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ccn_ume_kpi_service>: exception swallowed", exc_info=True)
     from db_writer_client import DbWriterClient
 try:
     _db_writer = DbWriterClient()
@@ -308,6 +310,7 @@ def _close_thread_socket():
         try:
             ssock.close()
         except OSError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _close_thread_socket: exception swallowed", exc_info=True)
             pass
 
 
@@ -330,6 +333,7 @@ def _decode_chunked(data):
         try:
             chunk_size = int(chunk_size_str, 16)
         except ValueError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _decode_chunked: exception swallowed", exc_info=True)
             break
         if chunk_size == 0:
             break
@@ -394,6 +398,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
                 break
             response_data.extend(chunk)
         except socket.timeout:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request: exception swallowed", exc_info=True)
             break
 
         if not header_end_found:
@@ -407,6 +412,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
                         try:
                             content_length = int(line.split(":", 1)[1].strip())
                         except ValueError:
+                            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request: exception swallowed", exc_info=True)
                             pass
                         break
 
@@ -738,6 +744,7 @@ def _extract_xlsx_bytes(resp_bytes):
         if len(names) == 1:
             return z.read(names[0])
     except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _extract_xlsx_bytes: exception swallowed", exc_info=True)
         pass
     return resp_bytes
 
@@ -938,6 +945,7 @@ def import_to_database(export_results: dict = None):
         try:
             os.remove(fpath)
         except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] import_to_database: exception swallowed", exc_info=True)
             pass
 
     logger.info(f"[CNN][DB] 导入完成，总计 {total_imported} 行")

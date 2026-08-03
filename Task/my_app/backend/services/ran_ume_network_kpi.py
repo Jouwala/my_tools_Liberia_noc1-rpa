@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """
+import logging
 RAN UME Network KPI (Zeenshan) 每日同步脚本
 
 功能：
@@ -41,11 +42,13 @@ import openpyxl
 from ftplib import FTP, error_perm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
+from backend.database import get_raw_connection
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 except Exception:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ran_ume_network_kpi>: exception swallowed", exc_info=True)
     pass
 
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -95,6 +98,7 @@ FTP_REMOTE_DIR = "/01_RPA/LBR_Tools/KPI/RAN"
 try:
     from backend.services.db_writer_client import DbWriterClient
 except ImportError:
+    logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:ran_ume_network_kpi>: exception swallowed", exc_info=True)
     from db_writer_client import DbWriterClient
 try:
     _db_writer = DbWriterClient()
@@ -250,6 +254,7 @@ def _close_thread_socket():
         try:
             ssock.close()
         except OSError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _close_thread_socket: exception swallowed", exc_info=True)
             pass
 
 
@@ -273,6 +278,7 @@ def _decode_chunked(data):
         try:
             chunk_size = int(chunk_size_str, 16)
         except ValueError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _decode_chunked: exception swallowed", exc_info=True)
             break
         if chunk_size == 0:
             break
@@ -336,6 +342,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
                 break
             response_data.extend(chunk)
         except socket.timeout:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request: exception swallowed", exc_info=True)
             break
 
         if not header_end_found:
@@ -349,6 +356,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
                         try:
                             content_length = int(line.split(":", 1)[1].strip())
                         except ValueError:
+                            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request: exception swallowed", exc_info=True)
                             pass
                         break
 
@@ -422,6 +430,7 @@ def login():
         try:
             from backend.services.auth_manager import get_auth
         except ImportError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] login: exception swallowed", exc_info=True)
             from auth_manager import get_auth
         result = get_auth(HOST, PORT, USERNAME, PASSWORD)
         source = "缓存" if result["from_cache"] else "重新登录"
@@ -764,18 +773,19 @@ def write_to_db(db_path, table_name, headers, data):
     last_err = None
     for _attempt in range(1, 11):
         try:
-            conn = sqlite3.connect(db_path, timeout=60)
-            cursor = conn.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA synchronous=OFF")
-            cursor.execute("PRAGMA cache_size=-64000")
-            cursor.execute("PRAGMA busy_timeout=60000")
-            break
+            with get_raw_connection(db_path, timeout=60) as conn:
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=OFF")
+                cursor.execute("PRAGMA cache_size=-64000")
+                cursor.execute("PRAGMA busy_timeout=60000")
+                break
         except sqlite3.OperationalError as e:
             last_err = e
             try:
                 conn.close()
             except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] write_to_db: exception swallowed", exc_info=True)
                 pass
             if _attempt < 10:
                 print(f"  [DB] 打开/初始化失败（可能文件被锁），5s 后重试 ({_attempt}/10): {e}")
@@ -812,6 +822,7 @@ def write_to_db(db_path, table_name, headers, data):
             try:
                 cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{safe_col}" TEXT')
             except sqlite3.OperationalError:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] write_to_db: exception swallowed", exc_info=True)
                 pass
     else:
         # 表已存在，检查并添加缺少的列
@@ -823,6 +834,7 @@ def write_to_db(db_path, table_name, headers, data):
                 try:
                     cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{safe_col}" TEXT')
                 except sqlite3.OperationalError:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] write_to_db: exception swallowed", exc_info=True)
                     pass
 
     # INSERT OR REPLACE
@@ -902,193 +914,124 @@ def upload_to_ftp(local_path, remote_dir, filename, max_retries=2):
                 try:
                     ftp.close()
                 except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] upload_to_ftp: exception swallowed", exc_info=True)
                     pass
     return False
 
 
-def import_to_database(export_results: dict = None):
-    """将导出的 NW 和 Group xlsx 数据导入 SQLite 数据库。
+# ============================================================
+# 数据库导入（P2#8 拆分：原 import_to_database 231 行 → 单一职责助手 + 编排）
+# ============================================================
 
-    Args:
-        export_results: {file_prefix: xlsx_bytes} 内存数据。
-                        如果为 None 则回退到磁盘读取。
-    """
-    print("\n" + "=" * 70)
-    print("[DB] 开始导入数据库")
-    print(f"[DB] 数据库路径: {DB_PATH}")
-    print("=" * 70)
+def _locate_dataset(data_bytes, prefix, files_to_delete):
+    """数据源定位：内存 bytes 优先，否则查找磁盘最新文件（并计入待删除清单）"""
+    if data_bytes:
+        return data_bytes, None
+    file_path = find_latest_xlsx(prefix)
+    if file_path:
+        files_to_delete.append(file_path)
+    return None, file_path
 
-    total_imported = 0
-    files_to_delete = []
 
-    for tech in ["2G", "3G", "FDD", "TDD"]:
-        # 文件前缀（与 build_filename 生成的一致，空格已替换为下划线）
-        nw_prefix = f"{tech}_OLIB_Network_KPIs_NW_1Day"
-        group_prefix = f"{tech}_OLIB_Network_KPIs_Group_1Day"
-        table_name = f"{tech}_OLIB_Network_KPIs"
-
-        nw_bytes = export_results.get(nw_prefix) if export_results else None
-        group_bytes = export_results.get(group_prefix) if export_results else None
-
-        nw_file = None if nw_bytes else find_latest_xlsx(nw_prefix)
-        group_file = None if group_bytes else find_latest_xlsx(group_prefix)
-
-        print(f"\n[{tech}]")
-
-        # ---- 处理 _NW 数据 ----
-        nw_headers = None
-        nw_data = None
-        nw_source = f"{tech} OLIB Network KPIs_NW"
-        if nw_bytes or nw_file:
-            if nw_file:
-                files_to_delete.append(nw_file)
-                print(f"  _NW: {os.path.basename(nw_file)}")
-            else:
-                print(f"  _NW: from memory ({len(nw_bytes)} bytes)")
-
-            # NW 数据的 Group 值
-            group_value = f"{tech}_NW"
-            print(f"  _NW Group: {group_value}")
-
-            nw_headers, nw_data = read_xlsx_bytes(nw_bytes) if nw_bytes else read_xlsx(nw_file)
-            print(f"  _NW: {len(nw_data)} rows, {len(nw_headers)} cols")
-
-            # 增加 "Group" 列
-            if "Group" not in nw_headers:
-                nw_headers.append("Group")
-                for row in nw_data:
-                    row.append(group_value)
-            else:
-                group_idx = nw_headers.index("Group")
-                for row in nw_data:
-                    row[group_idx] = group_value
-
-            # 增加 "Source File" 列
-            if "Source File" not in nw_headers:
-                nw_headers.append("Source File")
-                for row in nw_data:
-                    row.append(nw_source)
-            else:
-                sf_idx = nw_headers.index("Source File")
-                for row in nw_data:
-                    row[sf_idx] = nw_source
-        else:
-            print(f"  _NW: not found")
-
-        # ---- 处理 _Group 数据 ----
-        grp_headers = None
-        grp_data = None
-        grp_source = f"{tech} OLIB Network KPIs_Group"
-        if group_bytes or group_file:
-            if group_file:
-                files_to_delete.append(group_file)
-                print(f"  _Group: {os.path.basename(group_file)}")
-            else:
-                print(f"  _Group: from memory ({len(group_bytes)} bytes)")
-
-            grp_headers, grp_data = read_xlsx_bytes(group_bytes) if group_bytes else read_xlsx(group_file)
-            print(f"  _Group: {len(grp_data)} rows, {len(grp_headers)} cols")
-
-            # 增加 "Source File" 列
-            if "Source File" not in grp_headers:
-                grp_headers.append("Source File")
-                for row in grp_data:
-                    row.append(grp_source)
-            else:
-                sf_idx = grp_headers.index("Source File")
-                for row in grp_data:
-                    row[sf_idx] = grp_source
-        else:
-            print(f"  _Group: not found")
-
-        # ---- 合并写入 ----
-        if nw_headers is None and grp_headers is None:
-            print(f"  [skip] no files found")
-            continue
-
-        # 合并列头（取并集，保持顺序）
-        if nw_headers and grp_headers:
-            merged_headers = list(nw_headers)
-            for h in grp_headers:
-                if h not in merged_headers:
-                    merged_headers.append(h)
-        elif nw_headers:
-            merged_headers = list(nw_headers)
-        else:
-            merged_headers = list(grp_headers)
-
-        # 构建合并数据
-        merged_data = []
-
-        if nw_headers and nw_data:
-            for row in nw_data:
-                new_row = []
-                while len(row) < len(nw_headers):
-                    row.append(None)
-                for h in merged_headers:
-                    if h in nw_headers:
-                        new_row.append(row[nw_headers.index(h)])
-                    else:
-                        new_row.append(None)
-                merged_data.append(new_row)
-
-        if grp_headers and grp_data:
-            for row in grp_data:
-                new_row = []
-                while len(row) < len(grp_headers):
-                    row.append(None)
-                for h in merged_headers:
-                    if h in grp_headers:
-                        new_row.append(row[grp_headers.index(h)])
-                    else:
-                        new_row.append(None)
-                merged_data.append(new_row)
-
-        print(f"  merged: {len(merged_data)} rows, {len(merged_headers)} cols -> {table_name}")
-
-        if not merged_data:
-            raise Exception(f"[Network KPI] {table_name}: 合并后无数据行，解析失败")
-
-        # API 优先写入，回退到本地 SQLite
-        if _db_writer is not None:
-            try:
-                result = _db_writer.write_data(
-                    db=DB_NAME,
-                    table=table_name,
-                    columns=merged_headers,
-                    rows=merged_data,
-                    mode="upsert",
-                    pk_columns=["Begin Time", "Group"],
-                )
-                row_count = result.get("rows_written", 0)
-                if row_count == 0:
-                    raise Exception("API 返回 0 行写入")
-                print(f"  [API] written: {row_count} rows")
-            except Exception as e:
-                print(f"  [API] 写入失败: {e}，回退到本地")
-                row_count = write_to_db(DB_PATH, table_name, merged_headers, merged_data)
-                print(f"  [LOCAL] written: {row_count} rows")
-        else:
-            row_count = write_to_db(DB_PATH, table_name, merged_headers, merged_data)
-            print(f"  [LOCAL] written: {row_count} rows")
-
-        if row_count == 0:
-            raise Exception(f"[Network KPI] {table_name}: 写入 0 行，数据丢失")
-        total_imported += row_count
-
-        # 释放本迭代大对象
-        nw_headers = nw_data = None
-        grp_headers = grp_data = None
-        merged_headers = merged_data = None
-        gc.collect()
-
-    # ---- 写入结果日志 ----
-    if _db_writer is None:
-        print("\n[LOCAL] 数据已写入本地 SQLite（API 不可用）")
+def _read_dataset(data_bytes, file_path, label):
+    """读取 xlsx（内存或磁盘）→ (headers, data)；均无时返回 (None, None)"""
+    if not data_bytes and not file_path:
+        print(f"  {label}: not found")
+        return None, None
+    if file_path:
+        print(f"  {label}: {os.path.basename(file_path)}")
+        headers, data = read_xlsx(file_path)
     else:
-        print("\n[API] 数据已通过远程 API 写入")
+        print(f"  {label}: from memory ({len(data_bytes)} bytes)")
+        headers, data = read_xlsx_bytes(data_bytes)
+    print(f"  {label}: {len(data)} rows, {len(headers)} cols")
+    return headers, data
 
-    # ---- 清理已导入的 xlsx 文件 ----
+
+def _set_column(headers, data, col_name, value):
+    """增加列（或覆盖已有列）并为每行填充固定值"""
+    if col_name not in headers:
+        headers.append(col_name)
+        for row in data:
+            row.append(value)
+    else:
+        idx = headers.index(col_name)
+        for row in data:
+            row[idx] = value
+
+
+def _prepare_nw_dataset(tech, data_bytes, file_path):
+    """读取 NW 数据并补 Group / Source File 列；无数据返回 (None, None)"""
+    headers, data = _read_dataset(data_bytes, file_path, "_NW")
+    if headers is None:
+        return None, None
+    group_value = f"{tech}_NW"
+    print(f"  _NW Group: {group_value}")
+    _set_column(headers, data, "Group", group_value)
+    _set_column(headers, data, "Source File", f"{tech} OLIB Network KPIs_NW")
+    return headers, data
+
+
+def _prepare_group_dataset(tech, data_bytes, file_path):
+    """读取 Group 数据并补 Source File 列；无数据返回 (None, None)"""
+    headers, data = _read_dataset(data_bytes, file_path, "_Group")
+    if headers is None:
+        return None, None
+    _set_column(headers, data, "Source File", f"{tech} OLIB Network KPIs_Group")
+    return headers, data
+
+
+def _merge_datasets(nw_headers, nw_data, grp_headers, grp_data):
+    """合并 NW/Group 数据集（列头取并集，按列对齐）→ (merged_headers, merged_data)"""
+    if nw_headers and grp_headers:
+        merged_headers = list(nw_headers)
+        for h in grp_headers:
+            if h not in merged_headers:
+                merged_headers.append(h)
+    elif nw_headers:
+        merged_headers = list(nw_headers)
+    else:
+        merged_headers = list(grp_headers)
+
+    merged_data = []
+    for src_headers, src_data in ((nw_headers, nw_data), (grp_headers, grp_data)):
+        if not (src_headers and src_data):
+            continue
+        # 列名 → 下标索引，避免逐列 list.index() 的 O(n²) 扫描
+        col_index = {h: i for i, h in enumerate(src_headers)}
+        for row in src_data:
+            while len(row) < len(src_headers):
+                row.append(None)
+            merged_data.append([row[col_index[h]] if h in col_index else None for h in merged_headers])
+    return merged_headers, merged_data
+
+
+def _write_dataset(table_name, merged_headers, merged_data):
+    """写入数据库：API 优先，失败回退本地 SQLite，返回写入行数"""
+    if _db_writer is not None:
+        try:
+            result = _db_writer.write_data(
+                db=DB_NAME,
+                table=table_name,
+                columns=merged_headers,
+                rows=merged_data,
+                mode="upsert",
+                pk_columns=["Begin Time", "Group"],
+            )
+            row_count = result.get("rows_written", 0)
+            if row_count == 0:
+                raise Exception("API 返回 0 行写入")
+            print(f"  [API] written: {row_count} rows")
+            return row_count
+        except Exception as e:
+            print(f"  [API] 写入失败: {e}，回退到本地")
+    row_count = write_to_db(DB_PATH, table_name, merged_headers, merged_data)
+    print(f"  [LOCAL] written: {row_count} rows")
+    return row_count
+
+
+def _cleanup_imported_files(files_to_delete):
+    """清理已导入的 xlsx 文件（锁定文件 PowerShell 强删，仍失败则重启时删除）"""
     print("\n[cleanup]")
     all_files = set(files_to_delete)
     for tech in ["2G", "3G", "FDD", "TDD"]:
@@ -1108,6 +1051,7 @@ def import_to_database(export_results: dict = None):
             print(f"  deleted: {os.path.basename(fpath)}")
             deleted_count += 1
         except PermissionError:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _cleanup_imported_files: exception swallowed", exc_info=True)
             failed_files.append(fpath)
         except Exception as e:
             print(f"  [error] {os.path.basename(fpath)}: {e}")
@@ -1135,8 +1079,80 @@ def import_to_database(export_results: dict = None):
                 print(f"  [error] {os.path.basename(fpath)}: {e}")
 
     print(f"  total deleted: {deleted_count} files")
+    return deleted_count
+
+
+def import_to_database(export_results: dict = None):
+    """将导出的 NW 和 Group xlsx 数据导入 SQLite 数据库。
+
+    Args:
+        export_results: {file_prefix: xlsx_bytes} 内存数据。
+                        如果为 None 则回退到磁盘读取。
+    """
+    print("\n" + "=" * 70)
+    print("[DB] 开始导入数据库")
+    print(f"[DB] 数据库路径: {DB_PATH}")
+    print("=" * 70)
+
+    total_imported = 0
+    files_to_delete = []
+    for tech in ["2G", "3G", "FDD", "TDD"]:
+        total_imported += _import_one_tech(tech, export_results, files_to_delete)
+
+    # ---- 写入结果日志 ----
+    if _db_writer is None:
+        print("\n[LOCAL] 数据已写入本地 SQLite（API 不可用）")
+    else:
+        print("\n[API] 数据已通过远程 API 写入")
+
+    _cleanup_imported_files(files_to_delete)
+
     print(f"\n[DB] 导入完成，总计 {total_imported} 行")
     return total_imported
+
+
+def _import_one_tech(tech, export_results, files_to_delete):
+    """单个制式（2G/3G/FDD/TDD）的完整导入流程，返回写入行数（无数据源跳过返回 0）"""
+    # 文件前缀（与 build_filename 生成的一致，空格已替换为下划线）
+    nw_prefix = f"{tech}_OLIB_Network_KPIs_NW_1Day"
+    group_prefix = f"{tech}_OLIB_Network_KPIs_Group_1Day"
+    table_name = f"{tech}_OLIB_Network_KPIs"
+
+    nw_bytes = export_results.get(nw_prefix) if export_results else None
+    group_bytes = export_results.get(group_prefix) if export_results else None
+
+    print(f"\n[{tech}]")
+
+    nw_bytes, nw_file = _locate_dataset(nw_bytes, nw_prefix, files_to_delete)
+    group_bytes, group_file = _locate_dataset(group_bytes, group_prefix, files_to_delete)
+
+    # ---- 处理 _NW / _Group 数据 ----
+    nw_headers, nw_data = _prepare_nw_dataset(tech, nw_bytes, nw_file)
+    grp_headers, grp_data = _prepare_group_dataset(tech, group_bytes, group_file)
+
+    # ---- 合并写入 ----
+    if nw_headers is None and grp_headers is None:
+        print("  [skip] no files found")
+        return 0
+
+    merged_headers, merged_data = _merge_datasets(nw_headers, nw_data, grp_headers, grp_data)
+
+    print(f"  merged: {len(merged_data)} rows, {len(merged_headers)} cols -> {table_name}")
+
+    if not merged_data:
+        raise Exception(f"[Network KPI] {table_name}: 合并后无数据行，解析成功")
+
+    row_count = _write_dataset(table_name, merged_headers, merged_data)
+
+    if row_count == 0:
+        raise Exception(f"[Network KPI] {table_name}: 写入 0 行，数据丢失")
+
+    # 释放本迭代大对象
+    nw_headers = nw_data = None
+    grp_headers = grp_data = None
+    merged_headers = merged_data = None
+    gc.collect()
+    return row_count
 
 
 # ============================================================

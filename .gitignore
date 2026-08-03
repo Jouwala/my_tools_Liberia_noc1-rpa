@@ -52,6 +52,8 @@ data/
 # Node
 node_modules/
 dist/
+dist_test/
+dist_rebuild/
 
 # Environment
 .env
@@ -72,6 +74,12 @@ Task/auth_cache/
 
 # Misc
 *.json.bak
+
+# Local credentials / secrets reference — DO NOT COMMIT (shared prod creds, multiple machines)
+CREDENTIALS_LOCAL_REFERENCE.txt
+**/CREDENTIALS_LOCAL_REFERENCE.txt
+LOCAL_*.txt
+*.local.txt
 
 # auth cache (runtime tokens)
 auth_cache/
