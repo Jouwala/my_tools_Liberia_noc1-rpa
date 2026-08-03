@@ -999,10 +999,12 @@ HIS_ALARM_DAYS_BACK = int(os.environ.get("EFLOW_HIS_ALARM_DAYS", "1"))
 # （C：缩小/滚动窗口。配合 B 的 upsert 累积，旧数据保留、只抓增量）
 HIS_ALARM_HOURS = int(os.environ.get("EFLOW_HIS_ALARM_HOURS", "48"))
 
-# 历史告警分页大小（每页记录数）。默认 5000，比原 2000 减少约 2.5x 慢请求次数。（E）
-HIS_ALARM_PAGE_SIZE = int(os.environ.get("EFLOW_HIS_ALARM_PAGE_SIZE", "5000"))
+# 历史告警请求行数上限（querynum）。注意：eFlow history 接口单次响应硬上限 2000，
+# 设更大无效；故默认 2000（即单次能取到的最大集合）。（E）
+HIS_ALARM_PAGE_SIZE = int(os.environ.get("EFLOW_HIS_ALARM_PAGE_SIZE", "2000"))
 
-# 历史告警并发翻页 worker 数（需先确认服务端对同 cookie 并发分页安全，见 D 探针）。默认 4。（D）
+# 历史告警并发翻页 worker 数（D 探针已确认对同 cookie 并发分页安全）。
+# 但因接口单次最多返回 2000 行且翻页不真正生效，实际只需取单页，并发无收益，保留供参考。
 HIS_ALARM_WORKERS = max(1, int(os.environ.get("EFLOW_HIS_ALARM_WORKERS", "4")))
 
 
@@ -1226,76 +1228,50 @@ def _fetch_history_page(offset, page_size, his_start, his_end):
 
 
 def _fetch_history_alarm_pipeline():
-    """获取历史告警数据（滚动窗口 + 并发翻页）。
+    """获取历史告警数据（滚动窗口，单页取接口最大可返回集合）。
 
-    A: 每页记录耗时/字节/行数（基线打点）。
-    D: 首页串行取 totalcount，剩余页用 ThreadPoolExecutor 并发拉取（worker=HIS_ALARM_WORKERS）。
-    E: 分页大小 = HIS_ALARM_PAGE_SIZE。
-    C: 窗口 = _get_his_alarm_time_range（默认 48h 滚动）。
+    ⚠️ eFlow history 接口实测限制（2026-08-03 生产探针确认）：
+      - 单次响应最多返回 2000 行；`querynum` / `condition.size` 设再大也被钳到 2000；
+      - `from` 只是小幅滑动窗口（offset0 ∪ offset2000 仅多 ~5 个不同 id），并非真正的行偏移翻页；
+      - 故窗口内真实 ~5600 条告警里，接口一次最多给 ~2000 条（其余靠当前参数取不到，属接口限制）。
+    旧实现按 `len(rows) < page_size` 终止，但该接口永远回满 2000 -> 循环翻到 offset>100000
+    （约 50 页 × 93s ≈ 77 分钟），且每页都是同一批 -> 旧表出现 ~50× 重复。
+    本实现：仅取首页（接口能给的最大集合），按 eFlow 唯一告警 id 去重，避免无效循环。
+    A: 每页耗时/字节打点；C: 窗口 = _get_his_alarm_time_range（默认 48h 滚动）。
     """
     logger.info("Fetching history alarm data...")
     start_time = time.time()
 
     his_start, his_end = _get_his_alarm_time_range()
+    page_size = HIS_ALARM_PAGE_SIZE  # 请求行数上限；接口实际最多返回 2000
     logger.info(
         f"History alarm range: {his_start.isoformat()} ~ {his_end.isoformat()} "
-        f"(window={HIS_ALARM_HOURS}h, page_size={HIS_ALARM_PAGE_SIZE}, workers={HIS_ALARM_WORKERS})"
+        f"(window={HIS_ALARM_HOURS}h, request_rows={page_size})"
     )
 
-    all_rows = []
-    page_size = HIS_ALARM_PAGE_SIZE
+    rows, total, _, _ = _fetch_history_page(0, page_size, his_start, his_end)
+    if total is not None:
+        logger.info(
+            f"History alarm total reported={total}, retrievable per call<=2000 (API cap); "
+            f"fetching single page only."
+        )
 
-    # 串行抓第一页，拿到 totalcount
-    rows0, total, _, _ = _fetch_history_page(0, page_size, his_start, his_end)
-    all_rows.extend(rows0)
-    if total is None:
-        logger.warning("History: cannot determine totalcount, stop after first page")
-        elapsed = time.time() - start_time
-        logger.info(f"History Alarm: {len(all_rows)} records in {elapsed:.2f}s")
-        return ("history_alarm", all_rows)
-    logger.info(f"History alarm total records: {total}")
-
-    if len(rows0) < page_size and total <= page_size:
-        elapsed = time.time() - start_time
-        logger.info(f"History Alarm: {len(all_rows)} records in {elapsed:.2f}s (single page)")
-        return ("history_alarm", all_rows)
-
-    # 并发抓剩余页（offset 列表按 page_size 步进，到 total 为止）
-    offsets = [o for o in range(page_size, max(total, len(all_rows)), page_size) if o <= 100000]
-    logger.info(f"History: fetching {len(offsets)} more pages with {HIS_ALARM_WORKERS} workers")
-
-    with ThreadPoolExecutor(max_workers=HIS_ALARM_WORKERS) as ex:
-        future_to_off = {
-            ex.submit(_fetch_history_page, o, page_size, his_start, his_end): o
-            for o in offsets
-        }
-        for fut in as_completed(future_to_off):
-            o = future_to_off[fut]
-            try:
-                r, _, _b, _e = fut.result()
-                all_rows.extend(r)
-            except Exception as e:
-                logger.error(f"History page offset={o} failed: {e}")
-
-    # 并发去重（按 eFlow 唯一告警 id，防止重复抓取）
-    before = len(all_rows)
+    # 按 eFlow 唯一告警 id 去重（防御接口偶发重复行）
     seen = set()
     deduped = []
-    for row in all_rows:
-        rid = row.get("id") if isinstance(row, dict) else None
+    for r in rows:
+        rid = r.get("id") if isinstance(r, dict) else None
         if rid is not None:
             if rid in seen:
                 continue
             seen.add(rid)
-        deduped.append(row)
-    all_rows = deduped
+        deduped.append(r)
 
     elapsed = time.time() - start_time
     logger.info(
-        f"History Alarm: {len(all_rows)} records (dedup {before}->{len(all_rows)}) in {elapsed:.2f}s, "
-        f"pages={len(offsets) + 1}, workers={HIS_ALARM_WORKERS}"
+        f"History Alarm: {len(deduped)} unique records (of {len(rows)} raw) in {elapsed:.2f}s"
     )
-    return ("history_alarm", all_rows)
+    return ("history_alarm", deduped)
 
 
 # ========== 告警数据持久化 ==========
@@ -1457,11 +1433,16 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
         conn = sqlite3.connect(APP_DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
+        # 若表已存在，将 df 列对齐到现有表结构（缺列补 None、df 多出的列丢弃），
+        # 避免原始 dict key 顺序不定导致 _clean_column_name 消重后缀漂移、append 时 schema 不匹配。
+        exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
+        ).fetchone()
+        if exists:
+            tbl_cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table_name})").fetchall()]
+            df = df.reindex(columns=tbl_cols)
         if upsert_key and upsert_key in df.columns:
             # 幂等累积写入（B）：按 upsert_key 删除旧行再 append，避免整表重建与重抓浪费
-            exists = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
-            ).fetchone()
             if exists:
                 ids = df[upsert_key].tolist()
                 deleted = 0
@@ -1483,7 +1464,7 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
         conn.close()
         logger.info(f"{table_name} 已写入 app.db: {len(df)} 行, {len(df.columns)} 列")
     except Exception as e:
-        logger.error(f"{table_name} 写入 app.db 失败: {e}")
+        logger.error(f"{table_name} 写入 app.db 失败: {e} | cause={getattr(e, '__cause__', None)}")
 
 
 # ========== 告警独立入口 ==========
