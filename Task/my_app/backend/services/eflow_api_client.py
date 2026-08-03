@@ -77,8 +77,9 @@ EFLOW_FULL_DAYS = int(os.environ.get("EFLOW_FULL_DAYS", "0"))
 # eFlow TT 导出列名 -> mail_126.ExcelDataProcessor 期望列名
 # 注意：Site Category 不再取 TT 自带的 Site Class（P1-P4 严重级别），
 # 而是由 generate_hourly_report_with_images 步骤2.5 从 master_site_db.site_caregory 匹配填充
+# 注意：eFlow 导出的 "TT No." 列实际包含的是关联的 WO 编号，不是真正的 TT 编号；
+#       真正的 TT 编号在 tt_no 字段（由 generate_hourly_report_with_images 步骤2 从 tt_no 回填到 Ticket No.）
 _TT_COLUMN_RENAME = {
-    "TT No.": "Ticket No.",
     "Asset Name": "Site Name",
     "SLA Total Duration": "SLA Time",
     "Occurrence Time": "Alarm Occur Time",
@@ -993,12 +994,31 @@ ALARM_CONDITION = {
 # FM History Alarm 查询条件：近 1 天回溯（动态计算，原默认 3 天 → 2026-08-01 缩为 1 天以降低上游慢接口耗时）
 HIS_ALARM_DAYS_BACK = int(os.environ.get("EFLOW_HIS_ALARM_DAYS", "1"))
 
+# 历史告警抓取窗口（小时）。若设置则用"滚动窗口 now-H小时~now"，避免按天边界造成的整日重叠重抓；
+# 未设置(<=0)则回退到按天窗口（HIS_ALARM_DAYS_BACK）。默认 48h：覆盖每日 cron 间隔 + TT ID 晚绑定缓冲。
+# （C：缩小/滚动窗口。配合 B 的 upsert 累积，旧数据保留、只抓增量）
+HIS_ALARM_HOURS = int(os.environ.get("EFLOW_HIS_ALARM_HOURS", "48"))
+
+# 历史告警分页大小（每页记录数）。默认 5000，比原 2000 减少约 2.5x 慢请求次数。（E）
+HIS_ALARM_PAGE_SIZE = int(os.environ.get("EFLOW_HIS_ALARM_PAGE_SIZE", "5000"))
+
+# 历史告警并发翻页 worker 数（需先确认服务端对同 cookie 并发分页安全，见 D 探针）。默认 4。（D）
+HIS_ALARM_WORKERS = max(1, int(os.environ.get("EFLOW_HIS_ALARM_WORKERS", "4")))
+
 
 def _get_his_alarm_time_range():
-    """返回历史告警查询的起止时间 (start_dt, end_dt)"""
+    """返回历史告警查询的起止时间 (start_dt, end_dt)。
+
+    优先使用滚动窗口 EFLOW_HIS_ALARM_HOURS（now-H ~ now）；未设置则回退按天窗口。
+    """
     from datetime import timedelta
-    end_dt = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59, microsecond=0)
-    start_dt = (end_dt - timedelta(days=HIS_ALARM_DAYS_BACK)).replace(hour=0, minute=0, second=0)
+    now = datetime.now(timezone.utc)
+    if HIS_ALARM_HOURS and HIS_ALARM_HOURS > 0:
+        end_dt = now
+        start_dt = now - timedelta(hours=HIS_ALARM_HOURS)
+    else:
+        end_dt = now.replace(hour=23, minute=59, second=59, microsecond=0)
+        start_dt = (end_dt - timedelta(days=HIS_ALARM_DAYS_BACK)).replace(hour=0, minute=0, second=0)
     return start_dt, end_dt
 
 
@@ -1142,16 +1162,12 @@ def _filter_rows_with_tt_id(rows):
     return filtered
 
 
-def _fetch_history_alarm_pipeline():
-    """获取历史告警数据（近 N 天，默认 7 天）"""
-    logger.info("Fetching history alarm data...")
-    start_time = time.time()
+def _fetch_history_page(offset, page_size, his_start, his_end):
+    """抓取历史告警单页（offset/size）。返回 (rows, totalcount_or_None, bytes, elapsed_s)。
 
-    all_rows = []
-    total = None
-    page_size = 2000
-    offset = 0
-
+    纯无状态分页（condition.from/size），可供并发调用。每页记录耗时/字节用于基线打点（A）。
+    """
+    page_start = time.time()
     headers_extra = (
         f"Cookie: {_session_cookie}\r\n"
         f"language-option: en-US\r\n"
@@ -1163,76 +1179,122 @@ def _fetch_history_alarm_pipeline():
         f"Origin: https://{HOST}:{PORT}\r\n"
         f"LogTracking: True\r\n"
     )
+    condition = dict(HIS_ALARM_CONDITION)
+    condition["alarmraisedtime"] = {
+        "mode": "0",
+        "start": int(his_start.timestamp() * 1000),
+        "end": int(his_end.timestamp() * 1000),
+    }
+    condition["from"] = offset
+    condition["size"] = page_size
+
+    now = datetime.now(timezone.utc)
+    now_ms = int(now.timestamp() * 1000)
+    iso_ts = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond:06d}"[:-3] + "Z"
+    payload = {
+        "querynum": page_size,
+        "condition": condition,
+        "timestamp": iso_ts,
+        "manual": True,
+    }
+    body = json.dumps(payload)
+    path = f"{HIS_ALARM_API_PATH}?timestamp={now_ms}"
+    status_line, hdrs, raw_hdrs, resp_body = _http_request(
+        "POST", path, headers_extra=headers_extra, body=body,
+    )
+    elapsed = time.time() - page_start
+    total = None
+    rows = []
+    try:
+        data, parse_ok = _safe_json_loads(resp_body.decode('utf-8'), label=f"History(offset={offset})")
+        if parse_ok and isinstance(data, dict) and data.get("code") in (0, None, "0"):
+            total = data.get("totalcount") or data.get("total", 0)
+            rows = parse_response(data, label="History")
+            if not isinstance(rows, list):
+                rows = []
+            rows = _normalize_alarm_rows(rows)
+        else:
+            code = data.get("code") if isinstance(data, dict) else type(data)
+            logger.warning(f"History page offset={offset} unexpected: code={code}")
+    except Exception as e:
+        logger.warning(f"History page offset={offset} parse error: {e}")
+    logger.info(
+        f"History page offset={offset} size={page_size}: {len(resp_body)} bytes, "
+        f"{len(rows)} rows, {elapsed:.1f}s, total={total}"
+    )
+    return rows, total, len(resp_body), elapsed
+
+
+def _fetch_history_alarm_pipeline():
+    """获取历史告警数据（滚动窗口 + 并发翻页）。
+
+    A: 每页记录耗时/字节/行数（基线打点）。
+    D: 首页串行取 totalcount，剩余页用 ThreadPoolExecutor 并发拉取（worker=HIS_ALARM_WORKERS）。
+    E: 分页大小 = HIS_ALARM_PAGE_SIZE。
+    C: 窗口 = _get_his_alarm_time_range（默认 48h 滚动）。
+    """
+    logger.info("Fetching history alarm data...")
+    start_time = time.time()
 
     his_start, his_end = _get_his_alarm_time_range()
-    logger.info(f"History alarm range: {his_start.isoformat()} ~ {his_end.isoformat()}")
+    logger.info(
+        f"History alarm range: {his_start.isoformat()} ~ {his_end.isoformat()} "
+        f"(window={HIS_ALARM_HOURS}h, page_size={HIS_ALARM_PAGE_SIZE}, workers={HIS_ALARM_WORKERS})"
+    )
 
-    while True:
-        now = datetime.now(timezone.utc)
-        now_ms = int(now.timestamp() * 1000)
-        iso_ts = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond:06d}"[:-3] + "Z"
+    all_rows = []
+    page_size = HIS_ALARM_PAGE_SIZE
 
-        condition = dict(HIS_ALARM_CONDITION)
-        condition["alarmraisedtime"] = {
-            "mode": "0",
-            "start": int(his_start.timestamp() * 1000),
-            "end": int(his_end.timestamp() * 1000),
+    # 串行抓第一页，拿到 totalcount
+    rows0, total, _, _ = _fetch_history_page(0, page_size, his_start, his_end)
+    all_rows.extend(rows0)
+    if total is None:
+        logger.warning("History: cannot determine totalcount, stop after first page")
+        elapsed = time.time() - start_time
+        logger.info(f"History Alarm: {len(all_rows)} records in {elapsed:.2f}s")
+        return ("history_alarm", all_rows)
+    logger.info(f"History alarm total records: {total}")
+
+    if len(rows0) < page_size and total <= page_size:
+        elapsed = time.time() - start_time
+        logger.info(f"History Alarm: {len(all_rows)} records in {elapsed:.2f}s (single page)")
+        return ("history_alarm", all_rows)
+
+    # 并发抓剩余页（offset 列表按 page_size 步进，到 total 为止）
+    offsets = [o for o in range(page_size, max(total, len(all_rows)), page_size) if o <= 100000]
+    logger.info(f"History: fetching {len(offsets)} more pages with {HIS_ALARM_WORKERS} workers")
+
+    with ThreadPoolExecutor(max_workers=HIS_ALARM_WORKERS) as ex:
+        future_to_off = {
+            ex.submit(_fetch_history_page, o, page_size, his_start, his_end): o
+            for o in offsets
         }
-        condition["from"] = offset
-        condition["size"] = page_size
+        for fut in as_completed(future_to_off):
+            o = future_to_off[fut]
+            try:
+                r, _, _b, _e = fut.result()
+                all_rows.extend(r)
+            except Exception as e:
+                logger.error(f"History page offset={o} failed: {e}")
 
-        payload = {
-            "querynum": page_size,
-            "condition": condition,
-            "timestamp": iso_ts,
-            "manual": True,
-        }
-
-        body = json.dumps(payload)
-        path = f"{HIS_ALARM_API_PATH}?timestamp={now_ms}"
-        status_line, hdrs, raw_hdrs, resp_body = _http_request(
-            "POST", path, headers_extra=headers_extra, body=body,
-        )
-
-        logger.info(f"History alarm offset={offset}: {len(resp_body)} bytes, {status_line}")
-
-        data, parse_ok = _safe_json_loads(resp_body.decode('utf-8'), label=f"History(offset={offset})")
-        if not parse_ok or not isinstance(data, dict):
-            logger.warning(f"Unexpected history response type: {type(data)}")
-            break
-
-        if data.get("code") not in (0, None, "0"):
-            logger.warning(f"History API error code={data.get('code')}, msg={data.get('msg', '')[:100]}")
-            break
-
-        if total is None:
-            total = data.get("totalcount") or data.get("total", 0)
-            logger.info(f"History alarm total records: {total}")
-
-        rows = parse_response(data, label="History")
-        if not isinstance(rows, list):
-            rows = []
-
-        rows = _normalize_alarm_rows(rows)
-        if not rows:
-            break
-
-        prev_count = len(all_rows)
-        all_rows.extend(rows)
-        if len(all_rows) == prev_count:
-            logger.warning("No new history records, stopping pagination")
-            break
-
-        if len(rows) < page_size:
-            break
-
-        offset += page_size
-        if offset > 100000:
-            logger.warning("Reached max history offset limit (100000)")
-            break
+    # 并发去重（按 eFlow 唯一告警 id，防止重复抓取）
+    before = len(all_rows)
+    seen = set()
+    deduped = []
+    for row in all_rows:
+        rid = row.get("id") if isinstance(row, dict) else None
+        if rid is not None:
+            if rid in seen:
+                continue
+            seen.add(rid)
+        deduped.append(row)
+    all_rows = deduped
 
     elapsed = time.time() - start_time
-    logger.info(f"History Alarm: {len(all_rows)} records in {elapsed:.2f}s")
+    logger.info(
+        f"History Alarm: {len(all_rows)} records (dedup {before}->{len(all_rows)}) in {elapsed:.2f}s, "
+        f"pages={len(offsets) + 1}, workers={HIS_ALARM_WORKERS}"
+    )
     return ("history_alarm", all_rows)
 
 
@@ -1358,12 +1420,15 @@ def _clean_column_name(col: str) -> str:
     return col or 'unnamed'
 
 
-def _write_alarm_to_appdb(table_name: str, rows, index_cols: list):
+def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: str = None):
     """将完整告警数据（全字段 + snake_case 归一化）写入仪表盘主库 db/app.db。
 
     仪表盘的 routers（gis.py / alarm_dashboard.py）从 db/app.db 读取 realtime_alarm /
     history_alarm，之前的 write_alarm_sqlite 只写入 data/eflow/eflow.sqlite3，导致
     任务显示 Success 但仪表盘数据不更新。此函数补全写入主库，列结构与 routers 期望一致。
+
+    upsert_key: 若提供（如 history_alarm 的 "id"，eFlow 唯一告警 ID），则按该键做幂等累积写入
+    —— 先 DELETE 匹配旧行再 append，不再整表重建（B）。不提供则保持原 if_exists="replace" 语义。
     """
     if not isinstance(rows, list) or not rows:
         logger.warning(f"{table_name} -> app.db: no data, skip")
@@ -1392,7 +1457,25 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list):
         conn = sqlite3.connect(APP_DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
-        df.to_sql(table_name, conn, if_exists="replace", index=False, chunksize=5000)
+        if upsert_key and upsert_key in df.columns:
+            # 幂等累积写入（B）：按 upsert_key 删除旧行再 append，避免整表重建与重抓浪费
+            exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
+            ).fetchone()
+            if exists:
+                ids = df[upsert_key].tolist()
+                deleted = 0
+                for i in range(0, len(ids), 900):
+                    chunk = ids[i:i + 900]
+                    qmarks = ",".join("?" for _ in chunk)
+                    conn.execute(
+                        f'DELETE FROM "{table_name}" WHERE "{upsert_key}" IN ({qmarks})', chunk
+                    )
+                    deleted += len(chunk)
+                logger.info(f"{table_name}: 删除 {deleted} 条旧行 (upsert on {upsert_key})")
+            df.to_sql(table_name, conn, if_exists="append", index=False, chunksize=5000)
+        else:
+            df.to_sql(table_name, conn, if_exists="replace", index=False, chunksize=5000)
         for idx_col in index_cols:
             if idx_col in df.columns:
                 conn.execute(f'CREATE INDEX IF NOT EXISTS idx_{table_name}_{idx_col} ON {table_name}({idx_col})')
@@ -1442,7 +1525,8 @@ def fetch_and_save_history_alarm():
         f"(removed {len(his_rows) - len(filtered_his_rows)} rows with empty/invalid TT ID)"
     )
     write_history_alarm_sqlite(filtered_his_rows)
-    _write_alarm_to_appdb("history_alarm", filtered_his_rows, ["site_id", "tt_id", "alarmraisedtime", "region"])
+    # B: 按 eFlow 唯一告警 id 做幂等累积写入（不再整表重建，旧数据保留、只抓增量）
+    _write_alarm_to_appdb("history_alarm", filtered_his_rows, ["site_id", "tt_id", "alarmraisedtime", "region"], upsert_key="id")
 
     elapsed = time.time() - start_time
     logger.info(f"History alarm sync completed in {elapsed:.2f}s, {len(filtered_his_rows)} records")
@@ -2310,6 +2394,17 @@ def generate_hourly_report_with_images(data: dict, send_email: bool = None) -> d
     if rename_map:
         df_source = df_source.rename(columns=rename_map)
     logger.info(f"TT DataFrame: {df_source.shape}, 重命名: {rename_map}")
+
+    # 2.1 修复 Ticket No.：eFlow 导出的 "TT No" 列包含真正的 TT 编号，
+    #     而 "Ticket No." 列实际包含的是 WO 编号。
+    #     原始列名 "TT No" 经 _clean_column_name 等价于 tt_no。
+    _tt_raw_col = next((c for c in df_source.columns
+                        if re.sub(r'[\.\s]+', '_', c.strip()).strip('_').lower() == 'tt_no'), None)
+    if _tt_raw_col:
+        df_source["Ticket No."] = df_source[_tt_raw_col]
+        logger.info(f"Ticket No. 已从原始列 '{_tt_raw_col}' 回填（真正的 TT 编号）")
+    else:
+        logger.warning("未找到包含 TT 编号的列，Ticket No. 将保持原值")
 
     # 2.5 从 Site 数据添加 TRM Type / FME / Supervisor / Site Category 列
     attr_maps = _build_site_attr_map(sheets_data, ExcelDataProcessor)

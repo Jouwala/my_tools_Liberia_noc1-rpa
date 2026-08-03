@@ -12,6 +12,8 @@ import os
 import traceback
 import ast
 import inspect
+import importlib.util
+import textwrap
 import types
 from datetime import datetime
 from pathlib import Path
@@ -122,6 +124,9 @@ _BUILTINS = {
     "Exception", "ValueError", "TypeError", "KeyError", "RuntimeError",
     "TimeoutError", "OSError", "IOError", "json", "time", "logger", "logging",
     "os", "sqlite3", "threading", "Path",
+    # 常见 stdlib 构造/工具，出现在调用链里只是噪声
+    "ThreadPoolExecutor", "ProcessPoolExecutor", "as_completed", "datetime",
+    "timedelta", "defaultdict", "Decimal", "BytesIO", "StringIO", "deepcopy",
 }
 
 _METHOD_NOISE = {
@@ -131,47 +136,189 @@ _METHOD_NOISE = {
     "format", "join", "split", "strip", "replace", "upper", "lower",
     "startswith", "endswith", "find", "index", "copy", "close", "commit",
     "rollback", "fetchall", "fetchone", "execute",
+    # 线程池 / 通用方法噪声
+    "submit", "result", "cancel", "done", "shutdown", "wait", "sleep",
+    "dumps", "loads", "read", "write", "seek", "flush", "sort", "insert",
 }
 
 
+# 调用链最大递归深度（环境变量可配，默认 2）
+CALL_CHAIN_DEPTH = int(os.getenv("CALL_CHAIN_DEPTH", "2"))
+
+
+# 源码 AST 缓存：{绝对文件路径: ast.Module | None}，注册期一次性解析，避免重复读盘
+_AST_CACHE: dict[str, object] = {}
+
+
+def _rel(path: str) -> str:
+    """绝对路径 → 相对 my_app 的短路径（避免前端暴露完整磁盘路径）。"""
+    try:
+        return os.path.relpath(path, BACKEND_DIR).replace("\\", "/")
+    except ValueError:
+        return os.path.basename(path)
+
+
+def _module_file(modname: str) -> str | None:
+    """不导入模块，仅用 find_spec 拿到 .py 源文件路径（零副作用）。"""
+    if not modname:
+        return None
+    try:
+        spec = importlib.util.find_spec(modname)
+    except Exception:  # noqa: BLE001 - 相对导入 / 包不存在
+        return None
+    origin = getattr(spec, "origin", None)
+    return origin if origin and origin.endswith(".py") else None
+
+
+def _parse_file(path: str):
+    """解析并缓存文件 AST，失败返回 None。"""
+    if path in _AST_CACHE:
+        return _AST_CACHE[path]
+    tree = None
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            tree = ast.parse(f.read())
+    except Exception:  # noqa: BLE001
+        tree = None
+    _AST_CACHE[path] = tree
+    return tree
+
+
+def _find_funcdef(tree, name: str):
+    """在文件 AST 中找到同名函数定义节点（含类方法 / 嵌套）。"""
+    if tree is None:
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return node
+    return None
+
+
+def _locate(func) -> str:
+    """返回 callable 的 '相对文件:行号'，解析不到返回空。"""
+    try:
+        srcfile = inspect.getsourcefile(func)
+        _, lineno = inspect.getsourcelines(func)
+        if srcfile:
+            return f"{_rel(srcfile)}:{lineno}"
+    except (OSError, TypeError):
+        pass
+    return ""
+
+
+def _import_map(node) -> dict:
+    """收集函数体内的 `from X import Y [as Z]`（任务入口普遍用延迟导入），
+    返回 {本地名: (模块名, 原始名)}，用于在不导入的前提下定位目标源码。"""
+    out = {}
+    try:
+        for n in ast.walk(node):
+            if isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+                for a in n.names:
+                    out[a.asname or a.name] = (n.module, a.name)
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _calls_in(node, skip_names: set) -> list:
+    """从 AST 节点收集被调用的函数名（去内置 / 去方法噪声 / 去自身）。"""
+    raw = []
+    for n in ast.walk(node):
+        if not isinstance(n, ast.Call):
+            continue
+        fn = n.func
+        if isinstance(fn, ast.Attribute):
+            name = fn.attr
+            if name in _METHOD_NOISE:
+                continue
+        elif isinstance(fn, ast.Name):
+            name = fn.id
+        else:
+            continue
+        if name in _BUILTINS or name.startswith("__") or name in skip_names:
+            continue
+        if name not in raw:
+            raw.append(name)
+    return raw
+
+
+def _chain_from_file(modname: str, funcname: str, depth: int) -> list:
+    """纯静态：从源文件 AST 展开某函数的下游调用（不导入模块）。"""
+    path = _module_file(modname)
+    if not path:
+        return []
+    tree = _parse_file(path)
+    fdef = _find_funcdef(tree, funcname)
+    if fdef is None:
+        return []
+    imports = _import_map(fdef)
+    # 该模块顶层的 from-import 也算（服务模块通常在文件头部导入）
+    if tree is not None:
+        imports.update(_import_map_toplevel(tree))
+    out = []
+    for name in _calls_in(fdef, {funcname}):
+        loc = ""
+        sub_mod = None
+        if name in imports:
+            sub_mod, orig = imports[name]
+            sub_path = _module_file(sub_mod)
+            sub_def = _find_funcdef(_parse_file(sub_path), orig) if sub_path else None
+            if sub_def is not None:
+                loc = f"{_rel(sub_path)}:{sub_def.lineno}"
+        else:
+            same_def = _find_funcdef(tree, name)
+            if same_def is not None:
+                loc = f"{_rel(path)}:{same_def.lineno}"
+                sub_mod = modname
+        out.append(f"{name} ({loc})" if loc else name)
+        if depth > 1 and sub_mod:
+            target_name = imports.get(name, (None, name))[1]
+            for sub in _chain_from_file(sub_mod, target_name, depth - 1):
+                out.append(f"  → {sub}")
+    return out
+
+
+def _import_map_toplevel(tree) -> dict:
+    """模块顶层的 from-import 映射。"""
+    out = {}
+    for n in getattr(tree, "body", []):
+        if isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+            for a in n.names:
+                out.setdefault(a.asname or a.name, (n.module, a.name))
+    return out
+
+
 def _auto_call_chain(func, _depth=0, _seen=None):
-    """静态分析 func 的调用链（入口函数 + 1 层递归），供前端 hover 展示。
-    零副作用：仅在本模块 globals 内解析同模块函数做一层递归；
-    跨模块调用只显示函数名。嵌套 def / 源码不可得时，用字节码 co_names 兜底。
-    返回层级字符串列表（子项带 '  → ' 缩进缩进）。"""
+    """静态分析 func 的调用链，供前端 hover 展示（零副作用，不导入任何模块）。
+
+    解析顺序：
+      1) 源码 AST（dedent 后可解析嵌套 def）→ 收集调用名 + 函数体内的延迟导入表
+      2) 目标解析：模块 globals 里的真实对象 → inspect 定位；
+         否则用 `from X import Y` + importlib.find_spec 拿源文件，AST 找行号
+      3) 递归展开 CALL_CHAIN_DEPTH-1 层（子项带 '  → ' 缩进）
+    源码不可得时退回字节码 co_names。
+    """
     if _seen is None:
         _seen = set()
     qual = f"{getattr(func, '__module__', '')}.{getattr(func, '__qualname__', '')}"
-    if qual in _seen or _depth >= 2:
+    if qual in _seen or _depth >= CALL_CHAIN_DEPTH:
         return []
     _seen.add(qual)
 
     mod = inspect.getmodule(func)
     mod_globals = getattr(mod, "__dict__", {}) if mod else {}
 
-    raw = []
+    raw: list = []
+    imports: dict = {}
     try:
-        src = inspect.getsource(func)
+        # dedent：嵌套 def 的源码带缩进，不 dedent 会 IndentationError 直接退化到字节码兜底
+        src = textwrap.dedent(inspect.getsource(func))
         tree = ast.parse(src)
-        top_defs = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                fn = node.func
-                if isinstance(fn, ast.Attribute):
-                    name = fn.attr
-                    if name in _METHOD_NOISE:
-                        continue
-                elif isinstance(fn, ast.Name):
-                    name = fn.id
-                else:
-                    continue
-                if name in _BUILTINS or name.startswith("__"):
-                    continue
-                if name in top_defs:
-                    continue
-                raw.append(name)
+        self_name = getattr(func, "__name__", "")
+        imports = _import_map(tree)
+        raw = _calls_in(tree, {self_name})
     except (OSError, TypeError, SyntaxError):
-        # 兜底：嵌套 def / 源码不可得时，用字节码引用的全局名
+        # 兜底：源码不可得时，用字节码引用的全局名
         for name in getattr(getattr(func, "__code__", None), "co_names", ()):
             if "." in name:  # 过滤 import from 产生的完整模块路径
                 continue
@@ -183,17 +330,31 @@ def _auto_call_chain(func, _depth=0, _seen=None):
 
     out = []
     for name in raw:
-        if name in out:
+        if any(n.split(" (")[0] == name for n in out):
             continue
-        out.append(name)
-        if _depth < 1:  # 仅入口函数做一层递归
-            target = mod_globals.get(name)
+        target = mod_globals.get(name)
+        loc = _locate(target) if callable(target) else ""
+        sub_mod = sub_name = None
+        if not loc and name in imports:
+            # 延迟导入：不导入模块，直接用源文件 AST 定位
+            sub_mod, sub_name = imports[name]
+            sub_path = _module_file(sub_mod)
+            sub_def = _find_funcdef(_parse_file(sub_path), sub_name) if sub_path else None
+            if sub_def is not None:
+                loc = f"{_rel(sub_path)}:{sub_def.lineno}"
+        out.append(f"{name} ({loc})" if loc else name)
+
+        if _depth >= CALL_CHAIN_DEPTH - 1:
+            continue
+        try:
             if callable(target) and getattr(target, "__module__", None) == getattr(mod, "__name__", None):
-                try:
-                    for sub in _auto_call_chain(target, _depth + 1, _seen):
-                        out.append(f"  → {sub}")
-                except Exception:
-                    pass
+                for sub in _auto_call_chain(target, _depth + 1, _seen):
+                    out.append(f"  → {sub}")
+            elif sub_mod and sub_name:
+                for sub in _chain_from_file(sub_mod, sub_name, CALL_CHAIN_DEPTH - _depth - 1):
+                    out.append(f"  → {sub}")
+        except Exception:  # noqa: BLE001
+            pass
     return out[:15]
 
 
@@ -283,7 +444,7 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
     if not task["enabled"]:
         return {"success": False, "error": f"任务 {task_id} 已禁用"}
 
-    logger.info(f"[{task_id}] 开始执行 ({trigger})")
+    logger.info("任务开始执行", extra={"task_id": task_id, "event": "task_start", "trigger": trigger})
     start_time = time.time()
 
     result = {
@@ -317,7 +478,7 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
         result["success"] = False
         result["error"] = str(e)
         result["error_trace"] = traceback.format_exc()
-        logger.error(f"[{task_id}] 执行失败: {e}")
+        logger.error("任务执行失败", extra={"task_id": task_id, "event": "task_fail", "error": str(e)})
     except BaseException as e:
         # 捕获 SystemExit / KeyboardInterrupt 等被强行中断的情况
         # （例如 WorkBuddy safe-delete 守卫在 os.remove 时 raise SystemExit）。
@@ -325,7 +486,7 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
         result["success"] = False
         result["error"] = f"{type(e).__name__}: {e}"
         result["error_trace"] = traceback.format_exc()
-        logger.error(f"[{task_id}] 执行被强行中断({type(e).__name__}): {e}")
+        logger.error("任务被强行中断", extra={"task_id": task_id, "event": "task_interrupt", "error_type": type(e).__name__})
 
     elapsed = time.time() - start_time
     result["elapsed_seconds"] = round(elapsed, 2)
@@ -351,7 +512,7 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[{task_id}] 微信失败通知异常: {e}")
 
-    logger.info(f"[{task_id}] 执行完成: success={result['success']}, {elapsed:.2f}s")
+    logger.info("任务执行完成", extra={"task_id": task_id, "event": "task_done", "success": result["success"], "elapsed": round(elapsed, 2)})
     return result
 
 
@@ -661,6 +822,110 @@ def get_task_detail(task_id: str, lang: str = "zh") -> Optional[dict]:
         detail["recent_runs"] = []
 
     return detail
+
+
+def get_task_stats(task_id: str, days: int | None = None) -> dict:
+    """统计某任务在保留期内的执行健康度（成功率 / 平均·最大耗时）。"""
+    result = {
+        "task_id": task_id,
+        "total_runs": 0,
+        "success_runs": 0,
+        "failed_runs": 0,
+        "success_rate": None,
+        "avg_elapsed": None,
+        "max_elapsed": None,
+        "first_seen": None,
+        "last_seen": None,
+    }
+    try:
+        conn = sqlite3.connect(str(DB_PATH), timeout=30)
+        _ensure_task_log_table(conn)
+        where = "WHERE task_id = ?"
+        params: list = [task_id]
+        if days:
+            where += " AND started_at >= datetime('now', ?)"
+            params.append(f"-{days} days")
+        row = conn.execute(
+            f"""SELECT COUNT(*), COALESCE(SUM(success),0),
+                       AVG(elapsed_seconds), MAX(elapsed_seconds),
+                       MIN(started_at), MAX(started_at)
+                FROM task_execution_log {where}""",
+            params,
+        ).fetchone()
+        conn.close()
+        if row and row[0]:
+            total = row[0]
+            succ = row[1]
+            result.update({
+                "total_runs": total,
+                "success_runs": succ,
+                "failed_runs": total - succ,
+                "success_rate": round(succ / total, 4) if total else None,
+                "avg_elapsed": round(row[2], 2) if row[2] is not None else None,
+                "max_elapsed": round(row[3], 2) if row[3] is not None else None,
+                "first_seen": row[4],
+                "last_seen": row[5],
+            })
+    except Exception as e:
+        logger.warning(f"统计任务健康度失败 ({task_id}): {e}")
+    return result
+
+
+def get_recent_failures(days: int = 3, limit: int = 200) -> dict:
+    """按 error 首行聚类近期失败，便于快速判断是否为同一根因。"""
+    clusters: dict[str, dict] = {}
+    try:
+        conn = sqlite3.connect(str(DB_PATH), timeout=30)
+        _ensure_task_log_table(conn)
+        rows = conn.execute(
+            """SELECT task_id, task_name, error, started_at
+               FROM task_execution_log
+               WHERE success = 0
+                 AND started_at >= datetime('now', ?)
+               ORDER BY started_at DESC LIMIT ?""",
+            (f"-{days} days", limit),
+        ).fetchall()
+        conn.close()
+        for task_id, task_name, error, started_at in rows:
+            key = (error or "未知错误").split("\n")[0][:120]
+            c = clusters.get(key)
+            if not c:
+                c = {"error_first_line": key, "count": 0, "tasks": {}, "last_seen": None}
+                clusters[key] = c
+            c["count"] += 1
+            c["tasks"][task_id] = c["tasks"].get(task_id, 0) + 1
+            if not c["last_seen"] or (started_at or "") > c["last_seen"]:
+                c["last_seen"] = started_at
+    except Exception as e:
+        logger.warning(f"聚合失败记录失败: {e}")
+    items = sorted(clusters.values(), key=lambda x: x["count"], reverse=True)
+    return {"days": days, "total_failures": sum(c["count"] for c in items), "clusters": items}
+
+
+def get_task_history_by_task(task_id: str, limit: int = 200) -> list[dict]:
+    """某任务的执行历史（按时间倒序），供前端历史弹窗分页 / 导出。"""
+    rows: list[dict] = []
+    try:
+        conn = sqlite3.connect(str(DB_PATH), timeout=30)
+        _ensure_task_log_table(conn)
+        cur = conn.execute(
+            "SELECT task_id, task_name, category, trigger_type, success, "
+            "started_at, completed_at, elapsed_seconds, error, error_trace "
+            "FROM task_execution_log WHERE task_id = ? "
+            "ORDER BY started_at DESC LIMIT ?",
+            (task_id, limit),
+        )
+        for r in cur.fetchall():
+            rows.append({
+                "task_id": r[0], "task_name": r[1], "category": r[2],
+                "trigger": r[3], "success": bool(r[4]),
+                "started_at": r[5], "completed_at": r[6],
+                "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
+            })
+        conn.close()
+    except Exception as e:
+        logger.warning(f"查询任务历史失败 ({task_id}): {e}")
+    return rows
 
 
 def get_task_history(limit: int = 20) -> list[dict]:

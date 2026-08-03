@@ -407,6 +407,22 @@ def _register_all_tasks():
         category="kpi_email",
     )
 
+    # 20. EWS 恢复后自动补发失败邮件（每 20 分钟探测 EWS 可用性并补发）
+    def _run_email_recovery():
+        from backend.services.email_recovery import run_email_recovery_task
+        return run_email_recovery_task()
+
+    task_runner.register_task(
+        task_id="email_recovery",
+        name="EWS 恢复后邮件补发",
+        name_en="Email Recovery after EWS Restored",
+        func=_run_email_recovery,
+        description="探测 EWS 是否恢复；恢复后自动补发近 3 小时内因 EWS 超时失败的邮件任务",
+        description_en="Probe EWS reachability; auto re-send email tasks that failed due to EWS timeout in last 3h once server is back",
+        default_cron="*/20 * * * *",
+        category="email",
+    )
+
 
 def _init_db_with_retry(max_retries: int = 12, wait: int = 5):
     """db 初始化可能因后台进程(Windows Search 索引 / 杀软实时扫描)临时锁住
@@ -515,6 +531,12 @@ def get_tasks_history(limit: int = 20):
     return {"history": task_runner.get_task_history(limit)}
 
 
+@app.get("/api/tasks/failures")
+def tasks_failures(days: int = 3, limit: int = 200):
+    """按 error 首行聚类近期失败，便于快速判断是否为同一根因"""
+    return task_runner.get_recent_failures(days, limit)
+
+
 @app.get("/api/tasks/{task_id}")
 def get_task_info(task_id: str, request: Request):
     """获取任务详情（含最近执行记录）"""
@@ -535,6 +557,18 @@ def run_task_now(task_id: str):
 def task_run_status(task_id: str):
     """查询任务是否正在运行"""
     return {"task_id": task_id, "running": task_runner.is_task_running(task_id)}
+
+
+@app.get("/api/tasks/{task_id}/stats")
+def task_stats(task_id: str, days: int | None = None):
+    """任务健康度统计（成功率 / 平均·最大耗时）"""
+    return task_runner.get_task_stats(task_id, days)
+
+
+@app.get("/api/tasks/{task_id}/history")
+def task_history(task_id: str, limit: int = 200):
+    """某任务的执行历史（分页 / 导出用）"""
+    return {"history": task_runner.get_task_history_by_task(task_id, limit)}
 
 
 # ========== SP 备件仓库看板 API ==========

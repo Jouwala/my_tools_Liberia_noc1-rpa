@@ -26,6 +26,11 @@ import {
   AppstoreOutlined,
   GlobalOutlined,
   MailOutlined,
+  SearchOutlined,
+  DownloadOutlined,
+  SortAscendingOutlined,
+  UnorderedListOutlined,
+  WarningOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
@@ -65,6 +70,20 @@ interface RunRecord {
   elapsed_seconds: number
   error: string | null
   error_trace?: string | null
+}
+
+// 失败聚合（GET /api/tasks/failures）：按错误首行归并，识别跨任务的同一根因
+interface FailureCluster {
+  error_first_line: string
+  count: number
+  tasks: Record<string, number>
+  last_seen: string
+}
+
+interface FailureAgg {
+  days: number
+  total_failures: number
+  clusters: FailureCluster[]
 }
 
 // 取错误首行（截断），用于卡片/横幅的一行摘要
@@ -307,6 +326,45 @@ function TaskHistoryModal({
   locale: 'zh' | 'en'
   onClose: () => void
 }) {
+  const [runs, setRuns] = useState<RunRecord[]>([])
+  const [stats, setStats] = useState<{ success_rate: number | null; avg_elapsed: number | null; max_elapsed: number | null; total_runs: number } | null>(null)
+  const [visible, setVisible] = useState(20)
+
+  useEffect(() => {
+    if (open && task) {
+      api.get(`/tasks/${task.task_id}/history?limit=200`)
+        .then(res => setRuns(res.data.history || []))
+        .catch(() => setRuns([]))
+      api.get(`/tasks/${task.task_id}/stats`)
+        .then(res => setStats(res.data))
+        .catch(() => setStats(null))
+    } else {
+      setRuns([])
+      setStats(null)
+      setVisible(20)
+    }
+  }, [open, task?.task_id])
+
+  const exportCsv = () => {
+    if (!runs.length) return
+    const header = ['task_id', 'task_name', 'success', 'trigger', 'started_at', 'completed_at', 'elapsed_seconds', 'error']
+    const lines = [header.join(',')]
+    runs.forEach(r => {
+      lines.push([
+        r.task_id, r.task_name, r.success ? '1' : '0', r.trigger,
+        r.started_at, r.completed_at, r.elapsed_seconds,
+        `"${(r.error || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`,
+      ].join(','))
+    })
+    const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `task_history_${task?.task_id || 'all'}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <Modal
       title={
@@ -325,10 +383,30 @@ function TaskHistoryModal({
         body: { background: WH.bg },
       }}
     >
-      {task?.recent_runs && task.recent_runs.length > 0 ? (
+      {stats && stats.total_runs > 0 && (
+        <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
+          <Text style={{ fontSize: 12, color: WH.textMuted }}>
+            {locale === 'zh' ? '总运行' : 'Total'}: <b style={{ color: WH.text }}>{stats.total_runs}</b>
+          </Text>
+          <Text style={{ fontSize: 12, color: WH.textMuted }}>
+            {locale === 'zh' ? '成功率' : 'Success'}:{' '}
+            <b style={{ color: stats.success_rate != null && stats.success_rate >= 0.8 ? '#52c41a' : '#ff6b6b' }}>
+              {stats.success_rate != null ? `${(stats.success_rate * 100).toFixed(1)}%` : '-'}
+            </b>
+          </Text>
+          <Text style={{ fontSize: 12, color: WH.textMuted }}>
+            {locale === 'zh' ? '平均耗时' : 'Avg'}: <b style={{ color: WH.text }}>{stats.avg_elapsed != null ? `${stats.avg_elapsed}s` : '-'}</b>
+          </Text>
+          <Text style={{ fontSize: 12, color: WH.textMuted }}>
+            {locale === 'zh' ? '最大耗时' : 'Max'}: <b style={{ color: WH.text }}>{stats.max_elapsed != null ? `${stats.max_elapsed}s` : '-'}</b>
+          </Text>
+        </div>
+      )}
+      {runs.length > 0 ? (
+        <>
         <List
           size="small"
-          dataSource={task.recent_runs}
+          dataSource={runs.slice(0, visible)}
           renderItem={(run: RunRecord) => (
             <List.Item style={{
               background: run.success ? 'rgba(82, 196, 26, 0.05)' : 'rgba(255, 77, 79, 0.05)',
@@ -410,6 +488,20 @@ function TaskHistoryModal({
             </List.Item>
           )}
         />
+        {runs.length > visible && (
+          <div style={{ textAlign: 'center', marginTop: 8 }}>
+            <Button size="small" onClick={() => setVisible(v => v + 20)} style={{ color: WH.text }}>
+              {locale === 'zh' ? `加载更多（已显示 ${visible}/${runs.length}）` : `Load More (${visible}/${runs.length})`}
+            </Button>
+          </div>
+        )}
+        <div style={{ textAlign: 'right', marginTop: 8 }}>
+          <Button size="small" icon={<DownloadOutlined />} onClick={exportCsv} disabled={!runs.length}
+            style={{ color: WH.text, borderColor: 'rgba(100,255,218,0.25)' }}>
+            {locale === 'zh' ? '导出 CSV' : 'Export CSV'}
+          </Button>
+        </div>
+        </>
       ) : (
         <div style={{ textAlign: 'center', color: WH.textMuted, padding: 24 }}>
           {locale === 'zh' ? '暂无执行记录' : 'No run history'}
@@ -424,8 +516,16 @@ export default function DataSync() {
   const { t, locale } = useI18n()
   const { runningMap } = useTaskStatus()
   const [tasks, setTasks] = useState<TaskInfo[]>([])
+  const [allTasks, setAllTasks] = useState<TaskInfo[]>([])
   const [taskDetails, setTaskDetails] = useState<Record<string, TaskDetail>>({})
   const [loading, setLoading] = useState(false)
+  // 列表检索/筛选/排序/视图状态
+  const [searchText, setSearchText] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'failed' | 'success' | 'running' | 'disabled'>('all')
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [sortKey, setSortKey] = useState<'name' | 'next_run' | 'status'>('name')
+  // 每 30s 走一次的时钟，仅用于"下次运行"倒计时的相对时间刷新
+  const [nowTs, setNowTs] = useState(Date.now())
   // 本地乐观状态：仅用于点击后到后端轮询确认"运行中"之间的过渡，最终以后端 runningMap 为准
   const [localRunning, setLocalRunning] = useState<Set<string>>(new Set())
   const startedRef = useRef<Set<string>>(new Set())
@@ -434,6 +534,49 @@ export default function DataSync() {
   // Modal states
   const [editTask, setEditTask] = useState<TaskInfo | null>(null)
   const [historyTask, setHistoryTask] = useState<TaskDetail | null>(null)
+  // 失败聚合弹窗：按错误首行归并近 N 天失败，快速识别"同一根因影响多个任务"
+  const [aggOpen, setAggOpen] = useState(false)
+  const [aggDays, setAggDays] = useState(3)
+  const [failureAgg, setFailureAgg] = useState<FailureAgg | null>(null)
+  const [aggLoading, setAggLoading] = useState(false)
+
+  // 根据搜索/筛选/排序计算展示列表
+  const applyFilters = (src: TaskInfo[]): TaskInfo[] => {
+    let out = src
+    const kw = searchText.trim().toLowerCase()
+    if (kw) {
+      out = out.filter(t =>
+        t.name.toLowerCase().includes(kw) ||
+        t.task_id.toLowerCase().includes(kw) ||
+        (t.description || '').toLowerCase().includes(kw)
+      )
+    }
+    if (statusFilter !== 'all') {
+      out = out.filter(t => {
+        const last = (t.recent_runs && t.recent_runs[0]) || null
+        if (statusFilter === 'failed') return last ? !last.success : false
+        if (statusFilter === 'success') return last ? last.success : false
+        if (statusFilter === 'running') return !!(runningMap[t.task_id] || localRunning.has(t.task_id))
+        if (statusFilter === 'disabled') return !t.enabled
+        return true
+      })
+    }
+    if (categoryFilter !== 'all') out = out.filter(t => t.category === categoryFilter)
+    const sorted = [...out]
+    if (sortKey === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name))
+    else if (sortKey === 'next_run') sorted.sort((a, b) => (a.next_run || '~').localeCompare(b.next_run || '~'))
+    else if (sortKey === 'status') sorted.sort((a, b) => {
+      const sa = (a.recent_runs?.[0]?.success ?? true) ? 1 : 0
+      const sb = (b.recent_runs?.[0]?.success ?? true) ? 1 : 0
+      return sa - sb
+    })
+    return sorted
+  }
+
+  // 筛选/排序/运行状态变化时重算展示列表
+  useEffect(() => {
+    setTasks(applyFilters(allTasks))
+  }, [searchText, statusFilter, categoryFilter, sortKey, allTasks, runningMap, localRunning])
 
   const loadTasks = useCallback(async (force = false) => {
     if (force) invalidateCache('sync:')
@@ -447,7 +590,8 @@ export default function DataSync() {
         15000,
       )
       const list: TaskInfo[] = res.data.tasks || []
-      setTasks(list)
+      setAllTasks(list)
+      setTasks(applyFilters(list))
       // 由列表响应直接构建详情（recent_runs 已含最新 1 条，足够卡片展示）
       const details: Record<string, TaskDetail> = {}
       list.forEach(task => { details[task.task_id] = task as TaskDetail })
@@ -460,6 +604,22 @@ export default function DataSync() {
   }, [t, locale])
 
   useEffect(() => { loadTasks() }, [loadTasks])
+
+  // 倒计时时钟：每 30s tick 一次，仅驱动"下次运行"相对时间重算，不发请求
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTs(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  // 失败聚合：仅在弹窗打开时拉取，避免常驻轮询
+  useEffect(() => {
+    if (!aggOpen) return
+    setAggLoading(true)
+    api.get(`/tasks/failures?days=${aggDays}`)
+      .then(res => setFailureAgg(res.data))
+      .catch(() => setFailureAgg(null))
+      .finally(() => setAggLoading(false))
+  }, [aggOpen, aggDays])
 
   // 监听后端 running 状态：完成（running true->false）时刷新卡片并提示结果
   useEffect(() => {
@@ -568,6 +728,32 @@ export default function DataSync() {
     }
   }
 
+  /** 距离下次运行的相对时间，如 "约 2 小时 15 分后"；解析失败返回空串。 */
+  const getNextRunEta = (task: TaskInfo): string => {
+    if (!task.next_run) return ''
+    const ts = new Date(task.next_run).getTime()
+    if (Number.isNaN(ts)) return ''
+    const diffMin = Math.round((ts - nowTs) / 60000)
+    if (diffMin <= 0) return locale === 'zh' ? '即将执行' : 'due now'
+    if (diffMin < 60) return locale === 'zh' ? `约 ${diffMin} 分钟后` : `in ~${diffMin}m`
+    const h = Math.floor(diffMin / 60)
+    const m = diffMin % 60
+    if (h < 24) {
+      return locale === 'zh'
+        ? `约 ${h} 小时${m ? ` ${m} 分` : ''}后`
+        : `in ~${h}h${m ? ` ${m}m` : ''}`
+    }
+    const d = Math.floor(h / 24)
+    return locale === 'zh' ? `约 ${d} 天后` : `in ~${d}d`
+  }
+
+  /** 5 分钟内即将执行 → 高亮提示 */
+  const isImminent = (task: TaskInfo): boolean => {
+    if (!task.next_run) return false
+    const ts = new Date(task.next_run).getTime()
+    return !Number.isNaN(ts) && ts - nowTs <= 5 * 60 * 1000
+  }
+
   // 定义行分组（按 task_id）
   const ROW_GROUPS: { label_zh: string; label_en: string; task_ids: string[] }[] = [
     {
@@ -622,7 +808,7 @@ export default function DataSync() {
   const taskMap = new Map(tasks.map(t => [t.task_id, t]))
 
   // 当前处于失败状态的任务（取各任务最新一条执行记录判断），用于顶部汇总横幅
-  const failedTasks = tasks.filter(
+  const failedTasks = allTasks.filter(
     t => t.recent_runs && t.recent_runs.length > 0 && !t.recent_runs[0].success,
   )
 
@@ -736,6 +922,13 @@ export default function DataSync() {
               {task.next_run && (
                 <span style={{ marginLeft: 12, color: WH.textMuted }}>
                   ⏭ {locale === 'zh' ? '下次：' : 'Next: '}{getNextRunTime(task)}
+                  <span style={{
+                    marginLeft: 6,
+                    color: isImminent(task) ? '#ffa940' : WH.textDim,
+                    fontWeight: isImminent(task) ? 600 : 400,
+                  }}>
+                    （{getNextRunEta(task)}）
+                  </span>
                 </span>
               )}
             </div>
@@ -816,12 +1009,64 @@ export default function DataSync() {
         </Button>
       </div>
 
+      {/* 列表检索 / 筛选 / 排序 */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+        <Input
+          allowClear
+          prefix={<SearchOutlined style={{ color: WH.textDim }} />}
+          placeholder={locale === 'zh' ? '搜索任务名 / ID' : 'Search name / ID'}
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+          style={{ width: 220, background: 'rgba(255,255,255,0.05)', color: WH.text, borderColor: 'rgba(100,255,218,0.18)' }}
+        />
+        <Select
+          value={statusFilter}
+          onChange={v => setStatusFilter(v)}
+          style={{ width: 120 }}
+          options={[
+            { value: 'all', label: locale === 'zh' ? '全部状态' : 'All Status' },
+            { value: 'failed', label: locale === 'zh' ? '失败' : 'Failed' },
+            { value: 'success', label: locale === 'zh' ? '成功' : 'Success' },
+            { value: 'running', label: locale === 'zh' ? '运行中' : 'Running' },
+            { value: 'disabled', label: locale === 'zh' ? '已禁用' : 'Disabled' },
+          ]}
+        />
+        <Select
+          value={categoryFilter}
+          onChange={v => setCategoryFilter(v)}
+          style={{ width: 140 }}
+          options={[
+            { value: 'all', label: locale === 'zh' ? '全部分类' : 'All Categories' },
+            ...Object.keys(CATEGORY_CONFIG).map(c => ({ value: c, label: CATEGORY_CONFIG[c].label_zh })),
+          ]}
+        />
+        <Select
+          value={sortKey}
+          onChange={v => setSortKey(v)}
+          style={{ width: 130 }}
+          options={[
+            { value: 'name', label: locale === 'zh' ? '按名称' : 'By Name' },
+            { value: 'next_run', label: locale === 'zh' ? '按下次运行' : 'By Next Run' },
+            { value: 'status', label: locale === 'zh' ? '按状态' : 'By Status' },
+          ]}
+        />
+        <Text style={{ color: WH.textDim, fontSize: 12, marginLeft: 'auto' }}>
+          {locale === 'zh' ? `共 ${tasks.length} / ${allTasks.length} 个` : `${tasks.length} / ${allTasks.length}`}
+        </Text>
+      </div>
+
       {/* 失败任务汇总横幅：一眼看到当前哪些任务在持续失败，点击错误可直达历史 */}
       {failedTasks.length > 0 && (
         <Alert
           type="error"
           showIcon
           style={{ marginBottom: 20, borderColor: 'rgba(255,77,79,0.4)' }}
+          action={
+            <Button size="small" onClick={() => setAggOpen(true)}
+              style={{ color: '#ff9c9c', borderColor: 'rgba(255,77,79,0.35)' }}>
+              {locale === 'zh' ? '失败聚合' : 'Group Failures'}
+            </Button>
+          }
           message={
             <Text strong style={{ color: '#ff7875' }}>
               {locale === 'zh'
@@ -898,6 +1143,90 @@ export default function DataSync() {
         locale={locale}
         onClose={() => setHistoryTask(null)}
       />
+
+      {/* 失败聚合 Modal：按错误首行归并，一眼看出同一根因影响了哪些任务 */}
+      <Modal
+        open={aggOpen}
+        onCancel={() => setAggOpen(false)}
+        footer={null}
+        width={760}
+        title={
+          <span style={{ color: WH.text }}>
+            <WarningOutlined style={{ marginRight: 8, color: '#ff7875' }} />
+            {locale === 'zh' ? '失败聚合' : 'Failure Clusters'}
+          </span>
+        }
+        styles={{
+          root: { background: WH.bg },
+          header: { background: '#0a1929', borderBottom: '1px solid rgba(100,255,218,0.15)' },
+          body: { background: WH.bg },
+        }}
+      >
+        <Space style={{ marginBottom: 12 }} size={12}>
+          <Text style={{ fontSize: 12, color: WH.textMuted }}>
+            {locale === 'zh' ? '统计窗口' : 'Window'}
+          </Text>
+          <Select
+            size="small"
+            value={aggDays}
+            onChange={setAggDays}
+            style={{ width: 110 }}
+            options={[1, 3, 7, 14].map(d => ({
+              value: d, label: locale === 'zh' ? `近 ${d} 天` : `Last ${d}d`,
+            }))}
+          />
+          {failureAgg && (
+            <Text style={{ fontSize: 12, color: WH.textMuted }}>
+              {locale === 'zh'
+                ? `共 ${failureAgg.total_failures} 次失败 / ${failureAgg.clusters.length} 类根因`
+                : `${failureAgg.total_failures} failures / ${failureAgg.clusters.length} clusters`}
+            </Text>
+          )}
+        </Space>
+        <Spin spinning={aggLoading}>
+          {failureAgg && failureAgg.clusters.length > 0 ? (
+            <List
+              size="small"
+              dataSource={failureAgg.clusters}
+              renderItem={(c: FailureCluster) => (
+                <List.Item style={{
+                  background: 'rgba(255,77,79,0.06)', marginBottom: 8, borderRadius: 8,
+                  padding: '10px 12px', border: '1px solid rgba(255,77,79,0.18)',
+                }}>
+                  <div style={{ width: '100%' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                      <Text style={{ color: '#ff9c9c', fontSize: 12, fontWeight: 600, wordBreak: 'break-word' }}>
+                        {c.error_first_line}
+                      </Text>
+                      <Tag color="red" style={{ flexShrink: 0 }}>×{c.count}</Tag>
+                    </div>
+                    <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {Object.entries(c.tasks).map(([tid, n]) => (
+                        <Tag
+                          key={tid}
+                          style={{ cursor: 'pointer', fontSize: 11 }}
+                          onClick={() => { setAggOpen(false); handleOpenHistory(tid) }}
+                        >
+                          {tid} ×{n}
+                        </Tag>
+                      ))}
+                    </div>
+                    <Text style={{ fontSize: 11, color: WH.textDim }}>
+                      {locale === 'zh' ? '最近一次：' : 'Last: '}{c.last_seen}
+                    </Text>
+                  </div>
+                </List.Item>
+              )}
+            />
+          ) : (
+            !aggLoading && (
+              <div style={{ textAlign: 'center', color: WH.textMuted, padding: 24 }}>
+                {locale === 'zh' ? '该窗口内没有失败记录 🎉' : 'No failures in this window 🎉'}
+              </div>
+            )
+          )}
+        </Spin>
+      </Modal>
     </div>
   )
 }

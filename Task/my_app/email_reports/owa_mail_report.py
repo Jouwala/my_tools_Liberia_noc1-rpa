@@ -98,6 +98,9 @@ OWA_AUTH_TYPE = os.getenv("OWA_AUTH_TYPE", "NTLM").upper()
 OWA_VERIFY_SSL = os.getenv("OWA_VERIFY_SSL", "false").lower() in ("1", "true", "yes", "on")
 OWA_MAX_CONNECTIONS = max(1, int(os.getenv("OWA_MAX_CONNECTIONS", "2")))
 OWA_RETRY_MAX_WAIT = max(1, int(os.getenv("OWA_RETRY_MAX_WAIT", "60")))
+# EWS SOAP 单次请求超时（秒）。默认 120s 太长——服务端降/抖动时一个卡住的 GetFolder 能拖住
+# 整个邮件任务 2 分钟。压到 60s 让"发不出去"快速失败，配合上游 FaultTolerance 退避重试。
+OWA_SOAP_TIMEOUT = max(10, int(os.getenv("OWA_SOAP_TIMEOUT", "60")))
 
 _AUTH_MAP = {"NTLM": NTLM, "BASIC": BASIC}
 if OWA_AUTH_TYPE not in _AUTH_MAP:
@@ -202,6 +205,7 @@ def get_account(
         auth_type=_AUTH_MAP[auth_type],
         version=EWS_VERSION,
         max_connections=OWA_MAX_CONNECTIONS,
+        protocol=Protocol(timeout=OWA_SOAP_TIMEOUT),
         retry_policy=FaultTolerance(max_wait=OWA_RETRY_MAX_WAIT),
     )
     account = Account(

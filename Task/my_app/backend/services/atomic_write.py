@@ -15,6 +15,7 @@
 import os
 import time
 import logging
+import shutil
 import glob as _glob
 import uuid
 from pathlib import Path
@@ -47,23 +48,58 @@ def _cleanup(tmp):
         pass
 
 
+def find_lock_owners(final):
+    """返回独占/打开文件 final 的进程列表 [(pid, name)]。
+
+    优先用 Sysinternals ``handle.exe``（若已加入 PATH）做最可靠的解析；
+    不可用则返回空列表（此时 ``_diagnose_lock`` 仍会用「可写性探测」给出锁定状态）。
+    **只读探测，不做任何修改**，仅用于排查文件被谁锁住
+    （杀毒实时扫描 / 前端热读 / 索引服务 / 残留的 openpyxl 进程等）。
+    """
+    try:
+        import re
+        import shutil
+        import subprocess
+        h = shutil.which("handle") or shutil.which("handle64") or shutil.which("handle.exe")
+        if h:
+            out = subprocess.run(
+                [h, "-nobanner", str(final)],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
+            ).stdout
+            owners = []
+            # handle.exe 输出形如:  python.exe  pid: 1234  type: File  ...  C:\path\file.xlsx
+            for m in re.finditer(r"pid:\s*(\d+).*?type:\s*File[^\n]*\n\s*(.+)", out):
+                owners.append((int(m.group(1)), m.group(2).strip()))
+            if owners:
+                return owners
+    except Exception:
+        pass
+    return []
+
+
 def _diagnose_lock(final):
-    """尝试诊断谁锁住了文件（Windows），输出到日志辅助排查。"""
+    """诊断谁锁住了文件并输出日志；同时做可写性探测。"""
     try:
         import ctypes
         from ctypes import wintypes
-        # 简单检测：尝试以独占写方式打开文件
         handle = ctypes.windll.kernel32.CreateFileW(
             str(final), 0x40000000, 0, None, 3, 0x80, None  # GENERIC_WRITE, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL
         )
-        if handle == -1:
-            err = ctypes.windll.kernel32.GetLastError()
-            logger.warning("  文件锁诊断: 目标文件被独占 (WinError %d): %s", err, final)
-        else:
+        writable = handle != -1
+        if writable:
             ctypes.windll.kernel32.CloseHandle(handle)
-            logger.info("  文件锁诊断: 目标文件此刻可写（锁已释放）: %s", final)
     except Exception:
-        pass
+        writable = None
+
+    owners = find_lock_owners(final)
+    if owners:
+        procs = ", ".join(f"pid={p} {n}" for p, n in owners)
+        logger.warning("  🔒 文件锁诊断: 目标被进程独占: %s | 持有者: %s", final, procs)
+    elif writable is True:
+        logger.info("  文件锁诊断: 目标此刻可写（锁已释放）: %s", final)
+    elif writable is False:
+        logger.warning("  文件锁诊断: 目标被独占(WinError 5 类): %s", final)
+    return owners
 
 
 def _fallback_save(tmp, final):
@@ -121,6 +157,18 @@ def _atomic_replace(tmp, final, max_retries, base_wait):
                     _diagnose_lock(final)
             else:
                 break
+
+    # 重试耗尽前的最后手段：目标被独占但允许写入(共享写)时，就地覆盖内容。
+    # 典型场景：读者(openpyxl 读、看板热读)以 共享读+写 但不共享删除 打开文件，
+    # 此时 os.replace(需删旧文件) 失败，但 copyfile(只写内容) 可穿过去。
+    for _ in range(3):
+        try:
+            shutil.copyfile(str(tmp), str(final))
+            logger.warning("✅ 通过就地覆盖(copyfile)写穿文件锁: %s", final)
+            _cleanup(tmp)
+            return True
+        except _RETRYABLE:
+            time.sleep(base_wait)
 
     # 重试耗尽：诊断 + fallback
     logger.error("原子替换 %d 次重试全部失败: %s -> %s: %s", max_retries + 1, tmp, final, last_err)

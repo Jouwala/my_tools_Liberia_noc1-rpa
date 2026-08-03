@@ -17,6 +17,7 @@ Liberia 站点宕报告邮件任务
 import subprocess
 import sys
 import time
+import threading
 from pathlib import Path
 
 # .../Task/my_app
@@ -77,8 +78,22 @@ def _resolve_recipients(to: str = None, cc: str = None):
     return to_arg, cc_arg
 
 
-def _run_script(script_name: str, to: str = None, cc: str = None, retries: int = 2) -> dict:
-    """调用指定邮件脚本，返回 {success, message/detail/error}。"""
+def _run_script(
+    script_name: str,
+    to: str = None,
+    cc: str = None,
+    retries: int = 2,
+    per_attempt_timeout: int = 90,
+    budget: int = 210,
+) -> dict:
+    """调用指定邮件脚本，返回 {success, message/detail/error}。
+
+    异步/防阻塞设计：实际发送在后台 daemon 线程中执行，主线程最多等待 ``budget``
+    秒后返回，避免 EWS 服务端降级时一个邮件任务长期霸占调度 worker、吞掉后续整点任务。
+    - 正常情况下（数分钟内完成）会在 budget 内拿到真实结果并返回。
+    - 极端缓慢时（超过 budget）脱离主线程返回失败，后台线程继续发送；
+      这类「超时脱离」不会被 email_recovery 重复补发（错误关键字不匹配 EWS 失败）。
+    """
     py = _resolve_python()
     script = EMAIL_REPORTS_DIR / script_name
     if not script.is_file():
@@ -92,38 +107,54 @@ def _run_script(script_name: str, to: str = None, cc: str = None, retries: int =
     if cc is not None:
         cmd += ["--cc", cc]
 
-    last_err = None
-    for attempt in range(1, retries + 1):
-        try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=300,
-            )
-            out = (proc.stdout or "") + (proc.stderr or "")
-            if proc.returncode == 0:
-                tail = "\n".join(out.strip().splitlines()[-15:])
-                return {
-                    "success": True,
-                    "message": f"{script_name} 发送成功 (attempt {attempt})",
-                    "detail": tail,
-                }
-            # 失败：判断是否可重试的瞬时错误
-            transient = any(k in out for k in _TRANSIENT_KEYS)
-            last_err = f"returncode={proc.returncode}\n{out[-2000:]}"
-            if (not transient) or attempt == retries:
-                return {"success": False, "error": last_err}
-            time.sleep(5)
-            continue
-        except subprocess.TimeoutExpired as e:
-            last_err = f"timeout: {e}"
-            if attempt == retries:
-                return {"success": False, "error": last_err}
-            time.sleep(5)
-    return {"success": False, "error": last_err or "unknown error"}
+    holder: dict = {}
+
+    def _attempt_all():
+        last_err = None
+        for attempt in range(1, retries + 1):
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=per_attempt_timeout,
+                )
+                out = (proc.stdout or "") + (proc.stderr or "")
+                if proc.returncode == 0:
+                    tail = "\n".join(out.strip().splitlines()[-15:])
+                    return {
+                        "success": True,
+                        "message": f"{script_name} 发送成功 (attempt {attempt})",
+                        "detail": tail,
+                    }
+                transient = any(k in out for k in _TRANSIENT_KEYS)
+                last_err = f"returncode={proc.returncode}\n{out[-2000:]}"
+                if (not transient) or attempt == retries:
+                    return {"success": False, "error": last_err}
+                time.sleep(5)
+                continue
+            except subprocess.TimeoutExpired as e:
+                last_err = f"timeout: {e}"
+                if attempt == retries:
+                    return {"success": False, "error": last_err}
+                time.sleep(5)
+        return {"success": False, "error": last_err or "unknown error"}
+
+    t = threading.Thread(target=lambda: holder.setdefault("r", _attempt_all()), daemon=True)
+    t.start()
+    t.join(timeout=budget)
+    if t.is_alive():
+        # 发送仍在进行（服务端极慢），脱离主线程，释放调度 worker。
+        return {
+            "success": False,
+            "error": (
+                f"BUDGET_EXCEEDED: 邮件发送超过 {budget}s 预算上限，已脱离主线程"
+                f"（后台继续发送；email_recovery 仅对 EWS 失败补发，不会重复本任务）"
+            ),
+        }
+    return holder.get("r", {"success": False, "error": "no result"})
 
 
 def run_1h_report(to: str = None, cc: str = None) -> dict:

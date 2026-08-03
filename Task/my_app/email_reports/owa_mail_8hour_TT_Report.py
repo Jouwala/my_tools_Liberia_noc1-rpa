@@ -94,8 +94,10 @@ from exchangelib import (  # noqa: E402
     HTMLBody,
     Mailbox,
     Message,
+    Version,
 )
 from exchangelib.protocol import NoVerifyHTTPAdapter, Protocol  # noqa: E402
+from exchangelib.version import EXCHANGE_2016  # noqa: E402
 
 # =====================================================================
 # 配置（环境变量优先，便于集成调度）
@@ -108,6 +110,8 @@ OWA_AUTH_TYPE = os.getenv("OWA_AUTH_TYPE", "NTLM").upper()
 OWA_VERIFY_SSL = os.getenv("OWA_VERIFY_SSL", "false").lower() in ("1", "true", "yes", "on")
 OWA_MAX_CONNECTIONS = max(1, int(os.getenv("OWA_MAX_CONNECTIONS", "2")))
 OWA_RETRY_MAX_WAIT = max(1, int(os.getenv("OWA_RETRY_MAX_WAIT", "60")))
+# EWS SOAP 单次请求超时（秒）。默认 120s 太长，压到 60s 让"发不出去"快速失败。
+OWA_SOAP_TIMEOUT = max(10, int(os.getenv("OWA_SOAP_TIMEOUT", "60")))
 
 _AUTH_MAP = {"NTLM": NTLM, "BASIC": BASIC}
 if OWA_AUTH_TYPE not in _AUTH_MAP:
@@ -205,6 +209,9 @@ def _wrap_plain_to_html(body: str) -> str:
 # =====================================================================
 # 核心：登录 + 发送邮件
 # =====================================================================
+EWS_VERSION = Version(build=EXCHANGE_2016, api_version="Exchange2016")
+
+
 def get_account(
     server: str = OWA_SERVER,
     username: str = OWA_USERNAME,
@@ -221,7 +228,9 @@ def get_account(
         server=server,
         credentials=creds,
         auth_type=_AUTH_MAP[auth_type],
+        version=EWS_VERSION,
         max_connections=OWA_MAX_CONNECTIONS,
+        protocol=Protocol(timeout=OWA_SOAP_TIMEOUT),
         # Retries transient EWS throttling / server-busy failures only. Do not
         # add an application-level retry around send_mail(), which could send
         # the same email twice if the server accepted it before a timeout.

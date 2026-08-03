@@ -15,9 +15,13 @@ remote_ftp.py
 from __future__ import annotations
 
 import ftplib
+import os
+import logging
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+logger = logging.getLogger("remote_ftp")
 
 FTP_HOST = "192.168.100.19"
 
@@ -102,8 +106,25 @@ def download_filtered(
             if name_filter and name_filter not in nm:
                 continue
             local = local_dir / nm
-            with open(local, "wb") as f:
-                ftp.retrbinary(f"RETR {item}", f.write)
+            # 先下载到临时文件，再原子替换到最终路径，扛目标被锁(Permission denied)。
+            # 直接 open(local,'wb') 会在目标被其他进程独占时立刻报 [Errno 13]。
+            tmp = local.with_suffix(local.suffix + f".{os.getpid()}.tmp")
+            try:
+                with open(tmp, "wb") as f:
+                    ftp.retrbinary(f"RETR {item}", f.write)
+                try:
+                    from .atomic_write import atomic_replace_file
+                except ImportError:
+                    from atomic_write import atomic_replace_file
+                atomic_replace_file(str(tmp), str(local))
+            except Exception as e:
+                try:
+                    if os.path.exists(str(tmp)):
+                        os.remove(str(tmp))
+                except OSError:
+                    pass
+                logger.error("下载失败(已跳过): %s -> %s: %s", item, local, e)
+                continue
             out.append(local)
         return out
     finally:

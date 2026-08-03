@@ -12,6 +12,7 @@
 __pycache__/
 *.pyc
 .venv/
+.venv-test/
 
 # Browser sessions & binaries
 chrome-win/
