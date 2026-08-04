@@ -140,6 +140,18 @@ def _query_remote_api(me: str, measure_obj: str, table_name: str) -> Optional[pd
             df = pd.DataFrame(result["rows"], columns=result["columns"])
             cols = df.columns.tolist()
             
+            # 验证数据有效性：数值列必须包含实际数字，不能是列名字符串
+            candidate_numeric = ["Counter Value", "Receive Traffic Rate(Mbps)",
+                                 "Send Traffic Rate(Mbps)"]
+            check_cols = [c for c in candidate_numeric if c in cols]
+            if check_cols:
+                sample = pd.to_numeric(df[check_cols].iloc[:5].stack(), errors='coerce')
+                if sample.notna().sum() == 0:
+                    logger.warning(
+                        f"远程 API 返回数据无效（数值列全为字符串），"
+                        f"降级到本地 SQLite (ME={me}, MO={measure_obj})")
+                    return None
+            
             # 自动检测表结构
             if "Counter" in cols and "Counter Value" in cols:
                 # EAV 格式：需要 pivot
@@ -366,8 +378,11 @@ def generate_chart(df: pd.DataFrame, me: str, measure_obj: str, output_path: Pat
         date_labels = []
         for t in df["Begin Time"]:
             s = str(t)
+            # 兼容 ISO 格式（T 分隔）和空格分隔的时间戳
             if 'T' in s:
                 s = s.split('T')[0]
+            elif ' ' in s:
+                s = s.split(' ')[0]
             if granularity == 'day':
                 # 天粒度：只显示 MM-DD
                 if len(s) >= 10:
@@ -376,12 +391,13 @@ def generate_chart(df: pd.DataFrame, me: str, measure_obj: str, output_path: Pat
                     date_labels.append(s)
             else:
                 # 小时粒度：显示 MM-DD HH:MM
-                if len(s) >= 16:
-                    date_labels.append(s[5:16])
-                elif len(s) >= 10:
-                    date_labels.append(s[5:])
+                raw = str(t)
+                if len(raw) >= 16:
+                    date_labels.append(raw[5:16])
+                elif len(raw) >= 10:
+                    date_labels.append(raw[5:])
                 else:
-                    date_labels.append(s)
+                    date_labels.append(raw)
         
         n = len(date_labels)
         # 根据数据量控制刻度密度

@@ -96,7 +96,9 @@ def _resolve_recipients() -> Tuple[list, list]:
 def _query_remote_api(mo: str) -> Optional[pd.DataFrame]:
     """尝试从远程 API 读取数据。"""
     try:
-        from .remote_db_reader import get_remote_reader
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from remote_db_reader import get_remote_reader
         
         reader = get_remote_reader()
         
@@ -121,19 +123,37 @@ def _query_remote_api(mo: str) -> Optional[pd.DataFrame]:
             logger.warning(f"列出远程表失败: {e}")
             return None
         
-        # 调用查询 API
+        # 调用查询 API（用 SELECT * 而非指定列名，因为远程数据库列名是长名称
+        # 如 "Bytes of flows of uplink packets based RG(Byte)"，而非 C550400011。
+        # 如果指定不存在的列名，SQLite 会将其当作字符串常量返回，导致数据全为列名字符串。）
         try:
             result = reader.read_table(
                 db="db_ps_cs_cn.sqlite3",
                 table="FREE_RATING_GROUP_TEMPLATE_OSS_update_UME",
-                columns=["Begin Time", "Measurement Object", "End Time", 
-                         "C550400011", "C550400012", "C550400013"],
-                where=f'"Measurement Object" = "{mo}"',
+                columns=None,  # SELECT *
+                where='"Measurement Object" = "' + mo + '"',
                 limit=10000
             )
             
             if result.get("success") and result.get("rows"):
                 df = pd.DataFrame(result["rows"], columns=result["columns"])
+                # 将实际列名映射为短名称
+                col_map = {
+                    "Bytes of flows of uplink packets based RG(Byte)": "C550400011",
+                    "Bytes of flows of downlink packets based RG(Byte)": "C550400012",
+                    "Bytes of total packets based RG(Byte)": "C550400013",
+                }
+                df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+                # 验证数据有效性：数值列必须包含实际数字
+                numeric_cols = ["C550400011", "C550400012", "C550400013"]
+                valid_cols = [c for c in numeric_cols if c in df.columns]
+                if valid_cols:
+                    sample = pd.to_numeric(df[valid_cols].iloc[:5].stack(), errors='coerce')
+                    if sample.notna().sum() == 0:
+                        logger.warning(
+                            f"远程 API 返回数据无效（数值列全为字符串/列名），"
+                            f"降级到 Excel (MO={mo})")
+                        return None
                 logger.info(f"从远程 API 读取到 {len(df)} 行数据 (MO={mo})")
                 return df
             
@@ -302,8 +322,11 @@ def generate_line_chart(df: pd.DataFrame, mo: str, output_path: Path) -> bool:
         date_labels = []
         for t in df["Begin Time"]:
             s = str(t)
+            # 兼容 ISO 格式（T 分隔）和空格分隔的时间戳
             if 'T' in s:
                 s = s.split('T')[0]
+            elif ' ' in s:
+                s = s.split(' ')[0]
             if granularity == 'day':
                 # 天粒度：只显示 MM-DD
                 if len(s) >= 10:
@@ -312,12 +335,13 @@ def generate_line_chart(df: pd.DataFrame, mo: str, output_path: Path) -> bool:
                     date_labels.append(s)
             else:
                 # 小时粒度：显示 MM-DD HH:MM
-                if len(s) >= 16:
-                    date_labels.append(s[5:16])
-                elif len(s) >= 10:
-                    date_labels.append(s[5:])
+                raw = str(t)
+                if len(raw) >= 16:
+                    date_labels.append(raw[5:16])
+                elif len(raw) >= 10:
+                    date_labels.append(raw[5:])
                 else:
-                    date_labels.append(s)
+                    date_labels.append(raw)
         
         n = len(date_labels)
         # 根据数据量控制刻度密度
