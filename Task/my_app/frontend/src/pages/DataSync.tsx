@@ -325,6 +325,19 @@ export default function DataSync() {
       task_ids: ['packet_loss_sync'],
     },
     {
+      label_zh: 'CNN UME 数据同步',
+      label_en: 'CNN UME Data Sync',
+      task_ids: ['cnn_kpi_sync'],
+    },
+    {
+      label_zh: '图表邮件',
+      label_en: 'Chart Email Reports',
+      task_ids: [
+        'ipran_m6k_chart_email',
+        'ccn_free_rating_chart_email',
+      ],
+    },
+    {
       label_zh: 'Liberia 宕站报告邮件',
       label_en: 'Liberia Site-Down Email',
       task_ids: ['liberia_email_1h', 'liberia_email_8h'],

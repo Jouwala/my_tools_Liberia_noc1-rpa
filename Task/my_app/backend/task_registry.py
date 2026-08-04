@@ -129,15 +129,15 @@ TASK_SPECS = [
     # 9. RAN UME Main KPI 同步（每天凌晨4点）
     dict(task_id="main_kpi_sync", name="RAN Main KPI 同步", name_en="RAN Main KPI Sync",
          loader=("backend.services.ran_ume_main_kpi", "run_main_kpi_sync"),
-         description="RAN UME Main KPI 历史指标同步（2G/3G/4G × Cells/Sites/Group/NW），导出 Excel 并增量更新 SQLite + FTP 上传",
-         description_en="RAN UME Main KPI history sync (2G/3G/4G × Cells/Sites/Group/NW), export Excel and incremental SQLite update + FTP upload",
+         description="RAN UME Main KPI 历史指标同步（2G/3G/4G x Cells/Sites/Group/NW），导出 Excel 并增量更新 SQLite + FTP 上传",
+         description_en="RAN UME Main KPI history sync (2G/3G/4G x Cells/Sites/Group/NW), export Excel and incremental SQLite update + FTP upload",
          default_cron="0 4 * * *", category="main_kpi"),
 
     # 10. RAN UME Network KPI（Zeenshan）同步（每天凌晨5点）
     dict(task_id="network_kpi_sync", name="RAN Network KPI 同步", name_en="RAN Network KPI Sync",
          loader=("backend.services.ran_ume_network_kpi", "run_network_kpi_sync"),
-         description="RAN UME Network KPI（Zeenshan）历史指标同步（2G/3G/4G × Group/NW），导出 Excel 并导入 SQLite + FTP 上传",
-         description_en="RAN UME Network KPI (Zeenshan) history sync (2G/3G/4G × Group/NW), export Excel and import to SQLite + FTP upload",
+         description="RAN UME Network KPI（Zeenshan）历史指标同步（2G/3G/4G x Group/NW），导出 Excel 并导入 SQLite + FTP 上传",
+         description_en="RAN UME Network KPI (Zeenshan) history sync (2G/3G/4G x Group/NW), export Excel and import to SQLite + FTP upload",
          default_cron="0 5 * * *", category="network_kpi"),
 
     # 11. CNN UME KPI 同步（每天凌晨6点）
@@ -223,6 +223,20 @@ TASK_SPECS = [
          description="RAN UME 丢包率（SDR/IPRAN IPPD）近7天小时粒度同步，合并入库 lte_pl.sqlite3 并生成 Packet Loss Status Report",
          description_en="Sync last-7-day hourly Packet Loss Rate (SDR/IPRAN IPPD) from RAN UME, merge into lte_pl.sqlite3 and generate Packet Loss Status Report",
          default_cron="30 6 * * *", category="packet_loss"),
+
+    # 23. IP RAN M6K-FW Chart Email - 3组 ME+SmartGroup 折线图，每天 6:45
+    dict(task_id="ipran_m6k_chart_email", name="IP RAN M6K-FW 图表邮件", name_en="IP RAN M6K-FW Chart Email",
+         loader=("backend.services.ipran_chart_service", "run_ipran_m6k_chart_email"),
+         description="从 ipran_ume_kpi.sqlite3 查询 HQ_M6K_FW_bnctp_15mins，按 ME+SmartGroup 生成3张利用率折线图并发送",
+         description_en="Query HQ_M6K_FW_bnctp_15mins by ME+SmartGroup, generate 3 utilization line charts and email",
+         default_cron="45 6 * * *", category="email"),
+
+    # 24. CNN Free Rating Group Chart Email - 4个 MO 柱状图，每天 7:45
+    dict(task_id="ccn_free_rating_chart_email", name="CNN Free Rating 图表邮件", name_en="CNN Free Rating Chart Email",
+         loader=("backend.services.ccn_free_rating_chart_service", "run_ccn_free_rating_chart_email"),
+         description="从 db_ps_cs_cn.sqlite3 查询 FREE_RATING_GROUP_TEMPLATE_OSS_update_UME，按 MO 生成4张柱状图并发送",
+         description_en="Query FREE_RATING by MO, generate 4 bar charts and email",
+         default_cron="45 7 * * *", category="email"),
 ]
 
 
