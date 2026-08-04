@@ -433,28 +433,28 @@ def run_chart_and_send(to_override: Optional[str] = None,
     
     logger.info(f"共生成 {len(chart_files)} 张图表")
     
-    # # 发送邮件
-    # subject = f"CNN Free Rating Group Report - {datetime.now().strftime('%Y-%m-%d')}"
-    # body = (
-    #     "<h3>Dear Team,</h3>"
-    #     "<p>Please find the CNN Free Rating Group charts attached.</p>"
-    #     "<p>Charts show Balance, Used, and Total metrics by Measurement Object over time.</p>"
-    #     "<br><p>Best regards,<br>ZTENOC OLR</p>"
-    # )
+    # 发送邮件
+    subject = f"CNN Free Rating Group Report - {datetime.now().strftime('%Y-%m-%d')}"
+    body = (
+        "<h3>Dear Team,</h3>"
+        "<p>Please find the CNN Free Rating Group charts attached.</p>"
+        "<p>Charts show Balance, Used, and Total metrics by Measurement Object over time.</p>"
+        "<br><p>Best regards,<br>ZTENOC OLR</p>"
+    )
     
-    # result = _send_email(
-    #     to=to_list,
-    #     cc=cc_list,
-    #     subject=subject,
-    #     body=body,
-    #     inline_images=chart_files,
-    # )
+    result = _send_email(
+        to=to_list,
+        cc=cc_list,
+        subject=subject,
+        body=body,
+        inline_images=chart_files,
+    )
     
-    # elapsed = time.perf_counter() - t0
-    # result["elapsed_seconds"] = round(elapsed, 2)
-    # result["charts_generated"] = len(chart_files)
+    elapsed = time.perf_counter() - t0
+    result["elapsed_seconds"] = round(elapsed, 2)
+    result["charts_generated"] = len(chart_files)
     
-    # logger.info(f"任务完成: {result}")
+    logger.info(f"任务完成: {result}")
     return result
 
 
