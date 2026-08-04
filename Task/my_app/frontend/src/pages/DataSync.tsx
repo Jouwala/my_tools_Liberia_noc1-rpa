@@ -338,6 +338,11 @@ export default function DataSync() {
       ],
     },
     {
+      label_zh: 'FW 吞吐 KPI 同步',
+      label_en: 'FW Throughput KPI Sync',
+      task_ids: ['fw_kpi_sync'],
+    },
+    {
       label_zh: 'Liberia 宕站报告邮件',
       label_en: 'Liberia Site-Down Email',
       task_ids: ['liberia_email_1h', 'liberia_email_8h'],

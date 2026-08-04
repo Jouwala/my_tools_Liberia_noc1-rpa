@@ -237,6 +237,13 @@ TASK_SPECS = [
          description="从 db_ps_cs_cn.sqlite3 查询 FREE_RATING_GROUP_TEMPLATE_OSS_update_UME，按 MO 生成4张柱状图并发送",
          description_en="Query FREE_RATING by MO, generate 4 bar charts and email",
          default_cron="45 7 * * *", category="email"),
+
+    # 25. FW 整机吞吐 KPI 同步 + 图表邮件 - 每天 7:15
+    dict(task_id="fw_kpi_sync", name="FW 吞吐 KPI 同步+图表邮件", name_en="FW Throughput KPI Sync + Chart Email",
+         loader=("backend.services.fw_kpi.fw_kpi_services", "run_fw_kpi_sync"),
+         description="从 DPtech UMC 拉取整机吞吐数据，经 API 写入远程 fw_db.sqlite，生成近14天吞吐折线图并邮件发送",
+         description_en="Fetch FW whole throughput from DPtech UMC, write to remote fw_db.sqlite via API, generate 14-day chart and email",
+         default_cron="15 7 * * *", category="fw_kpi"),
 ]
 
 
