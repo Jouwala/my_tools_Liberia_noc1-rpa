@@ -339,17 +339,17 @@ def generate_chart(df: pd.DataFrame, me: str, measure_obj: str, output_path: Pat
         # 使用整数 x 轴（与 ran_ume 一致）
         x = range(len(df))
         
-        # 绘制两条利用率曲线（无 marker，线条简洁）
+        # 绘制两条吞吐量曲线（无 marker，线条简洁）
         ax.plot(x, df["ingress_util"], 
                 linewidth=1.2, 
-                label="Ingress Utilization (%)", color=COLOR_INGRESS, alpha=0.85)
+                label="Receive Traffic Rate(Mbps)", color=COLOR_INGRESS, alpha=0.85)
         ax.plot(x, df["egress_util"], 
                 linewidth=1.2, 
-                label="Egress Utilization (%)", color=COLOR_EGRESS, alpha=0.85)
+                label="Send Traffic Rate(Mbps)", color=COLOR_EGRESS, alpha=0.85)
         
         ax.set_xlabel("Time", fontsize=9)
-        ax.set_ylabel("Utilization (%)", fontsize=9)
-        ax.set_title(f"{me} -- {measure_obj}\nPort Utilization", 
+        ax.set_ylabel("Traffic Rate(Mbps)", fontsize=9)
+        ax.set_title(f"{me} -- {measure_obj}\nPort Throughput", 
                      fontsize=13, fontweight="bold", color=TITLE_COLOR, pad=12)
         ax.legend(loc='upper left', fontsize=8, frameon=True,
                   facecolor='white', framealpha=0.8, edgecolor='#CCCCCC')

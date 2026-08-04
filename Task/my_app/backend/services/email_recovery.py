@@ -154,15 +154,27 @@ def probe_ews_reachable() -> bool:
 
 
 def _log_recovery(orig_task_id: str, success: bool, detail: str, started_iso: str, elapsed: float):
+    """记录补发结果：同时写入原 task_id（Run History 可见）和 email_recovery: 前缀（分类统计）。"""
     try:
         conn = __import__("sqlite3").connect(str(DB_PATH), timeout=30)
+        # 1) 写入原 task_id，trigger_type=recovery —— 让 Run History 能看到补发成功
+        _task_name_map = {
+            "liberia_email_1h": "Liberia 1H Report Email",
+            "liberia_email_8h": "Liberia 8H Report Email",
+            "kpi_ms_contract": "MS Contract KPIs Daily Report",
+            "kpi_ms_wo_sla": "MS WO SLA Daily Report",
+            "kpi_sp_spareparts": "SpareParts Report Email",
+            "kpi_sp_consumables": "Comsumables Report Email",
+            "kpi_ran_availability": "MS Network Availability Daily Report",
+        }
+        orig_name = _task_name_map.get(orig_task_id, orig_task_id)
         conn.execute(
             """INSERT INTO task_execution_log
                (task_id, task_name, category, trigger_type, success, started_at, completed_at, elapsed_seconds, error, result_json)
                VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (
-                f"email_recovery:{orig_task_id}",
-                f"邮件补发:{orig_task_id}",
+                orig_task_id,
+                f"[Recovery] {orig_name}",
                 "email_recovery",
                 "recovery",
                 1 if success else 0,
@@ -170,7 +182,7 @@ def _log_recovery(orig_task_id: str, success: bool, detail: str, started_iso: st
                 datetime.now().isoformat(timespec="seconds"),
                 round(elapsed, 2),
                 None if success else detail[:2000],
-                json.dumps({"orig_task_id": orig_task_id, "detail": detail[:1500]}, ensure_ascii=False),
+                json.dumps({"recovery": True, "orig_task_id": orig_task_id, "detail": detail[:1500]}, ensure_ascii=False),
             ),
         )
         conn.commit()
