@@ -325,6 +325,16 @@ def run_email_recovery_task() -> dict:
     logger.info("开始 EWS 恢复后邮件补发检查")
     summary = recover_failed_emails()
     logger.info("邮件补发检查完成: %s", summary)
+    # 将 reason 提到 message 字段，方便在 Run History 的 error 列直接看到 EWS 状态
+    reason = summary.get("reason", "")
+    if reason == "ews_down":
+        summary["success"] = False
+        summary["error"] = "EWS 仍不可用（探测失败），等待下次重试"
+    elif reason == "ews_up" and summary.get("recovered", 0) == 0 and summary.get("attempted", 0) == 0:
+        # EWS 可用但没有需要补发的邮件
+        summary["message"] = "EWS 正常，无需补发"
+    elif reason == "ews_up":
+        summary["message"] = f"EWS 正常，补发 {summary.get('recovered', 0)}/{summary.get('attempted', 0)} 封"
     return summary
 
 

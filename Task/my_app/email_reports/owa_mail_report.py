@@ -369,7 +369,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--name-filter", default=None,
                         help="文件名包含的子串，用于同时筛选 Excel 与内嵌图片（如 'MS Contract KPIs Achievements Daily Report'）")
     parser.add_argument("--excel-name", dest="name_filter", help="--name-filter 的别名")
-    parser.add_argument("--images", help="指定内嵌图片路径，逗号分隔；默认按 --name-filter 或目录内所有图片")
+    parser.add_argument("--images", action="append", default=None,
+                        help="指定内嵌图片路径，可多次指定或用逗号分隔多个；默认按 --name-filter 或目录内所有图片")
     parser.add_argument("--no-excel", action="store_true", help="不附加 Excel（如仅图片的可用性报告）")
     parser.add_argument("--subject-prefix", default="",
                         help="--no-excel 时主题的固定前缀（会与发送时间戳拼接）")
@@ -434,7 +435,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         # ---- 自动发现图片 ----
         image_paths: List[Path] = []
         if args.images:
-            image_paths = [Path(x.strip()) for x in args.images.split(",") if x.strip()]
+            # --images 可多次指定（action=append），每次的值还可能是逗号分隔的多个路径
+            _flat: List[Path] = []
+            for chunk in args.images:
+                for part in chunk.split(","):
+                    p = Path(part.strip())
+                    if p.is_file():
+                        _flat.append(p)
+                    else:
+                        print(f"[WARN] 图片不存在，跳过: {p}")
+            image_paths = _flat
         elif args.name_filter:
             image_paths = find_images(data_dir, name_filter=args.name_filter)
         else:

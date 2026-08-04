@@ -196,18 +196,19 @@ def _query_remote_api(me: str, measure_obj: str, table_name: str) -> Optional[pd
         return None
 
 
-def _read_from_sqlite(me: str, measure_obj: str, days_back: int = 3) -> Optional[pd.DataFrame]:
-    """从本地 SQLite 读取数据。"""
+def _read_from_sqlite(me: str, measure_obj: str, table_name: str, days_back: int = 3) -> Optional[pd.DataFrame]:
+    """从本地 SQLite 读取数据。table_name 必须显式传入，不同 SmartGroup 对应不同表。"""
     if not DB_PATH.exists() or DB_PATH.stat().st_size == 0:
         return None
     
     end_dt = datetime.now(timezone.utc)
     start_dt = end_dt - timedelta(days=days_back)
     
-    sql = """
+    # 表名通过参数传入，避免写死导致查错表
+    sql = f"""
         SELECT "Begin Time", "ME", "Measure Object", 
                "C019911991", "C019901990"
-        FROM HQ_M6K_FW_bnctp_15mins
+        FROM "{table_name}"
         WHERE "ME" = ? 
           AND "Measure Object" = ?
           AND "Begin Time" >= ?
@@ -297,8 +298,8 @@ def query_data(me: str, measure_obj: str, table_name: str, days_back: int = 3) -
     if df is not None and not df.empty:
         return df
     
-    # 2. 尝试本地 SQLite
-    df = _read_from_sqlite(me, measure_obj, days_back)
+    # 2. 尝试本地 SQLite（传入正确的表名）
+    df = _read_from_sqlite(me, measure_obj, table_name, days_back)
     if df is not None and not df.empty:
         return df
     
