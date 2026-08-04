@@ -1,53 +1,90 @@
-# Excel files
-*.xlsx
-*.xls
+# 压缩文件
+*.7z
+*.zip
+*.rar
+*.tar.gz
+*.tgz
 
-# Database files
+# 可执行文件
+*.exe
+*.dll
+*.sys
+*.pak
+*.dat
+
+# 数据库文件
 *.db
+*.sqlite
 *.sqlite3
+*.mdb
+*.accdb
+*.frm
+*.ibd
+*.dbf
+*.wal
+*.shm
 *.db-shm
 *.db-wal
+data_base/
+*.sql
+
+# Excel / CSV / 文档（非代码）
+*.xlsx
+*.xls
+*.csv
+*.pptx
+
+# 图片文件
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.ico
+*.svg
+*.webp
+*.tiff
+*.tif
+screenshots/
+Site_outage/screenshots/
+*.thumb
+*.cache
 
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
 .venv/
 .venv-test/
+.env
 
-# Browser sessions & binaries
+# 浏览器会话与克隆仓库
 chrome-win/
 whatsapp_session/
-**/browser_session/
-Site_outage/screenshots/
 Task/whatsapp_session/
+**/browser_session/
+my_tools_Liberia_noc1-rpa/
 
-# IDE / tool files
+# IDE / 工具文件
+.vscode/
+.idea/
 .qoder/
 .workbuddy/
+*.swp
+*.swo
 
-# Temporary & debug files
+# 临时与调试目录
 TMP/
 V_Tmp/
 debug/
 scheduler_logs/
 data/
-
-# Images
-*.png
-*.jpg
-*.jpeg
-*.gif
-
-# Archives & executables
-*.zip
-*.exe
-
-# Documents (non-code)
-*.pptx
-*.csv
-
-# Logs
-*.log
+*/data/
+*/detect_column_name/
 
 # Node
 node_modules/
@@ -55,31 +92,26 @@ dist/
 dist_test/
 dist_rebuild/
 
-# Environment
-.env
+# OS
+.DS_Store
+Thumbs.db
 
-# Browser data
-*.pak
-*.dll
-*.dat
+# Logs
+*.log
+logs/
 
-# Cloned repo
-my_tools_Liberia_noc1-rpa/
-
-# Test reports
+# 测试报告
 Task/my_app/tests/reports/
 
-# Auth cache (sensitive)
+# 鉴权缓存（敏感）
 Task/auth_cache/
+auth_cache/
 
-# Misc
+# 备份文件
 *.json.bak
 
-# Local credentials / secrets reference — DO NOT COMMIT (shared prod creds, multiple machines)
+# 本地凭据/密钥参考 — 禁止提交（共享生产凭据，多机使用）
 CREDENTIALS_LOCAL_REFERENCE.txt
 **/CREDENTIALS_LOCAL_REFERENCE.txt
 LOCAL_*.txt
 *.local.txt
-
-# auth cache (runtime tokens)
-auth_cache/

@@ -1,5 +1,4 @@
 """
-import logging
 Liberia 站点宕报告邮件任务
 ==========================
 
@@ -15,6 +14,7 @@ Liberia 站点宕报告邮件任务
 - 生产调度（不传 to/cc）：读取完整名单发送。
 - 测试（传 to="dong.xinmin@zte.com.cn", cc=""）：只发给测试地址，不抄送。
 """
+import logging
 import subprocess
 import sys
 import time
@@ -137,14 +137,30 @@ def _run_script(
                 time.sleep(5)
                 continue
             except subprocess.TimeoutExpired as e:
-                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _attempt_all: exception swallowed", exc_info=True)
+                logging.getLogger(__name__).warning(
+                    "[liberia_email] 邮件脚本单次尝试超时（%ss），attempt=%s/%s",
+                    per_attempt_timeout, attempt, retries,
+                )
                 last_err = f"timeout: {e}"
                 if attempt == retries:
                     return {"success": False, "error": last_err}
                 time.sleep(5)
         return {"success": False, "error": last_err or "unknown error"}
 
-    t = threading.Thread(target=lambda: holder.setdefault("r", _attempt_all()), daemon=True)
+    def _safe():
+        # 任何未捕获异常都必须写入 holder，避免线程静默崩溃导致主线程拿到 "no result"
+        try:
+            holder.setdefault("r", _attempt_all())
+        except BaseException as exc:  # noqa: B902 - 兜底捕获，绝不外泄
+            logging.getLogger(__name__).exception(
+                "[liberia_email] _attempt_all 发生未捕获异常"
+            )
+            holder.setdefault("r", {
+                "success": False,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+
+    t = threading.Thread(target=_safe, daemon=True)
     t.start()
     t.join(timeout=budget)
     if t.is_alive():

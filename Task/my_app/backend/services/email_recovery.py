@@ -13,6 +13,10 @@ EWS 恢复后自动补发失败的邮件任务
 
 设计要点：
   - 只对「EWS 相关失败」补发，不对缺附件/数据源等失败误补发；
+  - **报告时效窗口**：数据目录只保留最新一期报告文件，补发总是取最新文件。
+    若失败记录已越过其自然周期（小时报告进入下一整点、8小时报告进入下一个
+    8 小时块、日报超过 24 小时），补发会发出已被新一期覆盖的旧数据，故直接
+    放弃补发；时间不敏感的日报类在 24 小时内仍可补发；
   - 若同一任务在失败之后已有成功记录，说明正常调度已补发，跳过（防重复）；
   - 单次最多补发 3 个，避免恢复瞬间风暴；
   - BUDGET_EXCEEDED（脱离主线程）类不补发，避免后台已成功时重复发送。
@@ -64,9 +68,40 @@ EWS_FAIL_KEYS = (
     "SOAP",
 )
 
-WINDOW_HOURS = 3          # 只补发近 N 小时内的失败
+WINDOW_HOURS = 24         # 扫描窗口（小时）。实际补发还受各任务时效窗口约束
 RETRY_COOLDOWN_MIN = 60   # 同一失败记录在 N 分钟内不重复补发
 MAX_PER_RUN = 3           # 单次最多补发 N 个
+
+
+def _parse_iso(ts: str):
+    """解析 task_execution_log 中的 ISO 时间字符串，失败返回 None。"""
+    try:
+        return datetime.fromisoformat(ts)
+    except Exception:
+        return None
+
+
+def _window_expired(task_id: str, failed_dt: datetime, now: datetime) -> bool:
+    """判断失败记录是否已越过其报告时效窗口（True = 过期，不应补发）。
+
+    数据目录只保留最新一期报告文件，补发必然发出"当前最新"那一份：
+      - liberia_email_1h（每小时）：报告每小时被新一期覆盖。失败后一旦进入
+        下一个整点小时，补发将发出新一期数据（而非失败那一期）→ 不补发。
+      - liberia_email_8h（每8小时）：同理，进入下一个 8 小时块（按 00/08/16
+        对齐）后不再补发。
+      - 其余天粒度日报（MS KPI / WOs SLA / 备件 / 可用率）：时间不敏感，
+        报告文件到次日才被新一期覆盖，24 小时内均可补发。
+    """
+    if task_id == "liberia_email_1h":
+        hour_end = failed_dt.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        return now >= hour_end
+    if task_id == "liberia_email_8h":
+        block_start = failed_dt.replace(
+            hour=(failed_dt.hour // 8) * 8, minute=0, second=0, microsecond=0
+        )
+        return now >= block_start + timedelta(hours=8)
+    # 天粒度/时间不敏感报告：24 小时内可补发
+    return now >= failed_dt + timedelta(hours=WINDOW_HOURS)
 
 
 def _load_state() -> dict:
@@ -96,8 +131,10 @@ def probe_ews_reachable() -> bool:
     probe = (
         "import sys; sys.path.insert(0, r'%s');"
         "from owa_mail_1hour_TT_Report import get_account;"
-        "a = get_account(); _ = a.inbox; print('EWS_OK')" % _SCRIPT_DIR
+        "a = get_account(); _ = a.inbox.total_count; print('EWS_OK')" % _SCRIPT_DIR
     )
+    # 必须用 .total_count 强制一次真实 SOAP 往返（GetFolder）：
+    # Account/inbox 均为惰性构造，直接访问不发起网络请求，会造成"已恢复"假阳性。
     try:
         r = subprocess.run(
             [_MANAGED_VENV_PY, "-c", probe],
@@ -175,7 +212,7 @@ def _run_task(orig_task_id: str) -> dict:
 def recover_failed_emails() -> dict:
     """扫描并补发失败邮件。返回汇总 dict。"""
     if not probe_ews_reachable():
-        return {"recovered": 0, "attempted": 0, "skipped": 0, "reason": "ews_down"}
+        return {"recovered": 0, "attempted": 0, "skipped": 0, "expired": 0, "reason": "ews_down"}
 
     try:
         import sqlite3
@@ -191,11 +228,12 @@ def recover_failed_emails() -> dict:
             conn.close()
     except Exception as e:
         logger.error("查询失败邮件记录异常: %s", e)
-        return {"recovered": 0, "attempted": 0, "skipped": 0, "reason": f"db_error:{e}"}
+        return {"recovered": 0, "attempted": 0, "skipped": 0, "expired": 0, "reason": f"db_error:{e}"}
 
     state = _load_state()
     now_ts = time.time()
-    recovered = attempted = skipped = 0
+    now_dt = datetime.now()
+    recovered = attempted = skipped = expired = 0
     details = []
 
     for exec_id, task_id, started_at, error in rows:
@@ -207,6 +245,13 @@ def recover_failed_emails() -> dict:
         # 脱离主线程类不补发（防后台已成功时重复）
         if "BUDGET_EXCEEDED" in err:
             skipped += 1
+            continue
+        # 报告时效窗口：越过自然周期（小时报告进入下一整点等）则放弃补发，
+        # 避免把已被新一期覆盖的数据当作失败那一期发出
+        failed_dt = _parse_iso(started_at)
+        if failed_dt is not None and _window_expired(task_id, failed_dt, now_dt):
+            expired += 1
+            state[str(exec_id)] = now_ts  # 标记已处理，后续轮次不再评估
             continue
         # 冷却期内的同一条失败不重复补发
         last = state.get(str(exec_id))
@@ -240,6 +285,7 @@ def recover_failed_emails() -> dict:
         "recovered": recovered,
         "attempted": attempted,
         "skipped": skipped,
+        "expired": expired,
         "reason": "ews_up",
         "details": details,
     }
