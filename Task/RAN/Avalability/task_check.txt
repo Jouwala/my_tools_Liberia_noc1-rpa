@@ -1,0 +1,1 @@
+﻿ERROR: No MSFT_ScheduledTask objects found with property 'TaskName' equal to 'RAN_KPI_AVAILABILITY_1DAY_API'.  Verify the value of the property and retry.

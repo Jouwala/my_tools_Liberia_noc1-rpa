@@ -251,9 +251,13 @@ def register_all_tasks(task_runner) -> int:
     """将 TASK_SPECS 中的全部任务注册到 task_runner，返回注册数量"""
     for spec in TASK_SPECS:
         func = spec.get("func")
+        call_chain = None
         if func is None:
             module_path, func_name = spec["loader"]
             func = _lazy_loader(module_path, func_name)
+            # 懒加载任务：静态分析只能解析到 import_module，故显式给出入口节点，
+            # 让 Task Manager 调用链展示真实服务函数名（DB/文件标注由 task_runner 补充）
+            call_chain = [f"{func_name} ({module_path.replace('.', '/')}.py)"]
         task_runner.register_task(
             task_id=spec["task_id"],
             name=spec["name"],
@@ -263,6 +267,7 @@ def register_all_tasks(task_runner) -> int:
             description_en=spec["description_en"],
             default_cron=spec["default_cron"],
             category=spec["category"],
+            call_chain=call_chain,
         )
     logger.info(f"任务注册完成：{len(TASK_SPECS)} 个任务")
     return len(TASK_SPECS)

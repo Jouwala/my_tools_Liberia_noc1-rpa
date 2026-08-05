@@ -21,6 +21,7 @@ RAN UME Network KPI (Zeenshan) 每日同步脚本
 - 最终格式：{templatename}_{Group|NW}_{1Day|1Month}_{timestamp}.xlsx
 """
 
+import logging
 import base64
 import gc
 import glob

@@ -1,0 +1,2030 @@
+{
+  "code": 0,
+  "error": null,
+  "message": null,
+  "data": {
+    "total": 1532,
+    "titles": {
+      "mo": "Monitor Object",
+      "position": "Position",
+      "batt.health": {
+        "name": "Battery Health(%)",
+        "batt.health.value": "Value",
+        "batt.health.updateTime": "Update Time"
+      },
+      "batt.prst.soc": {
+        "name": "Battery SOC(%)",
+        "batt.prst.soc.value": "Value",
+        "batt.prst.soc.updateTime": "Update Time"
+      },
+      "batt.charge.discharge.status": {
+        "name": "Battery Charge and Discharge Status",
+        "batt.charge.discharge.status.value": "Value",
+        "batt.charge.discharge.status.updateTime": "Update Time"
+      }
+    },
+    "values": [
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA005_Gbagbala/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "93.0",
+        "batt.prst.soc.updateTime": "2024-08-03 00:43:02",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2024-08-03 00:43:02"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA005_Gbagbala/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "93.0",
+        "batt.prst.soc.updateTime": "2024-08-03 00:43:02",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA005_Gbagbala/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "100.0",
+        "batt.health.updateTime": "2024-08-03 00:43:02",
+        "batt.prst.soc.value": "92.7",
+        "batt.prst.soc.updateTime": "2024-08-03 00:43:02",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2024-08-03 00:43:02"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA005_Gbagbala/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "100.0",
+        "batt.health.updateTime": "2024-08-03 00:43:02",
+        "batt.prst.soc.value": "91.7",
+        "batt.prst.soc.updateTime": "2024-08-03 00:43:02",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2024-08-03 00:43:02"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA005_Gbagbala/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "100.0",
+        "batt.health.updateTime": "2024-08-03 00:43:02",
+        "batt.prst.soc.value": "91.8",
+        "batt.prst.soc.updateTime": "2024-08-03 00:43:02",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2024-08-03 00:43:02"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA005_Gbagbala/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "100.0",
+        "batt.health.updateTime": "2024-08-03 00:43:02",
+        "batt.prst.soc.value": "91.3",
+        "batt.prst.soc.updateTime": "2024-08-03 00:43:02",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2024-08-03 00:43:02"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA005_Gbagbala/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "100.0",
+        "batt.health.updateTime": "2024-08-03 00:43:02",
+        "batt.prst.soc.value": "92.7",
+        "batt.prst.soc.updateTime": "2024-08-03 00:43:02",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2024-08-03 00:43:02"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA005_Gbagbala/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "100.0",
+        "batt.health.updateTime": "2024-08-03 00:43:02",
+        "batt.prst.soc.value": "92.9",
+        "batt.prst.soc.updateTime": "2024-08-03 00:43:02",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2024-08-03 00:43:02"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA005_Gbagbala/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "100.0",
+        "batt.health.updateTime": "2024-08-03 00:43:02",
+        "batt.prst.soc.value": "91.4",
+        "batt.prst.soc.updateTime": "2024-08-03 00:43:02",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2024-08-03 00:43:02"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA005_Gbagbala/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "100.0",
+        "batt.health.updateTime": "2024-08-03 00:43:02",
+        "batt.prst.soc.value": "92.3",
+        "batt.prst.soc.updateTime": "2024-08-03 00:43:02",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2024-08-03 00:43:02"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA012_Guagortuo/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:57",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:57"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA012_Guagortuo/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:57",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA012_Guagortuo/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:57",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:57",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:57"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA012_Guagortuo/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:57",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:57",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:57"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA012_Guagortuo/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:57",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:57",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:57"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA012_Guagortuo/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:57",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:57",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:57"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA012_Guagortuo/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:21:57",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:57",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:57"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA012_Guagortuo/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:57",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:57",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:57"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA012_Guagortuo/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:21:57",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:57",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:57"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA012_Guagortuo/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:21:57",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:57",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:57"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA052_Zeoghen/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:18",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:18"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA052_Zeoghen/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:18",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA052_Zeoghen/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:18",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:18",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:18"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA052_Zeoghen/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:21:18",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:18",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:18"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA052_Zeoghen/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:21:18",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:18",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:18"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA052_Zeoghen/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:18",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:18",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:18"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA052_Zeoghen/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:18",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:18",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:18"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA052_Zeoghen/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:18",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:18",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:18"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA052_Zeoghen/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:18",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:18",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:18"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA052_Zeoghen/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:18",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:18",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:18"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA057_Siaplay New Town/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-03-30 14:33:10",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-03-30 14:33:10"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA057_Siaplay New Town/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-03-30 14:33:10",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA057_Siaplay New Town/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-03-30 14:33:10",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-03-30 14:33:10",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-03-30 14:33:10"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA057_Siaplay New Town/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-03-30 14:33:10",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-03-30 14:33:10",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-03-30 14:33:10"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA057_Siaplay New Town/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-03-30 14:33:10",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-03-30 14:33:10",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-03-30 14:33:10"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA057_Siaplay New Town/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-03-30 14:33:10",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-03-30 14:33:10",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-03-30 14:33:10"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA057_Siaplay New Town/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-03-30 14:33:10",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-03-30 14:33:10",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-03-30 14:33:10"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA057_Siaplay New Town/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-03-30 14:33:10",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-03-30 14:33:10",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-03-30 14:33:10"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA057_Siaplay New Town/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-03-30 14:33:10",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-03-30 14:33:10",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-03-30 14:33:10"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA057_Siaplay New Town/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-03-30 14:33:10",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-03-30 14:33:10",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-03-30 14:33:10"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA059_Zatu_1/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:17",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:17"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA059_Zatu_1/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:17",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA059_Zatu_1/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:17",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:17",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:17"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA059_Zatu_1/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:17",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:17",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:17"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA059_Zatu_1/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:17",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:17",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:17"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA059_Zatu_1/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:22:17",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:17",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:17"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA059_Zatu_1/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:22:17",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:17",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:17"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA059_Zatu_1/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:17",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:17",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:17"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA059_Zatu_1/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:17",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:17",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:17"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA059_Zatu_1/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:20:47",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:20:47",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:20:47"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA063_Flowin/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-12-02 13:15:48",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2025-12-02 13:15:48"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA063_Flowin/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-12-02 13:15:48",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA063_Flowin/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-12-02 13:15:48",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-12-02 13:15:48",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-12-02 13:15:48"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA063_Flowin/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-12-02 13:15:48",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-12-02 13:15:48",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-12-02 13:15:48"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA063_Flowin/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-12-02 13:15:48",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-12-02 13:15:48",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-12-02 13:15:48"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA063_Flowin/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-12-02 13:15:48",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-12-02 13:15:48",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-12-02 13:15:48"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA063_Flowin/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-12-02 13:15:48",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-12-02 13:15:48",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2025-12-02 13:15:48"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA063_Flowin/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-12-02 13:15:48",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-12-02 13:15:48",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-12-02 13:15:48"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA063_Flowin/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-12-02 13:15:48",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-12-02 13:15:48",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-12-02 13:15:48"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA063_Flowin/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-12-02 13:15:48",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-12-02 13:15:48",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-12-02 13:15:48"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA065_Gbarmue/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "96.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:53",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:53"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA065_Gbarmue/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "96.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:53",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA065_Gbarmue/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:53",
+        "batt.prst.soc.value": "91.4",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:53",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:53"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA065_Gbarmue/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:53",
+        "batt.prst.soc.value": "91.1",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:53",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:53"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA065_Gbarmue/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:21:53",
+        "batt.prst.soc.value": "91.3",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:53",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:53"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA065_Gbarmue/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:21:53",
+        "batt.prst.soc.value": "91.3",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:53",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:53"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA065_Gbarmue/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:53",
+        "batt.prst.soc.value": "91.3",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:53",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:53"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA065_Gbarmue/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:53",
+        "batt.prst.soc.value": "91.1",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:53",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:53"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA065_Gbarmue/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:21:53",
+        "batt.prst.soc.value": "91.1",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:53",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:53"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA065_Gbarmue/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:53",
+        "batt.prst.soc.value": "91.7",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:53",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:53"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA066_Flumpa/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "87.0",
+        "batt.prst.soc.updateTime": "2026-08-05 11:44:27",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 11:44:27"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA066_Flumpa/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "87.0",
+        "batt.prst.soc.updateTime": "2026-08-05 11:44:27",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA066_Flumpa/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 11:44:27",
+        "batt.prst.soc.value": "84.1",
+        "batt.prst.soc.updateTime": "2026-08-05 11:44:27",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 11:44:27"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA066_Flumpa/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 11:44:27",
+        "batt.prst.soc.value": "83.5",
+        "batt.prst.soc.updateTime": "2026-08-05 11:44:27",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 11:44:27"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA066_Flumpa/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 11:44:27",
+        "batt.prst.soc.value": "85.0",
+        "batt.prst.soc.updateTime": "2026-08-05 11:44:27",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 11:44:27"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA066_Flumpa/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 11:44:27",
+        "batt.prst.soc.value": "83.8",
+        "batt.prst.soc.updateTime": "2026-08-05 11:44:27",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 11:44:27"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA066_Flumpa/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 11:44:27",
+        "batt.prst.soc.value": "81.1",
+        "batt.prst.soc.updateTime": "2026-08-05 11:44:27",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 11:44:27"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA066_Flumpa/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 11:44:27",
+        "batt.prst.soc.value": "82.1",
+        "batt.prst.soc.updateTime": "2026-08-05 11:44:27",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 11:44:27"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA066_Flumpa/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 11:44:27",
+        "batt.prst.soc.value": "81.4",
+        "batt.prst.soc.updateTime": "2026-08-05 11:44:27",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 11:44:27"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA066_Flumpa/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 11:44:27",
+        "batt.prst.soc.value": "81.5",
+        "batt.prst.soc.updateTime": "2026-08-05 11:44:27",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 11:44:27"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA069_Zayglay/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "83.0",
+        "batt.prst.soc.updateTime": "2026-06-10 05:50:14",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-06-10 05:50:14"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA069_Zayglay/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "83.0",
+        "batt.prst.soc.updateTime": "2026-06-10 05:50:14",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA069_Zayglay/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-06-10 05:50:14",
+        "batt.prst.soc.value": "67.7",
+        "batt.prst.soc.updateTime": "2026-06-10 05:50:14",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-06-10 05:50:14"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA069_Zayglay/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-06-10 05:50:14",
+        "batt.prst.soc.value": "67.9",
+        "batt.prst.soc.updateTime": "2026-06-10 05:50:14",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-06-10 05:50:14"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA069_Zayglay/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-06-10 05:50:14",
+        "batt.prst.soc.value": "70.7",
+        "batt.prst.soc.updateTime": "2026-06-10 05:50:14",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-06-10 05:50:14"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA069_Zayglay/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-06-10 05:50:14",
+        "batt.prst.soc.value": "68.6",
+        "batt.prst.soc.updateTime": "2026-06-10 05:50:14",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-06-10 05:50:14"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA069_Zayglay/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-06-10 05:50:14",
+        "batt.prst.soc.value": "69.8",
+        "batt.prst.soc.updateTime": "2026-06-10 05:50:14",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-06-10 05:50:14"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA069_Zayglay/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-06-10 05:50:14",
+        "batt.prst.soc.value": "70.4",
+        "batt.prst.soc.updateTime": "2026-06-10 05:50:14",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-06-10 05:50:14"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA069_Zayglay/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-06-10 05:50:14",
+        "batt.prst.soc.value": "62.7",
+        "batt.prst.soc.updateTime": "2026-06-10 05:50:14",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-06-10 05:50:14"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA069_Zayglay/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-06-10 05:50:14",
+        "batt.prst.soc.value": "70.1",
+        "batt.prst.soc.updateTime": "2026-06-10 05:50:14",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-06-10 05:50:14"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA071_Gbanquoi/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:11",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:11"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA071_Gbanquoi/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:11",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA071_Gbanquoi/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:21:11",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:11",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:11"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA071_Gbanquoi/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:11",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:11",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:11"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA071_Gbanquoi/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:11",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:11",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:11"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA071_Gbanquoi/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:11",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:11",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:11"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA071_Gbanquoi/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:11",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:11",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:11"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA071_Gbanquoi/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:11",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:11",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:11"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA071_Gbanquoi/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:11",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:11",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:11"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA071_Gbanquoi/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:21:11",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:11",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:11"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA072_Guerkpahnah/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "80.0",
+        "batt.prst.soc.updateTime": "2026-05-09 08:28:31",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-05-09 08:28:31"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA072_Guerkpahnah/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "80.0",
+        "batt.prst.soc.updateTime": "2026-05-09 08:28:31",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA072_Guerkpahnah/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-05-09 08:28:31",
+        "batt.prst.soc.value": "79.3",
+        "batt.prst.soc.updateTime": "2026-05-09 08:28:31",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-05-09 08:28:31"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA072_Guerkpahnah/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-05-09 08:28:31",
+        "batt.prst.soc.value": "80.4",
+        "batt.prst.soc.updateTime": "2026-05-09 08:28:31",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-05-09 08:28:31"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA072_Guerkpahnah/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-05-09 08:28:31",
+        "batt.prst.soc.value": "80.9",
+        "batt.prst.soc.updateTime": "2026-05-09 08:28:31",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-05-09 08:28:31"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA072_Guerkpahnah/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-05-09 08:28:31",
+        "batt.prst.soc.value": "73.9",
+        "batt.prst.soc.updateTime": "2026-05-09 08:28:31",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-05-09 08:28:31"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA072_Guerkpahnah/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-05-09 08:28:31",
+        "batt.prst.soc.value": "76.4",
+        "batt.prst.soc.updateTime": "2026-05-09 08:28:31",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-05-09 08:28:31"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA072_Guerkpahnah/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-05-09 08:28:31",
+        "batt.prst.soc.value": "74.3",
+        "batt.prst.soc.updateTime": "2026-05-09 08:28:31",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-05-09 08:28:31"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA072_Guerkpahnah/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-05-09 08:28:31",
+        "batt.prst.soc.value": "75.6",
+        "batt.prst.soc.updateTime": "2026-05-09 08:28:31",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-05-09 08:28:31"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA072_Guerkpahnah/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-05-09 08:28:31",
+        "batt.prst.soc.value": "77.8",
+        "batt.prst.soc.updateTime": "2026-05-09 08:28:31",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2026-05-09 08:28:31"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA074_Banwea/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:13",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:13"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA074_Banwea/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:13",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA074_Banwea/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:22:13",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:13",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:13"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA074_Banwea/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:22:13",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:13",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:13"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA074_Banwea/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:13",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:13",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:13"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA074_Banwea/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:22:13",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:13",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:13"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA074_Banwea/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:22:13",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:13",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:13"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA074_Banwea/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:13",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:13",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:13"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA074_Banwea/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:13",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:13",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:13"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA074_Banwea/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:13",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:13",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:13"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA083_Browne/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA083_Browne/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA083_Browne/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA083_Browne/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA083_Browne/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA083_Browne/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA083_Browne/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA083_Browne/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA083_Browne/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA083_Browne/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA100_Yila/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "89.0",
+        "batt.prst.soc.updateTime": "2026-08-03 09:32:15",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-03 09:32:15"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA100_Yila/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "89.0",
+        "batt.prst.soc.updateTime": "2026-08-03 09:32:15",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA100_Yila/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-03 09:32:15",
+        "batt.prst.soc.value": "1.4",
+        "batt.prst.soc.updateTime": "2026-08-03 09:32:15",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-03 09:32:15"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA100_Yila/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-03 09:32:15",
+        "batt.prst.soc.value": "1.4",
+        "batt.prst.soc.updateTime": "2026-08-03 09:32:15",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-03 09:32:15"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA100_Yila/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-03 09:32:15",
+        "batt.prst.soc.value": "1.3",
+        "batt.prst.soc.updateTime": "2026-08-03 09:32:15",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-03 09:32:15"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA100_Yila/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-03 09:32:15",
+        "batt.prst.soc.value": "1.4",
+        "batt.prst.soc.updateTime": "2026-08-03 09:32:15",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-03 09:32:15"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA100_Yila/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-03 09:32:15",
+        "batt.prst.soc.value": "1.3",
+        "batt.prst.soc.updateTime": "2026-08-03 09:32:15",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-03 09:32:15"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA100_Yila/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-03 09:32:15",
+        "batt.prst.soc.value": "1.3",
+        "batt.prst.soc.updateTime": "2026-08-03 09:32:15",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-03 09:32:15"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA100_Yila/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-03 09:32:15",
+        "batt.prst.soc.value": "1.3",
+        "batt.prst.soc.updateTime": "2026-08-03 09:32:15",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-03 09:32:15"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA100_Yila/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-03 09:32:15",
+        "batt.prst.soc.value": "1.4",
+        "batt.prst.soc.updateTime": "2026-08-03 09:32:15",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-03 09:32:15"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA110_Tekeiplay/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:38",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:38"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA110_Tekeiplay/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:38",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA110_Tekeiplay/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:38",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:38",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:38"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA110_Tekeiplay/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:38",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:38",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:38"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA110_Tekeiplay/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:38",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:38",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:38"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA110_Tekeiplay/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:38",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:38",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:38"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA110_Tekeiplay/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:38",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:38",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:38"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA110_Tekeiplay/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:38",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:38",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:38"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA110_Tekeiplay/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:38",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:38",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:38"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA110_Tekeiplay/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:38",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:38",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:38"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA126_Payee/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:55",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:55"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA126_Payee/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:55",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA126_Payee/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:55",
+        "batt.prst.soc.value": "44.7",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:55",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:55"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA126_Payee/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:55",
+        "batt.prst.soc.value": "40.9",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:55",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:55"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA126_Payee/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:21:55",
+        "batt.prst.soc.value": "46.4",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:55",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:55"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA126_Payee/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:55",
+        "batt.prst.soc.value": "43.1",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:55",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:55"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA126_Payee/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:55",
+        "batt.prst.soc.value": "47.2",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:55",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:55"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA126_Payee/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:55",
+        "batt.prst.soc.value": "41.9",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:55",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:55"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA126_Payee/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:21:55",
+        "batt.prst.soc.value": "52.1",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:55",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:55"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA126_Payee/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:21:55",
+        "batt.prst.soc.value": "41.4",
+        "batt.prst.soc.updateTime": "2026-08-05 14:21:55",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:21:55"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA129_Zuoplay/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:03",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:03"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA129_Zuoplay/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:03",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA129_Zuoplay/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:03",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:03",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:03"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA129_Zuoplay/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:03",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:03",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:03"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA129_Zuoplay/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:03",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:03",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:03"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA129_Zuoplay/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:22:03",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:03",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:03"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA129_Zuoplay/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:03",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:03",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:03"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA129_Zuoplay/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:22:03",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:03",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:03"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA129_Zuoplay/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:03",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:03",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:03"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA129_Zuoplay/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:03",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:03",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:03"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA132_Gbei Bonnah/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:52",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:52"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA132_Gbei Bonnah/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:52",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA132_Gbei Bonnah/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:52",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:52",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:52"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA132_Gbei Bonnah/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:52",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:52",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:52"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA132_Gbei Bonnah/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:52",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:52",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:52"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA132_Gbei Bonnah/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:52",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:52",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:52"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA132_Gbei Bonnah/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:52",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:52",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:52"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA132_Gbei Bonnah/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:52",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:52",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:52"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA132_Gbei Bonnah/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:52",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:52",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:52"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA132_Gbei Bonnah/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2025-10-27 14:43:52",
+        "batt.prst.soc.value": "99.5",
+        "batt.prst.soc.updateTime": "2025-10-27 14:43:52",
+        "batt.charge.discharge.status.value": "Discharge",
+        "batt.charge.discharge.status.updateTime": "2025-10-27 14:43:52"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA146_Zor/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:20",
+        "batt.charge.discharge.status.value": "Charge",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:20"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA146_Zor/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:20",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA146_Zor/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:22:20",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:20",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:20"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA146_Zor/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:20",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:20",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:20"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA146_Zor/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:22:20",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:20",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:20"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA146_Zor/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:20",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:20",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:20"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA146_Zor/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:20",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:20",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:20"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA146_Zor/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:22:20",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:20",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:20"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA146_Zor/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "99.0",
+        "batt.health.updateTime": "2026-08-05 14:22:20",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:20",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:20"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA146_Zor/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "98.0",
+        "batt.health.updateTime": "2026-08-05 14:22:20",
+        "batt.prst.soc.value": "100.0",
+        "batt.prst.soc.updateTime": "2026-08-05 14:22:20",
+        "batt.charge.discharge.status.value": "None",
+        "batt.charge.discharge.status.updateTime": "2026-08-05 14:22:20"
+      },
+      {
+        "mo": "BattMCB1",
+        "position": "Microwave Sites/ERA152_Camp Four/PowerCabinet/NFB_BattPack/BattMCB1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "BattMCB2",
+        "position": "Microwave Sites/ERA152_Camp Four/PowerCabinet/NFB_BattPack/BattMCB2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt1",
+        "position": "Microwave Sites/ERA152_Camp Four/PowerCabinet/NFB_BattPack/NFB_Batt1",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt2",
+        "position": "Microwave Sites/ERA152_Camp Four/PowerCabinet/NFB_BattPack/NFB_Batt2",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt3",
+        "position": "Microwave Sites/ERA152_Camp Four/PowerCabinet/NFB_BattPack/NFB_Batt3",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt4",
+        "position": "Microwave Sites/ERA152_Camp Four/PowerCabinet/NFB_BattPack/NFB_Batt4",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt5",
+        "position": "Microwave Sites/ERA152_Camp Four/PowerCabinet/NFB_BattPack/NFB_Batt5",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt6",
+        "position": "Microwave Sites/ERA152_Camp Four/PowerCabinet/NFB_BattPack/NFB_Batt6",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt7",
+        "position": "Microwave Sites/ERA152_Camp Four/PowerCabinet/NFB_BattPack/NFB_Batt7",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      },
+      {
+        "mo": "NFB_Batt8",
+        "position": "Microwave Sites/ERA152_Camp Four/PowerCabinet/NFB_BattPack/NFB_Batt8",
+        "batt.health.value": "--",
+        "batt.health.updateTime": "--",
+        "batt.prst.soc.value": "--",
+        "batt.prst.soc.updateTime": "--",
+        "batt.charge.discharge.status.value": "--",
+        "batt.charge.discharge.status.updateTime": "--"
+      }
+    ]
+  },
+  "total": 1532
+}

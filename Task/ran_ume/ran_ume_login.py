@@ -503,10 +503,13 @@ def export_pm_history(
     queryid: str,
     filename: str | None = None,
     output_path: str | None = None,
-) -> str:
+    return_bytes: bool = False,
+) -> str | bytes:
     """
     导出并下载 PM 历史指标结果。
-    返回保存的文件路径。
+
+    默认：将结果写入 output_path（磁盘文件），返回保存的文件路径。
+    当 return_bytes=True：不落盘，直接返回 xlsx 原始字节（bytes），供调用方在内存中解析。
     """
     if not filename:
         filename = f"PM_History_{queryid}"
@@ -540,6 +543,11 @@ def export_pm_history(
 
     if "200" not in status:
         raise Exception(f"Export PM history failed: {status}")
+
+    if return_bytes:
+        # 全程内存：不落盘，直接返回 xlsx 原始字节
+        print(f"[PM] Exported in-memory: {filename} ({len(resp_body)} bytes)")
+        return resp_body
 
     if not output_path:
         output_path = os.path.join(OUTPUT_DIR, f"{filename}.xlsx")

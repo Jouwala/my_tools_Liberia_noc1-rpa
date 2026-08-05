@@ -27,7 +27,8 @@ import zipfile
 import tempfile
 import subprocess
 import sqlite3
-from datetime import datetime, date
+import io
+from datetime import datetime, date, timezone, timedelta
 from multiprocessing import Process, Manager
 from concurrent.futures import ProcessPoolExecutor
 from ftplib import FTP, error_perm
@@ -73,6 +74,102 @@ MAX_WORKERS = 4          # 并行 Reader 进程数
 
 
 # ============================================================
+# RAN UME API 拉取（替代手动从 Downloads 取文件）
+# 复用 Task/ran_ume/ran_ume_login.py 客户端：login / create / wait / export
+# ============================================================
+_RAN_UME_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "ran_ume")
+)
+if _RAN_UME_DIR not in sys.path:
+    sys.path.insert(0, _RAN_UME_DIR)
+
+try:
+    import ran_ume_login as rume
+    HAS_RAN_UME = True
+except Exception as _imp_err:  # pragma: no cover
+    rume = None
+    HAS_RAN_UME = False
+    print(f"[WARN] 无法导入 ran_ume_login ({_RAN_UME_DIR}): {_imp_err}")
+
+# API 拉取的 xlsx 全程内存处理：fetch 阶段返回原始字节（不落盘），
+# 由 reader 在内存中解析，避免任何临时文件。
+API_OUTPUT_DIR = None  # 已废弃：数据不再写入磁盘
+
+# 4 个可用性模板的 PM 查询配置（来自 RAN UME 已保存模板，由运维粘贴）
+# 每个键对应 FILE_PREFIXES 中的一项；导出文件以该 prefix 命名，
+# 后续 reader 据此映射到 Daily_<PREFIX> 表。
+AVAILABILITY_PM_CONFIGS = {
+    "KPI_RPA_CELL_AVAIL_FDD": {
+        "templateid": "1638004472410",
+        "templatename": "KPI_RPA_CELL_AVAIL_FDD",
+        "motid": "EUtranCellFDD",
+        "nfctid": "ITBBU,SDR,#",
+        "containvcell": 0,
+        "indexfillingtype": "zeroDenominator",
+        "groupattributetype": 0,
+        "groupbygroup": False,
+        "showbusinesscolumn": True,
+        "grouplayer": "me,eNodeBFunction,EUtranCellFDD",
+        "items": ["C373230700", "C373230706"],
+        "itemsposition": [0, 0],
+        "itemsposition1": [1, 1],
+        "businessmotid": "FDDV3.EUtranCellFDD",
+        "itempositionbusiness": [0, 0],
+    },
+    "KPI_RPA_CELL_AVAIL_UMTS": {
+        "templateid": "1638004472409",
+        "templatename": "KPI_RPA_CELL_AVAIL_UMTS",
+        "motid": "wPm.UtranCell",
+        "nfctid": "MRNC",
+        "containvcell": 2,
+        "indexfillingtype": "zeroDenominator",
+        "groupattributetype": 1,
+        "groupattribute": "freqBandInd",
+        "groupbygroup": False,
+        "showbusinesscolumn": False,
+        "grouplayer": "me,WV4.IubLink,WV4.UtranCell",
+        "items": ["C310464560"],
+        "itemsposition": [0],
+        "itemsposition1": [0],
+    },
+    "KPI_RPA_CELL_AVAIL_GSM": {
+        "templateid": "1638004472408",
+        "templatename": "KPI_RPA_CELL_AVAIL_GSM",
+        "motid": "gsmPm.cell",
+        "nfctid": "MRNC",
+        "containvcell": 0,
+        "indexfillingtype": "zeroDenominator",
+        "groupattributetype": 1,
+        "groupattribute": "freqBand",
+        "groupbygroup": False,
+        "showbusinesscolumn": False,
+        "grouplayer": "me,gv4.BTSSiteManager,gv4.BTS.cell",
+        "items": ["C901080019", "C901080029", "C901080028", "C901080009", "C901080010", "C901080020"],
+        "itemsposition": [0, 0, 0, 0, 0, 0],
+        "itemsposition1": [0, 0, 0, 0, 0, 0],
+    },
+    "KPI_RPA_CELL_AVAIL_TDD": {
+        "templateid": "1638004472411",
+        "templatename": "KPI_RPA_CELL_AVAIL_TDD",
+        "motid": "EUtranCellTDD",
+        "nfctid": "ITBBU,SDR,#",
+        "containvcell": 0,
+        "indexfillingtype": "zeroDenominator",
+        "groupattributetype": 0,
+        "groupbygroup": False,
+        "showbusinesscolumn": True,
+        "grouplayer": "me,eNodeBFunction,EUtranCellTDD",
+        "items": ["C373230706", "C373230700"],
+        "itemsposition": [0, 0],
+        "itemsposition1": [1, 1],
+        "businessmotid": "TDDV3.EUtranCellTDD",
+        "itempositionbusiness": [0, 0],
+    },
+}
+
+
+
+# ============================================================
 # 工具函数
 # ============================================================
 def fmt_time(seconds):
@@ -89,6 +186,62 @@ def convert_value(v):
     if isinstance(v, (datetime, date)):
         return v.isoformat()
     return v
+
+
+# ============================================================
+# 主键（业务键）定义 —— 按数据定义，用于「按主键覆盖写入」
+# 每张 Daily_* 表的天然唯一键 = (Begin Time 日期, 小区标识列)
+# 注意：RAN UME 导出的表头使用「不间断空格 \xa0」而非普通空格，
+#       因此用 _norm() 归一化后再匹配，避免硬编码空格导致匹配失败。
+# ============================================================
+def _norm(s):
+    """归一化列名：把不间断空格/全角空格等统一成普通空格并压缩。"""
+    if not isinstance(s, str):
+        return s
+    return re.sub(r"\s+", " ", s.replace("\xa0", " ")).strip()
+
+
+# 模板 prefix -> 小区标识列的「归一化」名称
+_PK_CELLNAME_LOOKUP = {
+    "KPI_RPA_CELL_AVAIL_FDD":  "E-UTRAN FDD Cell Name",
+    "KPI_RPA_CELL_AVAIL_UMTS": "Cell Name",
+    "KPI_RPA_CELL_AVAIL_GSM":  "BTS Name",
+    "KPI_RPA_CELL_AVAIL_TDD":  "E-UTRAN TDD Cell Name",
+}
+
+
+def _resolve_pk(table_name, headers):
+    """
+    根据表名 + 实际列头，返回用于覆盖写入的主键列（原始列名列表）。
+    返回 [日期列, 小区标识列]；若匹配不到则回退到 [首列, 含 Cell Name/BTS Name 的列]。
+    """
+    prefix = table_name[6:] if table_name.startswith("Daily_") else table_name
+    norm_to_orig = {_norm(h): h for h in headers}
+
+    pk = []
+
+    # 1) 日期列（通常是第一列 Begin Time）
+    time_cand = "Begin Time"
+    if _norm(time_cand) in norm_to_orig:
+        pk.append(norm_to_orig[_norm(time_cand)])
+
+    # 2) 小区标识列
+    cell_norm = _PK_CELLNAME_LOOKUP.get(prefix)
+    if cell_norm and cell_norm in norm_to_orig:
+        pk.append(norm_to_orig[cell_norm])
+    elif len(pk) < 2:
+        # 回退：找含 Cell Name / BTS Name 的列
+        for h in headers:
+            n = _norm(h)
+            if "Cell Name" in n or n == "BTS Name":
+                if h not in pk:
+                    pk.append(h)
+                    break
+
+    if len(pk) >= 2:
+        return pk[:2]
+    # 极端回退：首两列
+    return [headers[0], headers[1]] if len(headers) >= 2 else [headers[0]]
 
 
 # ============================================================
@@ -226,6 +379,41 @@ def _read_xlsx(filepath):
     return headers, rows, len(rows)
 
 
+def _read_xlsx_bytes(data: bytes):
+    """
+    从内存中的 xlsx 原始字节读取（不落盘）。
+    优先使用 openpyxl（支持 BytesIO 内存读取），无磁盘临时文件。
+    返回 (headers, rows, row_count)。
+    """
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=False)
+    try:
+        ws = wb.active
+        all_data = list(ws.iter_rows(values_only=True))
+    finally:
+        wb.close()
+
+    if not all_data:
+        return [], [], 0
+
+    header_row = all_data[0]
+    headers = [str(col).strip() if col is not None else f"col_{i}"
+               for i, col in enumerate(header_row)]
+    n_cols = len(headers)
+    rows = []
+    for row in all_data[1:]:
+        if all(v is None for v in row):
+            continue
+        if len(row) < n_cols:
+            row = list(row) + [None] * (n_cols - len(row))
+        elif len(row) > n_cols:
+            row = list(row[:n_cols])
+        else:
+            row = list(row)
+        rows.append(row)
+    return headers, rows, len(rows)
+
+
 def csv_reader_worker(task_info, queue, batch_size):
     """
     Worker 进程入口：
@@ -242,12 +430,36 @@ def csv_reader_worker(task_info, queue, batch_size):
       完成: ("__DONE__", worker_id, row_count)
       错误: ("__ERROR__", worker_id, error_msg)
     """
-    file_path = task_info["file_path"]
-    file_type = task_info["file_type"]
-    zip_internal = task_info.get("zip_internal_name")
     worker_id = os.getpid()
+    file_bytes = task_info.get("file_bytes")
+    table_name = task_info.get("table_name")
 
     try:
+        # ====== 内存模式：API 拉取的 xlsx 字节，全程不落盘 ======
+        if file_bytes is not None:
+            source_name = task_info.get("source_name", "memory.xlsx")
+            if not table_name:
+                name_no_ext = re.sub(r'_\d+$', '', os.path.splitext(source_name)[0])
+                matched_prefix = next(
+                    (p for p in FILE_PREFIXES if name_no_ext.startswith(p)), None
+                )
+                table_name = f"Daily_{matched_prefix}" if matched_prefix else f"Daily_{name_no_ext}"
+            t0 = time.time()
+            print(f"  [Worker {worker_id}] (in-memory) {source_name} -> {table_name}")
+            headers, rows, row_count = _read_xlsx_bytes(file_bytes)
+            if row_count == 0:
+                queue.put(("__DONE__", worker_id, 0))
+                return (table_name, 0, time.time() - t0)
+            for i in range(0, row_count, batch_size):
+                queue.put((table_name, headers, rows[i:i + batch_size]))
+            print(f"  [Worker {worker_id}] Read {row_count} rows (in-memory) -> {table_name}")
+            queue.put(("__DONE__", worker_id, row_count))
+            return (table_name, row_count, time.time() - t0)
+
+        # ====== 文件模式（遗留：从 Downloads / ZIP 读取，会落盘）======
+        file_path = task_info["file_path"]
+        file_type = task_info["file_type"]
+        zip_internal = task_info.get("zip_internal_name")
         # ---- 1. 确定实际文件路径 ----
         actual_path = file_path
         temp_path = None
@@ -398,29 +610,55 @@ def sqlite_writer_process(db_path, queue, n_workers):
         else:
             print(f"  [Writer] Received batch for {table_name}: {len(batch)} rows")
 
-        # 首次遇到新表：初始化表结构
+        # 首次遇到新表：初始化表结构（按主键覆盖写入 / 累积历史）
         if table_name not in tables:
+            pk_cols = _resolve_pk(table_name, headers)
+            _q = lambda s: '"' + s.replace('"', '""') + '"'
+            quoted_pk = ", ".join(_q(c) for c in pk_cols)
+
             cursor.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
                 (table_name,)
             )
-            if cursor.fetchone():
-                cursor.execute(f'DELETE FROM "{table_name}"')
-            else:
-                col_defs = ", ".join(
-                    f'"{h.replace(chr(34), chr(34)+chr(34))}" TEXT'
-                    for h in headers
-                )
-                cursor.execute(f'CREATE TABLE "{table_name}" ({col_defs})')
+            table_existed = cursor.fetchone() is not None
 
-            # 构建 INSERT 语句（表存在或新建后都需要构建）
-            quoted = [
-                f'"{h.replace(chr(34), chr(34)+chr(34))}"'
-                for h in headers
-            ]
+            if table_existed:
+                # 列结构是否一致（任一新列在旧表中不存在则重建，避免 INSERT 失败）
+                existing_cols = {
+                    r[1] for r in cursor.execute(
+                        f'PRAGMA table_info("{table_name}")'
+                    ).fetchall()
+                }
+                schema_changed = not all(h in existing_cols for h in headers)
+                if schema_changed:
+                    print(f"  [WARN] {table_name} 列结构变化，DROP 并重建")
+                    cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+                    table_existed = False
+
+            if not table_existed:
+                col_defs = ", ".join(_q(h) + " TEXT" for h in headers)
+                pk_def = ", ".join(_q(c) for c in pk_cols)
+                cursor.execute(
+                    f'CREATE TABLE "{table_name}" ({col_defs}, PRIMARY KEY ({pk_def}))'
+                )
+                print(f"  [Writer] 建表 {table_name} PK=({quoted_pk})")
+            else:
+                # 表已存在且结构一致：确保唯一索引，INSERT OR REPLACE 据此覆盖
+                idx_name = f"uq_{table_name}"
+                try:
+                    cursor.execute(
+                        f'CREATE UNIQUE INDEX IF NOT EXISTS "{idx_name}" '
+                        f'ON "{table_name}" ({quoted_pk})'
+                    )
+                except Exception as e:
+                    print(f"  [WARN] 唯一索引创建失败 {table_name}: {e}")
+
+            # 构建 INSERT 语句（按主键覆盖写入）
+            quoted = [_q(h) for h in headers]
             placeholders = ", ".join(["?"] * len(headers))
             sql = (
-                f'INSERT INTO "{table_name}" ({", ".join(quoted)}) VALUES ({placeholders})'
+                f'INSERT OR REPLACE INTO "{table_name}" '
+                f'({", ".join(quoted)}) VALUES ({placeholders})'
             )
             tables[table_name] = {
                 "headers": headers,
@@ -477,17 +715,7 @@ def sqlite_writer_process(db_path, queue, n_workers):
 
     conn.commit()
 
-    # ---- 建索引（第一列，通常是时间列） ----
-    for tname, info in tables.items():
-        if info["headers"]:
-            first_col = info["headers"][0].replace('"', '""')
-            try:
-                cursor.execute(
-                    f'CREATE INDEX IF NOT EXISTS "idx_{tname}_{first_col}" '
-                    f'ON "{tname}" ("{first_col}")'
-                )
-            except Exception:
-                pass
+    # ---- 唯一索引已在建表/首次遇到表时创建，无需再建冗余索引 ----
     conn.commit()
     conn.close()
 
@@ -548,6 +776,128 @@ def upload_to_ftp(local_path, remote_dir, filename, max_retries=2):
 
 
 # ============================================================
+# RAN UME API 拉取
+# ============================================================
+def build_availability_payload(cfg, start_iso, end_iso):
+    """依据模板配置构造 RAN UME PM 历史查询 payload（1 天窗口）。"""
+    items = cfg["items"]
+    n = len(items)
+    payload = {
+        "arraycounterinfos": [],
+        "datatype": 0,
+        "displaymode": 0,
+        "favoriteconditionname": cfg["templatename"],
+        "gr": "86400",
+        "groupattributetype": cfg.get("groupattributetype", 0),
+        "groupbygroup": cfg.get("groupbygroup", False),
+        "groupbyplmn": False,
+        "grouptype": 0,
+        "items": items,
+        "itemsposition": cfg.get("itemsposition", [0] * n),
+        "itemsposition1": cfg.get("itemsposition1", [0] * n),
+        "motid": cfg["motid"],
+        "nfctid": cfg["nfctid"],
+        "plmnpdfdisplaymode": False,
+        "queryallbusiness": False,
+        "showbusinesscolumn": cfg.get("showbusinesscolumn", False),
+        "showintegrity": False,
+        "straightquery": False,
+        "templatename": cfg["templatename"],
+        "templateid": cfg["templateid"],
+        "needdeployfilter": False,
+        "timeinfo": {
+            "mode": 1,
+            "start": start_iso,
+            "end": end_iso,
+            "relative": -1,
+            "timezonetype": "1",
+            "clienttimezone": "Atlantic/Reykjavik",
+            "showtimezoneoffset": False,
+            "querylongtime": {"type": 3, "value": 1},
+            "timespanfilter": "00:00:00-24:00:00",
+            "dayfiltertype": 0,
+            "dayinmonthfilter": "1111111111111111111111111111111",
+        },
+        "indexfillingtype": cfg.get("indexfillingtype", "zeroDenominator"),
+        "thresholdinfos": [],
+        "templatetype": 0,
+        "filterlayer": "all",
+        "grouplayer": cfg["grouplayer"],
+        "containvcell": cfg.get("containvcell", 0),
+        "resfilterattribute": "",
+        "uilocations": [],
+        "reslocation": [],
+        "inexistenceres": False,
+        "firstDayOfWeek": 7,
+        "iswireless": True,
+        "hidehistorystopbutton": True,
+        "opencustomizehistoryexport": False,
+        "opentemplatecustomcolumn": False,
+    }
+    if "businessmotid" in cfg:
+        payload["businessmotid"] = cfg["businessmotid"]
+        payload["itempositionbusiness"] = cfg.get("itempositionbusiness", [0] * n)
+        payload["businessfilterscope"] = []
+        payload["groupbusinessids"] = []
+    if "groupattribute" in cfg:
+        payload["groupattribute"] = cfg["groupattribute"]
+    return payload
+
+
+def fetch_availability_via_api():
+    """
+    通过 RAN UME API 拉取 4 个可用性模板的「前一日」数据。
+    全程内存：export 返回 xlsx 原始字节（return_bytes=True），不写入任何临时文件，
+    返回的 tasks 携带 file_bytes，由 reader 在内存中解析。
+    """
+    if not HAS_RAN_UME:
+        print("[ERROR] ran_ume_login 不可用，无法 API 拉取。请检查 Task/ran_ume 目录。")
+        return []
+
+    print(f"  [API] 使用 RAN UME 客户端: {_RAN_UME_DIR}")
+
+    # 前一日 00:00 ~ 当日 00:00 (UTC)，1 天窗口
+    now_utc = datetime.now(timezone.utc)
+    start_dt = (now_utc - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    end_dt = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    print(f"  [API] 时间窗口(UTC): {start_iso} ~ {end_iso}")
+
+    auth = rume.login()
+    cookie = auth["cookie"]
+    forgery = auth["forgery_token"]
+
+    tasks = []
+    for prefix, cfg in AVAILABILITY_PM_CONFIGS.items():
+        try:
+            print(f"\n  [API] 拉取 {prefix} (templateid={cfg['templateid']}) ...")
+            payload = build_availability_payload(cfg, start_iso, end_iso)
+            queryid = rume.create_pm_history_query(cookie, forgery, payload)
+            rume.wait_pm_history_ready(cookie, forgery, queryid, timeout=600, interval=5)
+            ts = datetime.now().strftime("%Y%m%d%H%M%S")
+            filename = f"{prefix}1day_{ts}"
+            # 关键：return_bytes=True -> 全程内存，不落盘
+            xlsx_bytes = rume.export_pm_history(
+                cookie, forgery, queryid, filename=filename, return_bytes=True
+            )
+            tasks.append({
+                "file_bytes": xlsx_bytes,
+                "file_type": "xlsx",
+                "source_name": f"{filename}.xlsx",
+                "table_name": f"Daily_{prefix}",
+            })
+            print(f"  [API] 已取得内存数据: {filename}.xlsx ({len(xlsx_bytes)} bytes)")
+        except Exception as e:
+            print(f"  [ERROR] {prefix} 拉取失败: {e}")
+            import traceback as _tb
+            _tb.print_exc()
+
+    print(f"\n  [API] 共获取 {len(tasks)} 个模板数据（均驻留内存，未落盘）")
+    return tasks
+
+
+# ============================================================
 # 主函数
 # ============================================================
 def main():
@@ -563,21 +913,20 @@ def main():
 
     files_to_delete = set()
 
-    # ---- 1. 查找文件 ----
+    # ---- 1. 通过 RAN UME API 拉取前一日可用性数据 ----
     t_find_start = time.time()
-    print(f"\n[1/3] 查找文件...")
-    tasks = find_matching_files()
+    print(f"\n[1/3] 通过 RAN UME API 拉取数据...")
+    tasks = fetch_availability_via_api()
     t_find_end = time.time()
-    print(f"  查找耗时: {t_find_end - t_find_start:.2f}s")
+    print(f"  拉取耗时: {t_find_end - t_find_start:.2f}s")
 
     if not tasks:
-        print(f"\n[WARN] 未找到任何匹配文件，退出")
-        print(f"  请将 KPI_RPA_CELL_AVAIL_* 文件放到: {DOWNLOADS_DIR}")
+        print(f"\n[WARN] 未通过 API 获取到任何数据，退出")
+        print(f"  请检查 RAN UME 连通性 / 鉴权，以及 AVAILABILITY_PM_CONFIGS 模板配置")
         return
 
-    # 记录需要删除的源文件
-    for t in tasks:
-        files_to_delete.add(t["file_path"])
+    # 内存模式：数据驻留内存，无磁盘源文件需清理
+    # （仅遗留文件模式会从 Downloads 读取并登记待删文件）
 
     # ---- 2. 多进程并行写入数据库 ----
     print(f"\n[2/3] 多进程写入数据库...")
@@ -625,18 +974,22 @@ def main():
     print(f"\n  数据库总耗时: {fmt_time(t_db_end - t_db_start)}")
     gc.collect()
 
-    # ---- 3. FTP 上传已移除（数据通过 API 写入远程） ----
-    print(f"\n[3/3] FTP 上传已移除，数据由 my_app API 写入远程")
+    # ---- 3. FTP 上传：把本地构建好的数据库推送到远程 192.168.100.19 ----
+    # 说明：my_app 并未集成本库（无对应推送逻辑），远程 \\192.168.100.19\e\01_RPA\LBR_Tools\KPI\RAN\
+    # 的副本只能由本脚本通过 FTP 直接上传。若不上传，远程 DB 将停止更新。
+    print(f"\n[3/3] FTP 上传数据库到远程 {FTP_HOST}:{FTP_REMOTE_DIR} ...")
+    try:
+        upload_ok = upload_to_ftp(DB_PATH, FTP_REMOTE_DIR, DB_NAME)
+    except Exception as e:
+        upload_ok = False
+        print(f"  [ERROR] FTP 上传异常: {e}")
+    if upload_ok:
+        print(f"  [OK] 远程数据库已更新: {FTP_REMOTE_DIR}/{DB_NAME}")
+    else:
+        print(f"  [WARN] FTP 上传失败，请检查 {FTP_HOST} 连通性 / 账号，并手动重传 {DB_PATH}")
 
-    # ---- 清理文件 ----
+    # ---- 清理文件（内存模式无临时文件；此处仅清理遗留文件模式的源文件）----
     print(f"\n[cleanup]")
-    for prefix in FILE_PREFIXES:
-        for ext in (".zip", ".csv", ".xlsx"):
-            pattern = os.path.join(DOWNLOADS_DIR, f"{prefix}*{ext}")
-            for fpath in glob.glob(pattern):
-                if not os.path.basename(fpath).startswith("~$"):
-                    files_to_delete.add(fpath)
-
     gc.collect()
 
     deleted_count = 0
@@ -646,7 +999,8 @@ def main():
             os.remove(fpath)
             print(f"  deleted: {os.path.basename(fpath)}")
             deleted_count += 1
-        except PermissionError:
+        except OSError:
+            # 任何删除失败（权限/文件被锁/沙箱拦截等）都进入强制重试
             failed_files.append(fpath)
         except Exception as e:
             print(f"  [error] {os.path.basename(fpath)}: {e}")

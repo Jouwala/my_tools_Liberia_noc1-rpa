@@ -20,6 +20,7 @@ RAN UME Main KPI 每日同步脚本
 - 回退方案：如果 API 不可用，自动回退到 FTP 下载/上传模式
 """
 
+import logging
 import base64
 import gc
 import glob

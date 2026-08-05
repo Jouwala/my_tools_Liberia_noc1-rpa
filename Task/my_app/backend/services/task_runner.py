@@ -368,6 +368,127 @@ def _auto_call_chain(func, _depth=0, _seen=None):
     return out[:15]
 
 
+# ========== 调用链节点 IO 资源映射（数据库 / 文件） ==========
+# 维护用途：在 Task Manager 的脚本调用链（Call Chain）中，为每个节点标注其
+# 设计上访问的数据库或文件，方便日常维护与问题排查。
+#
+# - TASK_IO: 以 task_id 为键，标注该任务「入口节点」访问的核心 DB / 文件。
+#   懒加载任务（_lazy_loader 包装）的调用链只有入口节点，因此入口标注即可覆盖。
+# - CALL_CHAIN_IO: 以函数名为键，标注被调用链展开到的「共享子函数」访问的资源
+#   （如 eflow / 告警 / ms_sla / ipran 等任务展开后的子节点）。
+#
+# 新增 / 调整任务时，只需在此两处补充对应条目，无需改动前端与调度逻辑。
+
+TASK_IO: dict[str, list[str]] = {
+    # 1-2. eFlow 同步
+    "eflow_sync": ["DB: app.db (db/app.db, 主)", "DB: eflow.sqlite3 (data/eflow/, 报告生成副产品)", "API: eFlow (10.100.20.8)", "远程DB: db.sqlite3 (via db_writer API, Eflow_TT_FB/Eflow_WO_FB)", "远程FTP: tt_reports 上传 (FTP_REMOTE_DIR, 默认 /Python)"],
+    "eflow_sync_full": ["DB: app.db (db/app.db, 主)", "DB: eflow.sqlite3 (data/eflow/, 报告生成副产品)", "API: eFlow (10.100.20.8)", "远程DB: db.sqlite3 (via db_writer API, Eflow_TT_FB/Eflow_WO_FB)", "远程FTP: tt_reports 上传 (FTP_REMOTE_DIR, 默认 /Python)"],
+    # 3. RAN UME 日报
+    "ran_ume_daily": ["远程DB: ran_kpi_daily_202606.sqlite3 (DB Orange, via API)", "本地DB: ran_kpi_daily.sqlite3 (Availability 读)", "远程FTP: /01_RPA/LBR_Tools/KPI/RAN/ORANGE"],
+    # 4. Site Outage 截图
+    "site_outage_screenshot": ["本地文件: data/site_outage/*.png (截图)"],
+    # 5. WhatsApp 发送
+    "whatsapp_send": ["本地文件: data/site_outage/*.png + 报告", "WhatsApp Web (发送)"],
+    # 6. MS SLA 完整同步
+    "ms_sla_full": ["DB: lbr_ms_sla_kpi.sqlite3", "远程DB: lbr_ms_sla_kpi.sqlite3 (via db_writer API)", "本地文件: data/ms_sla/*.xlsx (报表，供 kpi_ms 邮件读取)", "远程FTP: /01_RPA/LBR_Tools/KPI/MS_SLA"],
+    # 7-8. eFlow 告警
+    "eflow_active_alarm": ["DB: app.db (realtime_alarm 表)", "DB: eflow.sqlite3 (realtime_alarm 表)"],
+    "eflow_history_alarm": ["DB: eflow.sqlite3 (history_alarm 表)", "DB: app.db (history_alarm 表)"],
+    # 9. RAN Main KPI
+    "main_kpi_sync": ["远程DB: db.sqlite3 (via db_writer API)"],
+    # 10. RAN Network KPI
+    "network_kpi_sync": ["本地DB: ran_kpi_daily.sqlite3", "远程DB: ran_kpi_daily.sqlite3 (via db_writer API)"],
+    # 11. CNN UME KPI
+    "cnn_kpi_sync": ["远程DB: db_ps_cs_cn.sqlite3 (CNN, via API)"],
+    # 12. SP 备件
+    "sp_data_sync": ["DB: app.db (db/app.db)", "SFTP: 10.100.20.11 (备件报表)"],
+    # 13. iPRAN UME KPI
+    "ipran_kpi_sync": ["本地DB: ipran_ume_kpi.sqlite3", "远程DB: ipran_ume_kpi.sqlite3 (via db_writer API)"],
+    # 14-15. Liberia 邮件
+    "liberia_email_1h": ["本地文件: data/eflow/tt_reports/*.xlsx", "OWA 邮件发送"],
+    "liberia_email_8h": ["本地文件: data/eflow/tt_reports/*.xlsx", "OWA 邮件发送"],
+    # 16-17. MS KPI 邮件
+    "kpi_ms_contract": ["本地文件: data/ms_sla/*.xlsx (源自 lbr_ms_sla_kpi.sqlite3, 由 ms_sla_full 生成)", "远程FTP: /01_RPA/LBR_Tools/KPI/MS_SLA/email (名单)"],
+    "kpi_ms_wo_sla": ["本地文件: data/ms_sla/*.xlsx (源自 lbr_ms_sla_kpi.sqlite3, 由 ms_sla_full 生成)", "远程FTP: /01_RPA/LBR_Tools/KPI/MS_SLA/email (名单)"],
+    # 18-19. SP 报表邮件
+    "kpi_sp_spareparts": ["远程FTP: /01_RPA/LBR_Tools/SP/sp_report (数据+名单)"],
+    "kpi_sp_consumables": ["远程FTP: /01_RPA/LBR_Tools/SP/sp_report (数据+名单)"],
+    # 20. RAN Availability 邮件
+    "kpi_ran_availability": ["远程FTP: /01_RPA/LBR_Tools/KPI/RAN/ORANGE (图片+名单)"],
+    # 21. 邮件补发
+    "email_recovery": ["DB: app.db (失败邮件任务记录)"],
+    # 22. Packet Loss
+    "packet_loss_sync": ["本地DB: lte_pl.sqlite3 (data/packet_lost/)", "DB: eflow.sqlite3 (site 表)", "本地文件: Packet_Loss_Status_Report.xlsx"],
+    # 23. IP RAN M6K-FW 图表邮件
+    "ipran_m6k_chart_email": ["远程DB: ipran_ume_kpi.sqlite3 (via remote API, 本地为降级)", "本地文件: TMP/ipran_charts/*.png (图表)", "邮件发送"],
+    # 24. CNN Free Rating 图表邮件
+    "ccn_free_rating_chart_email": ["远程DB: db_ps_cs_cn.sqlite3 (via API)", "本地文件: TMP/ccn_free_rating_charts/*.png (图表)", "邮件发送"],
+    # 25. FW 吞吐 KPI
+    "fw_kpi_sync": ["远程DB: fw_db.sqlite (via API)", "本地文件: TMP/fw_charts + email_reports", "邮件发送"],
+}
+
+# 共享子函数 -> 资源（被调用链展开到的函数）
+CALL_CHAIN_IO: dict[str, list[str]] = {
+    "sync_from_eflow_api": ["DB: app.db + eflow.sqlite3 (报告副产品)", "API: eFlow", "远程DB: db.sqlite3 (db_writer API, Eflow_TT_FB/Eflow_WO_FB)", "远程FTP: tt_reports 上传"],
+    "fetch_and_save_active_alarm": ["DB: app.db (realtime_alarm 表)", "DB: eflow.sqlite3 (realtime_alarm 表)"],
+    "fetch_and_save_history_alarm": ["DB: eflow.sqlite3 (history_alarm 表)", "DB: app.db (history_alarm 表)"],
+    "run_full_sync": ["DB: lbr_ms_sla_kpi.sqlite3", "远程DB: lbr_ms_sla_kpi.sqlite3 (db_writer API)", "远程FTP: /01_RPA/LBR_Tools/KPI/MS_SLA"],
+    "run_ipran_kpi_sync": ["本地DB: ipran_ume_kpi.sqlite3", "远程DB: ipran_ume_kpi.sqlite3 (db_writer API)"],
+    "run_packet_loss_sync": ["本地DB: lte_pl.sqlite3", "DB: eflow.sqlite3 (site 表)"],
+    "run_cnn_kpi_sync": ["远程DB: db_ps_cs_cn.sqlite3 (CNN, via API)"],
+    "run_main_kpi_sync": ["远程DB: db.sqlite3 (via db_writer API)"],
+    "run_network_kpi_sync": ["本地DB: ran_kpi_daily.sqlite3", "远程DB: ran_kpi_daily.sqlite3 (via db_writer API)"],
+    "run_ran_ume_full_task": ["远程DB: ran_kpi_daily_202606.sqlite3 (via API)", "远程FTP: /01_RPA/LBR_Tools/KPI/RAN/ORANGE"],
+}
+
+
+def _call_chain_node_name(node: str) -> str:
+    """从调用链节点字符串中解析出函数名（去掉 '  → ' 缩进与 ' (file:line)' 位置）。"""
+    s = node
+    if s.startswith("  → "):
+        s = s[4:]
+    elif s.startswith("→ "):
+        s = s[2:]
+    return s.split(" (")[0].strip()
+
+
+def _annotate_call_chain(chain: list, task_id: str) -> list:
+    """为调用链每个节点追加其设计访问的数据库/文件标注。
+
+    - 入口节点（index 0）取自 TASK_IO[task_id]
+    - 其余节点若命中 CALL_CHAIN_IO[函数名] 则追加
+    资源按「规范化主键」（去掉括号说明、转小写）去重，保留更具体的那条，
+    避免同义条目重复；最终以内联形式附加到节点字符串末尾，前端无需改动即可展示。
+    """
+    def _norm_key(s: str) -> str:
+        return s.split(" (")[0].strip().lower()
+
+    annotated = []
+    task_io = TASK_IO.get(task_id, [])
+    for idx, node in enumerate(chain):
+        name = _call_chain_node_name(node)
+        res: list[str] = []
+        if idx == 0 and task_io:
+            res.extend(task_io)
+        if name in CALL_CHAIN_IO:
+            res.extend(CALL_CHAIN_IO[name])
+        # 按规范化主键去重，保留更具体（更长）的那条
+        best: dict[str, str] = {}
+        order: list[str] = []
+        for r in res:
+            k = _norm_key(r)
+            if k not in best or len(r) > len(best[k]):
+                if k not in best:
+                    order.append(k)
+                best[k] = r
+        uniq = [best[k] for k in order]
+        if uniq:
+            annotated.append(f"{node}  ⟵ [{' ; '.join(uniq)}]")
+        else:
+            annotated.append(node)
+    return annotated
+
+
 def register_task(
     task_id: str,
     name: str,
@@ -411,7 +532,7 @@ def register_task(
         "category": category,
         "enabled": final_enabled,
         "registered_at": datetime.now().isoformat(),
-        "call_chain": call_chain if call_chain is not None else _auto_call_chain(func),
+        "call_chain": _annotate_call_chain(call_chain, task_id) if call_chain is not None else _annotate_call_chain(_auto_call_chain(func), task_id),
     }
     logger.info(f"任务已注册: {task_id} ({name}), cron={current_cron}")
 

@@ -14,6 +14,7 @@ SP（备件）数据同步服务。
 
 可直接作为任务集成进任务管理（run_sp_data_sync）。
 """
+import logging
 import os
 import stat
 import sys

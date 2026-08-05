@@ -14,6 +14,7 @@ inband_details / outband_details / inventory_details 三张表）。
 """
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from datetime import datetime, timedelta
