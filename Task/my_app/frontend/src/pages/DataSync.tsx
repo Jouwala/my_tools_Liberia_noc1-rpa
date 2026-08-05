@@ -358,6 +358,16 @@ export default function DataSync() {
         'kpi_ran_availability',
       ],
     },
+    {
+      label_zh: '电池 KPI 同步',
+      label_en: 'Battery KPI Sync',
+      task_ids: ['battery_kpi_sync', 'battery_email'],
+    },
+    {
+      label_zh: '邮箱空间清理',
+      label_en: 'Mailbox Cleanup',
+      task_ids: ['mailbox_cleanup'],
+    },
   ]
 
   // 根据 task_id 快速查找任务

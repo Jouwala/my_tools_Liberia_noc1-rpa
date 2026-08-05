@@ -114,6 +114,15 @@ UME_PORT = 28001
 UME_USERNAME = "NOC"
 UME_PASSWORD = "Zte@2025!"
 
+
+def _runtime_credentials():
+    """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        from credential_store import get_credential
+    return get_credential("zte_ume", UME_USERNAME, UME_PASSWORD)
+
 # 并行查询线程数
 MAX_PARALLEL_WORKERS = int(os.environ.get("SLA_PARALLEL_WORKERS", "4"))
 
@@ -785,7 +794,7 @@ def _ume_login(max_retries=2):
         except ImportError:
             logging.getLogger(__name__).warning("[SILENT-EXCEPT] _ume_login: exception swallowed", exc_info=True)
             from auth_manager import get_auth
-        result = get_auth(UME_HOST, UME_PORT, UME_USERNAME, UME_PASSWORD)
+        result = get_auth(UME_HOST, UME_PORT, *_runtime_credentials())
         source = "缓存" if result["from_cache"] else "重新登录"
         logger.info(f"[LOGIN] 鉴权成功（来源: {source}）")
         return {"cookie": result["cookie"], "forgery_token": result["forgery_token"]}

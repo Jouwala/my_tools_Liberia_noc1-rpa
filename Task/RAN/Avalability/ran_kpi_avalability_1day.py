@@ -386,7 +386,7 @@ def _read_xlsx_bytes(data: bytes):
     返回 (headers, rows, row_count)。
     """
     import openpyxl
-    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=False)
+    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True)
     try:
         ws = wb.active
         all_data = list(ws.iter_rows(values_only=True))
@@ -844,22 +844,23 @@ def build_availability_payload(cfg, start_iso, end_iso):
     return payload
 
 
-def fetch_availability_via_api():
+def _utc_day_midnight(dt):
+    """把时间截断到 UTC 当天 00:00:00。"""
+    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def fetch_availability_range(start_dt, end_dt, max_retries=2):
     """
-    通过 RAN UME API 拉取 4 个可用性模板的「前一日」数据。
-    全程内存：export 返回 xlsx 原始字节（return_bytes=True），不写入任何临时文件，
-    返回的 tasks 携带 file_bytes，由 reader 在内存中解析。
+    拉取 [start_dt, end_dt) UTC 窗口内 4 个可用性模板的数据，全程内存
+    （export return_bytes=True），不写入任何临时文件。
+    返回 tasks 列表：[{file_bytes, file_type, source_name, table_name}, ...]
+    单个模板失败会重试 max_retries 次；仍失败则跳过（backfill 时该模板此窗口留空，可重跑补齐）。
     """
     if not HAS_RAN_UME:
         print("[ERROR] ran_ume_login 不可用，无法 API 拉取。请检查 Task/ran_ume 目录。")
         return []
 
     print(f"  [API] 使用 RAN UME 客户端: {_RAN_UME_DIR}")
-
-    # 前一日 00:00 ~ 当日 00:00 (UTC)，1 天窗口
-    now_utc = datetime.now(timezone.utc)
-    start_dt = (now_utc - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    end_dt = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
     end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
     print(f"  [API] 时间窗口(UTC): {start_iso} ~ {end_iso}")
@@ -870,67 +871,67 @@ def fetch_availability_via_api():
 
     tasks = []
     for prefix, cfg in AVAILABILITY_PM_CONFIGS.items():
-        try:
-            print(f"\n  [API] 拉取 {prefix} (templateid={cfg['templateid']}) ...")
-            payload = build_availability_payload(cfg, start_iso, end_iso)
-            queryid = rume.create_pm_history_query(cookie, forgery, payload)
-            rume.wait_pm_history_ready(cookie, forgery, queryid, timeout=600, interval=5)
-            ts = datetime.now().strftime("%Y%m%d%H%M%S")
-            filename = f"{prefix}1day_{ts}"
-            # 关键：return_bytes=True -> 全程内存，不落盘
-            xlsx_bytes = rume.export_pm_history(
-                cookie, forgery, queryid, filename=filename, return_bytes=True
-            )
-            tasks.append({
-                "file_bytes": xlsx_bytes,
-                "file_type": "xlsx",
-                "source_name": f"{filename}.xlsx",
-                "table_name": f"Daily_{prefix}",
-            })
-            print(f"  [API] 已取得内存数据: {filename}.xlsx ({len(xlsx_bytes)} bytes)")
-        except Exception as e:
-            print(f"  [ERROR] {prefix} 拉取失败: {e}")
-            import traceback as _tb
-            _tb.print_exc()
+        ok = False
+        for attempt in range(1, max_retries + 1):
+            try:
+                print(f"\n  [API] 拉取 {prefix} (templateid={cfg['templateid']}) ... [attempt {attempt}]")
+                payload = build_availability_payload(cfg, start_iso, end_iso)
+                queryid = rume.create_pm_history_query(cookie, forgery, payload)
+                rume.wait_pm_history_ready(cookie, forgery, queryid, timeout=600, interval=5)
+                ts = datetime.now().strftime("%Y%m%d%H%M%S")
+                filename = f"{prefix}_win_{ts}"
+                # 关键：return_bytes=True -> 全程内存，不落盘
+                xlsx_bytes = rume.export_pm_history(
+                    cookie, forgery, queryid, filename=filename, return_bytes=True
+                )
+                tasks.append({
+                    "file_bytes": xlsx_bytes,
+                    "file_type": "xlsx",
+                    "source_name": f"{filename}.xlsx",
+                    "table_name": f"Daily_{prefix}",
+                })
+                print(f"  [API] 已取得内存数据: {filename}.xlsx ({len(xlsx_bytes)} bytes)")
+                ok = True
+                break
+            except Exception as e:
+                print(f"  [ERROR] {prefix} 拉取失败(attempt {attempt}): {e}")
+                import traceback as _tb
+                _tb.print_exc()
+        if not ok:
+            print(f"  [WARN] {prefix} 在窗口 {start_iso}~{end_iso} 多次重试失败，跳过该模板")
 
     print(f"\n  [API] 共获取 {len(tasks)} 个模板数据（均驻留内存，未落盘）")
     return tasks
 
 
+def fetch_availability_via_api(window_days=2):
+    """
+    每日模式：拉取「前 window_days 天」窗口（默认 2 天）的可用性数据。
+    配合按主键覆盖写入（INSERT OR REPLACE），重叠天会被幂等刷新，
+    可安全重复执行以捕获 RAN UME 的迟到修正。
+    """
+    now_utc = datetime.now(timezone.utc)
+    end_dt = _utc_day_midnight(now_utc)
+    start_dt = end_dt - timedelta(days=window_days)
+    return fetch_availability_range(start_dt, end_dt)
+
+
+
 # ============================================================
-# 主函数
+# 写入 + 上传 流水线（可被每日模式与 backfill 复用）
 # ============================================================
-def main():
-    t_total_start = time.time()
-    start_time = datetime.now()
-    print("=" * 60)
-    print(f"  脚本开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"  架构: csv(C)/calamine(Rust) → ProcessPoolExecutor → Queue → SQLite Writer")
-    print(f"  Downloads: {DOWNLOADS_DIR}")
-    print(f"  DB: {DB_PATH}")
-    print(f"  BATCH_SIZE: {BATCH_SIZE} | Workers: {MAX_WORKERS} | Queue: {QUEUE_MAX}")
-    print("=" * 60)
+DEFAULT_BACKFILL_CHUNK_DAYS = 7   # backfill 分片天数（可调，避免单查询过大）
 
-    files_to_delete = set()
 
-    # ---- 1. 通过 RAN UME API 拉取前一日可用性数据 ----
-    t_find_start = time.time()
-    print(f"\n[1/3] 通过 RAN UME API 拉取数据...")
-    tasks = fetch_availability_via_api()
-    t_find_end = time.time()
-    print(f"  拉取耗时: {t_find_end - t_find_start:.2f}s")
-
-    if not tasks:
-        print(f"\n[WARN] 未通过 API 获取到任何数据，退出")
-        print(f"  请检查 RAN UME 连通性 / 鉴权，以及 AVAILABILITY_PM_CONFIGS 模板配置")
-        return
-
-    # 内存模式：数据驻留内存，无磁盘源文件需清理
-    # （仅遗留文件模式会从 Downloads 读取并登记待删文件）
-
-    # ---- 2. 多进程并行写入数据库 ----
-    print(f"\n[2/3] 多进程写入数据库...")
-    print(f"  启动 {MAX_WORKERS} 个 Reader 进程 (calamine Rust引擎)")
+def run_write_pipeline(tasks, do_upload=True):
+    """
+    把 tasks（内存 xlsx 字节）经多进程 reader → SQLite writer 写入 DB；
+    写完后按需 FTP 上传到远程。返回写入总行数。
+    写法是按主键覆盖（INSERT OR REPLACE），重跑不产生重复行。
+    """
+    # ---- 多进程并行写入数据库 ----
+    print(f"\n[write] 多进程写入数据库...")
+    print(f"  启动 {MAX_WORKERS} 个 Reader 进程")
     print(f"  启动 1 个 SQLite Writer 进程")
     t_db_start = time.time()
 
@@ -974,58 +975,142 @@ def main():
     print(f"\n  数据库总耗时: {fmt_time(t_db_end - t_db_start)}")
     gc.collect()
 
-    # ---- 3. FTP 上传：把本地构建好的数据库推送到远程 192.168.100.19 ----
+    # ---- VACUUM：回收 INSERT OR REPLACE 产生的空闲页，避免文件无限膨胀 ----
+    # 仅在即将上传远程时执行（backfill 分片阶段 do_upload=False 跳过）。
+    if do_upload:
+        _vacuum_db()
+
+    # ---- FTP 上传：把本地构建好的数据库推送到远程 192.168.100.19 ----
     # 说明：my_app 并未集成本库（无对应推送逻辑），远程 \\192.168.100.19\e\01_RPA\LBR_Tools\KPI\RAN\
     # 的副本只能由本脚本通过 FTP 直接上传。若不上传，远程 DB 将停止更新。
-    print(f"\n[3/3] FTP 上传数据库到远程 {FTP_HOST}:{FTP_REMOTE_DIR} ...")
-    try:
-        upload_ok = upload_to_ftp(DB_PATH, FTP_REMOTE_DIR, DB_NAME)
-    except Exception as e:
-        upload_ok = False
-        print(f"  [ERROR] FTP 上传异常: {e}")
-    if upload_ok:
-        print(f"  [OK] 远程数据库已更新: {FTP_REMOTE_DIR}/{DB_NAME}")
-    else:
-        print(f"  [WARN] FTP 上传失败，请检查 {FTP_HOST} 连通性 / 账号，并手动重传 {DB_PATH}")
-
-    # ---- 清理文件（内存模式无临时文件；此处仅清理遗留文件模式的源文件）----
-    print(f"\n[cleanup]")
-    gc.collect()
-
-    deleted_count = 0
-    failed_files = []
-    for fpath in files_to_delete:
+    if do_upload:
+        print(f"\n[upload] FTP 上传数据库到远程 {FTP_HOST}:{FTP_REMOTE_DIR} ...")
         try:
-            os.remove(fpath)
-            print(f"  deleted: {os.path.basename(fpath)}")
-            deleted_count += 1
-        except OSError:
-            # 任何删除失败（权限/文件被锁/沙箱拦截等）都进入强制重试
-            failed_files.append(fpath)
+            upload_ok = upload_to_ftp(DB_PATH, FTP_REMOTE_DIR, DB_NAME)
         except Exception as e:
-            print(f"  [error] {os.path.basename(fpath)}: {e}")
+            upload_ok = False
+            print(f"  [ERROR] FTP 上传异常: {e}")
+        if upload_ok:
+            print(f"  [OK] 远程数据库已更新: {FTP_REMOTE_DIR}/{DB_NAME}")
+        else:
+            print(f"  [WARN] FTP 上传失败，请检查 {FTP_HOST} 连通性 / 账号，并手动重传 {DB_PATH}")
+    else:
+        print(f"\n[upload] 跳过 FTP 上传（backfill 分片阶段，结尾统一上传）")
 
-    if failed_files:
-        print(f"  retrying {len(failed_files)} locked files...")
-        time.sleep(2)
-        for fpath in failed_files:
-            try:
-                subprocess.run(
-                    ['powershell', '-Command',
-                     f'Remove-Item -Path "{fpath}" -Force -ErrorAction Stop'],
-                    capture_output=True, timeout=15,
-                    creationflags=_SUBPROCESS_FLAGS,
-                )
-                if not os.path.exists(fpath):
-                    print(f"  deleted (force): {os.path.basename(fpath)}")
-                    deleted_count += 1
-                else:
-                    import ctypes
-                    ctypes.windll.kernel32.MoveFileExW(fpath, None, 0x4)
-            except Exception as e:
-                print(f"  [error] {os.path.basename(fpath)}: {e}")
+    return
 
-    print(f"  total deleted: {deleted_count} files")
+
+def _vacuum_db():
+    """回收 INSERT OR REPLACE 产生的空闲页，避免文件无限膨胀。
+    仅在空闲页占比过高时执行；异常时静默跳过。"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("PRAGMA page_count"); pc = cur.fetchone()[0]
+        cur.execute("PRAGMA freelist_count"); fl = cur.fetchone()[0]
+        conn.close()
+        if pc and fl > max(50000, int(pc * 0.25)):
+            print(f"\n[vacuum] 空闲页 {fl}/{pc}，执行 VACUUM 压缩...")
+            t0 = time.time()
+            vconn = sqlite3.connect(DB_PATH)
+            vconn.execute("VACUUM")
+            vconn.close()
+            print(f"  [vacuum] 完成 ({time.time() - t0:.1f}s)")
+        else:
+            print(f"\n[vacuum] 空闲页 {fl}/{pc}，无需压缩")
+    except Exception as e:
+        print(f"  [vacuum] 跳过（异常）: {e}")
+
+
+def backfill(start_day_str, end_day_str=None, chunk_days=DEFAULT_BACKFILL_CHUNK_DAYS, do_upload=True):
+    """
+    补采历史数据：从 start_day_str 到 end_day_str（默认今天），
+    按 chunk_days 天分片，每片经 fetch_availability_range 拉取并 UPSERT 写入本地 DB；
+    全部分片完成后统一 FTP 上传一次远程。
+
+    写法是按主键覆盖（INSERT OR REPLACE），因此：
+      - 重跑不会产生重复行；
+      - 若某分片失败留空，可重复执行 backfill 补齐（幂等）。
+    """
+    start = _utc_day_midnight(
+        datetime.strptime(start_day_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    )
+    if end_day_str:
+        end = _utc_day_midnight(
+            datetime.strptime(end_day_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        )
+    else:
+        end = _utc_day_midnight(datetime.now(timezone.utc))
+
+    if start >= end:
+        print(f"[BACKFILL] 起始日 {start.date()} >= 结束日 {end.date()}，无需补采")
+        return
+
+    total_days = (end - start).days
+    n_chunks = (total_days + chunk_days - 1) // chunk_days
+    print("=" * 60)
+    print(f"  [BACKFILL] 补采范围: {start.date()} ~ {end.date()} (chunk_days={chunk_days})")
+    print(f"  [BACKFILL] 共约 {total_days} 天，将分 {n_chunks} 片")
+    print("=" * 60)
+
+    chunk_idx = 0
+    total_tasks = 0
+    cur = start
+    while cur < end:
+        chunk_end = min(cur + timedelta(days=chunk_days), end)
+        print(f"\n[BACKFILL] === 分片 {chunk_idx}: {cur.date()} ~ {chunk_end.date()} ===")
+        tasks = fetch_availability_range(cur, chunk_end)
+        if tasks:
+            run_write_pipeline(tasks, do_upload=False)
+            total_tasks += len(tasks)
+        else:
+            print(f"  [WARN] 分片 {cur.date()}~{chunk_end.date()} 未获取到任何数据，跳过")
+        cur = chunk_end
+        chunk_idx += 1
+
+    # 全部分片写完后，统一 VACUUM + 上传一次远程
+    if do_upload:
+        print(f"\n[BACKFILL] 所有 {chunk_idx} 个分片写入完成，VACUUM 压缩并统一 FTP 上传到远程 ...")
+        _vacuum_db()
+        try:
+            ok = upload_to_ftp(DB_PATH, FTP_REMOTE_DIR, DB_NAME)
+        except Exception as e:
+            ok = False
+            print(f"  [ERROR] FTP 上传异常: {e}")
+        print(f"  [{'OK' if ok else 'WARN'}] 远程数据库更新: {ok}")
+    else:
+        print(f"\n[BACKFILL] 跳过 FTP 上传（do_upload=False）")
+
+    print(f"\n[BACKFILL] 完成：{chunk_idx} 个分片，{total_tasks} 个模板数据写入本地 DB")
+
+
+# ============================================================
+# 主函数（每日模式，默认 2 天窗口）
+# ============================================================
+def main():
+    t_total_start = time.time()
+    start_time = datetime.now()
+    print("=" * 60)
+    print(f"  脚本开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  架构: 内存(xlsx bytes) → ProcessPoolExecutor → Queue → SQLite Writer")
+    print(f"  DB: {DB_PATH}")
+    print(f"  BATCH_SIZE: {BATCH_SIZE} | Workers: {MAX_WORKERS} | Queue: {QUEUE_MAX}")
+    print("=" * 60)
+
+    # ---- 1. 通过 RAN UME API 拉取（默认 2 天窗口）----
+    t_find_start = time.time()
+    print(f"\n[1/3] 通过 RAN UME API 拉取数据（每日 2 天窗口）...")
+    tasks = fetch_availability_via_api(window_days=2)
+    t_find_end = time.time()
+    print(f"  拉取耗时: {t_find_end - t_find_start:.2f}s")
+
+    if not tasks:
+        print(f"\n[WARN] 未通过 API 获取到任何数据，退出")
+        print(f"  请检查 RAN UME 连通性 / 鉴权，以及 AVAILABILITY_PM_CONFIGS 模板配置")
+        return
+
+    # ---- 2 & 3. 写入数据库 + FTP 上传 ----
+    run_write_pipeline(tasks, do_upload=True)
 
     # ================================================================
     # 完成统计
@@ -1061,8 +1146,33 @@ def main():
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="RAN 小区可用性 1-day KPI（RAN UME API 拉取 + 主键覆盖写入）"
+    )
+    parser.add_argument(
+        "--backfill", metavar="START", nargs="?", const="2026-01-01",
+        help="补采历史数据：从 START(YYYY-MM-DD) 到今天；不传值默认 2026-01-01",
+    )
+    parser.add_argument("--end", metavar="END", default=None,
+                        help="backfill 结束日 YYYY-MM-DD（默认今天）")
+    parser.add_argument("--chunk-days", type=int, default=DEFAULT_BACKFILL_CHUNK_DAYS,
+                        help=f"backfill 分片天数（默认 {DEFAULT_BACKFILL_CHUNK_DAYS}）")
+    parser.add_argument("--window-days", type=int, default=2,
+                        help="每日模式窗口天数（默认 2）")
+    args = parser.parse_args()
+
     try:
-        main()
+        if args.backfill:
+            backfill(args.backfill, end_day_str=args.end,
+                     chunk_days=args.chunk_days, do_upload=True)
+        else:
+            # 每日模式（定时任务默认调用，无参数）
+            tasks = fetch_availability_via_api(window_days=args.window_days)
+            if tasks:
+                run_write_pipeline(tasks, do_upload=True)
+            else:
+                print("[WARN] 未获取到数据，退出")
     except Exception as e:
         import traceback
         print(f"\n[FATAL ERROR] {e}")

@@ -13,6 +13,8 @@ import {
   SyncOutlined,
   AlertOutlined,
   DisconnectOutlined,
+  ThunderboltOutlined,
+  SettingOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -33,10 +35,12 @@ const Overview = lazy(() => import('./pages/Overview'))
 const TTWODashboard = lazy(() => import('./pages/TTWODashboard'))
 const AlarmDashboard = lazy(() => import('./pages/AlarmDashboard'))
 const PacketLossDashboard = lazy(() => import('./pages/PacketLossDashboard'))
+const BatteryDashboard = lazy(() => import('./pages/BatteryDashboard'))
+const CredentialSettings = lazy(() => import('./pages/CredentialSettings'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings'
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageKey>('sync')
@@ -50,12 +54,14 @@ function AppContent() {
     { key: 'gis', icon: <GlobalOutlined />, label: t('nav.gis') },
     { key: 'realtime_alarm', icon: <AlertOutlined />, label: t('nav.realtimeAlarm') },
     { key: 'packet_loss', icon: <DisconnectOutlined />, label: t('nav.packetLoss') },
+    { key: 'battery', icon: <ThunderboltOutlined />, label: t('nav.battery') },
     { key: 'warehouse', icon: <AppstoreOutlined />, label: t('nav.sp') },
     { key: 'overview', icon: <BarChartOutlined />, label: t('nav.overview') },
     { key: 'tables', icon: <TableOutlined />, label: t('nav.tables') },
     { key: 'upload', icon: <UploadOutlined />, label: t('nav.upload') },
     { key: 'archive', icon: <HistoryOutlined />, label: t('nav.archive') },
     { key: 'dashboard', icon: <DashboardOutlined />, label: t('nav.dashboard') },
+    { key: 'settings', icon: <SettingOutlined />, label: t('nav.settings') },
   ]
 
   const renderPage = () => {
@@ -72,6 +78,8 @@ function AppContent() {
         return <GISMap mode="realtime" />
       case 'packet_loss':
         return <PacketLossDashboard />
+      case 'battery':
+        return <BatteryDashboard />
       case 'warehouse':
         return <WarehouseDashboard />
       case 'overview':
@@ -84,6 +92,8 @@ function AppContent() {
         return <ArchiveList />
       case 'dashboard':
         return <Dashboard />
+      case 'settings':
+        return <CredentialSettings />
       default:
         return <Overview />
     }

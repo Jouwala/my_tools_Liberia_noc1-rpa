@@ -59,6 +59,15 @@ USERNAME = "noc1"
 PASSWORD = "Zte@lbr202607"
 LOGIN_PORTAL = "/portal-athena/framework/default.html"
 
+
+def _runtime_credentials():
+    """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        from credential_store import get_credential
+    return get_credential("ipran_ume", USERNAME, PASSWORD)
+
 # 数据目录
 IPRAN_DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\ipran_ume")
 IPRAN_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -376,9 +385,10 @@ class UmeSessionClient:
         if not public_key_b64:
             raise Exception("无法获取 RSA 公钥，登录中止")
 
-        encrypted_pwd = self.rsa_encrypt(PASSWORD, public_key_b64)
+        _cred_user, _cred_pwd = _runtime_credentials()
+        encrypted_pwd = self.rsa_encrypt(_cred_pwd, public_key_b64)
         login_payload = {
-            "username": USERNAME,
+            "username": _cred_user,
             "password": encrypted_pwd,
             "parameters": login_parameters,
         }

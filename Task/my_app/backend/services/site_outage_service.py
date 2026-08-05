@@ -86,16 +86,17 @@ def _zte_login(page):
         pass
 
     logger.info("填写用户名")
-    page.locator(username_sel).fill(USERNAME)
+    _cred_user, _cred_pwd = _runtime_credentials()
+    page.locator(username_sel).fill(_cred_user)
 
     if password_sel:
         logger.info(f"使用密码选择器：{password_sel}")
         try:
-            page.locator(password_sel).fill(PASSWORD)
+            page.locator(password_sel).fill(_cred_pwd)
         except Exception:
             logging.getLogger(__name__).warning("[SILENT-EXCEPT] _zte_login: exception swallowed", exc_info=True)
             page.locator(password_sel).focus(force=True)
-            page.keyboard.type(PASSWORD, delay=50)
+            page.keyboard.type(_cred_pwd, delay=50)
     else:
         logger.warning("未找到密码选择器")
 
@@ -135,6 +136,16 @@ USERNAME = os.environ.get("EFLOW_USER", "admin")
 PASSWORD = os.environ.get("EFLOW_PASS", "Brysj*8*")
 HOST = os.environ.get("EFLOW_HOST", "10.100.20.8")
 PORT = os.environ.get("EFLOW_PORT", "28001")
+
+
+def _runtime_credentials():
+    """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        from credential_store import get_credential
+    return get_credential("eflow", USERNAME, PASSWORD,
+                          env_user="EFLOW_USER", env_secret="EFLOW_PASS")
 
 LOGIN_URL = (
     f"https://{HOST}:{PORT}/api/oauth2/v1/authorize"

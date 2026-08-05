@@ -48,6 +48,17 @@ class EmailSender:
     USERNAME = "xin83min@126.com"
     PASSWORD = "LQcTaMMuWmhvAfRB"
     SENDER = "xin83min@126.com"
+
+    @classmethod
+    def _runtime_credentials(cls):
+        """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+        try:
+            from backend.services.credential_store import get_credential
+        except ImportError:
+            import sys as _sys
+            _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from credential_store import get_credential
+        return get_credential("mail_126", cls.USERNAME, cls.PASSWORD)
     TO_RECEIVERS = pd.read_csv("to_receiver.txt")
     TO_RECEIVERS = TO_RECEIVERS.columns.to_list()
     TO_RECEIVERS = [x for x in TO_RECEIVERS if not str(x).startswith('Unnamed:')]
@@ -187,8 +198,9 @@ class EmailSender:
             server = smtplib.SMTP_SSL(cls.SMTP_SERVER, cls.SMTP_PORT, timeout=30)
             server.set_debuglevel(0)
             try:
-                server.login(cls.USERNAME, cls.PASSWORD)
-                server.sendmail(cls.SENDER, cls.TO_RECEIVERS, msg.as_string())
+                _mail_user, _mail_pwd = cls._runtime_credentials()
+                server.login(_mail_user, _mail_pwd)
+                server.sendmail(_mail_user or cls.SENDER, cls.TO_RECEIVERS, msg.as_string())
                 print(f"\n✅ 邮件发送成功！")
                 print(f"📧 收件人: {cls.TO_RECEIVERS}")
                 print(f"📝 主题: {subject}")

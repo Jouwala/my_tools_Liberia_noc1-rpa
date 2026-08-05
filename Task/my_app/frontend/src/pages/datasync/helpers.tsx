@@ -12,6 +12,7 @@ import {
   MailOutlined,
   SettingOutlined,
   SafetyCertificateOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 
 // 取错误首行（截断），用于卡片/横幅的一行摘要
@@ -101,6 +102,8 @@ export const CATEGORY_CONFIG: Record<string, { color: string; icon: ReactNode; l
   kpi_email: { color: '#722ed1', icon: <MailOutlined />, label_zh: 'KPI/SP/RAN 报告邮件', label_en: 'KPI/SP/RAN Report Email' },
   packet_loss: { color: '#eb2f96', icon: <WifiOutlined />, label_zh: 'Packet Loss', label_en: 'Packet Loss' },
   fw_kpi: { color: '#d4380d', icon: <SafetyCertificateOutlined />, label_zh: 'FW 吞吐 KPI', label_en: 'FW Throughput KPI' },
+  battery: { color: '#a0d911', icon: <ThunderboltOutlined />, label_zh: '电池 KPI', label_en: 'Battery KPI' },
+  mailbox: { color: '#cf1322', icon: <MailOutlined />, label_zh: '邮箱清理', label_en: 'Mailbox Cleanup' },
 }
 
 export function formatTime(isoStr: string | null): string {

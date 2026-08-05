@@ -53,6 +53,15 @@ SFTP_PORT = 22
 SFTP_USER = "ubuntu"
 SFTP_PASS = "UbuntU1!2@3#4$"
 
+
+def _runtime_credentials():
+    """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        from credential_store import get_credential
+    return get_credential("sftp_sp", SFTP_USER, SFTP_PASS)
+
 # 5 份报表的下载定义
 SP_TABLES = {
     "inband_details": {
@@ -299,7 +308,8 @@ def _connect_sftp():
     sock = socket.create_connection((SFTP_HOST, SFTP_PORT), timeout=SFTP_CONNECT_TIMEOUT)
     client = paramiko.Transport(sock)
     client.set_keepalive(SFTP_KEEPALIVE)
-    client.connect(username=SFTP_USER, password=SFTP_PASS)
+    _sftp_user, _sftp_pass = _runtime_credentials()
+    client.connect(username=_sftp_user, password=_sftp_pass)
     sftp = paramiko.SFTPClient.from_transport(client)
     return client, sftp
 

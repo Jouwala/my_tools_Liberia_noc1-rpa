@@ -64,6 +64,15 @@ PORT = 28001
 USERNAME = "NOC"
 PASSWORD = "Zte@2025!"
 
+
+def _runtime_credentials():
+    """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        from credential_store import get_credential
+    return get_credential("zte_ume", USERNAME, PASSWORD)
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 
@@ -433,7 +442,7 @@ def login():
         except ImportError:
             logging.getLogger(__name__).warning("[SILENT-EXCEPT] login: exception swallowed", exc_info=True)
             from auth_manager import get_auth
-        result = get_auth(HOST, PORT, USERNAME, PASSWORD)
+        result = get_auth(HOST, PORT, *_runtime_credentials())
         source = "缓存" if result["from_cache"] else "重新登录"
         print(f"[LOGIN] 鉴权成功（来源: {source}）")
         return {"cookie": result["cookie"], "forgery_token": result["forgery_token"]}

@@ -43,6 +43,18 @@ PUSHPLUS_TOKEN = "f9cf7778112f486ab618d153456e2553"
 # 发送后端: openclaw | wecom | serverchan | pushplus
 MODE = "pushplus"
 
+
+def _runtime_weixin_credentials():
+    """运行时获取通知凭据，返回 (ServerChan SendKey, PushPlus Token)。
+
+    优先级：数据库(credentials 表) > 模块默认值，支持页面修改后免重启生效。
+    """
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        from credential_store import get_credential
+    return get_credential("weixin", SERVERCHAN_SENDKEY, PUSHPLUS_TOKEN)
+
 # 超时（秒）
 OPENCLAW_AGENT_TIMEOUT = 280
 SUBPROCESS_TIMEOUT = 300
@@ -102,12 +114,13 @@ def _send_wecom(text: str):
 
 
 def _send_serverchan(text: str):
-    if not SERVERCHAN_SENDKEY:
+    _sendkey, _ = _runtime_weixin_credentials()
+    if not _sendkey:
         return False, "SERVERCHAN_SENDKEY 未配置"
     title = "⚠️ 任务执行失败"
     try:
         body = _post_json(
-            f"https://sctapi.ftqq.com/{SERVERCHAN_SENDKEY}.send",
+            f"https://sctapi.ftqq.com/{_sendkey}.send",
             {"title": title, "desp": text}, PUSH_TIMEOUT,
         )
         if body.get("code") == 0:
@@ -119,13 +132,14 @@ def _send_serverchan(text: str):
 
 
 def _send_pushplus(text: str):
-    if not PUSHPLUS_TOKEN:
+    _, _token = _runtime_weixin_credentials()
+    if not _token:
         return False, "PUSHPLUS_TOKEN 未配置"
     title = "⚠️ 任务执行失败"
     try:
         body = _post_json(
             "http://www.pushplus.plus/send",
-            {"token": PUSHPLUS_TOKEN, "title": title,
+            {"token": _token, "title": title,
              "content": text, "template": "txt"}, PUSH_TIMEOUT,
         )
         if body.get("code") == 200:

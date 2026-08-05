@@ -244,6 +244,26 @@ TASK_SPECS = [
          description="从 DPtech UMC 拉取整机吞吐数据，经 API 写入远程 fw_db.sqlite，生成近14天吞吐折线图并邮件发送",
          description_en="Fetch FW whole throughput from DPtech UMC, write to remote fw_db.sqlite via API, generate 14-day chart and email",
          default_cron="15 7 * * *", category="fw_kpi"),
+
+    # 26. 电池 KPI 实时同步（每小时第 5 分钟）
+    dict(task_id="battery_kpi_sync", name="电池 KPI 同步", name_en="Battery KPI Sync",
+         loader=("backend.services.battary_kpi_fetch.battery_kpi_service", "run_battery_kpi_sync"),
+         description="从 UME(192.168.170.2) 拉取电池实时 KPI（健康度/SOC/充放电状态），全程内存不落盘，写入 battery_kpi.sqlite3 供电池看板使用",
+         description_en="Fetch battery realtime KPI (health/SOC/charge status) from UME(192.168.170.2), in-memory only, write to battery_kpi.sqlite3 for Battery Dashboard",
+         default_cron="5 * * * *", category="battery"),
+    # 28. 电池 KPI 邮件（每天 07:00 与 19:00）
+    dict(task_id="battery_email", name="电池 KPI 邮件", name_en="Battery KPI Email",
+         loader=("backend.services.battary_kpi_fetch.battery_kpi_service", "run_battery_email"),
+         description="将电池 KPI 报表（Excel）发送至远程名单中的邮箱，每日 07:00 与 19:00 各一次",
+         description_en="Email the battery KPI report (Excel) to recipients from remote FTP list, daily at 07:00 & 19:00",
+         default_cron="0 7,19 * * *", category="battery"),
+
+    # 27. 邮箱空间守卫（每小时第 0 分钟）：容量超阈值自动清理最旧邮件，避免存储上限告警
+    dict(task_id="mailbox_cleanup", name="邮箱空间清理", name_en="Mailbox Storage Guard",
+         loader=("backend.services.mailbox_cleanup", "run_mailbox_cleanup"),
+         description="每小时检查 Exchange 邮箱（ztenoc.olr@orange.com）：邮件数>500 且 空间>70% 时，硬删除最旧 200 封邮件，避免 'storage limit' 告警",
+         description_en="Hourly guard for Exchange mailbox (ztenoc.olr@orange.com): when count>500 AND usage>70%, hard-delete the 200 oldest emails to avoid the 'storage limit' warning",
+         default_cron="0 * * * *", category="mailbox"),
 ]
 
 

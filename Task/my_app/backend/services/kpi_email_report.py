@@ -120,6 +120,7 @@ def _run_script(
     subject_prefix: str = "",
     excel: Optional[Path] = None,
     body_file: Optional[Path] = None,
+    images: Optional[list] = None,
     retries: int = 3,
     per_attempt_timeout: int = 120,
     budget: int = 300,
@@ -149,6 +150,10 @@ def _run_script(
         cmd += ["--excel", str(excel)]
     if body_file:
         cmd += ["--body-file", str(body_file)]
+    if images:
+        # 显式指定内嵌图片，避免目录残留旧 PNG 被一并发现导致重复内嵌
+        for img in images:
+            cmd += ["--images", str(img)]
     if to is not None:
         cmd += ["--to", to]
     if cc is not None:

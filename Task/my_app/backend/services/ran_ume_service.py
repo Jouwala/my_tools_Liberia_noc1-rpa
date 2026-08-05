@@ -77,6 +77,16 @@ PORT = int(os.environ.get("RAN_UME_PORT", "28001"))
 USERNAME = os.environ.get("RAN_UME_USER", "NOC")
 PASSWORD = os.environ.get("RAN_UME_PASS", "Zte@2025!")
 
+
+def _runtime_credentials():
+    """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        from credential_store import get_credential
+    return get_credential("zte_ume", USERNAME, PASSWORD,
+                          env_user="RAN_UME_USER", env_secret="RAN_UME_PASS")
+
 RAN_UME_DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\ran_ume")
 RAN_UME_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -375,7 +385,7 @@ def _login(max_retries=2):
         except ImportError:
             logging.getLogger(__name__).warning("[SILENT-EXCEPT] _login: exception swallowed", exc_info=True)
             from auth_manager import get_auth
-        result = get_auth(HOST, PORT, USERNAME, PASSWORD)
+        result = get_auth(HOST, PORT, *_runtime_credentials())
         source = "缓存" if result["from_cache"] else "重新登录"
         logger.info(f"[RAN_UME] 鉴权成功（来源: {source}）")
         return {"cookie": result["cookie"], "forgery_token": result["forgery_token"]}

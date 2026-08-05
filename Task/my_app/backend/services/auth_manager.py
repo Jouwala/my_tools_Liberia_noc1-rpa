@@ -445,8 +445,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ZTE 网管鉴权管理")
     parser.add_argument("--host", default="10.100.28.27")
     parser.add_argument("--port", type=int, default=28001)
-    parser.add_argument("--user", default="NOC")
-    parser.add_argument("--pass", dest="password", default="Zte@2025!")
+    # 命令行未指定时，从凭据存储读取（环境变量 > 数据库 > 默认值）
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        try:
+            from credential_store import get_credential
+        except ImportError:
+            get_credential = None
+    if get_credential:
+        _def_user, _def_pass = get_credential("zte_ume", "NOC", "Zte@2025!")
+    else:
+        _def_user, _def_pass = "NOC", "Zte@2025!"
+    parser.add_argument("--user", default=_def_user)
+    parser.add_argument("--pass", dest="password", default=_def_pass)
     parser.add_argument("--force", action="store_true", help="强制重新登录")
     args = parser.parse_args()
 

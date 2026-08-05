@@ -425,6 +425,17 @@ TASK_IO: dict[str, list[str]] = {
     "ccn_free_rating_chart_email": ["远程DB: db_ps_cs_cn.sqlite3 (via API)", "本地文件: TMP/ccn_free_rating_charts/*.png (图表)", "邮件发送"],
     # 25. FW 吞吐 KPI
     "fw_kpi_sync": ["远程DB: fw_db.sqlite (via API)", "本地文件: TMP/fw_charts + email_reports", "邮件发送"],
+    # 26. 电池 KPI（全程内存不落盘：无 Excel/CSV/JSON 导出，无 FTP 上传）
+    "battery_kpi_sync": ["API: UME 192.168.170.2 (r32.uedm.batt 实时数据)",
+                         "本地DB: battery_kpi.sqlite3 (data/battery/, battery_latest+battery_reading+battery_trend)"],
+    # 28. 电池 KPI 邮件（附件 Excel 取自 output_socket；收件人名单取自远程 FTP）
+    "battery_email": ["DB: battery_kpi.sqlite3 (data/battery/, battery_latest)",
+                      "本地文件: output_socket/battery_latest_*.xlsx (邮件附件)",
+                      "远程FTP: /01_RPA/LBR_Tools/KPI/Battary/battary_email (收件人名单)",
+                      "外发: Orange OWA 邮件 (owa_mail_report.py via EWS)"],
+    # 27. 邮箱空间守卫
+    "mailbox_cleanup": ["EWS 邮箱 ztenoc.olr@orange.com (exchmail.orange-cit.ci)",
+                        "删除最旧邮件（硬删除释放邮箱配额）"],
 }
 
 # 共享子函数 -> 资源（被调用链展开到的函数）
@@ -439,6 +450,9 @@ CALL_CHAIN_IO: dict[str, list[str]] = {
     "run_main_kpi_sync": ["远程DB: db.sqlite3 (via db_writer API)"],
     "run_network_kpi_sync": ["本地DB: ran_kpi_daily.sqlite3", "远程DB: ran_kpi_daily.sqlite3 (via db_writer API)"],
     "run_ran_ume_full_task": ["远程DB: ran_kpi_daily_202606.sqlite3 (via API)", "远程FTP: /01_RPA/LBR_Tools/KPI/RAN/ORANGE"],
+    "run_battery_kpi_sync": ["API: UME 192.168.170.2 (r32.uedm.batt)", "本地DB: battery_kpi.sqlite3"],
+    "run_battery_email": ["DB: battery_kpi.sqlite3", "本地文件: output_socket/*.xlsx", "远程FTP: battary_email (收件人)", "外发: OWA 邮件"],
+    "run_mailbox_cleanup": ["EWS 邮箱 ztenoc.olr@orange.com (exchmail.orange-cit.ci)", "删除最旧邮件（硬删除释放邮箱配额）"],
 }
 
 

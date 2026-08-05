@@ -57,6 +57,16 @@ PORT = 443
 USERNAME = "admin"
 PASSWORD = "Zte@orange123!"
 
+
+def _runtime_credentials():
+    """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from credential_store import get_credential
+    return get_credential("fw_kpi", USERNAME, PASSWORD)
+
 # 脚本目录（相对路径基准）
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -308,7 +318,8 @@ def login(sess: Session):
 
     # 3) 计算加密字段
     ensure_ejs(sess)
-    enc = compute_login_enc(USERNAME, PASSWORD, cn, cp, c_form)
+    _cred_user, _cred_pwd = _runtime_credentials()
+    enc = compute_login_enc(_cred_user, _cred_pwd, cn, cp, c_form)
     print(f"[LOGIN] q={enc['q'][:32]}... w={enc['w'][:32]}... smvalidate={enc['smvalidate'][:32]}...")
 
     # 4) 提交登录

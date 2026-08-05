@@ -55,6 +55,15 @@ USERNAME = "oss"
 PASSWORD = "Mwebazeaaron@25"
 LOGIN_PORTAL = "/em-portal"
 
+
+def _runtime_credentials():
+    """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        from credential_store import get_credential
+    return get_credential("ccn_ume", USERNAME, PASSWORD)
+
 # 数据目录（my_app 自包含）
 CNN_UME_DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\cnn_ume")
 CNN_UME_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -559,11 +568,12 @@ def _login():
         raise Exception("无法获取 RSA 公钥，登录中止")
 
     # Step 3: Encrypt password
-    encrypted_pwd = _rsa_encrypt_pem(PASSWORD, public_key_b64)
+    _cred_user, _cred_pwd = _runtime_credentials()
+    encrypted_pwd = _rsa_encrypt_pem(_cred_pwd, public_key_b64)
 
     # Step 4: Login
     login_payload = json.dumps({
-        "username": USERNAME,
+        "username": _cred_user,
         "password": encrypted_pwd,
         "parameters": login_parameters,
     })

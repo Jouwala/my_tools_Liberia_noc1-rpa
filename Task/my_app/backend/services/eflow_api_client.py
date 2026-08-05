@@ -33,6 +33,16 @@ HOST = os.environ.get("EFLOW_HOST", "10.100.20.8")
 PORT = int(os.environ.get("EFLOW_PORT", "28001"))
 USERNAME = os.environ.get("EFLOW_USER", "admin")
 PASSWORD = os.environ.get("EFLOW_PASS", "Brysj*8*")
+
+
+def _runtime_credentials():
+    """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        from credential_store import get_credential
+    return get_credential("eflow", USERNAME, PASSWORD,
+                          env_user="EFLOW_USER", env_secret="EFLOW_PASS")
 MAX_PARALLEL_DOWNLOADS = max(1, int(os.environ.get("EFLOW_MAX_PARALLEL_DOWNLOADS", "6")))
 
 # ========== 重试配置 ==========
@@ -303,7 +313,7 @@ def login():
         except ImportError:
             logging.getLogger(__name__).warning("[SILENT-EXCEPT] login: exception swallowed", exc_info=True)
             from auth_manager import get_auth
-        result = get_auth(HOST, PORT, USERNAME, PASSWORD)
+        result = get_auth(HOST, PORT, *_runtime_credentials())
         source = "缓存" if result["from_cache"] else "重新登录"
         logger.info(f"eFlow 鉴权成功（来源: {source}）")
         _session_cookie = result["cookie"]

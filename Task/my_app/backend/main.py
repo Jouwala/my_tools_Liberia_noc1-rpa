@@ -24,7 +24,10 @@ from pathlib import Path
 
 from backend.database import Base, engine, DB_PATH
 from backend.models.analysis import AnalysisArchive, UploadedFile
-from backend.routers import tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard, packet_loss_dashboard
+from backend.routers import (
+    tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard,
+    packet_loss_dashboard, battery_dashboard, credentials,
+)
 from backend.services import task_runner
 from backend.security import require_protected
 from backend.database import get_raw_connection
@@ -66,6 +69,8 @@ app.include_router(gis.router)
 app.include_router(tt_wo_dashboard.router)
 app.include_router(alarm_dashboard.router)
 app.include_router(packet_loss_dashboard.router)
+app.include_router(battery_dashboard.router)
+app.include_router(credentials.router)
 
 
 # ========== 通用任务调度系统 ==========
