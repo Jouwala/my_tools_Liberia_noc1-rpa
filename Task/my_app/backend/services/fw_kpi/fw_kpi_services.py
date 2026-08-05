@@ -6,7 +6,8 @@ FW 整机吞吐 KPI 数据获取脚本（DPtech/ZTE UMC @ 10.100.2.101/UMC）
 1. 登录经典 UMC（Login!start.action + DES(strEnc) + SM3），鉴权基于会话 Cookie。
    - DES/strEnc 复用服务器原始 js/e.js，通过 Node 子进程执行，保证与浏览器加密 100% 一致。
    - SM3 使用 Node 内置 crypto 的 SM3（已验证与服务器 sm3.js 同为标准 SM3）。
-2. 拉取整机吞吐趋势页 DevDeviceWholeThrouput.action（HTML，内嵌 ECharts 数据）。
+2. 对每台设备（DEVICE_IDS，默认 37781505/37781506）拉取整机吞吐趋势页
+   DevDeviceWholeThrouput.action（HTML，内嵌 ECharts 数据）。
 3. 从 HTML 中正则提取 timelist / inthrouputlist / outthrouputlist 三个 JS 数组（内存解析）。
 4. 通过远程写入 API（db_writer_client -> http://192.168.100.19:8765/api/write）
    将数据 upsert 到远程 fw_db.sqlite（E:/01_RPA/LBR_Tools/KPI/FW/fw_db.sqlite），
@@ -59,8 +60,8 @@ PASSWORD = "Zte@orange123!"
 # 脚本目录（相对路径基准）
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 查询参数（来自 url.txt）
-DEVICE_ID = "37781505"
+# 查询参数（来自 url.txt）——支持多台设备，按设备分别拉取/入库/出图
+DEVICE_IDS = ["37781505", "37781506"]
 # 时间范围：当前时间往前 30 天的 00:00:00 起，到当前时刻止。
 # 例如今天 2026-08-04 21:30 → start 2026-07-06 00:00:00, end 2026-08-04 21:30:xx
 # 可通过环境变量 FW_KPI_DAYS_BACK 覆盖回看天数（默认 30）。
@@ -600,8 +601,8 @@ def build_chart_dataframe(rows):
     return df
 
 
-def generate_chart(df, output_path):
-    """生成整机吞吐折线图并保存为 PNG（风格与 ipran_chart_service 一致）。"""
+def generate_chart(df, output_path, device_id):
+    """生成指定设备的整机吞吐折线图并保存为 PNG（风格与 ipran_chart_service 一致）。"""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -627,7 +628,7 @@ def generate_chart(df, output_path):
 
         ax.set_xlabel("Time", fontsize=9)
         ax.set_ylabel("Throughput(Mbps)", fontsize=9)
-        ax.set_title(f"FW Whole Throughput (Device: {DEVICE_ID})\nLast {CHART_DAYS_BACK} Days",
+        ax.set_title(f"FW Whole Throughput (Device: {device_id})\nLast {CHART_DAYS_BACK} Days",
                      fontsize=13, fontweight="bold", color=TITLE_COLOR, pad=12)
         ax.legend(loc='upper left', fontsize=8, frameon=True,
                   facecolor='white', framealpha=0.8, edgecolor='#CCCCCC')
@@ -702,8 +703,11 @@ def _send_email(to, cc, subject, body, inline_images):
         return {"success": False, "error": str(e)}
 
 
-def generate_chart_and_send_email(rows):
-    """生成吞吐图表并发送邮件（名单来自 Y:/01_RPA/LBR_Tools/KPI/FW/fw_email）。"""
+def generate_chart_and_send_email(device_rows):
+    """按设备分别生成吞吐图表并发送邮件（名单来自 Y:/01_RPA/LBR_Tools/KPI/FW/fw_email）。
+
+    device_rows: {device_id: rows} —— 每台设备生成一张图，邮件附带全部图片。
+    """
     t0 = time.time()
 
     to_list, cc_list = _resolve_recipients()
@@ -713,26 +717,36 @@ def generate_chart_and_send_email(rows):
 
     os.makedirs(CHART_OUTPUT_DIR, exist_ok=True)
 
-    df = build_chart_dataframe(rows)
-    if df.empty:
-        return {"success": False, "error": f"近 {CHART_DAYS_BACK} 天无可绘图数据"}
+    # 按设备分别出图
+    chart_files = []
+    for device_id, rows in device_rows.items():
+        df = build_chart_dataframe(rows)
+        if df.empty:
+            print(f"[CHART] 设备 {device_id}: 近 {CHART_DAYS_BACK} 天无数据，跳过出图")
+            continue
+        chart_path = os.path.join(CHART_OUTPUT_DIR, f"FW_Whole_Throughput_{device_id}.png")
+        if generate_chart(df, chart_path, device_id):
+            chart_files.append(chart_path)
 
-    chart_path = os.path.join(CHART_OUTPUT_DIR, "FW_Whole_Throughput.png")
-    if not generate_chart(df, chart_path):
-        return {"success": False, "error": "图表生成失败"}
+    if not chart_files:
+        return {"success": False, "error": f"近 {CHART_DAYS_BACK} 天无任何设备可绘图数据"}
 
+    device_txt = " & ".join(device_rows.keys())
     subject = f"FW Whole Throughput Report - {datetime.now().strftime('%Y-%m-%d')}"
     body = (
         "<h3>Dear Team,</h3>"
-        "<p>Please find the FW Whole Throughput chart attached.</p>"
-        f"<p>Chart covers the last {CHART_DAYS_BACK} days of 1-minute granularity data.</p>"
+        "<p>Please find the FW Whole Throughput charts attached (one per device).</p>"
+        f"<p>Devices: {device_txt}</p>"
+        f"<p>Charts cover the last {CHART_DAYS_BACK} days of 1-minute granularity data.</p>"
         "<br><p>Best regards,<br>ZTENOC OLR</p>"
     )
 
     result = _send_email(to=to_list, cc=cc_list, subject=subject,
-                         body=body, inline_images=[chart_path])
+                         body=body, inline_images=chart_files)
     result["elapsed_seconds"] = round(time.time() - t0, 2)
-    print(f"[CHART] 邮件发送结果: success={result.get('success')}, 耗时 {result['elapsed_seconds']}s")
+    result["charts"] = [os.path.basename(p) for p in chart_files]
+    print(f"[CHART] 邮件发送结果: success={result.get('success')}, "
+          f"图片 {len(chart_files)} 张, 耗时 {result['elapsed_seconds']}s")
     return result
 
 
@@ -743,7 +757,7 @@ def run():
     t_start = time.time()
     print("=" * 70)
     print(f"[MAIN] FW 整机吞吐 KPI 同步开始 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"[MAIN] 目标: https://{HOST}:{PORT}/UMC  设备ID={DEVICE_ID}")
+    print(f"[MAIN] 目标: https://{HOST}:{PORT}/UMC  设备ID={DEVICE_IDS}")
     print(f"[MAIN] 时间范围: {START_TIME} ~ {END_TIME}")
     print(f"[MAIN] 远程库: {REMOTE_DB_NAME}/{TABLE_NAME} (db_writer_api)")
     print(f"[MAIN] 本地降级库: {DB_PATH}")
@@ -751,45 +765,58 @@ def run():
 
     sess = Session()
 
-    # 1. 登录
+    # 1. 登录（一次登录，多设备复用会话）
     login(sess)
 
-    # 2. 拉取数据页
-    html = fetch_throughput_html(sess, DEVICE_ID, START_TIME, END_TIME)
-
-    # 3. 内存解析
     start_year = int(START_TIME[0:4])
     start_month = int(START_TIME[5:7])
-    rows = parse_throughput(html, start_year, start_month)
-    del html
-    gc.collect()
 
-    # 4. 通过 API 写入远程数据库（失败降级本地 SQLite）
+    # 2-4. 逐设备：拉取 → 解析 → 通过 API 写入远程数据库（失败降级本地 SQLite）
+    device_rows = {}
+    total_inserted = 0
     api_ok = True
-    try:
-        inserted = write_to_remote_db(rows, DEVICE_ID)
-    except Exception as exc:
-        api_ok = False
-        print(f"[API] 远程写入失败，降级写入本地 SQLite: {exc}")
-        inserted = write_to_local_db(rows, DEVICE_ID)
+    for device_id in DEVICE_IDS:
+        print(f"[MAIN] ---- 设备 {device_id} 开始处理 ----")
+        try:
+            html = fetch_throughput_html(sess, device_id, START_TIME, END_TIME)
+            rows = parse_throughput(html, start_year, start_month)
+            del html
+            gc.collect()
+        except Exception as exc:
+            print(f"[MAIN] 设备 {device_id} 拉取/解析失败，跳过: {exc}")
+            continue
+        device_rows[device_id] = rows
 
-    # 5. 生成图表并发送邮件
+        try:
+            inserted = write_to_remote_db(rows, device_id)
+        except Exception as exc:
+            api_ok = False
+            print(f"[API] 设备 {device_id} 远程写入失败，降级写入本地 SQLite: {exc}")
+            inserted = write_to_local_db(rows, device_id)
+        total_inserted += inserted
+
+    if not device_rows:
+        print("[MAIN] 所有设备均未获取到数据，终止")
+        return {"success": False, "error": "所有设备均未获取到数据"}
+
+    # 5. 按设备分别生成图表并发送邮件（附全部图片）
     email_result = None
     if ENABLE_CHART_EMAIL:
         try:
-            email_result = generate_chart_and_send_email(rows)
+            email_result = generate_chart_and_send_email(device_rows)
         except Exception as exc:
             email_result = {"success": False, "error": str(exc)}
             print(f"[CHART] 图表/邮件流程异常: {exc}")
 
     elapsed = time.time() - t_start
     print("=" * 70)
-    print(f"[MAIN] 完成: 写入 {inserted} 条 (remote_api={api_ok})，总耗时 {elapsed:.2f} 秒")
+    print(f"[MAIN] 完成: 写入 {total_inserted} 条 (remote_api={api_ok})，总耗时 {elapsed:.2f} 秒")
     if email_result:
         print(f"[MAIN] 邮件: success={email_result.get('success')}")
     print("[MAIN] Done.")
-    return {"success": True, "rows_written": inserted, "remote_api": api_ok,
-            "email": email_result, "elapsed_seconds": round(elapsed, 2)}
+    return {"success": True, "rows_written": total_inserted, "remote_api": api_ok,
+            "devices": list(device_rows.keys()), "email": email_result,
+            "elapsed_seconds": round(elapsed, 2)}
 
 
 def run_fw_kpi_sync() -> dict:
