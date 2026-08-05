@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OLR Unified Portal</title>
+<style>
+:root {
+--bg: #f3f5fb;
+--card: #ffffff;
+--text: #1f2937;
+--muted: #6b7280;
+--primary: #4f46e5;
+--primary-soft: #eef2ff;
+--border: #e5e7eb;
+--shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+--radius: 16px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+margin: 0;
+font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+color: var(--text);
+background:
+radial-gradient(circle at top right, #dbeafe 0%, transparent 35%),
+radial-gradient(circle at bottom left, #ede9fe 0%, transparent 40%),
+var(--bg);
+min-height: 100vh;
+}
+
+.page {
+max-width: 1100px;
+margin: 0 auto;
+padding: 32px 20px 40px;
+}
+
+.hero {
+background: linear-gradient(135deg, #4338ca 0%, #7c3aed 100%);
+color: #fff;
+border-radius: 20px;
+padding: 28px;
+box-shadow: var(--shadow);
+margin-bottom: 22px;
+}
+
+.hero h1 {
+margin: 0;
+font-size: 30px;
+letter-spacing: 0.5px;
+}
+
+.hero p {
+margin: 10px 0 0;
+opacity: 0.92;
+line-height: 1.6;
+font-size: 14px;
+}
+
+.section {
+margin-top: 16px;
+background: rgba(255, 255, 255, 0.86);
+border: 1px solid rgba(229, 231, 235, 0.9);
+border-radius: var(--radius);
+padding: 20px;
+box-shadow: var(--shadow);
+}
+
+.section-header {
+display: flex;
+justify-content: space-between;
+align-items: baseline;
+margin-bottom: 14px;
+gap: 8px;
+}
+
+.section-title {
+margin: 0;
+font-size: 19px;
+font-weight: 700;
+color: #111827;
+}
+
+.section-sub {
+color: var(--muted);
+font-size: 13px;
+margin: 0;
+}
+
+.grid {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+gap: 12px;
+}
+
+.card {
+display: block;
+text-decoration: none;
+color: inherit;
+background: var(--card);
+border: 1px solid var(--border);
+border-radius: 14px;
+padding: 14px;
+transition: all 0.2s ease;
+}
+
+.card:hover {
+transform: translateY(-2px);
+border-color: #c7d2fe;
+box-shadow: 0 8px 18px rgba(79, 70, 229, 0.15);
+}
+
+.card-top {
+display: flex;
+align-items: center;
+gap: 8px;
+margin-bottom: 8px;
+}
+
+.icon {
+width: 28px;
+height: 28px;
+border-radius: 8px;
+background: var(--primary-soft);
+color: var(--primary);
+display: inline-flex;
+justify-content: center;
+align-items: center;
+font-size: 15px;
+font-weight: 700;
+flex: 0 0 auto;
+}
+
+.card-title {
+margin: 0;
+font-size: 15px;
+font-weight: 700;
+color: #111827;
+}
+
+.card-desc {
+margin: 0;
+color: var(--muted);
+font-size: 13px;
+line-height: 1.45;
+min-height: 38px;
+}
+
+.path {
+margin-top: 10px;
+display: inline-block;
+font-size: 12px;
+color: #4338ca;
+background: #eef2ff;
+border: 1px solid #c7d2fe;
+border-radius: 999px;
+padding: 3px 8px;
+}
+
+.hint {
+margin-top: 14px;
+font-size: 12px;
+color: #6b7280;
+text-align: center;
+}
+
+@media (max-width: 640px) {
+.hero { padding: 20px; }
+.hero h1 { font-size: 24px; }
+.section { padding: 16px; }
+.grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<main class="page">
+<section class="hero">
+<h1>🚀 OLR Unified Portal</h1>
+<p>统一主应用入口，通过不同 URL 前缀访问各子系统。</p>
+</section>
+
+<section class="section">
+<div class="section-header">
+<h2 class="section-title">Tools</h2>
+<p class="section-sub">网络追踪与事件监控</p>
+</div>
+<div class="grid">
+<a href="/ip-trace" class="card">
+<div class="card-top">
+<span class="icon">IP</span>
+<h3 class="card-title">IP Tracking Tool</h3>
+</div>
+<p class="card-desc">Network route tracing and node detection tool.</p>
+<span class="path">/ip-trace</span>
+</a>
+
+<a href="/incident" class="card">
+<div class="card-top">
+<span class="icon">IN</span>
+<h3 class="card-title">Incident Overview</h3>
+</div>
+<p class="card-desc">WO status and SLA performance monitoring dashboard.</p>
+<span class="path">/incident</span>
+</a>
+</div>
+</section>
+
+<section class="section">
+<div class="section-header">
+<h2 class="section-title">Warehouse Dashboard</h2>
+<p class="section-sub">各国家仓库运营看板</p>
+</div>
+<div class="grid">
+<a href="/sp_lbr" class="card">
+<div class="card-top">
+<span class="icon">LB</span>
+<h3 class="card-title">LBR Warehouse</h3>
+</div>
+<p class="card-desc">Liberia warehouse dashboard.</p>
+<span class="path">/sp_lbr</span>
+</a>
+
+<a href="/sp_ug" class="card">
+<div class="card-top">
+<span class="icon">UG</span>
+<h3 class="card-title">UG Spare Management</h3>
+</div>
+<p class="card-desc">Uganda warehouse dashboard.</p>
+<span class="path">/sp_ug</span>
+</a>
+
+<a href="/sp_cg" class="card">
+<div class="card-top">
+<span class="icon">CG</span>
+<h3 class="card-title">CG Spare Management</h3>
+</div>
+<p class="card-desc">Congo warehouse dashboard.</p>
+<span class="path">/sp_cg</span>
+</a>
+
+<a href="/sp_mmr" class="card">
+<div class="card-top">
+<span class="icon">MM</span>
+<h3 class="card-title">MMR Spare Management</h3>
+</div>
+<p class="card-desc">Myanmar warehouse dashboard.</p>
+<span class="path">/sp_mmr</span>
+</a>
+
+<a href="/sp_npl" class="card">
+<div class="card-top">
+<span class="icon">NP</span>
+<h3 class="card-title">NPL Spare Management</h3>
+</div>
+<p class="card-desc">Nepal warehouse dashboard.</p>
+<span class="path">/sp_npl</span>
+</a>
+</div>
+</section>
+
+<p class="hint">API Shortcut: <code>/api/data</code> 与 <code>/api/details</code> 默认会重定向到 <code>/sp_lbr</code>。</p>
+</main>
+</body>
+</html>
