@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Card, Input, Button, Tag, message, Spin, Row, Col, Space, Typography } from 'antd'
-import { SaveOutlined, ApiOutlined, KeyOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Card, Input, Button, Tag, message, Spin, Row, Col, Space, Typography, Modal } from 'antd'
+import { SaveOutlined, ApiOutlined, KeyOutlined, ReloadOutlined, EyeOutlined } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { WH, cardStyle } from '../theme'
@@ -26,6 +26,7 @@ export default function CredentialSettings() {
   const [drafts, setDrafts] = useState<Record<string, { username: string; secret: string }>>({})
   const [savingKey, setSavingKey] = useState<string | null>(null)
   const [testingKey, setTestingKey] = useState<string | null>(null)
+  const [revealData, setRevealData] = useState<{ name: string; username: string; secret: string } | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -94,6 +95,19 @@ export default function CredentialSettings() {
       message.error(t('settings.testFail') + ': ' + (e?.response?.data?.detail || e?.message || e))
     } finally {
       setTestingKey(null)
+    }
+  }
+
+  const reveal = async (g: CredentialGroup) => {
+    try {
+      const res = await api.get(`/credentials/${g.key}/reveal`)
+      setRevealData({
+        name: g.name,
+        username: res.data?.username || '',
+        secret: res.data?.secret || '',
+      })
+    } catch (e: any) {
+      message.error(t('settings.loadError') + ': ' + (e?.response?.data?.detail || e?.message || e))
     }
   }
 
@@ -195,6 +209,9 @@ export default function CredentialSettings() {
                           {t('settings.test')}
                         </Button>
                       )}
+                      <Button icon={<EyeOutlined />} onClick={() => reveal(g)}>
+                        {t('settings.reveal')}
+                      </Button>
                     </Space>
                   </Space>
                 </Card>
@@ -203,6 +220,26 @@ export default function CredentialSettings() {
           })}
         </Row>
       )}
+
+      <Modal
+        title={`${t('settings.reveal')} - ${revealData?.name || ''}`}
+        open={!!revealData}
+        onCancel={() => setRevealData(null)}
+        footer={null}
+      >
+        {revealData && (
+          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            <div>
+              <div style={{ color: WH.textMuted, fontSize: 12 }}>{t('settings.revealUser')}</div>
+              <Input value={revealData.username} readOnly onFocus={e => e.target.select()} />
+            </div>
+            <div>
+              <div style={{ color: WH.textMuted, fontSize: 12 }}>{t('settings.revealSecret')}</div>
+              <Input.Password value={revealData.secret} readOnly visibilityToggle onFocus={e => e.target.select()} />
+            </div>
+          </Space>
+        )}
+      </Modal>
     </div>
   )
 }

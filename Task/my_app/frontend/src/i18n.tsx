@@ -284,6 +284,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'settings.sourceDefault': '代码默认',
     'settings.sourceEnv': '环境变量',
     'settings.updatedAt': '更新时间',
+    'settings.reveal': '查看',
+    'settings.revealUser': '当前生效用户名',
+    'settings.revealSecret': '当前生效密码/Token',
 
     // Alarm Dashboard（遗留未国际化文案）
     'alarm.drillHint': '点击下钻明细 →',
@@ -726,6 +729,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'settings.sourceDefault': 'Code Default',
     'settings.sourceEnv': 'Env Var',
     'settings.updatedAt': 'Updated at',
+    'settings.reveal': 'Reveal',
+    'settings.revealUser': 'Effective Username',
+    'settings.revealSecret': 'Effective Password/Token',
 
     // Alarm Dashboard (legacy untranslated strings)
     'alarm.drillHint': 'Click to drill down →',

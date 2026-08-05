@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from backend.services.credential_store import (
     CREDENTIAL_GROUPS,
     _GROUP_INDEX,
+    get_credential,
     get_effective,
     list_credentials,
     set_credential,
@@ -63,6 +64,16 @@ def update_credential(body: CredentialUpdate):
     return {"status": "ok", "key": body.key, "message": "凭据已保存，最迟 30 秒后生效"}
 
 
+@router.get("/{key}/reveal")
+def reveal_credential(key: str):
+    """返回指定凭据组当前生效的明文用户名/密码（环境变量 > 数据库 > 默认值）。"""
+    group = _GROUP_INDEX.get(key)
+    if not group:
+        raise HTTPException(status_code=400, detail=f"未知凭据组: {key}")
+    user, secret = get_credential(key, group["default_user"], group["default_secret"])
+    return {"key": key, "username": user, "secret": secret}
+
+
 @router.post("/test")
 def test_credential(body: CredentialTestRequest):
     """连接测试：使用当前生效的凭据尝试登录。
@@ -82,7 +93,6 @@ def test_credential(body: CredentialTestRequest):
         }
 
     try:
-        from backend.services.credential_store import get_credential
         user, pwd = get_credential(
             group["key"], group["default_user"], group["default_secret"],
         )
