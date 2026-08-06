@@ -1,12 +1,12 @@
 {
-  "run_at": "2026-08-05T03:00:58",
+  "run_at": "2026-08-06T03:00:57",
   "threshold_ms": 5000,
   "results": [
     {
       "key": "zhipu",
       "name": "ZhiPu GLM 智谱",
       "available": true,
-      "latency_ms": 1758,
+      "latency_ms": 928,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -16,7 +16,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1758,
+          "latency_ms": 928,
           "status": "ok",
           "error": null
         }
@@ -26,7 +26,7 @@
       "key": "nvidia",
       "name": "NVIDIA NIM",
       "available": true,
-      "latency_ms": 24365,
+      "latency_ms": 980,
       "model": "meta/llama-3.1-8b-instruct",
       "error": null,
       "status": "ok",
@@ -36,7 +36,7 @@
         {
           "model": "meta/llama-3.1-8b-instruct",
           "ok": true,
-          "latency_ms": 24365,
+          "latency_ms": 980,
           "status": "ok",
           "error": null
         }
@@ -46,7 +46,7 @@
       "key": "openrouter",
       "name": "OpenRouter",
       "available": true,
-      "latency_ms": 1412,
+      "latency_ms": 4059,
       "model": "openrouter/free",
       "error": null,
       "status": "ok",
@@ -56,7 +56,7 @@
         {
           "model": "openrouter/free",
           "ok": true,
-          "latency_ms": 1412,
+          "latency_ms": 4059,
           "status": "ok",
           "error": null
         }
@@ -114,7 +114,7 @@
       "key": "zhipu5",
       "name": "ZhiPu GLM-5 智谱",
       "available": true,
-      "latency_ms": 2362,
+      "latency_ms": 940,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -124,7 +124,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 2362,
+          "latency_ms": 940,
           "status": "ok",
           "error": null
         }
@@ -278,7 +278,7 @@
       "key": "ollama",
       "name": "Local Ollama",
       "available": true,
-      "latency_ms": 10260,
+      "latency_ms": 11053,
       "model": "phi4-mini:3.8b",
       "error": null,
       "status": "ok",
@@ -302,7 +302,7 @@
         {
           "model": "phi4-mini:3.8b",
           "ok": true,
-          "latency_ms": 10260,
+          "latency_ms": 11053,
           "status": "ok",
           "error": null
         }
@@ -321,12 +321,13 @@
       "tried_models": []
     }
   ],
-  "primary": "openrouter/openrouter/free",
+  "primary": "zhipu/glm-4-flash",
   "fallbacks": [
     "ollama/gemma4-32k:latest",
     "ollama/phi4-mini:3.8b",
-    "zhipu/glm-4-flash",
     "zhipu5/glm-4-flash",
+    "nvidia/meta/llama-3.1-8b-instruct",
+    "openrouter/openrouter/free",
     "ollama-cloud/gemma3:27b"
   ]
 }

@@ -21,6 +21,9 @@ export default defineConfig({
     },
   },
   build: {
+    // 本机环境存在 safe-delete 钩子，会拦截 Vite 的 prepare-out-dir 清空动作导致构建中断。
+    // 关闭自动清空，改由构建脚本/人工清理 dist/assets（旧 chunk 带 hash，覆盖写不影响正确性）。
+    emptyOutDir: false,
     // 提升单包体积告警阈值，避免 2.9MB 单包在构建日志刷红
     chunkSizeWarningLimit: 1200,
     rollupOptions: {

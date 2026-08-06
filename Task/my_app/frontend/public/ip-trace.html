@@ -1,0 +1,3581 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>IP Trace &amp; Node Detection Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#00dbc9",
+                        "background-light": "#f5f8f8",
+                        "background-dark": "#090c15",
+                        "card-dark": "#161b22",
+                        "border-dark": "#204b47",
+                        "danger": "#ef4444",
+                        "warning": "#f59e0b",
+                        "info": "#3b82f6"
+                    },
+                    fontFamily: {
+                        "display": ["Space Grotesk", "sans-serif"],
+                        "mono": ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", "monospace"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+    <style>
+.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #204b47; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #00dbc9; }
+.terminal-glow { text-shadow: 0 0 5px rgba(0, 219, 201, 0.5); }
+
+/* Leaflet 连线样式增强 - 确保连线可见 */
+.leaflet-container {
+    background-color: #f5f5f5 !important;
+}
+/* SVG 路径样式 */
+.leaflet-overlay-pane svg path {
+    stroke: #00dbc9 !important;
+    stroke-width: 5px !important;
+    stroke-opacity: 1 !important;
+    fill: none !important;
+    pointer-events: stroke !important;
+}
+/* Canvas 路径样式 */
+.leaflet-overlay-pane canvas {
+    z-index: 450 !important;
+}
+.leaflet-pane {
+    z-index: 400;
+}
+.leaflet-overlay-pane {
+    z-index: 500;
+}
+.leaflet-marker-pane {
+    z-index: 600;
+}
+
+/* Resizable panels */
+.resizer {
+    width: 4px;
+    background: transparent;
+    cursor: col-resize;
+    position: relative;
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+.resizer:hover {
+    background: #00dbc9;
+}
+.resizer::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #204b47;
+    transform: translateX(-50%);
+}
+.resizer:hover::before {
+    background: #00dbc9;
+}
+#logPanelResizer {
+    width: 100%;
+    height: 4px;
+    cursor: row-resize;
+}
+#logPanelResizer::before {
+    left: 0;
+    right: 0;
+    top: 50%;
+    bottom: auto;
+    height: 2px;
+    width: auto;
+    transform: translateY(-50%);
+}
+.resizing {
+    user-select: none;
+    cursor: col-resize !important;
+}
+.resizing * {
+    cursor: col-resize !important;
+}
+#logPanelResizer.resizing,
+#logPanelResizer.resizing * {
+    cursor: row-resize !important;
+}
+
+/* 修复下拉框在暗色主题下的显示问题 */
+select.form-input {
+    color: white !important;
+    background-color: transparent !important;
+    padding-left: 12px !important;
+    padding-right: 32px !important;
+}
+
+select.form-input option {
+    background-color: #161b22 !important;
+    color: white !important;
+    padding: 8px 12px !important;
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    line-height: 1.5 !important;
+    min-height: 2.5rem !important;
+}
+
+select.form-input:focus {
+    background-color: transparent !important;
+}
+
+/* 特别针对langSelect */
+#langSelect {
+    min-width: 100px !important;
+    padding-left: 8px !important;
+    padding-right: 28px !important;
+}
+
+/* AI模态框下拉框样式 - 完整显示 */
+#aiProviderSelect {
+    background-color: #161b22 !important;
+    color: white !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding-left: 12px !important;
+    padding-right: 36px !important;
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    min-width: 0 !important;
+}
+
+#aiProviderSelect option {
+    background-color: #161b22 !important;
+    color: white !important;
+    padding: 10px 12px !important;
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    line-height: 1.6 !important;
+    min-height: auto !important;
+    height: auto !important;
+    display: block !important;
+}
+
+/* API Key输入框样式 */
+#aiApiKeyInput {
+    width: 100% !important;
+    max-width: 100% !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    min-width: 0 !important;
+}
+
+/* 确保下拉框打开时选项完整显示 */
+select.form-input {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M6 9L1 4h10z'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 12px center !important;
+    background-size: 12px !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+}
+
+/* AI模态框布局优化 */
+#aiAnalysisModal .flex-col {
+    gap: 12px;
+}
+
+#aiAnalysisModal .flex.items-center {
+    gap: 12px;
+}
+
+#aiAnalysisModal label {
+    flex-shrink: 0;
+}
+
+/* 扣子智能体样式 */
+#cozeChatModal {
+    z-index: 50;
+}
+
+#cozeChatContainer {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    min-height: 600px;
+}
+
+/* 确保扣子SDK内容正确显示 */
+#cozeChatContainer > div,
+#cozeChatContainer > iframe,
+#cozeChatContainer .coze-web-sdk,
+#cozeChatContainer [class*="coze"] {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 600px !important;
+    border: none !important;
+    display: block !important;
+}
+
+/* 扣子智能体模态框样式优化 */
+#cozeChatModal .bg-background-dark {
+    background-color: #090c15;
+}
+
+/* 确保扣子聊天界面适应暗色主题 */
+#cozeChatContainer iframe {
+    border: none !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 600px !important;
+}
+
+/* 扣子SDK加载时的样式 */
+#cozeChatContainer.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+    </style>
+    <style>
+        /* 修复下拉框白底白字问题 */
+        select.form-input {
+            color: white !important;
+            background-color: #161b22 !important;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M6 9L1 4h10z'/%3E%3C/svg%3E") !important;
+            background-repeat: no-repeat !important;
+            background-position: right 12px center !important;
+            background-size: 12px !important;
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            -moz-appearance: none !important;
+        }
+        select.form-input option {
+            background-color: #161b22 !important;
+            color: white !important;
+            padding: 8px 12px !important;
+        }
+        /* 确保下拉框打开时选项可见 */
+        select.form-input:focus {
+            background-color: #161b22 !important;
+            color: white !important;
+            outline: none !important;
+            border-color: #00dbc9 !important;
+        }
+        /* 修复所有select元素 */
+        select {
+            color: white !important;
+            background-color: #161b22 !important;
+        }
+        select option {
+            background-color: #161b22 !important;
+            color: white !important;
+        }
+        /* AI模态框调整大小功能 */
+        #aiModalResizer {
+            z-index: 100;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+            background: linear-gradient(135deg, transparent 0%, transparent 40%, #00dbc9 40%, #00dbc9 50%, transparent 50%, transparent 100%);
+        }
+        #aiModalResizer:hover {
+            opacity: 1;
+            background: linear-gradient(135deg, transparent 0%, transparent 40%, #00dbc9 40%, #00dbc9 50%, transparent 50%, transparent 100%);
+        }
+        #aiAnalysisModalContent {
+            resize: none;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-white selection:bg-primary/30">
+<div class="flex flex-col h-screen overflow-hidden">
+    <!-- Header Component -->
+    <!-- Top Control Bar -->
+<header class="flex items-center justify-between border-b border-solid border-border-dark px-6 py-3 bg-card-dark/50 backdrop-blur-md">
+    <div class="flex items-center gap-6">
+        <div class="flex items-center gap-3 text-primary">
+            <span class="material-symbols-outlined text-3xl">hub</span>
+            <h1 class="text-xl font-bold tracking-tight">IP Trace <span class="text-white/50 font-light">v1.0</span></h1>
+        </div>
+        <div class="h-8 w-px bg-border-dark mx-2"></div>
+        <div class="flex items-center gap-4">
+            <label class="flex flex-col min-w-[280px]">
+                <div class="flex w-full items-stretch rounded-lg h-10 border border-border-dark focus-within:border-primary transition-colors">
+                    <div class="text-primary/70 flex bg-transparent items-center justify-center pl-3">
+                        <span class="material-symbols-outlined text-[20px]">language</span>
+                    </div>
+                    <input id="targetInput" class="form-input w-full border-none bg-transparent text-white placeholder:text-white/30 px-3 text-sm font-medium focus:ring-0" placeholder="Target Hostname (e.g. hc.jiandaoyun.com)" value="hc.jiandaoyun.com"/>
+                </div>
+            </label>
+            <label class="flex items-center gap-2">
+                <span class="text-xs font-semibold text-white/50 uppercase tracking-wider">Cycles</span>
+                <input id="cyclesInput" class="form-input w-20 h-10 rounded-lg border border-border-dark bg-transparent text-center text-primary font-bold focus:ring-0 focus:border-primary" type="number" min="1" max="1000" value="100" step="1"/>
+            </label>
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-semibold text-white/50 uppercase tracking-wider">Lang</span>
+                <select id="langSelect" class="form-input h-10 rounded-lg border border-border-dark bg-transparent text-sm text-white focus:ring-0 focus:border-primary pr-10 px-3">
+                    <option value="en">English</option>
+                    <option value="zh">中文</option>
+                </select>
+            </div>
+        </div>
+    </div>
+    <div class="flex items-center gap-3">
+        <button id="startBtn" class="flex items-center justify-center rounded-lg h-10 bg-primary text-background-dark gap-2 px-5 text-sm font-bold transition-transform active:scale-95 shadow-[0_0_15px_rgba(0,219,201,0.3)]">
+            <span class="material-symbols-outlined text-[20px]">play_circle</span>
+            <span>Start Analysis</span>
+        </button>
+        <button id="stopBtn" class="flex items-center justify-center rounded-lg h-10 bg-danger/20 text-danger border border-danger/30 gap-2 px-5 text-sm font-bold hover:bg-danger/30 transition-colors" disabled>
+            <span class="material-symbols-outlined text-[20px]">stop_circle</span>
+            <span>Stop</span>
+        </button>
+        <button id="exportBtn" class="flex items-center justify-center rounded-lg h-10 bg-info/20 text-info border border-info/30 gap-2 px-5 text-sm font-bold hover:bg-info/30 transition-colors">
+            <span class="material-symbols-outlined text-[20px]">ios_share</span>
+            <span>Export</span>
+        </button>
+        <button id="aiAnalyzeBtn" class="flex items-center justify-center rounded-lg h-10 bg-success/20 text-success border border-success/30 gap-2 px-5 text-sm font-bold hover:bg-success/30 transition-colors">
+            <span class="material-symbols-outlined text-[20px]">psychology</span>
+            <span>AI Analysis</span>
+        </button>
+        <button id="cozeChatBtn" class="flex items-center justify-center rounded-lg h-10 bg-warning/20 text-warning border border-warning/30 gap-2 px-5 text-sm font-bold hover:bg-warning/30 transition-colors">
+            <span class="material-symbols-outlined text-[20px]">smart_toy</span>
+            <span>扣子助手</span>
+        </button>
+        <div class="h-8 w-px bg-border-dark mx-2"></div>
+        <button class="p-2 text-white/50 hover:text-white transition-colors">
+            <span class="material-symbols-outlined">settings</span>
+        </button>
+        <div class="size-8 rounded-full border-2 border-primary/20 bg-cover bg-center" data-alt="User avatar profile picture" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuA4QUHUQFUSgC2zrABDclHRVM_Il-ObaEE6BBIy-oNOhpci2Qn5JCr6eugkW2o8xmQ-i4-uW6Yhx8VsOTzKd652jZfaZ-v_HDNRFiHG-zSwlqC3i4MxcNrc0lYtLm7vuqFS3yEl6XUgzlv_E4EsxsDuq1nhVvdu79nWqgrublTVLA3ZlciBYo2kb7KI3B2N7LBlg0kCEcf11FHE53WkRf8Ixhuq9Sex_eL63pfUao70DvmwJN3aWa24tEyhOB3-v-jdC8HyEUGv9mI');"></div>
+    </div>
+</header>
+
+    <!-- Risk Legend Component -->
+    <!-- Risk Legend Strip -->
+<div class="flex items-center gap-8 px-6 py-2 bg-background-dark border-b border-border-dark">
+    <span class="text-[10px] font-bold text-white/40 uppercase tracking-widest">Risk Level Status:</span>
+    <div class="flex items-center gap-2">
+        <span class="size-2 rounded-full bg-danger shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
+        <span class="text-xs font-medium">High (ECMP Forwarding)</span>
+    </div>
+    <div class="flex items-center gap-2">
+        <span class="size-2 rounded-full bg-warning shadow-[0_0_8px_rgba(245,158,11,0.6)]"></span>
+        <span class="text-xs font-medium">Medium (Jitter Fluctuations)</span>
+    </div>
+    <div class="flex items-center gap-2">
+        <span class="size-2 rounded-full bg-primary shadow-[0_0_8px_rgba(0,219,201,0.6)]"></span>
+        <span class="text-xs font-medium">Low (Stable Connection)</span>
+    </div>
+</div>
+
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col overflow-hidden">
+        <!-- Tabs Component -->
+        <!-- Tabs -->
+<div class="flex px-6 pt-2 gap-6 bg-card-dark/20 border-b border-border-dark">
+    <button id="dataStatsTab" class="px-4 py-3 text-sm font-bold border-b-2 border-primary text-primary flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px]">query_stats</span>
+        Data Statistics
+    </button>
+    <button id="linkMapTab" class="px-4 py-3 text-sm font-bold border-b-2 border-transparent text-white/40 hover:text-white/70 transition-colors flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px]">map</span>
+        Link Map
+    </button>
+</div>
+
+<div class="flex-1 flex overflow-hidden">
+            <!-- Data Statistics View Component -->
+            <!-- Data Statistics View -->
+<div id="dataStatsView" class="flex-1 flex flex-col overflow-hidden" style="min-width: 300px;">
+    <div class="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+        <!-- DNS Resolution -->
+        <section>
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-bold uppercase tracking-wider text-white/60">DNS Resolution Records</h3>
+                <span class="px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-tighter">Cached</span>
+            </div>
+            <div class="rounded-xl border border-border-dark overflow-hidden bg-card-dark/40">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-border-dark/30 text-white/60 font-medium">
+                        <tr>
+                            <th class="px-4 py-2 border-r border-border-dark">Type</th>
+                            <th class="px-4 py-2 border-r border-border-dark">Hostname</th>
+                            <th class="px-4 py-2 border-r border-border-dark">Address</th>
+                            <th class="px-4 py-2">Location</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dnsTableBody" class="divide-y divide-border-dark">
+                        <tr>
+                            <td class="px-4 py-2 text-primary font-mono">A</td>
+                            <td class="px-4 py-2">hc.jiandaoyun.com</td>
+                            <td class="px-4 py-2 font-mono">106.14.241.144</td>
+                            <td class="px-4 py-2 flex items-center gap-2">
+                                <span class="material-symbols-outlined text-[14px]">location_on</span>
+                                Shanghai, China
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="px-4 py-2 text-info font-mono">CNAME</td>
+                            <td class="px-4 py-2">hc.jiandaoyun.com.w.kunlunsl.com</td>
+                            <td class="px-4 py-2 font-mono">-</td>
+                            <td class="px-4 py-2">Global CDN Overlay</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        <!-- Trace Result -->
+        <section>
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-bold uppercase tracking-wider text-white/60">Hop Analysis &amp; Path Detection</h3>
+                <div class="flex gap-4">
+                    <div class="flex items-center gap-2">
+                        <button id="icmpTableBtn" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-background-dark transition-colors hover:bg-primary/80">
+                            ICMP
+                        </button>
+                        <button id="tcpTableBtn" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-border-dark/50 text-white/60 transition-colors hover:bg-border-dark/70">
+                            TCP
+                        </button>
+                    </div>
+                    <div class="flex gap-4">
+                        <div class="flex items-center gap-2 text-xs text-white/40">
+                            <span class="size-2 rounded bg-primary"></span> Best
+                        </div>
+                        <div class="flex items-center gap-2 text-xs text-white/40">
+                            <span class="size-2 rounded bg-danger"></span> Loss
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- ICMP Table -->
+            <div id="icmpTableContainer" class="rounded-xl border border-border-dark overflow-hidden bg-card-dark/40">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-border-dark/30 text-white/60 font-medium sticky top-0">
+                        <tr>
+                            <th class="px-4 py-3 border-r border-border-dark w-12 text-center">#</th>
+                            <th class="px-4 py-3 border-r border-border-dark min-w-[140px]">IP Address</th>
+                            <th class="px-4 py-3 border-r border-border-dark">Tests</th>
+                            <th class="px-4 py-3 border-r border-border-dark text-right">Avg (ms)</th>
+                            <th class="px-4 py-3 border-r border-border-dark text-right">Max</th>
+                            <th class="px-4 py-3 border-r border-border-dark text-right">Jitter</th>
+                            <th class="px-4 py-3 border-r border-border-dark text-right">Loss%</th>
+                            <th class="px-4 py-3 border-r border-border-dark text-center">Risk</th>
+                            <th class="px-4 py-3">Location</th>
+                        </tr>
+                    </thead>
+                    <tbody id="icmpTableBody" class="divide-y divide-border-dark font-mono text-xs">
+                        <tr class="hover:bg-primary/5 cursor-default transition-colors">
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center text-white/40">1</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-primary">192.168.1.1</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center">1</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right font-bold">0.8</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right">1.2</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right text-primary">0.1</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right">0.0</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center">
+                                <span class="material-symbols-outlined text-primary text-[18px]">verified_user</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-white/60">Local Gateway</td>
+                        </tr>
+                        <tr class="hover:bg-primary/5 cursor-default transition-colors">
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center text-white/40">2</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-white/80">10.124.0.1</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center">4</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right font-bold">12.4</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right">45.8</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right text-warning">8.2</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right">0.5</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center">
+                                <span class="material-symbols-outlined text-warning text-[18px]">warning</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-white/60">ISP Backbone</td>
+                        </tr>
+                        <tr class="hover:bg-primary/5 cursor-default transition-colors bg-danger/5">
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center text-white/40">3</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-danger">58.21.144.12</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center">12</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right font-bold">142.1</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right">312.0</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right text-danger">42.5</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right font-bold text-danger">12.4</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center">
+                                <span class="material-symbols-outlined text-danger text-[18px]">gpp_maybe</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-white/60">Beijing AS4837</td>
+                        </tr>
+                        <tr class="hover:bg-primary/5 cursor-default transition-colors">
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center text-white/40">4</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-white/80">106.14.241.144</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center">1</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right font-bold">14.2</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right">16.1</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right text-primary">0.4</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-right">0.0</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center">
+                                <span class="material-symbols-outlined text-primary text-[18px]">verified_user</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-white/60">Alibaba Cloud Shanghai</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <!-- TCP Table -->
+            <div id="tcpTableContainer" class="hidden rounded-xl border border-border-dark overflow-hidden bg-card-dark/40">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-border-dark/30 text-white/60 font-medium sticky top-0">
+                        <tr>
+                            <th class="px-4 py-3 border-r border-border-dark w-12 text-center">#</th>
+                            <th class="px-4 py-3 border-r border-border-dark min-w-[140px]">IP Address</th>
+                            <th class="px-4 py-3 border-r border-border-dark">Tests</th>
+                            <th class="px-4 py-3 border-r border-border-dark text-right">Avg (ms)</th>
+                            <th class="px-4 py-3 border-r border-border-dark text-right">Max</th>
+                            <th class="px-4 py-3 border-r border-border-dark text-right">Jitter</th>
+                            <th class="px-4 py-3 border-r border-border-dark text-right">Loss%</th>
+                            <th class="px-4 py-3 border-r border-border-dark text-center">Risk</th>
+                            <th class="px-4 py-3">Location</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tcpTableBody" class="divide-y divide-border-dark font-mono text-xs">
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</div>
+
+            <!-- Latency Sidebar Component -->
+            <!-- Resizer -->
+<div id="sidebarResizer" class="resizer"></div>
+<!-- Latency Sidebar Chart -->
+<div id="latencySidebar" class="border-l border-border-dark bg-card-dark/20 p-6 flex flex-col" style="width: 320px; min-width: 200px; max-width: 800px;">
+    <h3 class="text-xs font-bold uppercase tracking-wider text-white/60 mb-6 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[16px]">show_chart</span>
+        Latency Spectrum (ms)
+    </h3>
+    <div class="flex-1 flex flex-col justify-between py-4 relative">
+        <!-- Chart Axis Labels -->
+        <div id="yAxisLabels" class="absolute left-0 top-0 bottom-0 flex flex-col justify-between text-[10px] font-mono text-white/70 -ml-4">
+            <span>500</span>
+            <span>250</span>
+            <span>100</span>
+            <span>0</span>
+        </div>
+        <!-- Visual representation of line chart -->
+        <div id="latencyChart" class="flex-1 ml-4 border-l border-b border-border-dark relative" style="min-height: 200px;">
+            <!-- Chart will be dynamically generated here -->
+            <div class="absolute inset-0 flex items-center justify-center text-white/20 text-xs">
+                Waiting for data...
+            </div>
+        </div>
+    </div>
+    <div class="mt-6 p-4 rounded-lg bg-border-dark/20 space-y-3">
+        <div class="flex justify-between items-center">
+            <span class="text-xs text-white/40">Avg Latency</span>
+            <span id="avgLatency" class="text-sm font-bold text-primary">- ms</span>
+        </div>
+        <div class="flex justify-between items-center">
+            <span class="text-xs text-white/40">Max Spike</span>
+            <span id="maxSpike" class="text-sm font-bold text-danger">- ms</span>
+        </div>
+        <div class="flex justify-between items-center">
+            <span class="text-xs text-white/40">Std Deviation</span>
+            <span id="stdDev" class="text-sm font-bold text-warning">-</span>
+        </div>
+    </div>
+</div>
+
+            <!-- Hop-Time Chart Component -->
+            <!-- Resizer -->
+<div id="hopTimeChartResizer" class="resizer"></div>
+<!-- Hop-Time Area Chart Component -->
+<div id="hopTimeChartContainer" class="border-l border-border-dark bg-card-dark/20 p-6 flex flex-col" style="width: 400px; min-width: 300px; max-width: 800px;">
+    <h3 class="text-xs font-bold uppercase tracking-wider text-white/60 mb-6 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[16px]">show_chart</span>
+        Latency
+    </h3>
+    <div class="flex-1 flex flex-col justify-between py-4 relative">
+        <!-- X Axis Labels (Latency - at top) -->
+        <div id="hopXAxisLabels" class="absolute top-0 left-4 right-0 text-[10px] font-mono text-white/70" style="height: 20px; margin-top: -20px;">
+            <!-- Latency labels will be dynamically generated here -->
+        </div>
+        <!-- Y Axis Labels (HOP numbers) -->
+        <div id="hopYAxisLabels" class="absolute left-0 top-0 bottom-0 flex flex-col justify-start text-[10px] font-mono text-white/70 -ml-4 pr-2">
+            <!-- HOP labels will be dynamically generated here -->
+        </div>
+        <!-- Chart container -->
+        <div id="hopTimeChart" class="flex-1 ml-4 border-l border-b border-border-dark relative" style="min-height: 300px;">
+            <!-- Chart will be dynamically generated here -->
+            <div class="absolute inset-0 flex items-center justify-center text-white/20 text-xs">
+                Waiting for data...
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+</main>
+
+    <!-- AI Analysis Modal Component -->
+    <!-- AI Analysis Modal -->
+<div id="aiAnalysisModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+    <div id="aiAnalysisModalContent" class="bg-background-dark border border-primary/30 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col relative" style="min-width: 600px; min-height: 400px; width: 90vw; height: 85vh;">
+        <!-- Resizer for AI Modal -->
+        <div id="aiModalResizer" class="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize"></div>
+        <div class="px-6 py-4 border-b border-border-dark">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-primary flex items-center gap-2">
+                    <span class="material-symbols-outlined">psychology</span>
+                    AI 路由分析
+                </h2>
+                <button id="closeAIModalBtn" class="px-4 py-2 rounded-lg bg-danger/20 text-danger border border-danger/30 hover:bg-danger/30 whitespace-nowrap">
+                    关闭
+                </button>
+            </div>
+            <div class="flex flex-col gap-3">
+                <div class="flex items-center gap-3">
+                    <label class="text-xs font-semibold text-white/50 uppercase tracking-wider min-w-[100px]">Provider:</label>
+                    <select id="aiProviderSelect" class="form-input flex-1 h-9 rounded-lg border border-border-dark bg-transparent text-sm text-white focus:ring-0 focus:border-primary px-3">
+                        <option value="local">本地智能分析 (免费，无需API)</option>
+                        <option value="qwen">通义千问 Qwen (阿里云)</option>
+                        <option value="gemini">Gemini (推荐，免费额度高)</option>
+                        <option value="chatgpt">ChatGPT</option>
+                        <option value="doubao">豆包 Doubao (字节跳动)</option>
+                    </select>
+                </div>
+                <div id="doubaoModelContainer" class="hidden flex items-center gap-3">
+                    <label class="text-xs font-semibold text-white/50 uppercase tracking-wider min-w-[100px]">Model:</label>
+                    <select id="doubaoModelSelect" class="form-input flex-1 h-9 rounded-lg border border-border-dark bg-transparent text-sm text-white focus:ring-0 focus:border-primary px-3">
+                        <option value="kimi-k2-thinking-251104">Kimi K2 Thinking (kimi-k2-thinking-251104)</option>
+                        <option value="doubao-1-5-pro-32k-250115">Doubao Pro 32k (doubao-1-5-pro-32k-250115)</option>
+                        <option value="doubao-seed-1-6-flash-250828">Doubao Flash (doubao-seed-1-6-flash-250828)</option>
+                        <option value="doubao-seed-1-8-251228">Doubao Seed (doubao-seed-1-8-251228)</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-3">
+                    <label class="text-xs font-semibold text-white/50 uppercase tracking-wider min-w-[100px]">API Key:</label>
+                    <input id="aiApiKeyInput" type="password" placeholder="API Key (可选，已设置环境变量则留空)" class="form-input flex-1 h-9 rounded-lg border border-border-dark bg-transparent text-sm text-white/60 focus:ring-0 focus:border-primary px-3">
+                </div>
+            </div>
+        </div>
+        <div id="aiAnalysisContent" class="flex-1 overflow-y-auto custom-scrollbar p-6 text-white/80 leading-relaxed">
+            <div class="text-center text-white/40 py-8">
+                点击"开始分析"按钮获取AI专业分析
+            </div>
+        </div>
+        <div class="px-6 py-4 border-t border-border-dark flex items-center justify-end gap-3">
+            <button id="startAIAnalysisBtn" class="px-5 py-2 rounded-lg bg-primary text-background-dark font-bold hover:bg-primary/80 transition-colors">
+                开始分析
+            </button>
+        </div>
+    </div>
+</div>
+
+    <!-- Coze Chat Modal Component -->
+    <!-- Coze Chat Modal -->
+<div id="cozeChatModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+    <div class="bg-background-dark border border-primary/30 rounded-xl shadow-2xl max-w-6xl w-full max-h-[90vh] flex flex-col">
+        <div class="px-6 py-4 border-b border-border-dark">
+            <div class="flex items-center justify-between">
+                <h2 class="text-lg font-bold text-primary flex items-center gap-2">
+                    <span class="material-symbols-outlined">smart_toy</span>
+                    <span id="cozeModalTitle">扣子智能体</span>
+                </h2>
+                <button id="closeCozeModalBtn" class="px-4 py-2 rounded-lg bg-danger/20 text-danger border border-danger/30 hover:bg-danger/30 whitespace-nowrap">
+                    <span id="cozeCloseBtnText">关闭</span>
+                </button>
+            </div>
+        </div>
+        <div id="cozeChatContainer" class="flex-1 overflow-hidden bg-card-dark rounded-lg" style="min-height: 600px; position: relative;">
+            <!-- Coze Web SDK will be mounted here -->
+        </div>
+    </div>
+</div>
+
+    <!-- Log Panel Component -->
+    <!-- Bottom Log Panel -->
+<footer id="logPanel" class="border-t border-border-dark bg-[#05070a] flex flex-col" style="height: 192px; min-height: 100px; max-height: 600px;">
+    <!-- Log Panel Resizer -->
+    <div id="logPanelResizer" class="resizer"></div>
+    <div class="flex items-center justify-between px-4 py-1.5 bg-border-dark/20 border-b border-border-dark">
+        <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-[16px] text-primary">terminal</span>
+            <span class="text-[10px] font-bold uppercase tracking-widest text-white/60">Live Debugging Console</span>
+        </div>
+        <div class="flex gap-4">
+            <button id="clearLogBtn" class="text-[10px] font-bold text-white/30 hover:text-white uppercase">Clear</button>
+            <button class="text-[10px] font-bold text-white/30 hover:text-white uppercase">Wrap</button>
+        </div>
+    </div>
+    <div id="logContainer" class="flex-1 p-4 font-mono text-[11px] leading-relaxed text-primary/80 overflow-y-auto custom-scrollbar terminal-glow bg-[radial-gradient(circle_at_top_right,_#1a2a29,_transparent_60%)]">
+        <div class="flex gap-3">
+            <span class="text-white/20">[14:20:01]</span>
+            <span>Initializing ICMP socket engine... <span class="text-primary font-bold">READY</span></span>
+        </div>
+        <div class="flex gap-3">
+            <span class="text-white/20">[14:20:01]</span>
+            <span class="text-white/40">Resolving target: hc.jiandaoyun.com -&gt; 106.14.241.144</span>
+        </div>
+        <div class="flex gap-3">
+            <span class="text-white/20">[14:20:02]</span>
+            <span class="text-white">Tracing path to hc.jiandaoyun.com (106.14.241.144), 30 hops max, 60 byte packets</span>
+        </div>
+        <div class="flex gap-3">
+            <span class="text-white/20">[14:20:02]</span>
+            <span>1: 192.168.1.1 (192.168.1.1) 0.824 ms / 0.791 ms / 0.812 ms</span>
+        </div>
+        <div class="flex gap-3">
+            <span class="text-white/20">[14:20:03]</span>
+            <span>2: 10.124.0.1 (10.124.0.1) 12.412 ms / 14.502 ms / 12.110 ms</span>
+        </div>
+        <div class="flex gap-3">
+            <span class="text-white/20">[14:20:04]</span>
+            <span class="text-warning">3: * * * Request timed out. (Retrying sequence 12...)</span>
+        </div>
+        <div class="flex gap-3">
+            <span class="text-white/20">[14:20:05]</span>
+            <span class="text-danger">Detecting ECMP path divergence at hop 3. Found 12 sub-paths.</span>
+        </div>
+        <div class="flex gap-3">
+            <span class="text-white/20">[14:20:05]</span>
+            <span>Analyzing AS4837 (China Unicom) congestion patterns...</span>
+        </div>
+        <div class="flex gap-3 animate-pulse">
+            <span class="text-white/20">[14:20:06]</span>
+            <span class="text-primary">_</span>
+        </div>
+    </div>
+</footer>
+
+    <!-- Link Map View Component -->
+    <!-- Link Map View -->
+<div id="linkMapView" class="hidden absolute inset-0 bg-background-dark z-50 flex flex-col">
+    <div class="flex items-center justify-between px-6 py-3 border-b border-border-dark">
+        <h2 class="text-lg font-bold text-primary">Link Map</h2>
+        <button id="closeMapBtn" class="px-4 py-2 rounded-lg bg-danger/20 text-danger border border-danger/30 hover:bg-danger/30">
+            Close
+        </button>
+    </div>
+    <div id="mapContainer" class="flex-1 w-full"></div>
+</div>
+</div>
+
+<!-- Set base path for API calls -->
+<script>
+    // 设置API基础路径，支持子路径部署
+    window.APP_BASE_PATH = '/api/ip-trace';
+    // 确保路径以/结尾（如果存在）
+    if (window.APP_BASE_PATH && !window.APP_BASE_PATH.endsWith('/')) {
+        window.APP_BASE_PATH = window.APP_BASE_PATH + '/';
+    }
+    // 如果为空，设置为空字符串（根路径）
+    if (!window.APP_BASE_PATH) {
+        window.APP_BASE_PATH = '';
+    }
+</script>
+
+<!-- Load Coze Web SDK -->
+<script src="https://lf-cdn.coze.cn/obj/unpkg/flow-platform/builder-web-sdk/0.1.1-beta.1/dist/umd/index.js"
+        onerror="console.error('Failed to load Coze SDK script')"
+        onload="console.log('Coze SDK script loaded successfully')"></script>
+
+<!-- Load JavaScript modules in order -->
+<script>
+// config.js
+// 全局状态和配置
+let isAnalyzing = false;
+let analysisInterval = null;
+let sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+let currentTableType = 'icmp'; // 'icmp' or 'tcp'
+let currentTarget = ''; // 当前分析的目标，用于检测变化
+
+// API基础路径（支持子路径部署）
+const API_BASE_PATH = (window.APP_BASE_PATH || '').replace(/\/$/, ''); // 移除尾部斜杠
+
+// DOM 元素引用
+let targetInput, cyclesInput, startBtn, stopBtn, exportBtn, aiAnalyzeBtn, clearLogBtn, langSelect;
+let logContainer = null;
+let traceTableBody = null;
+let icmpTableBody = null;
+let tcpTableBody = null;
+let icmpTableBtn = null;
+let tcpTableBtn = null;
+let icmpTableContainer = null;
+let tcpTableContainer = null;
+let dnsTableBody = null;
+
+// 导出全局状态
+window.appState = {
+    isAnalyzing,
+    analysisInterval,
+    sessionId,
+    currentTableType,
+    get isAnalyzing() { return isAnalyzing; },
+    set isAnalyzing(value) { isAnalyzing = value; },
+    get analysisInterval() { return analysisInterval; },
+    set analysisInterval(value) { analysisInterval = value; },
+    get sessionId() { return sessionId; },
+    set sessionId(value) { sessionId = value; },
+    get currentTableType() { return currentTableType; },
+    set currentTableType(value) { currentTableType = value; },
+    get currentTarget() { return currentTarget; },
+    set currentTarget(value) { currentTarget = value; }
+};
+
+// 导出DOM元素引用
+window.domElements = {
+    get targetInput() { return targetInput; },
+    get cyclesInput() { return cyclesInput; },
+    get startBtn() { return startBtn; },
+    get stopBtn() { return stopBtn; },
+    get exportBtn() { return exportBtn; },
+    get aiAnalyzeBtn() { return aiAnalyzeBtn; },
+    get clearLogBtn() { return clearLogBtn; },
+    get langSelect() { return langSelect; },
+    get logContainer() { return logContainer; },
+    get traceTableBody() { return traceTableBody; },
+    get icmpTableBody() { return icmpTableBody; },
+    get tcpTableBody() { return tcpTableBody; },
+    get icmpTableBtn() { return icmpTableBtn; },
+    get tcpTableBtn() { return tcpTableBtn; },
+    get icmpTableContainer() { return icmpTableContainer; },
+    get tcpTableContainer() { return tcpTableContainer; },
+    get dnsTableBody() { return dnsTableBody; }
+};
+
+// 初始化DOM元素引用
+function initDOMElements() {
+    targetInput = document.getElementById('targetInput');
+    cyclesInput = document.getElementById('cyclesInput');
+    startBtn = document.getElementById('startBtn');
+    stopBtn = document.getElementById('stopBtn');
+    exportBtn = document.getElementById('exportBtn');
+    aiAnalyzeBtn = document.getElementById('aiAnalyzeBtn');
+    clearLogBtn = document.getElementById('clearLogBtn');
+    langSelect = document.getElementById('langSelect');
+    logContainer = document.getElementById('logContainer');
+    traceTableBody = document.getElementById('traceTableBody');
+    icmpTableBody = document.getElementById('icmpTableBody');
+    tcpTableBody = document.getElementById('tcpTableBody');
+    icmpTableBtn = document.getElementById('icmpTableBtn');
+    tcpTableBtn = document.getElementById('tcpTableBtn');
+    icmpTableContainer = document.getElementById('icmpTableContainer');
+    tcpTableContainer = document.getElementById('tcpTableContainer');
+    dnsTableBody = document.getElementById('dnsTableBody') || document.querySelector('section:first-of-type table tbody');
+}
+
+// 导出初始化函数
+window.initDOMElements = initDOMElements;
+
+
+// language.js
+// 语言切换模块
+let currentLanguage = 'en';
+const translations = {
+    en: {
+        startAnalysis: 'Start Analysis',
+        stop: 'Stop',
+        export: 'Export',
+        cycles: 'Cycles',
+        lang: 'Lang',
+        targetPlaceholder: 'Target Hostname (e.g. hc.jiandaoyun.com)',
+        dnsResolution: 'DNS Resolution Records',
+        hopAnalysis: 'Hop Analysis & Path Detection',
+        latencySpectrum: 'Latency Spectrum (ms)',
+        avgLatency: 'Avg Latency',
+        maxSpike: 'Max Spike',
+        stdDev: 'Std Deviation',
+        tests: 'Tests',
+        location: 'Location',
+        // AI Modal translations
+        aiRouteAnalysis: 'AI Route Analysis',
+        provider: 'Provider',
+        apiKey: 'API Key',
+        localAnalysis: 'Local AI Analysis (Free, no API required)',
+        qwen: 'Qwen (Alibaba Cloud)',
+        gemini: 'Gemini (Recommended, high free quota)',
+        chatgpt: 'ChatGPT',
+        doubao: 'Doubao (ByteDance)',
+        apiKeyPlaceholder: 'API Key (Optional, leave blank if env var is set)',
+        close: 'Close',
+        clickToStartAnalysis: 'Click "Start Analysis" button to get AI professional analysis',
+        startAnalysisBtn: 'Start Analysis',
+        analyzing: 'Analyzing...',
+        aiAnalyzing: 'AI is analyzing route data, please wait...',
+        // Coze Chat translations
+        cozeAssistant: 'Coze Assistant',
+        cozeChatTitle: 'Coze AI Assistant'
+    },
+    zh: {
+        startAnalysis: '开始分析',
+        stop: '停止',
+        export: '导出',
+        cycles: '循环次数',
+        lang: '语言',
+        targetPlaceholder: '目标主机名 (例如: hc.jiandaoyun.com)',
+        dnsResolution: 'DNS解析记录',
+        hopAnalysis: '跳数分析与路径检测',
+        latencySpectrum: '延迟频谱 (毫秒)',
+        avgLatency: '平均延迟',
+        maxSpike: '最大峰值',
+        stdDev: '标准差',
+        tests: '测试次数',
+        location: '位置',
+        // AI Modal translations
+        aiRouteAnalysis: 'AI 路由分析',
+        provider: 'Provider',
+        apiKey: 'API Key',
+        localAnalysis: '本地智能分析 (免费，无需API)',
+        qwen: '通义千问 Qwen (阿里云)',
+        gemini: 'Gemini (推荐，免费额度高)',
+        chatgpt: 'ChatGPT',
+        doubao: '豆包 Doubao (字节跳动)',
+        apiKeyPlaceholder: 'API Key (可选，已设置环境变量则留空)',
+        close: '关闭',
+        clickToStartAnalysis: '点击"开始分析"按钮获取AI专业分析',
+        startAnalysisBtn: '开始分析',
+        analyzing: '分析中...',
+        aiAnalyzing: 'AI正在分析路由数据，请稍候...',
+        // Coze Chat translations
+        cozeAssistant: '扣子助手',
+        cozeChatTitle: '扣子智能体'
+    }
+};
+
+function updateLanguage() {
+    const t = translations[currentLanguage];
+    if (!t) return;
+
+    const { startBtn, stopBtn, exportBtn, targetInput } = window.domElements;
+
+    // 更新按钮文本
+    if (startBtn) {
+        const span = startBtn.querySelector('span:last-child');
+        if (span) span.textContent = t.startAnalysis;
+    }
+    if (stopBtn) {
+        const span = stopBtn.querySelector('span:last-child');
+        if (span) span.textContent = t.stop;
+    }
+    if (exportBtn) {
+        const span = exportBtn.querySelector('span:last-child');
+        if (span) span.textContent = t.export;
+    }
+
+    // 更新输入框占位符
+    if (targetInput) {
+        targetInput.placeholder = t.targetPlaceholder;
+    }
+
+    // 更新标签
+    const cyclesLabel = document.querySelector('label:has(#cyclesInput) span');
+    if (cyclesLabel) cyclesLabel.textContent = t.cycles;
+
+    const langLabel = document.querySelector('label:has(#langSelect) span');
+    if (langLabel) langLabel.textContent = t.lang;
+
+    // 更新表格标题
+    const pathHeader = Array.from(document.querySelectorAll('th')).find(th => th.textContent.includes('Path') || th.textContent.includes('Tests'));
+    if (pathHeader) pathHeader.textContent = t.tests;
+
+    // 更新其他标题
+    const dnsHeader = Array.from(document.querySelectorAll('h3')).find(h => h.textContent.includes('DNS'));
+    if (dnsHeader) dnsHeader.textContent = t.dnsResolution;
+
+    const hopHeader = Array.from(document.querySelectorAll('h3')).find(h => h.textContent.includes('Hop Analysis'));
+    if (hopHeader) hopHeader.textContent = t.hopAnalysis;
+
+    const latencyHeader = Array.from(document.querySelectorAll('h3')).find(h => h.textContent.includes('Latency Spectrum'));
+    if (latencyHeader) {
+        const text = latencyHeader.textContent;
+        latencyHeader.innerHTML = text.replace(/Latency Spectrum \(ms\)/g, t.latencySpectrum);
+    }
+
+    // 更新统计标签
+    const avgLabel = document.querySelector('#avgLatency')?.previousElementSibling;
+    if (avgLabel) avgLabel.textContent = t.avgLatency;
+
+    const maxLabel = document.querySelector('#maxSpike')?.previousElementSibling;
+    if (maxLabel) maxLabel.textContent = t.maxSpike;
+
+    const stdLabel = document.querySelector('#stdDev')?.previousElementSibling;
+    if (stdLabel) stdLabel.textContent = t.stdDev;
+
+    // 更新AI模态框文本
+    const aiModalTitle = document.querySelector('#aiAnalysisModal h2');
+    if (aiModalTitle) {
+        const icon = aiModalTitle.querySelector('span.material-symbols-outlined');
+        if (icon) {
+            aiModalTitle.innerHTML = `<span class="material-symbols-outlined">psychology</span>${t.aiRouteAnalysis}`;
+        } else {
+            aiModalTitle.textContent = t.aiRouteAnalysis;
+        }
+    }
+
+    // 更新AI模态框下拉选项
+    const aiProviderSelect = document.getElementById('aiProviderSelect');
+    if (aiProviderSelect) {
+        const options = aiProviderSelect.querySelectorAll('option');
+        if (options.length >= 5) {
+            options[0].textContent = t.localAnalysis;
+            options[1].textContent = t.qwen;
+            options[2].textContent = t.gemini;
+            options[3].textContent = t.chatgpt;
+            options[4].textContent = t.doubao;
+        }
+    }
+
+    // 更新API Key输入框占位符
+    const aiApiKeyInput = document.getElementById('aiApiKeyInput');
+    if (aiApiKeyInput) {
+        aiApiKeyInput.placeholder = t.apiKeyPlaceholder;
+    }
+
+    // 更新AI模态框标签
+    const providerLabels = document.querySelectorAll('#aiAnalysisModal label');
+    if (providerLabels.length >= 1) {
+        // 第一个label是Provider标签
+        providerLabels[0].textContent = t.provider + ':';
+    }
+    if (providerLabels.length >= 2) {
+        // 第二个label是API Key标签
+        providerLabels[1].textContent = t.apiKey + ':';
+    }
+
+    // 更新关闭按钮
+    const closeAIBtn = document.getElementById('closeAIModalBtn');
+    if (closeAIBtn) {
+        closeAIBtn.textContent = t.close;
+    }
+
+    // 更新开始分析按钮
+    const startAIBtn = document.getElementById('startAIAnalysisBtn');
+    if (startAIBtn && !startAIBtn.disabled) {
+        startAIBtn.textContent = t.startAnalysisBtn;
+    }
+
+    // 更新AI内容区域的提示文本
+    const aiContent = document.getElementById('aiAnalysisContent');
+    if (aiContent && aiContent.children.length === 1 && aiContent.children[0].classList.contains('text-center')) {
+        aiContent.innerHTML = `<div class="text-center text-white/40 py-8">${t.clickToStartAnalysis}</div>`;
+    }
+
+    // 更新扣子助手按钮文本
+    const cozeChatBtn = document.getElementById('cozeChatBtn');
+    if (cozeChatBtn) {
+        const span = cozeChatBtn.querySelector('span:last-child');
+        if (span) span.textContent = t.cozeAssistant;
+    }
+
+    // 更新扣子模态框标题
+    const cozeModalTitle = document.getElementById('cozeModalTitle');
+    if (cozeModalTitle) {
+        cozeModalTitle.textContent = t.cozeChatTitle;
+    }
+
+    // 更新扣子模态框关闭按钮
+    const cozeCloseBtn = document.getElementById('cozeCloseBtnText');
+    if (cozeCloseBtn) {
+        cozeCloseBtn.textContent = t.close;
+    }
+}
+
+function initLanguage() {
+    const { langSelect } = window.domElements;
+    if (langSelect) {
+        langSelect.addEventListener('change', function() {
+            currentLanguage = this.value;
+            updateLanguage();
+        });
+    }
+    updateLanguage();
+}
+
+// 导出
+window.language = {
+    currentLanguage,
+    translations,
+    updateLanguage,
+    initLanguage,
+    get currentLanguage() { return currentLanguage; },
+    set currentLanguage(value) { currentLanguage = value; }
+};
+
+
+// logger.js
+// 日志管理模块
+function addLog(message, type = 'info') {
+    const { logContainer } = window.domElements;
+    if (!logContainer) return;
+
+    const timestamp = new Date().toLocaleTimeString('en-US', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+
+    const logEntry = document.createElement('div');
+    logEntry.className = 'flex gap-3';
+
+    const colorClass = type === 'error' ? 'text-danger' :
+                      type === 'warning' ? 'text-warning' :
+                      type === 'success' ? 'text-primary' : 'text-white/40';
+
+    logEntry.innerHTML = `
+        <span class="text-white/20">[${timestamp}]</span>
+        <span class="${colorClass}">${message}</span>
+    `;
+
+    logContainer.appendChild(logEntry);
+    logContainer.scrollTop = logContainer.scrollHeight;
+}
+
+function clearLogs() {
+    const { logContainer } = window.domElements;
+    if (logContainer) {
+        logContainer.innerHTML = '';
+    }
+}
+
+function initLogger() {
+    const { clearLogBtn } = window.domElements;
+    if (clearLogBtn) {
+        clearLogBtn.addEventListener('click', clearLogs);
+    }
+}
+
+// 导出
+window.logger = {
+    addLog,
+    clearLogs,
+    initLogger
+};
+
+
+// analysis.js
+// 分析控制模块
+async function startAnalysis() {
+    const { appState, domElements } = window;
+    const { targetInput, startBtn, stopBtn } = domElements;
+
+    if (appState.isAnalyzing) return;
+
+    const target = targetInput?.value.trim();
+    if (!target) {
+        window.logger.addLog('Please enter a target hostname', 'error');
+        return;
+    }
+
+    // 检查目标是否变化，如果变化则清除表格记录
+    const targetChanged = appState.currentTarget && appState.currentTarget !== target;
+
+    if (targetChanged) {
+        const { currentLanguage } = window.language;
+        const logMsg = currentLanguage === 'en'
+            ? `Target changed from ${appState.currentTarget} to ${target}, clearing previous data...`
+            : `目标从 ${appState.currentTarget} 变更为 ${target}，正在清除之前的数据...`;
+        window.logger.addLog(logMsg, 'info');
+
+        // 清除所有表格和图表数据
+        window.table.clearTables();
+        window.chart.clearChart();
+        window.chart.clearHopTimeChart();
+
+        // 重置统计信息
+        const avgLatencyEl = document.getElementById('avgLatency');
+        const maxSpikeEl = document.getElementById('maxSpike');
+        const stdDevEl = document.getElementById('stdDev');
+        if (avgLatencyEl) avgLatencyEl.textContent = '- ms';
+        if (maxSpikeEl) maxSpikeEl.textContent = '- ms';
+        if (stdDevEl) stdDevEl.textContent = '-';
+
+        // 生成新的session ID，因为目标已变化
+        appState.sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        window.logger.addLog(`Created new session for new target: ${appState.sessionId}`, 'info');
+    }
+
+    // 更新当前目标
+    appState.currentTarget = target;
+
+    appState.isAnalyzing = true;
+    window.logger.addLog(`Starting analysis for: ${target}`, 'info');
+
+    // 更新按钮状态
+    if (startBtn) {
+        startBtn.disabled = true;
+        startBtn.style.opacity = '0.5';
+        startBtn.style.cursor = 'not-allowed';
+    }
+    if (stopBtn) {
+        stopBtn.disabled = false;
+        stopBtn.style.opacity = '1';
+        stopBtn.style.cursor = 'pointer';
+    }
+
+    try {
+        // 如果没有session ID，生成一个新的
+        if (!appState.sessionId) {
+            appState.sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            window.logger.addLog(`Created new session: ${appState.sessionId}`, 'info');
+        }
+
+        // 发送请求到后端
+        const formData = new FormData();
+        formData.append('target', target);
+        formData.append('session_id', appState.sessionId);
+
+        window.logger.addLog('Sending request to server...', 'info');
+        const response = await fetch(`${API_BASE_PATH}/trace`, {
+            method: 'POST',
+            headers: {
+                'X-Session-ID': appState.sessionId
+            },
+            body: formData
+        });
+
+        const data = await response.json();
+
+        // 保存session ID（如果后端返回了新的）
+        if (data.session_id) {
+            appState.sessionId = data.session_id;
+        }
+
+        if (!response.ok) {
+            const errorMsg = data.error || `HTTP error! status: ${response.status}`;
+            window.logger.addLog(`Error: ${errorMsg}`, 'error');
+            throw new Error(errorMsg);
+        }
+
+        if (data.error) {
+            window.logger.addLog(`Error: ${data.error}`, 'error');
+        }
+
+        const hops = data.hops || data || [];
+
+        if (hops.length === 0) {
+            window.logger.addLog('No hops received. The target may be unreachable or traceroute timed out.', 'warning');
+        } else {
+            window.logger.addLog(`Received ${hops.length} hops`, 'success');
+        }
+
+        // 更新表格
+        window.table.updateTableWithPingData(hops, {}, 'icmp');
+        window.table.updateTableWithPingData(hops, {}, 'tcp');
+
+        // 如果 hops 有数据，解析 DNS
+        if (hops.length > 0) {
+            let lastHopIp = null;
+            for (let i = hops.length - 1; i >= 0; i--) {
+                if (hops[i].ip && hops[i].ip !== '*') {
+                    lastHopIp = hops[i].ip;
+                    break;
+                }
+            }
+            if (!lastHopIp && hops[0].ip && hops[0].ip !== '*') {
+                lastHopIp = hops[0].ip;
+            }
+            if (lastHopIp) {
+                window.dns.updateDNSTable(target, lastHopIp);
+            }
+        }
+
+        // 开始持续测试和状态轮询
+        startStatusPolling();
+
+    } catch (error) {
+        const errorMsg = error.message || 'Unknown error occurred';
+        window.logger.addLog(`Analysis failed: ${errorMsg}`, 'error');
+        console.error('Analysis error:', error);
+
+        if (errorMsg.includes('timeout') || errorMsg.includes('超时')) {
+            window.logger.addLog('Tip: Traceroute may take longer for distant targets. Try again or use a closer target.', 'info');
+        }
+
+        appState.isAnalyzing = false;
+        if (appState.analysisInterval) {
+            clearInterval(appState.analysisInterval);
+            appState.analysisInterval = null;
+        }
+
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.style.opacity = '1';
+            startBtn.style.cursor = 'pointer';
+        }
+        if (stopBtn) {
+            stopBtn.disabled = true;
+            stopBtn.style.opacity = '0.5';
+            stopBtn.style.cursor = 'not-allowed';
+        }
+    }
+}
+
+async function stopAnalysis() {
+    const { appState, domElements } = window;
+    const { startBtn, stopBtn } = domElements;
+
+    if (!appState.isAnalyzing) {
+        window.logger.addLog('No analysis running', 'warning');
+        return;
+    }
+
+    window.logger.addLog('Stopping analysis...', 'info');
+
+    try {
+        if (!appState.sessionId) {
+            window.logger.addLog('No active session to stop', 'warning');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('session_id', appState.sessionId);
+
+        const response = await fetch(`${API_BASE_PATH}/stop`, {
+            method: 'POST',
+            headers: {
+                'X-Session-ID': appState.sessionId
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error('Stop request failed');
+        }
+        window.logger.addLog('Stop request sent to server', 'success');
+    } catch (e) {
+        console.error('Stop request failed:', e);
+        window.logger.addLog('Failed to stop analysis: ' + e.message, 'error');
+    }
+
+    if (appState.analysisInterval) {
+        clearInterval(appState.analysisInterval);
+        appState.analysisInterval = null;
+    }
+
+    appState.isAnalyzing = false;
+
+    if (startBtn) {
+        startBtn.disabled = false;
+        startBtn.style.opacity = '1';
+        startBtn.style.cursor = 'pointer';
+    }
+    if (stopBtn) {
+        stopBtn.disabled = true;
+        stopBtn.style.opacity = '0.5';
+        stopBtn.style.cursor = 'not-allowed';
+    }
+
+    window.logger.addLog('Analysis stopped', 'warning');
+}
+
+function startStatusPolling() {
+    const { appState } = window;
+
+    if (appState.analysisInterval) {
+        clearInterval(appState.analysisInterval);
+    }
+
+    appState.analysisInterval = setInterval(async () => {
+        if (!appState.isAnalyzing) {
+            clearInterval(appState.analysisInterval);
+            appState.analysisInterval = null;
+            return;
+        }
+
+        if (!appState.sessionId) {
+            clearInterval(appState.analysisInterval);
+            appState.analysisInterval = null;
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE_PATH}/status?session_id=${appState.sessionId}`, {
+                headers: {
+                    'X-Session-ID': appState.sessionId
+                }
+            });
+            const data = await response.json();
+
+            if (data.session_id && data.session_id !== appState.sessionId) {
+                console.warn('Received data for different session:', data.session_id, 'expected:', appState.sessionId);
+                return;
+            }
+
+            if (!data.is_running && appState.isAnalyzing) {
+                if (!data.session_id || data.session_id === appState.sessionId) {
+                    window.logger.addLog('Server stopped analysis', 'info');
+                    appState.isAnalyzing = false;
+                    if (appState.analysisInterval) {
+                        clearInterval(appState.analysisInterval);
+                        appState.analysisInterval = null;
+                    }
+                    const { startBtn, stopBtn } = window.domElements;
+                    if (startBtn) {
+                        startBtn.disabled = false;
+                        startBtn.style.opacity = '1';
+                        startBtn.style.cursor = 'pointer';
+                    }
+                    if (stopBtn) {
+                        stopBtn.disabled = true;
+                        stopBtn.style.opacity = '0.5';
+                        stopBtn.style.cursor = 'not-allowed';
+                    }
+                    return;
+                }
+            }
+
+            if (data.is_running && data.hops && data.hops.length > 0) {
+                if (data.icmp_data) {
+                    window.table.updateTableWithPingData(data.hops, data.icmp_data, 'icmp');
+                }
+                if (data.tcp_data) {
+                    window.table.updateTableWithPingData(data.hops, data.tcp_data, 'tcp');
+                }
+
+                const currentData = appState.currentTableType === 'icmp' ? data.icmp_data : data.tcp_data;
+                window.chart.updateLatencyChart(data.hops, currentData || data.ping_data);
+                window.chart.updateStatistics(currentData || data.ping_data);
+                window.chart.updateHopTimeChart(data.hops, currentData || data.ping_data);
+
+                const lastHop = data.hops[data.hops.length - 1];
+                if (lastHop && lastHop.ip && lastHop.ip !== '*') {
+                    window.dns.updateDNSTableLocation(lastHop.ip, lastHop.location);
+                }
+            }
+        } catch (error) {
+            console.error('Status polling error:', error);
+        }
+    }, 1000);
+}
+
+function initAnalysis() {
+    const { startBtn, stopBtn, targetInput } = window.domElements;
+
+    if (startBtn) {
+        startBtn.addEventListener('click', startAnalysis);
+    }
+    if (stopBtn) {
+        stopBtn.addEventListener('click', stopAnalysis);
+    }
+    if (targetInput) {
+        targetInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !window.appState.isAnalyzing) {
+                startAnalysis();
+            }
+        });
+    }
+}
+
+// 导出
+window.analysis = {
+    startAnalysis,
+    stopAnalysis,
+    startStatusPolling,
+    initAnalysis
+};
+
+
+// table.js
+// 表格管理模块
+function switchTable(type) {
+    const { appState, domElements } = window;
+    const { icmpTableContainer, tcpTableContainer, icmpTableBtn, tcpTableBtn } = domElements;
+
+    appState.currentTableType = type;
+
+    if (type === 'icmp') {
+        if (icmpTableContainer) icmpTableContainer.classList.remove('hidden');
+        if (tcpTableContainer) tcpTableContainer.classList.add('hidden');
+        if (icmpTableBtn) {
+            icmpTableBtn.classList.remove('bg-border-dark/50', 'text-white/60');
+            icmpTableBtn.classList.add('bg-primary', 'text-background-dark');
+        }
+        if (tcpTableBtn) {
+            tcpTableBtn.classList.remove('bg-primary', 'text-background-dark');
+            tcpTableBtn.classList.add('bg-border-dark/50', 'text-white/60');
+        }
+    } else {
+        if (icmpTableContainer) icmpTableContainer.classList.add('hidden');
+        if (tcpTableContainer) tcpTableContainer.classList.remove('hidden');
+        if (tcpTableBtn) {
+            tcpTableBtn.classList.remove('bg-border-dark/50', 'text-white/60');
+            tcpTableBtn.classList.add('bg-primary', 'text-background-dark');
+        }
+        if (icmpTableBtn) {
+            icmpTableBtn.classList.remove('bg-primary', 'text-background-dark');
+            icmpTableBtn.classList.add('bg-border-dark/50', 'text-white/60');
+        }
+    }
+
+    // 重新获取数据并更新图表
+    if (appState.isAnalyzing && appState.sessionId) {
+        fetch(`${API_BASE_PATH}/status?session_id=${appState.sessionId}`, {
+            headers: { 'X-Session-ID': appState.sessionId }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.hops && data.hops.length > 0) {
+                const currentData = type === 'icmp' ? data.icmp_data : data.tcp_data;
+                window.chart.updateLatencyChart(data.hops, currentData || data.ping_data);
+                window.chart.updateStatistics(currentData || data.ping_data);
+            }
+        })
+        .catch(err => console.error('Error updating chart:', err));
+    }
+}
+
+function updateTableWithPingData(hops, pingData, tableType) {
+    const { domElements } = window;
+    const tableBody = tableType === 'icmp' ? domElements.icmpTableBody : domElements.tcpTableBody;
+    if (!tableBody) return;
+
+    hops.forEach((hop) => {
+        const hopNum = hop.hop;
+        const existingRow = tableBody.querySelector(`tr[data-hop="${hopNum}"]`);
+        const pingInfo = pingData[hopNum];
+
+        if (existingRow) {
+            // 更新ping信息，即使pingInfo为null也更新count（显示测试次数）
+            const cells = existingRow.querySelectorAll('td');
+            if (cells.length >= 8) {
+                cells[2].textContent = pingInfo ? (pingInfo.count || 0) : 0; // 显示测试次数
+                cells[3].textContent = (pingInfo && pingInfo.avg !== null && pingInfo.avg !== undefined) ? pingInfo.avg : '-';
+                cells[4].textContent = (pingInfo && pingInfo.max !== null && pingInfo.max !== undefined) ? pingInfo.max : '-';
+                cells[5].textContent = (pingInfo && pingInfo.jitter) ? pingInfo.jitter : '0.0';
+                cells[5].className = `px-4 py-2.5 border-r border-border-dark text-right ${pingInfo && pingInfo.jitter && pingInfo.jitter > 10 ? 'text-warning' : 'text-primary'}`;
+                cells[6].textContent = (pingInfo && pingInfo.loss !== null && pingInfo.loss !== undefined) ? pingInfo.loss.toFixed(1) : '0.0';
+            }
+            // 更新位置信息（如果location不是"未知"才更新，否则保持原有值）
+            if (cells.length >= 9 && hop.location && hop.location !== "未知" && hop.location !== "未知（数据库不可用）") {
+                cells[8].textContent = hop.location;
+            }
+        } else {
+            addTableRow(hop, pingInfo, tableType);
+        }
+    });
+}
+
+function addTableRow(hop, pingInfo, tableType) {
+    const { domElements } = window;
+    const tableBody = tableType === 'icmp' ? domElements.icmpTableBody : domElements.tcpTableBody;
+    if (!tableBody) return;
+
+    const row = document.createElement('tr');
+    row.className = 'hover:bg-primary/5 cursor-default transition-colors';
+    row.setAttribute('data-hop', hop.hop);
+
+    const jitter = pingInfo?.jitter || hop.jitter || 0;
+    if (jitter > 40) {
+        row.classList.add('bg-danger/5');
+    } else if (jitter > 10) {
+        row.classList.add('bg-warning/5');
+    }
+
+    let riskIcon = 'verified_user';
+    let riskColor = 'text-primary';
+    if (jitter > 40) {
+        riskIcon = 'gpp_maybe';
+        riskColor = 'text-danger';
+    } else if (jitter > 10) {
+        riskIcon = 'warning';
+        riskColor = 'text-warning';
+    }
+
+    const avg = pingInfo?.avg || hop.avg_delay || '-';
+    const max = pingInfo?.max || hop.avg_delay || '-';
+    const jitterVal = jitter || '0.0';
+    const loss = pingInfo?.loss ? pingInfo.loss.toFixed(1) : '0.0';
+
+    row.innerHTML = `
+        <td class="px-4 py-2.5 border-r border-border-dark text-center text-white/40">${hop.hop}</td>
+        <td class="px-4 py-2.5 border-r border-border-dark ${hop.ip === '*' ? 'text-danger' : 'text-primary'}">${hop.ip}</td>
+        <td class="px-4 py-2.5 border-r border-border-dark text-center">${pingInfo?.count || 0}</td>
+        <td class="px-4 py-2.5 border-r border-border-dark text-right font-bold">${avg}</td>
+        <td class="px-4 py-2.5 border-r border-border-dark text-right">${max}</td>
+        <td class="px-4 py-2.5 border-r border-border-dark text-right ${jitter > 10 ? 'text-warning' : 'text-primary'}">${jitterVal}</td>
+        <td class="px-4 py-2.5 border-r border-border-dark text-right">${loss}</td>
+        <td class="px-4 py-2.5 border-r border-border-dark text-center">
+            <span class="material-symbols-outlined ${riskColor} text-[18px]">${riskIcon}</span>
+        </td>
+        <td class="px-4 py-2.5 text-white/60">${hop.location || 'Unknown'}</td>
+    `;
+
+    tableBody.appendChild(row);
+}
+
+function initTable() {
+    const { icmpTableBtn, tcpTableBtn } = window.domElements;
+
+    if (icmpTableBtn) {
+        icmpTableBtn.addEventListener('click', () => switchTable('icmp'));
+    }
+    if (tcpTableBtn) {
+        tcpTableBtn.addEventListener('click', () => switchTable('tcp'));
+    }
+}
+
+function clearTables() {
+    const { domElements } = window;
+    const { icmpTableBody, tcpTableBody, dnsTableBody } = domElements;
+
+    // 清除ICMP表格（保留表头）
+    if (icmpTableBody) {
+        const rows = icmpTableBody.querySelectorAll('tr');
+        rows.forEach(row => row.remove());
+    }
+
+    // 清除TCP表格（保留表头）
+    if (tcpTableBody) {
+        const rows = tcpTableBody.querySelectorAll('tr');
+        rows.forEach(row => row.remove());
+    }
+
+    // 清除DNS表格（保留表头）
+    if (dnsTableBody) {
+        const rows = dnsTableBody.querySelectorAll('tr');
+        rows.forEach(row => row.remove());
+    }
+
+    // 清除图表数据
+    if (window.chart && window.chart.clearChart) {
+        window.chart.clearChart();
+    }
+
+    // 清除图表历史数据
+    if (window.chart && window.chart.clearHistory) {
+        window.chart.clearHistory();
+    }
+}
+
+// 导出
+window.table = {
+    switchTable,
+    updateTableWithPingData,
+    addTableRow,
+    initTable,
+    clearTables
+};
+
+
+// chart.js
+// 图表管理模块
+const hopHistoryData = {}; // {hop_num: [delay1, delay2, ...]}
+const hopVisibility = {}; // {hop_num: true/false}
+
+function clearHistory() {
+    // 清除所有历史数据
+    Object.keys(hopHistoryData).forEach(key => delete hopHistoryData[key]);
+    Object.keys(hopVisibility).forEach(key => delete hopVisibility[key]);
+}
+
+function clearChart() {
+    const chartContainer = document.getElementById('latencyChart');
+    if (chartContainer) {
+        chartContainer.innerHTML = '';
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-white/20 text-xs';
+        emptyMsg.textContent = 'Waiting for data...';
+        chartContainer.appendChild(emptyMsg);
+    }
+    // 重置Y轴标签
+    const yAxisLabels = document.getElementById('yAxisLabels');
+    if (yAxisLabels) {
+        yAxisLabels.innerHTML = `
+            <span class="text-white/70">500</span>
+            <span class="text-white/70">250</span>
+            <span class="text-white/70">100</span>
+            <span class="text-white/70">0</span>
+        `;
+    }
+}
+
+function updateLatencyChart(hops, pingData) {
+    const chartContainer = document.getElementById('latencyChart');
+    if (!chartContainer) return;
+
+    chartContainer.innerHTML = '';
+
+    if (!hops || hops.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-white/20 text-xs';
+        emptyMsg.textContent = 'Waiting for data...';
+        chartContainer.appendChild(emptyMsg);
+        return;
+    }
+
+    // 更新历史数据
+    hops.forEach(hop => {
+        const pingInfo = pingData[hop.hop];
+        if (pingInfo && pingInfo.times && pingInfo.times.length > 0) {
+            if (!hopHistoryData[hop.hop]) {
+                hopHistoryData[hop.hop] = [];
+            }
+            const latestDelay = pingInfo.times[pingInfo.times.length - 1];
+            hopHistoryData[hop.hop].push(latestDelay);
+            if (hopHistoryData[hop.hop].length > 50) {
+                hopHistoryData[hop.hop].shift();
+            }
+        }
+    });
+
+    // 计算最大延迟值
+    let maxDelay = 0;
+    Object.values(hopHistoryData).forEach(history => {
+        if (history.length > 0) {
+            const max = Math.max(...history);
+            maxDelay = Math.max(maxDelay, max);
+        }
+    });
+    if (maxDelay === 0) {
+        maxDelay = 500;
+    } else {
+        maxDelay = maxDelay * 1.2;
+        if (maxDelay <= 10) {
+            maxDelay = Math.ceil(maxDelay);
+        } else if (maxDelay <= 100) {
+            maxDelay = Math.ceil(maxDelay / 10) * 10;
+        } else if (maxDelay <= 1000) {
+            maxDelay = Math.ceil(maxDelay / 50) * 50;
+        } else {
+            maxDelay = Math.ceil(maxDelay / 100) * 100;
+        }
+    }
+
+    const width = chartContainer.offsetWidth || 300;
+    const height = chartContainer.offsetHeight || 200;
+    const legendHeight = 30;
+    const chartHeight = height - legendHeight;
+    const chartTop = legendHeight;
+
+    // 创建 SVG
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'absolute w-full');
+    svg.setAttribute('style', `top: ${chartTop}px; bottom: 0;`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('viewBox', `0 0 ${width} ${chartHeight}`);
+
+    // 添加网格线
+    const gridLines = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    for (let i = 0; i <= 4; i++) {
+        const y = (chartHeight / 4) * i;
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', '0');
+        line.setAttribute('y1', y);
+        line.setAttribute('x2', width);
+        line.setAttribute('y2', y);
+        line.setAttribute('stroke', '#204b47');
+        line.setAttribute('stroke-width', '1');
+        line.setAttribute('opacity', '0.3');
+        gridLines.appendChild(line);
+    }
+    svg.appendChild(gridLines);
+
+    // 绘制趋势线
+    const hopKeys = Object.keys(hopHistoryData).sort((a, b) => parseInt(a) - parseInt(b));
+    const colors = ['#00dbc9', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#ec4899', '#10b981'];
+
+    hopKeys.forEach((hopNum, hopIndex) => {
+        const history = hopHistoryData[hopNum];
+        if (history.length < 2) return;
+        if (hopVisibility[hopNum] === false) return;
+
+        const color = colors[hopIndex % colors.length];
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', color);
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('opacity', '0.8');
+        path.setAttribute('data-hop', hopNum);
+
+        let pathData = '';
+        const stepX = width / Math.max(history.length - 1, 1);
+
+        history.forEach((delay, index) => {
+            const x = index * stepX;
+            const y = chartHeight - (delay / maxDelay) * chartHeight;
+            if (index === 0) {
+                pathData += `M ${x} ${y}`;
+            } else {
+                pathData += ` L ${x} ${y}`;
+            }
+        });
+
+        path.setAttribute('d', pathData);
+        svg.appendChild(path);
+
+        // 添加数据点
+        history.forEach((delay, index) => {
+            const x = index * stepX;
+            const y = chartHeight - (delay / maxDelay) * chartHeight;
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', x);
+            circle.setAttribute('cy', y);
+            circle.setAttribute('r', '3');
+            circle.setAttribute('fill', color);
+            circle.setAttribute('opacity', '0.9');
+            circle.setAttribute('data-hop', hopNum);
+            svg.appendChild(circle);
+        });
+    });
+
+    chartContainer.appendChild(svg);
+
+    // 添加图例
+    if (hopKeys.length > 0) {
+        const legend = document.createElement('div');
+        legend.className = 'absolute top-2 left-2 right-2 flex flex-row flex-wrap gap-2 text-xs z-10';
+        hopKeys.forEach((hopNum, index) => {
+            if (hopHistoryData[hopNum].length > 0) {
+                if (hopVisibility[hopNum] === undefined) {
+                    hopVisibility[hopNum] = true;
+                }
+
+                const legendItem = document.createElement('div');
+                legendItem.className = 'flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity';
+                legendItem.setAttribute('data-hop', hopNum);
+                const color = colors[index % colors.length];
+                const isVisible = hopVisibility[hopNum];
+                const opacity = isVisible ? '1' : '0.3';
+
+                legendItem.innerHTML = `
+                    <div class="w-3 h-0.5 relative" style="background-color: ${color}; opacity: ${opacity}">
+                        ${!isVisible ? '<div class="absolute inset-0 bg-white/50" style="transform: rotate(45deg);"></div>' : ''}
+                    </div>
+                    <span class="text-white/60" style="opacity: ${opacity}">Hop ${hopNum}</span>
+                `;
+
+                legendItem.addEventListener('click', () => {
+                    hopVisibility[hopNum] = !hopVisibility[hopNum];
+                    updateLatencyChart(hops, pingData);
+                });
+
+                legend.appendChild(legendItem);
+            }
+        });
+        if (legend.children.length > 0) {
+            chartContainer.appendChild(legend);
+        }
+    }
+
+    // 更新Y轴标签
+    const yAxisLabels = document.getElementById('yAxisLabels');
+    if (yAxisLabels) {
+        const yMax = Math.round(maxDelay);
+        const y75 = Math.round(yMax * 0.75);
+        const y50 = Math.round(yMax * 0.5);
+        const y25 = Math.round(yMax * 0.25);
+        const y0 = 0;
+
+        yAxisLabels.innerHTML = `
+            <span class="text-white/70">${yMax}</span>
+            <span class="text-white/70">${y75}</span>
+            <span class="text-white/70">${y50}</span>
+            <span class="text-white/70">${y25}</span>
+            <span class="text-white/70">${y0}</span>
+        `;
+    }
+}
+
+function updateStatistics(pingData) {
+    let totalAvg = 0;
+    let totalMax = 0;
+    let allDelays = [];
+    let count = 0;
+
+    Object.values(pingData).forEach(info => {
+        if (info.avg) {
+            totalAvg += info.avg;
+            totalMax = Math.max(totalMax, info.max || 0);
+            if (info.times) {
+                allDelays.push(...info.times);
+            }
+            count++;
+        }
+    });
+
+    const avgLatencyEl = document.getElementById('avgLatency');
+    const maxSpikeEl = document.getElementById('maxSpike');
+    const stdDevEl = document.getElementById('stdDev');
+
+    if (avgLatencyEl) {
+        avgLatencyEl.textContent = count > 0 ? `${(totalAvg / count).toFixed(1)} ms` : '- ms';
+    }
+    if (maxSpikeEl) {
+        maxSpikeEl.textContent = totalMax > 0 ? `${totalMax.toFixed(1)} ms` : '- ms';
+    }
+    if (stdDevEl && allDelays.length > 1) {
+        const mean = allDelays.reduce((a, b) => a + b, 0) / allDelays.length;
+        const variance = allDelays.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / allDelays.length;
+        const stdDev = Math.sqrt(variance);
+        stdDevEl.textContent = stdDev.toFixed(1);
+    }
+}
+
+// Hop-Time Area Chart 函数 - 只显示最新的时延值
+function updateHopTimeChart(hops, pingData) {
+    const chartContainer = document.getElementById('hopTimeChart');
+    if (!chartContainer) return;
+
+    chartContainer.innerHTML = '';
+
+    if (!hops || hops.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-white/20 text-xs';
+        emptyMsg.textContent = 'Waiting for data...';
+        chartContainer.appendChild(emptyMsg);
+        return;
+    }
+
+    // 过滤掉超时的HOP
+    const validHops = hops.filter(hop => !hop.timeout && hop.ip);
+    if (validHops.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-white/20 text-xs';
+        emptyMsg.textContent = 'No valid hops...';
+        chartContainer.appendChild(emptyMsg);
+        return;
+    }
+
+    // 收集当前最新的时延数据（不保存历史）
+    const currentData = {};
+    validHops.forEach(hop => {
+        const pingInfo = pingData[hop.hop];
+        if (pingInfo && pingInfo.times && pingInfo.times.length > 0) {
+            // 只取最新的时延
+            const latestDelay = pingInfo.times[pingInfo.times.length - 1];
+            currentData[hop.hop] = latestDelay;
+        }
+    });
+
+    if (Object.keys(currentData).length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-white/20 text-xs';
+        emptyMsg.textContent = 'Waiting for data...';
+        chartContainer.appendChild(emptyMsg);
+        return;
+    }
+
+    const width = chartContainer.offsetWidth || 300;
+    const height = chartContainer.offsetHeight || 300;
+    const padding = { top: 30, right: 10, bottom: 10, left: 0 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    // 获取所有有效的HOP号，按数字排序
+    const allHopNums = [...new Set(validHops.map(h => h.hop))].sort((a, b) => parseInt(a) - parseInt(b));
+    const hopCount = allHopNums.length;
+
+    if (hopCount === 0) return;
+
+    // 计算最大时延值（用于X轴缩放）
+    let maxDelay = 0;
+    Object.values(currentData).forEach(delay => {
+        maxDelay = Math.max(maxDelay, delay);
+    });
+    // 将最大值向上取整到合适的刻度
+    if (maxDelay === 0) {
+        maxDelay = 100;
+    } else {
+        // 向上取整到合适的刻度（例如：84 -> 100, 168 -> 200, 337 -> 400）
+        const magnitude = Math.pow(10, Math.floor(Math.log10(maxDelay)));
+        maxDelay = Math.ceil(maxDelay / magnitude) * magnitude;
+        if (maxDelay < maxDelay * 1.2) {
+            maxDelay = Math.ceil(maxDelay / (magnitude / 2)) * (magnitude / 2);
+        }
+    }
+
+    // 创建 SVG
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'absolute w-full h-full');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+    // 添加网格线
+    const gridLines = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    gridLines.setAttribute('stroke', '#204b47');
+    gridLines.setAttribute('stroke-width', '1');
+    gridLines.setAttribute('opacity', '0.3');
+
+    // 水平网格线（分隔每个HOP）
+    for (let i = 0; i <= hopCount; i++) {
+        const y = padding.top + (chartHeight / hopCount) * i;
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', padding.left);
+        line.setAttribute('y1', y);
+        line.setAttribute('x2', width - padding.right);
+        line.setAttribute('y2', y);
+        gridLines.appendChild(line);
+    }
+
+    // 垂直网格线（对应X轴刻度）
+    const xAxisSteps = 5;
+    for (let i = 0; i <= xAxisSteps; i++) {
+        const x = padding.left + (chartWidth / xAxisSteps) * i;
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', x);
+        line.setAttribute('y1', padding.top);
+        line.setAttribute('x2', x);
+        line.setAttribute('y2', height - padding.bottom);
+        gridLines.appendChild(line);
+    }
+    svg.appendChild(gridLines);
+
+    // 准备数据点（按HOP顺序）
+    const dataPoints = [];
+    allHopNums.forEach(hopNum => {
+        const delay = currentData[hopNum];
+        if (delay !== undefined && delay !== null) {
+            dataPoints.push({
+                hop: hopNum,
+                delay: delay,
+                hopIndex: allHopNums.indexOf(hopNum)
+            });
+        }
+    });
+
+    if (dataPoints.length === 0) return;
+
+    // 绘制填充区域（area fill）
+    const areaPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    let areaPathData = '';
+
+    // 从第一个点开始
+    const firstPoint = dataPoints[0];
+    const firstX = padding.left + (firstPoint.delay / maxDelay) * chartWidth;
+    const firstY = padding.top + (firstPoint.hopIndex / hopCount) * chartHeight;
+    areaPathData = `M ${padding.left} ${firstY} L ${firstX} ${firstY}`;
+
+    // 连接所有数据点
+    dataPoints.forEach(point => {
+        const x = padding.left + (point.delay / maxDelay) * chartWidth;
+        const y = padding.top + (point.hopIndex / hopCount) * chartHeight;
+        areaPathData += ` L ${x} ${y}`;
+    });
+
+    // 连接到最后一个点的X位置，然后回到底部
+    const lastPoint = dataPoints[dataPoints.length - 1];
+    const lastX = padding.left + (lastPoint.delay / maxDelay) * chartWidth;
+    const lastY = padding.top + (lastPoint.hopIndex / hopCount) * chartHeight;
+    areaPathData += ` L ${lastX} ${height - padding.bottom} L ${padding.left} ${height - padding.bottom} Z`;
+
+    areaPath.setAttribute('d', areaPathData);
+    areaPath.setAttribute('fill', 'rgba(59, 130, 246, 0.2)'); // 浅蓝色填充
+    areaPath.setAttribute('stroke', 'none');
+    svg.appendChild(areaPath);
+
+    // 绘制折线
+    const linePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    let linePathData = '';
+
+    dataPoints.forEach((point, index) => {
+        const x = padding.left + (point.delay / maxDelay) * chartWidth;
+        const y = padding.top + (point.hopIndex / hopCount) * chartHeight;
+        if (index === 0) {
+            linePathData = `M ${x} ${y}`;
+        } else {
+            linePathData += ` L ${x} ${y}`;
+        }
+    });
+
+    linePath.setAttribute('d', linePathData);
+    linePath.setAttribute('fill', 'none');
+    linePath.setAttribute('stroke', '#3b82f6'); // 蓝色线条
+    linePath.setAttribute('stroke-width', '2');
+    linePath.setAttribute('opacity', '0.8');
+    svg.appendChild(linePath);
+
+    // 绘制数据点（圆形标记）
+    dataPoints.forEach(point => {
+        const x = padding.left + (point.delay / maxDelay) * chartWidth;
+        const y = padding.top + (point.hopIndex / hopCount) * chartHeight;
+
+        // 圆形数据点
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', x);
+        circle.setAttribute('cy', y);
+        circle.setAttribute('r', '4');
+        circle.setAttribute('fill', '#3b82f6');
+        circle.setAttribute('stroke', 'white');
+        circle.setAttribute('stroke-width', '1.5');
+        circle.setAttribute('data-hop', point.hop);
+        circle.setAttribute('data-delay', point.delay.toFixed(1));
+        svg.appendChild(circle);
+
+        // 数据点标签（显示时延值）
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', x + 8);
+        text.setAttribute('y', y + 4);
+        text.setAttribute('fill', '#3b82f6');
+        text.setAttribute('font-size', '10px');
+        text.setAttribute('font-family', 'monospace');
+        text.textContent = `${point.delay.toFixed(1)}ms`;
+        svg.appendChild(text);
+    });
+
+    chartContainer.appendChild(svg);
+
+    // 更新Y轴标签（HOP号）
+    const yAxisLabels = document.getElementById('hopYAxisLabels');
+    if (yAxisLabels) {
+        yAxisLabels.innerHTML = '';
+        allHopNums.forEach((hopNum, index) => {
+            const label = document.createElement('span');
+            label.className = 'text-white/70';
+            label.textContent = `H${hopNum}`;
+            // 计算每个HOP标签的位置，使其与图表中的HOP行对齐
+            if (index > 0) {
+                label.style.marginTop = `${(chartHeight / hopCount) - 14}px`;
+            }
+            yAxisLabels.appendChild(label);
+        });
+    }
+
+    // 更新X轴标签（时延值，ms）- 显示在顶部
+    const xAxisLabels = document.getElementById('hopXAxisLabels');
+    if (xAxisLabels) {
+        xAxisLabels.innerHTML = '';
+        // 显示5个时延刻度值（0, 1/4, 1/2, 3/4, 1）
+        const labelCount = 5;
+        for (let i = 0; i <= labelCount; i++) {
+            const delayValue = (maxDelay / labelCount) * i;
+            const label = document.createElement('span');
+            label.className = 'text-white/70';
+            label.textContent = `${delayValue.toFixed(0)}`;
+            const xPos = padding.left + (delayValue / maxDelay) * chartWidth;
+            label.style.position = 'absolute';
+            label.style.left = `${(xPos / width) * 100}%`;
+            label.style.transform = 'translateX(-50%)';
+            xAxisLabels.appendChild(label);
+        }
+    }
+}
+
+function clearHopTimeChart() {
+    // 不再需要清除hopTimeData，因为不再保存历史数据
+    const chartContainer = document.getElementById('hopTimeChart');
+    if (chartContainer) {
+        chartContainer.innerHTML = '';
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-white/20 text-xs';
+        emptyMsg.textContent = 'Waiting for data...';
+        chartContainer.appendChild(emptyMsg);
+    }
+    const yAxisLabels = document.getElementById('hopYAxisLabels');
+    if (yAxisLabels) {
+        yAxisLabels.innerHTML = '';
+    }
+    const xAxisLabels = document.getElementById('hopXAxisLabels');
+    if (xAxisLabels) {
+        xAxisLabels.innerHTML = '';
+    }
+}
+
+// 导出
+window.chart = {
+    updateLatencyChart,
+    updateStatistics,
+    clearHistory,
+    clearChart,
+    updateHopTimeChart,
+    clearHopTimeChart
+};
+
+
+// dns.js
+// DNS管理模块
+async function updateDNSTable(hostname, ip) {
+    const { domElements, appState } = window;
+    const dnsTable = domElements.dnsTableBody || document.querySelector('section:first-of-type table tbody');
+    if (!dnsTable) return;
+
+    dnsTable.innerHTML = '';
+
+    let location = 'Resolving...';
+    try {
+        if (!appState.sessionId) {
+            location = 'Unknown';
+        } else {
+            const response = await fetch(`${API_BASE_PATH}/status?session_id=${appState.sessionId}`, {
+                headers: { 'X-Session-ID': appState.sessionId }
+            });
+            const data = await response.json();
+            if (data.hops && data.hops.length > 0) {
+                const matchedHop = data.hops.find(h => h.ip === ip);
+                if (matchedHop && matchedHop.location) {
+                    location = matchedHop.location;
+                } else {
+                    const lastHop = data.hops[data.hops.length - 1];
+                    if (lastHop && lastHop.location) {
+                        location = lastHop.location;
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.error('Failed to get location:', e);
+    }
+
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td class="px-4 py-2 text-primary font-mono">A</td>
+        <td class="px-4 py-2">${hostname}</td>
+        <td class="px-4 py-2 font-mono">${ip}</td>
+        <td class="px-4 py-2 flex items-center gap-2">
+            <span class="material-symbols-outlined text-[14px]">location_on</span>
+            ${location}
+        </td>
+    `;
+    dnsTable.appendChild(row);
+}
+
+function updateDNSTableLocation(ip, location) {
+    const { domElements } = window;
+    const dnsTable = domElements.dnsTableBody || document.querySelector('section:first-of-type table tbody');
+    if (!dnsTable) return;
+
+    const rows = dnsTable.querySelectorAll('tr');
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length >= 3) {
+            const rowIp = cells[2].textContent.trim();
+            if (rowIp === ip) {
+                if (cells.length >= 4) {
+                    cells[3].innerHTML = `
+                        <span class="material-symbols-outlined text-[14px]">location_on</span>
+                        ${location || 'Unknown'}
+                    `;
+                }
+            }
+        }
+    });
+}
+
+// 导出
+window.dns = {
+    updateDNSTable,
+    updateDNSTableLocation
+};
+
+
+// export.js
+// 导出功能模块
+async function exportData() {
+    const { appState, domElements } = window;
+    const { targetInput } = domElements;
+
+    try {
+        if (!appState.sessionId) {
+            window.logger.addLog('No active session to export', 'warning');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE_PATH}/status?session_id=${appState.sessionId}`, {
+            headers: { 'X-Session-ID': appState.sessionId }
+        });
+        const data = await response.json();
+
+        if (!data.hops || data.hops.length === 0) {
+            window.logger.addLog('No data to export', 'warning');
+            return;
+        }
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const target = data.target || targetInput?.value || 'unknown';
+
+        const exportData = {
+            timestamp: new Date().toISOString(),
+            target: target,
+            hops: data.hops.map(hop => {
+                const pingInfo = data.ping_data[hop.hop];
+                return {
+                    hop: hop.hop,
+                    ip: hop.ip,
+                    location: hop.location,
+                    avg_delay: pingInfo?.avg || hop.avg_delay || null,
+                    min: pingInfo?.min || null,
+                    max: pingInfo?.max || null,
+                    jitter: pingInfo?.jitter || hop.jitter || null,
+                    loss: pingInfo?.loss || null,
+                    test_count: pingInfo?.count || 0,
+                    times: pingInfo?.times || []
+                };
+            })
+        };
+
+        // 导出JSON
+        const jsonStr = JSON.stringify(exportData, null, 2);
+        const jsonBlob = new Blob([jsonStr], { type: 'application/json' });
+        const jsonUrl = URL.createObjectURL(jsonBlob);
+        const jsonLink = document.createElement('a');
+        jsonLink.href = jsonUrl;
+        jsonLink.download = `ip_trace_${timestamp}.json`;
+        document.body.appendChild(jsonLink);
+        jsonLink.click();
+        document.body.removeChild(jsonLink);
+        URL.revokeObjectURL(jsonUrl);
+
+        // 导出CSV
+        let csvContent = 'Target,Timestamp\n';
+        csvContent += `${target},${new Date().toISOString()}\n\n`;
+        csvContent += 'Hop Summary\n';
+        csvContent += 'Hop,IP,Location,Avg Delay (ms),Min (ms),Max (ms),Jitter (ms),Loss (%),Test Count\n';
+        data.hops.forEach(hop => {
+            const pingInfo = data.ping_data[hop.hop];
+            const avg = pingInfo?.avg || hop.avg_delay || '';
+            const min = pingInfo?.min || '';
+            const max = pingInfo?.max || '';
+            const jitter = pingInfo?.jitter || hop.jitter || '';
+            const loss = pingInfo?.loss || '';
+            const count = pingInfo?.count || 0;
+            csvContent += `${hop.hop},"${hop.ip}","${hop.location}",${avg},${min},${max},${jitter},${loss},${count}\n`;
+        });
+
+        csvContent += '\nDetailed Ping Records\n';
+        csvContent += 'Hop,Timestamp,Delay (ms)\n';
+        data.hops.forEach(hop => {
+            const pingInfo = data.ping_data[hop.hop];
+            if (pingInfo?.times && pingInfo.times.length > 0) {
+                pingInfo.times.forEach((delay, index) => {
+                    const recordTime = new Date(Date.now() - (pingInfo.times.length - index - 1) * 500);
+                    csvContent += `${hop.hop},${recordTime.toISOString()},${delay}\n`;
+                });
+            }
+        });
+
+        const BOM = '\uFEFF';
+        const csvBlob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const csvUrl = URL.createObjectURL(csvBlob);
+        const csvLink = document.createElement('a');
+        csvLink.href = csvUrl;
+        csvLink.download = `ip_trace_${timestamp}.csv`;
+        document.body.appendChild(csvLink);
+        csvLink.click();
+        document.body.removeChild(csvLink);
+        URL.revokeObjectURL(csvUrl);
+
+        window.logger.addLog('Data exported successfully (JSON and CSV)', 'success');
+    } catch (error) {
+        window.logger.addLog('Export failed: ' + error.message, 'error');
+        console.error('Export error:', error);
+    }
+}
+
+function initExport() {
+    const { exportBtn } = window.domElements;
+    if (exportBtn) {
+        exportBtn.addEventListener('click', exportData);
+    }
+}
+
+// 导出
+window.exportModule = {
+    exportData,
+    initExport
+};
+
+
+// ai-analysis.js
+// AI分析模块
+function showAIAnalysis() {
+    const modal = document.getElementById('aiAnalysisModal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        const content = document.getElementById('aiAnalysisContent');
+        if (content) {
+            content.innerHTML = '<div class="text-center text-white/40 py-8">点击"开始分析"按钮获取AI专业分析</div>';
+        }
+    }
+}
+
+function closeAIAnalysis() {
+    const modal = document.getElementById('aiAnalysisModal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+async function startAIAnalysis() {
+    const { appState } = window;
+    const content = document.getElementById('aiAnalysisContent');
+    const startBtn = document.getElementById('startAIAnalysisBtn');
+    const providerSelect = document.getElementById('aiProviderSelect');
+    const apiKeyInput = document.getElementById('aiApiKeyInput');
+
+    if (!content || !startBtn) return;
+
+    if (!appState.sessionId) {
+        window.logger.addLog('No active session to analyze', 'warning');
+        closeAIAnalysis();
+        return;
+    }
+
+        startBtn.disabled = true;
+        const { currentLanguage } = window.language;
+        const t = window.language.translations[currentLanguage] || window.language.translations.en;
+        startBtn.textContent = t.analyzing || '分析中...';
+
+        content.innerHTML = `
+            <div class="text-center py-8">
+                <div class="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mb-4"></div>
+                <p class="text-white/60">${t.aiAnalyzing || 'AI正在分析路由数据，请稍候...'}</p>
+            </div>
+        `;
+
+        try {
+            const aiProvider = providerSelect ? providerSelect.value : 'gemini';
+            const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+            const { currentLanguage } = window.language;
+
+            // 如果是豆包，获取选择的模型
+            let aiModel = undefined;
+            if (aiProvider === 'doubao') {
+                const doubaoModelSelect = document.getElementById('doubaoModelSelect');
+                if (doubaoModelSelect) {
+                    aiModel = doubaoModelSelect.value;
+                }
+            }
+
+            const response = await fetch(`${API_BASE_PATH}/analyze`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': appState.sessionId
+                },
+                body: JSON.stringify({
+                    session_id: appState.sessionId,
+                    ai_provider: aiProvider,
+                    api_key: apiKey || undefined,
+                    ai_model: aiModel,  // 传递模型参数
+                    lang: currentLanguage || 'zh'  // 传递当前语言设置
+                })
+            });
+
+        const data = await response.json();
+
+        if (data.error) {
+            let errorHint = '';
+            if (data.error.includes('API密钥') || data.error.includes('未配置')) {
+                errorHint = '<p class="mt-2 text-sm text-white/60">提示：可以在输入框中输入API Key，或设置环境变量 GEMINI_API_KEY 或 OPENAI_API_KEY</p>';
+            } else if (data.error.includes('配额已用完') || data.error.includes('quota') || data.error.includes('exceeded')) {
+                errorHint = '<div class="mt-3 p-3 bg-warning/10 border border-warning/30 rounded-lg"><p class="text-warning font-bold mb-2">💡 建议：</p><p class="text-white/80 text-sm">1. 切换到 <strong>Gemini</strong> 作为替代方案（免费额度更高）<br>2. 检查OpenAI账户配额和账单<br>3. 等待配额重置或升级账户计划</p></div>';
+            } else if (data.error.includes('429') || data.error.includes('频率')) {
+                errorHint = '<p class="mt-2 text-sm text-white/60">提示：API请求频率过高，请等待几分钟后重试，或切换到Gemini作为替代方案</p>';
+            } else if (data.error.includes('401') || data.error.includes('无效')) {
+                errorHint = '<p class="mt-2 text-sm text-white/60">提示：请检查API密钥是否正确，确保密钥有效且未过期</p>';
+            } else if (data.error.includes('402') || data.error.includes('余额')) {
+                errorHint = '<p class="mt-2 text-sm text-white/60">提示：账户余额不足，请访问OpenAI账户页面充值</p>';
+            }
+
+            const formattedError = data.error.replace(/\n/g, '<br>');
+            content.innerHTML = `
+                <div class="bg-danger/20 border border-danger/30 rounded-lg p-4 text-danger">
+                    <h3 class="font-bold mb-2">分析失败</h3>
+                    <div class="whitespace-pre-wrap">${formattedError}</div>
+                    ${errorHint}
+                </div>
+            `;
+            window.logger.addLog(`AI Analysis failed: ${data.error}`, 'error');
+        } else if (data.analysis) {
+            const provider = data.provider || aiProvider;
+            const { currentLanguage } = window.language;
+            const t = window.language.translations[currentLanguage] || window.language.translations.en;
+            const providerLabel = currentLanguage === 'en' ? 'Analysis Provider: ' : '分析提供方: ';
+
+            content.innerHTML = `
+                <div class="mb-4 flex items-center gap-2 text-sm text-white/60">
+                    <span class="material-symbols-outlined text-[16px]">psychology</span>
+                    <span>${providerLabel}${provider}</span>
+                </div>
+                <div class="bg-card-dark/40 border border-border-dark rounded-lg p-6 whitespace-pre-wrap font-mono text-sm">
+${data.analysis}
+                </div>
+            `;
+            window.logger.addLog(`AI Analysis completed (${provider})`, 'success');
+        } else {
+            const { currentLanguage } = window.language;
+            const t = window.language.translations[currentLanguage] || window.language.translations.en;
+            const noResultMsg = currentLanguage === 'en' ? 'No analysis result received' : '未收到分析结果';
+            content.innerHTML = `
+                <div class="bg-warning/20 border border-warning/30 rounded-lg p-4 text-warning">
+                    <p>${noResultMsg}</p>
+                </div>
+            `;
+        }
+        } catch (error) {
+            const { currentLanguage } = window.language;
+            const requestFailedMsg = currentLanguage === 'en' ? 'Request Failed' : '请求失败';
+            content.innerHTML = `
+                <div class="bg-danger/20 border border-danger/30 rounded-lg p-4 text-danger">
+                    <h3 class="font-bold mb-2">${requestFailedMsg}</h3>
+                    <p>${error.message}</p>
+                </div>
+            `;
+            window.logger.addLog(`AI Analysis request failed: ${error.message}`, 'error');
+            console.error('AI Analysis error:', error);
+        } finally {
+            if (startBtn) {
+                startBtn.disabled = false;
+                const { currentLanguage } = window.language;
+                const t = window.language.translations[currentLanguage] || window.language.translations.en;
+                startBtn.textContent = t.startAnalysisBtn || '开始分析';
+            }
+        }
+}
+
+function initAIAnalysis() {
+    const { aiAnalyzeBtn } = window.domElements;
+    const closeAIBtn = document.getElementById('closeAIModalBtn');
+    const startAIBtn = document.getElementById('startAIAnalysisBtn');
+    const aiModal = document.getElementById('aiAnalysisModal');
+    const providerSelect = document.getElementById('aiProviderSelect');
+    const doubaoModelContainer = document.getElementById('doubaoModelContainer');
+
+    if (aiAnalyzeBtn) {
+        aiAnalyzeBtn.addEventListener('click', showAIAnalysis);
+    }
+    if (closeAIBtn) {
+        closeAIBtn.addEventListener('click', closeAIAnalysis);
+    }
+    if (startAIBtn) {
+        startAIBtn.addEventListener('click', startAIAnalysis);
+    }
+    if (aiModal) {
+        aiModal.addEventListener('click', function(e) {
+            if (e.target === aiModal) {
+                closeAIAnalysis();
+            }
+        });
+    }
+
+    // 当选择豆包时，显示模型选择下拉菜单
+    if (providerSelect && doubaoModelContainer) {
+        providerSelect.addEventListener('change', function() {
+            if (this.value === 'doubao') {
+                doubaoModelContainer.classList.remove('hidden');
+            } else {
+                doubaoModelContainer.classList.add('hidden');
+            }
+        });
+
+        // 初始化时也检查一次
+        if (providerSelect.value === 'doubao') {
+            doubaoModelContainer.classList.remove('hidden');
+        }
+    }
+}
+
+// 导出
+window.aiAnalysis = {
+    showAIAnalysis,
+    closeAIAnalysis,
+    startAIAnalysis,
+    initAIAnalysis
+};
+
+
+// coze-chat.js
+// 扣子智能体模块
+let cozeSDK = null;
+let cozeApp = null;
+
+function initCozeSDK() {
+    // 检查Coze SDK是否已加载
+    if (typeof CozeWebSDK === 'undefined') {
+        console.error('Coze Web SDK not loaded');
+        return false;
+    }
+
+    // 检查AppWebSDK类是否存在
+    if (typeof CozeWebSDK.AppWebSDK === 'undefined') {
+        console.error('CozeWebSDK.AppWebSDK is not available');
+        return false;
+    }
+
+    return true;
+}
+
+// 等待SDK加载完成
+function waitForSDK(maxAttempts = 30, interval = 300) {
+    return new Promise((resolve, reject) => {
+        let attempts = 0;
+
+        const checkSDK = () => {
+            attempts++;
+
+            // 检查SDK是否加载
+            if (typeof CozeWebSDK !== 'undefined') {
+                console.log('CozeWebSDK found');
+
+                // 检查AppWebSDK类是否存在
+                if (typeof CozeWebSDK.AppWebSDK !== 'undefined') {
+                    console.log('Coze SDK AppWebSDK class found');
+                    resolve(true);
+                    return;
+                } else {
+                    console.warn('CozeWebSDK exists but AppWebSDK not found, attempt:', attempts);
+                }
+            } else {
+                console.warn('CozeWebSDK not found, attempt:', attempts);
+            }
+
+            if (attempts >= maxAttempts) {
+                console.error('Coze SDK loading timeout after', maxAttempts, 'attempts');
+                reject(new Error('SDK加载超时，请检查网络连接或刷新页面'));
+                return;
+            }
+
+            setTimeout(checkSDK, interval);
+        };
+
+        checkSDK();
+    });
+}
+
+async function showCozeChat() {
+    console.log('showCozeChat called');
+    const modal = document.getElementById('cozeChatModal');
+    if (!modal) {
+        console.error('Coze chat modal not found');
+        return;
+    }
+
+    // 显示模态框
+    console.log('Showing coze chat modal');
+    modal.classList.remove('hidden');
+
+    // 强制浏览器重新计算布局
+    modal.offsetHeight; // 触发reflow
+
+    // 显示加载状态
+    const container = document.getElementById('cozeChatContainer');
+    if (container) {
+        container.innerHTML = `
+            <div class="flex items-center justify-center h-full">
+                <div class="text-center text-white/60">
+                    <div class="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mb-4"></div>
+                    <p class="mb-2">正在加载扣子智能体...</p>
+                    <p class="text-sm text-white/40 mt-2">请稍候</p>
+                </div>
+            </div>
+        `;
+    }
+
+    // 等待SDK加载，然后初始化
+    try {
+        // 检查SDK是否已经加载
+        if (typeof CozeWebSDK === 'undefined' || typeof CozeWebSDK.AppWebSDK === 'undefined') {
+            console.log('Waiting for Coze SDK to load...');
+            await waitForSDK();
+        }
+
+        // 确保模态框完全显示后再初始化（等待动画完成）
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // 初始化
+        console.log('Initializing coze chat...');
+        initCozeChat();
+    } catch (error) {
+        console.error('Failed to wait for SDK:', error);
+        if (container) {
+            container.innerHTML = `
+                <div class="flex items-center justify-center h-full">
+                    <div class="text-center text-white/60">
+                        <p class="mb-2 text-lg">扣子SDK加载失败</p>
+                        <p class="text-sm text-white/40 mb-4">${error.message || '请检查网络连接'}</p>
+                        <div class="flex gap-3 justify-center">
+                            <button onclick="window.location.reload()" class="px-4 py-2 bg-primary/20 text-primary border border-primary/30 rounded-lg hover:bg-primary/30 transition-colors">
+                                刷新页面
+                            </button>
+                            <button onclick="window.cozeChat.show()" class="px-4 py-2 bg-warning/20 text-warning border border-warning/30 rounded-lg hover:bg-warning/30 transition-colors">
+                                重试
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    }
+}
+
+function closeCozeChat() {
+    const modal = document.getElementById('cozeChatModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        // 注意：不销毁cozeApp实例，以便下次打开时快速加载
+    }
+}
+
+// 处理Coze SDK错误
+function handleCozeError(error) {
+    const container = document.getElementById('cozeChatContainer');
+    if (!container) return;
+
+    const errorMessage = error.message || error.toString() || '';
+    const is401Error = errorMessage.includes('401') ||
+                      errorMessage.includes('Unauthorized') ||
+                      errorMessage.includes('unauthorized');
+
+    if (is401Error) {
+        container.innerHTML = `
+            <div class="flex items-center justify-center h-full">
+                <div class="text-center text-white/60 max-w-md px-4">
+                    <div class="mb-4">
+                        <span class="material-symbols-outlined text-6xl text-danger">error</span>
+                    </div>
+                    <p class="mb-2 text-lg font-bold">认证失败 (401)</p>
+                    <p class="text-sm text-white/40 mb-4">Token 或 AppId 无效或已过期</p>
+                    <div class="text-left text-xs text-white/30 mb-4 bg-card-dark p-4 rounded-lg border border-border-dark">
+                        <p class="mb-2"><strong>可能的原因：</strong></p>
+                        <ul class="list-disc list-inside space-y-1">
+                            <li>Token 已过期或无效</li>
+                            <li>AppId 配置不正确</li>
+                            <li>Token 没有访问权限</li>
+                            <li>Token 或 AppId 不属于当前区域</li>
+                        </ul>
+                    </div>
+                    <div class="text-left text-xs text-white/30 mb-4 bg-card-dark p-4 rounded-lg border border-border-dark">
+                        <p class="mb-2"><strong>解决方案：</strong></p>
+                        <ol class="list-decimal list-inside space-y-1">
+                            <li>在 Coze 控制台检查 Token 和 AppId</li>
+                            <li>确认 Token 和 AppId 是否匹配</li>
+                            <li>检查 Token 是否有 UI Builder 权限</li>
+                            <li>确认使用正确的区域（中国区使用 api.coze.cn）</li>
+                        </ol>
+                    </div>
+                    <div class="flex gap-3 justify-center">
+                        <button onclick="window.location.reload()" class="px-4 py-2 bg-primary/20 text-primary border border-primary/30 rounded-lg hover:bg-primary/30 transition-colors text-sm">
+                            刷新页面
+                        </button>
+                        <button onclick="window.cozeChat.show()" class="px-4 py-2 bg-warning/20 text-warning border border-warning/30 rounded-lg hover:bg-warning/30 transition-colors text-sm">
+                            重试
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+}
+
+function initCozeChat() {
+    const container = document.getElementById('cozeChatContainer');
+    if (!container) {
+        console.error('Coze chat container not found');
+        return;
+    }
+
+    // 再次检查SDK是否已加载
+    if (!initCozeSDK()) {
+        container.innerHTML = `
+            <div class="flex items-center justify-center h-full">
+                <div class="text-center text-white/60">
+                    <p class="mb-2">扣子SDK加载失败</p>
+                    <p class="text-sm text-white/40">请检查网络连接</p>
+                    <button onclick="window.cozeChat.show()" class="mt-4 px-4 py-2 bg-primary/20 text-primary border border-primary/30 rounded-lg hover:bg-primary/30 transition-colors">
+                        重试
+                    </button>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    // 如果已经初始化，检查容器是否有内容
+    if (cozeApp && container && container.children.length > 0) {
+        console.log('Coze chat already initialized, skipping...');
+        return;
+    }
+
+    try {
+        // 清空容器
+        container.innerHTML = '';
+
+        // 再次验证SDK
+        if (!initCozeSDK()) {
+            throw new Error('SDK未正确加载，请刷新页面');
+        }
+
+        console.log('Creating Coze AppWebSDK instance...');
+        console.log('Container element:', container);
+        console.log('Container selector: #cozeChatContainer');
+        console.log('Token length:', 'cztei_luTYEx9ckCq1of4Sh8tz9hvrli8GfhOIl81lH8aoBeetu7NguzGsKGXSBlAvaatKu'.length);
+        console.log('AppId:', '7566065502808801323');
+
+        // 确保容器可见（这对于SDK初始化很重要）
+        const modal = document.getElementById('cozeChatModal');
+        if (modal && modal.classList.contains('hidden')) {
+            modal.classList.remove('hidden');
+        }
+
+        // 初始化配置
+        const config = {
+            token: 'cztei_luTYEx9ckCq1of4Sh8tz9hvrli8GfhOIl81lH8aoBeetu7NguzGsKGXSBlAvaatKu',
+            appId: '7566065502808801323',
+            container: '#cozeChatContainer',
+            userInfo: {
+                id: 'user_' + Date.now(),
+                nickname: 'User',
+            },
+            ui: {
+                className: '',
+            }
+        };
+
+        console.log('Initialization config:', {
+            ...config,
+            token: config.token.substring(0, 20) + '...',
+        });
+
+        // 初始化扣子SDK
+        cozeApp = new CozeWebSDK.AppWebSDK(config);
+
+        console.log('Coze SDK initialized successfully');
+        console.log('CozeApp instance:', cozeApp);
+
+        // 监听SDK错误事件（如果有）
+        if (cozeApp && typeof cozeApp.on === 'function') {
+            cozeApp.on('error', (error) => {
+                console.error('Coze SDK runtime error:', error);
+                handleCozeError(error);
+            });
+        }
+
+        // 监听SDK加载失败事件
+        window.addEventListener('error', (event) => {
+            if (event.message && event.message.includes('coze') ||
+                event.message && event.message.includes('401') ||
+                event.filename && event.filename.includes('coze')) {
+                console.error('Coze SDK error detected:', event);
+                handleCozeError(event);
+            }
+        }, true);
+
+        // 检查容器是否有内容
+        setTimeout(() => {
+            if (container.children.length === 0) {
+                console.warn('Container is empty after 1 second, this might be normal if SDK is still loading');
+            } else {
+                console.log('Container has', container.children.length, 'children after 1 second');
+
+                // 检查是否有错误信息
+                const errorElements = container.querySelectorAll('[class*="error"], [class*="Error"]');
+                if (errorElements.length > 0) {
+                    console.warn('Error elements detected in container');
+                }
+            }
+        }, 1000);
+
+        // 再次检查（给SDK更多时间加载内容）
+        setTimeout(() => {
+            if (container.children.length === 0) {
+                console.warn('Container is still empty after 3 seconds');
+
+                // 检查网络请求是否有401错误
+                const has401Error = checkFor401Error();
+                if (has401Error) {
+                    handleCozeError({ message: '401 Unauthorized' });
+                    return;
+                }
+
+                // 显示提示信息
+                container.innerHTML = `
+                    <div class="flex items-center justify-center h-full">
+                        <div class="text-center text-white/60">
+                            <div class="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mb-4"></div>
+                            <p class="mb-2">正在加载聊天界面...</p>
+                            <p class="text-sm text-white/40">如果长时间无响应，请检查控制台错误信息</p>
+                        </div>
+                    </div>
+                `;
+            }
+        }, 3000);
+
+        // 最终检查（5秒后）
+        setTimeout(() => {
+            if (container.children.length === 0) {
+                const has401Error = checkFor401Error();
+                if (has401Error) {
+                    handleCozeError({ message: '401 Unauthorized - 认证失败，请检查Token和AppId' });
+                } else {
+                    container.innerHTML = `
+                        <div class="flex items-center justify-center h-full">
+                            <div class="text-center text-white/60 max-w-md px-4">
+                                <p class="mb-2 text-lg">加载超时</p>
+                                <p class="text-sm text-white/40 mb-4">聊天界面加载失败，请检查：</p>
+                                <ul class="text-xs text-white/30 text-left mb-4 space-y-1">
+                                    <li>• 网络连接是否正常</li>
+                                    <li>• Token 和 AppId 是否有效</li>
+                                    <li>• 浏览器控制台是否有错误</li>
+                                </ul>
+                                <div class="flex gap-3 justify-center">
+                                    <button onclick="window.location.reload()" class="px-4 py-2 bg-primary/20 text-primary border border-primary/30 rounded-lg hover:bg-primary/30 transition-colors text-sm">
+                                        刷新页面
+                                    </button>
+                                    <button onclick="window.cozeChat.show()" class="px-4 py-2 bg-warning/20 text-warning border border-warning/30 rounded-lg hover:bg-warning/30 transition-colors text-sm">
+                                        重试
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+        }, 5000);
+
+    } catch (error) {
+        console.error('Failed to initialize Coze SDK:', error);
+        console.error('Error details:', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+        });
+
+        // 显示详细错误信息
+        let errorMessage = error.message || '未知错误';
+        if (error.message && error.message.includes('token')) {
+            errorMessage = 'Token无效，请检查配置';
+        } else if (error.message && error.message.includes('appId')) {
+            errorMessage = 'AppId无效，请检查配置';
+        } else if (error.message && error.message.includes('container')) {
+            errorMessage = '容器元素未找到，请检查HTML结构';
+        }
+
+        container.innerHTML = `
+            <div class="flex items-center justify-center h-full">
+                <div class="text-center text-white/60 max-w-md px-4">
+                    <p class="mb-2 text-lg">扣子智能体初始化失败</p>
+                    <p class="text-sm text-white/40 mb-2">${errorMessage}</p>
+                    <p class="text-xs text-white/30 mb-4">错误类型: ${error.name || 'Unknown'}</p>
+                    <div class="flex gap-3 justify-center">
+                        <button onclick="window.location.reload()" class="px-4 py-2 bg-primary/20 text-primary border border-primary/30 rounded-lg hover:bg-primary/30 transition-colors">
+                            刷新页面
+                        </button>
+                        <button onclick="window.cozeChat.show()" class="px-4 py-2 bg-warning/20 text-warning border border-warning/30 rounded-lg hover:bg-warning/30 transition-colors">
+                            重试
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+}
+
+// 检查是否有401错误（通过检查控制台或网络请求）
+function checkFor401Error() {
+    // 这个方法可以通过检查性能API或网络API来检测401错误
+    // 但更可靠的方法是通过错误监听器
+    return false; // 默认返回false，实际检测通过error事件处理
+}
+
+// 拦截fetch请求以检测401错误
+function setupFetchInterceptor() {
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        return originalFetch.apply(this, args)
+            .then(response => {
+                if (response.status === 401 && response.url && response.url.includes('coze.cn')) {
+                    console.error('Coze API 401 error detected:', response.url);
+                    setTimeout(() => {
+                        handleCozeError({
+                            message: '401 Unauthorized',
+                            url: response.url
+                        });
+                    }, 100);
+                }
+                return response;
+            })
+            .catch(error => {
+                console.error('Fetch error:', error);
+                return Promise.reject(error);
+            });
+    };
+}
+
+// 初始化扣子聊天模块
+function initCozeChatModule() {
+    // 设置fetch拦截器以检测401错误
+    setupFetchInterceptor();
+    const cozeChatBtn = document.getElementById('cozeChatBtn');
+    const closeCozeModalBtn = document.getElementById('closeCozeModalBtn');
+    const cozeModal = document.getElementById('cozeChatModal');
+
+    if (cozeChatBtn) {
+        cozeChatBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('Coze chat button clicked');
+            showCozeChat();
+        });
+        console.log('Coze chat button event listener attached');
+    } else {
+        console.error('Coze chat button not found');
+    }
+
+    if (closeCozeModalBtn) {
+        closeCozeModalBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            closeCozeChat();
+        });
+    }
+
+    // 点击模态框外部关闭
+    if (cozeModal) {
+        cozeModal.addEventListener('click', function(e) {
+            if (e.target === cozeModal) {
+                closeCozeChat();
+            }
+        });
+    }
+}
+
+// 导出函数
+window.cozeChat = {
+    show: showCozeChat,
+    close: closeCozeChat,
+    init: initCozeChat,
+    initModule: initCozeChatModule
+};
+
+// DOM加载完成后绑定事件（备用方案）
+document.addEventListener('DOMContentLoaded', function() {
+    // 延迟执行以确保DOM完全加载
+    setTimeout(initCozeChatModule, 100);
+});
+
+// 如果DOM已经加载完成，立即执行
+if (document.readyState === 'loading') {
+    // DOM还在加载中，等待DOMContentLoaded
+} else {
+    // DOM已经加载完成，立即执行
+    setTimeout(initCozeChatModule, 100);
+}
+
+
+// map.js
+// 地图功能模块
+let map = null;
+let linkMapTab = null;
+let dataStatsTab = null;
+let linkMapView = null;
+let closeMapBtn = null;
+
+function initLinkMap() {
+    linkMapTab = document.getElementById('linkMapTab');
+    dataStatsTab = document.getElementById('dataStatsTab');
+    linkMapView = document.getElementById('linkMapView');
+    closeMapBtn = document.getElementById('closeMapBtn');
+
+    if (linkMapTab) {
+        linkMapTab.addEventListener('click', () => showLinkMap());
+    }
+    if (dataStatsTab) {
+        dataStatsTab.addEventListener('click', () => hideLinkMap());
+    }
+    if (closeMapBtn) {
+        closeMapBtn.addEventListener('click', () => hideLinkMap());
+    }
+}
+
+function showLinkMap() {
+    if (linkMapView) {
+        linkMapView.classList.remove('hidden');
+        initMap();
+    }
+    if (linkMapTab && dataStatsTab) {
+        linkMapTab.classList.add('border-primary', 'text-primary');
+        linkMapTab.classList.remove('border-transparent', 'text-white/40');
+        dataStatsTab.classList.remove('border-primary', 'text-primary');
+        dataStatsTab.classList.add('border-transparent', 'text-white/40');
+    }
+}
+
+function hideLinkMap() {
+    if (linkMapView) {
+        linkMapView.classList.add('hidden');
+    }
+    if (linkMapTab && dataStatsTab) {
+        dataStatsTab.classList.add('border-primary', 'text-primary');
+        dataStatsTab.classList.remove('border-transparent', 'text-white/40');
+        linkMapTab.classList.remove('border-primary', 'text-primary');
+        linkMapTab.classList.add('border-transparent', 'text-white/40');
+    }
+}
+
+function initMap() {
+    const mapContainer = document.getElementById('mapContainer');
+    if (!mapContainer) return;
+
+    if (map) {
+        updateMap();
+        return;
+    }
+
+    if (typeof L === 'undefined') {
+        const mapScript = document.createElement('script');
+        mapScript.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        mapScript.onload = () => {
+            const mapStyle = document.createElement('link');
+            mapStyle.rel = 'stylesheet';
+            mapStyle.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            document.head.appendChild(mapStyle);
+            createMap();
+        };
+        document.head.appendChild(mapScript);
+    } else {
+        createMap();
+    }
+}
+
+function createMap() {
+    const mapContainer = document.getElementById('mapContainer');
+    if (!mapContainer || map) return;
+
+    map = L.map('mapContainer').setView([39.9, 116.4], 2);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19
+    }).addTo(map);
+
+    window.currentPingData = {};
+    updateMap();
+}
+
+function updateMap() {
+    const { appState } = window;
+    if (!map || !appState.sessionId) return;
+
+    fetch(`${API_BASE_PATH}/status?session_id=${appState.sessionId}`, {
+        headers: { 'X-Session-ID': appState.sessionId }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.ping_data) {
+            window.currentPingData = data.ping_data;
+        }
+        if (data.hops && data.hops.length > 0) {
+            drawMapRoute(data.hops);
+        }
+    })
+    .catch(err => console.error('Map update error:', err));
+}
+
+function drawMapRoute(hops) {
+    if (!map) return;
+
+    const layersToRemove = [];
+    map.eachLayer((layer) => {
+        if (layer instanceof L.Marker || layer instanceof L.Polyline || (layer.options && layer.options.isMapElement === true)) {
+            layersToRemove.push(layer);
+        }
+    });
+    layersToRemove.forEach(layer => map.removeLayer(layer));
+
+    const validHops = hops.filter(hop => hop.lat != null && hop.lon != null && hop.ip && hop.ip !== '*');
+    if (validHops.length === 0) {
+        const noDataMsg = L.marker([39.9, 116.4]).addTo(map);
+        noDataMsg.bindPopup('No location data available. GeoIP2 database may be missing.').openPopup();
+        return;
+    }
+
+    const markerData = [];
+    validHops.forEach((hop) => {
+        const lat = parseFloat(hop.lat);
+        const lon = parseFloat(hop.lon);
+        if (isNaN(lat) || isNaN(lon)) return;
+
+        const hopIcon = L.divIcon({
+            className: 'custom-hop-marker',
+            html: `<div style="background-color: #00dbc9; border: 2px solid #fff; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #090c15; font-weight: bold; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">${hop.hop}</div>`,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+        });
+
+        let avgDelay = '-';
+        if (window.currentPingData && window.currentPingData[hop.hop]) {
+            avgDelay = window.currentPingData[hop.hop].avg || '-';
+        }
+
+        const marker = L.marker([lat, lon], { icon: hopIcon, zIndexOffset: 2000 }).addTo(map);
+        marker.bindPopup(`<div style="font-family: monospace; font-size: 12px;"><strong>Hop ${hop.hop}</strong><br>IP: ${hop.ip}<br>Location: ${hop.location || 'Unknown'}<br>Avg Delay: ${avgDelay} ms</div>`);
+        markerData.push({ marker, hop, lat, lon });
+    });
+
+    for (let i = 0; i < markerData.length - 1; i++) {
+        const current = markerData[i];
+        const next = markerData[i + 1];
+        const lat1 = current.lat, lon1 = current.lon;
+        const lat2 = next.lat, lon2 = next.lon;
+
+        let avgDelay = '-';
+        if (window.currentPingData && window.currentPingData[next.hop.hop]) {
+            avgDelay = window.currentPingData[next.hop.hop].avg || '-';
+        }
+
+        try {
+            const line = L.polyline([[lat1, lon1], [lat2, lon2]], {
+                color: '#00dbc9', weight: 3, opacity: 0.8, dashArray: '10, 5',
+                lineCap: 'round', lineJoin: 'round', isMapElement: true,
+                renderer: L.canvas({ padding: 0.5 })
+            });
+            line.addTo(map);
+            line.bringToFront();
+            map.invalidateSize();
+        } catch (e) {
+            const lineFallback = L.polyline([[lat1, lon1], [lat2, lon2]], {
+                color: '#00dbc9', weight: 3, opacity: 0.8, dashArray: '10, 5',
+                lineCap: 'round', lineJoin: 'round', isMapElement: true
+            });
+            lineFallback.addTo(map);
+            lineFallback.bringToFront();
+        }
+
+        const arrowDistance = 0.1;
+        const arrowLat = lat2 - (lat2 - lat1) * arrowDistance;
+        const arrowLon = lon2 - (lon2 - lon1) * arrowDistance;
+        const angle = Math.atan2(lat2 - lat1, lon2 - lon1) * 180 / Math.PI;
+
+        try {
+            const arrowMarker = L.marker([arrowLat, arrowLon], {
+                icon: L.divIcon({
+                    className: 'arrow-marker',
+                    html: `<div style="color: #00dbc9; font-size: 20px; line-height: 1; transform: rotate(${angle}deg); text-shadow: 0 0 4px rgba(0,0,0,0.8); filter: drop-shadow(0 0 2px rgba(0, 219, 201, 0.8));">▶</div>`,
+                    iconSize: [20, 20], iconAnchor: [10, 10]
+                }),
+                isMapElement: true, zIndexOffset: 100
+            });
+            arrowMarker.addTo(map);
+        } catch (e) {
+            console.error('Error creating arrow:', e);
+        }
+
+        const midLat = (lat1 + lat2) / 2;
+        const midLon = (lon1 + lon2) / 2;
+        const dx = lon2 - lon1, dy = lat2 - lat1;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const perpX = -dy / length, perpY = dx / length;
+        const offsetDistance = 0.001;
+        const labelLat = midLat + perpY * offsetDistance;
+        const labelLon = midLon + perpX * offsetDistance;
+        const delayText = avgDelay !== '-' ? `${avgDelay.toFixed(1)} ms` : 'N/A';
+
+        try {
+            const labelLine = L.polyline([[midLat, midLon], [labelLat, labelLon]], {
+                color: '#00dbc9', weight: 1, opacity: 0.5, dashArray: '3, 3',
+                isMapElement: true, renderer: L.canvas({ padding: 0.5 })
+            });
+            labelLine.addTo(map);
+
+            const delayLabel = L.marker([labelLat, labelLon], {
+                icon: L.divIcon({
+                    className: 'delay-label',
+                    html: `<div style="color: #00dbc9; font-size: 12px; font-weight: bold; white-space: nowrap; text-shadow: 0 0 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6); font-family: monospace;">${delayText}</div>`,
+                    iconSize: [80, 20], iconAnchor: [40, 10]
+                }),
+                isMapElement: true, zIndexOffset: 300
+            });
+            delayLabel.addTo(map);
+        } catch (e) {
+            console.error('Error creating delay label:', e);
+        }
+    }
+
+    if (validHops.length > 0) {
+        const bounds = L.latLngBounds(validHops.map(hop => [parseFloat(hop.lat), parseFloat(hop.lon)]));
+        map.fitBounds(bounds, { padding: [50, 50] });
+    }
+}
+
+// 导出
+window.mapModule = {
+    initLinkMap,
+    showLinkMap,
+    hideLinkMap,
+    initMap,
+    updateMap,
+    drawMapRoute
+};
+
+
+// resizable.js
+// 可调整大小功能模块
+function initResizable() {
+    const resizer = document.getElementById('sidebarResizer');
+    const sidebar = document.getElementById('latencySidebar');
+    const dataStatsView = document.getElementById('dataStatsView');
+
+    if (!resizer || !sidebar || !dataStatsView) return;
+
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        startX = e.clientX;
+        startWidth = sidebar.offsetWidth;
+        document.body.classList.add('resizing');
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        const diff = startX - e.clientX;
+        const newWidth = startWidth + diff;
+        const minWidth = 200;
+        const maxWidth = 800;
+        const finalWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+        sidebar.style.width = finalWidth + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            document.body.classList.remove('resizing');
+            localStorage.setItem('latencySidebarWidth', sidebar.style.width);
+        }
+    });
+
+    const savedWidth = localStorage.getItem('latencySidebarWidth');
+    if (savedWidth) {
+        sidebar.style.width = savedWidth;
+    }
+
+    initLogPanelResizable();
+    initHopTimeChartResizable();
+    initAIModalResizable();
+}
+
+function initHopTimeChartResizable() {
+    const resizer = document.getElementById('hopTimeChartResizer');
+    const chartContainer = document.getElementById('hopTimeChartContainer');
+
+    if (!resizer || !chartContainer) return;
+
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        startX = e.clientX;
+        startWidth = chartContainer.offsetWidth;
+        document.body.classList.add('resizing');
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        const diff = startX - e.clientX;
+        const newWidth = startWidth + diff;
+        const minWidth = 300;
+        const maxWidth = 800;
+        const finalWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+        chartContainer.style.width = finalWidth + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            document.body.classList.remove('resizing');
+            localStorage.setItem('hopTimeChartWidth', chartContainer.style.width);
+        }
+    });
+
+    const savedWidth = localStorage.getItem('hopTimeChartWidth');
+    if (savedWidth) {
+        chartContainer.style.width = savedWidth;
+    }
+}
+
+function initLogPanelResizable() {
+    const logResizer = document.getElementById('logPanelResizer');
+    const logPanel = document.getElementById('logPanel');
+
+    if (!logResizer || !logPanel) return;
+
+    let isResizing = false;
+    let startY = 0;
+    let startHeight = 0;
+
+    logResizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        startY = e.clientY;
+        startHeight = logPanel.offsetHeight;
+        document.body.classList.add('resizing');
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        const diff = startY - e.clientY;
+        const newHeight = startHeight + diff;
+        const minHeight = 100;
+        const maxHeight = 600;
+        const finalHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
+        logPanel.style.height = finalHeight + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            document.body.classList.remove('resizing');
+            localStorage.setItem('logPanelHeight', logPanel.style.height);
+        }
+    });
+
+    const savedHeight = localStorage.getItem('logPanelHeight');
+    if (savedHeight) {
+        logPanel.style.height = savedHeight;
+    }
+}
+
+function initAIModalResizable() {
+    const aiModalResizer = document.getElementById('aiModalResizer');
+    const aiModalContent = document.getElementById('aiAnalysisModalContent');
+
+    if (!aiModalResizer || !aiModalContent) return;
+
+    let isResizing = false;
+    let startX = 0;
+    let startY = 0;
+    let startWidth = 0;
+    let startHeight = 0;
+
+    aiModalResizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startWidth = aiModalContent.offsetWidth;
+        startHeight = aiModalContent.offsetHeight;
+        document.body.classList.add('resizing');
+        e.preventDefault();
+        e.stopPropagation();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        const diffX = e.clientX - startX;
+        const diffY = e.clientY - startY;
+        const newWidth = startWidth + diffX;
+        const newHeight = startHeight + diffY;
+        const minWidth = 600;
+        const maxWidth = window.innerWidth - 40;
+        const minHeight = 400;
+        const maxHeight = window.innerHeight - 40;
+        const finalWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+        const finalHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
+        aiModalContent.style.width = finalWidth + 'px';
+        aiModalContent.style.height = finalHeight + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            document.body.classList.remove('resizing');
+            localStorage.setItem('aiModalWidth', aiModalContent.style.width);
+            localStorage.setItem('aiModalHeight', aiModalContent.style.height);
+        }
+    });
+
+    const savedWidth = localStorage.getItem('aiModalWidth');
+    const savedHeight = localStorage.getItem('aiModalHeight');
+    if (savedWidth) {
+        aiModalContent.style.width = savedWidth;
+    }
+    if (savedHeight) {
+        aiModalContent.style.height = savedHeight;
+    }
+}
+
+// 导出
+window.resizable = {
+    initResizable,
+    initLogPanelResizable,
+    initHopTimeChartResizable,
+    initAIModalResizable
+};
+
+
+// main.js
+// 主入口文件 - 初始化所有模块
+document.addEventListener('DOMContentLoaded', function() {
+    // 初始化DOM元素引用
+    window.initDOMElements();
+
+    // 初始化各个模块
+    window.language.initLanguage();
+    window.logger.initLogger();
+    window.analysis.initAnalysis();
+    window.table.initTable();
+    window.exportModule.initExport();
+    window.aiAnalysis.initAIAnalysis();
+    if (window.cozeChat && window.cozeChat.initModule) {
+        window.cozeChat.initModule();
+    }
+    window.mapModule.initLinkMap();
+    window.resizable.initResizable();
+
+    // 错误处理
+    window.addEventListener('error', function(e) {
+        window.logger.addLog(`JavaScript Error: ${e.message}`, 'error');
+        console.error('Error:', e);
+    });
+
+    // 页面关闭时通知服务器
+    window.addEventListener('beforeunload', function(e) {
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon(`${API_BASE_PATH}/shutdown`);
+        } else {
+            try {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', `${API_BASE_PATH}/shutdown`, false);
+                xhr.send();
+            } catch (err) {
+                console.error('Failed to send shutdown request:', err);
+            }
+        }
+    });
+});
+
+</script>
+<!-- 确保所有元素正确初始化 -->
+<script>
+    // 等待DOM完全加载后再次检查
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, checking elements...');
+            // 检查关键元素
+            const elements = ['startBtn', 'stopBtn', 'exportBtn', 'aiAnalyzeBtn', 'cozeChatBtn', 'langSelect'];
+            elements.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) {
+                    console.error('Element not found:', id);
+                } else {
+                    console.log('Element found:', id, el);
+                }
+            });
+        });
+    } else {
+        console.log('DOM already loaded, checking elements...');
+        const elements = ['startBtn', 'stopBtn', 'exportBtn', 'aiAnalyzeBtn', 'cozeChatBtn', 'langSelect'];
+        elements.forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) {
+                console.error('Element not found:', id);
+            } else {
+                console.log('Element found:', id, el);
+            }
+        });
+    }
+</script>
+</body>
+</html>

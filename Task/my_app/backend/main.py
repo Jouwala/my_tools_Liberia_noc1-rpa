@@ -27,6 +27,7 @@ from backend.models.analysis import AnalysisArchive, UploadedFile
 from backend.routers import (
     tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard,
     packet_loss_dashboard, battery_dashboard, credentials,
+    ip_trace, incident_overview,
 )
 from backend.services import task_runner
 from backend.security import require_protected
@@ -71,6 +72,8 @@ app.include_router(alarm_dashboard.router)
 app.include_router(packet_loss_dashboard.router)
 app.include_router(battery_dashboard.router)
 app.include_router(credentials.router)
+app.include_router(ip_trace.router)
+app.include_router(incident_overview.router)
 
 
 # ========== 通用任务调度系统 ==========
@@ -419,7 +422,13 @@ if (frontend_dist / "assets").is_dir():
 
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
+        # 开发期 Vite 以 /myapp/ 为 base 提供 public/ 下的静态文件（如
+        # ip-trace.html / incident-overview.html），而生产构建把 public/ 平铺到
+        # dist/ 根目录。为让生产环境（由 7038 直接托管 dist）与开发期行为一致，
+        # 当 /myapp/<file> 在 dist 根找不到时，回退到 dist/<file>。
         file_path = frontend_dist / full_path
+        if not file_path.is_file() and full_path.startswith("myapp/"):
+            file_path = frontend_dist / full_path[len("myapp/"):]
         if file_path.is_file():
             return FileResponse(file_path)
         return FileResponse(frontend_dist / "index.html")

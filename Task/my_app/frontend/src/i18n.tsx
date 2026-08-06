@@ -19,6 +19,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.packetLoss': '丢包看板',
     'nav.archive': '分析归档',
     'nav.sp': '仓库看板',
+    'nav.ipTrace': 'IP 链路探测',
+    'nav.incidentOverview': '事件总览',
 
     // 仓库看板（SP 备件）
     'sp.lastSync': '最近同步',
@@ -465,6 +467,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.packetLoss': 'Packet Loss',
     'nav.archive': 'Archive',
     'nav.sp': 'Warehouse',
+    'nav.ipTrace': 'IP Trace',
+    'nav.incidentOverview': 'Incident Overview',
 
     // Warehouse Dashboard (SP spare parts)
     'sp.lastSync': 'Last sync',

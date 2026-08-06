@@ -15,6 +15,8 @@ import {
   DisconnectOutlined,
   ThunderboltOutlined,
   SettingOutlined,
+  AimOutlined,
+  FileSearchOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -37,10 +39,12 @@ const AlarmDashboard = lazy(() => import('./pages/AlarmDashboard'))
 const PacketLossDashboard = lazy(() => import('./pages/PacketLossDashboard'))
 const BatteryDashboard = lazy(() => import('./pages/BatteryDashboard'))
 const CredentialSettings = lazy(() => import('./pages/CredentialSettings'))
+const IpTrace = lazy(() => import('./pages/IpTrace'))
+const IncidentOverview = lazy(() => import('./pages/IncidentOverview'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview'
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageKey>('sync')
@@ -55,6 +59,8 @@ function AppContent() {
     { key: 'realtime_alarm', icon: <AlertOutlined />, label: t('nav.realtimeAlarm') },
     { key: 'packet_loss', icon: <DisconnectOutlined />, label: t('nav.packetLoss') },
     { key: 'battery', icon: <ThunderboltOutlined />, label: t('nav.battery') },
+    { key: 'ip_trace', icon: <AimOutlined />, label: t('nav.ipTrace') },
+    { key: 'incident_overview', icon: <FileSearchOutlined />, label: t('nav.incidentOverview') },
     { key: 'warehouse', icon: <AppstoreOutlined />, label: t('nav.sp') },
     { key: 'overview', icon: <BarChartOutlined />, label: t('nav.overview') },
     { key: 'tables', icon: <TableOutlined />, label: t('nav.tables') },
@@ -80,6 +86,10 @@ function AppContent() {
         return <PacketLossDashboard />
       case 'battery':
         return <BatteryDashboard />
+      case 'ip_trace':
+        return <IpTrace />
+      case 'incident_overview':
+        return <IncidentOverview />
       case 'warehouse':
         return <WarehouseDashboard />
       case 'overview':
