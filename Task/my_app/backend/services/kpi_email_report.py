@@ -290,3 +290,164 @@ def run_ran_availability(to: str = None, cc: str = None) -> dict:
         subject_prefix="MS Network Availability Daily Report",
         body_file=body_file,
     )
+
+
+# =====================================================================
+# 6. Packet Loss 丢包看板日报邮件
+# =====================================================================
+_PL_EMAIL = "/01_RPA/LBR_Tools/KPI/packet_lost/pl_email"
+_PL_DATA_DIR = MY_APP_DIR / "data" / "packet_lost"
+_PL_SCREENSHOT_NAME = "_dashboard_screenshot.png"
+
+
+def _capture_packet_loss_screenshot() -> Path:
+    """用 Playwright 截取丢包看板页面截图（英文界面 + 已加载 + 无左侧栏 + 地图铺满）。
+
+    关键：Leaflet 地图不会随 full_page 的视口拉伸自动重算尺寸，导致地图停留在
+    初始高度、其余内容却撑开，截图里地图"没到底"。解决方案：不用 full_page，
+    而是把视口高度设成页面真实高度（让地图按满高初始化），并 dispatch resize
+    事件触发 Leaflet invalidateSize()，最后按视口截图。
+    """
+    from playwright.sync_api import sync_playwright
+
+    out = _PL_DATA_DIR / _PL_SCREENSHOT_NAME
+    out.parent.mkdir(parents=True, exist_ok=True)
+    url = "http://localhost:7038/myapp/"
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        # 初始给一个偏高的视口，让页面能完整布局
+        page = browser.new_page(viewport={"width": 1920, "height": 1600})
+
+        # 1) 进入页面后强制英文，再 reload 让 React 读取 localStorage
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        page.evaluate("localStorage.setItem('app-locale', 'en');")
+        page.reload(wait_until="networkidle", timeout=60000)
+        page.wait_for_timeout(2000)
+        current_locale = page.evaluate("localStorage.getItem('app-locale')")
+        logging.getLogger(__name__).info("[PL-SHOT] locale=%s", current_locale)
+
+        # 2) 点击「Packet Loss」菜单（英文优先）
+        for label in ("Packet Loss", "丢包看板", "PacketLoss"):
+            try:
+                loc = page.get_by_text(label, exact=False).first
+                if loc.count() > 0:
+                    loc.click(timeout=5000)
+                    break
+            except Exception:
+                continue
+
+        # 3) 等数据真正加载（spinner 消失 + 数字出现）
+        try:
+            page.wait_for_selector("text=加载中...", state="hidden", timeout=15000)
+        except Exception:
+            pass
+        for kw in ("Total Sites", "Affected Sites", "Critical", "667"):
+            try:
+                el = page.get_by_text(kw, exact=False).first
+                el.wait_for(state="visible", timeout=8000)
+                break
+            except Exception:
+                continue
+        page.wait_for_timeout(3000)  # 图表/地图缓冲
+
+        # 4) 隐藏左侧栏（antd Sider），并让右侧地图列拉伸、地图 flex-grow 铺满整列
+        #    （地图原 style=calc(100vh-180px) 只认视口高度，截图视口≠页面高会导致地图
+        #     停在半空；用 !important flex-grow 覆盖内联高度，使其填满与左栏等高的列）
+        page.add_style_tag(content="""
+            .ant-layout-sider { display: none !important; }
+            div[style*="33.333%"] {
+                align-self: stretch !important;
+                height: auto !important;
+                position: relative !important;
+                display: flex !important;
+                flex-direction: column !important;
+            }
+            div[style*="33.333%"] > .ant-card {
+                flex: 1 1 auto !important; display: flex !important; flex-direction: column !important;
+            }
+            div[style*="33.333%"] > .ant-card > .ant-card-body {
+                flex: 1 1 auto !important; display: flex !important; flex-direction: column !important;
+            }
+            .leaflet-container {
+                flex: 1 1 auto !important; height: auto !important; min-height: 420px !important;
+            }
+        """)
+        page.wait_for_timeout(500)
+
+        # 5) 量出真实内容高度，把视口高度设成该值，并 dispatch resize 让 Leaflet 重算铺满
+        content_h = page.evaluate("() => Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)")
+        target_h = min(max(content_h, 800), 4000)  # 安全范围
+        page.set_viewport_size({"width": 1920, "height": target_h})
+        page.evaluate("window.dispatchEvent(new Event('resize'));")
+        page.wait_for_timeout(1500)  # 等 Leaflet invalidateSize + 重绘
+        # 验证地图是否铺满：leaflet 容器高度应接近内容列高
+        lf_h = page.evaluate("""() => {
+            const lf = document.querySelector('.leaflet-container');
+            if (!lf) return null;
+            const r = lf.getBoundingClientRect();
+            return { h: Math.round(r.height), bottom: Math.round(r.bottom), top: Math.round(r.top) };
+        }""")
+        logging.getLogger(__name__).info("[PL-SHOT] content_h=%s target_h=%s leaflet=%s", content_h, target_h, lf_h)
+
+        page.screenshot(path=str(out), full_page=False)
+        browser.close()
+
+    assert out.stat().st_size > 10000, f"截图异常小 ({out.stat().st_size}B)，可能未正确渲染"
+    return out
+
+
+def find_latest_excel(directory: Path, name_filter: str) -> Optional[Path]:
+    """Return the most recently modified xlsx file matching *name_filter* in *directory*."""
+    import glob
+    pattern = str(directory / f"{name_filter}*.xlsx")
+    candidates = sorted(glob.glob(pattern), key=lambda f: Path(f).stat().st_mtime, reverse=True)
+    return Path(candidates[0]) if candidates else None
+
+
+def run_packet_loss_email(to: str = None, cc: str = None) -> dict:
+    """Packet Loss 丢包看板日报邮件（本地数据 + 本地截图 + 远程收件人名单）。
+
+    附件：最新生成的 Packet_Loss_Status_Output Automation *.xlsx。
+    内嵌图片：丢包看板网页全屏截图（Playwright headless）。
+    收件人/抄送：远程 ``_PL_EMAIL`` 的 ss_email.txt / cc_email.txt；
+               显式传 ``to`` / ``cc`` 时覆盖（用于测试）。
+    """
+    import backend.services.remote_ftp as rf
+
+    # ---- 1. 截图 ----
+    try:
+        screenshot = _capture_packet_loss_screenshot()
+        print(f"[PL-EMAIL] 截图完成: {screenshot} ({screenshot.stat().st_size} bytes)")
+    except Exception as e:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] PL screenshot failed: %s", e)
+        screenshot = None
+
+    # ---- 2. 收件人 ----
+    to_arg, cc_arg = _resolve_recipients_remote(_PL_EMAIL, to, cc)
+
+    # ---- 3. 最新报告 ----
+    excel = find_latest_excel(_PL_DATA_DIR, name_filter="Packet_Loss_Status_Output Automation")
+    if not excel:
+        return {"success": False, "error": f"未在 {_PL_DATA_DIR} 找到 Packet_Loss_Status_Output Automation 报告"}
+
+    # ---- 4. 发送 ----
+    cmd_parts = {
+        "data_dir": str(_PL_DATA_DIR),
+        "name_filter": "Packet_Loss_Status_Output Automation",
+        "excel": str(excel),
+        "to": to_arg,
+        "cc": cc_arg,
+    }
+    if screenshot:
+        cmd_parts["images"] = [str(screenshot)]
+
+    result = _run_script(
+        data_dir=_PL_DATA_DIR,
+        name_filter="Packet_Loss_Status_Output Automation",
+        excel=excel,
+        images=[screenshot] if screenshot else None,
+        to=to_arg,
+        cc=cc_arg,
+    )
+    return result

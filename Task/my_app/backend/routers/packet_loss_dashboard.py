@@ -8,6 +8,7 @@ import time
 import re
 import sqlite3
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Query
@@ -129,6 +130,8 @@ def pl_overview():
     #    持续全断 → 100（事实），间歇严重 → 介于 0~100（区分出来）。
     site_median: dict = {}
     daily_trend = []
+    # 与报告/汇总层口径一致：只展示完整自然日，当天未过完的数据不展示
+    today_str = datetime.now().strftime("%Y-%m-%d")
     if PL_DB_PATH.exists():
         conn = _conn()
         try:
@@ -139,7 +142,8 @@ def pl_overview():
                     'SELECT substr("Begin Time",1,10) AS day, '
                     '"Packet Loss Rate(%)" AS pl, "Managed Element" AS me '
                     'FROM packet_loss_data '
-                    'WHERE "Begin Time" >= (SELECT datetime(max("Begin Time"), \'-6 days\') FROM packet_loss_data)'):
+                    'WHERE "Begin Time" >= (SELECT datetime(max("Begin Time"), \'-7 days\') FROM packet_loss_data) '
+                    'AND substr("Begin Time",1,10) < ?', (today_str,)):
                     if r["pl"] > 0:
                         d = day_data.setdefault(r["day"], {"nz": [], "aff": set()})
                         d["nz"].append(r["pl"])
@@ -149,21 +153,23 @@ def pl_overview():
                     d = day_data[day]
                     daily_trend.append({"day": day, "median_pl": _median(d["nz"]),
                                         "affected_sites": len(d["aff"])})
-                daily_trend = daily_trend[-7:]  # 仅保留最近 7 天，与标题一致
+                daily_trend = daily_trend[-7:]  # 仅保留最近 7 个完整自然日，与报告一致
 
-                # Top Sites：最近 24 个整点时刻为窗口，计算每站点「所有读数」的中位值（含 0）。
+                # Top Sites：最近 24 个完整小时（剔除当天）为窗口，计算每站点「所有读数」的中位值（含 0）。
                 # packet_loss_data."Managed Element" 形如 "Name(CODE)"，而 site_pl_summary 用 Site_Name + Site_Code，
                 # 故按末尾 (CODE) 提取后按 Site_Code 关联，失败再退回按 Site_Name 关联。
                 cut = conn.execute(
                     'SELECT "Begin Time" FROM packet_loss_data '
-                    'GROUP BY "Begin Time" ORDER BY "Begin Time" DESC LIMIT 24').fetchall()
+                    'WHERE "Begin Time" < ? '
+                    'GROUP BY "Begin Time" ORDER BY "Begin Time" DESC LIMIT 24', (today_str,)).fetchall()
                 if cut:
                     cutoff = cut[-1]["Begin Time"]  # 第 24 新的时刻 = 窗口起点
                     me_by_code: dict = {}
                     me_by_name: dict = {}
                     for r in conn.execute(
                         'SELECT "Managed Element" AS me, "Packet Loss Rate(%)" AS pl '
-                        'FROM packet_loss_data WHERE "Begin Time" >= ?', (cutoff,)):
+                        'FROM packet_loss_data WHERE "Begin Time" >= ? AND "Begin Time" < ?',
+                            (cutoff, today_str)):
                         me = r["me"]
                         m = re.search(r"\((\d+)\)\s*$", me)
                         if m:
@@ -197,7 +203,8 @@ def pl_overview():
     top_sites.sort(key=lambda x: x["last_day_median_pl"], reverse=True)
     top_sites = top_sites[:15]
 
-    affected_total = sum(v for k, v in status_counts.items() if k != "No Packet loss[<0.1]")
+    # 要求3：Affected Sites = Critical + Major（严格按此定义，不含 Minor/Warning）
+    affected_total = status_counts.get("Critical[>5]", 0) + status_counts.get("Major[1-5]", 0)
     return {
         "generated_at": meta.get("last_sync_time"),
         "report_path": meta.get("report_path"),

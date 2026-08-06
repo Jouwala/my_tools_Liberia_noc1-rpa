@@ -3,7 +3,7 @@
 Packet Loss 服务：从 RAN UME 获取丢包率 PM 数据 → 合并 → 写入 lte_pl.sqlite3 → 生成报告
 
 流程（对应 data/packet_lost/要求.txt）：
-1. 复用 ran_ume_service 的登录/HTTP 通道，查询两个 PM 模板（近 7 天，1 小时粒度）：
+1. 复用 ran_ume_service 的登录/HTTP 通道，查询两个 PM 模板（近 8 天，1 小时粒度）：
    - Packet Loss Rate_SDR_IPPD   (grouplayer: me,sdrmgr.SrcIP,sdrmgr.DesIP)
    - Packet Loss Rate_ITRAN_IPPD (grouplayer: me,TransportNetwork,IPPD)
 2. 导出文件命名规则：templatename_grouplayer映射_gr映射（仅内存标识，不落盘）
@@ -11,7 +11,8 @@ Packet Loss 服务：从 RAN UME 获取丢包率 PM 数据 → 合并 → 写入
    丢包率按模板 Step 3 规则 ×100 转为百分比数值，全程内存处理直接写入数据库
 4. 合并数据写入 data/packet_lost/lte_pl.sqlite3，并关联 eflow.sqlite3 站点信息
    （site_name / gateway(TRM Type) / network_type / region / province_county / latitude / longitude），
-   按模板 Packet_Loss_Status_Output Automation.xlsx 格式生成带公式的报告（顶部含日期）
+   按模板 Packet_Loss_Status_Output Automation.xlsx 格式生成带公式口径的报告（顶部含日期）；
+   报告只展示最近 7 个完整自然日，当天未过完的数据不展示
 5. 站点级汇总写入 site_pl_summary 表，供丢包看板 API 使用
 """
 import os
@@ -24,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 try:
     from .ran_ume_service import (
@@ -45,6 +47,8 @@ except ImportError:
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.formatting.rule import CellIsRule, FormulaRule, Rule
+from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.utils import get_column_letter
 from backend.database import get_raw_connection
 
@@ -54,10 +58,14 @@ logger = logging.getLogger("packet_loss_service")
 PL_DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\packet_lost")
 PL_DB_PATH = PL_DATA_DIR / "lte_pl.sqlite3"
 PL_REPORT_PATH = PL_DATA_DIR / "Packet_Loss_Status_Report.xlsx"
+PL_TEMPLATE_PATH = PL_DATA_DIR / "Packet_Loss_Status_Output Automation.xlsx"
 EFLOW_DB_PATH = Path(r"d:\01_RPA\Task\my_app\data\eflow\eflow.sqlite3")
 
-# 查询窗口：7 天到现在（可用环境变量调整）
-PL_DAYS_BACK = int(os.environ.get("PL_DAYS_BACK", "7"))
+# 查询窗口：8 天到现在（可用环境变量调整）。
+# 取 8 天是为了在剔除当天（未过完的整天数据不展示）后仍能凑齐完整 7 个自然日。
+PL_DAYS_BACK = int(os.environ.get("PL_DAYS_BACK", "8"))
+# 报告/网页展示保留的完整自然日天数
+PL_FULL_DAYS = int(os.environ.get("PL_FULL_DAYS", "7"))
 # 本地库保留天数（超过则清理）
 PL_RETENTION_DAYS = int(os.environ.get("PL_RETENTION_DAYS", "35"))
 
@@ -227,6 +235,8 @@ def _normalize_export_df(xlsx_bytes: bytes, cfg: dict) -> pd.DataFrame:
     df[PL_COL] = pd.to_numeric(df[PL_COL], errors="coerce").fillna(0.0)
     # 模板 Step 3 规则：UME 返回的丢包率为小数，需 ×100 转为百分比数值
     df[PL_COL] = df[PL_COL] * 100.0
+    # 丢包率是比率（0~100%），防御性裁剪超界异常值
+    df[PL_COL] = df[PL_COL].clip(lower=0.0, upper=100.0)
     df["Begin Time"] = pd.to_datetime(df["Begin Time"], errors="coerce")
     df = df.dropna(subset=["Begin Time"])
     df = df[df["Managed Element"].notna() & (df["Managed Element"].astype(str).str.strip() != "")]
@@ -280,6 +290,11 @@ def _init_db(conn: sqlite3.Connection):
         conn.execute('UPDATE packet_loss_data SET "Packet Loss Rate(%)" = "Packet Loss Rate(%)" * 100')
         conn.execute("INSERT OR REPLACE INTO pl_meta (key, value) VALUES ('value_scale', 'percent')")
         logger.info("[PL] 已将历史丢包率数据 ×100 转为百分比数值")
+    # 兼容旧表：补充 STATUS 列（要求2: OK/NOK）
+    try:
+        conn.execute("ALTER TABLE site_pl_summary ADD COLUMN STATUS TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
 
 
@@ -350,11 +365,15 @@ def _extract_me_parts(me_series: pd.Series):
 
 
 def classify_status(v) -> str:
-    """丢包等级分类（与报告 FINAL_STATUS 一致）"""
+    """丢包等级分类（与报告 FINAL_STATUS 一致）
+
+    与模板 FINAL_STATUS 公式 LOOKUP(FZ,{0.1;0.5;1;5},...) 语义对齐：
+    恰好等于边界值归入高一档（如 5.0 -> Critical[>5]）。
+    """
     if v is None or pd.isna(v):
         return "No Packet loss[<0.1]"
     v = float(v)
-    if v > 5:
+    if v >= 5:
         return "Critical[>5]"
     if v >= 1:
         return "Major[1-5]"
@@ -367,18 +386,29 @@ def classify_status(v) -> str:
 
 # ========== 站点级汇总 + 报告生成（要求.txt 第4条） ==========
 def _build_site_summary(df: pd.DataFrame, site: pd.DataFrame):
-    """按站点按小时汇总（sum），生成站点级宽表与汇总信息"""
+    """按站点按小时汇总（取最差链路 max），生成站点级宽表与汇总信息
+
+    注意：丢包率是比率（0~100%），一个站点同一小时可能有多个 IPPD 链路
+    （SDR 模板按 SrcIP/DesIP、ITRAN 模板按 IPPD 分组，且两模板可能重复采集），
+    必须取 max（最差链路）而非 sum，否则多链路相加会出现 >100% 的非法值。
+    """
     df = df.copy()
     df["hour"] = df["Begin Time"].dt.floor("h")
     name, code = _extract_me_parts(df["Managed Element"])
     df["_site_name"] = name.where(name != "", df["Managed Element"].astype(str))
     df["_site_code"] = code
 
-    # 站点 × 小时 的丢包率合计（向量化 pivot）
+    # 站点 × 小时 的丢包率 = 该站点该小时所有链路中的最大值（向量化 pivot）
     pivot = df.pivot_table(index="_site_name", columns="hour", values=PL_COL,
-                           aggfunc="sum", fill_value=0.0)
+                           aggfunc="max", fill_value=0.0)
     pivot = pivot.reindex(columns=pd.date_range(pivot.columns.min(), pivot.columns.max(), freq="h"),
                           fill_value=0.0)
+
+    # 数据完整性要求：只保留完整自然日 —— 当天还没过完，其小时数据不参与统计/展示
+    today_start = pd.Timestamp(datetime.now().date())
+    pivot = pivot.loc[:, pivot.columns < today_start]
+    # 只保留最近 PL_FULL_DAYS 个完整自然日（每天 00~23 点）
+    pivot = pivot.iloc[:, -PL_FULL_DAYS * 24:]
 
     # 站点属性关联：先按名字匹配，再按括号内 ID 匹配
     name_map = site.drop_duplicates("_name_key").set_index("_name_key")
@@ -417,151 +447,240 @@ def _build_site_summary(df: pd.DataFrame, site: pd.DataFrame):
     summary["LastDayMaxPL"] = pivot[last24].max(axis=1)
     summary["TotalPL"] = pivot.sum(axis=1)
     summary["AffectedHours"] = (pivot > 0).sum(axis=1)
-    summary["FinalStatus"] = summary["LastDayMaxPL"].map(classify_status)
+
+    # 0~23 标志块（模板公式 =IF(AND(最近3天同整点>0.5),1,0)，向量化）：
+    # 每整点取最近 3 天同整点值，三天都 >0.5% 记 1，否则 0
+    last3 = pivot.iloc[:, -3 * 24:]
+    flags_arr = (last3.to_numpy().reshape(len(last3), -1, 24) > 0.5).all(axis=1).astype(int)
+    flags = pd.DataFrame(flags_arr, index=pivot.index,
+                         columns=[f"flag_{h}" for h in range(24)])
+    flag_sum = flags_arr.sum(axis=1)
+
+    # 要求2（模板公式 GA：=IF(SUM(GG:HD)=0,"OK","NOK")）：0~23 标志全为 0 -> OK，否则 NOK
+    summary["STATUS"] = np.where(flag_sum == 0, "OK", "NOK")
+    # 要求2（模板公式 GB：IF(GA="OK","No Packet loss[<0.1]",LOOKUP(FZ,...))）：
+    # STATUS=OK 强制归一为 No Packet loss[<0.1]，否则按 Last 1 day Max PL 分类
+    summary["FinalStatus"] = summary["LastDayMaxPL"].map(classify_status)\
+        .where(summary["STATUS"] != "OK", "No Packet loss[<0.1]")
     summary = summary.sort_values("LastDayMaxPL", ascending=False)
-    return pivot, summary
+    flags = flags.reindex(summary.index)
+    return pivot, summary, flags
 
 
-def _generate_report(pivot: pd.DataFrame, summary: pd.DataFrame) -> str:
-    """按模板 Packet_Loss_Status_Output Automation.xlsx 格式生成报告（原子写，顶部含日期）"""
+def _generate_report(pivot: pd.DataFrame, summary: pd.DataFrame, flags: pd.DataFrame) -> str:
+    """按模板 Packet_Loss_Status_Output Automation.xlsx 格式生成报告（与网页端/看板口径一致）。
+
+    口径（与模板公式完全对齐，全部在 _build_site_summary 统一计算后直接写入，
+    保证 Excel 报告与网页看板同一数据源）：
+      - STATUS       = 0~23 标志块之和为 0 -> "OK"，否则 "NOK"
+                       （模板 =IF(SUM(GG:HD)=0,"OK","NOK")）
+      - FINAL_STATUS = STATUS=OK 时强制 "No Packet loss[<0.1]"，否则按 (Last 1 day Max PL)
+                       匹配 Critical/Major/Minor/Warning/No Packet loss
+      - GG..HD 块(0~23) = 每整点最近三天「同整点」丢包均 >0.5% -> 1，否则 0
+      - 小时列只含完整自然日（当天未过完不展示）
+      - Affected Sites = Critical + Major（Summary 另给 All Affected=非OK）
+    颜色严格按模板：数据区/标志块/STATUS 用与模板相同的【条件格式】着色（模板 theme 色
+    已换算为等效 RGB），表头灰底黄区与模板一致；派生列写入真实计算值（非公式）。
+    """
     wb = openpyxl.Workbook()
-
-    # ===== Sheet: Packet Loss Report（模板布局） =====
     ws = wb.active
     ws.title = "Packet Loss Report"
+
+    # ===== 模板样式（theme 色已换算为等效 RGB，避免跨簿克隆 Theme 色丢失）=====
+    GRAY_FILL = PatternFill("solid", fgColor="FFD9D9D9")       # 表头灰（模板 theme0 -15%）
+    LASTH_FILL = PatternFill("solid", fgColor="FFFDEADA")      # 最后小时列表头浅橙（模板 theme9 +80%）
+    YELLOW_FILL = PatternFill("solid", fgColor="FFFFFF00")     # FZ~GE 黄底
+    NAVY_BOLD = Font(color="FF002060", bold=True, size=10)     # 深蓝加粗（灰/黄底表头）
+    NAVY_FONT = Font(color="FF002060", size=10)                # 深蓝（meta/小时表头）
+    DATA_FONT = Font(color="FF002060", size=10)                # 数据行深蓝字（模板 meta 列）
+    HOUR_FONT = Font(size=10)                                  # 小时数据（模板默认黑字）
+    CENTER = Alignment(horizontal="center")
+    HEADER_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
     hour_cols = list(pivot.columns)
     n_hours = len(hour_cols)
+    first_hour_col = 13  # M
 
-    # 第 1 行：日期（报告日期 + 数据范围）
-    now = datetime.now()
-    ws.cell(row=1, column=1,
-            value=(f"Date: {now.strftime('%Y-%m-%d %H:%M')}    "
-                   f"Data Range: {hour_cols[0].strftime('%Y-%m-%d %H:%M')} ~ "
-                   f"{hour_cols[-1].strftime('%Y-%m-%d %H:%M')}"))
-    ws.cell(row=1, column=1).font = Font(bold=True, size=12)
-
-    # 第 2 行：表头（模板 A~L 元数据列 + 小时列 + 统计列 + GC~GE + GG~HD 小时块）
     meta_cols = ["Cluster", "County", "Locality", "Site Code", "Site_Name",
                  "Longitude", "Latitude", "Vendor", "Media",
                  "BB MW/Fiber Site1 code", "Equipment BB1", "Row Labels"]
-    headers = meta_cols + [h.strftime("%Y-%m-%d %H:%M:%S") for h in hour_cols] + \
-        ["(Last 1 day Max PL)", "STATUS", "FINAL_STATUS",
-         "MW - IPRAN Link Status", "Main Category", "Expansion Planned?"]
-    header_row = 2
-    for j, hv in enumerate(headers, start=1):
-        ws.cell(row=header_row, column=j, value=hv)
-    # 小时块表头 0~23（模板 GG~HD，前空一列）
-    hour_block_start = len(headers) + 2
-    for h in range(24):
-        ws.cell(row=header_row, column=hour_block_start + h, value=h)
+    headers = meta_cols + [h.strftime("%Y-%m-%d %H:%M:%S") for h in hour_cols]
+    last_pivot_col = first_hour_col + n_hours - 1
+    fy_col = last_pivot_col + 1                                # FY 空列（模板布局）
+    fz_col = last_pivot_col + 2                                # FZ (Last 1 day Max PL)
+    status_col = fz_col + 1                                    # GA
+    final_col = fz_col + 2                                     # GB
+    gc_col = fz_col + 3                                        # GC MW-IPRAN
+    gd_col = fz_col + 4                                        # GD Main Category
+    ge_col = fz_col + 5                                        # GE Expansion Planned
+    gf_col = fz_col + 6                                        # GF 空列（模板布局）
+    block_start = fz_col + 7                                   # GG (24 列 0~23)
 
-    header_fill = PatternFill("solid", fgColor="1F4E78")
-    header_font = Font(color="FFFFFF", bold=True, size=10)
-    for c in ws[header_row]:
-        if c.value is not None:
-            c.fill = header_fill
-            c.font = header_font
-            c.alignment = Alignment(horizontal="center")
+    # 表头（含模板 FY/GF 两个空列）
+    all_headers = (headers +
+                   [None, "(Last 1 day Max PL)", "STATUS", "FINAL_STATUS",
+                    "MW - IPRAN Link Status", "Main Category", "Expansion Planned?",
+                    None] +
+                   [h for h in range(24)])
+    for j, hv in enumerate(all_headers, start=1):
+        c = ws.cell(row=1, column=j, value=hv)
+        c.alignment = HEADER_ALIGN
+        if j in (fy_col, gf_col):
+            continue                                           # 空列不 styling
+        if fz_col <= j <= ge_col:
+            c.fill = YELLOW_FILL                               # 模板：FZ~GE 黄底深蓝加粗
+            c.font = NAVY_BOLD
+        elif first_hour_col <= j <= last_pivot_col:
+            if j == last_pivot_col:
+                c.fill = LASTH_FILL                            # 模板：最后一个小时列浅橙底
+            c.font = NAVY_FONT                                 # 小时表头：无底深蓝字
+        else:
+            c.fill = GRAY_FILL                                 # 模板：A~L 与 0~23 块灰底深蓝字
+            c.font = NAVY_BOLD if j <= 12 else NAVY_FONT
 
-    n_meta = len(meta_cols)
-    first_hour_col = n_meta + 1
-    last_hour_col = n_meta + n_hours
-    max_col = last_hour_col + 1
-    status_col = last_hour_col + 2
-    final_col = last_hour_col + 3
-    max_col_l = get_column_letter(max_col)
-    status_col_l = get_column_letter(status_col)
-    final_col_l = get_column_letter(final_col)
-    # 最近 3 天 × 24 小时的列偏移（模板 GG~HD 公式语义：同一小时连续 3 天均 >0.5 计 1）
-    has_3days = n_hours >= 72
-    gg_l = [get_column_letter(first_hour_col + (n_hours - 72) + h) for h in range(24)]
-    gg_m = [get_column_letter(first_hour_col + (n_hours - 48) + h) for h in range(24)]
-    gg_n = [get_column_letter(first_hour_col + (n_hours - 24) + h) for h in range(24)]
-
-    first_data_row = header_row + 1
-    last24_start_l = get_column_letter(last_hour_col - 23)
-    last_hour_l = get_column_letter(last_hour_col)
-
+    # 日历日对齐已由 _build_site_summary 完成（flags 与 pivot 同源同序）
+    first_data_row = 2
     for i, (site_name, row) in enumerate(summary.iterrows(), start=first_data_row):
-        meta = [row.get("region", ""), row.get("province_county", ""), row.get("locality", ""),
-                row.get("Site_Code", ""), row.get("Display_Name", site_name),
-                row.get("longitude") if pd.notna(row.get("longitude")) else None,
-                row.get("latitude") if pd.notna(row.get("latitude")) else None,
-                row.get("vendor", ""), row.get("gateway", ""), "", "",
-                row.get("Display_Name", site_name)]
+        vals = pivot.loc[site_name].values.astype(float)
+        ck = row.get("Site_Code") or ""
+        disp = row.get("Display_Name", f"{site_name}({ck})" if ck else site_name)
+        last24 = vals[-24:]
+        last_max = float(max(last24)) if len(last24) else 0.0
+        # STATUS / FINAL_STATUS / 0~23 标志全部取自 summary 层（与入库/网页同一口径）
+        status = str(row.get("STATUS") or "OK")
+        final = str(row.get("FinalStatus") or classify_status(last_max))
+        site_flags = flags.loc[site_name].values
+        # meta（与模板/独立脚本一致）
+        meta = [row.get("region", ""), row.get("province_county", ""),
+                row.get("locality", "") if pd.notna(row.get("locality")) else "",
+                str(ck) if ck else "", disp,
+                float(row["longitude"]) if pd.notna(row.get("longitude")) else None,
+                float(row["latitude"]) if pd.notna(row.get("latitude")) else None,
+                row.get("vendor", "") if pd.notna(row.get("vendor")) else "",
+                row.get("gateway", ""), "", "", disp]
         for j, v in enumerate(meta, start=1):
-            ws.cell(row=i, column=j, value=v)
-        # 小时丢包值（模板数值格式 0.00）
-        for j, v in enumerate(pivot.loc[site_name].values):
+            ws.cell(row=i, column=j, value=v).font = DATA_FONT
+        for j, v in enumerate(vals):
             cell = ws.cell(row=i, column=first_hour_col + j, value=float(v))
             cell.number_format = "0.00"
-        # (Last 1 day Max PL) / STATUS / FINAL_STATUS 公式（与模板一致）
-        ws.cell(row=i, column=max_col, value=f"=MAX({last24_start_l}{i}:{last_hour_l}{i})")
-        gg_first = get_column_letter(hour_block_start)
-        gg_last = get_column_letter(hour_block_start + 23)
-        ws.cell(row=i, column=status_col,
-                value=f'=IF(SUM({gg_first}{i}:{gg_last}{i})=0,"OK","NOK")')
-        ws.cell(row=i, column=final_col,
-                value=(f'=IF({status_col_l}{i}="OK","No Packet loss[<0.1]",'
-                       f'LOOKUP({max_col_l}{i},{{0.1;0.5;1;5}},'
-                       f'{{"Warning[0.1-0.5]";"Minor[0.5-1]";"Major[1-5]";"Critical[>5]"}}))'))
-        # GG~HD 小时块：同一小时最近 3 天均 >0.5 → 1
-        if has_3days:
-            for h in range(24):
-                ws.cell(row=i, column=hour_block_start + h,
-                        value=f"=IF(AND({gg_l[h]}{i}>0.5,{gg_m[h]}{i}>0.5,{gg_n[h]}{i}>0.5),1,0)")
-
+            cell.font = HOUR_FONT
+            cell.alignment = CENTER
+        cc = ws.cell(row=i, column=fz_col, value=round(last_max, 4))
+        cc.number_format = "0.00"; cc.font = DATA_FONT; cc.alignment = CENTER
+        ws.cell(row=i, column=status_col, value=status).font = DATA_FONT
+        ws.cell(row=i, column=final_col, value=final).font = DATA_FONT
+        ws.cell(row=i, column=gc_col, value=None).font = DATA_FONT
+        ws.cell(row=i, column=gd_col, value=None).font = DATA_FONT
+        ws.cell(row=i, column=ge_col, value=None).font = DATA_FONT
+        for h in range(24):
+            fc = ws.cell(row=i, column=block_start + h, value=int(site_flags[h]))
+            fc.font = HOUR_FONT
+            fc.number_format = "0"
     last_data_row = first_data_row + len(summary) - 1
     ws.freeze_panes = ws.cell(row=first_data_row, column=first_hour_col)
     ws.column_dimensions["E"].width = 22
-    ws.column_dimensions["L"].width = 26
 
-    # ===== Sheet: Summary（模板布局：PL Status/Count/原因列/百分比） =====
+    # ===== 条件格式（严格按模板，theme 色换算为等效 RGB）=====
+    def _cf_fill(rgb: str) -> PatternFill:
+        return PatternFill(patternType="solid", start_color=rgb, end_color=rgb)
+
+    def _contains_text(letter: str, text: str, rgb: str, first_row: int = 2) -> Rule:
+        """与模板完全同型的 containsText 规则（operator 与模板 XML 一致为 between，
+        公式引用区域左上角单元格，Excel 按相对引用自动作用于区域内各格）"""
+        return Rule(type="containsText", operator="between", text=text,
+                    dxf=DifferentialStyle(fill=_cf_fill(rgb)),
+                    formula=[f'NOT(ISERROR(SEARCH("{text}",{letter}{first_row})))'])
+
+    # 小时数据区（模板 M2:FX{n}）：>5 红 / 1~5 橙 / 0.5~1 黄 / 0.1~0.5 蓝 / <0.1 绿
+    hour_rng = f"{get_column_letter(first_hour_col)}2:{get_column_letter(last_pivot_col)}{last_data_row}"
+    ws.conditional_formatting.add(hour_rng, CellIsRule(operator="greaterThan", formula=["5"], fill=_cf_fill("FFFF0000")))
+    ws.conditional_formatting.add(hour_rng, CellIsRule(operator="between", formula=["1", "5"], fill=_cf_fill("FFFAC090")))
+    ws.conditional_formatting.add(hour_rng, CellIsRule(operator="between", formula=["0.5", "1"], fill=_cf_fill("FFFFFF00")))
+    ws.conditional_formatting.add(hour_rng, CellIsRule(operator="between", formula=["0.1", "0.5"], fill=_cf_fill("FF00B0F0")))
+    ws.conditional_formatting.add(hour_rng, CellIsRule(operator="lessThan", formula=["0.1"], fill=_cf_fill("FF92D050")))
+    # 0~23 标志块（模板 GG2:HD{n}）：含 1 深橙 / 含 0 绿（NOK/1 规则优先级高于 OK/0）
+    b1 = get_column_letter(block_start)
+    block_rng = f"{b1}2:{get_column_letter(block_start + 23)}{last_data_row}"
+    ws.conditional_formatting.add(block_rng, _contains_text(b1, "1", "FFE36C0A"))
+    ws.conditional_formatting.add(block_rng, _contains_text(b1, "0", "FF92D050"))
+    # (Last 1 day Max PL)+STATUS 列（模板 FZ2:GA{n}）：>=0.1 金色
+    fz_rng = f"{get_column_letter(fz_col)}2:{get_column_letter(status_col)}{last_data_row}"
+    ws.conditional_formatting.add(fz_rng, CellIsRule(operator="greaterThanOrEqual", formula=["0.1"], fill=_cf_fill("FFFFC000")))
+    # STATUS 文本 NOK 深橙 / OK 绿：与模板同构 —— 单条范围 FY1 GA2:GF{n} GF1，
+    # 公式引用首格 FY1，Excel 相对引用使其实际作用于 GA 列（NOK 规则先加，优先级更高）
+    g1 = get_column_letter(status_col)
+    fy_l = get_column_letter(fy_col)
+    gf_l = get_column_letter(gf_col)
+    mirror_rng = f"{fy_l}1 {g1}2:{gf_l}{last_data_row} {gf_l}1"
+    ws.conditional_formatting.add(mirror_rng, _contains_text(fy_l, "NOK", "FFE36C0A", first_row=1))
+    ws.conditional_formatting.add(mirror_rng, _contains_text(fy_l, "OK", "FF92D050", first_row=1))
+    # L1 重复值高亮（模板自带的规则，同参复现）
+    ws.conditional_formatting.add("L1", Rule(
+        type="duplicateValues",
+        dxf=DifferentialStyle(fill=_cf_fill("FFFFC7CE"))))
+
+    # ===== Sheet: Summary（含 Affected Sites，严重度配色）=====
     ws2 = wb.create_sheet("Summary")
-    ws2.append(["PL Status", "Count of Sites", "Link Congested", "Link Issue",
-                "Power issue onsite", "Up grade to IPRAN", "Percentage of Sites"])
-    for c in ws2[1]:
-        c.fill = header_fill
-        c.font = header_font
+    sum_headers = ["PL Status", "Count of Sites", "Link Congested", "Link Issue",
+                   "Power issue onsite", "Up grade to IPRAN", "Percentage of Sites", "Other"]
+    ws2.append(sum_headers)
+    for j, c in enumerate(ws2[1], start=1):
+        # 模板 Summary 表头：1/2/7 列灰底，3~6 列浅橙底，深蓝字加粗
+        c.fill = GRAY_FILL if j in (1, 2, 7) else LASTH_FILL
+        c.font = NAVY_BOLD
         c.alignment = Alignment(horizontal="center")
-    statuses = [("Critical [>5]", "Critical[>5]"), ("Major [1-5]", "Major[1-5]"),
-                ("Minor [0.5-1]", "Minor[0.5-1]"), ("Warning [0.1-0.5]", "Warning[0.1-0.5]"),
-                ("No Packet loss[<0.1]", "No Packet loss[<0.1]")]
-    detail_range = f"'Packet Loss Report'!{final_col_l}{first_data_row}:{final_col_l}{last_data_row}"
-    for r, (label, val) in enumerate(statuses, start=2):
-        ws2.cell(row=r, column=1, value=label)
-        ws2.cell(row=r, column=2, value=f'=COUNTIF({detail_range},"{val}")')
-        ws2.cell(row=r, column=7, value=f"=B{r}/SUM(B$2:B$6)")
-        ws2.cell(row=r, column=7).number_format = "0.00%"
-        ws2.cell(row=r, column=8, value=f"=B{r}-SUM(C{r}:F{r})")
-    for col, width in zip("ABCDEFGH", (22, 14, 14, 12, 18, 18, 20, 10)):
+    statuses = [("Critical [>5]", "Critical[>5]", "FFFF0000"),
+                ("Major [1-5]", "Major[1-5]", "FFFFC000"),
+                ("Minor [0.5-1]", "Minor[0.5-1]", "FFFFFF00"),
+                ("Warning [0.1-0.5]", "Warning[0.1-0.5]", "FF00B0F0"),
+                ("No Packet loss[<0.1]", "No Packet loss[<0.1]", "FF92D050")]
+    counts = {val: 0 for _, val, _ in statuses}
+    # 直接用 summary 层的 FinalStatus 计数（已含 STATUS=OK 强制归一），与主表/网页一致
+    for st in summary["FinalStatus"]:
+        counts[st] = counts.get(st, 0) + 1
+    total = sum(counts.values())
+    for r, (label, val, color) in enumerate(statuses, start=2):
+        a1 = ws2.cell(row=r, column=1, value=label)
+        a1.fill = PatternFill("solid", fgColor=color)
+        a1.font = Font(color="FF000000", bold=True)
+        ws2.cell(row=r, column=2, value=counts.get(val, 0)).font = DATA_FONT
+        for cc2 in (3, 4, 5, 6):
+            ws2.cell(row=r, column=cc2, value=0).font = DATA_FONT
+        pc = ws2.cell(row=r, column=7, value=(counts.get(val, 0) / total) if total else 0)
+        pc.number_format = "0.00%"; pc.font = DATA_FONT
+        ws2.cell(row=r, column=8, value=counts.get(val, 0)).font = DATA_FONT
+    crit_maj = counts["Critical[>5]"] + counts["Major[1-5]"]
+    ws2.cell(row=7, column=1, value="Affected Sites (Critical+Major)").font = Font(bold=True, color="FFC00000")
+    ws2.cell(row=7, column=2, value=crit_maj).font = DATA_FONT
+    ws2.cell(row=8, column=1, value="All Affected (non-OK)").font = DATA_FONT
+    ws2.cell(row=8, column=2, value=total - counts["No Packet loss[<0.1]"]).font = DATA_FONT
+    for col, width in zip("ABCDEFGH", (30, 16, 14, 12, 18, 18, 20, 10)):
         ws2.column_dimensions[col].width = width
 
-    # ===== Sheet: Database（模板同名站点主数据表） =====
-    ws3 = wb.create_sheet("Database")
-    ws3.append(["ME ID", "Managed Element", "County", "Cluster", "Longitude", "Latitude"])
-    for c in ws3[1]:
-        c.fill = header_fill
-        c.font = header_font
-        c.alignment = Alignment(horizontal="center")
-    for site_name, r in summary.iterrows():
-        code = r.get("Site_Code", "")
-        ws3.append([int(code) if str(code).isdigit() else code,
-                    r.get("Display_Name", site_name), r.get("province_county", ""),
-                    r.get("region", ""),
-                    float(r["longitude"]) if pd.notna(r.get("longitude")) else None,
-                    float(r["latitude"]) if pd.notna(r.get("latitude")) else None])
-
-    # ===== 保存（原子写） =====
+    # ===== Sheet: Sheet1（复制模板参考表）=====
     try:
-        atomic_save_workbook(wb, str(PL_REPORT_PATH))
-        out_path = str(PL_REPORT_PATH)
+        if PL_TEMPLATE_PATH.exists():
+            wb_t = openpyxl.load_workbook(str(PL_TEMPLATE_PATH), data_only=True)
+            if "Sheet1" in wb_t.sheetnames:
+                ws3 = wb.create_sheet("Sheet1")
+                for row in wb_t["Sheet1"].iter_rows(values_only=True):
+                    ws3.append(list(row))
+    except Exception as e:  # noqa
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _generate_report: Sheet1 copy failed: %s", e, exc_info=True)
+
+    # ===== 保存（时间戳文件名）=====
+    ts = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
+    out_name = f"Packet_Loss_Status_Output Automation {ts}.xlsx"
+    out_path = PL_DATA_DIR / out_name
+    try:
+        atomic_save_workbook(wb, str(out_path))
+        out_path_str = str(out_path)
     except AtomicReplaceFallback as fb:
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] _generate_report: exception swallowed", exc_info=True)
-        out_path = fb.fallback_path
+        out_path_str = fb.fallback_path
     finally:
         wb.close()
-    return out_path
+    return out_path_str
 
 
 def _save_summary_to_db(summary: pd.DataFrame, report_path: str, rows_written: int):
@@ -579,12 +698,12 @@ def _save_summary_to_db(summary: pd.DataFrame, report_path: str, rows_written: i
                     float(r["latitude"]) if pd.notna(r.get("latitude")) else None,
                     float(r["longitude"]) if pd.notna(r.get("longitude")) else None,
                     float(r["LastDayMaxPL"]), float(r["TotalPL"]), int(r["AffectedHours"]),
-                    r["FinalStatus"], now_iso,
+                    r["FinalStatus"], r.get("STATUS", ""), now_iso,
                 ))
             conn.executemany(
                 "INSERT OR REPLACE INTO site_pl_summary "
                 "(Site_Name,Site_Code,gateway,network_type,region,province_county,latitude,longitude,"
-                "LastDayMaxPL,TotalPL,AffectedHours,FinalStatus,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "LastDayMaxPL,TotalPL,AffectedHours,FinalStatus,STATUS,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 records)
             conn.executemany(
                 "INSERT OR REPLACE INTO pl_meta (key, value) VALUES (?, ?)",
@@ -645,11 +764,11 @@ def run_packet_loss_sync() -> dict:
         result["rows"] = rows_written
         logger.info(f"[PL] lte_pl.sqlite3 写入: {rows_written} 行")
 
-        # Step 5: 站点关联 + 汇总 + 报告
+        # Step 5: 站点关联 + 汇总 + 报告（只含完整自然日，当天未过完不展示）
         site = _load_site_info()
-        pivot, summary = _build_site_summary(merged, site)
+        pivot, summary, flags = _build_site_summary(merged, site)
         result["sites"] = len(summary)
-        report_path = _generate_report(pivot, summary)
+        report_path = _generate_report(pivot, summary, flags)
         result["report"] = report_path
         logger.info(f"[PL] 报告生成: {report_path} ({len(summary)} 站点)")
 

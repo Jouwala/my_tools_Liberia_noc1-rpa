@@ -220,8 +220,8 @@ TASK_SPECS = [
     # 22. Packet Loss 丢包数据同步 + 报告生成（每天凌晨6:30）
     dict(task_id="packet_loss_sync", name="Packet Loss 丢包同步", name_en="Packet Loss Sync",
          loader=("backend.services.packet_loss_service", "run_packet_loss_sync"),
-         description="RAN UME 丢包率（SDR/IPRAN IPPD）近7天小时粒度同步，合并入库 lte_pl.sqlite3 并生成 Packet Loss Status Report",
-         description_en="Sync last-7-day hourly Packet Loss Rate (SDR/IPRAN IPPD) from RAN UME, merge into lte_pl.sqlite3 and generate Packet Loss Status Report",
+         description="RAN UME 丢包率（SDR/IPRAN IPPD）同步，入库 lte_pl.sqlite3 并生成丢包报告；报告/看板只展示最近 7 个完整自然日，当天未过完不展示",
+         description_en="Sync Packet Loss Rate (SDR/IPRAN IPPD) from RAN UME into lte_pl.sqlite3 and generate the report; only the last 7 complete calendar days are shown (unfinished current day excluded)",
          default_cron="30 6 * * *", category="packet_loss"),
 
     # 23. IP RAN M6K-FW Chart Email - 3组 ME+SmartGroup 折线图，每天 6:45

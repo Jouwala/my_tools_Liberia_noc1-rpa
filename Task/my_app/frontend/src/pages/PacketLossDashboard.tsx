@@ -1,5 +1,8 @@
 // Packet Loss Dashboard - 丢包看板（参考 RealTime Alarm Map 风格）
-// 数据源: lte_pl.sqlite3（RAN UME SDR/IPRAN IPPD 丢包率，近7天小时粒度）
+// 数据源: lte_pl.sqlite3（RAN UME SDR/IPRAN IPPD 丢包率，最近 7 个完整自然日小时粒度，当天未过完不展示）
+// 口径与 Excel 报告（Packet_Loss_Status_Output Automation）完全一致：
+//   STATUS = 0~23 标志块（最近 3 天同整点丢包均 >0.5% 记 1）全 0 -> OK，否则 NOK
+//   FINAL_STATUS = STATUS=OK 强制 No Packet loss[<0.1]，否则按 Last 1 day Max PL 五级分类
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Card, Row, Col, Tag, Spin, Alert, Empty, Table, Input, Button, Switch, Popover } from 'antd'
 import {

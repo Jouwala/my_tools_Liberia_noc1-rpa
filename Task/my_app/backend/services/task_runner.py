@@ -418,7 +418,7 @@ TASK_IO: dict[str, list[str]] = {
     # 21. 邮件补发
     "email_recovery": ["DB: app.db (失败邮件任务记录)"],
     # 22. Packet Loss
-    "packet_loss_sync": ["本地DB: lte_pl.sqlite3 (data/packet_lost/)", "DB: eflow.sqlite3 (site 表)", "本地文件: Packet_Loss_Status_Report.xlsx"],
+    "packet_loss_sync": ["本地DB: lte_pl.sqlite3 (data/packet_lost/)", "DB: eflow.sqlite3 (site 表)", "本地文件: Packet_Loss_Status_Output Automation <时间戳>.xlsx (data/packet_lost/)"],
     # 23. IP RAN M6K-FW 图表邮件
     "ipran_m6k_chart_email": ["远程DB: ipran_ume_kpi.sqlite3 (via remote API, 本地为降级)", "本地文件: TMP/ipran_charts/*.png (图表)", "邮件发送"],
     # 24. CNN Free Rating 图表邮件
