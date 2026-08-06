@@ -87,6 +87,36 @@ def _register_all_tasks():
     """注册所有可调度的任务（声明式定义见 backend/task_registry.py）"""
     return register_all_tasks(task_runner)
 
+
+# ========== 单实例互斥：防止双开后端导致所有定时任务双份执行 ==========
+# 背景：曾出现两个 backend 实例（7038 + 7040 残留）同时持有 APScheduler，
+# 每个整点任务被触发两次，Liberia 邮件任务因此重复发送两封相同邮件。
+# 用 msvcrt 文件独占锁（进程退出时 OS 自动释放，无残留锁问题）：
+# 拿不到锁的实例仍提供 HTTP 服务，但绝不启动调度器。
+_INSTANCE_LOCK_FILE = None
+
+
+def _acquire_instance_lock() -> bool:
+    """尝试独占 db/instance.lock。True = 本实例是唯一调度者。"""
+    global _INSTANCE_LOCK_FILE
+    try:
+        import msvcrt
+        lock_path = DB_PATH.parent / "instance.lock"
+        f = open(lock_path, "a+")
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        f.seek(0)
+        f.truncate()
+        f.write(f"pid={os.getpid()}\n")
+        f.flush()
+        _INSTANCE_LOCK_FILE = f  # 保持文件句柄存活至进程结束
+        return True
+    except OSError:
+        return False
+    except Exception as e:
+        # 非预期异常不应阻断启动，保守视为可启动调度器
+        print(f"[startup] 单实例锁检查异常，按单实例处理: {e}")
+        return True
+
 def _init_db_with_retry(max_retries: int = 12, wait: int = 5):
     """db 初始化可能因后台进程(Windows Search 索引 / 杀软实时扫描)临时锁住
     app.db 而失败，这里加重试穿过锁释放窗口，避免后端启动卡死。"""
@@ -128,15 +158,24 @@ async def startup_event():
     """启动时创建必要的表和索引（app.db 可能被后台索引/杀软临时锁住，加重试穿过）"""
     _init_db_with_retry()
 
-    # 注册所有任务并启动调度器
-    _register_all_tasks()
-    task_runner.schedule_all_tasks()
-    task_runner.start_scheduler()
+    # 单实例互斥：已有实例持有调度器时，本实例不再注册/启动调度器，
+    # 避免同一任务被两个 APScheduler 双份触发（重复发邮件等）
+    if _acquire_instance_lock():
+        # 注册所有任务并启动调度器
+        _register_all_tasks()
+        task_runner.schedule_all_tasks()
+        task_runner.start_scheduler()
+    else:
+        print("[startup] 检测到已有运行实例持有 instance.lock，"
+              "本实例不启动调度器（仅提供 HTTP 服务），避免任务重复执行")
 
     elapsed = time.time() - start_time
     print(f"服务启动完成，耗时: {elapsed:.2f}秒")
     print(f"数据库: {DB_PATH}")
-    print(f"已注册 {len(task_runner.list_tasks())} 个定时任务")
+    if _INSTANCE_LOCK_FILE is not None:
+        print(f"已注册 {len(task_runner.list_tasks())} 个定时任务")
+    else:
+        print("本实例未注册定时任务（调度器由另一实例持有）")
 
 
 @app.get("/api/health")

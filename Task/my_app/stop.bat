@@ -20,6 +20,13 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000" ^| findstr "LISTENING
     set FOUND=1
 )
 
+:: Stop backend (port 7040, 调试/残留实例，不清理会与 7038 双开导致任务双份执行)
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7040" ^| findstr "LISTENING" 2^>nul') do (
+    taskkill /PID %%a /F >nul 2>&1
+    echo [*] Killed backend PID=%%a (port 7040)
+    set FOUND=1
+)
+
 :: Stop frontend (port 7090 / 5173)
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7090" ^| findstr "LISTENING" 2^>nul') do (
     taskkill /PID %%a /F >nul 2>&1
