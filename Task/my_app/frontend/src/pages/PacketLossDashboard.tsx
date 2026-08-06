@@ -228,7 +228,8 @@ export default function PacketLossDashboard() {
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<any>(null)
   const [mapSites, setMapSites] = useState<PlSite[]>([])
-  const [includeOk, setIncludeOk] = useState(false)
+  // 默认显示 OK 站点（include_ok=true），地图展示全量有坐标站点
+  const [includeOk, setIncludeOk] = useState(true)
   const [hiddenStatuses, setHiddenStatuses] = useState<Set<string>>(new Set())
   // 拓扑显示开关：开启后复用 GIS Map 的真实拓扑链路（/api/gis/topology），按传输类型着色
   const [showTopology, setShowTopology] = useState(false)
@@ -580,7 +581,7 @@ export default function PacketLossDashboard() {
       <div style={{ flex: '0 0 33.333%', width: '33.333%', position: 'sticky', top: 12, alignSelf: 'flex-start' }}>
         <Card size="small" style={{ ...cardWrap, marginBottom: 0 }} title={
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('pl.map')} ({t('pl.mapSites', { n: mapSites.length })})</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('pl.map')} ({t('pl.mapAffected', { n: data?.affected_sites ?? 0 })})</span>
             <span style={{ fontSize: 11, color: WH.textMuted, display: 'flex', alignItems: 'center', gap: 8 }}>
               <Button size="small" type={showTopology ? 'primary' : 'default'}
                 icon={<ApartmentOutlined />} onClick={() => setShowTopology(v => !v)}

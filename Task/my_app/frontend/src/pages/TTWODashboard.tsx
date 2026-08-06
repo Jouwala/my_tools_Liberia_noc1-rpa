@@ -15,6 +15,7 @@ import api from '../api'
 import { useI18n } from '../i18n'
 import { useDataTimestamps } from '../useDataTimestamps'
 import DraggableClickModal from '../components/DraggableClickModal'
+import { ExplainIcon } from '../components/MetricExplain'
 import { WH, WH_COLORS, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
 
 const { RangePicker } = DatePicker
@@ -35,7 +36,7 @@ const SEVERITY_COLORS = {
 const cardTitleStyle = { fontSize: 14, fontWeight: 600, color: WH.text } as const
 
 // 分区标题样式
-const SectionTitle = ({ icon, title }: { icon: React.ReactNode; title: string }) => (
+const SectionTitle = ({ icon, title, explain }: { icon: React.ReactNode; title: string; explain?: string }) => (
   <div style={{
     display: 'flex', alignItems: 'center', gap: 10,
     margin: '28px 0 16px', padding: '0 0 10px',
@@ -48,6 +49,7 @@ const SectionTitle = ({ icon, title }: { icon: React.ReactNode; title: string })
       color: '#06222e', fontSize: 14,
     }}>{icon}</span>
     <span style={{ fontSize: 16, fontWeight: 700, color: WH.text, letterSpacing: '-0.3px' }}>{title}</span>
+    {explain && <ExplainIcon text={explain} size={14} />}
   </div>
 )
 
@@ -478,9 +480,14 @@ export default function TTWODashboard() {
   const sevLabel = sevDimension === 'alarm_severity' ? 'Alarm Severity' : 'Category'
 
   // 暗色汇总卡片生成器
-  const SummaryCard = ({ color, icon, value, label, onClick }: { color: string; icon: React.ReactNode; value: number; label: string; onClick?: (e: React.MouseEvent) => void }) => (
-    <Card size="small" hoverable style={{ ...cardStyle, cursor: onClick ? 'pointer' : 'default', borderLeft: `4px solid ${color}` }}
+  const SummaryCard = ({ color, icon, value, label, onClick, explain }: { color: string; icon: React.ReactNode; value: number; label: string; onClick?: (e: React.MouseEvent) => void; explain?: string }) => (
+    <Card size="small" hoverable style={{ ...cardStyle, position: 'relative', cursor: onClick ? 'pointer' : 'default', borderLeft: `4px solid ${color}` }}
       onClick={onClick}>
+      {explain && (
+        <span style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, cursor: 'help' }} onClick={e => e.stopPropagation()}>
+          <ExplainIcon text={explain} />
+        </span>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Statistic title={<span style={{ color: WH.textMuted }}>{label}</span>} value={value} valueStyle={{ fontSize: 32, fontWeight: 800, color, textShadow: `0 0 14px ${color}55` }} />
         <span style={{ fontSize: 40, opacity: 0.15, color }}>{icon}</span>
@@ -530,13 +537,13 @@ export default function TTWODashboard() {
       {/* 汇总卡片 */}
       <Row gutter={16}>
         <Col span={data.summary.wo_total > 0 ? 8 : 24}>
-          <SummaryCard color="#4fc3f7" icon={<ThunderboltOutlined />} value={data.summary.tt_total} label="TT Total" onClick={(e) => openDrilldown(e, 'all_tt')} />
+          <SummaryCard color="#4fc3f7" icon={<ThunderboltOutlined />} value={data.summary.tt_total} label="TT Total" explain={t('ttwo.explain.ttTotal')} onClick={(e) => openDrilldown(e, 'all_tt')} />
         </Col>
         {data.summary.wo_total > 0 && <Col span={8}>
-          <SummaryCard color="#51cf66" icon={<FileTextOutlined />} value={data.summary.wo_total} label="WO Total" onClick={(e) => openDrilldown(e, 'all_wo')} />
+          <SummaryCard color="#51cf66" icon={<FileTextOutlined />} value={data.summary.wo_total} label="WO Total" explain={t('ttwo.explain.woTotal')} onClick={(e) => openDrilldown(e, 'all_wo')} />
         </Col>}
         {data.summary.wo_total > 0 && <Col span={8}>
-          <SummaryCard color="#b197fc" icon={<NumberOutlined />} value={data.summary.wo_no_count} label="WO No. (Unique)" onClick={(e) => openDrilldown(e, 'all_wo')} />
+          <SummaryCard color="#b197fc" icon={<NumberOutlined />} value={data.summary.wo_no_count} label="WO No. (Unique)" explain={t('ttwo.explain.woNo')} onClick={(e) => openDrilldown(e, 'all_wo')} />
         </Col>}
       </Row>
 
@@ -544,17 +551,17 @@ export default function TTWODashboard() {
       <SectionTitle icon={<AlertOutlined />} title="TT Statistics" />
       <Row gutter={[16, 16]}>
         <Col span={8}>
-          <Card size="small" title={<span style={cardTitleStyle}>{sevLabel}</span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
+          <Card size="small" title={<span style={cardTitleStyle}>{sevLabel} <ExplainIcon text={t('ttwo.explain.severity')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
             {renderStatTags(sevStats, sevColor, sevDimension)}
           </Card>
         </Col>
         <Col span={8}>
-          <Card size="small" title={<span style={cardTitleStyle}>Ticket Severity</span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
+          <Card size="small" title={<span style={cardTitleStyle}>Ticket Severity <ExplainIcon text={t('ttwo.explain.ticketSeverity')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
             {renderStatTags(s.ticket_severity, ticketColor, 'ticket_severity')}
           </Card>
         </Col>
         <Col span={8}>
-          <Card size="small" title={<span style={cardTitleStyle}>SLA Status</span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
+          <Card size="small" title={<span style={cardTitleStyle}>SLA Status <ExplainIcon text={t('ttwo.explain.sla')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
             {renderStatTags(s.sla_status, slaColor, 'sla_status')}
           </Card>
         </Col>
@@ -564,7 +571,7 @@ export default function TTWODashboard() {
       </Card>
 
       {/* MTTR 周趋势 */}
-      <SectionTitle icon={<BarChartOutlined />} title="MTTR Weekly Trend" />
+      <SectionTitle icon={<BarChartOutlined />} title="MTTR Weekly Trend" explain={t('ttwo.explain.mttr')} />
       <Card size="small" style={cardStyle}>
         <div role="img" aria-label="MTTR Weekly Trend chart">
           <ReactECharts option={mttrOption} style={{ height: CHART_HEIGHT }}
@@ -584,7 +591,7 @@ export default function TTWODashboard() {
           </Card>
         </Col>
         <Col span={7}>
-          <Card title={<span style={cardTitleStyle}>Root Cause (Main)</span>} size="small" style={cardStyle}>
+          <Card title={<span style={cardTitleStyle}>Root Cause (Main) <ExplainIcon text={t('ttwo.explain.rootCause')} /></span>} size="small" style={cardStyle}>
             <div role="img" aria-label="Root Cause Main chart">
               <ReactECharts option={rcMainOption} style={{ height: CHART_HEIGHT }}
                 onEvents={onChartClick('rc_main')} />
@@ -592,7 +599,7 @@ export default function TTWODashboard() {
           </Card>
         </Col>
         <Col span={7}>
-          <Card title={<span style={cardTitleStyle}>Root Cause (Sub)</span>} size="small" style={cardStyle}>
+          <Card title={<span style={cardTitleStyle}>Root Cause (Sub) <ExplainIcon text={t('ttwo.explain.rootCause')} /></span>} size="small" style={cardStyle}>
             <div role="img" aria-label="Root Cause Sub chart">
               <ReactECharts option={rcSubOption} style={{ height: CHART_HEIGHT }}
                 onEvents={onChartClick('rc_sub')} />

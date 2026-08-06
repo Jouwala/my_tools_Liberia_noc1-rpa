@@ -16,18 +16,44 @@ logger = logging.getLogger("ip_trace_router")
 router = APIRouter(prefix="/api/ip-trace", tags=["ip-trace"])
 
 
-@router.post("/trace")
-async def trace(request: Request):
+async def _parse_body(request: Request) -> dict:
+    """兼容解析请求体：前端 /trace、/stop 沿用 Flask 时代的 FormData（multipart），
+    /analyze 等使用 JSON。先按 content-type 选择解析方式，失败时回退另一种。"""
+    ctype = (request.headers.get("content-type") or "").lower()
+    if ctype.startswith("multipart/form-data") or ctype.startswith("application/x-www-form-urlencoded"):
+        try:
+            form = await request.form()
+            return {k: v for k, v in form.items()}
+        except Exception:  # noqa: BLE001
+            pass
     try:
         body = await request.json()
+        if isinstance(body, dict):
+            return body
     except Exception:  # noqa: BLE001
-        body = {}
+        # JSON 解析失败时再尝试按 form 解析（无 content-type 或异常格式）
+        try:
+            form = await request.form()
+            return {k: v for k, v in form.items()}
+        except Exception:  # noqa: BLE001
+            pass
+    return {}
+
+
+def _get_session_id(body: dict, request: Request) -> str:
+    """session_id 优先取请求体，回退到 X-Session-ID 请求头"""
+    return body.get("session_id") or request.headers.get("X-Session-ID") or ""
+
+
+@router.post("/trace")
+async def trace(request: Request):
+    body = await _parse_body(request)
     target = body.get("target") or body.get("host")
-    session_id = body.get("session_id")
+    session_id = _get_session_id(body, request)
     if not target:
         return JSONResponse(status_code=400, content={"error": "Target hostname is required"})
     try:
-        return svc.start_trace(target, session_id)
+        return svc.start_trace(target, session_id or None)
     except Exception as e:  # noqa: BLE001
         logger.exception("start_trace 失败")
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -35,11 +61,8 @@ async def trace(request: Request):
 
 @router.post("/stop")
 async def stop(request: Request):
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    session_id = body.get("session_id")
+    body = await _parse_body(request)
+    session_id = _get_session_id(body, request)
     if not session_id:
         return JSONResponse(status_code=400, content={"error": "Session ID is required"})
     return svc.stop_trace(session_id)
@@ -57,11 +80,8 @@ def status(session_id: str = ""):
 
 @router.post("/analyze")
 async def analyze(request: Request):
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    session_id = body.get("session_id")
+    body = await _parse_body(request)
+    session_id = _get_session_id(body, request)
     if not session_id:
         return JSONResponse(status_code=400, content={"error": "Session ID is required"})
     try:

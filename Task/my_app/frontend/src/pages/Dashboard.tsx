@@ -4,6 +4,7 @@ import { FilterOutlined, FilterFilled } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
 import { useI18n } from '../i18n'
+import { ExplainIcon } from '../components/MetricExplain'
 import { useDataTimestamps } from '../useDataTimestamps'
 import { WH, WH_COLORS, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
 
@@ -318,6 +319,7 @@ export default function Dashboard() {
                 {t('dashboard.currentFilter')}: {linkedFilter.column} = {linkedFilter.value}
               </Tag>
             )}
+            <ExplainIcon text={t('dashboard.explain.note')} size={14} />
             <Tooltip title={t('datasource.lastSync')}>
               <Tag color={isSynced ? 'green' : 'red'} style={{ borderRadius: 12, padding: '2px 12px' }}>
                 {isSynced ? t('datasource.synced') : t('datasource.notSynced')}

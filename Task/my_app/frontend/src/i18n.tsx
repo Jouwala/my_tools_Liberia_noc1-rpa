@@ -22,6 +22,51 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.ipTrace': 'IP 链路探测',
     'nav.incidentOverview': '事件总览',
 
+    // 通用计算说明（备注气泡）
+    'explain.copy': '复制说明',
+    'explain.copied': '已复制 ✓',
+
+    // 电池看板备注
+    'batt.explain.title': '数据源：battery_kpi.sqlite3（UME r32.uedm.batt 实时数据，battery_kpi_sync 每小时同步）。\n所有均值/状态/低电量指标默认只统计新鲜（≤24h）子集，否则平均值会被历史读数污染（例：不过滤时「放电中」338 块，过滤后仅 24 块）。\n「放电中」= 站点市电中断的代理指标。',
+
+    // 实时告警看板备注
+    'alarm.explain.totalAlarms': '当前活动告警数 = realtime_alarm 表全量快照（无时间过滤），反映尚未清除的实时告警。',
+    'alarm.explain.affectedSites': '受影响站点 = realtime_alarm 中非空的 site_id 去重计数。',
+    'alarm.explain.totalHours': '告警累计时长 = 所有活动告警的 durationname（d/h/min/s）解析为小时后的总和。',
+    'alarm.explain.critical': '活动告警中 perceivedseverity = 1（Critical）。严重等级：1=Critical, 2=Major, 3=Warning, 4=Info。',
+    'alarm.explain.historyTotal': '历史告警 = history_alarm 表行数（已清除的历史告警）。',
+    'alarm.explain.dispatchDelay': '派单延迟(Eflow)：history_alarm 中 (assigned_time − servertime) 超过 assign_delay × 1.1 的记录数。',
+    'alarm.explain.fetchDelay': '告警获取延迟：history_alarm 中 (servertime − alarmraisedtime) > 5 分钟的记录数。',
+    'alarm.explain.dispatchOverdue': '派单超时：history_alarm 中 (assigned_time − alarmraisedtime) > 5 分钟且超过 assign_delay × 1.1 的记录数。',
+    'alarm.explain.withTT': '携带工单：history_alarm 中 tt_id 非空（非 "-"/空）的记录数。',
+    'alarm.explain.duration': '告警持续时长分布：0–2 / 2–4 / 4–6 / 6–12 / 12–24 / ≥24 小时分桶。\n注意：末桶标注 ">48" 实际捕获所有 ≥24 小时的告警。',
+    'alarm.explain.mainsDuration': '与持续时长分布口径一致，但仅统计 transmission_type = "MW"（微波市电中断）的告警。',
+    'alarm.explain.tech': '按技术制式分组：由 type 正则 -(\\d+G) 推断，否则由 restypename 推断（ENODEB/GNB→4G, NODEB→3G, BTS→2G）。',
+    'alarm.explain.region': '按 2 位区域码（利比里亚 15 个州）分组的告警数；未映射区域 "--" 已排除。',
+
+    // TT&WO 看板备注
+    'ttwo.explain.ttTotal': 'TT 总数 = eflow_tt 在筛选后的行数。时间过滤作用于 alarm_occur_time（time_end 为排他，+1 天）；区域过滤通过 site 表 JOIN site_id/site_name。',
+    'ttwo.explain.woTotal': 'WO 总数 = eflow_wo 行数；若 WO 表不存在则为 0。',
+    'ttwo.explain.woNo': '唯一工单号 = TT 行中非空 wo_no 的去重计数。',
+    'ttwo.explain.mttr': 'MTTR = 按发生时间所在 ISO 周聚合的 (alarm_clear_time − alarm_occur_time) 分钟均值。排除时长 ≤0 或 ≥43200 分钟（30 天）的异常值。',
+    'ttwo.explain.severity': 'TT 按 alarm_severity 计数（若该字段为空则回退到 category）。',
+    'ttwo.explain.ticketSeverity': 'TT 按 ticket_severity 计数。',
+    'ttwo.explain.sla': 'TT 按 sla_status 计数。',
+    'ttwo.explain.status': 'TT 按 status 计数。',
+    'ttwo.explain.rootCause': '根因来自 eflow_wo.rc_main_category / rc_sub_category；若无 WO 表则回退到 eflow_tt.root_cause / sub_root_cause。',
+    'ttwo.explain.siteInfo': '站点信息 = 仅在筛选后 TT 集合出现的站点中，power_sources / power_vendor / 维护团队 / site_class 的 Top-15 计数。',
+
+    // 数据总览备注
+    'overview.explain.totalTables': '数据库用户表数量（sqlite_master 计数，排除 sqlite_% 内部表及以 _ 开头的表）。',
+    'overview.explain.totalRows': '所有用户表 COUNT(*) 之和。无时间或状态过滤，为数据库全量快照。',
+    'overview.explain.coreTables': '非 _ 开头的用户表（排除分析/归档/内部表）。',
+
+    // GIS 地图备注
+    'gis.explain.note': '历史模式：按 alarm_occur_time 聚合 TT/WO，时间窗结束为排他（+1 天）；仅含经纬度非空且非 0 的站点。\n实时模式：仅展示存在 ≥1 条实时告警的站点（无时间过滤）；超时判定为 (当前时间 − servertime) > assign_delay（此处无 1.1 容差）。\n标记大小由 tt_count + wo_count 决定（>50→10, >20→8, >5→6）。',
+
+    // 分析仪表盘备注
+    'dashboard.explain.note': '图表由所选表的字段画像自动生成（分布 / 均值对比 / 趋势 / 质量雷达 / SLA·状态热力图），非固定 KPI。\n联动筛选：点击饼图/柱图扇区可下钻过滤同列数据。',
+
     // 仓库看板（SP 备件）
     'sp.lastSync': '最近同步',
     'sp.inbound': 'Inbound 工单',
@@ -315,7 +360,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'pl.topSitesSub': '按近1天中位丢包率排序',
     'pl.topSitesTitle': 'Top 站点（近1天中位丢包率）',
     'pl.map': '丢包地图',
-    'pl.mapSites': '{n} 个站点',
+    'pl.mapAffected': 'Affected Sites: {n}（Critical + Major）',
     'pl.topology': '拓扑显示',
     'pl.showOk': '显示正常站点',
     'pl.popup.status': '状态',
@@ -432,6 +477,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'batt.discharging': '放电中',
     'batt.historyPoints': '历史读数',
     'batt.freshness': '时效',
+    'batt.count': '计数',
+    'batt.samples': '样本数',
 
     // Archive
     'archive.searchPlaceholder': '搜索分析名称、描述、结论...',
@@ -469,6 +516,51 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.sp': 'Warehouse',
     'nav.ipTrace': 'IP Trace',
     'nav.incidentOverview': 'Incident Overview',
+
+    // Common explanation (remark popover)
+    'explain.copy': 'Copy explanation',
+    'explain.copied': 'Copied ✓',
+
+    // Battery Dashboard remarks
+    'batt.explain.title': 'Source: battery_kpi.sqlite3 (UME r32.uedm.batt live data, synced hourly by battery_kpi_sync).\nAll mean/status/low-SOC metrics count only the fresh (≤24h) subset by default; otherwise historical readings bias the average (e.g. "Discharging" drops from 338 to 24 after filtering).\n"Discharging" is a proxy for mains outage at the site.',
+
+    // Real-time Alarm Dashboard remarks
+    'alarm.explain.totalAlarms': 'Active alarms = full snapshot of the realtime_alarm table (no time filter), i.e. currently un-cleared real-time alarms.',
+    'alarm.explain.affectedSites': 'Affected sites = distinct non-null site_id across active alarms.',
+    'alarm.explain.totalHours': 'Total alarm hours = sum of alarm durations parsed from durationname (d/h/min/s) across all active alarms.',
+    'alarm.explain.critical': 'Active alarms with perceivedseverity = 1 (Critical). Scale: 1=Critical, 2=Major, 3=Warning, 4=Info.',
+    'alarm.explain.historyTotal': 'History alarms = row count of history_alarm (already-cleared historical alarms).',
+    'alarm.explain.dispatchDelay': 'Dispatch Delay (Eflow): history_alarm rows where (assigned_time − servertime) exceeds assign_delay × 1.1.',
+    'alarm.explain.fetchDelay': 'Alarm Fetch Delay: history_alarm rows where (servertime − alarmraisedtime) > 5 minutes.',
+    'alarm.explain.dispatchOverdue': 'Dispatch Overdue: history_alarm rows where (assigned_time − alarmraisedtime) > 5 min AND exceeds assign_delay × 1.1.',
+    'alarm.explain.withTT': 'With TT: history_alarm rows whose tt_id is non-empty (not "-"/blank).',
+    'alarm.explain.duration': 'Alarm duration distribution: buckets 0–2 / 2–4 / 4–6 / 6–12 / 12–24 / ≥24 hours.\nNote: the last bucket is labelled ">48" but actually captures everything ≥24h.',
+    'alarm.explain.mainsDuration': 'Same as duration distribution but filtered to transmission_type = "MW" (microwave mains failure).',
+    'alarm.explain.tech': 'Grouped by technology: inferred from type regex -(\\d+G), else from restypename (ENODEB/GNB→4G, NODEB→3G, BTS→2G).',
+    'alarm.explain.region': 'Alarms grouped by 2-letter region code (15 Liberia counties); unmapped region "--" excluded.',
+
+    // TT&WO Dashboard remarks
+    'ttwo.explain.ttTotal': 'TT Total = row count of eflow_tt after filters. Time filter applies to alarm_occur_time (time_end exclusive +1 day); region filter JOINs the site table on site_id/site_name.',
+    'ttwo.explain.woTotal': 'WO Total = row count of eflow_wo; 0 if the WO table is absent.',
+    'ttwo.explain.woNo': 'Unique WO No. = distinct non-empty wo_no among TT rows.',
+    'ttwo.explain.mttr': 'MTTR = mean of (alarm_clear_time − alarm_occur_time) in minutes, grouped by ISO week of occur time. Excludes durations ≤0 or ≥43200 min (30 days).',
+    'ttwo.explain.severity': 'TT counts by alarm_severity (falls back to category if empty).',
+    'ttwo.explain.ticketSeverity': 'TT counts by ticket_severity.',
+    'ttwo.explain.sla': 'TT counts by sla_status.',
+    'ttwo.explain.status': 'TT counts by status.',
+    'ttwo.explain.rootCause': 'Root cause from eflow_wo.rc_main_category / rc_sub_category; if no WO table, falls back to eflow_tt.root_cause / sub_root_cause.',
+    'ttwo.explain.siteInfo': 'Site Info = Top-15 counts of power_sources / power_vendor / maintenance team / site_class, only for sites appearing in the filtered TT set.',
+
+    // Data Overview remarks
+    'overview.explain.totalTables': 'Number of user tables in the database (sqlite_master count, excluding sqlite_% internal tables and tables starting with _).',
+    'overview.explain.totalRows': 'Sum of COUNT(*) across every user table. No time or status filter — a full snapshot of the database.',
+    'overview.explain.coreTables': 'User tables not starting with _ (excludes analysis/archive/internal tables).',
+
+    // GIS Map remarks
+    'gis.explain.note': 'Historic mode: TT/WO aggregated by alarm_occur_time, time window end is exclusive (+1 day); only sites with non-null, non-zero lat/lng are included.\nRealtime mode: shows only sites with ≥1 realtime alarm (no time filter); overdue = (now − servertime) > assign_delay (no 1.1 tolerance here).\nMarker size from tt_count + wo_count (>50→10, >20→8, >5→6).',
+
+    // Analysis Dashboard remarks
+    'dashboard.explain.note': 'Charts are auto-generated from the selected table\'s column profile (distribution / mean comparison / trend / quality radar / SLA·status heatmap), not fixed KPIs.\nLinked filter: click a pie/bar slice to drill down and filter by that column.',
 
     // Warehouse Dashboard (SP spare parts)
     'sp.lastSync': 'Last sync',
@@ -586,6 +678,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.regionFilter': 'Region filter:',
     'gis.allRegions': 'All Regions',
     'gis.totalSites': 'Total Sites',
+    'gis.exportSuccess': 'Export succeeded',
     'gis.legend.tt': 'TT',
     'gis.legend.wo': 'WO',
     'gis.legend.vip': 'VIP Site',
@@ -762,7 +855,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'pl.topSitesSub': 'worst sites by last-1-day median PL',
     'pl.topSitesTitle': 'Top Sites (Last-1-day Median PL)',
     'pl.map': 'Packet Loss Map',
-    'pl.mapSites': '{n} sites',
+    'pl.mapAffected': 'Affected Sites: {n} (Critical + Major)',
     'pl.topology': 'Topology',
     'pl.showOk': 'Show OK sites',
     'pl.popup.status': 'Status',
@@ -879,6 +972,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'batt.discharging': 'Discharging',
     'batt.historyPoints': 'History points',
     'batt.freshness': 'Freshness',
+    'batt.count': 'Count',
+    'batt.samples': 'Samples',
 
     // Archive
     'archive.searchPlaceholder': 'Search analysis name, description, conclusions...',

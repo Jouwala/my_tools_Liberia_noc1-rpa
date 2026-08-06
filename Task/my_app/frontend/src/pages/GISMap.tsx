@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css'
 import dayjs, { Dayjs } from 'dayjs'
 import api from '../api'
 import { useI18n } from '../i18n'
+import { ExplainIcon } from '../components/MetricExplain'
 import { useDataTimestamps } from '../useDataTimestamps'
 import { WH, WH_COLORS, cardStyle, controlCardStyle, pageWrap } from '../theme'
 import { MapController } from './gismap/MapController'
@@ -332,6 +333,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 <Switch size="small" checked={showRegions} onChange={setShowRegions} />
                 <span style={{ fontSize: 13, color: WH.text }}>{t('gis.regionOverlay')}</span>
               </Space>
+              <ExplainIcon text={t('gis.explain.note')} size={14} />
             </Space>
           </Col>
           <Col>

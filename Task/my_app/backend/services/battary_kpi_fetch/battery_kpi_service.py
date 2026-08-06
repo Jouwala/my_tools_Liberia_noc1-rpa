@@ -46,6 +46,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import shutil
 import sqlite3
 import time
 from datetime import datetime, timedelta
@@ -385,6 +386,8 @@ def save_rows(rows: list[dict], snapshot_ts: str) -> dict:
 BATT_OUTPUT_DIR = Path(__file__).resolve().parent / "output_socket"
 # 远程 FTP 收件人名单目录（内含 ss_email.txt 主送 / cc_email.txt 抄送）
 BATT_EMAIL_REMOTE = "/01_RPA/LBR_Tools/KPI/Battary/battary_email"
+# Excel 备份目录：Battery KPI Email 任务把生成的 Excel 复制到这里作为备份数据（目录不存在自动创建）
+BATT_BACKUP_DIR = Path(os.environ.get("BATT_BACKUP_DIR", r"d:\01_RPA\LBR_Tools\KPI\Battary\data_bak"))
 
 SEV_ORDER = {"Critical": 0, "Major": 1, "Minor": 2, "OK": 3}
 
@@ -948,6 +951,33 @@ def export_battery_dashboard_image(report: dict | None = None,
 
 
 # ---------------------------------------------------------------------------
+# Excel 备份（Battery KPI Email 任务附加步骤）
+# ---------------------------------------------------------------------------
+
+def backup_battery_excel(src: str | Path) -> Path | None:
+    """把生成的电池 Excel 复制到备份目录（data_bak）作为备份数据。
+
+    - 目录不存在则自动创建（parents=True）。
+    - 复制失败仅记录警告并返回 None，**不影响邮件发送**。
+    - 源文件名已带时间戳，备份目录会天然保留每次运行的独立副本。
+    返回备份文件路径；失败/源缺失时返回 None。
+    """
+    src = Path(src)
+    if not src.exists():
+        logger.warning(f"[Battery] 备份跳过：源文件不存在 {src}")
+        return None
+    try:
+        BATT_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        dst = BATT_BACKUP_DIR / src.name
+        shutil.copy2(src, dst)
+        logger.info(f"[Battery] Excel 已备份至: {dst}")
+        return dst
+    except Exception as e:
+        logger.warning(f"[Battery] Excel 备份失败 {src} -> {BATT_BACKUP_DIR}: {e}")
+        return None
+
+
+# ---------------------------------------------------------------------------
 # 跨进程互斥锁（避免同一时刻两个 run_battery_email 并发清理互相删掉对方正在发送的 --excel）
 # ---------------------------------------------------------------------------
 try:
@@ -1027,6 +1057,9 @@ def _run_battery_email_impl(to: str | None = None, cc: str | None = None) -> dic
     except Exception as e:
         return {"success": False, "error": f"导出 Excel 失败: {e}"}
 
+    # 1.5) 备份 Excel 到 data_bak（失败仅警告，不影响邮件发送）
+    backup_dst = backup_battery_excel(excel_path)
+
     try:
         img_path = export_battery_dashboard_image(report=report)
     except Exception as e:
@@ -1059,6 +1092,7 @@ def _run_battery_email_impl(to: str | None = None, cc: str | None = None) -> dic
     )
     res["elapsed_sec"] = round(time.time() - started, 2)
     res["report"] = str(excel_path)
+    res["backup"] = str(backup_dst) if backup_dst else None
     res["recipients_to"] = to_arg
     logger.info(f"[Battery] 邮件发送结果: {res}")
     return res

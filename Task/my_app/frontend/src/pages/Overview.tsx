@@ -4,6 +4,7 @@ import { DatabaseOutlined, TableOutlined, FieldNumberOutlined, CheckCircleOutlin
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
 import { useI18n } from '../i18n'
+import { ExplainIcon } from '../components/MetricExplain'
 import { WH, WH_COLORS, cardStyle, pageWrap } from '../theme'
 
 interface DbInfo {
@@ -74,7 +75,7 @@ export default function Overview() {
         <Col span={6}>
           <Card style={cardStyle}>
             <Statistic
-              title={<span style={{ color: WH.textMuted }}>{t('overview.totalTables')}</span>}
+              title={<span style={{ color: WH.textMuted }}>{t('overview.totalTables')} <ExplainIcon text={t('overview.explain.totalTables')} /></span>}
               value={info.total_tables}
               prefix={<TableOutlined style={{ color: WH.teal }} />}
               valueStyle={{ color: WH.teal, fontWeight: 700 }}
@@ -84,7 +85,7 @@ export default function Overview() {
         <Col span={6}>
           <Card style={cardStyle}>
             <Statistic
-              title={<span style={{ color: WH.textMuted }}>{t('overview.totalRows')}</span>}
+              title={<span style={{ color: WH.textMuted }}>{t('overview.totalRows')} <ExplainIcon text={t('overview.explain.totalRows')} /></span>}
               value={info.total_rows}
               prefix={<FieldNumberOutlined style={{ color: WH.blue }} />}
               valueStyle={{ color: WH.blue, fontWeight: 700 }}
@@ -94,7 +95,7 @@ export default function Overview() {
         <Col span={6}>
           <Card style={cardStyle}>
             <Statistic
-              title={<span style={{ color: WH.textMuted }}>{t('overview.coreTables')}</span>}
+              title={<span style={{ color: WH.textMuted }}>{t('overview.coreTables')} <ExplainIcon text={t('overview.explain.coreTables')} /></span>}
               value={info.tables.filter(t => !t.name.startsWith('_')).length}
               prefix={<DatabaseOutlined style={{ color: WH.indigo }} />}
               valueStyle={{ color: WH.indigo, fontWeight: 700 }}

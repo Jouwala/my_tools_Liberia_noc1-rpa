@@ -26,6 +26,7 @@ import dayjs from 'dayjs'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { WH, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, pageWrap } from '../theme'
+import { ExplainIcon } from '../components/MetricExplain'
 
 const SEV_COLORS: Record<string, string> = {
   Critical: '#ff4757',
@@ -86,24 +87,27 @@ const KpiCard = ({ value, label, sub, color, icon, hint }: {
   value: React.ReactNode; label: string; sub?: string; color: string
   icon: React.ReactNode; hint?: string
 }) => (
-  <ATooltip title={hint} mouseEnterDelay={0.2}>
-    <Card size="small" style={{
-      ...cardStyle, position: 'relative', overflow: 'hidden', height: '100%',
-    }}>
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: color, opacity: 0.9 }} />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{
-            fontSize: 26, fontWeight: 800, color, lineHeight: 1.2,
-            textShadow: `0 0 14px ${color}55`, whiteSpace: 'nowrap',
-          }}>{value}</div>
-          <div style={{ fontSize: 12, color: WH.textMuted, marginTop: 4, fontWeight: 500 }}>{label}</div>
-          {sub && <div style={{ fontSize: 11, color: WH.textDim, marginTop: 2 }}>{sub}</div>}
-        </div>
-        <span style={{ fontSize: 34, opacity: 0.16, color }}>{icon}</span>
+  <Card size="small" style={{
+    ...cardStyle, position: 'relative', overflow: 'hidden', height: '100%',
+  }}>
+    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: color, opacity: 0.9 }} />
+    {hint && (
+      <span style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, cursor: 'help' }}>
+        <ExplainIcon text={hint} />
+      </span>
+    )}
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{
+          fontSize: 26, fontWeight: 800, color, lineHeight: 1.2,
+          textShadow: `0 0 14px ${color}55`, whiteSpace: 'nowrap',
+        }}>{value}</div>
+        <div style={{ fontSize: 12, color: WH.textMuted, marginTop: 4, fontWeight: 500 }}>{label}</div>
+        {sub && <div style={{ fontSize: 11, color: WH.textDim, marginTop: 2 }}>{sub}</div>}
       </div>
-    </Card>
-  </ATooltip>
+      <span style={{ fontSize: 34, opacity: 0.16, color }}>{icon}</span>
+    </div>
+  </Card>
 )
 
 interface Battery {
@@ -537,6 +541,7 @@ export default function BatteryDashboard() {
           <span style={{ fontSize: 15, fontWeight: 700, color: WH.text }}>
             <ThunderboltOutlined style={{ color: WH.teal, marginRight: 8 }} />{t('batt.title')}
           </span>
+          <ExplainIcon text={t('batt.explain.title')} size={15} />
           <Tag color="cyan" style={{ border: 'none' }}>
             <ClockCircleOutlined /> {t('batt.lastSync')}: {data.meta.last_sync_ts || '--'}
           </Tag>

@@ -16,6 +16,7 @@ import api from '../api'
 import { cachedGet } from '../cache'
 import { useI18n } from '../i18n'
 import DraggableClickModal from '../components/DraggableClickModal'
+import { ExplainCorner, ExplainIcon } from '../components/MetricExplain'
 
 // ========== Warehouse 风格设计令牌 ==========
 const WH = {
@@ -65,8 +66,8 @@ const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: stri
 )
 
 // 顶部概览卡片（可下钻）
-const SummaryCard = ({ icon, value, label, color, onClick }: {
-  icon: React.ReactNode; value: string | number; label: string; color: string; onClick: () => void
+const SummaryCard = ({ icon, value, label, color, onClick, explain }: {
+  icon: React.ReactNode; value: string | number; label: string; color: string; onClick: () => void; explain?: string
 }) => (
   <Card size="small" hoverable onClick={onClick} style={{
     background: WH.cardBg, border: WH.cardBorder, borderRadius: 12,
@@ -77,6 +78,7 @@ const SummaryCard = ({ icon, value, label, color, onClick }: {
     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorder }}
   >
     <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: WH.accentGrad, opacity: 0.9 }} />
+    {explain && <ExplainCorner text={explain} />}
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div>
         <div style={{ fontSize: 30, fontWeight: 800, color, lineHeight: 1.2, textShadow: `0 0 14px ${color}55` }}>{value}</div>
@@ -91,9 +93,9 @@ const SummaryCard = ({ icon, value, label, color, onClick }: {
 )
 
 // 历史告警指标卡片（可点击下钻）
-const HistoryMetricCard = ({ icon, value, label, sub, color, onClick }: {
+const HistoryMetricCard = ({ icon, value, label, sub, color, onClick, explain }: {
   icon: React.ReactNode; value: string | number; label: string; sub: string;
-  color: string; onClick: (e?: React.MouseEvent) => void
+  color: string; onClick: (e?: React.MouseEvent) => void; explain?: string
 }) => {
   const { t } = useI18n()
   return (
@@ -106,6 +108,7 @@ const HistoryMetricCard = ({ icon, value, label, sub, color, onClick }: {
     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorder }}
   >
     <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: WH.accentGrad, opacity: 0.9 }} />
+    {explain && <ExplainCorner text={explain} />}
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 26, fontWeight: 800, color, lineHeight: 1.2, textShadow: `0 0 14px ${color}55` }}>{value}</div>
@@ -463,6 +466,7 @@ export default function AlarmDashboard() {
             value={fmt(data.total_alarms)}
             label="Total Active Alarms"
             color={WH.teal}
+            explain={t('alarm.explain.totalAlarms')}
             onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'all', title: 'Total Active Alarms' })} />
         </Col>
         <Col span={6}>
@@ -471,6 +475,7 @@ export default function AlarmDashboard() {
             value={fmt(data.affected_sites)}
             label="Affected Sites"
             color={WH.blue}
+            explain={t('alarm.explain.affectedSites')}
             onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'all', title: 'Affected Sites (all active alarms)' })} />
         </Col>
         <Col span={6}>
@@ -479,6 +484,7 @@ export default function AlarmDashboard() {
             value={fmt(data.total_alarm_hours)}
             label="Total Alarm Hours"
             color={WH.indigo}
+            explain={t('alarm.explain.totalHours')}
             onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'all', title: 'Total Alarm Hours (all active alarms)' })} />
         </Col>
         <Col span={6}>
@@ -487,6 +493,7 @@ export default function AlarmDashboard() {
             value={fmt(sevStats.Critical || 0)}
             label="Critical Alerts"
             color={WH.sev.Critical}
+            explain={t('alarm.explain.critical')}
             onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'severity', value: 'Critical', title: 'Critical Alerts' })} />
         </Col>
       </Row>
@@ -501,6 +508,7 @@ export default function AlarmDashboard() {
             label="Total History Alarms"
             sub={t('alarm.dispatchedWithTT', { n: fmt(hist.with_tt || 0) })}
             color={WH.blue}
+            explain={t('alarm.explain.historyTotal')}
             onClick={(e) => openDrilldown(e, { source: 'history', metric: 'all', title: 'Total History Alarms' })} />
         </Col>
         <Col span={6}>
@@ -510,6 +518,7 @@ export default function AlarmDashboard() {
             label="Dispatch Delay (Eflow)"
             sub="Assigned - Server > Assign Delay +10%"
             color={WH.indigo}
+            explain={t('alarm.explain.dispatchDelay')}
             onClick={(e) => openDrilldown(e, { source: 'history', metric: 'dispatch_delay_eflow', title: 'Dispatch Delay (Eflow)' })} />
         </Col>
         <Col span={6}>
@@ -519,6 +528,7 @@ export default function AlarmDashboard() {
             label="Alarm Fetch Delay"
             sub="Server - AlarmRaised > 5 min"
             color={WH.teal}
+            explain={t('alarm.explain.fetchDelay')}
             onClick={(e) => openDrilldown(e, { source: 'history', metric: 'alarm_fetch_delay', title: 'Alarm Fetch Delay' })} />
         </Col>
         <Col span={6}>
@@ -528,6 +538,7 @@ export default function AlarmDashboard() {
             label="Dispatch Overdue Total"
             sub={t('alarm.overdueDesc')}
             color={WH.sev.Critical}
+            explain={t('alarm.explain.dispatchOverdue')}
             onClick={(e) => openDrilldown(e, { source: 'history', metric: 'dispatch_overdue_total', title: 'Dispatch Overdue Total' })} />
         </Col>
       </Row>
@@ -536,7 +547,7 @@ export default function AlarmDashboard() {
       <SectionTitle icon={<ApiOutlined />} title="Alarm Breakdown" sub="by Technology, Severity & Network Type" />
       <Row gutter={[12, 12]}>
         <Col span={8}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Technology Distribution</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Technology Distribution <ExplainIcon text={t('alarm.explain.tech')} /></span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
             <div role="img" aria-label="Technology Distribution chart"><ReactECharts option={techPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'tech', value: p.name, title: `Tech = ${p.name}` })) }} /></div>
           </Card>
         </Col>
@@ -590,12 +601,12 @@ export default function AlarmDashboard() {
       <SectionTitle icon={<BarChartOutlined />} title="Duration & Regional Distribution" sub="alarm persistence & geographic spread" />
       <Row gutter={[12, 12]}>
         <Col span={12}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Alarm Duration Distribution</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Alarm Duration Distribution <ExplainIcon text={t('alarm.explain.duration')} /></span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
             <div role="img" aria-label="Alarm Duration Distribution chart"><ReactECharts option={durationOption} style={{ height: CHART_HEIGHT + 30 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'duration', value: String(p.name), title: `Duration = ${p.name}` })) }} /></div>
           </Card>
         </Col>
         <Col span={12}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Alarms by Region</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Alarms by Region <ExplainIcon text={t('alarm.explain.region')} /></span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
             <div role="img" aria-label="Alarms by Region chart"><ReactECharts option={regionOption} style={{ height: CHART_HEIGHT + 30 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'region', value: String(p.name), title: `Region = ${p.name}` })) }} /></div>
           </Card>
         </Col>
