@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Query
 from backend.database import get_raw_connection, DB_PATH
+from backend.dialect_helpers import list_table_names, table_columns
 
 router = APIRouter(prefix="/api/tt-wo-dashboard", tags=["tt-wo-dashboard"])
 
@@ -17,9 +18,7 @@ def _detect_schema() -> dict:
         return _schema_cache
 
     with get_raw_connection() as conn:
-        tables = {r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+        tables = set(list_table_names(conn))
 
         # 站点表
         if "master_site_db" in tables:
@@ -30,7 +29,7 @@ def _detect_schema() -> dict:
             site_table = None
 
         # TT表字段检测
-        tt_cols = {r[1] for r in conn.execute("PRAGMA table_info(eflow_tt)").fetchall()} if "eflow_tt" in tables else set()
+        tt_cols = set(table_columns(conn, "eflow_tt")) if "eflow_tt" in tables else set()
 
         # 严重性字段: alarm_severity 或 category
         has_alarm_severity = "alarm_severity" in tt_cols
@@ -48,7 +47,7 @@ def _detect_schema() -> dict:
         # 站点表字段检测
         site_cols = set()
         if site_table:
-            site_cols = {r[1] for r in conn.execute(f"PRAGMA table_info({site_table})").fetchall()}
+            site_cols = set(table_columns(conn, site_table))
 
         # 站点统计字段映射
         site_stat_fields = {}
@@ -129,14 +128,14 @@ def tt_wo_dashboard_overview(
         region_params = []
         if region and S["site_table"]:
             sjf = S["site_join_field"]
-            region_join = f"JOIN {S['site_table']} ms ON t.{sjf} = ms.{sjf}"
+            region_join = f"JOIN {S['site_table']} ms ON t.{sjf} = CAST(ms.{sjf} AS TEXT)"
             region_where = " AND ms.region = ?"
             region_params = [region]
 
         region_join_wo = region_where_wo = ""
         if region and S["has_wo"] and S["site_table"]:
             sjf = S["site_join_field"]
-            region_join_wo = f"JOIN {S['site_table']} ms ON w.{sjf} = ms.{sjf}"
+            region_join_wo = f"JOIN {S['site_table']} ms ON w.{sjf} = CAST(ms.{sjf} AS TEXT)"
             region_where_wo = " AND ms.region = ?"
 
         tt_where = f"WHERE {tt_tf}{region_where}" if tt_tf else f"WHERE 1=1{region_where}"
@@ -241,7 +240,7 @@ def tt_wo_dashboard_overview(
                 rows = conn.execute(f"""
                     SELECT {select_fields}
                     FROM {S['site_table']}
-                    WHERE {S['site_join_field']} IN ({placeholders})
+                    WHERE CAST({S['site_join_field']} AS TEXT) IN ({placeholders})
                 """, site_params).fetchall()
                 field_keys = list(S["site_stat_fields"].keys())
                 for r in rows:
@@ -353,14 +352,14 @@ def tt_wo_drilldown(
         region_join_tt = region_where_tt = ""
         region_params_tt: list = []
         if region and S["site_table"]:
-            region_join_tt = f"JOIN {S['site_table']} ms ON t.{sjf} = ms.{sjf}"
+            region_join_tt = f"JOIN {S['site_table']} ms ON t.{sjf} = CAST(ms.{sjf} AS TEXT)"
             region_where_tt = " AND ms.region = ?"
             region_params_tt = [region]
 
         region_join_wo = region_where_wo = ""
         region_params_wo: list = []
         if region and S["has_wo"] and S["site_table"]:
-            region_join_wo = f"JOIN {S['site_table']} ms ON w.{sjf} = ms.{sjf}"
+            region_join_wo = f"JOIN {S['site_table']} ms ON w.{sjf} = CAST(ms.{sjf} AS TEXT)"
             region_where_wo = " AND ms.region = ?"
             region_params_wo = [region]
 

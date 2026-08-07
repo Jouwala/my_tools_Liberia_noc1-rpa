@@ -51,6 +51,7 @@ from openpyxl.formatting.rule import CellIsRule, FormulaRule, Rule
 from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.utils import get_column_letter
 from backend.database import get_raw_connection
+from backend.dialect_helpers import upsert
 
 logger = logging.getLogger("packet_loss_service")
 
@@ -288,7 +289,7 @@ def _init_db(conn: sqlite3.Connection):
     row = conn.execute("SELECT value FROM pl_meta WHERE key='value_scale'").fetchone()
     if row is None or row[0] != "percent":
         conn.execute('UPDATE packet_loss_data SET "Packet Loss Rate(%)" = "Packet Loss Rate(%)" * 100')
-        conn.execute("INSERT OR REPLACE INTO pl_meta (key, value) VALUES ('value_scale', 'percent')")
+        upsert(conn, "pl_meta", [{"key": "value_scale", "value": "percent"}], conflict_cols=["key"])
         logger.info("[PL] 已将历史丢包率数据 ×100 转为百分比数值")
     # 兼容旧表：补充 STATUS 列（要求2: OK/NOK）
     try:
@@ -700,15 +701,18 @@ def _save_summary_to_db(summary: pd.DataFrame, report_path: str, rows_written: i
                     float(r["LastDayMaxPL"]), float(r["TotalPL"]), int(r["AffectedHours"]),
                     r["FinalStatus"], r.get("STATUS", ""), now_iso,
                 ))
-            conn.executemany(
-                "INSERT OR REPLACE INTO site_pl_summary "
-                "(Site_Name,Site_Code,gateway,network_type,region,province_county,latitude,longitude,"
-                "LastDayMaxPL,TotalPL,AffectedHours,FinalStatus,STATUS,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                records)
-            conn.executemany(
-                "INSERT OR REPLACE INTO pl_meta (key, value) VALUES (?, ?)",
-                [("last_sync_time", now_iso), ("report_path", report_path),
-                 ("rows_written", str(rows_written)), ("total_sites", str(len(summary)))])
+            _site_cols = ["Site_Name", "Site_Code", "gateway", "network_type", "region",
+                          "province_county", "latitude", "longitude", "LastDayMaxPL",
+                          "TotalPL", "AffectedHours", "FinalStatus", "STATUS", "updated_at"]
+            upsert(conn, "site_pl_summary",
+                   [dict(zip(_site_cols, rec)) for rec in records],
+                   conflict_cols=["Site_Name"])
+            upsert(conn, "pl_meta", [
+                {"key": "last_sync_time", "value": now_iso},
+                {"key": "report_path", "value": report_path},
+                {"key": "rows_written", "value": str(rows_written)},
+                {"key": "total_sites", "value": str(len(summary))},
+            ], conflict_cols=["key"])
             conn.commit()
         finally:
             conn.close()

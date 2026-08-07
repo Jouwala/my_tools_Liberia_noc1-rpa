@@ -21,6 +21,7 @@ from typing import Callable, Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from backend.database import get_raw_connection
+from backend.dialect_helpers import table_columns, upsert
 
 # Phase 4 拆分：以下成员已迁移至 backend.services.task_introspect，反向导入保持本模块引用兼容
 from backend.services.task_introspect import (  # noqa: F401,E402
@@ -85,19 +86,35 @@ QUEUE_ENABLED = os.environ.get("MY_APP_TASK_QUEUE", "0") == "1"
 
 def _ensure_queue_table(conn):
     """确保 task_queue 表存在（含状态 / task_id 索引，供 worker 轮询认领）"""
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS task_queue (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            task_id TEXT NOT NULL,
-            trigger_type TEXT NOT NULL DEFAULT 'manual',
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at TEXT NOT NULL,
-            started_at TEXT,
-            finished_at TEXT,
-            result_json TEXT,
-            error TEXT
-        )
-    """)
+    if isinstance(conn, sqlite3.Connection):
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                trigger_type TEXT NOT NULL DEFAULT 'manual',
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                result_json TEXT,
+                error TEXT
+            )
+        """)
+    else:
+        # PG：以 GENERATED ALWAYS AS IDENTITY 取代 sqlite 的 AUTOINCREMENT
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_queue (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                trigger_type TEXT NOT NULL DEFAULT 'manual',
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                result_json TEXT,
+                error TEXT
+            )
+        """)
     conn.execute("CREATE INDEX IF NOT EXISTS ix_task_queue_status ON task_queue(status)")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_task_queue_task_id ON task_queue(task_id)")
 
@@ -120,11 +137,19 @@ def enqueue_task(task_id: str, trigger: str = "manual") -> dict:
                 conn.close()
                 return {"accepted": False, "running": True, "queued": True,
                         "error": "任务已在队列中等待或执行"}
-            cur = conn.execute(
-                "INSERT INTO task_queue (task_id, trigger_type, status, created_at) VALUES (?, ?, 'pending', ?)",
-                (task_id, trigger, datetime.now().isoformat()),
-            )
-            queue_id = cur.lastrowid
+            if isinstance(conn, sqlite3.Connection):
+                cur = conn.execute(
+                    "INSERT INTO task_queue (task_id, trigger_type, status, created_at) VALUES (?, ?, 'pending', ?)",
+                    (task_id, trigger, datetime.now().isoformat()),
+                )
+                queue_id = cur.lastrowid
+            else:
+                # PG：sqlite 无 RETURNING 等价物；用 RETURNING id 取回自增主键
+                cur = conn.execute(
+                    "INSERT INTO task_queue (task_id, trigger_type, status, created_at) VALUES (?, ?, 'pending', ?) RETURNING id",
+                    (task_id, trigger, datetime.now().isoformat()),
+                )
+                queue_id = cur.fetchone()[0]
             conn.commit()
             conn.close()
         logger.info(f"[{task_id}] 已投递任务队列 (queue_id={queue_id}, trigger={trigger})")
@@ -166,7 +191,7 @@ def _init_schedule_table():
             )
         """)
             # 兼容旧表：仅在 enabled 列不存在时才添加（幂等迁移，避免重复加列抛异常）
-            cols = [r[1] for r in conn.execute("PRAGMA table_info(task_schedule_config)").fetchall()]
+            cols = table_columns(conn, "task_schedule_config")
             if "enabled" not in cols:
                 conn.execute("ALTER TABLE task_schedule_config ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
             conn.commit()
@@ -194,16 +219,17 @@ def _save_schedule_config(task_id: str, cron: str, enabled: bool = None):
     """保存用户自定义的调度配置到数据库"""
     try:
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            now = datetime.now().isoformat()
             if enabled is not None:
-                conn.execute("""
-                INSERT OR REPLACE INTO task_schedule_config (task_id, cron, enabled, updated_at)
-                VALUES (?, ?, ?, ?)
-            """, (task_id, cron, 1 if enabled else 0, datetime.now().isoformat()))
+                rows = [{"task_id": task_id, "cron": cron,
+                         "enabled": 1 if enabled else 0, "updated_at": now}]
             else:
-                conn.execute("""
-                INSERT OR REPLACE INTO task_schedule_config (task_id, cron, enabled, updated_at)
-                VALUES (?, ?, COALESCE((SELECT enabled FROM task_schedule_config WHERE task_id = ?), 1), ?)
-            """, (task_id, cron, task_id, datetime.now().isoformat()))
+                cur = conn.execute(
+                    "SELECT enabled FROM task_schedule_config WHERE task_id = ?", (task_id,))
+                r = cur.fetchone()
+                rows = [{"task_id": task_id, "cron": cron,
+                         "enabled": r[0] if r else 1, "updated_at": now}]
+            upsert(conn, "task_schedule_config", rows, conflict_cols=["task_id"])
             conn.commit()
             conn.close()
     except Exception as e:
@@ -498,8 +524,11 @@ def _save_task_result(result: dict):
             except (TypeError, ValueError):
                 logging.getLogger(__name__).warning("[SILENT-EXCEPT] _save_task_result: exception swallowed", exc_info=True)
                 _retention_days = 3
+            # PG 无 datetime('now', '-N days')；改用 Python 计算截止时间，双模通用
+            from datetime import timedelta
+            _cutoff = (datetime.now() - timedelta(days=_retention_days)).isoformat()
             conn.execute(
-                f"DELETE FROM task_execution_log WHERE started_at < datetime('now', '-{_retention_days} days')"
+                "DELETE FROM task_execution_log WHERE started_at < ?", (_cutoff,)
             )
             conn.commit()
             conn.close()

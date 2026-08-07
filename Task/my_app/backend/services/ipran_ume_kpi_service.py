@@ -33,6 +33,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 from urllib3.exceptions import InsecureRequestWarning
 from backend.database import get_raw_connection
+from backend.dialect_helpers import table_columns, upsert, safe_pragma
 from backend.security_tls import tls_verify, silence_insecure_warning
 
 # 仅在校验关闭时才抑制不安全的 HTTPS 警告（见 backend/security_tls.py）
@@ -725,8 +726,8 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
     import sqlite3
     with get_raw_connection(DB_PATH, timeout=60.0) as conn:
         cursor = conn.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA synchronous=OFF")
+        safe_pragma(conn, "PRAGMA journal_mode=WAL")
+        safe_pragma(conn, "PRAGMA synchronous=OFF")
 
         # 兜底时若用户指定的列都不存在，回退到原有 detect_key_cols
         if not pk_cols:
@@ -738,7 +739,7 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
         cols_decl = ", ".join(f"{_q(h)} TEXT" for h in headers)
         cursor.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({cols_decl})')
         # 补列
-        exist_cols = {r[1] for r in cursor.execute(f'PRAGMA table_info("{table_name}")').fetchall()}
+        exist_cols = set(table_columns(conn, table_name))
         for h in headers:
             if h not in exist_cols:
                 cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(h)} TEXT')
@@ -746,10 +747,17 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
         # 确保唯一约束存在（先清理历史重复行，再建唯一索引，upsert 才能生效）
         if pk_cols:
             pk_q = ", ".join(_q(k) for k in pk_cols)
-            cursor.execute(
-                f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
-                f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
-            )
+            if isinstance(conn, sqlite3.Connection):
+                cursor.execute(
+                    f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
+                    f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
+                )
+            else:
+                # PG：以 ctid 代替 sqlite 的 rowid 做物理行去重（保留每组最早一行）
+                cursor.execute(
+                    f'DELETE FROM "{table_name}" WHERE ctid NOT IN ('
+                    f'SELECT MIN(ctid) FROM "{table_name}" GROUP BY {pk_q})'
+                )
             # 先删除旧的同名唯一索引，避免主键列变更后 IF NOT EXISTS 跳过导致旧索引残留
             cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
             cursor.execute(
@@ -757,21 +765,28 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
             )
 
         cols_str = ", ".join(_q(h) for h in headers)
-        placeholders = ", ".join(["?"] * len(headers))
-        insert_sql = f'INSERT OR REPLACE INTO "{table_name}" ({cols_str}) VALUES ({placeholders})'
-
-        formatted_data = []
+        # 双模 upsert：有主键则按主键 ON CONFLICT 覆盖（sqlite=INSERT OR REPLACE / pg=ON CONFLICT DO UPDATE）；
+        # 无主键则退化为纯 INSERT（与 sqlite 下 INSERT OR REPLACE 无冲突目标时行为一致）
+        records = []
         for row in data:
-            if len(row) < len(headers):
-                row.extend([None] * (len(headers) - len(row)))
-            formatted_data.append([str(v) if v is not None else None for v in row[:len(headers)]])
+            r = list(row)
+            if len(r) < len(headers):
+                r = r + [None] * (len(headers) - len(r))
+            records.append({h: (str(v) if v is not None else None)
+                            for h, v in zip(headers, r[:len(headers)])})
 
-        cursor.executemany(insert_sql, formatted_data)
+        if pk_cols:
+            upsert(conn, table_name, records, conflict_cols=list(pk_cols))
+        else:
+            placeholders = ", ".join(["?"] * len(headers))
+            insert_sql = f'INSERT INTO "{table_name}" ({cols_str}) VALUES ({placeholders})'
+            cursor.executemany(insert_sql, [[r[h] for h in headers] for r in records])
+
         conn.commit()
         conn.close()
 
-        logger.info(f"[DB][LOCAL] {table_name}: Upserted {len(formatted_data)} rows into SQLite (pk={pk_cols})")
-        return len(formatted_data)
+        logger.info(f"[DB][LOCAL] {table_name}: Upserted {len(records)} rows (pk={pk_cols})")
+        return len(records)
 
 
 # ============================================================

@@ -20,7 +20,7 @@ import logging
 import os
 import shutil
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime, time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -130,13 +130,14 @@ def map_pg_type(sqlite_type):
     return _SQLITE_TO_PG_TYPE.get(t, "TEXT")
 
 
-def build_create_table(schema, table, cols):
+def build_create_table(schema, table, cols, types=None):
     """由 PRAGMA 列信息生成 DROP + CREATE 两条 DDL（全部标识符加引号）。"""
     col_sql = []
     pk_cols = sorted((c for c in cols if c["pk"] > 0), key=lambda c: c["pk"])
-    for c in cols:
+    pg_types = types if types is not None else [map_pg_type(c["type"]) for c in cols]
+    for i, c in enumerate(cols):
         # DDL 无参数执行：psycopg2 不会反转义 %%，标识符里的 % 直接裸写即可
-        parts = [pg_quote(c["name"]), map_pg_type(c["type"])]
+        parts = [pg_quote(c["name"]), pg_types[i]]
         if c["notnull"] and c["pk"] == 0:
             parts.append("NOT NULL")
         col_sql.append(" ".join(parts))
@@ -203,13 +204,17 @@ def _sqlite_select_sql(table, cols):
     return f"SELECT {quoted} FROM {pg_quote(table)}"
 
 
-def _order_by_clause(cols, for_pg):
+def _order_by_clause(cols, for_pg, pg_types=None):
     """ORDER BY 全部列；PG 侧 TEXT 列加 COLLATE "C"，与 SQLite BINARY 字节序对齐。"""
     parts = []
-    for c in cols:
+    for i, c in enumerate(cols):
         col = pg_quote(c["name"])
-        if for_pg and map_pg_type(c["type"]) == "TEXT":
-            col += ' COLLATE "C"'
+        t = pg_types[i] if pg_types is not None else map_pg_type(c["type"])
+        if for_pg:
+            if t == "TEXT":
+                col += ' COLLATE "C"'
+            # SQLite ASC 默认 NULL 最前，PG 默认 NULL 最后；对齐后流式 MD5 才一致
+            col += " NULLS FIRST"
         parts.append(col)
     return " ORDER BY " + ", ".join(parts)
 
@@ -265,6 +270,101 @@ def _copy_table_pandas(src, select_sql, engine, schema, table, batch_size, progr
     return copied
 
 
+def pg_table_exists(pg_conn, schema, table):
+    """PG 中指定 schema.table 是否存在。"""
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = %s AND table_name = %s",
+            (schema, table),
+        )
+        return cur.fetchone() is not None
+
+
+def pg_column_names(pg_conn, schema, table):
+    """PG 中指定表的列名（按 ordinal_position）。"""
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = %s AND table_name = %s "
+            "ORDER BY ordinal_position",
+            (schema, table),
+        )
+        return [r[0] for r in cur.fetchall()]
+
+
+def pg_column_types(pg_conn, schema, table, cols):
+    """按源列顺序返回 PG 实际列类型（映射为 BIGINT/DOUBLE PRECISION/TEXT）。"""
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_schema = %s AND table_name = %s",
+            (schema, table),
+        )
+        info = dict(cur.fetchall())
+    out = []
+    for c in cols:
+        t = (info.get(c["name"]) or "text").lower()
+        if t in ("bigint", "integer", "smallint", "bigserial", "serial", "smallserial"):
+            out.append("BIGINT")
+        elif t in ("double precision", "real", "numeric", "decimal"):
+            out.append("DOUBLE PRECISION")
+        elif t in (
+            "timestamp without time zone",
+            "timestamp with time zone",
+            "date",
+            "time without time zone",
+            "time with time zone",
+            "interval",
+            "json",
+            "jsonb",
+            "uuid",
+            "boolean",
+            "bytea",
+        ):
+            out.append("OTHER")
+        else:
+            out.append("TEXT")
+    return out
+
+
+def validate_pg_columns(pg_conn, schema, table, cols):
+    """insert-only 前置校验：PG 已有表的列集合必须与 SQLite 源一致。"""
+    pg_cols = set(pg_column_names(pg_conn, schema, table))
+    src_cols = {c["name"] for c in cols}
+    if pg_cols != src_cols:
+        raise ValueError(
+            f"{schema}.{table} 列不一致: "
+            f"PG 多出 {sorted(pg_cols - src_cols)}, "
+            f"缺少 {sorted(src_cols - pg_cols)}"
+        )
+
+
+def _infer_pg_types(src, table, cols, batch_size=DEFAULT_BATCH_SIZE):
+    """为 insert-only 新建表推断安全类型：声明为数值但含非数值文本的列降级为 TEXT。"""
+    types = [map_pg_type(c["type"]) for c in cols]
+    numeric_idx = [i for i, t in enumerate(types) if t in ("BIGINT", "DOUBLE PRECISION")]
+    if not numeric_idx:
+        return types
+    cur = src.execute(_sqlite_select_sql(table, cols))
+    try:
+        while True:
+            rows = cur.fetchmany(batch_size)
+            if not rows:
+                break
+            for row in rows:
+                for i in numeric_idx:
+                    if types[i] == "TEXT":
+                        continue
+                    try:
+                        coerce_value(row[i], types[i], f"{table}.{cols[i]['name']}")
+                    except (TypeError, ValueError, OverflowError):
+                        types[i] = "TEXT"
+    finally:
+        cur.close()
+    return types
+
+
 def copy_table(
     sqlite_path,
     pg_conn,
@@ -274,19 +374,39 @@ def copy_table(
     method="executemany",
     engine=None,
     progress=None,
+    drop_existing=True,
+    create_if_missing=True,
 ):
-    """重建 PG 目标表（DROP+CREATE，幂等）并搬运数据，返回搬运行数。"""
+    """搬运单表数据，返回搬运行数。
+
+    drop_existing=True（默认，Wave1）：先 DROP 再 CREATE，幂等可重跑。
+    drop_existing=False（insert-only，Wave2 app）：绝不 DROP；
+        目标表已存在则只做列校验 + INSERT；不存在且 create_if_missing=True
+        时仅 CREATE（不 DROP）后 INSERT。
+    """
     src = open_sqlite(sqlite_path)
     try:
         cols = sqlite_table_info(src, table)
-        drop_sql, create_sql = build_create_table(schema, table, cols)
-        with pg_conn.cursor() as cur:
-            cur.execute(drop_sql)
-            cur.execute(create_sql)
-        pg_conn.commit()
+        pg_types = [map_pg_type(c["type"]) for c in cols]
+        if drop_existing:
+            drop_sql, create_sql = build_create_table(schema, table, cols, pg_types)
+            with pg_conn.cursor() as cur:
+                cur.execute(drop_sql)
+                cur.execute(create_sql)
+            pg_conn.commit()
+        elif pg_table_exists(pg_conn, schema, table):
+            validate_pg_columns(pg_conn, schema, table, cols)
+            pg_types = pg_column_types(pg_conn, schema, table, cols)
+        elif create_if_missing:
+            pg_types = _infer_pg_types(src, table, cols)
+            _, create_sql = build_create_table(schema, table, cols, pg_types)
+            with pg_conn.cursor() as cur:
+                cur.execute(create_sql)
+            pg_conn.commit()
+        else:
+            raise RuntimeError(f"{schema}.{table} 不存在且 create_if_missing=False")
 
         select_sql = _sqlite_select_sql(table, cols)
-        pg_types = [map_pg_type(c["type"]) for c in cols]
         if method == "pandas":
             if engine is None:
                 raise ValueError("method=pandas 时须传入 SQLAlchemy engine")
@@ -308,6 +428,9 @@ def _serialize_value(v):
         return "N"
     if isinstance(v, str):
         return "S" + v
+    if isinstance(v, (date, time)):
+        # PG timestamp 返回 datetime/date/time；按字符串参与哈希，与 SQLite 文本一致
+        return "S" + str(v)
     if isinstance(v, (bytes, bytearray)):
         return "B" + bytes(v).hex()
     if isinstance(v, float):
@@ -318,7 +441,7 @@ def _serialize_value(v):
     return "O" + repr(v)
 
 
-def _hash_select(conn, sql, batch_size=DEFAULT_BATCH_SIZE):
+def _hash_select(conn, sql, batch_size=DEFAULT_BATCH_SIZE, types=None):
     """对查询结果做全行流式 MD5（源/目标同列序，结果可直接比较）。"""
     h = hashlib.md5()
     cur = _execute(conn, sql)
@@ -328,7 +451,9 @@ def _hash_select(conn, sql, batch_size=DEFAULT_BATCH_SIZE):
             if not rows:
                 break
             for row in rows:
-                for v in row:
+                for i, v in enumerate(row):
+                    if types is not None:
+                        v = coerce_value(v, types[i], f"hash:{i}")
                     h.update(_serialize_value(v).encode("utf-8", errors="surrogatepass"))
                     h.update(b"\x1f")
                 h.update(b"\x1e")
@@ -359,16 +484,17 @@ def verify_table(sqlite_path, pg_conn, schema, table, batch_size=DEFAULT_BATCH_S
     src = open_sqlite(sqlite_path)
     try:
         cols = sqlite_table_info(src, table)
+        pg_types = pg_column_types(pg_conn, schema, table, cols)
         select_sql = _sqlite_select_sql(table, cols) + _order_by_clause(cols, for_pg=False)
         src_count = src.execute(f"SELECT COUNT(*) FROM {pg_quote(table)}").fetchone()[0]
         dst_count = pg_count(pg_conn, schema, table)
-        src_hash = _hash_select(src, select_sql, batch_size)
+        src_hash = _hash_select(src, select_sql, batch_size, types=pg_types)
         dst_sql = (
             f"SELECT {', '.join(pg_quote(c['name']) for c in cols)} "
             f"FROM {pg_quote(schema)}.{pg_quote(table)}"
-            f"{_order_by_clause(cols, for_pg=True)}"
+            f"{_order_by_clause(cols, for_pg=True, pg_types=pg_types)}"
         )
-        dst_hash = _hash_select(pg_conn, dst_sql, batch_size)
+        dst_hash = _hash_select(pg_conn, dst_sql, batch_size, types=pg_types)
         ok = src_count == dst_count and src_hash == dst_hash
         return {
             "schema": schema,
@@ -383,11 +509,18 @@ def verify_table(sqlite_path, pg_conn, schema, table, batch_size=DEFAULT_BATCH_S
         src.close()
 
 
-def verify_migration(sqlite_path, pg_conn, schema, tables=None, batch_size=DEFAULT_BATCH_SIZE):
+def verify_migration(
+    sqlite_path,
+    pg_conn,
+    schema,
+    tables=None,
+    exclude_tables=None,
+    batch_size=DEFAULT_BATCH_SIZE,
+):
     """整库对账：返回每表校验结果列表。"""
     src = open_sqlite(sqlite_path)
     try:
-        src_tables = set(sqlite_tables(src))
+        src_tables = set(sqlite_tables(src)) - set(exclude_tables or ())
     finally:
         src.close()
     target_tables = set(tables) if tables is not None else src_tables
@@ -407,10 +540,10 @@ def ensure_schema(pg_conn, schema):
     pg_conn.commit()
 
 
-def backup_sqlite_files(paths, backup_root, timestamp=None):
+def backup_sqlite_files(paths, backup_root, timestamp=None, phase="phase5_wave1"):
     """R0 前置备份：文件级拷贝 sqlite（含 -wal/-shm 副作用文件）。"""
     ts = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_dir = Path(backup_root) / f"phase5_wave1_{ts}"
+    backup_dir = Path(backup_root) / f"{phase}_{ts}"
     backup_dir.mkdir(parents=True, exist_ok=True)
     copied = []
     for p in paths:

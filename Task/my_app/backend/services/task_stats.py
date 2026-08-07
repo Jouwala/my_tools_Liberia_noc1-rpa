@@ -10,7 +10,9 @@ import os
 import logging
 from datetime import datetime
 
+import sqlite3
 from backend.database import DB_PATH, get_raw_connection
+from backend.dialect_helpers import table_columns
 
 logger = logging.getLogger("task_runner")
 
@@ -22,24 +24,43 @@ def _ensure_task_log_table(conn):
     该语句不会自动加列，需通过 PRAGMA 检查后 ALTER 补列，否则查询报错
     'no such column: error_trace'。
     """
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS task_execution_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            task_id TEXT NOT NULL,
-            task_name TEXT,
-            category TEXT,
-            trigger_type TEXT,
-            success INTEGER,
-            started_at TEXT,
-            completed_at TEXT,
-            elapsed_seconds REAL,
-            result_json TEXT,
-            error TEXT,
-            error_trace TEXT
-        )
-    """)
+    if isinstance(conn, sqlite3.Connection):
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_execution_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                task_name TEXT,
+                category TEXT,
+                trigger_type TEXT,
+                success INTEGER,
+                started_at TEXT,
+                completed_at TEXT,
+                elapsed_seconds REAL,
+                result_json TEXT,
+                error TEXT,
+                error_trace TEXT
+            )
+        """)
+    else:
+        # PG：以 GENERATED ALWAYS AS IDENTITY 取代 sqlite 的 AUTOINCREMENT
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_execution_log (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                task_name TEXT,
+                category TEXT,
+                trigger_type TEXT,
+                success INTEGER,
+                started_at TEXT,
+                completed_at TEXT,
+                elapsed_seconds REAL,
+                result_json TEXT,
+                error TEXT,
+                error_trace TEXT
+            )
+        """)
     try:
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(task_execution_log)").fetchall()}
+        cols = set(table_columns(conn, "task_execution_log"))
         if "error_trace" not in cols:
             conn.execute("ALTER TABLE task_execution_log ADD COLUMN error_trace TEXT")
             conn.commit()
@@ -95,8 +116,11 @@ def get_task_stats(task_id: str, days: int | None = None) -> dict:
             where = "WHERE task_id = ?"
             params: list = [task_id]
             if days:
-                where += " AND started_at >= datetime('now', ?)"
-                params.append(f"-{days} days")
+                # PG 无 datetime('now', '-N days')；改用 Python 计算截止时间，双模通用
+                from datetime import timedelta
+                _cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+                where += " AND started_at >= ?"
+                params.append(_cutoff)
             row = conn.execute(
                 f"""SELECT COUNT(*), COALESCE(SUM(success),0),
                            AVG(elapsed_seconds), MAX(elapsed_seconds),
@@ -129,13 +153,16 @@ def get_recent_failures(days: int = 3, limit: int = 200) -> dict:
     try:
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
             _ensure_task_log_table(conn)
+            # PG 无 datetime('now', '-N days')；改用 Python 计算截止时间，双模通用
+            from datetime import timedelta
+            _cutoff = (datetime.now() - timedelta(days=days)).isoformat()
             rows = conn.execute(
                 """SELECT task_id, task_name, error, started_at
                FROM task_execution_log
                WHERE success = 0
-                 AND started_at >= datetime('now', ?)
+                 AND started_at >= ?
                ORDER BY started_at DESC LIMIT ?""",
-                (f"-{days} days", limit),
+                (_cutoff, limit),
             ).fetchall()
             conn.close()
             for task_id, task_name, error, started_at in rows:

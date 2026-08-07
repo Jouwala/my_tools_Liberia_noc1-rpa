@@ -6,6 +6,21 @@ from datetime import datetime, timezone
 import pandas as pd
 from fastapi import APIRouter, Query
 from backend.database import get_raw_connection, DB_PATH
+from backend.dialect_helpers import list_table_names
+
+
+def _rows_as_dicts(cursor):
+    """cursor -> [dict, ...]（双模：sqlite Row / PG 元组均兼容）"""
+    cols = [d[0] for d in cursor.description]
+    return [dict(zip(cols, r)) for r in cursor.fetchall()]
+
+
+def _row_as_dict(cursor):
+    """单行 cursor -> dict 或 None（双模兼容）"""
+    cols = [d[0] for d in cursor.description]
+    r = cursor.fetchone()
+    return dict(zip(cols, r)) if r is not None else None
+
 
 router = APIRouter(prefix="/api/alarm-dashboard", tags=["alarm-dashboard"])
 
@@ -28,9 +43,7 @@ HIS_SEV_MAP = {1: "Critical", 2: "Major", 3: "Warning", 4: "Info"}
 
 
 def _table_exists(conn, name: str) -> bool:
-    return conn.execute(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", (name,)
-    ).fetchone()[0] > 0
+    return name in set(list_table_names(conn))
 
 
 def _load_history_df():
@@ -128,22 +141,23 @@ def _history_metrics_sql():
         if not _table_exists(conn, "history_alarm"):
             conn.close()
             return None
-        row = conn.execute(
+        cur = conn.execute(
         """
         SELECT COUNT(*) AS total,
           SUM(CASE WHEN tt_id IS NOT NULL AND TRIM(CAST(tt_id AS TEXT))!=''
                     AND CAST(tt_id AS TEXT)!='-' THEN 1 ELSE 0 END) AS with_tt,
-          SUM(CASE WHEN (CAST(assigned_time AS REAL) - CAST(servertime AS REAL))
-                    > CAST(assign_delay AS REAL)*1.1*1000 THEN 1 ELSE 0 END) AS dispatch_delay,
-          SUM(CASE WHEN (CAST(servertime AS REAL) - CAST(alarmraisedtime AS REAL))
+          SUM(CASE WHEN (assigned_time - servertime)
+                    > CAST(REPLACE(REPLACE(assign_delay, 'min', ''), 's', '') AS DOUBLE PRECISION)*1.1*1000 THEN 1 ELSE 0 END) AS dispatch_delay,
+          SUM(CASE WHEN (servertime - alarmraisedtime)
                     > 300000 THEN 1 ELSE 0 END) AS fetch_delay,
-          SUM(CASE WHEN (CAST(assigned_time AS REAL) - CAST(alarmraisedtime AS REAL)) > 300000
-                    AND (CAST(assigned_time AS REAL) - CAST(alarmraisedtime AS REAL))
-                        > CAST(assign_delay AS REAL)*1.1*1000 THEN 1 ELSE 0 END) AS overdue,
-          MAX(CAST(servertime AS REAL)) AS latest_ms
+          SUM(CASE WHEN (assigned_time - alarmraisedtime) > 300000
+                    AND (assigned_time - alarmraisedtime)
+                        > CAST(REPLACE(REPLACE(assign_delay, 'min', ''), 's', '') AS DOUBLE PRECISION)*1.1*1000 THEN 1 ELSE 0 END) AS overdue,
+          MAX(servertime) AS latest_ms
         FROM history_alarm
         """
-        ).fetchone()
+        )
+        row = _row_as_dict(cur)
         conn.close()
 
         if not row or not row["total"]:
@@ -198,7 +212,8 @@ def _load_realtime_rows():
     if cached is not None:
         return cached
     with get_raw_connection() as conn:
-        rows = [dict(r) for r in conn.execute("SELECT * FROM realtime_alarm").fetchall()]
+        cur = conn.execute("SELECT * FROM realtime_alarm")
+        rows = _rows_as_dicts(cur)
         conn.close()
         for r in rows:
             r["_tech"] = _tech_from_record(r)
@@ -288,11 +303,12 @@ def _last_alarm_sync_iso() -> str:
     优先返回真实刷新时间；无记录时回退到 None（由调用方回退到最新告警 servertime）。"""
     try:
         with get_raw_connection() as conn:
-            row = conn.execute(
+            cur = conn.execute(
                 "SELECT completed_at FROM task_execution_log "
                 "WHERE task_id='eflow_active_alarm' AND success=1 AND completed_at IS NOT NULL "
                 "ORDER BY completed_at DESC LIMIT 1"
-            ).fetchone()
+            )
+            row = _row_as_dict(cur)
         if row and row["completed_at"]:
             s = str(row["completed_at"]).replace("T", " ").replace("Z", "")
             return (s[:16] + " UTC") if len(s) >= 16 else (s + " UTC")
@@ -361,9 +377,8 @@ def _safe_str(val, default="--"):
 def alarm_dashboard_overview():
     """实时告警综合看板数据"""
     with get_raw_connection() as conn:
-        rows = [dict(r) for r in conn.execute(
-            "SELECT * FROM realtime_alarm"
-        ).fetchall()]
+        cur = conn.execute("SELECT * FROM realtime_alarm")
+        rows = _rows_as_dicts(cur)
         conn.close()
 
         # 计算增强字段

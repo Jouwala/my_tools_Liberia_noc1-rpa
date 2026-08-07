@@ -229,8 +229,8 @@ def _read_from_sqlite(me: str, measure_obj: str, table_name: str, days_back: int
     """
     
     try:
-        import sqlite3
-        conn = sqlite3.connect(str(DB_PATH), timeout=30)
+        from backend.database import get_raw_connection
+        conn = get_raw_connection(str(DB_PATH), logical_name="ipran_ume", timeout=30)
         df = pd.read_sql_query(sql, conn, params=[me, measure_obj, 
                                                     start_dt.strftime("%Y-%m-%d %H:%M:%S"),
                                                     end_dt.strftime("%Y-%m-%d %H:%M:%S")])

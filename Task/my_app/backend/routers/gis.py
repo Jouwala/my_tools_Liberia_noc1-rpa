@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Query, HTTPException
 from backend.database import get_raw_connection, DB_PATH
+from backend.dialect_helpers import list_table_names, table_columns
 from backend.routers.gis_geometry import compute_region_boundaries
 
 logger = logging.getLogger(__name__)
@@ -27,16 +28,14 @@ def _detect_gis_schema() -> dict:
         return _gis_schema_cache
 
     with get_raw_connection() as conn:
-        tables = {r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+        tables = set(list_table_names(conn))
 
         # 站点表
         site_table = "master_site_db" if "master_site_db" in tables else "site_db" if "site_db" in tables else None
 
         site_cols = set()
         if site_table:
-            site_cols = {r[1] for r in conn.execute(f"PRAGMA table_info({site_table})").fetchall()}
+            site_cols = set(table_columns(conn, site_table))
 
         # 字段映射
         province_col = "province_county" if "province_county" in site_cols else "province" if "province" in site_cols else None
@@ -46,7 +45,7 @@ def _detect_gis_schema() -> dict:
         # TT表关联字段
         tt_cols = set()
         if "eflow_tt" in tables:
-            tt_cols = {r[1] for r in conn.execute("PRAGMA table_info(eflow_tt)").fetchall()}
+            tt_cols = set(table_columns(conn, "eflow_tt"))
         tt_site_key = "site_id" if "site_id" in tt_cols else "site_name" if "site_name" in tt_cols else None
 
         # WO表
@@ -379,7 +378,7 @@ def _site_id_match(site_id):
 
 def _fetch_site_detail(conn, st, site_id):
     """按 site_id / site_name 查站点行 → (col_names, site_row or None)"""
-    col_names = [c[1] for c in conn.execute(f'PRAGMA table_info({st})').fetchall()]
+    col_names = table_columns(conn, st)
     site_match, site_params = _site_id_match(site_id)
     site_row = conn.execute(
         f'SELECT * FROM {st} WHERE {site_match}', site_params

@@ -156,7 +156,8 @@ def probe_ews_reachable() -> bool:
 def _log_recovery(orig_task_id: str, success: bool, detail: str, started_iso: str, elapsed: float):
     """记录补发结果：同时写入原 task_id（Run History 可见）和 email_recovery: 前缀（分类统计）。"""
     try:
-        conn = __import__("sqlite3").connect(str(DB_PATH), timeout=30)
+        from backend.database import get_raw_connection
+        conn = get_raw_connection(str(DB_PATH), timeout=30)
         # 1) 写入原 task_id，trigger_type=recovery —— 让 Run History 能看到补发成功
         _task_name_map = {
             "liberia_email_1h": "Liberia 1H Report Email",

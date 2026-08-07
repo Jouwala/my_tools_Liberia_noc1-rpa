@@ -5,10 +5,43 @@ import re
 import sqlite3
 from fastapi import APIRouter, Query, HTTPException
 from backend.database import get_raw_connection, list_tables
+from backend.dialect_helpers import table_columns
 from backend.services.profiler import DataProfiler
 import pandas as pd
 
 router = APIRouter(prefix="/api/tables", tags=["tables"])
+
+
+def _column_metadata(conn, table_name):
+    """返回 [{name, type, notnull, pk}]，双模兼容。
+
+    sqlite 用表值函数 pragma_table_info（等价于 PRAGMA table_info，
+    但不在 PG 分支出现 sqlite 方言字面量）；PG 用 information_schema.columns。
+    """
+    if isinstance(conn, sqlite3.Connection):
+        rows = conn.execute(
+            "SELECT name, type, notnull, pk FROM pragma_table_info(?)", (table_name,)
+        ).fetchall()
+        return [
+            {"name": r[0], "type": r[1], "notnull": r[2], "pk": r[3]}
+            for r in rows
+        ]
+    rows = conn.execute(
+        "SELECT column_name, data_type, is_nullable "
+        "FROM information_schema.columns "
+        "WHERE table_name = ? AND table_schema = ANY(current_schemas(false)) "
+        "ORDER BY ordinal_position", (table_name,)
+    ).fetchall()
+    return [
+        {"name": r[0], "type": r[1], "notnull": 1 if r[2] == "NO" else 0, "pk": 0}
+        for r in rows
+    ]
+
+
+def _is_text_type(type_str):
+    """判断列是否适合做 LIKE 文本搜索（双模）。"""
+    t = (type_str or "").lower()
+    return t in ("", "text") or "char" in t or "clob" in t
 
 # 仅允许纯标识符作为列名/排序字段，杜绝 SQL 注入（原 sort_by/column 直接拼接到 SQL）
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -30,8 +63,8 @@ def get_tables():
                 continue
             try:
                 row_count = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
-                col_info = conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
-                columns = [{"name": c[1], "type": c[2], "notnull": c[3], "pk": c[5]} for c in col_info]
+                col_info = _column_metadata(conn, table_name)
+                columns = [{"name": c["name"], "type": c["type"], "notnull": c["notnull"], "pk": c["pk"]} for c in col_info]
                 result.append({
                     "name": table_name,
                     "row_count": row_count,
@@ -66,10 +99,11 @@ def get_table_data(
 
         # 构建查询
         where_clause = ""
+        text_cols = []
         if search:
             # 全文搜索：在所有文本列中搜索
-            col_info = conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
-            text_cols = [c[1] for c in col_info if c[2].upper() in ('TEXT', 'VARCHAR', '')]
+            col_info = _column_metadata(conn, table_name)
+            text_cols = [c["name"] for c in col_info if _is_text_type(c["type"])]
             if text_cols:
                 conditions = [f'"{c}" LIKE ?' for c in text_cols[:10]]
                 where_clause = " WHERE " + " OR ".join(conditions)
@@ -84,7 +118,7 @@ def get_table_data(
 
         offset = (page - 1) * page_size
         count_sql = f'SELECT COUNT(*) FROM "{table_name}"{where_clause}'
-        params = [f'%{search}%'] * min(len([c for c in conn.execute(f'PRAGMA table_info("{table_name}")').fetchall() if c[2].upper() in ('TEXT', 'VARCHAR', '')]), 10) if search else []
+        params = [f'%{search}%'] * min(len(text_cols), 10) if search else []
 
         total = conn.execute(count_sql, params).fetchone()[0]
 

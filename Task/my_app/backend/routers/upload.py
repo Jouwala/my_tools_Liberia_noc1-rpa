@@ -6,11 +6,11 @@ import uuid
 import json
 import time
 import pandas as pd
-import sqlite3
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Depends
 
 from backend.database import get_raw_connection, DB_PATH
+from backend.dialect_helpers import write_df
 from backend.services.profiler import DataProfiler
 from backend.security import require_protected
 
@@ -95,7 +95,7 @@ async def upload_excel(file: UploadFile = File(...)):
                 table_name = f"{table_name}_{clean_column_name(sheet_name)}"
 
             # 写入数据库
-            df.to_sql(table_name, conn, if_exists='replace', index=False, chunksize=5000)
+            write_df(df, table_name, if_exists="replace")
 
             # 建立索引
             for idx_col in ['site_id', 'region_level1', 'region', 'status', 'created_time']:
@@ -111,7 +111,7 @@ async def upload_excel(file: UploadFile = File(...)):
             # 记录上传信息
             conn.execute("""
             INSERT INTO uploaded_files (filename, original_name, table_name, row_count, col_count, columns_info, quality_issues, uploaded_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (safe_name, file.filename, table_name, len(df), len(df.columns),
                   json.dumps([{"name": c["name"], "type": c["dtype"], "type_category": c["type_category"]} for c in profile["columns"]], ensure_ascii=False),
                   json.dumps(profile["issues_summary"], ensure_ascii=False)))

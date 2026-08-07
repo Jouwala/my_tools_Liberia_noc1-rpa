@@ -8,13 +8,21 @@ import time
 import re
 import sqlite3
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Query
 from backend.database import get_raw_connection
+from backend.dialect_helpers import list_table_names
 
 logger = logging.getLogger("packet_loss_dashboard")
+
+
+def _rows_as_dicts(cursor):
+    """cursor -> [dict, ...]（双模：sqlite Row / PG 元组均兼容）"""
+    cols = [d[0] for d in cursor.description]
+    return [dict(zip(cols, r)) for r in cursor.fetchall()]
+
 
 router = APIRouter(prefix="/api/packet-loss-dashboard", tags=["packet-loss-dashboard"])
 
@@ -42,13 +50,13 @@ def _cache_set(key: str, value):
 def _conn():
     # 注意：不能用 with get_raw_connection(...)（退出时会提交并关闭连接）
     conn = get_raw_connection(str(PL_DB_PATH), timeout=30)
-    conn.row_factory = sqlite3.Row
+    if isinstance(conn, sqlite3.Connection):
+        conn.row_factory = sqlite3.Row
     return conn
 
 
 def _table_exists(conn, name: str) -> bool:
-    row = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone()
-    return row is not None
+    return name in set(list_table_names(conn))
 
 
 def _median(xs) -> float:
@@ -73,8 +81,8 @@ def _load_summary_rows():
     try:
         if not _table_exists(conn, "site_pl_summary"):
             return _cache_set("summary_rows", [])
-        rows = [dict(r) for r in conn.execute(
-            "SELECT * FROM site_pl_summary ORDER BY LastDayMaxPL DESC").fetchall()]
+        rows = _rows_as_dicts(conn.execute(
+            'SELECT * FROM site_pl_summary ORDER BY "LastDayMaxPL" DESC'))
     finally:
         conn.close()
     return _cache_set("summary_rows", rows)
@@ -89,7 +97,7 @@ def _load_meta():
         conn = _conn()
         try:
             if _table_exists(conn, "pl_meta"):
-                for r in conn.execute("SELECT key, value FROM pl_meta"):
+                for r in _rows_as_dicts(conn.execute("SELECT key, value FROM pl_meta")):
                     meta[r["key"]] = r["value"]
         finally:
             conn.close()
@@ -137,18 +145,31 @@ def pl_overview():
         try:
             if _table_exists(conn, "packet_loss_data"):
                 # 每日：按天聚合 day -> 非零 pl 列表 + 受影响站点集合，用中位值替代求和
+                max_row = _rows_as_dicts(conn.execute('SELECT MAX("Begin Time") AS mt FROM packet_loss_data'))
+                cutoff7 = ""
+                if max_row and max_row[0].get("mt"):
+                    try:
+                        max_dt = datetime.strptime(str(max_row[0]["mt"])[:19], "%Y-%m-%d %H:%M:%S")
+                        cutoff7 = (max_dt - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+                    except (TypeError, ValueError):
+                        cutoff7 = ""
                 day_data: dict = {}
-                for r in conn.execute(
-                    'SELECT substr("Begin Time",1,10) AS day, '
-                    '"Packet Loss Rate(%)" AS pl, "Managed Element" AS me '
-                    'FROM packet_loss_data '
-                    'WHERE "Begin Time" >= (SELECT datetime(max("Begin Time"), \'-7 days\') FROM packet_loss_data) '
-                    'AND substr("Begin Time",1,10) < ?', (today_str,)):
-                    if r["pl"] > 0:
-                        d = day_data.setdefault(r["day"], {"nz": [], "aff": set()})
-                        d["nz"].append(r["pl"])
-                        if r["pl"] > 0.1:
-                            d["aff"].add(r["me"])
+                if cutoff7:
+                    for r in _rows_as_dicts(conn.execute(
+                        'SELECT substr("Begin Time",1,10) AS day, '
+                        '"Packet Loss Rate(%)" AS pl, "Managed Element" AS me '
+                        'FROM packet_loss_data '
+                        f'WHERE "Begin Time" >= \'{cutoff7}\' '
+                        f'AND substr("Begin Time",1,10) < \'{today_str}\'')):
+                        try:
+                            pl_val = float(r["pl"] or 0)
+                        except (TypeError, ValueError):
+                            pl_val = 0.0
+                        if pl_val > 0:
+                            d = day_data.setdefault(r["day"], {"nz": [], "aff": set()})
+                            d["nz"].append(pl_val)
+                            if pl_val > 0.1:
+                                d["aff"].add(r["me"])
                 for day in sorted(day_data.keys()):
                     d = day_data[day]
                     daily_trend.append({"day": day, "median_pl": _median(d["nz"]),
@@ -158,25 +179,28 @@ def pl_overview():
                 # Top Sites：最近 24 个完整小时（剔除当天）为窗口，计算每站点「所有读数」的中位值（含 0）。
                 # packet_loss_data."Managed Element" 形如 "Name(CODE)"，而 site_pl_summary 用 Site_Name + Site_Code，
                 # 故按末尾 (CODE) 提取后按 Site_Code 关联，失败再退回按 Site_Name 关联。
-                cut = conn.execute(
+                cut = _rows_as_dicts(conn.execute(
                     'SELECT "Begin Time" FROM packet_loss_data '
-                    'WHERE "Begin Time" < ? '
-                    'GROUP BY "Begin Time" ORDER BY "Begin Time" DESC LIMIT 24', (today_str,)).fetchall()
+                    f'WHERE "Begin Time" < \'{today_str}\' '
+                    'GROUP BY "Begin Time" ORDER BY "Begin Time" DESC LIMIT 24'))
                 if cut:
                     cutoff = cut[-1]["Begin Time"]  # 第 24 新的时刻 = 窗口起点
                     me_by_code: dict = {}
                     me_by_name: dict = {}
-                    for r in conn.execute(
+                    for r in _rows_as_dicts(conn.execute(
                         'SELECT "Managed Element" AS me, "Packet Loss Rate(%)" AS pl '
-                        'FROM packet_loss_data WHERE "Begin Time" >= ? AND "Begin Time" < ?',
-                            (cutoff, today_str)):
+                        f'FROM packet_loss_data WHERE "Begin Time" >= \'{cutoff}\' AND "Begin Time" < \'{today_str}\'')):
                         me = r["me"]
+                        try:
+                            pl_val = float(r["pl"] or 0)
+                        except (TypeError, ValueError):
+                            pl_val = 0.0
                         m = re.search(r"\((\d+)\)\s*$", me)
                         if m:
-                            me_by_code.setdefault(m.group(1), []).append(r["pl"])
-                            me_by_name.setdefault(me[:m.start()].strip(), []).append(r["pl"])
+                            me_by_code.setdefault(m.group(1), []).append(pl_val)
+                            me_by_name.setdefault(me[:m.start()].strip(), []).append(pl_val)
                         else:
-                            me_by_name.setdefault(me, []).append(r["pl"])
+                            me_by_name.setdefault(me, []).append(pl_val)
                     for code, vals in me_by_code.items():
                         site_median[code] = _median(vals)
                     for nm, vals in me_by_name.items():

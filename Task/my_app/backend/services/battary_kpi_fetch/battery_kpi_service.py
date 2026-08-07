@@ -48,6 +48,7 @@ import logging
 import os
 import shutil
 import sqlite3
+from backend.dialect_helpers import list_table_names, upsert
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -338,22 +339,28 @@ def save_rows(rows: list[dict], snapshot_ts: str) -> dict:
                  r["health"], r["soc"], r["status"])
                 for r in rows if r["last_update"]]
         before = conn.execute("SELECT COUNT(*) FROM battery_reading").fetchone()[0]
-        conn.executemany(
-            """INSERT OR IGNORE INTO battery_reading
-               (position, reading_time, site, category, health, soc, status)
-               VALUES (?,?,?,?,?,?,?)""",
-            hist,
-        )
+        if isinstance(conn, sqlite3.Connection):
+            conn.executemany(
+                """INSERT OR IGNORE INTO battery_reading
+                   (position, reading_time, site, category, health, soc, status)
+                   VALUES (?,?,?,?,?,?,?)""",
+                hist,
+            )
+        else:
+            # PG：无 INSERT OR IGNORE，用 ON CONFLICT DO NOTHING 等价实现；
+            # _PsycopgRaw 不支持 executemany，逐行执行
+            _read_sql = (
+                'INSERT INTO battery_reading '
+                '(position, reading_time, site, category, health, soc, status) '
+                'VALUES (?,?,?,?,?,?,?) ON CONFLICT (position, reading_time) DO NOTHING'
+            )
+            for _rec in hist:
+                conn.execute(_read_sql, _rec)
         after = conn.execute("SELECT COUNT(*) FROM battery_reading").fetchone()[0]
         new_readings = after - before
 
-        # 3) trend
-        cols = list(trend.keys())
-        conn.execute(
-            f"INSERT OR REPLACE INTO battery_trend ({','.join(cols)}) "
-            f"VALUES ({','.join('?' * len(cols))})",
-            [trend[c] for c in cols],
-        )
+        # 3) trend（按主键 snapshot_ts 整条覆盖）
+        upsert(conn, "battery_trend", [trend], conflict_cols=["snapshot_ts"])
 
         # 4) 清理超期数据
         cut_reading = (datetime.now() - timedelta(days=READING_RETENTION_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
@@ -362,7 +369,7 @@ def save_rows(rows: list[dict], snapshot_ts: str) -> dict:
         conn.execute("DELETE FROM battery_trend WHERE snapshot_ts < ?", (cut_trend,))
 
         # 5) meta
-        for k, v in (
+        _meta_rows = [
             ("last_sync_ts", snapshot_ts),
             ("last_rows", str(len(rows))),
             ("last_sites", str(trend["sites"])),
@@ -371,8 +378,10 @@ def save_rows(rows: list[dict], snapshot_ts: str) -> dict:
             ("health_degraded", str(HEALTH_DEGRADED)),
             ("soc_critical", str(SOC_CRITICAL)),
             ("soc_low", str(SOC_LOW)),
-        ):
-            conn.execute("INSERT OR REPLACE INTO battery_meta (key, value) VALUES (?,?)", (k, v))
+        ]
+        upsert(conn, "battery_meta",
+               [{"key": k, "value": v} for k, v in _meta_rows],
+               conflict_cols=["key"])
 
     trend["new_readings"] = new_readings
     return trend
@@ -398,9 +407,7 @@ def _avg(vals) -> float | None:
 
 
 def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
-    return conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
-    ).fetchone() is not None
+    return name in set(list_table_names(conn))
 
 
 def _load_meta(conn: sqlite3.Connection) -> dict:

@@ -128,9 +128,13 @@ def _finish(queue_id: int, success: bool, result, error: str | None):
                 _retention_days = max(1, int(os.environ.get("TASK_LOG_RETENTION_DAYS", "3")))
             except (TypeError, ValueError):
                 _retention_days = 3
+            # PG 无 datetime('now', '-N days')；改用 Python 计算截止时间，双模通用
+            from datetime import timedelta
+            _cutoff = (datetime.now() - timedelta(days=_retention_days)).isoformat()
             conn.execute(
-                f"DELETE FROM task_queue WHERE status IN ('done', 'failed') "
-                f"AND created_at < datetime('now', '-{_retention_days} days')"
+                "DELETE FROM task_queue WHERE status IN ('done', 'failed') "
+                "AND created_at < ?",
+                (_cutoff,),
             )
             conn.commit()
             conn.close()

@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
 
-from backend.database import Base, engine, DB_PATH
+from backend.database import Base, engine, DB_PATH, DB_MODE
 from backend.models.analysis import AnalysisArchive, UploadedFile
 from backend.routers import (
     tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard,
@@ -42,6 +42,10 @@ from backend.services import task_runner
 from backend.database import get_raw_connection
 
 start_time = time.time()
+
+# 冒烟测试/CI 模式：置 MY_APP_DISABLE_SCHEDULER=1 时跳过 APScheduler 启动，
+# 避免后台定时任务在验证期间被触发（任务仍会注册，/api/tasks 可正常返回）。
+DISABLE_SCHEDULER = os.environ.get("MY_APP_DISABLE_SCHEDULER", "0") == "1"
 
 app = FastAPI(
     title="数据洞察 SaaS MVP",
@@ -99,28 +103,29 @@ def _init_db_with_retry(max_retries: int = 12, wait: int = 5):
     last_err = None
     for i in range(1, max_retries + 1):
         try:
-            # 创建ORM模型表
-            Base.metadata.create_all(bind=engine)
-            # 确保uploaded_files表存在
-            with get_raw_connection(str(DB_PATH), timeout=30) as conn:
-                conn.execute("""
-                CREATE TABLE IF NOT EXISTS uploaded_files (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    filename TEXT NOT NULL,
-                    original_name TEXT,
-                    table_name TEXT,
-                    row_count INTEGER,
-                    col_count INTEGER,
-                    columns_info TEXT,
-                    quality_issues TEXT,
-                    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-                conn.commit()
-                conn.close()
-                # 初始化调度配置表
-                task_runner._init_schedule_table()
-                return
+            if DB_MODE == "sqlite":
+                # 创建ORM模型表（sqlite 模式由 create_all 管理；pg 模式交给 Alembic，风险 11）
+                Base.metadata.create_all(bind=engine)
+                # 确保uploaded_files表存在
+                with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+                    conn.execute("""
+                    CREATE TABLE IF NOT EXISTS uploaded_files (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        filename TEXT NOT NULL,
+                        original_name TEXT,
+                        table_name TEXT,
+                        row_count INTEGER,
+                        col_count INTEGER,
+                        columns_info TEXT,
+                        quality_issues TEXT,
+                        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """)
+                    conn.commit()
+                    # 初始化调度配置表
+                    task_runner._init_schedule_table()
+            # pg 模式：表结构由 Alembic 管理，此处不建表（避免与 Alembic 抢建，风险 11）
+            return
         except Exception as e:
             last_err = e
             print(f"[startup] db 初始化遇锁({type(e).__name__})，{wait}s 后重试 ({i}/{max_retries}): {e}")
@@ -135,8 +140,11 @@ async def startup_event():
 
     # 注册所有任务并启动调度器
     _register_all_tasks()
-    task_runner.schedule_all_tasks()
-    task_runner.start_scheduler()
+    if DISABLE_SCHEDULER:
+        print("[startup] MY_APP_DISABLE_SCHEDULER=1: skip APScheduler start (smoke test mode)")
+    else:
+        task_runner.schedule_all_tasks()
+        task_runner.start_scheduler()
 
     elapsed = time.time() - start_time
     print(f"服务启动完成，耗时: {elapsed:.2f}秒")
@@ -149,11 +157,19 @@ async def startup_event():
 # RuntimeError，导致整个 uvicorn 应用导入失败、后端无法启动（开发模式下前端由 Vite 提供，无需此挂载）。
 frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
 if (frontend_dist / "assets").is_dir():
+    # 根路径挂载（兼容旧 /assets 引用）
     app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="static")
+    # 与 Vite base:'/myapp/' 对齐：直连 7038（截图/无 nginx 场景）时，
+    # 浏览器按 /myapp/assets/* 拉取 JS/CSS、按 /myapp 拉取 SPA，否则会回退成
+    # index.html 导致模块加载失败、页面白屏。
+    app.mount("/myapp/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="static-myapp")
 
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         file_path = frontend_dist / full_path
+        if full_path.startswith("myapp/assets/"):
+            # 已被 /myapp/assets 挂载处理，这里只兜底（理论上不会命中）
+            return FileResponse(frontend_dist / "index.html")
         if file_path.is_file():
             return FileResponse(file_path)
         return FileResponse(frontend_dist / "index.html")

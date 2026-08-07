@@ -38,6 +38,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill, Font
 from backend.database import get_raw_connection
+from backend.dialect_helpers import table_columns, upsert, safe_pragma
 
 
 from backend.services.ms_sla_service import (  # Phase 4 拆分：共享常量/基础函数
@@ -256,10 +257,10 @@ def write_to_db(db_path, table_name, headers, data):
     """
     with get_raw_connection(str(db_path)) as conn:
         cursor = conn.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA synchronous=OFF")
-        cursor.execute("PRAGMA cache_size=-64000")
-        cursor.execute("PRAGMA temp_store=MEMORY")
+        safe_pragma(conn, "PRAGMA journal_mode=WAL")
+        safe_pragma(conn, "PRAGMA synchronous=OFF")
+        safe_pragma(conn, "PRAGMA cache_size=-64000")
+        safe_pragma(conn, "PRAGMA temp_store=MEMORY")
 
         def _q(col):
             return f'"{col.replace(chr(34), chr(34)+chr(34))}"'
@@ -269,7 +270,7 @@ def write_to_db(db_path, table_name, headers, data):
         cursor.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({col_defs})')
 
         # 补充缺失列
-        exist_cols = {r[1] for r in cursor.execute(f'PRAGMA table_info("{table_name}")').fetchall()}
+        exist_cols = set(table_columns(conn, table_name))
         for h in headers:
             if h not in exist_cols:
                 cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(h)} TEXT')
@@ -286,10 +287,17 @@ def write_to_db(db_path, table_name, headers, data):
         if pk_cols:
             pk_q = ", ".join(_q(k) for k in pk_cols)
             try:
-                cursor.execute(
-                    f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
-                    f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
-                )
+                if isinstance(conn, sqlite3.Connection):
+                    cursor.execute(
+                        f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
+                        f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
+                    )
+                else:
+                    # PG：以 ctid 代替 sqlite 的 rowid 做物理行去重（保留每组最早一行）
+                    cursor.execute(
+                        f'DELETE FROM "{table_name}" WHERE ctid NOT IN ('
+                        f'SELECT MIN(ctid) FROM "{table_name}" GROUP BY {pk_q})'
+                    )
                 # 先删除旧的同名唯一索引，避免主键列变更后 IF NOT EXISTS 跳过导致旧索引残留
                 cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
                 cursor.execute(
@@ -300,24 +308,28 @@ def write_to_db(db_path, table_name, headers, data):
                 conn.rollback()
 
         quoted_headers = [_q(h) for h in headers]
-        placeholders = ", ".join(["?"] * len(headers))
-        insert_sql = f'INSERT OR REPLACE INTO "{table_name}" ({", ".join(quoted_headers)}) VALUES ({placeholders})'
-
-        row_count = 0
-        batch = []
+        # 双模 upsert：有唯一键则按主键 ON CONFLICT 覆盖（sqlite=INSERT OR REPLACE / pg=ON CONFLICT DO UPDATE）；
+        # 无唯一键则退化为纯 INSERT（与 sqlite 下 INSERT OR REPLACE 无冲突目标时行为一致）
+        records = []
         for row in data:
-            if len(row) < len(headers):
-                row.extend([None] * (len(headers) - len(row)))
-            elif len(row) > len(headers):
-                row = row[:len(headers)]
-            str_row = [str(v) if v is not None else None for v in row]
-            batch.append(str_row)
-            row_count += 1
-            if len(batch) >= BATCH_SIZE:
-                cursor.executemany(insert_sql, batch)
-                batch.clear()
-        if batch:
-            cursor.executemany(insert_sql, batch)
+            r = list(row)
+            if len(r) < len(headers):
+                r = r + [None] * (len(headers) - len(r))
+            elif len(r) > len(headers):
+                r = r[:len(headers)]
+            records.append({h: (str(v) if v is not None else None)
+                            for h, v in zip(headers, r)})
+        row_count = len(records)
+        if pk_cols:
+            conflict_cols = list(pk_cols)
+            for i in range(0, len(records), BATCH_SIZE):
+                upsert(conn, table_name, records[i:i + BATCH_SIZE], conflict_cols=conflict_cols)
+        else:
+            placeholders = ", ".join(["?"] * len(headers))
+            insert_sql = f'INSERT INTO "{table_name}" ({", ".join(quoted_headers)}) VALUES ({placeholders})'
+            batch = [[r[h] for h in headers] for r in records]
+            for i in range(0, len(batch), BATCH_SIZE):
+                cursor.executemany(insert_sql, batch[i:i + BATCH_SIZE])
         conn.commit()
 
         if headers:

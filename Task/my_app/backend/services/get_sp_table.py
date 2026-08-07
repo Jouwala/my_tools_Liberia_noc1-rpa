@@ -27,6 +27,21 @@ from pathlib import Path
 import paramiko
 import pandas as pd
 from backend.database import get_raw_connection
+from backend.dialect_helpers import list_table_names, table_columns, write_df
+import sqlite3
+
+
+def _rows_as_dicts(cursor):
+    """cursor -> [dict, ...]（双模：sqlite Row / PG 元组均兼容）"""
+    cols = [d[0] for d in cursor.description]
+    return [dict(zip(cols, r)) for r in cursor.fetchall()]
+
+
+try:
+    import psycopg2
+    _OPERR = (sqlite3.OperationalError, psycopg2.OperationalError)
+except Exception:
+    _OPERR = (sqlite3.OperationalError,)
 
 try:
     from .atomic_write import atomic_to_excel
@@ -249,9 +264,13 @@ def normalize_fields(df: pd.DataFrame) -> pd.DataFrame:
 
 # ====== 数据库写入 ======
 def _ensure_log_table(conn):
-    conn.execute("""
+    if isinstance(conn, sqlite3.Connection):
+        pk_ddl = "id INTEGER PRIMARY KEY AUTOINCREMENT"
+    else:
+        pk_ddl = "id SERIAL PRIMARY KEY"
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS sp_sync_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            {pk_ddl},
             table_name TEXT,
             rows INTEGER,
             synced_at TEXT
@@ -280,19 +299,17 @@ def _write_table(conn, table_name: str, df: pd.DataFrame):
             df = df_combined.drop_duplicates(keep='first')
     else:
         # 整表替换
-        df.to_sql(table_name, conn, if_exists='replace', index=False)
+        write_df(df, table_name, if_exists="replace")
 
     if table_name not in APPEND_TABLES:
         # 上面 replace 已写入；append 表需要在合并后单独写
         pass
     if table_name in APPEND_TABLES:
-        df.to_sql(table_name, conn, if_exists='replace', index=False)
+        write_df(df, table_name, if_exists="replace")
 
 
 def _table_exists(conn, table_name: str) -> bool:
-    cur = conn.cursor()
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
-    return cur.fetchone() is not None
+    return table_name in set(list_table_names(conn))
 
 
 # ====== SFTP 连接（带 keepalive / 超时，便于断线自愈）======
@@ -340,7 +357,7 @@ def run_sp_data_sync() -> dict:
         sftp = None
         try:
             client, sftp = _connect_sftp()
-            conn = __import__('sqlite3').connect(str(DB_PATH))
+            conn = get_raw_connection(str(DB_PATH))
             _ensure_log_table(conn)
 
             for table_name, cfg in SP_TABLES.items():
@@ -456,19 +473,20 @@ def _type_breakdown(df: pd.DataFrame, max_items: int = 3) -> dict | None:
 
 def get_sp_summary() -> dict:
     """返回各 SP 表的总行数、列、最近同步时间、衍生指标。"""
-    import sqlite3
     with get_raw_connection(str(DB_PATH)) as conn:
-        conn.row_factory = sqlite3.Row
+        if isinstance(conn, sqlite3.Connection):
+            conn.row_factory = sqlite3.Row
         try:
             # 最近同步时间
             last_sync = None
             try:
-                row = conn.execute(
+                cur = conn.execute(
                     "SELECT synced_at FROM sp_sync_log ORDER BY id DESC LIMIT 1"
-                ).fetchone()
+                )
+                row = cur.fetchone()
                 if row:
-                    last_sync = row["synced_at"]
-            except sqlite3.OperationalError:
+                    last_sync = row[0]
+            except _OPERR:
                 logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_sp_summary: exception swallowed", exc_info=True)
                 pass
 
@@ -478,18 +496,20 @@ def get_sp_summary() -> dict:
                          "columns": [], "last_sync": last_sync,
                          "metrics": None}
                 try:
-                    cnt = conn.execute(f"SELECT COUNT(*) AS c FROM {table_name}").fetchone()
-                    entry["row_count"] = cnt["c"] if cnt else 0
-                    cols = conn.execute(f"SELECT * FROM {table_name} LIMIT 1").fetchall()
+                    cur = conn.execute(f"SELECT COUNT(*) AS c FROM {table_name}")
+                    cnt = cur.fetchone()
+                    entry["row_count"] = cnt[0] if cnt else 0
+                    cur = conn.execute(f"SELECT * FROM {table_name} LIMIT 1")
+                    cols = cur.fetchall()
                     if cols:
-                        entry["columns"] = list(cols[0].keys())
+                        entry["columns"] = [d[0] for d in cur.description]
                         df = pd.read_sql(f"SELECT * FROM {table_name}", conn)
                         # Inbound / Outbound：closed 拆分；Inventory：Material Type 拆分
                         if table_name in ("inband_details", "outband_details"):
                             entry["metrics"] = _status_breakdown(df)
                         elif table_name == "inventory_details":
                             entry["metrics"] = _type_breakdown(df)
-                except sqlite3.OperationalError:
+                except _OPERR:
                     logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_sp_summary: exception swallowed", exc_info=True)
                     pass
                 summary["tables"].append(entry)
@@ -500,13 +520,13 @@ def get_sp_summary() -> dict:
 
 def get_sp_rows(table: str, page: int = 1, size: int = 50, search: str = "") -> dict:
     """分页 + 模糊搜索返回某 SP 表的数据。"""
-    import sqlite3
     if table not in SP_TABLES:
         return {"error": f"未知表: {table}"}
     with get_raw_connection(str(DB_PATH)) as conn:
-        conn.row_factory = sqlite3.Row
+        if isinstance(conn, sqlite3.Connection):
+            conn.row_factory = sqlite3.Row
         try:
-            columns = [d[1] for d in conn.execute(f"PRAGMA table_info({table})")]
+            columns = table_columns(conn, table)
             where = ""
             params = []
             if search:
@@ -514,21 +534,25 @@ def get_sp_rows(table: str, page: int = 1, size: int = 50, search: str = "") -> 
                 if like_cols:
                     where = " WHERE " + " OR ".join(f"CAST({c} AS TEXT) LIKE ?" for c in like_cols)
                     params = [f"%{search}%"] * len(like_cols)
-            total = conn.execute(f"SELECT COUNT(*) AS c FROM {table}{where}", params).fetchone()["c"]
+            cur = conn.execute(f"SELECT COUNT(*) AS c FROM {table}{where}", params)
+            total = (cur.fetchone() or (0,))[0]
             offset = (max(1, page) - 1) * size
-            rows = conn.execute(
-                f"SELECT * FROM {table}{where} ORDER BY rowid DESC LIMIT ? OFFSET ?",
+            # TODO-PHASE3-PK: 原 ORDER BY rowid DESC；SP 通用表无显式主键（df.to_sql 无 index），
+            # 改用 update_time 近似“最近写入优先”（_write_table 写入时包含 update_time）。
+            cur = conn.execute(
+                f"SELECT * FROM {table}{where} ORDER BY update_time DESC LIMIT ? OFFSET ?",
                 params + [size, offset],
-            ).fetchall()
+            )
+            rows = _rows_as_dicts(cur)
             return {
                 "table": table,
                 "columns": columns,
-                "rows": [dict(r) for r in rows],
+                "rows": rows,
                 "total": total,
                 "page": page,
                 "size": size,
             }
-        except sqlite3.OperationalError:
+        except _OPERR:
             # 表尚未创建（任务未运行过）→ 返回空结果，前端优雅展示
             logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_sp_rows: exception swallowed", exc_info=True)
             return {

@@ -7,6 +7,9 @@ import sqlite3
 import pandas as pd
 from pathlib import Path
 from backend.database import get_raw_connection
+from backend.dialect_helpers import (
+    list_table_names, table_columns, safe_pragma, write_df,
+)
 
 # 配置
 DB_DIR = Path(__file__).resolve().parent.parent.parent / "db"
@@ -120,7 +123,7 @@ def load_excel_to_db(excel_path: Path, table_prefix: str, conn: sqlite3.Connecti
             print(f"    ... 共{len(original_cols)}列")
 
         # 写入数据库（先删除旧表再创建）
-        df.to_sql(table_name, conn, if_exists='replace', index=False, chunksize=5000)
+        write_df(df, table_name, if_exists='replace')
 
         # 建立索引
         if 'site_id' in df.columns:
@@ -190,8 +193,8 @@ def main():
 
     # 连接数据库
     with get_raw_connection(str(DB_PATH)) as conn:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
+        safe_pragma(conn, "PRAGMA journal_mode=WAL")
+        safe_pragma(conn, "PRAGMA synchronous=NORMAL")
 
         # 优先尝试 eFlow API 数据源
         try_api = True  # 默认尝试 API
@@ -218,19 +221,15 @@ def main():
                         load_excel_to_db(excel_path, table_prefix, conn)
 
         # 创建元数据表 - 记录所有数据表信息
-        cursor = conn.execute("""
-        SELECT name FROM sqlite_master 
-        WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '_metadata'
-        ORDER BY name
-        """)
-        tables = [row[0] for row in cursor.fetchall()]
+        tables = [t for t in list_table_names(conn) if t != '_metadata']
 
         metadata_rows = []
         for table_name in tables:
             row_count = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
-            col_info = conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
-            col_count = len(col_info)
-            columns = [{"name": c[1], "type": c[2]} for c in col_info]
+            col_names = table_columns(conn, table_name)
+            col_count = len(col_names)
+            # TODO-PHASE3-SCHEMA: 仅取列名（类型信息在双模下成本较高，元数据仅作展示用途）
+            columns = [{"name": c, "type": ""} for c in col_names]
             metadata_rows.append({
                 "table_name": table_name,
                 "row_count": row_count,
@@ -240,24 +239,40 @@ def main():
 
         if metadata_rows:
             meta_df = pd.DataFrame(metadata_rows)
-            meta_df.to_sql('_metadata', conn, if_exists='replace', index=False)
+            write_df(meta_df, '_metadata', if_exists='replace')
             print(f"\n{'='*60}")
             print(f"元数据表 _metadata: {len(metadata_rows)}条记录")
 
         # 创建分析归档表
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS analysis_archive (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT,
-            table_name TEXT,
-            chart_config TEXT,
-            conclusions TEXT,
-            snapshot_data TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
+        if isinstance(conn, sqlite3.Connection):
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS analysis_archive (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT,
+                table_name TEXT,
+                chart_config TEXT,
+                conclusions TEXT,
+                snapshot_data TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+        else:
+            # PG：以 GENERATED ALWAYS AS IDENTITY 取代 sqlite 的 AUTOINCREMENT
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS analysis_archive (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                table_name TEXT,
+                chart_config TEXT,
+                conclusions TEXT,
+                snapshot_data TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
         conn.commit()
 
         # 打印汇总

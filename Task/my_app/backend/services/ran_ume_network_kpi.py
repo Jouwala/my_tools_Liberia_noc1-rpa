@@ -44,6 +44,7 @@ from ftplib import FTP, error_perm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from backend.database import get_raw_connection
+from backend.dialect_helpers import list_table_names, table_columns, upsert, safe_pragma
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
@@ -785,10 +786,10 @@ def write_to_db(db_path, table_name, headers, data):
         try:
             with get_raw_connection(db_path, timeout=60) as conn:
                 cursor = conn.cursor()
-                cursor.execute("PRAGMA journal_mode=WAL")
-                cursor.execute("PRAGMA synchronous=OFF")
-                cursor.execute("PRAGMA cache_size=-64000")
-                cursor.execute("PRAGMA busy_timeout=60000")
+                safe_pragma(conn, "PRAGMA journal_mode=WAL")
+                safe_pragma(conn, "PRAGMA synchronous=OFF")
+                safe_pragma(conn, "PRAGMA cache_size=-64000")
+                safe_pragma(conn, "PRAGMA busy_timeout=60000")
                 break
         except sqlite3.OperationalError as e:
             last_err = e
@@ -809,11 +810,7 @@ def write_to_db(db_path, table_name, headers, data):
         return 0
 
     # 检查表是否已存在
-    cursor.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        (table_name,)
-    )
-    table_exists = cursor.fetchone() is not None
+    table_exists = table_name in set(list_table_names(conn))
 
     if not table_exists:
         # 新建表
@@ -836,8 +833,7 @@ def write_to_db(db_path, table_name, headers, data):
                 pass
     else:
         # 表已存在，检查并添加缺少的列
-        cursor.execute(f'PRAGMA table_info("{table_name}")')
-        existing_cols = {row[1] for row in cursor.fetchall()}
+        existing_cols = set(table_columns(conn, table_name))
         for h in headers:
             if h not in existing_cols:
                 safe_col = h.replace('"', '""')
@@ -847,32 +843,22 @@ def write_to_db(db_path, table_name, headers, data):
                     logging.getLogger(__name__).warning("[SILENT-EXCEPT] write_to_db: exception swallowed", exc_info=True)
                     pass
 
-    # INSERT OR REPLACE
+    # 双模 upsert：以 'Begin Time' + 'Group' 为联合主键（与建表 PRIMARY KEY 一致）
     quoted_headers = [f'"{h.replace(chr(34), chr(34)+chr(34))}"' for h in headers]
-    placeholders = ", ".join(["?"] * len(headers))
-    insert_sql = (
-        f'INSERT OR REPLACE INTO "{table_name}" '
-        f'({", ".join(quoted_headers)}) VALUES ({placeholders})'
-    )
-
-    row_count = 0
-    batch = []
+    conflict_cols = ["Begin Time", "Group"]
+    records = []
     for row in data:
-        if len(row) < len(headers):
-            row.extend([None] * (len(headers) - len(row)))
-        elif len(row) > len(headers):
-            row = row[:len(headers)]
+        r = list(row)
+        if len(r) < len(headers):
+            r = r + [None] * (len(headers) - len(r))
+        elif len(r) > len(headers):
+            r = r[:len(headers)]
+        records.append({h: (str(v) if v is not None else None) for h, v in zip(headers, r)})
 
-        str_row = [str(v) if v is not None else None for v in row]
-        batch.append(str_row)
-        row_count += 1
-
-        if len(batch) >= 2000:
-            cursor.executemany(insert_sql, batch)
-            batch.clear()
-
-    if batch:
-        cursor.executemany(insert_sql, batch)
+    row_count = len(records)
+    # 双模 upsert：sqlite=INSERT OR REPLACE / pg=INSERT ... ON CONFLICT DO UPDATE
+    for i in range(0, len(records), 2000):
+        upsert(conn, table_name, records[i:i + 2000], conflict_cols=conflict_cols)
 
     conn.commit()
     conn.close()

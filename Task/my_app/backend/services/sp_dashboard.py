@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.database import get_raw_connection  # 复用已加固的连接（busy_timeout+WAL）
+from backend.dialect_helpers import table_columns  # 双模列枚举（PRAGMA table_info ↔ information_schema）
 
 # ====== 路径配置（与 get_sp_table.py 一致：项目根 db/app.db）======
 SERVICE_DIR = Path(__file__).resolve().parent          # backend/services
@@ -40,9 +41,7 @@ def _get_columns(table: str) -> List[str]:
     cols: List[str] = []
     try:
         with get_raw_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(f'PRAGMA table_info("{table}")')
-            cols = [r[1] for r in cur.fetchall()]
+            cols = table_columns(conn, table)
     except sqlite3.OperationalError:
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] _get_columns: exception swallowed", exc_info=True)
         cols = []
@@ -81,16 +80,25 @@ def _cond_sql(date_start: Optional[str], date_end: Optional[str], warehouse: Opt
     parts: List[str] = []
     params: List[Any] = []
     if date_start:
-        parts.append(f"`{col_time}` >= ?")
+        parts.append(f'"{col_time}" >= ?')
         params.append(date_start + " 00:00:00")
     if date_end:
-        parts.append(f"`{col_time}` <= ?")
+        parts.append(f'"{col_time}" <= ?')
         params.append(date_end + " 23:59:59")
     if warehouse:
-        parts.append(f"`{col_wh}` = ?")
+        parts.append(f'"{col_wh}" = ?')
         params.append(warehouse)
     cond = (" AND " + " AND ".join(parts)) if parts else ""
     return cond, params
+
+
+def _date_to_str(v):
+    """PG date() 返回 datetime.date，sqlite 返回文本；统一为 'YYYY-MM-DD' 字符串。"""
+    if v is None:
+        return None
+    if hasattr(v, "strftime"):
+        return v.strftime("%Y-%m-%d")
+    return str(v)[:10]
 
 
 # 探测列名（模块加载时即确定，对应 app_sp_optimized.init_column_names）
@@ -403,7 +411,7 @@ def load_inventory_stats(date_start=None, date_end=None, warehouse=None) -> Dict
                 'SELECT MAX("update_date") AS d FROM inventory_details '
                 'WHERE "update_date" IS NOT NULL AND "update_date" != \'\''
             ).fetchone()
-            latest_date = latest["d"] if latest and latest["d"] else None
+            latest_date = latest[0] if latest and latest[0] else None
             if not latest_date:
                 return {"Total": 0, "Consumables_QTY": 0, "SpareParts_QTY": 0}
 
@@ -417,8 +425,8 @@ def load_inventory_stats(date_start=None, date_end=None, warehouse=None) -> Dict
 
             total_qty = consumables_qty = spare_parts_qty = 0
             for row in rows:
-                material_type = row["Material Type"]
-                stock_qty = row["Stock Qty"] or 0
+                material_type = row[1]
+                stock_qty = row[2] or 0
                 try:
                     qty = int(stock_qty) if stock_qty else 0
                 except (ValueError, TypeError):
@@ -456,11 +464,11 @@ def load_inventory_trend(date_start=None, date_end=None, warehouse=None) -> List
             rows = conn.execute(q, params).fetchall()
             date_stats: Dict[str, Dict[str, int]] = {}
             for row in rows:
-                update_date = row["update_date"]
+                update_date = row[2]
                 if not update_date:
                     continue
-                material_type = row["Material Type"]
-                stock_qty = row["Stock Qty"] or 0
+                material_type = row[1]
+                stock_qty = row[3] or 0
                 try:
                     qty = int(stock_qty) if stock_qty else 0
                 except (ValueError, TypeError):
@@ -496,20 +504,24 @@ def _inbound_outbound_date_range() -> (Optional[str], Optional[str]):
             )
             row = cur.fetchone()
             if row:
-                if row["mn"] and (min_date is None or row["mn"] < min_date):
-                    min_date = row["mn"]
-                if row["mx"] and (max_date is None or row["mx"] > max_date):
-                    max_date = row["mx"]
+                _min = _date_to_str(row[0])
+                _max = _date_to_str(row[1])
+                if _min and (min_date is None or _min < min_date):
+                    min_date = _min
+                if _max and (max_date is None or _max > max_date):
+                    max_date = _max
             cur.execute(
                 f'SELECT MIN(date("{COL_OUTBOUND_TIME}")) AS mn, MAX(date("{COL_OUTBOUND_TIME}")) AS mx '
                 f'FROM outband_details WHERE "{COL_OUTBOUND_TIME}" IS NOT NULL AND "{COL_OUTBOUND_TIME}" != \'\''
             )
             row = cur.fetchone()
             if row:
-                if row["mn"] and (min_date is None or row["mn"] < min_date):
-                    min_date = row["mn"]
-                if row["mx"] and (max_date is None or row["mx"] > max_date):
-                    max_date = row["mx"]
+                _min = _date_to_str(row[0])
+                _max = _date_to_str(row[1])
+                if _min and (min_date is None or _min < min_date):
+                    min_date = _min
+                if _max and (max_date is None or _max > max_date):
+                    max_date = _max
             today = datetime.now().strftime("%Y-%m-%d")
             if max_date and today > max_date:
                 max_date = today
@@ -558,15 +570,15 @@ def load_inbound_outbound_trend_full_range(date_start=None, date_end=None, wareh
 
             date_stats: Dict[str, Dict[str, int]] = {}
             for row in in_rows:
-                d = row["doc_date"]
+                d = row[0]
                 if d:
                     date_stats.setdefault(d, {"inbound_qty": 0, "outbound_qty": 0})
-                    date_stats[d]["inbound_qty"] += int(row["qty_sum"] or 0)
+                    date_stats[d]["inbound_qty"] += int(row[1] or 0)
             for row in out_rows:
-                d = row["doc_date"]
+                d = row[0]
                 if d:
                     date_stats.setdefault(d, {"inbound_qty": 0, "outbound_qty": 0})
-                    date_stats[d]["outbound_qty"] += int(row["qty_sum"] or 0)
+                    date_stats[d]["outbound_qty"] += int(row[1] or 0)
 
             min_db, max_db = _inbound_outbound_date_range()
             if not min_db:
@@ -601,7 +613,7 @@ def get_latest_update_time() -> str:
     with _connect() as conn:
         try:
             row = conn.execute('SELECT MAX("update_time") AS t FROM inventory_details').fetchone()
-            return row["t"] if row and row["t"] else ""
+            return row[0] if row and row[0] else ""
         finally:
             conn.close()
 
@@ -624,8 +636,7 @@ def load_sla_details(date_start=None, date_end=None, warehouse=None) -> List[Dic
     with _connect() as conn:
         try:
             cur = conn.cursor()
-            cur.execute(f'PRAGMA table_info(outband_details)')
-            columns = [r[1] for r in cur.fetchall()]
+            columns = table_columns(conn, "outband_details")
             all_records = []
             seen = set()
             for cfg in sla_configs:
@@ -634,7 +645,7 @@ def load_sla_details(date_start=None, date_end=None, warehouse=None) -> List[Dic
                 where, params = _cond_sql(date_start, date_end, warehouse, t, w)
                 query = (f'SELECT * FROM outband_details WHERE "{ty}" = ? '
                          f'AND ("{s}" IS NULL OR LOWER("{s}") != \'closed\') '
-                         f'AND "{bd}" IS NOT NULL AND "{bd}" != \'\'{where}')
+                         f'AND "{bd}" IS NOT NULL AND CAST("{bd}" AS TEXT) != \'\'{where}')
                 params = [ot] + params
                 rows = cur.execute(query, params).fetchall()
                 for row in rows:
@@ -753,8 +764,7 @@ def _load_inband_detail(filter_column=None, filter_value=None, filter_mode="exac
     with _connect() as conn:
         try:
             cur = conn.cursor()
-            cur.execute('PRAGMA table_info(inband_details)')
-            columns = [r[1] for r in cur.fetchall()]
+            columns = table_columns(conn, "inband_details")
             q = 'SELECT * FROM inband_details WHERE 1=1'
             params: List[Any] = []
             c_time = COL_INBOUND_TIME
@@ -796,8 +806,7 @@ def _load_outband_detail(filter_column=None, filter_value=None, filter_mode="exa
     with _connect() as conn:
         try:
             cur = conn.cursor()
-            cur.execute('PRAGMA table_info(outband_details)')
-            columns = [r[1] for r in cur.fetchall()]
+            columns = table_columns(conn, "outband_details")
             q = 'SELECT * FROM outband_details WHERE 1=1'
             params: List[Any] = []
             c_time = COL_OUTBOUND_TIME
@@ -848,8 +857,7 @@ def _load_inventory_detail(filter_column=None, filter_value=None, filter_mode="e
     with _connect() as conn:
         try:
             cur = conn.cursor()
-            cur.execute('PRAGMA table_info(inventory_details)')
-            columns = [r[1] for r in cur.fetchall()]
+            columns = table_columns(conn, "inventory_details")
             q = 'SELECT * FROM inventory_details WHERE 1=1'
             params: List[Any] = []
             if date_start:

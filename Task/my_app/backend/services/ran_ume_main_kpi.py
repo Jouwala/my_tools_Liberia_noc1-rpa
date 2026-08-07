@@ -44,6 +44,7 @@ from ftplib import FTP, error_perm
 
 import pandas as pd
 from backend.database import get_raw_connection
+from backend.dialect_helpers import list_table_names, table_columns
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
@@ -814,11 +815,9 @@ def quote_identifier(name: str) -> str:
     return f'"{name}"'
 
 
-def get_table_info(conn: sqlite3.Connection, table_name: str) -> list[str]:
+def get_table_info(conn, table_name: str) -> list[str]:
     """获取表的列名列表。"""
-    cursor = conn.cursor()
-    cursor.execute(f"PRAGMA table_info({quote_identifier(table_name)})")
-    return [col[1] for col in cursor.fetchall()]
+    return table_columns(conn, table_name)
 
 
 def _strip_item_prefix(col_name: str) -> str:
@@ -828,9 +827,11 @@ def _strip_item_prefix(col_name: str) -> str:
     return m.group(1) if m else col_name
 
 
-def add_missing_columns(conn: sqlite3.Connection, table_name: str, excel_columns: list[str]) -> None:
+def add_missing_columns(conn, table_name: str, excel_columns: list[str]) -> None:
     """自动检测并向数据库表中添加 Excel 中存在但数据库中缺失的列。
-    支持去掉 {item_id}: 前缀后的模糊匹配，避免因旧数据列名带前缀而重复添加列。"""
+    支持去掉 {item_id}: 前缀后的模糊匹配，避免因旧数据列名带前缀而重复添加列。
+    # TODO-PHASE3-DDL: ALTER TABLE ... ADD COLUMN ... NUMERIC 在 sqlite 与 pg 均兼容，
+    但 ran_ume db 为独立库，pg 模式需确保 conn 指向正确的目标库。"""
     db_cols = get_table_info(conn, table_name)
     # 规范化列名：去掉 {item_id}: 前缀
     db_cols_normalized = {_strip_item_prefix(c): c for c in db_cols}
@@ -894,13 +895,12 @@ def sync_excel_to_db(excel_file_path: str, db_table: str, db_path: str,
     with get_raw_connection(db_path) as conn:
         try:
             cursor = conn.cursor()
-            cursor.execute(
-                f"SELECT name FROM sqlite_master WHERE type='table' AND name={quote_identifier(db_table)};"
-            )
-            table_exists = cursor.fetchone() is not None
+            table_exists = db_table in set(list_table_names(conn))
 
             if not table_exists:
                 # 表不存在，直接创建并插入
+                # TODO-PHASE3-SCHEMA: ran_ume 独立库，pg 模式需 engine_override 指向该库；
+                # sqlite 模式保持原有 df.to_sql 行为不变。
                 excel_df.to_sql(db_table, conn, if_exists='replace', index=False)
                 print(f"  表 {db_table} 不存在，已创建并插入 {len(excel_df)} 条记录")
                 return len(excel_df)
@@ -948,6 +948,8 @@ def sync_excel_to_db(excel_file_path: str, db_table: str, db_path: str,
             # 将 Excel 数据写入临时表
             temp_table = f"_temp_{db_table}"
             cursor.execute(f'DROP TABLE IF EXISTS "{temp_table}"')
+            # TODO-PHASE3-SCHEMA: ran_ume 独立库，pg 模式需 engine_override 指向该库；
+            # sqlite 模式保持原有 df.to_sql 行为不变。
             excel_df.to_sql(temp_table, conn, if_exists='replace', index=False)
 
             # 用 SQL LEFT JOIN 按主键去重，仅插入新行

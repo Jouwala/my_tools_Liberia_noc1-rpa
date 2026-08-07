@@ -337,18 +337,39 @@ def _capture_packet_loss_screenshot() -> Path:
             except Exception:
                 continue
 
-        # 3) 等数据真正加载（spinner 消失 + 数字出现）
+        # 3) 等数据真正加载（spinner 消失 + 关键指标出现）
         try:
             page.wait_for_selector("text=加载中...", state="hidden", timeout=15000)
         except Exception:
             pass
+        # 硬性渲染校验：看板必须出现关键指标文本，否则视为未渲染（白屏/数据缺失）
+        rendered = False
         for kw in ("Total Sites", "Affected Sites", "Critical", "667"):
             try:
                 el = page.get_by_text(kw, exact=False).first
                 el.wait_for(state="visible", timeout=8000)
+                rendered = True
                 break
             except Exception:
                 continue
+        if not rendered:
+            page.screenshot(path=str(out), full_page=False)
+            browser.close()
+            raise RuntimeError(
+                "看板未渲染：关键指标文本（Total Sites/Affected Sites/Critical/667）均未出现，"
+                "可能后端/API 未就绪或前端加载失败"
+            )
+        # 额外确认 Leaflet 地图瓦片已绘制（避免地图区域空白）
+        try:
+            page.wait_for_function(
+                "() => { const lf = document.querySelector('.leaflet-container');"
+                " if (!lf) return false;"
+                " const imgs = lf.querySelectorAll('img.leaflet-tile');"
+                " return imgs.length > 0 && lf.getBoundingClientRect().height > 200; }",
+                timeout=15000,
+            )
+        except Exception:
+            logging.getLogger(__name__).warning("[PL-SHOT] 地图瓦片未检出，仍继续截图")
         page.wait_for_timeout(3000)  # 图表/地图缓冲
 
         # 4) 隐藏左侧栏（antd Sider），并让右侧地图列拉伸、地图 flex-grow 铺满整列
@@ -393,8 +414,42 @@ def _capture_packet_loss_screenshot() -> Path:
         page.screenshot(path=str(out), full_page=False)
         browser.close()
 
-    assert out.stat().st_size > 10000, f"截图异常小 ({out.stat().st_size}B)，可能未正确渲染"
+    # 像素级校验：纯白/近白页面视为渲染失败，抛错以便上层跳过该图（避免白图入邮件）。
+    # 取代原先的 `st_size > 10000` 字节断言——空白 PNG 也能轻松超过 10KB，导致白图被发出。
+    _assert_not_blank(out)
     return out
+
+
+def _assert_not_blank(out: Path) -> None:
+    """截图若基本全白（白屏），抛错，让 run_packet_loss_email 跳过该图而非发出白图。
+
+    - 先做一个最小文件体积兜底（避免附带 0 字节/损坏文件）；
+    - 再按像素判定：三通道最值都接近纯白，或近白像素占比 > 98% 即判为白屏。
+    - 无 PIL 时仅告警并放行，退回元素级渲染校验。
+    """
+    if not out.exists():
+        raise RuntimeError(f"截图文件缺失，已跳过：{out}")
+    if out.stat().st_size < 2000:
+        raise RuntimeError(f"截图文件异常小（{out.stat().st_size}B），已跳过：{out}")
+    try:
+        from PIL import Image
+    except Exception:
+        logging.getLogger(__name__).warning("[PL-SHOT] PIL 不可用，跳过像素级白屏校验")
+        return
+    try:
+        im = Image.open(out).convert("RGB")
+        extrema = im.getextrema()  # ((rmin,rmax),(gmin,gmax),(bmin,bmax))
+        if all(mn >= 250 and mx <= 255 for (mn, mx) in extrema):
+            raise RuntimeError(f"截图疑似白屏（像素全白），已跳过：{out}")
+        px = list(im.getdata())
+        white = sum(1 for r, g, b in px if r > 248 and g > 248 and b > 248)
+        ratio = white / len(px) if px else 1.0
+        if ratio > 0.98:
+            raise RuntimeError(f"截图近白（{ratio*100:.0f}% 白像素），已跳过：{out}")
+    except RuntimeError:
+        raise
+    except Exception as e:
+        logging.getLogger(__name__).warning("[PL-SHOT] 像素校验异常: %s", e)
 
 
 def find_latest_excel(directory: Path, name_filter: str) -> Optional[Path]:

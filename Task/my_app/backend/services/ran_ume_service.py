@@ -25,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from backend.database import get_raw_connection
+from backend.dialect_helpers import list_table_names
 
 logger = logging.getLogger("ran_ume_service")
 
@@ -896,9 +897,7 @@ def run_availability_report() -> dict:
 
     try:
         with get_raw_connection(db_path) as conn:
-            tables = [r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall() if r[0] in TECH_MAP]
+            tables = [t for t in list_table_names(conn) if t in TECH_MAP]
 
             table_dfs = {}
             for table in tables:

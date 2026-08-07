@@ -9,7 +9,8 @@ import logging
 
 from fastapi import APIRouter
 
-from backend.database import DB_PATH, get_raw_connection
+from backend.database import DB_PATH, DB_MODE, get_raw_connection
+from backend.dialect_helpers import list_table_names
 from backend.task_registry import sync_history
 
 logger = logging.getLogger(__name__)
@@ -19,11 +20,10 @@ router = APIRouter(tags=["system"])
 
 @router.get("/api/health")
 def health_check():
-    return {
-        "status": "ok",
-        "database": str(DB_PATH),
-        "db_exists": DB_PATH.exists(),
-    }
+    """健康检查：PG 模式直接报告 postgresql，避免 sqlite 文件存在性造成误导。"""
+    if DB_MODE == "pg":
+        return {"status": "ok", "db_mode": "pg", "database": "postgresql", "db_exists": True}
+    return {"status": "ok", "db_mode": "sqlite", "database": str(DB_PATH), "db_exists": DB_PATH.exists()}
 
 
 @router.get("/api/data-source/timestamps")
@@ -81,20 +81,31 @@ def get_data_timestamps():
 def db_info():
     """数据库概览信息"""
     with get_raw_connection(str(DB_PATH)) as conn:
-        tables = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-        ).fetchall()]
+        if DB_MODE == "pg":
+            rows = conn.execute(
+                "SELECT table_schema, table_name FROM information_schema.tables "
+                "WHERE table_schema = ANY(current_schemas(false)) AND table_type = 'BASE TABLE' "
+                "ORDER BY table_schema, table_name"
+            ).fetchall()
+            tables = [f"{r[0]}.{r[1]}" for r in rows]
+        else:
+            tables = sorted(list_table_names(conn))
 
         total_rows = 0
         table_info = []
         for t in tables:
-            count = conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
+            if DB_MODE == "pg":
+                schema, table = t.split(".", 1)
+                count = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()[0]
+            else:
+                count = conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
             total_rows += count
             table_info.append({"name": t, "rows": count})
 
         conn.close()
         return {
-            "database": str(DB_PATH),
+            "db_mode": DB_MODE,
+            "database": "postgresql" if DB_MODE == "pg" else str(DB_PATH),
             "total_tables": len(tables),
             "total_rows": total_rows,
             "tables": table_info,

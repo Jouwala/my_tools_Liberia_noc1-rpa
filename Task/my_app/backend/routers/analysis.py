@@ -7,8 +7,23 @@ from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 from backend.database import get_raw_connection, DB_PATH
+from backend.dialect_helpers import list_table_names
 from backend.services.profiler import DataProfiler
 import pandas as pd
+
+
+def _rows_as_dicts(cursor):
+    """cursor -> [dict, ...]（双模：sqlite Row / PG 元组均兼容）"""
+    cols = [d[0] for d in cursor.description]
+    return [dict(zip(cols, r)) for r in cursor.fetchall()]
+
+
+def _row_as_dict(cursor):
+    """单行 cursor -> dict 或 None（双模兼容）"""
+    cols = [d[0] for d in cursor.description]
+    r = cursor.fetchone()
+    return dict(zip(cols, r)) if r is not None else None
+
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -32,10 +47,11 @@ class AnalysisUpdate(BaseModel):
 def create_analysis(req: AnalysisCreate):
     """创建分析任务，自动生成图表配置和结论并归档"""
     with get_raw_connection(str(DB_PATH)) as conn:
-        conn.row_factory = sqlite3.Row
+        if isinstance(conn, sqlite3.Connection):
+            conn.row_factory = sqlite3.Row
 
         # 检查表是否存在
-        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        tables = list_table_names(conn)
         if req.table_name not in tables:
             conn.close()
             raise HTTPException(status_code=404, detail=f"表 {req.table_name} 不存在")
@@ -67,6 +83,7 @@ def create_analysis(req: AnalysisCreate):
         cursor = conn.execute("""
         INSERT INTO analysis_archive (name, description, table_name, chart_config, conclusions, snapshot_data)
         VALUES (?, ?, ?, ?, ?, ?)
+        RETURNING id
         """, (
             req.name,
             req.description,
@@ -76,7 +93,7 @@ def create_analysis(req: AnalysisCreate):
             json.dumps(snapshot, ensure_ascii=False),
         ))
         conn.commit()
-        analysis_id = cursor.lastrowid
+        analysis_id = cursor.fetchone()[0]
         conn.close()
 
         return {
@@ -97,7 +114,8 @@ def list_analyses(
 ):
     """查询历史分析列表（归档检索）"""
     with get_raw_connection(str(DB_PATH)) as conn:
-        conn.row_factory = sqlite3.Row
+        if isinstance(conn, sqlite3.Connection):
+            conn.row_factory = sqlite3.Row
 
         where_parts = []
         params = []
@@ -114,15 +132,15 @@ def list_analyses(
         offset = (page - 1) * page_size
 
         total = conn.execute(f"SELECT COUNT(*) FROM analysis_archive{where_clause}", params).fetchone()[0]
-        rows = conn.execute(
+        rows = _rows_as_dicts(conn.execute(
             f"SELECT id, name, description, table_name, created_at, updated_at FROM analysis_archive{where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?",
             params + [page_size, offset]
-        ).fetchall()
+        ))
 
         conn.close()
 
         return {
-            "analyses": [dict(r) for r in rows],
+            "analyses": rows,
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -133,14 +151,15 @@ def list_analyses(
 def get_analysis(analysis_id: int):
     """获取单个分析详情"""
     with get_raw_connection(str(DB_PATH)) as conn:
-        conn.row_factory = sqlite3.Row
+        if isinstance(conn, sqlite3.Connection):
+            conn.row_factory = sqlite3.Row
 
-        row = conn.execute("SELECT * FROM analysis_archive WHERE id = ?", (analysis_id,)).fetchone()
+        row = _row_as_dict(conn.execute("SELECT * FROM analysis_archive WHERE id = ?", (analysis_id,)))
         if not row:
             conn.close()
             raise HTTPException(status_code=404, detail="分析记录不存在")
 
-        result = dict(row)
+        result = row
         # 解析JSON字段
         for field in ['chart_config', 'conclusions', 'snapshot_data']:
             if result.get(field):

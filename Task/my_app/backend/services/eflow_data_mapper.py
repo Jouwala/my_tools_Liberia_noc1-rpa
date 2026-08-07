@@ -31,6 +31,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import ftplib
 from backend.database import get_raw_connection
+from backend.dialect_helpers import list_table_names
 
 
 from backend.services.eflow_api_client import (  # Phase 4 拆分：共享常量/基础函数
@@ -489,6 +490,8 @@ def save_to_sqlite(sheets_data):
                 if df[col].apply(lambda x: isinstance(x, (list, dict))).any():
                     df[col] = df[col].apply(lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (list, dict)) else x)
             table = _table_name(sheet_name)
+            # TODO-PHASE3-SCHEMA: eflow 表写入独立库 eflow.sqlite3（非 app.db）。
+            # 默认 sqlite 模式直接 to_sql（行为不变）；PG 模式需 engine_override 指向 schema=eflow。
             df.to_sql(table, conn, if_exists="replace", index=False, chunksize=5000)
             logger.info(f"SQLite table '{table}': {len(df)} rows, {len(df.columns)} columns ({time.time() - t0:.2f}s)")
 
@@ -1134,26 +1137,25 @@ def load_report_data_from_db() -> dict:
     Returns:
         {"eFlow TT": [row_dict...], "Site": [row_dict...]} 与 fetch_all_data 的键一致
     """
-    import sqlite3
     from backend.services.sync_from_eflow_api import SITE_COLUMN_MAP, TT_COLUMN_MAP
 
     out: dict = {}
     with get_raw_connection(APP_DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
+        if isinstance(conn, sqlite3.Connection):
+            conn.row_factory = sqlite3.Row
         try:
-            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            tables = set(list_table_names(conn))
 
             if "eflow_tt" in tables:
                 inv = {}
                 for raw, mapped in TT_COLUMN_MAP.items():
                     inv.setdefault(mapped, raw)
-                rows = conn.execute("SELECT * FROM eflow_tt").fetchall()
+                cur = conn.execute("SELECT * FROM eflow_tt")
+                cols = [d[0] for d in cur.description]
                 tt_rows = []
-                for r in rows:
-                    d = {}
-                    for k in r.keys():
-                        d[inv.get(k, k)] = r[k]
-                    tt_rows.append(d)
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    tt_rows.append({inv.get(k, k): v for k, v in row.items()})
                 out["eFlow TT"] = tt_rows
                 logger.info(f"[REPORT-DB] eflow_tt loaded: {len(tt_rows)} rows")
 
@@ -1161,13 +1163,12 @@ def load_report_data_from_db() -> dict:
                 inv = {}
                 for raw, mapped in SITE_COLUMN_MAP.items():
                     inv.setdefault(mapped, raw)
-                rows = conn.execute("SELECT * FROM eflow_site").fetchall()
+                cur = conn.execute("SELECT * FROM eflow_site")
+                cols = [d[0] for d in cur.description]
                 site_rows = []
-                for r in rows:
-                    d = {}
-                    for k in r.keys():
-                        d[inv.get(k, k)] = r[k]
-                    site_rows.append(d)
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    site_rows.append({inv.get(k, k): v for k, v in row.items()})
                 out["Site"] = site_rows
                 logger.info(f"[REPORT-DB] eflow_site loaded: {len(site_rows)} rows")
         finally:

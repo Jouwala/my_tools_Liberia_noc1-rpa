@@ -39,6 +39,7 @@ import time
 import socket
 import sqlite3
 import subprocess
+from backend.dialect_helpers import list_table_names
 import urllib.parse
 from datetime import datetime, timedelta
 
@@ -480,8 +481,11 @@ def write_to_remote_db(rows, device_id):
 
 
 def _open_db():
-    """打开数据库；若被占用（锁定）则按规则追加 _序号 生成新文件。"""
+    """打开数据库；sqlite 模式下若被占用（锁定）则按规则追加 _序号 生成新文件；pg 模式走 PG 连接。"""
+    from backend.database import DB_MODE, get_raw_connection
     candidate = DB_PATH
+    if DB_MODE == "pg":
+        return get_raw_connection(str(candidate), logical_name="fw_db", timeout=10), candidate
     idx = 0
     while True:
         try:
@@ -519,10 +523,7 @@ def write_to_local_db(rows, device_id):
     conn, used_path = _open_db()
     cur = conn.cursor()
     try:
-        cur.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (TABLE_NAME,)
-        )
-        if cur.fetchone() is None:
+        if TABLE_NAME not in set(list_table_names(conn)):
             cur.execute(
                 f'CREATE TABLE "{TABLE_NAME}" ('
                 '  device_id   TEXT NOT NULL,'

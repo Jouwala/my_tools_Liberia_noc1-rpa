@@ -47,16 +47,43 @@ On Error GoTo 0
 ' ===== 3. 启动后端服务 =====
 ' 使用 cmd /c 包裹，确保环境变量正确传递，并将日志重定向
 backendLog = fso.BuildPath(base, "backend_runtime.log")
-backendCmd = "cmd /c chcp 65001 >nul & """ & backendExe & """ -m uvicorn backend.main:app --host 0.0.0.0 --port 7038 > """ & backendLog & """ 2>&1"
-ws.Run backendCmd, 0, False
+If Not IsPortListening(7038) Then
+    backendCmd = "cmd /c chcp 65001 >nul & set MY_APP_TASK_QUEUE=1& """ & backendExe & """ -m uvicorn backend.main:app --host 0.0.0.0 --port 7038 > """ & backendLog & """ 2>&1"
+    ws.Run backendCmd, 0, False
+End If
+
+' Wait for the backend before exposing the frontend proxy. Otherwise Vite returns 502.
+waited = 0
+Do While Not IsPortListening(7038) And waited < 30
+    WScript.Sleep 1000
+    waited = waited + 1
+Loop
+If Not IsPortListening(7038) Then
+    MsgBox "Backend did not start on port 7038 within 30 seconds." & vbCrLf & "Check backend_runtime.log.", vbCritical, "Data Insight MVP"
+    WScript.Quit 1
+End If
+
+workerPid = fso.BuildPath(base, "backend\worker.pid")
+If Not fso.FileExists(workerPid) Then
+    workerLog = fso.BuildPath(base, "worker_runtime.log")
+    workerCmd = "cmd /c chcp 65001 >nul & """ & backendExe & """ -m backend.worker > """ & workerLog & """ 2>&1"
+    ws.Run workerCmd, 0, False
+End If
 
 ' ===== 4. 启动前端服务 =====
 frontendDir = fso.BuildPath(base, "frontend")
 frontendLog = fso.BuildPath(base, "frontend_runtime.log")
 ' 切换到 frontend 目录并运行 npm run dev
-frontendCmd = "cmd /c cd /d """ & frontendDir & """ & """ & npmCmd & """ run dev > """ & frontendLog & """ 2>&1"
-ws.Run frontendCmd, 0, False
+If Not IsPortListening(7090) Then
+    frontendCmd = "cmd /c cd /d """ & frontendDir & """ & """ & npmCmd & """ run dev > """ & frontendLog & """ 2>&1"
+    ws.Run frontendCmd, 0, False
+End If
 
 ' ===== 5. 等待服务启动后打开浏览器 =====
 WScript.Sleep 6000
 ws.Run "http://localhost:7090"
+
+Function IsPortListening(port)
+    Set portCheck = ws.Exec("cmd /c netstat -ano | findstr :" & port & " | findstr LISTENING")
+    IsPortListening = Not portCheck.StdOut.AtEndOfStream
+End Function

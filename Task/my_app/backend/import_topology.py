@@ -14,19 +14,35 @@ with get_raw_connection(DB_PATH) as conn:
 
     # 创建 topology 表
     conn.execute("DROP TABLE IF EXISTS topology")
-    conn.execute("""
-    CREATE TABLE topology (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        site_a_id TEXT,
-        site_a_name TEXT,
-        site_b_id TEXT,
-        site_b_name TEXT,
-        hop_count INTEGER,
-        hop_path TEXT,
-        a_is_hub INTEGER DEFAULT 0,
-        b_is_hub INTEGER DEFAULT 0
-    )
-""")
+    if isinstance(conn, sqlite3.Connection):
+        conn.execute("""
+        CREATE TABLE topology (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            site_a_id TEXT,
+            site_a_name TEXT,
+            site_b_id TEXT,
+            site_b_name TEXT,
+            hop_count INTEGER,
+            hop_path TEXT,
+            a_is_hub INTEGER DEFAULT 0,
+            b_is_hub INTEGER DEFAULT 0
+        )
+        """)
+    else:
+        # PG：以 GENERATED ALWAYS AS IDENTITY 取代 sqlite 的 AUTOINCREMENT
+        conn.execute("""
+        CREATE TABLE topology (
+            id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            site_a_id TEXT,
+            site_a_name TEXT,
+            site_b_id TEXT,
+            site_b_name TEXT,
+            hop_count INTEGER,
+            hop_path TEXT,
+            a_is_hub INTEGER DEFAULT 0,
+            b_is_hub INTEGER DEFAULT 0
+        )
+        """)
     conn.execute("CREATE INDEX idx_topology_site_a ON topology(site_a_id)")
     conn.execute("CREATE INDEX idx_topology_site_b ON topology(site_b_id)")
 

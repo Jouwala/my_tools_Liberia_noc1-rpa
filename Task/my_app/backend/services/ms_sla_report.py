@@ -38,6 +38,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill, Font
 from backend.database import get_raw_connection
+from backend.dialect_helpers import list_table_names, table_columns
 
 try:
     from backend.services.atomic_write import atomic_save_workbook, AtomicReplaceFallback
@@ -334,12 +335,10 @@ def read_sla_monthly(ws):
 
 def get_db_value(conn, table_name, column_name, date_str):
     """从数据库获取指定日期/月份的值"""
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
-    if not cursor.fetchone():
+    if table_name not in set(list_table_names(conn)):
         return None
-    cursor.execute(f'PRAGMA table_info("{table_name}")')
-    existing_cols = {row[1] for row in cursor.fetchall()}
+    existing_cols = set(table_columns(conn, table_name))
+    cursor = conn.cursor()
     safe_col = column_name.replace('"', '""')
     if safe_col not in existing_cols and column_name not in existing_cols:
         return None
@@ -387,12 +386,10 @@ def get_db_value(conn, table_name, column_name, date_str):
 
 def get_persite_ratio(conn, table_name, column_name, date_str, op, threshold):
     """计算满足阈值的站点占比"""
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
-    if not cursor.fetchone():
+    if table_name not in set(list_table_names(conn)):
         return None
-    cursor.execute(f'PRAGMA table_info("{table_name}")')
-    existing_cols = {row[1] for row in cursor.fetchall()}
+    existing_cols = set(table_columns(conn, table_name))
+    cursor = conn.cursor()
     safe_col = column_name.replace('"', '""')
     if safe_col not in existing_cols and column_name not in existing_cols:
         return None

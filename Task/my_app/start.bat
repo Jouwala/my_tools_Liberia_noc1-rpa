@@ -51,7 +51,32 @@ for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /C:"IPv4"') do (
 :: MY_APP_TASK_QUEUE=1：Phase 3 队列模式，定时/手动任务投递 task_queue 由 Worker 执行
 :: 注意 set 后紧跟 &（不留空格），否则变量值会带尾部空格导致开关失效
 echo [*] Starting backend server (port 7038, task queue mode)...
-start "Backend" /MIN cmd /c "chcp 65001 >nul & set MY_APP_TASK_QUEUE=1& "%PYTHON_EXE%" -m uvicorn backend.main:app --host 0.0.0.0 --port 7038 > "%~dp0backend_runtime.log" 2>&1"
+netstat -ano | findstr ":7038" | findstr "LISTENING" >nul 2>&1
+if %errorlevel%==0 (
+    echo [*] Backend is already listening on port 7038; reusing it.
+) else (
+    start "Backend" /MIN cmd /c "chcp 65001 >nul & set MY_APP_TASK_QUEUE=1& "%PYTHON_EXE%" -m uvicorn backend.main:app --host 0.0.0.0 --port 7038 > "%~dp0backend_runtime.log" 2>&1"
+)
+
+:: Do not expose the frontend proxy until its backend target is reachable.
+:: Otherwise Vite returns 502 (ECONNREFUSED) for the first /api requests.
+set /a BACKEND_WAIT=0
+:wait_backend
+netstat -ano | findstr ":7038" | findstr "LISTENING" >nul 2>&1
+if %errorlevel%==0 goto backend_ready
+if %BACKEND_WAIT% GEQ 30 goto backend_unavailable
+set /a BACKEND_WAIT+=1
+timeout /t 1 /nobreak >nul
+goto wait_backend
+
+:backend_unavailable
+echo [ERROR] Backend did not start on port 7038 within 30 seconds.
+echo         Check backend_runtime.log before starting the frontend.
+pause
+exit /b 1
+
+:backend_ready
+echo [OK] Backend is listening on port 7038.
 
 :: Start task worker（Phase 3：任务执行与 Web 进程分离，轮询 task_queue 执行）
 echo [*] Starting task worker...

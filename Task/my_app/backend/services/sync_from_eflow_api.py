@@ -12,6 +12,9 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from backend.database import get_raw_connection
+from backend.dialect_helpers import (
+    list_table_names, table_columns, upsert, safe_pragma, write_df,
+)
 
 logger = logging.getLogger("eflow_sync")
 
@@ -315,30 +318,35 @@ def _upsert_df(dst_conn: sqlite3.Connection, table_name: str, df: pd.DataFrame,
     col_defs = ", ".join(f"{_q(c)} TEXT" for c in cols)
     dst_conn.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({col_defs})')
 
-    exist = {r[1] for r in dst_conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()}
+    exist = set(table_columns(dst_conn, table_name))
     for c in cols:
         if c not in exist:
             dst_conn.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(c)} TEXT')
 
     key_q = ", ".join(_q(k) for k in keys)
-    dst_conn.execute(
-        f'DELETE FROM "{table_name}" WHERE rowid NOT IN '
-        f'(SELECT MIN(rowid) FROM "{table_name}" GROUP BY {key_q})'
-    )
+    if isinstance(dst_conn, sqlite3.Connection):
+        dst_conn.execute(
+            f'DELETE FROM "{table_name}" WHERE rowid NOT IN '
+            f'(SELECT MIN(rowid) FROM "{table_name}" GROUP BY {key_q})'
+        )
+    else:
+        # PG：以 ctid 代替 sqlite 的 rowid 做物理行去重（保留每组最早一行）
+        dst_conn.execute(
+            f'DELETE FROM "{table_name}" WHERE ctid NOT IN '
+            f'(SELECT MIN(ctid) FROM "{table_name}" GROUP BY {key_q})'
+        )
     # 先删除旧的同名唯一索引（主键列可能变更，IF NOT EXISTS 会跳过导致旧索引残留）
     dst_conn.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
     dst_conn.execute(f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({key_q})')
 
-    sql = (
-        f'INSERT OR REPLACE INTO "{table_name}" ({", ".join(_q(c) for c in cols)}) '
-        f'VALUES ({", ".join(["?"] * len(cols))})'
-    )
-    rows = df.astype(object).where(pd.notnull(df), None).values.tolist()
-    rows = [[None if v is None else str(v) for v in row] for row in rows]
-    for i in range(0, len(rows), 5000):
-        dst_conn.executemany(sql, rows[i:i + 5000])
+    records = df.astype(object).where(pd.notnull(df), None).values.tolist()
+    records = [{c: (None if v is None else str(v)) for c, v in zip(cols, row)}
+               for row in records]
+    # 双模 upsert：sqlite=INSERT OR REPLACE / pg=INSERT ... ON CONFLICT DO UPDATE
+    for i in range(0, len(records), 5000):
+        upsert(dst_conn, table_name, records[i:i + 5000], conflict_cols=list(keys))
     dst_conn.commit()
-    return len(rows)
+    return len(records)
 
 
 def _sync_tt(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
@@ -448,7 +456,9 @@ def _sync_realtime_alarm(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
 
     df.columns = [_clean_column_name(c) for c in df.columns]
     df['_sync_time'] = datetime.now().isoformat()
-    df.to_sql('realtime_alarm', dst_conn, if_exists='replace', index=False, chunksize=5000)
+    # TODO-PHASE3-SCHEMA: realtime_alarm 属 eflow schema；write_df 默认走全局 app 引擎，
+    # pg 模式下需改为 eflow 引擎（engine_override）才能写入正确 schema
+    write_df(df, 'realtime_alarm', if_exists='replace')
 
     for idx_col in ['site_id', 'site_name']:
         if idx_col in df.columns:
@@ -469,7 +479,9 @@ def _sync_history_alarm(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
 
     df.columns = [_clean_column_name(c) for c in df.columns]
     df['_sync_time'] = datetime.now().isoformat()
-    df.to_sql('history_alarm', dst_conn, if_exists='replace', index=False, chunksize=5000)
+    # TODO-PHASE3-SCHEMA: history_alarm 属 eflow schema；write_df 默认走全局 app 引擎，
+    # pg 模式下需改为 eflow 引擎（engine_override）才能写入正确 schema
+    write_df(df, 'history_alarm', if_exists='replace')
 
     for idx_col in ['site_id', 'tt_id', 'region', 'alarmraisedtime']:
         if idx_col in df.columns:
@@ -529,8 +541,8 @@ def sync_from_eflow_api(mode: str = "delta") -> dict:
 
         # 连接目标数据库
         with get_raw_connection(str(DB_PATH)) as dst_conn:
-            dst_conn.execute("PRAGMA journal_mode=WAL")
-            dst_conn.execute("PRAGMA synchronous=NORMAL")
+            safe_pragma(dst_conn, "PRAGMA journal_mode=WAL")
+            safe_pragma(dst_conn, "PRAGMA synchronous=NORMAL")
 
             # 同步任务映射: (API key, 目标表名, 同步函数)
             # 告警由独立任务 eflow_active_alarm / eflow_history_alarm 负责，不在此处同步
@@ -676,10 +688,7 @@ def _cleanup_old_tables(conn: sqlite3.Connection):
     old_tables_to_remove = ["eflow_database"]
     for table in old_tables_to_remove:
         try:
-            exists = conn.execute(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", (table,)
-            ).fetchone()[0]
-            if exists:
+            if table in set(list_table_names(conn)):
                 conn.execute(f'DROP TABLE IF EXISTS "{table}"')
                 logger.info(f"已删除旧表: {table}")
         except Exception as e:
@@ -690,16 +699,15 @@ def _cleanup_old_tables(conn: sqlite3.Connection):
 def _update_metadata(conn: sqlite3.Connection):
     """更新 _metadata 元数据表"""
     try:
-        tables = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '_metadata' ORDER BY name"
-        ).fetchall()]
+        tables = [t for t in list_table_names(conn) if t != '_metadata']
 
         metadata_rows = []
         for table_name in tables:
             row_count = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
-            col_info = conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
-            col_count = len(col_info)
-            columns = [{"name": c[1], "type": c[2]} for c in col_info]
+            col_names = table_columns(conn, table_name)
+            col_count = len(col_names)
+            # TODO-PHASE3-SCHEMA: 仅取列名（类型信息在双模下成本较高，元数据仅作展示用途）
+            columns = [{"name": c, "type": ""} for c in col_names]
             metadata_rows.append({
                 "table_name": table_name,
                 "row_count": row_count,
@@ -709,7 +717,9 @@ def _update_metadata(conn: sqlite3.Connection):
 
         if metadata_rows:
             meta_df = pd.DataFrame(metadata_rows)
-            meta_df.to_sql('_metadata', conn, if_exists='replace', index=False)
+            # TODO-PHASE3-SCHEMA: _metadata 属 eflow schema；write_df 默认走全局 app 引擎，
+            # pg 模式下需改为 eflow 引擎（engine_override）才能写入正确 schema
+            write_df(meta_df, '_metadata', if_exists='replace')
             conn.commit()
             logger.info(f"_metadata 更新: {len(metadata_rows)} 条记录")
     except Exception as e:

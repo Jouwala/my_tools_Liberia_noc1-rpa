@@ -24,10 +24,17 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Query
+from backend.dialect_helpers import list_table_names
 
 logger = logging.getLogger("battery_dashboard")
 
 router = APIRouter(prefix="/api/battery-dashboard", tags=["battery-dashboard"])
+
+
+def _rows_as_dicts(cursor):
+    """cursor -> [dict, ...]（双模：sqlite Row / PG 元组均兼容）"""
+    cols = [d[0] for d in cursor.description]
+    return [dict(zip(cols, r)) for r in cursor.fetchall()]
 
 BATT_DB_PATH = Path(r"d:\01_RPA\Task\my_app\data\battery\battery_kpi.sqlite3")
 
@@ -64,15 +71,13 @@ def _conn():
     # 注意：不能用 with get_raw_connection(...)（退出时会提交并关闭连接）
     from backend.database import get_raw_connection
     conn = get_raw_connection(str(BATT_DB_PATH), timeout=30)
-    conn.row_factory = sqlite3.Row
+    if isinstance(conn, sqlite3.Connection):
+        conn.row_factory = sqlite3.Row
     return conn
 
 
 def _table_exists(conn, name: str) -> bool:
-    row = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
-    ).fetchone()
-    return row is not None
+    return name in set(list_table_names(conn))
 
 
 def _avg(xs):
@@ -83,7 +88,7 @@ def _avg(xs):
 def _load_meta(conn) -> dict:
     meta = dict(DEFAULTS)
     if _table_exists(conn, "battery_meta"):
-        for r in conn.execute("SELECT key, value FROM battery_meta").fetchall():
+        for r in _rows_as_dicts(conn.execute("SELECT key, value FROM battery_meta")):
             k, v = r["key"], r["value"]
             if k in DEFAULTS:
                 try:
@@ -267,7 +272,7 @@ def get_all():
                 "message": "无电池数据（请执行任务: battery_kpi_sync）",
                 "meta": meta, "kpi": {}, "dist": {}, "sites": [], "alarms": [], "batteries": [],
             })
-        rows = [dict(r) for r in conn.execute("SELECT * FROM battery_latest").fetchall()]
+        rows = _rows_as_dicts(conn.execute("SELECT * FROM battery_latest"))
         trend_points = conn.execute("SELECT COUNT(*) FROM battery_trend").fetchone()[0] \
             if _table_exists(conn, "battery_trend") else 0
     finally:
@@ -406,14 +411,14 @@ def get_trend(days: int = Query(7, ge=1, le=180),
         if use == "poll":
             if not _table_exists(conn, "battery_trend"):
                 return _cache_set(key, {"source": "poll", "points": []})
-            pts = [dict(r) for r in conn.execute(
+            pts = _rows_as_dicts(conn.execute(
                 "SELECT * FROM battery_trend WHERE snapshot_ts >= ? ORDER BY snapshot_ts",
-                (cutoff,)).fetchall()]
+                (cutoff,)))
             return _cache_set(key, {"source": "poll", "points": pts})
 
         if not _table_exists(conn, "battery_reading"):
             return _cache_set(key, {"source": "reading", "points": []})
-        pts = [dict(r) for r in conn.execute(
+        pts = _rows_as_dicts(conn.execute(
             """
             SELECT substr(reading_time, 1, 13) || ':00:00' AS snapshot_ts,
                    COUNT(*)                                   AS reported,
@@ -429,7 +434,7 @@ def get_trend(days: int = Query(7, ge=1, le=180),
             GROUP BY substr(reading_time, 1, 13)
             HAVING COUNT(*) >= ?
             ORDER BY 1
-            """, (cutoff, min_samples)).fetchall()]
+            """, (cutoff, min_samples)))
         return _cache_set(key, {"source": "reading", "points": pts})
     finally:
         conn.close()
@@ -444,14 +449,14 @@ def get_site_detail(site: str):
     try:
         if not _table_exists(conn, "battery_latest"):
             return {"site": site, "batteries": [], "readings": []}
-        batteries = [dict(r) for r in conn.execute(
-            "SELECT * FROM battery_latest WHERE site = ? ORDER BY position", (site,)).fetchall()]
+        batteries = _rows_as_dicts(conn.execute(
+            "SELECT * FROM battery_latest WHERE site = ? ORDER BY position", (site,)))
         readings = []
         if _table_exists(conn, "battery_reading"):
-            readings = [dict(r) for r in conn.execute(
+            readings = _rows_as_dicts(conn.execute(
                 """SELECT position, reading_time, soc, health, status
                    FROM battery_reading WHERE site = ?
-                   ORDER BY reading_time DESC LIMIT 500""", (site,)).fetchall()]
+                   ORDER BY reading_time DESC LIMIT 500""", (site,)))
         return {"site": site, "batteries": batteries, "readings": readings}
     finally:
         conn.close()

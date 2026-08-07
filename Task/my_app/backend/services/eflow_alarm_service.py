@@ -28,6 +28,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import ftplib
 from backend.database import get_raw_connection
+from backend.dialect_helpers import list_table_names, write_df
 
 
 from backend.services.eflow_api_client import (  # Phase 4 拆分：共享常量/基础函数
@@ -405,23 +406,17 @@ def write_alarm_sqlite(data):
         return db_file
 
     with get_raw_connection(db_file) as conn:
-        cursor = conn.cursor()
-
         col_defs = ", ".join([f'"{col}" TEXT' for col in ALARM_COLUMNS])
-        cursor.execute("DROP TABLE IF EXISTS realtime_alarm")
-        cursor.execute(f"CREATE TABLE realtime_alarm ({col_defs})")
-
-        rows_to_insert = []
-        for row in data:
-            filtered = tuple(row.get(col, "") for col in ALARM_COLUMNS)
-            rows_to_insert.append(filtered)
+        conn.execute("DROP TABLE IF EXISTS realtime_alarm")
+        conn.execute(f"CREATE TABLE realtime_alarm ({col_defs})")
 
         placeholders = ", ".join(["?" for _ in ALARM_COLUMNS])
         cols = ", ".join([f'"{col}"' for col in ALARM_COLUMNS])
-        cursor.executemany(
-            f"INSERT INTO realtime_alarm ({cols}) VALUES ({placeholders})",
-            rows_to_insert,
-        )
+        # TODO-PHASE3-SCHEMA: realtime_alarm 写入独立库 eflow.sqlite3（非 app.db）。
+        # 默认 sqlite 模式直接落库；PG 模式需 engine_override 指向 schema=eflow。
+        sql = f"INSERT INTO realtime_alarm ({cols}) VALUES ({placeholders})"
+        for row in data:
+            conn.execute(sql, tuple(row.get(col, "") for col in ALARM_COLUMNS))
 
         conn.commit()
         conn.close()
@@ -455,23 +450,17 @@ def write_history_alarm_sqlite(data):
         return db_file
 
     with get_raw_connection(db_file) as conn:
-        cursor = conn.cursor()
-
         col_defs = ", ".join([f'"{col}" TEXT' for col in ALARM_COLUMNS])
-        cursor.execute("DROP TABLE IF EXISTS history_alarm")
-        cursor.execute(f"CREATE TABLE history_alarm ({col_defs})")
-
-        rows_to_insert = []
-        for row in data:
-            filtered = tuple(row.get(col, "") for col in ALARM_COLUMNS)
-            rows_to_insert.append(filtered)
+        conn.execute("DROP TABLE IF EXISTS history_alarm")
+        conn.execute(f"CREATE TABLE history_alarm ({col_defs})")
 
         placeholders = ", ".join(["?" for _ in ALARM_COLUMNS])
         cols = ", ".join([f'"{col}"' for col in ALARM_COLUMNS])
-        cursor.executemany(
-            f"INSERT INTO history_alarm ({cols}) VALUES ({placeholders})",
-            rows_to_insert,
-        )
+        # TODO-PHASE3-SCHEMA: history_alarm 写入独立库 eflow.sqlite3（非 app.db）。
+        # 默认 sqlite 模式直接落库；PG 模式需 engine_override 指向 schema=eflow。
+        sql = f"INSERT INTO history_alarm ({cols}) VALUES ({placeholders})"
+        for row in data:
+            conn.execute(sql, tuple(row.get(col, "") for col in ALARM_COLUMNS))
 
         conn.commit()
         conn.close()
@@ -527,14 +516,13 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
         df["_sync_time"] = datetime.now().isoformat()
 
         with get_raw_connection(APP_DB_PATH) as conn:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
+            if isinstance(conn, sqlite3.Connection):
+                # 调优类 PRAGMA 仅 sqlite 有效（PG 无等价物）
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
             if upsert_key and upsert_key in df.columns:
                 # 幂等累积写入（B）：按 upsert_key 删除旧行再 append，避免整表重建与重抓浪费
-                exists = conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
-                ).fetchone()
-                if exists:
+                if table_name in set(list_table_names(conn)):
                     ids = df[upsert_key].tolist()
                     deleted = 0
                     for i in range(0, len(ids), 900):
@@ -545,9 +533,9 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
                         )
                         deleted += len(chunk)
                     logger.info(f"{table_name}: 删除 {deleted} 条旧行 (upsert on {upsert_key})")
-                df.to_sql(table_name, conn, if_exists="append", index=False, chunksize=5000)
+                write_df(df, table_name, if_exists="append")
             else:
-                df.to_sql(table_name, conn, if_exists="replace", index=False, chunksize=5000)
+                write_df(df, table_name, if_exists="replace")
             for idx_col in index_cols:
                 if idx_col in df.columns:
                     conn.execute(f'CREATE INDEX IF NOT EXISTS idx_{table_name}_{idx_col} ON {table_name}({idx_col})')
