@@ -22,6 +22,23 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from backend.database import get_raw_connection
 
+# Phase 4 拆分：以下成员已迁移至 backend.services.task_introspect，反向导入保持本模块引用兼容
+from backend.services.task_introspect import (  # noqa: F401,E402
+    _auto_call_chain,
+    _annotate_call_chain,
+    TASK_IO,
+    CALL_CHAIN_IO,
+)
+
+# Phase 4 拆分：以下成员已迁移至 backend.services.task_stats，反向导入保持本模块引用兼容
+from backend.services.task_stats import (  # noqa: F401,E402
+    _ensure_task_log_table,
+    _fetch_latest_runs,
+    get_task_stats,
+    get_recent_failures,
+    get_task_history_by_task,
+)
+
 logger = logging.getLogger("task_runner")
 
 # 微信失败通知（OpenClaw 通道）。导入失败则降级为 no-op，不影响任务调度。
@@ -55,6 +72,84 @@ def get_scheduler() -> BackgroundScheduler:
     if _scheduler is None:
         _scheduler = BackgroundScheduler()
     return _scheduler
+
+
+# ========== 任务队列（Phase 3：调度与执行解耦） ==========
+# 环境变量 MY_APP_TASK_QUEUE=1 启用（start.bat 中设置）；未启用时全部走原有
+# 进程内线程执行路径，行为零变化。启用后：
+#   - Web 进程：定时触发 / 手动触发仅向 task_queue 表投递（enqueue_task）
+#   - Worker 进程（backend/worker.py）：轮询 task_queue 认领并执行任务
+# 不依赖 Redis/RabbitMQ，SQLite task_queue 表即跨进程队列。
+QUEUE_ENABLED = os.environ.get("MY_APP_TASK_QUEUE", "0") == "1"
+
+
+def _ensure_queue_table(conn):
+    """确保 task_queue 表存在（含状态 / task_id 索引，供 worker 轮询认领）"""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS task_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id TEXT NOT NULL,
+            trigger_type TEXT NOT NULL DEFAULT 'manual',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            result_json TEXT,
+            error TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_task_queue_status ON task_queue(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_task_queue_task_id ON task_queue(task_id)")
+
+
+def enqueue_task(task_id: str, trigger: str = "manual") -> dict:
+    """投递任务到 task_queue，由 Worker 进程执行。
+
+    单飞保护：同一任务已有 pending/running 队列记录时拒绝投递。
+    注意：不能用 is_task_running 预判（它自身依赖本函数查队列，会递归），
+    且本进程 _active_runs 不反映 Worker 进程的运行状态，必须以队列表为准。
+    """
+    try:
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_queue_table(conn)
+            row = conn.execute(
+                "SELECT id FROM task_queue WHERE task_id = ? AND status IN ('pending', 'running') LIMIT 1",
+                (task_id,),
+            ).fetchone()
+            if row:
+                conn.close()
+                return {"accepted": False, "running": True, "queued": True,
+                        "error": "任务已在队列中等待或执行"}
+            cur = conn.execute(
+                "INSERT INTO task_queue (task_id, trigger_type, status, created_at) VALUES (?, ?, 'pending', ?)",
+                (task_id, trigger, datetime.now().isoformat()),
+            )
+            queue_id = cur.lastrowid
+            conn.commit()
+            conn.close()
+        logger.info(f"[{task_id}] 已投递任务队列 (queue_id={queue_id}, trigger={trigger})")
+        return {"accepted": True, "running": False, "queued": True, "queue_id": queue_id,
+                "task_id": task_id, "started_at": datetime.now().isoformat()}
+    except Exception as e:
+        logger.error(f"[{task_id}] 投递队列失败: {e}")
+        return {"accepted": False, "queued": False, "error": f"投递队列失败: {e}"}
+
+
+def get_queue_running_task_ids() -> set:
+    """队列中处于 pending/running 的 task_id 集合（跨进程运行状态展示，批量一次查出）"""
+    if not QUEUE_ENABLED:
+        return set()
+    try:
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_queue_table(conn)
+            rows = conn.execute(
+                "SELECT DISTINCT task_id FROM task_queue WHERE status IN ('pending', 'running')"
+            ).fetchall()
+            conn.close()
+            return {r[0] for r in rows}
+    except Exception as e:
+        logger.warning(f"查询队列运行集合失败: {e}")
+        return set()
 
 
 # ========== 任务注册 ==========
@@ -115,257 +210,12 @@ def _save_schedule_config(task_id: str, cron: str, enabled: bool = None):
         logger.warning(f"保存调度配置失败 ({task_id}): {e}")
 
 
-_BUILTINS = {
-    "print", "len", "dict", "list", "str", "int", "float", "bool", "set",
-    "tuple", "range", "enumerate", "zip", "sorted", "reversed", "isinstance",
-    "format", "getattr", "setattr", "hasattr", "delattr", "super", "open",
-    "min", "max", "sum", "any", "all", "map", "filter", "type", "vars",
-    "repr", "abs", "round", "divmod", "pow", "id", "hash", "slice", "object",
-    "Exception", "ValueError", "TypeError", "KeyError", "RuntimeError",
-    "TimeoutError", "OSError", "IOError", "json", "time", "logger", "logging",
-    "os", "sqlite3", "threading", "Path",
-    # 常见 stdlib 构造/工具，出现在调用链里只是噪声
-    "ThreadPoolExecutor", "ProcessPoolExecutor", "as_completed", "datetime",
-    "timedelta", "defaultdict", "Decimal", "BytesIO", "StringIO", "deepcopy",
-}
-
-_METHOD_NOISE = {
-    "info", "error", "warning", "debug", "critical", "getLogger", "get",
-    "post", "put", "delete", "head", "run", "execute", "append", "extend",
-    "add", "update", "pop", "keys", "values", "items", "setattr", "getattr",
-    "format", "join", "split", "strip", "replace", "upper", "lower",
-    "startswith", "endswith", "find", "index", "copy", "close", "commit",
-    "rollback", "fetchall", "fetchone", "execute",
-    # 线程池 / 通用方法噪声
-    "submit", "result", "cancel", "done", "shutdown", "wait", "sleep",
-    "dumps", "loads", "read", "write", "seek", "flush", "sort", "insert",
-}
 
 
 # 调用链最大递归深度（环境变量可配，默认 2）
-CALL_CHAIN_DEPTH = int(os.getenv("CALL_CHAIN_DEPTH", "2"))
 
 
 # 源码 AST 缓存：{绝对文件路径: ast.Module | None}，注册期一次性解析，避免重复读盘
-_AST_CACHE: dict[str, object] = {}
-
-
-def _rel(path: str) -> str:
-    """绝对路径 → 相对 my_app 的短路径（避免前端暴露完整磁盘路径）。"""
-    try:
-        return os.path.relpath(path, BACKEND_DIR).replace("\\", "/")
-    except ValueError:
-        # 跨盘符路径（如 C: vs D:）无法求相对路径，回退到文件名即可
-        return os.path.basename(path)
-
-
-def _module_file(modname: str) -> str | None:
-    """不导入模块，仅用 find_spec 拿到 .py 源文件路径（零副作用）。"""
-    if not modname:
-        return None
-    try:
-        spec = importlib.util.find_spec(modname)
-    except ModuleNotFoundError:
-        # 模块不存在是 find_spec 的正常"未找到"契约，无需告警
-        return None
-    except Exception:  # noqa: BLE001 - 其他导入系统异常（命名空间包解析失败等）
-        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _module_file: exception swallowed", exc_info=True)
-        return None
-    origin = getattr(spec, "origin", None)
-    return origin if origin and origin.endswith(".py") else None
-
-
-def _parse_file(path: str):
-    """解析并缓存文件 AST，失败返回 None。"""
-    if path in _AST_CACHE:
-        return _AST_CACHE[path]
-    tree = None
-    try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            tree = ast.parse(f.read())
-    except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _parse_file: exception swallowed", exc_info=True)
-        tree = None
-    _AST_CACHE[path] = tree
-    return tree
-
-
-def _find_funcdef(tree, name: str):
-    """在文件 AST 中找到同名函数定义节点（含类方法 / 嵌套）。"""
-    if tree is None:
-        return None
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
-            return node
-    return None
-
-
-def _locate(func) -> str:
-    """返回 callable 的 '相对文件:行号'，解析不到返回空。"""
-    try:
-        srcfile = inspect.getsourcefile(func)
-        _, lineno = inspect.getsourcelines(func)
-        if srcfile:
-            return f"{_rel(srcfile)}:{lineno}"
-    except (OSError, TypeError):
-        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _locate: exception swallowed", exc_info=True)
-        pass
-    return ""
-
-
-def _import_map(node) -> dict:
-    """收集函数体内的 `from X import Y [as Z]`（任务入口普遍用延迟导入），
-    返回 {本地名: (模块名, 原始名)}，用于在不导入的前提下定位目标源码。"""
-    out = {}
-    try:
-        for n in ast.walk(node):
-            if isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
-                for a in n.names:
-                    out[a.asname or a.name] = (n.module, a.name)
-    except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _import_map: exception swallowed", exc_info=True)
-        pass
-    return out
-
-
-def _calls_in(node, skip_names: set) -> list:
-    """从 AST 节点收集被调用的函数名（去内置 / 去方法噪声 / 去自身）。"""
-    raw = []
-    for n in ast.walk(node):
-        if not isinstance(n, ast.Call):
-            continue
-        fn = n.func
-        if isinstance(fn, ast.Attribute):
-            name = fn.attr
-            if name in _METHOD_NOISE:
-                continue
-        elif isinstance(fn, ast.Name):
-            name = fn.id
-        else:
-            continue
-        if name in _BUILTINS or name.startswith("__") or name in skip_names:
-            continue
-        if name not in raw:
-            raw.append(name)
-    return raw
-
-
-def _chain_from_file(modname: str, funcname: str, depth: int) -> list:
-    """纯静态：从源文件 AST 展开某函数的下游调用（不导入模块）。"""
-    path = _module_file(modname)
-    if not path:
-        return []
-    tree = _parse_file(path)
-    fdef = _find_funcdef(tree, funcname)
-    if fdef is None:
-        return []
-    imports = _import_map(fdef)
-    # 该模块顶层的 from-import 也算（服务模块通常在文件头部导入）
-    if tree is not None:
-        imports.update(_import_map_toplevel(tree))
-    out = []
-    for name in _calls_in(fdef, {funcname}):
-        loc = ""
-        sub_mod = None
-        if name in imports:
-            sub_mod, orig = imports[name]
-            sub_path = _module_file(sub_mod)
-            sub_def = _find_funcdef(_parse_file(sub_path), orig) if sub_path else None
-            if sub_def is not None:
-                loc = f"{_rel(sub_path)}:{sub_def.lineno}"
-        else:
-            same_def = _find_funcdef(tree, name)
-            if same_def is not None:
-                loc = f"{_rel(path)}:{same_def.lineno}"
-                sub_mod = modname
-        out.append(f"{name} ({loc})" if loc else name)
-        if depth > 1 and sub_mod:
-            target_name = imports.get(name, (None, name))[1]
-            for sub in _chain_from_file(sub_mod, target_name, depth - 1):
-                out.append(f"  → {sub}")
-    return out
-
-
-def _import_map_toplevel(tree) -> dict:
-    """模块顶层的 from-import 映射。"""
-    out = {}
-    for n in getattr(tree, "body", []):
-        if isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
-            for a in n.names:
-                out.setdefault(a.asname or a.name, (n.module, a.name))
-    return out
-
-
-def _auto_call_chain(func, _depth=0, _seen=None):
-    """静态分析 func 的调用链，供前端 hover 展示（零副作用，不导入任何模块）。
-
-    解析顺序：
-      1) 源码 AST（dedent 后可解析嵌套 def）→ 收集调用名 + 函数体内的延迟导入表
-      2) 目标解析：模块 globals 里的真实对象 → inspect 定位；
-         否则用 `from X import Y` + importlib.find_spec 拿源文件，AST 找行号
-      3) 递归展开 CALL_CHAIN_DEPTH-1 层（子项带 '  → ' 缩进）
-    源码不可得时退回字节码 co_names。
-    """
-    if _seen is None:
-        _seen = set()
-    qual = f"{getattr(func, '__module__', '')}.{getattr(func, '__qualname__', '')}"
-    if qual in _seen or _depth >= CALL_CHAIN_DEPTH:
-        return []
-    _seen.add(qual)
-
-    mod = inspect.getmodule(func)
-    mod_globals = getattr(mod, "__dict__", {}) if mod else {}
-
-    raw: list = []
-    imports: dict = {}
-    try:
-        # dedent：嵌套 def 的源码带缩进，不 dedent 会 IndentationError 直接退化到字节码兜底
-        src = textwrap.dedent(inspect.getsource(func))
-        tree = ast.parse(src)
-        self_name = getattr(func, "__name__", "")
-        imports = _import_map(tree)
-        raw = _calls_in(tree, {self_name})
-    except (OSError, TypeError, SyntaxError):
-        # 兜底：源码不可得时，用字节码引用的全局名
-        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _auto_call_chain: exception swallowed", exc_info=True)
-        for name in getattr(getattr(func, "__code__", None), "co_names", ()):
-            if "." in name:  # 过滤 import from 产生的完整模块路径
-                continue
-            if name in _BUILTINS or name.startswith("__") or name in _METHOD_NOISE:
-                continue
-            if isinstance(mod_globals.get(name), types.ModuleType):
-                continue
-            raw.append(name)
-
-    out = []
-    for name in raw:
-        if any(n.split(" (")[0] == name for n in out):
-            continue
-        target = mod_globals.get(name)
-        loc = _locate(target) if callable(target) else ""
-        sub_mod = sub_name = None
-        if not loc and name in imports:
-            # 延迟导入：不导入模块，直接用源文件 AST 定位
-            sub_mod, sub_name = imports[name]
-            sub_path = _module_file(sub_mod)
-            sub_def = _find_funcdef(_parse_file(sub_path), sub_name) if sub_path else None
-            if sub_def is not None:
-                loc = f"{_rel(sub_path)}:{sub_def.lineno}"
-        out.append(f"{name} ({loc})" if loc else name)
-
-        if _depth >= CALL_CHAIN_DEPTH - 1:
-            continue
-        try:
-            if callable(target) and getattr(target, "__module__", None) == getattr(mod, "__name__", None):
-                for sub in _auto_call_chain(target, _depth + 1, _seen):
-                    out.append(f"  → {sub}")
-            elif sub_mod and sub_name:
-                for sub in _chain_from_file(sub_mod, sub_name, CALL_CHAIN_DEPTH - _depth - 1):
-                    out.append(f"  → {sub}")
-        except Exception:  # noqa: BLE001
-            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _auto_call_chain: exception swallowed", exc_info=True)
-            pass
-    return out[:15]
 
 
 # ========== 调用链节点 IO 资源映射（数据库 / 文件） ==========
@@ -379,128 +229,6 @@ def _auto_call_chain(func, _depth=0, _seen=None):
 #
 # 新增 / 调整任务时，只需在此两处补充对应条目，无需改动前端与调度逻辑。
 
-TASK_IO: dict[str, list[str]] = {
-    # 1-2. eFlow 同步
-    "eflow_sync": ["DB: app.db (db/app.db, 主)", "DB: eflow.sqlite3 (data/eflow/, 报告生成副产品)", "API: eFlow (10.100.20.8)", "远程DB: db.sqlite3 (via db_writer API, Eflow_TT_FB/Eflow_WO_FB)", "远程FTP: tt_reports 上传 (FTP_REMOTE_DIR, 默认 /Python)"],
-    "eflow_sync_full": ["DB: app.db (db/app.db, 主)", "DB: eflow.sqlite3 (data/eflow/, 报告生成副产品)", "API: eFlow (10.100.20.8)", "远程DB: db.sqlite3 (via db_writer API, Eflow_TT_FB/Eflow_WO_FB)", "远程FTP: tt_reports 上传 (FTP_REMOTE_DIR, 默认 /Python)"],
-    # 3. RAN UME 日报
-    "ran_ume_daily": ["远程DB: ran_kpi_daily_202606.sqlite3 (DB Orange, via API)", "本地DB: ran_kpi_daily.sqlite3 (Availability 读)", "远程FTP: /01_RPA/LBR_Tools/KPI/RAN/ORANGE"],
-    # 4. Site Outage 截图
-    "site_outage_screenshot": ["本地文件: data/site_outage/*.png (截图)"],
-    # 5. WhatsApp 发送
-    "whatsapp_send": ["本地文件: data/site_outage/*.png + 报告", "WhatsApp Web (发送)"],
-    # 6. MS SLA 完整同步
-    "ms_sla_full": ["DB: lbr_ms_sla_kpi.sqlite3", "远程DB: lbr_ms_sla_kpi.sqlite3 (via db_writer API)", "本地文件: data/ms_sla/*.xlsx (报表，供 kpi_ms 邮件读取)", "远程FTP: /01_RPA/LBR_Tools/KPI/MS_SLA"],
-    # 7-8. eFlow 告警
-    "eflow_active_alarm": ["DB: app.db (realtime_alarm 表)", "DB: eflow.sqlite3 (realtime_alarm 表)"],
-    "eflow_history_alarm": ["DB: eflow.sqlite3 (history_alarm 表)", "DB: app.db (history_alarm 表)"],
-    # 9. RAN Main KPI
-    "main_kpi_sync": ["远程DB: db.sqlite3 (via db_writer API)"],
-    # 10. RAN Network KPI
-    "network_kpi_sync": ["本地DB: ran_kpi_daily.sqlite3", "远程DB: ran_kpi_daily.sqlite3 (via db_writer API)"],
-    # 11. CNN UME KPI
-    "cnn_kpi_sync": ["远程DB: db_ps_cs_cn.sqlite3 (CNN, via API)"],
-    # 12. SP 备件
-    "sp_data_sync": ["DB: app.db (db/app.db)", "SFTP: 10.100.20.11 (备件报表)"],
-    # 13. iPRAN UME KPI
-    "ipran_kpi_sync": ["本地DB: ipran_ume_kpi.sqlite3", "远程DB: ipran_ume_kpi.sqlite3 (via db_writer API)"],
-    # 14-15. Liberia 邮件
-    "liberia_email_1h": ["本地文件: data/eflow/tt_reports/*.xlsx", "OWA 邮件发送"],
-    "liberia_email_8h": ["本地文件: data/eflow/tt_reports/*.xlsx", "OWA 邮件发送"],
-    # 16-17. MS KPI 邮件
-    "kpi_ms_contract": ["本地文件: data/ms_sla/*.xlsx (源自 lbr_ms_sla_kpi.sqlite3, 由 ms_sla_full 生成)", "远程FTP: /01_RPA/LBR_Tools/KPI/MS_SLA/email (名单)"],
-    "kpi_ms_wo_sla": ["本地文件: data/ms_sla/*.xlsx (源自 lbr_ms_sla_kpi.sqlite3, 由 ms_sla_full 生成)", "远程FTP: /01_RPA/LBR_Tools/KPI/MS_SLA/email (名单)"],
-    # 18-19. SP 报表邮件
-    "kpi_sp_spareparts": ["远程FTP: /01_RPA/LBR_Tools/SP/sp_report (数据+名单)"],
-    "kpi_sp_consumables": ["远程FTP: /01_RPA/LBR_Tools/SP/sp_report (数据+名单)"],
-    # 20. RAN Availability 邮件
-    "kpi_ran_availability": ["远程FTP: /01_RPA/LBR_Tools/KPI/RAN/ORANGE (图片+名单)"],
-    # 21. 邮件补发
-    "email_recovery": ["DB: app.db (失败邮件任务记录)"],
-    # 22. Packet Loss
-    "packet_loss_sync": ["本地DB: lte_pl.sqlite3 (data/packet_lost/)", "DB: eflow.sqlite3 (site 表)", "本地文件: Packet_Loss_Status_Output Automation <时间戳>.xlsx (data/packet_lost/)"],
-    # 23. IP RAN M6K-FW 图表邮件
-    "ipran_m6k_chart_email": ["远程DB: ipran_ume_kpi.sqlite3 (via remote API, 本地为降级)", "本地文件: TMP/ipran_charts/*.png (图表)", "邮件发送"],
-    # 24. CNN Free Rating 图表邮件
-    "ccn_free_rating_chart_email": ["远程DB: db_ps_cs_cn.sqlite3 (via API)", "本地文件: TMP/ccn_free_rating_charts/*.png (图表)", "邮件发送"],
-    # 25. FW 吞吐 KPI
-    "fw_kpi_sync": ["远程DB: fw_db.sqlite (via API)", "本地文件: TMP/fw_charts + email_reports", "邮件发送"],
-    # 26. 电池 KPI（全程内存不落盘：无 Excel/CSV/JSON 导出，无 FTP 上传）
-    "battery_kpi_sync": ["API: UME 192.168.170.2 (r32.uedm.batt 实时数据)",
-                         "本地DB: battery_kpi.sqlite3 (data/battery/, battery_latest+battery_reading+battery_trend)"],
-    # 28. 电池 KPI 邮件（附件 Excel 取自 output_socket；收件人名单取自远程 FTP）
-    "battery_email": ["DB: battery_kpi.sqlite3 (data/battery/, battery_latest)",
-                      "本地文件: output_socket/battery_latest_*.xlsx (邮件附件)",
-                      "远程FTP: /01_RPA/LBR_Tools/KPI/Battary/battary_email (收件人名单)",
-                      "外发: Orange OWA 邮件 (owa_mail_report.py via EWS)"],
-    # 27. 邮箱空间守卫
-    "mailbox_cleanup": ["EWS 邮箱 ztenoc.olr@orange.com (exchmail.orange-cit.ci)",
-                        "删除最旧邮件（硬删除释放邮箱配额）"],
-}
-
-# 共享子函数 -> 资源（被调用链展开到的函数）
-CALL_CHAIN_IO: dict[str, list[str]] = {
-    "sync_from_eflow_api": ["DB: app.db + eflow.sqlite3 (报告副产品)", "API: eFlow", "远程DB: db.sqlite3 (db_writer API, Eflow_TT_FB/Eflow_WO_FB)", "远程FTP: tt_reports 上传"],
-    "fetch_and_save_active_alarm": ["DB: app.db (realtime_alarm 表)", "DB: eflow.sqlite3 (realtime_alarm 表)"],
-    "fetch_and_save_history_alarm": ["DB: eflow.sqlite3 (history_alarm 表)", "DB: app.db (history_alarm 表)"],
-    "run_full_sync": ["DB: lbr_ms_sla_kpi.sqlite3", "远程DB: lbr_ms_sla_kpi.sqlite3 (db_writer API)", "远程FTP: /01_RPA/LBR_Tools/KPI/MS_SLA"],
-    "run_ipran_kpi_sync": ["本地DB: ipran_ume_kpi.sqlite3", "远程DB: ipran_ume_kpi.sqlite3 (db_writer API)"],
-    "run_packet_loss_sync": ["本地DB: lte_pl.sqlite3", "DB: eflow.sqlite3 (site 表)"],
-    "run_cnn_kpi_sync": ["远程DB: db_ps_cs_cn.sqlite3 (CNN, via API)"],
-    "run_main_kpi_sync": ["远程DB: db.sqlite3 (via db_writer API)"],
-    "run_network_kpi_sync": ["本地DB: ran_kpi_daily.sqlite3", "远程DB: ran_kpi_daily.sqlite3 (via db_writer API)"],
-    "run_ran_ume_full_task": ["远程DB: ran_kpi_daily_202606.sqlite3 (via API)", "远程FTP: /01_RPA/LBR_Tools/KPI/RAN/ORANGE"],
-    "run_battery_kpi_sync": ["API: UME 192.168.170.2 (r32.uedm.batt)", "本地DB: battery_kpi.sqlite3"],
-    "run_battery_email": ["DB: battery_kpi.sqlite3", "本地文件: output_socket/*.xlsx", "远程FTP: battary_email (收件人)", "外发: OWA 邮件"],
-    "run_mailbox_cleanup": ["EWS 邮箱 ztenoc.olr@orange.com (exchmail.orange-cit.ci)", "删除最旧邮件（硬删除释放邮箱配额）"],
-}
-
-
-def _call_chain_node_name(node: str) -> str:
-    """从调用链节点字符串中解析出函数名（去掉 '  → ' 缩进与 ' (file:line)' 位置）。"""
-    s = node
-    if s.startswith("  → "):
-        s = s[4:]
-    elif s.startswith("→ "):
-        s = s[2:]
-    return s.split(" (")[0].strip()
-
-
-def _annotate_call_chain(chain: list, task_id: str) -> list:
-    """为调用链每个节点追加其设计访问的数据库/文件标注。
-
-    - 入口节点（index 0）取自 TASK_IO[task_id]
-    - 其余节点若命中 CALL_CHAIN_IO[函数名] 则追加
-    资源按「规范化主键」（去掉括号说明、转小写）去重，保留更具体的那条，
-    避免同义条目重复；最终以内联形式附加到节点字符串末尾，前端无需改动即可展示。
-    """
-    def _norm_key(s: str) -> str:
-        return s.split(" (")[0].strip().lower()
-
-    annotated = []
-    task_io = TASK_IO.get(task_id, [])
-    for idx, node in enumerate(chain):
-        name = _call_chain_node_name(node)
-        res: list[str] = []
-        if idx == 0 and task_io:
-            res.extend(task_io)
-        if name in CALL_CHAIN_IO:
-            res.extend(CALL_CHAIN_IO[name])
-        # 按规范化主键去重，保留更具体（更长）的那条
-        best: dict[str, str] = {}
-        order: list[str] = []
-        for r in res:
-            k = _norm_key(r)
-            if k not in best or len(r) > len(best[k]):
-                if k not in best:
-                    order.append(k)
-                best[k] = r
-        uniq = [best[k] for k in order]
-        if uniq:
-            annotated.append(f"{node}  ⟵ [{' ; '.join(uniq)}]")
-        else:
-            annotated.append(node)
-    return annotated
 
 
 def register_task(
@@ -680,7 +408,15 @@ def _scheduled_run(task_id: str, trigger: str = "scheduled"):
     （例如任务耗时超过其调度间隔，或 UME 单账号单会话被并发互踢导致变慢），
     则跳过本次触发，避免起第二个实例造成资源争用 / 401 互踢。
     手动触发路径（run_task_async）已有相同保护，这里补齐调度路径。
+
+    队列模式（Phase 3）：仅投递 task_queue，由 Worker 进程执行；
+    enqueue_task 内部已含队列级单飞保护，拒绝重复投递。
     """
+    if QUEUE_ENABLED:
+        resp = enqueue_task(task_id, trigger)
+        if not resp.get("accepted"):
+            logger.warning(f"[{task_id}] 跳过本次调度触发：{resp.get('error')}")
+        return
     with _active_lock:
         if task_id in _active_runs:
             logger.warning(
@@ -692,7 +428,7 @@ def _scheduled_run(task_id: str, trigger: str = "scheduled"):
 
 def run_task_async(task_id: str, trigger: str = "manual") -> dict:
     """
-    立即执行任务（后台线程，立即返回）。
+    立即执行任务（队列模式下投递 task_queue 由 Worker 执行，否则进程内后台线程），立即返回。
     返回 {accepted, running}；若已在运行或校验失败则返回错误。
     """
     task = _task_registry.get(task_id)
@@ -700,6 +436,15 @@ def run_task_async(task_id: str, trigger: str = "manual") -> dict:
         return {"success": False, "accepted": False, "error": f"任务 {task_id} 未找到"}
     if not task["enabled"]:
         return {"success": False, "accepted": False, "error": f"任务 {task_id} 已禁用"}
+    if QUEUE_ENABLED:
+        resp = enqueue_task(task_id, trigger)
+        if resp.get("accepted"):
+            return resp
+        if resp.get("queued"):
+            # 队列中已有该任务：与进程内"正在运行"语义一致
+            return {"accepted": False, "running": True, "error": resp.get("error")}
+        # 投递失败（如 DB 锁）：降级进程内线程执行，保证任务不卡死
+        logger.warning(f"[{task_id}] 队列投递失败，降级进程内执行: {resp.get('error')}")
     with _active_lock:
         if task_id in _active_runs:
             return {"accepted": False, "running": True, "error": "任务正在运行中"}
@@ -710,7 +455,10 @@ def run_task_async(task_id: str, trigger: str = "manual") -> dict:
 
 def is_task_running(task_id: str) -> bool:
     with _active_lock:
-        return task_id in _active_runs
+        if task_id in _active_runs:
+            return True
+    # 队列模式：task_queue 中 pending/running 亦视为运行中（跨进程可见）
+    return task_id in get_queue_running_task_ids()
 
 
 def get_active_runs() -> dict:
@@ -718,36 +466,6 @@ def get_active_runs() -> dict:
         return dict(_active_runs)
 
 
-def _ensure_task_log_table(conn):
-    """确保 task_execution_log 表存在且含 error_trace 列。
-
-    兼容旧库：旧表在 CREATE TABLE IF NOT EXISTS 时已存在但缺 error_trace 列，
-    该语句不会自动加列，需通过 PRAGMA 检查后 ALTER 补列，否则查询报错
-    'no such column: error_trace'。
-    """
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS task_execution_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            task_id TEXT NOT NULL,
-            task_name TEXT,
-            category TEXT,
-            trigger_type TEXT,
-            success INTEGER,
-            started_at TEXT,
-            completed_at TEXT,
-            elapsed_seconds REAL,
-            result_json TEXT,
-            error TEXT,
-            error_trace TEXT
-        )
-    """)
-    try:
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(task_execution_log)").fetchall()}
-        if "error_trace" not in cols:
-            conn.execute("ALTER TABLE task_execution_log ADD COLUMN error_trace TEXT")
-            conn.commit()
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"确保 error_trace 列失败: {e}")
 
 
 def _save_task_result(result: dict):
@@ -858,43 +576,16 @@ def stop_scheduler():
 
 
 # ========== 查询接口 ==========
-def _fetch_latest_runs() -> dict:
-    """
-    一次性查出每个任务的最新一条执行记录（单条 SQL + 子查询分组），
-    避免前端 list + 逐任务 detail 产生的 N+1 请求。
-    返回 {task_id: [run_dict]}（每个任务仅含最新 1 条，足够卡片展示）。
-    """
-    result: dict = {}
-    try:
-        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
-            _ensure_task_log_table(conn)
-            rows = conn.execute(
-                """            SELECT l.task_id, l.task_name, l.category, l.trigger_type, l.success,
-                      l.started_at, l.completed_at, l.elapsed_seconds, l.error, l.error_trace
-               FROM task_execution_log l
-               INNER JOIN (
-                   SELECT task_id, MAX(id) AS max_id
-                   FROM task_execution_log
-                   GROUP BY task_id
-               ) m ON l.task_id = m.task_id AND l.id = m.max_id"""
-            ).fetchall()
-            for r in rows:
-                result[r[0]] = [{
-                    "task_id": r[0], "task_name": r[1], "category": r[2],
-                    "trigger": r[3], "success": bool(r[4]),
-                    "started_at": r[5], "completed_at": r[6],
-                    "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
-                }]
-            conn.close()
-    except Exception as e:
-        logger.warning(f"批量查询最新执行记录失败: {e}")
-    return result
 
 
 def list_tasks(include_runs: bool = False, lang: str = "zh") -> list[dict]:
     """列出所有已注册的任务（include_runs=True 时附带每个任务最新一条执行记录）"""
     sched = get_scheduler()
     latest_runs = _fetch_latest_runs() if include_runs else {}
+    # 跨进程运行状态批量一次查出，避免循环内逐任务查库
+    with _active_lock:
+        local_active = set(_active_runs.keys())
+    queue_active = get_queue_running_task_ids()
     tasks = []
     for task_id, task in _task_registry.items():
         job = sched.get_job(f"task_{task_id}")
@@ -909,7 +600,7 @@ def list_tasks(include_runs: bool = False, lang: str = "zh") -> list[dict]:
             "default_cron": task["default_cron"],
             "next_run": str(job.next_run_time) if job else None,
             "registered_at": task["registered_at"],
-            "running": is_task_running(task_id),
+            "running": (task_id in local_active) or (task_id in queue_active),
             "call_chain": task.get("call_chain", []),
         }
         if include_runs:
@@ -971,135 +662,12 @@ def get_task_detail(task_id: str, lang: str = "zh") -> Optional[dict]:
     return detail
 
 
-def get_task_stats(task_id: str, days: int | None = None) -> dict:
-    """统计某任务在保留期内的执行健康度（成功率 / 平均·最大耗时）。"""
-    result = {
-        "task_id": task_id,
-        "total_runs": 0,
-        "success_runs": 0,
-        "failed_runs": 0,
-        "success_rate": None,
-        "avg_elapsed": None,
-        "max_elapsed": None,
-        "first_seen": None,
-        "last_seen": None,
-    }
-    try:
-        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
-            _ensure_task_log_table(conn)
-            where = "WHERE task_id = ?"
-            params: list = [task_id]
-            if days:
-                where += " AND started_at >= datetime('now', ?)"
-                params.append(f"-{days} days")
-            row = conn.execute(
-                f"""SELECT COUNT(*), COALESCE(SUM(success),0),
-                           AVG(elapsed_seconds), MAX(elapsed_seconds),
-                           MIN(started_at), MAX(started_at)
-                    FROM task_execution_log {where}""",
-                params,
-            ).fetchone()
-            conn.close()
-            if row and row[0]:
-                total = row[0]
-                succ = row[1]
-                result.update({
-                    "total_runs": total,
-                    "success_runs": succ,
-                    "failed_runs": total - succ,
-                    "success_rate": round(succ / total, 4) if total else None,
-                    "avg_elapsed": round(row[2], 2) if row[2] is not None else None,
-                    "max_elapsed": round(row[3], 2) if row[3] is not None else None,
-                    "first_seen": row[4],
-                    "last_seen": row[5],
-                })
-    except Exception as e:
-        logger.warning(f"统计任务健康度失败 ({task_id}): {e}")
-    return result
-
-
-def get_recent_failures(days: int = 3, limit: int = 200) -> dict:
-    """按 error 首行聚类近期失败，便于快速判断是否为同一根因。"""
-    clusters: dict[str, dict] = {}
-    try:
-        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
-            _ensure_task_log_table(conn)
-            rows = conn.execute(
-                """SELECT task_id, task_name, error, started_at
-               FROM task_execution_log
-               WHERE success = 0
-                 AND started_at >= datetime('now', ?)
-               ORDER BY started_at DESC LIMIT ?""",
-                (f"-{days} days", limit),
-            ).fetchall()
-            conn.close()
-            for task_id, task_name, error, started_at in rows:
-                key = (error or "未知错误").split("\n")[0][:120]
-                c = clusters.get(key)
-                if not c:
-                    c = {"error_first_line": key, "count": 0, "tasks": {}, "last_seen": None}
-                    clusters[key] = c
-                c["count"] += 1
-                c["tasks"][task_id] = c["tasks"].get(task_id, 0) + 1
-                if not c["last_seen"] or (started_at or "") > c["last_seen"]:
-                    c["last_seen"] = started_at
-    except Exception as e:
-        logger.warning(f"聚合失败记录失败: {e}")
-    items = sorted(clusters.values(), key=lambda x: x["count"], reverse=True)
-    return {"days": days, "total_failures": sum(c["count"] for c in items), "clusters": items}
-
-
-def get_task_history_by_task(task_id: str, limit: int = 200) -> list[dict]:
-    """某任务的执行历史（按时间倒序），供前端历史弹窗分页 / 导出。"""
-    rows: list[dict] = []
-    try:
-        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
-            _ensure_task_log_table(conn)
-            cur = conn.execute(
-                "SELECT task_id, task_name, category, trigger_type, success, "
-                "started_at, completed_at, elapsed_seconds, error, error_trace "
-                "FROM task_execution_log WHERE task_id = ? "
-                "ORDER BY started_at DESC LIMIT ?",
-                (task_id, limit),
-            )
-            for r in cur.fetchall():
-                rows.append({
-                    "task_id": r[0], "task_name": r[1], "category": r[2],
-                    "trigger": r[3], "success": bool(r[4]),
-                    "started_at": r[5], "completed_at": r[6],
-                    "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
-                })
-            conn.close()
-    except Exception as e:
-        logger.warning(f"查询任务历史失败 ({task_id}): {e}")
-    return rows
 
 
 def get_task_history(limit: int = 20) -> list[dict]:
-    """获取最近的任务执行历史"""
-    try:
-        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
-            _ensure_task_log_table(conn)
-            rows = conn.execute(
-                """            SELECT task_id, task_name, category, trigger_type, success,
-                      started_at, completed_at, elapsed_seconds, error, error_trace
-               FROM task_execution_log
-               ORDER BY started_at DESC LIMIT ?""",
-                (limit,)
-            ).fetchall()
-            conn.close()
-            return [
-                {
-                    "task_id": r[0], "task_name": r[1], "category": r[2],
-                    "trigger": r[3], "success": bool(r[4]),
-                    "started_at": r[5], "completed_at": r[6],
-                    "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
-                }
-                for r in rows
-            ]
-    except Exception:
-        logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_task_history: exception swallowed", exc_info=True)
-        return list(reversed(_task_history[-limit:]))
+    """获取最近的任务执行历史（Phase 4：实现下沉 task_stats，这里补内存兑底）"""
+    from backend.services.task_stats import get_task_history as _gh
+    return _gh(limit, fallback_history=_task_history)
 
 
 def update_task_schedule(task_id: str, cron_expr: str) -> dict:

@@ -48,8 +48,14 @@ for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /C:"IPv4"') do (
 :found_ip
 
 :: Start backend（带日志，便于排查启动失败）
-echo [*] Starting backend server (port 7038)...
-start "Backend" /MIN cmd /c "chcp 65001 >nul & "%PYTHON_EXE%" -m uvicorn backend.main:app --host 0.0.0.0 --port 7038 > "%~dp0backend_runtime.log" 2>&1"
+:: MY_APP_TASK_QUEUE=1：Phase 3 队列模式，定时/手动任务投递 task_queue 由 Worker 执行
+:: 注意 set 后紧跟 &（不留空格），否则变量值会带尾部空格导致开关失效
+echo [*] Starting backend server (port 7038, task queue mode)...
+start "Backend" /MIN cmd /c "chcp 65001 >nul & set MY_APP_TASK_QUEUE=1& "%PYTHON_EXE%" -m uvicorn backend.main:app --host 0.0.0.0 --port 7038 > "%~dp0backend_runtime.log" 2>&1"
+
+:: Start task worker（Phase 3：任务执行与 Web 进程分离，轮询 task_queue 执行）
+echo [*] Starting task worker...
+start "TaskWorker" /MIN cmd /c "chcp 65001 >nul & "%PYTHON_EXE%" -m backend.worker > "%~dp0worker_runtime.log" 2>&1"
 
 :: Start frontend
 echo [*] Starting frontend dev server (port 7090)...
@@ -69,6 +75,13 @@ if %errorlevel%==0 (
     echo [WARN] Backend may have failed to start! Check backend_runtime.log
     echo        Common causes: port conflict, missing dependencies, Python version issue
     type "%~dp0backend_runtime.log" 2>nul
+)
+
+:: 检测 worker 是否存活（PID 文件由 backend/worker.py 启动时写入）
+if exist "%~dp0backend\worker.pid" (
+    echo [OK] Task worker is running
+) else (
+    echo [WARN] Task worker PID file not found! Check worker_runtime.log
 )
 
 :: Auto-open browser

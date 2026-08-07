@@ -1,0 +1,4 @@
+# models 目录依赖清单（架构优化 Phase 2）
+# 版本以项目根目录 requirements.lock.txt 为准
+sqlalchemy>=2.0.0
+alembic>=1.13.0

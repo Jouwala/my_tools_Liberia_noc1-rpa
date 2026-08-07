@@ -6,6 +6,16 @@ echo.
 
 set FOUND=0
 
+:: Stop task worker (Phase 3：通过 backend/worker.pid 精确停止)
+if exist "%~dp0backend\worker.pid" (
+    for /f "usebackq tokens=*" %%a in ("%~dp0backend\worker.pid") do (
+        taskkill /PID %%a /F >nul 2>&1
+        echo [*] Killed task worker PID=%%a
+    )
+    del "%~dp0backend\worker.pid" >nul 2>&1
+    set FOUND=1
+)
+
 :: Stop backend (port 7038, the actual running instance)
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7038" ^| findstr "LISTENING" 2^>nul') do (
     taskkill /PID %%a /F >nul 2>&1
