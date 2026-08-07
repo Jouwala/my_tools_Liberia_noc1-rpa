@@ -1,0 +1,4 @@
+# Phase 5 迁移脚本运行依赖（与项目 requirements.lock 版本对齐）
+pandas>=2.0.0
+psycopg2-binary==2.9.12
+sqlalchemy>=2.0.0
