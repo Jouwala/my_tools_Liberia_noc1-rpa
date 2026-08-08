@@ -6,7 +6,22 @@ echo.
 
 set FOUND=0
 
-:: Stop task worker (Phase 3：通过 backend/worker.pid 精确停止)
+:: Stop worker watchdog FIRST（tree-kill 连带 worker 一起停，且不会复活 worker）
+if exist "%~dp0backend\worker_watchdog.pid" (
+    for /f "usebackq tokens=*" %%a in ("%~dp0backend\worker_watchdog.pid") do (
+        taskkill /PID %%a /T /F >nul 2>&1
+        echo [*] Killed worker watchdog (tree) PID=%%a
+    )
+    del "%~dp0backend\worker_watchdog.pid" >nul 2>&1
+    set FOUND=1
+)
+
+:: 清理分组 worker PID 文件（树杀为强制终止，分组 worker 来不及自删 PID 文件）
+for %%f in ("%~dp0backend\worker_*.pid") do del "%%f" >nul 2>&1
+:: 兜底清理遗留默认 worker.pid（看门狗模式不使用，但旧实例可能残留）
+if exist "%~dp0backend\worker.pid" del "%~dp0backend\worker.pid" >nul 2>&1
+
+:: Stop task worker (Phase 3：兜底，直接按 backend/worker.pid 精确停止；看门狗未启用时仍可用)
 if exist "%~dp0backend\worker.pid" (
     for /f "usebackq tokens=*" %%a in ("%~dp0backend\worker.pid") do (
         taskkill /PID %%a /F >nul 2>&1

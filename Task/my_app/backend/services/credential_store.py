@@ -129,6 +129,18 @@ CREDENTIAL_GROUPS = [
         "env_secret": None,
     },
     {
+        "key": "owa_mail",
+        "name": "Exchange/OWA 邮箱（运维报告 + 邮箱清理）",
+        "default_user": "ZTENOC_OLR",
+        "default_secret": "Postcode@231",
+        "username_label": "登录账号 (域账号)",
+        "secret_label": "邮箱密码",
+        "has_username": True,
+        "testable": False,
+        "env_user": None,
+        "env_secret": None,
+    },
+    {
         "key": "weixin",
         "name": "微信/即时消息通知",
         "default_user": "SCT389311TrwFJS9k0ZxfX5Plb9g0gozix",

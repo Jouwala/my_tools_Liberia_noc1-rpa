@@ -341,7 +341,16 @@ def get_db_value(conn, table_name, column_name, date_str):
     cursor = conn.cursor()
     safe_col = column_name.replace('"', '""')
     if safe_col not in existing_cols and column_name not in existing_cols:
-        return None
+        # PG 63 字节标识符截断回退（与 migrations/reconcile.py 同算法）：
+        # 超长列名在 PG 侧为 UTF-8 前 63 字节截断形式，命中则改用截断名查询；
+        # sqlite 模式列名原样存在，此回退天然不触发，行为不变。
+        if len(column_name.encode("utf-8")) > 63:
+            truncated = column_name.encode("utf-8")[:63].decode("utf-8", errors="ignore")
+            if truncated in existing_cols:
+                column_name = truncated
+                safe_col = truncated.replace('"', '""')
+        if safe_col not in existing_cols and column_name not in existing_cols:
+            return None
     date_col_candidates = ["Date", "Begin Time", "date", "begin_time", "Month", "month"]
     date_col = None
     for candidate in date_col_candidates:
@@ -392,7 +401,15 @@ def get_persite_ratio(conn, table_name, column_name, date_str, op, threshold):
     cursor = conn.cursor()
     safe_col = column_name.replace('"', '""')
     if safe_col not in existing_cols and column_name not in existing_cols:
-        return None
+        # PG 63 字节标识符截断回退（与 get_db_value 同款）：
+        # sqlite 模式列名原样存在，此回退天然不触发，行为不变。
+        if len(column_name.encode("utf-8")) > 63:
+            truncated = column_name.encode("utf-8")[:63].decode("utf-8", errors="ignore")
+            if truncated in existing_cols:
+                column_name = truncated
+                safe_col = truncated.replace('"', '""')
+        if safe_col not in existing_cols and column_name not in existing_cols:
+            return None
     date_col = None
     for candidate in ["Begin Time", "Date", "date", "begin_time", "Month", "month"]:
         if candidate in existing_cols:

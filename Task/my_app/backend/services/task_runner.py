@@ -368,6 +368,16 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
             # 把其中的 error/message 摘出来，否则页面只显示“失败”却无任何错误信息。
             if not result["success"] and not result.get("error"):
                 biz_msg = func_result.get("error") or func_result.get("message")
+                if not biz_msg:
+                    # 任务函数常以 errors(list) 返回多条错误（如 packet_loss /
+                    # site_outage），run_task 默认只取 error/message 字符串，
+                    # 会漏掉这类失败原因，导致 Task Manager 显示“空错误”。
+                    # 这里把 errors 列表合并进 error，便于排查与失败聚类。
+                    errs = func_result.get("errors")
+                    if isinstance(errs, (list, tuple)):
+                        errs = [e for e in errs if e]
+                        if errs:
+                            biz_msg = "; ".join(str(e) for e in errs)
                 if biz_msg:
                     result["error"] = str(biz_msg)
         else:
@@ -467,10 +477,14 @@ def run_task_async(task_id: str, trigger: str = "manual") -> dict:
         if resp.get("accepted"):
             return resp
         if resp.get("queued"):
-            # 队列中已有该任务：与进程内"正在运行"语义一致
+            # 队列中已有该任务：与"正在运行"语义一致，正常返回（不污染 _active_runs）
             return {"accepted": False, "running": True, "error": resp.get("error")}
-        # 投递失败（如 DB 锁）：降级进程内线程执行，保证任务不卡死
-        logger.warning(f"[{task_id}] 队列投递失败，降级进程内执行: {resp.get('error')}")
+        # 投递失败（DB 锁/超时）：队列模式下不再降级为进程内线程执行——否则会把任务
+        # 塞进 web 进程 _active_runs 且易因线程挂起导致永久假"运行中"/拒绝重触发。
+        # 直接返回错误，由用户或调度重试，状态更可控。
+        logger.warning(f"[{task_id}] 队列投递失败，未降级进程内执行: {resp.get('error')}")
+        return {"accepted": False, "error": f"任务队列暂不可用：{resp.get('error')}"}
+    # 非队列模式：进程内后台线程执行（沿用原单飞保护）
     with _active_lock:
         if task_id in _active_runs:
             return {"accepted": False, "running": True, "error": "任务正在运行中"}
@@ -480,11 +494,12 @@ def run_task_async(task_id: str, trigger: str = "manual") -> dict:
 
 
 def is_task_running(task_id: str) -> bool:
+    # 队列模式：只信跨进程队列状态（task_queue 中 pending/running），不依赖 web 进程
+    # 内存的 _active_runs（队列模式任务实际在 Worker 执行，_active_runs 易滞留）
+    if QUEUE_ENABLED:
+        return task_id in get_queue_running_task_ids()
     with _active_lock:
-        if task_id in _active_runs:
-            return True
-    # 队列模式：task_queue 中 pending/running 亦视为运行中（跨进程可见）
-    return task_id in get_queue_running_task_ids()
+        return task_id in _active_runs
 
 
 def get_active_runs() -> dict:
@@ -622,6 +637,9 @@ def list_tasks(include_runs: bool = False, lang: str = "zh") -> list[dict]:
         entry = {
             "task_id": task_id,
             "name": disp_name,
+            # 同时回传中/英规范名，供前端跨语言搜索（避免用英文搜中文名搜不到）
+            "name_zh": task.get("name") or disp_name,
+            "name_en": task.get("name_en") or task.get("name") or disp_name,
             "description": disp_desc,
             "category": task["category"],
             "enabled": task["enabled"],
@@ -629,7 +647,10 @@ def list_tasks(include_runs: bool = False, lang: str = "zh") -> list[dict]:
             "default_cron": task["default_cron"],
             "next_run": str(job.next_run_time) if job else None,
             "registered_at": task["registered_at"],
-            "running": (task_id in local_active) or (task_id in queue_active),
+            # 队列模式下只信跨进程队列状态 queue_active，避免 web 进程内存 local_active
+            # 的滞留条目造成假"运行中"并拒绝重触发（队列模式任务实际在 Worker 进程执行，
+            # web 进程 _active_runs 易滞留且无法自愈）
+            "running": (task_id in queue_active) if QUEUE_ENABLED else (task_id in local_active),
             "call_chain": task.get("call_chain", []),
         }
         if include_runs:
@@ -651,6 +672,8 @@ def get_task_detail(task_id: str, lang: str = "zh") -> Optional[dict]:
     detail = {
         "task_id": task_id,
         "name": disp_name,
+        "name_zh": task.get("name") or disp_name,
+        "name_en": task.get("name_en") or task.get("name") or disp_name,
         "description": disp_desc,
         "category": task["category"],
         "enabled": task["enabled"],

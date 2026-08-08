@@ -264,6 +264,13 @@ TASK_SPECS = [
          description="每小时检查 Exchange 邮箱（ztenoc.olr@orange.com）：邮件数>500 且 空间>70% 时，硬删除最旧 200 封邮件，避免 'storage limit' 告警",
          description_en="Hourly guard for Exchange mailbox (ztenoc.olr@orange.com): when count>500 AND usage>70%, hard-delete the 200 oldest emails to avoid the 'storage limit' warning",
          default_cron="0 * * * *", category="mailbox"),
+
+    # 28. Incident Overview 数据同步（每小时整点）：从远程 FineBI FTP 拉取最新 incident_overview.xlsx
+    dict(task_id="incident_overview_sync", name="Incident Overview 数据同步", name_en="Incident Overview Data Sync",
+         loader=("backend.services.incident_overview_sync", "run_incident_overview_sync"),
+         description="每小时整点从远程 FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ 所有子目录取最新 incident_overview.xlsx，原子替换本地 data/incident_overview/incident_overview.xlsx",
+         description_en="Hourly on-the-hour: pull the latest incident_overview.xlsx from remote FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ across all subfolders, atomically replace local data file",
+         default_cron="0 * * * *", category="incident_overview"),
 ]
 
 

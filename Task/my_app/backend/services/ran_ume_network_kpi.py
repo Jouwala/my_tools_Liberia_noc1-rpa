@@ -44,7 +44,7 @@ from ftplib import FTP, error_perm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from backend.database import get_raw_connection
-from backend.dialect_helpers import list_table_names, table_columns, upsert, safe_pragma
+from backend.dialect_helpers import list_table_names, table_columns, upsert, safe_pragma, pg_trunc_ident
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
@@ -775,29 +775,32 @@ def read_xlsx_bytes(file_bytes: bytes):
 
 
 def write_to_db(db_path, table_name, headers, data):
-    """将数据写入 SQLite 数据库。
-    以 'Begin Time' 和 'Group' 列为联合主键，使用 INSERT OR REPLACE 实现更新/替换。
+    """将数据写入数据库（双模 sqlite/pg）。
+    以 'Begin Time' 和 'Group' 列为联合主键，使用 INSERT OR REPLACE / ON CONFLICT 实现更新/替换。
+    PG 模式下列名/表名先按 63 字节 UTF-8 截断（pg_trunc_ident），与建表/加列保持一致。
     """
     # 打开/初始化数据库时若遇到文件锁(SMB 读锁/云同步/索引服务等)会直接报
     # "readonly database"，这里加重试 + 长超时(busy_timeout)，让锁释放窗口内的
     # 写入能自动穿过。连接重试窗口拉到 ~50s 以抗间歇性独占锁。
     last_err = None
+    conn = None
     for _attempt in range(1, 11):
         try:
-            with get_raw_connection(db_path, timeout=60) as conn:
-                cursor = conn.cursor()
-                safe_pragma(conn, "PRAGMA journal_mode=WAL")
-                safe_pragma(conn, "PRAGMA synchronous=OFF")
-                safe_pragma(conn, "PRAGMA cache_size=-64000")
-                safe_pragma(conn, "PRAGMA busy_timeout=60000")
-                break
-        except sqlite3.OperationalError as e:
+            conn = get_raw_connection(db_path, timeout=60)
+            cursor = conn.cursor()
+            safe_pragma(conn, "PRAGMA journal_mode=WAL")
+            safe_pragma(conn, "PRAGMA synchronous=OFF")
+            safe_pragma(conn, "PRAGMA cache_size=-64000")
+            safe_pragma(conn, "PRAGMA busy_timeout=60000")
+            break
+        except Exception as e:
             last_err = e
-            try:
-                conn.close()
-            except Exception:
-                logging.getLogger(__name__).warning("[SILENT-EXCEPT] write_to_db: exception swallowed", exc_info=True)
-                pass
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] write_to_db: exception swallowed", exc_info=True)
+                    pass
             if _attempt < 10:
                 print(f"  [DB] 打开/初始化失败（可能文件被锁），5s 后重试 ({_attempt}/10): {e}")
                 time.sleep(5)
@@ -809,43 +812,58 @@ def write_to_db(db_path, table_name, headers, data):
         conn.close()
         return 0
 
+    is_sqlite = isinstance(conn, sqlite3.Connection)
+    tname = table_name if is_sqlite else pg_trunc_ident(table_name)
+    db_headers = headers if is_sqlite else [pg_trunc_ident(h) for h in headers]
+    if not is_sqlite:
+        seen, dup = set(), []
+        for h in db_headers:
+            if h in seen and h not in dup:
+                dup.append(h)
+            seen.add(h)
+        if dup:
+            logging.getLogger(__name__).warning(
+                f"[{table_name}] PG 截断后存在重复列名 {dup}，请人工确认")
+
     # 检查表是否已存在
-    table_exists = table_name in set(list_table_names(conn))
+    table_exists = tname in set(list_table_names(conn))
 
     if not table_exists:
         # 新建表
         create_sql = (
-            f'CREATE TABLE "{table_name}" (\n'
+            f'CREATE TABLE "{tname}" (\n'
             f'  "Begin Time" TEXT NOT NULL,\n'
             f'  "Group" TEXT NOT NULL,\n'
             f'  PRIMARY KEY ("Begin Time", "Group")\n'
             f')'
         )
         cursor.execute(create_sql)
-        for h in headers:
-            if h in ("Begin Time", "Group"):
+        for db_h in db_headers:
+            if db_h in ("Begin Time", "Group"):
                 continue
-            safe_col = h.replace('"', '""')
+            safe_col = db_h.replace('"', '""')
             try:
-                cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{safe_col}" TEXT')
-            except sqlite3.OperationalError:
+                cursor.execute(f'ALTER TABLE "{tname}" ADD COLUMN "{safe_col}" TEXT')
+            except Exception:
                 logging.getLogger(__name__).warning("[SILENT-EXCEPT] write_to_db: exception swallowed", exc_info=True)
                 pass
     else:
         # 表已存在，检查并添加缺少的列
-        existing_cols = set(table_columns(conn, table_name))
-        for h in headers:
-            if h not in existing_cols:
-                safe_col = h.replace('"', '""')
+        existing_cols = set(table_columns(conn, tname))
+        for db_h in db_headers:
+            if db_h not in existing_cols:
+                safe_col = db_h.replace('"', '""')
                 try:
-                    cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{safe_col}" TEXT')
-                except sqlite3.OperationalError:
+                    cursor.execute(f'ALTER TABLE "{tname}" ADD COLUMN "{safe_col}" TEXT')
+                except Exception:
                     logging.getLogger(__name__).warning("[SILENT-EXCEPT] write_to_db: exception swallowed", exc_info=True)
                     pass
 
     # 双模 upsert：以 'Begin Time' + 'Group' 为联合主键（与建表 PRIMARY KEY 一致）
-    quoted_headers = [f'"{h.replace(chr(34), chr(34)+chr(34))}"' for h in headers]
+    quoted_headers = [f'"{h.replace(chr(34), chr(34)+chr(34))}"' for h in db_headers]
     conflict_cols = ["Begin Time", "Group"]
+    if not is_sqlite:
+        conflict_cols = [pg_trunc_ident(c) for c in conflict_cols]
     records = []
     for row in data:
         r = list(row)
@@ -853,12 +871,12 @@ def write_to_db(db_path, table_name, headers, data):
             r = r + [None] * (len(headers) - len(r))
         elif len(r) > len(headers):
             r = r[:len(headers)]
-        records.append({h: (str(v) if v is not None else None) for h, v in zip(headers, r)})
+        records.append({db_h: (str(v) if v is not None else None) for db_h, v in zip(db_headers, r)})
 
     row_count = len(records)
     # 双模 upsert：sqlite=INSERT OR REPLACE / pg=INSERT ... ON CONFLICT DO UPDATE
     for i in range(0, len(records), 2000):
-        upsert(conn, table_name, records[i:i + 2000], conflict_cols=conflict_cols)
+        upsert(conn, tname, records[i:i + 2000], conflict_cols=conflict_cols)
 
     conn.commit()
     conn.close()

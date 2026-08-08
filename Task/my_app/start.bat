@@ -78,9 +78,11 @@ exit /b 1
 :backend_ready
 echo [OK] Backend is listening on port 7038.
 
-:: Start task worker（Phase 3：任务执行与 Web 进程分离，轮询 task_queue 执行）
-echo [*] Starting task worker...
-start "TaskWorker" /MIN cmd /c "chcp 65001 >nul & "%PYTHON_EXE%" -m backend.worker > "%~dp0worker_runtime.log" 2>&1"
+:: Start task worker watchdog（托管 backend.worker：崩溃/被杀后自动重拉，避免 Last 冻结）
+:: MY_APP_WORKER_GROUPS=u,n,m：三组 worker 并行消费（u=UME 会话组，n=网管/eFlow 组，m=内务轻任务组）；
+:: 组内串行与旧行为一致，组间并行（行为等价并发）。改回单 worker：删除该变量即可。
+echo [*] Starting task worker watchdog (auto-restart worker, groups=u,n,m)...
+start "TaskWorkerWatchdog" /MIN cmd /c "chcp 65001 >nul & set MY_APP_WORKER_GROUPS=u,n,m& "%PYTHON_EXE%" -m backend.worker_watchdog > "%~dp0worker_watchdog.log" 2>&1"
 
 :: Start frontend
 echo [*] Starting frontend dev server (port 7090)...
@@ -102,11 +104,11 @@ if %errorlevel%==0 (
     type "%~dp0backend_runtime.log" 2>nul
 )
 
-:: 检测 worker 是否存活（PID 文件由 backend/worker.py 启动时写入）
-if exist "%~dp0backend\worker.pid" (
-    echo [OK] Task worker is running
+:: 检测看门狗（worker 管理器）是否存活；看门狗负责保活分组 worker
+if exist "%~dp0backend\worker_watchdog.pid" (
+    echo [OK] Task worker watchdog is running (auto-restart enabled, groups=u,n,m)
 ) else (
-    echo [WARN] Task worker PID file not found! Check worker_runtime.log
+    echo [WARN] Worker watchdog PID file not found! Check worker_watchdog.log
 )
 
 :: Auto-open browser

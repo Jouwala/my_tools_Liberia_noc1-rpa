@@ -82,10 +82,17 @@ _TARGET_FOLDER_GETTERS = ("inbox", "sent", "trash")
 
 
 def get_account() -> Account:
-    """登录 EWS 并返回 Account 对象（配置与 owa_mail_report 保持一致）。"""
+    """登录 EWS 并返回 Account 对象（配置与 owa_mail_report 保持一致）。
+
+    凭据优先级：环境变量(MAILBOX_USERNAME/MAILBOX_PASSWORD) > 数据库(设置页) > 代码默认值。
+    这样在「设置」页改完 OWA 邮箱密码后，无需改代码、无需重启即可生效。
+    """
+    from backend.services.credential_store import get_credential
     server = os.getenv("MAILBOX_SERVER", "exchmail.orange-cit.ci")
-    username = os.getenv("MAILBOX_USERNAME", "ZTENOC_OLR")
-    password = os.getenv("MAILBOX_PASSWORD", "Postcode@231")
+    username, password = get_credential(
+        "owa_mail", "ZTENOC_OLR", "Postcode@231",
+        env_user="MAILBOX_USERNAME", env_secret="MAILBOX_PASSWORD",
+    )
     smtp = os.getenv("MAILBOX_SMTP", "ztenoc.olr@orange.com")
     auth_type = os.getenv("MAILBOX_AUTH_TYPE", "NTLM").upper()
     auth_cls = NTLM if auth_type == "NTLM" else BASIC

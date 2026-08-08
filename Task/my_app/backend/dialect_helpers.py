@@ -11,6 +11,7 @@
 * 列枚举（PRAGMA table_info ↔ information_schema.columns）
 * 调优类 PRAGMA（PG 无等价物，静默跳过）
 * upsert（INSERT OR REPLACE ↔ INSERT ... ON CONFLICT）
+* PG 标识符截断（pg_trunc_ident：UTF-8 前 63 字节，与 NAMEDATALEN-1 一致）
 * DataFrame 写入（pandas to_sql，走 SQLAlchemy 引擎）
 
 判定方式：``isinstance(conn, sqlite3.Connection)`` 走 sqlite 分支，否则走 PG
@@ -19,6 +20,54 @@
 import sqlite3
 
 from backend.database import engine  # SQLAlchemy 引擎（双模），供 write_df / to_sql 使用
+
+
+PG_MAX_IDENT = 63  # PG 标识符上限（NAMEDATALEN-1），单位：UTF-8 字节
+
+
+def pg_trunc_ident(name):
+    """PG 标识符截断：UTF-8 编码后 <=63 字节原样返回；>63 字节取前 63 字节，
+    再按 .decode('utf-8', errors='ignore') 丢弃尾部可能残缺的多字节字符。
+
+    sqlite 无此限制，调用方仅在 PG 分支使用本函数。
+    """
+    s = str(name)
+    raw = s.encode("utf-8")
+    if len(raw) <= PG_MAX_IDENT:
+        return s
+    return raw[:PG_MAX_IDENT].decode("utf-8", errors="ignore")
+
+
+def _quote_ident(name):
+    """单个标识符加双引号并转义内部双引号（sqlite / PG 通用）。"""
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def pg_quote_ident(name):
+    """PG 参数化 SQL 中的标识符：双引号包裹 + 内部引号翻倍。
+
+    列名里的 ``%``（如 ``A(%)``）**不再**在此双写：统一的 ``%``→``%%`` 转义由
+    backend.database._qmark_to_pyformat(escape_pct=True) 在带参数执行路径完成
+    （psycopg2 格式化时还原为 ``%``）。此处若再双写会与转义层叠加成双重转义
+    （PG 收到 ``%``），导致含 % 列名的 upsert/INSERT 报“字段不存在”。
+    """
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def _quote_table(name, truncate=False):
+    """表名加双引号；支持 ``schema.table`` 限定名按段处理。
+
+    PG 分支（truncate=True）对每一段先做 63 字节 UTF-8 截断。
+    """
+    parts = str(name).split(".")
+    if truncate:
+        parts = [pg_trunc_ident(p) for p in parts]
+    return ".".join(_quote_ident(p) for p in parts)
+
+
+def _pg_quote_table(name):
+    """PG 参数化 SQL 中的表名（支持 schema.table），按段引号包裹。"""
+    return ".".join(pg_quote_ident(p) for p in str(name).split("."))
 
 
 def list_table_names(conn):
@@ -62,27 +111,48 @@ def upsert(conn, table, rows, conflict_cols):
     """批量 upsert。rows: list[dict]。
 
     sqlite: ``INSERT OR REPLACE``；pg: ``INSERT ... ON CONFLICT (conflict_cols) DO UPDATE``。
+    列名/表名全部按方言加双引号（含空格、保留字、引号的列名安全）；
+    PG 分支的列名先按 63 字节 UTF-8 截断（pg_trunc_ident），与建表/加列保持一致。
     返回写入行数。
     """
     if not rows:
         return 0
     cols = list(rows[0].keys())
     placeholders = ", ".join("?" * len(cols))
-    col_sql = ", ".join(cols)
     if isinstance(conn, sqlite3.Connection):
-        sql = f"INSERT OR REPLACE INTO {table} ({col_sql}) VALUES ({placeholders})"
+        col_sql = ", ".join(_quote_ident(c) for c in cols)
+        table_sql = _quote_table(table)
+        sql = f"INSERT OR REPLACE INTO {table_sql} ({col_sql}) VALUES ({placeholders})"
         for r in rows:
             conn.execute(sql, [r[c] for c in cols])
         conn.commit()
         return len(rows)
-    conflict_sql = ", ".join(conflict_cols)
-    set_sql = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c not in conflict_cols)
-    sql = (
-        f"INSERT INTO {table} ({col_sql}) VALUES ({placeholders}) "
-        f"ON CONFLICT ({conflict_sql}) DO UPDATE SET {set_sql}"
-    )
+    # PG：列名按 63 字节截断（与 CREATE TABLE / ALTER ADD COLUMN 一致）
+    pcols = [pg_trunc_ident(c) for c in cols]
+    pconf = [pg_trunc_ident(c) for c in conflict_cols]
+    col_sql = ", ".join(pg_quote_ident(c) for c in pcols)
+    table_sql = _pg_quote_table(table)
+    conflict_sql = ", ".join(pg_quote_ident(c) for c in pconf)
+    set_cols = [c for c in pcols if c not in set(pconf)]
+    if set_cols:
+        set_sql = ", ".join(
+            f"{pg_quote_ident(c)}=EXCLUDED.{pg_quote_ident(c)}" for c in set_cols
+        )
+        sql = (
+            f"INSERT INTO {table_sql} ({col_sql}) VALUES ({placeholders}) "
+            f"ON CONFLICT ({conflict_sql}) DO UPDATE SET {set_sql}"
+        )
+    else:
+        # 全部列都是冲突键：DO UPDATE SET 为空会语法错误，等价退化为 DO NOTHING
+        sql = (
+            f"INSERT INTO {table_sql} ({col_sql}) VALUES ({placeholders}) "
+            f"ON CONFLICT ({conflict_sql}) DO NOTHING"
+        )
     for r in rows:
-        conn.execute(sql, [r[c] for c in cols])
+        # 兼容调用方传原始列名或已截断列名两种情况
+        params = [r[orig] if orig in r else r.get(trunc)
+                  for orig, trunc in zip(cols, pcols)]
+        conn.execute(sql, params)
     conn.commit()
     return len(rows)
 

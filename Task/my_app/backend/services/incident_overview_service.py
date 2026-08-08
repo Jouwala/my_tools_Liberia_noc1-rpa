@@ -218,6 +218,82 @@ def get_sla_data(sheet_name):
 
 
 # ----------------------------------------------------------------------------
+# 利比里亚 站点 -> 县 兜底映射
+# ----------------------------------------------------------------------------
+# 优先使用文件自带的州/县列（若远程真文件带 Region/State 列，直接采用，不覆盖）。
+# 本表仅在文件无州列时作为兜底：覆盖主要城镇，未命中返回空串（不误分配）。
+LIBERIA_COUNTIES = [
+    'Bomi', 'Bong', 'Gbarpolu', 'Grand Bassa', 'Grand Cape Mount',
+    'Grand Gedeh', 'Grand Kru', 'Lofa', 'Margibi', 'Maryland',
+    'Montserrado', 'Nimba', 'River Cess', 'River Gee', 'Sinoe',
+]
+
+# 城镇/地名 -> 县（保守：仅高置信度条目；其余留空，避免错分县）
+_SITE_TO_COUNTY = {
+    # Montserrado
+    'monrovia': 'Montserrado', 'paynesville': 'Montserrado', 'duala': 'Montserrado',
+    'bensonville': 'Montserrado', 'brewerville': 'Montserrado', 'caldwell': 'Montserrado',
+    'careysburg': 'Montserrado', 'johnsonville': 'Montserrado', 'congo town': 'Montserrado',
+    'sinkor': 'Montserrado', 'virginia': 'Montserrado', 'elwa': 'Montserrado',
+    # Bomi
+    'tubmanburg': 'Bomi', 'klay': 'Bomi', 'dei': 'Bomi', 'gbarma': 'Bomi', 'mecca': 'Bomi',
+    # Bong
+    'gbarnga': 'Bong', 'salala': 'Bong', 'suakoko': 'Bong', 'kokoya': 'Bong',
+    'zota': 'Bong', 'fuamah': 'Bong', 'palala': 'Bong', 'bong mines': 'Bong',
+    # Grand Bassa
+    'buchanan': 'Grand Bassa', 'owensgrove': 'Grand Bassa', 'st. john': 'Grand Bassa',
+    'neekreen': 'Grand Bassa',
+    # Grand Cape Mount
+    'robertsport': 'Grand Cape Mount', 'bo waterside': 'Grand Cape Mount',
+    'tienii': 'Grand Cape Mount', 'cape mount': 'Grand Cape Mount',
+    # Grand Gedeh
+    'zwedru': 'Grand Gedeh', 'tchien': 'Grand Gedeh', 'toe town': 'Grand Gedeh',
+    'putch': 'Grand Gedeh',
+    # Grand Kru
+    'barclayville': 'Grand Kru', 'sasstown': 'Grand Kru', 'buah': 'Grand Kru',
+    # Lofa
+    'voinjama': 'Lofa', 'zorzor': 'Lofa', 'foya': 'Lofa', 'kolahun': 'Lofa', 'vahun': 'Lofa',
+    'belleh': 'Lofa', 'salayea': 'Lofa',
+    # Margibi
+    'kakata': 'Margibi', 'harbel': 'Margibi', 'gibi': 'Margibi', 'cotton tree': 'Margibi',
+    'firestone': 'Margibi',
+    # Maryland
+    'harper': 'Maryland', 'pleebo': 'Maryland', 'cavalla': 'Maryland', 'karluway': 'Maryland',
+    'barrobo': 'Maryland',
+    # Nimba
+    'ganta': 'Nimba', 'sanniquellie': 'Nimba', 'tappita': 'Nimba', 'saclepea': 'Nimba',
+    'ziah': 'Nimba', 'doe': 'Nimba', 'bunadin': 'Nimba', 'gbedin': 'Nimba', 'bapi': 'Nimba',
+    # River Cess
+    'cestos': 'River Cess', 'yarpah': 'River Cess', 'nyankun': 'River Cess',
+    # River Gee
+    'fishtown': 'River Gee', 'gbeapo': 'River Gee', 'webbo': 'River Gee',
+    'kanweaken': 'River Gee', 'chedepo': 'River Gee', 'karvor': 'River Gee',
+    # Sinoe
+    'greenville': 'Sinoe', 'dugbe river': 'Sinoe', 'jaedee': 'Sinoe', 'butaw': 'Sinoe',
+    'po river': 'Sinoe',
+    # Gbarpolu
+    'bopolu': 'Gbarpolu', 'gbapolu': 'Gbarpolu',
+}
+
+
+def _derive_state(site_name, site_id):
+    """从站点名/ID 兜底推断所属县；命中返回规范县名，否则返回空串。"""
+    cand = " ".join(str(x) for x in (site_name, site_id)
+                    if x is not None and str(x).strip() != "").lower()
+    if not cand:
+        return ""
+    # 1) 直接命中县名（如站点名含 "River Gee"）
+    for c in LIBERIA_COUNTIES:
+        if c.lower() in cand:
+            return c
+    # 2) 城镇字典
+    for town, county in _SITE_TO_COUNTY.items():
+        if town in cand:
+            return county
+    return ""
+
+
+# ----------------------------------------------------------------------------
 # Details（Details1 sheet，全量）
 # ----------------------------------------------------------------------------
 def get_details_data():
@@ -226,6 +302,13 @@ def get_details_data():
     columns = []
     if not df.empty:
         columns = [str(c) for c in df.columns]
+        # 是否已有州/县列（优先用文件自带）
+        native_col = next((c for c in columns
+                           if 'region' in c.lower() or 'state' in c.lower()), None)
+        site_id_col = next((c for c in columns if c.lower() == 'site id'), None)
+        site_name_col = next((c for c in columns if c.lower() == 'site name'), None)
+        if not native_col:
+            columns = columns + ["State"]
         for _, row in df.iterrows():
             ticket = {}
             for col_idx, col_name in enumerate(df.columns):
@@ -241,6 +324,13 @@ def get_details_data():
                             ticket[str(col_name)] = vs
                 else:
                     ticket[str(col_name)] = ""
+            # 注入 State：优先文件自带，否则按站点名兜底推断
+            if native_col:
+                ticket["State"] = ticket.get(native_col, "")
+            else:
+                sn = ticket.get(site_name_col) if site_name_col else ticket.get("Site Name")
+                sid = ticket.get(site_id_col) if site_id_col else ticket.get("Site ID")
+                ticket["State"] = _derive_state(sn, sid)
             result.append(ticket)
     return {"data": result, "columns": columns}
 

@@ -63,11 +63,11 @@ If Not IsPortListening(7038) Then
     WScript.Quit 1
 End If
 
-workerPid = fso.BuildPath(base, "backend\worker.pid")
-If Not fso.FileExists(workerPid) Then
-    workerLog = fso.BuildPath(base, "worker_runtime.log")
-    workerCmd = "cmd /c chcp 65001 >nul & """ & backendExe & """ -m backend.worker > """ & workerLog & """ 2>&1"
-    ws.Run workerCmd, 0, False
+workerWatchdogPid = fso.BuildPath(base, "backend\worker_watchdog.pid")
+If Not fso.FileExists(workerWatchdogPid) Then
+    watchdogLog = fso.BuildPath(base, "worker_watchdog.log")
+    watchdogCmd = "cmd /c chcp 65001 >nul & """ & backendExe & """ -m backend.worker_watchdog > """ & watchdogLog & """ 2>&1"
+    ws.Run watchdogCmd, 0, False
 End If
 
 ' ===== 4. 启动前端服务 =====

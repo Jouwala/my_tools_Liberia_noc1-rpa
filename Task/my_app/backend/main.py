@@ -37,6 +37,7 @@ from backend.routers import (
     tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard,
     packet_loss_dashboard, battery_dashboard, credentials,
     tasks, sp_dashboard, system,
+    incident_overview, ip_trace,
 )
 from backend.services import task_runner
 from backend.database import get_raw_connection
@@ -83,6 +84,10 @@ app.include_router(credentials.router)
 app.include_router(tasks.router)
 app.include_router(sp_dashboard.router)
 app.include_router(system.router)
+# Incident Overview / IP Trace：从 Unified_Tools 集成（Phase 1 拆分时遗漏挂载，
+# 导致 /api/incident-overview/* 与 /api/ip-trace/* 路由不存在、页面取不到数据）
+app.include_router(incident_overview.router)
+app.include_router(ip_trace.router)
 
 
 # ========== 通用任务调度系统 ==========

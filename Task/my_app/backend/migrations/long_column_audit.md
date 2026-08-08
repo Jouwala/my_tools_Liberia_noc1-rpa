@@ -90,3 +90,9 @@ frontend 目录对全部 9 列特征串及 `OLIB/Hourly_KPI/MS_SLA` 均无匹配
 - 动态列读取：backend/services/ran_ume_service.py:899-918（SELECT * + Cell Validity Rate 短名）。
 - schema 映射：backend/database.py:178-197（死代码）、268（search_path）、313-324（忽略 logical_name）。
 - 写路径缺陷：backend/dialect_helpers.py:61-87（upsert 未加引号，sqlite 内存库实测 syntax error）、ms_sla_sync.py:254-329、ran_ume_network_kpi.py:777-865。
+
+## 8. 复核勘误（协调方独立复核，2026-08-07）
+
+1. **本报告第 4/5/6 节"search_path 缺 ran_ume_ro"有误**：实测 database.py:299 `_SEARCH_PATH` 已含 `ran_ume_ro`（完整列表：app,eflow,lte_pl,battery,ms_sla,fw,ipran_ume,ran_ume,ran_ume_ro,public）。但**顺序问题仍成立**：ran_ume 排在 ran_ume_ro 之前，同名表（如 3G_OLIB_Network_KPIs）会先命中写库 schema，与读写分离设计不符，风险等级维持"低"。
+2. **upsert 缺陷实测确认**：sqlite 内存库实测 `upsert` 对含空格列名（如 Begin Time）报 `near "Time": syntax error`；且已核实 ms_sla 全部 12 表、ran_ume 全部 4 表、eflow_tt（90/161 列）列名均含空格 → 写路径阻断结论成立。
+3. **遗留疑问**：该缺陷在 sqlite 模式下同样存在，但生产 ms_sla/ran_ume 库数据持续在更新（当日有新数据）——说明生产实际写入路径可能未走本仓 write_to_db 的 upsert 分支（或走了降级分支/独立 RPA 副本），切流前修复时需一并查清真实写入链路。

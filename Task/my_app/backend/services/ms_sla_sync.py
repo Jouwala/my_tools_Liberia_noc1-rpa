@@ -38,7 +38,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill, Font
 from backend.database import get_raw_connection
-from backend.dialect_helpers import table_columns, upsert, safe_pragma
+from backend.dialect_helpers import table_columns, upsert, safe_pragma, pg_trunc_ident, pg_quote_ident
 
 
 from backend.services.ms_sla_service import (  # Phase 4 拆分：共享常量/基础函数
@@ -251,9 +251,11 @@ def read_xlsx_bytes(file_bytes: bytes):
 
 
 def write_to_db(db_path, table_name, headers, data):
-    """将数据增量写入 SQLite 数据库（按主键 upsert，保留历史）。
+    """将数据增量写入数据库（双模 sqlite/pg，按主键 upsert，保留历史）。
 
     主键：首列（时间）+ _SITE 表的站点/网元标识列，与远程 API 写入的 pk 规则保持一致。
+    PG 模式下列名/表名先按 63 字节 UTF-8 截断（pg_trunc_ident），
+    与 Phase 5 已搬运的 PG 截断列名保持一致；sqlite 保留原名（无此限制）。
     """
     with get_raw_connection(str(db_path)) as conn:
         cursor = conn.cursor()
@@ -262,52 +264,71 @@ def write_to_db(db_path, table_name, headers, data):
         safe_pragma(conn, "PRAGMA cache_size=-64000")
         safe_pragma(conn, "PRAGMA temp_store=MEMORY")
 
+        is_sqlite = isinstance(conn, sqlite3.Connection)
+        tname = table_name if is_sqlite else pg_trunc_ident(table_name)
+        db_headers = headers if is_sqlite else [pg_trunc_ident(h) for h in headers]
+        if not is_sqlite:
+            seen, dup = set(), []
+            for h in db_headers:
+                if h in seen and h not in dup:
+                    dup.append(h)
+                seen.add(h)
+            if dup:
+                logger.warning(f"[{table_name}] PG 截断后存在重复列名 {dup}，请人工确认")
+
         def _q(col):
             return f'"{col.replace(chr(34), chr(34)+chr(34))}"'
 
         # 建表（幂等，全部 TEXT，不强制 NOT NULL）
-        col_defs = ", ".join(f"{_q(h)} TEXT" for h in headers)
-        cursor.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({col_defs})')
+        col_defs = ", ".join(f"{_q(h)} TEXT" for h in db_headers)
+        cursor.execute(f'CREATE TABLE IF NOT EXISTS "{tname}" ({col_defs})')
 
-        # 补充缺失列
-        exist_cols = set(table_columns(conn, table_name))
-        for h in headers:
-            if h not in exist_cols:
-                cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(h)} TEXT')
+        # 补充缺失列（PG 用截断后的实际列名；重复 ADD COLUMN 时警告并继续）
+        exist_cols = set(table_columns(conn, tname))
+        for db_h in db_headers:
+            if db_h not in exist_cols:
+                try:
+                    cursor.execute(f'ALTER TABLE "{tname}" ADD COLUMN {_q(db_h)} TEXT')
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "[SILENT-EXCEPT] write_to_db: ALTER ADD COLUMN ignored "
+                        f"({tname}.{db_h})", exc_info=True)
 
         # 主键：优先用 _choose_pk_columns（保证唯一，避免 upsert 塌缩）；
         # 若实在凑不出唯一键，降级为"无唯一索引的普通写入"（不塌缩、仅可能重复）并告警
         try:
             pk_cols = _choose_pk_columns(headers, data, table_name)
+            pk_cols_db = [db_headers[headers.index(k)] for k in pk_cols] if pk_cols else []
         except Exception as pk_err:
             logger.warning(f"[{table_name}] 无法选出唯一主键({pk_err})，本地写入降级为无唯一索引模式(不塌缩)")
             pk_cols = None
+            pk_cols_db = []
 
         # 保证唯一约束存在：先清理历史重复行，再建唯一索引（upsert 才能生效）
-        if pk_cols:
-            pk_q = ", ".join(_q(k) for k in pk_cols)
+        if pk_cols_db:
+            pk_q = ", ".join(_q(k) for k in pk_cols_db)
             try:
-                if isinstance(conn, sqlite3.Connection):
+                if is_sqlite:
                     cursor.execute(
-                        f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
-                        f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
+                        f'DELETE FROM "{tname}" WHERE rowid NOT IN ('
+                        f'SELECT MIN(rowid) FROM "{tname}" GROUP BY {pk_q})'
                     )
                 else:
                     # PG：以 ctid 代替 sqlite 的 rowid 做物理行去重（保留每组最早一行）
                     cursor.execute(
-                        f'DELETE FROM "{table_name}" WHERE ctid NOT IN ('
-                        f'SELECT MIN(ctid) FROM "{table_name}" GROUP BY {pk_q})'
+                        f'DELETE FROM "{tname}" WHERE ctid NOT IN ('
+                        f'SELECT MIN(ctid) FROM "{tname}" GROUP BY {pk_q})'
                     )
                 # 先删除旧的同名唯一索引，避免主键列变更后 IF NOT EXISTS 跳过导致旧索引残留
-                cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
+                cursor.execute(f'DROP INDEX IF EXISTS "u_{tname}"')
                 cursor.execute(
-                    f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({pk_q})'
+                    f'CREATE UNIQUE INDEX "u_{tname}" ON "{tname}" ({pk_q})'
                 )
             except Exception:
                 logging.getLogger(__name__).warning("[SILENT-EXCEPT] write_to_db: exception swallowed", exc_info=True)
                 conn.rollback()
 
-        quoted_headers = [_q(h) for h in headers]
+        quoted_headers = [_q(h) for h in db_headers]
         # 双模 upsert：有唯一键则按主键 ON CONFLICT 覆盖（sqlite=INSERT OR REPLACE / pg=ON CONFLICT DO UPDATE）；
         # 无唯一键则退化为纯 INSERT（与 sqlite 下 INSERT OR REPLACE 无冲突目标时行为一致）
         records = []
@@ -317,25 +338,36 @@ def write_to_db(db_path, table_name, headers, data):
                 r = r + [None] * (len(headers) - len(r))
             elif len(r) > len(headers):
                 r = r[:len(headers)]
-            records.append({h: (str(v) if v is not None else None)
-                            for h, v in zip(headers, r)})
+            records.append({db_h: (str(v) if v is not None else None)
+                            for db_h, v in zip(db_headers, r)})
         row_count = len(records)
-        if pk_cols:
-            conflict_cols = list(pk_cols)
+        if pk_cols_db:
+            conflict_cols = list(pk_cols_db)
             for i in range(0, len(records), BATCH_SIZE):
-                upsert(conn, table_name, records[i:i + BATCH_SIZE], conflict_cols=conflict_cols)
+                upsert(conn, tname, records[i:i + BATCH_SIZE], conflict_cols=conflict_cols)
         else:
-            placeholders = ", ".join(["?"] * len(headers))
-            insert_sql = f'INSERT INTO "{table_name}" ({", ".join(quoted_headers)}) VALUES ({placeholders})'
-            batch = [[r[h] for h in headers] for r in records]
+            placeholders = ", ".join(["?"] * len(db_headers))
+            if is_sqlite:
+                quoted_for_insert = quoted_headers
+                insert_table = f'"{tname}"'
+            else:
+                # PG：带参数执行时列名里的 % 需双写为 %%，由 psycopg2 参数化时还原
+                quoted_for_insert = [pg_quote_ident(h) for h in db_headers]
+                insert_table = pg_quote_ident(tname)
+            insert_sql = f'INSERT INTO {insert_table} ({", ".join(quoted_for_insert)}) VALUES ({placeholders})'
+            batch = [[r[h] for h in db_headers] for r in records]
             for i in range(0, len(batch), BATCH_SIZE):
                 cursor.executemany(insert_sql, batch[i:i + BATCH_SIZE])
         conn.commit()
 
-        if headers:
-            first_col = headers[0].replace('"', '""')
+        if db_headers:
+            first_col = db_headers[0].replace('"', '""')
+            idx_name = f"idx_{tname}_{first_col}"
+            if not is_sqlite:
+                idx_name = pg_trunc_ident(idx_name)
             try:
-                cursor.execute(f'CREATE INDEX IF NOT EXISTS "idx_{table_name}_{first_col}" ON "{table_name}" ("{first_col}")')
+                cursor.execute(
+                    f'CREATE INDEX IF NOT EXISTS "{idx_name}" ON "{tname}" ("{first_col}")')
                 conn.commit()
             except Exception:
                 logging.getLogger(__name__).warning("[SILENT-EXCEPT] write_to_db: exception swallowed", exc_info=True)

@@ -292,10 +292,12 @@ def _init_db(conn: sqlite3.Connection):
         upsert(conn, "pl_meta", [{"key": "value_scale", "value": "percent"}], conflict_cols=["key"])
         logger.info("[PL] 已将历史丢包率数据 ×100 转为百分比数值")
     # 兼容旧表：补充 STATUS 列（要求2: OK/NOK）
+    # 双模幂等：PG 模式下 ALTER 报错类型为 psycopg2 异常（非 sqlite3.OperationalError），
+    # 原 except 无法捕获会向上抛出导致整任务失败；改用 IF NOT EXISTS 彻底避免重复加列报错。
     try:
-        conn.execute("ALTER TABLE site_pl_summary ADD COLUMN STATUS TEXT")
-    except sqlite3.OperationalError:
-        pass
+        conn.execute("ALTER TABLE site_pl_summary ADD COLUMN IF NOT EXISTS STATUS TEXT")
+    except Exception:  # noqa: BLE001  SQLite 旧版本不支持 IF NOT EXISTS 时兜底忽略
+        logger.warning("[PL] ADD COLUMN STATUS 幂等跳过（可能已存在或驱动不支持）", exc_info=True)
     conn.commit()
 
 
@@ -342,8 +344,8 @@ def _load_site_info() -> pd.DataFrame:
     with get_raw_connection(str(EFLOW_DB_PATH), timeout=60) as conn:
         try:
             site = pd.read_sql_query(
-                'SELECT "Site ID", "Site Name", Region, Province, District, Latitude, Longitude, '
-                '"TRM Type", "Network Type", Vendor FROM site', conn)
+                'SELECT "Site ID", "Site Name", "Region", "Province", "District", '
+                '"Latitude", "Longitude", "TRM Type", "Network Type", "Vendor" FROM site', conn)
         finally:
             conn.close()
         site = site.rename(columns={

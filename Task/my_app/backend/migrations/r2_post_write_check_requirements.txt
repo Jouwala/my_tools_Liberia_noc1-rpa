@@ -1,0 +1,2 @@
+# r2_post_write_check.py 依赖（系统 Python 已安装 psycopg2）
+psycopg2-binary>=2.9

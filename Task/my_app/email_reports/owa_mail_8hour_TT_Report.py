@@ -228,6 +228,24 @@ def get_account(
     auth_type: str = OWA_AUTH_TYPE,
 ) -> Account:
     """登录 OWA 并返回 exchangelib Account 对象。"""
+    # 凭据优先级：环境变量(OWA_USERNAME/OWA_PASSWORD) > 数据库(设置页) > 代码默认值
+    # 这样在「设置」页改完 OWA 邮箱密码后，无需改代码、无需重启即可生效。
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        import sys as _sys
+        _myapp = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if _myapp not in _sys.path:
+            _sys.path.insert(0, _myapp)
+        from backend.services.credential_store import get_credential
+    _owa_user, _owa_pass = get_credential(
+        "owa_mail", OWA_USERNAME, OWA_PASSWORD,
+        env_user="OWA_USERNAME", env_secret="OWA_PASSWORD",
+    )
+    if username == OWA_USERNAME and _owa_user:
+        username = _owa_user
+    if password == OWA_PASSWORD and _owa_pass:
+        password = _owa_pass
     auth_type = auth_type.upper()
     if auth_type not in _AUTH_MAP:
         raise ValueError(f"Unsupported auth type: {auth_type!r}")

@@ -421,8 +421,8 @@ def write_alarm_sqlite(data):
         conn.commit()
         conn.close()
 
-        logger.info(f"Alarm SQLite saved: {db_file}, {len(rows_to_insert)} records")
-        return db_file
+    logger.info(f"Alarm SQLite saved: {db_file}, {len(data)} records")
+    return db_file
 def write_history_alarm_csv(data):
     """将规范化后的历史告警数据写入 CSV，只保留最新一个文件。"""
     output_file = os.path.join(DATA_DIR, "eflow_history_alarm_raw.csv")
@@ -465,8 +465,8 @@ def write_history_alarm_sqlite(data):
         conn.commit()
         conn.close()
 
-        logger.info(f"History Alarm SQLite saved: {db_file}, {len(rows_to_insert)} records")
-        return db_file
+    logger.info(f"History Alarm SQLite saved: {db_file}, {len(data)} records")
+    return db_file
 def _clean_column_name(col: str) -> str:
     """通用列名清洗：转 snake_case（本地副本，避免跨模块依赖）。"""
     if not isinstance(col, str):

@@ -26,7 +26,7 @@ import logging
 import signal
 import sys
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 _start_ts = time.time()
@@ -48,6 +48,14 @@ except (TypeError, ValueError):
 
 PID_FILE = Path(os.environ.get("MY_APP_WORKER_PID", str(Path(__file__).parent / "worker.pid")))
 
+# 多 worker 分流：MY_APP_WORKER_TASKS=task1,task2,...（逗号分隔）时，本 worker
+# 只认领清单内的任务；未设置 = 全量认领（与旧行为一致）。
+# 分组由 worker_watchdog 按 MY_APP_WORKER_GROUPS 配置下发，保证同一数据源
+# （UME/网管/eFlow 会话、写库）的任务永远落在同一 worker 串行执行，
+# 不同数据源的任务跨 worker 并行（行为等价并发）。
+_WORKER_TASKS = os.environ.get("MY_APP_WORKER_TASKS", "")
+_worker_task_ids = {t.strip() for t in _WORKER_TASKS.split(",") if t.strip()} if _WORKER_TASKS else None
+
 _shutdown = False
 
 
@@ -58,56 +66,102 @@ def _request_shutdown(signum, _frame):
     logger.info(f"收到退出信号 ({signum})，当前任务完成后退出...")
 
 
-def _recover_stale_running():
-    """启动时把上次 Worker 异常退出残留的 running 记录标记为 failed。
+# 残留 running 回收阈值：started_at 距今超过该秒数才视为残留。
+# 多 worker 并发场景下，其他 worker 正在执行的任务也是 running 状态（可能长达
+# 11 分钟），无时间门槛会把在跑任务误标 failed；异常退出后的残留最多延迟一个
+# 阈值周期被回收，不会永久占用单飞名额。
+STALE_RUNNING_SECONDS = 2 * 3600
 
+
+def _recover_stale_running():
+    """启动时回收上次 Worker 异常退出残留的 running 记录。
+
+    仅回收 started_at 距今超过 STALE_RUNNING_SECONDS 的记录，避免误伤
+    并行 worker 正在执行的任务。
     残留 running 若不处理会永久占用任务的单飞名额，导致该任务再也无法投递。
-    同时补一条 task_execution_log 失败记录，保证执行历史完整可追溯。
+
+    防假阳性：回收前核对 task_execution_log——若该任务在「本次运行开始时间
+    (started_at) 之后」已有 success=1 的执行记录，说明任务实际已成功、只是
+    队列行未回写 finished（_finish 写库遇锁/超时失败，或进程在 run_task 返回与
+    _finish 之间被强杀）。此时仅把队列行置为 done，不再补写失败记录，避免
+    「成功却被记成失败」导致前端失败横幅多算；否则才按原逻辑标 failed 并补记录。
     """
     try:
+        stale_cutoff = (datetime.now() - timedelta(seconds=STALE_RUNNING_SECONDS)).isoformat()
+        recovered = []  # (task_id, trigger_type, started_at, marked_done)
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
             _ensure_queue_table(conn)
+            task_runner._ensure_task_log_table(conn)
             rows = conn.execute(
-                "SELECT id, task_id, trigger_type, started_at FROM task_queue WHERE status = 'running'"
+                "SELECT id, task_id, trigger_type, started_at FROM task_queue "
+                "WHERE status = 'running' AND started_at < ?",
+                (stale_cutoff,),
             ).fetchall()
-            if rows:
-                conn.execute(
-                    "UPDATE task_queue SET status = 'failed', finished_at = ?, "
-                    "error = 'Worker 进程中断，任务未完成（启动时自动回收）' WHERE status = 'running'",
-                    (datetime.now().isoformat(),),
-                )
+            now_iso = datetime.now().isoformat()
+            for qid, task_id, trigger_type, started_at in rows:
+                already_done = conn.execute(
+                    "SELECT 1 FROM task_execution_log "
+                    "WHERE task_id = ? AND success = 1 AND started_at >= ? LIMIT 1",
+                    (task_id, started_at),
+                ).fetchone()
+                if already_done:
+                    conn.execute(
+                        "UPDATE task_queue SET status = 'done', finished_at = ? WHERE id = ?",
+                        (now_iso, qid),
+                    )
+                    recovered.append((task_id, trigger_type, started_at, True))
+                else:
+                    conn.execute(
+                        "UPDATE task_queue SET status = 'failed', finished_at = ?, "
+                        "error = 'Worker 进程中断，任务未完成（启动时自动回收）' WHERE id = ?",
+                        (now_iso, qid),
+                    )
+                    recovered.append((task_id, trigger_type, started_at, False))
             conn.commit()
             conn.close()
-        for qid, task_id, trigger_type, started_at in rows:
-            task_runner._save_task_result({
-                "task_id": task_id,
-                "task_name": task_runner._task_registry.get(task_id, {}).get("name"),
-                "category": task_runner._task_registry.get(task_id, {}).get("category"),
-                "trigger": trigger_type or "scheduled",
-                "success": False,
-                "started_at": started_at,
-                "completed_at": datetime.now().isoformat(),
-                "elapsed_seconds": None,
-                "result": None,
-                "error": "Worker 进程中断，任务未完成（启动时自动回收）",
-                "error_trace": None,
-            })
-        if rows:
-            logger.warning(f"已回收 {len(rows)} 条上次 Worker 残留的 running 记录")
+        for task_id, trigger_type, started_at, marked_done in recovered:
+            if not marked_done:
+                task_runner._save_task_result({
+                    "task_id": task_id,
+                    "task_name": task_runner._task_registry.get(task_id, {}).get("name"),
+                    "category": task_runner._task_registry.get(task_id, {}).get("category"),
+                    "trigger": trigger_type or "scheduled",
+                    "success": False,
+                    "started_at": started_at,
+                    "completed_at": datetime.now().isoformat(),
+                    "elapsed_seconds": None,
+                    "result": None,
+                    "error": "Worker 进程中断，任务未完成（启动时自动回收）",
+                    "error_trace": None,
+                })
+        if recovered:
+            real_failed = [r for r in recovered if not r[3]]
+            logger.warning(
+                f"已回收 {len(recovered)} 条上次 Worker 残留的 running 记录"
+                + (f"（其中 {len(real_failed)} 条确为失败，{len(recovered) - len(real_failed)} 条实为成功已置 done）"
+                   if real_failed else "（均为成功执行，未补写失败记录）")
+            )
     except Exception as e:
         logger.warning(f"回收残留 running 记录失败: {e}")
 
 
 def _claim_next():
-    """原子认领一条 pending 记录：UPDATE+RETURNING 保证同一记录只会被一个执行者认领。"""
+    """原子认领一条 pending 记录：UPDATE+RETURNING 保证同一记录只会被一个执行者认领。
+    设置了 MY_APP_WORKER_TASKS 时仅认领清单内任务（多 worker 分流）。"""
     with get_raw_connection(str(DB_PATH), timeout=30) as conn:
         _ensure_queue_table(conn)
+        extra_where = ""
+        params = [datetime.now().isoformat()]
+        if _worker_task_ids:
+            marks = ",".join("?" for _ in _worker_task_ids)
+            extra_where = f" AND task_id IN ({marks})"
+            params.extend(sorted(_worker_task_ids))
         row = conn.execute(
-            """UPDATE task_queue
+            f"""UPDATE task_queue
                SET status = 'running', started_at = ?
-               WHERE id = (SELECT id FROM task_queue WHERE status = 'pending' ORDER BY id LIMIT 1)
+               WHERE id = (SELECT id FROM task_queue WHERE status = 'pending'{extra_where} ORDER BY id LIMIT 1)
                RETURNING id, task_id, trigger_type""",
-            (datetime.now().isoformat(),),
+            tuple(params),
         ).fetchone()
         conn.commit()
         conn.close()
@@ -162,8 +216,17 @@ def main():
     logger.info(f"Task Worker 已启动：注册 {n} 个任务，轮询间隔 {POLL_INTERVAL}s，db={DB_PATH}")
 
     executed = 0
+    last_recover_ts = time.time()
     try:
         while not _shutdown:
+            # 周期性回收滞留的 running/pending 队列记录（不只启动时），避免陈旧记录长期
+            # 滞留导致 running 状态卡死、手动触发被拒。每 300s 一次，开销极低。
+            if time.time() - last_recover_ts >= 300:
+                try:
+                    _recover_stale_running()
+                except Exception as e:
+                    logger.warning(f"周期性回收残留记录失败: {e}")
+                last_recover_ts = time.time()
             try:
                 row = _claim_next()
             except Exception as e:

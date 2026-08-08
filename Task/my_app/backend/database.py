@@ -188,8 +188,13 @@ def _resolve_pg_schema(db_path) -> str:
     例：app.db→app，eflow.sqlite3→eflow，lte_pl.sqlite3→lte_pl，
         lbr_ms_sla_kpi.sqlite3→ms_sla，battery_kpi.sqlite3→battery，
         ipran_ume_kpi.sqlite3→ipran_ume，fw_db.sqlite3→fw，ran_ume→ran_ume。
+    读写分离：data/ran_ume 目录下的读库（ran_kpi_daily.sqlite3 与写库
+    backend/services/ran_kpi_daily.sqlite3 同 stem）→ ran_ume_ro。
     """
-    stem = Path(db_path).stem.lower()
+    path = Path(db_path)
+    if any(part.lower() == "ran_ume" for part in path.parent.parts):
+        return "ran_ume_ro"
+    stem = path.stem.lower()
     mapping = {
         "app": "app",
         "eflow": "eflow",
@@ -206,9 +211,14 @@ def _resolve_pg_schema(db_path) -> str:
     return mapping.get(stem, stem)
 
 
-def _qmark_to_pyformat(sql):
+def _qmark_to_pyformat(sql, escape_pct=False):
     """sqlite 原生用 '?' 占位符；psycopg2 用 '%s'。PG 模式下把 '?' 转成 '%s'，
-    跳过字符串字面量（含 '' 转义），避免误转。"""
+    跳过字符串字面量（含 '' 转义），避免误转。
+
+    escape_pct=True（仅带参数路径）：把字面 '%' 转成 '%%'（psycopg2 的 % 转义），
+    否则列名含 %（如 "Packet Loss Rate(%)"）会被 psycopg2 当作格式化符报
+    IndexError/ValueError。无参数路径不转义（psycopg2 无参数时不格式化）。
+    """
     out = []
     i, n = 0, len(sql)
     while i < n:
@@ -226,6 +236,8 @@ def _qmark_to_pyformat(sql):
             continue
         if ch == "?":
             out.append("%s"); i += 1; continue
+        if escape_pct and ch == "%":
+            out.append("%%"); i += 1; continue
         out.append(ch); i += 1
     return "".join(out)
 
@@ -239,7 +251,7 @@ class _PsycopgRawCursor:
         self._cur = cur
 
     def execute(self, sql, params=None):
-        converted = _qmark_to_pyformat(sql)
+        converted = _qmark_to_pyformat(sql, escape_pct=bool(params))
         if not params:
             # 无参数时直接执行：psycopg2 传空元组仍会做 % 格式化，
             # 遇到列名含 %（如 "Packet Loss Rate(%)"）会误伤。
@@ -249,7 +261,7 @@ class _PsycopgRawCursor:
         return self
 
     def executemany(self, sql, seq_of_params):
-        self._cur.executemany(_qmark_to_pyformat(sql), seq_of_params or [])
+        self._cur.executemany(_qmark_to_pyformat(sql, escape_pct=True), seq_of_params or [])
         return self
 
     def fetchall(self):
@@ -297,27 +309,62 @@ class _PsycopgRaw:
     （with 上下文管理 / conn.execute(sql, params).fetchall() /
     conn.cursor().execute("?") / conn.cursor().executemany("?") / .description /
     .commit() / .rollback() / .close()），内部把 '?' 转成 '%s'
-    交给 psycopg2。search_path 设为全 schema，兼容跨库查询。
+    交给 psycopg2。search_path 默认全 schema（兼容跨库查询），
+    可经构造函数传入每连接独立的 search_path（解析出的目标 schema 置顶，
+    消除 ran_ume/ran_ume_ro 同名表歧义）。
 
     这样后端大量 sqlite 原生 '?' 写法 + 'with get_raw_connection() as conn'
     在 PG 模式零改动即可运行。
     """
     _SEARCH_PATH = "app,eflow,lte_pl,battery,ms_sla,fw,ipran_ume,ran_ume,ran_ume_ro,public"
 
-    def __init__(self, conn):
+    def __init__(self, conn, search_path=None):
         self._c = conn
         self._c.autocommit = True
         cur = self._c.cursor()
-        cur.execute(f"SET search_path TO {self._SEARCH_PATH}")
+        cur.execute(f"SET search_path TO {search_path or self._SEARCH_PATH}")
         self._c.commit()
 
     def execute(self, sql, params=None):
         cur = self._c.cursor()
-        converted = _qmark_to_pyformat(sql)
+        converted = _qmark_to_pyformat(sql, escape_pct=bool(params))
         if not params:
             cur.execute(converted)
         else:
             cur.execute(converted, params)
+        return _PsycopgRawCursor(cur)
+
+    def executemany(self, sql, seq_of_params):
+        """连接层批量执行：与 sqlite3.Connection.executemany 对齐（'?' → '%s'）。"""
+        cur = self._c.cursor()
+        cur.executemany(_qmark_to_pyformat(sql, escape_pct=True), seq_of_params or [])
+        return _PsycopgRawCursor(cur)
+
+    def executescript(self, sql_script):
+        """多语句 DDL 脚本执行：与 sqlite3.Connection.executescript 对齐。
+
+        PG 无参数多语句串可直接发送（libpq 依次执行）；autocommit 模式下
+        每条语句独立事务，与 sqlite 脚本语义一致。无参数路径不做 %% 转义
+        （psycopg2 无参数时不格式化，列名含 % 原样发给 PG）。
+
+        并发容错：两个执行者同时建表时，CREATE TABLE IF NOT EXISTS 存在
+        TOCTOU 竞态（PG 已知限制），会报 duplicate_table/duplicate_column。
+        捕获该类错误回滚后整体重试一次（已建成的表被 IF NOT EXISTS 跳过），
+        使幂等建表脚本在并发下也能成功。
+        """
+        converted = _qmark_to_pyformat(sql_script)
+        cur = self._c.cursor()
+        try:
+            cur.execute(converted)
+        except Exception as e:  # noqa: BLE001
+            pgcode = getattr(getattr(e, "diag", None), "sqlstate", "") or ""
+            if pgcode not in ("42P07", "42701", "42P06"):  # duplicate_table/column/schema
+                raise
+            try:
+                self._c.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            cur.execute(converted)
         return _PsycopgRawCursor(cur)
 
     def cursor(self):
@@ -352,7 +399,12 @@ class _PsycopgRaw:
 
 
 def _pg_raw_connection(db_path, logical_name=None, timeout=30):
-    """PG 模式：返回 _PsycopgRaw 包装连接（search_path=全 schema）。
+    """PG 模式：返回 _PsycopgRaw 包装连接。
+
+    search_path = 目标 schema 置顶 + 全局列表其余项（去重保序）：
+    目标 schema 由 logical_name 显式指定（优先）或 _resolve_pg_schema(db_path)
+    按路径推断。这样读 data/ran_ume 命中 ran_ume_ro、写 ran_ume 命中 ran_ume，
+    同名表不再歧义；跨 schema 限定名查询仍可用（其余 schema 仍在路径中）。
 
     鉴权库（credential_store）硬排除（R8）：绝不走 PG。
     """
@@ -361,8 +413,11 @@ def _pg_raw_connection(db_path, logical_name=None, timeout=30):
         raise RuntimeError(f"鉴权库 {db_path} 硬排除，禁止走 PG (R8)")
     if not PG_DATABASE_URL:
         raise RuntimeError("DB_MODE=pg 但 DATABASE_URL 未设置")
+    target_schema = logical_name if logical_name else _resolve_pg_schema(db_path)
+    rest = [s for s in _PsycopgRaw._SEARCH_PATH.split(",") if s != target_schema]
+    search_path = ",".join([target_schema] + rest)
     conn = psycopg2.connect(PG_DATABASE_URL, connect_timeout=int(timeout))
-    return _PsycopgRaw(conn)
+    return _PsycopgRaw(conn, search_path=search_path)
 
 
 def list_tables():
