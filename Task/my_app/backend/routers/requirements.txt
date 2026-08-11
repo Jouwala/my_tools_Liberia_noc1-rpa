@@ -1,5 +1,0 @@
-# gis_geometry.py 依赖清单（P2#8 拆分自 gis.py 的几何计算模块）
-# 版本以项目根目录 requirements.lock.txt 为准
-numpy
-scipy
-shapely

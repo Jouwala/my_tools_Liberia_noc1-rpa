@@ -224,6 +224,13 @@ TASK_SPECS = [
          description_en="Sync Packet Loss Rate (SDR/IPRAN IPPD) from RAN UME into lte_pl.sqlite3 and generate the report; only the last 7 complete calendar days are shown (unfinished current day excluded)",
          default_cron="30 6 * * *", category="packet_loss"),
 
+    # 22b. Packet Loss 丢包看板日报邮件（每天 06:45，依赖 06:30 同步生成的报告）
+    dict(task_id="packet_loss_email", name="Packet Loss 丢包日报邮件", name_en="Packet Loss Daily Report Email",
+         loader=("backend.services.kpi_email_report", "run_packet_loss_email"),
+         description="发送 Packet Loss 丢包看板日报邮件（本地截图 + 最新报告 xlsx + 远程收件人清单），经 OWA 账户发送",
+         description_en="Send Packet Loss dashboard daily email (local screenshot + latest report xlsx + remote recipient list) via OWA",
+         default_cron="45 6 * * *", category="packet_loss"),
+
     # 23. IP RAN M6K-FW Chart Email - 3组 ME+SmartGroup 折线图，每天 6:45
     dict(task_id="ipran_m6k_chart_email", name="IP RAN M6K-FW 图表邮件", name_en="IP RAN M6K-FW Chart Email",
          loader=("backend.services.ipran_chart_service", "run_ipran_m6k_chart_email"),
@@ -271,6 +278,13 @@ TASK_SPECS = [
          description="每小时整点从远程 FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ 所有子目录取最新 incident_overview.xlsx，原子替换本地 data/incident_overview/incident_overview.xlsx",
          description_en="Hourly on-the-hour: pull the latest incident_overview.xlsx from remote FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ across all subfolders, atomically replace local data file",
          default_cron="0 * * * *", category="incident_overview"),
+
+    # 29. 失败任务自动重试（每 10 分钟扫描，仅重试仍处于任务调度周期时效窗口内的失败）
+    dict(task_id="auto_retry_failed", name="失败任务自动重试", name_en="Failed Task Auto Retry",
+         loader=("backend.services.auto_retry", "run_auto_retry_task"),
+         description="每 10 分钟扫描失败任务；若仍处于其调度周期的时效窗口内（未到下一个调度触发时刻）且未超过重试次数上限，自动重新投递执行（邮件任务由 EWS 补发机制负责，默认排除）",
+         description_en="Scan failed tasks every 10 minutes; re-run those still within their schedule-cycle window (before next fire time) and under the retry budget (email tasks are handled by EWS recovery and excluded)",
+         default_cron="*/10 * * * *", category="general"),
 ]
 
 

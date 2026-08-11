@@ -52,6 +52,22 @@ import warnings
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
+
+def _read_text_retry(path: Path, max_attempts: int = 5) -> str:
+    """读取 UTF-8 文本，遇 Windows 文件锁（Defender/索引/WPS 云同步，见 fix_file_lock.ps1）
+    导致的 PermissionError 时按 0.4/0.8/1.2/1.6s 退避重试，吸收瞬时外锁。"""
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return Path(path).read_text(encoding="utf-8")
+        except PermissionError as e:
+            last_err = e
+            if attempt < max_attempts:
+                time.sleep(0.4 * attempt)
+                continue
+    raise last_err  # type: ignore[misc]
+
+
 # ---- 强制 stdout/stderr 使用 UTF-8（兼容 IDLE/PyCharm 等无 reconfigure/buffer 的环境）----
 try:
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
@@ -165,8 +181,23 @@ def find_latest_excel(dir_path: Path, name_filter: Optional[str] = None) -> Opti
     return candidates[0]
 
 
+def _image_base_key(name: str) -> str:
+    """同一图表可能因下载撞锁同时存在「固定名」与「时间戳_随机名」多份，
+    归并到同一 key，供 find_images 去重（只取最新一份）。"""
+    import re
+    # 先去掉扩展名再匹配，避免 _<hex> 后面跟 .png 导致正则不命中
+    stem = re.sub(r"\.(png|jpe?g)$", "", name, flags=re.IGNORECASE)
+    key = re.sub(r"_\d{8}_\d{6}(_[0-9a-fA-F]{4,12})?$", "", stem)
+    key = re.sub(r"_[0-9a-fA-F]{6,12}$", "", key)
+    return key
+
+
 def find_images(dir_path: Path, name_filter: Optional[str] = None) -> List[Path]:
-    """在目录中查找图片（png/jpg/jpeg），可按文件名子串筛选。"""
+    """在目录中查找图片（png/jpg/jpeg），可按文件名子串筛选。
+
+    去重：同一图表（如 Availability-COOL）可能同时存在固定名与若干时间戳/随机名
+    副本（下载撞锁走 fallback 时），只保留每个图表最新的一份，避免邮件重复内嵌。
+    """
     if not dir_path.is_dir():
         return []
     found: List[Path] = []
@@ -178,7 +209,14 @@ def find_images(dir_path: Path, name_filter: Optional[str] = None) -> List[Path]
                 continue
             found.append(f)
     found.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return found
+    seen: set = set()
+    deduped: List[Path] = []
+    for f in found:
+        key = _image_base_key(f.name)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(f)
+    return deduped
 
 
 def _make_cid(path: Path) -> str:
@@ -493,7 +531,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         # 正文：用户自定义优先；否则用默认 HTML 模板（含占位符）
         if args.body_file:
-            body = Path(args.body_file).read_text(encoding="utf-8")
+            body = _read_text_retry(Path(args.body_file))
         elif args.body is not None:
             body = args.body
         else:

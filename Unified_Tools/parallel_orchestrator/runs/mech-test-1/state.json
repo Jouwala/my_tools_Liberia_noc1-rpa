@@ -1,0 +1,25 @@
+{
+  "run_id": "mech-test-1",
+  "created": "2026-08-07T18:09:30",
+  "source": "d:\\01_RPA\\TMP\\test_mech_tasks.json",
+  "tasks": {
+    "test-codex-path": {
+      "executor": "codex",
+      "cwd": "D:\\01_RPA\\TMP",
+      "pid": 34476,
+      "started": 1786126171.3659363,
+      "prompt_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\mech-test-1\\test-codex-path.prompt.md",
+      "out_log": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\mech-test-1\\test-codex-path.out.log",
+      "rc_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\mech-test-1\\test-codex-path.rc"
+    },
+    "test-qoder-path": {
+      "executor": "qoder",
+      "cwd": "D:\\01_RPA\\TMP",
+      "pid": 4192,
+      "started": 1786126171.7122357,
+      "prompt_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\mech-test-1\\test-qoder-path.prompt.md",
+      "out_log": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\mech-test-1\\test-qoder-path.out.log",
+      "rc_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\mech-test-1\\test-qoder-path.rc"
+    }
+  }
+}

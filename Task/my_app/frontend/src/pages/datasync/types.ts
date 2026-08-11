@@ -3,6 +3,8 @@
 export interface TaskInfo {
   task_id: string
   name: string
+  name_zh?: string
+  name_en?: string
   description: string
   category: string
   enabled: boolean

@@ -21,3 +21,4 @@ class TaskQueue(Base):
     finished_at = Column(Text)
     result_json = Column(Text)
     error = Column(Text)
+    worker_pid = Column(Integer)  # 认领并执行该队列记录的 Worker 进程 PID（停止执行功能用）

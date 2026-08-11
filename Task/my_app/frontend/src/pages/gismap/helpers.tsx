@@ -79,7 +79,7 @@ export const fmtTs = (v: any): string => {
 export const isTsCol = (col: string): boolean => col.endsWith('time') || col === 'duration'
 
 // 动态构建告警列：展示下钻接口返回的全部列（后端现已 SELECT *）
-export const buildAlarmColumns = (rows: any[]) => {
+export const buildAlarmColumns = (t: TFn, rows: any[]) => {
   if (!rows || rows.length === 0) return []
   const keys = Object.keys(rows[0])
   return keys.map(k => {
@@ -103,8 +103,8 @@ export const buildAlarmColumns = (rows: any[]) => {
       render: (v: any) => {
         if (isSev) {
           const map: Record<number, { label: string; color: string }> = {
-            1: { label: 'Critical', color: 'red' }, 2: { label: 'Major', color: 'orange' },
-            3: { label: 'Warning', color: 'gold' }, 4: { label: 'Info', color: 'blue' },
+            1: { label: t('gis.sev.critical'), color: 'red' }, 2: { label: t('gis.sev.major'), color: 'orange' },
+            3: { label: t('gis.sev.warning'), color: 'gold' }, 4: { label: t('gis.sev.info'), color: 'blue' },
           }
           const item = map[v] || { label: `P${v}`, color: 'default' }
           return <Tag color={item.color}>{item.label}</Tag>

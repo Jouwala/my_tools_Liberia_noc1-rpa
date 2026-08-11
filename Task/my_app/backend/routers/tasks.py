@@ -89,6 +89,12 @@ def run_task_now(task_id: str):
     return task_runner.run_task_async(task_id, trigger="manual")
 
 
+@router.post("/api/tasks/{task_id}/stop", dependencies=[Depends(require_protected)])
+def stop_task_now(task_id: str):
+    """停止正在执行的任务（终止 Worker 进程，看门狗会自动重新拉起）"""
+    return task_runner.stop_task(task_id)
+
+
 @router.get("/api/tasks/{task_id}/status")
 def task_run_status(task_id: str):
     """查询任务是否正在运行"""

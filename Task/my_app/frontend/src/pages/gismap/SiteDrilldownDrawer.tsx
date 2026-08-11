@@ -46,8 +46,8 @@ export function SiteDrilldownDrawer({ open, onClose, loading, drilldown, selecte
 
   const ttColumns = useMemo(() => buildTTColumns(t, drilldown?.tt_list || []), [drilldown?.tt_list, t])
   const woColumns = useMemo(() => buildWOColumns(t, drilldown?.wo_list || []), [drilldown?.wo_list, t])
-  const rtAlarmColumns = useMemo(() => buildAlarmColumns(drilldown?.rt_alarm_list || []), [drilldown?.rt_alarm_list])
-  const hisAlarmColumns = useMemo(() => buildAlarmColumns(drilldown?.his_alarm_list || []), [drilldown?.his_alarm_list])
+  const rtAlarmColumns = useMemo(() => buildAlarmColumns(t, drilldown?.rt_alarm_list || []), [drilldown?.rt_alarm_list, t])
+  const hisAlarmColumns = useMemo(() => buildAlarmColumns(t, drilldown?.his_alarm_list || []), [drilldown?.his_alarm_list, t])
 
   return (
     <Drawer

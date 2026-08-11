@@ -1,0 +1,67 @@
+{
+  "name": "my_app Phase 3 验证门（py_compile + 方言残留扫描）",
+  "root": "D:\\01_RPA\\Task\\my_app\\backend",
+  "files": [
+    "database.py",
+    "main.py",
+    "import_topology.py",
+    "scripts/init_db.py",
+    "routers/gis.py",
+    "routers/analysis.py",
+    "routers/alarm_dashboard.py",
+    "routers/packet_loss_dashboard.py",
+    "routers/tt_wo_dashboard.py",
+    "routers/tables.py",
+    "routers/system.py",
+    "routers/battery_dashboard.py",
+    "routers/upload.py",
+    "services/eflow_data_mapper.py",
+    "services/eflow_alarm_service.py",
+    "services/get_sp_table.py",
+    "services/ms_sla_report.py",
+    "services/ran_ume_service.py",
+    "services/ran_ume_main_kpi.py",
+    "services/ipran_ume_kpi_service.py",
+    "services/ran_ume_network_kpi.py",
+    "services/ms_sla_sync.py",
+    "services/sp_dashboard.py",
+    "services/packet_loss_service.py",
+    "services/task_runner.py",
+    "services/task_stats.py",
+    "services/sync_from_eflow_api.py",
+    "services/battary_kpi_fetch/battery_kpi_service.py",
+    "services/fw_kpi/fw_kpi_services.py"
+  ],
+  "patterns": [
+    {
+      "regex": "(?i)FROM\\s+sqlite_master|sqlite_master\\s+WHERE",
+      "desc": "裸 sqlite_master 查询（应走 dialect_helpers.list_table_names）",
+      "mode": "fail"
+    },
+    {
+      "regex": "(?i)INSERT\\s+OR\\s+(REPLACE|IGNORE)",
+      "desc": "sqlite 专属 upsert 语法（确认已在 DB_MODE/sqlite 守卫分支内，否则改 ON CONFLICT）",
+      "mode": "warn"
+    },
+    {
+      "regex": "(?<![.\\w])rowid(?!\\w)",
+      "desc": "sqlite 隐式 rowid（确认已有 pg 分支如 ctid，否则改真实主键）",
+      "mode": "warn"
+    },
+    {
+      "regex": "\\.lastrowid\\b",
+      "desc": "lastrowid 在 psycopg2 下不可靠（pg 需 RETURNING）",
+      "mode": "warn"
+    },
+    {
+      "regex": "\\.to_sql\\(",
+      "desc": "pandas to_sql（确认 conn 为 SQLAlchemy connectable 或已走 dialect_helpers.write_df）",
+      "mode": "warn"
+    },
+    {
+      "regex": "AUTOINCREMENT",
+      "desc": "sqlite DDL（确认已在 DB_MODE 分支或 PG 用 IDENTITY 等价）",
+      "mode": "warn"
+    }
+  ]
+}

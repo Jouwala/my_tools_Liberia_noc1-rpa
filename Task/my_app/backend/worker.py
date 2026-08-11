@@ -151,14 +151,14 @@ def _claim_next():
     with get_raw_connection(str(DB_PATH), timeout=30) as conn:
         _ensure_queue_table(conn)
         extra_where = ""
-        params = [datetime.now().isoformat()]
+        params = [datetime.now().isoformat(), os.getpid()]
         if _worker_task_ids:
             marks = ",".join("?" for _ in _worker_task_ids)
             extra_where = f" AND task_id IN ({marks})"
             params.extend(sorted(_worker_task_ids))
         row = conn.execute(
             f"""UPDATE task_queue
-               SET status = 'running', started_at = ?
+               SET status = 'running', started_at = ?, worker_pid = ?
                WHERE id = (SELECT id FROM task_queue WHERE status = 'pending'{extra_where} ORDER BY id LIMIT 1)
                RETURNING id, task_id, trigger_type""",
             tuple(params),
@@ -172,6 +172,16 @@ def _finish(queue_id: int, success: bool, result, error: str | None):
     """回写队列记录终态，并按保留期清理历史（与执行日志同保留期）"""
     try:
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            # 若该队列记录已被用户停止（cancelled），不再覆盖为 done/failed，
+            # 保留停止状态——避免「已停止却被回写为成功」的歧义（STOPPED_BY_USER
+            # 执行日志已由停止逻辑写入）。否则会出现「停止日志 + 成功日志」并存。
+            _cur = conn.execute(
+                "SELECT status FROM task_queue WHERE id = ?", (queue_id,)
+            ).fetchone()
+            if _cur and _cur[0] == "cancelled":
+                logger.info(f"队列记录 queue_id={queue_id} 已被用户停止(cancelled)，跳过回写终态")
+                conn.close()
+                return
             conn.execute(
                 "UPDATE task_queue SET status = ?, finished_at = ?, result_json = ?, error = ? WHERE id = ?",
                 ("done" if success else "failed", datetime.now().isoformat(),
@@ -186,7 +196,7 @@ def _finish(queue_id: int, success: bool, result, error: str | None):
             from datetime import timedelta
             _cutoff = (datetime.now() - timedelta(days=_retention_days)).isoformat()
             conn.execute(
-                "DELETE FROM task_queue WHERE status IN ('done', 'failed') "
+                "DELETE FROM task_queue WHERE status IN ('done', 'failed', 'cancelled') "
                 "AND created_at < ?",
                 (_cutoff,),
             )

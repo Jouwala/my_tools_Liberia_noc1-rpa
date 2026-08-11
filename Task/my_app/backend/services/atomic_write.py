@@ -27,6 +27,84 @@ logger = logging.getLogger("atomic_write")
 
 _RETRYABLE = (PermissionError, OSError)
 
+# Restart Manager 锁主探测脚本（纯 C# P/Invoke，避免 ctypes 在同一进程内崩溃）
+_LOCK_OWNER_PS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rm_lock_owner.ps1")
+
+
+def _win_replace_file(tmp, final):
+    """用 Win32 ReplaceFileW 做替换，作为 os.replace 之外的备选策略。
+
+    ReplaceFileW 在某些共享锁场景（目标以「共享读+写」打开、但不共享删除）下
+    比 os.replace(=MoveFileEx MOVEFILE_REPLACE_EXISTING) 更容易成功。
+    失败直接返回 False，由调用方继续其它策略。
+    """
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.ReplaceFileW.argtypes = [
+            ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p,
+            ctypes.c_ulong, ctypes.c_void_p, ctypes.c_void_p,
+        ]
+        k32.ReplaceFileW.restype = ctypes.c_int
+        res = k32.ReplaceFileW(
+            ctypes.c_wchar_p(str(final)),
+            ctypes.c_wchar_p(str(tmp)),
+            None, 0, None, None,
+        )
+        if res:
+            return True
+        logger.debug("ReplaceFileW 失败 err=%s: %s", ctypes.GetLastError(), final)
+        return False
+    except Exception as e:
+        logger.debug("ReplaceFileW 异常: %s", e)
+        return False
+
+
+def _wait_lock_free(final, budget):
+    """轮询 final 是否可被本进程以读写打开；一旦可写(锁释放)立即返回 True。
+
+    用「短轮询」替代固定 2 秒盲等：Defender / 缩略图 / 索引这类瞬时锁通常
+    在 1~2 秒内释放，短轮询能让任务在锁释放瞬间就穿过去，避免白白卡 ~90 秒。
+    """
+    deadline = time.time() + budget
+    while time.time() < deadline:
+        try:
+            if not os.path.exists(str(final)):
+                return True  # 目标不存在，replace 不会撞锁
+            fd = os.open(str(final), os.O_RDWR)
+            os.close(fd)
+            return True
+        except (PermissionError, OSError):
+            time.sleep(0.25)
+        except FileNotFoundError:
+            return True
+    return False
+
+
+def _log_lock_owner(final):
+    """用 Restart Manager 抓取真实锁主(进程名|pid)并记录到日志；只读、不修改文件。
+
+    失败静默（不影响主流程）。仅在真正被锁时调用，开销可控（每次锁最多 1~2 次 PS 调用）。
+    """
+    try:
+        import subprocess
+        if not os.path.exists(_LOCK_OWNER_PS):
+            return
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", _LOCK_OWNER_PS, str(final)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+        lines = [l.strip() for l in (out.stdout or "").splitlines() if l.strip()]
+        if lines and lines != ["NO_OWNER"]:
+            procs = ", ".join(lines)
+            logger.warning("  [lock-owner] 目标被进程独占: %s | 持有者: %s", final, procs)
+        else:
+            logger.info("  [lock-owner] 此刻无外部锁主(瞬时竞态已释放): %s", final)
+    except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _log_lock_owner: exception swallowed", exc_info=True)
+        pass
+
 
 def _temporary_path(final):
     """Return a per-write temporary filename in the target directory.
@@ -128,12 +206,16 @@ def _fallback_save(tmp, final):
 def _atomic_replace(tmp, final, max_retries, base_wait):
     """把 tmp 原子替换到 final，重试扛文件锁。
 
-    间歇性锁场景（如云同步/杀软/索引服务周期扫描 xlsx）下，固定间隔重试
-    比指数退避更稳：无论锁何时释放，长窗口内总能穿过。
-    对 WinError 5/13 这类独占锁，每几次额外尝试「先删旧文件再 rename」兜底。
+    改进点（2026-08-10）：
+      - 每次 os.replace 失败后再试一次 Win32 ReplaceFileW（更易穿透共享锁）
+      - 重试间隙用 _wait_lock_free 短轮询，锁一释放立刻重试，不再固定盲等 2 秒
+      - 首次遭遇锁即用 Restart Manager 抓出真实锁主(进程名|pid)写进日志，
+        后续排查不再靠猜
+    间歇性锁场景（云同步/杀软/索引服务周期扫描）下，长窗口内总能穿过；
     重试耗尽后走 fallback 备用路径，确保数据不丢失。
     """
     last_err = None
+    owner_logged = False
     for attempt in range(max_retries + 1):
         # 策略 A：原子替换（最干净）
         try:
@@ -141,24 +223,21 @@ def _atomic_replace(tmp, final, max_retries, base_wait):
             return True
         except _RETRYABLE as e:
             last_err = e
-            # 策略 B：独占锁导致 replace 失败时，尝试删旧文件再 rename
-            if attempt > 0 and attempt % 4 == 0:
-                try:
-                    if os.path.exists(str(final)):
-                        os.remove(str(final))
-                    os.rename(str(tmp), str(final))
-                    return True
-                except _RETRYABLE as e2:
-                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] _atomic_replace: exception swallowed", exc_info=True)
-                    last_err = e2
+            # 策略 A2：Win32 ReplaceFileW 备选（更易穿透共享锁）
+            if _win_replace_file(str(tmp), str(final)):
+                return True
+            # 首次被锁即抓锁主，便于排查
+            if not owner_logged:
+                _log_lock_owner(final)
+                owner_logged = True
             if attempt < max_retries:
-                time.sleep(base_wait)
-                if attempt % 10 == 9:  # 每 10 次输出一次诊断，避免刷屏
+                # 短轮询等待锁释放（最多 base_wait 秒），避免固定盲等
+                _wait_lock_free(final, base_wait)
+                if attempt % 10 == 9:  # 每 10 次输出一次进度，避免刷屏
                     logger.warning(
                         "原子替换被拒(文件被占用?)，已重试 %d/%d 次: %s",
                         attempt + 1, max_retries, final,
                     )
-                    _diagnose_lock(final)
             else:
                 break
 
@@ -178,6 +257,7 @@ def _atomic_replace(tmp, final, max_retries, base_wait):
     # 重试耗尽：诊断 + fallback
     logger.error("原子替换 %d 次重试全部失败: %s -> %s: %s", max_retries + 1, tmp, final, last_err)
     _diagnose_lock(final)
+    _log_lock_owner(final)
     fallback_path = _fallback_save(tmp, final)
     if fallback_path:
         # 数据已保全，抛出自定义异常让上层知道走了 fallback

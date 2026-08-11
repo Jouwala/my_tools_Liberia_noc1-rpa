@@ -3,7 +3,7 @@ import { Card, Row, Col, Select, Spin, Button, Input, message, Tag, Space, Toolt
 import { FilterOutlined, FilterFilled } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
-import { useI18n } from '../i18n'
+import { useI18n, numLocale } from '../i18n'
 import { ExplainIcon } from '../components/MetricExplain'
 import { useDataTimestamps } from '../useDataTimestamps'
 import { WH, WH_COLORS, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
@@ -29,7 +29,7 @@ export default function Dashboard() {
   const [linkedFilter, setLinkedFilter] = useState<{ column: string; value: string } | null>(null)
   const [linkedEnabled, setLinkedEnabled] = useState(true)
   const chartRefs = useRef<any[]>([])
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { lastSync, latestData, isSynced } = useDataTimestamps()
 
   useEffect(() => {
@@ -291,7 +291,7 @@ export default function Dashboard() {
               onChange={setSelectedTable}
               style={{ width: 300 }}
               showSearch
-              options={tables.map(tbl => ({ value: tbl.name, label: `${tbl.name} (${tbl.row_count.toLocaleString()} ${t('common.rows')})` }))}
+              options={tables.map(tbl => ({ value: tbl.name, label: `${tbl.name} (${tbl.row_count.toLocaleString(numLocale(locale))} ${t('common.rows')})` }))}
             />
             <Input
               value={analysisName}

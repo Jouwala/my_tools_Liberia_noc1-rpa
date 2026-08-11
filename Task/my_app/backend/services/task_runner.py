@@ -9,6 +9,8 @@ import threading
 import sqlite3
 import json
 import os
+import signal
+import subprocess
 import traceback
 import ast
 import inspect
@@ -48,6 +50,13 @@ try:
 except Exception:  # noqa: BLE001
     def notify_task_failure(task_id, task_name, error, traceback_text=None):  # type: ignore
         logger.warning(f"weixin_notifier 不可用，跳过失败通知 ({task_id})")
+
+# 任务失败 126 邮箱通知（xin83min@126.com）。导入失败则降级为 no-op，不影响任务调度。
+try:
+    from .email_notifier import notify_task_failure_email
+except Exception:  # noqa: BLE001
+    def notify_task_failure_email(task_id, task_name, error, traceback_text=None, receiver=None):  # type: ignore
+        logger.warning(f"email_notifier 不可用，跳过失败邮件通知 ({task_id})")
 
 # 路径配置
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -97,7 +106,8 @@ def _ensure_queue_table(conn):
                 started_at TEXT,
                 finished_at TEXT,
                 result_json TEXT,
-                error TEXT
+                error TEXT,
+                worker_pid INTEGER
             )
         """)
     else:
@@ -112,9 +122,17 @@ def _ensure_queue_table(conn):
                 started_at TEXT,
                 finished_at TEXT,
                 result_json TEXT,
-                error TEXT
+                error TEXT,
+                worker_pid INTEGER
             )
         """)
+    # 幂等迁移：旧库可能没有 worker_pid 列（停止执行功能用它定位执行该任务的 Worker 进程）
+    try:
+        _cols = table_columns(conn, "task_queue")
+        if "worker_pid" not in _cols:
+            conn.execute("ALTER TABLE task_queue ADD COLUMN worker_pid INTEGER")
+    except Exception as _e:  # noqa: BLE001
+        logger.warning(f"task_queue 迁移 worker_pid 列失败（可忽略）: {_e}")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_task_queue_status ON task_queue(status)")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_task_queue_task_id ON task_queue(task_id)")
 
@@ -288,6 +306,9 @@ def register_task(
     current_cron = saved_cron if saved_cron else default_cron
     final_enabled = saved_enabled if saved_enabled is not None else enabled
 
+    # 调用链在注册期一次性烘焙：中/英两份同源同长，请求期按 Accept-Language 取用
+    _chain_raw = call_chain if call_chain is not None else _auto_call_chain(func)
+
     _task_registry[task_id] = {
         "task_id": task_id,
         "name": name,
@@ -300,7 +321,8 @@ def register_task(
         "category": category,
         "enabled": final_enabled,
         "registered_at": datetime.now().isoformat(),
-        "call_chain": _annotate_call_chain(call_chain, task_id) if call_chain is not None else _annotate_call_chain(_auto_call_chain(func), task_id),
+        "call_chain": _annotate_call_chain(_chain_raw, task_id),
+        "call_chain_en": _annotate_call_chain(_chain_raw, task_id, lang="en"),
     }
     logger.info(f"任务已注册: {task_id} ({name}), cron={current_cron}")
 
@@ -310,6 +332,13 @@ def _localize(task: dict, lang: str) -> tuple:
     if lang == "en":
         return task.get("name_en") or task.get("name"), task.get("description_en") or task.get("description")
     return task.get("name"), task.get("description")
+
+
+def _localized_chain(task: dict, lang: str) -> list:
+    """按语言返回调用链（含资源标注）；EN 缺失时回退中文，绝不返回 None。"""
+    if lang == "en":
+        return task.get("call_chain_en") or task.get("call_chain") or []
+    return task.get("call_chain") or []
 
 
 def unregister_task(task_id: str):
@@ -421,6 +450,17 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[{task_id}] 微信失败通知异常: {e}")
 
+        # 任务失败时发送 126 邮箱告警邮件给 xin83min@126.com。
+        # 通知失败不影响任务结果记录。
+        try:
+            notify_task_failure_email(
+                task_id, task["name"],
+                result.get("error") or "未知错误",
+                result.get("error_trace"),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[{task_id}] 邮箱失败通知异常: {e}")
+
     logger.info("任务执行完成", extra={"task_id": task_id, "event": "task_done", "success": result["success"], "elapsed": round(elapsed, 2)})
     return result
 
@@ -507,6 +547,169 @@ def get_active_runs() -> dict:
         return dict(_active_runs)
 
 
+
+
+def _is_known_worker_pid(pid: int) -> bool:
+    """检查 pid 是否属于本系统某个运行中的 Worker 进程（防止 PID 复用误伤其它进程）。
+
+    Worker PID 由 worker.py / worker_watchdog.py 写入 backend/worker*.pid。
+    """
+    try:
+        backend_dir = Path(__file__).resolve().parent.parent
+        known = set()
+        for f in backend_dir.glob("worker*.pid"):
+            if f.name == "worker_watchdog.pid":
+                continue
+            try:
+                txt = f.read_text(encoding="utf-8").strip()
+                if txt.isdigit():
+                    known.add(int(txt))
+            except Exception:
+                continue
+        return pid in known
+    except Exception:
+        return False
+
+
+def _kill_worker_process(worker_pid) -> bool:
+    """终止执行任务的 Worker 进程（含其子树：Playwright / Chromium 等子进程）。
+
+    仅当 worker_pid 确属本系统某个运行中的 Worker 时才强杀，避免 PID 复用误伤。
+    返回是否真正发起/完成强杀。
+    """
+    if not worker_pid:
+        return False
+    try:
+        worker_pid = int(worker_pid)
+    except (TypeError, ValueError):
+        return False
+    if not _is_known_worker_pid(worker_pid):
+        logger.warning(f"worker_pid={worker_pid} 不在已知 Worker PID 列表，跳过强杀（可能已被回收或 PID 复用）")
+        return False
+    try:
+        if os.name == "nt":
+            res = subprocess.run(
+                ["taskkill", "/PID", str(worker_pid), "/T", "/F"],
+                capture_output=True, text=True, timeout=15,
+            )
+            killed = res.returncode == 0
+        else:
+            os.kill(worker_pid, signal.SIGKILL)
+            killed = True
+        logger.info(f"已终止 Worker 进程 pid={worker_pid} (killed={killed})")
+        return killed
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"终止 Worker 进程 pid={worker_pid} 失败: {e}")
+        return False
+
+
+def _resolve_group_worker_pid(task_id: str):
+    """按任务所属分组反查当前 Worker PID（兜底：队列 worker_pid 为空时使用）。
+
+    分组定义见 backend.worker_watchdog.GROUP_TASK_MAP；每个分组 worker 的 PID
+    写入 backend/worker_{group}.pid。返回 int PID 或 None。
+    """
+    try:
+        from backend.worker_watchdog import GROUP_TASK_MAP
+        group = None
+        for g, tasks in GROUP_TASK_MAP.items():
+            if task_id in {t.strip() for t in tasks.split(",") if t.strip()}:
+                group = g
+                break
+        if not group:
+            return None
+        pid_file = Path(__file__).resolve().parent.parent / f"worker_{group}.pid"
+        if not pid_file.exists():
+            return None
+        txt = pid_file.read_text(encoding="utf-8").strip()
+        if not txt.isdigit():
+            return None
+        pid = int(txt)
+        # 仅当该 PID 确属本系统某个运行中的 Worker 时才返回（防止 PID 复用误伤）
+        return pid if _is_known_worker_pid(pid) else None
+    except Exception:
+        return None
+
+
+def stop_task(task_id: str) -> dict:
+    """停止正在执行的任务（队列模式）。
+
+    队列模式下任务在独立 Worker 进程串行执行，Web 进程无内存句柄，故停止 =
+    标记队列记录为 cancelled + 终止执行该任务的 Worker 进程（worker_watchdog
+    会在数秒内自动重新拉起该 Worker，pending 任务不丢失）。
+
+    非队列模式（进程内线程）无法安全杀线程，直接返回不支持。
+    """
+    if not QUEUE_ENABLED:
+        return {"success": False, "stopped": False,
+                "error": "非队列模式不支持停止运行中的任务（请启用 MY_APP_TASK_QUEUE=1）"}
+    try:
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_queue_table(conn)
+            row = conn.execute(
+                "SELECT id, status, worker_pid, started_at FROM task_queue "
+                "WHERE task_id = ? AND status IN ('pending', 'running') "
+                "ORDER BY id DESC LIMIT 1",
+                (task_id,),
+            ).fetchone()
+            if not row:
+                conn.close()
+                return {"success": True, "stopped": False,
+                        "message": "任务未处于运行/排队状态，无需停止"}
+            queue_id, status, worker_pid, started_at = row[0], row[1], row[2], row[3]
+            now_iso = datetime.now().isoformat()
+
+            if status == "pending":
+                # 尚未被 Worker 认领：直接取消排队，无需杀进程
+                conn.execute(
+                    "UPDATE task_queue SET status = 'cancelled', finished_at = ?, "
+                    "error = '用户手动取消排队' WHERE id = ?",
+                    (now_iso, queue_id),
+                )
+                conn.commit()
+                conn.close()
+                logger.info(f"[{task_id}] 已取消排队中的任务 (queue_id={queue_id})")
+                return {"success": True, "stopped": True, "message": "已取消排队中的任务"}
+
+            # status == 'running'：终止执行该任务的 Worker 进程
+            killed = _kill_worker_process(worker_pid)
+            if not killed and not worker_pid:
+                # 兜底：队列未记录可用 worker_pid（过渡期老 worker / 异常），
+                # 按任务所属分组反查当前 Worker 进程并强杀（worker_watchdog 会重拉）。
+                grp_pid = _resolve_group_worker_pid(task_id)
+                if grp_pid:
+                    killed = _kill_worker_process(grp_pid)
+            conn.execute(
+                "UPDATE task_queue SET status = 'cancelled', finished_at = ?, "
+                "error = '用户手动停止执行' WHERE id = ?",
+                (now_iso, queue_id),
+            )
+            conn.commit()
+            conn.close()
+
+            # Worker 被强杀无法回写执行日志，此处补写一条失败记录（带 STOPPED_BY_USER
+            # 标记，避免被 auto_retry 误重试）。run_task 内的微信/邮件失败告警不在这里
+            # 触发，故手动停止不会骚扰通知渠道。
+            task = _task_registry.get(task_id, {})
+            _save_task_result({
+                "task_id": task_id,
+                "task_name": task.get("name"),
+                "category": task.get("category"),
+                "trigger": "manual_stop",
+                "success": False,
+                "started_at": started_at,
+                "completed_at": now_iso,
+                "elapsed_seconds": None,
+                "result": None,
+                "error": "STOPPED_BY_USER: 用户手动停止执行",
+                "error_trace": None,
+            })
+            logger.info(f"[{task_id}] 已停止执行 (queue_id={queue_id}, worker_pid={worker_pid}, killed={killed})")
+            return {"success": True, "stopped": True,
+                    "message": "已停止执行" if killed else "任务进程已结束，已标记为已停止"}
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"[{task_id}] 停止任务失败: {e}")
+        return {"success": False, "stopped": False, "error": f"停止任务失败: {e}"}
 
 
 def _save_task_result(result: dict):
@@ -651,7 +854,7 @@ def list_tasks(include_runs: bool = False, lang: str = "zh") -> list[dict]:
             # 的滞留条目造成假"运行中"并拒绝重触发（队列模式任务实际在 Worker 进程执行，
             # web 进程 _active_runs 易滞留且无法自愈）
             "running": (task_id in queue_active) if QUEUE_ENABLED else (task_id in local_active),
-            "call_chain": task.get("call_chain", []),
+            "call_chain": _localized_chain(task, lang),
         }
         if include_runs:
             entry["recent_runs"] = latest_runs.get(task_id, [])
@@ -682,7 +885,7 @@ def get_task_detail(task_id: str, lang: str = "zh") -> Optional[dict]:
         "next_run": str(job.next_run_time) if job else None,
         "registered_at": task["registered_at"],
         "running": is_task_running(task_id),
-        "call_chain": task.get("call_chain", []),
+        "call_chain": _localized_chain(task, lang),
     }
 
     # 从数据库获取最近执行记录

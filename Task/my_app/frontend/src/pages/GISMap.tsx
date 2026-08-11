@@ -227,14 +227,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   ]
 
   const FILTER_CONFIG = [
-    { key: 'trm_type', label: 'TRM Type' },
-    { key: 'site_type', label: 'Site Type' },
-    { key: 'area', label: 'Area' },
-    { key: 'hubsite', label: 'Hub Site' },
-    { key: 'site_information', label: 'Site Info' },
-    { key: 'vip_site', label: 'VIP Site' },
-    { key: 'supervisor', label: 'Supervisor' },
-    { key: 'updated_fme_name_new', label: 'FME Name' },
+    { key: 'trm_type', label: t('gis.filter.trmType') },
+    { key: 'site_type', label: t('gis.filter.siteType') },
+    { key: 'area', label: t('gis.filter.area') },
+    { key: 'hubsite', label: t('gis.filter.hubSite') },
+    { key: 'site_information', label: t('gis.filter.siteInfo') },
+    { key: 'vip_site', label: t('gis.filter.vipSite') },
+    { key: 'supervisor', label: t('gis.filter.supervisor') },
+    { key: 'updated_fme_name_new', label: t('gis.filter.fmeName') },
   ]
 
   const activeFilterCount = Object.values(selectedFilters).filter(Boolean).length
@@ -578,8 +578,8 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                       const woVal = mode === 'realtime' ? (site.rt_wo_count || 0) : site.wo_count
                       return (
                         <>
-                          {activeLayers.has('tt') && <>TT: {ttVal} (Open: {mode === 'realtime' ? ttVal : site.open_tt})<br /></>}
-                          {activeLayers.has('wo') && <>WO: {woVal}<br /></>}
+                          {activeLayers.has('tt') && <>{t('gis.popup.tt')}: {ttVal} ({t('gis.popup.open')}: {mode === 'realtime' ? ttVal : site.open_tt})<br /></>}
+                          {activeLayers.has('wo') && <>{t('gis.popup.wo')}: {woVal}<br /></>}
                         </>
                       )
                     })()}

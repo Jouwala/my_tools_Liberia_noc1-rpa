@@ -28,8 +28,9 @@ PID_FILE = Path(os.environ.get(
     "MY_APP_WORKER_WATCHDOG_PID",
     str(BACKEND_DIR / "worker_watchdog.pid")
 ))
-WORKER_LOG = PROJECT_ROOT / "worker_runtime.log"
-WATCHDOG_LOG = PROJECT_ROOT / "worker_watchdog.log"
+LOG_DIR = PROJECT_ROOT / "log"
+WORKER_LOG = LOG_DIR / "worker_runtime.log"
+WATCHDOG_LOG = LOG_DIR / "worker_watchdog.log"
 
 POLL_INTERVAL = 2.0        # 子进程状态轮询间隔（秒）
 CRASH_THRESHOLD = 10.0     # 子进程存活短于此值（秒）视为异常崩溃
@@ -52,7 +53,7 @@ GROUP_TASK_MAP = {
         "kpi_ms_contract,kpi_ms_wo_sla,kpi_sp_spareparts,kpi_sp_consumables,"
         "kpi_ran_availability,email_recovery,ipran_m6k_chart_email,"
         "ccn_free_rating_chart_email,battery_email,mailbox_cleanup,"
-        "incident_overview_sync"),
+        "incident_overview_sync,auto_retry_failed"),
 }
 _WORKER_GROUPS = [g.strip() for g in
                   os.environ.get("MY_APP_WORKER_GROUPS", "").split(",") if g.strip()]
@@ -111,6 +112,11 @@ def _spawn_worker(group: str):
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     log_fh = open(WORKER_LOG, "ab", buffering=0)
     env = os.environ.copy()
+    # eFlow API 超时加固（与 backend_watchdog 一致）：连 10s / 读 30s / 重试 2 次。
+    # worker 才是 eflow_sync 的实际执行方，必须同样注入，否则仍用默认 90s 读超时。
+    env["EFLOW_CONNECT_TIMEOUT"] = os.environ.get("EFLOW_CONNECT_TIMEOUT", "10")
+    env["EFLOW_READ_TIMEOUT"] = os.environ.get("EFLOW_READ_TIMEOUT", "30")
+    env["EFLOW_HTTP_MAX_RETRIES"] = os.environ.get("EFLOW_HTTP_MAX_RETRIES", "2")
     task_list = GROUP_TASK_MAP.get(group, "")
     if task_list:
         env["MY_APP_WORKER_TASKS"] = task_list
@@ -149,6 +155,7 @@ def _terminate_child():
 
 
 def main():
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     handlers = [logging.FileHandler(WATCHDOG_LOG, encoding="utf-8")]
     if sys.stdout.isatty():
         handlers.append(logging.StreamHandler(sys.stdout))

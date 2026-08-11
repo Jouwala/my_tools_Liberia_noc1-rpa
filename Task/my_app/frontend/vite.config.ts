@@ -20,6 +20,25 @@ export default defineConfig({
       },
     },
   },
+  // 生产模式（vite preview，托管 dist 构建产物）：
+  // 浏览器加载压缩分包 JS（antd/echarts/leaflet/vendor），内存占用远低于 dev 模式，
+  // 避免 vite dev server 直出未打包源码导致的浏览器标签页 Out of Memory 崩溃。
+  // 注意：改前端源码后需先 `npm run build` 再 preview，否则页面停留在旧构建。
+  preview: {
+    host: '0.0.0.0',
+    port: 7090,
+    strictPort: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:7038',
+        changeOrigin: true,
+      },
+      '/myapp/api': {
+        target: 'http://localhost:7038',
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     // 本机环境存在 safe-delete 钩子，会拦截 Vite 的 prepare-out-dir 清空动作导致构建中断。
     // 关闭自动清空，改由构建脚本/人工清理 dist/assets（旧 chunk 带 hash，覆盖写不影响正确性）。

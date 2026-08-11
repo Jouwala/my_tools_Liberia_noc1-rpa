@@ -1,0 +1,25 @@
+{
+  "run_id": "run-20260807-220442",
+  "created": "2026-08-07T22:04:42",
+  "source": "D:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\tasks_phase6_pre_r2.json",
+  "tasks": {
+    "p6-smoke-test": {
+      "executor": "codex",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "pid": 41588,
+      "started": 1786140282.3952372,
+      "prompt_file": "D:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\run-20260807-220442\\p6-smoke-test.prompt.md",
+      "out_log": "D:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\run-20260807-220442\\p6-smoke-test.out.log",
+      "rc_file": "D:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\run-20260807-220442\\p6-smoke-test.rc"
+    },
+    "p6-longcol-audit": {
+      "executor": "qoder",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "pid": 14152,
+      "started": 1786140282.7622228,
+      "prompt_file": "D:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\run-20260807-220442\\p6-longcol-audit.prompt.md",
+      "out_log": "D:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\run-20260807-220442\\p6-longcol-audit.out.log",
+      "rc_file": "D:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\run-20260807-220442\\p6-longcol-audit.rc"
+    }
+  }
+}

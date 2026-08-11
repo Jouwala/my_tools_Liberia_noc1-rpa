@@ -8,6 +8,10 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 base = fso.GetParentFolderName(WScript.ScriptFullName)
 ws.CurrentDirectory = base
 
+' 确保日志目录存在（所有日志重定向到 log\ 子目录，保持项目根目录整洁）
+logDir = fso.BuildPath(base, "log")
+If Not fso.FolderExists(logDir) Then fso.CreateFolder(logDir)
+
 ' ===== 1. 自动检测 Python (优先 python.exe，便于排查错误) =====
 backendExe = ""
 On Error Resume Next
@@ -44,12 +48,21 @@ If Err.Number = 0 Then
 End If
 On Error GoTo 0
 
-' ===== 3. 启动后端服务 =====
-' 使用 cmd /c 包裹，确保环境变量正确传递，并将日志重定向
-backendLog = fso.BuildPath(base, "backend_runtime.log")
+' ===== 3. 启动后端服务（经 backend_watchdog 托管，崩溃/被杀自动重拉） =====
+' 关键改动：不再直接 launch uvicorn，改由 backend.backend_watchdog 进程托管 uvicorn。
+' 看门狗会：清除 WorkBuddy 安全删除守卫 env、设置 MY_APP_TASK_QUEUE=1、
+' 以子进程方式拉起 uvicorn、进程死亡或端口长时间未监听时自动重拉，
+' 从根本上避免"backend 单独宕机、定时任务静默漏跑"的问题（详见 backend_watchdog.py）。
+' 控制台流重定向到 backend_watchdog_console.log（看门狗自身用 FileHandler 写
+' backend_watchdog.log，二者不可同一路径，否则 Windows 下 cmd 独占句柄会致启动即失败）。
 If Not IsPortListening(7038) Then
-    backendCmd = "cmd /c chcp 65001 >nul & set MY_APP_TASK_QUEUE=1& """ & backendExe & """ -m uvicorn backend.main:app --host 0.0.0.0 --port 7038 > """ & backendLog & """ 2>&1"
-    ws.Run backendCmd, 0, False
+    ' 先清理孤儿 backend（旧方式直启的 uvicorn / 残留进程），避免看门狗再拉起第二个抢端口
+    Set orphanKill = ws.Exec("cmd /c for /f ""tokens=5"" %a in ('netstat -ano ^| findstr "":7038"" ^| findstr ""LISTENING""') do taskkill /PID %a /F")
+    orphanKill.StdOut.ReadAll
+    orphanKill.StdErr.ReadAll
+    watchdogConsoleLog = fso.BuildPath(base, "log\backend_watchdog_console.log")
+    backendWatchdogCmd = "cmd /c chcp 65001 >nul & """ & backendExe & """ -m backend.backend_watchdog > """ & watchdogConsoleLog & """ 2>&1"
+    ws.Run backendWatchdogCmd, 0, False
 End If
 
 ' Wait for the backend before exposing the frontend proxy. Otherwise Vite returns 502.
@@ -59,23 +72,31 @@ Do While Not IsPortListening(7038) And waited < 30
     waited = waited + 1
 Loop
 If Not IsPortListening(7038) Then
-    MsgBox "Backend did not start on port 7038 within 30 seconds." & vbCrLf & "Check backend_runtime.log.", vbCritical, "Data Insight MVP"
+    MsgBox "Backend did not start on port 7038 within 30 seconds." & vbCrLf & "Check log\backend_runtime.log.", vbCritical, "Data Insight MVP"
     WScript.Quit 1
 End If
 
-workerWatchdogPid = fso.BuildPath(base, "backend\worker_watchdog.pid")
-If Not fso.FileExists(workerWatchdogPid) Then
-    watchdogLog = fso.BuildPath(base, "worker_watchdog.log")
-    watchdogCmd = "cmd /c chcp 65001 >nul & """ & backendExe & """ -m backend.worker_watchdog > """ & watchdogLog & """ 2>&1"
-    ws.Run watchdogCmd, 0, False
-End If
+' 看门狗（worker 管理器）：崩溃/被杀后自动重拉 worker，避免队列永远 pending。
+' 关键点（今日故障同款坑，已修复）：
+' 1) console 日志必须重定向到 worker_watchdog_console.log —— worker_watchdog.py 自身
+'    已用 logging.FileHandler 打开 worker_watchdog.log；若此处 '>' 再指向同一文件，
+'    Windows 下 cmd 独占句柄会导致看门狗启动即 PermissionError 退出，worker 全灭。
+' 2) 必须带 MY_APP_WORKER_GROUPS=u,n,m，否则回退单 default worker（串行、无分组并行）。
+' 3) 不再用 worker_watchdog.pid 是否存在来跳过启动：PID 文件残留（进程已死）会让看门狗
+'    永不重启。重复启动由 worker_watchdog.py 的 _another_watchdog_running() 守卫拦截，
+'    故始终拉起即可（与 start.bat 行为保持一致）。
+watchdogLog = fso.BuildPath(base, "log\worker_watchdog_console.log")
+watchdogCmd = "cmd /c chcp 65001 >nul & set CODEBUDDY_SESSION_ID=&set CLAUDE_SESSION_ID=&set CODEBUDDY_SAFE_DELETE_SANDBOX=& set MY_APP_WORKER_GROUPS=u,n,m& """ & backendExe & """ -m backend.worker_watchdog > """ & watchdogLog & """ 2>&1"
+ws.Run watchdogCmd, 0, False
 
-' ===== 4. 启动前端服务 =====
+' ===== 4. 启动前端服务（生产模式：vite preview 托管 dist 构建产物） =====
+' dev 模式（npm run dev）直出未打包源码，浏览器内存开销大，易触发标签页
+' Out of Memory 崩溃；改用 vite preview 服务压缩后的 dist（见 vite.config.ts preview）。
+' 注意：改前端源码后需先 npm run build 再启动，否则页面停留在旧构建。
 frontendDir = fso.BuildPath(base, "frontend")
-frontendLog = fso.BuildPath(base, "frontend_runtime.log")
-' 切换到 frontend 目录并运行 npm run dev
+frontendLog = fso.BuildPath(base, "log\frontend_runtime.log")
 If Not IsPortListening(7090) Then
-    frontendCmd = "cmd /c cd /d """ & frontendDir & """ & """ & npmCmd & """ run dev > """ & frontendLog & """ 2>&1"
+    frontendCmd = "cmd /c cd /d """ & frontendDir & """ & """ & npmCmd & """ run preview > """ & frontendLog & """ 2>&1"
     ws.Run frontendCmd, 0, False
 End If
 

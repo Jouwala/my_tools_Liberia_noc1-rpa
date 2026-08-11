@@ -270,8 +270,53 @@ def _detect_granularity(time_series: pd.Series) -> str:
     return 'hour'
 
 
-def generate_line_chart(df: pd.DataFrame, mo: str, output_path: Path) -> bool:
-    """生成折线图（时间序列）并保存为 PNG，风格与 ran_ume 仪表板一致。"""
+def _safe_savefig(fig, output_path: Path) -> Path:
+    """保存图表到 output_path。
+
+    遇 PermissionError（Windows 上目标文件被其它进程锁定，常见于覆盖上一轮
+    运行遗留的同名 PNG）时：先短暂重试，仍失败则落到带序号的副本文件名，
+    确保整张图不会因单点写权限问题而失败（否则会触发"无图表数据"）。
+    返回最终实际保存的路径。
+    """
+    output_path = Path(output_path)
+    for attempt in range(4):
+        try:
+            fig.savefig(output_path, dpi=150, bbox_inches="tight",
+                        facecolor=BG_COLOR, edgecolor='none')
+            return output_path
+        except PermissionError:
+            if attempt < 3:
+                time.sleep(0.5)
+                continue
+            break
+    # 全部重试仍失败 -> 换名（带序号），不使用已锁定的文件名
+    stem, suffix = output_path.stem, output_path.suffix
+    idx = 1
+    while True:
+        alt = output_path.with_name(f"{stem}_{idx}{suffix}")
+        if not alt.exists():
+            break
+        idx += 1
+    fig.savefig(alt, dpi=150, bbox_inches="tight",
+                facecolor=BG_COLOR, edgecolor='none')
+    return alt
+
+
+def _cleanup_old_run_dirs(keep_days: int = 14) -> None:
+    """清理 OUTPUT_DIR 下超过 keep_days 天的历史运行子目录（仅删时间戳命名的子目录）。"""
+    try:
+        import shutil
+        cutoff = time.time() - keep_days * 86400
+        for d in OUTPUT_DIR.iterdir():
+            if d.is_dir() and d.stat().st_mtime < cutoff:
+                shutil.rmtree(d, ignore_errors=True)
+    except Exception:
+        pass
+
+
+def generate_line_chart(df: pd.DataFrame, mo: str, output_path: Path) -> "bool | Path":
+    """生成折线图（时间序列）并保存为 PNG，风格与 ran_ume 仪表板一致。
+    成功时返回实际保存的 Path，失败时返回 False。"""
     try:
         fig, ax = plt.subplots(figsize=(14, 5.5))
         
@@ -358,12 +403,11 @@ def generate_line_chart(df: pd.DataFrame, mo: str, output_path: Path) -> bool:
         ax.tick_params(axis='both', labelsize=8)
         
         plt.tight_layout()
-        fig.savefig(output_path, dpi=150, bbox_inches="tight", 
-                    facecolor=BG_COLOR, edgecolor='none')
+        final_path = _safe_savefig(fig, output_path)
         plt.close(fig)
         
-        logger.info(f"图表已保存: {output_path.name} (粒度={granularity}, 数据点={len(df)})")
-        return True
+        logger.info(f"图表已保存: {final_path.name} (粒度={granularity}, 数据点={len(df)})")
+        return final_path
         
     except Exception as e:
         logger.error(f"生成图表失败 (MO={mo}): {e}")
@@ -371,7 +415,7 @@ def generate_line_chart(df: pd.DataFrame, mo: str, output_path: Path) -> bool:
 
 
 def _send_email(to: list, cc: list, subject: str, body: str,
-                inline_images: List[Path]) -> dict:
+                inline_images: List[Path], data_dir: Path = OUTPUT_DIR) -> dict:
     """调用通用邮件脚本发送。"""
     py = _MANAGED_VENV_PY
     script = EMAIL_REPORTS_DIR / "owa_mail_report.py"
@@ -381,7 +425,7 @@ def _send_email(to: list, cc: list, subject: str, body: str,
     
     cmd = [
         py, str(script),
-        "--data-dir", str(OUTPUT_DIR),
+        "--data-dir", str(data_dir),
         "--email-dir", str(EMAIL_REPORTS_DIR),
         "--no-excel",
         "--subject", subject,
@@ -434,22 +478,29 @@ def run_chart_and_send(to_override: Optional[str] = None,
     
     logger.info(f"收件人: {len(to_list)} 主送, {len(cc_list)} 抄送")
     
+    # 每次运行使用独立的时间戳子目录，避免覆盖上一轮遗留的、可能被其它进程
+    # 锁定的同名 PNG（这正是此前"无图表数据"的根因）。
+    run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = OUTPUT_DIR / run_stamp
+    run_dir.mkdir(parents=True, exist_ok=True)
+    
     # 生成图表
     chart_files = []
     for mo in MEASUREMENT_OBJECTS:
         chart_name = f"RG-{mo}.png"
-        chart_path = OUTPUT_DIR / chart_name
+        chart_path = run_dir / chart_name
         
         df = query_free_rating_data(mo)
         if df is None or df.empty:
             logger.warning(f"跳过 {chart_name}: 无数据")
             continue
         
-        if not generate_line_chart(df, mo, chart_path):
+        saved = generate_line_chart(df, mo, chart_path)
+        if not saved:
             logger.error(f"跳过 {chart_name}: 图表生成失败")
             continue
         
-        chart_files.append(chart_path)
+        chart_files.append(saved)
     
     if not chart_files:
         logger.warning("没有生成任何图表，跳过邮件发送")
@@ -472,11 +523,15 @@ def run_chart_and_send(to_override: Optional[str] = None,
         subject=subject,
         body=body,
         inline_images=chart_files,
+        data_dir=run_dir,
     )
     
     elapsed = time.perf_counter() - t0
     result["elapsed_seconds"] = round(elapsed, 2)
     result["charts_generated"] = len(chart_files)
+    
+    # 清理历史运行子目录，避免无限堆积
+    _cleanup_old_run_dirs(keep_days=14)
     
     logger.info(f"任务完成: {result}")
     return result

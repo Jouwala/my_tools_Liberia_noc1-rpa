@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul 2>&1
+setlocal enabledelayedexpansion
 
 echo Stopping Data Insight MVP...
 echo.
@@ -10,9 +11,19 @@ set FOUND=0
 if exist "%~dp0backend\worker_watchdog.pid" (
     for /f "usebackq tokens=*" %%a in ("%~dp0backend\worker_watchdog.pid") do (
         taskkill /PID %%a /T /F >nul 2>&1
-        echo [*] Killed worker watchdog (tree) PID=%%a
+        echo [*] Killed worker watchdog tree PID=%%a
     )
     del "%~dp0backend\worker_watchdog.pid" >nul 2>&1
+    set FOUND=1
+)
+
+:: Stop backend watchdog FIRST（tree-kill 连带 uvicorn 一起停，且不会复活 backend）
+if exist "%~dp0backend\backend_watchdog.pid" (
+    for /f "usebackq tokens=*" %%a in ("%~dp0backend\backend_watchdog.pid") do (
+        taskkill /PID %%a /T /F >nul 2>&1
+        echo [*] Killed backend watchdog tree PID=%%a
+    )
+    del "%~dp0backend\backend_watchdog.pid" >nul 2>&1
     set FOUND=1
 )
 
@@ -48,7 +59,7 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000" ^| findstr "LISTENING
 :: Stop backend (port 7040, 调试/残留实例，不清理会与 7038 双开导致任务双份执行)
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7040" ^| findstr "LISTENING" 2^>nul') do (
     taskkill /PID %%a /F >nul 2>&1
-    echo [*] Killed backend PID=%%a (port 7040)
+    echo [*] Killed backend PID=%%a port-7040
     set FOUND=1
 )
 
@@ -71,5 +82,22 @@ if %FOUND%==0 (
     echo [*] No running instance found.
 ) else (
     echo [*] Stopped successfully.
+)
+
+:: ============ 杀后验证：确认端口真的释放，避免"显示成功实际还在跑" ============
+set LEFTOVER=0
+for %%p in (7038 7040 7090 5173 8000) do (
+    netstat -ano | findstr ":%%p " | findstr "LISTENING" >nul 2>&1
+    if !ERRORLEVEL!==0 (
+        echo [!!] Port %%p still listening, process not stopped!
+        set LEFTOVER=1
+    )
+)
+if %LEFTOVER%==1 (
+    echo [!!] Some processes failed to stop. Please check manually:
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7038 " ^| findstr "LISTENING" 2^>nul') do echo [!!]     taskkill /PID %%a /T /F
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7090 " ^| findstr "LISTENING" 2^>nul') do echo [!!]     taskkill /PID %%a /T /F
+) else (
+    echo [OK] Verified: all ports released, services fully stopped.
 )
 ping -n 2 127.0.0.1 >nul

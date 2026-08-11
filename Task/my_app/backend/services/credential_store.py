@@ -39,10 +39,13 @@ CREDENTIAL_GROUPS = [
     {
         "key": "zte_ume",
         "name": "ZTE UME 网管 (RAN KPI / MS SLA)",
+        "name_en": "ZTE UME NMS (RAN KPI / MS SLA)",
         "default_user": "NOC",
         "default_secret": "Zte@2025!",
         "username_label": "用户名",
+        "username_label_en": "Username",
         "secret_label": "密码",
+        "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
         "test_host": "10.100.28.27",
@@ -53,10 +56,13 @@ CREDENTIAL_GROUPS = [
     {
         "key": "ipran_ume",
         "name": "iPRAN UME 网管",
+        "name_en": "iPRAN UME NMS",
         "default_user": "noc1",
         "default_secret": "Zte@lbr202607",
         "username_label": "用户名",
+        "username_label_en": "Username",
         "secret_label": "密码",
+        "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
         "test_host": "10.100.2.99",
@@ -67,10 +73,13 @@ CREDENTIAL_GROUPS = [
     {
         "key": "ccn_ume",
         "name": "CCN UME 网管",
+        "name_en": "CCN UME NMS",
         "default_user": "oss",
         "default_secret": "Mwebazeaaron@25",
         "username_label": "用户名",
+        "username_label_en": "Username",
         "secret_label": "密码",
+        "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
         "test_host": "10.121.1.2",
@@ -81,10 +90,13 @@ CREDENTIAL_GROUPS = [
     {
         "key": "eflow",
         "name": "eFlow 告警系统",
+        "name_en": "eFlow Alarm System",
         "default_user": "admin",
         "default_secret": "Brysj*8*",
         "username_label": "用户名",
+        "username_label_en": "Username",
         "secret_label": "密码",
+        "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
         "test_host": "10.100.20.8",
@@ -95,10 +107,13 @@ CREDENTIAL_GROUPS = [
     {
         "key": "fw_kpi",
         "name": "FW 整机吞吐 KPI (UMC)",
+        "name_en": "FW Throughput KPI (UMC)",
         "default_user": "admin",
         "default_secret": "Zte@orange123!",
         "username_label": "用户名",
+        "username_label_en": "Username",
         "secret_label": "密码",
+        "secret_label_en": "Password",
         "has_username": True,
         "testable": False,
         "env_user": None,
@@ -107,10 +122,13 @@ CREDENTIAL_GROUPS = [
     {
         "key": "sftp_sp",
         "name": "SFTP 备件报表服务器 (10.100.20.11)",
+        "name_en": "SFTP Spare-parts Report Server (10.100.20.11)",
         "default_user": "ubuntu",
         "default_secret": "UbuntU1!2@3#4$",
         "username_label": "用户名",
+        "username_label_en": "Username",
         "secret_label": "密码",
+        "secret_label_en": "Password",
         "has_username": True,
         "testable": False,
         "env_user": None,
@@ -119,10 +137,13 @@ CREDENTIAL_GROUPS = [
     {
         "key": "mail_126",
         "name": "126 邮箱（邮件报告）",
+        "name_en": "126 Mailbox (Email Reports)",
         "default_user": "xin83min@126.com",
         "default_secret": "LQcTaMMuWmhvAfRB",
         "username_label": "邮箱账号",
+        "username_label_en": "Email Account",
         "secret_label": "SMTP 授权码",
+        "secret_label_en": "SMTP Auth Code",
         "has_username": True,
         "testable": False,
         "env_user": None,
@@ -131,10 +152,13 @@ CREDENTIAL_GROUPS = [
     {
         "key": "owa_mail",
         "name": "Exchange/OWA 邮箱（运维报告 + 邮箱清理）",
+        "name_en": "Exchange/OWA Mailbox (Ops Reports + Mailbox Cleanup)",
         "default_user": "ZTENOC_OLR",
         "default_secret": "Postcode@231",
         "username_label": "登录账号 (域账号)",
+        "username_label_en": "Login Account (Domain)",
         "secret_label": "邮箱密码",
+        "secret_label_en": "Mailbox Password",
         "has_username": True,
         "testable": False,
         "env_user": None,
@@ -143,10 +167,13 @@ CREDENTIAL_GROUPS = [
     {
         "key": "weixin",
         "name": "微信/即时消息通知",
+        "name_en": "WeChat/IM Notification",
         "default_user": "SCT389311TrwFJS9k0ZxfX5Plb9g0gozix",
         "default_secret": "f9cf7778112f486ab618d153456e2553",
         "username_label": "Server酱 SendKey",
+        "username_label_en": "ServerChan SendKey",
         "secret_label": "PushPlus Token",
+        "secret_label_en": "PushPlus Token",
         "has_username": True,
         "testable": False,
         "env_user": None,
@@ -303,11 +330,13 @@ def mask(secret: str | None) -> str:
     return secret[:4] + "*" * (len(secret) - 4)
 
 
-def list_credentials() -> list:
+def list_credentials(lang: str = "zh") -> list:
     """列出全部凭据组（密码掩码 + 来源标记），供设置页面展示。
 
     返回: [{key, name, username, secret_masked, source, updated_at, ...}]
+    `lang='en'` 时 name / username_label / secret_label 取 *_en 变体（缺失则回退中文）。
     """
+    en = (lang or "zh").lower().startswith("en")
     updated_map = {}
     try:
         conn = _get_conn()
@@ -350,13 +379,15 @@ def list_credentials() -> list:
             source = "env"
         result.append({
             "key": g["key"],
-            "name": g["name"],
+            "name": g.get("name_en") if en and g.get("name_en") else g["name"],
             "username": user,
             "secret_masked": mask(secret),
             "source": source,
             "updated_at": updated_at,
-            "username_label": g.get("username_label", "用户名"),
-            "secret_label": g.get("secret_label", "密码"),
+            "username_label": (g.get("username_label_en") if en and g.get("username_label_en")
+                              else g.get("username_label", "用户名")),
+            "secret_label": (g.get("secret_label_en") if en and g.get("secret_label_en")
+                             else g.get("secret_label", "密码")),
             "has_username": g.get("has_username", True),
             "testable": g.get("testable", False),
         })

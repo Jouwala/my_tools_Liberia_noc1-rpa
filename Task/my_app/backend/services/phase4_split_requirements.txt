@@ -1,8 +1,0 @@
-# Phase 4 拆分模块依赖清单（eflow_alarm_service / eflow_data_mapper / ms_sla_sync /
-# ms_sla_report / task_stats / task_introspect）
-# 拆分未引入任何新依赖，以下为各模块实际使用的既有依赖（与项目 requirements.txt 一致）：
-pandas
-openpyxl
-matplotlib
-numpy
-Pillow

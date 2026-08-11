@@ -106,6 +106,10 @@ SITE_TX_SOURCE_COL = "TRM Type"
 _session_cookie = ""
 _forgery_token = ""
 _http_local = threading.local()
+# 401 自动重登录用：锁串行化登录（避免多线程同时登录互踢），代数用于并发线程
+# 判断「是否已有其他线程刷新过会话」。
+_auth_lock = threading.Lock()
+_auth_generation = 0
 
 
 # ========== SSL / HTTP 基础 ==========
@@ -142,6 +146,31 @@ def _close_thread_socket():
             pass
 
 
+def _rebuild_auth_headers(headers_extra):
+    """用当前最新会话重新生成 Cookie / forgerydefense 请求头。
+
+    401 触发强制重登录后，原 headers_extra 里的 Cookie/forgerydefense 仍是旧会话
+    的值，直接重试等于白试；此函数用新的 _session_cookie/_forgery_token 覆盖这两行。
+    """
+    if not headers_extra:
+        return headers_extra
+    headers_extra = re.sub(r"(?m)^Cookie: .*$", lambda m: f"Cookie: {_session_cookie}", headers_extra)
+    headers_extra = re.sub(r"(?m)^forgerydefense: .*$", lambda m: f"forgerydefense: {_forgery_token}", headers_extra)
+    return headers_extra
+
+
+def _reauthenticate_on_401():
+    """401 会话过期时强制重新登录；多线程并发只让一个线程真正登录，其余复用。"""
+    global _auth_generation
+    gen = _auth_generation
+    with _auth_lock:
+        if _auth_generation == gen:
+            logger.warning("[AUTH] HTTP 401：会话已过期，强制重新登录")
+            login(force_refresh=True)
+        else:
+            logger.info("[AUTH] HTTP 401：其他线程已刷新会话，直接复用新会话重试")
+
+
 def _retry_delay(attempt: int) -> float:
     """Bounded exponential backoff with jitter, preventing retry bursts."""
     return min(20.0, HTTP_RETRY_DELAY * (2 ** attempt)) + random.uniform(0, 0.25)
@@ -168,12 +197,13 @@ def _decode_chunked(data):
     return bytes(result)
 
 
-def _http_request(method, path, headers_extra=None, body=None, retry=0):
+def _http_request(method, path, headers_extra=None, body=None, retry=0, _auth_retried=False):
     """
     发送 HTTP 请求，带重试机制。
-    
+
     Args:
         retry: 内部使用，表示当前是第几次重试（不传则为首次）
+        _auth_retried: 内部使用，标记是否已因 401 做过一次重登录重试
     """
     try:
         ssock = _get_thread_socket()
@@ -289,6 +319,16 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
     elif "close" in resp_headers.get("connection", "").lower() or content_length is None:
         _close_thread_socket()
 
+    # 401 = 会话过期：强制重新登录一次后，用新会话重建请求头重试。
+    # （eFlow 会话有效期短，全量同步 8~22 分钟常在中途过期；此前无此处理，
+    #   6 条并行管道全部 401 → fetch_all_data 返回空 → "API 未返回任何数据"）
+    if "401" in status_line and not _auth_retried:
+        _close_thread_socket()
+        _reauthenticate_on_401()
+        headers_extra = _rebuild_auth_headers(headers_extra)
+        return _http_request(method, path, headers_extra=headers_extra, body=body,
+                             retry=retry, _auth_retried=True)
+
     return status_line, resp_headers, header_part, resp_body
 
 
@@ -304,8 +344,8 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
 
 
 # ========== 登录认证 ==========
-def login():
-    global _session_cookie, _forgery_token
+def login(force_refresh: bool = False):
+    global _session_cookie, _forgery_token, _auth_generation
 
     try:
         try:
@@ -313,11 +353,14 @@ def login():
         except ImportError:
             logging.getLogger(__name__).warning("[SILENT-EXCEPT] login: exception swallowed", exc_info=True)
             from auth_manager import get_auth
-        result = get_auth(HOST, PORT, *_runtime_credentials())
-        source = "缓存" if result["from_cache"] else "重新登录"
+        # force_refresh=True：跳过 auth_manager 磁盘缓存（其仅按 TTL 判过期，
+        # 服务器会话可能已死但未到 TTL），401 恢复时务必强制真实登录。
+        result = get_auth(HOST, PORT, *_runtime_credentials(), force_refresh=force_refresh)
+        source = "强制刷新" if force_refresh else ("缓存" if result["from_cache"] else "重新登录")
         logger.info(f"eFlow 鉴权成功（来源: {source}）")
         _session_cookie = result["cookie"]
         _forgery_token = result["forgery_token"]
+        _auth_generation += 1
     except Exception as e:
         logger.error(f"eFlow auth_manager 失败: {e}")
         raise

@@ -1,0 +1,25 @@
+{
+  "run_id": "phase5-wave1",
+  "created": "2026-08-07T21:05:10",
+  "source": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\tasks_phase5_wave1.json",
+  "tasks": {
+    "p5-framework-laneA": {
+      "executor": "codex",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "pid": 32276,
+      "started": 1786136710.2870998,
+      "prompt_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\phase5-wave1\\p5-framework-laneA.prompt.md",
+      "out_log": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\phase5-wave1\\p5-framework-laneA.out.log",
+      "rc_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\phase5-wave1\\p5-framework-laneA.rc"
+    },
+    "p5-r5-reconcile": {
+      "executor": "qoder",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "pid": 22428,
+      "started": 1786136710.6607356,
+      "prompt_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\phase5-wave1\\p5-r5-reconcile.prompt.md",
+      "out_log": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\phase5-wave1\\p5-r5-reconcile.out.log",
+      "rc_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\phase5-wave1\\p5-r5-reconcile.rc"
+    }
+  }
+}

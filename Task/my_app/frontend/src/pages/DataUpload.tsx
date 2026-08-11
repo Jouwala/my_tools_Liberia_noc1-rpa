@@ -3,7 +3,7 @@ import { Card, Upload, Button, message, Table, Tag, List, Spin, Result, Descript
 import { InboxOutlined, FileExcelOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
-import { useI18n } from '../i18n'
+import { useI18n, numLocale } from '../i18n'
 
 const { Dragger } = Upload
 
@@ -28,7 +28,7 @@ export default function DataUpload() {
   const [uploading, setUploading] = useState(false)
   const [result, setResult] = useState<UploadResult | null>(null)
   const [history, setHistory] = useState<any[]>([])
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
 
   const loadHistory = () => {
     api.get('/upload/history').then(res => setHistory(res.data.uploads || [])).catch(console.error)
@@ -89,7 +89,7 @@ export default function DataUpload() {
                 title={<span><FileExcelOutlined /> {tbl.sheet_name} → {tbl.table_name}</span>}
                 extra={
                   <span>
-                    <Tag color="blue">{tbl.row_count.toLocaleString()} {t('common.rows')}</Tag>
+                    <Tag color="blue">{tbl.row_count.toLocaleString(numLocale(locale))} {t('common.rows')}</Tag>
                     <Tag color="green">{tbl.col_count} {t('common.cols')}</Tag>
                     <Tag color={tbl.profile_summary.quality_score >= 80 ? 'green' : 'orange'}>
                       {t('upload.quality')} {t('upload.qualityScore', { n: tbl.profile_summary.quality_score })}

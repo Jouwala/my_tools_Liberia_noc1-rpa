@@ -8,6 +8,8 @@ CNN UME KPI 数据同步服务（Core Network - xGW License Occupancy）
 3. 轮询查询进度直到完成，导出为 Excel 文件。
 4. 将导出的 xlsx 通过 DbWriterClient API 写入远程 CNN 数据库（db_ps_cs_cn.sqlite3）。
 5. 清理本地 xlsx 文件。
+6. 额外执行 1 个月粒度（gr=2592000）查询：开始时间为 7 个月前 1 号 00:00:00，
+   写入远程数据库表名前加 "1month_" 前缀（如 1month_xGW_LICENSE_OCCUPANCY_TEMPLATE_OSS_UME）。
 
 集成方式：
 - 通过 Task Manager 调度（task_id="cnn_kpi_sync"）
@@ -282,6 +284,29 @@ CNN_KPI_TASKS = [
     {"key": "3G_FDD_DATA_TRAFFIC"},
     {"key": "4G_FDD_DATA_TRAFFIC"},
     {"key": "FREE_RATING_GROUP"},
+]
+
+
+# ============================================================
+# 1 个月粒度查询配置（gr=2592000），表名前加 "1month_" 前缀
+# ============================================================
+def _build_monthly_query_configs():
+    """从现有查询配置派生月度（gr=2592000）配置：仅改 gr 与表名前缀。"""
+    import copy
+    monthly = {}
+    for key, cfg in CNN_KPI_QUERY_CONFIGS.items():
+        m_cfg = copy.deepcopy(cfg)
+        m_cfg["gr"] = "2592000"
+        m_cfg["table_name"] = "1month_" + cfg["table_name"]
+        monthly[key] = m_cfg
+    return monthly
+
+
+CNN_KPI_MONTHLY_QUERY_CONFIGS = _build_monthly_query_configs()
+
+# 月度任务列表（与日/时粒度任务并行执行，查询 7 个月前 1 号 00:00:00 至今）
+CNN_KPI_MONTHLY_TASKS = [
+    {"key": key, "monthly": True} for key in CNN_KPI_QUERY_CONFIGS
 ]
 
 
@@ -635,12 +660,18 @@ def _subtract_months(dt, months):
     return dt.replace(year=year, month=month, day=day)
 
 
-def build_cnn_kpi_payload(cfg: dict, start_iso: str = None, end_iso: str = None) -> dict:
+def build_cnn_kpi_payload(cfg: dict, start_iso: str = None, end_iso: str = None, monthly: bool = False) -> dict:
     now = datetime.now(timezone.utc)
     if end_iso is None:
         end_iso = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     if start_iso is None:
-        start_dt = (now.replace(hour=0, minute=0, second=0, microsecond=0)) - timedelta(days=CNN_KPI_DAYS_BACK)
+        if monthly:
+            # 1 个月粒度：开始时间为 7 个月前 1 号 00:00:00
+            start_dt = _subtract_months(now, 7).replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+        else:
+            start_dt = (now.replace(hour=0, minute=0, second=0, microsecond=0)) - timedelta(days=CNN_KPI_DAYS_BACK)
         start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
     timeinfo = {
@@ -864,8 +895,8 @@ def import_to_database(export_results: dict = None):
     total_imported = 0
     files_to_delete = []
 
-    for task in CNN_KPI_TASKS:
-        cfg = CNN_KPI_QUERY_CONFIGS[task["key"]]
+    for task in CNN_KPI_TASKS + CNN_KPI_MONTHLY_TASKS:
+        cfg = CNN_KPI_MONTHLY_QUERY_CONFIGS[task["key"]] if task.get("monthly") else CNN_KPI_QUERY_CONFIGS[task["key"]]
         table_name = cfg["table_name"]
         file_prefix = build_filename(cfg)
 
@@ -967,15 +998,16 @@ def import_to_database(export_results: dict = None):
 # ============================================================
 def _run_single_kpi_query(auth: dict, task: dict, start_index: int = 0) -> tuple:
     """执行单个 KPI 查询 + 导出，返回 (file_prefix, xlsx_bytes) 内存数据。"""
-    cfg = CNN_KPI_QUERY_CONFIGS[task["key"]]
+    monthly = task.get("monthly", False)
+    cfg = CNN_KPI_MONTHLY_QUERY_CONFIGS[task["key"]] if monthly else CNN_KPI_QUERY_CONFIGS[task["key"]]
     file_prefix = build_filename(cfg)
 
     delay = start_index * 0.8
     if delay > 0:
         time.sleep(delay)
 
-    logger.info(f"[CNN] Starting: {cfg['templatename']}")
-    payload = build_cnn_kpi_payload(cfg)
+    logger.info(f"[CNN] Starting: {cfg['templatename']} (gr={cfg['gr']})")
+    payload = build_cnn_kpi_payload(cfg, monthly=monthly)
     cookie = auth["cookie"]
     forgery_token = auth["forgery_token"]
 
@@ -998,24 +1030,26 @@ def run_cnn_kpi_sync() -> dict:
     result = {"success": False, "tables": {}, "errors": [], "elapsed_seconds": 0}
 
     logger.info(f"[CNN] KPI sync started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"[CNN] Tasks: {len(CNN_KPI_TASKS)}, Workers: {MAX_PARALLEL_WORKERS}")
+    logger.info(f"[CNN] Tasks: {len(CNN_KPI_TASKS) + len(CNN_KPI_MONTHLY_TASKS)} "
+                f"({len(CNN_KPI_TASKS)} daily + {len(CNN_KPI_MONTHLY_TASKS)} monthly), Workers: {MAX_PARALLEL_WORKERS}")
 
     try:
         # 1. 登录
         auth = _login()
 
-        # 2. 并行查询（全程内存，不落盘）
+        # 2. 并行查询（全程内存，不落盘；日/时粒度 + 1 个月粒度同时执行）
+        all_tasks = CNN_KPI_TASKS + CNN_KPI_MONTHLY_TASKS
         export_data = {}  # {file_prefix: xlsx_bytes}
         errors = []
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
             future_to_task = {}
-            for idx, task in enumerate(CNN_KPI_TASKS):
+            for idx, task in enumerate(all_tasks):
                 future = executor.submit(_run_with_cleanup, _run_single_kpi_query, auth, task, idx)
                 future_to_task[future] = task
 
             for future in as_completed(future_to_task):
                 task = future_to_task[future]
-                task_label = task["key"]
+                task_label = f"{task['key']}[M]" if task.get("monthly") else task["key"]
                 try:
                     file_prefix, xlsx_bytes = future.result()
                     export_data[file_prefix] = xlsx_bytes

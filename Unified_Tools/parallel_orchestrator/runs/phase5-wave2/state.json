@@ -1,0 +1,25 @@
+{
+  "run_id": "phase5-wave2",
+  "created": "2026-08-07T21:22:57",
+  "source": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\tasks_phase5_wave2.json",
+  "tasks": {
+    "p5-laneB-bigtables": {
+      "executor": "qoder",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "pid": 8036,
+      "started": 1786137778.2787743,
+      "prompt_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\phase5-wave2\\p5-laneB-bigtables.prompt.md",
+      "out_log": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\phase5-wave2\\p5-laneB-bigtables.out.log",
+      "rc_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\phase5-wave2\\p5-laneB-bigtables.rc"
+    },
+    "p5-app-maindb": {
+      "executor": "codex",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "pid": 3256,
+      "started": 1786137778.4633868,
+      "prompt_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\phase5-wave2\\p5-app-maindb.prompt.md",
+      "out_log": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\phase5-wave2\\p5-app-maindb.out.log",
+      "rc_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\phase5-wave2\\p5-app-maindb.rc"
+    }
+  }
+}

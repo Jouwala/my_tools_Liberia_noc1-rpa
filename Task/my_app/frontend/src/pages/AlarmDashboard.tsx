@@ -14,7 +14,7 @@ import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
 import api from '../api'
 import { cachedGet } from '../cache'
-import { useI18n } from '../i18n'
+import { useI18n, numLocale } from '../i18n'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { ExplainCorner, ExplainIcon } from '../components/MetricExplain'
 
@@ -68,7 +68,9 @@ const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: stri
 // 顶部概览卡片（可下钻）
 const SummaryCard = ({ icon, value, label, color, onClick, explain }: {
   icon: React.ReactNode; value: string | number; label: string; color: string; onClick: () => void; explain?: string
-}) => (
+}) => {
+  const { t } = useI18n()
+  return (
   <Card size="small" hoverable onClick={onClick} style={{
     background: WH.cardBg, border: WH.cardBorder, borderRadius: 12,
     cursor: 'pointer', transition: 'all .2s', position: 'relative', overflow: 'hidden',
@@ -87,10 +89,11 @@ const SummaryCard = ({ icon, value, label, color, onClick, explain }: {
       <span style={{ fontSize: 38, opacity: 0.16, color }}>{icon}</span>
     </div>
     <div style={{ textAlign: 'right', fontSize: 10, color: WH.teal, fontWeight: 600, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
-      {label !== 'Critical Alerts' ? '点击下钻' : '点击下钻'} <RightOutlined style={{ fontSize: 9 }} />
+      {t('alarm.drillHint')} <RightOutlined style={{ fontSize: 9 }} />
     </div>
   </Card>
-)
+  )
+}
 
 // 历史告警指标卡片（可点击下钻）
 const HistoryMetricCard = ({ icon, value, label, sub, color, onClick, explain }: {
@@ -139,7 +142,7 @@ export default function AlarmDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<any>(null)
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
 
   // ========== 下钻状态 ==========
   const [drillOpen, setDrillOpen] = useState(false)
@@ -252,13 +255,13 @@ export default function AlarmDashboard() {
           return title + ps.map((p: any) => `${p.marker} ${p.seriesName}: <strong>${p.value}</strong>`).join('<br/>')
         },
       },
-      legend: { data: ['All Alarms', 'Mains Fail (MW)'], bottom: 0, textStyle: { fontSize: 11, color: WH.textMuted } },
+      legend: { data: [t('alarm.seriesAll'), t('alarm.seriesMains')], bottom: 0, textStyle: { fontSize: 11, color: WH.textMuted } },
       grid: { left: 50, right: 20, top: 20, bottom: 50 },
       xAxis: { type: 'category', data: order, axisLabel: axisLabel(), axisLine: axisLine() },
       yAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
       series: [
         {
-          name: 'All Alarms', type: 'bar', barMaxWidth: 24, barGap: '30%',
+          name: t('alarm.seriesAll'), type: 'bar', barMaxWidth: 24, barGap: '30%',
           data: allData,
           itemStyle: {
             color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#64ffda' }, { offset: 1, color: '#4fc3f7' }] },
@@ -266,7 +269,7 @@ export default function AlarmDashboard() {
           },
         },
         {
-          name: 'Mains Fail (MW)', type: 'bar', barMaxWidth: 24,
+          name: t('alarm.seriesMains'), type: 'bar', barMaxWidth: 24,
           data: mainsData,
           itemStyle: {
             color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#ff6b6b' }, { offset: 1, color: '#ffa94d' }] },
@@ -275,7 +278,7 @@ export default function AlarmDashboard() {
         },
       ],
     }
-  }, [data])
+  }, [data, t])
 
   // 区域告警数（柱状，可点击下钻）
   const regionOption = useMemo(() => {
@@ -291,7 +294,9 @@ export default function AlarmDashboard() {
           const idx = ps[0].dataIndex
           const region = entries[idx][0]
           return `<div style="font-weight:600;margin-bottom:4px">${region}</div>` +
-            `Alarms: <strong>${entries[idx][1]}</strong><br/>Affected Sites: <strong>${siteData[idx]}</strong><br/>Mains Fail: <strong>${mainsData[idx]}</strong>`
+            `${t('alarm.tipAlarms')}: <strong>${entries[idx][1]}</strong><br/>` +
+            `${t('alarm.affectedSites')}: <strong>${siteData[idx]}</strong><br/>` +
+            `${t('alarm.tipMainsFail')}: <strong>${mainsData[idx]}</strong>`
         },
       },
       grid: { left: 40, right: 20, top: 10, bottom: 40 },
@@ -309,14 +314,14 @@ export default function AlarmDashboard() {
         label: { show: true, position: 'top', fontSize: 10, color: WH.textMuted, fontWeight: 600 },
       }],
     }
-  }, [data])
+  }, [data, t])
 
   // 各技术制式饼图（可点击下钻）
   const techPieOption = useMemo(() => {
     if (!data?.logical_total) return {}
     const entries = Object.entries(data.logical_total).filter(([t]) => t !== 'OTHER')
     return {
-      tooltip: { ...darkTooltip(), trigger: 'item', formatter: '{b}: {c} alarms ({d}%)' },
+      tooltip: { ...darkTooltip(), trigger: 'item', formatter: t('alarm.pieTooltip') },
       legend: { orient: 'vertical', right: 0, top: 'center', textStyle: { fontSize: 10, color: WH.textMuted }, itemWidth: 10, itemHeight: 10 },
       series: [{
         type: 'pie', radius: ['38%', '65%'], center: ['35%', '50%'],
@@ -329,7 +334,7 @@ export default function AlarmDashboard() {
         emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(100,255,218,0.4)' } },
       }],
     }
-  }, [data?.logical_total])
+  }, [data?.logical_total, t])
 
   // 告警类型 Top（横向柱状，可点击下钻）
   const alarmTypeOption = useMemo(() => {
@@ -350,10 +355,10 @@ export default function AlarmDashboard() {
             borderRadius: [0, 4, 4, 0],
           },
         })),
-        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => p.value.toLocaleString() },
+        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
       }],
     }
-  }, [data?.alarm_type_top])
+  }, [data?.alarm_type_top, locale])
 
   // 严重等级饼图（可点击下钻）
   const sevPieOption = useMemo(() => {
@@ -405,19 +410,19 @@ export default function AlarmDashboard() {
   if (loading) return (
     <div style={{ background: WH.bg, borderRadius: 12, textAlign: 'center', padding: 60 }}>
       <Spin size="large" />
-      <div style={{ marginTop: 12, color: WH.textMuted }}>Loading Alarm Dashboard...</div>
+      <div style={{ marginTop: 12, color: WH.textMuted }}>{t('alarm.loading')}</div>
     </div>
   )
 
   if (error) return (
-    <Alert type="error" message="Failed to load Alarm Dashboard" description={error} showIcon style={{ margin: 16 }} />
+    <Alert type="error" message={t('alarm.loadFailed')} description={error} showIcon style={{ margin: 16 }} />
   )
 
-  if (!data) return <Empty description="No alarm data available" />
+  if (!data) return <Empty description={t('alarm.noData')} />
 
   const { logical_total } = data
   const sevStats = data.severity_stats || {}
-  const fmt = (n: number) => n?.toLocaleString() || '0'
+  const fmt = (n: number) => n?.toLocaleString(numLocale(locale)) || '0'
   const hist = data.history || {}
 
   // 图表点击 → 下钻
@@ -444,16 +449,16 @@ export default function AlarmDashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <FireOutlined style={{ fontSize: 22, color: '#ff6b6b' }} />
             <span style={{ fontSize: 15, fontWeight: 700, color: '#ff8787' }}>
-              Real-time Alarm Status
+              {t('alarm.realtimeStatus')}
             </span>
             <Tag color="error" style={{ borderRadius: 12, fontWeight: 600, cursor: 'pointer' }}
-              onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'all', title: 'Total Active Alarms' })}>
-              {fmt(data.total_alarms)} Active Alarms
+              onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'all', title: t('alarm.totalActive') })}>
+              {fmt(data.total_alarms)} {t('alarm.activeAlarms')}
             </Tag>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: WH.textDim }}>
             <ClockCircleOutlined />
-            <span>Updated: {data.generated_at}</span>
+            <span>{t('alarm.updated')} {data.generated_at}</span>
           </div>
         </div>
       </Card>
@@ -464,101 +469,101 @@ export default function AlarmDashboard() {
           <SummaryCard
             icon={<AlertOutlined />}
             value={fmt(data.total_alarms)}
-            label="Total Active Alarms"
+            label={t('alarm.totalActive')}
             color={WH.teal}
             explain={t('alarm.explain.totalAlarms')}
-            onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'all', title: 'Total Active Alarms' })} />
+            onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'all', title: t('alarm.totalActive') })} />
         </Col>
         <Col span={6}>
           <SummaryCard
             icon={<EnvironmentOutlined />}
             value={fmt(data.affected_sites)}
-            label="Affected Sites"
+            label={t('alarm.affectedSites')}
             color={WH.blue}
             explain={t('alarm.explain.affectedSites')}
-            onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'all', title: 'Affected Sites (all active alarms)' })} />
+            onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'all', title: t('alarm.affectedSitesFull') })} />
         </Col>
         <Col span={6}>
           <SummaryCard
             icon={<ClockCircleOutlined />}
             value={fmt(data.total_alarm_hours)}
-            label="Total Alarm Hours"
+            label={t('alarm.totalHours')}
             color={WH.indigo}
             explain={t('alarm.explain.totalHours')}
-            onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'all', title: 'Total Alarm Hours (all active alarms)' })} />
+            onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'all', title: t('alarm.totalHoursFull') })} />
         </Col>
         <Col span={6}>
           <SummaryCard
             icon={<WarningOutlined />}
             value={fmt(sevStats.Critical || 0)}
-            label="Critical Alerts"
+            label={t('alarm.criticalAlerts')}
             color={WH.sev.Critical}
             explain={t('alarm.explain.critical')}
-            onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'severity', value: 'Critical', title: 'Critical Alerts' })} />
+            onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'severity', value: 'Critical', title: t('alarm.criticalAlerts') })} />
         </Col>
       </Row>
 
       {/* ====== 2.5 历史告警派单时效分析（可下钻） ====== */}
-      <SectionTitle icon={<HistoryOutlined />} title="History Alarm Dispatch Timeliness" sub={`historical alarms · data as of ${hist.generated_at || 'N/A'} · click card to drill down`} />
+      <SectionTitle icon={<HistoryOutlined />} title={t('alarm.historySection')} sub={t('alarm.historySectionSub', { at: hist.generated_at || 'N/A' })} />
       <Row gutter={[12, 12]}>
         <Col span={6}>
           <HistoryMetricCard
             icon={<HistoryOutlined />}
             value={fmt(hist.total || 0)}
-            label="Total History Alarms"
+            label={t('alarm.totalHistory')}
             sub={t('alarm.dispatchedWithTT', { n: fmt(hist.with_tt || 0) })}
             color={WH.blue}
             explain={t('alarm.explain.historyTotal')}
-            onClick={(e) => openDrilldown(e, { source: 'history', metric: 'all', title: 'Total History Alarms' })} />
+            onClick={(e) => openDrilldown(e, { source: 'history', metric: 'all', title: t('alarm.totalHistory') })} />
         </Col>
         <Col span={6}>
           <HistoryMetricCard
             icon={<SendOutlined />}
             value={fmt(hist.dispatch_delay_eflow || 0)}
-            label="Dispatch Delay (Eflow)"
-            sub="Assigned - Server > Assign Delay +10%"
+            label={t('alarm.dispatchDelay')}
+            sub={t('alarm.dispatchDelayDesc')}
             color={WH.indigo}
             explain={t('alarm.explain.dispatchDelay')}
-            onClick={(e) => openDrilldown(e, { source: 'history', metric: 'dispatch_delay_eflow', title: 'Dispatch Delay (Eflow)' })} />
+            onClick={(e) => openDrilldown(e, { source: 'history', metric: 'dispatch_delay_eflow', title: t('alarm.dispatchDelay') })} />
         </Col>
         <Col span={6}>
           <HistoryMetricCard
             icon={<FieldTimeOutlined />}
             value={fmt(hist.alarm_fetch_delay || 0)}
-            label="Alarm Fetch Delay"
-            sub="Server - AlarmRaised > 5 min"
+            label={t('alarm.fetchDelay')}
+            sub={t('alarm.fetchDelayDesc')}
             color={WH.teal}
             explain={t('alarm.explain.fetchDelay')}
-            onClick={(e) => openDrilldown(e, { source: 'history', metric: 'alarm_fetch_delay', title: 'Alarm Fetch Delay' })} />
+            onClick={(e) => openDrilldown(e, { source: 'history', metric: 'alarm_fetch_delay', title: t('alarm.fetchDelay') })} />
         </Col>
         <Col span={6}>
           <HistoryMetricCard
             icon={<HourglassOutlined />}
             value={fmt(hist.dispatch_overdue_total || 0)}
-            label="Dispatch Overdue Total"
+            label={t('alarm.dispatchOverdue')}
             sub={t('alarm.overdueDesc')}
             color={WH.sev.Critical}
             explain={t('alarm.explain.dispatchOverdue')}
-            onClick={(e) => openDrilldown(e, { source: 'history', metric: 'dispatch_overdue_total', title: 'Dispatch Overdue Total' })} />
+            onClick={(e) => openDrilldown(e, { source: 'history', metric: 'dispatch_overdue_total', title: t('alarm.dispatchOverdue') })} />
         </Col>
       </Row>
 
       {/* ====== 3. 技术制式 + 严重等级 + 网络类型 ====== */}
-      <SectionTitle icon={<ApiOutlined />} title="Alarm Breakdown" sub="by Technology, Severity & Network Type" />
+      <SectionTitle icon={<ApiOutlined />} title={t('alarm.breakdown')} sub={t('alarm.breakdownSub')} />
       <Row gutter={[12, 12]}>
         <Col span={8}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Technology Distribution <ExplainIcon text={t('alarm.explain.tech')} /></span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <div role="img" aria-label="Technology Distribution chart"><ReactECharts option={techPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'tech', value: p.name, title: `Tech = ${p.name}` })) }} /></div>
+          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.techDist')} <ExplainIcon text={t('alarm.explain.tech')} /></span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+            <div role="img" aria-label={`${t('alarm.techDist')} ${t('alarm.chartSuffix')}`}><ReactECharts option={techPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'tech', value: p.name, title: t('alarm.drillTech', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
         <Col span={8}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Severity Distribution</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <div role="img" aria-label="Severity Distribution chart"><ReactECharts option={sevPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'severity', value: p.name, title: `Severity = ${p.name}` })) }} /></div>
+          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.sevDist')}</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+            <div role="img" aria-label={`${t('alarm.sevDist')} ${t('alarm.chartSuffix')}`}><ReactECharts option={sevPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'severity', value: p.name, title: t('alarm.drillSeverity', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
         <Col span={8}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Network Type</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <div role="img" aria-label="Network Type chart"><ReactECharts option={netTypeOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'networktype', value: p.name, title: `Network = ${p.name}` })) }} /></div>
+          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.netType')}</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+            <div role="img" aria-label={`${t('alarm.netType')} ${t('alarm.chartSuffix')}`}><ReactECharts option={netTypeOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'networktype', value: p.name, title: t('alarm.drillNetwork', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
       </Row>
@@ -569,7 +574,7 @@ export default function AlarmDashboard() {
           .filter(([tech]) => tech !== 'OTHER')
           .map(([tech, val]: any, idx: number) => (
             <Col span={6} key={tech}>
-              <Card size="small" hoverable onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'tech', value: tech, title: `Tech = ${tech}` })} style={{
+              <Card size="small" hoverable onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'tech', value: tech, title: t('alarm.drillTech', { v: tech }) })} style={{
                 background: WH.cardBg, borderRadius: 12,
                 border: WH.cardBorder, cursor: 'pointer', transition: 'all .2s',
                 boxShadow: '0 4px 16px rgba(0,0,0,0.25)', position: 'relative', overflow: 'hidden',
@@ -586,11 +591,11 @@ export default function AlarmDashboard() {
                   }}>{tech}</div>
                   <div>
                     <div style={{ fontSize: 20, fontWeight: 800, color: WH_COLORS[idx % WH_COLORS.length], lineHeight: 1.2 }}>{fmt(val.site || 0)}</div>
-                    <div style={{ fontSize: 11, color: WH.textMuted }}>Sites · {fmt(val.cell || 0)} Cells</div>
+                    <div style={{ fontSize: 11, color: WH.textMuted }}>{t('alarm.sites')} · {fmt(val.cell || 0)} {t('alarm.cells')}</div>
                   </div>
                 </div>
                 <div style={{ textAlign: 'right', fontSize: 10, color: WH.teal, fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
-                  点击下钻 <RightOutlined style={{ fontSize: 9 }} />
+                  {t('alarm.drillHint')} <RightOutlined style={{ fontSize: 9 }} />
                 </div>
               </Card>
             </Col>
@@ -598,39 +603,39 @@ export default function AlarmDashboard() {
       </Row>
 
       {/* ====== 5. 持续时长分布 + 区域告警分布 ====== */}
-      <SectionTitle icon={<BarChartOutlined />} title="Duration & Regional Distribution" sub="alarm persistence & geographic spread" />
+      <SectionTitle icon={<BarChartOutlined />} title={t('alarm.durationSection')} sub={t('alarm.durationSectionSub')} />
       <Row gutter={[12, 12]}>
         <Col span={12}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Alarm Duration Distribution <ExplainIcon text={t('alarm.explain.duration')} /></span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <div role="img" aria-label="Alarm Duration Distribution chart"><ReactECharts option={durationOption} style={{ height: CHART_HEIGHT + 30 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'duration', value: String(p.name), title: `Duration = ${p.name}` })) }} /></div>
+          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.durationDist')} <ExplainIcon text={t('alarm.explain.duration')} /></span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+            <div role="img" aria-label={`${t('alarm.durationDist')} ${t('alarm.chartSuffix')}`}><ReactECharts option={durationOption} style={{ height: CHART_HEIGHT + 30 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'duration', value: String(p.name), title: t('alarm.drillDuration', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
         <Col span={12}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Alarms by Region <ExplainIcon text={t('alarm.explain.region')} /></span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <div role="img" aria-label="Alarms by Region chart"><ReactECharts option={regionOption} style={{ height: CHART_HEIGHT + 30 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'region', value: String(p.name), title: `Region = ${p.name}` })) }} /></div>
+          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.byRegion')} <ExplainIcon text={t('alarm.explain.region')} /></span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+            <div role="img" aria-label={`${t('alarm.byRegion')} ${t('alarm.chartSuffix')}`}><ReactECharts option={regionOption} style={{ height: CHART_HEIGHT + 30 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'region', value: String(p.name), title: t('alarm.drillRegion', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
       </Row>
 
       {/* ====== 6. 告警类型 Top + 站点属性 ====== */}
-      <SectionTitle icon={<PieChartOutlined />} title="Alarm Type & Site Attribute" sub="most frequent alarm types & site classification" />
+      <SectionTitle icon={<PieChartOutlined />} title={t('alarm.typeSection')} sub={t('alarm.typeSectionSub')} />
       <Row gutter={[12, 12]}>
         <Col span={14}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Top Alarm Types</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <div role="img" aria-label="Top Alarm Types chart"><ReactECharts option={alarmTypeOption} style={{ height: CHART_HEIGHT + 40 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'alarm_type', value: String(p.name), title: `Alarm Type = ${p.name}` })) }} /></div>
+          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.topTypes')}</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+            <div role="img" aria-label={`${t('alarm.topTypes')} ${t('alarm.chartSuffix')}`}><ReactECharts option={alarmTypeOption} style={{ height: CHART_HEIGHT + 40 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'alarm_type', value: String(p.name), title: t('alarm.drillAlarmType', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
         <Col span={5}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Site Attribute</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <div role="img" aria-label="Site Attribute chart"><ReactECharts option={siteAttrOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'site_attribute', value: String(p.name), title: `Site Attr = ${p.name}` })) }} /></div>
+          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.siteAttr')}</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+            <div role="img" aria-label={`${t('alarm.siteAttr')} ${t('alarm.chartSuffix')}`}><ReactECharts option={siteAttrOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'site_attribute', value: String(p.name), title: t('alarm.drillSiteAttr', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
         <Col span={5}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>Severity Tags</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.sevTags')}</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
               {Object.entries(sevStats).map(([k, v]) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '2px 4px', borderRadius: 6 }}
-                  onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'severity', value: k, title: `Severity = ${k}` })}
+                  onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'severity', value: k, title: t('alarm.drillSeverity', { v: k }) })}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(100,255,218,0.08)' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
@@ -640,11 +645,11 @@ export default function AlarmDashboard() {
               ))}
               <div style={{ marginTop: 8, borderTop: '1px solid rgba(100,255,218,0.18)', paddingTop: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '2px 4px', borderRadius: 6 }}
-                  onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'all', title: 'Total Active Alarms' })}
+                  onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'all', title: t('alarm.totalActive') })}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(100,255,218,0.08)' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
-                  <Tag color="cyan" style={{ borderRadius: 12, fontWeight: 500 }}>Total</Tag>
+                  <Tag color="cyan" style={{ borderRadius: 12, fontWeight: 500 }}>{t('alarm.totalTag')}</Tag>
                   <span style={{ fontSize: 18, fontWeight: 700, color: WH.teal }}>{fmt(data.total_alarms)}</span>
                 </div>
               </div>
@@ -656,7 +661,7 @@ export default function AlarmDashboard() {
       {/* ====== 7. 各区域 Top 告警类型（可下钻） ====== */}
       {data.region_alarm_type && Object.keys(data.region_alarm_type).length > 0 && (
         <>
-          <SectionTitle icon={<DashboardOutlined />} title="Regional Alarm Profile" sub="top alarm types per region" />
+          <SectionTitle icon={<DashboardOutlined />} title={t('alarm.regionProfile')} sub={t('alarm.regionProfileSub')} />
           <Card size="small" style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
             <Row gutter={[8, 8]}>
               {Object.entries(data.region_alarm_type)
@@ -670,15 +675,15 @@ export default function AlarmDashboard() {
                     }}>
                       <div style={{ fontWeight: 700, fontSize: 13, color: WH.text, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <Tag color="cyan" style={{ borderRadius: 8, marginRight: 6, cursor: 'pointer' }}
-                          onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'region', value: region, title: `Region = ${region}` })}>{region}</Tag>
+                          onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'region', value: region, title: t('alarm.drillRegion', { v: region }) })}>{region}</Tag>
                         <span style={{ fontSize: 11, color: WH.textDim, cursor: 'pointer' }}
-                          onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'region', value: region, title: `Region = ${region}` })}>
-                          {data.region_alarm_count[region]} alarms ↗
+                          onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'region', value: region, title: t('alarm.drillRegion', { v: region }) })}>
+                          {t('alarm.regionAlarms', { n: data.region_alarm_count[region] })}
                         </span>
                       </div>
                       {Object.entries(types).map(([type, count]: any, i: number) => (
                         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 0', color: WH.textMuted, cursor: 'pointer' }}
-                          onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'alarm_type', value: type, title: `Alarm Type = ${type}` })}
+                          onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'alarm_type', value: type, title: t('alarm.drillAlarmType', { v: type }) })}
                           onMouseEnter={ev => { (ev.currentTarget as HTMLElement).style.color = WH.teal }}
                           onMouseLeave={ev => { (ev.currentTarget as HTMLElement).style.color = WH.textMuted }}
                         >
@@ -704,12 +709,12 @@ export default function AlarmDashboard() {
         anchor={drillAnchor}
         dark
         onClose={() => setDrillOpen(false)}
-        title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan" style={{ borderRadius: 10 }}>{filteredDrillData.length} records</Tag>{drillTotal > drillData.length && <Tag color="red" style={{ borderRadius: 10 }}>{t('alarm.recordCount', { total: fmt(drillTotal), shown: drillData.length })}</Tag>}</span>}
+        title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan" style={{ borderRadius: 10 }}>{t('common.records', { n: filteredDrillData.length })}</Tag>{drillTotal > drillData.length && <Tag color="red" style={{ borderRadius: 10 }}>{t('alarm.recordCount', { total: fmt(drillTotal), shown: drillData.length })}</Tag>}</span>}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
           <Input
             prefix={<SearchOutlined />}
-            placeholder="Search across all fields..."
+            placeholder={t('common.searchAllFields')}
             allowClear
             size="middle"
             style={{ width: 350 }}
@@ -722,7 +727,7 @@ export default function AlarmDashboard() {
             onClick={exportToExcel}
             disabled={!filteredDrillData.length}
           >
-            Export Excel
+            {t('common.exportExcel')}
           </Button>
         </div>
         {drillLoading ? (
@@ -733,7 +738,7 @@ export default function AlarmDashboard() {
             columns={drillColumns}
             size="small"
             rowKey={(r: any) => `${r.site_id ?? 'x'}|${r.server_time ?? r.alarm_raised_time ?? r.tt_id ?? 'x'}|${r.alarm_title ?? 'x'}`}
-            pagination={{ pageSize: 15, size: 'small', showTotal: (total: number) => `${total} items` }}
+            pagination={{ pageSize: 15, size: 'small', showTotal: (total: number) => t('common.itemsTotal', { n: total }) }}
             scroll={{ x: 'max-content' }}
           />
         )}

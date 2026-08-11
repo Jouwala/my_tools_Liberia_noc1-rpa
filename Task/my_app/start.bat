@@ -47,15 +47,20 @@ for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /C:"IPv4"') do (
 )
 :found_ip
 
-:: Start backend（带日志，便于排查启动失败）
-:: MY_APP_TASK_QUEUE=1：Phase 3 队列模式，定时/手动任务投递 task_queue 由 Worker 执行
-:: 注意 set 后紧跟 &（不留空格），否则变量值会带尾部空格导致开关失效
-echo [*] Starting backend server (port 7038, task queue mode)...
-netstat -ano | findstr ":7038" | findstr "LISTENING" >nul 2>&1
+:: Start backend via watchdog（看门狗托管 uvicorn：崩溃/被误杀自动重拉，避免 backend 静默宕机）
+:: 控制台流必须重定向到**另一个**文件：backend_watchdog.py 自己用
+:: logging.FileHandler 打开 log\backend_watchdog.log；若 '>' 指向同一路径，
+:: cmd 会独占句柄导致看门狗 PermissionError [Errno 13] 退出。
+echo [*] Starting backend watchdog (auto-restart backend, port 7038)...
+tasklist /fi "IMAGENAME eq python.exe" /v 2>nul | findstr /i "BackendWatchdog" >nul 2>&1
 if %errorlevel%==0 (
-    echo [*] Backend is already listening on port 7038; reusing it.
+    echo [*] Backend watchdog already running; reusing.
 ) else (
-    start "Backend" /MIN cmd /c "chcp 65001 >nul & set MY_APP_TASK_QUEUE=1& "%PYTHON_EXE%" -m uvicorn backend.main:app --host 0.0.0.0 --port 7038 > "%~dp0backend_runtime.log" 2>&1"
+    :: 清理可能存在的孤儿 backend（旧方式直接启动的 uvicorn），避免看门狗再拉起第二个抢端口
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7038" ^| findstr "LISTENING" 2^>nul') do (
+        taskkill /PID %%a /F >nul 2>&1
+    )
+    start "BackendWatchdog" /MIN cmd /c "chcp 65001 >nul & set CODEBUDDY_SESSION_ID=&set CLAUDE_SESSION_ID=&set CODEBUDDY_SAFE_DELETE_SANDBOX=& "%PYTHON_EXE%" -m backend.backend_watchdog > "%~dp0log\backend_watchdog_console.log" 2>&1"
 )
 
 :: Do not expose the frontend proxy until its backend target is reachable.
@@ -71,7 +76,7 @@ goto wait_backend
 
 :backend_unavailable
 echo [ERROR] Backend did not start on port 7038 within 30 seconds.
-echo         Check backend_runtime.log before starting the frontend.
+echo         Check log\backend_runtime.log before starting the frontend.
 pause
 exit /b 1
 
@@ -81,13 +86,20 @@ echo [OK] Backend is listening on port 7038.
 :: Start task worker watchdog（托管 backend.worker：崩溃/被杀后自动重拉，避免 Last 冻结）
 :: MY_APP_WORKER_GROUPS=u,n,m：三组 worker 并行消费（u=UME 会话组，n=网管/eFlow 组，m=内务轻任务组）；
 :: 组内串行与旧行为一致，组间并行（行为等价并发）。改回单 worker：删除该变量即可。
+:: 控制台流必须重定向到**另一个**文件：worker_watchdog.py 自己用
+:: logging.FileHandler 打开 log\worker_watchdog.log；若 '>' 指向同一路径，
+:: cmd 会独占该文件句柄，看门狗启动时直接 PermissionError [Errno 13] 退出，
+:: 结果是 Web 端照常投递队列、却没有任何 worker 消费（任务永远 pending）。
 echo [*] Starting task worker watchdog (auto-restart worker, groups=u,n,m)...
-start "TaskWorkerWatchdog" /MIN cmd /c "chcp 65001 >nul & set MY_APP_WORKER_GROUPS=u,n,m& "%PYTHON_EXE%" -m backend.worker_watchdog > "%~dp0worker_watchdog.log" 2>&1"
+start "TaskWorkerWatchdog" /MIN cmd /c "chcp 65001 >nul & set CODEBUDDY_SESSION_ID=&set CLAUDE_SESSION_ID=&set CODEBUDDY_SAFE_DELETE_SANDBOX=& set MY_APP_WORKER_GROUPS=u,n,m& "%PYTHON_EXE%" -m backend.worker_watchdog > "%~dp0log\worker_watchdog_console.log" 2>&1"
 
-:: Start frontend
-echo [*] Starting frontend dev server (port 7090)...
+:: Start frontend（生产模式：vite preview 托管 dist 构建产物）
+:: 说明：dev 模式（npm run dev）直出未打包源码，浏览器内存开销大，易触发标签页
+:: Out of Memory 崩溃；改用 vite preview 服务压缩后的 dist（见 vite.config.ts preview）。
+:: 注意：改前端源码后需先 npm run build 再启动，否则页面停留在旧构建。
+echo [*] Starting frontend preview server (port 7090, serving dist/)...
 cd frontend
-start "Frontend" /MIN cmd /c "%NPM_CMD% run dev > "%~dp0frontend_runtime.log" 2>&1"
+start "Frontend" /MIN cmd /c "%NPM_CMD% run preview > "%~dp0log\frontend_runtime.log" 2>&1"
 cd ..
 
 :: Wait and verify backend
@@ -99,16 +111,28 @@ netstat -ano | findstr ":7038" | findstr "LISTENING" >nul 2>&1
 if %errorlevel%==0 (
     echo [OK] Backend is running on port 7038
 ) else (
-    echo [WARN] Backend may have failed to start! Check backend_runtime.log
+    echo [WARN] Backend may have failed to start! Check log\backend_runtime.log
     echo        Common causes: port conflict, missing dependencies, Python version issue
-    type "%~dp0backend_runtime.log" 2>nul
+    type "%~dp0log\backend_runtime.log" 2>nul
 )
 
 :: 检测看门狗（worker 管理器）是否存活；看门狗负责保活分组 worker
+:: 只看 watchdog PID 文件不够：进程死了 PID 文件仍会残留，导致"假 OK"。
+:: 必须同时确认三组 worker 的 PID 文件都已生成，才代表队列真的有消费者。
 if exist "%~dp0backend\worker_watchdog.pid" (
     echo [OK] Task worker watchdog is running (auto-restart enabled, groups=u,n,m)
 ) else (
-    echo [WARN] Worker watchdog PID file not found! Check worker_watchdog.log
+    echo [WARN] Worker watchdog PID file not found! Check log\worker_watchdog_console.log
+)
+
+set /a WCOUNT=0
+if exist "%~dp0backend\worker_u.pid" set /a WCOUNT+=1
+if exist "%~dp0backend\worker_n.pid" set /a WCOUNT+=1
+if exist "%~dp0backend\worker_m.pid" set /a WCOUNT+=1
+echo [*] Worker groups up: %WCOUNT% / 3
+if %WCOUNT% LSS 3 (
+    echo [WARN] Task queue has no full consumer set! Tasks will pile up as pending.
+    echo        Check log\worker_runtime.log and log\worker_watchdog.log
 )
 
 :: Auto-open browser

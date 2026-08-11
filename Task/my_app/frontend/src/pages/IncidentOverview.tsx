@@ -1,4 +1,5 @@
 import LegacyToolFrame from '../components/LegacyToolFrame'
+import { useI18n } from '../i18n'
 
 /**
  * 事件总览（Incident Overview）
@@ -12,5 +13,6 @@ import LegacyToolFrame from '../components/LegacyToolFrame'
  * 路由见 backend/routers/incident_overview.py。
  */
 export default function IncidentOverview() {
-  return <LegacyToolFrame file="incident-overview.html" title="Incident Overview" />
+  const { t } = useI18n()
+  return <LegacyToolFrame file="incident-overview.html" title={t('shell.incidentOverview')} />
 }

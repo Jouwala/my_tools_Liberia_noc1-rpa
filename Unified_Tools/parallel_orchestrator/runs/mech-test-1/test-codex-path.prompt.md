@@ -1,0 +1,1 @@
+这是一段测试 prompt，验证 stdin 注入链路。包含中文与符号 ? %s 'ON CONFLICT'。

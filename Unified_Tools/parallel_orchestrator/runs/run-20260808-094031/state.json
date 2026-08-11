@@ -1,0 +1,25 @@
+{
+  "run_id": "run-20260808-094031",
+  "created": "2026-08-08T09:40:31",
+  "source": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\tasks_phase65_writepath_fix.json",
+  "tasks": {
+    "p65-writepath-fix": {
+      "executor": "codex",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "pid": 18864,
+      "started": 1786182031.2891238,
+      "prompt_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\run-20260808-094031\\p65-writepath-fix.prompt.md",
+      "out_log": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\run-20260808-094031\\p65-writepath-fix.out.log",
+      "rc_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\run-20260808-094031\\p65-writepath-fix.rc"
+    },
+    "p65-searchpath-report": {
+      "executor": "qoder",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "pid": 19172,
+      "started": 1786182031.6506815,
+      "prompt_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\run-20260808-094031\\p65-searchpath-report.prompt.md",
+      "out_log": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\run-20260808-094031\\p65-searchpath-report.out.log",
+      "rc_file": "d:\\01_RPA\\Unified_Tools\\parallel_orchestrator\\runs\\run-20260808-094031\\p65-searchpath-report.rc"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+# parallel_orchestrator 依赖清单
+# 本工具完全使用 Python 3.10+ 标准库（argparse/subprocess/csv/py_compile/re/json），
+# 无第三方依赖，无需 pip install。
+#
+# 外部执行器（非 pip 依赖，需本机已安装）：
+#   - codex CLI : C:\Users\ZTEEMS\AppData\Roaming\npm\node_modules\@openai\codex
+#   - qoderclicn: C:\Users\ZTEEMS\AppData\Roaming\npm\qoderclicn.cmd

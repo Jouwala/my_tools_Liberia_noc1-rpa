@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import {
   Card, Button, Tag, Space, List, Spin, message, Modal, Select,
   Input, Switch, Tooltip, Badge, Progress, Row, Col, Typography, Collapse, Alert,
@@ -11,6 +11,7 @@ import {
   SettingOutlined,
   ReloadOutlined,
   PlayCircleOutlined,
+  StopOutlined,
   PauseCircleOutlined,
   ScheduleOutlined,
   HistoryOutlined,
@@ -43,6 +44,17 @@ import { TaskHistoryModal } from './datasync/TaskHistoryModal'
 import type { TaskInfo, TaskDetail, RunRecord, FailureCluster, FailureAgg } from './datasync/types'
 
 const { Text, Title } = Typography
+
+// 任务状态分类：统计模块与筛选共用同一判定，保证“数字”与“筛选结果”严格一致
+export type TaskStatusKey = 'all' | 'running' | 'success' | 'failed' | 'disabled' | 'unknown'
+
+function classifyTaskStatus(task: TaskInfo, isRunning: boolean): Exclude<TaskStatusKey, 'all'> {
+  if (isRunning) return 'running'
+  if (!task.enabled) return 'disabled'
+  const last = task.recent_runs && task.recent_runs.length > 0 ? task.recent_runs[0] : null
+  if (!last) return 'unknown'
+  return last.success ? 'success' : 'failed'
+}
 
 // ===== Main Component =====
 export default function DataSync() {
@@ -80,18 +92,16 @@ export default function DataSync() {
     if (kw) {
       out = out.filter(t =>
         t.name.toLowerCase().includes(kw) ||
+        (t.name_zh || '').toLowerCase().includes(kw) ||
+        (t.name_en || '').toLowerCase().includes(kw) ||
         t.task_id.toLowerCase().includes(kw) ||
         (t.description || '').toLowerCase().includes(kw)
       )
     }
     if (statusFilter !== 'all') {
       out = out.filter(t => {
-        const last = (t.recent_runs && t.recent_runs[0]) || null
-        if (statusFilter === 'failed') return last ? !last.success : false
-        if (statusFilter === 'success') return last ? last.success : false
-        if (statusFilter === 'running') return !!(runningMap[t.task_id] || localRunning.has(t.task_id))
-        if (statusFilter === 'disabled') return !t.enabled
-        return true
+        const isRunning = !!(runningMap[t.task_id] || localRunning.has(t.task_id))
+        return classifyTaskStatus(t, isRunning) === statusFilter
       })
     }
     if (categoryFilter !== 'all') out = out.filter(t => t.category === categoryFilter)
@@ -143,6 +153,13 @@ export default function DataSync() {
     const timer = window.setInterval(() => setNowTs(Date.now()), 30_000)
     return () => window.clearInterval(timer)
   }, [])
+
+  // 实时刷新：每 30s 强制重新拉取任务列表，使失败横幅与状态卡片反映最新执行结果
+  // （页面原仅在挂载/手动刷新/任务完成时拉数，长时间打开会停留在旧快照，表现为"不是实时的"）
+  useEffect(() => {
+    const timer = window.setInterval(() => { loadTasks(true) }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [loadTasks])
 
   // 失败聚合：仅在弹窗打开时拉取，避免常驻轮询
   useEffect(() => {
@@ -214,6 +231,28 @@ export default function DataSync() {
       }
     } catch {
       message.error(t('sync.scheduleUpdateFailed'))
+    }
+  }
+
+  const handleStop = async (taskId: string) => {
+    // 乐观清除运行标记，真实状态由后端轮询接管
+    setLocalRunning(prev => { const s = new Set(prev); s.delete(taskId); return s })
+    startedRef.current.delete(taskId)
+    try {
+      const res = await api.post(`/tasks/${taskId}/stop`)
+      if (res.data.success) {
+        message.success(t('sync.stopSuccess', { name: tasks.find(t2 => t2.task_id === taskId)?.name || taskId }))
+        loadTasks(true)
+      } else if (res.data.error) {
+        message.error(res.data.error)
+        // 停止失败（如任务已不在运行）时恢复乐观标记，交由轮询修正
+        if (!res.data.stopped) {
+          setLocalRunning(prev => new Set(prev).add(taskId))
+          startedRef.current.add(taskId)
+        }
+      }
+    } catch {
+      message.error(t('sync.stopFailed', { name: taskId }))
     }
   }
 
@@ -292,7 +331,7 @@ export default function DataSync() {
     {
       label_zh: 'eFlow 数据同步',
       label_en: 'eFlow Data Sync',
-      task_ids: ['eflow_sync', 'eflow_history_alarm', 'eflow_active_alarm'],
+      task_ids: ['eflow_sync', 'eflow_history_alarm', 'eflow_active_alarm', 'eflow_sync_full'],
     },
     {
       label_zh: 'RAN UME 数据同步',
@@ -368,15 +407,66 @@ export default function DataSync() {
       label_en: 'Mailbox Cleanup',
       task_ids: ['mailbox_cleanup'],
     },
+    {
+      label_zh: 'Incident 事件总览同步',
+      label_en: 'Incident Overview Sync',
+      task_ids: ['incident_overview_sync'],
+    },
+    {
+      label_zh: '失败自愈',
+      label_en: 'Failure Self-Healing',
+      task_ids: ['auto_retry_failed', 'email_recovery'],
+    },
   ]
 
   // 根据 task_id 快速查找任务
   const taskMap = new Map(tasks.map(t => [t.task_id, t]))
 
-  // 当前处于失败状态的任务（取各任务最新一条执行记录判断），用于顶部汇总横幅
-  const failedTasks = allTasks.filter(
-    t => t.recent_runs && t.recent_runs.length > 0 && !t.recent_runs[0].success,
-  )
+  // 顶部汇总横幅：当前处于失败状态的任务（取各任务最新一条执行记录判断）。
+  // 排除"正在运行"的任务——其可能正在重跑，既避免与"进行中"卡片重复计数，也更贴近实时。
+  const failedTasks = allTasks.filter(t => {
+    const isRunning = !!(runningMap[t.task_id] || localRunning.has(t.task_id))
+    if (isRunning) return false
+    return !!(t.recent_runs && t.recent_runs.length > 0 && !t.recent_runs[0].success)
+  })
+
+  // 各状态任务计数：统计模块与筛选共用 classifyTaskStatus，数字与筛选结果严格一致
+  const statusCounts = useMemo(() => {
+    const counts: Record<Exclude<TaskStatusKey, 'all'>, number> = {
+      running: 0, success: 0, failed: 0, disabled: 0, unknown: 0,
+    }
+    allTasks.forEach(t => {
+      const isRunning = !!(runningMap[t.task_id] || localRunning.has(t.task_id))
+      counts[classifyTaskStatus(t, isRunning)]++
+    })
+    return counts
+  }, [allTasks, runningMap, localRunning])
+
+  // 状态统计卡配置：颜色 / 图标 / 文案 / 对应筛选值
+  const statusMeta: {
+    key: Exclude<TaskStatusKey, 'unknown'>
+    color: string
+    icon: ReactNode
+  }[] = [
+    { key: 'all', color: WH.teal, icon: <AppstoreOutlined /> },
+    { key: 'running', color: WH.blue, icon: <SyncOutlined spin /> },
+    { key: 'success', color: '#51cf66', icon: <CheckCircleFilled /> },
+    { key: 'failed', color: '#ff6b6b', icon: <CloseCircleFilled /> },
+    { key: 'disabled', color: WH.textDim, icon: <PauseCircleOutlined /> },
+  ]
+
+  const statusLabel = (key: Exclude<TaskStatusKey, 'unknown'>) => {
+    if (key === 'all') return t('sync.statAll')
+    if (key === 'running') return t('sync.statRunning')
+    if (key === 'success') return t('sync.statSuccess')
+    if (key === 'failed') return t('sync.statFailed')
+    return t('sync.statDisabled')
+  }
+
+  const toggleStatusFilter = (key: Exclude<TaskStatusKey, 'unknown'>) => {
+    if (key === 'all') { setStatusFilter('all'); return }
+    setStatusFilter(prev => (prev === key ? 'all' : key))
+  }
 
   const renderTaskCard = (taskId: string) => {
     const task = taskMap.get(taskId)
@@ -493,7 +583,7 @@ export default function DataSync() {
                     color: isImminent(task) ? '#ffa940' : WH.textDim,
                     fontWeight: isImminent(task) ? 600 : 400,
                   }}>
-                    （{getNextRunEta(task)}）
+                    {locale === 'zh' ? `（${getNextRunEta(task)}）` : `(${getNextRunEta(task)})`}
                   </span>
                 </span>
               )}
@@ -546,6 +636,16 @@ export default function DataSync() {
               {isRunning ? (locale === 'zh' ? '执行中...' : 'Running...') : (locale === 'zh' ? '立即执行' : 'Run Now')}
             </Button>
             <Button
+              danger
+              size="small"
+              icon={<StopOutlined />}
+              disabled={!isRunning}
+              onClick={() => handleStop(task.task_id)}
+              style={isRunning ? { color: '#ff7875', borderColor: 'rgba(255,120,117,0.4)', background: 'rgba(255,120,117,0.08)' } : undefined}
+            >
+              {locale === 'zh' ? '停止执行' : 'Stop'}
+            </Button>
+            <Button
               size="small"
               icon={<HistoryOutlined />}
               onClick={() => handleOpenHistory(task.task_id)}
@@ -573,6 +673,68 @@ export default function DataSync() {
         <Button icon={<ReloadOutlined />} onClick={() => loadTasks(true)} loading={loading} style={{ color: WH.text, borderColor: 'rgba(100,255,218,0.35)', background: 'rgba(100,255,218,0.08)' }}>
           {t('common.refresh')}
         </Button>
+      </div>
+
+      {/* 状态统计模块：各状态任务数量 + 点击筛选 */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          marginBottom: 10, gap: 12, flexWrap: 'wrap',
+        }}>
+          <Text strong style={{ color: WH.text, fontSize: 14 }}>
+            <BarChartOutlined style={{ marginRight: 6, color: WH.teal }} />
+            {t('sync.statTitle')}
+          </Text>
+          <Text style={{ color: WH.textDim, fontSize: 12 }}>{t('sync.statHint')}</Text>
+        </div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          {statusMeta.map(({ key, color, icon }) => {
+            const count = key === 'all' ? allTasks.length : statusCounts[key]
+            const active = statusFilter === key
+            return (
+              <div
+                key={key}
+                role="button"
+                tabIndex={0}
+                onClick={() => toggleStatusFilter(key)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleStatusFilter(key) } }}
+                style={{
+                  flex: '1 1 140px',
+                  minWidth: 120,
+                  cursor: 'pointer',
+                  background: active ? `${color}1f` : WH.cardBg,
+                  border: `1px solid ${active ? color : 'rgba(100,255,218,0.18)'}`,
+                  borderRadius: 12,
+                  padding: '14px 16px',
+                  transition: 'all .15s ease',
+                  boxShadow: active
+                    ? `0 0 0 1px ${color}, 0 6px 18px rgba(0,0,0,0.35)`
+                    : '0 4px 16px rgba(0,0,0,0.25)',
+                  position: 'relative',
+                  outline: 'none',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ color, fontSize: 18 }}>{icon}</span>
+                  {active && (
+                    <Tag
+                      color={color}
+                      style={{ fontSize: 10, lineHeight: '16px', margin: 0, padding: '0 6px', borderRadius: 4 }}
+                    >
+                      {t('sync.statActive')}
+                    </Tag>
+                  )}
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: WH.text, lineHeight: 1 }}>
+                  {count}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, color: WH.textMuted }}>
+                  {statusLabel(key)}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       {/* 列表检索 / 筛选 / 排序 */}
@@ -603,7 +765,7 @@ export default function DataSync() {
           style={{ width: 140 }}
           options={[
             { value: 'all', label: locale === 'zh' ? '全部分类' : 'All Categories' },
-            ...Object.keys(CATEGORY_CONFIG).map(c => ({ value: c, label: CATEGORY_CONFIG[c].label_zh })),
+            ...Object.keys(CATEGORY_CONFIG).map(c => ({ value: c, label: locale === 'zh' ? CATEGORY_CONFIG[c].label_zh : CATEGORY_CONFIG[c].label_en })),
           ]}
         />
         <Select
@@ -642,19 +804,20 @@ export default function DataSync() {
           }
           description={
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
-              {failedTasks.map(t => (
-                <div key={t.task_id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <Text style={{ color: WH.text, fontSize: 12 }}>• {t.name}</Text>
+              {/* 循环变量命名为 task：用 t 会遮蔽 i18n 的 t()，导致此处无法翻译 */}
+              {failedTasks.map(task => (
+                <div key={task.task_id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <Text style={{ color: WH.text, fontSize: 12 }}>• {task.name}</Text>
                   <Text
                     code
-                    onClick={() => handleOpenHistory(t.task_id)}
+                    onClick={() => handleOpenHistory(task.task_id)}
                     style={{
                       color: '#ff8788', fontSize: 11, maxWidth: 360, overflow: 'hidden',
                       textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer',
                       background: 'rgba(255,77,79,0.1)', borderColor: 'rgba(255,77,79,0.25)',
                     }}
                   >
-                    {firstLine(t.recent_runs?.[0]?.error || '未知错误')}
+                    {firstLine(task.recent_runs?.[0]?.error || t('common.unknownError'))}
                   </Text>
                 </div>
               ))}

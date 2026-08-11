@@ -1,0 +1,20 @@
+{
+  "name": "my_app Phase 5 分散库归口 Wave2：B 车道（lte_pl/fw/eflow）+ app 主库（依赖 Wave1 transfer_lib，待框架验证后派发）",
+  "defaults": {
+    "cwd": "D:\\01_RPA\\Task\\my_app"
+  },
+  "tasks": [
+    {
+      "id": "p5-laneB-bigtables",
+      "executor": "qoder",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "prompt": "任务：my_app 迁移 Phase 5 Wave2 —— 用 Wave1 已交付的搬运框架搬 B 车道三域（lte_pl / fw / eflow）。\n\n【前置阅读，必须先读再动手】\n1. backend\\migrations\\transfer_lib.py 与 transfer_lib.md —— Wave1 交付的公共搬运框架（幂等 DROP+重建、分批 executemany、行数核对），直接复用，禁止重复造轮子。\n2. backend\\migrations\\transfer_lane_a.py —— Wave1 的调用范例（备份、类型修正钩子、行数对照的写法）。\n3. D:\\01_RPA\\Task\\my_app\\my_app_migration_plan.md —— 风险 2（eflow_tt 无主键）、风险 5（eflow.sqlite3 只读快照迁）。\n\n【运行环境】Python：D:\\01_RPA\\Task\\my_app\\.venv-test\\Scripts\\python.exe。工作目录 D:\\01_RPA\\Task\\my_app。\n\n【交付：backend\\migrations\\transfer_lane_b.py】按以下实测清单搬运（2026-08-07 盘点行数）：\n1. data\\packet_lost\\lte_pl.sqlite3（194MB）→ schema lte_pl：packet_loss_data(750371) / pl_meta(5) / site_pl_summary(670)。75 万行大表必须分块读（chunksize≤2万）+ executemany 批写。\n2. backend\\services\\fw_kpi\\fw_db.sqlite（8MB）→ schema fw：device_whole_throughput(42580)。\n3. data\\eflow\\eflow.sqlite3（425MB，只读快照）→ schema eflow：eflow_cr(205) / eflow_pm(1632) / eflow_tt(28455) / eflow_wo(10000) / history_alarm(165) / person(133) / realtime_alarm(56) / site(808)。注意 eflow_tt 无主键、无唯一约束，纯搬运不建唯一索引。另注意：schema ran_ume 已被 Wave1 占用（写库 backend\\services\\ran_kpi_daily.sqlite3），你绝不碰 ran_ume schema；读库 data\\ran_ume\\ran_kpi_daily.sqlite3（4 表 768/480/576/480 行）搬到新 schema ran_ume_ro（先 CREATE SCHEMA IF NOT EXISTS ran_ume_ro；写/读两库分离是代码现状，后续 engine_override 按 schema 区分）。\n\n【搬运前备份（R0）】三个源文件拷贝到 backup\\phase5_wave2_<时间戳>\\（425MB 大文件允许用硬链接或注明体积跳过拷贝，但必须记录源文件 SHA256 前后一致证明未改动）。\n\n【硬性红线】\n- 只写 PG 的 lte_pl / fw / eflow / ran_ume_ro 四个 schema；禁止动 app / battery / ms_sla / ran_ume schema。\n- 禁止修改 MY_APP_DB_MODE（保持 sqlite）、禁止改 backend\\.env、禁止改 transfer_lib.py。\n- 源 sqlite 只读。白名单：backend\\migrations\\transfer_lane_b.py、backup\\ 产物。不做 git 操作。\n\n【完成后输出】① 每表 源行数→目标行数 对照（必须全部一致）；② py_compile 结果；③ 总耗时秒数。"
+    },
+    {
+      "id": "p5-app-maindb",
+      "executor": "codex",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "prompt": "任务：my_app 迁移 Phase 5 Wave2 —— app 主库归口：PG app schema 建表（Alembic 实跑）+ app.db 数据搬运。\n\n【前置阅读，必须先读再动手】\n1. backend\\migrations\\transfer_lib.py 与 transfer_lib.md —— Wave1 公共搬运框架，直接复用。\n2. alembic\\env.py —— pg 模式读 backend\\.env 的 DATABASE_URL；alembic\\versions\\ 三个迁移（0001/0002/5415704359dc_phase4_coverage，幂等建表）。\n3. D:\\01_RPA\\Task\\my_app\\my_app_migration_plan.md —— 风险 5（app.db 是 eflow_tt 的唯一活源）、Phase 2 第 61 条（PG 建表由 Alembic 接管，禁止 create_all）。\n\n【运行环境】Python：D:\\01_RPA\\Task\\my_app\\.venv-test\\Scripts\\python.exe（alembic 1.19.0）。工作目录 D:\\01_RPA\\Task\\my_app。\n\n【步骤】\n1. 备份（R0）：拷贝 db\\app.db 到 backup\\phase5_wave2_<时间戳>\\。\n2. PG 建表：设环境变量 MY_APP_DB_MODE=pg（仅本命令进程内），运行 .venv-test 的 python -m alembic upgrade head，在 PG app schema 建出受管表；确认 alembic_version 落在 head。\n3. 数据搬运：写 backend\\migrations\\transfer_app.py 调用 transfer_lib，把 db\\app.db（只读）搬到 PG app schema。表清单以 2026-08-07 实测 39 表为准，但排除 _metadata（sqlite 元数据性质）与 alembic_version（PG 已由步骤 2 管理）；其余 37 表全搬（含 eflow_tt 28455 行、inventory_details 32013 行、task_execution_log 1852 行等）。注意：transfer_lib 默认 DROP+重建会摧毁 Alembic 建好的表结构——搬运 app 域时必须用「只 INSERT 不重建」模式（若 transfer_lib 无此模式，为它增加 insert-only 参数开关，这是允许的唯一框架改动，保持向后兼容并更新 transfer_lib.md）。\n4. 行数核对：37 表逐一 源行数 vs 目标行数 对照输出。\n\n【硬性红线】\n- 只写 PG 的 app schema；禁止动其它 schema。\n- 禁止修改 backend\\.env 文件本身、禁止把 MY_APP_DB_MODE=pg 写进任何持久配置（运行态默认必须保持 sqlite）。\n- 源 db\\app.db 只读（生产应用可能还在用，用 mode=ro URI 打开）。\n- 不做 git 操作。\n\n【完成后输出】① alembic upgrade head 结果与 app schema 表数；② 37 表行数对照（必须全部一致）；③ transfer_lib 若改动给出 diff 摘要；④ py_compile 结果；⑤ 总耗时秒数。"
+    }
+  ]
+}

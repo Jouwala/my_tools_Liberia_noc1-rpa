@@ -1,0 +1,18 @@
+{
+  "name": "my_app Phase 3 方言改写收尾（2026-08-07 实测残留盘点生成）",
+  "defaults": { "cwd": "D:\\01_RPA\\Task\\my_app" },
+  "tasks": [
+    {
+      "id": "fix-ran-ume-main-kpi",
+      "executor": "codex",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "prompt": "任务：把 backend/services/ran_ume_main_kpi.py 改写为 sqlite/pg 双模兼容（my_app 迁移 Phase 3 收尾）。\n\n【前置阅读，必须先读再动手】\n1. backend/dialect_helpers.py —— 双模工具模块（list_table_names / table_columns / safe_pragma / upsert / write_df），改写的唯一入口。\n2. backend/routers/gis.py —— 已验收的参考范本（sqlite_master + PRAGMA table_info 的标准改法）。\n3. backend/database.py —— DB_MODE 熔断开关、get_raw_connection（pg 模式返回 _PsycopgRaw 包装连接，自动把 ? 占位符转 %s）。\n\n【本文件已知残留（2026-08-07 grep 实测）】\n1. 约 897 行：`SELECT name FROM sqlite_master WHERE type='table' AND name=...` 裸查询 → 改用 dialect_helpers.list_table_names(conn) 判断表存在性。\n2. 约 903、952 行：`df.to_sql(db_table, conn, if_exists='replace', index=False)` —— 若 conn 是裸连接（sqlite3/psycopg2/_PsycopgRaw），pandas 在 pg 下会崩；改走 dialect_helpers.write_df(conn, df, table, if_exists=...)（helper 内部保证 pg 模式拿 SQLAlchemy connectable）。\n3. 通读全文排查其余调优类 PRAGMA（busy_timeout/journal_mode/synchronous/cache_size/temp_store）→ 改 safe_pragma(conn, ...)；列内省 PRAGMA table_info → dialect_helpers.table_columns。\n\n【硬性规则】\n- SQL 里的 `?` 占位符一律保留不动（_PsycopgRaw 连接层自动转换，切勿手工改 %s）。\n- sqlite 模式行为必须与改写前完全一致（零回归）；所有 pg 分支以 DB_MODE 或 isinstance(conn, sqlite3.Connection) 判定。\n- INSERT OR REPLACE / INSERT OR IGNORE 如存在 → dialect_helpers.upsert 或 ON CONFLICT 分支（需真实主键）。\n- 只允许修改 backend/services/ran_ume_main_kpi.py 这一个文件；不新建文件、不做 git 操作、不改其它任何文件。\n- 完成后用 python -m py_compile 验证该文件无语法错误，并在输出末尾列出你改动的行号区间。"
+    },
+    {
+      "id": "review-tosql-lastrowid",
+      "executor": "qoder",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "prompt": "任务：复核并修复 2 个文件里疑似 PG 不兼容的写法（my_app 迁移 Phase 3 收尾）。\n\n【前置阅读】backend/dialect_helpers.py（双模工具）、backend/routers/gis.py（参考范本）、backend/database.py（DB_MODE / _PsycopgRaw：pg 模式裸连接自动 ? 转 %s）。\n\n【复核点】\n1. backend/services/eflow_data_mapper.py 约 495 行 `df.to_sql(table, conn, if_exists='replace', index=False, chunksize=5000)`：确认 conn 的来源与类型。若可能是裸连接（sqlite3/psycopg2/_PsycopgRaw），改为 dialect_helpers.write_df；若上游已保证是 SQLAlchemy engine/connectable 或已按 DB_MODE 分支，则不改，只在报告中说明证据。\n2. backend/services/task_runner.py 约 144 行 `queue_id = cur.lastrowid`：psycopg2 的 lastrowid 在 INSERT 时不可靠。若该连接可能是 pg 模式，按 DB_MODE 分支处理：sqlite 保留 lastrowid；pg 用 `INSERT ... RETURNING id` 取主键。sqlite 路径行为必须不变。\n\n【硬性规则】\n- SQL 的 `?` 占位符保留不动（连接层自动转换）。\n- 只允许修改上述 2 个文件；证据充分无需修改时就不改，严禁顺手重构。\n- 不新建文件、不做 git 操作。\n- 完成后对改过的文件跑 python -m py_compile，并在输出末尾按文件给出：结论（改/不改）+ 证据（行号与代码片段）。"
+    }
+  ]
+}

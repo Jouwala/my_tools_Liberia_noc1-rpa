@@ -1,4 +1,5 @@
 import LegacyToolFrame from '../components/LegacyToolFrame'
+import { useI18n } from '../i18n'
 
 /**
  * IP 链路探测（IP Trace）
@@ -11,5 +12,6 @@ import LegacyToolFrame from '../components/LegacyToolFrame'
  * 提供 /trace /status /stop /analyze 四个端点，与原版 Flask 路由一一对应。
  */
 export default function IpTrace() {
-  return <LegacyToolFrame file="ip-trace.html" title="IP Trace" />
+  const { t } = useI18n()
+  return <LegacyToolFrame file="ip-trace.html" title={t('shell.ipTrace')} />
 }

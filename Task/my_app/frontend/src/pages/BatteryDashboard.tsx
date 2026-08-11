@@ -546,7 +546,7 @@ export default function BatteryDashboard() {
             <ClockCircleOutlined /> {t('batt.lastSync')}: {data.meta.last_sync_ts || '--'}
           </Tag>
           <Tag style={{ border: 'none', background: 'rgba(100,255,218,0.1)', color: WH.textMuted }}>
-            {t('batt.freshDef')}: ≤{thresholds.fresh_hours}h · {t('batt.staleDef')}: &gt;{thresholds.stale_days}d
+            {`${t('batt.freshDef')}: ≤${thresholds.fresh_hours}${t('batt.unitH')} · ${t('batt.staleDef')}: >${thresholds.stale_days}${t('batt.unitD')}`}
           </Tag>
           {Object.entries(alarmCounts).map(([sev, n]) => (
             <Tag key={sev} color={SEV_COLORS[sev]} style={{ border: 'none', fontWeight: 600 }}>{sev}: {n as number}</Tag>
@@ -579,7 +579,7 @@ export default function BatteryDashboard() {
             <div style={{ fontSize: 12, color: WH.textMuted, marginBottom: 6 }}>{t('batt.status')}</div>
             <Select mode="multiple" allowClear size="small" style={{ width: '100%', marginBottom: 14 }}
               placeholder={t('batt.allStatuses')}
-              options={[{ label: 'Charge', value: 'Charge' }, { label: 'Discharge', value: 'Discharge' }, { label: 'Unknown', value: 'Unknown' }]}
+              options={[{ label: t('batt.statusCharge'), value: 'Charge' }, { label: t('batt.statusDischarge'), value: 'Discharge' }, { label: t('batt.statusUnknown'), value: 'Unknown' }]}
               value={statuses} onChange={setStatuses} maxTagCount="responsive" />
 
             <div style={{ fontSize: 12, color: WH.textMuted, marginBottom: 2 }}>
@@ -589,7 +589,7 @@ export default function BatteryDashboard() {
               styles={{ track: { background: WH.teal } }} />
 
             <div style={{ fontSize: 12, color: WH.textMuted, marginBottom: 2 }}>
-              SOC ({socRange[0]} - {socRange[1]}%)
+              {t('batt.soc')} ({socRange[0]} - {socRange[1]}%)
             </div>
             <Slider range min={0} max={100} value={socRange} onChange={v => setSocRange(v as [number, number])}
               styles={{ track: { background: WH.blue } }} />
@@ -709,9 +709,9 @@ export default function BatteryDashboard() {
           <Card size="small" style={cardStyle}
             extra={
               <Radio.Group size="small" value={trendDays} onChange={e => setTrendDays(e.target.value)}>
-                <Radio.Button value={1}>24h</Radio.Button>
-                <Radio.Button value={7}>7d</Radio.Button>
-                <Radio.Button value={30}>30d</Radio.Button>
+                <Radio.Button value={1}>{t('batt.range24h')}</Radio.Button>
+                <Radio.Button value={7}>{t('batt.range7d')}</Radio.Button>
+                <Radio.Button value={30}>{t('batt.range30d')}</Radio.Button>
               </Radio.Group>
             }>
             {(trend.points || []).length === 0

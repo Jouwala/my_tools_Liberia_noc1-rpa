@@ -12,7 +12,7 @@ import ReactECharts from 'echarts-for-react'
 import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
 import api from '../api'
-import { useI18n } from '../i18n'
+import { useI18n, numLocale } from '../i18n'
 import { useDataTimestamps } from '../useDataTimestamps'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { ExplainIcon } from '../components/MetricExplain'
@@ -67,7 +67,7 @@ const getUniqueFilters = (data: any[], key: string) => {
 }
 
 export default function TTWODashboard() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { lastSync, isSynced } = useDataTimestamps()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
@@ -128,7 +128,7 @@ export default function TTWODashboard() {
       .finally(() => setLoading(false))
   }, [timeRange, selectedRegion])
 
-  const fmt = (n: number) => n?.toLocaleString() || '0'
+  const fmt = (n: number) => n?.toLocaleString(numLocale(locale)) || '0'
 
   // 下钻功能
   const openDrilldown = useCallback((e?: React.MouseEvent | null, dimension?: string, value?: string) => {
@@ -209,26 +209,26 @@ export default function TTWODashboard() {
     const counts = data.mttr_weekly.map((w: any) => w.count)
     return {
       tooltip: { ...tooltipStyle, trigger: 'axis', axisPointer: { type: 'cross', crossStyle: { color: '#999' } } },
-      legend: { data: ['TT Count', 'MTTR (min)'], bottom: 5, textStyle: { fontSize: 11, color: WH.textMuted } },
+      legend: { data: [t('ttwo.seriesTTCount'), t('ttwo.seriesMTTR')], bottom: 5, textStyle: { fontSize: 11, color: WH.textMuted } },
       grid: { left: 60, right: 60, top: 30, bottom: 55 },
       xAxis: { type: 'category', data: weeks, axisLabel: { ...axisLabel(), rotate: 45 }, axisLine: axisLine() },
       yAxis: [
-        { type: 'value', name: 'TT Count', position: 'left', nameTextStyle: { color: WH.teal, fontSize: 11 }, axisLabel: { color: WH.teal }, splitLine: splitLine() },
-        { type: 'value', name: 'MTTR (min)', position: 'right', nameTextStyle: { color: '#ff6b6b', fontSize: 11 }, axisLabel: { color: '#ff6b6b' }, splitLine: { show: false } },
+        { type: 'value', name: t('ttwo.seriesTTCount'), position: 'left', nameTextStyle: { color: WH.teal, fontSize: 11 }, axisLabel: { color: WH.teal }, splitLine: splitLine() },
+        { type: 'value', name: t('ttwo.seriesMTTR'), position: 'right', nameTextStyle: { color: '#ff6b6b', fontSize: 11 }, axisLabel: { color: '#ff6b6b' }, splitLine: { show: false } },
       ],
       series: [
         {
-          name: 'TT Count', type: 'bar', data: counts, yAxisIndex: 0, barMaxWidth: 28,
+          name: t('ttwo.seriesTTCount'), type: 'bar', data: counts, yAxisIndex: 0, barMaxWidth: 28,
           itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#64ffda' }, { offset: 1, color: '#4fc3f7' }] }, borderRadius: [4, 4, 0, 0] },
         },
         {
-          name: 'MTTR (min)', type: 'line', data: mttrs, yAxisIndex: 1, smooth: true,
+          name: t('ttwo.seriesMTTR'), type: 'line', data: mttrs, yAxisIndex: 1, smooth: true,
           itemStyle: { color: '#ff6b6b' }, lineStyle: { width: 2.5 }, symbol: 'circle', symbolSize: 6,
           areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(255,107,107,0.25)' }, { offset: 1, color: 'rgba(255,107,107,0.02)' }] } },
         },
       ],
     }
-  }, [data?.mttr_weekly])
+  }, [data?.mttr_weekly, t])
 
   // Domain分布
   const domainOption = useMemo(() => {
@@ -248,7 +248,7 @@ export default function TTWODashboard() {
             borderRadius: [0, 4, 4, 0],
           },
         })),
-        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => p.value.toLocaleString() },
+        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
       }],
     }
   }, [data?.domain_stats])
@@ -292,7 +292,7 @@ export default function TTWODashboard() {
           value: e[1],
           itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: '#51cf66' }, { offset: 1, color: '#94d82d' }] }, borderRadius: [0, 4, 4, 0] },
         })),
-        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => p.value.toLocaleString() },
+        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
       }],
     }
   }, [data?.wo_stats?.source])
@@ -319,7 +319,7 @@ export default function TTWODashboard() {
             itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: colors[0] }, { offset: 1, color: colors[1] }] }, borderRadius: [0, 4, 4, 0] },
           }
         }),
-        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => p.value.toLocaleString() },
+        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
       }],
     }
   }, [data?.wo_stats?.status])
@@ -461,23 +461,23 @@ export default function TTWODashboard() {
   if (loading) return (
     <div style={{ ...pageWrap, textAlign: 'center', padding: 100 }}>
       <Spin size="large" />
-      <div style={{ marginTop: 16, color: WH.textMuted }}>Loading TT&WO data...</div>
+      <div style={{ marginTop: 16, color: WH.textMuted }}>{t('ttwo.loading')}</div>
     </div>
   )
 
   if (error) return (
     <div style={{ ...pageWrap, padding: 24 }}>
-      <Alert type="error" message="Failed to load TT&WO Dashboard data" description={error} showIcon />
+      <Alert type="error" message={t('ttwo.loadFailed')} description={error} showIcon />
     </div>
   )
 
-  if (!data) return <Empty description="No data returned" />
+  if (!data) return <Empty description={t('ttwo.noData')} />
 
   const regions = data.filters?.regions || []
   const s = data.tt_stats || {}
   const sevStats = (s.alarm_severity && Object.keys(s.alarm_severity).length > 0) ? s.alarm_severity : (s.category || {})
   const sevDimension = (s.alarm_severity && Object.keys(s.alarm_severity).length > 0) ? 'alarm_severity' : 'category'
-  const sevLabel = sevDimension === 'alarm_severity' ? 'Alarm Severity' : 'Category'
+  const sevLabel = sevDimension === 'alarm_severity' ? t('ttwo.alarmSeverity') : t('ttwo.category')
 
   // 暗色汇总卡片生成器
   const SummaryCard = ({ color, icon, value, label, onClick, explain }: { color: string; icon: React.ReactNode; value: number; label: string; onClick?: (e: React.MouseEvent) => void; explain?: string }) => (
@@ -502,12 +502,12 @@ export default function TTWODashboard() {
         <Space wrap align="center" size="middle">
           <Segmented
             options={[
-              { label: <span style={{ color: timePreset === 'all' ? WH.teal : WH.text }}>All Time</span>, value: 'all' },
-              { label: <span style={{ color: timePreset === 'last7' ? WH.teal : WH.text }}>Last 7 days</span>, value: 'last7' },
-              { label: <span style={{ color: timePreset === 'last30' ? WH.teal : WH.text }}>Last 30 days</span>, value: 'last30' },
-              { label: <span style={{ color: timePreset === 'last90' ? WH.teal : WH.text }}>Last 3 months</span>, value: 'last90' },
-              { label: <span style={{ color: timePreset === 'last180' ? WH.teal : WH.text }}>Last 6 months</span>, value: 'last180' },
-              { label: <span style={{ color: timePreset === 'custom' ? WH.teal : WH.text }}>Custom</span>, value: 'custom' },
+              { label: <span style={{ color: timePreset === 'all' ? WH.teal : WH.text }}>{t('ttwo.allTime')}</span>, value: 'all' },
+              { label: <span style={{ color: timePreset === 'last7' ? WH.teal : WH.text }}>{t('ttwo.last7Days')}</span>, value: 'last7' },
+              { label: <span style={{ color: timePreset === 'last30' ? WH.teal : WH.text }}>{t('ttwo.last30Days')}</span>, value: 'last30' },
+              { label: <span style={{ color: timePreset === 'last90' ? WH.teal : WH.text }}>{t('ttwo.last3Months')}</span>, value: 'last90' },
+              { label: <span style={{ color: timePreset === 'last180' ? WH.teal : WH.text }}>{t('ttwo.last6Months')}</span>, value: 'last180' },
+              { label: <span style={{ color: timePreset === 'custom' ? WH.teal : WH.text }}>{t('ttwo.custom')}</span>, value: 'custom' },
             ]}
             value={timePreset}
             onChange={setTimePreset}
@@ -521,7 +521,7 @@ export default function TTWODashboard() {
             onChange={setSelectedRegion}
             style={{ width: 180 }}
             allowClear
-            placeholder="All Regions"
+            placeholder={t('ttwo.allRegions')}
             options={regions.map((r: string) => ({ value: r, label: r }))}
           />
           <Tag
@@ -529,7 +529,7 @@ export default function TTWODashboard() {
             color={isSynced ? 'green' : 'red'}
             style={{ marginLeft: 'auto', borderRadius: 12, padding: '2px 12px' }}
           >
-            {isSynced ? `Synced: ${lastSync}` : 'Not synced'}
+            {isSynced ? t('ttwo.synced', { time: lastSync ?? '' }) : t('ttwo.notSynced')}
           </Tag>
         </Space>
       </Card>
@@ -537,18 +537,18 @@ export default function TTWODashboard() {
       {/* 汇总卡片 */}
       <Row gutter={16}>
         <Col span={data.summary.wo_total > 0 ? 8 : 24}>
-          <SummaryCard color="#4fc3f7" icon={<ThunderboltOutlined />} value={data.summary.tt_total} label="TT Total" explain={t('ttwo.explain.ttTotal')} onClick={(e) => openDrilldown(e, 'all_tt')} />
+          <SummaryCard color="#4fc3f7" icon={<ThunderboltOutlined />} value={data.summary.tt_total} label={t('ttwo.ttTotal')} explain={t('ttwo.explain.ttTotal')} onClick={(e) => openDrilldown(e, 'all_tt')} />
         </Col>
         {data.summary.wo_total > 0 && <Col span={8}>
-          <SummaryCard color="#51cf66" icon={<FileTextOutlined />} value={data.summary.wo_total} label="WO Total" explain={t('ttwo.explain.woTotal')} onClick={(e) => openDrilldown(e, 'all_wo')} />
+          <SummaryCard color="#51cf66" icon={<FileTextOutlined />} value={data.summary.wo_total} label={t('ttwo.woTotal')} explain={t('ttwo.explain.woTotal')} onClick={(e) => openDrilldown(e, 'all_wo')} />
         </Col>}
         {data.summary.wo_total > 0 && <Col span={8}>
-          <SummaryCard color="#b197fc" icon={<NumberOutlined />} value={data.summary.wo_no_count} label="WO No. (Unique)" explain={t('ttwo.explain.woNo')} onClick={(e) => openDrilldown(e, 'all_wo')} />
+          <SummaryCard color="#b197fc" icon={<NumberOutlined />} value={data.summary.wo_no_count} label={t('ttwo.woNoUnique')} explain={t('ttwo.explain.woNo')} onClick={(e) => openDrilldown(e, 'all_wo')} />
         </Col>}
       </Row>
 
       {/* TT 统计标签 */}
-      <SectionTitle icon={<AlertOutlined />} title="TT Statistics" />
+      <SectionTitle icon={<AlertOutlined />} title={t('ttwo.ttStatistics')} />
       <Row gutter={[16, 16]}>
         <Col span={8}>
           <Card size="small" title={<span style={cardTitleStyle}>{sevLabel} <ExplainIcon text={t('ttwo.explain.severity')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
@@ -556,22 +556,22 @@ export default function TTWODashboard() {
           </Card>
         </Col>
         <Col span={8}>
-          <Card size="small" title={<span style={cardTitleStyle}>Ticket Severity <ExplainIcon text={t('ttwo.explain.ticketSeverity')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
+          <Card size="small" title={<span style={cardTitleStyle}>{t('ttwo.ticketSeverity')} <ExplainIcon text={t('ttwo.explain.ticketSeverity')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
             {renderStatTags(s.ticket_severity, ticketColor, 'ticket_severity')}
           </Card>
         </Col>
         <Col span={8}>
-          <Card size="small" title={<span style={cardTitleStyle}>SLA Status <ExplainIcon text={t('ttwo.explain.sla')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
+          <Card size="small" title={<span style={cardTitleStyle}>{t('ttwo.slaStatus')} <ExplainIcon text={t('ttwo.explain.sla')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
             {renderStatTags(s.sla_status, slaColor, 'sla_status')}
           </Card>
         </Col>
       </Row>
-      <Card size="small" title={<span style={cardTitleStyle}>Status</span>} style={cardStyle}>
+      <Card size="small" title={<span style={cardTitleStyle}>{t('ttwo.status')}</span>} style={cardStyle}>
         {renderStatusTags(s.status || {})}
       </Card>
 
       {/* MTTR 周趋势 */}
-      <SectionTitle icon={<BarChartOutlined />} title="MTTR Weekly Trend" explain={t('ttwo.explain.mttr')} />
+      <SectionTitle icon={<BarChartOutlined />} title={t('ttwo.mttrTrend')} explain={t('ttwo.explain.mttr')} />
       <Card size="small" style={cardStyle}>
         <div role="img" aria-label="MTTR Weekly Trend chart">
           <ReactECharts option={mttrOption} style={{ height: CHART_HEIGHT }}
@@ -580,10 +580,10 @@ export default function TTWODashboard() {
       </Card>
 
       {/* Domain + Root Cause */}
-      <SectionTitle icon={<PieChartOutlined />} title="Domain & Root Cause Analysis" />
+      <SectionTitle icon={<PieChartOutlined />} title={t('ttwo.domainRootCause')} />
       <Row gutter={[16, 16]}>
         <Col span={10}>
-          <Card title={<span style={cardTitleStyle}>TT by Domain</span>} size="small" style={cardStyle}>
+          <Card title={<span style={cardTitleStyle}>{t('ttwo.ttByDomain')}</span>} size="small" style={cardStyle}>
             <div role="img" aria-label="TT by Domain chart">
               <ReactECharts option={domainOption} style={{ height: CHART_HEIGHT }}
                 onEvents={onChartClick('domain')} />
@@ -591,7 +591,7 @@ export default function TTWODashboard() {
           </Card>
         </Col>
         <Col span={7}>
-          <Card title={<span style={cardTitleStyle}>Root Cause (Main) <ExplainIcon text={t('ttwo.explain.rootCause')} /></span>} size="small" style={cardStyle}>
+          <Card title={<span style={cardTitleStyle}>{t('ttwo.rootCauseMain')} <ExplainIcon text={t('ttwo.explain.rootCause')} /></span>} size="small" style={cardStyle}>
             <div role="img" aria-label="Root Cause Main chart">
               <ReactECharts option={rcMainOption} style={{ height: CHART_HEIGHT }}
                 onEvents={onChartClick('rc_main')} />
@@ -599,7 +599,7 @@ export default function TTWODashboard() {
           </Card>
         </Col>
         <Col span={7}>
-          <Card title={<span style={cardTitleStyle}>Root Cause (Sub) <ExplainIcon text={t('ttwo.explain.rootCause')} /></span>} size="small" style={cardStyle}>
+          <Card title={<span style={cardTitleStyle}>{t('ttwo.rootCauseSub')} <ExplainIcon text={t('ttwo.explain.rootCause')} /></span>} size="small" style={cardStyle}>
             <div role="img" aria-label="Root Cause Sub chart">
               <ReactECharts option={rcSubOption} style={{ height: CHART_HEIGHT }}
                 onEvents={onChartClick('rc_sub')} />
@@ -610,10 +610,10 @@ export default function TTWODashboard() {
 
       {/* WO Source + Status */}
       {data.summary.wo_total > 0 && <>
-        <SectionTitle icon={<TagsOutlined />} title="Work Order Analytics" />
+        <SectionTitle icon={<TagsOutlined />} title={t('ttwo.woAnalytics')} />
         <Row gutter={[16, 16]}>
           <Col span={12}>
-            <Card title={<span style={cardTitleStyle}>WO by Source</span>} size="small" style={cardStyle}>
+            <Card title={<span style={cardTitleStyle}>{t('ttwo.woBySource')}</span>} size="small" style={cardStyle}>
               <div role="img" aria-label="WO by Source chart">
                 <ReactECharts option={woSourceOption} style={{ height: CHART_HEIGHT }}
                   onEvents={onChartClick('wo_source')} />
@@ -621,7 +621,7 @@ export default function TTWODashboard() {
             </Card>
           </Col>
           <Col span={12}>
-            <Card title={<span style={cardTitleStyle}>WO by Status</span>} size="small" style={cardStyle}>
+            <Card title={<span style={cardTitleStyle}>{t('ttwo.woByStatus')}</span>} size="small" style={cardStyle}>
               <div role="img" aria-label="WO by Status chart">
                 <ReactECharts option={woStatusOption} style={{ height: CHART_HEIGHT }}
                   onEvents={onChartClick('wo_status')} />
@@ -632,7 +632,7 @@ export default function TTWODashboard() {
       </>}
 
       {/* 站点信息 */}
-      <SectionTitle icon={<EnvironmentOutlined />} title="Site Information" />
+      <SectionTitle icon={<EnvironmentOutlined />} title={t('ttwo.siteInfo')} />
       <Row gutter={[16, 16]}>
         {Object.entries(data.site_stats || {}).filter(([, v]) => v && Object.keys(v as any).length > 0).map(([key, stats]) => (
           <Col span={8} key={key}>
@@ -655,12 +655,12 @@ export default function TTWODashboard() {
         anchor={drillAnchor}
         dark
         onClose={() => setDrillVisible(false)}
-        title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan">{filteredDrillData.length} records</Tag></span>}
+        title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan">{t('common.records', { n: filteredDrillData.length })}</Tag></span>}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
           <Input
             prefix={<SearchOutlined />}
-            placeholder="Search across all fields..."
+            placeholder={t('common.searchAllFields')}
             allowClear
             size="middle"
             style={{ width: 350 }}
@@ -673,7 +673,7 @@ export default function TTWODashboard() {
             onClick={exportToExcel}
             disabled={!filteredDrillData.length}
           >
-            Export Excel
+            {t('common.exportExcel')}
           </Button>
         </div>
         {drillLoading ? (
@@ -684,7 +684,7 @@ export default function TTWODashboard() {
             columns={drillColumns}
             size="small"
             rowKey={(r: any, i?: number) => `${Object.values(r).slice(0, 3).join('-')}-${i}`}
-            pagination={{ pageSize: 15, size: 'small', showTotal: (total: number) => `${total} items` }}
+            pagination={{ pageSize: 15, size: 'small', showTotal: (total: number) => t('common.itemsTotal', { n: total }) }}
             scroll={{ x: 'max-content' }}
           />
         )}

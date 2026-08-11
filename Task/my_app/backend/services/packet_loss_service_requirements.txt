@@ -1,5 +1,0 @@
-# Packet Loss 丢包同步服务依赖
-# 已包含在 my_app 主 requirements.txt 中的无需重复安装
-
-pandas>=2.0.0
-openpyxl>=3.1.0

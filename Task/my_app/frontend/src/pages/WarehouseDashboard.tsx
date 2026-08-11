@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useI18n } from '../i18n';
 
 /**
  * 仓库看板（Warehouse Dashboard）
@@ -11,6 +12,7 @@ import { useEffect, useRef, useState } from 'react';
  * 生产期由后端 dist 提供），从而 100% 保留原始布局 / 配色 / 图表 / 交互。
  */
 export default function WarehouseDashboard() {
+  const { t } = useI18n()
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(1600);
 
@@ -56,7 +58,7 @@ export default function WarehouseDashboard() {
       <iframe
         ref={iframeRef}
         src={`${import.meta.env.BASE_URL}warehouse-dashboard.html`}
-        title="Warehouse Dashboard"
+        title={t('shell.warehouse')}
         style={{
           width: '100%',
           height: `${height}px`,

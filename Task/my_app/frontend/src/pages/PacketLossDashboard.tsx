@@ -20,7 +20,7 @@ import dayjs from 'dayjs'
 import api from '../api'
 import { cachedGet } from '../cache'
 import DraggableClickModal from '../components/DraggableClickModal'
-import { useI18n } from '../i18n'
+import { useI18n, numLocale } from '../i18n'
 
 // ========== Warehouse 风格设计令牌（与 AlarmDashboard 一致） ==========
 const WH = {
@@ -222,7 +222,7 @@ interface PlSite {
 }
 
 export default function PacketLossDashboard() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const METRIC_EXPLAIN = useMemo(() => getMetricExplain(t), [t])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -381,16 +381,16 @@ export default function PacketLossDashboard() {
     const days = data.daily_trend.map((d: any) => d.day.slice(5))
     return {
       tooltip: { ...darkTooltip(), trigger: 'axis' },
-      legend: { data: ['Median PL (%)', 'Affected Sites'], bottom: 0, textStyle: { fontSize: 11, color: WH.textMuted } },
+      legend: { data: [t('pl.median'), t('pl.affectedSites')], bottom: 0, textStyle: { fontSize: 11, color: WH.textMuted } },
       grid: { left: 50, right: 50, top: 20, bottom: 50 },
       xAxis: { type: 'category', data: days, axisLabel: axisLabel(), axisLine: axisLine() },
       yAxis: [
-        { type: 'value', name: 'PL %', splitLine: splitLine(), axisLabel: axisLabel() },
-        { type: 'value', name: 'Sites', splitLine: { show: false }, axisLabel: axisLabel() },
+        { type: 'value', name: t('pl.axis'), splitLine: splitLine(), axisLabel: axisLabel() },
+        { type: 'value', name: t('pl.sites'), splitLine: { show: false }, axisLabel: axisLabel() },
       ],
       series: [
         {
-          name: 'Median PL (%)', type: 'bar', barMaxWidth: 22,
+          name: t('pl.median'), type: 'bar', barMaxWidth: 22,
           data: data.daily_trend.map((d: any) => d.median_pl),
           itemStyle: {
             color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#64ffda' }, { offset: 1, color: '#4fc3f7' }] },
@@ -399,13 +399,13 @@ export default function PacketLossDashboard() {
           label: { show: true, position: 'top', fontSize: 10, color: WH.textMuted, formatter: (p: any) => `${p.value}%` },
         },
         {
-          name: 'Affected Sites', type: 'line', yAxisIndex: 1, smooth: true,
+          name: t('pl.affectedSites'), type: 'line', yAxisIndex: 1, smooth: true,
           data: data.daily_trend.map((d: any) => d.affected_sites),
           lineStyle: { color: '#ff922b', width: 2 }, itemStyle: { color: '#ff922b' }, symbolSize: 6,
         },
       ],
     }
-  }, [data])
+  }, [data, t])
 
   const topSitesOption = useMemo(() => {
     if (!data?.top_sites?.length) return {}
@@ -491,7 +491,7 @@ export default function PacketLossDashboard() {
   if (!data) return <Empty description={t('pl.noData')} />
 
   const sc = data.status_counts || {}
-  const fmt = (n: number) => (n ?? 0).toLocaleString()
+  const fmt = (n: number) => (n ?? 0).toLocaleString(numLocale(locale))
   const pageWrap: React.CSSProperties = { background: WH.bg, borderRadius: 12, padding: 4, minHeight: 'calc(100vh - 110px)' }
   const cardWrap: React.CSSProperties = { background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }
   const chartClick = (titlePrefix: string) => (p: any) => openDrilldown(p, p.name, `${titlePrefix} = ${STATUS_SHORT[p.name] || p.name}`)

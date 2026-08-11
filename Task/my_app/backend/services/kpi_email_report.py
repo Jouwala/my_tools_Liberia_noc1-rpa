@@ -37,9 +37,11 @@ KPI / SP / RAN 各类日报邮件任务
 from __future__ import annotations
 
 import logging
+import os
 import random
 import subprocess
 import sys
+import tempfile
 import time
 import threading
 from pathlib import Path
@@ -270,6 +272,39 @@ def run_sp_consumables(to: str = None, cc: str = None) -> dict:
     )
 
 
+def _write_body_file(cache: Path, body: str) -> Path:
+    """把邮件正文写入 cache 下的「唯一临时文件」，并对 Windows 文件锁做短重试。
+
+    根因：本机存在 WPS 云同步 + Windows Defender 实时扫描 + Search Indexer
+    三重文件锁（见 fix_file_lock.ps1），Python 写固定名 _body.txt 时偶被外部进程
+    短暂独占，触发 ``[Errno 13] Permission denied``。
+
+    对策：
+      1) 每次运行用 tempfile 生成唯一文件名（``_body_<随机>.txt``），避免多实例 /
+         恢复补发并发复用同一固定名造成的互相锁争用；
+      2) 写失败按 0.4 / 0.8 / 1.2 / 1.6s 退避重试最多 5 次，吸收瞬时外锁。
+    返回临时文件路径，调用方用完后应 unlink 清理。
+    """
+    cache = Path(cache)
+    cache.mkdir(parents=True, exist_ok=True)
+    if body is None:
+        body = ""
+    fd, tmp = tempfile.mkstemp(prefix="_body_", suffix=".txt", dir=str(cache))
+    os.close(fd)
+    tmp = Path(tmp)
+    last_err = None
+    for attempt in range(1, 6):
+        try:
+            tmp.write_text(body, encoding="utf-8")
+            return tmp
+        except PermissionError as e:  # 外锁（Defender / 索引 / WPS 云同步）
+            last_err = e
+            if attempt < 5:
+                time.sleep(0.4 * attempt)
+                continue
+    raise last_err  # type: ignore[misc]
+
+
 def run_ran_availability(to: str = None, cc: str = None) -> dict:
     """MS Network Availability Daily Report 邮件（仅图片，无 Excel，数据远程 FTP）。"""
     import backend.services.remote_ftp as rf
@@ -279,17 +314,25 @@ def run_ran_availability(to: str = None, cc: str = None) -> dict:
     rf.download_filtered(_RAN_DATA, cache, name_filter="Availability")
     # 正文使用远程 content_email.txt（"Dear All: ... Please Review, Thanks."）
     body = rf.read_text(f"{_RAN_EMAIL}/content_email.txt")
-    body_file = cache / "_body.txt"
-    body_file.write_text(body, encoding="utf-8")
-    return _run_script(
-        data_dir=cache,
-        name_filter="Availability",
-        to=to_arg,
-        cc=cc_arg,
-        no_excel=True,
-        subject_prefix="MS Network Availability Daily Report",
-        body_file=body_file,
-    )
+    # 用唯一临时文件写入正文，并对 Windows 三重锁做重试（见 _write_body_file）
+    body_file = _write_body_file(cache, body)
+    try:
+        return _run_script(
+            data_dir=cache,
+            name_filter="Availability",
+            to=to_arg,
+            cc=cc_arg,
+            no_excel=True,
+            subject_prefix="MS Network Availability Daily Report",
+            body_file=body_file,
+        )
+    finally:
+        # 清理唯一临时正文文件（后台预算超时仍在读则忽略，避免残留锁报错）
+        try:
+            if body_file.exists():
+                body_file.unlink()
+        except Exception:
+            pass
 
 
 # =====================================================================

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
-import { useI18n } from '../i18n'
+import { useI18n, numLocale } from '../i18n'
 
 interface TableInfo {
   name: string
@@ -53,7 +53,7 @@ export default function TableBrowser() {
   const [profileData, setProfileData] = useState<ProfileResult | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [searchText, setSearchText] = useState('')
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
 
   useEffect(() => {
     api.get('/tables').then(res => {
@@ -130,7 +130,7 @@ export default function TableBrowser() {
           </Col>
           {tableInfo && (
             <Col>
-              <Tag color="blue">{tableInfo.row_count.toLocaleString()} {t('common.rows')}</Tag>
+              <Tag color="blue">{tableInfo.row_count.toLocaleString(numLocale(locale))} {t('common.rows')}</Tag>
               <Tag color="green">{tableInfo.col_count} {t('common.cols')}</Tag>
             </Col>
           )}

@@ -570,12 +570,12 @@ def load_inbound_outbound_trend_full_range(date_start=None, date_end=None, wareh
 
             date_stats: Dict[str, Dict[str, int]] = {}
             for row in in_rows:
-                d = row[0]
+                d = _date_to_str(row[0])  # PG date() 返回 datetime.date 对象，需归一化为字符串键（sqlite 为字符串）
                 if d:
                     date_stats.setdefault(d, {"inbound_qty": 0, "outbound_qty": 0})
                     date_stats[d]["inbound_qty"] += int(row[1] or 0)
             for row in out_rows:
-                d = row[0]
+                d = _date_to_str(row[0])
                 if d:
                     date_stats.setdefault(d, {"inbound_qty": 0, "outbound_qty": 0})
                     date_stats[d]["outbound_qty"] += int(row[1] or 0)

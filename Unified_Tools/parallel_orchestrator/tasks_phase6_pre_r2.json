@@ -1,0 +1,20 @@
+{
+  "name": "my_app Phase 6（R2 切流前置）：PG 模式 API 冒烟测试 + 超长列名访问核查",
+  "defaults": {
+    "cwd": "D:\\01_RPA\\Task\\my_app"
+  },
+  "tasks": [
+    {
+      "id": "p6-smoke-test",
+      "executor": "codex",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "prompt": "任务：my_app 迁移 Phase 6 —— PG 模式 API 冒烟测试（临时进程，不持久化任何配置）。\n\n【背景】Phase 5 已完成：PG 9 个 schema（app/battery/ms_sla/ran_ume/ran_ume_ro/lte_pl/fw/eflow）数据已搬运并对账 PASS。现在要在 MY_APP_DB_MODE=pg 下启动后端做只读冒烟，验证 R2 切流可行性。backend\\database.py 的 DB_MODE 从 OS 环境变量读取（load_dotenv 不覆盖已存在的环境变量），因此只需在启动进程注入环境变量即可，绝不改任何配置文件。\n\n【前置阅读，必须先读再动手】\n1. backend\\database.py —— DB_MODE 熔断开关、_resolve_pg_schema 路径→schema 映射、R8 鉴权库硬排除。\n2. backend\\main.py —— 路由清单（tables/upload/analysis/gis/tt_wo_dashboard/alarm_dashboard/packet_loss_dashboard/battery_dashboard/credentials/tasks/sp_dashboard/system）。\n3. backend\\routers\\system.py —— /api/health、/api/db/info 端点。\n\n【运行环境】Python：D:\\01_RPA\\Task\\my_app\\.venv-test\\Scripts\\python.exe。工作目录 D:\\01_RPA\\Task\\my_app。\n\n【交付：backend\\migrations\\smoke_test_pg.py + smoke_test_pg.md + smoke_requirements.txt】冒烟脚本要求：\n1. 以子进程启动 uvicorn backend.main:app，端口 7099（避免与任何在用端口冲突），注入环境变量 MY_APP_DB_MODE=pg（DATABASE_URL 由 backend\\.env 提供，不要动 .env）。启动前先探测 7099 空闲；轮询 /api/health 直到就绪（上限 60 秒）。\n2. 注意：main.py 导入 task_runner，若有 APScheduler 在启动时拉起定时任务，冒烟窗口尽量短（全部请求完成立即杀进程），并在报告中记录观察到的后台任务行为。\n3. 冒烟端点（GET 优先，覆盖 8 个数据域；每个请求记录 状态码/耗时/响应摘要前 200 字符）：\n   a. /api/health、/api/db/info（必须确认返回中 DB 模式为 pg）；\n   b. tt_wo_dashboard、alarm_dashboard、packet_loss_dashboard、battery_dashboard、sp_dashboard、gis、tasks、tables 各路由下自选 2-3 个代表性只读 GET 端点（先读 router 源码确定真实路径与参数，不许瞎猜 URL）；\n   c. 明确覆盖读取 eflow_tt（app schema）、packet_loss_data（lte_pl schema）、battery_reading（battery schema）的端点各至少一个。\n4. 全部请求完成后立即终止 uvicorn 子进程，确认进程已退出、7099 端口释放。\n5. 输出冒烟结论：总端点数 / 2xx 数 / 非 2xx 明细（含响应体片段，便于定位是 SQL 方言问题还是业务问题）；打印总耗时秒数。\n\n【硬性红线】\n- 禁止修改 backend\\.env；禁止把 MY_APP_DB_MODE=pg 写进任何持久配置或代码默认值。\n- 禁止写源 sqlite（冒烟期间应用对 PG 的正常写入允许，那是目标库）。\n- 白名单：backend\\migrations\\smoke_test_pg.py / smoke_test_pg.md / smoke_requirements.txt、TMP\\ 下的冒烟日志。不做 git 操作。\n\n【完成后输出】① 冒烟结果表（端点/状态码/耗时）；② /api/db/info 返回的 DB 模式证据；③ py_compile 结果；④ 总耗时秒数。"
+    },
+    {
+      "id": "p6-longcol-audit",
+      "executor": "qoder",
+      "cwd": "D:\\01_RPA\\Task\\my_app",
+      "prompt": "任务：my_app 迁移 Phase 6 —— 超长列名（PG 63 字节截断）访问路径核查，只读调研，输出报告。\n\n【背景】Phase 5 对账发现以下 9 个 KPI 列名超过 PG 63 字节标识符上限，在 PG 中被静默截断（数据已完整搬运，仅列名变短，截断形式=UTF-8 前 63 字节）。切流到 PG 后，任何用原长列名拼 SQL 的代码都会报\"列不存在\"。需要你核查应用代码访问这些列的全部路径，判定切流风险。\n\n【9 个受影响列名】\n1. Cell Inter-RAT PS Outgoing Handover Success Rate(WCDMA->GPRS)(%)\n2. U31_3G & 3G+ Channel Elements Congestion Rate_901621_2_UROP.RNC-MO\n3. U31_3G Call Setup Success Rate - R99 Data services_901596_2_UROP.RNC-MO\n4. U31_3G+ Call Setup Success Rate - HSDPA Data services_901597_2_UROP.RNC-MO\n5. U31_3G+ Call Setup Success Rate – HSUPA Data services_901598_2_UROP.RNC-MO\n6. U31_3G+ Drop Call Rate - HSDPA Data services_901604_2_UROP.RNC-MO\n7. U31_3G+ Drop Call Rate - HSUPA Data services_901605_2_UROP.RNC-MO\n8. U31_HSDPA Average Throughput per User_1552876397284-0-88_900005_2_UROP.RNC-MO\n9. U31_ZTE_Traffic of Downlink Data TBF (GByte)_901415_2_gv4.bsc-MO\n\n受影响表：ms_sla schema 的 Hourly_KPI_RPA_SITE_MS_SLA_GSM/UMTS 系列 8 表；ran_ume 与 ran_ume_ro schema 的 3G_OLIB_Network_KPIs。\n\n【前置阅读】\n1. backend\\migrations\\reconcile.md —— \"Phase 5 实跑验证记录\"一节有截断背景。\n2. backend\\services\\ran_ume_service.py（读库 data\\ran_ume）、backend\\services\\ran_ume_network_kpi.py（写库）、backend\\services 下 ms_sla 相关服务、backend\\routers 下相关看板路由。\n\n【调研内容】\n1. 全仓 grep 这 9 个列名的任何片段（如 901597_2、901415_2、Inter-RAT PS Outgoing 等特征串），找出所有硬编码引用点（py/json/前端/配置）。\n2. 判定每处访问模式：a) SELECT * / df.columns 动态列（截断无影响或影响可控）；b) 硬编码长列名拼 SQL（切流即断）；c) 前端列配置清单（展示缺列但不报错）。\n3. 特别确认：读取 ran_ume/ms_sla 数据的 API 在 DB_MODE=pg 下会走哪个 schema（参考 backend\\database.py 的 _resolve_pg_schema 路径→schema 映射），映射是否正确指向 ran_ume_ro / ms_sla。\n4. 给出逐列结论表（列名/引用点/访问模式/切流风险等级 高|中|低|无）与整改建议（如需代码改动，列出文件与建议方案，但本次不改）。\n\n【硬性红线】只读调研：禁止修改任何代码/配置/数据库，禁止 git 操作。白名单仅一个输出文件：backend\\migrations\\long_column_audit.md。\n\n【完成后输出】① 逐列结论表；② 总体风险判定（可直接切流 / 需先修 N 处）；③ 总耗时秒数。"
+    }
+  ]
+}

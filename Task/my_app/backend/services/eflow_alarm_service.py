@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import ftplib
 from backend.database import get_raw_connection
-from backend.dialect_helpers import list_table_names, write_df
+from backend.dialect_helpers import list_table_names, table_columns, write_df
 
 
 from backend.services.eflow_api_client import (  # Phase 4 拆分：共享常量/基础函数
@@ -523,6 +523,19 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
             if upsert_key and upsert_key in df.columns:
                 # 幂等累积写入（B）：按 upsert_key 删除旧行再 append，避免整表重建与重抓浪费
                 if table_name in set(list_table_names(conn)):
+                    # 列漂移修复：API 新增字段（如 parentinfo）在 append 模式下会因目标表缺列
+                    # 报 "字段不存在"。写入前补齐缺失列（TEXT，无损、幂等），不再中断同步。
+                    existing_cols = set(table_columns(conn, table_name))
+                    missing_cols = [c for c in df.columns if c not in existing_cols]
+                    for c in missing_cols:
+                        try:
+                            conn.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{c}" TEXT')
+                            logger.info(f"{table_name}: 新增缺失列 {c!r} (schema drift 修复)")
+                        except Exception as e:
+                            logger.warning(f"{table_name}: 新增列 {c!r} 失败: {e}")
+                    if missing_cols:
+                        # DDL 必须先提交，write_df 所用的独立引擎连接才能在 PG 下看到新列
+                        conn.commit()
                     ids = df[upsert_key].tolist()
                     deleted = 0
                     for i in range(0, len(ids), 900):
@@ -533,6 +546,8 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
                         )
                         deleted += len(chunk)
                     logger.info(f"{table_name}: 删除 {deleted} 条旧行 (upsert on {upsert_key})")
+                    # DELETE 也需先提交，确保 write_df 引擎连接可见（PG 跨连接可见性）
+                    conn.commit()
                 write_df(df, table_name, if_exists="append")
             else:
                 write_df(df, table_name, if_exists="replace")

@@ -180,7 +180,7 @@ class EmailSender:
         msg['From'] = formataddr(("ZTE NOC", cls.SENDER))
         msg['To'] = ", ".join(cls.TO_RECEIVERS)
         msg['Subject'] = subject
-        msg['Date'] = formatdate(local=True)
+        msg['Date'] = formatdate(usegmt=True)
         msg.attach(MIMEText(email_body, 'html', 'utf-8'))
 
         # 附件

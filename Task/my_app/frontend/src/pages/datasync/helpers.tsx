@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import {
   CloudServerOutlined,
   WifiOutlined,
+  FileSearchOutlined,
   CameraOutlined,
   MessageOutlined,
   BarChartOutlined,
@@ -104,6 +105,7 @@ export const CATEGORY_CONFIG: Record<string, { color: string; icon: ReactNode; l
   fw_kpi: { color: '#d4380d', icon: <SafetyCertificateOutlined />, label_zh: 'FW 吞吐 KPI', label_en: 'FW Throughput KPI' },
   battery: { color: '#a0d911', icon: <ThunderboltOutlined />, label_zh: '电池 KPI', label_en: 'Battery KPI' },
   mailbox: { color: '#cf1322', icon: <MailOutlined />, label_zh: '邮箱清理', label_en: 'Mailbox Cleanup' },
+  incident_overview: { color: '#c41d7f', icon: <FileSearchOutlined />, label_zh: 'Incident 事件总览', label_en: 'Incident Overview' },
 }
 
 export function formatTime(isoStr: string | null): string {

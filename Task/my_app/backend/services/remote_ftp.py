@@ -73,6 +73,27 @@ def list_names(remote_dir: str) -> List[str]:
                 pass
 
 
+def _prune_stale_siblings(local, keep=None):
+    """下载成功后尽力删除同图表旧版本(时间戳/随机名兄弟文件)，避免目录堆积与邮件重复内嵌。
+
+    只删 ``{stem}_*`` 兄弟文件，不碰固定名 ``local`` 本身（可能被锁）；``keep`` 指定的
+    当前交付文件也跳过。失败全部忽略，不引入新锁。
+    """
+    try:
+        local = Path(local)
+        parent = local.parent
+        keep = Path(keep) if keep else None
+        for f in parent.glob(f"{local.stem}_*"):
+            try:
+                if f.is_file() and f != keep:
+                    f.unlink()
+            except OSError:
+                pass
+    except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _prune_stale_siblings: exception swallowed", exc_info=True)
+        pass
+
+
 def download_filtered(
     remote_dir: str,
     local_dir,
@@ -85,6 +106,14 @@ def download_filtered(
     base = remote_dir.rstrip("/")
     local_dir = Path(local_dir)
     local_dir.mkdir(parents=True, exist_ok=True)
+
+    # 原子替换依赖 atomic_write（含 pandas，按需懒加载一次）。必须在下方 try 之前绑定
+    # AtomicReplaceFallback，否则当 retrbinary 等更早抛错时，except 子句求值该名会触发
+    # UnboundLocalError 遮蔽真实错误。
+    try:
+        from .atomic_write import atomic_replace_file, AtomicReplaceFallback
+    except ImportError:
+        from atomic_write import atomic_replace_file, AtomicReplaceFallback
 
     with _connect(base) as ftp:
         try:
@@ -116,12 +145,22 @@ def download_filtered(
                 try:
                     with open(tmp, "wb") as f:
                         ftp.retrbinary(f"RETR {item}", f.write)
-                    try:
-                        from .atomic_write import atomic_replace_file
-                    except ImportError:
-                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] download_filtered: exception swallowed", exc_info=True)
-                        from atomic_write import atomic_replace_file
                     atomic_replace_file(str(tmp), str(local))
+                except AtomicReplaceFallback as e:
+                    # 目标被持久锁(看板热读/索引/杀软)时，atomic_replace_file 重试耗尽后
+                    # 已把数据存到唯一名备用文件(_fallback_save)并抛此异常。数据已保全，
+                    # 应视为下载成功、交付该备用文件，而非跳过——避免邮件因锁漏发。
+                    fb = getattr(e, "fallback_path", None)
+                    if fb and os.path.exists(fb):
+                        logger.warning(
+                            "下载目标被锁，已用备用文件交付(邮件将内嵌该图): %s -> %s",
+                            local, fb,
+                        )
+                        out.append(Path(fb))
+                        _prune_stale_siblings(local, keep=fb)
+                    else:
+                        logger.error("下载失败(备用文件缺失): %s -> %s: %s", item, local, e)
+                    continue
                 except Exception as e:
                     try:
                         if os.path.exists(str(tmp)):
@@ -131,6 +170,7 @@ def download_filtered(
                         pass
                     logger.error("下载失败(已跳过): %s -> %s: %s", item, local, e)
                     continue
+                _prune_stale_siblings(local)
                 out.append(local)
             return out
         finally:
