@@ -25,6 +25,9 @@ from _playwright_utils import (  # noqa: E402
     save_debug_snapshot,
     wait_for_loading_gone,
     is_screenshot_blank,
+    safe_goto,
+    safe_clear_session,
+    kill_chrome_by_profile,
     TransientError,
     FatalError,
 )
@@ -338,7 +341,7 @@ def _login(page):
     logger.info("[SiteOutage] 正在打开登录页...")
 
     def _attempt():
-        page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=WAIT_TIMEOUT)
+        safe_goto(page, LOGIN_URL, timeout=WAIT_TIMEOUT)
         ok = _zte_login(page)
         if not ok:
             save_debug_snapshot(page, DEBUG_DIR, "login_fail")
@@ -411,7 +414,7 @@ def _navigate_to_dashboard(page):
     - 等待核心元素可见后返回，确保后续选项点击可执行
     - 进入 dashboard 后先折叠左侧导航菜单，避免截图被遮挡
     """
-    page.goto(DASHBOARD_URL, wait_until="domcontentloaded", timeout=WAIT_TIMEOUT)
+    safe_goto(page, DASHBOARD_URL, timeout=WAIT_TIMEOUT)
     _wait_for_network_idle(page, timeout=15000)
 
     if "_fms-sitedown-dashboard" not in page.url:
@@ -1193,10 +1196,34 @@ def run_site_outage_screenshot() -> dict:
         def _attempt():
             return _run_site_outage_once()
 
+        def _on_retry(attempt_no, err):
+            """重试前清理可能损坏的持久化 session，让下次冷启动重建登录态。
+
+            典型场景：session cookie 失效导致 /oauth2/v1/authorize 反复重定向、
+            登录表单始终不出现。此时清掉 USER_DATA_DIR，下一次 _run_site_outage_once
+            会走全新登录流程，而非在坏 session 上死循环。
+            """
+            logger.warning(
+                f"[SiteOutage] 第 {attempt_no} 次重试前清理可能损坏的 session: {err}"
+            )
+            # 1) 先确保没有残留 chrome 进程占用 profile（防目录被锁定）
+            try:
+                kill_chrome_by_profile(USER_DATA_DIR)
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _on_retry: kill_chrome_by_profile swallowed", exc_info=True)
+                pass
+            # 2) 备份式清空（重命名到 session_bak，便于排查），下次冷启动重建
+            try:
+                safe_clear_session(USER_DATA_DIR, backup_dir=os.path.join(DEBUG_DIR, "session_bak"))
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _on_retry: safe_clear_session swallowed", exc_info=True)
+                pass
+
         result = run_with_recovery(
             _attempt,
             max_total_retry=MAX_TOTAL_RETRY,
             label="site_outage",
+            on_retry=_on_retry,
         )
         final_result["success"] = result.get("success", False)
         final_result["screenshots"] = result.get("screenshots", [])

@@ -75,6 +75,9 @@ export default function DataSync() {
   const [localRunning, setLocalRunning] = useState<Set<string>>(new Set())
   const startedRef = useRef<Set<string>>(new Set())
   const prevRunningRef = useRef<Record<string, boolean>>({})
+  // 拉取防抖（single-flight）：上一次 /api/tasks 请求未完成时，跳过新的触发
+  // （轮询 / 手动刷新 / 完成回调），避免多用户同时打开时请求堆叠
+  const loadInFlightRef = useRef(false)
 
   // Modal states
   const [editTask, setEditTask] = useState<TaskInfo | null>(null)
@@ -122,6 +125,9 @@ export default function DataSync() {
   }, [searchText, statusFilter, categoryFilter, sortKey, allTasks, runningMap, localRunning])
 
   const loadTasks = useCallback(async (force = false) => {
+    // 防抖（single-flight）：同一时刻只允许一个在途请求，其余触发直接跳过
+    if (loadInFlightRef.current) return
+    loadInFlightRef.current = true
     if (force) invalidateCache('sync:')
     setLoading(true)
     try {
@@ -143,6 +149,7 @@ export default function DataSync() {
       message.error(t('sync.loadError'))
     } finally {
       setLoading(false)
+      loadInFlightRef.current = false
     }
   }, [t, locale])
 
@@ -154,10 +161,11 @@ export default function DataSync() {
     return () => window.clearInterval(timer)
   }, [])
 
-  // 实时刷新：每 30s 强制重新拉取任务列表，使失败横幅与状态卡片反映最新执行结果
+  // 实时刷新：每 60s 强制重新拉取任务列表，使失败横幅与状态卡片反映最新执行结果
   // （页面原仅在挂载/手动刷新/任务完成时拉数，长时间打开会停留在旧快照，表现为"不是实时的"）
+  // 配合 loadTasks 的 single-flight 防抖，多用户同时打开也不会堆叠 /api/tasks 请求
   useEffect(() => {
-    const timer = window.setInterval(() => { loadTasks(true) }, 30_000)
+    const timer = window.setInterval(() => { loadTasks(true) }, 60_000)
     return () => window.clearInterval(timer)
   }, [loadTasks])
 
@@ -326,98 +334,47 @@ export default function DataSync() {
     return !Number.isNaN(ts) && ts - nowTs <= 5 * 60 * 1000
   }
 
-  // 定义行分组（按 task_id）
-  const ROW_GROUPS: { label_zh: string; label_en: string; task_ids: string[] }[] = [
-    {
-      label_zh: 'eFlow 数据同步',
-      label_en: 'eFlow Data Sync',
-      task_ids: ['eflow_sync', 'eflow_history_alarm', 'eflow_active_alarm', 'eflow_sync_full'],
-    },
-    {
-      label_zh: 'RAN UME 数据同步',
-      label_en: 'RAN UME Data Sync',
-      task_ids: ['ran_ume_daily', 'main_kpi_sync', 'network_kpi_sync'],
-    },
-    {
-      label_zh: '其他任务',
-      label_en: 'Other Tasks',
-      task_ids: ['site_outage_screenshot', 'whatsapp_send', 'ms_sla_full'],
-    },
-    {
-      label_zh: 'SP 备件数据同步',
-      label_en: 'SP Spare Data Sync',
-      task_ids: ['sp_data_sync'],
-    },
-    {
-      label_zh: 'CNN UME 数据同步',
-      label_en: 'CNN UME Data Sync',
-      task_ids: ['cnn_kpi_sync'],
-    },
-    {
-      label_zh: 'iPRAN UME 数据同步',
-      label_en: 'iPRAN UME Data Sync',
-      task_ids: ['ipran_kpi_sync'],
-    },
-    {
-      label_zh: 'Packet Loss 丢包同步',
-      label_en: 'Packet Loss Sync',
-      task_ids: ['packet_loss_sync'],
-    },
-    {
-      label_zh: 'CNN UME 数据同步',
-      label_en: 'CNN UME Data Sync',
-      task_ids: ['cnn_kpi_sync'],
-    },
-    {
-      label_zh: '图表邮件',
-      label_en: 'Chart Email Reports',
-      task_ids: [
-        'ipran_m6k_chart_email',
-        'ccn_free_rating_chart_email',
-      ],
-    },
-    {
-      label_zh: 'FW 吞吐 KPI 同步',
-      label_en: 'FW Throughput KPI Sync',
-      task_ids: ['fw_kpi_sync'],
-    },
-    {
-      label_zh: 'Liberia 宕站报告邮件',
-      label_en: 'Liberia Site-Down Email',
-      task_ids: ['liberia_email_1h', 'liberia_email_8h'],
-    },
-    {
-      label_zh: 'KPI / SP / RAN 报告邮件',
-      label_en: 'KPI / SP / RAN Report Email',
-      task_ids: [
-        'kpi_ms_contract',
-        'kpi_ms_wo_sla',
-        'kpi_sp_spareparts',
-        'kpi_sp_consumables',
-        'kpi_ran_availability',
-      ],
-    },
-    {
-      label_zh: '电池 KPI 同步',
-      label_en: 'Battery KPI Sync',
-      task_ids: ['battery_kpi_sync', 'battery_email'],
-    },
-    {
-      label_zh: '邮箱空间清理',
-      label_en: 'Mailbox Cleanup',
-      task_ids: ['mailbox_cleanup'],
-    },
-    {
-      label_zh: 'Incident 事件总览同步',
-      label_en: 'Incident Overview Sync',
-      task_ids: ['incident_overview_sync'],
-    },
-    {
-      label_zh: '失败自愈',
-      label_en: 'Failure Self-Healing',
-      task_ids: ['auto_retry_failed', 'email_recovery'],
-    },
+  // 网关分组：按「获取数据的外部系统」动态分组（数据来自后端 task.gateway，不再硬编码 ROW_GROUPS）
+  const GATEWAY_ORDER = [
+    'eflow_api', 'ran_ume', 'cnn_ume', 'ipran_ume',
+    'sp_sftp', 'dp_umc', 'battery_ume',
+    'email', 'whatsapp', 'system',
   ]
+  const GATEWAY_LABELS: Record<string, { zh: string; en: string }> = {
+    eflow_api: { zh: 'ZTE eFlow API', en: 'ZTE eFlow API' },
+    ran_ume: { zh: 'RAN UME', en: 'RAN UME' },
+    cnn_ume: { zh: 'CNN UME', en: 'CNN UME' },
+    ipran_ume: { zh: 'iPRAN UME', en: 'iPRAN UME' },
+    sp_sftp: { zh: 'SP SFTP 备件', en: 'SP SFTP Spare' },
+    dp_umc: { zh: 'DPtech UMC (FW)', en: 'DPtech UMC (FW)' },
+    battery_ume: { zh: 'Battery UME', en: 'Battery UME' },
+    email: { zh: '邮件 Email (EWS/OWA)', en: 'Email (EWS/OWA)' },
+    whatsapp: { zh: 'WhatsApp', en: 'WhatsApp' },
+    system: { zh: '系统 / 内部', en: 'System / Internal' },
+  }
+  const GATEWAY_COLORS = ['#4dabf7', '#51cf66', '#ffa94d', '#ff6b6b', '#cc5de8', '#22b8cf', '#f783ac', '#ffd43b', '#20c997', '#868e96']
+  const gwLabel = (key: string): string => {
+    const l = GATEWAY_LABELS[key]
+    if (l) return locale === 'zh' ? l.zh : l.en
+    return key
+  }
+
+  // 基于已筛选的 tasks 按 gateway 聚合（随搜索/状态/分类筛选实时联动），顺序遵循 GATEWAY_ORDER
+  const groupedByGateway = useMemo(() => {
+    const buckets = new Map<string, TaskInfo[]>()
+    for (const t of tasks) {
+      const g = t.gateway || 'system'
+      if (!buckets.has(g)) buckets.set(g, [])
+      buckets.get(g)!.push(t)
+    }
+    const ordered = GATEWAY_ORDER
+      .filter(g => buckets.has(g))
+      .map(g => ({ key: g, items: buckets.get(g)! }))
+    const rest = [...buckets.keys()]
+      .filter(g => !GATEWAY_ORDER.includes(g))
+      .map(g => ({ key: g, items: buckets.get(g)! }))
+    return [...ordered, ...rest]
+  }, [tasks])
 
   // 根据 task_id 快速查找任务
   const taskMap = new Map(tasks.map(t => [t.task_id, t]))
@@ -826,11 +783,11 @@ export default function DataSync() {
         />
       )}
 
-      {/* Task Cards - Grouped by Rows */}
+      {/* Task Cards - Grouped by Data Gateway */}
       <Spin spinning={loading}>
-        {ROW_GROUPS.map((group, gi) => (
-          <div key={gi} style={{ marginBottom: 24 }}>
-            {/* Row title */}
+        {groupedByGateway.map((group, gi) => (
+          <div key={group.key} style={{ marginBottom: 24 }}>
+            {/* Group title */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -842,15 +799,18 @@ export default function DataSync() {
                 width: 4,
                 height: 18,
                 borderRadius: 2,
-                background: gi === 0 ? WH.blue : gi === 1 ? '#51cf66' : gi === 2 ? '#ffa94d' : '#ff6b6b',
+                background: GATEWAY_COLORS[gi % GATEWAY_COLORS.length],
                 marginRight: 10,
               }} />
               <Text style={{ fontSize: 14, fontWeight: 600, color: WH.text }}>
-                {locale === 'zh' ? group.label_zh : group.label_en}
+                {gwLabel(group.key)}
+              </Text>
+              <Text style={{ fontSize: 12, color: WH.textMuted, marginLeft: 8 }}>
+                ({group.items.length})
               </Text>
             </div>
             <Row gutter={[16, 16]}>
-              {group.task_ids.map(taskId => renderTaskCard(taskId))}
+              {group.items.map(t => renderTaskCard(t.task_id))}
             </Row>
           </div>
         ))}

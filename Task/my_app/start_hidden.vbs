@@ -12,18 +12,26 @@ ws.CurrentDirectory = base
 logDir = fso.BuildPath(base, "log")
 If Not fso.FolderExists(logDir) Then fso.CreateFolder(logDir)
 
-' ===== 1. 自动检测 Python (优先 python.exe，便于排查错误) =====
+' ===== 1. 自动检测 Python（隐藏启动：优先同目录的 pythonw.exe 以彻底无控制台窗口） =====
 backendExe = ""
 On Error Resume Next
-' 优先尝试找 python.exe
+' 先定位 python.exe（确定解释器目录，避免误用 managed 3.13 导致依赖缺失）
 Set exec = ws.Exec("cmd /c where python.exe")
 If Err.Number = 0 Then
     backendExe = Trim(exec.StdOut.ReadLine())
 End If
 On Error GoTo 0
 
-' 如果找不到 python.exe，再尝试 pythonw.exe
-If backendExe = "" Or Not fso.FileExists(backendExe) Then
+If backendExe <> "" And fso.FileExists(backendExe) Then
+    ' 同目录换成 pythonw.exe（GUI 子系统，不弹控制台窗口），实现真正隐藏
+    Dim pywDir, pywCand
+    pywDir = fso.GetParentFolderName(backendExe)
+    pywCand = fso.BuildPath(pywDir, "pythonw.exe")
+    If fso.FileExists(pywCand) Then
+        backendExe = pywCand
+    End If
+Else
+    ' python.exe 都找不到时，再兜底直接找 pythonw.exe
     On Error Resume Next
     Set exec = ws.Exec("cmd /c where pythonw.exe")
     If Err.Number = 0 Then
@@ -100,9 +108,16 @@ If Not IsPortListening(7090) Then
     ws.Run frontendCmd, 0, False
 End If
 
-' ===== 5. 等待服务启动后打开浏览器 =====
+' ===== 5. 等待服务启动后打开浏览器（可传 nobrowser 跳过，用于登录自启不弹窗） =====
 WScript.Sleep 6000
-ws.Run "http://localhost:7090"
+Dim openBrowser
+openBrowser = True
+If WScript.Arguments.Count > 0 Then
+    If LCase(WScript.Arguments(0)) = "nobrowser" Then openBrowser = False
+End If
+If openBrowser Then
+    ws.Run "http://localhost:7090"
+End If
 
 Function IsPortListening(port)
     Set portCheck = ws.Exec("cmd /c netstat -ano | findstr :" & port & " | findstr LISTENING")

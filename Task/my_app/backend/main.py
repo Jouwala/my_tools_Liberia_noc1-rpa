@@ -101,9 +101,13 @@ def _register_all_tasks():
     """注册所有可调度的任务（声明式定义见 backend/task_registry.py）"""
     return register_all_tasks(task_runner)
 
-def _init_db_with_retry(max_retries: int = 12, wait: int = 5):
+def _init_db_with_retry(max_retries: int = 12, base_wait: int = 1, max_wait: int = 8):
     """db 初始化可能因后台进程(Windows Search 索引 / 杀软实时扫描)临时锁住
-    app.db 而失败，这里加重试穿过锁释放窗口，避免后端启动卡死。"""
+    app.db 而失败，这里加重试穿过锁释放窗口，避免后端启动卡死。
+
+    退避策略：指数退避（1s, 2s, 4s, 8s...），快速穿过短暂锁窗口；
+    max_wait 封顶，避免最坏情况等待过长。
+    """
     import sqlite3
     last_err = None
     for i in range(1, max_retries + 1):
@@ -133,8 +137,9 @@ def _init_db_with_retry(max_retries: int = 12, wait: int = 5):
             return
         except Exception as e:
             last_err = e
-            print(f"[startup] db 初始化遇锁({type(e).__name__})，{wait}s 后重试 ({i}/{max_retries}): {e}")
-            time.sleep(wait)
+            delay = min(base_wait * (2 ** (i - 1)), max_wait)
+            print(f"[startup] db 初始化遇锁({type(e).__name__})，{delay}s 后重试 ({i}/{max_retries}): {e}")
+            time.sleep(delay)
     raise last_err or RuntimeError("db init failed after retries")
 
 

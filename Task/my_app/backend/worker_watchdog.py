@@ -44,7 +44,7 @@ STARTUP_FAIL_LIMIT = 10    # 连续快速崩溃达到此次数则放弃并告警
 GROUP_TASK_MAP = {
     "u": (  # UME 192.168.170.2 单账号会话：必须串行
         "ran_ume_daily,main_kpi_sync,network_kpi_sync,packet_loss_sync,"
-        "battery_kpi_sync,ipran_kpi_sync"),
+        "packet_loss_email,battery_kpi_sync,ipran_kpi_sync"),
     "n": (  # 网管 / eFlow API / 远程系统：各自独立但保守同组
         "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,"
         "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync"),
@@ -112,6 +112,9 @@ def _spawn_worker(group: str):
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     log_fh = open(WORKER_LOG, "ab", buffering=0)
     env = os.environ.copy()
+    # 关键：worker 日志流是 charmap（Windows 非 tty 文件默认），中文日志会 UnicodeEncodeError
+    # 导致截图等链路被静默打断。强制 UTF-8（与 backend/main.py 的 reconfigure 一致）。
+    env["PYTHONUTF8"] = "1"
     # eFlow API 超时加固（与 backend_watchdog 一致）：连 10s / 读 30s / 重试 2 次。
     # worker 才是 eflow_sync 的实际执行方，必须同样注入，否则仍用默认 90s 读超时。
     env["EFLOW_CONNECT_TIMEOUT"] = os.environ.get("EFLOW_CONNECT_TIMEOUT", "10")

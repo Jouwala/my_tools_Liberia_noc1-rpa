@@ -207,6 +207,13 @@ def _finish(queue_id: int, success: bool, result, error: str | None):
 
 
 def main():
+    # 与 backend/main.py 一致：worker 的 stdout/stderr 被重定向到日志文件（charmap 编码），
+    # 中文日志会 UnicodeEncodeError。强制 UTF-8 避免截图等链路被静默打断。
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s %(message)s",

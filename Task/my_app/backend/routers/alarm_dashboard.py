@@ -141,19 +141,26 @@ def _history_metrics_sql():
         if not _table_exists(conn, "history_alarm"):
             conn.close()
             return None
+        # history_alarm 现已统一为 TEXT 列（与 SQLite 动态类型语义一致），
+        # PG 侧数值运算需先安全 CAST（空串/非数字 -> NULL，避免 text 运算/转换报错）。
+        def _bn(col):
+            return (f"CASE WHEN \"{col}\" IS NOT NULL AND \"{col}\" ~ '^[0-9]+$' "
+                    f"THEN \"{col}\"::bigint ELSE NULL END")
+        _ad = ("NULLIF(TRIM(REPLACE(REPLACE(COALESCE(\"assign_delay\",''),'min',''),'s','')),'')"
+               "::double precision")
         cur = conn.execute(
-        """
+            f"""
         SELECT COUNT(*) AS total,
-          SUM(CASE WHEN tt_id IS NOT NULL AND TRIM(CAST(tt_id AS TEXT))!=''
-                    AND CAST(tt_id AS TEXT)!='-' THEN 1 ELSE 0 END) AS with_tt,
-          SUM(CASE WHEN (assigned_time - servertime)
-                    > CAST(REPLACE(REPLACE(assign_delay, 'min', ''), 's', '') AS DOUBLE PRECISION)*1.1*1000 THEN 1 ELSE 0 END) AS dispatch_delay,
-          SUM(CASE WHEN (servertime - alarmraisedtime)
+          SUM(CASE WHEN "tt_id" IS NOT NULL AND TRIM(CAST("tt_id" AS TEXT))!=''
+                    AND CAST("tt_id" AS TEXT)!='-' THEN 1 ELSE 0 END) AS with_tt,
+          SUM(CASE WHEN ({_bn('assigned_time')} - {_bn('servertime')})
+                    > {_ad}*1.1*1000 THEN 1 ELSE 0 END) AS dispatch_delay,
+          SUM(CASE WHEN ({_bn('servertime')} - {_bn('alarmraisedtime')})
                     > 300000 THEN 1 ELSE 0 END) AS fetch_delay,
-          SUM(CASE WHEN (assigned_time - alarmraisedtime) > 300000
-                    AND (assigned_time - alarmraisedtime)
-                        > CAST(REPLACE(REPLACE(assign_delay, 'min', ''), 's', '') AS DOUBLE PRECISION)*1.1*1000 THEN 1 ELSE 0 END) AS overdue,
-          MAX(servertime) AS latest_ms
+          SUM(CASE WHEN ({_bn('assigned_time')} - {_bn('alarmraisedtime')}) > 300000
+                    AND ({_bn('assigned_time')} - {_bn('alarmraisedtime')})
+                        > {_ad}*1.1*1000 THEN 1 ELSE 0 END) AS overdue,
+          MAX({_bn('servertime')}) AS latest_ms
         FROM history_alarm
         """
         )

@@ -7,6 +7,7 @@ export interface TaskInfo {
   name_en?: string
   description: string
   category: string
+  gateway: string
   enabled: boolean
   current_cron: string
   default_cron: string

@@ -197,6 +197,34 @@ def save_debug_snapshot(page, debug_dir: str, step: str, ts: Optional[str] = Non
 
 
 # ==========================================================
+# 辅助：容忍「interrupted by another navigation」的安全 goto
+# ==========================================================
+def safe_goto(page, url, timeout: int = 120000, wait_until: str = "domcontentloaded"):
+    """执行 page.goto，但容忍 OAuth 流程中常见的「interrupted by another navigation」。
+
+    携带持久化 session 时，/oauth2/v1/authorize 端点常会立即客户端重定向
+    （如 SPA 带上 code 再跳回 authorize），与 in-flight 的 goto 竞争，Playwright
+    会抛 'Navigation ... is interrupted by another navigation'。该错误通常是良性的——
+    调用方本就会按 page.url 判断登录态——此处吞掉后等待 load 状态落定即可。
+
+    仅吞掉中断类错误；其它错误（超时、证书等）照常上抛。
+    """
+    try:
+        page.goto(url, wait_until=wait_until, timeout=timeout)
+    except Exception as e:
+        msg = str(e)
+        if "interrupted by another navigation" in msg or "net::ERR_ABORTED" in msg:
+            logger.warning(f"[safe_goto] 导航被并发重定向打断（良性），等待落定: {msg}")
+            try:
+                page.wait_for_load_state(wait_until, timeout=timeout)
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] safe_goto: exception swallowed", exc_info=True)
+                pass
+        else:
+            raise
+
+
+# ==========================================================
 # 辅助：loading 消失就绪信号（用于 SPA 数据加载完成判断）
 # ==========================================================
 def wait_for_loading_gone(frame, timeout: int = 15000):

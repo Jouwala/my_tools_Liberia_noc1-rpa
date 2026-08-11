@@ -470,6 +470,7 @@ def _assert_not_blank(out: Path) -> None:
     - 再按像素判定：三通道最值都接近纯白，或近白像素占比 > 98% 即判为白屏。
     - 无 PIL 时仅告警并放行，退回元素级渲染校验。
     """
+    out = Path(out)
     if not out.exists():
         raise RuntimeError(f"截图文件缺失，已跳过：{out}")
     if out.stat().st_size < 2000:
@@ -516,7 +517,7 @@ def run_packet_loss_email(to: str = None, cc: str = None) -> dict:
     # ---- 1. 截图 ----
     try:
         screenshot = _capture_packet_loss_screenshot()
-        print(f"[PL-EMAIL] 截图完成: {screenshot} ({screenshot.stat().st_size} bytes)")
+        logging.getLogger(__name__).info("[PL-EMAIL] 截图完成: %s (%d bytes)", str(screenshot), screenshot.stat().st_size)
     except Exception as e:
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] PL screenshot failed: %s", e)
         screenshot = None

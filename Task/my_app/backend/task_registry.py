@@ -275,8 +275,8 @@ TASK_SPECS = [
     # 28. Incident Overview 数据同步（每小时整点）：从远程 FineBI FTP 拉取最新 incident_overview.xlsx
     dict(task_id="incident_overview_sync", name="Incident Overview 数据同步", name_en="Incident Overview Data Sync",
          loader=("backend.services.incident_overview_sync", "run_incident_overview_sync"),
-         description="每小时整点从远程 FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ 所有子目录取最新 incident_overview.xlsx，原子替换本地 data/incident_overview/incident_overview.xlsx",
-         description_en="Hourly on-the-hour: pull the latest incident_overview.xlsx from remote FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ across all subfolders, atomically replace local data file",
+         description="每小时整点从远程 FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ 所有子目录取最新 incident_overview.xlsx，落盘为版本化文件 + current.json 指针（Excel 一直打开也不会失败），best-effort 刷新 incident_overview.xlsx 快照",
+         description_en="Hourly on-the-hour: pull the latest incident_overview.xlsx from remote FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ across all subfolders, store as versioned file + current.json pointer (immune to Excel lock), best-effort refresh snapshot",
          default_cron="0 * * * *", category="incident_overview"),
 
     # 29. 失败任务自动重试（每 10 分钟扫描，仅重试仍处于任务调度周期时效窗口内的失败）
@@ -286,6 +286,42 @@ TASK_SPECS = [
          description_en="Scan failed tasks every 10 minutes; re-run those still within their schedule-cycle window (before next fire time) and under the retry budget (email tasks are handled by EWS recovery and excluded)",
          default_cron="*/10 * * * *", category="general"),
 ]
+
+# ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========
+# category 颗粒度较细（ran_ume / main_kpi / network_kpi / packet_loss 都属 RAN UME），
+# gateway 用于任务管理页的一级分组展示。新增 category 时务必在此补充映射，否则回退 "system"。
+CATEGORY_GATEWAY: dict[str, str] = {
+    # ZTE eFlow API：TT/WO/CR/PM/Site/Person 及 incident_overview 同源
+    "eflow": "eflow_api",
+    "incident_overview": "eflow_api",
+    # RAN UME：PM/KPI/丢包率数据均来自 RAN UME
+    "ran_ume": "ran_ume",
+    "main_kpi": "ran_ume",
+    "network_kpi": "ran_ume",
+    "packet_loss": "ran_ume",
+    # CNN / iPRAN UME 核心网与路由器
+    "cnn_kpi": "cnn_ume",
+    "ipran_kpi": "ipran_ume",
+    # 备件 SFTP
+    "sp": "sp_sftp",
+    # FW 吞吐（DPtech UMC）
+    "fw_kpi": "dp_umc",
+    # 电池 UME
+    "battery": "battery_ume",
+    # 邮件 / WhatsApp 通知通道
+    "email": "email",
+    "kpi_email": "email",
+    "whatsapp": "whatsapp",
+    # 系统 / 内部运维（不依赖外部数据网关）
+    "site_outage": "system",
+    "ms_sla": "system",
+    "mailbox": "system",
+    "general": "system",
+}
+
+# 将 gateway 注入每个 spec，作为一级分组真相源（前端按此动态分组，不再硬编码 ROW_GROUPS）
+for _spec in TASK_SPECS:
+    _spec.setdefault("gateway", CATEGORY_GATEWAY.get(_spec.get("category"), "system"))
 
 
 def register_all_tasks(task_runner) -> int:
@@ -308,6 +344,7 @@ def register_all_tasks(task_runner) -> int:
             description_en=spec["description_en"],
             default_cron=spec["default_cron"],
             category=spec["category"],
+            gateway=spec.get("gateway", CATEGORY_GATEWAY.get(spec.get("category"), "system")),
             call_chain=call_chain,
         )
     logger.info(f"任务注册完成：{len(TASK_SPECS)} 个任务")

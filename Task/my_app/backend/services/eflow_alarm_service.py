@@ -541,8 +541,11 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
                     for i in range(0, len(ids), 900):
                         chunk = ids[i:i + 900]
                         qmarks = ",".join("?" for _ in chunk)
+                        # upsert_key 列可能已被转成 TEXT（与动态表语义一致），
+                        # 故参数统一转字符串，避免 PG "text = bigint" 操作符不存在的错误。
                         conn.execute(
-                            f'DELETE FROM "{table_name}" WHERE "{upsert_key}" IN ({qmarks})', chunk
+                            f'DELETE FROM "{table_name}" WHERE "{upsert_key}" IN ({qmarks})',
+                            [str(x) for x in chunk],
                         )
                         deleted += len(chunk)
                     logger.info(f"{table_name}: 删除 {deleted} 条旧行 (upsert on {upsert_key})")

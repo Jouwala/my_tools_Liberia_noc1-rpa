@@ -2,7 +2,8 @@
 """
 事件总览（Incident Overview）业务逻辑层
 
-数据源: data/incident_overview/incident_overview.xlsx
+数据源: data/incident_overview/（版本化文件 incident_overview_<ts>_<rand>.xlsx + current.json 指针，
+        旧版固定名 incident_overview.xlsx 作为 best-effort 快照；resolve_excel_path() 自动选最新）
 地图边界: data/incident_overview/lr-all.geo.json
 
 从 Unified_Tools/incident_overview/app.py 改写而来，保留：
@@ -29,18 +30,95 @@ logger = logging.getLogger("incident_overview_service")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(BASE_DIR, "data", "incident_overview")
-EXCEL_FILE = os.path.join(DATA_DIR, "incident_overview.xlsx")
+EXCEL_FILE = os.path.join(DATA_DIR, "incident_overview.xlsx")          # 旧版固定名 / 人类友好快照（best-effort）
 GEOJSON_FILE = os.path.join(DATA_DIR, "lr-all.geo.json")
+POINTER_FILE = os.path.join(DATA_DIR, "current.json")                 # 版本化指针
+VERSION_PREFIX = "incident_overview_"                                 # 版本化文件前缀
 
 # Details sheet mtime 缓存
 _last_excel_mtime = 0
 _cached_incident_log = None
 
 
+# ----------------------------------------------------------------------------
+# 当前应读取的 Excel 路径解析（版本化文件 + 指针）
+# ----------------------------------------------------------------------------
+def _resolve_excel_path_uncached():
+    """解析当前应读取的 Excel 路径，优先级：
+
+    1) current.json 指针指向的版本化文件（sync 写入的最新版本，权威）；
+    2) 扫描目录中 mtime 最新的 incident_overview_*.xlsx（指针缺失/损坏时兜底）；
+    3) 旧版固定名 incident_overview.xlsx（首次迁移或尚无版本化文件时兜底）。
+
+    返回绝对路径字符串。该设计使 Excel 一直打开 incident_overview.xlsx 也不影响
+    读取——service 永远读“当前版本”的版本化文件，而非被锁的固定名。
+    """
+    # 1) 指针
+    try:
+        if os.path.exists(POINTER_FILE):
+            with open(POINTER_FILE, "r", encoding="utf-8") as f:
+                info = json.load(f)
+            cand = os.path.join(DATA_DIR, info.get("current", ""))
+            if cand and os.path.exists(cand):
+                return cand
+    except Exception as e:  # noqa: BLE001
+        logger.warning("读取 current.json 指针失败，回退扫描: %s", e)
+    # 2) 扫描最新版本化文件
+    try:
+        cands = [
+            os.path.join(DATA_DIR, f) for f in os.listdir(DATA_DIR)
+            if f.startswith(VERSION_PREFIX) and f.endswith(".xlsx")
+        ]
+        if cands:
+            return max(cands, key=os.path.getmtime)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("扫描版本化文件失败，回退旧版: %s", e)
+    # 3) 旧版固定名
+    if os.path.exists(EXCEL_FILE):
+        return EXCEL_FILE
+    return EXCEL_FILE
+
+
+def _pointer_key():
+    """用于缓存失效判断：指针文件变化时返回其 mtime/size；否则返回最新版本化文件 mtime；
+    都没有则返回 ('legacy',)。"""
+    try:
+        if os.path.exists(POINTER_FILE):
+            st = os.stat(POINTER_FILE)
+            return ("pointer", st.st_mtime, st.st_size)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        cands = [
+            os.path.join(DATA_DIR, f) for f in os.listdir(DATA_DIR)
+            if f.startswith(VERSION_PREFIX) and f.endswith(".xlsx")
+        ]
+        if cands:
+            return ("scan", max(os.path.getmtime(c) for c in cands))
+    except Exception:  # noqa: BLE001
+        pass
+    return ("legacy",)
+
+
+_RESOLVE_CACHE = {"key": None, "path": None}
+
+
+def resolve_excel_path():
+    """返回当前应读取的 Excel 路径（带缓存，仅在指针/最新版本变化时重新解析）。"""
+    key = _pointer_key()
+    c = _RESOLVE_CACHE
+    if c["key"] == key and c["path"] and os.path.exists(c["path"]):
+        return c["path"]
+    path = _resolve_excel_path_uncached()
+    c["key"] = key
+    c["path"] = path
+    return path
+
+
 def safe_read_excel(sheet_name, header=0):
     """安全读取 Excel sheet，出错时返回空 DataFrame。"""
     try:
-        return pd.read_excel(EXCEL_FILE, sheet_name=sheet_name, header=header, engine="openpyxl")
+        return pd.read_excel(resolve_excel_path(), sheet_name=sheet_name, header=header, engine="openpyxl")
     except Exception as e:  # noqa: BLE001
         logger.warning("读取 sheet %s 失败: %s", sheet_name, e)
         return pd.DataFrame()
@@ -340,10 +418,11 @@ def get_details_data():
 # ----------------------------------------------------------------------------
 def get_incident_log_data(force=False):
     global _last_excel_mtime, _cached_incident_log
-    if not os.path.exists(EXCEL_FILE):
+    excel_path = resolve_excel_path()
+    if not os.path.exists(excel_path):
         return {"data": [], "columns": []}
 
-    mtime = os.path.getmtime(EXCEL_FILE)
+    mtime = os.path.getmtime(excel_path)
     if not force and mtime == _last_excel_mtime and _cached_incident_log is not None:
         return _cached_incident_log
 
@@ -391,8 +470,9 @@ def load_geojson():
 # 一次性聚合（/all）
 # ----------------------------------------------------------------------------
 def get_all_data():
-    if not os.path.exists(EXCEL_FILE):
-        return {"error": f"Excel file not found: {EXCEL_FILE}"}
+    excel_path = resolve_excel_path()
+    if not os.path.exists(excel_path):
+        return {"error": f"Excel file not found: {excel_path}"}
     result, errors = {}, []
     try:
         result["status"] = get_status_data()

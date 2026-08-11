@@ -70,6 +70,10 @@ QUERY_FILTERS: List[Tuple[str, str, str]] = [
     ("HQ-M6K-8S_Plus_PS01", "SmartGroup:3", "HQ_M6K_FW_bnctp_15mins"),
 ]
 
+# 邮件发送时跳过的图表文件名子串：命中则不将该图加入邮件附件
+# （图表仍会生成，只是不发送）。如无需过滤可清空该列表。
+SKIP_CHART_NAME_SUBSTRINGS = ["-SmartGroup_9"]
+
 # 图表颜色配置（与 ran_ume 仪表板风格一致）
 COLOR_INGRESS = '#2E86AB'
 COLOR_EGRESS = '#A23B72'
@@ -507,7 +511,15 @@ def run_chart_and_send(to_override: Optional[str] = None,
         if not generate_chart(df, me, measure_obj, chart_path):
             logger.error(f"跳过 {chart_name}: 图表生成失败")
             continue
-        
+
+        # 命中跳过规则：文件名含指定子串则不发送（图表仍已生成在 OUTPUT_DIR）
+        if any(sub in chart_path.name for sub in SKIP_CHART_NAME_SUBSTRINGS):
+            logger.info(
+                f"跳过发送 {chart_name}: 文件名命中过滤子串 "
+                f"{SKIP_CHART_NAME_SUBSTRINGS}（仍已生成图表文件）"
+            )
+            continue
+
         chart_files.append(chart_path)
     
     if not chart_files:
