@@ -44,50 +44,46 @@ _cached_incident_log = None
 # 当前应读取的 Excel 路径解析（版本化文件 + 指针）
 # ----------------------------------------------------------------------------
 def _resolve_excel_path_uncached():
-    """解析当前应读取的 Excel 路径，优先级：
+    """解析当前应读取的 Excel 路径。
 
-    1) current.json 指针指向的版本化文件（sync 写入的最新版本，权威）；
-    2) 扫描目录中 mtime 最新的 incident_overview_*.xlsx（指针缺失/损坏时兜底）；
-    3) 旧版固定名 incident_overview.xlsx（首次迁移或尚无版本化文件时兜底）。
+    权威来源 = 目录中 mtime 最新的版本化文件 incident_overview_<ts>_<rand>.xlsx
+    （每个版本化文件都经原子写、完整有效，最新的即“最近一次成功同步”）。
+    current.json 指针仅作为候选之一（不优先于更新的版本），旧版固定名
+    incident_overview.xlsx 作为最后兜底。
 
-    返回绝对路径字符串。该设计使 Excel 一直打开 incident_overview.xlsx 也不影响
-    读取——service 永远读“当前版本”的版本化文件，而非被锁的固定名。
+    该设计使读取**完全不依赖**任何固定名文件是否被锁：即使 current.json / 快照
+    被 Excel/外部进程占用，service 永远读最新版本化文件。
     """
-    # 1) 指针
+    candidates = []
+    # 1) 扫描所有版本化文件
+    try:
+        for f in os.listdir(DATA_DIR):
+            if f.startswith(VERSION_PREFIX) and f.endswith(".xlsx"):
+                candidates.append(os.path.join(DATA_DIR, f))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("扫描版本化文件失败: %s", e)
+    # 2) 指针指向的文件也作为候选（不优先于更新的版本）
     try:
         if os.path.exists(POINTER_FILE):
-            with open(POINTER_FILE, "r", encoding="utf-8") as f:
-                info = json.load(f)
+            with open(POINTER_FILE, "r", encoding="utf-8") as fh:
+                info = json.load(fh)
             cand = os.path.join(DATA_DIR, info.get("current", ""))
-            if cand and os.path.exists(cand):
-                return cand
+            if cand and os.path.exists(cand) and cand not in candidates:
+                candidates.append(cand)
     except Exception as e:  # noqa: BLE001
-        logger.warning("读取 current.json 指针失败，回退扫描: %s", e)
-    # 2) 扫描最新版本化文件
-    try:
-        cands = [
-            os.path.join(DATA_DIR, f) for f in os.listdir(DATA_DIR)
-            if f.startswith(VERSION_PREFIX) and f.endswith(".xlsx")
-        ]
-        if cands:
-            return max(cands, key=os.path.getmtime)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("扫描版本化文件失败，回退旧版: %s", e)
-    # 3) 旧版固定名
+        logger.warning("读取 current.json 指针失败，忽略: %s", e)
+    # 3) 取 mtime 最新者
+    if candidates:
+        return max(candidates, key=os.path.getmtime)
+    # 4) 兜底：旧版固定名
     if os.path.exists(EXCEL_FILE):
         return EXCEL_FILE
     return EXCEL_FILE
 
 
 def _pointer_key():
-    """用于缓存失效判断：指针文件变化时返回其 mtime/size；否则返回最新版本化文件 mtime；
-    都没有则返回 ('legacy',)。"""
-    try:
-        if os.path.exists(POINTER_FILE):
-            st = os.stat(POINTER_FILE)
-            return ("pointer", st.st_mtime, st.st_size)
-    except Exception:  # noqa: BLE001
-        pass
+    """用于缓存失效判断：优先以“最新版本化文件 mtime”为准——只要有新版本落盘
+    （无论指针是否成功更新）即视为失效并重解析；无版本化文件时回退指针 / legacy。"""
     try:
         cands = [
             os.path.join(DATA_DIR, f) for f in os.listdir(DATA_DIR)
@@ -95,6 +91,12 @@ def _pointer_key():
         ]
         if cands:
             return ("scan", max(os.path.getmtime(c) for c in cands))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        if os.path.exists(POINTER_FILE):
+            st = os.stat(POINTER_FILE)
+            return ("pointer", st.st_mtime, st.st_size)
     except Exception:  # noqa: BLE001
         pass
     return ("legacy",)

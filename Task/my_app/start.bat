@@ -12,12 +12,18 @@ echo.
 
 :: ===== 自动检测 Python（优先 python.exe 便于看到错误） =====
 set PYTHON_EXE=
-where python.exe >nul 2>&1
-if %errorlevel%==0 (
-    for /f "delims=" %%i in ('where python.exe') do (
-        if not defined PYTHON_EXE set PYTHON_EXE=%%i
+:: 0) 项目内嵌 Python（终极兜底：拷贝到任何机器都能跑；该目录不存在则跳过）
+if exist "%~dp0bin\python\python.exe" set PYTHON_EXE=%~dp0bin\python\python.exe
+:: 1) PATH 中的 python
+if not defined PYTHON_EXE (
+    where python.exe >nul 2>&1
+    if %errorlevel%==0 (
+        for /f "delims=" %%i in ('where python.exe') do (
+            if not defined PYTHON_EXE set PYTHON_EXE=%%i
+        )
     )
 )
+:: 2) PATH 中的 pythonw
 if not defined PYTHON_EXE (
     where pythonw.exe >nul 2>&1
     if %errorlevel%==0 (
@@ -25,6 +31,28 @@ if not defined PYTHON_EXE (
             if not defined PYTHON_EXE set PYTHON_EXE=%%i
         )
     )
+)
+:: 3) py launcher（装了 Python 但没加 PATH 时必带）
+if not defined PYTHON_EXE (
+    where py.exe >nul 2>&1
+    if %errorlevel%==0 (
+        for /f "delims=" %%i in ('py -3 -c "import sys;print(sys.executable)" 2^>nul') do (
+            if not defined PYTHON_EXE set PYTHON_EXE=%%i
+        )
+    )
+)
+:: 4) 常见安装路径兜底（装了但没加 PATH 的最后保险）
+if not defined PYTHON_EXE (
+    for %%P in (
+        "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+        "%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+        "%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
+        "C:\Python312\python.exe"
+        "C:\Python311\python.exe"
+        "C:\Python310\python.exe"
+        "C:\Program Files\Python312\python.exe"
+        "C:\Program Files\Python311\python.exe"
+    ) do (if not defined PYTHON_EXE if exist %%~P set PYTHON_EXE=%%~P)
 )
 if not defined PYTHON_EXE (
     echo [ERROR] Python not found in PATH! Please install Python and add to PATH.

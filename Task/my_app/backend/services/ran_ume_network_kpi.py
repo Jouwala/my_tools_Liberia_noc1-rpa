@@ -1020,8 +1020,11 @@ def _merge_datasets(nw_headers, nw_data, grp_headers, grp_data):
     return merged_headers, merged_data
 
 
-def _write_dataset(table_name, merged_headers, merged_data):
-    """写入数据库：API 优先，失败回退本地 SQLite，返回写入行数"""
+def _write_dataset(table_name, merged_headers, merged_data, api_failures=None):
+    """写入数据库：API 优先，失败回退本地 SQLite，返回写入行数。
+    API 写入失败时把表名记入 api_failures，由调用方决定是否需要上报任务失败
+    （远程库损坏等场景下若静默回退，会导致任务显示成功但远程库长期未更新）。
+    """
     if _db_writer is not None:
         try:
             result = _db_writer.write_data(
@@ -1039,6 +1042,8 @@ def _write_dataset(table_name, merged_headers, merged_data):
             return row_count
         except Exception as e:
             print(f"  [API] 写入失败: {e}，回退到本地")
+            if api_failures is not None:
+                api_failures.append(f"{table_name}: {e}")
     row_count = write_to_db(DB_PATH, table_name, merged_headers, merged_data)
     print(f"  [LOCAL] written: {row_count} rows")
     return row_count
@@ -1110,22 +1115,35 @@ def import_to_database(export_results: dict = None):
 
     total_imported = 0
     files_to_delete = []
+    api_failures = []
     for tech in ["2G", "3G", "FDD", "TDD"]:
-        total_imported += _import_one_tech(tech, export_results, files_to_delete)
+        total_imported += _import_one_tech(tech, export_results, files_to_delete, api_failures)
 
     # ---- 写入结果日志 ----
     if _db_writer is None:
         print("\n[LOCAL] 数据已写入本地 SQLite（API 不可用）")
+    elif api_failures:
+        print(f"\n[WARNING] {len(api_failures)} 张表远程 API 写入失败，已回退本地:")
+        for msg in api_failures:
+            print(f"  - {msg}")
     else:
         print("\n[API] 数据已通过远程 API 写入")
 
     _cleanup_imported_files(files_to_delete)
 
     print(f"\n[DB] 导入完成，总计 {total_imported} 行")
+
+    if api_failures:
+        # 远程写入失败必须让任务显式失败，避免“任务成功但远程库未更新”
+        raise Exception(
+            f"[Network KPI] 远程 API 写入失败 {len(api_failures)}/4 张表（已回退本地）: "
+            + "; ".join(api_failures)
+        )
+
     return total_imported
 
 
-def _import_one_tech(tech, export_results, files_to_delete):
+def _import_one_tech(tech, export_results, files_to_delete, api_failures=None):
     """单个制式（2G/3G/FDD/TDD）的完整导入流程，返回写入行数（无数据源跳过返回 0）"""
     # 文件前缀（与 build_filename 生成的一致，空格已替换为下划线）
     nw_prefix = f"{tech}_OLIB_Network_KPIs_NW_1Day"
@@ -1156,7 +1174,7 @@ def _import_one_tech(tech, export_results, files_to_delete):
     if not merged_data:
         raise Exception(f"[Network KPI] {table_name}: 合并后无数据行，解析成功")
 
-    row_count = _write_dataset(table_name, merged_headers, merged_data)
+    row_count = _write_dataset(table_name, merged_headers, merged_data, api_failures)
 
     if row_count == 0:
         raise Exception(f"[Network KPI] {table_name}: 写入 0 行，数据丢失")

@@ -14,13 +14,21 @@ If Not fso.FolderExists(logDir) Then fso.CreateFolder(logDir)
 
 ' ===== 1. 自动检测 Python（隐藏启动：优先同目录的 pythonw.exe 以彻底无控制台窗口） =====
 backendExe = ""
-On Error Resume Next
-' 先定位 python.exe（确定解释器目录，避免误用 managed 3.13 导致依赖缺失）
-Set exec = ws.Exec("cmd /c where python.exe")
-If Err.Number = 0 Then
-    backendExe = Trim(exec.StdOut.ReadLine())
+Dim i, pl
+
+' 0) 项目内嵌 Python（终极兜底：拷贝到任何机器都能跑；该目录不存在则跳过）
+embeddedPy = fso.BuildPath(base, "bin\python\pythonw.exe")
+If fso.FileExists(embeddedPy) Then
+    backendExe = embeddedPy
 End If
-On Error GoTo 0
+
+' 1) PATH 中的 python.exe（确定解释器目录）
+If backendExe = "" Or Not fso.FileExists(backendExe) Then
+    On Error Resume Next
+    Set exec = ws.Exec("cmd /c where python.exe")
+    If Err.Number = 0 Then backendExe = Trim(exec.StdOut.ReadLine())
+    On Error GoTo 0
+End If
 
 If backendExe <> "" And fso.FileExists(backendExe) Then
     ' 同目录换成 pythonw.exe（GUI 子系统，不弹控制台窗口），实现真正隐藏
@@ -34,8 +42,34 @@ Else
     ' python.exe 都找不到时，再兜底直接找 pythonw.exe
     On Error Resume Next
     Set exec = ws.Exec("cmd /c where pythonw.exe")
+    If Err.Number = 0 Then backendExe = Trim(exec.StdOut.ReadLine())
+    On Error GoTo 0
+End If
+
+' 2) 常见安装路径兜底（装了 Python 但没加 PATH 时）
+If backendExe = "" Or Not fso.FileExists(backendExe) Then
+    Dim cand(8)
+    cand(0) = fso.BuildPath(ws.ExpandEnvironmentStrings("%LOCALAPPDATA%"), "Programs\Python\Python312\pythonw.exe")
+    cand(1) = fso.BuildPath(ws.ExpandEnvironmentStrings("%LOCALAPPDATA%"), "Programs\Python\Python311\pythonw.exe")
+    cand(2) = fso.BuildPath(ws.ExpandEnvironmentStrings("%LOCALAPPDATA%"), "Programs\Python\Python310\pythonw.exe")
+    cand(3) = "C:\Python312\pythonw.exe"
+    cand(4) = "C:\Python311\pythonw.exe"
+    cand(5) = "C:\Python310\pythonw.exe"
+    cand(6) = "C:\Program Files\Python312\pythonw.exe"
+    cand(7) = fso.BuildPath(ws.ExpandEnvironmentStrings("%LOCALAPPDATA%"), "Programs\Python\Python312\python.exe")
+    cand(8) = "C:\Python312\python.exe"
+    For i = 0 To 8
+        If (backendExe = "" Or Not fso.FileExists(backendExe)) And fso.FileExists(cand(i)) Then backendExe = cand(i)
+    Next
+End If
+
+' 3) py launcher 兜底（装了 Python 但 PATH 里只有 py.exe 时）
+If backendExe = "" Or Not fso.FileExists(backendExe) Then
+    On Error Resume Next
+    Set exec = ws.Exec("cmd /c py -3 -c ""import sys;print(sys.executable)""")
     If Err.Number = 0 Then
-        backendExe = Trim(exec.StdOut.ReadLine())
+        pl = Trim(exec.StdOut.ReadLine())
+        If pl <> "" And fso.FileExists(pl) Then backendExe = pl
     End If
     On Error GoTo 0
 End If

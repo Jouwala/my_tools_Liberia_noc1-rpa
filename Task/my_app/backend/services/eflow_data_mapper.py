@@ -1175,8 +1175,16 @@ def load_report_data_from_db() -> dict:
             conn.close()
         return out
 def _cleanup_old_tt_reports(output_dir):
-    """tt_reports 名类型景以本一件."""
-    pats = ["Liberia Orange Site Down hourly Report_*.xlsx", "Liberia Orange Site Down 8 hours Report_*.xlsx", "Liberia Orange TT Summary Report_*.xlsx"]
+    """tt_reports 目录同类型文件只保留最新一份（含图片降级产生的带序号 PNG）."""
+    pats = [
+        "Liberia Orange Site Down hourly Report_*.xlsx",
+        "Liberia Orange Site Down 8 hours Report_*.xlsx",
+        "Liberia Orange TT Summary Report_*.xlsx",
+        "Liberia Orange Site Down 8 hours Report_*.png",
+        "Summary_*.png",
+        "Open Tickets_*.png",
+        "Prolong Tickets_*.png",
+    ]
     for pat in pats:
         matched = sorted(glob.glob(os.path.join(output_dir, pat)), key=os.path.getmtime, reverse=True)
         for old_f in matched[1:]:
@@ -1330,12 +1338,15 @@ def generate_hourly_report_with_images(data: dict, send_email: bool = None) -> d
         result["summary_file"] = summary_file
         logger.info(f"   用时: {time.time() - step_start:.2f}s")
 
-        # 9. 图片
+        # 9. 图片（失败不阻断整体：Excel 报告已生成，仅记录错误）
         step_start = time.time()
         logger.info("步骤6: 生成图片（matplotlib）...")
-        image_paths = ExcelDataProcessor.generate_summary_images(
-            summary_df, open_tickets, prolong_tickets, output_dir)
-        result["image_paths"] = image_paths
+        try:
+            image_paths = ExcelDataProcessor.generate_summary_images(
+                summary_df, open_tickets, prolong_tickets, output_dir)
+            result["image_paths"] = image_paths
+        except Exception as e:
+            logger.error(f"图片生成失败（不影响报告文件）: {e}")
         logger.info(f"   用时: {time.time() - step_start:.2f}s")
 
         # 10. 邮件（可选）

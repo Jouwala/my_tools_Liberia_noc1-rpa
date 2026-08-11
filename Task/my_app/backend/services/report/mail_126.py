@@ -646,10 +646,15 @@ class ExcelDataProcessor:
         df_8h_img = df_8h.copy()
         if 'WO No.' in df_8h_img.columns:
             df_8h_img = df_8h_img[df_8h_img['WO No.'].notna() & (df_8h_img['WO No.'].astype(str).str.strip() != '')].copy()
-        cls.df_to_image(df_8h_img, img_path,
-                        title=f"Liberia Orange Site Down 8 hours Report\n{current_time}",
-                        highlight_sla=True)
-        print(f"✅ 8 Hours Report 图片已保存: {img_path}")
+        try:
+            img_path = cls.df_to_image(df_8h_img, img_path,
+                                       title=f"Liberia Orange Site Down 8 hours Report\n{current_time}",
+                                       highlight_sla=True)
+            print(f"✅ 8 Hours Report 图片已保存: {img_path}")
+        except Exception as e:
+            # 图片失败不阻断流程，Excel 报告照常返回
+            print(f"⚠️ 8 Hours Report 图片生成失败（不影响报告）: {e}")
+            img_path = None
 
         return output_path, img_path, df_8h
 
@@ -759,6 +764,44 @@ class ExcelDataProcessor:
     # matplotlib 渲染图片（替代 win32com，<2秒）
     # ============================================================
     @classmethod
+    def _save_fig_atomic(cls, fig, final_path, dpi, pad_inches=0.05, facecolor='white'):
+        """原子写 savefig：先写临时文件再 os.replace；遇文件锁（WPS云同步/Defender/预览占用）
+        固定间隔重试；重试耗尽后降级保存为带序号的文件名，保证图片写入失败不中断主流程。"""
+        final_path = str(final_path)
+        last_err = None
+        _max_attempts = 30
+        _wait_sec = 3
+        for attempt in range(_max_attempts):
+            tmp_path = f"{final_path}.{os.getpid()}.{attempt}.tmp.png"
+            try:
+                fig.savefig(tmp_path, dpi=dpi, bbox_inches='tight', pad_inches=pad_inches,
+                            facecolor=facecolor, edgecolor='none', format='png')
+                os.replace(tmp_path, final_path)
+                return final_path
+            except (PermissionError, OSError) as e:
+                last_err = e
+                try:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except OSError:
+                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] _save_fig_atomic: exception swallowed", exc_info=True)
+                if attempt < _max_attempts - 1:
+                    print(f"⚠️ 图片写入被占用({attempt + 1}/{_max_attempts})，等待{_wait_sec}s: {os.path.basename(final_path)}")
+                    time.sleep(_wait_sec)
+        # 重试耗尽：目标文件长期被占用，降级为带序号文件名，避免丢失图片结果
+        base, ext = os.path.splitext(final_path)
+        for seq in range(1, 100):
+            alt_path = f"{base}_{seq}{ext}"
+            try:
+                fig.savefig(alt_path, dpi=dpi, bbox_inches='tight', pad_inches=pad_inches,
+                            facecolor=facecolor, edgecolor='none', format='png')
+                print(f"⚠️ 目标图片被占用，改存为: {alt_path}")
+                return alt_path
+            except OSError:
+                continue
+        raise last_err
+
+    @classmethod
     def df_to_image(cls, df, image_path=None, dpi=120, base_fontsize=9,
                     title=None, highlight_sla=True):
         """
@@ -774,10 +817,10 @@ class ExcelDataProcessor:
             fig, ax = plt.subplots(figsize=(4, 1), dpi=dpi)
             ax.text(0.5, 0.5, 'No Data', ha='center', va='center', fontsize=14, color='gray')
             ax.axis('off')
-            plt.savefig(image_path, dpi=dpi, bbox_inches='tight', pad_inches=0.1,
-                        facecolor='white', format='png')
+            # No Data 分支同样走原子写+重试，避免目标文件被占用时 PermissionError 中断报告流程
+            final_path = cls._save_fig_atomic(fig, image_path, dpi, pad_inches=0.1, facecolor='white')
             plt.close(fig)
-            return image_path
+            return final_path
 
         # 找到 SLA Status 列
         sla_status_idx = None
@@ -890,30 +933,7 @@ class ExcelDataProcessor:
 
         # 原子写入：先写临时 png 再 os.replace 覆盖，遇文件锁时固定间隔重试，
         # 避免直接写目标路径触发 PermissionError（WPS云同步/Defender 可能锁定 30~60s）。
-        final_path = str(image_path)
-        last_err = None
-        _max_attempts = 30
-        _wait_sec = 3
-        for attempt in range(_max_attempts):
-            tmp_path = f"{final_path}.{os.getpid()}.{attempt}.tmp.png"
-            try:
-                plt.savefig(tmp_path, dpi=dpi, bbox_inches='tight', pad_inches=0.05,
-                            facecolor='#FAFBFC', edgecolor='none', format='png')
-                os.replace(tmp_path, final_path)
-                break
-            except (PermissionError, OSError) as e:
-                last_err = e
-                try:
-                    if os.path.exists(tmp_path):
-                        os.remove(tmp_path)
-                except OSError:
-                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] df_to_image: exception swallowed", exc_info=True)
-                    pass
-                if attempt < _max_attempts - 1:
-                    print(f"⚠️ 图片写入被占用({attempt + 1}/{_max_attempts})，等待{_wait_sec}s: {os.path.basename(final_path)}")
-                    time.sleep(_wait_sec)
-                else:
-                    raise
+        final_path = cls._save_fig_atomic(fig, image_path, dpi, pad_inches=0.05, facecolor='#FAFBFC')
         plt.close(fig)
         print(f"✅ 图片生成: {final_path} ({rows}行×{cols}列)")
         return final_path
