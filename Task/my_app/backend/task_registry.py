@@ -279,7 +279,14 @@ TASK_SPECS = [
          description_en="Hourly on-the-hour: pull the latest incident_overview.xlsx from remote FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ across all subfolders, store as versioned file + current.json pointer (immune to Excel lock), best-effort refresh snapshot",
          default_cron="0 * * * *", category="incident_overview"),
 
-    # 29. 失败任务自动重试（每 10 分钟扫描，仅重试仍处于任务调度周期时效窗口内的失败）
+    # 29. 数据库数据新鲜度巡检（每小时第 15 分钟）
+    dict(task_id="db_freshness_check", name="数据库数据新鲜度巡检", name_en="DB Data Freshness Check",
+         loader=("backend.services.db_freshness_check", "run_db_freshness_check"),
+         description="每小时巡检远程 DB（db_writer_api）与本地回退库各表最新数据日期，滞后时输出调用链路与检查方向",
+         description_en="Hourly freshness audit of remote DBs (via db_writer_api) and local fallback DBs; outputs call chain and troubleshooting guidance when stale",
+         default_cron="15 * * * *", category="general"),
+
+    # 30. 失败任务自动重试（每 10 分钟扫描，仅重试仍处于任务调度周期时效窗口内的失败）
     dict(task_id="auto_retry_failed", name="失败任务自动重试", name_en="Failed Task Auto Retry",
          loader=("backend.services.auto_retry", "run_auto_retry_task"),
          description="每 10 分钟扫描失败任务；若仍处于其调度周期的时效窗口内（未到下一个调度触发时刻）且未超过重试次数上限，自动重新投递执行（邮件任务由 EWS 补发机制负责，默认排除）",

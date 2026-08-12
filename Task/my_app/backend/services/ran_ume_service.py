@@ -16,6 +16,8 @@ import io
 import gc
 import os
 import sqlite3
+import urllib.request
+import urllib.error
 import warnings
 import logging
 import threading
@@ -57,6 +59,10 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 # 远程写入 API 配置（DB Orange: ran_kpi_daily_202606.sqlite3）
 DB_ORANGE_NAME = "ran_kpi_daily_202606.sqlite3"
+# Availability 报表数据源库（由 network_kpi_sync 写入，含新旧两套 Group 命名的全量历史）
+DB_DAILY_NAME = "ran_kpi_daily.sqlite3"
+API_HOST = os.environ.get("DB_WRITER_HOST", "192.168.100.19")
+API_PORT = int(os.environ.get("DB_WRITER_PORT", "8765"))
 
 # 查询时间范围：按天粒度 PM 指标，远程为 upsert 写入（历史保留），
 # 每日运行只需回补最近几天即可覆盖漏跑与 UME 修正。
@@ -137,7 +143,8 @@ TECH_MAP = {
 
 SHEET_CONFIG = {
     'Availability-NW': {
-        'patterns': [r'^G_NW$'],
+        # 兼容新旧命名：旧写入路径为 G_NW，network_kpi_sync 新写入为 2G_NW/3G_NW/FDD_NW/TDD_NW
+        'patterns': [r'^G_NW$', r'_NW$'],
         'tech_groups': {'2G': '2G ALL', '3G': '3G ALL', 'FDD': 'FDD ALL', 'TDD': 'TDD ALL'},
     },
     'Availability-Regular': {
@@ -874,6 +881,63 @@ def _generate_chart(df, sheet_name, output_dir):
     return output_path
 
 
+def _read_remote_daily_tables() -> dict:
+    """通过 db_writer_api 读取远程 ran_kpi_daily.sqlite3 的 4 张 OLIB 表。
+
+    返回 {table_name: DataFrame}；任一表读取失败抛异常，由调用方回退本地库。
+    远程库同时包含新旧两套 Group 命名的全量历史（旧导入路径 05-08~07-27、
+    network_kpi_sync 07-28 起），报表曲线可同时展示两套区域口径。
+    """
+    base = f"http://{API_HOST}:{API_PORT}"
+    result = {}
+    for table in TECH_MAP:
+        payload = {"db": DB_DAILY_NAME, "table": table, "limit": 300000}
+        req = urllib.request.Request(base + "/api/read",
+                                     data=json.dumps(payload).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=180) as r:
+            d = json.loads(r.read().decode())
+        cols = d.get("columns") or []
+        if not cols:
+            raise Exception(f"{table}: 远程读取未返回列信息")
+        result[table] = pd.DataFrame(d.get("rows") or [], columns=cols)
+    return result
+
+
+def _refresh_local_daily_db(table_dfs: dict):
+    """远程读取成功后覆盖更新本地 ran_kpi_daily.sqlite3，保持兜底副本最新。
+
+    先写临时文件再原子替换，避免报表写到一半被读/进程中断损坏本地库。
+    """
+    try:
+        tmp_path = str(DB_PATH) + ".tmp"
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        # 注意：sqlite3 连接必须显式 close（with 块只提交不关闭），
+        # 否则 Windows 上 tmp 文件被占用导致 os.replace 失败
+        conn = sqlite3.connect(tmp_path, timeout=60)
+        try:
+            for table, df in table_dfs.items():
+                df.to_sql(table, conn, if_exists="replace", index=False)
+        finally:
+            conn.close()
+        # 目标文件可能被其他进程短暂占用，重试几次
+        last_err = None
+        for _ in range(5):
+            try:
+                os.replace(tmp_path, str(DB_PATH))
+                last_err = None
+                break
+            except OSError as e:
+                last_err = e
+                time.sleep(1)
+        if last_err:
+            raise last_err
+        logger.info(f"[Availability] 本地兜底库已同步远程: {DB_PATH}")
+    except Exception as e:
+        logger.warning(f"[Availability] 本地库同步失败（不影响本次报表）: {e}")
+
+
 def run_availability_report() -> dict:
     """
     生成 Daily Availability KPI 报表：
@@ -890,111 +954,120 @@ def run_availability_report() -> dict:
         result["errors"].append("缺少 pandas 依赖")
         return result
 
-    db_path = str(DB_PATH)
-    if not os.path.exists(db_path):
-        result["errors"].append(f"数据库不存在: {db_path}")
-        return result
-
     try:
-        with get_raw_connection(db_path) as conn:
-            tables = [t for t in list_table_names(conn) if t in TECH_MAP]
+        # 优先读远程库（network_kpi_sync 写入的唯一真相源），失败回退本地兜底副本
+        table_dfs = None
+        try:
+            table_dfs = _read_remote_daily_tables()
+            logger.info(f"[Availability] 数据源: 远程库 {DB_DAILY_NAME} @ {API_HOST}:{API_PORT}")
+            _refresh_local_daily_db(table_dfs)
+        except Exception as e:
+            logger.warning(f"[Availability] 远程库读取失败: {e}，回退本地库")
 
-            table_dfs = {}
-            for table in tables:
-                table_dfs[table] = pd.read_sql_query(f'SELECT * FROM "{table}"', conn)
-            conn.close()
+        if table_dfs is None:
+            db_path = str(DB_PATH)
+            if not os.path.exists(db_path):
+                result["errors"].append(f"远程库不可读且本地数据库不存在: {db_path}")
+                return result
+            with get_raw_connection(db_path) as conn:
+                tables = [t for t in list_table_names(conn) if t in TECH_MAP]
+                table_dfs = {}
+                for table in tables:
+                    table_dfs[table] = pd.read_sql_query(f'SELECT * FROM "{table}"', conn)
+                conn.close()
 
             if not table_dfs:
                 result["errors"].append("数据库中未找到 OLIB Network KPIs 表")
                 return result
 
-            # Build availability data
-            sheet_rows = {sheet: [] for sheet in TARGET_SHEETS}
-            for table_name, df in table_dfs.items():
-                tech = TECH_MAP[table_name]
-                if "Begin Time" not in df.columns or "Group" not in df.columns:
+        # Build availability data（远程/本地两条路径共用）
+        sheet_rows = {sheet: [] for sheet in TARGET_SHEETS}
+        for table_name, df in table_dfs.items():
+            tech = TECH_MAP[table_name]
+            if "Begin Time" not in df.columns or "Group" not in df.columns:
+                continue
+            avail_col = _find_availability_column(list(df.columns), table_name)
+            if not avail_col:
+                continue
+
+            df = df.copy()
+            # [:10] 同时兼容 ISO(T分隔)与空格分隔两种时间格式，统一取日期部分
+            df['Begin Time'] = df['Begin Time'].apply(lambda x: str(x)[:10] if x else "")
+            df[avail_col] = pd.to_numeric(df[avail_col], errors='coerce')
+            if not df[avail_col].dropna().empty and df[avail_col].dropna().max() > 1:
+                df[avail_col] = df[avail_col] / 100.0
+
+            for sheet_name, cfg in SHEET_CONFIG.items():
+                if tech not in cfg['tech_groups']:
                     continue
-                avail_col = _find_availability_column(list(df.columns), table_name)
-                if not avail_col:
+                mask = df['Group'].apply(
+                    lambda x: any(re.search(p, str(x), re.IGNORECASE) for p in cfg['patterns']) if x else False
+                )
+                sub = df[mask].copy()
+                if sub.empty:
                     continue
+                agg = sub.groupby('Begin Time')[avail_col].mean().reset_index()
+                agg['Cell Group'] = cfg['tech_groups'][tech]
+                agg['Cell Availability'] = agg[avail_col]
+                sheet_rows[sheet_name].append(agg[['Begin Time', 'Cell Group', 'Cell Availability']])
 
-                df = df.copy()
-                df['Begin Time'] = df['Begin Time'].apply(lambda x: str(x).split('T')[0] if x else "")
-                df[avail_col] = pd.to_numeric(df[avail_col], errors='coerce')
-                if not df[avail_col].dropna().empty and df[avail_col].dropna().max() > 1:
-                    df[avail_col] = df[avail_col] / 100.0
+        # Write Excel（原子写：先写临时文件，再 os.replace，重试扛文件锁）
+        output_excel = str(AVAILABILITY_OUTPUT_DIR / "Daily_Aailability_KPI.xlsx")
+        try:
+            with atomic_excel_writer(output_excel) as writer:
+                for sheet_name in TARGET_SHEETS:
+                    frames = sheet_rows.get(sheet_name, [])
+                    if frames:
+                        df = pd.concat(frames, ignore_index=True).sort_values(['Cell Group', 'Begin Time'])
+                    else:
+                        df = pd.DataFrame(columns=['Begin Time', 'Cell Group', 'Cell Availability'])
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+        except AtomicReplaceFallback as fb:
+            logger.warning(f"[Availability] 文件被锁，数据已保存到备用路径: {fb.fallback_path}")
+            result["errors"].append(f"文件被锁，数据已保存到: {fb.fallback_path}")
+            output_excel = fb.fallback_path
+        result["generated_files"].append(output_excel)
 
-                for sheet_name, cfg in SHEET_CONFIG.items():
-                    if tech not in cfg['tech_groups']:
-                        continue
-                    mask = df['Group'].apply(
-                        lambda x: any(re.search(p, str(x), re.IGNORECASE) for p in cfg['patterns']) if x else False
-                    )
-                    sub = df[mask].copy()
-                    if sub.empty:
-                        continue
-                    agg = sub.groupby('Begin Time')[avail_col].mean().reset_index()
-                    agg['Cell Group'] = cfg['tech_groups'][tech]
-                    agg['Cell Availability'] = agg[avail_col]
-                    sheet_rows[sheet_name].append(agg[['Begin Time', 'Cell Group', 'Cell Availability']])
+        # Generate charts
+        output_dir = str(AVAILABILITY_OUTPUT_DIR)
+        generated_images = []
+        for sheet_name in TARGET_SHEETS:
+            frames = sheet_rows.get(sheet_name, [])
+            if frames:
+                df = pd.concat(frames, ignore_index=True).sort_values(['Cell Group', 'Begin Time'])
+            else:
+                df = pd.DataFrame()
+            img_path = _generate_chart(df, sheet_name, output_dir)
+            if img_path:
+                generated_images.append(img_path)
+                result["generated_files"].append(img_path)
 
-            # Write Excel（原子写：先写临时文件，再 os.replace，重试扛文件锁）
-            output_excel = str(AVAILABILITY_OUTPUT_DIR / "Daily_Aailability_KPI.xlsx")
+        # Upload images to FTP
+        for img_path in generated_images:
             try:
-                with atomic_excel_writer(output_excel) as writer:
-                    for sheet_name in TARGET_SHEETS:
-                        frames = sheet_rows.get(sheet_name, [])
-                        if frames:
-                            df = pd.concat(frames, ignore_index=True).sort_values(['Cell Group', 'Begin Time'])
-                        else:
-                            df = pd.DataFrame(columns=['Begin Time', 'Cell Group', 'Cell Availability'])
-                        df.to_excel(writer, sheet_name=sheet_name, index=False)
-            except AtomicReplaceFallback as fb:
-                logger.warning(f"[Availability] 文件被锁，数据已保存到备用路径: {fb.fallback_path}")
-                result["errors"].append(f"文件被锁，数据已保存到: {fb.fallback_path}")
-                output_excel = fb.fallback_path
-            result["generated_files"].append(output_excel)
+                ftp = FTP()
+                ftp.connect(FTP_HOST, 21, timeout=30)
+                ftp.encoding = "utf-8"
+                ftp.login(FTP_USER, FTP_PASS)
+                parts = FTP_UPLOAD_PATH.strip('/').split('/')
+                current = ''
+                for part in parts:
+                    current += f'/{part}'
+                    try:
+                        ftp.cwd(current)
+                    except error_perm:
+                        logging.getLogger(__name__).warning("[SILENT-EXCEPT] run_availability_report: exception swallowed", exc_info=True)
+                        ftp.mkd(current)
+                        ftp.cwd(current)
+                fname = os.path.basename(img_path)
+                with open(img_path, 'rb') as f:
+                    ftp.storbinary(f'STOR {fname}', f)
+                ftp.quit()
+            except Exception as e:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] run_availability_report: exception swallowed", exc_info=True)
+                result["errors"].append(f"FTP upload {os.path.basename(img_path)} failed: {e}")
 
-            # Generate charts
-            output_dir = str(AVAILABILITY_OUTPUT_DIR)
-            generated_images = []
-            for sheet_name in TARGET_SHEETS:
-                frames = sheet_rows.get(sheet_name, [])
-                if frames:
-                    df = pd.concat(frames, ignore_index=True).sort_values(['Cell Group', 'Begin Time'])
-                else:
-                    df = pd.DataFrame()
-                img_path = _generate_chart(df, sheet_name, output_dir)
-                if img_path:
-                    generated_images.append(img_path)
-                    result["generated_files"].append(img_path)
-
-            # Upload images to FTP
-            for img_path in generated_images:
-                try:
-                    ftp = FTP()
-                    ftp.connect(FTP_HOST, 21, timeout=30)
-                    ftp.encoding = "utf-8"
-                    ftp.login(FTP_USER, FTP_PASS)
-                    parts = FTP_UPLOAD_PATH.strip('/').split('/')
-                    current = ''
-                    for part in parts:
-                        current += f'/{part}'
-                        try:
-                            ftp.cwd(current)
-                        except error_perm:
-                            logging.getLogger(__name__).warning("[SILENT-EXCEPT] run_availability_report: exception swallowed", exc_info=True)
-                            ftp.mkd(current)
-                            ftp.cwd(current)
-                    fname = os.path.basename(img_path)
-                    with open(img_path, 'rb') as f:
-                        ftp.storbinary(f'STOR {fname}', f)
-                    ftp.quit()
-                except Exception as e:
-                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] run_availability_report: exception swallowed", exc_info=True)
-                    result["errors"].append(f"FTP upload {os.path.basename(img_path)} failed: {e}")
-
-            result["success"] = len(result["errors"]) == 0
+        result["success"] = len(result["errors"]) == 0
 
     except Exception as e:
         result["errors"].append(str(e))

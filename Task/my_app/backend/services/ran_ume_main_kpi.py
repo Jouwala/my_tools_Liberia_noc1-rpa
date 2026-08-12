@@ -1096,7 +1096,7 @@ def run_main_kpi_sync(cookie: str | None = None, forgery_token: str | None = Non
 
     if not download_results:
         print("[MAIN] No files downloaded, skipping DB import.")
-        return {"downloaded": 0, "imported_rows": 0, "tables": [], "api_ok": False}
+        return {"success": False, "downloaded": 0, "imported_rows": 0, "tables": [], "api_ok": False}
 
     # 2. 通过 HTTP API 写入远程数据库（全程内存，不落盘）
     print(f"\n[API] 通过远程写入 API 导入 {len(download_results)} 个文件")
@@ -1135,7 +1135,12 @@ def run_main_kpi_sync(cookie: str | None = None, forgery_token: str | None = Non
     download_results = None
     gc.collect()
 
+    # API 写入失败时显式标记任务失败，避免"任务成功但远程库未更新"的假成功
+    if not api_ok:
+        print("[API] [WARNING] 远程写入存在失败，任务将标记为失败")
+
     return {
+        "success": api_ok,
         "downloaded": downloaded_count,
         "imported_rows": total_imported,
         "tables": imported_tables,

@@ -160,6 +160,34 @@ UILOCATIONS = [
     {"haslogicmoc": False, "id": "aeafb27d-a14f-4bca-92d9-6022ad427f27", "moc": "group.ran.topo", "model": "rangroup"},
 ]
 
+# 19 个旧命名 ZTE-OLR rangroup（2026-08-11 由 UME 分组管理页面导出，用户确认）。
+# 与新命名组是独立口径（无映射关系），UME 上仍 Enabled。
+# 用途：① Group 层查询与新组合并导出，恢复 *_ZTE-OLR-* 旧组每日更新；
+#       ② NW_OLD 层单独查询这批组，聚合结果按旧流水线口径写入 G_NW。
+OLD_UILOCATIONS = [
+    # MS-Network 层（7 个）
+    {"haslogicmoc": False, "id": "ac09c60f-ede4-4726-9a95-70dfd7f56ab3", "moc": "group.ran.topo", "model": "rangroup"},  # 2G_Regular_ZTE-OLR-MS-Network
+    {"haslogicmoc": False, "id": "1212567e-8919-422e-a507-a1657d0ea66a", "moc": "group.ran.topo", "model": "rangroup"},  # 2G_ERA_ZTE-OLR-MS-Network
+    {"haslogicmoc": False, "id": "3aa01f9d-6107-4120-904f-18c10816182b", "moc": "group.ran.topo", "model": "rangroup"},  # 2G_Cooli_ZTE-OLR-MS-Network
+    {"haslogicmoc": False, "id": "f02801db-a267-4c44-bfd6-09746d93849f", "moc": "group.ran.topo", "model": "rangroup"},  # 3G_Regular_ZTE-OLR-MS-Network
+    {"haslogicmoc": False, "id": "88e9e97f-27bb-43c2-8627-8f3a8b65bf19", "moc": "group.ran.topo", "model": "rangroup"},  # 3G_Cooli_ZTE-OLR-MS-Network
+    {"haslogicmoc": False, "id": "5e384e6d-7a5d-4b6f-88f3-abc0dd4d625f", "moc": "group.ran.topo", "model": "rangroup"},  # 4G_Regular_ZTE-OLR-MS-Network
+    {"haslogicmoc": False, "id": "5ca35171-ccab-41b0-8348-5e1801d08873", "moc": "group.ran.topo", "model": "rangroup"},  # 4G_ERA_ZTE-OLR-MS-Network
+    # Region 层（12 个）
+    {"haslogicmoc": False, "id": "bf4aa97e-54d4-4686-8fad-27481a1a8f3b", "moc": "group.ran.topo", "model": "rangroup"},  # 2G_Monrovia_ZTE-OLR-Region
+    {"haslogicmoc": False, "id": "50489222-477d-4071-a7f6-1f76fcdaea63", "moc": "group.ran.topo", "model": "rangroup"},  # 2G_North_East_ZTE-OLR-Region
+    {"haslogicmoc": False, "id": "cb19a368-a1fd-4950-be1a-007c1485c424", "moc": "group.ran.topo", "model": "rangroup"},  # 2G_South_East_ZTE-OLR-Region
+    {"haslogicmoc": False, "id": "7017adf9-4ba6-4582-bb1c-251f2659dc5a", "moc": "group.ran.topo", "model": "rangroup"},  # 2G_South_West_ZTE-OLR-Region
+    {"haslogicmoc": False, "id": "5f0d1249-70ef-41d4-9775-4bc714f4cac7", "moc": "group.ran.topo", "model": "rangroup"},  # 3G_Monrovia_ZTE-OLR-Region
+    {"haslogicmoc": False, "id": "56b65e84-9a84-4441-bbd2-46d33cde02f5", "moc": "group.ran.topo", "model": "rangroup"},  # 3G_North_East_ZTE-OLR-Region
+    {"haslogicmoc": False, "id": "6e5f401a-4a34-41b4-a29e-18936670f481", "moc": "group.ran.topo", "model": "rangroup"},  # 3G_South_East_ZTE-OLR-Region
+    {"haslogicmoc": False, "id": "6cafdd69-1bbe-4181-85c4-888465394892", "moc": "group.ran.topo", "model": "rangroup"},  # 3G_South_West_ZTE-OLR-Region
+    {"haslogicmoc": False, "id": "e7435e36-cdf1-4865-b8f7-98a8408a101c", "moc": "group.ran.topo", "model": "rangroup"},  # 4G_Monrovia_ZTE-OLR-Region
+    {"haslogicmoc": False, "id": "3fab34d9-b7f0-40c3-afe1-058f5814fbed", "moc": "group.ran.topo", "model": "rangroup"},  # 4G_North_East_ZTE-OLR-Region
+    {"haslogicmoc": False, "id": "8c9ae146-f4ae-4ef6-8adf-1205d47a6d42", "moc": "group.ran.topo", "model": "rangroup"},  # 4G_South_East_ZTE-OLR-Region
+    {"haslogicmoc": False, "id": "88562cf4-fbcc-4d4f-8011-16974e755b08", "moc": "group.ran.topo", "model": "rangroup"},  # 4G_South_West_ZTE-OLR-Region
+]
+
 NW_KPI_QUERY_CONFIGS = {
     "2G": {
         "templateid": "1638004472347",
@@ -217,16 +245,22 @@ NW_KPI_QUERY_CONFIGS = {
     },
 }
 
-# 任务配置：4 技术 × 2 模式（Group/NW）= 8 个查询
+# 任务配置：4 技术 × 2 模式（Group/NW）= 8 个查询 + 4 个 NW_OLD（旧组聚合 → G_NW）
+# NW_OLD：仅选 19 个旧命名 ZTE-OLR rangroup 做全网聚合，按旧流水线口径写入 G_NW，
+# 不影响新命名 {tech}_NW 的统计范围（新旧口径独立）。
 NW_KPI_TASKS = [
     {"tech": "2G",  "gr": "86400", "groupbygroup": True,  "layer": "Group"},
     {"tech": "2G",  "gr": "86400", "groupbygroup": False, "layer": "NW"},
+    {"tech": "2G",  "gr": "86400", "groupbygroup": False, "layer": "NW_OLD"},
     {"tech": "3G",  "gr": "86400", "groupbygroup": True,  "layer": "Group"},
     {"tech": "3G",  "gr": "86400", "groupbygroup": False, "layer": "NW"},
+    {"tech": "3G",  "gr": "86400", "groupbygroup": False, "layer": "NW_OLD"},
     {"tech": "FDD", "gr": "86400", "groupbygroup": True,  "layer": "Group"},
     {"tech": "FDD", "gr": "86400", "groupbygroup": False, "layer": "NW"},
+    {"tech": "FDD", "gr": "86400", "groupbygroup": False, "layer": "NW_OLD"},
     {"tech": "TDD", "gr": "86400", "groupbygroup": True,  "layer": "Group"},
     {"tech": "TDD", "gr": "86400", "groupbygroup": False, "layer": "NW"},
+    {"tech": "TDD", "gr": "86400", "groupbygroup": False, "layer": "NW_OLD"},
 ]
 
 
@@ -515,8 +549,12 @@ def _http_request_with_retry(
 
 
 def build_nw_kpi_payload(tech: str, gr_seconds: str, groupbygroup: bool,
-                         start_iso: str | None = None, end_iso: str | None = None) -> dict:
-    """构造 Network KPI 历史指标查询 Payload，字段顺序与 Payload.txt 一致。"""
+                         start_iso: str | None = None, end_iso: str | None = None,
+                         locations: list | None = None) -> dict:
+    """构造 Network KPI 历史指标查询 Payload，字段顺序与 Payload.txt 一致。
+
+    locations: uilocations 范围，None 时默认新命名 21 组（UILOCATIONS）。
+    """
     cfg = NW_KPI_QUERY_CONFIGS.get(tech)
     if not cfg:
         raise ValueError(f"Unsupported tech: {tech}")
@@ -590,7 +628,7 @@ def build_nw_kpi_payload(tech: str, gr_seconds: str, groupbygroup: bool,
     payload["grouplayer"] = "all"
     payload["containvcell"] = cfg["containvcell"]
     payload["resfilterattribute"] = ""
-    payload["uilocations"] = UILOCATIONS
+    payload["uilocations"] = locations if locations is not None else UILOCATIONS
     payload["reslocation"] = []
     payload["inexistenceres"] = False
 
@@ -974,15 +1012,19 @@ def _set_column(headers, data, col_name, value):
             row[idx] = value
 
 
-def _prepare_nw_dataset(tech, data_bytes, file_path):
-    """读取 NW 数据并补 Group / Source File 列；无数据返回 (None, None)"""
-    headers, data = _read_dataset(data_bytes, file_path, "_NW")
+def _prepare_nw_dataset(tech, data_bytes, file_path, group_value=None, source_name=None, label="_NW"):
+    """读取 NW 层数据并补 Group / Source File 列；无数据返回 (None, None)
+
+    group_value/source_name 默认新命名 {tech}_NW；NW_OLD 层传 "G_NW" 复用。
+    """
+    headers, data = _read_dataset(data_bytes, file_path, label)
     if headers is None:
         return None, None
-    group_value = f"{tech}_NW"
-    print(f"  _NW Group: {group_value}")
-    _set_column(headers, data, "Group", group_value)
-    _set_column(headers, data, "Source File", f"{tech} OLIB Network KPIs_NW")
+    gv = group_value if group_value is not None else f"{tech}_NW"
+    print(f"  {label} Group: {gv}")
+    _set_column(headers, data, "Group", gv)
+    _set_column(headers, data, "Source File",
+                source_name if source_name is not None else f"{tech} OLIB Network KPIs_NW")
     return headers, data
 
 
@@ -1054,7 +1096,7 @@ def _cleanup_imported_files(files_to_delete):
     print("\n[cleanup]")
     all_files = set(files_to_delete)
     for tech in ["2G", "3G", "FDD", "TDD"]:
-        for prefix in [f"{tech}_OLIB_Network_KPIs_NW_1Day", f"{tech}_OLIB_Network_KPIs_Group_1Day"]:
+        for prefix in [f"{tech}_OLIB_Network_KPIs_NW_1Day", f"{tech}_OLIB_Network_KPIs_NW_OLD_1Day", f"{tech}_OLIB_Network_KPIs_Group_1Day"]:
             pattern = os.path.join(OUTPUT_DIR, f"{prefix}*.xlsx")
             for fpath in glob.glob(pattern):
                 if not os.path.basename(fpath).startswith("~$"):
@@ -1147,27 +1189,39 @@ def _import_one_tech(tech, export_results, files_to_delete, api_failures=None):
     """单个制式（2G/3G/FDD/TDD）的完整导入流程，返回写入行数（无数据源跳过返回 0）"""
     # 文件前缀（与 build_filename 生成的一致，空格已替换为下划线）
     nw_prefix = f"{tech}_OLIB_Network_KPIs_NW_1Day"
+    nw_old_prefix = f"{tech}_OLIB_Network_KPIs_NW_OLD_1Day"
     group_prefix = f"{tech}_OLIB_Network_KPIs_Group_1Day"
     table_name = f"{tech}_OLIB_Network_KPIs"
 
     nw_bytes = export_results.get(nw_prefix) if export_results else None
+    nw_old_bytes = export_results.get(nw_old_prefix) if export_results else None
     group_bytes = export_results.get(group_prefix) if export_results else None
 
     print(f"\n[{tech}]")
 
     nw_bytes, nw_file = _locate_dataset(nw_bytes, nw_prefix, files_to_delete)
+    nw_old_bytes, nw_old_file = _locate_dataset(nw_old_bytes, nw_old_prefix, files_to_delete)
     group_bytes, group_file = _locate_dataset(group_bytes, group_prefix, files_to_delete)
 
-    # ---- 处理 _NW / _Group 数据 ----
+    # ---- 处理 _NW / _NW_OLD / _Group 数据 ----
     nw_headers, nw_data = _prepare_nw_dataset(tech, nw_bytes, nw_file)
+    # NW_OLD：旧命名组聚合 → G_NW（旧流水线口径）
+    nwo_headers, nwo_data = _prepare_nw_dataset(
+        tech, nw_old_bytes, nw_old_file,
+        group_value="G_NW",
+        source_name=f"{tech} OLIB Network KPIs_NW_OLD",
+        label="_NW_OLD",
+    )
     grp_headers, grp_data = _prepare_group_dataset(tech, group_bytes, group_file)
 
     # ---- 合并写入 ----
-    if nw_headers is None and grp_headers is None:
+    if nw_headers is None and grp_headers is None and nwo_headers is None:
         print("  [skip] no files found")
         return 0
 
     merged_headers, merged_data = _merge_datasets(nw_headers, nw_data, grp_headers, grp_data)
+    if nwo_headers:
+        merged_headers, merged_data = _merge_datasets(merged_headers, merged_data, nwo_headers, nwo_data)
 
     print(f"  merged: {len(merged_data)} rows, {len(merged_headers)} cols -> {table_name}")
 
@@ -1181,6 +1235,7 @@ def _import_one_tech(tech, export_results, files_to_delete, api_failures=None):
 
     # 释放本迭代大对象
     nw_headers = nw_data = None
+    nwo_headers = nwo_data = None
     grp_headers = grp_data = None
     merged_headers = merged_data = None
     gc.collect()
@@ -1201,6 +1256,15 @@ def _run_single_kpi_query(auth: dict, task: dict, start_index: int) -> tuple[str
     templatename = cfg["templatename"]
     file_prefix = build_filename(templatename, layer, gr)
 
+    # uilocations 范围：Group 层新旧组全选（旧组行随导出自然带回）；
+    # NW 层只选新组（保持 {tech}_NW 口径不变）；NW_OLD 层只选旧组（聚合写 G_NW）
+    if layer == "Group":
+        locations = UILOCATIONS + OLD_UILOCATIONS
+    elif layer == "NW_OLD":
+        locations = OLD_UILOCATIONS
+    else:
+        locations = UILOCATIONS
+
     # 错峰启动：按索引延迟，避免同时冲击接口
     delay = start_index * 0.8
     if delay > 0:
@@ -1208,7 +1272,7 @@ def _run_single_kpi_query(auth: dict, task: dict, start_index: int) -> tuple[str
 
     print(f"\n[MAIN] Starting KPI query: {tech}/{layer} (prefix={file_prefix})")
 
-    payload = build_nw_kpi_payload(tech, gr, groupbygroup)
+    payload = build_nw_kpi_payload(tech, gr, groupbygroup, locations=locations)
 
     cookie = auth["cookie"]
     forgery_token = auth["forgery_token"]

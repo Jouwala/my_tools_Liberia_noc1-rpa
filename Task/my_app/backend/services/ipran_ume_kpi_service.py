@@ -695,9 +695,13 @@ def sanitize_table_name(name: str) -> str:
     return name.replace(" ", "_").replace("-", "_")
 
 
-def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
+def save_data_to_db_or_api(table_name: str, headers: list, data: list, api_failures: list = None) -> int:
     """增量写入：优先远程写服务（db_writer_api，upsert 模式，保留历史），
-    失败则兜底写本地 SQLite（同样按复合主键 upsert，保留历史）。"""
+    失败则兜底写本地 SQLite（同样按复合主键 upsert，保留历史）。
+
+    API 写入失败时把表名记入 api_failures，由调用方标记任务失败
+    （否则远程库长期未更新但任务仍显示成功）。
+    """
     if not headers or not data:
         return 0
 
@@ -721,6 +725,8 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
             return rows_written
         except Exception as e:
             logger.error(f"[DB][API] {table_name}: API write failed ({e}), falling back to local SQLite")
+            if api_failures is not None:
+                api_failures.append(f"{table_name}: {e}")
 
     # 2. SQLite 高并发 WAL 模式写入（兜底；同样按复合主键 upsert，保留历史）
     import sqlite3
@@ -792,7 +798,7 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list) -> int:
 # ============================================================
 # 并行管道调度
 # ============================================================
-def _run_single_kpi_pipeline(client: UmeSessionClient, task: dict) -> tuple[str, int]:
+def _run_single_kpi_pipeline(client: UmeSessionClient, task: dict, api_failures: list = None) -> tuple[str, int]:
     """独立单任务流水线 (适合全并发执行)"""
     cfg = IPRAN_KPI_QUERY_CONFIGS[task["key"]]
     table_name = cfg.get("table_name") or sanitize_table_name(build_filename(cfg))
@@ -851,7 +857,7 @@ def _run_single_kpi_pipeline(client: UmeSessionClient, task: dict) -> tuple[str,
             raise Exception(f"Excel 解析后无数据行 (表头已定位但数据为空)")
 
         # 原生高效写入/覆盖
-        rows_written = save_data_to_db_or_api(table_name, headers, data)
+        rows_written = save_data_to_db_or_api(table_name, headers, data, api_failures)
         if rows_written == 0:
             raise Exception(f"数据写入失败: save_data_to_db_or_api 返回 0 行")
         return task["key"], rows_written
@@ -881,10 +887,11 @@ def run_ipran_kpi_sync():
     # 2. 全并发多线程执行
     results = []
     errors = []
+    api_failures = []  # API 写入失败收集：非空则任务显式失败，避免假成功
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
         future_to_task = {
-            executor.submit(_run_single_kpi_pipeline, client, task): task 
+            executor.submit(_run_single_kpi_pipeline, client, task, api_failures): task 
             for task in IPRAN_KPI_TASKS
         }
 
@@ -905,11 +912,17 @@ def run_ipran_kpi_sync():
 
     logger.info(f"[iPRAN] Sync Finished in {elapsed:.2f}s | Success={len(results)} | Failed={len(errors)} | Total Rows={total_rows}")
 
+    # API 写入失败（已回退本地）同样计为错误，避免“任务成功但远程库未更新”
+    err_msgs = [f"{k}: {v}" for k, v in errors]
+    if api_failures:
+        logger.warning(f"[iPRAN] API 写入失败 {len(api_failures)} 张表（已回退本地）: {api_failures}")
+        err_msgs.extend(f"[API写入失败] {m}" for m in api_failures)
+
     return {
-        "success": len(errors) == 0,
+        "success": len(err_msgs) == 0,
         "exported": len(results),
         "failed": len(errors),
-        "errors": [f"{k}: {v}" for k, v in errors],
+        "errors": err_msgs,
         "total_rows": total_rows,
         "elapsed_seconds": round(elapsed, 2),
     }

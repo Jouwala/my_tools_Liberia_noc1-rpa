@@ -962,8 +962,12 @@ def run_ms_sla_sync(max_workers=None):
     gc.collect()
     elapsed = time.time() - t_start
     logger.info(f"RAN UME SLA 同步完成: {total_imported} 行, {len(imported_tables)} 表, {elapsed:.1f}s")
+    # API 写入失败时显式标记任务失败，避免“任务成功但远程库未更新”的假成功
+    # （数据已保留在本地 SQLite，可重跑任务回补）
+    if not api_ok:
+        logger.warning("RAN UME SLA: 远程 API 写入存在失败，任务将标记为失败")
     return {
-        "success": True,
+        "success": api_ok,
         "downloaded": len(download_results),
         "total_rows": total_imported,
         "tables": imported_tables,
