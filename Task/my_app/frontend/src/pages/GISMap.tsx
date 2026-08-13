@@ -271,13 +271,28 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     return counts
   }, [sites, activeLayers, mode])
 
+  // 图例 TT/WO 计数：显示工单总数（时间窗口内 eflow_tt/eflow_wo 的全部工单数），
+  // 而不是“有工单的站点数”——TT 图例应等于工单总量（如 6 个月的全部 TT）
+  const ticketTotals = useMemo(() => {
+    if (mode === 'realtime') {
+      return {
+        tt: sites.reduce((s, x) => s + (x.rt_tt_count || 0), 0),
+        wo: sites.reduce((s, x) => s + (x.rt_wo_count || 0), 0),
+      }
+    }
+    return {
+      tt: sites.reduce((s, x) => s + (x.tt_count || 0), 0),
+      wo: sites.reduce((s, x) => s + (x.wo_count || 0), 0),
+    }
+  }, [sites, mode])
+
   const legendItems: { key: LegendKey; color: string; label: string; count: number }[] = [
     { key: 'rt_alarm_overdue', color: '#ff1e1e', label: t('gis.legend.rtAlarmOverdue'), count: categoryCounts.rt_alarm_overdue },
     { key: 'rt_alarm_ontime', color: '#ffd400', label: t('gis.legend.rtAlarmOnTime'), count: categoryCounts.rt_alarm_ontime },
     { key: 'rt_alarm', color: '#ff6b6b', label: t('gis.legend.rtAlarm'), count: categoryCounts.rt_alarm },
     { key: 'his_alarm', color: '#ffa94d', label: t('gis.legend.hisAlarm'), count: categoryCounts.his_alarm },
-    { key: 'tt', color: '#4fc3f7', label: t('gis.legend.tt'), count: categoryCounts.tt },
-    { key: 'wo', color: '#51cf66', label: t('gis.legend.wo'), count: categoryCounts.wo },
+    { key: 'tt', color: '#4fc3f7', label: t('gis.legend.tt'), count: ticketTotals.tt },
+    { key: 'wo', color: '#51cf66', label: t('gis.legend.wo'), count: ticketTotals.wo },
     { key: 'vip', color: '#b197fc', label: t('gis.legend.vip'), count: categoryCounts.vip },
     { key: 'normal', color: '#94a3b8', label: t('gis.legend.normal'), count: categoryCounts.normal },
   ].filter(item =>

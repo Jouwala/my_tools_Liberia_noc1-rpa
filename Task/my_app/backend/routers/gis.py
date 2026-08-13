@@ -379,13 +379,13 @@ def _match_tt_wo(conn, site_ttids):
 
 
 def _site_id_match(site_id):
-    """构建 site_id 匹配条件（兼容整数和字符串）→ (clause, params)"""
-    try:
-        site_id_int = int(site_id)
-        return "(site_id = ? OR site_id = ?)", (site_id, site_id_int)
-    except (ValueError, TypeError):
-        logger.warning("[SILENT-EXCEPT] _site_id_match: exception swallowed", exc_info=True)
-        return "site_id = ?", (site_id,)
+    """构建 site_id 匹配条件 → (clause, params)
+
+    master_site_db.site_id 在 PG 下是 integer，而 eflow_tt/eflow_wo 是 text；
+    直接 site_id = ? 会因 text = integer 抛 UndefinedFunction（下钻 500 根因）。
+    统一 CAST(site_id AS TEXT) 比较，参数只传字符串，PG / SQLite 均兼容。
+    """
+    return "CAST(site_id AS TEXT) = ?", (str(site_id),)
 
 
 def _fetch_site_detail(conn, st, site_id):
@@ -425,10 +425,12 @@ def _dict_rows(cursor):
 
 
 def _alarm_match_params(site_id):
-    """告警表 site_id 匹配（兼容整数和字符串）→ (clause, params)"""
-    if str(site_id).isdigit():
-        return "(site_id = ? OR site_id = ?)", (str(site_id), int(site_id))
-    return "site_id = ?", (str(site_id),)
+    """告警表 site_id 匹配 → (clause, params)
+
+    与 _site_id_match 同款防护：PG 下 site_id 是 text 列，参数只传字符串，
+    避免 text = integer 类型错误（下钻 500 根因）。
+    """
+    return "CAST(site_id AS TEXT) = ?", (str(site_id),)
 
 
 def _fetch_alarm_list(conn, S, table_key, table_name, site_id):
@@ -763,9 +765,9 @@ def get_realtime_drilldown(site_id: str):
 
         # 实时告警 tt_id 集合（本站点）
         tids = [r[0] for r in conn.execute(
-            "SELECT DISTINCT tt_id FROM realtime_alarm WHERE CAST(site_id AS TEXT)=? AND tt_id IS NOT NULL AND tt_id != '' AND tt_id LIKE 'TT%'",
+            "SELECT DISTINCT tt_id FROM realtime_alarm WHERE CAST(site_id AS TEXT)=? AND tt_id IS NOT NULL AND tt_id != '' AND substr(tt_id, 1, 2) = 'TT'",
             (str(site_id),)
-        )]
+        ).fetchall()]
 
         # TT 列表（动态列）
         tt_list = []
