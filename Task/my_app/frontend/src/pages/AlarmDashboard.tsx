@@ -17,35 +17,9 @@ import { cachedGet } from '../cache'
 import { useI18n, numLocale } from '../i18n'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { ExplainCorner, ExplainIcon } from '../components/MetricExplain'
+import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
 
-// ========== Warehouse 风格设计令牌 ==========
-const WH = {
-  bg: 'linear-gradient(180deg, #0a1929 0%, #0d2138 100%)',
-  cardBg: 'linear-gradient(145deg, #141f33 0%, #112540 100%)',
-  cardBorder: '1px solid rgba(100,255,218,0.18)',
-  cardBorderHover: '1px solid rgba(100,255,218,0.55)',
-  teal: '#64ffda',
-  blue: '#4fc3f7',
-  indigo: '#7986cb',
-  text: '#e6f4ff',
-  textMuted: '#94a3b8',
-  textDim: '#64748b',
-  sev: { Critical: '#ff4757', Major: '#ff922b', Warning: '#ffd43b', Info: '#4fc3f7' } as Record<string, string>,
-  accentGrad: 'linear-gradient(135deg, #64ffda, #4fc3f7)',
-}
-const WH_COLORS = ['#64ffda', '#4fc3f7', '#7986cb', '#ffd43b', '#ff6b6b', '#51cf66', '#b197fc', '#ffa94d', '#63e6be', '#5c7cfa']
 const CHART_HEIGHT = 280
-
-const darkTooltip = () => ({
-  backgroundColor: 'rgba(10,25,41,0.95)',
-  borderColor: 'rgba(100,255,218,0.25)',
-  borderWidth: 1,
-  textStyle: { color: '#e6f4ff', fontSize: 12 },
-  extraCssText: 'box-shadow:0 4px 16px rgba(0,0,0,0.4);',
-})
-const axisLabel = () => ({ color: '#94a3b8', fontSize: 11 })
-const axisLine = () => ({ lineStyle: { color: '#22324d' } })
-const splitLine = () => ({ lineStyle: { type: 'dashed' as const, color: 'rgba(255,255,255,0.06)' } })
 
 // 分区标题（Warehouse 青蓝渐变图标）
 const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: string; sub?: string }) => (
@@ -143,6 +117,7 @@ export default function AlarmDashboard() {
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<any>(null)
   const { t, locale } = useI18n()
+  const { isDark } = useTheme()
 
   // ========== 下钻状态 ==========
   const [drillOpen, setDrillOpen] = useState(false)
@@ -241,6 +216,12 @@ export default function AlarmDashboard() {
 
   // ========== ECharts 图表配置（Warehouse 暗色风格） ==========
 
+  // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
+  const cText = isDark ? '#e6f4ff' : '#16233b'
+  const cTextMuted = isDark ? '#94a3b8' : '#3f5468'
+  const cTeal = isDark ? '#64ffda' : '#0d9488'
+  const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
+
   // 持续时长分布（柱状，可点击下钻）
   const durationOption = useMemo(() => {
     if (!data?.duration_buckets) return {}
@@ -249,22 +230,22 @@ export default function AlarmDashboard() {
     const mainsData = order.map((b: string) => (data.mains_duration_buckets || {})[b] || 0)
     return {
       tooltip: {
-        ...darkTooltip(), trigger: 'axis', axisPointer: { type: 'shadow' },
+        ...darkTooltip(isDark), trigger: 'axis', axisPointer: { type: 'shadow' },
         formatter: (ps: any[]) => {
           const title = `<div style="font-weight:600;margin-bottom:4px">${ps[0].axisValue}</div>`
           return title + ps.map((p: any) => `${p.marker} ${p.seriesName}: <strong>${p.value}</strong>`).join('<br/>')
         },
       },
-      legend: { data: [t('alarm.seriesAll'), t('alarm.seriesMains')], bottom: 0, textStyle: { fontSize: 11, color: WH.textMuted } },
+      legend: { data: [t('alarm.seriesAll'), t('alarm.seriesMains')], bottom: 0, textStyle: { fontSize: 11, color: cTextMuted } },
       grid: { left: 50, right: 20, top: 20, bottom: 50 },
-      xAxis: { type: 'category', data: order, axisLabel: axisLabel(), axisLine: axisLine() },
-      yAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
+      xAxis: { type: 'category', data: order, axisLabel: axisLabel(isDark), axisLine: axisLine(isDark) },
+      yAxis: { type: 'value', splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
       series: [
         {
           name: t('alarm.seriesAll'), type: 'bar', barMaxWidth: 24, barGap: '30%',
           data: allData,
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#64ffda' }, { offset: 1, color: '#4fc3f7' }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#64ffda' : '#0d9488' }, { offset: 1, color: isDark ? '#4fc3f7' : '#0284c7' }] },
             borderRadius: [4, 4, 0, 0],
           },
         },
@@ -272,13 +253,13 @@ export default function AlarmDashboard() {
           name: t('alarm.seriesMains'), type: 'bar', barMaxWidth: 24,
           data: mainsData,
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#ff6b6b' }, { offset: 1, color: '#ffa94d' }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#ff6b6b' : '#dc2626' }, { offset: 1, color: isDark ? '#ffa94d' : '#ea580c' }] },
             borderRadius: [4, 4, 0, 0],
           },
         },
       ],
     }
-  }, [data, t])
+  }, [data, t, isDark])
 
   // 区域告警数（柱状，可点击下钻）
   const regionOption = useMemo(() => {
@@ -289,7 +270,7 @@ export default function AlarmDashboard() {
     const siteData = entries.map(([k]) => (data.region_sites_count || {})[k] || 0)
     return {
       tooltip: {
-        ...darkTooltip(), trigger: 'axis', axisPointer: { type: 'shadow' },
+        ...darkTooltip(isDark), trigger: 'axis', axisPointer: { type: 'shadow' },
         formatter: (ps: any[]) => {
           const idx = ps[0].dataIndex
           const region = entries[idx][0]
@@ -300,41 +281,41 @@ export default function AlarmDashboard() {
         },
       },
       grid: { left: 40, right: 20, top: 10, bottom: 40 },
-      xAxis: { type: 'category', data: entries.map(([k]) => k), axisLabel: { ...axisLabel(), fontWeight: 500, color: WH.text }, axisLine: axisLine() },
-      yAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
+      xAxis: { type: 'category', data: entries.map(([k]) => k), axisLabel: { ...axisLabel(isDark), fontWeight: 500, color: cText }, axisLine: axisLine(isDark) },
+      yAxis: { type: 'value', splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
       series: [{
         type: 'bar', barMaxWidth: 28,
         data: entries.map(([, v], i) => ({
           value: v,
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: WH_COLORS[i % WH_COLORS.length] }, { offset: 1, color: '#0d2138' }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: cPalette[i % cPalette.length] }, { offset: 1, color: isDark ? '#0d2138' : '#dcebf5' }] },
             borderRadius: [4, 4, 0, 0],
           },
         })),
-        label: { show: true, position: 'top', fontSize: 10, color: WH.textMuted, fontWeight: 600 },
+        label: { show: true, position: 'top', fontSize: 10, color: cTextMuted, fontWeight: 600 },
       }],
     }
-  }, [data, t])
+  }, [data, t, isDark])
 
   // 各技术制式饼图（可点击下钻）
   const techPieOption = useMemo(() => {
     if (!data?.logical_total) return {}
     const entries = Object.entries(data.logical_total).filter(([t]) => t !== 'OTHER')
     return {
-      tooltip: { ...darkTooltip(), trigger: 'item', formatter: t('alarm.pieTooltip') },
-      legend: { orient: 'vertical', right: 0, top: 'center', textStyle: { fontSize: 10, color: WH.textMuted }, itemWidth: 10, itemHeight: 10 },
+      tooltip: { ...darkTooltip(isDark), trigger: 'item', formatter: t('alarm.pieTooltip') },
+      legend: { orient: 'vertical', right: 0, top: 'center', textStyle: { fontSize: 10, color: cTextMuted }, itemWidth: 10, itemHeight: 10 },
       series: [{
         type: 'pie', radius: ['38%', '65%'], center: ['35%', '50%'],
         data: entries.map(([tech, val]: any, i: number) => ({
           name: tech,
           value: val.cell,
-          itemStyle: { color: WH_COLORS[i % WH_COLORS.length] },
+          itemStyle: { color: cPalette[i % cPalette.length] },
         })),
-        label: { fontSize: 10, color: WH.text, formatter: '{b}\n{d}%' },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(100,255,218,0.4)' } },
+        label: { fontSize: 10, color: cText, formatter: '{b}\n{d}%' },
+        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.4)' : 'rgba(13,148,136,0.35)' } },
       }],
     }
-  }, [data?.logical_total, t])
+  }, [data?.logical_total, t, isDark])
 
   // 告警类型 Top（横向柱状，可点击下钻）
   const alarmTypeOption = useMemo(() => {
@@ -342,69 +323,74 @@ export default function AlarmDashboard() {
     const entries = Object.entries(data.alarm_type_top).sort((a: any, b: any) => b[1] - a[1]).slice(0, 8)
     const fullNames = entries.map(([k]) => k)
     return {
-      tooltip: { ...darkTooltip(), trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: (ps: any[]) => `${ps[0].name}: <strong>${ps[0].value}</strong>` },
+      tooltip: { ...darkTooltip(isDark), trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: (ps: any[]) => `${ps[0].name}: <strong>${ps[0].value}</strong>` },
       grid: { left: 20, right: 80, top: 10, bottom: 10 },
-      xAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
-      yAxis: { type: 'category', data: fullNames.slice().reverse(), axisLabel: { ...axisLabel(), color: WH.text }, axisLine: axisLine() },
+      xAxis: { type: 'value', splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
+      yAxis: { type: 'category', data: fullNames.slice().reverse(), axisLabel: { ...axisLabel(isDark), color: cText }, axisLine: axisLine(isDark) },
       series: [{
         type: 'bar', barMaxWidth: 20,
         data: entries.map(([, v], i) => ({
           value: v,
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: '#ff6b6b' }, { offset: 1, color: '#ffa94d' }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: isDark ? '#ff6b6b' : '#dc2626' }, { offset: 1, color: isDark ? '#ffa94d' : '#ea580c' }] },
             borderRadius: [0, 4, 4, 0],
           },
         })),
-        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
+        label: { show: true, position: 'right', fontSize: 10, color: cTextMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
       }],
     }
-  }, [data?.alarm_type_top, locale])
+  }, [data?.alarm_type_top, locale, isDark])
 
   // 严重等级饼图（可点击下钻）
   const sevPieOption = useMemo(() => {
     if (!data?.severity_stats) return {}
     const entries = Object.entries(data.severity_stats)
+    const sev = isDark ? DARK.sev : LIGHT.sev
     return {
-      tooltip: { ...darkTooltip(), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+      tooltip: { ...darkTooltip(isDark), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
       series: [{
         type: 'pie', radius: ['32%', '62%'], center: ['50%', '50%'],
-        data: entries.map(([k, v]) => ({ name: k, value: v, itemStyle: { color: WH.sev[k] || WH_COLORS[0] } })),
-        label: { fontSize: 11, formatter: '{b}\n{d}%', color: WH.text },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(100,255,218,0.4)' } },
+        data: entries.map(([k, v]) => ({ name: k, value: v, itemStyle: { color: sev[k] || cPalette[0] } })),
+        label: { fontSize: 11, formatter: '{b}\n{d}%', color: cText },
+        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.4)' : 'rgba(13,148,136,0.35)' } },
       }],
     }
-  }, [data?.severity_stats])
+  }, [data?.severity_stats, isDark])
 
   // 网络类型饼图（可点击下钻）
   const netTypeOption = useMemo(() => {
     if (!data?.networktype) return {}
     const entries = Object.entries(data.networktype)
     return {
-      tooltip: { ...darkTooltip(), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-      legend: { orient: 'vertical', right: 0, top: 'center', textStyle: { fontSize: 10, color: WH.textMuted }, itemWidth: 10, itemHeight: 10 },
+      tooltip: { ...darkTooltip(isDark), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+      legend: { orient: 'vertical', right: 0, top: 'center', textStyle: { fontSize: 10, color: cTextMuted }, itemWidth: 10, itemHeight: 10 },
       series: [{
         type: 'pie', radius: ['35%', '60%'], center: ['35%', '50%'],
-        data: entries.map(([k, v], i) => ({ name: k, value: v, itemStyle: { color: WH_COLORS[i % WH_COLORS.length] } })),
-        label: { fontSize: 9, color: WH.text, formatter: '{b}\n{d}%' },
+        data: entries.map(([k, v], i) => ({ name: k, value: v, itemStyle: { color: cPalette[i % cPalette.length] } })),
+        label: { fontSize: 9, color: cText, formatter: '{b}\n{d}%' },
       }],
     }
-  }, [data?.networktype])
+  }, [data?.networktype, isDark])
 
   // 站点属性饼图（可点击下钻）
   const siteAttrOption = useMemo(() => {
     if (!data?.site_attribute) return {}
     const entries = Object.entries(data.site_attribute)
-    const attrColors: Record<string, string> = { REGULAR: '#51cf66', ERA: '#7986cb', '--': '#64748b' }
+    const attrColors: Record<string, string> = {
+      REGULAR: isDark ? '#51cf66' : '#15803d',
+      ERA: isDark ? '#7986cb' : '#6366f1',
+      '--': isDark ? '#64748b' : '#5b7288',
+    }
     return {
-      tooltip: { ...darkTooltip(), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-      legend: { orient: 'vertical', right: 0, top: 'center', textStyle: { fontSize: 10, color: WH.textMuted }, itemWidth: 10, itemHeight: 10 },
+      tooltip: { ...darkTooltip(isDark), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+      legend: { orient: 'vertical', right: 0, top: 'center', textStyle: { fontSize: 10, color: cTextMuted }, itemWidth: 10, itemHeight: 10 },
       series: [{
         type: 'pie', radius: ['35%', '60%'], center: ['35%', '50%'],
-        data: entries.map(([k, v]) => ({ name: k, value: v, itemStyle: { color: attrColors[k] || WH_COLORS[0] } })),
-        label: { fontSize: 9, color: WH.text, formatter: '{b}\n{d}%' },
+        data: entries.map(([k, v]) => ({ name: k, value: v, itemStyle: { color: attrColors[k] || cPalette[0] } })),
+        label: { fontSize: 9, color: cText, formatter: '{b}\n{d}%' },
       }],
     }
-  }, [data?.site_attribute])
+  }, [data?.site_attribute, isDark])
 
   // ========== 渲染 ==========
   if (loading) return (
@@ -439,7 +425,7 @@ export default function AlarmDashboard() {
     <div style={{ ...pageWrap, display: 'flex', flexDirection: 'column', gap: 4 }}>
       {/* ====== 1. 头部警报横幅 ====== */}
       <Card size="small" style={{
-        background: 'linear-gradient(135deg, #1a0f14 0%, #112540 100%)',
+        background: isDark ? 'linear-gradient(135deg, #1a0f14 0%, #112540 100%)' : 'linear-gradient(135deg, #fdf0f0 0%, #fbe4e4 100%)',
         borderLeft: `4px solid ${WH.sev.Critical}`,
         borderRadius: 12,
         boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
@@ -447,8 +433,8 @@ export default function AlarmDashboard() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <FireOutlined style={{ fontSize: 22, color: '#ff6b6b' }} />
-            <span style={{ fontSize: 15, fontWeight: 700, color: '#ff8787' }}>
+            <FireOutlined style={{ fontSize: 22, color: isDark ? '#ff6b6b' : '#dc2626' }} />
+            <span style={{ fontSize: 15, fontWeight: 700, color: isDark ? '#ff8787' : '#b91c1c' }}>
               {t('alarm.realtimeStatus')}
             </span>
             <Tag color="error" style={{ borderRadius: 12, fontWeight: 600, cursor: 'pointer' }}
@@ -585,12 +571,12 @@ export default function AlarmDashboard() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{
                     width: 40, height: 40, borderRadius: 10,
-                    background: WH_COLORS[idx % WH_COLORS.length],
+                    background: cPalette[idx % cPalette.length],
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     color: '#06222e', fontSize: 16, fontWeight: 800,
                   }}>{tech}</div>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: WH_COLORS[idx % WH_COLORS.length], lineHeight: 1.2 }}>{fmt(val.site || 0)}</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: cPalette[idx % cPalette.length], lineHeight: 1.2 }}>{fmt(val.site || 0)}</div>
                     <div style={{ fontSize: 11, color: WH.textMuted }}>{t('alarm.sites')} · {fmt(val.cell || 0)} {t('alarm.cells')}</div>
                   </div>
                 </div>
@@ -670,7 +656,7 @@ export default function AlarmDashboard() {
                 .map(([region, types]: any) => (
                   <Col span={6} key={region} style={{ marginBottom: 8 }}>
                     <div style={{
-                      background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px',
+                      background: 'var(--wh-subtle-bg)', borderRadius: 8, padding: '10px 12px',
                       borderLeft: `3px solid ${WH.teal}`,
                     }}>
                       <div style={{ fontWeight: 700, fontSize: 13, color: WH.text, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -707,7 +693,6 @@ export default function AlarmDashboard() {
       <DraggableClickModal
         open={drillOpen}
         anchor={drillAnchor}
-        dark
         onClose={() => setDrillOpen(false)}
         title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan" style={{ borderRadius: 10 }}>{t('common.records', { n: filteredDrillData.length })}</Tag>{drillTotal > drillData.length && <Tag color="red" style={{ borderRadius: 10 }}>{t('alarm.recordCount', { total: fmt(drillTotal), shown: drillData.length })}</Tag>}</span>}
       >

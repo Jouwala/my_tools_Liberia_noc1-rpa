@@ -6,7 +6,7 @@ import api from '../api'
 import { useI18n, numLocale } from '../i18n'
 import { ExplainIcon } from '../components/MetricExplain'
 import { useDataTimestamps } from '../useDataTimestamps'
-import { WH, WH_COLORS, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
+import { WH, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
 
 interface ChartData {
   type: string
@@ -31,6 +31,7 @@ export default function Dashboard() {
   const chartRefs = useRef<any[]>([])
   const { t, locale } = useI18n()
   const { lastSync, latestData, isSynced } = useDataTimestamps()
+  const { isDark } = useTheme()
 
   useEffect(() => {
     api.get('/tables').then(res => {
@@ -120,6 +121,15 @@ export default function Dashboard() {
     const highlighted = isChartHighlighted(chart)
     const displayTitle = translateChartTitle(chart)
 
+    // 主题感知的图表色板（canvas 无法解析 CSS 变量）
+    const cText = isDark ? '#e6f4ff' : '#16233b'
+    const cTextMuted = isDark ? '#94a3b8' : '#3f5468'
+    const cTeal = isDark ? '#64ffda' : '#0d9488'
+    const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
+    const cGrid = isDark ? 'rgba(100,255,218,0.15)' : 'rgba(13,148,136,0.25)'
+    const cGridSoft = isDark ? 'rgba(100,255,218,0.1)' : 'rgba(13,148,136,0.18)'
+    const cSplit = isDark ? ['rgba(100,255,218,0.03)', 'rgba(100,255,218,0.06)'] : ['rgba(13,148,136,0.04)', 'rgba(13,148,136,0.08)']
+
     const onEvents: Record<string, Function> = {}
     if (chart.type === 'pie' || chart.type === 'bar') {
       onEvents['click'] = (params: any) => handleChartClick(chart, params)
@@ -129,16 +139,16 @@ export default function Dashboard() {
       case 'pie':
         option = {
           backgroundColor: 'transparent',
-          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: WH.text } },
-          tooltip: { ...darkTooltip(), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-          legend: { bottom: 0, type: 'scroll', textStyle: { color: WH.textMuted } },
+          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: cText } },
+          tooltip: { ...darkTooltip(isDark), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+          legend: { bottom: 0, type: 'scroll', textStyle: { color: cTextMuted } },
           series: [{
             type: 'pie',
             radius: ['30%', '60%'],
             center: ['50%', '45%'],
-            data: chart.data.map((d: any, i: number) => ({ ...d, itemStyle: { color: WH_COLORS[i % WH_COLORS.length] } })),
-            emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(100,255,218,0.35)' } },
-            label: { color: WH.text, formatter: '{b}\n{d}%' },
+            data: chart.data.map((d: any, i: number) => ({ ...d, itemStyle: { color: cPalette[i % cPalette.length] } })),
+            emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.3)' } },
+            label: { color: cText, formatter: '{b}\n{d}%' },
           }],
         }
         break
@@ -146,18 +156,18 @@ export default function Dashboard() {
       case 'bar':
         option = {
           backgroundColor: 'transparent',
-          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: WH.text } },
-          tooltip: { ...darkTooltip(), trigger: 'axis' },
+          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: cText } },
+          tooltip: { ...darkTooltip(isDark), trigger: 'axis' },
           xAxis: {
             type: 'category',
             data: chart.data.map((d: any) => d.name),
-            axisLabel: { ...axisLabel(), rotate: 30 },
-            axisLine: axisLine(),
+            axisLabel: { ...axisLabel(isDark), rotate: 30 },
+            axisLine: axisLine(isDark),
           },
-          yAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
+          yAxis: { type: 'value', splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
           series: [{
             type: 'bar',
-            data: chart.data.map((d: any, i: number) => ({ value: d.value, itemStyle: { color: WH_COLORS[i % WH_COLORS.length], borderRadius: [4, 4, 0, 0] } })),
+            data: chart.data.map((d: any, i: number) => ({ value: d.value, itemStyle: { color: cPalette[i % cPalette.length], borderRadius: [4, 4, 0, 0] } })),
           }],
           grid: { left: 60, right: 20, bottom: 80, top: 50 },
         }
@@ -166,44 +176,44 @@ export default function Dashboard() {
       case 'line':
         option = {
           backgroundColor: 'transparent',
-          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: WH.text } },
-          tooltip: { ...darkTooltip(), trigger: 'axis' },
+          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: cText } },
+          tooltip: { ...darkTooltip(isDark), trigger: 'axis' },
           xAxis: {
             type: 'category',
             data: chart.data.map((d: any) => d.date),
-            axisLabel: { ...axisLabel(), rotate: 30 },
-            axisLine: axisLine(),
+            axisLabel: { ...axisLabel(isDark), rotate: 30 },
+            axisLine: axisLine(isDark),
           },
-          yAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
+          yAxis: { type: 'value', splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
           series: [{
             type: 'line',
             data: chart.data.map((d: any) => d.count),
             smooth: true,
-            areaStyle: { opacity: 0.3, color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(100,255,218,0.35)' }, { offset: 1, color: 'rgba(100,255,218,0.02)' }] } },
-            lineStyle: { width: 2, color: WH.teal },
-            itemStyle: { color: WH.teal },
+            areaStyle: { opacity: 0.3, color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.25)' }, { offset: 1, color: 'rgba(100,255,218,0.02)' }] } },
+            lineStyle: { width: 2, color: cTeal },
+            itemStyle: { color: cTeal },
           }],
           grid: { left: 60, right: 20, bottom: 80, top: 50 },
-          dataZoom: [{ type: 'slider', textStyle: { color: WH.textMuted } }],
+          dataZoom: [{ type: 'slider', textStyle: { color: cTextMuted } }],
         }
         break
 
       case 'radar':
         option = {
           backgroundColor: 'transparent',
-          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: WH.text } },
-          tooltip: { ...darkTooltip() },
+          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: cText } },
+          tooltip: { ...darkTooltip(isDark) },
           radar: {
             indicator: chart.data.map((d: any) => ({ name: d.name, max: 100 })),
             radius: '60%',
-            axisName: { color: WH.textMuted },
-            splitArea: { areaStyle: { color: ['rgba(100,255,218,0.03)', 'rgba(100,255,218,0.06)'] } },
-            axisLine: { lineStyle: { color: 'rgba(100,255,218,0.15)' } },
-            splitLine: { lineStyle: { color: 'rgba(100,255,218,0.1)' } },
+            axisName: { color: cTextMuted },
+            splitArea: { areaStyle: { color: cSplit } },
+            axisLine: { lineStyle: { color: cGrid } },
+            splitLine: { lineStyle: { color: cGridSoft } },
           },
           series: [{
             type: 'radar',
-            data: [{ value: chart.data.map((d: any) => d.score), name: t('dashboard.qualityScore'), areaStyle: { opacity: 0.3, color: WH.teal }, lineStyle: { color: WH.teal } }],
+            data: [{ value: chart.data.map((d: any) => d.score), name: t('dashboard.qualityScore'), areaStyle: { opacity: 0.3, color: cTeal }, lineStyle: { color: cTeal } }],
           }],
         }
         break
@@ -214,25 +224,25 @@ export default function Dashboard() {
         const maxVal = Math.max(...chart.data.map((d: any) => d[2]), 1)
         option = {
           backgroundColor: 'transparent',
-          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: WH.text } },
+          title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: cText } },
           tooltip: {
-            ...darkTooltip(),
+            ...darkTooltip(isDark),
             position: 'top',
             formatter: (p: any) => `${yLabels[p.data[1]]} × ${xLabels[p.data[0]]}: ${p.data[2]}`,
           },
           xAxis: {
             type: 'category',
             data: xLabels,
-            splitArea: { show: true, areaStyle: { color: ['rgba(100,255,218,0.03)', 'rgba(100,255,218,0.06)'] } },
-            axisLabel: { ...axisLabel(), rotate: 30 },
-            axisLine: axisLine(),
+            splitArea: { show: true, areaStyle: { color: cSplit } },
+            axisLabel: { ...axisLabel(isDark), rotate: 30 },
+            axisLine: axisLine(isDark),
           },
           yAxis: {
             type: 'category',
             data: yLabels,
-            splitArea: { show: true, areaStyle: { color: ['rgba(100,255,218,0.03)', 'rgba(100,255,218,0.06)'] } },
-            axisLabel: { ...axisLabel(), color: WH.text },
-            axisLine: axisLine(),
+            splitArea: { show: true, areaStyle: { color: cSplit } },
+            axisLabel: { ...axisLabel(isDark), color: cText },
+            axisLine: axisLine(isDark),
           },
           visualMap: {
             min: 0,
@@ -241,14 +251,14 @@ export default function Dashboard() {
             orient: 'horizontal',
             left: 'center',
             bottom: 0,
-            textStyle: { color: WH.textMuted },
-            inRange: { color: ['#0d2138', '#4fc3f7', '#64ffda'] },
+            textStyle: { color: cTextMuted },
+            inRange: { color: isDark ? ['#0d2138', '#4fc3f7', '#64ffda'] : ['#dcebf5', '#0284c7', '#0d9488'] },
           },
           series: [{
             type: 'heatmap',
             data: chart.data,
-            label: { show: true, fontSize: 10, color: WH.text },
-            emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(100,255,218,0.35)' } },
+            label: { show: true, fontSize: 10, color: cText },
+            emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.3)' } },
           }],
           grid: { left: 80, right: 20, bottom: 60, top: 50 },
         }
@@ -262,7 +272,7 @@ export default function Dashboard() {
       <Col span={12} key={idx}>
         <Card
           size="small"
-          style={{ ...cardStyle, borderColor: highlighted ? WH.teal : WH.cardBorder, boxShadow: highlighted ? `0 0 16px ${WH.teal}44` : cardStyle.boxShadow }}
+          style={{ ...cardStyle, borderColor: highlighted ? WH.teal : WH.cardBorder, boxShadow: highlighted ? `0 0 16px var(--wh-teal-27)` : cardStyle.boxShadow }}
           title={
             highlighted && linkedFilter
               ? <span style={{ color: WH.teal, fontSize: 14, fontWeight: 600 }}>{displayTitle} <Tag color="cyan">{t('dashboard.filter')}: {linkedFilter.value}</Tag></span>

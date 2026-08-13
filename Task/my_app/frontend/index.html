@@ -5,6 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- lang / title 为首屏兜底值，挂载后由 I18nProvider 按当前语言覆写 -->
     <title>数据洞察 MVP</title>
+    <!-- 主题首帧防闪烁：在 React 挂载前按 localStorage（用户选择）→ 系统偏好设置 data-theme。
+         与 src/theme.ts 的 THEME_STORAGE_KEY / detectMode 保持同一逻辑，避免首屏闪白/闪黑。 -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('myapp-theme')
+          var mode = saved === 'dark' || saved === 'light' ? saved
+            : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          document.documentElement.setAttribute('data-theme', mode)
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark')
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

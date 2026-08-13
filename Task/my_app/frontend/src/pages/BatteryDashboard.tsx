@@ -25,7 +25,7 @@ import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
 import api from '../api'
 import { useI18n } from '../i18n'
-import { WH, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, pageWrap } from '../theme'
+import { WH, useTheme, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, pageWrap } from '../theme'
 import { ExplainIcon } from '../components/MetricExplain'
 
 const SEV_COLORS: Record<string, string> = {
@@ -128,6 +128,7 @@ const exportXlsx = (rows: any[], name: string) => {
 
 export default function BatteryDashboard() {
   const { t } = useI18n()
+  const { isDark } = useTheme()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<any>(null)
@@ -324,93 +325,102 @@ export default function BatteryDashboard() {
   }
 
   // ===== 图表 option =====
+  // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
+  const cText = isDark ? '#e6f4ff' : '#16233b'
+  const cTextMuted = isDark ? '#94a3b8' : '#3f5468'
+  const cTextDim = isDark ? '#64748b' : '#5b7288'
+  const cTeal = isDark ? '#64ffda' : '#0d9488'
+  const cBlue = isDark ? '#4fc3f7' : '#0284c7'
+  const cIndigo = isDark ? '#7986cb' : '#6366f1'
+  const cPieBorder = isDark ? '#0d2138' : '#ffffff'
+
   const pieOption = (rows: { name: string; value: number }[], colors: Record<string, string>, title?: string) => ({
-    tooltip: { ...darkTooltip(), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+    tooltip: { ...darkTooltip(isDark), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
     legend: {
-      type: 'scroll', bottom: 0, textStyle: { color: WH.textMuted, fontSize: 11 },
+      type: 'scroll', bottom: 0, textStyle: { color: cTextMuted, fontSize: 11 },
       itemWidth: 10, itemHeight: 10,
     },
     series: [{
       type: 'pie', radius: ['45%', '70%'], center: ['50%', '44%'],
       avoidLabelOverlap: true,
-      itemStyle: { borderColor: '#0d2138', borderWidth: 2 },
+      itemStyle: { borderColor: cPieBorder, borderWidth: 2 },
       label: { show: false },
-      emphasis: { label: { show: true, color: WH.text, fontSize: 13, fontWeight: 700, formatter: '{b}\n{c}' } },
+      emphasis: { label: { show: true, color: cText, fontSize: 13, fontWeight: 700, formatter: '{b}\n{c}' } },
       data: rows.filter(r => r.value > 0).map(r => ({
-        ...r, itemStyle: { color: colors[r.name] || WH.blue },
+        ...r, itemStyle: { color: colors[r.name] || cBlue },
       })),
     }],
     title: title ? {
       text: title, left: 'center', top: '38%',
-      textStyle: { color: WH.textDim, fontSize: 11, fontWeight: 400 },
+      textStyle: { color: cTextDim, fontSize: 11, fontWeight: 400 },
     } : undefined,
   })
 
   const healthBarOption = useMemo(() => {
     const rows = healthMode === 'bucket'
       ? view.healthDist.map(r => ({ name: r.name, value: r.value, color: HEALTH_COLORS[r.name] }))
-      : view.healthHist.map(r => ({ name: r.bin, value: r.value, color: WH.blue }))
+      : view.healthHist.map(r => ({ name: r.bin, value: r.value, color: cBlue }))
     return {
-      tooltip: { ...darkTooltip(), trigger: 'axis', axisPointer: { type: 'shadow' } },
+      tooltip: { ...darkTooltip(isDark), trigger: 'axis', axisPointer: { type: 'shadow' } },
       grid: { left: 50, right: 16, top: 20, bottom: 46 },
       xAxis: {
         type: 'category', data: rows.map(r => r.name),
-        axisLabel: { ...axisLabel(), interval: 0, rotate: rows.length > 4 ? 20 : 0 },
-        axisLine: axisLine(),
+        axisLabel: { ...axisLabel(isDark), interval: 0, rotate: rows.length > 4 ? 20 : 0 },
+        axisLine: axisLine(isDark),
       },
-      yAxis: { type: 'value', axisLabel: axisLabel(), axisLine: axisLine(), splitLine: splitLine() },
+      yAxis: { type: 'value', axisLabel: axisLabel(isDark), axisLine: axisLine(isDark), splitLine: splitLine(isDark) },
       series: [{
         type: 'bar', barMaxWidth: 46,
         data: rows.map(r => ({ value: r.value, itemStyle: { color: r.color, borderRadius: [4, 4, 0, 0] } })),
-        label: { show: true, position: 'top', color: WH.textMuted, fontSize: 11 },
+        label: { show: true, position: 'top', color: cTextMuted, fontSize: 11 },
       }],
     }
-  }, [view, healthMode])
+  }, [view, healthMode, isDark])
 
   const categoryOption = useMemo(() => ({
-    tooltip: { ...darkTooltip(), trigger: 'axis', axisPointer: { type: 'shadow' } },
-    legend: { bottom: 0, textStyle: { color: WH.textMuted, fontSize: 11 }, itemWidth: 10, itemHeight: 10 },
+    tooltip: { ...darkTooltip(isDark), trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { bottom: 0, textStyle: { color: cTextMuted, fontSize: 11 }, itemWidth: 10, itemHeight: 10 },
     grid: { left: 50, right: 50, top: 20, bottom: 44 },
     xAxis: {
       type: 'category', data: view.byCategory.map(c => c.category),
-      axisLabel: axisLabel(), axisLine: axisLine(),
+      axisLabel: axisLabel(isDark), axisLine: axisLine(isDark),
     },
     yAxis: [
-      { type: 'value', name: t('batt.batteries'), nameTextStyle: { color: WH.textDim, fontSize: 10 }, axisLabel: axisLabel(), axisLine: axisLine(), splitLine: splitLine() },
-      { type: 'value', name: '%', max: 100, nameTextStyle: { color: WH.textDim, fontSize: 10 }, axisLabel: axisLabel(), axisLine: axisLine(), splitLine: { show: false } },
+      { type: 'value', name: t('batt.batteries'), nameTextStyle: { color: cTextDim, fontSize: 10 }, axisLabel: axisLabel(isDark), axisLine: axisLine(isDark), splitLine: splitLine(isDark) },
+      { type: 'value', name: '%', max: 100, nameTextStyle: { color: cTextDim, fontSize: 10 }, axisLabel: axisLabel(isDark), axisLine: axisLine(isDark), splitLine: { show: false } },
     ],
     series: [
-      { name: t('batt.batteries'), type: 'bar', barMaxWidth: 38, data: view.byCategory.map(c => c.batteries), itemStyle: { color: WH.indigo, borderRadius: [4, 4, 0, 0] } },
-      { name: t('batt.critical'), type: 'bar', barMaxWidth: 38, data: view.byCategory.map(c => c.critical_soc), itemStyle: { color: '#ff4757', borderRadius: [4, 4, 0, 0] } },
-      { name: t('batt.freshRate'), type: 'line', yAxisIndex: 1, smooth: true, data: view.byCategory.map(c => c.fresh_rate), itemStyle: { color: WH.teal }, lineStyle: { width: 2 } },
-      { name: t('batt.avgSoc'), type: 'line', yAxisIndex: 1, smooth: true, data: view.byCategory.map(c => c.avg_soc), itemStyle: { color: '#ffd43b' }, lineStyle: { width: 2, type: 'dashed' } },
+      { name: t('batt.batteries'), type: 'bar', barMaxWidth: 38, data: view.byCategory.map(c => c.batteries), itemStyle: { color: cIndigo, borderRadius: [4, 4, 0, 0] } },
+      { name: t('batt.critical'), type: 'bar', barMaxWidth: 38, data: view.byCategory.map(c => c.critical_soc), itemStyle: { color: isDark ? '#ff4757' : '#d92d20', borderRadius: [4, 4, 0, 0] } },
+      { name: t('batt.freshRate'), type: 'line', yAxisIndex: 1, smooth: true, data: view.byCategory.map(c => c.fresh_rate), itemStyle: { color: cTeal }, lineStyle: { width: 2 } },
+      { name: t('batt.avgSoc'), type: 'line', yAxisIndex: 1, smooth: true, data: view.byCategory.map(c => c.avg_soc), itemStyle: { color: isDark ? '#ffd43b' : '#ca8a04' }, lineStyle: { width: 2, type: 'dashed' } },
     ],
-  }), [view, t])
+  }), [view, t, isDark])
 
   const trendOption = useMemo(() => {
     const pts = trend.points || []
     const isPoll = trend.source === 'poll'
     return {
-      tooltip: { ...darkTooltip(), trigger: 'axis' },
-      legend: { bottom: 0, textStyle: { color: WH.textMuted, fontSize: 11 }, itemWidth: 10, itemHeight: 10 },
+      tooltip: { ...darkTooltip(isDark), trigger: 'axis' },
+      legend: { bottom: 0, textStyle: { color: cTextMuted, fontSize: 11 }, itemWidth: 10, itemHeight: 10 },
       grid: { left: 50, right: 50, top: 20, bottom: 46 },
       xAxis: {
         type: 'category', data: pts.map((p: any) => p.snapshot_ts?.slice(5, 16)),
-        axisLabel: { ...axisLabel(), rotate: 30 }, axisLine: axisLine(),
+        axisLabel: { ...axisLabel(isDark), rotate: 30 }, axisLine: axisLine(isDark),
       },
       yAxis: [
-        { type: 'value', name: '%', max: 100, nameTextStyle: { color: WH.textDim, fontSize: 10 }, axisLabel: axisLabel(), axisLine: axisLine(), splitLine: splitLine() },
-        { type: 'value', name: t('batt.count'), nameTextStyle: { color: WH.textDim, fontSize: 10 }, axisLabel: axisLabel(), axisLine: axisLine(), splitLine: { show: false } },
+        { type: 'value', name: '%', max: 100, nameTextStyle: { color: cTextDim, fontSize: 10 }, axisLabel: axisLabel(isDark), axisLine: axisLine(isDark), splitLine: splitLine(isDark) },
+        { type: 'value', name: t('batt.count'), nameTextStyle: { color: cTextDim, fontSize: 10 }, axisLabel: axisLabel(isDark), axisLine: axisLine(isDark), splitLine: { show: false } },
       ],
       series: [
-        { name: t('batt.avgSoc'), type: 'line', smooth: true, symbol: 'circle', symbolSize: 5, data: pts.map((p: any) => p.avg_soc), itemStyle: { color: '#ffd43b' }, areaStyle: { color: 'rgba(255,212,59,0.08)' } },
-        ...(isPoll ? [{ name: t('batt.freshRate'), type: 'line', smooth: true, data: pts.map((p: any) => p.fresh_rate), itemStyle: { color: WH.teal } }] : []),
-        { name: t('batt.discharging'), type: 'bar', yAxisIndex: 1, barMaxWidth: 14, data: pts.map((p: any) => p.discharging), itemStyle: { color: '#ff922b', borderRadius: [3, 3, 0, 0] } },
-        { name: t('batt.critical'), type: 'bar', yAxisIndex: 1, barMaxWidth: 14, data: pts.map((p: any) => p.critical_soc), itemStyle: { color: '#ff4757', borderRadius: [3, 3, 0, 0] } },
-        ...(isPoll ? [] : [{ name: t('batt.samples'), type: 'line', yAxisIndex: 1, smooth: true, symbol: 'none', lineStyle: { type: 'dotted', width: 1.5 }, data: pts.map((p: any) => p.reported), itemStyle: { color: WH.textDim } }]),
+        { name: t('batt.avgSoc'), type: 'line', smooth: true, symbol: 'circle', symbolSize: 5, data: pts.map((p: any) => p.avg_soc), itemStyle: { color: isDark ? '#ffd43b' : '#ca8a04' }, areaStyle: { color: isDark ? 'rgba(255,212,59,0.08)' : 'rgba(202,138,4,0.10)' } },
+        ...(isPoll ? [{ name: t('batt.freshRate'), type: 'line', smooth: true, data: pts.map((p: any) => p.fresh_rate), itemStyle: { color: cTeal } }] : []),
+        { name: t('batt.discharging'), type: 'bar', yAxisIndex: 1, barMaxWidth: 14, data: pts.map((p: any) => p.discharging), itemStyle: { color: isDark ? '#ff922b' : '#ea580c', borderRadius: [3, 3, 0, 0] } },
+        { name: t('batt.critical'), type: 'bar', yAxisIndex: 1, barMaxWidth: 14, data: pts.map((p: any) => p.critical_soc), itemStyle: { color: isDark ? '#ff4757' : '#d92d20', borderRadius: [3, 3, 0, 0] } },
+        ...(isPoll ? [] : [{ name: t('batt.samples'), type: 'line', yAxisIndex: 1, smooth: true, symbol: 'none', lineStyle: { type: 'dotted', width: 1.5 }, data: pts.map((p: any) => p.reported), itemStyle: { color: cTextDim } }]),
       ],
     }
-  }, [trend, t])
+  }, [trend, t, isDark])
 
   // ===== 表格列 =====
   const alarmColumns = [

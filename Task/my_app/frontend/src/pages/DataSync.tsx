@@ -454,7 +454,7 @@ export default function DataSync() {
                   placement="topLeft"
                   title={
                     <div style={{ maxWidth: 380 }}>
-                      <div style={{ fontWeight: 600, marginBottom: 6, color: '#fff' }}>
+                      <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--wh-text)' }}>
                         {locale === 'zh' ? '脚本调用链' : 'Call Chain'}
                       </div>
                       {task.call_chain && task.call_chain.length > 0 ? (
@@ -466,13 +466,13 @@ export default function DataSync() {
                             lineHeight: 1.6,
                             whiteSpace: 'pre-wrap',
                             wordBreak: 'break-all',
-                            color: '#e6e6e6',
+                            color: 'var(--wh-text-muted)',
                           }}
                         >
                           {`${task.name}\n` + task.call_chain.map(c => `  ${c}`).join('\n')}
                         </pre>
                       ) : (
-                        <div style={{ fontSize: 12, color: '#aaa' }}>
+                        <div style={{ fontSize: 12, color: 'var(--wh-text-dim)' }}>
                           {locale === 'zh' ? '无可用信息' : 'N/A'}
                         </div>
                       )}
@@ -507,11 +507,11 @@ export default function DataSync() {
 
           {/* Schedule info */}
           <div style={{
-            background: 'rgba(255,255,255,0.05)',
+            background: 'var(--wh-subtle-bg)',
             borderRadius: 8,
             padding: '10px 14px',
             marginBottom: 12,
-            border: '1px solid rgba(100,255,218,0.1)',
+            border: '1px solid var(--wh-subtle-border)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <Space size={4}>
@@ -531,7 +531,7 @@ export default function DataSync() {
               </Tooltip>
             </div>
             <div style={{ fontSize: 12, color: WH.textDim }}>
-              <Text code style={{ fontSize: 11, color: WH.textMuted, background: 'rgba(255,255,255,0.06)' }}>{task.current_cron}</Text>
+              <Text code style={{ fontSize: 11, color: WH.textMuted, background: 'var(--wh-input-bg)' }}>{task.current_cron}</Text>
               {task.next_run && (
                 <span style={{ marginLeft: 12, color: WH.textMuted }}>
                   ⏭ {locale === 'zh' ? '下次：' : 'Next: '}{getNextRunTime(task)}
@@ -566,7 +566,7 @@ export default function DataSync() {
                       code
                       onClick={() => handleOpenHistory(task.task_id)}
                       style={{
-                        color: '#ff8788', fontSize: 11, maxWidth: 240,
+                        color: 'var(--wh-error-text)', fontSize: 11, maxWidth: 240,
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                         cursor: 'pointer', background: 'rgba(255,77,79,0.1)',
                         borderColor: 'rgba(255,77,79,0.25)',
@@ -598,7 +598,7 @@ export default function DataSync() {
               icon={<StopOutlined />}
               disabled={!isRunning}
               onClick={() => handleStop(task.task_id)}
-              style={isRunning ? { color: '#ff7875', borderColor: 'rgba(255,120,117,0.4)', background: 'rgba(255,120,117,0.08)' } : undefined}
+              style={isRunning ? { color: 'var(--wh-error-text)', borderColor: 'rgba(255,120,117,0.4)', background: 'rgba(255,120,117,0.08)' } : undefined}
             >
               {locale === 'zh' ? '停止执行' : 'Stop'}
             </Button>
@@ -606,7 +606,7 @@ export default function DataSync() {
               size="small"
               icon={<HistoryOutlined />}
               onClick={() => handleOpenHistory(task.task_id)}
-              style={{ color: WH.text, borderColor: 'rgba(100,255,218,0.25)', background: 'rgba(100,255,218,0.06)' }}
+              style={{ color: WH.text, borderColor: 'var(--wh-subtle-border)', background: 'var(--wh-subtle-bg)' }}
             >
               {locale === 'zh' ? '历史' : 'History'}
             </Button>
@@ -627,7 +627,7 @@ export default function DataSync() {
           </Title>
           <Text style={{ color: WH.textMuted }}>{t('sync.taskManagerDesc')}</Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => loadTasks(true)} loading={loading} style={{ color: WH.text, borderColor: 'rgba(100,255,218,0.35)', background: 'rgba(100,255,218,0.08)' }}>
+        <Button icon={<ReloadOutlined />} onClick={() => loadTasks(true)} loading={loading} style={{ color: WH.text, borderColor: 'var(--wh-subtle-border)', background: 'var(--wh-subtle-bg)' }}>
           {t('common.refresh')}
         </Button>
       </div>
@@ -660,7 +660,7 @@ export default function DataSync() {
                   minWidth: 120,
                   cursor: 'pointer',
                   background: active ? `${color}1f` : WH.cardBg,
-                  border: `1px solid ${active ? color : 'rgba(100,255,218,0.18)'}`,
+                  border: `1px solid ${active ? color : 'var(--wh-subtle-border)'}`,
                   borderRadius: 12,
                   padding: '14px 16px',
                   transition: 'all .15s ease',
@@ -702,7 +702,7 @@ export default function DataSync() {
           placeholder={locale === 'zh' ? '搜索任务名 / ID' : 'Search name / ID'}
           value={searchText}
           onChange={e => setSearchText(e.target.value)}
-          style={{ width: 220, background: 'rgba(255,255,255,0.05)', color: WH.text, borderColor: 'rgba(100,255,218,0.18)' }}
+          style={{ width: 220, background: 'var(--wh-input-bg)', color: WH.text, borderColor: 'var(--wh-input-border)' }}
         />
         <Select
           value={statusFilter}
@@ -748,12 +748,12 @@ export default function DataSync() {
           style={{ marginBottom: 20, borderColor: 'rgba(255,77,79,0.4)' }}
           action={
             <Button size="small" onClick={() => setAggOpen(true)}
-              style={{ color: '#ff9c9c', borderColor: 'rgba(255,77,79,0.35)' }}>
+              style={{ color: 'var(--wh-error-text)', borderColor: 'rgba(255,77,79,0.35)' }}>
               {locale === 'zh' ? '失败聚合' : 'Group Failures'}
             </Button>
           }
           message={
-            <Text strong style={{ color: '#ff7875' }}>
+            <Text strong style={{ color: 'var(--wh-error-text)' }}>
               {locale === 'zh'
                 ? `⚠️ ${failedTasks.length} 个任务执行失败`
                 : `⚠️ ${failedTasks.length} task(s) failed`}
@@ -769,7 +769,7 @@ export default function DataSync() {
                     code
                     onClick={() => handleOpenHistory(task.task_id)}
                     style={{
-                      color: '#ff8788', fontSize: 11, maxWidth: 360, overflow: 'hidden',
+                      color: 'var(--wh-error-text)', fontSize: 11, maxWidth: 360, overflow: 'hidden',
                       textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer',
                       background: 'rgba(255,77,79,0.1)', borderColor: 'rgba(255,77,79,0.25)',
                     }}
@@ -793,7 +793,7 @@ export default function DataSync() {
               alignItems: 'center',
               marginBottom: 12,
               padding: '4px 0',
-              borderBottom: '1px solid rgba(100,255,218,0.18)',
+              borderBottom: '1px solid var(--wh-subtle-border)',
             }}>
               <div style={{
                 width: 4,
@@ -841,13 +841,13 @@ export default function DataSync() {
         width={760}
         title={
           <span style={{ color: WH.text }}>
-            <WarningOutlined style={{ marginRight: 8, color: '#ff7875' }} />
+            <WarningOutlined style={{ marginRight: 8, color: 'var(--wh-error-text)' }} />
             {locale === 'zh' ? '失败聚合' : 'Failure Clusters'}
           </span>
         }
         styles={{
           root: { background: WH.bg },
-          header: { background: '#0a1929', borderBottom: '1px solid rgba(100,255,218,0.15)' },
+          header: { background: 'var(--wh-page-bg)', borderBottom: '1px solid var(--wh-subtle-border)' },
           body: { background: WH.bg },
         }}
       >
@@ -884,7 +884,7 @@ export default function DataSync() {
                 }}>
                   <div style={{ width: '100%' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <Text style={{ color: '#ff9c9c', fontSize: 12, fontWeight: 600, wordBreak: 'break-word' }}>
+                      <Text style={{ color: 'var(--wh-error-text)', fontSize: 12, fontWeight: 600, wordBreak: 'break-word' }}>
                         {c.error_first_line}
                       </Text>
                       <Tag color="red" style={{ flexShrink: 0 }}>×{c.count}</Tag>

@@ -384,7 +384,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   onChange={(v) => setTimePreset(v as TimePreset)}
                   options={presetOptions}
                   size="small"
-                  style={{ background: 'rgba(255,255,255,0.06)' }}
+                  style={{ background: 'var(--wh-seg-bg)' }}
                 />
                 {timePreset === 'custom' && (
                   <DatePicker.RangePicker
@@ -524,7 +524,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                     <span title={item.oss_specific_problem} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>{item.oss_specific_problem}</span>
                     <span style={{ color: WH.textMuted, whiteSpace: 'nowrap' }}>{item.count} / {item.sites}</span>
                   </div>
-                  <div style={{ height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 3, marginTop: 3 }}>
+                  <div style={{ height: 6, background: 'var(--wh-subtle-bg)', borderRadius: 3, marginTop: 3 }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: WH.teal, borderRadius: 3 }} />
                   </div>
                 </div>
@@ -541,7 +541,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           <MapContainer
             center={center}
             zoom={8}
-            style={{ height: 'calc(100vh - 290px)', width: '100%', background: '#0a1929' }}
+            style={{ height: 'calc(100vh - 290px)', width: '100%', background: 'var(--wh-page-bg)' }}
             scrollWheelZoom={true}
           >
             <TileLayer

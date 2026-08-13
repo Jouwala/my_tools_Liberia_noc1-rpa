@@ -700,6 +700,10 @@ const translations: Record<Locale, Record<string, string>> = {
     // Language
     'lang.switch': 'EN',
     'lang.current': '中文',
+
+    // Theme
+    'theme.toLight': '切换到浅色主题',
+    'theme.toDark': '切换到深色主题',
   },
   en: {
     // App / Layout
@@ -1392,6 +1396,10 @@ const translations: Record<Locale, Record<string, string>> = {
     // Language
     'lang.switch': '中文',
     'lang.current': 'EN',
+
+    // Theme
+    'theme.toLight': 'Switch to light theme',
+    'theme.toDark': 'Switch to dark theme',
   },
 }
 

@@ -75,7 +75,7 @@ export function TaskHistoryModal({
       width={700}
       styles={{
         root: { background: WH.bg },
-        header: { background: '#0a1929', borderBottom: '1px solid rgba(100,255,218,0.15)' },
+        header: { background: 'var(--wh-page-bg)', borderBottom: '1px solid rgba(100,255,218,0.15)' },
         body: { background: WH.bg },
       }}
     >

@@ -5,6 +5,7 @@
 //  - 仅通过右上角 × 与 Esc 关闭，点遮罩不关闭（避免误触）
 // 行为与 Warehouse 看板的明细弹窗保持一致。
 import React, { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { useTheme } from '../theme'
 
 export interface DraggableClickModalProps {
   open: boolean
@@ -14,7 +15,7 @@ export interface DraggableClickModalProps {
   onClose: () => void
   width?: number | string
   maxWidth?: number
-  /** 暗色主题（Warehouse 深空蓝风格） */
+  /** 暗色主题（Warehouse 深空蓝风格）；缺省跟随全局主题 */
   dark?: boolean
   children?: React.ReactNode
 }
@@ -26,9 +27,12 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
   onClose,
   width = '92%',
   maxWidth = 1400,
-  dark = false,
+  dark: darkProp,
   children,
 }) => {
+  const { isDark } = useTheme()
+  // 未显式指定时跟随全局主题（暗色→dcm-dark 样式；浅色→默认白底）
+  const dark = darkProp !== undefined ? darkProp : isDark
   const modalRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ active: boolean; dx: number; dy: number }>({ active: false, dx: 0, dy: 0 })
 

@@ -16,13 +16,11 @@ import { useI18n, numLocale } from '../i18n'
 import { useDataTimestamps } from '../useDataTimestamps'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { ExplainIcon } from '../components/MetricExplain'
-import { WH, WH_COLORS, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
+import { WH, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
 
 const { RangePicker } = DatePicker
 
-// 统一 tooltip 样式（已继承 theme 的暗色）
-const tooltipStyle = darkTooltip()
-
+// 统一 tooltip 样式（组件内按主题生成）
 // 严重等级语义色（适配暗底）
 const SEVERITY_COLORS = {
   critical: '#ff6b6b',
@@ -30,6 +28,13 @@ const SEVERITY_COLORS = {
   medium: '#ffd43b',
   minor: '#51cf66',
   info: '#4fc3f7',
+}
+const SEVERITY_COLORS_LIGHT = {
+  critical: '#dc2626',
+  major: '#ea580c',
+  medium: '#ca8a04',
+  minor: '#15803d',
+  info: '#0284c7',
 }
 
 // 卡片标题样式
@@ -68,6 +73,7 @@ const getUniqueFilters = (data: any[], key: string) => {
 
 export default function TTWODashboard() {
   const { t, locale } = useI18n()
+  const { isDark } = useTheme()
   const { lastSync, isSynced } = useDataTimestamps()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
@@ -201,6 +207,14 @@ export default function TTWODashboard() {
   // 图表配置
   const CHART_HEIGHT = 300
 
+  // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
+  const tooltipStyle = darkTooltip(isDark)
+  const cText = isDark ? '#e6f4ff' : '#16233b'
+  const cTextMuted = isDark ? '#94a3b8' : '#3f5468'
+  const cTeal = isDark ? '#64ffda' : '#0d9488'
+  const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
+  const sevColors = isDark ? SEVERITY_COLORS : SEVERITY_COLORS_LIGHT
+
   // MTTR周趋势
   const mttrOption = useMemo(() => {
     if (!data?.mttr_weekly?.length) return {}
@@ -209,26 +223,26 @@ export default function TTWODashboard() {
     const counts = data.mttr_weekly.map((w: any) => w.count)
     return {
       tooltip: { ...tooltipStyle, trigger: 'axis', axisPointer: { type: 'cross', crossStyle: { color: '#999' } } },
-      legend: { data: [t('ttwo.seriesTTCount'), t('ttwo.seriesMTTR')], bottom: 5, textStyle: { fontSize: 11, color: WH.textMuted } },
+      legend: { data: [t('ttwo.seriesTTCount'), t('ttwo.seriesMTTR')], bottom: 5, textStyle: { fontSize: 11, color: cTextMuted } },
       grid: { left: 60, right: 60, top: 30, bottom: 55 },
-      xAxis: { type: 'category', data: weeks, axisLabel: { ...axisLabel(), rotate: 45 }, axisLine: axisLine() },
+      xAxis: { type: 'category', data: weeks, axisLabel: { ...axisLabel(isDark), rotate: 45 }, axisLine: axisLine(isDark) },
       yAxis: [
-        { type: 'value', name: t('ttwo.seriesTTCount'), position: 'left', nameTextStyle: { color: WH.teal, fontSize: 11 }, axisLabel: { color: WH.teal }, splitLine: splitLine() },
-        { type: 'value', name: t('ttwo.seriesMTTR'), position: 'right', nameTextStyle: { color: '#ff6b6b', fontSize: 11 }, axisLabel: { color: '#ff6b6b' }, splitLine: { show: false } },
+        { type: 'value', name: t('ttwo.seriesTTCount'), position: 'left', nameTextStyle: { color: cTeal, fontSize: 11 }, axisLabel: { color: cTeal }, splitLine: splitLine(isDark) },
+        { type: 'value', name: t('ttwo.seriesMTTR'), position: 'right', nameTextStyle: { color: isDark ? '#ff6b6b' : '#dc2626', fontSize: 11 }, axisLabel: { color: isDark ? '#ff6b6b' : '#dc2626' }, splitLine: { show: false } },
       ],
       series: [
         {
           name: t('ttwo.seriesTTCount'), type: 'bar', data: counts, yAxisIndex: 0, barMaxWidth: 28,
-          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#64ffda' }, { offset: 1, color: '#4fc3f7' }] }, borderRadius: [4, 4, 0, 0] },
+          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#64ffda' : '#0d9488' }, { offset: 1, color: isDark ? '#4fc3f7' : '#0284c7' }] }, borderRadius: [4, 4, 0, 0] },
         },
         {
           name: t('ttwo.seriesMTTR'), type: 'line', data: mttrs, yAxisIndex: 1, smooth: true,
-          itemStyle: { color: '#ff6b6b' }, lineStyle: { width: 2.5 }, symbol: 'circle', symbolSize: 6,
-          areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(255,107,107,0.25)' }, { offset: 1, color: 'rgba(255,107,107,0.02)' }] } },
+          itemStyle: { color: isDark ? '#ff6b6b' : '#dc2626' }, lineStyle: { width: 2.5 }, symbol: 'circle', symbolSize: 6,
+          areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? 'rgba(255,107,107,0.25)' : 'rgba(220,38,38,0.18)' }, { offset: 1, color: 'rgba(255,107,107,0.02)' }] } },
         },
       ],
     }
-  }, [data?.mttr_weekly, t])
+  }, [data?.mttr_weekly, t, isDark, tooltipStyle, cTextMuted, cTeal])
 
   // Domain分布
   const domainOption = useMemo(() => {
@@ -237,45 +251,45 @@ export default function TTWODashboard() {
     return {
       tooltip: { ...tooltipStyle, trigger: 'axis' },
       grid: { left: 90, right: 30, top: 10, bottom: 10 },
-      xAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
-      yAxis: { type: 'category', data: entries.map((e: any) => e[0]), axisLabel: { ...axisLabel(), color: WH.text } },
+      xAxis: { type: 'value', splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
+      yAxis: { type: 'category', data: entries.map((e: any) => e[0]), axisLabel: { ...axisLabel(isDark), color: cText } },
       series: [{
         type: 'bar', barMaxWidth: 22,
         data: entries.map((e: any, i: number) => ({
           value: e[1],
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: WH_COLORS[i % WH_COLORS.length] }, { offset: 1, color: WH_COLORS[(i + 3) % WH_COLORS.length] }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: cPalette[i % cPalette.length] }, { offset: 1, color: cPalette[(i + 3) % cPalette.length] }] },
             borderRadius: [0, 4, 4, 0],
           },
         })),
-        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
+        label: { show: true, position: 'right', fontSize: 10, color: cTextMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
       }],
     }
-  }, [data?.domain_stats])
+  }, [data?.domain_stats, isDark, tooltipStyle, cText, cTextMuted, cPalette, locale])
 
   // 通用饼图配置
-  const makePieOption = (entries: [string, any][], hasLegend = true) => ({
+  const makePieOption = useCallback((entries: [string, any][], hasLegend = true) => ({
     tooltip: { ...tooltipStyle, trigger: 'item' as const, formatter: '{b}: {c} ({d}%)' },
-    legend: hasLegend ? { orient: 'vertical' as const, right: 0, top: 'center', textStyle: { fontSize: 10, color: WH.textMuted }, itemWidth: 10, itemHeight: 10 } : undefined,
+    legend: hasLegend ? { orient: 'vertical' as const, right: 0, top: 'center', textStyle: { fontSize: 10, color: cTextMuted }, itemWidth: 10, itemHeight: 10 } : undefined,
     series: [{
       type: 'pie', radius: ['35%', '65%'], center: ['35%', '50%'],
-      data: entries.map((e: any, i: number) => ({ name: e[0], value: e[1], itemStyle: { color: WH_COLORS[i % WH_COLORS.length] } })),
-      label: { fontSize: 10, color: WH.text, formatter: '{b}\n{d}%' },
-      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 2, shadowColor: 'rgba(100,255,218,0.35)' } },
+      data: entries.map((e: any, i: number) => ({ name: e[0], value: e[1], itemStyle: { color: cPalette[i % cPalette.length] } })),
+      label: { fontSize: 10, color: cText, formatter: '{b}\n{d}%' },
+      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 2, shadowColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.3)' } },
     }],
-  })
+  }), [tooltipStyle, cText, cTextMuted, cPalette, isDark])
 
   const rcMainOption = useMemo(() => {
     if (!data?.root_cause?.main) return {}
     const entries = Object.entries(data.root_cause.main).sort((a: any, b: any) => b[1] - a[1]).slice(0, 10)
     return makePieOption(entries)
-  }, [data?.root_cause?.main])
+  }, [data?.root_cause?.main, makePieOption])
 
   const rcSubOption = useMemo(() => {
     if (!data?.root_cause?.sub) return {}
     const entries = Object.entries(data.root_cause.sub).sort((a: any, b: any) => b[1] - a[1]).slice(0, 10)
     return makePieOption(entries)
-  }, [data?.root_cause?.sub])
+  }, [data?.root_cause?.sub, makePieOption])
 
   // WO Source 柱状图
   const woSourceOption = useMemo(() => {
@@ -284,45 +298,50 @@ export default function TTWODashboard() {
     return {
       tooltip: { ...tooltipStyle, trigger: 'axis' },
       grid: { left: 80, right: 30, top: 10, bottom: 10 },
-      xAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
-      yAxis: { type: 'category', data: entries.map((e: any) => e[0]), axisLabel: { ...axisLabel(), color: WH.text } },
+      xAxis: { type: 'value', splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
+      yAxis: { type: 'category', data: entries.map((e: any) => e[0]), axisLabel: { ...axisLabel(isDark), color: cText } },
       series: [{
         type: 'bar', barMaxWidth: 22,
         data: entries.map((e: any) => ({
           value: e[1],
-          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: '#51cf66' }, { offset: 1, color: '#94d82d' }] }, borderRadius: [0, 4, 4, 0] },
+          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: isDark ? '#51cf66' : '#15803d' }, { offset: 1, color: isDark ? '#94d82d' : '#4d7c0f' }] }, borderRadius: [0, 4, 4, 0] },
         })),
-        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
+        label: { show: true, position: 'right', fontSize: 10, color: cTextMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
       }],
     }
-  }, [data?.wo_stats?.source])
+  }, [data?.wo_stats?.source, isDark, tooltipStyle, cText, cTextMuted, locale])
 
   // WO Status 柱状图
   const woStatusOption = useMemo(() => {
     if (!data?.wo_stats?.status) return {}
     const entries = Object.entries(data.wo_stats.status).sort((a: any, b: any) => b[1] - a[1])
-    const statusColors: Record<string, string[]> = {
-      Closed: ['#51cf66', '#94d82d'], Open: ['#4fc3f7', '#74c0fc'], 'In Progress': ['#ffd43b', '#fcc419'],
-      Pending: ['#ffa94d', '#ff922b'], Cancelled: ['#adb5bd', '#dee2e6'],
-    }
+    const statusColors: Record<string, string[]> = isDark
+      ? {
+          Closed: ['#51cf66', '#94d82d'], Open: ['#4fc3f7', '#74c0fc'], 'In Progress': ['#ffd43b', '#fcc419'],
+          Pending: ['#ffa94d', '#ff922b'], Cancelled: ['#adb5bd', '#dee2e6'],
+        }
+      : {
+          Closed: ['#15803d', '#4d7c0f'], Open: ['#0284c7', '#0ea5e9'], 'In Progress': ['#ca8a04', '#a16207'],
+          Pending: ['#ea580c', '#c2410c'], Cancelled: ['#64748b', '#94a3b8'],
+        }
     return {
       tooltip: { ...tooltipStyle, trigger: 'axis' },
       grid: { left: 140, right: 30, top: 10, bottom: 10 },
-      xAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
-      yAxis: { type: 'category', data: entries.map((e: any) => e[0]), axisLabel: { fontSize: 10, color: WH.text } },
+      xAxis: { type: 'value', splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
+      yAxis: { type: 'category', data: entries.map((e: any) => e[0]), axisLabel: { fontSize: 10, color: cText } },
       series: [{
         type: 'bar', barMaxWidth: 22,
         data: entries.map((e: any) => {
-          const colors = statusColors[e[0]] || ['#ffd43b', '#fcc419']
+          const colors = statusColors[e[0]] || statusColors['In Progress']
           return {
             value: e[1],
             itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: colors[0] }, { offset: 1, color: colors[1] }] }, borderRadius: [0, 4, 4, 0] },
           }
         }),
-        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
+        label: { show: true, position: 'right', fontSize: 10, color: cTextMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
       }],
     }
-  }, [data?.wo_stats?.status])
+  }, [data?.wo_stats?.status, isDark, tooltipStyle, cText, cTextMuted, locale])
 
   // Power Sources 饼图
   const powerSourceOption = useMemo(() => {
@@ -330,15 +349,15 @@ export default function TTWODashboard() {
     const entries = Object.entries(data.site_stats.power_sources).sort((a: any, b: any) => b[1] - a[1]).slice(0, 10)
     return {
       tooltip: { ...tooltipStyle, trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-      legend: { orient: 'vertical', right: 0, top: 'center', textStyle: { fontSize: 9, color: WH.textMuted }, itemWidth: 10, itemHeight: 10 },
+      legend: { orient: 'vertical', right: 0, top: 'center', textStyle: { fontSize: 9, color: cTextMuted }, itemWidth: 10, itemHeight: 10 },
       series: [{
         type: 'pie', radius: ['35%', '60%'], center: ['35%', '50%'],
-        data: entries.map((e: any, i: number) => ({ name: e[0], value: e[1], itemStyle: { color: WH_COLORS[i % WH_COLORS.length] } })),
-        label: { fontSize: 9, color: WH.text, formatter: '{b}\n{d}%' },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(100,255,218,0.35)' } },
+        data: entries.map((e: any, i: number) => ({ name: e[0], value: e[1], itemStyle: { color: cPalette[i % cPalette.length] } })),
+        label: { fontSize: 9, color: cText, formatter: '{b}\n{d}%' },
+        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.3)' } },
       }],
     }
-  }, [data?.site_stats?.power_sources])
+  }, [data?.site_stats?.power_sources, isDark, tooltipStyle, cText, cTextMuted, cPalette])
 
   // Maintenance Team 柱状图
   const fmeOption = useMemo(() => {
@@ -347,18 +366,18 @@ export default function TTWODashboard() {
     return {
       tooltip: { ...tooltipStyle, trigger: 'axis' },
       grid: { left: 130, right: 30, top: 10, bottom: 10 },
-      xAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
-      yAxis: { type: 'category', data: entries.map((e: any) => e[0]), axisLabel: { fontSize: 9, color: WH.text } },
+      xAxis: { type: 'value', splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
+      yAxis: { type: 'category', data: entries.map((e: any) => e[0]), axisLabel: { fontSize: 9, color: cText } },
       series: [{
         type: 'bar', barMaxWidth: 18,
         data: entries.map((e: any) => ({
           value: e[1],
-          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: '#b197fc' }, { offset: 1, color: '#d0bfff' }] }, borderRadius: [0, 4, 4, 0] },
+          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: isDark ? '#b197fc' : '#7c3aed' }, { offset: 1, color: isDark ? '#d0bfff' : '#a78bfa' }] }, borderRadius: [0, 4, 4, 0] },
         })),
-        label: { show: true, position: 'right', fontSize: 9, color: WH.textMuted },
+        label: { show: true, position: 'right', fontSize: 9, color: cTextMuted },
       }],
     }
-  }, [data?.site_stats?.maintenance_team])
+  }, [data?.site_stats?.maintenance_team, isDark, tooltipStyle, cText, cTextMuted])
 
   // Power Vendor 饼图
   const powerVendorOption = useMemo(() => {
@@ -368,26 +387,31 @@ export default function TTWODashboard() {
       tooltip: { ...tooltipStyle, trigger: 'item', formatter: '{b}: {c} ({d}%)' },
       series: [{
         type: 'pie', radius: ['35%', '65%'],
-        data: entries.map((e: any, i: number) => ({ name: e[0], value: e[1], itemStyle: { color: WH_COLORS[i % WH_COLORS.length] } })),
-        label: { fontSize: 11, color: WH.text, formatter: '{b}\n{d}%' },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(100,255,218,0.35)' } },
+        data: entries.map((e: any, i: number) => ({ name: e[0], value: e[1], itemStyle: { color: cPalette[i % cPalette.length] } })),
+        label: { fontSize: 11, color: cText, formatter: '{b}\n{d}%' },
+        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.3)' } },
       }],
     }
-  }, [data?.site_stats?.power_vendor])
+  }, [data?.site_stats?.power_vendor, isDark, tooltipStyle, cText, cPalette])
 
   // 统计卡片颜色映射
   const sevColor: Record<string, string> = {
-    Critical: SEVERITY_COLORS.critical, Major: SEVERITY_COLORS.major, Medium: SEVERITY_COLORS.medium, Minor: SEVERITY_COLORS.minor,
-    'Proactive Fault': SEVERITY_COLORS.info, 'Incident Fault': SEVERITY_COLORS.major, 'Custom Complain': '#eb2f96',
-    Unknown: '#adb5bd'
+    Critical: sevColors.critical, Major: sevColors.major, Medium: sevColors.medium, Minor: sevColors.minor,
+    'Proactive Fault': sevColors.info, 'Incident Fault': sevColors.major, 'Custom Complain': isDark ? '#eb2f96' : '#be185d',
+    Unknown: isDark ? '#adb5bd' : '#64748b'
   }
   const ticketColor: Record<string, string> = {
-    P1: SEVERITY_COLORS.critical, P2: SEVERITY_COLORS.major, P3: SEVERITY_COLORS.info, P4: SEVERITY_COLORS.minor,
-    'Critical(4H)': SEVERITY_COLORS.critical, 'Major(24H)': SEVERITY_COLORS.major, 'Warning': SEVERITY_COLORS.medium, 'Minor(72H)': SEVERITY_COLORS.minor,
-    Unknown: '#adb5bd'
+    P1: sevColors.critical, P2: sevColors.major, P3: sevColors.info, P4: sevColors.minor,
+    'Critical(4H)': sevColors.critical, 'Major(24H)': sevColors.major, 'Warning': sevColors.medium, 'Minor(72H)': sevColors.minor,
+    Unknown: isDark ? '#adb5bd' : '#64748b'
   }
-  const slaColor: Record<string, string> = { Pass: '#51cf66', Failed: '#ff6b6b', 'Within SLA': '#4fc3f7', Unknown: '#adb5bd' }
-  const autoPalette = WH_COLORS
+  const slaColor: Record<string, string> = {
+    Pass: isDark ? '#51cf66' : '#15803d',
+    Failed: isDark ? '#ff6b6b' : '#dc2626',
+    'Within SLA': isDark ? '#4fc3f7' : '#0284c7',
+    Unknown: isDark ? '#adb5bd' : '#64748b',
+  }
+  const autoPalette = cPalette
   const autoColorCache: Record<string, string> = {}
   const getAutoColor = (key: string, idx: number) => {
     if (!autoColorCache[key]) autoColorCache[key] = autoPalette[idx % autoPalette.length]
@@ -432,7 +456,7 @@ export default function TTWODashboard() {
   const renderStatusTags = (stats: Record<string, number>) => {
     const sorted = Object.entries(stats).sort((a, b) => (b[1] as number) - (a[1] as number))
     return (
-      <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: 12, border: '1px solid rgba(100,255,218,0.1)' }}>
+      <div style={{ background: 'var(--wh-subtle-bg)', borderRadius: 8, padding: 12, border: '1px solid var(--wh-subtle-border)' }}>
         <Space wrap size={[10, 10]}>
           {sorted.map(([k, v]) => (
             <Tooltip key={k} title={`Click to drill down: ${k}`}>
@@ -511,7 +535,7 @@ export default function TTWODashboard() {
             ]}
             value={timePreset}
             onChange={setTimePreset}
-            style={{ background: 'rgba(255,255,255,0.08)' }}
+            style={{ background: 'var(--wh-seg-bg)' }}
           />
           {timePreset === 'custom' && (
             <RangePicker value={customRange} onChange={setCustomRange} />
@@ -640,9 +664,9 @@ export default function TTWODashboard() {
               <ReactECharts option={{
                 tooltip: { ...tooltipStyle, trigger: 'axis' },
                 grid: { left: 100, right: 30, top: 10, bottom: 10 },
-                xAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
-                yAxis: { type: 'category', data: Object.entries(stats as Record<string, number>).sort((a: any, b: any) => b[1] - a[1]).slice(0, 10).map(e => e[0]), axisLabel: { ...axisLabel(), color: WH.text } },
-                series: [{ type: 'bar', barMaxWidth: 18, data: Object.entries(stats as Record<string, number>).sort((a: any, b: any) => b[1] - a[1]).slice(0, 10).map((e: any, i: number) => ({ value: e[1], itemStyle: { color: WH_COLORS[i % WH_COLORS.length], borderRadius: [0, 4, 4, 0] } })), label: { show: true, position: 'right', fontSize: 9, color: WH.textMuted } }],
+                xAxis: { type: 'value', splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
+                yAxis: { type: 'category', data: Object.entries(stats as Record<string, number>).sort((a: any, b: any) => b[1] - a[1]).slice(0, 10).map(e => e[0]), axisLabel: { ...axisLabel(isDark), color: cText } },
+                series: [{ type: 'bar', barMaxWidth: 18, data: Object.entries(stats as Record<string, number>).sort((a: any, b: any) => b[1] - a[1]).slice(0, 10).map((e: any, i: number) => ({ value: e[1], itemStyle: { color: cPalette[i % cPalette.length], borderRadius: [0, 4, 4, 0] } })), label: { show: true, position: 'right', fontSize: 9, color: cTextMuted } }],
               }} style={{ height: CHART_HEIGHT }} onEvents={onChartClick(key)} />
             </Card>
           </Col>
@@ -653,7 +677,6 @@ export default function TTWODashboard() {
       <DraggableClickModal
         open={drillVisible}
         anchor={drillAnchor}
-        dark
         onClose={() => setDrillVisible(false)}
         title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan">{t('common.records', { n: filteredDrillData.length })}</Tag></span>}
       >

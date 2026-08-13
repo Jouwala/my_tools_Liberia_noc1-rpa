@@ -60,7 +60,7 @@ export function SiteDrilldownDrawer({ open, onClose, loading, drilldown, selecte
       styles={{
         wrapper: { width: 720 },
         body: { background: WH.bg },
-        header: { background: '#0a1929', borderBottom: '1px solid rgba(100,255,218,0.15)' },
+        header: { background: 'var(--wh-page-bg)', borderBottom: '1px solid rgba(100,255,218,0.15)' },
       }}
       open={open}
       onClose={onClose}

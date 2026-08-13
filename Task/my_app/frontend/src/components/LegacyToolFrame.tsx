@@ -37,7 +37,7 @@ export default function LegacyToolFrame({ file, title }: Props) {
         height: `calc(100vh - ${CHROME_OFFSET}px)`,
         borderRadius: 8,
         overflow: 'hidden',
-        background: '#000',
+        background: 'var(--wh-page-bg)',
       }}
     >
       {loading && (
@@ -48,7 +48,7 @@ export default function LegacyToolFrame({ file, title }: Props) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: '#0a1929',
+            background: 'var(--wh-page-bg)',
             zIndex: 1,
           }}
         >

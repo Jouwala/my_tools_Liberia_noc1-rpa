@@ -64,7 +64,7 @@ export default function WarehouseDashboard() {
           height: `${height}px`,
           border: 'none',
           display: 'block',
-          background: '#0a1929',
+          background: 'var(--wh-page-bg)',
         }}
       />
     </div>

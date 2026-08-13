@@ -21,21 +21,7 @@ import api from '../api'
 import { cachedGet } from '../cache'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { useI18n, numLocale } from '../i18n'
-
-// ========== Warehouse 风格设计令牌（与 AlarmDashboard 一致） ==========
-const WH = {
-  bg: 'linear-gradient(180deg, #0a1929 0%, #0d2138 100%)',
-  cardBg: 'linear-gradient(145deg, #141f33 0%, #112540 100%)',
-  cardBorder: '1px solid rgba(100,255,218,0.18)',
-  cardBorderHover: '1px solid rgba(100,255,218,0.55)',
-  teal: '#64ffda',
-  blue: '#4fc3f7',
-  indigo: '#7986cb',
-  text: '#e6f4ff',
-  textMuted: '#94a3b8',
-  textDim: '#64748b',
-  accentGrad: 'linear-gradient(135deg, #64ffda, #4fc3f7)',
-}
+import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
 
 const STATUS_ORDER = ['Critical[>5]', 'Major[1-5]', 'Minor[0.5-1]', 'Warning[0.1-0.5]', 'No Packet loss[<0.1]']
 const STATUS_COLORS: Record<string, string> = {
@@ -44,6 +30,13 @@ const STATUS_COLORS: Record<string, string> = {
   'Minor[0.5-1]': '#ffd43b',
   'Warning[0.1-0.5]': '#74c0fc',
   'No Packet loss[<0.1]': '#51cf66',
+}
+const STATUS_COLORS_LIGHT: Record<string, string> = {
+  'Critical[>5]': '#d92d20',
+  'Major[1-5]': '#ea580c',
+  'Minor[0.5-1]': '#ca8a04',
+  'Warning[0.1-0.5]': '#0369a1',
+  'No Packet loss[<0.1]': '#15803d',
 }
 const STATUS_SHORT: Record<string, string> = {
   'Critical[>5]': 'Critical',
@@ -76,16 +69,6 @@ const GW_COLORS: Record<string, string> = {
 }
 const gwColor = (gw: string) => GW_COLORS[gw] || '#8c8c8c'
 
-const darkTooltip = () => ({
-  backgroundColor: 'rgba(10,25,41,0.95)',
-  borderColor: 'rgba(100,255,218,0.25)',
-  borderWidth: 1,
-  textStyle: { color: '#e6f4ff', fontSize: 12 },
-  extraCssText: 'box-shadow:0 4px 16px rgba(0,0,0,0.4);',
-})
-const axisLabel = () => ({ color: '#94a3b8', fontSize: 11 })
-const axisLine = () => ({ lineStyle: { color: '#22324d' } })
-const splitLine = () => ({ lineStyle: { type: 'dashed' as const, color: 'rgba(255,255,255,0.06)' } })
 const CHART_HEIGHT = 280
 
 const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: string; sub?: string }) => (
@@ -223,6 +206,7 @@ interface PlSite {
 
 export default function PacketLossDashboard() {
   const { t, locale } = useI18n()
+  const { isDark } = useTheme()
   const METRIC_EXPLAIN = useMemo(() => getMetricExplain(t), [t])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -329,21 +313,28 @@ export default function PacketLossDashboard() {
   }, [drillData])
 
   // ========== 图表配置 ==========
+  // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
+  const cText = isDark ? '#e6f4ff' : '#16233b'
+  const cTextMuted = isDark ? '#94a3b8' : '#3f5468'
+  const cTeal = isDark ? '#64ffda' : '#0d9488'
+  const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
+  const statusColors = isDark ? STATUS_COLORS : STATUS_COLORS_LIGHT
+
   const statusPieOption = useMemo(() => {
     if (!data?.status_pie) return {}
     return {
-      tooltip: { ...darkTooltip(), trigger: 'item', formatter: '{b}<br/>{c} sites ({d}%)' },
-      legend: { orient: 'vertical', right: 0, top: 'center', textStyle: { fontSize: 10, color: WH.textMuted }, itemWidth: 10, itemHeight: 10 },
+      tooltip: { ...darkTooltip(isDark), trigger: 'item', formatter: '{b}<br/>{c} sites ({d}%)' },
+      legend: { orient: 'vertical', right: 0, top: 'center', textStyle: { fontSize: 10, color: cTextMuted }, itemWidth: 10, itemHeight: 10 },
       series: [{
         type: 'pie', radius: ['38%', '65%'], center: ['38%', '50%'],
         data: data.status_pie.map((s: any) => ({
-          name: s.status, value: s.count, itemStyle: { color: STATUS_COLORS[s.status] || WH.teal },
+          name: s.status, value: s.count, itemStyle: { color: statusColors[s.status] || cTeal },
         })),
-        label: { fontSize: 10, color: WH.text, formatter: '{c}' },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(100,255,218,0.4)' } },
+        label: { fontSize: 10, color: cText, formatter: '{c}' },
+        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.4)' : 'rgba(13,148,136,0.35)' } },
       }],
     }
-  }, [data])
+  }, [data, isDark, statusColors, cText, cTextMuted, cTeal])
 
   const regionOption = useMemo(() => {
     if (!data?.region_dist) return {}
@@ -351,7 +342,7 @@ export default function PacketLossDashboard() {
     if (!entries.length) return {}
     return {
       tooltip: {
-        ...darkTooltip(), trigger: 'axis', axisPointer: { type: 'shadow' },
+        ...darkTooltip(isDark), trigger: 'axis', axisPointer: { type: 'shadow' },
         formatter: (ps: any[]) => {
           const idx = ps[0].dataIndex
           const b = entries[idx][1]
@@ -360,59 +351,59 @@ export default function PacketLossDashboard() {
         },
       },
       grid: { left: 40, right: 20, top: 10, bottom: 40 },
-      xAxis: { type: 'category', data: entries.map(([k]) => k), axisLabel: { ...axisLabel(), rotate: 30 }, axisLine: axisLine() },
-      yAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
+      xAxis: { type: 'category', data: entries.map(([k]) => k), axisLabel: { ...axisLabel(isDark), rotate: 30 }, axisLine: axisLine(isDark) },
+      yAxis: { type: 'value', splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
       series: [{
         type: 'bar', barMaxWidth: 28,
         data: entries.map(([, b], i) => ({
           value: b.sites,
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: i === 0 ? '#ff4757' : '#64ffda' }, { offset: 1, color: '#0d2138' }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: i === 0 ? (isDark ? '#ff4757' : '#d92d20') : cTeal }, { offset: 1, color: isDark ? '#0d2138' : '#dcebf5' }] },
             borderRadius: [4, 4, 0, 0],
           },
         })),
-        label: { show: true, position: 'top', fontSize: 10, color: WH.textMuted, fontWeight: 600 },
+        label: { show: true, position: 'top', fontSize: 10, color: cTextMuted, fontWeight: 600 },
       }],
     }
-  }, [data])
+  }, [data, isDark, cTextMuted, cTeal])
 
   const trendOption = useMemo(() => {
     if (!data?.daily_trend?.length) return {}
     const days = data.daily_trend.map((d: any) => d.day.slice(5))
     return {
-      tooltip: { ...darkTooltip(), trigger: 'axis' },
-      legend: { data: [t('pl.median'), t('pl.affectedSites')], bottom: 0, textStyle: { fontSize: 11, color: WH.textMuted } },
+      tooltip: { ...darkTooltip(isDark), trigger: 'axis' },
+      legend: { data: [t('pl.median'), t('pl.affectedSites')], bottom: 0, textStyle: { fontSize: 11, color: cTextMuted } },
       grid: { left: 50, right: 50, top: 20, bottom: 50 },
-      xAxis: { type: 'category', data: days, axisLabel: axisLabel(), axisLine: axisLine() },
+      xAxis: { type: 'category', data: days, axisLabel: axisLabel(isDark), axisLine: axisLine(isDark) },
       yAxis: [
-        { type: 'value', name: t('pl.axis'), splitLine: splitLine(), axisLabel: axisLabel() },
-        { type: 'value', name: t('pl.sites'), splitLine: { show: false }, axisLabel: axisLabel() },
+        { type: 'value', name: t('pl.axis'), splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
+        { type: 'value', name: t('pl.sites'), splitLine: { show: false }, axisLabel: axisLabel(isDark) },
       ],
       series: [
         {
           name: t('pl.median'), type: 'bar', barMaxWidth: 22,
           data: data.daily_trend.map((d: any) => d.median_pl),
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#64ffda' }, { offset: 1, color: '#4fc3f7' }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#64ffda' : '#0d9488' }, { offset: 1, color: isDark ? '#4fc3f7' : '#0284c7' }] },
             borderRadius: [4, 4, 0, 0],
           },
-          label: { show: true, position: 'top', fontSize: 10, color: WH.textMuted, formatter: (p: any) => `${p.value}%` },
+          label: { show: true, position: 'top', fontSize: 10, color: cTextMuted, formatter: (p: any) => `${p.value}%` },
         },
         {
           name: t('pl.affectedSites'), type: 'line', yAxisIndex: 1, smooth: true,
           data: data.daily_trend.map((d: any) => d.affected_sites),
-          lineStyle: { color: '#ff922b', width: 2 }, itemStyle: { color: '#ff922b' }, symbolSize: 6,
+          lineStyle: { color: isDark ? '#ff922b' : '#ea580c', width: 2 }, itemStyle: { color: isDark ? '#ff922b' : '#ea580c' }, symbolSize: 6,
         },
       ],
     }
-  }, [data, t])
+  }, [data, t, isDark, cTextMuted])
 
   const topSitesOption = useMemo(() => {
     if (!data?.top_sites?.length) return {}
     const sites = data.top_sites.slice(0, 12).reverse()
     return {
       tooltip: {
-        ...darkTooltip(), trigger: 'axis', axisPointer: { type: 'shadow' },
+        ...darkTooltip(isDark), trigger: 'axis', axisPointer: { type: 'shadow' },
         formatter: (ps: any[]) => {
           const idx = ps[0].dataIndex
           const s = sites[idx]
@@ -424,22 +415,22 @@ export default function PacketLossDashboard() {
         },
       },
       grid: { left: 20, right: 60, top: 10, bottom: 10 },
-      xAxis: { type: 'value', splitLine: splitLine(), axisLabel: axisLabel() },
+      xAxis: { type: 'value', splitLine: splitLine(isDark), axisLabel: axisLabel(isDark) },
       yAxis: {
         type: 'category',
         data: sites.map((s: any) => s.site_name.length > 18 ? s.site_name.slice(0, 16) + '..' : s.site_name),
-        axisLabel: { ...axisLabel(), color: WH.text }, axisLine: axisLine(),
+        axisLabel: { ...axisLabel(isDark), color: cText }, axisLine: axisLine(isDark),
       },
       series: [{
         type: 'bar', barMaxWidth: 16,
         data: sites.map((s: any) => ({
           value: s.last_day_median_pl,
-          itemStyle: { color: STATUS_COLORS[s.status] || WH.teal, borderRadius: [0, 4, 4, 0] },
+          itemStyle: { color: statusColors[s.status] || cTeal, borderRadius: [0, 4, 4, 0] },
         })),
-        label: { show: true, position: 'right', fontSize: 10, color: WH.textMuted, formatter: (p: any) => `${p.value}%` },
+        label: { show: true, position: 'right', fontSize: 10, color: cTextMuted, formatter: (p: any) => `${p.value}%` },
       }],
     }
-  }, [data])
+  }, [data, isDark, statusColors, cText, cTextMuted, cTeal])
 
   // 图例过滤：隐藏选中的状态 → 地图上不渲染对应站点
   // 必须放在 early-return 之前，保证 hook 调用顺序在每次渲染都一致（否则会改变 hook 数量 → 组件崩溃）
@@ -502,8 +493,8 @@ export default function PacketLossDashboard() {
       <div style={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
       {/* 1. 头部横幅 */}
       <Card size="small" style={{
-        background: 'linear-gradient(135deg, #101a2e 0%, #112540 100%)',
-        borderLeft: '4px solid #ff4757',
+        background: isDark ? 'linear-gradient(135deg, #101a2e 0%, #112540 100%)' : 'linear-gradient(135deg, #eef4fa 0%, #e0edf7 100%)',
+        borderLeft: isDark ? '4px solid #ff4757' : '4px solid #d92d20',
         borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', marginBottom: 4,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
@@ -592,7 +583,7 @@ export default function PacketLossDashboard() {
             </span>
           </div>
         }>
-          <MapContainer center={[6.4, -9.4]} zoom={8} style={{ height: 'calc(100vh - 180px)', minHeight: 420, width: '100%', background: '#0a1929', borderRadius: 8 }} scrollWheelZoom>
+          <MapContainer center={[6.4, -9.4]} zoom={8} style={{ height: 'calc(100vh - 180px)', minHeight: 420, width: '100%', background: 'var(--wh-page-bg)', borderRadius: 8 }} scrollWheelZoom>
             <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             {/* 拓扑连线：复用 GIS Map 真实链路，按传输类型着色（MW / IPRAN 等）。
                 先白色描边(casing)增强对比，再画彩色线；hub 链路更粗。 */}
@@ -659,7 +650,6 @@ export default function PacketLossDashboard() {
       <DraggableClickModal
         open={drillOpen}
         anchor={drillAnchor}
-        dark
         onClose={() => setDrillOpen(false)}
         title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan" style={{ borderRadius: 10 }}>{t('pl.records', { n: filteredDrillData.length })}</Tag></span>}
       >

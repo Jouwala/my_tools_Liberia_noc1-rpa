@@ -86,6 +86,9 @@ data/
 */data/
 */detect_column_name/
 
+# 锁文件（运行中进程独占，无法被 git 读取）
+*.lock
+
 # Node
 node_modules/
 dist/

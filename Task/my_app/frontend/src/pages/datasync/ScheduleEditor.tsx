@@ -65,7 +65,7 @@ export function ScheduleEditor({
       width={640}
       styles={{
         root: { background: WH.bg },
-        header: { background: '#0a1929', borderBottom: '1px solid rgba(100,255,218,0.15)' },
+        header: { background: 'var(--wh-page-bg)', borderBottom: '1px solid var(--wh-subtle-border)' },
         body: { background: WH.bg },
       }}
     >
@@ -77,7 +77,7 @@ export function ScheduleEditor({
             <Tag color="blue" style={{ marginLeft: 8 }}>
               {cronToHuman(task.current_cron, locale)}
             </Tag>
-            <Text code style={{ marginLeft: 8, color: WH.textMuted, background: 'rgba(255,255,255,0.06)' }}>{task.current_cron}</Text>
+            <Text code style={{ marginLeft: 8, color: WH.textMuted, background: 'var(--wh-input-bg)' }}>{task.current_cron}</Text>
           </div>
 
           {/* Presets */}
@@ -92,7 +92,7 @@ export function ScheduleEditor({
                   size="small"
                   type={selectedPreset === p.cron ? 'primary' : 'default'}
                   onClick={() => handlePreset(p.cron)}
-                  style={selectedPreset !== p.cron ? { color: WH.text, borderColor: 'rgba(100,255,218,0.25)', background: 'rgba(100,255,218,0.06)' } : undefined}
+                  style={selectedPreset !== p.cron ? { color: WH.text, borderColor: 'var(--wh-subtle-border)', background: 'var(--wh-subtle-bg)' } : undefined}
                 >
                   {locale === 'zh' ? p.label_zh : p.label_en}
                 </Button>
@@ -109,7 +109,7 @@ export function ScheduleEditor({
               value={cronInput}
               onChange={e => { setCronInput(e.target.value); setSelectedPreset(null) }}
               placeholder={t('sync.cronPlaceholder')}
-              style={{ fontFamily: 'monospace', fontSize: 14, background: 'rgba(255,255,255,0.05)', color: WH.text, borderColor: 'rgba(100,255,218,0.18)' }}
+              style={{ fontFamily: 'monospace', fontSize: 14, background: 'var(--wh-input-bg)', color: WH.text, borderColor: 'var(--wh-input-border)' }}
             />
             <div style={{ marginTop: 8, color: WH.textDim, fontSize: 12 }}>
               {locale === 'zh'

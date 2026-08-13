@@ -1,5 +1,5 @@
 import { useState, lazy, Suspense } from 'react'
-import { ConfigProvider, Layout, Menu, theme, Button, Spin } from 'antd'
+import { ConfigProvider, Layout, Menu, theme, Button, Spin, Tooltip } from 'antd'
 import {
   DatabaseOutlined,
   AppstoreOutlined,
@@ -19,13 +19,15 @@ import {
   FileSearchOutlined,
   LineChartOutlined,
   FundOutlined,
+  SunOutlined,
+  MoonOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
 
 import { I18nProvider, useI18n } from './i18n'
 import { TaskStatusProvider } from './TaskStatusContext'
-import { WH } from './theme'
+import { ThemeProvider, useTheme, WH } from './theme'
 
 // 路由级代码分割：每个页面独立成 chunk，按需加载，首屏不再一次性下载全部页面
 const TableBrowser = lazy(() => import('./pages/TableBrowser'))
@@ -54,6 +56,7 @@ function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageKey>('sync')
   const [collapsed, setCollapsed] = useState(false)
   const { t, locale, toggleLocale } = useI18n()
+  const { isDark, toggle } = useTheme()
 
   const menuItems = [
     { key: 'sync', icon: <SyncOutlined />, label: t('nav.sync') },
@@ -123,22 +126,25 @@ function AppContent() {
     <ConfigProvider
       locale={locale === 'zh' ? zhCN : enUS}
       theme={{
-        algorithm: theme.defaultAlgorithm,
+        algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: {
           colorPrimary: '#13c2c2',
           colorInfo: '#13c2c2',
           borderRadius: 6,
         },
+        components: isDark ? {} : {
+          Table: { headerBg: '#f0f5fa', headerColor: '#334155', rowHoverBg: '#e8f4f2' },
+        },
       }}
     >
-      <Layout style={{ minHeight: '100vh', background: '#0a1929' }}>
+      <Layout style={{ minHeight: '100vh', background: 'var(--wh-page-bg)' }}>
         <Sider
           collapsible
           collapsed={collapsed}
           onCollapse={setCollapsed}
-          theme="dark"
+          theme={isDark ? 'dark' : 'light'}
           width={200}
-          style={{ background: '#0a1929' }}
+          style={{ background: isDark ? '#0a1929' : '#f6fafd', borderRight: isDark ? 'none' : '1px solid #d9e6f2' }}
         >
           <div style={{
             height: 48,
@@ -148,29 +154,29 @@ function AppContent() {
             color: WH.teal,
             fontWeight: 'bold',
             fontSize: collapsed ? 14 : 16,
-            borderBottom: '1px solid rgba(100,255,218,0.15)',
-            background: 'linear-gradient(90deg, #0a1929, #112540)',
+            borderBottom: isDark ? '1px solid rgba(100,255,218,0.15)' : '1px solid rgba(13,148,136,0.25)',
+            background: isDark ? 'linear-gradient(90deg, #0a1929, #112540)' : 'linear-gradient(90deg, #eef6fb, #e0edf7)',
           }}>
             {collapsed ? t('app.titleShort') : t('app.title')}
           </div>
           <Menu
-            theme="dark"
+            theme={isDark ? 'dark' : 'light'}
             mode="inline"
             selectedKeys={[currentPage]}
             items={menuItems}
             onClick={({ key }) => setCurrentPage(key as PageKey)}
-            style={{ background: '#0a1929' }}
+            style={{ background: isDark ? '#0a1929' : '#f6fafd' }}
           />
         </Sider>
         <Layout style={{ background: WH.bg }}>
           <Header style={{
-            background: 'linear-gradient(180deg, #0f2744 0%, #0a1929 100%)',
+            background: isDark ? 'linear-gradient(180deg, #0f2744 0%, #0a1929 100%)' : 'linear-gradient(180deg, #ddebf6 0%, #eef4fa 100%)',
             padding: '0 24px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            borderBottom: 'none',
-            boxShadow: '0 2px 12px rgba(0,0,0,0.35)',
+            borderBottom: isDark ? 'none' : '1px solid #d5e2ef',
+            boxShadow: isDark ? '0 2px 12px rgba(0,0,0,0.35)' : '0 2px 10px rgba(13,94,84,0.10)',
             position: 'relative',
             overflow: 'hidden',
             height: 56,
@@ -179,7 +185,9 @@ function AppContent() {
             <div style={{
               position: 'absolute',
               inset: 0,
-              backgroundImage: 'linear-gradient(rgba(100,255,218,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(100,255,218,0.03) 1px, transparent 1px)',
+              backgroundImage: isDark
+                ? 'linear-gradient(rgba(100,255,218,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(100,255,218,0.03) 1px, transparent 1px)'
+                : 'linear-gradient(rgba(13,148,136,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(13,148,136,0.05) 1px, transparent 1px)',
               backgroundSize: '24px 24px',
               pointerEvents: 'none',
             }} />
@@ -190,7 +198,7 @@ function AppContent() {
               left: 20,
               top: '50%',
               transform: 'translateY(-50%)',
-              color: 'rgba(100,255,218,0.25)',
+              color: isDark ? 'rgba(100,255,218,0.25)' : 'rgba(13,148,136,0.35)',
               fontSize: 18,
               letterSpacing: 4,
               userSelect: 'none',
@@ -201,10 +209,10 @@ function AppContent() {
             {/* 右侧装饰箭头 */}
             <div style={{
               position: 'absolute',
-              right: 80,
+              right: 160,
               top: '50%',
               transform: 'translateY(-50%)',
-              color: 'rgba(100,255,218,0.25)',
+              color: isDark ? 'rgba(100,255,218,0.25)' : 'rgba(13,148,136,0.35)',
               fontSize: 18,
               letterSpacing: 4,
               userSelect: 'none',
@@ -224,7 +232,9 @@ function AppContent() {
                 fontSize: 22,
                 fontWeight: 700,
                 color: WH.teal,
-                textShadow: `0 0 20px ${WH.teal}66, 0 0 40px ${WH.teal}33`,
+                textShadow: isDark
+                  ? `0 0 20px var(--wh-teal-40), 0 0 40px var(--wh-teal-20)`
+                  : '0 1px 2px rgba(255,255,255,0.6)',
                 letterSpacing: 2,
                 lineHeight: 1.2,
               }}>
@@ -235,27 +245,40 @@ function AppContent() {
                 width: 120,
                 height: 2,
                 margin: '4px auto 0',
-                background: `linear-gradient(90deg, transparent, ${WH.teal}, transparent)`,
-                boxShadow: `0 0 8px ${WH.teal}88`,
+                background: WH.accentGrad,
+                boxShadow: isDark ? `0 0 8px var(--wh-teal-53)` : 'none',
                 borderRadius: 1,
               }} />
             </div>
 
-            {/* 语言切换按钮 - 保持在右侧 */}
-            <Button
-              size="small"
-              icon={<TranslationOutlined />}
-              onClick={toggleLocale}
-              style={{
-                color: WH.teal,
-                borderColor: 'rgba(100,255,218,0.35)',
-                background: 'transparent',
-                position: 'relative',
-                zIndex: 2,
-              }}
-            >
-              {t('lang.switch')}
-            </Button>
+            {/* 右上角操作区：主题切换 + 语言切换 */}
+            <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Tooltip title={isDark ? t('theme.toLight') : t('theme.toDark')}>
+                <Button
+                  size="small"
+                  icon={isDark ? <SunOutlined /> : <MoonOutlined />}
+                  onClick={toggle}
+                  aria-label={isDark ? t('theme.toLight') : t('theme.toDark')}
+                  style={{
+                    color: WH.teal,
+                    borderColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.45)',
+                    background: isDark ? 'transparent' : 'rgba(255,255,255,0.85)',
+                  }}
+                />
+              </Tooltip>
+              <Button
+                size="small"
+                icon={<TranslationOutlined />}
+                onClick={toggleLocale}
+                style={{
+                  color: WH.teal,
+                  borderColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.45)',
+                  background: isDark ? 'transparent' : 'rgba(255,255,255,0.85)',
+                }}
+              >
+                {t('lang.switch')}
+              </Button>
+            </div>
           </Header>
           <Content style={{ margin: 16, padding: 4, overflow: 'auto', background: 'transparent', borderRadius: 8 }}>
             <Suspense fallback={
@@ -274,11 +297,13 @@ function AppContent() {
 
 function App() {
   return (
-    <I18nProvider>
-      <TaskStatusProvider>
-        <AppContent />
-      </TaskStatusProvider>
-    </I18nProvider>
+    <ThemeProvider>
+      <I18nProvider>
+        <TaskStatusProvider>
+          <AppContent />
+        </TaskStatusProvider>
+      </I18nProvider>
+    </ThemeProvider>
   )
 }
 

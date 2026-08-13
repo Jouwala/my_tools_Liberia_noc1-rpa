@@ -1,7 +1,83 @@
+/* 主题变量：默认深色（跟随系统由 index.html 内联脚本在首帧前设置 data-theme） */
+:root {
+  --wh-bg: linear-gradient(180deg, #0a1929 0%, #0d2138 100%);
+  --wh-card-bg: linear-gradient(145deg, #141f33 0%, #112540 100%);
+  --wh-card-border: 1px solid rgba(100, 255, 218, 0.18);
+  --wh-card-border-hover: 1px solid rgba(100, 255, 218, 0.55);
+  --wh-teal: #64ffda;
+  --wh-blue: #4fc3f7;
+  --wh-indigo: #7986cb;
+  --wh-text: #e6f4ff;
+  --wh-text-muted: #94a3b8;
+  --wh-text-dim: #64748b;
+  --wh-accent-grad: linear-gradient(135deg, #64ffda, #4fc3f7);
+  --wh-sev-critical: #ff4757;
+  --wh-sev-major: #ff922b;
+  --wh-sev-warning: #ffd43b;
+  --wh-sev-info: #4fc3f7;
+  --wh-teal-20: rgba(100, 255, 218, 0.20);
+  --wh-teal-27: rgba(100, 255, 218, 0.27);
+  --wh-teal-40: rgba(100, 255, 218, 0.40);
+  --wh-teal-53: rgba(100, 255, 218, 0.53);
+  /* 页面底色（body/antd 未覆盖处兜底） */
+  --wh-page-bg: #0a1929;
+  --wh-hover-row: rgba(255, 255, 255, 0.06);
+  --wh-table-sort-icon: #94a3b8;
+  --wh-seg-bg: rgba(255, 255, 255, 0.06);
+  /* 语义辅助色 */
+  --wh-subtle-bg: rgba(255, 255, 255, 0.05);
+  --wh-subtle-border: rgba(100, 255, 218, 0.12);
+  --wh-error-text: #ff8788;
+  --wh-success-text: #51cf66;
+  --wh-warn-text: #ffa940;
+  --wh-input-bg: rgba(255, 255, 255, 0.05);
+  --wh-input-border: rgba(100, 255, 218, 0.18);
+}
+
+:root[data-theme='light'] {
+  --wh-bg: linear-gradient(180deg, #f2f7fc 0%, #e8f0f8 100%);
+  --wh-card-bg: linear-gradient(145deg, #ffffff 0%, #f4f9fd 100%);
+  --wh-card-border: 1px solid rgba(13, 148, 136, 0.28);
+  --wh-card-border-hover: 1px solid rgba(13, 148, 136, 0.65);
+  --wh-teal: #0d9488;
+  --wh-blue: #0e7490;
+  --wh-indigo: #6366f1;
+  --wh-text: #16233b;
+  --wh-text-muted: #3f5468;
+  --wh-text-dim: #5b7288;
+  --wh-accent-grad: linear-gradient(135deg, #0d9488, #0e7490);
+  --wh-sev-critical: #d92d20;
+  --wh-sev-major: #ea580c;
+  --wh-sev-warning: #b45309;
+  --wh-sev-info: #0369a1;
+  --wh-teal-20: rgba(13, 148, 136, 0.20);
+  --wh-teal-27: rgba(13, 148, 136, 0.27);
+  --wh-teal-40: rgba(13, 148, 136, 0.40);
+  --wh-teal-53: rgba(13, 148, 136, 0.53);
+  --wh-page-bg: #eef4fa;
+  --wh-hover-row: rgba(13, 148, 136, 0.07);
+  --wh-table-sort-icon: #5b7288;
+  --wh-seg-bg: rgba(13, 148, 136, 0.10);
+  /* 语义辅助色（浅色主题下加深，保证对比度） */
+  --wh-subtle-bg: rgba(13, 148, 136, 0.05);
+  --wh-subtle-border: rgba(13, 148, 136, 0.18);
+  --wh-error-text: #c0392b;
+  --wh-success-text: #15803d;
+  --wh-warn-text: #b45309;
+  --wh-input-bg: rgba(255, 255, 255, 0.9);
+  --wh-input-border: rgba(13, 148, 136, 0.35);
+}
+
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+html,
+body {
+  background: var(--wh-page-bg);
+  transition: background 0.25s ease, color 0.25s ease;
 }
 
 body {
@@ -24,22 +100,51 @@ body {
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
 }
 
-/* 暗色主题表格：覆盖 antd 默认白色背景 + 黑色表头文字 */
-.dark-table .ant-table {
+/* ---------- 表格主题（.dark-table 兼容深/浅两套） ---------- */
+/* 深色主题：覆盖 antd 默认白色背景 + 黑色表头文字 */
+:root[data-theme='dark'] .dark-table .ant-table {
   background: transparent !important;
 }
-.dark-table .ant-table-thead > tr > th {
+:root[data-theme='dark'] .dark-table .ant-table-thead > tr > th {
   background: transparent !important;
   color: #e6f4ff !important;
 }
-.dark-table .ant-table-tbody > tr > td {
+:root[data-theme='dark'] .dark-table .ant-table-tbody > tr > td {
   background: transparent !important;
 }
 /* 鼠标悬停行默认浅色背景在深色主题下刺眼，改为半透明白 */
-.dark-table .ant-table-tbody > tr:hover > td {
+:root[data-theme='dark'] .dark-table .ant-table-tbody > tr:hover > td {
   background: rgba(255, 255, 255, 0.06) !important;
 }
 /* 表头排序/筛选图标在深背景下不可见，提亮 */
-.dark-table .ant-table-thead th .anticon {
+:root[data-theme='dark'] .dark-table .ant-table-thead th .anticon {
   color: #94a3b8 !important;
+}
+
+/* 浅色主题：表格使用 antd 默认浅色样式（透明背景 + 深色文字） */
+:root[data-theme='light'] .dark-table .ant-table {
+  background: #ffffff !important;
+}
+:root[data-theme='light'] .dark-table .ant-table-thead > tr > th {
+  background: #f0f5fa !important;
+  color: #334155 !important;
+}
+:root[data-theme='light'] .dark-table .ant-table-tbody > tr > td {
+  background: #ffffff !important;
+}
+:root[data-theme='light'] .dark-table .ant-table-tbody > tr:hover > td {
+  background: #e8f4f2 !important;
+}
+:root[data-theme='light'] .dark-table .ant-table-thead th .anticon {
+  color: #5b7288 !important;
+}
+
+/* Leaflet 弹窗在浅色主题下的适配（保持可读） */
+:root[data-theme='light'] .leaflet-popup-content-wrapper,
+:root[data-theme='light'] .leaflet-popup-tip {
+  background: #ffffff;
+  color: #16233b;
+}
+:root[data-theme='light'] .leaflet-popup-content a {
+  color: #0d9488;
 }

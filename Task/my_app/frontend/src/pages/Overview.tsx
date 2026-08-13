@@ -5,7 +5,7 @@ import ReactECharts from 'echarts-for-react'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { ExplainIcon } from '../components/MetricExplain'
-import { WH, WH_COLORS, cardStyle, pageWrap } from '../theme'
+import { useTheme, WH, WH_COLORS, LIGHT_COLORS, cardStyle, pageWrap } from '../theme'
 
 interface DbInfo {
   database: string
@@ -18,6 +18,7 @@ export default function Overview() {
   const [info, setInfo] = useState<DbInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const { t } = useI18n()
+  const { isDark } = useTheme()
 
   useEffect(() => {
     api.get('/db/info')
@@ -39,33 +40,45 @@ export default function Overview() {
     .sort((a, b) => b.rows - a.rows)
     .slice(0, 10)
 
+  // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
+  const cText = isDark ? '#e6f4ff' : '#16233b'
+  const cTextMuted = isDark ? '#94a3b8' : '#3f5468'
+  const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
+  const cAxisLine = isDark ? '#22324d' : '#c8d8e8'
+  const cSplit = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(13,148,136,0.12)'
+  const cTooltip = {
+    backgroundColor: isDark ? 'rgba(10,25,41,0.95)' : 'rgba(255,255,255,0.97)',
+    borderColor: isDark ? '#64ffda' : '#0d9488',
+    textStyle: { color: isDark ? '#e6f4ff' : '#16233b' },
+  }
+
   const barOption = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', backgroundColor: 'rgba(10,25,41,0.95)', borderColor: '#64ffda', textStyle: { color: '#e6f4ff' } },
+    tooltip: { trigger: 'axis', ...cTooltip },
     xAxis: {
       type: 'category',
       data: topTables.map(t => t.name),
-      axisLabel: { rotate: 30, fontSize: 11, color: '#94a3b8' },
-      axisLine: { lineStyle: { color: '#22324d' } },
+      axisLabel: { rotate: 30, fontSize: 11, color: cTextMuted },
+      axisLine: { lineStyle: { color: cAxisLine } },
     },
-    yAxis: { type: 'value', splitLine: { lineStyle: { type: 'dashed', color: 'rgba(255,255,255,0.06)' } }, axisLabel: { color: '#94a3b8' } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { type: 'dashed', color: cSplit } }, axisLabel: { color: cTextMuted } },
     series: [{
       type: 'bar',
-      data: topTables.map((t, i) => ({ value: t.rows, itemStyle: { color: WH_COLORS[i % WH_COLORS.length], borderRadius: [4, 4, 0, 0] } })),
+      data: topTables.map((t, i) => ({ value: t.rows, itemStyle: { color: cPalette[i % cPalette.length], borderRadius: [4, 4, 0, 0] } })),
     }],
     grid: { left: 60, right: 20, bottom: 80, top: 20 },
   }
 
   const pieOption = {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'item', backgroundColor: 'rgba(10,25,41,0.95)', borderColor: '#64ffda', textStyle: { color: '#e6f4ff' }, formatter: '{b}: {c} ({d}%)' },
-    legend: { bottom: 0, type: 'scroll', textStyle: { color: '#94a3b8' } },
+    tooltip: { trigger: 'item', ...cTooltip, formatter: '{b}: {c} ({d}%)' },
+    legend: { bottom: 0, type: 'scroll', textStyle: { color: cTextMuted } },
     series: [{
       type: 'pie',
       radius: ['40%', '70%'],
-      data: topTables.map((t, i) => ({ name: t.name, value: t.rows, itemStyle: { color: WH_COLORS[i % WH_COLORS.length] } })),
-      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(100,255,218,0.35)' } },
-      label: { color: '#e6f4ff', formatter: '{b}\n{d}%' },
+      data: topTables.map((t, i) => ({ name: t.name, value: t.rows, itemStyle: { color: cPalette[i % cPalette.length] } })),
+      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.3)' } },
+      label: { color: cText, formatter: '{b}\n{d}%' },
     }],
   }
 
