@@ -67,6 +67,9 @@ const translations: Record<Locale, Record<string, string>> = {
         'nur.excludeLoadFail': '排除名单加载失败(已降级为空)',
         'nur.denom': '分母小区数',
         'nur.unit': 'NUR ×100000',
+        'nur.drillNur': 'NUR 明细',
+        'nur.drillSla': 'SLA 明细',
+        'nur.clickDrill': '点击查看明细',
 
     // 通用计算说明（备注气泡）
     'explain.copy': '复制说明',
@@ -763,6 +766,9 @@ const translations: Record<Locale, Record<string, string>> = {
         'nur.excludeLoadFail': 'Exclude list load failed (degraded to empty)',
         'nur.denom': 'Denominator cells',
         'nur.unit': 'NUR ×100000',
+        'nur.drillNur': 'NUR Detail',
+        'nur.drillSla': 'SLA Detail',
+        'nur.clickDrill': 'Click for detail',
 
     // Common explanation (remark popover)
     'explain.copy': 'Copy explanation',

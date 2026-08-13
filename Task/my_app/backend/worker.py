@@ -67,18 +67,54 @@ def _request_shutdown(signum, _frame):
 
 
 # 残留 running 回收阈值：started_at 距今超过该秒数才视为残留。
-# 多 worker 并发场景下，其他 worker 正在执行的任务也是 running 状态（可能长达
-# 11 分钟），无时间门槛会把在跑任务误标 failed；异常退出后的残留最多延迟一个
-# 阈值周期被回收，不会永久占用单飞名额。
-STALE_RUNNING_SECONDS = 2 * 3600
+# 多 worker 并发场景下，其他 worker 正在执行的任务也是 running 状态，无时间门槛
+# 会把在跑任务误标 failed；异常退出后的残留最多延迟一个阈值周期被回收。
+# 2026-08-13 教训：旧值 2h 造成「失败不可见」盲区——失败后 2 小时内无失败日志
+# （auto_retry 扫不到）且僵尸 running 挡住后续所有调度（eflow_sync 断档 3 小时）。
+# 现改为 30 分钟（实测最长任务 <10 分钟），且配合 worker_pid 存活核对：pid 已死
+# 立即回收，不必等阈值。
+try:
+    STALE_RUNNING_SECONDS = max(300, int(os.environ.get("WORKER_STALE_RUNNING_SECONDS", str(30 * 60))))
+except (TypeError, ValueError):
+    STALE_RUNNING_SECONDS = 30 * 60
+
+
+def _pid_alive(pid) -> bool:
+    """核对 worker_pid 是否仍存活（Windows 用 OpenProcess，POSIX 用 kill 0）。
+    无法判定（pid 非法/权限异常）时保守返回 True，交给时间阈值兜底。"""
+    try:
+        pid = int(pid)
+        if pid <= 0:
+            return True  # 旧记录无 pid 信息，无法核对
+    except (TypeError, ValueError):
+        return True
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not h:
+                return False  # 打开失败=进程不存在（或无权限，本机自身进程不会无权限）
+            ctypes.windll.kernel32.CloseHandle(h)
+            return True
+        except Exception:
+            return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
 
 
 def _recover_stale_running():
-    """启动时回收上次 Worker 异常退出残留的 running 记录。
+    """回收 Worker 异常退出残留的 running 记录（启动时 + 运行中每 300s 周期执行）。
 
-    仅回收 started_at 距今超过 STALE_RUNNING_SECONDS 的记录，避免误伤
-    并行 worker 正在执行的任务。
-    残留 running 若不处理会永久占用任务的单飞名额，导致该任务再也无法投递。
+    回收条件二选一：worker_pid 已死（进程崩溃，立即回收）或 started_at 超过
+    STALE_RUNNING_SECONDS（pid 无法核对时的兜底）。核对 pid 可避免误伤并行
+    worker 正在执行的任务。残留 running 若不处理会永久占用任务的单飞名额，
+    导致后续调度触发被单飞保护拦截。
 
     防假阳性：回收前核对 task_execution_log——若该任务在「本次运行开始时间
     (started_at) 之后」已有 success=1 的执行记录，说明任务实际已成功、只是
@@ -93,12 +129,17 @@ def _recover_stale_running():
             _ensure_queue_table(conn)
             task_runner._ensure_task_log_table(conn)
             rows = conn.execute(
-                "SELECT id, task_id, trigger_type, started_at FROM task_queue "
-                "WHERE status = 'running' AND started_at < ?",
-                (stale_cutoff,),
+                "SELECT id, task_id, trigger_type, started_at, worker_pid FROM task_queue "
+                "WHERE status = 'running'",
             ).fetchall()
             now_iso = datetime.now().isoformat()
-            for qid, task_id, trigger_type, started_at in rows:
+            for qid, task_id, trigger_type, started_at, worker_pid in rows:
+                # 回收条件二选一：a) worker_pid 已死（进程崩溃，立即回收，
+                # 不必等时间阈值）；b) 超过时间阈值（pid 无法核对的旧记录兜底）。
+                pid_dead = worker_pid is not None and not _pid_alive(worker_pid)
+                too_old = bool(started_at) and started_at < stale_cutoff
+                if not (pid_dead or too_old):
+                    continue
                 already_done = conn.execute(
                     "SELECT 1 FROM task_execution_log "
                     "WHERE task_id = ? AND success = 1 AND started_at >= ? LIMIT 1",
