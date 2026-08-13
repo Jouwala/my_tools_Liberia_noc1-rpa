@@ -40,7 +40,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const [selectedFilters, setSelectedFilters] = useState<Record<string, string | undefined>>({})
   const [showFilters, setShowFilters] = useState(false)
   const { t } = useI18n()
-  const { lastSync, latestData, isSynced } = useDataTimestamps()
+  const { lastSync, latestData, alarmLastSync, isSynced } = useDataTimestamps()
 
   // 实时数据：RealTime Alarm Map 不使用时间范围
   const timeRange = useMemo((): { start: string; end: string } | null => {
@@ -80,6 +80,11 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         if (Object.keys(filterOptions).length === 0 && res.data.filter_options) {
           setFilterOptions(res.data.filter_options || {})
         }
+      })
+      .catch(err => {
+        // 不吞异常：后端 500 时明确报错，避免页面静默停留在旧数据造成“筛选不生效”假象
+        console.error('[GISMap] loadSites failed:', err?.response?.status, err?.response?.data || err)
+        setSites([])
       })
       .finally(() => setLoading(false))
   }
@@ -322,9 +327,17 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   {isSynced && lastSync && `: ${lastSync}`}
                 </Tag>
               </Tooltip>
-              <Tooltip title={t('datasource.latestData')}>
-                <Tag color="geekblue">{t('datasource.latestData')}: {latestData}</Tag>
-              </Tooltip>
+              {mode === 'realtime' ? (
+                // 实时模式：地图数据源是 realtime_alarm，显示告警同步时间（与 Alarm Dashboard 对齐），
+                // 而非 TT/WO 工单创建时间，避免口径误导
+                <Tooltip title={t('datasource.alarmSync')}>
+                  <Tag color="geekblue">{t('datasource.alarmSync')}: {alarmLastSync || t('datasource.noData')}</Tag>
+                </Tooltip>
+              ) : (
+                <Tooltip title={t('datasource.latestData')}>
+                  <Tag color="geekblue">{t('datasource.latestData')}: {latestData}</Tag>
+                </Tooltip>
+              )}
               <Space size={4}>
                 <Switch size="small" checked={showTopology} onChange={setShowTopology} />
                 <span style={{ fontSize: 13, color: WH.text }}>{t('gis.topologyToggle')}</span>

@@ -859,7 +859,8 @@ def _run_single_kpi_pipeline(client: UmeSessionClient, task: dict, api_failures:
         # 原生高效写入/覆盖
         rows_written = save_data_to_db_or_api(table_name, headers, data, api_failures)
         if rows_written == 0:
-            raise Exception(f"数据写入失败: save_data_to_db_or_api 返回 0 行")
+            # 数据已存在/已同步（upsert 后无新增行），不视为失败
+            print(f"[KPI][{task['key']}] 无新增行（数据已存在/已同步）")
         return task["key"], rows_written
     finally:
         # 关键：释放服务端查询占用，避免堆积导致后续 Repeated query

@@ -1660,6 +1660,22 @@ def run_contract_kpis_report():
         today_str = datetime.now().strftime("%Y-%m-%d")
         exported_count = _export_and_upload_reports(today_str, current_month)
 
+        # 6. 写看板库（附加功能：失败仅记录，不影响报表/邮件主流程）
+        dashboard_result = {}
+        try:
+            from backend.services.ms_sla_dashboard import write_dashboard_data
+            dashboard_result = write_dashboard_data(datasets)
+        except Exception as e:
+            logger.warning(f"[SILENT-EXCEPT] write_dashboard_data: exception swallowed: {e}", exc_info=True)
+            dashboard_result = {"success": False, "error": f"看板写库失败: {e}"}
+
         elapsed = time.time() - t_start
         logger.info(f"Contract KPIs 报表更新完成: {elapsed:.1f}s")
-        return {"success": True, "daily_rows_updated": updated_daily, "exported_files": exported_count, "elapsed_seconds": round(elapsed, 2)}
+        return {
+            "success": True,
+            "daily_rows_updated": updated_daily,
+            "exported_files": exported_count,
+            "dashboard_rows": dashboard_result.get("rows", 0),
+            "dashboard_error": dashboard_result.get("error"),
+            "elapsed_seconds": round(elapsed, 2),
+        }

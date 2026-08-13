@@ -1079,7 +1079,9 @@ def _write_dataset(table_name, merged_headers, merged_data, api_failures=None):
             )
             row_count = result.get("rows_written", 0)
             if row_count == 0:
-                raise Exception("API 返回 0 行写入")
+                # 数据已存在/已同步（upsert 后无新增行），不视为失败也不回退本地
+                print("  [API] 无新增行（数据已存在/已同步）")
+                return 0
             print(f"  [API] written: {row_count} rows")
             return row_count
         except Exception as e:
@@ -1231,7 +1233,7 @@ def _import_one_tech(tech, export_results, files_to_delete, api_failures=None):
     row_count = _write_dataset(table_name, merged_headers, merged_data, api_failures)
 
     if row_count == 0:
-        raise Exception(f"[Network KPI] {table_name}: 写入 0 行，数据丢失")
+        print(f"[Network KPI] {table_name}: 无新增行（数据已存在/已同步）")
 
     # 释放本迭代大对象
     nw_headers = nw_data = None
@@ -1336,8 +1338,13 @@ def run_network_kpi_sync():
             print(f"  - {label}: {err}")
 
     # 4. 数据库导入（从内存读取）
+    exported_count = len(export_data)
     if export_data:
-        import_to_database(export_results=export_data)
+        try:
+            import_to_database(export_results=export_data)
+        except Exception as e:
+            errors.append(("import_to_database", str(e)))
+            print(f"[MAIN] Database import failed: {e}")
     else:
         print("\n[MAIN] No data exported, skip database import.")
 
@@ -1348,7 +1355,13 @@ def run_network_kpi_sync():
     elapsed_total = time.time() - t_start
     print(f"\n[MAIN] Total completed in {elapsed_total:.2f} seconds")
     print(f"[MAIN] Done.")
-    return export_data
+    # 返回结构化结果：errors 为空才算成功；否则 Task Manager 只显示“成功”却看不到部分失败
+    return {
+        "success": len(errors) == 0,
+        "exported": exported_count,
+        "errors": [f"{label}: {err}" for label, err in errors],
+        "elapsed_seconds": round(elapsed_total, 2),
+    }
 
 
 if __name__ == "__main__":

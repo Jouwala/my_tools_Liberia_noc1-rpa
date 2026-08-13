@@ -4,6 +4,7 @@ import { useI18n } from './i18n'
 
 interface DataTimestamps {
   last_sync: string | null
+  alarm_last_sync: string | null
   latest_data_time: string | null
   latest_tt_time: string | null
   latest_wo_time: string | null
@@ -30,12 +31,18 @@ export function useDataTimestamps() {
     ? formatTime(timestamps.last_sync)
     : null
 
+  // 实时告警同步时间（与 Alarm Dashboard 口径一致）；无记录时回退到数据最新时间
+  const alarmLastSyncDisplay = timestamps?.alarm_last_sync
+    ? formatTime(timestamps.alarm_last_sync)
+    : (timestamps?.latest_data_time || null)
+
   const latestDataDisplay = timestamps?.latest_data_time
     ? timestamps.latest_data_time
     : t('datasource.noData')
 
   return {
     lastSync: lastSyncDisplay,
+    alarmLastSync: alarmLastSyncDisplay,
     latestData: latestDataDisplay,
     isSynced: !!lastSyncDisplay,
     raw: timestamps,

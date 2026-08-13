@@ -746,8 +746,10 @@ def run_ran_ume_pm_sync() -> dict:
                     )
                     api_rows = api_result.get("rows_written", 0)
                     if api_rows == 0:
-                        raise Exception(f"API 返回 0 行写入: {table_name}")
-                    logger.info(f"[RAN_UME][API] DB Orange {table_name}: {api_rows} rows")
+                        # 数据已存在/已同步（upsert 后无新增行），不视为失败
+                        logger.info(f"[RAN_UME][API] DB Orange {table_name}: 无新增行（数据已存在/已同步）")
+                    else:
+                        logger.info(f"[RAN_UME][API] DB Orange {table_name}: {api_rows} rows")
                 except Exception as e:
                     logger.error(f"[RAN_UME][API] DB Orange {table_name} 写入失败: {e}")
                     api_all_ok = False

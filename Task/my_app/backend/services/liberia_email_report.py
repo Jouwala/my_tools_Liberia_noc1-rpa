@@ -35,7 +35,7 @@ _MANAGED_VENV_PY = (
     r"C:\Users\ZTEEMS\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
 )
 
-# 可重试的瞬时错误关键字（Orange EWS 偶发连接重置）
+# 可重试的瞬时错误关键字（Orange EWS 偶发连接重置 / CAS 抖动）
 _TRANSIENT_KEYS = (
     "ConnectionReset",
     "TransportError",
@@ -44,6 +44,12 @@ _TRANSIENT_KEYS = (
     "Connection aborted",
     "RemoteDisconnected",
     "ConnectionError",
+    # 2026-08-12: exchangelib 在 CAS 返回 HTTP 500 + X-CasErrorCode 头时抛 CASError，
+    # 实测 "CAS error: UserNotFound" 为瞬时抖动（邮箱路由/AD 复制延迟），数分钟内自愈，
+    # 故纳入瞬时集合触发自动重试，避免整点报告因一次性 CAS 抖动漏发。
+    "CASError",
+    "CAS error",
+    "UserNotFound",
 )
 
 

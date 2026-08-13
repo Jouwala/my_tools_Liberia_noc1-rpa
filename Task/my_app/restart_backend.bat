@@ -48,6 +48,15 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7038" ^| findstr "LISTENING
     taskkill /PID %%a /F >nul 2>&1
     echo [*] Killed orphan backend PID=%%a on 7038
 )
+:: 清理 7040/8000 残留实例：不清理会与 7038 双开导致任务双份执行（08-13 main_kpi_sync 事故）
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7040" ^| findstr "LISTENING" 2^>nul') do (
+    taskkill /PID %%a /F >nul 2>&1
+    echo [*] Killed orphan backend PID=%%a on 7040
+)
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000" ^| findstr "LISTENING" 2^>nul') do (
+    taskkill /PID %%a /F >nul 2>&1
+    echo [*] Killed orphan backend PID=%%a on 8000
+)
 :: ping instead of timeout: 'timeout' aborts when stdin is redirected
 ping -n 3 127.0.0.1 >nul
 

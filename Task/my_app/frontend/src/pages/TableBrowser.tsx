@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge } from 'antd'
+import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge, Button, Dropdown, message, Modal, Checkbox, Divider } from 'antd'
+import { DownloadOutlined, SettingOutlined, SearchOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
 import { useI18n, numLocale } from '../i18n'
@@ -43,6 +44,14 @@ interface ProfileResult {
   conclusions: string[]
 }
 
+interface ViewTemplate {
+  table_name: string
+  name: string
+  columns: string[]
+  created_at: string
+  updated_at: string
+}
+
 export default function TableBrowser() {
   const [tables, setTables] = useState<TableInfo[]>([])
   const [selectedTable, setSelectedTable] = useState<string>('')
@@ -53,6 +62,12 @@ export default function TableBrowser() {
   const [profileData, setProfileData] = useState<ProfileResult | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [searchText, setSearchText] = useState('')
+  const [visibleCols, setVisibleCols] = useState<string[] | null>(null)
+  const [colModalOpen, setColModalOpen] = useState(false)
+  const [draftCols, setDraftCols] = useState<string[]>([])
+  const [templates, setTemplates] = useState<ViewTemplate[]>([])
+  const [tplName, setTplName] = useState('')
+  const [colFilter, setColFilter] = useState('')
   const { t, locale } = useI18n()
 
   useEffect(() => {
@@ -67,8 +82,18 @@ export default function TableBrowser() {
 
   useEffect(() => {
     if (!selectedTable) return
+    setVisibleCols(null)
+    setTplName('')
     loadTableData(1)
+    loadTemplates()
   }, [selectedTable])
+
+  // 载入当前表已保存的列模板
+  const loadTemplates = () => {
+    api.get('/tables/view-templates', { params: { table_name: selectedTable } })
+      .then(res => setTemplates(res.data.templates || []))
+      .catch(() => setTemplates([]))
+  }
 
   const loadTableData = (page: number) => {
     setLoading(true)
@@ -95,9 +120,76 @@ export default function TableBrowser() {
       .finally(() => setProfileLoading(false))
   }
 
+  // 导出整表（服务端生成 xlsx/csv，大表不压前端内存；携带当前搜索条件与自定义显示列）
+  const exportTable = (format: 'xlsx' | 'csv') => {
+    if (!selectedTable) return
+    const params = new URLSearchParams({ format })
+    if (searchText) params.set('search', searchText)
+    if (visibleCols && visibleCols.length) params.set('columns', visibleCols.join(','))
+    message.info(t('table.exportStart'))
+    window.open(`/api/tables/${encodeURIComponent(selectedTable)}/export?${params.toString()}`, '_blank')
+  }
+
+  // ---- 自定义列 / 模板 ----
+  const openColModal = () => {
+    setDraftCols(visibleCols ?? [...tableColumns])
+    setColFilter('')
+    setColModalOpen(true)
+  }
+
+  const applyCols = () => {
+    setVisibleCols(draftCols.length >= tableColumns.length ? null : [...draftCols])
+    setColModalOpen(false)
+  }
+
+  const resetCols = () => {
+    setVisibleCols(null)
+    setDraftCols([...tableColumns])
+    setColModalOpen(false)
+  }
+
+  const applyTemplate = (tp: ViewTemplate) => {
+    // 过滤掉表结构变更后已不存在的列
+    setDraftCols(tp.columns.filter(c => tableColumns.includes(c)))
+  }
+
+  const saveTemplate = () => {
+    const name = tplName.trim()
+    if (!name) { message.warning(t('table.tplNameRequired')); return }
+    if (!draftCols.length) { message.warning(t('table.noColSelected')); return }
+    api.post('/tables/view-templates', {
+      table_name: selectedTable, name, columns: draftCols,
+    })
+      .then(() => {
+        message.success(t('table.templateSaved'))
+        setTplName('')
+        loadTemplates()
+      })
+      .catch(() => message.error(t('table.templateSaveFailed')))
+  }
+
+  const deleteTemplate = (name: string) => {
+    api.delete('/tables/view-templates', { params: { table_name: selectedTable, name } })
+      .then(() => {
+        message.success(t('table.templateDeleted'))
+        loadTemplates()
+      })
+  }
+
+  // 列名模糊过滤（不区分大小写、子串匹配）；仅过滤显示，勾选状态不受影响
+  const filterKw = colFilter.trim().toLowerCase()
+  const filteredCols = filterKw
+    ? tableColumns.filter((c: string) => c.toLowerCase().includes(filterKw))
+    : tableColumns
+
   const tableInfo = tables.find(t => t.name === selectedTable)
 
-  const dataColumns = tableColumns.map((col: string) => ({
+  // 自定义显示列：按所选顺序过滤（null 表示全部列）
+  const shownCols = visibleCols
+    ? visibleCols.filter(c => tableColumns.includes(c))
+    : tableColumns
+
+  const dataColumns = shownCols.map((col: string) => ({
     title: col,
     dataIndex: col,
     key: col,
@@ -134,8 +226,98 @@ export default function TableBrowser() {
               <Tag color="green">{tableInfo.col_count} {t('common.cols')}</Tag>
             </Col>
           )}
+          <Col>
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'xlsx', label: 'Excel (.xlsx)' },
+                  { key: 'csv', label: 'CSV (.csv)' },
+                ],
+                onClick: ({ key }) => exportTable(key as 'xlsx' | 'csv'),
+              }}
+            >
+              <Button icon={<DownloadOutlined />} disabled={!selectedTable}>
+                {t('table.export')}
+              </Button>
+            </Dropdown>
+          </Col>
+          <Col>
+            <Button icon={<SettingOutlined />} disabled={!selectedTable} onClick={openColModal}>
+              {t('table.customizeCols')}
+            </Button>
+          </Col>
+          {visibleCols && (
+            <Col>
+              <Tag color="orange">{t('table.visibleColsTag', { n: shownCols.length, m: tableColumns.length })}</Tag>
+            </Col>
+          )}
         </Row>
       </Card>
+
+      <Modal
+        title={t('table.colModalTitle')}
+        open={colModalOpen}
+        onCancel={() => setColModalOpen(false)}
+        width={640}
+        footer={[
+          <Button key="reset" onClick={resetCols}>{t('table.resetCols')}</Button>,
+          <Button key="cancel" onClick={() => setColModalOpen(false)}>{t('table.cancel')}</Button>,
+          <Button key="ok" type="primary" onClick={applyCols}>{t('table.apply')}</Button>,
+        ]}
+      >
+        <div style={{ marginBottom: 8 }}>
+          <Button size="small" onClick={() => setDraftCols([...tableColumns])}>{t('table.selectAll')}</Button>
+          <Button size="small" style={{ marginLeft: 8 }} onClick={() => setDraftCols([])}>{t('table.clearAll')}</Button>
+          <span style={{ marginLeft: 12, color: '#888' }}>{draftCols.length} / {tableColumns.length}</span>
+        </div>
+        <Input
+          prefix={<SearchOutlined style={{ color: '#bbb' }} />}
+          value={colFilter}
+          onChange={e => setColFilter(e.target.value)}
+          placeholder={t('table.filterColsPh')}
+          allowClear
+          style={{ marginBottom: 8 }}
+        />
+        <div style={{ maxHeight: 280, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+          {filteredCols.length === 0 ? (
+            <div style={{ color: '#999', textAlign: 'center', padding: 12 }}>{t('table.noMatchCols')}</div>
+          ) : (
+            <Checkbox.Group value={draftCols} onChange={v => setDraftCols(v as string[])} style={{ width: '100%' }}>
+              <Row>
+                {filteredCols.map((c: string) => (
+                  <Col span={8} key={c} style={{ marginBottom: 4 }}>
+                    <Checkbox value={c}>{c}</Checkbox>
+                  </Col>
+                ))}
+              </Row>
+            </Checkbox.Group>
+          )}
+        </div>
+        <Divider style={{ margin: '12px 0' }}>{t('table.templates')}</Divider>
+        {templates.length === 0 ? (
+          <div style={{ color: '#999', marginBottom: 8 }}>{t('table.noTemplates')}</div>
+        ) : (
+          <div style={{ maxHeight: 140, overflow: 'auto', marginBottom: 8 }}>
+            {templates.map(tp => (
+              <div key={tp.name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <span style={{ flex: 1 }}>{tp.name} <span style={{ color: '#999' }}>({tp.columns.length} {t('common.cols')})</span></span>
+                <Button size="small" onClick={() => applyTemplate(tp)}>{t('table.loadTemplate')}</Button>
+                <Button size="small" danger onClick={() => deleteTemplate(tp.name)}>{t('common.delete')}</Button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Input
+            value={tplName}
+            onChange={e => setTplName(e.target.value)}
+            placeholder={t('table.templateNamePh')}
+            onPressEnter={saveTemplate}
+            maxLength={50}
+          />
+          <Button type="primary" onClick={saveTemplate}>{t('table.saveTemplate')}</Button>
+        </div>
+      </Modal>
 
       <Tabs
         items={[

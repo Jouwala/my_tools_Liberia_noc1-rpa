@@ -44,7 +44,7 @@ STARTUP_FAIL_LIMIT = 10    # 连续快速崩溃达到此次数则放弃并告警
 GROUP_TASK_MAP = {
     "u": (  # UME 192.168.170.2 单账号会话：必须串行
         "ran_ume_daily,main_kpi_sync,network_kpi_sync,packet_loss_sync,"
-        "packet_loss_email,battery_kpi_sync,ipran_kpi_sync"),
+        "packet_loss_email,battery_kpi_sync,ipran_kpi_sync,cm_data_sync"),
     "n": (  # 网管 / eFlow API / 远程系统：各自独立但保守同组
         "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,"
         "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync"),
@@ -53,7 +53,7 @@ GROUP_TASK_MAP = {
         "kpi_ms_contract,kpi_ms_wo_sla,kpi_sp_spareparts,kpi_sp_consumables,"
         "kpi_ran_availability,email_recovery,ipran_m6k_chart_email,"
         "ccn_free_rating_chart_email,battery_email,mailbox_cleanup,"
-        "incident_overview_sync,auto_retry_failed"),
+        "incident_overview_sync,auto_retry_failed,db_freshness_check,sp_report_generate"),
 }
 _WORKER_GROUPS = [g.strip() for g in
                   os.environ.get("MY_APP_WORKER_GROUPS", "").split(",") if g.strip()]

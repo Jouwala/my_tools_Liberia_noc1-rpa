@@ -23,3 +23,23 @@ body {
   transform: translateY(-1px);
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
 }
+
+/* 暗色主题表格：覆盖 antd 默认白色背景 + 黑色表头文字 */
+.dark-table .ant-table {
+  background: transparent !important;
+}
+.dark-table .ant-table-thead > tr > th {
+  background: transparent !important;
+  color: #e6f4ff !important;
+}
+.dark-table .ant-table-tbody > tr > td {
+  background: transparent !important;
+}
+/* 鼠标悬停行默认浅色背景在深色主题下刺眼，改为半透明白 */
+.dark-table .ant-table-tbody > tr:hover > td {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+/* 表头排序/筛选图标在深背景下不可见，提亮 */
+.dark-table .ant-table-thead th .anticon {
+  color: #94a3b8 !important;
+}

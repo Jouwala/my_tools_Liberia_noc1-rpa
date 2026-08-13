@@ -683,7 +683,27 @@ def _generate_report(pivot: pd.DataFrame, summary: pd.DataFrame, flags: pd.DataF
         out_path_str = fb.fallback_path
     finally:
         wb.close()
+    _cleanup_old_reports(Path(out_path_str))
     return out_path_str
+
+
+def _cleanup_old_reports(keep: Path) -> None:
+    """生成新报告后清理同目录旧的时间戳报告，只保留最新一份（模板文件不受影响）。
+
+    报告文件名为 Packet_Loss_Status_Output Automation {时间戳}.xlsx；
+    模板为无时间戳的固定名 Packet_Loss_Status_Output Automation.xlsx，
+    glob 模式要求“Automation ”后必带内容，天然排除模板，仍加同名判断双保险。
+    """
+    try:
+        for f in PL_DATA_DIR.glob("Packet_Loss_Status_Output Automation *.xlsx"):
+            if f.name == PL_TEMPLATE_PATH.name:
+                continue
+            if f.resolve() == Path(keep).resolve():
+                continue
+            f.unlink(missing_ok=True)
+            logger.info(f"[PL] 清理旧报告: {f.name}")
+    except Exception as e:  # noqa
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _cleanup_old_reports: %s", e, exc_info=True)
 
 
 def _save_summary_to_db(summary: pd.DataFrame, report_path: str, rows_written: int):

@@ -1096,17 +1096,20 @@ def run_main_kpi_sync(cookie: str | None = None, forgery_token: str | None = Non
 
     if not download_results:
         print("[MAIN] No files downloaded, skipping DB import.")
-        return {"success": False, "downloaded": 0, "imported_rows": 0, "tables": [], "api_ok": False}
+        return {"success": False, "downloaded": 0, "imported_rows": 0, "tables": [],
+                "api_ok": False, "error": "未下载到任何 KPI 文件"}
 
     # 2. 通过 HTTP API 写入远程数据库（全程内存，不落盘）
     print(f"\n[API] 通过远程写入 API 导入 {len(download_results)} 个文件")
     total_imported = 0
     imported_tables = []
+    api_errors = []
     api_ok = True
 
     if _db_writer is None:
         print("[API] [ERROR] db_writer_client 不可用，无法写入")
         api_ok = False
+        api_errors.append("db_writer_client 不可用")
     else:
         for item in download_results:
             try:
@@ -1121,14 +1124,17 @@ def run_main_kpi_sync(cookie: str | None = None, forgery_token: str | None = Non
                 )
                 rows = result.get("rows_written", 0)
                 if rows == 0:
-                    raise Exception(f"API 返回 0 行写入: {item['table']}")
-                total_imported += rows
-                if item["table"] not in imported_tables:
-                    imported_tables.append(item["table"])
-                print(f"[API] {item['table']}: +{rows} 行")
+                    # 数据已存在/已同步（dedup 后无新增行），不视为失败
+                    print(f"[API] {item['table']}: 无新增行（数据已存在/已同步）")
+                else:
+                    total_imported += rows
+                    if item["table"] not in imported_tables:
+                        imported_tables.append(item["table"])
+                    print(f"[API] {item['table']}: +{rows} 行")
             except Exception as e:
                 print(f"[API] [ERROR] 写入 {item['table']} 失败: {e}")
                 api_ok = False
+                api_errors.append(f"{item['table']}: {e}")
 
     # 3. 释放内存
     downloaded_count = len(download_results)
@@ -1145,6 +1151,7 @@ def run_main_kpi_sync(cookie: str | None = None, forgery_token: str | None = Non
         "imported_rows": total_imported,
         "tables": imported_tables,
         "api_ok": api_ok,
+        "error": "; ".join(api_errors) if api_errors else None,
     }
 
 

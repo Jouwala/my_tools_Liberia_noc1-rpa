@@ -37,7 +37,7 @@ from backend.routers import (
     tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard,
     packet_loss_dashboard, battery_dashboard, credentials,
     tasks, sp_dashboard, system,
-    incident_overview, ip_trace,
+    incident_overview, ip_trace, nur_dashboard, ms_sla_dashboard,
 )
 from backend.services import task_runner
 from backend.database import get_raw_connection
@@ -88,6 +88,10 @@ app.include_router(system.router)
 # 导致 /api/incident-overview/* 与 /api/ip-trace/* 路由不存在、页面取不到数据）
 app.include_router(incident_overview.router)
 app.include_router(ip_trace.router)
+# NUR / SLA 看板（eflow_tt + cm_site_summary 聚合）
+app.include_router(nur_dashboard.router)
+# MS SLA 看板（MS Contract KPIs / MS WOs SLA 日报数据，ms_sla_dashboard 库）
+app.include_router(ms_sla_dashboard.router)
 
 
 # ========== 通用任务调度系统 ==========
@@ -100,6 +104,35 @@ from backend.task_registry import sync_history, register_all_tasks
 def _register_all_tasks():
     """注册所有可调度的任务（声明式定义见 backend/task_registry.py）"""
     return register_all_tasks(task_runner)
+
+def _acquire_scheduler_lock():
+    """单实例调度锁：多 backend 进程并存（如 7038 + 手动启动的 7040/8000 实例）时，
+    只有拿到独占锁的实例才启动 APScheduler，其余实例仅提供 HTTP，
+    避免同一任务被多个实例同时调度、dedup 后互相误判失败（08-13 main_kpi_sync 事故根因）。
+
+    锁实现：msvcrt.LK_NBLCK 非阻塞独占 db/instance.lock；
+    Windows 进程退出时锁自动释放，无需手动清理；
+    句柄必须保持存活（存入 app.state），否则 GC 关闭文件会导致锁提前释放。
+    """
+    import msvcrt
+    lock_path = DB_PATH.with_name("instance.lock")
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        f = open(lock_path, "a+", encoding="utf-8")
+    except Exception as e:
+        print(f"[startup] 无法创建锁文件 {lock_path}: {e}，按无锁模式启动调度器")
+        return None, True
+    try:
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        f.seek(0, 2)
+        f.write(f"{os.getpid()} {datetime.now().isoformat()}\n")
+        f.flush()
+        print(f"[startup] 已获得调度器单实例锁 {lock_path} (pid={os.getpid()})")
+        return f, True
+    except OSError:
+        print(f"[startup] 单实例锁被占用 {lock_path}：本实例仅提供 HTTP，不启动调度器")
+        return f, False
+
 
 def _init_db_with_retry(max_retries: int = 12, base_wait: int = 1, max_wait: int = 8):
     """db 初始化可能因后台进程(Windows Search 索引 / 杀软实时扫描)临时锁住
@@ -148,10 +181,16 @@ async def startup_event():
     """启动时创建必要的表和索引（app.db 可能被后台索引/杀软临时锁住，加重试穿过）"""
     _init_db_with_retry()
 
+    # 单实例锁：拿不到锁的进程不启动调度器（仅 HTTP），避免双实例任务双份执行
+    _lock_file, _got_lock = _acquire_scheduler_lock()
+    app.state.scheduler_lock_file = _lock_file
+
     # 注册所有任务并启动调度器
     _register_all_tasks()
     if DISABLE_SCHEDULER:
         print("[startup] MY_APP_DISABLE_SCHEDULER=1: skip APScheduler start (smoke test mode)")
+    elif not _got_lock:
+        print("[startup] 单实例锁被占用：跳过调度器启动（任务由持锁实例调度，避免双份执行）")
     else:
         task_runner.schedule_all_tasks()
         task_runner.start_scheduler()
@@ -166,6 +205,21 @@ async def startup_event():
 # 注意：必须校验 assets 目录真实存在，否则 StaticFiles 会因目录缺失而抛出
 # RuntimeError，导致整个 uvicorn 应用导入失败、后端无法启动（开发模式下前端由 Vite 提供，无需此挂载）。
 frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+
+# index.html 是 SPA 入口，禁止浏览器启发式缓存：否则重新部署后浏览器仍会引用
+# 旧 index.html -> 旧 hash JS，导致页面停留在旧版逻辑（如图例计数全 0、
+# 时间窗口筛选失效）。带 hash 的 assets/ 资源不受影响，仍可长期缓存。
+_INDEX_NO_CACHE_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+
+def _index_response() -> FileResponse:
+    return FileResponse(frontend_dist / "index.html", headers=_INDEX_NO_CACHE_HEADERS)
+
+
 if (frontend_dist / "assets").is_dir():
     # 根路径挂载（兼容旧 /assets 引用）
     app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="static")
@@ -179,10 +233,10 @@ if (frontend_dist / "assets").is_dir():
         file_path = frontend_dist / full_path
         if full_path.startswith("myapp/assets/"):
             # 已被 /myapp/assets 挂载处理，这里只兜底（理论上不会命中）
-            return FileResponse(frontend_dist / "index.html")
+            return _index_response()
         if file_path.is_file():
             return FileResponse(file_path)
-        return FileResponse(frontend_dist / "index.html")
+        return _index_response()
 else:
     print("WARNING: frontend/dist/assets 不存在，跳过静态资源挂载（开发模式由 Vite 提供前端，不影响 API）")
 

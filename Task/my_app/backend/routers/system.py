@@ -28,7 +28,7 @@ def health_check():
 
 @router.get("/api/data-source/timestamps")
 def get_data_timestamps():
-    """数据源时间信息：eFlow 同步时间 + 数据最新时间"""
+    """数据源时间信息：eFlow 同步时间 + 告警同步时间 + 数据最新时间"""
     # eFlow 最近一次成功同步时间
     last_sync = None
     for h in reversed(sync_history):
@@ -48,6 +48,21 @@ def get_data_timestamps():
             except Exception:
                 logger.warning("[SILENT-EXCEPT] get_data_timestamps: exception swallowed", exc_info=True)
                 pass
+
+        # 实时告警最近一次成功同步时间（与 Alarm Dashboard 口径一致：
+        # task_execution_log 中 eflow_active_alarm 任务最后成功完成时刻）
+        alarm_last_sync = None
+        try:
+            row = conn.execute(
+                "SELECT completed_at FROM task_execution_log "
+                "WHERE task_id='eflow_active_alarm' AND success=1 AND completed_at IS NOT NULL "
+                "ORDER BY completed_at DESC LIMIT 1"
+            ).fetchone()
+            if row and row[0]:
+                alarm_last_sync = str(row[0])
+        except Exception:
+            logger.warning("[SILENT-EXCEPT] get_data_timestamps: exception swallowed", exc_info=True)
+
         latest_tt = None
         latest_wo = None
         try:
@@ -71,6 +86,7 @@ def get_data_timestamps():
 
         return {
             "last_sync": last_sync,
+            "alarm_last_sync": alarm_last_sync,
             "latest_data_time": latest_data,
             "latest_tt_time": latest_tt,
             "latest_wo_time": latest_wo,

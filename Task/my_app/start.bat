@@ -88,6 +88,13 @@ if %errorlevel%==0 (
     for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7038" ^| findstr "LISTENING" 2^>nul') do (
         taskkill /PID %%a /F >nul 2>&1
     )
+    :: 清理 7040/8000 残留实例：不清理会与 7038 双开导致任务双份执行（08-13 main_kpi_sync 事故）
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7040" ^| findstr "LISTENING" 2^>nul') do (
+        taskkill /PID %%a /F >nul 2>&1
+    )
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000" ^| findstr "LISTENING" 2^>nul') do (
+        taskkill /PID %%a /F >nul 2>&1
+    )
     start "BackendWatchdog" /MIN cmd /c "chcp 65001 >nul & set CODEBUDDY_SESSION_ID=&set CLAUDE_SESSION_ID=&set CODEBUDDY_SAFE_DELETE_SANDBOX=& "%PYTHON_EXE%" -m backend.backend_watchdog > "%~dp0log\backend_watchdog_console.log" 2>&1"
 )
 

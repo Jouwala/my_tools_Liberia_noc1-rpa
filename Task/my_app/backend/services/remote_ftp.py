@@ -7,6 +7,7 @@ remote_ftp.py
 凭据按路径前缀区分（由用户规定）：
   - 路径以 /01_RPA   开头 -> 账号 ZTEEMS / DX
   - 路径以 /Python   开头 -> 账号 FINEBI / DX
+  - 路径以 /webroot  开头 -> 账号 FINEBI / DX（FineBI 报表目录，如 TT_Exclude.xlsx）
 
 典型用途：
   - 读取各报告的远程收件人名单 ss_email.txt / cc_email.txt
@@ -32,6 +33,8 @@ def creds_for(remote_path: str) -> Tuple[str, str]:
     if p.startswith("/01_RPA"):
         return ("ZTEEMS", "DX")
     if p.startswith("/Python"):
+        return ("FINEBI", "DX")
+    if p.startswith("/webroot"):
         return ("FINEBI", "DX")
     # 默认兜底
     return ("ZTEEMS", "DX")

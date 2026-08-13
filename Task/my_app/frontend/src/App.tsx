@@ -17,6 +17,8 @@ import {
   SettingOutlined,
   AimOutlined,
   FileSearchOutlined,
+  LineChartOutlined,
+  FundOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -41,10 +43,12 @@ const BatteryDashboard = lazy(() => import('./pages/BatteryDashboard'))
 const CredentialSettings = lazy(() => import('./pages/CredentialSettings'))
 const IpTrace = lazy(() => import('./pages/IpTrace'))
 const IncidentOverview = lazy(() => import('./pages/IncidentOverview'))
+const NurDashboard = lazy(() => import('./pages/NurDashboard'))
+const MsSlaDashboard = lazy(() => import('./pages/MsSlaDashboard'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla'
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageKey>('sync')
@@ -55,6 +59,8 @@ function AppContent() {
     { key: 'sync', icon: <SyncOutlined />, label: t('nav.sync') },
     { key: 'alarm', icon: <AlertOutlined />, label: t('nav.alarm') },
     { key: 'ttwo', icon: <BarChartOutlined />, label: t('nav.ttwo') },
+    { key: 'nur', icon: <LineChartOutlined />, label: t('nav.nur') },
+    { key: 'ms_sla', icon: <FundOutlined />, label: t('nav.msSla') },
     { key: 'gis', icon: <GlobalOutlined />, label: t('nav.gis') },
     { key: 'realtime_alarm', icon: <AlertOutlined />, label: t('nav.realtimeAlarm') },
     { key: 'packet_loss', icon: <DisconnectOutlined />, label: t('nav.packetLoss') },
@@ -78,6 +84,10 @@ function AppContent() {
         return <AlarmDashboard />
       case 'ttwo':
         return <TTWODashboard />
+      case 'nur':
+        return <NurDashboard />
+      case 'ms_sla':
+        return <MsSlaDashboard />
       case 'gis':
         return <GISMap />
       case 'realtime_alarm':
@@ -154,22 +164,95 @@ function AppContent() {
         </Sider>
         <Layout style={{ background: WH.bg }}>
           <Header style={{
-            background: '#0a1929',
+            background: 'linear-gradient(180deg, #0f2744 0%, #0a1929 100%)',
             padding: '0 24px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            borderBottom: '1px solid rgba(100,255,218,0.15)',
-            boxShadow: '0 2px 12px rgba(0,0,0,0.25)',
+            borderBottom: 'none',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.35)',
+            position: 'relative',
+            overflow: 'hidden',
+            height: 56,
           }}>
-            <span style={{ fontSize: 16, fontWeight: 600, color: WH.text }}>
-              {menuItems.find(m => m.key === currentPage)?.label || t('nav.overview')}
-            </span>
+            {/* 背景网格纹理 */}
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundImage: 'linear-gradient(rgba(100,255,218,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(100,255,218,0.03) 1px, transparent 1px)',
+              backgroundSize: '24px 24px',
+              pointerEvents: 'none',
+            }} />
+
+            {/* 左侧装饰箭头 */}
+            <div style={{
+              position: 'absolute',
+              left: 20,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: 'rgba(100,255,218,0.25)',
+              fontSize: 18,
+              letterSpacing: 4,
+              userSelect: 'none',
+            }}>
+              ▶▶
+            </div>
+
+            {/* 右侧装饰箭头 */}
+            <div style={{
+              position: 'absolute',
+              right: 80,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: 'rgba(100,255,218,0.25)',
+              fontSize: 18,
+              letterSpacing: 4,
+              userSelect: 'none',
+            }}>
+              ◀
+            </div>
+
+            {/* 居中标题 */}
+            <div style={{
+              flex: 1,
+              textAlign: 'center',
+              position: 'relative',
+              zIndex: 1,
+            }}>
+              <h1 style={{
+                margin: 0,
+                fontSize: 22,
+                fontWeight: 700,
+                color: WH.teal,
+                textShadow: `0 0 20px ${WH.teal}66, 0 0 40px ${WH.teal}33`,
+                letterSpacing: 2,
+                lineHeight: 1.2,
+              }}>
+                {menuItems.find(m => m.key === currentPage)?.label || t('nav.overview')}
+              </h1>
+              {/* 底部发光装饰线 */}
+              <div style={{
+                width: 120,
+                height: 2,
+                margin: '4px auto 0',
+                background: `linear-gradient(90deg, transparent, ${WH.teal}, transparent)`,
+                boxShadow: `0 0 8px ${WH.teal}88`,
+                borderRadius: 1,
+              }} />
+            </div>
+
+            {/* 语言切换按钮 - 保持在右侧 */}
             <Button
               size="small"
               icon={<TranslationOutlined />}
               onClick={toggleLocale}
-              style={{ color: WH.teal, borderColor: 'rgba(100,255,218,0.35)', background: 'transparent' }}
+              style={{
+                color: WH.teal,
+                borderColor: 'rgba(100,255,218,0.35)',
+                background: 'transparent',
+                position: 'relative',
+                zIndex: 2,
+              }}
             >
               {t('lang.switch')}
             </Button>

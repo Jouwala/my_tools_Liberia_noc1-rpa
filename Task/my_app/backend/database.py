@@ -201,6 +201,7 @@ def _resolve_pg_schema(db_path) -> str:
         "lte_pl": "lte_pl",
         "battery_kpi": "battery",
         "lbr_ms_sla_kpi": "ms_sla",
+        "ms_sla_dashboard": "ms_sla_dashboard",
         "fw_db": "fw",
         "ipran_ume_kpi": "ipran_ume",
         "ran_ume": "ran_ume",

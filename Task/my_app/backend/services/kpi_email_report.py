@@ -59,8 +59,13 @@ _MANAGED_VENV_PY = (
 # ---- 数据 / 名单目录（远程用 FTP 路径字符串；本地用 Path）----
 _MS_SLA_DATA = MY_APP_DIR / "data" / "ms_sla"                       # 本地
 _MS_SLA_EMAIL = "/01_RPA/LBR_Tools/KPI/MS_SLA/email"                # 远程 FTP
-_SP_DATA = "/01_RPA/LBR_Tools/SP/sp_report"                        # 远程 FTP
-_SP_EMAIL = "/01_RPA/LBR_Tools/SP/sp_report/email"                  # 远程 FTP
+_SP_DATA = "/01_RPA/LBR_Tools/SP/sp_report"                        # 远程 FTP（已弃用，见 _SP_LOCAL_DATA）
+_SP_EMAIL = "/01_RPA/LBR_Tools/SP/sp_report/email"                  # 远程 FTP（已弃用，见 _SP_EMAIL_UNC）
+# SP 报表：生成端已集成到 my_app（sp_report_gen 服务），产物输出到本地 data/sp_email；
+# 邮件收件人名单仍用远程共享路径（用户指定）
+_SP_LOCAL_DATA = MY_APP_DIR / "data" / "sp_email"
+_SP_EMAIL_UNC = r"\\192.168.100.19\e\01_RPA\LBR_Tools\SP\sp_report\email"
+_SP_GEN_SCRIPT = Path(__file__).resolve().parent / "sp_report_gen" / "gernarate_sp_report.py"
 _RAN_DATA = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE"                      # 远程 FTP
 _RAN_EMAIL = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE/email"               # 远程 FTP
 
@@ -238,16 +243,78 @@ def run_ms_wo_sla(to: str = None, cc: str = None) -> dict:
     )
 
 
-def run_sp_spareparts(to: str = None, cc: str = None) -> dict:
-    """SpareParts 备件报表邮件（数据远程 FTP，下载到本地缓存）。"""
+def _resolve_recipients_unc(email_dir_unc: str, to: Optional[str], cc: Optional[str]):
+    """从远程共享路径(UNC)名单读取主送/抄送。to/cc 显式传入时优先（测试用）。"""
     import backend.services.remote_ftp as rf
 
-    to_arg, cc_arg = _resolve_recipients_remote(_SP_EMAIL, to, cc)
-    cache = _CACHE_ROOT / "sp_spareparts"
-    files = rf.download_filtered(_SP_DATA, cache, name_filter="SpareParts")
-    excel = _pick_consolidated(files)
+    def _read(name: str) -> str:
+        p = Path(email_dir_unc) / name
+        try:
+            return p.read_text(encoding="utf-8-sig", errors="replace")
+        except Exception:
+            return ""
+
+    to_list = rf.parse_addresses(_read("ss_email.txt"))
+    cc_list = rf.parse_addresses(_read("cc_email.txt"))
+    to_arg = to if to is not None else (";".join(to_list) or None)
+    cc_arg = cc if cc is not None else ";".join(cc_list)
+    return to_arg, cc_arg
+
+
+def run_sp_report_generate(to: str = None, cc: str = None) -> dict:
+    """SP 备件报表生成：从 SFTP 下载数据，生成 Comsumables / SpareParts
+    Inbound&Outbound&Inventory 报表到本地 data/sp_email（邮件任务随后发送）。
+
+    生成脚本需要 pandas/paramiko/openpyxl/PIL，托管 venv 缺 paramiko，
+    因此必须用后端系统 Python（sys.executable，已装全部依赖）执行。
+    """
+    script = _SP_GEN_SCRIPT
+    if not script.is_file():
+        return {"success": False, "error": f"生成脚本不存在: {script}"}
+
+    t0 = time.time()
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "报表生成超时(>600s)，SFTP 或报表生成过慢"}
+    except Exception as e:
+        return {"success": False, "error": f"报表生成启动失败: {e}"}
+
+    out = (proc.stdout or "") + (proc.stderr or "")
+    elapsed = time.time() - t0
+    if proc.returncode != 0:
+        return {"success": False, "error": f"报表生成失败 returncode={proc.returncode}\n{out[-2000:]}"}
+
+    # 生成结果完整性校验：两类总表 xlsx 必须存在
+    missing = []
+    for prefix in ("Comsumables Inbound&Outbound&Inventory ", "SpareParts Inbound&Outbound&Inventory "):
+        hits = list(_SP_LOCAL_DATA.glob(f"{prefix}*.xlsx")) if _SP_LOCAL_DATA.is_dir() else []
+        if not hits:
+            missing.append(prefix)
+    if missing:
+        return {"success": False, "error": f"报表生成未产出完整文件，缺失: {missing}"}
+
+    tail = "\n".join(out.strip().splitlines()[-15:])
+    return {"success": True, "message": f"报表生成成功 ({elapsed:.1f}s)", "detail": tail}
+
+
+def run_sp_spareparts(to: str = None, cc: str = None) -> dict:
+    """SpareParts 备件报表邮件（数据本地 sp_email 生成端产出，名单远程共享路径）。"""
+    to_arg, cc_arg = _resolve_recipients_unc(_SP_EMAIL_UNC, to, cc)
+    if not _SP_LOCAL_DATA.is_dir():
+        return {"success": False, "error": f"报表目录不存在: {_SP_LOCAL_DATA}（请先运行 sp_report_generate 任务）"}
+    excel = _pick_consolidated([f for f in _SP_LOCAL_DATA.glob("*.xlsx") if "SpareParts" in f.name])
+    if excel is None:
+        return {"success": False, "error": f"未在 {_SP_LOCAL_DATA} 找到 SpareParts 报表，请检查 sp_report_generate 任务"}
     return _run_script(
-        data_dir=cache,
+        data_dir=_SP_LOCAL_DATA,
         name_filter="SpareParts",
         to=to_arg,
         cc=cc_arg,
@@ -256,15 +323,15 @@ def run_sp_spareparts(to: str = None, cc: str = None) -> dict:
 
 
 def run_sp_consumables(to: str = None, cc: str = None) -> dict:
-    """Comsumables 耗材报表邮件（数据远程 FTP，下载到本地缓存）。"""
-    import backend.services.remote_ftp as rf
-
-    to_arg, cc_arg = _resolve_recipients_remote(_SP_EMAIL, to, cc)
-    cache = _CACHE_ROOT / "sp_consumables"
-    files = rf.download_filtered(_SP_DATA, cache, name_filter="Comsumables")
-    excel = _pick_consolidated(files)
+    """Comsumables 耗材报表邮件（数据本地 sp_email 生成端产出，名单远程共享路径）。"""
+    to_arg, cc_arg = _resolve_recipients_unc(_SP_EMAIL_UNC, to, cc)
+    if not _SP_LOCAL_DATA.is_dir():
+        return {"success": False, "error": f"报表目录不存在: {_SP_LOCAL_DATA}（请先运行 sp_report_generate 任务）"}
+    excel = _pick_consolidated([f for f in _SP_LOCAL_DATA.glob("*.xlsx") if "Comsumables" in f.name])
+    if excel is None:
+        return {"success": False, "error": f"未在 {_SP_LOCAL_DATA} 找到 Comsumables 报表，请检查 sp_report_generate 任务"}
     return _run_script(
-        data_dir=cache,
+        data_dir=_SP_LOCAL_DATA,
         name_filter="Comsumables",
         to=to_arg,
         cc=cc_arg,

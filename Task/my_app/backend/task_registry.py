@@ -189,19 +189,26 @@ TASK_SPECS = [
          description_en="Email MS WOs SLA Achievements Daily Report (local data + remote recipient list)",
          default_cron="35 17 * * *", category="kpi_email"),
 
-    # 18. SpareParts 备件报表邮件（数据远程 FTP）
+    # 18. SpareParts 备件报表邮件（数据本地 sp_email 生成端产出 + 远程共享名单）
     dict(task_id="kpi_sp_spareparts", name="SpareParts 备件报表邮件", name_en="SpareParts Report Email",
          loader=("backend.services.kpi_email_report", "run_sp_spareparts"),
-         description="发送 SpareParts 报表（远程 FTP 数据 + 远程名单）",
-         description_en="Email SpareParts report (remote FTP data + remote recipient list)",
+         description="发送 SpareParts 报表（本地 sp_email 数据 + 远程共享名单）",
+         description_en="Email SpareParts report (local sp_email data + remote shared recipient list)",
          default_cron="45 9 * * *", category="kpi_email"),
 
-    # 19. Comsumables 耗材报表邮件（数据远程 FTP）
+    # 19. Comsumables 耗材报表邮件（数据本地 sp_email 生成端产出 + 远程共享名单）
     dict(task_id="kpi_sp_consumables", name="Comsumables 耗材报表邮件", name_en="Comsumables Report Email",
          loader=("backend.services.kpi_email_report", "run_sp_consumables"),
-         description="发送 Comsumables 报表（远程 FTP 数据 + 远程名单）",
-         description_en="Email Comsumables report (remote FTP data + remote recipient list)",
+         description="发送 Comsumables 报表（本地 sp_email 数据 + 远程共享名单）",
+         description_en="Email Comsumables report (local sp_email data + remote shared recipient list)",
          default_cron="50 9 * * *", category="kpi_email"),
+
+    # 19b. SP 备件报表生成（每天 05:15，先于 05:45/06:40 两个邮件任务）
+    dict(task_id="sp_report_generate", name="SP 备件报表生成", name_en="SP Report Generate",
+         loader=("backend.services.kpi_email_report", "run_sp_report_generate"),
+         description="从 SFTP 下载备件数据，生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表到本地 data/sp_email",
+         description_en="Download spare-part data from SFTP and generate Comsumables & SpareParts Inbound&Outbound&Inventory reports into local data/sp_email",
+         default_cron="15 5 * * *", category="kpi_email"),
 
     # 20. MS Network Availability Daily Report 邮件（远程 FTP 图片，无 Excel）
     dict(task_id="kpi_ran_availability", name="MS Network Availability 日报邮件", name_en="MS Network Availability Daily Report Email",
@@ -292,6 +299,13 @@ TASK_SPECS = [
          description="每 10 分钟扫描失败任务；若仍处于其调度周期的时效窗口内（未到下一个调度触发时刻）且未超过重试次数上限，自动重新投递执行（邮件任务由 EWS 补发机制负责，默认排除）",
          description_en="Scan failed tasks every 10 minutes; re-run those still within their schedule-cycle window (before next fire time) and under the retry budget (email tasks are handled by EWS recovery and excluded)",
          default_cron="*/10 * * * *", category="general"),
+
+    # 31. RAN UME CM 小区配置数据同步（每天 8:30）
+    dict(task_id="cm_data_sync", name="RAN CM 小区数据同步", name_en="RAN CM Cell Data Sync",
+         loader=("backend.services.cm_data.cm_data_export", "run_cm_data_sync"),
+         description="从 RAN UME 获取 GSM/UMTS/LTE/NR 小区配置数据，经 API 全量替换写入远程 db.sqlite3（cm_cell_data/cm_site_summary），本地仅保留一份最新 Excel",
+         description_en="Fetch GSM/UMTS/LTE/NR cell config data from RAN UME, full-replace write to remote db.sqlite3 (cm_cell_data/cm_site_summary) via API, keep only the latest local Excel",
+         default_cron="30 8 * * *", category="cm_data"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========
@@ -301,11 +315,12 @@ CATEGORY_GATEWAY: dict[str, str] = {
     # ZTE eFlow API：TT/WO/CR/PM/Site/Person 及 incident_overview 同源
     "eflow": "eflow_api",
     "incident_overview": "eflow_api",
-    # RAN UME：PM/KPI/丢包率数据均来自 RAN UME
+    # RAN UME：PM/KPI/丢包率/CM 配置数据均来自 RAN UME
     "ran_ume": "ran_ume",
     "main_kpi": "ran_ume",
     "network_kpi": "ran_ume",
     "packet_loss": "ran_ume",
+    "cm_data": "ran_ume",
     # CNN / iPRAN UME 核心网与路由器
     "cnn_kpi": "cnn_ume",
     "ipran_kpi": "ipran_ume",

@@ -938,8 +938,10 @@ def run_ms_sla_sync(max_workers=None):
                 )
                 api_rows = api_result.get("rows_written", 0)
                 if api_rows == 0:
-                    raise Exception(f"API 返回 0 行写入: {table_name}")
-                logger.info(f"  [API] {table_name}: {api_rows} rows")
+                    # 数据已存在/已同步（upsert 后无新增行），不视为失败也不触发 FTP 回退
+                    logger.info(f"  [API] {table_name}: 无新增行（数据已存在/已同步）")
+                else:
+                    logger.info(f"  [API] {table_name}: {api_rows} rows")
             except Exception as e:
                 logger.error(f"  [API] {table_name} 写入失败: {e}")
                 api_ok = False

@@ -1,15 +1,111 @@
 """数据表浏览 API"""
+import io
 import logging
 import json
 import re
 import sqlite3
+from urllib.parse import quote
 from fastapi import APIRouter, Query, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from backend.database import get_raw_connection, list_tables
 from backend.dialect_helpers import table_columns
 from backend.services.profiler import DataProfiler
 import pandas as pd
 
 router = APIRouter(prefix="/api/tables", tags=["tables"])
+
+# ---------------- 列显示模板（持久化，跟随 DB_MODE 双模） ----------------
+# 表名以 _ 开头：get_tables 列表接口会跳过下划线前缀表，Table Browser 不可见
+TEMPLATE_TABLE = "_table_view_templates"
+
+
+class ViewTemplateIn(BaseModel):
+    table_name: str
+    name: str
+    columns: list
+
+
+def _ensure_template_table(conn):
+    """双模建表（sqlite/PG 语法一致），已存在则跳过。"""
+    conn.execute(
+        f'CREATE TABLE IF NOT EXISTS "{TEMPLATE_TABLE}" ('
+        ' table_name TEXT NOT NULL,'
+        ' name TEXT NOT NULL,'
+        ' columns TEXT NOT NULL,'
+        ' created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,'
+        ' updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,'
+        ' PRIMARY KEY (table_name, name))'
+    )
+    conn.commit()
+
+
+@router.get("/view-templates")
+def list_view_templates(table_name: str = Query(...)):
+    """列出某表已保存的列显示模板"""
+    with get_raw_connection() as conn:
+        _ensure_template_table(conn)
+        rows = conn.execute(
+            f'SELECT table_name, name, columns, created_at, updated_at '
+            f'FROM "{TEMPLATE_TABLE}" WHERE table_name = ? ORDER BY updated_at DESC',
+            (table_name,)).fetchall()
+        conn.close()
+    result = []
+    for r in rows:
+        try:
+            cols = json.loads(r[2])
+            if not isinstance(cols, list):
+                cols = []
+        except Exception:
+            cols = []
+        result.append({
+            "table_name": r[0], "name": r[1], "columns": cols,
+            "created_at": str(r[3]), "updated_at": str(r[4]),
+        })
+    return {"templates": result}
+
+
+@router.post("/view-templates")
+def save_view_template(body: ViewTemplateIn):
+    """保存列显示模板（同表同名覆盖）"""
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="模板名称不能为空")
+    if not body.columns:
+        raise HTTPException(status_code=400, detail="列清单不能为空")
+    cols = [str(c).strip() for c in body.columns if str(c).strip()][:200]
+    if not cols:
+        raise HTTPException(status_code=400, detail="列清单不能为空")
+    with get_raw_connection() as conn:
+        if body.table_name not in list_tables():
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"表 {body.table_name} 不存在")
+        _ensure_template_table(conn)
+        # 双模 upsert（sqlite 3.24+ 与 PG 均支持 ON CONFLICT DO UPDATE）
+        conn.execute(
+            f'INSERT INTO "{TEMPLATE_TABLE}" (table_name, name, columns, updated_at) '
+            'VALUES (?, ?, ?, CURRENT_TIMESTAMP) '
+            'ON CONFLICT(table_name, name) DO UPDATE SET '
+            'columns = excluded.columns, updated_at = CURRENT_TIMESTAMP',
+            (body.table_name, name, json.dumps(cols, ensure_ascii=False)))
+        conn.commit()
+        conn.close()
+    logging.getLogger(__name__).info(
+        "[TEMPLATE] 保存列模板: %s / %s (%d 列)", body.table_name, name, len(cols))
+    return {"ok": True, "name": name, "columns": cols}
+
+
+@router.delete("/view-templates")
+def delete_view_template(table_name: str = Query(...), name: str = Query(...)):
+    """删除列显示模板"""
+    with get_raw_connection() as conn:
+        _ensure_template_table(conn)
+        conn.execute(
+            f'DELETE FROM "{TEMPLATE_TABLE}" WHERE table_name = ? AND name = ?',
+            (table_name, name))
+        conn.commit()
+        conn.close()
+    return {"ok": True}
 
 
 def _column_metadata(conn, table_name):
@@ -49,6 +145,18 @@ _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 def _safe_ident(name: str) -> bool:
     return isinstance(name, str) and bool(_IDENT_RE.match(name))
+
+
+def _build_search_clause(conn, table_name, search):
+    """构建全文搜索 WHERE 子句与参数（分页/导出共用）。返回 (where_clause, params)"""
+    if not search:
+        return "", []
+    col_info = _column_metadata(conn, table_name)
+    text_cols = [c["name"] for c in col_info if _is_text_type(c["type"])]
+    if not text_cols:
+        return "", []
+    conditions = [f'"{c}" LIKE ?' for c in text_cols[:10]]
+    return " WHERE " + " OR ".join(conditions), [f"%{search}%"] * min(len(text_cols), 10)
 
 
 @router.get("")
@@ -98,15 +206,7 @@ def get_table_data(
             raise HTTPException(status_code=404, detail=f"表 {table_name} 不存在")
 
         # 构建查询
-        where_clause = ""
-        text_cols = []
-        if search:
-            # 全文搜索：在所有文本列中搜索
-            col_info = _column_metadata(conn, table_name)
-            text_cols = [c["name"] for c in col_info if _is_text_type(c["type"])]
-            if text_cols:
-                conditions = [f'"{c}" LIKE ?' for c in text_cols[:10]]
-                where_clause = " WHERE " + " OR ".join(conditions)
+        where_clause, params = _build_search_clause(conn, table_name, search)
 
         order_clause = ""
         if sort_by:
@@ -118,8 +218,6 @@ def get_table_data(
 
         offset = (page - 1) * page_size
         count_sql = f'SELECT COUNT(*) FROM "{table_name}"{where_clause}'
-        params = [f'%{search}%'] * min(len(text_cols), 10) if search else []
-
         total = conn.execute(count_sql, params).fetchone()[0]
 
         data_sql = f'SELECT * FROM "{table_name}"{where_clause}{order_clause} LIMIT {page_size} OFFSET {offset}'
@@ -137,6 +235,68 @@ def get_table_data(
             "page_size": page_size,
             "total_pages": (total + page_size - 1) // page_size,
         }
+
+
+@router.get("/{table_name}/export")
+def export_table_data(
+    table_name: str,
+    format: str = Query("xlsx"),
+    search: str = Query(None),
+    columns: str = Query(None),
+    limit: int = Query(200000, ge=1, le=500000),
+):
+    """导出整表为文件（xlsx/csv），支持与分页浏览相同的 search 过滤。
+
+    columns: 逗号分隔列名，仅导出所选列（缺省全部列）。
+    服务端生成，大表不压前端内存；limit 默认 20 万行防内存溢出。
+    """
+    if format not in ("xlsx", "csv"):
+        raise HTTPException(status_code=400, detail="format 必须为 xlsx 或 csv")
+    with get_raw_connection() as conn:
+        tables = list_tables()
+        if table_name not in tables:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"表 {table_name} 不存在")
+        # 选列导出：仅允许表中真实存在的标识符列名，杜绝 SQL 注入
+        select_clause = "*"
+        if columns:
+            wanted = [c.strip() for c in columns.split(",") if c.strip()]
+            bad = [c for c in wanted if not _safe_ident(c)]
+            if bad:
+                conn.close()
+                raise HTTPException(status_code=400, detail=f"非法列名: {bad}")
+            valid = {c["name"] for c in _column_metadata(conn, table_name)}
+            sel = [c for c in wanted if c in valid]
+            if not sel:
+                conn.close()
+                raise HTTPException(status_code=400, detail="所选列在表中均不存在")
+            select_clause = ", ".join(f'"{c}"' for c in sel)
+        where_clause, params = _build_search_clause(conn, table_name, search)
+        # 向量化整表读取（与 profile 接口同款 read_sql_query，双模兼容）
+        df = pd.read_sql_query(
+            f'SELECT {select_clause} FROM "{table_name}"{where_clause} LIMIT {limit}',
+            conn, params=params)
+        conn.close()
+    if df.empty:
+        raise HTTPException(status_code=400, detail="表为空，无数据可导出")
+    buf = io.BytesIO()
+    if format == "xlsx":
+        df.to_excel(buf, index=False, engine="openpyxl")
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = f"{table_name}.xlsx"
+    else:
+        # utf-8-sig 带 BOM，Excel 直接打开中文不乱码
+        buf.write(df.to_csv(index=False).encode("utf-8-sig"))
+        media_type = "text/csv"
+        filename = f"{table_name}.csv"
+    buf.seek(0)
+    logging.getLogger(__name__).info(
+        "[EXPORT] %s -> %s (%d 行)", table_name, format, len(df))
+    return StreamingResponse(
+        buf,
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 @router.get("/{table_name}/profile")

@@ -10,7 +10,7 @@ import time as _time
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Query, HTTPException
-from backend.database import get_raw_connection, DB_PATH
+from backend.database import get_raw_connection, DB_PATH, DB_MODE
 from backend.dialect_helpers import list_table_names, table_columns
 from backend.routers.gis_geometry import compute_region_boundaries
 
@@ -211,6 +211,18 @@ def _build_site_select(S):
     return filter_select_sql, filter_col_indices, prov_sel, vip_sel, hub_sel
 
 
+def _his_alarm_ms_expr():
+    """history_alarm.alarmraisedtime 是 TEXT 列（毫秒时间戳字符串）。
+    SQLite 下 text/int 混合比较静默可用，PG 下 text >= bigint 直接报
+    UndefinedFunction 导致整个 /gis/sites 500（时间窗口失效根因）。
+    按方言输出数值化表达式（与 alarm_dashboard._bn 同款防护：
+    非数字值 -> NULL，比较结果为 NULL 自然被排除）。"""
+    if DB_MODE == "pg":
+        return ('CASE WHEN alarmraisedtime IS NOT NULL AND alarmraisedtime ~ \'^[0-9]+$\' '
+                "THEN alarmraisedtime::bigint ELSE NULL END")
+    return "CAST(alarmraisedtime AS INTEGER)"
+
+
 def _time_window_clauses(time_start, time_end):
     """构建时间窗口过滤片段 → (tt_where, wo_where, his_alarm_where)"""
     tt_where = ""
@@ -219,13 +231,13 @@ def _time_window_clauses(time_start, time_end):
     if time_start:
         tt_where += f" AND alarm_occur_time >= '{time_start}'"
         wo_where += f" AND alarm_occur_time >= '{time_start}'"
-        his_where += f" AND alarmraisedtime >= {int(datetime.strptime(time_start, '%Y-%m-%d').timestamp() * 1000)}"
+        his_where += f" AND {_his_alarm_ms_expr()} >= {int(datetime.strptime(time_start, '%Y-%m-%d').timestamp() * 1000)}"
     if time_end:
         end_dt = datetime.strptime(time_end, "%Y-%m-%d") + timedelta(days=1)
         end_str = end_dt.strftime("%Y-%m-%d")
         tt_where += f" AND alarm_occur_time < '{end_str}'"
         wo_where += f" AND alarm_occur_time < '{end_str}'"
-        his_where += f" AND alarmraisedtime < {int(end_dt.timestamp() * 1000)}"
+        his_where += f" AND {_his_alarm_ms_expr()} < {int(end_dt.timestamp() * 1000)}"
     return tt_where, wo_where, his_where
 
 

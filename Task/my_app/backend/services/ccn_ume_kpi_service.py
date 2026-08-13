@@ -970,8 +970,10 @@ def import_to_database(export_results: dict = None):
                 )
                 row_count = result.get("rows_written", 0)
                 if row_count == 0:
-                    raise Exception(f"API 返回 0 行写入")
-                logger.info(f"[CNN][DB][API] {table_name}: written {row_count} rows")
+                    # 数据已存在/已同步（upsert 后无新增行），不视为失败
+                    logger.info(f"[CNN][DB][API] {table_name}: 无新增行（数据已存在/已同步）")
+                else:
+                    logger.info(f"[CNN][DB][API] {table_name}: written {row_count} rows")
             except Exception as e:
                 raise Exception(f"[CNN][DB][API] {table_name}: 写入失败: {e}")
         else:
