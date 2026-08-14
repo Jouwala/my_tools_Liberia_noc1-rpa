@@ -83,8 +83,15 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5173" ^| findstr "LISTENING
     set FOUND=1
 )
 
-:: Also kill any node processes for Vite
-taskkill /IM node.exe /F >nul 2>&1
+:: 注意：不要用 taskkill /IM node.exe /F 来停 Vite——
+:: 它会杀掉本机所有 node 进程（Codex/OpenClaw/其他应用），
+:: 而前端 7090/5173 的监听进程已经在上面按端口杀过了。
+:: 这里补充清理 start-app 的 node 进程树（仅限本项目前端相关）。
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7090" ^| findstr "LISTENING" 2^>nul') do (
+    taskkill /PID %%a /T /F >nul 2>&1
+    echo [*] Killed frontend tree PID=%%a
+    set FOUND=1
+)
 
 if %FOUND%==0 (
     echo [*] No running instance found.
