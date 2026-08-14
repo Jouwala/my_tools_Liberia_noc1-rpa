@@ -32,11 +32,13 @@ import {
   SortAscendingOutlined,
   UnorderedListOutlined,
   WarningOutlined,
+  SoundOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { useTaskStatus } from '../TaskStatusContext'
 import { cachedGet, invalidateCache } from '../cache'
+import { speak, warmSpeech } from '../utils/speak'
 import { WH, cardStyle, controlCardStyle, pageWrap } from '../theme'
 import { firstLine, cronToHuman, CATEGORY_CONFIG, formatTime } from './datasync/helpers'
 import { ScheduleEditor } from './datasync/ScheduleEditor'
@@ -198,7 +200,18 @@ export default function DataSync() {
             const run = res.data.recent_runs?.[0]
             if (run) {
               if (run.success) message.success(t('sync.runSuccess', { name: run.task_name || id }))
-              else message.error(t('sync.runFailed', { name: id }))
+              else {
+                message.error(t('sync.runFailed', { name: id }))
+                // 失败自动语音播报：用最新详情（含预测的 retry_info）播报失败内容与重试时间
+                if (autoSpeakRef.current) {
+                  const ok = speak(buildAnnounceText({
+                    name: run.task_name || id,
+                    recent_runs: res.data.recent_runs,
+                    retry_info: res.data.retry_info,
+                  }), locale)
+                  if (!ok) message.warning(t('sync.speakUnsupported'))
+                }
+              }
             }
           }).catch(() => {})
         }
@@ -287,6 +300,62 @@ export default function DataSync() {
   }
 
   const getCategoryConfig = (cat: string) => CATEGORY_CONFIG[cat] || CATEGORY_CONFIG.general
+
+  // ===== 失败任务语音播报（Web Speech API） =====
+  const [autoSpeak, setAutoSpeak] = useState<boolean>(() => {
+    try { return localStorage.getItem('tm_auto_speak') === '1' } catch { return false }
+  })
+  const autoSpeakRef = useRef(autoSpeak)
+  useEffect(() => { autoSpeakRef.current = autoSpeak }, [autoSpeak])
+  const toggleAutoSpeak = (v: boolean) => {
+    setAutoSpeak(v)
+    try { localStorage.setItem('tm_auto_speak', v ? '1' : '0') } catch { /* noop */ }
+    if (v) warmSpeech() // 用户手势内预热，提升首播成功率
+  }
+
+  /** 把 ISO 时间格式化为「月/日 时:分」，用于播报重试时间。 */
+  const formatRetryTime = (iso: string): string => {
+    try {
+      const dt = new Date(iso)
+      return dt.toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US', {
+        month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+      })
+    } catch { return iso }
+  }
+
+  /** 构造失败播报文本：任务名 + 失败原因 + 预计重试时间（或无重试说明）。 */
+  const buildAnnounceText = (task: { name: string; recent_runs?: RunRecord[]; retry_info?: any }): string => {
+    const lastRun = task.recent_runs && task.recent_runs.length ? task.recent_runs[0] : null
+    const err = firstLine(lastRun?.error || t('common.unknownError'))
+    const ri = task.retry_info
+    const name = task.name
+    const retryPart = (() => {
+      if (ri?.will_retry && ri.next_retry_at) {
+        return ' ' + t('sync.speakWillRetry', { time: formatRetryTime(ri.next_retry_at) })
+      }
+      if (ri && (ri.attempts ?? 0) >= (ri.max_attempts ?? 2)) {
+        return ' ' + t('sync.speakExhausted')
+      }
+      return ' ' + t('sync.speakNoRetry')
+    })()
+    return locale === 'zh'
+      ? `${name} 执行失败。原因：${err}。${retryPart}`
+      : `${name} failed. Reason: ${err}.${retryPart}`
+  }
+
+  const handleSpeak = (task: TaskInfo) => {
+    warmSpeech()
+    if (!speak(buildAnnounceText(task), locale)) message.warning(t('sync.speakUnsupported'))
+  }
+
+  const handleSpeakAll = () => {
+    warmSpeech()
+    const lines = failedTasks.map(tt => buildAnnounceText(tt))
+    const text =
+      (locale === 'zh' ? `共有 ${failedTasks.length} 个任务执行失败。` : `${failedTasks.length} tasks failed. `) +
+      lines.join(' ')
+    if (!speak(text, locale)) message.warning(t('sync.speakUnsupported'))
+  }
 
   const getLastRun = (taskId: string): RunRecord | null => {
     const detail = taskDetails[taskId]
@@ -610,6 +679,16 @@ export default function DataSync() {
             >
               {locale === 'zh' ? '历史' : 'History'}
             </Button>
+            {lastRun && !lastRun.success && (
+              <Button
+                size="small"
+                icon={<SoundOutlined />}
+                onClick={() => handleSpeak(task)}
+                style={{ color: 'var(--wh-error-text)', borderColor: 'rgba(255,120,117,0.4)', background: 'rgba(255,120,117,0.08)' }}
+              >
+                {t('sync.speak')}
+              </Button>
+            )}
           </Space>
         </Card>
       </Col>
@@ -627,9 +706,18 @@ export default function DataSync() {
           </Title>
           <Text style={{ color: WH.textMuted }}>{t('sync.taskManagerDesc')}</Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => loadTasks(true)} loading={loading} style={{ color: WH.text, borderColor: 'var(--wh-subtle-border)', background: 'var(--wh-subtle-bg)' }}>
-          {t('common.refresh')}
-        </Button>
+        <Space size={12} align="center">
+          <Tooltip title={locale === 'zh' ? '开启后，任务失败将自动语音播报失败内容与预计重试时间' : 'When on, task failures are auto-announced with the reason and next retry time'}>
+            <Space size={6} align="center">
+              <SoundOutlined style={{ color: autoSpeak ? WH.teal : WH.textDim }} />
+              <Text style={{ fontSize: 12, color: WH.textMuted }}>{t('sync.autoSpeak')}</Text>
+              <Switch size="small" checked={autoSpeak} onChange={toggleAutoSpeak} />
+            </Space>
+          </Tooltip>
+          <Button icon={<ReloadOutlined />} onClick={() => loadTasks(true)} loading={loading} style={{ color: WH.text, borderColor: 'var(--wh-subtle-border)', background: 'var(--wh-subtle-bg)' }}>
+            {t('common.refresh')}
+          </Button>
+        </Space>
       </div>
 
       {/* 状态统计模块：各状态任务数量 + 点击筛选 */}
@@ -747,10 +835,17 @@ export default function DataSync() {
           showIcon
           style={{ marginBottom: 20, borderColor: 'rgba(255,77,79,0.4)' }}
           action={
-            <Button size="small" onClick={() => setAggOpen(true)}
-              style={{ color: 'var(--wh-error-text)', borderColor: 'rgba(255,77,79,0.35)' }}>
-              {locale === 'zh' ? '失败聚合' : 'Group Failures'}
-            </Button>
+            <Space size={8}>
+              <Button size="small" onClick={handleSpeakAll}
+                icon={<SoundOutlined />}
+                style={{ color: 'var(--wh-error-text)', borderColor: 'rgba(255,77,79,0.35)' }}>
+                {t('sync.speakAll')}
+              </Button>
+              <Button size="small" onClick={() => setAggOpen(true)}
+                style={{ color: 'var(--wh-error-text)', borderColor: 'rgba(255,77,79,0.35)' }}>
+                {locale === 'zh' ? '失败聚合' : 'Group Failures'}
+              </Button>
+            </Space>
           }
           message={
             <Text strong style={{ color: 'var(--wh-error-text)' }}>

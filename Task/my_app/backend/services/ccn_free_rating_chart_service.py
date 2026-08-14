@@ -465,17 +465,12 @@ def run_chart_and_send(to_override: Optional[str] = None,
     """主入口：生成图表并发送邮件。"""
     t0 = time.perf_counter()
     
-    # 读取收件人
-    if to_override:
-        to_list = [addr.strip() for addr in to_override.split(",")]
-    else:
-        to_list, _ = _resolve_recipients()
-    
-    if cc_override is not None:
-        cc_list = [addr.strip() for addr in cc_override.split(",")] if cc_override else []
-    else:
-        _, cc_list = _resolve_recipients()
-    
+    # 读取收件人（Settings 维护，未保存时回退原名单文件）
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("ccn_free_rating_chart_email", to_override, cc_override)
+    to_list = [a.strip() for a in (to_arg or "").split(";") if a.strip()]
+    cc_list = [a.strip() for a in (cc_arg or "").split(";") if a.strip()]
+
     logger.info(f"收件人: {len(to_list)} 主送, {len(cc_list)} 抄送")
     
     # 每次运行使用独立的时间戳子目录，避免覆盖上一轮遗留的、可能被其它进程

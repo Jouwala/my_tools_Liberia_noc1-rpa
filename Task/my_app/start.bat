@@ -128,6 +128,17 @@ echo [OK] Backend is listening on port 7038.
 echo [*] Starting task worker watchdog (auto-restart worker, groups=u,n,m)...
 start "TaskWorkerWatchdog" /MIN cmd /c "chcp 65001 >nul & set CODEBUDDY_SESSION_ID=&set CLAUDE_SESSION_ID=&set CODEBUDDY_SAFE_DELETE_SANDBOX=& set MY_APP_WORKER_GROUPS=u,n,m& "%PYTHON_EXE%" -m backend.worker_watchdog > "%~dp0log\worker_watchdog_console.log" 2>&1"
 
+:: Start realtime proxy (realtime_proxy.py, port 8787, required by dashboard)
+:: 仪表盘经 http://127.0.0.1:8787/proxy?url= 穿透到 FMS；无此代理则显示"示例快照·未连接"。
+:: 代理独立运行、不依赖 7038 后端，但仪表盘取数必须有它。
+echo [*] Starting realtime proxy (port 8787, FMS passthrough for dashboard)...
+netstat -ano | findstr ":8787" | findstr "LISTENING" >nul 2>&1
+if %errorlevel%==0 (
+    echo [*] Realtime proxy already running on 8787; reusing.
+) else (
+    start "RealtimeProxy" /MIN cmd /c "chcp 65001 >nul & "%PYTHON_EXE%" -u "%~dp0scripts\realtime_proxy.py" > "%~dp0log\realtime_proxy_console.log" 2>&1"
+)
+
 :: Start frontend（生产模式：vite preview 托管 dist 构建产物）
 :: 说明：dev 模式（npm run dev）直出未打包源码，浏览器内存开销大，易触发标签页
 :: Out of Memory 崩溃；改用 vite preview 服务压缩后的 dist（见 vite.config.ts preview）。

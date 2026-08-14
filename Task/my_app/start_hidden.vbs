@@ -131,6 +131,28 @@ watchdogLog = fso.BuildPath(base, "log\worker_watchdog_console.log")
 watchdogCmd = "cmd /c chcp 65001 >nul & set CODEBUDDY_SESSION_ID=&set CLAUDE_SESSION_ID=&set CODEBUDDY_SAFE_DELETE_SANDBOX=& set MY_APP_WORKER_GROUPS=u,n,m& """ & backendExe & """ -m backend.worker_watchdog > """ & watchdogLog & """ 2>&1"
 ws.Run watchdogCmd, 0, False
 
+' ===== 3.5 启动实时代理（realtime_proxy.py，端口 8787，仪表盘取数必需） =====
+' 仪表盘（alarm-management.html / 站点中断看板）经 http://127.0.0.1:8787/proxy?url=
+' 穿透到 FMS（10.100.20.8:28001）。该代理独立运行、不依赖 7038 后端，但仪表盘必须有它
+' 才能拉到真实数据，否则页面显示"示例快照·未连接" / 控制台报 8787 ERR_CONNECTION_REFUSED。
+' 故随服务一并拉起，确保打开浏览器前代理已就绪。
+proxyLog = fso.BuildPath(base, "log\realtime_proxy_console.log")
+If Not IsPortListening(8787) Then
+    ' 清理孤儿代理（残留 python 占 8787 会导致新实例绑定失败）
+    Set orphanProxyKill = ws.Exec("cmd /c for /f ""tokens=5"" %a in ('netstat -ano ^| findstr "":8787"" ^| findstr ""LISTENING""') do taskkill /PID %a /F")
+    orphanProxyKill.StdOut.ReadAll
+    orphanProxyKill.StdErr.ReadAll
+    proxyScript = fso.BuildPath(base, "scripts\realtime_proxy.py")
+    proxyCmd = "cmd /c chcp 65001 >nul & """ & backendExe & """ -u """ & proxyScript & """ > """ & proxyLog & """ 2>&1"
+    ws.Run proxyCmd, 0, False
+End If
+' 静默等待代理就绪（最多 10s），失败也不阻塞无人值守启动——仪表盘会回退示例数据并自动重试
+waitedProxy = 0
+Do While Not IsPortListening(8787) And waitedProxy < 10
+    WScript.Sleep 1000
+    waitedProxy = waitedProxy + 1
+Loop
+
 ' ===== 4. 启动前端服务（生产模式：vite preview 托管 dist 构建产物） =====
 ' dev 模式（npm run dev）直出未打包源码，浏览器内存开销大，易触发标签页
 ' Out of Memory 崩溃；改用 vite preview 服务压缩后的 dist（见 vite.config.ts preview）。

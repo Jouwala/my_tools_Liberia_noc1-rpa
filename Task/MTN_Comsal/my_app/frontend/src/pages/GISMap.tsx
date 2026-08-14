@@ -70,6 +70,7 @@ export default function GISMap() {
   const [regions, setRegions] = useState<string[]>([])
   const [selectedRegion, setSelectedRegion] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(true)
+  const [apiError, setApiError] = useState<string | null>(null)
   const [drilldown, setDrilldown] = useState<DrilldownData | null>(null)
   const [drilldownLoading, setDrilldownLoading] = useState(false)
   const [drawerVisible, setDrawerVisible] = useState(false)
@@ -105,6 +106,7 @@ export default function GISMap() {
 
   const loadSites = () => {
     setLoading(true)
+    setApiError(null)
     const params: any = {}
     if (selectedRegion) params.region = selectedRegion
     if (timeRange) {
@@ -114,8 +116,21 @@ export default function GISMap() {
 
     api.get('/gis/sites', { params })
       .then(res => {
+        // 验证返回的是JSON而非HTML（SPA catch-all陷阱）
+        if (typeof res.data === 'string' || !res.data.sites) {
+          setApiError('API returned invalid data. Backend may not be running.')
+          setSites([])
+          return
+        }
         setSites(res.data.sites || [])
         if (regions.length === 0) setRegions(res.data.regions || [])
+      })
+      .catch(err => {
+        const msg = err.response?.status === 404
+          ? 'GIS API not available. Backend may be missing scipy/shapely.'
+          : `API error: ${err.message || 'Unknown error'}`
+        setApiError(msg)
+        setSites([])
       })
       .finally(() => setLoading(false))
   }
@@ -125,15 +140,19 @@ export default function GISMap() {
     if (showTopology && topologyLinks.length === 0) {
       api.get('/gis/topology')
         .then(res => setTopologyLinks(res.data.links || []))
-        .catch(() => {})
+        .catch(err => console.warn('Topology API error:', err.message))
     }
   }, [showTopology])
 
   // 加载Region边界
   useEffect(() => {
     api.get('/gis/region-boundaries')
-      .then(res => setRegionBoundaries(res.data.regions || []))
-      .catch(() => {})
+      .then(res => {
+        if (typeof res.data === 'object' && res.data.regions) {
+          setRegionBoundaries(res.data.regions || [])
+        }
+      })
+      .catch(err => console.warn('Region boundaries API error:', err.message))
   }, [])
 
   const handleSiteClick = (site: Site) => {
@@ -476,6 +495,16 @@ export default function GISMap() {
       <Card styles={{ body: { padding: 0 } }}>
         {loading ? (
           <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />
+        ) : apiError ? (
+          <div style={{ padding: 40, textAlign: 'center' }}>
+            <div style={{ color: '#ff4d4f', fontSize: 16, marginBottom: 12 }}>⚠ {apiError}</div>
+            <div style={{ color: '#888', fontSize: 13, marginBottom: 16 }}>Check backend console for errors. Make sure scipy/shapely are installed.</div>
+            <Button onClick={loadSites}>Retry</Button>
+          </div>
+        ) : sites.length === 0 ? (
+          <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>
+            No sites found. Try adjusting filters or check if data was synced.
+          </div>
         ) : (
           <MapContainer
             center={center}

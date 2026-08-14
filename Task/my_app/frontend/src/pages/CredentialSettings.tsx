@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Card, Input, Button, Tag, message, Spin, Row, Col, Space, Typography, Modal } from 'antd'
-import { SaveOutlined, ApiOutlined, KeyOutlined, ReloadOutlined, EyeOutlined } from '@ant-design/icons'
+import { Card, Input, Button, Tag, message, Spin, Row, Col, Space, Typography, Modal, Tooltip } from 'antd'
+import { SaveOutlined, ApiOutlined, KeyOutlined, ReloadOutlined, EyeOutlined, InfoCircleOutlined, SearchOutlined } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { WH, cardStyle } from '../theme'
@@ -12,6 +12,7 @@ interface CredentialGroup {
   secret_masked: string
   source: 'db' | 'default' | 'env'
   updated_at: string | null
+  usage: string
   username_label: string
   secret_label: string
   has_username: boolean
@@ -27,6 +28,7 @@ export default function CredentialSettings() {
   const [savingKey, setSavingKey] = useState<string | null>(null)
   const [testingKey, setTestingKey] = useState<string | null>(null)
   const [revealData, setRevealData] = useState<{ name: string; username: string; secret: string } | null>(null)
+  const [query, setQuery] = useState('')
 
   const load = async () => {
     setLoading(true)
@@ -56,6 +58,19 @@ export default function CredentialSettings() {
     if (source === 'env') return <Tag color="purple">{t('settings.sourceEnv')}</Tag>
     return <Tag>{t('settings.sourceDefault')}</Tag>
   }
+
+  const fuzzyMatch = (g: CredentialGroup, q: string) => {
+    if (!q) return true
+    const needle = q.trim().toLowerCase()
+    if (!needle) return true
+    const hay = [g.key, g.name, g.username, g.usage, g.username_label, g.secret_label]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+    return hay.includes(needle)
+  }
+
+  const filtered = groups.filter(g => fuzzyMatch(g, query))
 
   const save = async (g: CredentialGroup) => {
     const draft = drafts[g.key] || { username: '', secret: '' }
@@ -130,13 +145,26 @@ export default function CredentialSettings() {
         <Button icon={<ReloadOutlined />} onClick={load}>{t('settings.refresh')}</Button>
       </div>
 
+      {!loading && (
+        <Input
+          allowClear
+          prefix={<SearchOutlined style={{ color: WH.textDim }} />}
+          placeholder={t('settings.searchPlaceholder')}
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          style={{ marginBottom: 12, background: WH.cardBg, borderColor: WH.teal, color: WH.text }}
+        />
+      )}
+
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
           <Spin size="large" />
         </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', color: WH.textMuted, padding: 60 }}>{t('settings.noMatch')}</div>
       ) : (
         <Row gutter={[16, 16]}>
-          {groups.map(g => {
+          {filtered.map(g => {
             const draft = drafts[g.key] || { username: '', secret: '' }
             return (
               <Col xs={24} md={12} key={g.key}>
@@ -144,9 +172,14 @@ export default function CredentialSettings() {
                   size="small"
                   style={cardStyle}
                   title={
-                    <span style={{ color: WH.text }}>
+                    <span style={{ color: WH.text, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                       {g.name}
                       <span style={{ marginLeft: 8 }}>{sourceTag(g.source)}</span>
+                      {g.usage && (
+                        <Tooltip title={g.usage}>
+                          <InfoCircleOutlined style={{ color: WH.textDim, cursor: 'help' }} />
+                        </Tooltip>
+                      )}
                     </span>
                   }
                   extra={

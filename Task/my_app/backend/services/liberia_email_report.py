@@ -188,7 +188,8 @@ def run_1h_report(to: str = None, cc: str = None) -> dict:
       - 传入 to/cc（测试用，如 to="dong.xinmin@zte.com.cn", cc=""）→ 只发测试地址
       - 否则从 email_reports/ss_email.txt / cc_email.txt 读取完整名单
     """
-    to_arg, cc_arg = _resolve_recipients(to, cc)
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("liberia_email", to, cc)
     return _run_script("owa_mail_1hour_TT_Report.py", to=to_arg, cc=cc_arg)
 
 
@@ -199,5 +200,6 @@ def run_8h_report(to: str = None, cc: str = None) -> dict:
       - 传入 to/cc（测试用，如 to="dong.xinmin@zte.com.cn", cc=""）→ 只发测试地址
       - 否则从 email_reports/ss_email.txt / cc_email.txt 读取完整名单
     """
-    to_arg, cc_arg = _resolve_recipients(to, cc)
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("liberia_email", to, cc)
     return _run_script("owa_mail_8hour_TT_Report.py", to=to_arg, cc=cc_arg)

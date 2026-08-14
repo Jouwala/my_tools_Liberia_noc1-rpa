@@ -223,7 +223,8 @@ def _run_script(
 # =====================================================================
 def run_ms_contract_kpi(to: str = None, cc: str = None) -> dict:
     """MS Contract KPIs Achievements Daily Report 邮件（数据本地）。"""
-    to_arg, cc_arg = _resolve_recipients_remote(_MS_SLA_EMAIL, to, cc)
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("kpi_ms_contract", to, cc)
     return _run_script(
         data_dir=_MS_SLA_DATA,
         name_filter="MS Contract KPIs Achievements Daily Report",
@@ -234,7 +235,8 @@ def run_ms_contract_kpi(to: str = None, cc: str = None) -> dict:
 
 def run_ms_wo_sla(to: str = None, cc: str = None) -> dict:
     """MS WOs SLA Achievements Daily Report 邮件（数据本地）。"""
-    to_arg, cc_arg = _resolve_recipients_remote(_MS_SLA_EMAIL, to, cc)
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("kpi_ms_wo_sla", to, cc)
     return _run_script(
         data_dir=_MS_SLA_DATA,
         name_filter="MS WOs SLA Achievements Daily Report",
@@ -307,7 +309,8 @@ def run_sp_report_generate(to: str = None, cc: str = None) -> dict:
 
 def run_sp_spareparts(to: str = None, cc: str = None) -> dict:
     """SpareParts 备件报表邮件（数据本地 sp_email 生成端产出，名单远程共享路径）。"""
-    to_arg, cc_arg = _resolve_recipients_unc(_SP_EMAIL_UNC, to, cc)
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("kpi_sp_spareparts", to, cc)
     if not _SP_LOCAL_DATA.is_dir():
         return {"success": False, "error": f"报表目录不存在: {_SP_LOCAL_DATA}（请先运行 sp_report_generate 任务）"}
     excel = _pick_consolidated([f for f in _SP_LOCAL_DATA.glob("*.xlsx") if "SpareParts" in f.name])
@@ -324,7 +327,8 @@ def run_sp_spareparts(to: str = None, cc: str = None) -> dict:
 
 def run_sp_consumables(to: str = None, cc: str = None) -> dict:
     """Comsumables 耗材报表邮件（数据本地 sp_email 生成端产出，名单远程共享路径）。"""
-    to_arg, cc_arg = _resolve_recipients_unc(_SP_EMAIL_UNC, to, cc)
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("kpi_sp_consumables", to, cc)
     if not _SP_LOCAL_DATA.is_dir():
         return {"success": False, "error": f"报表目录不存在: {_SP_LOCAL_DATA}（请先运行 sp_report_generate 任务）"}
     excel = _pick_consolidated([f for f in _SP_LOCAL_DATA.glob("*.xlsx") if "Comsumables" in f.name])
@@ -376,7 +380,8 @@ def run_ran_availability(to: str = None, cc: str = None) -> dict:
     """MS Network Availability Daily Report 邮件（仅图片，无 Excel，数据远程 FTP）。"""
     import backend.services.remote_ftp as rf
 
-    to_arg, cc_arg = _resolve_recipients_remote(_RAN_EMAIL, to, cc)
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("kpi_ran_availability", to, cc)
     cache = _CACHE_ROOT / "ran_availability"
     rf.download_filtered(_RAN_DATA, cache, name_filter="Availability")
     # 正文使用远程 content_email.txt（"Dear All: ... Please Review, Thanks."）
@@ -590,7 +595,8 @@ def run_packet_loss_email(to: str = None, cc: str = None) -> dict:
         screenshot = None
 
     # ---- 2. 收件人 ----
-    to_arg, cc_arg = _resolve_recipients_remote(_PL_EMAIL, to, cc)
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("packet_loss_email", to, cc)
 
     # ---- 3. 最新报告 ----
     excel = find_latest_excel(_PL_DATA_DIR, name_filter="Packet_Loss_Status_Output Automation")

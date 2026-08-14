@@ -15,7 +15,16 @@ from pathlib import Path
 
 from backend.database import Base, engine, DB_PATH
 from backend.models.analysis import AnalysisArchive, UploadedFile
-from backend.routers import tables, upload, analysis, gis, tt_wo_dashboard
+from backend.routers import tables, upload, analysis, tt_wo_dashboard
+
+# GIS路由可选导入（依赖scipy/shapely，缺失时不影响其他功能）
+try:
+    from backend.routers import gis
+    _has_gis = True
+except ImportError as e:
+    _has_gis = False
+    print(f"[WARN] GIS模块加载失败，GIS功能不可用: {e}")
+
 from apscheduler.schedulers.background import BackgroundScheduler
 
 start_time = time.time()
@@ -39,7 +48,8 @@ app.add_middleware(
 app.include_router(tables.router)
 app.include_router(upload.router)
 app.include_router(analysis.router)
-app.include_router(gis.router)
+if _has_gis:
+    app.include_router(gis.router)
 app.include_router(tt_wo_dashboard.router)
 
 
@@ -137,6 +147,57 @@ def ftp_sync_status():
     }
 
 
+@app.get("/api/ftp/config")
+def get_ftp_config():
+    """获取FTP配置（密码脱敏）"""
+    from backend.services.ftp_sync import load_config
+    cfg = load_config()
+    # 密码脱敏：只显示前2位
+    pwd = cfg.get("password", "")
+    cfg["password_masked"] = pwd[:2] + "****" if len(pwd) > 2 else "****"
+    cfg["has_password"] = bool(pwd)
+    return cfg
+
+
+@app.post("/api/ftp/config")
+def update_ftp_config(
+    server: str = None,
+    port: int = None,
+    username: str = None,
+    password: str = None,
+    protocol: str = None,
+    tt_remote_dir: str = None,
+    site_list_remote_dir: str = None,
+    site_list_filename: str = None,
+):
+    """更新同步配置（只更新传入的字段）"""
+    from backend.services.ftp_sync import load_config, save_config
+    cfg = load_config()
+    if server is not None:
+        cfg["server"] = server.strip()
+    if port is not None:
+        cfg["port"] = port
+    if username is not None:
+        cfg["username"] = username.strip()
+    if password is not None:
+        cfg["password"] = password
+    if protocol is not None:
+        cfg["protocol"] = protocol.strip().lower()
+    if tt_remote_dir is not None:
+        cfg["tt_remote_dir"] = tt_remote_dir.strip()
+    if site_list_remote_dir is not None:
+        cfg["site_list_remote_dir"] = site_list_remote_dir.strip()
+    if site_list_filename is not None:
+        cfg["site_list_filename"] = site_list_filename.strip()
+    ok = save_config(cfg)
+    if ok:
+        pwd = cfg.get("password", "")
+        cfg["password_masked"] = pwd[:2] + "****" if len(pwd) > 2 else "****"
+        cfg["has_password"] = bool(pwd)
+        return {"success": True, "config": cfg}
+    return {"success": False, "error": "保存配置失败"}
+
+
 @app.get("/api/data-source/timestamps")
 def get_data_timestamps():
     """数据源时间信息：FTP同步时间 + 数据最新时间"""
@@ -152,9 +213,9 @@ def get_data_timestamps():
     # 内存无记录时，用本地文件的修改时间作为fallback
     if not last_sync:
         from pathlib import Path
-        from backend.services.ftp_sync import LOCAL_TT
-        if LOCAL_TT.exists():
-            last_sync = datetime.fromtimestamp(LOCAL_TT.stat().st_mtime).isoformat()
+        local_tt = Path(__file__).parent.parent / "db" / "Last-month-All-TTs.xlsx"
+        if local_tt.exists():
+            last_sync = datetime.fromtimestamp(local_tt.stat().st_mtime).isoformat()
 
     # 数据源最新时间
     conn = sqlite3.connect(str(DB_PATH))

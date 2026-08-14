@@ -12,11 +12,15 @@ DB_DIR = Path(__file__).resolve().parent.parent.parent / "db"
 DB_PATH = DB_DIR / "app.db"
 EXCEL_DIR = DB_DIR
 
-# Excel文件 -> 表名映射
+# Excel文件 -> 表名映射（支持多种来源文件名）
 FILE_TABLE_MAP = {
+    # 本地/FTP来源
     "Eflow_TT_FB.xlsx": "eflow_tt",
     "Eflow_WO_FB.xlsx": "eflow_wo",
     "ZTE OLR MS Master Site Database.xlsx": None,  # 多sheet，按sheet名生成表
+    # SFTP远程同步来源
+    "Last-month-All-TTs.xlsx": "eflow_tt",
+    "Site.xlsx": None,  # 尝试匹配SHEET_TABLE_MAP，失败则首sheet写入master_site_db
 }
 
 # sheet名 -> 表名映射（Master Site Database 多sheet）
@@ -178,8 +182,22 @@ def main():
             continue
 
         if table_prefix is None:
-            # 多sheet文件，使用SHEET_TABLE_MAP
-            load_excel_to_db(excel_path, "", conn, sheet_map=SHEET_TABLE_MAP)
+            # 多sheet文件，先尝试用SHEET_TABLE_MAP匹配
+            # 如果没有匹配的sheet，将第一个sheet写入master_site_db（兼容Site.xlsx等简化文件）
+            try:
+                xls = pd.ExcelFile(str(excel_path), engine='openpyxl')
+                matched_sheets = [s for s in xls.sheet_names if s.strip() in SHEET_TABLE_MAP]
+                xls.close()
+            except Exception:
+                matched_sheets = []
+
+            if matched_sheets:
+                # 有匹配的sheet，用SHEET_TABLE_MAP
+                load_excel_to_db(excel_path, "", conn, sheet_map=SHEET_TABLE_MAP)
+            else:
+                # 无匹配，将第一个sheet写入master_site_db
+                print(f"\n  [INFO] {filename}: 无匹配SHEET_TABLE_MAP的sheet，首sheet写入master_site_db")
+                load_excel_to_db(excel_path, "master_site_db", conn)
         else:
             load_excel_to_db(excel_path, table_prefix, conn)
 

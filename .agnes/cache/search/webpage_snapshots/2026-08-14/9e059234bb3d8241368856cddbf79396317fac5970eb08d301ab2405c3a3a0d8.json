@@ -1,0 +1,22 @@
+{
+  "kind": "webpage_snapshot",
+  "url": "https://skillvetai.com/platforms/deepseek-harness/",
+  "final_url": "https://skillvetai.com/platforms/deepseek-harness/",
+  "status": 200,
+  "read_status": "ok",
+  "content_type": "text/html; charset=utf-8",
+  "fetched_at": "2026-08-14T08:32:19.394678400+00:00",
+  "title": "DeepSeek Harness Platform Guide | SkillVetAI",
+  "description": "DeepSeek Harness Platform Guide: Track the developer preview, DSH npm package, Cordis plugin architecture, official GitHub repository, install path and…",
+  "site_name": "SkillVetAI",
+  "published_at": null,
+  "source_type": "unknown",
+  "text": "01 / COMPOSABILITY Everything is a plugin Core runtime surfaces are expressed through a plugin system instead of one fixed agent loop.",
+  "quote_candidates": [
+    "01 / COMPOSABILITY Everything is a plugin Core runtime surfaces are expressed through a plugin system instead of one fixed agent loop."
+  ],
+  "word_count": 22,
+  "truncated": false,
+  "blocked": false,
+  "source": "direct_http"
+}

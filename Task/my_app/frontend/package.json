@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node ../scripts/start-app.mjs dev",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "node ../scripts/start-app.mjs"
   },
   "devDependencies": {
     "typescript": "~6.0.2",

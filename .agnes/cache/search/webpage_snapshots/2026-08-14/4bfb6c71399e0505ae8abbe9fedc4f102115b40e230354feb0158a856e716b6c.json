@@ -1,0 +1,20 @@
+{
+  "kind": "webpage_snapshot",
+  "url": "https://www.npmjs.com/package/@deepseek-ai/dsh",
+  "final_url": "https://www.npmjs.com/package/@deepseek-ai/dsh",
+  "status": 403,
+  "read_status": "blocked",
+  "content_type": "text/html; charset=UTF-8",
+  "fetched_at": "2026-08-14T08:32:19.221528400+00:00",
+  "title": "Just a moment...",
+  "description": "",
+  "site_name": null,
+  "published_at": null,
+  "source_type": "unknown",
+  "text": "",
+  "quote_candidates": [],
+  "word_count": 0,
+  "truncated": false,
+  "blocked": true,
+  "source": "direct_http"
+}

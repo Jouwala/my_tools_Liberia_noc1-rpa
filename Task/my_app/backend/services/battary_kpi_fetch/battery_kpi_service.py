@@ -1073,11 +1073,9 @@ def _run_battery_email_impl(to: str | None = None, cc: str | None = None) -> dic
         logger.warning(f"[Battery] Dashboard 图片生成失败，继续发送 Excel: {e}")
         img_path = None
 
-    # 2) 收件人（远程 FTP 名单；to/cc 显式传入时优先，用于测试）
-    try:
-        to_arg, cc_arg = ker._resolve_recipients_remote(BATT_EMAIL_REMOTE, to, cc)
-    except Exception as e:
-        return {"success": False, "error": f"读取收件人名单失败: {e}"}
+    # 2) 收件人（Settings 维护，未保存时回退远程 FTP 名单；to/cc 显式传入时优先，用于测试）
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("battery_email", to, cc)
     if not to_arg:
         return {"success": False,
                 "error": f"收件人为空（{BATT_EMAIL_REMOTE} 缺少 ss_email.txt 或为空）"}

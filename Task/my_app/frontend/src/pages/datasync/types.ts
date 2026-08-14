@@ -1,5 +1,16 @@
 // DataSync 页面共享类型定义（P3#10 拆分自 DataSync.tsx）
 
+export interface RetryInfo {
+  will_retry: boolean
+  reason: string
+  next_retry_at: string | null
+  attempts: number
+  max_attempts: number
+  attempts_left: number
+  last_retry_at: string | null
+  failed_at: string | null
+}
+
 export interface TaskInfo {
   task_id: string
   name: string
@@ -15,6 +26,7 @@ export interface TaskInfo {
   registered_at: string
   call_chain?: string[]
   recent_runs?: RunRecord[]
+  retry_info?: RetryInfo
 }
 
 export interface TaskDetail extends TaskInfo {

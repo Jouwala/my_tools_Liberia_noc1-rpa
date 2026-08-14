@@ -63,6 +63,14 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7040" ^| findstr "LISTENING
     set FOUND=1
 )
 
+:: Stop realtime proxy (port 8787, FMS passthrough for dashboard)
+:: 漏杀会导致代理残留、下次启动因端口占用无法拉起新实例。
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8787" ^| findstr "LISTENING" 2^>nul') do (
+    taskkill /PID %%a /F >nul 2>&1
+    echo [*] Killed realtime proxy PID=%%a port-8787
+    set FOUND=1
+)
+
 :: Stop frontend (port 7090 / 5173)
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7090" ^| findstr "LISTENING" 2^>nul') do (
     taskkill /PID %%a /F >nul 2>&1
@@ -86,7 +94,7 @@ if %FOUND%==0 (
 
 :: ============ 杀后验证：确认端口真的释放，避免"显示成功实际还在跑" ============
 set LEFTOVER=0
-for %%p in (7038 7040 7090 5173 8000) do (
+for %%p in (7038 7040 7090 5173 8000 8787) do (
     netstat -ano | findstr ":%%p " | findstr "LISTENING" >nul 2>&1
     if !ERRORLEVEL!==0 (
         echo [!!] Port %%p still listening, process not stopped!

@@ -9,6 +9,12 @@ router = APIRouter(prefix="/api/tt-wo-dashboard", tags=["tt-wo-dashboard"])
 _schema_cache = None
 
 
+def clear_schema_cache():
+    """清除schema缓存（数据库更新后调用）"""
+    global _schema_cache
+    _schema_cache = None
+
+
 def _detect_schema() -> dict:
     """检测数据库结构，缓存后复用。兼容 my_app 和 MTN_Comsal"""
     global _schema_cache
@@ -80,10 +86,14 @@ def _detect_schema() -> dict:
     return _schema_cache
 
 
-def _time_filter(prefix: str, time_start: str | None, time_end: str | None) -> tuple[str, list]:
-    """构建时间过滤SQL片段"""
+def _time_filter(prefix: str, time_start: str | None, time_end: str | None, tt_cols: set = None) -> tuple[str, list]:
+    """构建时间过滤SQL片段（自适应列存在性）"""
     parts, params = [], []
-    f = f"{prefix}.alarm_occur_time"
+    col = "alarm_occur_time"
+    # 如果提供了列集合且列不存在，跳过时间过滤
+    if tt_cols is not None and col not in tt_cols:
+        return "", []
+    f = f"{prefix}.{col}"
     if time_start:
         parts.append(f"{f} >= ?")
         params.append(time_start)
@@ -98,6 +108,11 @@ def _safe_str(val, default: str = "Unknown") -> str:
     if val is None or str(val).strip() == '' or str(val) == 'None':
         return default
     return str(val)
+
+
+def _col_or_null(col: str, tt_cols: set, prefix: str = "t") -> str:
+    """如果列存在返回 t.col，否则返回 NULL"""
+    return f"{prefix}.{col}" if col in tt_cols else "NULL"
 
 
 def _week_label(ts: str) -> str:
@@ -116,10 +131,47 @@ def tt_wo_dashboard_overview(
     region: str = Query(None),
 ):
     """TT&WO Dashboard 综合数据（自适应数据库结构）"""
+    try:
+        return _overview_impl(time_start, time_end, region)
+    except Exception as e:
+        import traceback
+        err_detail = traceback.format_exc()
+        print(f"[ERROR] TT&WO Dashboard overview: {err_detail}")
+        return {
+            "filters": {"regions": [], "time_start": time_start, "time_end": time_end, "region": region},
+            "summary": {"tt_total": 0, "wo_total": 0, "wo_no_count": 0},
+            "tt_stats": {"alarm_severity": {}, "category": {}, "ticket_severity": {}, "sla_status": {}, "status": {}},
+            "mttr_weekly": [],
+            "domain_stats": {},
+            "root_cause": {"main": {}, "sub": {}},
+            "wo_stats": {"source": {}, "status": {}},
+            "site_stats": {},
+            "_error": str(e),
+        }
+
+
+def _overview_impl(time_start, time_end, region):
     S = _detect_schema()
     conn = get_raw_connection()
 
-    tt_tf, tt_tp = _time_filter("t", time_start, time_end)
+    # eflow_tt表不存在时返回空结构，避免500错误
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if "eflow_tt" not in tables:
+        conn.close()
+        return {
+            "filters": {"regions": [], "time_start": time_start, "time_end": time_end, "region": region},
+            "summary": {"tt_total": 0, "wo_total": 0, "wo_no_count": 0},
+            "tt_stats": {"alarm_severity": {}, "category": {}, "ticket_severity": {}, "sla_status": {}, "status": {}},
+            "mttr_weekly": [],
+            "domain_stats": {},
+            "root_cause": {"main": {}, "sub": {}},
+            "wo_stats": {"source": {}, "status": {}},
+            "site_stats": {},
+        }
+
+    tt_tf, tt_tp = _time_filter("t", time_start, time_end, S["tt_cols"])
     wo_tf, wo_tp = _time_filter("w", time_start, time_end)
 
     # 区域过滤 JOIN（自适应站点表和关联字段）
@@ -143,11 +195,15 @@ def tt_wo_dashboard_overview(
     wo_params = wo_tp + (region_params if region else [])
 
     # ========== 1. TT 统计 ==========
-    # 动态构建 SELECT 字段（自适应 sev_field 和 site_join_field）
+    # 动态构建 SELECT 字段（自适应所有列，缺失的用NULL代替）
+    tc = S["tt_cols"]
     sev_select = f"t.{S['sev_field']}" if S["sev_field"] else "NULL"
+    site_select = f"t.{S['site_join_field']}" if S["site_join_field"] else "NULL"
     tt_rows = conn.execute(f"""
-        SELECT {sev_select}, t.ticket_severity, t.sla_status, t.status, t.domain,
-               t.wo_no, t.alarm_occur_time, t.alarm_clear_time, t.{S['site_join_field']}
+        SELECT {sev_select}, {_col_or_null('ticket_severity', tc)}, {_col_or_null('sla_status', tc)},
+               {_col_or_null('status', tc)}, {_col_or_null('domain', tc)},
+               {_col_or_null('wo_no', tc)}, {_col_or_null('alarm_occur_time', tc)},
+               {_col_or_null('alarm_clear_time', tc)}, {site_select}
         FROM eflow_tt t {region_join} {tt_where}
     """, tt_params).fetchall()
 
@@ -214,16 +270,19 @@ def tt_wo_dashboard_overview(
             if st:
                 wo_status_stats[st] = wo_status_stats.get(st, 0) + 1
     else:
-        # 无 eflow_wo 表时，从 eflow_tt 获取 root_cause
-        rc_rows = conn.execute(f"""
-            SELECT t.root_cause, t.sub_root_cause
-            FROM eflow_tt t {region_join} {tt_where}
-        """, tt_params).fetchall()
-        for r in rc_rows:
-            mc = _safe_str(r[0])
-            rc_main[mc] = rc_main.get(mc, 0) + 1
-            sc = _safe_str(r[1])
-            rc_sub[sc] = rc_sub.get(sc, 0) + 1
+        # 无 eflow_wo 表时，从 eflow_tt 获取 root_cause（自适应列存在性）
+        if "root_cause" in S["tt_cols"] or "sub_root_cause" in S["tt_cols"]:
+            rc_select = _col_or_null("root_cause", S["tt_cols"])
+            rsc_select = _col_or_null("sub_root_cause", S["tt_cols"])
+            rc_rows = conn.execute(f"""
+                SELECT {rc_select}, {rsc_select}
+                FROM eflow_tt t {region_join} {tt_where}
+            """, tt_params).fetchall()
+            for r in rc_rows:
+                mc = _safe_str(r[0])
+                rc_main[mc] = rc_main.get(mc, 0) + 1
+                sc = _safe_str(r[1])
+                rc_sub[sc] = rc_sub.get(sc, 0) + 1
     wo_source_stats = dict(sorted(wo_source_stats.items(), key=lambda x: x[1], reverse=True))
     wo_status_stats = dict(sorted(wo_status_stats.items(), key=lambda x: x[1], reverse=True))
 
@@ -317,15 +376,26 @@ def _get_dimension_map():
 
 
 def _build_tt_fields():
-    """动态构建 TT 明细字段"""
+    """动态构建 TT 明细字段（自适应列存在性）"""
     S = _detect_schema()
-    fields = ["t.title", "t.ticket_no", "t.wo_no", f"t.{S['site_join_field']}", "t.status"]
+    tc = S["tt_cols"]
+    fields = []
+    for col in ["title", "ticket_no", "wo_no"]:
+        fields.append(_col_or_null(col, tc))
+    if S["site_join_field"]:
+        fields.append(f"t.{S['site_join_field']}")
+    else:
+        fields.append("NULL")
+    for col in ["status"]:
+        fields.append(_col_or_null(col, tc))
     if S["creator_field"]:
         fields.append(f"t.{S['creator_field']}")
-    fields += ["t.ticket_severity"]
+    for col in ["ticket_severity"]:
+        fields.append(_col_or_null(col, tc))
     if S["sev_field"]:
         fields.append(f"t.{S['sev_field']}")
-    fields += ["t.sla_status", "t.alarm_occur_time", "t.alarm_clear_time", "t.domain", "t.root_cause", "t.sub_root_cause"]
+    for col in ["sla_status", "alarm_occur_time", "alarm_clear_time", "domain", "root_cause", "sub_root_cause"]:
+        fields.append(_col_or_null(col, tc))
     return ", ".join(fields)
 
 
@@ -343,7 +413,15 @@ def tt_wo_drilldown(
     DIMENSION_MAP = _get_dimension_map()
     conn = get_raw_connection()
 
-    tt_tf, tt_tp = _time_filter("t", time_start, time_end)
+    # eflow_tt表不存在时返回空结果
+    tables_check = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if "eflow_tt" not in tables_check:
+        conn.close()
+        return {"title": f"{dimension}: {value or 'all'}", "count": 0, "data": []}
+
+    tt_tf, tt_tp = _time_filter("t", time_start, time_end, S["tt_cols"])
     wo_tf, wo_tp = _time_filter("w", time_start, time_end)
 
     sjf = S["site_join_field"]

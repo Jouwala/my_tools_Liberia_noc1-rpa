@@ -34,18 +34,33 @@ if not exist "frontend\node_modules" (
     cd ..
 )
 
-:: 获取本机IP地址
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /C:"IPv4"') do (
-    for /f "tokens=1" %%b in ("%%a") do (
-        set LOCAL_IP=%%b
-        goto :found_ip
+:: 检查后端Python依赖
+python -c "import fastapi" >nul 2>&1
+if errorlevel 1 (
+    echo [*] First run detected. Installing backend dependencies...
+    python -m pip install -r requirements.txt
+    if errorlevel 1 (
+        echo [ERROR] Failed to install Python dependencies!
+        echo Please run manually: pip install -r requirements.txt
+        pause
+        exit /b 1
     )
 )
+
+:: 获取本机IP地址（优先192.168.106段，回退到第一个IPv4）
+set LOCAL_IP=
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /C:"IPv4"') do (
+    for /f "tokens=1" %%b in ("%%a") do (
+        if not defined LOCAL_IP set LOCAL_IP=%%b
+        echo %%b | findstr /C:"192.168.106" >nul && set LOCAL_IP=%%b
+    )
+)
+if not defined LOCAL_IP set LOCAL_IP=localhost
 :found_ip
 
 :: Start backend
 echo [*] Starting backend server (port 7038)...
-start "Backend" /MIN python -m uvicorn backend.main:app --host 0.0.0.0 --port 7038
+start "Backend" /MIN cmd /c "python -m uvicorn backend.main:app --host 0.0.0.0 --port 7038 2>&1 || (echo. && echo [ERROR] Backend failed to start! Check dependencies: pip install -r requirements.txt && echo. && pause)"
 
 :: Start frontend
 echo [*] Starting frontend dev server (port 7090)...

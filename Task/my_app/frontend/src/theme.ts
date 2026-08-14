@@ -149,6 +149,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // 同步到 <html data-theme>（驱动全部 CSS 变量）
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', mode)
+    // 同步主题给嵌入的 legacy HTML 工具（同源 iframe，如 Alarm Management 看板）
+    try {
+      document.querySelectorAll('iframe').forEach((f) => {
+        f.contentWindow?.postMessage({ __type: 'myapp-theme', mode }, '*')
+      })
+    } catch (e) { /* ignore */ }
   }, [mode])
 
   const toggle = useCallback(() => {

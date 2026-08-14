@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "jcodemunch": {
+      "command": "python",
+      "args": ["-m", "jcodemunch_mcp"],
+      "env": {
+        "JCMUNCH_REPO_PATH": "D:/01_RPA/Task"
+      }
+    }
+  }
+}

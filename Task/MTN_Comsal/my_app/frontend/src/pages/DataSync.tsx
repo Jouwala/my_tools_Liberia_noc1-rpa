@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react'
-import { Card, Button, Tag, Space, List, Spin, message } from 'antd'
+import { Card, Button, Tag, Space, Spin, message, Input, InputNumber, Form, Select } from 'antd'
 import {
   CloudServerOutlined,
-  FolderOutlined,
   ClockCircleOutlined,
   ThunderboltOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
   FileTextOutlined,
-  CodeOutlined,
+  SaveOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
@@ -19,7 +19,20 @@ interface SyncHistoryItem {
   downloaded: number
   db_updated: boolean
   elapsed: number
-  error?: string
+  errors?: string[]
+}
+
+interface SyncConfig {
+  server: string
+  port: number
+  username: string
+  password: string
+  password_masked?: string
+  has_password?: boolean
+  protocol: string
+  tt_remote_dir: string
+  site_list_remote_dir: string
+  site_list_filename: string
 }
 
 export default function DataSync() {
@@ -28,9 +41,14 @@ export default function DataSync() {
   const [lastSync, setLastSync] = useState<string | null>(null)
   const [history, setHistory] = useState<SyncHistoryItem[]>([])
   const [loading, setLoading] = useState(false)
+  const [config, setConfig] = useState<SyncConfig | null>(null)
+  const [configLoading, setConfigLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form] = Form.useForm()
 
   useEffect(() => {
     loadStatus()
+    loadConfig()
   }, [])
 
   const loadStatus = () => {
@@ -46,18 +64,72 @@ export default function DataSync() {
       .finally(() => setLoading(false))
   }
 
+  const loadConfig = () => {
+    setConfigLoading(true)
+    api.get('/ftp/config')
+      .then(res => {
+        setConfig(res.data)
+        form.setFieldsValue({
+          server: res.data.server,
+          port: res.data.port,
+          username: res.data.username,
+          password: '',
+          protocol: res.data.protocol || 'sftp',
+          tt_remote_dir: res.data.tt_remote_dir,
+          site_list_remote_dir: res.data.site_list_remote_dir,
+          site_list_filename: res.data.site_list_filename,
+        })
+      })
+      .catch(() => {})
+      .finally(() => setConfigLoading(false))
+  }
+
+  const handleSaveConfig = async () => {
+    try {
+      const values = await form.validateFields()
+      setSaving(true)
+      const params: Record<string, any> = {
+        server: values.server,
+        port: values.port,
+        username: values.username,
+        protocol: values.protocol,
+        tt_remote_dir: values.tt_remote_dir,
+        site_list_remote_dir: values.site_list_remote_dir,
+        site_list_filename: values.site_list_filename,
+      }
+      if (values.password) {
+        params.password = values.password
+      }
+      const searchParams = new URLSearchParams()
+      Object.entries(params).forEach(([k, v]) => searchParams.append(k, String(v)))
+      const res = await api.post(`/ftp/config?${searchParams.toString()}`)
+      if (res.data.success) {
+        message.success('Configuration saved')
+        setConfig(res.data.config)
+        form.setFieldsValue({ password: '' })
+      } else {
+        message.error(res.data.error || 'Save failed')
+      }
+    } catch {
+      message.error('Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleSync = async () => {
     setSyncing(true)
     try {
       const res = await api.post('/ftp/sync')
       if (res.data.success) {
-        message.success(t('sync.syncSuccess'))
+        message.success(`Sync complete: ${res.data.downloaded} file(s) downloaded`)
       } else {
-        message.error(t('sync.syncFailed'))
+        const errs = res.data.errors?.join('; ') || 'Unknown error'
+        message.error(`Sync failed: ${errs}`)
       }
       loadStatus()
     } catch {
-      message.error(t('sync.syncFailed'))
+      message.error('Sync failed')
     } finally {
       setSyncing(false)
     }
@@ -67,18 +139,6 @@ export default function DataSync() {
     if (!isoStr) return null
     return isoStr.replace('T', ' ').substring(0, 19)
   }
-
-  const ftpConfig = [
-    { label: t('sync.serverAddress'), value: '192.168.100.19' },
-    { label: t('sync.port'), value: '21' },
-    { label: t('sync.username'), value: 'FINEBI' },
-    { label: t('sync.remotePath'), value: '/webroot/WEB-INF/reportlets/excel' },
-  ]
-
-  const scanFolders = [
-    '/webroot/WEB-INF/reportlets/excel/Eflow_TT_FB',
-    '/webroot/WEB-INF/reportlets/excel/Eflow_WO_FB',
-  ]
 
   return (
     <div>
@@ -94,47 +154,86 @@ export default function DataSync() {
       </div>
 
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-        {/* Left column */}
+        {/* Left column - Config */}
         <div style={{ flex: 1, minWidth: 400 }}>
-          {/* FTP Config */}
           <Card
             title={
               <span>
                 <CloudServerOutlined style={{ marginRight: 8 }} />
-                {t('sync.ftpConfig')}
+                Sync Configuration
               </span>
             }
             size="small"
             style={{ marginBottom: 16 }}
+            extra={
+              <Space>
+                <Button size="small" icon={<ReloadOutlined />} onClick={loadConfig}>
+                  Reload
+                </Button>
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  loading={saving}
+                  onClick={handleSaveConfig}
+                >
+                  Save
+                </Button>
+              </Space>
+            }
           >
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              {ftpConfig.map(item => (
-                <div key={item.label}>
-                  <div style={{ color: '#888', fontSize: 12, marginBottom: 4 }}>{item.label}</div>
-                  <div style={{ fontSize: 16, fontWeight: 500 }}>{item.value}</div>
+            {configLoading ? (
+              <Spin size="small" />
+            ) : (
+              <Form form={form} layout="vertical" size="small">
+                {/* Protocol + Server */}
+                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 16 }}>
+                  <Form.Item label="Protocol" name="protocol">
+                    <Select options={[
+                      { value: 'sftp', label: 'SFTP' },
+                      { value: 'ftp', label: 'FTP' },
+                    ]} />
+                  </Form.Item>
+                  <Form.Item label="Server Address" name="server" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
                 </div>
-              ))}
-            </div>
-          </Card>
 
-          {/* Scan Folders */}
-          <Card
-            title={
-              <span>
-                <FolderOutlined style={{ marginRight: 8 }} />
-                {t('sync.scanFolders')}
-              </span>
-            }
-            size="small"
-            style={{ marginBottom: 16 }}
-          >
-            <ul style={{ margin: 0, paddingLeft: 20 }}>
-              {scanFolders.map(f => (
-                <li key={f}>
-                  <code style={{ color: '#52c41a', background: 'transparent' }}>{f}</code>
-                </li>
-              ))}
-            </ul>
+                {/* Port + Username */}
+                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 16 }}>
+                  <Form.Item label="Port" name="port" rules={[{ required: true }]}>
+                    <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+                  </Form.Item>
+                  <Form.Item label="Username" name="username" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
+                </div>
+
+                {/* Password */}
+                <Form.Item
+                  label="Password"
+                  name="password"
+                  extra={config?.has_password ? `Current: ${config?.password_masked}` : 'Not set'}
+                >
+                  <Input.Password placeholder={config?.has_password ? '(unchanged)' : 'Enter password'} />
+                </Form.Item>
+
+                {/* TT Remote Dir */}
+                <Form.Item label="TT Remote Directory" name="tt_remote_dir" rules={[{ required: true }]}>
+                  <Input />
+                </Form.Item>
+
+                {/* SiteList Remote Dir + Filename */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: 16 }}>
+                  <Form.Item label="SiteList Remote Directory" name="site_list_remote_dir">
+                    <Input />
+                  </Form.Item>
+                  <Form.Item label="SiteList Filename" name="site_list_filename">
+                    <Input />
+                  </Form.Item>
+                </div>
+              </Form>
+            )}
           </Card>
 
           {/* Schedule */}
@@ -152,39 +251,11 @@ export default function DataSync() {
               <span style={{ fontWeight: 500 }}>{t('sync.schedule')}:</span>{' '}
               <Tag color="green">{t('sync.scheduleDesc')}</Tag>
             </div>
-            <p style={{ color: '#888', fontSize: 13, margin: '8px 0' }}>
-              <em>
-                {t('sync.scheduleNote')}{' '}
-                <code>{t('sync.scheduleNoteFile')}</code>{' '}
-                {t('sync.scheduleNoteEnable')}
-              </em>
-            </p>
-            <div
-              style={{
-                background: '#1e1e2e',
-                borderRadius: 8,
-                padding: '12px 16px',
-                fontFamily: 'monospace',
-                fontSize: 13,
-                color: '#cdd6f4',
-              }}
-            >
-              <div>
-                <span style={{ color: '#89b4fa' }}>python sync_scheduler.py</span>
-                <span style={{ color: '#6c7086', marginLeft: 16 }}># {t('sync.cmdStart')}</span>
-              </div>
-              <div>
-                <span style={{ color: '#89b4fa' }}>python sync_scheduler.py</span>
-                <span style={{ color: '#a6e3a1' }}> --once</span>
-                <span style={{ color: '#6c7086', marginLeft: 16 }}># {t('sync.cmdOnce')}</span>
-              </div>
-            </div>
           </Card>
         </div>
 
-        {/* Right column */}
+        {/* Right column - Sync */}
         <div style={{ flex: 1, minWidth: 400 }}>
-          {/* Sync Action */}
           <Card size="small" style={{ marginBottom: 16 }}>
             <Space size="large" align="center" wrap>
               <Button
@@ -199,7 +270,7 @@ export default function DataSync() {
               </Button>
               <div>
                 <span style={{ fontWeight: 500 }}>{t('sync.lastSync')}:</span>{' '}
-                <Tag color="green">
+                <Tag color={lastSync ? 'green' : 'default'}>
                   {lastSync ? formatTime(lastSync) : t('sync.noHistory')}
                 </Tag>
               </div>
@@ -223,10 +294,10 @@ export default function DataSync() {
                 {t('sync.noHistory')}
               </div>
             ) : (
-              <List
-                dataSource={[...history].reverse()}
-                renderItem={(item: SyncHistoryItem) => (
-                  <List.Item
+              <div>
+                {[...history].reverse().map((item: SyncHistoryItem, idx: number) => (
+                  <div
+                    key={idx}
                     style={{
                       background: item.success ? 'rgba(82, 196, 26, 0.05)' : 'rgba(255, 77, 79, 0.05)',
                       borderRadius: 8,
@@ -235,41 +306,40 @@ export default function DataSync() {
                       border: `1px solid ${item.success ? 'rgba(82, 196, 26, 0.2)' : 'rgba(255, 77, 79, 0.2)'}`,
                     }}
                   >
-                    <List.Item.Meta
-                      avatar={
-                        item.success ? (
-                          <CheckCircleFilled style={{ color: '#52c41a', fontSize: 18 }} />
-                        ) : (
-                          <CloseCircleFilled style={{ color: '#ff4d4f', fontSize: 18 }} />
-                        )
-                      }
-                      title={
-                        <span style={{ color: item.success ? '#52c41a' : '#ff4d4f', fontWeight: 600 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      {item.success ? (
+                        <CheckCircleFilled style={{ color: '#52c41a', fontSize: 18 }} />
+                      ) : (
+                        <CloseCircleFilled style={{ color: '#ff4d4f', fontSize: 18 }} />
+                      )}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, color: item.success ? '#52c41a' : '#ff4d4f' }}>
                           {formatTime(item.timestamp)}
-                        </span>
-                      }
-                      description={
-                        <Space size="small">
+                        </div>
+                        <Space size="small" style={{ marginTop: 4 }}>
                           <Tag color={item.success ? 'green' : 'red'}>
                             {item.success ? t('sync.success') : t('sync.failed')}
                           </Tag>
                           <span style={{ color: '#888', fontSize: 12 }}>
-                            {t('sync.downloaded')}: {item.downloaded}
+                            Files: {item.downloaded}
                           </span>
                           {item.db_updated && (
-                            <span style={{ color: '#888', fontSize: 12 }}>
-                              · {t('sync.dbUpdated')}
-                            </span>
+                            <span style={{ color: '#888', fontSize: 12 }}>· DB updated</span>
                           )}
                           <span style={{ color: '#888', fontSize: 12 }}>
                             · ⏱ {(item.elapsed ?? 0).toFixed(2)}s
                           </span>
                         </Space>
-                      }
-                    />
-                  </List.Item>
-                )}
-              />
+                        {item.errors && item.errors.length > 0 && (
+                          <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4 }}>
+                            {item.errors.join('; ')}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </Card>
         </div>

@@ -19,6 +19,7 @@ import {
   FileSearchOutlined,
   LineChartOutlined,
   FundOutlined,
+  PieChartOutlined,
   SunOutlined,
   MoonOutlined,
 } from '@ant-design/icons'
@@ -42,15 +43,17 @@ const TTWODashboard = lazy(() => import('./pages/TTWODashboard'))
 const AlarmDashboard = lazy(() => import('./pages/AlarmDashboard'))
 const PacketLossDashboard = lazy(() => import('./pages/PacketLossDashboard'))
 const BatteryDashboard = lazy(() => import('./pages/BatteryDashboard'))
-const CredentialSettings = lazy(() => import('./pages/CredentialSettings'))
+const Settings = lazy(() => import('./pages/Settings'))
 const IpTrace = lazy(() => import('./pages/IpTrace'))
 const IncidentOverview = lazy(() => import('./pages/IncidentOverview'))
 const NurDashboard = lazy(() => import('./pages/NurDashboard'))
 const MsSlaDashboard = lazy(() => import('./pages/MsSlaDashboard'))
+const AlarmManagement = lazy(() => import('./pages/AlarmManagement'))
+const CxoDashboard = lazy(() => import('./pages/CxoDashboard'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard'
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageKey>('sync')
@@ -64,8 +67,10 @@ function AppContent() {
     { key: 'ttwo', icon: <BarChartOutlined />, label: t('nav.ttwo') },
     { key: 'nur', icon: <LineChartOutlined />, label: t('nav.nur') },
     { key: 'ms_sla', icon: <FundOutlined />, label: t('nav.msSla') },
+    { key: 'cxoDashboard', icon: <PieChartOutlined />, label: t('nav.cxoDashboard') },
     { key: 'gis', icon: <GlobalOutlined />, label: t('nav.gis') },
     { key: 'realtime_alarm', icon: <AlertOutlined />, label: t('nav.realtimeAlarm') },
+    { key: 'alarmManagement', icon: <AlertOutlined />, label: t('nav.alarmManagement') },
     { key: 'packet_loss', icon: <DisconnectOutlined />, label: t('nav.packetLoss') },
     { key: 'battery', icon: <ThunderboltOutlined />, label: t('nav.battery') },
     { key: 'ip_trace', icon: <AimOutlined />, label: t('nav.ipTrace') },
@@ -91,6 +96,10 @@ function AppContent() {
         return <NurDashboard />
       case 'ms_sla':
         return <MsSlaDashboard />
+      case 'alarmManagement':
+        return <AlarmManagement />
+      case 'cxoDashboard':
+        return <CxoDashboard />
       case 'gis':
         return <GISMap />
       case 'realtime_alarm':
@@ -116,7 +125,7 @@ function AppContent() {
       case 'dashboard':
         return <Dashboard />
       case 'settings':
-        return <CredentialSettings />
+        return <Settings />
       default:
         return <Overview />
     }

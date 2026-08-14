@@ -835,6 +835,16 @@ def list_tasks(include_runs: bool = False, lang: str = "zh") -> list[dict]:
     with _active_lock:
         local_active = set(_active_runs.keys())
     queue_active = get_queue_running_task_ids()
+    # 批量预测「失败任务何时自动重试」，供前端语音播报（单次 SQL，避免 N+1）
+    retry_default = {"will_retry": False, "reason": "no recent failure", "next_retry_at": None,
+                     "attempts": 0, "max_attempts": 2, "attempts_left": 2,
+                     "last_retry_at": None, "failed_at": None}
+    try:
+        from backend.services import auto_retry
+        all_retry = auto_retry.get_all_retry_info()
+        retry_default = auto_retry._no_failure_info()
+    except Exception:
+        all_retry = {}
     tasks = []
     for task_id, task in _task_registry.items():
         job = sched.get_job(f"task_{task_id}")
@@ -861,6 +871,7 @@ def list_tasks(include_runs: bool = False, lang: str = "zh") -> list[dict]:
         }
         if include_runs:
             entry["recent_runs"] = latest_runs.get(task_id, [])
+        entry["retry_info"] = all_retry.get(task_id, dict(retry_default))
         tasks.append(entry)
     return tasks
 
@@ -917,6 +928,13 @@ def get_task_detail(task_id: str, lang: str = "zh") -> Optional[dict]:
     except Exception:
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_task_detail: exception swallowed", exc_info=True)
         detail["recent_runs"] = []
+
+    # 预测「失败任务何时自动重试」，供前端语音播报（失败任务才返回有意义的时间）
+    try:
+        from backend.services import auto_retry
+        detail["retry_info"] = auto_retry.get_retry_info_for_task(task_id)
+    except Exception:
+        detail["retry_info"] = None
 
     return detail
 

@@ -38,6 +38,7 @@ from backend.routers import (
     packet_loss_dashboard, battery_dashboard, credentials,
     tasks, sp_dashboard, system,
     incident_overview, ip_trace, nur_dashboard, ms_sla_dashboard,
+    email_recipients,
 )
 from backend.services import task_runner
 from backend.database import get_raw_connection
@@ -80,6 +81,7 @@ app.include_router(alarm_dashboard.router)
 app.include_router(packet_loss_dashboard.router)
 app.include_router(battery_dashboard.router)
 app.include_router(credentials.router)
+app.include_router(email_recipients.router)
 # Phase 1 拆分新增：任务管理 / SP 备件看板 / 系统信息
 app.include_router(tasks.router)
 app.include_router(sp_dashboard.router)

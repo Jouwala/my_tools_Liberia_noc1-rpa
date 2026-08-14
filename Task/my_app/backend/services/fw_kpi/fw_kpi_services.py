@@ -722,7 +722,10 @@ def generate_chart_and_send_email(device_rows):
     """
     t0 = time.time()
 
-    to_list, cc_list = _resolve_recipients()
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("fw_kpi_sync", None, None)
+    to_list = [a.strip() for a in (to_arg or "").split(";") if a.strip()]
+    cc_list = [a.strip() for a in (cc_arg or "").split(";") if a.strip()]
     print(f"[CHART] 收件人: {len(to_list)} 主送, {len(cc_list)} 抄送")
     if not to_list:
         return {"success": False, "error": f"主送名单为空或不可读: {SS_EMAIL_FILE}"}
