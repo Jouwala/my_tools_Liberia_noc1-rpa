@@ -127,12 +127,22 @@ def _ensure_queue_table(conn):
             )
         """)
     # 幂等迁移：旧库可能没有 worker_pid 列（停止执行功能用它定位执行该任务的 Worker 进程）
-    try:
-        _cols = table_columns(conn, "task_queue")
-        if "worker_pid" not in _cols:
+    # 2026-08-14 修复：ALTER TABLE 后必须立即 commit，否则后续 SELECT 在同一连接上
+    # 可能看不到新列（sqlite 的 DDL 事务语义）。迁移失败时不再静默吞掉，而是抛异常
+    # 让调用方感知，避免「列缺失→SELECT 报错→回收失效→任务卡死」的链式故障。
+    _cols = table_columns(conn, "task_queue")
+    if "worker_pid" not in _cols:
+        try:
             conn.execute("ALTER TABLE task_queue ADD COLUMN worker_pid INTEGER")
-    except Exception as _e:  # noqa: BLE001
-        logger.warning(f"task_queue 迁移 worker_pid 列失败（可忽略）: {_e}")
+            conn.commit()  # 立即提交 DDL，确保后续 SELECT 可见新列
+            # 验证迁移成功
+            _cols2 = table_columns(conn, "task_queue")
+            if "worker_pid" not in _cols2:
+                raise RuntimeError("task_queue.worker_pid 列添加后验证失败（PRAGMA 仍不可见）")
+            logger.info("task_queue 迁移：已添加 worker_pid 列")
+        except Exception as _e:
+            logger.error(f"task_queue 迁移 worker_pid 列失败: {_e}")
+            raise  # 不再静默吞掉——列缺失会导致 _recover_stale_running 完全失效
     conn.execute("CREATE INDEX IF NOT EXISTS ix_task_queue_status ON task_queue(status)")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_task_queue_task_id ON task_queue(task_id)")
 
@@ -989,3 +999,38 @@ def toggle_task(task_id: str, enabled: bool) -> dict:
         if sched.get_job(job_id):
             sched.remove_job(job_id)
         return {"success": True, "message": f"任务 {task['name']} 已禁用"}
+
+
+def toggle_all_tasks(enabled: bool) -> dict:
+    """统一启用/禁用所有已注册任务（Task Manager 主开关）
+
+    与 toggle_task 相同的语义：更新内存状态 + 持久化 task_schedule_config
+    + 增删 APScheduler job。逐任务 try/except，单个失败不中断其余任务。
+    """
+    sched = get_scheduler()
+    changed = 0
+    errors: list[str] = []
+    total = len(_task_registry)
+    for task_id, task in list(_task_registry.items()):
+        if task["enabled"] == enabled:
+            continue
+        try:
+            task["enabled"] = enabled
+            _save_schedule_config(task_id, task["current_cron"], enabled=enabled)
+            job_id = f"task_{task_id}"
+            if enabled:
+                schedule_task(task_id)
+            else:
+                if sched.get_job(job_id):
+                    sched.remove_job(job_id)
+            changed += 1
+        except Exception as e:
+            logger.warning(f"[SILENT-EXCEPT] toggle_all_tasks: {task_id} 处理失败", exc_info=True)
+            errors.append(f"{task_id}: {e}")
+    return {
+        "success": not errors,
+        "changed": changed,
+        "total": total,
+        "enabled": enabled,
+        "errors": errors[:5],
+    }

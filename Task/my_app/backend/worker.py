@@ -248,6 +248,17 @@ def _finish(queue_id: int, success: bool, result, error: str | None):
 
 
 def main():
+    # 2026-08-14 修复：Worker 继承看门狗 CMD 窗口的控制台，当窗口被关闭时
+    # Windows 发送 CTRL_CLOSE_EVENT 给所有继承该控制台的进程，导致所有 worker
+    # 同时以 exit_code=1 (0xC000013A STATUS_CONTROL_C_EXIT) 退出。
+    # FreeConsole() 让 worker 脱离父进程控制台，不再受 CTRL_CLOSE_EVENT 影响。
+    # 仅在 stdout 已被重定向到文件时脱离（即由看门狗托管时），开发模式不受影响。
+    if sys.platform == "win32" and not sys.stdout.isatty():
+        try:
+            import ctypes
+            ctypes.windll.kernel32.FreeConsole()
+        except Exception:
+            pass
     # 与 backend/main.py 一致：worker 的 stdout/stderr 被重定向到日志文件（charmap 编码），
     # 中文日志会 UnicodeEncodeError。强制 UTF-8 避免截图等链路被静默打断。
     try:

@@ -22,6 +22,16 @@ except Exception:
     logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:main>: exception swallowed", exc_info=True)
     pass
 
+# 2026-08-14 修复：backend 继承看门狗 CMD 窗口的控制台，窗口关闭时 CTRL_CLOSE_EVENT
+# 导致 uvicorn 与看门狗同时退出（exit_code=1 0xC000013A）。
+# 仅在 stdout 已被重定向到文件时脱离控制台（由看门狗托管时），开发模式不受影响。
+if sys.platform == "win32" and not sys.stdout.isatty():
+    try:
+        import ctypes
+        ctypes.windll.kernel32.FreeConsole()
+    except Exception:
+        pass
+
 # 确保可以import backend模块
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -39,6 +49,7 @@ from backend.routers import (
     tasks, sp_dashboard, system,
     incident_overview, ip_trace, nur_dashboard, ms_sla_dashboard,
     email_recipients,
+    realtime_proxy,
 )
 from backend.services import task_runner
 from backend.database import get_raw_connection
@@ -94,6 +105,8 @@ app.include_router(ip_trace.router)
 app.include_router(nur_dashboard.router)
 # MS SLA 看板（MS Contract KPIs / MS WOs SLA 日报数据，ms_sla_dashboard 库）
 app.include_router(ms_sla_dashboard.router)
+# 实时代理控制（前端「启用实时刷新」开关按需拉起/关闭本地代理 8787/8790）
+app.include_router(realtime_proxy.router)
 
 
 # ========== 通用任务调度系统 ==========
