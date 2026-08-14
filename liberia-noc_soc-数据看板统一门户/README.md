@@ -1,20 +1,81 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Liberia NOC/SOC 数据看板统一门户
 
-# Run and deploy your AI Studio app
+聚合 **FineBI 决策报表中心（Liberia Data Portal）** 与 **Data Insight MVP 自研系统（my_app）** 全部看板的统一入口门户。React + Vite + Tailwind CSS v4 实现，默认深色 NOC 值班主题，配色对齐 my_app（深海军蓝底 + teal/cyan 点缀）。
 
-This contains everything you need to run your app locally.
+## 功能概览
 
-View your app in AI Studio: https://ai.studio/apps/159bc668-7117-414a-95a5-dd7b95fb5b8d
+| 能力 | 说明 |
+| --- | --- |
+| 看板聚合 | 内置 21 个 my_app 真实页面直链（`?page=` 格式）+ 19 个 FineBI 报表分类条目 |
+| 实时任务调度 | 顶部 TaskSyncWidget 每 60 秒拉取 `/api/tasks`，展示 my_app 后端 34 个定时任务运行状态；接口离线时自动降级为静态快照 |
+| 三种视图 | 卡片网格 / 高密清单 / 业务分类矩阵（MS 综合运维、告警监控、工单流程、网络性能、资源供应链等） |
+| 环境切换 | 一键批量替换所有看板链接的 IP/域名（预设：生产 nginx、vite 7090 直连、本机调试） |
+| 深浅双模 | 默认深色（navy 渐变），可切换浅色日间模式（含 TaskSyncWidget/公告横幅浅色适配） |
+| 中英文国际化 | 导航栏 Languages 按钮一键切换中/英文，选择持久化到 localStorage（键 `liberia_noc_lang`）；看板业务数据（名称/分类/部门）保持原值不翻译 |
+| 收藏与置顶 | 星标收藏、置顶、访问热度排序、JSON 导入导出备份 |
+| 移动端 | 每个看板支持二维码扫码（需同网段 WiFi）与 iframe 内嵌预览 |
 
-## Run Locally
+## 数据源与部署拓扑
 
-**Prerequisites:**  Node.js
+```
+192.168.100.19:80 (nginx)
+ ├── /myapp/   → 127.0.0.1:7090   (Data Insight MVP 前端, vite base=/myapp/)
+ ├── /api/     → 7090 → 127.0.0.1:7038 (my_app FastAPI 后端, /api/tasks 等)
+ └── /webroot/decision            (FineBI 决策平台)
+```
 
+- my_app 页面直链格式：`http://192.168.100.19/myapp/?page=<PageKey>`（query 参数，**非** hash 路由），PageKey 含 `sync / alarm / ttwo / nur / ms_sla / cxoDashboard / gis / realtime_alarm / alarmManagement / packet_loss / battery / ip_trace / incident_overview / warehouse / overview / tables / upload / archive / dashboard / settings`。
+- FineBI 入口：`http://192.168.100.19/webroot/decision#/directory?activeTab=dec-tabs-homepage`。
+- **FineBI 具体报表链接为目录占位（标签含"链接待更新"，状态 beta），请在门户内"编辑看板配置"逐条替换为实际报表 URL。**
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## 本地运行
+
+**前置：** Node.js 18+
+
+```powershell
+npm install
+npm run dev        # 默认 http://localhost:9267（7038/7090 已被 my_app 后端/前端占用，不可复用）
+```
+
+本地 dev 时 `vite.config.ts` 已配置 `/api` 代理到 `http://192.168.100.19`，任务调度部件可直连生产后端。
+
+## 构建与部署
+
+```powershell
+npm run build      # 产物输出 dist/
+```
+
+部署到 192.168.100.19 同一台 nginx 时（推荐，API 走同源 `/api/tasks` 无需跨域）：
+
+```nginx
+location /portal/ {
+    alias  D:/path/to/dist/;
+    index  index.html;
+    try_files $uri $uri/ /portal/index.html;
+}
+```
+
+> 部署到子路径时，需在 `vite.config.ts` 设置 `base: '/portal/'` 后重新构建。
+
+## 配置项
+
+见 [.env.example](.env.example)：
+
+- `VITE_MYAPP_API_BASE`：my_app API 基址。同源部署或本地 dev 留空即可；跨机部署填完整基址。
+- 主机地址集中在 `src/config.ts`（`DEFAULT_HOST`），换机房只改这一处。
+
+## 目录结构
+
+```
+src/
+ ├── config.ts               # 全局环境配置（API/主机/入口 URL）
+ ├── data/initialDashboards.ts  # 22 个 my_app + 15 个 FineBI 初始看板数据
+ ├── types/dashboard.ts      # 数据模型（themeColor 含 teal）
+ ├── components/
+ │    ├── TaskSyncWidget.tsx # 实时任务调度部件（/api/tasks + 静态快照兜底）
+ │    ├── DashboardCard.tsx  # 卡片视图（含 teal 主题色）
+ │    └── ...                # 导航/筛选/弹窗/预览/二维码等
+ └── App.tsx                 # 状态管理 + localStorage 持久化（v3）
+```
+
+> 看板数据持久化在浏览器 `localStorage`（键 `liberia_noc_dashboards_v3`）。升级后如未看到新数据，点击导航栏"恢复初始默认看板"或清除站点数据。

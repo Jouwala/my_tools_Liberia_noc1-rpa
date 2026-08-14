@@ -10,6 +10,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { DashboardItem } from '../types/dashboard';
+import { FREQ_LABEL_KEY, useI18n } from '../i18n';
 
 interface PreviewDrawerProps {
   dashboard: DashboardItem | null;
@@ -22,6 +23,7 @@ export const PreviewDrawer: React.FC<PreviewDrawerProps> = ({
   onClose,
   onOpenExternal,
 }) => {
+  const { t } = useI18n();
   const [iframeKey, setIframeKey] = useState(0);
   const [copied, setCopied] = useState(false);
   const [iframeError, setIframeError] = useState(false);
@@ -50,10 +52,10 @@ export const PreviewDrawer: React.FC<PreviewDrawerProps> = ({
               }`}
             >
               {dashboard.platform === 'finebi'
-                ? 'FineBI 报表'
+                ? t('preview.finebi')
                 : dashboard.platform === 'custom'
-                ? '自研系统看板'
-                : '外部数据源'}
+                ? t('preview.custom')
+                : t('preview.external')}
             </div>
 
             <div className="min-w-0">
@@ -70,30 +72,30 @@ export const PreviewDrawer: React.FC<PreviewDrawerProps> = ({
             <button
               onClick={handleCopy}
               className="p-2 rounded-lg text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors text-xs flex items-center gap-1"
-              title="复制链接"
+              title={t('list.copy')}
             >
               {copied ? (
                 <Check className="w-4 h-4 text-emerald-500" />
               ) : (
                 <Copy className="w-4 h-4" />
               )}
-              <span className="hidden sm:inline">复制地址</span>
+              <span className="hidden sm:inline">{t('preview.copy')}</span>
             </button>
 
             <button
               onClick={() => setIframeKey((k) => k + 1)}
               className="p-2 rounded-lg text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"
-              title="刷新内嵌"
+              title={t('preview.refresh')}
             >
               <RefreshCw className="w-4 h-4" />
             </button>
 
             <button
               onClick={() => onOpenExternal(dashboard)}
-              className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs flex items-center gap-1.5 shadow-sm shadow-indigo-600/20 transition-all"
+              className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-medium text-xs flex items-center gap-1.5 shadow-sm shadow-teal-600/20 transition-all"
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              <span>新窗口全屏打开</span>
+              <span>{t('preview.fullscreen')}</span>
             </button>
 
             <button
@@ -110,15 +112,14 @@ export const PreviewDrawer: React.FC<PreviewDrawerProps> = ({
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
             <span>
-              若内嵌窗口显示空白或提示拒绝连接，系因企业局域网/FineBI配置了
-              X-Frame-Options 跨域安全策略，建议点击右上方「新窗口全屏打开」。
+              {t('preview.warn')}
             </span>
           </div>
           <button
             onClick={() => onOpenExternal(dashboard)}
             className="font-semibold underline ml-2 shrink-0 hover:text-amber-900 dark:hover:text-amber-200"
           >
-            直接跳转 &rarr;
+            {t('preview.jump')}
           </button>
         </div>
 
@@ -137,13 +138,13 @@ export const PreviewDrawer: React.FC<PreviewDrawerProps> = ({
         {/* Footer info */}
         <div className="px-5 py-2.5 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
           <div className="flex items-center gap-4">
-            <span>责任部门：{dashboard.department}</span>
-            <span>负责人：{dashboard.owner}</span>
-            <span>更新频次：{dashboard.updateFrequency}</span>
+            <span>{t('preview.dept')}：{dashboard.department}</span>
+            <span>{t('preview.owner')}：{dashboard.owner}</span>
+            <span>{t('preview.freq')}：{t(FREQ_LABEL_KEY[dashboard.updateFrequency] || dashboard.updateFrequency)}</span>
           </div>
           <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>局域网访问通道已就绪</span>
+            <span>{t('preview.ready')}</span>
           </div>
         </div>
       </div>

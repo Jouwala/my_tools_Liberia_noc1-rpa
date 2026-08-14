@@ -134,3 +134,12 @@ def toggle_task_enabled(task_id: str, body: dict):
     """
     enabled = body.get("enabled", True)
     return task_runner.toggle_task(task_id, enabled)
+
+
+@router.post("/api/tasks/toggle-all", dependencies=[Depends(require_protected)])
+def toggle_all_tasks_enabled(body: dict):
+    """统一启用/禁用所有任务（Task Manager 主开关）
+    body: {"enabled": true/false}
+    """
+    enabled = bool(body.get("enabled", True))
+    return task_runner.toggle_all_tasks(enabled)

@@ -16,6 +16,9 @@ const translations: Record<Locale, Record<string, string>> = {
     // 侧边栏右键菜单
     'ctx.newTab': '在新标签页打开',
     'ctx.currentTab': '在当前页面打开',
+    // 侧边栏展开/收起
+    'nav.expand': '展开侧边栏',
+    'nav.collapse': '收起侧边栏',
     'nav.overview': '数据总览',
     'nav.tables': '表浏览器',
     'nav.upload': '数据上传',
@@ -455,6 +458,14 @@ const translations: Record<Locale, Record<string, string>> = {
     'sync.taskEnabled': '任务已启用',
     'sync.taskDisabled': '任务已禁用',
     'sync.toggleFailed': '切换状态失败',
+    // Task Manager 统一开关
+    'sync.toggleAll': '统一开关',
+    'sync.toggleAllHint': '一键启用/禁用全部任务的定时调度',
+    'sync.enableAllConfirm': '确定要启用全部任务吗？',
+    'sync.disableAllConfirm': '确定要禁用全部任务吗？（正在执行的任务不受影响）',
+    'sync.allEnabled': '已启用 {count} 个任务',
+    'sync.allDisabled': '已禁用 {count} 个任务',
+    'sync.toggleAllFailed': '批量切换失败',
     'sync.syncNow': '立即同步',
     'sync.syncing': '同步中...',
     'sync.syncSuccess': '同步成功',
@@ -742,6 +753,9 @@ const translations: Record<Locale, Record<string, string>> = {
     // Sidebar context menu
     'ctx.newTab': 'Open in new tab',
     'ctx.currentTab': 'Open in current tab',
+    // Sidebar expand/collapse
+    'nav.expand': 'Expand sidebar',
+    'nav.collapse': 'Collapse sidebar',
     'nav.overview': 'Overview',
     'nav.tables': 'Table Browser',
     'nav.upload': 'Data Upload',
@@ -1181,6 +1195,14 @@ const translations: Record<Locale, Record<string, string>> = {
     'sync.taskEnabled': 'Task enabled',
     'sync.taskDisabled': 'Task disabled',
     'sync.toggleFailed': 'Failed to toggle',
+    // Task Manager master switch
+    'sync.toggleAll': 'Master switch',
+    'sync.toggleAllHint': 'Enable or disable scheduling for ALL tasks at once',
+    'sync.enableAllConfirm': 'Enable ALL tasks?',
+    'sync.disableAllConfirm': 'Disable ALL tasks? (running tasks are unaffected)',
+    'sync.allEnabled': '{count} task(s) enabled',
+    'sync.allDisabled': '{count} task(s) disabled',
+    'sync.toggleAllFailed': 'Bulk toggle failed',
     'sync.syncNow': 'Sync Now',
     'sync.syncing': 'Syncing...',
     'sync.syncSuccess': 'Sync successful',

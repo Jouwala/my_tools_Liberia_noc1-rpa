@@ -21,7 +21,9 @@ import {
   UpdateFrequency,
 } from '../types/dashboard';
 import { CATEGORIES, AVAILABLE_ICONS } from '../data/initialDashboards';
+import { FINEBI_HOME_URL, MYAPP_HOME_URL } from '../config';
 import { DynamicIcon } from './DynamicIcon';
+import { useI18n, translateCategory, translateTag, translateDept, translateOwner, translateDashboard, reverseTranslateCategory, reverseTranslateTag, reverseTranslateDept, reverseTranslateOwner } from '../i18n';
 
 interface DashboardModalProps {
   isOpen: boolean;
@@ -36,6 +38,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
   dashboardToEdit,
   onSave,
 }) => {
+  const { t, lang } = useI18n();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [platform, setPlatform] = useState<PlatformType>('finebi');
@@ -53,25 +56,27 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
 
   useEffect(() => {
     if (dashboardToEdit) {
-      setTitle(dashboardToEdit.title);
-      setDescription(dashboardToEdit.description);
-      setPlatform(dashboardToEdit.platform);
-      setUrl(dashboardToEdit.url);
-      setCategory(dashboardToEdit.category);
-      setTags(dashboardToEdit.tags);
-      setIconName(dashboardToEdit.iconName);
-      setUpdateFrequency(dashboardToEdit.updateFrequency);
-      setDepartment(dashboardToEdit.department);
-      setOwner(dashboardToEdit.owner);
-      setIsFavorite(dashboardToEdit.isFavorite);
-      setIsPinned(dashboardToEdit.isPinned);
-      setThemeColor(dashboardToEdit.themeColor);
+      // 编辑模式：显示翻译后的数据（用户看到的是当前语言的文本）
+      const translated = translateDashboard(dashboardToEdit, lang, t);
+      setTitle(translated.title);
+      setDescription(translated.description);
+      setPlatform(translated.platform);
+      setUrl(translated.url);
+      setCategory(translated.category);
+      setTags(translated.tags);
+      setIconName(translated.iconName);
+      setUpdateFrequency(translated.updateFrequency);
+      setDepartment(translated.department);
+      setOwner(translated.owner);
+      setIsFavorite(translated.isFavorite);
+      setIsPinned(translated.isPinned);
+      setThemeColor(translated.themeColor);
     } else {
       // Defaults for new dashboard
       setTitle('');
       setDescription('');
       setPlatform('finebi');
-      setUrl('http://192.168.100.19/webroot/decision#/directory?activeTab=dec-tabs-homepage');
+      setUrl(FINEBI_HOME_URL);
       setCategory('MS 综合运维管理');
       setTags(['报表', '运维']);
       setIconName('LayoutGrid');
@@ -82,7 +87,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
       setIsPinned(false);
       setThemeColor('indigo');
     }
-  }, [dashboardToEdit, isOpen]);
+  }, [dashboardToEdit, isOpen, lang, t]);
 
   if (!isOpen) return null;
 
@@ -101,12 +106,12 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
     if (type === 'finebi') {
       setPlatform('finebi');
       setThemeColor('indigo');
-      setUrl('http://192.168.100.19/webroot/decision#/directory?activeTab=dec-tabs-homepage');
+      setUrl(FINEBI_HOME_URL);
       if (!title) setTitle('Liberia Data Portal (FineBI)');
     } else {
       setPlatform('custom');
-      setThemeColor('cyan');
-      setUrl('http://192.168.100.19/myapp/');
+      setThemeColor('teal');
+      setUrl(MYAPP_HOME_URL);
       if (!title) setTitle('Data Insight MVP 自研看板');
     }
   };
@@ -115,18 +120,26 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
     e.preventDefault();
     if (!title.trim() || !url.trim()) return;
 
+    // 保存时：将翻译后的值映射回原始中文值
+    const originalCategory = reverseTranslateCategory(category, lang, t);
+    const originalTags = tags.map((tag) => reverseTranslateTag(tag, lang, t));
+    const originalDept = reverseTranslateDept(department, lang, t);
+    const originalOwner = reverseTranslateOwner(owner, lang, t);
+
+    console.log('[DashboardModal] Save:', { lang, department, originalDept, owner, originalOwner });
+
     const newItem: DashboardItem = {
       id: dashboardToEdit ? dashboardToEdit.id : `board-${Date.now()}`,
       title: title.trim(),
       description: description.trim() || '企业级数据指标与决策分析看板',
       platform,
       url: url.trim(),
-      category,
-      tags: tags.length > 0 ? tags : ['看板'],
+      category: originalCategory,
+      tags: originalTags.length > 0 ? originalTags : ['看板'],
       iconName,
       updateFrequency,
-      department: department.trim() || '信息技术中心',
-      owner: owner.trim() || '管理员',
+      department: originalDept.trim() || '信息技术中心',
+      owner: originalOwner.trim() || '管理员',
       isFavorite,
       isPinned,
       clickCount: dashboardToEdit ? dashboardToEdit.clickCount : 0,
@@ -140,13 +153,14 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
   };
 
   const colorOptions: Array<{ id: DashboardItem['themeColor']; label: string; bg: string }> = [
-    { id: 'indigo', label: '深邃蓝紫 (FineBI推荐)', bg: 'bg-indigo-500' },
-    { id: 'cyan', label: '敏捷青蓝 (自研推荐)', bg: 'bg-cyan-500' },
-    { id: 'emerald', label: '生机翠绿 (增长/供应链)', bg: 'bg-emerald-500' },
-    { id: 'purple', label: '极光高贵紫 (高管/HR)', bg: 'bg-purple-500' },
-    { id: 'amber', label: '工业暖橙 (制造/IoT)', bg: 'bg-amber-500' },
-    { id: 'rose', label: '财务玫瑰红 (资金/成本)', bg: 'bg-rose-500' },
-    { id: 'blue', label: '经典企业蓝', bg: 'bg-blue-500' },
+    { id: 'teal', label: t('color.teal'), bg: 'bg-teal-500' },
+    { id: 'cyan', label: t('color.cyan'), bg: 'bg-cyan-500' },
+    { id: 'indigo', label: t('color.indigo'), bg: 'bg-indigo-500' },
+    { id: 'emerald', label: t('color.emerald'), bg: 'bg-emerald-500' },
+    { id: 'purple', label: t('color.purple'), bg: 'bg-purple-500' },
+    { id: 'amber', label: t('color.amber'), bg: 'bg-amber-500' },
+    { id: 'rose', label: t('color.rose'), bg: 'bg-rose-500' },
+    { id: 'blue', label: t('color.blue'), bg: 'bg-blue-500' },
   ];
 
   return (
@@ -155,15 +169,15 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+            <div className="p-2 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-300">
               {dashboardToEdit ? <Save className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
             </div>
             <div>
               <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-base">
-                {dashboardToEdit ? '编辑看板配置' : '添加新看板链接'}
+                {dashboardToEdit ? t('modal.editTitle') : t('modal.addTitle')}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                配置 FineBI 报表或自研系统看板的访问入口
+                {t('modal.subtitle')}
               </p>
             </div>
           </div>
@@ -181,7 +195,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
           {!dashboardToEdit && (
             <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between">
               <span className="text-xs text-slate-600 dark:text-slate-400 font-medium flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-500" /> 快速填入局域网模板：
+                <Sparkles className="w-3.5 h-3.5 text-teal-500" /> {t('modal.quickTip')}
               </span>
               <div className="flex gap-2">
                 <button
@@ -189,14 +203,14 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
                   onClick={() => handleQuickUrlFill('finebi')}
                   className="px-2.5 py-1 text-xs font-medium rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 transition-colors"
                 >
-                  填入 FineBI 平台
+                  {t('modal.quickFinebi')}
                 </button>
                 <button
                   type="button"
                   onClick={() => handleQuickUrlFill('custom')}
-                  className="px-2.5 py-1 text-xs font-medium rounded-lg bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-200 transition-colors"
+                  className="px-2.5 py-1 text-xs font-medium rounded-lg bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 hover:bg-teal-200 transition-colors"
                 >
-                  填入 自研 MyApp
+                  {t('modal.quickCustom')}
                 </button>
               </div>
             </div>
@@ -206,7 +220,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                所属系统平台 *
+                {t('modal.platform')}
               </label>
               <div className="grid grid-cols-3 gap-2">
                 {(['finebi', 'custom', 'external'] as PlatformType[]).map((p) => (
@@ -216,15 +230,15 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
                     onClick={() => {
                       setPlatform(p);
                       if (p === 'finebi') setThemeColor('indigo');
-                      if (p === 'custom') setThemeColor('cyan');
+                      if (p === 'custom') setThemeColor('teal');
                     }}
                     className={`py-2 px-2 text-xs font-medium rounded-xl border transition-all ${
                       platform === p
-                        ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 ring-2 ring-indigo-500/20'
+                        ? 'border-teal-600 bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300 ring-2 ring-teal-500/20'
                         : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}
                   >
-                    {p === 'finebi' ? 'FineBI 平台' : p === 'custom' ? '自研系统' : '外部大屏'}
+                    {p === 'finebi' ? t('modal.pFinebi') : p === 'custom' ? t('modal.pCustom') : t('modal.pExternal')}
                   </button>
                 ))}
               </div>
@@ -232,16 +246,16 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                业务分类 *
+                {t('modal.category')}
               </label>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value as any)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
               >
                 {CATEGORIES.filter((c) => c !== '全部').map((cat) => (
                   <option key={cat} value={cat}>
-                    {cat}
+                    {translateCategory(cat, lang, t)}
                   </option>
                 ))}
               </select>
@@ -251,14 +265,14 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
           {/* Title */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-              看板名称 *
+              {t('modal.name')}
             </label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="例如：集团销售回款分析 / 智能制造车间数字孪生"
-              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder={t('modal.namePh')}
+              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
               required
             />
           </div>
@@ -267,14 +281,14 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
               <Link2 className="w-3.5 h-3.5 text-slate-400" />
-              跳转目标 URL *
+              {t('modal.url')}
             </label>
             <input
               type="text"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="http://192.168.100.19/webroot/decision#..."
-              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder={t('modal.urlPh')}
+              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
               required
             />
           </div>
@@ -282,14 +296,14 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
           {/* Description */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-              功能简述
+              {t('modal.desc')}
             </label>
             <textarea
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="简要说明此看板展示的业务指标及用途..."
-              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              placeholder={t('modal.descPh')}
+              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none"
             />
           </div>
 
@@ -297,44 +311,44 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
-                <Building className="w-3.5 h-3.5" /> 业务部门
+                <Building className="w-3.5 h-3.5" /> {t('modal.dept')}
               </label>
               <input
                 type="text"
                 value={department}
                 onChange={(e) => setDepartment(e.target.value)}
-                placeholder="如: 销售管理部"
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder={t('modal.deptPh')}
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
 
             <div>
               <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
-                <User className="w-3.5 h-3.5" /> 负责人
+                <User className="w-3.5 h-3.5" /> {t('modal.owner')}
               </label>
               <input
                 type="text"
                 value={owner}
                 onChange={(e) => setOwner(e.target.value)}
-                placeholder="如: 张经理"
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder={t('modal.ownerPh')}
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
 
             <div>
               <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" /> 数据更新周期
+                <Clock className="w-3.5 h-3.5" /> {t('modal.freq')}
               </label>
               <select
                 value={updateFrequency}
                 onChange={(e) => setUpdateFrequency(e.target.value as UpdateFrequency)}
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
               >
-                <option value="实时流式">实时流式</option>
-                <option value="每小时">每小时</option>
-                <option value="每日0点">每日0点</option>
-                <option value="周度更新">周度更新</option>
-                <option value="月度汇总">月度汇总</option>
+                <option value="实时流式">{t('freq.realtime')}</option>
+                <option value="每小时">{t('freq.hourly')}</option>
+                <option value="每日0点">{t('freq.daily')}</option>
+                <option value="周度更新">{t('freq.weekly')}</option>
+                <option value="月度汇总">{t('freq.monthly')}</option>
               </select>
             </div>
           </div>
@@ -343,7 +357,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5" /> 图标样式
+                <Layers className="w-3.5 h-3.5" /> {t('modal.icons')}
               </label>
               <div className="grid grid-cols-6 gap-1.5 max-h-28 overflow-y-auto p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
                 {AVAILABLE_ICONS.map((ico) => (
@@ -354,7 +368,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
                     title={ico.label}
                     className={`p-2 rounded-lg flex items-center justify-center transition-colors ${
                       iconName === ico.name
-                        ? 'bg-indigo-600 text-white shadow-sm'
+                        ? 'bg-teal-600 text-white shadow-sm'
                         : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-700'
                     }`}
                   >
@@ -366,7 +380,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                <Palette className="w-3.5 h-3.5" /> 卡片主题色调
+                <Palette className="w-3.5 h-3.5" /> {t('modal.color')}
               </label>
               <div className="space-y-1.5 max-h-28 overflow-y-auto">
                 {colorOptions.map((opt) => (
@@ -376,7 +390,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
                     onClick={() => setThemeColor(opt.id)}
                     className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs transition-all ${
                       themeColor === opt.id
-                        ? 'bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-800 font-medium'
+                        ? 'bg-teal-50 dark:bg-teal-950/60 border border-teal-300 dark:border-teal-800 font-medium'
                         : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
                     }`}
                   >
@@ -392,7 +406,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
               <Tag className="w-3.5 h-3.5 text-slate-400" />
-              标签管理 (支持回车添加)
+              {t('modal.tags')}
             </label>
             <div className="flex gap-2">
               <input
@@ -405,28 +419,28 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
                     handleAddTag();
                   }
                 }}
-                placeholder="输入标签名按回车..."
-                className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder={t('modal.tagPh')}
+                className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               <button
                 type="button"
                 onClick={handleAddTag}
                 className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-medium rounded-lg text-slate-700 dark:text-slate-300"
               >
-                添加
+                {t('modal.tagAdd')}
               </button>
             </div>
             {tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-2">
-                {tags.map((t) => (
+                {tags.map((tag) => (
                   <span
-                    key={t}
+                    key={tag}
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs"
                   >
-                    #{t}
+                    #{translateTag(tag, lang, t)}
                     <button
                       type="button"
-                      onClick={() => handleRemoveTag(t)}
+                      onClick={() => handleRemoveTag(tag)}
                       className="hover:text-rose-500 ml-0.5"
                     >
                       &times;
@@ -444,11 +458,11 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
                 type="checkbox"
                 checked={isPinned}
                 onChange={(e) => setIsPinned(e.target.checked)}
-                className="rounded text-indigo-600 focus:ring-indigo-500"
+                className="rounded text-teal-600 focus:ring-teal-500"
               />
               <span className="flex items-center gap-1 font-medium">
                 <Pin className="w-3.5 h-3.5 text-amber-500" />
-                置顶在门户最前列
+                {t('modal.pinOpt')}
               </span>
             </label>
 
@@ -457,11 +471,11 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
                 type="checkbox"
                 checked={isFavorite}
                 onChange={(e) => setIsFavorite(e.target.checked)}
-                className="rounded text-indigo-600 focus:ring-indigo-500"
+                className="rounded text-teal-600 focus:ring-teal-500"
               />
               <span className="flex items-center gap-1 font-medium">
                 <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-                加入我的星标常用
+                {t('modal.favOpt')}
               </span>
             </label>
           </div>
@@ -474,15 +488,15 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
           >
-            取消
+            {t('modal.cancel')}
           </button>
           <button
             type="button"
             onClick={handleSubmit}
-            className="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm shadow-indigo-600/20 transition-all flex items-center gap-1.5"
+            className="px-5 py-2 text-xs font-semibold text-white bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 rounded-xl shadow-sm shadow-teal-600/20 transition-all flex items-center gap-1.5"
           >
             <Save className="w-3.5 h-3.5" />
-            保存配置
+            {t('modal.save')}
           </button>
         </div>
       </div>

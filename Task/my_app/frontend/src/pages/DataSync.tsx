@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import {
   Card, Button, Tag, Space, List, Spin, message, Modal, Select,
-  Input, Switch, Tooltip, Badge, Progress, Row, Col, Typography, Collapse, Alert,
+  Input, Switch, Tooltip, Badge, Progress, Row, Col, Typography, Collapse, Alert, Popconfirm,
 } from 'antd'
 import {
   ClockCircleOutlined,
@@ -311,6 +311,27 @@ export default function DataSync() {
     setAutoSpeak(v)
     try { localStorage.setItem('tm_auto_speak', v ? '1' : '0') } catch { /* noop */ }
     if (v) warmSpeech() // 用户手势内预热，提升首播成功率
+  }
+
+  // ===== 统一开关（一键启用/禁用全部任务） =====
+  // pendingAllToggle 记录「待确认的目标状态」：Switch 点击时只记录意图，
+  // 由 Popconfirm 确认后真正提交；取消则丢弃（Switch 受控于 allEnabled，自动回弹）
+  const [pendingAllToggle, setPendingAllToggle] = useState<boolean | null>(null)
+  const allEnabled = allTasks.length > 0 && allTasks.every(t => t.enabled)
+  const handleToggleAll = async (enabled: boolean) => {
+    try {
+      const res = await api.post('/tasks/toggle-all', { enabled })
+      if (res.data.success) {
+        message.success(t(enabled ? 'sync.allEnabled' : 'sync.allDisabled', { count: res.data.changed }))
+        loadTasks(true)
+      } else {
+        message.error(res.data.error || t('sync.toggleAllFailed'))
+      }
+    } catch {
+      message.error(t('sync.toggleAllFailed'))
+    } finally {
+      setPendingAllToggle(null)
+    }
   }
 
   /** 把 ISO 时间格式化为「月/日 时:分」，用于播报重试时间。 */
@@ -712,6 +733,24 @@ export default function DataSync() {
               <SoundOutlined style={{ color: autoSpeak ? WH.teal : WH.textDim }} />
               <Text style={{ fontSize: 12, color: WH.textMuted }}>{t('sync.autoSpeak')}</Text>
               <Switch size="small" checked={autoSpeak} onChange={toggleAutoSpeak} />
+            </Space>
+          </Tooltip>
+          {/* 统一开关：一键启用/禁用全部任务 */}
+          <Tooltip title={t('sync.toggleAllHint')}>
+            <Space size={6} align="center">
+              <Text style={{ fontSize: 12, color: WH.textMuted }}>{t('sync.toggleAll')}</Text>
+              <Popconfirm
+                title={pendingAllToggle === false ? t('sync.disableAllConfirm') : t('sync.enableAllConfirm')}
+                onConfirm={() => { if (pendingAllToggle !== null) handleToggleAll(pendingAllToggle) }}
+                onOpenChange={(open) => { if (!open) setPendingAllToggle(null) }}
+              >
+                <Switch
+                  size="small"
+                  checked={allEnabled}
+                  disabled={allTasks.length === 0}
+                  onChange={(v) => setPendingAllToggle(v)}
+                />
+              </Popconfirm>
             </Space>
           </Tooltip>
           <Button icon={<ReloadOutlined />} onClick={() => loadTasks(true)} loading={loading} style={{ color: WH.text, borderColor: 'var(--wh-subtle-border)', background: 'var(--wh-subtle-bg)' }}>

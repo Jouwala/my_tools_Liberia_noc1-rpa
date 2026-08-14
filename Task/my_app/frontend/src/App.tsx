@@ -24,6 +24,8 @@ import {
   MoonOutlined,
   ExportOutlined,
   SelectOutlined,
+  MenuUnfoldOutlined,
+  MenuFoldOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -65,7 +67,20 @@ function AppContent() {
     const p = new URLSearchParams(window.location.search).get('page')
     return p && (VALID_PAGES as string[]).includes(p) ? (p as PageKey) : 'sync'
   })
-  const [collapsed, setCollapsed] = useState(false)
+  // 侧边栏默认隐藏（完全收起、不占空间），展开/收起偏好持久化到 localStorage
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      // 默认隐藏：仅当用户曾明确展开（存 '0'）时才展开
+      return localStorage.getItem('myapp_sider_collapsed') !== '0'
+    } catch { return true }
+  })
+  const toggleSider = useCallback(() => {
+    setCollapsed(prev => {
+      const next = !prev
+      try { localStorage.setItem('myapp_sider_collapsed', next ? '1' : '0') } catch { /* noop */ }
+      return next
+    })
+  }, [])
   const { t, locale, toggleLocale } = useI18n()
   const { isDark, toggle } = useTheme()
 
@@ -215,10 +230,16 @@ function AppContent() {
         <Sider
           collapsible
           collapsed={collapsed}
-          onCollapse={setCollapsed}
+          collapsedWidth={0}
+          trigger={null}
           theme={isDark ? 'dark' : 'light'}
           width={200}
-          style={{ background: isDark ? '#0a1929' : '#f6fafd', borderRight: isDark ? 'none' : '1px solid #d9e6f2' }}
+          style={{
+            background: isDark ? '#0a1929' : '#f6fafd',
+            borderRight: isDark ? 'none' : '1px solid #d9e6f2',
+            // 收起时整体隐藏（含边框），由 Header 汉堡按钮展开
+            ...(collapsed ? { borderRight: 'none' } : {}),
+          }}
         >
           <div style={{
             height: 48,
@@ -314,10 +335,27 @@ function AppContent() {
               pointerEvents: 'none',
             }} />
 
+            {/* 汉堡按钮：侧边栏默认隐藏，点击展开/收起 */}
+            <Button
+              type="text"
+              aria-label={collapsed ? t('nav.expand') : t('nav.collapse')}
+              icon={collapsed ? <MenuUnfoldOutlined style={{ color: WH.teal, fontSize: 17 }} /> : <MenuFoldOutlined style={{ color: WH.teal, fontSize: 17 }} />}
+              onClick={toggleSider}
+              style={{
+                position: 'absolute',
+                left: 8,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                zIndex: 3,
+                width: 36,
+                height: 36,
+              }}
+            />
+
             {/* 左侧装饰箭头 */}
             <div style={{
               position: 'absolute',
-              left: 20,
+              left: 52,
               top: '50%',
               transform: 'translateY(-50%)',
               color: isDark ? 'rgba(100,255,218,0.25)' : 'rgba(13,148,136,0.35)',

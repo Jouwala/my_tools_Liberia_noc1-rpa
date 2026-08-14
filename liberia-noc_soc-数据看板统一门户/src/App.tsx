@@ -20,6 +20,8 @@ import { EnvironmentModal } from './components/EnvironmentModal';
 import { PreviewDrawer } from './components/PreviewDrawer';
 import { QRCodeModal } from './components/QRCodeModal';
 import { DesignGuideModal } from './components/DesignGuideModal';
+import { DEFAULT_HOST } from './config';
+import { useI18n, translateDashboard } from './i18n';
 import {
   Layers,
   Plus,
@@ -30,17 +32,19 @@ import {
   Lightbulb,
 } from 'lucide-react';
 
-const STORAGE_KEY = 'liberia_noc_dashboards_v2';
+// v3：看板目录按 my_app 真实页面重新填充，旧版本缓存需要失效重读
+const STORAGE_KEY = 'liberia_noc_dashboards_v3';
 const THEME_KEY = 'enterprise_bi_theme_dark';
 
 export default function App() {
-  // 1. Theme State (Dark / Light)
+  const { t, lang } = useI18n();
+  // 1. Theme State (Dark / Light)，默认深色 NOC 值班风格（对齐 Data Insight MVP）
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved !== null) {
       return saved === 'true';
     }
-    return false; // default clean executive light
+    return true;
   });
 
   useEffect(() => {
@@ -119,7 +123,7 @@ export default function App() {
   };
 
   const handleDeleteDashboard = (id: string) => {
-    if (window.confirm('确定要从门户中移除此看板吗？')) {
+    if (window.confirm(t('app.confirmDelete'))) {
       setDashboards((prev) => prev.filter((d) => d.id !== id));
     }
   };
@@ -169,10 +173,10 @@ export default function App() {
         const parsed = JSON.parse(event.target?.result as string);
         if (Array.isArray(parsed)) {
           setDashboards(parsed);
-          alert(`成功导入 ${parsed.length} 个看板配置！`);
+          alert(t('app.importOk', { n: parsed.length }));
         }
       } catch (err) {
-        alert('文件格式错误，请导入有效的看板 JSON 文件');
+        alert(t('app.importErr'));
       }
     };
     reader.readAsText(file);
@@ -180,7 +184,7 @@ export default function App() {
   };
 
   const handleResetDefaults = () => {
-    if (window.confirm('确定要恢复系统初始预置看板列表吗？自定义添加的记录将被重置。')) {
+    if (window.confirm(t('app.confirmReset'))) {
       setDashboards(INITIAL_DASHBOARDS);
     }
   };
@@ -236,8 +240,13 @@ export default function App() {
       });
   }, [dashboards, selectedCategory, selectedPlatform, onlyFavorites, searchQuery, sortOption]);
 
+  // Translate dashboards for display (keep original in state for storage)
+  const translatedDashboards = useMemo(() => {
+    return filteredDashboards.map((d) => translateDashboard(d, lang, t));
+  }, [filteredDashboards, lang, t]);
+
   return (
-    <div className="min-h-screen bg-slate-100/60 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
+    <div className="min-h-screen bg-slate-100/60 dark:bg-navy-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* Hidden File Input for JSON import */}
       <input
         type="file"
@@ -292,20 +301,20 @@ export default function App() {
           onSortChange={setSortOption}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
-          totalFilteredCount={filteredDashboards.length}
+          totalFilteredCount={translatedDashboards.length}
         />
 
         {/* Main Content Body: Grid, List or Matrix */}
-        {filteredDashboards.length === 0 ? (
+        {translatedDashboards.length === 0 ? (
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-12 text-center shadow-sm my-8">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-500 flex items-center justify-center mb-4">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center mb-4">
               <Layers className="w-7 h-7" />
             </div>
             <h3 className="text-base font-bold text-slate-800 dark:text-slate-200 mb-1">
-              未找到符合条件的看板
+              {t('app.emptyTitle')}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-5">
-              尝试清除筛选条件、更换搜索关键词，或者直接新增一个业务看板链接。
+              {t('app.emptyDesc')}
             </p>
             <div className="flex items-center justify-center gap-3">
               <button
@@ -317,22 +326,22 @@ export default function App() {
                 }}
                 className="px-4 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
               >
-                重置所有筛选
+                {t('app.emptyReset')}
               </button>
               <button
                 onClick={() => {
                   setDashboardToEdit(null);
                   setIsModalOpen(true);
                 }}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all"
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white shadow-sm transition-all"
               >
-                添加新看板
+                {t('app.emptyAdd')}
               </button>
             </div>
           </div>
         ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filteredDashboards.map((dashboard) => (
+            {translatedDashboards.map((dashboard) => (
               <DashboardCard
                 key={dashboard.id}
                 dashboard={dashboard}
@@ -341,8 +350,12 @@ export default function App() {
                 onShowQR={(d) => setQrDashboard(d)}
                 onToggleFavorite={handleToggleFavorite}
                 onEdit={(d) => {
-                  setDashboardToEdit(d);
-                  setIsModalOpen(true);
+                  // Find original dashboard for editing
+                  const original = dashboards.find((orig) => orig.id === d.id);
+                  if (original) {
+                    setDashboardToEdit(original);
+                    setIsModalOpen(true);
+                  }
                 }}
                 onDelete={handleDeleteDashboard}
               />
@@ -350,20 +363,23 @@ export default function App() {
           </div>
         ) : viewMode === 'list' ? (
           <DashboardListView
-            dashboards={filteredDashboards}
+            dashboards={translatedDashboards}
             onOpen={handleOpenDashboard}
             onPreview={(d) => setPreviewDashboard(d)}
             onShowQR={(d) => setQrDashboard(d)}
             onToggleFavorite={handleToggleFavorite}
             onEdit={(d) => {
-              setDashboardToEdit(d);
-              setIsModalOpen(true);
+              const original = dashboards.find((orig) => orig.id === d.id);
+              if (original) {
+                setDashboardToEdit(original);
+                setIsModalOpen(true);
+              }
             }}
             onDelete={handleDeleteDashboard}
           />
         ) : (
           <DashboardMatrixView
-            dashboards={filteredDashboards}
+            dashboards={translatedDashboards}
             onOpen={handleOpenDashboard}
             onPreview={(d) => setPreviewDashboard(d)}
             onShowQR={(d) => setQrDashboard(d)}
@@ -377,23 +393,23 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-slate-700 dark:text-slate-300">
-              Liberia NOC/SOC 数据看板统一门户
+              {t('app.title')}
             </span>
             <span>·</span>
-            <span>已收录 {dashboards.length} 个核心分析视图与调度模块</span>
+            <span>{t('app.footerCount', { n: dashboards.length })}</span>
           </div>
 
           <div className="flex items-center gap-4">
             <button
               onClick={() => setIsDesignGuideModalOpen(true)}
-              className="text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-medium"
+              className="text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 font-medium"
             >
               <Lightbulb className="w-3.5 h-3.5" />
-              查看看板聚合设计与架构规范
+              {t('app.footerGuide')}
             </button>
             <span>·</span>
             <span className="font-mono text-[11px] text-slate-400">
-              内网主机: 192.168.100.19
+              {t('app.footerHost')}: {DEFAULT_HOST}
             </span>
           </div>
         </div>

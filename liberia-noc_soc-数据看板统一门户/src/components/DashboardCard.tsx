@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { DashboardItem } from '../types/dashboard';
 import { DynamicIcon } from './DynamicIcon';
+import { FREQ_LABEL_KEY, useI18n } from '../i18n';
 
 interface DashboardCardProps {
   dashboard: DashboardItem;
@@ -35,6 +36,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
   onEdit,
   onDelete,
 }) => {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -48,19 +50,19 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
     switch (dashboard.platform) {
       case 'finebi':
         return {
-          label: 'FineBI 帆软',
+          label: t('card.finebiBadge'),
           bg: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/80',
           dot: 'bg-indigo-500',
         };
       case 'custom':
         return {
-          label: '自研系统看板',
+          label: t('card.customBadge'),
           bg: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/80',
           dot: 'bg-cyan-500',
         };
       default:
         return {
-          label: '外部看板',
+          label: t('card.externalBadge'),
           bg: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/80',
           dot: 'bg-emerald-500',
         };
@@ -79,6 +81,12 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
       iconBg: 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400',
       text: 'text-indigo-600 dark:text-indigo-400',
       lightBg: 'from-indigo-500/5 to-transparent',
+    },
+    teal: {
+      border: 'hover:border-teal-400 dark:hover:border-teal-500',
+      iconBg: 'bg-teal-50 dark:bg-teal-950/70 text-teal-600 dark:text-teal-300',
+      text: 'text-teal-600 dark:text-teal-300',
+      lightBg: 'from-teal-500/5 to-transparent',
     },
     cyan: {
       border: 'hover:border-cyan-400 dark:hover:border-cyan-600',
@@ -137,7 +145,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
 
             {dashboard.isPinned && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60">
-                <Pin className="w-2.5 h-2.5" /> 置顶
+                <Pin className="w-2.5 h-2.5" /> {t('card.pinned')}
               </span>
             )}
           </div>
@@ -150,7 +158,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
                   ? 'text-amber-400 hover:text-amber-500'
                   : 'text-slate-300 dark:text-slate-600 hover:text-amber-400'
               }`}
-              title={dashboard.isFavorite ? '取消收藏' : '加入收藏'}
+              title={dashboard.isFavorite ? t('card.favOn') : t('card.favOff')}
             >
               <Star
                 className="w-4 h-4"
@@ -161,7 +169,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
             <button
               onClick={() => onEdit(dashboard)}
               className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
-              title="编辑配置"
+              title={t('card.edit')}
             >
               <Edit2 className="w-3.5 h-3.5" />
             </button>
@@ -169,7 +177,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
             <button
               onClick={() => onDelete(dashboard.id)}
               className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all"
-              title="删除"
+              title={t('card.delete')}
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
@@ -187,7 +195,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
           <div className="min-w-0 flex-1">
             <h3
               onClick={() => onOpen(dashboard)}
-              className="font-bold text-slate-900 dark:text-slate-100 text-base leading-snug truncate hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer transition-colors"
+              className="font-bold text-slate-900 dark:text-slate-100 text-base leading-snug truncate hover:text-teal-600 dark:hover:text-teal-300 cursor-pointer transition-colors"
               title={dashboard.title}
             >
               {dashboard.title}
@@ -200,7 +208,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
               <span>·</span>
               <span className="flex items-center gap-1 text-[11px] text-slate-500">
                 <Clock className="w-3 h-3 text-slate-400" />
-                {dashboard.updateFrequency}
+                {t(FREQ_LABEL_KEY[dashboard.updateFrequency] || dashboard.updateFrequency)}
               </span>
             </div>
           </div>
@@ -239,7 +247,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
           <button
             onClick={handleCopy}
             className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors shrink-0"
-            title="复制完整URL"
+            title={t('card.copyUrl')}
           >
             {copied ? (
               <Check className="w-3.5 h-3.5 text-emerald-500" />
@@ -254,7 +262,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
           <button
             onClick={() => onShowQR(dashboard)}
             className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
-            title="手机/平板扫码打开"
+            title={t('card.qr')}
           >
             <QrCode className="w-4 h-4" />
           </button>
@@ -262,16 +270,16 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
           <button
             onClick={() => onPreview(dashboard)}
             className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
-            title="内嵌快速预览"
+            title={t('card.preview')}
           >
             <Eye className="w-4 h-4" />
           </button>
 
           <button
             onClick={() => onOpen(dashboard)}
-            className="flex-1 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-medium text-xs flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-600/20 transition-all"
+            className="flex-1 px-4 py-2 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 active:scale-[0.98] text-white font-medium text-xs flex items-center justify-center gap-1.5 shadow-sm shadow-teal-600/20 transition-all"
           >
-            <span>进入看板</span>
+            <span>{t('card.enter')}</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -280,10 +288,10 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
         <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 pt-0.5">
           <span className="flex items-center gap-1">
             <TrendingUp className="w-3 h-3 text-slate-400" />
-            累计访问 {dashboard.clickCount} 次
+            {t('card.visits', { n: dashboard.clickCount })}
           </span>
           {dashboard.lastVisited && (
-            <span>最近: {dashboard.lastVisited.split(' ')[1] || dashboard.lastVisited}</span>
+            <span>{t('card.last')}: {dashboard.lastVisited.split(' ')[1] || dashboard.lastVisited}</span>
           )}
         </div>
       </div>

@@ -40,8 +40,15 @@ export default defineConfig({
     },
   },
   build: {
+    // 输出目录放在工作区监视树之外（my_app 的兄弟目录 _fe_dist）：
+    // 本机 IDE（QoderCN/WorkBuddy）的文件监视器以「只读共享」持有 frontend/dist、
+    // frontend/dist2 下 public 复制产物（alarm-management.html 等）的句柄，导致
+    // vite 覆盖写 public->outDir 时 EPERM、构建失败；../_fe_dist 会被解析到 my_app 内，
+    // 仍受监视，故用绝对路径放到 my_app 之上（D:/01_RPA/Task/_fe_dist）。preview 自动
+    // 服务 build.outDir，URL（/myapp/）与用户无感。start.bat 用 `npm run preview` 读取此 outDir。
+    outDir: 'D:/01_RPA/Task/_fe_dist',
     // 本机环境存在 safe-delete 钩子，会拦截 Vite 的 prepare-out-dir 清空动作导致构建中断。
-    // 关闭自动清空，改由构建脚本/人工清理 dist/assets（旧 chunk 带 hash，覆盖写不影响正确性）。
+    // 关闭自动清空，改由构建脚本/人工清理 dist2/assets（旧 chunk 带 hash，覆盖写不影响正确性）。
     emptyOutDir: false,
     // 提升单包体积告警阈值，避免 2.9MB 单包在构建日志刷红
     chunkSizeWarningLimit: 1200,

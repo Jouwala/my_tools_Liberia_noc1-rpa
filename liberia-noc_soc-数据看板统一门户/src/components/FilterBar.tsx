@@ -17,6 +17,7 @@ import {
   SortOption,
 } from '../types/dashboard';
 import { CATEGORIES } from '../data/initialDashboards';
+import { useI18n, translateCategory } from '../i18n';
 
 interface FilterBarProps {
   selectedCategory: CategoryType;
@@ -49,6 +50,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   onViewModeChange,
   totalFilteredCount,
 }) => {
+  const { t, lang } = useI18n();
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-4 shadow-sm mb-6 space-y-3.5">
       {/* Upper Row: Search & Filters & Layout controls */}
@@ -60,8 +62,8 @@ export const FilterBar: React.FC<FilterBarProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="搜索看板名称、功能描述、URL、部门或标签..."
-            className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+            placeholder={t('filter.searchPh')}
+            className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
           />
           {searchQuery && (
             <button
@@ -85,7 +87,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
-              全部平台
+              {t('filter.allPlatform')}
             </button>
             <button
               onClick={() => onSelectPlatform('finebi')}
@@ -107,7 +109,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
               }`}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-cyan-300" />
-              自研系统
+              {t('filter.custom')}
             </button>
           </div>
 
@@ -125,7 +127,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                 onlyFavorites ? 'fill-amber-400 text-amber-400' : 'text-slate-400'
               }`}
             />
-            <span>已收藏</span>
+            <span>{t('filter.favorites')}</span>
           </button>
 
           {/* Sort Selector */}
@@ -136,10 +138,10 @@ export const FilterBar: React.FC<FilterBarProps> = ({
               onChange={(e) => onSortChange(e.target.value as SortOption)}
               className="bg-transparent text-slate-700 dark:text-slate-200 font-medium focus:outline-none cursor-pointer"
             >
-              <option value="pinned">推荐与置顶优先</option>
-              <option value="popular">访问热度最高</option>
-              <option value="recent">最近访问优先</option>
-              <option value="name">看板名称排序</option>
+              <option value="pinned">{t('filter.sortPinned')}</option>
+              <option value="popular">{t('filter.sortPopular')}</option>
+              <option value="recent">{t('filter.sortRecent')}</option>
+              <option value="name">{t('filter.sortName')}</option>
             </select>
           </div>
 
@@ -149,10 +151,10 @@ export const FilterBar: React.FC<FilterBarProps> = ({
               onClick={() => onViewModeChange('grid')}
               className={`p-1.5 rounded-lg transition-all ${
                 viewMode === 'grid'
-                  ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                  ? 'bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-300 shadow-xs'
                   : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
               }`}
-              title="卡片网格视图"
+              title={t('filter.viewGrid')}
             >
               <LayoutGrid className="w-4 h-4" />
             </button>
@@ -160,10 +162,10 @@ export const FilterBar: React.FC<FilterBarProps> = ({
               onClick={() => onViewModeChange('list')}
               className={`p-1.5 rounded-lg transition-all ${
                 viewMode === 'list'
-                  ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                  ? 'bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-300 shadow-xs'
                   : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
               }`}
-              title="表格清单视图"
+              title={t('filter.viewList')}
             >
               <List className="w-4 h-4" />
             </button>
@@ -171,10 +173,10 @@ export const FilterBar: React.FC<FilterBarProps> = ({
               onClick={() => onViewModeChange('matrix')}
               className={`p-1.5 rounded-lg transition-all ${
                 viewMode === 'matrix'
-                  ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                  ? 'bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-300 shadow-xs'
                   : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
               }`}
-              title="业务分类矩阵"
+              title={t('filter.viewMatrix')}
             >
               <Grid className="w-4 h-4" />
             </button>
@@ -195,13 +197,13 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                   : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              {cat}
+              {translateCategory(cat, lang, t)}
             </button>
           ))}
         </div>
 
         <div className="text-[11px] text-slate-400 shrink-0 font-medium pl-2">
-          共筛选出 <strong className="text-slate-700 dark:text-slate-200 font-mono">{totalFilteredCount}</strong> 个看板
+          {t('filter.result', { n: totalFilteredCount })}
         </div>
       </div>
     </div>

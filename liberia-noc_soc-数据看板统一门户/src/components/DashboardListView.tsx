@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { DashboardItem } from '../types/dashboard';
 import { DynamicIcon } from './DynamicIcon';
+import { FREQ_LABEL_KEY, useI18n } from '../i18n';
 
 interface DashboardListViewProps {
   dashboards: DashboardItem[];
@@ -34,6 +35,7 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
   onEdit,
   onDelete,
 }) => {
+  const { t } = useI18n();
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const handleCopy = (id: string, url: string, e: React.MouseEvent) => {
@@ -49,21 +51,21 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              <th className="py-3.5 pl-5 pr-2 w-10">收藏</th>
-              <th className="py-3.5 px-4 min-w-[260px]">看板名称 / 业务属性</th>
-              <th className="py-3.5 px-4 min-w-[130px]">所属平台</th>
-              <th className="py-3.5 px-4 min-w-[120px]">部门 / 负责人</th>
-              <th className="py-3.5 px-4 min-w-[110px]">更新频次</th>
-              <th className="py-3.5 px-4 min-w-[240px]">目标访问地址 (URL)</th>
-              <th className="py-3.5 px-4 min-w-[90px] text-right">热度</th>
-              <th className="py-3.5 pl-4 pr-6 min-w-[180px] text-right">操作</th>
+              <th className="py-3.5 pl-5 pr-2 w-10">{t('list.colFav')}</th>
+              <th className="py-3.5 px-4 min-w-[260px]">{t('list.colName')}</th>
+              <th className="py-3.5 px-4 min-w-[130px]">{t('list.colPlatform')}</th>
+              <th className="py-3.5 px-4 min-w-[120px]">{t('list.colDept')}</th>
+              <th className="py-3.5 px-4 min-w-[110px]">{t('list.colFreq')}</th>
+              <th className="py-3.5 px-4 min-w-[240px]">{t('list.colUrl')}</th>
+              <th className="py-3.5 px-4 min-w-[90px] text-right">{t('list.colClicks')}</th>
+              <th className="py-3.5 pl-4 pr-6 min-w-[180px] text-right">{t('list.colActions')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
             {dashboards.map((board) => (
               <tr
                 key={board.id}
-                className="hover:bg-indigo-50/30 dark:hover:bg-slate-800/40 transition-colors group"
+                className="hover:bg-teal-50/40 dark:hover:bg-navy-800/40 transition-colors group"
               >
                 {/* Favorite Star */}
                 <td className="py-3.5 pl-5 pr-2">
@@ -92,7 +94,7 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
                       <div className="flex items-center gap-1.5">
                         <span
                           onClick={() => onOpen(board)}
-                          className="font-semibold text-slate-900 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer truncate max-w-[280px]"
+                          className="font-semibold text-slate-900 dark:text-slate-100 hover:text-teal-600 dark:hover:text-teal-300 cursor-pointer truncate max-w-[280px]"
                         >
                           {board.title}
                         </span>
@@ -121,10 +123,10 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
                     }`}
                   >
                     {board.platform === 'finebi'
-                      ? 'FineBI 平台'
+                      ? t('list.platformFinebi')
                       : board.platform === 'custom'
-                      ? '自研系统'
-                      : '外部大屏'}
+                      ? t('list.platformCustom')
+                      : t('list.platformExternal')}
                   </span>
                 </td>
 
@@ -138,7 +140,7 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
                 <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400">
                   <span className="inline-flex items-center gap-1 text-[11px]">
                     <Clock className="w-3 h-3 text-slate-400" />
-                    {board.updateFrequency}
+                    {t(FREQ_LABEL_KEY[board.updateFrequency] || board.updateFrequency)}
                   </span>
                 </td>
 
@@ -149,7 +151,7 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
                     <button
                       onClick={(e) => handleCopy(board.id, board.url, e)}
                       className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors shrink-0"
-                      title="复制链接"
+                      title={t('list.copy')}
                     >
                       {copiedId === board.id ? (
                         <Check className="w-3 h-3 text-emerald-500" />
@@ -162,7 +164,7 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
 
                 {/* Click Count */}
                 <td className="py-3.5 px-4 text-right font-medium text-slate-600 dark:text-slate-300">
-                  {board.clickCount} 次
+                  {board.clickCount} {t('list.times')}
                 </td>
 
                 {/* Actions */}
@@ -171,7 +173,7 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
                     <button
                       onClick={() => onShowQR(board)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                      title="扫码"
+                      title={t('list.qr')}
                     >
                       <QrCode className="w-3.5 h-3.5" />
                     </button>
@@ -179,7 +181,7 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
                     <button
                       onClick={() => onPreview(board)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                      title="预览"
+                      title={t('list.preview')}
                     >
                       <Eye className="w-3.5 h-3.5" />
                     </button>
@@ -187,7 +189,7 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
                     <button
                       onClick={() => onEdit(board)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                      title="编辑"
+                      title={t('list.edit')}
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
@@ -195,16 +197,16 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
                     <button
                       onClick={() => onDelete(board.id)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                      title="删除"
+                      title={t('list.delete')}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
 
                     <button
                       onClick={() => onOpen(board)}
-                      className="ml-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs flex items-center gap-1 transition-all shadow-sm"
+                      className="ml-1 px-3 py-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-medium text-xs flex items-center gap-1 transition-all shadow-sm"
                     >
-                      <span>打开</span>
+                      <span>{t('list.open')}</span>
                       <ExternalLink className="w-3 h-3" />
                     </button>
                   </div>

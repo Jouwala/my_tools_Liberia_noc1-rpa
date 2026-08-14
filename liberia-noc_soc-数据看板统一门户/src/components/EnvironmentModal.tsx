@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { X, Server, ArrowRight, RefreshCw, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { DashboardItem } from '../types/dashboard';
+import { DEFAULT_HOST } from '../config';
+import { useI18n } from '../i18n';
 
 interface EnvironmentModalProps {
   isOpen: boolean;
@@ -15,7 +17,8 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   dashboards,
   onBatchUpdateUrls,
 }) => {
-  const [sourceHost, setSourceHost] = useState('192.168.100.19');
+  const { t } = useI18n();
+  const [sourceHost, setSourceHost] = useState(DEFAULT_HOST);
   const [targetHost, setTargetHost] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -28,7 +31,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
     e.preventDefault();
     if (!sourceHost || !targetHost) return;
     onBatchUpdateUrls(sourceHost, targetHost);
-    setSuccessMessage(`已成功批量将 ${matchCount} 个看板的服务器地址更新为 ${targetHost}`);
+    setSuccessMessage(t('env.success', { n: matchCount, host: targetHost }));
     setTimeout(() => {
       setSuccessMessage('');
       onClose();
@@ -36,10 +39,9 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   };
 
   const presetEnvs = [
-    { label: '内网办公网段 (当前默认)', host: '192.168.100.19' },
-    { label: '总部数据中心内网', host: '10.10.20.50' },
-    { label: '企业内网域名 (DNS解析)', host: 'bi.corp.internal' },
-    { label: '开发与测试环境 (UAT)', host: '192.168.100.28:8080' },
+    { label: t('env.presetProd'), host: DEFAULT_HOST },
+    { label: t('env.presetDev'), host: `${DEFAULT_HOST}:7090` },
+    { label: t('env.presetLocal'), host: '127.0.0.1' },
   ];
 
   return (
@@ -53,10 +55,10 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
             </div>
             <div>
               <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-base">
-                服务器网段与域名环境配置
+                {t('env.title')}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                支持一键切换生产、测试或域名访问地址
+                {t('env.subtitle')}
               </p>
             </div>
           </div>
@@ -79,7 +81,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-              快速选择预设环境
+              {t('env.presets')}
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {presetEnvs.map((preset) => (
@@ -89,7 +91,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
                   onClick={() => setTargetHost(preset.host)}
                   className={`p-2.5 rounded-xl text-left border text-xs transition-all ${
                     targetHost === preset.host
-                      ? 'border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium ring-2 ring-indigo-500/20'
+                      ? 'border-teal-500 bg-teal-50/70 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 font-medium ring-2 ring-teal-500/20'
                       : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-slate-50/50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-300'
                   }`}
                 >
@@ -106,14 +108,14 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
             <div className="flex items-center gap-3">
               <div className="flex-1">
                 <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
-                  原始 IP / 域名
+                  {t('env.source')}
                 </label>
                 <input
                   type="text"
                   value={sourceHost}
                   onChange={(e) => setSourceHost(e.target.value)}
-                  placeholder="例如 192.168.100.19"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder={t('env.sourcePh')}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
                   required
                 />
               </div>
@@ -124,23 +126,23 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
 
               <div className="flex-1">
                 <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
-                  替换为新 IP / 域名
+                  {t('env.target')}
                 </label>
                 <input
                   type="text"
                   value={targetHost}
                   onChange={(e) => setTargetHost(e.target.value)}
-                  placeholder="例如 bi.mycompany.com"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder={t('env.targetPh')}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
                   required
                 />
               </div>
             </div>
 
             <div className="mt-3 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-              <span>当前包含此地址的看板：</span>
-              <span className="font-semibold text-indigo-600 dark:text-indigo-400">
-                {matchCount} 个
+              <span>{t('env.match')}</span>
+              <span className="font-semibold text-teal-600 dark:text-teal-300">
+                {matchCount} {t('env.matchUnit')}
               </span>
             </div>
           </div>
@@ -148,7 +150,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
           <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/80 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-400 flex items-start gap-2">
             <ShieldAlert className="w-4 h-4 text-cyan-600 shrink-0 mt-0.5" />
             <p>
-              批量更新将自动替换所有看板链接中的 IP 或域名段，不会更改页面路径和报表参数。
+              {t('env.hint')}
             </p>
           </div>
 
@@ -159,15 +161,15 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
             >
-              取消
+              {t('modal.cancel')}
             </button>
             <button
               type="submit"
               disabled={!targetHost || matchCount === 0}
-              className="px-4 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg shadow-sm shadow-indigo-600/20 transition-all flex items-center gap-1.5"
+              className="px-4 py-2 text-xs font-medium text-white bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg shadow-sm shadow-teal-600/20 transition-all flex items-center gap-1.5"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              一键执行批量替换
+              {t('env.apply')}
             </button>
           </div>
         </form>

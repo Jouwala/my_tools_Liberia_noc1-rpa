@@ -1,115 +1,227 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   CheckCircle2,
-  Clock,
-  Play,
   RotateCw,
   ExternalLink,
   ChevronDown,
   ChevronUp,
-  Server,
-  Layers,
+  XCircle,
+  WifiOff,
 } from 'lucide-react';
+import { MYAPP_TASKS_API, MYAPP_HOME_URL } from '../config';
+import { useI18n } from '../i18n';
+
+// ============================================================================
+// Task Manager 实时状态部件
+//  - 数据来源：my_app 后端 GET /api/tasks（与 DataSync 页面同一接口）
+//  - 接口不可达时回退到最近一次抓取的静态快照（2026-08-14，共 34 个任务）
+// ============================================================================
+
+interface ApiTaskRun {
+  success: boolean;
+  started_at?: string;
+  elapsed_seconds?: number;
+}
+
+interface ApiTask {
+  task_id: string;
+  name?: string;
+  name_en?: string;
+  name_zh?: string;
+  category?: string;
+  current_cron?: string;
+  enabled?: boolean;
+  running?: boolean;
+  recent_runs?: ApiTaskRun[];
+}
+
+interface TaskItem {
+  id: string;
+  name: string;
+  category: string;
+  cron: string;
+  enabled: boolean;
+  running: boolean;
+  lastSuccess: boolean | null;
+  lastElapsed: number | null;
+}
+
+// 静态快照：2026-08-14 15:30 抓取自 /api/tasks（全部成功）
+const FALLBACK_TASKS: TaskItem[] = [
+  { id: 'eflow_sync', name: 'eFlow Data Sync', category: 'eflow', cron: '0 * * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 297.3 },
+  { id: 'eflow_sync_full', name: 'eFlow Daily Full Sync', category: 'eflow', cron: '0 8 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 478.4 },
+  { id: 'eflow_active_alarm', name: 'eFlow Realtime Alarm Sync', category: 'eflow', cron: '*/5 * * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 30.4 },
+  { id: 'eflow_history_alarm', name: 'eFlow History Alarm Sync', category: 'eflow', cron: '35 3 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 37.0 },
+  { id: 'ran_ume_daily', name: 'RAN UME Daily Report', category: 'ran_ume', cron: '35 4 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 207.3 },
+  { id: 'main_kpi_sync', name: 'RAN Main KPI Sync', category: 'main_kpi', cron: '0 4 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 596.3 },
+  { id: 'network_kpi_sync', name: 'RAN Network KPI Sync', category: 'network_kpi', cron: '35 5 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 390.4 },
+  { id: 'cnn_kpi_sync', name: 'CNN UME KPI Sync', category: 'cnn_kpi', cron: '0 4 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 303.0 },
+  { id: 'ipran_kpi_sync', name: 'iPRAN UME KPI Sync', category: 'ipran_kpi', cron: '0 * * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 288.3 },
+  { id: 'ms_sla_full', name: 'MS SLA Full Sync', category: 'ms_sla', cron: '30 7 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 587.3 },
+  { id: 'packet_loss_sync', name: 'Packet Loss Sync', category: 'packet_loss', cron: '30 6 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 394.7 },
+  { id: 'packet_loss_email', name: 'Packet Loss Daily Report Email', category: 'packet_loss', cron: '45 6 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 20.0 },
+  { id: 'battery_kpi_sync', name: 'Battery KPI Sync', category: 'battery', cron: '5 * * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 3.0 },
+  { id: 'battery_email', name: 'Battery KPI Email', category: 'battery', cron: '0 7,19 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 7.5 },
+  { id: 'fw_kpi_sync', name: 'FW Throughput KPI Sync + Chart Email', category: 'fw_kpi', cron: '15 7 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 13.7 },
+  { id: 'sp_data_sync', name: 'SP Spare Data Sync', category: 'sp', cron: '0 7 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 11.3 },
+  { id: 'sp_report_generate', name: 'SP Report Generate', category: 'kpi_email', cron: '15 5 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 37.6 },
+  { id: 'incident_overview_sync', name: 'Incident Overview Data Sync', category: 'incident_overview', cron: '3 * * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 17.2 },
+  { id: 'site_outage_screenshot', name: 'Site Outage Screenshot', category: 'site_outage', cron: '0 */1 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 30.5 },
+  { id: 'liberia_email_1h', name: 'Liberia Site-Down 1H Report Email', category: 'email', cron: '6 * * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 4.4 },
+  { id: 'liberia_email_8h', name: 'Liberia Site-Down 8H Report Email', category: 'email', cron: '7 */8 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 3.5 },
+  { id: 'whatsapp_send', name: 'WhatsApp Message Send', category: 'whatsapp', cron: '2 */2 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 74.1 },
+  { id: 'kpi_ms_contract', name: 'MS Contract KPIs Daily Report Email', category: 'kpi_email', cron: '30 5 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 3.7 },
+  { id: 'kpi_ms_wo_sla', name: 'MS WOs SLA Daily Report Email', category: 'kpi_email', cron: '35 5 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 2.6 },
+  { id: 'kpi_ran_availability', name: 'MS Network Availability Daily Report Email', category: 'kpi_email', cron: '20 6 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 7.3 },
+  { id: 'kpi_sp_spareparts', name: 'SpareParts Report Email', category: 'kpi_email', cron: '45 5 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 3.2 },
+  { id: 'kpi_sp_consumables', name: 'Comsumables Report Email', category: 'kpi_email', cron: '40 6 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 3.3 },
+  { id: 'ipran_m6k_chart_email', name: 'IP RAN M6K-FW Chart Email', category: 'email', cron: '15 8 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 5.5 },
+  { id: 'ccn_free_rating_chart_email', name: 'CNN Free Rating Chart Email', category: 'email', cron: '45 7 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 4.5 },
+  { id: 'email_recovery', name: 'Email Recovery after EWS Restored', category: 'email', cron: '*/20 * * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 2.4 },
+  { id: 'mailbox_cleanup', name: 'Mailbox Storage Guard', category: 'mailbox', cron: '0 * * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 7.2 },
+  { id: 'cm_data_sync', name: 'RAN CM Cell Data Sync', category: 'cm_data', cron: '30 8 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 68.9 },
+  { id: 'db_freshness_check', name: 'DB Data Freshness Check', category: 'general', cron: '15 * * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 77.0 },
+  { id: 'auto_retry_failed', name: 'Failed Task Auto Retry', category: 'general', cron: '*/5 * * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 0.0 },
+];
+
+const REFRESH_INTERVAL = 60_000; // 60s 自动刷新
+
+function mapApiTask(t: ApiTask): TaskItem {
+  const last = t.recent_runs && t.recent_runs.length > 0 ? t.recent_runs[0] : null;
+  return {
+    id: t.task_id,
+    name: t.name_en || t.name || t.task_id,
+    category: t.category || 'general',
+    cron: t.current_cron || '',
+    enabled: t.enabled !== false,
+    running: !!t.running,
+    lastSuccess: last ? !!last.success : null,
+    lastElapsed: last && typeof last.elapsed_seconds === 'number' ? last.elapsed_seconds : null,
+  };
+}
 
 export const TaskSyncWidget: React.FC = () => {
+  const { t, lang } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [tasks, setTasks] = useState<TaskItem[]>(FALLBACK_TASKS);
+  const [isLive, setIsLive] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
-  const tasks = [
-    {
-      name: 'eFlow Daily Full Sync',
-      type: 'ZTE eFlow API',
-      schedule: 'Daily 08:00',
-      nextRun: '2026-08-15 08:00 AM (in ~17h)',
-      lastRun: '2026-08-14 08:03:27',
-      duration: '478.4s',
-      status: 'idle',
-      desc: 'eFlow daily full backfill sync (full window), refresh reports',
-    },
-    {
-      name: 'eFlow Data Sync',
-      type: 'ZTE eFlow API',
-      schedule: 'Every hour at :0',
-      nextRun: '2026-08-14 04:00:00 PM (in ~1h)',
-      lastRun: '2026-08-14 14:00:01',
-      duration: '283.9s',
-      status: 'running',
-      desc: 'Fetch TT/WO/CR/PM/Site/Person data from ZTE eFlow API',
-    },
-    {
-      name: 'eFlow Realtime Alarm Sync',
-      type: 'ZTE eFlow API',
-      schedule: 'Every hour at :*/5',
-      nextRun: '2026-08-14 03:05:00 PM (in ~5m)',
-      lastRun: '2026-08-14 14:55:01',
-      duration: '30.4s',
-      status: 'running',
-      desc: 'Fetch realtime alarms from eFlow FM Active API, save to CSV + SQLite',
-    },
-    {
-      name: 'Incident Overview Data Sync',
-      type: 'Incident Sync',
-      schedule: 'Every hour at :3',
-      nextRun: '2026-08-14 03:03:00 PM (in ~3m)',
-      lastRun: '2026-08-14 14:10:01',
-      duration: '0.1s',
-      status: 'idle',
-      desc: 'Hourly on-the-hour: pull incident_overview.xlsx from remote FineBI FTP',
-    },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const load = async () => {
+      try {
+        const res = await fetch(MYAPP_TASKS_API, {
+          signal: controller.signal,
+          headers: { 'Accept-Language': lang === 'zh' ? 'zh-CN' : 'en-US' },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        const list: ApiTask[] = Array.isArray(json?.tasks) ? json.tasks : [];
+        if (!cancelled && list.length > 0) {
+          setTasks(list.map(mapApiTask));
+          setIsLive(true);
+          setUpdatedAt(new Date());
+        }
+      } catch {
+        // 网络不可达 / CORS：保持静态快照展示
+        if (!cancelled) setIsLive(false);
+      }
+    };
+
+    load();
+    const timer = window.setInterval(load, REFRESH_INTERVAL);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [lang]);
+
+  const stats = useMemo(() => {
+    const total = tasks.length;
+    const running = tasks.filter((t) => t.running).length;
+    const failed = tasks.filter((t) => t.lastSuccess === false).length;
+    const ok = tasks.filter((t) => t.lastSuccess === true).length;
+    return { total, running, failed, ok };
+  }, [tasks]);
+
+  // 展开时优先展示运行中 / 失败 / 高频任务，取前 8 个
+  const showcase = useMemo(() => {
+    const weight = (t: TaskItem) => (t.running ? 0 : t.lastSuccess === false ? 1 : 2);
+    return [...tasks].sort((a, b) => weight(a) - weight(b)).slice(0, 8);
+  }, [tasks]);
 
   return (
-    <div className="mb-6 bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950 text-white rounded-2xl p-4 sm:p-5 border border-slate-800 shadow-lg">
+    <div className="mb-6 bg-gradient-to-r from-teal-50 via-white to-cyan-50 text-slate-900 rounded-2xl p-4 sm:p-5 border border-teal-300/50 shadow-sm dark:bg-gradient-to-r dark:from-navy-950 dark:via-navy-900 dark:to-navy-800 dark:text-white dark:border-teal-400/15 dark:shadow-lg dark:shadow-navy-950/40 animate-fadeIn">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+          <div className="p-2.5 rounded-xl bg-teal-100 text-teal-600 border border-teal-300/70 dark:bg-teal-400/15 dark:text-teal-300 dark:border-teal-400/30">
             <Activity className="w-5 h-5 animate-pulse" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold text-sm sm:text-base tracking-tight text-white flex items-center gap-2">
-                Data Insight 自动化任务调度中心 (Task Manager)
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-bold text-sm sm:text-base tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+                {t('task.title')}
               </h3>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                运行中
-              </span>
+              {isLive ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-300/70 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-400/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
+                  {t('task.live')}
+                  {updatedAt && (
+                    <span className="text-emerald-600/70 dark:text-emerald-400/70 font-mono">
+                      {updatedAt.toLocaleTimeString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour12: false })}
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-300/70 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-400/30 flex items-center gap-1">
+                  <WifiOff className="w-2.5 h-2.5" />
+                  {t('task.offline')}
+                </span>
+              )}
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              实时同步 ZTE eFlow API 工单、FM 活动告警与 FineBI 报表数据源
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              {t('task.desc')}
             </p>
           </div>
         </div>
 
         {/* Stats Pills */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700/60 text-xs">
-            <span className="text-slate-400">全部:</span>
-            <span className="font-mono font-bold text-white">34</span>
-            <span className="text-slate-600">|</span>
-            <span className="text-cyan-400 flex items-center gap-1">
-              <RotateCw className="w-3 h-3 animate-spin" /> 5 运行中
+          <div className="flex items-center gap-1.5 bg-slate-900/5 dark:bg-white/5 px-3 py-1.5 rounded-xl border border-slate-300/60 dark:border-white/10 text-xs">
+            <span className="text-slate-500 dark:text-slate-400">{t('task.total')}</span>
+            <span className="font-mono font-bold text-slate-900 dark:text-white">{stats.total}</span>
+            <span className="text-slate-300 dark:text-slate-600">|</span>
+            <span className="text-teal-600 dark:text-teal-300 flex items-center gap-1">
+              <RotateCw className={`w-3 h-3 ${stats.running > 0 ? 'animate-spin' : ''}`} /> {stats.running} {t('task.running')}
             </span>
-            <span className="text-slate-600">|</span>
-            <span className="text-emerald-400">29 已完成</span>
-            <span className="text-slate-600">|</span>
-            <span className="text-rose-400">0 失败</span>
+            <span className="text-slate-300 dark:text-slate-600">|</span>
+            <span className="text-emerald-600 dark:text-emerald-400">{stats.ok} {t('task.ok')}</span>
+            <span className="text-slate-300 dark:text-slate-600">|</span>
+            <span className={stats.failed > 0 ? 'text-rose-500 dark:text-rose-400 font-bold' : 'text-slate-400 dark:text-slate-500'}>
+              {stats.failed} {t('task.failed')}
+            </span>
           </div>
 
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-            title={isExpanded ? '收起任务明细' : '展开关键调度任务'}
+            className="p-1.5 rounded-xl bg-slate-900/5 hover:bg-slate-900/10 text-slate-600 border border-slate-300/60 dark:bg-white/5 dark:hover:bg-white/10 dark:text-slate-300 dark:border-white/10 transition-colors"
+            title={isExpanded ? t('task.collapse') : t('task.expand')}
           >
             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
 
           <a
-            href="http://192.168.100.19/myapp/"
+            href={`${MYAPP_HOME_URL}?page=sync`}
             target="_blank"
             rel="noopener noreferrer"
-            className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs flex items-center gap-1 transition-all shadow-sm shadow-cyan-600/20"
+            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-medium text-xs flex items-center gap-1 transition-all shadow-sm shadow-teal-600/30"
           >
-            <span>任务调度大屏</span>
+            <span>{t('task.bigScreen')}</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
         </div>
@@ -117,44 +229,48 @@ export const TaskSyncWidget: React.FC = () => {
 
       {/* Expandable Task Cards */}
       {isExpanded && (
-        <div className="mt-4 pt-4 border-t border-slate-800/80 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 animate-fadeIn">
-          {tasks.map((task, idx) => (
+        <div className="mt-4 pt-4 border-t border-slate-200 dark:border-white/10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 animate-fadeIn">
+          {showcase.map((task) => (
             <div
-              key={idx}
-              className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60 flex flex-col justify-between"
+              key={task.id}
+              className="p-3 rounded-xl bg-white/70 border border-slate-200 hover:border-teal-500/50 dark:bg-white/5 dark:border-white/10 dark:hover:border-teal-400/40 flex flex-col justify-between transition-colors"
             >
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-cyan-950 text-cyan-300 border border-cyan-800/60">
-                    {task.type}
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-teal-100 text-teal-700 border border-teal-300/70 dark:bg-teal-950/80 dark:text-teal-300 dark:border-teal-400/20">
+                    {task.category}
                   </span>
-                  {task.status === 'running' ? (
-                    <span className="text-[10px] text-cyan-400 font-medium flex items-center gap-1">
-                      <RotateCw className="w-2.5 h-2.5 animate-spin" /> 执行中
+                  {task.running ? (
+                    <span className="text-[10px] text-teal-600 dark:text-teal-300 font-medium flex items-center gap-1">
+                      <RotateCw className="w-2.5 h-2.5 animate-spin" /> {t('task.taskRunning')}
+                    </span>
+                  ) : task.lastSuccess === false ? (
+                    <span className="text-[10px] text-rose-500 dark:text-rose-400 font-medium flex items-center gap-1">
+                      <XCircle className="w-2.5 h-2.5" /> {t('task.lastFailed')}
                     </span>
                   ) : (
-                    <span className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
-                      <CheckCircle2 className="w-2.5 h-2.5" /> 就绪
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                      <CheckCircle2 className="w-2.5 h-2.5" /> {t('task.ready')}
                     </span>
                   )}
                 </div>
 
-                <h4 className="font-semibold text-xs text-white truncate" title={task.name}>
+                <h4 className="font-semibold text-xs text-slate-900 dark:text-white truncate" title={task.name}>
                   {task.name}
                 </h4>
-                <p className="text-[11px] text-slate-400 line-clamp-2 mt-1 leading-snug">
-                  {task.desc}
-                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug font-mono">{task.id}</p>
               </div>
 
-              <div className="mt-2.5 pt-2 border-t border-slate-700/50 text-[10px] text-slate-400 space-y-0.5">
+              <div className="mt-2.5 pt-2 border-t border-slate-200/80 dark:border-white/10 text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5">
                 <div className="flex items-center justify-between">
-                  <span>调度周期:</span>
-                  <span className="font-mono text-slate-300">{task.schedule}</span>
+                  <span>{t('task.cron')}</span>
+                  <span className="font-mono text-slate-700 dark:text-slate-300">{task.cron}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span>上次执行:</span>
-                  <span className="font-mono text-slate-300">{task.duration}</span>
+                  <span>{t('task.elapsed')}</span>
+                  <span className="font-mono text-slate-700 dark:text-slate-300">
+                    {task.lastElapsed !== null ? `${task.lastElapsed.toFixed(1)}s` : '—'}
+                  </span>
                 </div>
               </div>
             </div>

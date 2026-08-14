@@ -30,7 +30,7 @@ export interface DashboardItem {
   isPinned: boolean;
   clickCount: number;
   lastVisited?: string;
-  themeColor: 'indigo' | 'emerald' | 'cyan' | 'purple' | 'amber' | 'rose' | 'blue';
+  themeColor: 'teal' | 'indigo' | 'emerald' | 'cyan' | 'purple' | 'amber' | 'rose' | 'blue';
   status: DashboardStatus;
   customThumbnail?: string;
 }
