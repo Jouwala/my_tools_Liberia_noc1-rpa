@@ -13,6 +13,9 @@ const translations: Record<Locale, Record<string, string>> = {
     // App / Layout
     'app.title': '数据洞察 MVP',
     'app.titleShort': 'DI',
+    // 侧边栏右键菜单
+    'ctx.newTab': '在新标签页打开',
+    'ctx.currentTab': '在当前页面打开',
     'nav.overview': '数据总览',
     'nav.tables': '表浏览器',
     'nav.upload': '数据上传',
@@ -736,6 +739,9 @@ const translations: Record<Locale, Record<string, string>> = {
     // App / Layout
     'app.title': 'Data Insight MVP',
     'app.titleShort': 'DI',
+    // Sidebar context menu
+    'ctx.newTab': 'Open in new tab',
+    'ctx.currentTab': 'Open in current tab',
     'nav.overview': 'Overview',
     'nav.tables': 'Table Browser',
     'nav.upload': 'Data Upload',
@@ -1482,11 +1488,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(detectLocale)
 
   // 语言变化时同步给后端（任务名等数据字段需要按语言返回），
-  // 并同步文档语言与标题（index.html 里的静态值仅作首屏兜底）
+  // 并同步文档语言（页面标题由 AppContent 按当前页面动态设置，避免被父级覆写）
   useEffect(() => {
     setApiLocale(locale)
     document.documentElement.lang = locale === 'zh' ? 'zh-CN' : 'en'
-    document.title = translations[locale]?.['app.title'] || translations.zh['app.title']
   }, [locale])
 
   const setLocale = useCallback((l: Locale) => {

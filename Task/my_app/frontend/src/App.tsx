@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react'
+import { useState, lazy, Suspense, useEffect, useCallback } from 'react'
 import { ConfigProvider, Layout, Menu, theme, Button, Spin, Tooltip } from 'antd'
 import {
   DatabaseOutlined,
@@ -22,6 +22,8 @@ import {
   PieChartOutlined,
   SunOutlined,
   MoonOutlined,
+  ExportOutlined,
+  SelectOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -55,8 +57,14 @@ const { Header, Sider, Content } = Layout
 
 type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard'
 
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard']
+
 function AppContent() {
-  const [currentPage, setCurrentPage] = useState<PageKey>('sync')
+  // 支持 ?page=xxx 直链定位（右键菜单「在新标签页打开」使用），非法值回退到默认页
+  const [currentPage, setCurrentPage] = useState<PageKey>(() => {
+    const p = new URLSearchParams(window.location.search).get('page')
+    return p && (VALID_PAGES as string[]).includes(p) ? (p as PageKey) : 'sync'
+  })
   const [collapsed, setCollapsed] = useState(false)
   const { t, locale, toggleLocale } = useI18n()
   const { isDark, toggle } = useTheme()
@@ -83,6 +91,63 @@ function AppContent() {
     { key: 'dashboard', icon: <DashboardOutlined />, label: t('nav.dashboard') },
     { key: 'settings', icon: <SettingOutlined />, label: t('nav.settings') },
   ]
+
+  // ===== 右键菜单（在新标签页打开）=====
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; key: PageKey } | null>(null)
+  const [ctxHover, setCtxHover] = useState<'newTab' | 'currentTab' | null>(null)
+
+  const onMenuContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const el = (e.target as HTMLElement).closest('li[data-menu-id]')
+    if (!el) return
+    // antd v6 的 data-menu-id 形如 "rc-menu-uuid-<key>"，剥离前缀还原业务 key
+    let raw = el.getAttribute('data-menu-id') || ''
+    let key = raw.replace(/^rc-menu-uuid-/, '')
+    if (!(VALID_PAGES as string[]).includes(key)) {
+      // 兜底：按在父级中的索引映射回 menuItems（单层 inline 菜单顺序一致）
+      const parent = el.parentElement
+      if (parent) {
+        const idx = Array.prototype.indexOf.call(parent.children, el)
+        key = (menuItems[idx]?.key ?? '') as string
+      }
+    }
+    if (!(VALID_PAGES as string[]).includes(key)) return
+    const menuW = 190
+    const menuH = 96
+    const x = Math.min(e.clientX, window.innerWidth - menuW - 8)
+    const y = Math.min(e.clientY, window.innerHeight - menuH - 8)
+    setCtxMenu({ x: Math.max(8, x), y: Math.max(8, y), key: key as PageKey })
+  }, [menuItems])
+
+  const closeCtxMenu = useCallback(() => {
+    setCtxMenu(null)
+    setCtxHover(null)
+  }, [])
+
+  const openInNewTab = useCallback((key: PageKey) => {
+    // 同源路径 + ?page= 参数，新标签页据此定位页面
+    const url = `${window.location.pathname}?page=${key}`
+    window.open(url, '_blank', 'noopener')
+    closeCtxMenu()
+  }, [closeCtxMenu])
+
+  // 页面名同步到浏览器标签标题，便于新标签页识别
+  useEffect(() => {
+    const label = menuItems.find(m => m.key === currentPage)?.label
+    if (label) document.title = `${label} - ${t('app.title')}`
+  }, [currentPage, locale])
+
+  const ctxItemBase: React.CSSProperties = {
+    padding: '6px 10px',
+    borderRadius: 6,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    color: isDark ? '#dbeafe' : '#1e293b',
+    fontSize: 13,
+    userSelect: 'none',
+  }
 
   const renderPage = () => {
     switch (currentPage) {
@@ -173,9 +238,57 @@ function AppContent() {
             mode="inline"
             selectedKeys={[currentPage]}
             items={menuItems}
-            onClick={({ key }) => setCurrentPage(key as PageKey)}
+            onClick={({ key }) => { setCurrentPage(key as PageKey); closeCtxMenu() }}
+            onContextMenu={onMenuContextMenu}
             style={{ background: isDark ? '#0a1929' : '#f6fafd' }}
           />
+          {/* 右键菜单浮层：全屏透明遮罩负责关闭，菜单本体定位在鼠标处 */}
+          {ctxMenu && (
+            <>
+              <div
+                style={{ position: 'fixed', inset: 0, zIndex: 2000 }}
+                onClick={closeCtxMenu}
+                onContextMenu={(e) => { e.preventDefault(); closeCtxMenu() }}
+              />
+              <div style={{
+                position: 'fixed',
+                left: ctxMenu.x,
+                top: ctxMenu.y,
+                zIndex: 2001,
+                minWidth: 170,
+                padding: 4,
+                background: isDark ? '#0f2744' : '#ffffff',
+                border: isDark ? '1px solid rgba(100,255,218,0.25)' : '1px solid #d5e2ef',
+                borderRadius: 8,
+                boxShadow: isDark ? '0 8px 28px rgba(0,0,0,0.55)' : '0 6px 24px rgba(13,94,84,0.16)',
+              }}>
+                <div
+                  style={{
+                    ...ctxItemBase,
+                    background: ctxHover === 'newTab' ? (isDark ? 'rgba(100,255,218,0.14)' : 'rgba(19,194,194,0.12)') : 'transparent',
+                  }}
+                  onMouseEnter={() => setCtxHover('newTab')}
+                  onMouseLeave={() => setCtxHover(null)}
+                  onClick={() => openInNewTab(ctxMenu.key)}
+                >
+                  <ExportOutlined style={{ color: WH.teal }} />
+                  {t('ctx.newTab')}
+                </div>
+                <div
+                  style={{
+                    ...ctxItemBase,
+                    background: ctxHover === 'currentTab' ? (isDark ? 'rgba(100,255,218,0.14)' : 'rgba(19,194,194,0.12)') : 'transparent',
+                  }}
+                  onMouseEnter={() => setCtxHover('currentTab')}
+                  onMouseLeave={() => setCtxHover(null)}
+                  onClick={() => { setCurrentPage(ctxMenu.key); closeCtxMenu() }}
+                >
+                  <SelectOutlined style={{ color: WH.teal }} />
+                  {t('ctx.currentTab')}
+                </div>
+              </div>
+            </>
+          )}
         </Sider>
         <Layout style={{ background: WH.bg }}>
           <Header style={{

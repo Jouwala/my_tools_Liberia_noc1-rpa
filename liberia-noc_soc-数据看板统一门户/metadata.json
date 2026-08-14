@@ -1,0 +1,6 @@
+{
+  "name": "Liberia NOC/SOC 企业数据看板统一门户",
+  "description": "集成了FineBI决策报表平台(Liberia Data Portal)与自研Data Insight MVP系统看板的多源统一调度与运维导航门户",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
