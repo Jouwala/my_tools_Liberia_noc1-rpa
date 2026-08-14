@@ -27,6 +27,13 @@ if exist "%~dp0backend\worker_watchdog.pid" (
     del "%~dp0backend\worker_watchdog.pid" >nul 2>&1
 )
 
+:: 2026-08-14: FreeConsole() 使 worker 脱离看门狗控制台，树杀看门狗不再连带杀 worker。
+:: 必须额外清理所有孤儿 worker 进程（匹配命令行含 backend.worker 的 python.exe）。
+for /f "tokens=2" %%a in ('tasklist /fi "IMAGENAME eq python.exe" /v /fo csv 2^>nul ^| findstr /i "backend.worker"') do (
+    taskkill /PID %%a /F >nul 2>&1
+    echo [*] Killed orphan worker PID=%%a
+)
+
 :: Stale PID files break the watchdog's duplicate-instance check
 :: (a recycled PID would be mistaken for a live watchdog).
 for %%f in ("%~dp0backend\worker_*.pid") do del "%%f" >nul 2>&1
