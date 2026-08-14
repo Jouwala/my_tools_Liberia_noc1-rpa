@@ -151,35 +151,39 @@ def enqueue_task(task_id: str, trigger: str = "manual") -> dict:
     """投递任务到 task_queue，由 Worker 进程执行。
 
     单飞保护：同一任务已有 pending/running 队列记录时拒绝投递。
-    注意：不能用 is_task_running 预判（它自身依赖本函数查队列，会递归），
-    且本进程 _active_runs 不反映 Worker 进程的运行状态，必须以队列表为准。
+    2026-08-14 修复：旧逻辑 SELECT 检查 + INSERT 非原子，并发调度时会产生重复
+    队列记录（两个 worker 各认领一条，导致同一任务既成功又失败的矛盾结果）。
+    改为 INSERT ... SELECT ... WHERE NOT EXISTS 原子操作，数据库层面杜绝重复投递。
     """
     try:
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
             _ensure_queue_table(conn)
-            row = conn.execute(
-                "SELECT id FROM task_queue WHERE task_id = ? AND status IN ('pending', 'running') LIMIT 1",
-                (task_id,),
-            ).fetchone()
-            if row:
-                conn.close()
-                return {"accepted": False, "running": True, "queued": True,
-                        "error": "任务已在队列中等待或执行"}
+            now_iso = datetime.now().isoformat()
             if isinstance(conn, sqlite3.Connection):
                 cur = conn.execute(
-                    "INSERT INTO task_queue (task_id, trigger_type, status, created_at) VALUES (?, ?, 'pending', ?)",
-                    (task_id, trigger, datetime.now().isoformat()),
+                    "INSERT INTO task_queue (task_id, trigger_type, status, created_at) "
+                    "SELECT ?, ?, 'pending', ? "
+                    "WHERE NOT EXISTS (SELECT 1 FROM task_queue WHERE task_id = ? AND status IN ('pending', 'running'))",
+                    (task_id, trigger, now_iso, task_id),
                 )
                 queue_id = cur.lastrowid
             else:
-                # PG：sqlite 无 RETURNING 等价物；用 RETURNING id 取回自增主键
+                # PG：RETURNING id 取自 INSERT 分支；若 WHERE NOT EXISTS 过滤掉则无行返回
                 cur = conn.execute(
-                    "INSERT INTO task_queue (task_id, trigger_type, status, created_at) VALUES (?, ?, 'pending', ?) RETURNING id",
-                    (task_id, trigger, datetime.now().isoformat()),
+                    "INSERT INTO task_queue (task_id, trigger_type, status, created_at) "
+                    "SELECT %s, %s, 'pending', %s "
+                    "WHERE NOT EXISTS (SELECT 1 FROM task_queue WHERE task_id = %s AND status IN ('pending', 'running')) "
+                    "RETURNING id",
+                    (task_id, trigger, now_iso, task_id),
                 )
-                queue_id = cur.fetchone()[0]
+                row = cur.fetchone()
+                queue_id = row[0] if row else None
             conn.commit()
             conn.close()
+        if queue_id is None:
+            # WHERE NOT EXISTS 过滤了——已有 pending/running 记录
+            return {"accepted": False, "running": True, "queued": True,
+                    "error": "任务已在队列中等待或执行"}
         logger.info(f"[{task_id}] 已投递任务队列 (queue_id={queue_id}, trigger={trigger})")
         return {"accepted": True, "running": False, "queued": True, "queue_id": queue_id,
                 "task_id": task_id, "started_at": datetime.now().isoformat()}
