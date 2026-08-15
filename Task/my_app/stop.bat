@@ -115,4 +115,11 @@ if %LEFTOVER%==1 (
 ) else (
     echo [OK] Verified: all ports released, services fully stopped.
 )
+
+:: ===== 写停止标记：阻止开机自启/手动启动脚本再次拉起服务 =====
+:: start_hidden.vbs 检测到此文件存在时不启动任何服务；
+:: 下次要正式启动时，start.bat / restart_backend.bat 会自动删除该标记。
+echo %date% %time% stopped by %USERNAME%> "%~dp0backend\stopped.flag"
+echo [*] Wrote backend\stopped.flag — autostart will be blocked until next start/restart.
+
 ping -n 2 127.0.0.1 >nul

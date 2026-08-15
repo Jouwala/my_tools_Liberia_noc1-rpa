@@ -10,6 +10,12 @@ echo   Data Insight MVP - Starting...
 echo ============================================
 echo.
 
+:: ===== 清除停止标记（stop.bat 写的 backend\stopped.flag 会阻止开机自启，手动启动时主动清除） =====
+if exist "%~dp0backend\stopped.flag" (
+    del "%~dp0backend\stopped.flag" >nul 2>&1
+    echo [*] Cleared stopped.flag — autostart re-enabled.
+)
+
 :: ===== 自动检测 Python（优先 python.exe 便于看到错误） =====
 set PYTHON_EXE=
 :: 0) 项目内嵌 Python（终极兜底：拷贝到任何机器都能跑；该目录不存在则跳过）

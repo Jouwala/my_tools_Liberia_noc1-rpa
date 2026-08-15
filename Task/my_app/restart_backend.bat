@@ -8,6 +8,12 @@ echo   Restart backend + task worker watchdog
 echo ============================================
 echo.
 
+:: ===== 清除停止标记（stop.bat 写的 backend\stopped.flag 会阻止开机自启，手动重启时主动清除） =====
+if exist "%~dp0backend\stopped.flag" (
+    del "%~dp0backend\stopped.flag" >nul 2>&1
+    echo [*] Cleared stopped.flag — autostart re-enabled.
+)
+
 set PYTHON_EXE=C:\Users\ZTEEMS\AppData\Local\Programs\Python\Python312\python.exe
 if not exist "%PYTHON_EXE%" (
     echo [ERROR] Python not found: %PYTHON_EXE%

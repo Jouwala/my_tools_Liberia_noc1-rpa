@@ -8,6 +8,14 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 base = fso.GetParentFolderName(WScript.ScriptFullName)
 ws.CurrentDirectory = base
 
+' ===== 停止标记检查：stop.bat 停止后写 backend\stopped.flag，阻止开机自启/误启动 =====
+' 下次要正式启动时，start.bat / restart_backend.bat 会自动删除该标记。
+stoppedFlag = fso.BuildPath(base, "backend\stopped.flag")
+If fso.FileExists(stoppedFlag) Then
+    ' 静默退出，不弹窗（开机自启场景弹窗会卡登录）
+    WScript.Quit 0
+End If
+
 ' 确保日志目录存在（所有日志重定向到 log\ 子目录，保持项目根目录整洁）
 logDir = fso.BuildPath(base, "log")
 If Not fso.FolderExists(logDir) Then fso.CreateFolder(logDir)
