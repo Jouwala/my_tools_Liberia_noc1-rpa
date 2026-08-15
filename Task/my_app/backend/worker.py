@@ -91,11 +91,18 @@ def _pid_alive(pid) -> bool:
     if sys.platform == "win32":
         try:
             import ctypes
+            kernel32 = ctypes.windll.kernel32
+            # 必须显式设置 restype：ctypes 默认按 32 位有符号 int 解释返回值，
+            # 64 位句柄高位被截断后可能变成 0/负数，把存活进程误判为不存在
+            # （2026-08-14 事故：运行中任务被周期回收误标 failed，产生
+            # 同一任务既成功又失败的矛盾记录）。
+            kernel32.OpenProcess.restype = ctypes.c_void_p
+            kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if not h:
                 return False  # 打开失败=进程不存在（或无权限，本机自身进程不会无权限）
-            ctypes.windll.kernel32.CloseHandle(h)
+            kernel32.CloseHandle(h)
             return True
         except Exception:
             return True

@@ -293,11 +293,11 @@ TASK_SPECS = [
          description_en="Hourly freshness audit of remote DBs (via db_writer_api) and local fallback DBs; outputs call chain and troubleshooting guidance when stale",
          default_cron="15 * * * *", category="general"),
 
-    # 30. 失败任务自动重试（每 10 分钟扫描，失败后无成功记录补上缺口即重试）
+    # 30. 失败任务自动重试 + 漏跑补投（每 10 分钟扫描）
     dict(task_id="auto_retry_failed", name="失败任务自动重试", name_en="Failed Task Auto Retry",
          loader=("backend.services.auto_retry", "run_auto_retry_task"),
-         description="每 10 分钟扫描失败任务；若失败造成的数据缺口尚未被后续成功执行补上（或已超 24h 硬上限则放弃）且未超过重试次数上限，自动重新投递执行（邮件任务由 EWS 补发机制负责，默认排除）",
-         description_en="Scan failed tasks every 10 minutes; re-run those whose data gap has not been filled by a later successful run (give up beyond the 24h hard cap) and under the retry budget (email tasks are handled by EWS recovery and excluded)",
+         description="每 10 分钟扫描：① 失败任务若数据缺口尚未被后续成功执行补上（或已超 24h 硬上限则放弃）且未超过重试次数上限，自动重新投递执行；② 时效窗口内应触发但根本没有任何执行记录的漏跑任务，自动补投一次（邮件任务由 EWS 补发机制负责，默认排除）",
+         description_en="Scan every 10 minutes: (1) re-run failed tasks whose data gap has not been filled by a later successful run (give up beyond the 24h hard cap) and under the retry budget; (2) backfill missed tasks that should have fired within the time window but have no execution record at all (email tasks are handled by EWS recovery and excluded)",
          default_cron="*/10 * * * *", category="general"),
 
     # 31. RAN UME CM 小区配置数据同步（每天 8:30）

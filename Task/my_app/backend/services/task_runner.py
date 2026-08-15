@@ -168,11 +168,14 @@ def enqueue_task(task_id: str, trigger: str = "manual") -> dict:
                 )
                 queue_id = cur.lastrowid
             else:
-                # PG：RETURNING id 取自 INSERT 分支；若 WHERE NOT EXISTS 过滤掉则无行返回
+                # PG（_PsycopgRaw 包装连接）：同样用 '?' 占位符——包装层会自动把
+                # '?' 转成 '%s'；若直接写 '%s'，包装层的 escape_pct 会把它二次转义成
+                # '%%s'，导致 PG 报语法错误 "at or near '%'"（2026-08-14 手动投递全挂事故）。
+                # RETURNING id 取自 INSERT 分支；若 WHERE NOT EXISTS 过滤掉则无行返回。
                 cur = conn.execute(
                     "INSERT INTO task_queue (task_id, trigger_type, status, created_at) "
-                    "SELECT %s, %s, 'pending', %s "
-                    "WHERE NOT EXISTS (SELECT 1 FROM task_queue WHERE task_id = %s AND status IN ('pending', 'running')) "
+                    "SELECT ?, ?, 'pending', ? "
+                    "WHERE NOT EXISTS (SELECT 1 FROM task_queue WHERE task_id = ? AND status IN ('pending', 'running')) "
                     "RETURNING id",
                     (task_id, trigger, now_iso, task_id),
                 )

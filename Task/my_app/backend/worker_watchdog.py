@@ -91,6 +91,10 @@ def _another_watchdog_running() -> bool:
         if sys.platform == "win32":
             import ctypes
             kernel32 = ctypes.windll.kernel32
+            # 显式 restype：ctypes 默认按 32 位 int 截断 64 位句柄，存活进程
+            # 可能被误判为不存在 → 重复启动第二个 watchdog 抢队列。
+            kernel32.OpenProcess.restype = ctypes.c_void_p
+            kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
             PROCESS_QUERY_INFORMATION = 0x0400
             h = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, False, pid)
             if h:
