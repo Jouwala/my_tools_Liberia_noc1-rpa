@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Copy, Check, ExternalLink, Smartphone, Wifi, QrCode } from 'lucide-react';
 import { DashboardItem } from '../types/dashboard';
 import { useI18n } from '../i18n';
+import { resolveUrl } from '../config';
 
 interface QRCodeModalProps {
   dashboard: DashboardItem | null;
@@ -14,14 +15,16 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({ dashboard, onClose }) 
 
   if (!dashboard) return null;
 
+  const targetUrl = resolveUrl(dashboard);
+
   const handleCopy = () => {
-    navigator.clipboard.writeText(dashboard.url);
+    navigator.clipboard.writeText(targetUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   // Generate QR code URL using public QR server or SVG fallback
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(dashboard.url)}&margin=10`;
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(targetUrl)}&margin=10`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
@@ -81,7 +84,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({ dashboard, onClose }) 
             </label>
             <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
               <span className="text-xs font-mono text-slate-700 dark:text-slate-300 truncate flex-1 select-all">
-                {dashboard.url}
+                {targetUrl}
               </span>
               <button
                 onClick={handleCopy}
@@ -100,7 +103,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({ dashboard, onClose }) 
             <Smartphone className="w-3.5 h-3.5" /> {t('qr.support')}
           </span>
           <a
-            href={dashboard.url}
+            href={targetUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-xs font-medium text-teal-600 dark:text-teal-300 hover:text-teal-700 dark:hover:text-teal-200"

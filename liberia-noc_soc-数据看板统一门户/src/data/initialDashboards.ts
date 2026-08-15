@@ -1,17 +1,26 @@
 import { DashboardItem } from '../types/dashboard';
+import { getFinebiHost, getMyappHost, buildRel } from '../config';
 
 // ============================================================================
 // 看板目录数据（真实环境填充）
 //  - custom 平台：Task\my_app (Data Insight MVP) 前端全部 20 个导航页面，
-//    直链格式 http://192.168.100.20/myapp/?page=<PageKey>（与前端 ?page= 定位机制一致）
+//    直链格式 http://<myappHost>/myapp/?page=<PageKey>（与前端 ?page= 定位机制一致）
 //  - finebi 平台：Liberia Data Portal (FineBI) MS/FO/FLM/BO/SOC 目录报表，
 //    具体报表深链待管理员更新（当前统一指向 decision 平台目录，打开后可直达）
+//
+// 说明：主机（192.168.100.19 / .20）统一收口到 src/config.ts，此处仅描述相对路径；
+// 完整 URL 在导出时由 withRel 计算，运行时再由配置 + rel 拼出，改 IP 只需改配置一处。
 // ============================================================================
 
-const MYAPP_BASE = 'http://192.168.100.20/myapp/?page=';
-const FINEBI_BASE = 'http://192.168.100.19/webroot/decision';
+const MYAPP_BASE = `http://${getMyappHost()}/myapp/?page=`;
+const FINEBI_BASE = `http://${getFinebiHost()}/webroot/decision`;
 
-export const INITIAL_DASHBOARDS: DashboardItem[] = [
+/** 为每条 finebi/custom 看板补算 rel（相对路径），使其跟随全局主机配置 */
+function withRel(items: DashboardItem[]): DashboardItem[] {
+  return items.map((it) => (it.rel ? it : { ...it, rel: buildRel(it.platform, it.url) }));
+}
+
+const RAW_DASHBOARDS: DashboardItem[] = [
   // ==========================================
   // 1. 系统主入口 (Top Portals)
   // ==========================================
@@ -39,7 +48,7 @@ export const INITIAL_DASHBOARDS: DashboardItem[] = [
     title: 'Data Insight MVP (自研综合运营看板门户)',
     description: '自研通信网络运维与自动化任务调度系统（Task\\my_app），集成告警、工单、NUR、MS SLA、电池、丢包、GIS 与 eFlow 任务总控，共 20 个功能页面。',
     platform: 'custom',
-    url: 'http://192.168.100.20/myapp/',
+    url: `http://${getMyappHost()}/myapp/`,
     category: '自动化调度与数据集成',
     tags: ['自研系统', 'Data Insight', 'Task Manager', '微服务', 'MVP'],
     iconName: 'Cpu',
@@ -796,6 +805,8 @@ export const INITIAL_DASHBOARDS: DashboardItem[] = [
     status: 'beta',
   },
 ];
+
+export const INITIAL_DASHBOARDS: DashboardItem[] = withRel(RAW_DASHBOARDS);
 
 export const CATEGORIES = [
   '全部',

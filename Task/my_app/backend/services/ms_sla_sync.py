@@ -41,11 +41,11 @@ from backend.database import get_raw_connection
 from backend.dialect_helpers import table_columns, upsert, safe_pragma, pg_trunc_ident, pg_quote_ident
 
 
+from backend.config.remote_host import get_ftp_host
 from backend.services.ms_sla_service import (  # Phase 4 拆分：共享常量/基础函数
     BATCH_SIZE,
     DB_NAME,
     DB_PATH,
-    FTP_UP_HOST,
     FTP_UP_PASS,
     FTP_UP_USER,
     SLA_OUTPUT_DIR,
@@ -381,7 +381,7 @@ def _upload_to_ftp(local_path, remote_dir, filename, max_retries=2):
     for attempt in range(1, max_retries + 1):
         ftp = None
         try:
-            ftp = FTP(FTP_UP_HOST, timeout=30)
+            ftp = FTP(get_ftp_host(), timeout=30)
             ftp.encoding = "utf-8"
             ftp.login(FTP_UP_USER, FTP_UP_PASS)
             ftp.cwd("/")

@@ -90,14 +90,14 @@ os.makedirs(SLA_OUTPUT_DIR, exist_ok=True)
 # FTP 配置
 # ============================================================
 # 上传 FTP（ZTEEMS 账号）
-FTP_UP_HOST = "192.168.100.19"
+# FTP_UP_HOST 已收敛到 backend.config.remote_host.get_ftp_host()（见 ms_sla_sync / ms_sla_report）
 FTP_UP_PORT = 21
 FTP_UP_USER = "ZTEEMS"
 FTP_UP_PASS = "DX"
 FTP_UP_REMOTE_DIR = "/01_RPA/LBR_Tools/KPI/MS_SLA"
 
 # 下载 FTP（FINEBI 账号）
-FTP_SRC_HOST = "192.168.100.19"
+# FTP_SRC_HOST 已收敛到 backend.config.remote_host.get_ftp_host()
 FTP_SRC_PORT = 21
 FTP_SRC_USER = "FINEBI"
 FTP_SRC_PASS = "DX"

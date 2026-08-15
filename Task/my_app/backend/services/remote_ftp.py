@@ -22,9 +22,9 @@ import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-logger = logging.getLogger("remote_ftp")
+from backend.config.remote_host import get_ftp_host
 
-FTP_HOST = "192.168.100.19"
+logger = logging.getLogger("remote_ftp")
 
 
 def creds_for(remote_path: str) -> Tuple[str, str]:
@@ -42,7 +42,7 @@ def creds_for(remote_path: str) -> Tuple[str, str]:
 
 def _connect(remote_path: str) -> ftplib.FTP:
     user, pw = creds_for(remote_path)
-    ftp = ftplib.FTP(FTP_HOST, timeout=30)
+    ftp = ftplib.FTP(get_ftp_host(), timeout=30)
     ftp.login(user, pw)
     return ftp
 

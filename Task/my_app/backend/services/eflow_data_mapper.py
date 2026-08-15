@@ -34,13 +34,12 @@ from backend.database import get_raw_connection
 from backend.dialect_helpers import list_table_names
 
 
+from backend.config.remote_host import get_ftp_host, get_ftp_port
 from backend.services.eflow_api_client import (  # Phase 4 拆分：共享常量/基础函数
     APP_DB_PATH,
     CR_API_PATH,
     DATA_DIR,
-    FTP_HOST,
     FTP_PASS,
-    FTP_PORT,
     FTP_REMOTE_DIR,
     FTP_USER,
     HOST,
@@ -635,9 +634,9 @@ def upload_to_ftp(local_file_path, remote_filename=None):
         remote_filename = os.path.basename(local_file_path)
 
     try:
-        logger.info(f"Connecting to FTP {FTP_HOST}:{FTP_PORT}...")
+        logger.info(f"Connecting to FTP {get_ftp_host()}:{get_ftp_port()}...")
         ftp = ftplib.FTP()
-        ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
+        ftp.connect(get_ftp_host(), get_ftp_port(), timeout=30)
         ftp.login(FTP_USER, FTP_PASS)
         logger.info(f"FTP login success")
 
@@ -700,9 +699,9 @@ def upload_tt_reports_to_ftp(local_dir=None):
 
     ftp = None
     try:
-        logger.info(f"Connecting to FTP {FTP_HOST}:{FTP_PORT} for tt_reports upload...")
+        logger.info(f"Connecting to FTP {get_ftp_host()}:{get_ftp_port()} for tt_reports upload...")
         ftp = ftplib.FTP()
-        ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
+        ftp.connect(get_ftp_host(), get_ftp_port(), timeout=30)
         ftp.login(FTP_USER, FTP_PASS)
         logger.info("FTP login success")
 

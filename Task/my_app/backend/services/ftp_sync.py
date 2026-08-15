@@ -13,7 +13,7 @@ _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 
 logger = logging.getLogger("ftp_sync")
 
 # FTP配置
-FTP_HOST = "192.168.100.19"
+from backend.config.remote_host import get_ftp_host  # 远程主机统一来源
 FTP_PORT = 21
 FTP_USER = "FINEBI"
 FTP_PASS = "DX"
@@ -163,11 +163,11 @@ def sync_from_ftp() -> dict:
         "timestamp": datetime.now().isoformat(),
     }
 
-    logger.info(f"开始FTP同步 - 连接 {FTP_HOST}:{FTP_PORT}")
+    logger.info(f"开始FTP同步 - 连接 {get_ftp_host()}:{FTP_PORT}")
 
     try:
         ftp = ftplib.FTP()
-        ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
+        ftp.connect(get_ftp_host(), FTP_PORT, timeout=30)
         ftp.login(FTP_USER, FTP_PASS)
         ftp.encoding = "utf-8"
         logger.info(f"FTP连接成功: {ftp.getwelcome()}")

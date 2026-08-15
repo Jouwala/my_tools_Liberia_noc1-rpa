@@ -52,8 +52,8 @@ HTTP_CONNECT_TIMEOUT = float(os.environ.get("EFLOW_CONNECT_TIMEOUT", "15"))
 HTTP_READ_TIMEOUT = float(os.environ.get("EFLOW_READ_TIMEOUT", "90"))
 
 # ========== FTP 配置 ==========
-FTP_HOST = os.environ.get("FTP_HOST", "192.168.100.19")
-FTP_PORT = int(os.environ.get("FTP_PORT", "21"))
+# FTP 主机/端口已统一收敛到 backend.config.remote_host（get_ftp_host / get_ftp_port），
+# 由 eflow_data_mapper 连接时调用，避免硬编码、支持页面热更新。
 FTP_USER = os.environ.get("FTP_USER", "FINEBI")
 FTP_PASS = os.environ.get("FTP_PASS", "DX")
 FTP_REMOTE_DIR = os.environ.get("FTP_REMOTE_DIR", "/Python")

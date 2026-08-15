@@ -20,6 +20,9 @@ export interface DashboardItem {
   description: string;
   platform: PlatformType;
   url: string;
+  /** 相对路径（含 path/query/hash，不含主机），如 /myapp/?page=alarm、/webroot/decision#/...。
+   *  存在时由全局主机配置实时拼出完整 URL，远程 IP 变更只需改配置一处。外部大屏(external)不填。 */
+  rel?: string;
   category: Exclude<CategoryType, '全部'>;
   tags: string[];
   iconName: string;

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { DashboardItem } from '../types/dashboard';
 import { DynamicIcon } from './DynamicIcon';
+import { resolveUrl } from '../config';
 import { FREQ_LABEL_KEY, useI18n } from '../i18n';
 
 interface DashboardListViewProps {
@@ -147,9 +148,9 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
                 {/* URL with Copy */}
                 <td className="py-3.5 px-4 font-mono text-[11px] text-slate-500 dark:text-slate-400">
                   <div className="flex items-center gap-1.5 max-w-[240px]">
-                    <span className="truncate flex-1">{board.url}</span>
+                    <span className="truncate flex-1">{resolveUrl(board)}</span>
                     <button
-                      onClick={(e) => handleCopy(board.id, board.url, e)}
+                      onClick={(e) => handleCopy(board.id, resolveUrl(board), e)}
                       className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors shrink-0"
                       title={t('list.copy')}
                     >

@@ -16,11 +16,11 @@ import { DashboardCard } from './components/DashboardCard';
 import { DashboardListView } from './components/DashboardListView';
 import { DashboardMatrixView } from './components/DashboardMatrixView';
 import { DashboardModal } from './components/DashboardModal';
-import { EnvironmentModal } from './components/EnvironmentModal';
+import { EndpointSettingsModal } from './components/EndpointSettingsModal';
 import { PreviewDrawer } from './components/PreviewDrawer';
 import { QRCodeModal } from './components/QRCodeModal';
 import { DesignGuideModal } from './components/DesignGuideModal';
-import { DEFAULT_HOST } from './config';
+import { saveEnvConfig, resolveUrl, buildRel, getMyappHost, type EnvConfig } from './config';
 import { useI18n, translateDashboard } from './i18n';
 import {
   Layers,
@@ -61,7 +61,14 @@ export default function App() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved) as DashboardItem[];
+        // 迁移：为历史数据补算 rel，并立即用当前主机刷新 url，使其跟随全局配置（改 IP 即时生效）
+        return parsed.map((d) => {
+          if (d.platform === 'external') return d;
+          const rel = d.rel ?? buildRel(d.platform, d.url);
+          const next = { ...d, rel };
+          return { ...next, url: resolveUrl(next) };
+        });
       } catch (e) {
         console.error('Failed to parse saved dashboards', e);
       }
@@ -84,7 +91,7 @@ export default function App() {
   // 4. Modals State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [dashboardToEdit, setDashboardToEdit] = useState<DashboardItem | null>(null);
-  const [isEnvironmentModalOpen, setIsEnvironmentModalOpen] = useState(false);
+  const [isEndpointModalOpen, setIsEndpointModalOpen] = useState(false);
   const [isDesignGuideModalOpen, setIsDesignGuideModalOpen] = useState(false);
   const [previewDashboard, setPreviewDashboard] = useState<DashboardItem | null>(null);
   const [qrDashboard, setQrDashboard] = useState<DashboardItem | null>(null);
@@ -113,7 +120,7 @@ export default function App() {
       )
     );
 
-    window.open(dashboard.url, '_blank', 'noopener,noreferrer');
+    window.open(resolveUrl(dashboard), '_blank', 'noopener,noreferrer');
   };
 
   const handleToggleFavorite = (id: string) => {
@@ -138,12 +145,16 @@ export default function App() {
     });
   };
 
-  const handleBatchUpdateUrls = (oldHost: string, newHost: string) => {
+  const handleSaveEnv = (cfg: EnvConfig) => {
+    saveEnvConfig(cfg);
+    // 用最新配置重新拼出所有看板 URL（rel 优先），并补全缺失 rel
     setDashboards((prev) =>
-      prev.map((d) => ({
-        ...d,
-        url: d.url.replace(oldHost, newHost),
-      }))
+      prev.map((d) => {
+        const rel =
+          d.rel ?? (d.platform === 'external' ? undefined : buildRel(d.platform, d.url));
+        const next = rel ? { ...d, rel } : d;
+        return { ...next, url: resolveUrl(next) };
+      })
     );
   };
 
@@ -210,7 +221,7 @@ export default function App() {
           const query = searchQuery.toLowerCase().trim();
           const matchTitle = board.title.toLowerCase().includes(query);
           const matchDesc = board.description.toLowerCase().includes(query);
-          const matchUrl = board.url.toLowerCase().includes(query);
+          const matchUrl = resolveUrl(board).toLowerCase().includes(query);
           const matchDept = board.department.toLowerCase().includes(query);
           const matchOwner = board.owner.toLowerCase().includes(query);
           const matchTags = board.tags.some((t) => t.toLowerCase().includes(query));
@@ -267,7 +278,7 @@ export default function App() {
           setDashboardToEdit(null);
           setIsModalOpen(true);
         }}
-        onOpenEnvironmentModal={() => setIsEnvironmentModalOpen(true)}
+        onOpenEnvironmentModal={() => setIsEndpointModalOpen(true)}
         onOpenDesignGuideModal={() => setIsDesignGuideModalOpen(true)}
         onExportJson={handleExportJson}
         onImportJson={handleImportJson}
@@ -281,7 +292,7 @@ export default function App() {
           dashboards={dashboards}
           onQuickFilterPlatform={(p) => setSelectedPlatform(p)}
           activePlatform={selectedPlatform}
-          onOpenEnvironment={() => setIsEnvironmentModalOpen(true)}
+          onOpenEnvironment={() => setIsEndpointModalOpen(true)}
         />
 
         {/* Realtime Automated Tasks & Synchronization Widget */}
@@ -409,7 +420,7 @@ export default function App() {
             </button>
             <span>·</span>
             <span className="font-mono text-[11px] text-slate-400">
-              {t('app.footerHost')}: {DEFAULT_HOST}
+              {t('app.footerHost')}: {getMyappHost()}
             </span>
           </div>
         </div>
@@ -426,11 +437,10 @@ export default function App() {
         onSave={handleSaveDashboard}
       />
 
-      <EnvironmentModal
-        isOpen={isEnvironmentModalOpen}
-        onClose={() => setIsEnvironmentModalOpen(false)}
-        dashboards={dashboards}
-        onBatchUpdateUrls={handleBatchUpdateUrls}
+      <EndpointSettingsModal
+        isOpen={isEndpointModalOpen}
+        onClose={() => setIsEndpointModalOpen(false)}
+        onSave={handleSaveEnv}
       />
 
       <DesignGuideModal

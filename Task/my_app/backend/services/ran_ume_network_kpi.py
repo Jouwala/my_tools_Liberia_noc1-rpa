@@ -100,7 +100,7 @@ DB_NAME = "ran_kpi_daily.sqlite3"
 DB_PATH = os.path.join(SCRIPT_DIR, DB_NAME)
 
 # FTP 上传配置（目标数据库）
-FTP_HOST = "192.168.100.19"
+from backend.config.remote_host import get_ftp_host  # 远程主机统一来源
 FTP_USER = "ZTEEMS"
 FTP_PASS = "DX"
 FTP_REMOTE_DIR = "/01_RPA/LBR_Tools/KPI/RAN"
@@ -924,10 +924,10 @@ def write_to_db(db_path, table_name, headers, data):
 def upload_to_ftp(local_path, remote_dir, filename, max_retries=2):
     """上传文件到 FTP 服务器（带重试机制）。"""
     for attempt in range(1, max_retries + 1):
-        print(f"  [FTP] 连接 {FTP_HOST} ...（第 {attempt} 次）")
+        print(f"  [FTP] 连接 {get_ftp_host()} ...（第 {attempt} 次）")
         ftp = None
         try:
-            ftp = FTP(FTP_HOST, timeout=30)
+            ftp = FTP(get_ftp_host(), timeout=30)
             ftp.encoding = "utf-8"
             if attempt > 1:
                 ftp.set_debuglevel(1)

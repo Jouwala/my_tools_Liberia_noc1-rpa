@@ -1,5 +1,11 @@
 // ============================================================================
-// 全局环境配置（与 my_app 部署拓扑一致）
+// 全局环境配置（与 my_app 部署拓扑一致）—— 单一真相源
+// ----------------------------------------------------------------------------
+// 设计目标：所有"主机/域名"只在此处定义一处，远程 IP 变更时只需改这里（或页面上
+// 的「环境配置」弹窗）即可全站生效。每条看板只存"相对路径 rel"，运行时由
+// 主机 + rel 拼出完整 URL，因此已持久化到 localStorage 的旧数据也能自动跟随。
+//
+// 部署拓扑：
 //  - FineBI 生产机：192.168.100.19，nginx 80 端口反代
 //      /webroot/  → FineBI 决策平台
 //  - Data Insight MVP (my_app)：192.168.100.20
@@ -7,26 +13,138 @@
 //      /api/    → vite 7090 → uvicorn 7038（my_app 后端）
 //  - 门户部署到同一台 nginx 时，API 走同源相对路径 /api/tasks 即可；
 //    本地 dev（端口 3000）时通过 vite proxy 将 /api 转发到 my_app 主机。
+//
+// 优先级：localStorage 覆盖  >  VITE_* 环境变量  >  下方硬编码兜底
 // ============================================================================
 
-/** my_app 后端 API 基址：优先环境变量，其次同源相对路径 */
-export const MYAPP_API_BASE: string =
-  (import.meta.env.VITE_MYAPP_API_BASE as string | undefined) || '';
+import type { DashboardItem, PlatformType } from './types/dashboard';
 
-/** my_app 任务列表接口（Task Manager 实时状态） */
-export const MYAPP_TASKS_API = `${MYAPP_API_BASE}/api/tasks`;
+/** 端点配置：仅主机/域名与 API 基址，路径随各看板 rel 携带 */
+export interface EnvConfig {
+  /** FineBI 决策平台主机（如 192.168.100.19） */
+  finebiHost: string;
+  /** Data Insight MVP (my_app) 主机（如 192.168.100.20） */
+  myappHost: string;
+  /** my_app 后端 API 基址：留空=同源（/api/...），跨域时填 http://192.168.100.20 */
+  myappApiBase: string;
+}
 
-/** FineBI 生产主机（FineBI 报表平台固定指向 .19） */
-export const FINEBI_HOST = '192.168.100.19';
+const ENV_STORAGE_KEY = 'noc_portal_env';
 
-/** Data Insight MVP 主机（my_app 部署机） */
-export const MYAPP_HOST = '192.168.100.20';
+/** 硬编码兜底（与历史部署一致） */
+const FALLBACK_ENV: EnvConfig = {
+  finebiHost: '192.168.100.19',
+  myappHost: '192.168.100.20',
+  myappApiBase: '',
+};
 
-/** 默认主机（环境切换弹窗默认源地址，取 my_app 主机） */
-export const DEFAULT_HOST = MYAPP_HOST;
+/** 由 VITE_* 环境变量得到的默认值（环境变量缺失时回退到硬编码） */
+function defaultEnv(): EnvConfig {
+  return {
+    finebiHost:
+      (import.meta.env.VITE_FINEBI_HOST as string | undefined) || FALLBACK_ENV.finebiHost,
+    myappHost:
+      (import.meta.env.VITE_MYAPP_HOST as string | undefined) || FALLBACK_ENV.myappHost,
+    myappApiBase:
+      (import.meta.env.VITE_MYAPP_API_BASE as string | undefined) || FALLBACK_ENV.myappApiBase,
+  };
+}
 
-/** Data Insight MVP 前端入口 */
-export const MYAPP_HOME_URL = `http://${MYAPP_HOST}/myapp/`;
+// —— 运行时单例（可被页面「环境配置」弹窗改写）——
+let currentEnv: EnvConfig = loadEnvConfig();
+
+function loadEnvConfig(): EnvConfig {
+  try {
+    const raw = localStorage.getItem(ENV_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<EnvConfig>;
+      return { ...defaultEnv(), ...parsed };
+    }
+  } catch (e) {
+    console.error('[config] 解析环境配置失败，使用默认配置', e);
+  }
+  return defaultEnv();
+}
+
+/** 读取当前生效的配置副本 */
+export function getEnvConfig(): EnvConfig {
+  return { ...currentEnv };
+}
+
+/** 保存配置到 localStorage 并刷新运行时单例 */
+export function saveEnvConfig(cfg: EnvConfig): void {
+  currentEnv = {
+    finebiHost: (cfg.finebiHost || FALLBACK_ENV.finebiHost).trim(),
+    myappHost: (cfg.myappHost || FALLBACK_ENV.myappHost).trim(),
+    myappApiBase: (cfg.myappApiBase || '').trim(),
+  };
+  try {
+    localStorage.setItem(ENV_STORAGE_KEY, JSON.stringify(currentEnv));
+  } catch (e) {
+    console.error('[config] 保存环境配置失败', e);
+  }
+}
+
+/** 恢复为默认（清除 localStorage 覆盖） */
+export function resetEnvConfig(): EnvConfig {
+  currentEnv = defaultEnv();
+  try {
+    localStorage.removeItem(ENV_STORAGE_KEY);
+  } catch (e) {
+    console.error('[config] 清除环境配置失败', e);
+  }
+  return { ...currentEnv };
+}
+
+// ============================================================================
+// 派生地址（始终读取最新 currentEnv）
+// ============================================================================
+
+export function getFinebiHost(): string {
+  return currentEnv.finebiHost;
+}
+
+export function getMyappHost(): string {
+  return currentEnv.myappHost;
+}
 
 /** FineBI 决策平台入口 */
-export const FINEBI_HOME_URL = `http://${FINEBI_HOST}/webroot/decision#/directory?activeTab=dec-tabs-homepage`;
+export function getFinebiHomeUrl(): string {
+  return `http://${currentEnv.finebiHost}/webroot/decision#/directory?activeTab=dec-tabs-homepage`;
+}
+
+/** Data Insight MVP 前端入口 */
+export function getMyappHomeUrl(): string {
+  return `http://${currentEnv.myappHost}/myapp/`;
+}
+
+/** my_app 任务列表接口（Task Manager 实时状态） */
+export function getMyappTasksApi(): string {
+  return `${currentEnv.myappApiBase || ''}/api/tasks`;
+}
+
+// ============================================================================
+// 看板 URL 解析（统一由全局主机配置驱动）
+// ============================================================================
+
+/**
+ * 从完整 URL 提取"相对路径 rel"：去掉 http(s)://host 前缀，保留 path+query+hash。
+ * 用于：旧数据迁移、手动编辑看板时自动抽取可跟随主机变化的相对路径。
+ */
+export function buildRel(platform: PlatformType, url: string): string | undefined {
+  if (platform === 'external') return undefined;
+  return url.replace(/^https?:\/\/[^/]+/, '');
+}
+
+/**
+ * 解析看板真实访问地址：
+ *  - 带 rel 且非外部平台：用全局主机 + rel 实时拼出（改 IP 即时生效）
+ *  - 否则退回 item.url（兼容纯外部大屏 / 历史兜底）
+ */
+export function resolveUrl(item: DashboardItem): string {
+  if (item.rel && item.platform !== 'external') {
+    const host = item.platform === 'finebi' ? currentEnv.finebiHost : currentEnv.myappHost;
+    return `http://${host}${item.rel}`;
+  }
+  return item.url;
+}

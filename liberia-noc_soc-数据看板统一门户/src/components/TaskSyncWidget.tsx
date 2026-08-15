@@ -9,7 +9,7 @@ import {
   XCircle,
   WifiOff,
 } from 'lucide-react';
-import { MYAPP_TASKS_API, MYAPP_HOME_URL } from '../config';
+import { getMyappTasksApi, getMyappHomeUrl } from '../config';
 import { useI18n } from '../i18n';
 
 // ============================================================================
@@ -114,7 +114,7 @@ export const TaskSyncWidget: React.FC = () => {
 
     const load = async () => {
       try {
-        const res = await fetch(MYAPP_TASKS_API, {
+        const res = await fetch(getMyappTasksApi(), {
           signal: controller.signal,
           headers: { 'Accept-Language': lang === 'zh' ? 'zh-CN' : 'en-US' },
         });
@@ -216,7 +216,7 @@ export const TaskSyncWidget: React.FC = () => {
           </button>
 
           <a
-            href={`${MYAPP_HOME_URL}?page=sync`}
+            href={`${getMyappHomeUrl()}?page=sync`}
             target="_blank"
             rel="noopener noreferrer"
             className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-medium text-xs flex items-center gap-1 transition-all shadow-sm shadow-teal-600/30"

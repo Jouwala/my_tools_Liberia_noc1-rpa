@@ -64,7 +64,8 @@ _SP_EMAIL = "/01_RPA/LBR_Tools/SP/sp_report/email"                  # 远程 FTP
 # SP 报表：生成端已集成到 my_app（sp_report_gen 服务），产物输出到本地 data/sp_email；
 # 邮件收件人名单仍用远程共享路径（用户指定）
 _SP_LOCAL_DATA = MY_APP_DIR / "data" / "sp_email"
-_SP_EMAIL_UNC = r"\\192.168.100.19\e\01_RPA\LBR_Tools\SP\sp_report\email"
+from backend.config.remote_host import get_remote_host
+_SP_EMAIL_UNC = rf"\\{get_remote_host()}\e\01_RPA\LBR_Tools\SP\sp_report\email"
 _SP_GEN_SCRIPT = Path(__file__).resolve().parent / "sp_report_gen" / "gernarate_sp_report.py"
 _RAN_DATA = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE"                      # 远程 FTP
 _RAN_EMAIL = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE/email"               # 远程 FTP

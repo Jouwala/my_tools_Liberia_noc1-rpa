@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { DashboardItem } from '../types/dashboard';
 import { DynamicIcon } from './DynamicIcon';
+import { resolveUrl } from '../config';
 import { FREQ_LABEL_KEY, useI18n } from '../i18n';
 
 interface DashboardCardProps {
@@ -41,7 +42,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(dashboard.url);
+    navigator.clipboard.writeText(resolveUrl(dashboard));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -242,7 +243,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
         {/* URL Pill with Copy */}
         <div className="flex items-center justify-between text-[11px] bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1.5 rounded-lg border border-slate-200/60 dark:border-slate-700/60">
           <span className="font-mono text-slate-500 dark:text-slate-400 truncate flex-1 mr-2">
-            {dashboard.url.replace(/^https?:\/\//, '')}
+            {resolveUrl(dashboard).replace(/^https?:\/\//, '')}
           </span>
           <button
             onClick={handleCopy}

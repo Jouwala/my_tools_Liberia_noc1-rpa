@@ -9,12 +9,12 @@ import {
   Shield,
 } from 'lucide-react';
 import { DashboardItem } from '../types/dashboard';
-import { DEFAULT_HOST } from '../config';
+import { getMyappHost } from '../config';
 import { useI18n } from '../i18n';
 
 interface QuickStatsBarProps {
   dashboards: DashboardItem[];
-  onQuickFilterPlatform: (platform: 'all' | 'finebi' | 'custom') => void;
+  onQuickFilterPlatform: (platform: 'all' | 'finebi' | 'custom' | 'external') => void;
   activePlatform: string;
   onOpenEnvironment: () => void;
 }
@@ -29,10 +29,11 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
   const totalCount = dashboards.length;
   const finebiCount = dashboards.filter((d) => d.platform === 'finebi').length;
   const customCount = dashboards.filter((d) => d.platform === 'custom').length;
+  const externalCount = dashboards.filter((d) => d.platform === 'external').length;
   const totalClicks = dashboards.reduce((sum, d) => sum + d.clickCount, 0);
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-6">
       {/* 1. Total Dashboards */}
       <div
         onClick={() => onQuickFilterPlatform('all')}
@@ -110,7 +111,33 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
         </div>
       </div>
 
-      {/* 4. Host Status & Total Clicks */}
+      {/* 4. External Big Screen */}
+      <div
+        onClick={() => onQuickFilterPlatform('external')}
+        className={`p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+          activePlatform === 'external'
+            ? 'border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/20 dark:bg-amber-950/20'
+            : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-amber-500" />
+            {t('stats.external')}
+          </span>
+          <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+            <ExternalLink className="w-4 h-4" />
+          </div>
+        </div>
+        <div className="mt-2 flex items-baseline gap-2">
+          <span className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono">
+            {externalCount}
+          </span>
+          <span className="text-xs text-slate-400">{t('stats.externalUnit')}</span>
+        </div>
+      </div>
+
+      {/* 5. Host Status & Total Clicks */}
       <div
         onClick={onOpenEnvironment}
         className="p-4 rounded-2xl bg-white dark:bg-navy-900 border border-slate-200/90 dark:border-slate-800/90 hover:border-emerald-400 dark:hover:border-emerald-600 transition-all cursor-pointer shadow-xs hover:shadow-md group"
@@ -127,7 +154,7 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
         <div className="mt-2 flex items-baseline justify-between">
           <div>
             <span className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200">
-              {DEFAULT_HOST}
+              {getMyappHost()}
             </span>
             <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3" /> {t('stats.hostOk')}

@@ -50,8 +50,9 @@ except Exception:
 # ============================================================
 # 配置
 # ============================================================
-DEFAULT_API_HOST = "192.168.100.19"
-DEFAULT_API_PORT = 8765
+from backend.config.remote_host import get_api_host  # 远程主机统一来源（FTP/API/SMB 共用）
+
+DEFAULT_API_PORT = 8765  # 端口可经 DB_WRITER_PORT 覆盖
 DEFAULT_TIMEOUT = 900  # 秒（大数据写入可能较慢）
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2  # 指数退避基数
@@ -61,7 +62,7 @@ class DbWriterClient:
     """远程 SQLite 写入客户端。"""
 
     def __init__(self, host: str = None, port: int = None, timeout: int = DEFAULT_TIMEOUT):
-        self.host = host or os.environ.get("DB_WRITER_HOST", DEFAULT_API_HOST)
+        self.host = host or get_api_host()
         self.port = port or int(os.environ.get("DB_WRITER_PORT", str(DEFAULT_API_PORT)))
         self.timeout = timeout
         self.base_url = f"http://{self.host}:{self.port}"
@@ -256,7 +257,7 @@ def health() -> dict:
 if __name__ == "__main__":
     total_start = time.time()
     print(f"[TEST] DbWriterClient 连接测试")
-    print(f"[TEST] 目标: {DEFAULT_API_HOST}:{DEFAULT_API_PORT}")
+    print(f"[TEST] 目标: {get_api_host()}:{DEFAULT_API_PORT}")
 
     client = DbWriterClient()
 

@@ -61,7 +61,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 DB_ORANGE_NAME = "ran_kpi_daily_202606.sqlite3"
 # Availability 报表数据源库（由 network_kpi_sync 写入，含新旧两套 Group 命名的全量历史）
 DB_DAILY_NAME = "ran_kpi_daily.sqlite3"
-API_HOST = os.environ.get("DB_WRITER_HOST", "192.168.100.19")
+from backend.config.remote_host import get_api_host, get_ftp_host  # 远程主机统一来源
 API_PORT = int(os.environ.get("DB_WRITER_PORT", "8765"))
 
 # 查询时间范围：按天粒度 PM 指标，远程为 upsert 写入（历史保留），
@@ -112,7 +112,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DB_PATH = RAN_UME_DATA_DIR / "ran_kpi_daily.sqlite3"
 
 # FTP 配置（仅用于 Availability 图表图片上传）
-FTP_HOST = "192.168.100.19"
+# FTP 主机已收敛到 backend.config.remote_host.get_ftp_host()
 FTP_USER = "ZTEEMS"
 FTP_PASS = "DX"
 
@@ -890,7 +890,7 @@ def _read_remote_daily_tables() -> dict:
     远程库同时包含新旧两套 Group 命名的全量历史（旧导入路径 05-08~07-27、
     network_kpi_sync 07-28 起），报表曲线可同时展示两套区域口径。
     """
-    base = f"http://{API_HOST}:{API_PORT}"
+    base = f"http://{get_api_host()}:{API_PORT}"
     result = {}
     for table in TECH_MAP:
         payload = {"db": DB_DAILY_NAME, "table": table, "limit": 300000}
@@ -961,7 +961,7 @@ def run_availability_report() -> dict:
         table_dfs = None
         try:
             table_dfs = _read_remote_daily_tables()
-            logger.info(f"[Availability] 数据源: 远程库 {DB_DAILY_NAME} @ {API_HOST}:{API_PORT}")
+            logger.info(f"[Availability] 数据源: 远程库 {DB_DAILY_NAME} @ {get_api_host()}:{API_PORT}")
             _refresh_local_daily_db(table_dfs)
         except Exception as e:
             logger.warning(f"[Availability] 远程库读取失败: {e}，回退本地库")
@@ -1048,7 +1048,7 @@ def run_availability_report() -> dict:
         for img_path in generated_images:
             try:
                 ftp = FTP()
-                ftp.connect(FTP_HOST, 21, timeout=30)
+                ftp.connect(get_ftp_host(), 21, timeout=30)
                 ftp.encoding = "utf-8"
                 ftp.login(FTP_USER, FTP_PASS)
                 parts = FTP_UPLOAD_PATH.strip('/').split('/')

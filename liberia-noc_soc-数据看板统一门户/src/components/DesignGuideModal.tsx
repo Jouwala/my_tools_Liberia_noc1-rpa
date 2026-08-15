@@ -13,6 +13,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { getFinebiHost, getMyappHost } from '../config';
 
 interface DesignGuideModalProps {
   isOpen: boolean;
@@ -152,17 +153,17 @@ export const DesignGuideModal: React.FC<DesignGuideModalProps> = ({ isOpen, onCl
             </h4>
             <div className="bg-slate-900 text-slate-200 rounded-xl p-3.5 font-mono text-xs space-y-2 border border-slate-800 overflow-x-auto">
               <div className="text-slate-400">{t('guide.urlNote1')}</div>
-              <div className="text-emerald-400">http://192.168.100.19/webroot/decision#/directory?activeTab=dec-tabs-homepage</div>
+              <div className="text-emerald-400">{`http://${getFinebiHost()}/webroot/decision#/directory?activeTab=dec-tabs-homepage`}</div>
               
               <div className="text-slate-400 pt-1">{t('guide.urlNote2')}</div>
-              <div className="text-indigo-300">http://192.168.100.19/webroot/decision#view/contract-operation-kpis</div>
-              <div className="text-indigo-300">http://192.168.100.19/webroot/decision#view/4g-kpi-daily</div>
+              <div className="text-indigo-300">{`http://${getFinebiHost()}/webroot/decision#view/contract-operation-kpis`}</div>
+              <div className="text-indigo-300">{`http://${getFinebiHost()}/webroot/decision#view/4g-kpi-daily`}</div>
 
               <div className="text-slate-400 pt-1">{t('guide.urlNote3')}</div>
-              <div className="text-cyan-300">http://192.168.100.20/myapp/  (Task Manager)</div>
-              <div className="text-cyan-300">http://192.168.100.20/myapp/?page=alarm  (Alarm Dashboard)</div>
-              <div className="text-cyan-300">http://192.168.100.20/myapp/?page=ttwo  (TT&WO Dashboard)</div>
-              <div className="text-cyan-300">http://192.168.100.20/myapp/?page=nur  (NUR - Network Unavailability Rate)</div>
+              <div className="text-cyan-300">{`http://${getMyappHost()}/myapp/  (Task Manager)`}</div>
+              <div className="text-cyan-300">{`http://${getMyappHost()}/myapp/?page=alarm  (Alarm Dashboard)`}</div>
+              <div className="text-cyan-300">{`http://${getMyappHost()}/myapp/?page=ttwo  (TT&WO Dashboard)`}</div>
+              <div className="text-cyan-300">{`http://${getMyappHost()}/myapp/?page=nur  (NUR - Network Unavailability Rate)`}</div>
             </div>
           </div>
         </div>

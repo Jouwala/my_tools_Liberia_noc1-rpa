@@ -54,6 +54,8 @@ const zh: Record<string, string> = {
   'stats.finebiUnit': '个 MS/FO/BO 报表',
   'stats.custom': 'Data Insight MVP (自研)',
   'stats.customUnit': '个告警/工单/任务大屏',
+  'stats.external': '外部大屏',
+  'stats.externalUnit': '个外部大屏',
   'stats.host': '局域网主机环境',
   'stats.hostOk': '服务正常响应',
   'stats.config': '配置',
@@ -238,6 +240,24 @@ const zh: Record<string, string> = {
   'guide.urlNote2': '// 2. FineBI 单个具体报表直接视图（MS / FO / FLM / BO / SOC）：',
   'guide.urlNote3': '// 3. Data Insight MVP 自研系统首页及子页面（?page= 直链，非 hash 路由）：',
   'guide.ok': '我已知晓，开始体验门户',
+
+  // —— 服务器 / 域名端点配置（环境配置弹窗）——
+  'eps.title': '服务器 / 域名端点配置',
+  'eps.subtitle': '统一设置 FineBI 与 my_app 的主机地址，修改后全站看板链接立即生效',
+  'eps.finebiHost': 'FineBI 主机地址',
+  'eps.finebiHostPh': '例如 192.168.100.19',
+  'eps.myappHost': 'my_app (Data Insight MVP) 主机地址',
+  'eps.myappHostPh': '例如 192.168.100.20',
+  'eps.apiBase': 'my_app API 基址（可选）',
+  'eps.apiBasePh': '留空=同源；跨域部署时填 http://192.168.100.20',
+  'eps.preview': '当前解析地址预览',
+  'eps.previewFinebi': 'FineBI 入口',
+  'eps.previewMyapp': 'my_app 入口',
+  'eps.previewApi': '任务 API',
+  'eps.apply': '保存并应用到全部看板',
+  'eps.reset': '恢复默认',
+  'eps.saved': '已保存，全站看板链接已更新为最新主机地址',
+  'eps.hint': '提示：仅修改主机 / 域名即可，各看板的页面路径（如 /myapp/?page=alarm）会自动保留。',
 };
 
 const en: Record<string, string> = {
@@ -277,6 +297,8 @@ const en: Record<string, string> = {
   'stats.finebiUnit': 'MS/FO/BO reports',
   'stats.custom': 'Data Insight MVP (In-house)',
   'stats.customUnit': 'alarm / TT / task screens',
+  'stats.external': 'External Big Screen',
+  'stats.externalUnit': 'external screens',
   'stats.host': 'LAN Host Environment',
   'stats.hostOk': 'Service responding normally',
   'stats.config': 'Config',
@@ -469,6 +491,24 @@ const en: Record<string, string> = {
   'guide.urlNote2': '// 2. Direct view of a single FineBI report (MS / FO / FLM / BO / SOC):',
   'guide.urlNote3': '// 3. Data Insight MVP homepage & sub-pages (?page= deep links, not hash routing):',
   'guide.ok': 'Got it, start exploring',
+
+  // —— Server / domain endpoint config (Environment modal) ——
+  'eps.title': 'Server / Domain Endpoint Config',
+  'eps.subtitle': 'Set FineBI & my_app host addresses in one place; all dashboard links update instantly',
+  'eps.finebiHost': 'FineBI Host',
+  'eps.finebiHostPh': 'e.g. 192.168.100.19',
+  'eps.myappHost': 'my_app (Data Insight MVP) Host',
+  'eps.myappHostPh': 'e.g. 192.168.100.20',
+  'eps.apiBase': 'my_app API Base (optional)',
+  'eps.apiBasePh': 'Blank = same-origin; for cross-origin fill http://192.168.100.20',
+  'eps.preview': 'Resolved address preview',
+  'eps.previewFinebi': 'FineBI entry',
+  'eps.previewMyapp': 'my_app entry',
+  'eps.previewApi': 'Tasks API',
+  'eps.apply': 'Save & apply to all dashboards',
+  'eps.reset': 'Reset to default',
+  'eps.saved': 'Saved. All dashboard links now point to the latest host addresses',
+  'eps.hint': 'Tip: only change the host / domain; each dashboard’s page path (e.g. /myapp/?page=alarm) is preserved automatically.',
 };
 
 // ============================================================================

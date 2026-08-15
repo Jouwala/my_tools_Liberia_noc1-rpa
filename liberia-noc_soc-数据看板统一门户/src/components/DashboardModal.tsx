@@ -21,7 +21,7 @@ import {
   UpdateFrequency,
 } from '../types/dashboard';
 import { CATEGORIES, AVAILABLE_ICONS } from '../data/initialDashboards';
-import { FINEBI_HOME_URL, MYAPP_HOME_URL } from '../config';
+import { getFinebiHomeUrl, getMyappHomeUrl, buildRel } from '../config';
 import { DynamicIcon } from './DynamicIcon';
 import { useI18n, translateCategory, translateTag, translateDept, translateOwner, translateDashboard, reverseTranslateCategory, reverseTranslateTag, reverseTranslateDept, reverseTranslateOwner } from '../i18n';
 
@@ -76,7 +76,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
       setTitle('');
       setDescription('');
       setPlatform('finebi');
-      setUrl(FINEBI_HOME_URL);
+      setUrl(getFinebiHomeUrl());
       setCategory('MS 综合运维管理');
       setTags(['报表', '运维']);
       setIconName('LayoutGrid');
@@ -106,12 +106,12 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
     if (type === 'finebi') {
       setPlatform('finebi');
       setThemeColor('indigo');
-      setUrl(FINEBI_HOME_URL);
+      setUrl(getFinebiHomeUrl());
       if (!title) setTitle('Liberia Data Portal (FineBI)');
     } else {
       setPlatform('custom');
       setThemeColor('teal');
-      setUrl(MYAPP_HOME_URL);
+      setUrl(getMyappHomeUrl());
       if (!title) setTitle('Data Insight MVP 自研看板');
     }
   };
@@ -134,7 +134,8 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
       description: description.trim() || '企业级数据指标与决策分析看板',
       platform,
       url: url.trim(),
-      category: originalCategory,
+      rel: buildRel(platform, url.trim()),
+      category: originalCategory as DashboardItem['category'],
       tags: originalTags.length > 0 ? originalTags : ['看板'],
       iconName,
       updateFrequency,

@@ -11,14 +11,14 @@ from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger("remote_db_reader")
 
-API_BASE_URL = "http://192.168.100.19:8765"
+from backend.config.remote_host import get_api_base_url
 
 
 class RemoteDBReader:
     """通过 HTTP API 读取远程 SQLite 数据库"""
-    
-    def __init__(self, base_url: str = API_BASE_URL):
-        self.base_url = base_url
+
+    def __init__(self, base_url: str = None):
+        self.base_url = base_url or get_api_base_url()
     
     def _request(self, path: str, data: dict = None, method: str = "GET") -> dict:
         """发送 HTTP 请求"""

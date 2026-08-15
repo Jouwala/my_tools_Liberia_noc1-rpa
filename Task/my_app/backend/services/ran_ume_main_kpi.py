@@ -720,7 +720,7 @@ def build_filename(templatename: str, grouplayer: str, gr_seconds: str) -> str:
 # ============================================================
 # FTP 下载 / 上传（已废弃，保留备用）
 # ============================================================
-FTP_HOST = "192.168.100.19"
+from backend.config.remote_host import get_ftp_host  # 远程主机统一来源
 FTP_USER = "FINEBI"
 FTP_PASS = "DX"
 FTP_REMOTE_DIR = "/Python"
@@ -736,10 +736,10 @@ def download_from_ftp(remote_dir: str, filename: str, local_path: str,
     _user = user or FTP_USER
     _pass = password or FTP_PASS
     for attempt in range(1, max_retries + 1):
-        print(f"[FTP] 连接 {FTP_HOST} 下载 {filename} ...（第 {attempt} 次）")
+        print(f"[FTP] 连接 {get_ftp_host()} 下载 {filename} ...（第 {attempt} 次）")
         ftp = None
         try:
-            ftp = FTP(FTP_HOST, timeout=30)
+            ftp = FTP(get_ftp_host(), timeout=30)
             ftp.encoding = "utf-8"
             ftp.login(_user, _pass)
             ftp.cwd("/")
@@ -772,10 +772,10 @@ def upload_to_ftp(local_path: str, remote_dir: str, filename: str,
     _user = user or FTP_USER
     _pass = password or FTP_PASS
     for attempt in range(1, max_retries + 1):
-        print(f"[FTP] 连接 {FTP_HOST} 上传 {filename} ...（第 {attempt} 次）")
+        print(f"[FTP] 连接 {get_ftp_host()} 上传 {filename} ...（第 {attempt} 次）")
         ftp = None
         try:
-            ftp = FTP(FTP_HOST, timeout=30)
+            ftp = FTP(get_ftp_host(), timeout=30)
             ftp.encoding = "utf-8"
             ftp.login(_user, _pass)
             ftp.cwd("/")

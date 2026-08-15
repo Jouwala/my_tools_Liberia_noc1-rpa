@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { DashboardItem } from '../types/dashboard';
 import { FREQ_LABEL_KEY, useI18n } from '../i18n';
+import { resolveUrl } from '../config';
 
 interface PreviewDrawerProps {
   dashboard: DashboardItem | null;
@@ -31,7 +32,7 @@ export const PreviewDrawer: React.FC<PreviewDrawerProps> = ({
   if (!dashboard) return null;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(dashboard.url);
+    navigator.clipboard.writeText(resolveUrl(dashboard));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -63,7 +64,7 @@ export const PreviewDrawer: React.FC<PreviewDrawerProps> = ({
                 {dashboard.title}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate hidden sm:block">
-                {dashboard.url}
+                {resolveUrl(dashboard)}
               </p>
             </div>
           </div>
@@ -127,7 +128,7 @@ export const PreviewDrawer: React.FC<PreviewDrawerProps> = ({
         <div className="flex-1 bg-slate-950 relative overflow-hidden">
           <iframe
             key={iframeKey}
-            src={dashboard.url}
+            src={resolveUrl(dashboard)}
             title={dashboard.title}
             className="w-full h-full border-none bg-white"
             sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-downloads"

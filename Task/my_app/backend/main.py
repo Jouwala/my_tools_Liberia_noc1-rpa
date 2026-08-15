@@ -50,6 +50,7 @@ from backend.routers import (
     incident_overview, ip_trace, nur_dashboard, ms_sla_dashboard,
     email_recipients,
     realtime_proxy,
+    settings,
 )
 from backend.services import task_runner
 from backend.database import get_raw_connection
@@ -107,6 +108,8 @@ app.include_router(nur_dashboard.router)
 app.include_router(ms_sla_dashboard.router)
 # 实时代理控制（前端「启用实时刷新」开关按需拉起/关闭本地代理 8787/8790）
 app.include_router(realtime_proxy.router)
+# 全局设置（远程主机等，供「系统设置」页面读写）
+app.include_router(settings.router)
 
 
 # ========== 通用任务调度系统 ==========

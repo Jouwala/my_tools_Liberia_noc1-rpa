@@ -51,15 +51,14 @@ try:
 except ImportError:
     Image = ImageDraw = ImageFont = None
 
+from backend.config.remote_host import get_ftp_host
 from backend.services.ms_sla_service import (  # Phase 4 拆分：共享常量/基础函数
     DATA_DIR,
     DB_PATH,
     FTP_SRC_BASE_DIR,
-    FTP_SRC_HOST,
     FTP_SRC_PASS,
     FTP_SRC_PORT,
     FTP_SRC_USER,
-    FTP_UP_HOST,
     FTP_UP_PASS,
     FTP_UP_PORT,
     FTP_UP_REMOTE_DIR,
@@ -890,7 +889,7 @@ def cleanup_old_exports(local_dir, today_str, current_month=None):
     ftp = None
     try:
         ftp = FTP()
-        ftp.connect(FTP_UP_HOST, FTP_UP_PORT, timeout=30)
+        ftp.connect(get_ftp_host(), FTP_UP_PORT, timeout=30)
         ftp.encoding = "utf-8"
         ftp.login(FTP_UP_USER, FTP_UP_PASS)
         dirs = FTP_UP_REMOTE_DIR.strip("/").split("/")
@@ -1273,7 +1272,7 @@ def upload_files_to_ftp(file_paths):
     ftp = None
     try:
         ftp = FTP()
-        ftp.connect(FTP_UP_HOST, FTP_UP_PORT, timeout=30)
+        ftp.connect(get_ftp_host(), FTP_UP_PORT, timeout=30)
         ftp.encoding = "utf-8"
         ftp.login(FTP_UP_USER, FTP_UP_PASS)
         dirs = FTP_UP_REMOTE_DIR.strip("/").split("/")
@@ -1315,7 +1314,7 @@ def download_kpi_list_from_ftp(local_path):
     ftp = None
     try:
         ftp = FTP()
-        ftp.connect(FTP_SRC_HOST, FTP_SRC_PORT, timeout=30)
+        ftp.connect(get_ftp_host(), FTP_SRC_PORT, timeout=30)
         ftp.encoding = "utf-8"
         ftp.login(FTP_SRC_USER, FTP_SRC_PASS)
         ftp.cwd(FTP_SRC_BASE_DIR)

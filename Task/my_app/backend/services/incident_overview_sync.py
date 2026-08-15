@@ -45,7 +45,7 @@ logger = logging.getLogger("incident_overview_sync")
 # ---------------------------------------------------------------------------
 # FTP 配置（与 ftp_sync.py 同一台 FineBI 服务器）
 # ---------------------------------------------------------------------------
-FTP_HOST = "192.168.100.19"
+from backend.config.remote_host import get_ftp_host  # 远程主机统一来源
 FTP_PORT = 21
 FTP_USER = "FINEBI"
 FTP_PASS = "DX"
@@ -71,7 +71,7 @@ VERSION_PREFIX = "incident_overview_"  # 版本化文件前缀：incident_overvi
 # ---------------------------------------------------------------------------
 def _connect() -> ftplib.FTP:
     ftp = ftplib.FTP()
-    ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
+    ftp.connect(get_ftp_host(), FTP_PORT, timeout=30)
     ftp.login(FTP_USER, FTP_PASS)
     ftp.encoding = "utf-8"
     return ftp
@@ -347,7 +347,7 @@ def run_incident_overview_sync() -> dict:
         "timestamp": datetime.now().isoformat(),
     }
 
-    logger.info("开始 Incident Overview FTP 同步 - 连接 %s:%s", FTP_HOST, FTP_PORT)
+    logger.info("开始 Incident Overview FTP 同步 - 连接 %s:%s", get_ftp_host(), FTP_PORT)
 
     try:
         ftp = _connect()
