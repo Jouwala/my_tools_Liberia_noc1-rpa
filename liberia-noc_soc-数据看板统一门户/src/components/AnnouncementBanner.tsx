@@ -10,7 +10,7 @@ export const AnnouncementBanner: React.FC = () => {
 
   return (
     <div className="bg-gradient-to-r from-teal-600 via-cyan-700 to-navy-900 text-white dark:bg-gradient-to-r dark:from-navy-950 dark:via-navy-900 dark:to-teal-900 px-4 py-2 text-xs font-medium shadow-sm transition-all">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+      <div className="w-full mx-auto flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 overflow-hidden">
           <span className="flex items-center gap-1 bg-teal-400/15 border border-teal-400/30 px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide shrink-0">
             <Radio className="w-3 h-3 animate-pulse text-teal-300" /> {t('banner.liveBadge')}

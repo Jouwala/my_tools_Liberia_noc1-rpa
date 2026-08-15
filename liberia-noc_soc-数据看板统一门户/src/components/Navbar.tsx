@@ -39,7 +39,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const { t, lang, setLang } = useI18n();
   return (
     <header className="sticky top-0 z-40 bg-white/90 dark:bg-navy-900/90 backdrop-blur-md border-b border-slate-200/90 dark:border-navy-800/90">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+      <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 h-16 flex items-center justify-between gap-4">
         {/* Left: Brand / Logo */}
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-500 via-cyan-500 to-sky-400 flex items-center justify-center text-white shadow-md shadow-teal-500/25 shrink-0">

@@ -185,24 +185,27 @@ export const FilterBar: React.FC<FilterBarProps> = ({
       </div>
 
       {/* Lower Row: Category Tabs */}
-      <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between overflow-x-auto gap-2 scrollbar-none">
-        <div className="flex items-center gap-1.5 shrink-0">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => onSelectCategory(cat)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 ${
-                selectedCategory === cat
-                  ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-semibold shadow-xs'
-                  : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              {translateCategory(cat, lang, t)}
-            </button>
-          ))}
+      <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between overflow-x-auto gap-3 scrollbar-none">
+        <div className="flex items-center gap-2 shrink-0">
+          {CATEGORIES.map((cat) => {
+            const active = selectedCategory === cat;
+            return (
+              <button
+                key={cat}
+                onClick={() => onSelectCategory(cat)}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 shrink-0 whitespace-nowrap ${
+                  active
+                    ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-md shadow-teal-600/25'
+                    : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
+                }`}
+              >
+                {translateCategory(cat, lang, t)}
+              </button>
+            );
+          })}
         </div>
 
-        <div className="text-[11px] text-slate-400 shrink-0 font-medium pl-2">
+        <div className="text-xs text-slate-400 shrink-0 font-medium pl-2 whitespace-nowrap">
           {t('filter.result', { n: totalFilteredCount })}
         </div>
       </div>

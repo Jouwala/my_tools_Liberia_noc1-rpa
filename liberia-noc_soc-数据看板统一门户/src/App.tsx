@@ -275,7 +275,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6">
         {/* Quick Stats & Environment Overview */}
         <QuickStatsBar
           dashboards={dashboards}
@@ -340,7 +340,7 @@ export default function App() {
             </div>
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
             {translatedDashboards.map((dashboard) => (
               <DashboardCard
                 key={dashboard.id}
@@ -390,7 +390,7 @@ export default function App() {
 
       {/* Bottom Sticky Quick Footer */}
       <footer className="border-t border-slate-200/90 dark:border-slate-800/90 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md py-4 mt-12 text-xs text-slate-500 dark:text-slate-400">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-slate-700 dark:text-slate-300">
               {t('app.title')}
