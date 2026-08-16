@@ -93,6 +93,37 @@ DEFAULTS = {
     "soc_low": SOC_LOW,
 }
 
+# ========== 外部化配置（Settings 页面可编辑的 battery_config.json） ==========
+# 优先级：环境变量 > 配置文件 > 内置默认
+try:
+    from backend.services.task_config_files import load_json_config
+    _BATT_CONF = load_json_config(Path(__file__).resolve().parent.parent / "battery_config.json")
+except Exception:
+    _BATT_CONF = None
+if _BATT_CONF:
+    if not os.environ.get("BATT_FRESH_HOURS"):
+        FRESH_HOURS = float(_BATT_CONF.get("fresh_hours", FRESH_HOURS))
+    if not os.environ.get("BATT_STALE_DAYS"):
+        STALE_DAYS = float(_BATT_CONF.get("stale_days", STALE_DAYS))
+    if not os.environ.get("BATT_HEALTH_DEGRADED"):
+        HEALTH_DEGRADED = float(_BATT_CONF.get("health_degraded", HEALTH_DEGRADED))
+    if not os.environ.get("BATT_HEALTH_GOOD"):
+        HEALTH_GOOD = float(_BATT_CONF.get("health_good", HEALTH_GOOD))
+    if not os.environ.get("BATT_SOC_CRITICAL"):
+        SOC_CRITICAL = float(_BATT_CONF.get("soc_critical", SOC_CRITICAL))
+    if not os.environ.get("BATT_SOC_LOW"):
+        SOC_LOW = float(_BATT_CONF.get("soc_low", SOC_LOW))
+    if not os.environ.get("BATT_READING_RETENTION_DAYS"):
+        READING_RETENTION_DAYS = int(_BATT_CONF.get("reading_retention_days", READING_RETENTION_DAYS))
+    if not os.environ.get("BATT_TREND_RETENTION_DAYS"):
+        TREND_RETENTION_DAYS = int(_BATT_CONF.get("trend_retention_days", TREND_RETENTION_DAYS))
+    DEFAULTS.update({
+        "fresh_hours": FRESH_HOURS, "stale_days": STALE_DAYS,
+        "health_degraded": HEALTH_DEGRADED, "health_good": HEALTH_GOOD,
+        "soc_critical": SOC_CRITICAL, "soc_low": SOC_LOW,
+    })
+    print(f"[BATT] 已加载 battery_config.json: fresh_hours={FRESH_HOURS}, stale_days={STALE_DAYS}")
+
 
 # ---------------------------------------------------------------------------
 # 解析工具

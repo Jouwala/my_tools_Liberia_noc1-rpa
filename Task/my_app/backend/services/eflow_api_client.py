@@ -18,6 +18,7 @@ import random
 import glob
 import shutil
 import csv
+from pathlib import Path
 import sqlite3
 import threading
 from datetime import datetime, timezone, timedelta
@@ -65,6 +66,45 @@ CR_API_PATH = "/api/eflow-asset/v1/eflow-cr/base/list"
 PM_API_PATH = "/api/eflow-pm/v1/eflow-pm-task/base/list"
 SITE_API_PATH = "/api/cmdb/v1/data/search/Site"
 PERSON_API_PATH = "/api/cmdb/v1/data/search/Person"
+
+# ========== 外部化配置（Settings 页面可编辑的 eflow_config.json） ==========
+# 优先级：环境变量 > 配置文件 > 内置默认。凭据由 credential_store / 凭据管理页签负责。
+_EFLOW_CONF_PATH = Path(__file__).resolve().parent / "eflow_config.json"
+
+
+def _load_eflow_config() -> dict | None:
+    try:
+        if _EFLOW_CONF_PATH.exists():
+            with open(_EFLOW_CONF_PATH, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else None
+    except Exception as e:
+        logger.warning(f"读取 eflow_config.json 失败，使用内置默认: {e}")
+    return None
+
+
+_EFLOW_CONF = _load_eflow_config()
+if _EFLOW_CONF is not None:
+    if not os.environ.get("EFLOW_HOST"):
+        HOST = _EFLOW_CONF.get("host", HOST)
+    if not os.environ.get("EFLOW_PORT"):
+        PORT = int(_EFLOW_CONF.get("port", PORT))
+    if not os.environ.get("FTP_REMOTE_DIR"):
+        FTP_REMOTE_DIR = _EFLOW_CONF.get("ftp_remote_dir", FTP_REMOTE_DIR)
+    if not os.environ.get("EFLOW_CONNECT_TIMEOUT"):
+        HTTP_CONNECT_TIMEOUT = float(_EFLOW_CONF.get("connect_timeout", HTTP_CONNECT_TIMEOUT))
+    if not os.environ.get("EFLOW_READ_TIMEOUT"):
+        HTTP_READ_TIMEOUT = float(_EFLOW_CONF.get("read_timeout", HTTP_READ_TIMEOUT))
+    if not os.environ.get("EFLOW_HTTP_MAX_RETRIES"):
+        HTTP_MAX_RETRIES = max(0, int(_EFLOW_CONF.get("max_retries", HTTP_MAX_RETRIES)))
+    if not os.environ.get("EFLOW_DELTA_DAYS"):
+        # 注意：EFLOW_DELTA_DAYS 定义在本块之后，这里用与内置默认一致的常量值
+        EFLOW_DELTA_DAYS = max(1, int(_EFLOW_CONF.get("delta_days", 3)))
+    if not os.environ.get("EFLOW_FULL_DAYS"):
+        EFLOW_FULL_DAYS = max(0, int(_EFLOW_CONF.get("full_days", 0)))
+    TT_API_PATH = _EFLOW_CONF.get("tt_api_path", TT_API_PATH)
+    WO_API_PATH = _EFLOW_CONF.get("wo_api_path", WO_API_PATH)
+    logger.info(f"[eFlow] 已加载 eflow_config.json: host={HOST}, delta={EFLOW_DELTA_DAYS}天")
 ALARM_API_PATH = "/api/fm-active/v1/activealarms/table"
 HIS_ALARM_API_PATH = "/api/fm-history/v1/hisalarms/pageinfo"
 

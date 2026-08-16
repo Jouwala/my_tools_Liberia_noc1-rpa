@@ -75,6 +75,19 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # 查询时间范围：上个月同一天 → 今天（滚动 1 个月）
 CNN_KPI_DAYS_BACK = int(os.environ.get("CNN_KPI_DAYS_BACK", "7"))
 
+# ========== 外部化配置（Settings 页面可编辑的 cnn_kpi_config.json） ==========
+try:
+    from backend.services.task_config_files import load_json_config
+    _CNN_CONF = load_json_config(Path(__file__).resolve().parent / "cnn_kpi_config.json")
+except Exception:
+    _CNN_CONF = None
+if _CNN_CONF:
+    HOST = _CNN_CONF.get("host", HOST)
+    PORT = int(_CNN_CONF.get("port", PORT))
+    if not os.environ.get("CNN_KPI_DAYS_BACK"):
+        CNN_KPI_DAYS_BACK = max(1, int(_CNN_CONF.get("days_back", CNN_KPI_DAYS_BACK)))
+    print(f"[CNN] 已加载 cnn_kpi_config.json: host={HOST}, days_back={CNN_KPI_DAYS_BACK}")
+
 # 并行查询线程数
 MAX_PARALLEL_WORKERS = int(os.environ.get("CNN_KPI_PARALLEL_WORKERS", "8"))
 

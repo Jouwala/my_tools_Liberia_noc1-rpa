@@ -44,6 +44,7 @@ from backend.dialect_helpers import list_table_names
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 import urllib.parse
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # 强制 UTF-8 输出（修复 Windows CMD 中文编码问题）
 try:
@@ -75,10 +76,23 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 查询参数（来自 url.txt）——支持多台设备，按设备分别拉取/入库/出图
 DEVICE_IDS = ["37781505", "37781506"]
+
+# ========== 外部化配置（Settings 页面可编辑的 fw_kpi_config.json） ==========
+# 优先级：环境变量 > 配置文件 > 内置默认
+try:
+    from backend.services.task_config_files import load_json_config
+    _FW_CONF = load_json_config(Path(__file__).resolve().parent / "fw_kpi_config.json")
+except Exception:
+    _FW_CONF = None
+if _FW_CONF:
+    HOST = _FW_CONF.get("host", HOST)
+    PORT = int(_FW_CONF.get("port", PORT))
+    print(f"[FW] 已加载 fw_kpi_config.json: host={HOST}")
+
 # 时间范围：当前时间往前 30 天的 00:00:00 起，到当前时刻止。
 # 例如今天 2026-08-04 21:30 → start 2026-07-06 00:00:00, end 2026-08-04 21:30:xx
-# 可通过环境变量 FW_KPI_DAYS_BACK 覆盖回看天数（默认 30）。
-_DAYS_BACK = int(os.environ.get("FW_KPI_DAYS_BACK", "30"))
+# 可通过环境变量 FW_KPI_DAYS_BACK 或配置文件 days_back 覆盖（默认 30）。
+_DAYS_BACK = int(os.environ.get("FW_KPI_DAYS_BACK") or ((_FW_CONF or {}).get("days_back", 30)))
 _NOW = datetime.now()
 END_TIME = _NOW.strftime("%Y-%m-%d %H:%M:%S")
 START_TIME = (_NOW - timedelta(days=_DAYS_BACK)).replace(

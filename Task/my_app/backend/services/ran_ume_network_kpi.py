@@ -43,6 +43,7 @@ import openpyxl
 from ftplib import FTP, error_perm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from backend.database import get_raw_connection
 from backend.dialect_helpers import list_table_names, table_columns, upsert, safe_pragma, pg_trunc_ident
 
@@ -88,6 +89,20 @@ HTTP_READ_TIMEOUT = float(os.environ.get("NW_KPI_READ_TIMEOUT", "90"))
 
 # 时间范围：今天之前的 367 天（覆盖一年）
 DAYS_BACK = int(os.environ.get("NW_KPI_DAYS_BACK", "14"))
+
+# ========== 外部化配置（Settings 页面可编辑的 network_kpi_config.json） ==========
+try:
+    from backend.services.task_config_files import load_json_config
+    _NW_CONF = load_json_config(Path(__file__).resolve().parent / "network_kpi_config.json")
+except Exception:
+    _NW_CONF = None
+if _NW_CONF:
+    HOST = _NW_CONF.get("host", HOST)
+    PORT = int(_NW_CONF.get("port", PORT))
+    if not os.environ.get("NW_KPI_DAYS_BACK"):
+        DAYS_BACK = max(1, int(_NW_CONF.get("days_back", DAYS_BACK)))
+    HISTORY_REFERER = f"https://{HOST}:{PORT}/iui/pm/angularTask/dist/pmManagement.html"
+    print(f"[NW_KPI] 已加载 network_kpi_config.json: host={HOST}, days_back={DAYS_BACK}")
 
 # PM 接口路径
 HISTORY_PATH = "/api/pm-analysis/v2/history"

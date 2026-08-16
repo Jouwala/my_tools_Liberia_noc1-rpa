@@ -77,6 +77,21 @@ MONTHS_BACK = int(os.environ.get("IPRAN_KPI_MONTHS_BACK", "1"))
 # 查询时间范围：支持 "3days" / "7days" / "14days" / "1month"（默认 3days），
 # 优先级高于 MONTHS_BACK
 TIME_RANGE = os.environ.get("IPRAN_KPI_TIME_RANGE", "3days").strip().lower()
+
+# ========== 外部化配置（Settings 页面可编辑的 ipran_kpi_config.json） ==========
+try:
+    from backend.services.task_config_files import load_json_config
+    _IPRAN_CONF = load_json_config(Path(__file__).resolve().parent / "ipran_kpi_config.json")
+except Exception:
+    _IPRAN_CONF = None
+if _IPRAN_CONF:
+    HOST = _IPRAN_CONF.get("host", HOST)
+    PORT = int(_IPRAN_CONF.get("port", PORT))
+    if not os.environ.get("IPRAN_KPI_MONTHS_BACK"):
+        MONTHS_BACK = max(0, int(_IPRAN_CONF.get("months_back", MONTHS_BACK)))
+    if not os.environ.get("IPRAN_KPI_TIME_RANGE"):
+        TIME_RANGE = str(_IPRAN_CONF.get("time_range", TIME_RANGE)).strip().lower()
+    print(f"[IPRAN] 已加载 ipran_kpi_config.json: host={HOST}, time_range={TIME_RANGE}")
 # 并发线程数：匹配当前 6 个 KPI 查询任务
 MAX_PARALLEL_WORKERS = int(os.environ.get("IPRAN_KPI_PARALLEL_WORKERS", "6"))
 # 创建查询遇到 Repeated query（服务端旧查询未释放）时的退避重试上限与间隔。

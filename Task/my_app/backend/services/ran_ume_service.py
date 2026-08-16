@@ -84,6 +84,23 @@ PORT = int(os.environ.get("RAN_UME_PORT", "28001"))
 USERNAME = os.environ.get("RAN_UME_USER", "NOC")
 PASSWORD = os.environ.get("RAN_UME_PASS", "Zte@2025!")
 
+# ========== 外部化配置（Settings 页面可编辑的 ran_ume_config.json） ==========
+# 优先级：环境变量 > 配置文件 > 内置默认。凭据走 credential_store。
+try:
+    from backend.services.task_config_files import load_json_config
+    _RAN_UME_CONF = load_json_config(Path(__file__).resolve().parent / "ran_ume_config.json")
+except Exception:
+    _RAN_UME_CONF = None
+if _RAN_UME_CONF:
+    if not os.environ.get("RAN_UME_HOST"):
+        HOST = _RAN_UME_CONF.get("host", HOST)
+    if not os.environ.get("RAN_UME_PORT"):
+        PORT = int(_RAN_UME_CONF.get("port", PORT))
+    if not os.environ.get("RAN_UME_DAYS_BACK"):
+        RAN_UME_DAYS_BACK = max(1, int(_RAN_UME_CONF.get("days_back", RAN_UME_DAYS_BACK)))
+    logging.getLogger("ran_ume_service").info(
+        f"[RAN] 已加载 ran_ume_config.json: host={HOST}, days_back={RAN_UME_DAYS_BACK}")
+
 
 def _runtime_credentials():
     """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""

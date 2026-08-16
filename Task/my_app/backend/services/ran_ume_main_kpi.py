@@ -40,6 +40,7 @@ import threading
 import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from ftplib import FTP, error_perm
 
 import pandas as pd
@@ -88,6 +89,20 @@ HTTP_READ_TIMEOUT = float(os.environ.get("MAIN_KPI_READ_TIMEOUT", "90"))
 
 # 时间范围：每日更新只需要最近 3 天（覆盖周末），首次运行可设大值
 DAYS_BACK = int(os.environ.get("MAIN_KPI_DAYS_BACK", "3"))
+
+# ========== 外部化配置（Settings 页面可编辑的 main_kpi_config.json） ==========
+try:
+    from backend.services.task_config_files import load_json_config
+    _MAIN_CONF = load_json_config(Path(__file__).resolve().parent / "main_kpi_config.json")
+except Exception:
+    _MAIN_CONF = None
+if _MAIN_CONF:
+    HOST = _MAIN_CONF.get("host", HOST)
+    PORT = int(_MAIN_CONF.get("port", PORT))
+    if not os.environ.get("MAIN_KPI_DAYS_BACK"):
+        DAYS_BACK = max(1, int(_MAIN_CONF.get("days_back", DAYS_BACK)))
+    HISTORY_REFERER = f"https://{HOST}:{PORT}/iui/pm/angularTask/dist/pmManagement.html"
+    print(f"[MAIN_KPI] 已加载 main_kpi_config.json: host={HOST}, days_back={DAYS_BACK}")
 
 # SLA / PM 接口路径
 HISTORY_PATH = "/api/pm-analysis/v2/history"

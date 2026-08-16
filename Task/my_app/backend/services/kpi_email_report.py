@@ -418,6 +418,7 @@ def run_ran_availability(to: str = None, cc: str = None) -> dict:
 _PL_EMAIL = "/01_RPA/LBR_Tools/KPI/packet_lost/pl_email"
 _PL_DATA_DIR = MY_APP_DIR / "data" / "packet_lost"
 _PL_SCREENSHOT_NAME = "_dashboard_screenshot.png"
+_PL_DASHBOARD_URL = "http://192.168.100.20/myapp/?page=packet_loss"
 
 
 def _capture_packet_loss_screenshot() -> Path:
@@ -432,7 +433,7 @@ def _capture_packet_loss_screenshot() -> Path:
 
     out = _PL_DATA_DIR / _PL_SCREENSHOT_NAME
     out.parent.mkdir(parents=True, exist_ok=True)
-    url = "http://localhost:7038/myapp/"
+    url = _PL_DASHBOARD_URL
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -447,24 +448,14 @@ def _capture_packet_loss_screenshot() -> Path:
         current_locale = page.evaluate("localStorage.getItem('app-locale')")
         logging.getLogger(__name__).info("[PL-SHOT] locale=%s", current_locale)
 
-        # 2) 点击「Packet Loss」菜单（英文优先）
-        for label in ("Packet Loss", "丢包看板", "PacketLoss"):
-            try:
-                loc = page.get_by_text(label, exact=False).first
-                if loc.count() > 0:
-                    loc.click(timeout=5000)
-                    break
-            except Exception:
-                continue
-
-        # 3) 等数据真正加载（spinner 消失 + 关键指标出现）
+        # 2) 等数据真正加载（spinner 消失 + 关键指标出现）
         try:
             page.wait_for_selector("text=加载中...", state="hidden", timeout=15000)
         except Exception:
             pass
         # 硬性渲染校验：看板必须出现关键指标文本，否则视为未渲染（白屏/数据缺失）
         rendered = False
-        for kw in ("Total Sites", "Affected Sites", "Critical", "667"):
+        for kw in ("Total Sites", "Affected Sites", "Critical", "Major"):
             try:
                 el = page.get_by_text(kw, exact=False).first
                 el.wait_for(state="visible", timeout=8000)
@@ -473,10 +464,12 @@ def _capture_packet_loss_screenshot() -> Path:
             except Exception:
                 continue
         if not rendered:
-            page.screenshot(path=str(out), full_page=False)
+            # 失败时不覆盖正式截图文件，避免留下错误的 Task Manager 首页截图
+            fail_out = out.with_stem(out.stem + "_failed")
+            page.screenshot(path=str(fail_out), full_page=False)
             browser.close()
             raise RuntimeError(
-                "看板未渲染：关键指标文本（Total Sites/Affected Sites/Critical/667）均未出现，"
+                "看板未渲染：关键指标文本（Total Sites/Affected Sites/Critical/Major）均未出现，"
                 "可能后端/API 未就绪或前端加载失败"
             )
         # 额外确认 Leaflet 地图瓦片已绘制（避免地图区域空白）

@@ -68,6 +68,19 @@ SFTP_PORT = 22
 SFTP_USER = "ubuntu"
 SFTP_PASS = "UbuntU1!2@3#4$"
 
+# ========== 外部化配置（Settings 页面可编辑的 sp_sftp_config.json） ==========
+# 主机/目录可页面调整；凭据走 credential_store（_runtime_credentials）。
+try:
+    from backend.services.task_config_files import load_json_config
+    _SP_CONF = load_json_config(Path(__file__).resolve().parent / "sp_sftp_config.json")
+except Exception:
+    _SP_CONF = None
+if _SP_CONF:
+    SFTP_HOST = _SP_CONF.get("sftp_host", SFTP_HOST)
+    SFTP_PORT = int(_SP_CONF.get("sftp_port", SFTP_PORT))
+    _sp_folders = _SP_CONF.get("folders") or {}
+    print(f"[SP] 已加载 sp_sftp_config.json: host={SFTP_HOST}")
+
 
 def _runtime_credentials():
     """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
@@ -120,6 +133,13 @@ SP_TABLES = {
         "search": "sp-wh_transfer",
     },
 }
+
+# 应用 sp_sftp_config.json 里的远程目录覆盖（页面可调）
+if _SP_CONF:
+    _sp_folders = _SP_CONF.get("folders") or {}
+    for _table, _folder in _sp_folders.items():
+        if _table in SP_TABLES and isinstance(_folder, str) and _folder.strip():
+            SP_TABLES[_table]["remote_folder"] = _folder
 
 # 增量去重的表（保留历史累计），其余表为「整表替换」
 APPEND_TABLES = {"inventory_details"}
