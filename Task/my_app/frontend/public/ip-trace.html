@@ -2644,6 +2644,18 @@ function waitForSDK(maxAttempts = 30, interval = 300) {
 
 async function showCozeChat() {
     console.log('showCozeChat called');
+    // [集成回归修复] Coze Web SDK 从外部 CDN 加载 + 硬编码 Token，在 my_app iframe 内
+    // 会因鉴权失败而反复弹出认证窗口（"一直弹出窗口"），且集成之前该功能并不存在。
+    // 默认停用以避免弹窗死循环；如需启用，设置 window.COZE_CHAT_ENABLED = true 并填有效凭据。
+    if (!window.COZE_CHAT_ENABLED) {
+        const modal = document.getElementById('cozeChatModal');
+        if (modal) modal.classList.remove('hidden');
+        const container = document.getElementById('cozeChatContainer');
+        if (container) {
+            container.innerHTML = '<div class="flex items-center justify-center h-full"><div class="text-center text-white/60 max-w-md px-4"><p class="mb-2 text-lg font-bold">Coze 智能体未启用</p><p class="text-sm text-white/40">当前部署未配置有效的 Coze Token / AppId，已临时停用此功能以避免反复弹出认证窗口。如需启用，请在 ip-trace.html 中将 window.COZE_CHAT_ENABLED 设为 true 并填写有效凭据。</p></div></div>';
+        }
+        return;
+    }
     const modal = document.getElementById('cozeChatModal');
     if (!modal) {
         console.error('Coze chat modal not found');
@@ -3530,20 +3542,20 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error('Error:', e);
     });
 
-    // 页面关闭时通知服务器
-    window.addEventListener('beforeunload', function(e) {
-        if (navigator.sendBeacon) {
-            navigator.sendBeacon(`${API_BASE_PATH}/shutdown`);
-        } else {
-            try {
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', `${API_BASE_PATH}/shutdown`, false);
-                xhr.send();
-            } catch (err) {
-                console.error('Failed to send shutdown request:', err);
-            }
-        }
-    });
+    // 页面关闭时通知服务器（shutdown 端点已移除，生命周期由 my_app 统一管理）
+    // window.addEventListener('beforeunload', function(e) {
+    //     if (navigator.sendBeacon) {
+    //         navigator.sendBeacon(`${API_BASE_PATH}/shutdown`);
+    //     } else {
+    //         try {
+    //             const xhr = new XMLHttpRequest();
+    //             xhr.open('POST', `${API_BASE_PATH}/shutdown`, false);
+    //             xhr.send();
+    //         } catch (err) {
+    //             console.error('Failed to send shutdown request:', err);
+    //         }
+    //     }
+    // });
 });
 
 </script>

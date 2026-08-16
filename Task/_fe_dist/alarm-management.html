@@ -14,6 +14,11 @@
     --panel-sub:#f6f8fb; --hover:#eaf4ff;
     --hm-red:#ce4c4a; --hm-orange:#d89f42; --hm-green:#349a6d;
     --crit:#e5484d; --maj:#f58c1f; --min:#f2c14e; --warn:#12b5c5; --ok:#37b26c;
+    /* 热力表行/列 Total 单元格背景（SITE/CELL 行末列 + 底部 Total 行的 label/末列）
+       之前用 #eef2f7 / #dfe8f3 硬编码时，深色主题因 var(--text) 变浅，导致"白字白底"完全隐形。 */
+    --tcell-bg:#eef2f7;            /* SITE/CELL 行最右 Total 单元格 */
+    --tcrow-label-bg:#dfe8f3;      /* 底部 Total 行 label + 最右 Total 单元格 */
+    --tcell-text:#3d4757;          /* 浅色主题用 --text 即可；这里固定一份做兜底 */
     --shadow1:0 1px 3px rgba(30,60,110,.10); --shadow2:0 4px 16px rgba(30,60,110,.12);
     --radius:10px; --header-h:52px; --side-w:210px;
     /* === 站点宕机统计 三栏布局尺寸（显式定义，用于图表↔地图严格对齐与响应式） === */
@@ -240,6 +245,11 @@
     --bg:#0a1929; --panel:#112540; --panel-sub:#0e1d33; --text:#e6f4ff; --muted:#94a3b8;
     --placeholder:#64748b; --disabled:#475569; --border:#22324d; --border-strong:#2c3e5c;
     --hover:#16304f; --zte-blue:#7fb4e6; --shadow1:0 1px 3px rgba(0,0,0,.4); --shadow2:0 4px 16px rgba(0,0,0,.5);
+    /* 深色主题下 Total 单元格背景：比 --panel-sub 略亮一档，保持与普通 rowh/th 的层次差；
+       文字继承 .rowh 的 var(--text)=浅色，自然变成"浅字深底"，修复"白字白底"隐形问题。 */
+    --tcell-bg:#1f2d44;
+    --tcrow-label-bg:#1a2942;
+    --tcell-text:#e6f4ff;
   }
   [data-theme="dark"] body{ background:
       radial-gradient(1200px 400px at 15% -50px, rgba(25,147,255,.10), transparent),
@@ -484,7 +494,9 @@ if(D.raw024 && D.raw024.physical && D.raw024.physical.length){ D.kpis.down = D.r
 // Logical Total 的 SITE/CELL 行 = 实时 getBorDataByVendor（门户 Logical Total 真源），而非各州 Site/Cell 表求和或 0-24 序列
 const ABBR_NAME = D.abbrNames || {};
 const HM = {red:'#ce4c4a', orange:'#d89f42', green:'#349a6d'};
-function heat(v){ if(v===0) return HM.green; if(v<=4) return HM.orange; return HM.red; }
+// 热力配色：>=5 红、1~4 橙、0 绿。Number() 把字符串/小数等统一归一，避免历史数据里出现 "5" / 5.0
+// 之类被漏判（≥5 本来就应该红色，不要让 ≤4 的边界吃成橙色）。
+function heat(v){ const n=Number(v); if(!isFinite(n)) return HM.green; if(n===0) return HM.green; if(n<=4) return HM.orange; return HM.red; }
 let ranFilter='ALL';
 function filterRan(cols, rows, totalRow){
   if(ranFilter==='ALL' || cols.indexOf(ranFilter)<0) return {cols, rows, totalRow};
@@ -502,12 +514,13 @@ function buildTable(elId, headFirst, headCols, rows, totalRow, totalLabel){
   rows.forEach(r=>{
     h+='<tr><td class="rowh">'+r.label+'</td>';
     r.vals.forEach(v=>{ h+='<td class="hm" style="background:'+heat(v)+'">'+v+'</td>'; });
-    h+='<td class="rowh" style="background:#eef2f7">'+r.total+'</td></tr>';
+    // 用 CSS 变量 --tcell-bg 而不是硬编码 #eef2f7，否则深色主题下"白字白底"看不到（var(--text) 在深色下是浅色）
+    h+='<td class="rowh" style="background:var(--tcell-bg)">'+r.total+'</td></tr>';
   });
   if(totalRow){
-    h+='<tr><td class="rowh" style="background:#dfe8f3">'+totalLabel+'</td>';
+    h+='<tr><td class="rowh" style="background:var(--tcrow-label-bg)">'+totalLabel+'</td>';
     totalRow.forEach(v=>{ h+='<td class="hm" style="background:#375a8f">'+v+'</td>'; });
-    h+='<td class="rowh" style="background:#dfe8f3">'+totalRow.reduce((a,b)=>a+b,0)+'</td></tr>';
+    h+='<td class="rowh" style="background:var(--tcrow-label-bg)">'+totalRow.reduce((a,b)=>a+b,0)+'</td></tr>';
   }
   h+='</table>'; el.innerHTML=h;
 }
@@ -975,7 +988,7 @@ document.getElementById('ovNote').textContent='告警计数为门户导出快照
    实时数据模块（本地代理 + 精确字段渲染）
 ================================================================= */
 const PROXY_BASE = window.__ALARM_PROXY__ || 'http://127.0.0.1:8787/proxy?url=';
-const defaultCfg={enabled:false,interval:D.live.refresh||60,cookie:'',
+const defaultCfg={enabled:true,interval:D.live.refresh||300,cookie:'',
   sources:(D.live.sources||[]).map(s=>({name:s.name,url:s.url,method:s.method||'GET',
     body:s.body?JSON.stringify(s.body):''}))};
 let liveCfg=loadCfg(); let liveTimer=null; let lastOkAt=null;
@@ -1324,11 +1337,15 @@ document.addEventListener('click',()=>document.getElementById('userDD').classLis
 function toggleFull(){ document.querySelector('.ptl-content').requestFullscreen?.(); }
 window.addEventListener('resize',()=>{ [chTrend,chDuration,chHour,chRan,chMainsFail,chSiteClass,mapChart].concat(top5Charts.map(c=>c.chart)).forEach(c=>c&&c.resize()); trendCharts.forEach(t=>{ t.bar&&t.bar.resize(); t.line&&t.line.resize(); }); assignCharts.forEach(a=>a.chart&&a.chart.resize()); });
 
-/* 自动接管：若本地代理可达，则自动启用实时刷新，让页面打开即显示真实最新数据 */
+/* 自动接管：后端已自动拉起代理，页面打开即尝试接入实时数据。
+   若代理尚未就绪（登录慢），先 ensureProxy 拉起，再轮询等待健康后启用。 */
 let proxyOnline=false;
 (async function bootstrap(){
-  const alive=await proxyAlive();
-  if(alive){
+  // 先通过后端控制面确保代理进程存在（后端 startup 已异步拉起，这里兜底）
+  await ensureProxy();
+  // 等待代理健康（最多 25s，覆盖上游 FMS 登录时间）
+  const ready = await waitProxyReady(25000);
+  if(ready){
     proxyOnline=true;
     liveCfg.enabled=true;
     if(!liveCfg.sources.length){ liveCfg=JSON.parse(JSON.stringify(defaultCfg)); liveCfg.enabled=true; }
@@ -1337,8 +1354,8 @@ let proxyOnline=false;
     startLive();
     setStatus('on','实时刷新中 · 间隔 '+liveCfg.interval+'s');
   } else {
-    console.log('[FMS Live] 代理未运行，进入快照模式');
-    setStatus('','快照 · 代理未运行（双击 start_proxy.bat 启用实时）');
+    console.log('[FMS Live] 代理未运行，进入快照模式（看门狗将在后台持续检测）');
+    setStatus('','快照 · 代理未运行（将在后台自动重试）');
   }
 })();
 /* 看门狗：代理中途恢复时自动接入实时，不必手动刷新页面 */

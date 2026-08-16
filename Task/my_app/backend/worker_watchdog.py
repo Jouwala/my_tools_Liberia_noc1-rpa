@@ -14,6 +14,7 @@
 import os
 import sys
 import time
+import json
 import signal
 import logging
 import subprocess
@@ -66,6 +67,12 @@ _children = {}          # group -> Popen
 _spawn_time = {}        # group -> spawn 时间戳
 _crashes = {}           # group -> 连续崩溃计数
 _backoff = {}           # group -> 当前退避秒数
+
+# 心跳文件：供外部守护（start_hidden.ps1 / MyApp_EnsureRunning）判断看门狗是否卡死。
+# 进程在但心跳超过 3 分钟未更新 → 判定 hung，由守护脚本强杀后重新拉起。
+HB_FILE = LOG_DIR / "heartbeat_worker_watchdog.json"
+_last_hb = 0.0
+_HB_INTERVAL = 15.0        # 心跳写入间隔（秒），2s 轮询循环下约每 15s 落盘一次
 
 
 def _request_shutdown(signum, _frame):
@@ -161,6 +168,90 @@ def _terminate_child():
     _children.clear()
 
 
+def _write_heartbeat():
+    """周期性写心跳文件（节流），供外部守护检测看门狗卡死。"""
+    global _last_hb
+    now = time.time()
+    if now - _last_hb < _HB_INTERVAL:
+        return
+    _last_hb = now
+    try:
+        HB_FILE.write_text(
+            json.dumps({
+                "name": "worker_watchdog",
+                "pid": os.getpid(),
+                "ts": datetime.now().isoformat(timespec="seconds"),
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _loop_once() -> bool:
+    """单轮主循环：逐组确保 worker 存活。
+
+    返回 False 表示应退出看门狗（收到停止信号）；
+    抛出的未预期异常由 main() 统一捕获记录，防止看门狗静默死亡。
+    """
+    for group in list(_GROUPS):
+        proc = _children.get(group)
+        # 1) 确保该组 worker 在跑
+        if proc is None or proc.poll() is not None:
+            if proc is not None:
+                exit_code = proc.returncode
+                lived = time.time() - _spawn_time.get(group, 0.0)
+                logger.warning(
+                    f"worker[{group}] 已退出 (exit_code={exit_code}, 存活 {lived:.1f}s)，准备重新拉起"
+                )
+                _children.pop(group, None)
+            # 退避：连续快速崩溃时延迟重拉，避免死循环
+            if _backoff.get(group, 0.0) > 0:
+                logger.info(f"worker[{group}] 退避等待 {_backoff[group]:.1f}s 后重拉")
+                waited = 0.0
+                while waited < _backoff[group] and not _shutdown:
+                    time.sleep(min(POLL_INTERVAL, _backoff[group] - waited))
+                    waited += POLL_INTERVAL
+                if _shutdown:
+                    return False
+            _spawn_worker(group)
+            _crashes[group] = 0
+            _backoff[group] = 0.0
+            continue
+        # 2) 该组 worker 存活，轮询等待（超时即仍在运行）
+        try:
+            proc.wait(timeout=POLL_INTERVAL)
+        except subprocess.TimeoutExpired:
+            if time.time() - _spawn_time.get(group, 0.0) >= CRASH_THRESHOLD:
+                _crashes[group] = 0
+                _backoff[group] = 0.0
+            continue
+        # 3) worker 退出（wait 返回且 poll 非 None）
+        exit_code = proc.returncode
+        lived = time.time() - _spawn_time.get(group, 0.0)
+        logger.warning(f"worker[{group}] 退出 (exit_code={exit_code}, 存活 {lived:.1f}s)")
+        _children.pop(group, None)
+        if _shutdown:
+            return False
+        if lived < CRASH_THRESHOLD:
+            _crashes[group] = _crashes.get(group, 0) + 1
+            _backoff[group] = min(MAX_BACKOFF, 2 ** _crashes[group])
+            logger.warning(
+                f"worker[{group}] 异常崩溃（存活过短），连续崩溃 {_crashes[group]} 次，"
+                f"下次退避 {_backoff[group]:.1f}s"
+            )
+            if _crashes[group] >= STARTUP_FAIL_LIMIT:
+                logger.error(
+                    f"worker[{group}] 连续崩溃 {STARTUP_FAIL_LIMIT} 次，停止自动拉起"
+                    f"（请检查 worker_runtime.log）。"
+                )
+                _GROUPS.remove(group)
+        else:
+            _crashes[group] = 0
+            _backoff[group] = 0.0
+    return True
+
+
 def main():
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     handlers = [logging.FileHandler(WATCHDOG_LOG, encoding="utf-8")]
@@ -189,61 +280,18 @@ def main():
 
     try:
         while not _shutdown:
-            for group in _GROUPS:
-                proc = _children.get(group)
-                # 1) 确保该组 worker 在跑
-                if proc is None or proc.poll() is not None:
-                    if proc is not None:
-                        exit_code = proc.returncode
-                        lived = time.time() - _spawn_time.get(group, 0.0)
-                        logger.warning(
-                            f"worker[{group}] 已退出 (exit_code={exit_code}, 存活 {lived:.1f}s)，准备重新拉起"
-                        )
-                        _children.pop(group, None)
-                    # 退避：连续快速崩溃时延迟重拉，避免死循环
-                    if _backoff.get(group, 0.0) > 0:
-                        logger.info(f"worker[{group}] 退避等待 {_backoff[group]:.1f}s 后重拉")
-                        waited = 0.0
-                        while waited < _backoff[group] and not _shutdown:
-                            time.sleep(min(POLL_INTERVAL, _backoff[group] - waited))
-                            waited += POLL_INTERVAL
-                        if _shutdown:
-                            break
-                    _spawn_worker(group)
-                    _crashes[group] = 0
-                    _backoff[group] = 0.0
-                    continue
-                # 2) 该组 worker 存活，轮询等待（超时即仍在运行）
-                try:
-                    proc.wait(timeout=POLL_INTERVAL)
-                except subprocess.TimeoutExpired:
-                    if time.time() - _spawn_time.get(group, 0.0) >= CRASH_THRESHOLD:
-                        _crashes[group] = 0
-                        _backoff[group] = 0.0
-                    continue
-                # 3) worker 退出（wait 返回且 poll 非 None）
-                exit_code = proc.returncode
-                lived = time.time() - _spawn_time.get(group, 0.0)
-                logger.warning(f"worker[{group}] 退出 (exit_code={exit_code}, 存活 {lived:.1f}s)")
-                _children.pop(group, None)
-                if _shutdown:
+            try:
+                _write_heartbeat()
+                if not _loop_once():
                     break
-                if lived < CRASH_THRESHOLD:
-                    _crashes[group] = _crashes.get(group, 0) + 1
-                    _backoff[group] = min(MAX_BACKOFF, 2 ** _crashes[group])
-                    logger.warning(
-                        f"worker[{group}] 异常崩溃（存活过短），连续崩溃 {_crashes[group]} 次，"
-                        f"下次退避 {_backoff[group]:.1f}s"
-                    )
-                    if _crashes[group] >= STARTUP_FAIL_LIMIT:
-                        logger.error(
-                            f"worker[{group}] 连续崩溃 {STARTUP_FAIL_LIMIT} 次，停止自动拉起"
-                            f"（请检查 worker_runtime.log）。"
-                        )
-                        _GROUPS.remove(group)
-                else:
-                    _crashes[group] = 0
-                    _backoff[group] = 0.0
+            except Exception:
+                # 2026-08-15 加固：主循环任何未预期异常都必须记录并继续，
+                # 否则看门狗会静默死亡（无日志），自愈链断裂。
+                logger.exception("worker_watchdog 主循环异常，已捕获并继续（防止看门狗静默死亡）")
+                try:
+                    time.sleep(5)
+                except Exception:
+                    pass
     finally:
         _terminate_child()
         try:

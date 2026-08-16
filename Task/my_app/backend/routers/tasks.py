@@ -63,9 +63,24 @@ def list_all_tasks(request: Request):
 
 
 @router.get("/api/tasks/history")
-def get_tasks_history(limit: int = 20):
-    """获取任务执行历史"""
-    return {"history": task_runner.get_task_history(limit)}
+def get_tasks_history(
+    limit: int = 50,
+    offset: int = 0,
+    task_id: str | None = None,
+    success: int | None = None,
+    trigger: str | None = None,
+    keyword: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+):
+    """全局执行历史（总历史记录）—— 跨所有任务，支持按任务/状态/触发/关键字/时间范围过滤与分页
+
+    返回 {"history": [...], "total": int}；不传任何过滤参数时等价于「最近 limit 条全部任务」。
+    """
+    return task_runner.get_global_history(
+        limit=limit, offset=offset, task_id=task_id, success=success,
+        trigger=trigger, keyword=keyword, start=start, end=end,
+    )
 
 
 @router.get("/api/tasks/failures")
@@ -134,6 +149,47 @@ def toggle_task_enabled(task_id: str, body: dict):
     """
     enabled = body.get("enabled", True)
     return task_runner.toggle_task(task_id, enabled)
+
+
+# ========== 任务配置 导出/导入（Settings「任务配置」页签） ==========
+# 注意：/config/export 与 /config/import 必须在 /{task_id}/config 之前注册，
+# 避免路径参数把 "config" 当成 task_id 解析。
+
+@router.get("/api/tasks/config/export", dependencies=[Depends(require_protected)])
+def task_config_export_all():
+    """全部任务配置导出（JSON 数组，供 Settings 页签「导出全部」）"""
+    return {"configs": task_runner.export_all_task_configs()}
+
+
+@router.post("/api/tasks/config/import", dependencies=[Depends(require_protected)])
+def task_config_import_all(body: dict):
+    """批量导入任务配置
+    body: {"configs": [{"task_id": "...", "cron"?: "...", "enabled"?: bool}, ...]}
+    逐项独立成败：非法项只影响自身，返回 {applied, errors}。
+    """
+    configs = body.get("configs", [])
+    return task_runner.import_task_configs(configs)
+
+
+@router.get("/api/tasks/{task_id}/config")
+def task_config_get(task_id: str):
+    """单任务配置（注册表元数据 + 当前 cron/enabled/updated_at）"""
+    cfg = task_runner.get_task_config(task_id)
+    if not cfg:
+        raise HTTPException(status_code=404, detail=f"任务 {task_id} 未找到")
+    return cfg
+
+
+@router.post("/api/tasks/{task_id}/config", dependencies=[Depends(require_protected)])
+def task_config_apply(task_id: str, body: dict):
+    """应用单任务配置
+    body: {"cron"?: "分 时 日 月 周", "enabled"?: true/false}（至少一项）
+    """
+    cron = body.get("cron")
+    enabled = body.get("enabled")
+    if cron is None and enabled is None:
+        raise HTTPException(status_code=400, detail="至少提供 cron 或 enabled 之一")
+    return task_runner.apply_task_config(task_id, cron=cron, enabled=enabled)
 
 
 @router.post("/api/tasks/toggle-all", dependencies=[Depends(require_protected)])

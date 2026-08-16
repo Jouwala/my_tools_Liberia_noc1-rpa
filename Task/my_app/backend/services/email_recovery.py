@@ -26,8 +26,11 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import sys
 import time
 from datetime import datetime, timedelta
+
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 from pathlib import Path
 from backend.database import get_raw_connection
 
@@ -140,6 +143,7 @@ def probe_ews_reachable() -> bool:
             [_MANAGED_VENV_PY, "-c", probe],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=45, cwd=str(MY_APP_DIR),
+            creationflags=_SUBPROCESS_FLAGS,
         )
         ok = r.returncode == 0 and "EWS_OK" in r.stdout
         if not ok:

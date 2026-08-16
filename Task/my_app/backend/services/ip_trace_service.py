@@ -27,8 +27,17 @@ import threading
 import statistics
 import datetime
 import logging
+import subprocess
 
 logger = logging.getLogger("ip_trace_service")
+
+# 使用 CREATE_NO_WINDOW | DETACHED_PROCESS 确保完全脱离控制台窗口
+# CREATE_NO_WINDOW: 不创建窗口
+# DETACHED_PROCESS: 脱离父进程控制台（仅 Windows）
+if sys.platform == "win32":
+    _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0)
+else:
+    _SUBPROCESS_FLAGS = 0
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(BASE_DIR, "data", "ip_trace")
@@ -125,8 +134,10 @@ def ping_single(host):
     cmd = ["ping", "-n", "1", "-w", "2000", host] if system == "windows" \
         else ["ping", "-c", "1", "-W", "2", host]
     try:
-        import subprocess
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=3,
+            creationflags=_SUBPROCESS_FLAGS,
+        )
         output = result.stdout
         if system == "windows":
             for pattern in [r'时间[<=](\d+)ms', r'time[<=](\d+)ms', r'时间=(\d+)ms', r'time=(\d+)ms']:
@@ -180,7 +191,6 @@ def ping_with_fallback(host, port=80):
 
 def traceroute_host(host):
     import platform
-    import subprocess
     import locale
     system = platform.system().lower()
     cmd = ["tracert", "-d", "-h", "30", host] if system == "windows" \
@@ -191,8 +201,11 @@ def traceroute_host(host):
             encoding = locale.getpreferredencoding()
         except Exception:  # noqa: BLE001
             encoding = "gbk" if system == "windows" else "utf-8"
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   text=True, encoding=encoding, errors="ignore", bufsize=1)
+        process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding=encoding, errors="ignore", bufsize=1,
+            creationflags=_SUBPROCESS_FLAGS,
+        )
         start_time = time.time()
         output_lines = []
         while True:

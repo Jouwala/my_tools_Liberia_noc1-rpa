@@ -31,6 +31,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 try:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -447,8 +449,9 @@ def _send_email(to: list, cc: list, subject: str, body: str,
             errors="replace",
             timeout=180,
             cwd=str(MY_APP_DIR),
+            creationflags=_SUBPROCESS_FLAGS,
         )
-        
+
         if proc.returncode == 0:
             return {"success": True, "message": proc.stdout[-500:] if proc.stdout else ""}
         else:

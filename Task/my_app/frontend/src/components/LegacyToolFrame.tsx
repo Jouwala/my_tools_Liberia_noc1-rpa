@@ -28,6 +28,11 @@ interface Props {
 
 export default function LegacyToolFrame({ file, title }: Props) {
   const [loading, setLoading] = useState(true)
+  // 反连缓存：每次挂载都给 legacy HTML 加一个随挂载变化的查询戳，
+  // 避免浏览器 / SPA 切换页面时复用旧的（可能含旧逻辑的）iframe 文档。
+  // 典型症状：cxo_dashboard.html 修复后用户仍看到旧行为 —— 因为同 src 的
+  // iframe 在 SPA 内导航时不会重新拉取，只有整页刷新才会。加戳后每次挂载必刷新。
+  const [cacheBust] = useState(() => Date.now())
 
   return (
     <div
@@ -58,7 +63,7 @@ export default function LegacyToolFrame({ file, title }: Props) {
       <iframe
         // BASE_URL 为 '/myapp/'，与 nginx 的 location /myapp/ 反代对齐；
         // iframe 内的相对请求（favicon.ico、lr-all.geo.json）会自动落到同一 base 下。
-        src={`${import.meta.env.BASE_URL}${file}`}
+        src={`${import.meta.env.BASE_URL}${file}?_=${cacheBust}`}
         title={title}
         onLoad={() => setLoading(false)}
         style={{

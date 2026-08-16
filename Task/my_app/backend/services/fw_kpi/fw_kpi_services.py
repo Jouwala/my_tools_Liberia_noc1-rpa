@@ -40,6 +40,8 @@ import socket
 import sqlite3
 import subprocess
 from backend.dialect_helpers import list_table_names
+
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 import urllib.parse
 from datetime import datetime, timedelta
 
@@ -271,6 +273,7 @@ def compute_login_enc(uname, pwd, cn, cp, c_form):
     proc = subprocess.run(
         ["node", os.path.basename(ENC_HELPER), uname, pwd, cn, cp, c_form],
         cwd=SCRIPT_DIR, capture_output=True, text=True, timeout=30,
+        creationflags=_SUBPROCESS_FLAGS,
     )
     if proc.returncode != 0:
         raise Exception(f"Node 加密失败(rc={proc.returncode}): {proc.stderr.strip()}")
@@ -705,6 +708,7 @@ def _send_email(to, cc, subject, body, inline_images):
             errors="replace",
             timeout=180,
             cwd=MY_APP_DIR,
+            creationflags=_SUBPROCESS_FLAGS,
         )
         if proc.returncode == 0:
             return {"success": True, "message": proc.stdout[-500:] if proc.stdout else ""}

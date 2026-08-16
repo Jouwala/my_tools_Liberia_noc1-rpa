@@ -189,7 +189,7 @@ def get_task_history_by_task(task_id: str, limit: int = 200) -> list[dict]:
             _ensure_task_log_table(conn)
             cur = conn.execute(
                 "SELECT task_id, task_name, category, trigger_type, success, "
-                "started_at, completed_at, elapsed_seconds, error, error_trace "
+                "started_at, completed_at, elapsed_seconds, result_json, error, error_trace "
                 "FROM task_execution_log WHERE task_id = ? "
                 "ORDER BY started_at DESC LIMIT ?",
                 (task_id, limit),
@@ -199,7 +199,8 @@ def get_task_history_by_task(task_id: str, limit: int = 200) -> list[dict]:
                     "task_id": r[0], "task_name": r[1], "category": r[2],
                     "trigger": r[3], "success": bool(r[4]),
                     "started_at": r[5], "completed_at": r[6],
-                    "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
+                    "elapsed_seconds": r[7], "result_json": r[8],
+                    "error": r[9], "error_trace": r[10],
                 })
             conn.close()
     except Exception as e:
@@ -232,3 +233,93 @@ def get_task_history(limit: int = 20, fallback_history: list | None = None) -> l
     except Exception:
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_task_history: exception swallowed", exc_info=True)
         return list(reversed((fallback_history or [])[-limit:]))
+
+
+def get_global_history(
+    limit: int = 50,
+    offset: int = 0,
+    task_id: str | None = None,
+    success: int | None = None,
+    trigger: str | None = None,
+    keyword: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    fallback_history: list | None = None,
+) -> dict:
+    """全局执行历史（总历史记录）：跨所有任务，支持过滤 + 分页。
+
+    返回 {"history": [...], "total": int}。双模（sqlite / PG）通用：
+    - 全部用 '?' 占位符（PG 包装层会自动转 %s）
+    - WHERE / 时间范围用字符串比较（started_at 为 ISO，字典序即时间序）
+
+    过滤项：
+    - task_id：精确匹配任务 ID
+    - success：1 / 0（None 表示不过滤）
+    - trigger：manual / scheduled / manual_stop ...
+    - keyword：模糊匹配 task_name / error / task_id（LIKE %kw%）
+    - start / end：ISO 时间范围（started_at >= start 且 <= end）
+    """
+    where_clauses: list[str] = []
+    params: list = []
+    if task_id:
+        where_clauses.append("task_id = ?")
+        params.append(task_id)
+    if success is not None:
+        where_clauses.append("success = ?")
+        params.append(1 if success else 0)
+    if trigger:
+        where_clauses.append("trigger_type = ?")
+        params.append(trigger)
+    if keyword:
+        where_clauses.append("(task_name LIKE ? OR error LIKE ? OR task_id LIKE ?)")
+        like = f"%{keyword}%"
+        params.extend([like, like, like])
+    if start:
+        where_clauses.append("started_at >= ?")
+        params.append(start)
+    if end:
+        where_clauses.append("started_at <= ?")
+        params.append(end)
+    where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+    try:
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_task_log_table(conn)
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM task_execution_log {where_sql}", params
+            ).fetchone()[0]
+            rows = conn.execute(
+                f"""SELECT task_id, task_name, category, trigger_type, success,
+                           started_at, completed_at, elapsed_seconds, error, error_trace
+                    FROM task_execution_log {where_sql}
+                    ORDER BY started_at DESC LIMIT ? OFFSET ?""",
+                params + [limit, offset],
+            ).fetchall()
+            conn.close()
+            history = [
+                {
+                    "task_id": r[0], "task_name": r[1], "category": r[2],
+                    "trigger": r[3], "success": bool(r[4]),
+                    "started_at": r[5], "completed_at": r[6],
+                    "elapsed_seconds": r[7], "error": r[8], "error_trace": r[9],
+                }
+                for r in rows
+            ]
+            return {"history": history, "total": total}
+    except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_global_history: exception swallowed", exc_info=True)
+        # 内存兜底：仅做 task_id / success / keyword 过滤（时间窗忽略），保证接口永不空失败
+        fb = list(reversed((fallback_history or [])[-1000:]))
+        if task_id:
+            fb = [r for r in fb if r.get("task_id") == task_id]
+        if success is not None:
+            fb = [r for r in fb if bool(r.get("success")) == bool(success)]
+        if keyword:
+            kw = keyword.lower()
+            fb = [
+                r for r in fb
+                if (r.get("task_name") or "").lower().find(kw) >= 0
+                or (r.get("error") or "").lower().find(kw) >= 0
+                or (r.get("task_id") or "").lower().find(kw) >= 0
+            ]
+        return {"history": fb[offset:offset + limit], "total": len(fb)}

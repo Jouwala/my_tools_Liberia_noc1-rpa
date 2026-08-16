@@ -1,125 +1,158 @@
 @echo off
-chcp 65001 >nul 2>&1
 setlocal enabledelayedexpansion
+REM ============================================================
+REM  stop.bat - fully stop my_app: EVERY process that
+REM  start.bat / start_hidden.ps1 / realtime proxy may have started.
+REM
+REM  Usage:
+REM    stop.bat          -> stop all app processes (keep PostgreSQL)
+REM    stop.bat all      -> also stop PostgreSQL
+REM
+REM  Layers (defense in depth, no orphans left behind):
+REM    1. tree-kill worker_watchdog / backend_watchdog by PID file
+REM    2. kill by port WITH /T (children die too, e.g. uvicorn --reload
+REM       reloader's spawned server child)
+REM    3. command-line sweep: kill any leftover python/node that runs
+REM       my_app modules (orphans whose pid file/port already vanished)
+REM    4. delete pid files + heartbeat files
+REM    5. verify all ports released, report leftovers
+REM    6. optional: stop PostgreSQL (stop.bat all)
+REM    7. write backend\stopped.flag (blocks autostart + ensure task)
+REM    8. if anything remains, retry the whole stop elevated (UAC)
+REM ============================================================
+set "BASE=%~dp0"
+cd /d "%BASE%"
+set "PATH=C:\Program Files\PostgreSQL\16\bin;%PATH%"
 
-echo Stopping Data Insight MVP...
-echo.
+REM NOTE: no forced elevation at start. We first stop everything that runs at
+REM the current integrity level. If something remains (e.g. PostgreSQL started
+REM elevated by the autostart/ensure tasks), we re-run elevated at the end.
 
-set FOUND=0
+echo ============================================
+echo   Stopping Data Insight MVP (all tasks)...
+echo ============================================
 
-:: Stop worker watchdog FIRST（tree-kill 连带 worker 一起停，且不会复活 worker）
-if exist "%~dp0backend\worker_watchdog.pid" (
-    for /f "usebackq tokens=*" %%a in ("%~dp0backend\worker_watchdog.pid") do (
+REM ---- 1) Stop watchdog trees first (children die with them) ----
+if exist "%BASE%backend\worker_watchdog.pid" (
+    for /f "usebackq tokens=*" %%a in ("%BASE%backend\worker_watchdog.pid") do (
         taskkill /PID %%a /T /F >nul 2>&1
-        echo [*] Killed worker watchdog tree PID=%%a
+        echo [*] Killed worker_watchdog tree PID=%%a
     )
-    del "%~dp0backend\worker_watchdog.pid" >nul 2>&1
-    set FOUND=1
 )
-
-:: Stop backend watchdog FIRST（tree-kill 连带 uvicorn 一起停，且不会复活 backend）
-if exist "%~dp0backend\backend_watchdog.pid" (
-    for /f "usebackq tokens=*" %%a in ("%~dp0backend\backend_watchdog.pid") do (
+if exist "%BASE%backend\backend_watchdog.pid" (
+    for /f "usebackq tokens=*" %%a in ("%BASE%backend\backend_watchdog.pid") do (
         taskkill /PID %%a /T /F >nul 2>&1
-        echo [*] Killed backend watchdog tree PID=%%a
+        echo [*] Killed backend_watchdog tree PID=%%a
     )
-    del "%~dp0backend\backend_watchdog.pid" >nul 2>&1
-    set FOUND=1
 )
 
-:: 清理分组 worker PID 文件（树杀为强制终止，分组 worker 来不及自删 PID 文件）
-for %%f in ("%~dp0backend\worker_*.pid") do del "%%f" >nul 2>&1
-:: 兜底清理遗留默认 worker.pid（看门狗模式不使用，但旧实例可能残留）
-if exist "%~dp0backend\worker.pid" del "%~dp0backend\worker.pid" >nul 2>&1
-
-:: Stop task worker (Phase 3：兜底，直接按 backend/worker.pid 精确停止；看门狗未启用时仍可用)
-if exist "%~dp0backend\worker.pid" (
-    for /f "usebackq tokens=*" %%a in ("%~dp0backend\worker.pid") do (
-        taskkill /PID %%a /F >nul 2>&1
-        echo [*] Killed task worker PID=%%a
+REM ---- 2) Kill by port (WITH /T so child processes die too) ----
+for %%p in (7038 8000 7040 8787 8790 7090 5173) do (
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%%p " ^| findstr "LISTENING" 2^>nul') do (
+        taskkill /PID %%a /T /F >nul 2>&1
+        echo [*] Killed PID=%%a on port %%p
     )
-    del "%~dp0backend\worker.pid" >nul 2>&1
-    set FOUND=1
 )
 
-:: Stop backend (port 7038, the actual running instance)
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7038" ^| findstr "LISTENING" 2^>nul') do (
-    taskkill /PID %%a /F >nul 2>&1
-    echo [*] Killed backend PID=%%a
-    set FOUND=1
-)
+REM ---- 3) Command-line sweep: leftover python/node from my_app ----
+REM Catches orphans whose pid file/port is gone (e.g. workers whose
+REM watchdog died, realtime proxies on odd ports). Pattern is specific
+REM to my_app modules; unrelated python/node (e.g. MCP servers) survive.
+echo [*] Scanning for leftover my_app processes...
+powershell -NoProfile -Command ^
+  "$pat='backend\.worker_watchdog|backend\.backend_watchdog|backend\.worker|uvicorn.*backend\.main|realtime_proxy|start-app\.mjs|vite';" ^
+  "$n=0;" ^
+  "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python|node' -and $_.CommandLine -match $pat -and $_.ProcessId -ne $PID } | ForEach-Object { taskkill /PID $_.ProcessId /T /F 2>$null | Out-Null; Write-Host ('[*] Killed leftover ' + $_.Name + ' PID=' + $_.ProcessId); $n++ };" ^
+  "if ($n -eq 0) { Write-Host '[OK] No leftover my_app processes found.' }"
 
-:: Stop backend (port 8000, legacy/duplicate section)
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000" ^| findstr "LISTENING" 2^>nul') do (
-    taskkill /PID %%a /F >nul 2>&1
-    echo [*] Killed backend PID=%%a
-    set FOUND=1
+REM ---- 4) Cleanup pid files and heartbeat files ----
+for %%f in ("%BASE%backend\worker_*.pid" "%BASE%backend\worker.pid" "%BASE%backend\backend_watchdog.pid") do (
+    if exist "%%~f" del "%%~f" >nul 2>&1
 )
+del "%BASE%log\heartbeat_*.json" >nul 2>&1
 
-:: Stop backend (port 7040, 调试/残留实例，不清理会与 7038 双开导致任务双份执行)
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7040" ^| findstr "LISTENING" 2^>nul') do (
-    taskkill /PID %%a /F >nul 2>&1
-    echo [*] Killed backend PID=%%a port-7040
-    set FOUND=1
-)
-
-:: Stop realtime proxy (port 8787, FMS passthrough for dashboard)
-:: 漏杀会导致代理残留、下次启动因端口占用无法拉起新实例。
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8787" ^| findstr "LISTENING" 2^>nul') do (
-    taskkill /PID %%a /F >nul 2>&1
-    echo [*] Killed realtime proxy PID=%%a port-8787
-    set FOUND=1
-)
-
-:: Stop frontend (port 7090 / 5173)
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7090" ^| findstr "LISTENING" 2^>nul') do (
-    taskkill /PID %%a /F >nul 2>&1
-    echo [*] Killed frontend PID=%%a
-    set FOUND=1
-)
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5173" ^| findstr "LISTENING" 2^>nul') do (
-    taskkill /PID %%a /F >nul 2>&1
-    echo [*] Killed frontend PID=%%a
-    set FOUND=1
-)
-
-:: 注意：不要用 taskkill /IM node.exe /F 来停 Vite——
-:: 它会杀掉本机所有 node 进程（Codex/OpenClaw/其他应用），
-:: 而前端 7090/5173 的监听进程已经在上面按端口杀过了。
-:: 这里补充清理 start-app 的 node 进程树（仅限本项目前端相关）。
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7090" ^| findstr "LISTENING" 2^>nul') do (
-    taskkill /PID %%a /T /F >nul 2>&1
-    echo [*] Killed frontend tree PID=%%a
-    set FOUND=1
-)
-
-if %FOUND%==0 (
-    echo [*] No running instance found.
-) else (
-    echo [*] Stopped successfully.
-)
-
-:: ============ 杀后验证：确认端口真的释放，避免"显示成功实际还在跑" ============
+REM ---- 5) Verify all ports released ----
 set LEFTOVER=0
-for %%p in (7038 7040 7090 5173 8000 8787) do (
+for %%p in (7038 8000 7040 8787 8790 7090 5173) do (
     netstat -ano | findstr ":%%p " | findstr "LISTENING" >nul 2>&1
-    if !ERRORLEVEL!==0 (
-        echo [!!] Port %%p still listening, process not stopped!
+    if !errorlevel!==0 (
+        echo [FAIL] Port %%p still listening
         set LEFTOVER=1
     )
 )
 if %LEFTOVER%==1 (
-    echo [!!] Some processes failed to stop. Please check manually:
-    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7038 " ^| findstr "LISTENING" 2^>nul') do echo [!!]     taskkill /PID %%a /T /F
-    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7090 " ^| findstr "LISTENING" 2^>nul') do echo [!!]     taskkill /PID %%a /T /F
+    echo.
+    echo [FAIL] Some processes failed to stop. Remaining listeners:
+    netstat -ano | findstr "LISTENING" | findstr ":7038 :8000 :7040 :8787 :8790 :7090 :5173"
 ) else (
-    echo [OK] Verified: all ports released, services fully stopped.
+    echo [OK] All app ports released.
 )
 
-:: ===== 写停止标记：阻止开机自启/手动启动脚本再次拉起服务 =====
-:: start_hidden.vbs 检测到此文件存在时不启动任何服务；
-:: 下次要正式启动时，start.bat / restart_backend.bat 会自动删除该标记。
-echo %date% %time% stopped by %USERNAME%> "%~dp0backend\stopped.flag"
-echo [*] Wrote backend\stopped.flag — autostart will be blocked until next start/restart.
+REM ---- 6) Optional: stop PostgreSQL (stop.bat all) ----
+if /i not "%~1"=="all" goto pg_keep
 
+REM 6a) try clean shutdown via pg_ctl first
+netstat -ano | findstr ":5432" | findstr "LISTENING" >nul 2>&1
+if errorlevel 1 (
+    echo [OK] PostgreSQL not running.
+    goto pg_done
+)
+pg_ctl stop -D "C:\Program Files\PostgreSQL\16\data" -m fast >nul 2>&1
+
+REM 6b) wait up to 30s for release (ping is a console-free sleep; timeout fails
+REM     when stdin is redirected, e.g. from scheduled tasks)
+set /a PGWAIT=0
+:wait_pg_stop
+netstat -ano | findstr ":5432" | findstr "LISTENING" >nul 2>&1
+if errorlevel 1 goto pg_stopped
+if %PGWAIT% GEQ 30 goto pg_stop_force
+set /a PGWAIT+=1
 ping -n 2 127.0.0.1 >nul
+goto wait_pg_stop
+
+:pg_stop_force
+REM 6c) pg_ctl could not stop it (e.g. runs under another account) - force kill
+echo [WARN] pg_ctl could not stop PostgreSQL gracefully - force stopping postmaster...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5432 " ^| findstr "LISTENING" 2^>nul') do (
+    taskkill /PID %%a /T /F >nul 2>&1
+    echo [*] Force-killed postmaster tree PID=%%a
+)
+ping -n 3 127.0.0.1 >nul
+netstat -ano | findstr ":5432" | findstr "LISTENING" >nul 2>&1
+if errorlevel 1 (
+    echo [OK] PostgreSQL stopped - force kill.
+    goto pg_done
+)
+echo [FAIL] PostgreSQL still listening on 5432 - stop it manually
+set LEFTOVER=1
+goto pg_done
+
+:pg_stopped
+echo [OK] PostgreSQL stopped.
+goto pg_done
+
+:pg_keep
+echo [*] PostgreSQL left running - use "stop.bat all" to stop it too.
+:pg_done
+
+REM ---- 7) Stop marker: blocks autostart / ensure task until next start ----
+echo %date% %time% stopped by %USERNAME%> "%BASE%backend\stopped.flag"
+echo [*] Wrote backend\stopped.flag - autostart and ensure-task are blocked.
+
+REM ---- 8) If something remains, retry the whole stop ELEVATED ----
+REM (PostgreSQL is started elevated by the logon autostart task; an unelevated
+REM shell cannot kill it. Only elevate when really needed, so plain
+REM "stop.bat" for a normally-started app needs no UAC prompt.)
+if %LEFTOVER%==0 (
+    echo [*] All my_app processes stopped.
+    exit /b 0
+)
+net session >nul 2>&1
+if %errorlevel%==0 (
+    echo [FAIL] Some processes could not be stopped even as administrator - check the list above.
+    exit /b 1
+)
+echo [*] Some processes need administrator rights to stop (e.g. elevated PostgreSQL).
+echo     Retrying with elevation - please click "Yes" on the UAC prompt.
+powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '%*' -Verb RunAs -Wait" >nul 2>&1
+exit /b 0

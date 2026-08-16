@@ -13,15 +13,19 @@
 而不是一上来就失败。重试耗尽才走 fallback（与 UME 的重试语义一致）。
 """
 import os
+import sys
 import time
 import logging
 import shutil
 import glob as _glob
 import uuid
+import subprocess
 from pathlib import Path
 from contextlib import contextmanager
 from datetime import datetime
 from pandas import ExcelWriter  # 模块级导入：atomic_to_excel / atomic_excel_writer 共用
+
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 logger = logging.getLogger("atomic_write")
 
@@ -94,6 +98,7 @@ def _log_lock_owner(final):
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
              "-File", _LOCK_OWNER_PS, str(final)],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+            creationflags=_SUBPROCESS_FLAGS,
         )
         lines = [l.strip() for l in (out.stdout or "").splitlines() if l.strip()]
         if lines and lines != ["NO_OWNER"]:
@@ -144,6 +149,7 @@ def find_lock_owners(final):
             out = subprocess.run(
                 [h, "-nobanner", str(final)],
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
+                creationflags=_SUBPROCESS_FLAGS,
             ).stdout
             owners = []
             # handle.exe 输出形如:  python.exe  pid: 1234  type: File  ...  C:\path\file.xlsx

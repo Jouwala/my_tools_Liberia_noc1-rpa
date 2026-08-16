@@ -47,6 +47,8 @@ import threading
 from pathlib import Path
 from typing import List, Optional
 
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 # .../Task/my_app
 MY_APP_DIR = Path(__file__).resolve().parent.parent.parent
 EMAIL_REPORTS_DIR = MY_APP_DIR / "email_reports"
@@ -180,6 +182,7 @@ def _run_script(
                     encoding="utf-8",
                     errors="replace",
                     timeout=per_attempt_timeout,
+                    creationflags=_SUBPROCESS_FLAGS,
                 )
                 out = (proc.stdout or "") + (proc.stderr or "")
                 if proc.returncode == 0:
@@ -284,6 +287,7 @@ def run_sp_report_generate(to: str = None, cc: str = None) -> dict:
             encoding="utf-8",
             errors="replace",
             timeout=600,
+            creationflags=_SUBPROCESS_FLAGS,
         )
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "报表生成超时(>600s)，SFTP 或报表生成过慢"}

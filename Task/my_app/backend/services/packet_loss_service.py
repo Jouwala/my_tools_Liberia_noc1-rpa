@@ -137,6 +137,48 @@ PL_QUERY_CONFIGS = [
     },
 ]
 
+# ========== 外部化配置（Settings 页面可编辑的 pl_config.json，2026-08-15） ==========
+# 存在则覆盖 时间范围(days_back) / 指标模板(query_configs) / PM 接口地址(urls)；
+# 缺失/损坏时回退上面的内置默认，行为与旧版完全一致。
+_PL_CONFIG_PATH = Path(__file__).resolve().parent / "pl_config.json"
+
+
+def _load_external_pl_config() -> dict | None:
+    try:
+        if _PL_CONFIG_PATH.exists():
+            with open(_PL_CONFIG_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else None
+    except Exception as e:
+        logger.warning(f"[PL] 读取 pl_config.json 失败，使用内置默认: {e}")
+    return None
+
+
+_PL_EXT = _load_external_pl_config()
+if _PL_EXT is not None:
+    try:
+        PL_DAYS_BACK = int(_PL_EXT.get("days_back", PL_DAYS_BACK))
+    except (TypeError, ValueError):
+        pass
+    ext_cfgs = _PL_EXT.get("query_configs")
+    if isinstance(ext_cfgs, list) and ext_cfgs:
+        # 配置里可能缺 keep_columns/rename_columns（内部字段），用内置默认补齐
+        for i, c in enumerate(ext_cfgs):
+            if i < len(PL_QUERY_CONFIGS):
+                c.setdefault("keep_columns", PL_QUERY_CONFIGS[i].get("keep_columns"))
+                c.setdefault("rename_columns", PL_QUERY_CONFIGS[i].get("rename_columns"))
+        PL_QUERY_CONFIGS = ext_cfgs
+    _pl_urls = _PL_EXT.get("urls") or {}
+    if isinstance(_pl_urls, dict):
+        if _pl_urls.get("history"):
+            PM_HISTORY_PATH = _pl_urls["history"]
+        if _pl_urls.get("poll"):
+            PM_HISTORY_POLL_PATH = _pl_urls["poll"]
+        if _pl_urls.get("export"):
+            PM_HISTORY_EXPORT_PATH = _pl_urls["export"]
+    logger.info(f"[PL] 已加载 pl_config.json：days_back={PL_DAYS_BACK}, "
+                f"模板数={len(PL_QUERY_CONFIGS)}")
+
 
 def grouplayer_label(grouplayer: str, groupbygroup: bool = False) -> str:
     """grouplayer → 文件名标签（要求.txt 第1条映射规则）"""

@@ -51,7 +51,11 @@ from backend.routers import (
     email_recipients,
     realtime_proxy,
     settings,
+    cm_flows,
+    task_configs,
 )
+# 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
+from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
 from backend.services import task_runner
 from backend.database import get_raw_connection
 
@@ -110,6 +114,10 @@ app.include_router(ms_sla_dashboard.router)
 app.include_router(realtime_proxy.router)
 # 全局设置（远程主机等，供「系统设置」页面读写）
 app.include_router(settings.router)
+# RAN CM 流程/网元配置（Settings「任务配置」页签 -> 网元配置）
+app.include_router(cm_flows.router)
+# 任务配置文件管理（Settings「任务配置」页签 -> 配置文件管理，通用）
+app.include_router(task_configs.router)
 
 
 # ========== 通用任务调度系统 ==========
@@ -217,6 +225,18 @@ async def startup_event():
     print(f"服务启动完成，耗时: {elapsed:.2f}秒")
     print(f"数据库: {DB_PATH}")
     print(f"已注册 {len(task_runner.list_tasks())} 个定时任务")
+
+    # 自动拉起实时代理（8787 FMS / 8790 VMAX），让 CXO / Alarm 看板打开即有实时数据。
+    # 用线程异步执行，不阻塞 startup；代理以 DETACHED 方式运行，backend 重启不会误杀。
+    import threading
+    from backend.services import realtime_proxy_ctl as _ctl
+    def _auto_start_proxies():
+        try:
+            results = _ctl.ensure_all()
+            print(f"[startup] 实时代理自动启动: {results}")
+        except Exception as e:
+            print(f"[startup] 实时代理自动启动失败（非致命）: {e}")
+    threading.Thread(target=_auto_start_proxies, daemon=True).start()
 
 
 # 提供前端静态文件（生产环境）

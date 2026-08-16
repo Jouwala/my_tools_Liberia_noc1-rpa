@@ -162,6 +162,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
     { id: 'amber', label: t('color.amber'), bg: 'bg-amber-500' },
     { id: 'rose', label: t('color.rose'), bg: 'bg-rose-500' },
     { id: 'blue', label: t('color.blue'), bg: 'bg-blue-500' },
+    { id: 'green', label: t('color.green'), bg: 'bg-[#008B00]' },
   ];
 
   return (
@@ -232,6 +233,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
                       setPlatform(p);
                       if (p === 'finebi') setThemeColor('indigo');
                       if (p === 'custom') setThemeColor('teal');
+                      if (p === 'external') setThemeColor('green');
                     }}
                     className={`py-2 px-2 text-xs font-medium rounded-xl border transition-all ${
                       platform === p

@@ -218,6 +218,27 @@ function setOpt(id, opt){
   return c;
 }
 
+// Smart merge: use live series data where available; backfill empty live series
+// from snapshot so we never lose data that VMAX realtime omits (e.g. day-0/1/3
+// for view_id=2 KPIs are often empty in live but present in snapshot).
+function mergeOption(liveOpt, snapOpt){
+  if(!liveOpt || !liveOpt.series) return snapOpt || liveOpt;
+  if(!snapOpt || !snapOpt.series) return liveOpt;
+  var snapMap={};
+  for(var si=0;si<snapOpt.series.length;si++){
+    var ss=snapOpt.series[si];
+    if(ss.name && ss.data && ss.data.length>0) snapMap[ss.name]=ss;
+  }
+  var merged=JSON.parse(JSON.stringify(liveOpt));
+  for(var mi=0;mi<merged.series.length;mi++){
+    var ls=merged.series[mi];
+    if((!ls.data||ls.data.length===0)&&snapMap[ls.name]){
+      ls.data=snapMap[ls.name].data.slice();
+    }
+  }
+  return merged;
+}
+
 // Re-apply theme: set <html data-theme> and re-render the current view so
 // ECharts instances (re-created via mk) pick up amDark/amLight.
 function applyTheme(mode){
@@ -406,6 +427,13 @@ function finishStatus(label){
   else                setStatus("offline \u00b7 snapshot data \u00b7 " + label + " (" + LIVE.lastErr + ")", false);
 }
 let REFRESHING = false;
+// VMAX getDelimitPie derives its time window from `time` (a single point -> +-30min).
+// Sending time:"" makes the server compute bTime/eTime = "NaN-aN-aN aN:aN:aN" -> no data.
+// Always send a valid datetime so the server gets a real window.
+function cxoNowStr(){
+  const d=new Date(), p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+}
 async function refresh(){
   if(REFRESHING){ setStatus("refresh already in progress…", null); return; }
   REFRESHING = true;
@@ -420,11 +448,16 @@ async function refreshInner(){
     const d = DATA.service[curBiz]; const vid=d.view_id, prim=d.infoIds[0];
     for(const id of d.infoIds){
       const j = await liveFetch("/Service/getIndicatorData", {...base, tabId:0, infoId:id, view_id:vid});
-      if(j && j.option){ d.indicators[String(id)] = {title:j.title, option:j.option}; }
+      if(j && j.option){ var old=(d.indicators[String(id)]||{}).option; d.indicators[String(id)] = {title:j.title, option:mergeOption(j.option,old)}; }
+      // VMAX getDelimitPie needs the SAME snapshot time as the indicator data, not "now".
+      // getIndicatorData returns a `time` field (e.g. "2026-08-15 12:15:00"); the server only
+      // computes cause analysis for that lagged snapshot. Sending "now" (or "") lands outside the
+      // window -> empty pie. The real portal derives `time` from this field, so mirror it.
+      if(id === prim && j && j.time){ d.dataTime = j.time; }
     }
     const m = await liveFetch("/Service/geMapRender", {...base, infoId:prim, view_id:vid});
     if(m){ d.map = {option:m.option, queryData:m.queryData}; }
-    const dl = await liveFetch("/network/getDelimitPie", {...base, infoId:prim, time:"", gdprFlag:"false"});
+    const dl = await liveFetch("/network/getDelimitPie", {...base, infoId:prim, time:(d.dataTime || cxoNowStr()), gdprFlag:"false"});
     if(dl){ d.delimit = dl; }
     // TopN 明细表：快照里常为空(未选区域)，这里补拉实时数据
     const lt = await liveFetch("/Service/getLimitTable", {...base, infoId:prim, view_id:vid});
@@ -437,7 +470,7 @@ async function refreshInner(){
       const ids = Object.keys(d.indicators);
       for(const id of ids){
         const j = await liveFetch("/Service/getIndicatorData", {...base, tabId:0, infoId:Number(id), view_id:2});
-        if(j && j.option){ d.indicators[id] = {name:(d.indicators[id].name||j.title), title:j.title, value:j.value, option:j.option}; }
+        if(j && j.option){ var old2=(d.indicators[id]||{}).option; d.indicators[id] = {name:(d.indicators[id].name||j.title), title:j.title, value:j.value, option:mergeOption(j.option,old2)}; }
       }
       const m = await liveFetch("/Service/geMapRender", {...base, infoId:Number(ids[0]), view_id:2});
       if(m){ DATA.net.map = {option:m.option, queryData:m.queryData}; }
@@ -469,13 +502,15 @@ selectTop("service");
 })();
 // first-load auto-pull: ensure the VMAX live proxy (8790) is up on the server,
 // then fetch live data (best-effort; falls back to the embedded snapshot if the
-// proxy / VMAX is still unavailable).
+// proxy / VMAX is still unavailable). After initial pull, auto-refresh every 5 min.
 window.addEventListener('load', function(){
   try {
     fetch("/api/realtime-proxy/start", {method:"POST"})
       .catch(function(){})
       .finally(function(){ try { refresh(); } catch(e){ console.warn('auto refresh', e); } });
   } catch(e){ console.warn('auto refresh', e); }
+  // 5-minute auto-refresh (silent, no popup)
+  setInterval(function(){ try { refresh(); } catch(e){ console.warn('auto-refresh tick', e); } }, 300000);
 });
 
 </script>

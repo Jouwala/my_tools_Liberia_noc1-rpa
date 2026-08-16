@@ -42,6 +42,7 @@ export interface RunRecord {
   started_at: string
   completed_at: string
   elapsed_seconds: number
+  result_json?: string | null
   error: string | null
   error_trace?: string | null
 }

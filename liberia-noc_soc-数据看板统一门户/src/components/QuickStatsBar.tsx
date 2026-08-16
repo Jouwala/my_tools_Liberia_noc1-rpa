@@ -116,21 +116,21 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
         onClick={() => onQuickFilterPlatform('external')}
         className={`p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
           activePlatform === 'external'
-            ? 'border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/20 dark:bg-amber-950/20'
+            ? 'border-[#008B00] ring-2 ring-[#008B00]/20 bg-[#008B00]/10 dark:bg-[#008B00]/10'
             : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'
         }`}
       >
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-amber-500" />
+            <span className="w-2 h-2 rounded-full bg-[#008B00]" />
             {t('stats.external')}
           </span>
-          <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+          <div className="p-2 rounded-xl bg-[#008B00]/10 dark:bg-[#008B00]/20 text-[#008B00] dark:text-[#008B00]">
             <ExternalLink className="w-4 h-4" />
           </div>
         </div>
         <div className="mt-2 flex items-baseline gap-2">
-          <span className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono">
+          <span className="text-2xl font-black text-[#008B00] dark:text-[#008B00] font-mono">
             {externalCount}
           </span>
           <span className="text-xs text-slate-400">{t('stats.externalUnit')}</span>

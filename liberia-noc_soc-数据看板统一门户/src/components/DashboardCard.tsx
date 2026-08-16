@@ -125,6 +125,12 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
       text: 'text-blue-600 dark:text-blue-400',
       lightBg: 'from-blue-500/5 to-transparent',
     },
+    green: {
+      border: 'hover:border-[#008B00] dark:hover:border-[#008B00]',
+      iconBg: 'bg-[#008B00]/10 dark:bg-[#008B00]/20 text-[#008B00] dark:text-[#008B00]',
+      text: 'text-[#008B00] dark:text-[#008B00]',
+      lightBg: 'from-[#008B00]/5 to-transparent',
+    },
   };
 
   const theme = colorStyles[dashboard.themeColor] || colorStyles.indigo;

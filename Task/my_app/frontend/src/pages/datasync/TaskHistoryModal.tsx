@@ -61,6 +61,31 @@ export function TaskHistoryModal({
     URL.revokeObjectURL(url)
   }
 
+  // 展示 result_json.warnings（如 cm_data_sync 自动剔除的失效网元，含具体原因）
+  const renderWarnings = (resultJson: string, loc: 'zh' | 'en') => {
+    try {
+      const rj = JSON.parse(resultJson)
+      const warnings: { flow?: string; ne?: string; reason?: string }[] = rj?.warnings
+      if (!Array.isArray(warnings) || warnings.length === 0) return null
+      return (
+        <div style={{ marginTop: 6 }}>
+          <Text style={{ fontSize: 12, color: '#ffa940', fontWeight: 600 }}>
+            ⚠️ {loc === 'zh' ? '跳过的失效网元' : 'Skipped NEs'}
+          </Text>
+          {warnings.map((w, i) => (
+            <div key={i} style={{ marginTop: 3, wordBreak: 'break-word' }}>
+              <Tag color="orange" style={{ fontSize: 10, marginRight: 4 }}>{w.flow || '-'}</Tag>
+              <code style={{ color: '#ffd591', fontSize: 11 }}>{w.ne || '-'}</code>
+              <div style={{ fontSize: 11, color: WH.textDim, marginTop: 1 }}>{w.reason || ''}</div>
+            </div>
+          ))}
+        </div>
+      )
+    } catch {
+      return null
+    }
+  }
+
   return (
     <Modal
       title={
@@ -178,6 +203,7 @@ export function TaskHistoryModal({
                         )}
                       </div>
                     )}
+                    {run.result_json && renderWarnings(run.result_json, locale)}
                   </div>
                 }
               />

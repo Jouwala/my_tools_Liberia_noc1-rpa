@@ -43,6 +43,7 @@ import { WH, cardStyle, controlCardStyle, pageWrap } from '../theme'
 import { firstLine, cronToHuman, CATEGORY_CONFIG, formatTime } from './datasync/helpers'
 import { ScheduleEditor } from './datasync/ScheduleEditor'
 import { TaskHistoryModal } from './datasync/TaskHistoryModal'
+import { GlobalHistoryModal } from './datasync/GlobalHistoryModal'
 import type { TaskInfo, TaskDetail, RunRecord, FailureCluster, FailureAgg } from './datasync/types'
 
 const { Text, Title } = Typography
@@ -89,6 +90,8 @@ export default function DataSync() {
   const [aggDays, setAggDays] = useState(3)
   const [failureAgg, setFailureAgg] = useState<FailureAgg | null>(null)
   const [aggLoading, setAggLoading] = useState(false)
+  // 总历史记录弹窗：跨所有任务的执行历史查询
+  const [ghOpen, setGhOpen] = useState(false)
 
   // 根据搜索/筛选/排序计算展示列表
   const applyFilters = (src: TaskInfo[]): TaskInfo[] => {
@@ -756,6 +759,10 @@ export default function DataSync() {
           <Button icon={<ReloadOutlined />} onClick={() => loadTasks(true)} loading={loading} style={{ color: WH.text, borderColor: 'var(--wh-subtle-border)', background: 'var(--wh-subtle-bg)' }}>
             {t('common.refresh')}
           </Button>
+          {/* 总历史记录：跨所有任务的执行历史查询入口 */}
+          <Button icon={<GlobalOutlined />} onClick={() => setGhOpen(true)} style={{ color: WH.text, borderColor: 'var(--wh-subtle-border)', background: 'var(--wh-subtle-bg)' }}>
+            {t('sync.globalHistory')}
+          </Button>
         </Space>
       </div>
 
@@ -965,6 +972,14 @@ export default function DataSync() {
         task={historyTask}
         locale={locale}
         onClose={() => setHistoryTask(null)}
+      />
+
+      {/* 总历史记录 Modal（跨所有任务的执行历史查询） */}
+      <GlobalHistoryModal
+        open={ghOpen}
+        tasks={allTasks}
+        locale={locale}
+        onClose={() => setGhOpen(false)}
       />
 
       {/* 失败聚合 Modal：按错误首行归并，一眼看出同一根因影响了哪些任务 */}

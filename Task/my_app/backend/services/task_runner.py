@@ -11,6 +11,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import traceback
 import ast
 import inspect
@@ -20,6 +21,8 @@ import types
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
+
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from backend.database import get_raw_connection
@@ -610,6 +613,7 @@ def _kill_worker_process(worker_pid) -> bool:
             res = subprocess.run(
                 ["taskkill", "/PID", str(worker_pid), "/T", "/F"],
                 capture_output=True, text=True, timeout=15,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             killed = res.returncode == 0
         else:
@@ -964,6 +968,29 @@ def get_task_history(limit: int = 20) -> list[dict]:
     return _gh(limit, fallback_history=_task_history)
 
 
+def get_global_history(
+    limit: int = 50,
+    offset: int = 0,
+    task_id: str | None = None,
+    success: int | None = None,
+    trigger: str | None = None,
+    keyword: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+) -> dict:
+    """全局执行历史（总历史记录）—— 跨所有任务，支持过滤 + 分页。
+
+    委托 task_stats.get_global_history，并传入进程内内存 _task_history 作为
+    DB 不可用时的兜底（与 get_task_history 同机制）。
+    """
+    from backend.services.task_stats import get_global_history as _gh
+    return _gh(
+        limit=limit, offset=offset, task_id=task_id, success=success,
+        trigger=trigger, keyword=keyword, start=start, end=end,
+        fallback_history=_task_history,
+    )
+
+
 def update_task_schedule(task_id: str, cron_expr: str) -> dict:
     """更新任务的调度频率"""
     task = _task_registry.get(task_id)
@@ -1041,3 +1068,97 @@ def toggle_all_tasks(enabled: bool) -> dict:
         "enabled": enabled,
         "errors": errors[:5],
     }
+
+
+# ========== 任务配置 导出/导入（Settings「任务配置」页签，2026-08-15） ==========
+
+def get_task_config(task_id: str) -> Optional[dict]:
+    """单任务配置：注册表元数据 + task_schedule_config 当前值（cron/enabled/updated_at）。"""
+    task = _task_registry.get(task_id)
+    if not task:
+        return None
+    cron = task.get("current_cron") or task.get("default_cron")
+    enabled = bool(task.get("enabled", True))
+    updated_at = None
+    try:
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            row = conn.execute(
+                "SELECT cron, enabled, updated_at FROM task_schedule_config WHERE task_id = ?",
+                (task_id,)).fetchone()
+            conn.close()
+        if row:
+            cron = row[0] or cron
+            enabled = bool(row[1])
+            updated_at = row[2]
+    except Exception as e:
+        logger.warning(f"读取调度配置失败 ({task_id}): {e}")
+    return {
+        "task_id": task_id,
+        "name": task.get("name") or task_id,
+        "name_en": task.get("name_en") or task.get("name") or task_id,
+        "description": task.get("description") or "",
+        "category": task.get("category") or "",
+        "gateway": task.get("gateway") or "",
+        "cron": cron,
+        "enabled": enabled,
+        "default_cron": task.get("default_cron") or "",
+        "updated_at": updated_at,
+    }
+
+
+def export_all_task_configs() -> list[dict]:
+    """全部任务的配置（供「导出全部」）。"""
+    return [get_task_config(tid) for tid in list(_task_registry.keys())]
+
+
+def apply_task_config(task_id: str, cron: Optional[str] = None,
+                      enabled: Optional[bool] = None) -> dict:
+    """应用单任务配置（cron/enabled 至少给一个）；逐项校验，失败不影响其它项。
+
+    cron 校验复用 update_task_schedule（内部经 CronTrigger 解析 + 持久化 + 重新调度）；
+    enabled 复用 toggle_task（内存 + 持久化 + 增删调度）。
+    """
+    if task_id not in _task_registry:
+        return {"task_id": task_id, "success": False, "error": "任务未注册"}
+    if cron is not None:
+        res = update_task_schedule(task_id, cron)
+        if not res.get("success"):
+            return {"task_id": task_id, "success": False, "error": res.get("error", "cron 无效")}
+    if enabled is not None:
+        res = toggle_task(task_id, enabled)
+        if not res.get("success"):
+            return {"task_id": task_id, "success": False, "error": res.get("error", "启用状态更新失败")}
+    return {"task_id": task_id, "success": True}
+
+
+def import_task_configs(configs) -> dict:
+    """批量导入任务配置。body: [{task_id, cron?, enabled?}, ...]
+
+    逐项独立成败：非法项只影响自身；返回 {applied, errors}。
+    """
+    applied: list[str] = []
+    errors: list[dict] = []
+    if not isinstance(configs, list):
+        return {"success": False, "applied": [], "errors": [{"task_id": "(body)", "error": "configs 必须是数组"}]}
+    for item in configs:
+        if not isinstance(item, dict):
+            errors.append({"task_id": "(item)", "error": "配置项必须是对象"})
+            continue
+        tid = str(item.get("task_id", "")).strip()
+        cron = item.get("cron")
+        enabled = item.get("enabled")
+        if not tid:
+            errors.append({"task_id": "(item)", "error": "缺少 task_id"})
+            continue
+        if cron is not None and not isinstance(cron, str):
+            errors.append({"task_id": tid, "error": "cron 必须是字符串"})
+            continue
+        if enabled is not None and not isinstance(enabled, bool):
+            errors.append({"task_id": tid, "error": "enabled 必须是布尔值"})
+            continue
+        res = apply_task_config(tid, cron=cron, enabled=enabled)
+        if res.get("success"):
+            applied.append(tid)
+        else:
+            errors.append({"task_id": tid, "error": res.get("error", "应用失败")})
+    return {"success": not errors, "applied": applied, "errors": errors}

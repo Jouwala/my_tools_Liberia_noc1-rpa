@@ -21,6 +21,8 @@ import time
 import threading
 from pathlib import Path
 
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 # .../Task/my_app
 MY_APP_DIR = Path(__file__).resolve().parent.parent.parent
 EMAIL_REPORTS_DIR = MY_APP_DIR / "email_reports"
@@ -127,6 +129,7 @@ def _run_script(
                     encoding="utf-8",
                     errors="replace",
                     timeout=per_attempt_timeout,
+                    creationflags=_SUBPROCESS_FLAGS,
                 )
                 out = (proc.stdout or "") + (proc.stderr or "")
                 if proc.returncode == 0:

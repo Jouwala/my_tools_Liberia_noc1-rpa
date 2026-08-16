@@ -62,7 +62,7 @@ const zh: Record<string, string> = {
 
   'task.title': 'Data Insight 自动化任务调度中心 (Task Manager)',
   'task.live': '实时数据',
-  'task.offline': '离线快照',
+  'task.offline': '在线',
   'task.desc': 'my_app 后端 /api/tasks 实时同步：ZTE eFlow 工单、FM 告警、RAN/iPRAN/CNN KPI、电池丢包与邮件日报',
   'task.total': '全部:',
   'task.running': '运行中',
@@ -167,6 +167,7 @@ const zh: Record<string, string> = {
   'color.amber': '工业暖橙 (制造/IoT)',
   'color.rose': '财务玫瑰红 (资金/成本)',
   'color.blue': '经典企业蓝',
+  'color.green': '外部大屏专属绿 (#008B00)',
 
   'freq.realtime': '实时流式',
   'freq.hourly': '每小时',
@@ -305,7 +306,7 @@ const en: Record<string, string> = {
 
   'task.title': 'Data Insight Automated Task Scheduling Center (Task Manager)',
   'task.live': 'Live Data',
-  'task.offline': 'Offline Snapshot',
+  'task.offline': 'Online',
   'task.desc':
     'Real-time sync from my_app backend /api/tasks: ZTE eFlow TT, FM alarms, RAN/iPRAN/CNN KPI, battery/packet-loss & email daily reports',
   'task.total': 'Total:',
@@ -411,6 +412,7 @@ const en: Record<string, string> = {
   'color.amber': 'Industrial Orange (manufacturing / IoT)',
   'color.rose': 'Finance Rose (fund / cost)',
   'color.blue': 'Classic Enterprise Blue',
+  'color.green': 'External Screen Green (#008B00)',
 
   'freq.realtime': 'Real-time stream',
   'freq.hourly': 'Hourly',
