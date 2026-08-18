@@ -92,8 +92,8 @@ def _run_script(
     to: str = None,
     cc: str = None,
     retries: int = 2,
-    per_attempt_timeout: int = 90,
-    budget: int = 210,
+    per_attempt_timeout: int = 120,
+    budget: int = 180,
 ) -> dict:
     """调用指定邮件脚本，返回 {success, message/detail/error}。
 
@@ -146,14 +146,14 @@ def _run_script(
                 time.sleep(5)
                 continue
             except subprocess.TimeoutExpired as e:
+                # 超时后立即返回，不重试：服务端可能已接收邮件只是响应慢，
+                # 重试会导致同一封邮件发送两次。交给 email_recovery 在确认
+                # EWS 恢复后补发（补发前会检查是否已有成功记录）。
                 logging.getLogger(__name__).warning(
-                    "[liberia_email] 邮件脚本单次尝试超时（%ss），attempt=%s/%s",
-                    per_attempt_timeout, attempt, retries,
+                    "[liberia_email] 邮件脚本超时（%ss），不重试（避免重复发送）",
+                    per_attempt_timeout,
                 )
-                last_err = f"timeout: {e}"
-                if attempt == retries:
-                    return {"success": False, "error": last_err}
-                time.sleep(5)
+                return {"success": False, "error": f"timeout: {e}"}
         return {"success": False, "error": last_err or "unknown error"}
 
     def _safe():

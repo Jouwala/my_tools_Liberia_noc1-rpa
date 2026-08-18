@@ -242,7 +242,12 @@ def _read_cache(host: str, port: int) -> dict | None:
 
 def _write_cache(host: str, port: int, cookie: str, forgery_token: str,
                  username: str, ttl: int = DEFAULT_TTL):
-    """将鉴权信息写入缓存文件。"""
+    """将鉴权信息写入缓存文件。
+
+    用「临时文件 + os.replace」并带重试，扛 WPS云同步/Defender/索引服务瞬时锁：
+    之前直接 open(..., 'w') 在目标被占用时抛 Permission denied，缓存写不进去，
+    后续任务就会拿到过期 cookie → 401。
+    """
     cache_file = _cache_file_path(host, port)
     data = {
         "host": host,
@@ -253,14 +258,25 @@ def _write_cache(host: str, port: int, cookie: str, forgery_token: str,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "expires_in": ttl,
     }
-    try:
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            _lock_exclusive(f)
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            _unlock(f)
-        logger.info(f"[AUTH] 鉴权信息已缓存 → {cache_file}")
-    except (IOError, OSError) as e:
-        logger.warning(f"[AUTH] 写入缓存失败: {e}")
+    tmp = cache_file.with_name(cache_file.name + f".{os.getpid()}.tmp")
+    last_err = None
+    for _attempt in range(46):
+        try:
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(str(tmp), str(cache_file))
+            logger.info(f"[AUTH] 鉴权信息已缓存 → {cache_file}")
+            return
+        except (IOError, OSError) as e:
+            last_err = e
+            time.sleep(2.0)
+    if last_err is not None:
+        logger.warning(f"[AUTH] 写入缓存失败(重试耗尽): {last_err}")
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
 
 
 def invalidate_cache(host: str, port: int):

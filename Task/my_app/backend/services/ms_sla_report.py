@@ -844,8 +844,14 @@ def export_without_sla_tt_details(kpi_list_file, upload_ftp=True):
 
         output_name = f"WithoutSLATTDetails_{current_month}.xlsx"
         output_path = DATA_DIR / output_name
-        atomic_save_workbook(wb_new, output_path)
-        logger.info(f"  保存: {output_name}")
+        try:
+            atomic_save_workbook(wb_new, output_path)
+            logger.info(f"  保存: {output_name}")
+        except AtomicReplaceFallback as e:
+            # 目标被外部进程锁住（WPS 云同步 / Defender / 索引服务）：
+            # 数据已由 atomic_write 保全到备用文件，改传备用文件，不使整个任务失败。
+            logger.warning(f"WithoutSLATTDetails 文件被锁，改用备用文件上传: {e.fallback_path}")
+            output_path = Path(e.fallback_path)
     finally:
         if wb_new:
             try:
@@ -953,7 +959,10 @@ def export_sheet_to_xlsx(src_file, sheet_name, output_path):
         sheets_to_remove = [s for s in wb.sheetnames if s != sheet_name]
         for s in sheets_to_remove:
             del wb[s]
-        atomic_save_workbook(wb, output_path)
+        try:
+            atomic_save_workbook(wb, output_path)
+        except AtomicReplaceFallback as e:
+            logger.warning(f"导出 xlsx 文件被锁，数据已保存到备用路径: {e.fallback_path}")
     finally:
         if wb:
             wb.close()
@@ -1421,9 +1430,17 @@ def _seed_template_files():
         d = today - timedelta(days=i)
         ws2.cell(row=2 + i, column=1, value=d)
 
-    atomic_save_workbook(wb, TARGET_FILE)
-    wb.close()
-    logger.info(f"最小模板已创建: {TARGET_FILE}")
+    try:
+        atomic_save_workbook(wb, TARGET_FILE)
+        logger.info(f"最小模板已创建: {TARGET_FILE}")
+    except AtomicReplaceFallback as e:
+        logger.warning(f"模板文件被锁，数据已保存到备用路径: {e.fallback_path}")
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _seed_template_files: exception swallowed", exc_info=True)
+            pass
     return True
 
 

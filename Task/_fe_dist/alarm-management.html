@@ -117,6 +117,7 @@
   .panel .ph .ex{color:var(--primary);cursor:pointer;font-size:12px}
   .panel .pb{padding:12px 14px}
   .cards2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:6px}
+  .cards3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:6px}
   .chartbox{width:100%;height:270px}
   .chart-grid5{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:6px;align-items:stretch}
   /* TOP5 图表按视口高度自适应，铺满屏幕；宽屏更高、窄屏更矮 */
@@ -143,6 +144,7 @@
   .ac.evt .n{color:var(--placeholder)}
   .ac .l{font-size:12px;color:var(--muted);margin-top:3px;display:flex;align-items:center;justify-content:space-between}
   .ac .l .tag{font-size:10px;padding:1px 7px;border-radius:8px;background:var(--panel-sub);color:var(--placeholder)}
+  html.lang-en .ac .l .tag{display:none}
 
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
   .kpi{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow1);position:relative;overflow:hidden;transition:transform .15s,box-shadow .15s}
@@ -200,12 +202,12 @@
   td.hm{color:#fff;font-weight:700}
   .scrollwrap{max-height:235px;overflow:auto}
 
-  .mapwrap{position:relative;height:var(--tail-map-h);min-height:420px;background:radial-gradient(900px 500px at 50% 20%,#0b1e4e,#030132 70%);border-radius:0 0 var(--radius) var(--radius);overflow:hidden}
+  .mapwrap{position:relative;height:var(--tail-map-h);min-height:420px;background:radial-gradient(900px 500px at 50% 20%,#eaf1fb,#d3e0f2 70%);border-radius:0 0 var(--radius) var(--radius);overflow:hidden}
   #mapChart{width:100%;height:100%}
-  .clock{position:absolute;top:14px;right:16px;color:#fff;text-align:right;z-index:5;text-shadow:0 1px 4px rgba(0,0,0,.7)}
+  .clock{position:absolute;top:14px;right:16px;color:#1f2d3d;text-align:right;z-index:5;text-shadow:0 1px 2px rgba(255,255,255,.7)}
   .clock .date{font-size:13px;opacity:.85}
   .clock .time{font-size:24px;font-weight:800;letter-spacing:1px;font-variant-numeric:tabular-nums}
-  .clock .sd{display:inline-block;margin-top:6px;padding:2px 12px;background:var(--hm-red);border-radius:14px;font-size:12px;font-weight:700;box-shadow:0 2px 10px rgba(206,76,74,.45)}
+  .clock .sd{display:inline-block;margin-top:6px;padding:2px 12px;background:var(--hm-red);border-radius:14px;font-size:12px;font-weight:700;box-shadow:0 2px 10px rgba(206,76,74,.45);color:#fff}
 
   .footer{margin-top:22px;text-align:center;color:var(--disabled);font-size:11px}
   .note{font-size:11px;color:var(--disabled);margin-top:8px;line-height:1.7}
@@ -264,7 +266,10 @@
   [data-theme="dark"] .user-dd li a:hover{ background:var(--hover); }
   [data-theme="dark"] .secnav a{ background:#112540; border-color:var(--border); color:var(--muted); }
   [data-theme="dark"] .secnav a:hover{ color:var(--primary); border-color:var(--primary); }
-  [data-theme="dark"] .probe-card,.t5-card,.ac,.kpi{ background:#112540; border-color:var(--border); }
+  [data-theme="dark"] .probe-card,
+  [data-theme="dark"] .t5-card,
+  [data-theme="dark"] .ac,
+  [data-theme="dark"] .kpi{ background:#112540; border-color:var(--border); }
   [data-theme="dark"] .panel{ background:#112540; border-color:var(--border); }
   [data-theme="dark"] .panel .ph{ background:linear-gradient(180deg,#0e2138,#0c1c30); border-color:var(--border); }
   [data-theme="dark"] .panel .ph .tt{ color:var(--text); }
@@ -282,6 +287,7 @@
   [data-theme="dark"] table.grid th,table.grid td{ border-color:var(--border); }
   [data-theme="dark"] table.grid td.rowh{ background:var(--panel-sub); color:var(--text); }
   [data-theme="dark"] .mapwrap{ background:radial-gradient(900px 500px at 50% 20%,#0b1e4e,#030132 70%); }
+  [data-theme="dark"] .clock{ color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.7); }
   [data-theme="dark"] ::-webkit-scrollbar-thumb{ background:#2c3e5c; }
   [data-theme="dark"] .sec-title .tt{ color:var(--text); }
   [data-theme="dark"] .subtt{ color:var(--text); }
@@ -307,7 +313,7 @@
     <div class="user-chip" id="userChip"><span class="avatar">A</span><span>admin</span><span style="font-size:10px">▾</span></div>
     <div class="user-dd" id="userDD">
       <div class="uhead"><span class="avatar">A</span><div><div style="font-weight:600">admin</div><div style="font-size:11px;color:var(--muted)">Administrator</div></div></div>
-      <ul><li><a href="#">User Information</a></li><li><a href="#">Change Password</a></li><li><a href="#">Color Theme</a></li><li><a href="#">Time Zone and DST</a></li><li><a href="#">中文</a></li><li><a href="#">Logout</a></li></ul>
+      <ul><li><a href="#">User Information</a></li><li><a href="#">Change Password</a></li><li><a href="#">Color Theme</a></li><li><a href="#">Time Zone and DST</a></li><li><a href="#" data-i18n="userMenuLang">中文</a></li><li><a href="#">Logout</a></li></ul>
     </div>
   </div>
 </header>
@@ -319,14 +325,14 @@
 
     <div class="content-bar">
       <div class="secnav" id="tabBar">
-        <a class="tab active" data-sec="secOverview">站点宕机监控</a>
-        <a class="tab" data-sec="secTrend">告警趋势监控</a>
-        <a class="tab" data-sec="secAssign">派单趋势监控</a>
-        <a class="tab" data-sec="secTop5">告警Top5</a>
+        <a class="tab active" data-sec="secOverview" data-i18n="tabOverview">站点宕机监控</a>
+        <a class="tab" data-sec="secTrend" data-i18n="tabTrend">告警趋势监控</a>
+        <a class="tab" data-sec="secAssign" data-i18n="tabAssign">派单趋势监控</a>
+        <a class="tab" data-sec="secTop5" data-i18n="tabTop5">告警Top5</a>
       </div>
-      <div class="live-pill" id="livePill" title="实时数据配置">
+      <div class="live-pill" id="livePill" data-i18n-title="livePillTitle">
         <span class="dot" id="liveDot"></span>
-        <span id="liveText">示例快照 · 未连接</span>
+        <span id="liveText" data-i18n="liveText">示例快照 · 未连接</span>
         <span id="liveCount" style="opacity:.75"></span>
         <span style="opacity:.7">⚙</span>
       </div>
@@ -334,7 +340,7 @@
 
     <!-- ================= SECTION 1: ALARM OVERVIEW ================= -->
     <section class="sec" id="secOverview">
-      <div class="sec-title"><span class="bar"></span><span class="tt">告警总览</span><span class="en">Alarm Overview</span></div>
+      <div class="sec-title"><span class="bar"></span><span class="tt" data-i18n="secOverviewTitle">告警总览</span></div>
 
       <div class="alarm-strip">
         <div class="ac all"><div class="n" id="sevAll">7942</div><div class="l">All <span class="tag">TOTAL</span></div></div>
@@ -346,22 +352,23 @@
       </div>
 
       <div class="kpis">
-        <div class="kpi"><div class="l"><span class="ico">▣</span>当前宕站数</div><div class="v" id="kpiDown">--<small>个</small></div><div class="sub"><span class="chip">FMS 实时</span>Site Down</div></div>
-        <div class="kpi"><div class="l"><span class="ico">↻</span>24h 内恢复</div><div class="v" id="kpiRec">--<small>站</small></div><div class="sub"><span class="chip">占位</span>Recovered</div></div>
-        <div class="kpi"><div class="l"><span class="ico">⏱</span>平均 MTTR</div><div class="v" id="kpiMttr">--<small>h</small></div><div class="sub"><span class="chip">占位</span>Mean Time To Restore</div></div>
-        <div class="kpi"><div class="l"><span class="ico">◔</span>网络可用率</div><div class="v" id="kpiAvail">--<small>%</small></div><div class="sub"><span class="chip">占位</span>Availability</div></div>
+        <div class="kpi"><div class="l"><span class="ico">▣</span><span data-i18n="kpiDownLabel">当前宕站数</span></div><div class="v" id="kpiDown">--<small>个</small></div><div class="sub"><span class="chip" data-i18n="kpiDownChip">FMS 实时</span>Site Down</div></div>
+        <div class="kpi"><div class="l"><span class="ico">↻</span><span data-i18n="kpiRecLabel">24h 内恢复</span></div><div class="v" id="kpiRec">--<small>站</small></div><div class="sub"><span class="chip">history_alarm</span>Recovered (∑ site_class)</div></div>
+        <div class="kpi"><div class="l"><span class="ico">⏱</span><span data-i18n="kpiMttrLabel">平均 MTTR</span></div><div class="v" id="kpiMttr">--<small>min</small></div><div class="sub"><span class="chip">history_alarm</span>Mean Time To Restore</div></div>
+        <div class="kpi"><div class="l"><span class="ico">◔</span><span data-i18n="kpiAvailLabel">网络可用率</span></div><div class="v" id="kpiAvailBody" style="font-size:11px;text-align:left;line-height:1.45">--</div><div class="sub"><span class="chip">xlsx</span>Availability-NW (≥99.65% <span data-i18n="availGreen">深绿</span> / &lt;99.65% <span data-i18n="availRed">红</span>)</div></div>
       </div>
 
-      <div class="cards2">
+      <div class="cards3">
         <div class="panel"><div class="ph"><span class="tt">Site Down Trend (24h · Physical)</span><span class="ex" id="trendSrc">近24小时</span></div><div class="pb"><div class="chartbox" id="chTrend"></div></div></div>
-        <div class="panel"><div class="ph"><span class="tt">Outage Duration Distribution</span><span class="ex">宕站时长分布</span></div><div class="pb"><div class="chartbox" id="chDuration"></div></div></div>
+        <div class="panel"><div class="ph"><span class="tt">Outage Duration Distribution</span><span class="ex" data-i18n="durEx">宕站时长分布</span></div><div class="pb"><div class="chartbox" id="chDuration"></div></div></div>
+        <div class="panel" id="recPanel"><div class="ph"><span class="tt" data-i18n="recPanelTitle">恢复与 MTTR（按 site_class）</span><span class="ex" data-i18n="recPanelEx">仅 history_alarm.assign_rulename ≠ Null</span></div><div class="pb"><div id="recTableBox"></div></div></div>
       </div>
       <div class="note" id="ovNote">告警计数为门户导出快照；KPI / 趋势 / 时长分布来自 FMS 实时接口快照。启用 ⚙ 实时数据 + 本地代理后自动刷新。</div>
     </section>
 
     <!-- ================= SECTION 2: SITE DOWN STATISTICS ================= -->
     <section class="sec" id="secStats">
-      <div class="sec-title"><span class="bar"></span><span class="tt">站点宕机统计</span><span class="en">Site Down Statistics · Liberia (15 Counties)</span></div>
+      <div class="sec-title"><span class="bar"></span><span class="tt" data-i18n="secStatsTitle">站点宕机统计</span></div>
 
       <div class="dash-toolbar">
         <div class="left">
@@ -370,7 +377,7 @@
           <span class="chip"><span class="sq" style="background:var(--hm-green)"></span> ≤ <input type="number" value="0"></span>
           <span class="site-type-select"><label style="color:var(--muted)">RAN Site Type&nbsp;</label>
             <select id="ranSiteType"><option value="ALL">ALL</option><option value="ERA">ERA</option><option value="REGULAR">REGULAR</option></select></span>
-          <button id="btnRefreshNow" class="btn primary" style="padding:6px 14px;font-size:12px" title="立即刷新">↻ 刷新</button>
+          <button id="btnRefreshNow" class="btn primary" style="padding:6px 14px;font-size:12px" data-i18n-title="btnRefreshTitle">↻ <span data-i18n="refreshNow">刷新</span></button>
         </div>
         <div class="dash-title">Site Down Statistics</div>
         <div class="right">
@@ -403,70 +410,70 @@
         <div class="tail-right">
           <div class="panel"><div class="ph"><span class="tt">Logical Site Outages Hour</span><span class="ex">Export</span></div><div class="pb"><div class="chartbox" id="chHour"></div></div></div>
           <div class="panel"><div class="ph"><span class="tt">Site Down Trend by RAN (2G/3G/4G)</span><span class="ex">24h</span></div><div class="pb"><div class="chartbox" id="chRan"></div></div></div>
-        <div class="panel"><div class="ph"><span class="tt">Mains Fail Statistics</span><span class="ex">断电时长分布</span></div><div class="pb"><div class="chartbox" id="chMainsFail"></div></div></div>
-        <div class="panel"><div class="ph"><span class="tt">Site Class Statistics</span><span class="ex">站点分级</span></div><div class="pb"><div class="chartbox" id="chSiteClass"></div></div></div>
+        <div class="panel"><div class="ph"><span class="tt">Mains Fail Statistics</span><span class="ex" data-i18n="mainsFailEx">断电时长分布</span></div><div class="pb"><div class="chartbox" id="chMainsFail"></div></div></div>
+        <div class="panel"><div class="ph"><span class="tt">Site Class Statistics</span><span class="ex" data-i18n="siteClassEx">站点分级</span></div><div class="pb"><div class="chartbox" id="chSiteClass"></div></div></div>
         </div>
       </div>
-      <div class="note">表格/地图/图表数据 = FMS 实时接口（本机抓取于 <span id="metaTime">-</span> · <b>FMS 数据最新点 <span id="fmsDataTime">-</span></b>）。接口（与 fetch_site_outage_v2.py 对齐）：getSiteDownMapData / getRegionSiteDataTable / getRegionCellDataTable / getBorDataByVendor(Logical Total) / getCountSiteDownToHour / getAllStatisticsData。</div>
-      <div class="note" style="color:var(--primary-dark)">最近采集（时间·当前宕站数）：<span id="fetchLog" style="font-family:Consolas,monospace;font-size:11px">-</span></div>
+      <div class="note" id="noteStats"><span data-i18n="noteStatsPre">表格/地图/图表数据 = FMS 实时接口（本机抓取于 </span><span id="metaTime">-</span><span data-i18n="noteStatsMid"> · FMS 数据最新点 </span><b><span id="fmsDataTime">-</span></b><span data-i18n="noteStatsPost">）。接口（与 fetch_site_outage_v2.py 对齐）：getSiteDownMapData / getRegionSiteDataTable / getRegionCellDataTable / getBorDataByVendor(Logical Total) / getCountSiteDownToHour / getAllStatisticsData。</span></div>
+      <div class="note" style="color:var(--primary-dark)"><span data-i18n="noteFetchLog">最近采集（时间·当前宕站数）：</span><span id="fetchLog" style="font-family:Consolas,monospace;font-size:11px">-</span></div>
     </section>
 
     <!-- ================= SECTION 3: 告警趋势监控 (Trend Dashboard) ================= -->
     <section class="sec" id="secTrend" style="display:none">
-      <div class="sec-title"><span class="bar"></span><span class="tt">告警趋势监控</span><span class="en">Alarm Trend Monitor · 每探针(EMS)：今日/昨日/上周柱状 + 新增/清除折线</span></div>
-      <div class="note">数据源：probe-trend-monitor/getProbeNames + getAlarmStatisticsSnapshot + getAlarmStatistics + getClearedAlarmStatistics（10 个探针，单次请求全量返回）。</div>
+      <div class="sec-title"><span class="bar"></span><span class="tt" data-i18n="secTrendTitle">告警趋势监控</span></div>
+      <div class="note" data-i18n="noteTrend">数据源：probe-trend-monitor/getProbeNames + getAlarmStatisticsSnapshot + getAlarmStatistics + getClearedAlarmStatistics（10 个探针，单次请求全量返回）。</div>
       <div class="chart-grid" id="trendGrid"></div>
     </section>
 
     <!-- ================= SECTION 4: 派单趋势监控 (Assign Dashboard) ================= -->
     <section class="sec" id="secAssign" style="display:none">
-      <div class="sec-title"><span class="bar"></span><span class="tt">派单趋势监控</span><span class="en">Assign Trend Monitor · 告警分组：上报趋势 vs 派单趋势（10 分钟粒度）</span></div>
-      <div class="note">数据源：alarm-trend-dashboard/groups/names-with-selection + report-trend + assign-trend（6 个断站→工单告警分组）。</div>
+      <div class="sec-title"><span class="bar"></span><span class="tt" data-i18n="secAssignTitle">派单趋势监控</span></div>
+      <div class="note" data-i18n="noteAssign">数据源：alarm-trend-dashboard/groups/names-with-selection + report-trend + assign-trend（6 个断站→工单告警分组）。</div>
       <div class="chart-grid" id="assignGrid"></div>
     </section>
 
     <!-- ================= SECTION 5: 告警Top5 (Alarm Statistics Dashboard) ================= -->
     <section class="sec" id="secTop5" style="display:none">
-      <div class="sec-title"><span class="bar"></span><span class="tt">告警Top5</span><span class="en">Alarm Statistics Dashboard · 域统计 + 原因/站点 TOP5</span></div>
-      <div class="note">布局对齐 fms-topfivedashboard（alarm_domain.html）。原因/站点 TOP5 按域组接口各自出图（getAlarmReasonTOPdomain / getSitedomain，实时）：每张图对应一个域组，标题标注域组范围；原因/站点各 6 张，域顺序 RAN/CN/TRM_MW/VAS/TRM/POWER，与上方域卡片一一对应。域卡片(RAN/CN/TRM_MW/VAS/TRM/POWER)实时接口未提供 URL，当前为构建时快照。</div>
+      <div class="sec-title"><span class="bar"></span><span class="tt" data-i18n="secTop5Title">告警Top5</span></div>
+      <div class="note" data-i18n="noteTop5">布局对齐 fms-topfivedashboard（alarm_domain.html）。原因/站点 TOP5 按域组接口各自出图（getAlarmReasonTOPdomain / getSitedomain，实时）：每张图对应一个域组，标题标注域组范围；原因/站点各 6 张，域顺序 RAN/CN/TRM_MW/VAS/TRM/POWER，与上方域卡片一一对应。域卡片(RAN/CN/TRM_MW/VAS/TRM/POWER)实时接口未提供 URL，当前为构建时快照。</div>
       <div class="top5-cards" id="top5Cards"></div>
-      <div class="subtt">告警原因 TOP5 (Major+Critical) · 按域组</div>
+      <div class="subtt" data-i18n="subttReason">告警原因 TOP5 (Major+Critical) · 按域组</div>
       <div class="chart-grid5" id="top5ReasonGrid"></div>
-      <div class="subtt">告警站点 TOP5 (Major+Critical) · 按域组</div>
+      <div class="subtt" data-i18n="subttSite">告警站点 TOP5 (Major+Critical) · 按域组</div>
       <div class="chart-grid5" id="top5SiteGrid"></div>
     </section>
 
-    <div class="footer">ZTE NetNumen UME · Alarm Management · Site Outages Monitor Dashboard — 真实数据接入版</div>
+    <div class="footer">ZTE NetNumen UME · Alarm Management · Site Outages Monitor Dashboard — <span data-i18n="footer">真实数据接入版</span></div>
   </main>
 </div>
 
 <!-- LIVE CONFIG MODAL -->
 <div class="mask" id="liveMask">
   <div class="modal">
-    <h3>实时数据配置</h3>
-    <div class="sub">通过本地代理 <b>realtime_proxy.py</b>（已自动加载 fms_session.json 鉴权）拉取 FMS 接口，自动刷新。URL 已按真实接口预填。</div>
+    <h3 data-i18n="modalTitle">实时数据配置</h3>
+    <div class="sub" data-i18n="modalDesc">通过本地代理 <b>realtime_proxy.py</b>（已自动加载 fms_session.json 鉴权）拉取 FMS 接口，自动刷新。URL 已按真实接口预填。</div>
     <div class="field" style="display:flex;align-items:center;justify-content:space-between">
-      <label style="margin:0">启用实时刷新</label>
+      <label style="margin:0" data-i18n="cfgEnable">启用实时刷新</label>
       <label class="switch"><input type="checkbox" id="cfgEnabled"><span class="sl"></span></label>
     </div>
-    <div class="field"><label>刷新间隔（秒）</label><input type="number" id="cfgInterval" min="5"></div>
-    <div class="field"><label>会话 Cookie（留空则用 fms_session.json；需覆盖时填）</label><input type="text" id="cfgCookie" placeholder="JSESSIONID=..."></div>
-    <div class="field"><label>接口地址（已预填真实接口，可增删）</label><div id="srcList"></div><button class="add-src" id="addSrc">＋ 添加接口</button></div>
+    <div class="field"><label data-i18n="cfgInterval">刷新间隔（秒）</label><input type="number" id="cfgInterval" min="5"></div>
+    <div class="field"><label data-i18n="cfgCookie">会话 Cookie（留空则用 fms_session.json；需覆盖时填）</label><input type="text" id="cfgCookie" placeholder="JSESSIONID=..."></div>
+    <div class="field"><label data-i18n="cfgApi">接口地址（已预填真实接口，可增删）</label><div id="srcList"></div><button class="add-src" id="addSrc" data-i18n="addSrc">＋ 添加接口</button></div>
     <div class="modal-actions">
-      <button class="btn ghost" onclick="resetCfg()">恢复默认</button>
-      <button class="btn ghost" onclick="toggleMask(false)">取消</button>
-      <button class="btn primary" onclick="saveCfg()">保存并应用</button>
+      <button class="btn ghost" onclick="resetCfg()" data-i18n="resetBtn">恢复默认</button>
+      <button class="btn ghost" onclick="toggleMask(false)" data-i18n="cancelBtn">取消</button>
+      <button class="btn primary" onclick="saveCfg()" data-i18n="saveBtn">保存并应用</button>
     </div>
   </div>
 </div>
 
 <!-- DEBUG DRAWER -->
 <div class="drawer" id="drawer">
-  <div class="dh"><b>最近一次接口响应</b><span class="fullbtn" style="width:28px;height:28px" onclick="toggleDrawer(false)">✕</span></div>
-  <div class="db" id="drawerBody">暂无数据。</div>
+  <div class="dh"><b data-i18n="drawerTitle">最近一次接口响应</b><span class="fullbtn" style="width:28px;height:28px" onclick="toggleDrawer(false)">✕</span></div>
+  <div class="db" id="drawerBody" data-i18n="drawerEmpty">暂无数据。</div>
   <div class="dbtns">
-    <button class="btn ghost" style="flex:1" onclick="copyPayload()">复制响应</button>
-    <button class="btn primary" style="flex:1" onclick="refreshAll();toggleDrawer(false)">立即刷新</button>
+    <button class="btn ghost" style="flex:1" onclick="copyPayload()" data-i18n="copyBtn">复制响应</button>
+    <button class="btn primary" style="flex:1" onclick="refreshAll();toggleDrawer(false)" data-i18n="refreshBtn2">立即刷新</button>
   </div>
 </div>
 
@@ -481,6 +488,7 @@ let APP_THEME=(function(){
   try{ const s=localStorage.getItem('myapp-theme'); if(s==='dark'||s==='light') return s; }catch(e){}
   try{ return (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'; }catch(e){ return 'light'; }
 })();
+let APP_LOCALE=(function(){ try{ const v=localStorage.getItem('app-locale'); if(v==='zh'||v==='en') return v; }catch(e){} return 'zh'; })();
 function curP(){ return PALETTE[APP_THEME]; }
 regThemes();   /* 注册 amLight / amDark 主题（window.echarts 此时已就绪），必须在任何 echarts.init 之前 */
 
@@ -559,7 +567,7 @@ function renderTables(){
 }
 renderTables();
 // 初始占位（不再显示冻结的"快照"时间戳）；实时刷新后由 applyLive('logicalTotal') 改写为"实时 HH:MM:SS"
-document.getElementById('ltTime').textContent = D.meta.fetchedAt ? ('内嵌快照 '+D.meta.fetchedAt) : '—';
+document.getElementById('ltTime').textContent = D.meta.fetchedAt ? (T('内嵌快照 ','Embedded snapshot ')+D.meta.fetchedAt) : '—';
 document.getElementById('ranSiteType').addEventListener('change', function(e){
   ranFilter=e.target.value;
   console.log('[FMS] RAN Site Type =', ranFilter);
@@ -618,18 +626,24 @@ function setMapOption(){
     backgroundColor:'transparent',
     tooltip:{trigger:'item', formatter:p=>{
       const it=md.find(x=>x.name===p.name);
-      if(it) return '<b>'+it.name.replace(/_/g,' ')+'</b> ('+it.abbr+')<br>宕站数: <b style="color:#e5484d">'+it.count+'</b>';
+      if(it) return '<b>'+it.name.replace(/_/g,' ')+'</b> ('+it.abbr+')<br>'+T('宕站数: ','Down sites: ')+'<b style="color:#e5484d">'+it.count+'</b>';
       return p.name||'Liberia'; }},
+    // 分档上色：>=5 红、1~4 橙、0 绿。
+    // 注意：必须用 gte/gt/lt 显式指定边界。ECharts 的 min/max 闭区间在数据恰好落在
+    // 分段边界（如所有区域都是 5，或 4/5 相邻）时会出现边界归属错误，导致 >=5 被画成
+    // 默认色（透明/黑底）。 previous fixes using {min:5} regressed because of this.
     visualMap:{type:'piecewise', show:false, pieces:[
-      {min:5, color:'#ce4c4a'}, {min:1, max:4, color:'#d89f42'}, {value:0, color:'#349a6d'}]},
+      {gte:5, color:'#ce4c4a'}, {gt:0, lt:5, color:'#d89f42'}, {value:0, color:'#349a6d'}]},
     series:[{type:'map', map:'liberia', roam:false,
       // 利比里亚实际约 457km(东西) x 466km(南北)，近正方；echarts 默认 aspectScale=0.75 会横向压扁，改回真实比例
       aspectScale:1, top:12, bottom:12,
-      data:md.map(x=>({name:x.name, value:x.count, itemStyle:{areaColor:heat(x.count)}})),
+      // visualMap 在 map 系列上的优先级高于 data.itemStyle.areaColor，所以这里不再设 areaColor，
+      // 避免“两个地方都能改颜色”带来的维护混乱。颜色唯一真相源 = visualMap.pieces。
+      data:md.map(x=>({name:x.name, value:x.count})),
       label:{show:true, formatter:p=>{ const it=md.find(x=>x.name===p.name); return it?(it.abbr+' '+it.count):p.name; },
-        color:'#fff', fontSize:10, textShadowBlur:2, textShadowColor:'rgba(0,0,0,.55)'},
+        color:APP_THEME==='dark'?'#fff':'#1f2d3d', fontSize:10, textShadowBlur:2, textShadowColor:APP_THEME==='dark'?'rgba(0,0,0,.55)':'rgba(255,255,255,.7)'},
       itemStyle:{borderColor:curP().mapBorder, borderWidth:.7},
-      emphasis:{itemStyle:{areaColor:'#15349f'}, label:{show:true, color:'#fff', fontSize:12}}}]  
+      emphasis:{itemStyle:{areaColor:'#15349f'}, label:{show:true, color:APP_THEME==='dark'?'#fff':'#1f2d3d', fontSize:12}}}]  
   }, true);
 }
 function renderLibFallback(){
@@ -647,10 +661,12 @@ function renderLibFallback(){
       const v=byAbbr[abbr]||0;
       return '<path d="'+p.d+'" fill="'+col(v)+'" opacity=".85" stroke="#d8e3f5" stroke-width=".6"/>';
     }).join('')+'</svg>'; }
-  mapEl.style.background='#030132';
+  mapEl.style.background = APP_THEME==='dark' ? '#030132' : '#dce6f5';
   mapEl.innerHTML=svg+'<div style="position:absolute;inset:0;pointer-events:none">'+
     D.pins.map(p=>{ const px=x(p[2]), py=y(p[3]);
-      return '<div style="position:absolute;left:'+px+'px;top:'+py+'px;transform:translate(-50%,-50%);white-space:nowrap;color:#fff;font-size:11px;font-weight:700;text-shadow:0 1px 2px #000">'+
+      const lc = APP_THEME==='dark' ? '#fff' : '#1f2d3d';
+      const ls = APP_THEME==='dark' ? '#000' : 'rgba(255,255,255,.8)';
+      return '<div style="position:absolute;left:'+px+'px;top:'+py+'px;transform:translate(-50%,-50%);white-space:nowrap;color:'+lc+';font-size:11px;font-weight:700;text-shadow:0 1px 2px '+ls+'">'+
         p[0]+' '+p[4]+'</div>';}).join('')+'</div>';
 }
 initLiberiaMap();
@@ -720,29 +736,155 @@ function rethemeCharts(){
 }
 // 早期同步 <html data-theme>，并监听父页面(myapp)主题切换的 postMessage
 document.documentElement.dataset.theme=APP_THEME;
-window.addEventListener('message', function(e){ if(e.data && e.data.__type==='myapp-theme') applyTheme(e.data.mode); });
+window.addEventListener('message', function(e){ if(e.data && e.data.__type==='myapp-theme') applyTheme(e.data.mode); if(e.data && e.data.__type==='myapp-locale') applyLocale(e.data.locale==='en'?'en':'zh', true); });
+
+/* ===== 国际化层（与 myapp 同源 localStorage['app-locale'] 同步） ===== */
+const I18N = {
+  secOverviewTitle:{zh:'告警总览',en:'Alarm Overview'},
+  secStatsTitle:{zh:'站点宕机统计',en:'Site Down Statistics · Liberia (15 Counties)'},
+  secTrendTitle:{zh:'告警趋势监控',en:'Alarm Trend Monitor · per-probe (EMS): today/yesterday/last-week bars + new/cleared lines'},
+  secAssignTitle:{zh:'派单趋势监控',en:'Assign Trend Monitor · alarm groups: report vs assign trend (10-min granularity)'},
+  secTop5Title:{zh:'告警Top5',en:'Alarm Statistics Dashboard · domain stats + top-5 by reason/site'},
+  tabOverview:{zh:'站点宕机监控',en:'Site Outage Monitor'},
+  tabTrend:{zh:'告警趋势监控',en:'Alarm Trend Monitor'},
+  tabAssign:{zh:'派单趋势监控',en:'Assign Trend Monitor'},
+  tabTop5:{zh:'告警Top5',en:'Alarm Top 5'},
+  liveText:{zh:'示例快照 · 未连接',en:'Sample snapshot · not connected'},
+  kpiDownLabel:{zh:'当前宕站数',en:'Current down sites'},
+  kpiRecLabel:{zh:'24h 内恢复',en:'Recovered in 24h'},
+  kpiMttrLabel:{zh:'平均 MTTR',en:'Avg MTTR'},
+  kpiAvailLabel:{zh:'网络可用率',en:'Network availability'},
+  kpiDownUnit:{zh:'个',en:'sites'},
+  kpiRecUnit:{zh:'站',en:'sites'},
+  kpiDownChip:{zh:'FMS 实时',en:'FMS Live'},
+  recPanelTitle:{zh:'恢复与 MTTR（按 site_class）',en:'Recovery & MTTR (by site_class)'},
+  trendSrc:{zh:'近24小时',en:'Last 24 hours'},
+  trendLive:{zh:'实时',en:'Live'},
+  trendSnapshot:{zh:'快照',en:'Snapshot'},
+  durEx:{zh:'宕站时长分布',en:'Outage duration distribution'},
+  mainsFailEx:{zh:'断电时长分布',en:'Mains fail duration distribution'},
+  siteClassEx:{zh:'站点分级',en:'Site class'},
+  ovNote:{zh:'告警计数为门户导出快照；KPI/趋势/时长分布/表格/地图 = FMS 实时接口快照（{ts}）。启用 ⚙ 实时数据 + 本地代理后自动刷新。',en:'Alarm counts = portal export snapshot; KPI/trend/duration/table/map = FMS live snapshot ({ts}). Enable ⚙ live data + local proxy to auto-refresh.'},
+  ovNoteDetail:{zh:'告警计数=realtime_alarm；恢复/MTTR=history_alarm（仅 assign_rulename≠Null，按 site_class）；网络可用率=Daily_Aailability_KPI.xlsx(Availability-NW)，≥{thr}% 深绿 / <{thr}% 红。数据时间：{gen}。',en:'Alarm counts = realtime_alarm; recovery/MTTR = history_alarm (only assign_rulename≠Null, by site_class); network availability = Daily_Aailability_KPI.xlsx (Availability-NW), ≥{thr}% dark green / <{thr}% red. Data time: {gen}.'},
+  refreshNow:{zh:'刷新',en:'Refresh'},
+  subttReason:{zh:'告警原因 TOP5 (Major+Critical) · 按域组',en:'Top 5 alarm reasons (Major+Critical) · by domain'},
+  subttSite:{zh:'告警站点 TOP5 (Major+Critical) · 按域组',en:'Top 5 alarm sites (Major+Critical) · by domain'},
+  footer:{zh:'真实数据接入版',en:'Live-data edition'},
+  modalTitle:{zh:'实时数据配置',en:'Live Data Config'},
+  modalDesc:{zh:'通过本地代理 realtime_proxy.py（已自动加载 fms_session.json 鉴权）拉取 FMS 接口，自动刷新。URL 已按真实接口预填。',en:'Pull FMS APIs via local proxy realtime_proxy.py (auto-loads fms_session.json auth) for auto-refresh. URLs are prefilled with real endpoints.'},
+  cfgEnable:{zh:'启用实时刷新',en:'Enable live refresh'},
+  cfgInterval:{zh:'刷新间隔（秒）',en:'Refresh interval (s)'},
+  cfgCookie:{zh:'会话 Cookie（留空则用 fms_session.json；需覆盖时填）',en:'Session cookie (leave blank to use fms_session.json; fill to override)'},
+  cfgApi:{zh:'接口地址（已预填真实接口，可增删）',en:'API endpoints (prefilled with real APIs; add/remove)'},
+  addSrc:{zh:'＋ 添加接口',en:'＋ Add endpoint'},
+  resetBtn:{zh:'恢复默认',en:'Restore default'},
+  cancelBtn:{zh:'取消',en:'Cancel'},
+  saveBtn:{zh:'保存并应用',en:'Save & Apply'},
+  drawerTitle:{zh:'最近一次接口响应',en:'Last API response'},
+  drawerEmpty:{zh:'暂无数据。',en:'No data.'},
+  copyBtn:{zh:'复制响应',en:'Copy response'},
+  refreshBtn2:{zh:'立即刷新',en:'Refresh now'},
+  noteStats:{zh:'表格/地图/图表数据 = FMS 实时接口（本机抓取于 {mt} · FMS 数据最新点 {ft}）。接口（与 fetch_site_outage_v2.py 对齐）：getSiteDownMapData / getRegionSiteDataTable / getRegionCellDataTable / getBorDataByVendor(Logical Total) / getCountSiteDownToHour / getAllStatisticsData。',en:'Table/map/charts = FMS live APIs (fetched locally at {mt} · latest FMS point {ft}). APIs (aligned with fetch_site_outage_v2.py): getSiteDownMapData / getRegionSiteDataTable / getRegionCellDataTable / getBorDataByVendor(Logical Total) / getCountSiteDownToHour / getAllStatisticsData.'},
+  noteFetchLog:{zh:'最近采集（时间·当前宕站数）：',en:'Last fetch (time · current down sites):'},
+  noteTrend:{zh:'数据源：probe-trend-monitor/getProbeNames + getAlarmStatisticsSnapshot + getAlarmStatistics + getClearedAlarmStatistics（10 个探针，单次请求全量返回）。',en:'Data source: probe-trend-monitor/getProbeNames + getAlarmStatisticsSnapshot + getAlarmStatistics + getClearedAlarmStatistics (10 probes, single full response).'},
+  noteAssign:{zh:'数据源：alarm-trend-dashboard/groups/names-with-selection + report-trend + assign-trend（6 个断站→工单告警分组）。',en:'Data source: alarm-trend-dashboard/groups/names-with-selection + report-trend + assign-trend (6 outage→ticket alarm groups).'},
+  noteTop5:{zh:'布局对齐 fms-topfivedashboard（alarm_domain.html）。原因/站点 TOP5 按域组接口各自出图（getAlarmReasonTOPdomain / getSitedomain，实时）：每张图对应一个域组，标题标注域组范围；原因/站点各 6 张，域顺序 RAN/CN/TRM_MW/VAS/TRM/POWER，与上方域卡片一一对应。域卡片(RAN/CN/TRM_MW/VAS/TRM/POWER)实时接口未提供 URL，当前为构建时快照。',en:'Layout aligned with fms-topfivedashboard (alarm_domain.html). Reason/site TOP5 each render per domain group via APIs (getAlarmReasonTOPdomain / getSitedomain, live): one chart per domain group, titled with its range; 6 charts each for reason/site, domain order RAN/CN/TRM_MW/VAS/TRM/POWER, matching the cards above. Domain cards (RAN/CN/TRM_MW/VAS/TRM/POWER) have no live API URL yet, currently build-time snapshot.'},
+  recEmpty:{zh:'无数据（history_alarm 中无 assign_rulename ≠ Null 的记录）',en:'No data (history_alarm has no records where assign_rulename ≠ Null)'},
+  noData:{zh:'无数据',en:'No data'},
+  recHdrSiteClass:{zh:'site_class',en:'site_class'},
+  recHdrTotal:{zh:'总告警',en:'Total alarms'},
+  recHdrRec24:{zh:'24h内恢复',en:'Recovered 24h'},
+  recHdrMttr:{zh:'平均MTTR(min)',en:'Avg MTTR(min)'},
+  recHdrRate:{zh:'恢复率',en:'Recovery rate'},
+  top5SevCrit:{zh:'严重',en:'Critical'},
+  top5SevMaj:{zh:'主要',en:'Major'},
+  top5SevMin:{zh:'次要',en:'Minor'},
+  top5SevWarn:{zh:'警告',en:'Warning'},
+  trendToday:{zh:'今日',en:'Today'},
+  trendYesterday:{zh:'昨日',en:'Yesterday'},
+  trendLastWeek:{zh:'上周',en:'Last week'},
+  trendNew:{zh:'新增告警',en:'New alarms'},
+  trendCleared:{zh:'清除告警',en:'Cleared alarms'},
+  assignTrend:{zh:'派单趋势',en:'Assign trend'},
+  reportTrend:{zh:'上报趋势',en:'Report trend'},
+  noteStatsPre:{zh:'表格/地图/图表数据 = FMS 实时接口（本机抓取于 ',en:'Table/map/charts = FMS live APIs (fetched locally at '},
+  noteStatsMid:{zh:' · FMS 数据最新点 ',en:' · latest FMS point '},
+  noteStatsPost:{zh:'）。接口（与 fetch_site_outage_v2.py 对齐）：getSiteDownMapData / getRegionSiteDataTable / getRegionCellDataTable / getBorDataByVendor(Logical Total) / getCountSiteDownToHour / getAllStatisticsData。',en:'). APIs (aligned with fetch_site_outage_v2.py): getSiteDownMapData / getRegionSiteDataTable / getRegionCellDataTable / getBorDataByVendor(Logical Total) / getCountSiteDownToHour / getAllStatisticsData.'},
+  monthAvg:{zh:'月均 ',en:'Monthly avg '},
+  userMenuLang:{zh:'中文',en:'Chinese'},
+  livePillTitle:{zh:'实时数据配置',en:'Live Data Config'},
+  availGreen:{zh:'深绿',en:'dark green'},
+  availRed:{zh:'红',en:'red'},
+  recPanelEx:{zh:'仅 history_alarm.assign_rulename ≠ Null',en:'Only where history_alarm.assign_rulename ≠ Null'},
+  btnRefreshTitle:{zh:'立即刷新',en:'Refresh now'},
+  cfgNamePh:{zh:'名称',en:'Name'},
+  cfgBodyPh:{zh:'POST body JSON（仅 POST）',en:'POST body JSON (POST only)'}
+};
+function T(zh,en){ return APP_LOCALE==='en'?en:zh; }
+function L(k){ const p=I18N[k]; if(!p) return k; return (APP_LOCALE==='en'? (p.en!=null?p.en:p.zh) : p.zh); }
+function LN(k, params){ let s=L(k); if(params){ for(const key in params){ s=s.split('{'+key+'}').join(String(params[key])); } } return s; }
+function applyStaticI18n(){ document.querySelectorAll('[data-i18n]').forEach(function(el){ const k=el.getAttribute('data-i18n'); if(I18N[k]) el.textContent=I18N[k][APP_LOCALE]; }); document.querySelectorAll('[data-i18n-title]').forEach(function(el){ const k=el.getAttribute('data-i18n-title'); if(I18N[k]) el.title=I18N[k][APP_LOCALE]; }); }
+async function applyLocale(loc, rerender){
+  if(loc!=='zh'&&loc!=='en') loc='zh';
+  APP_LOCALE=loc;
+  document.documentElement.classList.toggle('lang-en', loc==='en');
+  try{ setKpi(); }catch(e){}
+  try{ updateTrendCharts(); }catch(e){}
+  try{ updateAssignCharts(); }catch(e){}
+  try{ renderTop5Cards(); }catch(e){}
+  try{ renderSnapshotNote(); }catch(e){}
+  if(rerender){ try{ await loadAlarmOverview(); }catch(e){} }
+  try{ refreshTrendSrc(); }catch(e){}
+  applyStaticI18n();
+  try{ refreshTrendSrc(); }catch(e){}
+}
+function renderSnapshotNote(){ const el=document.getElementById('ovNote'); if(el) el.textContent=LN('ovNote',{ts:(D.meta&&D.meta.fetchedAt)||''}); }
+
 
 // 24h Physical 趋势（Section1）
 let chTrend=initChart('chTrend');
+// 渐变填充：若当前 echarts 构建未暴露 echarts.graphic.LinearGradient（部分精简构建会缺失），
+// 退回纯色填充，避免 setOption 抛错导致整张趋势图空白（仅趋势图用到 graphic，故只有它会“单独空白”）。
+function safeArea(){ try{ if(echarts&&echarts.graphic&&echarts.graphic.LinearGradient) return new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(25,147,255,.32)'},{offset:1,color:'rgba(25,147,255,.02)'}]);
+  }catch(e){} return 'rgba(25,147,255,.12)'; }
+// 数据来源徽标（国际化）：default → 来自 I18N.trendSrc；live → 实时；snapshot → 快照。
+// 不使用 data-i18n 属性，避免 applyStaticI18n 把动态值（实时/快照）覆盖回"近24小时"。
+let trendSrcState='default';
+function refreshTrendSrc(){
+  const el=document.getElementById('trendSrc'); if(!el) return;
+  const k = trendSrcState==='live' ? 'trendLive' : trendSrcState==='snapshot' ? 'trendSnapshot' : 'trendSrc';
+  el.textContent = L(k);
+}
 function setTrend(){
   if(!chTrend) return;
-  chTrend.setOption({grid:{left:44,right:18,top:24,bottom:30},tooltip:{trigger:'axis'},
-    xAxis:{type:'category',data:D.charts.trend.x,...AX},
+  if(!D.charts||!D.charts.trend||!Array.isArray(D.charts.trend.physical)) return;
+  const x=D.charts.trend.x, y=D.charts.trend.physical;
+  if(!Array.isArray(x)||!Array.isArray(y)||!y.length) return;
+  const opt={grid:{left:44,right:18,top:24,bottom:30},tooltip:{trigger:'axis'},
+    xAxis:{type:'category',data:x,...AX},
     yAxis:{type:'value',...AX},
-    series:[{type:'line',smooth:true,symbol:'circle',symbolSize:5,data:D.charts.trend.physical,
+    series:[{type:'line',smooth:true,symbol:'circle',symbolSize:5,data:y,
       lineStyle:{color:'#1993ff',width:2.5},itemStyle:{color:'#1993ff'},
       endLabel:{show:true,formatter:p=>p.value,color:'#1993ff',fontSize:12,fontWeight:800},
-      areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(25,147,255,.32)'},{offset:1,color:'rgba(25,147,255,.02)'}])}}]}, true);
+      areaStyle:{color:safeArea()}}]};
+  try{ chTrend.setOption(opt, true); }
+  catch(e){ try{ chTrend.setOption({xAxis:{type:'category',data:x},yAxis:{type:'value'},series:[{type:'line',data:y}]}, true); }catch(e2){} }
 }
 setTrend();
+refreshTrendSrc();
 // 宕站时长分布（Section1 donut）
 let chDuration=initChart('chDuration');
 function setDuration(){
   if(!chDuration) return;
   chDuration.setOption({color:Object.values(C),tooltip:{trigger:'item',formatter:'{b}: {c} ({d}%)'},
-    legend:{bottom:0,icon:'circle',itemWidth:9,itemHeight:9,textStyle:{color:curP().axisLabel,fontSize:11}},
-    series:[{type:'pie',radius:['52%','74%'],center:['50%','44%'],label:{show:false},
-      emphasis:{scaleSize:6,label:{show:true,formatter:'{b}\n{c}',fontWeight:700}},
+    legend:{bottom:0,icon:'circle',itemWidth:8,itemHeight:8,itemGap:6,textStyle:{color:curP().axisLabel,fontSize:10},
+      formatter:function(n){ const list=D.charts.duration||[]; const total=list.reduce((a,x)=>a+(+x[1]||0),0)||1; const row=list.find(x=>x[0]===n); const v=row?(+row[1]||0):0; const pct=(v/total*100).toFixed(1); return n+' '+v+' ('+pct+'%)'; }},
+    series:[{type:'pie',radius:['44%','62%'],center:['50%','44%'],
+      label:{show:true,position:'outside',formatter:'{b}\n{c} ({d}%)',color:curP().axisLabel,fontSize:10,lineHeight:12},
+      labelLine:{show:true,length:6,length2:6},
+      labelLayout:{hideOverlap:true,moveGap:2},
+      minShowLabelAngle:5,
+      emphasis:{scaleSize:6,label:{show:true,formatter:'{b}\n{c} ({d}%)',fontWeight:700}},
       data:D.charts.duration.map(x=>({name:x[0],value:x[1]}))}]}, true);
 }
 setDuration();
@@ -840,9 +982,9 @@ function updateTrendCharts(){
         legend:{top:2,itemWidth:9,itemHeight:9,textStyle:{fontSize:11,color:curP().axisLabel}},
         xAxis:{type:'category',data:HOURS24,...AX},yAxis:{type:'value',...AX},
         series:[
-          {name:'今日',type:'bar',data:nBucket(snap.today,'alarmCount',24)},
-          {name:'昨日',type:'bar',data:nBucket(snap.yesterday,'alarmCount',24)},
-          {name:'上周',type:'bar',data:nBucket(snap.lastWeek,'alarmCount',24)}
+          {name:L('trendToday'),type:'bar',data:nBucket(snap.today,'alarmCount',24)},
+          {name:L('trendYesterday'),type:'bar',data:nBucket(snap.yesterday,'alarmCount',24)},
+          {name:L('trendLastWeek'),type:'bar',data:nBucket(snap.lastWeek,'alarmCount',24)}
         ]}, true);
     }
     if(tc.line){
@@ -851,8 +993,8 @@ function updateTrendCharts(){
         legend:{top:2,itemWidth:9,itemHeight:9,textStyle:{fontSize:11,color:curP().axisLabel}},
         xAxis:{type:'category',data:T144,axisLabel:{interval:11,color:curP().axisLabel,fontSize:11}},yAxis:{type:'value',...AX},
         series:[
-          {name:'新增告警',type:'line',smooth:true,symbol:'none',data:nBucket(lineAll[p],'totalAlarmCount',144),lineStyle:{color:'#e5484d',width:1.8}},
-          {name:'清除告警',type:'line',smooth:true,symbol:'none',data:nBucket(clearAll[p],'clearedAlarmCount',144),lineStyle:{color:'#2f80ed',width:1.8}}
+          {name:L('trendNew'),type:'line',smooth:true,symbol:'none',data:nBucket(lineAll[p],'totalAlarmCount',144),lineStyle:{color:'#e5484d',width:1.8}},
+          {name:L('trendCleared'),type:'line',smooth:true,symbol:'none',data:nBucket(clearAll[p],'clearedAlarmCount',144),lineStyle:{color:'#2f80ed',width:1.8}}
         ]}, true);
     }
   });
@@ -880,8 +1022,8 @@ function updateAssignCharts(){
       legend:{top:2,itemWidth:9,itemHeight:9,textStyle:{fontSize:11,color:curP().axisLabel}},
       xAxis:{type:'category',data:T144,axisLabel:{interval:11,color:curP().axisLabel,fontSize:11}},yAxis:{type:'value',...AX},
       series:[
-        {name:'派单趋势',type:'line',smooth:true,symbol:'none',data:nBucket((asgAll[g]||{}).today,'count',144),lineStyle:{color:'#f58c1f',width:1.8}},
-        {name:'上报趋势',type:'line',smooth:true,symbol:'none',data:nBucket((repAll[g]||{}).today,'count',144),lineStyle:{color:'#1993ff',width:1.8}}
+        {name:L('assignTrend'),type:'line',smooth:true,symbol:'none',data:nBucket((asgAll[g]||{}).today,'count',144),lineStyle:{color:'#f58c1f',width:1.8}},
+        {name:L('reportTrend'),type:'line',smooth:true,symbol:'none',data:nBucket((repAll[g]||{}).today,'count',144),lineStyle:{color:'#1993ff',width:1.8}}
       ]}, true);
   });
 }
@@ -891,8 +1033,8 @@ function renderTop5Cards(){
   const cards=(D.top5&&D.top5.cards)||[];
   box.innerHTML=cards.map(c=>'<div class="t5-card"><div class="t5-name">'+c.name+' <small style="font-weight:400;color:var(--muted)">(Critical/Total)</small></div>'+
     '<div class="t5-num">'+c.critical+'<small> / '+c.total+'</small></div>'+
-    '<div class="t5-sev"><span>严重 <b class="crit">'+c.sev[0]+'</b></span><span>主要 <b class="maj">'+c.sev[1]+'</b></span>'+
-    '<span>次要 <b class="min">'+c.sev[2]+'</b></span><span>警告 <b class="warn">'+c.sev[3]+'</b></span></div></div>').join('');
+    '<div class="t5-sev"><span data-i18n="top5SevCrit">严重</span> <b class="crit">'+c.sev[0]+'</b></span><span data-i18n="top5SevMaj">主要</span> <b class="maj">'+c.sev[1]+'</b></span>'+
+    '<span data-i18n="top5SevMin">次要</span> <b class="min">'+c.sev[2]+'</b></span><span data-i18n="top5SevWarn">警告</span> <b class="warn">'+c.sev[3]+'</b></span></div></div>').join('');
 }
 // ---------- 告警 Top5：按域组各自出图（每域组一张） ----------
 const top5Charts=[]; // {id, chart}
@@ -975,14 +1117,72 @@ initTabs();
    KPI / 时钟
 ================================================================= */
 function setKpi(){
-  document.getElementById('kpiDown').innerHTML=D.kpis.down+'<small>个</small>';
+  document.getElementById('kpiDown').innerHTML=D.kpis.down+'<small data-i18n="kpiDownUnit">个</small>';
   // 地图左上角 Site Down 必须与 Physical Site 表 Total（各州求和）一致
   const sd=(D.tables.physical||[]).reduce((a,b)=>a+(b||0),0);
   document.getElementById('clkSd').textContent='Site Down: '+sd;
 }
 setKpi();
+/* ===== 告警总览取数：realtime_alarm / history_alarm / xlsx（替代原 FMS 占位）===== */
+async function loadAlarmOverview(){
+  try{
+    var r = await fetch('/api/alarm-dashboard/alarm-overview', {cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var d = await r.json();
+    var ac = d.alarm_counts || {};
+    var setSev = function(id,v){ var el=document.getElementById(id); if(el) el.textContent=(v==null?0:v); };
+    setSev('sevAll', ac.ALL); setSev('sevCritical', ac.Critical); setSev('sevMajor', ac.Major);
+    setSev('sevMinor', ac.Minor); setSev('sevWarning', ac.Warning); setSev('sevEvent', ac.Event);
+    var rec = Array.isArray(d.recovery_mttr)? d.recovery_mttr : [];
+    var totRec=0, totTotal=0, wsum=0;
+    rec.forEach(function(r0){ totRec += (r0.recovered_24h||0); totTotal += (r0.total||0); wsum += (r0.avg_mttr_min||0)*(r0.total||0); });
+    var overallMttr = totTotal? (wsum/totTotal) : null;
+    var kRec=document.getElementById('kpiRec'); if(kRec) kRec.innerHTML = totRec + '<small data-i18n="kpiRecUnit">站</small>';
+    var kMttr=document.getElementById('kpiMttr'); if(kMttr) kMttr.innerHTML = (overallMttr==null? '--' : overallMttr.toFixed(1)) + '<small>min</small>';
+    var tbox=document.getElementById('recTableBox');
+    if(tbox){
+      if(!rec.length){ tbox.innerHTML='<div style="color:var(--muted);padding:8px" data-i18n="recEmpty">无数据（history_alarm 中无 assign_rulename ≠ Null 的记录）</div>'; }
+      else {
+        var h='<table style="width:100%;border-collapse:collapse;font-size:12px;color:var(--text)"><thead><tr style="text-align:left;color:var(--muted)">'
+          +'<th style="padding:4px 10px" data-i18n="recHdrSiteClass">site_class</th><th style="padding:4px 10px" data-i18n="recHdrTotal">总告警</th><th style="padding:4px 10px" data-i18n="recHdrRec24">24h内恢复</th><th style="padding:4px 10px" data-i18n="recHdrMttr">平均MTTR(min)</th><th style="padding:4px 10px" data-i18n="recHdrRate">恢复率</th></tr></thead><tbody>';
+        rec.forEach(function(r0){
+          h+='<tr><td style="padding:4px 10px;font-weight:600">'+r0.site_class+'</td>'
+            +'<td style="padding:4px 10px">'+r0.total+'</td>'
+            +'<td style="padding:4px 10px">'+r0.recovered_24h+'</td>'
+            +'<td style="padding:4px 10px">'+(r0.avg_mttr_min==null?'--':r0.avg_mttr_min)+'</td>'
+            +'<td style="padding:4px 10px">'+(r0.recovery_rate==null?'--':r0.recovery_rate+'%')+'</td></tr>';
+        });
+        h+='</tbody></table>';
+        tbox.innerHTML=h;
+      }
+    }
+    var thr = (typeof d.network_threshold_pct==='number')? d.network_threshold_pct : 99.65;
+    var net = Array.isArray(d.network_availability)? d.network_availability : [];
+    var nbox=document.getElementById('kpiAvailBody');
+    if(nbox){
+      if(!net.length){ nbox.innerHTML='<span style="color:var(--muted)" data-i18n="noData">无数据</span>'; }
+      else {
+        var nh='<div>';
+        net.forEach(function(n){
+          var latestPct=(n.latest*100); var monthPct=(n.month_avg==null?null:n.month_avg*100);
+          var col = latestPct < thr ? '#cf1322' : '#237804';
+          nh+='<div style="display:flex;justify-content:space-between;gap:10px;padding:2px 0">'
+            +'<span style="color:var(--text)">'+n.cell_group+'</span>'
+            +'<span style="font-weight:700;color:'+col+'">'+latestPct.toFixed(2)+'%</span>'
+            +'<span style="color:var(--muted)" data-i18n="monthAvg">月均 '+(monthPct==null?'--':monthPct.toFixed(2)+'%')+'</span></div>';
+        });
+        nh+='</div>';
+        nbox.innerHTML=nh;
+      }
+    }
+    var note=document.getElementById('ovNote');
+    if(note){ note.textContent=LN('ovNoteDetail',{thr:thr, gen:(d.generated_at||'-')}); }
+    applyStaticI18n();
+  }catch(e){ console.warn('[alarm-overview] 加载失败:', e); }
+}
+loadAlarmOverview();
 document.getElementById('metaTime').textContent=D.meta.fetchedAt||'';
-document.getElementById('ovNote').textContent='告警计数为门户导出快照；KPI/趋势/时长分布/表格/地图 = FMS 实时接口快照（'+D.meta.fetchedAt+'）。启用 ⚙ 实时数据 + 本地代理后自动刷新。';
+renderSnapshotNote();
 
 /* =================================================================
    实时数据模块（本地代理 + 精确字段渲染）
@@ -1047,7 +1247,7 @@ function applyLive(name, json){
     // 与"其他面板"一致：每次成功刷新都把标题时间戳更新为实时时间，不再显示冻结快照
     const lt=document.getElementById('ltTime');
     if(lt){ const t=lastOkAt||new Date(); const p=n=>String(n).padStart(2,'0');
-      lt.textContent='实时 '+t.getHours()+':'+p(t.getMinutes())+':'+p(t.getSeconds()); }
+      lt.textContent=T('实时 ','Live ')+t.getHours()+':'+p(t.getMinutes())+':'+p(t.getSeconds()); }
   } else if(name==='siteClass'){
     // Site Class Statistics（getSiteDownStatisticOfClass）：data={header:[P1,P2,P4...], value:[...]}
     const inner=(json.data&&json.data.data)||json.data||{};
@@ -1078,26 +1278,41 @@ function applyLive(name, json){
         document.getElementById('fmsDataTime').textContent=
           (lastT.getMonth()+1)+'-'+lastT.getDate()+' '+p(lastT.getHours())+':'+p(lastT.getMinutes());
       }
-      const raw0=dd.physical['0-24'];
-      const last=Math.min(ts.length, Array.isArray(raw0)?raw0.length:ts.length);
-      const ts24=ts.slice(-last), ser={};
+      // 物理序列取 physical['0-24'] 完整数组（其语义即"近24小时逐时序列"），不再按 timestamps 长度裁剪 ——
+      // 旧逻辑用 Math.min(ts.length, raw0.length) 做分桶，当实时接口返回的 timestamps 长度与 physical 不一致
+      // （偶发）时，hs 桶会塌缩成少数几个小时，导致图表只剩几个点、看起来"没有数据"。
+      const physRaw = (dd.physical && Array.isArray(dd.physical['0-24'])) ? dd.physical['0-24']
+                    : (Array.isArray(dd.physical) ? dd.physical : []);
+      const phys = physRaw.map(v=>{ const n=Number(v); return isFinite(n)?n:0; });
+      const prevPhys = (D.charts.trend && Array.isArray(D.charts.trend.physical)) ? D.charts.trend.physical : [];
+      const N = phys.length || prevPhys.length || 24; // X 轴长度 = 物理序列长度（或沿用上轮 / 默认24）
+      // 2g/3g/4g 同样取完整数组，不做时间戳裁剪；NaN/非数统一归一为 0，避免污染序列
+      const ser = {};
       ['physical','2g','3g','4g'].forEach(k=>{
-        const raw=dd[k];
-        const s=(raw&&raw['0-24'])||(Array.isArray(raw)?raw:[])||[];
-        ser[k]=s.slice(-last);
+        const raw=(dd[k] && Array.isArray(dd[k]['0-24'])) ? dd[k]['0-24'] : (Array.isArray(dd[k]) ? dd[k] : []);
+        ser[k]=(raw||[]).map(v=>{ const n=Number(v); return isFinite(n)?n:0; });
       });
-      const b={}; ts24.forEach((t,i)=>{ const h=Math.floor(t/3600000); (b[h]=b[h]||[]).push(i); });
-      const hs=Object.keys(b).map(Number).sort().slice(-24);
-      // 空序列保护：接口偶发返回空序列时不能把现有趋势/时长数据清成空白
-      if(!hs.length){ console.warn('[FMS Live] trend 返回空序列，保留现有趋势数据'); return mapped; }
-      const seriesOf=key=>hs.map(hh=>{ const idxs=b[hh]||[];
-        const v=idxs.reduce((s,i)=>s+((ser[key]||[])[i]||0),0)/Math.max(1,idxs.length);
-        return Math.round(v*10)/10; });
-      D.charts.trend={x:hs.map(h=>String(new Date(h*3600000).getHours()).padStart(2,'0')+':00'),
-        physical:seriesOf('physical'),g2:seriesOf('2g'),g3:seriesOf('3g'),g4:seriesOf('4g')};
+      // X 轴标签：仅当 timestamps 与 N 等长且能分出 >=2 个整点时，才用时间戳推出整点标签；否则用标准 24h 标签，杜绝塌缩
+      let xLabels=null;
+      if(Array.isArray(ts) && ts.length===N){
+        const bb={}; ts.forEach(t=>{ const h=Math.floor(t/3600000); (bb[h]=bb[h]||[]).push(0); });
+        if(Object.keys(bb).length>=2) xLabels=ts.map(t=>String(new Date(Math.floor(t/3600000)*3600000).getHours()).padStart(2,'0')+':00');
+      }
+      if(!xLabels) xLabels=Array.from({length:N},(_,i)=>String(i).padStart(2,'0')+':00');
+      const align=(arr,n)=>{ if(!Array.isArray(arr)||!arr.length) return new Array(n).fill(0);
+        if(arr.length===n) return arr;
+        return arr.length>n ? arr.slice(arr.length-n) : new Array(n-arr.length).fill(0).concat(arr); };
+      // 仅当实时序列非空且含有效变化（至少一个 >0 的点）时才采纳，否则沿用快照 —— 杜绝被空/全零/NaN 序列清成空白
+      const hasSignal = phys.length>0 && phys.some(v=>v>0);
+      const physicalSeries = (phys.length && hasSignal) ? align(phys,N)
+        : (prevPhys.length ? prevPhys : (phys.length?align(phys,N):new Array(N).fill(0)));
+      D.charts.trend={x:xLabels,
+        physical:physicalSeries,
+        g2:align(ser['2g'],N),g3:align(ser['3g'],N),g4:align(ser['4g'],N)};
       // 当前宕站数 KPI = physical.0-24 实时最新点（与门户 Physical Site Down 一致；会随刷新波动）
-      const rawPhy = dd.physical && dd.physical['0-24'];
-      if(Array.isArray(rawPhy) && rawPhy.length){ D.kpis.down = rawPhy[rawPhy.length-1]; setKpi(); }
+      if(phys.length && hasSignal){ D.kpis.down = phys[phys.length-1]; setKpi(); }
+      // 数据来源标记：实时成功采纳 → “实时”；否则 → “快照”（证明图表始终有数据，不会空白）
+      const _ts=document.getElementById('trendSrc'); if(_ts){ trendSrcState = (phys.length&&hasSignal)?'live':'snapshot'; refreshTrendSrc(); }
       // 注意：Logical Total 的 SITE 行由 applyLive('siteTable') 用 getRegionSiteDataTable+sitetype=ALL 写入（与门户一致），此处不再覆盖
       setTrend(); setRan(); renderTables(); mapped++;
     }
@@ -1205,7 +1420,7 @@ async function fetchOne(src){
     const j=await r.json();
     const n=applyLive(src.name,j);
     lastOkAt=new Date();
-    const msg='已连接 · '+lastOkAt.toLocaleTimeString()+(n?' · 已更新 '+n+' 处':' · 无变更');
+    const msg=T('已连接 · ','Connected · ')+lastOkAt.toLocaleTimeString()+(n?T(' · 已更新 ',' · Updated ')+n+T(' 处',' items'):T(' · 无变更',' · No change'));
     setStatus('on',msg);
     console.log('[FMS Live] ok', src.name, 'mapped', n);
     document.getElementById('drawerBody').textContent=JSON.stringify(j,null,2).slice(0,4000);
@@ -1216,9 +1431,9 @@ async function fetchOne(src){
     if(!alive){
       // 代理未运行：通过后端按需拉起（不再要求手动运行 start_proxy.bat）
       await ensureProxy();
-      setStatus('err','代理未运行 · 正在尝试启动（稍候自动刷新；可在「设置/系统」查看状态）');
+      setStatus('err', T('代理未运行 · 正在尝试启动（稍候自动刷新；可在「设置/系统」查看状态）','Proxy not running · attempting to start (auto-refresh shortly; check status in Settings/System)'));
     }
-    else { setStatus('', '源 '+src.name+' 暂不可用（保留上一轮/快照数据，其余源正常）'); }
+    else { setStatus('', T('源 ','Source ')+src.name+T(' 暂不可用（保留上一轮/快照数据，其余源正常）',' temporarily unavailable (kept previous/snapshot data; other sources normal)')); }
   }
 }
 let nextRefreshAt=0, lastTotal=null, fetchLog=[];
@@ -1235,7 +1450,7 @@ async function refreshAll(){
   // 与上一轮对比
   if(lastTotal!==null){
     const d=D.kpis.down-lastTotal;
-    setStatus('on','已连接 · 当前宕站 '+D.kpis.down+(d===0?'（与上轮相同）':'（较上轮 '+(d>0?'+':'')+d+'）'));
+    setStatus('on', T('已连接 · 当前宕站 ','Connected · current down sites ')+D.kpis.down+(d===0?T('（与上轮相同）','(same as last round)'):T('（较上轮 ','(vs last round ')+(d>0?'+':'')+d+T('）',')')));
   }
   lastTotal=D.kpis.down;
 }
@@ -1254,11 +1469,11 @@ function fillModal(){
     const d=defs.find(x=>x.url===s.url);
     const body=s.body||(d&&d.body?JSON.stringify(d.body):'');
     const row=document.createElement('div'); row.className='src-row'; row.style.flexWrap='wrap';
-    row.innerHTML='<input data-i="'+i+'" data-k="name" placeholder="名称" value="'+s.name+'" style="min-width:80px">'+
+    row.innerHTML='<input data-i="'+i+'" data-k="name" placeholder="'+L('cfgNamePh')+'" value="'+s.name+'" style="min-width:80px">'+
       '<input data-i="'+i+'" data-k="url" placeholder="https://10.100.20.8:28001/api/..." value="'+s.url+'" style="min-width:260px;flex:1">'+
       '<input data-i="'+i+'" data-k="method" placeholder="GET/POST" value="'+(s.method||'GET')+'" style="max-width:70px">'+
       '<button class="del" onclick="this.parentElement.remove()">✕</button>'+
-      '<input data-i="'+i+'" data-k="body" placeholder="POST body JSON（仅 POST）" value="'+body.replace(/"/g,'&quot;')+'" style="width:100%;margin-top:6px;display:'+((s.method||'GET')==='POST'?'block':'none')+'">';
+      '<input data-i="'+i+'" data-k="body" placeholder="'+L('cfgBodyPh')+'" value="'+body.replace(/"/g,'&quot;')+'" style="width:100%;margin-top:6px;display:'+((s.method||'GET')==='POST'?'block':'none')+'">';
     list.appendChild(row);
   });
   // method 切换时显示/隐藏 body 输入框
@@ -1285,17 +1500,17 @@ async function saveCfg(){
   }).filter(s=>s.url);
   persistCfg(); toggleMask(false);
   console.log('[FMS Live] 配置已保存:', JSON.parse(JSON.stringify(liveCfg)));
-  if(liveCfg.enabled&&!liveCfg.sources.length){ setStatus('err','未配置接口'); return; }
+  if(liveCfg.enabled&&!liveCfg.sources.length){ setStatus('err', T('未配置接口','No endpoints configured')); return; }
   if(liveCfg.enabled){
-    setStatus('','正在启动实时代理…');
+    setStatus('', T('正在启动实时代理…','Starting live proxy…'));
     await ensureProxy();          // 通过后端控制面按需拉起本地代理（8787/8790）
     await waitProxyReady();       // 等上游登录就绪后再开始轮询
   }
   startLive();
-  setStatus(liveCfg.enabled?'on':'','已保存 · '+(liveCfg.enabled?'实时刷新中':'快照数据'));
+  setStatus(liveCfg.enabled?'on':'', T('已保存 · ','Saved · ')+(liveCfg.enabled?T('实时刷新中','Live refreshing'):T('快照数据','Snapshot data')));
 }
 function resetCfg(){
-  if(!confirm('确定恢复默认接口配置？')) return;
+  if(!confirm(T('确定恢复默认接口配置？','Restore default endpoint configuration?'))) return;
   liveCfg=JSON.parse(JSON.stringify(defaultCfg));
   persistCfg();
   fillModal();
@@ -1304,24 +1519,25 @@ function resetCfg(){
 document.getElementById('livePill').addEventListener('click',()=>toggleMask(true));
 document.getElementById('btnRefreshNow').addEventListener('click',()=>{
   console.log('[FMS Live] 手动刷新');
-  if(!liveCfg.enabled) setStatus('','手动刷新中（快照模式）…');
+  if(!liveCfg.enabled) setStatus('', T('手动刷新中（快照模式）…','Manual refreshing (snapshot mode)…'));
   refreshAll();
+  loadAlarmOverview();
 });
 document.getElementById('addSrc').addEventListener('click',()=>{
   const list=document.getElementById('srcList'); const i=list.children.length;
   const row=document.createElement('div'); row.className='src-row'; row.style.flexWrap='wrap';
-  row.innerHTML='<input data-i="'+i+'" data-k="name" placeholder="名称" value="src'+(i+1)+'" style="min-width:80px">'+
+  row.innerHTML='<input data-i="'+i+'" data-k="name" placeholder="'+L('cfgNamePh')+'" value="src'+(i+1)+'" style="min-width:80px">'+
     '<input data-i="'+i+'" data-k="url" placeholder="https://10.100.20.8:28001/api/..." style="min-width:260px;flex:1">'+
     '<input data-i="'+i+'" data-k="method" placeholder="GET/POST" value="GET" style="max-width:70px">'+
     '<button class="del" onclick="this.parentElement.remove()">✕</button>'+
-    '<input data-i="'+i+'" data-k="body" placeholder="POST body JSON（仅 POST）" style="width:100%;margin-top:6px;display:none">';
+    '<input data-i="'+i+'" data-k="body" placeholder="'+L('cfgBodyPh')+'" style="width:100%;margin-top:6px;display:none">';
   list.appendChild(row);
   const mInp=row.querySelector('input[data-k="method"]');
   const bInp=row.querySelector('input[data-k="body"]');
   mInp.addEventListener('input',()=>{ bInp.style.display=(mInp.value.trim().toUpperCase()==='POST')?'block':'none'; });
 });
 function toggleDrawer(open){ document.getElementById('drawer').classList.toggle('open',open); }
-function copyPayload(){ navigator.clipboard.writeText(document.getElementById('drawerBody').textContent); setStatus('','已复制'); }
+function copyPayload(){ navigator.clipboard.writeText(document.getElementById('drawerBody').textContent); setStatus('', T('已复制','Copied')); }
 
 /* =================================================================
    时钟 / UI / resize
@@ -1336,6 +1552,22 @@ document.getElementById('userChip').addEventListener('click',e=>{e.stopPropagati
 document.addEventListener('click',()=>document.getElementById('userDD').classList.remove('open'));
 function toggleFull(){ document.querySelector('.ptl-content').requestFullscreen?.(); }
 window.addEventListener('resize',()=>{ [chTrend,chDuration,chHour,chRan,chMainsFail,chSiteClass,mapChart].concat(top5Charts.map(c=>c.chart)).forEach(c=>c&&c.resize()); trendCharts.forEach(t=>{ t.bar&&t.bar.resize(); t.line&&t.line.resize(); }); assignCharts.forEach(a=>a.chart&&a.chart.resize()); });
+/* iframe 0×0 兜底：当图表容器在 iframe 内迟于 chart.init 完成布局时（极少见，但会导致单一图表"没数据"），由 ResizeObserver 触发 resize + setOption 自愈。 */
+try{
+  const _roMap={chTrend:setTrend,chDuration:setDuration,chHour:setHour,chRan:setRan,chMainsFail:setMainsFail,chSiteClass:setSiteClass};
+  const _ro=new ResizeObserver(entries=>{
+    for(const en of entries){
+      const id=en.target.id, inst=document.getElementById(id);
+      if(!inst) continue;
+      const chart={chTrend:chTrend,chDuration:chDuration,chHour:chHour,chRan:chRan,chMainsFail:chMainsFail,chSiteClass:chSiteClass}[id];
+      if(chart&&typeof chart.resize==='function'){ try{ chart.resize(); }catch(e){} }
+      const render=_roMap[id];
+      if(render){ try{ render(); }catch(e){} }
+    }
+  });
+  ['chTrend','chDuration','chHour','chRan','chMainsFail','chSiteClass'].forEach(id=>{ const el=document.getElementById(id); if(el) _ro.observe(el); });
+}catch(e){}
+window.addEventListener('load',()=>{ try{ setTrend(); setDuration(); setHour(); setRan(); setMainsFail(); setSiteClass(); }catch(e){} });
 
 /* 自动接管：后端已自动拉起代理，页面打开即尝试接入实时数据。
    若代理尚未就绪（登录慢），先 ensureProxy 拉起，再轮询等待健康后启用。 */
@@ -1352,10 +1584,10 @@ let proxyOnline=false;
     persistCfg();
     console.log('[FMS Live] 代理可达，自动启用实时刷新（间隔', liveCfg.interval, '秒）');
     startLive();
-    setStatus('on','实时刷新中 · 间隔 '+liveCfg.interval+'s');
+    setStatus('on', T('实时刷新中 · 间隔 ','Live refreshing · interval ')+liveCfg.interval+'s');
   } else {
     console.log('[FMS Live] 代理未运行，进入快照模式（看门狗将在后台持续检测）');
-    setStatus('','快照 · 代理未运行（将在后台自动重试）');
+    setStatus('', T('快照 · 代理未运行（将在后台自动重试）','Snapshot · proxy not running (will retry in background)'));
   }
 })();
 /* 看门狗：代理中途恢复时自动接入实时，不必手动刷新页面 */
@@ -1367,11 +1599,11 @@ setInterval(async function(){
     liveCfg.enabled=true;
     persistCfg();
     startLive();
-    setStatus('on','已自动接入实时 · 间隔 '+liveCfg.interval+'s');
+    setStatus('on', T('已自动接入实时 · 间隔 ','Auto-connected to live · interval ')+liveCfg.interval+'s');
   } else if(!alive && proxyOnline){
     proxyOnline=false;
     stopLive();
-    setStatus('err','代理已断开 · 数据停留在最后抓取值（重启 start_proxy.bat 自动恢复）');
+    setStatus('err', T('代理已断开 · 数据停留在最后抓取值（重启 start_proxy.bat 自动恢复）','Proxy disconnected · data frozen at last fetched value (restart start_proxy.bat to recover)'));
   }
 },8000);
 
@@ -1380,14 +1612,15 @@ setInterval(function(){
   const el=document.getElementById('liveCount'); if(!el) return;
   if(liveCfg.enabled && nextRefreshAt>0){
     const s=Math.max(0,Math.ceil((nextRefreshAt-Date.now())/1000));
-    el.textContent='· '+s+'s 后刷新';
+    el.textContent='· '+s+'s'+T(' 后刷新',' until refresh');
   } else el.textContent='';
 },1000);
 
 /* 全局错误兜底：任何脚本错误都会显示到状态胶囊，避免“没反应” */
 window.addEventListener('error', function(ev){
-  try{ setStatus('err','脚本错误: '+String(ev.message||ev.error||'').slice(0,60)); }catch(e){}
+  try{ setStatus('err', T('脚本错误: ','Script error: ')+String(ev.message||ev.error||'').slice(0,60)); }catch(e){}
 });
+applyLocale(false);
 </script>
 </body>
 </html>

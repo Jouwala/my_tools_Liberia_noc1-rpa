@@ -133,7 +133,7 @@ def _run_script(
     images: Optional[list] = None,
     retries: int = 3,
     per_attempt_timeout: int = 120,
-    budget: int = 300,
+    budget: int = 180,
 ) -> dict:
     """调用通用邮件脚本，返回 {success, message/detail/error}。
 
@@ -200,12 +200,13 @@ def _run_script(
                 time.sleep(backoff)
                 continue
             except subprocess.TimeoutExpired as e:
-                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _attempt_all: exception swallowed", exc_info=True)
-                last_err = f"timeout: {e}"
-                if attempt == retries:
-                    return {"success": False, "error": last_err}
-                backoff = min(60, 5 * (2 ** (attempt - 1))) + random.uniform(0, 3)
-                time.sleep(backoff)
+                # 超时后立即返回，不重试：服务端可能已接收邮件只是响应慢，
+                # 重试会导致同一封邮件发送两次。
+                logging.getLogger(__name__).warning(
+                    "[kpi_email] 邮件脚本超时（%ss），不重试（避免重复发送）",
+                    per_attempt_timeout,
+                )
+                return {"success": False, "error": f"timeout: {e}"}
         return {"success": False, "error": last_err or "unknown error"}
 
     t = threading.Thread(target=lambda: holder.setdefault("r", _attempt_all()), daemon=True)
@@ -417,7 +418,7 @@ def run_ran_availability(to: str = None, cc: str = None) -> dict:
 # =====================================================================
 _PL_EMAIL = "/01_RPA/LBR_Tools/KPI/packet_lost/pl_email"
 _PL_DATA_DIR = MY_APP_DIR / "data" / "packet_lost"
-_PL_SCREENSHOT_NAME = "_dashboard_screenshot.png"
+_PL_SCREENSHOT_PREFIX = "_dashboard_screenshot"
 _PL_DASHBOARD_URL = "http://192.168.100.20/myapp/?page=packet_loss"
 
 
@@ -431,8 +432,24 @@ def _capture_packet_loss_screenshot() -> Path:
     """
     from playwright.sync_api import sync_playwright
 
-    out = _PL_DATA_DIR / _PL_SCREENSHOT_NAME
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # 用唯一时间戳文件名：固定名 _dashboard_screenshot.png 曾被外部进程(Defender/索引/
+    # WPS 云同步/IDE 预览)持续锁住，导致 page.screenshot 写盘 Errno 13 Permission denied，
+    # 邮件因此无图。唯一名从根本上避开该锁。
+    out = _PL_DATA_DIR / f"{_PL_SCREENSHOT_PREFIX}_{ts}.png"
     out.parent.mkdir(parents=True, exist_ok=True)
+    # 清理历史截图，避免无限堆积；被外部进程锁住的旧固定文件(_dashboard_screenshot.png)
+    # 可能删不掉，忽略即可，不影响新文件写入。
+    try:
+        for _old in _PL_DATA_DIR.glob(f"{_PL_SCREENSHOT_PREFIX}*.png"):
+            if _old != out and _old.name != "_dashboard_screenshot.png":
+                try:
+                    _old.unlink()
+                except Exception:
+                    pass
+    except Exception:
+        pass
     url = _PL_DASHBOARD_URL
 
     with sync_playwright() as p:

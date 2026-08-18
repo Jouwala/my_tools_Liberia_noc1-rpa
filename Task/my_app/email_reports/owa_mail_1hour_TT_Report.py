@@ -115,8 +115,10 @@ OWA_AUTH_TYPE = os.getenv("OWA_AUTH_TYPE", "NTLM").upper()
 OWA_VERIFY_SSL = os.getenv("OWA_VERIFY_SSL", "false").lower() in ("1", "true", "yes", "on")
 OWA_MAX_CONNECTIONS = max(1, int(os.getenv("OWA_MAX_CONNECTIONS", "2")))
 OWA_RETRY_MAX_WAIT = max(1, int(os.getenv("OWA_RETRY_MAX_WAIT", "60")))
-# EWS SOAP 单次请求超时（秒）。默认 120s 太长，压到 60s 让"发不出去"快速失败。
-OWA_SOAP_TIMEOUT = max(10, int(os.getenv("OWA_SOAP_TIMEOUT", "60")))
+# EWS SOAP 单次请求超时（秒）。Orange EWS 服务端响应偏慢但功能正常，
+# 实测 SendItem 响应常 >120s，压太低会让"其实能发出去"的慢请求被提前切断。
+# 设为 300s 给慢服务器充足余量。仍可用环境变量 OWA_SOAP_TIMEOUT 覆盖。
+OWA_SOAP_TIMEOUT = max(10, int(os.getenv("OWA_SOAP_TIMEOUT", "300")))
 
 _AUTH_MAP = {"NTLM": NTLM, "BASIC": BASIC}
 if OWA_AUTH_TYPE not in _AUTH_MAP:
@@ -528,20 +530,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "<br><p>Best regards,<br>ZTENOC OLR</p>"
             )
 
-    print(f"[LOGIN] 正在登录 {OWA_SERVER} (user={OWA_USERNAME}, smtp={OWA_SMTP}, auth={OWA_AUTH_TYPE}) ...")
-    try:
-        account = get_account()
-    except Exception as e:
-        print(f"[LOGIN][FAIL] {type(e).__name__}: {e}")
-        return 2
-    try:
-        inbox_count = account.inbox.total_count
-        print(f"[LOGIN][OK] 登录成功，收件箱邮件数: {inbox_count}")
-    except Exception as e:
-        # 收件箱计数只是诊断信息，GetFolder 偶发超时不应阻断发送
-        print(f"[LOGIN][OK] 登录成功（收件箱计数跳过: {type(e).__name__}: {e}）")
+    # ---- 通过 PowerShell .NET HttpWebRequest + NTLM 发送 ----
+    # 替代 exchangelib send_mail()，解决 Python requests_ntlm 在 Orange Exchange
+    # 服务器上 NTLM 握手挂起/被拒的问题。.NET 使用 Windows SSPI（与浏览器同套）。
+    from dotnet_ews_send import send_mail_dotnet
 
-    print("[SEND] 准备发送邮件...")
+    print(f"[SEND] 通过 .NET HttpWebRequest + NTLM 发送到 {OWA_SERVER}...")
     print(f"       To : {to}")
     if cc:
         print(f"       Cc : {cc}")
@@ -552,8 +546,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"       Img: {[p.name for p in inline_images]} (inline)")
 
     try:
-        send_mail(
-            account=account,
+        result = send_mail_dotnet(
             to=to,
             subject=subject,
             body=body,
@@ -565,6 +558,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
     except Exception as e:
         print(f"[SEND][FAIL] {type(e).__name__}: {e}")
+        return 3
+
+    if not result.get("success"):
+        print(f"[SEND][FAIL] {result.get('error', 'Unknown error')}")
         return 3
 
     suffix = "并保存到已发送文件夹" if not args.no_save_sent else "（未保存）"

@@ -323,6 +323,25 @@ IPRAN_KPI_QUERY_CONFIGS = {
     },
 }
 
+# ========== 外部化配置：iPRAN 查询模板（Settings 页面可编辑的 ipran_kpi_config.json） ==========
+# 优先级：环境变量 > 配置文件 > 内置默认。items/positions 逗号串 → 列表。
+try:
+    from backend.services.task_config_files import load_json_config, normalize_query_configs
+    _IPRAN_CONF_QC = load_json_config(Path(__file__).resolve().parent / "ipran_kpi_config.json")
+except Exception:
+    _IPRAN_CONF_QC = None
+if _IPRAN_CONF_QC:
+    if not os.environ.get("IPRAN_KPI_MONTHS_BACK"):
+        MONTHS_BACK = max(0, int(_IPRAN_CONF_QC.get("months_back", MONTHS_BACK)))
+    if not os.environ.get("IPRAN_KPI_TIME_RANGE"):
+        TIME_RANGE = str(_IPRAN_CONF_QC.get("time_range", TIME_RANGE)).strip().lower()
+    if isinstance(_IPRAN_CONF_QC.get("query_configs"), list):
+        _rebuilt_ipran = normalize_query_configs(_IPRAN_CONF_QC["query_configs"])
+        if _rebuilt_ipran:
+            IPRAN_KPI_QUERY_CONFIGS = _rebuilt_ipran
+    print(f"[IPRAN] 已加载 ipran_kpi_config.json: 查询={list(IPRAN_KPI_QUERY_CONFIGS.keys())}, "
+          f"time_range={TIME_RANGE}")
+
 IPRAN_KPI_TASKS = [
     {"key": 'HQ_M6K_FW'},
     {"key": 'IPCORE_HQ_ODC'},

@@ -140,6 +140,20 @@ PASSWORD = os.environ.get("EFLOW_PASS", "Brysj*8*")
 HOST = os.environ.get("EFLOW_HOST", "10.100.20.8")
 PORT = os.environ.get("EFLOW_PORT", "28001")
 
+# ========== 外部化配置（Settings 页面可编辑的 site_outage_config.json） ==========
+# 优先级：环境变量 > 配置文件 > 内置默认。主机/端口/看板路径可页面调整。
+try:
+    from pathlib import Path
+    from backend.services.task_config_files import load_json_config
+    _SO_CONF = load_json_config(Path(__file__).resolve().parent / "site_outage_config.json")
+except Exception:
+    _SO_CONF = None
+if _SO_CONF:
+    if not os.environ.get("EFLOW_HOST"):
+        HOST = _SO_CONF.get("host", HOST)
+    if not os.environ.get("EFLOW_PORT"):
+        PORT = str(_SO_CONF.get("port", PORT))
+
 
 def _runtime_credentials():
     """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""

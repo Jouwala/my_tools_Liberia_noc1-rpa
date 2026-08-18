@@ -104,6 +104,10 @@ if _EFLOW_CONF is not None:
         EFLOW_FULL_DAYS = max(0, int(_EFLOW_CONF.get("full_days", 0)))
     TT_API_PATH = _EFLOW_CONF.get("tt_api_path", TT_API_PATH)
     WO_API_PATH = _EFLOW_CONF.get("wo_api_path", WO_API_PATH)
+    CR_API_PATH = _EFLOW_CONF.get("cr_api_path", CR_API_PATH)
+    PM_API_PATH = _EFLOW_CONF.get("pm_api_path", PM_API_PATH)
+    SITE_API_PATH = _EFLOW_CONF.get("site_api_path", SITE_API_PATH)
+    PERSON_API_PATH = _EFLOW_CONF.get("person_api_path", PERSON_API_PATH)
     logger.info(f"[eFlow] 已加载 eflow_config.json: host={HOST}, delta={EFLOW_DELTA_DAYS}天")
 ALARM_API_PATH = "/api/fm-active/v1/activealarms/table"
 HIS_ALARM_API_PATH = "/api/fm-history/v1/hisalarms/pageinfo"

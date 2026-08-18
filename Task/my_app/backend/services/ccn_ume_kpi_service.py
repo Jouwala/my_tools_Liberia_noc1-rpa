@@ -287,6 +287,22 @@ CNN_KPI_QUERY_CONFIGS = {
     },
 }
 
+# ========== 外部化配置：CNN 查询模板（Settings 页面可编辑的 cnn_kpi_config.json） ==========
+# 优先级：环境变量 > 配置文件 > 内置默认。items/positions 逗号串 → 列表。
+try:
+    from backend.services.task_config_files import load_json_config, normalize_query_configs
+    _CNN_CONF_QC = load_json_config(Path(__file__).resolve().parent / "cnn_kpi_config.json")
+except Exception:
+    _CNN_CONF_QC = None
+if _CNN_CONF_QC:
+    if not os.environ.get("CNN_KPI_DAYS_BACK"):
+        CNN_KPI_DAYS_BACK = max(1, int(_CNN_CONF_QC.get("days_back", CNN_KPI_DAYS_BACK)))
+    if isinstance(_CNN_CONF_QC.get("query_configs"), list):
+        _rebuilt_cnn = normalize_query_configs(_CNN_CONF_QC["query_configs"])
+        if _rebuilt_cnn:
+            CNN_KPI_QUERY_CONFIGS = _rebuilt_cnn
+    print(f"[CNN] 已加载 cnn_kpi_config.json: 模板={list(CNN_KPI_QUERY_CONFIGS.keys())}")
+
 # 任务列表
 CNN_KPI_TASKS = [
     {"key": "xGW_LICENSE"},

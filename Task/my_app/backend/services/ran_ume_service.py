@@ -494,6 +494,47 @@ PM_QUERY_CONFIGS = {
     },
 }
 
+# ========== 外部化配置：PM 查询模板（Settings 页面可编辑的 ran_ume_config.json） ==========
+# 优先级：环境变量 > 配置文件 > 内置默认。items/uilocations 逗号串 → 列表/对象。
+if _RAN_UME_CONF and isinstance(_RAN_UME_CONF.get("query_configs"), list):
+    _rebuilt_pm = {}
+    for _row in _RAN_UME_CONF["query_configs"]:
+        _tech = str(_row.get("tech", "")).strip()
+        if not _tech:
+            continue
+        _items = [x.strip() for x in str(_row.get("items", "")).split(",") if x.strip()]
+        _uploc = [{"haslogicmoc": False, "id": u.strip(), "moc": "group.ran.topo", "model": "rangroup"}
+                  for u in str(_row.get("uilocations", "")).split(",") if u.strip()]
+        _base = PM_QUERY_CONFIGS.get(_tech, {})  # 内置默认兜底（含 itempositionbusiness）
+
+        def _pm_ints(v):
+            if isinstance(v, (list, tuple)):
+                return [int(x) for x in v]
+            return [int(x) for x in str(v or "").split(",") if x.strip()]
+
+        _q = {
+            "templateid": str(_row.get("templateid") or _base.get("templateid", "")),
+            "base_name": str(_row.get("templatename", _row.get("base_name", "")) or _base.get("base_name", "")),
+            "motid": str(_row.get("motid") or _base.get("motid", "")),
+            "nfctid": str(_row.get("nfctid") or _base.get("nfctid", "")),
+            "containvcell": int(_row.get("containvcell", _base.get("containvcell", 0)) or 0),
+            "indexfillingtype": str(_row.get("indexfillingtype") or _base.get("indexfillingtype", "default")),
+            "items": _items,
+            "uilocations": _uploc,
+        }
+        # FDD/TDD 4G/5G 混合选择必须携带 itempositionbusiness（及位置数组），否则 UME 返回 0001610001
+        for _pf in ("itemsposition", "itemsposition1", "itempositionbusiness"):
+            _pv = _pm_ints(_row.get(_pf)) or _base.get(_pf)
+            if _pv:
+                _q[_pf] = _pv
+        if _row.get("businessmotid") or _base.get("businessmotid"):
+            _q["businessmotid"] = str(_row.get("businessmotid") or _base["businessmotid"])
+        _rebuilt_pm[_tech] = _q
+    if _rebuilt_pm:
+        PM_QUERY_CONFIGS = _rebuilt_pm
+        logging.getLogger("ran_ume_service").info(
+            f"[RAN] ran_ume_config.json 已加载 PM 模板: {list(PM_QUERY_CONFIGS.keys())}")
+
 
 def _pm_auth_headers(cookie, forgery_token):
     headers = (
@@ -684,6 +725,44 @@ def run_ran_ume_pm_sync() -> dict:
                     err = f"[{cfg['network_type']}/{cfg['suffix']}] failed: {e}"
                     logger.error(err)
                     result["errors"].append(err)
+
+        # 整体 401（缓存 cookie 过期）→ 清缓存重登再跑一次
+        if result["errors"] and all("401" in e for e in result["errors"]):
+            logger.warning("[RAN_UME] 全部 PM 查询 401（会话过期），清除缓存并重新登录后重试一次...")
+            try:
+                from backend.services.auth_manager import invalidate_cache, get_auth
+            except ImportError:
+                try:
+                    from auth_manager import invalidate_cache, get_auth
+                except ImportError:
+                    invalidate_cache = get_auth = None
+            if invalidate_cache:
+                invalidate_cache(HOST, PORT)
+            if get_auth:
+                try:
+                    r2 = get_auth(HOST, PORT, *_runtime_credentials(), force_refresh=True)
+                    cookie2, forgery2 = r2["cookie"], r2["forgery_token"]
+                    logger.info("[RAN_UME] 401 后重新登录成功（来源: %s）",
+                                "缓存" if r2["from_cache"] else "重新登录")
+                    result["errors"] = []
+                    exported_data = {}
+                    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
+                        futures2 = {
+                            executor.submit(_run_with_cleanup, _run_single_pm_query,
+                                            cookie2, forgery2, cfg): cfg
+                            for cfg in pm_configs
+                        }
+                        for future in as_completed(futures2):
+                            cfg = futures2[future]
+                            try:
+                                file_key, xlsx_bytes = future.result()
+                                exported_data[file_key] = xlsx_bytes
+                            except Exception as e:
+                                err = f"[{cfg['network_type']}/{cfg['suffix']}] failed: {e}"
+                                logger.error(err)
+                                result["errors"].append(err)
+                except Exception as e:
+                    logger.error(f"[RAN_UME] 401 后重新登录失败: {e}")
 
         # Process xlsx → API 写入远程 DB Orange (ran_kpi_daily_202606.sqlite3)
         total_imported = 0
@@ -895,7 +974,27 @@ def _generate_chart(df, sheet_name, output_dir):
     plt.tight_layout()
 
     output_path = os.path.join(output_dir, f'{sheet_name}.png')
-    fig.savefig(output_path, dpi=150, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
+    # 与 xlsx 相同的锁容忍：先写临时文件再替换，扛 WPS云同步/Defender/索引瞬时锁
+    # 注意 savefig 按扩展名推断格式，临时文件必须仍以 .png 结尾
+    _tmp = output_path + f".{os.getpid()}.tmp.png"
+    _last_err = None
+    for _attempt in range(46):
+        try:
+            fig.savefig(_tmp, dpi=150, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
+            os.replace(_tmp, output_path)
+            _last_err = None
+            break
+        except (PermissionError, OSError) as _e:
+            _last_err = _e
+            time.sleep(2.0)
+    if _last_err is not None:
+        try:
+            fig.savefig(output_path, dpi=150, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
+        except Exception as _e2:
+            logging.getLogger(__name__).warning(
+                "[SILENT-EXCEPT] _generate_chart savefig: exception swallowed", exc_info=True)
+            plt.close(fig)
+            return None
     plt.close(fig)
     return output_path
 

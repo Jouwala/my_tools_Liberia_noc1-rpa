@@ -8,6 +8,7 @@ import {
   ChevronUp,
   XCircle,
   WifiOff,
+  Mail,
 } from 'lucide-react';
 import { getMyappTasksApi, getMyappHomeUrl } from '../config';
 import { useI18n } from '../i18n';
@@ -206,6 +207,16 @@ export const TaskSyncWidget: React.FC = () => {
               {stats.failed} {t('task.failed')}
             </span>
           </div>
+
+          <a
+            href={`${getMyappHomeUrl()}?page=email_reports`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium text-xs flex items-center gap-1 transition-all shadow-sm shadow-indigo-600/30"
+          >
+            <Mail className="w-3.5 h-3.5" />
+            <span>{t('task.latestReports')}</span>
+          </a>
 
           <button
             onClick={() => setIsExpanded(!isExpanded)}

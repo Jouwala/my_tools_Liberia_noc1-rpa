@@ -241,6 +241,78 @@ MAIN_KPI_TASKS = [
     {"tech": "FDD", "grouplayer": "all", "gr": "86400", "groupbygroup": False, "layer": "NW", "table": "4G_Main_Kpi_group_Daily", "add_group_column": True, "showbusinesscolumn": False},
 ]
 
+# ========== 外部化配置：KPI 模板与查询任务（Settings 页面可编辑的 main_kpi_config.json） ==========
+# 优先级：环境变量 > 配置文件 > 内置默认。items/uilocations 逗号分隔 → 列表/对象。
+def _mk_split_strs(s) -> list:
+    return [x.strip() for x in str(s or "").split(",") if x.strip()]
+
+
+def _mk_split_ints(s) -> list:
+    return [int(x) for x in str(s or "").split(",") if x.strip()]
+
+
+if _MAIN_CONF:
+    _qc = _MAIN_CONF.get("query_configs")
+    if isinstance(_qc, list) and _qc:
+        rebuilt = {}
+        for row in _qc:
+            tech = str(row.get("tech", "")).strip()
+            if not tech:
+                continue
+            items = _mk_split_strs(row.get("items"))
+            base = MAIN_KPI_QUERY_CONFIGS.get(tech, {})  # 内置默认兜底（含 itempositionbusiness）
+            q = {
+                "templateid": str(row.get("templateid") or base.get("templateid", "")),
+                "templatename": str(row.get("templatename") or base.get("templatename", "")),
+                "motid": str(row.get("motid") or base.get("motid", "")),
+                "nfctid": str(row.get("nfctid") or base.get("nfctid", "")),
+                "containvcell": int(row.get("containvcell", base.get("containvcell", 0)) or 0),
+                "indexfillingtype": str(row.get("indexfillingtype") or base.get("indexfillingtype", "default")),
+                "showbusinesscolumn": bool(row.get("showbusinesscolumn", base.get("showbusinesscolumn", False))),
+                "items": items,
+                "itemsposition": _mk_split_ints(row.get("itemsposition")) or base.get("itemsposition") or [0] * len(items),
+                "itemsposition1": _mk_split_ints(row.get("itemsposition1")) or base.get("itemsposition1") or [0] * len(items),
+                "uilocations": [
+                    {"haslogicmoc": False, "id": u, "moc": "group.ran.topo", "model": "rangroup"}
+                    for u in _mk_split_strs(row.get("uilocations"))
+                ],
+            }
+            # FDD/TDD 4G/5G 混合选择必须携带 itempositionbusiness，否则 UME 返回 0001610001
+            if row.get("businessmotid") or base.get("businessmotid"):
+                q["businessmotid"] = str(row.get("businessmotid") or base["businessmotid"])
+            if row.get("itempositionbusiness") or base.get("itempositionbusiness"):
+                q["itempositionbusiness"] = (_mk_split_ints(row.get("itempositionbusiness"))
+                                             or base.get("itempositionbusiness"))
+            rebuilt[tech] = q
+        if rebuilt:
+            MAIN_KPI_QUERY_CONFIGS = rebuilt
+    _tasks = _MAIN_CONF.get("tasks")
+    if isinstance(_tasks, list) and _tasks:
+        cleaned = []
+        for t in _tasks:
+            if isinstance(t, dict) and t.get("tech") and t.get("layer"):
+                sbc = t.get("showbusinesscolumn")
+                if isinstance(sbc, bool):
+                    sbc_val = sbc
+                elif sbc in (None, ""):
+                    sbc_val = None
+                else:
+                    sbc_val = str(sbc).strip().lower() == "true"
+                cleaned.append({
+                    "tech": str(t["tech"]),
+                    "grouplayer": str(t.get("grouplayer", "")),
+                    "gr": str(t.get("gr", "86400")),
+                    "groupbygroup": bool(t.get("groupbygroup", False)),
+                    "layer": str(t["layer"]),
+                    "table": str(t.get("table", "")),
+                    "add_group_column": bool(t.get("add_group_column", False)),
+                    "showbusinesscolumn": sbc_val,
+                })
+        if cleaned:
+            MAIN_KPI_TASKS = cleaned
+    print(f"[MAIN_KPI] 已加载 main_kpi_config.json: 模板={list(MAIN_KPI_QUERY_CONFIGS.keys())}, "
+          f"任务={len(MAIN_KPI_TASKS)}")
+
 # ============================================================
 # HTTP / SSL 工具函数（连接复用 + bytearray + 截断检测）
 # ============================================================

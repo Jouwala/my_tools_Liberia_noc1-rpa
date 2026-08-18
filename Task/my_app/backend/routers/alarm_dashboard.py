@@ -3,6 +3,9 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
+from collections import defaultdict
+import openpyxl
 import pandas as pd
 from fastapi import APIRouter, Query
 from backend.database import get_raw_connection, DB_PATH
@@ -632,4 +635,209 @@ def alarm_realtime_drilldown(
         "count": len(records),
         "total": total_matched,
         "data": records,
+    }
+
+
+# =====================================================================
+# 告警总览 Alarm Overview（realtime_alarm 计数 / history_alarm 恢复&MTTR /
+# xlsx 网络可用率 三合一）
+# =====================================================================
+
+# ZTE UME 5 级严重度模型：1=Critical, 2=Major, 3=Minor, 4=Warning, 5=Event
+ALARM_CATEGORIES = ["Critical", "Major", "Minor", "Warning", "Event"]
+SEV_INT_MAP = {1: "Critical", 2: "Major", 3: "Minor", 4: "Warning", 5: "Event"}
+SEV_NAME_MAP = {
+    "Critical": "Critical", "Major": "Major", "Minor": "Minor",
+    "Warning": "Warning", "Event": "Event",
+}
+# 网络可用率阈值（百分比）：< 99.65 标红，>= 标深绿
+NETWORK_THRESHOLD_PCT = 99.65
+_MTTR_24H_MIN = 24 * 60
+
+_RAN_UME_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "ran_ume"
+_NETWORK_KPI_XLSX = _RAN_UME_DIR / "Daily_Aailability_KPI.xlsx"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _alarm_category_counts(conn):
+    """realtime_alarm 按 ZTE UME 5 级严重度统计各分类数字 + ALL。
+
+    映射优先级：perceivedseverityname 直接命中 > perceivedseverity 整数映射。
+    未命中已知 5 类的行归并为 Event（UMЕ 5 级之外/事件型告警兜底）。
+    """
+    if not _table_exists(conn, "realtime_alarm"):
+        return {"ALL": 0, **{c: 0 for c in ALARM_CATEGORIES}}
+    cur = conn.execute(
+        'SELECT "perceivedseverity", "perceivedseverityname", COUNT(*) AS c '
+        'FROM realtime_alarm GROUP BY "perceivedseverity", "perceivedseverityname"'
+    )
+    rows = _rows_as_dicts(cur)
+    bucket = {c: 0 for c in ALARM_CATEGORIES}
+    total = 0
+    for r in rows:
+        sev = r.get("perceivedseverity")
+        name = _safe_str(r.get("perceivedseverityname"), "").strip()
+        c = int(r.get("c") or 0)
+        total += c
+        cat = None
+        if name in SEV_NAME_MAP:
+            cat = SEV_NAME_MAP[name]
+        elif sev is not None:
+            try:
+                cat = SEV_INT_MAP.get(int(sev))
+            except (ValueError, TypeError):
+                cat = None
+        if cat is None:
+            cat = "Event"
+        if cat in bucket:
+            bucket[cat] += c
+    return {"ALL": total, **bucket}
+
+
+def _recovery_mttr(conn):
+    """history_alarm 按 site_class 统计恢复与 MTTR。
+
+    仅计入 assign_rulename 不为 Null/空/'Null' 的记录。
+    - recovered_24h：MTTR = (cleared - raised)/60000 < 24*60 分钟
+    - avg_mttr_min：同口径平均分钟数（仅统计有有效 cleared/raised 的行）
+    """
+    if not _table_exists(conn, "history_alarm"):
+        return []
+    sql = f"""
+    SELECT "site_class",
+      COUNT(*) AS total,
+      SUM(CASE WHEN "alarmclearedtime" IS NOT NULL AND "alarmclearedtime" ~ '^[0-9]+$'
+                    AND "alarmraisedtime" IS NOT NULL AND "alarmraisedtime" ~ '^[0-9]+$'
+                    AND ("alarmclearedtime"::bigint - "alarmraisedtime"::bigint) >= 0
+                    AND ("alarmclearedtime"::bigint - "alarmraisedtime"::bigint)/60000.0 < {_MTTR_24H_MIN}
+               THEN 1 ELSE 0 END) AS recovered_24h,
+      AVG(CASE WHEN "alarmclearedtime" ~ '^[0-9]+$' AND "alarmraisedtime" ~ '^[0-9]+$'
+                    AND ("alarmclearedtime"::bigint - "alarmraisedtime"::bigint) >= 0
+               THEN ("alarmclearedtime"::bigint - "alarmraisedtime"::bigint)/60000.0 ELSE NULL END) AS avg_mttr_min
+    FROM history_alarm
+    WHERE "assign_rulename" IS NOT NULL AND TRIM("assign_rulename") != ''
+      AND "assign_rulename" != 'Null'
+    GROUP BY "site_class"
+    ORDER BY "site_class"
+    """
+    cur = conn.execute(sql)
+    out = []
+    for r in _rows_as_dicts(cur):
+        total = int(r.get("total") or 0)
+        recovered = int(r.get("recovered_24h") or 0)
+        avg = r.get("avg_mttr_min")
+        out.append({
+            "site_class": _safe_str(r.get("site_class"), "--"),
+            "total": total,
+            "recovered_24h": recovered,
+            "avg_mttr_min": round(float(avg), 1) if avg is not None else None,
+            "recovery_rate": round(recovered / total * 100, 1) if total else None,
+        })
+    return out
+
+
+def _network_availability():
+    """读取 Daily_Aailability_KPI.xlsx 的 Availability-NW 页，按 Cell Group 统计
+    最新一天 Cell Availability 与本月（最新数据所在月）平均值。
+
+    返回 {"rows":[{cell_group,latest_date,latest,month_avg}], "threshold_pct","latest_month"}
+    带 60s TTL 缓存（避免每次刷新重读 xlsx）。
+    """
+    cached = _cache_get("network_availability")
+    if cached is not None:
+        return cached
+
+    result = {"rows": [], "threshold_pct": NETWORK_THRESHOLD_PCT, "latest_month": None}
+    try:
+        if not _NETWORK_KPI_XLSX.is_file():
+            logging.getLogger(__name__).warning(
+                "[alarm-overview] network KPI xlsx 不存在: %s", _NETWORK_KPI_XLSX)
+            return _cache_set("network_availability", result)
+        wb = openpyxl.load_workbook(_NETWORK_KPI_XLSX, read_only=True, data_only=True)
+        if "Availability-NW" not in wb.sheetnames:
+            wb.close()
+            logging.getLogger(__name__).warning(
+                "[alarm-overview] 缺少 Availability-NW 页")
+            return _cache_set("network_availability", result)
+        ws = wb["Availability-NW"]
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+        if len(rows) < 2:
+            return _cache_set("network_availability", result)
+
+        header = [str(h).strip() if h is not None else "" for h in rows[0]]
+        try:
+            i_date = header.index("Begin Time")
+            i_group = header.index("Cell Group")
+            i_avail = header.index("Cell Availability")
+        except ValueError:
+            return _cache_set("network_availability", result)
+
+        data = []
+        for r in rows[1:]:
+            if r[0] is None:
+                continue
+            bt = str(r[i_date]).strip()
+            cg = str(r[i_group]).strip()
+            try:
+                av = float(r[i_avail])
+            except (TypeError, ValueError):
+                continue
+            data.append((bt, cg, av))
+        if not data:
+            return _cache_set("network_availability", result)
+
+        # 本月 = 全部数据中最晚一天所在的年-月
+        max_date = max(d[0] for d in data)
+        ym = max_date[:7]
+
+        by_group = defaultdict(list)
+        for bt, cg, av in data:
+            by_group[cg].append((bt, av))
+
+        out_rows = []
+        for cg, items in by_group.items():
+            items_sorted = sorted(items, key=lambda x: x[0])
+            latest_date, latest_val = items_sorted[-1]
+            month_items = [av for bt, av in items_sorted if bt[:7] == ym]
+            month_avg = round(sum(month_items) / len(month_items), 5) if month_items else None
+            out_rows.append({
+                "cell_group": cg,
+                "latest_date": latest_date,
+                "latest": round(latest_val, 5),
+                "month_avg": month_avg,
+            })
+        out_rows.sort(key=lambda x: x["cell_group"])
+        result = {
+            "rows": out_rows,
+            "threshold_pct": NETWORK_THRESHOLD_PCT,
+            "latest_month": ym,
+        }
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "[SILENT-EXCEPT] _network_availability: exception swallowed", exc_info=True)
+    return _cache_set("network_availability", result)
+
+
+@router.get("/alarm-overview")
+def alarm_overview():
+    """告警总览（Alarm Overview）：
+    1) realtime_alarm 分类计数（ALL/Critical/Major/Minor/Warning/Event）
+    2) history_alarm 恢复&MTTR（按 site_class，仅 assign_rulename 非 Null）
+    3) 网络可用率（xlsx Availability-NW，按 Cell Group 最新值+本月均值）
+    """
+    with get_raw_connection() as conn:
+        alarm_counts = _alarm_category_counts(conn)
+        recovery = _recovery_mttr(conn)
+    network = _network_availability()
+    return {
+        "generated_at": _last_alarm_sync_iso() or _now_iso(),
+        "alarm_counts": alarm_counts,
+        "recovery_mttr": recovery,
+        "network_availability": network["rows"],
+        "network_threshold_pct": network["threshold_pct"],
+        "network_latest_month": network["latest_month"],
     }

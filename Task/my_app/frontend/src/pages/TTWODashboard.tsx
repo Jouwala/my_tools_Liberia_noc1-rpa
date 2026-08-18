@@ -418,28 +418,32 @@ export default function TTWODashboard() {
     return autoColorCache[key]
   }
 
-  // 可点击的统计标签
+  // 可点击的统计标签（背景与文字随主题适配：深色主题用暗色玻璃底，浅色主题用语义色淡底）
   const renderStatTags = (stats: Record<string, number>, colorMap: Record<string, string>, dimension: string) => (
     <Space wrap size={[8, 8]}>
-      {Object.entries(stats).map(([k, v], idx) => (
-        <Tag key={k} color={colorMap[k] || getAutoColor(k, idx)}
-          style={{ borderRadius: 16, padding: '4px 14px', fontSize: 13, lineHeight: '24px', cursor: 'pointer', transition: 'all 0.2s', fontWeight: 500, background: 'rgba(10,25,41,0.6)', borderColor: colorMap[k] || getAutoColor(k, idx) }}
-          onClick={(e) => openDrilldown(e, dimension, k)}
-        >
-          {k}: <strong style={{ fontSize: 14 }}>{fmt(v)}</strong>
-        </Tag>
-      ))}
+      {Object.entries(stats).map(([k, v], idx) => {
+        const tagColor = colorMap[k] || getAutoColor(k, idx)
+        const tagBg = isDark ? 'rgba(10,25,41,0.6)' : `${tagColor}1f`
+        return (
+          <Tag key={k}
+            style={{ borderRadius: 16, padding: '4px 14px', fontSize: 13, lineHeight: '24px', cursor: 'pointer', transition: 'all 0.2s', fontWeight: 500, background: tagBg, borderColor: tagColor, color: tagColor }}
+            onClick={(e) => openDrilldown(e, dimension, k)}
+          >
+            {k}: <strong style={{ fontSize: 14 }}>{fmt(v)}</strong>
+          </Tag>
+        )
+      })}
     </Space>
   )
 
-  // Status 颜色编码
+  // Status 颜色编码（随主题适配：深色主题用亮色，浅色主题用饱和暗色保证对比度）
   const getStatusColor = (key: string): string => {
     const lower = key.toLowerCase()
-    if (lower.includes('closed') || lower.includes('complete')) return '#51cf66'
-    if (lower.includes('open') || lower.includes('in progress')) return '#4fc3f7'
-    if (lower.includes('waiting') || lower.includes('pending')) return '#ffa94d'
-    if (lower.includes('cancel') || lower.includes('reject')) return '#adb5bd'
-    return '#64ffda'
+    if (lower.includes('closed') || lower.includes('complete')) return isDark ? '#51cf66' : '#15803d'
+    if (lower.includes('open') || lower.includes('in progress')) return isDark ? '#4fc3f7' : '#0284c7'
+    if (lower.includes('waiting') || lower.includes('pending')) return isDark ? '#ffa94d' : '#ea580c'
+    if (lower.includes('cancel') || lower.includes('reject')) return isDark ? '#adb5bd' : '#64748b'
+    return isDark ? '#64ffda' : '#0d9488'
   }
 
   const shortenLabel = (key: string): string => {

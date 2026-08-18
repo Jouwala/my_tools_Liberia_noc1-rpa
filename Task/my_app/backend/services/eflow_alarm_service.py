@@ -115,6 +115,39 @@ HIS_ALARM_CONDITION = {
     "usefromsize": True,
 }
 
+# ========== 外部化配置（Settings 页面可编辑的 eflow_alarm_config.json） ==========
+# 优先级：环境变量 > 配置文件 > 内置默认。覆盖告警接口路径/时间窗口/分页/过滤条件。
+try:
+    from pathlib import Path
+    from backend.services.task_config_files import load_json_config
+    _ALARM_CONF = load_json_config(Path(__file__).resolve().parent / "eflow_alarm_config.json")
+except Exception:
+    _ALARM_CONF = None
+if _ALARM_CONF:
+    if _ALARM_CONF.get("active_alarm_path"):
+        ALARM_API_PATH = _ALARM_CONF["active_alarm_path"]
+    if _ALARM_CONF.get("his_alarm_path"):
+        HIS_ALARM_API_PATH = _ALARM_CONF["his_alarm_path"]
+    if _ALARM_CONF.get("alarm_referer"):
+        ALARM_REFERER = _ALARM_CONF["alarm_referer"]
+    if not os.environ.get("EFLOW_HIS_ALARM_HOURS"):
+        HIS_ALARM_HOURS = int(_ALARM_CONF.get("his_alarm_hours", HIS_ALARM_HOURS))
+    if not os.environ.get("EFLOW_HIS_ALARM_DAYS"):
+        HIS_ALARM_DAYS_BACK = int(_ALARM_CONF.get("his_alarm_days_back", HIS_ALARM_DAYS_BACK))
+    if not os.environ.get("EFLOW_HIS_ALARM_PAGE_SIZE"):
+        HIS_ALARM_PAGE_SIZE = int(_ALARM_CONF.get("his_alarm_page_size", HIS_ALARM_PAGE_SIZE))
+    if not os.environ.get("EFLOW_HIS_ALARM_WORKERS"):
+        HIS_ALARM_WORKERS = max(1, int(_ALARM_CONF.get("his_alarm_workers", HIS_ALARM_WORKERS)))
+    if _ALARM_CONF.get("alarm_code_conds") is not None:
+        ALARM_CODE_CONDS = _ALARM_CONF["alarm_code_conds"]
+    if _ALARM_CONF.get("alarm_condition") is not None:
+        ALARM_CONDITION = _ALARM_CONF["alarm_condition"]
+    if _ALARM_CONF.get("his_alarm_condition") is not None:
+        HIS_ALARM_CONDITION = _ALARM_CONF["his_alarm_condition"]
+    logging.getLogger("eflow_alarm").info(
+        f"[ALARM] 已加载 eflow_alarm_config.json: active={ALARM_API_PATH}, "
+        f"his_window={HIS_ALARM_HOURS}h, page={HIS_ALARM_PAGE_SIZE}, workers={HIS_ALARM_WORKERS}")
+
 ALARM_COLUMNS = [
     "Site Status", "Networktype", "Alarm Source", "Site Name", "neip", "restypename",
     "RAN Site Type", "MW Layer", "Vendor", "Power Infomation", "Transmission Type",

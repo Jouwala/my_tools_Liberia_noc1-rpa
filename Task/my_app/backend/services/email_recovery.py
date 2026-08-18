@@ -142,7 +142,7 @@ def probe_ews_reachable() -> bool:
         r = subprocess.run(
             [_MANAGED_VENV_PY, "-c", probe],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=45, cwd=str(MY_APP_DIR),
+            timeout=120, cwd=str(MY_APP_DIR),
             creationflags=_SUBPROCESS_FLAGS,
         )
         ok = r.returncode == 0 and "EWS_OK" in r.stdout
@@ -150,7 +150,7 @@ def probe_ews_reachable() -> bool:
             logger.info("EWS 探测: 仍不可用 (rc=%s): %s", r.returncode, (r.stderr or r.stdout)[-300:])
         return ok
     except subprocess.TimeoutExpired:
-        logger.info("EWS 探测: 超时（服务端仍降级）")
+        logger.info("EWS 探测: 超时 120s（服务端仍降级）")
         return False
     except Exception as e:
         logger.warning("EWS 探测异常: %s", e)

@@ -48,7 +48,7 @@ GROUP_TASK_MAP = {
         "packet_loss_email,battery_kpi_sync,ipran_kpi_sync,cm_data_sync"),
     "n": (  # 网管 / eFlow API / 远程系统：各自独立但保守同组
         "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,"
-        "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync"),
+        "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync,mw_ume_kpi_sync"),
     "m": (  # 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖
         "site_outage_screenshot,whatsapp_send,liberia_email_1h,liberia_email_8h,"
         "kpi_ms_contract,kpi_ms_wo_sla,kpi_sp_spareparts,kpi_sp_consumables,"

@@ -32,8 +32,8 @@ import {
   Lightbulb,
 } from 'lucide-react';
 
-// v3：看板目录按 my_app 真实页面重新填充，旧版本缓存需要失效重读
-const STORAGE_KEY = 'liberia_noc_dashboards_v3';
+// v5：全部 FineBI 看板改用匿名公共链接（/link/xxx，免登录直达），旧版本缓存需要失效重读
+const STORAGE_KEY = 'liberia_noc_dashboards_v5';
 const THEME_KEY = 'enterprise_bi_theme_dark';
 
 export default function App() {

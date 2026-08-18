@@ -26,6 +26,8 @@ import {
   SelectOutlined,
   MenuUnfoldOutlined,
   MenuFoldOutlined,
+  MailOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -54,12 +56,14 @@ const NurDashboard = lazy(() => import('./pages/NurDashboard'))
 const MsSlaDashboard = lazy(() => import('./pages/MsSlaDashboard'))
 const AlarmManagement = lazy(() => import('./pages/AlarmManagement'))
 const CxoDashboard = lazy(() => import('./pages/CxoDashboard'))
+const EmailReports = lazy(() => import('./pages/EmailReports'))
+const MwUmeDashboard = lazy(() => import('./pages/MwUmeDashboard'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'email_reports' | 'mwUmeTopology'
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard']
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'email_reports', 'mwUmeTopology']
 
 function AppContent() {
   // 支持 ?page=xxx 直链定位（右键菜单「在新标签页打开」使用），非法值回退到默认页
@@ -86,11 +90,13 @@ function AppContent() {
 
   const menuItems = [
     { key: 'sync', icon: <SyncOutlined />, label: t('nav.sync') },
+    { key: 'email_reports', icon: <MailOutlined />, label: t('nav.emailReports') },
     { key: 'alarm', icon: <AlertOutlined />, label: t('nav.alarm') },
     { key: 'ttwo', icon: <BarChartOutlined />, label: t('nav.ttwo') },
     { key: 'nur', icon: <LineChartOutlined />, label: t('nav.nur') },
     { key: 'ms_sla', icon: <FundOutlined />, label: t('nav.msSla') },
     { key: 'cxoDashboard', icon: <PieChartOutlined />, label: t('nav.cxoDashboard') },
+    { key: 'mwUmeTopology', icon: <ApartmentOutlined />, label: t('nav.mwUmeTopology') },
     { key: 'gis', icon: <GlobalOutlined />, label: t('nav.gis') },
     { key: 'realtime_alarm', icon: <AlertOutlined />, label: t('nav.realtimeAlarm') },
     { key: 'alarmManagement', icon: <AlertOutlined />, label: t('nav.alarmManagement') },
@@ -180,6 +186,10 @@ function AppContent() {
         return <AlarmManagement />
       case 'cxoDashboard':
         return <CxoDashboard />
+      case 'mwUmeTopology':
+        return <MwUmeDashboard />
+      case 'email_reports':
+        return <EmailReports />
       case 'gis':
         return <GISMap />
       case 'realtime_alarm':

@@ -53,6 +53,8 @@ from backend.routers import (
     settings,
     cm_flows,
     task_configs,
+    email_reports,
+    mw_ume,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -118,6 +120,9 @@ app.include_router(settings.router)
 app.include_router(cm_flows.router)
 # 任务配置文件管理（Settings「任务配置」页签 -> 配置文件管理，通用）
 app.include_router(task_configs.router)
+# 邮件报告文件（EmailReports 页面：email 类任务生成的最新报告文件列表/下载）
+app.include_router(email_reports.router)
+app.include_router(mw_ume.router)
 
 
 # ========== 通用任务调度系统 ==========
@@ -242,7 +247,9 @@ async def startup_event():
 # 提供前端静态文件（生产环境）
 # 注意：必须校验 assets 目录真实存在，否则 StaticFiles 会因目录缺失而抛出
 # RuntimeError，导致整个 uvicorn 应用导入失败、后端无法启动（开发模式下前端由 Vite 提供，无需此挂载）。
-frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+# 生产前端构建产物位于 _fe_dist（vite.config.ts 的 build.outDir，与 frontend/dist 同内容但在 IDE 监视树外，避免 EPERM）。
+# nginx(:80)/myapp → vite preview(:7090) → _fe_dist；直连 7038 的截图/邮件工具也走这里，保持两者一致。
+frontend_dist = Path(__file__).parent.parent.parent / "_fe_dist"
 
 # index.html 是 SPA 入口，禁止浏览器启发式缓存：否则重新部署后浏览器仍会引用
 # 旧 index.html -> 旧 hash JS，导致页面停留在旧版逻辑（如图例计数全 0、

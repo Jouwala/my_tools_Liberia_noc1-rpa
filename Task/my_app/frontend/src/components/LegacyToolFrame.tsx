@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { Spin } from 'antd'
+import { useTheme } from '../theme'
+import { useI18n } from '../i18n'
 
 /**
  * 原版工具嵌入容器（Legacy Tool Frame）
@@ -33,6 +35,24 @@ export default function LegacyToolFrame({ file, title }: Props) {
   // 典型症状：cxo_dashboard.html 修复后用户仍看到旧行为 —— 因为同 src 的
   // iframe 在 SPA 内导航时不会重新拉取，只有整页刷新才会。加戳后每次挂载必刷新。
   const [cacheBust] = useState(() => Date.now())
+  const { isDark } = useTheme()
+  const { locale } = useI18n()
+
+  // 主题同步兜底：父页面 ThemeProvider 在 mount 时会向所有 iframe postMessage 当前主题，
+  // 但 LegacyToolFrame 的挂载晚于 ThemeProvider 的 mount effect（iframe 元素此刻还不存在），
+  // 导致 legacy HTML 第一次加载时错过这条 postMessage，于是只能用 localStorage / matchMedia 兜底，
+  // 在某些场景下（localStorage 为空 + 系统偏好与父页面不一致）iframe 主题与父页面脱钩。
+  // 在 iframe onLoad 后重发一次当前主题与语言，保证 legacy HTML 的 data-theme / 语言跟随父页面。
+  const handleIframeLoad = () => {
+    setLoading(false)
+    const mode = isDark ? 'dark' : 'light'
+    document.querySelectorAll('iframe').forEach((f) => {
+      try {
+        f.contentWindow?.postMessage({ __type: 'myapp-theme', mode }, '*')
+        f.contentWindow?.postMessage({ __type: 'myapp-locale', locale }, '*')
+      } catch (e) { /* ignore */ }
+    })
+  }
 
   return (
     <div
@@ -63,9 +83,12 @@ export default function LegacyToolFrame({ file, title }: Props) {
       <iframe
         // BASE_URL 为 '/myapp/'，与 nginx 的 location /myapp/ 反代对齐；
         // iframe 内的相对请求（favicon.ico、lr-all.geo.json）会自动落到同一 base 下。
+        // allowFullScreen：允许内嵌 legacy 页面（如 mw_ume_topology.html）调用
+        // requestFullscreen() 进入浏览器全屏（NOC 看板的全屏按钮依赖此许可）。
         src={`${import.meta.env.BASE_URL}${file}?_=${cacheBust}`}
         title={title}
-        onLoad={() => setLoading(false)}
+        onLoad={handleIframeLoad}
+        allowFullScreen
         style={{
           width: '100%',
           height: '100%',

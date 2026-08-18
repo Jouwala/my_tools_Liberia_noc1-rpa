@@ -278,6 +278,80 @@ NW_KPI_TASKS = [
     {"tech": "TDD", "gr": "86400", "groupbygroup": False, "layer": "NW_OLD"},
 ]
 
+# ========== 外部化配置（Settings 页面可编辑的 network_kpi_config.json） ==========
+# 覆盖：KPI 模板(items 逗号分隔→列表，位置缺省按 0 填充)、查询任务分组、分组位置。
+try:
+    from backend.services.task_config_files import load_json_config
+    _NW_CFG = load_json_config(Path(__file__).resolve().parent / "network_kpi_config.json")
+except Exception:
+    _NW_CFG = None
+
+
+def _nw_split_strs(s) -> list:
+    return [x.strip() for x in str(s or "").split(",") if x.strip()]
+
+
+def _nw_split_ints(s) -> list:
+    return [int(x) for x in str(s or "").split(",") if x.strip()]
+
+
+if _NW_CFG:
+    if not os.environ.get("NW_KPI_DAYS_BACK"):
+        DAYS_BACK = max(1, int(_NW_CFG.get("days_back", DAYS_BACK)))
+    _qc = _NW_CFG.get("query_configs")
+    if isinstance(_qc, list) and _qc:
+        rebuilt = {}
+        for row in _qc:
+            tech = str(row.get("tech", "")).strip()
+            if not tech:
+                continue
+            items = _nw_split_strs(row.get("items"))
+            base = NW_KPI_QUERY_CONFIGS.get(tech, {})  # 内置默认兜底（含 itempositionbusiness）
+            q = {
+                "templateid": str(row.get("templateid") or base.get("templateid", "")),
+                "templatename": str(row.get("templatename") or base.get("templatename", "")),
+                "motid": str(row.get("motid") or base.get("motid", "")),
+                "nfctid": str(row.get("nfctid") or base.get("nfctid", "")),
+                "containvcell": int(row.get("containvcell", base.get("containvcell", 0)) or 0),
+                "indexfillingtype": str(row.get("indexfillingtype") or base.get("indexfillingtype", "default")),
+                "showbusinesscolumn": bool(row.get("showbusinesscolumn", base.get("showbusinesscolumn", False))),
+                "versiondatacompare": bool(row.get("versiondatacompare", base.get("versiondatacompare", False))),
+                "items": items,
+                "itemsposition": _nw_split_ints(row.get("itemsposition")) or base.get("itemsposition") or [0] * len(items),
+                "itemsposition1": _nw_split_ints(row.get("itemsposition1")) or base.get("itemsposition1") or [0] * len(items),
+            }
+            # FDD/TDD 4G/5G 混合选择必须携带 itempositionbusiness，否则 UME 返回 0001610001
+            if row.get("businessmotid") or base.get("businessmotid"):
+                q["businessmotid"] = str(row.get("businessmotid") or base["businessmotid"])
+            if row.get("itempositionbusiness") or base.get("itempositionbusiness"):
+                q["itempositionbusiness"] = (_nw_split_ints(row.get("itempositionbusiness"))
+                                             or base.get("itempositionbusiness"))
+            rebuilt[tech] = q
+        if rebuilt:
+            NW_KPI_QUERY_CONFIGS = rebuilt
+    _tasks = _NW_CFG.get("tasks")
+    if isinstance(_tasks, list) and _tasks:
+        cleaned = []
+        for t in _tasks:
+            if isinstance(t, dict) and t.get("tech") and t.get("layer"):
+                cleaned.append({
+                    "tech": str(t["tech"]), "gr": str(t.get("gr", "86400")),
+                    "groupbygroup": bool(t.get("groupbygroup", False)),
+                    "layer": str(t["layer"]),
+                })
+        if cleaned:
+            NW_KPI_TASKS = cleaned
+    _loc = _NW_CFG.get("locations")
+    if isinstance(_loc, str) and _loc.strip():
+        UILOCATIONS = [{"haslogicmoc": False, "id": u, "moc": "group.ran.topo", "model": "rangroup"}
+                       for u in _nw_split_strs(_loc)]
+    _oloc = _NW_CFG.get("old_locations")
+    if isinstance(_oloc, str) and _oloc.strip():
+        OLD_UILOCATIONS = [{"haslogicmoc": False, "id": u, "moc": "group.ran.topo", "model": "rangroup"}
+                           for u in _nw_split_strs(_oloc)]
+    print(f"[NW_KPI] 已加载 network_kpi_config.json: 模板={list(NW_KPI_QUERY_CONFIGS.keys())}, "
+          f"任务={len(NW_KPI_TASKS)}, locations={len(UILOCATIONS)}, old={len(OLD_UILOCATIONS)}")
+
 
 # ============================================================
 # HTTP / SSL 工具函数（连接复用 + bytearray + 截断检测）
@@ -1304,26 +1378,10 @@ def _run_single_kpi_query(auth: dict, task: dict, start_index: int) -> tuple[str
     return file_prefix, xlsx_bytes
 
 
-# ============================================================
-# 主函数
-# ============================================================
-def run_network_kpi_sync():
-    """主流程：登录 → 并行查询 → 导出 → 清理。"""
-    t_start = time.time()
-    print(f"[MAIN] RAN UME Network KPI (Zeenshan) sync started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"[MAIN] Output dir: {OUTPUT_DIR}")
-    print(f"[MAIN] Days back: {DAYS_BACK}")
-    print(f"[MAIN] Parallel workers: {MAX_PARALLEL_WORKERS}")
-    print(f"[MAIN] Total tasks: {len(NW_KPI_TASKS)}")
-    print("=" * 70)
-
-    # 1. 登录
-    auth = login()
-
-    # 2. 并行执行查询（全程内存）
+def _run_all_kpi_queries(auth: dict) -> tuple[dict, list]:
+    """并行执行全部 KPI 查询，返回 (export_data, errors)。"""
     export_data = {}  # {file_prefix: xlsx_bytes}
     errors = []
-
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
         future_to_task = {}
         for idx, task in enumerate(NW_KPI_TASKS):
@@ -1340,6 +1398,46 @@ def run_network_kpi_sync():
             except Exception as e:
                 errors.append((task_label, str(e)))
                 print(f"[MAIN] KPI query [{task_label}] failed: {e}")
+    return export_data, errors
+
+
+# ============================================================
+# 主函数
+# ============================================================
+def run_network_kpi_sync():
+    """主流程：登录 → 并行查询 → 导出 → 清理。"""
+    t_start = time.time()
+    print(f"[MAIN] RAN UME Network KPI (Zeenshan) sync started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"[MAIN] Output dir: {OUTPUT_DIR}")
+    print(f"[MAIN] Days back: {DAYS_BACK}")
+    print(f"[MAIN] Parallel workers: {MAX_PARALLEL_WORKERS}")
+    print(f"[MAIN] Total tasks: {len(NW_KPI_TASKS)}")
+    print("=" * 70)
+
+    # 1. 登录
+    auth = login()
+
+    # 2. 并行执行查询（全程内存）；若整体 401（缓存 cookie 过期）则清缓存重登再试一次
+    export_data, errors = _run_all_kpi_queries(auth)
+    if errors and all("401" in err for _, err in errors):
+        print("\n[MAIN] 全部查询 401（会话过期），清除缓存并重新登录后重试一次...")
+        try:
+            from backend.services.auth_manager import invalidate_cache, get_auth
+        except ImportError:
+            try:
+                from auth_manager import invalidate_cache, get_auth
+            except ImportError:
+                invalidate_cache = get_auth = None
+        if invalidate_cache:
+            invalidate_cache(HOST, PORT)
+        if get_auth:
+            try:
+                result = get_auth(HOST, PORT, *_runtime_credentials(), force_refresh=True)
+                auth = {"cookie": result["cookie"], "forgery_token": result["forgery_token"]}
+                print(f"[LOGIN] 401 后重新登录成功（来源: {'缓存' if result['from_cache'] else '重新登录'}）")
+                export_data, errors = _run_all_kpi_queries(auth)
+            except Exception as e:
+                print(f"[LOGIN] 401 后重新登录失败: {e}")
 
     # 3. 汇总
     elapsed = time.time() - t_start

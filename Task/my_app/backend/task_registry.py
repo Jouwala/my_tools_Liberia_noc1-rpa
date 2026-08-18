@@ -306,6 +306,13 @@ TASK_SPECS = [
          description="从 RAN UME 获取 GSM/UMTS/LTE/NR 小区配置数据，经 API 全量替换写入远程 db.sqlite3（cm_cell_data/cm_site_summary），本地仅保留一份最新 Excel",
          description_en="Fetch GSM/UMTS/LTE/NR cell config data from RAN UME, full-replace write to remote db.sqlite3 (cm_cell_data/cm_site_summary) via API, keep only the latest local Excel",
          default_cron="30 8 * * *", category="cm_data"),
+
+    # 32. MW UME KPI 同步（每天 05:15，零落盘直写 app.db 表 mw_ume_bw_ultilazation）
+    dict(task_id="mw_ume_kpi_sync", name="MW UME KPI 同步", name_en="MW UME KPI Sync",
+         loader=("backend.services.mw_ume.mw_ume_kpi_service", "run_mw_ume_kpi_sync"),
+         description="MW UME (ZXMW 微波) KPI 历史指标同步（FINBI 模板 1 天粒度），内存导出不落盘，直接写入 app.db 表 mw_ume_bw_ultilazation（Begin Time + 元素标识列联合去重）",
+         description_en="MW UME (ZXMW microwave) KPI history sync (FINBI 1-day), in-memory export without disk, direct write to app.db table mw_ume_bw_ultilazation (dedup by Begin Time + identity cols)",
+         default_cron="15 5 * * *", category="mw_ume"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========
@@ -324,6 +331,8 @@ CATEGORY_GATEWAY: dict[str, str] = {
     # CNN / iPRAN UME 核心网与路由器
     "cnn_kpi": "cnn_ume",
     "ipran_kpi": "ipran_ume",
+    # MW UME 微波（ZXMW 系列）
+    "mw_ume": "mw_ume",
     # 备件 SFTP
     "sp": "sp_sftp",
     # FW 吞吐（DPtech UMC）
