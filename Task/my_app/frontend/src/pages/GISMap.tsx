@@ -317,19 +317,19 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     { key: 'wo', label: t('gis.layer.wo'), color: '#51cf66' },
   ].filter(lo => mode === 'realtime' ? lo.key !== 'his_alarm' : true) as { key: LayerKey; label: string; color: string }[]
 
-  const labelStyle = { color: WH.textMuted, fontSize: 13, fontWeight: 500 }
+  const labelStyle = { color: WH.textMuted, fontSize: '0.8125rem', fontWeight: 500 }
 
   return (
     <div style={pageWrap}>
-      <Card style={controlCardStyle} styles={{ body: { padding: 16 } }}>
+      <Card style={controlCardStyle} styles={{ body: { padding: 'var(--wh-space-md)' } }}>
         <Row gutter={[16, 12]} align="middle">
           <Col>
-            <Space size="middle" wrap>
+            <Space wrap style={{ gap: 'var(--wh-space-md)' }}>
               <span style={labelStyle}>{t('gis.regionFilter')}</span>
               <Select
                 value={selectedRegion}
                 onChange={setSelectedRegion}
-                style={{ width: 200 }}
+                style={{ width: 'min(100%, 12.5rem)' }}
                 allowClear
                 placeholder={t('gis.allRegions')}
                 aria-label={t('gis.regionFilter')}
@@ -353,20 +353,20 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   <Tag color="geekblue">{t('datasource.latestData')}: {latestData}</Tag>
                 </Tooltip>
               )}
-              <Space size={4}>
+              <Space style={{ gap: 'var(--wh-space-xs)' }}>
                 <Switch size="small" checked={showTopology} onChange={setShowTopology} />
-                <span style={{ fontSize: 13, color: WH.text }}>{t('gis.topologyToggle')}</span>
+                <span style={{ fontSize: '0.8125rem', color: WH.text }}>{t('gis.topologyToggle')}</span>
               </Space>
-              <Space size={4}>
+              <Space style={{ gap: 'var(--wh-space-xs)' }}>
                 <Switch size="small" checked={showRegions} onChange={setShowRegions} />
-                <span style={{ fontSize: 13, color: WH.text }}>{t('gis.regionOverlay')}</span>
+                <span style={{ fontSize: '0.8125rem', color: WH.text }}>{t('gis.regionOverlay')}</span>
               </Space>
               <ExplainIcon text={t('gis.explain.note')} size={14} />
             </Space>
           </Col>
           <Col>
-            <Space size="small" wrap>
-              <span style={{ fontSize: 13, fontWeight: 500, color: WH.text }}>{t('gis.layerFilter')}</span>
+            <Space wrap style={{ gap: 'var(--wh-space-sm)' }}>
+              <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: WH.text }}>{t('gis.layerFilter')}</span>
               {layerOptions.map(lo => (
                 <Tag
                   key={lo.key}
@@ -378,9 +378,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                     cursor: 'pointer',
                     opacity: activeLayers.has(lo.key) ? 1 : 0.4,
                     textDecoration: activeLayers.has(lo.key) ? 'none' : 'line-through',
-                    borderRadius: 12,
-                    padding: '2px 10px',
-                    fontSize: 12,
+                    borderRadius: 'var(--wh-radius-lg)',
+                    padding: 'var(--wh-space-xs) var(--wh-space-sm)',
+                    fontSize: '0.75rem',
                     transition: 'all 0.2s',
                   }}
                   onClick={() => toggleLayer(lo.key)}
@@ -392,7 +392,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           </Col>
           {mode !== 'realtime' && (
             <Col>
-              <Space size="small" wrap>
+              <Space wrap style={{ gap: 'var(--wh-space-sm)' }}>
                 <span style={labelStyle}>{t('gis.timeFilter')}</span>
                 <Segmented
                   value={timePreset}
@@ -418,11 +418,11 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           )}
           {mode === 'realtime' && (
             <Col>
-              <Tag color="red" style={{ borderRadius: 12 }}>{t('gis.realtimeLive')}</Tag>
+              <Tag color="red" style={{ borderRadius: 'var(--wh-radius-lg)' }}>{t('gis.realtimeLive')}</Tag>
             </Col>
           )}
         </Row>
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: 'var(--wh-space-sm)' }}>
           {legendItems.map(item => {
             const hidden = hiddenLegends.has(item.key)
             return (
@@ -439,10 +439,10 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   userSelect: 'none',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 4,
-                  fontSize: 12,
+                  gap: 'var(--wh-space-xs)',
+                  fontSize: '0.75rem',
                   transition: 'opacity 0.2s',
-                  marginRight: 16,
+                  marginRight: 'var(--wh-space-md)',
                   color: WH.text,
                 }}
               >
@@ -454,30 +454,30 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   backgroundColor: item.color,
                 }} />
                 {item.label} ({item.count})
-                {hidden && <span style={{ fontSize: 10, color: WH.textDim }}>({t('gis.legend.hidden')})</span>}
+                {hidden && <span style={{ fontSize: '0.625rem', color: WH.textDim }}>({t('gis.legend.hidden')})</span>}
               </span>
             )
           })}
           {showTopology && (
             <>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, marginRight: 16, color: WH.text }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--wh-space-xs)', fontSize: '0.75rem', marginRight: 'var(--wh-space-md)', color: WH.text }}>
                 <span style={{ display: 'inline-block', width: 20, height: 3, backgroundColor: '#ff6b6b', borderRadius: 2 }} />
                 {t('gis.topologyHubLink')} ({topologyLinks.filter(l => l.is_hub_link).length})
               </span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, marginRight: 16, color: WH.text }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--wh-space-xs)', fontSize: '0.75rem', marginRight: 'var(--wh-space-md)', color: WH.text }}>
                 <span style={{ display: 'inline-block', width: 20, height: 2, backgroundColor: '#4fc3f7', borderRadius: 1 }} />
                 {t('gis.topologyNormalLink')} ({topologyLinks.filter(l => !l.is_hub_link).length})
               </span>
             </>
           )}
         </div>
-        <div style={{ marginTop: 6 }}>
-          <span style={{ fontSize: 11, color: WH.textDim }}>
+        <div style={{ marginTop: '0.375rem' }}>
+          <span style={{ fontSize: '0.6875rem', color: WH.textDim }}>
             {t('gis.legendNote')}
           </span>
         </div>
-        <div style={{ marginTop: 8 }}>
-          <Space size={8} wrap>
+        <div style={{ marginTop: 'var(--wh-space-sm)' }}>
+          <Space wrap style={{ gap: 'var(--wh-space-sm)' }}>
             <Button
               size="small"
               type={showFilters ? 'primary' : 'default'}
@@ -485,7 +485,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               onClick={() => setShowFilters(!showFilters)}
             >
               {t('gis.advancedFilter')}
-              {activeFilterCount > 0 && <Badge count={activeFilterCount} size="small" style={{ marginLeft: 4 }} />}
+              {activeFilterCount > 0 && <Badge count={activeFilterCount} size="small" style={{ marginLeft: 'var(--wh-space-xs)' }} />}
             </Button>
             {activeFilterCount > 0 && (
               <Button size="small" type="link" onClick={clearAllFilters} style={{ color: WH.teal }}>
@@ -497,7 +497,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
             )}
           </Space>
           {showFilters && (
-            <Row gutter={[8, 8]} style={{ marginTop: 8 }}>
+            <Row gutter={[8, 8]} style={{ marginTop: 'var(--wh-space-sm)' }}>
               {FILTER_CONFIG.map(fc => {
                 const opts = filterOptions[fc.key] || []
                 if (opts.length === 0) return null
@@ -505,7 +505,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   <Col key={fc.key}>
                     <Select
                       size="small"
-                      style={{ width: 140 }}
+                      style={{ width: 'min(100%, 8.75rem)' }}
                       allowClear
                       showSearch
                       placeholder={fc.label}
@@ -525,18 +525,18 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       </Card>
 
       {mode === 'realtime' && ossStats.length > 0 && (
-        <Card size="small" style={{ ...cardStyle, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: WH.text, marginBottom: 8 }}>
+        <Card size="small" style={{ ...cardStyle, marginBottom: '0.75rem' }}>
+          <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text, marginBottom: 'var(--wh-space-sm)' }}>
             {t('gis.ossStatsTitle')} ({ossStats.reduce((s, i) => s + i.count, 0)})
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem' }}>
             {ossStats.map(item => {
               const max = ossStats[0]?.count || 1
               const pct = Math.max(4, Math.round((item.count / max) * 100))
               return (
-                <div key={item.oss_specific_problem} style={{ minWidth: 170, flex: '1 1 170px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: 12, color: WH.text }}>
-                    <span title={item.oss_specific_problem} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>{item.oss_specific_problem}</span>
+                <div key={item.oss_specific_problem} style={{ minWidth: 'min(100%, 10.625rem)', flex: '1 1 10.625rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.375rem', fontSize: '0.75rem', color: WH.text }}>
+                    <span title={item.oss_specific_problem} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'min(100%, 8.125rem)' }}>{item.oss_specific_problem}</span>
                     <span style={{ color: WH.textMuted, whiteSpace: 'nowrap' }}>{item.count} / {item.sites}</span>
                   </div>
                   <div style={{ height: 6, background: 'var(--wh-subtle-bg)', borderRadius: 3, marginTop: 3 }}>
@@ -579,7 +579,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 eventHandlers={{ click: () => handleSiteClick(site) }}
               >
                 <Popup>
-                  <div style={{ minWidth: 220 }}>
+                  <div style={{ minWidth: 'min(100%, 13.75rem)' }}>
                     <strong>{site.site_name}</strong> ({site.site_id})<br />
                     {t('gis.popup.region')}: {site.region}<br />
                     {t('gis.popup.type')}: {site.site_type} | {site.network_type}<br />

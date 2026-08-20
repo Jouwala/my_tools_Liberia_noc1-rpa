@@ -119,14 +119,14 @@
 select.form-input {
     color: white !important;
     background-color: transparent !important;
-    padding-left: 12px !important;
-    padding-right: 32px !important;
+    padding-left:0.75rem !important;
+    padding-right:2rem !important;
 }
 
 select.form-input option {
     background-color: #161b22 !important;
     color: white !important;
-    padding: 8px 12px !important;
+    padding:0.5rem 0.75rem !important;
     white-space: normal !important;
     word-wrap: break-word !important;
     line-height: 1.5 !important;
@@ -140,8 +140,8 @@ select.form-input:focus {
 /* 特别针对langSelect */
 #langSelect {
     min-width: 100px !important;
-    padding-left: 8px !important;
-    padding-right: 28px !important;
+    padding-left:0.5rem !important;
+    padding-right:1.75rem !important;
 }
 
 /* AI模态框下拉框样式 - 完整显示 */
@@ -150,8 +150,8 @@ select.form-input:focus {
     color: white !important;
     width: 100% !important;
     max-width: 100% !important;
-    padding-left: 12px !important;
-    padding-right: 36px !important;
+    padding-left:0.75rem !important;
+    padding-right:2.25rem !important;
     white-space: normal !important;
     word-wrap: break-word !important;
     overflow: visible !important;
@@ -162,7 +162,7 @@ select.form-input:focus {
 #aiProviderSelect option {
     background-color: #161b22 !important;
     color: white !important;
-    padding: 10px 12px !important;
+    padding:0.625rem 0.75rem !important;
     white-space: normal !important;
     word-wrap: break-word !important;
     line-height: 1.6 !important;
@@ -194,11 +194,11 @@ select.form-input {
 
 /* AI模态框布局优化 */
 #aiAnalysisModal .flex-col {
-    gap: 12px;
+    gap:0.75rem;
 }
 
 #aiAnalysisModal .flex.items-center {
-    gap: 12px;
+    gap:0.75rem;
 }
 
 #aiAnalysisModal label {
@@ -265,7 +265,7 @@ select.form-input {
         select.form-input option {
             background-color: #161b22 !important;
             color: white !important;
-            padding: 8px 12px !important;
+            padding:0.5rem 0.75rem !important;
         }
         /* 确保下拉框打开时选项可见 */
         select.form-input:focus {
@@ -299,6 +299,41 @@ select.form-input {
             overflow: hidden;
         }
     </style>
+
+<style id="responsive-base">
+
+/* ---------- unified responsive base ---------- */
+html { font-size: clamp(12px, 0.55vw + 10px, 18px); -webkit-text-size-adjust: 100%; }
+body { overflow-x: hidden; }
+img, svg, canvas, iframe { max-width: 100%; }
+@media (max-width: 768px) {
+  body { overflow-x: hidden; }
+  table { display: block; overflow-x: auto; }
+  input, select, textarea { max-width: 100%; }
+  .modal, .drawer, [id*="modal"] > div, [id*="drawer"] { max-width: 95vw; }
+}
+@media (max-width: 480px) {
+  body { overflow-x: hidden; }
+  table { display: block; overflow-x: auto; }
+}
+
+@media (max-width: 768px) {
+  main { flex-direction: column !important; overflow: auto !important; height: auto !important; }
+  #dataStatsView { min-width: 0 !important; width: 100% !important; }
+  #latencySidebar, #hopTimeChartContainer { width: 100% !important; min-width: 0 !important; max-width: none !important; border-left: none; border-top: 1px solid #204b47; }
+  #sidebarResizer, #hopTimeChartResizer, #logPanelResizer { display: none !important; }
+  .resizer { display: none !important; }
+  #aiAnalysisModalContent { min-width: 0 !important; width: 95vw !important; max-width: 95vw !important; height: 85vh !important; max-height: 90vh !important; }
+  #cozeChatContainer { min-height: 0 !important; height: 50vh !important; }
+  #logPanel { height: auto !important; max-height: 300px; }
+  header, #tabs { flex-wrap: wrap; }
+  label.min-w-\[280px\] { min-width: 0 !important; width: 100%; }
+}
+@media (max-width: 480px) {
+  #dataStatsView > div { padding: .75rem; }
+}
+
+</style>
 </head>
 <body class="bg-background-light dark:bg-background-dark font-display text-white selection:bg-primary/30">
 <div class="flex flex-col h-screen overflow-hidden">
@@ -358,7 +393,7 @@ select.form-input {
         <button class="p-2 text-white/50 hover:text-white transition-colors">
             <span class="material-symbols-outlined">settings</span>
         </button>
-        <div class="size-8 rounded-full border-2 border-primary/20 bg-cover bg-center" data-alt="User avatar profile picture" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuA4QUHUQFUSgC2zrABDclHRVM_Il-ObaEE6BBIy-oNOhpci2Qn5JCr6eugkW2o8xmQ-i4-uW6Yhx8VsOTzKd652jZfaZ-v_HDNRFiHG-zSwlqC3i4MxcNrc0lYtLm7vuqFS3yEl6XUgzlv_E4EsxsDuq1nhVvdu79nWqgrublTVLA3ZlciBYo2kb7KI3B2N7LBlg0kCEcf11FHE53WkRf8Ixhuq9Sex_eL63pfUao70DvmwJN3aWa24tEyhOB3-v-jdC8HyEUGv9mI');"></div>
+        <div class="size-8 rounded-full border-2 border-primary/20 bg-cover bg-center" data-alt="User avatar profile picture" style="background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuA4QUHUQFUSgC2zrABDclHRVM_Il-ObaEE6BBIy-oNOhpci2Qn5JCr6eugkW2o8xmQ-i4-uW6Yhx8VsOTzKd652jZfaZ-v_HDNRFiHG-zSwlqC3i4MxcNrc0lYtLm7vuqFS3yEl6XUgzlv_E4EsxsDuq1nhVvdu79nWqgrublTVLA3ZlciBYo2kb7KI3B2N7LBlg0kCEcf11FHE53WkRf8Ixhuq9Sex_eL63pfUao70DvmwJN3aWa24tEyhOB3-v-jdC8HyEUGv9mI');"></div>
     </div>
 </header>
 
@@ -607,7 +642,7 @@ select.form-input {
     </h3>
     <div class="flex-1 flex flex-col justify-between py-4 relative">
         <!-- X Axis Labels (Latency - at top) -->
-        <div id="hopXAxisLabels" class="absolute top-0 left-4 right-0 text-[10px] font-mono text-white/70" style="height: 20px; margin-top: -20px;">
+        <div id="hopXAxisLabels" class="absolute top-0 left-4 right-0 text-[10px] font-mono text-white/70" style="height: 20px; margin-top:-1.25rem;">
             <!-- Latency labels will be dynamically generated here -->
         </div>
         <!-- Y Axis Labels (HOP numbers) -->
@@ -629,7 +664,7 @@ select.form-input {
     <!-- AI Analysis Modal Component -->
     <!-- AI Analysis Modal -->
 <div id="aiAnalysisModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-    <div id="aiAnalysisModalContent" class="bg-background-dark border border-primary/30 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col relative" style="min-width: 600px; min-height: 400px; width: 90vw; height: 85vh;">
+    <div id="aiAnalysisModalContent" class="bg-background-dark border border-primary/30 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col relative" style="min-width: 0; min-height: 0; width: min(600px, 95vw); max-width: 95vw; height: 85vh; max-height: 90vh;">
         <!-- Resizer for AI Modal -->
         <div id="aiModalResizer" class="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize"></div>
         <div class="px-6 py-4 border-b border-border-dark">
@@ -696,7 +731,7 @@ select.form-input {
                 </button>
             </div>
         </div>
-        <div id="cozeChatContainer" class="flex-1 overflow-hidden bg-card-dark rounded-lg" style="min-height: 600px; position: relative;">
+        <div id="cozeChatContainer" class="flex-1 overflow-hidden bg-card-dark rounded-lg" style="min-height: min(600px, 50vh); position: relative;">
             <!-- Coze Web SDK will be mounted here -->
         </div>
     </div>
@@ -3206,7 +3241,7 @@ function drawMapRoute(hops) {
 
         const hopIcon = L.divIcon({
             className: 'custom-hop-marker',
-            html: `<div style="background-color: #00dbc9; border: 2px solid #fff; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #090c15; font-weight: bold; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">${hop.hop}</div>`,
+            html: `<div style="background-color: #00dbc9; border: 2px solid #fff; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #090c15; font-weight: bold; font-size:0.75rem; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">${hop.hop}</div>`,
             iconSize: [32, 32],
             iconAnchor: [16, 16]
         });
@@ -3217,7 +3252,7 @@ function drawMapRoute(hops) {
         }
 
         const marker = L.marker([lat, lon], { icon: hopIcon, zIndexOffset: 2000 }).addTo(map);
-        marker.bindPopup(`<div style="font-family: monospace; font-size: 12px;"><strong>Hop ${hop.hop}</strong><br>IP: ${hop.ip}<br>Location: ${hop.location || 'Unknown'}<br>Avg Delay: ${avgDelay} ms</div>`);
+        marker.bindPopup(`<div style="font-family: monospace; font-size:0.75rem;"><strong>Hop ${hop.hop}</strong><br>IP: ${hop.ip}<br>Location: ${hop.location || 'Unknown'}<br>Avg Delay: ${avgDelay} ms</div>`);
         markerData.push({ marker, hop, lat, lon });
     });
 
@@ -3259,7 +3294,7 @@ function drawMapRoute(hops) {
             const arrowMarker = L.marker([arrowLat, arrowLon], {
                 icon: L.divIcon({
                     className: 'arrow-marker',
-                    html: `<div style="color: #00dbc9; font-size: 20px; line-height: 1; transform: rotate(${angle}deg); text-shadow: 0 0 4px rgba(0,0,0,0.8); filter: drop-shadow(0 0 2px rgba(0, 219, 201, 0.8));">▶</div>`,
+                    html: `<div style="color: #00dbc9; font-size:1.25rem; line-height: 1; transform: rotate(${angle}deg); text-shadow: 0 0 4px rgba(0,0,0,0.8); filter: drop-shadow(0 0 2px rgba(0, 219, 201, 0.8));">▶</div>`,
                     iconSize: [20, 20], iconAnchor: [10, 10]
                 }),
                 isMapElement: true, zIndexOffset: 100
@@ -3289,7 +3324,7 @@ function drawMapRoute(hops) {
             const delayLabel = L.marker([labelLat, labelLon], {
                 icon: L.divIcon({
                     className: 'delay-label',
-                    html: `<div style="color: #00dbc9; font-size: 12px; font-weight: bold; white-space: nowrap; text-shadow: 0 0 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6); font-family: monospace;">${delayText}</div>`,
+                    html: `<div style="color: #00dbc9; font-size:0.75rem; font-weight: bold; white-space: nowrap; text-shadow: 0 0 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6); font-family: monospace;">${delayText}</div>`,
                     iconSize: [80, 20], iconAnchor: [40, 10]
                 }),
                 isMapElement: true, zIndexOffset: 300

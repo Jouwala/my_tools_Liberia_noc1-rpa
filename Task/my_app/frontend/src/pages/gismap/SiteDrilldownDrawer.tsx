@@ -54,11 +54,11 @@ export function SiteDrilldownDrawer({ open, onClose, loading, drilldown, selecte
       title={
         <span style={{ color: WH.text }}>
           {t('gis.drilldown.title')} - {drilldown?.site_info?.site_name || selectedSite}
-          {drilldown?.site_info?.vip_site === 'Yes' && <Tag color="purple" style={{ marginLeft: 8 }}>VIP</Tag>}
+          {drilldown?.site_info?.vip_site === 'Yes' && <Tag color="purple" style={{ marginLeft: 'var(--wh-space-sm)' }}>VIP</Tag>}
         </span>
       }
+      width={'min(95vw, 45rem)' as any}
       styles={{
-        wrapper: { width: 720 },
         body: { background: WH.bg },
         header: { background: 'var(--wh-page-bg)', borderBottom: '1px solid rgba(100,255,218,0.15)' },
       }}
@@ -66,10 +66,10 @@ export function SiteDrilldownDrawer({ open, onClose, loading, drilldown, selecte
       onClose={onClose}
     >
       {loading ? (
-        <Spin style={{ display: 'block', margin: '50px auto' }} />
+        <Spin style={{ display: 'block', margin: 'var(--wh-space-2xl) auto' }} />
       ) : drilldown ? (
         <div>
-          <Card size="small" title={<span style={{ color: WH.text }}>{t('gis.drilldown.basicInfo')}</span>} style={{ ...cardStyle, marginBottom: 16 }}>
+          <Card size="small" title={<span style={{ color: WH.text }}>{t('gis.drilldown.basicInfo')}</span>} style={{ ...cardStyle, marginBottom: 'var(--wh-space-md)' }}>
             <Descriptions column={2} size="small">
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteId')}</span>}>
                 <span style={{ color: WH.text }}>{drilldown.site_info.site_id}</span>
@@ -106,7 +106,7 @@ export function SiteDrilldownDrawer({ open, onClose, loading, drilldown, selecte
             </Descriptions>
           </Card>
 
-          <Row gutter={8} style={{ marginBottom: 16 }}>
+          <Row gutter={8} style={{ marginBottom: 'var(--wh-space-md)' }}>
             <Col span={6}>
               <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.totalTT')}</span>} value={drilldown.tt_count} valueStyle={{ color: WH.teal, fontWeight: 700 }} /></Card>
             </Col>

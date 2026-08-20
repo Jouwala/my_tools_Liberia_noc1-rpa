@@ -13,12 +13,6 @@ import {
 import { getMyappTasksApi, getMyappHomeUrl } from '../config';
 import { useI18n } from '../i18n';
 
-// ============================================================================
-// Task Manager 实时状态部件
-//  - 数据来源：my_app 后端 GET /api/tasks（与 DataSync 页面同一接口）
-//  - 接口不可达时回退到最近一次抓取的静态快照（2026-08-14，共 34 个任务）
-// ============================================================================
-
 interface ApiTaskRun {
   success: boolean;
   started_at?: string;
@@ -48,7 +42,6 @@ interface TaskItem {
   lastElapsed: number | null;
 }
 
-// 静态快照：2026-08-14 15:30 抓取自 /api/tasks（全部成功）
 const FALLBACK_TASKS: TaskItem[] = [
   { id: 'eflow_sync', name: 'eFlow Data Sync', category: 'eflow', cron: '0 * * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 297.3 },
   { id: 'eflow_sync_full', name: 'eFlow Daily Full Sync', category: 'eflow', cron: '0 8 * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 478.4 },
@@ -86,7 +79,7 @@ const FALLBACK_TASKS: TaskItem[] = [
   { id: 'auto_retry_failed', name: 'Failed Task Auto Retry', category: 'general', cron: '*/5 * * * *', enabled: true, running: false, lastSuccess: true, lastElapsed: 0.0 },
 ];
 
-const REFRESH_INTERVAL = 60_000; // 60s 自动刷新
+const REFRESH_INTERVAL = 60_000;
 
 function mapApiTask(t: ApiTask): TaskItem {
   const last = t.recent_runs && t.recent_runs.length > 0 ? t.recent_runs[0] : null;
@@ -128,7 +121,6 @@ export const TaskSyncWidget: React.FC = () => {
           setUpdatedAt(new Date());
         }
       } catch {
-        // 网络不可达 / CORS：保持静态快照展示
         if (!cancelled) setIsLive(false);
       }
     };
@@ -150,20 +142,19 @@ export const TaskSyncWidget: React.FC = () => {
     return { total, running, failed, ok };
   }, [tasks]);
 
-  // 展开时优先展示运行中 / 失败 / 高频任务，取前 8 个
   const showcase = useMemo(() => {
     const weight = (t: TaskItem) => (t.running ? 0 : t.lastSuccess === false ? 1 : 2);
     return [...tasks].sort((a, b) => weight(a) - weight(b)).slice(0, 8);
   }, [tasks]);
 
   return (
-    <div className="mb-6 bg-gradient-to-r from-teal-50 via-white to-cyan-50 text-slate-900 rounded-2xl p-4 sm:p-5 border border-teal-300/50 shadow-sm dark:bg-gradient-to-r dark:from-navy-950 dark:via-navy-900 dark:to-navy-800 dark:text-white dark:border-teal-400/15 dark:shadow-lg dark:shadow-navy-950/40 animate-fadeIn">
+    <div className="mb-4 sm:mb-6 bg-gradient-to-r from-teal-50 via-white to-cyan-50 text-slate-900 rounded-2xl p-3 sm:p-5 border border-teal-300/50 shadow-sm dark:bg-gradient-to-r dark:from-navy-950 dark:via-navy-900 dark:to-navy-800 dark:text-white dark:border-teal-400/15 dark:shadow-lg dark:shadow-navy-950/40 animate-fadeIn">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-teal-100 text-teal-600 border border-teal-300/70 dark:bg-teal-400/15 dark:text-teal-300 dark:border-teal-400/30">
-            <Activity className="w-5 h-5 animate-pulse" />
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="p-2 sm:p-2.5 rounded-xl bg-teal-100 text-teal-600 border border-teal-300/70 dark:bg-teal-400/15 dark:text-teal-300 dark:border-teal-400/30 shrink-0">
+            <Activity className="w-4 h-4 sm:w-5 sm:h-5 animate-pulse" />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-bold text-sm sm:text-base tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
                 {t('task.title')}
@@ -173,7 +164,7 @@ export const TaskSyncWidget: React.FC = () => {
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
                   {t('task.live')}
                   {updatedAt && (
-                    <span className="text-emerald-600/70 dark:text-emerald-400/70 font-mono">
+                    <span className="text-emerald-600/70 dark:text-emerald-400/70 font-mono hidden sm:inline">
                       {updatedAt.toLocaleTimeString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour12: false })}
                     </span>
                   )}
@@ -185,15 +176,15 @@ export const TaskSyncWidget: React.FC = () => {
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {t('task.desc')}
             </p>
           </div>
         </div>
 
-        {/* Stats Pills */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 bg-slate-900/5 dark:bg-white/5 px-3 py-1.5 rounded-xl border border-slate-300/60 dark:border-white/10 text-xs">
+        {/* Stats Pills + Actions */}
+        <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+          <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-900/5 dark:bg-white/5 px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-xl border border-slate-300/60 dark:border-white/10 text-xs flex-wrap whitespace-nowrap">
             <span className="text-slate-500 dark:text-slate-400">{t('task.total')}</span>
             <span className="font-mono font-bold text-slate-900 dark:text-white">{stats.total}</span>
             <span className="text-slate-300 dark:text-slate-600">|</span>
@@ -212,15 +203,15 @@ export const TaskSyncWidget: React.FC = () => {
             href={`${getMyappHomeUrl()}?page=email_reports`}
             target="_blank"
             rel="noopener noreferrer"
-            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium text-xs flex items-center gap-1 transition-all shadow-sm shadow-indigo-600/30"
+            className="px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium text-xs flex items-center gap-1 transition-all shadow-sm shadow-indigo-600/30"
           >
             <Mail className="w-3.5 h-3.5" />
-            <span>{t('task.latestReports')}</span>
+            <span className="hidden sm:inline">{t('task.latestReports')}</span>
           </a>
 
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1.5 rounded-xl bg-slate-900/5 hover:bg-slate-900/10 text-slate-600 border border-slate-300/60 dark:bg-white/5 dark:hover:bg-white/10 dark:text-slate-300 dark:border-white/10 transition-colors"
+            className="p-2 sm:p-1.5 rounded-xl bg-slate-900/5 hover:bg-slate-900/10 text-slate-600 border border-slate-300/60 dark:bg-white/5 dark:hover:bg-white/10 dark:text-slate-300 dark:border-white/10 transition-colors"
             title={isExpanded ? t('task.collapse') : t('task.expand')}
           >
             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -230,9 +221,9 @@ export const TaskSyncWidget: React.FC = () => {
             href={`${getMyappHomeUrl()}?page=sync`}
             target="_blank"
             rel="noopener noreferrer"
-            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-medium text-xs flex items-center gap-1 transition-all shadow-sm shadow-teal-600/30"
+            className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-medium text-xs flex items-center gap-1 transition-all shadow-sm shadow-teal-600/30"
           >
-            <span>{t('task.bigScreen')}</span>
+            <span className="hidden sm:inline">{t('task.bigScreen')}</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
         </div>
@@ -240,15 +231,15 @@ export const TaskSyncWidget: React.FC = () => {
 
       {/* Expandable Task Cards */}
       {isExpanded && (
-        <div className="mt-4 pt-4 border-t border-slate-200 dark:border-white/10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 animate-fadeIn">
+        <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-slate-200 dark:border-white/10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 animate-fadeIn">
           {showcase.map((task) => (
             <div
               key={task.id}
-              className="p-3 rounded-xl bg-white/70 border border-slate-200 hover:border-teal-500/50 dark:bg-white/5 dark:border-white/10 dark:hover:border-teal-400/40 flex flex-col justify-between transition-colors"
+              className="p-2.5 sm:p-3 rounded-xl bg-white/70 border border-slate-200 hover:border-teal-500/50 dark:bg-white/5 dark:border-white/10 dark:hover:border-teal-400/40 flex flex-col justify-between transition-colors"
             >
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-teal-100 text-teal-700 border border-teal-300/70 dark:bg-teal-950/80 dark:text-teal-300 dark:border-teal-400/20">
+                <div className="flex items-center justify-between mb-1 sm:mb-1.5">
+                  <span className="text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-md bg-teal-100 text-teal-700 border border-teal-300/70 dark:bg-teal-950/80 dark:text-teal-300 dark:border-teal-400/20">
                     {task.category}
                   </span>
                   {task.running ? (
@@ -269,10 +260,10 @@ export const TaskSyncWidget: React.FC = () => {
                 <h4 className="font-semibold text-xs text-slate-900 dark:text-white truncate" title={task.name}>
                   {task.name}
                 </h4>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug font-mono">{task.id}</p>
+                <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 sm:mt-1 leading-snug font-mono">{task.id}</p>
               </div>
 
-              <div className="mt-2.5 pt-2 border-t border-slate-200/80 dark:border-white/10 text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5">
+              <div className="mt-2 sm:mt-2.5 pt-1.5 sm:pt-2 border-t border-slate-200/80 dark:border-white/10 text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5">
                 <div className="flex items-center justify-between">
                   <span>{t('task.cron')}</span>
                   <span className="font-mono text-slate-700 dark:text-slate-300">{task.cron}</span>

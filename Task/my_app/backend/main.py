@@ -54,6 +54,7 @@ from backend.routers import (
     cm_flows,
     task_configs,
     email_reports,
+    finebi_reports,
     mw_ume,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
@@ -122,6 +123,8 @@ app.include_router(cm_flows.router)
 app.include_router(task_configs.router)
 # 邮件报告文件（EmailReports 页面：email 类任务生成的最新报告文件列表/下载）
 app.include_router(email_reports.router)
+# FineBI 报表文件（Task Report Files → FINEBI report 页签：FTP 同步的最新 Excel 列表/下载）
+app.include_router(finebi_reports.router)
 app.include_router(mw_ume.router)
 
 
@@ -280,7 +283,10 @@ if (frontend_dist / "assets").is_dir():
             # 已被 /myapp/assets 挂载处理，这里只兜底（理论上不会命中）
             return _index_response()
         if file_path.is_file():
-            return FileResponse(file_path)
+            # 独立 HTML（如 mw_ume_topology.html / ip_trace.html）频繁热更新，禁止缓存，
+            # 避免部署后 iframe 仍复用旧版 HTML 导致用户看不到新增按钮/逻辑。
+            headers = _INDEX_NO_CACHE_HEADERS if file_path.suffix.lower() == ".html" else None
+            return FileResponse(file_path, headers=headers)
         return _index_response()
 else:
     print("WARNING: frontend/dist/assets 不存在，跳过静态资源挂载（开发模式由 Vite 提供前端，不影响 API）")

@@ -3,13 +3,17 @@ import io
 import logging
 import json
 import re
+import os
+import time
+import uuid
 import sqlite3
 from urllib.parse import quote
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from backend.database import get_raw_connection, list_tables
-from backend.dialect_helpers import table_columns
+from backend.database import get_raw_connection, list_tables, DB_PATH
+from backend.dialect_helpers import table_columns, write_df
+from backend.routers.upload import clean_column_name, UPLOAD_DIR
 from backend.services.profiler import DataProfiler
 import pandas as pd
 
@@ -297,6 +301,140 @@ def export_table_data(
         media_type=media_type,
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
+
+
+# ---------------- 自定义导入：Excel/CSV → 用户命名的新表（写入当前数据库） ----------------
+@router.post("/import")
+async def import_excel_to_table(
+    file: UploadFile = File(...),
+    table_name: str = Form(...),
+    overwrite: bool = Form(False),
+):
+    """将 Excel/CSV 导入为一张（或多张）用户命名的新表，写入当前数据库。
+
+    - table_name：目标表名，必须是合法标识符；拒绝以 _ 开头（内部表命名空间）与已存在表（除非 overwrite=True）。
+    - 单 Sheet：直接用 table_name 建表；多 Sheet：table_name_<sheet> 各建一张。
+    - 列名自动清洗（clean_column_name），与 /api/upload 同源逻辑。
+    """
+    if not file.filename or not file.filename.endswith(('.xlsx', '.xls', '.csv')):
+        raise HTTPException(status_code=400, detail="仅支持 .xlsx, .xls, .csv 文件")
+
+    name = (table_name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="表名不能为空")
+    if name.startswith('_'):
+        raise HTTPException(status_code=400, detail="表名不能以 _ 开头（_ 为内部表保留命名空间）")
+    if not _safe_ident(name):
+        raise HTTPException(
+            status_code=400,
+            detail=f"非法表名: {name}（只能含字母、数字、下划线，且以字母或下划线开头）",
+        )
+
+    # 防御路径穿越：文件名仅保留安全字符，强制落在 UPLOAD_DIR 内
+    raw_name = file.filename or "upload.xlsx"
+    _base = re.sub(r'[\/\\]', '_', raw_name).split('\x00')[0]
+    _base = re.sub(r'[^\w.\-]', '_', _base) or "upload.xlsx"
+    safe_name = f"{uuid.uuid4().hex[:8]}_{_base}"
+    file_path = (UPLOAD_DIR / safe_name).resolve()
+    if not str(file_path).startswith(str(UPLOAD_DIR.resolve()) + os.sep):
+        raise HTTPException(status_code=400, detail="非法文件名")
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    start_time = time.time()
+    try:
+        if raw_name.endswith('.csv'):
+            xls_sheets = {"Sheet1": pd.read_csv(str(file_path))}
+        else:
+            xls = pd.ExcelFile(str(file_path), engine='openpyxl')
+            xls_sheets = {s: pd.read_excel(xls, sheet_name=s) for s in xls.sheet_names}
+            xls.close()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"文件解析失败: {str(e)}")
+    finally:
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+
+    sheet_names = list(xls_sheets.keys())
+
+    # 目标表名：单 sheet 用原名；多 sheet 追加 _<clean(sheet)>
+    if len(sheet_names) == 1:
+        target_names = [name]
+    else:
+        seen = {}
+        target_names = []
+        for s in sheet_names:
+            cand = f"{name}_{clean_column_name(s)}"
+            if cand in seen:
+                seen[cand] += 1
+                cand = f"{cand}_{seen[cand]}"
+            else:
+                seen[cand] = 0
+            target_names.append(cand)
+
+    # 冲突检测（已存在且未勾选覆盖则 409）
+    existing = set(list_tables())
+    collide = [t for t in target_names if t in existing]
+    if collide and not overwrite:
+        raise HTTPException(
+            status_code=409,
+            detail=f"表已存在: {', '.join(collide)}（勾选「覆盖已存在表」可替换）",
+        )
+
+    # 清洗各 sheet（列名标准化 + 去重列名 + 丢弃全空列）
+    cleaned = []
+    for tname, sheet_name in zip(target_names, sheet_names):
+        df = xls_sheets[sheet_name]
+        if df.empty:
+            if len(xls_sheets) == 1:
+                raise HTTPException(status_code=400, detail="文件内容为空，无可导入数据")
+            continue
+        df.columns = [clean_column_name(c) for c in df.columns]
+        seen_c = {}
+        new_cols = []
+        for c in df.columns:
+            if c in seen_c:
+                seen_c[c] += 1
+                new_cols.append(f"{c}_{seen_c[c]}")
+            else:
+                seen_c[c] = 0
+                new_cols.append(c)
+        df.columns = new_cols
+        df = df.dropna(axis=1, how='all')
+        cleaned.append((tname, sheet_name, df))
+
+    created = []
+    with get_raw_connection() as conn:
+        for tname, sheet_name, df in cleaned:
+            write_df(df, tname, if_exists="replace" if overwrite else "append")
+            for idx_col in ['site_id', 'region_level1', 'region', 'status', 'created_time']:
+                if idx_col in df.columns:
+                    try:
+                        conn.execute(
+                            f'CREATE INDEX IF NOT EXISTS idx_{tname}_{idx_col} ON "{tname}"({idx_col})')
+                    except Exception:
+                        pass
+            conn.commit()
+            created.append({
+                "table_name": tname,
+                "sheet_name": sheet_name,
+                "row_count": int(len(df)),
+                "col_count": int(len(df.columns)),
+            })
+        conn.close()
+
+    logging.getLogger(__name__).info(
+        "[IMPORT] 自定义导入: %s -> %d 张表 (%s)", raw_name,
+        len(created), ", ".join(c["table_name"] for c in created))
+    return {
+        "ok": True,
+        "filename": raw_name,
+        "tables": created,
+        "elapsed_seconds": round(time.time() - start_time, 2),
+    }
 
 
 @router.get("/{table_name}/profile")

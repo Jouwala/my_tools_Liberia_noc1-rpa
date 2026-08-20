@@ -13,12 +13,12 @@ type Placement =
 
 interface ExplainIconProps {
   text: string
-  size?: number
+  size?: number | string
   placement?: Placement
 }
 
 // 核心：? 图标 + 悬停气泡（含复制）。不依赖外部 t，内部自行取 i18n。
-export const ExplainIcon = ({ text, size = 13, placement = 'top' }: ExplainIconProps) => {
+export const ExplainIcon = ({ text, size = '0.8125rem', placement = 'top' }: ExplainIconProps) => {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const copy = useCallback(async () => {
@@ -41,10 +41,10 @@ export const ExplainIcon = ({ text, size = 13, placement = 'top' }: ExplainIconP
       placement={placement}
       mouseEnterDelay={0.1}
       content={
-        <div style={{ maxWidth: 300, fontSize: 12, lineHeight: 1.7 }}>
+        <div style={{ maxWidth: 'min(80vw, 18.75rem)', fontSize: '0.75rem', lineHeight: 1.7 }}>
           <div style={{ color: WH.textMuted, whiteSpace: 'pre-line' }}>{text}</div>
           <Button size="small" type="link" icon={<CopyOutlined />} onClick={copy}
-            style={{ paddingLeft: 0, marginTop: 8, height: 'auto', color: WH.teal }}>
+            style={{ paddingLeft: 0, marginTop: 'var(--wh-space-sm)', height: 'auto', color: WH.teal }}>
             {copied ? t('explain.copied') : t('explain.copy')}
           </Button>
         </div>
@@ -60,7 +60,7 @@ export const ExplainIcon = ({ text, size = 13, placement = 'top' }: ExplainIconP
 // 卡片右上角绝对定位的 ? 说明（与 PacketLoss SummaryCard 一致；点击不触发卡片下钻）
 export const ExplainCorner = ({ text, size, placement }: { text: string; size?: number; placement?: Placement }) => (
   <span
-    style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, cursor: 'help' }}
+    style={{ position: 'absolute', top: 'var(--wh-space-xs)', right: 'var(--wh-space-sm)', zIndex: 2, cursor: 'help' }}
     onClick={e => e.stopPropagation()}
   >
     <ExplainIcon text={text} size={size} placement={placement} />
@@ -69,7 +69,7 @@ export const ExplainCorner = ({ text, size, placement }: { text: string; size?: 
 
 // 文字标签 + 内联 ? 说明
 export const ExplainLabel = ({ label, text, size, placement }: { label: ReactNode; text: string; size?: number; placement?: Placement }) => (
-  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--wh-space-xs)' }}>
     {label}
     <ExplainIcon text={text} size={size} placement={placement} />
   </span>

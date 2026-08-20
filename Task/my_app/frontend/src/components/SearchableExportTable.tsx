@@ -28,13 +28,13 @@ export function SearchableExportTable({
   const { t } = useI18n()
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--wh-space-sm)', marginBottom: 'var(--wh-space-sm)' }}>
         <Input
           prefix={<SearchOutlined />}
           placeholder={t('table.searchPlaceholder')}
           allowClear
           size="small"
-          style={{ width: 250 }}
+          style={{ width: 'min(100%, 15.625rem)' }}
           value={search}
           onChange={e => onSearchChange(e.target.value)}
           aria-label={`${ariaLabel} ${t('table.searchPlaceholder')}`}
@@ -43,15 +43,17 @@ export function SearchableExportTable({
           {exportText}
         </Button>
       </div>
-      <Table
-        dataSource={data}
-        columns={columns}
-        size="small"
-        rowKey={rowKey}
-        pagination={{ pageSize: 10, size: 'small', showTotal: (total: number) => `${total} items` }}
-        scroll={{ x: 'max-content' }}
-        aria-label={ariaLabel}
-      />
+      <div className="wh-table-responsive">
+        <Table
+          dataSource={data}
+          columns={columns}
+          size="small"
+          rowKey={rowKey}
+          pagination={{ pageSize: 10, size: 'small', showTotal: (total: number) => `${total} items` }}
+          scroll={{ x: 'max-content' }}
+          aria-label={ariaLabel}
+        />
+      </div>
     </>
   )
 }

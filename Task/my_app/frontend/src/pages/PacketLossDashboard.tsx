@@ -21,7 +21,7 @@ import api from '../api'
 import { cachedGet } from '../cache'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { useI18n, numLocale } from '../i18n'
-import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
+import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine, pageWrap, cardStyle } from '../theme'
 
 const STATUS_ORDER = ['Critical[>5]', 'Major[1-5]', 'Minor[0.5-1]', 'Warning[0.1-0.5]', 'No Packet loss[<0.1]']
 const STATUS_COLORS: Record<string, string> = {
@@ -73,18 +73,18 @@ const CHART_HEIGHT = 280
 
 const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: string; sub?: string }) => (
   <div style={{
-    display: 'flex', alignItems: 'center', gap: 10,
-    margin: '22px 0 14px', padding: '0 0 10px',
+    display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
+    margin: '1.375rem 0 0.875rem', padding: '0 0 0.625rem',
     borderBottom: '1px solid rgba(100,255,218,0.18)',
   }}>
     <span style={{
-      width: 28, height: 28, borderRadius: 6,
+      width: 28, height: 28, borderRadius: 'var(--wh-radius-sm)',
       background: WH.accentGrad,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: '#06222e', fontSize: 14,
+      color: '#06222e', fontSize: '0.875rem',
     }}>{icon}</span>
-    <span style={{ fontSize: 16, fontWeight: 700, color: WH.text, letterSpacing: '-0.3px' }}>{title}</span>
-    {sub && <span style={{ fontSize: 12, color: WH.textDim, marginLeft: 4 }}>{sub}</span>}
+    <span style={{ fontSize: '1rem', fontWeight: 700, color: WH.text, letterSpacing: '-0.3px' }}>{title}</span>
+    {sub && <span style={{ fontSize: '0.75rem', color: WH.textDim, marginLeft: 4 }}>{sub}</span>}
   </div>
 )
 
@@ -106,10 +106,10 @@ const MetricExplainPopover = ({ text, children, t }: { text: string; children: R
   return (
     <Popover trigger="hover" placement="bottom" mouseEnterDelay={0.1}
       content={
-        <div style={{ maxWidth: 300, fontSize: 12, lineHeight: 1.7 }}>
+        <div style={{ maxWidth: '18.75rem', fontSize: '0.75rem', lineHeight: 1.7 }}>
           <div style={{ color: WH.textMuted, whiteSpace: 'pre-line' }}>{text}</div>
           <Button size="small" type="link" icon={<CopyOutlined />} onClick={copy}
-            style={{ paddingLeft: 0, marginTop: 8, height: 'auto', color: WH.teal }}>
+            style={{ paddingLeft: 0, marginTop: 'var(--wh-space-sm)', height: 'auto', color: WH.teal }}>
             {copied ? t('pl.copied') : t('pl.copyExplain')}
           </Button>
         </div>
@@ -145,9 +145,8 @@ const SummaryCard = ({ icon, value, label, color, onClick, explain, t }: {
 
   return (
     <Card size="small" hoverable onClick={onClick} style={{
-      background: WH.cardBg, border: WH.cardBorder, borderRadius: 12,
+      ...cardStyle,
       cursor: 'pointer', transition: 'all .2s', position: 'relative', overflow: 'hidden',
-      boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
     }}
       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorderHover }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorder }}
@@ -159,11 +158,11 @@ const SummaryCard = ({ icon, value, label, color, onClick, explain, t }: {
           placement="top"
           mouseEnterDelay={0.1}
           content={
-            <div style={{ maxWidth: 280, fontSize: 12, lineHeight: 1.7 }}>
-              <div style={{ fontWeight: 700, color: WH.teal, marginBottom: 6 }}>{label} · {t('pl.calcExplain')}</div>
+            <div style={{ maxWidth: '17.5rem', fontSize: '0.75rem', lineHeight: 1.7 }}>
+              <div style={{ fontWeight: 700, color: WH.teal, marginBottom: 'var(--wh-space-xs)' }}>{label} · {t('pl.calcExplain')}</div>
               <div style={{ color: WH.textMuted, whiteSpace: 'pre-line' }}>{explain}</div>
               <Button size="small" type="link" icon={<CopyOutlined />} onClick={copyExplain}
-                style={{ paddingLeft: 0, marginTop: 8, height: 'auto', color: WH.teal }}>
+                style={{ paddingLeft: 0, marginTop: 'var(--wh-space-sm)', height: 'auto', color: WH.teal }}>
                 {copied ? t('pl.copied') : t('pl.copyExplain')}
               </Button>
             </div>
@@ -171,7 +170,7 @@ const SummaryCard = ({ icon, value, label, color, onClick, explain, t }: {
         >
           <span
             onClick={e => e.stopPropagation()}
-            style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, cursor: 'help', color: WH.textDim, fontSize: 13 }}
+            style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, cursor: 'help', color: WH.textDim, fontSize: '0.8125rem' }}
           >
             <InfoCircleOutlined />
           </span>
@@ -179,13 +178,13 @@ const SummaryCard = ({ icon, value, label, color, onClick, explain, t }: {
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <div style={{ fontSize: 30, fontWeight: 800, color, lineHeight: 1.2, textShadow: `0 0 14px ${color}55` }}>{value}</div>
-          <div style={{ fontSize: 12, color: WH.textMuted, marginTop: 4, fontWeight: 500 }}>{label}</div>
+          <div style={{ fontSize: '1.875rem', fontWeight: 800, color, lineHeight: 1.2, textShadow: `0 0 14px ${color}55` }}>{value}</div>
+          <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginTop: 'var(--wh-space-xs)', fontWeight: 500 }}>{label}</div>
         </div>
-        <span style={{ fontSize: 38, opacity: 0.16, color }}>{icon}</span>
+        <span style={{ fontSize: '2.375rem', opacity: 0.16, color }}>{icon}</span>
       </div>
-      <div style={{ textAlign: 'right', fontSize: 10, color: WH.teal, fontWeight: 600, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
-        {t('pl.clickDrill')} <RightOutlined style={{ fontSize: 9 }} />
+      <div style={{ textAlign: 'right', fontSize: '0.625rem', color: WH.teal, fontWeight: 600, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
+        {t('pl.clickDrill')} <RightOutlined style={{ fontSize: '0.5625rem' }} />
       </div>
     </Card>
   )
@@ -304,7 +303,7 @@ export default function PacketLossDashboard() {
       title: k.replace(/_/g, ' '),
       dataIndex: k,
       key: k,
-      width: 130,
+      minWidth: 130,
       ellipsis: true,
       sorter: (a: any, b: any) => strSorter(a, b, k),
       filters: getUniqueFilters(drillData, k),
@@ -473,45 +472,44 @@ export default function PacketLossDashboard() {
 
   // ========== 渲染 ==========
   if (loading) return (
-    <div style={{ background: WH.bg, borderRadius: 12, textAlign: 'center', padding: 60 }}>
+    <div style={{ ...pageWrap, textAlign: 'center', padding: '3.75rem' }}>
       <Spin size="large" />
-      <div style={{ marginTop: 12, color: WH.textMuted }}>{t('pl.loading')}</div>
+      <div style={{ marginTop: '0.75rem', color: WH.textMuted }}>{t('pl.loading')}</div>
     </div>
   )
-  if (error) return <Alert type="error" message={t('pl.loadFailed')} description={error} showIcon style={{ margin: 16 }} />
+  if (error) return <Alert type="error" message={t('pl.loadFailed')} description={error} showIcon style={{ margin: 'var(--wh-space-md)' }} />
   if (!data) return <Empty description={t('pl.noData')} />
 
   const sc = data.status_counts || {}
   const fmt = (n: number) => (n ?? 0).toLocaleString(numLocale(locale))
-  const pageWrap: React.CSSProperties = { background: WH.bg, borderRadius: 12, padding: 4, minHeight: 'calc(100vh - 110px)' }
-  const cardWrap: React.CSSProperties = { background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }
   const chartClick = (titlePrefix: string) => (p: any) => openDrilldown(p, p.name, `${titlePrefix} = ${STATUS_SHORT[p.name] || p.name}`)
 
   return (
-    <div style={{ ...pageWrap, display: 'flex', flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+    <div style={{ ...pageWrap, display: 'flex', flexDirection: 'row', gap: '0.75rem', alignItems: 'flex-start' }}>
       {/* ===== 左侧 2/3：其余组件，排列顺序不变 ===== */}
-      <div style={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-xs)' }}>
       {/* 1. 头部横幅 */}
       <Card size="small" style={{
+        ...cardStyle,
         background: isDark ? 'linear-gradient(135deg, #101a2e 0%, #112540 100%)' : 'linear-gradient(135deg, #eef4fa 0%, #e0edf7 100%)',
         borderLeft: isDark ? '4px solid #ff4757' : '4px solid #d92d20',
-        borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', marginBottom: 4,
+        marginBottom: 'var(--wh-space-xs)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <DisconnectOutlined style={{ fontSize: 22, color: WH.teal }} />
-            <span style={{ fontSize: 15, fontWeight: 700, color: WH.text }}>{t('pl.status')}</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
+            <DisconnectOutlined style={{ fontSize: '1.375rem', color: WH.teal }} />
+            <span style={{ fontSize: '0.9375rem', fontWeight: 700, color: WH.text }}>{t('pl.status')}</span>
             <MetricExplainPopover text={METRIC_EXPLAIN['Affected Sites']} t={t}>
-              <Tag color="error" style={{ borderRadius: 12, fontWeight: 600, cursor: 'pointer' }}
+              <Tag color="error" style={{ borderRadius: 'var(--wh-radius-lg)', fontWeight: 600, cursor: 'pointer' }}
                 onClick={e => openDrilldown(e, 'all', 'Sites with Packet Loss')}>
                 {fmt(data.affected_sites)} {t('pl.affectedSites')}
               </Tag>
             </MetricExplainPopover>
             <MetricExplainPopover text={METRIC_EXPLAIN['Data Granularity']} t={t}>
-              <Tag color="cyan" style={{ borderRadius: 12, fontWeight: 600 }}>{t('pl.granularity')}</Tag>
+              <Tag color="cyan" style={{ borderRadius: 'var(--wh-radius-lg)', fontWeight: 600 }}>{t('pl.granularity')}</Tag>
             </MetricExplainPopover>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: WH.textDim }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-md)', fontSize: '0.75rem', color: WH.textDim }}>
             <ClockCircleOutlined />
             <span>{t('pl.updated')}: {data.generated_at ? String(data.generated_at).replace('T', ' ').slice(0, 19) : 'N/A'}</span>
           </div>
@@ -545,17 +543,17 @@ export default function PacketLossDashboard() {
       <SectionTitle icon={<BarChartOutlined />} title={t('pl.lossDistribution')} sub={t('pl.lossDistSub')} />
       <Row gutter={[12, 12]}>
         <Col span={7}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('pl.statusDist')}</span>} style={cardWrap}>
+          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.statusDist')}</span>} style={cardStyle}>
             <ReactECharts option={statusPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick('Status') }} />
           </Card>
         </Col>
         <Col span={10}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('pl.dailyTrend')}</span>} style={cardWrap}>
+          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.dailyTrend')}</span>} style={cardStyle}>
             <ReactECharts option={trendOption} style={{ height: CHART_HEIGHT }} />
           </Card>
         </Col>
         <Col span={7}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('pl.byRegion')}</span>} style={cardWrap}>
+          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.byRegion')}</span>} style={cardStyle}>
             <ReactECharts option={regionOption} style={{ height: CHART_HEIGHT }} />
           </Card>
         </Col>
@@ -563,27 +561,27 @@ export default function PacketLossDashboard() {
 
       {/* 4. Top 站点（地图已移至右侧 1/3 列） */}
       <SectionTitle icon={<PieChartOutlined />} title={t('pl.topSites')} sub={t('pl.topSitesSub')} />
-      <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('pl.topSitesTitle')}</span>} style={cardWrap}>
+      <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.topSitesTitle')}</span>} style={cardStyle}>
         <ReactECharts option={topSitesOption} style={{ height: 520 }} />
       </Card>
       </div>
 
       {/* ===== 右侧 1/3：Packet Loss Map 单独占整列，可固定 ===== */}
-      <div style={{ flex: '0 0 33.333%', width: '33.333%', position: 'sticky', top: 12, alignSelf: 'flex-start' }}>
-        <Card size="small" style={{ ...cardWrap, marginBottom: 0 }} title={
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('pl.map')} ({t('pl.mapAffected', { n: data?.affected_sites ?? 0 })})</span>
-            <span style={{ fontSize: 11, color: WH.textMuted, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ flex: '0 0 33.333%', width: '33.333%', position: 'sticky', top: 'var(--wh-space-md)', alignSelf: 'flex-start' }}>
+        <Card size="small" style={{ ...cardStyle, marginBottom: 0 }} title={
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>
+            <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.map')} ({t('pl.mapAffected', { n: data?.affected_sites ?? 0 })})</span>
+            <span style={{ fontSize: '0.6875rem', color: WH.textMuted, display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
               <Button size="small" type={showTopology ? 'primary' : 'default'}
                 icon={<ApartmentOutlined />} onClick={() => setShowTopology(v => !v)}
-                style={{ height: 22, fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                style={{ height: 22, fontSize: '0.6875rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 {t('pl.topology')}
               </Button>
               {t('pl.showOk')} <Switch size="small" checked={includeOk} onChange={setIncludeOk} />
             </span>
           </div>
         }>
-          <MapContainer center={[6.4, -9.4]} zoom={8} style={{ height: 'calc(100vh - 180px)', minHeight: 420, width: '100%', background: 'var(--wh-page-bg)', borderRadius: 8 }} scrollWheelZoom>
+          <MapContainer center={[6.4, -9.4]} zoom={8} style={{ height: 'calc(100vh - 180px)', minHeight: '26.25rem', width: '100%', background: 'var(--wh-page-bg)', borderRadius: 'var(--wh-radius-md)' }} scrollWheelZoom>
             <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             {/* 拓扑连线：复用 GIS Map 真实链路，按传输类型着色（MW / IPRAN 等）。
                 先白色描边(casing)增强对比，再画彩色线；hub 链路更粗。 */}
@@ -600,7 +598,7 @@ export default function PacketLossDashboard() {
                 radius={Math.min(12, 5 + Math.log1p(s.last_day_max_pl) * 2)}
                 fillColor={STATUS_COLORS[s.status] || WH.teal} color="#fff" weight={1} fillOpacity={0.85}>
                 <Popup>
-                  <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  <div style={{ fontSize: '0.75rem', lineHeight: 1.6 }}>
                     <strong>{s.site_name}</strong> {s.site_code && `(${s.site_code})`}<br />
                     {t('pl.popup.status')}: <strong style={{ color: STATUS_COLORS[s.status] }}>{STATUS_SHORT[s.status] || s.status}</strong><br />
                     {t('pl.popup.maxPL')}: <strong>{s.last_day_max_pl}%</strong><br />
@@ -613,25 +611,25 @@ export default function PacketLossDashboard() {
             ))}
           </MapContainer>
           {showTopology && topology.gateways.length > 0 && (
-            <div style={{ display: 'flex', gap: 10, marginTop: 6, marginBottom: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: WH.textMuted, fontWeight: 600 }}>{t('pl.topoLabel')}:</span>
+            <div style={{ display: 'flex', gap: 'var(--wh-space-sm)', marginTop: '0.375rem', marginBottom: '0.125rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.6875rem', color: WH.textMuted, fontWeight: 600 }}>{t('pl.topoLabel')}:</span>
               {topology.gateways.map(gw => (
-                <span key={gw} style={{ fontSize: 11, color: WH.textMuted, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span key={gw} style={{ fontSize: '0.6875rem', color: WH.textMuted, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ width: 14, height: 4, borderRadius: 2, background: gwColor(gw), display: 'inline-block' }} />
                   {gw}
                 </span>
               ))}
-              <span style={{ fontSize: 10, color: WH.textDim }}>{t('pl.topoHint')}</span>
+              <span style={{ fontSize: '0.625rem', color: WH.textDim }}>{t('pl.topoHint')}</span>
             </div>
           )}
-          <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', marginTop: 'var(--wh-space-sm)', flexWrap: 'wrap' }}>
             {STATUS_ORDER.map(st => {
               const hidden = hiddenStatuses.has(st)
               return (
                 <span key={st} onClick={() => toggleStatusVisible(st)}
                   title={hidden ? t('pl.showOnMap') : t('pl.hideOnMap')}
                   style={{
-                    fontSize: 11, cursor: 'pointer', userSelect: 'none',
+                    fontSize: '0.6875rem', cursor: 'pointer', userSelect: 'none',
                     color: hidden ? WH.textDim : WH.textMuted,
                     opacity: hidden ? 0.45 : 1,
                     textDecoration: hidden ? 'line-through' : 'none',
@@ -653,20 +651,22 @@ export default function PacketLossDashboard() {
         onClose={() => setDrillOpen(false)}
         title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan" style={{ borderRadius: 10 }}>{t('pl.records', { n: filteredDrillData.length })}</Tag></span>}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
           <Input prefix={<SearchOutlined />} placeholder={t('pl.searchPlaceholder')} allowClear size="middle"
-            style={{ width: 350 }} value={drillSearch} onChange={e => setDrillSearch(e.target.value)} />
+            style={{ width: 'min(100%, 21.875rem)' }} value={drillSearch} onChange={e => setDrillSearch(e.target.value)} />
           <Button type="primary" icon={<DownloadOutlined />} onClick={exportToExcel} disabled={!filteredDrillData.length}>
             {t('pl.exportExcel')}
           </Button>
         </div>
         {drillLoading ? (
-          <Spin style={{ display: 'block', margin: '60px auto' }} />
+          <Spin style={{ display: 'block', margin: '3.75rem auto' }} />
         ) : (
-          <Table dataSource={filteredDrillData} columns={drillColumns} size="small"
-            rowKey={(r: any) => r.Site_Name}
-            pagination={{ pageSize: 15, size: 'small', showTotal: (total: number) => `${total} ${t('pl.items')}` }}
-            scroll={{ x: 'max-content' }} />
+          <div className="wh-table-responsive">
+            <Table dataSource={filteredDrillData} columns={drillColumns} size="small"
+              rowKey={(r: any) => r.Site_Name}
+              pagination={{ pageSize: 15, size: 'small', showTotal: (total: number) => `${total} ${t('pl.items')}` }}
+              scroll={{ x: 'max-content' }} />
+          </div>
         )}
       </DraggableClickModal>
     </div>

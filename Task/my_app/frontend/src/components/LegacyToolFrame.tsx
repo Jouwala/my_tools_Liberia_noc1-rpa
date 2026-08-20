@@ -17,9 +17,9 @@ import { useI18n } from '../i18n'
  * 因此统一让 iframe 填满 Content 可用区域，由页面内部自己滚动 —— 这与在浏览器里
  * 直接打开原版工具的观感一致，也避免了外层再套一层滚动条。
  *
- * 可用高度 = 100vh - Header(64) - Content margin(16*2) - Content padding(4*2)
+ * 可用高度由 CSS 变量统一计算，避免 Header/margin/padding 改动后这里硬编码失效。
  */
-const CHROME_OFFSET = 104
+const CHROME_OFFSET = 'calc(var(--wh-header-height) + var(--wh-content-margin) * 2 + var(--wh-content-padding) * 2)'
 
 interface Props {
   /** public/ 下的 HTML 文件名，例如 'ip-trace.html' */
@@ -59,8 +59,8 @@ export default function LegacyToolFrame({ file, title }: Props) {
       style={{
         position: 'relative',
         width: '100%',
-        height: `calc(100vh - ${CHROME_OFFSET}px)`,
-        borderRadius: 8,
+        height: `calc(100vh - ${CHROME_OFFSET})`,
+        borderRadius: 'var(--wh-radius-md)',
         overflow: 'hidden',
         background: 'var(--wh-page-bg)',
       }}

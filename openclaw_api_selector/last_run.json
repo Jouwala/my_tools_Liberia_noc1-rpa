@@ -1,12 +1,12 @@
 {
-  "run_at": "2026-08-18T03:06:59",
+  "run_at": "2026-08-20T03:13:30",
   "threshold_ms": 5000,
   "results": [
     {
       "key": "zhipu",
       "name": "ZhiPu GLM 智谱",
       "available": true,
-      "latency_ms": 2039,
+      "latency_ms": 1899,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -16,7 +16,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 2039,
+          "latency_ms": 1899,
           "status": "ok",
           "error": null
         }
@@ -26,7 +26,7 @@
       "key": "nvidia",
       "name": "NVIDIA NIM",
       "available": true,
-      "latency_ms": 813,
+      "latency_ms": 744,
       "model": "meta/llama-3.1-8b-instruct",
       "error": null,
       "status": "ok",
@@ -36,7 +36,7 @@
         {
           "model": "meta/llama-3.1-8b-instruct",
           "ok": true,
-          "latency_ms": 813,
+          "latency_ms": 744,
           "status": "ok",
           "error": null
         }
@@ -46,7 +46,7 @@
       "key": "openrouter",
       "name": "OpenRouter",
       "available": true,
-      "latency_ms": 2512,
+      "latency_ms": 3533,
       "model": "openrouter/free",
       "error": null,
       "status": "ok",
@@ -56,7 +56,7 @@
         {
           "model": "openrouter/free",
           "ok": true,
-          "latency_ms": 2512,
+          "latency_ms": 3533,
           "status": "ok",
           "error": null
         }
@@ -114,7 +114,7 @@
       "key": "zhipu5",
       "name": "ZhiPu GLM-5 智谱",
       "available": true,
-      "latency_ms": 1447,
+      "latency_ms": 1770,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -124,7 +124,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1447,
+          "latency_ms": 1770,
           "status": "ok",
           "error": null
         }
@@ -277,12 +277,12 @@
     {
       "key": "ollama",
       "name": "Local Ollama",
-      "available": false,
-      "latency_ms": null,
-      "model": "qwen3:4b",
-      "error": "HTTP 404",
-      "status": "model_unavailable",
-      "reason": "模型不可用/不存在",
+      "available": true,
+      "latency_ms": 4659,
+      "model": "phi4-mini:3.8b",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
       "local": true,
       "tried_models": [
         {
@@ -301,24 +301,10 @@
         },
         {
           "model": "phi4-mini:3.8b",
-          "ok": false,
-          "latency_ms": null,
-          "status": "timeout",
-          "error": "timed out"
-        },
-        {
-          "model": "phi4-mini",
-          "ok": false,
-          "latency_ms": null,
-          "status": "model_unavailable",
-          "error": "HTTP 404"
-        },
-        {
-          "model": "qwen3:4b",
-          "ok": false,
-          "latency_ms": null,
-          "status": "model_unavailable",
-          "error": "HTTP 404"
+          "ok": true,
+          "latency_ms": 4659,
+          "status": "ok",
+          "error": null
         }
       ]
     },

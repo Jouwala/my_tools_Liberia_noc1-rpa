@@ -28,7 +28,7 @@ export default function Overview() {
   }, [])
 
   if (loading) return (
-    <div style={{ ...pageWrap, textAlign: 'center', padding: 100 }}>
+    <div style={{ ...pageWrap, textAlign: 'center', padding: '6.25rem' }}>
       <Spin size="large" />
     </div>
   )
@@ -85,7 +85,7 @@ export default function Overview() {
   return (
     <div style={pageWrap}>
       <Row gutter={[16, 16]}>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card style={cardStyle}>
             <Statistic
               title={<span style={{ color: WH.textMuted }}>{t('overview.totalTables')} <ExplainIcon text={t('overview.explain.totalTables')} /></span>}
@@ -95,7 +95,7 @@ export default function Overview() {
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card style={cardStyle}>
             <Statistic
               title={<span style={{ color: WH.textMuted }}>{t('overview.totalRows')} <ExplainIcon text={t('overview.explain.totalRows')} /></span>}
@@ -105,7 +105,7 @@ export default function Overview() {
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card style={cardStyle}>
             <Statistic
               title={<span style={{ color: WH.textMuted }}>{t('overview.coreTables')} <ExplainIcon text={t('overview.explain.coreTables')} /></span>}
@@ -115,7 +115,7 @@ export default function Overview() {
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} lg={6}>
           <Card style={cardStyle}>
             <Statistic
               title={<span style={{ color: WH.textMuted }}>{t('overview.status')}</span>}
@@ -127,32 +127,35 @@ export default function Overview() {
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col span={14}>
+      <Row gutter={[16, 16]} style={{ marginTop: 'var(--wh-space-md)' }}>
+        <Col xs={24} lg={14}>
           <Card title={<span style={{ color: WH.text, fontWeight: 600 }}>{t('overview.rankTitle')}</span>} style={cardStyle}>
-            <ReactECharts option={barOption} style={{ height: 350 }} />
+            <ReactECharts option={barOption} style={{ height: 'clamp(16rem, 30vw, 22rem)' }} />
           </Card>
         </Col>
-        <Col span={10}>
+        <Col xs={24} lg={10}>
           <Card title={<span style={{ color: WH.text, fontWeight: 600 }}>{t('overview.distTitle')}</span>} style={cardStyle}>
-            <ReactECharts option={pieOption} style={{ height: 350 }} />
+            <ReactECharts option={pieOption} style={{ height: 'clamp(16rem, 30vw, 22rem)' }} />
           </Card>
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+      <Row gutter={[16, 16]} style={{ marginTop: 'var(--wh-space-md)' }}>
         <Col span={24}>
           <Card title={<span style={{ color: WH.text, fontWeight: 600 }}>{t('overview.allTables')}</span>} style={cardStyle}>
-            <Table
-              dataSource={info.tables.filter(t => !t.name.startsWith('_'))}
-              columns={[
-                { title: <span style={{ color: WH.textMuted }}>{t('overview.tableName')}</span>, dataIndex: 'name', key: 'name', render: (v: string) => <Tag color="cyan">{v}</Tag> },
-                { title: <span style={{ color: WH.textMuted }}>{t('overview.rowCount')}</span>, dataIndex: 'rows', key: 'rows', sorter: (a: any, b: any) => a.rows - b.rows },
-              ]}
-              pagination={false}
-              size="small"
-              rowKey="name"
-            />
+            <div className="wh-table-responsive">
+              <Table
+                dataSource={info.tables.filter(t => !t.name.startsWith('_'))}
+                columns={[
+                  { title: <span style={{ color: WH.textMuted }}>{t('overview.tableName')}</span>, dataIndex: 'name', key: 'name', render: (v: string) => <Tag color="cyan">{v}</Tag> },
+                  { title: <span style={{ color: WH.textMuted }}>{t('overview.rowCount')}</span>, dataIndex: 'rows', key: 'rows', sorter: (a: any, b: any) => a.rows - b.rows },
+                ]}
+                pagination={false}
+                size="small"
+                rowKey="name"
+                scroll={{ x: 'max-content' }}
+              />
+            </div>
           </Card>
         </Col>
       </Row>

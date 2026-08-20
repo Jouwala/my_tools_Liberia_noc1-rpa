@@ -56,7 +56,6 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
 
   useEffect(() => {
     if (dashboardToEdit) {
-      // 编辑模式：显示翻译后的数据（用户看到的是当前语言的文本）
       const translated = translateDashboard(dashboardToEdit, lang, t);
       setTitle(translated.title);
       setDescription(translated.description);
@@ -72,7 +71,6 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
       setIsPinned(translated.isPinned);
       setThemeColor(translated.themeColor);
     } else {
-      // Defaults for new dashboard
       setTitle('');
       setDescription('');
       setPlatform('finebi');
@@ -120,13 +118,10 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
     e.preventDefault();
     if (!title.trim() || !url.trim()) return;
 
-    // 保存时：将翻译后的值映射回原始中文值
     const originalCategory = reverseTranslateCategory(category, lang, t);
     const originalTags = tags.map((tag) => reverseTranslateTag(tag, lang, t));
     const originalDept = reverseTranslateDept(department, lang, t);
     const originalOwner = reverseTranslateOwner(owner, lang, t);
-
-    console.log('[DashboardModal] Save:', { lang, department, originalDept, owner, originalOwner });
 
     const newItem: DashboardItem = {
       id: dashboardToEdit ? dashboardToEdit.id : `board-${Date.now()}`,
@@ -166,36 +161,36 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-[95vw] sm:max-w-2xl max-h-[92vh] sm:max-h-[94vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-300">
-              {dashboardToEdit ? <Save className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <div className="p-2 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-300 shrink-0">
+              {dashboardToEdit ? <Save className="w-4 h-4 sm:w-5 sm:h-5" /> : <Plus className="w-4 h-4 sm:w-5 sm:h-5" />}
             </div>
-            <div>
-              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-base">
+            <div className="min-w-0">
+              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm sm:text-base truncate">
                 {dashboardToEdit ? t('modal.editTitle') : t('modal.addTitle')}
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 truncate hidden sm:block">
                 {t('modal.subtitle')}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="p-2 sm:p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5 sm:w-5 sm:h-5" />
           </button>
         </div>
 
         {/* Scrollable Form */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 sm:space-y-4">
           {/* Quick presets */}
           {!dashboardToEdit && (
-            <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between">
+            <div className="p-2.5 sm:p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200/80 dark:border-slate-700/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
               <span className="text-xs text-slate-600 dark:text-slate-400 font-medium flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-teal-500" /> {t('modal.quickTip')}
               </span>
@@ -203,14 +198,14 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
                 <button
                   type="button"
                   onClick={() => handleQuickUrlFill('finebi')}
-                  className="px-2.5 py-1 text-xs font-medium rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 transition-colors"
+                  className="px-2 sm:px-2.5 py-1 text-xs font-medium rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 transition-colors"
                 >
                   {t('modal.quickFinebi')}
                 </button>
                 <button
                   type="button"
                   onClick={() => handleQuickUrlFill('custom')}
-                  className="px-2.5 py-1 text-xs font-medium rounded-lg bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 hover:bg-teal-200 transition-colors"
+                  className="px-2 sm:px-2.5 py-1 text-xs font-medium rounded-lg bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 hover:bg-teal-200 transition-colors"
                 >
                   {t('modal.quickCustom')}
                 </button>
@@ -219,7 +214,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
           )}
 
           {/* Platform & Category */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
                 {t('modal.platform')}
@@ -275,7 +270,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={t('modal.namePh')}
-              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+              className="w-full px-3 sm:px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
               required
             />
           </div>
@@ -291,7 +286,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder={t('modal.urlPh')}
-              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
+              className="w-full px-3 sm:px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
               required
             />
           </div>
@@ -306,7 +301,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={t('modal.descPh')}
-              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none"
+              className="w-full px-3 sm:px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none"
             />
           </div>
 
@@ -357,19 +352,19 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
           </div>
 
           {/* Icon & Theme Color */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5" /> {t('modal.icons')}
               </label>
-              <div className="grid grid-cols-6 gap-1.5 max-h-28 overflow-y-auto p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+              <div className="grid grid-cols-6 gap-1 sm:gap-1.5 max-h-28 overflow-y-auto p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
                 {AVAILABLE_ICONS.map((ico) => (
                   <button
                     type="button"
                     key={ico.name}
                     onClick={() => setIconName(ico.name)}
                     title={ico.label}
-                    className={`p-2 rounded-lg flex items-center justify-center transition-colors ${
+                    className={`p-1.5 sm:p-2 rounded-lg flex items-center justify-center transition-colors ${
                       iconName === ico.name
                         ? 'bg-teal-600 text-white shadow-sm'
                         : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-700'
@@ -385,13 +380,13 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                 <Palette className="w-3.5 h-3.5" /> {t('modal.color')}
               </label>
-              <div className="space-y-1.5 max-h-28 overflow-y-auto">
+              <div className="space-y-1 sm:space-y-1.5 max-h-28 overflow-y-auto">
                 {colorOptions.map((opt) => (
                   <button
                     type="button"
                     key={opt.id}
                     onClick={() => setThemeColor(opt.id)}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs transition-all ${
+                    className={`w-full flex items-center gap-2 sm:gap-2.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-xs transition-all ${
                       themeColor === opt.id
                         ? 'bg-teal-50 dark:bg-teal-950/60 border border-teal-300 dark:border-teal-800 font-medium'
                         : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -455,7 +450,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
           </div>
 
           {/* Options (Pin, Favorite) */}
-          <div className="pt-2 flex items-center gap-6 border-t border-slate-100 dark:border-slate-800">
+          <div className="pt-2 flex flex-wrap items-center gap-4 sm:gap-6 border-t border-slate-100 dark:border-slate-800">
             <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
               <input
                 type="checkbox"
@@ -485,18 +480,18 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
         </form>
 
         {/* Footer */}
-        <div className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2.5">
+        <div className="px-4 sm:px-6 py-3 sm:py-3.5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row justify-end gap-2 sm:gap-2.5">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+            className="w-full sm:w-auto px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
           >
             {t('modal.cancel')}
           </button>
           <button
             type="button"
             onClick={handleSubmit}
-            className="px-5 py-2 text-xs font-semibold text-white bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 rounded-xl shadow-sm shadow-teal-600/20 transition-all flex items-center gap-1.5"
+            className="w-full sm:w-auto px-4 sm:px-5 py-2 text-xs font-semibold text-white bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 rounded-xl shadow-sm shadow-teal-600/20 transition-all flex items-center justify-center gap-1.5"
           >
             <Save className="w-3.5 h-3.5" />
             {t('modal.save')}

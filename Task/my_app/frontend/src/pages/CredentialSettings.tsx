@@ -133,14 +133,14 @@ export default function CredentialSettings() {
   }
 
   return (
-    <div style={{ padding: '8px 4px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+    <div style={{ padding: 'var(--wh-space-sm) var(--wh-space-xs)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
         <div>
           <Typography.Title level={4} style={{ color: WH.text, margin: 0 }}>
-            <KeyOutlined style={{ color: WH.teal, marginRight: 8 }} />
+            <KeyOutlined style={{ color: WH.teal, marginRight: 'var(--wh-space-sm)' }} />
             {t('settings.title')}
           </Typography.Title>
-          <div style={{ color: WH.textMuted, fontSize: 12, marginTop: 4 }}>{t('settings.subtitle')}</div>
+          <div style={{ color: WH.textMuted, fontSize: '0.75rem', marginTop: 'var(--wh-space-xs)' }}>{t('settings.subtitle')}</div>
         </div>
         <Button icon={<ReloadOutlined />} onClick={load}>{t('settings.refresh')}</Button>
       </div>
@@ -152,16 +152,16 @@ export default function CredentialSettings() {
           placeholder={t('settings.searchPlaceholder')}
           value={query}
           onChange={e => setQuery(e.target.value)}
-          style={{ marginBottom: 12, background: WH.cardBg, borderColor: WH.teal, color: WH.text }}
+          style={{ marginBottom: '0.75rem', background: WH.cardBg, borderColor: WH.teal, color: WH.text }}
         />
       )}
 
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '5rem' }}>
           <Spin size="large" />
         </div>
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', color: WH.textMuted, padding: 60 }}>{t('settings.noMatch')}</div>
+        <div style={{ textAlign: 'center', color: WH.textMuted, padding: '3.75rem' }}>{t('settings.noMatch')}</div>
       ) : (
         <Row gutter={[16, 16]}>
           {filtered.map(g => {
@@ -172,9 +172,9 @@ export default function CredentialSettings() {
                   size="small"
                   style={cardStyle}
                   title={
-                    <span style={{ color: WH.text, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ color: WH.text, display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
                       {g.name}
-                      <span style={{ marginLeft: 8 }}>{sourceTag(g.source)}</span>
+                      <span style={{ marginLeft: 'var(--wh-space-sm)' }}>{sourceTag(g.source)}</span>
                       {g.usage && (
                         <Tooltip title={g.usage}>
                           <InfoCircleOutlined style={{ color: WH.textDim, cursor: 'help' }} />
@@ -184,16 +184,16 @@ export default function CredentialSettings() {
                   }
                   extra={
                     g.updated_at ? (
-                      <span style={{ color: WH.textDim, fontSize: 12 }}>
+                      <span style={{ color: WH.textDim, fontSize: '0.75rem' }}>
                         {t('settings.updatedAt')}: {g.updated_at}
                       </span>
                     ) : null
                   }
                 >
-                  <Space direction="vertical" style={{ width: '100%' }} size={10}>
+                  <Space direction="vertical" style={{ width: '100%', gap: '0.625rem' }}>
                     {g.has_username && (
                       <div>
-                        <div style={{ color: WH.textMuted, fontSize: 12, marginBottom: 4 }}>{g.username_label}</div>
+                        <div style={{ color: WH.textMuted, fontSize: '0.75rem', marginBottom: 'var(--wh-space-xs)' }}>{g.username_label}</div>
                         <Input
                           style={inputStyle}
                           value={draft.username}
@@ -206,10 +206,10 @@ export default function CredentialSettings() {
                       </div>
                     )}
                     <div>
-                      <div style={{ color: WH.textMuted, fontSize: 12, marginBottom: 4 }}>
+                      <div style={{ color: WH.textMuted, fontSize: '0.75rem', marginBottom: 'var(--wh-space-xs)' }}>
                         {g.secret_label}
                         {g.secret_masked && (
-                          <span style={{ marginLeft: 8, color: WH.textDim }}>
+                          <span style={{ marginLeft: 'var(--wh-space-sm)', color: WH.textDim }}>
                             ({t('settings.current')}: {g.secret_masked})
                           </span>
                         )}
@@ -261,13 +261,13 @@ export default function CredentialSettings() {
         footer={null}
       >
         {revealData && (
-          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+          <Space direction="vertical" style={{ width: '100%', gap: 'var(--wh-space-sm)' }}>
             <div>
-              <div style={{ color: WH.textMuted, fontSize: 12 }}>{t('settings.revealUser')}</div>
+              <div style={{ color: WH.textMuted, fontSize: '0.75rem' }}>{t('settings.revealUser')}</div>
               <Input value={revealData.username} readOnly onFocus={e => e.target.select()} />
             </div>
             <div>
-              <div style={{ color: WH.textMuted, fontSize: 12 }}>{t('settings.revealSecret')}</div>
+              <div style={{ color: WH.textMuted, fontSize: '0.75rem' }}>{t('settings.revealSecret')}</div>
               <Input.Password value={revealData.secret} readOnly visibilityToggle onFocus={e => e.target.select()} />
             </div>
           </Space>

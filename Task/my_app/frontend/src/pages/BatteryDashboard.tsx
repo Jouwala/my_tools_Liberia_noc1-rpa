@@ -69,17 +69,17 @@ const CHART_H = 260
 
 const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: string; sub?: string }) => (
   <div style={{
-    display: 'flex', alignItems: 'center', gap: 10,
-    margin: '20px 0 12px', padding: '0 0 10px',
+    display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
+    margin: 'var(--wh-space-lg) 0 var(--wh-space-md)', padding: '0 0 var(--wh-space-sm)',
     borderBottom: '1px solid rgba(100,255,218,0.18)',
   }}>
     <span style={{
-      width: 28, height: 28, borderRadius: 6, background: WH.accentGrad,
+      width: 28, height: 28, borderRadius: 'var(--wh-radius-md)', background: WH.accentGrad,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: '#06222e', fontSize: 14,
+      color: '#06222e', fontSize: '0.875rem',
     }}>{icon}</span>
-    <span style={{ fontSize: 16, fontWeight: 700, color: WH.text, letterSpacing: '-0.3px' }}>{title}</span>
-    {sub && <span style={{ fontSize: 12, color: WH.textDim, marginLeft: 4 }}>{sub}</span>}
+    <span style={{ fontSize: '1rem', fontWeight: 700, color: WH.text, letterSpacing: '-0.3px' }}>{title}</span>
+    {sub && <span style={{ fontSize: '0.75rem', color: WH.textDim, marginLeft: 'var(--wh-space-xs)' }}>{sub}</span>}
   </div>
 )
 
@@ -92,20 +92,20 @@ const KpiCard = ({ value, label, sub, color, icon, hint }: {
   }}>
     <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: color, opacity: 0.9 }} />
     {hint && (
-      <span style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, cursor: 'help' }}>
+      <span style={{ position: 'absolute', top: 'var(--wh-space-xs)', right: 'var(--wh-space-sm)', zIndex: 2, cursor: 'help' }}>
         <ExplainIcon text={hint} />
       </span>
     )}
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div style={{ minWidth: 0 }}>
         <div style={{
-          fontSize: 26, fontWeight: 800, color, lineHeight: 1.2,
+          fontSize: '1.625rem', fontWeight: 800, color, lineHeight: 1.2,
           textShadow: `0 0 14px ${color}55`, whiteSpace: 'nowrap',
         }}>{value}</div>
-        <div style={{ fontSize: 12, color: WH.textMuted, marginTop: 4, fontWeight: 500 }}>{label}</div>
-        {sub && <div style={{ fontSize: 11, color: WH.textDim, marginTop: 2 }}>{sub}</div>}
+        <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginTop: 'var(--wh-space-xs)', fontWeight: 500 }}>{label}</div>
+        {sub && <div style={{ fontSize: '0.6875rem', color: WH.textDim, marginTop: '0.125rem' }}>{sub}</div>}
       </div>
-      <span style={{ fontSize: 34, opacity: 0.16, color }}>{icon}</span>
+      <span style={{ fontSize: '2.125rem', opacity: 0.16, color }}>{icon}</span>
     </div>
   </Card>
 )
@@ -425,40 +425,40 @@ export default function BatteryDashboard() {
   // ===== 表格列 =====
   const alarmColumns = [
     {
-      title: t('batt.severity'), dataIndex: 'severity', width: 96, fixed: 'left' as const,
+      title: t('batt.severity'), dataIndex: 'severity', minWidth: 96, fixed: 'left' as const,
       filters: ['Critical', 'Major', 'Minor'].map(v => ({ text: v, value: v })),
       onFilter: (v: any, r: any) => r.severity === v,
       render: (v: string) => <Tag color={SEV_COLORS[v]} style={{ fontWeight: 600, border: 'none' }}>{v}</Tag>,
     },
     {
-      title: t('batt.alarmType'), dataIndex: 'type', width: 170,
+      title: t('batt.alarmType'), dataIndex: 'type', minWidth: 170,
       filters: Array.from(new Set(alarms.map((a: any) => a.type))).map(v => ({ text: v as string, value: v as string })),
       onFilter: (v: any, r: any) => r.type === v,
     },
     {
-      title: t('batt.site'), dataIndex: 'site', width: 170, ellipsis: true,
+      title: t('batt.site'), dataIndex: 'site', minWidth: 170, ellipsis: true,
       sorter: (a: any, b: any) => String(a.site).localeCompare(String(b.site)),
       render: (v: string) => <a style={{ color: WH.teal }} onClick={() => openDrill(v)}>{v}</a>,
     },
-    { title: t('batt.battery'), dataIndex: 'mo', width: 110 },
+    { title: t('batt.battery'), dataIndex: 'mo', minWidth: 110 },
     {
-      title: 'SOC', dataIndex: 'soc', width: 90, align: 'right' as const,
+      title: 'SOC', dataIndex: 'soc', minWidth: 90, align: 'right' as const,
       sorter: (a: any, b: any) => (a.soc ?? 999) - (b.soc ?? 999),
       render: (v: number | null) => v == null ? <span style={{ color: WH.textDim }}>--</span>
         : <span style={{ color: v < 20 ? '#ff4757' : v < 50 ? '#ff922b' : WH.text, fontWeight: 600 }}>{v}%</span>,
     },
     {
-      title: t('batt.health'), dataIndex: 'health', width: 90, align: 'right' as const,
+      title: t('batt.health'), dataIndex: 'health', minWidth: 90, align: 'right' as const,
       sorter: (a: any, b: any) => (a.health ?? 999) - (b.health ?? 999),
       render: (v: number | null) => v == null ? <span style={{ color: WH.textDim }}>--</span> : `${v}%`,
     },
     {
-      title: t('batt.status'), dataIndex: 'status', width: 110,
+      title: t('batt.status'), dataIndex: 'status', minWidth: 110,
       render: (v: string) => <Tag color={STATUS_COLORS[v] || STATUS_COLORS.Unknown} style={{ border: 'none' }}>{v}</Tag>,
     },
-    { title: t('batt.detail'), dataIndex: 'detail', width: 220, ellipsis: true },
+    { title: t('batt.detail'), dataIndex: 'detail', minWidth: 220, ellipsis: true },
     {
-      title: t('batt.lastUpdate'), dataIndex: 'last_update', width: 160,
+      title: t('batt.lastUpdate'), dataIndex: 'last_update', minWidth: 160,
       sorter: (a: any, b: any) => String(a.last_update || '').localeCompare(String(b.last_update || '')),
       render: (v: string, r: any) => (
         <span style={{ color: r.freshness === 'fresh' ? WH.textMuted : '#ff922b' }}>
@@ -470,59 +470,59 @@ export default function BatteryDashboard() {
 
   const siteColumns = [
     {
-      title: t('batt.severity'), dataIndex: 'severity', width: 96, fixed: 'left' as const,
+      title: t('batt.severity'), dataIndex: 'severity', minWidth: 96, fixed: 'left' as const,
       filters: ['Critical', 'Major', 'Minor', 'OK'].map(v => ({ text: v, value: v })),
       onFilter: (v: any, r: any) => r.severity === v,
       render: (v: string) => <Tag color={SEV_COLORS[v]} style={{ fontWeight: 600, border: 'none' }}>{v}</Tag>,
     },
     {
-      title: t('batt.site'), dataIndex: 'site', width: 190, ellipsis: true,
+      title: t('batt.site'), dataIndex: 'site', minWidth: 190, ellipsis: true,
       sorter: (a: any, b: any) => String(a.site).localeCompare(String(b.site)),
       render: (v: string) => <a style={{ color: WH.teal }} onClick={() => openDrill(v)}>{v}</a>,
     },
     {
-      title: t('batt.category'), dataIndex: 'category', width: 140,
+      title: t('batt.category'), dataIndex: 'category', minWidth: 140,
       filters: categoryOptions.map(c => ({ text: c.label, value: c.value })),
       onFilter: (v: any, r: any) => r.category === v,
     },
-    { title: t('batt.batteries'), dataIndex: 'batteries', width: 90, align: 'right' as const, sorter: (a: any, b: any) => a.batteries - b.batteries },
+    { title: t('batt.batteries'), dataIndex: 'batteries', minWidth: 90, align: 'right' as const, sorter: (a: any, b: any) => a.batteries - b.batteries },
     {
-      title: t('batt.freshRate'), dataIndex: 'fresh_rate', width: 110, align: 'right' as const,
+      title: t('batt.freshRate'), dataIndex: 'fresh_rate', minWidth: 110, align: 'right' as const,
       sorter: (a: any, b: any) => a.fresh_rate - b.fresh_rate,
       render: (v: number) => <span style={{ color: v >= 80 ? '#51cf66' : v >= 40 ? '#ffd43b' : '#ff922b' }}>{v}%</span>,
     },
     {
-      title: t('batt.avgSoc'), dataIndex: 'avg_soc', width: 100, align: 'right' as const,
+      title: t('batt.avgSoc'), dataIndex: 'avg_soc', minWidth: 100, align: 'right' as const,
       sorter: (a: any, b: any) => (a.avg_soc ?? 999) - (b.avg_soc ?? 999),
       render: (v: number | null) => v == null ? <span style={{ color: WH.textDim }}>--</span> : `${v}%`,
     },
     {
-      title: t('batt.minSoc'), dataIndex: 'min_soc', width: 100, align: 'right' as const,
+      title: t('batt.minSoc'), dataIndex: 'min_soc', minWidth: 100, align: 'right' as const,
       sorter: (a: any, b: any) => (a.min_soc ?? 999) - (b.min_soc ?? 999),
       render: (v: number | null) => v == null ? <span style={{ color: WH.textDim }}>--</span>
         : <span style={{ color: v < 20 ? '#ff4757' : v < 50 ? '#ff922b' : WH.text, fontWeight: 600 }}>{v}%</span>,
     },
     {
-      title: t('batt.minHealth'), dataIndex: 'min_health', width: 110, align: 'right' as const,
+      title: t('batt.minHealth'), dataIndex: 'min_health', minWidth: 110, align: 'right' as const,
       sorter: (a: any, b: any) => (a.min_health ?? 999) - (b.min_health ?? 999),
       render: (v: number | null) => v == null ? <span style={{ color: WH.textDim }}>--</span>
         : <span style={{ color: v < 90 ? '#ff922b' : WH.text }}>{v}%</span>,
     },
     {
-      title: t('batt.discharging'), dataIndex: 'discharging', width: 100, align: 'right' as const,
+      title: t('batt.discharging'), dataIndex: 'discharging', minWidth: 100, align: 'right' as const,
       sorter: (a: any, b: any) => a.discharging - b.discharging,
       render: (v: number) => v > 0 ? <span style={{ color: '#ff922b', fontWeight: 600 }}>{v}</span> : v,
     },
     {
-      title: t('batt.critical'), dataIndex: 'critical_soc', width: 100, align: 'right' as const,
+      title: t('batt.critical'), dataIndex: 'critical_soc', minWidth: 100, align: 'right' as const,
       sorter: (a: any, b: any) => a.critical_soc - b.critical_soc,
       render: (v: number) => v > 0 ? <span style={{ color: '#ff4757', fontWeight: 700 }}>{v}</span> : v,
     },
     {
-      title: t('batt.stale'), dataIndex: 'stale', width: 90, align: 'right' as const,
+      title: t('batt.stale'), dataIndex: 'stale', minWidth: 90, align: 'right' as const,
       sorter: (a: any, b: any) => a.stale - b.stale,
     },
-    { title: t('batt.lastUpdate'), dataIndex: 'last_update', width: 160 },
+    { title: t('batt.lastUpdate'), dataIndex: 'last_update', minWidth: 160 },
   ]
 
   if (loading) {
@@ -537,7 +537,7 @@ export default function BatteryDashboard() {
   }
   if (!data?.available) {
     return (
-      <div style={{ ...pageWrap, padding: 24 }}>
+      <div style={{ ...pageWrap, padding: 'var(--wh-space-lg)' }}>
         <Empty description={<span style={{ color: WH.textMuted }}>{data?.message || t('batt.noData')}</span>} />
       </div>
     )
@@ -546,10 +546,10 @@ export default function BatteryDashboard() {
   return (
     <div style={pageWrap}>
       {/* ===== 顶部信息条 ===== */}
-      <Card size="small" style={{ ...cardStyle, marginBottom: 12 }} styles={{ body: { padding: '10px 16px' } }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: WH.text }}>
-            <ThunderboltOutlined style={{ color: WH.teal, marginRight: 8 }} />{t('batt.title')}
+      <Card size="small" style={{ ...cardStyle, marginBottom: '0.75rem' }} styles={{ body: { padding: 'var(--wh-space-sm) var(--wh-space-md)' } }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-md)', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.9375rem', fontWeight: 700, color: WH.text }}>
+            <ThunderboltOutlined style={{ color: WH.teal, marginRight: 'var(--wh-space-sm)' }} />{t('batt.title')}
           </span>
           <ExplainIcon text={t('batt.explain.title')} size={15} />
           <Tag color="cyan" style={{ border: 'none' }}>
@@ -572,54 +572,54 @@ export default function BatteryDashboard() {
       <Row gutter={12}>
         {/* ===== 侧边栏筛选 ===== */}
         <Col xs={24} lg={5} xl={4}>
-          <Card size="small" style={{ ...cardStyle, marginBottom: 12, position: 'sticky', top: 8 }}
-            title={<span style={{ color: WH.text, fontSize: 13 }}><FilterOutlined style={{ color: WH.teal, marginRight: 6 }} />{t('batt.filters')}</span>}
-            extra={<Button type="link" size="small" onClick={resetFilters} style={{ color: WH.teal, fontSize: 12 }}>{t('batt.reset')}</Button>}
+          <Card size="small" style={{ ...cardStyle, marginBottom: '0.75rem', position: 'sticky', top: 'var(--wh-space-sm)' }}
+            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}><FilterOutlined style={{ color: WH.teal, marginRight: '0.375rem' }} />{t('batt.filters')}</span>}
+            extra={<Button type="link" size="small" onClick={resetFilters} style={{ color: WH.teal, fontSize: '0.75rem' }}>{t('batt.reset')}</Button>}
           >
-            <div style={{ fontSize: 12, color: WH.textMuted, marginBottom: 6 }}>{t('batt.searchSite')}</div>
+            <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginBottom: 'var(--wh-space-xs)' }}>{t('batt.searchSite')}</div>
             <Input allowClear size="small" prefix={<SearchOutlined style={{ color: WH.textDim }} />}
               placeholder={t('batt.searchPlaceholder')} value={search}
-              onChange={e => setSearch(e.target.value)} style={{ marginBottom: 14 }} />
+              onChange={e => setSearch(e.target.value)} style={{ marginBottom: '0.875rem' }} />
 
-            <div style={{ fontSize: 12, color: WH.textMuted, marginBottom: 6 }}>{t('batt.category')}</div>
-            <Select mode="multiple" allowClear size="small" style={{ width: '100%', marginBottom: 14 }}
+            <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginBottom: 'var(--wh-space-xs)' }}>{t('batt.category')}</div>
+            <Select mode="multiple" allowClear size="small" style={{ width: '100%', marginBottom: '0.875rem' }}
               placeholder={t('batt.allCategories')} options={categoryOptions}
               value={cats} onChange={setCats} maxTagCount="responsive" />
 
-            <div style={{ fontSize: 12, color: WH.textMuted, marginBottom: 6 }}>{t('batt.status')}</div>
-            <Select mode="multiple" allowClear size="small" style={{ width: '100%', marginBottom: 14 }}
+            <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginBottom: 'var(--wh-space-xs)' }}>{t('batt.status')}</div>
+            <Select mode="multiple" allowClear size="small" style={{ width: '100%', marginBottom: '0.875rem' }}
               placeholder={t('batt.allStatuses')}
               options={[{ label: t('batt.statusCharge'), value: 'Charge' }, { label: t('batt.statusDischarge'), value: 'Discharge' }, { label: t('batt.statusUnknown'), value: 'Unknown' }]}
               value={statuses} onChange={setStatuses} maxTagCount="responsive" />
 
-            <div style={{ fontSize: 12, color: WH.textMuted, marginBottom: 2 }}>
+            <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginBottom: '0.125rem' }}>
               {t('batt.health')} ({healthRange[0]} - {healthRange[1]}%)
             </div>
             <Slider range min={0} max={100} value={healthRange} onChange={v => setHealthRange(v as [number, number])}
               styles={{ track: { background: WH.teal } }} />
 
-            <div style={{ fontSize: 12, color: WH.textMuted, marginBottom: 2 }}>
+            <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginBottom: '0.125rem' }}>
               {t('batt.soc')} ({socRange[0]} - {socRange[1]}%)
             </div>
             <Slider range min={0} max={100} value={socRange} onChange={v => setSocRange(v as [number, number])}
               styles={{ track: { background: WH.blue } }} />
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.75rem' }}>
               <ATooltip title={t('batt.freshOnlyHint')}>
-                <span style={{ fontSize: 12, color: WH.textMuted }}>{t('batt.freshOnly')}</span>
+                <span style={{ fontSize: '0.75rem', color: WH.textMuted }}>{t('batt.freshOnly')}</span>
               </ATooltip>
               <Switch size="small" checked={freshOnly} onChange={setFreshOnly} />
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.625rem' }}>
               <ATooltip title={t('batt.includeNullHint')}>
-                <span style={{ fontSize: 12, color: WH.textMuted }}>{t('batt.includeNull')}</span>
+                <span style={{ fontSize: '0.75rem', color: WH.textMuted }}>{t('batt.includeNull')}</span>
               </ATooltip>
               <Switch size="small" checked={includeNullMetric} onChange={setIncludeNullMetric} />
             </div>
 
-            <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed rgba(100,255,218,0.15)', fontSize: 11, color: WH.textDim }}>
+            <div style={{ marginTop: '0.875rem', paddingTop: '0.625rem', borderTop: '1px dashed rgba(100,255,218,0.15)', fontSize: '0.6875rem', color: WH.textDim }}>
               {t('batt.matched')}: <span style={{ color: WH.teal, fontWeight: 700 }}>{filtered.length}</span> / {batteries.length}
-              {filterActive && <Tag color="cyan" style={{ marginLeft: 6, border: 'none' }}>{t('batt.filtered')}</Tag>}
+              {filterActive && <Tag color="cyan" style={{ marginLeft: '0.375rem', border: 'none' }}>{t('batt.filtered')}</Tag>}
             </div>
           </Card>
         </Col>
@@ -675,39 +675,39 @@ export default function BatteryDashboard() {
           <Row gutter={[12, 12]}>
             <Col xs={24} md={12} xl={8}>
               <Card size="small" style={cardStyle}
-                title={<span style={{ color: WH.text, fontSize: 13 }}>{t('batt.socDist')}</span>}
-                extra={<span style={{ fontSize: 11, color: WH.textDim }}>{freshOnly ? t('batt.freshSubset') : t('batt.allData')}</span>}>
+                title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.socDist')}</span>}
+                extra={<span style={{ fontSize: '0.6875rem', color: WH.textDim }}>{freshOnly ? t('batt.freshSubset') : t('batt.allData')}</span>}>
                 <ReactECharts option={pieOption(view.socDist, SOC_COLORS)} style={{ height: CHART_H }} notMerge />
               </Card>
             </Col>
             <Col xs={24} md={12} xl={8}>
               <Card size="small" style={cardStyle}
-                title={<span style={{ color: WH.text, fontSize: 13 }}>{t('batt.statusDist')}</span>}
-                extra={<span style={{ fontSize: 11, color: WH.textDim }}>{t('batt.statusHint')}</span>}>
+                title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.statusDist')}</span>}
+                extra={<span style={{ fontSize: '0.6875rem', color: WH.textDim }}>{t('batt.statusHint')}</span>}>
                 <ReactECharts option={pieOption(view.statusDist, STATUS_COLORS)} style={{ height: CHART_H }} notMerge />
               </Card>
             </Col>
             <Col xs={24} md={12} xl={8}>
               <Card size="small" style={cardStyle}
-                title={<span style={{ color: WH.text, fontSize: 13 }}>{t('batt.freshnessDist')}</span>}
-                extra={<span style={{ fontSize: 11, color: WH.textDim }}>{t('batt.freshnessHint')}</span>}>
+                title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.freshnessDist')}</span>}
+                extra={<span style={{ fontSize: '0.6875rem', color: WH.textDim }}>{t('batt.freshnessHint')}</span>}>
                 <ReactECharts option={pieOption(view.freshDist, FRESH_COLORS)} style={{ height: CHART_H }} notMerge />
               </Card>
             </Col>
             <Col xs={24} xl={12}>
               <Card size="small" style={cardStyle}
-                title={<span style={{ color: WH.text, fontSize: 13 }}>{t('batt.healthDist')}</span>}
+                title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.healthDist')}</span>}
                 extra={
                   <Segmented size="small" value={healthMode} onChange={v => setHealthMode(v as any)}
                     options={[{ label: t('batt.byGrade'), value: 'bucket' }, { label: t('batt.histogram'), value: 'hist' }]} />
                 }>
                 <ReactECharts option={healthBarOption} style={{ height: CHART_H }} notMerge />
-                <div style={{ fontSize: 11, color: WH.textDim, marginTop: 4 }}>{t('batt.healthNote')}</div>
+                <div style={{ fontSize: '0.6875rem', color: WH.textDim, marginTop: 'var(--wh-space-xs)' }}>{t('batt.healthNote')}</div>
               </Card>
             </Col>
             <Col xs={24} xl={12}>
               <Card size="small" style={cardStyle}
-                title={<span style={{ color: WH.text, fontSize: 13 }}><ApartmentOutlined style={{ marginRight: 6, color: WH.teal }} />{t('batt.byCategory')}</span>}>
+                title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}><ApartmentOutlined style={{ marginRight: '0.375rem', color: WH.teal }} />{t('batt.byCategory')}</span>}>
                 <ReactECharts option={categoryOption} style={{ height: CHART_H }} notMerge />
               </Card>
             </Col>
@@ -732,7 +732,7 @@ export default function BatteryDashboard() {
           {/* 告警表 */}
           <SectionTitle icon={<WarningOutlined />} title={t('batt.alarms')} sub={`${alarms.length} ${t('batt.records')}`} />
           <Card size="small" style={cardStyle}>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 'var(--wh-space-sm)', marginBottom: '0.625rem', flexWrap: 'wrap' }}>
               <Segmented size="small" value={alarmSev} onChange={v => setAlarmSev(v as string)}
                 options={[
                   { label: t('batt.all'), value: 'all' },
@@ -740,7 +740,7 @@ export default function BatteryDashboard() {
                   { label: `Major (${alarmCounts.Major || 0})`, value: 'Major' },
                   { label: `Minor (${alarmCounts.Minor || 0})`, value: 'Minor' },
                 ]} />
-              <Input allowClear size="small" style={{ width: 220 }} prefix={<SearchOutlined style={{ color: WH.textDim }} />}
+              <Input allowClear size="small" style={{ width: 'min(100%, 13.75rem)' as any }} prefix={<SearchOutlined style={{ color: WH.textDim }} />}
                 placeholder={t('batt.searchAlarm')} value={alarmSearch} onChange={e => setAlarmSearch(e.target.value)} />
               <span style={{ flex: 1 }} />
               <Button size="small" icon={<DownloadOutlined />} onClick={() => exportXlsx(alarms, 'battery_alarms')}
@@ -748,51 +748,57 @@ export default function BatteryDashboard() {
                 {t('batt.export')}
               </Button>
             </div>
-            <Table rowKey={(r: any, i) => `${r.position}_${r.type}_${i}`} size="small"
-              dataSource={alarms} columns={alarmColumns as any}
-              scroll={{ x: 1180, y: 420 }}
-              pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (n) => `${n} ${t('batt.records')}` }} />
+            <div className="wh-table-responsive">
+              <Table rowKey={(r: any, i) => `${r.position}_${r.type}_${i}`} size="small"
+                dataSource={alarms} columns={alarmColumns as any}
+                scroll={{ x: 'max-content', y: 420 }}
+                pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (n) => `${n} ${t('batt.records')}` }} />
+            </div>
           </Card>
 
           {/* 站点汇总 */}
           <SectionTitle icon={<EnvironmentOutlined />} title={t('batt.siteSummary')} sub={`${sites.length} ${t('batt.sitesUnit')}`} />
           <Card size="small" style={cardStyle}>
-            <div style={{ display: 'flex', marginBottom: 10 }}>
-              <span style={{ fontSize: 12, color: WH.textDim }}>{t('batt.siteSummaryHint')}</span>
+            <div style={{ display: 'flex', marginBottom: '0.625rem', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>
+              <span style={{ fontSize: '0.75rem', color: WH.textDim }}>{t('batt.siteSummaryHint')}</span>
               <span style={{ flex: 1 }} />
               <Button size="small" icon={<DownloadOutlined />} onClick={() => exportXlsx(sites, 'battery_sites')}
                 style={{ color: WH.teal, borderColor: 'rgba(100,255,218,0.35)', background: 'transparent' }}>
                 {t('batt.export')}
               </Button>
             </div>
-            <Table rowKey="site" size="small" dataSource={sites} columns={siteColumns as any}
-              scroll={{ x: 1360, y: 460 }}
-              pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (n) => `${n} ${t('batt.sitesUnit')}` }} />
+            <div className="wh-table-responsive">
+              <Table rowKey="site" size="small" dataSource={sites} columns={siteColumns as any}
+                scroll={{ x: 'max-content', y: 460 }}
+                pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (n) => `${n} ${t('batt.sitesUnit')}` }} />
+            </div>
           </Card>
         </Col>
       </Row>
 
       {/* 站点下钻 */}
-      <Modal open={!!drillSite} onCancel={() => setDrillSite(null)} footer={null} width={980}
-        title={<span><EnvironmentOutlined style={{ color: WH.teal, marginRight: 8 }} />{drillSite}</span>}>
-        {drillLoading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div> : (
+      <Modal open={!!drillSite} onCancel={() => setDrillSite(null)} footer={null} width={'min(95vw, 61.25rem)' as any}
+        title={<span><EnvironmentOutlined style={{ color: WH.teal, marginRight: 'var(--wh-space-sm)' }} />{drillSite}</span>}>
+        {drillLoading ? <div style={{ textAlign: 'center', padding: '2.5rem' }}><Spin /></div> : (
           <>
-            <Row gutter={12} style={{ marginBottom: 12 }}>
+            <Row gutter={[12, 12]} style={{ marginBottom: '0.75rem' }}>
               <Col span={6}><Statistic title={t('batt.batteries')} value={drillData?.batteries?.length || 0} /></Col>
               <Col span={6}><Statistic title={t('batt.fresh')} value={(drillData?.batteries || []).filter((b: any) => b.freshness === 'fresh').length} /></Col>
               <Col span={6}><Statistic title={t('batt.discharging')} value={(drillData?.batteries || []).filter((b: any) => b.status === 'Discharge' && b.freshness === 'fresh').length} /></Col>
               <Col span={6}><Statistic title={t('batt.historyPoints')} value={drillData?.readings?.length || 0} /></Col>
             </Row>
-            <Table rowKey="position" size="small" pagination={false} scroll={{ y: 260 }}
-              dataSource={drillData?.batteries || []}
-              columns={[
-                { title: t('batt.battery'), dataIndex: 'mo', width: 120 },
-                { title: 'SOC', dataIndex: 'soc', width: 90, align: 'right' as const, render: (v: number | null) => v == null ? '--' : `${v}%` },
-                { title: t('batt.health'), dataIndex: 'health', width: 90, align: 'right' as const, render: (v: number | null) => v == null ? '--' : `${v}%` },
-                { title: t('batt.status'), dataIndex: 'status', width: 110, render: (v: string) => <Tag color={STATUS_COLORS[v] || STATUS_COLORS.Unknown} style={{ border: 'none' }}>{v}</Tag> },
-                { title: t('batt.lastUpdate'), dataIndex: 'last_update', width: 170 },
-                { title: t('batt.freshness'), dataIndex: 'freshness', width: 100, render: (v: string) => <Tag color={FRESH_COLORS[v]} style={{ border: 'none' }}>{v}</Tag> },
-              ]} />
+            <div className="wh-table-responsive">
+              <Table rowKey="position" size="small" pagination={false} scroll={{ y: 260 }}
+                dataSource={drillData?.batteries || []}
+                columns={[
+                  { title: t('batt.battery'), dataIndex: 'mo', minWidth: 120 },
+                  { title: 'SOC', dataIndex: 'soc', minWidth: 90, align: 'right' as const, render: (v: number | null) => v == null ? '--' : `${v}%` },
+                  { title: t('batt.health'), dataIndex: 'health', minWidth: 90, align: 'right' as const, render: (v: number | null) => v == null ? '--' : `${v}%` },
+                  { title: t('batt.status'), dataIndex: 'status', minWidth: 110, render: (v: string) => <Tag color={STATUS_COLORS[v] || STATUS_COLORS.Unknown} style={{ border: 'none' }}>{v}</Tag> },
+                  { title: t('batt.lastUpdate'), dataIndex: 'last_update', minWidth: 170 },
+                  { title: t('batt.freshness'), dataIndex: 'freshness', minWidth: 100, render: (v: string) => <Tag color={FRESH_COLORS[v]} style={{ border: 'none' }}>{v}</Tag> },
+                ]} />
+            </div>
           </>
         )}
       </Modal>

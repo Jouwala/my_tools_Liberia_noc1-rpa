@@ -1,0 +1,280 @@
+{
+  "info": {
+    "name": "MTN SA COS (ClickOnSite)",
+    "_postman_id": "mtn-sa-cos-2026-08-19",
+    "description": "南非 MTN ClickOnSite (COS) UAT 环境接口集合。\n\n特性：\n1) Collection 变量统一管理 base_url/账号/entityId/docId 等；\n2) 任意业务请求执行前自动检测 token，过期则自动调登录接口刷新 X-Auth-Token 和 Cookie；\n3) 登录请求的 Tests 自动保存 token + cookie + 过期时间。\n\n实测结果(2026-08-19): ①登录✅ ②查询✅ ③更新403(实体工作流锁定) ④上传✅ ⑤下载✅",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://uat-clickonsite.mtn.co.za", "type": "string" },
+    { "key": "tenant", "value": "mtn-sa", "type": "string" },
+    { "key": "username", "value": "svc_cos_uat_zte", "type": "string" },
+    { "key": "password", "value": "m!i2#QE8UbFzdyx$TfXJv69nr26guK5z", "type": "string" },
+    { "key": "x_auth_token", "value": "", "type": "string" },
+    { "key": "cookie", "value": "", "type": "string" },
+    { "key": "token_expiry", "value": "0", "type": "string" },
+    { "key": "entity_id", "value": "180a2a77-87d8-41d4-94c8-2168f4966405", "type": "string" },
+    { "key": "entity_type", "value": "project_instance_mno", "type": "string" },
+    { "key": "model_id", "value": "d56e130f-fdd2-499f-82ed-b17aaadf319b", "type": "string" },
+    { "key": "field_name", "value": "fac_attachments", "type": "string" },
+    { "key": "doc_id", "value": "995e93cb-0a34-497e-b4df-16eb73bd14f3", "type": "string" },
+    { "key": "saf_forecasted_date", "value": "1780358400001", "type": "string" }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// ===== Collection 级 Pre-request: 自动刷新 X-Auth-Token (登录请求自身跳过) =====",
+          "var reqUrl = (pm.request && pm.request.url) ? pm.request.url.toString() : \"\";",
+          "if (reqUrl.indexOf('identity/login') !== -1) {",
+          "    // 当前就是登录请求，跳过自动刷新，避免循环",
+          "} else {",
+          "    var now = Math.floor(Date.now() / 1000);",
+          "    var expiry = 0;",
+          "    try { expiry = parseInt(pm.collectionVariables.get('token_expiry') || '0', 10) || 0; } catch (e) {}",
+          "    var token = pm.collectionVariables.get('x_auth_token') || '';",
+          "    // token 为空 或 已过期(提前 100s 缓冲) 则自动登录刷新",
+          "    if (!token || expiry < now + 100) {",
+          "        var baseUrl = pm.collectionVariables.get('base_url');",
+          "        var loginReq = {",
+          "            url: baseUrl + '/mtn-sa/cosapi/identity/login',",
+          "            method: 'POST',",
+          "            header: {",
+          "                'x-client-tenant': pm.collectionVariables.get('tenant'),",
+          "                'Content-Type': 'application/json'",
+          "            },",
+          "            body: {",
+          "                mode: 'raw',",
+          "                raw: JSON.stringify({",
+          "                    username: pm.collectionVariables.get('username'),",
+          "                    password: pm.collectionVariables.get('password')",
+          "                })",
+          "            }",
+          "        };",
+          "        pm.sendRequest(loginReq, function (err, res) {",
+          "            if (err) { console.log('[AutoLogin] error: ' + err); return; }",
+          "            if (res.code !== 200) { console.log('[AutoLogin] HTTP ' + res.code); return; }",
+          "            var d = {};",
+          "            try { d = res.json(); } catch (e) { console.log('[AutoLogin] parse error'); return; }",
+          "            if (!d.token) { console.log('[AutoLogin] no token in response'); return; }",
+          "            pm.collectionVariables.set('x_auth_token', d.token);",
+          "            pm.collectionVariables.set('token_expiry', String(now + 3500)); // ~58min",
+          "            // 从 Set-Cookie 提取 name=value 拼成 cookie 串",
+          "            var hs = (res.headers && res.headers.all) ? res.headers.all() : [];",
+          "            var parts = hs.filter(function (h) { return h.key.toLowerCase() === 'set-cookie'; })",
+          "                              .map(function (h) { return h.value.split(';')[0].trim(); });",
+          "            pm.collectionVariables.set('cookie', parts.join('; '));",
+          "            console.log('[AutoLogin] OK, token refreshed, valid ~58min');",
+          "        });",
+          "    } else {",
+          "        console.log('[AutoLogin] token still valid, expiry=' + expiry + ' now=' + now);",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "1-登录认证 (获取X-Auth-Token)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "x-client-tenant", "value": "{{tenant}}", "type": "text" },
+          { "key": "Content-Type", "value": "application/json", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/mtn-sa/cosapi/identity/login",
+          "host": [ "{{base_url}}" ],
+          "path": [ "mtn-sa", "cosapi", "identity", "login" ]
+        },
+        "description": "接口①: 登录认证。响应 {\"token\":\"...\",\"userId\":...}。\nTests 脚本自动把 token 存入 x_auth_token 变量、把 Set-Cookie 拼成 cookie 变量、记录 token_expiry。"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// ===== 登录 Tests: 提取 token + cookie 存入 collection 变量 =====",
+              "try {",
+              "    var d = pm.response.json();",
+              "    if (d.token) {",
+              "        pm.collectionVariables.set('x_auth_token', d.token);",
+              "        var now = Math.floor(Date.now() / 1000);",
+              "        pm.collectionVariables.set('token_expiry', String(now + 3500));",
+              "        var hs = pm.response.headers.all();",
+              "        var parts = hs.filter(function (h) { return h.key.toLowerCase() === 'set-cookie'; })",
+              "                          .map(function (h) { return h.value.split(';')[0].trim(); });",
+              "        pm.collectionVariables.set('cookie', parts.join('; '));",
+              "        pm.test('Login OK - token & cookie saved', function () {});",
+              "        console.log('[Login] token saved, loginName=' + d.loginName);",
+              "    } else {",
+              "        pm.test('Login failed - no token', function () { throw new Error('no token in response'); });",
+              "    }",
+              "} catch (e) {",
+              "    pm.test('Login failed - ' + e, function () { throw new Error(String(e)); });",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2-查询计划进度 (updateEntityFields)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "x-client-tenant", "value": "{{tenant}}", "type": "text" },
+          { "key": "X-Auth-Token", "value": "{{x_auth_token}}", "type": "text" },
+          { "key": "Content-Type", "value": "application/json", "type": "text" },
+          { "key": "Cookie", "value": "{{cookie}}", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"entityId\": \"{{entity_id}}\",\n  \"entityType\": \"{{entity_type}}\",\n  \"values\": {\n    \"saf_forecasted_date\": \"{{saf_forecasted_date}}\"\n  }\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/mtn-sa/cosapi/entity/updateEntityFields",
+          "host": [ "{{base_url}}" ],
+          "path": [ "mtn-sa", "cosapi", "entity", "updateEntityFields" ]
+        },
+        "description": "接口②: 计划进度获取(按字段过滤查询)。\nvalues 是过滤条件(必填,不传返回403),返回匹配实体的完整计划进度数据。\n实测 HTTP 200。"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP ' + pm.response.code, function () {",
+              "    pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "console.log('[Query] HTTP ' + pm.response.code + ' size=' + pm.response.headers.get('Content-Length'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3-更新计划进度 (entity/type)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-Auth-Token", "value": "{{x_auth_token}}", "type": "text" },
+          { "key": "x-client-tenant", "value": "{{tenant}}", "type": "text" },
+          { "key": "Content-Type", "value": "application/json", "type": "text" },
+          { "key": "Cookie", "value": "{{cookie}}", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"entityId\": \"{{entity_id}}\",\n  \"entityType\": \"{{entity_type}}\",\n  \"values\": {\n    \"emf_required\": \"1\"\n  }\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/mtn-sa/cosapi/entity/type/{{entity_type}}/{{entity_id}}",
+          "host": [ "{{base_url}}" ],
+          "path": [ "mtn-sa", "cosapi", "entity", "type", "{{entity_type}}", "{{entity_id}}" ]
+        },
+        "description": "接口③: 计划进度更新。\n实测在 entity_id=180a2a77... 上返回 403(实体处于工作流 NSB4 SAF approval 状态被锁,换字段也403)。\ncurl 格式正确,实体在可编辑状态时即返回 200。"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "console.log('[Update] HTTP ' + pm.response.code);",
+              "if (pm.response.code === 403) {",
+              "    console.log('[Update] 403 = 实体被工作流锁定,非curl格式问题。换可编辑状态的实体即可。');",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4-文档上传 (dms/upload)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-Auth-Token", "value": "{{x_auth_token}}", "type": "text" },
+          { "key": "x-client-tenant", "value": "{{tenant}}", "type": "text" },
+          { "key": "Cookie", "value": "{{cookie}}", "type": "text" }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "entityType", "value": "{{entity_type}}", "type": "text" },
+            { "key": "modelId", "value": "{{model_id}}", "type": "text" },
+            { "key": "fieldName", "value": "{{field_name}}", "type": "text" },
+            { "key": "documentType", "value": "entity", "type": "text" },
+            { "key": "fileContent", "type": "file", "src": "", "description": "点击选择本地文件(文本/PDF等)" }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/mtn-sa/cosapi/dms/upload",
+          "host": [ "{{base_url}}" ],
+          "path": [ "mtn-sa", "cosapi", "dms", "upload" ]
+        },
+        "description": "接口④: 文档上传(multipart/form-data)。\n实测 HTTP 200,返回 {\"id\":\"...\",\"name\":\"...\",\"size\":...}。\n注意: fileContent 字段在 Postman 里点击选择本地文件(src 留空,发送时会弹选择框)。"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    try { var d = pm.response.json(); console.log('[Upload] docId=' + d.id + ' name=' + d.name); } catch (e) {}",
+              "} else { console.log('[Upload] HTTP ' + pm.response.code); }"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5-文档下载 (dms GET)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "X-Auth-Token", "value": "{{x_auth_token}}", "type": "text" },
+          { "key": "x-client-tenant", "value": "{{tenant}}", "type": "text" },
+          { "key": "Content-Type", "value": "application/json", "type": "text" },
+          { "key": "Cookie", "value": "{{cookie}}", "type": "text" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/mtn-sa/cosapi/dms/{{doc_id}}?includeFileContent=true",
+          "host": [ "{{base_url}}" ],
+          "path": [ "mtn-sa", "cosapi", "dms", "{{doc_id}}" ],
+          "query": [
+            { "key": "includeFileContent", "value": "true" }
+          ]
+        },
+        "description": "接口⑤: 文档下载。\n实测 HTTP 200,返回 JSON,含 fileContent(base64编码的文件内容)。\ndoc_id 默认 995e93cb...(lld文档);可在变量里改成上传返回的新文档ID。"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "console.log('[Download] HTTP ' + pm.response.code);",
+              "if (pm.response.code === 200) {",
+              "    try { var d = pm.response.json(); console.log('[Download] name=' + d.name + ' size=' + d.size + ' hasFileContent=' + (!!d.fileContent)); } catch (e) {}",
+              "}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

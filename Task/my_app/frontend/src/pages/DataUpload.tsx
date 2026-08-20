@@ -65,7 +65,7 @@ export default function DataUpload() {
 
   return (
     <div>
-      <Card title={t('upload.title')} style={{ marginBottom: 16 }}>
+      <Card title={t('upload.title')} style={{ marginBottom: 'var(--wh-space-md)' }}>
         <Dragger {...uploadProps} disabled={uploading}>
           <p className="ant-upload-drag-icon">
             {uploading ? <Spin size="large" /> : <InboxOutlined />}
@@ -80,7 +80,7 @@ export default function DataUpload() {
           <Card
             title={<span><CheckCircleOutlined style={{ color: '#52c41a' }} /> {t('upload.resultTitle')} - {result.filename}</span>}
             extra={<Tag color="blue">{t('upload.elapsed')} {result.elapsed_seconds}s</Tag>}
-            style={{ marginBottom: 16 }}
+            style={{ marginBottom: 'var(--wh-space-md)' }}
           >
             {result.tables.map((tbl, i) => (
               <Card
@@ -96,7 +96,7 @@ export default function DataUpload() {
                     </Tag>
                   </span>
                 }
-                style={{ marginBottom: 8 }}
+                style={{ marginBottom: 'var(--wh-space-sm)' }}
               >
                 <Collapse
                   items={[
@@ -127,7 +127,7 @@ export default function DataUpload() {
                           size="small"
                           dataSource={tbl.conclusions}
                           renderItem={(item: string) => (
-                            <List.Item style={{ padding: '4px 0' }}>• {item}</List.Item>
+                            <List.Item style={{ padding: 'var(--wh-space-xs) 0' }}>• {item}</List.Item>
                           )}
                         />
                       ),
@@ -141,20 +141,23 @@ export default function DataUpload() {
       )}
 
       <Card title={t('upload.history')}>
-        <Button onClick={loadHistory} style={{ marginBottom: 12 }}>{t('upload.refreshHistory')}</Button>
-        <Table
-          dataSource={history}
-          columns={[
-            { title: t('upload.fileName'), dataIndex: 'original_name', key: 'original_name' },
-            { title: t('upload.tableName'), dataIndex: 'table_name', key: 'table_name', render: (v: string) => <Tag color="blue">{v}</Tag> },
-            { title: t('upload.rowCount'), dataIndex: 'row_count', key: 'row_count' },
-            { title: t('upload.colCount'), dataIndex: 'col_count', key: 'col_count' },
-            { title: t('upload.uploadTime'), dataIndex: 'uploaded_at', key: 'uploaded_at' },
-          ]}
-          size="small"
-          rowKey="id"
-          pagination={{ pageSize: 10 }}
-        />
+        <Button onClick={loadHistory} style={{ marginBottom: 'calc(var(--wh-space-xs) + var(--wh-space-sm))' }}>{t('upload.refreshHistory')}</Button>
+        <div className="wh-table-responsive">
+          <Table
+            dataSource={history}
+            columns={[
+              { title: t('upload.fileName'), dataIndex: 'original_name', key: 'original_name' },
+              { title: t('upload.tableName'), dataIndex: 'table_name', key: 'table_name', render: (v: string) => <Tag color="blue">{v}</Tag> },
+              { title: t('upload.rowCount'), dataIndex: 'row_count', key: 'row_count' },
+              { title: t('upload.colCount'), dataIndex: 'col_count', key: 'col_count' },
+              { title: t('upload.uploadTime'), dataIndex: 'uploaded_at', key: 'uploaded_at' },
+            ]}
+            size="small"
+            rowKey="id"
+            pagination={{ pageSize: 10 }}
+            scroll={{ x: 'max-content' }}
+          />
+        </div>
       </Card>
     </div>
   )

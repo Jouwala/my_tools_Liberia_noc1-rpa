@@ -272,17 +272,17 @@ export default function Dashboard() {
       <Col span={12} key={idx}>
         <Card
           size="small"
-          style={{ ...cardStyle, borderColor: highlighted ? WH.teal : WH.cardBorder, boxShadow: highlighted ? `0 0 16px var(--wh-teal-27)` : cardStyle.boxShadow }}
+          style={{ ...cardStyle, borderColor: highlighted ? WH.teal : WH.cardBorder, boxShadow: highlighted ? `0 0 1rem var(--wh-teal-27)` : cardStyle.boxShadow }}
           title={
             highlighted && linkedFilter
-              ? <span style={{ color: WH.teal, fontSize: 14, fontWeight: 600 }}>{displayTitle} <Tag color="cyan">{t('dashboard.filter')}: {linkedFilter.value}</Tag></span>
-              : <span style={{ fontSize: 14, fontWeight: 600, color: WH.text }}>{displayTitle}</span>
+              ? <span style={{ color: WH.teal, fontSize: '0.875rem', fontWeight: 600 }}>{displayTitle} <Tag color="cyan">{t('dashboard.filter')}: {linkedFilter.value}</Tag></span>
+              : <span style={{ fontSize: '0.875rem', fontWeight: 600, color: WH.text }}>{displayTitle}</span>
           }
         >
           <ReactECharts
             ref={(e: any) => { chartRefs.current[idx] = e }}
             option={option}
-            style={{ height: 300 }}
+            style={{ height: '18.75rem' }}
             onEvents={onEvents}
           />
         </Card>
@@ -293,13 +293,13 @@ export default function Dashboard() {
   return (
     <div style={pageWrap}>
       <Card style={controlCardStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'calc(var(--wh-space-sm) + var(--wh-space-xs))' }}>
           <Space size="middle" wrap>
             <span style={{ fontWeight: 500, color: WH.text }}>{t('dashboard.selectTable')}</span>
             <Select
               value={selectedTable}
               onChange={setSelectedTable}
-              style={{ width: 300 }}
+              style={{ width: 'min(100%, 18.75rem)' }}
               showSearch
               options={tables.map(tbl => ({ value: tbl.name, label: `${tbl.name} (${tbl.row_count.toLocaleString(numLocale(locale))} ${t('common.rows')})` }))}
             />
@@ -307,7 +307,7 @@ export default function Dashboard() {
               value={analysisName}
               onChange={e => setAnalysisName(e.target.value)}
               placeholder={t('dashboard.analysisName')}
-              style={{ width: 200 }}
+              style={{ width: 'min(100%, 12.5rem)' }}
             />
           </Space>
           <Space size="middle" wrap>
@@ -331,27 +331,27 @@ export default function Dashboard() {
             )}
             <ExplainIcon text={t('dashboard.explain.note')} size={14} />
             <Tooltip title={t('datasource.lastSync')}>
-              <Tag color={isSynced ? 'green' : 'red'} style={{ borderRadius: 12, padding: '2px 12px' }}>
+              <Tag color={isSynced ? 'green' : 'red'} style={{ borderRadius: 'var(--wh-radius-lg)', padding: '0.125rem 0.75rem' }}>
                 {isSynced ? t('datasource.synced') : t('datasource.notSynced')}
                 {isSynced && lastSync && `: ${lastSync}`}
               </Tag>
             </Tooltip>
             <Tooltip title={t('datasource.latestData')}>
-              <Tag color="geekblue" style={{ borderRadius: 12, padding: '2px 12px' }}>{t('datasource.latestData')}: {latestData}</Tag>
+              <Tag color="geekblue" style={{ borderRadius: 'var(--wh-radius-lg)', padding: '0.125rem 0.75rem' }}>{t('datasource.latestData')}: {latestData}</Tag>
             </Tooltip>
           </Space>
         </div>
       </Card>
 
       {loading ? (
-        <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />
+        <Spin size="large" style={{ display: 'block', margin: '6.25rem auto' }} />
       ) : charts.length > 0 ? (
         <Row gutter={[16, 16]}>
           {charts.map((chart, idx) => renderChart(chart, idx))}
         </Row>
       ) : (
         <Card style={cardStyle}>
-          <div style={{ textAlign: 'center', padding: 50, color: WH.textMuted }}>
+          <div style={{ textAlign: 'center', padding: '3.125rem', color: WH.textMuted }}>
             {t('dashboard.emptyPrompt')}
           </div>
         </Card>

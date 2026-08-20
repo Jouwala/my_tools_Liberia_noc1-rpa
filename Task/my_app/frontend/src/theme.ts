@@ -101,21 +101,63 @@ export const splitLine = (isDark: boolean = true) => ({ lineStyle: { type: 'dash
 export const cardStyle: React.CSSProperties = {
   background: WH.cardBg,
   border: WH.cardBorder,
-  borderRadius: 12,
+  borderRadius: 'var(--wh-radius-lg)',
   boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
 }
 
 export const controlCardStyle: React.CSSProperties = {
   ...cardStyle,
-  marginBottom: 16,
+  marginBottom: 'var(--wh-space-md)',
 }
 
 // 页面包装器
 export const pageWrap: React.CSSProperties = {
   background: WH.bg,
-  borderRadius: 12,
-  padding: 4,
-  minHeight: 'calc(100vh - 110px)',
+  borderRadius: 'var(--wh-radius-lg)',
+  padding: 'var(--wh-space-xs)',
+  minHeight: 'var(--wh-page-min-height)',
+}
+
+// ---------- 响应式辅助 ----------
+// CSS 媒体查询无法写在行内 style 中，以下 hooks 供组件按断点动态调整布局
+export const BREAKPOINTS = {
+  xs: 0,
+  sm: 576,
+  md: 768,
+  lg: 992,
+  xl: 1200,
+  xxl: 1400,
+}
+
+export type Breakpoint = keyof typeof BREAKPOINTS
+
+/** 返回当前视口宽度（SSR 安全：默认 0） */
+export function useViewportWidth(): number {
+  const [width, setWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 0)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onResize = () => setWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  return width
+}
+
+/** 判断当前是否小于指定断点 */
+export function useBelow(bp: Breakpoint): boolean {
+  const width = useViewportWidth()
+  return width < BREAKPOINTS[bp]
+}
+
+/** 判断当前是否大于等于指定断点 */
+export function useAbove(bp: Breakpoint): boolean {
+  const width = useViewportWidth()
+  return width >= BREAKPOINTS[bp]
+}
+
+/** 简化的移动端检测 */
+export function useIsMobile(): boolean {
+  return useBelow('md')
 }
 
 // ---------- 主题状态（Context） ----------

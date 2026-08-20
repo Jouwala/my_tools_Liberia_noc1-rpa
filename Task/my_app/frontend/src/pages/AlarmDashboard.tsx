@@ -17,25 +17,25 @@ import { cachedGet } from '../cache'
 import { useI18n, numLocale } from '../i18n'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { ExplainCorner, ExplainIcon } from '../components/MetricExplain'
-import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
+import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine, pageWrap, cardStyle } from '../theme'
 
 const CHART_HEIGHT = 280
 
 // 分区标题（Warehouse 青蓝渐变图标）
 const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: string; sub?: string }) => (
   <div style={{
-    display: 'flex', alignItems: 'center', gap: 10,
-    margin: '22px 0 14px', padding: '0 0 10px',
+    display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
+    margin: '1.375rem 0 0.875rem', padding: '0 0 0.625rem',
     borderBottom: '1px solid rgba(100,255,218,0.18)',
   }}>
     <span style={{
-      width: 28, height: 28, borderRadius: 6,
+      width: 28, height: 28, borderRadius: 'var(--wh-radius-sm)',
       background: WH.accentGrad,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: '#06222e', fontSize: 14,
+      color: '#06222e', fontSize: '0.875rem',
     }}>{icon}</span>
-    <span style={{ fontSize: 16, fontWeight: 700, color: WH.text, letterSpacing: '-0.3px' }}>{title}</span>
-    {sub && <span style={{ fontSize: 12, color: WH.textDim, marginLeft: 4 }}>{sub}</span>}
+    <span style={{ fontSize: '1rem', fontWeight: 700, color: WH.text, letterSpacing: '-0.3px' }}>{title}</span>
+    {sub && <span style={{ fontSize: '0.75rem', color: WH.textDim, marginLeft: 4 }}>{sub}</span>}
   </div>
 )
 
@@ -46,9 +46,8 @@ const SummaryCard = ({ icon, value, label, color, onClick, explain }: {
   const { t } = useI18n()
   return (
   <Card size="small" hoverable onClick={onClick} style={{
-    background: WH.cardBg, border: WH.cardBorder, borderRadius: 12,
+    ...cardStyle,
     cursor: 'pointer', transition: 'all .2s', position: 'relative', overflow: 'hidden',
-    boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
   }}
     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorderHover }}
     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorder }}
@@ -57,13 +56,13 @@ const SummaryCard = ({ icon, value, label, color, onClick, explain }: {
     {explain && <ExplainCorner text={explain} />}
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div>
-        <div style={{ fontSize: 30, fontWeight: 800, color, lineHeight: 1.2, textShadow: `0 0 14px ${color}55` }}>{value}</div>
-        <div style={{ fontSize: 12, color: WH.textMuted, marginTop: 4, fontWeight: 500 }}>{label}</div>
+        <div style={{ fontSize: '1.875rem', fontWeight: 800, color, lineHeight: 1.2, textShadow: `0 0 14px ${color}55` }}>{value}</div>
+        <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginTop: 'var(--wh-space-xs)', fontWeight: 500 }}>{label}</div>
       </div>
-      <span style={{ fontSize: 38, opacity: 0.16, color }}>{icon}</span>
+      <span style={{ fontSize: '2.375rem', opacity: 0.16, color }}>{icon}</span>
     </div>
-    <div style={{ textAlign: 'right', fontSize: 10, color: WH.teal, fontWeight: 600, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
-      {t('alarm.drillHint')} <RightOutlined style={{ fontSize: 9 }} />
+    <div style={{ textAlign: 'right', fontSize: '0.625rem', color: WH.teal, fontWeight: 600, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
+      {t('alarm.drillHint')} <RightOutlined style={{ fontSize: '0.5625rem' }} />
     </div>
   </Card>
   )
@@ -77,8 +76,8 @@ const HistoryMetricCard = ({ icon, value, label, sub, color, onClick, explain }:
   const { t } = useI18n()
   return (
   <Card size="small" hoverable onClick={onClick} style={{
-    background: WH.cardBg, border: WH.cardBorder, borderRadius: 12,
-    boxShadow: '0 4px 16px rgba(0,0,0,0.25)', cursor: 'pointer', transition: 'all .2s',
+    ...cardStyle,
+    cursor: 'pointer', transition: 'all .2s',
     position: 'relative', overflow: 'hidden',
   }}
     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorderHover }}
@@ -88,14 +87,14 @@ const HistoryMetricCard = ({ icon, value, label, sub, color, onClick, explain }:
     {explain && <ExplainCorner text={explain} />}
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 26, fontWeight: 800, color, lineHeight: 1.2, textShadow: `0 0 14px ${color}55` }}>{value}</div>
-        <div style={{ fontSize: 12, color: WH.textMuted, marginTop: 3, fontWeight: 600 }}>{label}</div>
-        <div style={{ fontSize: 10, color: WH.textDim, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub}</div>
+        <div style={{ fontSize: '1.625rem', fontWeight: 800, color, lineHeight: 1.2, textShadow: `0 0 14px ${color}55` }}>{value}</div>
+        <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginTop: 3, fontWeight: 600 }}>{label}</div>
+        <div style={{ fontSize: '0.625rem', color: WH.textDim, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub}</div>
       </div>
-      <span style={{ fontSize: 34, opacity: 0.18, color, flexShrink: 0 }}>{icon}</span>
+      <span style={{ fontSize: '2.125rem', opacity: 0.18, color, flexShrink: 0 }}>{icon}</span>
     </div>
-    <div style={{ textAlign: 'right', fontSize: 10, color: WH.teal, fontWeight: 600, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
-      {t('alarm.drillHint')} <RightOutlined style={{ fontSize: 9 }} />
+    <div style={{ textAlign: 'right', fontSize: '0.625rem', color: WH.teal, fontWeight: 600, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
+      {t('alarm.drillHint')} <RightOutlined style={{ fontSize: '0.5625rem' }} />
     </div>
   </Card>
   )
@@ -205,7 +204,7 @@ export default function AlarmDashboard() {
       title: k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
       dataIndex: k,
       key: k,
-      width: k.includes('time') || k.includes('date') ? 150 : 120,
+      minWidth: k.includes('time') || k.includes('date') ? 150 : 120,
       ellipsis: true,
       sorter: (a: any, b: any) => strSorter(a, b, k),
       filters: getUniqueFilters(drillData, k),
@@ -394,14 +393,14 @@ export default function AlarmDashboard() {
 
   // ========== 渲染 ==========
   if (loading) return (
-    <div style={{ background: WH.bg, borderRadius: 12, textAlign: 'center', padding: 60 }}>
+    <div style={{ ...pageWrap, textAlign: 'center', padding: '3.75rem' }}>
       <Spin size="large" />
-      <div style={{ marginTop: 12, color: WH.textMuted }}>{t('alarm.loading')}</div>
+      <div style={{ marginTop: '0.75rem', color: WH.textMuted }}>{t('alarm.loading')}</div>
     </div>
   )
 
   if (error) return (
-    <Alert type="error" message={t('alarm.loadFailed')} description={error} showIcon style={{ margin: 16 }} />
+    <Alert type="error" message={t('alarm.loadFailed')} description={error} showIcon style={{ margin: 'var(--wh-space-md)' }} />
   )
 
   if (!data) return <Empty description={t('alarm.noData')} />
@@ -414,35 +413,27 @@ export default function AlarmDashboard() {
   // 图表点击 → 下钻
   const chartClick = (builder: (p: any) => DrillReq) => (p: any) => openDrilldown(p, builder(p))
 
-  const pageWrap: React.CSSProperties = {
-    background: WH.bg,
-    borderRadius: 12,
-    padding: 4,
-    minHeight: 'calc(100vh - 110px)',
-  }
-
   return (
-    <div style={{ ...pageWrap, display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <div style={{ ...pageWrap, display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-xs)' }}>
       {/* ====== 1. 头部警报横幅 ====== */}
       <Card size="small" style={{
+        ...cardStyle,
         background: isDark ? 'linear-gradient(135deg, #1a0f14 0%, #112540 100%)' : 'linear-gradient(135deg, #fdf0f0 0%, #fbe4e4 100%)',
         borderLeft: `4px solid ${WH.sev.Critical}`,
-        borderRadius: 12,
-        boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-        marginBottom: 4,
+        marginBottom: 'var(--wh-space-xs)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <FireOutlined style={{ fontSize: 22, color: isDark ? '#ff6b6b' : '#dc2626' }} />
-            <span style={{ fontSize: 15, fontWeight: 700, color: isDark ? '#ff8787' : '#b91c1c' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
+            <FireOutlined style={{ fontSize: '1.375rem', color: isDark ? '#ff6b6b' : '#dc2626' }} />
+            <span style={{ fontSize: '0.9375rem', fontWeight: 700, color: isDark ? '#ff8787' : '#b91c1c' }}>
               {t('alarm.realtimeStatus')}
             </span>
-            <Tag color="error" style={{ borderRadius: 12, fontWeight: 600, cursor: 'pointer' }}
+            <Tag color="error" style={{ borderRadius: 'var(--wh-radius-lg)', fontWeight: 600, cursor: 'pointer' }}
               onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'all', title: t('alarm.totalActive') })}>
               {fmt(data.total_alarms)} {t('alarm.activeAlarms')}
             </Tag>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: WH.textDim }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-md)', fontSize: '0.75rem', color: WH.textDim }}>
             <ClockCircleOutlined />
             <span>{t('alarm.updated')} {data.generated_at}</span>
           </div>
@@ -538,50 +529,50 @@ export default function AlarmDashboard() {
       <SectionTitle icon={<ApiOutlined />} title={t('alarm.breakdown')} sub={t('alarm.breakdownSub')} />
       <Row gutter={[12, 12]}>
         <Col span={8}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.techDist')} <ExplainIcon text={t('alarm.explain.tech')} /></span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('alarm.techDist')} <ExplainIcon text={t('alarm.explain.tech')} /></span>} style={cardStyle}>
             <div role="img" aria-label={`${t('alarm.techDist')} ${t('alarm.chartSuffix')}`}><ReactECharts option={techPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'tech', value: p.name, title: t('alarm.drillTech', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
         <Col span={8}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.sevDist')}</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('alarm.sevDist')}</span>} style={cardStyle}>
             <div role="img" aria-label={`${t('alarm.sevDist')} ${t('alarm.chartSuffix')}`}><ReactECharts option={sevPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'severity', value: p.name, title: t('alarm.drillSeverity', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
         <Col span={8}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.netType')}</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('alarm.netType')}</span>} style={cardStyle}>
             <div role="img" aria-label={`${t('alarm.netType')} ${t('alarm.chartSuffix')}`}><ReactECharts option={netTypeOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'networktype', value: p.name, title: t('alarm.drillNetwork', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
       </Row>
 
       {/* ====== 4. 技术制式详细卡片（可下钻） ====== */}
-      <Row gutter={[12, 12]} style={{ marginTop: 4 }}>
+      <Row gutter={[12, 12]} style={{ marginTop: 'var(--wh-space-xs)' }}>
         {Object.entries(logical_total || {})
           .filter(([tech]) => tech !== 'OTHER')
           .map(([tech, val]: any, idx: number) => (
             <Col span={6} key={tech}>
               <Card size="small" hoverable onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'tech', value: tech, title: t('alarm.drillTech', { v: tech }) })} style={{
-                background: WH.cardBg, borderRadius: 12,
-                border: WH.cardBorder, cursor: 'pointer', transition: 'all .2s',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.25)', position: 'relative', overflow: 'hidden',
+                ...cardStyle,
+                cursor: 'pointer', transition: 'all .2s',
+                position: 'relative', overflow: 'hidden',
               }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorderHover }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorder }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
                   <div style={{
-                    width: 40, height: 40, borderRadius: 10,
+                    width: 40, height: 40, borderRadius: 'var(--wh-radius-md)',
                     background: cPalette[idx % cPalette.length],
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#06222e', fontSize: 16, fontWeight: 800,
+                    color: '#06222e', fontSize: '1rem', fontWeight: 800,
                   }}>{tech}</div>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: cPalette[idx % cPalette.length], lineHeight: 1.2 }}>{fmt(val.site || 0)}</div>
-                    <div style={{ fontSize: 11, color: WH.textMuted }}>{t('alarm.sites')} · {fmt(val.cell || 0)} {t('alarm.cells')}</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 800, color: cPalette[idx % cPalette.length], lineHeight: 1.2 }}>{fmt(val.site || 0)}</div>
+                    <div style={{ fontSize: '0.6875rem', color: WH.textMuted }}>{t('alarm.sites')} · {fmt(val.cell || 0)} {t('alarm.cells')}</div>
                   </div>
                 </div>
-                <div style={{ textAlign: 'right', fontSize: 10, color: WH.teal, fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
-                  {t('alarm.drillHint')} <RightOutlined style={{ fontSize: 9 }} />
+                <div style={{ textAlign: 'right', fontSize: '0.625rem', color: WH.teal, fontWeight: 600, marginTop: 'var(--wh-space-xs)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
+                  {t('alarm.drillHint')} <RightOutlined style={{ fontSize: '0.5625rem' }} />
                 </div>
               </Card>
             </Col>
@@ -592,12 +583,12 @@ export default function AlarmDashboard() {
       <SectionTitle icon={<BarChartOutlined />} title={t('alarm.durationSection')} sub={t('alarm.durationSectionSub')} />
       <Row gutter={[12, 12]}>
         <Col span={12}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.durationDist')} <ExplainIcon text={t('alarm.explain.duration')} /></span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('alarm.durationDist')} <ExplainIcon text={t('alarm.explain.duration')} /></span>} style={cardStyle}>
             <div role="img" aria-label={`${t('alarm.durationDist')} ${t('alarm.chartSuffix')}`}><ReactECharts option={durationOption} style={{ height: CHART_HEIGHT + 30 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'duration', value: String(p.name), title: t('alarm.drillDuration', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
         <Col span={12}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.byRegion')} <ExplainIcon text={t('alarm.explain.region')} /></span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('alarm.byRegion')} <ExplainIcon text={t('alarm.explain.region')} /></span>} style={cardStyle}>
             <div role="img" aria-label={`${t('alarm.byRegion')} ${t('alarm.chartSuffix')}`}><ReactECharts option={regionOption} style={{ height: CHART_HEIGHT + 30 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'region', value: String(p.name), title: t('alarm.drillRegion', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
@@ -607,36 +598,36 @@ export default function AlarmDashboard() {
       <SectionTitle icon={<PieChartOutlined />} title={t('alarm.typeSection')} sub={t('alarm.typeSectionSub')} />
       <Row gutter={[12, 12]}>
         <Col span={14}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.topTypes')}</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('alarm.topTypes')}</span>} style={cardStyle}>
             <div role="img" aria-label={`${t('alarm.topTypes')} ${t('alarm.chartSuffix')}`}><ReactECharts option={alarmTypeOption} style={{ height: CHART_HEIGHT + 40 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'alarm_type', value: String(p.name), title: t('alarm.drillAlarmType', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
         <Col span={5}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.siteAttr')}</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('alarm.siteAttr')}</span>} style={cardStyle}>
             <div role="img" aria-label={`${t('alarm.siteAttr')} ${t('alarm.chartSuffix')}`}><ReactECharts option={siteAttrOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'site_attribute', value: String(p.name), title: t('alarm.drillSiteAttr', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
         <Col span={5}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600, color: WH.text }}>{t('alarm.sevTags')}</span>} style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
+          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('alarm.sevTags')}</span>} style={cardStyle}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-sm)', padding: 'var(--wh-space-sm) 0' }}>
               {Object.entries(sevStats).map(([k, v]) => (
-                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '2px 4px', borderRadius: 6 }}
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '0.125rem var(--wh-space-xs)', borderRadius: 'var(--wh-radius-sm)' }}
                   onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'severity', value: k, title: t('alarm.drillSeverity', { v: k }) })}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(100,255,218,0.08)' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
-                  <Tag color={WH.sev[k] || '#999'} style={{ borderRadius: 12, fontWeight: 500 }}>{k}</Tag>
-                  <span style={{ fontSize: 18, fontWeight: 700, color: WH.sev[k] || WH.text }}>{fmt(v as number)}</span>
+                  <Tag color={WH.sev[k] || '#999'} style={{ borderRadius: 'var(--wh-radius-lg)', fontWeight: 500 }}>{k}</Tag>
+                  <span style={{ fontSize: '1.125rem', fontWeight: 700, color: WH.sev[k] || WH.text }}>{fmt(v as number)}</span>
                 </div>
               ))}
-              <div style={{ marginTop: 8, borderTop: '1px solid rgba(100,255,218,0.18)', paddingTop: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '2px 4px', borderRadius: 6 }}
+              <div style={{ marginTop: 'var(--wh-space-sm)', borderTop: '1px solid rgba(100,255,218,0.18)', paddingTop: 'var(--wh-space-sm)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '0.125rem var(--wh-space-xs)', borderRadius: 'var(--wh-radius-sm)' }}
                   onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'all', title: t('alarm.totalActive') })}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(100,255,218,0.08)' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
-                  <Tag color="cyan" style={{ borderRadius: 12, fontWeight: 500 }}>{t('alarm.totalTag')}</Tag>
-                  <span style={{ fontSize: 18, fontWeight: 700, color: WH.teal }}>{fmt(data.total_alarms)}</span>
+                  <Tag color="cyan" style={{ borderRadius: 'var(--wh-radius-lg)', fontWeight: 500 }}>{t('alarm.totalTag')}</Tag>
+                  <span style={{ fontSize: '1.125rem', fontWeight: 700, color: WH.teal }}>{fmt(data.total_alarms)}</span>
                 </div>
               </div>
             </div>
@@ -648,33 +639,33 @@ export default function AlarmDashboard() {
       {data.region_alarm_type && Object.keys(data.region_alarm_type).length > 0 && (
         <>
           <SectionTitle icon={<DashboardOutlined />} title={t('alarm.regionProfile')} sub={t('alarm.regionProfileSub')} />
-          <Card size="small" style={{ background: WH.cardBg, border: WH.cardBorder, borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+          <Card size="small" style={cardStyle}>
             <Row gutter={[8, 8]}>
               {Object.entries(data.region_alarm_type)
                 .filter(([, v]: any) => Object.keys(v).length > 0)
                 .slice(0, 10)
                 .map(([region, types]: any) => (
-                  <Col span={6} key={region} style={{ marginBottom: 8 }}>
+                  <Col span={6} key={region} style={{ marginBottom: 'var(--wh-space-sm)' }}>
                     <div style={{
-                      background: 'var(--wh-subtle-bg)', borderRadius: 8, padding: '10px 12px',
+                      background: 'var(--wh-subtle-bg)', borderRadius: 'var(--wh-radius-md)', padding: '0.625rem 0.75rem',
                       borderLeft: `3px solid ${WH.teal}`,
                     }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: WH.text, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Tag color="cyan" style={{ borderRadius: 8, marginRight: 6, cursor: 'pointer' }}
+                      <div style={{ fontWeight: 700, fontSize: '0.8125rem', color: WH.text, marginBottom: '0.375rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Tag color="cyan" style={{ borderRadius: 'var(--wh-radius-sm)', marginRight: 'var(--wh-space-xs)', cursor: 'pointer' }}
                           onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'region', value: region, title: t('alarm.drillRegion', { v: region }) })}>{region}</Tag>
-                        <span style={{ fontSize: 11, color: WH.textDim, cursor: 'pointer' }}
+                        <span style={{ fontSize: '0.6875rem', color: WH.textDim, cursor: 'pointer' }}
                           onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'region', value: region, title: t('alarm.drillRegion', { v: region }) })}>
                           {t('alarm.regionAlarms', { n: data.region_alarm_count[region] })}
                         </span>
                       </div>
                       {Object.entries(types).map(([type, count]: any, i: number) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 0', color: WH.textMuted, cursor: 'pointer' }}
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6875rem', padding: '0.125rem 0', color: WH.textMuted, cursor: 'pointer' }}
                           onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'alarm_type', value: type, title: t('alarm.drillAlarmType', { v: type }) })}
                           onMouseEnter={ev => { (ev.currentTarget as HTMLElement).style.color = WH.teal }}
                           onMouseLeave={ev => { (ev.currentTarget as HTMLElement).style.color = WH.textMuted }}
                         >
                           <Tooltip title={type}>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '8.125rem' }}>
                               {type.length > 22 ? type.substring(0, 20) + '..' : type}
                             </span>
                           </Tooltip>
@@ -696,13 +687,13 @@ export default function AlarmDashboard() {
         onClose={() => setDrillOpen(false)}
         title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan" style={{ borderRadius: 10 }}>{t('common.records', { n: filteredDrillData.length })}</Tag>{drillTotal > drillData.length && <Tag color="red" style={{ borderRadius: 10 }}>{t('alarm.recordCount', { total: fmt(drillTotal), shown: drillData.length })}</Tag>}</span>}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
           <Input
             prefix={<SearchOutlined />}
             placeholder={t('common.searchAllFields')}
             allowClear
             size="middle"
-            style={{ width: 350 }}
+            style={{ width: 'min(100%, 21.875rem)' }}
             value={drillSearch}
             onChange={e => setDrillSearch(e.target.value)}
           />
@@ -716,16 +707,18 @@ export default function AlarmDashboard() {
           </Button>
         </div>
         {drillLoading ? (
-          <Spin style={{ display: 'block', margin: '60px auto' }} />
+          <Spin style={{ display: 'block', margin: '3.75rem auto' }} />
         ) : (
-          <Table
-            dataSource={filteredDrillData}
-            columns={drillColumns}
-            size="small"
-            rowKey={(r: any) => `${r.site_id ?? 'x'}|${r.server_time ?? r.alarm_raised_time ?? r.tt_id ?? 'x'}|${r.alarm_title ?? 'x'}`}
-            pagination={{ pageSize: 15, size: 'small', showTotal: (total: number) => t('common.itemsTotal', { n: total }) }}
-            scroll={{ x: 'max-content' }}
-          />
+          <div className="wh-table-responsive">
+            <Table
+              dataSource={filteredDrillData}
+              columns={drillColumns}
+              size="small"
+              rowKey={(r: any) => `${r.site_id ?? 'x'}|${r.server_time ?? r.alarm_raised_time ?? r.tt_id ?? 'x'}|${r.alarm_title ?? 'x'}`}
+              pagination={{ pageSize: 15, size: 'small', showTotal: (total: number) => t('common.itemsTotal', { n: total }) }}
+              scroll={{ x: 'max-content' }}
+            />
+          </div>
         )}
       </DraggableClickModal>
     </div>

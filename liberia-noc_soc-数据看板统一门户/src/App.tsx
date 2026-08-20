@@ -32,13 +32,11 @@ import {
   Lightbulb,
 } from 'lucide-react';
 
-// v5：全部 FineBI 看板改用匿名公共链接（/link/xxx，免登录直达），旧版本缓存需要失效重读
 const STORAGE_KEY = 'liberia_noc_dashboards_v5';
 const THEME_KEY = 'enterprise_bi_theme_dark';
 
 export default function App() {
   const { t, lang } = useI18n();
-  // 1. Theme State (Dark / Light)，默认深色 NOC 值班风格（对齐 Data Insight MVP）
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved !== null) {
@@ -56,13 +54,11 @@ export default function App() {
     localStorage.setItem(THEME_KEY, String(darkMode));
   }, [darkMode]);
 
-  // 2. Dashboards Data
   const [dashboards, setDashboards] = useState<DashboardItem[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as DashboardItem[];
-        // 迁移：为历史数据补算 rel，并立即用当前主机刷新 url，使其跟随全局配置（改 IP 即时生效）
         return parsed.map((d) => {
           if (d.platform === 'external') return d;
           const rel = d.rel ?? buildRel(d.platform, d.url);
@@ -80,7 +76,6 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(dashboards));
   }, [dashboards]);
 
-  // 3. Filter & View States
   const [selectedCategory, setSelectedCategory] = useState<CategoryType>('全部');
   const [selectedPlatform, setSelectedPlatform] = useState<'all' | PlatformType>('all');
   const [onlyFavorites, setOnlyFavorites] = useState(false);
@@ -88,7 +83,6 @@ export default function App() {
   const [sortOption, setSortOption] = useState<SortOption>('pinned');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
 
-  // 4. Modals State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [dashboardToEdit, setDashboardToEdit] = useState<DashboardItem | null>(null);
   const [isEndpointModalOpen, setIsEndpointModalOpen] = useState(false);
@@ -96,10 +90,8 @@ export default function App() {
   const [previewDashboard, setPreviewDashboard] = useState<DashboardItem | null>(null);
   const [qrDashboard, setQrDashboard] = useState<DashboardItem | null>(null);
 
-  // File input ref for import JSON
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 5. Actions
   const handleOpenDashboard = (dashboard: DashboardItem) => {
     const now = new Date();
     const formatted = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
@@ -147,7 +139,6 @@ export default function App() {
 
   const handleSaveEnv = (cfg: EnvConfig) => {
     saveEnvConfig(cfg);
-    // 用最新配置重新拼出所有看板 URL（rel 优先），并补全缺失 rel
     setDashboards((prev) =>
       prev.map((d) => {
         const rel =
@@ -200,23 +191,18 @@ export default function App() {
     }
   };
 
-  // 6. Filter & Sort Computation
   const filteredDashboards = useMemo(() => {
     return dashboards
       .filter((board) => {
-        // Category filter
         if (selectedCategory !== '全部' && board.category !== selectedCategory) {
           return false;
         }
-        // Platform filter
         if (selectedPlatform !== 'all' && board.platform !== selectedPlatform) {
           return false;
         }
-        // Favorites filter
         if (onlyFavorites && !board.isFavorite) {
           return false;
         }
-        // Search filter
         if (searchQuery.trim()) {
           const query = searchQuery.toLowerCase().trim();
           const matchTitle = board.title.toLowerCase().includes(query);
@@ -231,7 +217,6 @@ export default function App() {
       })
       .sort((a, b) => {
         if (sortOption === 'pinned') {
-          // Pinned first, then favorites, then clicks
           if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
           if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
           return b.clickCount - a.clickCount;
@@ -251,7 +236,6 @@ export default function App() {
       });
   }, [dashboards, selectedCategory, selectedPlatform, onlyFavorites, searchQuery, sortOption]);
 
-  // Translate dashboards for display (keep original in state for storage)
   const translatedDashboards = useMemo(() => {
     return filteredDashboards.map((d) => translateDashboard(d, lang, t));
   }, [filteredDashboards, lang, t]);
@@ -286,7 +270,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6">
+      <main className="flex-1 w-full mx-auto px-3 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6">
         {/* Quick Stats & Environment Overview */}
         <QuickStatsBar
           dashboards={dashboards}
@@ -317,17 +301,17 @@ export default function App() {
 
         {/* Main Content Body: Grid, List or Matrix */}
         {translatedDashboards.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-12 text-center shadow-sm my-8">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center mb-4">
-              <Layers className="w-7 h-7" />
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 sm:p-12 text-center shadow-sm my-6 sm:my-8">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 mx-auto rounded-2xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center mb-3 sm:mb-4">
+              <Layers className="w-6 h-6 sm:w-7 sm:h-7" />
             </div>
-            <h3 className="text-base font-bold text-slate-800 dark:text-slate-200 mb-1">
+            <h3 className="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-200 mb-1">
               {t('app.emptyTitle')}
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-5">
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-4 sm:mb-5">
               {t('app.emptyDesc')}
             </p>
-            <div className="flex items-center justify-center gap-3">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3">
               <button
                 onClick={() => {
                   setSelectedCategory('全部');
@@ -335,7 +319,7 @@ export default function App() {
                   setOnlyFavorites(false);
                   setSearchQuery('');
                 }}
-                className="px-4 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                className="w-full sm:w-auto px-4 py-2 text-xs sm:text-sm font-medium rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
               >
                 {t('app.emptyReset')}
               </button>
@@ -344,14 +328,14 @@ export default function App() {
                   setDashboardToEdit(null);
                   setIsModalOpen(true);
                 }}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white shadow-sm transition-all"
+                className="w-full sm:w-auto px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white shadow-sm transition-all"
               >
                 {t('app.emptyAdd')}
               </button>
             </div>
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-5">
             {translatedDashboards.map((dashboard) => (
               <DashboardCard
                 key={dashboard.id}
@@ -361,7 +345,6 @@ export default function App() {
                 onShowQR={(d) => setQrDashboard(d)}
                 onToggleFavorite={handleToggleFavorite}
                 onEdit={(d) => {
-                  // Find original dashboard for editing
                   const original = dashboards.find((orig) => orig.id === d.id);
                   if (original) {
                     setDashboardToEdit(original);
@@ -400,8 +383,8 @@ export default function App() {
       </main>
 
       {/* Bottom Sticky Quick Footer */}
-      <footer className="border-t border-slate-200/90 dark:border-slate-800/90 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md py-4 mt-12 text-xs text-slate-500 dark:text-slate-400">
-        <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <footer className="border-t border-slate-200/90 dark:border-slate-800/90 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md py-3 sm:py-4 mt-8 sm:mt-12 text-xs text-slate-500 dark:text-slate-400">
+        <div className="w-full mx-auto px-3 sm:px-6 lg:px-8 xl:px-10 flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-3">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-slate-700 dark:text-slate-300">
               {t('app.title')}
@@ -410,7 +393,7 @@ export default function App() {
             <span>{t('app.footerCount', { n: dashboards.length })}</span>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 sm:gap-4">
             <button
               onClick={() => setIsDesignGuideModalOpen(true)}
               className="text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 font-medium"

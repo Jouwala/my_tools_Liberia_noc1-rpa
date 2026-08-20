@@ -536,18 +536,18 @@ export default function DataSync() {
             opacity: task.enabled ? 1 : 0.65,
             height: '100%',
           }}
-          styles={{ body: { padding: '16px 20px' } }}
+          styles={{ body: { padding: 'var(--wh-space-md) var(--wh-space-lg)' } }}
         >
           {/* Task header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-            <div>
-              <Space size={4} align="center">
-                <span style={{ fontSize: 16, color: catCfg.color }}>{catCfg.icon}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--wh-space-sm)', gap: 'var(--wh-space-sm)' }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <Space size={4} align="center" style={{ maxWidth: '100%' }}>
+                <span style={{ fontSize: '1rem', color: catCfg.color }}>{catCfg.icon}</span>
                 <Tooltip
                   placement="topLeft"
                   title={
-                    <div style={{ maxWidth: 380 }}>
-                      <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--wh-text)' }}>
+                    <div style={{ maxWidth: 'min(80vw, 23.75rem)' }}>
+                      <div style={{ fontWeight: 600, marginBottom: 'var(--wh-space-xs)', color: 'var(--wh-text)' }}>
                         {locale === 'zh' ? '脚本调用链' : 'Call Chain'}
                       </div>
                       {task.call_chain && task.call_chain.length > 0 ? (
@@ -555,7 +555,7 @@ export default function DataSync() {
                           style={{
                             margin: 0,
                             fontFamily: 'Consolas, Menlo, monospace',
-                            fontSize: 12,
+                            fontSize: '0.75rem',
                             lineHeight: 1.6,
                             whiteSpace: 'pre-wrap',
                             wordBreak: 'break-all',
@@ -572,17 +572,17 @@ export default function DataSync() {
                     </div>
                   }
                 >
-                  <Text strong style={{ fontSize: 15, color: WH.text, cursor: 'help' }}>
+                  <Text strong style={{ fontSize: '0.9375rem', color: WH.text, cursor: 'help' }}>
                     {task.name}
                   </Text>
                 </Tooltip>
               </Space>
-              <div style={{ marginTop: 4 }}>
-                <Tag color={catCfg.color} style={{ fontSize: 11 }}>{locale === 'zh' ? catCfg.label_zh : catCfg.label_en}</Tag>
+              <div style={{ marginTop: 'var(--wh-space-xs)' }}>
+                <Tag color={catCfg.color} style={{ fontSize: '0.6875rem' }}>{locale === 'zh' ? catCfg.label_zh : catCfg.label_en}</Tag>
                 {task.enabled ? (
-                  <Badge status="success" text={<Text style={{ fontSize: 11, color: WH.textMuted }}>{locale === 'zh' ? '已启用' : 'Enabled'}</Text>} />
+                  <Badge status="success" text={<Text style={{ fontSize: '0.6875rem', color: WH.textMuted }}>{locale === 'zh' ? '已启用' : 'Enabled'}</Text>} />
                 ) : (
-                  <Badge status="default" text={<Text style={{ fontSize: 11, color: WH.textDim }}>{locale === 'zh' ? '已禁用' : 'Disabled'}</Text>} />
+                  <Badge status="default" text={<Text style={{ fontSize: '0.6875rem', color: WH.textDim }}>{locale === 'zh' ? '已禁用' : 'Disabled'}</Text>} />
                 )}
               </div>
             </div>
@@ -594,22 +594,22 @@ export default function DataSync() {
           </div>
 
           {/* Description */}
-          <Text style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.5, color: WH.textMuted }}>
+          <Text style={{ fontSize: '0.75rem', display: 'block', marginBottom: 'var(--wh-space-sm)', lineHeight: 1.5, color: WH.textMuted }}>
             {task.description}
           </Text>
 
           {/* Schedule info */}
           <div style={{
             background: 'var(--wh-subtle-bg)',
-            borderRadius: 8,
-            padding: '10px 14px',
-            marginBottom: 12,
+            borderRadius: 'var(--wh-radius-md)',
+            padding: 'var(--wh-space-sm) var(--wh-space-md)',
+            marginBottom: 'var(--wh-space-sm)',
             border: '1px solid var(--wh-subtle-border)',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <Space size={4}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--wh-space-xs)', gap: 'var(--wh-space-xs)' }}>
+              <Space size={4} style={{ minWidth: 0, flex: 1 }}>
                 <ClockCircleOutlined style={{ color: WH.blue }} />
-                <Text style={{ fontSize: 13, color: WH.text }}>
+                <Text style={{ fontSize: '0.8125rem', color: WH.text }}>
                   {cronToHuman(task.current_cron, locale)}
                 </Text>
               </Space>
@@ -623,13 +623,13 @@ export default function DataSync() {
                 />
               </Tooltip>
             </div>
-            <div style={{ fontSize: 12, color: WH.textDim }}>
-              <Text code style={{ fontSize: 11, color: WH.textMuted, background: 'var(--wh-input-bg)' }}>{task.current_cron}</Text>
+            <div style={{ fontSize: '0.75rem', color: WH.textDim, display: 'flex', flexWrap: 'wrap', gap: 'var(--wh-space-xs)', alignItems: 'center' }}>
+              <Text code style={{ fontSize: '0.6875rem', color: WH.textMuted, background: 'var(--wh-input-bg)' }}>{task.current_cron}</Text>
               {task.next_run && (
-                <span style={{ marginLeft: 12, color: WH.textMuted }}>
+                <span style={{ color: WH.textMuted }}>
                   ⏭ {locale === 'zh' ? '下次：' : 'Next: '}{getNextRunTime(task)}
                   <span style={{
-                    marginLeft: 6,
+                    marginLeft: 'var(--wh-space-xs)',
                     color: isImminent(task) ? '#ffa940' : WH.textDim,
                     fontWeight: isImminent(task) ? 600 : 400,
                   }}>
@@ -642,8 +642,8 @@ export default function DataSync() {
 
           {/* Last run */}
           {lastRun && (
-            <div style={{ marginBottom: 12, fontSize: 12 }}>
-              <Space size={8}>
+            <div style={{ marginBottom: 'var(--wh-space-sm)', fontSize: '0.75rem' }}>
+              <Space size={8} wrap>
                 {lastRun.success
                   ? <CheckCircleFilled style={{ color: '#51cf66' }} />
                   : <CloseCircleFilled style={{ color: '#ff6b6b' }} />
@@ -659,7 +659,7 @@ export default function DataSync() {
                       code
                       onClick={() => handleOpenHistory(task.task_id)}
                       style={{
-                        color: 'var(--wh-error-text)', fontSize: 11, maxWidth: 240,
+                        color: 'var(--wh-error-text)', fontSize: '0.6875rem', maxWidth: 'min(50vw, 15rem)',
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                         cursor: 'pointer', background: 'rgba(255,77,79,0.1)',
                         borderColor: 'rgba(255,77,79,0.25)',
@@ -674,7 +674,7 @@ export default function DataSync() {
           )}
 
           {/* Actions */}
-          <Space>
+          <Space wrap>
             <Button
               type="primary"
               size="small"
@@ -722,15 +722,15 @@ export default function DataSync() {
   return (
     <div style={pageWrap}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--wh-space-md)', marginBottom: 'var(--wh-space-lg)' }}>
         <div>
           <Title level={4} style={{ margin: 0, color: WH.text }}>
-            <ThunderboltOutlined style={{ marginRight: 8, color: WH.blue }} />
+            <ThunderboltOutlined style={{ marginRight: 'var(--wh-space-sm)', color: WH.blue }} />
             {t('sync.taskManager')}
           </Title>
           <Text style={{ color: WH.textMuted }}>{t('sync.taskManagerDesc')}</Text>
         </div>
-        <Space size={12} align="center">
+        <Space size="small" align="center" wrap>
           <Tooltip title={locale === 'zh' ? '开启后，任务失败将自动语音播报失败内容与预计重试时间' : 'When on, task failures are auto-announced with the reason and next retry time'}>
             <Space size={6} align="center">
               <SoundOutlined style={{ color: autoSpeak ? WH.teal : WH.textDim }} />
@@ -767,18 +767,18 @@ export default function DataSync() {
       </div>
 
       {/* 状态统计模块：各状态任务数量 + 点击筛选 */}
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 'var(--wh-space-md)' }}>
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          marginBottom: 10, gap: 12, flexWrap: 'wrap',
+          marginBottom: 'var(--wh-space-sm)', gap: 'var(--wh-space-sm)', flexWrap: 'wrap',
         }}>
-          <Text strong style={{ color: WH.text, fontSize: 14 }}>
-            <BarChartOutlined style={{ marginRight: 6, color: WH.teal }} />
+          <Text strong style={{ color: WH.text, fontSize: '0.875rem' }}>
+            <BarChartOutlined style={{ marginRight: 'var(--wh-space-xs)', color: WH.teal }} />
             {t('sync.statTitle')}
           </Text>
-          <Text style={{ color: WH.textDim, fontSize: 12 }}>{t('sync.statHint')}</Text>
+          <Text style={{ color: WH.textDim, fontSize: '0.75rem' }}>{t('sync.statHint')}</Text>
         </div>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 'var(--wh-space-sm)', flexWrap: 'wrap' }}>
           {statusMeta.map(({ key, color, icon }) => {
             const count = key === 'all' ? allTasks.length : statusCounts[key]
             const active = statusFilter === key
@@ -790,13 +790,13 @@ export default function DataSync() {
                 onClick={() => toggleStatusFilter(key)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleStatusFilter(key) } }}
                 style={{
-                  flex: '1 1 140px',
-                  minWidth: 120,
+                  flex: '1 1 8.75rem',
+                  minWidth: '7.5rem',
                   cursor: 'pointer',
                   background: active ? `${color}1f` : WH.cardBg,
                   border: `1px solid ${active ? color : 'var(--wh-subtle-border)'}`,
-                  borderRadius: 12,
-                  padding: '14px 16px',
+                  borderRadius: 'var(--wh-radius-lg)',
+                  padding: 'var(--wh-space-sm) var(--wh-space-md)',
                   transition: 'all .15s ease',
                   boxShadow: active
                     ? `0 0 0 1px ${color}, 0 6px 18px rgba(0,0,0,0.35)`
@@ -805,21 +805,21 @@ export default function DataSync() {
                   outline: 'none',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ color, fontSize: 18 }}>{icon}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--wh-space-sm)' }}>
+                  <span style={{ color, fontSize: '1.125rem' }}>{icon}</span>
                   {active && (
                     <Tag
                       color={color}
-                      style={{ fontSize: 10, lineHeight: '16px', margin: 0, padding: '0 6px', borderRadius: 4 }}
+                      style={{ fontSize: '0.625rem', lineHeight: '1rem', margin: 0, padding: '0 var(--wh-space-xs)', borderRadius: 'var(--wh-radius-sm)' }}
                     >
                       {t('sync.statActive')}
                     </Tag>
                   )}
                 </div>
-                <div style={{ fontSize: 28, fontWeight: 700, color: WH.text, lineHeight: 1 }}>
+                <div style={{ fontSize: '1.75rem', fontWeight: 700, color: WH.text, lineHeight: 1 }}>
                   {count}
                 </div>
-                <div style={{ marginTop: 6, fontSize: 12, color: WH.textMuted }}>
+                <div style={{ marginTop: 'var(--wh-space-xs)', fontSize: '0.75rem', color: WH.textMuted }}>
                   {statusLabel(key)}
                 </div>
               </div>
@@ -829,19 +829,19 @@ export default function DataSync() {
       </div>
 
       {/* 列表检索 / 筛选 / 排序 */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--wh-space-sm)', marginBottom: 'var(--wh-space-sm)', alignItems: 'center' }}>
         <Input
           allowClear
           prefix={<SearchOutlined style={{ color: WH.textDim }} />}
           placeholder={locale === 'zh' ? '搜索任务名 / ID' : 'Search name / ID'}
           value={searchText}
           onChange={e => setSearchText(e.target.value)}
-          style={{ width: 220, background: 'var(--wh-input-bg)', color: WH.text, borderColor: 'var(--wh-input-border)' }}
+          style={{ width: 'min(100%, 13.75rem)', background: 'var(--wh-input-bg)', color: WH.text, borderColor: 'var(--wh-input-border)' }}
         />
         <Select
           value={statusFilter}
           onChange={v => setStatusFilter(v)}
-          style={{ width: 120 }}
+          style={{ width: 'min(100%, 7.5rem)' }}
           options={[
             { value: 'all', label: locale === 'zh' ? '全部状态' : 'All Status' },
             { value: 'failed', label: locale === 'zh' ? '失败' : 'Failed' },
@@ -853,7 +853,7 @@ export default function DataSync() {
         <Select
           value={categoryFilter}
           onChange={v => setCategoryFilter(v)}
-          style={{ width: 140 }}
+          style={{ width: 'min(100%, 8.75rem)' }}
           options={[
             { value: 'all', label: locale === 'zh' ? '全部分类' : 'All Categories' },
             ...Object.keys(CATEGORY_CONFIG).map(c => ({ value: c, label: locale === 'zh' ? CATEGORY_CONFIG[c].label_zh : CATEGORY_CONFIG[c].label_en })),
@@ -862,14 +862,14 @@ export default function DataSync() {
         <Select
           value={sortKey}
           onChange={v => setSortKey(v)}
-          style={{ width: 130 }}
+          style={{ width: 'min(100%, 8.125rem)' }}
           options={[
             { value: 'name', label: locale === 'zh' ? '按名称' : 'By Name' },
             { value: 'next_run', label: locale === 'zh' ? '按下次运行' : 'By Next Run' },
             { value: 'status', label: locale === 'zh' ? '按状态' : 'By Status' },
           ]}
         />
-        <Text style={{ color: WH.textDim, fontSize: 12, marginLeft: 'auto' }}>
+        <Text style={{ color: WH.textDim, fontSize: '0.75rem', marginLeft: 'auto' }}>
           {locale === 'zh' ? `共 ${tasks.length} / ${allTasks.length} 个` : `${tasks.length} / ${allTasks.length}`}
         </Text>
       </div>
@@ -879,9 +879,9 @@ export default function DataSync() {
         <Alert
           type="error"
           showIcon
-          style={{ marginBottom: 20, borderColor: 'rgba(255,77,79,0.4)' }}
+          style={{ marginBottom: 'var(--wh-space-lg)', borderColor: 'rgba(255,77,79,0.4)' }}
           action={
-            <Space size={8}>
+            <Space size="small" wrap>
               <Button size="small" onClick={handleSpeakAll}
                 icon={<SoundOutlined />}
                 style={{ color: 'var(--wh-error-text)', borderColor: 'rgba(255,77,79,0.35)' }}>
@@ -901,16 +901,16 @@ export default function DataSync() {
             </Text>
           }
           description={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-xs)', marginTop: 'var(--wh-space-xs)' }}>
               {/* 循环变量命名为 task：用 t 会遮蔽 i18n 的 t()，导致此处无法翻译 */}
               {failedTasks.map(task => (
-                <div key={task.task_id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <Text style={{ color: WH.text, fontSize: 12 }}>• {task.name}</Text>
+                <div key={task.task_id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)', flexWrap: 'wrap' }}>
+                  <Text style={{ color: WH.text, fontSize: '0.75rem' }}>• {task.name}</Text>
                   <Text
                     code
                     onClick={() => handleOpenHistory(task.task_id)}
                     style={{
-                      color: 'var(--wh-error-text)', fontSize: 11, maxWidth: 360, overflow: 'hidden',
+                      color: 'var(--wh-error-text)', fontSize: '0.6875rem', maxWidth: 'min(50vw, 22.5rem)', overflow: 'hidden',
                       textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer',
                       background: 'rgba(255,77,79,0.1)', borderColor: 'rgba(255,77,79,0.25)',
                     }}
@@ -927,30 +927,30 @@ export default function DataSync() {
       {/* Task Cards - Grouped by Data Gateway */}
       <Spin spinning={loading}>
         {groupedByGateway.map((group, gi) => (
-          <div key={group.key} style={{ marginBottom: 24 }}>
+          <div key={group.key} style={{ marginBottom: 'var(--wh-space-xl)' }}>
             {/* Group title */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              marginBottom: 12,
-              padding: '4px 0',
+              marginBottom: 'var(--wh-space-sm)',
+              padding: 'var(--wh-space-xs) 0',
               borderBottom: '1px solid var(--wh-subtle-border)',
             }}>
               <div style={{
-                width: 4,
-                height: 18,
-                borderRadius: 2,
+                width: '0.25rem',
+                height: '1.125rem',
+                borderRadius: 'var(--wh-radius-sm)',
                 background: GATEWAY_COLORS[gi % GATEWAY_COLORS.length],
-                marginRight: 10,
+                marginRight: 'var(--wh-space-sm)',
               }} />
-              <Text style={{ fontSize: 14, fontWeight: 600, color: WH.text }}>
+              <Text style={{ fontSize: '0.875rem', fontWeight: 600, color: WH.text }}>
                 {gwLabel(group.key)}
               </Text>
-              <Text style={{ fontSize: 12, color: WH.textMuted, marginLeft: 8 }}>
+              <Text style={{ fontSize: '0.75rem', color: WH.textMuted, marginLeft: 'var(--wh-space-sm)' }}>
                 ({group.items.length})
               </Text>
             </div>
-            <Row gutter={[16, 16]}>
+            <Row gutter={[{ xs: 8, sm: 12, md: 16 }, { xs: 8, sm: 12, md: 16 }]}>
               {group.items.map(t => renderTaskCard(t.task_id))}
             </Row>
           </div>
@@ -987,10 +987,10 @@ export default function DataSync() {
         open={aggOpen}
         onCancel={() => setAggOpen(false)}
         footer={null}
-        width={760}
+        width={'min(95vw, 47.5rem)' as any}
         title={
           <span style={{ color: WH.text }}>
-            <WarningOutlined style={{ marginRight: 8, color: 'var(--wh-error-text)' }} />
+            <WarningOutlined style={{ marginRight: 'var(--wh-space-sm)', color: 'var(--wh-error-text)' }} />
             {locale === 'zh' ? '失败聚合' : 'Failure Clusters'}
           </span>
         }
@@ -1000,21 +1000,21 @@ export default function DataSync() {
           body: { background: WH.bg },
         }}
       >
-        <Space style={{ marginBottom: 12 }} size={12}>
-          <Text style={{ fontSize: 12, color: WH.textMuted }}>
+        <Space style={{ marginBottom: 'var(--wh-space-sm)' }} size="small" wrap>
+          <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
             {locale === 'zh' ? '统计窗口' : 'Window'}
           </Text>
           <Select
             size="small"
             value={aggDays}
             onChange={setAggDays}
-            style={{ width: 110 }}
+            style={{ width: 'min(100%, 6.875rem)' }}
             options={[1, 3, 7, 14].map(d => ({
               value: d, label: locale === 'zh' ? `近 ${d} 天` : `Last ${d}d`,
             }))}
           />
           {failureAgg && (
-            <Text style={{ fontSize: 12, color: WH.textMuted }}>
+            <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
               {locale === 'zh'
                 ? `共 ${failureAgg.total_failures} 次失败 / ${failureAgg.clusters.length} 类根因`
                 : `${failureAgg.total_failures} failures / ${failureAgg.clusters.length} clusters`}
@@ -1028,28 +1028,28 @@ export default function DataSync() {
               dataSource={failureAgg.clusters}
               renderItem={(c: FailureCluster) => (
                 <List.Item style={{
-                  background: 'rgba(255,77,79,0.06)', marginBottom: 8, borderRadius: 8,
-                  padding: '10px 12px', border: '1px solid rgba(255,77,79,0.18)',
+                  background: 'rgba(255,77,79,0.06)', marginBottom: 'var(--wh-space-sm)', borderRadius: 'var(--wh-radius-md)',
+                  padding: 'var(--wh-space-sm) var(--wh-space-md)', border: '1px solid rgba(255,77,79,0.18)',
                 }}>
                   <div style={{ width: '100%' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <Text style={{ color: 'var(--wh-error-text)', fontSize: 12, fontWeight: 600, wordBreak: 'break-word' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--wh-space-sm)' }}>
+                      <Text style={{ color: 'var(--wh-error-text)', fontSize: '0.75rem', fontWeight: 600, wordBreak: 'break-word' }}>
                         {c.error_first_line}
                       </Text>
                       <Tag color="red" style={{ flexShrink: 0 }}>×{c.count}</Tag>
                     </div>
-                    <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <div style={{ marginTop: 'var(--wh-space-xs)', display: 'flex', gap: 'var(--wh-space-xs)', flexWrap: 'wrap' }}>
                       {Object.entries(c.tasks).map(([tid, n]) => (
                         <Tag
                           key={tid}
-                          style={{ cursor: 'pointer', fontSize: 11 }}
+                          style={{ cursor: 'pointer', fontSize: '0.6875rem' }}
                           onClick={() => { setAggOpen(false); handleOpenHistory(tid) }}
                         >
                           {tid} ×{n}
                         </Tag>
                       ))}
                     </div>
-                    <Text style={{ fontSize: 11, color: WH.textDim }}>
+                    <Text style={{ fontSize: '0.6875rem', color: WH.textDim }}>
                       {locale === 'zh' ? '最近一次：' : 'Last: '}{c.last_seen}
                     </Text>
                   </div>
@@ -1058,7 +1058,7 @@ export default function DataSync() {
             />
           ) : (
             !aggLoading && (
-              <div style={{ textAlign: 'center', color: WH.textMuted, padding: 24 }}>
+              <div style={{ textAlign: 'center', color: WH.textMuted, padding: 'var(--wh-space-lg)' }}>
                 {locale === 'zh' ? '该窗口内没有失败记录 🎉' : 'No failures in this window 🎉'}
               </div>
             )

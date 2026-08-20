@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge, Button, Dropdown, message, Modal, Checkbox, Divider } from 'antd'
-import { DownloadOutlined, SettingOutlined, SearchOutlined } from '@ant-design/icons'
+import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge, Button, Dropdown, message, Modal, Checkbox, Divider, Upload, Space } from 'antd'
+import { DownloadOutlined, SettingOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
 import { useI18n, numLocale } from '../i18n'
+import { cardStyle, controlCardStyle } from '../theme'
 
 interface TableInfo {
   name: string
@@ -69,6 +70,79 @@ export default function TableBrowser() {
   const [tplName, setTplName] = useState('')
   const [colFilter, setColFilter] = useState('')
   const { t, locale } = useI18n()
+
+  // ---- 自定义导入（Excel/CSV → 自定义表名） ----
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importName, setImportName] = useState('')
+  const [importOverwrite, setImportOverwrite] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<any>(null)
+
+  // 根据文件名自动建议表名（去掉扩展名 + 清洗为合法标识符）
+  const suggestTableName = (filename: string) => {
+    const stem = filename.replace(/\.[^.]+$/, '')
+    const cleaned = stem
+      .replace(/[^\w]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toLowerCase()
+    return cleaned && /^[0-9]/.test(cleaned) ? `t_${cleaned}` : cleaned || ''
+  }
+
+  const openImport = () => {
+    setImportFile(null)
+    setImportName('')
+    setImportOverwrite(false)
+    setImportResult(null)
+    setImportOpen(true)
+  }
+
+  const onImportFileChange = (info: any) => {
+    const file: File | undefined = info?.file
+    if (file) {
+      setImportFile(file)
+      // 仅在不曾手动改过表名时自动建议（首次选文件）
+      if (!importName) setImportName(suggestTableName(file.name))
+    }
+  }
+
+  const submitImport = () => {
+    if (!importFile) { message.warning(t('table.importFileRequired')); return }
+    if (!importName.trim()) { message.warning(t('table.importNameRequired')); return }
+    setImporting(true)
+    setImportResult(null)
+    const formData = new FormData()
+    formData.append('file', importFile)
+    formData.append('table_name', importName.trim())
+    formData.append('overwrite', String(importOverwrite))
+    api.post('/tables/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    })
+      .then((res) => {
+        setImportResult(res.data)
+        message.success(t('table.importSuccess', {
+          n: res.data.tables?.length ?? 0,
+          t: res.data.elapsed_seconds ?? 0,
+        }))
+        // 刷新表列表并跳转到首张导入表
+        api.get('/tables').then((r) => {
+          const tbls = (r.data.tables || []).filter((x: TableInfo) => !x.name.startsWith('_'))
+          setTables(tbls)
+          const first = res.data.tables?.[0]?.table_name
+          if (first && tbls.some((x: TableInfo) => x.name === first)) {
+            setSelectedTable(first)
+          } else if (tbls.length > 0) {
+            setSelectedTable(tbls[0].name)
+          }
+        })
+      })
+      .catch((err: any) => {
+        message.error(t('table.importFailed', { msg: err.response?.data?.detail || err.message }))
+      })
+      .finally(() => setImporting(false))
+  }
 
   useEffect(() => {
     api.get('/tables').then(res => {
@@ -193,64 +267,65 @@ export default function TableBrowser() {
     title: col,
     dataIndex: col,
     key: col,
-    width: 150,
+    minWidth: 120,
     ellipsis: true,
     render: (v: any) => v === null || v === undefined ? <Tag>NULL</Tag> : String(v),
   }))
 
   return (
     <div>
-      <Card style={{ marginBottom: 16 }}>
-        <Row gutter={16} align="middle">
-          <Col>
+      <Card style={controlCardStyle}>
+        <Row gutter={[16, 16]} align="middle">
+          <Col xs={24} sm={12} lg={6}>
             <Select
               value={selectedTable}
               onChange={setSelectedTable}
-              style={{ width: 300 }}
+              style={{ width: '100%' }}
               showSearch
               placeholder={t('table.selectTable')}
               options={tables.map(tbl => ({ value: tbl.name, label: `${tbl.name} (${tbl.row_count} ${t('common.rows')})` }))}
             />
           </Col>
-          <Col>
+          <Col xs={24} sm={12} lg={6}>
             <Input.Search
               placeholder={t('table.searchPlaceholder')}
               onSearch={(v) => { setSearchText(v); loadTableData(1) }}
-              style={{ width: 250 }}
+              style={{ width: '100%' }}
               allowClear
             />
           </Col>
           {tableInfo && (
-            <Col>
+            <Col xs={24} lg={6}>
               <Tag color="blue">{tableInfo.row_count.toLocaleString(numLocale(locale))} {t('common.rows')}</Tag>
               <Tag color="green">{tableInfo.col_count} {t('common.cols')}</Tag>
             </Col>
           )}
-          <Col>
-            <Dropdown
-              menu={{
-                items: [
-                  { key: 'xlsx', label: 'Excel (.xlsx)' },
-                  { key: 'csv', label: 'CSV (.csv)' },
-                ],
-                onClick: ({ key }) => exportTable(key as 'xlsx' | 'csv'),
-              }}
-            >
-              <Button icon={<DownloadOutlined />} disabled={!selectedTable}>
-                {t('table.export')}
+          <Col xs={24} lg={tableInfo ? 6 : 12}>
+            <Space wrap style={{ width: '100%' }}>
+              <Dropdown
+                menu={{
+                  items: [
+                    { key: 'xlsx', label: 'Excel (.xlsx)' },
+                    { key: 'csv', label: 'CSV (.csv)' },
+                  ],
+                  onClick: ({ key }) => exportTable(key as 'xlsx' | 'csv'),
+                }}
+              >
+                <Button icon={<DownloadOutlined />} disabled={!selectedTable}>
+                  {t('table.export')}
+                </Button>
+              </Dropdown>
+              <Button icon={<UploadOutlined />} onClick={openImport}>
+                {t('table.import')}
               </Button>
-            </Dropdown>
+              <Button icon={<SettingOutlined />} disabled={!selectedTable} onClick={openColModal}>
+                {t('table.customizeCols')}
+              </Button>
+              {visibleCols && (
+                <Tag color="orange">{t('table.visibleColsTag', { n: shownCols.length, m: tableColumns.length })}</Tag>
+              )}
+            </Space>
           </Col>
-          <Col>
-            <Button icon={<SettingOutlined />} disabled={!selectedTable} onClick={openColModal}>
-              {t('table.customizeCols')}
-            </Button>
-          </Col>
-          {visibleCols && (
-            <Col>
-              <Tag color="orange">{t('table.visibleColsTag', { n: shownCols.length, m: tableColumns.length })}</Tag>
-            </Col>
-          )}
         </Row>
       </Card>
 
@@ -258,17 +333,17 @@ export default function TableBrowser() {
         title={t('table.colModalTitle')}
         open={colModalOpen}
         onCancel={() => setColModalOpen(false)}
-        width={640}
+        width={'min(90vw, 40rem)' as any}
         footer={[
           <Button key="reset" onClick={resetCols}>{t('table.resetCols')}</Button>,
           <Button key="cancel" onClick={() => setColModalOpen(false)}>{t('table.cancel')}</Button>,
           <Button key="ok" type="primary" onClick={applyCols}>{t('table.apply')}</Button>,
         ]}
       >
-        <div style={{ marginBottom: 8 }}>
+        <div style={{ marginBottom: 'var(--wh-space-sm)' }}>
           <Button size="small" onClick={() => setDraftCols([...tableColumns])}>{t('table.selectAll')}</Button>
-          <Button size="small" style={{ marginLeft: 8 }} onClick={() => setDraftCols([])}>{t('table.clearAll')}</Button>
-          <span style={{ marginLeft: 12, color: '#888' }}>{draftCols.length} / {tableColumns.length}</span>
+          <Button size="small" style={{ marginLeft: 'var(--wh-space-sm)' }} onClick={() => setDraftCols([])}>{t('table.clearAll')}</Button>
+          <span style={{ marginLeft: 'var(--wh-space-md)', color: '#888' }}>{draftCols.length} / {tableColumns.length}</span>
         </div>
         <Input
           prefix={<SearchOutlined style={{ color: '#bbb' }} />}
@@ -276,16 +351,16 @@ export default function TableBrowser() {
           onChange={e => setColFilter(e.target.value)}
           placeholder={t('table.filterColsPh')}
           allowClear
-          style={{ marginBottom: 8 }}
+          style={{ marginBottom: 'var(--wh-space-sm)' }}
         />
-        <div style={{ maxHeight: 280, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+        <div style={{ maxHeight: '17.5rem', overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 'var(--wh-radius-sm)', padding: 'var(--wh-space-sm)' }}>
           {filteredCols.length === 0 ? (
-            <div style={{ color: '#999', textAlign: 'center', padding: 12 }}>{t('table.noMatchCols')}</div>
+            <div style={{ color: '#999', textAlign: 'center', padding: 'var(--wh-space-sm)' }}>{t('table.noMatchCols')}</div>
           ) : (
             <Checkbox.Group value={draftCols} onChange={v => setDraftCols(v as string[])} style={{ width: '100%' }}>
               <Row>
                 {filteredCols.map((c: string) => (
-                  <Col span={8} key={c} style={{ marginBottom: 4 }}>
+                  <Col xs={24} sm={12} lg={8} key={c} style={{ marginBottom: 'var(--wh-space-xs)' }}>
                     <Checkbox value={c}>{c}</Checkbox>
                   </Col>
                 ))}
@@ -293,21 +368,21 @@ export default function TableBrowser() {
             </Checkbox.Group>
           )}
         </div>
-        <Divider style={{ margin: '12px 0' }}>{t('table.templates')}</Divider>
+        <Divider style={{ margin: 'var(--wh-space-sm) 0' }}>{t('table.templates')}</Divider>
         {templates.length === 0 ? (
-          <div style={{ color: '#999', marginBottom: 8 }}>{t('table.noTemplates')}</div>
+          <div style={{ color: '#999', marginBottom: 'var(--wh-space-sm)' }}>{t('table.noTemplates')}</div>
         ) : (
-          <div style={{ maxHeight: 140, overflow: 'auto', marginBottom: 8 }}>
+          <div style={{ maxHeight: '8.75rem', overflow: 'auto', marginBottom: 'var(--wh-space-sm)' }}>
             {templates.map(tp => (
-              <div key={tp.name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <span style={{ flex: 1 }}>{tp.name} <span style={{ color: '#999' }}>({tp.columns.length} {t('common.cols')})</span></span>
+              <div key={tp.name} style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)', marginBottom: 'var(--wh-space-xs)' }}>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tp.name} <span style={{ color: '#999' }}>({tp.columns.length} {t('common.cols')})</span></span>
                 <Button size="small" onClick={() => applyTemplate(tp)}>{t('table.loadTemplate')}</Button>
                 <Button size="small" danger onClick={() => deleteTemplate(tp.name)}>{t('common.delete')}</Button>
               </div>
             ))}
           </div>
         )}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 'var(--wh-space-sm)' }}>
           <Input
             value={tplName}
             onChange={e => setTplName(e.target.value)}
@@ -319,27 +394,83 @@ export default function TableBrowser() {
         </div>
       </Modal>
 
+      <Modal
+        title={t('table.importModalTitle')}
+        open={importOpen}
+        onCancel={() => !importing && setImportOpen(false)}
+        width={'min(90vw, 35rem)' as any}
+        footer={[
+          <Button key="cancel" disabled={importing} onClick={() => setImportOpen(false)}>{t('table.cancel')}</Button>,
+          <Button key="ok" type="primary" loading={importing} onClick={submitImport}>
+            {t('table.import')}
+          </Button>,
+        ]}
+      >
+        <div style={{ marginBottom: 'var(--wh-space-sm)' }}>
+          <div style={{ marginBottom: 'var(--wh-space-xs)', color: '#555' }}>{t('table.importFilePh')}</div>
+          <Upload
+            beforeUpload={() => false}
+            maxCount={1}
+            accept=".xlsx,.xls,.csv"
+            fileList={importFile ? [{ uid: '-1', name: importFile.name, status: 'done' } as any] : []}
+            onChange={onImportFileChange}
+            onRemove={() => { setImportFile(null); setImportName('') }}
+          >
+            <Button icon={<UploadOutlined />}>{t('table.importFilePh')}</Button>
+          </Upload>
+        </div>
+        <div style={{ marginBottom: 'var(--wh-space-xs)', color: '#555' }}>{t('table.importNamePh')}</div>
+        <Input
+          value={importName}
+          onChange={e => setImportName(e.target.value)}
+          placeholder={t('table.importNamePh')}
+          maxLength={63}
+          disabled={importing}
+        />
+        <div style={{ marginTop: 'var(--wh-space-xs)', color: '#999', fontSize: '0.75rem' }}>{t('table.importNameHint')}</div>
+        <div style={{ marginTop: 'var(--wh-space-md)' }}>
+          <Checkbox checked={importOverwrite} onChange={e => setImportOverwrite(e.target.checked)} disabled={importing}>
+            {t('table.importOverwrite')}
+          </Checkbox>
+          <span style={{ marginLeft: 'var(--wh-space-sm)', color: '#999', fontSize: '0.75rem' }}>{t('table.importOverwriteHint')}</span>
+        </div>
+        {importResult && (
+          <div style={{ marginTop: 'var(--wh-space-md)' }}>
+            {importResult.tables?.map((tbl: any, i: number) => (
+              <div key={i} style={{ marginBottom: 'var(--wh-space-xs)' }}>
+                <Tag color="blue">{tbl.table_name}</Tag>
+                <span style={{ color: '#888' }}>
+                  {tbl.row_count.toLocaleString(numLocale(locale))} {t('common.rows')} / {tbl.col_count} {t('common.cols')}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
+
       <Tabs
         items={[
           {
             key: 'data',
             label: t('table.browseTab'),
             children: (
-              <Card>
-                <Table
-                  dataSource={tableData}
-                  columns={dataColumns}
-                  loading={loading}
-                  scroll={{ x: 'max-content' }}
-                  size="small"
-                  rowKey={(record: any) => record.__row_index ?? JSON.stringify(record).slice(0, 50)}
-                  pagination={{
-                    ...pagination,
-                    showSizeChanger: false,
-                    showTotal: (total) => t('table.totalRecords', { n: total }),
-                    onChange: (p) => loadTableData(p),
-                  }}
-                />
+              <Card style={cardStyle}>
+                <div className="wh-table-responsive">
+                  <Table
+                    dataSource={tableData}
+                    columns={dataColumns}
+                    loading={loading}
+                    scroll={{ x: 'max-content' }}
+                    size="small"
+                    rowKey={(record: any) => record.__row_index ?? JSON.stringify(record).slice(0, 50)}
+                    pagination={{
+                      ...pagination,
+                      showSizeChanger: false,
+                      showTotal: (total) => t('table.totalRecords', { n: total }),
+                      onChange: (p) => loadTableData(p),
+                    }}
+                  />
+                </div>
               </Card>
             ),
           },
@@ -384,7 +515,7 @@ function ProfilePanel({ profile, onLoad }: { profile: ProfileResult; onLoad: () 
         itemStyle: { color: c.null_rate > 50 ? '#ff4d4f' : c.null_rate > 20 ? '#faad14' : '#52c41a' },
       })),
     }],
-    grid: { left: 50, right: 20, bottom: 100, top: 20 },
+    grid: { left: '3.125rem', right: '1.25rem', bottom: '6.25rem', top: '1.25rem' },
     dataZoom: [{ type: 'slider' }],
   }
 
@@ -404,38 +535,38 @@ function ProfilePanel({ profile, onLoad }: { profile: ProfileResult; onLoad: () 
   return (
     <div>
       <Row gutter={[16, 16]}>
-        <Col span={6}>
-          <Card><Statistic title={t('table.qualityScore')} value={p.quality_score} suffix={t('table.scoreUnit')} valueStyle={{ color: p.quality_score >= 80 ? '#52c41a' : '#faad14' }} /></Card>
+        <Col xs={24} sm={12} lg={6}>
+          <Card style={cardStyle}><Statistic title={t('table.qualityScore')} value={p.quality_score} suffix={t('table.scoreUnit')} valueStyle={{ color: p.quality_score >= 80 ? '#52c41a' : '#faad14' }} /></Card>
         </Col>
-        <Col span={6}>
-          <Card><Statistic title={t('table.totalRowsLabel')} value={p.total_rows} /></Card>
+        <Col xs={24} sm={12} lg={6}>
+          <Card style={cardStyle}><Statistic title={t('table.totalRowsLabel')} value={p.total_rows} /></Card>
         </Col>
-        <Col span={6}>
-          <Card><Statistic title={t('table.totalColsLabel')} value={p.total_cols} /></Card>
+        <Col xs={24} sm={12} lg={6}>
+          <Card style={cardStyle}><Statistic title={t('table.totalColsLabel')} value={p.total_cols} /></Card>
         </Col>
-        <Col span={6}>
-          <Card><Statistic title={t('table.qualityIssues')} value={p.issues_summary.length} valueStyle={{ color: p.issues_summary.length > 0 ? '#ff4d4f' : '#52c41a' }} /></Card>
-        </Col>
-      </Row>
-
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col span={16}>
-          <Card title={t('table.nullRateDist')}>
-            <ReactECharts option={nullRateOption} style={{ height: 300 }} />
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card title={t('table.typeDist')}>
-            <ReactECharts option={typePieOption} style={{ height: 300 }} />
-          </Card>
+        <Col xs={24} sm={12} lg={6}>
+          <Card style={cardStyle}><Statistic title={t('table.qualityIssues')} value={p.issues_summary.length} valueStyle={{ color: p.issues_summary.length > 0 ? '#ff4d4f' : '#52c41a' }} /></Card>
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+      <Row gutter={[16, 16]} style={{ marginTop: 'var(--wh-space-md)' }}>
+        <Col xs={24} lg={16}>
+          <Card title={t('table.nullRateDist')} style={cardStyle}>
+            <ReactECharts option={nullRateOption} style={{ height: 'clamp(14rem, 28vw, 19rem)' }} />
+          </Card>
+        </Col>
+        <Col xs={24} lg={8}>
+          <Card title={t('table.typeDist')} style={cardStyle}>
+            <ReactECharts option={typePieOption} style={{ height: 'clamp(14rem, 28vw, 19rem)' }} />
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 'var(--wh-space-md)' }}>
         <Col span={24}>
-          <Card title={t('table.conclusions')}>
+          <Card title={t('table.conclusions')} style={cardStyle}>
             {conclusions.map((c, i) => (
-              <div key={i} style={{ marginBottom: 8, padding: '8px 12px', background: '#f6f8fa', borderRadius: 4 }}>
+              <div key={i} style={{ marginBottom: 'var(--wh-space-sm)', padding: 'var(--wh-space-sm) var(--wh-space-md)', background: 'var(--wh-subtle-bg)', borderRadius: 'var(--wh-radius-sm)' }}>
                 {c}
               </div>
             ))}
@@ -443,24 +574,26 @@ function ProfilePanel({ profile, onLoad }: { profile: ProfileResult; onLoad: () 
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+      <Row gutter={[16, 16]} style={{ marginTop: 'var(--wh-space-md)' }}>
         <Col span={24}>
-          <Card title={t('table.fieldDetails')}>
-            <Table
-              dataSource={p.columns}
-              columns={[
-                { title: t('table.fieldName'), dataIndex: 'name', key: 'name', width: 150 },
-                { title: t('table.fieldType'), dataIndex: 'type_category', key: 'type_category', width: 120, render: (v: string) => <Tag>{v}</Tag> },
-                { title: t('table.nullRate'), dataIndex: 'null_rate', key: 'null_rate', width: 100, render: (v: number) => <Progress percent={v} size="small" strokeColor={v > 50 ? '#ff4d4f' : v > 20 ? '#faad14' : '#52c41a'} /> },
-                { title: t('table.uniqueCount'), dataIndex: 'unique_count', key: 'unique_count', width: 80 },
-                { title: t('table.issueCount'), dataIndex: 'issue_count', key: 'issue_count', width: 80, render: (v: number) => v > 0 ? <Badge count={v} /> : '-' },
-                { title: t('table.candidateKey'), key: 'pk', width: 80, render: (_: any, r: ProfileColumn) => r.is_candidate_key ? <Tag color="gold">{t('table.isKey')}</Tag> : '-' },
-              ]}
-              size="small"
-              rowKey="name"
-              pagination={{ pageSize: 20 }}
-              scroll={{ y: 400 }}
-            />
+          <Card title={t('table.fieldDetails')} style={cardStyle}>
+            <div className="wh-table-responsive">
+              <Table
+                dataSource={p.columns}
+                columns={[
+                  { title: t('table.fieldName'), dataIndex: 'name', key: 'name', minWidth: 120 },
+                  { title: t('table.fieldType'), dataIndex: 'type_category', key: 'type_category', minWidth: 100, render: (v: string) => <Tag>{v}</Tag> },
+                  { title: t('table.nullRate'), dataIndex: 'null_rate', key: 'null_rate', minWidth: 120, render: (v: number) => <Progress percent={v} size="small" strokeColor={v > 50 ? '#ff4d4f' : v > 20 ? '#faad14' : '#52c41a'} /> },
+                  { title: t('table.uniqueCount'), dataIndex: 'unique_count', key: 'unique_count', minWidth: 90 },
+                  { title: t('table.issueCount'), dataIndex: 'issue_count', key: 'issue_count', minWidth: 90, render: (v: number) => v > 0 ? <Badge count={v} /> : '-' },
+                  { title: t('table.candidateKey'), key: 'pk', minWidth: 90, render: (_: any, r: ProfileColumn) => r.is_candidate_key ? <Tag color="gold">{t('table.isKey')}</Tag> : '-' },
+                ]}
+                size="small"
+                rowKey="name"
+                pagination={{ pageSize: 20 }}
+                scroll={{ x: 'max-content', y: 'clamp(18rem, 40vh, 25rem)' }}
+              />
+            </div>
           </Card>
         </Col>
       </Row>

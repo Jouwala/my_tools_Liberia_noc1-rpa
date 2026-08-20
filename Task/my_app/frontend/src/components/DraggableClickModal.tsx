@@ -14,7 +14,7 @@ export interface DraggableClickModalProps {
   anchor?: { x: number; y: number } | null
   onClose: () => void
   width?: number | string
-  maxWidth?: number
+  maxWidth?: number | string
   /** 暗色主题（Warehouse 深空蓝风格）；缺省跟随全局主题 */
   dark?: boolean
   children?: React.ReactNode
@@ -26,7 +26,7 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
   anchor,
   onClose,
   width = '92%',
-  maxWidth = 1400,
+  maxWidth = '87.5rem',
   dark: darkProp,
   children,
 }) => {
@@ -49,25 +49,26 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
 }
 .dcm-modal {
   position: fixed;
-  background: #fff; border-radius: 10px;
+  background: #fff; border-radius: var(--wh-radius-md);
   box-shadow: 0 8px 32px rgba(0,0,0,0.18);
   display: flex; flex-direction: column;
   max-height: 88vh; overflow: hidden;
   z-index: 1001;
 }
 .dcm-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 18px; cursor: move; user-select: none;
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: var(--wh-space-sm);
+  padding: var(--wh-space-md); cursor: move; user-select: none;
   border-bottom: 1px solid #f0f0f0; background: #fafafa;
-  border-radius: 10px 10px 0 0;
+  border-radius: var(--wh-radius-md) var(--wh-radius-md) 0 0;
 }
-.dcm-title { font-size: 15px; font-weight: 600; color: #1f1f1f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dcm-title { font-size: 0.9375rem; font-weight: 600; color: #1f1f1f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dcm-close {
   border: none; background: transparent; cursor: pointer;
-  font-size: 20px; line-height: 1; color: #999; padding: 0 4px; margin-left: 12px;
+  font-size: 1.25rem; line-height: 1; color: #999; padding: 0 var(--wh-space-xs);
 }
 .dcm-close:hover { color: #ff4d4f; }
-.dcm-body { padding: 16px 18px; overflow: auto; }
+.dcm-body { padding: var(--wh-space-md); overflow: auto; }
 
 /* ---- 暗色主题（Warehouse 深空蓝） ---- */
 .dcm-modal.dcm-dark {

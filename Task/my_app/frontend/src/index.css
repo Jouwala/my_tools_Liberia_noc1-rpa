@@ -32,6 +32,36 @@
   --wh-warn-text: #ffa940;
   --wh-input-bg: rgba(255, 255, 255, 0.05);
   --wh-input-border: rgba(100, 255, 218, 0.18);
+
+  /* ---------- 响应式布局令牌（统一以 rem 为基准，16px = 1rem） ---------- */
+  /* 根字体基准由 html 的 font-size 控制，Windows 缩放/高 DPI 会随系统字体设置自然放大 */
+  --wh-header-height: 3.5rem;        /* 56px */
+  --wh-sider-width: 12.5rem;         /* 200px */
+  --wh-sider-collapsed-width: 0rem;
+  --wh-content-margin: 1rem;         /* 16px */
+  --wh-content-padding: 0.25rem;     /* 4px  */
+  --wh-page-min-height: calc(100vh - var(--wh-header-height) - var(--wh-content-margin) * 2 - var(--wh-content-padding) * 2);
+
+  /* 间距 scale：全站统一引用，避免散落固定 px */
+  --wh-space-xs: 0.25rem;  /* 4px  */
+  --wh-space-sm: 0.5rem;   /* 8px  */
+  --wh-space-md: 1rem;     /* 16px */
+  --wh-space-lg: 1.5rem;   /* 24px */
+  --wh-space-xl: 2rem;     /* 32px */
+  --wh-space-2xl: 3rem;    /* 48px */
+
+  /* 断点（供 CSS 与 JS 共享语义，媒体查询仍用 px 以兼容主流浏览器） */
+  --wh-break-xs: 0;
+  --wh-break-sm: 36rem;    /* 576px */
+  --wh-break-md: 48rem;    /* 768px */
+  --wh-break-lg: 62rem;    /* 992px */
+  --wh-break-xl: 75rem;    /* 1200px */
+  --wh-break-2xl: 87.5rem; /* 1400px */
+
+  /* 圆角/阴影保持原有设计 */
+  --wh-radius-sm: 0.375rem;
+  --wh-radius-md: 0.5rem;
+  --wh-radius-lg: 0.75rem;
 }
 
 :root[data-theme='light'] {
@@ -86,6 +116,24 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+/* ---------- 响应式根字体：兼容 1080P/2K/4K 与 Windows 高 DPI 缩放 ---------- */
+/* 16px 为基准；在宽屏上轻微放大以提升 2K/4K 可读性，同时尊重系统缩放设置 */
+html {
+  font-size: clamp(14px, 0.55vw + 12.2px, 18px);
+}
+
+/* 针对 Windows 常见缩放：浏览器已按缩放系数重算 px/rem，无需额外放大；
+   若用户显式调大系统字体，rem 会自然跟随 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Leaflet map fix */
@@ -147,4 +195,151 @@ body {
 }
 :root[data-theme='light'] .leaflet-popup-content a {
   color: #0d9488;
+}
+
+/* ---------- 响应式工具类（与 antd 共存，不覆盖其组件核心样式） ---------- */
+
+/* 表格横向滚动：在小屏/列多时自动出现横向滚动条，避免挤压错位 */
+.wh-table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.wh-table-responsive .ant-table {
+  min-width: max-content;
+}
+/* 让 antd Table 在弹性容器内也能正确收缩 */
+.wh-table-responsive .ant-table-container {
+  min-width: max-content;
+}
+
+/* 页面包装器：替代各页内联的 pageWrap，自动占满 Content 区域 */
+.wh-page-wrap {
+  background: var(--wh-bg);
+  border-radius: var(--wh-radius-lg);
+  padding: var(--wh-space-xs);
+  min-height: var(--wh-page-min-height);
+}
+
+/* 弹性容器工具类 */
+.wh-flex {
+  display: flex;
+}
+.wh-flex-col {
+  display: flex;
+  flex-direction: column;
+}
+.wh-flex-1 {
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+}
+.wh-items-center {
+  align-items: center;
+}
+.wh-justify-between {
+  justify-content: space-between;
+}
+.wh-gap-sm {
+  gap: var(--wh-space-sm);
+}
+.wh-gap-md {
+  gap: var(--wh-space-md);
+}
+.wh-wrap {
+  flex-wrap: wrap;
+}
+
+/* 移动端隐藏 / 桌面端显示（配合 JS 断点使用） */
+.wh-hide-mobile {
+  display: none !important;
+}
+@media (min-width: 768px) {
+  .wh-hide-mobile {
+    display: initial !important;
+  }
+  .wh-show-mobile-only {
+    display: none !important;
+  }
+}
+
+/* 侧边栏展开/收起按钮：小屏下加大并加背景，确保可见 */
+.wh-sider-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width: 767px) {
+  .wh-sider-toggle {
+    width: 2.75rem !important;
+    height: 2.75rem !important;
+    background: rgba(13, 148, 136, 0.12) !important;
+    border: 1px solid rgba(13, 148, 136, 0.35) !important;
+    border-radius: var(--wh-radius-md) !important;
+  }
+  .wh-sider-toggle .anticon {
+    font-size: 1.25rem !important;
+  }
+  html.dark .wh-sider-toggle {
+    background: rgba(100, 255, 218, 0.12) !important;
+    border-color: rgba(100, 255, 218, 0.35) !important;
+  }
+}
+
+/* 小屏下表单控件不应撑破容器 */
+.wh-input-fluid {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* 限制最大宽度，防止 4K 下阅读行过长 */
+.wh-readable {
+  max-width: 80ch;
+}
+
+/* ---------- antd 组件响应式补丁 ---------- */
+
+/* Modal / Drawer 在小屏下贴近屏幕边缘 */
+@media (max-width: 767px) {
+  .ant-modal-root .ant-modal {
+    max-width: calc(100vw - 1rem);
+    margin: 0.5rem auto;
+  }
+  .ant-modal-content {
+    border-radius: var(--wh-radius-md);
+  }
+  .ant-drawer-content-wrapper {
+    max-width: 100vw !important;
+  }
+  /* 菜单项在小屏更紧凑 */
+  .ant-menu-inline .ant-menu-item {
+    padding-inline: var(--wh-space-md) !important;
+  }
+}
+
+/* 表单标签换行避免撑破 */
+.ant-form-item-label {
+  overflow-wrap: anywhere;
+}
+
+/* 表格单元格超长文本处理 */
+.ant-table-cell {
+  overflow-wrap: anywhere;
+}
+
+/* 分页器在小屏下允许横向滚动 */
+@media (max-width: 575px) {
+  .ant-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--wh-space-xs);
+  }
+}
+
+/* 按钮文字在小屏允许收缩 */
+@media (max-width: 767px) {
+  .ant-btn > span:not(.anticon) {
+    white-space: nowrap;
+  }
 }

@@ -38,22 +38,22 @@ const SEVERITY_COLORS_LIGHT = {
 }
 
 // 卡片标题样式
-const cardTitleStyle = { fontSize: 14, fontWeight: 600, color: WH.text } as const
+const cardTitleStyle = { fontSize: '0.875rem', fontWeight: 600, color: WH.text } as const
 
 // 分区标题样式
 const SectionTitle = ({ icon, title, explain }: { icon: React.ReactNode; title: string; explain?: string }) => (
   <div style={{
-    display: 'flex', alignItems: 'center', gap: 10,
-    margin: '28px 0 16px', padding: '0 0 10px',
+    display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
+    margin: 'var(--wh-space-xl) 0 var(--wh-space-md)', padding: '0 0 var(--wh-space-sm)',
     borderBottom: '1px solid rgba(100,255,218,0.18)',
   }}>
     <span style={{
-      width: 28, height: 28, borderRadius: 6,
+      width: 28, height: 28, borderRadius: 'var(--wh-radius-sm)',
       background: WH.accentGrad,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: '#06222e', fontSize: 14,
+      color: '#06222e', fontSize: '0.875rem',
     }}>{icon}</span>
-    <span style={{ fontSize: 16, fontWeight: 700, color: WH.text, letterSpacing: '-0.3px' }}>{title}</span>
+    <span style={{ fontSize: '1rem', fontWeight: 700, color: WH.text, letterSpacing: '-0.3px' }}>{title}</span>
     {explain && <ExplainIcon text={explain} size={14} />}
   </div>
 )
@@ -195,7 +195,7 @@ export default function TTWODashboard() {
       title: k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
       dataIndex: k,
       key: k,
-      width: k.includes('time') || k.includes('date') ? 150 : 120,
+      minWidth: k.includes('time') || k.includes('date') ? 150 : 120,
       ellipsis: true,
       sorter: (a: any, b: any) => strSorter(a, b, k),
       filters: getUniqueFilters(drillData, k),
@@ -426,10 +426,10 @@ export default function TTWODashboard() {
         const tagBg = isDark ? 'rgba(10,25,41,0.6)' : `${tagColor}1f`
         return (
           <Tag key={k}
-            style={{ borderRadius: 16, padding: '4px 14px', fontSize: 13, lineHeight: '24px', cursor: 'pointer', transition: 'all 0.2s', fontWeight: 500, background: tagBg, borderColor: tagColor, color: tagColor }}
+            style={{ borderRadius: 'var(--wh-radius-lg)', padding: 'var(--wh-space-xs) 0.875rem', fontSize: '0.8125rem', lineHeight: '1.5rem', cursor: 'pointer', transition: 'all 0.2s', fontWeight: 500, background: tagBg, borderColor: tagColor, color: tagColor }}
             onClick={(e) => openDrilldown(e, dimension, k)}
           >
-            {k}: <strong style={{ fontSize: 14 }}>{fmt(v)}</strong>
+            {k}: <strong style={{ fontSize: '0.875rem' }}>{fmt(v)}</strong>
           </Tag>
         )
       })}
@@ -460,16 +460,16 @@ export default function TTWODashboard() {
   const renderStatusTags = (stats: Record<string, number>) => {
     const sorted = Object.entries(stats).sort((a, b) => (b[1] as number) - (a[1] as number))
     return (
-      <div style={{ background: 'var(--wh-subtle-bg)', borderRadius: 8, padding: 12, border: '1px solid var(--wh-subtle-border)' }}>
+      <div style={{ background: 'var(--wh-subtle-bg)', borderRadius: 'var(--wh-radius-md)', padding: 'var(--wh-space-md)', border: '1px solid var(--wh-subtle-border)' }}>
         <Space wrap size={[10, 10]}>
           {sorted.map(([k, v]) => (
             <Tooltip key={k} title={`Click to drill down: ${k}`}>
               <Tag
-                style={{ borderRadius: 16, padding: '5px 14px', fontSize: 13, lineHeight: '24px', margin: 0, cursor: 'pointer', transition: 'all 0.2s', border: 'none', background: `${getStatusColor(k)}20`, color: getStatusColor(k), fontWeight: 500 }}
+                style={{ borderRadius: 'var(--wh-radius-lg)', padding: '0.3125rem 0.875rem', fontSize: '0.8125rem', lineHeight: '1.5rem', margin: 0, cursor: 'pointer', transition: 'all 0.2s', border: 'none', background: `${getStatusColor(k)}20`, color: getStatusColor(k), fontWeight: 500 }}
                 onClick={(e) => openDrilldown(e, 'status', k)}
               >
                 <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: getStatusColor(k), marginRight: 6 }} />
-                {shortenLabel(k)}: <strong style={{ fontSize: 14 }}>{fmt(v as number)}</strong>
+                {shortenLabel(k)}: <strong style={{ fontSize: '0.875rem' }}>{fmt(v as number)}</strong>
               </Tag>
             </Tooltip>
           ))}
@@ -487,14 +487,14 @@ export default function TTWODashboard() {
   })
 
   if (loading) return (
-    <div style={{ ...pageWrap, textAlign: 'center', padding: 100 }}>
+    <div style={{ ...pageWrap, textAlign: 'center', padding: '6.25rem' }}>
       <Spin size="large" />
-      <div style={{ marginTop: 16, color: WH.textMuted }}>{t('ttwo.loading')}</div>
+      <div style={{ marginTop: 'var(--wh-space-md)', color: WH.textMuted }}>{t('ttwo.loading')}</div>
     </div>
   )
 
   if (error) return (
-    <div style={{ ...pageWrap, padding: 24 }}>
+    <div style={{ ...pageWrap, padding: 'var(--wh-space-lg)' }}>
       <Alert type="error" message={t('ttwo.loadFailed')} description={error} showIcon />
     </div>
   )
@@ -517,14 +517,14 @@ export default function TTWODashboard() {
         </span>
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Statistic title={<span style={{ color: WH.textMuted }}>{label}</span>} value={value} valueStyle={{ fontSize: 32, fontWeight: 800, color, textShadow: `0 0 14px ${color}55` }} />
-        <span style={{ fontSize: 40, opacity: 0.15, color }}>{icon}</span>
+        <Statistic title={<span style={{ color: WH.textMuted }}>{label}</span>} value={value} valueStyle={{ fontSize: '2rem', fontWeight: 800, color, textShadow: `0 0 14px ${color}55` }} />
+        <span style={{ fontSize: '2.5rem', opacity: 0.15, color }}>{icon}</span>
       </div>
     </Card>
   )
 
   return (
-    <div style={{ ...pageWrap, display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ ...pageWrap, display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
       {/* 筛选栏 */}
       <Card size="small" style={{ ...controlCardStyle, background: WH.cardBg }}>
         <Space wrap align="center" size="middle">
@@ -547,7 +547,7 @@ export default function TTWODashboard() {
           <Select
             value={selectedRegion}
             onChange={setSelectedRegion}
-            style={{ width: 180 }}
+            style={{ width: 'min(100%, 11.25rem)' }}
             allowClear
             placeholder={t('ttwo.allRegions')}
             options={regions.map((r: string) => ({ value: r, label: r }))}
@@ -555,7 +555,7 @@ export default function TTWODashboard() {
           <Tag
             icon={<ClockCircleOutlined />}
             color={isSynced ? 'green' : 'red'}
-            style={{ marginLeft: 'auto', borderRadius: 12, padding: '2px 12px' }}
+            style={{ marginLeft: 'auto', borderRadius: 'var(--wh-radius-lg)', padding: '0.125rem 0.75rem' }}
           >
             {isSynced ? t('ttwo.synced', { time: lastSync ?? '' }) : t('ttwo.notSynced')}
           </Tag>
@@ -684,13 +684,13 @@ export default function TTWODashboard() {
         onClose={() => setDrillVisible(false)}
         title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan">{t('common.records', { n: filteredDrillData.length })}</Tag></span>}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
           <Input
             prefix={<SearchOutlined />}
             placeholder={t('common.searchAllFields')}
             allowClear
             size="middle"
-            style={{ width: 350 }}
+            style={{ width: 'min(100%, 21.875rem)' }}
             value={drillSearch}
             onChange={e => setDrillSearch(e.target.value)}
           />
@@ -704,16 +704,18 @@ export default function TTWODashboard() {
           </Button>
         </div>
         {drillLoading ? (
-          <Spin style={{ display: 'block', margin: '60px auto' }} />
+          <Spin style={{ display: 'block', margin: '3.75rem auto' }} />
         ) : (
-          <Table
-            dataSource={filteredDrillData}
-            columns={drillColumns}
-            size="small"
-            rowKey={(r: any, i?: number) => `${Object.values(r).slice(0, 3).join('-')}-${i}`}
-            pagination={{ pageSize: 15, size: 'small', showTotal: (total: number) => t('common.itemsTotal', { n: total }) }}
-            scroll={{ x: 'max-content' }}
-          />
+          <div className="wh-table-responsive">
+            <Table
+              dataSource={filteredDrillData}
+              columns={drillColumns}
+              size="small"
+              rowKey={(r: any, i?: number) => `${Object.values(r).slice(0, 3).join('-')}-${i}`}
+              pagination={{ pageSize: 15, size: 'small', showTotal: (total: number) => t('common.itemsTotal', { n: total }) }}
+              scroll={{ x: 'max-content' }}
+            />
+          </div>
         )}
       </DraggableClickModal>
     </div>

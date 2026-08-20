@@ -83,7 +83,7 @@ export default function ArchiveList() {
       title: t('archive.colId'),
       dataIndex: 'id',
       key: 'id',
-      width: 60,
+      minWidth: 60,
     },
     {
       title: t('archive.colName'),
@@ -107,13 +107,13 @@ export default function ArchiveList() {
       title: t('archive.colCreated'),
       dataIndex: 'created_at',
       key: 'created_at',
-      width: 180,
+      minWidth: 180,
       render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '-',
     },
     {
       title: t('archive.colAction'),
       key: 'action',
-      width: 150,
+      minWidth: 150,
       render: (_: any, record: Analysis) => (
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => viewDetail(record.id)}>
@@ -173,8 +173,8 @@ export default function ArchiveList() {
       }
 
       return (
-        <div key={idx} style={{ display: 'inline-block', width: '50%', padding: 8 }}>
-          <ReactECharts option={option} style={{ height: 280 }} />
+        <div key={idx} style={{ flex: '1 1 calc(50% - var(--wh-space-sm))', minWidth: '16rem' }}>
+          <ReactECharts option={option} style={{ height: '17.5rem' }} />
         </div>
       )
     })
@@ -182,12 +182,12 @@ export default function ArchiveList() {
 
   return (
     <div>
-      <Card style={{ marginBottom: 16 }}>
+      <Card style={{ marginBottom: 'var(--wh-space-md)' }}>
         <Space>
           <Input.Search
             placeholder={t('archive.searchPlaceholder')}
             onSearch={(v) => { setSearch(v); setPage(1) }}
-            style={{ width: 350 }}
+            style={{ width: 'min(100%, 21.875rem)' }}
             allowClear
           />
           <Button onClick={loadList}>{t('common.refresh')}</Button>
@@ -196,19 +196,22 @@ export default function ArchiveList() {
       </Card>
 
       <Card>
-        <Table
-          dataSource={analyses}
-          columns={columns}
-          loading={loading}
-          rowKey="id"
-          pagination={{
-            current: page,
-            total,
-            pageSize: 20,
-            onChange: setPage,
-            showTotal: (total) => t('archive.totalRecords', { n: total }),
-          }}
-        />
+        <div className="wh-table-responsive">
+          <Table
+            dataSource={analyses}
+            columns={columns}
+            loading={loading}
+            rowKey="id"
+            scroll={{ x: 'max-content' }}
+            pagination={{
+              current: page,
+              total,
+              pageSize: 20,
+              onChange: setPage,
+              showTotal: (total) => t('archive.totalRecords', { n: total }),
+            }}
+          />
+        </div>
       </Card>
 
       <Modal
@@ -216,25 +219,25 @@ export default function ArchiveList() {
         open={detailVisible}
         onCancel={() => setDetailVisible(false)}
         footer={null}
-        width={1000}
+        width={'min(95vw, 62.5rem)' as any}
       >
         {detailLoading ? (
-          <div style={{ textAlign: 'center', padding: 50 }}>{t('common.loading')}</div>
+          <div style={{ textAlign: 'center', padding: '3.125rem' }}>{t('common.loading')}</div>
         ) : detail ? (
           <div>
-            <Descriptions column={3} size="small" bordered style={{ marginBottom: 16 }}>
+            <Descriptions column={3} size="small" bordered style={{ marginBottom: 'var(--wh-space-md)' }}>
               <Descriptions.Item label={t('archive.colTable')}><Tag color="blue">{detail.table_name}</Tag></Descriptions.Item>
               <Descriptions.Item label={t('archive.colCreated')}>{dayjs(detail.created_at).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
               <Descriptions.Item label={t('archive.colCreated')}>{dayjs(detail.updated_at).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
             </Descriptions>
 
             {detail.conclusions && detail.conclusions.length > 0 && (
-              <Card size="small" title={t('archive.conclusions')} style={{ marginBottom: 16 }}>
+              <Card size="small" title={t('archive.conclusions')} style={{ marginBottom: 'var(--wh-space-md)' }}>
                 <List
                   size="small"
                   dataSource={detail.conclusions}
                   renderItem={(item: string) => (
-                    <List.Item style={{ padding: '4px 0' }}>• {item}</List.Item>
+                    <List.Item style={{ padding: 'var(--wh-space-xs) 0' }}>• {item}</List.Item>
                   )}
                 />
               </Card>
@@ -242,7 +245,7 @@ export default function ArchiveList() {
 
             {detail.chart_config && (
               <Card size="small" title={t('archive.chartSnapshot')}>
-                <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>
                   {renderCharts(detail.chart_config)}
                 </div>
               </Card>

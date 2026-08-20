@@ -1,13 +1,13 @@
 @import "tailwindcss";
 
-/* Tailwind v4 默认 dark: 变体基于系统媒体查询；
-   门户通过给 <html> 添加 .dark 类手动切换主题，
-   因此必须声明基于类名的 dark 变体，否则夜间模式不生效。 */
+/* Tailwind v4 dark: variant defaults to system media query;
+   The portal switches themes by adding .dark class to <html>,
+   so we must declare class-based dark variant, otherwise dark mode won't work. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ---------- 主题设计令牌（对齐 Data Insight MVP / my_app 风格） ----------
-   浅色：teal #0d9488 → cyan #0e7490，页面 #f2f7fc → #e8f0f8
-   深色：teal #64ffda / blue #4fc3f7，页面 #0a1929 → #0d2138          */
+/* ---------- Theme Design Tokens ----------
+   Light: teal #0d9488 → cyan #0e7490, page #f2f7fc → #e8f0f8
+   Dark: teal #64ffda / blue #4fc3f7, page #0a1929 → #0d2138          */
 @theme {
   --color-brand-50: #f0fdfa;
   --color-brand-100: #ccfbf1;
@@ -22,6 +22,26 @@
   --color-navy-800: #112540;
   --color-navy-900: #0d2138;
   --color-navy-950: #0a1929;
+
+  /* Responsive spacing tokens (aligned with my_app convention) */
+  --wh-space-xs: 0.25rem;
+  --wh-space-sm: 0.5rem;
+  --wh-space-md: 1rem;
+  --wh-space-lg: 1.5rem;
+  --wh-space-xl: 2rem;
+
+  /* Border radius tokens */
+  --wh-radius-sm: 0.375rem;
+  --wh-radius-md: 0.75rem;
+  --wh-radius-lg: 1rem;
+  --wh-radius-xl: 1.5rem;
+
+  /* Responsive breakpoints (for reference in JS) */
+  --wh-break-sm: 640px;
+  --wh-break-md: 768px;
+  --wh-break-lg: 1024px;
+  --wh-break-xl: 1280px;
+
   --animate-fadeIn: fadeIn 0.35s ease-out both;
   --animate-slideUp: slideUp 0.35s ease-out both;
 
@@ -47,17 +67,22 @@
   }
 }
 
-/* ---------- 全局细节 ---------- */
+/* ---------- Global Base ---------- */
 html {
   scroll-behavior: smooth;
+  /* Root font size adapts to viewport for Windows scaling compatibility */
+  font-size: clamp(14px, 0.55vw + 12.2px, 18px);
 }
 
 body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Prevent horizontal overflow on small screens */
+  overflow-x: hidden;
+  min-height: 100vh;
 }
 
-/* 细滚动条（门户长列表 / 弹窗滚动区） */
+/* Thin scrollbars (portal long lists / modal scroll areas) */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -79,10 +104,81 @@ body {
   background: rgba(100, 255, 218, 0.45);
 }
 
-/* 隐藏横向滚动条（分类 Tab 行） */
+/* Hide horizontal scrollbar (category Tab row) */
 .scrollbar-none {
   scrollbar-width: none;
 }
 .scrollbar-none::-webkit-scrollbar {
   display: none;
+}
+
+/* ---------- Responsive Utility Classes ---------- */
+
+/* Table responsive wrapper for horizontal scrolling on mobile */
+.wh-table-responsive {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Page container with responsive padding */
+.wh-page-wrap {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+@media (min-width: 640px) {
+  .wh-page-wrap {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+@media (min-width: 1024px) {
+  .wh-page-wrap {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+/* Mobile-specific adjustments */
+@media (max-width: 768px) {
+  body {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  /* Ensure modals and drawers are properly sized */
+  .modal-mobile-full {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    max-height: 92vh !important;
+  }
+}
+
+/* Touch device hover fallback: make action buttons always visible */
+@media (hover: none) {
+  .touch-visible {
+    opacity: 1 !important;
+  }
+  .touch-hidden-hover {
+    opacity: 1 !important;
+  }
+}
+
+/* Ensure flex containers wrap properly */
+.wh-flex-wrap {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* Mobile panel max height constraint */
+.wh-mobile-panel {
+  max-height: 42vh;
+  overflow-y: auto;
+}
+
+/* Safe area for mobile devices with notches */
+.wh-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }

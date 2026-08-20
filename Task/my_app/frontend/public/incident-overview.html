@@ -57,7 +57,7 @@
             color: var(--text-primary);
             font-family: 'Inter', 'Roboto', 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             font-weight: 400;
-            font-size: 16px;
+            font-size:1rem;
             line-height: var(--line-height-normal);
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
@@ -67,7 +67,7 @@
         /* 移动端基础优化 */
         @media (max-width: 768px) {
             body {
-                font-size: 14px;
+                font-size:0.875rem;
                 line-height: 1.6;
                 -webkit-tap-highlight-color: transparent;
                 touch-action: manipulation;
@@ -294,7 +294,7 @@
             transform: translateY(-50%);
             font-family: 'Inter', 'Roboto', sans-serif;
             font-weight: 600;
-            font-size: 11px;
+            font-size:0.688rem;
             color: #ffffff;
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
             z-index: 10;
@@ -308,7 +308,7 @@
             transform: translateY(-50%);
             font-family: 'Inter', 'Roboto', sans-serif;
             font-weight: 500;
-            font-size: 14px;
+            font-size:0.875rem;
             color: #ffffff;
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
             z-index: 10;
@@ -442,7 +442,7 @@
             padding: 0.375rem 0.75rem;
             border-radius: 0.5rem;
             font-weight: 600;
-            font-size: 13px;
+            font-size:0.812rem;
             min-width: 60px;
             text-align: center;
         }
@@ -484,7 +484,7 @@
             padding: 0.5rem 1rem;
             border-radius: 0.5rem;
             font-weight: 700;
-            font-size: 13px;
+            font-size:0.812rem;
             min-width: 50px;
             text-align: center;
             letter-spacing: 0.05em;
@@ -646,14 +646,14 @@
             }
             
             header h1 {
-                font-size: 18px !important;
+                font-size:1.125rem !important;
                 line-height: 1.3;
             }
             
             header h1 span {
-                font-size: 10px !important;
+                font-size:0.625rem !important;
                 display: block;
-                margin-top: 2px;
+                margin-top:0.125rem;
             }
             
             header img {
@@ -662,7 +662,7 @@
             }
             
             #noc-timestamp {
-                font-size: 10px !important;
+                font-size:0.625rem !important;
             }
             
             .container, main {
@@ -755,11 +755,11 @@
             }
             
             .status-line > div:first-child span {
-                font-size: 18px !important;
+                font-size:1.125rem !important;
             }
             
             .status-line > span:last-child {
-                font-size: 11px !important;
+                font-size:0.688rem !important;
                 line-height: 1.2;
             }
             
@@ -872,12 +872,12 @@
             
             /* 移动端表格优化 */
             table {
-                font-size: 11px !important;
+                font-size:0.688rem !important;
             }
             
             th, td {
                 padding: 0.4rem 0.3rem !important;
-                font-size: 11px !important;
+                font-size:0.688rem !important;
             }
             
             /* 表格容器优化 */
@@ -905,11 +905,11 @@
             }
             
             .hud-bar-label {
-                font-size: 10px;
+                font-size:0.625rem;
             }
             
             .hud-bar-value {
-                font-size: 13px;
+                font-size:0.812rem;
             }
             
             /* 移动端隐藏不必要的装饰 */
@@ -920,21 +920,21 @@
             
             /* 表格标题优化 */
             h3 {
-                font-size: 16px !important;
+                font-size:1rem !important;
             }
             
             /* 面板标题优化 */
             .text-\[26\.4px\] {
-                font-size: 18px !important;
+                font-size:1.125rem !important;
             }
             
             /* AI分析内容优化 */
             #ai-analysis-content {
-                font-size: 13px !important;
+                font-size:0.812rem !important;
             }
             
             #ai-analysis-content p {
-                font-size: 13px !important;
+                font-size:0.812rem !important;
                 line-height: 1.6;
             }
             
@@ -1018,11 +1018,11 @@
             }
             
             header h1 {
-                font-size: 14px !important;
+                font-size:0.875rem !important;
             }
             
             header h1 span {
-                font-size: 9px !important;
+                font-size:0.562rem !important;
             }
             
             header img {
@@ -1031,7 +1031,7 @@
             }
             
             #noc-timestamp {
-                font-size: 9px !important;
+                font-size:0.562rem !important;
             }
             
             /* 小屏幕进一步优化 */
@@ -1140,21 +1140,21 @@
             }
             
             .status-line > div:first-child span {
-                font-size: 16px !important;
+                font-size:1rem !important;
             }
             
             .status-line > span:last-child {
-                font-size: 10px !important;
+                font-size:0.625rem !important;
             }
             
             /* 表格进一步优化 */
             table {
-                font-size: 10px !important;
+                font-size:0.625rem !important;
             }
             
             th, td {
                 padding: 0.35rem 0.25rem !important;
-                font-size: 10px !important;
+                font-size:0.625rem !important;
             }
             
             /* 表格横向滚动 */
@@ -1164,32 +1164,32 @@
             
             /* 移动端徽章优化 */
             .badge-sla, .badge-severity {
-                font-size: 10px;
+                font-size:0.625rem;
                 padding: 0.2rem 0.4rem;
                 min-width: 40px;
             }
             
             /* 统计数字优化 */
             [data-metric] {
-                font-size: 24px !important;
+                font-size:1.5rem !important;
             }
             
             /* 面板标题进一步缩小 */
             h3 {
-                font-size: 14px !important;
+                font-size:0.875rem !important;
             }
             
             .text-\[26\.4px\] {
-                font-size: 16px !important;
+                font-size:1rem !important;
             }
             
             /* AI分析内容进一步优化 */
             #ai-analysis-content {
-                font-size: 12px !important;
+                font-size:0.75rem !important;
             }
             
             #ai-analysis-content p {
-                font-size: 12px !important;
+                font-size:0.75rem !important;
             }
         }
         
@@ -1255,6 +1255,35 @@
             }
         }
     </style>
+
+<style id="responsive-base">
+
+/* ---------- unified responsive base ---------- */
+html { font-size: clamp(12px, 0.55vw + 10px, 18px); -webkit-text-size-adjust: 100%; }
+body { overflow-x: hidden; }
+img, svg, canvas, iframe { max-width: 100%; }
+@media (max-width: 768px) {
+  body { overflow-x: hidden; }
+  table { display: block; overflow-x: auto; }
+  input, select, textarea { max-width: 100%; }
+  .modal, .drawer, [id*="modal"] > div, [id*="drawer"] { max-width: 95vw; }
+}
+@media (max-width: 480px) {
+  body { overflow-x: hidden; }
+  table { display: block; overflow-x: auto; }
+}
+
+@media (max-width: 768px) {
+  .map-container, [data-ai-analysis-container], [data-severity-container], [data-sla-container], [data-details-container] { flex-direction: column !important; width: 100% !important; }
+  .resizable { min-width: 0 !important; max-width: 95vw !important; max-height: 80vh !important; }
+  main { padding: .75rem !important; }
+  #liberia-map { min-height: 300px; }
+}
+@media (max-width: 480px) {
+  .status-line::after, .status-line::before { display: none; }
+}
+
+</style>
 </head>
 <body class="min-h-screen screen-mode">
 <script>
@@ -3202,9 +3231,9 @@ Respond in English.`;
                     // 添加弹出窗口（确保显示数量，即使为0）
                     layer.bindPopup(`
                         <div style="text-align: center;">
-                            <strong style="color: #4dd0e1; font-size: 14px;">${stateName}</strong><br/>
+                            <strong style="color: #4dd0e1; font-size:0.875rem;">${stateName}</strong><br/>
                             <span style="color: ${count > 0 ? '#66bb6a' : '#888'}; font-size: 16px; font-weight: bold;">${count}</span><br/>
-                            <span style="color: #888; font-size: 12px;">Incidents</span>
+                            <span style="color: #888; font-size:0.75rem;">Incidents</span>
                         </div>
                     `);
 
@@ -3271,8 +3300,8 @@ Respond in English.`;
             if (count > 0 && liberiaStateBoundaries[stateName]) {
                 const boundary = liberiaStateBoundaries[stateName];
                 const labelHtml = `<div style="text-align: center; line-height: 1.2; background: transparent !important; background-color: transparent !important; border: none !important;">
-                    <div style="font-size: 11px; color: #4dd0e1; font-weight: bold; background: transparent !important; background-color: transparent !important; text-shadow: 0 0 3px rgba(0, 0, 0, 0.8), 0 0 6px rgba(0, 0, 0, 0.6);">${stateName}</div>
-                    <div style="font-size: 13px; color: ${fillColor}; font-weight: bold; background: transparent !important; background-color: transparent !important; text-shadow: 0 0 3px rgba(0, 0, 0, 0.8), 0 0 6px rgba(0, 0, 0, 0.6);">${count}</div>
+                    <div style="font-size:0.688rem; color: #4dd0e1; font-weight: bold; background: transparent !important; background-color: transparent !important; text-shadow: 0 0 3px rgba(0, 0, 0, 0.8), 0 0 6px rgba(0, 0, 0, 0.6);">${stateName}</div>
+                    <div style="font-size:0.812rem; color: ${fillColor}; font-weight: bold; background: transparent !important; background-color: transparent !important; text-shadow: 0 0 3px rgba(0, 0, 0, 0.8), 0 0 6px rgba(0, 0, 0, 0.6);">${count}</div>
                 </div>`;
                 
                 const labelMarker = L.marker(boundary.center, {
@@ -6744,7 +6773,7 @@ Respond in English.`;
 </div>
 </div>
 </div>
-<div class="sla-resize-divider" style="height: 10px; background: rgba(59, 130, 246, 0.3); cursor: row-resize; position: relative; flex-shrink: 0; transition: background 0.2s; margin: 6px 0; border-radius: 4px; z-index: 100; pointer-events: auto; user-select: none; -webkit-user-select: none;"></div>
+<div class="sla-resize-divider" style="height: 10px; background: rgba(59, 130, 246, 0.3); cursor: row-resize; position: relative; flex-shrink: 0; transition: background 0.2s; margin:0.375rem 0; border-radius: 4px; z-index: 100; pointer-events: auto; user-select: none; -webkit-user-select: none;"></div>
 <div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col industrial-border" data-sla-card="3rd" style="flex: 1 1 0; min-height: 0;">
 <div class="bg-white/5 px-6 py-3 border-b border-white/5 flex items-center gap-2">
 <span class="w-2 h-2 rounded-full bg-slate-500"></span>

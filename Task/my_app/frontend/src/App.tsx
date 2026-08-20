@@ -28,13 +28,14 @@ import {
   MenuFoldOutlined,
   MailOutlined,
   ApartmentOutlined,
+  CloseOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
 
 import { I18nProvider, useI18n } from './i18n'
 import { TaskStatusProvider } from './TaskStatusContext'
-import { ThemeProvider, useTheme, WH } from './theme'
+import { ThemeProvider, useTheme, WH, useIsMobile } from './theme'
 
 // 路由级代码分割：每个页面独立成 chunk，按需加载，首屏不再一次性下载全部页面
 const TableBrowser = lazy(() => import('./pages/TableBrowser'))
@@ -87,6 +88,7 @@ function AppContent() {
   }, [])
   const { t, locale, toggleLocale } = useI18n()
   const { isDark, toggle } = useTheme()
+  const isMobile = useIsMobile()
 
   const menuItems = [
     { key: 'sync', icon: <SyncOutlined />, label: t('nav.sync') },
@@ -135,9 +137,10 @@ function AppContent() {
     if (!(VALID_PAGES as string[]).includes(key)) return
     const menuW = 190
     const menuH = 96
-    const x = Math.min(e.clientX, window.innerWidth - menuW - 8)
-    const y = Math.min(e.clientY, window.innerHeight - menuH - 8)
-    setCtxMenu({ x: Math.max(8, x), y: Math.max(8, y), key: key as PageKey })
+    const pad = 8
+    const x = Math.min(e.clientX, window.innerWidth - menuW - pad)
+    const y = Math.min(e.clientY, window.innerHeight - menuH - pad)
+    setCtxMenu({ x: Math.max(pad, x), y: Math.max(pad, y), key: key as PageKey })
   }, [menuItems])
 
   const closeCtxMenu = useCallback(() => {
@@ -159,14 +162,14 @@ function AppContent() {
   }, [currentPage, locale])
 
   const ctxItemBase: React.CSSProperties = {
-    padding: '6px 10px',
-    borderRadius: 6,
+    padding: 'var(--wh-space-xs) var(--wh-space-sm)',
+    borderRadius: 'var(--wh-radius-md)',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
-    gap: 8,
+    gap: 'var(--wh-space-sm)',
     color: isDark ? '#dbeafe' : '#1e293b',
-    fontSize: 13,
+    fontSize: '0.8125rem',
     userSelect: 'none',
   }
 
@@ -243,33 +246,66 @@ function AppContent() {
           collapsedWidth={0}
           trigger={null}
           theme={isDark ? 'dark' : 'light'}
-          width={200}
+          width={'var(--wh-sider-width)' as any}
           style={{
             background: isDark ? '#0a1929' : '#f6fafd',
             borderRight: isDark ? 'none' : '1px solid #d9e6f2',
             // 收起时整体隐藏（含边框），由 Header 汉堡按钮展开
             ...(collapsed ? { borderRight: 'none' } : {}),
+            // 移动端：侧边栏作为抽屉浮层，从 Header 下方滑出，不覆盖 Header
+            ...(isMobile && !collapsed
+              ? {
+                  position: 'fixed',
+                  left: 0,
+                  top: 'var(--wh-header-height)',
+                  bottom: 0,
+                  width: 'var(--wh-sider-width)',
+                  zIndex: 1000,
+                  height: 'auto',
+                  boxShadow: isDark ? '4px 0 24px rgba(0,0,0,0.45)' : '4px 0 20px rgba(13,94,84,0.18)',
+                }
+              : {}),
           }}
         >
           <div style={{
-            height: 48,
+            height: 'var(--wh-header-height)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             color: WH.teal,
             fontWeight: 'bold',
-            fontSize: collapsed ? 14 : 16,
+            fontSize: collapsed ? '0.875rem' : '1rem',
             borderBottom: isDark ? '1px solid rgba(100,255,218,0.15)' : '1px solid rgba(13,148,136,0.25)',
             background: isDark ? 'linear-gradient(90deg, #0a1929, #112540)' : 'linear-gradient(90deg, #eef6fb, #e0edf7)',
+            position: 'relative',
           }}>
             {collapsed ? t('app.titleShort') : t('app.title')}
+            {isMobile && !collapsed && (
+              <Button
+                type="text"
+                aria-label={t('nav.collapse')}
+                icon={<CloseOutlined style={{ color: WH.teal, fontSize: '1rem' }} />}
+                onClick={() => setCollapsed(true)}
+                style={{
+                  position: 'absolute',
+                  right: 'var(--wh-space-sm)',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  width: '2.25rem',
+                  height: '2.25rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              />
+            )}
           </div>
           <Menu
             theme={isDark ? 'dark' : 'light'}
             mode="inline"
             selectedKeys={[currentPage]}
             items={menuItems}
-            onClick={({ key }) => { setCurrentPage(key as PageKey); closeCtxMenu() }}
+            onClick={({ key }) => { setCurrentPage(key as PageKey); closeCtxMenu(); if (isMobile) setCollapsed(true) }}
             onContextMenu={onMenuContextMenu}
             style={{ background: isDark ? '#0a1929' : '#f6fafd' }}
           />
@@ -286,11 +322,11 @@ function AppContent() {
                 left: ctxMenu.x,
                 top: ctxMenu.y,
                 zIndex: 2001,
-                minWidth: 170,
-                padding: 4,
+                minWidth: '10.625rem',
+                padding: 'var(--wh-space-xs)',
                 background: isDark ? '#0f2744' : '#ffffff',
                 border: isDark ? '1px solid rgba(100,255,218,0.25)' : '1px solid #d5e2ef',
-                borderRadius: 8,
+                borderRadius: 'var(--wh-radius-md)',
                 boxShadow: isDark ? '0 8px 28px rgba(0,0,0,0.55)' : '0 6px 24px rgba(13,94,84,0.16)',
               }}>
                 <div
@@ -321,10 +357,10 @@ function AppContent() {
             </>
           )}
         </Sider>
-        <Layout style={{ background: WH.bg }}>
+        <Layout style={{ background: WH.bg, flex: 1, minWidth: 0 }}>
           <Header style={{
             background: isDark ? 'linear-gradient(180deg, #0f2744 0%, #0a1929 100%)' : 'linear-gradient(180deg, #ddebf6 0%, #eef4fa 100%)',
-            padding: '0 24px',
+            padding: isMobile ? '0 var(--wh-space-sm)' : '0 var(--wh-space-lg)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -332,7 +368,8 @@ function AppContent() {
             boxShadow: isDark ? '0 2px 12px rgba(0,0,0,0.35)' : '0 2px 10px rgba(13,94,84,0.10)',
             position: 'relative',
             overflow: 'hidden',
-            height: 56,
+            height: 'var(--wh-header-height)',
+            flexShrink: 0,
           }}>
             {/* 背景网格纹理 */}
             <div style={{
@@ -341,50 +378,57 @@ function AppContent() {
               backgroundImage: isDark
                 ? 'linear-gradient(rgba(100,255,218,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(100,255,218,0.03) 1px, transparent 1px)'
                 : 'linear-gradient(rgba(13,148,136,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(13,148,136,0.05) 1px, transparent 1px)',
-              backgroundSize: '24px 24px',
+              backgroundSize: '1.5rem 1.5rem',
               pointerEvents: 'none',
             }} />
 
             {/* 汉堡按钮：侧边栏默认隐藏，点击展开/收起 */}
             <Button
               type="text"
+              className="wh-sider-toggle"
               aria-label={collapsed ? t('nav.expand') : t('nav.collapse')}
-              icon={collapsed ? <MenuUnfoldOutlined style={{ color: WH.teal, fontSize: 17 }} /> : <MenuFoldOutlined style={{ color: WH.teal, fontSize: 17 }} />}
+              icon={collapsed ? <MenuUnfoldOutlined style={{ color: WH.teal, fontSize: isMobile ? '1.25rem' : '1.0625rem' }} /> : <MenuFoldOutlined style={{ color: WH.teal, fontSize: isMobile ? '1.25rem' : '1.0625rem' }} />}
               onClick={toggleSider}
               style={{
                 position: 'absolute',
-                left: 8,
+                left: 'var(--wh-space-sm)',
                 top: '50%',
                 transform: 'translateY(-50%)',
-                zIndex: 3,
-                width: 36,
-                height: 36,
+                zIndex: 10,
+                width: isMobile ? '2.75rem' : '2.25rem',
+                height: isMobile ? '2.75rem' : '2.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: isMobile ? (isDark ? 'rgba(100,255,218,0.12)' : 'rgba(13,148,136,0.12)') : 'transparent',
+                border: isMobile ? `1px solid ${isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.35)'}` : '1px solid transparent',
+                borderRadius: 'var(--wh-radius-md)',
               }}
             />
 
             {/* 左侧装饰箭头 */}
-            <div style={{
+            <div className="wh-hide-mobile" style={{
               position: 'absolute',
-              left: 52,
+              left: '3.25rem',
               top: '50%',
               transform: 'translateY(-50%)',
               color: isDark ? 'rgba(100,255,218,0.25)' : 'rgba(13,148,136,0.35)',
-              fontSize: 18,
-              letterSpacing: 4,
+              fontSize: '1.125rem',
+              letterSpacing: '0.25rem',
               userSelect: 'none',
             }}>
               ▶▶
             </div>
 
             {/* 右侧装饰箭头 */}
-            <div style={{
+            <div className="wh-hide-mobile" style={{
               position: 'absolute',
-              right: 160,
+              right: '10rem',
               top: '50%',
               transform: 'translateY(-50%)',
               color: isDark ? 'rgba(100,255,218,0.25)' : 'rgba(13,148,136,0.35)',
-              fontSize: 18,
-              letterSpacing: 4,
+              fontSize: '1.125rem',
+              letterSpacing: '0.25rem',
               userSelect: 'none',
             }}>
               ◀
@@ -399,22 +443,26 @@ function AppContent() {
             }}>
               <h1 style={{
                 margin: 0,
-                fontSize: 22,
+                fontSize: isMobile ? '1.125rem' : '1.375rem',
                 fontWeight: 700,
                 color: WH.teal,
                 textShadow: isDark
                   ? `0 0 20px var(--wh-teal-40), 0 0 40px var(--wh-teal-20)`
                   : '0 1px 2px rgba(255,255,255,0.6)',
-                letterSpacing: 2,
+                letterSpacing: '0.125rem',
                 lineHeight: 1.2,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                padding: '0 var(--wh-space-sm)',
               }}>
                 {menuItems.find(m => m.key === currentPage)?.label || t('nav.overview')}
               </h1>
               {/* 底部发光装饰线 */}
               <div style={{
-                width: 120,
+                width: '7.5rem',
                 height: 2,
-                margin: '4px auto 0',
+                margin: 'var(--wh-space-xs) auto 0',
                 background: WH.accentGrad,
                 boxShadow: isDark ? `0 0 8px var(--wh-teal-53)` : 'none',
                 borderRadius: 1,
@@ -422,7 +470,7 @@ function AppContent() {
             </div>
 
             {/* 右上角操作区：主题切换 + 语言切换 */}
-            <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
               <Tooltip title={isDark ? t('theme.toLight') : t('theme.toDark')}>
                 <Button
                   size="small"
@@ -446,11 +494,20 @@ function AppContent() {
                   background: isDark ? 'transparent' : 'rgba(255,255,255,0.85)',
                 }}
               >
-                {t('lang.switch')}
+                <span className="wh-hide-mobile">{t('lang.switch')}</span>
               </Button>
             </div>
           </Header>
-          <Content style={{ margin: 16, padding: 4, overflow: 'auto', background: 'transparent', borderRadius: 8 }}>
+          <Content style={{
+            margin: 'var(--wh-content-margin)',
+            padding: 'var(--wh-content-padding)',
+            overflow: 'auto',
+            background: 'transparent',
+            borderRadius: 'var(--wh-radius-md)',
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
+          }}>
             <Suspense fallback={
               <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
                 <Spin size="large" />

@@ -62,7 +62,7 @@ export function ScheduleEditor({
       confirmLoading={saving}
       okText={locale === 'zh' ? '保存' : 'Save'}
       cancelText={locale === 'zh' ? '取消' : 'Cancel'}
-      width={640}
+      width={'min(95vw, 40rem)' as any}
       styles={{
         root: { background: WH.bg },
         header: { background: 'var(--wh-page-bg)', borderBottom: '1px solid var(--wh-subtle-border)' },
@@ -72,20 +72,20 @@ export function ScheduleEditor({
       {task && (
         <div>
           {/* Current schedule */}
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 'var(--wh-space-md)' }}>
             <Text style={{ color: WH.textMuted }}>{locale === 'zh' ? '当前调度：' : 'Current: '}</Text>
-            <Tag color="blue" style={{ marginLeft: 8 }}>
+            <Tag color="blue" style={{ marginLeft: 'var(--wh-space-sm)' }}>
               {cronToHuman(task.current_cron, locale)}
             </Tag>
-            <Text code style={{ marginLeft: 8, color: WH.textMuted, background: 'var(--wh-input-bg)' }}>{task.current_cron}</Text>
+            <Text code style={{ marginLeft: 'var(--wh-space-sm)', color: WH.textMuted, background: 'var(--wh-input-bg)' }}>{task.current_cron}</Text>
           </div>
 
           {/* Presets */}
-          <div style={{ marginBottom: 16 }}>
-            <Text strong style={{ display: 'block', marginBottom: 8, color: WH.text }}>
+          <div style={{ marginBottom: 'var(--wh-space-md)' }}>
+            <Text strong style={{ display: 'block', marginBottom: 'var(--wh-space-sm)', color: WH.text }}>
               {locale === 'zh' ? '⏰ 快捷预设' : '⏰ Quick Presets'}
             </Text>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--wh-space-xs)' }}>
               {presets.map(p => (
                 <Button
                   key={p.cron}
@@ -101,26 +101,26 @@ export function ScheduleEditor({
           </div>
 
           {/* Custom cron */}
-          <div style={{ marginBottom: 16 }}>
-            <Text strong style={{ display: 'block', marginBottom: 8, color: WH.text }}>
+          <div style={{ marginBottom: 'var(--wh-space-md)' }}>
+            <Text strong style={{ display: 'block', marginBottom: 'var(--wh-space-sm)', color: WH.text }}>
               {locale === 'zh' ? '✏️ 自定义 Cron 表达式' : '✏️ Custom Cron Expression'}
             </Text>
             <Input
               value={cronInput}
               onChange={e => { setCronInput(e.target.value); setSelectedPreset(null) }}
               placeholder={t('sync.cronPlaceholder')}
-              style={{ fontFamily: 'monospace', fontSize: 14, background: 'var(--wh-input-bg)', color: WH.text, borderColor: 'var(--wh-input-border)' }}
+              style={{ fontFamily: 'monospace', fontSize: '0.875rem', background: 'var(--wh-input-bg)', color: WH.text, borderColor: 'var(--wh-input-border)' }}
             />
-            <div style={{ marginTop: 8, color: WH.textDim, fontSize: 12 }}>
+            <div style={{ marginTop: 'var(--wh-space-sm)', color: WH.textDim, fontSize: '0.75rem' }}>
               {locale === 'zh'
                 ? '格式: 分 时 日 月 周  示例: 0 8 * * * = 每天8点 | 0 */4 * * * = 每4小时 | 30 7 * * 1-5 = 工作日7:30'
                 : 'Format: min hr day mon dow  e.g.: 0 8 * * * = Daily 8am | 0 */4 * * * = Every 4h | 30 7 * * 1-5 = Weekdays 7:30'
               }
             </div>
             {cronInput && (
-              <div style={{ marginTop: 8 }}>
+              <div style={{ marginTop: 'var(--wh-space-sm)' }}>
                 <Text style={{ color: WH.textMuted }}>{locale === 'zh' ? '预览：' : 'Preview: '}</Text>
-                <Tag color="green" style={{ marginLeft: 8 }}>
+                <Tag color="green" style={{ marginLeft: 'var(--wh-space-sm)' }}>
                   {cronToHuman(cronInput, locale)}
                 </Tag>
               </div>

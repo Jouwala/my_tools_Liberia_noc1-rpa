@@ -52,12 +52,12 @@ export const FilterBar: React.FC<FilterBarProps> = ({
 }) => {
   const { t, lang } = useI18n();
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-4 shadow-sm mb-6 space-y-3.5">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-3 sm:p-4 shadow-sm mb-4 sm:mb-6 space-y-3 sm:space-y-3.5">
       {/* Upper Row: Search & Filters & Layout controls */}
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
         {/* Search Box */}
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+        <div className="relative flex-1 max-w-full lg:max-w-md">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
@@ -76,12 +76,12 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         </div>
 
         {/* Right side controls: Platform pills, Favorite switch, Sort, View mode */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
           {/* Platform Pills */}
           <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/60 dark:border-slate-700/60 text-xs">
             <button
               onClick={() => onSelectPlatform('all')}
-              className={`px-3 py-1 rounded-lg font-medium transition-all ${
+              className={`px-2 sm:px-3 py-1 rounded-lg font-medium transition-all ${
                 selectedPlatform === 'all'
                   ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -91,7 +91,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
             </button>
             <button
               onClick={() => onSelectPlatform('finebi')}
-              className={`px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+              className={`px-2 sm:px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1 sm:gap-1.5 ${
                 selectedPlatform === 'finebi'
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400'
@@ -102,7 +102,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
             </button>
             <button
               onClick={() => onSelectPlatform('custom')}
-              className={`px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+              className={`px-2 sm:px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1 sm:gap-1.5 ${
                 selectedPlatform === 'custom'
                   ? 'bg-cyan-600 text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400'
@@ -116,7 +116,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           {/* Starred Favorite Toggle */}
           <button
             onClick={onToggleOnlyFavorites}
-            className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition-all ${
+            className={`px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-all ${
               onlyFavorites
                 ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 ring-2 ring-amber-400/20'
                 : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
@@ -127,11 +127,11 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                 onlyFavorites ? 'fill-amber-400 text-amber-400' : 'text-slate-400'
               }`}
             />
-            <span>{t('filter.favorites')}</span>
+            <span className="hidden sm:inline">{t('filter.favorites')}</span>
           </button>
 
           {/* Sort Selector */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs">
+          <div className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs">
             <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
             <select
               value={sortOption}
@@ -185,15 +185,15 @@ export const FilterBar: React.FC<FilterBarProps> = ({
       </div>
 
       {/* Lower Row: Category Tabs */}
-      <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between overflow-x-auto gap-3 scrollbar-none">
-        <div className="flex items-center gap-2 shrink-0">
+      <div className="pt-2 sm:pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between overflow-x-auto gap-2 sm:gap-3 scrollbar-none">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {CATEGORIES.map((cat) => {
             const active = selectedCategory === cat;
             return (
               <button
                 key={cat}
                 onClick={() => onSelectCategory(cat)}
-                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 shrink-0 whitespace-nowrap ${
+                className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 shrink-0 whitespace-nowrap ${
                   active
                     ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-md shadow-teal-600/25'
                     : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
