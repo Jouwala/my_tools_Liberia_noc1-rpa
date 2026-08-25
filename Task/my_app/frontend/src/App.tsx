@@ -1,5 +1,5 @@
-import { useState, lazy, Suspense, useEffect, useCallback } from 'react'
-import { ConfigProvider, Layout, Menu, theme, Button, Spin, Tooltip } from 'antd'
+import { useState, lazy, Suspense, useEffect, useCallback, useRef, Fragment } from 'react'
+import { ConfigProvider, Layout, Menu, theme, Button, Spin, Tooltip, Select } from 'antd'
 import {
   DatabaseOutlined,
   AppstoreOutlined,
@@ -36,6 +36,7 @@ import enUS from 'antd/locale/en_US'
 import { I18nProvider, useI18n } from './i18n'
 import { TaskStatusProvider } from './TaskStatusContext'
 import { ThemeProvider, useTheme, WH, useIsMobile } from './theme'
+import { invalidateCache } from './cache'
 
 // 路由级代码分割：每个页面独立成 chunk，按需加载，首屏不再一次性下载全部页面
 const TableBrowser = lazy(() => import('./pages/TableBrowser'))
@@ -66,6 +67,49 @@ type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo'
 
 const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'email_reports', 'mwUmeTopology']
 
+/* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
+ * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
+ * 加载一次），大屏长期挂机后永远停留在旧数据。这里在 App 外壳层实现统一的
+ * 自动刷新：到点后重挂载当前页面组件（key 变化 → useEffect 重新取数；legacy
+ * 页面的 iframe 因 cacheBust 变化整体重载），对所有页面一视同仁、无需逐页改造。
+ *
+ * 支持「软刷新」协议的 legacy 页面（如 mw_ume_topology.html 监听 myapp-refresh）
+ * 会优先在 iframe 内原地重拉数据：不重载文档、保留布局/筛选/浏览器全屏状态，
+ * 大屏不闪屏。硬重挂载仅作为其余页面的兜底手段。
+ *
+ * 用户可在顶栏选择间隔（持久化 localStorage）；未显式选择时所有页面默认
+ * 开启、每 5 分钟（AR_PAGE_DEFAULT_SEC）。为不破坏正在进行的操作，到点时若
+ * 检测到「用户正忙」（正在输入、弹窗/抽屉/下拉打开、标签页在后台）则本轮
+ * 跳过、下个间隔再试——空闲挂机的大屏必然按时刷新。 */
+const AR_STORAGE_KEY = 'myapp_auto_refresh_sec'
+const AR_OPTIONS = [0, 30, 60, 300, 600, 900, 1800]
+const AR_PAGE_DEFAULT_SEC = 300 // 所有页面默认间隔（秒）
+// 支持软刷新协议（postMessage myapp-refresh 原地重拉数据）的 legacy 页面
+const AR_SOFT_REFRESH_PAGES: PageKey[] = ['mwUmeTopology']
+
+function arReadOverride(): number | null {
+  try {
+    const raw = localStorage.getItem(AR_STORAGE_KEY)
+    if (raw == null) return null
+    const v = parseInt(raw, 10)
+    return AR_OPTIONS.includes(v) ? v : null
+  } catch { return null }
+}
+
+/** 是否处于「不应打扰」状态：用户正在输入 / 弹层打开 / 标签页在后台 */
+function arInteractionInProgress(): boolean {
+  if (document.hidden) return true
+  try {
+    // 正在表单/搜索框输入：重挂载会丢焦点与未提交内容，本轮跳过
+    const ae = document.activeElement as HTMLElement | null
+    if (ae && (ae.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))) return true
+    // antd Modal/ImagePreview 等弹层会锁定 body 滚动；Drawer/Select/DatePicker 打开时有 open 类
+    if (document.body && document.body.style.overflow === 'hidden') return true
+    if (document.querySelector('.ant-drawer-open, .ant-select-open, .ant-picker-open')) return true
+  } catch { /* noop */ }
+  return false
+}
+
 function AppContent() {
   // 支持 ?page=xxx 直链定位（右键菜单「在新标签页打开」使用），非法值回退到默认页
   const [currentPage, setCurrentPage] = useState<PageKey>(() => {
@@ -89,6 +133,49 @@ function AppContent() {
   const { t, locale, toggleLocale } = useI18n()
   const { isDark, toggle } = useTheme()
   const isMobile = useIsMobile()
+
+  // ===== 自动刷新：状态 + 定时器（详见文件顶部说明） =====
+  // 用户显式选择（含 0=关闭）持久化；null 表示未选择，所有页面默认 5 分钟
+  const [arOverride, setArOverride] = useState<number | null>(arReadOverride)
+  const [refreshTick, setRefreshTick] = useState(0)
+  const [arSpin, setArSpin] = useState(false)
+  const arSpinTimer = useRef<number | null>(null)
+  const arEffective = arOverride ?? AR_PAGE_DEFAULT_SEC
+
+  const performAutoRefresh = useCallback(() => {
+    // 后台标签 / 弹窗打开：本轮跳过，避免打断交互与无谓请求
+    if (arInteractionInProgress()) return
+    // 软刷新：向所有 iframe 广播协议，支持者（mw_ume_topology.html 等）在
+    // 文档内原地重拉数据 —— 不闪屏、不退出浏览器全屏、保留内部筛选状态
+    document.querySelectorAll('iframe').forEach((f) => {
+      try { f.contentWindow?.postMessage({ __type: 'myapp-refresh' }, '*') } catch { /* ignore */ }
+    })
+    setArSpin(true)
+    if (arSpinTimer.current) window.clearTimeout(arSpinTimer.current)
+    arSpinTimer.current = window.setTimeout(() => setArSpin(false), 800)
+    // 硬刷新兜底：重挂载当前页面（useEffect 重取数 / iframe 因 cacheBust 重载）。
+    // 软刷新页与元素级全屏中不做重挂载（重挂载会移除 iframe 导致全屏退出）
+    if (AR_SOFT_REFRESH_PAGES.includes(currentPage)) return
+    if (document.fullscreenElement) return
+    invalidateCache() // 绕过 cachedGet 的 30s 前端缓存，确保拿到新数据
+    setRefreshTick(x => x + 1)
+  }, [currentPage])
+
+  useEffect(() => {
+    if (!arEffective) return
+    const id = window.setInterval(performAutoRefresh, arEffective * 1000)
+    return () => window.clearInterval(id)
+  }, [arEffective, performAutoRefresh])
+
+  useEffect(() => () => { if (arSpinTimer.current) window.clearTimeout(arSpinTimer.current) }, [])
+
+  const changeAutoRefresh = useCallback((v: number) => {
+    setArOverride(v)
+    try { localStorage.setItem(AR_STORAGE_KEY, String(v)) } catch { /* noop */ }
+  }, [])
+  const arLabel = useCallback((sec: number) =>
+    sec <= 0 ? t('ar.off') : sec < 60 ? `${sec} ${t('ar.sec')}` : `${sec / 60} ${t('ar.min')}`
+  , [t])
 
   const menuItems = [
     { key: 'sync', icon: <SyncOutlined />, label: t('nav.sync') },
@@ -469,8 +556,27 @@ function AppContent() {
               }} />
             </div>
 
-            {/* 右上角操作区：主题切换 + 语言切换 */}
+            {/* 右上角操作区：自动刷新 + 主题切换 + 语言切换 */}
             <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
+              <Tooltip title={arEffective > 0 ? t('ar.every', { v: arLabel(arEffective) }) : t('ar.tip')}>
+                {/* 大屏/NOC 场景的自动刷新开关；移动端隐藏（大屏均为桌面端） */}
+                <Select
+                  className="wh-hide-mobile"
+                  size="small"
+                  aria-label={t('ar.label')}
+                  value={arEffective}
+                  onChange={changeAutoRefresh}
+                  popupMatchSelectWidth={false}
+                  suffixIcon={<SyncOutlined spin={arSpin} style={{ color: WH.teal }} />}
+                  options={AR_OPTIONS.map(v => ({ value: v, label: arLabel(v) }))}
+                  style={{
+                    width: '7.25rem',
+                    ...(arEffective > 0
+                      ? { borderColor: isDark ? 'rgba(100,255,218,0.45)' : 'rgba(13,148,136,0.55)', background: isDark ? 'rgba(100,255,218,0.08)' : 'rgba(19,194,194,0.06)' }
+                      : {}),
+                  }}
+                />
+              </Tooltip>
               <Tooltip title={isDark ? t('theme.toLight') : t('theme.toDark')}>
                 <Button
                   size="small"
@@ -513,7 +619,10 @@ function AppContent() {
                 <Spin size="large" />
               </div>
             }>
-              {renderPage()}
+              {/* key=refreshTick：自动刷新到点后重挂载当前页面（见文件顶部说明） */}
+              <Fragment key={refreshTick}>
+                {renderPage()}
+              </Fragment>
             </Suspense>
           </Content>
         </Layout>

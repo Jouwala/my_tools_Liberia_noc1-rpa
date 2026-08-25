@@ -69,6 +69,13 @@ EWS_FAIL_KEYS = (
     "cls.resolve",
     "GetFolder",
     "SOAP",
+    # 2026-08-25: 服务端限流（RateLimit/退避）与 CreateItem/SendItem SOAP 失败
+    # 同属 EWS 服务端故障，恢复后应补发；缺这些关键字会导致日报类任务漏补发。
+    "CreateItem",
+    "CreateAttachment",
+    "SendItem",
+    "RateLimit",
+    "back off",
 )
 
 WINDOW_HOURS = 24         # 扫描窗口（小时）。实际补发还受各任务时效窗口约束

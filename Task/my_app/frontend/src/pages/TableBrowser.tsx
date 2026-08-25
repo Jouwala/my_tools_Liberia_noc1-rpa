@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge, Button, Dropdown, message, Modal, Checkbox, Divider, Upload, Space } from 'antd'
 import { DownloadOutlined, SettingOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
@@ -71,6 +71,38 @@ export default function TableBrowser() {
   const [colFilter, setColFilter] = useState('')
   const { t, locale } = useI18n()
 
+  const searchTextRef = useRef('')
+  const loadingRef = useRef(false)
+  const requestIdRef = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastSearchValueRef = useRef('')
+  const hasLoadedOnceRef = useRef(false)
+
+  useEffect(() => { searchTextRef.current = searchText }, [searchText])
+
+  useEffect(() => {
+    api.get('/tables').then(res => {
+      const tbls = res.data.tables.filter((t: TableInfo) => !t.name.startsWith('_'))
+      setTables(tbls)
+      if (tbls.length > 0) {
+        setSelectedTable(tbls[0].name)
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!selectedTable) return
+    setVisibleCols(null)
+    setTplName('')
+    setSearchText('')
+    searchTextRef.current = ''
+    lastSearchValueRef.current = ''
+    hasLoadedOnceRef.current = false
+    loadTableData(1, '')
+    loadTemplates()
+}, [selectedTable])
+
   // ---- 自定义导入（Excel/CSV → 自定义表名） ----
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
@@ -79,7 +111,6 @@ export default function TableBrowser() {
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<any>(null)
 
-  // 根据文件名自动建议表名（去掉扩展名 + 清洗为合法标识符）
   const suggestTableName = (filename: string) => {
     const stem = filename.replace(/\.[^.]+$/, '')
     const cleaned = stem
@@ -102,7 +133,6 @@ export default function TableBrowser() {
     const file: File | undefined = info?.file
     if (file) {
       setImportFile(file)
-      // 仅在不曾手动改过表名时自动建议（首次选文件）
       if (!importName) setImportName(suggestTableName(file.name))
     }
   }
@@ -126,7 +156,6 @@ export default function TableBrowser() {
           n: res.data.tables?.length ?? 0,
           t: res.data.elapsed_seconds ?? 0,
         }))
-        // 刷新表列表并跳转到首张导入表
         api.get('/tables').then((r) => {
           const tbls = (r.data.tables || []).filter((x: TableInfo) => !x.name.startsWith('_'))
           setTables(tbls)
@@ -144,48 +173,100 @@ export default function TableBrowser() {
       .finally(() => setImporting(false))
   }
 
-  useEffect(() => {
-    api.get('/tables').then(res => {
-      const tbls = res.data.tables.filter((t: TableInfo) => !t.name.startsWith('_'))
-      setTables(tbls)
-      if (tbls.length > 0) {
-        setSelectedTable(tbls[0].name)
-      }
-    })
-  }, [])
-
-  useEffect(() => {
-    if (!selectedTable) return
-    setVisibleCols(null)
-    setTplName('')
-    loadTableData(1)
-    loadTemplates()
-  }, [selectedTable])
-
-  // 载入当前表已保存的列模板
   const loadTemplates = () => {
     api.get('/tables/view-templates', { params: { table_name: selectedTable } })
       .then(res => setTemplates(res.data.templates || []))
       .catch(() => setTemplates([]))
   }
 
-  const loadTableData = (page: number) => {
-    setLoading(true)
-    const params: any = { page, page_size: 20 }
-    if (searchText) params.search = searchText
+  const loadTableData = useCallback((page: number, search?: string) => {
+    if (!selectedTable) return
+    const effectiveSearch = search ?? searchTextRef.current
 
-    api.get(`/tables/${selectedTable}/data`, { params })
+    const isDuplicate = page === 1 && effectiveSearch === lastSearchValueRef.current && hasLoadedOnceRef.current
+    if (isDuplicate) return
+
+    if (loadingRef.current) {
+      abortRef.current?.abort()
+    }
+
+    const requestId = ++requestIdRef.current
+    loadingRef.current = true
+
+    const isInitialLoad = !hasLoadedOnceRef.current
+    if (isInitialLoad) {
+      setLoading(true)
+    }
+
+    const params: any = { page, page_size: 20 }
+    if (effectiveSearch) params.search = effectiveSearch
+
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    api.get(`/tables/${selectedTable}/data`, { params, signal: controller.signal })
       .then(res => {
-        setTableData(res.data.data.map((r: any, i: number) => ({ ...r, __row_index: `${page}-${i}` })))
-        setTableColumns(res.data.columns)
+        if (requestId !== requestIdRef.current) return
+        const newData = res.data.data.map((r: any, i: number) => ({ ...r, __row_index: `${page}-${i}` }))
+        setTableData(newData)
+        lastSearchValueRef.current = effectiveSearch
+        hasLoadedOnceRef.current = true
+
+        const newCols = res.data.columns
+        setTableColumns(prev => {
+          if (prev.length === newCols.length && prev.every((c: string, i: number) => c === newCols[i])) {
+            return prev
+          }
+          return newCols
+        })
+
         setPagination({
           current: res.data.page,
           pageSize: res.data.page_size,
           total: res.data.total,
         })
       })
-      .finally(() => setLoading(false))
-  }
+      .catch((err: any) => {
+        if (err.name === 'CanceledError' || err.name === 'AbortError') return
+        if (requestId !== requestIdRef.current) return
+        if (isInitialLoad) {
+          loadingRef.current = false
+          setLoading(false)
+        }
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) {
+          loadingRef.current = false
+          if (isInitialLoad) {
+            setLoading(false)
+          }
+        }
+      })
+  }, [selectedTable])
+
+  const debouncedSearch = useCallback((value: string) => {
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current)
+    }
+    searchDebounceRef.current = setTimeout(() => {
+      setSearchText(value)
+      searchTextRef.current = value
+      loadTableData(1, value)
+    }, 300)
+  }, [loadTableData])
+
+  const handleSearch = useCallback((value: string) => {
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current)
+      searchDebounceRef.current = null
+    }
+    if (value === lastSearchValueRef.current && hasLoadedOnceRef.current) {
+      return
+    }
+    setSearchText(value)
+    searchTextRef.current = value
+    loadTableData(1, value)
+  }, [loadTableData])
 
   const loadProfile = () => {
     setProfileLoading(true)
@@ -194,7 +275,6 @@ export default function TableBrowser() {
       .finally(() => setProfileLoading(false))
   }
 
-  // 导出整表（服务端生成 xlsx/csv，大表不压前端内存；携带当前搜索条件与自定义显示列）
   const exportTable = (format: 'xlsx' | 'csv') => {
     if (!selectedTable) return
     const params = new URLSearchParams({ format })
@@ -204,7 +284,6 @@ export default function TableBrowser() {
     window.open(`/api/tables/${encodeURIComponent(selectedTable)}/export?${params.toString()}`, '_blank')
   }
 
-  // ---- 自定义列 / 模板 ----
   const openColModal = () => {
     setDraftCols(visibleCols ?? [...tableColumns])
     setColFilter('')
@@ -223,7 +302,6 @@ export default function TableBrowser() {
   }
 
   const applyTemplate = (tp: ViewTemplate) => {
-    // 过滤掉表结构变更后已不存在的列
     setDraftCols(tp.columns.filter(c => tableColumns.includes(c)))
   }
 
@@ -250,7 +328,6 @@ export default function TableBrowser() {
       })
   }
 
-  // 列名模糊过滤（不区分大小写、子串匹配）；仅过滤显示，勾选状态不受影响
   const filterKw = colFilter.trim().toLowerCase()
   const filteredCols = filterKw
     ? tableColumns.filter((c: string) => c.toLowerCase().includes(filterKw))
@@ -258,19 +335,28 @@ export default function TableBrowser() {
 
   const tableInfo = tables.find(t => t.name === selectedTable)
 
-  // 自定义显示列：按所选顺序过滤（null 表示全部列）
-  const shownCols = visibleCols
-    ? visibleCols.filter(c => tableColumns.includes(c))
-    : tableColumns
+  const shownCols = useMemo(() => {
+    if (visibleCols) {
+      return visibleCols.filter(c => tableColumns.includes(c))
+    }
+    return tableColumns
+  }, [visibleCols, tableColumns])
 
-  const dataColumns = shownCols.map((col: string) => ({
+  const dataColumns = useMemo(() => shownCols.map((col: string) => ({
     title: col,
     dataIndex: col,
     key: col,
     minWidth: 120,
     ellipsis: true,
     render: (v: any) => v === null || v === undefined ? <Tag>NULL</Tag> : String(v),
-  }))
+  })), [shownCols])
+
+  const stableRowKey = useMemo(() => (record: any) => {
+    if (record.__row_index) return record.__row_index
+    const parts: string[] = shownCols.map((c: string) => String(record[c] ?? ''))
+    const joined = parts.join('|')
+    return `rec-${joined.length}-${parts.slice(0, 3).join('-').replace(/[^a-zA-Z0-9-]/g, '_')}`
+  }, [shownCols])
 
   return (
     <div>
@@ -289,9 +375,17 @@ export default function TableBrowser() {
           <Col xs={24} sm={12} lg={6}>
             <Input.Search
               placeholder={t('table.searchPlaceholder')}
-              onSearch={(v) => { setSearchText(v); loadTableData(1) }}
+              value={searchText}
+              onSearch={handleSearch}
+              onChange={(e) => {
+                const v = e.target.value
+                setSearchText(v)
+                searchTextRef.current = v
+                debouncedSearch(v)
+              }}
               style={{ width: '100%' }}
               allowClear
+              enterButton
             />
           </Col>
           {tableInfo && (
@@ -462,7 +556,7 @@ export default function TableBrowser() {
                     loading={loading}
                     scroll={{ x: 'max-content' }}
                     size="small"
-                    rowKey={(record: any) => record.__row_index ?? JSON.stringify(record).slice(0, 50)}
+                    rowKey={stableRowKey}
                     pagination={{
                       ...pagination,
                       showSizeChanger: false,

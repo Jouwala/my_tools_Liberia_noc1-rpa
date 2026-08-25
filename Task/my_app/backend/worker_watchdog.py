@@ -44,7 +44,7 @@ STARTUP_FAIL_LIMIT = 10    # 连续快速崩溃达到此次数则放弃并告警
 # （行为等价并发）。每组任务清单见 GROUP_TASK_MAP；未配置时保持单 worker 全量。
 GROUP_TASK_MAP = {
     "u": (  # UME 192.168.170.2 单账号会话：必须串行
-        "ran_ume_daily,main_kpi_sync,network_kpi_sync,packet_loss_sync,"
+        "ran_ume_daily,main_kpi_sync,cell_availability_sync,network_kpi_sync,packet_loss_sync,"
         "packet_loss_email,battery_kpi_sync,ipran_kpi_sync,cm_data_sync"),
     "n": (  # 网管 / eFlow API / 远程系统：各自独立但保守同组
         "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,"
@@ -55,6 +55,9 @@ GROUP_TASK_MAP = {
         "kpi_ran_availability,email_recovery,ipran_m6k_chart_email,"
         "ccn_free_rating_chart_email,battery_email,mailbox_cleanup,"
         "incident_overview_sync,auto_retry_failed,db_freshness_check,sp_report_generate"),
+    "c": (  # CN EMS (10.100.2.240) 独立会话：缓存同步与日聚合共享 _pmcache/daily_raw.json，
+        # 同组串行保证互斥（ems_kpi_cache_sync 每15分钟 + ems_kpi_daily 每天00:20）
+        "ems_kpi_cache_sync,ems_kpi_daily"),
 }
 _WORKER_GROUPS = [g.strip() for g in
                   os.environ.get("MY_APP_WORKER_GROUPS", "").split(",") if g.strip()]

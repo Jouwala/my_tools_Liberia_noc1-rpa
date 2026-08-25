@@ -126,15 +126,9 @@ html {
 
 /* 针对 Windows 常见缩放：浏览器已按缩放系数重算 px/rem，无需额外放大；
    若用户显式调大系统字体，rem 会自然跟随 */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
+/* 注意：不要加全局 prefers-reduced-motion 覆盖（强制 0.01ms 动画/过渡时长）。
+   它会杀死 antd Spin 等无限旋转动画，且隐式 transition 会干扰 rc-trigger
+   弹层定位测量（getBoundingClientRect 返回过渡起始值），导致下拉框闪动、定位到屏幕外。 */
 
 /* Leaflet map fix */
 .leaflet-container {

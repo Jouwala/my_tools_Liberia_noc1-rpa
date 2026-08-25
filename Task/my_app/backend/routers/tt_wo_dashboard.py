@@ -321,7 +321,9 @@ def _get_dimension_map():
 def _build_tt_fields():
     """动态构建 TT 明细字段"""
     S = _detect_schema()
-    fields = ["t.title", "t.ticket_no", "t.wo_no", f"t.{S['site_join_field']}", "t.status"]
+    # 优先使用 eflow_tt.tt_no (真实 TT 单号)，而非 ticket_no (可能是 WO 回退值)
+    tt_no_field = "t.tt_no" if "tt_no" in S["tt_cols"] else "t.ticket_no"
+    fields = ["t.title", tt_no_field, "t.wo_no", f"t.{S['site_join_field']}", "t.status"]
     if S["creator_field"]:
         fields.append(f"t.{S['creator_field']}")
     fields += ["t.ticket_severity"]

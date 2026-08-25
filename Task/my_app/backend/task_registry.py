@@ -133,6 +133,13 @@ TASK_SPECS = [
          description_en="RAN UME Main KPI history sync (2G/3G/4G x Cells/Sites/Group/NW), export Excel and incremental SQLite update + FTP upload",
          default_cron="0 4 * * *", category="main_kpi"),
 
+    # 9b. RAN 小区可用性 1-Day KPI 同步（每天 04:30，替代独立 RPA 脚本 ran_kpi_avalability_1day.py）
+    dict(task_id="cell_availability_sync", name="RAN 小区可用性 1-Day 同步", name_en="RAN Cell Availability 1-Day Sync",
+         loader=("backend.services.ran_cell_availability_sync", "run_cell_availability_sync"),
+         description="RAN UME 小区可用性天粒度 KPI 同步（FDD/UMTS/GSM/TDD 4 模板），写 ran_kpi_avalability_1day.sqlite3 + FTP 上传",
+         description_en="RAN UME cell availability day-granularity KPI sync (FDD/UMTS/GSM/TDD), write ran_kpi_avalability_1day.sqlite3 + FTP upload",
+         default_cron="30 4 * * *", category="availability"),
+
     # 10. RAN UME Network KPI（Zeenshan）同步（每天凌晨5点）
     dict(task_id="network_kpi_sync", name="RAN Network KPI 同步", name_en="RAN Network KPI Sync",
          loader=("backend.services.ran_ume_network_kpi", "run_network_kpi_sync"),
@@ -314,12 +321,36 @@ TASK_SPECS = [
          description_en="Fetch GSM/UMTS/LTE/NR cell config data from RAN UME, full-replace write to remote db.sqlite3 (cm_cell_data/cm_site_summary) via API, keep only the latest local Excel",
          default_cron="30 8 * * *", category="cm_data"),
 
+    # 33. PG → SQLite 全量快照同步（每小时第 45 分钟）
+    dict(task_id="pg_to_sqlite_sync", name="PG→SQLite 数据快照",
+         name_en="PG→SQLite Data Snapshot",
+         loader=("backend.scripts.sync_pg_to_sqlite", "main"),
+         description="把远程 PostgreSQL 全库数据同步到本地 db/app.db 作为离线备份/回退快照",
+         description_en="Sync all remote PostgreSQL data to local db/app.db as offline backup / fallback snapshot",
+         default_cron="45 * * * *", category="general"),
+
     # 32. MW UME KPI 同步（每天 05:15，零落盘直写 app.db 表 mw_ume_bw_ultilazation）
     dict(task_id="mw_ume_kpi_sync", name="MW UME KPI 同步", name_en="MW UME KPI Sync",
          loader=("backend.services.mw_ume.mw_ume_kpi_service", "run_mw_ume_kpi_sync"),
          description="MW UME (ZXMW 微波) KPI 历史指标同步（FINBI 模板 1 天粒度），内存导出不落盘，直接写入 app.db 表 mw_ume_bw_ultilazation（Begin Time + 元素标识列联合去重）",
          description_en="MW UME (ZXMW microwave) KPI history sync (FINBI 1-day), in-memory export without disk, direct write to app.db table mw_ume_bw_ultilazation (dedup by Begin Time + identity cols)",
          default_cron="15 5 * * *", category="mw_ume"),
+
+    # 34. CN EMS KPI 原始文件缓存同步（每15分钟）：EMS SFTP 只保留约1天原始PM文件，
+    #     靠白天持续增量缓存把整天数据在服务端清理前保住（fetch 模式只下载缺失文件，轻量）
+    dict(task_id="ems_kpi_cache_sync", name="CN EMS KPI 缓存同步", name_en="CN EMS KPI Cache Sync",
+         loader=("backend.services.cn_ems.ems_kpi_service", "run_ems_kpi_cache_sync"),
+         description="每15分钟增量下载 CN EMS(10.100.2.240) 当日(UTC)原始 PM 测量文件到本地缓存 _pmcache（服务器仅保留约1天；只下载缺失文件不解析）",
+         description_en="Every 15 min, incremental download of today's (UTC) raw PM measurement files from CN EMS SFTP into local _pmcache cache (server retains ~1 day; fetch-only, no parsing)",
+         default_cron="*/15 * * * *", category="cn_ems"),
+
+    # 35. CN EMS KPI 日粒度 CSV 生成（每天 00:20 GMT = 北京 08:20）：聚合前一个完整 UTC 日，
+    #     按 Query_Template.xml + samples 公式输出 csv_out/<模板名>.csv（与 GUI 导出同格式）
+    dict(task_id="ems_kpi_daily", name="CN EMS KPI 日粒度CSV", name_en="CN EMS KPI Daily CSV",
+         loader=("backend.services.cn_ems.ems_kpi_service", "run_ems_kpi_daily"),
+         description="聚合前一个完整UTC日的 CN EMS KPI 并生成 csv_out/<模板名>.csv（VLR/USSD/语音/位置更新/License/TDD/Data订阅者 7模板）；先 best-effort 补抓前一日窗口再纯本地缓存聚合",
+         description_en="Aggregate previous complete UTC day of CN EMS KPIs into csv_out/<TEMPLATE>.csv per Query_Template.xml (7 templates); best-effort server refetch then parse purely from local cache",
+         default_cron="20 0 * * *", category="cn_ems"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========
@@ -340,6 +371,8 @@ CATEGORY_GATEWAY: dict[str, str] = {
     "ipran_kpi": "ipran_ume",
     # MW UME 微波（ZXMW 系列）
     "mw_ume": "mw_ume",
+    # CN EMS UME（ZTE U31 网管 10.100.2.240）
+    "cn_ems": "cn_ems_ume",
     # 备件 SFTP
     "sp": "sp_sftp",
     # FW 吞吐（DPtech UMC）

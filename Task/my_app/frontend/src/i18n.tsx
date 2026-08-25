@@ -43,6 +43,14 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.mwUmeTopology': 'MW 微波拓扑',
     'nav.emailReports': '任务报告文件',
 
+    // 顶栏「自动刷新」控件（大屏展示 / NOC 值班场景）
+    'ar.label': '自动刷新',
+    'ar.tip': '按所选间隔自动重新加载当前页面数据；正在输入或弹窗打开、页面切到后台时本轮跳过。大屏展示建议保持开启。',
+    'ar.off': '关闭',
+    'ar.sec': '秒',
+    'ar.min': '分钟',
+    'ar.every': '每 {v} 自动刷新当前页面',
+
     // Task Report Files 页面（Latest Email / FINEBI report 两个页签）
     'emailReports.title': '任务报告文件',
     'emailReports.tabEmail': 'Latest Email',
@@ -862,6 +870,14 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.cxoDashboard': 'CXO Dashboard',
     'nav.mwUmeTopology': 'MW Topology',
     'nav.emailReports': 'Task Report Files',
+
+    // Header "Auto Refresh" control (big-screen / NOC scenarios)
+    'ar.label': 'Auto Refresh',
+    'ar.tip': 'Reloads the current page data at the chosen interval; skipped while typing, a dialog is open, or the tab is hidden. Recommended for big-screen display.',
+    'ar.off': 'Off',
+    'ar.sec': 's',
+    'ar.min': 'min',
+    'ar.every': 'Auto-refresh this page every {v}',
 
     // Task Report Files page (Latest Email / FINEBI report tabs)
     'emailReports.title': 'Task Report Files',
