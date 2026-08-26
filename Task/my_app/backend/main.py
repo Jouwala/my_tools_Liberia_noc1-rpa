@@ -56,6 +56,7 @@ from backend.routers import (
     email_reports,
     finebi_reports,
     mw_ume,
+    portals,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -126,6 +127,8 @@ app.include_router(email_reports.router)
 # FineBI 报表文件（Task Report Files → FINEBI report 页签：FTP 同步的最新 Excel 列表/下载）
 app.include_router(finebi_reports.router)
 app.include_router(mw_ume.router)
+# 一键门户登录（用默认浏览器打开 ZTE/CCN/iPRAN UME、eFlow、FW(UMC)、VMAX 并自动登录）
+app.include_router(portals.router)
 
 
 # ========== 通用任务调度系统 ==========

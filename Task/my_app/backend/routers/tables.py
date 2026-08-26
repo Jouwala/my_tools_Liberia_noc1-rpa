@@ -126,11 +126,22 @@ def _column_metadata(conn, table_name):
             {"name": r[0], "type": r[1], "notnull": r[2], "pk": r[3]}
             for r in rows
         ]
+    # 注意：多个 schema 可能都有同名表（如 app.eflow_tt 与 eflow.eflow_tt），
+    # 若用 ANY(current_schemas(false)) 会把所有 schema 的列混合返回（如同时含
+    # "Title" 与 "title"），生成的 WHERE "Title" LIKE ? 在 PG 上因大小写报
+    # "字段 Title 不存在"。必须把列元数据限定到 search_path 中第一个包含该表的
+    # schema —— 即 FROM "table" 实际解析到的那个 schema。
     rows = conn.execute(
         "SELECT column_name, data_type, is_nullable "
         "FROM information_schema.columns "
-        "WHERE table_name = ? AND table_schema = ANY(current_schemas(false)) "
-        "ORDER BY ordinal_position", (table_name,)
+        "WHERE table_name = ? "
+        "  AND table_schema = ("
+        "      SELECT table_schema FROM information_schema.tables "
+        "      WHERE table_name = ? AND table_schema = ANY(current_schemas(false)) "
+        "      ORDER BY array_position(current_schemas(false), table_schema) "
+        "      LIMIT 1"
+        "  ) "
+        "ORDER BY ordinal_position", (table_name, table_name)
     ).fetchall()
     return [
         {"name": r[0], "type": r[1], "notnull": 1 if r[2] == "NO" else 0, "pk": 0}

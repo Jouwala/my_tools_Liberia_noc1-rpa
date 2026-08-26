@@ -30,7 +30,7 @@ for your mailbox" 告警。
 环境变量（均可覆盖，默认值见下）：
   MAILBOX_SERVER           EWS 服务器          (默认 exchmail.orange-cit.ci)
   MAILBOX_USERNAME         登录账号            (默认 ZTENOC_OLR)
-  MAILBOX_PASSWORD         密码                (默认 Postcode@231)
+  MAILBOX_PASSWORD         密码                (默认 Postcode@202608)
   MAILBOX_SMTP             邮箱地址            (默认 ztenoc.olr@orange.com)
   MAILBOX_AUTH_TYPE        认证方式 NTLM/BASIC (默认 NTLM)
   MAILBOX_VERIFY_SSL       是否校验证书链       (默认 false)
@@ -90,7 +90,7 @@ def get_account() -> Account:
     from backend.services.credential_store import get_credential
     server = os.getenv("MAILBOX_SERVER", "exchmail.orange-cit.ci")
     username, password = get_credential(
-        "owa_mail", "ZTENOC_OLR", "Postcode@231",
+        "owa_mail", "ZTENOC_OLR", "Postcode@202608",
         env_user="MAILBOX_USERNAME", env_secret="MAILBOX_PASSWORD",
     )
     smtp = os.getenv("MAILBOX_SMTP", "ztenoc.olr@orange.com")

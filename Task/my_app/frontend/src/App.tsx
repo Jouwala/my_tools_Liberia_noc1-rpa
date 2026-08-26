@@ -20,6 +20,7 @@ import {
   LineChartOutlined,
   FundOutlined,
   PieChartOutlined,
+  LoginOutlined,
   SunOutlined,
   MoonOutlined,
   ExportOutlined,
@@ -60,12 +61,13 @@ const AlarmManagement = lazy(() => import('./pages/AlarmManagement'))
 const CxoDashboard = lazy(() => import('./pages/CxoDashboard'))
 const EmailReports = lazy(() => import('./pages/EmailReports'))
 const MwUmeDashboard = lazy(() => import('./pages/MwUmeDashboard'))
+const PortalLogin = lazy(() => import('./pages/PortalLogin'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'email_reports' | 'mwUmeTopology'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'email_reports' | 'mwUmeTopology' | 'portalLogin'
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'email_reports', 'mwUmeTopology']
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'email_reports', 'mwUmeTopology', 'portalLogin']
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -200,6 +202,7 @@ function AppContent() {
     { key: 'archive', icon: <HistoryOutlined />, label: t('nav.archive') },
     { key: 'dashboard', icon: <DashboardOutlined />, label: t('nav.dashboard') },
     { key: 'settings', icon: <SettingOutlined />, label: t('nav.settings') },
+    { key: 'portalLogin', icon: <LoginOutlined />, label: t('nav.portalLogin') },
   ]
 
   // ===== 右键菜单（在新标签页打开）=====
@@ -306,6 +309,8 @@ function AppContent() {
         return <Dashboard />
       case 'settings':
         return <Settings />
+      case 'portalLogin':
+        return <PortalLogin />
       default:
         return <Overview />
     }

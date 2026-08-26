@@ -166,6 +166,25 @@ CREDENTIAL_GROUPS = [
         "env_secret": None,
     },
     {
+        "key": "mw_ume",
+        "name": "MW UME 微波网管 (192.168.169.247:28001)",
+        "name_en": "MW UME Microwave NMS (192.168.169.247:28001)",
+        "usage": "MW UME KPI 同步任务使用此账号登录 ZXMW 微波网管拉取带宽利用率等指标；一键门户登录也复用此凭据。",
+        "usage_en": "Used by the MW UME KPI sync task to log into the ZXMW microwave NMS and pull bandwidth-utilization KPIs; also reused by the one-click portal login.",
+        "default_user": "NOC_MW",
+        "default_secret": "Zte@202608",
+        "username_label": "用户名",
+        "username_label_en": "Username",
+        "secret_label": "密码",
+        "secret_label_en": "Password",
+        "has_username": True,
+        "testable": True,
+        "test_host": "192.168.169.247",
+        "test_port": 28001,
+        "env_user": "MW_UME_USER",
+        "env_secret": "MW_UME_PASSWORD",
+    },
+    {
         "key": "sftp_sp",
         "name": "SFTP 备件报表服务器 (10.100.20.11)",
         "name_en": "SFTP Spare-parts Report Server (10.100.20.11)",
@@ -206,7 +225,7 @@ CREDENTIAL_GROUPS = [
         "usage": "运维报告与邮箱清理任务使用此 Exchange/OWA 域账号。",
         "usage_en": "Used by ops-report and mailbox-cleanup tasks via Exchange/OWA.",
         "default_user": "ZTENOC_OLR",
-        "default_secret": "Postcode@231",
+        "default_secret": "Postcode@202608",
         "username_label": "登录账号 (域账号)",
         "username_label_en": "Login Account (Domain)",
         "secret_label": "邮箱密码",
@@ -333,14 +352,14 @@ def set_credential(key: str, username: str | None, secret: str | None) -> None:
         if username is None and secret is None:
             conn.execute("DELETE FROM credentials WHERE key = ?", (key,))
         else:
+            # 历史版本 credentials 表可能缺少 key 主键，ON CONFLICT(key) 会报
+            # "does not match any PRIMARY KEY or UNIQUE constraint"。改用
+            # 删除+插入的幂等 upsert，不依赖表结构约束。
+            conn.execute("DELETE FROM credentials WHERE key = ?", (key,))
             conn.execute(
                 """
                 INSERT INTO credentials (key, username, secret, updated_at)
                 VALUES (?, ?, ?, ?)
-                ON CONFLICT(key) DO UPDATE SET
-                    username = excluded.username,
-                    secret = excluded.secret,
-                    updated_at = excluded.updated_at
                 """,
                 (key, username, secret, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
             )

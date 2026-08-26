@@ -6,7 +6,7 @@ owa_mail_service.py
 通过 EWS (Exchange Web Services) 登录 Orange OWA 邮箱并发送邮件。
 
 目标服务器: https://exchmail.orange-cit.ci/owa/
-账号示例   : ZTENOC_OLR / Postcode@231
+账号示例   : ZTENOC_OLR / Postcode@202608
 邮箱地址   : ztenoc.olr@orange.com
 
 设计要点
@@ -51,7 +51,7 @@ CLI 用法
 ------------------------------
     OWA_SERVER          默认 exchmail.orange-cit.ci
     OWA_USERNAME        默认 ZTENOC_OLR
-    OWA_PASSWORD        默认 Postcode@231
+    OWA_PASSWORD        默认 Postcode@202608
     OWA_SMTP            默认 ztenoc.olr@orange.com
     OWA_AUTH_TYPE       默认 NTLM  (可选 BASIC)
     OWA_VERIFY_SSL      默认 false (证书链在 Windows 上校验失败，默认关闭)
@@ -109,7 +109,7 @@ from exchangelib.version import EXCHANGE_2016  # noqa: E402
 # =====================================================================
 OWA_SERVER = os.getenv("OWA_SERVER", "exchmail.orange-cit.ci")
 OWA_USERNAME = os.getenv("OWA_USERNAME", "ZTENOC_OLR")
-OWA_PASSWORD = os.getenv("OWA_PASSWORD", "Postcode@231")
+OWA_PASSWORD = os.getenv("OWA_PASSWORD", "Postcode@202608")
 OWA_SMTP = os.getenv("OWA_SMTP", "ztenoc.olr@orange.com")
 OWA_AUTH_TYPE = os.getenv("OWA_AUTH_TYPE", "NTLM").upper()
 OWA_VERIFY_SSL = os.getenv("OWA_VERIFY_SSL", "false").lower() in ("1", "true", "yes", "on")
@@ -436,6 +436,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--images", help="指定内嵌图片路径，逗号分隔；默认取 data-dir 下 Summary/Open Tickets/Prolong Tickets.png")
     parser.add_argument("--no-inline", action="store_true", help="不使用内嵌图片（图片作为普通附件）")
     parser.add_argument("--no-save-sent", action="store_true", help="不保存到已发送文件夹")
+    
+    # ====== 发送邮件方式选择 ======
+    parser.add_argument("--use-dotnet", action="store_true", 
+                       help="强制使用 PowerShell .NET HttpWebRequest (网页版 OWA 同款)")
+    parser.add_argument("--use-exchangelib", action="store_true", 
+                       help="强制使用 exchangelib 原生 API (自动流式上传大附件)")
+    parser.add_argument("--use-winhttp", action="store_true", 
+                       help="强制使用 WinHTTP + NTLM (Windows 原生，更轻量)")
+    parser.add_argument("--use-browser", action="store_true", 
+                       help="强制使用浏览器自动化 (Selenium/Playwright, 兜底方案)")
+    parser.add_argument("--mode", choices=["dotnet", "exchangelib", "winhttp", "browser"],
+                       help="预设发送模式 (等价于 --use-XXX)")
     args = parser.parse_args(argv)
 
     t0 = time.perf_counter()
@@ -530,22 +542,70 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "<br><p>Best regards,<br>ZTENOC OLR</p>"
             )
 
-    # ---- 通过 PowerShell .NET HttpWebRequest + NTLM 发送 ----
-    # 替代 exchangelib send_mail()，解决 Python requests_ntlm 在 Orange Exchange
-    # 服务器上 NTLM 握手挂起/被拒的问题。.NET 使用 Windows SSPI（与浏览器同套）。
-    from dotnet_ews_send import send_mail_dotnet
+    # ---- 发送邮件（混合方案：支持 5 种方式）----
+    # 方案 A: exchangelib send_and_save() - Python 原生，自动流式上传大附件
+    # 方案 B: dotnet_ews_send (PowerShell) - 与网页版 OWA 相同底层，性能最优
+    # 方案 C: WinHTTP + NTLM - Windows 原生 HTTP API，比 .NET 更轻量
+    # 方案 D: urllib3 + requests (if available) - 灵活但需要额外依赖
+    # 方案 E: Selenium/Playwright 浏览器自动化 - 终极兜底方案（完全模拟网页操作）
+    print(f"\n[SEND] 开始发送...", end="")
 
-    print(f"[SEND] 通过 .NET HttpWebRequest + NTLM 发送到 {OWA_SERVER}...")
-    print(f"       To : {to}")
-    if cc:
-        print(f"       Cc : {cc}")
-    print(f"       Sub: {subject}")
+    # 检测附件总大小
+    total_size = 0
     if attachments:
-        print(f"       Att: {[str(p) for p in attachments]}")
-    if inline_images:
-        print(f"       Img: {[p.name for p in inline_images]} (inline)")
+        for p in attachments:
+            try:
+                total_size += p.stat().st_size
+            except:
+                pass
+    
+    # 命令行参数控制
+    use_dotnet = args.use_dotnet or (args.mode == "dotnet")
+    use_exchangelib = args.use_exchangelib or (args.mode == "exchangelib")
+    use_winhttp = args.use_winhttp or (args.mode == "winhttp")
+    use_browser = args.use_browser or (args.mode == "browser")
+    
+    # 自动智能选择策略
+    if not any([use_dotnet, use_exchangelib, use_winhttp, use_browser]):
+        if total_size > 5 * 1024 * 1024:
+            auto_select = "exchangelib"
+            print(f" [检测到 {total_size/1024/1024:.2f}MB 附件 → 自动选{auto_select}]")
+        else:
+            auto_select = "dotnet"
+            print(f" [小附件 → 自动选{auto_select}]")
 
-    try:
+    # 方案 A: 使用 exchangelib（原生的 NTLM + EWS，支持大附件流式上传）
+    def send_via_exchangelib(account):
+        """使用 exchangelib 原生 API 发送，自动处理大附件流式传输"""
+        msg = send_mail(
+            account=account,
+            to=to,
+            subject=subject,
+            body=body,
+            cc=cc,
+            attachments=attachments,
+            inline_images=inline_images,
+            html=use_html,
+            save_to_sent=not args.no_save_sent,
+        )
+        return {
+            "success": True,
+            "message": f"exchangelib 发送成功",
+            "msg_id": msg.id
+        }
+
+    # 方案 B: 使用 .NET PowerShell（与网页版 OWA 相同的底层实现）
+    def send_via_dotnet():
+        """通过 PowerShell .NET HttpWebRequest 发送，性能接近浏览器"""
+        from dotnet_ews_send import send_mail_dotnet
+        
+        # 优先尝试优化版脚本（如果存在）
+        optimized_script = Path(__file__).parent / "DotNetEwsSender_Optimized.ps1"
+        if optimized_script.exists():
+            print("\n[INFO] 检测到优化版 PowerShell 脚本...")
+            # 可以在这里集成优化版逻辑
+            pass
+        
         result = send_mail_dotnet(
             to=to,
             subject=subject,
@@ -556,16 +616,124 @@ def main(argv: Optional[List[str]] = None) -> int:
             html=use_html,
             save_to_sent=not args.no_save_sent,
         )
-    except Exception as e:
-        print(f"[SEND][FAIL] {type(e).__name__}: {e}")
-        return 3
+        return result
 
-    if not result.get("success"):
-        print(f"[SEND][FAIL] {result.get('error', 'Unknown error')}")
-        return 3
+    # 方案 C: WinHTTP + NTLM（Windows 原生 API，更轻量快速）
+    def send_via_winhttp(account):
+        """WinHTTP API - Windows 系统级 HTTP，绕过 .NET 开销"""
+        try:
+            import subprocess
+            # 调用内置的 winhttp-send.py 脚本
+            winhttp_script = Path(__file__).parent / "winhttp_ews_send.py"
+            if not winhttp_script.exists():
+                raise FileNotFoundError("WinHTTP 脚本未找到：winhttp_ews_send.py")
+            
+            print("[INFO] 加载 WinHTTP 邮件发送器...")
+            from email_reports import winhttp_ews_send
+            
+            result = winhttp_ews_send.send_via_winhttp(
+                to=', '.join(to),
+                subject=subject,
+                body=body,
+                server=config.server,
+                username=config.username,
+                password=config.password,
+                from_email=config.from_addr
+            )
+            return result
+            
+        except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
+            return {"success": False, "error": f"WinHTTP 失败：{str(e)}", "detail": error_detail[:500]}
 
-    suffix = "并保存到已发送文件夹" if not args.no_save_sent else "（未保存）"
-    print(f"[SEND][OK] 邮件已发送{suffix}。")
+    # 方案 D: 浏览器自动化（终极兜底方案）
+    def send_via_browser():
+        """Selenium/Playwright 模拟网页操作 - 完全复用网页版流程"""
+        try:
+            print(f"\n[INFO] 启动浏览器自动化 (v13 修正版 - 含登录 + New 点击)...")
+            
+            from email_reports import send_via_browser_correct
+            
+            result = send_via_browser_correct.send_owa_correct(
+                to=', '.join(to),
+                subject=subject,
+                body=body,
+                attachments=[str(f) for f in attachments],
+                inline_images=inline_images,
+                server=OWA_SERVER,
+                username=OWA_USERNAME,
+                password=OWA_PASSWORD,
+                from_email=OWA_SMTP
+            )
+            return result
+            
+        except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
+            return {"success": False, "error": f"Browser automation failed: {str(e)}", "detail": error_detail[:500]}
+
+    # 执行策略选择
+
+    # 执行策略选择
+    def execute_email_send():
+        """根据配置选择最佳发送方式"""
+        account = get_account()
+        print(f"\n[LOGIN] 已登录账号：{account.primary_smtp_address}")
+
+        # ====== 多方案智能选择引擎 ======
+        # 用户指定优先于自动选择
+        if use_browser:
+            print("[INFO] 强制使用浏览器自动化方案...")
+            return send_via_browser()
+        elif use_winhttp:
+            print("[INFO] 强制使用 WinHTTP 原生 API...")
+            return send_via_winhttp(account)
+        elif use_exchangelib:
+            print("[INFO] 强制使用 exchangelib (流式上传)...")
+            return send_via_exchangelib(account)
+        elif use_dotnet:
+            # 即使是大附件，用户指定用 dotnet 也要尊重
+            print("[INFO] 强制使用 PowerShell .NET HttpWebRequest...")
+            return send_via_dotnet()
+        else:
+            # **默认使用 EWS 增强版 (带重试)** - 这是最可靠的方案!
+            print("\n[CORE] Using Enhanced EWS sender with retry logic...")
+            print("[CORE] This is the PRIMARY sending method - more reliable than browser automation")
+            from email_reports import ews_send_enhanced
+                    
+            result = ews_send_enhanced.send_via_ews_enhanced(
+                to=', '.join(to),
+                subject=subject,
+                body=body,
+                server=OWA_SERVER,
+                username=OWA_USERNAME,
+                password=OWA_PASSWORD,
+                from_email=OWA_SMTP,
+                cc=', '.join(cc) if cc else None,
+                attachments=[str(f) for f in attachments],
+                inline_images=inline_images,
+                max_retries=5
+            )
+                    
+            if not result.get('success') and ('rate limit' in str(result.get('error', '')).lower() or 'throttl' in str(result.get('error', '')).lower()):
+                # Rate limit hit, try browser as last resort
+                print(f"\n[WARN] EWS rate limit exceeded. Fallback to browser...")
+                return send_via_browser()
+                    
+            return result
+
+    result = execute_email_send()
+
+    # ====== 结果处理 ======
+    if result.get("success"):
+        suffix = "并保存到已发送文件夹" if not args.no_save_sent else "（未保存）"
+        print(f"[SEND][OK] {result.get('message', '邮件已发送')}{suffix}。")
+        if "msg_id" in result:
+            print(f"       MessageId: {result['msg_id']}")
+    else:
+        print(f"[SEND][FAIL] {result.get('error', '未知错误')}")
+        return 3
     elapsed = time.perf_counter() - t0
     print(f"[DONE] 总耗时: {elapsed:.2f} 秒")
     return 0

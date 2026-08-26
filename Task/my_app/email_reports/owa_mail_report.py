@@ -113,7 +113,7 @@ EWS_VERSION = Version(build=EXCHANGE_2016, api_version="Exchange2016")
 # =====================================================================
 OWA_SERVER = os.getenv("OWA_SERVER", "exchmail.orange-cit.ci")
 OWA_USERNAME = os.getenv("OWA_USERNAME", "ZTENOC_OLR")
-OWA_PASSWORD = os.getenv("OWA_PASSWORD", "Postcode@231")
+OWA_PASSWORD = os.getenv("OWA_PASSWORD", "Postcode@202608")
 OWA_SMTP = os.getenv("OWA_SMTP", "ztenoc.olr@orange.com")
 OWA_AUTH_TYPE = os.getenv("OWA_AUTH_TYPE", "NTLM").upper()
 OWA_VERIFY_SSL = os.getenv("OWA_VERIFY_SSL", "false").lower() in ("1", "true", "yes", "on")

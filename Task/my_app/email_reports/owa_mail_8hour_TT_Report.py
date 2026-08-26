@@ -6,7 +6,7 @@ owa_mail_service.py
 通过 EWS (Exchange Web Services) 登录 Orange OWA 邮箱并发送邮件。
 
 目标服务器: https://exchmail.orange-cit.ci/owa/
-账号示例   : ZTENOC_OLR / Postcode@231
+账号示例   : ZTENOC_OLR / Postcode@202608
 邮箱地址   : ztenoc.olr@orange.com
 
 设计要点
@@ -51,7 +51,7 @@ CLI 用法
 ------------------------------
     OWA_SERVER          默认 exchmail.orange-cit.ci
     OWA_USERNAME        默认 ZTENOC_OLR
-    OWA_PASSWORD        默认 Postcode@231
+    OWA_PASSWORD        默认 Postcode@202608
     OWA_SMTP            默认 ztenoc.olr@orange.com
     OWA_AUTH_TYPE       默认 NTLM  (可选 BASIC)
     OWA_VERIFY_SSL      默认 false (证书链在 Windows 上校验失败，默认关闭)
@@ -109,7 +109,7 @@ from exchangelib.version import EXCHANGE_2016  # noqa: E402
 # =====================================================================
 OWA_SERVER = os.getenv("OWA_SERVER", "exchmail.orange-cit.ci")
 OWA_USERNAME = os.getenv("OWA_USERNAME", "ZTENOC_OLR")
-OWA_PASSWORD = os.getenv("OWA_PASSWORD", "Postcode@231")
+OWA_PASSWORD = os.getenv("OWA_PASSWORD", "Postcode@202608")
 OWA_SMTP = os.getenv("OWA_SMTP", "ztenoc.olr@orange.com")
 OWA_AUTH_TYPE = os.getenv("OWA_AUTH_TYPE", "NTLM").upper()
 OWA_VERIFY_SSL = os.getenv("OWA_VERIFY_SSL", "false").lower() in ("1", "true", "yes", "on")
