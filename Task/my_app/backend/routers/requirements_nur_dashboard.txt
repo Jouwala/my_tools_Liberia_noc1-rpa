@@ -1,0 +1,5 @@
+# NUR Dashboard 模块依赖（均已包含于 my_app 根 requirements.txt，此处按规范随文件生成）
+pandas>=2.0
+openpyxl>=3.1
+numpy>=1.26
+fastapi>=0.110

@@ -1,0 +1,416 @@
+"""
+email_recipient_store.py - 邮件收件人名单集中存储模块
+====================================================
+
+背景：各邮件任务原先在各自代码里直接读取收件人名单
+（远程 FTP / UNC 共享 / 本地 email_reports 下的 ss_email.txt + cc_email.txt）。
+本模块把名单来源统一收口到「Settings → 邮件收件人」页签维护，与
+credential_store.py 的凭据管理一致：
+
+- 用户在 Settings 页签保存的收件人写入 db/app.db 的 email_recipients 表；
+- 任务发送时优先用 DB 保存值；未保存（DB 无记录）时，实时回退读取原
+  默认名单文件（远程 FTP / UNC / 本地），满足"默认值仍从原地方读取"。
+
+读取优先级：显式传入 to/cc（测试覆盖） > 数据库保存值 > 原默认名单文件。
+缓存策略：进程内缓存 30 秒（与凭据一致），改完最迟 30 秒生效，无需重启。
+
+用法:
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("packet_loss_email", to, cc)
+"""
+
+import os
+import re
+import time
+import sqlite3
+import logging
+import threading
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+# db/app.db：backend/services -> backend -> my_app
+DB_PATH = Path(__file__).resolve().parents[2] / "db" / "app.db"
+
+# 进程内缓存 TTL（秒）
+CACHE_TTL = float(os.environ.get("EMAIL_RECIPIENT_CACHE_TTL", "30"))
+
+_cache: dict = {}
+_cache_lock = threading.Lock()
+
+
+# ============================================================
+# 默认名单读取（轻量，仅读文件，不加载 exchangelib/playwright 等重型依赖）
+# 每个 default_loader 在调用时才懒 import 对应模块，避免本模块被导入时
+# 连带触发重型模块的副作用。
+# ============================================================
+def _parse_addrs(text: str) -> List[str]:
+    """从名单文本解析邮箱地址（支持 ; , 空白 分隔；忽略空行与 # 注释；去重）。"""
+    out: List[str] = []
+    if not text:
+        return out
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        for raw in re.split(r"[;,\s]+", line):
+            a = raw.strip()
+            if a and a not in out:
+                out.append(a)
+    return out
+
+
+def _read_local_file(path) -> List[str]:
+    """读取本地名单文件（ss_email.txt / cc_email.txt）。文件缺失返回空列表。"""
+    try:
+        p = Path(path)
+        if not p.is_file():
+            return []
+        return _parse_addrs(p.read_text(encoding="utf-8-sig", errors="replace"))
+    except Exception as e:
+        logger.warning("[EMAIL-RCPT] 读取本地名单失败 %s: %s", path, e)
+        return []
+
+
+def _read_remote_dir(email_dir_remote: str) -> Tuple[List[str], List[str]]:
+    """读取远程 FTP 名单目录下的 ss_email.txt / cc_email.txt。"""
+    import backend.services.remote_ftp as rf
+    try:
+        ss = rf.read_text(f"{email_dir_remote}/ss_email.txt")
+        cc = rf.read_text(f"{email_dir_remote}/cc_email.txt")
+        return rf.parse_addresses(ss or ""), rf.parse_addresses(cc or "")
+    except Exception as e:
+        logger.warning("[EMAIL-RCPT] 读取远程名单失败 %s: %s", email_dir_remote, e)
+        return [], []
+
+
+def _read_unc_dir(email_dir_unc: str) -> Tuple[List[str], List[str]]:
+    """读取 UNC 共享名单目录下的 ss_email.txt / cc_email.txt。"""
+    try:
+        ss = _read_local_file(Path(email_dir_unc) / "ss_email.txt")
+        cc = _read_local_file(Path(email_dir_unc) / "cc_email.txt")
+        return ss, cc
+    except Exception as e:
+        logger.warning("[EMAIL-RCPT] 读取 UNC 名单失败 %s: %s", email_dir_unc, e)
+        return [], []
+
+
+# ---- 各默认来源 loader（懒 import 对应模块常量）----
+def _default_liberia() -> Tuple[List[str], List[str]]:
+    from backend.services.liberia_email_report import SS_EMAIL_FILE, CC_EMAIL_FILE
+    return _read_local_file(SS_EMAIL_FILE), _read_local_file(CC_EMAIL_FILE)
+
+
+def _default_ms_sla() -> Tuple[List[str], List[str]]:
+    from backend.services.kpi_email_report import _MS_SLA_EMAIL
+    return _read_remote_dir(_MS_SLA_EMAIL)
+
+
+def _default_sp() -> Tuple[List[str], List[str]]:
+    from backend.services.kpi_email_report import _SP_EMAIL_UNC
+    return _read_unc_dir(_SP_EMAIL_UNC)
+
+
+def _default_ran() -> Tuple[List[str], List[str]]:
+    from backend.services.kpi_email_report import _RAN_EMAIL
+    return _read_remote_dir(_RAN_EMAIL)
+
+
+def _default_packet_loss() -> Tuple[List[str], List[str]]:
+    from backend.services.kpi_email_report import _PL_EMAIL
+    return _read_remote_dir(_PL_EMAIL)
+
+
+def _default_ipran() -> Tuple[List[str], List[str]]:
+    from backend.services.ipran_chart_service import SS_EMAIL_FILE, CC_EMAIL_FILE
+    return _read_local_file(SS_EMAIL_FILE), _read_local_file(CC_EMAIL_FILE)
+
+
+def _default_ccn() -> Tuple[List[str], List[str]]:
+    from backend.services.ccn_free_rating_chart_service import SS_EMAIL_FILE, CC_EMAIL_FILE
+    return _read_local_file(SS_EMAIL_FILE), _read_local_file(CC_EMAIL_FILE)
+
+
+def _default_fw_kpi() -> Tuple[List[str], List[str]]:
+    from backend.services.fw_kpi.fw_kpi_services import SS_EMAIL_FILE, CC_EMAIL_FILE
+    return _read_local_file(SS_EMAIL_FILE), _read_local_file(CC_EMAIL_FILE)
+
+
+def _default_battery() -> Tuple[List[str], List[str]]:
+    from backend.services.battary_kpi_fetch.battery_kpi_service import BATT_EMAIL_REMOTE
+    return _read_remote_dir(BATT_EMAIL_REMOTE)
+
+
+# ============================================================
+# 收件人组注册表（key、显示名、默认来源 loader）
+# key 与 task_registry.py 中各邮件任务的 task_id 对齐（liberia 1h/8h 共用一组）。
+# ============================================================
+EMAIL_RECIPIENT_GROUPS = [
+    {
+        "key": "liberia_email",
+        "name": "Liberia 宕站报告邮件 (1h/8h)",
+        "name_en": "Liberia Site-Down Report Email (1h/8h)",
+        "default_loader": _default_liberia,
+    },
+    {
+        "key": "kpi_ms_contract",
+        "name": "MS Contract KPIs 日报邮件",
+        "name_en": "MS Contract KPIs Daily Report Email",
+        "default_loader": _default_ms_sla,
+    },
+    {
+        "key": "kpi_ms_wo_sla",
+        "name": "MS WOs SLA 日报邮件",
+        "name_en": "MS WOs SLA Daily Report Email",
+        "default_loader": _default_ms_sla,
+    },
+    {
+        "key": "kpi_sp_spareparts",
+        "name": "SpareParts 备件报表邮件",
+        "name_en": "SpareParts Report Email",
+        "default_loader": _default_sp,
+    },
+    {
+        "key": "kpi_sp_consumables",
+        "name": "Comsumables 耗材报表邮件",
+        "name_en": "Comsumables Report Email",
+        "default_loader": _default_sp,
+    },
+    {
+        "key": "kpi_ran_availability",
+        "name": "MS Network Availability 日报邮件",
+        "name_en": "MS Network Availability Daily Report Email",
+        "default_loader": _default_ran,
+    },
+    {
+        "key": "packet_loss_email",
+        "name": "Packet Loss 丢包日报邮件",
+        "name_en": "Packet Loss Daily Report Email",
+        "default_loader": _default_packet_loss,
+    },
+    {
+        "key": "ipran_m6k_chart_email",
+        "name": "IP RAN M6K-FW 图表邮件",
+        "name_en": "IP RAN M6K-FW Chart Email",
+        "default_loader": _default_ipran,
+    },
+    {
+        "key": "ccn_free_rating_chart_email",
+        "name": "CNN Free Rating 图表邮件",
+        "name_en": "CNN Free Rating Chart Email",
+        "default_loader": _default_ccn,
+    },
+    {
+        "key": "fw_kpi_sync",
+        "name": "FW 吞吐 KPI 图表邮件",
+        "name_en": "FW Throughput KPI Chart Email",
+        "default_loader": _default_fw_kpi,
+    },
+    {
+        "key": "battery_email",
+        "name": "电池 KPI 邮件",
+        "name_en": "Battery KPI Email",
+        "default_loader": _default_battery,
+    },
+]
+
+_GROUP_INDEX = {g["key"]: g for g in EMAIL_RECIPIENT_GROUPS}
+
+
+# ============================================================
+# 数据库访问（独立 sqlite3，与 credentials 表同库）
+# ============================================================
+def _get_conn() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH), timeout=30)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS email_recipients (
+                key TEXT PRIMARY KEY,
+                to_text TEXT,
+                cc_text TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+        conn.commit()
+    except Exception:
+        logger.warning("[EMAIL-RCPT] 建表失败", exc_info=True)
+    return conn
+
+
+def _read_db(key: str):
+    """从数据库读取保存的收件人，返回 (to_text, cc_text) 或 None。"""
+    try:
+        conn = _get_conn()
+        try:
+            row = conn.execute(
+                "SELECT to_text, cc_text FROM email_recipients WHERE key = ?", (key,)
+            ).fetchone()
+            if row and (row["to_text"] or row["cc_text"]):
+                return row["to_text"], row["cc_text"]
+            return None
+        finally:
+            conn.close()
+    except Exception:
+        logger.warning(f"[EMAIL-RCPT] 读取收件人失败: {key}", exc_info=True)
+        return None
+
+
+def _read_db_map() -> dict:
+    """读取全部已保存记录，key -> (to_text, cc_text, updated_at)。"""
+    out = {}
+    try:
+        conn = _get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT key, to_text, cc_text, updated_at FROM email_recipients"
+            ).fetchall()
+            for r in rows:
+                out[r["key"]] = (r["to_text"], r["cc_text"], r["updated_at"])
+        finally:
+            conn.close()
+    except Exception:
+        logger.warning("[EMAIL-RCPT] 读取收件人表失败", exc_info=True)
+    return out
+
+
+# ============================================================
+# 对外接口
+# ============================================================
+def _join(addrs: List[str]) -> Optional[str]:
+    """列表 -> ';' 分隔字符串；空列表返回 None（与原始行为一致）。"""
+    return ";".join(addrs) if addrs else None
+
+
+def get_email_recipients(key: str, to: Optional[str] = None, cc: Optional[str] = None):
+    """获取指定邮件任务的收件人 (to_arg, cc_arg)（字符串，';' 分隔）。
+
+    优先级：显式传入 to/cc（测试覆盖） > 数据库保存值 > 原默认名单文件。
+    未保存且默认名单为空时，to_arg 返回 None、cc_arg 返回 ''（与原始行为一致）。
+    """
+    # 1) 测试覆盖优先
+    if to is not None or cc is not None:
+        return to, cc
+
+    # 2) 数据库保存值（带缓存）
+    now = time.time()
+    cached = _cache.get(key)
+    if cached and (now - cached[0]) < CACHE_TTL:
+        db_val = cached[1]
+    else:
+        db_val = _read_db(key)
+        with _cache_lock:
+            _cache[key] = (now, db_val)
+
+    if db_val:
+        db_to, db_cc = db_val
+        return db_to or None, db_cc or ""
+
+    # 3) 默认名单文件（仍从原路径实时读取）
+    group = _GROUP_INDEX.get(key)
+    if group:
+        try:
+            to_list, cc_list = group["default_loader"]()
+            return _join(to_list), _join(cc_list) or ""
+        except Exception as e:
+            logger.warning("[EMAIL-RCPT] 默认名单读取异常: %s: %s", key, e)
+            return None, ""
+    return None, ""
+
+
+def get_effective_recipients(key: str):
+    """返回当前生效的 (to_text, cc_text)：数据库保存值优先，否则默认名单。"""
+    db_val = _read_db(key)
+    if db_val:
+        return db_val[0] or "", db_val[1] or ""
+    group = _GROUP_INDEX.get(key)
+    if group:
+        try:
+            to_list, cc_list = group["default_loader"]()
+            return _join(to_list) or "", _join(cc_list) or ""
+        except Exception:
+            return "", ""
+    return "", ""
+
+
+def set_email_recipients(key: str, to_text: Optional[str], cc_text: Optional[str]) -> None:
+    """写入/更新收件人并清空对应缓存。to/cc 为 None 时视为空串。"""
+    if key not in _GROUP_INDEX:
+        raise KeyError(f"Unknown email recipient group: {key}")
+    conn = _get_conn()
+    try:
+        conn.execute(
+            """
+            INSERT INTO email_recipients (key, to_text, cc_text, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                to_text = excluded.to_text,
+                cc_text = excluded.cc_text,
+                updated_at = excluded.updated_at
+            """,
+            (key, to_text or "", cc_text or "", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    clear_cache(key)
+
+
+def reset_email_recipients(key: str) -> None:
+    """恢复默认：删除数据库记录（下次发送回退读原名单文件）。"""
+    conn = _get_conn()
+    try:
+        conn.execute("DELETE FROM email_recipients WHERE key = ?", (key,))
+        conn.commit()
+    finally:
+        conn.close()
+    clear_cache(key)
+
+
+def clear_cache(key: str | None = None) -> None:
+    with _cache_lock:
+        if key is None:
+            _cache.clear()
+        else:
+            _cache.pop(key, None)
+
+
+def list_email_recipients(lang: str = "zh") -> list:
+    """列出全部收件人组（含当前生效 to/cc、来源标记 db/default、更新时间）。
+
+    供 Settings 页签展示。未保存的组实时读取默认名单（读不到则空，不报错）。
+    """
+    en = (lang or "zh").lower().startswith("en")
+    saved_map = _read_db_map()
+    result = []
+    for g in EMAIL_RECIPIENT_GROUPS:
+        saved = saved_map.get(g["key"])
+        if saved and (saved[0] or saved[1]):
+            to_text = saved[0] or ""
+            cc_text = saved[1] or ""
+            source = "db"
+            updated_at = saved[2]
+        else:
+            try:
+                to_list, cc_list = g["default_loader"]()
+            except Exception:
+                to_list, cc_list = [], []
+            to_text = _join(to_list) or ""
+            cc_text = _join(cc_list) or ""
+            source = "default"
+            updated_at = None
+        result.append({
+            "key": g["key"],
+            "name": g.get("name_en") if en and g.get("name_en") else g["name"],
+            "to_text": to_text,
+            "cc_text": cc_text,
+            "source": source,
+            "updated_at": updated_at,
+        })
+    return result

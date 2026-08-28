@@ -1,0 +1,43 @@
+# my_app 专属忽略规则
+#
+# 历史：本文件原先只有 venv 自动生成的两行（内容为 `*`），它把 my_app 下
+# 所有未跟踪文件都屏蔽了 —— 包括新写的 backend 模块。git status 因此看不到
+# 漏提交，已连续三周。现在改成显式列出真正该忽略的东西。
+
+# 虚拟环境直接建在源码目录里（Lib 352M / Scripts 6.4M / include）
+/Lib/
+/Scripts/
+/include/
+/pyvenv.cfg
+/.venv/
+/.venv-test/
+
+# 运行时数据（sqlite 956M / 日志 152M）
+/db/
+/log/
+
+# IDE（根 .gitignore 未覆盖 .trae）
+/.trae/
+
+# 构建产物与编译中间件
+/frontend/dist*/
+*.class
+
+# 进程锁文件
+*.pid
+
+# 鉴权缓存与本地凭据（含敏感信息，根规则同样覆盖，这里再显式写一次）
+/auth_cache/
+**/auth_cache/
+*.local.json
+
+# PM 性能数据下载缓存（zip+xml 成对，19 万量级，每次运行可重建）
+/backend/services/cn_ems/_pmcache/
+
+# SQLite 边车文件（根规则的 *.wal 匹配不到 "xxx.sqlite3-wal" 这种连字符命名）
+*-wal
+*-shm
+
+# 带时间戳的库备份与运行时整目录备份
+*.bak_*
+/backend/services/cn_ems/jab_setup/backup_*/
