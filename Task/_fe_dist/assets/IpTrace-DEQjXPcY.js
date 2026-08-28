@@ -1,1 +1,0 @@
-import{r as e}from"./i18n-BkFXnlsY.js";import{t}from"./react-vendor-By8HlURe.js";import{t as n}from"./LegacyToolFrame-DGtLmnU0.js";var r=t();function i(){let{t}=e();return(0,r.jsx)(n,{file:`ip-trace.html`,title:t(`shell.ipTrace`)})}export{i as default};

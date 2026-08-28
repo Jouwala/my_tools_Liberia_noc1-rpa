@@ -1,1 +1,0 @@
-import{r as e}from"./i18n-57HdwGN_.js";import{t}from"./react-vendor-By8HlURe.js";import{t as n}from"./LegacyToolFrame-Cp70p7si.js";var r=t();function i(){let{t}=e();return(0,r.jsx)(n,{file:`cxo_dashboard.html`,title:t(`nav.cxoDashboard`)})}export{i as default};

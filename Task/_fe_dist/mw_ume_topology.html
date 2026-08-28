@@ -813,7 +813,7 @@ window.addEventListener('message', function(e){
    loadDate(false) 走后端 5 分钟 TTL 缓存，轮询开销可忽略。 */
 window.addEventListener('message', function(e){
   if(e.data && e.data.__type === 'myapp-refresh'){
-    try { loadData(false); } catch(err){ /* 数据未就绪时忽略 */ }
+    try { autoRefreshData(); } catch(err){ /* 数据未就绪时忽略 */ }
   }
 });
 try {
@@ -867,6 +867,15 @@ async function loadDate(date, force){
   }
 }
 function loadData(force){ return loadDate(CUR_DATE, force); }
+/* 自动刷新取数：大屏挂机时需「跟着最新一天走」，而非停留在打开页面时的日期。
+ * - 当前正处最新一天（或尚未拿到日期列表）→ 传 date=null 让后端自动取最新日期，
+ *   新一天数据上线后会自动跳到当天，滑杆/日期标签同步前移。
+ * - 用户手动翻看历史某天 → 只刷新该天数据，不打断浏览。
+ * 判定依据 DATE_LIST（后端 meta.available_dates）末位即最新可用日期。 */
+function autoRefreshData(){
+  var onLatest = !DATE_LIST.length || CUR_DATE === DATE_LIST[DATE_LIST.length - 1];
+  return loadDate(onLatest ? null : CUR_DATE, false);
+}
 
 /* ============ render ============ */
 // 日期选择 UI 同步：滑杆范围/位置 + 当前日期标签 + 前后按钮可用态
@@ -2384,7 +2393,7 @@ window.addEventListener('load', function(){ loadData(false); });
 try {
   if (window.top === window.self) {
     setInterval(function(){
-      if (!document.hidden) { try { loadData(false); } catch(err){} }
+      if (!document.hidden) { try { autoRefreshData(); } catch(err){} }
     }, 5 * 60 * 1000);
   }
 } catch(e){}
