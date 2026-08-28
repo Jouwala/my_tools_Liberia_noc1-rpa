@@ -1,0 +1,5 @@
+# backfill_new_group_history.py 依赖说明
+# 本脚本仅使用 Python 标准库（sys/os/time/sqlite3）+ 项目内模块 db_writer_client.py
+# db_writer_client 内部也仅使用标准库（urllib/json），无第三方依赖。
+# 运行环境：Python >= 3.10（使用了 str | None 风格仅在依赖模块中）
+# 无需 pip install。

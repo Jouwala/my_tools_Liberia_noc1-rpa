@@ -1,0 +1,118 @@
+下面的方法获取eflow激活的TT Update Severity Rule并汇总
+Request URL
+https://10.100.20.8:28001/api/eflow-configcenter/v1/eflow-configcenter-rule/base/query
+Request Method
+POST
+Status Code
+200 OK
+Remote Address
+10.100.20.8:28001
+Referrer Policy
+strict-origin-when-cross-origin
+
+
+Payload:
+
+{"filter":"((ruleType eq \"ttLevelRule\")) and (status eq \"ACTIVE\")","order":"updatetime desc"}
+
+
+response:
+{
+        "id": 199,
+        "ruleName": "无线断小区级别重定义-P4",
+        "ruleType": "ttLevelRule",
+        "woType": "eflow-tt",
+        "triggerStep": "autoCreateTT",
+        "description": "无线断小区级别重定义-P4",
+        "dynamicItems": "{\"rulePriority\":\"2\",\"ticketSeverity\":\"P4\"}",
+        "conditions": {
+            "rows": [
+                {
+                    "orAnd": "OR",
+                    "fieldName": "vipSite",
+                    "symbol": "=",
+                    "value": "0",
+                    "table": "eflow_ticket_ticket_asset",
+                    "fieldType": "string"
+                },
+                {
+                    "orAnd": "AND",
+                    "fieldName": "alarmCode",
+                    "symbol": "in",
+                    "value": [
+                        "9971",
+                        "9981",
+                        "9991",
+                        "199087342",
+                        "199083022",
+                        "198094419",
+                        "198094832"
+                    ],
+                    "table": "eflow_ticket_ticket_wo",
+                    "fieldType": "string"
+                }
+            ],
+            "groups": []
+        },
+        "createBy": "admin",
+        "updateBy": "admin",
+        "createTime": 1766331567673,
+        "updateTime": 1787191512785,
+        "status": "ACTIVE"
+    },
+
+
+
+然后根据ID查询规则的详细数据，并合并所有的conditions， 输出个表格eflow_TT_rules.xlsx
+如：ID 199
+
+Request URL
+https://10.100.20.8:28001/api/eflow-configcenter/v1/eflow-configcenter-rule/base/detail/199
+Request Method
+GET
+Status Code
+200 OK
+Remote Address
+10.100.20.8:28001
+Referrer Policy
+strict-origin-when-cross-origin
+
+
+Response:
+
+    "dynamicItems": "{\"rulePriority\":\"2\",\"ticketSeverity\":\"P4\"}",
+    "conditions": {
+        "rows": [
+            {
+                "orAnd": "OR",
+                "fieldName": "vipSite",
+                "symbol": "=",
+                "value": "0",
+                "table": "eflow_ticket_ticket_asset",
+                "fieldType": "string"
+            },
+            {
+                "orAnd": "AND",
+                "fieldName": "alarmCode",
+                "symbol": "in",
+                "value": [
+                    "9971",
+                    "9981",
+                    "9991",
+                    "199087342",
+                    "199083022",
+                    "198094419",
+                    "198094832"
+                ],
+                "table": "eflow_ticket_ticket_wo",
+                "fieldType": "string"
+            }
+        ],
+        "groups": []
+    },
+    "createBy": "admin",
+    "updateBy": "admin",
+    "createTime": 1766331567673,
+    "updateTime": 1787191512785,
+    "status": "ACTIVE"
+}

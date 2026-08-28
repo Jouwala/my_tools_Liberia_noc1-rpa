@@ -1,0 +1,327 @@
+{
+  "host": "10.100.2.99",
+  "port": 28001,
+  "months_back": 1,
+  "time_range": "3days",
+  "query_configs": [
+    {
+      "favoriteconditionname": "HQ M6K-FW",
+      "filterlayer": "bnctp",
+      "grouplayer": "me,bnctp",
+      "gr": "900",
+      "motid": "BNCTN.PMP",
+      "nfctid": "bn.me.ZXR10.15K-M6000-16SE,bn.me.ZXR10.15K-M6000-18S,bn.me.ZXR10.15K-M6000-18S-Plus,bn.me.ZXR10.15K-M6000-2S10,bn.me.ZXR10.15K-M6000-2S16,bn.me.ZXR10.15K-M6000-2S4,bn.me.ZXR10.15K-M6000-2S4-Plus,bn.me.ZXR10.15K-M6000-2S6,bn.me.ZXR10.15K-M6000-3S,bn.me.ZXR10.15K-M6000-3S-Plus,bn.me.ZXR10.15K-M6000-4SE,bn.me.ZXR10.15K-M6000-5S,bn.me.ZXR10.15K-M6000-6F,bn.me.ZXR10.15K-M6000-8S,bn.me.ZXR10.15K-M6000-8SE,bn.me.ZXR10.15K-M6000-8S-Plus,bn.me.ZXR10.15K-M6000-S-VND,bn.me.ZXR10.15K-M6000-S-VRC",
+      "items": "C019901990,C019911991",
+      "itemsposition": "0,0",
+      "itemsposition1": "0,0",
+      "containvcell": 0,
+      "indexfillingtype": "zeroDenominator",
+      "uilocations": [
+        {
+          "id": "f72f2173-766a-4ae2-9215-c33fd7fe2b07$ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_3}",
+          "moc": "bnag",
+          "model": "bnag"
+        }
+      ],
+      "reslocation": [
+        {
+          "id": "ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_3}",
+          "displayName": "{\"en_US\":\"SmartGroup:3\",\"zh_CN\":\"SmartGroup:3\"}",
+          "nbiId": "ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_3}",
+          "labelDn": "HQ-M6K-8S_Plus_PS01#SmartGroup:3",
+          "moc": "bnag",
+          "path": [
+            {
+              "id": "f72f2173-766a-4ae2-9215-c33fd7fe2b07",
+              "displayName": "HQ-M6K-8S_Plus_PS01",
+              "model": "wlme",
+              "nbiId": "BN:ME{431941261}"
+            },
+            {
+              "id": "ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_3}",
+              "displayName": "SmartGroup:3",
+              "model": "bnag",
+              "nbiId": "ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_3}"
+            }
+          ]
+        }
+      ],
+      "chartsetting": "{\"showchart\":true,\"layout\":1,\"showMarkLineLabel\":false,\"showDataZoom\":true,\"charts\":[{\"id\":\"03059aec-6875-bca7-06bb9cd39805d826\",\"legendmode\":0,\"displayMode\":0,\"mos\":[\"f72f2173-766a-4ae2-9215-c33fd7fe2b07$ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_3}\"],\"mosNames\":[\"\\\"HQ-M6K-8S_Plus_PS01\\\"-SmartGroup:3\"],\"itemids\":[\"order_8\",\"order_9\"],\"selectedlegend\":[\"order_8\",\"order_9\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]}],\"thresholdIds\":[],\"countersInfo\":[{\"key\":\"order_8\",\"id\":\"C019901990\",\"itemposition\":0,\"itemposition1\":0},{\"key\":\"order_9\",\"id\":\"C019911991\",\"itemposition\":0,\"itemposition1\":0}]}",
+      "favorite_id": "4e033c70f47943318d2d77717b80eb4e",
+      "table_name": "HQ_M6K_FW_bnctp_15mins",
+      "key": "HQ_M6K_FW"
+    },
+    {
+      "favoriteconditionname": "IPCORE HQ-ODC",
+      "filterlayer": "bnctp",
+      "grouplayer": "me,bnctp",
+      "gr": "900",
+      "displaymode": 1,
+      "motid": "BNCTN.PMP",
+      "nfctid": "bn.me.ZXR10.15K-M6000-8S-Plus",
+      "items": "C019911991,C019901990",
+      "itemsposition": "0,0",
+      "itemsposition1": "0,0",
+      "containvcell": 0,
+      "indexfillingtype": "zeroDenominator",
+      "versiondatacompare": false,
+      "uilocations": [
+        {
+          "id": "f72f2173-766a-4ae2-9215-c33fd7fe2b07$ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_9}",
+          "moc": "bnag",
+          "model": "bnag"
+        },
+        {
+          "id": "f6be7645-ab04-4d58-8a2b-0b0d8b0eb8fd$ME{f6be7645-ab04-4d58-8a2b-0b0d8b0eb8fd},EQ={/r=0/sh=0/sl=255},FTP={/p=124_9}",
+          "moc": "bnag",
+          "model": "bnag"
+        }
+      ],
+      "reslocation": [
+        {
+          "id": "ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_9}",
+          "displayName": "SmartGroup:9",
+          "nbiId": "ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_9}",
+          "labelDn": "HQ-M6K-8S_Plus_PS01#SmartGroup:9",
+          "moc": "bnag",
+          "path": [
+            {
+              "id": "f72f2173-766a-4ae2-9215-c33fd7fe2b07",
+              "displayName": "HQ-M6K-8S_Plus_PS01",
+              "model": "wlme",
+              "nbiId": "BN:ME{431941261}"
+            },
+            {
+              "id": "ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_9}",
+              "displayName": "SmartGroup:9",
+              "model": "bnag",
+              "nbiId": "ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_9}"
+            }
+          ]
+        },
+        {
+          "id": "ME{f6be7645-ab04-4d58-8a2b-0b0d8b0eb8fd},EQ={/r=0/sh=0/sl=255},FTP={/p=124_9}",
+          "displayName": "SmartGroup:9",
+          "nbiId": "ME{f6be7645-ab04-4d58-8a2b-0b0d8b0eb8fd},EQ={/r=0/sh=0/sl=255},FTP={/p=124_9}",
+          "labelDn": "HQ-M6K-8S_Plus_PS02#SmartGroup:9",
+          "moc": "bnag",
+          "path": [
+            {
+              "id": "f6be7645-ab04-4d58-8a2b-0b0d8b0eb8fd",
+              "displayName": "HQ-M6K-8S_Plus_PS02",
+              "model": "wlme",
+              "nbiId": "BN:ME{431941262}"
+            },
+            {
+              "id": "ME{f6be7645-ab04-4d58-8a2b-0b0d8b0eb8fd},EQ={/r=0/sh=0/sl=255},FTP={/p=124_9}",
+              "displayName": "SmartGroup:9",
+              "model": "bnag",
+              "nbiId": "ME{f6be7645-ab04-4d58-8a2b-0b0d8b0eb8fd},EQ={/r=0/sh=0/sl=255},FTP={/p=124_9}"
+            }
+          ]
+        }
+      ],
+      "chartsetting": "{\"showchart\":true,\"layout\":1,\"showMarkLineLabel\":false,\"showDataZoom\":true,\"charts\":[{\"id\":\"3077dcfe-d162-cd21-3d6f90e06883988a\",\"legendmode\":0,\"displayMode\":1,\"mos\":[\"f72f2173-766a-4ae2-9215-c33fd7fe2b07$ME{f72f2173-766a-4ae2-9215-c33fd7fe2b07},EQ={/r=0/sh=0/sl=255},FTP={/p=124_9}\"],\"mosNames\":[\"\\\"HQ-M6K-8S_Plus_PS01\\\"-SmartGroup:9\"],\"itemids\":[\"C019911991\",\"C019901990\"],\"selectedlegend\":[\"C019911991\",\"C019901990\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]},{\"id\":\"28b7812a-bea0-6ca0-0d96641a4b0fb84c\",\"legendmode\":0,\"displayMode\":1,\"mos\":[\"f6be7645-ab04-4d58-8a2b-0b0d8b0eb8fd$ME{f6be7645-ab04-4d58-8a2b-0b0d8b0eb8fd},EQ={/r=0/sh=0/sl=255},FTP={/p=124_9}\"],\"mosNames\":[\"\\\"HQ-M6K-8S_Plus_PS02\\\"-SmartGroup:9\"],\"itemids\":[\"C019911991\",\"C019901990\"],\"selectedlegend\":[\"C019911991\",\"C019901990\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]}],\"thresholdIds\":[]}",
+      "invaliditems": [],
+      "favorite_id": "c298defce6224d209b075d03bdec75ed",
+      "showtimezoneoffset": false,
+      "table_name": "IPCORE_HQ_ODC_bnctp_15mins",
+      "key": "IPCORE_HQ_ODC"
+    },
+    {
+      "favoriteconditionname": "Metro-ring",
+      "filterlayer": "me",
+      "grouplayer": "me,bnctp",
+      "gr": "900",
+      "displaymode": 1,
+      "motid": "BNCTN.PMP",
+      "nfctid": "bn.me.ZXR10.15K-M6000-2S16,bn.me.ZXCTN.15K-9000-8EA,bn.me.ZXCTN.15K-9000-3EA",
+      "items": "C019901990,C019911991",
+      "itemsposition": "0,0",
+      "itemsposition1": "0,0",
+      "containvcell": 0,
+      "indexfillingtype": "zeroDenominator",
+      "uilocations": [
+        {
+          "id": "027bcb01-a8bf-4e20-97a0-0776cbb20447",
+          "moc": "bn.me.ZXCTN.15K-9000-8EA",
+          "model": "wlme"
+        },
+        {
+          "id": "9a548085-7fcb-48be-8701-505d915329f9",
+          "moc": "bn.me.ZXR10.15K-M6000-2S16",
+          "model": "wlme"
+        },
+        {
+          "id": "d51a277b-cf5c-499e-8495-61dca4fdd46e",
+          "moc": "bn.me.ZXR10.15K-M6000-2S16",
+          "model": "wlme"
+        },
+        {
+          "id": "bcb8ce00-e497-4e8d-8dc3-c2231897b01c",
+          "moc": "bn.me.ZXR10.15K-M6000-2S16",
+          "model": "wlme"
+        },
+        {
+          "id": "28dbff5e-6a99-40d1-89b9-cdff87cb1fc8",
+          "moc": "bn.me.ZXR10.15K-M6000-2S16",
+          "model": "wlme"
+        },
+        {
+          "id": "e613f196-66cb-4dcb-ae5d-d10812bc675e",
+          "moc": "bn.me.ZXR10.15K-M6000-2S16",
+          "model": "wlme"
+        },
+        {
+          "id": "dfe167e4-d039-4d59-84c4-1939f1ca5aef",
+          "moc": "bn.me.ZXCTN.15K-9000-3EA",
+          "model": "wlme"
+        },
+        {
+          "id": "480f0009-d020-40ee-9d8a-823051a32918",
+          "moc": "bn.me.ZXCTN.15K-9000-8EA",
+          "model": "wlme"
+        }
+      ],
+      "reslocation": [],
+      "chartsetting": "{\"showchart\":true,\"layout\":1,\"showDataLabel\":false,\"showMarkLineLabel\":false,\"showDataZoom\":true,\"charts\":[{\"id\":\"4dbd3681-fc14-21d2-3a4e8acf02eb46e4\",\"legendmode\":0,\"displayMode\":1,\"mos\":[\"027bcb01-a8bf-4e20-97a0-0776cbb20447$ME{027bcb01-a8bf-4e20-97a0-0776cbb20447},EQ={/r=0/sh=0/sl=4/ssl=0},PTP={/p=1_1}\"],\"mosNames\":[\"\\\"9000-8EA_SPE01\\\"-\\\"P90E-2CGT-Q28[0-0-4-0]-100GE:1\\\"\"],\"itemids\":[\"C019901990\",\"C019911991\"],\"selectedlegend\":[\"C019901990\",\"C019911991\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]},{\"id\":\"ac82111b-6b57-1dd5-300cc8b9a9a769e0\",\"legendmode\":0,\"displayMode\":1,\"mos\":[\"480f0009-d020-40ee-9d8a-823051a32918$ME{480f0009-d020-40ee-9d8a-823051a32918},EQ={/r=0/sh=0/sl=4/ssl=0},PTP={/p=1_1}\"],\"mosNames\":[\"\\\"9000-8EA_SPE02\\\"-\\\"P90E-2CGT-Q28[0-0-4-0]-100GE:1\\\"\"],\"itemids\":[\"C019901990\",\"C019911991\"],\"selectedlegend\":[\"C019901990\",\"C019911991\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]},{\"id\":\"85ac9658-d34b-8a38-ce0be69df05af5a8\",\"legendmode\":0,\"displayMode\":1,\"mos\":[\"28dbff5e-6a99-40d1-89b9-cdff87cb1fc8$ME{28dbff5e-6a99-40d1-89b9-cdff87cb1fc8},EQ={/r=0/sh=0/sl=3/ssl=0},PTP={/p=1_1}\"],\"mosNames\":[\"M6K_2S16_Logan_Town_UPE100-\\\"RPN-02CG-H-VIRTUAL[0-0-3-0]-100GE:1\\\"\"],\"itemids\":[\"C019901990\",\"C019911991\"],\"selectedlegend\":[\"C019901990\",\"C019911991\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]},{\"id\":\"04f356d0-1889-5d5b-5ca48f7cf9e08ba0\",\"legendmode\":0,\"displayMode\":1,\"mos\":[\"d51a277b-cf5c-499e-8495-61dca4fdd46e$ME{d51a277b-cf5c-499e-8495-61dca4fdd46e},EQ={/r=0/sh=0/sl=3/ssl=0},PTP={/p=1_1}\"],\"mosNames\":[\"M6K_2S16_Chocolate_City_UPE99-\\\"RPN-02CG-H-VIRTUAL[0-0-3-0]-100GE:1\\\"\"],\"itemids\":[\"C019901990\",\"C019911991\"],\"selectedlegend\":[\"C019901990\",\"C019911991\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]},{\"id\":\"89d1e95b-1fb9-dfe1-7e88020f2546958f\",\"legendmode\":0,\"displayMode\":1,\"mos\":[\"e613f196-66cb-4dcb-ae5d-d10812bc675e$ME{e613f196-66cb-4dcb-ae5d-d10812bc675e},EQ={/r=0/sh=0/sl=3/ssl=0},PTP={/p=1_1}\"],\"mosNames\":[\"M6K_2s16_SKD_UPE98-\\\"RPN-02CG-H-VIRTUAL[0-0-3-0]-100GE:1\\\"\"],\"itemids\":[\"C019901990\",\"C019911991\"],\"selectedlegend\":[\"C019901990\",\"C019911991\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]},{\"id\":\"78c69708-2206-08b3-7be2783cab74df0c\",\"legendmode\":0,\"displayMode\":1,\"mos\":[\"dfe167e4-d039-4d59-84c4-1939f1ca5aef$ME{dfe167e4-d039-4d59-84c4-1939f1ca5aef},EQ={/r=0/sh=0/sl=2/ssl=0},PTP={/p=1_1}\"],\"mosNames\":[\"\\\"9000-3EA_LBS_UPE59\\\"-\\\"P90E-2CGT-Q28[0-0-2-0]-100GE:1\\\"\"],\"itemids\":[\"C019901990\",\"C019911991\"],\"selectedlegend\":[\"C019901990\",\"C019911991\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]},{\"id\":\"cefc086a-c554-9cc5-5b14121ed3411007\",\"legendmode\":0,\"displayMode\":1,\"mos\":[\"bcb8ce00-e497-4e8d-8dc3-c2231897b01c$ME{bcb8ce00-e497-4e8d-8dc3-c2231897b01c},EQ={/r=0/sh=0/sl=3/ssl=0},PTP={/p=1_1}\"],\"mosNames\":[\"M6K_2s16_Nigeria_House_UPE97-\\\"RPN-02CG-H-VIRTUAL[0-0-3-0]-100GE:1\\\"\"],\"itemids\":[\"C019901990\",\"C019911991\"],\"selectedlegend\":[\"C019901990\",\"C019911991\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]},{\"id\":\"9ae777ed-b59a-635b-d69d5fcb86403ee4\",\"legendmode\":0,\"displayMode\":1,\"mos\":[\"027bcb01-a8bf-4e20-97a0-0776cbb20447$ME{027bcb01-a8bf-4e20-97a0-0776cbb20447},EQ={/r=0/sh=0/sl=2/ssl=0},PTP={/p=1_3}\"],\"mosNames\":[\"\\\"9000-8EA_SPE01\\\"-\\\"P90E-3XLGET-QSFP+[0-0-2-0]-40GE:3\\\"\"],\"itemids\":[\"C019901990\",\"C019911991\"],\"selectedlegend\":[\"C019901990\",\"C019911991\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]}],\"thresholdIds\":[]}",
+      "invaliditems": [],
+      "favorite_id": "2cefcfdfe0e94e3c828d65479da18bf3",
+      "showtimezoneoffset": true,
+      "table_name": "Metro_ring_me_15mins",
+      "key": "Metro_ring"
+    },
+    {
+      "favoriteconditionname": "Gbarnga/Buchanna/RIA/Kakata",
+      "filterlayer": "me",
+      "grouplayer": "me,bnctp",
+      "gr": "900",
+      "displaymode": 0,
+      "motid": "BNCTN.PMP",
+      "nfctid": "bn.me.HG-FM,bn.me.ZXCTN.608,bn.me.ZXCTN.608P,bn.me.ZXCTN.609,bn.me.ZXCTN.6100,bn.me.ZXCTN.6110,bn.me.ZXCTN.6120,bn.me.ZXCTN.6120E,bn.me.ZXCTN.6120H,bn.me.ZXCTN.6120H-AB,bn.me.ZXCTN.6120H-C,bn.me.ZXCTN.15K-6120H-S,bn.me.ZXCTN.15K-6120H-SC,bn.me.ZXCTN.15K-6170H,bn.me.ZXCTN.6120S,bn.me.ZXCTN.6130-PTN,bn.me.ZXCTN.61-30XG,bn.me.ZXCTN.61-30XG-S,bn.me.ZXCTN.6150,bn.me.ZXCTN.6170H,bn.me.ZXCTN.6180,bn.me.ZXCTN.6180H,bn.me.ZXCTN.15K-6180H,bn.me.ZXCTN.15K-6180H-A,bn.me.ZXCTN.6190H,bn.me.ZXCTN.15K-6190H,bn.me.ZXCTN.6200,bn.me.ZXCTN.6220,bn.me.ZXCTN.6300,bn.me.ZXCTN.6500-16L,bn.me.ZXCTN.6500-32,bn.me.ZXCTN.6500-8,bn.me.ZXCTN.6700-12,bn.me.ZXCTN.6700-24,bn.me.ZXCTN.6700-32,bn.me.ZXCTN.810AB,bn.me.ZXCTN.15K-9000-16EX,bn.me.ZXCTN.15K-9000-18E,bn.me.ZXCTN.15K-9000-18EA,bn.me.ZXCTN.15K-9000-18ES,bn.me.ZXCTN.15K-9000-2E10,bn.me.ZXCTN.15K-9000-2E10A,bn.me.ZXCTN.15K-9000-2E4,bn.me.ZXCTN.15K-9000-2E4-Plus,bn.me.ZXCTN.15K-9000-2E8A,bn.me.ZXCTN.15K-9000-3E,bn.me.ZXCTN.15K-9000-3EA,bn.me.ZXCTN.15K-9000-4EX,bn.me.ZXCTN.15K-9000-5E,bn.me.ZXCTN.15K-9000-8E,bn.me.ZXCTN.15K-9000-8EA,bn.me.ZXCTN.15K-9000-8E-Plus,bn.me.ZXCTN.15K-9000-8ES,bn.me.ZXCTN.15K-9000-8EX,bn.me.ZXCTN.15K-9000-E-VND,bn.me.ZXCTN.9002,bn.me.ZXCTN.9004,bn.me.ZXCTN.9008,bn.me.ZXTC.3000,bn.me.ZXR10.15K-M6000-16SE,bn.me.ZXR10.15K-M6000-18S,bn.me.ZXR10.15K-M6000-18S-Plus,bn.me.ZXR10.15K-M6000-2S10,bn.me.ZXR10.15K-M6000-2S16,bn.me.ZXR10.15K-M6000-2S4,bn.me.ZXR10.15K-M6000-2S4-Plus,bn.me.ZXR10.15K-M6000-2S6,bn.me.ZXR10.15K-M6000-3S,bn.me.ZXR10.15K-M6000-3S-Plus,bn.me.ZXR10.15K-M6000-4SE,bn.me.ZXR10.15K-M6000-5S,bn.me.ZXR10.15K-M6000-6F,bn.me.ZXR10.15K-M6000-8S,bn.me.ZXR10.15K-M6000-8SE,bn.me.ZXR10.15K-M6000-8S-Plus,bn.me.ZXR10.15K-M6000-S-VND,bn.me.ZXR10.15K-M6000-S-VRC,bn.me.ZXR10.15K-ZXR10-Simulator",
+      "items": "C019911991,C019901990",
+      "itemsposition": "0,0",
+      "itemsposition1": "0,0",
+      "containvcell": 0,
+      "indexfillingtype": "zeroDenominator",
+      "uilocations": [
+        {
+          "id": "4a55a623-3dac-4af5-9f05-1aad34505a3d",
+          "moc": "bn.me.ZXCTN.15K-6180H-A",
+          "model": "wlme"
+        },
+        {
+          "id": "71e920ec-4e6c-4a91-9a59-90d19c7338ca",
+          "moc": "bn.me.ZXCTN.15K-6180H-A",
+          "model": "wlme"
+        },
+        {
+          "id": "c9d4710f-f0bc-47b5-92ef-b8d045c3c7f2",
+          "moc": "bn.me.ZXR10.15K-M6000-2S16",
+          "model": "wlme"
+        },
+        {
+          "id": "d62267b0-f3fe-421b-b357-6f350d035676",
+          "moc": "bn.me.ZXR10.15K-M6000-2S16",
+          "model": "wlme"
+        }
+      ],
+      "reslocation": [],
+      "chartsetting": "{\"showchart\":true,\"layout\":2,\"showMarkLineLabel\":false,\"showDataZoom\":true,\"charts\":[{\"id\":\"1ad1a5a5-cfd9-dbfd-148db1741856a0ac\",\"legendmode\":0,\"displayMode\":0,\"mos\":[\"71e920ec-4e6c-4a91-9a59-90d19c7338ca$ME{71e920ec-4e6c-4a91-9a59-90d19c7338ca},EQ={/r=0/sh=1/sl=7},PTP={/p=1_1}\"],\"mosNames\":[\"\\\"6180H-A_Kakata_City_UPE29\\\"-\\\"OIXG4A[0-1-7]-10GE:1\\\"\"],\"itemids\":[\"order_8\",\"order_9\"],\"selectedlegend\":[\"order_8\",\"order_9\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]},{\"id\":\"f53a00ff-40e8-1a29-9ca41aceb2392028\",\"legendmode\":0,\"displayMode\":0,\"mos\":[\"4a55a623-3dac-4af5-9f05-1aad34505a3d$ME{4a55a623-3dac-4af5-9f05-1aad34505a3d},EQ={/r=0/sh=1/sl=7},PTP={/p=1_2}\"],\"mosNames\":[\"\\\"6180H-A_RIA_UPE24\\\"-\\\"OIXG4A[0-1-7]-10GE:2\\\"\"],\"itemids\":[\"order_8\",\"order_9\"],\"selectedlegend\":[\"order_8\",\"order_9\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]},{\"id\":\"b742f95f-693e-2b0f-3111dabda26a950f\",\"legendmode\":0,\"displayMode\":0,\"mos\":[\"c9d4710f-f0bc-47b5-92ef-b8d045c3c7f2$ME{c9d4710f-f0bc-47b5-92ef-b8d045c3c7f2},EQ={/r=0/sh=0/sl=1/ssl=0},PTP={/p=1_2}\"],\"mosNames\":[\"M6k_2s16_Buchanan2_UPE77-\\\"RPN-04XGL-H-VIRTUAL[0-0-1-0]-10GE:2\\\"\"],\"itemids\":[\"order_8\",\"order_9\"],\"selectedlegend\":[\"order_8\",\"order_9\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]},{\"id\":\"e0ced865-7e22-30c7-226816c50b2a9e74\",\"legendmode\":0,\"displayMode\":0,\"mos\":[\"d62267b0-f3fe-421b-b357-6f350d035676$ME{d62267b0-f3fe-421b-b357-6f350d035676},EQ={/r=0/sh=0/sl=255},FTP={/p=124_20}\"],\"mosNames\":[\"M6K_2s16_Gbarnga_UPE76-SmartGroup:20\"],\"itemids\":[\"order_8\",\"order_9\"],\"selectedlegend\":[\"order_8\",\"order_9\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]}],\"thresholdIds\":[],\"countersInfo\":[{\"key\":\"order_8\",\"id\":\"C019911991\",\"itemposition\":0,\"itemposition1\":0},{\"key\":\"order_9\",\"id\":\"C019901990\",\"itemposition\":0,\"itemposition1\":0}]}",
+      "invaliditems": [],
+      "favorite_id": "b2c07ae1a70946a4a604b0f45ba529c6",
+      "showtimezoneoffset": false,
+      "table_name": "Gbarnga_Buchanna_RIA_Kakata_me_15mins",
+      "key": "Gbarnga_Buchanna_RIA_Kakata"
+    },
+    {
+      "favoriteconditionname": "Banjor/ELWA",
+      "filterlayer": "me",
+      "grouplayer": "me,bnctp",
+      "gr": "900",
+      "displaymode": 0,
+      "motid": "BNCTN.PMP",
+      "nfctid": "bn.me.HG-FM,bn.me.ZXCTN.608,bn.me.ZXCTN.608P,bn.me.ZXCTN.609,bn.me.ZXCTN.6100,bn.me.ZXCTN.6110,bn.me.ZXCTN.6120,bn.me.ZXCTN.6120E,bn.me.ZXCTN.6120H,bn.me.ZXCTN.6120H-AB,bn.me.ZXCTN.6120H-C,bn.me.ZXCTN.15K-6120H-S,bn.me.ZXCTN.15K-6120H-SC,bn.me.ZXCTN.15K-6170H,bn.me.ZXCTN.6120S,bn.me.ZXCTN.6130-PTN,bn.me.ZXCTN.61-30XG,bn.me.ZXCTN.61-30XG-S,bn.me.ZXCTN.6150,bn.me.ZXCTN.6170H,bn.me.ZXCTN.6180,bn.me.ZXCTN.6180H,bn.me.ZXCTN.15K-6180H,bn.me.ZXCTN.15K-6180H-A,bn.me.ZXCTN.6190H,bn.me.ZXCTN.15K-6190H,bn.me.ZXCTN.6200,bn.me.ZXCTN.6220,bn.me.ZXCTN.6300,bn.me.ZXCTN.6500-16L,bn.me.ZXCTN.6500-32,bn.me.ZXCTN.6500-8,bn.me.ZXCTN.6700-12,bn.me.ZXCTN.6700-24,bn.me.ZXCTN.6700-32,bn.me.ZXCTN.810AB,bn.me.ZXCTN.15K-9000-16EX,bn.me.ZXCTN.15K-9000-18E,bn.me.ZXCTN.15K-9000-18EA,bn.me.ZXCTN.15K-9000-18ES,bn.me.ZXCTN.15K-9000-2E10,bn.me.ZXCTN.15K-9000-2E10A,bn.me.ZXCTN.15K-9000-2E4,bn.me.ZXCTN.15K-9000-2E4-Plus,bn.me.ZXCTN.15K-9000-2E8A,bn.me.ZXCTN.15K-9000-3E,bn.me.ZXCTN.15K-9000-3EA,bn.me.ZXCTN.15K-9000-4EX,bn.me.ZXCTN.15K-9000-5E,bn.me.ZXCTN.15K-9000-8E,bn.me.ZXCTN.15K-9000-8EA,bn.me.ZXCTN.15K-9000-8E-Plus,bn.me.ZXCTN.15K-9000-8ES,bn.me.ZXCTN.15K-9000-8EX,bn.me.ZXCTN.15K-9000-E-VND,bn.me.ZXCTN.9002,bn.me.ZXCTN.9004,bn.me.ZXCTN.9008,bn.me.ZXTC.3000",
+      "items": "C019901990,C019911991",
+      "itemsposition": "0,0",
+      "itemsposition1": "0,0",
+      "containvcell": 0,
+      "indexfillingtype": "zeroDenominator",
+      "uilocations": [
+        {
+          "id": "a1e68c46-9f7e-4c9e-9224-95fbf1859e09",
+          "moc": "bn.me.ZXCTN.15K-6120H-S",
+          "model": "wlme"
+        },
+        {
+          "id": "5d0b8d3c-7501-4f07-94ed-0023006651cf",
+          "moc": "bn.me.ZXCTN.15K-6120H-S",
+          "model": "wlme"
+        }
+      ],
+      "reslocation": [],
+      "chartsetting": "{\"showchart\":true,\"layout\":1,\"showMarkLineLabel\":false,\"showDataZoom\":true,\"charts\":[{\"id\":\"872ab1d1-edd2-c0bd-38976235d78fadb5\",\"legendmode\":0,\"displayMode\":0,\"mos\":[\"a1e68c46-9f7e-4c9e-9224-95fbf1859e09$ME{a1e68c46-9f7e-4c9e-9224-95fbf1859e09},EQ={/r=0/sh=1/sl=1},PTP={/p=1_20}\"],\"mosNames\":[\"\\\"6120H-S_Banjor_UPE18\\\"-\\\"SMGD[0-1-1]-25GE:20\\\"\"],\"itemids\":[\"order_8\",\"order_9\"],\"selectedlegend\":[\"order_8\",\"order_9\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]},{\"id\":\"d796eafc-e17a-c5dc-b8ca043ba654909f\",\"legendmode\":0,\"displayMode\":0,\"mos\":[\"5d0b8d3c-7501-4f07-94ed-0023006651cf$ME{5d0b8d3c-7501-4f07-94ed-0023006651cf},EQ={/r=0/sh=1/sl=1},PTP={/p=1_33}\"],\"mosNames\":[\"\\\"6120H-S_ELWA_UPE68\\\"-\\\"SMGD[0-1-1]-100GE:33\\\"\"],\"itemids\":[\"order_8\",\"order_9\"],\"selectedlegend\":[\"order_8\",\"order_9\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]}],\"thresholdIds\":[],\"countersInfo\":[{\"key\":\"order_8\",\"id\":\"C019901990\",\"itemposition\":0,\"itemposition1\":0},{\"key\":\"order_9\",\"id\":\"C019911991\",\"itemposition\":0,\"itemposition1\":0}]}",
+      "invaliditems": [],
+      "favorite_id": "c7a4f1a560ce44d28d066fa59ac21cbf",
+      "showtimezoneoffset": false,
+      "table_name": "Banjor_ELWA_me_15mins",
+      "key": "Banjor_ELWA"
+    },
+    {
+      "favoriteconditionname": "OLT",
+      "filterlayer": "bnctp",
+      "grouplayer": "me,bnctp",
+      "gr": "900",
+      "displaymode": 1,
+      "motid": "BNCTN.PMP",
+      "nfctid": "bn.me.HG-FM,bn.me.ZXCTN.608,bn.me.ZXCTN.608P,bn.me.ZXCTN.609,bn.me.ZXCTN.6100,bn.me.ZXCTN.6110,bn.me.ZXCTN.6120,bn.me.ZXCTN.6120E,bn.me.ZXCTN.6120H,bn.me.ZXCTN.6120H-AB,bn.me.ZXCTN.6120H-C,bn.me.ZXCTN.15K-6120H-S,bn.me.ZXCTN.15K-6120H-SC,bn.me.ZXCTN.15K-6170H,bn.me.ZXCTN.6120S,bn.me.ZXCTN.6130-PTN,bn.me.ZXCTN.61-30XG,bn.me.ZXCTN.61-30XG-S,bn.me.ZXCTN.6150,bn.me.ZXCTN.6170H,bn.me.ZXCTN.6180,bn.me.ZXCTN.6180H,bn.me.ZXCTN.15K-6180H,bn.me.ZXCTN.15K-6180H-A,bn.me.ZXCTN.6190H,bn.me.ZXCTN.15K-6190H,bn.me.ZXCTN.6200,bn.me.ZXCTN.6220,bn.me.ZXCTN.6300,bn.me.ZXCTN.6500-16L,bn.me.ZXCTN.6500-32,bn.me.ZXCTN.6500-8,bn.me.ZXCTN.6700-12,bn.me.ZXCTN.6700-24,bn.me.ZXCTN.6700-32,bn.me.ZXCTN.810AB,bn.me.ZXCTN.15K-9000-16EX,bn.me.ZXCTN.15K-9000-18E,bn.me.ZXCTN.15K-9000-18EA,bn.me.ZXCTN.15K-9000-18ES,bn.me.ZXCTN.15K-9000-2E10,bn.me.ZXCTN.15K-9000-2E10A,bn.me.ZXCTN.15K-9000-2E4,bn.me.ZXCTN.15K-9000-2E4-Plus,bn.me.ZXCTN.15K-9000-2E8A,bn.me.ZXCTN.15K-9000-3E,bn.me.ZXCTN.15K-9000-3EA,bn.me.ZXCTN.15K-9000-4EX,bn.me.ZXCTN.15K-9000-5E,bn.me.ZXCTN.15K-9000-8E,bn.me.ZXCTN.15K-9000-8EA,bn.me.ZXCTN.15K-9000-8E-Plus,bn.me.ZXCTN.15K-9000-8ES,bn.me.ZXCTN.15K-9000-8EX,bn.me.ZXCTN.15K-9000-E-VND,bn.me.ZXCTN.9002,bn.me.ZXCTN.9004,bn.me.ZXCTN.9008,bn.me.ZXTC.3000",
+      "items": "C019911991,C019901990",
+      "itemsposition": "0,0",
+      "itemsposition1": "0,0",
+      "containvcell": 0,
+      "indexfillingtype": "zeroDenominator",
+      "uilocations": [
+        {
+          "id": "480f0009-d020-40ee-9d8a-823051a32918$ME{480f0009-d020-40ee-9d8a-823051a32918},EQ={/r=0/sh=0/sl=0/ssl=1},PTP={/p=1_3}",
+          "moc": "bnptp",
+          "model": "bnptp"
+        }
+      ],
+      "reslocation": [
+        {
+          "id": "ME{480f0009-d020-40ee-9d8a-823051a32918},EQ={/r=0/sh=0/sl=0/ssl=1},PTP={/p=1_3}",
+          "displayName": "P90E-4XGET-SFP+[0-0-0-1]-10GE:3",
+          "nbiId": "ME{480f0009-d020-40ee-9d8a-823051a32918},EQ={/r=0/sh=0/sl=0/ssl=1},PTP={/p=1_3}",
+          "labelDn": "9000-8EA_SPE02#P90E-4XGET-SFP+[0-0-0-1]#P90E-4XGET-SFP+[0-0-0-1]-10GE:3",
+          "moc": "bnptp",
+          "path": [
+            {
+              "id": "480f0009-d020-40ee-9d8a-823051a32918",
+              "displayName": "9000-8EA_SPE02",
+              "model": "wlme",
+              "nbiId": "BN:ME{431941252}"
+            },
+            {
+              "id": "ME{480f0009-d020-40ee-9d8a-823051a32918},EQ={/r=0/sh=0/sl=0/ssl=1}",
+              "displayName": "P90E-4XGET-SFP+[0-0-0-1]",
+              "model": "bneq",
+              "nbiId": "ME{480f0009-d020-40ee-9d8a-823051a32918},EQ={/r=0/sh=0/sl=0/ssl=1}"
+            },
+            {
+              "id": "ME{480f0009-d020-40ee-9d8a-823051a32918},EQ={/r=0/sh=0/sl=0/ssl=1},PTP={/p=1_3}",
+              "displayName": "P90E-4XGET-SFP+[0-0-0-1]-10GE:3",
+              "model": "bnptp",
+              "nbiId": "ME{480f0009-d020-40ee-9d8a-823051a32918},EQ={/r=0/sh=0/sl=0/ssl=1},PTP={/p=1_3}"
+            }
+          ]
+        }
+      ],
+      "chartsetting": "{\"showchart\":true,\"layout\":1,\"showMarkLineLabel\":false,\"showDataZoom\":true,\"charts\":[{\"id\":\"423378e7-d633-f99e-54f2c322ab81d946\",\"legendmode\":0,\"displayMode\":1,\"mos\":[\"480f0009-d020-40ee-9d8a-823051a32918$ME{480f0009-d020-40ee-9d8a-823051a32918},EQ={/r=0/sh=0/sl=0/ssl=1},PTP={/p=1_3}\"],\"mosNames\":[\"\\\"9000-8EA_SPE02\\\"-\\\"P90E-4XGET-SFP+[0-0-0-1]-10GE:3\\\"\"],\"itemids\":[\"C019911991\",\"C019901990\"],\"selectedlegend\":[\"C019911991\",\"C019901990\"],\"markingsettings\":[],\"custommarkingsettings\":[],\"showsetting\":[]}],\"thresholdIds\":[]}",
+      "invaliditems": [],
+      "favorite_id": "558af12c5a9b41c582f27b5487344c8b",
+      "showtimezoneoffset": false,
+      "table_name": "OLT_bnctp_15mins",
+      "key": "OLT"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+import { Tabs } from 'antd'
+import { useI18n } from '../i18n'
+import CredentialSettings from './CredentialSettings'
+import EmailRecipientsSettings from './EmailRecipientsSettings'
+import RemoteHostSettings from './RemoteHostSettings'
+import TaskConfigTab from './datasync/TaskConfigTab'
+
+export default function Settings() {
+  const { t } = useI18n()
+  return (
+    <Tabs
+      defaultActiveKey="credentials"
+      items={[
+        {
+          key: 'credentials',
+          label: t('settings.credentialsTab'),
+          children: <CredentialSettings />,
+        },
+        {
+          key: 'email',
+          label: t('settings.emailTab'),
+          children: <EmailRecipientsSettings />,
+        },
+        {
+          key: 'remoteHost',
+          label: t('settings.remoteHostTab'),
+          children: <RemoteHostSettings />,
+        },
+        {
+          key: 'taskConfig',
+          label: t('settings.taskConfigTab'),
+          children: <TaskConfigTab />,
+        },
+      ]}
+    />
+  )
+}

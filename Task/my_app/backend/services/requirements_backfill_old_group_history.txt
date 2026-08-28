@@ -1,0 +1,3 @@
+# backfill_old_group_history.py 依赖
+# 仅使用 Python 标准库（sqlite3/os/time），第三方依赖由 db_writer_client 承担：
+requests>=2.28

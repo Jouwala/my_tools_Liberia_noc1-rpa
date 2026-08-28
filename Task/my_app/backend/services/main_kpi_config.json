@@ -1,0 +1,155 @@
+{
+  "host": "10.100.28.27",
+  "port": 28001,
+  "days_back": 3,
+  "query_configs": [
+    {
+      "tech": "GSM",
+      "templatename": "GSM_KPIs_ZTE_OLR_FB",
+      "templateid": "1638004472354",
+      "motid": "gsmPm.cell",
+      "nfctid": "MRNC",
+      "containvcell": 0,
+      "indexfillingtype": "zeroDenominator",
+      "items": "306024,306002,306006,306003,306008,1675910745777,306004",
+      "uilocations": "706b4d6f-11c7-41b9-b2de-68f77a4e559d,491d8c88-8c1c-4f29-8516-748b2f2a5d32,0e4d065e-c2a2-4cf6-a783-0e892dd262c1"
+    },
+    {
+      "tech": "UMTS",
+      "templatename": "UMTS_KPIs_ZTE_OLR_FB",
+      "templateid": "1638004472355",
+      "motid": "wPm.UtranCell,wPm.LogicCell",
+      "nfctid": "MRNC",
+      "containvcell": 2,
+      "indexfillingtype": "default",
+      "items": "300857,901593214,901597214,901598214,300020,300043,300249,901604214,901605214,300532,901410214,901411214,300476,300139,300294",
+      "uilocations": "02bb459f-04b2-4254-a5e4-2fcca30ba2f0,970b0b1d-7069-403a-ba76-f28717fd5970"
+    },
+    {
+      "tech": "FDD",
+      "templatename": "FDD_KPIs_ZTE_OLR_FB",
+      "templateid": "1638004472356",
+      "motid": "EUtranCellFDD",
+      "businessmotid": "EUtranCellFDD,FDDV3.EUtranCellFDD",
+      "nfctid": "ITBBU,SDR,#",
+      "containvcell": 0,
+      "indexfillingtype": "default",
+      "showbusinesscolumn": true,
+      "items": "1638004469333,1638004469340,1638004469330,1638004469331,1638004469342,1638004469343,1638004469344,1638004469345,C373200029,1638004469332,1638004469785",
+      "itemsposition": "0,0,0,0,0,0,0,0,0,0,0",
+      "itemsposition1": "2,2,2,2,2,2,2,2,1,2,2",
+      "itempositionbusiness": "0,0,0,0,0,0,0,0,1,0,0",
+      "uilocations": "6bd47747-1d35-45ec-8acf-5eff139101bf,d417d820-6257-42a8-b919-a5ed48df2e68"
+    }
+  ],
+  "tasks": [
+    {
+      "tech": "GSM",
+      "grouplayer": "me,gv4.BTSSiteManager,gv4.BTS.cell",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Cells",
+      "table": "2G_Main_Kpi_Cell_Daily",
+      "add_group_column": false
+    },
+    {
+      "tech": "GSM",
+      "grouplayer": "me,gv4.BTSSiteManager",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Sites",
+      "table": "2G_Main_Kpi_Site_Daily",
+      "add_group_column": false
+    },
+    {
+      "tech": "GSM",
+      "grouplayer": "all",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Group",
+      "table": "2G_Main_Kpi_group_Daily",
+      "add_group_column": false
+    },
+    {
+      "tech": "GSM",
+      "grouplayer": "all",
+      "gr": "86400",
+      "groupbygroup": false,
+      "layer": "NW",
+      "table": "2G_Main_Kpi_group_Daily",
+      "add_group_column": true
+    },
+    {
+      "tech": "UMTS",
+      "grouplayer": "me,WV4.IubLink,WV4.UtranCell",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Cells",
+      "table": "3G_Main_Kpi_Cell_Daily",
+      "add_group_column": false
+    },
+    {
+      "tech": "UMTS",
+      "grouplayer": "me,WV4.IubLink",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Sites",
+      "table": "3G_Main_Kpi_Site_Daily",
+      "add_group_column": false
+    },
+    {
+      "tech": "UMTS",
+      "grouplayer": "all",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Group",
+      "table": "3G_Main_Kpi_group_Daily",
+      "add_group_column": false
+    },
+    {
+      "tech": "UMTS",
+      "grouplayer": "all",
+      "gr": "86400",
+      "groupbygroup": false,
+      "layer": "NW",
+      "table": "3G_Main_Kpi_group_Daily",
+      "add_group_column": true
+    },
+    {
+      "tech": "FDD",
+      "grouplayer": "me,eNodeBFunction,EUtranCellFDD",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Cells",
+      "table": "4G_Main_Kpi_Cell_Daily",
+      "add_group_column": false
+    },
+    {
+      "tech": "FDD",
+      "grouplayer": "me,eNodeBFunction",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Sites",
+      "table": "4G_Main_Kpi_Site_Daily",
+      "add_group_column": false
+    },
+    {
+      "tech": "FDD",
+      "grouplayer": "all",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Group",
+      "table": "4G_Main_Kpi_group_Daily",
+      "add_group_column": false
+    },
+    {
+      "tech": "FDD",
+      "grouplayer": "all",
+      "gr": "86400",
+      "groupbygroup": false,
+      "layer": "NW",
+      "table": "4G_Main_Kpi_group_Daily",
+      "add_group_column": true
+    }
+  ]
+}

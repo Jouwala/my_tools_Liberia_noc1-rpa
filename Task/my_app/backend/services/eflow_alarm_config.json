@@ -1,0 +1,252 @@
+{
+  "active_alarm_path": "/api/fm-active/v1/activealarms/table",
+  "his_alarm_path": "/api/fm-history/v1/hisalarms/pageinfo",
+  "alarm_referer": "https://10.100.20.8:28001/iui/fm/angularFm/dist/index.html",
+  "his_alarm_hours": 48,
+  "his_alarm_days_back": 1,
+  "his_alarm_page_size": 5000,
+  "his_alarm_workers": 4,
+  "alarm_code_conds": [
+    {
+      "restype": "zte.ran.nodeb",
+      "alarmcode": 99933
+    },
+    {
+      "restype": "zte.ran.bts",
+      "alarmcode": 9920
+    },
+    {
+      "restype": "zte.ran.enodeb",
+      "alarmcode": 9920
+    },
+    {
+      "restype": "zte.ran.nodeb",
+      "alarmcode": 9920
+    },
+    {
+      "restype": "zte.ran.nodeb",
+      "alarmcode": 9995
+    },
+    {
+      "restype": "zte.ran.bts",
+      "alarmcode": 9981
+    },
+    {
+      "restype": "zte.ran.nodeb",
+      "alarmcode": 9991
+    },
+    {
+      "restype": "zte.ran.nodeb",
+      "alarmcode": 9990
+    },
+    {
+      "restype": "zte.ran.enodeb",
+      "alarmcode": 9970
+    },
+    {
+      "restype": "zte.ran.enodeb",
+      "alarmcode": 9971
+    },
+    {
+      "restype": "zte.ran.bts",
+      "alarmcode": 9910
+    },
+    {
+      "restype": "zte.ran.enodeb",
+      "alarmcode": 9910
+    },
+    {
+      "restype": "zte.ran.nodeb",
+      "alarmcode": 9910
+    },
+    {
+      "restype": "zte.ran.bts",
+      "alarmcode": 9980
+    },
+    {
+      "restype": "ZTE_TRM_DWDM_ZXONE_9700",
+      "alarmcode": 4758
+    },
+    {
+      "restype": "ZTE_TRM_OTHER_WL_LINK",
+      "alarmcode": 4758
+    }
+  ],
+  "alarm_condition": {
+    "alarmcodeconds": [
+      {
+        "restype": "zte.ran.nodeb",
+        "alarmcode": 99933
+      },
+      {
+        "restype": "zte.ran.bts",
+        "alarmcode": 9920
+      },
+      {
+        "restype": "zte.ran.enodeb",
+        "alarmcode": 9920
+      },
+      {
+        "restype": "zte.ran.nodeb",
+        "alarmcode": 9920
+      },
+      {
+        "restype": "zte.ran.nodeb",
+        "alarmcode": 9995
+      },
+      {
+        "restype": "zte.ran.bts",
+        "alarmcode": 9981
+      },
+      {
+        "restype": "zte.ran.nodeb",
+        "alarmcode": 9991
+      },
+      {
+        "restype": "zte.ran.nodeb",
+        "alarmcode": 9990
+      },
+      {
+        "restype": "zte.ran.enodeb",
+        "alarmcode": 9970
+      },
+      {
+        "restype": "zte.ran.enodeb",
+        "alarmcode": 9971
+      },
+      {
+        "restype": "zte.ran.bts",
+        "alarmcode": 9910
+      },
+      {
+        "restype": "zte.ran.enodeb",
+        "alarmcode": 9910
+      },
+      {
+        "restype": "zte.ran.nodeb",
+        "alarmcode": 9910
+      },
+      {
+        "restype": "zte.ran.bts",
+        "alarmcode": 9980
+      },
+      {
+        "restype": "ZTE_TRM_DWDM_ZXONE_9700",
+        "alarmcode": 4758
+      },
+      {
+        "restype": "ZTE_TRM_OTHER_WL_LINK",
+        "alarmcode": 4758
+      }
+    ],
+    "alarmcodefiltermode": 0,
+    "visibles": [
+      1
+    ],
+    "timezonetype": 0,
+    "sortinfo": {
+      "sortdirection": 0,
+      "sortfield": "servertime",
+      "combinesortinfos": []
+    },
+    "extensionconds": {
+      "maintainstatus": {
+        "valuelist": [
+          "0"
+        ]
+      }
+    },
+    "querymetype": 2,
+    "refresh": true
+  },
+  "his_alarm_condition": {
+    "alarmraisedtime": {
+      "mode": "0",
+      "start": -1,
+      "end": -1
+    },
+    "alarmcodefiltermode": 0,
+    "alarmcodeconds": [
+      {
+        "restype": "zte.ran.nodeb",
+        "alarmcode": 99933
+      },
+      {
+        "restype": "zte.ran.bts",
+        "alarmcode": 9920
+      },
+      {
+        "restype": "zte.ran.enodeb",
+        "alarmcode": 9920
+      },
+      {
+        "restype": "zte.ran.nodeb",
+        "alarmcode": 9920
+      },
+      {
+        "restype": "zte.ran.nodeb",
+        "alarmcode": 9995
+      },
+      {
+        "restype": "zte.ran.bts",
+        "alarmcode": 9981
+      },
+      {
+        "restype": "zte.ran.nodeb",
+        "alarmcode": 9991
+      },
+      {
+        "restype": "zte.ran.nodeb",
+        "alarmcode": 9990
+      },
+      {
+        "restype": "zte.ran.enodeb",
+        "alarmcode": 9970
+      },
+      {
+        "restype": "zte.ran.enodeb",
+        "alarmcode": 9971
+      },
+      {
+        "restype": "zte.ran.bts",
+        "alarmcode": 9910
+      },
+      {
+        "restype": "zte.ran.enodeb",
+        "alarmcode": 9910
+      },
+      {
+        "restype": "zte.ran.nodeb",
+        "alarmcode": 9910
+      },
+      {
+        "restype": "zte.ran.bts",
+        "alarmcode": 9980
+      },
+      {
+        "restype": "ZTE_TRM_DWDM_ZXONE_9700",
+        "alarmcode": 4758
+      },
+      {
+        "restype": "ZTE_TRM_OTHER_WL_LINK",
+        "alarmcode": 4758
+      }
+    ],
+    "querymetype": 0,
+    "timezonetype": 0,
+    "sortinfo": {
+      "language": "en",
+      "sortdirection": 0,
+      "sortfield": "alarmclearedtime",
+      "combinesortinfos": []
+    },
+    "extensionconds": {
+      "maintainstatus": {
+        "valuelist": [
+          "0"
+        ]
+      }
+    },
+    "usefromsize": true
+  }
+}

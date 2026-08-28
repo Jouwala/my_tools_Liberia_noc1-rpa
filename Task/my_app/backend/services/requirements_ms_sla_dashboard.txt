@@ -1,0 +1,5 @@
+# MS SLA 看板数据写入服务（backend/services/ms_sla_dashboard.py）依赖清单
+# 无新增第三方依赖，复用 my_app 现有环境：
+# - openpyxl   （读取 KPI List 工作簿）
+# - sqlite3    （标准库，看板库读写）
+# - FastAPI    （后端框架，供看板 API 路由复用）

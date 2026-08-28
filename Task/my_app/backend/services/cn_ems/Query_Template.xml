@@ -1,0 +1,669 @@
+<?xml version="1.0" encoding="GBK"?>
+<queryTemplate>
+	<queryTemplate templateVersion="2.0" id="178129820679314710" name="VLR_SUBSCRIBERS_TEMPLATE_OSS" creator="emma" isAutoRun="0" queryType="0" rightType="0">
+		<index>
+			<indexAutoRun>0</indexAutoRun>
+			<IsIntegra>false</IsIntegra>
+			<isShowCounterThreshold>false</isShowCounterThreshold>
+			<neTypeList>
+				<netype id="cn.wcn.cs.mscs" product="" />
+			</neTypeList>
+			<poid>40738</poid>
+			<moType>cn.wcn.cs.50009</moType>
+			<filterCondition method="-1">
+				<selectIndex id="cn.wcn.cs.500090007" name="Number of Subscribers in VLR" moc="cn.wcn.cs.50009" type="2" />
+			</filterCondition>
+			<filterConditionPoAttr />
+		</index>
+		<indexInfo>
+			<Index id="cn.wcn.cs.500090007">
+				<NETYPEIDS>cn.wcn.cs.mscs</NETYPEIDS>
+				<QOSTYPEID>cn.wcn.cs.50009</QOSTYPEID>
+				<QOSINDEXID>cn.wcn.cs.500090007</QOSINDEXID>
+				<QOSINDEXNAME>Number of Subscribers in VLR</QOSINDEXNAME>
+				<QOSINDEXDES />
+				<INDEXTYPE>0</INDEXTYPE>
+				<QOSINDEXHTMLDES />
+				<DIVZERODEFAULTVALUE>0.0</DIVZERODEFAULTVALUE>
+				<QOSINDEXFRMLR>C407380014</QOSINDEXFRMLR>
+				<SHOWTYPE>0</SHOWTYPE>
+				<SHOWDATATYPE>1</SHOWDATATYPE>
+				<DIRECTION>0</DIRECTION>
+				<ALARMCODE>0</ALARMCODE>
+				<ALARMREASONCODE>0</ALARMREASONCODE>
+				<VALIDMAX>9.99999999E8</VALIDMAX>
+				<VALIDMIN>0.0</VALIDMIN>
+				<ISVALIDMAX>0</ISVALIDMAX>
+				<ISVALIDMIN>0</ISVALIDMIN>
+				<ISINCLUDECRITICAL>false</ISINCLUDECRITICAL>
+				<ISINCLUDEMAJOR>false</ISINCLUDEMAJOR>
+				<ISINCLUDEMINOR>false</ISINCLUDEMINOR>
+				<ISINCLUDEWARNING>false</ISINCLUDEWARNING>
+				<DEFAULTCRITICALDELTA>0.0</DEFAULTCRITICALDELTA>
+				<DEFAULTMAJORDELTA>0.0</DEFAULTMAJORDELTA>
+				<DEFAULTMINORDELTA>0.0</DEFAULTMINORDELTA>
+				<DEFAULTWARNINGDELTA>0.0</DEFAULTWARNINGDELTA>
+				<DEFAULTWARNINGDOWNDELTA>0.0</DEFAULTWARNINGDOWNDELTA>
+				<DEFAULTMINORDOWNDELTA>0.0</DEFAULTMINORDOWNDELTA>
+				<DEFAULTMAJORDOWNDELTA>0.0</DEFAULTMAJORDOWNDELTA>
+				<DEFAULTCRITICALDOWNDELTA>0.0</DEFAULTCRITICALDOWNDELTA>
+				<DEFAULTCRITICALMAX>0.0</DEFAULTCRITICALMAX>
+				<DEFAULTMAJORMAX>0.0</DEFAULTMAJORMAX>
+				<DEFAULTMINORMAX>0.0</DEFAULTMINORMAX>
+				<DEFAULTWARNINGMAX>0.0</DEFAULTWARNINGMAX>
+				<ISINCLUDEDOWNCRITICAL>false</ISINCLUDEDOWNCRITICAL>
+				<ISINCLUDEDOWNMAJOR>false</ISINCLUDEDOWNMAJOR>
+				<ISINCLUDEDOWNMINOR>false</ISINCLUDEDOWNMINOR>
+				<ISINCLUDEDOWNWARNING>false</ISINCLUDEDOWNWARNING>
+				<DEFAULTWARNINGMIN>0.0</DEFAULTWARNINGMIN>
+				<DEFAULTMINORMIN>0.0</DEFAULTMINORMIN>
+				<DEFAULTMAJORMIN>0.0</DEFAULTMAJORMIN>
+				<DEFAULTCRITICALMIN>0.0</DEFAULTCRITICALMIN>
+				<ISFROMSP>0</ISFROMSP>
+				<RESERVATIONA />
+				<RESERVATIONB />
+				<RESERVATIONC />
+				<FORMAT></FORMAT>
+				<ISUSERDEFINED>0</ISUSERDEFINED>
+			</Index>
+		</indexInfo>
+		<renders />
+		<object>
+			<objectAutoRun>0</objectAutoRun>
+			<isGroup>false</isGroup>
+			<isGroupStat>false</isGroupStat>
+			<isGroupByPlmn>false</isGroupByPlmn>
+			<filterLevel>
+				<mocTypeId>==filterType_ne==</mocTypeId>
+				<mocTypeName />
+				<levelType>2</levelType>
+			</filterLevel>
+			<nodeList>
+				<neNode dn="cn.wcn:OMMOID=gzmulyxb-2:elementid=11" />
+			</nodeList>
+			<pmQueryGroupConditon GroupContainVirtualCell="true" GroupByProduct="false">
+				<groupType>3</groupType>
+			</pmQueryGroupConditon>
+			<keyWordElement select="false" />
+		</object>
+		<time>
+			<timeAutoRun>0</timeAutoRun>
+			<TimeGroupByType select="0" />
+			<granularity>1440</granularity>
+			<period type="3">
+				<beginTime>2026/05/01 00:00:00 GMT</beginTime>
+				<endTime>2026/06/12 00:00:00 GMT</endTime>
+			</period>
+			<WeekCompareTimeIntervals />
+			<multiTimeZone timezoneType="0" clientTimeZoneID="GMT" />
+			<dateMaskType>0</dateMaskType>
+			<dateMask>1111111</dateMask>
+			<timeMask>00:00:00,24:00:00</timeMask>
+		</time>
+	</queryTemplate>
+	<queryTemplate templateVersion="2.0" id="178129831616276247" name="USSD_RATIO_TEMPLATE_OSS" creator="emma" isAutoRun="0" queryType="0" rightType="0">
+		<index>
+			<indexAutoRun>0</indexAutoRun>
+			<IsIntegra>false</IsIntegra>
+			<isShowCounterThreshold>false</isShowCounterThreshold>
+			<neTypeList>
+				<netype id="cn.wcn.cs.mscs" product="" />
+			</neTypeList>
+			<poid>40748</poid>
+			<moType>cn.wcn.cs.50016</moType>
+			<filterCondition method="-1">
+				<selectIndex id="900045" name="USSD SUCCESS RATIO" moc="cn.wcn.cs.50016" type="2" />
+			</filterCondition>
+			<filterConditionPoAttr />
+		</index>
+		<indexInfo>
+			<Index id="900045">
+				<NETYPEIDS>cn.wcn.cs.mscs</NETYPEIDS>
+				<QOSTYPEID>cn.wcn.cs.50016</QOSTYPEID>
+				<QOSINDEXID>900045</QOSINDEXID>
+				<QOSINDEXNAME>USSD SUCCESS RATIO</QOSINDEXNAME>
+				<QOSINDEXDES />
+				<INDEXTYPE>0</INDEXTYPE>
+				<QOSINDEXHTMLDES />
+				<DIVZERODEFAULTVALUE>0.0</DIVZERODEFAULTVALUE>
+				<QOSINDEXFRMLR>C407480009/C407480008*100</QOSINDEXFRMLR>
+				<SHOWTYPE>0</SHOWTYPE>
+				<SHOWDATATYPE>1</SHOWDATATYPE>
+				<DIRECTION>1</DIRECTION>
+				<ALARMCODE>1513</ALARMCODE>
+				<ALARMREASONCODE>1513</ALARMREASONCODE>
+				<VALIDMAX>0.0</VALIDMAX>
+				<VALIDMIN>0.0</VALIDMIN>
+				<ISVALIDMAX>0</ISVALIDMAX>
+				<ISVALIDMIN>0</ISVALIDMIN>
+				<ISINCLUDECRITICAL>true</ISINCLUDECRITICAL>
+				<ISINCLUDEMAJOR>true</ISINCLUDEMAJOR>
+				<ISINCLUDEMINOR>true</ISINCLUDEMINOR>
+				<ISINCLUDEWARNING>true</ISINCLUDEWARNING>
+				<DEFAULTCRITICALDELTA>1.0</DEFAULTCRITICALDELTA>
+				<DEFAULTMAJORDELTA>1.0</DEFAULTMAJORDELTA>
+				<DEFAULTMINORDELTA>1.0</DEFAULTMINORDELTA>
+				<DEFAULTWARNINGDELTA>1.0</DEFAULTWARNINGDELTA>
+				<DEFAULTWARNINGDOWNDELTA>1.0</DEFAULTWARNINGDOWNDELTA>
+				<DEFAULTMINORDOWNDELTA>1.0</DEFAULTMINORDOWNDELTA>
+				<DEFAULTMAJORDOWNDELTA>1.0</DEFAULTMAJORDOWNDELTA>
+				<DEFAULTCRITICALDOWNDELTA>1.0</DEFAULTCRITICALDOWNDELTA>
+				<DEFAULTCRITICALMAX>0.0</DEFAULTCRITICALMAX>
+				<DEFAULTMAJORMAX>0.0</DEFAULTMAJORMAX>
+				<DEFAULTMINORMAX>0.0</DEFAULTMINORMAX>
+				<DEFAULTWARNINGMAX>0.0</DEFAULTWARNINGMAX>
+				<ISINCLUDEDOWNCRITICAL>true</ISINCLUDEDOWNCRITICAL>
+				<ISINCLUDEDOWNMAJOR>true</ISINCLUDEDOWNMAJOR>
+				<ISINCLUDEDOWNMINOR>true</ISINCLUDEDOWNMINOR>
+				<ISINCLUDEDOWNWARNING>true</ISINCLUDEDOWNWARNING>
+				<DEFAULTWARNINGMIN>45.0</DEFAULTWARNINGMIN>
+				<DEFAULTMINORMIN>40.0</DEFAULTMINORMIN>
+				<DEFAULTMAJORMIN>35.0</DEFAULTMAJORMIN>
+				<DEFAULTCRITICALMIN>30.0</DEFAULTCRITICALMIN>
+				<ISFROMSP>0</ISFROMSP>
+				<RESERVATIONA />
+				<RESERVATIONB />
+				<RESERVATIONC />
+				<FORMAT></FORMAT>
+				<ISUSERDEFINED>1</ISUSERDEFINED>
+				<PROPETYMAP>
+					<VALUE KEY="MODIFYTIME">1692112295597</VALUE>
+				</PROPETYMAP>
+			</Index>
+		</indexInfo>
+		<renders />
+		<object>
+			<objectAutoRun>0</objectAutoRun>
+			<isGroup>false</isGroup>
+			<isGroupStat>false</isGroupStat>
+			<isGroupByPlmn>false</isGroupByPlmn>
+			<filterLevel>
+				<mocTypeId>==filterType_ne==</mocTypeId>
+				<mocTypeName />
+				<levelType>2</levelType>
+			</filterLevel>
+			<nodeList>
+				<neNode dn="cn.wcn:OMMOID=gzmulyxb-2:elementid=11" />
+			</nodeList>
+			<pmQueryGroupConditon GroupContainVirtualCell="true" GroupByProduct="false">
+				<groupType>3</groupType>
+			</pmQueryGroupConditon>
+			<keyWordElement select="false" />
+		</object>
+		<time>
+			<timeAutoRun>0</timeAutoRun>
+			<TimeGroupByType select="0" />
+			<granularity>1440</granularity>
+			<period type="3">
+				<beginTime>2026/05/01 00:00:00 GMT</beginTime>
+				<endTime>2026/06/12 00:00:00 GMT</endTime>
+			</period>
+			<WeekCompareTimeIntervals />
+			<multiTimeZone timezoneType="0" clientTimeZoneID="GMT" />
+			<dateMaskType>0</dateMaskType>
+			<dateMask>1111111</dateMask>
+			<timeMask>00:00:00,24:00:00</timeMask>
+		</time>
+	</queryTemplate>
+	<queryTemplate templateVersion="2.0" id="178129859280090923" name="VOICE_TRAFFIC_TEMPLATE_OSS" creator="emma" isAutoRun="0" queryType="0" rightType="0">
+		<index>
+			<indexAutoRun>0</indexAutoRun>
+			<IsIntegra>false</IsIntegra>
+			<isShowCounterThreshold>false</isShowCounterThreshold>
+			<neTypeList>
+				<netype id="cn.wcn.cs.mscs" product="" />
+			</neTypeList>
+			<poid>40716</poid>
+			<moType>cn.wcn.cs.50113</moType>
+			<filterCondition method="-1">
+				<selectIndex id="cn.wcn.cs.501130016" name="Seized Traffic(Erl)" moc="cn.wcn.cs.50113" type="2" />
+			</filterCondition>
+			<filterConditionPoAttr />
+		</index>
+		<indexInfo>
+			<Index id="cn.wcn.cs.501130016">
+				<NETYPEIDS>cn.wcn.cs.mscs</NETYPEIDS>
+				<QOSTYPEID>cn.wcn.cs.50113</QOSTYPEID>
+				<QOSINDEXID>cn.wcn.cs.501130016</QOSINDEXID>
+				<QOSINDEXNAME>Seized Traffic(Erl)</QOSINDEXNAME>
+				<QOSINDEXDES />
+				<INDEXTYPE>0</INDEXTYPE>
+				<QOSINDEXHTMLDES />
+				<DIVZERODEFAULTVALUE>0.0</DIVZERODEFAULTVALUE>
+				<QOSINDEXFRMLR>C407160012/Gr</QOSINDEXFRMLR>
+				<SHOWTYPE>0</SHOWTYPE>
+				<SHOWDATATYPE>2</SHOWDATATYPE>
+				<DIRECTION>0</DIRECTION>
+				<ALARMCODE>0</ALARMCODE>
+				<ALARMREASONCODE>0</ALARMREASONCODE>
+				<VALIDMAX>1.8446744073709552E19</VALIDMAX>
+				<VALIDMIN>0.0</VALIDMIN>
+				<ISVALIDMAX>1</ISVALIDMAX>
+				<ISVALIDMIN>1</ISVALIDMIN>
+				<ISINCLUDECRITICAL>false</ISINCLUDECRITICAL>
+				<ISINCLUDEMAJOR>false</ISINCLUDEMAJOR>
+				<ISINCLUDEMINOR>false</ISINCLUDEMINOR>
+				<ISINCLUDEWARNING>false</ISINCLUDEWARNING>
+				<DEFAULTCRITICALDELTA>0.0</DEFAULTCRITICALDELTA>
+				<DEFAULTMAJORDELTA>0.0</DEFAULTMAJORDELTA>
+				<DEFAULTMINORDELTA>0.0</DEFAULTMINORDELTA>
+				<DEFAULTWARNINGDELTA>0.0</DEFAULTWARNINGDELTA>
+				<DEFAULTWARNINGDOWNDELTA>0.0</DEFAULTWARNINGDOWNDELTA>
+				<DEFAULTMINORDOWNDELTA>0.0</DEFAULTMINORDOWNDELTA>
+				<DEFAULTMAJORDOWNDELTA>0.0</DEFAULTMAJORDOWNDELTA>
+				<DEFAULTCRITICALDOWNDELTA>0.0</DEFAULTCRITICALDOWNDELTA>
+				<DEFAULTCRITICALMAX>0.0</DEFAULTCRITICALMAX>
+				<DEFAULTMAJORMAX>0.0</DEFAULTMAJORMAX>
+				<DEFAULTMINORMAX>0.0</DEFAULTMINORMAX>
+				<DEFAULTWARNINGMAX>0.0</DEFAULTWARNINGMAX>
+				<ISINCLUDEDOWNCRITICAL>false</ISINCLUDEDOWNCRITICAL>
+				<ISINCLUDEDOWNMAJOR>false</ISINCLUDEDOWNMAJOR>
+				<ISINCLUDEDOWNMINOR>false</ISINCLUDEDOWNMINOR>
+				<ISINCLUDEDOWNWARNING>false</ISINCLUDEDOWNWARNING>
+				<DEFAULTWARNINGMIN>0.0</DEFAULTWARNINGMIN>
+				<DEFAULTMINORMIN>0.0</DEFAULTMINORMIN>
+				<DEFAULTMAJORMIN>0.0</DEFAULTMAJORMIN>
+				<DEFAULTCRITICALMIN>0.0</DEFAULTCRITICALMIN>
+				<ISFROMSP>0</ISFROMSP>
+				<RESERVATIONA />
+				<RESERVATIONB />
+				<RESERVATIONC />
+				<FORMAT></FORMAT>
+				<ISUSERDEFINED>0</ISUSERDEFINED>
+			</Index>
+		</indexInfo>
+		<renders />
+		<object>
+			<objectAutoRun>0</objectAutoRun>
+			<isGroup>false</isGroup>
+			<isGroupStat>false</isGroupStat>
+			<isGroupByPlmn>false</isGroupByPlmn>
+			<filterLevel>
+				<mocTypeId>==filterType_ne==</mocTypeId>
+				<mocTypeName />
+				<levelType>2</levelType>
+			</filterLevel>
+			<nodeList>
+				<neNode dn="cn.wcn:OMMOID=gzmulyxb-2:elementid=11" />
+			</nodeList>
+			<pmQueryGroupConditon GroupContainVirtualCell="true" GroupByProduct="false">
+				<groupType>3</groupType>
+			</pmQueryGroupConditon>
+			<keyWordElement select="false" />
+		</object>
+		<time>
+			<timeAutoRun>0</timeAutoRun>
+			<TimeGroupByType select="0" />
+			<granularity>1440</granularity>
+			<period type="3">
+				<beginTime>2026/05/01 00:00:00 GMT</beginTime>
+				<endTime>2026/06/30 00:00:00 GMT</endTime>
+			</period>
+			<WeekCompareTimeIntervals />
+			<multiTimeZone timezoneType="0" clientTimeZoneID="GMT" />
+			<dateMaskType>0</dateMaskType>
+			<dateMask>1111111</dateMask>
+			<timeMask>00:00:00,24:00:00</timeMask>
+		</time>
+	</queryTemplate>
+	<queryTemplate templateVersion="2.0" id="178129942025503826" name="LOCATION_UPDATE_TEMPLATE_OSS" creator="emma" isAutoRun="0" queryType="0" rightType="0">
+		<index>
+			<indexAutoRun>0</indexAutoRun>
+			<IsIntegra>false</IsIntegra>
+			<isShowCounterThreshold>false</isShowCounterThreshold>
+			<neTypeList>
+				<netype id="cn.hlr.uspp" product="" />
+			</neTypeList>
+			<poid>40408</poid>
+			<moType>cn.uspp.40408</moType>
+			<filterCondition method="-1">
+				<selectIndex id="cn.uspp.404080005" name="Successful ratio of location update(%)" moc="cn.uspp.40408" type="2" />
+			</filterCondition>
+			<filterConditionPoAttr />
+		</index>
+		<indexInfo>
+			<Index id="cn.uspp.404080005">
+				<NETYPEIDS>cn.hlr.uspp</NETYPEIDS>
+				<QOSTYPEID>cn.uspp.40408</QOSTYPEID>
+				<QOSINDEXID>cn.uspp.404080005</QOSINDEXID>
+				<QOSINDEXNAME>Successful ratio of location update(%)</QOSINDEXNAME>
+				<QOSINDEXDES />
+				<INDEXTYPE>0</INDEXTYPE>
+				<QOSINDEXHTMLDES />
+				<DIVZERODEFAULTVALUE>100.0</DIVZERODEFAULTVALUE>
+				<QOSINDEXFRMLR>C404080015*100/C404080014</QOSINDEXFRMLR>
+				<SHOWTYPE>0</SHOWTYPE>
+				<SHOWDATATYPE>2</SHOWDATATYPE>
+				<DIRECTION>0</DIRECTION>
+				<ALARMCODE>0</ALARMCODE>
+				<ALARMREASONCODE>0</ALARMREASONCODE>
+				<VALIDMAX>100.0</VALIDMAX>
+				<VALIDMIN>0.0</VALIDMIN>
+				<ISVALIDMAX>1</ISVALIDMAX>
+				<ISVALIDMIN>1</ISVALIDMIN>
+				<ISINCLUDECRITICAL>false</ISINCLUDECRITICAL>
+				<ISINCLUDEMAJOR>false</ISINCLUDEMAJOR>
+				<ISINCLUDEMINOR>false</ISINCLUDEMINOR>
+				<ISINCLUDEWARNING>false</ISINCLUDEWARNING>
+				<DEFAULTCRITICALDELTA>0.0</DEFAULTCRITICALDELTA>
+				<DEFAULTMAJORDELTA>0.0</DEFAULTMAJORDELTA>
+				<DEFAULTMINORDELTA>0.0</DEFAULTMINORDELTA>
+				<DEFAULTWARNINGDELTA>0.0</DEFAULTWARNINGDELTA>
+				<DEFAULTWARNINGDOWNDELTA>0.0</DEFAULTWARNINGDOWNDELTA>
+				<DEFAULTMINORDOWNDELTA>0.0</DEFAULTMINORDOWNDELTA>
+				<DEFAULTMAJORDOWNDELTA>0.0</DEFAULTMAJORDOWNDELTA>
+				<DEFAULTCRITICALDOWNDELTA>0.0</DEFAULTCRITICALDOWNDELTA>
+				<DEFAULTCRITICALMAX>0.0</DEFAULTCRITICALMAX>
+				<DEFAULTMAJORMAX>0.0</DEFAULTMAJORMAX>
+				<DEFAULTMINORMAX>0.0</DEFAULTMINORMAX>
+				<DEFAULTWARNINGMAX>0.0</DEFAULTWARNINGMAX>
+				<ISINCLUDEDOWNCRITICAL>false</ISINCLUDEDOWNCRITICAL>
+				<ISINCLUDEDOWNMAJOR>false</ISINCLUDEDOWNMAJOR>
+				<ISINCLUDEDOWNMINOR>false</ISINCLUDEDOWNMINOR>
+				<ISINCLUDEDOWNWARNING>false</ISINCLUDEDOWNWARNING>
+				<DEFAULTWARNINGMIN>0.0</DEFAULTWARNINGMIN>
+				<DEFAULTMINORMIN>0.0</DEFAULTMINORMIN>
+				<DEFAULTMAJORMIN>0.0</DEFAULTMAJORMIN>
+				<DEFAULTCRITICALMIN>0.0</DEFAULTCRITICALMIN>
+				<ISFROMSP>0</ISFROMSP>
+				<RESERVATIONA />
+				<RESERVATIONB />
+				<RESERVATIONC />
+				<FORMAT></FORMAT>
+				<ISUSERDEFINED>0</ISUSERDEFINED>
+			</Index>
+		</indexInfo>
+		<renders />
+		<object>
+			<objectAutoRun>0</objectAutoRun>
+			<isGroup>false</isGroup>
+			<isGroupStat>false</isGroupStat>
+			<isGroupByPlmn>false</isGroupByPlmn>
+			<filterLevel>
+				<mocTypeId>==filterType_ne==</mocTypeId>
+				<mocTypeName />
+				<levelType>2</levelType>
+			</filterLevel>
+			<nodeList>
+				<neNode dn="cn.wcn:OMMOID=kqrucixr-d:elementid=41" />
+			</nodeList>
+			<pmQueryGroupConditon GroupContainVirtualCell="true" GroupByProduct="false">
+				<groupType>3</groupType>
+			</pmQueryGroupConditon>
+			<keyWordElement select="false" />
+		</object>
+		<time>
+			<timeAutoRun>0</timeAutoRun>
+			<TimeGroupByType select="0" />
+			<granularity>1440</granularity>
+			<period type="3">
+				<beginTime>2026/05/01 00:00:00 GMT</beginTime>
+				<endTime>2026/07/01 00:00:00 GMT</endTime>
+			</period>
+			<WeekCompareTimeIntervals />
+			<multiTimeZone timezoneType="0" clientTimeZoneID="GMT" />
+			<dateMaskType>1</dateMaskType>
+			<dateMask>1111111111111111111111111111111</dateMask>
+			<timeMask>00:00:00,24:00:00</timeMask>
+		</time>
+	</queryTemplate>
+	<queryTemplate templateVersion="2.0" id="178129959321653038" name="LICENSE_OCCUPANCY_TEMPLATE_OSS" creator="emma" isAutoRun="0" queryType="0" rightType="0">
+		<index>
+			<indexAutoRun>0</indexAutoRun>
+			<IsIntegra>false</IsIntegra>
+			<isShowCounterThreshold>false</isShowCounterThreshold>
+			<neTypeList>
+				<netype id="cn.hlr.uspp" product="" />
+			</neTypeList>
+			<poid>40971</poid>
+			<moType>cn.uspp.40971</moType>
+			<filterCondition method="-1">
+				<selectIndex id="cn.uspp.409711129" name="License Occupancy Rates(%)" moc="cn.uspp.40971" type="2" />
+			</filterCondition>
+			<filterConditionPoAttr />
+		</index>
+		<indexInfo>
+			<Index id="cn.uspp.409711129">
+				<NETYPEIDS>cn.hlr.uspp</NETYPEIDS>
+				<QOSTYPEID>cn.uspp.40971</QOSTYPEID>
+				<QOSINDEXID>cn.uspp.409711129</QOSINDEXID>
+				<QOSINDEXNAME>License Occupancy Rates(%)</QOSINDEXNAME>
+				<QOSINDEXDES />
+				<INDEXTYPE>0</INDEXTYPE>
+				<QOSINDEXHTMLDES />
+				<DIVZERODEFAULTVALUE>0.0</DIVZERODEFAULTVALUE>
+				<QOSINDEXFRMLR>C409710006*100/C409710007</QOSINDEXFRMLR>
+				<SHOWTYPE>0</SHOWTYPE>
+				<SHOWDATATYPE>2</SHOWDATATYPE>
+				<DIRECTION>0</DIRECTION>
+				<ALARMCODE>0</ALARMCODE>
+				<ALARMREASONCODE>0</ALARMREASONCODE>
+				<VALIDMAX>100.0</VALIDMAX>
+				<VALIDMIN>0.0</VALIDMIN>
+				<ISVALIDMAX>1</ISVALIDMAX>
+				<ISVALIDMIN>1</ISVALIDMIN>
+				<ISINCLUDECRITICAL>false</ISINCLUDECRITICAL>
+				<ISINCLUDEMAJOR>false</ISINCLUDEMAJOR>
+				<ISINCLUDEMINOR>false</ISINCLUDEMINOR>
+				<ISINCLUDEWARNING>false</ISINCLUDEWARNING>
+				<DEFAULTCRITICALDELTA>0.0</DEFAULTCRITICALDELTA>
+				<DEFAULTMAJORDELTA>0.0</DEFAULTMAJORDELTA>
+				<DEFAULTMINORDELTA>0.0</DEFAULTMINORDELTA>
+				<DEFAULTWARNINGDELTA>0.0</DEFAULTWARNINGDELTA>
+				<DEFAULTWARNINGDOWNDELTA>0.0</DEFAULTWARNINGDOWNDELTA>
+				<DEFAULTMINORDOWNDELTA>0.0</DEFAULTMINORDOWNDELTA>
+				<DEFAULTMAJORDOWNDELTA>0.0</DEFAULTMAJORDOWNDELTA>
+				<DEFAULTCRITICALDOWNDELTA>0.0</DEFAULTCRITICALDOWNDELTA>
+				<DEFAULTCRITICALMAX>0.0</DEFAULTCRITICALMAX>
+				<DEFAULTMAJORMAX>0.0</DEFAULTMAJORMAX>
+				<DEFAULTMINORMAX>0.0</DEFAULTMINORMAX>
+				<DEFAULTWARNINGMAX>0.0</DEFAULTWARNINGMAX>
+				<ISINCLUDEDOWNCRITICAL>false</ISINCLUDEDOWNCRITICAL>
+				<ISINCLUDEDOWNMAJOR>false</ISINCLUDEDOWNMAJOR>
+				<ISINCLUDEDOWNMINOR>false</ISINCLUDEDOWNMINOR>
+				<ISINCLUDEDOWNWARNING>false</ISINCLUDEDOWNWARNING>
+				<DEFAULTWARNINGMIN>0.0</DEFAULTWARNINGMIN>
+				<DEFAULTMINORMIN>0.0</DEFAULTMINORMIN>
+				<DEFAULTMAJORMIN>0.0</DEFAULTMAJORMIN>
+				<DEFAULTCRITICALMIN>0.0</DEFAULTCRITICALMIN>
+				<ISFROMSP>0</ISFROMSP>
+				<RESERVATIONA />
+				<RESERVATIONB />
+				<RESERVATIONC />
+				<FORMAT></FORMAT>
+				<ISUSERDEFINED>0</ISUSERDEFINED>
+			</Index>
+		</indexInfo>
+		<renders />
+		<object>
+			<objectAutoRun>0</objectAutoRun>
+			<isGroup>false</isGroup>
+			<isGroupStat>false</isGroupStat>
+			<isGroupByPlmn>false</isGroupByPlmn>
+			<filterLevel>
+				<mocTypeId>==filterType_ne==</mocTypeId>
+				<mocTypeName />
+				<levelType>2</levelType>
+			</filterLevel>
+			<nodeList>
+				<neNode dn="cn.wcn:OMMOID=kqrucixr-d:elementid=41" />
+			</nodeList>
+			<pmQueryGroupConditon GroupContainVirtualCell="true" GroupByProduct="false">
+				<groupType>3</groupType>
+			</pmQueryGroupConditon>
+			<keyWordElement select="false" />
+		</object>
+		<time>
+			<timeAutoRun>0</timeAutoRun>
+			<TimeGroupByType select="0" />
+			<granularity>1440</granularity>
+			<period type="3">
+				<beginTime>2026/05/01 00:00:00 GMT</beginTime>
+				<endTime>2026/07/01 00:00:00 GMT</endTime>
+			</period>
+			<WeekCompareTimeIntervals />
+			<multiTimeZone timezoneType="0" clientTimeZoneID="GMT" />
+			<dateMaskType>1</dateMaskType>
+			<dateMask>1111111111111111111111111111111</dateMask>
+			<timeMask>00:00:00,24:00:00</timeMask>
+		</time>
+	</queryTemplate>
+	<queryTemplate templateVersion="2.0" id="178130009701935539" name="TDD_DATA_TRAFFIC_TEMPLATE_OSS" creator="emma" isAutoRun="0" queryType="0" rightType="0">
+		<index>
+			<indexAutoRun>0</indexAutoRun>
+			<IsIntegra>false</IsIntegra>
+			<isShowCounterThreshold>false</isShowCounterThreshold>
+			<neTypeList>
+				<netype id="cn.ps.xgw" product="" />
+			</neTypeList>
+			<poid>04868</poid>
+			<moType>cn.xgw.4868</moType>
+			<filterCondition method="-1">
+				<selectIndex id="cn.xgw.48680010" name="Byte of downlink data packets received via SGi interface per APN(Byte)" moc="cn.xgw.4868" type="2" />
+			</filterCondition>
+			<filterConditionPoAttr />
+		</index>
+		<indexInfo>
+			<Index id="cn.xgw.48680010">
+				<NETYPEIDS>cn.ps.xgw</NETYPEIDS>
+				<QOSTYPEID>cn.xgw.4868</QOSTYPEID>
+				<QOSINDEXID>cn.xgw.48680010</QOSINDEXID>
+				<QOSINDEXNAME>Byte of downlink data packets received via SGi interface per APN(Byte)</QOSINDEXNAME>
+				<QOSINDEXDES />
+				<INDEXTYPE>0</INDEXTYPE>
+				<QOSINDEXHTMLDES />
+				<DIVZERODEFAULTVALUE>0.0</DIVZERODEFAULTVALUE>
+				<QOSINDEXFRMLR>C048680018</QOSINDEXFRMLR>
+				<SHOWTYPE>0</SHOWTYPE>
+				<SHOWDATATYPE>1</SHOWDATATYPE>
+				<DIRECTION>0</DIRECTION>
+				<ALARMCODE>0</ALARMCODE>
+				<ALARMREASONCODE>0</ALARMREASONCODE>
+				<VALIDMAX>9999999.99</VALIDMAX>
+				<VALIDMIN>0.0</VALIDMIN>
+				<ISVALIDMAX>0</ISVALIDMAX>
+				<ISVALIDMIN>1</ISVALIDMIN>
+				<ISINCLUDECRITICAL>false</ISINCLUDECRITICAL>
+				<ISINCLUDEMAJOR>false</ISINCLUDEMAJOR>
+				<ISINCLUDEMINOR>false</ISINCLUDEMINOR>
+				<ISINCLUDEWARNING>false</ISINCLUDEWARNING>
+				<DEFAULTCRITICALDELTA>0.0</DEFAULTCRITICALDELTA>
+				<DEFAULTMAJORDELTA>0.0</DEFAULTMAJORDELTA>
+				<DEFAULTMINORDELTA>0.0</DEFAULTMINORDELTA>
+				<DEFAULTWARNINGDELTA>0.0</DEFAULTWARNINGDELTA>
+				<DEFAULTWARNINGDOWNDELTA>0.0</DEFAULTWARNINGDOWNDELTA>
+				<DEFAULTMINORDOWNDELTA>0.0</DEFAULTMINORDOWNDELTA>
+				<DEFAULTMAJORDOWNDELTA>0.0</DEFAULTMAJORDOWNDELTA>
+				<DEFAULTCRITICALDOWNDELTA>0.0</DEFAULTCRITICALDOWNDELTA>
+				<DEFAULTCRITICALMAX>0.0</DEFAULTCRITICALMAX>
+				<DEFAULTMAJORMAX>0.0</DEFAULTMAJORMAX>
+				<DEFAULTMINORMAX>0.0</DEFAULTMINORMAX>
+				<DEFAULTWARNINGMAX>0.0</DEFAULTWARNINGMAX>
+				<ISINCLUDEDOWNCRITICAL>false</ISINCLUDEDOWNCRITICAL>
+				<ISINCLUDEDOWNMAJOR>false</ISINCLUDEDOWNMAJOR>
+				<ISINCLUDEDOWNMINOR>false</ISINCLUDEDOWNMINOR>
+				<ISINCLUDEDOWNWARNING>false</ISINCLUDEDOWNWARNING>
+				<DEFAULTWARNINGMIN>0.0</DEFAULTWARNINGMIN>
+				<DEFAULTMINORMIN>0.0</DEFAULTMINORMIN>
+				<DEFAULTMAJORMIN>0.0</DEFAULTMAJORMIN>
+				<DEFAULTCRITICALMIN>0.0</DEFAULTCRITICALMIN>
+				<ISFROMSP>0</ISFROMSP>
+				<RESERVATIONA />
+				<RESERVATIONB />
+				<RESERVATIONC />
+				<FORMAT></FORMAT>
+				<ISUSERDEFINED>0</ISUSERDEFINED>
+			</Index>
+		</indexInfo>
+		<renders />
+		<object>
+			<objectAutoRun>0</objectAutoRun>
+			<isGroup>false</isGroup>
+			<isGroupStat>false</isGroupStat>
+			<isGroupByPlmn>false</isGroupByPlmn>
+			<filterLevel>
+				<mocTypeId>cn.xgw.4868</mocTypeId>
+				<mocTypeName />
+				<levelType>4</levelType>
+			</filterLevel>
+			<nodeList>
+				<neNode dn="cn.xgw.ne=a90ba3e5-8722-4437-995a-4f94f205296b">
+					<moNode dn="cn.xgw.ne=a90ba3e5-8722-4437-995a-4f94f205296b,motype=cn.xgw.4868:moid=30" />
+				</neNode>
+			</nodeList>
+			<pmQueryGroupConditon GroupContainVirtualCell="true" GroupByProduct="false">
+				<groupType>0</groupType>
+			</pmQueryGroupConditon>
+			<keyWordElement select="false" />
+		</object>
+		<time>
+			<timeAutoRun>0</timeAutoRun>
+			<TimeGroupByType select="0" />
+			<granularity>1440</granularity>
+			<period type="3">
+				<beginTime>2026/05/01 00:00:00 GMT</beginTime>
+				<endTime>2026/06/14 00:00:00 GMT</endTime>
+			</period>
+			<WeekCompareTimeIntervals>
+				<TimeInterval beginTime="2023/07/09 00:00:00 GMT" endTime="2023/07/16 00:00:00 GMT" />
+			</WeekCompareTimeIntervals>
+			<multiTimeZone timezoneType="0" clientTimeZoneID="GMT" />
+			<dateMaskType>0</dateMaskType>
+			<dateMask>1111111</dateMask>
+			<timeMask>00:00:00,24:00:00</timeMask>
+		</time>
+	</queryTemplate>
+	<queryTemplate templateVersion="2.0" id="178130030321209010" name="DATA_SUBSCRIBERS_TEMPLATE_OSS" creator="emma" isAutoRun="0" queryType="0" rightType="0">
+		<index>
+			<indexAutoRun>0</indexAutoRun>
+			<IsIntegra>false</IsIntegra>
+			<isShowCounterThreshold>false</isShowCounterThreshold>
+			<neTypeList>
+				<netype id="cn.umac.combommegngpsgsn" product="" />
+			</neTypeList>
+			<poid>40508</poid>
+			<poid>43100</poid>
+			<moType>cn.combommegngpsgsn.50300</moType>
+			<moTypeList>cn.combommegngpsgsn.50300</moTypeList>
+			<moTypeList>cn.combommegngpsgsn.50900</moTypeList>
+			<filterCondition method="-1">
+				<selectIndex id="C405080015" name="Mean number of attached subscribers(UMTS)" moc="cn.combommegngpsgsn.50300" type="1" />
+				<selectIndex id="C405080016" name="Mean number of attached subscribers(GSM)" moc="cn.combommegngpsgsn.50300" type="1" />
+				<selectIndex id="C431000001" name="Mean Number of EPS Attach subscribers" moc="cn.combommegngpsgsn.50900" type="1" />
+			</filterCondition>
+			<filterConditionPoAttr />
+		</index>
+		<indexInfo />
+		<renders />
+		<object>
+			<objectAutoRun>0</objectAutoRun>
+			<isGroup>false</isGroup>
+			<isGroupStat>false</isGroupStat>
+			<extLocation>
+				<locationType>5</locationType>
+				<locationList />
+				<filterTypeId>==filterType_all==</filterTypeId>
+				<filterType>0</filterType>
+			</extLocation>
+			<pmQueryGroupConditon GroupContainVirtualCell="true" GroupByProduct="false">
+				<groupType>3</groupType>
+			</pmQueryGroupConditon>
+			<keyWordElement select="false" />
+		</object>
+		<time>
+			<timeAutoRun>0</timeAutoRun>
+			<TimeGroupByType select="0" />
+			<granularity>1440</granularity>
+			<period type="3">
+				<beginTime>2026/05/01 00:00:00 GMT</beginTime>
+				<endTime>2026/07/01 00:00:00 GMT</endTime>
+			</period>
+			<WeekCompareTimeIntervals />
+			<multiTimeZone timezoneType="0" clientTimeZoneID="GMT" />
+			<dateMaskType>1</dateMaskType>
+			<dateMask>1111111111111111111111111111111</dateMask>
+			<timeMask>00:00:00,24:00:00</timeMask>
+		</time>
+	</queryTemplate>
+</queryTemplate>
+

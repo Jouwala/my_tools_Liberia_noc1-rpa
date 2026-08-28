@@ -1,0 +1,131 @@
+{
+  "host": "10.100.28.27",
+  "port": 28001,
+  "days_back": 14,
+  "query_configs": [
+    {
+      "tech": "2G",
+      "templatename": "2G OLIB Network KPIs",
+      "templateid": "1638004472347",
+      "motid": "gsmPm.cell",
+      "nfctid": "MRNC",
+      "containvcell": 0,
+      "indexfillingtype": "zeroDenominator",
+      "items": "306024,306002,306006,306003,306008,1675910745777,306004"
+    },
+    {
+      "tech": "3G",
+      "templatename": "3G OLIB Network KPIs",
+      "templateid": "1638004472348",
+      "motid": "wPm.UtranCell,wPm.LogicCell",
+      "nfctid": "MRNC",
+      "containvcell": 1,
+      "indexfillingtype": "default",
+      "items": "300857,901593214,901597214,901598214,300020,300043,300249,901604214,901605214,300532,901410214,901411214,300476"
+    },
+    {
+      "tech": "FDD",
+      "templatename": "FDD OLIB Network KPIs",
+      "templateid": "1638004472345",
+      "motid": "EUtranCellFDD",
+      "businessmotid": "EUtranCellFDD,FDDV3.EUtranCellFDD",
+      "nfctid": "ITBBU,SDR,#",
+      "containvcell": 0,
+      "indexfillingtype": "default",
+      "items": "1638004469333,1638004469340,1638004469330,1638004469331,1638004469342,1638004469343,1638004469344,1638004469345,C373200029,1638004469332,1638004469785",
+      "itemsposition": "0,0,0,0,0,0,0,0,0,0,0",
+      "itemsposition1": "2,2,2,2,2,2,2,2,1,2,2",
+      "itempositionbusiness": "0,0,0,0,0,0,0,0,1,0,0"
+    },
+    {
+      "tech": "TDD",
+      "templatename": "TDD OLIB Network KPIs",
+      "templateid": "1638004472346",
+      "motid": "EUtranCellTDD",
+      "businessmotid": "EUtranCellTDD,TDDV3.EUtranCellTDD,CUEUtranCellTDDLTE",
+      "nfctid": "ITBBU,SDR,#",
+      "containvcell": 0,
+      "indexfillingtype": "default",
+      "items": "1638004469353,1638004469355,1638004469356,1638004469352,1638004469358,1638004469359,1638004469360,1638004469361,C373200029,341089,341088",
+      "itemsposition": "0,0,0,0,0,0,0,0,0,0,0",
+      "itemsposition1": "2,2,2,2,2,2,2,2,1,0,0",
+      "itempositionbusiness": "0,0,0,0,0,0,0,0,1,2,2"
+    }
+  ],
+  "tasks": [
+    {
+      "tech": "2G",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Group"
+    },
+    {
+      "tech": "2G",
+      "gr": "86400",
+      "groupbygroup": false,
+      "layer": "NW"
+    },
+    {
+      "tech": "2G",
+      "gr": "86400",
+      "groupbygroup": false,
+      "layer": "NW_OLD"
+    },
+    {
+      "tech": "3G",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Group"
+    },
+    {
+      "tech": "3G",
+      "gr": "86400",
+      "groupbygroup": false,
+      "layer": "NW"
+    },
+    {
+      "tech": "3G",
+      "gr": "86400",
+      "groupbygroup": false,
+      "layer": "NW_OLD"
+    },
+    {
+      "tech": "FDD",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Group"
+    },
+    {
+      "tech": "FDD",
+      "gr": "86400",
+      "groupbygroup": false,
+      "layer": "NW"
+    },
+    {
+      "tech": "FDD",
+      "gr": "86400",
+      "groupbygroup": false,
+      "layer": "NW_OLD"
+    },
+    {
+      "tech": "TDD",
+      "gr": "86400",
+      "groupbygroup": true,
+      "layer": "Group"
+    },
+    {
+      "tech": "TDD",
+      "gr": "86400",
+      "groupbygroup": false,
+      "layer": "NW"
+    },
+    {
+      "tech": "TDD",
+      "gr": "86400",
+      "groupbygroup": false,
+      "layer": "NW_OLD"
+    }
+  ],
+  "locations": "129a8734-d9ae-47be-af3c-b65067076afa,e0e043f8-3982-44d4-956e-4e3d48e4064f,8f437c12-329e-4271-b6b0-e6ed589d62fb,84b3c1f0-0271-406a-9352-df986890f640,384666b0-a6f2-4fd9-9d62-ad78ee30e269,c1f9b830-37c9-408b-bd65-85798c408098,be624030-7288-4ef3-9a25-64995b4e0c55,4d2720da-d256-4c37-a853-6e2f91a845db,f649683c-3885-4a10-8a90-c3f7c3f635eb,2d3dbb66-e0b4-4b48-9e41-9282931fc7da,3bee4b0d-d4f6-4eda-8c04-d316601275eb,0552422a-6612-42d9-8de9-a83d0393c50f,faec4465-b7be-4820-add1-15d337b8265e,8d44493a-f337-4a5a-8d46-2d9c899ea7c7,4272f8e8-4624-4514-a580-dc031d8ffda6,c02ef87d-18a3-4960-8166-8a540f7fc751,2f897e12-cda6-43d2-9b84-3ea6ebf09ca7,a213130a-cdd9-45a5-9c3c-ff9e1a97cdfd,ba7fadd5-1cd3-4494-886b-601e48f973f6,a5916579-4f81-483c-a1e5-ef9117aea2cf,aeafb27d-a14f-4bca-92d9-6022ad427f27",
+  "old_locations": "ac09c60f-ede4-4726-9a95-70dfd7f56ab3,1212567e-8919-422e-a507-a1657d0ea66a,3aa01f9d-6107-4120-904f-18c10816182b,f02801db-a267-4c44-bfd6-09746d93849f,88e9e97f-27bb-43c2-8627-8f3a8b65bf19,5e384e6d-7a5d-4b6f-88f3-abc0dd4d625f,5ca35171-ccab-41b0-8348-5e1801d08873,bf4aa97e-54d4-4686-8fad-27481a1a8f3b,50489222-477d-4071-a7f6-1f76fcdaea63,cb19a368-a1fd-4950-be1a-007c1485c424,7017adf9-4ba6-4582-bb1c-251f2659dc5a,5f0d1249-70ef-41d4-9775-4bc714f4cac7,56b65e84-9a84-4441-bbd2-46d33cde02f5,6e5f401a-4a34-41b4-a29e-18936670f481,6cafdd69-1bbe-4181-85c4-888465394892,e7435e36-cdf1-4865-b8f7-98a8408a101c,3fab34d9-b7f0-40c3-afe1-058f5814fbed,8c9ae146-f4ae-4ef6-8adf-1205d47a6d42,88562cf4-fbcc-4d4f-8011-16974e755b08"
+}

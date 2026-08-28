@@ -1,0 +1,57 @@
+{
+  "days_back": 8,
+  "host": "10.100.28.27",
+  "port": 28001,
+  "urls": {
+    "history": "/api/pm-analysis/v2/history",
+    "poll": "/api/pm-analysis/v1/history",
+    "export": "/api/pm-analysis/v3/history/export"
+  },
+  "query_configs": [
+    {
+      "templatename": "Packet Loss Rate_SDR_IPPD",
+      "templateid": "1638004470045",
+      "motid": "sdrmgr.PlatIPPD",
+      "nfctid": "SDR",
+      "grouplayer": "me,sdrmgr.SrcIP,sdrmgr.DesIP",
+      "showbusinesscolumn": false,
+      "keep_columns": [
+        "Begin Time",
+        "End Time",
+        "Granularity",
+        "SubnetWork ID",
+        "SubnetWork Name",
+        "ManagedElement ID",
+        "Managed Element",
+        "Source IP ID",
+        "Destination IP ID",
+        "Packet Loss Rate(%)"
+      ],
+      "rename_columns": {
+        "Destination IP ID": "dstIp",
+        "Source IP ID": "srcIp"
+      }
+    },
+    {
+      "templatename": "Packet Loss Rate_ITRAN_IPPD",
+      "templateid": "1638004470043",
+      "motid": "IPPD",
+      "nfctid": "ITBBU",
+      "grouplayer": "me,TransportNetwork,IPPD",
+      "showbusinesscolumn": true,
+      "keep_columns": [
+        "Begin Time",
+        "End Time",
+        "Granularity",
+        "SubnetWork ID",
+        "SubnetWork Name",
+        "ManagedElement ID",
+        "Managed Element",
+        "dstIp",
+        "srcIp",
+        "Packet Loss Rate(%)"
+      ],
+      "rename_columns": {}
+    }
+  ]
+}

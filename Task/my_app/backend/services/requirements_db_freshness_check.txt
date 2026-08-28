@@ -1,0 +1,9 @@
+# db_freshness_check.py 运行依赖
+# 核心逻辑仅用 Python 标准库（urllib / sqlite3 / json / logging），Python >= 3.9（用 sys.stdout.reconfigure）
+#
+# 2026-08-12 新增"任务执行健康检查"后，需经 backend.database.get_raw_connection
+# 查询本机历史库（task_execution_log / task_queue / task_schedule_config）：
+#   - MY_APP_DB_MODE=pg（生产）：需要 psycopg2 与 python-dotenv（backend/database.py 依赖）
+#   - sqlite 模式（默认/开发）：仅标准库，无需额外安装
+psycopg2>=2.9
+python-dotenv>=1.0

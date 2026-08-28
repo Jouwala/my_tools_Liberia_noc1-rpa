@@ -1,0 +1,487 @@
+import { useState, useEffect, useCallback } from 'react'
+import { Card, Table, Button, Space, Select, Tag, Typography, message, Empty, Tabs, Row, Col, Statistic } from 'antd'
+import { ReloadOutlined, DownloadOutlined, FileExcelOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import api from '../api'
+import { useI18n, numLocale } from '../i18n'
+import { cardStyle, pageWrap } from '../theme'
+
+const { Text } = Typography
+
+// 后端 /api/email-reports/latest 的返回结构（只含文档类报告，无图片）
+interface ReportFile {
+  name: string
+  size: number
+  mtime: number
+}
+interface ReportSource {
+  source_id: string
+  task_id: string
+  task_name: string
+  label: string
+  dir: string
+  files: ReportFile[]
+}
+// 展平成表格行：一个文件一行
+interface Row {
+  key: string
+  task_name: string
+  task_id: string
+  label: string
+  dir: string
+  source_id: string
+  name: string
+  size: number
+  mtime: number
+}
+// 后端 /api/finebi-reports/latest 的返回结构（每个 FineBI 文件夹最新一份 Excel）
+interface FinebiRow {
+  key: string
+  folder: string
+  name: string
+  size: number
+  mtime: number
+}
+// 后端 /api/email-reports/eflow-check 返回结构
+interface EflowFile {
+  name: string
+  size: number
+  mtime: number
+}
+interface EflowBreakdownRow {
+  priority: number | null
+  rule_id: number | null
+  rule_name: string
+  severity: string
+  matched: number
+  changed: number
+}
+interface EflowSummary {
+  success: boolean
+  generated_at: string
+  limit: number
+  total: number
+  matched: number
+  unmatched?: number
+  changed: number
+  elapsed_seconds?: number
+  rule_breakdown?: EflowBreakdownRow[]
+  change_matrix?: { from: string; to: string; count: number }[]
+  rules_count?: number | null
+  rules_collected?: { success?: boolean; rules_file_exists?: boolean; error?: string; returncode?: number }
+  error?: string
+}
+
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${bytes} B`
+}
+
+export default function EmailReports() {
+  const { t, locale } = useI18n()
+  const [rows, setRows] = useState<Row[]>([])
+  const [loading, setLoading] = useState(false)
+  // 每个报告类型保留最近几份（默认 1 = 只要最新一份）
+  const [limit, setLimit] = useState(1)
+  const [finebiRows, setFinebiRows] = useState<FinebiRow[]>([])
+  const [finebiLoading, setFinebiLoading] = useState(false)
+  // eflow_check 页签：最新一次规则匹配检查摘要 + 可下载文件
+  const [eflowSummary, setEflowSummary] = useState<EflowSummary | null>(null)
+  const [eflowFiles, setEflowFiles] = useState<EflowFile[]>([])
+  const [eflowLoading, setEflowLoading] = useState(false)
+  const [eflowRunning, setEflowRunning] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await api.get('/email-reports/latest', { params: { limit } })
+      const reports: ReportSource[] = res.data?.reports || []
+      const flat: Row[] = []
+      reports.forEach(r => {
+        r.files.forEach(f => {
+          flat.push({
+            key: `${r.source_id}/${f.name}`,
+            task_name: r.task_name,
+            task_id: r.task_id,
+            label: r.label,
+            dir: r.dir,
+            source_id: r.source_id,
+            name: f.name,
+            size: f.size,
+            mtime: f.mtime,
+          })
+        })
+      })
+      // 最新的排最前
+      flat.sort((a, b) => b.mtime - a.mtime)
+      setRows(flat)
+    } catch (e) {
+      message.error(t('emailReports.loadFailed'))
+    } finally {
+      setLoading(false)
+    }
+  }, [limit, t])
+
+  const loadFinebi = useCallback(async () => {
+    setFinebiLoading(true)
+    try {
+      const res = await api.get('/finebi-reports/latest')
+      const reports = (res.data?.reports || []) as Omit<FinebiRow, 'key'>[]
+      setFinebiRows(reports.map(r => ({ ...r, key: r.folder })))
+    } catch (e) {
+      message.error(t('emailReports.finebiLoadFailed'))
+    } finally {
+      setFinebiLoading(false)
+    }
+  }, [t])
+
+  const loadEflowCheck = useCallback(async () => {
+    setEflowLoading(true)
+    try {
+      const res = await api.get('/email-reports/eflow_tt_rules_check')
+      setEflowSummary(res.data?.summary || null)
+      setEflowFiles(res.data?.files || [])
+    } catch (e) {
+      message.error(t('emailReports.eflowLoadFailed'))
+    } finally {
+      setEflowLoading(false)
+    }
+  }, [t])
+
+  const runEflowNow = useCallback(async () => {
+    setEflowRunning(true)
+    try {
+      await api.post('/tasks/eflow_tt_rules_check/run')
+      message.success(t('emailReports.eflowRunOk'))
+      // 任务在后台线程/队列执行，3 秒后刷新一次（再由用户手动刷新补全）
+      setTimeout(loadEflowCheck, 3000)
+    } catch (e) {
+      message.error(t('emailReports.eflowRunFail'))
+    } finally {
+      setEflowRunning(false)
+    }
+  }, [t, loadEflowCheck])
+
+  useEffect(() => { load() }, [load])
+  useEffect(() => { loadFinebi() }, [loadFinebi])
+  useEffect(() => { loadEflowCheck() }, [loadEflowCheck])
+
+  const downloadUrl = (row: Row) =>
+    `/api/email-reports/download/${row.source_id}/${encodeURIComponent(row.name)}`
+
+  const finebiDownloadUrl = (row: FinebiRow) =>
+    `/api/finebi-reports/download/${encodeURIComponent(row.folder)}/${encodeURIComponent(row.name)}`
+
+  const eflowDownloadUrl = (f: EflowFile) =>
+    `/api/email-reports/download/eflow_tt_rules_check/${encodeURIComponent(f.name)}`
+
+  const columns = [
+    {
+      title: t('emailReports.colTask'),
+      dataIndex: 'task_name',
+      key: 'task_name',
+      minWidth: 220,
+      render: (v: string, row: Row) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>{v}</Text>
+          <Text type="secondary" style={{ fontSize: '0.75rem' }}>{row.task_id}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: t('emailReports.colType'),
+      dataIndex: 'label',
+      key: 'label',
+      minWidth: 200,
+      render: (v: string) => <Tag color="cyan">{v}</Tag>,
+    },
+    {
+      title: t('emailReports.colFile'),
+      dataIndex: 'name',
+      key: 'name',
+      render: (v: string, row: Row) => (
+        <a href={downloadUrl(row)} download={row.name} title={row.dir}>
+          {v.toLowerCase().endsWith('.html')
+            ? <FileTextOutlined style={{ marginRight: '0.375rem' }} />
+            : <FileExcelOutlined style={{ marginRight: '0.375rem', color: '#1d6f42' }} />}
+          {v}
+        </a>
+      ),
+    },
+    {
+      title: t('emailReports.colSize'),
+      dataIndex: 'size',
+      key: 'size',
+      minWidth: 110,
+      align: 'right' as const,
+      render: (v: number) => formatSize(v),
+    },
+    {
+      title: t('emailReports.colTime'),
+      dataIndex: 'mtime',
+      key: 'mtime',
+      minWidth: 180,
+      render: (v: number) => new Date(v * 1000).toLocaleString(numLocale(locale)),
+    },
+    {
+      title: t('emailReports.colAction'),
+      key: 'action',
+      minWidth: 110,
+      render: (_: unknown, row: Row) => (
+        <Button size="small" icon={<DownloadOutlined />} href={downloadUrl(row)} download={row.name}>
+          {t('emailReports.download')}
+        </Button>
+      ),
+    },
+  ]
+
+  const finebiColumns = [
+    {
+      title: t('emailReports.finebiColFolder'),
+      dataIndex: 'folder',
+      key: 'folder',
+      minWidth: 280,
+      render: (v: string) => <Tag color="blue">{v}</Tag>,
+    },
+    {
+      title: t('emailReports.colFile'),
+      dataIndex: 'name',
+      key: 'name',
+      render: (v: string, row: FinebiRow) => (
+        <a href={finebiDownloadUrl(row)} download={row.name}>
+          <FileExcelOutlined style={{ marginRight: '0.375rem', color: '#1d6f42' }} />
+          {v}
+        </a>
+      ),
+    },
+    {
+      title: t('emailReports.colSize'),
+      dataIndex: 'size',
+      key: 'size',
+      minWidth: 110,
+      align: 'right' as const,
+      render: (v: number) => formatSize(v),
+    },
+    {
+      title: t('emailReports.colTime'),
+      dataIndex: 'mtime',
+      key: 'mtime',
+      minWidth: 180,
+      render: (v: number) => new Date(v * 1000).toLocaleString(numLocale(locale)),
+    },
+    {
+      title: t('emailReports.colAction'),
+      key: 'action',
+      minWidth: 110,
+      render: (_: unknown, row: FinebiRow) => (
+        <Button size="small" icon={<DownloadOutlined />} href={finebiDownloadUrl(row)} download={row.name}>
+          {t('emailReports.download')}
+        </Button>
+      ),
+    },
+  ]
+
+  const eflowColumns = [
+    {
+      title: t('emailReports.eflowColPri'),
+      dataIndex: 'priority',
+      key: 'priority',
+      width: 90,
+      render: (v: number | null) => (v == null ? '-' : v),
+    },
+    {
+      title: t('emailReports.eflowColRule'),
+      dataIndex: 'rule_name',
+      key: 'rule_name',
+      render: (v: string, row: EflowBreakdownRow) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>{v}</Text>
+          <Text type="secondary" style={{ fontSize: '0.75rem' }}>ID {row.rule_id ?? '-'}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: t('emailReports.eflowColSeverity'),
+      dataIndex: 'severity',
+      key: 'severity',
+      width: 110,
+      render: (v: string) => <Tag color="cyan">{v}</Tag>,
+    },
+    {
+      title: t('emailReports.eflowColMatched'),
+      dataIndex: 'matched',
+      key: 'matched',
+      width: 100,
+      align: 'right' as const,
+    },
+    {
+      title: t('emailReports.eflowColChanged'),
+      dataIndex: 'changed',
+      key: 'changed',
+      width: 110,
+      align: 'right' as const,
+      render: (v: number) => v
+        ? <Text type="danger" strong>{v}</Text>
+        : <Text type="secondary">0</Text>,
+    },
+  ]
+
+  return (
+    <div style={pageWrap}>
+      <Card style={cardStyle} title={t('emailReports.title')}>
+        <Tabs
+          defaultActiveKey="email"
+          items={[
+            {
+              key: 'email',
+              label: t('emailReports.tabEmail'),
+              children: (
+                <>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
+                    <Text type="secondary">{t('emailReports.hint')}</Text>
+                    <Space>
+                      <Select
+                        size="small"
+                        value={limit}
+                        onChange={v => setLimit(v)}
+                        style={{ width: 'min(100%, 9.375rem)' }}
+                        options={[1, 3, 5].map(n => ({ value: n, label: t('emailReports.keepN').replace('{n}', String(n)) }))}
+                      />
+                      <Button size="small" icon={<ReloadOutlined />} onClick={load} loading={loading}>
+                        {t('emailReports.refresh')}
+                      </Button>
+                    </Space>
+                  </div>
+                  <div className="wh-table-responsive">
+                    <Table
+                      size="small"
+                      rowKey="key"
+                      loading={loading}
+                      columns={columns as any}
+                      dataSource={rows}
+                      pagination={false}
+                      scroll={{ x: 'max-content' }}
+                      locale={{ emptyText: <Empty description={t('emailReports.empty')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                    />
+                  </div>
+                </>
+              ),
+            },
+            {
+              key: 'finebi',
+              label: t('emailReports.tabFinebi'),
+              children: (
+                <>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
+                    <Text type="secondary">{t('emailReports.finebiHint')}</Text>
+                    <Button size="small" icon={<ReloadOutlined />} onClick={loadFinebi} loading={finebiLoading}>
+                      {t('emailReports.refresh')}
+                    </Button>
+                  </div>
+                  <div className="wh-table-responsive">
+                    <Table
+                      size="small"
+                      rowKey="key"
+                      loading={finebiLoading}
+                      columns={finebiColumns as any}
+                      dataSource={finebiRows}
+                      pagination={false}
+                      scroll={{ x: 'max-content' }}
+                      locale={{ emptyText: <Empty description={t('emailReports.finebiEmpty')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                    />
+                  </div>
+                </>
+              ),
+            },
+            {
+              key: 'eflow_tt_rules_check',
+              label: t('emailReports.tabEflowCheck'),
+              children: (
+                <>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
+                    <Text type="secondary" style={{ maxWidth: '60rem' }}>{t('emailReports.eflowHint')}</Text>
+                    <Space>
+                      <Button size="small" icon={<ThunderboltOutlined />} onClick={runEflowNow} loading={eflowRunning}>
+                        {t('emailReports.eflowRunNow')}
+                      </Button>
+                      <Button size="small" icon={<ReloadOutlined />} onClick={loadEflowCheck} loading={eflowLoading}>
+                        {t('emailReports.refresh')}
+                      </Button>
+                    </Space>
+                  </div>
+                  {eflowSummary ? (
+                    <>
+                      {!eflowSummary.success ? (
+                        <div style={{ marginBottom: '0.75rem' }}>
+                          <Tag color="red">FAIL</Tag>
+                          <Text type="danger">{eflowSummary.error || 'unknown error'}</Text>
+                        </div>
+                      ) : (
+                        <Row gutter={[16, 16]} style={{ marginBottom: '0.75rem' }}>
+                          <Col xs={12} sm={6}><Statistic title={t('emailReports.eflowStatTotal')} value={eflowSummary.total} /></Col>
+                          <Col xs={12} sm={6}><Statistic title={t('emailReports.eflowStatMatched')} value={eflowSummary.matched} suffix={`/ ${eflowSummary.total}`} /></Col>
+                          <Col xs={12} sm={6}><Statistic title={t('emailReports.eflowStatChanged')} value={eflowSummary.changed} valueStyle={eflowSummary.changed ? { color: '#cf1322' } : undefined} /></Col>
+                          <Col xs={12} sm={6}><Statistic title={t('emailReports.eflowStatRunAt')} value={eflowSummary.generated_at} /></Col>
+                        </Row>
+                      )}
+                      {eflowSummary.rules_collected && (
+                        <div style={{ marginBottom: '0.75rem' }}>
+                          <Space wrap>
+                            <Text type="secondary">规则收集：</Text>
+                            {eflowSummary.rules_collected.success
+                              ? <Tag color="green">成功</Tag>
+                              : <Tag color="red">失败（降级用已有规则）</Tag>}
+                            <Text type="secondary">
+                              {eflowSummary.rules_count != null ? `${eflowSummary.rules_count} 条规则` : ''}
+                              {eflowSummary.rules_collected.rules_file_exists ? ' · eflow_TT_rules.xlsx 已就绪' : ' · 规则文件缺失'}
+                            </Text>
+                          </Space>
+                        </div>
+                      )}
+                      {eflowSummary.change_matrix && eflowSummary.change_matrix.length > 0 && (
+                        <div style={{ marginBottom: '0.75rem' }}>
+                          <Space wrap>
+                            <Text type="secondary">变更方向：</Text>
+                            {eflowSummary.change_matrix.map((c, i) => (
+                              <Tag key={i} color="orange">{c.from} → {c.to}: {c.count}</Tag>
+                            ))}
+                          </Space>
+                        </div>
+                      )}
+                      <div className="wh-table-responsive">
+                        <Table
+                          size="small"
+                          rowKey="rule_id"
+                          loading={eflowLoading}
+                          columns={eflowColumns as any}
+                          dataSource={eflowSummary.rule_breakdown || []}
+                          pagination={false}
+                          scroll={{ x: 'max-content' }}
+                          locale={{ emptyText: <Empty description={t('emailReports.eflowEmpty')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <Empty description={t('emailReports.eflowNotRun')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  )}
+                  {eflowFiles.length > 0 && (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      <Space wrap>
+                        <Text type="secondary">下载：</Text>
+                        {eflowFiles.map(f => (
+                          <Button key={f.name} size="small" icon={<DownloadOutlined />} href={eflowDownloadUrl(f)} download={f.name}>
+                            {f.name}（{formatSize(f.size)}）
+                          </Button>
+                        ))}
+                      </Space>
+                    </div>
+                  )}
+                </>
+              ),
+            },
+          ]}
+        />
+      </Card>
+    </div>
+  )
+}
