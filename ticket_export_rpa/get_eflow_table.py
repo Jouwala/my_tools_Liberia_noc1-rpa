@@ -2290,6 +2290,12 @@ def generate_excel_and_images(sheets_data, output_dir=None, send_email=None):
         df_extracted = ExcelDataProcessor.extract_fields()
         print(f"   ⏱️ 用时: {time.time() - step_start:.2f}s")
 
+        # 4.5 填补缺失的 SLA Status（eFlow 导出为空时，用时间差计算）
+        step_start = time.time()
+        print("\n📌 步骤1.5: 填补缺失的 SLA Status...")
+        ExcelDataProcessor.fill_missing_sla_status(df_extracted)
+        print(f"   ⏱️ 用时: {time.time() - step_start:.2f}s")
+
         # 5. Hourly Report
         step_start = time.time()
         print("\n📌 步骤2: 生成 Hourly Report...")

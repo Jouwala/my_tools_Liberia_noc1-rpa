@@ -1,12 +1,12 @@
 {
-  "run_at": "2026-08-26T03:00:21",
+  "run_at": "2026-08-28T03:00:31",
   "threshold_ms": 5000,
   "results": [
     {
       "key": "zhipu",
       "name": "ZhiPu GLM 智谱",
       "available": true,
-      "latency_ms": 1315,
+      "latency_ms": 1286,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -16,7 +16,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1315,
+          "latency_ms": 1286,
           "status": "ok",
           "error": null
         }
@@ -25,20 +25,48 @@
     {
       "key": "nvidia",
       "name": "NVIDIA NIM",
-      "available": true,
-      "latency_ms": 730,
-      "model": "meta/llama-3.1-8b-instruct",
-      "error": null,
-      "status": "ok",
-      "reason": "正常",
+      "available": false,
+      "latency_ms": null,
+      "model": "mistralai/mistral-7b-instruct-v0.3",
+      "error": "HTTP 404",
+      "status": "model_unavailable",
+      "reason": "模型不可用/不存在",
       "local": false,
       "tried_models": [
         {
           "model": "meta/llama-3.1-8b-instruct",
-          "ok": true,
-          "latency_ms": 730,
-          "status": "ok",
-          "error": null
+          "ok": false,
+          "latency_ms": null,
+          "status": "http_error",
+          "error": "HTTP 410"
+        },
+        {
+          "model": "llama-3.1-8b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "model_unavailable",
+          "error": "HTTP 404"
+        },
+        {
+          "model": "llama-3.2-3b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "model_unavailable",
+          "error": "HTTP 404"
+        },
+        {
+          "model": "gemma-2-9b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "model_unavailable",
+          "error": "HTTP 404"
+        },
+        {
+          "model": "mistralai/mistral-7b-instruct-v0.3",
+          "ok": false,
+          "latency_ms": null,
+          "status": "model_unavailable",
+          "error": "HTTP 404"
         }
       ]
     },
@@ -46,7 +74,7 @@
       "key": "openrouter",
       "name": "OpenRouter",
       "available": true,
-      "latency_ms": 4743,
+      "latency_ms": 12915,
       "model": "openrouter/free",
       "error": null,
       "status": "ok",
@@ -56,7 +84,7 @@
         {
           "model": "openrouter/free",
           "ok": true,
-          "latency_ms": 4743,
+          "latency_ms": 12915,
           "status": "ok",
           "error": null
         }
@@ -114,7 +142,7 @@
       "key": "zhipu5",
       "name": "ZhiPu GLM-5 智谱",
       "available": true,
-      "latency_ms": 1655,
+      "latency_ms": 1240,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -124,7 +152,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1655,
+          "latency_ms": 1240,
           "status": "ok",
           "error": null
         }
@@ -277,34 +305,41 @@
     {
       "key": "ollama",
       "name": "Local Ollama",
-      "available": true,
-      "latency_ms": 5831,
-      "model": "phi4-mini:3.8b",
-      "error": null,
-      "status": "ok",
-      "reason": "正常",
+      "available": false,
+      "latency_ms": null,
+      "model": "qwen3:4b",
+      "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+      "status": "error",
+      "reason": "<urlopen error [WinError 10061] No connection could be made because the target m",
       "local": true,
       "tried_models": [
         {
           "model": "gemma4-16k",
           "ok": false,
           "latency_ms": null,
-          "status": "model_unavailable",
-          "error": "HTTP 404"
+          "status": "error",
+          "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
         },
         {
           "model": "gemma3:4b",
           "ok": false,
           "latency_ms": null,
-          "status": "model_unavailable",
-          "error": "HTTP 404"
+          "status": "error",
+          "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
         },
         {
-          "model": "phi4-mini:3.8b",
-          "ok": true,
-          "latency_ms": 5831,
-          "status": "ok",
-          "error": null
+          "model": "phi4-mini",
+          "ok": false,
+          "latency_ms": null,
+          "status": "error",
+          "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
+        },
+        {
+          "model": "qwen3:4b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "error",
+          "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
         }
       ]
     },
@@ -321,14 +356,13 @@
       "tried_models": []
     }
   ],
-  "primary": "nvidia/meta/llama-3.1-8b-instruct",
+  "primary": "zhipu5/glm-4-flash",
   "fallbacks": [
-    "ollama/qwen3:1.7b",
-    "ollama/gemma4-32k:latest",
     "ollama/phi4-mini:3.8b",
+    "ollama/gemma4-32k:latest",
+    "ollama/qwen3:4b",
+    "ollama/qwen3:1.7b",
     "zhipu/glm-4-flash",
-    "zhipu5/glm-4-flash",
-    "openrouter/openrouter/free",
     "ollama-cloud/gemma3:27b"
   ]
 }

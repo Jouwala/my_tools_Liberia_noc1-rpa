@@ -41,3 +41,11 @@
 # 带时间戳的库备份与运行时整目录备份
 *.bak_*
 /backend/services/cn_ems/jab_setup/backup_*/
+
+# 任务运行产出（每次运行重写，入库只会造成永久 diff 噪声）
+/backend/services/cn_ems/daily_raw.json
+/backend/services/cn_ems/kpi_result.json
+/backend/services/cn_ems/kpi_result_raw.json
+/backend/services/cn_ems/pm_query_template.bin
+/backend/services/eflow_rules/eflow_tt_rules_check_latest.json
+_probe_file.txt

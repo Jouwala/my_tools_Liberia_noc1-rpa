@@ -405,6 +405,80 @@ class ExcelDataProcessor:
         return df_open, open_tickets, prolong_tickets, summary_df, raw_df
 
     # ============================================================
+    # 填补缺失的 SLA Status（从 eFlow 获取不到时，用时间差计算）
+    # ============================================================
+    @classmethod
+    def fill_missing_sla_status(cls, df):
+        """
+        填补 SLA Status 为空的工单：
+        - 已关闭（有 Alarm Clear Time）：Outage = Alarm Clear Time - Alarm Occur Time
+        - 未关闭（无 Alarm Clear Time）：Outage = now - Alarm Occur Time
+        - 目标 SLA：P1=4h, P2=8h, P3=16h, P4=48h
+        - 结果：ratio <= 1 → "Pass"（已关闭达标）/ "Within SLA"（未关闭未超时）
+               ratio > 1  → "Failed"
+        直接修改传入的 DataFrame，不返回新对象。
+        """
+        if 'SLA Status' not in df.columns or 'Ticket Severity' not in df.columns:
+            return
+
+        # 只处理 SLA Status 为空的工单
+        empty_mask = df['SLA Status'].isna() | (df['SLA Status'].astype(str).str.strip() == '')
+        if not empty_mask.any():
+            return
+
+        df_fill = df.loc[empty_mask].copy()
+        print(f"   [SLA] 填补 {empty_mask.sum()} 条缺失的 SLA Status...")
+
+        # 解析时间
+        if 'Alarm Occur Time' in df_fill.columns:
+            df_fill['_Occur'] = pd.to_datetime(df_fill['Alarm Occur Time'], errors='coerce')
+        else:
+            return
+
+        now = pd.Timestamp.now()
+
+        # 计算实际 outage 时长（小时）
+        if 'Alarm Clear Time' in df_fill.columns:
+            df_fill['_Clear'] = pd.to_datetime(df_fill['Alarm Clear Time'], errors='coerce')
+            # 已关闭：Clear - Occur；未关闭：now - Occur
+            has_clear = df_fill['_Clear'].notna()
+            df_fill['_Outage_H'] = 0.0
+            df_fill.loc[has_clear, '_Outage_H'] = (
+                (df_fill.loc[has_clear, '_Clear'] - df_fill.loc[has_clear, '_Occur']).dt.total_seconds() / 3600
+            )
+            df_fill.loc[~has_clear, '_Outage_H'] = (
+                (now - df_fill.loc[~has_clear, '_Occur']).dt.total_seconds() / 3600
+            )
+        else:
+            df_fill['_Outage_H'] = (now - df_fill['_Occur']).dt.total_seconds() / 3600
+
+        # 目标 SLA 时长
+        df_fill['_Target_H'] = (
+            df_fill['Ticket Severity'].astype(str).str.strip().str.upper().map(SLA_MAP)
+        )
+
+        # 逐行计算 SLA Status
+        def _calc(row):
+            target_h = row['_Target_H']
+            outage_h = row['_Outage_H']
+            if pd.isna(target_h) or pd.isna(outage_h) or target_h <= 0:
+                return None
+            ratio = outage_h / target_h
+            if ratio > 1:
+                return "Failed"
+            # 已关闭且达标 → Pass；未关闭且未超时 → Within SLA
+            has_clear = pd.notna(row.get('_Clear')) if '_Clear' in row.index else False
+            return "Pass" if has_clear else "Within SLA"
+
+        df_fill['SLA Status'] = df_fill.apply(_calc, axis=1)
+
+        # 写回原 DataFrame
+        filled_count = df_fill['SLA Status'].notna().sum()
+        df.loc[empty_mask, 'SLA Status'] = df_fill['SLA Status']
+        still_empty = df.loc[empty_mask, 'SLA Status'].isna().sum()
+        print(f"   [SLA] 已填补 {filled_count} 条，仍有 {still_empty} 条无法计算（缺 Severity 或时间）")
+
+    # ============================================================
     # 清理旧文件
     # ============================================================
     @classmethod
@@ -926,6 +1000,12 @@ class ExcelDataProcessor:
         step_start = time.time()
         print("\n📌 步骤2: 提取字段...")
         df_extracted = cls.extract_fields()
+        print(f"   ⏱️ 用时: {time.time() - step_start:.2f}s")
+
+        # 2.5 填补缺失的 SLA Status
+        step_start = time.time()
+        print("\n📌 步骤2.5: 填补缺失的 SLA Status...")
+        cls.fill_missing_sla_status(df_extracted)
         print(f"   ⏱️ 用时: {time.time() - step_start:.2f}s")
 
         # 3. 生成 Hourly Report（Processed Data / Open / Broken）

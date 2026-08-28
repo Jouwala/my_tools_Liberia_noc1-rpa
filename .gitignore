@@ -118,3 +118,38 @@ CREDENTIALS_LOCAL_REFERENCE.txt
 **/CREDENTIALS_LOCAL_REFERENCE.txt
 LOCAL_*.txt
 *.local.txt
+
+# ─────────────────────────────────────────────────────────────────────────────
+# novel_dl 语音合成工作区（Task/my_app/TMP/novel_dl）
+#
+# 注意：本文件前面的 "TMP/" 已经把整个目录忽略了，所以下面这些规则目前是"双保险"
+# —— 它们真正起作用是在以后有人把 TMP/ 从忽略列表里去掉、想单独提交 novel_dl
+# 脚本的时候。届时只提交代码/文档，大件和中间产物仍然被排除。
+#
+# 体积参考：venv 5.5G / CosyVoice-300M-SFT 5.4G / CosyVoice2-0.5B 5.2G
+# ─────────────────────────────────────────────────────────────────────────────
+# 虚拟环境（不可搬迁，新机用 setup_new_pc.py 重建）
+Task/my_app/TMP/novel_dl/venv/
+# 模型权重（首次运行自动下载，或用 make_portable.py --with-models 单独分发）
+Task/my_app/TMP/novel_dl/CosyVoice/pretrained_models/
+# CosyVoice 上游仓库的 .git（约 40MB）
+Task/my_app/TMP/novel_dl/CosyVoice/.git/
+# 声纹缓存，随时可重建
+Task/my_app/TMP/novel_dl/.spkcache/
+# 抓取小说用的浏览器 profile
+Task/my_app/TMP/novel_dl/chrome_profile/
+# 合成产出（每本书一个目录，内含 full.wav）
+Task/my_app/TMP/novel_dl/audio_*/
+# 合成中间产物：分块 wav / ffmpeg 拼接列表
+Task/my_app/TMP/novel_dl/_c[0-9]*_b[0-9]*.wav
+Task/my_app/TMP/novel_dl/_t[0-9]*_s[0-9]*.wav
+Task/my_app/TMP/novel_dl/_batch[0-9]*
+Task/my_app/TMP/novel_dl/_final[0-9]*
+Task/my_app/TMP/novel_dl/_full_list*
+Task/my_app/TMP/novel_dl/*.tmp.wav
+# 打包产物
+Task/my_app/TMP/novel_dl_portable_*.zip
+# 调试/临时脚本
+Task/my_app/TMP/novel_dl/_smoke*
+Task/my_app/TMP/novel_dl/bench_*.py
+Task/my_app/TMP/novel_dl/profile_*.py

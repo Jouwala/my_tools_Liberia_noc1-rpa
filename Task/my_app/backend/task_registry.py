@@ -126,6 +126,13 @@ TASK_SPECS = [
          description_en="Fetch last 7 days history alarms from eFlow FM History API, filter TT ID, save to CSV + SQLite",
          default_cron="0 */3 * * *", category="eflow"),
 
+    # 8b. eFlow TT 规则收集 + 匹配检查（每天 04:20）：拉取最新规则并检查最新 1000 条 eflow_tt 的级别矫正
+    dict(task_id="eflow_tt_rules_check", name="eFlow TT 规则收集与匹配检查", name_en="eFlow TT Rules Collect & Match Check",
+         loader=("backend.services.eflow_rules.eflow_tt_rules_check_task", "run_eflow_tt_rules_check"),
+         description="每天 04:20 从 eFlow 拉取激活的 TT Update Severity Rule（eflow_TT_rules.xlsx），再对最新 1000 条 eflow_tt 记录做规则匹配与级别矫正（Email Reports → eflow_tt_rules_check 页签可下载规则/矫正表/报告）",
+         description_en="Daily 04:20: collect active TT Update Severity Rules from eFlow (eflow_TT_rules.xlsx), then match the latest 1000 eflow_tt records and produce a severity correction report (downloadable under Email Reports → eflow_tt_rules_check tab)",
+         default_cron="20 4 * * *", category="eflow"),
+
     # 9. RAN UME Main KPI 同步（每天凌晨4点）
     dict(task_id="main_kpi_sync", name="RAN Main KPI 同步", name_en="RAN Main KPI Sync",
          loader=("backend.services.ran_ume_main_kpi", "run_main_kpi_sync"),

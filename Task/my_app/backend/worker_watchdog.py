@@ -47,14 +47,17 @@ GROUP_TASK_MAP = {
         "ran_ume_daily,main_kpi_sync,cell_availability_sync,network_kpi_sync,packet_loss_sync,"
         "packet_loss_email,battery_kpi_sync,ipran_kpi_sync,cm_data_sync"),
     "n": (  # 网管 / eFlow API / 远程系统：各自独立但保守同组
-        "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,"
+        "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,eflow_tt_rules_check,"
         "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync,mw_ume_kpi_sync"),
     "m": (  # 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖
         "site_outage_screenshot,whatsapp_send,liberia_email_1h,liberia_email_8h,"
         "kpi_ms_contract,kpi_ms_wo_sla,kpi_sp_spareparts,kpi_sp_consumables,"
         "kpi_ran_availability,email_recovery,ipran_m6k_chart_email,"
         "ccn_free_rating_chart_email,battery_email,mailbox_cleanup,"
-        "incident_overview_sync,auto_retry_failed,db_freshness_check,sp_report_generate"),
+        "incident_overview_sync,auto_retry_failed,db_freshness_check,sp_report_generate,"
+        # finebi_report_sync/pg_to_sqlite_sync：注册表中存在但此前未分组，
+        # 2026-08-25 分组模式启用后无任何 worker 认领，队列 pending 卡死断档
+        "finebi_report_sync,pg_to_sqlite_sync"),
     "c": (  # CN EMS (10.100.2.240) 独立会话：缓存同步与日聚合共享 _pmcache/daily_raw.json，
         # 同组串行保证互斥（ems_kpi_cache_sync 每15分钟 + ems_kpi_daily 每天00:20）
         "ems_kpi_cache_sync,ems_kpi_daily"),
