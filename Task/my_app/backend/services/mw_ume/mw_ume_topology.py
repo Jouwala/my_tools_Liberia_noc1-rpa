@@ -40,6 +40,11 @@ logger = logging.getLogger("mw_ume_topology")
 # 表名（与 mw_ume_kpi_service.TABLE_NAME 一致）
 TABLE_NAME = "mw_ume_bw_ultilazation"
 
+# 15 分钟实时（RT）表名（与 mw_ume_kpi_service.RT_TABLE_NAME 一致）
+RT_TABLE_NAME = "mw_ume_bw_ultilazation_rt"
+# 实时模式：链路历史/全网趋势/可选槽位列表最多保留最近 96 个 15 分钟点（24h）
+RT_HISTORY_POINTS = 96
+
 # 利用率分级阈值
 THRESHOLDS = {"watch": 50.0, "warning": 70.0, "critical": 85.0}
 
@@ -288,11 +293,11 @@ def _ep_props(items, full):
     return None, None
 
 
-def _fetch_rows():
+def _fetch_rows(table_name: str = TABLE_NAME):
     """读主库全部链路行（双模：PG app schema / sqlite）。"""
     conn = get_raw_connection()
     cur = conn.cursor()
-    cur.execute(f'SELECT * FROM "{TABLE_NAME}"')
+    cur.execute(f'SELECT * FROM "{table_name}"')
     cols = [d[0] for d in cur.description]
     rows = [dict(zip(cols, r)) for r in cur.fetchall()]
     conn.close()
@@ -328,11 +333,13 @@ def _is_backbone_row(r):
     return a[2].startswith("10.") and b[2].startswith("10.")
 
 
-def _build_trends(hist_by_ip_pair):
-    """全网逐日趋势（始终基于全部日期，供趋势图使用）。
+def _build_trends(hist_by_ip_pair, max_points: int = None):
+    """全网逐期趋势（始终基于全部日期/槽位，供趋势图使用）。
 
-    口径与链路一致：每条物理链路每日仅取主方向（TX 较大的一侧作为 source）
+    口径与链路一致：每条物理链路每期仅取主方向（TX 较大的一侧作为 source）
     的 KPI 行参与统计，反方向行排除、不双向合并累加。
+    聚合键由调用方决定：日粒度为日期（YYYY-MM-DD），实时模式为完整
+    Begin Time 槽位。max_points 非空时仅保留最近 N 期。
     """
     by_day = defaultdict(list)
     for ent in hist_by_ip_pair.values():
@@ -361,6 +368,8 @@ def _build_trends(hist_by_ip_pair):
             "max_util": round(max(us), 2) if us else 0,
             "critical": sum(1 for u in us if level_of(u) == "critical"),
         })
+    if max_points and len(trends) > max_points:
+        trends = trends[-max_points:]
     return trends
 
 
@@ -415,18 +424,29 @@ def _reset_phys_cache():
 
 
 def build_topology(top_n: int = 10, date: str = None, rows_all: list = None,
-                   backbone: bool = False):
+                   backbone: bool = False, time_gran: str = "day"):
     """构建完整拓扑数据（Nodes / Edges / KPIs / TopRisks / Trends）。
 
     数据源：
     - 拓扑骨架：zte_mw_links（全部物理链路，作为 nodes/edges 基础）
     - KPI 数据：mw_ume_bw_ultilaztion（覆盖到物理链路上，无 KPI 的链路标记为 unknown）
 
+    time_gran 取值：
+      "day"  -> 按期=日期（YYYY-MM-DD），日粒度看板口径；
+      "slot" -> 按期=完整 Begin Time（15 分钟槽位），实时看板口径，
+                趋势/链路历史仅保留最近 RT_HISTORY_POINTS 期。
+
     date 取值：
-      None            -> 自动选择最新可用日期；
-      "YYYY-MM-DD"    -> 仅用该日数据构建。
+      None            -> 自动选择最新可用期；
+      具体期（日期或槽位）-> 仅用该期数据构建。
     backbone=True 时仅保留骨干网链路（两端 IP 均以 10. 开头）。
     """
+    slot_mode = time_gran == "slot"
+
+    def _period_key(bt):
+        s = str(bt).strip()
+        return s if slot_mode else s[:10]
+
     # ---- 1. 加载物理拓扑骨架 ----
     phys_links = _load_physical_links()
 
@@ -440,17 +460,17 @@ def build_topology(top_n: int = 10, date: str = None, rows_all: list = None,
         phys_links = [l for l in phys_links
                       if l["a_ip"].startswith("10.") and l["b_ip"].startswith("10.")]
 
-    # ---- 3. 可用日期 ----
-    available_dates = sorted({str(r.get("Begin Time"))[:10]
+    # ---- 3. 可用期（日粒度=日期；槽位模式=完整 Begin Time） ----
+    available_dates = sorted({_period_key(r.get("Begin Time"))
                               for r in rows_all if r.get("Begin Time") is not None})
 
-    # ---- 4. 日期筛选 ----
+    # ---- 4. 期筛选 ----
     if date is None:
         selected = available_dates[-1] if available_dates else None
-        rows = [r for r in rows_all if str(r.get("Begin Time"))[:10] == selected] if selected else []
+        rows = [r for r in rows_all if _period_key(r.get("Begin Time")) == selected] if selected else []
     elif date in available_dates:
         selected = date
-        rows = [r for r in rows_all if str(r.get("Begin Time"))[:10] == date]
+        rows = [r for r in rows_all if _period_key(r.get("Begin Time")) == date]
     else:
         selected = date
         rows = []
@@ -484,7 +504,7 @@ def build_topology(top_n: int = 10, date: str = None, rows_all: list = None,
         if not a_ip or not b_ip:
             continue
         key = frozenset([a_ip, b_ip])
-        day = str(p["bt"])[:10]
+        day = _period_key(p["bt"])
         hist_by_ip_pair[key]["days"].setdefault(day, []).append(p)
 
     # ---- 8. 为每条物理链路匹配 KPI 数据 ----
@@ -507,7 +527,7 @@ def build_topology(top_n: int = 10, date: str = None, rows_all: list = None,
             if selected:
                 all_kpi_for_pair = [r for day_rows in pair_ent["days"].values() for r in day_rows]
                 today_rows = [r for r in all_kpi_for_pair
-                             if str(r["bt"])[:10] == selected]
+                             if _period_key(r["bt"]) == selected]
 
             if today_rows:
                 chosen = [r for r in today_rows
@@ -543,9 +563,12 @@ def build_topology(top_n: int = 10, date: str = None, rows_all: list = None,
                     "rx_t": x["rx_t"], "rx_u": x["rx_u"],
                 } for x in chosen]
 
-                # 构建历史（按日聚合，供下钻曲线）
+                # 构建历史（按期聚合，供下钻曲线；槽位模式仅保留最近 24h）
                 history = []
-                for day in sorted(pair_ent["days"]):
+                hist_keys = sorted(pair_ent["days"])
+                if slot_mode:
+                    hist_keys = hist_keys[-RT_HISTORY_POINTS:]
+                for day in hist_keys:
                     day_rows = [r for r in pair_ent["days"][day]
                                if r["a"][2] == src_ip and r["b"][2] == tgt_ip]
                     if not day_rows:
@@ -649,15 +672,16 @@ def build_topology(top_n: int = 10, date: str = None, rows_all: list = None,
                  for e in kpi_edges[:max(top_n, 1)]]
 
     # ---- 12. 趋势 ----
-    trends = _build_trends(hist_by_ip_pair)
+    trends = _build_trends(hist_by_ip_pair,
+                           max_points=RT_HISTORY_POINTS if slot_mode else None)
 
     # ---- 13. Meta ----
     meta = {
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "granularity": "1day",
+        "granularity": "15min" if slot_mode else "1day",
         "thresholds": THRESHOLDS,
         "selected_date": selected,
-        "available_dates": available_dates,
+        "available_dates": available_dates[-RT_HISTORY_POINTS:] if slot_mode else available_dates,
         "counts": {"rows": len(rows), "parsed": len(parsed),
                    "begin_times": len(available_dates), "total_rows": len(rows_all),
                    "physical_links": len(edges), "physical_nodes": len(node_info)},
@@ -701,6 +725,47 @@ def get_topology(top_n: int = 10, force: bool = False, date: str = None,
         logger.error(f"[TOPOLOGY] build failed: {e}")
         raise
     _result_cache[key] = data
+    return data
+
+
+# ---- 实时（15 分钟）拓扑：独立缓存，TTL 60s（数据每 15 分钟同步一次） ----
+_rt_rows_cache = {"ts": 0.0, "rows": None}
+_rt_result_cache = {}
+RT_CACHE_TTL = 60
+
+
+def _fetch_rt_rows():
+    """读 15 分钟表全部行；表尚未创建（首轮同步未跑）时返回空列表，页面退化为纯骨架。"""
+    try:
+        return _fetch_rows(RT_TABLE_NAME)
+    except Exception as e:
+        logger.warning(f"[TOPOLOGY-RT] rt rows unavailable (表可能尚未创建): {e}")
+        return []
+
+
+def get_realtime_topology(top_n: int = 10, force: bool = False, date: str = None,
+                          backbone: bool = False):
+    """带 TTL 缓存的实时拓扑入口（date=None 时自动取最新 15 分钟槽位）。"""
+    now = time.time()
+    if force or _rt_rows_cache["rows"] is None or (now - _rt_rows_cache["ts"]) >= RT_CACHE_TTL:
+        if force:
+            _reset_site_cache()
+            _reset_link_orientation()
+            _reset_phys_cache()
+        _rt_rows_cache["rows"] = _fetch_rt_rows()
+        _rt_rows_cache["ts"] = time.time()
+        _rt_result_cache.clear()
+    key = (top_n, date, backbone)
+    cached = _rt_result_cache.get(key)
+    if cached is not None:
+        return cached
+    try:
+        data = build_topology(top_n=top_n, date=date, rows_all=_rt_rows_cache["rows"],
+                              backbone=backbone, time_gran="slot")
+    except Exception as e:
+        logger.error(f"[TOPOLOGY-RT] build failed: {e}")
+        raise
+    _rt_result_cache[key] = data
     return data
 
 

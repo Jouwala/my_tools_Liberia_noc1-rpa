@@ -29,6 +29,7 @@ HOST = "10.100.2.240"
 # 7 个模板涉及的全部计数器前缀（从 Query_Template.xml 归纳）
 COUNTERS = "40716.|40738.|40748.|40408.|40971.|4868.|48680.|40508.|43100."
 PROC_TIMEOUT = 7200  # 秒（全量解析约 10 分钟，留足余量）
+PMCACHE_KEEP_DAYS = 1  # _pmcache 保留最近 N 天（含今天）；日聚合完成后的旧数据自动删除，避免无限增长
 
 # java.exe 是控制台程序：worker 以 pythonw（无控制台）运行时若不加此标志，
 # Windows 会为它新建一个标题为 java.exe 路径的黑色控制台窗口（每 15 分钟弹一次）。
@@ -58,6 +59,58 @@ def _summary_from(output):
         return dict(mode="fetch", downloaded=int(fm.group(1)),
                     total_in_window=int(fm.group(2)), cache_files=int(fm.group(3)))
     return {}
+
+
+def _cleanup_pmcache(keep_days=PMCACHE_KEEP_DAYS, dry_run=False):
+    """删除 _pmcache 中早于保留窗口的原始 PM 测量文件。
+
+    数据流：SFTP → _pmcache → daily_raw.json → csv_out/*.csv。
+    一旦某天数据已聚合输出（daily_raw + CSV），原始下载文件不再需要。
+    若不清理，缓存会以约 12 万文件/天（~2.5 GB/天）的速度无限增长。
+
+    按文件名内嵌 UTC 时间戳判断归属日，删除 end < cutoff 的文件。
+    keep_days: 保留最近 N 天（默认 2：今天+昨天；昨天是日聚合的缓冲输入）。
+    dry_run:   True 只统计不删除；False 统计并删除（第一次运行可能较慢）。
+    返回 {"deleted": n, "kept": m, "freed_mb": x, "dry_run": boo}。
+    """
+    cache_dir = os.path.join(HERE, "_pmcache")
+    if not os.path.isdir(cache_dir):
+        return {"deleted": 0, "kept": 0, "freed_mb": 0, "dry_run": dry_run}
+
+    # cutoff = 今天 UTC 零点往前推 (keep_days - 1) 天
+    now = datetime.now(timezone.utc)
+    cutoff = datetime(now.year, now.month, now.day, tzinfo=timezone.utc) - timedelta(days=keep_days - 1)
+
+    pat = re.compile(r"^PM_(\d{12})-(\d{12})_")
+    deleted = 0
+    freed = 0
+    kept = 0
+    for name in os.listdir(cache_dir):
+        m = pat.match(name)
+        if not m:
+            kept += 1
+            continue
+        try:
+            s = m.group(2)
+            end = datetime(int(s[0:4]), int(s[4:6]), int(s[6:8]),
+                           int(s[8:10]), int(s[10:12]), tzinfo=timezone.utc)
+        except (ValueError, IndexError):
+            kept += 1
+            continue
+        if end < cutoff:
+            if not dry_run:
+                try:
+                    fp = os.path.join(cache_dir, name)
+                    freed += os.path.getsize(fp)
+                    os.remove(fp)
+                except OSError:
+                    pass
+            deleted += 1
+        else:
+            kept += 1
+    return {"deleted": deleted, "kept": kept,
+            "freed_mb": round(freed / 1048576, 1) if not dry_run else 0,
+            "dry_run": dry_run}
 
 
 def run_ems_kpi_cache_sync():
@@ -115,6 +168,12 @@ def run_ems_kpi_daily():
     for name, path, n, msg in results:
         csvs[name] = ({"rows": n, "path": path} if path else {"rows": 0, "note": msg})
 
+    # 4) 聚合输出成功后，清理已聚合日期的原始下载（_pmcache 只保留最近 keep_days 天）
+    cleanup = _cleanup_pmcache(keep_days=PMCACHE_KEEP_DAYS)
+    if cleanup.get("deleted"):
+        print("[daily] pmcache cleanup: deleted=%s freed_mb=%s kept=%s"
+              % (cleanup["deleted"], cleanup["freed_mb"], cleanup["kept"]))
+
     return {
         "success": True,
         "window": [d0, d1],
@@ -122,6 +181,7 @@ def run_ems_kpi_daily():
         "parsed_files": ps.get("parsed"),
         "counters_matched": ps.get("counters_matched"),
         "csvs": csvs,
+        "cleanup_pmcache": cleanup,
     }
 
 

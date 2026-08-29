@@ -11,6 +11,7 @@ my_app 本身不产生数据，它的价值取决于上游是否连得通。本�
 | **iPRAN UME** | 同上 | `ipran_kpi_sync`、`ipran_m6k_chart_email` | `ipran_ume` | iPRAN 相关 KPI 与图表邮件 |
 | **CNN UME** | 同上 | `cnn_kpi_sync`、`ccn_free_rating_chart_email` | `ccn_ume` | Free Rating 图表邮件 |
 | **MW UME**（ZXMW 微波） | FINBI 模板导出，1 天粒度，**内存处理不落盘**，直写 `mw_ume_bw_ultilazation` | `mw_ume_kpi_sync`（每天 05:15） | `mw_ume` | MW 微波拓扑 |
+| **MW UME**（ZXMW 微波） | 同一 FINBI 模板，`gr=900` 15 分钟粒度，取最近 2 小时，直写 `mw_ume_bw_ultilazation_rt` | `mw_ume_kpi_sync_rt`（每 15 分钟） | `mw_ume` | MW 微波实时 |
 | **CN EMS** | SFTP 取原始 PM 文件；**服务器只保留约 1 天**，故每 15 分钟增量缓存到 `_pmcache` | `ems_kpi_cache_sync`、`ems_kpi_daily` | （`services/cn_ems/ems_config.json` 内） | CN EMS KPI 相关 |
 | **FW**（防火墙吞吐） | 网管 KPI + 出图 | `fw_kpi_sync` | `fw_kpi` | FW 图表邮件 |
 | **FMS Portal** | 门户登录 + 实时抓取（经 `127.0.0.1:8787` 实时代理） | 实时代理线程 | `fms_portal` | 实时告警看板、实时告警地图 |

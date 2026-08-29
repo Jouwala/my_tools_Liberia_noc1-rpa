@@ -18,7 +18,7 @@
 | `/api/battery-dashboard` | 电池看板 |
 | `/api/ms-sla-dashboard` | MS Operation KPI 看板 |
 | `/api/nur` | NUR 看板（`/overview`、`/options`、`/detail`） |
-| `/api/mw-ume` | MW 微波拓扑 |
+| `/api/mw-ume` | MW 微波拓扑（`/topology` 日粒度）、MW 微波实时（`/realtime` 15 分钟槽位） |
 | `/api/incident-overview` | 事件总览（iframe 内页调用） |
 | `/api/ip-trace` | IP 链路探测（iframe 内页调用：`/trace`、`/status`、`/stop`、`/analyze`） |
 | `/api/portals` | 门户一键登录（`/`、`/login`、`/login/status`、`/close`） |
@@ -50,6 +50,7 @@
 | `task_schedule_config` | 主库 | cron 覆盖表，界面改排程写这里 |
 | `credentials` | **`db/app.db`（SQLite，明文）** | 绕过 `MY_APP_DB_MODE`，备份必带 |
 | `mw_ume_bw_ultilazation` | 主库 | MW 微波带宽利用率（注意表名里 `ultilazation` 是既有拼写，勿改） |
+| `mw_ume_bw_ultilazation_rt` | 主库 | MW 微波带宽利用率 15 分钟粒度实时表（每 15 分钟覆盖最近 2 小时窗口，拼写沿用主表） |
 | `cm_cell_data` / `cm_site_summary` | 远程主机 `db.sqlite3` | CM 小区配置，全量替换写入 |
 | `battery_kpi.sqlite3` / `lte_pl.sqlite3` / `ms_sla_dashboard.sqlite3` | `data/` 各子目录 | 独立 SQLite，见 `03-data-layer.md` |
 | 动态 eFlow 表 | 主库 | **不在 Alembic 管理内**，运行时按上游字段建表 |

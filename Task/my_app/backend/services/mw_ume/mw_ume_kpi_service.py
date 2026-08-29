@@ -78,9 +78,19 @@ IDENTITY_COL_CANDIDATES = ["NE", "ME", "Managed Element", "SERVICE", "Measuremen
 
 # gr 显示名称替换规则
 GR_RENAME = {
+    "900": "15min",
     "3600": "1hour",
     "86400": "1Day",
 }
+
+# ---------- 15 分钟实时（RT）同步配置 ----------
+# 独立表：避免 15 分钟行混入日粒度表影响现有拓扑看板的「最新日期」口径
+RT_TABLE_NAME = os.environ.get("MW_UME_KPI_TABLE_RT", "mw_ume_bw_ultilazation_rt")
+# 每次同步回看窗口（小时）：取最近 2 小时，展示只用最新一个 15 分钟槽位
+RT_WINDOW_HOURS = float(os.environ.get("MW_UME_KPI_RT_WINDOW_HOURS", "2"))
+# RT 表保留期（小时）：仅保留最近 N 小时数据（默认 25h，覆盖看板 24h 趋势 + 1h 出数延迟容忍），
+# 每次同步末尾顺带清理更早的槽位，避免该表无限增长（实测约 721 行/槽、~70,900 行/天）。
+RT_RETENTION_HOURS = float(os.environ.get("MW_UME_KPI_RT_RETENTION_HOURS", "25"))
 
 
 def _runtime_credentials():
@@ -146,6 +156,11 @@ _FINBI_CONFIG = {
 
 MW_UME_KPI_QUERY_CONFIGS = {"FINBI": _FINBI_CONFIG}
 MW_UME_KPI_TASKS = [{"key": "FINBI"}]
+
+# 15 分钟实时（RT）查询：与日粒度共用 FINBI 模板，仅粒度不同（900 秒 = 15 分钟）
+_FINBI_RT_CONFIG = dict(_FINBI_CONFIG, gr="900")
+MW_UME_KPI_QUERY_CONFIGS_RT = {"FINBI_RT": _FINBI_RT_CONFIG}
+MW_UME_KPI_TASKS_RT = [{"key": "FINBI_RT"}]
 
 
 # ============================================================
@@ -434,7 +449,8 @@ def login():
 # ============================================================
 # Payload 构造（字段顺序与原脚本/url.txt 严格一致）
 # ============================================================
-def build_mw_ume_kpi_payload(cfg: dict, start_iso: str = None, end_iso: str = None) -> dict:
+def build_mw_ume_kpi_payload(cfg: dict, start_iso: str = None, end_iso: str = None,
+                             relative: int = None) -> dict:
     """构造 MW UME KPI 历史指标查询 Payload。"""
     now = datetime.now(timezone.utc)
     if end_iso is None:
@@ -447,7 +463,7 @@ def build_mw_ume_kpi_payload(cfg: dict, start_iso: str = None, end_iso: str = No
         "mode": 1,
         "start": start_iso,
         "end": end_iso,
-        "relative": -DAYS_BACK,
+        "relative": relative if relative is not None else -DAYS_BACK,
         "timezonetype": "1",
         "clienttimezone": "Atlantic/Reykjavik",
         "showtimezoneoffset": False,
@@ -789,9 +805,11 @@ def save_to_db(table_name: str, headers: list, data: list, key_cols: list) -> in
 # ============================================================
 # 单任务执行（内存流水线）
 # ============================================================
-def _run_single_kpi_query(auth: dict, task: dict, start_index: int = 0) -> tuple:
+def _run_single_kpi_query(auth: dict, task: dict, start_index: int = 0,
+                          configs: dict = None, start_iso: str = None,
+                          end_iso: str = None, relative: int = None) -> tuple:
     """执行单个 KPI 查询任务，返回 (key, headers, data) 或抛异常。全程不落盘。"""
-    cfg = MW_UME_KPI_QUERY_CONFIGS[task["key"]]
+    cfg = (configs or MW_UME_KPI_QUERY_CONFIGS)[task["key"]]
 
     # 错峰启动
     delay = start_index * 0.8
@@ -800,7 +818,8 @@ def _run_single_kpi_query(auth: dict, task: dict, start_index: int = 0) -> tuple
 
     logger.info(f"[MAIN] Starting KPI query: {cfg['favoriteconditionname']}")
 
-    payload = build_mw_ume_kpi_payload(cfg)
+    payload = build_mw_ume_kpi_payload(cfg, start_iso=start_iso, end_iso=end_iso,
+                                       relative=relative)
 
     cookie = auth["cookie"]
     forgery_token = auth["forgery_token"]
@@ -821,18 +840,20 @@ def _run_single_kpi_query(auth: dict, task: dict, start_index: int = 0) -> tuple
 # ============================================================
 # 主入口（供 task_registry 懒加载调用）
 # ============================================================
-def run_mw_ume_kpi_sync():
-    """主流程：登录 → 查询 → 内存导出/解析 → 直写 app.db（表 mw_ume_bw_ultilazation）。
+def _run_sync_core(table_name: str, tasks: list, configs: dict,
+                   start_iso: str = None, end_iso: str = None,
+                   relative: int = None, window_desc: str = ""):
+    """通用同步流水线：登录 → 查询 → 内存导出/解析 → 直写 app.db。
 
     返回 dict（供任务执行历史展示）：{"success": bool, "rows_written": int, "table": str, "errors": [...]}
     """
     t_start = time.time()
     logger.info(f"[MAIN] MW UME KPI sync started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"[MAIN] Host: https://{HOST}:{PORT}{LOGIN_PORTAL}")
-    logger.info(f"[MAIN] Target table: {TABLE_NAME}")
-    logger.info(f"[MAIN] Days back: {DAYS_BACK} (昨天 00:00:00 到今天 00:00:00 UTC)")
+    logger.info(f"[MAIN] Target table: {table_name}")
+    logger.info(f"[MAIN] Time window: {window_desc or '昨天 00:00:00 到今天 00:00:00 UTC（默认）'}")
 
-    result = {"success": False, "rows_written": 0, "table": TABLE_NAME, "errors": []}
+    result = {"success": False, "rows_written": 0, "table": table_name, "errors": []}
 
     # 1. 登录
     auth = login()
@@ -845,8 +866,9 @@ def run_mw_ume_kpi_sync():
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
         future_to_task = {}
-        for idx, task in enumerate(MW_UME_KPI_TASKS):
-            future = executor.submit(_run_single_kpi_query, auth, task, idx)
+        for idx, task in enumerate(tasks):
+            future = executor.submit(_run_single_kpi_query, auth, task, idx,
+                                     configs, start_iso, end_iso, relative)
             future_to_task[future] = task
 
         for future in as_completed(future_to_task):
@@ -865,7 +887,7 @@ def run_mw_ume_kpi_sync():
         logger.error(f"[MAIN] No data fetched, skip DB write. errors={errors}")
         return result
 
-    # 3. 直写主库（固定表名 mw_ume_bw_ultilazation）
+    # 3. 直写主库
     total_written = 0
     for key, headers, data in datasets:
         try:
@@ -874,7 +896,7 @@ def run_mw_ume_kpi_sync():
                 raise Exception(f"无法确定主键（缺少 Begin Time 列）: {headers[:10]}")
             # 主键在当批数据内必须唯一，否则扩展列，避免 upsert 静默塌缩丢数据
             key_cols = ensure_unique_key_cols(headers, data, key_cols)
-            rows = save_to_db(TABLE_NAME, headers, data, key_cols)
+            rows = save_to_db(table_name, headers, data, key_cols)
             total_written += rows
         except Exception as e:
             errors.append(f"{key}(写库): {e}")
@@ -886,8 +908,62 @@ def run_mw_ume_kpi_sync():
     result["success"] = total_written > 0 and not errors
 
     logger.info(f"[MAIN] Total completed in {elapsed_total:.2f} seconds, "
-                f"written {total_written} rows to {TABLE_NAME}, errors={errors}")
+                f"written {total_written} rows to {table_name}, errors={errors}")
     gc.collect()
+    return result
+
+
+def run_mw_ume_kpi_sync():
+    """主流程（日粒度）：登录 → 查询 → 内存导出/解析 → 直写 app.db（表 mw_ume_bw_ultilazation）。"""
+    return _run_sync_core(TABLE_NAME, MW_UME_KPI_TASKS, MW_UME_KPI_QUERY_CONFIGS,
+                          window_desc=f"最近 {DAYS_BACK} 天（昨天 00:00:00 到今天 00:00:00 UTC）")
+
+
+def _cleanup_rt_retention():
+    """按保留期清理 RT 表：删除 Begin Time 早于「当前 UTC - RT_RETENTION_HOURS」的行。
+
+    与同步共用 get_raw_connection（sqlite/PG 双模）；Begin Time 落库格式为定宽
+    "%Y-%m-%d %H:%M:%S"（UTC），可直接按字符串比较。清理失败只记警告，不阻断同步。
+    返回删除行数。
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=RT_RETENTION_HOURS)).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        import sqlite3
+        from backend.dialect_helpers import safe_pragma  # noqa: F401  (保持双模连接语义一致)
+
+        with get_raw_connection(timeout=60.0) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                f'DELETE FROM "{RT_TABLE_NAME}" WHERE "Begin Time" < ?',
+                (cutoff,),
+            )
+            deleted = cur.rowcount
+            conn.commit()
+        if deleted:
+            logger.info(f"[MAIN] RT retention: deleted {deleted} rows older than {cutoff} "
+                        f"(retention={RT_RETENTION_HOURS:g}h) from {RT_TABLE_NAME}")
+        return deleted or 0
+    except Exception as e:
+        logger.warning(f"[MAIN] RT retention cleanup failed (non-fatal): {e}")
+        return 0
+
+
+def run_mw_ume_kpi_sync_rt():
+    """实时流程（15 分钟粒度，gr=900）：取最近 2 小时数据直写 app.db（表 mw_ume_bw_ultilazation_rt）。
+
+    看板只使用最新一个 15 分钟槽位；回看 2 小时是为容忍 UME 侧出数延迟，
+    保证每轮同步都能拿到至少一个完整槽位。
+    写库完成后顺带执行保留期清理（默认 25h），防止 RT 表无限增长。
+    """
+    now = datetime.now(timezone.utc)
+    end_iso = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    start_iso = (now - timedelta(hours=RT_WINDOW_HOURS)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    window_desc = f"最近 {RT_WINDOW_HOURS:g} 小时（{start_iso} ~ {end_iso}，gr=900/15 分钟）"
+    result = _run_sync_core(RT_TABLE_NAME, MW_UME_KPI_TASKS_RT, MW_UME_KPI_QUERY_CONFIGS_RT,
+                            start_iso=start_iso, end_iso=end_iso, relative=0,
+                            window_desc=window_desc)
+    if result.get("success"):
+        result["retention_deleted"] = _cleanup_rt_retention()
     return result
 
 

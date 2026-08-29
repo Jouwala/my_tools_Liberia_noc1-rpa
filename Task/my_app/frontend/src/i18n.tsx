@@ -41,6 +41,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.alarmManagement': '告警管理看板',
     'nav.cxoDashboard': 'CXO 经营看板',
     'nav.mwUmeTopology': 'MW 微波拓扑',
+    'nav.mwRealTime': 'MW 微波实时',
     'nav.emailReports': '任务报告文件',
 
     // 顶栏「自动刷新」控件（大屏展示 / NOC 值班场景）
@@ -902,6 +903,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.alarmManagement': 'Alarm Management',
     'nav.cxoDashboard': 'CXO Dashboard',
     'nav.mwUmeTopology': 'MW Topology',
+    'nav.mwRealTime': 'MW Real-Time',
     'nav.emailReports': 'Task Report Files',
 
     // Header "Auto Refresh" control (big-screen / NOC scenarios)

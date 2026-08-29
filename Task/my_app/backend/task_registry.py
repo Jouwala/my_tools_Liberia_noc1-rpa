@@ -343,6 +343,13 @@ TASK_SPECS = [
          description_en="MW UME (ZXMW microwave) KPI history sync (FINBI 1-day), in-memory export without disk, direct write to app.db table mw_ume_bw_ultilazation (dedup by Begin Time + identity cols)",
          default_cron="15 5 * * *", category="mw_ume"),
 
+    # 32b. MW UME KPI 实时同步（每 15 分钟，gr=900 取最近 2 小时，直写 mw_ume_bw_ultilazation_rt）
+    dict(task_id="mw_ume_kpi_sync_rt", name="MW UME KPI 实时同步", name_en="MW UME KPI Realtime Sync",
+         loader=("backend.services.mw_ume.mw_ume_kpi_service", "run_mw_ume_kpi_sync_rt"),
+         description="MW UME (ZXMW 微波) KPI 实时指标同步（FINBI 模板 15 分钟粒度），每 15 分钟取最近 2 小时数据，内存导出不落盘，直接写入 app.db 表 mw_ume_bw_ultilazation_rt（看板只取最新 15 分钟槽位）",
+         description_en="MW UME (ZXMW microwave) realtime KPI sync (FINBI 15-min granularity): every 15 min fetch the last 2 hours, in-memory export without disk, direct write to app.db table mw_ume_bw_ultilazation_rt (dashboard uses only the latest 15-min slot)",
+         default_cron="*/15 * * * *", category="mw_ume"),
+
     # 34. CN EMS KPI 原始文件缓存同步（每15分钟）：EMS SFTP 只保留约1天原始PM文件，
     #     靠白天持续增量缓存把整天数据在服务端清理前保住（fetch 模式只下载缺失文件，轻量）
     dict(task_id="ems_kpi_cache_sync", name="CN EMS KPI 缓存同步", name_en="CN EMS KPI Cache Sync",

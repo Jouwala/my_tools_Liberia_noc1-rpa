@@ -4,7 +4,7 @@
 
 **先记住两件事**
 
-- 有 **6 个页面是 iframe 壳**（下表标注「iframe」），真正界面在 `frontend/public/*.html` 里，React 只负责加载与注入语言。这类页面样式/交互和 React 页不一致，改了 React 代码不会影响它们。
+- 有 **7 个页面是 iframe 壳**（下表标注「iframe」），真正界面在 `frontend/public/*.html` 里，React 只负责加载与注入语言。这类页面样式/交互和 React 页不一致，改了 React 代码不会影响它们。
 - 只有「任务管理」有常驻轮询（60s 刷列表 + 30s 时基，`pages/DataSync.tsx:165,173`）。其他页面的"自动刷新"来自**顶栏全局设置**（默认 300 秒，可改 0/30/60/300/600/900/1800）。看板数据看起来不动，先看顶栏刷新间隔。
 
 | # | 菜单 | key | 形态 |
@@ -17,21 +17,22 @@
 | 6 | MS Operation KPI 看板 | `ms_sla` | React |
 | 7 | CXO 经营看板 | `cxoDashboard` | **iframe** |
 | 8 | MW 微波拓扑 | `mwUmeTopology` | **iframe** |
-| 9 | GIS 地图 | `gis` | React |
-| 10 | 实时告警地图 | `realtime_alarm` | React（同组件另一模式） |
-| 11 | 告警管理看板 | `alarmManagement` | **iframe** |
-| 12 | 丢包看板 | `packet_loss` | React |
-| 13 | 电池看板 | `battery` | React |
-| 14 | IP 链路探测 | `ip_trace` | **iframe** |
-| 15 | 事件总览 | `incident_overview` | **iframe** |
-| 16 | 仓库看板 | `warehouse` | **iframe** |
-| 17 | 数据总览 | `overview` | React |
-| 18 | 表浏览器 | `tables` | React |
-| 19 | 数据上传 | `upload` | React |
-| 20 | 分析归档 | `archive` | React |
-| 21 | 分析仪表盘 | `dashboard` | React |
-| 22 | 系统设置 | `settings` | React（4 页签） |
-| 23 | 门户一键登录 | `portalLogin` | React |
+| 9 | MW 微波实时 | `mwRealTime` | **iframe** |
+| 10 | GIS 地图 | `gis` | React |
+| 11 | 实时告警地图 | `realtime_alarm` | React（同组件另一模式） |
+| 12 | 告警管理看板 | `alarmManagement` | **iframe** |
+| 13 | 丢包看板 | `packet_loss` | React |
+| 14 | 电池看板 | `battery` | React |
+| 15 | IP 链路探测 | `ip_trace` | **iframe** |
+| 16 | 事件总览 | `incident_overview` | **iframe** |
+| 17 | 仓库看板 | `warehouse` | **iframe** |
+| 18 | 数据总览 | `overview` | React |
+| 19 | 表浏览器 | `tables` | React |
+| 20 | 数据上传 | `upload` | React |
+| 21 | 分析归档 | `archive` | React |
+| 22 | 分析仪表盘 | `dashboard` | React |
+| 23 | 系统设置 | `settings` | React（4 页签） |
+| 24 | 门户一键登录 | `portalLogin` | React |
 
 ---
 
@@ -109,7 +110,15 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 - 壳载入 `public/mw_ume_topology.html`（:17）。
 - 数据来自 `GET /api/mw-ume/topology`，底层表 `mw_ume_bw_ultilazation` 由 `mw_ume_kpi_sync` **每天 05:15** 写入（`backend/services/mw_ume/mw_ume_topology.py`）。所以本页一天只变一次，早上看到的还是昨天的数。
 
-## 9 / 10. GIS 地图 与 实时告警地图（`?page=gis` / `?page=realtime_alarm`）
+## 9. MW 微波实时（`?page=mwRealTime`）— iframe
+
+与第 8 页同构的 15 分钟粒度实时版（`MwRealTimeDashboard.tsx`）。
+
+- 壳载入 `public/mw_real_time.html`；页面默认 900 秒自动刷新，且支持软刷新（不重载 iframe）。
+- 数据来自 `GET /api/mw-ume/realtime`，底层表 `mw_ume_bw_ultilazation_rt` 由 `mw_ume_kpi_sync_rt` **每 15 分钟**（`*/15 * * * *`）写入：取最近 2 小时、`gr=900` 的 FINBI 数据，看板默认只展示**最新一个 15 分钟槽位**，滑杆可回看窗口内的历史槽位。
+- 与日粒度页的区别仅此而已：拓扑骨架、风险榜、抽屉、趋势图逻辑完全一致。
+
+## 10 / 11. GIS 地图 与 实时告警地图（`?page=gis` / `?page=realtime_alarm`）
 
 同一个组件 `<GISMap/>` 的两种模式（`App.tsx:286-289`），实时模式传 `mode="realtime"`。站点在地图上的告警/工单分布与下钻。
 
@@ -120,7 +129,7 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 - **区分两页的口径**：实时告警地图带红色"实时"Tag（`GISMap.tsx:421`），数据来自 `eflow_active_alarm`（每 30 分钟）；普通 GIS 页走历史/工单口径。
 - 页头同样消费 `useDataTimestamps`（:11,43）显示同步状态。
 
-## 11. 告警管理看板（`?page=alarmManagement`）— iframe
+## 12. 告警管理看板（`?page=alarmManagement`）— iframe
 
 `AlarmManagement.tsx:6` → `public/alarm-management.html`，其 `<title>` 是 **Site Outages Monitor Dashboard · Alarm Management**，即**宕站（Site Outage）监控看板**。菜单名"告警管理"容易和第 3 页混，区别是：
 
@@ -131,7 +140,7 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 
 `site_outage_screenshot` 的截图对象正是本看板的 **ERA / Regular / ALL 三个视图**（`task_registry.py:95-99`）。**改这个 iframe 页的 DOM 会连带影响自动截图任务**——改前先确认截图选择器还找得到。界面能力以该 HTML 自身为准。
 
-## 12. 丢包看板（`?page=packet_loss`）
+## 13. 丢包看板（`?page=packet_loss`）
 
 LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时粒度**，当天没过完不展示（`PacketLossDashboard.tsx:2-5`）。
 
@@ -140,7 +149,7 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 - 接口：`/api/packet-loss-dashboard/overview`、`/map-sites`、`/drilldown`。
 - 数据由 `packet_loss_sync`（06:30）写入 `lte_pl.sqlite3`。
 
-## 13. 电池看板（`?page=battery`）
+## 14. 电池看板（`?page=battery`）
 
 站点电池健康度 / SOC / 充放电状态。
 
@@ -149,23 +158,23 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 - 接口：`GET /api/battery-dashboard/all`、`/trend?days=`（:161-162）、单站下钻 `/api/battery-dashboard/site/{site}`（:315）。
 - 数据由 `battery_kpi_sync` 每小时 :05 写入 `data/battery/battery_kpi.sqlite3`。
 
-## 14. IP 链路探测（`?page=ip_trace`）— iframe
+## 15. IP 链路探测（`?page=ip_trace`）— iframe
 
 `IpTrace.tsx:16` → `public/ip-trace.html`（`<title>` 为 **IP Trace & Node Detection Dashboard**），接口由内页自调：`/api/ip-trace/trace`、`/status`、`/stop`、`/analyze`。用于从服务器侧探测到目标站点的链路连通性与路径；`/stop` 说明探测是**可中断的长任务**，卡住时可以手动停。
 
-## 15. 事件总览（`?page=incident_overview`）— iframe
+## 16. 事件总览（`?page=incident_overview`）— iframe
 
 `IncidentOverview.tsx:17` → `public/incident-overview.html`（`<title>` 为 **OLR Incident Dashboard**），接口 `/api/incident-overview`。数据由 `incident_overview_sync` **每小时整点**从 FineBI FTP 调度目录取最新 `incident_overview.xlsx`，以"版本化文件 + `current.json` 指针"落盘（`task_registry.py:296-301`）——这样即使上游 Excel 一直被打开占用，取数也不会失败。
 
-## 16. 仓库看板（`?page=warehouse`）— iframe
+## 17. 仓库看板（`?page=warehouse`）— iframe
 
 备件/耗材库存看板（菜单 i18n key 是 `nav.sp`，HTML `<title>` 为 **OLR Spare Management Dashboard**）。`WarehouseDashboard.tsx:7-11` 说明它**完整复用** `Unified_Tools/WareHouseDashBoard/templates/index.html` 以保证与原看板"完全一样"，React 侧只用 `<iframe>` 加载 `public/warehouse-dashboard.html` 并在 `load` 事件后注入样式/DOM（:20-51）。内页调 `/api/data`、`/api/warehouses`、`/api/details`（`routers/sp_dashboard.py:25-55`）。
 
-## 17. 数据总览（`?page=overview`）
+## 18. 数据总览（`?page=overview`）
 
 库里有多少表、每张表多少行的**体检页**。`GET /api/db/info`（`Overview.tsx:24`），Top10 规模排名，「行数」列可排序（:151）。**没有其它按钮**——它只回答"数据在不在、大不大"。
 
-## 18. 表浏览器（`?page=tables`）
+## 19. 表浏览器（`?page=tables`）
 
 不写 SQL 就能翻任意表、看字段画像、导文件。**最常用的兜底工具**。
 
@@ -176,7 +185,7 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 - **导入**（:412 → `POST /api/tables/import`，:149，`multipart/form-data`）。
 - **画像页签**：字段级统计（:572 → `GET /api/tables/{t}/profile`，:273），与"数据"页签并列（:548）。
 
-## 19. 数据上传（`?page=upload`）
+## 20. 数据上传（`?page=upload`）
 
 拖拽 Excel/CSV 入库，并给出**数据质量评分**。
 
@@ -184,7 +193,7 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 - 上传后先看**问题面板 / 结论面板**（:101）再决定用不用这批数据。
 - 历史列表可手动刷新（:144 → `GET /api/upload/history`）。
 
-## 20. 分析归档（`?page=archive`）
+## 21. 分析归档（`?page=archive`）
 
 历史分析结果的检索与删除，与分析仪表盘配套。
 
@@ -192,7 +201,7 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 - 查看详情（:119 → `GET /api/analysis/{id}`）：含结论文字 + **图表快照**（:234,:246）。
 - 删除需确认（:122 → `DELETE /api/analysis/{id}`）。
 
-## 21. 分析仪表盘（`?page=dashboard`）
+## 22. 分析仪表盘（`?page=dashboard`）
 
 选一张表自动生成多维图表和结论，并可归档。
 
@@ -201,7 +210,7 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 - 接口：`GET /api/tables`（:37）、`POST /api/analysis`（:56 生成、:72 归档）。
 - 用 `components/MetricExplain` 展示指标口径，页头同步标签来自 `useDataTimestamps`。
 
-## 22. 系统设置（`?page=settings`）
+## 23. 系统设置（`?page=settings`）
 
 四个页签（`Settings.tsx:11-35`，默认打开「凭据」）：
 
@@ -214,7 +223,7 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 
 > ⚠️ **容易找错位置**：「任务配置」页签在**系统设置**里，不在任务管理页。虽然它的文件在 `pages/datasync/` 目录下。
 
-## 23. 门户一键登录（`?page=portalLogin`）
+## 24. 门户一键登录（`?page=portalLogin`）
 
 用已保存的凭据替你把上游门户登录好（Playwright 自动化），省得逐个手输账号口令。
 

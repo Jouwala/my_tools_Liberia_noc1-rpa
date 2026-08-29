@@ -30,6 +30,7 @@ import {
   MailOutlined,
   ApartmentOutlined,
   CloseOutlined,
+  FieldTimeOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -61,13 +62,14 @@ const AlarmManagement = lazy(() => import('./pages/AlarmManagement'))
 const CxoDashboard = lazy(() => import('./pages/CxoDashboard'))
 const EmailReports = lazy(() => import('./pages/EmailReports'))
 const MwUmeDashboard = lazy(() => import('./pages/MwUmeDashboard'))
+const MwRealTimeDashboard = lazy(() => import('./pages/MwRealTimeDashboard'))
 const PortalLogin = lazy(() => import('./pages/PortalLogin'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'email_reports' | 'mwUmeTopology' | 'portalLogin'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin'
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'email_reports', 'mwUmeTopology', 'portalLogin']
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin']
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -86,8 +88,10 @@ const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'al
 const AR_STORAGE_KEY = 'myapp_auto_refresh_sec'
 const AR_OPTIONS = [0, 30, 60, 300, 600, 900, 1800]
 const AR_PAGE_DEFAULT_SEC = 300 // 所有页面默认间隔（秒）
+// 按页面覆盖的默认间隔：实时看板数据每 15 分钟同步一次，刷新过快无意义
+const AR_PAGE_DEFAULTS: Partial<Record<PageKey, number>> = { mwRealTime: 900 }
 // 支持软刷新协议（postMessage myapp-refresh 原地重拉数据）的 legacy 页面
-const AR_SOFT_REFRESH_PAGES: PageKey[] = ['mwUmeTopology']
+const AR_SOFT_REFRESH_PAGES: PageKey[] = ['mwUmeTopology', 'mwRealTime']
 
 function arReadOverride(): number | null {
   try {
@@ -142,7 +146,7 @@ function AppContent() {
   const [refreshTick, setRefreshTick] = useState(0)
   const [arSpin, setArSpin] = useState(false)
   const arSpinTimer = useRef<number | null>(null)
-  const arEffective = arOverride ?? AR_PAGE_DEFAULT_SEC
+  const arEffective = arOverride ?? AR_PAGE_DEFAULTS[currentPage] ?? AR_PAGE_DEFAULT_SEC
 
   const performAutoRefresh = useCallback(() => {
     // 后台标签 / 弹窗打开：本轮跳过，避免打断交互与无谓请求
@@ -188,6 +192,7 @@ function AppContent() {
     { key: 'ms_sla', icon: <FundOutlined />, label: t('nav.msSla') },
     { key: 'cxoDashboard', icon: <PieChartOutlined />, label: t('nav.cxoDashboard') },
     { key: 'mwUmeTopology', icon: <ApartmentOutlined />, label: t('nav.mwUmeTopology') },
+    { key: 'mwRealTime', icon: <FieldTimeOutlined />, label: t('nav.mwRealTime') },
     { key: 'gis', icon: <GlobalOutlined />, label: t('nav.gis') },
     { key: 'realtime_alarm', icon: <AlertOutlined />, label: t('nav.realtimeAlarm') },
     { key: 'alarmManagement', icon: <AlertOutlined />, label: t('nav.alarmManagement') },
@@ -281,6 +286,8 @@ function AppContent() {
         return <CxoDashboard />
       case 'mwUmeTopology':
         return <MwUmeDashboard />
+      case 'mwRealTime':
+        return <MwRealTimeDashboard />
       case 'email_reports':
         return <EmailReports />
       case 'gis':

@@ -29,7 +29,7 @@ APScheduler 到点 (backend 进程内)
 | 组 | 任务数 | 约束原因 | 成员 task_id |
 | --- | --- | --- | --- |
 | `u` | 9 | RAN UME 单账号会话，必须串行（并发会被踢会话） | `ran_ume_daily`, `main_kpi_sync`, `cell_availability_sync`, `network_kpi_sync`, `packet_loss_sync`, `packet_loss_email`, `battery_kpi_sync`, `ipran_kpi_sync`, `cm_data_sync` |
-| `n` | 10 | 网管/eFlow API/远程系统，彼此独立但保守同组 | `eflow_sync`, `eflow_sync_full`, `eflow_active_alarm`, `eflow_history_alarm`, `eflow_tt_rules_check`, `ms_sla_full`, `cnn_kpi_sync`, `fw_kpi_sync`, `sp_data_sync`, `mw_ume_kpi_sync` |
+| `n` | 11 | 网管/eFlow API/远程系统，彼此独立但保守同组 | `eflow_sync`, `eflow_sync_full`, `eflow_active_alarm`, `eflow_history_alarm`, `eflow_tt_rules_check`, `ms_sla_full`, `cnn_kpi_sync`, `fw_kpi_sync`, `sp_data_sync`, `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
 | `m` | 20 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 | `site_outage_screenshot`, `whatsapp_send`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `finebi_report_sync`, `pg_to_sqlite_sync` |
 | `c` | 2 | CN EMS 独立会话，两个任务共享 `_pmcache`/`daily_raw.json`，同组保证互斥 | `ems_kpi_cache_sync`, `ems_kpi_daily` |
 
@@ -80,6 +80,7 @@ APScheduler 到点 (backend 进程内)
 | `cm_data_sync` | RAN CM 小区数据同步 | `30 8 * * *` | u |
 | `pg_to_sqlite_sync` | PG→SQLite 数据快照 | `45 * * * *` | m |
 | `mw_ume_kpi_sync` | MW UME KPI 同步 | `15 5 * * *` | n |
+| `mw_ume_kpi_sync_rt` | MW UME KPI 实时同步（15 分钟粒度） | `*/15 * * * *` | n |
 | `ems_kpi_cache_sync` | CN EMS KPI 缓存同步 | `*/15 * * * *` | c |
 | `ems_kpi_daily` | CN EMS KPI 日粒度CSV | `20 0 * * *` | c |
 

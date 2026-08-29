@@ -5,12 +5,15 @@ GET /api/mw-ume/topology?top_n=10            : 完整拓扑数据（Nodes/Edges/
 GET /api/mw-ume/topology?date=2026-08-05     : 指定日期的拓扑数据（trends 仍为全部日期）
 GET /api/mw-ume/topology?backbone=1          : 仅骨干网链路（两端 IP 均以 10. 开头），全部统计随子集重算
 GET /api/mw-ume/topology?refresh=1           : 强制刷新（绕过 5 分钟缓存）
+
+GET /api/mw-ume/realtime                     : 15 分钟实时拓扑（数据源表 mw_ume_bw_ultilazation_rt，
+                                               由 mw_ume_kpi_sync_rt 每 15 分钟写入，自动取最新槽位）
 """
 import logging
 
 from fastapi import APIRouter, Query
 
-from backend.services.mw_ume.mw_ume_topology import get_topology
+from backend.services.mw_ume.mw_ume_topology import get_topology, get_realtime_topology
 
 logger = logging.getLogger("mw_ume_router")
 router = APIRouter(prefix="/api/mw-ume", tags=["mw-ume"])
@@ -23,3 +26,12 @@ def topology(top_n: int = Query(10, ge=1, le=50),
              backbone: int = Query(0, description="1=仅骨干网链路（两端 IP 均以 10. 开头）")):
     """返回微波网络拓扑（节点/链路/分级 KPI/Top 风险链路/历史趋势）。"""
     return get_topology(top_n=top_n, force=bool(refresh), date=date, backbone=bool(backbone))
+
+
+@router.get("/realtime")
+def realtime(top_n: int = Query(10, ge=1, le=50),
+             refresh: int = Query(0),
+             date: str = Query(None, description="所选 15 分钟槽位（完整 Begin Time）；缺省=最新槽位"),
+             backbone: int = Query(0, description="1=仅骨干网链路（两端 IP 均以 10. 开头）")):
+    """返回微波网络 15 分钟实时拓扑（最新槽位 KPI + 最近 24h 15 分钟趋势）。"""
+    return get_realtime_topology(top_n=top_n, force=bool(refresh), date=date, backbone=bool(backbone))
