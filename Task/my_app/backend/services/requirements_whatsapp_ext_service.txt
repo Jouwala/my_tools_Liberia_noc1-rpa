@@ -1,0 +1,5 @@
+# WhatsApp 扩展发送服务（backend/services/whatsapp_ext_service.py）依赖清单
+# 无新增第三方依赖，复用 my_app 现有环境与模块：
+# - 标准库       （os / json / time / uuid / logging / datetime / pathlib / urllib.parse）
+# - backend.services.whatsapp_service.SITE_OUTAGE_DIR / GROUPS（图片目录与群组配置）
+# 作业状态用原子写 JSON 文件（临时文件 + os.replace），不依赖 DB / Redis。

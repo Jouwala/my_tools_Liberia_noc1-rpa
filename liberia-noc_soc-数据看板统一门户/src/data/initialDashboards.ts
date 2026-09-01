@@ -9,7 +9,8 @@ import { getFinebiHost, getMyappHost, buildRel } from '../config';
 //    地址形如 http://<finebiHost>/webroot/decision/link/<code>
 // 说明：主机（192.168.100.19 / .20）统一收口到 src/config.ts，此处仅描述相对路径；
 // 完整 URL 在导出时由 withRel 计算，运行时再由配置 + rel 拼出，改 IP 只需改配置一处。
-// 默认配置由「门户 UI 导出 JSON」重新生成（2026-08-15 08:34 版本，37 条）。
+// 默认配置由「门户 UI 导出 JSON」重新生成（2026-08-15 08:34 版本，37 条），
+// 2026-08-29 起补充 my_app 新增页面：MW 微波拓扑 / MW 微波实时 / 任务报告文件 / 门户一键登录（共 41 条）。
 // ============================================================================
 
 const MYAPP_BASE = `http://${getMyappHost()}/myapp/?page=`;
@@ -212,6 +213,42 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       status: 'online'
     },
     {
+      id: 'custom-mw-ume-topology',
+      title: 'MW Topology (微波网络拓扑看板)',
+      description: '基于 UME 微波网管数据呈现全网微波链路拓扑与站点连接关系，支持按日期滑杆回溯、链路状态着色与故障链路定位下钻。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}mwUmeTopology`,
+      category: '传输承载与业务时延',
+      tags: ['微波', 'MW', '拓扑', 'UME'],
+      iconName: 'Network',
+      updateFrequency: '每日0点',
+      department: '传输与 IP 网管部',
+      owner: '传输工程师',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'cyan',
+      status: 'online'
+    },
+    {
+      id: 'custom-mw-realtime',
+      title: 'MW Real-Time (微波实时 NOC 看板)',
+      description: 'MW UME 微波网络实时 NOC 监控大屏：链路实时状态、告警与性能指标持续刷新，支持日期回溯与链路明细下钻，快速定位微波传输中断。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}mwRealTime`,
+      category: '传输承载与业务时延',
+      tags: ['微波', 'MW', '实时监控', 'NOC', 'UME'],
+      iconName: 'RadioTower',
+      updateFrequency: '实时流式',
+      department: '传输与 IP 网管部',
+      owner: '传输工程师',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'blue',
+      status: 'online'
+    },
+    {
       id: 'custom-battery',
       title: 'Battery Dashboard (基站电池健康度看板)',
       description: '基站动环蓄电池监控：充放电曲线、市电停电续航时长与电池组老化预警，每小时同步（:05），每日 07:00/19:00 自动邮件报表。',
@@ -399,6 +436,42 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 300,
       lastVisited: '2026-08-12 09:00',
       themeColor: 'cyan',
+      status: 'online'
+    },
+    {
+      id: 'custom-email-reports',
+      title: 'Task Report Files (任务报告文件中心)',
+      description: '汇聚各邮件发送任务生成的最新报告文件（Excel/HTML）、FineBI FTP 每小时同步报表与 eFlow TT 级别规则检查结果，点击文件名即可下载。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}email_reports`,
+      category: '自动化调度与数据集成',
+      tags: ['报告文件', '报表下载', 'FineBI', 'eFlow'],
+      iconName: 'FileSpreadsheet',
+      updateFrequency: '每小时',
+      department: '数据运营部',
+      owner: '数据分析员',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'teal',
+      status: 'online'
+    },
+    {
+      id: 'custom-portal-login',
+      title: 'Portal Login (网管门户一键登录)',
+      description: 'UME / eFlow 等网管门户账号集中管理与一键自动登录，实时显示各门户登录状态，支持失败重试与会话关闭。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}portalLogin`,
+      category: '自动化调度与数据集成',
+      tags: ['一键登录', '门户', '凭据管理'],
+      iconName: 'LogIn',
+      updateFrequency: '实时流式',
+      department: 'DevOps 架构部',
+      owner: '系统管理员',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'indigo',
       status: 'online'
     },
     {
@@ -764,5 +837,9 @@ export const AVAILABLE_ICONS = [
   { name: 'UploadCloud', label: '数据上传' },
   { name: 'History', label: '归档/历史' },
   { name: 'Settings', label: '系统设置' },
-  { name: 'Settings2', label: '规则配置' }
+  { name: 'Settings2', label: '规则配置' },
+  { name: 'Network', label: '网络拓扑/微波' },
+  { name: 'RadioTower', label: '基站/无线实时' },
+  { name: 'FileSpreadsheet', label: '报表文件下载' },
+  { name: 'LogIn', label: '门户一键登录' }
 ];

@@ -36,9 +36,12 @@ export interface DashboardItem {
   themeColor: 'teal' | 'indigo' | 'emerald' | 'cyan' | 'purple' | 'amber' | 'rose' | 'blue' | 'green';
   status: DashboardStatus;
   customThumbnail?: string;
+  /** 仅本机隐藏标记：来自各浏览器 localStorage 偏好，「保存为默认目录」时会被剥离，
+   *  任何电脑都可以隐藏自己不想看的看板，互不影响，也不会进入服务端全局默认。 */
+  hidden?: boolean;
 }
 
-export type ViewMode = 'grid' | 'list' | 'matrix';
+export type ViewMode = 'grid' | 'list' | 'matrix' | 'tasks';
 
 export type SortOption = 'pinned' | 'popular' | 'recent' | 'name' | 'platform';
 

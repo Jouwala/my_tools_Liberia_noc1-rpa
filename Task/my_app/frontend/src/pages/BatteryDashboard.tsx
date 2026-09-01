@@ -782,10 +782,10 @@ export default function BatteryDashboard() {
         {drillLoading ? <div style={{ textAlign: 'center', padding: '2.5rem' }}><Spin /></div> : (
           <>
             <Row gutter={[12, 12]} style={{ marginBottom: '0.75rem' }}>
-              <Col span={6}><Statistic title={t('batt.batteries')} value={drillData?.batteries?.length || 0} /></Col>
-              <Col span={6}><Statistic title={t('batt.fresh')} value={(drillData?.batteries || []).filter((b: any) => b.freshness === 'fresh').length} /></Col>
-              <Col span={6}><Statistic title={t('batt.discharging')} value={(drillData?.batteries || []).filter((b: any) => b.status === 'Discharge' && b.freshness === 'fresh').length} /></Col>
-              <Col span={6}><Statistic title={t('batt.historyPoints')} value={drillData?.readings?.length || 0} /></Col>
+              <Col xs={12} sm={6}><Statistic title={t('batt.batteries')} value={drillData?.batteries?.length || 0} /></Col>
+              <Col xs={12} sm={6}><Statistic title={t('batt.fresh')} value={(drillData?.batteries || []).filter((b: any) => b.freshness === 'fresh').length} /></Col>
+              <Col xs={12} sm={6}><Statistic title={t('batt.discharging')} value={(drillData?.batteries || []).filter((b: any) => b.status === 'Discharge' && b.freshness === 'fresh').length} /></Col>
+              <Col xs={12} sm={6}><Statistic title={t('batt.historyPoints')} value={drillData?.readings?.length || 0} /></Col>
             </Row>
             <div className="wh-table-responsive">
               <Table rowKey="position" size="small" pagination={false} scroll={{ y: 260 }}

@@ -750,6 +750,7 @@ def save_to_db(table_name: str, headers: list, data: list, key_cols: list) -> in
         return 0
 
     import sqlite3
+    import hashlib
 
     def _q(col):
         return '"' + col.replace('"', '""') + '"'
@@ -757,46 +758,68 @@ def save_to_db(table_name: str, headers: list, data: list, key_cols: list) -> in
     # app.db 主库（backend.database.get_raw_connection 默认路径；PG 模式映射 app schema）
     with get_raw_connection(timeout=60.0) as conn:
         cursor = conn.cursor()
+        is_pg = not isinstance(conn, sqlite3.Connection)
 
-        # 建表（幂等，全部 TEXT，不强制 NOT NULL）
-        cols_decl = ", ".join(f"{_q(h)} TEXT" for h in headers)
-        cursor.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({cols_decl})')
+        # PG 并发串行化（2026-08-31 修复）：本流程用固定索引名 u_<table>，且每次
+        # 无条件 DROP+CREATE UNIQUE INDEX；而 _PsycopgRaw 为 autocommit，每个语句
+        # 立即提交，两个并发写者（如生产 Worker + 开发实例 in-process 同时触发）会
+        # 互删对方刚建好的唯一索引，导致 INSERT ... ON CONFLICT 时报
+        # 「没有匹配ON CONFLICT说明的唯一或者排除约束」(SQLSTATE 42P10)。
+        # 用 PG 会话级 advisory lock 让同一张表的写者排队，串行执行 DROP/CREATE/INSERT，
+        # 从根上消除该竞态（sqlite 走 INSERT OR REPLACE 不依赖索引，无需加锁）。
+        lock_key = None
+        if is_pg:
+            # 63-bit 正 bigint（PG advisory lock 合法键），由表名稳定派生
+            lock_key = int.from_bytes(
+                hashlib.sha256(f"u_{table_name}".encode("utf-8")).digest()[:8], "big"
+            ) & 0x7FFFFFFFFFFFFFFF
+            cursor.execute("SELECT pg_advisory_lock(?)", (lock_key,))
+        try:
+            # 建表（幂等，全部 TEXT，不强制 NOT NULL）
+            cols_decl = ", ".join(f"{_q(h)} TEXT" for h in headers)
+            cursor.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({cols_decl})')
 
-        # 补列
-        exist_cols = set(table_columns(conn, table_name))
-        for h in headers:
-            if h not in exist_cols:
+            # 补列
+            exist_cols = set(table_columns(conn, table_name))
+            for h in headers:
+                if h not in exist_cols:
+                    try:
+                        cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(h)} TEXT')
+                    except Exception:
+                        pass
+
+            # 清理历史重复行（rowid 仅 sqlite；PG 用 ctid），再重建唯一索引，upsert 才能生效
+            pk_q = ", ".join(_q(k) for k in key_cols)
+            if isinstance(conn, sqlite3.Connection):
+                cursor.execute(
+                    f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
+                    f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
+                )
+            else:
+                cursor.execute(
+                    f'DELETE FROM "{table_name}" WHERE ctid NOT IN ('
+                    f'SELECT MIN(ctid) FROM "{table_name}" GROUP BY {pk_q})'
+                )
+            cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
+            cursor.execute(f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({pk_q})')
+
+            # 构造记录（统一转 str）
+            records = []
+            for row in data:
+                r = list(row)
+                if len(r) < len(headers):
+                    r = r + [None] * (len(headers) - len(r))
+                records.append({h: (str(v) if v is not None else None)
+                                for h, v in zip(headers, r[:len(headers)])})
+
+            upsert(conn, table_name, records, conflict_cols=list(key_cols))
+            conn.commit()
+        finally:
+            if is_pg and lock_key is not None:
                 try:
-                    cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(h)} TEXT')
-                except Exception:
+                    cursor.execute("SELECT pg_advisory_unlock(?)", (lock_key,))
+                except Exception:  # noqa: BLE001 - 连接可能已关闭，解锁失败忽略
                     pass
-
-        # 清理历史重复行（rowid 仅 sqlite；PG 用 ctid），再重建唯一索引，upsert 才能生效
-        pk_q = ", ".join(_q(k) for k in key_cols)
-        if isinstance(conn, sqlite3.Connection):
-            cursor.execute(
-                f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
-                f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
-            )
-        else:
-            cursor.execute(
-                f'DELETE FROM "{table_name}" WHERE ctid NOT IN ('
-                f'SELECT MIN(ctid) FROM "{table_name}" GROUP BY {pk_q})'
-            )
-        cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
-        cursor.execute(f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({pk_q})')
-
-        # 构造记录（统一转 str）
-        records = []
-        for row in data:
-            r = list(row)
-            if len(r) < len(headers):
-                r = r + [None] * (len(headers) - len(r))
-            records.append({h: (str(v) if v is not None else None)
-                            for h, v in zip(headers, r[:len(headers)])})
-
-        upsert(conn, table_name, records, conflict_cols=list(key_cols))
-        conn.commit()
 
     logger.info(f"  [DB] {table_name}: Upserted {len(records)} rows (pk={key_cols})")
     return len(records)

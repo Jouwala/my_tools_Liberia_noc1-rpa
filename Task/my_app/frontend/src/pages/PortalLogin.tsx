@@ -143,7 +143,7 @@ export default function PortalLogin() {
             return (
               <Card
                 key={p.key}
-                style={{ width: 320 }}
+                style={{ width: 'min(100%, 20rem)' }}
                 title={
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span>{locale === 'en' ? p.name_en : p.name}</span>

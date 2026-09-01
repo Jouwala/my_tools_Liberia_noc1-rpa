@@ -255,6 +255,40 @@ function Ensure-Frontend {
 }
 $frontendOk = Ensure-Frontend
 
+# ---------- 4) WhatsApp analysis service (9268, external project liberia-noc_soc portal) ----------
+Add-Report "----- 4) WhatsApp analysis (9268) -----"
+function Ensure-WhatsAppAnalysis {
+    if (Test-PortListening 9268) {
+        Add-Report '[OK] WhatsApp analysis service already running (port 9268 listening)'
+        return $true
+    }
+    $waDir = 'D:\01_RPA\liberia-noc_soc-数据看板统一门户\scripts\whatsapp_analysis'
+    if (-not (Test-Path $waDir)) {
+        Add-Report ("[WARN] WhatsApp analysis directory not found: {0}, skipped" -f $waDir)
+        $script:warnCount++
+        return $true
+    }
+    $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
+    if (-not $npm) { $npm = Get-Command npm -ErrorAction SilentlyContinue }
+    if (-not $npm) {
+        Add-Report '[WARN] npm not found, skipping WhatsApp analysis service'
+        $script:warnCount++
+        return $true
+    }
+    Start-Process -FilePath $npm.Source -ArgumentList 'start' `
+        -WorkingDirectory $waDir -WindowStyle Hidden `
+        -RedirectStandardOutput (Join-Path $logDir 'whatsapp_analysis.log') `
+        -RedirectStandardError (Join-Path $logDir 'whatsapp_analysis.log.err')
+    if (Wait-Port 9268 30) {
+        Add-Report '[OK] WhatsApp analysis service started on port 9268'
+        return $true
+    }
+    Add-Report '[WARN] WhatsApp analysis service did not listen on port 9268 within 30s, check log\whatsapp_analysis.log for details'
+    $script:warnCount++
+    return $true
+}
+$waOk = Ensure-WhatsAppAnalysis
+
 # ======================================================================
 # Summary: write result file + (non-Quiet) show popup dialog
 # ======================================================================

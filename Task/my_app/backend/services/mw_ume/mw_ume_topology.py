@@ -63,6 +63,10 @@ _phys_cache = None  # [{a_ip, a_name, a_lat, a_lon, b_ip, b_name, b_lat, b_lon},
 _site_cache_lock = threading.Lock()
 _site_cache = None  # {"exact": {name: (lat,lon)}, "norm": {norm: (name,lat,lon)}, "list": [...], "ip": {ip: (name,lat,lon)}}
 
+# master_site_db site_id 缓存（site_name -> site_id）
+_site_id_cache_lock = threading.Lock()
+_site_id_cache = None  # {site_name_norm: site_id}
+
 
 def level_of(u):
     """利用率 -> 分级字符串。u 为 None 时返回 'unknown'。"""
@@ -373,11 +377,24 @@ def _build_trends(hist_by_ip_pair, max_points: int = None):
     return trends
 
 
+def _clean_id(val):
+    """将 site_id 转为干净的字符串，去掉 float 尾巴（如 4017.0 -> 4017）。"""
+    if val is None:
+        return ""
+    try:
+        f = float(val)
+        if f == int(f):
+            return str(int(f))
+    except (TypeError, ValueError):
+        pass
+    return str(val).strip()
+
+
 def _load_physical_links():
     """从 zte_mw_links 加载全部物理链路（线程安全单次加载）。
 
-    返回列表：[{a_ip, a_name, a_lat, a_lon, b_ip, b_name, b_lat, b_lon}, ...]
-    每条记录是一条微波物理链路的 A/B 两端信息。
+    返回列表：[{a_ip, a_name, a_id, a_lat, a_lon, b_ip, b_name, b_id, b_lat, b_lon}, ...]
+    每条记录是一条微波物理链路的 A/B 端信息。
     """
     global _phys_cache
     with _phys_cache_lock:
@@ -388,9 +405,10 @@ def _load_physical_links():
             conn = get_raw_connection()
             cur = conn.cursor()
             cur.execute(
-                "SELECT sit_a_ran_name, site_a_lat, site_a_lon, ip_address_a, "
-                "site_b_ran_name, site_b_lat, site_b_lon, ip_address_b FROM zte_mw_links")
-            for a_name, a_lat, a_lon, a_ip, b_name, b_lat, b_lon, b_ip in cur.fetchall():
+                "SELECT sit_a_ran_name, site_a_lat, site_a_lon, ip_address_a, site_id_a, "
+                "site_b_ran_name, site_b_lat, site_b_lon, ip_address_b, site_id_b "
+                "FROM zte_mw_links")
+            for a_name, a_lat, a_lon, a_ip, a_id, b_name, b_lat, b_lon, b_ip, b_id in cur.fetchall():
                 try:
                     a_lat_f, a_lon_f = float(a_lat), float(a_lon)
                     b_lat_f, b_lon_f = float(b_lat), float(b_lon)
@@ -404,8 +422,10 @@ def _load_physical_links():
                     continue
                 links.append({
                     "a_ip": a_ip_s, "a_name": str(a_name).strip() if a_name else "",
+                    "a_id": _clean_id(a_id),
                     "a_lat": a_lat_f, "a_lon": a_lon_f,
                     "b_ip": b_ip_s, "b_name": str(b_name).strip() if b_name else "",
+                    "b_id": _clean_id(b_id),
                     "b_lat": b_lat_f, "b_lon": b_lon_f,
                 })
             conn.close()
@@ -421,6 +441,43 @@ def _reset_phys_cache():
     global _phys_cache
     with _phys_cache_lock:
         _phys_cache = None
+
+
+def _load_site_id_map():
+    """从 master_site_db 加载 {site_name_norm: site_id} 映射。"""
+    global _site_id_cache
+    with _site_id_cache_lock:
+        if _site_id_cache is not None:
+            return _site_id_cache
+        result = {}
+        try:
+            conn = get_raw_connection()
+            cur = conn.cursor()
+            # 尝试读取 site_name 列（兼容不同 DB schema）
+            cur.execute("PRAGMA table_info(master_site_db)")
+            cols = [r[1] for r in cur.fetchall()]
+            name_col = None
+            for cand in ("site_name", "site", "name", "Site Name"):
+                if cand in cols:
+                    name_col = cand
+                    break
+            if name_col:
+                cur.execute(f"SELECT site_id, {name_col} FROM master_site_db")
+                for sid, sname in cur.fetchall():
+                    if sid and sname:
+                        result[_norm(str(sname))] = str(sid).strip()
+            conn.close()
+            logger.info(f"[SITE_ID] loaded {len(result)} site_id mappings from master_site_db")
+        except Exception as e:
+            logger.info(f"[SITE_ID] master_site_db not available or no site_name col: {e}")
+        _site_id_cache = result
+        return result
+
+
+def _reset_site_id_cache():
+    global _site_id_cache
+    with _site_id_cache_lock:
+        _site_id_cache = None
 
 
 def build_topology(top_n: int = 10, date: str = None, rows_all: list = None,
@@ -482,13 +539,13 @@ def build_topology(top_n: int = 10, date: str = None, rows_all: list = None,
     # ---- 6. 构建物理节点信息（IP 为 node id） ----
     node_info = {}
     for link in phys_links:
-        for ip, name, lat, lon in [
-            (link["a_ip"], link["a_name"], link["a_lat"], link["a_lon"]),
-            (link["b_ip"], link["b_name"], link["b_lat"], link["b_lon"]),
+        for ip, name, sid, lat, lon in [
+            (link["a_ip"], link["a_name"], link.get("a_id", ""), link["a_lat"], link["a_lon"]),
+            (link["b_ip"], link["b_name"], link.get("b_id", ""), link["b_lat"], link["b_lon"]),
         ]:
             if ip not in node_info:
                 node_info[ip] = {
-                    "site": name or ip, "ne": "", "ip": ip,
+                    "site": name or ip, "site_id": sid or "", "ne": "", "ip": ip,
                     "degree": 0, "max_util": 0.0,
                     "lat": lat, "lon": lon,
                 }
@@ -632,6 +689,7 @@ def build_topology(top_n: int = 10, date: str = None, rows_all: list = None,
             "id": ip,
             "name": info["site"],
             "site": info["site"],
+            "site_id": info.get("site_id", ""),
             "ne": info["ne"],
             "ip": ip,
             "lat": info["lat"], "lon": info["lon"],

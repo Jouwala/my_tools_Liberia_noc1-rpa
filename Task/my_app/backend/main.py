@@ -57,6 +57,8 @@ from backend.routers import (
     finebi_reports,
     mw_ume,
     portals,
+    whatsapp_outbox,
+    eflow_qa,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -83,9 +85,16 @@ _ALLOWED_ORIGINS = [
         "http://127.0.0.1:7038,http://localhost:7038,http://127.0.0.1:5173,http://localhost:5173",
     ).split(",") if o.strip()
 ]
+# 云端静态托管(CloudStudio, *.app.workbuddy.link)跨域调用本机后端时使用。
+# 也可用环境变量 MY_APP_CORS_ORIGIN_REGEX 覆盖，例如 "^https://.*\.example\.com$"
+_ALLOWED_ORIGIN_REGEX = os.environ.get(
+    "MY_APP_CORS_ORIGIN_REGEX",
+    r"^https://.*\.app\.workbuddy\.link$",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_ORIGINS,
+    allow_origin_regex=_ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -129,6 +138,10 @@ app.include_router(finebi_reports.router)
 app.include_router(mw_ume.router)
 # 一键门户登录（用默认浏览器打开 ZTE/CCN/iPRAN UME、eFlow、FW(UMC)、VMAX 并自动登录）
 app.include_router(portals.router)
+# WhatsApp 出图接口（供「WhatsApp 定时发图」Chrome 扩展拉取图片与配置）
+app.include_router(whatsapp_outbox.router)
+# eFlow 知识库（Task/eflow_Q&A 只读：文档树 / 读取 / 检索）
+app.include_router(eflow_qa.router)
 
 
 # ========== 通用任务调度系统 ==========

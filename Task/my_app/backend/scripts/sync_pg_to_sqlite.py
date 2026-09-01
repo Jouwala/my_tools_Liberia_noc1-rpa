@@ -39,6 +39,7 @@ import psycopg2.extras
 # ── 配置 ──────────────────────────────────────────────────────
 PG_URL = os.environ.get("DATABASE_URL", "")
 SQLITE_PATH = ROOT / "db" / "app.db"
+LOCK_PATH = ROOT / "db" / "pg_sync.lock"  # 跨进程单飞锁（防重复实例并发写 app.db）
 BATCH_SIZE = 5000  # 每批写入行数
 
 # 需要跳过的系统/元数据表
@@ -53,6 +54,67 @@ log = logging.getLogger("pg2sqlite")
 
 
 # ── 工具函数 ──────────────────────────────────────────────────
+def _pid_alive(pid: int) -> bool:
+    """跨平台检查进程是否存活（Windows 用 OpenProcess，POSIX 用 kill 0）"""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.OpenProcess.restype = ctypes.c_void_p
+            kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+            h = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            if not h:
+                return False
+            kernel32.CloseHandle(h)
+            return True
+        except Exception:
+            return True  # 无法判定时保守视为存活，宁可跳过本次也不并发
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def acquire_sync_lock():
+    """获取跨进程单飞锁。返回 True=拿到锁；False=另一实例正在同步（本次跳过）。
+
+    背景（2026-08-31）：队列侧单飞曾因 stale-recovery 误回收在跑记录而失效，
+    导致两个同步进程同时 DROP/CREATE app.db（database is locked /
+    table already exists）。此锁为脚本级兜底，与队列保护独立。
+    """
+    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(2):
+        try:
+            fd = os.open(str(LOCK_PATH), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            return True
+        except FileExistsError:
+            try:
+                old_pid = int(LOCK_PATH.read_text(encoding="utf-8").strip())
+            except (OSError, ValueError):
+                old_pid = 0
+            if old_pid > 0 and _pid_alive(old_pid):
+                return False  # 另一实例在跑
+            # 持锁进程已死（或锁文件损坏）：清掉残留锁重试
+            try:
+                LOCK_PATH.unlink()
+            except OSError:
+                return False
+    return False
+
+
+def release_sync_lock():
+    try:
+        if LOCK_PATH.exists() and LOCK_PATH.read_text(encoding="utf-8").strip() == str(os.getpid()):
+            LOCK_PATH.unlink()
+    except OSError:
+        pass
+
+
 def get_pg_tables(conn):
     """获取所有用户表及其 schema，返回 [(schema, table), ...]"""
     cur = conn.cursor()
@@ -128,34 +190,43 @@ def sync_table(pg_conn, sqlite_conn, schema: str, table: str):
         col_names.append(name)
     col_defs = ", ".join(f'"{c}" {pg_type_to_sqlite(next(ct[1] for ct in columns if ct[0] == c))}' for c in col_names)
 
-    # 2. 在 SQLite 中重建表
-    sqlite_conn.execute(f'DROP TABLE IF EXISTS "{sqlite_name}"')
-    sqlite_conn.execute(f'CREATE TABLE "{sqlite_name}" ({col_defs})')
+    # 2. 在 SQLite 中原子重建表：DROP+CREATE+INSERT 放进同一事务，
+    #    失败则回滚——旧快照数据保持完整，不会出现"空表/半张表"。
+    sqlite_conn.execute("BEGIN IMMEDIATE")
+    try:
+        sqlite_conn.execute(f'DROP TABLE IF EXISTS "{sqlite_name}"')
+        sqlite_conn.execute(f'CREATE TABLE "{sqlite_name}" ({col_defs})')
 
-    # 3. 从 PG 读取数据并批量写入 SQLite
-    cur = pg_conn.cursor()
-    col_list = ", ".join(f'"{c}"' for c in col_names)
-    cur.execute(f'SELECT {col_list} FROM "{schema}"."{table}"')
+        # 3. 从 PG 读取数据并批量写入 SQLite
+        cur = pg_conn.cursor()
+        col_list = ", ".join(f'"{c}"' for c in col_names)
+        cur.execute(f'SELECT {col_list} FROM "{schema}"."{table}"')
 
-    placeholders = ", ".join(["?"] * len(col_names))
-    insert_sql = f'INSERT INTO "{sqlite_name}" VALUES ({placeholders})'
+        placeholders = ", ".join(["?"] * len(col_names))
+        insert_sql = f'INSERT INTO "{sqlite_name}" VALUES ({placeholders})'
 
-    total = 0
-    while True:
-        rows = cur.fetchmany(BATCH_SIZE)
-        if not rows:
-            break
-        # 处理不可序列化的类型
-        cleaned = []
-        for row in rows:
-            cleaned.append(tuple(
-                str(v) if isinstance(v, (list, dict, bytes)) else v
-                for v in row
-            ))
-        sqlite_conn.executemany(insert_sql, cleaned)
-        total += len(cleaned)
+        total = 0
+        while True:
+            rows = cur.fetchmany(BATCH_SIZE)
+            if not rows:
+                break
+            # 处理不可序列化的类型
+            cleaned = []
+            for row in rows:
+                cleaned.append(tuple(
+                    str(v) if isinstance(v, (list, dict, bytes)) else v
+                    for v in row
+                ))
+            sqlite_conn.executemany(insert_sql, cleaned)
+            total += len(cleaned)
 
-    sqlite_conn.commit()
+        sqlite_conn.execute("COMMIT")
+    except Exception:
+        try:
+            sqlite_conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        raise
     return total
 
 
@@ -170,15 +241,19 @@ def main():
 
     pg_conn = None
     sqlite_conn = None
+    if not acquire_sync_lock():
+        msg = "另一同步实例正在运行，本次跳过（单飞锁保护）"
+        log.warning(msg)
+        return {"success": True, "skipped": True, "note": msg}
     try:
         # 连接 PG
         pg_conn = psycopg2.connect(PG_URL, connect_timeout=10)
         pg_conn.set_session(readonly=True)
 
-        # 连接 SQLite
-        sqlite_conn = sqlite3.connect(str(SQLITE_PATH), timeout=60)
+        # 连接 SQLite（isolation_level=None：显式 BEGIN/COMMIT，配合 sync_table 的原子表替换）
+        sqlite_conn = sqlite3.connect(str(SQLITE_PATH), timeout=120, isolation_level=None)
+        sqlite_conn.execute("PRAGMA busy_timeout=120000")
         sqlite_conn.execute("PRAGMA synchronous=NORMAL")
-        sqlite_conn.execute("PRAGMA busy_timeout=30000")
 
         # 获取所有表
         tables = get_pg_tables(pg_conn)
@@ -227,6 +302,7 @@ def main():
             pg_conn.close()
         if sqlite_conn:
             sqlite_conn.close()
+        release_sync_lock()
 
 
 if __name__ == "__main__":

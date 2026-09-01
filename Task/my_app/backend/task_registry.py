@@ -105,6 +105,14 @@ TASK_SPECS = [
          description_en="Send Site Outage screenshots and files to WhatsApp groups",
          default_cron="0 3 * * *", category="whatsapp"),
 
+    # 5b. WhatsApp 发送（扩展版）：投递作业并等待浏览器扩展在已登录的 WhatsApp Web 标签页中发送。
+    #     与上面的 Playwright 版并存，互不影响；扩展见 Task/my_app/whatsapp_sender_extension。
+    dict(task_id="whatsapp_send_ext", name="WhatsApp 消息发送（扩展）", name_en="WhatsApp Message Send (Extension)",
+         loader=("backend.services.whatsapp_ext_service", "run_whatsapp_send_ext"),
+         description="投递发送作业，由浏览器扩展在已登录的 WhatsApp Web 中发送 Site Outage 截图",
+         description_en="Dispatch a send job; a browser extension sends Site Outage screenshots in the logged-in WhatsApp Web",
+         default_cron="0 3 * * *", category="whatsapp"),
+
     # 6. MS SLA 完整同步（每6小时）
     dict(task_id="ms_sla_full", name="MS SLA 完整同步", name_en="MS SLA Full Sync",
          loader=("backend.services.ms_sla_service", "run_full_sync"),
@@ -223,6 +231,13 @@ TASK_SPECS = [
          description="从 SFTP 下载备件数据，生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表到本地 data/sp_email",
          description_en="Download spare-part data from SFTP and generate Comsumables & SpareParts Inbound&Outbound&Inventory reports into local data/sp_email",
          default_cron="15 5 * * *", category="kpi_email"),
+
+    # 19c. SP 备件明细报表邮件（每天 07:00）：把 data/sp_email/data 下 5 份 *_details.xlsx 整包发送
+    dict(task_id="sp_email_details", name="SP 备件明细报表邮件", name_en="SP Spare Parts Details Report Email",
+         loader=("backend.services.kpi_email_report", "run_sp_details_email"),
+         description="每天 07:00 发送 data/sp_email/data 下 5 份备件明细 Excel（inband/outband/inventory/ocrule/transfer）至 ansah.boadu@zte.com.cn，抄送 dong.xinmin@zte.com.cn（收件人可在 Settings → Email Recipient Settings 覆盖）",
+         description_en="Daily 07:00: email the 5 spare-part detail Excel files (inband/outband/inventory/ocrule/transfer) under data/sp_email/data to ansah.boadu@zte.com.cn, cc dong.xinmin@zte.com.cn (recipients editable under Settings → Email Recipient Settings)",
+         default_cron="0 7 * * *", category="kpi_email"),
 
     # 20. MS Network Availability Daily Report 邮件（远程 FTP 图片，无 Excel）
     dict(task_id="kpi_ran_availability", name="MS Network Availability 日报邮件", name_en="MS Network Availability Daily Report Email",

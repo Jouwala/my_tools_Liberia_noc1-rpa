@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "WhatsApp @Me Assistant",
+  "description": "在 WhatsApp Web 中筛选 @我 的消息，结合上下文交给本地服务做 AI 分析，生成待办事项。数据仅存本地。",
+  "version": "0.1.0",
+  "permissions": ["storage", "sidePanel", "alarms"],
+  "host_permissions": [
+    "https://web.whatsapp.com/*",
+    "http://localhost:*/*",
+    "http://127.0.0.1:*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "WhatsApp @Me Assistant"
+  }
+}

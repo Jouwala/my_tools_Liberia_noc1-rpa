@@ -19,6 +19,20 @@
 
 import type { DashboardItem, PlatformType } from './types/dashboard';
 
+// ============================================================================
+// 门户「自身」后端 API 前缀（/api/auth/*、/api/portal-default）
+// ----------------------------------------------------------------------------
+// 必须带应用 base 前缀（/uniplam/api），不能再用绝对路径 /api：
+//  门户页面挂在 nginx 的 /uniplam/ 子路径下，前端若请求 /api/auth/login，
+//  会命中 nginx 的通用 `location /api/` → my_app 后端 7038；7038 上 GET
+//  /api/auth/login 是 SPA 兜底静态页（仅允许 GET），POST 就被回成
+//  「405 Method Not Allowed」——这正是其他电脑（走 80 端口 nginx）登录失败的原因。
+//  带上 base 前缀后，请求路径 /uniplam/api/... 天然落在 `location /uniplam/`
+//  （→ 9267 门户自身服务）里，与 my_app 的 /api/ 彻底不冲突。
+// 本地直连 http://localhost:9267/uniplam/ 同样走这个前缀，行为一致。
+// ============================================================================
+export const PORTAL_API = `${(import.meta.env.BASE_URL || '/').replace(/\/+$/, '')}/api`;
+
 /** 端点配置：仅主机/域名与 API 基址，路径随各看板 rel 携带 */
 export interface EnvConfig {
   /** FineBI 决策平台主机（如 192.168.100.19） */

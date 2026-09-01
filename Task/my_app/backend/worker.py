@@ -71,8 +71,10 @@ def _request_shutdown(signum, _frame):
 # 会把在跑任务误标 failed；异常退出后的残留最多延迟一个阈值周期被回收。
 # 2026-08-13 教训：旧值 2h 造成「失败不可见」盲区——失败后 2 小时内无失败日志
 # （auto_retry 扫不到）且僵尸 running 挡住后续所有调度（eflow_sync 断档 3 小时）。
-# 现改为 30 分钟（实测最长任务 <10 分钟），且配合 worker_pid 存活核对：pid 已死
-# 立即回收，不必等阈值。
+# 现改为 30 分钟，且配合 worker_pid 存活核对：pid 已死（或被无关进程复用）立即
+# 回收；pid 存活且属于已知 worker 则不回收（pg_to_sqlite_sync 等长任务可跑 1h+，
+# 2026-08-31 教训：按时间阈值回收在跑任务会导致重复投递 + SQLite 并发写坏快照）。
+# 时间阈值仅在记录无 worker_pid（无法核对）时兜底。
 try:
     STALE_RUNNING_SECONDS = max(300, int(os.environ.get("WORKER_STALE_RUNNING_SECONDS", str(30 * 60))))
 except (TypeError, ValueError):
@@ -141,10 +143,29 @@ def _recover_stale_running():
             ).fetchall()
             now_iso = datetime.now().isoformat()
             for qid, task_id, trigger_type, started_at, worker_pid in rows:
-                # 回收条件二选一：a) worker_pid 已死（进程崩溃，立即回收，
-                # 不必等时间阈值）；b) 超过时间阈值（pid 无法核对的旧记录兜底）。
-                pid_dead = worker_pid is not None and not _pid_alive(worker_pid)
-                too_old = bool(started_at) and started_at < stale_cutoff
+                # 回收条件（2026-08-31 修复：pg_to_sqlite_sync 全量同步 1.5GB+ 可跑
+                # 1 小时以上，旧逻辑 pid_alive OR too_old 会在 30 分钟时把仍在执行的
+                # 任务误标 failed → 单飞保护失效 → 下一轮调度重复投递 → 两个同步进程
+                # 同时 DROP/CREATE app.db，产生 database is locked / table already exists）：
+                #   a) worker_pid 存活且属于已知 worker → 正在合法执行，无论多久都不回收；
+                #   b) worker_pid 已死，或存活但不属于任何已知 worker（PID 被无关进程
+                #      复用）→ 立即回收；
+                #   c) 无 worker_pid（旧记录无法核对）→ 超过时间阈值才回收（原兜底）。
+                pid_dead = False
+                too_old = False
+                try:
+                    _pid_int = int(worker_pid)
+                except (TypeError, ValueError):
+                    _pid_int = None  # 无/坏 pid 信息：无法核对，走时间阈值兜底
+                if _pid_int is not None:
+                    if _pid_alive(_pid_int):
+                        if task_runner._is_known_worker_pid(_pid_int):
+                            continue  # 活 worker 正在执行（长任务合法），不回收
+                        pid_dead = True  # PID 被无关进程复用，视为原 worker 已死
+                    else:
+                        pid_dead = True
+                else:
+                    too_old = bool(started_at) and started_at < stale_cutoff
                 if not (pid_dead or too_old):
                     continue
                 already_done = conn.execute(

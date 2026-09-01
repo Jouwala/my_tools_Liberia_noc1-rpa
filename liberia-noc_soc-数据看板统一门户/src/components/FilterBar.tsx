@@ -9,6 +9,8 @@ import {
   ArrowUpDown,
   Filter,
   Layers,
+  EyeOff,
+  MessageSquareText,
 } from 'lucide-react';
 import {
   CategoryType,
@@ -26,6 +28,10 @@ interface FilterBarProps {
   onSelectPlatform: (platform: 'all' | PlatformType) => void;
   onlyFavorites: boolean;
   onToggleOnlyFavorites: () => void;
+  /** 「显示已隐藏」开关：已隐藏的看板仅本机不可见，此开关可临时查看/恢复 */
+  showHidden: boolean;
+  onToggleShowHidden: () => void;
+  hiddenCount: number;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   sortOption: SortOption;
@@ -42,6 +48,9 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   onSelectPlatform,
   onlyFavorites,
   onToggleOnlyFavorites,
+  showHidden,
+  onToggleShowHidden,
+  hiddenCount,
   searchQuery,
   onSearchChange,
   sortOption,
@@ -130,6 +139,26 @@ export const FilterBar: React.FC<FilterBarProps> = ({
             <span className="hidden sm:inline">{t('filter.favorites')}</span>
           </button>
 
+          {/* 显示已隐藏开关：仅当本机存在已隐藏看板时出现（隐藏仅对本机生效） */}
+          {hiddenCount > 0 && (
+            <button
+              onClick={onToggleShowHidden}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-all ${
+                showHidden
+                  ? 'border-teal-400 bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 ring-2 ring-teal-400/20'
+                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+              title={t('filter.showHiddenTip')}
+            >
+              <EyeOff
+                className={`w-3.5 h-3.5 ${showHidden ? 'text-teal-500' : 'text-slate-400'}`}
+              />
+              <span className="hidden sm:inline">
+                {t('filter.showHidden')} ({hiddenCount})
+              </span>
+            </button>
+          )}
+
           {/* Sort Selector */}
           <div className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs">
             <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
@@ -144,6 +173,22 @@ export const FilterBar: React.FC<FilterBarProps> = ({
               <option value="name">{t('filter.sortName')}</option>
             </select>
           </div>
+
+          {/* WhatsApp @我 待办入口 */}
+          <button
+            onClick={() => onViewModeChange('tasks')}
+            className={`px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-all ${
+              viewMode === 'tasks'
+                ? 'border-teal-400 bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 ring-2 ring-teal-400/20'
+                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+            title={t('filter.viewTasks')}
+          >
+            <MessageSquareText
+              className={`w-3.5 h-3.5 ${viewMode === 'tasks' ? 'text-teal-500' : 'text-slate-400'}`}
+            />
+            <span className="hidden sm:inline">{t('filter.viewTasks')}</span>
+          </button>
 
           {/* View Mode Toggle */}
           <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/60 dark:border-slate-700/60">

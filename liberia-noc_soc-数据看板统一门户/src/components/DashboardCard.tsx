@@ -7,6 +7,7 @@ import {
   Building,
   QrCode,
   Eye,
+  EyeOff,
   Copy,
   Check,
   Edit2,
@@ -24,6 +25,7 @@ interface DashboardCardProps {
   onPreview: (d: DashboardItem) => void;
   onShowQR: (d: DashboardItem) => void;
   onToggleFavorite: (id: string) => void;
+  onToggleHidden: (id: string) => void;
   onEdit: (d: DashboardItem) => void;
   onDelete: (id: string) => void;
 }
@@ -34,6 +36,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
   onPreview,
   onShowQR,
   onToggleFavorite,
+  onToggleHidden,
   onEdit,
   onDelete,
 }) => {
@@ -137,7 +140,9 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
 
   return (
     <div
-      className={`group relative bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between overflow-hidden bg-gradient-to-b ${theme.lightBg} ${theme.border}`}
+      className={`group relative bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between overflow-hidden bg-gradient-to-b ${theme.lightBg} ${theme.border} ${
+        dashboard.hidden ? 'opacity-60 saturate-[0.65]' : ''
+      }`}
     >
       {/* Top row: Platform Badge & Pin / Star / Actions */}
       <div>
@@ -189,6 +194,24 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
               title={t('card.delete')}
             >
               <Trash2 className="w-3.5 h-3.5" />
+            </button>
+
+            {/* 本机隐藏/恢复：只影响当前浏览器，不影响服务端默认与其他电脑。
+                已隐藏的卡片（需开启「显示已隐藏」才看得到）此按钮常显以便恢复。 */}
+            <button
+              onClick={() => onToggleHidden(dashboard.id)}
+              className={`p-1.5 rounded-lg transition-all ${
+                dashboard.hidden
+                  ? 'opacity-100 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/40'
+                  : 'opacity-100 md:opacity-0 md:group-hover:opacity-100 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+              title={dashboard.hidden ? t('card.unhide') : t('card.hide')}
+            >
+              {dashboard.hidden ? (
+                <Eye className="w-3.5 h-3.5" />
+              ) : (
+                <EyeOff className="w-3.5 h-3.5" />
+              )}
             </button>
           </div>
         </div>

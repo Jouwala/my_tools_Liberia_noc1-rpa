@@ -564,13 +564,13 @@ export default function TTWODashboard() {
 
       {/* 汇总卡片 */}
       <Row gutter={16}>
-        <Col span={data.summary.wo_total > 0 ? 8 : 24}>
+        <Col xs={24} sm={12} md={data.summary.wo_total > 0 ? 8 : 24}>
           <SummaryCard color="#4fc3f7" icon={<ThunderboltOutlined />} value={data.summary.tt_total} label={t('ttwo.ttTotal')} explain={t('ttwo.explain.ttTotal')} onClick={(e) => openDrilldown(e, 'all_tt')} />
         </Col>
-        {data.summary.wo_total > 0 && <Col span={8}>
+        {data.summary.wo_total > 0 && <Col xs={24} sm={12} md={8}>
           <SummaryCard color="#51cf66" icon={<FileTextOutlined />} value={data.summary.wo_total} label={t('ttwo.woTotal')} explain={t('ttwo.explain.woTotal')} onClick={(e) => openDrilldown(e, 'all_wo')} />
         </Col>}
-        {data.summary.wo_total > 0 && <Col span={8}>
+        {data.summary.wo_total > 0 && <Col xs={24} sm={12} md={8}>
           <SummaryCard color="#b197fc" icon={<NumberOutlined />} value={data.summary.wo_no_count} label={t('ttwo.woNoUnique')} explain={t('ttwo.explain.woNo')} onClick={(e) => openDrilldown(e, 'all_wo')} />
         </Col>}
       </Row>
@@ -578,17 +578,17 @@ export default function TTWODashboard() {
       {/* TT 统计标签 */}
       <SectionTitle icon={<AlertOutlined />} title={t('ttwo.ttStatistics')} />
       <Row gutter={[16, 16]}>
-        <Col span={8}>
+        <Col xs={24} sm={12} md={8}>
           <Card size="small" title={<span style={cardTitleStyle}>{sevLabel} <ExplainIcon text={t('ttwo.explain.severity')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
             {renderStatTags(sevStats, sevColor, sevDimension)}
           </Card>
         </Col>
-        <Col span={8}>
+        <Col xs={24} sm={12} md={8}>
           <Card size="small" title={<span style={cardTitleStyle}>{t('ttwo.ticketSeverity')} <ExplainIcon text={t('ttwo.explain.ticketSeverity')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
             {renderStatTags(s.ticket_severity, ticketColor, 'ticket_severity')}
           </Card>
         </Col>
-        <Col span={8}>
+        <Col xs={24} sm={12} md={8}>
           <Card size="small" title={<span style={cardTitleStyle}>{t('ttwo.slaStatus')} <ExplainIcon text={t('ttwo.explain.sla')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
             {renderStatTags(s.sla_status, slaColor, 'sla_status')}
           </Card>
@@ -610,7 +610,7 @@ export default function TTWODashboard() {
       {/* Domain + Root Cause */}
       <SectionTitle icon={<PieChartOutlined />} title={t('ttwo.domainRootCause')} />
       <Row gutter={[16, 16]}>
-        <Col span={10}>
+        <Col xs={24} lg={10}>
           <Card title={<span style={cardTitleStyle}>{t('ttwo.ttByDomain')}</span>} size="small" style={cardStyle}>
             <div role="img" aria-label="TT by Domain chart">
               <ReactECharts option={domainOption} style={{ height: CHART_HEIGHT }}
@@ -618,7 +618,7 @@ export default function TTWODashboard() {
             </div>
           </Card>
         </Col>
-        <Col span={7}>
+        <Col xs={24} md={12} lg={7}>
           <Card title={<span style={cardTitleStyle}>{t('ttwo.rootCauseMain')} <ExplainIcon text={t('ttwo.explain.rootCause')} /></span>} size="small" style={cardStyle}>
             <div role="img" aria-label="Root Cause Main chart">
               <ReactECharts option={rcMainOption} style={{ height: CHART_HEIGHT }}
@@ -626,7 +626,7 @@ export default function TTWODashboard() {
             </div>
           </Card>
         </Col>
-        <Col span={7}>
+        <Col xs={24} md={12} lg={7}>
           <Card title={<span style={cardTitleStyle}>{t('ttwo.rootCauseSub')} <ExplainIcon text={t('ttwo.explain.rootCause')} /></span>} size="small" style={cardStyle}>
             <div role="img" aria-label="Root Cause Sub chart">
               <ReactECharts option={rcSubOption} style={{ height: CHART_HEIGHT }}
@@ -640,7 +640,7 @@ export default function TTWODashboard() {
       {data.summary.wo_total > 0 && <>
         <SectionTitle icon={<TagsOutlined />} title={t('ttwo.woAnalytics')} />
         <Row gutter={[16, 16]}>
-          <Col span={12}>
+          <Col xs={24} md={12}>
             <Card title={<span style={cardTitleStyle}>{t('ttwo.woBySource')}</span>} size="small" style={cardStyle}>
               <div role="img" aria-label="WO by Source chart">
                 <ReactECharts option={woSourceOption} style={{ height: CHART_HEIGHT }}
@@ -648,7 +648,7 @@ export default function TTWODashboard() {
               </div>
             </Card>
           </Col>
-          <Col span={12}>
+          <Col xs={24} md={12}>
             <Card title={<span style={cardTitleStyle}>{t('ttwo.woByStatus')}</span>} size="small" style={cardStyle}>
               <div role="img" aria-label="WO by Status chart">
                 <ReactECharts option={woStatusOption} style={{ height: CHART_HEIGHT }}
@@ -663,7 +663,7 @@ export default function TTWODashboard() {
       <SectionTitle icon={<EnvironmentOutlined />} title={t('ttwo.siteInfo')} />
       <Row gutter={[16, 16]}>
         {Object.entries(data.site_stats || {}).filter(([, v]) => v && Object.keys(v as any).length > 0).map(([key, stats]) => (
-          <Col span={8} key={key}>
+          <Col xs={24} sm={12} lg={8} key={key}>
             <Card title={<span style={cardTitleStyle}>{key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>} size="small" style={cardStyle}>
               <ReactECharts option={{
                 tooltip: { ...tooltipStyle, trigger: 'axis' },

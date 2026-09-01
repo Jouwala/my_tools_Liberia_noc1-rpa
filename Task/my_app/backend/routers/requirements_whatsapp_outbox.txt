@@ -1,0 +1,8 @@
+# WhatsApp 出图接口（backend/routers/whatsapp_outbox.py）依赖清单
+# 无新增第三方依赖，复用 my_app 现有环境：
+# - fastapi     （APIRouter / Depends / Query / HTTPException）
+# - starlette   （FileResponse，随 fastapi 提供）
+# - 标准库       （os / time / logging / datetime / pathlib / urllib.parse）
+# 业务复用：
+# - backend.security.require_protected
+# - backend.services.whatsapp_service.SITE_OUTAGE_DIR / GROUPS

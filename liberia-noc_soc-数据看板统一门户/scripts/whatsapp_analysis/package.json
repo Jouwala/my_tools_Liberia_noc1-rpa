@@ -1,0 +1,28 @@
+{
+  "name": "whatsapp-me-assistant-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "WhatsApp @Me Assistant 本地分析服务：消息存储、AI 分析、每日报告。数据仅存本地。",
+  "scripts": {
+    "dev": "tsx watch server/index.ts",
+    "start": "tsx server/index.ts",
+    "report": "tsx server/generate-report-cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=23.4.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2"
+  }
+}

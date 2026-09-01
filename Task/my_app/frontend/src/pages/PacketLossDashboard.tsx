@@ -21,7 +21,7 @@ import api from '../api'
 import { cachedGet } from '../cache'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { useI18n, numLocale } from '../i18n'
-import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine, pageWrap, cardStyle } from '../theme'
+import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, useIsMobile, darkTooltip, axisLabel, axisLine, splitLine, pageWrap, cardStyle } from '../theme'
 
 const STATUS_ORDER = ['Critical[>5]', 'Major[1-5]', 'Minor[0.5-1]', 'Warning[0.1-0.5]', 'No Packet loss[<0.1]']
 const STATUS_COLORS: Record<string, string> = {
@@ -206,6 +206,7 @@ interface PlSite {
 export default function PacketLossDashboard() {
   const { t, locale } = useI18n()
   const { isDark } = useTheme()
+  const isMobile = useIsMobile()
   const METRIC_EXPLAIN = useMemo(() => getMetricExplain(t), [t])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -485,7 +486,7 @@ export default function PacketLossDashboard() {
   const chartClick = (titlePrefix: string) => (p: any) => openDrilldown(p, p.name, `${titlePrefix} = ${STATUS_SHORT[p.name] || p.name}`)
 
   return (
-    <div style={{ ...pageWrap, display: 'flex', flexDirection: 'row', gap: '0.75rem', alignItems: 'flex-start' }}>
+    <div style={{ ...pageWrap, display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '0.75rem', alignItems: isMobile ? 'stretch' : 'flex-start' }}>
       {/* ===== 左侧 2/3：其余组件，排列顺序不变 ===== */}
       <div style={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-xs)' }}>
       {/* 1. 头部横幅 */}
@@ -518,13 +519,13 @@ export default function PacketLossDashboard() {
 
       {/* 2. 核心指标卡片 */}
       <Row gutter={[12, 12]}>
-        <Col span={4}>
+        <Col xs={12} sm={8} lg={4}>
           <SummaryCard icon={<EnvironmentOutlined />} value={fmt(data.total_sites)} label={t('pl.totalSites')} color={WH.teal}
             explain={METRIC_EXPLAIN['Total Sites']}
             onClick={() => openDrilldown(null, 'all', 'All Sites')} t={t} />
         </Col>
         {STATUS_ORDER.filter(s => s !== 'No Packet loss[<0.1]').map(st => (
-          <Col span={4} key={st}>
+          <Col xs={12} sm={8} lg={4} key={st}>
             <SummaryCard
               icon={st === 'Critical[>5]' ? <AlertOutlined /> : st === 'Major[1-5]' ? <WarningOutlined /> : <DashboardOutlined />}
               value={fmt(sc[st] || 0)} label={STATUS_SHORT[st]} color={STATUS_COLORS[st]}
@@ -532,7 +533,7 @@ export default function PacketLossDashboard() {
               onClick={() => openDrilldown(null, st, st)} t={t} />
           </Col>
         ))}
-        <Col span={4}>
+        <Col xs={12} sm={8} lg={4}>
           <SummaryCard icon={<CheckCircleOutlined />} value={fmt(sc['No Packet loss[<0.1]'] || 0)} label={t('pl.noPacketLoss')} color={STATUS_COLORS['No Packet loss[<0.1]']}
             explain={METRIC_EXPLAIN['No Packet loss']}
             onClick={() => openDrilldown(null, 'No Packet loss[<0.1]', 'No Packet loss[<0.1]')} t={t} />
@@ -542,17 +543,17 @@ export default function PacketLossDashboard() {
       {/* 3. 状态分布 + 每日趋势 + 区域分布 */}
       <SectionTitle icon={<BarChartOutlined />} title={t('pl.lossDistribution')} sub={t('pl.lossDistSub')} />
       <Row gutter={[12, 12]}>
-        <Col span={7}>
+        <Col xs={24} lg={7}>
           <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.statusDist')}</span>} style={cardStyle}>
             <ReactECharts option={statusPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick('Status') }} />
           </Card>
         </Col>
-        <Col span={10}>
+        <Col xs={24} lg={10}>
           <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.dailyTrend')}</span>} style={cardStyle}>
             <ReactECharts option={trendOption} style={{ height: CHART_HEIGHT }} />
           </Card>
         </Col>
-        <Col span={7}>
+        <Col xs={24} lg={7}>
           <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.byRegion')}</span>} style={cardStyle}>
             <ReactECharts option={regionOption} style={{ height: CHART_HEIGHT }} />
           </Card>
@@ -566,8 +567,10 @@ export default function PacketLossDashboard() {
       </Card>
       </div>
 
-      {/* ===== 右侧 1/3：Packet Loss Map 单独占整列，可固定 ===== */}
-      <div style={{ flex: '0 0 33.333%', width: '33.333%', position: 'sticky', top: 'var(--wh-space-md)', alignSelf: 'flex-start' }}>
+      {/* ===== 右侧 1/3：Packet Loss Map 单独占整列，可固定（移动端整列堆叠在下方） ===== */}
+      <div style={isMobile
+        ? { width: '100%', minWidth: 0 }
+        : { flex: '0 0 33.333%', width: '33.333%', position: 'sticky', top: 'var(--wh-space-md)', alignSelf: 'flex-start' }}>
         <Card size="small" style={{ ...cardStyle, marginBottom: 0 }} title={
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>
             <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.map')} ({t('pl.mapAffected', { n: data?.affected_sites ?? 0 })})</span>
@@ -581,7 +584,7 @@ export default function PacketLossDashboard() {
             </span>
           </div>
         }>
-          <MapContainer center={[6.4, -9.4]} zoom={8} style={{ height: 'calc(100vh - 180px)', minHeight: '26.25rem', width: '100%', background: 'var(--wh-page-bg)', borderRadius: 'var(--wh-radius-md)' }} scrollWheelZoom>
+          <MapContainer center={[6.4, -9.4]} zoom={8} style={{ height: isMobile ? '55vh' : 'calc(100vh - 180px)', minHeight: isMobile ? '18.75rem' : '26.25rem', width: '100%', background: 'var(--wh-page-bg)', borderRadius: 'var(--wh-radius-md)' }} scrollWheelZoom>
             <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             {/* 拓扑连线：复用 GIS Map 真实链路，按传输类型着色（MW / IPRAN 等）。
                 先白色描边(casing)增强对比，再画彩色线；hub 链路更粗。 */}

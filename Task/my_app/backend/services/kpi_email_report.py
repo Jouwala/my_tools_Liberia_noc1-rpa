@@ -69,6 +69,10 @@ _SP_LOCAL_DATA = MY_APP_DIR / "data" / "sp_email"
 from backend.config.remote_host import get_remote_host
 _SP_EMAIL_UNC = rf"\\{get_remote_host()}\e\01_RPA\LBR_Tools\SP\sp_report\email"
 _SP_GEN_SCRIPT = Path(__file__).resolve().parent / "sp_report_gen" / "gernarate_sp_report.py"
+# SP 备件明细：data/sp_email/data 下 5 份 *_details.xlsx，作为附件整包发送
+_SP_DETAILS_DATA = MY_APP_DIR / "data" / "sp_email" / "data"
+_SP_DETAILS_DEFAULT_TO = "ansah.boadu@zte.com.cn"
+_SP_DETAILS_DEFAULT_CC = "dong.xinmin@zte.com.cn"
 _RAN_DATA = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE"                      # 远程 FTP
 _RAN_EMAIL = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE/email"               # 远程 FTP
 
@@ -131,6 +135,8 @@ def _run_script(
     excel: Optional[Path] = None,
     body_file: Optional[Path] = None,
     images: Optional[list] = None,
+    attach: Optional[list] = None,
+    subject: Optional[str] = None,
     retries: int = 3,
     per_attempt_timeout: int = 120,
     budget: int = 180,
@@ -164,6 +170,12 @@ def _run_script(
         # 显式指定内嵌图片，避免目录残留旧 PNG 被一并发现导致重复内嵌
         for img in images:
             cmd += ["--images", str(img)]
+    if attach:
+        # 多附件：每份文件用一次 --attach（脚本 action="append"）
+        for a in attach:
+            cmd += ["--attach", str(a)]
+    if subject:
+        cmd += ["--subject", subject]
     if to is not None:
         cmd += ["--to", to]
     if cc is not None:
@@ -346,6 +358,36 @@ def run_sp_consumables(to: str = None, cc: str = None) -> dict:
         to=to_arg,
         cc=cc_arg,
         excel=excel,
+    )
+
+
+def run_sp_details_email(to: str = None, cc: str = None) -> dict:
+    """SP 备件明细报表邮件（每天 07:00）。
+
+    把 data/sp_email/data 下的 5 份 *_details.xlsx（inband/outband/inventory/
+    ocrule/transfer）整包作为附件发送。收件人固定：主送 ansah.boadu@zte.com.cn，
+    抄送 dong.xinmin@zte.com.cn；可在 Settings → Email Recipient Settings 覆盖。
+    """
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("sp_email_details", to, cc)
+    if not _SP_DETAILS_DATA.is_dir():
+        return {"success": False, "error": f"数据目录不存在: {_SP_DETAILS_DATA}"}
+    files = sorted(
+        f for f in _SP_DETAILS_DATA.glob("*.xlsx")
+        if not f.name.startswith("~$")
+    )
+    if not files:
+        return {"success": False, "error": f"未在 {_SP_DETAILS_DATA} 找到任何 xlsx 明细文件"}
+    if not to_arg:
+        return {"success": False, "error": "主送收件人为空，请在 Settings → Email Recipient Settings 配置 sp_email_details"}
+    return _run_script(
+        data_dir=_SP_DETAILS_DATA,
+        name_filter="",
+        to=to_arg,
+        cc=cc_arg,
+        no_excel=True,
+        attach=[str(f) for f in files],
+        subject="SP Spare Parts Details Report",
     )
 
 

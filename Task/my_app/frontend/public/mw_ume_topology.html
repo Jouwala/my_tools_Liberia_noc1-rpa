@@ -79,7 +79,7 @@
   #left{flex:1; display:flex; flex-direction:column; gap:0.625rem; min-width:0; min-height:0}
   #topo-wrap{flex:1; background:var(--panel); border:1px solid var(--line); border-radius:10px;
     display:flex; flex-direction:column; min-height:0; position:relative}
-  #topo-head{display:flex; align-items:center; gap:0.625rem; padding:0.375rem 0.75rem; border-bottom:1px solid var(--line); flex:0 0 auto}
+  #topo-head{display:flex; align-items:center; gap:0.625rem; padding:0.375rem 0.75rem; border-bottom:1px solid var(--line); flex:0 0 auto; position:relative; z-index:2}
   #topo-head h3{font-size:0.812rem; font-weight:600}
   #topo{flex:1; min-height:0}
   #topo-hint{position:absolute; right:10px; bottom:8px; font-size:0.688rem; color:var(--muted); pointer-events:none}
@@ -1667,8 +1667,12 @@ function utilClass(u){
 function openDrawerFor(e){
   const body = el('drawer-body');
   const srcN = findNode(e.source), tgtN = findNode(e.target);
-  const srcDisp = shortName(e.source);
-  const tgtDisp = shortName(e.target);
+  const srcName = (srcN && srcN.site) || shortName(e.source);
+  const tgtName = (tgtN && tgtN.site) || shortName(e.target);
+  const srcId = (srcN && srcN.site_id) || '';
+  const tgtId = (tgtN && tgtN.site_id) || '';
+  const srcDisp = srcId ? (srcName + ' (' + srcId + ')') : srcName;
+  const tgtDisp = tgtId ? (tgtName + ' (' + tgtId + ')') : tgtName;
   const srcIp = (srcN && srcN.ip) || '—';
   const tgtIp = (tgtN && tgtN.ip) || '—';
   // 端口对：取首个 checkpoint（聚合口径）；如有多个则下方列出明细

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>WhatsApp @Me Assistant</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Segoe UI", system-ui, sans-serif; background: #f0f2f5; color: #111b21; font-size: 13px; }
+    header { background: #008069; color: #fff; padding: 12px; position: sticky; top: 0; z-index: 2; }
+    header h1 { font-size: 15px; font-weight: 600; }
+    header .sub { font-size: 11px; opacity: .85; margin-top: 2px; }
+    .toolbar { display: flex; gap: 8px; padding: 10px 12px; background: #fff; border-bottom: 1px solid #e0e0e0; position: sticky; top: 52px; z-index: 1; }
+    button { flex: 1; padding: 8px 6px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; background: #e7fce3; color: #008069; font-weight: 600; }
+    button.secondary { background: #f0f2f5; color: #111b21; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    #status { padding: 8px 12px; color: #667781; min-height: 20px; }
+    .section-title { padding: 8px 12px 4px; font-weight: 700; font-size: 13px; }
+    .card { background: #fff; margin: 6px 12px; border-radius: 8px; padding: 10px; box-shadow: 0 1px 1px rgba(0,0,0,.08); }
+    .card .head { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+    .card .site { font-weight: 700; font-size: 13px; }
+    .badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+    .badge.urgent { background: #ffe0e0; color: #c62828; }
+    .badge.followup { background: #fff3cd; color: #8a6d00; }
+    .badge.fyi { background: #d9f3e3; color: #00703c; }
+    .card .row { margin-top: 4px; color: #3b4a54; line-height: 1.5; }
+    .card .row b { color: #111b21; }
+    .card .actions { margin-top: 8px; display: flex; gap: 6px; }
+    .card .actions button { flex: none; padding: 4px 10px; font-size: 11px; }
+    .card.done { opacity: .55; }
+    .card.done .site { text-decoration: line-through; }
+    .raw { background: #fff; margin: 6px 12px; border-radius: 8px; padding: 10px; box-shadow: 0 1px 1px rgba(0,0,0,.08); white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; font-size: 12px; }
+    .warn { background: #fff8e1; color: #8a6d00; margin: 6px 12px; padding: 8px 10px; border-radius: 8px; line-height: 1.5; }
+    .empty { padding: 24px 12px; text-align: center; color: #667781; }
+    details { margin: 6px 12px; }
+    summary { cursor: pointer; color: #667781; font-size: 12px; padding: 4px 0; }
+    .settings input { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 6px; margin-top: 4px; font-size: 12px; }
+    .settings label { display: block; margin-top: 8px; color: #3b4a54; }
+    footer { padding: 10px 12px 20px; color: #8696a0; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>WhatsApp @Me Assistant</h1>
+    <div class="sub">只筛选 @我 的消息 · 数据仅存本地</div>
+  </header>
+  <div class="toolbar">
+    <button id="btn-current">分析当前会话</button>
+    <button id="btn-mentions" class="secondary">分析所有提及会话</button>
+  </div>
+  <details class="settings-wrap" style="margin: 6px 12px 0;">
+    <summary>设置</summary>
+    <div class="settings">
+      <label>我的名字（@提及 匹配用，留空保存则恢复自动检测）
+        <input id="self-name" placeholder="例如 Dong" />
+      </label>
+      <button id="btn-save-name" style="margin-top: 6px;">保存名字</button>
+    </div>
+  </details>
+  <div id="status"></div>
+  <div id="results"><div class="empty">点击上方按钮开始分析</div></div>
+  <footer>数据仅保存在本地服务中，唯一外发路径是您自行配置的 AI API。</footer>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

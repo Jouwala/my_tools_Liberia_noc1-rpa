@@ -1,0 +1,1096 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0d9488">
+<meta name="apple-mobile-web-app-title" content="数字化运维平台">
+<meta name="format-detection" content="telephone=no">
+<link rel="apple-touch-icon" href="data:image/png;base64,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">
+<link rel="icon" type="image/png" href="data:image/png;base64,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">
+<link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoi5pWw5a2X5YyW6L+Q57u05bmz5Y+wIiwic2hvcnRfbmFtZSI6Iui/kOe7tOW5s+WPsCIsInN0YXJ0X3VybCI6Ii4iLCJkaXNwbGF5Ijoic3RhbmRhbG9uZSIsIm9yaWVudGF0aW9uIjoicG9ydHJhaXQiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiI2Y0ZjZmYSIsInRoZW1lX2NvbG9yIjoiIzI1NjNlYiIsImljb25zIjpbeyJzcmMiOiJkYXRhOmltYWdlL3BuZztiYXNlNjQsaVZCT1J3MEtHZ29BQUFBTlNVaEVVZ0FBQWdBQUFBSUFDQVlBQUFEMGVOVDZBQUFQbmtsRVFWUjQydTNkU1k5Y1o5a0c0UHNjbFpSZkFHYnNqdTJPVVF4aTVSVkRiSWNnQVU0ZzdBZzRzUk1raElTWUIrVW5STXp6cUlDSHR0a0JJbkdDQkVxQ2dLeThnUVF2RXJlQlpnejhncXpNd29ydGVPeHVWMVdmOHo3WHRVTDZySHoyMitxNjcvTzhUMVYxWVpBVzN2TEZzMDRCYU1IcTAxL29uTUx3K0tFSWVBQUZRUUZBMkFNb0JRb0FBaDlBSVZBQUVQZ0FDb0VDSVBRQlVBWVVnQXFoL3lXaER6RG9NdkI1dWFZQUNIMEFaUUFGUVBBREtBSW9BRUlmUUJsUUFBUy80QWRRQkJTQU9zSC9aY0VQVUxvSWZLNVRBQVEvQUlxQUF0Qms4TDlWOEFOd2pTTHdoenBGb0JQOEFGQ3ZDUFRDSHdEcVpVZlg3Zy92SzRJZmdDbE1BejdiS1FDQ0h3QkZJSzRBaEQ4QXFYSXQwRmJHZEg0b0FGQnZHdEFMZndDb2x6MjlId0FBMU11Z2JweUgvbFhCRDBDR2N5WHdtYzRFUVBnRFVHNGFNTDVzNmgwd0FOVExxRkdNTEJiZUp2Z0JHSS9WM3cvL1NxQVgvZ0JRTDd1NllSL2cxNFEvQUNPZUJIeTZNd0VRL2dDVW13UU1OOHQ2QndZQTlUS3RkMUFBVUMvYmVnY0VBUFV5cmh2T3dYeGQrQU9ROWhjRFA5V1pBQWgvQU1wTkFvYVJlYjJEQUlCNjJkY0xmd0NvbDRHOThBZUFlbG5ZYmM0LytCdkNId0R5MG1MZ0o3dm1DOERDMjRVL0FGeFdBbjQzM3hMUUMzOEEySHp6enNoZStBTkF2UkxRQzM4QXFGY0Nla2NOQVBWMHMyOHkzL1QwRHdCWjcxTGdKN3JSVGdDRVB3QU1NME43NFE4QTlVcUFIUUFBS0tqMzlBOEE5YVlBM2ZUL290OFMvZ0NRYVM4RmZyd2I3QVJBK0FQQXJDWUIwODNZeWZpL1dnZ0EyTFFKd01KdG52NEJZS1pUZ0NsbWJTLzhBYUJlQ1ppWS9RTkFYQUdzdjRsODI5TS9BTXgxQ25EajJldURnQURBQk1EVFB3QlVtQUwwd2g4QTZwV0FpY1UvQUlncmdMVTFqdTk0K2dlQVFVd0JOcGJKbGdBQndBVEEwejhBVkpnQ21BQUFRRUhyMnVSYjJPM3BId0NHYXZXM0grdG05QzRBbS84QWtFbzdBQXU3dit2cEh3QUdiRDFaYlFjQUFFd0FQUDBEUUlVcGdBa0FBQlEwc2Z3SEFIRUZrTXRHQ2Q4ei9nZUFqT2thNFByWjdRb0FBRXdBUFAwRFFJVXB3TVROUHdERUVxQUtBQUNwKzEwQWkzdStiL3dQQUNQM3Q2YysybGtDQkFBVUFBQlFBR0w4RHdDdHVWcW1td0FBUUx3TElMYi9BU0QxcmdBVzkvekErQjhBMHRJMXdPWFo3Z29BQUV3QUFBQUZBQUJJODU4RXVMam5oKzcvQVNDdGZpcmdSem9UQUFDSUt3QUFJRlUvQjhEYi93R2cxZ1JnY2EvN2Z3Qm8yY1ZaUC9INER3QjJBQUFBQlFBQVVBQUFnSFlLd09MZUgxa0FCSUJVV0FROGwva1RDNEFBNEFvQUFGQUFBQUFGQUFCUUFBQ0FqUGk3QU93QUFrREZMd1BTQUFDZ2ttN3g5b2Q5QmdBQXhBNEFBS0FBQUFBS0FBQ1FCcFlBTFFBQ2dBa0FBS0FBQUFBS0FBQ2dBQUFBc1FRSUFKZ0FBQUFEblFBWUFBQ0FDUUFBb0FBQUFMRUVDQUNZQUFBQUNnQUFrSkZjQWNBRmYvM05BWWNBamJyNWpzTU9nZk82eFhjY091c1loRDZnRUtBQUlQZ0JSWUQyQzhCaEJhQmM4Ti9uRUlBckZJRWpEaUdXQUJIK2dOY0hUQUR3aXcyWUJ0QldBYmhEQVdnKy9IOHQvSUVObElCM0tnRnhCWUR3Qjd4KzBOZ0U0SWdKUUxPL3ZQYzZCR0FLazRDakRzRUVBQUJRQVBEMEQzZzlRUUhBTHl2Z2RRVUZBQURJWUpjQWoxb0NiS3FsNzNjSVFHYTNFTGpzRUV3QUFBQUZBRS8vZ05jWkZBQUFRQUVBQURLb0pjQmxTNEJwWVN6M0lZY0FaSDdMZ01jY3dzaE4wamtFQU5iNytPZ0k0Z29BQUZBQUFBQUZBQUJRQUFDQURHRUowQ1lIQUxFRmFBSUFBQ2dBQUVCN0pvWTRBTVFGZ0FrQUFHQUpFQURNQUV3QUFBRGZCUUNBQVFBbUFBQ0FBZ0FBeEJJZ0FIRUhnQWtBQUtBQUFBQUtBQUNnQUFBQUNnQUFFTzhDZ05FNGVXclZJYkJodTNZdXhMc0FNQUVBQUJRQUFDQnJ2UUtBWWRpeXZPKzZmK2FGL1NjY0ZJQXZBNkpDNkYvdHp5c0RFQ3NBV0FLazdlQy8xbjlERVFBTkFGY0FGQWgrUlFBZ2xnQ3BIZjd6L084RG1BREFRTU41eS9LK3dVOENodk0rYnNBRUFCcDZNamNKQUxBRVNMSHdIOU1rQUdJSkVCTUFoTDlKQUlBQ2dQQlhBZ0FVQUFCQUFjRFR2eWtBUUN3QkFoQkxnUGd1QUR4dGUxY0F5SC9pQ2dBQVVBQUFBQVdBVkZtMnN3d0lvQUFBUUx3TEFBQmlDOUFFQUFCUUFBQUFCUUFBVUFBQWdGZ0NCQ0NXQURFQm9JcWhmOVN1andJRzhGMEFBQmdBbUFBQUFBb0FwTFV4dS9FL1FDd0J3bVk2ZVdyVkliQmh1M1l1eEIwQUpnQjQydmIwRDZBQUFBQUtBSjY2UGYwREtBQlVDMS9oRHhCTGdHeGVDRzlaM2lmOElUNElBQk1BVEFLRVA0QUNnQklnL0FFeS95c0FhT002WUN6aFA1ejNjUU1LQU14NUVqRE5JdUNwSDhDWEFWR29DQWgraUIxQXZBdUE4ZThHcktVTUNIM1FBSEFGZ0VWQkFPSmRBQUNBQWdBQUtBQUFRQ3dCQWhCTGdDWUFBSUFDQUFBb0FBQ0FBZ0FBeEJJZ0FMRUVpTzhDQUVEK0UxY0FBSUFDQUFBb0FBQkFMQUVDRUVzQW1BQUFBQW9BQUhEREpvWTRBTVFGZ0FrQUFLQUFNQkxiN256VUlRQmViNGgzQVFBUUZ3Q1lBQUFBQ2dBQVZOWnR2ZlBSczQ2aEhXY2UyZWNRZ0puWmR0Y0poMkFDQUFDTWVBSnd3Z1NndVNuQWV4d0NNSU9uLzhjY2dna0FBS0FBb0tVRFhsZFFBUERMQ25nOVFRRUFRUGdUbndUSTNINXhIOCtaUjk3dElJRDQxRDlNQUFxV0FBQ3ZIeWdBZm9rQnJ2dWE0WFZEQWNBdk5PQ0JBUVVBdjl5QTF3ZlN4Q2NCM3ZXWVR3SXM2c3d2TFFnQ3liYjNDdjZpQmVCeEJhQjhFWGlYUTRDU3dmOHJoNkFBZ0RJQUFoOEZBQUNJSlVBQVFBRUFBT0tqZ0FFQUV3QUFRQUVBQUJRQUFFQUJBQUJpQ1JBQU1BRUFBR1l5QVRBQUFBQVRBQUJBQVFBQVlna1FBREFCQUFBVUFBQkFBUUFBRkFBQVFBRUFBT0pkQUFDQUNRQUFvQUFBQVBGZEFBQ0FDUUFBWUFrUUFEQUJBQUFVQUFCUUFBQUFCUUFBaUNWQUFNQUVBQUJRQUFBQUJRQUF5RWgyQU9DQ003KzQzU0ZBbzdiZC9ZUkQ0THh1Ni91ZU9Pc1lxb2YrWG9jQUpRdkJrdzZoZEFHNFd3RW9HL3cvRi94QXN1Mzlpb0FDZ09BSEZBRmlDUkRoRDNoOXdBUUF2OWlBYVFBbUFBaC93T3NHNDUwQVBHa0MwUFF2OFI2SEFOekFKT0FwaDJBQ2dQQUh2STZnQUFBQUNnQmFPK0QxQkFVQXY2eUExeFV5Nk84QzZKd0NBR3NnTDB3QUdIQkwzKzBRQUs4dnJHRUNvTkFCWUFoZ0FzQ0kyL25QdEhQQTZ3d0tBQUFRUzRBQXhEMEFKZ0JwYXl4M20wTUF2TjZ3OWdtQUhnZUFHWUFKQUFDZ0FBQUFDZ0FBRU84Q0FDQzJBREFCQUFBVUFBQkFBUUFBNHN1QUFJZ1ZBQ3dCQXFBQkVGY0FBSUFDQUFBb0FBQ0FBZ0FBeEJJZ0FMRUVpQWtBQUtBQUFJQUNBQUFvQUFCQUxBRUNRQ3dCK2k0QTRBYWNQTFhxRU5pd1hUc1g1RDl4QlFBQUtBQUFRTmE2QXdERDhOeUROMTMzeit4NDZFVUhCYUFBVUNIMHIvYm5sUUVBN3dLZzhlQy8xbjlERVlEWUFzUUVnUGFEWHhFQWlDVkFhb2YvUFAvN0FDWUFNTkJ3ZnU3Qm13WS9DUmpNKzdnQkV3Qm82Y25jSkFEQUVpREZ3bjlNa3dDSUpVQk1BQkQrSmdFQUNnRENYd2tBaUM4REFpQnVBREFCd05PL0tRQ0FKVUFBakFBd0FjRFR0aWtBZ0FJQUFDZ0FBSUFDUU1xTTJWMERBTVFTSUFDeEJHZ0NBQUFvQUFDQUFnQUFLQUFBUUh3WEFBQ3hBNGgzQVFDZ0FSQlhBQUNBQWtDcmRqejBvcjhmZ0FJQUFDZ0FBRUFzQVpKV3J3R0crSm43eHY4UVM0QmNXZ0NBZVRwNWF0VWhzR0c3ZGk0NEJPSUtBTXQybnY0QkZBQUFRQUhBVTdlbmY0QllBcVRZUXFEd2gxZ0N4SGNCVUtzRUNIK1EvOFFWQUxYRzhNSWZRQUdnV0FrUS9nRHhPUURVdWc0WVMvaDdIemRnQ1pDeWs0QnBGZ0ZQL1JCTEFKZ0FVS2NJQ0g0QUJZQUdkZ1BXVWdhRVBvQUNnRVZCQU9KZEFBQ0FBZ0FBeExzQUFJaDNBV0FDQUFBS0FBQVFYd1lFQUhFRFlBSUFBRmdDQk1BSWdGRVhBRDlDQU1SL1hBRUFBQW9BQUtBQUFBQ3hCQWhBYkFGZ0FnQUFLQUFBZ0FJQUFDZ0FBRUI4RndBQXNRUEluSDZFMnovd3g3T09vUTJuZi9wbWh3RE0zTkk5ZjNJSWNRVUFBQ2dBQUlBQ0FBQW9BTVM5SE9CMWh2Z29ZQUJpL1I4VEFLYlF6cDl4Q0lEWEZ4UUFBRUFCME5JQnZLNmdBUGhsQmZCNkVrdUFBUER5OEg4MmNzSUVnRkgrNGdKQXJ2QmRBUGM4NDdzQUduZjYrSnNjQXJEK2g0Z1Blb2d3QWNBdk1WRHFOY1ByaGdLQVgyakFBd05wOGdyZ1dWY0FxWFlsOEVhSEFGd2gvUC9zRUJRQUZBRkE4S01Bb0FnQWdoOEZBR1VBRVBnb0FBQkF2QXNBQUlpUEFnWUFUQUFBQUFVQUFNajhyd0RjQUFDQUNRQUFZQWtRQURBQkFBQVVBQUJBQVFBQUZBQUFJSllBQVFBVEFBQkFBUUFBRkFBQVlJWUZZT1g0clpZQUFLQ1FsZU8zZHBOei8xTUhBSURVZWhlQS9BZUEyQUVBQUJRQUFFQUJBQUFVQUFBZ1kxMEN0QVVJQVBVbUFDdkgzcUFCQUVBQkwyVytLd0FBc0FNQUFDZ0FBRUFhWGdKTUxBSUNRTUVKd01xeEhSb0FBS1RsQmNBTFdUOTUyZjlGQlFBQU93QUFnQUlBQURUaXNxSC85djNQbjNVc0FOQ1dsZVZiT2hNQUFJZ3JBQUJBQVFBQXloV0FTKzhJQUlBMGRmK2ZYUG81QVBHQkFBRGdDZ0FBcUZNQVZwYVhqQUFBSUMyTS82K2M2U1lBQUdBQ0FBQ2s0aWNCWG16N3ZhZDlLaUFBak5USzBhdGY2VSt1M1E2c0FnQkFYQUVBQU0wWGdOTkh0eHNCQU1BSVhTL0RUUUFBd0FUQUZBQUFXbi82VDY2ekJCZ2ZEUXdBbGdBQmdFSUY0UFRSYlVZQUFKQXhqUC9YbHRrbUFBQmdBbUFLQUFDdFAvMG5hMTRDakdWQUFFaVI3d0s0a3FYNy91TDdBUUJnYUUvL1I3WjIzZ1VBQUV5M0FLeTNZUUFBdzNyNk53RUFBQk1BVXdBQXFQRDBuNno3WFFEeGpnQUFxUHhSd0tlUDNLd0JBTUNtUHYxdlBJdjd6ZnAvREFCc1hnWmJBZ1NBdUFJd0JRQ0F4cC8ra3h0YUFveUZRQUNvT2dFNDEwUVdOUUFBbU12VC8zUXl0eC9hWHdnQW1IM1dUcktwWHkwRUFHU3NWd0RubThsaFV3QUFtTW5ULzVRemRpYUJ2WFJnMVZjR0E4RFV3bitoRy9RRVlKWi9VUUFRL2dNdkFBQkE2dXdBbUFJQXdEaXl0Qi9yWHh3QWhIK0cvY2E5cFFOL3R4UUlBR3NPLzlkM283MENBQUJTYndkZzNrMEdBRHo5RDNBQ29BUUF3SEN5c20vMUh3WUF3ai9EK3ZUK3BZT1dBZ0hnZlBnZm12OEQ4cVk5a1M4ZC9JY1NBSUR3UC9TNnJ0a2x3Q0g5Z3dHZ2V2aHYrdHNBbFFBQWhIL0JBcUFFQUNEOGl4WUFKUUFBNFQ5L2d3cmVwWVAvdEJnSVFNUGgvOXF1MUNjQmp2RmdBS0Rsak9zZEVBRFV5N2JlUVFGQXZVenJIUmdBMU11eXdZZnMwc0YvV1F3RVlJVGgvNXF1L05jQnQzeUFBRERHN0JwVnVDN2RieG9Bd0lDRC95ZmplV2p0SFN3QTFNdW8zZ0VEUUwxc0duV1lMdDMvYjFjQ0FHeGk4TDk2dERuYU8zZ0FxSmRCdlI4QUFOVExucWJDMDVVQUFJSy95QVRBTkFBQUdWTjhBbUFhQUlEZ0wxNEFMaFNCL3lnQ0FHd2crRi9WZEViMmZvQUFVQzg3U29XamFRQUFIaG9MRm9EelJlQUJSUUNBaTRML3gvV214YVhINDRvQWdPQ3YrbTkzUDU1azZZRVhGQUdBVXNHL3BYeitLUUNLQUlEZ1Z3QlFCZ0NFdmdLQUlnQWcrQlVBWlVBWkFCRDZDa0R4TXZCZlpRQmdFS0gvU2xtbUFDZ0RBRUlmQlVBaEFCRDRLQUFLQVlEQVJ3RlFDZ0NFdlFMQXNOenk0ZjhwQ0VBVG5uLzRGYkptZ1A0UEY3bWdkMWM1RTAwQUFBQUFTVVZPUks1Q1lJST0iLCJzaXplcyI6IjUxMng1MTIiLCJ0eXBlIjoiaW1hZ2UvcG5nIiwicHVycG9zZSI6ImFueSBtYXNrYWJsZSJ9XX0=">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>数字化运维平台</title>
+<style>
+:root{
+  --bg:#f2f7fc; --card:#ffffff; --ink:#0f172a; --ink2:#334155; --muted:#64748b;
+  --line:#e5e9f0; --line2:#eef2f7;
+  --brand:#0d9488; --brand-soft:#f0fdfa; --brand-line:#99f6e4;
+  --ok:#16a34a; --ok-soft:#f0fdf4;
+  --warn:#d97706; --warn-soft:#fffbeb;
+  --bad:#dc2626; --bad-soft:#fef2f2;
+  --p0:#dc2626; --p1:#d97706; --p2:#0e7490;
+  --r:14px; --r-sm:10px;
+  --sh:0 1px 2px rgba(15,23,42,.05),0 1px 3px rgba(15,23,42,.04);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:15px; line-height:1.55;
+  padding-bottom:calc(84px + env(safe-area-inset-bottom));
+}
+.wrap{max-width:1080px;margin:0 auto;padding:0 16px}
+h1,h2,h3,h4{margin:0;font-weight:650;letter-spacing:-.01em}
+button{font-family:inherit;font-size:15px;cursor:pointer;border:none;background:none;color:inherit}
+input,select,textarea{font-family:inherit;font-size:16px;color:var(--ink)}
+
+/* ---------- header ---------- */
+header{background:linear-gradient(135deg,#0d9488 0%,#0e7490 50%,#0d2138 100%);color:#fff;padding:18px 0 20px}
+.hd{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.hd .logo{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.16);display:grid;place-items:center;flex:0 0 auto}
+.hd h1{font-size:19px;color:#fff}
+.hd .sub{font-size:12.5px;color:rgba(255,255,255,.72);margin-top:1px}
+.hd-acts{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.hbtn{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:9px;
+  background:rgba(255,255,255,.14);color:#fff;font-size:13.5px;font-weight:550;transition:background .15s}
+.hbtn:hover{background:rgba(255,255,255,.26)}
+.hbtn.danger{background:rgba(220,38,38,.28)}
+.hbtn.danger:hover{background:rgba(220,38,38,.45)}
+
+/* ---------- generic ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:16px;margin-top:14px}
+.card-h{display:flex;align-items:center;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+.card-h h2{font-size:16px}
+.card-h .sp{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.muted{color:var(--muted);font-size:13px}
+.hr{height:1px;background:var(--line2);margin:12px 0}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.grow{flex:1 1 160px;min-width:0}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 14px;
+  border-radius:10px;font-size:14.5px;font-weight:600;border:1px solid var(--line);background:#fff;color:var(--ink2);transition:.15s}
+.btn:hover{border-color:#cbd5e1;background:#f8fafc}
+.btn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn.pri:hover{background:#1d4ed8;border-color:#1d4ed8}
+.btn.sm{min-height:36px;padding:0 11px;font-size:13.5px;border-radius:9px}
+.btn.xs{min-height:32px;padding:0 9px;font-size:12.5px;border-radius:8px;font-weight:550}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+.btn.ghost:hover{background:#f1f5f9;color:var(--ink)}
+.btn.danger{color:var(--bad);border-color:#fecaca;background:#fff}
+.btn.danger:hover{background:var(--bad-soft)}
+
+input[type=text],input[type=date],input[type=number],select,textarea{
+  width:100%;min-height:44px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;outline:none;transition:.15s}
+textarea{min-height:80px;resize:vertical;line-height:1.5}
+input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(13,148,136,.12)}
+label.fl{display:block;font-size:12.5px;color:var(--muted);font-weight:600;margin:0 0 4px 2px}
+
+.tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;line-height:1.7}
+.tag.p0{background:var(--bad-soft);color:var(--p0)}
+.tag.p1{background:var(--warn-soft);color:var(--p1)}
+.tag.p2{background:#f0f9ff;color:var(--p2)}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.bad{background:var(--bad-soft);color:var(--bad)}
+.tag.gray{background:#f1f5f9;color:var(--muted)}
+
+/* ---------- nudge ---------- */
+#nudge{display:none;margin-top:12px;background:var(--warn-soft);border:1px solid #fde68a;color:#92400e;
+  border-radius:var(--r);padding:11px 14px;font-size:13.5px;align-items:center;gap:10px}
+#nudge.on{display:flex}
+#nudge button{margin-left:auto;flex:0 0 auto}
+
+/* ---------- today ---------- */
+#today{border:1px solid var(--brand-line);background:linear-gradient(180deg,#f0fdfa 0%,#fff 60%)}
+#today .card-h h2{display:flex;align-items:center;gap:8px}
+.tl{display:flex;flex-direction:column;gap:8px}
+.ti{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px solid var(--line);
+  border-radius:var(--r-sm);background:#fff}
+.ti.od{border-color:#fecaca;background:var(--bad-soft)}
+.ti.bad{border-color:#fecaca;background:var(--bad-soft)}
+.ti .dot{width:9px;height:9px;border-radius:50%;background:var(--brand);flex:0 0 auto}
+.ti.od .dot,.ti.bad .dot{background:var(--bad)}
+.ti .tx{min-width:0;flex:1}
+.ti .t1{font-size:14.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis}
+.ti .t2{font-size:12.5px;color:var(--muted);margin-top:1px}
+.ti .t2 .r{color:var(--bad);font-weight:650}
+.ti .act{display:flex;gap:6px;flex:0 0 auto}
+.empty{padding:18px;text-align:center;color:var(--muted);font-size:13.5px;border:1px dashed var(--line);border-radius:var(--r-sm)}
+
+/* ---------- tabs ---------- */
+#tabs{display:flex;gap:4px;margin-top:16px;background:#e9eef5;padding:4px;border-radius:12px;overflow-x:auto}
+#tabs button{flex:1;min-width:96px;min-height:40px;border-radius:9px;font-size:14px;font-weight:600;color:var(--muted);
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+#tabs button.on{background:#fff;color:var(--brand);box-shadow:var(--sh)}
+.tabpane{display:none}
+.tabpane.on{display:block}
+
+/* ---------- mobile tab bar ---------- */
+#mtabs{display:none;position:fixed;left:0;right:0;bottom:0;z-index:60;background:rgba(255,255,255,.97);
+  border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom));backdrop-filter:blur(8px)}
+#mtabs .in{display:flex}
+#mtabs button{flex:1;min-height:50px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  font-size:11px;color:var(--muted);font-weight:600;border-radius:10px}
+#mtabs button.on{color:var(--brand);background:var(--brand-soft)}
+
+/* ---------- list items ---------- */
+.li{display:flex;gap:11px;align-items:flex-start;padding:12px;border:1px solid var(--line);border-radius:var(--r-sm);background:#fff;margin-bottom:8px}
+.li.done{opacity:.55}
+.li.done .t1{text-decoration:line-through}
+.li .body{flex:1;min-width:0}
+.li .t1{font-size:14.5px;font-weight:600;word-break:break-word}
+.li .t2{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.chk{width:26px;height:26px;flex:0 0 auto;border:2px solid #cbd5e1;border-radius:8px;display:grid;place-items:center;
+  background:#fff;margin-top:1px;transition:.15s}
+.chk:hover{border-color:var(--brand)}
+.chk.on{background:var(--ok);border-color:var(--ok)}
+.chk svg{opacity:0}
+.chk.on svg{opacity:1}
+
+/* ---------- check board ---------- */
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px}
+.stat{border:1px solid var(--line);border-radius:var(--r-sm);padding:11px 12px;background:#fbfcfe}
+.stat .n{font-size:22px;font-weight:700;line-height:1.2}
+.stat .l{font-size:12px;color:var(--muted);margin-top:1px}
+.ring{display:flex;align-items:center;gap:16px}
+details.grp{border:1px solid var(--line);border-radius:var(--r-sm);margin-bottom:8px;background:#fff;overflow:hidden}
+details.grp>summary{padding:11px 13px;cursor:pointer;font-weight:650;font-size:14px;display:flex;align-items:center;gap:8px;
+  list-style:none;min-height:44px}
+details.grp>summary::-webkit-details-marker{display:none}
+details.grp>summary .cv{margin-left:auto;font-size:12px;color:var(--muted);font-weight:600}
+.tk{display:flex;gap:10px;align-items:center;padding:9px 13px;border-top:1px solid var(--line2);flex-wrap:wrap}
+.tk .nm{min-width:0;flex:1 1 200px}
+.tk .nm b{font-size:13.5px;font-weight:600;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tk .nm span{font-size:11.5px;color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.tk .st{display:flex;gap:4px;flex:0 0 auto}
+.sbtn{min-width:44px;min-height:36px;padding:0 9px;border-radius:9px;border:1px solid var(--line);background:#fff;
+  font-size:12.5px;font-weight:600;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;gap:4px}
+.sbtn:hover{border-color:#cbd5e1}
+.sbtn.on.ok{background:var(--ok-soft);border-color:#bbf7d0;color:var(--ok)}
+.sbtn.on.bad{background:var(--bad-soft);border-color:#fecaca;color:var(--bad)}
+.sbtn.on.skip{background:#f1f5f9;border-color:#e2e8f0;color:var(--muted)}
+.tk .streak{font-size:12px;color:var(--muted);flex:0 0 auto;font-variant-numeric:tabular-nums}
+.tk .note{width:100%;font-size:12.5px;color:var(--ink2);background:#f8fafc;border:1px solid var(--line2);border-radius:8px;
+  padding:6px 9px;min-height:34px}
+.chart{width:100%;height:auto;display:block}
+
+/* ---------- incident ---------- */
+.inc{border:1px solid var(--line);border-radius:var(--r-sm);padding:12px;margin-bottom:9px;background:#fff}
+.inc.open{border-left:4px solid var(--bad)}
+.inc.res{border-left:4px solid var(--ok)}
+.inc .h{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.inc .h b{font-size:14.5px;flex:1;min-width:0}
+.inc .kv{margin-top:8px;font-size:13px;color:var(--ink2);display:grid;grid-template-columns:auto 1fr;gap:3px 10px}
+.inc .kv dt{color:var(--muted);font-weight:600}
+.inc .kv dd{margin:0;word-break:break-word;white-space:pre-wrap}
+.bars{display:flex;align-items:flex-end;gap:7px;height:88px;margin-top:6px}
+.bars .b{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
+.bars .b i{display:block;width:100%;max-width:38px;background:var(--brand);border-radius:5px 5px 0 0;min-height:3px}
+.bars .b span{font-size:11px;color:var(--muted)}
+
+/* ---------- report ---------- */
+#repOut{width:100%;min-height:320px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:13px;line-height:1.65;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fbfcfe;white-space:pre;overflow:auto}
+
+/* ---------- modal ---------- */
+.mask{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;z-index:100;padding:16px}
+.mask.on{display:flex}
+.modal{background:#fff;border-radius:16px;max-width:420px;width:100%;padding:20px;box-shadow:0 20px 40px rgba(15,23,42,.2)}
+.modal h3{font-size:16.5px;margin-bottom:8px}
+.modal p{font-size:14px;color:var(--ink2);margin:0 0 16px}
+.modal .acts{display:flex;gap:9px;justify-content:flex-end}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom));
+  background:var(--ink);color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;z-index:200;
+  opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;white-space:nowrap}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(-6px)}
+
+@media(max-width:768px){
+  .wrap{padding:0 12px}
+  .hd h1{font-size:17px}
+  .hd-acts{width:100%;margin-left:0}
+  .hbtn{flex:1;justify-content:center}
+  #tabs{display:none}
+  #mtabs{display:block}
+  .card{padding:13px;border-radius:12px}
+  .tk{padding:10px 11px}
+  .tk .nm{flex:1 1 100%}
+  .tk .st{width:100%;justify-content:flex-start}
+  .sbtn{flex:1;min-height:44px}
+  .statgrid{grid-template-columns:repeat(2,1fr)}
+}
+@media(min-width:769px){
+  #mtabs{display:none}
+}
+.api-banner{display:none;margin:8px 0 4px;padding:9px 12px;border-radius:9px;font-size:13px;border:1px solid var(--line);background:#f8fafc;color:var(--ink2)}
+.api-banner .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:6px;vertical-align:middle}
+.api-banner.ok{border-color:#bbf7d0;background:#f0fdf4;color:#166534}
+.api-banner.ok .dot{background:var(--ok)}
+.api-banner.bad{border-color:#fecaca;background:#fef2f2;color:#991b1b}
+.api-banner.bad .dot{background:var(--bad)}
+.apill{display:inline-block;margin-left:8px;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid var(--line);background:#f8fafc;color:var(--ink2);white-space:nowrap}
+.apill.ok{border-color:#bbf7d0;background:#f0fdf4;color:#166534}
+.apill.bad{border-color:#fecaca;background:#fef2f2;color:#991b1b}
+.apill.run{border-color:#fde68a;background:#fffbeb;color:#92400e}
+.apill.gray{color:var(--muted)}
+.ck{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--ink2);margin:0 6px}
+.ck input{width:18px;height:18px}
+.fl{display:block;font-size:12.5px;color:var(--muted);margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap hd">
+    <div class="logo">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><path d="M6 7h.01M6 17h.01"/></svg>
+    </div>
+    <div>
+      <h1>数字化运维平台</h1>
+      <div class="sub">定时任务 · 巡检 · 排障 · 周报</div>
+    </div>
+    <div class="hd-acts">
+      <a class="hbtn" href="/" onclick="if(location.protocol==='file:'){location.href='http://localhost/';return false}" style="text-decoration:none" title="返回本机服务导航 http://localhost/"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>本机导航</a>
+      <button class="hbtn" onclick="exportJSON()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>导出 JSON 备份</button>
+      <button class="hbtn" onclick="document.getElementById('impFile').click()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>导入恢复</button>
+      <button class="hbtn" onclick="clearSeed()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M14 10v10M10 10v10"/></svg>清空示例</button>
+      <button class="hbtn danger" onclick="askClear()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>清空全部</button>
+      <input type="file" id="impFile" accept=".json,application/json" style="display:none" onchange="importJSON(this)">
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div id="nudge">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+    <span id="nudgeTx"></span>
+    <button class="btn xs" onclick="exportJSON()">立即备份</button>
+  </div>
+
+  <!-- 今天要处理 -->
+  <section class="card" id="today">
+    <div class="card-h">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <h2>今天要处理</h2>
+      <span class="tag gray" id="todayDate"></span>
+      <div class="sp">
+        <button class="btn xs" onclick="rollAll()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>全部顺延到今天</button>
+      </div>
+    </div>
+    <div class="tl" id="todayList"></div>
+  </section>
+
+  <!-- tabs -->
+  <nav id="tabs">
+    <button data-t="todo" class="on" onclick="tab('todo')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>待办任务</button>
+    <button data-t="check" onclick="tab('check')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>定时任务巡检</button>
+    <button data-t="inc" onclick="tab('inc')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>排障日志</button>
+    <button data-t="rep" onclick="tab('rep')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>周报生成</button>
+  </nav>
+
+  <!-- ============ 模块 1：待办 ============ -->
+  <div class="tabpane on" id="p-todo">
+    <section class="card">
+      <div class="card-h"><h2>新增待办</h2></div>
+      <div class="row">
+        <div class="grow" style="flex:2 1 260px"><label class="fl">任务内容</label><input type="text" id="tdTitle" placeholder="例：核对 sp_data_sync 拉取窗口冗余量"></div>
+        <div style="flex:0 0 108px"><label class="fl">优先级</label><select id="tdPri"><option value="P0">P0 紧急</option><option value="P1" selected>P1 重要</option><option value="P2">P2 常规</option></select></div>
+        <div style="flex:0 0 152px"><label class="fl">截止日期</label><input type="date" id="tdDue"></div>
+        <div style="flex:0 0 auto;align-self:flex-end"><button class="btn pri" onclick="addTodo()">添加</button></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h">
+        <h2>待办列表</h2>
+        <div class="sp">
+          <select id="tdFilter" style="width:auto;min-height:36px;padding:4px 10px;font-size:13.5px" onchange="renderTodo()">
+            <option value="open">未完成</option><option value="all">全部</option><option value="done">已完成</option>
+          </select>
+        </div>
+      </div>
+      <div id="todoList"></div>
+    </section>
+  </div>
+
+  <!-- ============ 模块 2：巡检 ============ -->
+  <div class="tabpane" id="p-check">
+    <section class="card">
+      <div class="card-h"><h2>今日巡检概览</h2><span class="tag gray" id="chkDate"></span></div>
+      <div class="statgrid">
+        <div class="stat"><div class="n" id="sTotal">0</div><div class="l">任务总数</div></div>
+        <div class="stat"><div class="n" id="sDone" style="color:var(--brand)">0</div><div class="l">今日已打卡</div></div>
+        <div class="stat"><div class="n" id="sBad" style="color:var(--bad)">0</div><div class="l">异常</div></div>
+        <div class="stat"><div class="n" id="sSkip" style="color:var(--muted)">0</div><div class="l">跳过</div></div>
+        <div class="stat"><div class="n" id="sStreak" style="color:var(--ok)">0</div><div class="l">最长连续正常</div></div>
+      </div>
+      <div class="ring">
+        <svg width="96" height="96" viewBox="0 0 96 96" style="flex:0 0 auto">
+          <circle cx="48" cy="48" r="40" fill="none" stroke="#eef2f7" stroke-width="11"/>
+          <circle id="ringArc" cx="48" cy="48" r="40" fill="none" stroke="#0d9488" stroke-width="11"
+                  stroke-linecap="round" stroke-dasharray="251.3" stroke-dashoffset="251.3"
+                  transform="rotate(-90 48 48)" style="transition:stroke-dashoffset .5s"/>
+          <text id="ringTx" x="48" y="53" text-anchor="middle" font-size="19" font-weight="700" fill="#0f172a">0%</text>
+        </svg>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:650;font-size:14.5px;margin-bottom:3px">今日打卡完成度</div>
+          <div class="muted" id="ringSub">—</div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn sm" onclick="bulkOk()">今日全部标正常</button>
+            <button class="btn sm danger" onclick="clearToday()">清空今日打卡</button>
+          </div>
+        </div>
+      </div>
+      <div class="hr"></div>
+      <div class="row">
+        <div class="grow"><input type="text" id="chkSearch" placeholder="搜索任务名 / task_id…" oninput="renderCheck()"></div>
+        <div style="flex:0 0 auto"><select id="chkFilter" style="width:auto;min-height:44px;padding:6px 10px" onchange="renderCheck()">
+          <option value="all">全部任务</option><option value="todo">仅未打卡</option><option value="bad">仅异常</option>
+        </select></div>
+        <div style="flex:0 0 auto"><button class="btn" onclick="toggleAddTask()">+ 自定义任务</button></div>
+      </div>
+      <div id="addTaskBox" style="display:none;margin-top:10px;padding:12px;border:1px dashed var(--brand-line);border-radius:10px;background:var(--brand-soft)">
+        <div class="row">
+          <div class="grow" style="flex:1 1 200px"><label class="fl">任务名称</label><input type="text" id="ntName" placeholder="例：Nginx 配置重载"></div>
+          <div style="flex:0 0 140px"><label class="fl">task_id</label><input type="text" id="ntId" placeholder="nginx_reload"></div>
+          <div style="flex:0 0 auto;align-self:flex-end"><button class="btn pri" onclick="addCustomTask()">添加</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>后端执行状态（自动）</h2><span class="muted" id="apiState"></span></div>
+      <div id="apiBanner" class="api-banner"></div>
+      <div class="row" style="margin-top:8px;flex-wrap:wrap">
+        <button class="btn sm pri" onclick="fetchApiStatus()">立即刷新</button>
+        <label class="ck"><input type="checkbox" id="apiEnabled" onchange="apiToggleEnabled(this.checked)"> 启用自动读取</label>
+        <label class="ck"><input type="checkbox" id="apiAuto" onchange="apiToggleAuto(this.checked)"> 每 5 分钟自动刷新</label>
+        <button class="btn sm" onclick="apiToggleCfg()">设置后端地址</button>
+      </div>
+      <div id="apiCfg" style="display:none;margin-top:10px;padding:12px;border:1px dashed var(--brand-line);border-radius:10px;background:var(--brand-soft)">
+        <label class="fl">后端基地址（同源托管时留空即可）</label>
+        <input type="text" id="apiBase" style="width:100%" placeholder="留空=同源，或填 http://host:port" onchange="apiSetBase(this.value)">
+        <div class="muted" style="margin-top:6px;font-size:12.5px;line-height:1.6">同源托管（推荐）：本页与 /api/tasks 同一 host:port 时，地址<b>留空</b>即自动用相对路径，无需配置、无跨域。需手机/浏览器与 192.168.100.20 同内网或 VPN。若经 CloudStudio(HTTPS) 打开，浏览器会拦截 http 后端（混合内容），请把本页也放到后端同源地址打开。</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>定时巡检台账</h2><span class="muted" id="chkCount"></span></div>
+      <div id="checkBoard"></div>
+    </section>
+  </div>
+
+  <!-- ============ 模块 3：排障日志 ============ -->
+  <div class="tabpane" id="p-inc">
+    <section class="card">
+      <div class="card-h"><h2>记录一次排障</h2></div>
+      <div class="row">
+        <div class="grow" style="flex:1 1 100%"><label class="fl">故障现象</label><input type="text" id="icTitle" placeholder="例：DbWriter dedup_insert 行数无界增长"></div>
+        <div style="flex:1 1 180px"><label class="fl">影响服务 / task_id</label><input type="text" id="icSvc" placeholder="例：sp_data_sync"></div>
+        <div style="flex:0 0 130px"><label class="fl">耗时（分钟）</label><input type="number" id="icMin" min="0" placeholder="45"></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="grow"><label class="fl">根因</label><textarea id="icCause" placeholder="例：Begin Time 在不同表间 +00:00 ISO 与 YYYY-MM-DD HH:MM:SS 两种格式混用，字符串时间比较失效"></textarea></div>
+        <div class="grow"><label class="fl">修复动作</label><textarea id="icFix" placeholder="例：统一写入前归一化时间格式，并对 (Begin Time, 维度键) 建唯一索引"></textarea></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div style="flex:0 0 auto;align-self:flex-end"><button class="btn pri" onclick="addInc()">保存记录</button></div>
+        <div style="flex:0 0 auto;align-self:flex-end"><button class="btn" onclick="addInc(true)">保存为「未闭环」</button></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>近 7 天排障次数</h2></div>
+      <div class="bars" id="incBars"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-h">
+        <h2>排障记录</h2>
+        <div class="sp">
+          <select id="icFilter" style="width:auto;min-height:36px;padding:4px 10px;font-size:13.5px" onchange="renderInc()">
+            <option value="all">全部</option><option value="open">未闭环</option><option value="res">已闭环</option>
+          </select>
+        </div>
+      </div>
+      <div id="incList"></div>
+    </section>
+  </div>
+
+  <!-- ============ 模块 4：周报 ============ -->
+  <div class="tabpane" id="p-rep">
+    <section class="card">
+      <div class="card-h">
+        <h2>本周汇总</h2><span class="tag gray" id="repRange"></span>
+        <div class="sp">
+          <button class="btn pri sm" onclick="genReport()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>生成本周周报</button>
+          <button class="btn sm" onclick="copyReport()">复制</button>
+        </div>
+      </div>
+      <div class="muted" style="margin-bottom:10px">自动汇总：本周完成待办 · 巡检异常与跳过 · 新增与闭环排障 · 总耗时。</div>
+      <div class="statgrid">
+        <div class="stat"><div class="n" id="rDone" style="color:var(--ok)">0</div><div class="l">完成待办</div></div>
+        <div class="stat"><div class="n" id="rBad" style="color:var(--bad)">0</div><div class="l">巡检异常</div></div>
+        <div class="stat"><div class="n" id="rInc">0</div><div class="l">排障次数</div></div>
+        <div class="stat"><div class="n" id="rMin">0</div><div class="l">排障耗时(分)</div></div>
+      </div>
+      <textarea id="repOut" placeholder="点击「生成本周周报」…"></textarea>
+    </section>
+  </div>
+
+  <div style="height:14px"></div>
+  <div class="muted" style="text-align:center;padding-bottom:8px">
+    数据保存在本浏览器 localStorage（<code>wb_rpaops_v1</code>），换浏览器/换设备不通用，请定期导出备份。
+  </div>
+</div>
+
+<!-- mobile tabs -->
+<nav id="mtabs"><div class="in">
+  <button data-t="todo" class="on" onclick="tab('todo')"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>待办</button>
+  <button data-t="check" onclick="tab('check')"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>巡检</button>
+  <button data-t="inc" onclick="tab('inc')"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>排障</button>
+  <button data-t="rep" onclick="tab('rep')"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>周报</button>
+</div></nav>
+
+<!-- modal -->
+<div class="mask" id="mask">
+  <div class="modal">
+    <h3 id="mTitle">确认</h3>
+    <p id="mText"></p>
+    <div class="acts">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn danger" id="mOk">确认</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ==================== 内置任务清单（源自 my_app/backend/task_registry.py） ==================== */
+var TASKS=[
+["eflow_sync","eFlow 数据同步","22 * * * *","eflow"],
+["eflow_active_alarm","eFlow 实时告警同步","*/30 * * * *","eflow"],
+["eflow_history_alarm","eFlow 历史告警同步","0 */3 * * *","eflow"],
+["eflow_tt_rules_check","eFlow TT 规则收集与匹配检查","20 4 * * *","eflow"],
+["eflow_sync_full","eFlow 每日全量同步","0 1 * * *","eflow"],
+["ran_ume_daily","RAN UME 日报","0 2 * * *","ran_ume"],
+["main_kpi_sync","RAN Main KPI 同步","0 4 * * *","ran_ume"],
+["cell_availability_sync","RAN 小区可用性 1-Day 同步","30 4 * * *","ran_ume"],
+["network_kpi_sync","RAN Network KPI 同步","0 5 * * *","ran_ume"],
+["cm_data_sync","RAN CM 小区数据同步","30 8 * * *","ran_ume"],
+["packet_loss_sync","Packet Loss 丢包同步","30 6 * * *","packet_loss"],
+["packet_loss_email","Packet Loss 丢包日报邮件","45 6 * * *","packet_loss"],
+["ms_sla_full","MS SLA 完整同步","0 */6 * * *","ms_sla"],
+["cnn_kpi_sync","CNN UME KPI 同步","0 6 * * *","cnn_ume"],
+["ipran_kpi_sync","iPRAN UME KPI 同步","0 8 * * *","ipran_ume"],
+["mw_ume_kpi_sync","MW UME KPI 同步","15 5 * * *","mw_ume"],
+["mw_ume_kpi_sync_rt","MW UME KPI 实时同步","*/15 * * * *","mw_ume"],
+["fw_kpi_sync","FW 吞吐 KPI 同步+图表邮件","15 7 * * *","fw"],
+["battery_kpi_sync","电池 KPI 同步","5 * * * *","battery"],
+["battery_email","电池 KPI 邮件","0 7,19 * * *","battery"],
+["sp_data_sync","SP 备件数据同步","0 7 * * *","sp"],
+["sp_report_generate","SP 备件报表生成","15 5 * * *","sp"],
+["ems_kpi_cache_sync","CN EMS KPI 缓存同步","*/15 * * * *","cn_ems"],
+["ems_kpi_daily","CN EMS KPI 日粒度 CSV","20 0 * * *","cn_ems"],
+["site_outage_screenshot","Site Outage 截图","0 1 * * *","site_outage"],
+["incident_overview_sync","Incident Overview 数据同步","0 * * * *","general"],
+["finebi_report_sync","FineBI 报表文件同步","10 * * * *","general"],
+["db_freshness_check","数据库数据新鲜度巡检","15 * * * *","general"],
+["auto_retry_failed","失败任务自动重试","*/10 * * * *","general"],
+["pg_to_sqlite_sync","PG→SQLite 数据快照","45 * * * *","general"],
+["mailbox_cleanup","邮箱空间清理","0 * * * *","mailbox"],
+["liberia_email_1h","Liberia 宕站 1 小时报告邮件","5 * * * *","email"],
+["liberia_email_8h","Liberia 宕站 8 小时报告邮件","10 */8 * * *","email"],
+["kpi_ms_contract","MS Contract KPIs 日报邮件","30 17 * * *","email"],
+["kpi_ms_wo_sla","MS WOs SLA 日报邮件","35 17 * * *","email"],
+["kpi_ran_availability","MS Network Availability 日报邮件","30 9 * * *","email"],
+["kpi_sp_spareparts","SpareParts 备件报表邮件","45 9 * * *","email"],
+["kpi_sp_consumables","Comsumables 耗材报表邮件","50 9 * * *","email"],
+["ipran_m6k_chart_email","IP RAN M6K-FW 图表邮件","45 6 * * *","email"],
+["ccn_free_rating_chart_email","CNN Free Rating 图表邮件","45 7 * * *","email"],
+["email_recovery","EWS 恢复后邮件补发","*/20 * * * *","email"],
+["whatsapp_send","WhatsApp 消息发送","0 3 * * *","whatsapp"]
+];
+var GROUPS={
+ eflow:"eFlow 工单", ran_ume:"RAN UME", packet_loss:"丢包", ms_sla:"MS SLA",
+ cnn_ume:"CNN UME", ipran_ume:"iPRAN UME", mw_ume:"微波 UME", fw:"防火墙 KPI",
+ battery:"电池", sp:"SP 备件", cn_ems:"CN EMS", site_outage:"宕站截图",
+ general:"通用巡检", mailbox:"邮箱", email:"邮件报告", whatsapp:"WhatsApp", custom:"自定义"
+};
+var GORDER=["eflow","ran_ume","packet_loss","ms_sla","cnn_ume","ipran_ume","mw_ume","fw","battery","sp","cn_ems","site_outage","general","mailbox","email","whatsapp","custom"];
+
+/* ==================== 存储 ==================== */
+var KEY="wb_rpaops_v1";
+var DB={todos:[],checks:{},incidents:[],custom:[],meta:{}};
+var APISTATUS={};var APIINFO={ts:0,ok:false,msg:"",count:0};var _apiTimer=null;
+function load(){
+  try{var r=localStorage.getItem(KEY); if(r){var o=JSON.parse(r);
+    DB.todos=o.todos||[]; DB.checks=o.checks||{}; DB.incidents=o.incidents||[]; DB.custom=o.custom||[]; DB.meta=o.meta||{};
+    var _m=DB.meta; if(_m.apiBase===undefined)_m.apiBase=""; _m.apiEnabled=!!_m.apiEnabled; _m.apiAuto=!!_m.apiAuto;
+    if(_m._apiCache&&_m._apiCache.map) APISTATUS=_m._apiCache.map;
+    if(DB.meta.seeded) return;}}catch(e){}
+  seed(); save();
+}
+function save(){ try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){toast("保存失败：本地存储可能已满，请先导出备份");} }
+
+/* ==================== 日期 ==================== */
+function ymd(d){d=d||new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function addDays(s,n){var p=s.split("-").map(Number),d=new Date(p[0],p[1]-1,p[2]+n);return ymd(d);}
+function diffDays(a,b){var x=a.split("-").map(Number),y=b.split("-").map(Number);
+  return Math.round((new Date(y[0],y[1]-1,y[2])-new Date(x[0],x[1]-1,x[2]))/864e5);}
+function weekStart(){var d=new Date(),w=(d.getDay()+6)%7;d.setDate(d.getDate()-w);return ymd(d);}
+function cnDate(s){var p=s.split("-");return p[1]*1+"月"+p[2]*1+"日";}
+function cronDesc(c){
+  if(!c) return "手动";
+  var p=c.trim().split(/\s+/); if(p.length<5) return c;
+  var mi=p[0],h=p[1],d=p[2],mo=p[3],dw=p[4];
+  if(mi.indexOf("*/")===0) return "每 "+mi.slice(2)+" 分钟";
+  if(h.indexOf("*/")===0) return "每 "+h.slice(2)+" 小时 第 "+mi+" 分";
+  if(mi==="*") return "每分钟";
+  if(d==="*"&&mo==="*"&&dw==="*"){
+    var hh=h.split(",");
+    if(hh.length>1) return "每天 "+hh.map(function(x){return x+":"+String(mi).padStart(2,"0");}).join(" / ");
+    return "每天 "+String(h).padStart(2,"0")+":"+String(mi).padStart(2,"0");
+  }
+  return c;
+}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(m){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m];});}
+
+/* ==================== 示例数据 ==================== */
+/* 取 n 天前，但不早于本周一 —— 保证示例数据落在本周内，周报首开不空 */
+function wkBack(n){var s=addDays(ymd(),-n),w=weekStart();return s<w?w:s;}
+function seed(){
+  var T=ymd(), Y=addDays(T,-1);
+  DB.todos=[
+    {id:uid(),title:"核对 sp_data_sync 拉取窗口冗余量，确认缩短后远端 SQLite 覆盖不变",pri:"P0",due:Y,done:false,createdAt:Y},
+    {id:uid(),title:"ms_sla / get_sp_table / ran_ume 接入 atomic_write.py 原子写",pri:"P1",due:T,done:false,createdAt:Y},
+    {id:uid(),title:"ip_trace 页补 FTP 21 与 DbWriter 8765 端口探测",pri:"P1",due:addDays(T,2),done:false,createdAt:T},
+    {id:uid(),title:"ran_kpi_avalability_1day.sqlite3 已 713MB，评估归档/清理策略",pri:"P2",due:addDays(T,5),done:false,createdAt:T},
+    {id:uid(),title:"把 qwen3:4b 从 Ollama 自动选优候选中剔除",pri:"P2",due:wkBack(2),done:true,doneAt:wkBack(1),createdAt:wkBack(3)}
+  ];
+  DB.checks={};
+  DB.checks["eflow_sync|"+T]={s:"ok",n:""};
+  DB.checks["eflow_active_alarm|"+T]={s:"ok",n:""};
+  DB.checks["ran_ume_daily|"+T]={s:"ok",n:""};
+  DB.checks["main_kpi_sync|"+T]={s:"ok",n:""};
+  DB.checks["packet_loss_sync|"+T]={s:"bad",n:"本轮延迟约 40 分钟，疑似 UME 侧响应慢"};
+  DB.checks["ms_sla_full|"+T]={s:"skip",n:"观察期未校验"};
+  DB.incidents=[
+    {id:uid(),date:wkBack(5),title:"DbWriter dedup_insert 写入后行数无界增长",svc:"sp_data_sync",
+     cause:"Begin Time 在不同表间混用 +00:00 ISO 与 YYYY-MM-DD HH:MM:SS 两种格式，字符串时间比较失效导致去重键不命中。",
+     fix:"写入前统一归一化 Begin Time 格式，并对 (Begin Time, 维度键) 建唯一索引。",min:90,open:false},
+    {id:uid(),date:wkBack(3),title:"nginx -s reload 后仍 502",svc:"192.168.100.19",
+     cause:"残留了第二个陈旧 nginx 实例，reload 信号没送到真正监听的进程。",
+     fix:"nginx -s stop 停掉全部实例后重新 start nginx，端口迁移 37799→26738 生效。",min:35,open:false},
+    {id:uid(),date:wkBack(2),title:"FineBI 端口 70267 绑定失败",svc:"FineBI",
+     cause:"70267 超过 TCP 端口上限 65535，根本无法 bind；控制台显示的 Server URL 只是配置字符串。",
+     fix:"改用 26738 并放行防火墙入站，curl 验证 80 与 26738 均返回 302。",min:25,open:false},
+    {id:uid(),date:Y,title:"UME KPI 拉取偶发 10060 超时",svc:"ipran_kpi_sync",
+     cause:"并发度过高触发 UME 侧限流。",fix:"NW_KPI_PARALLEL_WORKERS 由 4 下调至 2，观察中。",min:20,open:true}
+  ];
+  DB.custom=[];
+  DB.meta={seeded:true,createdAt:T,apiBase:"",apiEnabled:false,apiAuto:false};
+}
+
+
+/* ==================== 后端 API 自动读执行状态 ==================== */
+function apiPill(ap){
+  if(!ap) return "";
+  if(ap.running) return '<span class="apill run">● 后端·运行中</span>';
+  if(ap.success===true) return '<span class="apill ok">● 后端·成功 '+relTime(ap.lastRun)+'</span>';
+  if(ap.success===false) return '<span class="apill bad">● 后端·失败 '+(ap.error?esc(ap.error.slice(0,40)):"")+'</span>';
+  return '<span class="apill gray">● 后端·无记录</span>';
+}
+function relTime(s){
+  if(!s) return "";
+  var d=new Date(String(s).replace(" ","T"));
+  if(isNaN(d)) return String(s).slice(0,16);
+  var diff=(Date.now()-d.getTime())/1000; if(diff<0)diff=0;
+  if(diff<60) return "刚刚";
+  if(diff<3600) return Math.floor(diff/60)+" 分钟前";
+  if(diff<86400) return Math.floor(diff/3600)+" 小时前";
+  return Math.floor(diff/86400)+" 天前";
+}
+function apiSetBanner(msg, ok){
+  var b=document.getElementById("apiBanner"); if(!b) return;
+  b.style.display=""; b.className="api-banner "+(ok===true?"ok":ok===false?"bad":"");
+  var time=APIINFO.ts? new Date(APIINFO.ts).toLocaleTimeString():"";
+  b.innerHTML='<span class="dot"></span> 后端状态：'+esc(msg)+(time?(" · "+time):"")+(APIINFO.ok?(" · 覆盖 "+APIINFO.count+" 个任务"):"");
+  var st=document.getElementById("apiState"); if(st) st.textContent=APIINFO.ok?"已连接":(msg?"未连接":"未启用");
+}
+async function fetchApiStatus(){
+  if(typeof fetch!=="function"){apiSetBanner("当前环境不支持 fetch（请用现代浏览器打开）",false);return;}
+  if(!DB.meta.apiEnabled){apiSetBanner("未启用后端读取",null);return;}
+  var base=(DB.meta.apiBase||"").replace(/[/]+$/,"");
+  apiSetBanner(base?("正在连接 "+base+" …"):"正在连接同源后端 …",null);
+  try{
+    var url=base? base+"/api/tasks" : "/api/tasks";
+    var res=await fetch(url,{headers:{"Accept":"application/json"}});
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    var data=await res.json();
+    var tasks=(data&&data.tasks)||[];
+    var map={};
+    tasks.forEach(function(t){
+      var runs=t.recent_runs||[]; var last=runs[0]||null;
+      map[t.task_id]={running:!!t.running, enabled:t.enabled!==false,
+        lastRun: last? (last.completed_at||last.started_at||null):null,
+        success: last? !!last.success : null,
+        error: last? (last.error||"") : "", trigger: last? (last.trigger||""):"",
+        elapsed: last? (last.elapsed_seconds||null):null, name:t.name};
+    });
+    APISTATUS=map;
+    APIINFO={ts:Date.now(),ok:true,msg:"",count:tasks.length};
+    try{DB.meta._apiCache={ts:APIINFO.ts,map:map};}catch(e){}
+    save(); renderCheck(); renderToday(); apiSetBanner("已更新",true);
+  }catch(e){
+    APIINFO={ts:Date.now(),ok:false,msg:String(e&&e.message||e),count:0};
+    if(DB.meta._apiCache&&DB.meta._apiCache.map) APISTATUS=DB.meta._apiCache.map;
+    renderCheck(); renderToday();
+    apiSetBanner("连接失败："+String(e&&e.message||e)+"（显示上次缓存/手工数据）",false);
+  }
+}
+function apiToggleEnabled(v){DB.meta.apiEnabled=!!v; save(); syncApiCtl(); if(v){fetchApiStatus();} else {apiSetBanner("已关闭后端读取",null); var x=document.getElementById("apiState"); if(x)x.textContent="未启用";}}
+function apiToggleAuto(v){DB.meta.apiAuto=!!v; save(); if(v){apiStartAuto();} else {apiStopAuto();}}
+function apiToggleCfg(){var b=document.getElementById("apiCfg"); b.style.display=b.style.display==="none"?"block":"none";}
+function apiSetBase(v){DB.meta.apiBase=(v||"").trim(); save(); if(DB.meta.apiEnabled) fetchApiStatus();}
+function syncApiCtl(){
+  var e=document.getElementById("apiEnabled"),a=document.getElementById("apiAuto"),b=document.getElementById("apiBase");
+  if(e)e.checked=!!DB.meta.apiEnabled; if(a)a.checked=!!DB.meta.apiAuto; if(b)b.value=DB.meta.apiBase||"";
+}
+function apiStartAuto(){apiStopAuto(); _apiTimer=setInterval(function(){if(DB.meta.apiEnabled) fetchApiStatus();},5*60*1000);}
+function apiStopAuto(){if(_apiTimer){clearInterval(_apiTimer);_apiTimer=null;}}
+
+/* ==================== 渲染：今天要处理 ==================== */
+function renderToday(){
+  var T=ymd(), items=[];
+  document.getElementById("todayDate").textContent=cnDate(T)+" 周"+"日一二三四五六"[new Date().getDay()];
+
+  DB.todos.filter(function(t){return !t.done;}).forEach(function(t){
+    var isOd=t.origDue&&diffDays(t.origDue,T)>0;
+    var dueToday=t.due<=T;
+    if(!dueToday) return;
+    items.push({k:"todo",od:isOd,id:t.id,
+      t1:esc(t.title),
+      t2:'<span class="tag '+t.pri.toLowerCase()+'">'+t.pri+'</span>'+(isOd?
+          '<span class="r">已逾期 '+diffDays(t.origDue,T)+' 天（原定 '+cnDate(t.origDue)+'）</span>':'今天到期'),
+      act:'<button class="btn xs pri" onclick="doneTodo(\''+t.id+'\')">完成</button>'+
+          '<button class="btn xs" onclick="postpone(\''+t.id+'\')">明天</button>'});
+  });
+
+  var tasks=allTasks();
+  var un=tasks.filter(function(t){return !DB.checks[t.id+"|"+T];});
+  if(un.length) items.push({k:"chk",t1:"还有 "+un.length+" 个定时任务今天没打卡",
+    t2:"共 "+tasks.length+" 个任务 · 点右侧进入巡检台账",
+    act:'<button class="btn xs" onclick="tab(\'check\')">去巡检</button>'});
+
+  Object.keys(DB.checks).forEach(function(k){
+    if(k.indexOf("|"+T)<0) return;
+    var v=DB.checks[k]; if(v.s!=="bad") return;
+    var tid=k.split("|")[0], nm=taskName(tid);
+    items.push({k:"chk",bad:true,t1:"巡检异常："+esc(nm),
+      t2:esc(v.n||"未填写说明")+' <span class="tag bad">'+esc(tid)+'</span>',
+      act:'<button class="btn xs" onclick="tab(\'check\')">去处理</button>'});
+  });
+
+  if(APIINFO.ok){
+    tasks.forEach(function(t){
+      var ap=APISTATUS[t.id];
+      if(ap&&ap.success===false){
+        items.push({k:"chk",bad:true,t1:"后端执行失败："+esc(t.name),
+          t2:(ap.error?esc(ap.error.slice(0,60)):"")+' <span class="tag bad">'+esc(t.id)+'</span> · 后端 API',
+          act:'<button class="btn xs" onclick="tab(\'check\')">去查看</button>'});
+      }
+    });
+  }
+  DB.incidents.filter(function(i){return i.open;}).forEach(function(i){
+    items.push({k:"inc",bad:true,t1:"未闭环排障："+esc(i.title),
+      t2:(i.svc?'<span class="tag gray">'+esc(i.svc)+'</span> ':'')+'记录于 '+cnDate(i.date),
+      act:'<button class="btn xs pri" onclick="closeInc(\''+i.id+'\')">标记闭环</button>'+
+          '<button class="btn xs" onclick="tab(\'inc\')">查看</button>'});
+  });
+
+  var el=document.getElementById("todayList");
+  if(!items.length){el.innerHTML='<div class="empty">今天没有待处理项 —— 待办清空、巡检打卡完毕、无未闭环排障。</div>';return;}
+  items.sort(function(a,b){return (b.od||b.bad?1:0)-(a.od||a.bad?1:0);});
+  el.innerHTML=items.map(function(i){
+    return '<div class="ti '+((i.od||i.bad)?"od":"")+'"><span class="dot"></span><div class="tx">'+
+      '<div class="t1">'+i.t1+'</div><div class="t2">'+i.t2+'</div></div><div class="act">'+i.act+'</div></div>';
+  }).join("");
+}
+
+/* ==================== 模块 1：待办 ==================== */
+function addTodo(){
+  var t=document.getElementById("tdTitle").value.trim();
+  if(!t){toast("请填写任务内容");return;}
+  var due=document.getElementById("tdDue").value||ymd();
+  DB.todos.unshift({id:uid(),title:t,pri:document.getElementById("tdPri").value,due:due,done:false,createdAt:ymd(),__mine:true});
+  document.getElementById("tdTitle").value="";document.getElementById("tdDue").value="";
+  save();renderAll();toast("已添加");
+}
+function doneTodo(id){
+  DB.todos.forEach(function(t){if(t.id===id){t.done=true;t.doneAt=ymd();}});
+  save();renderAll();toast("已完成");
+}
+function undoTodo(id){
+  DB.todos.forEach(function(t){if(t.id===id){t.done=false;delete t.doneAt;}});
+  save();renderAll();
+}
+function delTodo(id){DB.todos=DB.todos.filter(function(t){return t.id!==id;});save();renderAll();toast("已删除");}
+function postpone(id){
+  DB.todos.forEach(function(t){if(t.id===id){t.due=addDays(ymd(),1);t.origDue=t.origDue||t.due;}});
+  save();renderAll();toast("顺延到明天");
+}
+function rollAll(){
+  var T=ymd(),n=0;
+  DB.todos.forEach(function(t){if(!t.done&&t.due<T){t.origDue=t.origDue||t.due;t.due=T;n++;}});
+  save();renderAll();toast(n?"已顺延 "+n+" 条":"没有需要顺延的");
+}
+function renderTodo(){
+  var f=document.getElementById("tdFilter").value,T=ymd();
+  var list=DB.todos.filter(function(t){return f==="all"?true:(f==="done"?t.done:!t.done);});
+  var ord={P0:0,P1:1,P2:2};
+  list.sort(function(a,b){
+    if(a.done!==b.done) return a.done?1:-1;
+    if(a.due!==b.due) return a.due<b.due?-1:1;
+    return ord[a.pri]-ord[b.pri];
+  });
+  var el=document.getElementById("todoList");
+  if(!list.length){el.innerHTML='<div class="empty">暂无记录</div>';return;}
+  el.innerHTML=list.map(function(t){
+    var od=!t.done&&t.origDue&&diffDays(t.origDue,T)>0;
+    return '<div class="li '+(t.done?"done":"")+'">'+
+      '<button class="chk '+(t.done?"on":"")+'" onclick="'+(t.done?"undoTodo":"doneTodo")+'(\''+t.id+'\')" aria-label="切换完成">'+
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></button>'+
+      '<div class="body"><div class="t1">'+esc(t.title)+'</div><div class="t2">'+
+      '<span class="tag '+t.pri.toLowerCase()+'">'+t.pri+'</span>'+
+      '<span'+(od?' style="color:var(--bad);font-weight:650"':'')+'>'+(t.done?("完成于 "+cnDate(t.doneAt||t.due)):(od?("逾期 "+diffDays(t.origDue,T)+" 天 · 原定 "+cnDate(t.origDue)):("截止 "+cnDate(t.due))))+'</span>'+
+      '</div></div>'+
+      '<button class="btn ghost sm" onclick="delTodo(\''+t.id+'\')" aria-label="删除">'+
+      '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg></button></div>';
+  }).join("");
+}
+
+/* ==================== 模块 2：巡检 ==================== */
+function allTasks(){
+  return TASKS.map(function(t){return {id:t[0],name:t[1],cron:t[2],g:t[3]};})
+    .concat(DB.custom.map(function(t){return {id:t.id,name:t.name,cron:"",g:"custom"};}));
+}
+function taskName(id){
+  for(var i=0;i<TASKS.length;i++) if(TASKS[i][0]===id) return TASKS[i][1];
+  for(var j=0;j<DB.custom.length;j++) if(DB.custom[j].id===id) return DB.custom[j].name;
+  return id;
+}
+function toggleAddTask(){
+  var b=document.getElementById("addTaskBox");
+  b.style.display=b.style.display==="none"?"block":"none";
+}
+function addCustomTask(){
+  var n=document.getElementById("ntName").value.trim();
+  var i=document.getElementById("ntId").value.trim();
+  if(!n){toast("请填写任务名称");return;}
+  if(!i) i="custom_"+uid();
+  DB.custom.push({id:i,name:n});
+  document.getElementById("ntName").value="";document.getElementById("ntId").value="";
+  save();renderAll();toast("已添加自定义任务");
+}
+function setCheck(tid,s){
+  var k=tid+"|"+ymd(), cur=DB.checks[k];
+  if(cur&&cur.s===s){delete DB.checks[k];}
+  else DB.checks[k]={s:s,n:(cur&&cur.n)||""};
+  save();renderAll();
+}
+function setNote(tid,v){
+  var k=tid+"|"+ymd();
+  if(!DB.checks[k]) DB.checks[k]={s:"ok",n:""};
+  DB.checks[k].n=v; save();
+}
+function streakOf(tid){
+  var d=ymd(),n=0;
+  if(!DB.checks[tid+"|"+d]) d=addDays(d,-1);
+  while(DB.checks[tid+"|"+d]&&DB.checks[tid+"|"+d].s==="ok"){n++;d=addDays(d,-1);}
+  return n;
+}
+function bulkOk(){
+  var T=ymd();
+  allTasks().forEach(function(t){if(!DB.checks[t.id+"|"+T]) DB.checks[t.id+"|"+T]={s:"ok",n:""};});
+  save();renderAll();toast("已全部标为正常");
+}
+function clearToday(){
+  var T=ymd(),n=0;
+  Object.keys(DB.checks).forEach(function(k){if(k.indexOf("|"+T)>=0){delete DB.checks[k];n++;}});
+  save();renderAll();toast("已清空 "+n+" 条今日记录");
+}
+function renderCheck(){
+  var T=ymd(), tasks=allTasks();
+  var q=(document.getElementById("chkSearch").value||"").trim().toLowerCase();
+  var f=document.getElementById("chkFilter").value;
+  document.getElementById("chkDate").textContent=cnDate(T);
+
+  var done=0,bad=0,skip=0,maxSt=0;
+  tasks.forEach(function(t){
+    var v=DB.checks[t.id+"|"+T];
+    if(v){done++;if(v.s==="bad")bad++;if(v.s==="skip")skip++;}
+    var st=streakOf(t.id); if(st>maxSt) maxSt=st;
+  });
+  document.getElementById("sTotal").textContent=tasks.length;
+  document.getElementById("sDone").textContent=done;
+  document.getElementById("sBad").textContent=bad;
+  document.getElementById("sSkip").textContent=skip;
+  document.getElementById("sStreak").textContent=maxSt;
+
+  var pct=tasks.length?Math.round(done/tasks.length*100):0;
+  document.getElementById("ringArc").setAttribute("stroke-dashoffset", 251.3*(1-pct/100));
+  document.getElementById("ringTx").textContent=pct+"%";
+  document.getElementById("ringSub").textContent="已打卡 "+done+" / "+tasks.length+(bad?("，其中 "+bad+" 个异常待处理"):"，无异常");
+
+  var vis=tasks.filter(function(t){
+    if(q&&(t.name.toLowerCase().indexOf(q)<0)&&(t.id.toLowerCase().indexOf(q)<0)) return false;
+    if(f==="todo"&&DB.checks[t.id+"|"+T]) return false;
+    if(f==="bad"&&(!DB.checks[t.id+"|"+T]||DB.checks[t.id+"|"+T].s!=="bad")) return false;
+    return true;
+  });
+  document.getElementById("chkCount").textContent="显示 "+vis.length+" / "+tasks.length+" 个任务";
+
+  var html="";
+  GORDER.forEach(function(g){
+    var gt=vis.filter(function(t){return t.g===g;});
+    if(!gt.length) return;
+    var gbad=gt.filter(function(t){var v=DB.checks[t.id+"|"+T];return v&&v.s==="bad";}).length;
+    var gdone=gt.filter(function(t){return DB.checks[t.id+"|"+T];}).length;
+    html+='<details class="grp"'+((g==="eflow"||q||f!=="all")?" open":"")+'><summary>'+
+      '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>'+
+      esc(GROUPS[g]||g)+
+      (gbad?' <span class="tag bad">'+gbad+' 异常</span>':'')+
+      '<span class="cv">'+gdone+"/"+gt.length+' 已打卡</span></summary>';
+    gt.forEach(function(t){
+      var v=DB.checks[t.id+"|"+T]||{s:"",n:""}, k=t.id+"|"+T;
+      var st=streakOf(t.id); var ap=APISTATUS[t.id], apHtml=ap?apiPill(ap):"";
+      html+='<div class="tk"><div class="nm"><b title="'+esc(t.id)+'">'+esc(t.name)+'</b>'+
+        '<span>'+esc(t.id)+' · '+esc(cronDesc(t.cron))+'</span></div>'+
+        '<div class="st">'+
+        '<button class="sbtn '+(v.s==="ok"?"on ok":"")+'" onclick="setCheck(\''+t.id+'\',\'ok\')">正常</button>'+
+        '<button class="sbtn '+(v.s==="bad"?"on bad":"")+'" onclick="setCheck(\''+t.id+'\',\'bad\')">异常</button>'+
+        '<button class="sbtn '+(v.s==="skip"?"on skip":"")+'" onclick="setCheck(\''+t.id+'\',\'skip\')">跳过</button>'+
+        '</div>'+
+        '<div class="streak">'+(st>0?("连续 "+st+" 天正常"):"—")+'</div>'+
+        (v.s?'<input class="note" type="text" placeholder="备注（异常必填现象）…" value="'+esc(v.n)+'" onchange="setNote(\''+t.id+'\',this.value)">':'')+
+        apHtml+'</div>';
+    });
+    html+='</details>';
+  });
+  var el=document.getElementById("checkBoard");
+  el.innerHTML=html||'<div class="empty">没有匹配的任务</div>';
+}
+
+/* ==================== 模块 3：排障日志 ==================== */
+function addInc(open){
+  var t=document.getElementById("icTitle").value.trim();
+  if(!t){toast("请填写故障现象");return;}
+  DB.incidents.unshift({id:uid(),date:ymd(),title:t,
+    svc:document.getElementById("icSvc").value.trim(),
+    cause:document.getElementById("icCause").value.trim(),
+    fix:document.getElementById("icFix").value.trim(),
+    min:parseInt(document.getElementById("icMin").value,10)||0,
+    open:!!open,__mine:true});
+  ["icTitle","icSvc","icMin","icCause","icFix"].forEach(function(i){document.getElementById(i).value="";});
+  save();renderAll();toast(open?"已保存为未闭环":"已保存");
+}
+function closeInc(id){
+  DB.incidents.forEach(function(i){if(i.id===id)i.open=false;});
+  save();renderAll();toast("已闭环");
+}
+function reopenInc(id){
+  DB.incidents.forEach(function(i){if(i.id===id)i.open=true;});
+  save();renderAll();
+}
+function delInc(id){DB.incidents=DB.incidents.filter(function(i){return i.id!==id;});save();renderAll();toast("已删除");}
+function renderInc(){
+  var f=document.getElementById("icFilter").value;
+  var list=DB.incidents.filter(function(i){return f==="all"?true:(f==="open"?i.open:!i.open);});
+  list.sort(function(a,b){return a.date<b.date?1:-1;});
+  var el=document.getElementById("incList");
+  if(!list.length){el.innerHTML='<div class="empty">暂无排障记录</div>';return;}
+  el.innerHTML=list.map(function(i){
+    return '<div class="inc '+(i.open?"open":"res")+'">'+
+      '<div class="h"><b>'+esc(i.title)+'</b>'+
+      (i.open?'<span class="tag bad">未闭环</span>':'<span class="tag ok">已闭环</span>')+
+      (i.svc?'<span class="tag gray">'+esc(i.svc)+'</span>':'')+
+      '<span class="muted">'+cnDate(i.date)+'</span>'+
+      (i.min?'<span class="tag warn">'+i.min+' 分钟</span>':'')+'</div>'+
+      '<dl class="kv">'+
+      (i.cause?'<dt>根因</dt><dd>'+esc(i.cause)+'</dd>':'')+
+      (i.fix?'<dt>修复</dt><dd>'+esc(i.fix)+'</dd>':'')+
+      '</dl>'+
+      '<div class="row" style="margin-top:9px">'+
+      (i.open?'<button class="btn xs pri" onclick="closeInc(\''+i.id+'\')">标记闭环</button>'
+             :'<button class="btn xs" onclick="reopenInc(\''+i.id+'\')">重新打开</button>')+
+      '<button class="btn xs danger" onclick="delInc(\''+i.id+'\')">删除</button></div></div>';
+  }).join("");
+
+  var days=[],T=ymd();
+  for(var k=6;k>=0;k--){var d=addDays(T,-k);days.push({d:d,n:DB.incidents.filter(function(i){return i.date===d;}).length});}
+  var mx=Math.max.apply(null,days.map(function(x){return x.n;}).concat([1]));
+  document.getElementById("incBars").innerHTML=days.map(function(x){
+    var h=Math.round(x.n/mx*62);
+    return '<div class="b"><i style="height:'+Math.max(h,3)+'px;background:'+(x.n?"var(--brand)":"#e2e8f0")+'"></i>'+
+      '<span>'+x.d.split("-")[2]*1+(x.n?('<br><b style="color:var(--ink)">'+x.n+'</b>'):'')+'</span></div>';
+  }).join("");
+}
+
+/* ==================== 模块 4：周报 ==================== */
+function genReport(){
+  var ws=weekStart(), we=addDays(ws,6), L=[];
+  var done=DB.todos.filter(function(t){return t.done&&t.doneAt&&t.doneAt>=ws&&t.doneAt<=we;});
+  var pend=DB.todos.filter(function(t){return !t.done;});
+  var bads=[];
+  Object.keys(DB.checks).forEach(function(k){
+    var p=k.split("|"); if(p[1]<ws||p[1]>we) return;
+    var v=DB.checks[k]; if(v.s==="bad"||v.s==="skip") bads.push({d:p[1],id:p[0],v:v});
+  });
+  bads.sort(function(a,b){return a.d<b.d?-1:1;});
+  var incs=DB.incidents.filter(function(i){return i.date>=ws&&i.date<=we;});
+  var mins=incs.reduce(function(a,b){return a+(b.min||0);},0);
+
+  document.getElementById("rDone").textContent=done.length;
+  document.getElementById("rBad").textContent=bads.filter(function(b){return b.v.s==="bad";}).length;
+  document.getElementById("rInc").textContent=incs.length;
+  document.getElementById("rMin").textContent=mins;
+  document.getElementById("repRange").textContent=cnDate(ws)+" - "+cnDate(we);
+
+  L.push("数字化运维平台 · 运维周报  "+ws+" ~ "+we);
+  L.push("=".repeat(46));
+  L.push("");
+  L.push("一、本周完成（"+done.length+" 项）");
+  L.push("-".repeat(46));
+  if(done.length) done.forEach(function(t,i){
+    L.push((i+1)+". ["+t.pri+"] "+t.title+"（"+cnDate(t.doneAt)+"）");
+  }); else L.push("（无）");
+  L.push("");
+  L.push("二、巡检异常 / 跳过（"+bads.length+" 条）");
+  L.push("-".repeat(46));
+  if(bads.length) bads.forEach(function(b){
+    L.push("· "+b.d+"  "+taskName(b.id)+" ("+b.id+")  "+(b.v.s==="bad"?"【异常】":"【跳过】")+(b.v.n?"  "+b.v.n:""));
+  }); else L.push("（本周巡检无异常）");
+  L.push("");
+  L.push("三、排障记录（"+incs.length+" 次，累计 "+mins+" 分钟）");
+  L.push("-".repeat(46));
+  if(incs.length) incs.forEach(function(i,n){
+    L.push((n+1)+". "+i.title+(i.svc?" ["+i.svc+"]":"")+"  "+i.date+(i.min?"  耗时 "+i.min+"min":"")+"  "+(i.open?"未闭环":"已闭环"));
+    if(i.cause) L.push("   根因："+i.cause);
+    if(i.fix)   L.push("   修复："+i.fix);
+  }); else L.push("（无）");
+  L.push("");
+  L.push("四、下周待办（"+pend.length+" 项）");
+  L.push("-".repeat(46));
+  if(pend.length) pend.slice().sort(function(a,b){return a.due<b.due?-1:1;}).forEach(function(t,i){
+    var od=t.origDue&&diffDays(t.origDue,ymd())>0;
+    L.push((i+1)+". ["+t.pri+"] "+t.title+"  截止 "+t.due+(od?"（已逾期 "+diffDays(t.origDue,ymd())+" 天）":""));
+  }); else L.push("（无）");
+  L.push("");
+  L.push("（由 数字化运维平台 自动生成 · "+ymd()+"）");
+
+  document.getElementById("repOut").value=L.join("\n");
+  toast("周报已生成");
+}
+function copyReport(){
+  var ta=document.getElementById("repOut");
+  if(!ta.value){genReport();}
+  ta.select();ta.setSelectionRange(0,999999);
+  var ok=false;
+  try{ok=document.execCommand("copy");}catch(e){}
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(ta.value).then(function(){toast("已复制到剪贴板");},function(){toast(ok?"已复制":"复制失败，请手动 Ctrl+C");});
+  } else toast(ok?"已复制到剪贴板":"复制失败，请手动 Ctrl+C");
+}
+
+/* ==================== 备份 / 导入 / 清空 ==================== */
+function exportJSON(){
+  var blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});
+  var a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="digital-ops-platform-"+ymd()+".json";
+  document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},400);
+  toast("备份已导出");
+}
+function importJSON(inp){
+  var f=inp.files&&inp.files[0]; if(!f) return;
+  var r=new FileReader();
+  r.onload=function(){
+    try{
+      var o=JSON.parse(r.result);
+      if(typeof o!=="object"||o===null) throw 0;
+      DB.todos=o.todos||[];DB.checks=o.checks||{};DB.incidents=o.incidents||[];
+      DB.custom=o.custom||[];DB.meta=o.meta||{seeded:true};
+      DB.meta.seeded=true; save();renderAll();
+      toast("已导入 "+(DB.todos.length+DB.incidents.length+Object.keys(DB.checks).length)+" 条数据");
+    }catch(e){toast("导入失败：不是有效的备份文件");}
+    inp.value="";
+  };
+  r.readAsText(f,"utf-8");
+}
+function askClear(){
+  confirmBox("清空全部数据？",
+    "待办 "+DB.todos.length+" 条、巡检记录 "+Object.keys(DB.checks).length+" 条、排障 "+DB.incidents.length+" 条将被永久删除，无法恢复。建议先导出备份。",
+    "确认清空",function(){
+      DB={todos:[],checks:{},incidents:[],custom:[],meta:{seeded:true}};
+      save();renderAll();toast("已清空，刷新页面可重新载入示例数据");
+    });
+}
+function clearSeed(){
+  confirmBox("清空示例数据？","将删除预置的示例待办 / 排障 / 巡检记录，你自己添加的数据不受影响（需手动逐条删除）。",
+    "清空示例",function(){
+      DB.todos=DB.todos.filter(function(t){return t.__mine;});
+      DB.incidents=DB.incidents.filter(function(i){return i.__mine;});
+      DB.checks={}; save();renderAll();toast("示例已清空");
+    });
+}
+function confirmBox(title,text,ok,fn){
+  document.getElementById("mTitle").textContent=title;
+  document.getElementById("mText").textContent=text;
+  var b=document.getElementById("mOk"); b.textContent=ok;
+  var nb=b.cloneNode(true); b.parentNode.replaceChild(nb,b);
+  nb.onclick=function(){closeModal();fn();};
+  document.getElementById("mask").classList.add("on");
+}
+function closeModal(){document.getElementById("mask").classList.remove("on");}
+document.getElementById("mask").addEventListener("click",function(e){if(e.target===this)closeModal();});
+
+/* ==================== 备份提醒 ==================== */
+function renderNudge(){
+  var n=DB.todos.length+DB.incidents.length+Object.keys(DB.checks).length;
+  var el=document.getElementById("nudge");
+  if(n>=30&&!sessionStorage.getItem("wb_rpaops_nudged")){
+    document.getElementById("nudgeTx").textContent="数据已积累 "+n+" 条，建议导出一份 JSON 备份，避免清缓存后丢失。";
+    el.classList.add("on");
+    sessionStorage.setItem("wb_rpaops_nudged","1");
+  }
+}
+
+/* ==================== tab / toast ==================== */
+function tab(t){
+  ["todo","check","inc","rep"].forEach(function(x){
+    document.getElementById("p-"+x).classList.toggle("on",x===t);
+  });
+  var bs=document.querySelectorAll("#tabs button,#mtabs button");
+  for(var i=0;i<bs.length;i++) bs[i].classList.toggle("on",bs[i].getAttribute("data-t")===t);
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+var tt;
+function toast(m){
+  var el=document.getElementById("toast");el.textContent=m;el.classList.add("on");
+  clearTimeout(tt);tt=setTimeout(function(){el.classList.remove("on");},2100);
+}
+
+/* ==================== 启动 ==================== */
+function rollover(){
+  var T=ymd();
+  DB.todos.forEach(function(t){
+    if(!t.done&&t.due<T){t.origDue=t.origDue||t.due;t.due=T;}
+  });
+}
+function renderAll(){renderToday();renderTodo();renderCheck();renderInc();renderNudge();}
+(function init(){
+  load();rollover();save(); syncApiCtl(); if(DB.meta.apiEnabled&&DB.meta._apiCache){APISTATUS=DB.meta._apiCache.map||{};} if(DB.meta.apiEnabled&&DB.meta.apiAuto) apiStartAuto();
+  document.getElementById("tdDue").value=ymd();
+  renderAll();
+  document.getElementById("tdTitle").addEventListener("keydown",function(e){if(e.key==="Enter")addTodo();});
+})();
+</script>
+</body>
+</html>

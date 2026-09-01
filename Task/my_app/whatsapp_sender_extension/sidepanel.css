@@ -1,0 +1,196 @@
+:root {
+  --bg: #f0f2f5;
+  --card-bg: #ffffff;
+  --border: #e0e3e8;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --green: #00a884;
+  --green-dark: #008069;
+  --red: #c62828;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  width: 100%;
+  min-width: 320px;
+}
+
+.hd {
+  padding: 14px 16px 10px;
+  background: var(--green-dark);
+  color: #fff;
+}
+.hd-title { font-size: 15px; font-weight: 600; }
+.hd-sub { font-size: 11px; opacity: .85; margin-top: 4px; line-height: 1.4; }
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin: 10px 12px;
+}
+.card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-bottom: 8px;
+}
+
+.field { margin-bottom: 10px; }
+.field label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.field input[type="text"],
+.field input[type="number"] {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+}
+.field input:focus { border-color: var(--green); }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.row:last-child { margin-bottom: 0; }
+.row.wrap { flex-wrap: wrap; }
+
+.label {
+  color: var(--muted);
+  min-width: 64px;
+  flex-shrink: 0;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: #f5f6f8; }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn-primary {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+  font-weight: 600;
+}
+.btn-primary:hover:not(:disabled) { background: var(--green-dark); }
+.btn-ghost {
+  border: none;
+  background: transparent;
+  color: var(--green-dark);
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.chip {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.chip-ok { background: #e7f6ef; color: var(--green-dark); }
+.chip-bad { background: #fdecea; color: var(--red); }
+.chip-unknown { background: #eef0f2; color: var(--muted); }
+.chip-info { background: #e8f0fe; color: #1a56b0; }
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+.preset {
+  border: 1px solid var(--border);
+  background: #f7f8fa;
+  color: var(--text);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.preset:hover { border-color: var(--green); color: var(--green-dark); }
+.preset-active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+  font-weight: 600;
+}
+
+.cron-current { margin-bottom: 4px; }
+.cron-hint { margin-top: 4px; }
+#cron-preview { margin-top: 6px; color: var(--muted); }
+
+.mono { font-family: Consolas, "Courier New", monospace; }
+.mono-code {
+  font-family: Consolas, "Courier New", monospace;
+  background: #f0f2f5;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+.muted { color: var(--muted); }
+.small { font-size: 11px; line-height: 1.5; }
+.hint { margin-top: 8px; }
+
+.good { color: var(--green-dark); font-weight: 600; }
+.bad { color: var(--red); font-weight: 600; }
+
+.err-list { margin-top: 4px; }
+.err-item {
+  color: var(--red);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.ft {
+  padding: 4px 16px 14px;
+}
+
+.diag {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #0f172a;
+  color: #d7e3f4;
+  border-radius: 6px;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 260px;
+  overflow: auto;
+  user-select: text;
+}

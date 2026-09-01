@@ -7,6 +7,7 @@ import {
   Building,
   QrCode,
   Eye,
+  EyeOff,
   Copy,
   Check,
   Edit2,
@@ -23,6 +24,7 @@ interface DashboardListViewProps {
   onPreview: (d: DashboardItem) => void;
   onShowQR: (d: DashboardItem) => void;
   onToggleFavorite: (id: string) => void;
+  onToggleHidden: (id: string) => void;
   onEdit: (d: DashboardItem) => void;
   onDelete: (id: string) => void;
 }
@@ -33,6 +35,7 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
   onPreview,
   onShowQR,
   onToggleFavorite,
+  onToggleHidden,
   onEdit,
   onDelete,
 }) => {
@@ -66,7 +69,9 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
             {dashboards.map((board) => (
               <tr
                 key={board.id}
-                className="hover:bg-teal-50/40 dark:hover:bg-navy-800/40 transition-colors group"
+                className={`hover:bg-teal-50/40 dark:hover:bg-navy-800/40 transition-colors group ${
+                  board.hidden ? 'opacity-50 saturate-[0.65]' : ''
+                }`}
               >
                 {/* Favorite Star */}
                 <td className="py-3 pl-4 sm:pl-5 pr-2">
@@ -201,6 +206,23 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
                       title={t('list.delete')}
                     >
                       <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                    </button>
+
+                    {/* 本机隐藏/恢复：只影响当前浏览器，不影响服务端默认与其他电脑 */}
+                    <button
+                      onClick={() => onToggleHidden(board.id)}
+                      className={`p-1 sm:p-1.5 rounded-lg transition-colors ${
+                        board.hidden
+                          ? 'text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/40'
+                          : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                      title={board.hidden ? t('card.unhide') : t('card.hide')}
+                    >
+                      {board.hidden ? (
+                        <Eye className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                      ) : (
+                        <EyeOff className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                      )}
                     </button>
 
                     <button

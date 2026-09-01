@@ -113,6 +113,11 @@ def _default_sp() -> Tuple[List[str], List[str]]:
     return _read_unc_dir(_SP_EMAIL_UNC)
 
 
+def _default_sp_details() -> Tuple[List[str], List[str]]:
+    from backend.services.kpi_email_report import _SP_DETAILS_DEFAULT_TO, _SP_DETAILS_DEFAULT_CC
+    return _parse_addrs(_SP_DETAILS_DEFAULT_TO), _parse_addrs(_SP_DETAILS_DEFAULT_CC)
+
+
 def _default_ran() -> Tuple[List[str], List[str]]:
     from backend.services.kpi_email_report import _RAN_EMAIL
     return _read_remote_dir(_RAN_EMAIL)
@@ -177,6 +182,12 @@ EMAIL_RECIPIENT_GROUPS = [
         "name": "Comsumables 耗材报表邮件",
         "name_en": "Comsumables Report Email",
         "default_loader": _default_sp,
+    },
+    {
+        "key": "sp_email_details",
+        "name": "SP 备件明细报表邮件",
+        "name_en": "SP Spare Parts Details Report Email",
+        "default_loader": _default_sp_details,
     },
     {
         "key": "kpi_ran_availability",

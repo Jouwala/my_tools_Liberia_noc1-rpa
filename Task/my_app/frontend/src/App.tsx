@@ -31,6 +31,7 @@ import {
   ApartmentOutlined,
   CloseOutlined,
   FieldTimeOutlined,
+  BookOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -64,12 +65,13 @@ const EmailReports = lazy(() => import('./pages/EmailReports'))
 const MwUmeDashboard = lazy(() => import('./pages/MwUmeDashboard'))
 const MwRealTimeDashboard = lazy(() => import('./pages/MwRealTimeDashboard'))
 const PortalLogin = lazy(() => import('./pages/PortalLogin'))
+const EflowQa = lazy(() => import('./pages/EflowQa'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa'
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin']
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa']
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -120,7 +122,9 @@ function AppContent() {
   // 支持 ?page=xxx 直链定位（右键菜单「在新标签页打开」使用），非法值回退到默认页
   const [currentPage, setCurrentPage] = useState<PageKey>(() => {
     const p = new URLSearchParams(window.location.search).get('page')
-    return p && (VALID_PAGES as string[]).includes(p) ? (p as PageKey) : 'sync'
+    // 历史别名：?page=tt_q → eflow_qa（eFlow 知识库）
+    const key = p === 'tt_q' ? 'eflow_qa' : p
+    return key && (VALID_PAGES as string[]).includes(key) ? (key as PageKey) : 'sync'
   })
   // 侧边栏默认隐藏（完全收起、不占空间），展开/收起偏好持久化到 localStorage
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -188,6 +192,7 @@ function AppContent() {
     { key: 'email_reports', icon: <MailOutlined />, label: t('nav.emailReports') },
     { key: 'alarm', icon: <AlertOutlined />, label: t('nav.alarm') },
     { key: 'ttwo', icon: <BarChartOutlined />, label: t('nav.ttwo') },
+    { key: 'eflow_qa', icon: <BookOutlined />, label: t('nav.eflowQa') },
     { key: 'nur', icon: <LineChartOutlined />, label: t('nav.nur') },
     { key: 'ms_sla', icon: <FundOutlined />, label: t('nav.msSla') },
     { key: 'cxoDashboard', icon: <PieChartOutlined />, label: t('nav.cxoDashboard') },
@@ -276,6 +281,8 @@ function AppContent() {
         return <AlarmDashboard />
       case 'ttwo':
         return <TTWODashboard />
+      case 'eflow_qa':
+        return <EflowQa />
       case 'nur':
         return <NurDashboard />
       case 'ms_sla':

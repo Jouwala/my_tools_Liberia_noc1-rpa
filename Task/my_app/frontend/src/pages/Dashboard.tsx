@@ -269,7 +269,7 @@ export default function Dashboard() {
     }
 
     return (
-      <Col span={12} key={idx}>
+      <Col xs={24} sm={12} key={idx}>
         <Card
           size="small"
           style={{ ...cardStyle, borderColor: highlighted ? WH.teal : WH.cardBorder, boxShadow: highlighted ? `0 0 1rem var(--wh-teal-27)` : cardStyle.boxShadow }}

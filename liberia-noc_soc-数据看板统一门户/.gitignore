@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# 运行时数据：本机「保存为默认目录」写入的全局默认看板目录
+portal-default.json
+
+# 运行时数据：鉴权用户表（含加盐密码哈希），严禁入库
+auth-data/

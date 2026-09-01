@@ -237,8 +237,13 @@ export default function DataSync() {
         setLocalRunning(prev => { const s = new Set(prev); s.delete(taskId); return s })
         startedRef.current.delete(taskId)
       }
-    } catch {
-      message.error(t('sync.runFailed', { name: taskId }))
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 403) {
+        message.error(t('sync.runForbidden'))
+      } else {
+        message.error(t('sync.runFailed', { name: taskId }))
+      }
       setLocalRunning(prev => { const s = new Set(prev); s.delete(taskId); return s })
       startedRef.current.delete(taskId)
     }

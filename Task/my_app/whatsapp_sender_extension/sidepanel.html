@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>WhatsApp Image Sender</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header class="hd">
+    <div class="hd-title">WhatsApp 定时发图</div>
+    <div class="hd-sub">从 my_app 后端拉取 Site Outage 截图，发送到已登录的 WhatsApp Web</div>
+  </header>
+
+  <!-- 连接状态 -->
+  <section class="card">
+    <div class="row">
+      <span class="label">后端状态</span>
+      <span id="conn-chip" class="chip chip-unknown">检测中…</span>
+      <button id="btn-recheck" class="btn btn-ghost" title="重新检测后端连接">重新检测</button>
+    </div>
+    <div id="conn-detail" class="muted small"></div>
+  </section>
+
+  <!-- 配置 -->
+  <section class="card">
+    <div class="card-title">配置</div>
+    <div class="field">
+      <label for="inp-server">后端地址</label>
+      <input id="inp-server" type="text" placeholder="http://localhost" spellcheck="false">
+    </div>
+
+    <div class="field">
+      <label>定时发送 · 调度表达式 (cron)</label>
+      <div id="cron-current" class="cron-current muted small"></div>
+      <div id="cron-presets" class="presets"></div>
+      <input id="inp-cron" type="text" placeholder="分 时 日 月 周" spellcheck="false" class="mono">
+      <div class="muted small cron-hint">
+        格式: 分 时 日 月 周　示例: 0 8 * * * = 每天8点 | 0 */4 * * * = 每4小时 | 30 7 * * 1-5 = 工作日7:30
+      </div>
+      <div id="cron-preview" class="small"></div>
+    </div>
+
+    <div class="row">
+      <label class="switch-row">
+        <input id="chk-enabled" type="checkbox">
+        <span>启用定时发送（到点自动发送；也会认领后端任务投递的发送作业）</span>
+      </label>
+    </div>
+    <div class="row">
+      <button id="btn-save" class="btn btn-primary">保存配置</button>
+      <span id="save-hint" class="muted small"></span>
+    </div>
+  </section>
+
+  <!-- 操作 -->
+  <section class="card">
+    <div class="card-title">操作</div>
+    <div class="row wrap">
+      <button id="btn-send" class="btn btn-primary">立即发送</button>
+      <button id="btn-poll" class="btn">认领后端作业</button>
+      <button id="btn-clear" class="btn" title="清空 WhatsApp 输入框中残留的备注/文字">清空输入框</button>
+      <button id="btn-diagnose" class="btn" title="检查 WhatsApp 页面元素实况，用于排查发送失败">页面诊断</button>
+    </div>
+    <div id="progress" class="muted small"></div>
+    <div class="muted small hint">
+      「立即发送」直接从后端 outbox 拉图发送（便于测试）；
+      「认领后端作业」检查后端任务（whatsapp_send_ext）是否投递了待发作业，有则发送并回报结果；
+      「清空输入框」清掉 WhatsApp 输入框中残留的备注文字（发送失败后卡住时用）；
+      「页面诊断」输出 WhatsApp 页面元素实况（发送失败时把结果发给开发者）。
+    </div>
+    <pre id="diag-box" class="diag" hidden></pre>
+  </section>
+
+  <!-- 最近一次执行 -->
+  <section class="card">
+    <div class="card-title">最近一次执行</div>
+    <div id="lastrun" class="muted">尚无记录</div>
+  </section>
+
+  <footer class="ft muted small">
+    需要：Chrome 处于打开状态、已登录的 WhatsApp Web 标签页、my_app 后端运行中。
+    三者任一缺失时会发送失败并在此面板显示原因。
+  </footer>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

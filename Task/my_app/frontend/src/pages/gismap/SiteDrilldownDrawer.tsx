@@ -107,16 +107,16 @@ export function SiteDrilldownDrawer({ open, onClose, loading, drilldown, selecte
           </Card>
 
           <Row gutter={8} style={{ marginBottom: 'var(--wh-space-md)' }}>
-            <Col span={6}>
+            <Col xs={12} sm={6}>
               <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.totalTT')}</span>} value={drilldown.tt_count} valueStyle={{ color: WH.teal, fontWeight: 700 }} /></Card>
             </Col>
-            <Col span={6}>
+            <Col xs={12} sm={6}>
               <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.totalWO')}</span>} value={drilldown.wo_count} valueStyle={{ color: WH.blue, fontWeight: 700 }} /></Card>
             </Col>
-            <Col span={6}>
+            <Col xs={12} sm={6}>
               <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.rtAlarm')}</span>} value={drilldown.rt_alarm_count} valueStyle={{ color: drilldown.rt_alarm_count > 0 ? '#ff6b6b' : WH.text, fontWeight: 700 }} /></Card>
             </Col>
-            <Col span={6}>
+            <Col xs={12} sm={6}>
               <Card size="small" style={cardStyle}>
                 <Statistic
                   title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.slaAchievement')}</span>}

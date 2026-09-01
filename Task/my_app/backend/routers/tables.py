@@ -163,15 +163,38 @@ def _safe_ident(name: str) -> bool:
 
 
 def _build_search_clause(conn, table_name, search):
-    """构建全文搜索 WHERE 子句与参数（分页/导出共用）。返回 (where_clause, params)"""
+    """构建全文搜索 WHERE 子句与参数（分页/导出共用）。
+
+    对表中所有列（含非 text 类型）执行 LIKE 模糊搜索：
+    - text/varchar 等文本列：直接 "col" LIKE ?
+    - bigint/integer/double precision/timestamp 等非文本列：
+      用 CAST("col" AS TEXT) LIKE ? 转换后再匹配
+
+    双模兼容：PG 与 SQLite 均支持 CAST(... AS TEXT)。
+    上限 200 列防止极端宽表导致 OR 链过长。
+    返回 (where_clause, params)。
+    """
     if not search:
         return "", []
     col_info = _column_metadata(conn, table_name)
-    text_cols = [c["name"] for c in col_info if _is_text_type(c["type"])]
-    if not text_cols:
+    if not col_info:
         return "", []
-    conditions = [f'"{c}" LIKE ?' for c in text_cols[:10]]
-    return " WHERE " + " OR ".join(conditions), [f"%{search}%"] * min(len(text_cols), 10)
+
+    MAX_COLS = 200
+    conditions = []
+    for c in col_info[:MAX_COLS]:
+        name = c["name"]
+        if _is_text_type(c["type"]):
+            conditions.append(f'"{name}" LIKE ?')
+        else:
+            # 非文本类型列需 CAST 才能 LIKE（PG 严格，SQLite 也兼容）
+            conditions.append(f'CAST("{name}" AS TEXT) LIKE ?')
+
+    if not conditions:
+        return "", []
+
+    like_val = f"%{search}%"
+    return " WHERE " + " OR ".join(conditions), [like_val] * len(conditions)
 
 
 @router.get("")

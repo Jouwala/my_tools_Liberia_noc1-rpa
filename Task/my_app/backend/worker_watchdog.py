@@ -50,11 +50,16 @@ GROUP_TASK_MAP = {
         "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,eflow_tt_rules_check,"
         "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync,mw_ume_kpi_sync,mw_ume_kpi_sync_rt"),
     "m": (  # 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖
-        "site_outage_screenshot,whatsapp_send,liberia_email_1h,liberia_email_8h,"
+        # whatsapp_send_ext 2026-08-31 补录：新注册时漏分组，无 worker 认领，
+        # 任务管理页手动执行一直「队列中等待」直到 300s 超时（同下方 finebi 教训）
+        "site_outage_screenshot,whatsapp_send,whatsapp_send_ext,liberia_email_1h,liberia_email_8h,"
         "kpi_ms_contract,kpi_ms_wo_sla,kpi_sp_spareparts,kpi_sp_consumables,"
         "kpi_ran_availability,email_recovery,ipran_m6k_chart_email,"
         "ccn_free_rating_chart_email,battery_email,mailbox_cleanup,"
         "incident_overview_sync,auto_retry_failed,db_freshness_check,sp_report_generate,"
+        # sp_email_details 2026-09-01 补录：新注册时漏分组，无 worker 认领，
+        # 任务管理页手动执行一直「队列中等待」直到 300s 超时（同 whatsapp_send_ext 教训）
+        "sp_email_details,"
         # finebi_report_sync/pg_to_sqlite_sync：注册表中存在但此前未分组，
         # 2026-08-25 分组模式启用后无任何 worker 认领，队列 pending 卡死断档
         "finebi_report_sync,pg_to_sqlite_sync"),

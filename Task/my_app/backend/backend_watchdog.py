@@ -146,7 +146,10 @@ def _spawn_backend():
     env.pop("CODEBUDDY_SAFE_DELETE_SANDBOX", None)
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "backend.main:app",
-         "--host", "0.0.0.0", "--port", str(PORT)],
+         "--host", "0.0.0.0", "--port", str(PORT),
+         # nginx 直连本机 7038 时，靠 X-Forwarded-For 还原真实客户端地址；
+         # 否则所有请求都显示为 127.0.0.1，会绕过 require_protected 的远程限制。
+         "--proxy-headers"],
         cwd=str(PROJECT_ROOT),
         env=env,
         stdout=log_fh,
