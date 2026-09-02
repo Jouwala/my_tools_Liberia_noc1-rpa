@@ -48,7 +48,9 @@ GROUP_TASK_MAP = {
         "packet_loss_email,battery_kpi_sync,ipran_kpi_sync,cm_data_sync"),
     "n": (  # 网管 / eFlow API / 远程系统：各自独立但保守同组
         "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,eflow_tt_rules_check,"
-        "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync,mw_ume_kpi_sync,mw_ume_kpi_sync_rt"),
+        "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync,mw_ume_kpi_sync,mw_ume_kpi_sync_rt,"
+        # sp_online_sync 2026-09-02 补录：SP 在线工单走 eFlow API 同源会话，归入 eFlow 组
+        "sp_online_sync"),
     "m": (  # 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖
         # whatsapp_send_ext 2026-08-31 补录：新注册时漏分组，无 worker 认领，
         # 任务管理页手动执行一直「队列中等待」直到 300s 超时（同下方 finebi 教训）
@@ -60,6 +62,9 @@ GROUP_TASK_MAP = {
         # sp_email_details 2026-09-01 补录：新注册时漏分组，无 worker 认领，
         # 任务管理页手动执行一直「队列中等待」直到 300s 超时（同 whatsapp_send_ext 教训）
         "sp_email_details,"
+        # sp_online_report_generate/send 2026-09-02 补录：SP 在线未关闭单报表
+        # 生成（06:00）+ 邮件/WhatsApp 发送（06:20），新任务显式分组防 pending 卡死
+        "sp_online_report_generate,sp_online_report_send,"
         # finebi_report_sync/pg_to_sqlite_sync：注册表中存在但此前未分组，
         # 2026-08-25 分组模式启用后无任何 worker 认领，队列 pending 卡死断档
         "finebi_report_sync,pg_to_sqlite_sync"),

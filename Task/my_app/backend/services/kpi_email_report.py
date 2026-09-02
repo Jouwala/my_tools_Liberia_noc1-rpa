@@ -73,6 +73,11 @@ _SP_GEN_SCRIPT = Path(__file__).resolve().parent / "sp_report_gen" / "gernarate_
 _SP_DETAILS_DATA = MY_APP_DIR / "data" / "sp_email" / "data"
 _SP_DETAILS_DEFAULT_TO = "ansah.boadu@zte.com.cn"
 _SP_DETAILS_DEFAULT_CC = "dong.xinmin@zte.com.cn"
+# SP 在线未关闭单报表：sp_report_gen/generate_sp_online_report.py 产出 PNG+XLSX
+_SP_ONLINE_DATA = MY_APP_DIR / "data" / "sp_email" / "sp_online"
+_SP_ONLINE_GEN_SCRIPT = Path(__file__).resolve().parent / "sp_report_gen" / "generate_sp_online_report.py"
+# WhatsApp 目标群组（用户指定，独立于 WHATSAPP_GROUPS）
+_SP_ONLINE_WA_GROUPS = ["WH&SP Management"]
 _RAN_DATA = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE"                      # 远程 FTP
 _RAN_EMAIL = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE/email"               # 远程 FTP
 
@@ -389,6 +394,105 @@ def run_sp_details_email(to: str = None, cc: str = None) -> dict:
         attach=[str(f) for f in files],
         subject="SP Spare Parts Details Report",
     )
+
+
+def run_sp_online_report_generate() -> dict:
+    """SP 在线未关闭单报表生成（每天 06:00）：基于 data/sp_email/data 最新
+    inband/outband 明细生成 sp_online 下 Inbound/Outbound 的 PNG + XLSX，
+    作为 06:20 sp_online_report_send 任务的数据来源。
+    """
+    script = _SP_ONLINE_GEN_SCRIPT
+    if not script.is_file():
+        return {"success": False, "error": f"生成脚本不存在: {script}"}
+
+    t0 = time.time()
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=300,
+            creationflags=_SUBPROCESS_FLAGS,
+        )
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "在线报表生成超时(>300s)"}
+    except Exception as e:
+        return {"success": False, "error": f"生成启动失败: {e}"}
+
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return {"success": False, "error": f"生成失败 returncode={proc.returncode}\n{out[-2000:]}"}
+
+    missing = [n for n in ("Inbound.xlsx", "Outbound.xlsx") if not (_SP_ONLINE_DATA / n).is_file()]
+    if missing:
+        return {"success": False, "error": f"生成未产出完整文件，缺失: {missing}"}
+
+    tail = "\n".join(out.strip().splitlines()[-10:])
+    return {"success": True, "message": f"在线报表生成成功 ({time.time() - t0:.1f}s)", "detail": tail}
+
+
+def run_sp_online_report(to: str = None, cc: str = None) -> dict:
+    """SP 在线未关闭单报表发送（每天 06:20）：邮件 + WhatsApp。
+
+    邮件：sp_online 下 Inbound/Outbound PNG 内嵌正文 + 两份 XLSX 附件；
+    WhatsApp：两张 PNG 带备注发群，两份 XLSX 以文件发送（复用 whatsapp_service
+    的 Playwright 发送机制，群组固定 WH&SP Management，不走 WHATSAPP_GROUPS）。
+    收件人默认复用 SP 报表远程共享名单，可在 Settings → Email Recipient Settings 覆盖。
+    """
+    from backend.services.email_recipient_store import get_email_recipients
+    to_arg, cc_arg = get_email_recipients("sp_online_report", to, cc)
+    if not _SP_ONLINE_DATA.is_dir():
+        return {"success": False, "error": f"报表目录不存在: {_SP_ONLINE_DATA}（请先运行 sp_online_report_generate 任务）"}
+    images = [str(_SP_ONLINE_DATA / n) for n in ("Inbound.png", "Outbound.png")
+              if (_SP_ONLINE_DATA / n).is_file()]
+    attach = [str(_SP_ONLINE_DATA / n) for n in ("Inbound.xlsx", "Outbound.xlsx")
+              if (_SP_ONLINE_DATA / n).is_file()]
+    if not attach:
+        return {"success": False, "error": f"未在 {_SP_ONLINE_DATA} 找到 Inbound/Outbound XLSX（请先运行 sp_online_report_generate 任务）"}
+    if not to_arg:
+        return {"success": False, "error": "主送收件人为空，请在 Settings → Email Recipient Settings 配置 sp_online_report"}
+
+    email_res = _run_script(
+        data_dir=_SP_ONLINE_DATA,
+        name_filter="",
+        to=to_arg,
+        cc=cc_arg,
+        no_excel=True,
+        images=images,
+        attach=attach,
+        subject="SP Online Open Tickets Report (Inbound & Outbound)",
+    )
+
+    try:
+        from backend.services.whatsapp_service import run_whatsapp_send
+        wa_res = run_whatsapp_send(
+            photos=images,
+            captions=[f"*SP Online {Path(p).stem}* (Open Tickets)" for p in images],
+            files=attach,
+            groups=_SP_ONLINE_WA_GROUPS,
+        )
+    except Exception as e:
+        wa_res = {"success": False, "groups_sent": [], "errors": [f"WhatsApp 发送异常: {e}"]}
+
+    email_ok = bool(email_res.get("success"))
+    wa_ok = bool(wa_res.get("success"))
+    errors = []
+    if not email_ok:
+        errors.append(f"Email: {email_res.get('error')}")
+    if not wa_ok:
+        errors.append(f"WhatsApp: {'; '.join(wa_res.get('errors') or [])}")
+    res = {
+        "success": email_ok and wa_ok,
+        "message": f"Email={'OK' if email_ok else 'FAIL'}, "
+                   f"WhatsApp={'OK' if wa_ok else 'FAIL'} (groups_sent={wa_res.get('groups_sent')})",
+        "email": email_res,
+        "whatsapp": {k: wa_res.get(k) for k in ("success", "groups_sent", "errors", "elapsed_seconds")},
+    }
+    if errors:
+        res["error"] = " | ".join(errors)
+    return res
 
 
 def _write_body_file(cache: Path, body: str) -> Path:

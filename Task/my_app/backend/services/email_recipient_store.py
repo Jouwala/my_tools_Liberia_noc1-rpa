@@ -190,6 +190,12 @@ EMAIL_RECIPIENT_GROUPS = [
         "default_loader": _default_sp_details,
     },
     {
+        "key": "sp_online_report",
+        "name": "SP 在线未关闭单报表邮件",
+        "name_en": "SP Online Open Tickets Report Email",
+        "default_loader": _default_sp,
+    },
+    {
         "key": "kpi_ran_availability",
         "name": "MS Network Availability 日报邮件",
         "name_en": "MS Network Availability Daily Report Email",

@@ -41,4 +41,20 @@ export function getMsSlaOverview(params?: Record<string, string>) {
   return api.get('/ms-sla-dashboard/overview', { params })
 }
 
+// 站点可用率与工单看板（FME / Supervisor 维度）
+// 数据源：db/app.db master_site_db + eflow_tt + 远端站点级可用性日表 + 本地 TDD 小区表
+export function getSiteAvailabilityFilters() {
+  return api.get('/site-availability/filters')
+}
+
+// params: month / supervisor / fme / tech / threshold / only_with_data
+export function getSiteAvailabilityOverview(params?: Record<string, string | number>) {
+  return api.get('/site-availability/overview', { params })
+}
+
+// params: month / site_id / site_name
+export function getSiteAvailabilityTickets(params?: Record<string, string>) {
+  return api.get('/site-availability/tickets', { params })
+}
+
 export default api

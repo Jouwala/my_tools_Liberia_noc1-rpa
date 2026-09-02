@@ -239,6 +239,20 @@ TASK_SPECS = [
          description_en="Daily 07:00: email the 5 spare-part detail Excel files (inband/outband/inventory/ocrule/transfer) under data/sp_email/data to ansah.boadu@zte.com.cn, cc dong.xinmin@zte.com.cn (recipients editable under Settings → Email Recipient Settings)",
          default_cron="0 7 * * *", category="kpi_email"),
 
+    # 19d. SP 在线未关闭单报表生成（每天 06:00）：基于最新明细生成 sp_online 的 PNG+XLSX，供 06:20 发送
+    dict(task_id="sp_online_report_generate", name="SP 在线未关闭单报表生成", name_en="SP Online Open Tickets Report Generate",
+         loader=("backend.services.kpi_email_report", "run_sp_online_report_generate"),
+         description="基于 data/sp_email/data 最新 inband/outband 明细，过滤未关闭单生成 sp_online 下 Inbound/Outbound 报表（PNG+XLSX，Create Time 倒序）",
+         description_en="Generate open-ticket reports (Inbound/Outbound PNG+XLSX, sorted by Create Time desc) into data/sp_email/sp_online from the latest details",
+         default_cron="0 6 * * *", category="kpi_email"),
+
+    # 19e. SP 在线未关闭单报表发送（每天 06:20）：邮件（PNG 内嵌 + XLSX 附件）+ WhatsApp 群发
+    dict(task_id="sp_online_report_send", name="SP 在线未关闭单报表发送", name_en="SP Online Open Tickets Report Send",
+         loader=("backend.services.kpi_email_report", "run_sp_online_report"),
+         description="发送 sp_online 未关闭单报表：邮件（Inbound/Outbound PNG 内嵌 + XLSX 附件，默认复用 SP 报表远程名单）+ WhatsApp 群（收件人可在 Settings → Email Recipient Settings 覆盖）",
+         description_en="Send the open-ticket report: email (inline Inbound/Outbound PNG + XLSX attachments, default SP shared recipient list) + WhatsApp groups (recipients editable under Settings → Email Recipient Settings)",
+         default_cron="20 6 * * *", category="kpi_email"),
+
     # 20. MS Network Availability Daily Report 邮件（远程 FTP 图片，无 Excel）
     dict(task_id="kpi_ran_availability", name="MS Network Availability 日报邮件", name_en="MS Network Availability Daily Report Email",
          loader=("backend.services.kpi_email_report", "run_ran_availability"),
@@ -365,6 +379,13 @@ TASK_SPECS = [
          description_en="MW UME (ZXMW microwave) realtime KPI sync (FINBI 15-min granularity): every 15 min fetch the last 2 hours, in-memory export without disk, direct write to app.db table mw_ume_bw_ultilazation_rt (dashboard uses only the latest 15-min slot)",
          default_cron="*/15 * * * *", category="mw_ume"),
 
+    # 34b. SP Online 在线工单同步（每小时第 35 分钟）：从 eFlow SP 接口拉全量
+    dict(task_id="sp_online_sync", name="SP Online 工单同步", name_en="SP Online Ticket Sync",
+         loader=("backend.services.sp_online_sync", "run_sp_online_sync"),
+         description="从 eFlow SP 接口（sp-outbound/sp-inbound/sp-transfer）拉全量在线工单，写入 app.db 表 sp_outbound / sp_inbound / sp_transfer（Table Browser 可查）",
+         description_en="Fetch all online tickets from eFlow SP APIs (sp-outbound/sp-inbound/sp-transfer) into app.db tables sp_outbound / sp_inbound / sp_transfer (visible in Table Browser)",
+         default_cron="35 * * * *", category="sp_online"),
+
     # 34. CN EMS KPI 原始文件缓存同步（每15分钟）：EMS SFTP 只保留约1天原始PM文件，
     #     靠白天持续增量缓存把整天数据在服务端清理前保住（fetch 模式只下载缺失文件，轻量）
     dict(task_id="ems_kpi_cache_sync", name="CN EMS KPI 缓存同步", name_en="CN EMS KPI Cache Sync",
@@ -386,9 +407,10 @@ TASK_SPECS = [
 # category 颗粒度较细（ran_ume / main_kpi / network_kpi / packet_loss 都属 RAN UME），
 # gateway 用于任务管理页的一级分组展示。新增 category 时务必在此补充映射，否则回退 "system"。
 CATEGORY_GATEWAY: dict[str, str] = {
-    # ZTE eFlow API：TT/WO/CR/PM/Site/Person 及 incident_overview 同源
+    # ZTE eFlow API：TT/WO/CR/PM/Site/Person 及 incident_overview / SP 在线工单同源
     "eflow": "eflow_api",
     "incident_overview": "eflow_api",
+    "sp_online": "eflow_api",
     # RAN UME：PM/KPI/丢包率/CM 配置数据均来自 RAN UME
     "ran_ume": "ran_ume",
     "main_kpi": "ran_ume",

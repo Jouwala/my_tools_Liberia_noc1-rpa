@@ -39,6 +39,7 @@
 | [12-configuration.md](12-configuration.md) | 设置页可配项、配置文件、环境变量分组速查 |
 | [13-operations.md](13-operations.md) | 日常巡检、日志、排障 FAQ、清理与备份 |
 | [14-integrations.md](14-integrations.md) | 上游系统清单与数据流方向 |
+| [15-user-help.md](15-user-help.md) | **面向使用者的一站式帮助**（与站内「使用帮助」页同源生成）：平台简介、44 个任务的工作流与维护、25 个页面指南、运维排障与 FAQ；英文版 [15-user-help-en.md](15-user-help-en.md) |
 | [90-appendix.md](90-appendix.md) | API 前缀速查、任务 ID 速查、待清理残留清单 |
 
 ## 手册维护约定
@@ -47,3 +48,4 @@
 2. **新增定时任务**：在 `backend/task_registry.py` 的 `TASK_SPECS` 登记后，同步更新 `04-task-system.md` 的分组表。
 3. **不写敏感值**：手册里可以出现配置项**名称**、环境变量**键名**、分组 key，**不得**出现口令、Token、授权码、内网 IP/主机名、账号。参见 `05-security-and-credentials.md` 末尾的禁写清单。
 4. **每条论断带出处**：写"某某行为"时标注 `文件路径:行号`，便于代码演进后定位失效内容。
+5. **15-user-help（-en）是生成文件**：内容源在 `frontend/src/pages/helpContent.ts` 与 `helpTaskDocs.ts`，站内帮助页、导出按钮、MD 文档三处同源；改内容改 TS 后跑 `cd frontend && node scripts/generate-help-doc.mjs` 重新生成，**不要手改 MD**。

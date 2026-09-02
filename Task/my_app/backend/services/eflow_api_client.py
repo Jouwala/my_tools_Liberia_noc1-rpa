@@ -241,6 +241,30 @@ def _decode_chunked(data):
     return bytes(result)
 
 
+def _chunked_complete(buf, start):
+    """严格增量判断 chunked 响应体是否已收完（避免把数据内容误判为终止块）。
+
+    按 chunk 边界逐个推进：`<hex-size>\r\n<data>\r\n` ... `0\r\n\r\n`。
+    只有走到 size==0 且后面还有结尾 CRLF 才算完整，遇到半包返回 False。
+    """
+    pos, n = start, len(buf)
+    while True:
+        eol = buf.find(b"\r\n", pos)
+        if eol == -1:
+            return False
+        try:
+            size = int(buf[pos:eol].split(b";")[0].strip(), 16)
+        except ValueError:
+            return False
+        pos = eol + 2
+        if size == 0:
+            # 终止块，后面至少还要有结尾 CRLF（trailer 场景此处先按 CRLF 判定）
+            return n >= pos + 2
+        if n < pos + size + 2:
+            return False
+        pos += size + 2
+
+
 def _http_request(method, path, headers_extra=None, body=None, retry=0, _auth_retried=False):
     """
     发送 HTTP 请求，带重试机制。
@@ -294,6 +318,7 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0, _auth_re
     content_length = None
     header_end_found = False
     header_end_pos = 0
+    is_chunked = False
 
     while True:
         try:
@@ -313,13 +338,21 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0, _auth_re
                 header_end_pos = pos
                 header_part = response_data[:pos].decode('utf-8', errors='replace')
                 for line in header_part.split("\r\n"):
-                    if line.lower().startswith("content-length:"):
+                    low = line.lower()
+                    if low.startswith("content-length:"):
                         try:
                             content_length = int(line.split(":", 1)[1].strip())
                         except ValueError:
                             logging.getLogger(__name__).warning("[SILENT-EXCEPT] _http_request: exception swallowed", exc_info=True)
                             pass
-                        break
+                    elif low.startswith("transfer-encoding:") and "chunked" in low:
+                        is_chunked = True
+
+        # chunked 响应没有 Content-Length：按 chunk 边界判断是否已收完，
+        # 避免一直 recv 到读超时（此前每个 chunked 请求都要空等 HTTP_READ_TIMEOUT 秒）。
+        if header_end_found and content_length is None and is_chunked:
+            if _chunked_complete(response_data, header_end_pos + 4):
+                break
 
         # 如果已知 Content-Length 且已收满，提前退出
         if header_end_found and content_length is not None:

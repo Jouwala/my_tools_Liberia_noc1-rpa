@@ -19,6 +19,7 @@ import {
   FileSearchOutlined,
   LineChartOutlined,
   FundOutlined,
+  SafetyOutlined,
   PieChartOutlined,
   LoginOutlined,
   SunOutlined,
@@ -32,6 +33,7 @@ import {
   CloseOutlined,
   FieldTimeOutlined,
   BookOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -66,12 +68,14 @@ const MwUmeDashboard = lazy(() => import('./pages/MwUmeDashboard'))
 const MwRealTimeDashboard = lazy(() => import('./pages/MwRealTimeDashboard'))
 const PortalLogin = lazy(() => import('./pages/PortalLogin'))
 const EflowQa = lazy(() => import('./pages/EflowQa'))
+const SiteAvailability = lazy(() => import('./pages/SiteAvailability'))
+const Help = lazy(() => import('./pages/Help'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'help'
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa']
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'help']
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -90,8 +94,9 @@ const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'al
 const AR_STORAGE_KEY = 'myapp_auto_refresh_sec'
 const AR_OPTIONS = [0, 30, 60, 300, 600, 900, 1800]
 const AR_PAGE_DEFAULT_SEC = 300 // 所有页面默认间隔（秒）
-// 按页面覆盖的默认间隔：实时看板数据每 15 分钟同步一次，刷新过快无意义
-const AR_PAGE_DEFAULTS: Partial<Record<PageKey, number>> = { mwRealTime: 900 }
+// 按页面覆盖的默认间隔：实时看板数据每 15 分钟同步一次，刷新过快无意义；
+// 帮助页为静态文案，固定关闭自动刷新
+const AR_PAGE_DEFAULTS: Partial<Record<PageKey, number>> = { mwRealTime: 900, help: 0 }
 // 支持软刷新协议（postMessage myapp-refresh 原地重拉数据）的 legacy 页面
 const AR_SOFT_REFRESH_PAGES: PageKey[] = ['mwUmeTopology', 'mwRealTime']
 
@@ -195,6 +200,7 @@ function AppContent() {
     { key: 'eflow_qa', icon: <BookOutlined />, label: t('nav.eflowQa') },
     { key: 'nur', icon: <LineChartOutlined />, label: t('nav.nur') },
     { key: 'ms_sla', icon: <FundOutlined />, label: t('nav.msSla') },
+    { key: 'site_avail', icon: <SafetyOutlined />, label: t('nav.siteAvail') },
     { key: 'cxoDashboard', icon: <PieChartOutlined />, label: t('nav.cxoDashboard') },
     { key: 'mwUmeTopology', icon: <ApartmentOutlined />, label: t('nav.mwUmeTopology') },
     { key: 'mwRealTime', icon: <FieldTimeOutlined />, label: t('nav.mwRealTime') },
@@ -213,6 +219,7 @@ function AppContent() {
     { key: 'dashboard', icon: <DashboardOutlined />, label: t('nav.dashboard') },
     { key: 'settings', icon: <SettingOutlined />, label: t('nav.settings') },
     { key: 'portalLogin', icon: <LoginOutlined />, label: t('nav.portalLogin') },
+    { key: 'help', icon: <QuestionCircleOutlined />, label: t('nav.help') },
   ]
 
   // ===== 右键菜单（在新标签页打开）=====
@@ -287,6 +294,8 @@ function AppContent() {
         return <NurDashboard />
       case 'ms_sla':
         return <MsSlaDashboard />
+      case 'site_avail':
+        return <SiteAvailability />
       case 'alarmManagement':
         return <AlarmManagement />
       case 'cxoDashboard':
@@ -325,6 +334,8 @@ function AppContent() {
         return <Settings />
       case 'portalLogin':
         return <PortalLogin />
+      case 'help':
+        return <Help />
       default:
         return <Overview />
     }

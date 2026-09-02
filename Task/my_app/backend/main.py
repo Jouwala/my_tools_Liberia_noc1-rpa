@@ -48,6 +48,7 @@ from backend.routers import (
     packet_loss_dashboard, battery_dashboard, credentials,
     tasks, sp_dashboard, system,
     incident_overview, ip_trace, nur_dashboard, ms_sla_dashboard,
+    site_availability,
     email_recipients,
     realtime_proxy,
     settings,
@@ -123,6 +124,8 @@ app.include_router(ip_trace.router)
 app.include_router(nur_dashboard.router)
 # MS SLA 看板（MS Contract KPIs / MS WOs SLA 日报数据，ms_sla_dashboard 库）
 app.include_router(ms_sla_dashboard.router)
+# FME 站点可用率与工单看板（master_site_db + 远端站点级可用性 + eflow_tt）
+app.include_router(site_availability.router)
 # 实时代理控制（前端「启用实时刷新」开关按需拉起/关闭本地代理 8787/8790）
 app.include_router(realtime_proxy.router)
 # 全局设置（远程主机等，供「系统设置」页面读写）

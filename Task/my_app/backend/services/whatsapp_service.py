@@ -427,7 +427,13 @@ def _wait_for_last_message_sent(page, timeout=60):
 # ==========================================================
 # 主入口
 # ==========================================================
-def run_whatsapp_send() -> dict:
+def run_whatsapp_send(photos=None, captions=None, files=None, groups=None) -> dict:
+    """发送图片/文件到 WhatsApp 群组。
+
+    缺省行为与历史版本一致：扫 SITE_OUTAGE_DIR 图片 + 最新 Site Outage 文件，
+    发送到 GROUPS。photos/captions/files/groups 显式传入时覆盖对应项
+    （供其他报表任务复用同一套发送机制，如 sp_online_report_send）。
+    """
     start_time = time.time()
     result = {
         "success": False,
@@ -502,16 +508,21 @@ def run_whatsapp_send() -> dict:
             return result
         _success("登录成功（已检测到聊天列表）")
 
-        site_outage_file = _get_latest_site_outage()
-        files_to_send = [site_outage_file] if site_outage_file else []
+        send_photos = PHOTOS if photos is None else [str(p) for p in photos]
+        send_captions = CAPTIONS if captions is None else list(captions)
+        if files is None:
+            site_outage_file = _get_latest_site_outage()
+            files_to_send = [site_outage_file] if site_outage_file else []
+        else:
+            files_to_send = [str(f) for f in files]
 
-        for group in GROUPS:
+        for group in (GROUPS if groups is None else groups):
             try:
                 _search_and_open(page, group)
 
-                pairs = list(zip(PHOTOS, CAPTIONS))
-                if len(PHOTOS) != len(CAPTIONS):
-                    _warn(f"图片数({len(PHOTOS)})与备注数({len(CAPTIONS)})不一致，已按较短一方配对")
+                pairs = list(zip(send_photos, send_captions))
+                if len(send_photos) != len(send_captions):
+                    _warn(f"图片数({len(send_photos)})与备注数({len(send_captions)})不一致，已按较短一方配对")
                 _fast_send_photos(page, pairs)
 
                 for file_path in files_to_send:

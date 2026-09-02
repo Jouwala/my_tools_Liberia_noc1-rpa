@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "node ../scripts/start-app.mjs dev",
     "build": "tsc && vite build",
-    "preview": "node ../scripts/start-app.mjs"
+    "preview": "node ../scripts/start-app.mjs",
+    "docs:help": "node scripts/generate-help-doc.mjs",
+    "docs:manual": "node scripts/generate-manual-html.mjs",
+    "docs": "node scripts/generate-help-doc.mjs && node scripts/generate-manual-html.mjs"
   },
   "devDependencies": {
     "typescript": "~6.0.2",
