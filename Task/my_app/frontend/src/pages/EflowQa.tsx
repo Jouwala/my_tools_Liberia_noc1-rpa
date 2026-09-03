@@ -17,6 +17,7 @@ import {
   FileTextOutlined,
   FolderOutlined,
   MenuOutlined,
+  RobotOutlined,
   SearchOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
@@ -107,6 +108,11 @@ export default function EflowQa() {
   const [ttLoading, setTtLoading] = useState(false)
   const [ttReport, setTtReport] = useState<any>(null)
   const [ttError, setTtError] = useState('')
+  const [ttAi, setTtAi] = useState<any>(null)
+  const [ttAiLoading, setTtAiLoading] = useState(false)
+  const [ttAlarm, setTtAlarm] = useState<any>(null)
+  const [ttAlarmLoading, setTtAlarmLoading] = useState(false)
+  const [ttAlarmLookup, setTtAlarmLookup] = useState<any>(null)
 
   // 移动端：目录树抽屉
   const [treeOpen, setTreeOpen] = useState(false)
@@ -118,9 +124,35 @@ export default function EflowQa() {
     setTtView(true)
     setTtLoading(true)
     setTtError('')
+    setTtAi(null)
+    setTtAiLoading(true)
+    setTtAlarm(null)
+    setTtAlarmLookup(null)
+    setTtAlarmLoading(false)
+    // 基础报告（本地 sqlite，快）先到先显；告警与 AI 各自独立加载
     api.get('/eflow-qa/inspect-tt', { params: { tt: clean } }).then(res => {
-      setTtReport(res.data.report)
+      const rep = res.data.report
+      setTtReport(rep)
+      if (rep?.found && rep.alarm?.found) {
+        setTtAlarm(rep.alarm)
+        setTtAlarmLookup({ mode: 'local', source: rep.alarm.source })
+      } else if (rep?.found) {
+        // 本地告警库未命中 → 单独查 eFlow 活接口（较慢，不阻塞其它块）
+        setTtAlarmLoading(true)
+        api.get('/eflow-qa/tt-alarm', { params: { tt: clean } }).then(r2 => {
+          setTtAlarm(r2.data.alarm)
+          setTtAlarmLookup(r2.data.alarm_lookup)
+        }).catch(() => setTtAlarmLookup({ mode: 'error', error: t('qa.tt.alarmQueryFailed') }))
+          .finally(() => setTtAlarmLoading(false))
+      }
     }).catch(() => setTtError(t('qa.tt.failed'))).finally(() => setTtLoading(false))
+    // AI 结论并行请求（Open WebUI「TT单分析」技能，约 10s）
+    api.get('/eflow-qa/tt-ai', { params: { tt: clean } }).then(res => {
+      setTtAi(res.data.ai)
+      const rep = res.data.report
+      // tt-ai 内部同样会回填 eFlow 兜底结果，告警块未到则顺带补上
+      if (rep?.alarm?.found) setTtAlarm((prev: any) => prev || rep.alarm)
+    }).catch(() => { /* AI 失败不阻塞工单信息展示 */ }).finally(() => setTtAiLoading(false))
   }, [t])
 
   // ===== 文档树 =====
@@ -393,18 +425,86 @@ export default function EflowQa() {
               </div>
             )}
             {!ttLoading && !ttError && ttReport?.found && (() => {
-              const rs = ttReport.root_cause_stats
-              const cp = ttReport.csd_psd
               const ruleDoc = items?.find(i => i.title.includes('掉站工单派单归属判定规则'))
               const cardStyle = { border, borderRadius: 8, padding: '10px 14px', marginBottom: 10, background: isDark ? 'rgba(100,255,218,0.04)' : '#fafcfe' }
               return (
                 <div>
+                  {/* AI 分析结论（TT单分析技能，页面顶部） */}
+                  {ttAiLoading && (
+                    <div style={{ ...cardStyle, background: isDark ? 'rgba(24,144,255,0.06)' : '#f0f7ff' }}>
+                      <RobotOutlined style={{ color: '#1677ff', marginRight: 8 }} />
+                      <Text strong>{t('qa.tt.aiConclusion')}</Text>
+                      <div style={{ marginTop: 6, color: isDark ? '#94a3b8' : '#64748b', fontSize: 13 }}>{t('qa.tt.aiAnalyzing')}</div>
+                    </div>
+                  )}
+                  {!ttAiLoading && ttAi && !ttAi.ok && (
+                    <div style={cardStyle}>
+                      <Alert type="error" showIcon message={`${t('qa.tt.aiFailed')}${ttAi.error}`} />
+                    </div>
+                  )}
+                  {!ttAiLoading && ttAi?.ok && (
+                    <div style={{ ...cardStyle, background: isDark ? 'rgba(24,144,255,0.06)' : '#f0f7ff' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                        <RobotOutlined style={{ color: '#1677ff' }} />
+                        <Text strong>{t('qa.tt.aiConclusion')}</Text>
+                      </div>
+                      <div className="eflowqa-md" style={{ fontSize: 13, lineHeight: 1.7 }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{ttAi.conclusion}</ReactMarkdown>
+                      </div>
+                      <div style={{ marginTop: 8, fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
+                        {ttAi.skill_title && <Tag color="blue" style={{ marginRight: 6 }}>{ttAi.skill_title}</Tag>}
+                        {ttAi.model && <Tag style={{ marginRight: 6 }}>{ttAi.model}</Tag>}
+                        {ttAi.alarm_source && <Tag color="cyan" style={{ marginRight: 6 }}>{t('qa.tt.alarmSource')}: {ttAi.alarm_source}</Tag>}
+                        {ttAi.elapsed_total_sec != null && <span>{t('qa.tt.aiElapsed')}: {ttAi.elapsed_total_sec}s</span>}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 告警信息（本地告警库命中即显；未命中则 eFlow 活查，期间只在本卡内 loading） */}
+                  {ttAlarmLoading && (
+                    <div style={{ ...cardStyle, background: isDark ? 'rgba(100,255,218,0.06)' : '#f4fbfa' }}>
+                      <Spin size="small" style={{ marginRight: 8 }} />
+                      <Text strong>{t('qa.tt.alarmCard')}</Text>
+                      <div style={{ marginTop: 6, color: isDark ? '#94a3b8' : '#64748b', fontSize: 13 }}>
+                        {t('qa.tt.alarmEflowLoading')}
+                      </div>
+                    </div>
+                  )}
+                  {!ttAlarmLoading && ttAlarm?.found && (
+                    <div style={cardStyle}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                        <Text strong>{t('qa.tt.alarmCard')}</Text>
+                        <Tag color={ttAlarm.source?.startsWith('eflow') ? 'gold' : 'green'}>{t('qa.tt.alarmSource')}: {ttAlarm.source}</Tag>
+                        {ttAlarmLookup?.elapsed_sec ? <Text type="secondary" style={{ fontSize: 12 }}>{ttAlarmLookup.elapsed_sec}s</Text> : null}
+                      </div>
+                      <div style={{ fontSize: 13, lineHeight: 1.9 }}>
+                        {ttAlarm.items.map((it: any) => (
+                          <div key={it.key} style={isMobile
+                            ? { display: 'flex', flexDirection: 'column', padding: '2px 0' }
+                            : { display: 'flex', gap: 10 }}>
+                            <Text type="secondary" style={isMobile
+                              ? { fontFamily: 'monospace', fontSize: 11 }
+                              : { width: 180, flexShrink: 0, fontFamily: 'monospace', fontSize: 12 }}>{it.key}</Text>
+                            <span style={{ wordBreak: 'break-all' }}>{it.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {!ttAlarmLoading && !ttAlarm?.found && ttAlarmLookup && (
+                    <div style={cardStyle}>
+                      <Text strong>{t('qa.tt.alarmCard')}</Text>
+                      <Alert type="info" showIcon style={{ marginTop: 6 }}
+                        message={t('qa.tt.alarmNotFound')}
+                        description={ttAlarmLookup.error || ttAlarmLookup.mode} />
+                    </div>
+                  )}
+
                   {/* 结论要点 */}
                   <div style={{ ...cardStyle, background: isDark ? 'rgba(250,173,20,0.08)' : 'rgba(250,173,20,0.08)' }}>
                     <Text strong>{t('qa.tt.conclusion')}</Text>
                     <ol style={{ margin: '8px 0 0', paddingLeft: isMobile ? 18 : 20, lineHeight: 1.9, fontSize: isMobile ? 13 : undefined }}>
-                      <li>根因 <b>{rs.root_cause}</b> / {rs.sub_root_cause} —— {t('qa.tt.conc1')}</li>
-                      <li>{ttReport.down_type} —— {t('qa.tt.conc2')}</li>
+                      <li>{t('qa.tt.rootCause')} <b>{ttReport.root_cause}</b> / {ttReport.sub_root_cause} —— {t('qa.tt.conc1')}</li>
                       <li>{t('qa.tt.assigned')}：<b>{ttReport.assigned_group}</b></li>
                       <li>{t('qa.tt.timing')}：{ttReport.timing.lag_text}</li>
                     </ol>
@@ -420,53 +520,6 @@ export default function EflowQa() {
                     </div>
                     {ttReport.timing.delayed_over_1h && (
                       <Alert type="warning" showIcon style={{ marginTop: 8 }} message={t('qa.tt.delayWarn')} />
-                    )}
-                  </div>
-
-                  {/* 掉站类型 + CSD/PSD 对照 */}
-                  <div style={cardStyle}>
-                    <Text strong>{t('qa.tt.downType')}：{ttReport.down_type}</Text>
-                    <div style={{ marginTop: 8 }}>
-                      {[['CSD', cp.csd], ['PSD', cp.psd]].map(([k, v]: any) => (
-                        <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0', fontSize: 13 }}>
-                          <Text style={{ width: 36 }}>{k}</Text>
-                          <div style={{ flex: 1, height: 14, background: isDark ? 'rgba(148,163,184,0.15)' : '#eef2f6', borderRadius: 7, overflow: 'hidden' }}>
-                            <div style={{ width: `${v.pct}%`, height: '100%', background: '#13c2c2' }} />
-                          </div>
-                          <Text type="secondary" style={{ fontSize: 12, minWidth: isMobile ? 70 : 120, textAlign: 'right' }}>
-                            {v.third}/{v.all} = {v.pct}%
-                          </Text>
-                        </div>
-                      ))}
-                    </div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>{t('qa.tt.csdPsdRef')}</Text>
-                  </div>
-
-                  {/* 根因归属分布 */}
-                  <div style={cardStyle}>
-                    <Text strong>{t('qa.tt.rcDist')}</Text>
-                    {rs.total ? (
-                      <div style={{ marginTop: 8 }}>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          root_cause = {rs.root_cause} · total {rs.total}
-                        </Text>
-                        {rs.groups.map((g: any) => (
-                          <div key={g.group} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '5px 0', fontSize: 13 }}>
-                            <Text style={{ width: isMobile ? 96 : 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={g.group}>{g.group}</Text>
-                            <div style={{ flex: 1, height: 14, background: isDark ? 'rgba(148,163,184,0.15)' : '#eef2f6', borderRadius: 7, overflow: 'hidden' }}>
-                              <div style={{ width: `${g.pct}%`, height: '100%', background: g.group.includes('3rd_Power') ? '#faad14' : '#13c2c2' }} />
-                            </div>
-                            <Text type="secondary" style={{ fontSize: 12, minWidth: isMobile ? 64 : 110, textAlign: 'right' }}>
-                              {g.count} ({g.pct}%)
-                            </Text>
-                          </div>
-                        ))}
-                        {rs.assigned_3rd_power && (
-                          <div style={{ marginTop: 6 }}><Tag color="orange">{t('qa.tt.rcMatch')}</Tag></div>
-                        )}
-                      </div>
-                    ) : (
-                      <div style={{ marginTop: 6 }}><Text type="secondary">{t('qa.tt.rcEmpty')}</Text></div>
                     )}
                   </div>
 

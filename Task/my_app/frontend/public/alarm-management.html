@@ -100,6 +100,11 @@
   .live-pill{display:inline-flex;align-items:center;gap:0.5rem;padding:0.438rem 0.875rem;border-radius:999px;background:#fff;border:1px solid var(--border);font-size:0.75rem;color:var(--muted);cursor:pointer;box-shadow:var(--shadow1)}
   .live-pill .dot{width:9px;height:9px;border-radius:50%;background:#c3cad4}
   .live-pill .dot.on{background:#37b26c;box-shadow:0 0 0 3px rgba(55,178,108,.18);animation:pulse 1.6s infinite}
+  .content-bar-right{display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap}
+  .carousel-btn{display:inline-flex;align-items:center;gap:0.375rem;padding:0.438rem 0.875rem;border-radius:999px;background:#fff;border:1px solid var(--border);font-size:0.75rem;font-weight:600;color:var(--muted);cursor:pointer;box-shadow:var(--shadow1);user-select:none;transition:all .15s}
+  .carousel-btn:hover{color:var(--primary);border-color:var(--primary)}
+  .carousel-btn.on{background:var(--primary);border-color:var(--primary);color:#fff}
+  .carousel-btn .ico{font-size:0.625rem;line-height:1}
   .live-pill .dot.err{background:#e5484d;box-shadow:0 0 0 3px rgba(229,72,77,.16)}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
 
@@ -280,6 +285,9 @@
   [data-theme="dark"] .site-type-select select{ background:#112540; color:var(--text); border-color:var(--border-strong); }
   [data-theme="dark"] .chip input{ background:#0e1d33; color:var(--text); border-color:var(--border-strong); }
   [data-theme="dark"] .live-pill{ background:#112540; border-color:var(--border); color:var(--muted); }
+  [data-theme="dark"] .carousel-btn{ background:#112540; border-color:var(--border); color:var(--muted); }
+  [data-theme="dark"] .carousel-btn:hover{ background:var(--hover); color:var(--primary); }
+  [data-theme="dark"] .carousel-btn.on{ background:var(--primary); border-color:var(--primary); color:#fff; }
   [data-theme="dark"] .kpis .kpi .l{ color:var(--muted); }
   [data-theme="dark"] .kpi .v{ color:var(--text); }
   [data-theme="dark"] .kpi .sub{ color:var(--disabled); }
@@ -371,11 +379,16 @@ img, svg, canvas, iframe { max-width: 100%; }
         <a class="tab" data-sec="secAssign" data-i18n="tabAssign">派单趋势监控</a>
         <a class="tab" data-sec="secTop5" data-i18n="tabTop5">告警Top5</a>
       </div>
-      <div class="live-pill" id="livePill" data-i18n-title="livePillTitle">
-        <span class="dot" id="liveDot"></span>
-        <span id="liveText" data-i18n="liveText">示例快照 · 未连接</span>
-        <span id="liveCount" style="opacity:.75"></span>
-        <span style="opacity:.7">⚙</span>
+      <div class="content-bar-right">
+        <div class="carousel-btn" id="carouselBtn" role="button" tabindex="0" onclick="toggleCarousel()">
+          <span class="ico" id="carouselIco">▶</span><span id="carouselLabel">轮播</span>
+        </div>
+        <div class="live-pill" id="livePill" data-i18n-title="livePillTitle">
+          <span class="dot" id="liveDot"></span>
+          <span id="liveText" data-i18n="liveText">示例快照 · 未连接</span>
+          <span id="liveCount" style="opacity:.75"></span>
+          <span style="opacity:.7">⚙</span>
+        </div>
       </div>
     </div>
 
@@ -754,6 +767,9 @@ function initChart(id){ if(!window.echarts) return null; return echarts.init(doc
 const C={ '#e5484d':'#e5484d', '#f58c1f':'#f58c1f', '#1993ff':'#1993ff', '#37b26c':'#37b26c', '#9b59b6':'#9b59b6' };
 function applyTheme(mode){
   if(mode!=='dark'&&mode!=='light') return;
+  // 父页面在 ThemeProvider mount 和每次 iframe onLoad 都会重发主题，模式通常没变；
+  // 短路掉可避免无谓地销毁并重建整页图表。
+  if(mode===APP_THEME) return;
   APP_THEME=mode;
   document.documentElement.dataset.theme=mode;
   AX=mkAX();
@@ -761,18 +777,25 @@ function applyTheme(mode){
 }
 function rethemeCharts(){
   const th = APP_THEME==='dark' ? 'amDark' : 'amLight';
-  const re=(inst,render)=>{ if(!inst) return inst; try{inst.dispose();}catch(e){} const dom=inst.getDom(); const n=echarts.init(dom, th); if(render) render(n); return n; };
-  chTrend=re(chTrend,setTrend); chDuration=re(chDuration,setDuration);
-  chHour=re(chHour,setHour); chRan=re(chRan,setRan);
-  chMainsFail=re(chMainsFail,setMainsFail); chSiteClass=re(chSiteClass,setSiteClass);
-  trendCharts.forEach(t=>{ if(t.bar){t.bar.dispose(); t.bar=echarts.init(t.bar.getDom(),th);} if(t.line){t.line.dispose(); t.line=echarts.init(t.line.getDom(),th);} });
-  updateTrendCharts();
-  assignCharts.forEach(a=>{ if(a.chart){a.chart.dispose(); a.chart=echarts.init(a.chart.getDom(),th);} });
-  updateAssignCharts();
-  top5Charts.forEach(c=>{ if(c.chart){try{c.chart.dispose();}catch(e){} c.chart=echarts.init(c.chart.getDom(),th);} });
-  for(let i=0;i<TOP5_N;i++){ setTop5Group('reason',i); setTop5Group('site',i); }
+  // 必须先取 dom 再 dispose：ECharts 5.5.0 中已 dispose 的实例 getDom() 返回 null，
+  // 拿它去 echarts.init 会抛 getAttribute 错误，图表就此停在已销毁实例上（面板空白），
+  // 且异常会中断本函数后续所有重建。
+  const re=(inst)=>{ if(!inst) return inst; const dom=inst.getDom(); try{inst.dispose();}catch(e){} return echarts.init(dom, th); };
+  // 分两阶段：先把实例全部重建并写回全局，再统一渲染。setTrend/setDuration 等不接收入参、
+  // 直接读写全局变量，若在赋值前调用，setOption 会打到刚 dispose 的旧实例上（异常被其内部
+  // try/catch 吞掉），新实例永远空白无 canvas —— 要等下一次实时刷新才偶然恢复。
+  chTrend=re(chTrend); chDuration=re(chDuration);
+  chHour=re(chHour); chRan=re(chRan);
+  chMainsFail=re(chMainsFail); chSiteClass=re(chSiteClass);
+  trendCharts.forEach(t=>{ t.bar=re(t.bar); t.line=re(t.line); });
+  assignCharts.forEach(a=>{ a.chart=re(a.chart); });
+  top5Charts.forEach(c=>{ c.chart=re(c.chart); });
   if(mapChart){ try{mapChart.dispose();}catch(e){} mapChart=null; }
   if(mapEl){ mapChart=echarts.init(mapEl,th); }
+  setTrend(); setDuration(); setHour(); setRan(); setMainsFail(); setSiteClass();
+  updateTrendCharts();
+  updateAssignCharts();
+  rerenderTop5();
   setMapOption();
 }
 // 早期同步 <html data-theme>，并监听父页面(myapp)主题切换的 postMessage
@@ -877,6 +900,7 @@ async function applyLocale(loc, rerender){
   if(rerender){ try{ await loadAlarmOverview(); }catch(e){} }
   try{ refreshTrendSrc(); }catch(e){}
   applyStaticI18n();
+  try{ refreshCarouselBtn(); }catch(e){}
   try{ refreshTrendSrc(); }catch(e){}
 }
 function renderSnapshotNote(){ const el=document.getElementById('ovNote'); if(el) el.textContent=LN('ovNote',{ts:(D.meta&&D.meta.fetchedAt)||''}); }
@@ -1086,6 +1110,8 @@ const TOP5_N=Math.max(top5ReasonCount,top5SiteCount,5);
 // 域组标签固定与上方「告警Top5」域卡片一一对应：RAN/CN/TRM_MW/VAS/TRM/POWER
 // （不再从 URL 的 type 参数解析，否则会显示 CS/PS/IMS 而非 CN）
 const TOP5_DOMAINS=['RAN','CN','TRM_MW','VAS','TRM','POWER'];
+// TOP5 横向柱状图 y 轴标签的截断宽度上限（px），grid.left 由它推导
+const TOP5_LABEL_W=110;
 function top5GroupLabel(name){
   const m=/^(top5Reason|top5Site)(\d+)$/.exec(name);
   if(m){ const i=+m[2]; if(TOP5_DOMAINS[i]) return TOP5_DOMAINS[i]; }
@@ -1102,6 +1128,21 @@ function buildTop5Grids(){
       '<div class="panel"><div class="ph"><span class="tt">'+top5GroupLabel('top5Site'+i)+'</span><span class="ex">Site</span></div><div class="pb"><div class="chartbox" id="chSiteTop5_'+i+'"></div></div></div>');
   }
 }
+// 期望的 y 轴标签截断宽：按最长名称估算，但不超过 TOP5_LABEL_W
+function top5LabelW(rows){ return Math.round(Math.min(TOP5_LABEL_W, Math.max(40, ...rows.map(r=>String(r.name).length*6.5)))); }
+// grid.left 与 axisLabel.width 必须同源，否则标签会溢出到绘图区被裁掉。
+// 容器宽从 DOM 实测：initTop5Charts 时 secTop5 仍是 display:none，chart.getWidth() 会返回
+// echarts 的 100×100 兜底值，据此算出的 left 会被冻结（Tab 切换只 resize，不重算 grid）。
+// 隐藏期先按标签宽布局，可见后由 initTabs / resize 重新调用本函数收敛。
+function top5GridLeft(rec,rows){
+  const labelW=top5LabelW(rows);
+  const dom=rec.chart.getDom&&rec.chart.getDom();
+  const cw=dom?dom.getBoundingClientRect().width:0;
+  if(!(cw>1)) return {left:Math.round(labelW+10), labelW:Math.round(labelW)};
+  const minPlot=Math.max(90, cw*0.35);
+  const left=Math.max(48, Math.min(labelW+10, Math.round(cw-28-minPlot)));
+  return {left:left, labelW:Math.max(30, left-10)};
+}
 function setTop5Group(kind,idx){
   const id=(kind==='reason'?'chReasonTop5_':'chSiteTop5_')+idx;
   let rec=top5Charts.find(c=>c.id===id);
@@ -1112,37 +1153,83 @@ function setTop5Group(kind,idx){
   }
   const arr=(kind==='reason'?(D.top5&&D.top5.reasonGroups):(D.top5&&D.top5.siteGroups))||[];
   const rows=(arr[idx]||[]).slice().sort((a,b)=>b.num-a.num).reverse(); // 升序，便于横向柱状图
-  rec.chart.setOption({grid:{left:Math.max(120, ...rows.map(r=>String(r.name).length*7)),right:28,top:14,bottom:24},
+  const gl=top5GridLeft(rec,rows);
+  rec.chart.setOption({grid:{left:gl.left,right:28,top:14,bottom:24},
     tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},
     xAxis:{type:'value',...AX},yAxis:{type:'category',data:rows.map(r=>r.name),...AX,
-      axisLabel:{fontSize:10,width:110,overflow:'truncate',color:curP().axisLabel}},
+      axisLabel:{fontSize:10,width:gl.labelW,overflow:'truncate',color:curP().axisLabel}},
     series:[{type:'bar',barWidth:'58%',data:rows.map(r=>r.num),
       itemStyle:{color:p=>p.value>=300?'#ce4c4a':(p.value>=100?'#d89f42':'#349a6d'),borderRadius:[0,4,4,0]},
       label:{show:true,position:'right',fontSize:11,fontWeight:700,color:curP().barLabel}}]}, true);
 }
 function initTop5Charts(){
   buildTop5Grids();
-  for(let i=0;i<TOP5_N;i++){ setTop5Group('reason',i); setTop5Group('site',i); }
+  rerenderTop5();
 }
+// resize() 只改画布尺寸，不会重算 grid.left；容器由隐藏转可见后必须重渲染一次
+function rerenderTop5(){ for(let i=0;i<TOP5_N;i++){ setTop5Group('reason',i); setTop5Group('site',i); } }
 // ---------- Tab 切换 ----------
+function tabBarTabs(){ return Array.from(document.querySelectorAll('#tabBar .tab')); }
+function switchTab(sec){
+  const tabs=tabBarTabs();
+  const a=tabs.find(x=>x.dataset.sec===sec);
+  if(!a) return;
+  tabs.forEach(x=>x.classList.remove('active')); a.classList.add('active');
+  ['secOverview','secStats','secTrend','secAssign','secTop5'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    const show=(sec==='secOverview') ? (id==='secOverview'||id==='secStats') : (id===sec);
+    el.style.display=show?'':'none';
+  });
+  setTimeout(()=>{
+    [chTrend,chDuration,chHour,chRan,chMainsFail,chSiteClass,mapChart].concat(top5Charts.map(c=>c.chart)).forEach(c=>c&&c.resize());
+    trendCharts.forEach(t=>{ t.bar&&t.bar.resize(); t.line&&t.line.resize(); });
+    assignCharts.forEach(a=>a.chart&&a.chart.resize());
+    rerenderTop5();
+  },60);
+}
 function initTabs(){
-  const tabs=document.querySelectorAll('#tabBar .tab');
-  tabs.forEach(a=>a.addEventListener('click',()=>{
-    tabs.forEach(x=>x.classList.remove('active')); a.classList.add('active');
-    const sec=a.dataset.sec;
-    ['secOverview','secStats','secTrend','secAssign','secTop5'].forEach(id=>{
-      const el=document.getElementById(id);
-      if(!el) return;
-      const show=(sec==='secOverview') ? (id==='secOverview'||id==='secStats') : (id===sec);
-      el.style.display=show?'':'none';
-    });
-    setTimeout(()=>{
-      [chTrend,chDuration,chHour,chRan,chMainsFail,chSiteClass,mapChart].concat(top5Charts.map(c=>c.chart)).forEach(c=>c&&c.resize());
-      trendCharts.forEach(t=>{ t.bar&&t.bar.resize(); t.line&&t.line.resize(); });
-      assignCharts.forEach(a=>a.chart&&a.chart.resize());
-    },60);
+  tabBarTabs().forEach(a=>a.addEventListener('click',()=>{
+    // 手动点页签视为接管：停止轮播，但保留全屏（大屏上突然退出全屏更干扰）
+    if(carouselTimer) stopCarousel(false);
+    switchTab(a.dataset.sec);
   }));
 }
+// ---------- 页签轮播（大屏值守）----------
+const CAROUSEL_MS=15000;
+let carouselTimer=null;
+function refreshCarouselBtn(){
+  const b=document.getElementById('carouselBtn'); if(!b) return;
+  const on=!!carouselTimer, sec=Math.round(CAROUSEL_MS/1000);
+  b.classList.toggle('on',on);
+  const ico=document.getElementById('carouselIco'); if(ico) ico.textContent=on?'❚❚':'▶';
+  const lb=document.getElementById('carouselLabel'); if(lb) lb.textContent=on?T('停止轮播','Stop'):T('轮播','Carousel');
+  b.title=on?T('停止轮播并退出全屏','Stop carousel and exit full screen')
+    :T('每 '+sec+' 秒自动切换页签并进入全屏','Rotate tabs every '+sec+'s and enter full screen');
+}
+function stopCarousel(exitFull){
+  if(carouselTimer){ clearInterval(carouselTimer); carouselTimer=null; }
+  refreshCarouselBtn();
+  if(exitFull && document.fullscreenElement){ try{ const p=document.exitFullscreen(); if(p&&p.catch) p.catch(()=>{}); }catch(e){} }
+}
+function startCarousel(){
+  if(tabBarTabs().length<2) return;
+  // 与既有 toggleFull() 同一目标元素；iframe 内请求全屏需父页面 allowfullscreen（LegacyToolFrame 已带）
+  const el=document.querySelector('.ptl-content');
+  try{ if(el && !document.fullscreenElement && el.requestFullscreen){ const p=el.requestFullscreen(); if(p&&p.catch) p.catch(()=>{}); } }catch(e){}
+  carouselTimer=setInterval(()=>{
+    const tabs=tabBarTabs();
+    if(tabs.length<2){ stopCarousel(false); return; }
+    const cur=tabs.findIndex(x=>x.classList.contains('active'));
+    switchTab(tabs[(cur+1)%tabs.length].dataset.sec);
+  },CAROUSEL_MS);
+  refreshCarouselBtn();
+}
+function toggleCarousel(){ if(carouselTimer) stopCarousel(true); else startCarousel(); }
+// Esc / 浏览器 UI 退出全屏时轮播也要停，否则按钮状态与实际不符
+document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement && carouselTimer) stopCarousel(false); });
+(function(){ const b=document.getElementById('carouselBtn');
+  if(b) b.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggleCarousel(); } }); })();
 // ---------- 源 body 注入（探针/分组变化时同步到后续源） ----------
 function setSrcBody(name,obj){
   const s=(liveCfg.sources||[]).find(x=>x.name===name);
@@ -1153,6 +1240,7 @@ buildTrendGrid(); updateTrendCharts();
 buildAssignGrid(); updateAssignCharts();
 renderTop5Cards(); initTop5Charts();
 initTabs();
+refreshCarouselBtn();
 
 /* =================================================================
    KPI / 时钟
@@ -1333,13 +1421,19 @@ function applyLive(name, json){
         const raw=(dd[k] && Array.isArray(dd[k]['0-24'])) ? dd[k]['0-24'] : (Array.isArray(dd[k]) ? dd[k] : []);
         ser[k]=(raw||[]).map(v=>{ const n=Number(v); return isFinite(n)?n:0; });
       });
-      // X 轴标签：仅当 timestamps 与 N 等长且能分出 >=2 个整点时，才用时间戳推出整点标签；否则用标准 24h 标签，杜绝塌缩
+      // X 轴标签：timestamps 是四个桶（72-96 / 48-72 / 24-48 / 0-24）按时间升序拼接的 5 分钟采样，
+      // 总长恒等于四桶点数之和（实测 1108 = 288+288+288+244），故 physical['0-24']（今日 00:00 起）
+      // 对应 timestamps 的最后 N 个 —— 与「phys 末点 = 当前宕站数」的既有约定一致。
+      // 旧代码要求 ts.length===N 才用时间戳，1108≠244 永不成立，于是永远退回 i%24 合成标签，
+      // 把单日 5 分钟序列画成「00:00…23:00 循环十遍」，看着像跨了十天。
+      const pad2=n=>String(n).padStart(2,'0');
       let xLabels=null;
-      if(Array.isArray(ts) && ts.length===N){
-        const bb={}; ts.forEach(t=>{ const h=Math.floor(t/3600000); (bb[h]=bb[h]||[]).push(0); });
-        if(Object.keys(bb).length>=2) xLabels=ts.map(t=>String(new Date(Math.floor(t/3600000)*3600000).getHours()).padStart(2,'0')+':00');
+      if(Array.isArray(ts) && N>0 && ts.length>=N){
+        xLabels=ts.slice(ts.length-N).map(t=>{ const d=new Date(t);
+          return pad2(d.getMonth()+1)+'-'+pad2(d.getDate())+' '+pad2(d.getHours())+':'+pad2(d.getMinutes()); });
       }
-      if(!xLabels) xLabels=Array.from({length:N},(_,i)=>String(i).padStart(2,'0')+':00');
+      // 时间戳不足以对齐时推不出真实时刻，按 24 取模至少保证是合法钟点（旧写法会产出 "241:00"）
+      if(!xLabels) xLabels=Array.from({length:N},(_,i)=>pad2(i%24)+':00');
       const align=(arr,n)=>{ if(!Array.isArray(arr)||!arr.length) return new Array(n).fill(0);
         if(arr.length===n) return arr;
         return arr.length>n ? arr.slice(arr.length-n) : new Array(n-arr.length).fill(0).concat(arr); };
@@ -1592,7 +1686,8 @@ setInterval(tick,1000); tick();
 document.getElementById('userChip').addEventListener('click',e=>{e.stopPropagation();document.getElementById('userDD').classList.toggle('open');});
 document.addEventListener('click',()=>document.getElementById('userDD').classList.remove('open'));
 function toggleFull(){ document.querySelector('.ptl-content').requestFullscreen?.(); }
-window.addEventListener('resize',()=>{ [chTrend,chDuration,chHour,chRan,chMainsFail,chSiteClass,mapChart].concat(top5Charts.map(c=>c.chart)).forEach(c=>c&&c.resize()); trendCharts.forEach(t=>{ t.bar&&t.bar.resize(); t.line&&t.line.resize(); }); assignCharts.forEach(a=>a.chart&&a.chart.resize()); });
+let _top5ResizeTimer=null;
+window.addEventListener('resize',()=>{ [chTrend,chDuration,chHour,chRan,chMainsFail,chSiteClass,mapChart].concat(top5Charts.map(c=>c.chart)).forEach(c=>c&&c.resize()); trendCharts.forEach(t=>{ t.bar&&t.bar.resize(); t.line&&t.line.resize(); }); assignCharts.forEach(a=>a.chart&&a.chart.resize()); clearTimeout(_top5ResizeTimer); _top5ResizeTimer=setTimeout(rerenderTop5,200); });
 /* iframe 0×0 兜底：当图表容器在 iframe 内迟于 chart.init 完成布局时（极少见，但会导致单一图表"没数据"），由 ResizeObserver 触发 resize + setOption 自愈。 */
 try{
   const _roMap={chTrend:setTrend,chDuration:setDuration,chHour:setHour,chRan:setRan,chMainsFail:setMainsFail,chSiteClass:setSiteClass};

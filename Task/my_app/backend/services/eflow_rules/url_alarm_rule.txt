@@ -1,0 +1,21 @@
+Request URL
+https://10.100.20.8:28001/api/fm-active/v1/ruletypes
+Request Method
+POST
+Status Code
+200 OK
+Remote Address
+10.100.20.8:28001
+Referrer Policy
+strict-origin-when-cross-origin
+
+Request URL
+https://10.100.20.8:28001/api/correlation-mgt/v1/ui/table?queryrequest={%22time%22:7}
+Request Method
+GET
+Status Code
+200 OK
+Remote Address
+10.100.20.8:28001
+Referrer Policy
+strict-origin-when-cross-origin

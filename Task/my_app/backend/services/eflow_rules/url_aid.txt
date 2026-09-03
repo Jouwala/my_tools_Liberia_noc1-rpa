@@ -1,0 +1,26 @@
+Request URL
+https://10.100.20.8:28001/api/fm-active/v1/activealarms/table
+Request Method
+POST
+Status Code
+200 OK
+Remote Address
+10.100.20.8:28001
+Referrer Policy
+strict-origin-when-cross-origin
+
+{"timestamp":"2026-09-02T20:12:44.255Z","condition":{"alarmcodefiltermode":0,"extensionconds":{"maintainstatus":{"filtertype":1,"valuelist":["0"]}},"sortinfo":{"sortdirection":0,"sortfield":"servertime","combinesortinfos":[]},"timezonetype":0,"querymetype":2,"id":-1,"visibles":[1]},"pagesize":200,"page":1,"secondarycondition":{"id":"1764208584609"},"queryid":"T0e1b2e4cde614b68aa0d3890e6783052","activeTabId":"fm-active_ALARM_MONITOR","manual":true}
+
+
+Request URL
+https://10.100.20.8:28001/api/fm-history/v1/hisalarms/pageinfo
+Request Method
+POST
+Status Code
+200 OK
+Remote Address
+10.100.20.8:28001
+Referrer Policy
+strict-origin-when-cross-origin
+
+{"querynum":200,"condition":{"alarmcodefiltermode":0,"alarmraisedtime":{"mode":1,"relative":86400000,"start":1788293640000,"end":-1,"type":0},"extensionconds":{"maintainstatus":{"filtertype":1,"valuelist":["0"]}},"sortinfo":{"language":"en","sortdirection":0,"sortfield":"alarmclearedtime","combinesortinfos":[]},"timezonetype":0,"querymetype":0,"id":-1,"idstr":"-1","usefromsize":true},"secondarycondition":{"id":"1764207334991"},"timestamp":"2026-09-02T20:14:35.723Z","manual":true}

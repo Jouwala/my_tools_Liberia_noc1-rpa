@@ -97,11 +97,19 @@ MS 合同 KPI（Contract KPIs）与工单 SLA（WOs SLA）达成情况。
 
 ## 7. CXO 经营看板（`?page=cxoDashboard`）— iframe
 
-Service / Network / Summary 三层经营看板（`CxoDashboard.tsx:4-8`）。
+Service / Network / Summary / Healthscore 四视图经营看板（`CxoDashboard.tsx`）。
 
-- 壳：`LegacyToolFrame` 载入 `public/cxo_dashboard.html`（:23）。
-- **该 HTML 内嵌了一份完整数据快照**，因此即使实时代理或 VMAX 不可用，页面照样能完整渲染——代价是**看到的可能不是最新数据**。要最新值得重跑同步任务。
+- 壳：`LegacyToolFrame` 载入 `public/cxo_dashboard.html`。
+- **数据三层叠加**（2026-09-02 起）：
+  1. HTML 内嵌快照（构建时冻结，保底渲染）；
+  2. **last-known-good 缓存**：worker 任务 `cxo_dashboard_cache_sync`（每 10 分钟，n 组）经本机 8790 VMAX 代理拉全量接口、**空值保留旧值**，落盘 `data/cxo_dashboard/last_known_good.json`，页面打开/每 5 分钟自动刷新时经 `GET /api/cxo-dashboard/cache` 应用；
+  3. 实时拉取（经 `/api/realtime-proxy/cxo` 转发 8790 代理）成功则覆盖缓存。
+  实时不可用时页面显示最近可用缓存数据（状态行 `offline · cached data`），Health 页 live 为空时回退缓存并在标题标注 `cached <时间>`。
+- 缓存任务详情见 `backend/services/cxo_dashboard_cache.md`；每次运行还向 `data/cxo_dashboard/history.jsonl` 追加一行 Summary KPI + Health 概要（积累趋势用）。
+- **轮播（大屏值守）**：页头 `Carousel` 按钮（2026-09-02 起）每 15 秒轮换 Service→Network→Summary→Healthscore 四页签并**进入全屏**（同 Alarm Management：再点按钮停止并退全屏；Esc 退出全屏会联动停轮播；手动点页签视为接管、停轮播但保留全屏）。
+- 图表尺寸自适应：所有图表 setOption 后统一排队一次 rAF `resize()`（`queueResizeAll`）——trend-grid 卡片逐个 append 时列宽多次回流，不补偿会把 1570px 画布塞进 359px 卡片（x 轴标签挤压、线条重叠的根因）；实时刷新按代次（`REFRESH_GEN`）管理，切页/轮播后旧刷新静默作废，不在隐藏视图上重建图表、也不覆盖状态行。
 - 数据源是 VMAX 实时保障看板，凭据在「系统设置 → 凭据 → `vmax_cxo`」。
+- 已知限制：Healthscore 的 VMAX 源头分区 `aggr_ds_cxo_score` 为空时综合分显示 `—`（页面有说明横幅），需数据侧聚合后才能填充，缓存只能保证"有过的数据不再丢"。
 
 ## 8. MW 微波拓扑（`?page=mwUmeTopology`）— iframe
 

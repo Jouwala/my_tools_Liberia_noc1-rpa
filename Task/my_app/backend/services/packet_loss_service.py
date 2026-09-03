@@ -340,7 +340,63 @@ def _init_db(conn: sqlite3.Connection):
         conn.execute("ALTER TABLE site_pl_summary ADD COLUMN IF NOT EXISTS STATUS TEXT")
     except Exception:  # noqa: BLE001  SQLite 旧版本不支持 IF NOT EXISTS 时兜底忽略
         logger.warning("[PL] ADD COLUMN STATUS 幂等跳过（可能已存在或驱动不支持）", exc_info=True)
+    # sqlite 侧唯一性来自 CREATE TABLE 的 UNIQUE(...) 表约束；PG 侧表若由迁移脚本
+    # 按列结构重建，该约束会丢失，而 CREATE TABLE IF NOT EXISTS 对已存在表不生效，
+    # 约束永远不会补回 → INSERT ... ON CONFLICT 报「没有匹配ON CONFLICT说明的唯一
+    # 或者排除约束」(SQLSTATE 42P10)。此处显式幂等补建，使写入路径自愈。
+    if not isinstance(conn, sqlite3.Connection):
+        _ensure_pg_unique_index(conn)
     conn.commit()
+
+
+# packet_loss_data 的自然键，须与建表 DDL 的 UNIQUE(...) 保持一致
+_PL_UNIQUE_COLS = '"Begin Time", "ManagedElement ID", "srcIp", "dstIp"'
+
+
+def _ensure_pg_unique_index(conn):
+    """PG 模式：幂等确保 packet_loss_data 唯一索引存在（ON CONFLICT 的 inference 依赖它）。
+
+    存在重复行时 CREATE UNIQUE INDEX 会直接失败，故需先去重。两个性能要点（实测）：
+    1. 去重前先用 GROUP BY ... HAVING 探查是否真有重复（百万行约 2s）；无重复则完全跳过
+       删除，避免每次自愈都付一次全表代价。
+    2. 去重一律走窗口函数单次排序。切勿写成 ``ctid NOT IN (SELECT MIN(ctid) ... GROUP BY ...)``
+       ——PG 会退化成嵌套循环，134 万行实测卡死 11 分钟未完成。
+
+    用 to_regclass 定位目标表，避免 search_path 下同名表误判。
+    """
+    idx = "u_packet_loss_data"
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+            "WHERE c.relname = ? AND i.indisunique "
+            "AND i.indrelid = to_regclass('packet_loss_data')",
+            (idx,),
+        ).fetchone()
+        if row:
+            return
+        logger.warning(f"[PL] packet_loss_data 缺少唯一索引 {idx}，开始检查并补建")
+        dup = conn.execute(
+            f"SELECT count(*) FROM ("
+            f"SELECT 1 FROM packet_loss_data GROUP BY {_PL_UNIQUE_COLS} HAVING count(*) > 1"
+            f") _d"
+        ).fetchone()[0]
+        if dup:
+            logger.warning(f"[PL] 发现 {dup} 组重复键，去重后再建唯一索引")
+            # 窗口函数单次排序定位重复行；ctid 回删，保留每组 rn=1 的那行
+            conn.execute(
+                f"DELETE FROM packet_loss_data p USING ("
+                f"SELECT ctid AS rid, row_number() OVER ("
+                f"PARTITION BY {_PL_UNIQUE_COLS} ORDER BY ctid) AS rn "
+                f"FROM packet_loss_data) d "
+                f"WHERE p.ctid = d.rid AND d.rn > 1"
+            )
+        conn.execute(
+            f"CREATE UNIQUE INDEX IF NOT EXISTS {idx} "
+            f"ON packet_loss_data ({_PL_UNIQUE_COLS})"
+        )
+        logger.info(f"[PL] 唯一索引 {idx} 补建完成")
+    except Exception:  # noqa: BLE001 不阻断主流程，写入失败会由上层明确报错
+        logger.warning("[PL] 唯一索引检查/补建失败", exc_info=True)
 
 
 def _write_merged_to_db(df: pd.DataFrame) -> int:

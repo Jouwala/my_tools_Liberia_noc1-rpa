@@ -401,6 +401,21 @@ TASK_SPECS = [
          description="聚合前一个完整UTC日的 CN EMS KPI 并生成 csv_out/<模板名>.csv（VLR/USSD/语音/位置更新/License/TDD/Data订阅者 7模板）；先 best-effort 补抓前一日窗口再纯本地缓存聚合",
          description_en="Aggregate previous complete UTC day of CN EMS KPIs into csv_out/<TEMPLATE>.csv per Query_Template.xml (7 templates); best-effort server refetch then parse purely from local cache",
          default_cron="20 0 * * *", category="cn_ems"),
+
+    # 36. CXO 看板 last-known-good 缓存同步（每 10 分钟）：经本机 8790 VMAX 代理拉全量看板接口，
+    #     空值保留旧值，落盘 data/cxo_dashboard/last_known_good.json 供前端兜底展示
+    dict(task_id="cxo_dashboard_cache_sync", name="CXO看板数据缓存同步", name_en="CXO Dashboard Cache Sync",
+         loader=("backend.services.cxo_dashboard_cache", "run_cxo_dashboard_cache_sync"),
+         description="每10分钟经本机8790 VMAX代理拉取CXO看板全量接口，按接口粒度合并为last-known-good缓存（空值保留旧值），落盘 data/cxo_dashboard/last_known_good.json 供看板兜底展示",
+         description_en="Every 10 min pull all CXO dashboard APIs via local 8790 VMAX proxy, merge per-endpoint into a last-known-good cache (empty fetch keeps old value), written to data/cxo_dashboard/last_known_good.json as the dashboard fallback",
+         default_cron="*/10 * * * *", category="general"),
+
+    # 37. eFlow 告警关联规则收集（每 3 天 23:59）：拉取规则类型目录 + 关联规则导出 Excel
+    dict(task_id="eflow_alarm_rules_collect", name="eFlow 告警规则收集", name_en="eFlow Alarm Rules Collect",
+         loader=("backend.services.eflow_rules.eflow_Alarm_Rule_Collector", "run_eflow_alarm_rules"),
+         description="每 3 天 23:59 从 eFlow 拉取规则类型目录与告警关联规则（correlation-mgt），导出 backend/services/eflow_rules/eflow_alarm_rules.xlsx（Alarm_Rules + Rule_Types 两个 Sheet）",
+         description_en="Every 3 days at 23:59: pull rule types and alarm correlation rules from eFlow (correlation-mgt) into backend/services/eflow_rules/eflow_alarm_rules.xlsx (sheets Alarm_Rules + Rule_Types)",
+         default_cron="59 23 */3 * *", category="eflow"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========

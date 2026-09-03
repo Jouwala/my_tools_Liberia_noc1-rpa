@@ -215,6 +215,55 @@ def _load_inspect_module():
     return mod
 
 
+def _tt_context(tt_clean: str):
+    """TT 分析上下文：本地库查告警，未命中则按 alarm_id 直查 eFlow 兜底。
+
+    返回 (report, alarm_lookup)：
+      report       analyze_tt 结构；若走了 eFlow 兜底，alarm / skill_prompt 已回填
+      alarm_lookup {"mode": local|eflow|none|not_found_ticket, "source", "elapsed_sec",
+                    "error", "cached"} 或 None（工单未找到）
+    """
+    mod = _load_inspect_module()
+    report = mod.analyze_tt(tt_clean, str(mod.DEFAULT_DB))
+    if not report.get("found"):
+        return report, None
+    if (report.get("alarm") or {}).get("found"):
+        return report, {"mode": "local", "source": report["alarm"]["source"],
+                        "elapsed_sec": 0.0, "error": None, "cached": False}
+    aid = report.get("alarm_id") or ""
+    if not aid:
+        return report, {"mode": "none", "source": "", "elapsed_sec": 0.0,
+                        "error": "工单没有 alarm_id，无法查告警表", "cached": False}
+
+    from backend.services import eflow_alarm_query
+    occur = mod.parse_dt((report.get("timing") or {}).get("alarm_occur_time"))
+    live = eflow_alarm_query.find_alarm_by_id(aid, occur_time=occur)
+    info = {"mode": "eflow", "source": live.get("source") or "",
+            "elapsed_sec": live.get("elapsed_sec"), "error": live.get("error"),
+            "cached": bool(live.get("cached"))}
+    if live.get("found"):
+        report["alarm"] = mod.build_alarm_block(live["row"], live["source"])
+        report["skill_prompt"] = mod.build_skill_prompt(
+            report.get("tt_prompt_fields") or {}, live["row"])
+    else:
+        info["mode"] = "miss"
+    return report, info
+
+
+@router.get("/tt-alarm")
+def tt_alarm(tt: str = Query(..., min_length=2, max_length=64, description="TT 单号")):
+    """TT 告警主信息：本地 realtime_alarm/history_alarm 未命中时直查 eFlow 兜底。
+
+    页面在本地查不到时单独调本端点（eFlow 活查较慢），其余块不必等它。
+    """
+    tt_clean = tt.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9_\-]+", tt_clean):
+        raise HTTPException(status_code=400, detail="单号格式非法")
+    report, info = _tt_context(tt_clean)
+    return {"report": report, "alarm": report.get("alarm"),
+            "skill_prompt": report.get("skill_prompt"), "alarm_lookup": info}
+
+
 @router.get("/inspect-tt")
 def inspect_tt(tt: str = Query(..., min_length=2, max_length=64, description="TT 单号")):
     """输入 TT 单号，直接输出派单依据分析（工单字段 / 时间差 / 根因归属分布）。
@@ -229,3 +278,26 @@ def inspect_tt(tt: str = Query(..., min_length=2, max_length=64, description="TT
     # 本端点为同步 def，FastAPI 已自动放入线程池执行，直接调用即可
     report = mod.analyze_tt(tt_clean, str(mod.DEFAULT_DB))
     return {"report": report}
+
+
+@router.get("/tt-ai")
+def tt_ai(tt: str = Query(..., min_length=2, max_length=64, description="TT 单号")):
+    """TT 单 AI 分析：查库拿告警主信息 → 拼技能入参 → 调 Open WebUI「TT单分析」技能。
+
+    返回 report（同 /inspect-tt）与 ai（结论 / 模型 / 耗时 / 入参）。
+    """
+    tt_clean = tt.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9_\-]+", tt_clean):
+        raise HTTPException(status_code=400, detail="单号格式非法")
+    report, info = _tt_context(tt_clean)
+    if not report.get("found"):
+        return {"report": report, "ai": None}
+
+    from backend.services import openwebui_client
+    t0 = time.time()
+    ai = openwebui_client.analyze_tt(report.get("skill_prompt") or "")
+    ai["prompt"] = report.get("skill_prompt", "")
+    ai["alarm_source"] = (report.get("alarm") or {}).get("source", "")
+    ai["alarm_mode"] = (info or {}).get("mode", "")
+    ai["elapsed_total_sec"] = round(time.time() - t0, 2)
+    return {"report": report, "ai": ai}

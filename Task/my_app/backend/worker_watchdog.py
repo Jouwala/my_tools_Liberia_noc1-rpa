@@ -50,7 +50,12 @@ GROUP_TASK_MAP = {
         "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,eflow_tt_rules_check,"
         "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync,mw_ume_kpi_sync,mw_ume_kpi_sync_rt,"
         # sp_online_sync 2026-09-02 补录：SP 在线工单走 eFlow API 同源会话，归入 eFlow 组
-        "sp_online_sync"),
+        "sp_online_sync,"
+        # cxo_dashboard_cache_sync 2026-09-02 补录：CXO 看板缓存同步走独立 8790 VMAX 代理
+        # 进程（DETACHED、单会话），与 n 组其它任务的 eFlow/网管会话互不冲突
+        "cxo_dashboard_cache_sync,"
+        # eflow_alarm_rules_collect 2026-09-02 补录：eFlow 告警关联规则收集，走 eFlow API 同源会话
+        "eflow_alarm_rules_collect"),
     "m": (  # 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖
         # whatsapp_send_ext 2026-08-31 补录：新注册时漏分组，无 worker 认领，
         # 任务管理页手动执行一直「队列中等待」直到 300s 超时（同下方 finebi 教训）

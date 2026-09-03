@@ -8,6 +8,12 @@ import { useI18n } from '../i18n'
  * 承载。该 HTML 内嵌一份完整数据快照，因此即使代理或 VMAX 不可用也能完整渲染；
  * 打开时会自动尝试拉取一次实时数据，成功则覆盖快照。
  *
+ * 第三层兜底（2026-09-02）：后端 worker 任务 cxo_dashboard_cache_sync 每 10 分钟经
+ * 8790 代理拉全量接口、空值保留旧值，落盘 last-known-good 缓存
+ * （data/cxo_dashboard/last_known_good.json，GET /api/cxo-dashboard/cache）。
+ * 页面打开/自动刷新时按「内嵌快照 → 缓存 → 实时」三层叠加，Health 页 live 为空时
+ * 回退缓存并在标题标注 cached 时间，避免看板出现大片空数据。
+ *
  * 主题同步（与 AlarmManagement 同一套约定）：读取同源 localStorage['myapp-theme']，
  * 监听父页面 postMessage 的 __type:'myapp-theme' 事件，并跟随系统 prefers-color-scheme；
  * 图表侧注册 amDark / amLight 两套 ECharts 主题并在切换时重建实例，同时对快照里

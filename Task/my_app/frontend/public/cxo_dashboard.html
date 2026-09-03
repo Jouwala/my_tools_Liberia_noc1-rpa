@@ -121,6 +121,7 @@ img, svg, canvas, iframe { max-width: 100%; }
     <span class="tab" data-tab="health">Healthscore</span>
   </div>
   <div class="spacer"></div>
+  <button class="btn" id="carousel">Carousel: off</button>
   <button class="btn" id="refresh">Refresh (live)</button>
   <span id="status">loaded</span>
 </header>
@@ -197,11 +198,11 @@ img, svg, canvas, iframe { max-width: 100%; }
       <div id="healthSub" class="health-sub"></div>
     </div>
     <div class="card">
-      <h3>Voice Service</h3>
+      <h3 id="healthVoiceTitle">Voice Service</h3>
       <div id="healthVoice" class="score-list"></div>
     </div>
     <div class="card">
-      <h3>Data Service</h3>
+      <h3 id="healthDataTitle">Data Service</h3>
       <div id="healthData" class="score-list"></div>
     </div>
   </div>
@@ -280,7 +281,7 @@ function patchLight(o){
       const v = o[k];
       if(typeof v === 'string'){
         if(/^rgba\(255,255,255,/.test(v)) r[k] = v.replace(/^rgba\(255,255,255,([0-9.]+)\)$/, 'rgba(22,35,59,$1)');
-        else if(v==='#fff'||v==='#ffffff'||v==='#FFFFFF') r[k] = '#16233b';
+        else if(v==='#fff'||v==='#FFF'||v==='#ffffff'||v==='#FFFFFF') r[k] = '#16233b';
         else if(/^rgba\(231,243,248,/.test(v)) r[k] = v.replace(/^rgba\(231,243,248,([0-9.]+)\)$/, 'rgba(22,35,59,$1)');
         else r[k] = v;
       } else if(v && typeof v === 'object') r[k] = patchLight(v);
@@ -296,7 +297,23 @@ function setOpt(id, opt){
   const c = mk(id);
   if(APP_THEME === 'light'){ try { opt = patchLight(opt); } catch(e){} }
   c.setOption(opt, true);
+  queueResizeAll();
   return c;
+}
+
+// Charts initialized mid-render measure transient grid widths (trend-grid
+// cards reflow as sibling cards are appended; charts built for a hidden view
+// measure 0). After the synchronous render burst settles, one rAF resize
+// re-measures every chart at the final layout — fixes squeezed x labels and
+// overlapping lines.
+let RESIZE_QUEUED = false;
+function queueResizeAll(){
+  if(RESIZE_QUEUED) return;
+  RESIZE_QUEUED = true;
+  requestAnimationFrame(function(){
+    RESIZE_QUEUED = false;
+    Object.values(charts).forEach(function(c){ try{ c.resize(); }catch(e){} });
+  });
 }
 
 // Smart merge: use live series data where available; backfill empty live series
@@ -318,6 +335,76 @@ function mergeOption(liveOpt, snapOpt){
     }
   }
   return merged;
+}
+
+// ---------- last-known-good 缓存（GET /api/cxo-dashboard/cache） ----------
+// 后端任务 cxo_dashboard_cache_sync 每 10 分钟经 8790 代理拉全量接口、空值保留旧值，
+// 落盘 data/cxo_dashboard/last_known_good.json。打开页面时先应用缓存再实时覆盖，
+// 形成「内嵌快照 → 缓存 → 实时」三层叠加：VMAX/代理不可用时显示最近可用数据，
+// 而不是退回构建时冻结的旧快照。赋值语义与 refreshInner 完全一致
+// （indicators 走 mergeOption 空序列回填，live > cache > snapshot）。
+function applyCache(cache){
+  const K = (cache && cache.keys) || {};
+  Object.keys(DATA.service).forEach(function(biz){
+    const d = DATA.service[biz];
+    Object.keys(d.indicators||{}).forEach(function(id){
+      const e = K["service/"+biz+"/indicator/"+id];
+      if(e && e.data && e.data.option){
+        const old = (d.indicators[id]||{}).option;
+        d.indicators[id] = {title:e.data.title, option:mergeOption(e.data.option, old)};
+      }
+    });
+    const mp = K["service/"+biz+"/map"];
+    if(mp && mp.data) d.map = {option:mp.data.option, queryData:mp.data.queryData};
+    const dl = K["service/"+biz+"/delimit"];
+    if(dl && dl.data) d.delimit = dl.data;
+    const lt = K["service/"+biz+"/limit"];
+    if(lt && lt.data) d.limit = lt.data;
+  });
+  if(DATA.net && DATA.net.tabs){
+    Object.keys(DATA.net.tabs).forEach(function(tn){
+      const d = DATA.net.tabs[tn];
+      Object.keys(d.indicators||{}).forEach(function(id){
+        const e = K["net/tab/"+tn+"/indicator/"+id];
+        if(e && e.data && e.data.option){
+          const old = (d.indicators[id]||{}).option;
+          d.indicators[id] = {name:((d.indicators[id]||{}).name||e.data.title), title:e.data.title, value:e.data.value, option:mergeOption(e.data.option, old)};
+        }
+      });
+    });
+    const nm = K["net/map"];
+    if(nm && nm.data) DATA.net.map = {option:nm.data.option, queryData:nm.data.queryData};
+  }
+  const s = DATA.summary;
+  [91,92,93,94,95,99].forEach(function(g){
+    const e = K["summary/trend_"+g];
+    if(e && e.data) s["trend_"+g] = e.data;
+  });
+  [131,132,133,134].forEach(function(id){
+    const e = K["summary/overview_"+id];
+    if(e && e.data) s["overview_"+id] = e.data;
+  });
+  const gm = K["summary/geMap"]; if(gm && gm.data) s.geMap = gm.data;
+  const ud = K["summary/userData"]; if(ud && ud.data) s.userData = ud.data;
+  const cu = K["summary/cityUser"]; if(cu && cu.data) s.cityUser = cu.data;
+  DATA.health = DATA.health || {};
+  ["userExperience","voiceService","dataService"].forEach(function(h){
+    const e = K["health/"+h];
+    if(e && e.data) DATA.health[h] = {data:e.data, fetched_at:e.fetched_at};
+  });
+}
+function applyCacheFromBackend(){
+  return fetch("/api/cxo-dashboard/cache", {cache:"no-store"})
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(cache){
+      if(!cache || !cache.keys || !Object.keys(cache.keys).length) return;
+      applyCache(cache);
+      if(curTop === "service") renderService(curBiz);
+      else if(curTop === "network") renderNetworkTab(curNet);
+      else if(curTop === "summary") renderSummary();
+      setStatus("cache applied \u00b7 " + (cache.updated_at || ""), null);
+    })
+    .catch(function(e){ console.warn("cache apply", e); });
 }
 
 // Re-apply theme: set <html data-theme> and re-render the current view so
@@ -520,11 +607,13 @@ function renderNetworkTab(tn){
 // whose params travel in the `?params=<json>` query string of the forwarded
 // VMAX URL. We reuse the same same-origin PROXY path as the other tabs.
 async function liveFetchGet(ep, params){
+  const gen = REFRESH_GEN;
   let vurl = TARGET + ep;
   if(params){ vurl += "?params=" + encodeURIComponent(JSON.stringify(params)); }
   const url = PROXY + encodeURIComponent(vurl);
   try{
     const r = await fetch(url, {method:"GET"});
+    if(gen !== REFRESH_GEN) return null;
     if(!r.ok){ LIVE.fail++; LIVE.lastErr = "HTTP "+r.status; return null; }
     const j = await r.json(); LIVE.ok++; return j;
   }catch(e){ LIVE.fail++; LIVE.lastErr = (e && e.message) ? e.message : "net err"; return null; }
@@ -552,6 +641,33 @@ function renderScoreRows(el, items){
   });
   el.innerHTML = h;
 }
+// Health 数据判空：UE 综合分 value 非 0 或任一子分非 "--"/"NA"/空 才算有数据；
+// Voice/Data 行存在但值全为 "--"/"NA"（源头分区为空的典型返回）同样视为空，
+// 这样缓存里曾经的真实数据才能兜底。
+function healthUEHasData(ue){
+  if(!ue) return false;
+  const v = ue.value;
+  const valueOk = (typeof v === "number" && !isNaN(v) && v !== 0);
+  const subs = [].concat(ue.repeat1data||[], ue.repeat2data||[]);
+  const subOk = subs.some(function(x){
+    const s = (x||{}).score;
+    return s!==null && s!==undefined && s!=="" && s!=="--" && s!=="NA";
+  });
+  return valueOk || subOk;
+}
+function _hvOk(v){ return v!==null && v!==undefined && v!=="" && v!=="--" && v!=="NA"; }
+function healthVoiceHasData(j){
+  const d = (j||{}).data;
+  return !!(d && d.length && d.some(function(x){ return _hvOk((x||{}).value); }));
+}
+function healthDataHasData(j){
+  const d = (j||{}).data;
+  return !!(d && d.length && d.some(function(x){ return _hvOk((x||{}).lteNum) || _hvOk((x||{}).nrNum); }));
+}
+function cachedTag(at){
+  const m = String(at||"").match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  return m ? (" \u00b7 cached " + m[2] + "-" + m[3] + " " + m[4] + ":" + m[5]) : "";
+}
 async function renderHealth(){
   const ov=document.getElementById("healthOverall");
   const sub=document.getElementById("healthSub");
@@ -562,35 +678,58 @@ async function renderHealth(){
   voice.innerHTML='<div class="empty">loading…</div>';
   data.innerHTML='<div class="empty">loading…</div>';
   trend.innerHTML='<div class="empty">Dimension trend requires a selected KPI in the source portal</div>';
+  document.getElementById("healthOverallLabel").textContent = "Overall QoE Score";
+  document.getElementById("healthVoiceTitle").textContent = "Voice Service";
+  document.getElementById("healthDataTitle").textContent = "Data Service";
   // Fire all three HealthView endpoints in parallel (same proxy session).
   const [ue, vs, ds] = await Promise.all([
     liveFetchGet("/healthView/getUserExperience"),
     liveFetchGet("/healthView/getVoiceService", {id:""}),
     liveFetchGet("/healthView/getDataService", {id:"", rat:6, selectId:"", time:""})
   ]);
+  // live 为空/失败时回退 last-known-good 缓存（DATA.health 由 applyCache 填充），
+  // 回退时在卡片标题标注 cached 时间，让"这是缓存数据"一目了然。
+  let ueD=ue, ueAt=null;
+  if(!healthUEHasData(ue)){
+    const c=(DATA.health||{}).userExperience;
+    if(c && healthUEHasData(c.data)){ ueD=c.data; ueAt=c.fetched_at; }
+  }
+  let vsD=vs, vsAt=null;
+  if(!healthVoiceHasData(vs)){
+    const c=(DATA.health||{}).voiceService;
+    if(c && healthVoiceHasData(c.data)){ vsD=c.data; vsAt=c.fetched_at; }
+  }
+  let dsD=ds, dsAt=null;
+  if(!healthDataHasData(ds)){
+    const c=(DATA.health||{}).dataService;
+    if(c && healthDataHasData(c.data)){ dsD=c.data; dsAt=c.fetched_at; }
+  }
   // Overall QoE + per-domain sub-scores (repeat1data=Voice, repeat2data=Data)
   const note = document.getElementById("healthNote");
-  if(ue){
-    const v = (typeof ue.value==="number" && !isNaN(ue.value)) ? ue.value : null;
+  if(ueD){
+    // value=0 是"无分数"的占位（源头分区为空），显示为 "—" 而非误导性的 0.00
+    const v = (typeof ueD.value==="number" && !isNaN(ueD.value) && ueD.value!==0) ? ueD.value : null;
     ov.textContent = (v===null) ? "—" : v.toFixed(2);
     ov.style.color = (v===null) ? "var(--muted)" : scoreColor(v);
-    if(ue.label) document.getElementById("healthOverallLabel").textContent = ue.label || "Overall QoE Score";
+    document.getElementById("healthOverallLabel").textContent = (ueD.label || "Overall QoE Score") + cachedTag(ueAt);
     const subs = [];
-    (ue.repeat1data||[]).forEach(x=>subs.push({label:x.label, value:x.score}));
-    (ue.repeat2data||[]).forEach(x=>subs.push({label:x.label, value:x.score}));
+    (ueD.repeat1data||[]).forEach(x=>subs.push({label:x.label, value:x.score}));
+    (ueD.repeat2data||[]).forEach(x=>subs.push({label:x.label, value:x.score}));
     renderScoreRows(sub, subs);
-    // Empty partition on the backend (aggr_ds_cxo_score) -> all scores "--"
-    const allEmpty = (v===null) && subs.every(x=>x.value==="--"||x.value==null||x.value==="");
+    // Empty partition on the backend (aggr_ds_cxo_score) -> all scores "--"/"NA"
+    const allEmpty = (v===null) && subs.every(x=>x.value==="--"||x.value==="NA"||x.value==null||x.value==="");
     if(note) note.style.display = allEmpty ? "block" : "none";
   } else { ov.textContent="—"; sub.innerHTML='<div class="empty">no data</div>'; if(note) note.style.display="none"; }
   // Voice indicators (3)
-  if(vs && vs.data && vs.data.length){
-    renderScoreRows(voice, vs.data.map(x=>({label:x.label, value:x.value, vsText:x.vsText, vsValue:x.vsValue})));
+  if(vsD && vsD.data && vsD.data.length){
+    if(vsAt) document.getElementById("healthVoiceTitle").textContent = "Voice Service" + cachedTag(vsAt);
+    renderScoreRows(voice, vsD.data.map(x=>({label:x.label, value:x.value, vsText:x.vsText, vsValue:x.vsValue})));
   } else voice.innerHTML='<div class="empty">no data</div>';
   // Data dimensions (5): Video / Web Browse / Game / OTTVoice / OTTVideo, each 4G/5G
-  if(ds && ds.data && ds.data.length){
+  if(dsD && dsD.data && dsD.data.length){
+    if(dsAt) document.getElementById("healthDataTitle").textContent = "Data Service" + cachedTag(dsAt);
     let h = "";
-    ds.data.forEach(dim=>{
+    dsD.data.forEach(dim=>{
       const lte = dim.lteNum, nr = dim.nrNum;
       const lteOk = lte && lte!=="--" && lte!=="NA";
       const nrOk  = nr  && nr!=="--"  && nr!=="NA";
@@ -642,10 +781,13 @@ document.querySelectorAll("#subtabs-network .subtab").forEach(s=>s.addEventListe
 
 // ---------- LIVE REFRESH (best-effort via proxy) ----------
 let LIVE = {ok:0, fail:0, lastErr:""};
+let REFRESH_GEN = 0;
 async function liveFetch(ep, body){
+  const gen = REFRESH_GEN;
   const url = PROXY + encodeURIComponent(TARGET + ep);
   try{
     const r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+    if(gen !== REFRESH_GEN) return null;  // superseded by a newer refresh
     if(!r.ok){ LIVE.fail++; LIVE.lastErr = "HTTP "+r.status; return null; }
     const j = await r.json();
     LIVE.ok++;
@@ -658,9 +800,8 @@ function finishStatus(label){
   if(tot === 0)      setStatus("no request issued \u00b7 " + label, null);
   else if(fail === 0) setStatus("live updated \u00b7 " + label, true);
   else if(ok > 0)     setStatus("partial live \u00b7 " + label + " (" + ok + "/" + tot + " ok \u00b7 " + LIVE.lastErr + ")", null);
-  else                setStatus("offline \u00b7 snapshot data \u00b7 " + label + " (" + LIVE.lastErr + ")", false);
+  else                setStatus("offline \u00b7 cached data \u00b7 " + label + " (" + LIVE.lastErr + ")", false);
 }
-let REFRESHING = false;
 // VMAX getDelimitPie derives its time window from `time` (a single point -> +-30min).
 // Sending time:"" makes the server compute bTime/eTime = "NaN-aN-aN aN:aN:aN" -> no data.
 // Always send a valid datetime so the server gets a real window.
@@ -668,20 +809,27 @@ function cxoNowStr(){
   const d=new Date(), p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
 }
+// 新刷新使旧刷新作废：旧运行在每个 await 后检测代次变化即静默退出——不再继续
+// 占用 VMAX 代理会话、不在隐藏视图上重建图表、也不覆盖新页签的状态行。
 async function refresh(){
-  if(REFRESHING){ setStatus("refresh already in progress…", null); return; }
-  REFRESHING = true;
+  REFRESH_GEN++;
   try { return await refreshInner(); }
-  finally { REFRESHING = false; }
+  catch(e){ console.warn("refresh", e); }
 }
 async function refreshInner(){
+  const gen = REFRESH_GEN;
+  const stale = function(){ return gen !== REFRESH_GEN; };
   setStatus("refreshing…", null);
   LIVE = {ok:0, fail:0, lastErr:""};
   const base = {province_id:"",city_id:"",area_id:""};
-  if(curTop==="service"){
+  // tab 在派发时固化：异步拉取期间用户可能切页，尾部渲染/状态只对"仍停留"的页签生效，
+  // 避免在隐藏视图上重建图表（0 宽）并把状态行覆盖成旧页签的。
+  const tab = curTop;
+  if(tab==="service"){
     const d = DATA.service[curBiz]; const vid=d.view_id, prim=d.infoIds[0];
     for(const id of d.infoIds){
       const j = await liveFetch("/Service/getIndicatorData", {...base, tabId:0, infoId:id, view_id:vid});
+      if(stale()) return;
       if(j && j.option){ var old=(d.indicators[String(id)]||{}).option; d.indicators[String(id)] = {title:j.title, option:mergeOption(j.option,old)}; }
       // VMAX getDelimitPie needs the SAME snapshot time as the indicator data, not "now".
       // getIndicatorData returns a `time` field (e.g. "2026-08-15 12:15:00"); the server only
@@ -690,50 +838,112 @@ async function refreshInner(){
       if(id === prim && j && j.time){ d.dataTime = j.time; }
     }
     const m = await liveFetch("/Service/geMapRender", {...base, infoId:prim, view_id:vid});
+    if(stale()) return;
     if(m){ d.map = {option:m.option, queryData:m.queryData}; }
     const dl = await liveFetch("/network/getDelimitPie", {...base, infoId:prim, time:(d.dataTime || cxoNowStr()), gdprFlag:"false"});
+    if(stale()) return;
     if(dl){ d.delimit = dl; }
     // TopN 明细表：快照里常为空(未选区域)，这里补拉实时数据
     const lt = await liveFetch("/Service/getLimitTable", {...base, infoId:prim, view_id:vid});
+    if(stale()) return;
     if(lt && lt.header && Array.isArray(lt.data)){ d.limit = lt; }
-    renderService(curBiz);
-    finishStatus(curBiz);
-  } else if(curTop==="network") {
+    if(curTop==="service"){ renderService(curBiz); finishStatus(curBiz); }
+  } else if(tab==="network") {
     const d = DATA.net.tabs[String(curNet)];
     if(d){
       const ids = Object.keys(d.indicators);
       for(const id of ids){
         const j = await liveFetch("/Service/getIndicatorData", {...base, tabId:0, infoId:Number(id), view_id:2});
+        if(stale()) return;
         if(j && j.option){ var old2=(d.indicators[id]||{}).option; d.indicators[id] = {name:(d.indicators[id].name||j.title), title:j.title, value:j.value, option:mergeOption(j.option,old2)}; }
       }
       const m = await liveFetch("/Service/geMapRender", {...base, infoId:Number(ids[0]), view_id:2});
+      if(stale()) return;
       if(m){ DATA.net.map = {option:m.option, queryData:m.queryData}; }
     }
-    renderNetworkTab(curNet);
-    finishStatus("Network/"+curNet);
-  } else if(curTop==="summary") {
+    if(curTop==="network"){ renderNetworkTab(curNet); finishStatus("Network/"+curNet); }
+  } else if(tab==="summary") {
     const s = DATA.summary;
     const t = await liveFetch("/Summary/getTrendAnalysis", {...base, graphId:"91"});
+    if(stale()) return;
     if(t) s.trend_91 = t;
-    const o1 = await liveFetch("/Summary/getOverviewedInfo", {...base, infoId:131}); if(o1) s.overview_131=o1;
-    const o2 = await liveFetch("/Summary/getOverviewedInfo", {...base, infoId:132}); if(o2) s.overview_132=o2;
-    const o3 = await liveFetch("/Summary/getOverviewedInfo", {...base, infoId:133}); if(o3) s.overview_133=o3;
-    const o4 = await liveFetch("/Summary/getOverviewedInfo", {...base, infoId:134}); if(o4) s.overview_134=o4;
+    const o1 = await liveFetch("/Summary/getOverviewedInfo", {...base, infoId:131}); if(stale()) return; if(o1) s.overview_131=o1;
+    const o2 = await liveFetch("/Summary/getOverviewedInfo", {...base, infoId:132}); if(stale()) return; if(o2) s.overview_132=o2;
+    const o3 = await liveFetch("/Summary/getOverviewedInfo", {...base, infoId:133}); if(stale()) return; if(o3) s.overview_133=o3;
+    const o4 = await liveFetch("/Summary/getOverviewedInfo", {...base, infoId:134}); if(stale()) return; if(o4) s.overview_134=o4;
     for(const g of [92,93,94,95,99]){
       const tg = await liveFetch("/Summary/getTrendAnalysis", {...base, graphId:String(g)});
+      if(stale()) return;
       if(tg) s["trend_"+g]=tg;
     }
-    const g = await liveFetch("/Summary/geMapRender", {...base}); if(g&&g.series) s.geMap=g;
-    const u = await liveFetch("/Summary/getUserData", {...base}); if(u) s.userData=u;
-    const c = await liveFetch("/Summary/getCityUser", {...base}); if(c) s.cityUser=c;
-    renderSummary();
-    finishStatus("Summary");
-  } else if(curTop==="health") {
+    const g = await liveFetch("/Summary/geMapRender", {...base}); if(stale()) return; if(g&&g.series) s.geMap=g;
+    const u = await liveFetch("/Summary/getUserData", {...base}); if(stale()) return; if(u) s.userData=u;
+    const c = await liveFetch("/Summary/getCityUser", {...base}); if(stale()) return; if(c) s.cityUser=c;
+    if(curTop==="summary"){ renderSummary(); finishStatus("Summary"); }
+  } else if(tab==="health") {
     await renderHealth();
-    finishStatus("Healthscore");
+    if(stale()) return;
+    if(curTop==="health") finishStatus("Healthscore");
   }
 }
 document.getElementById("refresh").addEventListener("click", refresh);
+
+// ---------- Carousel：轮播四个主页签（service→network→summary→health） ----------
+// 每 CAROUSEL_MS 切一次（selectTop 内部会 render + 拉实时数据）；再点一次按钮停止。
+// 轮播时暂停 5 分钟自动刷新定时器，避免两个刷新源交叉；停止后恢复。
+const CAROUSEL_MS = 15000;
+const CAROUSEL_ORDER = ["service","network","summary","health"];
+let CAROUSEL_TIMER = null;
+function carouselBtnLabel(on){
+  const b = document.getElementById("carousel");
+  if(!b) return;
+  b.textContent = on ? "Carousel: on" : "Carousel: off";
+  b.style.borderColor = on ? "var(--accent)" : "";
+  b.style.color = on ? "var(--accent)" : "";
+}
+// exitFull=false 用于 Esc 退出全屏触发的联动停止，此时绝不能再调 exitFullscreen
+function stopCarousel(exitFull){
+  if(CAROUSEL_TIMER){ clearInterval(CAROUSEL_TIMER); CAROUSEL_TIMER = null; }
+  carouselBtnLabel(false);
+  setStatus("carousel stopped", null);
+  if(exitFull && document.fullscreenElement){
+    try{ const p = document.exitFullscreen(); if(p && p.catch) p.catch(function(){}); }catch(e){}
+  }
+}
+function startCarousel(){
+  let idx = CAROUSEL_ORDER.indexOf(curTop);
+  if(idx < 0) idx = 0;
+  // 全屏目标为根元素；iframe 内请求全屏需父页面 allowfullscreen（LegacyToolFrame 已带，
+  // 同 Alarm Management 的轮播全屏）
+  try{
+    if(!document.fullscreenElement && document.documentElement.requestFullscreen){
+      const p = document.documentElement.requestFullscreen();
+      if(p && p.catch) p.catch(function(){});
+    }
+  }catch(e){}
+  carouselBtnLabel(true);
+  setStatus("carousel on \u00b7 switching every " + (CAROUSEL_MS/1000) + "s", null);
+  CAROUSEL_TIMER = setInterval(function(){
+    idx = (idx + 1) % CAROUSEL_ORDER.length;
+    // 直接调 selectTop 而非 el.click()：click 会触发下方"人工接管"监听把轮播停掉
+    selectTop(CAROUSEL_ORDER[idx]);
+  }, CAROUSEL_MS);
+}
+function carouselBtn(){
+  if(CAROUSEL_TIMER) stopCarousel(true);
+  else startCarousel();
+}
+document.getElementById("carousel").addEventListener("click", carouselBtn);
+// Esc / 浏览器 UI 退出全屏时轮播也要停，否则按钮状态与实际不符（同 Alarm Management）
+document.addEventListener("fullscreenchange", function(){
+  if(!document.fullscreenElement && CAROUSEL_TIMER) stopCarousel(false);
+});
+// 手动点页签视为接管：停止轮播，但保留全屏（大屏上突然退出全屏更干扰）
+document.querySelectorAll(".tab").forEach(function(t){
+  t.addEventListener("click", function(){
+    if(CAROUSEL_TIMER) stopCarousel(false);
+  });
+});
 
 // initial render
 selectTop("service");
@@ -744,16 +954,29 @@ selectTop("service");
   applyTheme(m);
 })();
 // first-load auto-pull: ensure the VMAX live proxy (8790) is up on the server,
-// then fetch live data (best-effort; falls back to the embedded snapshot if the
-// proxy / VMAX is still unavailable). After initial pull, auto-refresh every 5 min.
+// then apply the backend last-known-good cache, then fetch live data (best-effort;
+// falls back to cache / embedded snapshot if the proxy or VMAX is unavailable).
 window.addEventListener('load', function(){
   try {
     fetch("/api/realtime-proxy/start", {method:"POST"})
       .catch(function(){})
-      .finally(function(){ try { refresh(); } catch(e){ console.warn('auto refresh', e); } });
+      .finally(function(){
+        applyCacheFromBackend()
+          .catch(function(){})
+          .finally(function(){ try { refresh(); } catch(e){ console.warn('auto refresh', e); } });
+      });
   } catch(e){ console.warn('auto refresh', e); }
-  // 5-minute auto-refresh (silent, no popup)
-  setInterval(function(){ try { refresh(); } catch(e){ console.warn('auto-refresh tick', e); } }, 300000);
+  // 5-minute auto-refresh (silent, no popup): 缓存后台每 10 分钟更新，
+  // 刷新时也先取一次缓存（离线时页面能拿到更新的缓存数据），再实时覆盖。
+  // 轮播开启时跳过（切页本身就会拉数据），轮播停止后自动恢复。
+  setInterval(function(){
+    if(CAROUSEL_TIMER) return; // carousel active: tab switch already refreshes
+    try {
+      applyCacheFromBackend()
+        .catch(function(){})
+        .finally(function(){ try { refresh(); } catch(e){ console.warn('auto-refresh tick', e); } });
+    } catch(e){ console.warn('auto-refresh tick', e); }
+  }, 300000);
 });
 
 </script>

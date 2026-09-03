@@ -1,0 +1,4 @@
+# cxo_dashboard_cache.py 运行依赖
+# 经本机 8790 VMAX 代理拉取看板接口（HTTP），仅依赖 requests；
+# 原子落盘/代理拉起复用项目内 backend.services.atomic_write / realtime_proxy_ctl（标准库实现）。
+requests>=2.28
