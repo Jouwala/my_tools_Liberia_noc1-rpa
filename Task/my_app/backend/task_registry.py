@@ -260,12 +260,12 @@ TASK_SPECS = [
          description_en="Email MS Network Availability Daily Report (remote FTP images + remote recipient list, no Excel)",
          default_cron="30 9 * * *", category="kpi_email"),
 
-    # 21. EWS 恢复后自动补发失败邮件（每 20 分钟探测 EWS 可用性并补发）
+    # 21. EWS 恢复后自动补发失败邮件（每 10 分钟扫描；按小时/8小时/日报时效策略补发）
     dict(task_id="email_recovery", name="EWS 恢复后邮件补发", name_en="Email Recovery after EWS Restored",
-         loader=("backend.services.email_recovery", "run_email_recovery_task"),
-         description="探测 EWS 是否恢复；恢复后自动补发近 3 小时内因 EWS 超时失败的邮件任务",
-         description_en="Probe EWS reachability; auto re-send email tasks that failed due to EWS timeout in last 3h once server is back",
-         default_cron="*/20 * * * *", category="email"),
+        loader=("backend.services.email_recovery", "run_email_recovery_task"),
+        description="每10分钟探测 EWS；按任务失败链的小时/8小时/日报时效策略补发失败邮件，成功后关闭失败链以防重复发送",
+        description_en="Probe EWS every 10 minutes; recover failed emails using per-task hourly, 8-hour, and daily retry policies with failure-chain deduplication",
+        default_cron="*/10 * * * *", category="email"),
 
     # 22. Packet Loss 丢包数据同步 + 报告生成（每天凌晨6:30）
     dict(task_id="packet_loss_sync", name="Packet Loss 丢包同步", name_en="Packet Loss Sync",

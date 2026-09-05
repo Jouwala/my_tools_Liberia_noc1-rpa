@@ -893,8 +893,63 @@ def list_tasks(include_runs: bool = False, lang: str = "zh") -> list[dict]:
         if include_runs:
             entry["recent_runs"] = latest_runs.get(task_id, [])
         entry["retry_info"] = all_retry.get(task_id, dict(retry_default))
+        # 任务新鲜度/队列状态（P0-2）：基于已有数据判定，零额外 SQL（除队列状态批量一次）
+        # healthy=最近成功且未逾期 warning=已越过下次调度仍未成功 overdue=超过调度+2×间隔
+        # queued=队列 pending/running recovering=自动重试将投递 disabled=任务被禁用
+        last_run = (entry.get("recent_runs") or [None])[0]
+        if not task["enabled"]:
+            entry["freshness_status"] = "disabled"
+        elif entry["running"]:
+            entry["freshness_status"] = "running"
+        elif task_id in queue_active:
+            entry["freshness_status"] = "queued"
+        elif last_run is None:
+            entry["freshness_status"] = "unknown"
+        elif last_run.get("success"):
+            entry["freshness_status"] = "healthy"
+            entry["last_success_at"] = last_run.get("completed_at")
+        else:
+            ri = entry["retry_info"] or {}
+            if ri.get("will_retry"):
+                entry["freshness_status"] = "recovering"
+            else:
+                # 失败且无自动重试兜底：按 next_run 是否已过区分 warning / overdue
+                nxt = str(job.next_run_time) if job else None
+                if not nxt:
+                    entry["freshness_status"] = "warning"
+                else:
+                    try:
+                        overdue_after = _next_run_plus_grace(str(job.next_run_time), task["current_cron"])
+                        entry["freshness_status"] = "overdue" if datetime.now() > overdue_after else "warning"
+                    except Exception:
+                        entry["freshness_status"] = "warning"
         tasks.append(entry)
     return tasks
+
+
+def _next_run_plus_grace(next_run_str: str, cron: str) -> datetime:
+    """估算「失败任务应完成」的宽限终点：next_run + 调度间隔（上限 6h）。
+
+    cron 形如 '0 4 * * *'（天级）→ 宽限 24h；'*/10 * * * *' → 宽限 10min。
+    解析失败回退 1 小时。仅供 /api/tasks 展示层使用，不影响调度与重试。
+    """
+    from datetime import timedelta
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+        parts = (cron or "").split()
+        if len(parts) == 5:
+            trig = CronTrigger(minute=parts[0], hour=parts[1], day=parts[2],
+                               month=parts[3], day_of_week=parts[4])
+            f1 = trig.get_next_fire_time(None, datetime(2000, 1, 1))
+            f2 = trig.get_next_fire_time(None, f1)
+            if f1 and f2:
+                interval = min((f2 - f1), timedelta(hours=6))
+                nxt = datetime.fromisoformat(next_run_str.replace("Z", "+00:00")).replace(tzinfo=None) \
+                    if "+" in next_run_str else datetime.fromisoformat(next_run_str)
+                return nxt + interval
+    except Exception:
+        pass
+    return datetime.now() + timedelta(hours=1)
 
 
 def get_task_detail(task_id: str, lang: str = "zh") -> Optional[dict]:

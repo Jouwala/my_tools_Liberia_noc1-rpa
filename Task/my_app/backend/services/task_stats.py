@@ -148,7 +148,14 @@ def get_task_stats(task_id: str, days: int | None = None) -> dict:
 
 
 def get_recent_failures(days: int = 3, limit: int = 200) -> dict:
-    """按 error 首行聚类近期失败，便于快速判断是否为同一根因。"""
+    """按 error 首行聚类近期失败，便于快速判断是否为同一根因。
+
+    2026-09-05 分层（P0-3）：每簇增加 status 字段——
+      active         该簇涉及任务当前最新一次执行仍是失败（正在持续故障）
+      recovered      簇内所有任务在错误发生后都已有成功记录（历史故障已恢复）
+      needs_attention 簇内存在任务从未成功过（无任何 success=1 记录）
+    避免已恢复的历史故障（如 EWS 降级期失败）长期占据红色榜首误导排障。
+    """
     clusters: dict[str, dict] = {}
     try:
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
@@ -177,7 +184,39 @@ def get_recent_failures(days: int = 3, limit: int = 200) -> dict:
                     c["last_seen"] = started_at
     except Exception as e:
         logger.warning(f"聚合失败记录失败: {e}")
-    items = sorted(clusters.values(), key=lambda x: x["count"], reverse=True)
+
+    # ---- 分层判定：一次 SQL 查出每个任务「最新一条执行是否成功」与「是否存在成功记录」 ----
+    latest_success: dict[str, bool] = {}
+    ever_success: dict[str, bool] = {}
+    try:
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_task_log_table(conn)
+            latest = conn.execute(
+                """SELECT l.task_id, l.success FROM task_execution_log l
+                   INNER JOIN (SELECT task_id, MAX(id) AS max_id FROM task_execution_log
+                               GROUP BY task_id) m ON l.task_id = m.task_id AND l.id = m.max_id"""
+            ).fetchall()
+            latest_success = {r[0]: bool(r[1]) for r in latest}
+            ever = conn.execute(
+                "SELECT DISTINCT task_id FROM task_execution_log WHERE success = 1"
+            ).fetchall()
+            ever_success = {r[0] for r in ever}
+            conn.close()
+    except Exception as e:
+        logger.warning(f"失败分层查询异常（按 active 处理）: {e}")
+
+    items = []
+    for c in clusters.values():
+        task_ids = list(c["tasks"].keys())
+        if any(tid not in ever_success for tid in task_ids):
+            status = "needs_attention"
+        elif any(not latest_success.get(tid, False) for tid in task_ids):
+            status = "active"
+        else:
+            status = "recovered"
+        c["status"] = status
+        items.append(c)
+    items.sort(key=lambda x: (x["status"] != "active", x["status"] != "needs_attention", -x["count"]))
     return {"days": days, "total_failures": sum(c["count"] for c in items), "clusters": items}
 
 
