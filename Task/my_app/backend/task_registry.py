@@ -172,8 +172,8 @@ TASK_SPECS = [
     # 12. SP 备件数据同步（每天凌晨7点）
     dict(task_id="sp_data_sync", name="SP 备件数据同步", name_en="SP Spare Data Sync",
          loader=("backend.services.get_sp_table", "run_sp_data_sync"),
-         description="从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db",
-         description_en="Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db",
+         description="从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI WareHouseDashBoard inventory.db",
+         description_en="Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db, then mirror into FineBI WareHouseDashBoard inventory.db",
          default_cron="0 7 * * *", category="sp"),
 
     # 13. iPRAN UME KPI 同步（每天凌晨8点）
@@ -232,11 +232,11 @@ TASK_SPECS = [
          description_en="Download spare-part data from SFTP and generate Comsumables & SpareParts Inbound&Outbound&Inventory reports into local data/sp_email",
          default_cron="15 5 * * *", category="kpi_email"),
 
-    # 19c. SP 备件明细报表邮件（每天 07:00）：把 data/sp_email/data 下 5 份 *_details.xlsx 整包发送
+    # 19c. SP 备件明细报表邮件（每天 07:00）：4 份明细合并为一个带时间戳的 Excel 发送
     dict(task_id="sp_email_details", name="SP 备件明细报表邮件", name_en="SP Spare Parts Details Report Email",
          loader=("backend.services.kpi_email_report", "run_sp_details_email"),
-         description="每天 07:00 发送 data/sp_email/data 下 5 份备件明细 Excel（inband/outband/inventory/ocrule/transfer）至 ansah.boadu@zte.com.cn，抄送 dong.xinmin@zte.com.cn（收件人可在 Settings → Email Recipient Settings 覆盖）",
-         description_en="Daily 07:00: email the 5 spare-part detail Excel files (inband/outband/inventory/ocrule/transfer) under data/sp_email/data to ansah.boadu@zte.com.cn, cc dong.xinmin@zte.com.cn (recipients editable under Settings → Email Recipient Settings)",
+         description="每天 07:00 把 data/sp_email/data 下 4 份备件明细（inventory/inband/outband/transfer）合并为一个 Excel（sheet: Inventory/Inbound/Outbound/Transfer），附件名与主题携带时间戳发送；主送 ansah.boadu@zte.com.cn，抄送 dong.xinmin@zte.com.cn（收件人可在 Settings → Email Recipient Settings 覆盖）",
+         description_en="Daily 07:00: merge the 4 spare-part detail files (inventory/inband/outband/transfer) under data/sp_email/data into one Excel (sheets: Inventory/Inbound/Outbound/Transfer) with a timestamped filename and subject; to ansah.boadu@zte.com.cn, cc dong.xinmin@zte.com.cn (recipients editable under Settings → Email Recipient Settings)",
          default_cron="0 7 * * *", category="kpi_email"),
 
     # 19d. SP 在线未关闭单报表生成（每天 06:00）：基于最新明细生成 sp_online 的 PNG+XLSX，供 06:20 发送
@@ -415,6 +415,13 @@ TASK_SPECS = [
          loader=("backend.services.eflow_rules.eflow_Alarm_Rule_Collector", "run_eflow_alarm_rules"),
          description="每 3 天 23:59 从 eFlow 拉取规则类型目录与告警关联规则（correlation-mgt），导出 backend/services/eflow_rules/eflow_alarm_rules.xlsx（Alarm_Rules + Rule_Types 两个 Sheet）",
          description_en="Every 3 days at 23:59: pull rule types and alarm correlation rules from eFlow (correlation-mgt) into backend/services/eflow_rules/eflow_alarm_rules.xlsx (sheets Alarm_Rules + Rule_Types)",
+         default_cron="59 23 */3 * *", category="eflow"),
+
+    # 38. eFlow 推单/配置规则收集（每 3 天 23:59）：config-center 空 filter 全量规则导出 Excel
+    dict(task_id="eflow_push_rules_collect", name="eFlow 推单规则收集", name_en="eFlow Push Rules Collect",
+         loader=("backend.services.eflow_rules.eflow_Push_Rule_Collector", "run_eflow_push_rules"),
+         description="每 3 天 23:59 从 eFlow config-center 拉取全部规则（query filter=\"\"，推单/升级/分组/自动关闭等 28 种类型），逐条合并 detail，导出 backend/services/eflow_rules/eflow_push_rules.xlsx（Push_Rules + Rule_Type_Summary 两个 Sheet）",
+         description_en="Every 3 days at 23:59: pull all rules from eFlow config-center (query filter=\"\", 28 rule types incl. push/level/group/auto-close), merge detail per rule into backend/services/eflow_rules/eflow_push_rules.xlsx (sheets Push_Rules + Rule_Type_Summary)",
          default_cron="59 23 */3 * *", category="eflow"),
 ]
 

@@ -72,15 +72,33 @@ def _doc_title(path: Path, fm: dict) -> str:
     return path.stem
 
 
-def _iter_md_files():
-    """遍历知识库全部 .md（按路径排序，跳过模板/脚本目录）。"""
+def _iter_md_files(lang: str = "zh"):
+    """遍历知识库 .md（按路径排序，跳过模板/脚本目录）。
+
+    双语约定：英文版 = 同名 `.en.md`（如 README.md → README.en.md）。
+    - lang=zh：只返回中文原文（排除全部 .en.md）；
+    - lang=en：同名文档优先英文版，未翻译的回退中文原文，同一文档只出一条。
+    """
     if not _KB_ROOT.is_dir():
         return
+    zh_files: dict[str, Path] = {}
+    en_files: dict[str, Path] = {}
     for dirpath, dirnames, filenames in os.walk(_KB_ROOT):
         dirnames[:] = sorted(d for d in dirnames if d not in _SKIP_DIRS and not d.startswith("."))
         for fn in sorted(filenames):
-            if fn.lower().endswith(".md"):
-                yield Path(dirpath) / fn
+            if not fn.lower().endswith(".md"):
+                continue
+            p = Path(dirpath) / fn
+            rel = p.relative_to(_KB_ROOT).as_posix()
+            if rel.lower().endswith(".en.md"):
+                en_files[rel[:-6] + ".md"] = p
+            else:
+                zh_files[rel] = p
+    if lang == "en":
+        merged = {**zh_files, **en_files}
+        yield from (merged[k] for k in sorted(merged))
+    else:
+        yield from (zh_files[k] for k in sorted(zh_files))
 
 
 def _safe_rel_path(rel: str) -> Path:
@@ -99,10 +117,10 @@ def _safe_rel_path(rel: str) -> Path:
 
 
 @router.get("/tree")
-def get_tree():
+def get_tree(lang: str = Query("zh", pattern="^(zh|en)$", description="zh=中文原文；en=英文版优先，未翻译回退中文")):
     """知识库文档树：相对路径 / 标题 / front-matter 状态来源 / 大小 / 修改时间。"""
     items = []
-    for p in _iter_md_files():
+    for p in _iter_md_files(lang):
         try:
             st = p.stat()
             raw = p.read_text(encoding="utf-8", errors="replace")
@@ -136,7 +154,10 @@ def get_doc(path: str = Query(..., description="相对知识库根目录的 .md 
 
 
 @router.get("/search")
-def search(q: str = Query(..., min_length=1, description="检索词，空格分隔为 AND")):
+def search(
+    q: str = Query(..., min_length=1, description="检索词，空格分隔为 AND"),
+    lang: str = Query("zh", pattern="^(zh|en)$", description="检索范围语言，与 /tree 一致"),
+):
     """全文检索：文件级 AND（所有词都出现才命中），返回行级匹配与上下文。"""
     terms = [t for t in re.split(r"\s+", q.strip()) if t]
     if not terms:
@@ -144,7 +165,7 @@ def search(q: str = Query(..., min_length=1, description="检索词，空格分�
     lterms = [t.lower() for t in terms]
     hits = []
     t0 = time.time()
-    for p in _iter_md_files():
+    for p in _iter_md_files(lang):
         try:
             raw = p.read_text(encoding="utf-8", errors="replace")
         except OSError:

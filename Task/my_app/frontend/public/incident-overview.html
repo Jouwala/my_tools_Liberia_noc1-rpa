@@ -1,6 +1,41 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"/>
+<script>
+// ===== my_app 主题同步（浅/深）=====
+// 与 alarm-management.html / cxo_dashboard.html 相同的三重同步：
+//   1) 启动时读 localStorage['myapp-theme']（my_app 外壳写入）
+//   2) 监听父页面 postMessage({__type:'myapp-theme', mode})
+//   3) 兜底跟随系统 prefers-color-scheme
+// 默认深色 = 原版 HUD 配色不变；浅色由 :root 后的 [data-theme="light"] 覆盖块生效。
+// 在 head 最早处执行，保证首帧前 data-theme 已就位，避免浅色用户看到深色闪烁。
+window.__IOC_THEME = (function () {
+  function initialMode() {
+    try { var s = localStorage.getItem('myapp-theme'); if (s === 'dark' || s === 'light') return s; } catch (e) {}
+    try { if (window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches) return 'light'; } catch (e) {}
+    return 'dark';
+  }
+  var mode = initialMode();
+  document.documentElement.setAttribute('data-theme', mode);
+  function applyTheme(m) {
+    mode = (m === 'light') ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', mode);
+    // 通知本页 JS（地图底图/GeoJSON 配色跟随主题），监听器在主脚本末尾注册
+    try { document.dispatchEvent(new CustomEvent('ioc-theme-change', { detail: { mode: mode } })); } catch (e) {}
+  }
+  window.addEventListener('message', function (e) {
+    if (e.data && e.data.__type === 'myapp-theme') applyTheme(e.data.mode);
+  });
+  try {
+    if (window.matchMedia) {
+      matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+        try { if (!localStorage.getItem('myapp-theme')) applyTheme(e.matches ? 'dark' : 'light'); } catch (err) {}
+      });
+    }
+  } catch (e) {}
+  return { get: function () { return mode; } };
+})();
+</script>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <link rel="icon" type="image/x-icon" href="favicon.ico"/>
 <title>OLR Incident Dashboard</title>
@@ -30,6 +65,33 @@
             --hud-blue: #00ff41;
             --hud-green: #00d4ff;
 
+            /* === my_app 主题桥接变量（深色 = 原版值） ===
+               浅色值在下方 [data-theme="light"] 块中覆盖，对齐 my_app LIGHT 色板 */
+            --ioc-bg-grad: linear-gradient(135deg, #000000 0%, #0a0a0a 50%, #000000 100%);
+            --ioc-text-strong: #ffffff;
+            --ioc-slate-300: #cbd5e1;
+            --ioc-slate-400: #94a3b8;
+            --ioc-slate-500: #64748b;
+            --ioc-panel: #1A2234;
+            --ioc-panel-hover: #252D42;
+            --ioc-input-border: rgba(255, 255, 255, 0.1);
+            --ioc-divider: rgba(255, 255, 255, 0.05);
+            --ioc-row-hover: rgba(255, 255, 255, 0.05);
+            --ioc-chip: rgba(255, 255, 255, 0.05);
+            --ioc-chip-hover: rgba(255, 255, 255, 0.10);
+            --ioc-header-bar: rgba(0, 0, 0, 0.5);
+            --ioc-shadow-cyan: 0 4px 20px rgba(0, 212, 255, 0.2);
+            --ioc-title-glow: 0 0 15px rgba(0, 212, 255, 0.5);
+            --ioc-map-bg: #0a0a0a;
+            --ioc-map-no-data: #3a3f4a;
+            --ioc-map-border: #555b66;
+            --ioc-cyan-dashed: rgba(77, 208, 225, 0.4);
+            --ioc-badge-red: #fca5a5;
+            --ioc-badge-orange: #fdba74;
+            --ioc-badge-amber: #fcd34d;
+            --ioc-badge-blue: #93c5fd;
+            --ioc-badge-green: #86efac;
+
             /* 优化的字体大小体系 - 提升可读性 */
             /* 极小字体：辅助信息、时间戳 */
             --font-xs: 12px;
@@ -52,7 +114,7 @@
             --line-height-relaxed: 1.8;
         }
         body {
-            background: linear-gradient(135deg, #000000 0%, #0a0a0a 50%, #000000 100%);
+            background: var(--ioc-bg-grad);
             background-attachment: fixed;
             color: var(--text-primary);
             font-family: 'Inter', 'Roboto', 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -63,6 +125,93 @@
             -moz-osx-font-smoothing: grayscale;
             letter-spacing: 0.01em;
         }
+
+        /* ===== my_app 浅色主题覆盖（data-theme="light"，由 head 内同步脚本设置） =====
+           色值对齐 my_app LIGHT 色板（frontend/src/theme.ts）：
+           背景 #f2f7fc / 卡片白 / 文字 #16233b / cyan 系强调色。保持版式与信息密度不变。 */
+        [data-theme="light"] {
+            --bg-main: #f2f7fc;
+            --bg-card: #ffffff;
+            --bg-card-hover: #f0f6fb;
+            --text-primary: #0e7490;
+            --text-secondary: #0f9d6b;
+            --border-color: rgba(14, 116, 144, 0.25);
+            --corporate-blue: rgba(14, 116, 144, 0.18);
+            --emerald-success: #0e7490;
+            --accent-glow: rgba(14, 116, 144, 0.2);
+
+            --ioc-bg-grad: linear-gradient(180deg, #f2f7fc 0%, #e8f0f8 100%);
+            --ioc-text-strong: #16233b;
+            --ioc-slate-300: #3f5468;
+            --ioc-slate-400: #5b7288;
+            --ioc-slate-500: #5b7288;
+            --ioc-panel: #ffffff;
+            --ioc-panel-hover: #eef5fa;
+            --ioc-input-border: rgba(22, 35, 59, 0.15);
+            --ioc-divider: rgba(22, 35, 59, 0.08);
+            --ioc-row-hover: rgba(14, 116, 144, 0.06);
+            --ioc-chip: rgba(14, 116, 144, 0.07);
+            --ioc-chip-hover: rgba(14, 116, 144, 0.14);
+            --ioc-header-bar: rgba(255, 255, 255, 0.85);
+            --ioc-shadow-cyan: 0 4px 20px rgba(22, 35, 59, 0.10);
+            --ioc-title-glow: none;
+            --ioc-map-bg: #dfe9f2;
+            --ioc-map-no-data: #e2e8f0;
+            --ioc-map-border: #b6c5d4;
+            --ioc-cyan-dashed: rgba(14, 116, 144, 0.35);
+            --ioc-badge-red: #b42318;
+            --ioc-badge-orange: #b54708;
+            --ioc-badge-amber: #b54708;
+            --ioc-badge-blue: #175cd3;
+            --ioc-badge-green: #067647;
+        }
+        /* 浅色下工业辉光边框收敛为柔和高光，避免白底上泛灰发光 */
+        [data-theme="light"] .industrial-border {
+            border-color: rgba(14, 116, 144, 0.3);
+            box-shadow: 0 2px 10px rgba(22, 35, 59, 0.08);
+        }
+        [data-theme="light"] .p1-alert {
+            box-shadow: 0 0 14px rgba(217, 45, 32, 0.25);
+        }
+        /* 浅色底图由 JS 直接切换为 Esri Light Gray / CartoDB Positron 真实浅色瓦片，
+           不再用 CSS invert 滤镜（避免与浅色瓦片叠加二次反色） */
+        /* 浅色下州名标签：深色文字 + 白色描边（原 text-shadow 为黑底设计） */
+        [data-theme="light"] .state-label,
+        [data-theme="light"] .state-label div {
+            color: #16233b !important;
+            text-shadow: 0 1px 2px rgba(255, 255, 255, 0.95), 0 0 3px rgba(255, 255, 255, 0.9) !important;
+        }
+        /* 浅色下 Tailwind 300/400 系文字色加深，保证白底可读性
+           （200 系仅出现在深色实底上保持浅色，故不覆盖） */
+        [data-theme="light"] .text-cyan-400    { color: #0e7490; }
+        [data-theme="light"] .text-cyan-300    { color: #0e7490; }
+        [data-theme="light"] .text-emerald-400 { color: #047857; }
+        [data-theme="light"] .text-emerald-500 { color: #059669; }
+        [data-theme="light"] .text-emerald-300 { color: #067647; }
+        [data-theme="light"] .text-red-400     { color: #d92d20; }
+        [data-theme="light"] .text-red-500     { color: #d92d20; }
+        [data-theme="light"] .text-red-300     { color: #b42318; }
+        [data-theme="light"] .text-orange-400  { color: #c2410c; }
+        [data-theme="light"] .text-orange-500  { color: #c2410c; }
+        [data-theme="light"] .text-orange-300  { color: #9a3412; }
+        [data-theme="light"] .text-amber-400   { color: #b54708; }
+        [data-theme="light"] .text-amber-500   { color: #b54708; }
+        [data-theme="light"] .text-amber-300   { color: #93370d; }
+        [data-theme="light"] .text-purple-400  { color: #6941c6; }
+        [data-theme="light"] .text-purple-300  { color: #6941c6; }
+        [data-theme="light"] .text-blue-400    { color: #175cd3; }
+        [data-theme="light"] .text-green-400   { color: #067647; }
+        [data-theme="light"] .text-green-500   { color: #067647; }
+        /* 深色实底上的文字（白字/浅字）在浅色主题下仍应保持白色 —— 实底色不随主题变化 */
+        [data-theme="light"] .bg-emerald-600,
+        [data-theme="light"] .bg-emerald-700   { color: #ffffff; }
+        [data-theme="light"] .text-emerald-200 { color: #d1fae5; }
+        /* 三个面板标题的内联 cyan 辉光（style 属性）在浅色下去掉，用 CSS 变量统一控制 */
+        [data-theme="light"] h3[style*="text-shadow"] {
+            text-shadow: none !important;
+        }
+        /* 深色渐变底的头像/按钮容器保持白字 */
+        [data-theme="light"] .bg-gradient-to-r .material-symbols-outlined { color: #ffffff; }
         
         /* 移动端基础优化 */
         @media (max-width: 768px) {
@@ -112,6 +261,15 @@
             z-index: 1;
             filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.5));
         }
+        /* 浅色主题下的状态连线与箭头（深色线才可见） */
+        [data-theme="light"] .status-line::after {
+            background: linear-gradient(90deg, rgba(22, 35, 59, 0.25) 0%, rgba(22, 35, 59, 0.45) 50%, rgba(22, 35, 59, 0.25) 100%);
+            box-shadow: none;
+        }
+        [data-theme="light"] .status-line::before {
+            border-left-color: rgba(22, 35, 59, 0.45);
+            filter: none;
+        }
         .status-line:last-child::after {
             display: none;
         }
@@ -127,17 +285,17 @@
             height: 6px;
         }
         ::-webkit-scrollbar-track {
-            background: #0B0F19;
+            background: var(--ioc-chip);
         }
         ::-webkit-scrollbar-thumb {
-            background: #2D3748;
+            background: var(--ioc-slate-500);
             border-radius: 10px;
         }
         ::-webkit-scrollbar-thumb:hover {
-            background: #4A5568;
+            background: var(--ioc-slate-400);
         }
         .table-dark-row:nth-child(even) {
-            background-color: rgba(255, 255, 255, 0.02);
+            background-color: var(--ioc-chip);
         }
         .resizable {
             resize: both;
@@ -145,7 +303,6 @@
             min-width: 300px;
             min-height: 400px;
             max-width: 90%;
-            max-height: 95vh;
         }
         .resizable::-webkit-resizer {
             background: rgba(59, 130, 246, 0.3);
@@ -200,6 +357,17 @@
                 inset 0 0 10px rgba(0, 0, 0, 0.5),
                 0 0 10px rgba(0, 212, 255, 0.2),
                 0 0 20px rgba(0, 212, 255, 0.1);
+        }
+        /* 浅色下 HUD 槽体改浅底、文字转深色（能量条填充色本身语义色通用） */
+        [data-theme="light"] .hud-bar-container {
+            background: rgba(14, 116, 144, 0.08);
+            border-color: rgba(14, 116, 144, 0.35);
+            box-shadow: inset 0 0 6px rgba(22, 35, 59, 0.08);
+        }
+        [data-theme="light"] .hud-bar-label,
+        [data-theme="light"] .hud-bar-value {
+            color: #16233b;
+            text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
         }
 
         .hud-bar-fill {
@@ -319,7 +487,6 @@
         .p1-alert {
             box-shadow: 0 0 20px rgba(255, 0, 64, 0.5);
         }
-
         /* 工业风格边框 */
         .industrial-border {
             border: 2px solid rgba(0, 212, 255, 0.3);
@@ -449,31 +616,31 @@
         
         .badge-sla-red {
             background: rgba(239, 68, 68, 0.15);
-            color: #fca5a5;
+            color: var(--ioc-badge-red);
             border: 1px solid rgba(239, 68, 68, 0.4);
         }
         
         .badge-sla-orange {
             background: rgba(249, 115, 22, 0.15);
-            color: #fdba74;
+            color: var(--ioc-badge-orange);
             border: 1px solid rgba(249, 115, 22, 0.4);
         }
         
         .badge-sla-amber {
             background: rgba(245, 158, 11, 0.15);
-            color: #fcd34d;
+            color: var(--ioc-badge-amber);
             border: 1px solid rgba(245, 158, 11, 0.4);
         }
         
         .badge-sla-blue {
             background: rgba(59, 130, 246, 0.15);
-            color: #93c5fd;
+            color: var(--ioc-badge-blue);
             border: 1px solid rgba(59, 130, 246, 0.4);
         }
         
         .badge-sla-green {
             background: rgba(34, 197, 94, 0.15);
-            color: #86efac;
+            color: var(--ioc-badge-green);
             border: 1px solid rgba(34, 197, 94, 0.4);
         }
         
@@ -492,28 +659,28 @@
         
         .badge-severity-p1 {
             background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.15));
-            color: #fca5a5;
+            color: var(--ioc-badge-red);
             border: 2px solid rgba(239, 68, 68, 0.5);
             box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
         }
         
         .badge-severity-p2 {
             background: linear-gradient(135deg, rgba(249, 115, 22, 0.2), rgba(234, 88, 12, 0.15));
-            color: #fdba74;
+            color: var(--ioc-badge-orange);
             border: 2px solid rgba(249, 115, 22, 0.5);
             box-shadow: 0 0 6px rgba(249, 115, 22, 0.3);
         }
         
         .badge-severity-p3 {
             background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(217, 119, 6, 0.15));
-            color: #fcd34d;
+            color: var(--ioc-badge-amber);
             border: 2px solid rgba(245, 158, 11, 0.5);
             box-shadow: 0 0 6px rgba(245, 158, 11, 0.3);
         }
         
         .badge-severity-p4 {
             background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.15));
-            color: #93c5fd;
+            color: var(--ioc-badge-blue);
             border: 2px solid rgba(59, 130, 246, 0.5);
             box-shadow: 0 0 6px rgba(59, 130, 246, 0.3);
         }
@@ -539,15 +706,15 @@
         }
         
         [data-details-container] tbody tr:hover {
-            background-color: rgba(255, 255, 255, 0.05);
+            background-color: var(--ioc-row-hover);
         }
         
         /* Severity 和 SLA 组件虚线表格边框 */
         /* Severity 子组件虚线边框 - 保留左侧彩色边框，添加其他边的虚线 */
         [data-severity-container] > div > div {
-            border-top: 1px dashed rgba(77, 208, 225, 0.5) !important;
-            border-right: 1px dashed rgba(77, 208, 225, 0.5) !important;
-            border-bottom: 1px dashed rgba(77, 208, 225, 0.5) !important;
+            border-top: 1px dashed var(--ioc-cyan-dashed) !important;
+            border-right: 1px dashed var(--ioc-cyan-dashed) !important;
+            border-bottom: 1px dashed var(--ioc-cyan-dashed) !important;
             /* 左侧边框保持原有的 border-l-4 样式，不覆盖 */
         }
         
@@ -559,8 +726,8 @@
         }
         
         [data-severity-container] table thead th {
-            border-bottom: 1px dashed rgba(77, 208, 225, 0.4) !important;
-            border-right: 1px dashed rgba(77, 208, 225, 0.3) !important;
+            border-bottom: 1px dashed var(--ioc-cyan-dashed) !important;
+            border-right: 1px dashed var(--ioc-cyan-dashed) !important;
         }
         
         [data-severity-container] table thead th:last-child {
@@ -568,8 +735,8 @@
         }
         
         [data-severity-container] table tbody td {
-            border-bottom: 1px dashed rgba(77, 208, 225, 0.3) !important;
-            border-right: 1px dashed rgba(77, 208, 225, 0.25) !important;
+            border-bottom: 1px dashed var(--ioc-cyan-dashed) !important;
+            border-right: 1px dashed var(--ioc-cyan-dashed) !important;
         }
         
         [data-severity-container] table tbody td:last-child {
@@ -582,7 +749,7 @@
         
         /* SLA 子组件虚线边框 */
         [data-sla-card] {
-            border: 1px dashed rgba(77, 208, 225, 0.5) !important;
+            border: 1px dashed var(--ioc-cyan-dashed) !important;
             border-radius: 0.75rem;
         }
         
@@ -594,8 +761,8 @@
         }
         
         [data-sla-card] table thead th {
-            border-bottom: 1px dashed rgba(77, 208, 225, 0.4) !important;
-            border-right: 1px dashed rgba(77, 208, 225, 0.3) !important;
+            border-bottom: 1px dashed var(--ioc-cyan-dashed) !important;
+            border-right: 1px dashed var(--ioc-cyan-dashed) !important;
         }
         
         [data-sla-card] table thead th:last-child {
@@ -603,8 +770,8 @@
         }
         
         [data-sla-card] table tbody td {
-            border-bottom: 1px dashed rgba(77, 208, 225, 0.3) !important;
-            border-right: 1px dashed rgba(77, 208, 225, 0.25) !important;
+            border-bottom: 1px dashed var(--ioc-cyan-dashed) !important;
+            border-right: 1px dashed var(--ioc-cyan-dashed) !important;
         }
         
         [data-sla-card] table tbody td:last-child {
@@ -674,7 +841,7 @@
             }
             
             /* 移动端地图组件优化 */
-            .flex.gap-4.mb-6.h-full {
+            .map-container {
                 flex-direction: column !important;
                 min-height: auto !important;
                 height: auto !important;
@@ -685,7 +852,7 @@
                 width: 100% !important;
             }
             
-            .flex-\[2\] .p-6 {
+            .map-body {
                 padding: 1rem !important;
                 flex-direction: column !important;
                 height: 100% !important;
@@ -786,6 +953,10 @@
             /* AI分析面板优化 */
             [data-ai-analysis-container] {
                 width: 100% !important;
+            }
+            /* 桌面端 AI 卡用 absolute 对齐 Severity 列高；堆叠后必须回到文档流，否则容器塌成 0 高 */
+            [data-ai-analysis-container] > div {
+                position: static !important;
             }
             
             /* Severity面板优化 - 每个占一行，铺满宽度 */
@@ -948,7 +1119,7 @@
             }
             
             /* 移动端地图组件优化 */
-            .flex.gap-4.mb-6.h-full {
+            .map-container {
                 flex-direction: column !important;
                 min-height: auto !important;
                 height: auto !important;
@@ -959,7 +1130,7 @@
                 width: 100% !important;
             }
             
-            .flex-\[2\] .p-6 {
+            .map-body {
                 padding: 1rem !important;
                 flex-direction: column !important;
                 height: 100% !important;
@@ -1261,6 +1432,11 @@
 /* ---------- unified responsive base ---------- */
 html { font-size: clamp(12px, 0.55vw + 10px, 18px); -webkit-text-size-adjust: 100%; }
 body { overflow-x: hidden; }
+/* ===== 轮播下滑按钮（大屏值守，同 alarm-management 的 .carousel-btn 观感） ===== */
+#ioc-carousel-btn { border: 1px solid var(--ioc-divider); }
+#ioc-carousel-btn:hover { color: var(--text-primary); }
+#ioc-carousel-btn.on { background: rgba(0, 212, 255, 0.18); border-color: var(--text-primary); color: var(--ioc-text-strong); box-shadow: 0 0 12px rgba(0, 212, 255, 0.35); }
+#ioc-carousel-btn .ico { font-size: 11.2px; line-height: 1; }
 img, svg, canvas, iframe { max-width: 100%; }
 @media (max-width: 768px) {
   body { overflow-x: hidden; }
@@ -1298,7 +1474,8 @@ img, svg, canvas, iframe { max-width: 100%; }
         'doubao': { name: '字节豆包', endpoint: '/ai/doubao' },
         'qianwen': { name: '通义千问', endpoint: '/ai/qianwen' },
         'glm-coding': { name: 'GLM Coding', endpoint: '/ai/glm-coding' },
-        'deepseek': { name: 'DeepSeek', endpoint: '/ai/deepseek' }
+        'deepseek': { name: 'DeepSeek', endpoint: '/ai/deepseek' },
+        'agnes': { name: 'Agnes 2.5 Flash', endpoint: '/ai/agnes' }
     };
 
     // 当前选择的AI模型（默认使用规则生成，如果配置了API则使用AI）
@@ -1558,7 +1735,7 @@ Respond in English.`;
 
     // 获取SLA合规性样式（保留用于兼容，但主要使用HUD能量槽）
     function getSlaComplianceStyle(sla) {
-        if (!sla) return 'bg-white/5 text-slate-500 border-white/5';
+        if (!sla) return 'bg-[var(--ioc-chip)] text-[var(--ioc-slate-500)] border-[var(--ioc-divider)]';
         const slaLower = sla.toLowerCase();
         if (slaLower.includes('>100') || slaLower.includes('gt100')) {
             return 'bg-red-500/20 text-red-400 border-red-500/30';
@@ -1569,44 +1746,44 @@ Respond in English.`;
         } else if (slaLower.includes('<50') || slaLower.includes('lt50')) {
             return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
         } else if (slaLower.includes('<25') || slaLower.includes('lt25')) {
-            return 'bg-emerald-600 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)]';
+            return 'bg-emerald-600 text-[var(--ioc-text-strong)] shadow-[0_0_10px_rgba(16,185,129,0.3)]';
         }
-        return 'bg-white/5 text-slate-500 border-white/5';
+        return 'bg-[var(--ioc-chip)] text-[var(--ioc-slate-500)] border-[var(--ioc-divider)]';
     }
 
     // 获取严重度样式（保留用于兼容，但主要使用HUD能量槽）
     function getSeverityStyle(severity) {
-        if (!severity) return 'bg-white/5 text-slate-400';
+        if (!severity) return 'bg-[var(--ioc-chip)] text-[var(--ioc-slate-400)]';
         const sev = severity.toUpperCase();
         if (sev === 'P1') return 'bg-red-500/20 text-red-400 border-red-500/30';
         if (sev === 'P2') return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
         if (sev === 'P3') return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
         if (sev === 'P4') return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-        return 'bg-white/5 text-slate-400';
+        return 'bg-[var(--ioc-chip)] text-[var(--ioc-slate-400)]';
     }
 
     // 获取严重度数值样式（用于表格中的数值显示）
     function getSeverityValueStyle(severity, value) {
-        if (!value || value === 0) return 'bg-white/5 text-slate-500 border-white/5';
+        if (!value || value === 0) return 'bg-[var(--ioc-chip)] text-[var(--ioc-slate-500)] border-[var(--ioc-divider)]';
         const sev = severity.toUpperCase();
         if (sev === 'P1') return 'bg-red-500/20 text-red-400 border-red-500/30';
         if (sev === 'P2') return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
         if (sev === 'P3') return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
         if (sev === 'P4') return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-        return 'bg-white/5 text-slate-500 border-white/5';
+        return 'bg-[var(--ioc-chip)] text-[var(--ioc-slate-500)] border-[var(--ioc-divider)]';
     }
     
     // 获取Status列的颜色样式
     function getStatusColor(status) {
-        if (!status) return 'text-slate-400';
+        if (!status) return 'text-[var(--ioc-slate-400)]';
         const statusUpper = status.toUpperCase();
         if (statusUpper === 'REASSIGN') return 'text-purple-400';
-        if (statusUpper === 'WAITINGCONFIRM') return 'text-slate-300';
+        if (statusUpper === 'WAITINGCONFIRM') return 'text-[var(--ioc-slate-300)]';
         if (statusUpper === 'WAITINGACCEPT') return 'text-cyan-400';
         if (statusUpper === 'WAITINGPROCESS') return 'text-amber-400';
         if (statusUpper === 'WAITINGCLOSE') return 'text-red-400';
         if (statusUpper === 'CLOSED') return 'text-emerald-400';
-        return 'text-slate-400';
+        return 'text-[var(--ioc-slate-400)]';
     }
     
     // 检查Status是否需要加粗
@@ -1688,7 +1865,7 @@ Respond in English.`;
                     };
 
                     const row = document.createElement('tr');
-                    row.className = 'border-b border-white/5 hover:bg-white/5';
+                    row.className = 'border-b border-[var(--ioc-divider)] hover:bg-[var(--ioc-chip)]';
 
                     // STATUS列
                     const statusCell = document.createElement('td');
@@ -1781,10 +1958,10 @@ Respond in English.`;
                                 } else if (keys[index] === 'lt50') {
                                     div.className = `${baseClasses} ${isSelected ? 'bg-emerald-500/40 text-emerald-300 border-emerald-400' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'}`;
                                 } else if (keys[index] === 'lt25') {
-                                    div.className = `${baseClasses} ${isSelected ? 'bg-emerald-700 text-emerald-200 border-emerald-500' : 'bg-emerald-600 text-white border-emerald-500/30'} shadow-[0_0_10px_rgba(16,185,129,0.3)]`;
+                                    div.className = `${baseClasses} ${isSelected ? 'bg-emerald-700 text-emerald-200 border-emerald-500' : 'bg-emerald-600 text-[var(--ioc-text-strong)] border-emerald-500/30'} shadow-[0_0_10px_rgba(16,185,129,0.3)]`;
                                 }
                             } else {
-                                div.className = `${baseClasses} bg-white/5 text-slate-500 border-white/5`;
+                                div.className = `${baseClasses} bg-[var(--ioc-chip)] text-[var(--ioc-slate-500)] border-[var(--ioc-divider)]`;
                             }
                             
                             // 存储数据属性以便后续更新和事件委托
@@ -1855,7 +2032,7 @@ Respond in English.`;
             // 显示空数据提示
             const tbody = document.getElementById('details-body');
             if (tbody) {
-                tbody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-slate-500">No data available</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-[var(--ioc-slate-500)]">No data available</td></tr>';
             }
             // 更新记录数显示
             updateDetailsRecordCount(0);
@@ -1867,6 +2044,8 @@ Respond in English.`;
 
         allDetailsData = data;
         filteredDetailsData = [...data];
+        // 缓存最近一次数据，供主题切换时重绘地图配色使用（见 ioc-theme-change 监听器）
+        window.__IOC_lastDetails = { rows: data, columns: columns || detailsColumns };
         // 清除之前的过滤（数据更新时重置）
         selectedStateForFilter = null;
         selectedSeverityForFilter = null;
@@ -1964,7 +2143,7 @@ Respond in English.`;
             // 显示空数据提示
             const tbody = document.getElementById('incident-log-body');
             if (tbody) {
-                tbody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-slate-500">No data available</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-[var(--ioc-slate-500)]">No data available</td></tr>';
             }
             // 更新记录数显示
             updateIncidentLogRecordCount();
@@ -2057,7 +2236,7 @@ Respond in English.`;
 
         dataToShow.forEach((ticket, rowIndex) => {
             const row = document.createElement('tr');
-            row.className = 'hover:bg-white/5 transition-colors table-dark-row';
+            row.className = 'hover:bg-[var(--ioc-chip)] transition-colors table-dark-row';
 
             // 添加序号列
             let cells = `<td class="px-4 py-2.5 font-[\'Inter\'] font-semibold text-[var(--text-primary)] text-[15px]">${rowIndex + 1}</td>`;
@@ -2094,7 +2273,7 @@ Respond in English.`;
                     }
                     // 处理Handler列
                     else if (colLower.includes('handler') || colLower.includes('current handler')) {
-                        cellContent = `<td class="px-3 py-2.5 text-slate-400 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                        cellContent = `<td class="px-3 py-2.5 text-[var(--ioc-slate-400)] font-mono text-[15px]">${escapeHtml(value)}</td>`;
                     }
                     // 处理Title/Description列
                     else if (colLower.includes('title') || colLower.includes('description')) {
@@ -2102,7 +2281,7 @@ Respond in English.`;
                     }
                     // 处理FB_ORG/Domain列
                     else if (colLower.includes('fb_org') || colLower.includes('domain') || colLower.includes('org')) {
-                        cellContent = `<td class="px-3 py-2.5 font-bold text-slate-400 text-[15px]">${escapeHtml(value)}</td>`;
+                        cellContent = `<td class="px-3 py-2.5 font-bold text-[var(--ioc-slate-400)] text-[15px]">${escapeHtml(value)}</td>`;
                     }
                     // 处理数字类型的列
                     else if (typeof value === 'number') {
@@ -2110,7 +2289,7 @@ Respond in English.`;
                     }
                     // 处理时间列
                     else if (colLower.includes('time') || colLower.includes('created') || colLower.includes('occur')) {
-                        cellContent = `<td class="px-3 py-2.5 text-slate-400 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                        cellContent = `<td class="px-3 py-2.5 text-[var(--ioc-slate-400)] font-mono text-[15px]">${escapeHtml(value)}</td>`;
                     }
                     // 默认样式
                     else {
@@ -2139,7 +2318,7 @@ Respond in English.`;
     function buildIncidentLogRow(ticket, rowIndex) {
         const columns = incidentLogColumns.length > 0 ? incidentLogColumns : Object.keys(allIncidentLogData[0] || {});
         const row = document.createElement('tr');
-        row.className = 'hover:bg-white/5 transition-colors table-dark-row';
+        row.className = 'hover:bg-[var(--ioc-chip)] transition-colors table-dark-row';
         let cells = `<td class="px-4 py-2.5 font-[\'Inter\'] font-semibold text-[var(--text-primary)] text-[15px]">${rowIndex + 1}</td>`;
         cells += columns.map((col, idx) => {
             const value = ticket[col] || '';
@@ -2161,15 +2340,15 @@ Respond in English.`;
                     const numValue = typeof value === 'number' ? value.toFixed(2) : value;
                     cellContent = `<td class="px-3 py-2.5 font-mono text-[15px]">${escapeHtml(numValue)}</td>`;
                 } else if (colLower.includes('handler') || colLower.includes('current handler')) {
-                    cellContent = `<td class="px-3 py-2.5 text-slate-400 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                    cellContent = `<td class="px-3 py-2.5 text-[var(--ioc-slate-400)] font-mono text-[15px]">${escapeHtml(value)}</td>`;
                 } else if (colLower.includes('title') || colLower.includes('description')) {
                     cellContent = `<td class="px-3 py-2.5 truncate max-w-[200px]" title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
                 } else if (colLower.includes('fb_org') || colLower.includes('domain') || colLower.includes('org')) {
-                    cellContent = `<td class="px-3 py-2.5 font-bold text-slate-400 text-[15px]">${escapeHtml(value)}</td>`;
+                    cellContent = `<td class="px-3 py-2.5 font-bold text-[var(--ioc-slate-400)] text-[15px]">${escapeHtml(value)}</td>`;
                 } else if (typeof value === 'number') {
                     cellContent = `<td class="px-3 py-2.5 font-mono text-[15px]">${escapeHtml(value)}</td>`;
                 } else if (colLower.includes('time') || colLower.includes('created') || colLower.includes('occur')) {
-                    cellContent = `<td class="px-3 py-2.5 text-slate-400 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                    cellContent = `<td class="px-3 py-2.5 text-[var(--ioc-slate-400)] font-mono text-[15px]">${escapeHtml(value)}</td>`;
                 } else {
                     cellContent = `<td class="px-3 py-2.5 text-[var(--text-primary)]/90 font-[\'Inter\'] text-[15px]">${escapeHtml(value)}</td>`;
                 }
@@ -2211,7 +2390,7 @@ Respond in English.`;
             if (page === 1 && !append) {
                 const tbody = document.getElementById('incident-log-body');
                 if (tbody) {
-                    tbody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-slate-500">Loading data...</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-[var(--ioc-slate-500)]">Loading data...</td></tr>';
                 }
             } else if (append) {
                 // 如果是追加数据，在表格底部显示加载更多状态
@@ -2219,7 +2398,7 @@ Respond in English.`;
                 if (tbody) {
                     const loadingRow = document.createElement('tr');
                     loadingRow.id = 'incident-log-loading-row';
-                    loadingRow.innerHTML = '<td colspan="100%" class="text-center py-4 text-slate-500">Loading more...</td>';
+                    loadingRow.innerHTML = '<td colspan="100%" class="text-center py-4 text-[var(--ioc-slate-500)]">Loading more...</td>';
                     tbody.appendChild(loadingRow);
                 }
             }
@@ -2817,118 +2996,138 @@ Respond in English.`;
                 <rect x="0" y="0" width="256" height="256" fill="#1a1a1a" opacity="0.3"/>
             </svg>
         `);
-        
-        // 使用简单可靠的浅色瓦片服务
-        // 方案1：使用Esri WorldDarkGrayCanvas（深灰色，非常可靠）
-        const esriLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-            attribution: '&copy; <a href="https://www.esri.com/">Esri</a>',
-            maxZoom: 16,
-            errorTileUrl: darkTileSvg
-        });
-        
-        // 方案2：使用CartoDB DarkMatter（深色主题，备用）
-        const cartoLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-            maxZoom: 19,
-            subdomains: 'abcd',
-            errorTileUrl: darkTileSvg
-        });
-        
-        // 方案3：使用OpenStreetMap（最后备用）
-        const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            maxZoom: 19,
-            subdomains: 'abc',
-            errorTileUrl: darkTileSvg
-        });
-        
-        // 先尝试Esri图层
-        esriLayer.addTo(liberiaMap);
-        
-        // 监听瓦片加载错误，自动切换到备用图层
-        let errorCount = 0;
-        const maxErrors = 3;
-        let currentLayer = esriLayer;
-        
-        function switchToBackupLayer() {
-            if (currentLayer === esriLayer && !cartoLayer._map) {
-                liberiaMap.removeLayer(esriLayer);
-                cartoLayer.addTo(liberiaMap);
-                currentLayer = cartoLayer;
-                errorCount = 0;
-            } else if (currentLayer === cartoLayer && !osmLayer._map) {
-                liberiaMap.removeLayer(cartoLayer);
-                osmLayer.addTo(liberiaMap);
-                currentLayer = osmLayer;
-                errorCount = 0;
-            }
-        }
-        
-        esriLayer.on('tileerror', function() {
-            errorCount++;
-            if (errorCount >= maxErrors) {
-                switchToBackupLayer();
-            }
-        });
-        
-        cartoLayer.on('tileerror', function() {
-            if (currentLayer === cartoLayer) {
-                errorCount++;
-                if (errorCount >= maxErrors) {
-                    switchToBackupLayer();
-                }
-            }
-        });
-        
-        // 重置错误计数（当瓦片成功加载时）
-        esriLayer.on('tileload', function() {
-            if (errorCount > 0) errorCount = Math.max(0, errorCount - 1);
-        });
-        cartoLayer.on('tileload', function() {
-            if (errorCount > 0) errorCount = Math.max(0, errorCount - 1);
-        });
+        // 浅色主题的浅色错误瓦片
+        const lightTileSvg = 'data:image/svg+xml;base64,' + btoa(`
+            <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+                <rect width="256" height="256" fill="#dfe9f2"/>
+                <rect x="0" y="0" width="256" height="256" fill="#ffffff" opacity="0.3"/>
+            </svg>
+        `);
 
-        // 添加自定义样式
+        // ===== 底图按主题选择深/浅两套（my_app 主题同步） =====
+        // 深色：Esri Dark Gray → CartoDB DarkMatter → OSM（原版降级链不变）
+        // 浅色：Esri Light Gray → CartoDB Positron → OSM
+        function buildTileSet(mode) {
+            const isLight = mode === 'light';
+            const errTile = isLight ? lightTileSvg : darkTileSvg;
+            return {
+                esri: L.tileLayer(isLight
+                    ? 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}'
+                    : 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+                    attribution: '&copy; <a href="https://www.esri.com/">Esri</a>',
+                    maxZoom: 16,
+                    errorTileUrl: errTile
+                }),
+                carto: L.tileLayer(isLight
+                    ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+                    : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                    maxZoom: 19,
+                    subdomains: 'abcd',
+                    errorTileUrl: errTile
+                }),
+                osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom: 19,
+                    subdomains: 'abc',
+                    errorTileUrl: errTile
+                })
+            };
+        }
+
+        const darkTileSet = buildTileSet('dark');
+        const lightTileSet = buildTileSet('light');
+        let currentTileMode = (window.__IOC_THEME && window.__IOC_THEME.get() === 'light') ? 'light' : 'dark';
+        let tileErrorCount = 0;
+        const maxTileErrors = 3;
+
+        function activeTileSet() {
+            return currentTileMode === 'light' ? lightTileSet : darkTileSet;
+        }
+        function currentBaseLayer() {
+            const set = activeTileSet();
+            return [set.esri, set.carto, set.osm][currentBaseTier] || set.esri;
+        }
+        let currentBaseTier = 0;
+
+        function wireTileHandlers(layer) {
+            layer.on('tileerror', function () {
+                tileErrorCount++;
+                if (tileErrorCount >= maxTileErrors && currentBaseTier < 2) {
+                    currentBaseTier++;
+                    switchBaseLayer();
+                    tileErrorCount = 0;
+                }
+            });
+            layer.on('tileload', function () {
+                if (tileErrorCount > 0) tileErrorCount = Math.max(0, tileErrorCount - 1);
+            });
+        }
+        [darkTileSet.esri, darkTileSet.carto, darkTileSet.osm,
+         lightTileSet.esri, lightTileSet.carto, lightTileSet.osm].forEach(wireTileHandlers);
+
+        function switchBaseLayer() {
+            const next = currentBaseLayer();
+            [darkTileSet.esri, darkTileSet.carto, darkTileSet.osm,
+             lightTileSet.esri, lightTileSet.carto, lightTileSet.osm].forEach(l => {
+                if (l && liberiaMap.hasLayer(l)) liberiaMap.removeLayer(l);
+            });
+            if (next && !liberiaMap.hasLayer(next)) next.addTo(liberiaMap);
+        }
+
+        // 主题切换时更换底图（由 ioc-theme-change 监听器调用）
+        window.__IOC_setMapTheme = function (mode) {
+            if (!liberiaMap) return;
+            const next = (mode === 'light') ? 'light' : 'dark';
+            if (next === currentTileMode) return;
+            currentTileMode = next;
+            switchBaseLayer();
+        };
+
+        // 先尝试Esri图层（按当前主题选择深/浅版本）
+        currentBaseLayer().addTo(liberiaMap);
+
+        // 添加自定义样式（底图/弹窗配色走主题变量：深色=原版，浅色=白底）
         const style = document.createElement('style');
         style.textContent = `
             .leaflet-container {
-                background: #0a0a0a !important;
+                background: var(--ioc-map-bg) !important;
             }
-            /* 确保加载失败的瓦片显示深色背景 */
+            /* 确保加载失败的瓦片显示主题色背景 */
             .leaflet-tile-pane {
-                background-color: #0a0a0a !important;
+                background-color: var(--ioc-map-bg) !important;
             }
             .leaflet-tile-container {
-                background-color: #0a0a0a !important;
+                background-color: var(--ioc-map-bg) !important;
             }
             .leaflet-tile {
-                background-color: #0a0a0a !important;
+                background-color: var(--ioc-map-bg) !important;
                 border: none !important;
             }
             .leaflet-tile-container img {
-                background-color: #0a0a0a !important;
+                background-color: var(--ioc-map-bg) !important;
             }
             .leaflet-tile-loaded {
                 background-color: transparent !important;
             }
-            /* 隐藏加载失败的瓦片，显示深色背景 */
+            /* 隐藏加载失败的瓦片，显示主题背景 */
             .leaflet-tile-container img[src=""],
             .leaflet-tile-container img:not([src]),
             .leaflet-tile-container img[src*="error"] {
                 opacity: 0 !important;
-                background-color: #0a0a0a !important;
+                background-color: var(--ioc-map-bg) !important;
             }
-            /* 确保地图容器背景是深色 */
+            /* 确保地图容器背景跟随主题 */
             #liberia-map {
-                background-color: #0a0a0a !important;
+                background-color: var(--ioc-map-bg) !important;
             }
             .leaflet-popup-content-wrapper {
-                background: #1a2234 !important;
-                color: #4dd0e1 !important;
-                border: 1px solid rgba(77, 208, 225, 0.3) !important;
+                background: var(--bg-card) !important;
+                color: var(--text-primary) !important;
+                border: 1px solid var(--border-color) !important;
             }
             .leaflet-popup-tip {
-                background: #1a2234 !important;
+                background: var(--bg-card) !important;
             }
             .state-label {
                 background: transparent !important;
@@ -2936,10 +3135,15 @@ Respond in English.`;
                 padding: 0 !important;
                 font-size: 11px !important;
                 font-weight: bold !important;
-                color: #4dd0e1 !important;
+                color: var(--text-primary) !important;
                 text-shadow: 0 0 3px rgba(0, 212, 255, 0.8), 0 0 6px rgba(0, 212, 255, 0.6) !important;
                 white-space: nowrap !important;
                 pointer-events: none !important;
+            }
+            /* 浅色主题：标签用深色文字 + 白色描边（覆盖上面的青色辉光） */
+            [data-theme="light"] .state-label {
+                color: #16233b !important;
+                text-shadow: 0 1px 2px rgba(255, 255, 255, 0.95), 0 0 3px rgba(255, 255, 255, 0.9) !important;
             }
             .state-label,
             .state-label *,
@@ -3016,13 +3220,14 @@ Respond in English.`;
             stateLayers.forEach(layer => liberiaMap.removeLayer(layer));
             stateLayers = [];
             // 显示所有州为无数据状态（使用GeoJSON）
+            const noDataLight = document.documentElement.getAttribute('data-theme') === 'light';
             geoData.features.forEach(feature => {
                 const stateName = getStateNameFromFeature(feature);
                 if (stateName) {
                     const layer = L.geoJSON(feature, {
                         style: {
-                            fillColor: '#e8e8e8',
-                            color: '#cccccc',
+                            fillColor: noDataLight ? '#e2e8f0' : '#e8e8e8',
+                            color: noDataLight ? '#b6c5d4' : '#cccccc',
                             weight: 1,
                             opacity: 1,
                             fillOpacity: 0.3
@@ -3182,28 +3387,29 @@ Respond in English.`;
                 }
             }
             
-            // 根据数量设置颜色
+            // 根据数量设置颜色（语义色红/橙/绿两种主题通用；无数据底色与边界随主题）
             const intensity = maxCount > 0 ? count / maxCount : 0;
-            let fillColor = '#e8e8e8'; // 默认浅灰色（无数据）
-            let borderColor = '#cccccc';
+            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+            let fillColor = isLight ? '#e2e8f0' : '#e8e8e8'; // 无数据：浅色用浅灰蓝，深色用浅灰
+            let borderColor = isLight ? '#b6c5d4' : '#cccccc';
             let borderWidth = 1;
             
             if (count > 0) {
                 if (intensity > 0.7) {
-                    fillColor = '#ff0040'; // 红色（多）
-                    borderColor = '#cc0033';
+                    fillColor = isLight ? '#d92d20' : '#ff0040'; // 红色（多）
+                    borderColor = isLight ? '#a91610' : '#cc0033';
                     borderWidth = 2;
                 } else if (intensity > 0.4) {
-                    fillColor = '#ff6600'; // 橙红色
-                    borderColor = '#cc5200';
+                    fillColor = isLight ? '#d9700f' : '#ff6600'; // 橙红色
+                    borderColor = isLight ? '#a35309' : '#cc5200';
                     borderWidth = 2;
                 } else if (intensity > 0.2) {
-                    fillColor = '#ffaa00'; // 橙色（中）
-                    borderColor = '#cc8800';
+                    fillColor = isLight ? '#c77d00' : '#ffaa00'; // 橙色（中）
+                    borderColor = isLight ? '#965d00' : '#cc8800';
                     borderWidth = 2;
                 } else {
-                    fillColor = '#00ff41'; // 绿色（少）
-                    borderColor = '#00cc33';
+                    fillColor = isLight ? '#15803d' : '#00ff41'; // 绿色（少）
+                    borderColor = isLight ? '#0f5c2c' : '#00cc33';
                     borderWidth = 2;
                 }
             }
@@ -3231,9 +3437,9 @@ Respond in English.`;
                     // 添加弹出窗口（确保显示数量，即使为0）
                     layer.bindPopup(`
                         <div style="text-align: center;">
-                            <strong style="color: #4dd0e1; font-size:0.875rem;">${stateName}</strong><br/>
-                            <span style="color: ${count > 0 ? '#66bb6a' : '#888'}; font-size: 16px; font-weight: bold;">${count}</span><br/>
-                            <span style="color: #888; font-size:0.75rem;">Incidents</span>
+                            <strong style="color: var(--text-primary); font-size:0.875rem;">${stateName}</strong><br/>
+                            <span style="color: ${count > 0 ? 'var(--text-secondary)' : 'var(--ioc-slate-500)'}; font-size: 16px; font-weight: bold;">${count}</span><br/>
+                            <span style="color: var(--ioc-slate-500); font-size:0.75rem;">Incidents</span>
                         </div>
                     `);
 
@@ -3300,8 +3506,8 @@ Respond in English.`;
             if (count > 0 && liberiaStateBoundaries[stateName]) {
                 const boundary = liberiaStateBoundaries[stateName];
                 const labelHtml = `<div style="text-align: center; line-height: 1.2; background: transparent !important; background-color: transparent !important; border: none !important;">
-                    <div style="font-size:0.688rem; color: #4dd0e1; font-weight: bold; background: transparent !important; background-color: transparent !important; text-shadow: 0 0 3px rgba(0, 0, 0, 0.8), 0 0 6px rgba(0, 0, 0, 0.6);">${stateName}</div>
-                    <div style="font-size:0.812rem; color: ${fillColor}; font-weight: bold; background: transparent !important; background-color: transparent !important; text-shadow: 0 0 3px rgba(0, 0, 0, 0.8), 0 0 6px rgba(0, 0, 0, 0.6);">${count}</div>
+                    <div style="font-size:0.688rem; color: var(--text-primary); font-weight: bold; background: transparent !important; background-color: transparent !important; text-shadow: inherit;">${stateName}</div>
+                    <div style="font-size:0.812rem; color: ${fillColor}; font-weight: bold; background: transparent !important; background-color: transparent !important; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 3px rgba(0, 0, 0, 0.25);">${count}</div>
                 </div>`;
                 
                 const labelMarker = L.marker(boundary.center, {
@@ -3377,7 +3583,7 @@ Respond in English.`;
             .slice(0, 10); // 只显示前10个
 
         if (sortedStates.length === 0) {
-            legendContainer.innerHTML = '<p class="text-slate-400 text-[12px]">No data available</p>';
+            legendContainer.innerHTML = '<p class="text-[var(--ioc-slate-400)] text-[12px]">No data available</p>';
             return;
         }
 
@@ -3386,20 +3592,21 @@ Respond in English.`;
 
         sortedStates.forEach(([state, count]) => {
             const intensity = count / maxCount;
-            let color = '#00ff41';
+            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+            let color = isLight ? '#15803d' : '#00ff41';
             if (intensity > 0.7) {
-                color = '#ff0040';
+                color = isLight ? '#d92d20' : '#ff0040';
             } else if (intensity > 0.4) {
-                color = '#ffaa00';
+                color = isLight ? '#c77d00' : '#ffaa00';
             } else if (intensity > 0.2) {
-                color = '#ff6600';
+                color = isLight ? '#d9700f' : '#ff6600';
             }
 
             // 如果这个州被选中，添加高亮样式
             const isSelected = selectedStateForFilter === state;
-            const borderStyle = isSelected ? 'border-cyan-500 border-2' : 'border-white/10';
-            const bgStyle = isSelected ? 'bg-cyan-500/20' : 'bg-white/5';
-            const cursorStyle = 'cursor-pointer hover:bg-white/10 transition-colors';
+            const borderStyle = isSelected ? 'border-cyan-500 border-2' : 'border-[var(--ioc-input-border)]';
+            const bgStyle = isSelected ? 'bg-cyan-500/20' : 'bg-[var(--ioc-chip)]';
+            const cursorStyle = 'cursor-pointer hover:bg-[var(--ioc-chip-hover)] transition-colors';
             // 转义州名中的单引号，避免onclick中的语法错误
             const escapedState = state.replace(/'/g, "\\'");
 
@@ -3409,7 +3616,7 @@ Respond in English.`;
                      data-legend-state="${state.replace(/"/g, '&quot;')}"
                      title="点击过滤 ${state.replace(/"/g, '&quot;')} 的数据">
                     <div class="w-3 h-3 rounded-full" style="background-color: ${color};"></div>
-                    <span class="text-white font-semibold">${state}:</span>
+                    <span class="text-[var(--ioc-text-strong)] font-semibold">${state}:</span>
                     <span class="text-[var(--text-primary)] font-bold">${count}</span>
                 </div>
             `;
@@ -3451,11 +3658,11 @@ Respond in English.`;
                 const isSelected = selectedStateForFilter === stateName;
                 
                 if (isSelected) {
-                    item.classList.remove('border-white/10', 'bg-white/5');
+                    item.classList.remove('border-[var(--ioc-input-border)]', 'bg-[var(--ioc-chip)]');
                     item.classList.add('border-cyan-500', 'border-2', 'bg-cyan-500/20');
                 } else {
                     item.classList.remove('border-cyan-500', 'border-2', 'bg-cyan-500/20');
-                    item.classList.add('border-white/10', 'bg-white/5');
+                    item.classList.add('border-[var(--ioc-input-border)]', 'bg-[var(--ioc-chip)]');
                 }
             });
         }
@@ -3514,10 +3721,10 @@ Respond in English.`;
                                 } else if (keys[index] === 'lt50') {
                                     div.className = `${baseClasses} ${isSelected ? 'bg-emerald-500/40 text-emerald-300 border-emerald-400' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'}`;
                                 } else if (keys[index] === 'lt25') {
-                                    div.className = `${baseClasses} ${isSelected ? 'bg-emerald-700 text-emerald-200 border-emerald-500' : 'bg-emerald-600 text-white border-emerald-500/30'} shadow-[0_0_10px_rgba(16,185,129,0.3)]`;
+                                    div.className = `${baseClasses} ${isSelected ? 'bg-emerald-700 text-emerald-200 border-emerald-500' : 'bg-emerald-600 text-[var(--ioc-text-strong)] border-emerald-500/30'} shadow-[0_0_10px_rgba(16,185,129,0.3)]`;
                                 }
                             } else {
-                                div.className = `${baseClasses} bg-white/5 text-slate-500 border-white/5`;
+                                div.className = `${baseClasses} bg-[var(--ioc-chip)] text-[var(--ioc-slate-500)] border-[var(--ioc-divider)]`;
                             }
                         }
                     }
@@ -3539,7 +3746,7 @@ Respond in English.`;
 
         dataToShow.forEach((ticket, rowIndex) => {
             const row = document.createElement('tr');
-            row.className = 'hover:bg-white/5 transition-colors table-dark-row';
+            row.className = 'hover:bg-[var(--ioc-chip)] transition-colors table-dark-row';
 
             // 添加序号列
             let cells = `<td class="px-4 py-2.5 font-['Inter'] font-semibold text-[var(--text-primary)] text-[15px]">${rowIndex + 1}</td>`;
@@ -3576,7 +3783,7 @@ Respond in English.`;
                     }
                     // 处理Handler列
                     else if (colLower.includes('handler') || colLower.includes('current handler')) {
-                        cellContent = `<td class="px-3 py-2.5 text-slate-400 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                        cellContent = `<td class="px-3 py-2.5 text-[var(--ioc-slate-400)] font-mono text-[15px]">${escapeHtml(value)}</td>`;
                     }
                     // 处理Title/Description列
                     else if (colLower.includes('title') || colLower.includes('description')) {
@@ -3584,7 +3791,7 @@ Respond in English.`;
                     }
                     // 处理FB_ORG/Domain列
                     else if (colLower.includes('fb_org') || colLower.includes('domain') || colLower.includes('org')) {
-                        cellContent = `<td class="px-3 py-2.5 font-bold text-slate-400 text-[15px]">${escapeHtml(value)}</td>`;
+                        cellContent = `<td class="px-3 py-2.5 font-bold text-[var(--ioc-slate-400)] text-[15px]">${escapeHtml(value)}</td>`;
                     }
                     // 处理数字类型的列
                     else if (typeof value === 'number') {
@@ -3592,7 +3799,7 @@ Respond in English.`;
                     }
                     // 处理时间列
                     else if (colLower.includes('time') || colLower.includes('created') || colLower.includes('occur')) {
-                        cellContent = `<td class="px-3 py-2.5 text-slate-400 font-mono text-[15px]">${escapeHtml(value)}</td>`;
+                        cellContent = `<td class="px-3 py-2.5 text-[var(--ioc-slate-400)] font-mono text-[15px]">${escapeHtml(value)}</td>`;
                     }
                     // 默认样式
                     else {
@@ -4326,7 +4533,7 @@ Respond in English.`;
         const logContent = document.getElementById('assistant-log-content');
         const time = new Date().toLocaleTimeString();
         const colors = {
-            info: 'text-slate-400',
+            info: 'text-[var(--ioc-slate-400)]',
             success: 'text-green-400',
             warning: 'text-amber-400',
             error: 'text-red-400'
@@ -4432,7 +4639,7 @@ Respond in English.`;
             // Clear history records (operation logs)
             const logContent = document.getElementById('assistant-log-content');
             if (logContent) {
-                logContent.innerHTML = '<p class="text-slate-400">Waiting for operations...</p>';
+                logContent.innerHTML = '<p class="text-[var(--ioc-slate-400)]">Waiting for operations...</p>';
             }
             
             // Clear number display (badge and detection count)
@@ -4992,7 +5199,7 @@ Respond in English.`;
                 // 更新按钮样式表示激活状态
                 if (filterBtn) {
                     filterBtn.classList.add('bg-cyan-500/20', 'border-cyan-500/30', 'text-cyan-400');
-                    filterBtn.classList.remove('text-slate-400');
+                    filterBtn.classList.remove('text-[var(--ioc-slate-400)]');
                 }
             } else {
                 searchContainer.classList.add('hidden');
@@ -5005,7 +5212,7 @@ Respond in English.`;
                 // 恢复按钮样式
                 if (filterBtn) {
                     filterBtn.classList.remove('bg-cyan-500/20', 'border-cyan-500/30', 'text-cyan-400');
-                    filterBtn.classList.add('text-slate-400');
+                    filterBtn.classList.add('text-[var(--ioc-slate-400)]');
                 }
             }
         }
@@ -6438,49 +6645,70 @@ Respond in English.`;
                 syncSLAWidthWithSeverity();
             }, 150);
         });
+
+        // ===== my_app 主题切换：更换地图底图并重绘地图/图例配色 =====
+        // head 内同步脚本在 applyTheme 时派发 ioc-theme-change；此处负责需要 JS 重算的部分
+        //（纯 CSS 部分由 [data-theme="light"] 变量块自动生效）。
+        let lastThemeMode = (window.__IOC_THEME && window.__IOC_THEME.get()) || 'dark';
+        document.addEventListener('ioc-theme-change', function (e) {
+            const mode = (e.detail && e.detail.mode) || 'dark';
+            if (mode === lastThemeMode) return;
+            lastThemeMode = mode;
+            try {
+                if (typeof window.__IOC_setMapTheme === 'function') window.__IOC_setMapTheme(mode);
+                // 重绘州区域与图例，使 GeoJSON 填充/边界色按新主题重新计算。
+                // 复用 updateDetails 缓存的最近一次 Incident Log 数据。
+                if (typeof updateLiberiaMap === 'function' && window.__IOC_lastDetails) {
+                    updateLiberiaMap(window.__IOC_lastDetails.rows || []);
+                }
+            } catch (err) { console.warn('theme switch re-render failed:', err); }
+        });
     });
 </script>
-<header class="w-full bg-[#000000] border-b-2 border-[var(--text-primary)]/30 px-8 py-6 flex items-center justify-between sticky top-0 z-50 industrial-border" style="box-shadow: 0 4px 20px rgba(0, 212, 255, 0.2);">
+<header class="w-full bg-[var(--bg-main)] border-b-2 border-[var(--text-primary)]/30 px-5 py-3 flex items-center justify-between sticky top-0 z-50 industrial-border" style="box-shadow: var(--ioc-shadow-cyan);">
 <div class="flex items-center gap-4">
 <div class="shadow-[0_0_15px_rgba(59,130,246,0.3)] inline-block overflow-hidden" style="background-color: var(--corporate-blue);">
 <img src="favicon.ico" alt="Logo" class="w-14 h-14 block"/>
 </div>
 <div>
-<h1 class="text-[24px] font-bold tracking-tight text-white font-['Inter']">OLR INCIDENT DASHBOARD<span class="text-[var(--text-primary)] text-[12px] font-medium" style="color: #00d4ff;">_BY ZTE</span></h1>
-<p id="noc-timestamp" class="text-[12px] text-[#00ff41] font-['Inter'] tracking-wider">NOC Operational Layer // </p>
+<h1 class="text-[24px] font-bold tracking-tight text-[var(--ioc-text-strong)] font-['Inter']">OLR INCIDENT DASHBOARD<span class="text-[var(--text-primary)] text-[12px] font-medium" style="color: var(--text-primary);">_BY ZTE</span></h1>
+<p id="noc-timestamp" class="text-[12px] text-[var(--text-secondary)] font-['Inter'] tracking-wider">NOC Operational Layer // </p>
 </div>
 </div>
 <div class="flex items-center gap-2">
-<div class="flex items-center gap-2 bg-[#1A2234] px-4 py-2 rounded border border-white/5">
+<div class="flex items-center gap-2 bg-[var(--ioc-panel)] px-4 py-2 rounded border border-[var(--ioc-divider)]">
 <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-<span class="text-[14.4px] text-slate-300 font-semibold">Live Monitoring</span>
+<span class="text-[14.4px] text-[var(--ioc-slate-300)] font-semibold">Live Monitoring</span>
 </div>
-<button onclick="loadData()" class="bg-[#1A2234] border border-white/5 hover:bg-[#252D42] p-2 rounded transition-colors text-slate-300">
+<div id="ioc-carousel-btn" role="button" tabindex="0" onclick="toggleAutoScroll()" class="ioc-carousel flex items-center gap-2 bg-[var(--ioc-panel)] px-4 py-2 rounded border border-[var(--ioc-divider)] hover:bg-[var(--ioc-panel-hover)] cursor-pointer select-none transition-colors text-[14.4px] text-[var(--ioc-slate-300)] font-semibold">
+<span class="ico" id="ioc-carousel-ico">▶</span><span id="ioc-carousel-label">Carousel</span>
+</div>
+<button onclick="loadData()" class="bg-[var(--ioc-panel)] border border-[var(--ioc-divider)] hover:bg-[var(--ioc-panel-hover)] p-2 rounded transition-colors text-[var(--ioc-slate-300)]">
 <span class="material-symbols-outlined">refresh</span>
 </button>
 </div>
 </header>
-<main class="p-8 space-y-10 w-full">
-                <div class="flex gap-6 items-start">
-                    <div class="flex-[1] bg-[var(--bg-card)] p-6 rounded-xl border-2 border-[var(--text-primary)]/20 flex flex-col shadow-2xl industrial-border">
+<main class="p-5 space-y-4 w-full">
+                <div class="flex gap-4 items-start">
+                    <div class="flex-[1] bg-[var(--bg-card)] p-4 rounded-xl border-2 border-[var(--text-primary)]/20 flex flex-col shadow-2xl industrial-border">
                         <div class="flex gap-2 flex-1 items-center justify-center">
                             <div class="flex-1 text-center">
                                 <p class="text-[var(--text-primary)]/90 text-[16px] font-semibold mb-1 font-['Inter']">Total</p>
-                                <p class="text-[40px] font-bold text-white font-['Inter']" data-metric="total_incidents">2,045</p>
+                                <p class="text-[40px] font-bold text-[var(--ioc-text-strong)] font-['Inter']" data-metric="total_incidents">2,045</p>
                             </div>
                             <div class="flex-1 bg-emerald-500/10 p-1.5 rounded-lg border border-emerald-500/20 text-center">
                                 <div class="flex items-center justify-center gap-1 mb-0.5">
                                     <span class="material-symbols-outlined text-emerald-500 text-[14.4px]">check_circle</span>
                                     <p class="text-emerald-500 text-[9.6px] font-bold">Closed</p>
                                 </div>
-                                <p class="text-[32px] font-bold text-white font-['Inter']" data-metric="closed">748</p>
+                                <p class="text-[32px] font-bold text-[var(--ioc-text-strong)] font-['Inter']" data-metric="closed">748</p>
                             </div>
                             <div class="flex-1 bg-red-500/10 p-1.5 rounded-lg border border-red-500/20 text-center">
                                 <div class="flex items-center justify-center gap-1 mb-0.5">
                                     <span class="material-symbols-outlined text-red-500 text-[14.4px]">warning</span>
                                     <p class="text-red-500 text-[9.6px] font-bold">Unclosed</p>
                                 </div>
-                                <p class="text-[32px] font-bold text-white font-['Inter']" data-metric="unclosed">1,297</p>
+                                <p class="text-[32px] font-bold text-[var(--ioc-text-strong)] font-['Inter']" data-metric="unclosed">1,297</p>
                             </div>
                         </div>
                     </div>
@@ -6493,9 +6721,9 @@ Respond in English.`;
                         </div>
                         <div class="flex flex-col items-center gap-3 status-line relative z-10">
                             <div class="w-14 h-14 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgba(148, 163, 184, 0.3);">
-                                <span class="text-[24px] font-bold text-slate-300 font-['Inter']" data-status="WaitingConfirm">3</span>
+                                <span class="text-[24px] font-bold text-[var(--ioc-slate-300)] font-['Inter']" data-status="WaitingConfirm">3</span>
                             </div>
-                            <span class="text-[16px] tracking-widest text-slate-300 font-bold font-['Inter']">WaitingConfirm</span>
+                            <span class="text-[16px] tracking-widest text-[var(--ioc-slate-300)] font-bold font-['Inter']">WaitingConfirm</span>
                         </div>
                         <div class="flex flex-col items-center gap-3 status-line relative z-10">
                             <div class="w-14 h-14 rounded-full bg-cyan-900/30 border-2 border-cyan-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 20px rgba(6, 182, 212, 0.6);">
@@ -6523,21 +6751,21 @@ Respond in English.`;
                         </div>
                     </div>
                 </div>
-<div class="flex gap-6 items-stretch h-full" style="min-height: 86.4vh;">
-<div class="flex flex-col h-full" style="flex: 0 0 16.67%; align-self: stretch;" data-ai-analysis-container>
-<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col flex-1 industrial-border" style="min-height: 86.4vh;">
-<div class="bg-gradient-to-r from-purple-500/20 to-blue-500/20 px-4 py-3 border-b border-white/5 flex items-center justify-between gap-2">
+<div class="flex gap-4 items-stretch">
+<div class="flex flex-col relative min-h-0" style="flex: 0 0 16.67%; align-self: stretch;" data-ai-analysis-container>
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col absolute inset-0 industrial-border">
+<div class="bg-gradient-to-r from-purple-500/20 to-blue-500/20 px-4 py-3 border-b border-[var(--ioc-divider)] flex items-center justify-between gap-2">
 <div class="flex items-center gap-2">
 <span class="material-symbols-outlined text-purple-400 text-[28.8px]">psychology</span>
 <span class="text-[26.4px] font-bold text-[var(--text-primary)] tracking-wider font-['Inter']">AI Analysis</span>
 <span id="ai-model-badge" class="text-[12px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">Rule-based</span>
 </div>
-<button onclick="showAIConfig()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors" title="AI配置">
+<button onclick="showAIConfig()" class="p-1.5 hover:bg-[var(--ioc-chip-hover)] text-[var(--ioc-slate-400)] rounded transition-colors" title="AI配置">
 <span class="material-symbols-outlined text-[21.6px]">settings</span>
 </button>
 </div>
-<div class="p-5 flex flex-col flex-1 space-y-4 overflow-y-auto min-h-0">
-<div id="ai-analysis-content" class="space-y-4 text-[16.8px]">
+<div class="p-4 flex flex-col flex-1 space-y-3 overflow-y-auto min-h-0">
+<div id="ai-analysis-content" class="space-y-3 text-[16.8px]">
 <div class="flex items-start gap-3">
 <span class="material-symbols-outlined text-blue-400 text-[21.6px] mt-0.5">insights</span>
 <div>
@@ -6563,22 +6791,22 @@ Respond in English.`;
 </div>
 </div>
 </div>
-                <div class="h-full resizable" style="flex: 1 1 auto; min-height: 95.04vh; position: relative;" data-severity-container>
-                <div class="grid grid-cols-2 grid-rows-2 gap-4 h-full">
+                <div class="h-full resizable" style="flex: 1 1 auto; min-height: 64vh; position: relative;" data-severity-container>
+                <div class="grid grid-cols-2 grid-rows-2 gap-3">
                 <!-- Severity P1 -->
-                <div class="bg-[var(--bg-card)] rounded-xl border-l-4 border-l-red-600 border border-white/5 p-6 flex flex-col glow-red overflow-hidden p1-alert industrial-border">
+                <div class="bg-[var(--bg-card)] rounded-xl border-l-4 border-l-red-600 border border-[var(--ioc-divider)] p-4 flex flex-col glow-red overflow-hidden p1-alert industrial-border">
                 <div class="flex justify-between items-center mb-3">
                 <span class="text-[18px] font-bold text-red-400 tracking-widest bg-red-500/20 px-4 py-2 rounded-full border-2 border-red-500/50 font-['Inter']">Severity P1</span>
                 <span class="material-symbols-outlined text-red-500 text-[24px]">priority_high</span>
                 </div>
                 <div class="flex items-baseline gap-2 mb-3">
-                <p class="text-[42px] font-bold text-white font-['Inter']" data-severity="P1" data-field="total">0</p>
+                <p class="text-[42px] font-bold text-[var(--ioc-text-strong)] font-['Inter']" data-severity="P1" data-field="total">0</p>
                 <p class="text-[11.2px] text-[var(--text-primary)]/90 font-medium font-['Inter']">Tickets</p>
                 </div>
                 <div class="flex-1 overflow-auto">
                 <table class="w-full text-[9.8px] font-['Inter']">
                 <thead>
-                <tr class="text-cyan-400 font-bold border-b border-white/5">
+                <tr class="text-cyan-400 font-bold border-b border-[var(--ioc-divider)]">
                 <th class="text-left py-1.5 text-[14px]">Status</th>
                 <th class="text-center py-1.5 text-[14px]">FO</th>
                 <th class="text-center py-1.5 text-[14px]">BO</th>
@@ -6590,26 +6818,26 @@ Respond in English.`;
                 <th class="text-center py-1.5 text-[14px]">Total</th>
                 </tr>
                 </thead>
-                <tbody class="text-white" id="severity-p1-table">
+                <tbody class="text-[var(--ioc-text-strong)]" id="severity-p1-table">
                 <!-- 数据将由JavaScript动态生成 -->
                 </tbody>
                 </table>
                 </div>
                 </div>
                 <!-- Severity P2 -->
-                <div class="bg-[var(--bg-card)] rounded-xl border-l-4 border-l-orange-500 border border-white/5 p-6 flex flex-col glow-orange overflow-hidden industrial-border">
+                <div class="bg-[var(--bg-card)] rounded-xl border-l-4 border-l-orange-500 border border-[var(--ioc-divider)] p-4 flex flex-col glow-orange overflow-hidden industrial-border">
                 <div class="flex justify-between items-center mb-3">
                 <span class="text-[20px] font-bold text-orange-400 tracking-widest bg-orange-500/20 px-4 py-2 rounded-full border-2 border-orange-500/50 font-['Inter']">Severity P2</span>
                 <span class="material-symbols-outlined text-orange-500 text-[24px]">warning</span>
                 </div>
                 <div class="flex items-baseline gap-2 mb-3">
-                <p class="text-[42px] font-bold text-white font-['Inter']" data-severity="P2" data-field="total">0</p>
+                <p class="text-[42px] font-bold text-[var(--ioc-text-strong)] font-['Inter']" data-severity="P2" data-field="total">0</p>
                 <p class="text-[14px] text-[var(--text-primary)]/90 font-medium font-['Inter']">Tickets</p>
                 </div>
                 <div class="flex-1 overflow-auto">
                 <table class="w-full text-[9.8px] font-['Inter']">
                 <thead>
-                <tr class="text-cyan-400 font-bold border-b border-white/5">
+                <tr class="text-cyan-400 font-bold border-b border-[var(--ioc-divider)]">
                 <th class="text-left py-1.5 text-[14px]">Status</th>
                 <th class="text-center py-1.5 text-[14px]">FO</th>
                 <th class="text-center py-1.5 text-[14px]">BO</th>
@@ -6621,26 +6849,26 @@ Respond in English.`;
                 <th class="text-center py-1.5 text-[14px]">Total</th>
                 </tr>
                 </thead>
-                <tbody class="text-white" id="severity-p2-table">
+                <tbody class="text-[var(--ioc-text-strong)]" id="severity-p2-table">
                 <!-- 数据将由JavaScript动态生成 -->
                 </tbody>
                 </table>
                 </div>
                 </div>
                 <!-- Severity P3 -->
-                <div class="bg-[var(--bg-card)] rounded-xl border-l-4 border-l-amber-400 border border-white/5 p-6 flex flex-col glow-yellow overflow-hidden industrial-border">
+                <div class="bg-[var(--bg-card)] rounded-xl border-l-4 border-l-amber-400 border border-[var(--ioc-divider)] p-4 flex flex-col glow-yellow overflow-hidden industrial-border">
                 <div class="flex justify-between items-center mb-3">
                 <span class="text-[20px] font-bold text-amber-400 tracking-widest bg-amber-500/20 px-4 py-2 rounded-full border-2 border-amber-500/50 font-['Inter']">Severity P3</span>
                 <span class="material-symbols-outlined text-amber-500 text-[24px]">error_outline</span>
                 </div>
                 <div class="flex items-baseline gap-2 mb-3">
-                <p class="text-[42px] font-bold text-white font-['Inter']" data-severity="P3" data-field="total">0</p>
+                <p class="text-[42px] font-bold text-[var(--ioc-text-strong)] font-['Inter']" data-severity="P3" data-field="total">0</p>
                 <p class="text-[14px] text-[var(--text-primary)]/90 font-medium font-['Inter']">Tickets</p>
                 </div>
                 <div class="flex-1 overflow-auto">
                 <table class="w-full text-[9.8px] font-['Inter']">
                 <thead>
-                <tr class="text-cyan-400 font-bold border-b border-white/5">
+                <tr class="text-cyan-400 font-bold border-b border-[var(--ioc-divider)]">
                 <th class="text-left py-1.5 text-[14px]">Status</th>
                 <th class="text-center py-1.5 text-[14px]">FO</th>
                 <th class="text-center py-1.5 text-[14px]">BO</th>
@@ -6652,26 +6880,26 @@ Respond in English.`;
                 <th class="text-center py-1.5 text-[14px]">Total</th>
                 </tr>
                 </thead>
-                <tbody class="text-white" id="severity-p3-table">
+                <tbody class="text-[var(--ioc-text-strong)]" id="severity-p3-table">
                 <!-- 数据将由JavaScript动态生成 -->
                 </tbody>
                 </table>
                 </div>
                 </div>
                 <!-- Severity P4 -->
-                <div class="bg-[var(--bg-card)] rounded-xl border-l-4 border-l-blue-500 border border-white/5 p-6 flex flex-col glow-blue overflow-hidden industrial-border">
+                <div class="bg-[var(--bg-card)] rounded-xl border-l-4 border-l-blue-500 border border-[var(--ioc-divider)] p-4 flex flex-col glow-blue overflow-hidden industrial-border">
                 <div class="flex justify-between items-center mb-3">
                 <span class="text-[20px] font-bold text-blue-400 tracking-widest bg-blue-500/20 px-4 py-2 rounded-full border-2 border-blue-500/50 font-['Inter']">Severity P4</span>
                 <span class="material-symbols-outlined text-blue-500 text-[24px]">info</span>
                 </div>
                 <div class="flex items-baseline gap-2 mb-3">
-                <p class="text-[42px] font-bold text-white font-['Inter']" data-severity="P4" data-field="total">0</p>
+                <p class="text-[42px] font-bold text-[var(--ioc-text-strong)] font-['Inter']" data-severity="P4" data-field="total">0</p>
                 <p class="text-[14px] text-[var(--text-primary)]/90 font-medium font-['Inter']">Tickets</p>
                 </div>
                 <div class="flex-1 overflow-auto">
                 <table class="w-full text-[9.8px] font-['Inter']">
                 <thead>
-                <tr class="text-cyan-400 font-bold border-b border-white/5">
+                <tr class="text-cyan-400 font-bold border-b border-[var(--ioc-divider)]">
                 <th class="text-left py-1.5 text-[14px]">Status</th>
                 <th class="text-center py-1.5 text-[14px]">FO</th>
                 <th class="text-center py-1.5 text-[14px]">BO</th>
@@ -6683,7 +6911,7 @@ Respond in English.`;
                 <th class="text-center py-1.5 text-[14px]">Total</th>
                 </tr>
                 </thead>
-                <tbody class="text-white" id="severity-p4-table">
+                <tbody class="text-[var(--ioc-text-strong)]" id="severity-p4-table">
                 <!-- 数据将由JavaScript动态生成 -->
                 </tbody>
                 </table>
@@ -6696,37 +6924,37 @@ Respond in English.`;
 </div>
 </div>
 <!-- Liberia States Map Component with SLA -->
-<div class="flex gap-4 mb-6 h-full map-container">
+<div class="flex gap-4 h-full map-container">
 <div class="flex-[2] bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl industrial-border map-main-container">
-<div class="px-8 py-6 border-b-2 border-[var(--text-primary)]/20 flex justify-between items-center bg-black/50">
+<div class="px-5 py-3 border-b-2 border-[var(--text-primary)]/20 flex justify-between items-center bg-[var(--ioc-header-bar)]">
 <div class="flex items-center gap-4">
-<h3 class="text-[22px] font-bold text-white tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);">Liberia States Incident Distribution</h3>
+<h3 class="text-[22px] font-bold text-[var(--ioc-text-strong)] tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);">Liberia States Incident Distribution</h3>
 <span class="px-2 py-0.5 rounded bg-green-500/20 text-green-400 text-[12px] font-bold border border-green-500/30" id="map-record-count">0 RECORDS</span>
 </div>
 </div>
-<div class="p-6 flex h-full">
+<div class="p-4 flex h-full map-body">
 <div id="map-legend" class="w-64 mr-4 flex flex-col gap-2 text-[12px] overflow-y-auto"></div>
-<div id="liberia-map" style="flex: 1; width: 100%; background: #0a0a0a; border-radius: 8px; min-height: 400px;"></div>
+<div id="liberia-map" style="flex: 1; width: 100%; background: var(--ioc-map-bg); border-radius: 8px; min-height: 800px;"></div>
 </div>
 </div>
 
 <!-- SLA Components -->
 <div class="resizable" style="flex: 0 0 calc(83.33% * 0.5 - 2rem); align-self: stretch; position: relative;" data-sla-container>
-<div class="flex flex-col w-full gap-2 h-full" style="min-height: 0;">
-<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col industrial-border" data-sla-card="zte" style="flex: 1 1 0; min-height: 0;">
-<div class="bg-white/5 px-6 py-3 border-b border-white/5 flex items-center gap-2">
+<div class="flex flex-col w-full gap-1" style="min-height: 100%;">
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col industrial-border" data-sla-card="zte" style="flex: 1 1 auto;">
+<div class="bg-[var(--ioc-chip)] px-4 py-2 border-b border-[var(--ioc-divider)] flex items-center gap-2">
 <span class="w-2 h-2 rounded-full bg-[var(--corporate-blue)]"></span>
 <span class="text-[18px] font-bold text-[var(--text-primary)] uppercase tracking-wider font-['Inter']">SLA Performance - Vendor ZTE</span>
 </div>
-<div class="p-4 flex flex-col flex-1 min-h-0">
+<div class="p-4 flex flex-col flex-1">
 <div class="flex items-baseline gap-2 mb-3">
-<p class="text-[42px] font-bold text-white font-['Inter']" data-sla-vendor="ZTE" data-field="total">0</p>
+<p class="text-[42px] font-bold text-[var(--ioc-text-strong)] font-['Inter']" data-sla-vendor="ZTE" data-field="total">0</p>
 <p class="text-[14px] text-[var(--text-primary)]/90 font-medium font-['Inter']">Tickets</p>
 </div>
-<div class="flex-1 overflow-auto">
+<div class="flex-1">
 <table class="w-full text-[9.8px] font-['Inter']">
 <thead>
-<tr class="text-cyan-400 font-bold border-b border-white/5">
+<tr class="text-cyan-400 font-bold border-b border-[var(--ioc-divider)]">
 <th class="text-left py-1.5 text-[14px]">SEV</th>
 <th class="text-center py-1.5 text-[14px]">SLA &gt; 100%</th>
 <th class="text-center py-1.5 text-[14px]">SLA &lt; 100%</th>
@@ -6735,14 +6963,14 @@ Respond in English.`;
 <th class="text-center py-1.5 text-[14px]">SLA &lt; 25%</th>
 </tr>
 </thead>
-<tbody class="text-white">
+<tbody class="text-[var(--ioc-text-strong)]">
 <tr>
 <td class="text-left py-2 font-bold">P1</td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="gt100" onclick="filterBySLACell('P1', 'gt100')" class="inline-block px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-[14px] font-bold border border-red-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt100" onclick="filterBySLACell('P1', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt75" onclick="filterBySLACell('P1', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt50" onclick="filterBySLACell('P1', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
-<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt25" onclick="filterBySLACell('P1', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt25" onclick="filterBySLACell('P1', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-[var(--ioc-text-strong)] text-[14px] font-bold cursor-pointer">0</div></td>
 </tr>
 <tr>
 <td class="text-left py-2 font-bold">P2</td>
@@ -6750,7 +6978,7 @@ Respond in English.`;
 <td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt100" onclick="filterBySLACell('P2', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt75" onclick="filterBySLACell('P2', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt50" onclick="filterBySLACell('P2', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
-<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt25" onclick="filterBySLACell('P2', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt25" onclick="filterBySLACell('P2', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-[var(--ioc-text-strong)] text-[14px] font-bold cursor-pointer">0</div></td>
 </tr>
 <tr>
 <td class="text-left py-2 font-bold">P3</td>
@@ -6758,7 +6986,7 @@ Respond in English.`;
 <td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt100" onclick="filterBySLACell('P3', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt75" onclick="filterBySLACell('P3', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt50" onclick="filterBySLACell('P3', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
-<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt25" onclick="filterBySLACell('P3', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt25" onclick="filterBySLACell('P3', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-[var(--ioc-text-strong)] text-[14px] font-bold cursor-pointer">0</div></td>
 </tr>
 <tr>
 <td class="text-left py-2 font-bold">P4</td>
@@ -6766,28 +6994,28 @@ Respond in English.`;
 <td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt100" onclick="filterBySLACell('P4', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt75" onclick="filterBySLACell('P4', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt50" onclick="filterBySLACell('P4', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
-<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt25" onclick="filterBySLACell('P4', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt25" onclick="filterBySLACell('P4', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-[var(--ioc-text-strong)] text-[14px] font-bold cursor-pointer">0</div></td>
 </tr>
 </tbody>
 </table>
 </div>
 </div>
 </div>
-<div class="sla-resize-divider" style="height: 10px; background: rgba(59, 130, 246, 0.3); cursor: row-resize; position: relative; flex-shrink: 0; transition: background 0.2s; margin:0.375rem 0; border-radius: 4px; z-index: 100; pointer-events: auto; user-select: none; -webkit-user-select: none;"></div>
-<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col industrial-border" data-sla-card="3rd" style="flex: 1 1 0; min-height: 0;">
-<div class="bg-white/5 px-6 py-3 border-b border-white/5 flex items-center gap-2">
+<div class="sla-resize-divider" style="height: 10px; background: rgba(59, 130, 246, 0.3); cursor: row-resize; position: relative; flex-shrink: 0; transition: background 0.2s; margin:0; border-radius: 4px; z-index: 100; pointer-events: auto; user-select: none; -webkit-user-select: none;"></div>
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col industrial-border" data-sla-card="3rd" style="flex: 1 1 auto;">
+<div class="bg-[var(--ioc-chip)] px-4 py-2 border-b border-[var(--ioc-divider)] flex items-center gap-2">
 <span class="w-2 h-2 rounded-full bg-slate-500"></span>
 <span class="text-[18px] font-bold text-[var(--text-primary)] uppercase tracking-wider font-['Inter']">SLA Performance - Vendor 3rd</span>
 </div>
-<div class="p-4 flex flex-col flex-1 min-h-0">
+<div class="p-4 flex flex-col flex-1">
 <div class="flex items-baseline gap-2 mb-3">
-<p class="text-[42px] font-bold text-white font-['Inter']" data-sla-vendor="3rd" data-field="total">0</p>
+<p class="text-[42px] font-bold text-[var(--ioc-text-strong)] font-['Inter']" data-sla-vendor="3rd" data-field="total">0</p>
 <p class="text-[14px] text-[var(--text-primary)]/90 font-medium font-['Inter']">Tickets</p>
 </div>
-<div class="flex-1 overflow-auto">
+<div class="flex-1">
 <table class="w-full text-[9.8px] font-['Inter']">
 <thead>
-<tr class="text-cyan-400 font-bold border-b border-white/5">
+<tr class="text-cyan-400 font-bold border-b border-[var(--ioc-divider)]">
 <th class="text-left py-1.5 text-[14px]">SEV</th>
 <th class="text-center py-1.5 text-[14px]">SLA &gt; 100%</th>
 <th class="text-center py-1.5 text-[14px]">SLA &lt; 100%</th>
@@ -6796,14 +7024,14 @@ Respond in English.`;
 <th class="text-center py-1.5 text-[14px]">SLA &lt; 25%</th>
 </tr>
 </thead>
-<tbody class="text-white">
+<tbody class="text-[var(--ioc-text-strong)]">
 <tr>
 <td class="text-left py-2 font-bold">P1</td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="gt100" onclick="filterBySLACell('P1', 'gt100')" class="inline-block px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-[14px] font-bold border border-red-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt100" onclick="filterBySLACell('P1', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt75" onclick="filterBySLACell('P1', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt50" onclick="filterBySLACell('P1', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
-<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt25" onclick="filterBySLACell('P1', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P1" data-sla-range="lt25" onclick="filterBySLACell('P1', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-[var(--ioc-text-strong)] text-[14px] font-bold cursor-pointer">0</div></td>
 </tr>
 <tr>
 <td class="text-left py-2 font-bold">P2</td>
@@ -6811,7 +7039,7 @@ Respond in English.`;
 <td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt100" onclick="filterBySLACell('P2', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt75" onclick="filterBySLACell('P2', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt50" onclick="filterBySLACell('P2', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
-<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt25" onclick="filterBySLACell('P2', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P2" data-sla-range="lt25" onclick="filterBySLACell('P2', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-[var(--ioc-text-strong)] text-[14px] font-bold cursor-pointer">0</div></td>
 </tr>
 <tr>
 <td class="text-left py-2 font-bold">P3</td>
@@ -6819,7 +7047,7 @@ Respond in English.`;
 <td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt100" onclick="filterBySLACell('P3', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt75" onclick="filterBySLACell('P3', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt50" onclick="filterBySLACell('P3', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
-<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt25" onclick="filterBySLACell('P3', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P3" data-sla-range="lt25" onclick="filterBySLACell('P3', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-[var(--ioc-text-strong)] text-[14px] font-bold cursor-pointer">0</div></td>
 </tr>
 <tr>
 <td class="text-left py-2 font-bold">P4</td>
@@ -6827,7 +7055,7 @@ Respond in English.`;
 <td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt100" onclick="filterBySLACell('P4', 'lt100')" class="inline-block px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 text-[14px] font-bold border border-orange-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt75" onclick="filterBySLACell('P4', 'lt75')" class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[14px] font-bold border border-amber-500/30 cursor-pointer">0</div></td>
 <td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt50" onclick="filterBySLACell('P4', 'lt50')" class="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[14px] font-bold border border-emerald-500/30 cursor-pointer">0</div></td>
-<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt25" onclick="filterBySLACell('P4', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold cursor-pointer">0</div></td>
+<td class="text-center py-2"><div data-clickable="true" data-severity="P4" data-sla-range="lt25" onclick="filterBySLACell('P4', 'lt25')" class="inline-block px-3 py-1 rounded-full bg-emerald-600 text-[var(--ioc-text-strong)] text-[14px] font-bold cursor-pointer">0</div></td>
 </tr>
 </tbody>
 </table>
@@ -6841,33 +7069,33 @@ Respond in English.`;
 </div>
 </div>
 <div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl w-full industrial-border" data-details-container>
-<div class="px-8 py-6 border-b-2 border-[var(--text-primary)]/20 flex justify-between items-center bg-black/50">
+<div class="px-5 py-3 border-b-2 border-[var(--text-primary)]/20 flex justify-between items-center bg-[var(--ioc-header-bar)]">
 <div class="flex items-center gap-4">
-<h3 class="text-[22px] font-bold text-white tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);">Active Incident Log(SLA>50%)</h3>
+<h3 class="text-[22px] font-bold text-[var(--ioc-text-strong)] tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);">Active Incident Log(SLA>50%)</h3>
 <span class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[12px] font-bold border border-blue-500/30" id="details-record-count">26 RECORDS</span>
 </div>
 <div class="flex gap-2 items-center">
                         <div id="filter-search-container" class="hidden flex items-center gap-2">
                             <input type="text" id="filter-search-input" placeholder="输入关键词进行模糊搜索..."
-                                class="bg-[#1A2234] border border-white/10 rounded px-3 py-1.5 text-slate-300 placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 text-[13px] w-64 transition-all"
+                                class="bg-[var(--ioc-panel)] border border-[var(--ioc-input-border)] rounded px-3 py-1.5 text-[var(--ioc-slate-300)] placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 text-[13px] w-64 transition-all"
                                 oninput="applyFilter()"
                                 onkeydown="if(event.key === 'Escape') toggleFilter()">
-                            <button onclick="clearFilter()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors border border-white/10 bg-white/5" title="清除筛选">
+                            <button onclick="clearFilter()" class="p-1.5 hover:bg-[var(--ioc-chip-hover)] text-[var(--ioc-slate-400)] rounded transition-colors border border-[var(--ioc-input-border)] bg-[var(--ioc-chip)]" title="清除筛选">
                                 <span class="material-symbols-outlined text-[11.76px]">close</span>
                             </button>
                         </div>
-                        <button onclick="toggleFilter()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors border border-white/10 bg-white/5" title="筛选" id="filter-toggle-btn">
+                        <button onclick="toggleFilter()" class="p-1.5 hover:bg-[var(--ioc-chip-hover)] text-[var(--ioc-slate-400)] rounded transition-colors border border-[var(--ioc-input-border)] bg-[var(--ioc-chip)]" title="筛选" id="filter-toggle-btn">
                             <span class="material-symbols-outlined text-[11.76px]">filter_alt</span>
                         </button>
-                        <button onclick="exportData()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors border border-white/10 bg-white/5" title="导出">
+                        <button onclick="exportData()" class="p-1.5 hover:bg-[var(--ioc-chip-hover)] text-[var(--ioc-slate-400)] rounded transition-colors border border-[var(--ioc-input-border)] bg-[var(--ioc-chip)]" title="导出">
                             <span class="material-symbols-outlined text-[11.76px]">download</span>
                         </button>
 </div>
 </div>
 <div class="overflow-x-auto max-h-[450px] w-full" style="position: relative;">
 <table class="min-w-full text-left text-[15px] whitespace-nowrap font-['Inter']" style="table-layout: auto;">
-<thead class="bg-black/80 sticky top-0 z-10 border-b-2 border-[var(--text-primary)]/30" style="backdrop-filter: blur(10px);">
-                        <tr class="text-slate-500 font-bold" id="details-header">
+<thead class="bg-[var(--bg-card)] sticky top-0 z-10 border-b-2 border-[var(--text-primary)]/30" style="backdrop-filter: blur(10px);">
+                        <tr class="text-[var(--ioc-slate-500)] font-bold" id="details-header">
                             <!-- 表头将由JavaScript动态生成 -->
                         </tr>
 </thead>
@@ -6876,45 +7104,45 @@ Respond in English.`;
                         </tbody>
 </table>
 </div>
-<div class="px-6 py-4 bg-white/5 border-t border-white/5 flex items-center justify-between">
-<p class="text-[12px] text-slate-500 uppercase font-bold tracking-tight">Viewing 4 of 26 operational incidents</p>
+<div class="px-6 py-4 bg-[var(--ioc-chip)] border-t border-[var(--ioc-divider)] flex items-center justify-between">
+<p class="text-[12px] text-[var(--ioc-slate-500)] uppercase font-bold tracking-tight">Viewing 4 of 26 operational incidents</p>
 <div class="flex items-center gap-1">
-<button class="w-8 h-8 rounded border border-white/10 flex items-center justify-center text-slate-500 hover:bg-white/10 hover:text-white transition-colors"><span class="material-symbols-outlined text-[11.76px]">chevron_left</span></button>
-<div class="px-3 py-1 bg-[var(--corporate-blue)] text-white rounded text-[14.4px] font-bold shadow-[0_0_10px_rgba(59,130,246,0.4)]">1</div>
-<button class="w-8 h-8 rounded border border-white/10 flex items-center justify-center text-slate-500 hover:bg-white/10 hover:text-white transition-colors"><span class="material-symbols-outlined text-[11.76px]">chevron_right</span></button>
+<button class="w-8 h-8 rounded border border-[var(--ioc-input-border)] flex items-center justify-center text-[var(--ioc-slate-500)] hover:bg-[var(--ioc-chip-hover)] hover:text-[var(--ioc-text-strong)] transition-colors"><span class="material-symbols-outlined text-[11.76px]">chevron_left</span></button>
+<div class="px-3 py-1 bg-[var(--corporate-blue)] text-[var(--ioc-text-strong)] rounded text-[14.4px] font-bold shadow-[0_0_10px_rgba(59,130,246,0.4)]">1</div>
+<button class="w-8 h-8 rounded border border-[var(--ioc-input-border)] flex items-center justify-center text-[var(--ioc-slate-500)] hover:bg-[var(--ioc-chip-hover)] hover:text-[var(--ioc-text-strong)] transition-colors"><span class="material-symbols-outlined text-[11.76px]">chevron_right</span></button>
 </div>
 </div>
 </div>
 
 <!-- Incident Log Component -->
-<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl w-full industrial-border mt-6" data-incident-log-container>
-<div class="px-8 py-6 border-b-2 border-[var(--text-primary)]/20 flex justify-between items-center bg-black/50">
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl w-full industrial-border" data-incident-log-container>
+<div class="px-5 py-3 border-b-2 border-[var(--text-primary)]/20 flex justify-between items-center bg-[var(--ioc-header-bar)]">
 <div class="flex items-center gap-4">
-<h3 class="text-[22px] font-bold text-white tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);">Incident Log</h3>
+<h3 class="text-[22px] font-bold text-[var(--ioc-text-strong)] tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);">Incident Log</h3>
 <span class="px-2 py-0.5 rounded bg-green-500/20 text-green-400 text-[12px] font-bold border border-green-500/30" id="incident-log-record-count">0 RECORDS</span>
 </div>
 <div class="flex gap-2 items-center">
                         <div id="incident-log-filter-search-container" class="hidden flex items-center gap-2">
                             <input type="text" id="incident-log-filter-search-input" placeholder="输入关键词进行模糊搜索..."
-                                class="bg-[#1A2234] border border-white/10 rounded px-3 py-1.5 text-slate-300 placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 text-[13px] w-64 transition-all"
+                                class="bg-[var(--ioc-panel)] border border-[var(--ioc-input-border)] rounded px-3 py-1.5 text-[var(--ioc-slate-300)] placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 text-[13px] w-64 transition-all"
                                 oninput="applyIncidentLogFilter()"
                                 onkeydown="if(event.key === 'Escape') toggleIncidentLogFilter()">
-                            <button onclick="clearIncidentLogFilter()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors border border-white/10 bg-white/5" title="清除筛选">
+                            <button onclick="clearIncidentLogFilter()" class="p-1.5 hover:bg-[var(--ioc-chip-hover)] text-[var(--ioc-slate-400)] rounded transition-colors border border-[var(--ioc-input-border)] bg-[var(--ioc-chip)]" title="清除筛选">
                                 <span class="material-symbols-outlined text-[11.76px]">close</span>
                             </button>
                         </div>
-                        <button onclick="toggleIncidentLogFilter()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors border border-white/10 bg-white/5" title="筛选" id="incident-log-filter-toggle-btn">
+                        <button onclick="toggleIncidentLogFilter()" class="p-1.5 hover:bg-[var(--ioc-chip-hover)] text-[var(--ioc-slate-400)] rounded transition-colors border border-[var(--ioc-input-border)] bg-[var(--ioc-chip)]" title="筛选" id="incident-log-filter-toggle-btn">
                             <span class="material-symbols-outlined text-[11.76px]">filter_alt</span>
                         </button>
-                        <button onclick="downloadIncidentLogData()" class="p-1.5 hover:bg-white/10 text-slate-400 rounded transition-colors border border-white/10 bg-white/5" title="下载全部数据">
+                        <button onclick="downloadIncidentLogData()" class="p-1.5 hover:bg-[var(--ioc-chip-hover)] text-[var(--ioc-slate-400)] rounded transition-colors border border-[var(--ioc-input-border)] bg-[var(--ioc-chip)]" title="下载全部数据">
                             <span class="material-symbols-outlined text-[11.76px]">download</span>
                         </button>
 </div>
 </div>
 <div class="overflow-x-auto max-h-[450px] w-full" style="position: relative; overflow-y: auto;" data-incident-log-scroll>
 <table class="min-w-full text-left text-[15px] whitespace-nowrap font-['Inter']" style="table-layout: auto;">
-<thead class="bg-black/80 sticky top-0 z-10 border-b-2 border-[var(--text-primary)]/30" style="backdrop-filter: blur(10px);">
-                        <tr class="text-slate-500 font-bold" id="incident-log-header">
+<thead class="bg-[var(--bg-card)] sticky top-0 z-10 border-b-2 border-[var(--text-primary)]/30" style="backdrop-filter: blur(10px);">
+                        <tr class="text-[var(--ioc-slate-500)] font-bold" id="incident-log-header">
                             <!-- 表头将由JavaScript动态生成 -->
                         </tr>
 </thead>
@@ -6924,31 +7152,31 @@ Respond in English.`;
 </table>
 <div id="incident-log-sentinel" style="height:2px;min-height:2px;visibility:hidden;pointer-events:none" aria-hidden="true"></div>
 </div>
-<div class="px-6 py-4 bg-white/5 border-t border-white/5 flex items-center justify-between">
-<p class="text-[12px] text-slate-500 uppercase font-bold tracking-tight">Viewing 0 of 0 incidents</p>
+<div class="px-6 py-4 bg-[var(--ioc-chip)] border-t border-[var(--ioc-divider)] flex items-center justify-between">
+<p class="text-[12px] text-[var(--ioc-slate-500)] uppercase font-bold tracking-tight">Viewing 0 of 0 incidents</p>
 <div class="flex items-center gap-2">
 <button type="button" id="incident-log-load-more-btn" class="hidden px-4 py-2 rounded border border-cyan-500/50 bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 text-[12px] font-bold transition-colors" onclick="loadMoreIncidentLogData()">Loading More</button>
 <div class="flex items-center gap-1">
-<button class="w-8 h-8 rounded border border-white/10 flex items-center justify-center text-slate-500 hover:bg-white/10 hover:text-white transition-colors"><span class="material-symbols-outlined text-[11.76px]">chevron_left</span></button>
-<div class="px-3 py-1 bg-[var(--corporate-blue)] text-white rounded text-[14.4px] font-bold shadow-[0_0_10px_rgba(59,130,246,0.4)]">1</div>
-<button class="w-8 h-8 rounded border border-white/10 flex items-center justify-center text-slate-500 hover:bg-white/10 hover:text-white transition-colors"><span class="material-symbols-outlined text-[11.76px]">chevron_right</span></button>
+<button class="w-8 h-8 rounded border border-[var(--ioc-input-border)] flex items-center justify-center text-[var(--ioc-slate-500)] hover:bg-[var(--ioc-chip-hover)] hover:text-[var(--ioc-text-strong)] transition-colors"><span class="material-symbols-outlined text-[11.76px]">chevron_left</span></button>
+<div class="px-3 py-1 bg-[var(--corporate-blue)] text-[var(--ioc-text-strong)] rounded text-[14.4px] font-bold shadow-[0_0_10px_rgba(59,130,246,0.4)]">1</div>
+<button class="w-8 h-8 rounded border border-[var(--ioc-input-border)] flex items-center justify-center text-[var(--ioc-slate-500)] hover:bg-[var(--ioc-chip-hover)] hover:text-[var(--ioc-text-strong)] transition-colors"><span class="material-symbols-outlined text-[11.76px]">chevron_right</span></button>
 </div>
 </div>
 </div>
 </main>
 <!-- AI配置对话框 -->
 <div id="ai-config-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-<div class="bg-[var(--bg-card)] rounded-xl border border-white/5 p-6 max-w-md w-full mx-4 shadow-2xl">
+<div class="bg-[var(--bg-card)] rounded-xl border border-[var(--ioc-divider)] p-6 max-w-md w-full mx-4 shadow-2xl">
 <div class="flex items-center justify-between mb-4">
-<h3 class="text-[18px] font-bold text-white">AI模型配置</h3>
-<button onclick="hideAIConfig()" class="text-slate-400 hover:text-white">
+<h3 class="text-[18px] font-bold text-[var(--ioc-text-strong)]">AI模型配置</h3>
+<button onclick="hideAIConfig()" class="text-[var(--ioc-slate-400)] hover:text-[var(--ioc-text-strong)]">
 <span class="material-symbols-outlined">close</span>
 </button>
 </div>
 <div class="space-y-4">
 <div>
-<label class="block text-[14px] text-slate-300 mb-2">选择AI模型</label>
-<select id="ai-model-select" class="w-full bg-[#1A2234] border border-white/10 rounded px-3 py-2 text-slate-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50" onchange="toggleDoubaoModel()">
+<label class="block text-[14px] text-[var(--ioc-slate-300)] mb-2">选择AI模型</label>
+<select id="ai-model-select" class="w-full bg-[var(--ioc-panel)] border border-[var(--ioc-input-border)] rounded px-3 py-2 text-[var(--ioc-slate-300)] focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50" onchange="toggleDoubaoModel()">
 <option value="rule-based">规则生成 (Rule-based)</option>
 <option value="openai">OpenAI GPT</option>
 <option value="gemini">Google Gemini</option>
@@ -6956,11 +7184,12 @@ Respond in English.`;
 <option value="qianwen">通义千问 (Qianwen)</option>
 <option value="glm-coding">GLM Coding</option>
 <option value="deepseek">DeepSeek</option>
+<option value="agnes">Agnes 2.5 Flash</option>
 </select>
 </div>
 <div id="doubao-model-container" class="hidden">
-<label class="block text-[14px] text-slate-300 mb-2">豆包模型</label>
-<select id="doubao-model-select" class="w-full bg-[#1A2234] border border-white/10 rounded px-3 py-2 text-slate-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50">
+<label class="block text-[14px] text-[var(--ioc-slate-300)] mb-2">豆包模型</label>
+<select id="doubao-model-select" class="w-full bg-[var(--ioc-panel)] border border-[var(--ioc-input-border)] rounded px-3 py-2 text-[var(--ioc-slate-300)] focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50">
 <option value="doubao-seed-1-8-251228">Doubao Seed 1.8 (doubao-seed-1-8-251228)</option>
 <option value="doubao-seed-1-6-flash-250828">Doubao Flash (doubao-seed-1-6-flash-250828)</option>
 <option value="doubao-1-5-pro-32k-250115">Doubao Pro 32k (doubao-1-5-pro-32k-250115)</option>
@@ -6968,13 +7197,13 @@ Respond in English.`;
 </select>
 </div>
 <div>
-<label class="block text-[14px] text-slate-300 mb-2">API密钥</label>
-<input type="password" id="ai-api-key-input" placeholder="输入API密钥..." class="w-full bg-[#1A2234] border border-white/10 rounded px-3 py-2 text-slate-300 placeholder-slate-500 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50" />
-<p class="text-[12px] text-slate-500 mt-1">密钥仅存储在本地浏览器，不会上传到服务器</p>
+<label class="block text-[14px] text-[var(--ioc-slate-300)] mb-2">API密钥</label>
+<input type="password" id="ai-api-key-input" placeholder="输入API密钥..." class="w-full bg-[var(--ioc-panel)] border border-[var(--ioc-input-border)] rounded px-3 py-2 text-[var(--ioc-slate-300)] placeholder-slate-500 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50" />
+<p class="text-[12px] text-[var(--ioc-slate-500)] mt-1">密钥仅存储在本地浏览器，不会上传到服务器</p>
 </div>
 <div class="flex gap-2 pt-2">
 <button onclick="saveAIConfig()" class="flex-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 px-4 py-2 rounded border border-purple-500/30 transition-colors font-semibold">保存配置</button>
-<button onclick="hideAIConfig()" class="px-4 py-2 text-slate-400 hover:text-slate-300 transition-colors">取消</button>
+<button onclick="hideAIConfig()" class="px-4 py-2 text-[var(--ioc-slate-400)] hover:text-[var(--ioc-slate-300)] transition-colors">取消</button>
 </div>
 </div>
 </div>
@@ -6983,25 +7212,25 @@ Respond in English.`;
 <div id="virtual-assistant" class="fixed bottom-6 right-6 z-50">
     <!-- Floating Button -->
     <button id="assistant-toggle-btn" onclick="toggleAssistantPanel()" class="w-7 h-7 rounded-full bg-gradient-to-r from-purple-500 to-blue-500 shadow-lg hover:shadow-xl transition-all flex items-center justify-center group" title="Virtual Assistant">
-        <span class="material-symbols-outlined text-white text-[14px]">smart_toy</span>
-        <span id="assistant-badge" class="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center text-white text-[8px] font-bold hidden">0</span>
+        <span class="material-symbols-outlined text-[var(--ioc-text-strong)] text-[14px]">smart_toy</span>
+        <span id="assistant-badge" class="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center text-[var(--ioc-text-strong)] text-[8px] font-bold hidden">0</span>
     </button>
     
     <!-- Assistant Panel -->
     <div id="assistant-panel" class="hidden absolute bottom-20 right-0 w-96 bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 shadow-2xl overflow-hidden">
-        <div class="bg-gradient-to-r from-purple-500/20 to-blue-500/20 px-4 py-3 border-b border-white/5 flex items-center justify-between">
+        <div class="bg-gradient-to-r from-purple-500/20 to-blue-500/20 px-4 py-3 border-b border-[var(--ioc-divider)] flex items-center justify-between">
             <div class="flex items-center gap-2">
                 <span class="material-symbols-outlined text-purple-400 text-[24px]">smart_toy</span>
-                <h3 class="text-[18px] font-bold text-white">Virtual Assistant</h3>
+                <h3 class="text-[18px] font-bold text-[var(--ioc-text-strong)]">Virtual Assistant</h3>
             </div>
-            <button onclick="toggleAssistantPanel()" class="text-slate-400 hover:text-white">
+            <button onclick="toggleAssistantPanel()" class="text-[var(--ioc-slate-400)] hover:text-[var(--ioc-text-strong)]">
                 <span class="material-symbols-outlined">close</span>
             </button>
         </div>
         <div class="p-4 max-h-[500px] overflow-y-auto">
             <div id="assistant-status" class="mb-4">
-                <p class="text-[14px] text-slate-300 mb-2">Monitoring Status: <span id="monitor-status" class="text-green-400">Running</span></p>
-                <p class="text-[12px] text-slate-500">Detected <span id="detected-count" class="text-cyan-400 font-bold">0</span> records requiring processing</p>
+                <p class="text-[14px] text-[var(--ioc-slate-300)] mb-2">Monitoring Status: <span id="monitor-status" class="text-green-400">Running</span></p>
+                <p class="text-[12px] text-[var(--ioc-slate-500)]">Detected <span id="detected-count" class="text-cyan-400 font-bold">0</span> records requiring processing</p>
             </div>
             <div id="assistant-actions" class="space-y-2">
                 <button onclick="checkAndNotify3rdPower()" class="w-full bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 px-4 py-2 rounded border border-cyan-500/30 transition-colors font-semibold text-[14px]">
@@ -7018,8 +7247,8 @@ Respond in English.`;
                 </button>
             </div>
             <div id="assistant-logs" class="mt-4 space-y-2 max-h-[200px] overflow-y-auto">
-                <p class="text-[12px] text-slate-500 font-semibold">Operation Log:</p>
-                <div id="assistant-log-content" class="space-y-1 text-[11px] text-slate-400">
+                <p class="text-[12px] text-[var(--ioc-slate-500)] font-semibold">Operation Log:</p>
+                <div id="assistant-log-content" class="space-y-1 text-[11px] text-[var(--ioc-slate-400)]">
                     <p>Waiting for operations...</p>
                 </div>
             </div>
@@ -7029,60 +7258,168 @@ Respond in English.`;
 
 <!-- Virtual Assistant Configuration Dialog -->
 <div id="assistant-config-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-    <div class="bg-[var(--bg-card)] rounded-xl border border-white/5 p-6 max-w-md w-full mx-4 shadow-2xl">
+    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--ioc-divider)] p-6 max-w-md w-full mx-4 shadow-2xl">
         <div class="flex items-center justify-between mb-4">
-            <h3 class="text-[18px] font-bold text-white">Virtual Assistant Configuration</h3>
-            <button onclick="hideAssistantConfig()" class="text-slate-400 hover:text-white">
+            <h3 class="text-[18px] font-bold text-[var(--ioc-text-strong)]">Virtual Assistant Configuration</h3>
+            <button onclick="hideAssistantConfig()" class="text-[var(--ioc-slate-400)] hover:text-[var(--ioc-text-strong)]">
                 <span class="material-symbols-outlined">close</span>
             </button>
         </div>
         <div class="space-y-4">
             <div>
-                <label class="block text-[14px] text-slate-300 mb-2">Notification Methods</label>
+                <label class="block text-[14px] text-[var(--ioc-slate-300)] mb-2">Notification Methods</label>
                 <div class="space-y-2">
                     <label class="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" id="notify-phone" class="rounded">
-                        <span class="text-[14px] text-slate-300">Phone Notification</span>
+                        <span class="text-[14px] text-[var(--ioc-slate-300)]">Phone Notification</span>
                         <span class="text-[11px] text-amber-400 ml-1">(Enterprise Service)</span>
                     </label>
                     <label class="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" id="notify-sms" class="rounded">
-                        <span class="text-[14px] text-slate-300">SMS Notification</span>
+                        <span class="text-[14px] text-[var(--ioc-slate-300)]">SMS Notification</span>
                         <span class="text-[11px] text-amber-400 ml-1">(Enterprise Service)</span>
                     </label>
                     <label class="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" id="notify-browser" class="rounded" checked>
-                        <span class="text-[14px] text-slate-300">Browser Voice Notification</span>
+                        <span class="text-[14px] text-[var(--ioc-slate-300)]">Browser Voice Notification</span>
                         <span class="text-[11px] text-green-400 ml-1">(Free, Recommended)</span>
                     </label>
                     <label class="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" id="notify-desktop" class="rounded" checked>
-                        <span class="text-[14px] text-slate-300">Desktop Notification</span>
+                        <span class="text-[14px] text-[var(--ioc-slate-300)]">Desktop Notification</span>
                         <span class="text-[11px] text-green-400 ml-1">(Free, Recommended)</span>
                     </label>
                 </div>
             </div>
             <div>
-                <label class="block text-[14px] text-slate-300 mb-2">Recipient Phone Number</label>
-                <input type="tel" id="phone-number" placeholder="+86 138 0000 0000" class="w-full bg-[#1A2234] border border-white/10 rounded px-3 py-2 text-slate-300 placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50" />
+                <label class="block text-[14px] text-[var(--ioc-slate-300)] mb-2">Recipient Phone Number</label>
+                <input type="tel" id="phone-number" placeholder="+86 138 0000 0000" class="w-full bg-[var(--ioc-panel)] border border-[var(--ioc-input-border)] rounded px-3 py-2 text-[var(--ioc-slate-300)] placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50" />
             </div>
             <div>
-                <label class="block text-[14px] text-slate-300 mb-2">Auto Monitoring Interval (seconds)</label>
-                <input type="number" id="monitor-interval" value="60" min="10" class="w-full bg-[#1A2234] border border-white/10 rounded px-3 py-2 text-slate-300 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50" />
+                <label class="block text-[14px] text-[var(--ioc-slate-300)] mb-2">Auto Monitoring Interval (seconds)</label>
+                <input type="number" id="monitor-interval" value="60" min="10" class="w-full bg-[var(--ioc-panel)] border border-[var(--ioc-input-border)] rounded px-3 py-2 text-[var(--ioc-slate-300)] focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50" />
             </div>
             <div>
-                <label class="block text-[14px] text-slate-300 mb-2">AI Message Generation Prompt</label>
-                <textarea id="ai-prompt-template" rows="4" class="w-full bg-[#1A2234] border border-white/10 rounded px-3 py-2 text-slate-300 placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50" placeholder="Generate a professional and concise notification message based on the following ticket information...">Generate a professional and concise notification message based on the following ticket information for phone or SMS notification. The message should include: ticket number, severity, current status, SLA percentage, and brief description. The language should be professional, clear and concise, not exceeding 100 words.
+                <label class="block text-[14px] text-[var(--ioc-slate-300)] mb-2">AI Message Generation Prompt</label>
+                <textarea id="ai-prompt-template" rows="4" class="w-full bg-[var(--ioc-panel)] border border-[var(--ioc-input-border)] rounded px-3 py-2 text-[var(--ioc-slate-300)] placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50" placeholder="Generate a professional and concise notification message based on the following ticket information...">Generate a professional and concise notification message based on the following ticket information for phone or SMS notification. The message should include: ticket number, severity, current status, SLA percentage, and brief description. The language should be professional, clear and concise, not exceeding 100 words.
 
 Ticket Information:
 {{TICKET_INFO}}</textarea>
             </div>
             <div class="flex gap-2 pt-2">
                 <button onclick="saveAssistantConfig()" class="flex-1 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 px-4 py-2 rounded border border-cyan-500/30 transition-colors font-semibold">Save Configuration</button>
-                <button onclick="hideAssistantConfig()" class="px-4 py-2 text-slate-400 hover:text-slate-300 transition-colors">Cancel</button>
+                <button onclick="hideAssistantConfig()" class="px-4 py-2 text-[var(--ioc-slate-400)] hover:text-[var(--ioc-slate-300)] transition-colors">Cancel</button>
             </div>
         </div>
     </div>
 </div>
+<script>
+// =====================================================================
+// 轮播下滑（大屏值守）：点一次 = 进入全屏 + 每 15 秒向下滑一屏，循环播放；
+// 再点一次或 Esc 退出全屏时停止。与 alarm-management / cxo_dashboard 的
+// carousel 同一交互约定（iframe 内 requestFullscreen 依赖 LegacyToolFrame 的
+// allowFullScreen，已具备）。
+// “屏”= <main> 的直接子块（指标行 / AI+Severity / 地图+SLA / Active Log /
+// Incident Log），每 tick 现算位置，适配面板拖拽改高与数据刷新后的重排。
+// =====================================================================
+const IOC_CAROUSEL_MS = 15000;
+let iocCarouselTimer = null;
+
+function iocCarouselSections() {
+    return Array.prototype.slice.call(document.querySelectorAll('main > *'))
+        .filter(function (el) { return el.offsetHeight > 24; });
+}
+function iocCarouselHeaderH() {
+    const h = document.querySelector('header');
+    return h ? h.getBoundingClientRect().height : 0;
+}
+function iocCarouselMaxScroll() {
+    return Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+}
+// 停靠点 = 0 + 各区块顶边（页头是 sticky top-0，落点让出页头高度再留 8px 缝）
+// + 超高区块内部的整屏停靠点 + 底部；每 tick 现算，适配面板拖拽改高与数据刷新重排。
+function iocCarouselStops() {
+    const max = iocCarouselMaxScroll();
+    const view = window.innerHeight;
+    const step = Math.max(view * 0.6, view - iocCarouselHeaderH() - 24);
+    const stops = [0];
+    iocCarouselSections().forEach(function (el) {
+        const top = Math.min(max, Math.max(0, window.scrollY + el.getBoundingClientRect().top - iocCarouselHeaderH() - 8));
+        stops.push(top);
+        // 区块比一屏还高（如地图区）：内部再按整屏切分，保证不被整段跳过
+        const bottom = Math.min(max, top + el.offsetHeight - view + iocCarouselHeaderH() + 16);
+        for (let s = top + step; s < bottom - 60; s += step) stops.push(Math.min(s, max));
+    });
+    stops.push(max);
+    stops.sort(function (a, b) { return a - b; });
+    const out = [];
+    stops.forEach(function (s) { if (!out.length || s - out[out.length - 1] > 60) out.push(s); });
+    return out;
+}
+function iocCarouselGo(target) {
+    try { window.scrollTo({ top: target, behavior: 'smooth' }); }
+    catch (e) { window.scrollTo(0, target); }
+}
+function iocCarouselNext() {
+    const stops = iocCarouselStops();
+    const cur = window.scrollY;
+    const next = stops.find(function (s) { return s > cur + 60; });
+    iocCarouselGo(next === undefined ? 0 : next); // 到底回顶部，循环播放
+}
+function iocCarouselZh() {
+    try { return (localStorage.getItem('app-locale') || '').indexOf('zh') === 0; } catch (e) { return false; }
+}
+function refreshIocCarouselBtn() {
+    const b = document.getElementById('ioc-carousel-btn'); if (!b) return;
+    const on = !!iocCarouselTimer, sec = Math.round(IOC_CAROUSEL_MS / 1000), zh = iocCarouselZh();
+    b.classList.toggle('on', on);
+    const ico = document.getElementById('ioc-carousel-ico'); if (ico) ico.textContent = on ? '❚❚' : '▶';
+    const lb = document.getElementById('ioc-carousel-label');
+    if (lb) lb.textContent = on ? (zh ? '停止轮播' : 'Stop') : (zh ? '轮播下滑' : 'Carousel');
+    b.title = on
+        ? (zh ? '停止轮播并退出全屏' : 'Stop carousel and exit full screen')
+        : (zh ? '每 ' + sec + ' 秒自动向下滑一屏并进入全屏，再点一次停止'
+              : 'Scroll down one screen every ' + sec + 's and enter full screen');
+}
+function stopIocCarousel(exitFull) {
+    if (iocCarouselTimer) { clearInterval(iocCarouselTimer); iocCarouselTimer = null; }
+    refreshIocCarouselBtn();
+    if (exitFull && document.fullscreenElement) {
+        try { const p = document.exitFullscreen(); if (p && p.catch) p.catch(function(){}); } catch (e) {}
+    }
+}
+function startIocCarousel() {
+    if (iocCarouselSections().length < 2) return;
+    try {
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+            const p = document.documentElement.requestFullscreen();
+            if (p && p.catch) p.catch(function(){}); // 父页面未允许全屏时静默降级：仍轮播，只是不进全屏
+        }
+    } catch (e) {}
+    iocCarouselGo(0); // 先回到第 1 屏，之后每 15 秒滑到下一个停靠点，到底回顶部循环
+    iocCarouselTimer = setInterval(iocCarouselNext, IOC_CAROUSEL_MS);
+    refreshIocCarouselBtn();
+}
+function toggleAutoScroll() { if (iocCarouselTimer) stopIocCarousel(true); else startIocCarousel(); }
+// Esc / 浏览器 UI 退出全屏时停止轮播，保证按钮状态与实际一致（同 alarm-management）
+document.addEventListener('fullscreenchange', function () {
+    if (!document.fullscreenElement && iocCarouselTimer) stopIocCarousel(false);
+});
+// 语言跟随父页面：LegacyToolFrame 挂载时会 postMessage myapp-locale；这里同步存储并刷新按钮文案
+window.addEventListener('message', function (e) {
+    if (e.data && e.data.__type === 'myapp-locale') {
+        try { localStorage.setItem('app-locale', e.data.locale); } catch (err) {}
+        refreshIocCarouselBtn();
+    }
+});
+// role=button 的键盘可达性
+document.addEventListener('keydown', function (e) {
+    const b = document.getElementById('ioc-carousel-btn');
+    if (b && document.activeElement === b && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault(); toggleAutoScroll();
+    }
+});
+refreshIocCarouselBtn();
+</script>
 </body></html>
 </body></html>

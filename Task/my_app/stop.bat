@@ -47,10 +47,17 @@ if exist "%BASE%backend\backend_watchdog.pid" (
 )
 
 REM ---- 2) Kill by port (WITH /T so child processes die too) ----
-for %%p in (7038 8000 7040 8787 8790 7090 5173 9268) do (
+REM NOTE: 8787/8790 已从端口列表移除 —— 它们属于 WorkBuddy 的 MCP 服务
+REM       (C:\Users\ZTEEMS\.workbuddy\binaries\python\...\python.exe)，与 my_app 无关。
+REM       2026-09-04 实测：stop.bat 曾把它们误杀，险些打断工具链。
+for %%p in (7038 8000 7040 7090 5173 9268) do (
     for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%%p " ^| findstr "LISTENING" 2^>nul') do (
         taskkill /PID %%a /T /F >nul 2>&1
-        echo [*] Killed PID=%%a on port %%p
+        if !errorlevel!==0 (
+            echo [*] Killed PID=%%a on port %%p
+        ) else (
+            echo [WARN] Cannot kill PID=%%a on port %%p - needs administrator rights
+        )
     )
 )
 
@@ -73,7 +80,7 @@ del "%BASE%log\heartbeat_*.json" >nul 2>&1
 
 REM ---- 5) Verify all ports released ----
 set LEFTOVER=0
-for %%p in (7038 8000 7040 8787 8790 7090 5173 9268) do (
+for %%p in (7038 8000 7040 7090 5173 9268) do (
     netstat -ano | findstr ":%%p " | findstr "LISTENING" >nul 2>&1
     if !errorlevel!==0 (
         echo [FAIL] Port %%p still listening
@@ -83,7 +90,7 @@ for %%p in (7038 8000 7040 8787 8790 7090 5173 9268) do (
 if %LEFTOVER%==1 (
     echo.
     echo [FAIL] Some processes failed to stop. Remaining listeners:
-    netstat -ano | findstr "LISTENING" | findstr ":7038 :8000 :7040 :8787 :8790 :7090 :5173 :9268"
+    netstat -ano | findstr "LISTENING" | findstr ":7038 :8000 :7040 :7090 :5173 :9268"
 ) else (
     echo [OK] All app ports released.
 )

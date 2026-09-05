@@ -55,7 +55,9 @@ GROUP_TASK_MAP = {
         # 进程（DETACHED、单会话），与 n 组其它任务的 eFlow/网管会话互不冲突
         "cxo_dashboard_cache_sync,"
         # eflow_alarm_rules_collect 2026-09-02 补录：eFlow 告警关联规则收集，走 eFlow API 同源会话
-        "eflow_alarm_rules_collect"),
+        "eflow_alarm_rules_collect,"
+        # eflow_push_rules_collect 2026-09-03 补录：eFlow 推单规则收集，走 config-center 同源会话
+        "eflow_push_rules_collect"),
     "m": (  # 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖
         # whatsapp_send_ext 2026-08-31 补录：新注册时漏分组，无 worker 认领，
         # 任务管理页手动执行一直「队列中等待」直到 300s 超时（同下方 finebi 教训）
@@ -121,10 +123,17 @@ def _another_watchdog_running() -> bool:
             kernel32 = ctypes.windll.kernel32
             # 显式 restype：ctypes 默认按 32 位 int 截断 64 位句柄，存活进程
             # 可能被误判为不存在 → 重复启动第二个 watchdog 抢队列。
+            #
+            # 用 PROCESS_QUERY_LIMITED_INFORMATION(0x1000)，不要用
+            # PROCESS_QUERY_INFORMATION(0x0400)：后者受 Windows 完整性级别(MIC)
+            # 约束——由计划任务 MyApp_AutoStart(RunLevel=Highest) 启动的进程完整性
+            # 级别为 High，普通会话/定时任务(Medium) 对其 OpenProcess(0x0400) 直接
+            # 返回 NULL，于是被误判为"watchdog 已死"并重复拉起实例。
+            # 0x1000 仅查询进程存在性，不受 MIC 限制，足以完成存活判定。
             kernel32.OpenProcess.restype = ctypes.c_void_p
             kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
-            PROCESS_QUERY_INFORMATION = 0x0400
-            h = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, False, pid)
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if h:
                 kernel32.CloseHandle(h)
                 return True

@@ -57,10 +57,55 @@ interface SearchHit {
 
 /** 状态 → Tag 颜色（与 CONTRIBUTING.md 的状态语义对应） */
 function statusColor(status: string): string | undefined {
+  if (status.includes('已过时')) return 'red'
+  if (status.includes('部分待验证')) return 'orange'
   if (status.includes('已验证')) return 'green'
   if (status.includes('待验证')) return 'orange'
-  if (status.includes('已过时')) return 'red'
   return 'default'
+}
+
+/** 状态 → 当前语言文案（文档内容是中文，UI 层做状态值映射） */
+function statusLabel(status: string, t: (k: string) => string): string {
+  if (status.includes('已过时')) return t('qa.tag.outdated')
+  if (status.includes('部分待验证')) return t('qa.tag.partiallyVerified')
+  if (status.includes('已验证')) return t('qa.tag.verified')
+  if (status.includes('待验证')) return t('qa.tag.pending')
+  return status
+}
+
+/**
+ * 双语文档解析：知识库约定英文版 = 同名 `.en.md`（README.md → README.en.md）。
+ * - lang=en：同名文档优先英文版，未翻译的回退中文原文，同一文档只出一条；
+ * - 其它：只保留中文原文（隐藏 .en.md）。
+ * 适用于 tree items / search hits 等一切带 path 的列表。
+ */
+function resolveLang<T extends { path: string }>(rows: T[], lang: string): T[] {
+  const byBase = new Map<string, { en?: T; zh?: T }>()
+  for (const it of rows) {
+    const isEn = it.path.toLowerCase().endsWith('.en.md')
+    const base = isEn ? it.path.slice(0, -6) + '.md' : it.path
+    const slot = byBase.get(base) || {}
+    if (isEn) slot.en = it
+    else slot.zh = it
+    byBase.set(base, slot)
+  }
+  const out: T[] = []
+  for (const key of [...byBase.keys()].sort()) {
+    const slot = byBase.get(key)!
+    const picked = lang === 'en' ? (slot.en || slot.zh) : slot.zh
+    if (picked) out.push(picked)
+  }
+  return out
+}
+
+/** 路径显示：英文环境下去掉中文段（纯展示，真实请求仍用原路径） */
+function displayPath(path: string, lang: string): string {
+  if (lang !== 'en') return path
+  return path
+    .replace(/[\u4e00-\u9fff]+/g, '')
+    .replace(/[_\-\s]{2,}/g, '_')
+    .replace(/\/[_\-\s]+/g, '/')
+    .replace(/^[_\-\s]+|[_\-\s]+$/g, '') || path
 }
 
 /** 检索词高亮：把 text 中出现的词包上 mark */
@@ -88,7 +133,9 @@ export default function EflowQa() {
   const { isDark } = useTheme()
   const isMobile = useIsMobile()
 
-  const [items, setItems] = useState<DocItem[] | null>(null)
+  const [rawItems, setRawItems] = useState<DocItem[] | null>(null)
+  // 按当前语言解析：en 优先 .en.md（无则回退中文原文），zh 只留中文原文
+  const items = useMemo(() => (rawItems ? resolveLang(rawItems, locale) : null), [rawItems, locale])
   const [rootDir, setRootDir] = useState('')
   const [treeError, setTreeError] = useState('')
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
@@ -157,20 +204,30 @@ export default function EflowQa() {
 
   // ===== 文档树 =====
   useEffect(() => {
-    api.get('/eflow-qa/tree').then(res => {
-      setItems(res.data.items || [])
+    api.get('/eflow-qa/tree', { params: { lang: locale } }).then(res => {
+      setRawItems(res.data.items || [])
       setRootDir(res.data.root || '')
     }).catch(() => setTreeError('load failed'))
-  }, [])
+  }, [locale])
 
   // 路径 → antd 树
   const treeData: TreeItem[] = useMemo(() => {
     const root: TreeItem = { key: '__root__', title: t('qa.openInFolder'), children: [] }
+    // 文件夹显示名：英文环境下去掉目录名里的中文段（00_操作篇_Operations → 00_Operations）
+    // key 仍用完整原始段，真实路径不受影响
+    const dirLabel = (seg: string) => {
+      if (locale !== 'en') return seg
+      const stripped = seg
+        .replace(/[\u4e00-\u9fff]+/g, '')
+        .replace(/[_\-\s]{2,}/g, '_')
+        .replace(/^[_\-\s]+|[_\-\s]+$/g, '')
+      return stripped || seg
+    }
     const findOrCreate = (node: TreeItem, seg: string, keyPath: string): TreeItem => {
       if (!node.children) node.children = []
       let child = node.children.find(c => c.key === keyPath)
       if (!child) {
-        child = { key: keyPath, title: <span><FolderOutlined style={{ marginRight: 4, color: '#13c2c2' }} />{seg}</span>, children: [] }
+        child = { key: keyPath, title: <span><FolderOutlined style={{ marginRight: 4, color: '#13c2c2' }} />{dirLabel(seg)}</span>, children: [] }
         node.children.push(child)
       }
       return child
@@ -190,7 +247,7 @@ export default function EflowQa() {
             {it.title}
             {it.status && (
               <Tag color={statusColor(it.status)} style={{ marginLeft: 6, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
-                {it.status}
+                {statusLabel(it.status, t)}
               </Tag>
             )}
           </span>
@@ -225,11 +282,11 @@ export default function EflowQa() {
     setTtView(false)
     setSearching(true)
     setSearched(true)
-    api.get('/eflow-qa/search', { params: { q } }).then(res => {
-      setHits(res.data.hits || [])
+    api.get('/eflow-qa/search', { params: { q, lang: locale } }).then(res => {
+      setHits(resolveLang(res.data.hits || [], locale))
       setSearchTerms(res.data.terms || terms)
     }).catch(() => setHits([])).finally(() => setSearching(false))
-  }, [])
+  }, [locale])
 
   const panelBg = isDark ? '#0f2744' : '#ffffff'
   const border = isDark ? '1px solid rgba(100,255,218,0.2)' : '1px solid #d9e6f2'
@@ -425,7 +482,7 @@ export default function EflowQa() {
               </div>
             )}
             {!ttLoading && !ttError && ttReport?.found && (() => {
-              const ruleDoc = items?.find(i => i.title.includes('掉站工单派单归属判定规则'))
+              const ruleDoc = items?.find(i => i.path.includes('掉站工单派单归属判定规则'))
               const cardStyle = { border, borderRadius: 8, padding: '10px 14px', marginBottom: 10, background: isDark ? 'rgba(100,255,218,0.04)' : '#fafcfe' }
               return (
                 <div>
@@ -593,12 +650,12 @@ export default function EflowQa() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <BookOutlined style={{ color: '#13c2c2' }} />
                     <Text strong>{h.title}</Text>
-                    {h.status && <Tag color={statusColor(h.status)}>{h.status}</Tag>}
+                    {h.status && <Tag color={statusColor(h.status)}>{statusLabel(h.status, t)}</Tag>}
                     <Text type="secondary" style={{ fontSize: 12, marginLeft: isMobile ? 0 : 'auto' }}>
                       {h.match_count} {t('qa.matchLines')}
                     </Text>
                   </div>
-                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 2 }}>{h.path}</Text>
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 2 }}>{displayPath(h.path, locale)}</Text>
                   {h.snippets.map(s => (
                     <div key={s.line} style={{ fontSize: 13, marginTop: 4, color: isDark ? '#94a3b8' : '#475569' }}>
                       <Text type="secondary" style={{ fontSize: 11, marginRight: 6 }}>{s.line}</Text>
@@ -621,9 +678,9 @@ export default function EflowQa() {
           <div>
             <Title level={4} style={{ marginTop: 0, marginBottom: 8, fontSize: isMobile ? 17 : undefined }}>{doc.title}</Title>
             <div style={{ marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {doc.front_matter['状态'] && <Tag color={statusColor(doc.front_matter['状态'])}>{t('qa.status')}: {doc.front_matter['状态']}</Tag>}
+              {doc.front_matter['状态'] && <Tag color={statusColor(doc.front_matter['状态'])}>{t('qa.status')}: {statusLabel(doc.front_matter['状态'], t)}</Tag>}
               {doc.front_matter['来源'] && <Tag>{t('qa.source')}: {doc.front_matter['来源']}</Tag>}
-              <Text type="secondary" style={{ fontSize: 12, alignSelf: 'center' }}>{doc.path}</Text>
+              <Text type="secondary" style={{ fontSize: 12, alignSelf: 'center' }}>{displayPath(doc.path, locale)}</Text>
             </div>
             <div className="eflowqa-md">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.content}</ReactMarkdown>

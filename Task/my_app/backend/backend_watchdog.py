@@ -83,10 +83,18 @@ def _another_watchdog_running() -> bool:
             kernel32 = ctypes.windll.kernel32
             # 显式 restype：ctypes 默认按 32 位 int 截断 64 位句柄，存活进程
             # 可能被误判为不存在 → 重复启动第二个 backend 抢 7038 端口。
+            #
+            # 用 PROCESS_QUERY_LIMITED_INFORMATION(0x1000)，不要用
+            # PROCESS_QUERY_INFORMATION(0x0400)：后者受 Windows 完整性级别(MIC)
+            # 约束——由计划任务 MyApp_AutoStart(RunLevel=Highest) 启动的进程完整性
+            # 级别为 High，普通会话/定时任务(Medium) 对其 OpenProcess(0x0400) 直接
+            # 返回 NULL，于是被误判为"watchdog 已死"并拉起第二个实例，两个 watchdog
+            # 争抢 7038 端口导致 backend 反复 exit_code=3 崩溃。
+            # 0x1000 仅查询进程存在性，不受 MIC 限制，足以完成存活判定。
             kernel32.OpenProcess.restype = ctypes.c_void_p
             kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
-            PROCESS_QUERY_INFORMATION = 0x0400
-            h = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, False, pid)
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if h:
                 kernel32.CloseHandle(h)
                 return True

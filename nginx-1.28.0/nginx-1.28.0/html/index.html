@@ -2,44 +2,398 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>本机服务导航</title>
+<script>
+/* 主题首帧防闪烁：默认深色（与 /uniplam/ 门户一致），记忆用户选择 */
+(function () {
+  try {
+    var saved = localStorage.getItem('nav_theme_dark');
+    var dark = saved === null ? true : saved === 'true';
+    if (dark) document.documentElement.classList.add('dark');
+  } catch (e) { document.documentElement.classList.add('dark'); }
+})();
+</script>
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: "Segoe UI", Tahoma, Verdana, Arial, sans-serif;
-         max-width: 720px; margin: 40px auto; padding: 0 20px; }
-  h1 { font-size: 22px; }
-  .card { display: block; text-decoration: none; color: inherit;
-          border: 1px solid #d0d0d0; border-radius: 10px; padding: 16px 18px;
-          margin: 12px 0; transition: .15s; }
-  .card:hover { border-color: #2f7de1; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
-  .name { font-size: 17px; font-weight: 600; }
-  .url  { color: #2f7de1; font-size: 14px; margin-top: 4px; }
-  .desc { color: #666; font-size: 13px; margin-top: 6px; }
-  footer { color: #999; font-size: 12px; margin-top: 24px; }
+/* ============ Design Tokens（对齐 /uniplam/ Tailwind @theme） ============ */
+:root{
+  --sl50:#f8fafc; --sl100:#f1f5f9; --sl200:#e2e8f0; --sl300:#cbd5e1; --sl400:#94a3b8;
+  --sl500:#64748b; --sl600:#475569; --sl700:#334155; --sl800:#1e293b; --sl900:#0f172a;
+  --navy800:#112540; --navy900:#0d2138; --navy950:#0a1929;
+  --teal500:#14b8a6; --teal600:#0d9488; --cyan500:#06b6d4; --cyan600:#0891b2; --sky400:#38bdf8;
+  --emerald500:#10b981; --amber400:#fbbf24;
+  color-scheme: light;
+}
+html.dark{ color-scheme: dark; }
+
+/* ============ Global Base（对齐 /uniplam/ index.css） ============ */
+html{ scroll-behavior:smooth; font-size:clamp(14px, .55vw + 12.2px, 18px); }
+body{
+  margin:0; min-height:100vh; display:flex; flex-direction:column; overflow-x:hidden;
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  background:var(--sl100); color:var(--sl900);
+  transition:background-color .2s ease, color .2s ease;
+}
+html.dark body{ background:var(--navy950); color:var(--sl100); }
+::selection{ background:rgba(20,184,166,.28); }
+::-webkit-scrollbar{ width:8px; height:8px; }
+::-webkit-scrollbar-track{ background:transparent; }
+::-webkit-scrollbar-thumb{ background:rgba(13,148,136,.35); border-radius:8px; }
+::-webkit-scrollbar-thumb:hover{ background:rgba(13,148,136,.6); }
+html.dark ::-webkit-scrollbar-thumb{ background:rgba(100,255,218,.25); }
+html.dark ::-webkit-scrollbar-thumb:hover{ background:rgba(100,255,218,.45); }
+
+/* ============ Top Navbar（sticky + backdrop-blur，同 /uniplam/ Navbar） ============ */
+.topbar{
+  position:sticky; top:0; z-index:40;
+  background:rgba(255,255,255,.9); border-bottom:1px solid rgba(226,232,240,.9);
+  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+}
+html.dark .topbar{ background:rgba(13,33,56,.9); border-bottom-color:rgba(17,37,64,.9); }
+.topbar-in{
+  max-width:1280px; margin:0 auto; min-height:56px;
+  padding:10px 12px; display:flex; align-items:center; justify-content:space-between;
+  gap:8px 16px; flex-wrap:wrap;
+}
+.brand{ display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.logo{
+  width:32px; height:32px; border-radius:12px; flex-shrink:0; color:#fff;
+  background:linear-gradient(to top right,var(--teal500),var(--cyan500),var(--sky400));
+  display:grid; place-items:center; box-shadow:0 4px 6px -1px rgba(20,184,166,.25);
+}
+.brand-row{ display:flex; align-items:center; gap:6px; }
+h1{ margin:0; font-size:14px; font-weight:800; letter-spacing:-.025em; white-space:nowrap; }
+.live{
+  display:none; align-items:center; gap:4px; padding:2px 8px; border-radius:999px;
+  font-size:10px; font-weight:700; white-space:nowrap; flex-shrink:0;
+  background:#f0fdfa; color:#0f766e; border:1px solid rgba(153,246,228,.8);
+}
+html.dark .live{ background:rgba(4,47,46,.8); color:#5eead4; border-color:rgba(16,94,88,.8); }
+.dot{ width:6px; height:6px; border-radius:50%; background:var(--emerald500); flex-shrink:0;
+  animation:pulse 2s cubic-bezier(.4,0,.6,1) infinite; }
+@keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.4} }
+.sub{ margin:2px 0 0; font-size:11px; color:var(--sl500); display:none; }
+html.dark .sub{ color:var(--sl400); }
+.icon-btn{
+  width:38px; height:38px; border-radius:12px; cursor:pointer;
+  border:1px solid var(--sl200); background:transparent; color:var(--sl600);
+  display:grid; place-items:center; transition:all .15s;
+}
+.icon-btn:hover{ background:var(--sl100); }
+html.dark .icon-btn{ border-color:var(--sl700); color:var(--sl300); }
+html.dark .icon-btn:hover{ background:var(--sl800); }
+.ic-sun{ display:none; } .ic-moon{ display:block; }
+html.dark .ic-sun{ display:block; } html.dark .ic-moon{ display:none; }
+
+/* ============ Main ============ */
+.main{ flex:1; width:100%; max-width:1280px; margin:0 auto; padding:16px 12px; }
+.intro{ margin:0 0 16px; font-size:12px; line-height:1.6; color:var(--sl500); }
+html.dark .intro{ color:var(--sl400); }
+
+/* ============ Card Grid（同 /uniplam/ DashboardCard 风格） ============ */
+.grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(248px,1fr)); gap:16px; }
+.card{
+  position:relative; display:flex; flex-direction:column; justify-content:space-between;
+  text-decoration:none; color:inherit; overflow:hidden;
+  background:#fff; border:1px solid rgba(226,232,240,.9); border-radius:16px; padding:16px;
+  box-shadow:0 1px 2px rgba(0,0,0,.05);
+  transition:all .3s ease; animation:slideUp .35s ease-out both;
+}
+html.dark .card{ background:var(--sl900); border-color:rgba(30,41,59,.9); }
+.card::before{ content:""; position:absolute; inset:0; background:var(--grad); pointer-events:none; }
+.card:hover{
+  border-color:var(--ac); transform:translateY(-2px);
+  box-shadow:0 20px 25px -5px rgba(0,0,0,.1), 0 8px 10px -6px rgba(0,0,0,.1);
+}
+.card:nth-child(1){animation-delay:.02s}.card:nth-child(2){animation-delay:.06s}
+.card:nth-child(3){animation-delay:.10s}.card:nth-child(4){animation-delay:.14s}
+.card:nth-child(5){animation-delay:.18s}.card:nth-child(6){animation-delay:.22s}
+@keyframes slideUp{ from{opacity:0; transform:translateY(12px)} to{opacity:1; transform:translateY(0)} }
+
+/* 主题色（对齐 DashboardCard colorStyles：teal/indigo/blue/emerald/amber） */
+.th-teal{   --ac:#0d9488; --ac-strong:#0f766e; --ac-soft:#f0fdfa;  --ac-bd:rgba(153,246,228,.8); --grad:linear-gradient(180deg,rgba(13,148,136,.06),transparent 55%); }
+.th-indigo{ --ac:#4f46e5; --ac-strong:#4338ca; --ac-soft:#eef2ff;  --ac-bd:rgba(199,210,254,.8); --grad:linear-gradient(180deg,rgba(79,70,229,.06),transparent 55%); }
+.th-blue{   --ac:#2563eb; --ac-strong:#1d4ed8; --ac-soft:#eff6ff;  --ac-bd:rgba(191,219,254,.8); --grad:linear-gradient(180deg,rgba(37,99,235,.06),transparent 55%); }
+.th-emerald{--ac:#059669; --ac-strong:#047857; --ac-soft:#ecfdf5;  --ac-bd:rgba(167,243,208,.8); --grad:linear-gradient(180deg,rgba(5,150,105,.06),transparent 55%); }
+.th-amber{  --ac:#d97706; --ac-strong:#b45309; --ac-soft:#fffbeb;  --ac-bd:rgba(253,230,138,.8); --grad:linear-gradient(180deg,rgba(217,119,6,.06),transparent 55%); }
+html.dark .th-teal{   --ac:#2dd4bf; --ac-strong:#5eead4; --ac-soft:rgba(4,47,46,.72);  --ac-bd:rgba(16,94,88,.9);  --grad:linear-gradient(180deg,rgba(45,212,191,.07),transparent 55%); }
+html.dark .th-indigo{ --ac:#818cf8; --ac-strong:#a5b4fc; --ac-soft:rgba(30,27,75,.72); --ac-bd:rgba(49,46,129,.9); --grad:linear-gradient(180deg,rgba(129,140,248,.08),transparent 55%); }
+html.dark .th-blue{   --ac:#60a5fa; --ac-strong:#93c5fd; --ac-soft:rgba(23,37,84,.72); --ac-bd:rgba(30,58,138,.9); --grad:linear-gradient(180deg,rgba(96,165,250,.08),transparent 55%); }
+html.dark .th-emerald{--ac:#34d399; --ac-strong:#6ee7b7; --ac-soft:rgba(2,44,34,.72);  --ac-bd:rgba(6,78,59,.9);   --grad:linear-gradient(180deg,rgba(52,211,153,.07),transparent 55%); }
+html.dark .th-amber{  --ac:#fbbf24; --ac-strong:#fcd34d; --ac-soft:rgba(69,26,3,.72);  --ac-bd:rgba(120,53,15,.9); --grad:linear-gradient(180deg,rgba(251,191,36,.07),transparent 55%); }
+
+.badge{
+  display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border-radius:999px;
+  font-size:11px; font-weight:600; background:var(--ac-soft); color:var(--ac-strong);
+  border:1px solid var(--ac-bd);
+}
+.bdot{ width:6px; height:6px; border-radius:50%; background:var(--ac); animation:pulse 2s infinite; }
+.card-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:10px; }
+.title-row{ display:flex; align-items:flex-start; gap:12px; margin-bottom:10px; }
+.tile{
+  padding:10px; border-radius:12px; flex-shrink:0; background:var(--ac-soft); color:var(--ac);
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.04); transition:transform .3s;
+}
+.card:hover .tile{ transform:scale(1.05); }
+.card h3{ margin:0; font-size:15px; font-weight:700; line-height:1.35; color:var(--sl900); transition:color .15s; }
+html.dark .card h3{ color:var(--sl100); }
+.card:hover h3{ color:var(--ac); }
+.meta{ margin-top:3px; font-size:11px; color:var(--sl500); display:flex; align-items:center; gap:5px; }
+html.dark .meta{ color:var(--sl400); }
+.desc{ margin:0; font-size:12px; line-height:1.625; color:var(--sl600); min-height:38px; }
+html.dark .desc{ color:var(--sl400); }
+.tags{ display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 14px; }
+.tag{ padding:2px 8px; border-radius:6px; font-size:11px; background:var(--sl100); color:var(--sl600); }
+html.dark .tag{ background:rgba(30,41,59,.8); color:var(--sl400); }
+.bottom{ border-top:1px solid var(--sl100); padding-top:12px; }
+html.dark .bottom{ border-top-color:rgba(30,41,59,.9); }
+.pill{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  font-size:11px; background:var(--sl50); border:1px solid rgba(226,232,240,.6);
+  border-radius:8px; padding:6px 10px;
+}
+html.dark .pill{ background:rgba(30,41,59,.5); border-color:rgba(51,65,85,.6); }
+.pill .u{
+  flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--sl500);
+}
+html.dark .pill .u{ color:var(--sl400); }
+.copy{
+  border:none; background:none; padding:2px; cursor:pointer; flex-shrink:0;
+  color:var(--sl400); display:grid; place-items:center; transition:color .15s;
+}
+.copy:hover{ color:var(--sl700); }
+html.dark .copy:hover{ color:var(--sl200); }
+.copy.ok{ color:var(--emerald500); }
+
+/* ============ Footer（同 /uniplam/ 底栏：blur + border-t） ============ */
+.footer{
+  margin-top:32px; padding:12px 0; font-size:12px; color:var(--sl500);
+  border-top:1px solid rgba(226,232,240,.9); background:rgba(255,255,255,.7);
+  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+}
+html.dark .footer{ border-top-color:rgba(30,41,59,.9); background:rgba(15,23,42,.7); color:var(--sl400); }
+.footer-in{
+  max-width:1280px; margin:0 auto; padding:0 12px;
+  display:flex; flex-direction:column; align-items:center; justify-content:space-between; gap:8px;
+}
+.f-left{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center; }
+.f-left b{ font-weight:600; color:var(--sl700); }
+html.dark .f-left b{ color:var(--sl300); }
+.f-sep{ color:var(--sl300); } html.dark .f-sep{ color:var(--sl700); }
+
+/* ============ Responsive（对齐 /uniplam/ 断点） ============ */
+@media(min-width:640px){
+  .topbar-in{ min-height:64px; padding:0 24px; flex-wrap:nowrap; }
+  .brand{ gap:12px; }
+  h1{ font-size:16px; }
+  .live{ display:inline-flex; }
+  .main{ padding:24px; }
+  .intro{ font-size:14px; }
+  .grid{ gap:20px; }
+  .footer-in{ padding:0 24px; flex-direction:row; }
+}
+@media(min-width:1024px){
+  .topbar-in{ padding:0 32px; }
+  .main{ padding:24px 32px; }
+  h1{ font-size:18px; }
+  .sub{ display:block; }
+  .footer-in{ padding:0 32px; }
+}
+@media(min-width:1280px){
+  .topbar-in{ padding:0 40px; }
+  .main{ padding:24px 40px; }
+  .footer-in{ padding:0 40px; }
+}
 </style>
 </head>
 <body>
-  <h1>本机服务导航</h1>
-  <p>所有服务都收在 80 端口，用路径区分，浏览器里无需输入端口号、不依赖子域名。</p>
 
-  <a class="card" href="/myapp/">
-    <div class="name">my_app 任务管理器</div>
-    <div class="url">http://localhost/myapp/</div>
-    <div class="desc">定时任务看板 / 执行 / 日志（前端 7090，后端 7038）</div>
-  </a>
+<!-- ======== 顶部导航（对齐 /uniplam/ Navbar） ======== -->
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand">
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+      </div>
+      <div>
+        <div class="brand-row">
+          <h1>本机服务导航</h1>
+          <span class="live"><span class="dot"></span>Local Services</span>
+        </div>
+        <p class="sub">本机统一入口 · 80 端口按路径区分服务</p>
+      </div>
+    </div>
+    <button class="icon-btn" id="themeBtn" title="切换深色/浅色模式">
+      <svg class="ic-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <svg class="ic-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+  </div>
+</header>
 
-  <a class="card" href="/ollama/">
-    <div class="name">Ollama</div>
-    <div class="url">http://localhost/ollama/</div>
-    <div class="desc">本地大模型服务（11434）</div>
-  </a>
+<!-- ======== 服务卡片（对齐 /uniplam/ DashboardCard） ======== -->
+<main class="main">
+  <p class="intro">所有服务都收在 80 端口，用路径区分，浏览器里无需输入端口号、不依赖子域名。</p>
+  <div class="grid">
 
-  <a class="card" href="/openclaw/">
-    <div class="name">OpenClaw 网关</div>
-    <div class="url">http://localhost/openclaw/</div>
-    <div class="desc">AI 网关（18789）</div>
-  </a>
+    <a class="card th-teal" href="/myapp/">
+      <div>
+        <div class="card-top"><span class="badge"><span class="bdot"></span>任务调度</span></div>
+        <div class="title-row">
+          <div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></div>
+          <div>
+            <h3>my_app 任务管理器</h3>
+            <div class="meta">前端 7090 · 后端 7038</div>
+          </div>
+        </div>
+        <p class="desc">定时任务看板 / 执行 / 日志</p>
+        <div class="tags"><span class="tag">#fastapi</span><span class="tag">#react</span><span class="tag">#rpa</span></div>
+      </div>
+      <div class="bottom">
+        <div class="pill">
+          <span class="u">localhost/myapp/</span>
+          <button type="button" class="copy" title="复制链接" data-url="http://localhost/myapp/"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        </div>
+      </div>
+    </a>
 
-  <footer>新增服务：编辑 nginx.conf 加一个 location 块，复制模板改路径与端口即可。</footer>
+    <a class="card th-indigo" href="/digital-ops-platform.html">
+      <div>
+        <div class="card-top"><span class="badge"><span class="bdot"></span>运维工作台</span></div>
+        <div class="title-row">
+          <div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><path d="M6 7h.01M6 17h.01"/></svg></div>
+          <div>
+            <h3>数字化运维平台</h3>
+            <div class="meta">单文件工作台 · 后端 7038</div>
+          </div>
+        </div>
+        <p class="desc">定时任务 · 巡检 · 排障 · 周报</p>
+        <div class="tags"><span class="tag">#巡检</span><span class="tag">#排障</span><span class="tag">#周报</span></div>
+      </div>
+      <div class="bottom">
+        <div class="pill">
+          <span class="u">localhost/digital-ops-platform.html</span>
+          <button type="button" class="copy" title="复制链接" data-url="http://localhost/digital-ops-platform.html"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        </div>
+      </div>
+    </a>
+
+    <a class="card th-blue" href="/uniplam/">
+      <div>
+        <div class="card-top"><span class="badge"><span class="bdot"></span>数据门户</span></div>
+        <div class="title-row">
+          <div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg></div>
+          <div>
+            <h3>uniplam 数据看板</h3>
+            <div class="meta">后端 9267 · nginx 子路径</div>
+          </div>
+        </div>
+        <p class="desc">Liberia NOC/SOC 数据看板统一门户</p>
+        <div class="tags"><span class="tag">#finebi</span><span class="tag">#noc</span><span class="tag">#soc</span></div>
+      </div>
+      <div class="bottom">
+        <div class="pill">
+          <span class="u">localhost/uniplam/</span>
+          <button type="button" class="copy" title="复制链接" data-url="http://localhost/uniplam/"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        </div>
+      </div>
+    </a>
+
+    <a class="card th-emerald" href="/ollama/">
+      <div>
+        <div class="card-top"><span class="badge"><span class="bdot"></span>LLM 服务</span></div>
+        <div class="title-row">
+          <div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg></div>
+          <div>
+            <h3>Ollama</h3>
+            <div class="meta">本地推理 · 端口 11434</div>
+          </div>
+        </div>
+        <p class="desc">本地大模型服务</p>
+        <div class="tags"><span class="tag">#llm</span><span class="tag">#本地推理</span></div>
+      </div>
+      <div class="bottom">
+        <div class="pill">
+          <span class="u">localhost/ollama/</span>
+          <button type="button" class="copy" title="复制链接" data-url="http://localhost/ollama/"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        </div>
+      </div>
+    </a>
+
+    <a class="card th-amber" href="/openclaw/">
+      <div>
+        <div class="card-top"><span class="badge"><span class="bdot"></span>AI 网关</span></div>
+        <div class="title-row">
+          <div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+          <div>
+            <h3>OpenClaw 网关</h3>
+            <div class="meta">端口 18789</div>
+          </div>
+        </div>
+        <p class="desc">AI 网关服务</p>
+        <div class="tags"><span class="tag">#gateway</span><span class="tag">#ai</span></div>
+      </div>
+      <div class="bottom">
+        <div class="pill">
+          <span class="u">localhost/openclaw/</span>
+          <button type="button" class="copy" title="复制链接" data-url="http://localhost/openclaw/"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        </div>
+      </div>
+    </a>
+
+  </div>
+</main>
+
+<!-- ======== 底栏（对齐 /uniplam/ Footer） ======== -->
+<footer class="footer">
+  <div class="footer-in">
+    <div class="f-left">
+      <b>本机服务导航</b>
+      <span class="f-sep">·</span>
+      <span>共 5 个服务</span>
+      <span class="f-sep">·</span>
+      <span class="f-sep">nginx :80 统一入口</span>
+    </div>
+    <div class="f-left">
+      <span>新增服务：编辑 nginx.conf 加一个 location 块，复制模板改路径与端口即可。</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* 深色/浅色切换（默认深色，localStorage 记忆 —— 同 /uniplam/ 行为） */
+(function () {
+  var btn = document.getElementById('themeBtn');
+  btn.addEventListener('click', function () {
+    var root = document.documentElement;
+    var dark = !root.classList.contains('dark');
+    root.classList.toggle('dark', dark);
+    try { localStorage.setItem('nav_theme_dark', String(dark)); } catch (e) {}
+  });
+})();
+
+/* 复制链接（阻止冒泡，不触发卡片跳转；成功后短暂显示 ✓） */
+document.querySelectorAll('.copy').forEach(function (b) {
+  b.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var url = b.getAttribute('data-url');
+    var done = function () {
+      b.classList.add('ok');
+      b.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+      setTimeout(function () {
+        b.classList.remove('ok');
+        b.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+      }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done).catch(function () { window.prompt('复制此链接：', url); });
+    } else {
+      window.prompt('复制此链接：', url);
+    }
+  });
+});
+</script>
 </body>
 </html>

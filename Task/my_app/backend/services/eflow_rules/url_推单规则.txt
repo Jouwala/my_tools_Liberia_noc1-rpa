@@ -1,0 +1,14 @@
+Request URL
+https://10.100.20.8:28001/api/eflow-configcenter/v1/eflow-configcenter-rule/base/query
+Request Method
+POST
+Status Code
+200 OK
+Remote Address
+10.100.20.8:28001
+Referrer Policy
+strict-origin-when-cross-origin
+
+Payload:
+{"filter":"","order":"updatetime desc"}
+

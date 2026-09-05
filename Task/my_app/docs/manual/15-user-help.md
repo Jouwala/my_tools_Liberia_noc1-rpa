@@ -373,17 +373,20 @@
 - 默认 cron: `0 7 * * *`　|　worker 组: **n**
 - 工作流脚本: `services/get_sp_table.py → run_sp_data_sync`
 
-**功能**: 从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db
+**功能**: 从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI 服务器上的 WareHouseDashBoard/inventory.db
 
 **工作流与数据流**:
 
 1. 登录备件 SFTP（凭据分组 sftp_sp）
 1. 拉取 Inbound/Outbound/Inventory/OC Rule/Transfer 5 份报表
 1. 清洗后写主库，供仓库看板与 SP 报表使用
+1. 全部落库后镜像写入 `\\DESKTOP-D4GF62\FineBI6.0\webapps\Python\Unified_Tools\WareHouseDashBoard\inventory.db`（Inbound/Outbound/OC Rule/Transfer 整表替换；Inventory 按键只追加新行，不删改远端历史）
 
 **维护要点**:
 
 - 仓库看板 iframe 读的就是这批数据；报表缺失先看本任务是否成功
+- FineBI inventory.db 镜像失败会在任务消息中提示（`镜像写入 FineBI inventory.db 失败: ...`），不影响 app.db；路径/开关在 Settings → 任务配置 → SP 备件数据（`mirror_db_path` / `mirror_enabled`）
+- 远端库被 FineBI 占用读锁时靠 busy_timeout 自动等待；网络抖动整体重试 2 次
 
 #### iPRAN UME KPI 同步（`ipran_kpi_sync`）
 
@@ -521,12 +524,13 @@
 - 默认 cron: `0 7 * * *`　|　worker 组: **m**
 - 工作流脚本: `services/kpi_email_report.py → run_sp_details_email`
 
-**功能**: 每天 07:00 发送 data/sp_email/data 下 5 份备件明细 Excel（inband/outband/inventory/ocrule/transfer）
+**功能**: 每天 07:00 把 data/sp_email/data 下 4 份备件明细（inventory/inband/outband/transfer）合并为一个 Excel（sheet: Inventory/Inbound/Outbound/Transfer），附件名与主题均携带发送时间戳发送
 
 **工作流与数据流**:
 
-1. 收集 data/sp_email/data 下 5 份 *_details.xlsx
-1. 整包发送（默认收件人为固定地址，可在系统设置 → 邮件收件人覆盖）
+1. 收集 data/sp_email/data 下 4 份 *_details.xlsx（inventory/inband/outband/transfer）
+1. 合并为 `SP Details Report <YYYY-MM-DD HH-MM-SS>.xlsx`（4 个 sheet，保持原始明细内容）
+1. 以主题 `SP Spare Parts Details Report <YYYY-MM-DD HH-MM-SS>` 发送（默认收件人为固定地址，可在系统设置 → 邮件收件人覆盖）
 
 **维护要点**:
 

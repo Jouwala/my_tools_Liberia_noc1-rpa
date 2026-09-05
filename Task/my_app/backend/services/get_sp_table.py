@@ -3,7 +3,9 @@ import logging
 SP（备件）数据同步服务。
 
 从远端 SFTP 服务器（10.100.20.11）拉取 5 份备件管理 Excel 报表，
-归一化后写入 my_app 的 SQLite 数据库 db/app.db，供「仓库看板」展示。
+归一化后写入 my_app 的 SQLite 数据库 db/app.db，供「仓库看板」展示；
+同时镜像写入 FineBI 服务器（DESKTOP-D4GF62）上的
+WareHouseDashBoard/inventory.db（UNC 网络路径），供 FineBI 仓库看板读取。
 
 表名与 WareHouseDashBoard 保持一致：
   - inband_details   （Inbound  Ticket，sp/spinbound）
@@ -80,6 +82,15 @@ if _SP_CONF:
     SFTP_PORT = int(_SP_CONF.get("sftp_port", SFTP_PORT))
     _sp_folders = _SP_CONF.get("folders") or {}
     print(f"[SP] 已加载 sp_sftp_config.json: host={SFTP_HOST}")
+
+# ====== FineBI 仓库看板镜像库（UNC 网络路径，任务成功后把最新数据同步过去） ======
+# 默认指向 FineBI 服务器上的 WareHouseDashBoard/inventory.db（该库仅含 5 张 SP 表）。
+# 可在 sp_sftp_config.json 里改路径 / 关闭（"mirror_enabled": false）。
+MIRROR_DB_PATH = r"\\DESKTOP-D4GF62\FineBI6.0\webapps\Python\Unified_Tools\WareHouseDashBoard\inventory.db"
+MIRROR_ENABLED = True
+if _SP_CONF:
+    MIRROR_DB_PATH = _SP_CONF.get("mirror_db_path", MIRROR_DB_PATH)
+    MIRROR_ENABLED = bool(_SP_CONF.get("mirror_enabled", MIRROR_ENABLED))
 
 
 def _runtime_credentials():
@@ -298,7 +309,8 @@ def _ensure_log_table(conn):
     """)
 
 
-def _write_table(conn, table_name: str, df: pd.DataFrame):
+def _write_table(conn, table_name: str, df: pd.DataFrame, sink: dict | None = None):
+    """写入 app.db；sink 传入时把写入后的 DataFrame 交给镜像收集器（table -> df）。"""
     now = datetime.now()
     update_time = now.strftime('%Y-%m-%d %H:%M:%S')
     update_date = now.strftime('%Y-%m-%d')
@@ -327,9 +339,245 @@ def _write_table(conn, table_name: str, df: pd.DataFrame):
     if table_name in APPEND_TABLES:
         write_df(df, table_name, if_exists="replace")
 
+    # 交给镜像：append 表远端也按「远端已有行反连接」追加，传入合并后的
+    # 全量内存 df 即可（只保留本轮新行语义由 _mirror_append_table 保证）。
+    if sink is not None:
+        sink[table_name] = df
+
 
 def _table_exists(conn, table_name: str) -> bool:
     return table_name in set(list_table_names(conn))
+
+
+# ====== FineBI 镜像库写入（UNC 网络路径 inventory.db） ======
+# 远端 inventory.db 是 WareHouseDashBoard 看板的专用库（仅含 5 张 SP 表），
+# 由本任务作为唯一写入方维护；journal_mode 保持 delete（SMB 上 WAL 不可靠）。
+# 普通表整表替换；增量表（APPEND_TABLES）只追加远端没有的新行，保护远端历史。
+MIRROR_APPEND_TABLES = tuple(APPEND_TABLES)
+MIRROR_CONNECT_TIMEOUT = 30.0   # SMB 首次连接可能较慢
+MIRROR_BUSY_TIMEOUT_MS = 30000  # 看板进程可能正持有读锁
+MIRROR_RETRIES = 2              # 整体镜像失败重试次数（SMB 抖动自愈）
+MIRROR_RETRY_WAIT = 5           # 重试间隔基数（秒）
+# 追加表反连接列：与 app.db 增量去重的 subset 一致（update_date + 业务键）
+MIRROR_DEDUP_COLS = ['update_date', 'Serial No.', 'Material No.',
+                     'Warehouse Name', 'Material Type']
+
+
+def _mirror_runtime_config():
+    """运行时读取镜像配置（页面改 sp_sftp_config.json 后免重启生效）。"""
+    try:
+        from backend.services.task_config_files import load_json_config
+    except ImportError:
+        from task_config_files import load_json_config
+    conf = load_json_config(Path(__file__).resolve().parent / "sp_sftp_config.json")
+    path = MIRROR_DB_PATH
+    enabled = MIRROR_ENABLED
+    if conf:
+        path = conf.get("mirror_db_path", path)
+        enabled = bool(conf.get("mirror_enabled", enabled))
+    return enabled, path
+
+
+def _connect_mirror(db_path: str):
+    """连接远端 SQLite（SMB UNC 路径）：短超时 + busy_timeout 扛看板读锁。"""
+    con = sqlite3.connect(str(db_path), timeout=MIRROR_CONNECT_TIMEOUT)
+    con.execute(f"PRAGMA busy_timeout = {MIRROR_BUSY_TIMEOUT_MS}")
+    return con
+
+
+def _mirror_ensure_table(con, table_name: str, df: pd.DataFrame):
+    """远端建表（若不存在）。列名来自 WareHouseDashBoard excel2db 同构的 DataFrame。"""
+    cols_sql = ", ".join(
+        f'"{str(c).replace(chr(34), chr(34) * 2)}" TEXT' for c in df.columns
+    )
+    con.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({cols_sql})')
+
+
+def _mirror_replace_table(con, table_name: str, df: pd.DataFrame):
+    """整表替换：事务内 DELETE + 分块 INSERT（与 app.db 同步语义一致）。"""
+    cols = [str(c) for c in df.columns]
+    quoted = ", ".join(f'"{c.replace(chr(34), chr(34) * 2)}"' for c in cols)
+    placeholders = ", ".join("?" for _ in cols)
+    delete_sql = f'DELETE FROM "{table_name}"'
+    insert_sql = f'INSERT INTO "{table_name}" ({quoted}) VALUES ({placeholders})'
+    con.execute(delete_sql)
+    chunk = 2000
+    for start in range(0, len(df), chunk):
+        batch = df.iloc[start:start + chunk]
+        con.executemany(insert_sql, batch.itertuples(index=False, name=None))
+    return len(df)
+
+
+def _mirror_append_table(con, table_name: str, df: pd.DataFrame):
+    """追加表：只 INSERT 远端还没有的新行，绝不删改远端历史累计数据。
+
+    反连接键与 app.db 增量去重一致（update_date + Serial/Material/Warehouse/Type），
+    空远端表直接整批插入（避免对 32 万行大表做无谓的全表反连接）。
+    """
+    subset = [c for c in MIRROR_DEDUP_COLS if c in df.columns]
+    cur = con.execute(f'SELECT COUNT(*) FROM "{table_name}"')
+    remote_cnt = cur.fetchone()[0] or 0
+    inserted = 0
+    if remote_cnt == 0:
+        if len(df):
+            inserted = _mirror_replace_table(con, table_name, df)
+        return inserted, remote_cnt
+    cols = [str(c) for c in df.columns]
+    quoted = ", ".join(f'"{c.replace(chr(34), chr(34) * 2)}"' for c in cols)
+    placeholders = ", ".join("?" for _ in cols)
+    insert_sql = f'INSERT INTO "{table_name}" ({quoted}) VALUES ({placeholders})'
+    if subset:
+        dedup_cols = [c for c in subset if c in cols]
+        if dedup_cols:
+            sel = ", ".join(f'NULLIF("{c.replace(chr(34), chr(34) * 2)}", \'\')' for c in dedup_cols)
+            existing = {
+                tuple("" if v is None else str(v).strip() for v in row)
+                for row in con.execute(f'SELECT {sel} FROM "{table_name}"')
+            }
+            keys = [
+                tuple("" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
+                      for v in row)
+                for row in df[dedup_cols].itertuples(index=False, name=None)
+            ]
+            todo_mask = [k not in existing for k in keys]
+            pending = df.loc[todo_mask]
+            # 批内同键去重（app.db 侧 keep='first' 语义一致）
+            if len(pending):
+                pending = pending.drop_duplicates(subset=dedup_cols, keep="first")
+            if len(pending):
+                con.executemany(
+                    insert_sql, pending.itertuples(index=False, name=None))
+                inserted = len(pending)
+            return inserted, remote_cnt
+    # 无可用去重列（理论不到达）：退化为整表替换语义
+    return _mirror_replace_table(con, table_name, df), remote_cnt
+
+
+def _mirror_table_exists(con, table_name: str) -> bool:
+    row = con.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
+    ).fetchone()
+    return row is not None
+
+
+def _mirror_coerce_values(df: pd.DataFrame) -> pd.DataFrame:
+    """SQLite 只能绑定基础类型：datetime 列转字符串，其余非基础类型转 str。
+
+    pd.read_excel 会把 Excel 日期列解析成 datetime64/pd.Timestamp，
+    直接 itertuples 绑定会报 "type 'Timestamp' is not supported"。
+    """
+    out = df.copy()
+    for col in out.columns:
+        s = out[col]
+        if pd.api.types.is_datetime64_any_dtype(s):
+            out[col] = s.dt.strftime('%Y-%m-%d %H:%M:%S')
+        elif s.dtype == object:
+            def _conv(v):
+                if v is None or v is pd.NaT:
+                    return None
+                if isinstance(v, float) and pd.isna(v):
+                    return None
+                if isinstance(v, (str, int, float, bytes, bool)):
+                    return v
+                if hasattr(v, "strftime"):
+                    return v.strftime('%Y-%m-%d %H:%M:%S')
+                return str(v)
+            out[col] = s.map(_conv)
+    return out
+
+
+def _mirror_write_all(tables_data: dict) -> dict:
+    """把本轮各表 DataFrame 写入远端镜像库，返回 {table: {rows, status, detail?}}。
+
+    - 远端列缺失时自动对齐 app.db 的列（远端建表/补列），多余列忽略；
+    - 写前核对远端表存在且结构可容纳（INSERT OR IGNORE 保底防结构漂移报错）；
+    - 任一表失败仅标记该表 error，不影响其它表。
+    """
+    mirror_result = {}
+    enabled, db_path = _mirror_runtime_config()
+    if not enabled:
+        mirror_result["_meta"] = {"status": "disabled", "detail": "mirror_enabled=false"}
+        return mirror_result
+    if not db_path or not str(db_path).strip():
+        mirror_result["_meta"] = {"status": "error", "detail": "mirror_db_path 为空"}
+        return mirror_result
+    last_err = None
+    for attempt in range(1, MIRROR_RETRIES + 1):
+        con = None
+        attempt_res: dict = {}
+        try:
+            con = _connect_mirror(db_path)
+            for table_name, df in tables_data.items():
+                if df is None:
+                    continue
+                try:
+                    if len(df) == 0:
+                        # 空报表：跳过镜像，避免把远端已有数据清空（远端表结构也不被破坏）
+                        attempt_res[table_name] = {
+                            "rows": 0, "status": "skipped", "detail": "本轮 0 行，跳过镜像"}
+                        print(f"[镜像] {table_name}: 本轮 0 行，跳过（保留远端现状）")
+                        continue
+                    if not _mirror_table_exists(con, table_name):
+                        _mirror_ensure_table(con, table_name, df)
+                    remote_cols = {
+                        r[1] for r in con.execute(f'PRAGMA table_info("{table_name}")').fetchall()
+                    }
+                    out = df.copy()
+                    missing = [c for c in map(str, out.columns) if c not in remote_cols]
+                    for c in missing:
+                        con.execute(
+                            f'ALTER TABLE "{table_name}" '
+                            f'ADD COLUMN "{str(c).replace(chr(34), chr(34) * 2)}" TEXT')
+                    out = out[[c for c in map(str, out.columns)
+                               if c in remote_cols or c in missing]]
+                    out = _mirror_coerce_values(out)
+                    if table_name in MIRROR_APPEND_TABLES:
+                        inserted, remote_cnt = _mirror_append_table(con, table_name, out)
+                        attempt_res[table_name] = {
+                            "rows": inserted, "remote_rows": remote_cnt + inserted,
+                            "status": "ok", "mode": "append",
+                        }
+                        print(f"[镜像] {table_name}: 追加 {inserted} 行 "
+                              f"(远端原 {remote_cnt} 行，现 {remote_cnt + inserted} 行)")
+                    else:
+                        n = _mirror_replace_table(con, table_name, out)
+                        attempt_res[table_name] = {
+                            "rows": n, "remote_rows": n, "status": "ok", "mode": "replace",
+                        }
+                        print(f"[镜像] {table_name}: 替换 {n} 行")
+                except Exception as e:
+                    attempt_res[table_name] = {
+                        "rows": 0, "status": "error", "detail": str(e)}
+                    print(f"[镜像][错误] {table_name}: {e}")
+            con.commit()
+            attempt_res["_meta"] = {"status": "ok", "db": str(db_path), "attempt": attempt}
+            return attempt_res
+        except Exception as e:
+            last_err = e
+            print(f"[镜像][致命] 第{attempt}次连接/写入失败: {e}")
+            # 本轮已写但未 commit 的表数据并未落库，如实标记为失败；
+            # 连接都没建立时，本轮未到达的表也要补上 error 标记
+            for t, v in attempt_res.items():
+                if v.get("status") == "ok":
+                    v["status"] = "error"
+                    v["detail"] = f"事务未提交（连接中断）: {e}"
+            for t in tables_data:
+                if t not in attempt_res:
+                    attempt_res[t] = {"rows": 0, "status": "error",
+                                      "detail": f"连接/写入中断: {e}"}
+            attempt_res["_meta"] = {"status": "error", "detail": str(e), "attempt": attempt}
+            if attempt < MIRROR_RETRIES:
+                time.sleep(MIRROR_RETRY_WAIT * attempt)
+        finally:
+            if con is not None:
+                try:
+                    con.close()
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "[SILENT-EXCEPT] _mirror_write_all: exception swallowed", exc_info=True)
+        mirror_result = attempt_res
+    print(f"[镜像][放弃] {MIRROR_RETRIES} 次尝试均失败: {last_err}")
+    return mirror_result
 
 
 # ====== SFTP 连接（带 keepalive / 超时，便于断线自愈）======
@@ -353,11 +601,14 @@ def _connect_sftp():
 
 # ====== 主流程 ======
 def run_sp_data_sync() -> dict:
-    """拉取 5 份 SP 报表并写入 db/app.db，返回执行结果。
+    """拉取 5 份 SP 报表并写入 db/app.db，再镜像写入 FineBI inventory.db，返回执行结果。
 
     健壮性增强：
       - 整体 SFTP 连接/同步失败会按指数退避自动重试；
-      - 单表下载中途断线会先重建连接再重试该表，避免一次网络抖动拖垮整轮。
+      - 单表下载中途断线会先重建连接再重试该表，避免一次网络抖动拖垮整轮；
+      - app.db 全部落库后统一镜像到 UNC 路径 inventory.db（普通表整表替换、
+        inventory_details 只追加远端没有的新行），镜像失败不影响 app.db 主结果，
+        但会在 result["mirror"]/message 中显式暴露。
     """
     os.makedirs(SP_DATA_DIR, exist_ok=True)
     now = datetime.now()
@@ -369,6 +620,11 @@ def run_sp_data_sync() -> dict:
         "tables": {},
         "attempts": 0,
     }
+    # 本轮各表最新数据（镜像写入用）：table -> 已加 update_time/update_date 的 df
+    mirror_data: dict = {}
+    mirror_enabled, _mirror_path = _mirror_runtime_config()
+    if mirror_enabled:
+        result["mirror"] = {}
 
     last_err = None
     for attempt in range(1, SFTP_MAX_ATTEMPTS + 1):
@@ -401,7 +657,7 @@ def run_sp_data_sync() -> dict:
 
                         download_file(sftp, remote_file, str(local_path), cfg["csv"])
                         df = pd.read_excel(local_path)
-                        _write_table(conn, table_name, df)
+                        _write_table(conn, table_name, df, sink=mirror_data)
                         conn.execute(
                             "INSERT INTO sp_sync_log (table_name, rows, synced_at) VALUES (?,?,?)",
                             (table_name, len(df), synced_at),
@@ -425,8 +681,29 @@ def run_sp_data_sync() -> dict:
                         result["success"] = False
 
             conn.close()
+            # ====== 镜像写入 FineBI inventory.db（app.db 全部落库后执行） ======
+            if mirror_enabled and mirror_data:
+                mirror_res = _mirror_write_all(mirror_data)
+                result["mirror"] = {k: v for k, v in mirror_res.items()}
+                _meta = mirror_res.get("_meta") or {}
+                mirror_errs = [t for t, v in mirror_res.items()
+                               if t != "_meta" and v.get("status") == "error"]
+                result["mirror_errors"] = mirror_errs
+                if _meta.get("status") != "ok" or mirror_errs:
+                    # 镜像失败不影响 app.db 主结果，但要在任务报告里显式暴露
+                    result["mirror_success"] = False
+                    print(f"[镜像][警告] 镜像未完全成功，失败表: {mirror_errs or _meta.get('detail')}")
+                else:
+                    result["mirror_success"] = True
+                    print("[镜像] FineBI inventory.db 写入完成")
             ok = sum(1 for v in result["tables"].values() if v.get("status") == "ok")
             result["message"] = f"SP 数据同步完成：{ok}/{len(SP_TABLES)} 个表成功（第{attempt}次尝试）"
+            if mirror_enabled:
+                if result.get("mirror_success"):
+                    result["message"] += "；已镜像写入 FineBI inventory.db"
+                elif "mirror_errors" in result:
+                    errs = ", ".join(result["mirror_errors"]) or "连接失败"
+                    result["message"] += f"；镜像写入 FineBI inventory.db 失败: {errs}"
             print(f"[完成] {result['message']}")
             break  # 整轮成功，退出整体重试循环
         except Exception as e:

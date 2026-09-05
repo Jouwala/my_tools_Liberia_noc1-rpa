@@ -185,6 +185,29 @@ class EflowAlarmRuleCollector:
             })
         df_types = pd.DataFrame(rt_rows)
 
+        try:
+            self._write_sheets(output_file, df_rules, df_types)
+        except PermissionError:
+            # Excel/WPS 正在打开该文件导致写锁：降级为时间戳版本文件，任务不失败
+            dir_path = os.path.dirname(os.path.abspath(output_file))
+            base_name = os.path.splitext(os.path.basename(output_file))[0]
+            versioned = os.path.join(
+                dir_path,
+                f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            )
+            logger.warning(
+                f"目标文件被占用（可能正在 Excel 中打开），降级写入版本文件: {versioned}")
+            self._write_sheets(versioned, df_rules, df_types)
+            self._cleanup_old_versions(dir_path, base_name)
+            output_file = versioned
+
+        logger.info(f"✓ Excel 已导出：{output_file} (规则 {len(rules)} 条, 类型 {len(rule_types)} 种)")
+        return output_file
+
+    @staticmethod
+    def _write_sheets(output_file, df_rules, df_types):
+        """把两个 Sheet 写入 xlsx（不做写锁兼容，被占用时抛 PermissionError）"""
+        import pandas as pd
         with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
             df_rules.to_excel(writer, sheet_name='Alarm_Rules', index=False)
             if df_types.empty:
@@ -201,8 +224,22 @@ class EflowAlarmRuleCollector:
                     worksheet.column_dimensions[chr(65 + idx) if idx < 26 else 'A' + chr(65 + idx - 26)].width = \
                         min(max_length + 2, 80)
 
-        logger.info(f"✓ Excel 已导出：{output_file} (规则 {len(rules)} 条, 类型 {len(rule_types)} 种)")
-        return output_file
+    @staticmethod
+    def _cleanup_old_versions(dir_path, base_name, keep=3):
+        """清理同前缀的时间戳版本文件，仅保留最近 keep 份（best-effort）"""
+        try:
+            prefix = f"{base_name}_"
+            files = sorted(
+                f for f in os.listdir(dir_path)
+                if f.startswith(prefix) and f.endswith(".xlsx"))
+            if len(files) > keep:
+                for old in files[:-keep]:
+                    try:
+                        os.remove(os.path.join(dir_path, old))
+                    except OSError:
+                        pass
+        except OSError:
+            pass
 
     def _format_params(self, param_str):
         """格式化 param JSON 为可读文本: label(name=value)"""

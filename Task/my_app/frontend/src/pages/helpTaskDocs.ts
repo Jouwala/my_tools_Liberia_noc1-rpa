@@ -273,15 +273,15 @@ export const TASK_DOCS: TaskDoc[] = [
     script: 'services/get_sp_table.py → run_sp_data_sync',
     zh: {
       name: 'SP 备件数据同步',
-      desc: '从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db',
-      flow: ['登录备件 SFTP（凭据分组 sftp_sp）', '拉取 Inbound/Outbound/Inventory/OC Rule/Transfer 5 份报表', '清洗后写主库，供仓库看板与 SP 报表使用'],
-      maintain: ['仓库看板 iframe 读的就是这批数据；报表缺失先看本任务是否成功'],
+      desc: '从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI WareHouseDashBoard inventory.db',
+      flow: ['登录备件 SFTP（凭据分组 sftp_sp）', '拉取 Inbound/Outbound/Inventory/OC Rule/Transfer 5 份报表', '清洗后写主库，供仓库看板与 SP 报表使用', '全部落库后镜像写入 FineBI inventory.db（UNC 路径；普通表整表替换、Inventory 只追加新行）'],
+      maintain: ['仓库看板 iframe 读的就是这批数据；报表缺失先看本任务是否成功', '镜像失败会在任务消息提示但影响不到 app.db；路径/开关在 Settings → 任务配置（mirror_db_path / mirror_enabled）'],
     },
     en: {
       name: 'SP Spare Data Sync',
-      desc: 'Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db',
-      flow: ['Log into the spare-parts SFTP (credential group sftp_sp)', 'Fetch the 5 reports', 'Clean and write into the main DB for the warehouse board and SP reports'],
-      maintain: ['The warehouse board iframe reads exactly this data — if reports are missing, check this task first'],
+      desc: 'Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db, then mirror into FineBI WareHouseDashBoard inventory.db',
+      flow: ['Log into the spare-parts SFTP (credential group sftp_sp)', 'Fetch the 5 reports', 'Clean and write into the main DB for the warehouse board and SP reports', 'After all tables are stored, mirror into the FineBI inventory.db (UNC path; full replace for normal tables, append-only for Inventory)'],
+      maintain: ['The warehouse board iframe reads exactly this data — if reports are missing, check this task first', 'Mirror failures are reported in the task message without affecting app.db; path/toggle in Settings → Task Config (mirror_db_path / mirror_enabled)'],
     },
   },
   {

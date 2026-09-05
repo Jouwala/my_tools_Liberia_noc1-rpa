@@ -72,9 +72,17 @@ async function writeLastRun(run) {
   broadcast({ type: "sidepanel:lastRun", data: runWithFinish });
 }
 
-async function apiFetch(cfg, path, opts) {
-  const res = await fetch(normalizeBaseUrl(cfg.server_url) + path, opts);
-  return res;
+async function apiFetch(cfg, path, opts, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(normalizeBaseUrl(cfg.server_url) + path, {
+      ...(opts || {}),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ---------- cron（与 sync 页面同格式：分 时 日 月 周） ----------
@@ -132,16 +140,15 @@ function minuteKey(now) {
 // 幂等：已存在的 alarm 不重建。SW 每分钟都会被 KEEPALIVE 唤醒并执行顶层
 // syncAlarms，若每次都 create 会把下一次触发不断往后推 1 分钟，tick 精度受损。
 async function syncAlarms(cfg) {
+  // 2026-09-03 事故修复（0.2.2）：TICK 闹钟常驻、不再随 cfg.enabled 清除。
+  // enabled 只停用「定时直发」；若把 TICK 一并清掉，后端任务投递的作业
+  // 将无人轮询认领，任务 600s 超时判失败（2026-09-03 全天超时事故根因）。
   const existing = new Set((await chrome.alarms.getAll()).map((a) => a.name));
   if (!existing.has(KEEPALIVE_ALARM)) {
     await chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 1 });
   }
-  if (cfg.enabled) {
-    if (!existing.has(TICK_ALARM)) {
-      await chrome.alarms.create(TICK_ALARM, { periodInMinutes: 1 });
-    }
-  } else {
-    await chrome.alarms.clear(TICK_ALARM);
+  if (!existing.has(TICK_ALARM)) {
+    await chrome.alarms.create(TICK_ALARM, { periodInMinutes: 1 });
   }
 }
 
@@ -162,13 +169,15 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-// 每分钟：命中 cron 触发定时发送；未命中时仍认领后端作业（如有）
+// 每分钟：命中 cron 触发定时发送；未命中时仍认领后端作业（如有）。
+// 0.2.2：cfg.enabled 只控制「定时直发」；作业认领不受开关影响——
+// 侧栏开关文案明确写了「也会认领后端任务投递的发送作业」，且
+// enabled=false 时短路认领会导致后端任务永远超时（2026-09-03 事故）。
 async function tick() {
   const cfg = await getConfig();
-  if (!cfg.enabled) return;
   if (running) return;
 
-  if (cronMatchesNow(cfg.cron, new Date())) {
+  if (cfg.enabled !== false && cronMatchesNow(cfg.cron, new Date())) {
     const data = await chrome.storage.local.get(LAST_FIRE_KEY);
     const key = minuteKey();
     if (data[LAST_FIRE_KEY] === key) return; // 同一分钟只触发一次（alarm 可能重复唤醒）
@@ -959,6 +968,13 @@ const SIMPLE_HELPERS = `(() => {
       return !!(main && input && (main.innerText || main.textContent || '').includes(name));
     },
     focusChat() { const el = chatInput(); if (!el) return false; el.focus(); return document.activeElement === el; },
+    // 诊断用：点击后没进群时，把「实际进了哪个会话 / 输入框是否就绪」带回错误信息
+    chatTitle() {
+      const el = document.querySelector('#main header span[title], #main header span[data-testid="conversation-info-header-chat-title"], #main header div[role="heading"]');
+      return el ? text(el) : '';
+    },
+    mainHasInput() { return !!chatInput(); },
+    mainHasMain() { return !!document.querySelector('#main'); },
     snapshotCount() { return editables().length; },
     previewFound(base) { return !!previewInput(base); },
     focusPreview(base) { const el = previewInput(base); if (!el) return false; el.focus(); return document.activeElement === el; },
@@ -968,34 +984,98 @@ const SIMPLE_HELPERS = `(() => {
   return true;
 })()`;
 
+// 输入群名并校验：成功返回 null，失败返回可读原因（含实测值）。
+// WhatsApp Web 是 React 应用，切换会话后搜索框 DOM 节点会被重建，
+// Input.insertText 有概率落在已经被卸载的旧节点上（表现为读回空串或旧内容）。
+// 实测该问题集中出现在单次作业的第 2 个群（前一个群刚发完图、页面正在重渲染），
+// 因此这里改为「清空 → 输入 → 轮询校验 → 重新聚焦重试」的自愈循环，
+// 不再用「固定 1s 后单次比对」一次性判定失败。
+async function simpleTypeGroupName(tabId, name, attempts = 3) {
+  const readText = async () =>
+    String((await dbgEval(tabId, "window.__waSimple.searchText()")) || "").trim();
+  let reason = "";
+  for (let i = 1; i <= attempts; i++) {
+    if (!(await dbgEval(tabId, "window.__waSimple.focusSearch()"))) {
+      reason = "找不到可用的 WhatsApp 搜索框";
+      await sleep(800);
+      continue;
+    }
+    await cdpSelectAllDelete(tabId);
+    if (!(await dbgEval(tabId, "window.__waSimple.searchFocused()"))) {
+      reason = "清空后焦点不在搜索框";
+      await sleep(800);
+      continue;
+    }
+    const cleared = await readText();
+    if (cleared) {
+      reason = `搜索框未能清空（当前内容「${cleared}」）`;
+      await sleep(800);
+      continue;
+    }
+    await dbgCommand(tabId, "Input.insertText", { text: name });
+    // 轮询校验（最多 3s）：给 React 重建搜索框留出时间，避免误判为输入失败。
+    let actual = "";
+    for (let t = 0; t < 12; t++) {
+      await sleep(250);
+      actual = await readText();
+      if (actual === name) {
+        // 文字对上了 ≠ 搜索结果渲染完了。旧实现在这里固定 sleep 1000ms，
+        // 之前改成一命中就立刻返回，导致点击比旧版提前约 750ms 发生，
+        // 正好落在 WhatsApp 虚拟列表重排的窗口里 → 坐标失效 → 点空/点错会话。
+        // 这里补回 900ms 沉降，保证点击时机与旧版一致。
+        await sleep(900);
+        return null;
+      }
+    }
+    reason = `群名输入校验失败（期望「${name}」，实测「${actual}」，第 ${i}/${attempts} 次）`;
+    await sleep(500);
+  }
+  return reason || "群名输入校验失败（未知原因）";
+}
+
+// 采样「精确群名节点」的中心坐标：要求连续两次（间隔 300ms）坐标完全一致才返回，
+// 否则认为 WhatsApp 的虚拟列表还在重排，此刻点击会落在旧位置/空位上。
+// 拿不到稳定坐标时，用最近一次可用坐标兜底（交给 chatReady 判定成败）。
+async function stableResultPoint(tabId, name, timeout = 3000) {
+  const n = JSON.stringify(name);
+  const get = async () => {
+    const p = await dbgEval(tabId, `window.__waSimple.resultPoint(${n})`);
+    if (!p || typeof p.x !== "number" || typeof p.y !== "number") return null;
+    return p;
+  };
+  let prev = await get();
+  if (!prev) return null;
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    await sleep(300);
+    const cur = await get();
+    if (cur) {
+      if (cur.x === prev.x && cur.y === prev.y) return cur;
+      prev = cur;
+    }
+  }
+  return prev;
+}
+
 async function simpleOpenChat(tabId, name) {
   const n = JSON.stringify(name);
   // 仅关闭上一次残留的弹窗；不点击页面，也不清理未知输入框。
   await cdpEscapeKey(tabId);
   await sleep(300);
-  if (!(await dbgEval(tabId, "window.__waSimple.focusSearch()"))) {
-    throw new Error("找不到可用的 WhatsApp 搜索框");
-  }
-  await cdpSelectAllDelete(tabId);
-  if (!(await dbgEval(tabId, "window.__waSimple.searchFocused()"))) {
-    throw new Error("清空后焦点不在搜索框，已停止");
-  }
-  if (String(await dbgEval(tabId, "window.__waSimple.searchText()") || "")) {
-    throw new Error("搜索框未能清空，已停止");
-  }
-  await dbgCommand(tabId, "Input.insertText", { text: name });
-  await sleep(1000);
-  if (String(await dbgEval(tabId, "window.__waSimple.searchText()") || "") !== name) {
-    throw new Error("群名输入校验失败，已停止");
-  }
+  const typeErr = await simpleTypeGroupName(tabId, name);
+  if (typeErr) throw new Error(`${typeErr}，已停止`);
   if (!(await cdpWait(tabId, `window.__waSimple.resultFound(${n})`, 6000))) {
     throw new Error(`搜索结果中找不到「${name}」`);
   }
-  const point = await dbgEval(tabId, `window.__waSimple.resultPoint(${n})`);
+  const point = await stableResultPoint(tabId, name);
   if (!point || typeof point.x !== "number" || typeof point.y !== "number") {
     throw new Error(`无法安全定位群组「${name}」`);
   }
   // 只有精确群名文字节点的中心坐标才允许产生可信点击。
+  // 先发一次 mouseMoved，让 React 的 hover 状态与真实点击一致，再按下/抬起。
+  await dbgCommand(tabId, "Input.dispatchMouseEvent", {
+    type: "mouseMoved", x: point.x, y: point.y, button: "none",
+  });
   await dbgCommand(tabId, "Input.dispatchMouseEvent", {
     type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: 1,
   });
@@ -1003,7 +1083,13 @@ async function simpleOpenChat(tabId, name) {
     type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: 1,
   });
   if (!(await cdpWait(tabId, `window.__waSimple.chatReady(${n})`, 6000))) {
-    throw new Error(`点击后未进入群会话「${name}」`);
+    const title = String((await dbgEval(tabId, "window.__waSimple.chatTitle()")) || "(无)");
+    const hasMain = await dbgEval(tabId, "window.__waSimple.mainHasMain()");
+    const hasInput = await dbgEval(tabId, "window.__waSimple.mainHasInput()");
+    throw new Error(
+      `点击后未进入群会话「${name}」（实际会话标题「${title}」，main=${hasMain}，`
+      + `输入框就绪=${hasInput}，点击坐标 ${point.x},${point.y}）`
+    );
   }
 }
 
@@ -1066,7 +1152,7 @@ async function simpleSendViaDebugger(tabId, groups, images) {
 // ---------- 后端作业（认领 / 回报） ----------
 async function tryClaimJob(cfg) {
   try {
-    const res = await apiFetch(cfg, "/api/whatsapp/ext/job");
+    const res = await apiFetch(cfg, "/api/whatsapp/ext/job", undefined, 10000);
     if (!res.ok) return null;
     const job = await res.json();
     return job && job.pending === true ? job : null;
@@ -1076,15 +1162,23 @@ async function tryClaimJob(cfg) {
 }
 
 async function reportJobResult(cfg, jobId, result) {
-  try {
-    await apiFetch(cfg, "/api/whatsapp/ext/job/result", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ job_id: jobId, ...result }),
-    });
-  } catch (e) {
-    result.errors.push(`结果回报失败: ${e.message}`);
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await apiFetch(cfg, "/api/whatsapp/ext/job/result", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: jobId, ...result }),
+      }, 15000);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return true;
+    } catch (e) {
+      lastError = e;
+      if (attempt < 3) await sleep(1000 * attempt);
+    }
   }
+  result.errors.push(`结果回报失败（已重试3次）: ${lastError && lastError.message || lastError}`);
+  return false;
 }
 
 // 认领后端作业并发送；无作业返回 false
@@ -1256,8 +1350,41 @@ chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((e) => console.warn("[wa-sender] setPanelBehavior failed", e));
 
-chrome.runtime.onInstalled.addListener(async () => { await syncAlarms(await getConfig()); });
-chrome.runtime.onStartup.addListener(async () => { await syncAlarms(await getConfig()); });
+// 扩展刚安装/重载、浏览器启动，或 WhatsApp Web 刚加载完成时，立即检查一次后端作业。
+// 不能只依赖下一次 alarm：后端的等待窗口是有限的，而旧 service worker 可能恰好错过
+// 了 alarm，导致「已登录且扩展已加载」仍在 600s 内没有认领作业。
+let wakePendingPromise = null;
+function wakePendingJob(trigger) {
+  if (wakePendingPromise) return wakePendingPromise;
+  wakePendingPromise = getConfig()
+    .then((cfg) => claimAndRunJob(cfg, trigger))
+    .catch((e) => console.warn("[wa-sender] pending job wake failed", e))
+    .finally(() => { wakePendingPromise = null; });
+  return wakePendingPromise;
+}
+
+chrome.runtime.onInstalled.addListener(async () => {
+  const cfg = await getConfig();
+  await syncAlarms(cfg);
+  await wakePendingJob("startup");
+});
+chrome.runtime.onStartup.addListener(async () => {
+  const cfg = await getConfig();
+  await syncAlarms(cfg);
+  await wakePendingJob("startup");
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === "complete"
+      && tab && /^https:\/\/web\.whatsapp\.com\//.test(tab.url || "")) {
+    void wakePendingJob("whatsapp-ready");
+  }
+});
 // 顶层兜底：SW 每次被唤醒（含 keepalive）都恢复闹钟。必须用已保存配置——
 // 若传 DEFAULTS，用户停用定时后闹钟每分钟都会被重新建回来，开关形同虚设。
-getConfig().then(syncAlarms).catch(() => {});
+getConfig()
+  .then(async (cfg) => {
+    await syncAlarms(cfg);
+    await wakePendingJob("startup");
+  })
+  .catch(() => {});

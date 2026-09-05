@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "WhatsApp Image Sender",
   "description": "定时从 my_app 后端拉取 Site Outage 截图，在已登录的 WhatsApp Web 标签页中自动发送到配置好的群组。数据仅在本机与 WhatsApp 之间流转。",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "permissions": ["storage", "alarms", "sidePanel", "scripting", "debugger", "downloads"],
   "host_permissions": [
     "https://web.whatsapp.com/*",

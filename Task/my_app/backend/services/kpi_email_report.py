@@ -69,7 +69,8 @@ _SP_LOCAL_DATA = MY_APP_DIR / "data" / "sp_email"
 from backend.config.remote_host import get_remote_host
 _SP_EMAIL_UNC = rf"\\{get_remote_host()}\e\01_RPA\LBR_Tools\SP\sp_report\email"
 _SP_GEN_SCRIPT = Path(__file__).resolve().parent / "sp_report_gen" / "gernarate_sp_report.py"
-# SP 备件明细：data/sp_email/data 下 5 份 *_details.xlsx，作为附件整包发送
+# SP 备件明细：data/sp_email/data 下 4 份明细 xlsx 合并为一个工作簿（sheet:
+# Inventory/Inbound/Outbound/Transfer）整包发送，主题与附件名携带时间戳
 _SP_DETAILS_DATA = MY_APP_DIR / "data" / "sp_email" / "data"
 _SP_DETAILS_DEFAULT_TO = "ansah.boadu@zte.com.cn"
 _SP_DETAILS_DEFAULT_CC = "dong.xinmin@zte.com.cn"
@@ -366,33 +367,84 @@ def run_sp_consumables(to: str = None, cc: str = None) -> dict:
     )
 
 
+def _merge_sp_details_workbook(out_path: Path) -> dict:
+    """把 data/sp_email/data 下 4 份明细 xlsx 合并为**一个**工作簿（每个明细一个 sheet）。
+
+    sheet 对应关系（保持原始明细内容，不做过滤/加工）：
+      Inventory <- inventory_details.xlsx
+      Inbound   <- inband_details.xlsx
+      Outbound  <- outband_details.xlsx
+      Transfer  <- transfer_details.xlsx
+
+    返回 {sheet_name: 行数}；任一源文件缺失抛 FileNotFoundError。
+    """
+    import pandas as pd
+
+    sheet_sources = [
+        ("Inventory", "inventory_details.xlsx"),
+        ("Inbound", "inband_details.xlsx"),
+        ("Outbound", "outband_details.xlsx"),
+        ("Transfer", "transfer_details.xlsx"),
+    ]
+    row_counts = {}
+    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+        for sheet_name, fname in sheet_sources:
+            src = _SP_DETAILS_DATA / fname
+            if not src.is_file():
+                raise FileNotFoundError(f"明细源文件缺失: {src}")
+            df = pd.read_excel(src)
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+            row_counts[sheet_name] = int(len(df))
+    return row_counts
+
+
 def run_sp_details_email(to: str = None, cc: str = None) -> dict:
     """SP 备件明细报表邮件（每天 07:00）。
 
-    把 data/sp_email/data 下的 5 份 *_details.xlsx（inband/outband/inventory/
-    ocrule/transfer）整包作为附件发送。收件人固定：主送 ansah.boadu@zte.com.cn，
-    抄送 dong.xinmin@zte.com.cn；可在 Settings → Email Recipient Settings 覆盖。
+    把 data/sp_email/data 下 4 份明细 xlsx（inventory/inband/outband/transfer）
+    合并为一个 Excel 工作簿（sheet：Inventory/Inbound/Outbound/Transfer），
+    附件与主题均携带发送时间戳，例如：
+      附件: SP Details Report 2026-09-04 11-32-00.xlsx
+      主题: SP Spare Parts Details Report 2026-09-04 11-32-00
+    收件人固定：主送 ansah.boadu@zte.com.cn，抄送 dong.xinmin@zte.com.cn；
+    可在 Settings → Email Recipient Settings 覆盖。
     """
     from backend.services.email_recipient_store import get_email_recipients
     to_arg, cc_arg = get_email_recipients("sp_email_details", to, cc)
     if not _SP_DETAILS_DATA.is_dir():
         return {"success": False, "error": f"数据目录不存在: {_SP_DETAILS_DATA}"}
-    files = sorted(
-        f for f in _SP_DETAILS_DATA.glob("*.xlsx")
-        if not f.name.startswith("~$")
-    )
-    if not files:
-        return {"success": False, "error": f"未在 {_SP_DETAILS_DATA} 找到任何 xlsx 明细文件"}
     if not to_arg:
         return {"success": False, "error": "主送收件人为空，请在 Settings → Email Recipient Settings 配置 sp_email_details"}
+
+    # 主题与附件共用同一时间戳（格式如 2026-09-04 11-32-00）
+    stamp = time.strftime("%Y-%m-%d %H-%M-%S")
+    merged_path = _SP_DETAILS_DATA / f"SP Details Report {stamp}.xlsx"
+
+    # 清理 7 天前的历史合并文件（防目录堆积；近期保留，避免后台补发仍在读取时被删）
+    cutoff = time.time() - 7 * 86400
+    for old in _SP_DETAILS_DATA.glob("SP Details Report *.xlsx"):
+        try:
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+        except Exception:
+            pass
+
+    try:
+        row_counts = _merge_sp_details_workbook(merged_path)
+    except Exception as e:
+        return {"success": False, "error": f"明细合并失败: {e}"}
+
+    logging.getLogger(__name__).info(
+        "[sp_details] 合并完成: %s rows=%s", merged_path.name, row_counts
+    )
     return _run_script(
         data_dir=_SP_DETAILS_DATA,
         name_filter="",
         to=to_arg,
         cc=cc_arg,
         no_excel=True,
-        attach=[str(f) for f in files],
-        subject="SP Spare Parts Details Report",
+        attach=[str(merged_path)],
+        subject=f"SP Spare Parts Details Report {stamp}",
     )
 
 

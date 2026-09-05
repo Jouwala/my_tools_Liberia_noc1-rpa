@@ -368,6 +368,40 @@ def stream_deepseek(api_key: str, prompt: str) -> Iterator[str]:
 
 
 # --------------------------------------------------------------------------
+# Agnes AI（apihub.agnes-ai.com，OpenAI 兼容格式）
+# --------------------------------------------------------------------------
+AGNES_URL = "https://apihub.agnes-ai.com/v1/chat/completions"
+AGNES_MODEL = "agnes-2.5-flash"
+
+
+def call_agnes(api_key: str, prompt: str, **_: Any) -> Result:
+    if not api_key:
+        return _need_key()
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": AGNES_MODEL,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1500,
+    }
+    try:
+        r = requests.post(AGNES_URL, headers=headers, json=payload, timeout=60)
+        if r.status_code != 200:
+            return {"error": f"API returned {r.status_code}",
+                    "detail": _err_msg_from(r)}, 500
+        result = r.json()
+        choices = result.get("choices") or []
+        if choices:
+            return {"analysis": (choices[0]["message"]["content"] or "").strip()}, 200
+        return {"error": "Unexpected response format", "response": str(result)[:500]}, 500
+    except requests.exceptions.RequestException as e:
+        return {"error": f"Request failed: {e}"}, 500
+
+
+# --------------------------------------------------------------------------
 # 分发表：key 与前端 AI_MODELS 的 endpoint 尾段一一对应
 # --------------------------------------------------------------------------
 PROVIDERS = {
@@ -377,6 +411,7 @@ PROVIDERS = {
     "qianwen": call_qianwen,
     "glm-coding": call_glm_coding,
     "deepseek": call_deepseek,
+    "agnes": call_agnes,
 }
 
 

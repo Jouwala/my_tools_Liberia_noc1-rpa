@@ -373,17 +373,20 @@ Workflow & maintenance notes per task:
 - Default cron: `0 7 * * *`　|　worker group: **n**
 - Workflow script: `services/get_sp_table.py → run_sp_data_sync`
 
-**What it does**: Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db
+**What it does**: Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db, then mirror into the FineBI server's WareHouseDashBoard/inventory.db
 
 **Workflow & data flow**:
 
 1. Log into the spare-parts SFTP (credential group sftp_sp)
 1. Fetch the 5 reports
 1. Clean and write into the main DB for the warehouse board and SP reports
+1. After all tables are stored, mirror into `\\DESKTOP-D4GF62\FineBI6.0\webapps\Python\Unified_Tools\WareHouseDashBoard\inventory.db` (Inbound/Outbound/OC Rule/Transfer full replace; Inventory append-only by key, remote history untouched)
 
 **Maintenance**:
 
 - The warehouse board iframe reads exactly this data — if reports are missing, check this task first
+- A FineBI inventory.db mirror failure is reported in the task message (`镜像写入 FineBI inventory.db 失败: ...`) but does not affect app.db; path/toggle live in Settings → Task Config → SP 备件数据（`mirror_db_path` / `mirror_enabled`）
+- Reader locks on the remote DB are waited out via busy_timeout; network blips retry the whole mirror twice
 
 #### iPRAN UME KPI Sync（`ipran_kpi_sync`）
 
@@ -521,12 +524,13 @@ Workflow & maintenance notes per task:
 - Default cron: `0 7 * * *`　|　worker group: **m**
 - Workflow script: `services/kpi_email_report.py → run_sp_details_email`
 
-**What it does**: Daily 07:00: email the 5 spare-part detail Excel files (inband/outband/inventory/ocrule/transfer) under data/sp_email/data
+**What it does**: Daily 07:00: merge the 4 spare-part detail files (inventory/inband/outband/transfer) under data/sp_email/data into one Excel (sheets: Inventory/Inbound/Outbound/Transfer) with a timestamped filename and subject
 
 **Workflow & data flow**:
 
-1. Collect the 5 *_details.xlsx files under data/sp_email/data
-1. Send them in one email (default fixed recipients, overridable in Settings → Email Recipients)
+1. Collect the 4 *_details.xlsx files under data/sp_email/data (inventory/inband/outband/transfer)
+1. Merge them into `SP Details Report <YYYY-MM-DD HH-MM-SS>.xlsx` (4 sheets, original detail content preserved)
+1. Send with subject `SP Spare Parts Details Report <YYYY-MM-DD HH-MM-SS>` (default fixed recipients, overridable in Settings → Email Recipients)
 
 **Maintenance**:
 

@@ -4,6 +4,40 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OLR Spare Management Dashboard</title>
+  <script>
+    // ===== my_app 主题同步（浅/深）=====
+    // 与 alarm-management.html / cxo_dashboard.html 相同的三重同步：
+    //   1) 启动时读 localStorage['myapp-theme']（my_app 外壳写入）
+    //   2) 监听父页面 postMessage({__type:'myapp-theme', mode})
+    //   3) 兜底跟随系统 prefers-color-scheme
+    // 默认深色 = 原版配色，深色模式观感与原版完全一致；浅色由下方
+    // [data-theme="light"] 变量块整体覆盖。
+    (function () {
+      function initialMode() {
+        try { var s = localStorage.getItem('myapp-theme'); if (s === 'dark' || s === 'light') return s; } catch (e) {}
+        try { if (window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches) return 'light'; } catch (e) {}
+        return 'dark';
+      }
+      // 在首帧渲染前设置，避免浅色用户看到深色闪烁
+      document.documentElement.setAttribute('data-theme', initialMode());
+
+      function applyTheme(mode) {
+        document.documentElement.setAttribute('data-theme', mode === 'light' ? 'light' : 'dark');
+        if (typeof window.__applyWhdChartTheme === 'function') window.__applyWhdChartTheme();
+      }
+      window.addEventListener('message', function (e) {
+        if (e.data && e.data.__type === 'myapp-theme') applyTheme(e.data.mode);
+      });
+      try {
+        if (window.matchMedia) {
+          matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+            try { if (!localStorage.getItem('myapp-theme')) applyTheme(e.matches ? 'dark' : 'light'); } catch (err) {}
+          });
+        }
+      } catch (e) {}
+    })();
+  </script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
@@ -11,22 +45,26 @@
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 
   <script>
+    // 颜色全部走 CSS 变量（--whd-*），深色为默认值，浅色由下方 [data-theme="light"] 块覆盖。
+    // 变量值与 my_app 主题令牌（frontend/src/theme.ts LIGHT）对齐：
+    //   背景 #f2f7fc / 卡片白 / 文字 #16233b / teal 系强调色 #0d9488 #0e7490
     tailwind.config = {
       theme: {
         extend: {
           colors: {
-            'bg-dark':         '#0a1929',
-            'bg-card':         '#112540',
-            'bg-highlight':    '#1a365d',
-            'border-color':    '#2c3e50',
-            'text-primary':    '#ffffff',
-            'text-secondary':  '#b3e5fc',
-            'text-glow-green': '#00ff41',
-            'text-glow-blue':  '#00d4ff',
-            'accent-1':        '#64ffda',
-            'accent-2':        '#4fc3f7',
-            'accent-3':        '#7986cb',
-            'danger':          '#ff4757',
+            'bg-dark':         'var(--whd-bg)',
+            'bg-card':         'var(--whd-card)',
+            'bg-highlight':    'var(--whd-highlight)',
+            'bg-hover':        'var(--whd-highlight)',
+            'border-color':    'var(--whd-border)',
+            'text-primary':    'var(--whd-text)',
+            'text-secondary':  'var(--whd-text-muted)',
+            'text-glow-green': 'var(--whd-accent-1)',
+            'text-glow-blue':  'var(--whd-accent-2)',
+            'accent-1':        'var(--whd-accent-1)',
+            'accent-2':        'var(--whd-accent-2)',
+            'accent-3':        'var(--whd-accent-3)',
+            'danger':          'var(--whd-danger)',
           },
           fontFamily: {
             'tech': ['Rajdhani', 'Orbitron', 'sans-serif'],
@@ -36,13 +74,81 @@
     };
   </script>
 
+  <style>
+    /* ===== 深/浅主题变量（whd = warehouse dashboard）===== */
+    /* 深色（默认）：与原版硬编码色值完全一致，保证深色观感不变 */
+    :root {
+      --whd-bg:         #0a1929;
+      --whd-card:       #112540;
+      --whd-highlight:  #1a365d;
+      --whd-border:     #2c3e50;
+      --whd-text:       #ffffff;
+      --whd-text-muted: #b3e5fc;
+      --whd-accent-1:   #64ffda;
+      --whd-accent-2:   #4fc3f7;
+      --whd-accent-3:   #7986cb;
+      --whd-danger:     #ff4757;
+      --whd-teal-rgb:   100, 255, 218;
+      --whd-blue-rgb:   79, 195, 247;
+      --whd-indigo-rgb: 121, 134, 203;
+      --whd-danger-rgb: 255, 71, 87;
+      --whd-gray-rgb:   148, 163, 184;
+      --whd-grid-line:  rgba(34, 50, 77, 0.3);
+      --whd-scrollbar-track: #141f33;
+      --whd-scrollbar-thumb: #22324d;
+      --whd-glow-teal:  rgba(100, 255, 218, 0.5);
+      --whd-glow-teal-strong: rgba(100, 255, 218, 0.8);
+      --whd-glow-blue:  rgba(0, 212, 255, 0.6);
+      --whd-row-hover:  rgba(79, 195, 247, 0.08);
+      --whd-title-shadow: 0 0 4px rgba(0, 212, 255, 0.6);
+      --whd-card-grad: linear-gradient(145deg, #141f33, #112540);
+      --whd-shadow-hover: 0 20px 40px rgba(0, 0, 0, 0.3);
+      --whd-modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      --whd-overlay: rgba(0, 0, 0, 0.7);
+      --whd-fp-bg: #112540;
+      --whd-fp-text: #b3e5fc;
+    }
+    /* 浅色：映射 my_app LIGHT 色板 */
+    [data-theme="light"] {
+      --whd-bg:         #f2f7fc;
+      --whd-card:       #ffffff;
+      --whd-highlight:  #e6f0f9;
+      --whd-border:     #c8d8e8;
+      --whd-text:       #16233b;
+      --whd-text-muted: #3f5468;
+      --whd-accent-1:   #0d9488;
+      --whd-accent-2:   #0e7490;
+      --whd-accent-3:   #6366f1;
+      --whd-danger:     #d92d20;
+      --whd-teal-rgb:   13, 148, 136;
+      --whd-blue-rgb:   14, 116, 144;
+      --whd-indigo-rgb: 99, 102, 241;
+      --whd-danger-rgb: 217, 45, 32;
+      --whd-gray-rgb:   91, 114, 136;
+      --whd-grid-line:  rgba(22, 35, 59, 0.10);
+      --whd-scrollbar-track: #e2ecf5;
+      --whd-scrollbar-thumb: #b9cddf;
+      --whd-glow-teal:  rgba(13, 148, 136, 0.35);
+      --whd-glow-teal-strong: rgba(13, 148, 136, 0.55);
+      --whd-glow-blue:  rgba(14, 116, 144, 0.35);
+      --whd-row-hover:  rgba(13, 148, 136, 0.07);
+      --whd-title-shadow: none;
+      --whd-card-grad: linear-gradient(145deg, #ffffff, #f4f9fd);
+      --whd-shadow-hover: 0 20px 40px rgba(22, 35, 59, 0.12);
+      --whd-modal-shadow: 0 20px 60px rgba(22, 35, 59, 0.25);
+      --whd-overlay: rgba(22, 35, 59, 0.45);
+      --whd-fp-bg: #ffffff;
+      --whd-fp-text: #3f5468;
+    }
+  </style>
+
   <style type="text/tailwindcss">
     @layer utilities {
       .text-shadow-glow {
         text-shadow: 0 0 4px rgba(0, 255, 65, 0.5);
       }
       .text-shadow-glow-blue {
-        text-shadow: 0 0 4px rgba(0, 212, 255, 0.6);
+        text-shadow: var(--whd-title-shadow);
       }
       .metric-gradient {
         background: linear-gradient(90deg, #64ffda, #4fc3f7);
@@ -57,9 +163,6 @@
         transform: translateY(-4px);
         box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
       }
-      .border-glow {
-        box-shadow: 0 0 10px rgba(0, 212, 255, 0.2);
-      }
       .scrollbar-thin {
         scrollbar-width: thin;
       }
@@ -68,10 +171,10 @@
         height: 8px;
       }
       .scrollbar-thin::-webkit-scrollbar-track {
-        background: #141f33;
+        background: var(--whd-scrollbar-track);
       }
       .scrollbar-thin::-webkit-scrollbar-thumb {
-        background-color: #22324d;
+        background-color: var(--whd-scrollbar-thumb);
         border-radius: 4px;
       }
     }
@@ -106,20 +209,21 @@
       opacity: 1; transform: translateX(0);
     }
     .toast-error   { background: rgba(255, 71, 87, 0.9); border: 1px solid #ff4757; }
-    .toast-success { background: rgba(100, 255, 218, 0.2); border: 1px solid #64ffda; }
+    .toast-success { background: rgba(var(--whd-teal-rgb), 0.2); border: 1px solid var(--whd-accent-1); }
+    [data-theme="light"] .toast-success { background: rgba(var(--whd-teal-rgb), 0.85); color: #fff; }
 
-    /* Flatpickr date picker - dark theme */
-    .flatpickr-calendar { background: #112540; border: 1px solid #2c3e50; box-shadow: 0 10px 30px rgba(0,0,0,0.4); }
-    .flatpickr-months { background: #112540; }
-    .flatpickr-current-month { color: #b3e5fc; }
-    .flatpickr-weekdays { background: #112540; }
-    span.flatpickr-weekday { color: #64ffda; }
-    .flatpickr-days { background: #112540; border-color: #2c3e50; }
-    .dayContainer .flatpickr-day { color: #fff; }
-    .flatpickr-day:hover { background: #1a365d; border-color: #1a365d; color: #64ffda; }
-    .flatpickr-day.selected { background: #4fc3f7; border-color: #4fc3f7; color: #0a1929; }
-    .flatpickr-months .flatpickr-prev-month:hover svg, .flatpickr-months .flatpickr-next-month:hover svg { fill: #64ffda; }
-    .flatpickr-months .flatpickr-month { color: #b3e5fc; fill: #b3e5fc; }
+    /* Flatpickr date picker - 跟随主题 */
+    .flatpickr-calendar { background: var(--whd-fp-bg); border: 1px solid var(--whd-border); box-shadow: 0 10px 30px rgba(0,0,0,0.18); }
+    .flatpickr-months { background: var(--whd-fp-bg); }
+    .flatpickr-current-month { color: var(--whd-fp-text); }
+    .flatpickr-weekdays { background: var(--whd-fp-bg); }
+    span.flatpickr-weekday { color: var(--whd-accent-1); }
+    .flatpickr-days { background: var(--whd-fp-bg); border-color: var(--whd-border); }
+    .dayContainer .flatpickr-day { color: var(--whd-text); }
+    .flatpickr-day:hover { background: var(--whd-highlight); border-color: var(--whd-highlight); color: var(--whd-accent-1); }
+    .flatpickr-day.selected { background: var(--whd-accent-2); border-color: var(--whd-accent-2); color: var(--whd-bg); }
+    .flatpickr-months .flatpickr-prev-month:hover svg, .flatpickr-months .flatpickr-next-month:hover svg { fill: var(--whd-accent-1); }
+    .flatpickr-months .flatpickr-month { color: var(--whd-fp-text); fill: var(--whd-fp-text); }
 
     /* Updated Table row height for BIGGER FONTS */
     [data-table="early-warning"] tbody tr,
@@ -155,15 +259,15 @@
         transition: all 0.2s;
     }
     .detail-metric-selected {
-      box-shadow: 0 0 0 3px #64ffda, 0 0 20px rgba(100, 255, 218, 0.6);
+      box-shadow: 0 0 0 3px var(--whd-accent-1), 0 0 20px rgba(var(--whd-teal-rgb), 0.5);
       transform: scale(1.08);
     }
     .detail-card-selected {
-      box-shadow: 0 0 0 2px #64ffda, 0 0 20px rgba(100, 255, 218, 0.3);
+      box-shadow: 0 0 0 2px var(--whd-accent-1), 0 0 20px rgba(var(--whd-teal-rgb), 0.3);
     }
     .detail-row-selected {
-      background: rgba(100, 255, 218, 0.1) !important;
-      box-shadow: inset 0 0 0 1px rgba(100, 255, 218, 0.4);
+      background: rgba(var(--whd-teal-rgb), 0.1) !important;
+      box-shadow: inset 0 0 0 1px rgba(var(--whd-teal-rgb), 0.4);
     }
     .badge-card {
       display: inline-flex;
@@ -182,26 +286,26 @@
       transform: scale(1.05);
     }
     .badge-card-blue {
-      background: rgba(79, 195, 247, 0.15);
-      color: #4fc3f7;
-      border: 1px solid rgba(79, 195, 247, 0.4);
+      background: rgba(var(--whd-blue-rgb), 0.15);
+      color: var(--whd-accent-2);
+      border: 1px solid rgba(var(--whd-blue-rgb), 0.4);
     }
     .badge-card-green {
-      background: rgba(100, 255, 218, 0.15);
-      color: #64ffda;
-      border: 1px solid rgba(100, 255, 218, 0.4);
+      background: rgba(var(--whd-teal-rgb), 0.15);
+      color: var(--whd-accent-1);
+      border: 1px solid rgba(var(--whd-teal-rgb), 0.4);
     }
     .badge-card-danger {
-      background: rgba(255, 71, 87, 0.15);
-      color: #ff4757;
-      border: 1px solid rgba(255, 71, 87, 0.4);
+      background: rgba(var(--whd-danger-rgb), 0.15);
+      color: var(--whd-danger);
+      border: 1px solid rgba(var(--whd-danger-rgb), 0.4);
     }
     .badge-card-selected {
-      box-shadow: 0 0 0 3px #64ffda, 0 0 25px rgba(100, 255, 218, 0.7);
+      box-shadow: 0 0 0 3px var(--whd-accent-1), 0 0 25px rgba(var(--whd-teal-rgb), 0.6);
       transform: scale(1.1);
     }
     .card-gradient {
-      background: linear-gradient(145deg, #141f33, #112540);
+      background: var(--whd-card-grad);
     }
     .badge-metric {
       display: inline-flex;
@@ -217,27 +321,27 @@
       transition: all 0.2s ease;
     }
     .badge-metric-gray {
-      background: rgba(148, 163, 184, 0.15);
-      color: #94a3b8;
-      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: rgba(var(--whd-gray-rgb), 0.15);
+      color: var(--whd-text-muted);
+      border: 1px solid rgba(var(--whd-gray-rgb), 0.3);
     }
     .badge-metric-blue {
-      background: rgba(79, 195, 247, 0.15);
-      color: #4fc3f7;
-      border: 1px solid rgba(79, 195, 247, 0.4);
+      background: rgba(var(--whd-blue-rgb), 0.15);
+      color: var(--whd-accent-2);
+      border: 1px solid rgba(var(--whd-blue-rgb), 0.4);
     }
     .badge-metric-green {
-      background: rgba(100, 255, 218, 0.15);
-      color: #64ffda;
-      border: 1px solid rgba(100, 255, 218, 0.4);
+      background: rgba(var(--whd-teal-rgb), 0.15);
+      color: var(--whd-accent-1);
+      border: 1px solid rgba(var(--whd-teal-rgb), 0.4);
     }
     .badge-metric-danger {
-      background: rgba(255, 71, 87, 0.15);
-      color: #ff4757;
-      border: 1px solid rgba(255, 71, 87, 0.4);
+      background: rgba(var(--whd-danger-rgb), 0.15);
+      color: var(--whd-danger);
+      border: 1px solid rgba(var(--whd-danger-rgb), 0.4);
     }
     .badge-metric-selected {
-      box-shadow: 0 0 0 2px #64ffda, 0 0 12px rgba(100, 255, 218, 0.4);
+      box-shadow: 0 0 0 2px var(--whd-accent-1), 0 0 12px rgba(var(--whd-teal-rgb), 0.4);
       transform: scale(1.05);
     }
     .badge-metric-clickable {
@@ -247,13 +351,13 @@
       transform: scale(1.08);
     }
     table tr:hover {
-      background: rgba(79, 195, 247, 0.08);
+      background: var(--whd-row-hover);
     }
     [data-table="inband-details"] td,
     [data-table="outband-details"] td,
     [data-table="inband-details"] th,
     [data-table="outband-details"] th {
-      border: 1px dashed rgba(34, 50, 77, 0.5);
+      border: 1px dashed rgba(var(--whd-blue-rgb), 0.35);
     }
     [data-table="inband-details"] td,
     [data-table="outband-details"] td {
@@ -284,6 +388,9 @@
     canvas {
       padding:0.625rem;
     }
+    /* 原生 select 下拉选项在浅色主题下的可读性（option 样式部分浏览器不继承 var） */
+    select option { background: #ffffff; color: #16233b; }
+    [data-theme="dark"] select option { background: #112540; color: #b3e5fc; }
   </style>
 
 <style id="responsive-base">
@@ -1306,6 +1413,84 @@ img, svg, canvas, iframe { max-width: 100%; }
       return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 
+    /* Chart.js 深浅主题色板：深色与原版完全一致，浅色对齐 my_app LIGHT 色板 */
+    const CHART_PALETTE = {
+      dark: {
+        tick: '#b3e5fc',
+        grid: 'rgba(34, 50, 77, 0.3)',
+        tooltipBg: 'rgba(17,37,64,0.95)',
+        tooltipTitle: '#b3e5fc',
+        tooltipBody: '#fff',
+        tooltipBorder: '#22324d',
+        teal: '#64ffda', blue: '#4fc3f7', indigo: '#7986cb',
+        inbound: 'rgba(100, 255, 218, 0.5)',
+        outbound: 'rgba(255, 20, 147, 0.7)',
+      },
+      light: {
+        tick: '#3f5468',
+        grid: 'rgba(22, 35, 59, 0.10)',
+        tooltipBg: 'rgba(255,255,255,0.97)',
+        tooltipTitle: '#16233b',
+        tooltipBody: '#16233b',
+        tooltipBorder: 'rgba(13,148,136,0.35)',
+        teal: '#0d9488', blue: '#0e7490', indigo: '#6366f1',
+        inbound: 'rgba(13, 148, 136, 0.55)',
+        outbound: 'rgba(217, 45, 32, 0.65)',
+      },
+    };
+    function chartTheme() {
+      return document.documentElement.getAttribute('data-theme') === 'light'
+        ? CHART_PALETTE.light : CHART_PALETTE.dark;
+    }
+
+    /* 数据集配色跟随主题（按 label 识别，与创建时的样式保持一致） */
+    function applyDatasetTheme(ds, p) {
+      if (ds.label === 'Consumables QTY') {
+        ds.backgroundColor = hexToRgba(p.blue, 0.7);
+        ds.borderColor = p.blue;
+      } else if (ds.label === 'SpareParts QTY') {
+        ds.backgroundColor = hexToRgba(p.indigo, 0.7);
+        ds.borderColor = p.indigo;
+      } else if (ds.label === 'Total') {
+        ds.borderColor = p.teal;
+        ds.backgroundColor = hexToRgba(p.teal, 0.1);
+        ds.pointBackgroundColor = p.teal;
+        ds.pointBorderColor = p.teal;
+      } else if (ds.label === 'Inbound Qty') {
+        ds.borderColor = p.inbound;
+        ds.pointBackgroundColor = p.inbound;
+        ds.pointBorderColor = p.inbound;
+      } else if (ds.label === 'Outbound Qty') {
+        ds.borderColor = p.outbound;
+        ds.pointBackgroundColor = p.outbound;
+        ds.pointBorderColor = p.outbound;
+      }
+    }
+
+    /* 主题切换时由 applyTheme 调用：更新两个图表的坐标轴 / 图例 / tooltip / 数据集配色 */
+    window.__applyWhdChartTheme = function () {
+      const p = chartTheme();
+      [window.inventoryChart, window.inboundOutboundChart].forEach(chart => {
+        if (!chart) return;
+        const o = chart.options;
+        ['x', 'y', 'y1'].forEach(ax => {
+          if (o.scales && o.scales[ax]) {
+            if (o.scales[ax].grid) o.scales[ax].grid.color = p.grid;
+            if (o.scales[ax].ticks) o.scales[ax].ticks.color = p.tick;
+          }
+        });
+        if (o.plugins && o.plugins.legend && o.plugins.legend.labels) o.plugins.legend.labels.color = p.tick;
+        if (o.plugins && o.plugins.tooltip) {
+          o.plugins.tooltip.backgroundColor = p.tooltipBg;
+          o.plugins.tooltip.titleColor = p.tooltipTitle;
+          o.plugins.tooltip.bodyColor = p.tooltipBody;
+          o.plugins.tooltip.borderColor = p.tooltipBorder;
+        }
+        chart.data.datasets.forEach(ds => applyDatasetTheme(ds, p));
+        chart.update();
+      });
+    };
+
     function handleChartClick(event, elements, chart, detailType) {
       let clickedElements = elements;
       if (!clickedElements || clickedElements.length === 0) {
@@ -1329,28 +1514,29 @@ img, svg, canvas, iframe { max-width: 100%; }
     }
 
     function createChartOptions() {
+      const p = chartTheme();
       return {
         responsive: true,
         maintainAspectRatio: false,
         scales: {
           x: {
-            grid:  { color: 'rgba(34, 50, 77, 0.3)', drawBorder: false },
-            ticks: { color: '#b3e5fc', font: { family: "'Rajdhani',sans-serif", size: 11 }, maxRotation: 45, minRotation: 45 },
+            grid:  { color: p.grid, drawBorder: false },
+            ticks: { color: p.tick, font: { family: "'Rajdhani',sans-serif", size: 11 }, maxRotation: 45, minRotation: 45 },
           },
           y: {
             beginAtZero: true,
-            grid:  { color: 'rgba(34, 50, 77, 0.3)', drawBorder: false },
-            ticks: { color: '#b3e5fc', font: { family: "'Rajdhani',sans-serif", size: 11 } },
+            grid:  { color: p.grid, drawBorder: false },
+            ticks: { color: p.tick, font: { family: "'Rajdhani',sans-serif", size: 11 } },
           },
         },
         plugins: {
           legend: {
             position: 'bottom',
-            labels: { color: '#b3e5fc', font: { family: "'Rajdhani',sans-serif", size: 12 }, padding: 12, boxWidth: 10 },
+            labels: { color: p.tick, font: { family: "'Rajdhani',sans-serif", size: 12 }, padding: 12, boxWidth: 10 },
           },
           tooltip: {
-            backgroundColor: 'rgba(17,37,64,0.95)', titleColor: '#b3e5fc', bodyColor: '#fff',
-            borderColor: '#22324d', borderWidth: 1, padding: 10, boxPadding: 5, usePointStyle: true,
+            backgroundColor: p.tooltipBg, titleColor: p.tooltipTitle, bodyColor: p.tooltipBody,
+            borderColor: p.tooltipBorder, borderWidth: 1, padding: 10, boxPadding: 5, usePointStyle: true,
             titleFont: { size: 13 }, bodyFont: { size: 12 }
           },
         },
@@ -1360,35 +1546,36 @@ img, svg, canvas, iframe { max-width: 100%; }
     }
 
     function createChartOptionsDualY() {
+      const p = chartTheme();
       return {
         responsive: true,
         maintainAspectRatio: false,
         scales: {
           x: {
-            grid:  { color: 'rgba(34, 50, 77, 0.3)', drawBorder: false },
-            ticks: { color: '#b3e5fc', font: { family: "'Rajdhani',sans-serif", size: 11 }, maxRotation: 45, minRotation: 45 },
+            grid:  { color: p.grid, drawBorder: false },
+            ticks: { color: p.tick, font: { family: "'Rajdhani',sans-serif", size: 11 }, maxRotation: 45, minRotation: 45 },
           },
           y: {
             type: 'linear',
             position: 'left',
-            grid:  { color: 'rgba(34, 50, 77, 0.3)', drawBorder: false },
-            ticks: { color: '#b3e5fc', font: { family: "'Rajdhani',sans-serif", size: 11 } },
+            grid:  { color: p.grid, drawBorder: false },
+            ticks: { color: p.tick, font: { family: "'Rajdhani',sans-serif", size: 11 } },
           },
           y1: {
             type: 'linear',
             position: 'right',
             grid:  { drawOnChartArea: false },
-            ticks: { color: '#b3e5fc', font: { family: "'Rajdhani',sans-serif", size: 11 } },
+            ticks: { color: p.tick, font: { family: "'Rajdhani',sans-serif", size: 11 } },
           },
         },
         plugins: {
           legend: {
             position: 'bottom',
-            labels: { color: '#b3e5fc', font: { family: "'Rajdhani',sans-serif", size: 12 }, padding: 12, boxWidth: 10 },
+            labels: { color: p.tick, font: { family: "'Rajdhani',sans-serif", size: 12 }, padding: 12, boxWidth: 10 },
           },
           tooltip: {
-            backgroundColor: 'rgba(17,37,64,0.95)', titleColor: '#b3e5fc', bodyColor: '#fff',
-            borderColor: '#22324d', borderWidth: 1, padding: 10, boxPadding: 5, usePointStyle: true,
+            backgroundColor: p.tooltipBg, titleColor: p.tooltipTitle, bodyColor: p.tooltipBody,
+            borderColor: p.tooltipBorder, borderWidth: 1, padding: 10, boxPadding: 5, usePointStyle: true,
             titleFont: { size: 13 }, bodyFont: { size: 12 }
           },
         },
@@ -1429,21 +1616,22 @@ img, svg, canvas, iframe { max-width: 100%; }
     function initInventoryChart() {
       const canvas = document.getElementById('inventoryChart');
       if (!canvas) return;
-      const dsConsumables = makeDataset('Consumables QTY', '#4fc3f7');
+      const p = chartTheme();
+      const dsConsumables = makeDataset('Consumables QTY', p.blue);
       dsConsumables.yAxisID = 'y';
       dsConsumables.type = 'bar';
       dsConsumables.order = 1;
-      dsConsumables.backgroundColor = 'rgba(79, 195, 247, 0.7)';
-      dsConsumables.borderColor = '#4fc3f7';
+      dsConsumables.backgroundColor = hexToRgba(p.blue, 0.7);
+      dsConsumables.borderColor = p.blue;
       dsConsumables.borderWidth = 1;
-      const dsSpareParts = makeDataset('SpareParts QTY', '#7986cb');
+      const dsSpareParts = makeDataset('SpareParts QTY', p.indigo);
       dsSpareParts.yAxisID = 'y';
       dsSpareParts.type = 'bar';
       dsSpareParts.order = 2;
-      dsSpareParts.backgroundColor = 'rgba(121, 134, 203, 0.7)';
-      dsSpareParts.borderColor = '#7986cb';
+      dsSpareParts.backgroundColor = hexToRgba(p.indigo, 0.7);
+      dsSpareParts.borderColor = p.indigo;
       dsSpareParts.borderWidth = 1;
-      const dsTotal = makeDataset('Total', '#64ffda');
+      const dsTotal = makeDataset('Total', p.teal);
       dsTotal.yAxisID = 'y';
       dsTotal.type = 'line';
       dsTotal.order = 3;
@@ -1493,24 +1681,25 @@ img, svg, canvas, iframe { max-width: 100%; }
         data: {
           labels: [],
           datasets: [
-            makeDataset('Inbound Qty',  '#64ffda'),
+            makeDataset('Inbound Qty',  chartTheme().teal),
             makeDataset('Outbound Qty', '#FF1493'),
           ],
         },
         options: options,
       });
-      
+
       // 设置曲线透明度，避免遮挡
+      const p0 = chartTheme();
       window.inboundOutboundChart.data.datasets[0].borderWidth = 3;
-      window.inboundOutboundChart.data.datasets[0].borderColor = 'rgba(100, 255, 218, 0.5)';
-      window.inboundOutboundChart.data.datasets[0].pointBackgroundColor = 'rgba(100, 255, 218, 0.5)';
-      window.inboundOutboundChart.data.datasets[0].pointBorderColor = 'rgba(100, 255, 218, 0.5)';
+      window.inboundOutboundChart.data.datasets[0].borderColor = p0.inbound;
+      window.inboundOutboundChart.data.datasets[0].pointBackgroundColor = p0.inbound;
+      window.inboundOutboundChart.data.datasets[0].pointBorderColor = p0.inbound;
       window.inboundOutboundChart.data.datasets[0].pointRadius = 3.2; // 80% of 4
       window.inboundOutboundChart.data.datasets[0].pointHoverRadius = 4.8; // 80% of 6
       window.inboundOutboundChart.data.datasets[1].borderWidth = 3;
-      window.inboundOutboundChart.data.datasets[1].borderColor = 'rgba(255, 20, 147, 0.7)';
-      window.inboundOutboundChart.data.datasets[1].pointBackgroundColor = 'rgba(255, 20, 147, 0.7)';
-      window.inboundOutboundChart.data.datasets[1].pointBorderColor = 'rgba(255, 20, 147, 0.7)';
+      window.inboundOutboundChart.data.datasets[1].borderColor = p0.outbound;
+      window.inboundOutboundChart.data.datasets[1].pointBackgroundColor = p0.outbound;
+      window.inboundOutboundChart.data.datasets[1].pointBorderColor = p0.outbound;
     }
 
     function updateCharts(data) {
@@ -2300,7 +2489,7 @@ img, svg, canvas, iframe { max-width: 100%; }
 
   <style>
     #send-email-btn {
-      box-shadow: 0 0 15px rgba(100, 255, 218, 0.5);
+      box-shadow: 0 0 15px rgba(var(--whd-teal-rgb), 0.45);
       width: 40px;
       height: 40px;
       display: flex;
@@ -2308,7 +2497,7 @@ img, svg, canvas, iframe { max-width: 100%; }
       justify-content: center;
     }
     #send-email-btn:hover {
-      box-shadow: 0 0 20px rgba(100, 255, 218, 0.8);
+      box-shadow: 0 0 20px rgba(var(--whd-teal-rgb), 0.7);
     }
     
     /* 用户模态框样式 */
@@ -2318,7 +2507,7 @@ img, svg, canvas, iframe { max-width: 100%; }
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.7);
+      background: rgba(0, 0, 0, 0.55);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -2332,13 +2521,13 @@ img, svg, canvas, iframe { max-width: 100%; }
       visibility: visible;
     }
     .modal-content {
-      background: #112540;
-      border: 1px solid #2c3e50;
+      background: var(--whd-card);
+      border: 1px solid var(--whd-border);
       border-radius: 12px;
       padding: 2rem;
       max-width: 420px;
       width: 90%;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
       transform: translateY(-20px);
       transition: transform 0.3s ease;
     }
@@ -2351,24 +2540,24 @@ img, svg, canvas, iframe { max-width: 100%; }
       align-items: center;
       margin-bottom: 1.5rem;
       padding-bottom: 1rem;
-      border-bottom: 1px solid #2c3e50;
+      border-bottom: 1px solid var(--whd-border);
     }
     .modal-title {
       font-size: 1.5rem;
       font-weight: bold;
-      color: #64ffda;
+      color: var(--whd-accent-1);
     }
     .modal-close {
       background: none;
       border: none;
-      color: #b3e5fc;
+      color: var(--whd-text-muted);
       font-size: 1.5rem;
       cursor: pointer;
       padding: 0.25rem;
       transition: color 0.2s;
     }
     .modal-close:hover {
-      color: #ff4757;
+      color: var(--whd-danger);
     }
     .form-group {
       margin-bottom: 1.25rem;
@@ -2376,23 +2565,23 @@ img, svg, canvas, iframe { max-width: 100%; }
     .form-label {
       display: block;
       margin-bottom: 0.5rem;
-      color: #b3e5fc;
+      color: var(--whd-text-muted);
       font-size: 0.875rem;
       font-weight: 600;
     }
     .form-input {
       width: 100%;
       padding: 0.75rem;
-      background: #0a1929;
-      border: 1px solid #2c3e50;
+      background: var(--whd-bg);
+      border: 1px solid var(--whd-border);
       border-radius: 6px;
-      color: #ffffff;
+      color: var(--whd-text);
       font-size: 1rem;
       transition: border-color 0.2s;
     }
     .form-input:focus {
       outline: none;
-      border-color: #64ffda;
+      border-color: var(--whd-accent-1);
     }
     .form-input::placeholder {
       color: #64748b;
@@ -2400,8 +2589,8 @@ img, svg, canvas, iframe { max-width: 100%; }
     .btn-primary {
       width: 100%;
       padding: 0.875rem;
-      background: linear-gradient(90deg, #64ffda, #4fc3f7);
-      color: #0a1929;
+      background: linear-gradient(90deg, var(--whd-accent-1), var(--whd-accent-2));
+      color: var(--whd-bg);
       border: none;
       border-radius: 6px;
       font-size: 1rem;
@@ -2411,13 +2600,13 @@ img, svg, canvas, iframe { max-width: 100%; }
     }
     .btn-primary:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(100, 255, 218, 0.4);
+      box-shadow: 0 8px 20px rgba(var(--whd-teal-rgb), 0.4);
     }
     .btn-secondary {
       padding: 0.75rem 1.5rem;
-      background: #1a365d;
-      color: #b3e5fc;
-      border: 1px solid #2c3e50;
+      background: var(--whd-highlight);
+      color: var(--whd-text-muted);
+      border: 1px solid var(--whd-border);
       border-radius: 6px;
       font-size: 0.875rem;
       font-weight: 600;
@@ -2425,8 +2614,8 @@ img, svg, canvas, iframe { max-width: 100%; }
       transition: all 0.2s;
     }
     .btn-secondary:hover {
-      background: #22324d;
-      border-color: #64ffda;
+      background: var(--whd-highlight);
+      border-color: var(--whd-accent-1);
     }
     .modal-footer {
       display: flex;
@@ -2434,7 +2623,7 @@ img, svg, canvas, iframe { max-width: 100%; }
       align-items: center;
       margin-top: 1.5rem;
       padding-top: 1rem;
-      border-top: 1px solid #2c3e50;
+      border-top: 1px solid var(--whd-border);
     }
     .form-helper {
       color: #64748b;
@@ -2445,7 +2634,7 @@ img, svg, canvas, iframe { max-width: 100%; }
       display: flex;
       justify-content: space-between;
       padding: 0.75rem 0;
-      border-bottom: 1px solid #2c3e50;
+      border-bottom: 1px solid var(--whd-border);
     }
     .user-info-row:last-child {
       border-bottom: none;
@@ -2455,7 +2644,7 @@ img, svg, canvas, iframe { max-width: 100%; }
       font-size: 0.875rem;
     }
     .user-info-value {
-      color: #ffffff;
+      color: var(--whd-text);
       font-size: 0.875rem;
       font-weight: 500;
     }

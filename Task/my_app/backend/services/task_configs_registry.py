@@ -537,6 +537,8 @@ register_config(ConfigResource(
             "ocrule_details": "OCAuto/OCAutoOutput",
             "transfer_details": "sp/sp-wh_transfer",
         },
+        "mirror_enabled": True,
+        "mirror_db_path": r"\\DESKTOP-D4GF62\FineBI6.0\webapps\Python\Unified_Tools\WareHouseDashBoard\inventory.db",
     },
     schema={
         "sftp_host": {"label_zh": "SFTP 主机", "type": "str"},
@@ -551,6 +553,8 @@ register_config(ConfigResource(
                 "transfer_details": {"label_zh": "WH Transfer", "type": "str"},
             },
         },
+        "mirror_enabled": {"label_zh": "镜像写入 FineBI inventory.db", "type": "bool"},
+        "mirror_db_path": {"label_zh": "镜像库路径（UNC）", "type": "str"},
     },
-    description="SP 备件数据同步：SFTP 主机与各报表远程目录（凭据在「凭据管理」）",
+    description="SP 备件数据同步：SFTP 主机与各报表远程目录（凭据在「凭据管理」）；同步后镜像写入 FineBI WareHouseDashBoard inventory.db",
 ))

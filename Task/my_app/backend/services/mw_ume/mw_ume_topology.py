@@ -12,11 +12,13 @@ MW UME 微波网络拓扑数据服务（Topology NOC Dashboard 数据源）
 - KPI   = 全网汇总（节点/链路/分级计数/最高利用率）
 - TopRisk = 按链路最大利用率降序（前端点击定位拓扑）
 
-分级阈值（告警）：
-  < 50%  healthy  🟢
-  50-70% watch    🟡
-  70-85% warning  🟠
-  > 85%  critical 🔴
+分级阈值（告警，6 级）：
+  <  50%  healthy     🟢
+  50-60%  negligible  🟢 (浅)
+  60-70%  minor       🟡
+  70-80%  moderate    🟠 (浅)
+  80-90%  major       🟠
+  >  90%  critical    🔴
 链路取 max(Tx, Rx? 不) — 取 max(Tx, Rx) 利用率定级；Tx/Rx 均按 zte_mw_links 锚定的
 a->b 单向展示（底层 KPI 虽为双向指标，页面仅呈现 a->b 单方向吞吐与利用率，
 b->a 方向数据排除、不再合并累加）。
@@ -45,8 +47,8 @@ RT_TABLE_NAME = "mw_ume_bw_ultilazation_rt"
 # 实时模式：链路历史/全网趋势/可选槽位列表最多保留最近 96 个 15 分钟点（24h）
 RT_HISTORY_POINTS = 96
 
-# 利用率分级阈值
-THRESHOLDS = {"watch": 50.0, "warning": 70.0, "critical": 85.0}
+# 利用率分级阈值（6 级；键为分级名，值为该级下界：u >= 键值 即进入该级，critical 需 u > 90）
+THRESHOLDS = {"negligible": 50.0, "minor": 60.0, "moderate": 70.0, "major": 80.0, "critical": 90.0}
 
 # 链路聚合列（MW 微波以太口）
 COL_CAP = "Max Ethernet Tx Capacity(Mbps)"
@@ -69,17 +71,25 @@ _site_id_cache = None  # {site_name_norm: site_id}
 
 
 def level_of(u):
-    """利用率 -> 分级字符串。u 为 None 时返回 'unknown'。"""
+    """利用率 -> 分级字符串（6 级）。u 为 None 时返回 'unknown'。
+
+    healthy <50 | negligible 50-60 | minor 60-70 | moderate 70-80 | major 80-90 | critical >90
+    （临界值口径：非 critical 各级取 >= 下界；critical 为严格大于 90，与页面展示 "> 90%" 一致）
+    """
     if u is None:
         return "unknown"
     u = float(u)
-    if u < THRESHOLDS["watch"]:
-        return "healthy"
-    if u < THRESHOLDS["warning"]:
-        return "watch"
-    if u < THRESHOLDS["critical"]:
-        return "warning"
-    return "critical"
+    if u > THRESHOLDS["critical"]:
+        return "critical"
+    if u >= THRESHOLDS["major"]:
+        return "major"
+    if u >= THRESHOLDS["moderate"]:
+        return "moderate"
+    if u >= THRESHOLDS["minor"]:
+        return "minor"
+    if u >= THRESHOLDS["negligible"]:
+        return "negligible"
+    return "healthy"
 
 
 def parse_me(me):
@@ -708,8 +718,10 @@ def build_topology(top_n: int = 10, date: str = None, rows_all: list = None,
         "physical_links": len(edges),
         "physical_nodes": len(node_info),
         "healthy": lvl.get("healthy", 0),
-        "watch": lvl.get("watch", 0),
-        "warning": lvl.get("warning", 0),
+        "negligible": lvl.get("negligible", 0),
+        "minor": lvl.get("minor", 0),
+        "moderate": lvl.get("moderate", 0),
+        "major": lvl.get("major", 0),
         "critical": lvl.get("critical", 0),
         "unknown": len(edges) - len(kpi_edges),
         "max_utilization": max_link["max_util"] if max_link else 0,

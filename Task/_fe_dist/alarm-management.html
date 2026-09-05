@@ -1316,7 +1316,11 @@ renderSnapshotNote();
 /* =================================================================
    实时数据模块（本地代理 + 精确字段渲染）
 ================================================================= */
-const PROXY_BASE = window.__ALARM_PROXY__ || 'http://127.0.0.1:8787/proxy?url=';
+// 同源转发（与 cxo_dashboard.html 同模式）：浏览器请求与页面同源的 /api/realtime-proxy/fms，
+// 由后端转发到服务器本机 127.0.0.1:8787 FMS 代理。若直连 http://127.0.0.1:8787，
+// 远程访问者的浏览器会把 127.0.0.1 解析成"访问者自己的电脑"，代理必然不可达，
+// 于是误报 Proxy not running 且实时数据全部拉不到。
+const PROXY_BASE = window.__ALARM_PROXY__ || '/api/realtime-proxy/fms?url=';
 const defaultCfg={enabled:true,interval:D.live.refresh||300,cookie:'',
   sources:(D.live.sources||[]).map(s=>({name:s.name,url:s.url,method:s.method||'GET',
     body:s.body?JSON.stringify(s.body):''}))};
@@ -1519,7 +1523,16 @@ function parseBor(rows){
 
 /* ---------- 轮询 ---------- */
 async function proxyAlive(){
-  try{ const r=await fetch((window.__ALARM_PROXY_HEALTH__ || 'http://127.0.0.1:8787/health'),{cache:'no-store'}); return r.ok; }catch(e){ return false; }
+  // 经后端控制面（同源 /api/realtime-proxy/status）查询 8787 FMS 代理健康。
+  // 旧实现直连 http://127.0.0.1:8787/health：远程访问者的浏览器里该地址指向
+  // 访问者自己的电脑，必然连接失败 → 误报 Proxy not running。
+  try{
+    const r=await fetch('/api/realtime-proxy/status',{cache:'no-store'});
+    if(!r.ok) return false;
+    const j=await r.json();
+    const fms=(j.proxies||[]).find(p=>p.port===8787);
+    return !!(fms && fms.healthy);
+  }catch(e){ return false; }
 }
 // 通过后端控制面按需拉起本地代理（8787 FMS / 8790 VMAX）；已运行则复用
 async function ensureProxy(){
