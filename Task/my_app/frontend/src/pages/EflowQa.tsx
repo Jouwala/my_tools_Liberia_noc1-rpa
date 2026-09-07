@@ -6,6 +6,7 @@ import {
   Empty,
   Input,
   Spin,
+  Table,
   Tag,
   Tree,
   Typography,
@@ -128,6 +129,248 @@ function Highlight({ text, terms }: { text: string; terms: string[] }) {
   )
 }
 
+/** 站点/小区信息、告警概览等「键-值」列表 */
+function KvRows({ rows, isDark, isMobile, labelWidth = 180 }: {
+  rows: [string, any][]
+  isDark: boolean
+  isMobile: boolean
+  labelWidth?: number
+}) {
+  return (
+    <div style={{ fontSize: 13, lineHeight: 1.9 }}>
+      {rows.map(([k, v]) => (
+        <div key={k} style={isMobile
+          ? { display: 'flex', flexDirection: 'column', padding: '2px 0' }
+          : { display: 'flex', gap: 10 }}>
+          <Text type="secondary" style={isMobile
+            ? { fontFamily: 'monospace', fontSize: 11 }
+            : { width: labelWidth, flexShrink: 0, fontFamily: 'monospace', fontSize: 12 }}>{k}</Text>
+          <span style={{ wordBreak: 'break-all' }}>
+            {v === '' || v === null || v === undefined ? '—' : String(v)}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function severityColor(sev: string): string | undefined {
+  const s = String(sev || '').toLowerCase()
+  if (s.includes('critical')) return 'red'
+  if (s.includes('major')) return 'orange'
+  if (s.includes('minor')) return 'gold'
+  if (s.includes('warning')) return 'blue'
+  return 'default'
+}
+
+function HistoryTable({ h, t, isDark, isMobile }: { h: any; t: (k: string) => string; isDark: boolean; isMobile: boolean }) {
+  const items = h?.items || []
+  const columns = [
+    { title: t('qa.ume.col.raised'), dataIndex: 'raised_time', width: 155, fixed: 'left' as const },
+    { title: t('qa.ume.col.code'), dataIndex: 'alarmcode', width: 100 },
+    { title: t('qa.ume.col.name'), dataIndex: 'name' },
+    { title: t('qa.ume.col.severity'), dataIndex: 'severity', width: 90,
+      render: (v: string) => <Tag color={severityColor(v)} style={{ margin: 0 }}>{v || '—'}</Tag> },
+    { title: t('qa.ume.col.object'), dataIndex: 'object' },
+    { title: t('qa.ume.col.state'), dataIndex: 'clear_state', width: 100 },
+    { title: t('qa.ume.col.duration'), dataIndex: 'duration', width: 110 },
+  ]
+  return (
+    <>
+      <div style={{ marginBottom: 6, fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
+        {h?.position} · {t('qa.ume.totalRows')} {h?.total ?? 0}
+        {items.length < (h?.total ?? 0) ? `（${t('qa.ume.totalRows')} ${items.length}）` : ''}
+      </div>
+      {items.length === 0
+        ? <Empty description={t('qa.ume.noHistory').replace('{days}', String(h?.days ?? 30))} style={{ margin: '12px 0' }} />
+        : <Table
+            size="small"
+            columns={columns}
+            dataSource={items}
+            rowKey={(r: any, i?: number) => `${i}-${r?.alarmkey || r?.raised_time || ''}`}
+            pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
+            scroll={{ x: isMobile ? 900 : undefined }}
+          />}
+    </>
+  )
+}
+
+/** RAN UME 告警分析结果视图：告警概览 / 站点小区信息 / 处理建议 / 历史告警 */
+function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, data, onBack }: {
+  t: (k: string) => string
+  isDark: boolean
+  isMobile: boolean
+  border: string
+  umeKey: string
+  loading: boolean
+  error: string
+  data: any
+  onBack: () => void
+}) {
+  const header = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+      <ThunderboltOutlined style={{ color: '#13c2c2' }} />
+      <Text strong style={{ fontSize: 15 }}>{t('qa.ume.label')}</Text>
+      <Text type="secondary" style={{ fontSize: 12, wordBreak: 'break-all' }}>{umeKey}</Text>
+      <Button size="small" style={{ marginLeft: 'auto' }} onClick={onBack}>{t('qa.ume.back')}</Button>
+    </div>
+  )
+
+  if (loading) {
+    return (
+      <div>
+        {header}
+        <div style={{ textAlign: 'center', padding: 60 }}>
+          <Spin size="large" />
+          <div style={{ marginTop: 12, color: isDark ? '#94a3b8' : '#64748b' }}>{t('qa.ume.analyzing')}</div>
+        </div>
+      </div>
+    )
+  }
+  if (error) {
+    return <div>{header}<Text type="danger">{error}</Text></div>
+  }
+  if (!data) return null
+  if (!data.ok) {
+    return <div>{header}<Alert type="warning" showIcon message={data.error || t('qa.ume.failed')} /></div>
+  }
+
+  const cardStyle = { border, borderRadius: 8, padding: '10px 14px', marginBottom: 10, background: isDark ? 'rgba(100,255,218,0.04)' : '#fafcfe' }
+  const a = data.alarm || {}
+  const sc = data.site_cell || {}
+  const local = sc.local
+  const sug = data.suggestion
+
+  const overviewRows: [string, any][] = [
+    ['Alarm Title (EN)', a.title_en],
+    ['Alarm Title (ZH)', a.title_zh],
+    ['Alarm Code', a.alarmcode],
+    ['Reason Code', a.reasoncode],
+    ['Alarm Type', a.alarm_type],
+    ['Severity', a.severity],
+    ['Raised Time (GMT)', a.raised_time],
+    ['Duration', a.duration],
+    ['Clear State', a.clear_state],
+    ['Ack State', a.ack_state],
+    ['Resource Type', a.restype_name],
+    ['Alarm ID', a.alarm_id],
+    ['Source', a.source],
+  ]
+
+  const siteRows: [string, any][] = [
+    ['Site Name', sc.site_name],
+    ['Site ID', sc.site_id],
+    ['Alarm Object', sc.object_name],
+    ['Object Type', sc.object_type],
+    ['Object ID', sc.object_id],
+    ['Network Type', sc.network_type],
+    ['NE Name', sc.ne_name],
+    ['Related NE', sc.related_ne_name],
+    ['NE IP', sc.ne_ip],
+    ['MOC', sc.moc],
+    ['DN', sc.dn],
+    ['Position', sc.position],
+    ['Location', sc.location],
+  ]
+  if (local) {
+    siteRows.push(['Region / County', [local.region, local.county].filter(Boolean).join(' / ')])
+    siteRows.push(['Tech', (local.techs || []).join(' / ')])
+    siteRows.push(['Category', local.category])
+  }
+
+  return (
+    <div>
+      {header}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+        {a.severity && <Tag color={severityColor(a.severity)}>{a.severity}</Tag>}
+        {a.alarmcode && <Tag>{a.alarmcode}</Tag>}
+        {sc.site_name && <Tag color="cyan">{sc.site_name}</Tag>}
+        {sc.object_name && <Tag color="geekblue">{sc.object_name}</Tag>}
+        {data.elapsed_sec != null && <Text type="secondary" style={{ fontSize: 12, alignSelf: 'center' }}>{data.elapsed_sec}s</Text>}
+      </div>
+
+      {/* 告警概览 */}
+      <div style={cardStyle}>
+        <Text strong>{t('qa.ume.overview')}</Text>
+        <div style={{ marginTop: 6 }}>
+          <KvRows rows={overviewRows} isDark={isDark} isMobile={isMobile} />
+        </div>
+      </div>
+
+      {/* 站点 / 小区信息 */}
+      <div style={cardStyle}>
+        <Text strong>{t('qa.ume.siteCell')}</Text>
+        <div style={{ marginTop: 6 }}>
+          <KvRows rows={siteRows} isDark={isDark} isMobile={isMobile} />
+        </div>
+        {!!(local && (local.cells || []).length) && (
+          <div style={{ marginTop: 8 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t('qa.ume.local')} · {t('qa.ume.cells')}（{(local.cells || []).length}）
+            </Text>
+            <div style={{ marginTop: 4 }}>
+              {(local.cells || []).slice(0, 60).map((c: string) => (
+                <Tag key={c} style={{ margin: '2px 4px 2px 0', fontSize: 11 }}>{c}</Tag>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 处理建议 */}
+      <div style={{ ...cardStyle, background: isDark ? 'rgba(250,173,20,0.08)' : 'rgba(250,173,20,0.08)' }}>
+        <Text strong>{t('qa.ume.suggestion')}</Text>
+        {sug?.default || sug?.customer ? (
+          <div style={{ marginTop: 6 }}>
+            {!!sug.customer && (
+              <div style={{ marginBottom: 8 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>customermaintenancename</Text>
+                <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '4px 0 0',
+                  fontFamily: 'inherit', fontSize: 13, lineHeight: 1.75 }}>{sug.customer}</pre>
+              </div>
+            )}
+            {!!sug.default && (
+              <div>
+                <Text type="secondary" style={{ fontSize: 12 }}>defaultmaintenancename</Text>
+                <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '4px 0 0',
+                  fontFamily: 'inherit', fontSize: 13, lineHeight: 1.75 }}>{sug.default}</pre>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ marginTop: 6 }}>
+            <Alert type="info" showIcon message={data.suggestion_error || t('qa.ume.noSuggestion')} />
+          </div>
+        )}
+      </div>
+
+      {/* 历史告警 */}
+      {data.history_cell && (
+        <div style={cardStyle}>
+          <Text strong>{t('qa.ume.historyCell')}</Text>
+          <div style={{ marginTop: 6 }}>
+            <HistoryTable h={data.history_cell} t={t} isDark={isDark} isMobile={isMobile} />
+          </div>
+        </div>
+      )}
+      {data.history && (
+        <div style={cardStyle}>
+          <Text strong>{t('qa.ume.history')}</Text>
+          <div style={{ marginTop: 6 }}>
+            <HistoryTable h={data.history} t={t} isDark={isDark} isMobile={isMobile} />
+          </div>
+        </div>
+      )}
+      {!data.history && !data.history_cell && data.history_error && (
+        <div style={cardStyle}>
+          <Text strong>{t('qa.ume.history')}</Text>
+          <Alert type="info" showIcon style={{ marginTop: 6 }} message={data.history_error} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function EflowQa() {
   const { t, locale } = useI18n()
   const { isDark } = useTheme()
@@ -161,6 +404,34 @@ export default function EflowQa() {
   const [ttAlarmLoading, setTtAlarmLoading] = useState(false)
   const [ttAlarmLookup, setTtAlarmLookup] = useState<any>(null)
 
+  // ===== TT → AID → RAN UME 处理建议 =====
+  const [ttAid, setTtAid] = useState('')
+  const [ttUme, setTtUme] = useState<any>(null)
+  const [ttUmeLoading, setTtUmeLoading] = useState(false)
+  const [ttUmeFailed, setTtUmeFailed] = useState(false)
+
+  // ===== RAN UME 告警分析 =====
+  const [umeKey, setUmeKey] = useState('')
+  const [umeView, setUmeView] = useState(false)
+  const [umeLoading, setUmeLoading] = useState(false)
+  const [umeData, setUmeData] = useState<any>(null)
+  const [umeError, setUmeError] = useState('')
+
+  const runUme = useCallback((key: string) => {
+    const clean = key.trim()
+    if (!clean) return
+    setUmeKey(clean)
+    setUmeView(true)
+    setTtView(false)
+    setUmeLoading(true)
+    setUmeError('')
+    setUmeData(null)
+    api.get('/eflow-qa/ume-alarm', { params: { alarm_id: clean, days: 30, limit: 50 } })
+      .then(res => setUmeData(res.data))
+      .catch(() => setUmeError(t('qa.ume.failed')))
+      .finally(() => setUmeLoading(false))
+  }, [t])
+
   // 移动端：目录树抽屉
   const [treeOpen, setTreeOpen] = useState(false)
 
@@ -176,6 +447,11 @@ export default function EflowQa() {
     setTtAlarm(null)
     setTtAlarmLookup(null)
     setTtAlarmLoading(false)
+    // RAN UME 处理建议（后端按 TT → 告警 AID → UME suggestions 链路），独立加载不阻塞
+    setTtAid('')
+    setTtUme(null)
+    setTtUmeFailed(false)
+    setTtUmeLoading(true)
     // 基础报告（本地 sqlite，快）先到先显；告警与 AI 各自独立加载
     api.get('/eflow-qa/inspect-tt', { params: { tt: clean } }).then(res => {
       const rep = res.data.report
@@ -200,6 +476,11 @@ export default function EflowQa() {
       // tt-ai 内部同样会回填 eFlow 兜底结果，告警块未到则顺带补上
       if (rep?.alarm?.found) setTtAlarm((prev: any) => prev || rep.alarm)
     }).catch(() => { /* AI 失败不阻塞工单信息展示 */ }).finally(() => setTtAiLoading(false))
+    // RAN UME 处理建议并行请求（TT → 告警 AID → UME，不阻塞其它块）
+    api.get('/eflow-qa/tt-ume-suggestion', { params: { tt: clean } }).then(res => {
+      setTtUme(res.data)
+      if (res.data?.aid) setTtAid(res.data.aid)
+    }).catch(() => setTtUmeFailed(true)).finally(() => setTtUmeLoading(false))
   }, [t])
 
   // ===== 文档树 =====
@@ -322,6 +603,10 @@ export default function EflowQa() {
   // ===== 检索 + TT（桌面左栏顶部）=====
   const searchBlock = (
     <>
+      <div id="knowledge-search" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <SearchOutlined style={{ color: '#1677ff' }} />
+        <Text strong style={{ fontSize: 13 }}>{t('qa.search')}</Text>
+      </div>
       <Input.Search
         placeholder={t('qa.searchPlaceholder')}
         enterButton={t('qa.search')}
@@ -331,7 +616,7 @@ export default function EflowQa() {
         allowClear
       />
       <div style={{ borderTop: isDark ? '1px solid rgba(100,255,218,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div id="tt-quick-analysis" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <ThunderboltOutlined style={{ color: '#faad14' }} />
         <Text strong style={{ fontSize: 13 }}>{t('qa.tt.label')}</Text>
       </div>
@@ -341,6 +626,18 @@ export default function EflowQa() {
         value={ttNo}
         onChange={e => setTtNo(e.target.value)}
         onSearch={runTt}
+        allowClear
+      />
+      <div id="ran-ume-alarm-analysis" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <ThunderboltOutlined style={{ color: '#13c2c2' }} />
+        <Text strong style={{ fontSize: 13 }}>{t('qa.ume.label')}</Text>
+      </div>
+      <Input.Search
+        placeholder={t('qa.ume.placeholder')}
+        enterButton={t('qa.ume.button')}
+        value={umeKey}
+        onChange={e => setUmeKey(e.target.value)}
+        onSearch={runUme}
         allowClear
       />
     </>
@@ -436,6 +733,14 @@ export default function EflowQa() {
               />
             </div>
           </div>
+          <Input.Search
+            placeholder={t('qa.ume.placeholder')}
+            enterButton={<ThunderboltOutlined style={{ color: '#13c2c2' }} />}
+            value={umeKey}
+            onChange={e => setUmeKey(e.target.value)}
+            onSearch={runUme}
+            allowClear
+          />
         </div>
       )}
 
@@ -557,6 +862,64 @@ export default function EflowQa() {
                     </div>
                   )}
 
+                  {/* RAN UME 处理建议：后端按 TT → 告警 AID → UME 自动查询 */}
+                  {(() => {
+                    const ume = ttUme?.ume
+                    const fullKey = ume?.ok ? (ume?.alarm?.alarm_id || ttAid) : ttAid
+                    return (
+                      <div style={{ ...cardStyle, background: isDark ? 'rgba(19,194,194,0.08)' : '#f4fbfa' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                          <ThunderboltOutlined style={{ color: '#13c2c2' }} />
+                          <Text strong>{t('qa.tt.umeCard')}</Text>
+                          {!!ttAid && <Tag color="cyan" style={{ fontFamily: 'monospace' }}>AID: {ttAid}</Tag>}
+                          {ume?.ok && ume?.strategy === 'site_time' && <Tag color="purple">{t('qa.tt.umeMatched')}</Tag>}
+                          {ume?.ok && fullKey && !ttUmeLoading && (
+                            <Button size="small" type="link" style={{ marginLeft: 'auto', padding: 0 }}
+                              onClick={() => runUme(fullKey)}>{t('qa.tt.umeFull')}</Button>
+                          )}
+                        </div>
+                        {ttUmeLoading && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: isDark ? '#94a3b8' : '#64748b', fontSize: 13 }}>
+                            <Spin size="small" />{t('qa.tt.umeLoading')}
+                          </div>
+                        )}
+                        {!ttUmeLoading && (ttUmeFailed || (ttUme && !ume?.ok)) && (
+                          <Alert type="info" showIcon style={{ marginTop: 4 }}
+                            message={ttUme?.error || ume?.error || t('qa.tt.umeFailed')} />
+                        )}
+                        {!ttUmeLoading && ume?.ok && ume?.alarm && (
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6, alignItems: 'center' }}>
+                            {ume.alarm.title_en && <Tag color="geekblue">{ume.alarm.title_en}</Tag>}
+                            {ume.alarm.alarmcode != null && <Tag>{ume.alarm.alarmcode}</Tag>}
+                            {ume.alarm.severity && <Tag color={severityColor(ume.alarm.severity)}>{ume.alarm.severity}</Tag>}
+                            {ume.alarm.raised_time && <Text type="secondary" style={{ fontSize: 12 }}>{ume.alarm.raised_time}</Text>}
+                            {ume.elapsed_sec != null && <Text type="secondary" style={{ fontSize: 12 }}>{ume.elapsed_sec}s</Text>}
+                          </div>
+                        )}
+                        {!ttUmeLoading && ume?.ok && (
+                          ume?.suggestion?.default || ume?.suggestion?.customer ? (
+                            <div>
+                              {!!ume.suggestion.customer && (
+                                <div style={{ marginBottom: 8 }}>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>customermaintenancename</Text>
+                                  <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '4px 0 0', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.75 }}>{ume.suggestion.customer}</pre>
+                                </div>
+                              )}
+                              {!!ume.suggestion.default && (
+                                <div>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>defaultmaintenancename</Text>
+                                  <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '4px 0 0', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.75 }}>{ume.suggestion.default}</pre>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <Alert type="info" showIcon message={ume?.suggestion_error || t('qa.ume.noSuggestion')} />
+                          )
+                        )}
+                      </div>
+                    )
+                  })()}
+
                   {/* 结论要点 */}
                   <div style={{ ...cardStyle, background: isDark ? 'rgba(250,173,20,0.08)' : 'rgba(250,173,20,0.08)' }}>
                     <Text strong>{t('qa.tt.conclusion')}</Text>
@@ -619,7 +982,22 @@ export default function EflowQa() {
           </div>
         )}
 
-        {!ttView && searched && !docLoading && hits !== null && (
+        {/* ===== RAN UME 告警分析视图 ===== */}
+        {umeView && (
+          <UmeAlarmView
+            t={t}
+            isDark={isDark}
+            isMobile={isMobile}
+            border={border}
+            umeKey={umeKey}
+            loading={umeLoading}
+            error={umeError}
+            data={umeData}
+            onBack={() => setUmeView(false)}
+          />
+        )}
+
+        {!ttView && !umeView && searched && !docLoading && hits !== null && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <Text strong>
@@ -669,12 +1047,12 @@ export default function EflowQa() {
         )}
 
         {/* 文档视图 */}
-        {!ttView && docLoading && <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>}
-        {!ttView && !docLoading && docError && <Text type="danger">{docError}</Text>}
-        {!ttView && !docLoading && !doc && !searched && (
+        {!ttView && !umeView && docLoading && <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>}
+        {!ttView && !umeView && !docLoading && docError && <Text type="danger">{docError}</Text>}
+        {!ttView && !umeView && !docLoading && !doc && !searched && (
           <Empty description={isMobile ? t('qa.selectDocMobile') : t('qa.selectDoc')} style={{ marginTop: isMobile ? 32 : 80 }} />
         )}
-        {!ttView && !docLoading && doc && (
+        {!ttView && !umeView && !docLoading && doc && (
           <div>
             <Title level={4} style={{ marginTop: 0, marginBottom: 8, fontSize: isMobile ? 17 : undefined }}>{doc.title}</Title>
             <div style={{ marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>

@@ -6,7 +6,8 @@ into my_app/data/sp_email/sp_online, using the latest
 inband_details.xlsx / outband_details.xlsx under my_app/data/sp_email/data.
 
 Pipeline:
-  load xlsx -> filter Status != 'Closed' -> dedup by ticket No.
+  load xlsx -> exclude Status in ('WaitingForReturn', 'Draft', 'WaitingForUpdate', 'Closed')
+   -> dedup by ticket No.
   -> parse 'Verify Detail' (earliest Verify Operation Time = Approved Time,
      operator of the latest Verify = Current Operation Owner, mapped to
      real name via person table in db/app.db by objectid)
@@ -44,6 +45,9 @@ VERIFY_PAIR_RE = re.compile(
 OUT_COLS = ['Operation No.', 'Status', 'Operation Type', 'Warehouse Name',
             'Create Time', 'Approved Time', 'Closed Time',
             'Approval Duration', 'Close Duration', 'Current Operation Owner']
+
+# SP 在线单排除名单：这些状态不要
+EXCLUDED_STATUS = ('WaitingForReturn', 'Draft', 'WaitingForUpdate', 'Closed')
 
 
 def load_person_names(db_path=DB_PATH):
@@ -88,8 +92,9 @@ def _display_str(series):
 
 
 def build_open_tickets(df, no_col, type_col, person_names):
-    """Filter Status != 'Closed', one row per ticket, compute display columns."""
-    open_df = df[df['Status'].astype(str).str.strip().ne('Closed')].copy()
+    """Exclude unwanted statuses, one row per ticket, compute display columns."""
+    status = df['Status'].astype(str).str.strip()
+    open_df = df[~status.isin(EXCLUDED_STATUS)].copy()
     n_raw = len(open_df)
     open_df = open_df.drop_duplicates(subset=[no_col], keep='first')
 
@@ -139,7 +144,7 @@ def main():
     for src, no_col, type_col, sheet_name, label in jobs:
         df = pd.read_excel(src)
         table, n_filtered = build_open_tickets(df, no_col, type_col, person_names)
-        title = f'{label}  |  {ts}  |  Open tickets: {len(table)}'
+        title = f'{label}  |  {ts}  |  Tickets: {len(table)}'
 
         img_path = _resolve_output_path(str(OUT_DIR / f'{sheet_name}.png'))
         _render_summary_image(table, img_path, title=title, has_total_row=False,

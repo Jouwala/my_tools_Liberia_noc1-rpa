@@ -16,7 +16,7 @@ OPENWEBUI_BASE_URL  默认 http://192.168.100.27:3000
 OPENWEBUI_EMAIL     登录邮箱
 OPENWEBUI_PASSWORD  登录密码
 OPENWEBUI_MODEL     默认 agnes-2.5-flash
-EFLOW_TT_RULES_XLSX 规则表路径，默认 D:\\01_RPA\\Task\\my_app\\eflow_TT_rules.xlsx
+EFLOW_TT_RULES_XLSX 规则表路径，默认 backend/services/eflow_rules/eflow_TT_rules.xlsx（定时任务生成处）
 """
 from __future__ import annotations
 
@@ -47,9 +47,11 @@ EMAIL = os.environ.get("OPENWEBUI_EMAIL", "").strip()
 PASSWORD = os.environ.get("OPENWEBUI_PASSWORD", "")
 MODEL = os.environ.get("OPENWEBUI_MODEL", "agnes-2.5-flash").strip()
 
+# 定时任务 eflow_TT_Rule_Collector 每天生成的实际位置：backend/services/eflow_rules/
+_RULES_DIR = Path(__file__).resolve().parent / "eflow_rules"
 RULES_XLSX = Path(os.environ.get(
     "EFLOW_TT_RULES_XLSX",
-    r"D:\01_RPA\Task\my_app\eflow_TT_rules.xlsx"))
+    str(_RULES_DIR / "eflow_TT_rules.xlsx")))
 
 TT_PROVITY_COMMAND = "TT_PROVITY"
 

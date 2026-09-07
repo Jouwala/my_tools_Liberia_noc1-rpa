@@ -97,6 +97,9 @@ PORTALS = {
         "name_en": "VMAX CXO Dashboard",
         "cred_key": "vmax_cxo",
         "kind": "vmax",
+        # 登录页有图形验证码（captchaInput），无法全自动 → 注入脚本只预填
+        # 账号密码，用户在浏览器里输验证码后自己点登录
+        "captcha": True,
         "host_env": "VMAX_HOST", "port_env": "VMAX_PORT",
         "default_host": "10.123.255.12", "default_port": 26180,
         "login_path": "/web/iui/framework/default.html",
@@ -931,5 +934,147 @@ def list_portals() -> list:
             "port": port,
             "kind": spec["kind"],
             "live": live,
+            # 客户端本机登录（nginx 反代）：/portal/<key>/ → 门户根
+            "proxy_prefix": PROXY_PREFIXES.get(key),
+            "login_uri": _login_uri(spec),
         })
     return out
+
+
+# ===== 客户端本机登录（nginx 反代 + 页面内注入自动填表）=====
+# nginx 把门户反代到同源的 /portal/<key>/ 下（见 nginx.conf 的 /portal/eflow/ 段），
+# 门户页面与 my_app 同源 → 可在登录页里注入本脚本完成自动填表，
+# 于是「在哪台电脑点登录，就在哪台电脑的浏览器里登录」，Cookie 落在访问者本机。
+# 只有已在 nginx 配好反代的门户才出现在该表里，否则前端降级为服务器登录。
+# 值是 proxy_base 模板："" = 与 my_app 同源（80 口）；"//{HOST}:<port>" = 独立端口
+# （前端把 {HOST} 替换为 location.hostname）。
+#
+# ⚠️ 为什么 eFlow 走 80 口原生路径而其他门户分端口（实测结论，见 TMP/cdp_verify_portal_proxy_login.py）：
+#    1) 门户前端按页面 URL 的「上下文」拼接 localStorage 键名（CSRF token 存 csrftoken），
+#       放 /portal/eflow/ 前缀下会导致登录后主页取不到 token → 403 cross-site。
+#       所以任何门户都不能剥前缀，必须按原生路径反代。
+#    2) ZTE/iPRAN/MW/eFlow 的会话 Cookie 名完全相同（Z-AUTH-CODE-28001 等），
+#       且 Cookie 不区分端口 → 同浏览器两个门户共用命名空间会互相顶掉会话。
+#       因此除 eFlow 外每个门户独占一个端口（portal_ports.conf）。
+PROXY_PREFIXES = {
+    "eflow":     "",
+    "zte_ume":   "//{HOST}:8081",
+    "ccn_ume":   "//{HOST}:8082",
+    "ipran_ume": "//{HOST}:8083",
+    "mw_ume":    "//{HOST}:8084",
+    "fw_kpi":    "//{HOST}:8085",
+    "vmax_cxo":  "//{HOST}:8086",
+}
+
+
+def _login_uri(spec: dict) -> str:
+    """登录入口的 path+query（不含 scheme/host/port），供反代前缀拼接。"""
+    url = build_login_url(spec)
+    idx = url.find("/", url.find("://") + 3)
+    return url[idx:] if idx > 0 else "/"
+
+
+def build_inject_js(system_key: str, user: str, pwd: str) -> str:
+    """生成注入到门户登录页的自动填表脚本（凭据随本次请求下发，不落盘）。
+
+    要点：
+      - 页面 JS 端做 RSA/SM 加密，脚本只负责「填值 + 点真实登录按钮」；
+      - 轮询等待登录表单渲染（Angular bootstrap 可能 >5s）；
+      - 填完回读校验，值没进去则退回 execCommand('insertText') 模拟真实键入；
+      - 只在找到用户名输入框时动作，非登录页直接退出（无副作用）。
+    """
+    import json as _json
+    u = _json.dumps(user)
+    p = _json.dumps(pwd)
+    sysname = _json.dumps(system_key)
+    return f"""(function () {{
+  var SYS = {sysname}, USER = {u}, PWD = {p};
+  var UCSS = ["#inputUserName", "input[name='username']", "#username",
+    "input[id='username']", "input[name='user']", "input[name='j_username']",
+    "#userNameInput", "input[name='userName']", "input[type='text']"];
+  var PCSS = ["#inputCiphercode", "input[name='cipher_code']", "#password",
+    "input[name='password']", "input[id='password']", "input[name='p']",
+    "#passwordInput", "input[type='password']"];
+  function vis(el) {{
+    if (!el || el.disabled) return false;
+    if ((el.type || '').toLowerCase() === 'hidden') return false;
+    return (el.offsetWidth > 0 || el.offsetHeight > 0 || el.offsetParent !== null);
+  }}
+  function find(sels) {{
+    for (var i = 0; i < sels.length; i++) {{
+      try {{ var el = document.querySelector(sels[i]); if (el && vis(el)) return el; }} catch (e) {{}}
+    }}
+    return null;
+  }}
+  function setVal(el, v) {{
+    try {{
+      var proto = (el.tagName === 'TEXTAREA') ? window.HTMLTextAreaElement.prototype
+                                             : window.HTMLInputElement.prototype;
+      var d = Object.getOwnPropertyDescriptor(proto, 'value');
+      if (d && d.set) {{ d.set.call(el, v); }} else {{ el.value = v; }}
+      ['input', 'change', 'keyup', 'blur'].forEach(function (t) {{
+        try {{ el.dispatchEvent(new Event(t, {{ bubbles: true }})); }} catch (e) {{}}
+      }});
+    }} catch (e) {{}}
+  }}
+  function typeInto(el, v) {{
+    try {{
+      el.focus();
+      try {{ el.setSelectionRange(0, (el.value || '').length); }} catch (e) {{}}
+      document.execCommand('insertText', false, v);
+    }} catch (e) {{ try {{ el.value = v; }} catch (e2) {{}} }}
+  }}
+  function clickLogin() {{
+    var sels = ["#loginBut", "#loginSubmit", "input[type='submit']", "button[type='submit']",
+      ".login-btn", ".btn-login", ".login-button"];
+    var b = find(sels);
+    if (!b) {{
+      var all = document.querySelectorAll("button,input[type=submit],a.btn");
+      for (var i = 0; i < all.length; i++) {{
+        var t = (all[i].textContent || all[i].value || '').trim().toLowerCase();
+        if (/登录|login|sign\\s*in|submit/.test(t)) {{ b = all[i]; break; }}
+      }}
+    }}
+    if (b) {{ try {{ b.click(); return (b.id || b.textContent || 'btn'); }} catch (e) {{}} }}
+    return null;
+  }}
+  function attempt() {{
+    var uEl = find(UCSS);
+    if (!uEl) return false;
+    // 验证码模式：登录页存在可见的验证码输入框时只预填账号密码，不自动提交；
+    // 用户手动输入验证码后，脚本下一轮轮询检测到验证码非空会自动点登录。
+    var cap = null;
+    try {{
+      var cands = ["#captchaInput", "input[name='captchaInput']", "input[placeholder='Code']", "input[name='captcha']"];
+      for (var ci = 0; ci < cands.length; ci++) {{
+        var ce = document.querySelector(cands[ci]);
+        if (ce && (ce.offsetWidth > 0 || ce.offsetHeight > 0 || ce.offsetParent !== null)
+            && (ce.type || '').toLowerCase() !== 'hidden') {{ cap = ce; break; }}
+      }}
+    }} catch (e) {{}}
+    if (uEl.value !== USER) {{
+      setVal(uEl, USER);
+      if (uEl.value !== USER) typeInto(uEl, USER);
+    }}
+    var pEl = find(PCSS);
+    if (pEl && pEl.value !== PWD) {{
+      setVal(pEl, PWD);
+      if (pEl.value !== PWD) typeInto(pEl, PWD);
+    }}
+    if (uEl.value !== USER) return false;
+    if (cap && (cap.value || '') === '') {{
+      console.log('[MYAPP-AUTOLOGIN] ' + SYS + ' captcha mode: prefilled, waiting for user');
+      return false;   // 继续轮询等用户输验证码
+    }}
+    var r = clickLogin();
+    console.log('[MYAPP-AUTOLOGIN] ' + SYS + ' filled, submit=' + r);
+    return true;
+  }}
+  var tries = 0;
+  var timer = setInterval(function () {{
+    tries++;
+    var done = false;
+    try {{ done = attempt(); }} catch (e) {{ console.log('[MYAPP-AUTOLOGIN] err ' + e); }}
+    if (done || tries > 50) clearInterval(timer);
+  }}, 500);
+}})();"""

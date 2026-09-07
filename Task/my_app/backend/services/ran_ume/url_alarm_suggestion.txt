@@ -1,0 +1,36 @@
+http://192.168.100.20/myapp/?page=eflow_qa页面添加一个根据Alarm ID从RAN UME获取数据并展示
+站点或者小区信息：
+建议：
+历史告警：
+根据Alarm ID找到Alarm Code找到suggestions并添加到
+Request URL
+https://10.100.28.27:28001/api/fm-active/v1/activealarms/alarmkey
+Request Method
+POST
+Status Code
+200 OK
+Remote Address
+10.100.28.27:28001
+Referrer Policy
+strict-origin-when-cross-origin
+
+{"alarmkey":"a6839164-af6e-49cf-8ed7-2961328ae69c---12850821@1702@100001@1@1","id":1639656336365}
+
+alarmcode
+: 
+199087342
+
+Request URL
+https://10.100.28.27:28001/api/fm-active/v1/suggestions
+Request Method
+POST
+Status Code
+200 OK
+Remote Address
+10.100.28.27:28001
+Referrer Policy
+strict-origin-when-cross-origin
+
+{"restype":"20425","alarmcode":199087342,"reasoncode":199087342,"customermaintenancename":"","codetype":0}
+
+

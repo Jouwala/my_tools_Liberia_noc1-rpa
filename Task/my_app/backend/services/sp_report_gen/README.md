@@ -31,7 +31,8 @@ EWS 发送邮件（owa_mail_report.py）
 
 ## SP 在线未关闭单（generate_sp_online_report.py）
 
-读取 `data\sp_email\data\` 最新 `inband_details.xlsx` / `outband_details.xlsx`，过滤 `Status != 'Closed'`，
+读取 `data\sp_email\data\` 最新 `inband_details.xlsx` / `outband_details.xlsx`，
+**排除** `Status` 为 `WaitingForReturn` / `Draft` / `WaitingForUpdate` / `Closed` 的数据（这些状态不要），其余保留，
 按单号去重（一单多物料行取首行），按 Create Time 倒序，各输出 PNG + XLSX（Inbound.png/.xlsx、Outbound.png/.xlsx）。
 
 | 输出列 | 来源 |

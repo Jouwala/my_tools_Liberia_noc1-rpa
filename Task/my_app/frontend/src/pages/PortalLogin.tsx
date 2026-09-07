@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, Card, Tag, Spin, message, Tooltip } from 'antd'
-import { LogoutOutlined, LoginOutlined } from '@ant-design/icons'
+import { Button, Card, Tag, Spin, message, Tooltip, Segmented } from 'antd'
+import { LogoutOutlined, LoginOutlined, DesktopOutlined, GlobalOutlined } from '@ant-design/icons'
 import { useI18n } from '../i18n'
 import api from '../api'
 
@@ -13,6 +13,9 @@ type Portal = {
   port: number
   kind: string
   live: boolean
+  // 客户端本机登录（nginx 反代）：null = 未配置；"" = 按门户原生根路径反代
+  proxy_prefix?: string | null
+  login_uri?: string
 }
 
 type JobState = 'idle' | 'launching' | 'success' | 'failed' | 'need_manual'
@@ -49,6 +52,9 @@ export default function PortalLogin() {
   const [portals, setPortals] = useState<Portal[]>([])
   const [status, setStatus] = useState<Record<string, StatusInfo>>({})
   const [loading, setLoading] = useState(true)
+  // client = 在访问者自己的浏览器里登录（经 nginx 反代 + 注入脚本自动填表）
+  // server = 老行为：在 my_app 服务器桌面弹浏览器登录
+  const [mode, setMode] = useState<'client' | 'server'>('client')
   const timers = useRef<Record<string, number>>({})
 
   const showMsg = useCallback((type: 'success' | 'error' | 'info', text: string) => {
@@ -96,7 +102,30 @@ export default function PortalLogin() {
     timers.current[system] = id
   }, [fetchPortals])
 
-  const handleLogin = useCallback(async (system: string) => {
+  // 客户端本机登录：直接打开反代后的登录页，由页面内注入脚本自动填表提交。
+  // 会话 Cookie 落在访问者自己的浏览器里，所以在哪台电脑点就在哪台电脑登录。
+  // proxy_base 模板里的 {HOST} 替换成当前访问主机（门户各自独立端口）。
+  const handleClientLogin = useCallback((p: Portal) => {
+    if (p.proxy_prefix == null) {
+      showMsg('info', t('portal.noClient'))
+      return
+    }
+    const base = (p.proxy_prefix || '').replace('{HOST}', window.location.hostname)
+    const url = `${base}${p.login_uri || ''}`
+    const win = window.open(url, '_blank', 'noopener=no')
+    if (!win) {
+      showMsg('error', t('portal.loadError'))
+      return
+    }
+    showMsg('info', t('portal.clientOpened'))
+    setStatus((prev) => ({ ...prev, [p.key]: { state: 'success', message: '' } }))
+  }, [showMsg, t])
+
+  const handleLogin = useCallback(async (system: string, p?: Portal) => {
+    if (mode === 'client' && p && p.proxy_prefix != null) {
+      handleClientLogin(p)
+      return
+    }
     setStatus((prev) => ({ ...prev, [system]: { state: 'launching', message: '' } }))
     try {
       const { data } = await api.post('/portals/login', { system })
@@ -127,8 +156,24 @@ export default function PortalLogin() {
     <div style={{ padding: '8px 4px' }}>
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ margin: '0 0 4px' }}>{t('portal.title')}</h2>
-        <div style={{ color: 'var(--wh-text-secondary, #64748b)', fontSize: 13 }}>
+        <div style={{ color: 'var(--wh-text-secondary, #64748b)', fontSize: 13, marginBottom: 10 }}>
           {t('portal.subtitle')}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, color: 'var(--wh-text-secondary, #64748b)' }}>
+            {t('portal.mode')}:
+          </span>
+          <Segmented
+            value={mode}
+            onChange={(v) => setMode(v as 'client' | 'server')}
+            options={[
+              { value: 'client', icon: <GlobalOutlined />, label: t('portal.modeClient') },
+              { value: 'server', icon: <DesktopOutlined />, label: t('portal.modeServer') },
+            ]}
+          />
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>
+            {mode === 'client' ? t('portal.modeClientTip') : t('portal.modeServerTip')}
+          </span>
         </div>
       </div>
 
@@ -156,8 +201,8 @@ export default function PortalLogin() {
                       type="primary"
                       icon={<LoginOutlined />}
                       loading={st === 'launching'}
-                      onClick={() => handleLogin(p.key)}
-                      disabled={st === 'launching'}
+                      onClick={() => handleLogin(p.key, p)}
+                      disabled={st === 'launching' || (mode === 'client' && p.proxy_prefix == null)}
                     >
                       {t('portal.login')}
                     </Button>
@@ -175,6 +220,15 @@ export default function PortalLogin() {
               >
                 <div style={{ fontSize: 13, color: '#64748b', marginBottom: 8 }}>
                   {t('portal.host')}: <code>{p.host}:{p.port}</code>
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  {p.proxy_prefix == null ? (
+                    <Tooltip title={t('portal.noClient')}>
+                      <Tag color="default">{t('portal.notProxied')}</Tag>
+                    </Tooltip>
+                  ) : (
+                    <Tag color="blue">{t('portal.modeClient')}</Tag>
+                  )}
                 </div>
                 <Tag color={STATE_COLOR[st]}>{t(STATE_TEXT[st])}</Tag>
                 {stMsg && (

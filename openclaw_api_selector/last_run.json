@@ -1,5 +1,5 @@
 {
-  "run_at": "2026-09-05T03:11:54",
+  "run_at": "2026-09-07T03:13:05",
   "threshold_ms": 5000,
   "results": [
     {
@@ -8,9 +8,9 @@
       "available": false,
       "latency_ms": null,
       "model": "glm-4-air",
-      "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti",
-      "status": "error",
-      "reason": "<urlopen error [WinError 10060] A connection attempt failed because the connecte",
+      "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>",
+      "status": "timeout",
+      "reason": "网络超时",
       "local": false,
       "tried_models": [
         {
@@ -38,15 +38,15 @@
           "model": "glm-4.5-flash",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "timeout",
+          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
         },
         {
           "model": "glm-4-air",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "timeout",
+          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
         }
       ]
     },
@@ -65,8 +65,8 @@
           "model": "meta/llama-3.1-8b-instruct",
           "ok": false,
           "latency_ms": null,
-          "status": "timeout",
-          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
+          "status": "error",
+          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
         },
         {
           "model": "llama-3.1-8b",
@@ -103,46 +103,18 @@
       "name": "OpenRouter",
       "available": false,
       "latency_ms": null,
-      "model": "meta-llama/llama-3.2-3b-instruct:free",
-      "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti",
-      "status": "error",
-      "reason": "<urlopen error [WinError 10060] A connection attempt failed because the connecte",
+      "model": "openrouter/free",
+      "error": "<urlopen error [Errno 11001] getaddrinfo failed>",
+      "status": "dns",
+      "reason": "DNS 解析失败",
       "local": false,
       "tried_models": [
         {
           "model": "openrouter/free",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "google/gemma-4-26b-a4b-it:free",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10054] An existing connection was forcibly closed by the remote host>"
-        },
-        {
-          "model": "liquid/lfm-2.5-1.2b-instruct:free",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "nvidia/nemotron-nano-9b-v2:free",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10054] An existing connection was forcibly closed by the remote host>"
-        },
-        {
-          "model": "meta-llama/llama-3.2-3b-instruct:free",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "dns",
+          "error": "<urlopen error [Errno 11001] getaddrinfo failed>"
         }
       ]
     },
@@ -151,46 +123,18 @@
       "name": "Ollama Cloud",
       "available": false,
       "latency_ms": null,
-      "model": "gemma3:27b",
-      "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti",
-      "status": "error",
-      "reason": "<urlopen error [WinError 10060] A connection attempt failed because the connecte",
+      "model": "gemma3:4b",
+      "error": "<urlopen error [Errno 11001] getaddrinfo failed>",
+      "status": "dns",
+      "reason": "DNS 解析失败",
       "local": false,
       "tried_models": [
         {
           "model": "gemma3:4b",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "ministral-3:8b",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "gemma3:12b",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "ministral-3:14b",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "gemma3:27b",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "dns",
+          "error": "<urlopen error [Errno 11001] getaddrinfo failed>"
         }
       ]
     },
@@ -199,10 +143,10 @@
       "name": "ZhiPu GLM-5 智谱",
       "available": false,
       "latency_ms": null,
-      "model": "glm-5-turbo",
-      "error": "<urlopen error [Errno 11001] getaddrinfo failed>",
-      "status": "dns",
-      "reason": "DNS 解析失败",
+      "model": "glm-4.5",
+      "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>",
+      "status": "timeout",
+      "reason": "网络超时",
       "local": false,
       "tried_models": [
         {
@@ -216,22 +160,29 @@
           "model": "glm-z1-flash",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "timeout",
+          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
         },
         {
           "model": "glm-5",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "timeout",
+          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
         },
         {
           "model": "glm-5-turbo",
           "ok": false,
           "latency_ms": null,
-          "status": "dns",
-          "error": "<urlopen error [Errno 11001] getaddrinfo failed>"
+          "status": "error",
+          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+        },
+        {
+          "model": "glm-4.5",
+          "ok": false,
+          "latency_ms": null,
+          "status": "timeout",
+          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
         }
       ]
     },
@@ -240,7 +191,7 @@
       "name": "SiliconFlow 硅基流动",
       "available": false,
       "latency_ms": null,
-      "model": "Qwen/Qwen3-4B",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
       "error": "<urlopen error [Errno 11001] getaddrinfo failed>",
       "status": "dns",
       "reason": "DNS 解析失败",
@@ -250,18 +201,11 @@
           "model": "Qwen/Qwen3-8B",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "timeout",
+          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
         },
         {
           "model": "Qwen/Qwen2.5-7B-Instruct",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "Qwen/Qwen3-4B",
           "ok": false,
           "latency_ms": null,
           "status": "dns",
@@ -286,7 +230,7 @@
       "name": "StepFun 阶跃星辰",
       "available": false,
       "latency_ms": null,
-      "model": "step-2-mini",
+      "model": "step-1-flash",
       "error": "<urlopen error [Errno 11001] getaddrinfo failed>",
       "status": "dns",
       "reason": "DNS 解析失败",
@@ -294,6 +238,20 @@
       "tried_models": [
         {
           "model": "step-2-mini",
+          "ok": false,
+          "latency_ms": null,
+          "status": "error",
+          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+        },
+        {
+          "model": "step-1.5v-mini",
+          "ok": false,
+          "latency_ms": null,
+          "status": "error",
+          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+        },
+        {
+          "model": "step-1-flash",
           "ok": false,
           "latency_ms": null,
           "status": "dns",
@@ -307,9 +265,9 @@
       "available": false,
       "latency_ms": null,
       "model": "deepseek-chat",
-      "error": "<urlopen error [WinError 10054] An existing connection was forcibly closed by the remote host>",
+      "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti",
       "status": "error",
-      "reason": "<urlopen error [WinError 10054] An existing connection was forcibly closed by th",
+      "reason": "<urlopen error [WinError 10060] A connection attempt failed because the connecte",
       "local": false,
       "tried_models": [
         {
@@ -317,7 +275,7 @@
           "ok": false,
           "latency_ms": null,
           "status": "error",
-          "error": "<urlopen error [WinError 10054] An existing connection was forcibly closed by the remote host>"
+          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
         }
       ]
     },
@@ -449,13 +407,10 @@
   ],
   "primary": "zhipu/glm-4-air",
   "fallbacks": [
-    "ollama/phi4-mini:3.8b",
-    "ollama/gemma4-32k:latest",
+    "ollama/qwen3:8b",
     "ollama/qwen3:4b",
-    "ollama/qwen3:1.7b",
     "nvidia/mistral-7b",
-    "openrouter/meta-llama/llama-3.2-3b-instruct:free",
-    "ollama-cloud/gemma3:27b",
+    "zhipu5/glm-4.5",
     "dahl/deepseek-chat"
   ]
 }

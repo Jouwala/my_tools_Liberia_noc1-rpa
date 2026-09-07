@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode, type WheelEvent as ReactWheelEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import {
   Card, Button, Tag, Space, List, Spin, message, Modal, Select,
   Input, Switch, Tooltip, Badge, Progress, Row, Col, Typography, Collapse, Alert, Popconfirm,
@@ -48,6 +48,19 @@ import type { TaskInfo, TaskDetail, RunRecord, FailureCluster, FailureAgg } from
 
 const { Text, Title } = Typography
 
+// 时间线点位使用稳定的高对比配色：同一个任务刷新后仍保持相同颜色。
+const TASK_TIMELINE_COLORS = [
+  '#4dabf7', '#51cf66', '#ffa94d', '#ff6b6b', '#cc5de8',
+  '#22b8cf', '#f783ac', '#ffd43b', '#20c997', '#748ffc',
+  '#e599f7', '#94d82d', '#ff922b', '#15aabf', '#fa5252',
+]
+
+function taskTimelineColor(taskId: string): string {
+  let hash = 0
+  for (let i = 0; i < taskId.length; i += 1) hash = (hash * 31 + taskId.charCodeAt(i)) | 0
+  return TASK_TIMELINE_COLORS[Math.abs(hash) % TASK_TIMELINE_COLORS.length]
+}
+
 // 任务状态分类：统计模块与筛选共用同一判定，保证“数字”与“筛选结果”严格一致
 export type TaskStatusKey = 'all' | 'running' | 'success' | 'failed' | 'disabled' | 'unknown'
 
@@ -74,6 +87,14 @@ export default function DataSync() {
   const [sortKey, setSortKey] = useState<'name' | 'next_run' | 'status'>('name')
   // 每 30s 走一次的时钟，仅用于"下次运行"倒计时的相对时间刷新
   const [nowTs, setNowTs] = useState(Date.now())
+  // 时间线默认显示当天 00:00–24:00，也支持缩小到 12 小时或 6 小时查看密集任务。
+  const [timelineHours, setTimelineHours] = useState(24)
+  const [timelineStartTs, setTimelineStartTs] = useState<number | null>(null)
+  const timelineDragRef = useRef<{ pointerId: number; startX: number; startTs: number } | null>(null)
+  // 泳道分配按像素判断“同一时刻”，因此需要知道时间线容器的实际宽度
+  const timelineBoxRef = useRef<HTMLDivElement | null>(null)
+  const [timelineWidth, setTimelineWidth] = useState(800)
+  const [selectedTimelineTaskId, setSelectedTimelineTaskId] = useState<string | null>(null)
   // 本地乐观状态：仅用于点击后到后端轮询确认"运行中"之间的过渡，最终以后端 runningMap 为准
   const [localRunning, setLocalRunning] = useState<Set<string>>(new Set())
   const startedRef = useRef<Set<string>>(new Set())
@@ -523,6 +544,147 @@ export default function DataSync() {
     setStatusFilter(prev => (prev === key ? 'all' : key))
   }
 
+  // 时间线默认以当天 00:00–24:00 展示；缩小后以当前时刻为中心，便于看清密集任务。
+  const timeline = useMemo(() => {
+    const dayStart = new Date(nowTs)
+    dayStart.setHours(0, 0, 0, 0)
+    const defaultStartTs = timelineHours === 24
+      ? dayStart.getTime()
+      : nowTs - (timelineHours * 60 * 60 * 1000) / 2
+    const start = new Date(timelineStartTs ?? defaultStartTs)
+    if (timelineStartTs === null && timelineHours !== 24) start.setMinutes(0, 0, 0)
+    const end = new Date(start.getTime() + timelineHours * 60 * 60 * 1000)
+    const startTs = start.getTime()
+    const endTs = end.getTime()
+    // 一个时间点 → 时间轴坐标。窗外仍保留 outside 标记，避免把边界误读为执行时间。
+    const toPoint = (ts: number | null) =>
+      ts === null || !Number.isFinite(ts)
+        ? null
+        : {
+            ts,
+            outside: ts < startTs || ts > endTs,
+            percent: Math.max(0, Math.min(100, ((ts - startTs) / (endTs - startTs)) * 100)),
+          }
+    // 每个任务最多两个点：
+    // last = 最近一次执行的实际开始时间（表达 运行中/失败/已执行）
+    // next = 调度器的 next_run（表达 将要执行）
+    // 单个点无法同时表达“已执行”和“将要执行”，因此拆成两点，避免被 next_run 恒为未来而全部染绿。
+    const dated = allTasks
+      .map((task, index) => {
+        const nextTs = task.next_run ? new Date(task.next_run).getTime() : Number.NaN
+        const latestRun = task.recent_runs?.[0]
+        const startedTs = latestRun?.started_at ? new Date(latestRun.started_at).getTime() : Number.NaN
+        return {
+          task,
+          index,
+          parsed: Number.isFinite(nextTs) ? nextTs : null,
+          last: toPoint(Number.isFinite(startedTs) ? startedTs : null),
+          next: toPoint(Number.isFinite(nextTs) ? nextTs : null),
+        }
+      })
+      .sort((a, b) => (a.parsed ?? Number.POSITIVE_INFINITY) - (b.parsed ?? Number.POSITIVE_INFINITY))
+
+    // 同一时刻（间距小于一个点位直径）的点会互相遮挡，这里按像素冲突分配泳道，
+    // 泳道以时间轴为基准上下交替展开，而不是把它们挤在同一行。
+    const minGapPct = Math.max(0.4, (11 / Math.max(240, timelineWidth)) * 100)
+    // 泳道数封顶，否则整点密集时容器会被撑得很高；超出后在最空的泳道里循环上下分布。
+    const maxLanes = 7
+    const laneFreeAt: number[] = []
+    const laneOf = new Map<string, number>()
+    dated
+      .flatMap(item => (
+        [
+          { key: `${item.task.task_id}:last`, percent: item.last?.percent },
+          { key: `${item.task.task_id}:next`, percent: item.next?.percent },
+        ] as { key: string; percent: number | undefined }[]
+      ))
+      .filter(d => typeof d.percent === 'number')
+      .sort((a, b) => (a.percent as number) - (b.percent as number))
+      .forEach(d => {
+        const percent = d.percent as number
+        let lane = laneFreeAt.findIndex(free => percent >= free)
+        if (lane === -1) {
+          if (laneFreeAt.length < maxLanes) { lane = laneFreeAt.length; laneFreeAt.push(0) }
+          else lane = laneFreeAt.reduce((best, free, i) => (free < laneFreeAt[best] ? i : best), 0)
+        }
+        laneFreeAt[lane] = Math.max(laneFreeAt[lane], percent) + minGapPct
+        laneOf.set(d.key, lane)
+      })
+
+    return { start, end, dated, startTs, endTs, laneOf, laneCount: laneFreeAt.length }
+  }, [allTasks, nowTs, timelineHours, timelineStartTs, timelineWidth])
+
+  // 时间轴基线与容器高度随实际泳道数自适应：向上展开的泳道不能被裁掉。
+  const laneGap = '0.42rem'
+  const axisBox = useMemo(() => {
+    const total = Math.max(1, timeline.laneCount)
+    const up = Math.ceil((total - 1) / 2)
+    const down = Math.floor((total - 1) / 2)
+    return {
+      axis: `calc(0.55rem + ${up} * ${laneGap})`,
+      h: `calc(0.55rem + ${up + down} * ${laneGap} + 1.9rem)`,
+    }
+  }, [timeline.laneCount])
+
+  // 泳道号 → 相对时间轴的垂直偏移：0 号压轴，其余以 ±1/±2/±3 交替上下展开。
+  const laneOffset = (lane: number) => {
+    const capped = Math.min(lane, 7)
+    if (capped === 0) return 0
+    return capped % 2 === 1 ? -Math.ceil(capped / 2) : Math.ceil(capped / 2)
+  }
+
+  // 容器宽度决定“同一时刻”的像素判定，跟随布局变化更新
+  useEffect(() => {
+    const el = timelineBoxRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect.width
+      if (w) setTimelineWidth(prev => (Math.abs(prev - w) > 2 ? w : prev))
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const handleTimelineWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const rect = e.currentTarget.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    const currentDuration = timeline.endTs - timeline.startTs
+    const cursorTs = timeline.startTs + ratio * currentDuration
+    const factor = e.deltaY < 0 ? 0.8 : 1.25
+    const nextHours = Math.max(1, Math.min(168, timelineHours * factor))
+    const nextDuration = nextHours * 60 * 60 * 1000
+    setTimelineHours(nextHours)
+    setTimelineStartTs(cursorTs - ratio * nextDuration)
+  }
+
+  const handleTimelinePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    timelineDragRef.current = { pointerId: e.pointerId, startX: e.clientX, startTs: timeline.startTs }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
+  const handleTimelinePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = timelineDragRef.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const deltaTs = ((e.clientX - drag.startX) / rect.width) * (timeline.endTs - timeline.startTs)
+    setTimelineStartTs(drag.startTs - deltaTs)
+  }
+
+  const handleTimelinePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (timelineDragRef.current?.pointerId !== e.pointerId) return
+    timelineDragRef.current = null
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+  }
+
+  const resetTimelineWindow = (hours: number) => {
+    setTimelineHours(hours)
+    setTimelineStartTs(null)
+  }
+
+  const selectedTimelineTask = selectedTimelineTaskId ? allTasks.find(task => task.task_id === selectedTimelineTaskId) : null
+
   const renderTaskCard = (taskId: string) => {
     const task = taskMap.get(taskId)
     if (!task) return null
@@ -771,11 +933,165 @@ export default function DataSync() {
         </Space>
       </div>
 
-      {/* 状态统计模块：各状态任务数量 + 点击筛选 */}
+      {/* 状态统计模块：任务时间线 + 各状态任务数量 + 点击筛选 */}
       <div style={{ marginBottom: 'var(--wh-space-md)' }}>
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           marginBottom: 'var(--wh-space-sm)', gap: 'var(--wh-space-sm)', flexWrap: 'wrap',
+        }}>
+          <Text strong style={{ color: WH.text, fontSize: '0.875rem' }}>
+            <ClockCircleOutlined style={{ marginRight: 'var(--wh-space-xs)', color: WH.blue }} />
+            {locale === 'zh' ? '任务分布时间线' : 'Task Distribution Timeline'}
+          </Text>
+          <Space size={4} wrap>
+            <Text style={{ color: WH.textDim, fontSize: '0.75rem', marginRight: 'var(--wh-space-xs)' }}>
+              {locale === 'zh' ? '缩放：' : 'Zoom: '}
+            </Text>
+            {[6, 12, 24].map(hours => (
+              <Button
+                key={hours}
+                size="small"
+                type={timelineHours === hours ? 'primary' : 'default'}
+                onClick={() => resetTimelineWindow(hours)}
+                style={{ minWidth: '2.8rem', padding: '0 0.45rem' }}
+              >
+                {hours}h
+              </Button>
+            ))}
+            <Text style={{ color: WH.textDim, fontSize: '0.75rem', marginLeft: 'var(--wh-space-xs)' }}>
+              {locale === 'zh' ? '滚轮放大/缩小 · 拖动平移 · 悬浮查看 · 点击聚焦' : 'Scroll zoom · drag pan · hover details · click to focus'}
+            </Text>
+          </Space>
+        </div>
+        <div
+          ref={timelineBoxRef}
+          onWheel={handleTimelineWheel}
+          onPointerDown={handleTimelinePointerDown}
+          onPointerMove={handleTimelinePointerMove}
+          onPointerUp={handleTimelinePointerUp}
+          onPointerCancel={handleTimelinePointerUp}
+          title={locale === 'zh' ? '滚轮缩放时间范围；按住左键拖动时间轴' : 'Scroll to zoom; drag with the left mouse button'}
+          style={{
+            position: 'relative', minHeight: axisBox.h, padding: '0.75rem 0.5rem 0.25rem',
+            border: '1px solid var(--wh-subtle-border)', borderRadius: 'var(--wh-radius-lg)',
+            background: 'var(--wh-subtle-bg)', overflow: 'hidden', touchAction: 'none', cursor: 'grab',
+          }}>
+          <div style={{ position: 'absolute', left: '0.75rem', right: '0.75rem', top: axisBox.axis, height: 2, background: 'var(--wh-subtle-border)' }} />
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} style={{ position: 'absolute', left: `${i * 25}%`, top: `calc(${axisBox.axis} - 0.4rem)`, width: 1, height: '0.8rem', background: 'var(--wh-subtle-border)' }} />
+          ))}
+          {timeline.dated.map(({ task, index, parsed, last, next }) => {
+            const isRunning = !!(runningMap[task.task_id] || localRunning.has(task.task_id))
+            const latestRun = task.recent_runs?.[0]
+            const failed = !isRunning && latestRun?.success === false
+            // 最近执行点：实心，颜色只表达执行结果，不受 next_run 影响
+            const lastColor = isRunning ? WH.blue : failed ? '#ff4d4f' : task.enabled ? '#8c8c8c' : '#000000'
+            const lastLabel = isRunning ? (locale === 'zh' ? '运行中' : 'Running')
+              : failed ? (locale === 'zh' ? '最近执行失败' : 'Last run failed')
+              : !task.enabled ? (locale === 'zh' ? '已禁用' : 'Disabled')
+              : (locale === 'zh' ? '已执行' : 'Executed')
+            // 下次执行点：空心描边，表达“将要执行”
+            const nextColor = !task.enabled ? '#000000' : isRunning ? WH.blue : '#b7eb8f'
+            const nextLabel = !task.enabled ? (locale === 'zh' ? '已禁用（未排程）' : 'Disabled')
+              : isRunning ? (locale === 'zh' ? '本次完成后再次执行' : 'Next run after this one')
+              : (locale === 'zh' ? '将要执行' : 'Upcoming')
+            const nextText = parsed === null
+              ? (locale === 'zh' ? '未排程' : 'Not scheduled')
+              : new Date(parsed).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+            const executedText = latestRun?.started_at
+              ? new Date(latestRun.started_at).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+              : (locale === 'zh' ? '暂无执行记录' : 'No execution record')
+            const fmt = (ts: number) => new Date(ts).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+
+            // 灰色（已执行）点数量最多，直径略小以免盖住时间轴与相邻点
+            const sizeOf = (color: string, hollow: boolean) =>
+              !hollow && color === '#8c8c8c' ? '0.5rem' : '0.7rem'
+            const dots = [
+              { kind: 'last', point: last, color: lastColor, label: lastLabel, hollow: false, size: sizeOf(lastColor, false) },
+              { kind: 'next', point: next, color: nextColor, label: nextLabel, hollow: true, size: sizeOf(nextColor, true) },
+            ].filter(d => d.point !== null) as {
+              kind: string; point: { ts: number; percent: number; outside: boolean }; color: string; label: string; hollow: boolean; size: string
+            }[]
+            // 已禁用且没有 next_run：仍要在右端留下一个黑色点，避免任务在时间线上完全消失
+            if (dots.length === 0) dots.push({ kind: 'unscheduled', point: { ts: 0, percent: 100, outside: false }, color: task.enabled ? taskTimelineColor(task.task_id) : '#000000', label: locale === 'zh' ? '未排程' : 'Not scheduled', hollow: true, size: '0.7rem' })
+
+            return dots.map(d => (
+              <Tooltip key={`${task.task_id}:${d.kind}`} placement="top" title={
+                <div style={{ minWidth: '11rem' }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{task.name}</div>
+                  <div style={{ color: d.color, marginBottom: 4 }}>{d.label}</div>
+                  <div>{locale === 'zh' ? '最近执行：' : 'Last run: '}{executedText}</div>
+                  <div>{locale === 'zh' ? '下次执行：' : 'Next run: '}{nextText}</div>
+                  <div>{locale === 'zh' ? '设置：' : 'Schedule: '}{task.current_cron}</div>
+                  {d.point.outside && <div style={{ color: '#ffd666' }}>{locale === 'zh' ? `该点位实际在时间窗外（${fmt(d.point.ts)}）` : `Actually outside window (${fmt(d.point.ts)})`}</div>}
+                </div>
+              }>
+                <span
+                  aria-label={`${task.name} · ${d.label}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedTimelineTaskId(prev => prev === task.task_id ? null : task.task_id)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTimelineTaskId(prev => prev === task.task_id ? null : task.task_id) } }}
+                  style={{
+                    // 泳道 0 落在时间轴上，其余泳道围绕时间轴上下交替展开，
+                    // 让同一时刻的多个任务分散开，而不是叠成一团。
+                    position: 'absolute', left: `${d.point.percent}%`,
+                    top: `calc(${axisBox.axis} + 1px + ${laneOffset((timeline.laneOf.get(`${task.task_id}:${d.kind}`) ?? 0))} * ${laneGap})`,
+                    transform: 'translate(-50%, -50%)',
+                    width: selectedTimelineTaskId === task.task_id ? '0.95rem' : d.size, height: selectedTimelineTaskId === task.task_id ? '0.95rem' : d.size,
+                    borderRadius: '50%', boxSizing: 'border-box',
+                    background: d.hollow ? 'transparent' : d.color,
+                    border: d.hollow ? `2px dashed ${d.color}` : `2px solid ${WH.cardBg}`,
+                    boxShadow: selectedTimelineTaskId === task.task_id ? `0 0 0 3px ${d.color}66, 0 0 14px ${d.color}` : isRunning ? `0 0 0 3px ${d.color}44, 0 0 10px ${d.color}` : `0 0 0 1px ${d.color}33`,
+                    cursor: 'pointer', zIndex: 2, opacity: d.point.outside ? 0.4 : 1, filter: d.point.outside ? 'saturate(0.5)' : 'none', transition: 'all .15s ease',
+                  }}
+                />
+              </Tooltip>
+            ))
+          })}
+          {[0, 0.25, 0.5, 0.75, 1].map(ratio => {
+            const tick = new Date(timeline.start.getTime() + ratio * (timeline.end.getTime() - timeline.start.getTime()))
+            const tickLabel = tick.toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+            return (
+              <span key={ratio} style={{ position: 'absolute', left: `calc(${ratio * 100}% - ${ratio === 1 ? 1.6 : ratio === 0 ? 0 : 0.8}rem)`, bottom: '0.25rem', color: WH.textDim, fontSize: '0.6875rem' }}>
+                {tickLabel}
+              </span>
+            )
+          })}
+        </div>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap',
+          marginTop: 'var(--wh-space-xs)', color: WH.textDim, fontSize: '0.6875rem',
+        }}>
+          <span>{locale === 'zh' ? `${timeline.dated.length} 个任务` : `${timeline.dated.length} tasks`}</span>
+          <Space size={10} wrap>
+            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: WH.blue, marginRight: 4 }} />{locale === 'zh' ? '运行中' : 'Running'}</span>
+            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: '#ff4d4f', marginRight: 4 }} />{locale === 'zh' ? '失败' : 'Failed'}</span>
+            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: '#8c8c8c', marginRight: 4 }} />{locale === 'zh' ? '已执行' : 'Executed'}</span>
+            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', border: '2px dashed #b7eb8f', marginRight: 4 }} />{locale === 'zh' ? '将要执行' : 'Upcoming'}</span>
+            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: '#000000', marginRight: 4 }} />{locale === 'zh' ? '已禁用' : 'Disabled'}</span>
+            <span>{locale === 'zh' ? '实心=已发生 · 空心=计划' : 'Solid = happened · dashed = planned'}</span>
+          </Space>
+        </div>
+        {selectedTimelineTask && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', flexWrap: 'wrap',
+            padding: 'var(--wh-space-sm) var(--wh-space-md)', borderRadius: 'var(--wh-radius-md)',
+            border: '1px solid rgba(77,171,247,0.45)', background: 'rgba(77,171,247,0.08)',
+          }}>
+            <Space size={6} wrap>
+              <span style={{ width: '0.65rem', height: '0.65rem', borderRadius: '50%', background: taskTimelineColor(selectedTimelineTask.task_id), display: 'inline-block' }} />
+              <Text strong style={{ color: WH.text }}>{selectedTimelineTask.name}</Text>
+              <Text style={{ color: WH.textMuted, fontSize: '0.75rem' }}>{cronToHuman(selectedTimelineTask.current_cron, locale)}</Text>
+            </Space>
+            <Button size="small" onClick={() => handleOpenHistory(selectedTimelineTask.task_id)} icon={<HistoryOutlined />}>
+              {locale === 'zh' ? '查看历史' : 'View history'}
+            </Button>
+          </div>
+        )}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          marginTop: 'var(--wh-space-lg)', marginBottom: 'var(--wh-space-sm)', gap: 'var(--wh-space-sm)', flexWrap: 'wrap',
         }}>
           <Text strong style={{ color: WH.text, fontSize: '0.875rem' }}>
             <BarChartOutlined style={{ marginRight: 'var(--wh-space-xs)', color: WH.teal }} />

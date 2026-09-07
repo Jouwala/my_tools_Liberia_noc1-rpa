@@ -11,6 +11,7 @@ import { getFinebiHost, getMyappHost, buildRel } from '../config';
 // 完整 URL 在导出时由 withRel 计算，运行时再由配置 + rel 拼出，改 IP 只需改配置一处。
 // 默认配置由「门户 UI 导出 JSON」重新生成（2026-08-15 08:34 版本，37 条），
 // 2026-08-29 起补充 my_app 新增页面：MW 微波拓扑 / MW 微波实时 / 任务报告文件 / 门户一键登录（共 41 条）。
+// 2026-09-07 补充 my_app 新增页面：Issue Feedback 问题反馈工单台（共 46 条）。
 // ============================================================================
 
 const MYAPP_BASE = `http://${getMyappHost()}/myapp/?page=`;
@@ -547,6 +548,24 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       status: 'online'
     },
     {
+      id: 'custom-issue-feedback',
+      title: 'Issue Feedback (问题反馈 / 建议提报)',
+      description: 'my_app 内置问题反馈工单台：提交功能缺陷、数据异常与改进建议，支持分类（缺陷/数据/需求/其他）、优先级与状态流转，管理员可指派处理人并回填解决结论，支持按状态/分类筛选与关键字检索。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}feedback`,
+      category: '其他',
+      tags: ['Issue Feedback', '问题反馈', 'Bug', '需求建议', '工单流转'],
+      iconName: 'MessageCircle',
+      updateFrequency: '实时流式',
+      department: 'DevOps 架构部',
+      owner: '系统管理员',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'indigo',
+      status: 'online'
+    },
+    {
       id: 'finebi-ms-contract-operation-kpis',
       title: 'Contract Operation KPIs (合同运营关键绩效指标)',
       description: '【MS 目录】电信运营服务合同考核指标、SLA 达标情况及月度客户 KPI 交付达成率分析。',
@@ -917,5 +936,6 @@ export const AVAILABLE_ICONS = [
   { name: 'Bot', label: 'AI 知识问答/RAG' },
   { name: 'BookOpen', label: '知识库/文档' },
   { name: 'Signal', label: '站点可用率/覆盖' },
-  { name: 'HelpCircle', label: '使用帮助' }
+  { name: 'HelpCircle', label: '使用帮助' },
+  { name: 'MessageCircle', label: '问题反馈/建议' }
 ];

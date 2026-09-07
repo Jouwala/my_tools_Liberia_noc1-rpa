@@ -7,6 +7,8 @@ P2#8 重构（2026-08-03）：
 """
 import logging
 import time as _time
+import sqlite3
+from pathlib import Path
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Query, HTTPException
@@ -571,6 +573,92 @@ def get_sites(
         }
 
 
+def _load_site_kpis(site_id: str, site_detail: dict) -> dict:
+    """补充站点下钻 KPI。各数据域独立容错，缺表/缺数据不影响原有下钻。"""
+    result = {"availability": [], "packet_loss": [], "microwave": [], "warnings": []}
+    site_name = str(site_detail.get("site_name") or site_detail.get("Site_Name") or "").strip()
+    sid = str(site_id or "").strip()
+
+    # 站点可用率：复用站点可用率服务的月份聚合口径。
+    try:
+        from backend.services import site_availability_service as avail_svc
+        month = datetime.now().strftime("%Y-%m")
+        overview = avail_svc.build_overview(month)
+        norm_name = getattr(avail_svc, "norm_name", lambda value: str(value or "").strip().lower())
+        row = next((r for r in overview.get("sites", [])
+                    if str(r.get("site_id") or "").strip() == sid
+                    or norm_name(r.get("site_name")) == norm_name(site_name)), None)
+        if row:
+            for tech, values in (row.get("techs") or {}).items():
+                daily = values.get("daily") if isinstance(values, dict) else None
+                if isinstance(daily, dict):
+                    result["availability"].extend({"tech": tech, "day": day, "availability": value}
+                                                   for day, value in sorted(daily.items()))
+        else:
+            result["warnings"].append("本月暂无站点可用率数据")
+    except Exception as exc:
+        logger.warning("[gis/kpi] availability failed site=%s: %s", sid, exc)
+        result["warnings"].append("站点可用率暂不可用")
+
+    # 丢包：独立 lte_pl 库，优先按站点编码匹配 Managed Element 的末尾编码，再按名称匹配。
+    try:
+        pl_path = Path(r"d:\01_RPA\Task\my_app\data\packet_lost\lte_pl.sqlite3")
+        if pl_path.exists():
+            conn = sqlite3.connect(str(pl_path))
+            conn.row_factory = sqlite3.Row
+            conditions, params = [], []
+            if sid:
+                conditions.append('"Managed Element" LIKE ?')
+                params.append(f"%({sid})")
+            if site_name:
+                conditions.append('"Managed Element" LIKE ?')
+                params.append(f"%{site_name}%")
+            rows = []
+            if conditions:
+                rows = conn.execute(
+                    'SELECT substr("Begin Time",1,10) AS day, '
+                    'MAX("Packet Loss Rate(%)") AS max_packet_loss, '
+                    'AVG("Packet Loss Rate(%)") AS avg_packet_loss, '
+                    'COUNT(*) AS samples '
+                    'FROM packet_loss_data WHERE (' + ' OR '.join(conditions) + ') '
+                    'GROUP BY substr("Begin Time",1,10) ORDER BY day DESC LIMIT 31',
+                    params,
+                ).fetchall()
+            conn.close()
+            result["packet_loss"] = [dict(r) for r in reversed(rows)]
+        else:
+            result["warnings"].append("丢包数据源不存在")
+    except Exception as exc:
+        logger.warning("[gis/kpi] packet loss failed site=%s: %s", sid, exc)
+        result["warnings"].append("站点丢包数据暂不可用")
+
+    # 微波利用率：复用 MW UME 拓扑服务，按节点 site_id 过滤关联链路。
+    try:
+        from backend.services.mw_ume.mw_ume_topology import get_topology
+        topology = get_topology(top_n=50)
+        nodes = {str(n.get("id")): n for n in topology.get("nodes", [])}
+        matched = {node_id for node_id, node in nodes.items()
+                   if str(node.get("site_id") or "").strip() == sid
+                   or str(node.get("site") or "").strip().lower() == site_name.lower()}
+        for edge in topology.get("edges", []):
+            source, target = str(edge.get("source") or ""), str(edge.get("target") or "")
+            if source in matched or target in matched:
+                result["microwave"].append({
+                    "source": nodes.get(source, {}).get("site") or source,
+                    "target": nodes.get(target, {}).get("site") or target,
+                    "tx_utilization": edge.get("tx_util"),
+                    "rx_utilization": edge.get("rx_util"),
+                    "capacity_mbps": edge.get("capacity"),
+                    "level": edge.get("status"),
+                    "begin_time": edge.get("begin_time") or edge.get("bt") or ((edge.get("history") or [{}])[-1].get("date")),
+                })
+    except Exception as exc:
+        logger.warning("[gis/kpi] microwave failed site=%s: %s", sid, exc)
+        result["warnings"].append("微波链路利用率暂不可用")
+
+    return result
+
+
 @router.get("/drilldown/{site_id}")
 def get_site_drilldown(site_id: str):
     """站点下钻：基本信息 + 关联TT/WO列表 + SLA达成情况（自适应数据库结构）"""
@@ -633,6 +721,7 @@ def get_site_drilldown(site_id: str):
                 "sla_met": sla_row[2] or 0,
                 "sla_violated": sla_row[3] or 0,
             },
+            "kpis": _load_site_kpis(site_id, site_detail),
         }
 
 
@@ -805,6 +894,7 @@ def get_realtime_drilldown(site_id: str):
             "rt_alarm_list": rt_alarm_list, "rt_alarm_count": len(rt_alarm_list),
             "his_alarm_list": [], "his_alarm_count": 0,
             "sla_stats": _sla_stats_from_tt_list(tt_list),
+            "kpis": _load_site_kpis(site_id, site_detail),
         }
 
 

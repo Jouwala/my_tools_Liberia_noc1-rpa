@@ -191,6 +191,43 @@ html {
   color: #0d9488;
 }
 
+/* Leaflet 底图深色适配：OSM 瓦片 + invert 滤镜（与 mw_ume_topology.html 同款方案）。
+   滤镜只作用于 tile-pane，标记/链路/弹窗不受影响；标注文字反色后仍可读。 */
+:root[data-theme='dark'] .gis-dark-map .leaflet-tile-pane {
+  filter: brightness(0.62) invert(1) contrast(3) hue-rotate(200deg) saturate(0.4) brightness(0.72);
+  transition: filter 0.3s ease;
+}
+
+/* Leaflet 控件/弹窗在深色主题下的适配 */
+:root[data-theme='dark'] .leaflet-control-zoom a {
+  background: #12263f;
+  color: var(--wh-teal);
+  border-color: rgba(100, 255, 218, 0.25);
+}
+:root[data-theme='dark'] .leaflet-control-zoom a:hover {
+  background: #1b3357;
+}
+:root[data-theme='dark'] .leaflet-control-attribution {
+  background: rgba(10, 25, 41, 0.85);
+  color: #94a3b8;
+}
+:root[data-theme='dark'] .leaflet-control-attribution a {
+  color: #4fc3f7;
+}
+:root[data-theme='dark'] .leaflet-popup-content-wrapper,
+:root[data-theme='dark'] .leaflet-popup-tip {
+  background: #0f2744;
+  color: #e6f4ff;
+  border: 1px solid rgba(100, 255, 218, 0.25);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+:root[data-theme='dark'] .leaflet-popup-content a {
+  color: #64ffda;
+}
+:root[data-theme='dark'] .leaflet-popup-close-button {
+  color: #94a3b8 !important;
+}
+
 /* ---------- 响应式工具类（与 antd 共存，不覆盖其组件核心样式） ---------- */
 
 /* 表格横向滚动：在小屏/列多时自动出现横向滚动条，避免挤压错位 */

@@ -45,6 +45,12 @@ export interface DrilldownData {
     sla_met: number
     sla_violated: number
   }
+  kpis?: {
+    availability?: { tech: string; day: string; availability: number }[]
+    packet_loss?: { day: string; max_packet_loss: number; avg_packet_loss: number; samples: number }[]
+    microwave?: { source: string; target: string; tx_utilization: number; rx_utilization: number; capacity_mbps: number; level?: string; begin_time?: string }[]
+    warnings?: string[]
+  }
 }
 
 export interface TopologyLink {

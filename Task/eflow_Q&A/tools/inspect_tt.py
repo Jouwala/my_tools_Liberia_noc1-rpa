@@ -42,7 +42,7 @@ FIELDS = [
     ("站点", ["site_name", "site_id", "ne_name", "ne_id", "region_level1"]),
     ("时间", ["alarm_occur_time", "created_time", "last_modified_time",
               "alarm_clear_time", "sla_deadline", "fault_duration_time"]),
-    ("告警", ["alarm_id", "alarm_severity", "alarm_type", "alarm_code",
+    ("告警", ["alarm_id", "aid", "alarm_severity", "alarm_type", "alarm_code",
               "alarm_reason_type", "sub_alarm_name", "impacted_service",
               "site_outage"]),
     ("制式掉站", ["col_2g_down_site_count", "col_3g_down_site_count",
@@ -235,8 +235,15 @@ def analyze_tt(tt_no, db_path=DEFAULT_DB):
 
         # 按 alarm_id 查实时告警（48h 滚存）→ 历史告警，拿主信息 + 拼技能入参
         alarm_row, alarm_src = find_alarm_row(conn, d.get("alarm_id"))
-        alarm_block = build_alarm_block(dict(alarm_row) if alarm_row else None, alarm_src)
-        skill_prompt = build_skill_prompt(d, dict(alarm_row) if alarm_row else None)
+        alarm_dict = dict(alarm_row) if alarm_row else None
+        # 告警行的 AID 列（RAN UME 侧告警 ID）：注入「告警」字段段 + 报告级 aid 字段
+        aid_val = num_tail(str((alarm_dict or {}).get("aid") or "").strip())
+        if aid_val in ("--", "—", "None"):
+            aid_val = ""
+        if aid_val:
+            d["aid"] = aid_val
+        alarm_block = build_alarm_block(alarm_dict, alarm_src)
+        skill_prompt = build_skill_prompt(d, alarm_dict)
 
         # 时间差
         occur = parse_dt(d.get("alarm_occur_time"))
@@ -270,6 +277,7 @@ def analyze_tt(tt_no, db_path=DEFAULT_DB):
             "alarm": alarm_block,
             "skill_prompt": skill_prompt,
             "alarm_id": num_tail(str(d.get("alarm_id") or "").strip()),
+            "aid": aid_val,
             "tt_prompt_fields": {k: d.get(k) for k in
                                  ("vip_site", "site_type", "alarm_code",
                                   "down_site_count")},

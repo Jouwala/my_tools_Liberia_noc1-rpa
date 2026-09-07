@@ -61,6 +61,7 @@ from backend.routers import (
     whatsapp_outbox,
     eflow_qa,
     cxo_dashboard,
+    feedback,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -148,6 +149,8 @@ app.include_router(whatsapp_outbox.router)
 app.include_router(eflow_qa.router)
 # CXO 看板 last-known-good 缓存（cxo_dashboard_cache_sync 定时任务写入，前端三层叠加兜底）
 app.include_router(cxo_dashboard.router)
+# 问题登记（用户反馈）：任何内网用户可提交问题，管理侧可筛选/处理/删除
+app.include_router(feedback.router)
 
 
 # ========== 通用任务调度系统 ==========

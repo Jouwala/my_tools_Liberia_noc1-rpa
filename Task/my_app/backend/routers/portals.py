@@ -15,6 +15,7 @@ import time
 import uuid
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from backend.services import portal_login_service as svc
@@ -95,3 +96,28 @@ def close_portal(body: PortalCloseRequest):
         raise HTTPException(status_code=400, detail=f"未知门户: {body.system}")
     closed = svc.close_session(body.system)
     return {"status": "ok", "system": body.system, "closed": closed}
+
+
+@router.get("/inject.js")
+def portal_inject_js(system: str):
+    """客户端本机登录用的自动填表脚本（由 nginx 反代页注入，同源加载）。
+
+    凭据随本次请求下发（脚本内嵌，no-store 不缓存），不单独暴露明文接口。
+    注意：任何能访问 my_app 的客户端都能拿到共享账号 —— 与既有的
+    「服务器代登录」暴露面一致，仅在内网使用。
+    """
+    if system not in svc.PORTALS:
+        raise HTTPException(status_code=400, detail=f"未知门户: {system}")
+    if system not in svc.PROXY_PREFIXES:
+        raise HTTPException(status_code=404, detail=f"门户 {system} 未配置 nginx 反代")
+    try:
+        user, pwd = svc._creds(svc.PORTALS[system]["cred_key"])
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[PORTAL] 读取凭据失败 {system}: {e}")
+        raise HTTPException(status_code=500, detail=f"读取凭据失败: {e}")
+    js = svc.build_inject_js(system, user, pwd)
+    return Response(
+        content=js,
+        media_type="application/javascript; charset=utf-8",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )

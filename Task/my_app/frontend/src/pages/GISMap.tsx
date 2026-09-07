@@ -9,7 +9,7 @@ import api from '../api'
 import { useI18n } from '../i18n'
 import { ExplainIcon } from '../components/MetricExplain'
 import { useDataTimestamps } from '../useDataTimestamps'
-import { WH, WH_COLORS, cardStyle, controlCardStyle, pageWrap } from '../theme'
+import { WH, WH_COLORS, cardStyle, controlCardStyle, pageWrap, useTheme } from '../theme'
 import { MapController } from './gismap/MapController'
 import { SiteDrilldownDrawer } from './gismap/SiteDrilldownDrawer'
 import type { Site, DrilldownData, TopologyLink, LegendKey, LayerKey, TimePreset } from './gismap/types'
@@ -40,6 +40,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const [selectedFilters, setSelectedFilters] = useState<Record<string, string | undefined>>({})
   const [showFilters, setShowFilters] = useState(false)
   const { t } = useI18n()
+  const { isDark } = useTheme()
   const { lastSync, latestData, alarmLastSync, isSynced } = useDataTimestamps()
 
   // 实时数据：RealTime Alarm Map 不使用时间范围
@@ -319,6 +320,11 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
 
   const labelStyle = { color: WH.textMuted, fontSize: '0.8125rem', fontWeight: 500 }
 
+  // 底图深色适配：CARTO dark 瓦片现已要求 API key，不可用；采用与 MW 拓扑页一致的
+  // 方案 —— 瓦片始终用 OSM，深色时对 tile-pane 施加 CSS invert 滤镜（标注反色仍可读），
+  // 不引入任何外部依赖。滤镜规则见 index.css 的 .gis-dark-map。
+  const mapClassName = isDark ? 'gis-dark-map' : ''
+
   return (
     <div style={pageWrap}>
       <Card style={controlCardStyle} styles={{ body: { padding: 'var(--wh-space-md)' } }}>
@@ -556,6 +562,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           <MapContainer
             center={center}
             zoom={8}
+            className={mapClassName}
             style={{ height: 'calc(100vh - 290px)', width: '100%', background: 'var(--wh-page-bg)' }}
             scrollWheelZoom={true}
           >
@@ -623,7 +630,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 pathOptions={{
                   color: rb.color,
                   fillColor: rb.color,
-                  fillOpacity: 0.18,
+                  fillOpacity: isDark ? 0.12 : 0.18,
                   weight: 2,
                   opacity: 0.7,
                 }}

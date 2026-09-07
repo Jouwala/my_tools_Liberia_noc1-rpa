@@ -14,8 +14,11 @@ eflow_qa.py - eFlow 知识库 API
 import logging
 import os
 import re
+import threading
 import time
+from datetime import timezone
 from pathlib import Path
+from typing import Dict, Tuple
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -249,6 +252,7 @@ def _tt_context(tt_clean: str):
     if not report.get("found"):
         return report, None
     if (report.get("alarm") or {}).get("found"):
+        # report["aid"] 已由 analyze_tt 注入（本地告警行的 AID 列）
         return report, {"mode": "local", "source": report["alarm"]["source"],
                         "elapsed_sec": 0.0, "error": None, "cached": False}
     aid = report.get("alarm_id") or ""
@@ -264,6 +268,9 @@ def _tt_context(tt_clean: str):
             "cached": bool(live.get("cached"))}
     if live.get("found"):
         report["alarm"] = mod.build_alarm_block(live["row"], live["source"])
+        # eFlow 活查行的 AID 列（UME 告警 ID，形如 1788788666535），
+        # 供 RAN UME 告警分析按数字 Alarm ID 兜底查询
+        report["aid"] = mod.num_tail(str(live["row"].get("aid") or "").strip())
         report["skill_prompt"] = mod.build_skill_prompt(
             report.get("tt_prompt_fields") or {}, live["row"])
     else:
@@ -283,6 +290,93 @@ def tt_alarm(tt: str = Query(..., min_length=2, max_length=64, description="TT �
     report, info = _tt_context(tt_clean)
     return {"report": report, "alarm": report.get("alarm"),
             "skill_prompt": report.get("skill_prompt"), "alarm_lookup": info}
+
+
+# ------------------------- TT → AID → RAN UME 处理建议 -------------------------
+
+_UME_SUG_CACHE: Dict[str, Tuple[float, dict]] = {}
+_UME_SUG_LOCK = threading.Lock()
+_UME_SUG_TTL_HIT = 300   # UME 命中缓存 5 分钟
+_UME_SUG_TTL_MISS = 60   # 无 AID / UME 未命中缓存 60 秒
+
+
+@router.get("/tt-ume-suggestion")
+def tt_ume_suggestion(tt: str = Query(..., min_length=2, max_length=64, description="TT 单号")):
+    """TT 单 → 告警 AID → RAN UME 处理建议（供「TT 快速分析」内嵌展示）。
+
+    轻量链路（不查历史告警列表，只拿告警详情 + 处理建议）：
+      1. 先按告警行的 AID 作为数字 Alarm ID 直查 UME；
+      2. eFlow 与 UME 的告警编号分属两套体系（实测 UME 历史接口的 id 过滤
+         只认 UME 自身编号），直查不中时改用 站点名 + 告警发生时刻 关联
+         —— 同一条底层告警在两边的 alarmraisedtime 毫秒值一致。
+    """
+    tt_clean = tt.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9_\-]+", tt_clean):
+        raise HTTPException(status_code=400, detail="单号格式非法")
+
+    mod = _load_inspect_module()
+    report, _info = _tt_context(tt_clean)
+    if not report.get("found"):
+        return {"found": False, "tt_no": tt_clean, "aid": "", "ume": None,
+                "error": report.get("error") or "工单未找到"}
+
+    aid = str(report.get("aid") or "").strip()
+    site_name = str(report.get("site_name") or "").strip()
+    occur = mod.parse_dt((report.get("timing") or {}).get("alarm_occur_time"))
+    raised_ms = int(occur.replace(tzinfo=timezone.utc).timestamp() * 1000) if occur else None
+
+    cache_key = aid or f"{site_name}|{raised_ms}"
+    if not aid and not (site_name and raised_ms):
+        return {"found": True, "tt_no": tt_clean, "aid": "", "ume": None,
+                "error": "告警记录中没有 AID，且缺少站点/发生时刻，无法查询 RAN UME 建议"}
+
+    with _UME_SUG_LOCK:
+        ent = _UME_SUG_CACHE.get(cache_key)
+        if ent:
+            ts, res = ent
+            ttl = _UME_SUG_TTL_HIT if (res.get("ume") or {}).get("ok") else _UME_SUG_TTL_MISS
+            if time.time() - ts < ttl:
+                return dict(res, cached=True)
+
+    from backend.services.ran_ume import ran_ume_alarm_service as ume_svc
+    ume = None
+    if aid.isdigit():
+        ume = ume_svc.lookup_alarm(aid, days=30, limit=50, with_history=False)
+        if not ume.get("ok"):
+            ume = None
+    if ume is None:
+        ume = ume_svc.find_alarm_by_event(site_name, raised_ms or 0, with_history=False)
+    ume["strategy"] = "site_time" if ume.get("match") == "site_time" else "alarm_id"
+
+    out = {"found": True, "tt_no": tt_clean, "aid": aid, "ume": ume, "cached": False}
+    with _UME_SUG_LOCK:
+        _UME_SUG_CACHE[cache_key] = (time.time(), out)
+    return out
+
+
+# ------------------------- RAN UME 告警分析（Alarm Key → 详情/建议/历史） -------------------------
+
+@router.get("/ume-alarm")
+def ume_alarm(
+    alarm_id: str = Query(..., min_length=4, max_length=256,
+                          description="Alarm Key（UME 告警唯一串，形如 uuid---aid@...@...@...@...）或数字 Alarm ID"),
+    days: int = Query(30, ge=1, le=180, description="历史告警回看天数"),
+    limit: int = Query(50, ge=1, le=200, description="历史告警返回条数"),
+    history: int = Query(1, ge=0, le=1, description="1=同时查历史告警；0=只查详情与建议"),
+):
+    """按 Alarm Key 从 RAN UME 取告警详情 + 处理建议 + 同站点/同小区历史告警。
+
+    链路（见 backend/services/ran_ume/url_alarm_suggestion.txt 抓包）：
+      POST /api/fm-active/v1/activealarms/alarmkey  → alarmcode / restype / 站点小区字段
+      POST /api/fm-active/v1/suggestions            → 处理建议
+      POST /api/fm-history/v1/hisalarms/pageinfo    → 历史告警（positionname 过滤）
+    """
+    from backend.services.ran_ume.ran_ume_alarm_service import lookup_alarm
+    res = lookup_alarm(alarm_id.strip(), days=days, limit=limit, with_history=bool(history))
+    if not res.get("ok"):
+        # 上游失败仍返回 200，由前端展示错误，避免整个页面报错
+        logger.warning("UME 告警查询失败: %s", res.get("error"))
+    return res
 
 
 @router.get("/inspect-tt")
