@@ -87,7 +87,7 @@ const KpiCard = ({ value, label, sub, color, icon, hint }: {
   value: React.ReactNode; label: string; sub?: string; color: string
   icon: React.ReactNode; hint?: string
 }) => (
-  <Card size="small" style={{
+  <Card size="small" className="wh-card-interactive" style={{
     ...cardStyle, position: 'relative', overflow: 'hidden', height: '100%',
   }}>
     <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: color, opacity: 0.9 }} />

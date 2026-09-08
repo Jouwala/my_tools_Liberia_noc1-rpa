@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VMAX CXO Management View</title>
+<script src="./lib/echarts.min.js"></script>
+<style>
+:root{--bg:#02050c;--panel:#071027;--panel2:#0a1530;--blue:#258cff;--cyan:#00d9ff;--green:#0bc78c;--yellow:#f6cf00;--text:#f5f7ff;--muted:#aebbd4;--edge:#174bba;--glow:rgba(58,118,255,.48)}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Arial,"Microsoft YaHei",sans-serif}body{overflow-x:hidden}.screen{min-height:100vh;background:radial-gradient(circle at 50% 8%,rgba(0,127,255,.14),transparent 24%),#02050c;padding:0 6px 8px}.mast{height:70px;position:relative;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#080f43 0,#070d31 73%,transparent 74%);border-top:1px solid #aab3c5}.mast:after{content:"";position:absolute;left:0;right:0;bottom:6px;height:4px;background:linear-gradient(90deg,#1a35ae 0 13%,#1da7ff 15% 41%,transparent 44% 58%,#03dcef 60% 85%,#3545b4 87%)}.logo{position:absolute;left:8px;top:10px;font-size:29px;font-weight:1000;font-style:italic;letter-spacing:-5px;color:white}.logo b{color:#ffdc00}.mast h1{font-size:17px;color:#65dcff;text-shadow:0 0 18px #1da7ff;margin:0}.nav{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;height:50px;align-items:center}.tab{position:relative;text-align:center;color:#fff;font-weight:700;font-size:17px;cursor:pointer;user-select:none;padding:8px}.tab:before,.tab:after{content:"";position:absolute;top:50%;width:28%;height:1px;background:#dce2ef}.tab:before{left:4%}.tab:after{right:4%}.tab span{display:inline-block;min-width:162px;padding:8px 28px;border:1px solid #00769a;background:#087a96;clip-path:polygon(9% 0,91% 0,100% 30%,100% 100%,9% 100%,0 70%,0 26%)}.tab.active span{background:#08090f;border:1px dashed #ff4c24;clip-path:none}.tab:focus-visible{outline:2px solid var(--cyan)}
+.dashboard{display:grid;grid-template-columns:29% 41% 30%;gap:6px}.col{display:flex;flex-direction:column;gap:6px;min-width:0}.panel{position:relative;background:linear-gradient(180deg,#08122c,#050d22);border:1px solid #153db0;border-radius:9px;box-shadow:inset 0 7px 17px var(--glow);padding:8px;min-height:180px}.panel-title{font-size:12px;margin:2px 4px 4px}.chart{width:100%;height:220px}.left .panel{height:282px}.left .chart{height:245px}.right .panel{height:282px}.right .chart{height:245px}.center-main{height:560px}.kpis{height:98px;display:grid;grid-template-columns:repeat(4,1fr);gap:34px;padding:0 12px 8px}.kpi{display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(120deg,#203b80,#25275c);border:1px solid #174fd8;border-radius:9px;box-shadow:inset 0 0 20px rgba(42,131,255,.2)}.kpi small{font-size:10px;font-weight:700}.kpi strong{font-size:19px;margin-top:18px}.country{font-size:12px;margin:2px 4px 0}.overview{display:grid;grid-template-columns:1fr 1fr;height:420px;gap:20px}.map-wrap,.city-wrap{position:relative}.subheading{text-align:center;color:#00aaff;font-size:13px;margin:14px 0 0}.liberia{width:74%;height:330px;margin:4px auto;filter:drop-shadow(0 0 5px rgba(0,187,255,.24))}.province{fill:#071a34;stroke:#00a8ff;stroke-width:1.6}.province.hot{fill:#35186f}.scale{position:absolute;left:20px;bottom:8px;font-size:10px}.scale-bar{height:105px;width:17px;margin:5px;background:linear-gradient(#ff008e,#8111ff,#00e7ff)}.city-row{display:grid;grid-template-columns:72px 1fr 58px;align-items:center;gap:8px;margin:20px 12px;color:#e8edf8;font-size:10px}.city-track{height:9px;border-radius:6px;background:#151e4a}.city-fill{height:100%;width:83%;background:#278cff;border-radius:6px}.bottom-center{height:302px;display:grid;grid-template-columns:42% 58%;gap:8px}.apps{display:grid;grid-template-columns:repeat(3,1fr);gap:24px 34px;padding:18px}.app{display:flex;align-items:center;justify-content:center;height:40px;font-size:27px;font-weight:900;border-radius:4px;background:#101729}.app.fb{color:white;background:#1877f2;border:3px solid #ffdb00}.app.wa{background:#17ca67}.app.yt{color:white;background:#f40016}.app.ig{background:linear-gradient(135deg,#7b2cff,#ff375f,#ffc548)}.app.tk{background:#070707}.app.nf{color:#e50914}.app.gp{color:#40e55b}.app.sm{font-size:9px}.metric{position:absolute;right:12px;top:8px;color:#cbd5ed;font-size:11px}.status{position:fixed;right:12px;bottom:12px;z-index:9;font-size:10px;color:var(--muted);background:#07112a;border:1px solid #1a50ad;border-radius:12px;padding:4px 9px}.status.ok{color:#38e8b0}.status.bad{color:#ff7c7c}
+@media(max-width:1200px){.dashboard{grid-template-columns:1fr}.left,.right{display:grid;grid-template-columns:repeat(2,1fr)}.left .panel,.right .panel{height:270px}.center-main{height:auto}.bottom-center{height:300px}.tab:before,.tab:after{display:none}}@media(max-width:720px){.nav{gap:2px}.tab span{min-width:0;padding:7px}.left,.right{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr);height:auto;gap:8px}.kpi{min-height:70px}.overview,.bottom-center{grid-template-columns:1fr;height:auto}.center-main{height:auto}.apps{padding:12px}.mast h1{font-size:14px}.logo{font-size:22px}}
+</style>
+</head>
+<body>
+<main class="screen">
+<header class="mast"><div class="logo"><b>V</b>MAX</div><h1>CXO Management View</h1></header>
+<nav class="nav" aria-label="Dashboard sections">
+ <div class="tab" tabindex="0" data-view="network"><span>Network</span></div>
+ <div class="tab active" tabindex="0" data-view="summary"><span>Summary</span></div>
+ <div class="tab" tabindex="0" data-view="service"><span>Service</span></div>
+</nav>
+<section class="dashboard">
+ <div class="col left">
+  <div class="panel"><div class="panel-title">Total Traffic(GB)</div><div id="traffic" class="chart"></div></div>
+  <div class="panel"><div class="panel-title">Active User(K)</div><div id="active" class="chart"></div></div>
+  <div class="panel"><div class="panel-title">Video DL Valid Throughput(Mbps)</div><div id="throughput" class="chart"></div></div>
+ </div>
+ <div class="col center">
+  <div class="panel center-main">
+   <div class="kpis" id="kpis"></div><div class="country">Liberia</div>
+   <div class="overview">
+    <div class="map-wrap"><div class="subheading">Traffic of Province((GB))</div>
+     <svg class="liberia" viewBox="0 0 300 390" role="img" aria-label="Liberia province traffic map"><title>Liberia province traffic map</title>
+      <path class="province" d="M83 20l49 18 18 47-16 34 24 41-7 50 35 31-2 54 39 25-25 49-47-20-32-45-38-21-22-48-36-29 17-49-18-38 29-33z"/>
+      <path class="province" d="M83 20l49 18 18 47-44 20-45-35z"/><path class="province" d="M61 70l45 35-16 50-48-8-10-39z"/><path class="province hot" d="M42 147l48 8 27 48-58 32-36-29z"/><path class="province" d="M90 155l44-36 24 41-7 50-34-7z"/><path class="province" d="M59 235l58-32 34 7 35 31-37 38-68-16z"/><path class="province" d="M81 263l68 16 35-38-2 54-37 31-26-42z"/><path class="province" d="M145 326l37-31 39 25-25 49-45-20z"/>
+     </svg><div class="scale"><div>High　6000</div><div class="scale-bar"></div><div>Low　0</div></div>
+    </div>
+    <div class="city-wrap"><div class="subheading">Active of Province Users</div><div class="city-row"><b>Monrovia</b><div class="city-track"><div class="city-fill"></div></div><b id="cityValue">158709</b></div></div>
+   </div>
+  </div>
+  <div class="panel bottom-center"><div><div class="panel-title">Top</div><div class="apps"><div class="app fb">f</div><div class="app tk">♪</div><div class="app yt">▶</div><div class="app wa">◉</div><div class="app ig">◎</div><div class="app nf">N</div><div class="app gp">▶</div><div class="app sm">facebook</div><div class="app sm">YouTube</div></div></div><div><div class="metric">FACEBOOK Video</div><div id="facebook" class="chart" style="height:270px"></div></div></div>
+ </div>
+ <div class="col right">
+  <div class="panel"><div class="panel-title">Traffic</div><div id="userTraffic" class="chart"></div></div>
+  <div class="panel"><div class="panel-title">Video-Traffic</div><div id="videoTraffic" class="chart"></div></div>
+  <div class="panel"><div class="panel-title">FACEBOOK VIDEO-Traffic(GB)</div><div id="facebookTraffic" class="chart"></div></div>
+ </div>
+</section>
+<div id="status" class="status">loading</div>
+</main>
+<script>
+(function(){
+'use strict';
+var charts={}, state={ready:false,source:'demo',activeView:'summary',updatedAt:null};
+var colors=['#2b8cff','#08bd83','#f4ce00','#f58b1f','#ec5470'];
+function chart(id){if(charts[id])charts[id].dispose();charts[id]=echarts.init(document.getElementById(id),null,{renderer:'canvas'});return charts[id]}
+function demoSeries(scale,phase){var a=[],b=[],c=[];for(var i=0;i<48;i++){var wave=.52+.34*Math.sin((i+phase)/7)+.14*Math.cos(i/3);var bump=i>34?.35*Math.sin((i-34)/8):0;a.push(Math.max(0,Math.round(scale*(wave+bump))));b.push(Math.max(0,Math.round(scale*(wave*.96+bump*.9))));c.push(Math.max(0,Math.round(scale*(wave*.92+bump*.82))))}return [a,b,c]}
+function lineOption(title,scale,phase){var d=demoSeries(scale,phase),x=d[0].map(function(_,i){var m=i*30;return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')});return {animation:false,color:colors,tooltip:{trigger:'axis'},legend:{top:2,textStyle:{color:'#dce7ff',fontSize:9},data:['day-0','day-1','day-7']},grid:{left:43,right:18,top:42,bottom:27},xAxis:{type:'category',data:x,axisLabel:{color:'#fff',fontSize:9,interval:6},axisLine:{lineStyle:{color:'#52617d'}},axisTick:{show:false}},yAxis:{type:'value',axisLabel:{color:'#fff',fontSize:9},splitLine:{show:false}},series:d.map(function(v,i){return{name:['day-0','day-1','day-7'][i],type:'line',smooth:true,showSymbol:false,data:v,lineStyle:{width:1.5},areaStyle:i===0?{opacity:.18}:undefined}}}}
+function cleanLine(raw,fallback){if(!raw||!raw.option)return fallback;var o=JSON.parse(JSON.stringify(raw.option));o.backgroundColor='transparent';o.animation=false;o.grid=Object.assign({left:43,right:18,top:42,bottom:27},o.grid||{});if(o.title)o.title.show=false;if(o.legend){o.legend.top=2;o.legend.textStyle=Object.assign({},o.legend.textStyle||{},{color:'#dce7ff',fontSize:9})}var axes=[];if(Array.isArray(o.xAxis))axes=axes.concat(o.xAxis);else if(o.xAxis)axes.push(o.xAxis);if(Array.isArray(o.yAxis))axes=axes.concat(o.yAxis);else if(o.yAxis)axes.push(o.yAxis);axes.forEach(function(a){a.axisLabel=Object.assign({},a.axisLabel||{},{color:'#fff',fontSize:9});a.axisLine=Object.assign({},a.axisLine||{},{lineStyle:{color:'#52617d'}});if(a.splitLine)a.splitLine.show=false});(o.series||[]).forEach(function(s,i){s.showSymbol=false;s.symbol='none';s.smooth=true;s.label={show:false};s.lineStyle=Object.assign({width:1.5},s.lineStyle||{});s.itemStyle=Object.assign({color:colors[i%colors.length]},s.itemStyle||{});if(i===0)s.areaStyle={opacity:.16}});return o}
+function donut(labels,values){return{animation:false,color:colors,tooltip:{trigger:'item'},series:[{type:'pie',radius:['46%','68%'],center:['50%','54%'],avoidLabelOverlap:true,label:{show:true,color:'#fff',fontSize:9,formatter:'{b}  {d}%'},labelLine:{length:11,length2:9},data:labels.map(function(n,i){return{name:n,value:values[i]}})}]}}
+function render(payload){var s=(payload&&payload.summary)||{};var ov=s.overview||{};var defaults=[['User(K)','158.71'],['Traffic(TB)','2.81'],['TCP Uplink RTT','80.96'],['TCP Downlink RTT','119.90']];var ids=['131','132','133','134'];document.getElementById('kpis').innerHTML=ids.map(function(id,i){var o=ov[id]||{};return '<div class="kpi"><small>'+esc(o.showName||defaults[i][0])+'</small><strong>'+esc(o.kpiValue==null?defaults[i][1]:o.kpiValue)+'</strong></div>'}).join('');
+ var tr=s.trends||{};chart('traffic').setOption(cleanLine(tr['91'],lineOption('',5600,7)),true);chart('active').setOption(cleanLine(tr['92'],lineOption('',210,8)),true);chart('throughput').setOption(cleanLine(tr['93'],lineOption('',25,3)),true);chart('facebookTraffic').setOption(cleanLine(tr['99'],lineOption('',2100,7)),true);chart('facebook').setOption(cleanLine(tr['94'],lineOption('',1100,8)),true);
+ var user=(s.userData&&s.userData.option)?s.userData.option:donut(['Video','Web Browse','IM','VoIP','Game'],[79.48,11.71,5.58,3.15,.08]);var video=(s.cityUser&&s.cityUser.option)?s.cityUser.option:donut(['FACEBOOK_VIDEO','INSTAGRAM.VIDEO','TIKTOK','YOUTUBE','XVIDEOS'],[70.85,13.82,9.68,5.28,.37]);try{chart('userTraffic').setOption(user,true)}catch(e){chart('userTraffic').setOption(donut(['Video','Web Browse','IM','VoIP','Game'],[79.48,11.71,5.58,3.15,.08]),true)}try{chart('videoTraffic').setOption(video,true)}catch(e){chart('videoTraffic').setOption(donut(['FACEBOOK_VIDEO','INSTAGRAM.VIDEO','TIKTOK','YOUTUBE','XVIDEOS'],[70.85,13.82,9.68,5.28,.37]),true)}
+ state.source=payload&&payload.source||'demo';state.updatedAt=payload&&payload.updated_at||null;state.ready=true;window.__READY__=true;setStatus(state.source==='cache'?'live cache · '+(state.updatedAt||'ready'):'demo fallback',state.source==='cache');setTimeout(resize,30)}
+ function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+ function setStatus(t,ok){var e=document.getElementById('status');e.textContent=t;e.className='status '+(ok?'ok':'bad')}
+ function resize(){Object.keys(charts).forEach(function(k){charts[k].resize()})}
+ function activate(view){state.activeView=view;document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t.dataset.view===view)});setStatus((view==='summary'?'Summary':view+' · Summary layout preview')+' · '+state.source,state.source==='cache')}
+ document.querySelectorAll('.tab').forEach(function(t){t.addEventListener('click',function(){activate(t.dataset.view)});t.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();activate(t.dataset.view)}})});
+ window.addEventListener('resize',resize);window.addEventListener('message',function(e){if(e.data&&e.data.__type==='myapp-refresh')load()});
+ window.render_state_to_text=function(){return JSON.stringify(state)};window.step=function(){resize();return window.render_state_to_text()};window.__READY__=false;
+ function load(){setStatus('loading VMAX summary',true);fetch('/api/vmax-cxo-dashboard/summary',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(render).catch(function(){render(null)})}
+ if(window.echarts)load();else{setStatus('ECharts unavailable',false);window.__READY__=false}
+})();
+</script>
+</body>
+</html>

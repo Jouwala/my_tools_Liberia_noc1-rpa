@@ -103,6 +103,7 @@ export const cardStyle: React.CSSProperties = {
   border: WH.cardBorder,
   borderRadius: 'var(--wh-radius-lg)',
   boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+  transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease',
 }
 
 export const controlCardStyle: React.CSSProperties = {

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Card, Row, Col, Statistic, Table, Spin, Tag } from 'antd'
+import { Card, Row, Col, Table, Spin, Tag } from 'antd'
 import { DatabaseOutlined, TableOutlined, FieldNumberOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { ExplainIcon } from '../components/MetricExplain'
+import StatCard from '../components/StatCard'
 import { useTheme, WH, WH_COLORS, LIGHT_COLORS, cardStyle, pageWrap } from '../theme'
 
 interface DbInfo {
@@ -86,44 +87,36 @@ export default function Overview() {
     <div style={pageWrap}>
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle}>
-            <Statistic
-              title={<span style={{ color: WH.textMuted }}>{t('overview.totalTables')} <ExplainIcon text={t('overview.explain.totalTables')} /></span>}
-              value={info.total_tables}
-              prefix={<TableOutlined style={{ color: WH.teal }} />}
-              valueStyle={{ color: WH.teal, fontWeight: 700 }}
-            />
-          </Card>
+          <StatCard
+            title={<>{t('overview.totalTables')} <ExplainIcon text={t('overview.explain.totalTables')} /></>}
+            value={info.total_tables}
+            prefix={<TableOutlined />}
+            accentColor={isDark ? '#64ffda' : '#0d9488'}
+          />
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle}>
-            <Statistic
-              title={<span style={{ color: WH.textMuted }}>{t('overview.totalRows')} <ExplainIcon text={t('overview.explain.totalRows')} /></span>}
-              value={info.total_rows}
-              prefix={<FieldNumberOutlined style={{ color: WH.blue }} />}
-              valueStyle={{ color: WH.blue, fontWeight: 700 }}
-            />
-          </Card>
+          <StatCard
+            title={<>{t('overview.totalRows')} <ExplainIcon text={t('overview.explain.totalRows')} /></>}
+            value={info.total_rows}
+            prefix={<FieldNumberOutlined />}
+            accentColor={isDark ? '#4fc3f7' : '#0e7490'}
+          />
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle}>
-            <Statistic
-              title={<span style={{ color: WH.textMuted }}>{t('overview.coreTables')} <ExplainIcon text={t('overview.explain.coreTables')} /></span>}
-              value={info.tables.filter(t => !t.name.startsWith('_')).length}
-              prefix={<DatabaseOutlined style={{ color: WH.indigo }} />}
-              valueStyle={{ color: WH.indigo, fontWeight: 700 }}
-            />
-          </Card>
+          <StatCard
+            title={<>{t('overview.coreTables')} <ExplainIcon text={t('overview.explain.coreTables')} /></>}
+            value={info.tables.filter(t => !t.name.startsWith('_')).length}
+            prefix={<DatabaseOutlined />}
+            accentColor={isDark ? '#7986cb' : '#6366f1'}
+          />
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle}>
-            <Statistic
-              title={<span style={{ color: WH.textMuted }}>{t('overview.status')}</span>}
-              value={t('overview.statusOk')}
-              prefix={<CheckCircleOutlined style={{ color: '#51cf66' }} />}
-              valueStyle={{ color: '#51cf66', fontWeight: 700 }}
-            />
-          </Card>
+          <StatCard
+            title={<>{t('overview.status')}</>}
+            value={t('overview.statusOk')}
+            prefix={<CheckCircleOutlined />}
+            accentColor={isDark ? '#51cf66' : '#15803d'}
+          />
         </Col>
       </Row>
 

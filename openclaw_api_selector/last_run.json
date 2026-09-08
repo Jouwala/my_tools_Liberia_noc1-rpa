@@ -1,52 +1,24 @@
 {
-  "run_at": "2026-09-07T03:13:05",
+  "run_at": "2026-09-08T03:00:20",
   "threshold_ms": 5000,
   "results": [
     {
       "key": "zhipu",
       "name": "ZhiPu GLM 智谱",
-      "available": false,
-      "latency_ms": null,
-      "model": "glm-4-air",
-      "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>",
-      "status": "timeout",
-      "reason": "网络超时",
+      "available": true,
+      "latency_ms": 978,
+      "model": "glm-4-flash",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
       "local": false,
       "tried_models": [
         {
           "model": "glm-4-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "glm-4-flash-250414",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "glm-z1-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "glm-4.5-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "timeout",
-          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
-        },
-        {
-          "model": "glm-4-air",
-          "ok": false,
-          "latency_ms": null,
-          "status": "timeout",
-          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
+          "ok": true,
+          "latency_ms": 978,
+          "status": "ok",
+          "error": null
         }
       ]
     },
@@ -55,66 +27,66 @@
       "name": "NVIDIA NIM",
       "available": false,
       "latency_ms": null,
-      "model": "mistral-7b",
-      "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti",
-      "status": "error",
-      "reason": "<urlopen error [WinError 10060] A connection attempt failed because the connecte",
+      "model": "mistralai/mistral-7b-instruct-v0.3",
+      "error": "HTTP 404",
+      "status": "model_unavailable",
+      "reason": "模型不可用/不存在",
       "local": false,
       "tried_models": [
         {
           "model": "meta/llama-3.1-8b-instruct",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "http_error",
+          "error": "HTTP 410"
         },
         {
           "model": "llama-3.1-8b",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "model_unavailable",
+          "error": "HTTP 404"
         },
         {
           "model": "llama-3.2-3b",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "model_unavailable",
+          "error": "HTTP 404"
         },
         {
           "model": "gemma-2-9b",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "model_unavailable",
+          "error": "HTTP 404"
         },
         {
-          "model": "mistral-7b",
+          "model": "mistralai/mistral-7b-instruct-v0.3",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "model_unavailable",
+          "error": "HTTP 404"
         }
       ]
     },
     {
       "key": "openrouter",
       "name": "OpenRouter",
-      "available": false,
-      "latency_ms": null,
+      "available": true,
+      "latency_ms": 7342,
       "model": "openrouter/free",
-      "error": "<urlopen error [Errno 11001] getaddrinfo failed>",
-      "status": "dns",
-      "reason": "DNS 解析失败",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
       "local": false,
       "tried_models": [
         {
           "model": "openrouter/free",
-          "ok": false,
-          "latency_ms": null,
-          "status": "dns",
-          "error": "<urlopen error [Errno 11001] getaddrinfo failed>"
+          "ok": true,
+          "latency_ms": 7342,
+          "status": "ok",
+          "error": null
         }
       ]
     },
@@ -123,66 +95,66 @@
       "name": "Ollama Cloud",
       "available": false,
       "latency_ms": null,
-      "model": "gemma3:4b",
-      "error": "<urlopen error [Errno 11001] getaddrinfo failed>",
-      "status": "dns",
-      "reason": "DNS 解析失败",
+      "model": "gemma3:27b",
+      "error": "HTTP 410",
+      "status": "http_error",
+      "reason": "HTTP 410",
       "local": false,
       "tried_models": [
         {
           "model": "gemma3:4b",
           "ok": false,
           "latency_ms": null,
-          "status": "dns",
-          "error": "<urlopen error [Errno 11001] getaddrinfo failed>"
+          "status": "http_error",
+          "error": "HTTP 410"
+        },
+        {
+          "model": "ministral-3:8b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "http_error",
+          "error": "HTTP 410"
+        },
+        {
+          "model": "gemma3:12b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "http_error",
+          "error": "HTTP 410"
+        },
+        {
+          "model": "ministral-3:14b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "http_error",
+          "error": "HTTP 410"
+        },
+        {
+          "model": "gemma3:27b",
+          "ok": false,
+          "latency_ms": null,
+          "status": "http_error",
+          "error": "HTTP 410"
         }
       ]
     },
     {
       "key": "zhipu5",
       "name": "ZhiPu GLM-5 智谱",
-      "available": false,
-      "latency_ms": null,
-      "model": "glm-4.5",
-      "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>",
-      "status": "timeout",
-      "reason": "网络超时",
+      "available": true,
+      "latency_ms": 982,
+      "model": "glm-4-flash",
+      "error": null,
+      "status": "ok",
+      "reason": "正常",
       "local": false,
       "tried_models": [
         {
           "model": "glm-4-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "glm-z1-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "timeout",
-          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
-        },
-        {
-          "model": "glm-5",
-          "ok": false,
-          "latency_ms": null,
-          "status": "timeout",
-          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
-        },
-        {
-          "model": "glm-5-turbo",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "glm-4.5",
-          "ok": false,
-          "latency_ms": null,
-          "status": "timeout",
-          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
+          "ok": true,
+          "latency_ms": 982,
+          "status": "ok",
+          "error": null
         }
       ]
     },
@@ -191,25 +163,18 @@
       "name": "SiliconFlow 硅基流动",
       "available": false,
       "latency_ms": null,
-      "model": "Qwen/Qwen2.5-7B-Instruct",
-      "error": "<urlopen error [Errno 11001] getaddrinfo failed>",
-      "status": "dns",
-      "reason": "DNS 解析失败",
+      "model": "Qwen/Qwen3-8B",
+      "error": "HTTP 402",
+      "status": "payment_required",
+      "reason": "需付费/余额不足 (402)",
       "local": false,
       "tried_models": [
         {
           "model": "Qwen/Qwen3-8B",
           "ok": false,
           "latency_ms": null,
-          "status": "timeout",
-          "error": "<urlopen error _ssl.c:1015: The handshake operation timed out>"
-        },
-        {
-          "model": "Qwen/Qwen2.5-7B-Instruct",
-          "ok": false,
-          "latency_ms": null,
-          "status": "dns",
-          "error": "<urlopen error [Errno 11001] getaddrinfo failed>"
+          "status": "payment_required",
+          "error": "HTTP 402"
         }
       ]
     },
@@ -230,32 +195,18 @@
       "name": "StepFun 阶跃星辰",
       "available": false,
       "latency_ms": null,
-      "model": "step-1-flash",
-      "error": "<urlopen error [Errno 11001] getaddrinfo failed>",
-      "status": "dns",
-      "reason": "DNS 解析失败",
+      "model": "step-2-mini",
+      "error": "HTTP 402",
+      "status": "payment_required",
+      "reason": "需付费/余额不足 (402)",
       "local": false,
       "tried_models": [
         {
           "model": "step-2-mini",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "step-1.5v-mini",
-          "ok": false,
-          "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
-        },
-        {
-          "model": "step-1-flash",
-          "ok": false,
-          "latency_ms": null,
-          "status": "dns",
-          "error": "<urlopen error [Errno 11001] getaddrinfo failed>"
+          "status": "payment_required",
+          "error": "HTTP 402"
         }
       ]
     },
@@ -265,17 +216,17 @@
       "available": false,
       "latency_ms": null,
       "model": "deepseek-chat",
-      "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti",
-      "status": "error",
-      "reason": "<urlopen error [WinError 10060] A connection attempt failed because the connecte",
+      "error": "HTTP 403",
+      "status": "forbidden",
+      "reason": "无权限 (403)",
       "local": false,
       "tried_models": [
         {
           "model": "deepseek-chat",
           "ok": false,
           "latency_ms": null,
-          "status": "error",
-          "error": "<urlopen error [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time, or established connecti"
+          "status": "forbidden",
+          "error": "HTTP 403"
         }
       ]
     },
@@ -405,12 +356,11 @@
       "tried_models": []
     }
   ],
-  "primary": "zhipu/glm-4-air",
+  "primary": "zhipu/glm-4-flash",
   "fallbacks": [
     "ollama/qwen3:8b",
     "ollama/qwen3:4b",
-    "nvidia/mistral-7b",
-    "zhipu5/glm-4.5",
-    "dahl/deepseek-chat"
+    "zhipu5/glm-4-flash",
+    "ollama-cloud/gemma3:27b"
   ]
 }

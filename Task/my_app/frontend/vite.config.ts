@@ -46,7 +46,9 @@ export default defineConfig({
     // vite 覆盖写 public->outDir 时 EPERM、构建失败；../_fe_dist 会被解析到 my_app 内，
     // 仍受监视，故用绝对路径放到 my_app 之上（D:/01_RPA/Task/_fe_dist）。preview 自动
     // 服务 build.outDir，URL（/myapp/）与用户无感。start.bat 用 `npm run preview` 读取此 outDir。
-    outDir: 'D:/01_RPA/Task/_fe_dist',
+    // 远程开发机（非应用服务器，如 .27）构建时须设 FE_DIST_OUT 指向共享盘上的服务器 dist，
+    // 例：FE_DIST_OUT=Y:/Task/_fe_dist vite build —— 否则绝对路径会落到本机 D 盘、服务器不更新。
+    outDir: process.env.FE_DIST_OUT || 'D:/01_RPA/Task/_fe_dist',
     // 本机环境存在 safe-delete 钩子，会拦截 Vite 的 prepare-out-dir 清空动作导致构建中断。
     // 关闭自动清空，改由构建脚本/人工清理 dist2/assets（旧 chunk 带 hash，覆盖写不影响正确性）。
     emptyOutDir: false,

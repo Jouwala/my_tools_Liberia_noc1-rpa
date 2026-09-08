@@ -398,6 +398,31 @@ def _merge_sp_details_workbook(out_path: Path) -> dict:
     return row_counts
 
 
+def _prune_sp_details_reports(keep: "Path") -> int:
+    """只保留最新一份合并报表：删除 data/sp_email/data 下除 keep 之外的
+    所有 "SP Details Report *.xlsx"。
+
+    删除失败（如文件被 Excel 占用）仅记录告警，不影响本次发送。
+    返回实际删除的文件数。
+    """
+    removed = 0
+    try:
+        keep_key = str(keep.resolve()).lower()
+    except Exception:
+        keep_key = str(keep).lower()
+    for old in _SP_DETAILS_DATA.glob("SP Details Report *.xlsx"):
+        try:
+            if str(old.resolve()).lower() == keep_key:
+                continue
+            old.unlink()
+            removed += 1
+        except Exception as e:  # 被占用/权限问题
+            logging.getLogger(__name__).warning(
+                "[sp_details] 删除历史合并文件失败: %s (%s)", old.name, e
+            )
+    return removed
+
+
 def run_sp_details_email(to: str = None, cc: str = None) -> dict:
     """SP 备件明细报表邮件（每天 07:00）。
 
@@ -420,22 +445,17 @@ def run_sp_details_email(to: str = None, cc: str = None) -> dict:
     stamp = time.strftime("%Y-%m-%d %H-%M-%S")
     merged_path = _SP_DETAILS_DATA / f"SP Details Report {stamp}.xlsx"
 
-    # 清理 7 天前的历史合并文件（防目录堆积；近期保留，避免后台补发仍在读取时被删）
-    cutoff = time.time() - 7 * 86400
-    for old in _SP_DETAILS_DATA.glob("SP Details Report *.xlsx"):
-        try:
-            if old.stat().st_mtime < cutoff:
-                old.unlink()
-        except Exception:
-            pass
-
     try:
         row_counts = _merge_sp_details_workbook(merged_path)
     except Exception as e:
         return {"success": False, "error": f"明细合并失败: {e}"}
 
+    # 只保留最新一份：新文件生成成功后，删除同目录下其它历史 SP Details Report
+    pruned = _prune_sp_details_reports(keep=merged_path)
+
     logging.getLogger(__name__).info(
-        "[sp_details] 合并完成: %s rows=%s", merged_path.name, row_counts
+        "[sp_details] 合并完成: %s rows=%s 清理历史文件=%d",
+        merged_path.name, row_counts, pruned,
     )
     return _run_script(
         data_dir=_SP_DETAILS_DATA,

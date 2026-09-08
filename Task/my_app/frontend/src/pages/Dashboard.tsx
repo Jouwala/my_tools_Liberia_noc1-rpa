@@ -272,6 +272,7 @@ export default function Dashboard() {
       <Col xs={24} sm={12} key={idx}>
         <Card
           size="small"
+          className="wh-card-interactive"
           style={{ ...cardStyle, borderColor: highlighted ? WH.teal : WH.cardBorder, boxShadow: highlighted ? `0 0 1rem var(--wh-teal-27)` : cardStyle.boxShadow }}
           title={
             highlighted && linkedFilter
@@ -351,7 +352,25 @@ export default function Dashboard() {
         </Row>
       ) : (
         <Card style={cardStyle}>
-          <div style={{ textAlign: 'center', padding: '3.125rem', color: WH.textMuted }}>
+          <div style={{
+            textAlign: 'center',
+            padding: '4.5rem 2rem',
+            color: WH.textMuted,
+          }}>
+            <div style={{
+              width: '4rem',
+              height: '4rem',
+              margin: '0 auto var(--wh-space-md)',
+              borderRadius: '1rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '1.75rem',
+              background: isDark ? 'rgba(100,255,218,0.08)' : 'rgba(13,148,136,0.08)',
+              border: isDark ? '1px dashed rgba(100,255,218,0.25)' : '1px dashed rgba(13,148,136,0.35)',
+            }}>
+              📊
+            </div>
             {t('dashboard.emptyPrompt')}
           </div>
         </Card>

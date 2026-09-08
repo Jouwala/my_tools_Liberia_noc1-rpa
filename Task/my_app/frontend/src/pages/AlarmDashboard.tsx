@@ -19,13 +19,13 @@ import DraggableClickModal from '../components/DraggableClickModal'
 import { ExplainCorner, ExplainIcon } from '../components/MetricExplain'
 import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine, pageWrap, cardStyle } from '../theme'
 
-const CHART_HEIGHT = 280
+const CHART_HEIGHT = 252
 
 // 分区标题（Warehouse 青蓝渐变图标）
 const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: string; sub?: string }) => (
   <div style={{
     display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
-    margin: '1.375rem 0 0.875rem', padding: '0 0 0.625rem',
+    margin: '1rem 0 0.625rem', padding: '0 0 0.5rem',
     borderBottom: '1px solid rgba(100,255,218,0.18)',
   }}>
     <span style={{
@@ -45,7 +45,7 @@ const SummaryCard = ({ icon, value, label, color, onClick, explain }: {
 }) => {
   const { t } = useI18n()
   return (
-  <Card size="small" hoverable onClick={onClick} style={{
+  <Card size="small" hoverable onClick={onClick} className="wh-card-interactive" style={{
     ...cardStyle,
     cursor: 'pointer', transition: 'all .2s', position: 'relative', overflow: 'hidden',
   }}
@@ -75,7 +75,7 @@ const HistoryMetricCard = ({ icon, value, label, sub, color, onClick, explain }:
 }) => {
   const { t } = useI18n()
   return (
-  <Card size="small" hoverable onClick={onClick} style={{
+  <Card size="small" hoverable onClick={onClick} className="wh-card-interactive" style={{
     ...cardStyle,
     cursor: 'pointer', transition: 'all .2s',
     position: 'relative', overflow: 'hidden',

@@ -44,7 +44,7 @@ const cardTitleStyle = { fontSize: '0.875rem', fontWeight: 600, color: WH.text }
 const SectionTitle = ({ icon, title, explain }: { icon: React.ReactNode; title: string; explain?: string }) => (
   <div style={{
     display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
-    margin: 'var(--wh-space-xl) 0 var(--wh-space-md)', padding: '0 0 var(--wh-space-sm)',
+    margin: '1rem 0 0.625rem', padding: '0 0 0.5rem',
     borderBottom: '1px solid rgba(100,255,218,0.18)',
   }}>
     <span style={{
@@ -205,7 +205,7 @@ export default function TTWODashboard() {
   }, [drillData])
 
   // 图表配置
-  const CHART_HEIGHT = 300
+  const CHART_HEIGHT = 264
 
   // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
   const tooltipStyle = darkTooltip(isDark)
@@ -509,7 +509,7 @@ export default function TTWODashboard() {
 
   // 暗色汇总卡片生成器
   const SummaryCard = ({ color, icon, value, label, onClick, explain }: { color: string; icon: React.ReactNode; value: number; label: string; onClick?: (e: React.MouseEvent) => void; explain?: string }) => (
-    <Card size="small" hoverable style={{ ...cardStyle, position: 'relative', cursor: onClick ? 'pointer' : 'default', borderLeft: `4px solid ${color}` }}
+    <Card size="small" hoverable className="wh-card-interactive" style={{ ...cardStyle, position: 'relative', cursor: onClick ? 'pointer' : 'default', borderLeft: `4px solid ${color}` }}
       onClick={onClick}>
       {explain && (
         <span style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, cursor: 'help' }} onClick={e => e.stopPropagation()}>
@@ -524,7 +524,7 @@ export default function TTWODashboard() {
   )
 
   return (
-    <div style={{ ...pageWrap, display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
+    <div style={{ ...pageWrap, display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-sm)' }}>
       {/* 筛选栏 */}
       <Card size="small" style={{ ...controlCardStyle, background: WH.cardBg }}>
         <Space wrap align="center" size="middle">
@@ -563,7 +563,7 @@ export default function TTWODashboard() {
       </Card>
 
       {/* 汇总卡片 */}
-      <Row gutter={16}>
+      <Row gutter={12}>
         <Col xs={24} sm={12} md={data.summary.wo_total > 0 ? 8 : 24}>
           <SummaryCard color="#4fc3f7" icon={<ThunderboltOutlined />} value={data.summary.tt_total} label={t('ttwo.ttTotal')} explain={t('ttwo.explain.ttTotal')} onClick={(e) => openDrilldown(e, 'all_tt')} />
         </Col>
@@ -577,7 +577,7 @@ export default function TTWODashboard() {
 
       {/* TT 统计标签 */}
       <SectionTitle icon={<AlertOutlined />} title={t('ttwo.ttStatistics')} />
-      <Row gutter={[16, 16]}>
+      <Row gutter={[12, 12]}>
         <Col xs={24} sm={12} md={8}>
           <Card size="small" title={<span style={cardTitleStyle}>{sevLabel} <ExplainIcon text={t('ttwo.explain.severity')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
             {renderStatTags(sevStats, sevColor, sevDimension)}
@@ -609,7 +609,7 @@ export default function TTWODashboard() {
 
       {/* Domain + Root Cause */}
       <SectionTitle icon={<PieChartOutlined />} title={t('ttwo.domainRootCause')} />
-      <Row gutter={[16, 16]}>
+      <Row gutter={[12, 12]}>
         <Col xs={24} lg={10}>
           <Card title={<span style={cardTitleStyle}>{t('ttwo.ttByDomain')}</span>} size="small" style={cardStyle}>
             <div role="img" aria-label="TT by Domain chart">
@@ -639,7 +639,7 @@ export default function TTWODashboard() {
       {/* WO Source + Status */}
       {data.summary.wo_total > 0 && <>
         <SectionTitle icon={<TagsOutlined />} title={t('ttwo.woAnalytics')} />
-        <Row gutter={[16, 16]}>
+        <Row gutter={[12, 12]}>
           <Col xs={24} md={12}>
             <Card title={<span style={cardTitleStyle}>{t('ttwo.woBySource')}</span>} size="small" style={cardStyle}>
               <div role="img" aria-label="WO by Source chart">
@@ -661,7 +661,7 @@ export default function TTWODashboard() {
 
       {/* 站点信息 */}
       <SectionTitle icon={<EnvironmentOutlined />} title={t('ttwo.siteInfo')} />
-      <Row gutter={[16, 16]}>
+      <Row gutter={[12, 12]}>
         {Object.entries(data.site_stats || {}).filter(([, v]) => v && Object.keys(v as any).length > 0).map(([key, stats]) => (
           <Col xs={24} sm={12} lg={8} key={key}>
             <Card title={<span style={cardTitleStyle}>{key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>} size="small" style={cardStyle}>

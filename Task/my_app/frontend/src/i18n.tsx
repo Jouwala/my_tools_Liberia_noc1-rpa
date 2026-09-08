@@ -19,6 +19,12 @@ const translations: Record<Locale, Record<string, string>> = {
     // 侧边栏展开/收起
     'nav.expand': '展开侧边栏',
     'nav.collapse': '收起侧边栏',
+    // 侧边栏菜单分组
+    'nav.grp.sync': '任务与报告',
+    'nav.grp.monitor': '监控看板',
+    'nav.grp.network': '网络质量',
+    'nav.grp.analysis': '数据分析',
+    'nav.grp.system': '系统',
     'nav.overview': '数据总览',
     'nav.tables': '表浏览器',
     'nav.upload': '数据上传',
@@ -169,6 +175,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'siteAvail.doc5': '⑤ 查询条件与时间范围：月份（YYYY-MM，默认当前月，可选最近 12 个月）+ Supervisor + FME + 仅看有数据站点；周/天切换与制式切换为展示维度，不重新查询。后端缓存 5 分钟。',
     'nav.alarmManagement': '告警管理看板',
     'nav.cxoDashboard': 'CXO 经营看板',
+    'nav.vmaxCxoDashboard': 'VMAX CXO 原版看板',
     'nav.mwUmeTopology': 'MW 微波拓扑',
     'nav.mwRealTime': 'MW 微波实时',
     'nav.emailReports': '任务报告文件',
@@ -1159,6 +1166,12 @@ const translations: Record<Locale, Record<string, string>> = {
     // Sidebar expand/collapse
     'nav.expand': 'Expand sidebar',
     'nav.collapse': 'Collapse sidebar',
+    // Sidebar menu groups
+    'nav.grp.sync': 'Tasks & Reports',
+    'nav.grp.monitor': 'Monitoring',
+    'nav.grp.network': 'Network Quality',
+    'nav.grp.analysis': 'Data Analysis',
+    'nav.grp.system': 'System',
     'nav.overview': 'Overview',
     'nav.tables': 'Table Browser',
     'nav.upload': 'Data Upload',
@@ -1309,6 +1322,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'siteAvail.doc5': '⑤ Query conditions & time range: month (YYYY-MM, default current month, last 12 months selectable) + Supervisor + FME + only-sites-with-data trigger backend queries; tech / weekly-daily / threshold switches are display-only and do not re-query. Backend cache: 5 minutes.',
     'nav.alarmManagement': 'Alarm Management',
     'nav.cxoDashboard': 'CXO Dashboard',
+    'nav.vmaxCxoDashboard': 'VMAX CXO Original View',
     'nav.mwUmeTopology': 'MW Topology',
     'nav.mwRealTime': 'MW Real-Time',
     'nav.emailReports': 'Task Report Files',

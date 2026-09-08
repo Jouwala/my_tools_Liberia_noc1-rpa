@@ -144,7 +144,7 @@ const SummaryCard = ({ icon, value, label, color, onClick, explain, t }: {
   }, [explain])
 
   return (
-    <Card size="small" hoverable onClick={onClick} style={{
+    <Card size="small" hoverable onClick={onClick} className="wh-card-interactive" style={{
       ...cardStyle,
       cursor: 'pointer', transition: 'all .2s', position: 'relative', overflow: 'hidden',
     }}
@@ -584,7 +584,7 @@ export default function PacketLossDashboard() {
             </span>
           </div>
         }>
-          <MapContainer center={[6.4, -9.4]} zoom={8} style={{ height: isMobile ? '55vh' : 'calc(100vh - 180px)', minHeight: isMobile ? '18.75rem' : '26.25rem', width: '100%', background: 'var(--wh-page-bg)', borderRadius: 'var(--wh-radius-md)' }} scrollWheelZoom>
+          <MapContainer center={[6.4, -9.4]} zoom={8} className={isDark ? 'gis-dark-map' : ''} style={{ height: isMobile ? '55vh' : 'calc(100vh - 180px)', minHeight: isMobile ? '18.75rem' : '26.25rem', width: '100%', background: 'var(--wh-page-bg)', borderRadius: 'var(--wh-radius-md)' }} scrollWheelZoom>
             <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             {/* 拓扑连线：复用 GIS Map 真实链路，按传输类型着色（MW / IPRAN 等）。
                 先白色描边(casing)增强对比，再画彩色线；hub 链路更粗。 */}

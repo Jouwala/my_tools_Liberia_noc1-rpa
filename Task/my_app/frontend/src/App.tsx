@@ -64,6 +64,7 @@ const NurDashboard = lazy(() => import('./pages/NurDashboard'))
 const MsSlaDashboard = lazy(() => import('./pages/MsSlaDashboard'))
 const AlarmManagement = lazy(() => import('./pages/AlarmManagement'))
 const CxoDashboard = lazy(() => import('./pages/CxoDashboard'))
+const VmaxCxoDashboard = lazy(() => import('./pages/VmaxCxoDashboard'))
 const EmailReports = lazy(() => import('./pages/EmailReports'))
 const MwUmeDashboard = lazy(() => import('./pages/MwUmeDashboard'))
 const MwRealTimeDashboard = lazy(() => import('./pages/MwRealTimeDashboard'))
@@ -75,9 +76,9 @@ const IssueFeedback = lazy(() => import('./pages/IssueFeedback'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'feedback' | 'help'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'feedback' | 'help'
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'feedback', 'help']
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'feedback', 'help']
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -194,35 +195,103 @@ function AppContent() {
     sec <= 0 ? t('ar.off') : sec < 60 ? `${sec} ${t('ar.sec')}` : `${sec / 60} ${t('ar.min')}`
   , [t])
 
+  const flatMenuItems: { key: PageKey; label: string }[] = [
+    { key: 'sync', label: t('nav.sync') },
+    { key: 'email_reports', label: t('nav.emailReports') },
+    { key: 'eflow_qa', label: t('nav.eflowQa') },
+    { key: 'alarm', label: t('nav.alarm') },
+    { key: 'ttwo', label: t('nav.ttwo') },
+    { key: 'nur', label: t('nav.nur') },
+    { key: 'ms_sla', label: t('nav.msSla') },
+    { key: 'site_avail', label: t('nav.siteAvail') },
+    { key: 'cxoDashboard', label: t('nav.cxoDashboard') },
+    { key: 'vmaxCxoDashboard', label: t('nav.vmaxCxoDashboard') },
+    { key: 'alarmManagement', label: t('nav.alarmManagement') },
+    { key: 'incident_overview', label: t('nav.incidentOverview') },
+    { key: 'mwUmeTopology', label: t('nav.mwUmeTopology') },
+    { key: 'mwRealTime', label: t('nav.mwRealTime') },
+    { key: 'gis', label: t('nav.gis') },
+    { key: 'realtime_alarm', label: t('nav.realtimeAlarm') },
+    { key: 'packet_loss', label: t('nav.packetLoss') },
+    { key: 'battery', label: t('nav.battery') },
+    { key: 'ip_trace', label: t('nav.ipTrace') },
+    { key: 'overview', label: t('nav.overview') },
+    { key: 'tables', label: t('nav.tables') },
+    { key: 'upload', label: t('nav.upload') },
+    { key: 'archive', label: t('nav.archive') },
+    { key: 'dashboard', label: t('nav.dashboard') },
+    { key: 'warehouse', label: t('nav.sp') },
+    { key: 'settings', label: t('nav.settings') },
+    { key: 'portalLogin', label: t('nav.portalLogin') },
+    { key: 'feedback', label: t('nav.feedback') },
+    { key: 'help', label: t('nav.help') },
+  ]
+
   const menuItems = [
-    { key: 'sync', icon: <SyncOutlined />, label: t('nav.sync') },
-    { key: 'email_reports', icon: <MailOutlined />, label: t('nav.emailReports') },
-    { key: 'alarm', icon: <AlertOutlined />, label: t('nav.alarm') },
-    { key: 'ttwo', icon: <BarChartOutlined />, label: t('nav.ttwo') },
-    { key: 'eflow_qa', icon: <BookOutlined />, label: t('nav.eflowQa') },
-    { key: 'nur', icon: <LineChartOutlined />, label: t('nav.nur') },
-    { key: 'ms_sla', icon: <FundOutlined />, label: t('nav.msSla') },
-    { key: 'site_avail', icon: <SafetyOutlined />, label: t('nav.siteAvail') },
-    { key: 'cxoDashboard', icon: <PieChartOutlined />, label: t('nav.cxoDashboard') },
-    { key: 'mwUmeTopology', icon: <ApartmentOutlined />, label: t('nav.mwUmeTopology') },
-    { key: 'mwRealTime', icon: <FieldTimeOutlined />, label: t('nav.mwRealTime') },
-    { key: 'gis', icon: <GlobalOutlined />, label: t('nav.gis') },
-    { key: 'realtime_alarm', icon: <AlertOutlined />, label: t('nav.realtimeAlarm') },
-    { key: 'alarmManagement', icon: <AlertOutlined />, label: t('nav.alarmManagement') },
-    { key: 'packet_loss', icon: <DisconnectOutlined />, label: t('nav.packetLoss') },
-    { key: 'battery', icon: <ThunderboltOutlined />, label: t('nav.battery') },
-    { key: 'ip_trace', icon: <AimOutlined />, label: t('nav.ipTrace') },
-    { key: 'incident_overview', icon: <FileSearchOutlined />, label: t('nav.incidentOverview') },
-    { key: 'warehouse', icon: <AppstoreOutlined />, label: t('nav.sp') },
-    { key: 'overview', icon: <BarChartOutlined />, label: t('nav.overview') },
-    { key: 'tables', icon: <TableOutlined />, label: t('nav.tables') },
-    { key: 'upload', icon: <UploadOutlined />, label: t('nav.upload') },
-    { key: 'archive', icon: <HistoryOutlined />, label: t('nav.archive') },
-    { key: 'dashboard', icon: <DashboardOutlined />, label: t('nav.dashboard') },
-    { key: 'settings', icon: <SettingOutlined />, label: t('nav.settings') },
-    { key: 'portalLogin', icon: <LoginOutlined />, label: t('nav.portalLogin') },
-    { key: 'feedback', icon: <MessageOutlined />, label: t('nav.feedback') },
-    { key: 'help', icon: <QuestionCircleOutlined />, label: t('nav.help') },
+    {
+      key: 'grp_sync',
+      label: t('nav.grp.sync'),
+      type: 'group' as const,
+      children: [
+        { key: 'sync', icon: <SyncOutlined />, label: t('nav.sync') },
+        { key: 'email_reports', icon: <MailOutlined />, label: t('nav.emailReports') },
+        { key: 'eflow_qa', icon: <BookOutlined />, label: t('nav.eflowQa') },
+      ],
+    },
+    {
+      key: 'grp_monitor',
+      label: t('nav.grp.monitor'),
+      type: 'group' as const,
+      children: [
+        { key: 'alarm', icon: <AlertOutlined />, label: t('nav.alarm') },
+        { key: 'ttwo', icon: <BarChartOutlined />, label: t('nav.ttwo') },
+        { key: 'nur', icon: <LineChartOutlined />, label: t('nav.nur') },
+        { key: 'ms_sla', icon: <FundOutlined />, label: t('nav.msSla') },
+        { key: 'site_avail', icon: <SafetyOutlined />, label: t('nav.siteAvail') },
+        { key: 'cxoDashboard', icon: <PieChartOutlined />, label: t('nav.cxoDashboard') },
+        { key: 'vmaxCxoDashboard', icon: <DashboardOutlined />, label: t('nav.vmaxCxoDashboard') },
+        { key: 'alarmManagement', icon: <AlertOutlined />, label: t('nav.alarmManagement') },
+        { key: 'incident_overview', icon: <FileSearchOutlined />, label: t('nav.incidentOverview') },
+      ],
+    },
+    {
+      key: 'grp_network',
+      label: t('nav.grp.network'),
+      type: 'group' as const,
+      children: [
+        { key: 'mwUmeTopology', icon: <ApartmentOutlined />, label: t('nav.mwUmeTopology') },
+        { key: 'mwRealTime', icon: <FieldTimeOutlined />, label: t('nav.mwRealTime') },
+        { key: 'gis', icon: <GlobalOutlined />, label: t('nav.gis') },
+        { key: 'realtime_alarm', icon: <AlertOutlined />, label: t('nav.realtimeAlarm') },
+        { key: 'packet_loss', icon: <DisconnectOutlined />, label: t('nav.packetLoss') },
+        { key: 'battery', icon: <ThunderboltOutlined />, label: t('nav.battery') },
+        { key: 'ip_trace', icon: <AimOutlined />, label: t('nav.ipTrace') },
+      ],
+    },
+    {
+      key: 'grp_analysis',
+      label: t('nav.grp.analysis'),
+      type: 'group' as const,
+      children: [
+        { key: 'overview', icon: <BarChartOutlined />, label: t('nav.overview') },
+        { key: 'tables', icon: <TableOutlined />, label: t('nav.tables') },
+        { key: 'upload', icon: <UploadOutlined />, label: t('nav.upload') },
+        { key: 'archive', icon: <HistoryOutlined />, label: t('nav.archive') },
+        { key: 'dashboard', icon: <DashboardOutlined />, label: t('nav.dashboard') },
+        { key: 'warehouse', icon: <AppstoreOutlined />, label: t('nav.sp') },
+      ],
+    },
+    {
+      key: 'grp_system',
+      label: t('nav.grp.system'),
+      type: 'group' as const,
+      children: [
+        { key: 'settings', icon: <SettingOutlined />, label: t('nav.settings') },
+        { key: 'portalLogin', icon: <LoginOutlined />, label: t('nav.portalLogin') },
+        { key: 'feedback', icon: <MessageOutlined />, label: t('nav.feedback') },
+        { key: 'help', icon: <QuestionCircleOutlined />, label: t('nav.help') },
+      ],
+    },
   ]
 
   // ===== 右键菜单（在新标签页打开）=====
@@ -267,7 +336,7 @@ function AppContent() {
 
   // 页面名同步到浏览器标签标题，便于新标签页识别
   useEffect(() => {
-    const label = menuItems.find(m => m.key === currentPage)?.label
+    const label = flatMenuItems.find(m => m.key === currentPage)?.label
     if (label) document.title = `${label} - ${t('app.title')}`
   }, [currentPage, locale])
 
@@ -303,6 +372,8 @@ function AppContent() {
         return <AlarmManagement />
       case 'cxoDashboard':
         return <CxoDashboard />
+      case 'vmaxCxoDashboard':
+        return <VmaxCxoDashboard />
       case 'mwUmeTopology':
         return <MwUmeDashboard />
       case 'mwRealTime':
@@ -578,7 +649,7 @@ function AppContent() {
                 textOverflow: 'ellipsis',
                 padding: '0 var(--wh-space-sm)',
               }}>
-                {menuItems.find(m => m.key === currentPage)?.label || t('nav.overview')}
+                {flatMenuItems.find(m => m.key === currentPage)?.label || t('nav.overview')}
               </h1>
               {/* 底部发光装饰线 */}
               <div style={{

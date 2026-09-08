@@ -4,7 +4,9 @@ Download data from SFTP, then generate Comsumables & SpareParts
 Inbound&Outbound&Inventory Excel files with Summary images.
 
 Pipeline:
-  sftp_download() → load_data() → preprocess() → build_lookup() → fill_missing()
+  sftp_download() → load_data() → apply_exclude_to_details()（按 in&out_exclude.xlsx
+  剔除指定单据行并写回明细）→ apply_inventory_material_names()（用 inventory 的
+  Material Name 覆盖明细同名列并写回）→ preprocess() → build_lookup() → fill_missing()
   → generate_report() (Excel + Summary PNG image)
 """
 import pandas as pd
@@ -278,6 +280,265 @@ def load_data():
     inv = pd.read_excel(INV_PATH)
     outb = pd.read_excel(OUTB_PATH)
     return inb, inv, outb
+
+
+# ==============================================================================
+# exclude rules - 按 in&out_exclude.xlsx 剔除指定单据行（生成报告前执行）
+# ==============================================================================
+# 明细侧匹配列：  Inbound  -> Inbound No.; Material No.; Serial No.; Inbound Qty
+#                Outbound -> Outbound No.; Material No.; Serial No.; Outbound Qty
+# 排除表侧列（sheet「3_剔除单据Serial明细」）：
+#                方向; 单据号; 单据类型; Serial No.; 物料号; 数量; 仓库
+# 命中口径（二选一即剔除）：
+#   1) full  = (No, Material No., Serial No., Qty) 四字段全等
+#   2) loose = (No, Serial No.) 单据号 + Serial 命中即剔除（物料号/数量对不上时兜底）
+EXCLUDE_FILE = f'{DATA_DIR}/in&out_exclude.xlsx'
+EXCLUDE_SHEET = '3_剔除单据Serial明细'
+# 表头行自动探测：sheet 顶部有标题行 + 空行，扫描前 10 行找含指定列名的那一行
+EXCLUDE_HEADER_SCAN_ROWS = 10
+_EXCLUDE_HEADER_KEYS = ('单据号', 'Serial No.', '物料号', '数量')
+
+# (明细名, 明细路径, No 列, Qty 列, 方向关键字)
+_EXCLUDE_SPECS = [
+    ('inbound', INB_PATH, 'Inbound No.', 'Inbound Qty', '入库'),
+    ('outbound', OUTB_PATH, 'Outbound No.', 'Outbound Qty', '出库'),
+]
+
+
+def _norm_excl_value(v):
+    """归一化单个匹配值：去空格；数字统一成最简形式（1.0 -> 1，4.50 -> 4.5）。
+
+    明细里物料号常带前导零（033030100337），排除表里被 Excel 存成数字（33030100337），
+    故纯数字串必须统一成 int 形式再比较，否则大面积不命中。
+    """
+    if v is None:
+        return ''
+    s = str(v).strip()
+    if s == '' or s.lower() in ('nan', 'none', 'nat'):
+        return ''
+    try:
+        f = float(s)
+    except ValueError:
+        return s
+    if f == int(f):
+        return str(int(f))
+    return ('%.6f' % f).rstrip('0').rstrip('.')
+
+
+def load_exclude_rules(path=EXCLUDE_FILE):
+    """读取剔除清单。
+
+    返回 {'入库': {'full': set((no, mat, serial, qty)), 'loose': set((no, serial))},
+           '出库': {...}}
+    文件缺失 / sheet 缺失 / 列缺失 → 打印 WARN 并返回空规则（不阻断主流程）。
+    """
+    def _empty():
+        return {'full': set(), 'loose': set()}
+
+    empty = {'入库': _empty(), '出库': _empty()}
+    if not os.path.isfile(path):
+        print(f'[Exclude][WARN] 剔除清单不存在，跳过剔除: {path}')
+        return empty
+    try:
+        raw = pd.read_excel(path, sheet_name=EXCLUDE_SHEET, header=None,
+                            nrows=EXCLUDE_HEADER_SCAN_ROWS)
+        hdr_row = None
+        for i in range(len(raw)):
+            vals = {str(v).strip() for v in raw.iloc[i].tolist()}
+            if all(k in vals for k in _EXCLUDE_HEADER_KEYS):
+                hdr_row = i
+                break
+        if hdr_row is None:
+            print(f'[Exclude][WARN] 剔除清单未找到表头行（需含 {list(_EXCLUDE_HEADER_KEYS)}），跳过剔除')
+            return empty
+        df = pd.read_excel(path, sheet_name=EXCLUDE_SHEET, header=hdr_row)
+    except Exception as e:
+        print(f'[Exclude][WARN] 读取剔除清单失败({e})，跳过剔除')
+        return empty
+
+    need = ['方向', '单据号', 'Serial No.', '物料号', '数量']
+    missing = [c for c in need if c not in df.columns]
+    if missing:
+        print(f'[Exclude][WARN] 剔除清单缺少列 {missing}（实际列: {list(df.columns)}），跳过剔除')
+        return empty
+
+    rules = {'入库': _empty(), '出库': _empty()}
+    skipped = 0
+    for _, row in df.iterrows():
+        no = _norm_excl_value(row['单据号'])
+        serial = _norm_excl_value(row['Serial No.'])
+        if not no:            # 无单据号 → 无法定位，跳过
+            skipped += 1
+            continue
+        direction = str(row['方向']).strip()
+        d = direction.lower()
+        if '入' in direction or 'in' in d:
+            bucket = rules['入库']
+        elif '出' in direction or 'out' in d:
+            bucket = rules['出库']
+        else:
+            skipped += 1
+            continue
+        qty = _norm_excl_value(row['数量'])
+        if serial:
+            bucket['loose'].add((no, serial))
+        if qty and serial:
+            bucket['full'].add((no, _norm_excl_value(row['物料号']), serial, qty))
+    print(f'[Exclude] 规则载入: 入库 full={len(rules["入库"]["full"])}/loose={len(rules["入库"]["loose"])}, '
+          f'出库 full={len(rules["出库"]["full"])}/loose={len(rules["出库"]["loose"])}'
+          f'{f", 忽略 {skipped} 条" if skipped else ""}')
+    return rules
+
+
+def drop_excluded_rows(df, rule, no_col, qty_col):
+    """按 full(No+Mat+Serial+Qty) 或 loose(No+Serial) 剔除命中行。
+
+    返回 (新 df, 精确命中数, 仅 loose 命中数)。
+    """
+    if not rule or df is None or df.empty or not (rule['full'] or rule['loose']):
+        return df, 0, 0
+    for c in (no_col, 'Material No.', 'Serial No.', qty_col):
+        if c not in df.columns:
+            print(f'[Exclude][WARN] 明细缺少列 "{c}"，跳过剔除')
+            return df, 0, 0
+
+    nos = df[no_col].map(_norm_excl_value)
+    mats = df['Material No.'].map(_norm_excl_value)
+    sers = df['Serial No.'].map(_norm_excl_value)
+    qtys = df[qty_col].map(_norm_excl_value)
+
+    full, loose = rule['full'], rule['loose']
+    mask = []
+    n_full = n_loose_only = 0
+    for no, mat, ser, qty in zip(nos, mats, sers, qtys):
+        hit_full = (no, mat, ser, qty) in full
+        hit_loose = (not hit_full) and bool(ser) and ((no, ser) in loose)
+        if hit_full:
+            n_full += 1
+        elif hit_loose:
+            n_loose_only += 1
+        mask.append(hit_full or hit_loose)
+
+    if not any(mask):
+        return df, 0, 0
+    return df.loc[[not m for m in mask]].reset_index(drop=True), n_full, n_loose_only
+
+
+def apply_exclude_to_details(inb, outb):
+    """下载后、生成报告前执行：剔除指定单据行并把结果写回明细 xlsx（下游任务同口径）。
+
+    返回 (inb, outb, stats)；写回失败只 WARN（文件被 Excel 占用等），内存数据仍是已剔除的。
+    """
+    rules = load_exclude_rules()
+    stats = {}
+    if not (rules['入库']['full'] or rules['入库']['loose']
+            or rules['出库']['full'] or rules['出库']['loose']):
+        return inb, outb, stats
+
+    for name, path, no_col, qty_col, direction in _EXCLUDE_SPECS:
+        df = inb if name == 'inbound' else outb
+        new_df, n_full, n_loose = drop_excluded_rows(df, rules[direction], no_col, qty_col)
+        dropped = n_full + n_loose
+        stats[name] = dropped
+        if dropped == 0:
+            print(f'[Exclude] {name}: 无命中，保持原样（{len(df)} 行）')
+            continue
+        print(f'[Exclude] {name}: 剔除 {dropped} 行（精确 {n_full} + 单号&Serial 兜底 {n_loose}），'
+              f'{len(df)} -> {len(new_df)} 行')
+        # 写回保存（先写临时文件再原子替换，避免中断损坏原文件）
+        if not _save_detail_xlsx(new_df, path):
+            print(f'[Exclude][WARN] {name}: 写回失败，下游任务将使用未剔除的旧文件')
+        if name == 'inbound':
+            inb = new_df
+        else:
+            outb = new_df
+    return inb, outb, stats
+
+
+def _save_detail_xlsx(df, path):
+    """把明细 df 原子写回 xlsx（先写 tmp 再 replace），成功返回 True。"""
+    tmp = f'{path}.tmp.xlsx'
+    try:
+        df.to_excel(tmp, index=False)
+        os.replace(tmp, path)
+        print(f'[Save] 已保存 {path}')
+        return True
+    except Exception as e:
+        print(f'[Save][WARN] 写回失败（{e}），下游任务将使用旧文件: {path}')
+        try:
+            if os.path.isfile(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+        return False
+
+
+# ==============================================================================
+# material name sync - 用 inventory 的 Material Name 覆盖 inband/outband 的 Material Name
+# ==============================================================================
+def build_material_name_map(inv):
+    """inventory_details -> {归一化 Material No.: Material Name}（同物料多名称取首个非空）。"""
+    if inv is None or inv.empty or not {'Material No.', 'Material Name'}.issubset(inv.columns):
+        print('[MatName][WARN] inventory 缺少 Material No./Material Name 列，跳过名称替换')
+        return {}
+    lut, conflict = {}, 0
+    for no, name in zip(inv['Material No.'].map(_norm_excl_value), inv['Material Name']):
+        nm = '' if name is None else str(name).strip()
+        if nm.lower() in ('nan', 'none'):
+            nm = ''
+        if not no or not nm:
+            continue
+        if no in lut:
+            if lut[no] != nm:
+                conflict += 1
+            continue
+        lut[no] = nm
+    print(f'[MatName] inventory 名称映射 {len(lut)} 条'
+          + (f'（同物料多名称冲突 {conflict} 条，取首个）' if conflict else ''))
+    return lut
+
+
+def apply_inventory_material_names(inb, outb, inv):
+    """剔除后执行：用 inventory 的 Material Name 覆盖两份明细的同名列，并写回保存。
+
+    命中 inventory 才替换，未命中保留原值。返回 (inb, outb, stats)。
+    """
+    lut = build_material_name_map(inv)
+    if not lut:
+        return inb, outb, {}
+
+    stats = {}
+    for name, path, df in (('inbound', INB_PATH, inb), ('outbound', OUTB_PATH, outb)):
+        if df is None or df.empty or 'Material No.' not in df.columns:
+            continue
+        if 'Material Name' not in df.columns:
+            df['Material Name'] = ''
+        keys = df['Material No.'].map(_norm_excl_value)
+        new_names, changed, missing = [], 0, 0
+        for k, old in zip(keys, df['Material Name']):
+            nm = lut.get(k, '')
+            if nm:
+                old_s = '' if old is None else str(old).strip()
+                if old_s != nm:
+                    changed += 1
+                new_names.append(nm)
+            else:
+                missing += 1
+                new_names.append(old)
+        if changed == 0:
+            print(f'[MatName] {name}: 无需替换（未命中 {missing} 行保留原名）')
+            continue
+        df = df.copy()
+        df['Material Name'] = new_names
+        print(f'[MatName] {name}: 替换 Material Name {changed} 行'
+              f'（未命中 inventory {missing} 行，保留原名）')
+        _save_detail_xlsx(df, path)
+        stats[name] = changed
+        if name == 'inbound':
+            inb = df
+        else:
+            outb = df
+    return inb, outb, stats
 
 
 # ==============================================================================
@@ -1084,6 +1345,13 @@ def main():
     inb, inv, outb = load_data()
     print(f'Loaded - inbound: {len(inb)}, inventory: {len(inv)}, outbound: {len(outb)}')
 
+    # Step 2.1: 按 in&out_exclude.xlsx 剔除指定单据行（先处理，再生成报告 / 保存）
+    inb, outb, _excl_stats = apply_exclude_to_details(inb, outb)
+    print(f'After exclude list: inbound: {len(inb)}, outbound: {len(outb)}')
+
+    # Step 2.2: 用 inventory 的 Material Name 覆盖两份明细的同名列，并写回保存
+    inb, outb, _matname_stats = apply_inventory_material_names(inb, outb, inv)
+
     # Step 3: Filter inbound and outbound types
     inb, outb = filter_data(inb, outb)
     print(f'After filtering: inbound: {len(inb)}, outbound: {len(outb)}')
@@ -1131,6 +1399,14 @@ def main():
     # Step 10: Cleanup old reports, keep only the latest
     print('\nCleaning up old reports...')
     _cleanup_old_reports()
+
+    # 末尾复述剔除结果（任务日志只保留尾部输出，方便线上核对）
+    if _excl_stats:
+        print(f'[Exclude] 汇总: inbound 剔除 {_excl_stats.get("inbound", 0)} 行, '
+              f'outbound 剔除 {_excl_stats.get("outbound", 0)} 行')
+    if _matname_stats:
+        print(f'[MatName] 汇总: inbound 替换 {_matname_stats.get("inbound", 0)} 行, '
+              f'outbound 替换 {_matname_stats.get("outbound", 0)} 行')
 
     elapsed = (datetime.now() - t0).total_seconds()
     print(f'Done. Total time: {elapsed:.1f}s')
