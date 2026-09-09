@@ -10,7 +10,10 @@ SFTP 10.100.20.11（备件原始数据，每日更新）
    │  sftp_download()（paramiko）
    ▼
 my_app\data\sp_email\data\          ← 原始数据（inband/inventory/outbound/ocrule/transfer xlsx）
-   │  generate_report()
+   │  明细预处理（剔除 → 状态过滤 → Material Name/Type 同步，均写回同一批 xlsx）
+   ▼
+my_app\data\sp_email\data\          ← 处理后明细（下游 sp_online / sp_email_details 同口径）
+   │  generate_report()（再按仓库 / Material Type 过滤）
    ▼
 my_app\data\sp_email\               ← 产出 Comsumables / SpareParts Inbound&Outbound&Inventory
                                        总表（xlsx + Summary PNG）与 4 个仓库分表
@@ -25,9 +28,53 @@ EWS 发送邮件（owa_mail_report.py）
 
 | 文件 | 说明 |
 |------|------|
-| `gernarate_sp_report.py` | 生成脚本（自远程复制，MD5 与远程一致）。已改配置：`DATA_DIR=my_app\data\sp_email\data`、`OUT_DIR=my_app\data\sp_email`；相对路径下载统一解析到 DATA_DIR（不依赖进程 cwd） |
+| `gernarate_sp_report.py` | 主脚本（源自远程 `gernarate_sp_report.py`，已按 my_app 大量改造）。配置：`DATA_DIR=my_app\data\sp_email\data`、`OUT_DIR=my_app\data\sp_email`；相对路径下载统一解析到 DATA_DIR（不依赖进程 cwd）。在 `load_data()` 之后新增明细预处理（剔除 / 状态过滤 / Material Name·Type 同步），详见下方「明细预处理流水线」 |
 | `generate_sp_online_report.py` | 生成 SP 在线未关闭单表格（Inbound / Outbound 的 PNG + XLSX）到 `data\sp_email\sp_online`，图片复用本目录 `_render_summary_image` 渲染样式，Excel 复用 `style_excel` 样式 |
 | `requirements.txt` | 依赖：pandas / numpy / paramiko / openpyxl / Pillow（系统 Python3.12 已具备） |
+
+## 明细预处理流水线（gernarate_sp_report.py main）
+
+下载 → 处理 → 生成报表。**前三步都会写回 `data\sp_email\data\` 下的明细 xlsx**，
+因此 `sp_online_report_generate`（06:00）与 `sp_email_details`（07:00）复用的是同一份已处理数据。
+
+| 步骤 | 函数 | 作用 | 写回 |
+|------|------|------|------|
+| Step 2.1 | `apply_exclude_to_details()` | 按 `data\sp_email\data\in&out_exclude.xlsx`（sheet `3_剔除单据Serial明细`）剔除指定单据行，分入库/出库两组 | ✅ |
+| Step 2.2 | `apply_status_filters()` | 出库明细剔除 `Status='WaitingForUpdate'`（`OUTBOUND_DROP_STATUS`） | ✅ |
+| Step 2.3 | `apply_inventory_fields()` | 用 `inventory_details.xlsx` 的 Material No. 覆盖明细的 **Material Name** 与 **Material Type** | ✅ |
+| Step 4 | `preprocess()` | 排除仓库 `Liberia Monrovia material warehouse` | ❌ 仅报表 |
+| 生成时 | `generate_report()` | 仅保留 `Material Type='SpareParts'`（或 `Consumables`） | ❌ 仅报表 |
+
+剔除匹配口径（命中任一即删）：
+- `full` = (单据号, Material No., Serial No., Qty) 四字段全等
+- `loose` = (单据号, Serial No.) 兜底（排除表物料号/数量与明细对不上时仍能删）
+
+> 已停用：Step 3 `filter_data()`（去掉 `Inbound Type='Borrow Return Inbound'` / `Outbound Type='Repair Outbound'`）
+> ——2026-09-08 起注释，函数保留便于恢复。
+
+实现要点：
+- 排除表**表头行不固定**（前有标题行 + 空行），扫描前 10 行找同时含 `单据号 / Serial No. / 物料号 / 数量` 的行。
+- 物料号**前导零**：明细是文本 `033030100337`，排除表被 Excel 存成数字 `33030100337`，统一用 `_norm_excl_value()` 归一（纯数字串转最简 int 形式），否则大面积不命中。
+- 写回统一走 `_save_detail_xlsx()`（tmp + `os.replace` 原子替换）；写回失败只告警，内存数据仍是处理过的，报表照常生成。
+
+### 报表口径 vs SP Details Report
+
+`sp_email_details` 合并 4 份明细（inventory/inband/outband/transfer），**只经过前三步**；
+SpareParts/Comsumables 报表**额外**再做「排除仓库」+「Material Type 过滤」。
+
+以 2026-09-08 17-41-32 版为例：
+
+| 阶段 | Inbound | Outbound | Inventory |
+|------|---------|----------|-----------|
+| 下载原始 | 4014 | 2017 | 2096 |
+| 剔除（in&out_exclude） | -298 → 3716 | -6 → 2011 | — |
+| 剔除 WaitingForUpdate | — | -65 → 1946 | — |
+| 排除仓库（仅报表） | -26 → 3690 | -26 → 1920 | -1 → 2095 |
+| Material Type=SpareParts（仅报表） | -1627 → **2063** | -1057 → **863** | -896 → **1199** |
+
+核对脚本：`TMP\verify_sp_report_filters.py "<报表时间戳>"`（如 `"2026-09-08 17-41-32"`），
+逐条套用过滤条件并与报表各 sheet 实际行数比对，输出 PASS/FAIL。
+（注意：报表 sheet 前 3 行是标题 / Generated / 表头，数据行 = 总行数 − 3。）
 
 ## SP 在线未关闭单（generate_sp_online_report.py）
 
@@ -72,3 +119,7 @@ EWS 发送邮件（owa_mail_report.py）
 - 邮件任务附件选择：按 `SpareParts` / `Comsumables` 过滤后取「非分仓（不含 ` - Liberia`）」的最新总表。
 - 旧报表自动清理：每次生成后仅保留各仓库/类型最新一份（脚本 `_cleanup_old_reports`）。
 - 运行耗时：约 30~40 秒（SFTP 下载 + 10 份报表 + 清理），脚本自带总耗时打印。
+- ⚠️ **跑任务前不要打开 `data\sp_email\data\` 下的 xlsx**：文件被 Excel 占用时 `sftp_download()` 会
+  `PermissionError` 直接中断（Windows 上 tmp+replace 也替换不了），任务报 `returncode=1`；
+  系统有 `auto_retry` 会自动补跑，但最好先关闭文件。
+- 改动脚本后无需重启 worker：报表脚本以子进程方式每次现读。

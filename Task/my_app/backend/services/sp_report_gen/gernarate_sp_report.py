@@ -5,8 +5,9 @@ Inbound&Outbound&Inventory Excel files with Summary images.
 
 Pipeline:
   sftp_download() → load_data() → apply_exclude_to_details()（按 in&out_exclude.xlsx
-  剔除指定单据行并写回明细）→ apply_inventory_material_names()（用 inventory 的
-  Material Name 覆盖明细同名列并写回）→ preprocess() → build_lookup() → fill_missing()
+  剔除指定单据行并写回明细）→ apply_status_filters()（出库剔除 Status=WaitingForUpdate）
+  → apply_inventory_fields()（用 inventory 的 Material Name / Material Type 覆盖明细并写回）
+  → preprocess() → build_lookup() → fill_missing()
   → generate_report() (Excel + Summary PNG image)
 """
 import pandas as pd
@@ -474,66 +475,129 @@ def _save_detail_xlsx(df, path):
 
 
 # ==============================================================================
-# material name sync - 用 inventory 的 Material Name 覆盖 inband/outband 的 Material Name
+# status filter - 出库明细剔除 Status='WaitingForUpdate'
 # ==============================================================================
-def build_material_name_map(inv):
-    """inventory_details -> {归一化 Material No.: Material Name}（同物料多名称取首个非空）。"""
-    if inv is None or inv.empty or not {'Material No.', 'Material Name'}.issubset(inv.columns):
-        print('[MatName][WARN] inventory 缺少 Material No./Material Name 列，跳过名称替换')
-        return {}
-    lut, conflict = {}, 0
-    for no, name in zip(inv['Material No.'].map(_norm_excl_value), inv['Material Name']):
-        nm = '' if name is None else str(name).strip()
-        if nm.lower() in ('nan', 'none'):
-            nm = ''
-        if not no or not nm:
-            continue
-        if no in lut:
-            if lut[no] != nm:
-                conflict += 1
-            continue
-        lut[no] = nm
-    print(f'[MatName] inventory 名称映射 {len(lut)} 条'
-          + (f'（同物料多名称冲突 {conflict} 条，取首个）' if conflict else ''))
-    return lut
+# 从 SFTP 取回的 outband 明细里，WaitingForUpdate 是尚未生效的出库单，生成报表前剔除
+OUTBOUND_DROP_STATUS = ('WaitingForUpdate',)
 
 
-def apply_inventory_material_names(inb, outb, inv):
-    """剔除后执行：用 inventory 的 Material Name 覆盖两份明细的同名列，并写回保存。
+def drop_outbound_status(df, statuses=OUTBOUND_DROP_STATUS):
+    """剔除出库明细中 Status 命中 statuses 的行，返回 (新 df, 剔除行数)。"""
+    if df is None or df.empty or 'Status' not in df.columns:
+        return df, 0
+    targets = {str(s).strip().casefold() for s in statuses}
+    mask = df['Status'].map(lambda v: str(v).strip().casefold() in targets)
+    n = int(mask.sum())
+    if n == 0:
+        return df, 0
+    return df.loc[~mask].reset_index(drop=True), n
 
-    命中 inventory 才替换，未命中保留原值。返回 (inb, outb, stats)。
+
+def apply_status_filters(inb, outb):
+    """出库明细剔除 WaitingForUpdate 并写回保存。返回 (inb, outb, stats)。"""
+    new_outb, n = drop_outbound_status(outb)
+    if n == 0:
+        print('[Status] outbound: 无 WaitingForUpdate 行，保持原样')
+        return inb, outb, {}
+    print(f'[Status] outbound: 剔除 Status=WaitingForUpdate {n} 行，'
+          f'{len(outb)} -> {len(new_outb)} 行')
+    if not _save_detail_xlsx(new_outb, OUTB_PATH):
+        print('[Status][WARN] outbound: 写回失败，下游任务将使用未过滤的旧文件')
+    return inb, new_outb, {'outbound': n}
+
+
+# ==============================================================================
+# material fields sync - 用 inventory 的 Material Name / Material Type 覆盖明细同名字段
+# ==============================================================================
+def build_material_maps(inv):
+    """inventory_details -> ({Material No.: Material Name}, {Material No.: Material Type})
+
+    同一物料存在多个不同值时取首个非空，冲突条数会打印。
     """
-    lut = build_material_name_map(inv)
-    if not lut:
+    if inv is None or inv.empty or 'Material No.' not in inv.columns:
+        print('[MatSync][WARN] inventory 缺少 Material No. 列，跳过字段同步')
+        return {}, {}
+    has_name = 'Material Name' in inv.columns
+    has_type = 'Material Type' in inv.columns
+    if not (has_name or has_type):
+        print('[MatSync][WARN] inventory 缺少 Material Name/Material Type 列，跳过字段同步')
+        return {}, {}
+
+    name_lut, type_lut = {}, {}
+    name_conflict = type_conflict = 0
+    keys = inv['Material No.'].map(_norm_excl_value)
+    names = inv['Material Name'] if has_name else [None] * len(inv)
+    types = inv['Material Type'] if has_type else [None] * len(inv)
+    for no, nm, tp in zip(keys, names, types):
+        if not no:
+            continue
+        for lut, val, flag in ((name_lut, nm, has_name), (type_lut, tp, has_type)):
+            if not flag:
+                continue
+            s = '' if val is None else str(val).strip()
+            if not s or s.lower() in ('nan', 'none'):
+                continue
+            if no in lut:
+                if lut[no] != s:
+                    if lut is name_lut:
+                        name_conflict += 1
+                    else:
+                        type_conflict += 1
+                continue
+            lut[no] = s
+    print(f'[MatSync] inventory 映射: Material Name {len(name_lut)} 条'
+          + (f'（冲突 {name_conflict}，取首个）' if name_conflict else '')
+          + f', Material Type {len(type_lut)} 条'
+          + (f'（冲突 {type_conflict}，取首个）' if type_conflict else ''))
+    return name_lut, type_lut
+
+
+def _overlay_column(df, keys, col, lut):
+    """用 lut 覆盖 df[col]，返回 (变更数, 未命中数)。"""
+    if col not in df.columns:
+        df[col] = ''
+    new_vals, changed, missing = [], 0, 0
+    for k, old in zip(keys, df[col]):
+        v = lut.get(k, '')
+        if v:
+            old_s = '' if old is None or (isinstance(old, float) and pd.isna(old)) else str(old).strip()
+            if old_s != v:
+                changed += 1
+            new_vals.append(v)
+        else:
+            missing += 1
+            new_vals.append(old)
+    df[col] = new_vals
+    return changed, missing
+
+
+def apply_inventory_fields(inb, outb, inv):
+    """剔除/状态过滤后执行：用 inventory 的 Material Name + Material Type 覆盖两份明细，
+    并写回保存。命中才替换，未命中保留原值。返回 (inb, outb, stats)。
+    """
+    name_lut, type_lut = build_material_maps(inv)
+    if not name_lut and not type_lut:
         return inb, outb, {}
 
     stats = {}
     for name, path, df in (('inbound', INB_PATH, inb), ('outbound', OUTB_PATH, outb)):
         if df is None or df.empty or 'Material No.' not in df.columns:
             continue
-        if 'Material Name' not in df.columns:
-            df['Material Name'] = ''
         keys = df['Material No.'].map(_norm_excl_value)
-        new_names, changed, missing = [], 0, 0
-        for k, old in zip(keys, df['Material Name']):
-            nm = lut.get(k, '')
-            if nm:
-                old_s = '' if old is None else str(old).strip()
-                if old_s != nm:
-                    changed += 1
-                new_names.append(nm)
-            else:
-                missing += 1
-                new_names.append(old)
-        if changed == 0:
-            print(f'[MatName] {name}: 无需替换（未命中 {missing} 行保留原名）')
-            continue
         df = df.copy()
-        df['Material Name'] = new_names
-        print(f'[MatName] {name}: 替换 Material Name {changed} 行'
-              f'（未命中 inventory {missing} 行，保留原名）')
+        parts, changed_total = [], 0
+        for col, lut in (('Material Name', name_lut), ('Material Type', type_lut)):
+            if not lut:
+                continue
+            changed, missing = _overlay_column(df, keys, col, lut)
+            changed_total += changed
+            parts.append(f'{col} 替换 {changed} 行（未命中 {missing} 行保留原值）')
+        if changed_total == 0:
+            print(f'[MatSync] {name}: 无需替换')
+            continue
+        print(f'[MatSync] {name}: ' + '; '.join(parts))
         _save_detail_xlsx(df, path)
-        stats[name] = changed
+        stats[name] = changed_total
         if name == 'inbound':
             inb = df
         else:
@@ -1349,12 +1413,15 @@ def main():
     inb, outb, _excl_stats = apply_exclude_to_details(inb, outb)
     print(f'After exclude list: inbound: {len(inb)}, outbound: {len(outb)}')
 
-    # Step 2.2: 用 inventory 的 Material Name 覆盖两份明细的同名列，并写回保存
-    inb, outb, _matname_stats = apply_inventory_material_names(inb, outb, inv)
+    # Step 2.2: 出库明细剔除 Status='WaitingForUpdate'，并写回保存
+    inb, outb, _status_stats = apply_status_filters(inb, outb)
 
-    # Step 3: Filter inbound and outbound types
-    inb, outb = filter_data(inb, outb)
-    print(f'After filtering: inbound: {len(inb)}, outbound: {len(outb)}')
+    # Step 2.3: 用 inventory 的 Material Name / Material Type 覆盖两份明细同名字段，并写回保存
+    inb, outb, _matname_stats = apply_inventory_fields(inb, outb, inv)
+
+    # Step 3: Filter inbound and outbound types  —— 2026-09-08 停用（保留 ②仓库 与 ③Material Type）
+    # inb, outb = filter_data(inb, outb)
+    # print(f'After filtering: inbound: {len(inb)}, outbound: {len(outb)}')
 
     # Step 4: Preprocess (exclude warehouse)
     inb, inv, outb = preprocess([inb, inv, outb])
@@ -1404,9 +1471,11 @@ def main():
     if _excl_stats:
         print(f'[Exclude] 汇总: inbound 剔除 {_excl_stats.get("inbound", 0)} 行, '
               f'outbound 剔除 {_excl_stats.get("outbound", 0)} 行')
+    if _status_stats:
+        print(f'[Status] 汇总: outbound 剔除 WaitingForUpdate {_status_stats.get("outbound", 0)} 行')
     if _matname_stats:
-        print(f'[MatName] 汇总: inbound 替换 {_matname_stats.get("inbound", 0)} 行, '
-              f'outbound 替换 {_matname_stats.get("outbound", 0)} 行')
+        print(f'[MatSync] 汇总: inbound 覆盖 {_matname_stats.get("inbound", 0)} 行, '
+              f'outbound 覆盖 {_matname_stats.get("outbound", 0)} 行')
 
     elapsed = (datetime.now() - t0).total_seconds()
     print(f'Done. Total time: {elapsed:.1f}s')
