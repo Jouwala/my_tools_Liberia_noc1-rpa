@@ -72,6 +72,9 @@ GROUP_TASK_MAP = {
         # sp_online_report_generate/send 2026-09-02 补录：SP 在线未关闭单报表
         # 生成（06:00）+ 邮件/WhatsApp 发送（06:20），新任务显式分组防 pending 卡死
         "sp_online_report_generate,sp_online_report_send,"
+        # sp_whatsapp_report 2026-09-09 补录：Comsumables&SpareParts 报表 WhatsApp 发送（07:15），
+        # 新任务显式分组防 pending 卡死（同 whatsapp_send_ext / sp_email_details 教训）
+        "sp_whatsapp_report,"
         # finebi_report_sync/pg_to_sqlite_sync：注册表中存在但此前未分组，
         # 2026-08-25 分组模式启用后无任何 worker 认领，队列 pending 卡死断档
         "finebi_report_sync,pg_to_sqlite_sync"),

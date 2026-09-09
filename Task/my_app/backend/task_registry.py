@@ -253,6 +253,16 @@ TASK_SPECS = [
          description_en="Send the open-ticket report: email (inline Inbound/Outbound PNG + XLSX attachments, default SP shared recipient list) + WhatsApp groups (recipients editable under Settings → Email Recipient Settings)",
          default_cron="20 6 * * *", category="kpi_email"),
 
+    # 19f. Comsumables & SpareParts 报表 WhatsApp 发送（每天 07:15）：
+    #      把 kpi_sp_consumables / kpi_sp_spareparts 两个邮件任务的同一批产物（合并总表 XLSX + 报表 PNG）
+    #      发到 WhatsApp 群 WH&SP Management；只发 WhatsApp，不重复发邮件
+    dict(task_id="sp_whatsapp_report", name="Comsumables&SpareParts Report Whatsapp",
+         name_en="Comsumables&SpareParts Report Whatsapp",
+         loader=("backend.services.kpi_email_report", "run_sp_whatsapp_report"),
+         description="每天 07:15 把 Comsumables Report Email / SpareParts Report Email 所发送的 Excel（合并总表）与报表图片发送到 WhatsApp 群 WH&SP Management",
+         description_en="Daily 07:15: send the same Excel (consolidated) and report images used by the Comsumables / SpareParts report emails to the WhatsApp group WH&SP Management",
+         default_cron="15 7 * * *", category="whatsapp"),
+
     # 20. MS Network Availability Daily Report 邮件（远程 FTP 图片，无 Excel）
     dict(task_id="kpi_ran_availability", name="MS Network Availability 日报邮件", name_en="MS Network Availability Daily Report Email",
          loader=("backend.services.kpi_email_report", "run_ran_availability"),

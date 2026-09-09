@@ -396,10 +396,14 @@ def inspect_tt(tt: str = Query(..., min_length=2, max_length=64, description="TT
 
 
 @router.get("/tt-ai")
-def tt_ai(tt: str = Query(..., min_length=2, max_length=64, description="TT 单号")):
+def tt_ai(
+    tt: str = Query(..., min_length=2, max_length=64, description="TT 单号"),
+    lang: str = Query("zh", pattern="^(zh|en)$", description="AI 结论语言：zh 或 en"),
+):
     """TT 单 AI 分析：查库拿告警主信息 → 拼技能入参 → 调 Open WebUI「TT单分析」技能。
 
     返回 report（同 /inspect-tt）与 ai（结论 / 模型 / 耗时 / 入参）。
+    AI 结论遵循 lang；省略 lang 时保持原有中文行为。
     """
     tt_clean = tt.strip().upper()
     if not re.fullmatch(r"[A-Z0-9_\-]+", tt_clean):
@@ -410,7 +414,7 @@ def tt_ai(tt: str = Query(..., min_length=2, max_length=64, description="TT 单�
 
     from backend.services import openwebui_client
     t0 = time.time()
-    ai = openwebui_client.analyze_tt(report.get("skill_prompt") or "")
+    ai = openwebui_client.analyze_tt(report.get("skill_prompt") or "", lang=lang)
     ai["prompt"] = report.get("skill_prompt", "")
     ai["alarm_source"] = (report.get("alarm") or {}).get("source", "")
     ai["alarm_mode"] = (info or {}).get("mode", "")

@@ -429,6 +429,22 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
+    id: 'sp_whatsapp_report', group: 'm', cron: '15 7 * * *',
+    script: 'services/kpi_email_report.py → run_sp_whatsapp_report',
+    zh: {
+      name: 'Comsumables&SpareParts Report Whatsapp',
+      desc: '每天 07:15 把 Comsumables / SpareParts 两个邮件任务的同一批产物（合并总表 XLSX + 报表 PNG）发送到 WhatsApp 群 WH&SP Management',
+      flow: ['在 data/sp_email 下选取 Comsumables / SpareParts 的合并总表 XLSX（不含 " - Liberia" 分站点）', '收集两类报表的 PNG（主图在前、Summary-Changed 在后）', '复用 whatsapp_service 的 Playwright 发送机制发到群 WH&SP Management'],
+      maintain: ['上游是 sp_report_generate（m 组 05:15），它失败会导致本任务找不到报表文件', '不发送邮件——邮件由 kpi_sp_consumables / kpi_sp_spareparts 负责'],
+    },
+    en: {
+      name: 'Comsumables&SpareParts Report Whatsapp',
+      desc: 'Daily 07:15: send the same assets used by the Comsumables / SpareParts report emails (consolidated XLSX + report PNGs) to the WhatsApp group WH&SP Management',
+      flow: ['Pick the consolidated Comsumables / SpareParts XLSX under data/sp_email (excludes the " - Liberia" per-site files)', 'Collect the PNGs of both reports (main chart first, Summary-Changed last)', 'Send via the Playwright mechanism in whatsapp_service to the group WH&SP Management'],
+      maintain: ['Upstream is sp_report_generate (group m, 05:15) — if it fails this task finds no report files', 'No email is sent here; emails are handled by kpi_sp_consumables / kpi_sp_spareparts'],
+    },
+  },
+  {
     id: 'kpi_ran_availability', group: 'm', cron: '30 9 * * *',
     script: 'services/kpi_email_report.py → run_ran_availability',
     zh: {

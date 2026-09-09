@@ -301,6 +301,10 @@ TASK_IO: dict[str, list[str]] = {
     # 18-19. SP 报表邮件
     "kpi_sp_spareparts": ["远程FTP: /01_RPA/LBR_Tools/SP/sp_report (数据+名单)"],
     "kpi_sp_consumables": ["远程FTP: /01_RPA/LBR_Tools/SP/sp_report (数据+名单)"],
+    # 19f. Comsumables & SpareParts 报表 WhatsApp 发送
+    "sp_whatsapp_report": ["本地文件: data/sp_email/*Comsumables*.xlsx|*.png",
+                           "本地文件: data/sp_email/*SpareParts*.xlsx|*.png",
+                           "WhatsApp 群: WH&SP Management"],
     # 20. RAN Availability 邮件
     "kpi_ran_availability": ["远程FTP: /01_RPA/LBR_Tools/KPI/RAN/ORANGE (图片+名单)"],
     # 21. 邮件补发

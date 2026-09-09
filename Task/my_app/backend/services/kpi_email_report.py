@@ -79,6 +79,10 @@ _SP_ONLINE_DATA = MY_APP_DIR / "data" / "sp_email" / "sp_online"
 _SP_ONLINE_GEN_SCRIPT = Path(__file__).resolve().parent / "sp_report_gen" / "generate_sp_online_report.py"
 # WhatsApp 目标群组（用户指定，独立于 WHATSAPP_GROUPS）
 _SP_ONLINE_WA_GROUPS = ["WH&SP Management"]
+# Comsumables & SpareParts 报表 WhatsApp 发送目标群组（07:15）
+_SP_WA_GROUPS = ["WH&SP Management"]
+# Comsumables & SpareParts 报表 WhatsApp 发送的报表类别（与邮件任务口径一致）
+_SP_WA_REPORT_LABELS = ("Comsumables", "SpareParts")
 _RAN_DATA = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE"                      # 远程 FTP
 _RAN_EMAIL = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE/email"               # 远程 FTP
 
@@ -564,6 +568,71 @@ def run_sp_online_report(to: str = None, cc: str = None) -> dict:
     }
     if errors:
         res["error"] = " | ".join(errors)
+    return res
+
+
+def _pick_sp_report_assets(name_filter: str):
+    """在 data/sp_email 下选取某类报表（Comsumables / SpareParts）的「邮件同款」产物。
+
+    与邮件任务保持同一口径：
+      - Excel：``_pick_consolidated`` 选出的合并总表（文件名不含 " - Liberia"），
+        与 run_sp_spareparts / run_sp_consumables 发给收件人的那份一致；
+      - 图片：该类报表的全部 PNG，主图在前、"Summary-Changed" 摘要图在后。
+    """
+    xlsxs = [f for f in _SP_LOCAL_DATA.glob("*.xlsx")
+             if not f.name.startswith("~$") and name_filter in f.name]
+    excel = _pick_consolidated(xlsxs)
+    pngs = [f for f in list(_SP_LOCAL_DATA.glob("*.png")) + list(_SP_LOCAL_DATA.glob("*.jpg"))
+            if not f.name.startswith("~$") and name_filter in f.name]
+    pngs.sort(key=lambda p: (1 if "Summary-Changed" in p.name else 0, p.name))
+    return excel, pngs
+
+
+def run_sp_whatsapp_report() -> dict:
+    """Comsumables & SpareParts 报表 WhatsApp 发送（每天 07:15）。
+
+    把 kpi_sp_consumables / kpi_sp_spareparts 两个邮件任务使用的同一批产物
+    （各类报表的合并总表 XLSX + 报表 PNG）发送到 WhatsApp 群 WH&SP Management。
+    只发 WhatsApp，不重复发邮件。
+    """
+    if not _SP_LOCAL_DATA.is_dir():
+        return {"success": False, "error": f"报表目录不存在: {_SP_LOCAL_DATA}（请先运行 sp_report_generate 任务）"}
+
+    photos: List[str] = []
+    captions: List[str] = []
+    files: List[str] = []
+    for label in _SP_WA_REPORT_LABELS:
+        excel, pngs = _pick_sp_report_assets(label)
+        if excel is None:
+            return {"success": False, "error": f"未在 {_SP_LOCAL_DATA} 找到 {label} 报表 XLSX（请先运行 sp_report_generate 任务）"}
+        if not pngs:
+            return {"success": False, "error": f"未在 {_SP_LOCAL_DATA} 找到 {label} 报表图片（请先运行 sp_report_generate 任务）"}
+        files.append(str(excel))
+        for p in pngs:
+            photos.append(str(p))
+            captions.append(f"*{label} {p.stem}*")
+
+    try:
+        from backend.services.whatsapp_service import run_whatsapp_send
+        wa_res = run_whatsapp_send(
+            photos=photos,
+            captions=captions,
+            files=files,
+            groups=_SP_WA_GROUPS,
+        )
+    except Exception as e:
+        wa_res = {"success": False, "groups_sent": [], "errors": [f"WhatsApp 发送异常: {e}"]}
+
+    wa_ok = bool(wa_res.get("success"))
+    res = {
+        "success": wa_ok,
+        "message": f"WhatsApp={'OK' if wa_ok else 'FAIL'} (groups_sent={wa_res.get('groups_sent')})",
+        "photos": photos,
+        "files": files,
+        "whatsapp": {k: wa_res.get(k) for k in ("success", "groups_sent", "errors", "elapsed_seconds")},
+    }
+    if not wa_ok:
+        res["error"] = "; ".join(wa_res.get("errors") or ["WhatsApp 发送失败"])
     return res
 
 

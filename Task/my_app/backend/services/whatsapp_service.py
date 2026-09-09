@@ -88,6 +88,21 @@ SELECTORS = {
 }
 
 
+# 文档预览就绪 / 发送按钮候选（WhatsApp Web 各版本选择器可能不同，逐个尝试）
+_DOC_PREVIEW_SELECTORS = (
+    'div[aria-label="添加小标题"]',
+    'div[aria-label="Add a caption"]',
+    'div[contenteditable="true"][data-tab="10"]',
+)
+_SEND_BUTTON_SELECTORS = (
+    "span[data-icon='send']",
+    "span[data-testid='send']",
+    "div[aria-label='Send']",
+    "button[aria-label='Send']",
+    "div[role='button'][aria-label*='Send' i]",
+)
+
+
 def _get_latest_site_outage():
     """获取最新的 site outage xlsx 文件"""
     pattern = os.path.join(SITE_OUTAGE_DIR, "*site_outage_*")
@@ -354,8 +369,87 @@ def _fast_send_photos(page, photo_caption_pairs):
         page.wait_for_timeout(500)
 
 
+def _pick_file_input(page, want_image: bool):
+    """在附件菜单展开后的 input[type=file] 中按 accept 挑选正确的那个。
+
+    WhatsApp Web 同一时刻通常存在多个隐藏 input：一个 accept 含 ``image``
+    （照片/视频），另一个 accept 为空或 ``*/*``（文档）。发 Excel 时若误选图片
+    input，前端会**静默丢弃**该文件：既不出预览也不报错，随后的 Enter 打在空气上，
+    表现为「只发出图片、文件没到群」。
+    """
+    inputs = page.locator('input[type="file"]')
+    n = inputs.count()
+    if n == 0:
+        return None
+    fallback = None
+    for i in range(n):
+        el = inputs.nth(i)
+        try:
+            acc = (el.get_attribute("accept") or "").lower()
+        except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _pick_file_input: exception swallowed", exc_info=True)
+            acc = ""
+        _info(f"  file input[{i}] accept={acc!r}")
+        if fallback is None:
+            fallback = el
+        is_image_input = "image" in acc
+        if want_image and (is_image_input or acc == "" or "*/*" in acc):
+            return el
+        if (not want_image) and (not is_image_input):
+            return el
+    return inputs.last if want_image else fallback
+
+
+def _msg_count(page) -> int:
+    try:
+        return page.locator("div[role='row'], div[data-testid='msg-container']").count()
+    except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _msg_count: exception swallowed", exc_info=True)
+        return -1
+
+
+def _verify_file_sent(page, file_name: str, timeout: int = 20) -> bool:
+    """确认群里确实出现了该文档消息。
+
+    WhatsApp 给文档消息的下载入口 title/aria-label 形如 ``下载"<文件名>"`` /
+    ``Download "<file name>"``。用它做判据比「数消息条数」可靠——聊天列表是虚拟
+    列表，DOM 节点数不随新消息线性增长（实测新增 2 条消息后计数仍是 42）。
+    """
+    safe = (file_name or "").replace('"', "").replace("\\", "")
+    if not safe:
+        return False
+    sels = (
+        f'div[title*="{safe}"]',
+        f'span[title*="{safe}"]',
+        f'div[aria-label*="{safe}"]',
+    )
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for sel in sels:
+            try:
+                if page.locator(sel).count() > 0:
+                    return True
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _verify_file_sent: exception swallowed", exc_info=True)
+                continue
+        page.wait_for_timeout(1000)
+    return False
+
+
 def _fast_send_file(page, file_path):
-    """优先附件 input，失败再剪贴板。"""
+    """发送单个文件（Excel 等文档）：优先附件 input，失败再剪贴板。
+
+    2026-09-09 修复「Excel 发不出去，群里只收到图片」：
+      1) 按 accept 挑「文档 input」，不再盲取 ``inputs.last``——页面上那个
+         唯一的 input 是 ``accept="image/*"``，xlsx 会被前端静默丢弃；
+      2) set_input_files 后必须等到预览/发送按钮出现（大文件前端生成预览要时间），
+         否则 Enter 打在空气上；
+      3) **不再无条件 ``sent = True``**：原实现只要没抛异常就算成功，于是假成功后
+         跳过剪贴板兜底，Excel 实际没发出却报 success。现在未确认发出就走兜底。
+
+    发送后用 ``_verify_file_sent`` 核对群里是否真出现该文档，仅用于日志证据，
+    **不会**因核对失败而重发（避免群里出现重复文件）。
+    """
     if not file_path or not os.path.exists(file_path):
         return
 
@@ -368,13 +462,48 @@ def _fast_send_file(page, file_path):
         try:
             attach.click(timeout=5000)
             page.wait_for_timeout(400)
-            inputs = page.locator('input[type="file"]')
-            if inputs.count() > 0:
-                inputs.last.set_input_files(file_path)
-                page.wait_for_timeout(1000)
-                page.keyboard.press("Enter")
-                page.wait_for_timeout(800)
-                sent = True
+            target = _pick_file_input(page, want_image=False)
+            if target is None:
+                _warn("未找到任何 file input")
+            else:
+                target.set_input_files(file_path)
+                # 等文档预览就绪：先等 caption 框，再等发送按钮（大文件可能要几秒）
+                ready = None
+                for sel in _DOC_PREVIEW_SELECTORS + _SEND_BUTTON_SELECTORS:
+                    try:
+                        loc = page.locator(sel).first
+                        loc.wait_for(state="visible", timeout=15000)
+                        ready = loc
+                        _info(f"  文档预览就绪: {sel}")
+                        break
+                    except Exception:
+                        continue
+                if ready is None:
+                    _warn("等不到文档预览/发送按钮，判定为未发送")
+                else:
+                    btn = None
+                    for sel in _SEND_BUTTON_SELECTORS:
+                        try:
+                            loc = page.locator(sel).first
+                            if loc.is_visible(timeout=2000):
+                                btn = loc
+                                break
+                        except Exception:
+                            continue
+                    if btn is not None:
+                        try:
+                            btn.click(timeout=5000)
+                        except Exception as e:
+                            _warn(f"点击发送按钮失败({e})，改用 Enter")
+                            page.keyboard.press("Enter")
+                    else:
+                        page.keyboard.press("Enter")
+                    page.wait_for_timeout(2000)
+                    if _verify_file_sent(page, os.path.basename(file_path)):
+                        _success(f"文件已发出（群内已核对到）: {os.path.basename(file_path)}")
+                        sent = True
+                    else:
+                        _warn(f"未在群内核对到 {os.path.basename(file_path)}，判定未发出")
         except Exception as e:
             _warn(f"file input 发文件失败: {e}")
             try:
@@ -384,12 +513,17 @@ def _fast_send_file(page, file_path):
                 pass
 
     if not sent:
+        _info("改用剪贴板发送文件")
         _copy_file_to_clipboard(file_path)
         page.locator("#main").click(force=True)
         page.keyboard.press("Control+v")
-        page.wait_for_timeout(1200)
+        page.wait_for_timeout(2000)
         page.keyboard.press("Enter")
-        page.wait_for_timeout(800)
+        page.wait_for_timeout(2000)
+        if _verify_file_sent(page, os.path.basename(file_path)):
+            _success(f"剪贴板文件已发出（群内已核对到）: {os.path.basename(file_path)}")
+        else:
+            _warn(f"剪贴板发送后仍未在群内核对到 {os.path.basename(file_path)}（不重发，请人工核对）")
 
 
 def _wait_for_last_message_sent(page, timeout=60):

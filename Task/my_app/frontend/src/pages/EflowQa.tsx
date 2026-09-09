@@ -470,7 +470,7 @@ export default function EflowQa() {
       }
     }).catch(() => setTtError(t('qa.tt.failed'))).finally(() => setTtLoading(false))
     // AI 结论并行请求（Open WebUI「TT单分析」技能，约 10s）
-    api.get('/eflow-qa/tt-ai', { params: { tt: clean } }).then(res => {
+    api.get('/eflow-qa/tt-ai', { params: { tt: clean, lang: locale } }).then(res => {
       setTtAi(res.data.ai)
       const rep = res.data.report
       // tt-ai 内部同样会回填 eFlow 兜底结果，告警块未到则顺带补上
@@ -481,7 +481,7 @@ export default function EflowQa() {
       setTtUme(res.data)
       if (res.data?.aid) setTtAid(res.data.aid)
     }).catch(() => setTtUmeFailed(true)).finally(() => setTtUmeLoading(false))
-  }, [t])
+  }, [t, locale])
 
   // ===== 文档树 =====
   useEffect(() => {

@@ -61,6 +61,69 @@ function taskTimelineColor(taskId: string): string {
   return TASK_TIMELINE_COLORS[Math.abs(hash) % TASK_TIMELINE_COLORS.length]
 }
 
+// 展开标准 5 段 Cron 在可见时间窗内的触发时刻。逐分钟匹配可覆盖列表、范围和步长，
+// 同时设置点数上限，避免“每分钟”任务在一周视图中创建过多 DOM 节点。
+function cronTimesInWindow(cron: string, startTs: number, endTs: number, limit = 500): number[] {
+  const fields = cron.trim().split(/\s+/)
+  if (fields.length !== 5 || endTs <= startTs) return []
+
+  const parseField = (field: string, min: number, max: number, normalizeDow = false): Set<number> | null => {
+    const values = new Set<number>()
+    const add = (raw: number) => {
+      const value = normalizeDow && raw === 7 ? 0 : raw
+      if (value >= min && value <= max) values.add(value)
+    }
+    try {
+      for (const part of field.split(',')) {
+        const [base, stepRaw] = part.split('/')
+        const step = stepRaw === undefined ? 1 : Number(stepRaw)
+        if (!Number.isInteger(step) || step <= 0) return null
+        let from = min
+        let to = max
+        if (base !== '*') {
+          if (base.includes('-')) {
+            const [a, b] = base.split('-').map(Number)
+            if (!Number.isInteger(a) || !Number.isInteger(b) || a > b) return null
+            from = a; to = b
+          } else {
+            const value = Number(base)
+            if (!Number.isInteger(value)) return null
+            from = value; to = value
+          }
+        }
+        for (let value = from; value <= to; value += step) add(value)
+      }
+      return values
+    } catch { return null }
+  }
+
+  const [minuteRaw, hourRaw, dayRaw, monthRaw, dowRaw] = fields
+  const minute = parseField(minuteRaw, 0, 59)
+  const hour = parseField(hourRaw, 0, 23)
+  const day = parseField(dayRaw, 1, 31)
+  const month = parseField(monthRaw, 1, 12)
+  const dow = parseField(dowRaw, 0, 7, true)
+  if (!minute || !hour || !day || !month || !dow) return []
+
+  const out: number[] = []
+  const cursor = new Date(startTs)
+  cursor.setSeconds(0, 0)
+  if (cursor.getTime() < startTs) cursor.setMinutes(cursor.getMinutes() + 1)
+  const dayWildcard = dayRaw === '*'
+  const dowWildcard = dowRaw === '*'
+  while (cursor.getTime() <= endTs && out.length < limit) {
+    const dayMatches = day.has(cursor.getDate())
+    const dowMatches = dow.has(cursor.getDay())
+    // Cron 中日与星期同时受限时采用 OR；任一为 * 时由另一项决定。
+    const calendarMatches = dayWildcard ? dowMatches : dowWildcard ? dayMatches : dayMatches || dowMatches
+    if (minute.has(cursor.getMinutes()) && hour.has(cursor.getHours()) && month.has(cursor.getMonth() + 1) && calendarMatches) {
+      out.push(cursor.getTime())
+    }
+    cursor.setMinutes(cursor.getMinutes() + 1)
+  }
+  return out
+}
+
 // 任务状态分类：统计模块与筛选共用同一判定，保证“数字”与“筛选结果”严格一致
 export type TaskStatusKey = 'all' | 'running' | 'success' | 'failed' | 'disabled' | 'unknown'
 
@@ -565,21 +628,22 @@ export default function DataSync() {
             outside: ts < startTs || ts > endTs,
             percent: Math.max(0, Math.min(100, ((ts - startTs) / (endTs - startTs)) * 100)),
           }
-    // 每个任务最多两个点：
-    // last = 最近一次执行的实际开始时间（表达 运行中/失败/已执行）
-    // next = 调度器的 next_run（表达 将要执行）
-    // 单个点无法同时表达“已执行”和“将要执行”，因此拆成两点，避免被 next_run 恒为未来而全部染绿。
+    // 每个任务保留最近一次实际执行点，并按 current_cron 展开可见时间窗内的所有计划点。
+    // next_run 仍作为调度器真实的下一次时间用于 Tooltip；Cron 解析失败时回退只画该点。
     const dated = allTasks
       .map((task, index) => {
         const nextTs = task.next_run ? new Date(task.next_run).getTime() : Number.NaN
         const latestRun = task.recent_runs?.[0]
         const startedTs = latestRun?.started_at ? new Date(latestRun.started_at).getTime() : Number.NaN
+        // 绿色只表示尚未发生的计划执行；历史时间不能继续标成 Scheduled。
+        const scheduledTs = task.enabled ? cronTimesInWindow(task.current_cron, Math.max(startTs, nowTs), endTs) : []
+        if (scheduledTs.length === 0 && Number.isFinite(nextTs) && nextTs >= nowTs) scheduledTs.push(nextTs)
         return {
           task,
           index,
           parsed: Number.isFinite(nextTs) ? nextTs : null,
           last: toPoint(Number.isFinite(startedTs) ? startedTs : null),
-          next: toPoint(Number.isFinite(nextTs) ? nextTs : null),
+          scheduled: scheduledTs.map(ts => toPoint(ts)).filter((point): point is NonNullable<ReturnType<typeof toPoint>> => point !== null),
         }
       })
       .sort((a, b) => (a.parsed ?? Number.POSITIVE_INFINITY) - (b.parsed ?? Number.POSITIVE_INFINITY))
@@ -592,12 +656,10 @@ export default function DataSync() {
     const laneFreeAt: number[] = []
     const laneOf = new Map<string, number>()
     dated
-      .flatMap(item => (
-        [
-          { key: `${item.task.task_id}:last`, percent: item.last?.percent },
-          { key: `${item.task.task_id}:next`, percent: item.next?.percent },
-        ] as { key: string; percent: number | undefined }[]
-      ))
+      .flatMap(item => [
+        { key: `${item.task.task_id}:last`, percent: item.last?.percent },
+        ...item.scheduled.map((point, pointIndex) => ({ key: `${item.task.task_id}:scheduled:${pointIndex}`, percent: point.percent })),
+      ])
       .filter(d => typeof d.percent === 'number')
       .sort((a, b) => (a.percent as number) - (b.percent as number))
       .forEach(d => {
@@ -980,7 +1042,7 @@ export default function DataSync() {
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} style={{ position: 'absolute', left: `${i * 25}%`, top: `calc(${axisBox.axis} - 0.4rem)`, width: 1, height: '0.8rem', background: 'var(--wh-subtle-border)' }} />
           ))}
-          {timeline.dated.map(({ task, index, parsed, last, next }) => {
+          {timeline.dated.map(({ task, parsed, last, scheduled }) => {
             const isRunning = !!(runningMap[task.task_id] || localRunning.has(task.task_id))
             const latestRun = task.recent_runs?.[0]
             const failed = !isRunning && latestRun?.success === false
@@ -990,7 +1052,7 @@ export default function DataSync() {
               : failed ? (locale === 'zh' ? '最近执行失败' : 'Last run failed')
               : !task.enabled ? (locale === 'zh' ? '已禁用' : 'Disabled')
               : (locale === 'zh' ? '已执行' : 'Executed')
-            // 下次执行点：空心描边，表达“将要执行”
+            // 计划执行点：实心浅绿色；运行中的任务使用蓝色，禁用任务不展开计划点。
             const nextColor = !task.enabled ? '#000000' : isRunning ? WH.blue : '#b7eb8f'
             const nextLabel = !task.enabled ? (locale === 'zh' ? '已禁用（未排程）' : 'Disabled')
               : isRunning ? (locale === 'zh' ? '本次完成后再次执行' : 'Next run after this one')
@@ -1007,13 +1069,13 @@ export default function DataSync() {
             const sizeOf = (color: string, hollow: boolean) =>
               !hollow && color === '#8c8c8c' ? '0.5rem' : '0.7rem'
             const dots = [
-              { kind: 'last', point: last, color: lastColor, label: lastLabel, hollow: false, size: sizeOf(lastColor, false) },
-              { kind: 'next', point: next, color: nextColor, label: nextLabel, hollow: true, size: sizeOf(nextColor, true) },
-            ].filter(d => d.point !== null) as {
+              ...(last ? [{ kind: 'last', point: last, color: lastColor, label: lastLabel, hollow: false, size: sizeOf(lastColor, false) }] : []),
+              ...scheduled.map((point, pointIndex) => ({ kind: `scheduled:${pointIndex}`, point, color: nextColor, label: nextLabel, hollow: false, size: '0.58rem' })),
+            ] as {
               kind: string; point: { ts: number; percent: number; outside: boolean }; color: string; label: string; hollow: boolean; size: string
             }[]
-            // 已禁用且没有 next_run：仍要在右端留下一个黑色点，避免任务在时间线上完全消失
-            if (dots.length === 0) dots.push({ kind: 'unscheduled', point: { ts: 0, percent: 100, outside: false }, color: task.enabled ? taskTimelineColor(task.task_id) : '#000000', label: locale === 'zh' ? '未排程' : 'Not scheduled', hollow: true, size: '0.7rem' })
+            // 没有执行记录且没有可见计划时，在右端保留一个点，避免任务完全消失。
+            if (dots.length === 0) dots.push({ kind: 'unscheduled', point: { ts: 0, percent: 100, outside: false }, color: task.enabled ? taskTimelineColor(task.task_id) : '#000000', label: locale === 'zh' ? '未排程' : 'Not scheduled', hollow: false, size: '0.7rem' })
 
             return dots.map(d => (
               <Tooltip key={`${task.task_id}:${d.kind}`} placement="top" title={
@@ -1021,7 +1083,7 @@ export default function DataSync() {
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>{task.name}</div>
                   <div style={{ color: d.color, marginBottom: 4 }}>{d.label}</div>
                   <div>{locale === 'zh' ? '最近执行：' : 'Last run: '}{executedText}</div>
-                  <div>{locale === 'zh' ? '下次执行：' : 'Next run: '}{nextText}</div>
+                  <div>{d.kind.startsWith('scheduled:') ? (locale === 'zh' ? '计划时刻：' : 'Scheduled at: ') + fmt(d.point.ts) : (locale === 'zh' ? '下次执行：' : 'Next run: ') + nextText}</div>
                   <div>{locale === 'zh' ? '设置：' : 'Schedule: '}{task.current_cron}</div>
                   {d.point.outside && <div style={{ color: '#ffd666' }}>{locale === 'zh' ? `该点位实际在时间窗外（${fmt(d.point.ts)}）` : `Actually outside window (${fmt(d.point.ts)})`}</div>}
                 </div>
@@ -1068,9 +1130,9 @@ export default function DataSync() {
             <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: WH.blue, marginRight: 4 }} />{locale === 'zh' ? '运行中' : 'Running'}</span>
             <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: '#ff4d4f', marginRight: 4 }} />{locale === 'zh' ? '失败' : 'Failed'}</span>
             <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: '#8c8c8c', marginRight: 4 }} />{locale === 'zh' ? '已执行' : 'Executed'}</span>
-            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', border: '2px dashed #b7eb8f', marginRight: 4 }} />{locale === 'zh' ? '将要执行' : 'Upcoming'}</span>
+            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: '#b7eb8f', marginRight: 4 }} />{locale === 'zh' ? '计划执行' : 'Scheduled'}</span>
             <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: '#000000', marginRight: 4 }} />{locale === 'zh' ? '已禁用' : 'Disabled'}</span>
-            <span>{locale === 'zh' ? '实心=已发生 · 空心=计划' : 'Solid = happened · dashed = planned'}</span>
+            <span>{locale === 'zh' ? '每个点代表一次实际或计划执行' : 'Each dot is an actual or scheduled run'}</span>
           </Space>
         </div>
         {selectedTimelineTask && (

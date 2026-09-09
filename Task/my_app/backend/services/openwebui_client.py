@@ -184,9 +184,17 @@ def chat(system_text: str, user_text: str, token: str) -> str:
         raise RuntimeError(f"对话响应结构异常: {str(data)[:200]}") from e
 
 
-def analyze_tt(skill_prompt: str, with_rules: bool = True) -> Dict[str, Any]:
-    """对 inspect_tt 拼出的技能入参做「TT单分析」，返回结论 dict。
+def _is_mainly_chinese(text: str) -> bool:
+    """判断模型结果是否仍以中文为主（少量中文源值不触发英译兜底）。"""
+    cjk_count = len(re.findall(r"[\u3400-\u9fff]", text or ""))
+    latin_count = len(re.findall(r"[A-Za-z]", text or ""))
+    return cjk_count >= 8 and cjk_count / max(cjk_count + latin_count, 1) >= 0.15
 
+
+def analyze_tt(skill_prompt: str, with_rules: bool = True, lang: str = "zh") -> Dict[str, Any]:
+    """对 inspect_tt 拼出的技能入参做「TT单分析」，返回指定语言的结论 dict。
+
+    lang 支持 zh/en；默认 zh 以兼容现有调用。
     返回: {"ok": True, "conclusion", "model", "skill_title", "elapsed_sec"}
           {"ok": False, "error", "elapsed_sec"}
     """
@@ -198,9 +206,32 @@ def analyze_tt(skill_prompt: str, with_rules: bool = True) -> Dict[str, Any]:
         if with_rules:
             system_text += "\n\n【TT单分析规则库（eflow_TT_rules.xlsx，仅 ACTIVE 规则）】\n" \
                 + load_active_rules()
-        conclusion = chat(system_text, skill_prompt, token)
-        return {"ok": True, "conclusion": conclusion.strip(),
+        language_instruction = (
+            "Respond entirely in English. Keep identifiers, alarm codes, site names, "
+            "field names, and quoted source values unchanged."
+            if lang == "en"
+            else "请全部使用简体中文回答；标识符、告警码、站点名、字段名和引用的源值保持原样。"
+        )
+        system_text += f"\n\n【Output language / 输出语言】\n{language_instruction}"
+        user_text = f"{skill_prompt}\n\nMANDATORY OUTPUT LANGUAGE: {'English only' if lang == 'en' else '简体中文'}"
+        conclusion = chat(system_text, user_text, token).strip()
+
+        # 个别 TT 技能模板会强制中文，覆盖通用 system 指令；英文环境下检测到
+        # 结果仍以中文为主时，用独立翻译上下文做一次兜底，不再携带原技能模板。
+        language_rewritten = False
+        if lang == "en" and _is_mainly_chinese(conclusion):
+            translation_system = (
+                "You are a precise telecom operations translator. Translate the complete "
+                "TT analysis below into English. Preserve Markdown structure, identifiers, "
+                "alarm codes, rule IDs, site names, field names, quoted source values, and "
+                "all factual meaning. Output only the English analysis; do not add commentary."
+            )
+            conclusion = chat(translation_system, conclusion, token).strip()
+            language_rewritten = True
+
+        return {"ok": True, "conclusion": conclusion,
                 "model": MODEL, "skill_title": skill.get("title"),
+                "language": lang, "language_rewritten": language_rewritten,
                 "elapsed_sec": round(time.time() - t0, 2)}
     except Exception as e:  # noqa: BLE001
         logger.exception("TT单分析失败")
