@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import {
   Sparkles,
   Plus,
@@ -144,7 +144,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   );
 
   return (
-    <header className="sticky top-0 z-40 bg-white/90 dark:bg-navy-900/90 backdrop-blur-md border-b border-slate-200/90 dark:border-navy-800/90">
+    <header className="spatial-navbar sticky top-0 z-40 bg-white/90 dark:bg-navy-900/90 backdrop-blur-md border-b border-slate-200/90 dark:border-navy-800/90">
       <div className="w-full mx-auto px-3 sm:px-6 lg:px-8 xl:px-10 min-h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4 flex-wrap sm:flex-nowrap">
         {/* Left: Brand / Logo */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">

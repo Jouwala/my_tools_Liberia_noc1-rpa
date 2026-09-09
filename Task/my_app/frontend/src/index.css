@@ -32,6 +32,11 @@
   --wh-warn-text: #ffa940;
   --wh-input-bg: rgba(255, 255, 255, 0.05);
   --wh-input-border: rgba(100, 255, 218, 0.18);
+  --wh-surface-glass: rgba(15, 39, 68, 0.72);
+  --wh-surface-glass-strong: rgba(10, 25, 41, 0.88);
+  --wh-overlay: rgba(2, 10, 20, 0.58);
+  --wh-focus-ring: 0 0 0 3px rgba(100, 255, 218, 0.28);
+  --wh-shadow-soft: 0 12px 32px rgba(0, 0, 0, 0.28);
 
   /* ---------- 响应式布局令牌（统一以 rem 为基准，16px = 1rem） ---------- */
   /* 根字体基准由 html 的 font-size 控制，Windows 缩放/高 DPI 会随系统字体设置自然放大 */
@@ -65,9 +70,9 @@
 }
 
 :root[data-theme='light'] {
-  --wh-bg: linear-gradient(180deg, #f2f7fc 0%, #e8f0f8 100%);
-  --wh-card-bg: linear-gradient(145deg, #ffffff 0%, #f4f9fd 100%);
-  --wh-card-border: 1px solid rgba(13, 148, 136, 0.28);
+  --wh-bg: linear-gradient(155deg, #e9eef3 0%, #f5f7f9 52%, #e7edf2 100%);
+  --wh-card-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.82) 0%, rgba(241, 245, 248, 0.68) 100%);
+  --wh-card-border: 1px solid rgba(94, 125, 143, 0.22);
   --wh-card-border-hover: 1px solid rgba(13, 148, 136, 0.65);
   --wh-teal: #0d9488;
   --wh-blue: #0e7490;
@@ -84,18 +89,23 @@
   --wh-teal-27: rgba(13, 148, 136, 0.27);
   --wh-teal-40: rgba(13, 148, 136, 0.40);
   --wh-teal-53: rgba(13, 148, 136, 0.53);
-  --wh-page-bg: #eef4fa;
-  --wh-hover-row: rgba(13, 148, 136, 0.07);
+  --wh-page-bg: #e9eef3;
+  --wh-hover-row: rgba(71, 101, 119, 0.06);
   --wh-table-sort-icon: #5b7288;
-  --wh-seg-bg: rgba(13, 148, 136, 0.10);
-  /* 语义辅助色（浅色主题下加深，保证对比度） */
-  --wh-subtle-bg: rgba(13, 148, 136, 0.05);
-  --wh-subtle-border: rgba(13, 148, 136, 0.18);
+  --wh-seg-bg: rgba(71, 101, 119, 0.08);
+  /* 中性雾蓝灰表面；青色只用于交互信号 */
+  --wh-subtle-bg: rgba(255, 255, 255, 0.46);
+  --wh-subtle-border: rgba(94, 125, 143, 0.20);
   --wh-error-text: #c0392b;
   --wh-success-text: #15803d;
   --wh-warn-text: #b45309;
-  --wh-input-bg: rgba(255, 255, 255, 0.9);
-  --wh-input-border: rgba(13, 148, 136, 0.35);
+  --wh-input-bg: rgba(255, 255, 255, 0.82);
+  --wh-input-border: rgba(94, 125, 143, 0.28);
+  --wh-surface-glass: rgba(255, 255, 255, 0.72);
+  --wh-surface-glass-strong: rgba(247, 251, 253, 0.9);
+  --wh-overlay: rgba(31, 53, 68, 0.28);
+  --wh-focus-ring: 0 0 0 3px rgba(13, 148, 136, 0.22);
+  --wh-shadow-soft: 0 12px 32px rgba(51, 79, 96, 0.16);
 }
 
 * {
@@ -117,6 +127,62 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* 统一外壳玻璃层：所有 antd 控件继承主题表面，不再依赖页面硬编码背景 */
+.app-spatial-root,
+.spatial-panel,
+.spatial-navbar {
+  background: var(--wh-surface-glass) !important;
+  border-color: var(--wh-subtle-border) !important;
+  backdrop-filter: blur(18px) saturate(135%);
+  -webkit-backdrop-filter: blur(18px) saturate(135%);
+}
+.spatial-panel {
+  box-shadow: var(--wh-shadow-soft);
+}
+.spatial-navbar {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16) !important;
+}
+.ant-layout,
+.ant-menu,
+.ant-menu-sub,
+.ant-select-selector,
+.ant-btn,
+.ant-dropdown,
+.ant-dropdown-menu {
+  background-color: transparent;
+}
+.ant-btn:focus-visible,
+.ant-select-focused .ant-select-selector,
+.ant-menu-item:focus-visible {
+  outline: none;
+  box-shadow: var(--wh-focus-ring) !important;
+}
+@supports not ((backdrop-filter: blur(1px))) {
+  .app-spatial-root,
+  .spatial-panel,
+  .spatial-navbar {
+    background: var(--wh-surface-glass-strong) !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.wh-sider-backdrop {
+  position: fixed;
+  inset: var(--wh-header-height) 0 0;
+  z-index: 999;
+  border: 0;
+  background: var(--wh-overlay);
+  backdrop-filter: blur(3px);
+  cursor: pointer;
+}
+
 
 /* ---------- 响应式根字体：兼容 1080P/2K/4K 与 Windows 高 DPI 缩放 ---------- */
 /* 16px 为基准；在宽屏上轻微放大以提升 2K/4K 可读性，同时尊重系统缩放设置 */
@@ -311,7 +377,7 @@ html {
   .wh-sider-toggle .anticon {
     font-size: 1.25rem !important;
   }
-  html.dark .wh-sider-toggle {
+  :root[data-theme='dark'] .wh-sider-toggle {
     background: rgba(100, 255, 218, 0.12) !important;
     border-color: rgba(100, 255, 218, 0.35) !important;
   }
@@ -420,10 +486,68 @@ html {
   font-weight: 600;
 }
 .ant-menu-inline .ant-menu-item {
-  border-radius: 0 4px 4px 0 !important;
+  border-radius: 0 var(--wh-radius-sm) var(--wh-radius-sm) 0 !important;
   margin-inline: 0 4px !important;
   width: calc(100% - 4px) !important;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* ---------- 浅色主题液态玻璃增强：用色差、折射边缘和双层阴影建立空间层级 ---------- */
+:root[data-theme='light'] body {
+  background: linear-gradient(155deg, #e9eef3 0%, #f5f7f9 52%, #e7edf2 100%);
+  background-attachment: fixed;
+}
+:root[data-theme='light'] #root { position: relative; isolation: isolate; }
+:root[data-theme='light'] .ant-layout,
+:root[data-theme='light'] .ant-layout-content { background: transparent !important; }
+:root[data-theme='light'] .wh-page-wrap {
+  position: relative;
+  background: var(--wh-bg);
+  border: 1px solid rgba(255,255,255,.78);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.94), 0 22px 56px rgba(38,70,86,.075);
+}
+:root[data-theme='light'] .ant-card,
+:root[data-theme='light'] .wh-stat-card,
+:root[data-theme='light'] .dcm-modal {
+  background: var(--wh-card-bg) !important;
+  border-color: rgba(94,125,143,.22) !important;
+  box-shadow: 0 18px 42px rgba(38,70,86,.11), 0 3px 10px rgba(38,70,86,.08), inset 0 1px 0 rgba(255,255,255,.96) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(145%);
+  backdrop-filter: blur(20px) saturate(145%);
+}
+:root[data-theme='light'] .ant-card { position: relative; overflow: hidden; }
+:root[data-theme='light'] .ant-card::before,
+:root[data-theme='light'] .wh-stat-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(118deg, rgba(255,255,255,.52), transparent 31%, transparent 76%, rgba(112,143,160,.045));
+  border-radius: inherit;
+}
+:root[data-theme='light'] .ant-card-body,
+:root[data-theme='light'] .ant-card-head,
+:root[data-theme='light'] .wh-stat-card > * { position: relative; z-index: 1; }
+:root[data-theme='light'] .wh-card-interactive:hover,
+:root[data-theme='light'] .wh-stat-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(13,148,136,.58) !important;
+  box-shadow: 0 24px 55px rgba(15,56,75,.18), 0 0 0 1px rgba(45,212,191,.10), inset 0 1px 0 rgba(255,255,255,1) !important;
+}
+:root[data-theme='light'] .ant-modal-content,
+:root[data-theme='light'] .ant-drawer-content,
+:root[data-theme='light'] .ant-popover-inner,
+:root[data-theme='light'] .ant-dropdown-menu {
+  background: rgba(255,255,255,.78) !important;
+  border: 1px solid rgba(14,116,144,.20);
+  box-shadow: 0 24px 64px rgba(15,56,75,.18), inset 0 1px 0 rgba(255,255,255,.96) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: blur(24px) saturate(150%);
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root[data-theme='light'] .ant-card,
+  :root[data-theme='light'] .wh-stat-card,
+  :root[data-theme='light'] .dcm-modal { background: #f8fcfe !important; }
 }
 
 /* ---------- 卡片悬浮与发光动画 ---------- */
@@ -437,8 +561,8 @@ html {
 }
 :root[data-theme='light'] .wh-card-interactive:hover {
   transform: translateY(-2px);
-  border-color: rgba(13, 148, 136, 0.5) !important;
-  box-shadow: 0 8px 20px rgba(13, 148, 136, 0.14) !important;
+  border-color: rgba(13, 148, 136, 0.48) !important;
+  box-shadow: 0 16px 34px rgba(38,70,86,.14), 0 0 0 1px rgba(13,148,136,.08) !important;
 }
 
 /* ---------- StatCard 统计卡片通用样式 ---------- */
@@ -462,8 +586,8 @@ html {
 }
 :root[data-theme='light'] .wh-stat-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(13, 148, 136, 0.5);
-  box-shadow: 0 8px 20px rgba(13, 148, 136, 0.14);
+  border-color: rgba(13, 148, 136, 0.48);
+  box-shadow: 0 16px 34px rgba(38,70,86,.14), 0 0 0 1px rgba(13,148,136,.08);
 }
 .wh-stat-card::after {
   content: '';
@@ -489,3 +613,105 @@ html {
   box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.05);
 }
 
+
+/* ---------- 深色主题液态玻璃空间体系（实际 Ant Design DOM 覆盖） ---------- */
+:root[data-theme='dark'] {
+  --wh-bg: radial-gradient(circle at 9% 10%, rgba(100,255,218,.11), transparent 30rem), radial-gradient(circle at 92% 13%, rgba(79,195,247,.12), transparent 32rem), linear-gradient(155deg,#07131f 0%,#0a1929 48%,#0d2138 100%);
+  --wh-card-bg: linear-gradient(145deg,rgba(20,39,63,.72),rgba(9,27,45,.56));
+  --wh-card-border: 1px solid rgba(100,255,218,.20);
+}
+:root[data-theme='dark'] body {
+  background: radial-gradient(circle at 8% 10%,rgba(100,255,218,.12),transparent 30rem),radial-gradient(circle at 91% 15%,rgba(79,195,247,.13),transparent 32rem),radial-gradient(circle at 70% 84%,rgba(121,134,203,.08),transparent 36rem),#07131f;
+  background-attachment: fixed;
+}
+:root[data-theme='dark'] #root{position:relative;isolation:isolate}
+:root[data-theme='dark'] .ant-layout,
+:root[data-theme='dark'] .ant-layout-content{background:transparent!important}
+:root[data-theme='dark'] .ant-layout-header,
+:root[data-theme='dark'] .ant-layout-sider{
+  background:rgba(8,25,41,.70)!important;
+  border-color:rgba(100,255,218,.13)!important;
+  box-shadow:0 16px 42px rgba(0,0,0,.24),inset 0 1px 0 rgba(255,255,255,.05)!important;
+  -webkit-backdrop-filter:blur(24px) saturate(145%);backdrop-filter:blur(24px) saturate(145%);
+}
+:root[data-theme='dark'] .wh-page-wrap{position:relative;background:var(--wh-bg);border:1px solid rgba(100,255,218,.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 24px 70px rgba(0,0,0,.20)}
+:root[data-theme='dark'] .ant-card,
+:root[data-theme='dark'] .wh-stat-card,
+:root[data-theme='dark'] .dcm-modal{
+  position:relative;overflow:hidden;background:var(--wh-card-bg)!important;border-color:rgba(100,255,218,.20)!important;
+  box-shadow:0 20px 52px rgba(0,0,0,.32),0 2px 10px rgba(79,195,247,.05),inset 0 1px 0 rgba(255,255,255,.07)!important;
+  -webkit-backdrop-filter:blur(22px) saturate(145%);backdrop-filter:blur(22px) saturate(145%);
+}
+:root[data-theme='dark'] .ant-card::before,
+:root[data-theme='dark'] .wh-stat-card::before{
+  content:'';position:absolute;inset:0;pointer-events:none;border-radius:inherit;
+  background:linear-gradient(118deg,rgba(255,255,255,.075),transparent 27%,transparent 73%,rgba(79,195,247,.055));
+}
+:root[data-theme='dark'] .ant-card-body,
+:root[data-theme='dark'] .ant-card-head,
+:root[data-theme='dark'] .wh-stat-card>*{position:relative;z-index:1}
+:root[data-theme='dark'] .wh-card-interactive:hover,
+:root[data-theme='dark'] .wh-stat-card:hover{
+  transform:translateY(-4px);border-color:rgba(100,255,218,.52)!important;
+  box-shadow:0 26px 62px rgba(0,0,0,.40),0 0 24px rgba(100,255,218,.12),inset 0 1px 0 rgba(255,255,255,.10)!important;
+}
+:root[data-theme='dark'] .ant-modal-content,
+:root[data-theme='dark'] .ant-drawer-content,
+:root[data-theme='dark'] .ant-popover-inner,
+:root[data-theme='dark'] .ant-dropdown-menu,
+:root[data-theme='dark'] .ant-select-dropdown{
+  background:rgba(9,27,45,.78)!important;border:1px solid rgba(100,255,218,.17)!important;
+  box-shadow:0 26px 70px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.06)!important;
+  -webkit-backdrop-filter:blur(26px) saturate(150%);backdrop-filter:blur(26px) saturate(150%);
+}
+@supports not ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){
+  :root[data-theme='dark'] .ant-card,:root[data-theme='dark'] .wh-stat-card,:root[data-theme='dark'] .dcm-modal{background:#0d2138!important}
+}
+
+/* ---------- Unified spatial glass system（对齐统一门户的分层实现） ---------- */
+.app-spatial-root{position:relative;isolation:isolate;overflow:clip}
+.app-spatial-root::before,.app-spatial-root::after{content:"";position:fixed;z-index:-1;border-radius:999px;filter:blur(72px);pointer-events:none}
+.app-spatial-root::before,.app-spatial-root::after{display:none}
+:root[data-theme='dark'] .app-spatial-root::before{display:block;width:30rem;height:30rem;left:-10rem;top:20%;background:rgba(45,212,191,.12)}
+:root[data-theme='dark'] .app-spatial-root::after{display:block;width:34rem;height:34rem;right:-13rem;top:42%;background:rgba(56,189,248,.11)}
+.spatial-navbar{background:rgba(255,255,255,.68)!important;border-color:rgba(255,255,255,.76)!important;-webkit-backdrop-filter:blur(26px) saturate(135%);backdrop-filter:blur(26px) saturate(135%);box-shadow:0 12px 32px rgba(38,70,86,.07)!important}
+:root[data-theme='dark'] .spatial-navbar{background:rgba(8,25,41,.68)!important;border-color:rgba(125,211,252,.12)!important;box-shadow:0 12px 38px rgba(0,0,0,.22)!important}
+.spatial-panel,.spatial-stat-card{background:linear-gradient(145deg,rgba(255,255,255,.82),rgba(241,245,248,.66))!important;border-color:rgba(94,125,143,.20)!important;-webkit-backdrop-filter:blur(22px) saturate(128%);backdrop-filter:blur(22px) saturate(128%);box-shadow:0 18px 42px rgba(38,70,86,.11),0 3px 10px rgba(38,70,86,.08),inset 0 1px 0 rgba(255,255,255,.94)!important}
+:root[data-theme='dark'] .spatial-panel,:root[data-theme='dark'] .spatial-stat-card{background:linear-gradient(145deg,rgba(17,37,64,.76),rgba(8,25,41,.55))!important;border-color:rgba(125,211,252,.13)!important;box-shadow:0 18px 48px rgba(0,0,0,.23),inset 0 1px 0 rgba(255,255,255,.07)!important}
+.spatial-stat-card{position:relative;overflow:hidden;transform:translateZ(0)}
+.spatial-stat-card::before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(120deg,rgba(255,255,255,.28),transparent 34%,rgba(112,143,160,.035))}
+.spatial-stat-card:hover{transform:translateY(-3px);border-color:rgba(13,148,136,.48)!important;box-shadow:0 22px 48px rgba(38,70,86,.15),0 0 0 1px rgba(13,148,136,.08)!important}
+.dashboard-layout-shell{position:relative;isolation:isolate}
+.dashboard-layout-shell::before{display:none;content:"";position:absolute;inset:3.25rem 5% auto;height:18rem;z-index:-1;background:radial-gradient(ellipse,rgba(45,212,191,.16),transparent 68%);filter:blur(34px);pointer-events:none}
+:root[data-theme='dark'] .dashboard-layout-shell::before{display:block}
+@media(prefers-reduced-motion:reduce){.spatial-stat-card{transition:none}.spatial-stat-card:hover{transform:none}}
+@supports not ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.spatial-navbar,.spatial-panel,.spatial-stat-card{background:#fff!important}:root[data-theme='dark'] .spatial-navbar,:root[data-theme='dark'] .spatial-panel,:root[data-theme='dark'] .spatial-stat-card{background:#0d2138!important}}
+
+/* ---------- Task Manager visual hierarchy ---------- */
+:root[data-theme='light'] .sync-page-title{font-size:1.25rem!important;font-weight:750!important;letter-spacing:-.012em}
+:root[data-theme='light'] .sync-section-title{font-size:.875rem!important;font-weight:700!important;color:#26394a!important;letter-spacing:.01em}
+:root[data-theme='light'] .sync-task-card{border-radius:var(--wh-radius-lg)!important}
+:root[data-theme='light'] .sync-task-card .ant-card-body{border-radius:inherit}
+:root[data-theme='light'] .sync-card-schedule,
+:root[data-theme='light'] .sync-timeline-surface{border-color:rgba(94,125,143,.13)!important;background:rgba(255,255,255,.34)!important}
+:root[data-theme='light'] .sync-card-schedule{border-radius:var(--wh-radius-md)!important}
+:root[data-theme='light'] .sync-timeline-surface{border-radius:var(--wh-radius-lg)!important}
+:root[data-theme='light'] .sync-task-card .ant-btn,
+:root[data-theme='light'] .sync-task-card .ant-tag,
+:root[data-theme='light'] .sync-task-card .ant-typography code{border-radius:var(--wh-radius-sm)!important}
+:root[data-theme='light'] .sync-task-card .ant-btn-default{border-color:rgba(94,125,143,.20)!important;background:rgba(255,255,255,.48)!important}
+/* 浅色主题下主操作按钮保持实色底，确保白字在未悬浮时同样清晰。 */
+:root[data-theme='light'] .sync-task-card .ant-btn-primary{background:#0d9488!important;border-color:#0d9488!important;color:#fff!important}
+:root[data-theme='light'] .sync-task-card .ant-btn-primary:not(:disabled):hover{background:#0f766e!important;border-color:#0f766e!important;color:#fff!important}
+:root[data-theme='light'] .sync-task-card:hover{border-color:rgba(13,148,136,.42)!important;box-shadow:0 20px 42px rgba(38,70,86,.14),0 0 0 1px rgba(13,148,136,.07),inset 0 1px 0 rgba(255,255,255,.96)!important}
+:root[data-theme='dark'] .sync-page-title{font-size:1.25rem!important;font-weight:750!important}
+:root[data-theme='dark'] .sync-section-title{font-size:.875rem!important;font-weight:700!important}
+:root[data-theme='dark'] .sync-task-card{border-radius:var(--wh-radius-lg)!important}
+:root[data-theme='dark'] .sync-card-schedule,
+:root[data-theme='dark'] .sync-timeline-surface{border-color:rgba(100,255,218,.10)!important;border-radius:var(--wh-radius-md)!important}
+
+/* ---------- 移动端侧栏抽屉遮罩：点击任意处收起，浅深主题分别取半透明底 ---------- */
+.wh-sider-backdrop{position:fixed;inset:var(--wh-header-height) 0 0 0;z-index:999;border:0;padding:0;cursor:pointer;background:rgba(6,15,28,.38);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+:root[data-theme='light'] .wh-sider-backdrop{background:rgba(38,83,104,.20)}
+@media (prefers-reduced-motion:reduce){.wh-sider-backdrop{-webkit-backdrop-filter:none;backdrop-filter:none}}
+@supports not ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.wh-sider-backdrop{background:rgba(6,15,28,.55)}}

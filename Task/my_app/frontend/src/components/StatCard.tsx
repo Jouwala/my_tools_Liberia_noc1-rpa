@@ -25,7 +25,7 @@ export default function StatCard({
 }: StatCardProps) {
   return (
     <div
-      className="wh-stat-card"
+      className="wh-stat-card spatial-stat-card"
       style={{
         '--wh-stat-accent': accentColor,
         ...style,

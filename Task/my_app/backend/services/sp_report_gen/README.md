@@ -41,7 +41,7 @@ EWS 发送邮件（owa_mail_report.py）
 |------|------|------|------|
 | Step 2.1 | `apply_exclude_to_details()` | 按 `data\sp_email\data\in&out_exclude.xlsx`（sheet `3_剔除单据Serial明细`）剔除指定单据行，分入库/出库两组 | ✅ |
 | Step 2.2 | `apply_status_filters()` | 出库明细剔除 `Status='WaitingForUpdate'`（`OUTBOUND_DROP_STATUS`） | ✅ |
-| Step 2.3 | `apply_inventory_fields()` | 用 `inventory_details.xlsx` 的 Material No. 覆盖明细的 **Material Name** 与 **Material Type** | ✅ |
+| Step 2.3 | `apply_inventory_fields()` | 覆盖明细的 **Material Name**（取数据库表 `sp_material`，回退 inventory）与 **Material Type**（取 inventory） | ✅ |
 | Step 4 | `preprocess()` | 排除仓库 `Liberia Monrovia material warehouse` | ❌ 仅报表 |
 | 生成时 | `generate_report()` | 仅保留 `Material Type='SpareParts'`（或 `Consumables`） | ❌ 仅报表 |
 
@@ -57,20 +57,35 @@ EWS 发送邮件（owa_mail_report.py）
 - 物料号**前导零**：明细是文本 `033030100337`，排除表被 Excel 存成数字 `33030100337`，统一用 `_norm_excl_value()` 归一（纯数字串转最简 int 形式），否则大面积不命中。
 - 写回统一走 `_save_detail_xlsx()`（tmp + `os.replace` 原子替换）；写回失败只告警，内存数据仍是处理过的，报表照常生成。
 
+### Material Name 数据来源：数据库表 `sp_material`
+
+`load_material_maps_from_db()` 按 materialNo 建 `{materialNo: materialName}`：
+
+| 来源 | 说明 |
+|------|------|
+| **PG**（优先） | 连接串取环境变量 `DATABASE_URL`，缺失则读 `backend\.env`；表位置自动定位（优先 `app` schema），即 `app.sp_material` |
+| sqlite（回退） | `db\app.db` 的 `sp_material` |
+| inventory（再回退） | 上面都拿不到时，用 `inventory_details.xlsx` 的 Material No.→Material Name |
+
+- `sp_material` 由任务 `sp_material_sync`（每天 04:55）从 eFlow SP 接口拉全量写入，字段 `materialNo / materialName / materialType`，当前 922 行。
+- 覆盖率对比：用 `sp_material` 时明细**未命中 0 行**（inband/outband 全量命中）；只用 inventory（约 320 条）时分别有 339 / 406 行取不到名称。
+- 表缺失 / 连不上只会打印 `[MatSync][WARN]` 并回退，**不会中断**报表生成。
+- Material Type 目前仍取 inventory（同物料多值取首个）；`sp_material` 也有 `materialType`，如需切换可复用同一函数。
+
 ### 报表口径 vs SP Details Report
 
 `sp_email_details` 合并 4 份明细（inventory/inband/outband/transfer），**只经过前三步**；
 SpareParts/Comsumables 报表**额外**再做「排除仓库」+「Material Type 过滤」。
 
-以 2026-09-08 17-41-32 版为例：
+以 2026-09-09 14-57-26 版为例：
 
 | 阶段 | Inbound | Outbound | Inventory |
 |------|---------|----------|-----------|
-| 下载原始 | 4014 | 2017 | 2096 |
-| 剔除（in&out_exclude） | -298 → 3716 | -6 → 2011 | — |
-| 剔除 WaitingForUpdate | — | -65 → 1946 | — |
-| 排除仓库（仅报表） | -26 → 3690 | -26 → 1920 | -1 → 2095 |
-| Material Type=SpareParts（仅报表） | -1627 → **2063** | -1057 → **863** | -896 → **1199** |
+| 下载原始 | 4015 | 2021 | 2094 |
+| 剔除（in&out_exclude） | -299 → 3716 | -6 → 2015 | — |
+| 剔除 WaitingForUpdate | — | -66 → 1949 | — |
+| 排除仓库（仅报表） | -26 → 3690 | -26 → 1923 | -1 → 2093 |
+| Material Type=SpareParts（仅报表） | -1628 → **2062** | -1058 → **865** | -896 → **1197** |
 
 核对脚本：`TMP\verify_sp_report_filters.py "<报表时间戳>"`（如 `"2026-09-08 17-41-32"`），
 逐条套用过滤条件并与报表各 sheet 实际行数比对，输出 PASS/FAIL。

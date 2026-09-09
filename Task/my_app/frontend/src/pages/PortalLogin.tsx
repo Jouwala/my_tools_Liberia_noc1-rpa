@@ -102,17 +102,22 @@ export default function PortalLogin() {
     timers.current[system] = id
   }, [fetchPortals])
 
-  // 客户端本机登录：直接打开反代后的登录页，由页面内注入脚本自动填表提交。
-  // 会话 Cookie 落在访问者自己的浏览器里，所以在哪台电脑点就在哪台电脑登录。
-  // proxy_base 模板里的 {HOST} 替换成当前访问主机（门户各自独立端口）。
+  // 客户端本机登录：在访问者自己的浏览器中打开门户。
+  // eFlow 不走 my_app 反代，必须直连原始地址；其他 UME 使用独立反代端口。
   const handleClientLogin = useCallback((p: Portal) => {
-    if (p.proxy_prefix == null) {
+    const base = p.key === 'eflow'
+      ? `https://${p.host}:${p.port}`
+      : (p.proxy_prefix || '').replace('{HOST}', window.location.hostname)
+    if (p.key !== 'eflow' && p.proxy_prefix == null) {
       showMsg('info', t('portal.noClient'))
       return
     }
-    const base = (p.proxy_prefix || '').replace('{HOST}', window.location.hostname)
     const url = `${base}${p.login_uri || ''}`
-    const win = window.open(url, '_blank', 'noopener=no')
+    // UME OAuth2 门户会拒绝从 /myapp/ 带来的 Origin/Referer（3329008）。
+    // eFlow 直连原始地址，也必须用 noreferrer；它不走 nginx 代理。
+    const noReferrerPortals = new Set(['zte_ume', 'ccn_ume', 'ipran_ume', 'mw_ume', 'eflow'])
+    const features = noReferrerPortals.has(p.key) ? 'noopener,noreferrer' : 'noopener=no'
+    const win = window.open(url, '_blank', features)
     if (!win) {
       showMsg('error', t('portal.loadError'))
       return
@@ -122,7 +127,7 @@ export default function PortalLogin() {
   }, [showMsg, t])
 
   const handleLogin = useCallback(async (system: string, p?: Portal) => {
-    if (mode === 'client' && p && p.proxy_prefix != null) {
+    if (mode === 'client' && p && (p.key === 'eflow' || p.proxy_prefix != null)) {
       handleClientLogin(p)
       return
     }

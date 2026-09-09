@@ -51,6 +51,9 @@ GROUP_TASK_MAP = {
         "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync,mw_ume_kpi_sync,mw_ume_kpi_sync_rt,"
         # sp_online_sync 2026-09-02 补录：SP 在线工单走 eFlow API 同源会话，归入 eFlow 组
         "sp_online_sync,"
+        # sp_material_sync 2026-09-09 补录：SP 物料主数据同样走 eFlow API 同源会话，
+        # 新建任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
+        "sp_material_sync,"
         # cxo_dashboard_cache_sync 2026-09-02 补录：CXO 看板缓存同步走独立 8790 VMAX 代理
         # 进程（DETACHED、单会话），与 n 组其它任务的 eFlow/网管会话互不冲突
         "cxo_dashboard_cache_sync,"

@@ -37,7 +37,7 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
       {/* 1. Total Dashboards */}
       <div
         onClick={() => onQuickFilterPlatform('all')}
-        className={`p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+        className={`spatial-stat-card p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
           activePlatform === 'all'
             ? 'border-teal-500 ring-2 ring-teal-500/20 bg-teal-50/20 dark:bg-teal-950/20'
             : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'
@@ -62,7 +62,7 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
       {/* 2. FineBI Portals */}
       <div
         onClick={() => onQuickFilterPlatform('finebi')}
-        className={`p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+        className={`spatial-stat-card p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
           activePlatform === 'finebi'
             ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/20 dark:bg-indigo-950/20'
             : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'
@@ -88,7 +88,7 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
       {/* 3. Custom MyApp */}
       <div
         onClick={() => onQuickFilterPlatform('custom')}
-        className={`p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+        className={`spatial-stat-card p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
           activePlatform === 'custom'
             ? 'border-cyan-500 ring-2 ring-cyan-500/20 bg-cyan-50/20 dark:bg-cyan-950/20'
             : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'
@@ -114,7 +114,7 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
       {/* 4. External Big Screen */}
       <div
         onClick={() => onQuickFilterPlatform('external')}
-        className={`p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+        className={`spatial-stat-card p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
           activePlatform === 'external'
             ? 'border-[#008B00] ring-2 ring-[#008B00]/20 bg-[#008B00]/10 dark:bg-[#008B00]/10'
             : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'

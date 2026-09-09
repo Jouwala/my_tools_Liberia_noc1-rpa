@@ -507,8 +507,96 @@ def apply_status_filters(inb, outb):
 
 
 # ==============================================================================
-# material fields sync - 用 inventory 的 Material Name / Material Type 覆盖明细同名字段
+# material fields sync - Material Name 取数据库表 sp_material，Material Type 取 inventory
 # ==============================================================================
+# 物料主数据表 sp_material：由任务 sp_material_sync（每天 04:55）从 eFlow SP 接口
+# 拉全量写入，字段 materialNo / materialName / materialType（PG 模式在 app schema）。
+MATERIAL_TABLE = os.environ.get("SP_MATERIAL_TABLE", "sp_material")
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]      # my_app 根目录
+
+
+def _read_database_url():
+    """取 PG 连接串：环境变量 DATABASE_URL > backend/.env。取不到返回 None（回退 sqlite）。"""
+    url = (os.environ.get("DATABASE_URL") or "").strip()
+    if url:
+        return url
+    env_file = _PROJECT_ROOT / 'backend' / '.env'
+    try:
+        for line in env_file.read_text(encoding='utf-8').splitlines():
+            if line.strip().startswith('DATABASE_URL='):
+                return line.split('=', 1)[1].strip().strip('"').strip("'")
+    except Exception as e:
+        print(f'[MatSync][WARN] 读取 backend/.env 失败({e})')
+    return None
+
+
+def load_material_maps_from_db():
+    """从数据库表 sp_material 读 {materialNo: materialName} 与 {materialNo: materialType}。
+
+    PG（DATABASE_URL / backend/.env）优先，失败回退 sqlite db/app.db；
+    都不可用或表不存在时返回 ({}, {})，由调用方回退到 inventory。
+    """
+    def _pack(rows):
+        name_lut, type_lut = {}, {}
+        for no, nm, tp in rows:
+            k = _norm_excl_value(no)
+            if not k:
+                continue
+            if nm and str(nm).strip() and str(nm).strip().lower() not in ('nan', 'none'):
+                name_lut.setdefault(k, str(nm).strip())
+            if tp and str(tp).strip() and str(tp).strip().lower() not in ('nan', 'none'):
+                type_lut.setdefault(k, str(tp).strip())
+        return name_lut, type_lut
+
+    # 1) PostgreSQL
+    url = _read_database_url()
+    if url and url.startswith('postgres'):
+        try:
+            import psycopg2
+            conn = psycopg2.connect(url)
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT table_schema FROM information_schema.tables "
+                    "WHERE table_name=%s ORDER BY CASE WHEN table_schema='app' THEN 0 ELSE 1 END LIMIT 1",
+                    (MATERIAL_TABLE,))
+                row = cur.fetchone()
+                if not row:
+                    print(f'[MatSync][WARN] PG 中不存在表 {MATERIAL_TABLE}，回退 inventory')
+                else:
+                    schema = row[0]
+                    cur.execute(f'SELECT "materialNo", "materialName", "materialType" '
+                                f'FROM "{schema}"."{MATERIAL_TABLE}"')
+                    lut = _pack(cur.fetchall())
+                    print(f'[MatSync] 读取 sp_material(PG {schema}.{MATERIAL_TABLE}): '
+                          f'Name {len(lut[0])} 条, Type {len(lut[1])} 条')
+                    return lut
+            finally:
+                conn.close()
+        except Exception as e:
+            print(f'[MatSync][WARN] 读取 PG sp_material 失败({e})，回退 sqlite/inventory')
+
+    # 2) SQLite（db/app.db）
+    db_file = _PROJECT_ROOT / 'db' / 'app.db'
+    if db_file.is_file():
+        try:
+            import sqlite3
+            conn = sqlite3.connect(str(db_file))
+            try:
+                cur = conn.execute(f'SELECT materialNo, materialName, materialType FROM {MATERIAL_TABLE}')
+                lut = _pack(cur.fetchall())
+                if lut[0] or lut[1]:
+                    print(f'[MatSync] 读取 sp_material(sqlite): Name {len(lut[0])} 条, Type {len(lut[1])} 条')
+                    return lut
+                print(f'[MatSync][WARN] sqlite 中无 {MATERIAL_TABLE} 数据，回退 inventory')
+            finally:
+                conn.close()
+        except Exception as e:
+            print(f'[MatSync][WARN] 读取 sqlite sp_material 失败({e})，回退 inventory')
+    return {}, {}
+
+
 def build_material_maps(inv):
     """inventory_details -> ({Material No.: Material Name}, {Material No.: Material Type})
 
@@ -572,10 +660,21 @@ def _overlay_column(df, keys, col, lut):
 
 
 def apply_inventory_fields(inb, outb, inv):
-    """剔除/状态过滤后执行：用 inventory 的 Material Name + Material Type 覆盖两份明细，
-    并写回保存。命中才替换，未命中保留原值。返回 (inb, outb, stats)。
+    """剔除/状态过滤后执行：覆盖两份明细的 Material Name / Material Type，并写回保存。
+
+    - Material Name：优先取数据库表 `sp_material`（物料主数据），取不到时回退 inventory
+    - Material Type：取 inventory（同物料多值取首个）
+    命中才替换，未命中保留原值。返回 (inb, outb, stats)。
     """
-    name_lut, type_lut = build_material_maps(inv)
+    db_name, _db_type = load_material_maps_from_db()
+    inv_name, inv_type = build_material_maps(inv)
+    if db_name:
+        name_lut, name_src = db_name, f'sp_material(DB)'
+    else:
+        name_lut, name_src = inv_name, 'inventory(回退)'
+    type_lut = inv_type
+    print(f'[MatSync] Material Name 来源={name_src}（{len(name_lut)} 条）, '
+          f'Material Type 来源=inventory（{len(type_lut)} 条）')
     if not name_lut and not type_lut:
         return inb, outb, {}
 

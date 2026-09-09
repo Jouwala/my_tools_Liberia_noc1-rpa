@@ -61,7 +61,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
 }) => {
   const { t, lang } = useI18n();
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-3 sm:p-4 shadow-sm mb-4 sm:mb-6 space-y-3 sm:space-y-3.5">
+    <div className="spatial-panel bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-3 sm:p-4 shadow-sm mb-4 sm:mb-6 space-y-3 sm:space-y-3.5">
       {/* Upper Row: Search & Filters & Layout controls */}
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
         {/* Search Box */}

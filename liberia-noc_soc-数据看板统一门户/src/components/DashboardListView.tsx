@@ -50,7 +50,7 @@ export const DashboardListView: React.FC<DashboardListViewProps> = ({
   };
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+    <div className="spatial-panel bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
       <div className="overflow-x-auto wh-table-responsive">
         <table className="w-full text-left border-collapse">
           <thead>

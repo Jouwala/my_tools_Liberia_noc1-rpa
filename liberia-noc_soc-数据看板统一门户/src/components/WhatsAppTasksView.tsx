@@ -334,7 +334,7 @@ export default function WhatsAppTasksView() {
       )}
 
       {showReport && report && (
-        <details open className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+        <details open className="spatial-panel rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
           <summary className="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">
             {t('wa.latestReport')}（{report.report_date}）
           </summary>
@@ -345,13 +345,13 @@ export default function WhatsAppTasksView() {
       )}
 
       {!offline && !loading && tasks.length === 0 && (
-        <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-10 text-center text-sm text-slate-500 dark:text-slate-400">
+        <div className="spatial-panel rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-10 text-center text-sm text-slate-500 dark:text-slate-400">
           {t('wa.empty')}
         </div>
       )}
 
       {!offline && !loading && tasks.length > 0 && visibleTasks.length === 0 && (
-        <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-10 text-center text-sm text-slate-500 dark:text-slate-400">
+        <div className="spatial-panel rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-10 text-center text-sm text-slate-500 dark:text-slate-400">
           {t('wa.emptyFilter')}
         </div>
       )}

@@ -152,7 +152,7 @@ export const TaskSyncWidget: React.FC = () => {
   }, [tasks]);
 
   return (
-    <div className="mb-4 sm:mb-6 bg-gradient-to-r from-teal-50 via-white to-cyan-50 text-slate-900 rounded-2xl p-3 sm:p-5 border border-teal-300/50 shadow-sm dark:bg-gradient-to-r dark:from-navy-950 dark:via-navy-900 dark:to-navy-800 dark:text-white dark:border-teal-400/15 dark:shadow-lg dark:shadow-navy-950/40 animate-fadeIn">
+    <div className="spatial-panel mb-4 sm:mb-6 bg-gradient-to-r from-teal-50 via-white to-cyan-50 text-slate-900 rounded-2xl p-3 sm:p-5 border border-teal-300/50 shadow-sm dark:bg-gradient-to-r dark:from-navy-950 dark:via-navy-900 dark:to-navy-800 dark:text-white dark:border-teal-400/15 dark:shadow-lg dark:shadow-navy-950/40 animate-fadeIn">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <div className="p-2 sm:p-2.5 rounded-xl bg-teal-100 text-teal-600 border border-teal-300/70 dark:bg-teal-400/15 dark:text-teal-300 dark:border-teal-400/30 shrink-0">

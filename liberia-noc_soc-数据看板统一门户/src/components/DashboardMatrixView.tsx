@@ -32,7 +32,7 @@ export const DashboardMatrixView: React.FC<DashboardMatrixViewProps> = ({
         return (
           <div
             key={category}
-            className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm"
+            className="spatial-panel bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm"
           >
             {/* Category Header */}
             <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">

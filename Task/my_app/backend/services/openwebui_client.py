@@ -7,15 +7,21 @@ Open WebUI 客户端 —— 用「TT单分析」技能（Prompt 预设 TT_PROVIT
 1. POST /api/v1/auths/signin 用账号密码登录，拿 JWT（进程内缓存，401 自动重登）
 2. GET /api/v1/prompts/list 找 command=TT_PROVITY 的技能内容（"TT单级别分析"）
 3. 从本地 eflow_TT_rules.xlsx 读状态=ACTIVE 的规则，随 system 消息内嵌
-   （外部模型 agnes-2.5-flash 不走 Open WebUI 知识库 RAG，规则必须显式给出）
-4. POST /api/chat/completions（stream=false）拿分析结论
+   （外部模型不走 Open WebUI 知识库 RAG，规则必须显式给出）
+4. 按 OPENWEBUI_MODEL 解析候选模型（支持 auto 自动选最新 flash + 失败转移）
+5. POST /api/chat/completions（stream=false）拿分析结论；当前模型报错/下线时
+   自动切换到下一候选，避免单一模型 ID 失效导致整个 TT 分析不可用
 
 配置（backend/.env，或环境变量）
 ------------------------------
 OPENWEBUI_BASE_URL  默认 http://192.168.100.27:3000
 OPENWEBUI_EMAIL     登录邮箱
 OPENWEBUI_PASSWORD  登录密码
-OPENWEBUI_MODEL     默认 agnes-2.5-flash
+OPENWEBUI_MODEL     模型策略：
+                      固定 ID（如 agnes-2.5-flash）→ 首选它，失败自动降级到 flash 候选
+                      auto / auto:<pattern>    → 从 /api/models 里选版本最新的匹配模型
+                                                  （默认 pattern=agnes-*-flash，
+                                                  自动排除 image/video/embed 类）
 EFLOW_TT_RULES_XLSX 规则表路径，默认 backend/services/eflow_rules/eflow_TT_rules.xlsx（定时任务生成处）
 """
 from __future__ import annotations
@@ -28,8 +34,9 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +54,19 @@ EMAIL = os.environ.get("OPENWEBUI_EMAIL", "").strip()
 PASSWORD = os.environ.get("OPENWEBUI_PASSWORD", "")
 MODEL = os.environ.get("OPENWEBUI_MODEL", "agnes-2.5-flash").strip()
 
+# OPENWEBUI_MODEL=auto / auto:<pattern> 时启用自动选型（fnmatch 匹配 /api/models 的模型 ID）
+_AUTO_RE = re.compile(r"^auto(?::(.+))?$", re.IGNORECASE)
+_AUTO_DEFAULT_PATTERN = "agnes-*-flash"
+# 不参与 TT 分析的模型（多模态/向量模型混在同一个 provider 里）
+_AUTO_EXCLUDE_RE = re.compile(r"image|video|embed|bge|whisper|tts", re.IGNORECASE)
+# 版本号提取：匹配 agnes-2.5、qwen3:8b 这类 ID 中的数字段做"最新优先"排序
+_VER_RE = re.compile(r"(\d+(?:\.\d+)*)")
+_FALLBACK_PATTERN = "agnes-*-flash"  # 固定 ID 失败时按此 pattern 生成降级候选
+
+MODELS_TTL = 300  # /api/models 缓存 5 分钟；模型 404/下线时缓存立即失效重查
+_MODELS_CACHE: Dict[str, Any] = {"ids": None, "ts": 0.0, "attempts": {}}
+_MODELS_LOCK = threading.Lock()
+
 # 定时任务 eflow_TT_Rule_Collector 每天生成的实际位置：backend/services/eflow_rules/
 _RULES_DIR = Path(__file__).resolve().parent / "eflow_rules"
 RULES_XLSX = Path(os.environ.get(
@@ -58,6 +78,10 @@ TT_PROVITY_COMMAND = "TT_PROVITY"
 _TIMEOUT = 120
 _AUTH_CACHE = {"jwt": "", "ts": 0.0}
 _AUTH_LOCK = threading.Lock()
+
+
+class ModelError(RuntimeError):
+    """模型本身不可用（下线/404/上游 5xx/结构异常）——应换下一候选重试。"""
 
 
 def _http(method: str, path: str, body: Optional[Dict] = None,
@@ -123,6 +147,67 @@ def get_tt_skill(token: str) -> Dict[str, Any]:
 _PREFIX_RE = re.compile(r"eflow_ticket_ticket_\w+\.", re.IGNORECASE)
 
 
+def _ver_key(model_id: str):
+    """把 'agnes-3.0-flash' 提取成 (3, 0) 这类可比较的版本元组，取不到则 (0,)。"""
+    m = _VER_RE.search(model_id or "")
+    if not m:
+        return (0,)
+    parts = m.group(1).split(".")
+    try:
+        return tuple(int(p) for p in parts)
+    except ValueError:
+        return (0,)
+
+
+def _list_model_ids(token: str, force_refresh: bool = False) -> List[str]:
+    """拿 Open WebUI 可用模型 ID 列表（进程内缓存 MODELS_TTL 秒）。"""
+    with _MODELS_LOCK:
+        if not force_refresh and _MODELS_CACHE["ids"] is not None and \
+                time.time() - _MODELS_CACHE["ts"] < MODELS_TTL:
+            return _MODELS_CACHE["ids"]
+    status, data = _http("GET", "/api/models", token=token)
+    if status != 200 or not isinstance(data, dict):
+        raise RuntimeError(f"取模型列表失败 (HTTP {status}): {str(data)[:200]}")
+    ids = [m.get("id") for m in data.get("data", []) if m.get("id")]
+    with _MODELS_LOCK:
+        _MODELS_CACHE["ids"] = ids
+        _MODELS_CACHE["ts"] = time.time()
+    return ids
+
+
+def _auto_candidates(token: str, pattern: str) -> List[str]:
+    """从模型列表里挑匹配 pattern 的候选，版本号大的排前面（最新 flash 优先）。"""
+    ids = _list_model_ids(token)
+    picked = [i for i in ids
+              if fnmatch(i.lower(), pattern.lower())
+              and not _AUTO_EXCLUDE_RE.search(i)]
+    picked.sort(key=_ver_key, reverse=True)
+    return picked
+
+
+def resolve_candidates(token: str) -> Tuple[List[str], str]:
+    """按 OPENWEBUI_MODEL 策略解析本次调用要尝试的模型候选列表。
+
+    返回 (候选列表按优先级排序, 策略描述)。失败转移顺序：
+      固定 ID → [该 ID] + 其余 flash 候选
+      auto    → 匹配 pattern 的全部模型，版本最新优先
+    """
+    m = _AUTO_RE.match(MODEL)
+    if m:
+        pattern = (m.group(1) or _AUTO_DEFAULT_PATTERN).strip()
+        cands = _auto_candidates(token, pattern)
+        if not cands:
+            raise RuntimeError(
+                f"OPENWEBUI_MODEL=auto:{pattern} 在 /api/models 中没有匹配到任何模型")
+        return cands, f"auto:{pattern}"
+    # 固定 ID：首选配置值，再拼 flash 候选兜底（去重，保持原顺序优先级）
+    cands = [MODEL]
+    for mid in _auto_candidates(token, _FALLBACK_PATTERN):
+        if mid not in cands:
+            cands.append(mid)
+    return cands, f"fixed:{MODEL}"
+
+
 def load_active_rules(xlsx_path: Optional[Path] = None) -> str:
     """读 eflow_TT_rules.xlsx 中状态=ACTIVE 的规则，拼成给模型的规则文本。"""
     from openpyxl import load_workbook
@@ -160,10 +245,26 @@ def load_active_rules(xlsx_path: Optional[Path] = None) -> str:
     return "\n".join(lines)
 
 
-def chat(system_text: str, user_text: str, token: str) -> str:
-    """一次非流式对话，返回模型结论文本；401 时重登一次并重试。"""
+def _is_model_error(status: int, data: Any) -> bool:
+    """判断响应是否属于'模型本身不可用'（下线/404/配额/上游 5xx），应换模型重试。"""
+    if status == 404:
+        return True
+    text = str(data)
+    if status == 400 and re.search(
+            r"model\s*(not found|not_available|unavailable|invalid)|does not exist|"
+            r"is not (a valid|available)|no such model",
+            text, re.IGNORECASE):
+        return True
+    if status >= 500:
+        return True
+    return False
+
+
+def chat(system_text: str, user_text: str, token: str,
+         model: str = "") -> str:
+    """用指定 model 做一次非流式对话；401 时重登一次并重试。"""
     payload = {
-        "model": MODEL,
+        "model": model or MODEL,
         "messages": [
             {"role": "system", "content": system_text},
             {"role": "user", "content": user_text},
@@ -177,28 +278,33 @@ def chat(system_text: str, user_text: str, token: str) -> str:
         status, data = _http("POST", "/api/chat/completions",
                              payload, token=token)
     if status != 200:
-        raise RuntimeError(f"Open WebUI 对话失败 (HTTP {status}): {str(data)[:200]}")
+        raise ModelError(
+            f"Open WebUI 对话失败 (HTTP {status}): {str(data)[:200]}") \
+            if _is_model_error(status, data) else \
+            RuntimeError(f"Open WebUI 对话失败 (HTTP {status}): {str(data)[:200]}")
     try:
         return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as e:
-        raise RuntimeError(f"对话响应结构异常: {str(data)[:200]}") from e
+        raise ModelError(f"对话响应结构异常: {str(data)[:200]}") from e
 
 
-def _is_mainly_chinese(text: str) -> bool:
-    """判断模型结果是否仍以中文为主（少量中文源值不触发英译兜底）。"""
-    cjk_count = len(re.findall(r"[\u3400-\u9fff]", text or ""))
-    latin_count = len(re.findall(r"[A-Za-z]", text or ""))
-    return cjk_count >= 8 and cjk_count / max(cjk_count + latin_count, 1) >= 0.15
+def _contains_chinese_narrative(text: str) -> bool:
+    """英文结论中只要仍有成段中文即触发英译；避免英文标题掩盖中文正文。"""
+    return len(re.findall(r"[\u3400-\u9fff]", text or "")) >= 4
 
 
 def analyze_tt(skill_prompt: str, with_rules: bool = True, lang: str = "zh") -> Dict[str, Any]:
     """对 inspect_tt 拼出的技能入参做「TT单分析」，返回指定语言的结论 dict。
 
     lang 支持 zh/en；默认 zh 以兼容现有调用。
-    返回: {"ok": True, "conclusion", "model", "skill_title", "elapsed_sec"}
+    模型按 OPENWEBUI_MODEL 策略解析出候选列表后依次尝试：当前模型 404/下线/
+    上游 5xx 时自动换下一候选，并把坏模型在缓存期内踢出候选（防止反复撞同一台）。
+    返回: {"ok": True, "conclusion", "model", "model_policy", "failover",
+           "skill_title", "elapsed_sec"}
           {"ok": False, "error", "elapsed_sec"}
     """
     t0 = time.time()
+    tried: List[str] = []
     try:
         token = signin()
         skill = get_tt_skill(token)
@@ -214,28 +320,51 @@ def analyze_tt(skill_prompt: str, with_rules: bool = True, lang: str = "zh") -> 
         )
         system_text += f"\n\n【Output language / 输出语言】\n{language_instruction}"
         user_text = f"{skill_prompt}\n\nMANDATORY OUTPUT LANGUAGE: {'English only' if lang == 'en' else '简体中文'}"
-        conclusion = chat(system_text, user_text, token).strip()
+
+        candidates, policy = resolve_candidates(token)
+        conclusion, model_used = "", ""
+        last_error: Exception = RuntimeError("没有可用模型")
+        for model in candidates:
+            tried.append(model)
+            try:
+                conclusion = chat(system_text, user_text, token, model=model).strip()
+                model_used = model
+                break
+            except ModelError as e:
+                logger.warning("TT分析模型 %s 不可用，切换下一候选: %s", model, e)
+                last_error = e
+                # 该模型刚失效：让模型列表缓存立刻过期，下次直接重查
+                with _MODELS_LOCK:
+                    _MODELS_CACHE["ts"] = 0.0
+        if not model_used:
+            raise RuntimeError(
+                f"所有候选模型均失败 {tried}: {last_error}") from last_error
 
         # 个别 TT 技能模板会强制中文，覆盖通用 system 指令；英文环境下检测到
         # 结果仍以中文为主时，用独立翻译上下文做一次兜底，不再携带原技能模板。
         language_rewritten = False
-        if lang == "en" and _is_mainly_chinese(conclusion):
+        if lang == "en" and _contains_chinese_narrative(conclusion):
             translation_system = (
                 "You are a precise telecom operations translator. Translate the complete "
                 "TT analysis below into English. Preserve Markdown structure, identifiers, "
                 "alarm codes, rule IDs, site names, field names, quoted source values, and "
                 "all factual meaning. Output only the English analysis; do not add commentary."
             )
-            conclusion = chat(translation_system, conclusion, token).strip()
+            # 翻译沿用刚验证可用的同一模型，不再重新选型
+            conclusion = chat(translation_system, conclusion, token,
+                              model=model_used).strip()
             language_rewritten = True
 
         return {"ok": True, "conclusion": conclusion,
-                "model": MODEL, "skill_title": skill.get("title"),
+                "model": model_used, "model_policy": policy,
+                "failover_tried": tried if len(tried) > 1 else [],
+                "skill_title": skill.get("title"),
                 "language": lang, "language_rewritten": language_rewritten,
                 "elapsed_sec": round(time.time() - t0, 2)}
     except Exception as e:  # noqa: BLE001
         logger.exception("TT单分析失败")
         return {"ok": False, "error": f"{type(e).__name__}: {e}",
+                "failover_tried": tried,
                 "elapsed_sec": round(time.time() - t0, 2)}
 
 

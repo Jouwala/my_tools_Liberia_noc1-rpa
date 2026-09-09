@@ -39,7 +39,7 @@ export const PreviewDrawer: React.FC<PreviewDrawerProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full h-[95vh] sm:h-[94vh] max-w-full sm:max-w-7xl flex flex-col overflow-hidden">
+      <div className="spatial-modal-surface bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full h-[95vh] sm:h-[94vh] max-w-full sm:max-w-7xl flex flex-col overflow-hidden">
         {/* Top Header Bar */}
         <div className="px-3 sm:px-5 py-2.5 sm:py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-900/80 gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">

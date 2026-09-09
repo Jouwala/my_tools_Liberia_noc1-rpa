@@ -109,6 +109,24 @@ function displayPath(path: string, lang: string): string {
     .replace(/^[_\-\s]+|[_\-\s]+$/g, '') || path
 }
 
+const TT_SECTION_EN: Record<string, string> = {
+  '站点': 'Site',
+  '工单': 'Ticket',
+  '告警': 'Alarm',
+  '时间': 'Time',
+  '根因': 'Root Cause',
+  '派单': 'Assignment',
+  '制式掉站': 'Network Outage',
+  '状态': 'Status',
+  '其他': 'Other',
+}
+
+function ttSectionLabel(section: string, lang: string): string {
+  if (lang !== 'en') return section
+  const normalized = String(section || '').trim()
+  return TT_SECTION_EN[normalized] || normalized
+}
+
 /** 检索词高亮：把 text 中出现的词包上 mark */
 function Highlight({ text, terms }: { text: string; terms: string[] }) {
   if (!terms.length) return <>{text}</>
@@ -948,7 +966,7 @@ export default function EflowQa() {
                     ghost
                     items={ttReport.fields.map((sec: any) => ({
                       key: sec.section,
-                      label: <Text strong>{sec.section} <Text type="secondary" style={{ fontSize: 12 }}>({sec.items.length})</Text></Text>,
+                      label: <Text strong>{ttSectionLabel(sec.section, locale)} <Text type="secondary" style={{ fontSize: 12 }}>({sec.items.length})</Text></Text>,
                       children: (
                         <div style={{ fontSize: 13, lineHeight: 2 }}>
                           {sec.items.map((it: any) => (

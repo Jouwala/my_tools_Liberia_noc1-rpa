@@ -13,6 +13,7 @@ import {
   Edit2,
   Trash2,
   TrendingUp,
+  GripVertical,
 } from 'lucide-react';
 import { DashboardItem } from '../types/dashboard';
 import { DynamicIcon } from './DynamicIcon';
@@ -28,6 +29,7 @@ interface DashboardCardProps {
   onToggleHidden: (id: string) => void;
   onEdit: (d: DashboardItem) => void;
   onDelete: (id: string) => void;
+  isLayoutEditing?: boolean;
 }
 
 export const DashboardCard: React.FC<DashboardCardProps> = ({
@@ -39,6 +41,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
   onToggleHidden,
   onEdit,
   onDelete,
+  isLayoutEditing = false,
 }) => {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
@@ -140,10 +143,16 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
 
   return (
     <div
-      className={`group relative bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between overflow-hidden bg-gradient-to-b ${theme.lightBg} ${theme.border} ${
+      className={`dashboard-glass-card group relative rounded-2xl p-4 sm:p-5 transition-all duration-300 flex flex-col justify-between overflow-hidden bg-gradient-to-b ${theme.lightBg} ${theme.border} ${
         dashboard.hidden ? 'opacity-60 saturate-[0.65]' : ''
-      }`}
+      } ${isLayoutEditing ? 'layout-editing-card' : ''}`}
     >
+      {isLayoutEditing && (
+        <div className="drag-handle" aria-label="拖动卡片调整位置" title="按住拖动调整位置">
+          <GripVertical className="w-4 h-4" />
+          <span>拖动排序</span>
+        </div>
+      )}
       {/* Top row: Platform Badge & Pin / Star / Actions */}
       <div>
         <div className="flex items-start justify-between gap-1 sm:gap-2 mb-2 sm:mb-3">

@@ -7,5 +7,5 @@ import { useI18n } from '../i18n'
  */
 export default function VmaxCxoDashboard() {
   const { t } = useI18n()
-  return <LegacyToolFrame file="vmax-cxo-standalone/index.html" title={t('nav.vmaxCxoDashboard')} />
+  return <LegacyToolFrame file="vmax_cxo_dashboard.html" title={t('nav.vmaxCxoDashboard')} />
 }

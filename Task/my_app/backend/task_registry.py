@@ -396,6 +396,13 @@ TASK_SPECS = [
          description_en="Fetch all online tickets from eFlow SP APIs (sp-outbound/sp-inbound/sp-transfer) into app.db tables sp_outbound / sp_inbound / sp_transfer (visible in Table Browser)",
          default_cron="35 * * * *", category="sp_online"),
 
+    # 34c. SP 物料主数据同步（每天 04:55）：从 eFlow SP 物料接口拉全量写入 sp_material
+    dict(task_id="sp_material_sync", name="SP 物料主数据同步", name_en="SP Material Master Sync",
+         loader=("backend.services.sp_material_sync", "run_sp_material_sync"),
+         description="从 eFlow SP 物料接口（eflow-sp-material）拉全量物料主数据，写入 app.db 表 sp_material（按 materialNo 唯一键 upsert，Table Browser 可查）",
+         description_en="Fetch the full material master from eFlow SP (eflow-sp-material) into app.db table sp_material (upsert by materialNo, visible in Table Browser)",
+         default_cron="55 4 * * *", category="sp_material"),
+
     # 34. CN EMS KPI 原始文件缓存同步（每15分钟）：EMS SFTP 只保留约1天原始PM文件，
     #     靠白天持续增量缓存把整天数据在服务端清理前保住（fetch 模式只下载缺失文件，轻量）
     dict(task_id="ems_kpi_cache_sync", name="CN EMS KPI 缓存同步", name_en="CN EMS KPI Cache Sync",
@@ -443,6 +450,8 @@ CATEGORY_GATEWAY: dict[str, str] = {
     "eflow": "eflow_api",
     "incident_overview": "eflow_api",
     "sp_online": "eflow_api",
+    # eFlow SP 物料主数据（eflow-sp-material）同源 eFlow API
+    "sp_material": "eflow_api",
     # RAN UME：PM/KPI/丢包率/CM 配置数据均来自 RAN UME
     "ran_ume": "ran_ume",
     "main_kpi": "ran_ume",

@@ -36,11 +36,15 @@ import {
   ExternalLink,
   Lightbulb,
   Loader2,
+  Move,
+  Check,
+  RotateCcw,
 } from 'lucide-react';
 
 const STORAGE_KEY = 'liberia_noc_dashboards_v5'; // legacy：旧版整目录存储，仅用于一次性迁移个人偏好
 const PREFS_KEY = 'liberia_noc_prefs_v1';
 const THEME_KEY = 'enterprise_bi_theme_dark';
+const LAYOUT_ORDER_KEY = 'liberia_noc_layout_order_v1';
 
 /** 个人偏好 overlay：按看板 id 记录收藏/置顶/点击数/最近访问/本机隐藏，存在各自浏览器 */
 type PrefsMap = Record<
@@ -88,6 +92,17 @@ function applyPrefs(items: DashboardItem[], prefs: PrefsMap): DashboardItem[] {
     const p = prefs[d.id];
     return p ? { ...d, ...p } : d;
   });
+}
+
+function applySavedOrder(items: DashboardItem[]): DashboardItem[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAYOUT_ORDER_KEY) || '[]') as string[];
+    if (!Array.isArray(saved) || saved.length === 0) return items;
+    const rank = new Map(saved.map((id, index) => [id, index]));
+    return [...items].sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+  } catch {
+    return items;
+  }
 }
 
 /** 目录条目规范化：确保 rel 存在并按当前环境配置重算 url（外部大屏除外），过滤残缺条目 */
@@ -155,7 +170,7 @@ export default function App() {
   // http://localhost:9267/uniplam/ 上的「保存为默认目录」能写入；其他电脑通过
   // IP 访问时加载同一份，不再各自为政。未保存过时回退到内置 INITIAL_DASHBOARDS。
   const [dashboards, setDashboards] = useState<DashboardItem[]>(() =>
-    applyPrefs(INITIAL_DASHBOARDS, loadPrefs())
+    applySavedOrder(applyPrefs(INITIAL_DASHBOARDS, loadPrefs()))
   );
 
   // 挂载后拉取服务端默认目录覆盖本页（首次渲染先用内置目录避免白屏）
@@ -163,7 +178,7 @@ export default function App() {
     let cancelled = false;
     fetchServerDefault().then((items) => {
       if (cancelled || !items) return;
-      setDashboards(applyPrefs(normalizeCatalogItems(items), loadPrefs()));
+      setDashboards(applySavedOrder(applyPrefs(normalizeCatalogItems(items), loadPrefs())));
     });
     return () => {
       cancelled = true;
@@ -205,6 +220,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOption, setSortOption] = useState<SortOption>('pinned');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [isLayoutEditing, setIsLayoutEditing] = useState(false);
+  const [hasCustomLayout, setHasCustomLayout] = useState(() => localStorage.getItem(LAYOUT_ORDER_KEY) !== null);
+  const [draggedDashboardId, setDraggedDashboardId] = useState<string | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [dashboardToEdit, setDashboardToEdit] = useState<DashboardItem | null>(null);
@@ -244,6 +262,35 @@ export default function App() {
     setDashboards((prev) =>
       prev.map((d) => (d.id === id ? { ...d, isFavorite: !d.isFavorite } : d))
     );
+  };
+
+  const persistLayoutOrder = (items: DashboardItem[]) => {
+    localStorage.setItem(LAYOUT_ORDER_KEY, JSON.stringify(items.map((item) => item.id)));
+  };
+
+  const handleCardDrop = (targetId: string) => {
+    if (!draggedDashboardId || draggedDashboardId === targetId) return;
+    setDashboards((prev) => {
+      const next = [...prev];
+      const from = next.findIndex((item) => item.id === draggedDashboardId);
+      const to = next.findIndex((item) => item.id === targetId);
+      if (from < 0 || to < 0) return prev;
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      persistLayoutOrder(next);
+      setHasCustomLayout(true);
+      return next;
+    });
+    setDraggedDashboardId(null);
+  };
+
+  const handleResetLayout = () => {
+    localStorage.removeItem(LAYOUT_ORDER_KEY);
+    setHasCustomLayout(false);
+    setDashboards((prev) => [...prev].sort((a, b) => {
+      if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+      return b.clickCount - a.clickCount;
+    }));
   };
 
   /** 本机隐藏/恢复显示：只写入本浏览器偏好，绝不影响服务端全局默认与其他电脑 */
@@ -389,6 +436,7 @@ export default function App() {
         return true;
       })
       .sort((a, b) => {
+        if (isLayoutEditing || hasCustomLayout) return 0;
         if (sortOption === 'pinned') {
           if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
           if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
@@ -407,7 +455,7 @@ export default function App() {
         }
         return 0;
       });
-  }, [dashboards, selectedCategory, selectedPlatform, onlyFavorites, showHidden, searchQuery, sortOption]);
+  }, [dashboards, selectedCategory, selectedPlatform, onlyFavorites, showHidden, searchQuery, sortOption, isLayoutEditing, hasCustomLayout]);
 
   const translatedDashboards = useMemo(() => {
     return filteredDashboards.map((d) => translateDashboard(d, lang, t));
@@ -427,7 +475,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100/60 dark:bg-navy-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
+    <div className="app-spatial-root min-h-screen bg-slate-100/60 dark:bg-navy-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* Hidden File Input for JSON import */}
       <input
         type="file"
@@ -491,7 +539,11 @@ export default function App() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           sortOption={sortOption}
-          onSortChange={setSortOption}
+          onSortChange={(sort) => {
+            setSortOption(sort);
+            localStorage.removeItem(LAYOUT_ORDER_KEY);
+            setHasCustomLayout(false);
+          }}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           totalFilteredCount={translatedDashboards.length}
@@ -535,11 +587,41 @@ export default function App() {
             </div>
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-5">
+          <section className="dashboard-layout-shell">
+            <div className="layout-toolbar liquid-glass-panel">
+              <div>
+                <p className="layout-toolbar-title">空间布局</p>
+                <p className="layout-toolbar-hint">{isLayoutEditing ? '拖动卡片到目标位置，布局会自动保存在当前浏览器' : '开启后可自由调整卡片顺序'}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {isLayoutEditing && (
+                  <button onClick={handleResetLayout} className="layout-secondary-button">
+                    <RotateCcw className="w-3.5 h-3.5" />恢复默认
+                  </button>
+                )}
+                <button
+                  onClick={() => { setIsLayoutEditing((value) => !value); setDraggedDashboardId(null); }}
+                  className={`layout-edit-button ${isLayoutEditing ? 'is-active' : ''}`}
+                >
+                  {isLayoutEditing ? <Check className="w-4 h-4" /> : <Move className="w-4 h-4" />}
+                  {isLayoutEditing ? '完成布局' : '编辑布局'}
+                </button>
+              </div>
+            </div>
+            <div className={`dashboard-grid ${isLayoutEditing ? 'is-editing' : ''}`}>
             {translatedDashboards.map((dashboard) => (
-              <DashboardCard
+              <div
                 key={dashboard.id}
+                draggable={isLayoutEditing}
+                onDragStart={() => setDraggedDashboardId(dashboard.id)}
+                onDragOver={(event) => { if (isLayoutEditing) event.preventDefault(); }}
+                onDrop={() => handleCardDrop(dashboard.id)}
+                onDragEnd={() => setDraggedDashboardId(null)}
+                className={`dashboard-grid-item ${draggedDashboardId === dashboard.id ? 'is-dragging' : ''}`}
+              >
+              <DashboardCard
                 dashboard={dashboard}
+                isLayoutEditing={isLayoutEditing}
                 onOpen={handleOpenDashboard}
                 onPreview={(d) => setPreviewDashboard(d)}
                 onShowQR={(d) => setQrDashboard(d)}
@@ -554,8 +636,10 @@ export default function App() {
                 }}
                 onDelete={handleDeleteDashboard}
               />
+              </div>
             ))}
-          </div>
+            </div>
+          </section>
         ) : viewMode === 'list' ? (
           <DashboardListView
             dashboards={translatedDashboards}

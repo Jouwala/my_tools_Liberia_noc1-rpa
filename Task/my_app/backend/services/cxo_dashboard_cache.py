@@ -269,7 +269,7 @@ def run_cxo_dashboard_cache_sync() -> dict:
             fetch_post(f"net/tab/{tab}/indicator/{info_id}", "indicator",
                        "/Service/getIndicatorData",
                        {**BASE_QUERY, "tabId": 0, "infoId": info_id, "view_id": 2})
-        fetch_post("net/map", "map", "/Service/geMapRender",
+        fetch_post(f"net/tab/{tab}/map", "map", "/Service/geMapRender",
                    {**BASE_QUERY, "infoId": ids[0], "view_id": 2})
 
     # 4) Summary：趋势 + KPI 卡 + 地图 + 用户构成/城市

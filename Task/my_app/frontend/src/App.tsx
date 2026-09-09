@@ -148,6 +148,12 @@ function AppContent() {
       return next
     })
   }, [])
+  const navigateTo = useCallback((page: PageKey) => {
+    setCurrentPage(page)
+    const url = new URL(window.location.href)
+    url.searchParams.set('page', page)
+    window.history.pushState({ page }, '', url)
+  }, [])
   const { t, locale, toggleLocale } = useI18n()
   const { isDark, toggle } = useTheme()
   const isMobile = useIsMobile()
@@ -334,7 +340,16 @@ function AppContent() {
     closeCtxMenu()
   }, [closeCtxMenu])
 
-  // 页面名同步到浏览器标签标题，便于新标签页识别
+  // 页面名同步到浏览器标签标题，便于新标签页识别；浏览器前进/后退也恢复页面
+  useEffect(() => {
+    const onPopState = () => {
+      const page = new URLSearchParams(window.location.search).get('page')
+      if (page && (VALID_PAGES as string[]).includes(page)) setCurrentPage(page as PageKey)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
   useEffect(() => {
     const label = flatMenuItems.find(m => m.key === currentPage)?.label
     if (label) document.title = `${label} - ${t('app.title')}`
@@ -432,8 +447,17 @@ function AppContent() {
         },
       }}
     >
-      <Layout style={{ minHeight: '100vh', background: 'var(--wh-page-bg)' }}>
+      <Layout className="app-spatial-root" style={{ minHeight: '100vh', background: 'var(--wh-page-bg)' }}>
+        {isMobile && !collapsed && (
+          <button
+            className="wh-sider-backdrop"
+            type="button"
+            aria-label={t('nav.collapse')}
+            onClick={() => setCollapsed(true)}
+          />
+        )}
         <Sider
+          className="spatial-panel"
           collapsible
           collapsed={collapsed}
           collapsedWidth={0}
@@ -441,7 +465,7 @@ function AppContent() {
           theme={isDark ? 'dark' : 'light'}
           width={'var(--wh-sider-width)' as any}
           style={{
-            background: isDark ? '#0a1929' : '#f6fafd',
+            background: 'var(--wh-surface-glass)',
             borderRight: isDark ? 'none' : '1px solid #d9e6f2',
             // 收起时整体隐藏（含边框），由 Header 汉堡按钮展开
             ...(collapsed ? { borderRight: 'none' } : {}),
@@ -469,7 +493,7 @@ function AppContent() {
             fontWeight: 'bold',
             fontSize: collapsed ? '0.875rem' : '1rem',
             borderBottom: isDark ? '1px solid rgba(100,255,218,0.15)' : '1px solid rgba(13,148,136,0.25)',
-            background: isDark ? 'linear-gradient(90deg, #0a1929, #112540)' : 'linear-gradient(90deg, #eef6fb, #e0edf7)',
+            background: 'var(--wh-surface-glass-strong)',
             position: 'relative',
           }}>
             {collapsed ? t('app.titleShort') : t('app.title')}
@@ -498,7 +522,7 @@ function AppContent() {
             mode="inline"
             selectedKeys={[currentPage]}
             items={menuItems}
-            onClick={({ key }) => { setCurrentPage(key as PageKey); closeCtxMenu(); if (isMobile) setCollapsed(true) }}
+            onClick={({ key }) => { navigateTo(key as PageKey); closeCtxMenu(); if (isMobile) setCollapsed(true) }}
             onContextMenu={onMenuContextMenu}
             style={{ background: isDark ? '#0a1929' : '#f6fafd' }}
           />
@@ -517,7 +541,7 @@ function AppContent() {
                 zIndex: 2001,
                 minWidth: '10.625rem',
                 padding: 'var(--wh-space-xs)',
-                background: isDark ? '#0f2744' : '#ffffff',
+                background: 'var(--wh-surface-glass-strong)',
                 border: isDark ? '1px solid rgba(100,255,218,0.25)' : '1px solid #d5e2ef',
                 borderRadius: 'var(--wh-radius-md)',
                 boxShadow: isDark ? '0 8px 28px rgba(0,0,0,0.55)' : '0 6px 24px rgba(13,94,84,0.16)',
@@ -541,7 +565,7 @@ function AppContent() {
                   }}
                   onMouseEnter={() => setCtxHover('currentTab')}
                   onMouseLeave={() => setCtxHover(null)}
-                  onClick={() => { setCurrentPage(ctxMenu.key); closeCtxMenu() }}
+                  onClick={() => { navigateTo(ctxMenu.key); closeCtxMenu() }}
                 >
                   <SelectOutlined style={{ color: WH.teal }} />
                   {t('ctx.currentTab')}
@@ -551,8 +575,8 @@ function AppContent() {
           )}
         </Sider>
         <Layout style={{ background: WH.bg, flex: 1, minWidth: 0 }}>
-          <Header style={{
-            background: isDark ? 'linear-gradient(180deg, #0f2744 0%, #0a1929 100%)' : 'linear-gradient(180deg, #ddebf6 0%, #eef4fa 100%)',
+          <Header className="spatial-navbar" style={{
+            background: 'var(--wh-surface-glass)',
             padding: isMobile ? '0 var(--wh-space-sm)' : '0 var(--wh-space-lg)',
             display: 'flex',
             alignItems: 'center',
@@ -710,7 +734,7 @@ function AppContent() {
               </Button>
             </div>
           </Header>
-          <Content style={{
+          <Content className="dashboard-layout-shell" style={{
             margin: 'var(--wh-content-margin)',
             padding: 'var(--wh-content-padding)',
             overflow: 'auto',
