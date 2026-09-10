@@ -57,6 +57,7 @@ from backend.services.eflow_api_client import (  # Phase 4 拆分：共享常量
     _create_export_task,
     _download_export_zip,
     _get_time_range_ms,
+    fetch_paginated_data,
     _headers_extra,
     _http_request,
     _prepare_export,
@@ -276,6 +277,137 @@ def _fetch_tt_pipeline(start_ms, end_ms, tmp_dir):
     zip_path = _download_export_zip(TT_DOWNLOAD_PATH, TT_REFERER, file_name, ftp_file_path, "eflow-tt", "TT", tmp_dir)
     rows = _read_export_zip(zip_path, "TT")
     return ("eFlow TT", rows)
+
+
+# ========== 实时单票查询（TT 快速分析回退用，纯内存不落库） ==========
+
+# base/list 是「最近修改优先」的列表接口，不支持服务端 filter（实测传 filter 一律返回 0，
+# 自定义 field 会 400/500）。因此只能分页拉取后客户端匹配。TT 单号在列表行的 woNum 字段
+# （displayName 是标题而非单号）。命中行自带的时间/站点/告警/状态字段足以支撑分析报告，
+# 缺 root_cause/downSiteCount/lastProcesser 等深层字段（base/list 不返回），由 _build_report
+# 自动跳过，不影响结构。
+
+# live camelCase 字段 → eflow_tt 列名（仅覆盖 base/list 实际返回的紧凑字段集）
+_TT_LIVE_COL_MAP = {
+    "woNum": "tt_no",
+    "status": "status",
+    "ticketSeverity": "ticket_severity",
+    "alarmSeverity": "alarm_severity",
+    "alarmType": "alarm_type",
+    "alarmCode": "alarm_code",
+    "subAlarmName": "sub_alarm_name",
+    "reasonType": "alarm_reason_type",
+    "siteOutageOrNo": "site_outage",
+    "impactedServiceOrNo": "impacted_service",
+    "assetName": "site_name",
+    "siteId": "site_id",
+    "assetType": "site_type",
+    "regionLevel1Name": "region_level1",
+    "regionLevel2Name": "region_level2",
+    "alarmId": "alarm_id",
+    "vendor": "vendor",
+    "neName": "ne_name",
+    "neId": "ne_id",
+    # 时间戳列（ms → 可读串）
+    "createTime": "created_time",
+    "lastModifiedTime": "last_modified_time",
+    "alarmOccurTime": "alarm_occur_time",
+    "alarmClearTime": "alarm_clear_time",
+    "faultDurationTime": "fault_duration_time",
+}
+_TT_MS_COLS = {"createTime", "lastModifiedTime", "alarmOccurTime",
+               "alarmClearTime", "faultDurationTime"}
+_TT_PAGE_LEN = 2000          # 单次 length；实测 2000 可用，~4s/3MB
+_TT_MAX_SCAN = 4000          # 最多向前扫描行数（实时分析目标都是很新的单，前几页即命中）
+
+
+def _dt_from_ms(v):
+    """eFlow 时间戳 → '%Y-%m-%d %H:%M:%S'（与 eflow_tt 落库格式一致，parse_dt 可解析）。
+
+    兼容两种时间戳：13 位及以上毫秒，或 10 位 epoch 秒（实测 base/list 里
+    alarmOccurTime 走秒、createTime 走毫秒）。
+    """
+    if v is None:
+        return None
+    s = str(v).strip().rstrip("0").rstrip(".")
+    digits = s.replace(".", "")
+    if digits.isdigit() and len(digits) >= 10:
+        try:
+            ts = int(float(s))
+            if len(digits) >= 13:
+                ts = ts / 1000.0
+            return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        except (OverflowError, OSError, ValueError):
+            return None
+    return s if s else None
+
+
+def _normalize_tt_live_row(raw: dict) -> dict:
+    """把 live base/list 返回的 camelCase 行 → eflow_tt 列名 dict（内存，供报告使用）。"""
+    d: dict = {}
+    for src, dst in _TT_LIVE_COL_MAP.items():
+        if src not in raw or raw[src] is None:
+            continue
+        val = raw[src]
+        if src in _TT_MS_COLS:
+            conv = _dt_from_ms(val)
+            if conv:
+                d[dst] = conv
+        else:
+            d[dst] = val
+    d["_tt_live_raw"] = raw
+    return d
+
+
+def _fetch_tt_page(start: int) -> list:
+    """拉取一页 TT 列表（最近修改优先）。失败/非 200 返回 []。"""
+    payload = dict(TT_PAYLOAD_BASE)
+    payload["start"] = start
+    payload["length"] = _TT_PAGE_LEN
+    try:
+        status, _hdrs, _rh, rsp = _http_request(
+            "POST", TT_API_PATH, headers_extra=_headers_extra(TT_REFERER),
+            body=json.dumps(payload))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("tt-live 分页请求异常: %s", e)
+        return []
+    if "200" not in status:
+        logger.warning("tt-live 分页非 200: %s", status)
+        return []
+    try:
+        data = json.loads(rsp.decode("utf-8"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("tt-live 分页 JSON 解析失败: %s", e)
+        return []
+    res = data.get("result")
+    return res if isinstance(res, list) else []
+
+
+def fetch_tt_live(tt_clean: str) -> dict | None:
+    """按单号实时回 eFlow 拉取单条 TT（本地库 miss 时的兜底）。
+
+    纯内存：不做任何写库。命中返回归一化后的 eflow_tt 列名 dict；未命中返回 None。
+    """
+    tt_clean = (tt_clean or "").strip().upper()
+    if not tt_clean:
+        return None
+    ensure_login()
+
+    scanned = 0
+    start = 0
+    while scanned < _TT_MAX_SCAN:
+        rows = _fetch_tt_page(start)
+        if not rows:
+            break
+        match = next((r for r in rows
+                      if str(r.get("woNum") or "").strip().upper() == tt_clean), None)
+        if match:
+            return _normalize_tt_live_row(match)
+        scanned += len(rows)
+        if len(rows) < _TT_PAGE_LEN:
+            break
+        start += _TT_PAGE_LEN
+    return None
 
 
 def _fetch_wo_pipeline(start_ms, end_ms, tmp_dir):

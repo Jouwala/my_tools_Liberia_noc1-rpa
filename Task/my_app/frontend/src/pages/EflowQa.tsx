@@ -11,6 +11,7 @@ import {
   Tree,
   Typography,
   Button,
+  Tabs,
   Spin as SpinIcon,
 } from 'antd'
 import {
@@ -214,6 +215,117 @@ function HistoryTable({ h, t, isDark, isMobile }: { h: any; t: (k: string) => st
 }
 
 /** RAN UME 告警分析结果视图：告警概览 / 站点小区信息 / 处理建议 / 历史告警 */
+/** 关系链全量下级告警建议：每个下级告警一个页签（同名用 AID 尾号区分） */
+function RelAlarmTabs({ t, isDark, isMobile, border, rel }: {
+  t: (k: string) => string
+  isDark: boolean
+  isMobile: boolean
+  border: string
+  rel: any
+}) {
+  if (!rel || !rel.items?.length) return null
+  const okItems = rel.items.filter((it: any) => it?.ume?.ok)
+  const innerCard = { border, borderRadius: 8, padding: '10px 12px', margin: 0, background: isDark ? 'rgba(82,196,26,0.05)' : '#f7fdf6' }
+  // 同名告警（如 Cell interruption ×N）用 AID 尾号区分页签
+  const nameCount: Record<string, number> = {}
+  okItems.forEach((it: any) => {
+    const k = it.codename || `AID ${it.aid}`
+    nameCount[k] = (nameCount[k] || 0) + 1
+  })
+  const items = okItems.map((it: any, i: number) => {
+    const u = it.ume
+    const base = it.codename || `AID ${it.aid}`
+    const label = nameCount[base] > 1 ? `${base} #${String(it.aid).slice(-4)}` : base
+    return {
+      key: `${it.aid}-${i}`,
+      label,
+      children: (
+        <div style={innerCard}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 4 }}>
+            {u?.alarm?.alarmcode != null && <Tag>{u.alarm.alarmcode}</Tag>}
+            {u?.alarm?.title_en ? <Tag color="geekblue">{u.alarm.title_en}</Tag> : (!!it.codename && <Tag color="geekblue">{it.codename}</Tag>)}
+            {!!it.site_name && <Text type="secondary" style={{ fontSize: 12 }}>{it.site_name}</Text>}
+          </div>
+          <div style={{ marginBottom: 2 }}>
+            <Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+              AID: {it.aid}
+            </Text>
+          </div>
+          {!!u?.suggestion?.default && (
+            <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '4px 0 0', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.7 }}>{u.suggestion.default}</pre>
+          )}
+          {!!u?.suggestion?.customer && (
+            <>
+              <Text type="secondary" style={{ fontSize: 12 }}>customermaintenancename</Text>
+              <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '4px 0 0', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.7 }}>{u.suggestion.customer}</pre>
+            </>
+          )}
+        </div>
+      ),
+    }
+  })
+  return (
+    <div style={{ marginTop: 10, borderTop: `1px dashed ${isDark ? '#2f3747' : '#dbe4ee'}`, paddingTop: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+        <ThunderboltOutlined style={{ color: '#52c41a' }} />
+        <Text strong style={{ fontSize: 13 }}>{t('qa.tt.umeRelTitle')}</Text>
+        <Tag color="green">{t('qa.tt.umeRelSource')}</Tag>
+        <Text type="secondary" style={{ fontSize: 12 }}>{t('qa.tt.umeRelTips')}</Text>
+      </div>
+      {/* 完整链路下钻：根 → 压缩 → 原始 UME（与 eFlow 手动下钻一致） */}
+      {(() => {
+        const chain = rel.chain || []
+        if (!chain.length) return null
+        const byDepth: Record<number, any[]> = {}
+        chain.forEach((n: any) => {
+          const d = n.depth ?? 0
+          ;(byDepth[d] = byDepth[d] || []).push(n)
+        })
+        return (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>{t('qa.tt.umeRelPath')}</Text>
+              <Text type="secondary" style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>{t('qa.tt.umeRelTips2')}</Text>
+            </div>
+            {Object.keys(byDepth).sort((a, b) => +a - +b).map(ds => {
+              const d = +ds
+              const nodes = byDepth[d]
+              const agg: Record<string, { codename: string; count: number; orig: boolean; rel: number }> = {}
+              nodes.forEach((n: any) => {
+                const cn = n.codename || `id ${n.id}`
+                const key = `${n.is_ume_orig ? 'o' : 'c'}|${cn}`
+                const g = agg[key] || (agg[key] = { codename: cn, count: 0, orig: !!n.is_ume_orig, rel: n.relationflag })
+                g.count++
+              })
+              const isOrig = Object.values(agg)[0]?.orig
+              return (
+                <div key={ds} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 2 }}>
+                  <Text type="secondary" style={{ fontSize: 12, width: isMobile ? undefined : 64, flexShrink: 0 }}>
+                    {d === 0 ? t('qa.tt.umeRelRoot') : (isOrig ? t('qa.tt.umeRelOrig') : t('qa.tt.umeRelCompress'))}
+                    {d > 0 ? ' ↳' : ''}
+                  </Text>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {Object.values(agg).map((g, i) => (
+                      <Tag key={i} color={g.orig ? 'green' : 'cyan'} style={{ fontSize: 11, margin: 0 }}>
+                        {g.codename}{g.count > 1 ? ` ×${g.count}` : ''}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })()}
+      {okItems.length === 0 ? (
+        <Alert type="info" showIcon message={t('qa.tt.umeRelEmpty')} />
+      ) : (
+        <Tabs size="small" defaultActiveKey={items[0]?.key} items={items} />
+      )}
+    </div>
+  )
+}
+
 function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, data, onBack }: {
   t: (k: string) => string
   isDark: boolean
@@ -361,6 +473,9 @@ function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, dat
           </div>
         )}
       </div>
+
+      {/* 关系链全量下级告警建议（推荐） */}
+      <RelAlarmTabs t={t} isDark={isDark} isMobile={isMobile} border={cardStyle.border} rel={data.related_ume} />
 
       {/* 历史告警 */}
       {data.history_cell && (
@@ -780,6 +895,7 @@ export default function EflowQa() {
               <ThunderboltOutlined style={{ color: '#faad14' }} />
               <Text strong style={{ fontSize: 16 }}>{ttNo}</Text>
               {ttReport?.found && <Tag color="cyan">{ttReport.site_name}</Tag>}
+              {ttReport?.remote && <Tag color="green">{t('qa.tt.liveSource')}</Tag>}
               <Button size="small" style={{ marginLeft: 'auto' }} onClick={() => setTtView(false)}>{t('qa.tt.back')}</Button>
             </div>
             {ttLoading && (
@@ -934,6 +1050,8 @@ export default function EflowQa() {
                             <Alert type="info" showIcon message={ume?.suggestion_error || t('qa.ume.noSuggestion')} />
                           )
                         )}
+                        {/* 关系链全量下级告警建议（推荐） */}
+                        <RelAlarmTabs t={t} isDark={isDark} isMobile={isMobile} border={cardStyle.border} rel={ttUme?.related_ume} />
                       </div>
                     )
                   })()}

@@ -65,8 +65,20 @@ class DataProfiler:
             "top_values": [],
         }
 
+        # 布尔型统计（必须先于数值分支：pandas 中 bool 也满足 is_numeric_dtype，
+        # 但 quantile/IQR 对 bool 在 pandas 3 会抛 TypeError: numpy boolean subtract）
+        if pd.api.types.is_bool_dtype(series):
+            non_null = series.dropna()
+            bool_n = int(len(non_null))
+            true_count = int((non_null == True).sum())  # noqa: E712
+            profile["stats"] = {
+                "true_count": true_count,
+                "false_count": bool_n - true_count,
+                "true_rate": round(true_count / bool_n * 100, 2) if bool_n else None,
+            }
+
         # 数值型统计
-        if pd.api.types.is_numeric_dtype(series):
+        elif pd.api.types.is_numeric_dtype(series):
             profile["stats"] = {
                 "mean": round(float(series.mean()), 4) if series.notna().any() else None,
                 "median": round(float(series.median()), 4) if series.notna().any() else None,
@@ -156,6 +168,12 @@ class DataProfiler:
         """推断字段业务类型"""
         col_lower = series.name.lower() if isinstance(series.name, str) else ""
 
+        # 布尔列优先判定：pandas 中 is_numeric_dtype(bool) 为 True，若让列名/数值规则
+        # 先命中，bool 列会被误标为「计数/数量」「数值-离散」，
+        # 下游据此对它求均值/分位数即触发存量 500，故必须最先返回。
+        if pd.api.types.is_bool_dtype(series):
+            return "布尔"
+
         # 按列名推断
         if any(k in col_lower for k in ['lat', 'latitude']):
             return "地理-纬度"
@@ -183,8 +201,6 @@ class DataProfiler:
             return "数值-连续"
         if pd.api.types.is_datetime64_any_dtype(series):
             return "日期时间"
-        if pd.api.types.is_bool_dtype(series):
-            return "布尔"
 
         # 文本型进一步判断
         if pd.api.types.is_object_dtype(series):

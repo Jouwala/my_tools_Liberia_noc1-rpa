@@ -30,13 +30,68 @@
   --wh-error-text: #ff8788;
   --wh-success-text: #51cf66;
   --wh-warn-text: #ffa940;
+  /* 状态色（保存状态 / 只读提示 / 隐藏目录等交互反馈共用） */
+  --wh-ok: #51cf66;
+  --wh-danger: #ff6b6b;
+  --wh-warn: #ffa940;
   --wh-input-bg: rgba(255, 255, 255, 0.05);
   --wh-input-border: rgba(100, 255, 218, 0.18);
-  --wh-surface-glass: rgba(15, 39, 68, 0.72);
-  --wh-surface-glass-strong: rgba(10, 25, 41, 0.88);
+  /* ================= 液态玻璃体系（深浅主题共用同一套变量名） =================
+   * 四个空间层级，模糊强度与不透明度自下而上递增：
+   *   panel   顶栏 / 侧栏 —— 覆盖在内容之上，模糊最强、最「实」
+   *   card    卡片 / 统计块 —— 中间层，带渐变与折射高光
+   *   control Select / Input / Button / 表格头 —— 贴在卡片之上，轻薄
+   *   overlay Dropdown / Modal / Popover —— 浮在最上，对比度最高
+   * 每个层级都配一个 *-solid 值：无 backdrop-filter 时由 @supports 统一降级，
+   * 避免半透明底直接透出内容导致文字不可读（见文件末尾降级段）。 */
+  --wh-glass-panel: rgba(8, 25, 41, 0.70);
+  --wh-glass-panel-solid: #0d2138;
+  --wh-glass-card: linear-gradient(145deg, rgba(20, 39, 63, 0.72), rgba(9, 27, 45, 0.56));
+  --wh-glass-card-solid: linear-gradient(145deg, #141f33, #0d2138);
+  --wh-glass-control: rgba(14, 33, 54, 0.58);
+  --wh-glass-control-hover: rgba(22, 48, 76, 0.74);
+  --wh-glass-control-solid: #10243c;
+  --wh-glass-overlay: rgba(9, 27, 45, 0.80);
+  --wh-glass-overlay-solid: #0d2138;
+
+  /* 折射高光（斜向叠层）与边缘光（顶部 1px 内阴影） */
+  --wh-glass-specular: linear-gradient(118deg, rgba(255, 255, 255, 0.075), transparent 27%, transparent 73%, rgba(79, 195, 247, 0.055));
+  --wh-glass-rim: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+
+  /* 模糊强度：层级越高越模糊，保证上层文字不被下层内容干扰 */
+  --wh-glass-blur-panel: 26px;
+  --wh-glass-blur-card: 22px;
+  --wh-glass-blur-control: 14px;
+  --wh-glass-blur-overlay: 26px;
+  --wh-glass-saturate: 145%;
+
+  /* 阴影层级：1 静态控件/卡片 2 面板与卡片悬浮 3 浮层（均含一层边缘光） */
+  --wh-shadow-1: 0 4px 14px rgba(0, 0, 0, 0.22), var(--wh-glass-rim);
+  --wh-shadow-2: 0 20px 52px rgba(0, 0, 0, 0.32), 0 2px 10px rgba(79, 195, 247, 0.05), var(--wh-glass-rim);
+  --wh-shadow-3: 0 26px 70px rgba(0, 0, 0, 0.42), var(--wh-glass-rim);
+
+  --wh-glass-border: rgba(100, 255, 218, 0.20);
+  --wh-glass-border-strong: rgba(100, 255, 218, 0.45);
+
+  /* 装饰性元素：顶栏网格纹理、方向箭头、标题辉光（统一由主题驱动） */
+  --wh-grid-line: rgba(100, 255, 218, 0.03);
+  --wh-decor: rgba(100, 255, 218, 0.25);
+  --wh-title-shadow: 0 0 20px rgba(100, 255, 218, 0.40), 0 0 40px rgba(100, 255, 218, 0.20);
+  /* 标题下方装饰线的外发光：浅色下无辉光，取 none */
+  --wh-title-rule-glow: 0 0 8px rgba(100, 255, 218, 0.53);
+  /* 抽屉/弹层蒙版：比浮层更暗，用于把背景内容压下去 */
+  --wh-scrim: rgba(6, 15, 28, 0.38);
+  --wh-scrim-solid: rgba(6, 15, 28, 0.55);
+
+  /* 旧变量名保留为别名，避免逐处改调用方后遗漏（新增代码请用新名） */
+  --wh-surface-glass: var(--wh-glass-panel);
+  --wh-surface-glass-strong: var(--wh-glass-overlay);
   --wh-overlay: rgba(2, 10, 20, 0.58);
-  --wh-focus-ring: 0 0 0 3px rgba(100, 255, 218, 0.28);
-  --wh-shadow-soft: 0 12px 32px rgba(0, 0, 0, 0.28);
+  --wh-focus-ring: 0 0 0 2px rgba(8, 25, 41, 0.92), 0 0 0 4px rgba(100, 255, 218, 0.45);
+  --wh-shadow-soft: var(--wh-shadow-2);
+  --wh-border-glass: var(--wh-glass-border);
+  --wh-border-glass-strong: var(--wh-glass-border-strong);
+  --wh-control-bg: var(--wh-glass-control);
 
   /* ---------- 响应式布局令牌（统一以 rem 为基准，16px = 1rem） ---------- */
   /* 根字体基准由 html 的 font-size 控制，Windows 缩放/高 DPI 会随系统字体设置自然放大 */
@@ -90,6 +145,50 @@
   --wh-teal-40: rgba(13, 148, 136, 0.40);
   --wh-teal-53: rgba(13, 148, 136, 0.53);
   --wh-page-bg: #e9eef3;
+  /* ---------- 液态玻璃体系（浅色：中性雾蓝灰 + 青色仅作交互信号） ---------- */
+  --wh-glass-panel: rgba(255, 255, 255, 0.70);
+  --wh-glass-panel-solid: #f7fbfe;
+  --wh-glass-card: linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(241, 245, 248, 0.66));
+  --wh-glass-card-solid: linear-gradient(145deg, #ffffff, #f1f5f8);
+  --wh-glass-control: rgba(255, 255, 255, 0.62);
+  --wh-glass-control-hover: rgba(255, 255, 255, 0.84);
+  --wh-glass-control-solid: #f6fafc;
+  --wh-glass-overlay: rgba(255, 255, 255, 0.82);
+  --wh-glass-overlay-solid: #ffffff;
+
+  --wh-glass-specular: linear-gradient(118deg, rgba(255, 255, 255, 0.52), transparent 31%, transparent 76%, rgba(112, 143, 160, 0.045));
+  --wh-glass-rim: inset 0 1px 0 rgba(255, 255, 255, 0.94);
+
+  /* 浅色底对比弱，模糊略强于深色，靠饱和度与高光拉开层级 */
+  --wh-glass-blur-panel: 26px;
+  --wh-glass-blur-card: 20px;
+  --wh-glass-blur-control: 14px;
+  --wh-glass-blur-overlay: 24px;
+  --wh-glass-saturate: 135%;
+
+  --wh-shadow-1: 0 2px 8px rgba(38, 70, 86, 0.07), var(--wh-glass-rim);
+  --wh-shadow-2: 0 18px 42px rgba(38, 70, 86, 0.11), 0 3px 10px rgba(38, 70, 86, 0.08), var(--wh-glass-rim);
+  --wh-shadow-3: 0 24px 64px rgba(15, 56, 75, 0.18), var(--wh-glass-rim);
+
+  --wh-glass-border: rgba(94, 125, 143, 0.28);
+  --wh-glass-border-strong: rgba(13, 148, 136, 0.55);
+
+  --wh-grid-line: rgba(13, 148, 136, 0.05);
+  --wh-decor: rgba(13, 148, 136, 0.32);
+  /* 浅色下没有辉光可用，改用白色浮雕让标题从玻璃底上浮起 */
+  --wh-title-shadow: 0 1px 2px rgba(255, 255, 255, 0.85);
+  --wh-title-rule-glow: none;
+  --wh-scrim: rgba(38, 83, 104, 0.20);
+  --wh-scrim-solid: rgba(38, 83, 104, 0.38);
+
+  --wh-surface-glass: var(--wh-glass-panel);
+  --wh-surface-glass-strong: var(--wh-glass-overlay);
+  --wh-focus-ring: 0 0 0 2px rgba(255, 255, 255, 0.90), 0 0 0 4px rgba(13, 148, 136, 0.38);
+  --wh-shadow-soft: var(--wh-shadow-2);
+  --wh-border-glass: var(--wh-glass-border);
+  --wh-border-glass-strong: var(--wh-glass-border-strong);
+  --wh-control-bg: var(--wh-glass-control);
+
   --wh-hover-row: rgba(71, 101, 119, 0.06);
   --wh-table-sort-icon: #5b7288;
   --wh-seg-bg: rgba(71, 101, 119, 0.08);
@@ -99,13 +198,13 @@
   --wh-error-text: #c0392b;
   --wh-success-text: #15803d;
   --wh-warn-text: #b45309;
+  /* 状态色（浅色主题下用更深的色阶，保证在浅底上可读） */
+  --wh-ok: #0f9d58;
+  --wh-danger: #d93025;
+  --wh-warn: #d97706;
   --wh-input-bg: rgba(255, 255, 255, 0.82);
   --wh-input-border: rgba(94, 125, 143, 0.28);
-  --wh-surface-glass: rgba(255, 255, 255, 0.72);
-  --wh-surface-glass-strong: rgba(247, 251, 253, 0.9);
   --wh-overlay: rgba(31, 53, 68, 0.28);
-  --wh-focus-ring: 0 0 0 3px rgba(13, 148, 136, 0.22);
-  --wh-shadow-soft: 0 12px 32px rgba(51, 79, 96, 0.16);
 }
 
 * {
@@ -128,61 +227,246 @@ body {
   min-height: 100vh;
 }
 
-/* 统一外壳玻璃层：所有 antd 控件继承主题表面，不再依赖页面硬编码背景 */
-.app-spatial-root,
+/* ---------- 统一外壳玻璃层：层级由令牌驱动，深浅主题共用同一组规则 ---------- *
+ * .app-spatial-root 必须保持透明：body 的渐变与两张氛围光斑（::before/::after）
+ * 只有透出来，上面的玻璃面板才有东西可折射。此前 root 自带 0.72 不透明的玻璃底，
+ * 把光斑整片盖住，玻璃效果实际退化成一层灰膜。 */
+.app-spatial-root {
+  background: transparent !important;
+}
+
+/* ---------- 嵌入模式（?embed=1 / ?layout=bare，根节点挂 .wh-embed-mode） ----------
+ * 只渲染页面本体：无侧栏 / 无 Header / 无留白，模块铺满视口（门户 iframe / 大屏用）。
+ * 氛围光斑与 body 渐变保留，保证嵌入页与外壳的背景观感一致。 */
+.wh-embed-mode {
+  min-height: 100vh;
+}
+.wh-embed-mode #main-content {
+  height: 100vh;
+}
 .spatial-panel,
 .spatial-navbar {
-  background: var(--wh-surface-glass) !important;
-  border-color: var(--wh-subtle-border) !important;
-  backdrop-filter: blur(18px) saturate(135%);
-  -webkit-backdrop-filter: blur(18px) saturate(135%);
+  background: var(--wh-glass-panel) !important;
+  border-color: var(--wh-glass-border) !important;
+  box-shadow: var(--wh-shadow-2) !important;
+  -webkit-backdrop-filter: blur(var(--wh-glass-blur-panel)) saturate(var(--wh-glass-saturate));
+  backdrop-filter: blur(var(--wh-glass-blur-panel)) saturate(var(--wh-glass-saturate));
 }
-.spatial-panel {
-  box-shadow: var(--wh-shadow-soft);
-}
+/* 顶栏再叠一层折射高光，制造玻璃厚度感（不拦截指针事件） */
 .spatial-navbar {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16) !important;
+  position: relative;
 }
-.ant-layout,
+.spatial-navbar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--wh-glass-specular);
+  opacity: 0.55;
+}
+
+/* 卡片层：背景 / 描边 / 阴影 / 模糊全部取令牌，不再按主题各写一份 */
+.ant-card,
+.wh-stat-card,
+.spatial-stat-card,
+.dcm-modal {
+  background: var(--wh-glass-card) !important;
+  border-color: var(--wh-glass-border) !important;
+  box-shadow: var(--wh-shadow-2) !important;
+  -webkit-backdrop-filter: blur(var(--wh-glass-blur-card)) saturate(var(--wh-glass-saturate));
+  backdrop-filter: blur(var(--wh-glass-blur-card)) saturate(var(--wh-glass-saturate));
+}
+
+/* ---------- 控件层玻璃：Select / Input / Button / Picker / Segmented / 表头 ---------- *
+ * 三个与 antd v5 不同的坑（都已实测确认）：
+ *   1. v6 的 Select 把背景与描边挂在根节点 .ant-select 上，.ant-select-selector 已只是
+ *      内层内容容器（旧选择器不会命中，控件看起来还是白底）；
+ *   2. Button 的默认色也带 .ant-btn-color-default，因此排除条件必须放行 default，
+ *      只挡 danger 与预设色，否则所有普通按钮都会被排除、玻璃完全失效；
+ *   3. icon-only 按钮同样是 -variant-outlined，无需特殊处理。 */
+.ant-select,
+.ant-select-selector,
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-picker,
+.ant-segmented,
+.ant-table-thead > tr > th,
+.ant-btn:where(.ant-btn-variant-outlined, .ant-btn-variant-dashed):not(.ant-btn-dangerous):not([class*="ant-btn-color-danger"]) {
+  background: var(--wh-glass-control) !important;
+  border-color: var(--wh-glass-border) !important;
+  -webkit-backdrop-filter: blur(var(--wh-glass-blur-control)) saturate(120%);
+  backdrop-filter: blur(var(--wh-glass-blur-control)) saturate(120%);
+}
+/* danger 按钮：只把底色换成玻璃，描边与文字保留红色语义 */
+.ant-btn:where(.ant-btn-variant-outlined, .ant-btn-variant-dashed):is(.ant-btn-dangerous, [class*="ant-btn-color-danger"]) {
+  background: var(--wh-glass-control) !important;
+  -webkit-backdrop-filter: blur(var(--wh-glass-blur-control)) saturate(120%);
+  backdrop-filter: blur(var(--wh-glass-blur-control)) saturate(120%);
+}
+.ant-select:not(.ant-select-disabled):hover,
+.ant-btn:where(.ant-btn-variant-outlined, .ant-btn-variant-dashed):not(:disabled):hover,
+.ant-picker:not(.ant-picker-disabled):hover,
+.ant-input-affix-wrapper:not(.ant-input-affix-wrapper-disabled):hover {
+  background: var(--wh-glass-control-hover) !important;
+  border-color: var(--wh-glass-border-strong) !important;
+}
+/* 文本/链接按钮常态保持透明，仅在 hover 时浮出玻璃底 */
+.ant-btn-variant-text:not(:disabled):hover,
+.ant-btn-variant-link:not(:disabled):hover {
+  background: var(--wh-glass-control) !important;
+}
+/* 禁用态退回哑光底：玻璃底会让「不可点」看起来仍然可点 */
+.ant-input-disabled,
+.ant-input-affix-wrapper-disabled,
+.ant-picker-disabled,
+.ant-select-disabled,
+.ant-select-disabled .ant-select-selector,
+.ant-input-number-disabled,
+.ant-btn:disabled {
+  background: var(--wh-subtle-bg) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* ---------- 浮层玻璃：Dropdown / Modal / Drawer / Popover / 日期面板 ---------- *
+ * 刻意不含 Tooltip：antd 的 tooltip 文案恒为浅色，浅色主题下换成白色玻璃会变成白底白字。 */
+.ant-modal-content,
+.ant-drawer-content,
+.ant-popover-inner,
+.ant-dropdown-menu,
+.ant-select-dropdown,
+.ant-picker-panel-container,
+.ant-cascader-dropdown {
+  background: var(--wh-glass-overlay) !important;
+  border: 1px solid var(--wh-glass-border) !important;
+  box-shadow: var(--wh-shadow-3) !important;
+  -webkit-backdrop-filter: blur(var(--wh-glass-blur-overlay)) saturate(150%);
+  backdrop-filter: blur(var(--wh-glass-blur-overlay)) saturate(150%);
+}
+/* 菜单本体透明：侧栏的玻璃由 Sider 提供，菜单只负责选中/悬停的强调色 */
 .ant-menu,
 .ant-menu-sub,
-.ant-select-selector,
-.ant-btn,
-.ant-dropdown,
-.ant-dropdown-menu {
-  background-color: transparent;
+.ant-dropdown {
+  background: transparent !important;
 }
+
+/* 侧栏内容列布局：品牌条/搜索框固定，菜单区独占剩余高度并可独立滚动。
+   flex:1 1 auto + min-height:0 是关键：菜单内容再多也只能在「视口高度 − 固定区」
+   内滚动，而不会把 .ant-layout-sider 本身撑高（撑高后菜单区就永不出滚动条，
+   目录全展开时底部的页面会滚不到，见 App.tsx 里 Sider 的 100vh/sticky 说明）。
+   antd 运行时注入的样式晚于本文件，同特异性下会赢，这里用 !important 保底。 */
+.ant-layout-sider-children {
+  display: flex !important;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+/* 自动刷新开启时给 Select 一条强化描边，作为「正在自动刷新」的状态提示 */
+.wh-select-active.ant-select,
+.wh-select-active .ant-select,
+.wh-select-active .ant-select-selector {
+  border-color: var(--wh-glass-border-strong) !important;
+}
+
+/* ---------- 键盘焦点：所有可交互元素共用同一条焦点环 ---------- */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible,
 .ant-btn:focus-visible,
+.ant-select-focused,
 .ant-select-focused .ant-select-selector,
-.ant-menu-item:focus-visible {
+.ant-menu-item:focus-visible,
+.ant-menu-submenu-title:focus-visible {
   outline: none;
   box-shadow: var(--wh-focus-ring) !important;
 }
-@supports not ((backdrop-filter: blur(1px))) {
-  .app-spatial-root,
+
+/* ---------- 降级：不支持 backdrop-filter 时各层切不透明底 ---------- */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .spatial-panel,
   .spatial-navbar {
-    background: var(--wh-surface-glass-strong) !important;
+    background: var(--wh-glass-panel-solid) !important;
+  }
+  .ant-card,
+  .wh-stat-card,
+  .spatial-stat-card,
+  .dcm-modal {
+    background: var(--wh-glass-card-solid) !important;
+  }
+  .ant-select,
+  .ant-select-selector,
+  .ant-input,
+  .ant-input-affix-wrapper,
+  .ant-input-number,
+  .ant-picker,
+  .ant-segmented,
+  .ant-btn:where(.ant-btn-variant-outlined, .ant-btn-variant-dashed):not(.ant-btn-dangerous):not([class*="ant-btn-color-danger"]),
+  .ant-table-thead > tr > th {
+    background: var(--wh-glass-control-solid) !important;
+  }
+  .ant-modal-content,
+  .ant-drawer-content,
+  .ant-popover-inner,
+  .ant-dropdown-menu,
+  .ant-select-dropdown,
+  .ant-picker-panel-container {
+    background: var(--wh-glass-overlay-solid) !important;
   }
 }
+
+/* ---------- 减少动态效果：只收敛装饰性动效 ---------- */
 @media (prefers-reduced-motion: reduce) {
+  /* 这里刻意不做全局 animation-duration 覆盖：那会把 Spin 等「加载中」无限动画
+     一并停掉，用户失去加载反馈。只关闭位移/悬浮过渡与氛围光斑。 */
   *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
   }
+  .app-spatial-root::before,
+  .app-spatial-root::after,
+  .dashboard-layout-shell::before {
+    display: none !important;
+  }
+  .ant-card,
+  .wh-stat-card,
+  .spatial-stat-card,
+  .wh-card-interactive,
+  .ant-menu-inline .ant-menu-item {
+    transition: none !important;
+  }
+  .ant-card:hover,
+  .wh-stat-card:hover,
+  .spatial-stat-card:hover,
+  .wh-card-interactive:hover {
+    transform: none !important;
+  }
 }
 
-.wh-sider-backdrop {
+/* 跳转到主内容的键盘快捷入口（Tab 首站可见，否则视觉隐藏） */
+.wh-skip-link {
   position: fixed;
-  inset: var(--wh-header-height) 0 0;
-  z-index: 999;
-  border: 0;
-  background: var(--wh-overlay);
-  backdrop-filter: blur(3px);
-  cursor: pointer;
+  top: var(--wh-space-sm);
+  left: var(--wh-space-sm);
+  z-index: 3000;
+  transform: translateY(-200%);
+  padding: var(--wh-space-xs) var(--wh-space-md);
+  border-radius: var(--wh-radius-md);
+  background: var(--wh-glass-overlay-solid);
+  border: 1px solid var(--wh-glass-border-strong);
+  box-shadow: var(--wh-shadow-3);
+  color: var(--wh-teal);
+  font-size: 0.8125rem;
+  text-decoration: none;
+  transition: transform 0.15s ease;
 }
-
+.wh-skip-link:focus-visible {
+  transform: translateY(0);
+  box-shadow: var(--wh-focus-ring) !important;
+}
 
 /* ---------- 响应式根字体：兼容 1080P/2K/4K 与 Windows 高 DPI 缩放 ---------- */
 /* 16px 为基准；在宽屏上轻微放大以提升 2K/4K 可读性，同时尊重系统缩放设置 */
@@ -383,6 +667,286 @@ html {
   }
 }
 
+/* ---------- 侧边栏宽度拖拽手柄 ---------- *
+ * 贴在侧栏右边缘内侧（不依赖 sider 的 overflow 可见性）；hover / 聚焦 /
+ * 拖拽中显示一条竖条作为可拖动提示。移动端抽屉是浮层、宽度由视口决定，
+ * 不渲染该手柄。 */
+.wh-sider-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 0.375rem;            /* 6px 热区，比视觉竖条宽得多，便于点中 */
+  z-index: 20;
+  cursor: col-resize;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.wh-sider-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 1px;
+  width: 2px;
+  height: 2.75rem;
+  transform: translateY(-50%);
+  border-radius: 2px;
+  background: var(--wh-glass-border-strong);
+  opacity: 0;
+  transition: opacity .16s ease;
+}
+.wh-sider-resizer:hover::after,
+.wh-sider-resizer:focus-visible::after,
+.wh-sider-resizer.is-active::after {
+  opacity: 1;
+}
+.wh-sider-resizer:focus-visible { outline: none; }
+.wh-sider-resizer:focus-visible::after { box-shadow: var(--wh-focus-ring); }
+
+/* 拖拽期间：统一 col-resize 光标 + 禁选中，并关掉内容区/iframe 的指针事件 ——
+ * 指针滑到 iframe 上时事件会困在 iframe 文档里，window 上的 pointermove/pointerup
+ * 就收不到了。这里用「关掉内容区交互」而不是盖一层遮罩：遮罩会吞掉落在其上的
+ * mouseup/click，让手柄收不到 dblclick，「双击复位」会失效。 */
+.wh-sider-resizing,
+.wh-sider-resizing * { cursor: col-resize !important; user-select: none !important; }
+.wh-sider-resizing #main-content,
+.wh-sider-resizing iframe { pointer-events: none !important; }
+/* antd Sider 自带宽度过渡（~0.2s），拖拽时会把跟手的动作变成"追着跑"，
+   拖拽期间关掉过渡，松手后自动恢复 */
+.wh-sider-resizing .ant-layout-sider,
+.wh-sider-resizing .ant-layout-sider-children { transition: none !important; }
+
+/* ---------- 侧栏目录分组头部：折叠 / 展开 / 隐藏 ---------- *
+ * 分组标题不再是一行死文字：整行可点（收起·展开），右侧眼睛可隐藏整个目录。
+ * 折叠箭头用伪元素画，group 标题的 textContent 仍只有目录名 —— 断言与读屏都干净。 */
+#app-sider-menu .ant-menu-item-group-title {
+  padding: 0 !important;   /* antd 默认的内边距由 .wh-menu-group-head 自己接管 */
+  margin: 0;
+  height: auto;
+  line-height: 1.4;
+}
+.wh-menu-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: var(--wh-space-xs) var(--wh-space-sm) var(--wh-space-xs) var(--wh-space-md);
+}
+.wh-menu-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--wh-radius-sm);
+}
+.wh-menu-group-toggle::before {
+  content: '▾';
+  flex-shrink: 0;
+  font-size: 0.625rem;
+  line-height: 1;
+  opacity: 0.75;
+}
+.wh-menu-group-toggle[aria-expanded='false']::before { content: '▸'; }
+.wh-menu-group-toggle:hover .wh-menu-group-name { color: var(--wh-teal); }
+.wh-menu-group-toggle:focus-visible { outline: none; }
+.wh-menu-group-toggle:focus-visible .wh-menu-group-name { box-shadow: var(--wh-focus-ring); border-radius: 2px; }
+.wh-menu-group-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wh-menu-group-count {
+  flex-shrink: 0;
+  min-width: 1.125rem;
+  padding: 0 0.25rem;
+  text-align: center;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--wh-text-muted);
+  background: var(--wh-glass-control);
+  border: 1px solid var(--wh-glass-border);
+  border-radius: 999px;
+}
+.wh-menu-group-eye {
+  flex-shrink: 0;
+  padding: 0.125rem 0.25rem;
+  border: 0;
+  background: transparent;
+  color: var(--wh-text-muted);
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--wh-radius-sm);
+  opacity: 0.45;
+  transition: opacity 0.16s ease, color 0.16s ease;
+}
+.wh-menu-group-head:hover .wh-menu-group-eye { opacity: 1; }
+.wh-menu-group-eye:hover { color: var(--wh-teal); }
+.wh-menu-group-eye:focus-visible { outline: none; opacity: 1; box-shadow: var(--wh-focus-ring); }
+
+/* ---------- 侧栏底部：已隐藏目录的恢复区 ---------- *
+ * 吸底常驻（sticky bottom）：菜单很长时它也一直在视口底部可见 ——
+ * 否则「隐藏了目录 → 想恢复 → 要先把侧栏滚到底」才能看到入口。
+ * 背景用较实的 panel 令牌，避免菜单项从它下面透出来。 */
+.wh-menu-hidden-box {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: 0 var(--wh-space-sm) 0;
+  padding: var(--wh-space-xs) var(--wh-space-sm);
+  border: 1px dashed var(--wh-glass-border-strong);
+  border-radius: var(--wh-radius-md) var(--wh-radius-md) 0 0;
+  background: var(--wh-glass-panel);
+  /* ⚠️ -webkit- 前缀必须写在标准属性**前面**：写反会被压缩器去重，模糊静默失效 */
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+}
+.wh-menu-hidden-title {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--wh-text-muted);
+}
+.wh-menu-hidden-all {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--wh-teal);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.wh-menu-hidden-all:hover { text-decoration: underline; }
+.wh-menu-hidden-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0;
+}
+.wh-menu-hidden-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: var(--wh-text-muted);
+}
+.wh-menu-hidden-show {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  padding: 0 0.375rem;
+  border: 1px solid var(--wh-glass-border);
+  border-radius: var(--wh-radius-sm);
+  background: transparent;
+  color: var(--wh-teal);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.wh-menu-hidden-show:hover { background: var(--wh-glass-control-hover); }
+
+/* ---------- 侧栏页面搜索 ---------- */
+.wh-sider-search {
+  flex-shrink: 0;
+}
+.wh-sider-search .ant-input-affix-wrapper { border-radius: var(--wh-radius-md); }
+.wh-sider-search-hint {
+  margin-top: var(--wh-space-xs);
+  padding-left: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--wh-text-muted);
+}
+
+/* ---------- 侧栏菜单编辑器（Modal） ---------- */
+.wh-menu-edit-tip {
+  margin: 0 0 var(--wh-space-md);
+  color: var(--wh-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+/* 非本机（只读）时的提示条：明确告知为什么改不了 */
+.wh-menu-edit-readonly {
+  margin: 0 0 var(--wh-space-md);
+  padding: var(--wh-space-xs) var(--wh-space-sm);
+  border: 1px solid var(--wh-glass-border);
+  border-left: 3px solid var(--wh-warn, #d97706);
+  border-radius: var(--wh-radius-sm, 6px);
+  background: var(--wh-glass-control);
+  color: var(--wh-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+/* 保存状态：右上角一行小字，saving/saved/error 三态 */
+.wh-menu-edit-status { font-size: 0.75rem; }
+.wh-menu-edit-status.is-saving { color: var(--wh-text-muted); }
+.wh-menu-edit-status.is-saved { color: var(--wh-ok, #0f9d58); }
+.wh-menu-edit-status.is-error { color: var(--wh-danger, #d93025); }
+.wh-menu-edit-group {
+  border: 1px solid var(--wh-glass-border);
+  border-radius: var(--wh-radius-md);
+  background: var(--wh-glass-control);
+  padding: var(--wh-space-sm);
+  margin-bottom: var(--wh-space-sm);
+}
+/* 隐藏的目录降低存在感，一眼可辨「这个目录当前不在侧栏里」 */
+.wh-menu-edit-group.is-hidden { opacity: 0.62; }
+.wh-menu-edit-group.is-hidden .wh-menu-edit-head { border-left: 3px solid var(--wh-warn, #d97706); padding-left: var(--wh-space-xs); }
+.wh-menu-edit-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wh-space-xs);
+  margin-bottom: var(--wh-space-xs);
+}
+.wh-menu-edit-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wh-space-xs);
+  padding-left: var(--wh-space-sm);
+}
+.wh-menu-edit-item {
+  display: flex;
+  align-items: center;
+  gap: var(--wh-space-xs);
+}
+.wh-menu-edit-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--wh-text-muted);
+}
+.wh-menu-edit-move {
+  width: 8.5rem;
+  flex-shrink: 0;
+}
+.wh-menu-edit-empty {
+  color: var(--wh-text-muted);
+  font-size: 0.8125rem;
+  padding: var(--wh-space-xs) 0;
+}
+.wh-menu-edit-actions {
+  display: flex;
+  gap: var(--wh-space-sm);
+  margin-top: var(--wh-space-md);
+}
+@media (max-width: 767px) {
+  .wh-menu-edit-items { padding-left: 0; }
+  .wh-menu-edit-move { width: 6.5rem; }
+}
+
 /* 小屏下表单控件不应撑破容器 */
 .wh-input-fluid {
   width: 100%;
@@ -464,14 +1028,13 @@ html {
   background: rgba(13, 148, 136, 0.5);
 }
 
-/* ---------- 侧边栏 Menu 质感增强 ---------- */
-:root[data-theme='dark'] .ant-menu.ant-menu-dark {
-  background: #0a1929 !important;
-}
+/* ---------- 侧边栏 Menu 质感增强 ---------- *
+ * 菜单本体不再自带实底（antd dark 默认 #001529）：侧栏的玻璃由 Sider 提供，
+ * 菜单若再铺一层实色，玻璃层就被遮住、选中态与悬浮态的高光也失去层次。 */
 :root[data-theme='dark'] .ant-menu.ant-menu-dark .ant-menu-submenu-title:hover,
 :root[data-theme='dark'] .ant-menu.ant-menu-dark .ant-menu-item:hover {
-  background: rgba(100, 255, 218, 0.08) !important;
-  color: #64ffda !important;
+  background: var(--wh-glass-control) !important;
+  color: var(--wh-teal) !important;
 }
 :root[data-theme='dark'] .ant-menu.ant-menu-dark .ant-menu-item-selected {
   background: linear-gradient(90deg, rgba(100, 255, 218, 0.16) 0%, rgba(79, 195, 247, 0.08) 100%) !important;
@@ -492,9 +1055,11 @@ html {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-/* ---------- 浅色主题液态玻璃增强：用色差、折射边缘和双层阴影建立空间层级 ---------- */
+/* ---------- 浅色主题：页面底与容器浮雕（数值全部来自令牌） ---------- *
+ * 卡片的背景/描边/阴影/模糊由上方「统一外壳玻璃层」统一给出，此处只保留
+ * 浅色特有的页面底与容器浮雕，避免同一属性在两处各写一份、互相覆盖。 */
 :root[data-theme='light'] body {
-  background: linear-gradient(155deg, #e9eef3 0%, #f5f7f9 52%, #e7edf2 100%);
+  background: var(--wh-bg);
   background-attachment: fixed;
 }
 :root[data-theme='light'] #root { position: relative; isolation: isolate; }
@@ -503,66 +1068,36 @@ html {
 :root[data-theme='light'] .wh-page-wrap {
   position: relative;
   background: var(--wh-bg);
-  border: 1px solid rgba(255,255,255,.78);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.94), 0 22px 56px rgba(38,70,86,.075);
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  box-shadow: var(--wh-shadow-2);
 }
-:root[data-theme='light'] .ant-card,
-:root[data-theme='light'] .wh-stat-card,
-:root[data-theme='light'] .dcm-modal {
-  background: var(--wh-card-bg) !important;
-  border-color: rgba(94,125,143,.22) !important;
-  box-shadow: 0 18px 42px rgba(38,70,86,.11), 0 3px 10px rgba(38,70,86,.08), inset 0 1px 0 rgba(255,255,255,.96) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(145%);
-  backdrop-filter: blur(20px) saturate(145%);
+/* 卡片折射高光：深浅主题同一套实现，只换 --wh-glass-specular 的强度 */
+.ant-card,
+.wh-stat-card {
+  position: relative;
+  overflow: hidden;
 }
-:root[data-theme='light'] .ant-card { position: relative; overflow: hidden; }
-:root[data-theme='light'] .ant-card::before,
-:root[data-theme='light'] .wh-stat-card::before {
+.ant-card::before,
+.wh-stat-card::before {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(118deg, rgba(255,255,255,.52), transparent 31%, transparent 76%, rgba(112,143,160,.045));
+  background: var(--wh-glass-specular);
   border-radius: inherit;
 }
-:root[data-theme='light'] .ant-card-body,
-:root[data-theme='light'] .ant-card-head,
-:root[data-theme='light'] .wh-stat-card > * { position: relative; z-index: 1; }
-:root[data-theme='light'] .wh-card-interactive:hover,
-:root[data-theme='light'] .wh-stat-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(13,148,136,.58) !important;
-  box-shadow: 0 24px 55px rgba(15,56,75,.18), 0 0 0 1px rgba(45,212,191,.10), inset 0 1px 0 rgba(255,255,255,1) !important;
-}
-:root[data-theme='light'] .ant-modal-content,
-:root[data-theme='light'] .ant-drawer-content,
-:root[data-theme='light'] .ant-popover-inner,
-:root[data-theme='light'] .ant-dropdown-menu {
-  background: rgba(255,255,255,.78) !important;
-  border: 1px solid rgba(14,116,144,.20);
-  box-shadow: 0 24px 64px rgba(15,56,75,.18), inset 0 1px 0 rgba(255,255,255,.96) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
-  backdrop-filter: blur(24px) saturate(150%);
-}
-@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  :root[data-theme='light'] .ant-card,
-  :root[data-theme='light'] .wh-stat-card,
-  :root[data-theme='light'] .dcm-modal { background: #f8fcfe !important; }
-}
+.ant-card-body,
+.ant-card-head,
+.wh-stat-card > * { position: relative; z-index: 1; }
 
 /* ---------- 卡片悬浮与发光动画 ---------- */
 .wh-card-interactive {
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease;
 }
-:root[data-theme='dark'] .wh-card-interactive:hover {
+.wh-card-interactive:hover {
   transform: translateY(-2px);
-  border-color: rgba(100, 255, 218, 0.45) !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 16px rgba(100, 255, 218, 0.12) !important;
-}
-:root[data-theme='light'] .wh-card-interactive:hover {
-  transform: translateY(-2px);
-  border-color: rgba(13, 148, 136, 0.48) !important;
-  box-shadow: 0 16px 34px rgba(38,70,86,.14), 0 0 0 1px rgba(13,148,136,.08) !important;
+  border-color: var(--wh-glass-border-strong) !important;
+  box-shadow: var(--wh-shadow-3) !important;
 }
 
 /* ---------- StatCard 统计卡片通用样式 ---------- */
@@ -576,18 +1111,13 @@ html {
   border-radius: var(--wh-radius-lg);
   background: var(--wh-card-bg);
   border: var(--wh-card-border);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--wh-shadow-1);
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }
-:root[data-theme='dark'] .wh-stat-card:hover {
+.wh-stat-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(100, 255, 218, 0.45);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 16px rgba(100, 255, 218, 0.1);
-}
-:root[data-theme='light'] .wh-stat-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(13, 148, 136, 0.48);
-  box-shadow: 0 16px 34px rgba(38,70,86,.14), 0 0 0 1px rgba(13,148,136,.08);
+  border-color: var(--wh-glass-border-strong) !important;
+  box-shadow: var(--wh-shadow-2) !important;
 }
 .wh-stat-card::after {
   content: '';
@@ -627,65 +1157,37 @@ html {
 :root[data-theme='dark'] #root{position:relative;isolation:isolate}
 :root[data-theme='dark'] .ant-layout,
 :root[data-theme='dark'] .ant-layout-content{background:transparent!important}
-:root[data-theme='dark'] .ant-layout-header,
-:root[data-theme='dark'] .ant-layout-sider{
-  background:rgba(8,25,41,.70)!important;
-  border-color:rgba(100,255,218,.13)!important;
-  box-shadow:0 16px 42px rgba(0,0,0,.24),inset 0 1px 0 rgba(255,255,255,.05)!important;
-  -webkit-backdrop-filter:blur(24px) saturate(145%);backdrop-filter:blur(24px) saturate(145%);
-}
-:root[data-theme='dark'] .wh-page-wrap{position:relative;background:var(--wh-bg);border:1px solid rgba(100,255,218,.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 24px 70px rgba(0,0,0,.20)}
-:root[data-theme='dark'] .ant-card,
-:root[data-theme='dark'] .wh-stat-card,
-:root[data-theme='dark'] .dcm-modal{
-  position:relative;overflow:hidden;background:var(--wh-card-bg)!important;border-color:rgba(100,255,218,.20)!important;
-  box-shadow:0 20px 52px rgba(0,0,0,.32),0 2px 10px rgba(79,195,247,.05),inset 0 1px 0 rgba(255,255,255,.07)!important;
-  -webkit-backdrop-filter:blur(22px) saturate(145%);backdrop-filter:blur(22px) saturate(145%);
-}
-:root[data-theme='dark'] .ant-card::before,
-:root[data-theme='dark'] .wh-stat-card::before{
-  content:'';position:absolute;inset:0;pointer-events:none;border-radius:inherit;
-  background:linear-gradient(118deg,rgba(255,255,255,.075),transparent 27%,transparent 73%,rgba(79,195,247,.055));
-}
-:root[data-theme='dark'] .ant-card-body,
-:root[data-theme='dark'] .ant-card-head,
-:root[data-theme='dark'] .wh-stat-card>*{position:relative;z-index:1}
-:root[data-theme='dark'] .wh-card-interactive:hover,
-:root[data-theme='dark'] .wh-stat-card:hover{
-  transform:translateY(-4px);border-color:rgba(100,255,218,.52)!important;
-  box-shadow:0 26px 62px rgba(0,0,0,.40),0 0 24px rgba(100,255,218,.12),inset 0 1px 0 rgba(255,255,255,.10)!important;
-}
-:root[data-theme='dark'] .ant-modal-content,
-:root[data-theme='dark'] .ant-drawer-content,
-:root[data-theme='dark'] .ant-popover-inner,
-:root[data-theme='dark'] .ant-dropdown-menu,
-:root[data-theme='dark'] .ant-select-dropdown{
-  background:rgba(9,27,45,.78)!important;border:1px solid rgba(100,255,218,.17)!important;
-  box-shadow:0 26px 70px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.06)!important;
-  -webkit-backdrop-filter:blur(26px) saturate(150%);backdrop-filter:blur(26px) saturate(150%);
-}
-@supports not ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){
-  :root[data-theme='dark'] .ant-card,:root[data-theme='dark'] .wh-stat-card,:root[data-theme='dark'] .dcm-modal{background:#0d2138!important}
+:root[data-theme='dark'] .wh-page-wrap{
+  position:relative;
+  background:var(--wh-bg);
+  border:1px solid rgba(100,255,218,.09);
+  box-shadow:var(--wh-shadow-2);
 }
 
-/* ---------- Unified spatial glass system（对齐统一门户的分层实现） ---------- */
+/* ---------- 空间玻璃：氛围光斑 + 悬浮层级（对齐统一门户的分层实现） ---------- *
+ * 背景/描边/阴影一律取令牌，本节只负责「光斑位置」与「悬浮位移」这类几何信息。 */
 .app-spatial-root{position:relative;isolation:isolate;overflow:clip}
 .app-spatial-root::before,.app-spatial-root::after{content:"";position:fixed;z-index:-1;border-radius:999px;filter:blur(72px);pointer-events:none}
 .app-spatial-root::before,.app-spatial-root::after{display:none}
 :root[data-theme='dark'] .app-spatial-root::before{display:block;width:30rem;height:30rem;left:-10rem;top:20%;background:rgba(45,212,191,.12)}
 :root[data-theme='dark'] .app-spatial-root::after{display:block;width:34rem;height:34rem;right:-13rem;top:42%;background:rgba(56,189,248,.11)}
-.spatial-navbar{background:rgba(255,255,255,.68)!important;border-color:rgba(255,255,255,.76)!important;-webkit-backdrop-filter:blur(26px) saturate(135%);backdrop-filter:blur(26px) saturate(135%);box-shadow:0 12px 32px rgba(38,70,86,.07)!important}
-:root[data-theme='dark'] .spatial-navbar{background:rgba(8,25,41,.68)!important;border-color:rgba(125,211,252,.12)!important;box-shadow:0 12px 38px rgba(0,0,0,.22)!important}
-.spatial-panel,.spatial-stat-card{background:linear-gradient(145deg,rgba(255,255,255,.82),rgba(241,245,248,.66))!important;border-color:rgba(94,125,143,.20)!important;-webkit-backdrop-filter:blur(22px) saturate(128%);backdrop-filter:blur(22px) saturate(128%);box-shadow:0 18px 42px rgba(38,70,86,.11),0 3px 10px rgba(38,70,86,.08),inset 0 1px 0 rgba(255,255,255,.94)!important}
-:root[data-theme='dark'] .spatial-panel,:root[data-theme='dark'] .spatial-stat-card{background:linear-gradient(145deg,rgba(17,37,64,.76),rgba(8,25,41,.55))!important;border-color:rgba(125,211,252,.13)!important;box-shadow:0 18px 48px rgba(0,0,0,.23),inset 0 1px 0 rgba(255,255,255,.07)!important}
 .spatial-stat-card{position:relative;overflow:hidden;transform:translateZ(0)}
-.spatial-stat-card::before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(120deg,rgba(255,255,255,.28),transparent 34%,rgba(112,143,160,.035))}
-.spatial-stat-card:hover{transform:translateY(-3px);border-color:rgba(13,148,136,.48)!important;box-shadow:0 22px 48px rgba(38,70,86,.15),0 0 0 1px rgba(13,148,136,.08)!important}
+.spatial-stat-card::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:var(--wh-glass-specular);
+}
+.spatial-stat-card:hover{
+  transform:translateY(-3px);
+  border-color:var(--wh-glass-border-strong)!important;
+  box-shadow:var(--wh-shadow-3)!important;
+}
 .dashboard-layout-shell{position:relative;isolation:isolate}
 .dashboard-layout-shell::before{display:none;content:"";position:absolute;inset:3.25rem 5% auto;height:18rem;z-index:-1;background:radial-gradient(ellipse,rgba(45,212,191,.16),transparent 68%);filter:blur(34px);pointer-events:none}
 :root[data-theme='dark'] .dashboard-layout-shell::before{display:block}
 @media(prefers-reduced-motion:reduce){.spatial-stat-card{transition:none}.spatial-stat-card:hover{transform:none}}
-@supports not ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.spatial-navbar,.spatial-panel,.spatial-stat-card{background:#fff!important}:root[data-theme='dark'] .spatial-navbar,:root[data-theme='dark'] .spatial-panel,:root[data-theme='dark'] .spatial-stat-card{background:#0d2138!important}}
 
 /* ---------- Task Manager visual hierarchy ---------- */
 :root[data-theme='light'] .sync-page-title{font-size:1.25rem!important;font-weight:750!important;letter-spacing:-.012em}
@@ -699,10 +1201,14 @@ html {
 :root[data-theme='light'] .sync-task-card .ant-btn,
 :root[data-theme='light'] .sync-task-card .ant-tag,
 :root[data-theme='light'] .sync-task-card .ant-typography code{border-radius:var(--wh-radius-sm)!important}
-:root[data-theme='light'] .sync-task-card .ant-btn-default{border-color:rgba(94,125,143,.20)!important;background:rgba(255,255,255,.48)!important}
+/* antd v6 用 -variant-* 取代了 v5 的 -default/-primary 语义类，两条都保留以兼容旧构建产物 */
+:root[data-theme='light'] .sync-task-card .ant-btn-default,
+:root[data-theme='light'] .sync-task-card .ant-btn-variant-outlined{border-color:rgba(94,125,143,.20)!important;background:rgba(255,255,255,.48)!important}
 /* 浅色主题下主操作按钮保持实色底，确保白字在未悬浮时同样清晰。 */
-:root[data-theme='light'] .sync-task-card .ant-btn-primary{background:#0d9488!important;border-color:#0d9488!important;color:#fff!important}
-:root[data-theme='light'] .sync-task-card .ant-btn-primary:not(:disabled):hover{background:#0f766e!important;border-color:#0f766e!important;color:#fff!important}
+:root[data-theme='light'] .sync-task-card .ant-btn-primary,
+:root[data-theme='light'] .sync-task-card .ant-btn-variant-solid{background:#0d9488!important;border-color:#0d9488!important;color:#fff!important}
+:root[data-theme='light'] .sync-task-card .ant-btn-primary:not(:disabled):hover,
+:root[data-theme='light'] .sync-task-card .ant-btn-variant-solid:not(:disabled):hover{background:#0f766e!important;border-color:#0f766e!important;color:#fff!important}
 :root[data-theme='light'] .sync-task-card:hover{border-color:rgba(13,148,136,.42)!important;box-shadow:0 20px 42px rgba(38,70,86,.14),0 0 0 1px rgba(13,148,136,.07),inset 0 1px 0 rgba(255,255,255,.96)!important}
 :root[data-theme='dark'] .sync-page-title{font-size:1.25rem!important;font-weight:750!important}
 :root[data-theme='dark'] .sync-section-title{font-size:.875rem!important;font-weight:700!important}
@@ -710,8 +1216,25 @@ html {
 :root[data-theme='dark'] .sync-card-schedule,
 :root[data-theme='dark'] .sync-timeline-surface{border-color:rgba(100,255,218,.10)!important;border-radius:var(--wh-radius-md)!important}
 
-/* ---------- 移动端侧栏抽屉遮罩：点击任意处收起，浅深主题分别取半透明底 ---------- */
-.wh-sider-backdrop{position:fixed;inset:var(--wh-header-height) 0 0 0;z-index:999;border:0;padding:0;cursor:pointer;background:rgba(6,15,28,.38);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
-:root[data-theme='light'] .wh-sider-backdrop{background:rgba(38,83,104,.20)}
-@media (prefers-reduced-motion:reduce){.wh-sider-backdrop{-webkit-backdrop-filter:none;backdrop-filter:none}}
-@supports not ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.wh-sider-backdrop{background:rgba(6,15,28,.55)}}
+/* ---------- 移动端侧栏抽屉遮罩：点击任意处收起 ---------- *
+ * 遮罩压在 Header 之下（inset 从 --wh-header-height 起），顶栏汉堡按钮仍可点，
+ * 因此关闭抽屉有「点遮罩 / 点 X / 按 Esc」三条路径。 */
+.wh-sider-backdrop{
+  position:fixed;
+  inset:var(--wh-header-height) 0 0 0;
+  z-index:999;
+  border:0;
+  padding:0;
+  cursor:pointer;
+  background:var(--wh-scrim);
+  -webkit-backdrop-filter:blur(3px);
+  backdrop-filter:blur(3px);
+  animation:wh-scrim-in .18s ease-out;
+}
+@keyframes wh-scrim-in{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  .wh-sider-backdrop{animation:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+}
+@supports not ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){
+  .wh-sider-backdrop{background:var(--wh-scrim-solid)}
+}

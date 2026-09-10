@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.database import get_raw_connection
 from backend.services import task_runner
 from backend.services.task_runner import DB_PATH, _ensure_queue_table
-from backend.task_registry import register_all_tasks
+from backend.task_registry import register_all_tasks, preload_common_deps
 
 logger = logging.getLogger("task_worker")
 
@@ -310,7 +310,24 @@ def main():
 
     n = register_all_tasks(task_runner)
     _recover_stale_running()
-    logger.info(f"Task Worker 已启动：注册 {n} 个任务，轮询间隔 {POLL_INTERVAL}s，db={DB_PATH}")
+    # 启动期串行预热公共重依赖（2026-09-10 修复）：
+    # worker 进程内 QUEUE_ENABLED=0 时，auto_retry 会经 task_runner.run_task_async 的
+    # threading.Thread 分支在【同一进程内并发】拉起多个任务；若把 requests 等重依赖
+    # 留到运行期首次导入，多线程会撞 import 竞态并留下半成品模块，导致任务 import 失败
+    # （cannot import name 'HTTPAdapter' from partially initialized module
+    # 'requests.adapters'）。这里提前到启动期单线程导入，消除该窗口。
+    try:
+        ok, failed = preload_common_deps()
+        logger.info(
+            f"公共依赖预热完成：{len(ok)} 个成功"
+            + (f"，{len(failed)} 个失败: {'; '.join(failed)}" if failed else "")
+        )
+    except Exception as e:
+        logger.warning(f"公共依赖预热异常（不影响启动）: {e}")
+    logger.info(
+        f"Task Worker 已启动：注册 {n} 个任务，轮询间隔 {POLL_INTERVAL}s，"
+        f"queue_mode={task_runner.QUEUE_ENABLED}, db={DB_PATH}"
+    )
 
     executed = 0
     last_recover_ts = time.time()

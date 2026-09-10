@@ -37,7 +37,7 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 | --- | --- | --- |
 | `backend_runtime.log` | 后端业务日志 | **≈81 MB** |
 | `backend_watchdog.log` | 后端拉起/退避记录 | **≈41 MB** |
-| `worker_runtime.log` | 任务执行主日志（**排障首选**） | ≈28 MB |
+| `worker_runtime*.log` | 任务执行主日志（**排障首选**）；每组 worker 一个文件：`_u`/`_n`/`_m`/`_c` | 合计 ≈28 MB |
 | `worker_watchdog.log` | worker 拉起记录 | |
 | `frontend_runtime.log` | 前端 preview 输出 | |
 | `*_console.log` / `*.log.err` | 各子进程 stdout/stderr（`start_hidden.ps1:80-83`） | |
@@ -58,7 +58,7 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 | 页面打不开 | `start_hidden_result.txt` 里哪一步 FAIL | 按步骤重启；端口被占用 `start_hidden.ps1 -Force` |
 | 启动即 `[FAIL] Python not found` | `start_hidden.ps1:88-103` 的探测顺序 | 装 Python 3.12 或让 `pythonw.exe` 进 PATH |
 | 某类数据全停更 | 任务管理里对应任务是否 pending | pending 且从不执行 → **该 task_id 不在 `GROUP_TASK_MAP` 任何组**（`04-task-system.md`） |
-| 任务反复 failed | `worker_runtime.log` 找该 task_id 堆栈 | 上游不可达→先跑"系统设置→凭据→测试连接"；口令变了→更新凭据 |
+| 任务反复 failed | `worker_runtime*.log` 找该 task_id 堆栈（分组日志，可按任务所属组直接定位） | 上游不可达→先跑"系统设置→凭据→测试连接"；口令变了→更新凭据 |
 | 任务卡在"执行中"很久 | 是否真在跑：看 worker 进程 PID 是否存活 | 无需手工干预：`STALE_RUNNING_SECONDS=30min` + PID 核对会自动回收僵尸（`worker.py:78,82,302`） |
 | 邮件没发出去 | `email_recovery`（每 20 分钟）日志 | EWS 恢复后会自动补发；确认收件人配置未被重置 |
 | PG 连不上 / 启动 WARN | `start_hidden.ps1:137` 的 PG 探活结果 | 管理员运行 `stop.bat all` 再 `start.bat`；仍不行手工 `pg_ctl start` |

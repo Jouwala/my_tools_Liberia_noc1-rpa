@@ -65,7 +65,7 @@ if exist "%~dp0backend\worker_c.pid" set /a WCOUNT+=1
 echo [*] Worker groups up: %WCOUNT% / 4
 if %WCOUNT% LSS 4 (
     echo [WARN] Task queue has no full consumer set! Tasks will pile up as pending.
-    echo        Check log\worker_runtime.log and log\worker_watchdog.log
+    echo        Check log\worker_runtime*.log (one per group) and log\worker_watchdog.log
 )
 
 echo.

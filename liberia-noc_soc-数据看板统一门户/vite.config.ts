@@ -17,12 +17,21 @@ import {extractBearerToken, getAuthStore, portalAuthPlugin} from './server/auth'
 //  - GET  /api/portal-default  → 任何已登录用户可读（返回已保存目录；未保存时 404）
 //  - POST /api/portal-default  → 需管理员登录态（Bearer token），且仅允许回环地址 +
 //    Host 为 localhost/127.0.0.1（即只有本机管理员能把当前目录保存为默认），其他一律 401/403。
+//
+// 落盘格式 v2：{ version, savedAt, groups: string[], dashboards: DashboardItem[] }
+//   groups 是分组名称列表（一等实体，含暂无卡片的空分组）；卡片只存组名 category，
+//   因此重命名分组 = 批量改写 category，服务端无需做任何映射，卡片关联天然保持。
+//   兼容旧的纯数组格式（旧客户端 POST 数组时仍写数组）。
 // ============================================================================
 
 /** 应用部署子路径（nginx 的 /uniplam/ 反代），与下方 base 保持一致 */
 const APP_BASE = '/uniplam/';
 
-const DEFAULT_FILE = path.resolve(__dirname, 'portal-default.json');
+// 全局默认目录落盘位置；可用环境变量 PORTAL_DEFAULT_FILE 覆盖
+// （便于起隔离实例做端到端验证，避免动到线上正在使用的默认目录）。
+const DEFAULT_FILE = process.env.PORTAL_DEFAULT_FILE
+  ? path.resolve(process.env.PORTAL_DEFAULT_FILE)
+  : path.resolve(__dirname, 'portal-default.json');
 
 // 鉴权数据目录（users.json 等），已加入 .gitignore；
 // 可用环境变量 PORTAL_AUTH_DATA_DIR 覆盖（如测试实例与生产数据隔离）。
@@ -39,6 +48,34 @@ function isLocalhostSaveRequest(req: {socket?: {remoteAddress?: string}; headers
   if (!LOOPBACK_ADDRESSES.has(remote)) return false;
   const host = String(req.headers.host || '').replace(/:\d+$/, '');
   return host === 'localhost' || host === '127.0.0.1';
+}
+
+/** 组名归一化：去首尾/折叠空白、丢弃空值与「全部」伪分组、忽略大小写去重（与前端同规则） */
+function sanitizeGroupNames(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const name = item.replace(/\s+/g, ' ').trim();
+    if (!name || name === '全部') continue;
+    if (out.some((g) => g.toLowerCase() === name.toLowerCase())) continue;
+    out.push(name);
+  }
+  return out;
+}
+
+/** 分组英文标签归一化：key 必须落在现存分组内，value 必须是非空字符串（与前端同规则） */
+function sanitizeGroupLabels(raw: unknown, groups: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const name = String(key).replace(/\s+/g, ' ').trim();
+    if (!groups.includes(name) || typeof value !== 'string') continue;
+    const label = value.replace(/\s+/g, ' ').trim();
+    if (!label) continue;
+    out[name] = label;
+  }
+  return out;
 }
 
 function portalDefaultStorePlugin(): Plugin {
@@ -93,15 +130,32 @@ function portalDefaultStorePlugin(): Plugin {
           req.on('end', () => {
             try {
               const parsed = JSON.parse(body) as unknown;
-              const items = Array.isArray(parsed)
-                ? parsed
+              const legacyArray = Array.isArray(parsed);
+              const items = legacyArray
+                ? (parsed as unknown[])
                 : (parsed as {dashboards?: unknown[]})?.dashboards;
               if (!Array.isArray(items) || items.length === 0) {
                 sendJson(400, {detail: 'payload must be a non-empty dashboards array'});
                 return;
               }
-              fs.writeFileSync(DEFAULT_FILE, JSON.stringify(items, null, 2), 'utf-8');
-              sendJson(200, {ok: true, count: items.length, savedAt: new Date().toISOString(), file: DEFAULT_FILE});
+              // 分组列表：只接受字符串、去空、忽略大小写去重（与 src/utils/groups.ts 同规则）
+              const rawGroups = legacyArray ? [] : (parsed as {groups?: unknown})?.groups;
+              const groups = sanitizeGroupNames(rawGroups);
+              // 分组英文标签：key 必须是现存分组，value 必须是非空字符串
+              const rawLabels = legacyArray ? undefined : (parsed as {groupLabels?: unknown})?.groupLabels;
+              const groupLabels = sanitizeGroupLabels(rawLabels, groups);
+              const savedAt = new Date().toISOString();
+              const payload = legacyArray
+                ? items
+                : {version: 2, savedAt, groups, groupLabels, dashboards: items};
+              fs.writeFileSync(DEFAULT_FILE, JSON.stringify(payload, null, 2), 'utf-8');
+              sendJson(200, {
+                ok: true,
+                count: items.length,
+                groupCount: groups.length,
+                savedAt,
+                file: DEFAULT_FILE,
+              });
             } catch (e) {
               sendJson(400, {detail: `invalid JSON payload: ${String(e)}`});
             }

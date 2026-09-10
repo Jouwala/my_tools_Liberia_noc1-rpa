@@ -12,10 +12,12 @@ import {
   Inbox,
   UserCheck,
   UserX,
+  LayoutGrid,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { PORTAL_API } from '../config';
 import { useAuth, type AuthUser, type Role } from '../auth/AuthContext';
+import type { DashboardItem } from '../types/dashboard';
 
 /** 账号申请记录（后端 /auth/register-requests 返回结构，已剔除密码哈希） */
 interface AccessRequest {
@@ -32,9 +34,21 @@ interface AccessRequest {
 interface UserManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** 现存分组（规范名，来自全局目录）——页面配置里按分组授权用 */
+  groups: string[];
+  /** 全部看板卡片（来自全局目录）——页面配置里按卡片授权、落地页选择用 */
+  dashboards: DashboardItem[];
+  /** 分组名 → 当前语言显示名（英文界面下也显示英文分组名） */
+  labelOf: (name: string) => string;
 }
 
-export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen, onClose }) => {
+export const UserManagementModal: React.FC<UserManagementModalProps> = ({
+  isOpen,
+  onClose,
+  groups,
+  dashboards,
+  labelOf,
+}) => {
   const { t } = useI18n();
   const { user: currentUser, apiFetch } = useAuth();
   const [users, setUsers] = useState<AuthUser[]>([]);
@@ -58,6 +72,17 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
   const [decidingId, setDecidingId] = useState('');
   /** 每条申请行内选择的批准角色 */
   const [approveRoles, setApproveRoles] = useState<Record<string, Role>>({});
+
+  /** —— 页面配置（管理员为账号指定登录落地页 + 可见范围白名单）—— */
+  /** 正在编辑页面配置的账号 id（空 = 面板收起） */
+  const [profileUserId, setProfileUserId] = useState('');
+  const [profileLandingView, setProfileLandingView] = useState('');
+  const [profileLandingCard, setProfileLandingCard] = useState('');
+  /** 是否启用可见范围限制（false = 不限制 → 服务端存 null/null） */
+  const [profileRestricted, setProfileRestricted] = useState(false);
+  const [profileGroups, setProfileGroups] = useState<string[]>([]);
+  const [profileCards, setProfileCards] = useState<string[]>([]);
+  const [savingProfile, setSavingProfile] = useState(false);
 
   const loadRequests = useCallback(async () => {
     setRequestsLoading(true);
@@ -105,6 +130,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
       setResettingId('');
       setResetPwd('');
       setDecidingId('');
+      setProfileUserId('');
+      setSavingProfile(false);
     }
   }, [isOpen, loadUsers, loadRequests]);
 
@@ -266,14 +293,95 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
     }
   };
 
+  /** 勾选/取消勾选一个白名单项 */
+  const toggleIn = (list: string[], value: string) =>
+    list.includes(value) ? list.filter((x) => x !== value) : [...list, value];
+
+  /** 展开某账号的页面配置面板：用服务端返回的账号数据回填 */
+  const openProfile = (target: AuthUser) => {
+    setProfileUserId(target.id);
+    setProfileLandingView(target.landing?.view || '');
+    setProfileLandingCard(target.landing?.cardId || '');
+    setProfileRestricted(target.allowedGroups != null || target.allowedCards != null);
+    setProfileGroups(Array.isArray(target.allowedGroups) ? target.allowedGroups : []);
+    setProfileCards(Array.isArray(target.allowedCards) ? target.allowedCards : []);
+    setError('');
+    setSuccess('');
+    // 面板在长列表底部时自动滚进可视区（等这一帧渲染完再滚）
+    requestAnimationFrame(() => {
+      document
+        .querySelector('[data-landing-view]')
+        ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  };
+
+  /** 保存页面配置：不受限 → 两个维度都传 null；受限 → 传勾选结果（空数组 = 什么都看不到） */
+  const saveProfile = async (target: AuthUser) => {
+    if (savingProfile) return;
+    setSavingProfile(true);
+    setError('');
+    try {
+      const landing =
+        profileLandingView || profileLandingCard
+          ? {
+              ...(profileLandingView ? { view: profileLandingView } : {}),
+              ...(profileLandingCard ? { cardId: profileLandingCard } : {}),
+            }
+          : null;
+      const res = await apiFetch(`${PORTAL_API}/auth/users/profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: target.id,
+          landing,
+          allowedGroups: profileRestricted ? profileGroups : null,
+          allowedCards: profileRestricted ? profileCards : null,
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        user?: AuthUser;
+        detail?: string;
+      } | null;
+      if (!res.ok || !data?.user) {
+        setError(data?.detail || `HTTP ${res.status}`);
+        return;
+      }
+      // 以服务端返回的账号为准回填列表，避免界面与实际配置不一致
+      const saved = data.user;
+      setUsers((prev) => prev.map((x) => (x.id === saved.id ? saved : x)));
+      setSuccess(t('um.pagesSaved', { name: target.username }));
+      setTimeout(() => setSuccess(''), 3000);
+      setProfileUserId('');
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  /** 该账号是否已配置页面（按钮高亮用） */
+  const hasPageConfig = (u: AuthUser) =>
+    !!u.landing || u.allowedGroups != null || u.allowedCards != null;
+
+  /** 页面配置里可选的落地视图（value 与后端 PortalViewMode 对齐） */
+  const landingViews: { value: string; label: string }[] = [
+    { value: 'grid', label: t('um.viewGrid') },
+    { value: 'list', label: t('um.viewList') },
+    { value: 'matrix', label: t('um.viewMatrix') },
+    { value: 'tasks', label: t('um.viewTasks') },
+  ];
+
+  /** 当前正在编辑页面配置的用户（用于底部固定操作栏） */
+  const profileUser = users.find((u) => u.id === profileUserId) ?? null;
+
   const inputClass =
     'px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-      <div className="spatial-modal-surface bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-[95vw] sm:max-w-2xl overflow-hidden">
+      <div className="spatial-modal-surface bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-[95vw] sm:max-w-2xl max-h-[92vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
             <div className="p-2 rounded-lg bg-violet-50 dark:bg-violet-950/60 text-violet-600 dark:text-violet-400 shrink-0">
               <Users className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -295,7 +403,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
           </button>
         </div>
 
-        <div className="p-4 sm:p-6 space-y-4">
+        <div className="p-4 sm:p-6 space-y-4 flex-1 min-h-0 overflow-y-auto">
           {success && (
             <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 rounded-xl flex items-center gap-3 text-emerald-700 dark:text-emerald-300 text-sm">
               <CheckCircle2 className="w-5 h-5 shrink-0" />
@@ -506,6 +614,21 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
                           <td className="px-3 sm:px-4 py-2.5">
                             <div className="flex items-center justify-end gap-1">
                               <button
+                                onClick={() =>
+                                  profileUserId === u.id ? setProfileUserId('') : openProfile(u)
+                                }
+                                className={`p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${
+                                  hasPageConfig(u)
+                                    ? 'text-teal-600 dark:text-teal-400'
+                                    : 'text-slate-500 hover:text-teal-600 dark:hover:text-teal-400'
+                                }`}
+                                title={t('um.pages')}
+                                data-pages-button
+                                data-configured={hasPageConfig(u) ? 'true' : 'false'}
+                              >
+                                <LayoutGrid className="w-3.5 h-3.5" />
+                              </button>
+                              <button
                                 onClick={() => {
                                   setResettingId(resettingId === u.id ? '' : u.id);
                                   setResetPwd('');
@@ -559,6 +682,141 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
                             </td>
                           </tr>
                         )}
+                        {profileUserId === u.id && (
+                          <tr className="bg-teal-50/40 dark:bg-teal-950/20">
+                            <td colSpan={4} className="px-3 sm:px-4 py-3 space-y-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <LayoutGrid className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                                <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                                  {t('um.pagesTitle', { name: u.username })}
+                                </span>
+                                <span className="text-[11px] text-slate-400">
+                                  {t('um.pagesSubtitle')}
+                                </span>
+                              </div>
+
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                <span className="text-[11px] text-slate-500 dark:text-slate-400 sm:w-24 shrink-0">
+                                  {t('um.landing')}
+                                </span>
+                                <select
+                                  value={profileLandingView}
+                                  onChange={(e) => setProfileLandingView(e.target.value)}
+                                  data-landing-view
+                                  className={`${inputClass} sm:w-40 py-1.5 text-xs`}
+                                >
+                                  <option value="">{t('um.landingNone')}</option>
+                                  {landingViews.map((v) => (
+                                    <option key={v.value} value={v.value}>
+                                      {v.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <select
+                                  value={profileLandingCard}
+                                  onChange={(e) => setProfileLandingCard(e.target.value)}
+                                  data-landing-card
+                                  className={`${inputClass} flex-1 min-w-0 py-1.5 text-xs`}
+                                >
+                                  <option value="">{t('um.landingNoCard')}</option>
+                                  {dashboards.map((d) => (
+                                    <option key={d.id} value={d.id}>
+                                      {labelOf(d.category)} · {d.title}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="border-t border-slate-200/70 dark:border-slate-700/70 pt-2.5 space-y-2">
+                                <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={profileRestricted}
+                                    onChange={(e) => setProfileRestricted(e.target.checked)}
+                                    data-restricted-toggle
+                                    className="accent-teal-600"
+                                  />
+                                  {profileRestricted ? t('um.allowedCustom') : t('um.allowedAll')}
+                                </label>
+
+                                {profileRestricted && (
+                                  <>
+                                    <div className="space-y-1">
+                                      <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                                        {t('um.allowedGroups')}（{profileGroups.length}/{groups.length}）
+                                      </p>
+                                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                                        {groups.map((g) => {
+                                          const on = profileGroups.includes(g);
+                                          return (
+                                            <button
+                                              key={g}
+                                              type="button"
+                                              aria-pressed={on}
+                                              data-allowed-group={g}
+                                              onClick={() =>
+                                                setProfileGroups((prev) => toggleIn(prev, g))
+                                              }
+                                              className={`px-2 py-1 rounded-full border text-[11px] transition-colors ${
+                                                on
+                                                  ? 'bg-teal-600 text-white border-teal-600'
+                                                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                              }`}
+                                            >
+                                              {labelOf(g)}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                      <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                                        {t('um.allowedCards')}（{profileCards.length}/
+                                        {dashboards.length}）
+                                      </p>
+                                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                                        {dashboards.map((d) => {
+                                          const on = profileCards.includes(d.id);
+                                          return (
+                                            <button
+                                              key={d.id}
+                                              type="button"
+                                              aria-pressed={on}
+                                              data-allowed-card={d.id}
+                                              onClick={() =>
+                                                setProfileCards((prev) => toggleIn(prev, d.id))
+                                              }
+                                              className={`px-2 py-1 rounded-full border text-[11px] transition-colors ${
+                                                on
+                                                  ? 'bg-cyan-700 text-white border-cyan-700'
+                                                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                              }`}
+                                            >
+                                              {d.title}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+
+                                    {profileGroups.length === 0 && profileCards.length === 0 && (
+                                      <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                        {t('um.allowedEmpty')}
+                                      </p>
+                                    )}
+                                  </>
+                                )}
+
+                                <p className="text-[11px] text-slate-400">
+                                  {t('um.allowedHint')} {t('um.navVisibilityOnly')}
+                                </p>
+                              </div>
+
+                            </td>
+                          </tr>
+                        )}
                       </React.Fragment>
                     );
                   })
@@ -567,6 +825,34 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
             </table>
           </div>
         </div>
+
+        {/* 底部固定操作栏：放在滚动区之外，面板内容再长「保存页面配置」也常驻可见 */}
+        {profileUser && (
+          <div className="shrink-0 px-4 sm:px-6 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1.5 min-w-0 text-[11px] text-slate-500 dark:text-slate-400">
+              <LayoutGrid className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+              <span className="truncate">{t('um.pagesTitle', { name: profileUser.username })}</span>
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setProfileUserId('')}
+                data-cancel-profile
+                className="px-3 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                {t('um.pagesCancel')}
+              </button>
+              <button
+                onClick={() => void saveProfile(profileUser)}
+                disabled={savingProfile}
+                data-save-profile
+                className="px-3 py-2 text-xs font-medium text-white bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 disabled:opacity-50 rounded-lg shadow-sm transition-all flex items-center gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5" />
+                {t('um.pagesSave')}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

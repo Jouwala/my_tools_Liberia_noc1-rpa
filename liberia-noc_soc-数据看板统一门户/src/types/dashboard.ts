@@ -1,14 +1,32 @@
 export type PlatformType = 'finebi' | 'custom' | 'external';
 
-export type CategoryType = 
-  | '全部'
-  | 'MS 综合运维管理'
-  | '告警与工单故障'
-  | '网络性能与无线/核心网'
-  | '传输承载与业务时延'
-  | '现场动力与备件仓储'
-  | '自动化调度与数据集成'
-  | '其他';
+/**
+ * 分组（分类）名称。
+ * 早期版本写死为字面量联合类型，分组无法新增/改名；现改为自由字符串：
+ * 分组是可在「分组管理」里新增/重命名/删除的一等实体，具体有哪些分组由
+ * 目录的 groups 字段（服务端 portal-default.json）决定，见 utils/groups.ts。
+ */
+export type CategoryType = string;
+
+/** 「全部」伪分组：仅作为过滤入口，不属于真实分组，不进入 groups 列表 */
+export const CATEGORY_ALL: CategoryType = '全部';
+
+/**
+ * 服务端 portal-default.json / 导出 JSON 的 v2 结构：
+ *   { version: 2, savedAt, groups: string[], dashboards: DashboardItem[] }
+ * 兼容旧版（纯 DashboardItem[] 数组），读取时自动推导 groups。
+ */
+export interface PortalCatalogFile {
+  version?: number;
+  savedAt?: string;
+  exportedAt?: string;
+  /** 分组名称列表（含尚无卡片的空分组），顺序即 Tab / 矩阵分组展示顺序 */
+  groups?: string[];
+  /** 分组名的多语言标签：key = 分组规范名（中文），value = 英文显示名。
+   *  分组的「规范名」是唯一标识（卡片 category 存的就是它），英文名只是展示层标签。 */
+  groupLabels?: Record<string, string>;
+  dashboards: DashboardItem[];
+}
 
 export type UpdateFrequency = '实时流式' | '每小时' | '每日0点' | '周度更新' | '月度汇总';
 

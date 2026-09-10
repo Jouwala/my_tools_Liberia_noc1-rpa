@@ -232,67 +232,85 @@ def analyze_tt(tt_no, db_path=DEFAULT_DB):
                     "suggestions": [r[0] for r in like]}
 
         d = {k: row[k] for k in cols}
+        return _build_report(conn, tt_no, d)
+    finally:
+        conn.close()
 
-        # 按 alarm_id 查实时告警（48h 滚存）→ 历史告警，拿主信息 + 拼技能入参
-        alarm_row, alarm_src = find_alarm_row(conn, d.get("alarm_id"))
-        alarm_dict = dict(alarm_row) if alarm_row else None
-        # 告警行的 AID 列（RAN UME 侧告警 ID）：注入「告警」字段段 + 报告级 aid 字段
-        aid_val = num_tail(str((alarm_dict or {}).get("aid") or "").strip())
-        if aid_val in ("--", "—", "None"):
-            aid_val = ""
-        if aid_val:
-            d["aid"] = aid_val
-        alarm_block = build_alarm_block(alarm_dict, alarm_src)
-        skill_prompt = build_skill_prompt(d, alarm_dict)
 
-        # 时间差
-        occur = parse_dt(d.get("alarm_occur_time"))
-        created = parse_dt(d.get("created_time"))
-        lag = None
-        lag_txt = "—（时间字段缺失或格式无法解析）"
-        if occur and created:
-            lag = created - occur
-            lag_s = lag.total_seconds()
-            lag_txt = f"{int(lag_s // 3600)} 小时 {int((lag_s % 3600) // 60)} 分 " \
-                      f"{int(lag_s % 60)} 秒  ({lag_s / 3600:.2f} h)"
+def _build_report(conn, tt_no, d):
+    """由工单行字段 dict 构建分析报告（本地库查询与实时 eFlow 回退共用，只读不写库）。
 
-        # 掉站类型 / 全库 CSD/PSD 对照、全库根因归属分布均为全库汇总统计，
-        # 与单张 TT 的派单依据无关，不再计算（掉站类型仍可在工单字段中看到）。
+    d：eflow_tt 列名 → 值的字典。
+    """
+    # 按 alarm_id 查实时告警（48h 滚存）→ 历史告警，拿主信息 + 拼技能入参
+    alarm_row, alarm_src = find_alarm_row(conn, d.get("alarm_id"))
+    alarm_dict = dict(alarm_row) if alarm_row else None
+    # 告警行的 AID 列（RAN UME 侧告警 ID）：注入「告警」字段段 + 报告级 aid 字段
+    aid_val = num_tail(str((alarm_dict or {}).get("aid") or "").strip())
+    if aid_val in ("--", "—", "None"):
+        aid_val = ""
+    if aid_val:
+        d["aid"] = aid_val
+    alarm_block = build_alarm_block(alarm_dict, alarm_src)
+    skill_prompt = build_skill_prompt(d, alarm_dict)
 
-        fields = []
-        for section, keys in FIELDS:
-            items = [(k, d.get(k)) for k in keys if k in d]
-            items = [(k, v) for k, v in items
-                     if v is not None and str(v).strip() != ""]
-            if items:
-                fields.append({
-                    "section": section,
-                    "items": [{"key": k, "value": clean(v)} for k, v in items],
-                })
+    # 时间差
+    occur = parse_dt(d.get("alarm_occur_time"))
+    created = parse_dt(d.get("created_time"))
+    lag = None
+    lag_txt = "—（时间字段缺失或格式无法解析）"
+    if occur and created:
+        lag = created - occur
+        lag_s = lag.total_seconds()
+        lag_txt = f"{int(lag_s // 3600)} 小时 {int((lag_s % 3600) // 60)} 分 " \
+                  f"{int(lag_s % 60)} 秒  ({lag_s / 3600:.2f} h)"
 
-        return {
-            "found": True,
-            "tt_no": tt_no,
-            "fields": fields,
-            "alarm": alarm_block,
-            "skill_prompt": skill_prompt,
-            "alarm_id": num_tail(str(d.get("alarm_id") or "").strip()),
-            "aid": aid_val,
-            "tt_prompt_fields": {k: d.get(k) for k in
-                                 ("vip_site", "site_type", "alarm_code",
-                                  "down_site_count")},
-            "timing": {
-                "alarm_occur_time": fmt_dt(d.get("alarm_occur_time")),
-                "created_time": fmt_dt(d.get("created_time")),
-                "lag_hours": round(lag.total_seconds() / 3600, 2) if lag else None,
-                "lag_text": lag_txt,
-                "delayed_over_1h": bool(lag and lag.total_seconds() > 3600),
-            },
-            "root_cause": clean(d.get("root_cause"), 80),
-            "sub_root_cause": clean(d.get("sub_root_cause"), 80),
-            "assigned_group": clean(d.get("last_processer_group"), 60),
-            "site_name": clean(d.get("site_name"), 60),
-        }
+    fields = []
+    for section, keys in FIELDS:
+        items = [(k, d.get(k)) for k in keys if k in d]
+        items = [(k, v) for k, v in items
+                 if v is not None and str(v).strip() != ""]
+        if items:
+            fields.append({
+                "section": section,
+                "items": [{"key": k, "value": clean(v)} for k, v in items],
+            })
+
+    return {
+        "found": True,
+        "tt_no": tt_no,
+        "fields": fields,
+        "alarm": alarm_block,
+        "skill_prompt": skill_prompt,
+        "alarm_id": num_tail(str(d.get("alarm_id") or "").strip()),
+        "aid": aid_val,
+        "tt_prompt_fields": {k: d.get(k) for k in
+                             ("vip_site", "site_type", "alarm_code",
+                              "down_site_count")},
+        "timing": {
+            "alarm_occur_time": fmt_dt(d.get("alarm_occur_time")),
+            "created_time": fmt_dt(d.get("created_time")),
+            "lag_hours": round(lag.total_seconds() / 3600, 2) if lag else None,
+            "lag_text": lag_txt,
+            "delayed_over_1h": bool(lag and lag.total_seconds() > 3600),
+        },
+        "root_cause": clean(d.get("root_cause"), 80),
+        "sub_root_cause": clean(d.get("sub_root_cause"), 80),
+        "assigned_group": clean(d.get("last_processer_group"), 60),
+        "site_name": clean(d.get("site_name"), 60),
+    }
+
+
+def analyze_tt_remote(tt_no, row_dict, db_path=DEFAULT_DB):
+    """用实时 eFlow 拉到的工单行字段构建报告（纯内存，不落库）。
+
+    当本地 eflow_tt 未命中时，由上游调用 fetch_tt_live 拿到 row_dict（eflow_tt 列名
+    归一化后的 dict），再据此产出与 analyze_tt 同构的报告。
+    """
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        return _build_report(conn, tt_no, dict(row_dict or {}))
     finally:
         conn.close()
 

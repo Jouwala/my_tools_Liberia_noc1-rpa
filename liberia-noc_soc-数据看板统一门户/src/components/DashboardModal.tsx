@@ -20,16 +20,20 @@ import {
   CategoryType,
   UpdateFrequency,
 } from '../types/dashboard';
-import { CATEGORIES, AVAILABLE_ICONS } from '../data/initialDashboards';
+import { AVAILABLE_ICONS } from '../data/initialDashboards';
 import { getFinebiHomeUrl, getMyappHomeUrl, buildRel } from '../config';
 import { DynamicIcon } from './DynamicIcon';
-import { useI18n, translateCategory, translateTag, translateDept, translateOwner, translateDashboard, reverseTranslateCategory, reverseTranslateTag, reverseTranslateDept, reverseTranslateOwner } from '../i18n';
+import { useI18n, translateTag } from '../i18n';
 
 interface DashboardModalProps {
   isOpen: boolean;
   onClose: () => void;
   dashboardToEdit: DashboardItem | null;
   onSave: (dashboard: DashboardItem) => void;
+  /** 运行时分组列表（来自 App 的 groups 状态） */
+  groups: string[];
+  /** 分组名 → 当前语言显示名（下拉框展示用；value 始终是分组规范名） */
+  labelOf: (name: string) => string;
 }
 
 export const DashboardModal: React.FC<DashboardModalProps> = ({
@@ -37,6 +41,8 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
   onClose,
   dashboardToEdit,
   onSave,
+  groups,
+  labelOf,
 }) => {
   const { t, lang } = useI18n();
   const [title, setTitle] = useState('');
@@ -56,20 +62,23 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
 
   useEffect(() => {
     if (dashboardToEdit) {
-      const translated = translateDashboard(dashboardToEdit, lang, t);
-      setTitle(translated.title);
-      setDescription(translated.description);
-      setPlatform(translated.platform);
-      setUrl(translated.url);
-      setCategory(translated.category);
-      setTags(translated.tags);
-      setIconName(translated.iconName);
-      setUpdateFrequency(translated.updateFrequency);
-      setDepartment(translated.department);
-      setOwner(translated.owner);
-      setIsFavorite(translated.isFavorite);
-      setIsPinned(translated.isPinned);
-      setThemeColor(translated.themeColor);
+      // 这里刻意**不做 i18n 翻译**：表单编辑的是「源数据」。
+      // 若先把标题/描述翻成当前语言再保存，英文界面保存一次就会把英文写回目录，
+      // 而标题/描述没有反向映射，中文界面从此再也看不到原中文（分组同理）。
+      // 展示层的翻译由 translateDashboard 在别处完成，源数据始终保持中文规范值。
+      setTitle(dashboardToEdit.title);
+      setDescription(dashboardToEdit.description);
+      setPlatform(dashboardToEdit.platform);
+      setUrl(dashboardToEdit.url);
+      setCategory(dashboardToEdit.category);
+      setTags(dashboardToEdit.tags);
+      setIconName(dashboardToEdit.iconName);
+      setUpdateFrequency(dashboardToEdit.updateFrequency);
+      setDepartment(dashboardToEdit.department);
+      setOwner(dashboardToEdit.owner);
+      setIsFavorite(dashboardToEdit.isFavorite);
+      setIsPinned(dashboardToEdit.isPinned);
+      setThemeColor(dashboardToEdit.themeColor);
     } else {
       setTitle('');
       setDescription('');
@@ -118,11 +127,8 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
     e.preventDefault();
     if (!title.trim() || !url.trim()) return;
 
-    const originalCategory = reverseTranslateCategory(category, lang, t);
-    const originalTags = tags.map((tag) => reverseTranslateTag(tag, lang, t));
-    const originalDept = reverseTranslateDept(department, lang, t);
-    const originalOwner = reverseTranslateOwner(owner, lang, t);
-
+    // 表单里存的已是源数据规范值（见上方 useEffect），无需再反向翻译，
+    // 也避免「用户自定义的组名/标签恰好等于某个英文译文」时被误映射回内置中文值
     const newItem: DashboardItem = {
       id: dashboardToEdit ? dashboardToEdit.id : `board-${Date.now()}`,
       title: title.trim(),
@@ -130,12 +136,12 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
       platform,
       url: url.trim(),
       rel: buildRel(platform, url.trim()),
-      category: originalCategory as DashboardItem['category'],
-      tags: originalTags.length > 0 ? originalTags : ['看板'],
+      category: (category.trim() || '其他') as DashboardItem['category'],
+      tags: tags.length > 0 ? tags : ['看板'],
       iconName,
       updateFrequency,
-      department: originalDept.trim() || '信息技术中心',
-      owner: originalOwner.trim() || '管理员',
+      department: department.trim() || '信息技术中心',
+      owner: owner.trim() || '管理员',
       isFavorite,
       isPinned,
       clickCount: dashboardToEdit ? dashboardToEdit.clickCount : 0,
@@ -251,9 +257,11 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
                 onChange={(e) => setCategory(e.target.value as any)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
               >
-                {CATEGORIES.filter((c) => c !== '全部').map((cat) => (
+                {/* 分组选项来自运行时 groups；额外并入当前卡片的分组，避免旧数据里
+                    的分组名不在列表中时下拉框回退成空白选项 */}
+                {Array.from(new Set([...groups, category])).map((cat) => (
                   <option key={cat} value={cat}>
-                    {translateCategory(cat, lang, t)}
+                    {labelOf(cat)}
                   </option>
                 ))}
               </select>

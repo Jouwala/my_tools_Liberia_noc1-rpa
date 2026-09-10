@@ -158,7 +158,14 @@ export function buildRel(platform: PlatformType, url: string): string | undefine
 export function resolveUrl(item: DashboardItem): string {
   if (item.rel && item.platform !== 'external') {
     const host = item.platform === 'finebi' ? currentEnv.finebiHost : currentEnv.myappHost;
-    return `http://${host}${item.rel}`;
+    const base = `http://${host}${item.rel}`;
+    if (item.platform !== 'finebi') {
+      const token = localStorage.getItem('liberia_noc_auth_v1');
+      if (token) {
+        return `${base}${base.includes('?') ? '&' : '?'}t=${encodeURIComponent(token)}`;
+      }
+    }
+    return base;
   }
   return item.url;
 }

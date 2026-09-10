@@ -897,7 +897,7 @@
 
 **改工作流脚本** 脚本都在 backend/services/ 下（任务清单有对应路径）。改动时注意：① 别改历史拼写名（packet_lost、battary_kpi_fetch、ultilazation 等，多处按字符串引用）；② 动态采集表不进 Alembic；③ 同步更新 task_registry.md / WORKER.md / 本帮助数据（frontend/src/pages/helpTaskDocs.ts）。
 
-**任务卡 pending / failed 排查顺序** ① pending 不动 → 查是否漏分组；② failed → log/worker_runtime.log 找 task_id 堆栈 → 凭据「测试连接」；③ 数据停更 → db_freshness_check 的执行历史有调用链。
+**任务卡 pending / failed 排查顺序** ① pending 不动 → 查是否漏分组；② failed → log/worker_runtime*.log（每组 worker 一个文件）找 task_id 堆栈 → 凭据「测试连接」；③ 数据停更 → db_freshness_check 的执行历史有调用链。
 
 ### 3.6 上游不可用时怎么表现
 
@@ -1126,7 +1126,7 @@ IP 链路探测：从服务器侧探测到目标站点的链路连通性与路�
 
 | 日志文件（log/） | 内容 |
 | --- | --- |
-| `log/worker_runtime.log` | 任务执行主日志——排障首选，按 task_id 搜堆栈 |
+| `log/worker_runtime*.log` | 任务执行主日志——排障首选，按 task_id 搜堆栈；每组 worker 一个文件（`_u`/`_n`/`_m`/`_c`） |
 | `log/backend_runtime.log` | 后端业务日志（API、调度、代理） |
 | `log/backend_watchdog.log / worker_watchdog.log` | 进程拉起与崩溃退避记录（连崩 10 次放弃并告警） |
 | `log/start_hidden_result.txt` | 上一次启动的逐条结果——启动失败先看这个 |
@@ -1185,7 +1185,7 @@ IP 链路探测：从服务器侧探测到目标站点的链路连通性与路�
 
 **任务反复 failed？**
 
-到 log/worker_runtime.log 找该 task_id 的堆栈（排障首选日志）。上游不可达 → 先到「系统设置 → 凭据」点「测试连接」；口令变了 → 更新凭据。auto_retry_failed 每 10 分钟自动重试（MAX_ATTEMPTS=2，超 24 小时放弃），无需手动反复点执行。
+到 log/worker_runtime*.log 找该 task_id 的堆栈（排障首选日志；每组 worker 一个文件，任务所属组见执行认领日志）。上游不可达 → 先到「系统设置 → 凭据」点「测试连接」；口令变了 → 更新凭据。auto_retry_failed 每 10 分钟自动重试（MAX_ATTEMPTS=2，超 24 小时放弃），无需手动反复点执行。
 
 **任务一直「执行中」不动？**
 

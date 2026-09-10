@@ -26,6 +26,8 @@ function resolveApiBase(): string {
 const api = axios.create({
   baseURL: resolveApiBase(),
   timeout: 120000,
+  // 携带后端签发的 HttpOnly 会话 Cookie（uniplam 门户鉴权适配）
+  withCredentials: true,
 })
 
 // 通知后端返回本地化数据（任务名/描述等后端数据字段）
@@ -56,5 +58,65 @@ export function getSiteAvailabilityOverview(params?: Record<string, string | num
 export function getSiteAvailabilityTickets(params?: Record<string, string>) {
   return api.get('/site-availability/tickets', { params })
 }
+
+/* ---------- 界面配置：侧栏菜单结构（全局共享，仅本机可写） ----------
+ * 服务端唯一真相源：所有访问者看到同一份目录结构；只有本机（或持 X-API-Token）
+ * 能保存，远程会 403。GET 返回 {layout, updated_at, editable}。 */
+export interface MenuLayoutPayload {
+  v?: number
+  groups: { key: string; label?: string; hidden?: boolean; items: string[] }[]
+  itemLabels?: Record<string, string>
+}
+
+export function getMenuLayout() {
+  return api.get('/ui/menu-layout')
+}
+
+export function saveMenuLayout(layout: MenuLayoutPayload) {
+  return api.put('/ui/menu-layout', { layout })
+}
+
+export function resetMenuLayout() {
+  return api.delete('/ui/menu-layout')
+}
+
+/* ---------- uniplam 门户鉴权适配 ----------
+ * portal-login：把门户深链带进来的门户 token 交给后端换 myapp 会话 Cookie。
+ * 401 拦截：数据接口返回 401 时通知 App 展示“请通过统一门户登录”引导。
+ * 用模块级订阅避免在 api.ts 里耦合 React。 */
+
+let onUnauthorized: (() => void) | null = null
+
+/** App 注册“未登录”回调（会话失效 / 未登录访问数据接口时触发） */
+export function setOnUnauthorized(fn: (() => void) | null) {
+  onUnauthorized = fn
+}
+
+/** 用门户深链 token 换取 myapp 会话 Cookie（成功后前端再 replaceState 抽走 ?t=） */
+export function portalLogin(token: string) {
+  return api.post('/auth/portal-login', { token })
+}
+
+export function apiLogout() {
+  return api.post('/auth/logout')
+}
+
+export function getAuthMe() {
+  return api.get('/auth/me')
+}
+
+api.interceptors.response.use(
+  (resp) => resp,
+  (error) => {
+    // 401（跳过鉴权接口自身，避免 bootstrap 失败触发引导闪屏）
+    if (error?.response?.status === 401) {
+      const url = error?.config?.url ?? ''
+      if (!String(url).startsWith('/auth/')) {
+        onUnauthorized?.()
+      }
+    }
+    return Promise.reject(error)
+  },
+)
 
 export default api

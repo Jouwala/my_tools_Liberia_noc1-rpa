@@ -9,11 +9,100 @@
 """
 import importlib
 import logging
+import sys
+import threading
 
 logger = logging.getLogger(__name__)
 
 # 兼容旧 eFlow API 的同步历史（main.py 的 /api/eflow/status 会读取）
 sync_history = []
+
+
+# ========== 并发导入保护（2026-09-10 事故修复）==========
+# 事故：worker 进程 QUEUE_ENABLED=0（MY_APP_TASK_QUEUE 未设置，start_hidden.ps1 未导出）
+# 时，task_runner.run_task_async 会走 threading.Thread 分支，在【同一个进程内并发】
+# 执行多个任务。多个线程同时首次 import 同一重量级依赖（典型 requests）时，会撞上
+# CPython 的 import 竞态：
+#   ImportError: cannot import name 'HTTPAdapter' from partially initialized
+#   module 'requests.adapters' (most likely due to a circular import)
+# 失败方还会把半成品模块残留在 sys.modules，使同进程内后续导入持续失败，且症状会
+# 演变（module 'requests' has no attribute 'exceptions'）。
+# 实测时间线（2026-09-10 09:35:01）：auto_retry 一次投递 eflow_sync / ipran_kpi_sync /
+# mailbox_cleanup，三者被同一 worker 进程内 3 个线程同时拉起，抢到导入锁的
+# eflow_sync 成功，另两个失败。
+# 修复：① 任务模块 import 走全局锁串行化；② 失败时清理残留并重试一次（自愈）；
+#       ③ worker 启动期用 preload_common_deps() 串行预热公共重依赖，从根上消除
+#          "运行期首次导入"的并发窗口。
+_IMPORT_LOCK = threading.RLock()
+
+# 判定"半成品"的哨兵属性：这些模块正常初始化完成后必定具备对应属性。
+_HEALTH_CHECKS = {
+    "requests": ("exceptions", "adapters"),
+}
+
+
+def _purge_modules(root: str) -> int:
+    """从 sys.modules 移除 root 及其全部子模块（含半成品残留）。"""
+    names = [m for m in list(sys.modules) if m == root or m.startswith(root + ".")]
+    for m in names:
+        sys.modules.pop(m, None)
+    return len(names)
+
+
+def _repair_broken_modules() -> list:
+    """清理处于"半成品"状态的模块，使其下次可被完整重新导入。"""
+    repaired = []
+    for root, attrs in _HEALTH_CHECKS.items():
+        mod = sys.modules.get(root)
+        if mod is None:
+            continue
+        missing = [a for a in attrs if not hasattr(mod, a)]
+        if missing:
+            n = _purge_modules(root)
+            repaired.append(f"{root}(missing={','.join(missing)}, purged={n})")
+    return repaired
+
+
+def safe_import(module_path: str):
+    """串行化 + 自愈的模块导入（并发执行任务时避免 import 竞态）。
+
+    锁内做两件事：① 修掉上一次失败留下的半成品模块；② 导入目标模块。
+    这样即便前一次已被污染，下一次调用也能自愈。
+    """
+    with _IMPORT_LOCK:
+        repaired = _repair_broken_modules()
+        if repaired:
+            logger.warning(f"检测到半成品模块残留并已清理: {'; '.join(repaired)}")
+        return importlib.import_module(module_path)
+
+
+def preload_common_deps() -> tuple:
+    """启动期预热重量级公共依赖（单线程串行）。
+
+    把"运行期首次导入"提前到"启动期串行导入"，消除多个任务线程并发首次导入
+    同一模块的窗口。失败不阻断启动，只告警并返回明细供排查。
+    """
+    targets = [
+        "requests",
+        "requests.adapters",
+        "requests.exceptions",
+        "urllib3",
+        "certifi",
+        "exchangelib",
+        "openpyxl",
+        "pandas",
+    ]
+    ok, failed = [], []
+    with _IMPORT_LOCK:
+        for name in targets:
+            try:
+                importlib.import_module(name)
+                ok.append(name)
+            except BaseException as e:  # noqa: BLE001
+                failed.append(f"{name}({type(e).__name__}: {e})")
+    if failed:
+        logger.warning(f"公共依赖预热部分失败: {'; '.join(failed)}")
+    return ok, failed
 
 
 # ========== eFlow 同步任务函数（含历史记录维护，直接引用非懒加载） ==========
@@ -56,9 +145,13 @@ def _run_eflow_history_alarm():
 
 
 def _lazy_loader(module_path: str, func_name: str):
-    """生成懒加载包装：调用时才 import 目标模块函数"""
+    """生成懒加载包装：调用时才 import 目标模块函数。
+
+    import 走 safe_import（全局锁 + 自愈），避免多任务线程并发首次导入
+    同一模块时的 import 竞态（详见文件上方 _IMPORT_LOCK 说明）。
+    """
     def _run():
-        module = importlib.import_module(module_path)
+        module = safe_import(module_path)
         return getattr(module, func_name)()
     _run.__name__ = f"_run_{func_name}"
     return _run

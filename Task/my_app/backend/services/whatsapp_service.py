@@ -115,7 +115,11 @@ def _get_latest_site_outage():
 def _copy_image_to_clipboard(image_path):
     abs_path = os.path.abspath(image_path)
     ps_cmd = (
+        # [System.Drawing.Image] 属于 System.Drawing，不是 System.Windows.Forms。
+        # 缺这一句会报 "Unable to find type [System.Drawing.Image]" → $img 为 null
+        # → SetImage 抛 "Value cannot be null" → exit 1，整个剪贴板/粘贴路径失效。
         f"Add-Type -AssemblyName System.Windows.Forms; "
+        f"Add-Type -AssemblyName System.Drawing; "
         f"$img = [System.Drawing.Image]::FromFile('{abs_path}'); "
         f"[System.Windows.Forms.Clipboard]::SetImage($img); "
         f"$img.Dispose()"

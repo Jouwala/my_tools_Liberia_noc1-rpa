@@ -886,6 +886,274 @@ def launch_and_login(system_key: str, browser: str | None = None, job_id: str | 
         return _job_result(job_id, False, f"异常: {type(e).__name__}: {e}")
 
 
+# ============ eFlow 直接鉴权登录（不填表、不依赖登录页 DOM） ============
+# 背景：eFlow 登录页有 anti-debugger（debugger;）且靠页面 JS 做 RSA 加密，
+# 「填充表单 + 点按钮」这条链路脆弱（受登录页 DOM 结构、anti-debugger、SPA
+# bootstrap 时序影响）。而项目里已有稳定可用的【直接鉴权】实现：
+#   backend/services/auth_manager.get_auth(host, port, user, pwd)
+# 它复刻 eFlow 的 RSA+OAuth2 登录协议（authorize -> publickey -> login_rsa），
+# 直接返回会话 cookie（Z-AUTH-CODE-28001 等）+ forgery_token，eFlow 数据同步
+# 任务一直在用它。本函数把它复用到「一键门户登录」：直接鉴权拿会话 -> 用 CDP
+# Network.setCookie 把会话种到本机 Chrome 的 eFlow 域 -> 打开 eFlow 主页即已登录，
+# 完全绕开「页面 JS 加密 + 填表」。
+#
+# 注意：这只对【坐在 my_app 服务器本机】的浏览器有效——会话 cookie 必须种进
+# 能向 eFlow 服务器发请求的那个浏览器。远程访问者的浏览器受同源策略限制，
+# 后端无法跨域种 cookie，此时应回退到 client 模式（本机直连 eFlow 填表）。
+
+def _eflow_direct_auth(spec: dict):
+    """直接鉴权 eFlow：调用 auth_manager 复刻 RSA+OAuth2 登录，返回会话 cookie 串。
+
+    返回 (cookie_str, forgery_token)；失败抛异常。
+    """
+    from backend.services.auth_manager import get_auth
+    host, port = resolve_endpoint(spec)
+    user, pwd = _creds(spec["cred_key"])
+    auth = get_auth(host, port, user, pwd)
+    return auth["cookie"], auth["forgery_token"]
+
+
+def _split_cookies(cookie_str: str) -> list[dict]:
+    """把 'k1=v1; k2=v2; ...' 会话串拆成 CDP Network.setCookie 所需的 dict 列表。"""
+    out = []
+    for part in cookie_str.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        name, _, value = part.partition("=")
+        out.append({"name": name.strip(), "value": value.strip()})
+    return out
+
+
+async def _cdp_set_eflow_cookies(port: int, host: str, cookie_str: str) -> int:
+    """通过 CDP 连接把 eFlow 会话 cookie 种到本机 Chrome 的 eFlow 域。
+
+    返回成功种入的 cookie 数量。只启用 Network 域（不启用 Debugger 域，
+    避免触发 eFlow 的 anti-debugger 冻结页面）。
+    """
+    import json as _json
+    import urllib.request
+    import websockets
+
+    base = f"http://127.0.0.1:{port}"
+    with urllib.request.urlopen(f"{base}/json", timeout=5) as r:
+        targets = _json.loads(r.read().decode("utf-8"))
+    target = None
+    for t in targets:
+        if t.get("type") == "page" and t.get("webSocketDebuggerUrl"):
+            target = t
+            break
+    if target is None and targets:
+        target = targets[0]
+    if not target or not target.get("webSocketDebuggerUrl"):
+        raise RuntimeError("未找到可用的 CDP page target")
+
+    ws_url = target["webSocketDebuggerUrl"]
+    msg_id = [0]
+    set_count = 0
+
+    async with websockets.connect(ws_url, max_size=None) as ws:
+        async def send(method, params=None, await_resp=True):
+            msg_id[0] += 1
+            mid = msg_id[0]
+            payload = {"id": mid, "method": method}
+            if params is not None:
+                payload["params"] = params
+            await ws.send(_json.dumps(payload))
+            if not await_resp:
+                return None
+            while True:
+                raw = await asyncio.wait_for(ws.recv(), timeout=30)
+                data = _json.loads(raw)
+                if data.get("id") == mid:
+                    return data
+
+        await send("Network.enable", await_resp=False)
+        await send("Security.setIgnoreCertificateErrors", {"ignore": True}, await_resp=False)
+
+        domain = host  # eFlow 无独立域名，直接以 host 作为 cookie domain
+        for ck in _split_cookies(cookie_str):
+            r = await send("Network.setCookie", {
+                "name": ck["name"],
+                "value": ck["value"],
+                "domain": domain,
+                "path": "/",
+                # Z-AUTH-CODE 等会话 cookie 非持久，httpOnly 依服务端 Set-Cookie 属性
+                "httpOnly": True,
+                "secure": True,
+            })
+            if r.get("result", {}).get("success") is not False:
+                set_count += 1
+    return set_count
+
+
+def launch_and_login_eflow_direct(system_key: str, browser: str | None = None,
+                                  job_id: str | None = None) -> dict:
+    """eFlow 专用：直接鉴权（RSA+OAuth2 复刻登录）拿会话 -> CDP 种 cookie -> 打开已登录主页。
+
+    与 launch_and_login 的区别：不填表、不点登录按钮，绕开登录页 DOM 依赖与
+    anti-debugger。其余（启动 Chrome、保持窗口、LIVE/JOBS 记账）逻辑一致。
+    """
+    if not job_id:
+        job_id = uuid.uuid4().hex[:12]
+    spec = PORTALS[system_key]
+    host, port = resolve_endpoint(spec)
+    _job_update(job_id, system=system_key, state="launching",
+               message="正在直接鉴权...", log=[], start=time.time())
+
+    try:
+        _close_live(system_key)
+    except Exception:
+        pass
+
+    proc = None
+    profile_dir = None
+    try:
+        # 1) 直接鉴权（复用已验证的 auth_manager，走 RSA+OAuth2，无浏览器）
+        _job_update(job_id, log=[f"直接鉴权 eFlow {host}:{port} ..."])
+        cookie_str, forgery_token = _eflow_direct_auth(spec)
+        _job_update(job_id, log=[f"鉴权成功，获取会话 cookie（{len(_split_cookies(cookie_str))} 项）"])
+
+        import subprocess
+        import shutil
+        import asyncio
+        exe = get_default_browser_exe() if browser in (None, "default") else browser
+        PROFILE_ROOT.mkdir(parents=True, exist_ok=True)
+        for stale in [PROFILE_ROOT / system_key] + list(PROFILE_ROOT.glob(f"_tmp_{system_key}_*")):
+            try:
+                if stale.exists():
+                    shutil.rmtree(stale, ignore_errors=True)
+            except Exception:
+                pass
+        profile_dir = str(PROFILE_ROOT / f"_tmp_{system_key}_{uuid.uuid4().hex[:10]}")
+        Path(profile_dir).mkdir(parents=True, exist_ok=True)
+
+        # 2) 启动 Chrome：先打开 eFlow 登录入口（种 cookie 后会被重定向到已登录主页）
+        login_url = build_login_url(spec)
+        _job_update(job_id, log=["启动浏览器（直接鉴权模式）"])
+        proc = subprocess.Popen(
+            [exe,
+             f"--user-data-dir={profile_dir}",
+             "--remote-debugging-port=0",
+             "--start-maximized",
+             "--no-first-run",
+             "--no-default-browser-check",
+             login_url],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+
+        # 3) 读取远程调试端口
+        devtools_file = os.path.join(profile_dir, "DevToolsActivePort")
+        dport = None
+        for _ in range(50):
+            if os.path.exists(devtools_file):
+                try:
+                    with open(devtools_file, "r", encoding="utf-8") as f:
+                        dport = int(f.readline().strip())
+                    break
+                except Exception:
+                    pass
+            time.sleep(0.1)
+        if not dport:
+            raise RuntimeError("无法获取 Chrome 远程调试端口（浏览器可能启动失败）")
+
+        # 4) 种 cookie + 重新导航到已登录主页
+        _job_update(job_id, log=["向浏览器写入 eFlow 会话 cookie ..."])
+        set_count = asyncio.run(_cdp_set_eflow_cookies(dport, host, cookie_str))
+        _job_update(job_id, log=[f"已种入 {set_count} 个会话 cookie"])
+
+        # 5) 用 CDP 重新导航到 eFlow 门户主页（此时携带会话 cookie → 直接进入已登录态）
+        ok, sinfo = asyncio.run(_cdp_navigate_and_verify(
+            dport, host, port, spec, job_id,
+        ))
+
+        # 6) 最大化 + 保活
+        _maximize_window(exe)
+        _keep_alive(system_key, proc, profile_dir)
+        _job_update(job_id, state="success" if ok else "failed", message=sinfo, end=time.time())
+        return _job_result(job_id, ok, sinfo)
+    except Exception as e:
+        logger.warning(f"[PORTAL] eFlow 直接鉴权登录失败 {system_key}: {e}", exc_info=True)
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        if profile_dir and os.path.exists(profile_dir):
+            try:
+                import shutil
+                shutil.rmtree(profile_dir, ignore_errors=True)
+            except Exception:
+                pass
+        _job_update(job_id, state="failed", message=f"异常: {type(e).__name__}: {e}", end=time.time())
+        return _job_result(job_id, False, f"异常: {type(e).__name__}: {e}")
+
+
+async def _cdp_navigate_and_verify(port: int, host: str, eport: int, spec: dict, job_id: str):
+    """种完 cookie 后，用 CDP 导航到 eFlow 门户主页并验证是否已登录（URL 离开登录页）。"""
+    import json as _json
+    import urllib.request
+    import websockets
+
+    base = f"http://127.0.0.1:{port}"
+    with urllib.request.urlopen(f"{base}/json", timeout=5) as r:
+        targets = _json.loads(r.read().decode("utf-8"))
+    target = None
+    for t in targets:
+        if t.get("type") == "page" and t.get("webSocketDebuggerUrl"):
+            target = t
+            break
+    if target is None and targets:
+        target = targets[0]
+    if not target or not target.get("webSocketDebuggerUrl"):
+        return False, "未找到可用的 CDP page target"
+
+    ws_url = target["webSocketDebuggerUrl"]
+    msg_id = [0]
+    home_url = f"https://{host}:{eport}{spec.get('redirect', '/uportal/framework/default.html')}"
+
+    async with websockets.connect(ws_url, max_size=None) as ws:
+        async def send(method, params=None, await_resp=True):
+            msg_id[0] += 1
+            mid = msg_id[0]
+            payload = {"id": mid, "method": method}
+            if params is not None:
+                payload["params"] = params
+            await ws.send(_json.dumps(payload))
+            if not await_resp:
+                return None
+            while True:
+                raw = await asyncio.wait_for(ws.recv(), timeout=30)
+                data = _json.loads(raw)
+                if data.get("id") == mid:
+                    return data
+
+        async def eval_js(expr):
+            return await send("Runtime.evaluate",
+                             {"expression": expr, "returnByValue": True, "awaitPromise": True})
+
+        await send("Runtime.enable", await_resp=False)
+        await send("Page.enable", await_resp=False)
+        await send("Security.setIgnoreCertificateErrors", {"ignore": True}, await_resp=False)
+        await send("Page.navigate", {"url": home_url}, await_resp=False)
+
+        success_regex = spec.get("success_regex")
+        deadline = time.time() + 30
+        last_url = ""
+        while time.time() < deadline:
+            try:
+                r = await eval_js("(() => ({url: location.href}))()")
+                last_url = (r.get("result", {}).get("result", {}) or {}).get("value", {}).get("url", "")
+                if success_regex and re.search(success_regex, last_url):
+                    return True, f"已直接鉴权并进入 eFlow 主页 ({last_url})"
+                if "login" not in last_url.lower() and "/api/oauth2" not in last_url:
+                    return True, f"已离开登录页 ({last_url})"
+            except Exception as e:
+                logger.warning(f"[PORTAL] eFlow 导航验证轮询出错: {e}")
+            await asyncio.sleep(1.5)
+        return False, f"直接鉴权后未确认进入主页（当前 URL: {last_url}）"
+
+
 def _keep_alive(system_key, proc, profile_dir=None):
     with LIVE_LOCK:
         LIVE[system_key] = {

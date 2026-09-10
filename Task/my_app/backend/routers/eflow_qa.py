@@ -18,7 +18,7 @@ import threading
 import time
 from datetime import timezone
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -239,21 +239,64 @@ def _load_inspect_module():
     return mod
 
 
+# ---------------- 实时单票回退（本地工单缺失时回 eFlow 拉取，纯内存不落库） ----------------
+
+_REMOTE_TT_CACHE: Dict[str, Tuple[float, dict]] = {}
+_REMOTE_TT_LOCK = threading.Lock()
+_REMOTE_TT_TTL = 300   # 远程工单命中缓存 5 分钟（同一页面多端点并发时只查 eFlow 一次）
+
+
+def _fetch_tt_remote_cached(tt_clean: str):
+    """按单号取实时 eFlow 工单（带进程内 TTL 缓存），未命中返回 None。纯内存不落库。"""
+    with _REMOTE_TT_LOCK:
+        ent = _REMOTE_TT_CACHE.get(tt_clean)
+        if ent and time.time() - ent[0] < _REMOTE_TT_TTL:
+            return ent[1]
+    from backend.services.eflow_data_mapper import fetch_tt_live
+    row = fetch_tt_live(tt_clean)
+    with _REMOTE_TT_LOCK:
+        _REMOTE_TT_CACHE[tt_clean] = (time.time(), row)
+    return row
+
+
+def _remote_report(mod, tt_clean):
+    """本地工单缺失时，回 eFlow 拉单条并构建分析与本地同构的报告。
+
+    命中返回 (report, row)，未命中返回 (None, None)。report 已标注 source=「eFlow实时」。
+    """
+    row = _fetch_tt_remote_cached(tt_clean)
+    if not row:
+        return None, None
+    report = mod.analyze_tt_remote(tt_clean, row, str(mod.DEFAULT_DB))
+    report["source"] = "eFlow实时"
+    report["remote"] = True
+    if row.get("_tt_live_raw"):
+        report["live_raw"] = row["_tt_live_raw"]
+    return report, row
+
+
 def _tt_context(tt_clean: str):
-    """TT 分析上下文：本地库查告警，未命中则按 alarm_id 直查 eFlow 兜底。
+    """TT 分析上下文：本地库查工单/告警，工单或告警缺失时回 eFlow 实时兜底。
 
     返回 (report, alarm_lookup)：
-      report       analyze_tt 结构；若走了 eFlow 兜底，alarm / skill_prompt 已回填
-      alarm_lookup {"mode": local|eflow|none|not_found_ticket, "source", "elapsed_sec",
-                    "error", "cached"} 或 None（工单未找到）
+      report       analyze_tt 结构；工单缺失时已由实时 eFlow 数据重建（source=「eFlow实时」）
+      alarm_lookup {"mode": local|eflow_remote|eflow|none|not_found_ticket, "source",
+                    "elapsed_sec", "error", "cached"} 或 None（本地+实时均未找到工单）
     """
     mod = _load_inspect_module()
     report = mod.analyze_tt(tt_clean, str(mod.DEFAULT_DB))
+    remote = False
     if not report.get("found"):
-        return report, None
+        rep_remote, _row = _remote_report(mod, tt_clean)
+        if rep_remote:
+            report = rep_remote
+            remote = True
+        else:
+            return report, None
     if (report.get("alarm") or {}).get("found"):
-        # report["aid"] 已由 analyze_tt 注入（本地告警行的 AID 列）
-        return report, {"mode": "local", "source": report["alarm"]["source"],
+        # report["aid"] 已由 analyze_tt/analyze_tt_remote 注入（告警行的 AID 列）
+        return report, {"mode": "eflow_remote" if remote else "local",
+                        "source": report["alarm"]["source"],
                         "elapsed_sec": 0.0, "error": None, "cached": False}
     aid = report.get("alarm_id") or ""
     if not aid:
@@ -300,15 +343,69 @@ _UME_SUG_TTL_HIT = 300   # UME 命中缓存 5 分钟
 _UME_SUG_TTL_MISS = 60   # 无 AID / UME 未命中缓存 60 秒
 
 
+def _ume_lookup_light(ume_svc, aid: str, site_name: str, raised_ms: Optional[int],
+                      with_history: bool = False) -> dict:
+    """单个 UME AID 轻量查询：先按 aid 直查，miss 再按 站点+时刻 兜底。
+
+    与旧 /tt-ume-suggestion 单 aid 逻辑一致，供「关系链全量建议」逐 aid 复用。
+    """
+    ume = None
+    if aid and aid.isdigit():
+        ume = ume_svc.lookup_alarm(aid, days=30, limit=50, with_history=with_history)
+        if ume.get("ok"):
+            ume["strategy"] = "alarm_id"
+            return ume
+    if site_name and raised_ms:
+        ume = ume_svc.find_alarm_by_event(site_name, raised_ms or 0, with_history=with_history)
+        if ume.get("ok"):
+            ume["strategy"] = "site_time"
+    return ume
+
+
+def _chain_related(ume_svc, chain, site_name, raised_ms):
+    """由 resolve_alarm_chain 结果构建 related_ume（含完整层级 chain，与 eFlow 手动下钻一致）。
+
+    items= 逐 aid 的 UME 建议；chain= eFlow 关系链全部节点（根→压缩→原始，含 depth/relationflag）。
+    返回 (related_ume_or_None, items)。
+    """
+    if not (chain.get("ok") and chain.get("aids")):
+        return None, []
+    items = []
+    seen_aid = set()
+    for node in chain["aids"]:
+        aid = node.get("aid", "")
+        if not aid or aid in seen_aid:
+            continue
+        seen_aid.add(aid)
+        n_ume = _ume_lookup_light(ume_svc, aid, node.get("site_name") or site_name, raised_ms)
+        items.append({
+            "aid": aid,
+            "codename": node.get("codename", ""),
+            "alarmcode": node.get("alarmcode", ""),
+            "restype": node.get("restype", ""),
+            "site_name": node.get("site_name") or site_name,
+            "relationflag": node.get("relationflag"),
+            "ume": n_ume,
+        })
+    related_ume = {
+        "count": len(items), "items": items,
+        "source": "relationship_chain",
+        "elapsed_sec": chain.get("elapsed_sec"),
+        "chain": chain.get("chain", []),
+    }
+    return related_ume, items
+
+
 @router.get("/tt-ume-suggestion")
 def tt_ume_suggestion(tt: str = Query(..., min_length=2, max_length=64, description="TT 单号")):
     """TT 单 → 告警 AID → RAN UME 处理建议（供「TT 快速分析」内嵌展示）。
 
-    轻量链路（不查历史告警列表，只拿告警详情 + 处理建议）：
-      1. 先按告警行的 AID 作为数字 Alarm ID 直查 UME；
-      2. eFlow 与 UME 的告警编号分属两套体系（实测 UME 历史接口的 id 过滤
-         只认 UME 自身编号），直查不中时改用 站点名 + 告警发生时刻 关联
-         —— 同一条底层告警在两边的 alarmraisedtime 毫秒值一致。
+    链路（2026-09 新增关系链全量建议）：
+      1. 用 TT 告警的 eFlow alarm_id 递归 relatedAlarms/table，收集全部「原始
+         RAN UME 告警」的真实 AID（alarmkey 以 zte-ume-ran 开头）；对这些
+         aid 逐一 lookup_alarm 取建议，返回 related_ume 全量列表。
+      2. 关系链为空时退 旧逻辑：按告警行 aid 直查 → miss 再按 站点名+发生时刻
+         关联（同一条底层告警两边的 alarmraisedtime 毫秒一致）。
     """
     tt_clean = tt.strip().upper()
     if not re.fullmatch(r"[A-Z0-9_\-]+", tt_clean):
@@ -321,36 +418,42 @@ def tt_ume_suggestion(tt: str = Query(..., min_length=2, max_length=64, descript
                 "error": report.get("error") or "工单未找到"}
 
     aid = str(report.get("aid") or "").strip()
+    alarm_id = str(report.get("alarm_id") or "").strip()
     site_name = str(report.get("site_name") or "").strip()
     occur = mod.parse_dt((report.get("timing") or {}).get("alarm_occur_time"))
     raised_ms = int(occur.replace(tzinfo=timezone.utc).timestamp() * 1000) if occur else None
 
-    cache_key = aid or f"{site_name}|{raised_ms}"
-    if not aid and not (site_name and raised_ms):
-        return {"found": True, "tt_no": tt_clean, "aid": "", "ume": None,
-                "error": "告警记录中没有 AID，且缺少站点/发生时刻，无法查询 RAN UME 建议"}
-
-    with _UME_SUG_LOCK:
-        ent = _UME_SUG_CACHE.get(cache_key)
-        if ent:
-            ts, res = ent
-            ttl = _UME_SUG_TTL_HIT if (res.get("ume") or {}).get("ok") else _UME_SUG_TTL_MISS
-            if time.time() - ts < ttl:
-                return dict(res, cached=True)
-
     from backend.services.ran_ume import ran_ume_alarm_service as ume_svc
-    ume = None
-    if aid.isdigit():
-        ume = ume_svc.lookup_alarm(aid, days=30, limit=50, with_history=False)
-        if not ume.get("ok"):
-            ume = None
-    if ume is None:
-        ume = ume_svc.find_alarm_by_event(site_name, raised_ms or 0, with_history=False)
-    ume["strategy"] = "site_time" if ume.get("match") == "site_time" else "alarm_id"
 
-    out = {"found": True, "tt_no": tt_clean, "aid": aid, "ume": ume, "cached": False}
-    with _UME_SUG_LOCK:
-        _UME_SUG_CACHE[cache_key] = (time.time(), out)
+    # 1) 关系链：压缩告警 → 原始 RAN UME AID → 全量建议（含完整层级 chain）
+    related_ume = None
+    rec = {"aid": "", "ume": None}
+    if alarm_id and alarm_id.isdigit():
+        from backend.services import eflow_ume_link
+        chain = eflow_ume_link.resolve_alarm_chain(alarm_id)
+        related_ume, items = _chain_related(ume_svc, chain, site_name, raised_ms)
+        # 关系链主建议：取第一个成功的原始 UME
+        for it in (items or []):
+            if it["ume"] and it["ume"].get("ok"):
+                rec = {"aid": it["aid"], "ume": it["ume"]}
+                break
+
+    # 2) 无关系链或链取不到 → 退 旧逻辑：单 aid 直查 + 站点时间兜底
+    if rec["ume"] is None:
+        ume = _ume_lookup_light(ume_svc, aid, site_name, raised_ms)
+        if ume:
+            rec = {"aid": aid, "ume": ume}
+
+    if rec["ume"] is None:
+        err = "告警记录中没有 AID，且缺少站点/发生时刻，无法查询 RAN UME 建议"
+        if not aid and not (site_name and raised_ms):
+            return {"found": True, "tt_no": tt_clean, "aid": "", "ume": None,
+                    "related_ume": related_ume, "error": err}
+        return {"found": True, "tt_no": tt_clean, "aid": aid, "ume": None,
+                "related_ume": related_ume, "error": err}
+
+    out = {"found": True, "tt_no": tt_clean, "aid": rec["aid"], "ume": rec["ume"],
+           "related_ume": related_ume, "cached": False}
     return out
 
 
@@ -376,6 +479,19 @@ def ume_alarm(
     if not res.get("ok"):
         # 上游失败仍返回 200，由前端展示错误，避免整个页面报错
         logger.warning("UME 告警查询失败: %s", res.get("error"))
+    # 兼容 eFlow 压缩根 alarm id：按 id 递归 relatedAlarms/table 出完整下级链路
+    # （与 TT 快速分析一致，含层级 chain），让 RAN UME 分析也能看全"手动下钻"的原生结果。
+    try:
+        aid = alarm_id.strip()
+        if aid.isdigit():
+            from backend.services import eflow_ume_link
+            from backend.services.ran_ume import ran_ume_alarm_service as ume_svc
+            chain = eflow_ume_link.resolve_alarm_chain(aid)
+            rel_ume, _items = _chain_related(ume_svc, chain, "", None)
+            if rel_ume:
+                res["related_ume"] = rel_ume
+    except Exception:  # noqa: BLE001
+        logger.debug("ume-alarm 关系链附加失败（忽略）", exc_info=True)
     return res
 
 
@@ -392,6 +508,11 @@ def inspect_tt(tt: str = Query(..., min_length=2, max_length=64, description="TT
     mod = _load_inspect_module()
     # 本端点为同步 def，FastAPI 已自动放入线程池执行，直接调用即可
     report = mod.analyze_tt(tt_clean, str(mod.DEFAULT_DB))
+    if not report.get("found"):
+        # 本地工单缺失 → 回 eFlow 实时拉单条重建报告（纯内存不落库）
+        rep_remote, _row = _remote_report(mod, tt_clean)
+        if rep_remote:
+            report = rep_remote
     return {"report": report}
 
 

@@ -40,7 +40,8 @@ Watchdog 进程 (python -m backend.worker_watchdog)  ── 父进程托管 work
 ## 启停
 
 - 启动：`start.bat` / `start_hidden.vbs` 自动拉起**看门狗**（`python -m backend.worker_watchdog`，
-  窗口标题 TaskWorkerWatchdog，日志 `worker_watchdog.log`），由看门狗托管 worker（日志 `worker_runtime.log`）
+  窗口标题 TaskWorkerWatchdog，日志 `worker_watchdog.log`），由看门狗托管 worker
+  （**每组一个日志文件**：`worker_runtime_u.log` / `_n` / `_m` / `_c`；未分组时用 `worker_runtime.log`）
 - 停止：`stop.bat` **先树杀看门狗**（`backend/worker_watchdog.pid` + `taskkill /T /F`），连带 worker 一起停且不会复活；
   随后按 `backend/worker.pid` 兜底清理（看门狗未启用时仍可用）
 - 手动启动看门狗：在 my_app 根目录执行 `python -m backend.worker_watchdog`

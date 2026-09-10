@@ -35,7 +35,7 @@ if sys.platform == "win32" and not sys.stdout.isatty():
 # 确保可以import backend模块
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -63,10 +63,12 @@ from backend.routers import (
     cxo_dashboard,
     vmax_cxo_dashboard,
     feedback,
+    ui_config,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
 from backend.services import task_runner
+from backend.services import portal_auth  # noqa: F401  (会话路由 + current_user 供鉴权中间件)
 from backend.database import get_raw_connection
 
 start_time = time.time()
@@ -154,13 +156,49 @@ app.include_router(cxo_dashboard.router)
 app.include_router(vmax_cxo_dashboard.router)
 # 问题登记（用户反馈）：任何内网用户可提交问题，管理侧可筛选/处理/删除
 app.include_router(feedback.router)
+# 界面配置（侧栏菜单结构）：全局共享一份，仅本机可改（见 routers/ui_config.py）
+app.include_router(ui_config.router)
+# uniplam 门户鉴权适配：/api/auth/portal-login、/api/auth/logout、/api/auth/me（见 services/portal_auth.py）
+app.include_router(portal_auth.router)
+
+
+# ========== 统一门户鉴权中间件 ==========
+# 适配 uniplam 门户用户鉴权：远程访问数据接口需登录（会话 Cookie 或门户深链换的
+# 会话），未登录返回 401；本机回环（内部调度/看门狗/同机脚本）放行，避免破坏
+# 定时任务。放行清单集中维护，见 _PUBLIC_API。
+_PUBLIC_API = (
+    "/api/auth/",          # 登录/注销/会话查询（引导流程必须全开）
+    "/api/health",         # 健康检查
+    "/api/ui/menu-layout", # 侧栏菜单结构只读（首屏渲染依赖，且 PUT/DELETE 另有 require_protected）
+)
+
+
+@app.middleware("http")
+async def require_session_middleware(request: Request, call_next):
+    # 非 API 一律放行（前端静态资源）
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+    # CORS 预检放行（CORSMiddleware 在内层处理）
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    # 公开路径放行
+    if request.url.path.startswith(_PUBLIC_API):
+        return await call_next(request)
+    # 本机回环放行（内部调度/脚本/看门狗不受浏览器鉴权约束）
+    if portal_auth.client_is_local(request):
+        return await call_next(request)
+    # 其余一律要求有效会话
+    if portal_auth.current_user(request) is not None:
+        return await call_next(request)
+    from starlette.responses import JSONResponse
+    return JSONResponse(status_code=401, content={"detail": "未登录：请通过统一门户登录"})
 
 
 # ========== 通用任务调度系统 ==========
 # 任务定义与注册已迁移至 backend/task_registry.py（P2#8 拆分）：
 # 原 _register_all_tasks 336 行 → 声明式 TASK_SPECS + 通用注册循环；
 # sync_history 亦由 task_registry 统一维护（旧 eFlow API 兼容）。
-from backend.task_registry import sync_history, register_all_tasks
+from backend.task_registry import sync_history, register_all_tasks, preload_common_deps
 
 
 def _register_all_tasks():
@@ -249,6 +287,15 @@ async def startup_event():
 
     # 注册所有任务并启动调度器
     _register_all_tasks()
+    # 启动期串行预热公共重依赖（2026-09-10 修复）：QUEUE_ENABLED=0 时定时/手动触发
+    # 都经 _execute_task 在本进程内以【线程】并发执行任务，多线程同时首次 import
+    # requests 等重依赖会撞 CPython import 竞态并残留半成品模块。提前串行导入消除窗口。
+    try:
+        _ok, _failed = preload_common_deps()
+        print(f"[startup] 公共依赖预热完成：{len(_ok)} 个成功"
+              + (f"，{len(_failed)} 个失败: {'; '.join(_failed)}" if _failed else ""))
+    except Exception as _e:
+        print(f"[startup] 公共依赖预热异常（不影响启动）: {_e}")
     if DISABLE_SCHEDULER:
         print("[startup] MY_APP_DISABLE_SCHEDULER=1: skip APScheduler start (smoke test mode)")
     elif not _got_lock:

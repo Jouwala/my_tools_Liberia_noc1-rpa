@@ -897,7 +897,7 @@ Workflow & maintenance notes per task:
 
 **Edit a workflow script** All scripts live under backend/services/ (paths listed in the task catalog). Mind: ① never "fix" historical spellings (packet_lost, battary_kpi_fetch, ultilazation — string-referenced); ② dynamic collection tables stay out of Alembic; ③ sync-update task_registry.md / WORKER.md / the help data (frontend/src/pages/helpTaskDocs.ts).
 
-**Pending / failed triage order** ① pending forever → check worker-group registration; ② failed → task_id stack in log/worker_runtime.log → "Test Connection" for credentials; ③ data stalled → db_freshness_check history has the call chain.
+**Pending / failed triage order** ① pending forever → check worker-group registration; ② failed → task_id stack in log/worker_runtime*.log (one file per worker group) → "Test Connection" for credentials; ③ data stalled → db_freshness_check history has the call chain.
 
 ### 3.6 When upstreams go down
 
@@ -1126,7 +1126,7 @@ One-click portal login: auto-logs into upstream portals with saved credentials (
 
 | Log file (log/) | Content |
 | --- | --- |
-| `log/worker_runtime.log` | Main task-execution log — first stop for troubleshooting; search by task_id for stacks |
+| `log/worker_runtime*.log` | Main task-execution log — first stop for troubleshooting; search by task_id for stacks (one file per worker group: `_u`/`_n`/`_m`/`_c`) |
 | `log/backend_runtime.log` | Backend business log (API, scheduler, proxies) |
 | `log/backend_watchdog.log / worker_watchdog.log` | Process spawn & crash-backoff records (gives up after 10 consecutive crashes) |
 | `log/start_hidden_result.txt` | Per-step result of the last startup — check this first when startup fails |
@@ -1185,7 +1185,7 @@ Most likely the task was never assigned to a worker group (GROUP_TASK_MAP) — n
 
 **A task keeps failing?**
 
-Find the stack trace for the task_id in log/worker_runtime.log (the first log to check). Upstream unreachable → run "Test Connection" in Settings → Credentials; changed password → update credentials. auto_retry_failed retries every 10 min (MAX_ATTEMPTS=2, gives up after 24h) — no need to click Run repeatedly.
+Find the stack trace for the task_id in log/worker_runtime*.log (the first log to check; one file per worker group). Upstream unreachable → run "Test Connection" in Settings → Credentials; changed password → update credentials. auto_retry_failed retries every 10 min (MAX_ATTEMPTS=2, gives up after 24h) — no need to click Run repeatedly.
 
 **A task stuck in "running"?**
 

@@ -98,11 +98,12 @@ export const axisLine = (isDark: boolean = true) => ({ lineStyle: { color: isDar
 export const splitLine = (isDark: boolean = true) => ({ lineStyle: { type: 'dashed' as const, color: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(13,148,136,0.12)' } })
 
 // antd Card 通用样式（DOM 层：CSS 变量）
+// 阴影取统一令牌 --wh-shadow-1，深浅主题各自定义，不再在 JS 里按主题硬编码 rgba
 export const cardStyle: React.CSSProperties = {
   background: WH.cardBg,
   border: WH.cardBorder,
   borderRadius: 'var(--wh-radius-lg)',
-  boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+  boxShadow: 'var(--wh-shadow-1)',
   transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease',
 }
 

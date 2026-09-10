@@ -270,7 +270,7 @@ def _stale_advice(check: dict, local_max: str = None) -> list:
     ]
     advice = [
         f"1. Task Manager 查看任务 {check['task_id']} 最近运行历史（success/error）",
-        "2. worker_runtime.log 搜关键字: \"[API] 写入失败\"、\"回退到本地\"、\"HTTP 500\"",
+        "2. log/worker_runtime*.log（每组 worker 一个文件）搜关键字: \"[API] 写入失败\"、\"回退到本地\"、\"HTTP 500\"",
         f"3. 远程服务端健康: GET {_api_base()}/health 与 /api/tables?db={check['db']}",
         "4. 远程库损坏: 部署机(192.168.100.19)上 PRAGMA integrity_check，损坏则 .recover 重建",
         f"5. 数据源侧: 确认 UME 网管 {check['task_id']} 对应查询在任务窗口内有数据产出",
@@ -419,7 +419,7 @@ def _check_task_execution_health(now: datetime, results: list, stale_items: list
                 "1. Task Manager 查看这些任务的历史与下次运行时间",
                 "2. 查 task_queue 是否有滞留 pending 记录（单飞保护会挡住后续触发）",
                 "3. 确认任务在 worker_watchdog GROUP_TASK_MAP 分组清单内（见上方分组覆盖项）",
-                "4. worker_runtime.log 搜任务名确认 worker 是否认领过",
+                "4. log/worker_runtime*.log 搜任务名确认 worker 是否认领过（认领行带 queue_id）",
             ]))
 
     # 3) task_queue 滞留记录

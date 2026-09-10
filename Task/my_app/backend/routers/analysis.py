@@ -187,6 +187,32 @@ def delete_analysis(analysis_id: int):
         return {"deleted": True, "id": analysis_id}
 
 
+def _as_numeric_metric(s: pd.Series):
+    """把一列转换为可用于聚合(.mean 等)的数值序列；无法安全数值化时返回 None。
+
+    存量 500 的两类根因都在这里被拦下：
+    - 布尔列：pandas 中 bool 属 numeric_dtype，但其 quantile/IQR 会抛
+      TypeError: numpy boolean subtract，且"布尔求均值"语义可疑 → 直接排除。
+    - 文本列：type_category 只是"名字像数值"（如 total_items / down_site_count /
+      sla_deadline 实为 str），直接 .mean() 会抛 dtype 'str' does not support 'mean'。
+      这里尝试 to_numeric，若可转换值占比不足 50%，视为真正文本列并返回 None。
+    """
+    if pd.api.types.is_bool_dtype(s):
+        return None
+    if pd.api.types.is_numeric_dtype(s):
+        return s
+    non_null = int(s.notna().sum())
+    if non_null == 0:
+        return None
+    try:
+        conv = pd.to_numeric(s, errors="coerce")
+    except (TypeError, ValueError):
+        return None
+    if int(conv.notna().sum()) / non_null < 0.5:
+        return None
+    return conv
+
+
 def _generate_chart_config(df: pd.DataFrame, profile: dict, table_name: str) -> dict:
     """根据数据特征自动生成图表配置"""
     charts = []
@@ -195,15 +221,19 @@ def _generate_chart_config(df: pd.DataFrame, profile: dict, table_name: str) -> 
     # 找分类字段（适合做饼图/柱状图）
     cat_cols = [c for c in columns if c["type_category"] in ("分类", "文本-分类", "地理区域") and c["unique_count"] <= 30 and c["unique_count"] > 1]
 
-    # 找数值字段（适合做柱状图/折线图）
-    num_cols = [c for c in columns if "数值" in c.get("type_category", "") or c.get("type_category") in ("计数/数量",)]
+    # 找数值字段候选（适合做柱状图/折线图）。
+    # ⚠️ type_category 只是"名字像数值"的线索，实际 dtype 必须再校验，
+    # 否则 str 列会带着 .mean() 直接 500（见 _as_numeric_metric）。
+    num_candidates = [c for c in columns if "数值" in c.get("type_category", "") or c.get("type_category") in ("计数/数量", "时长/SLA")]
 
     # 找时间字段
     time_cols = [c for c in columns if c["type_category"] in ("时间", "日期时间")]
 
     # 1. 分类字段 -> 饼图
     for col in cat_cols[:3]:
-        if col["name"] in df.columns:
+        if col["name"] not in df.columns:
+            continue
+        try:
             value_counts = df[col["name"]].value_counts().head(10).to_dict()
             charts.append({
                 "type": "pie",
@@ -212,21 +242,48 @@ def _generate_chart_config(df: pd.DataFrame, profile: dict, table_name: str) -> 
                 "column": col["name"],
                 "data": [{"name": str(k), "value": int(v)} for k, v in value_counts.items()],
             })
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "[_generate_chart_config] pie 生成失败 table=%s col=%s", table_name, col["name"], exc_info=True)
 
-    # 2. 分类字段 vs 数值字段 -> 柱状图
-    if cat_cols and num_cols:
+    # 2. 分类字段 vs 数值字段 -> 柱状图（数值列先做 dtype 校验/转换，再聚合）
+    # 按顺序挑出前 2 个"真正可数值化"的列，避免前两个候选恰好都不可用时白丢图表。
+    metrics = []
+    for c in num_candidates[:12]:
+        if len(metrics) >= 2:
+            break
+        if c["name"] not in df.columns:
+            continue
+        metric_series = _as_numeric_metric(df[c["name"]])
+        if metric_series is not None:
+            metrics.append((c["name"], metric_series))
+
+    if cat_cols and metrics:
         for cat_col in cat_cols[:2]:
-            for num_col in num_cols[:2]:
-                if cat_col["name"] in df.columns and num_col["name"] in df.columns:
-                    grouped = df.groupby(cat_col["name"])[num_col["name"]].mean().head(15).to_dict()
+            if cat_col["name"] not in df.columns:
+                continue
+            for metric_name, metric_series in metrics:
+                try:
+                    frame = pd.DataFrame({
+                        "__cat": df[cat_col["name"]],
+                        "__val": metric_series,
+                    })
+                    grouped = frame.groupby("__cat")["__val"].mean().dropna().head(15).to_dict()
+                    if not grouped:
+                        continue
                     charts.append({
                         "type": "bar",
-                        "title": f"{cat_col['name']} vs {num_col['name']} (均值)",
+                        "title": f"{cat_col['name']} vs {metric_name} (均值)",
                         "chart_key": "mean_comparison",
                         "x_column": cat_col["name"],
-                        "y_column": num_col["name"],
+                        "y_column": metric_name,
                         "data": [{"name": str(k), "value": round(float(v), 2) if pd.notna(v) else 0} for k, v in grouped.items()],
                     })
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "[_generate_chart_config] bar 生成失败 table=%s: %s vs %s",
+                        table_name, cat_col["name"], metric_name, exc_info=True)
+                    continue
 
     # 3. 时间字段 -> 时间趋势
     for time_col in time_cols[:1]:
@@ -258,7 +315,6 @@ def _generate_chart_config(df: pd.DataFrame, profile: dict, table_name: str) -> 
             "chart_key": "quality_radar",
             "data": radar_data,
         })
-
     # 5. SLA热力图 - 如果有 sla_status 和分类字段
     sla_col = next((c for c in columns if 'sla' in c['name'].lower()), None)
     if sla_col and cat_cols:

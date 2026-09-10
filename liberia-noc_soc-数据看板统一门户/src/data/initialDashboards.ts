@@ -892,16 +892,25 @@ const RAW_DASHBOARDS: DashboardItem[] = [
 
 export const INITIAL_DASHBOARDS: DashboardItem[] = withRel(RAW_DASHBOARDS);
 
-export const CATEGORIES = [
-  '全部',
+/**
+ * 内置默认分组（仅在服务端目录未保存 / 读取失败时作为兜底）。
+ * 运行时的真实分组列表来自目录数据（App 的 groups 状态），可在「分组管理」里增删改。
+ */
+export const DEFAULT_GROUPS: string[] = [
   'MS 综合运维管理',
   '告警与工单故障',
   '网络性能与无线/核心网',
   '传输承载与业务时延',
   '现场动力与备件仓储',
   '自动化调度与数据集成',
-  '其他'
-] as const;
+  '其他',
+];
+
+/**
+ * @deprecated 分组已是运行时数据（App 的 groups 状态，可增删改）。
+ * 此常量仅作为旧引用兜底与首屏回退，不要再用它渲染分组 Tab。
+ */
+export const CATEGORIES: string[] = ['全部', ...DEFAULT_GROUPS];
 
 export const AVAILABLE_ICONS = [
   { name: 'LayoutGrid', label: '网格看板' },

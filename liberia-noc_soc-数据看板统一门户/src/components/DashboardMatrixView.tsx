@@ -1,12 +1,13 @@
 import React from 'react';
 import { ExternalLink, Star, Eye, QrCode } from 'lucide-react';
-import { DashboardItem, CategoryType } from '../types/dashboard';
-import { CATEGORIES } from '../data/initialDashboards';
+import { DashboardItem } from '../types/dashboard';
 import { DynamicIcon } from './DynamicIcon';
 import { FREQ_LABEL_KEY, useI18n } from '../i18n';
 
 interface DashboardMatrixViewProps {
   dashboards: DashboardItem[];
+  /** 分组名称列表（与 dashboards 同语言，由 App 用 translateCategory 一并翻译） */
+  groups: string[];
   onOpen: (d: DashboardItem) => void;
   onPreview: (d: DashboardItem) => void;
   onShowQR: (d: DashboardItem) => void;
@@ -15,13 +16,18 @@ interface DashboardMatrixViewProps {
 
 export const DashboardMatrixView: React.FC<DashboardMatrixViewProps> = ({
   dashboards,
+  groups,
   onOpen,
   onPreview,
   onShowQR,
   onToggleFavorite,
 }) => {
   const { t } = useI18n();
-  const activeCategories = CATEGORIES.filter((c) => c !== '全部');
+  // 以运行时分组列表为准（保序），并兜底并入数据里出现过的分组名，
+  // 避免分组列表与卡片数据短暂不一致时卡片在矩阵视图里"消失"
+  const activeCategories = Array.from(
+    new Set([...groups, ...dashboards.map((d) => d.category)])
+  ).filter((c) => c && c !== '全部');
 
   return (
     <div className="space-y-6">

@@ -376,6 +376,60 @@ def unregister_task(task_id: str):
 
 
 # ========== 任务执行 ==========
+def _refresh_task_schedule_from_db(task_id: str) -> None:
+    """把数据库里最新的 cron/enabled 同步回内存注册表。
+
+    Worker 是长驻进程，`_task_registry` 只是「启动那一刻」的快照；Web 进程里的
+    toggle / 改调度只写库 + 改 Web 自己的内存，Worker 完全感知不到。不同步会导致两类事故：
+
+      - DB 已启用、Worker 仍判定「已禁用」：手动执行 0.04s 空失败，前端只闪一下
+        「执行中」就恢复原状，用户看到的就是「点击无响应、转动动画也没有了」。
+        （2026-09-10 whatsapp_send 实测：queue_id 31382/31386 error=任务已禁用）
+      - DB 已禁用、Worker 仍照跑：任务管理页的「禁用」开关对定时任务彻底失效。
+
+    因此每次真正执行前同步一次。读取失败时保留内存原值，不因 DB 抖动改变行为。
+    """
+    task = _task_registry.get(task_id)
+    if not task:
+        return
+    saved_cron, saved_enabled = _load_schedule_config(task_id)
+    if saved_enabled is not None:
+        task["enabled"] = bool(saved_enabled)
+    if saved_cron:
+        task["current_cron"] = saved_cron
+
+
+def _record_rejected_run(task_id: str, task: dict | None, trigger: str, error: str) -> None:
+    """记录「未真正执行」的拒绝结果（已禁用 / 未注册）。
+
+    这类失败在真正调用任务函数之前就返回，既不写执行历史也不推送通知，
+    结果就是前端卡片上「上次运行」纹丝不动、按钮一闪即恢复，用户只能理解为
+    「点了没反应」。手动触发时补写一条失败历史，让页面能显示出拒绝原因；
+    定时触发保持静默（只留日志），避免把已禁用任务的每次调度都刷成失败记录、
+    污染失败统计与自动重试。
+    """
+    if trigger != "manual":
+        logger.warning(f"[{task_id}] 跳过执行：{error}（trigger={trigger}）")
+        return
+    now = datetime.now().isoformat()
+    try:
+        _save_task_result({
+            "task_id": task_id,
+            "task_name": (task or {}).get("name"),
+            "category": (task or {}).get("category"),
+            "trigger": trigger,
+            "success": False,
+            "started_at": now,
+            "completed_at": now,
+            "elapsed_seconds": 0,
+            "result": None,
+            "error": error,
+            "error_trace": None,
+        })
+    except Exception as e:
+        logger.warning(f"记录拒绝执行结果失败 ({task_id}): {e}")
+
+
 def run_task(task_id: str, trigger: str = "manual") -> dict:
     """
     立即执行指定任务。
@@ -389,9 +443,14 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
     """
     task = _task_registry.get(task_id)
     if not task:
+        _record_rejected_run(task_id, None, trigger, f"任务 {task_id} 未找到")
         return {"success": False, "error": f"任务 {task_id} 未找到"}
 
+    # 执行前用数据库最新状态校正内存（Worker 长驻，注册表是启动快照，见函数注释）
+    _refresh_task_schedule_from_db(task_id)
+
     if not task["enabled"]:
+        _record_rejected_run(task_id, task, trigger, f"任务 {task_id} 已禁用")
         return {"success": False, "error": f"任务 {task_id} 已禁用"}
 
     logger.info("任务开始执行", extra={"task_id": task_id, "event": "task_start", "trigger": trigger})
@@ -532,6 +591,8 @@ def run_task_async(task_id: str, trigger: str = "manual") -> dict:
     task = _task_registry.get(task_id)
     if not task:
         return {"success": False, "accepted": False, "error": f"任务 {task_id} 未找到"}
+    # 同上：以数据库为准校正内存快照，避免页面显示与真实可触发状态不一致
+    _refresh_task_schedule_from_db(task_id)
     if not task["enabled"]:
         return {"success": False, "accepted": False, "error": f"任务 {task_id} 已禁用"}
     if QUEUE_ENABLED:

@@ -14,6 +14,26 @@ import type { Plugin } from 'vite';
 
 export type Role = 'admin' | 'viewer';
 
+/** 门户自身视图（与前端 ViewMode 对齐；服务端只用它做白名单校验） */
+export type PortalViewMode = 'grid' | 'list' | 'matrix' | 'tasks';
+const PORTAL_VIEW_MODES: readonly PortalViewMode[] = ['grid', 'list', 'matrix', 'tasks'];
+
+/**
+ * 用户级「页面配置」——管理员为每个账号指定「登录后打开哪一页」和「能打开哪些页」。
+ *  - landing：登录后落地目标（门户视图 或 指定卡片）
+ *  - allowedGroups / allowedCards：可见范围白名单
+ *  - 两者同时为 null/undefined 表示不限制（老账号行为完全不变）
+ *  - 卡片目录与分组列表都不在服务端存储（它们是全局目录 portal-default.json 的一部分），
+ *    因此这里只存「分组规范名 / 卡片 id」，落地与过滤都在前端完成。
+ */
+export interface LandingTarget {
+  /** 门户自身视图；留空 = 不自动切换视图 */
+  view?: PortalViewMode;
+  /** 目标卡片 id：登录后高亮并滚动到该卡片
+   *  （外部页面不自动 window.open —— 非用户手势的弹窗会被浏览器拦截） */
+  cardId?: string;
+}
+
 export interface StoredUser {
   id: string;
   username: string;
@@ -21,9 +41,22 @@ export interface StoredUser {
   passwordHash: string;
   mustChangePassword: boolean;
   createdAt: string;
+  /** 登录后落地页（缺省 = 不干预，停在全部看板网格） */
+  landing?: LandingTarget;
+  /** 可见分组白名单（分组规范名，中文）；null/undefined = 不限制 */
+  allowedGroups?: string[] | null;
+  /** 可见卡片白名单（DashboardItem.id）；null/undefined = 不限制 */
+  allowedCards?: string[] | null;
 }
 
 export type PublicUser = Omit<StoredUser, 'passwordHash'>;
+
+/** 页面配置的增量更新载荷：字段缺省 = 不改动该维度；显式传 null = 清除该维度限制 */
+export interface PageProfilePatch {
+  landing?: LandingTarget | null;
+  allowedGroups?: string[] | null;
+  allowedCards?: string[] | null;
+}
 
 // ============================================================================
 // 账号申请（游客自助提交 → 管理员审批）
@@ -87,6 +120,32 @@ function verifyPassword(password: string, stored: string): boolean {
   }
 }
 
+/** 白名单数组清洗：丢弃空值、去重、限长，防止脏数据把账号锁成空目录 */
+function sanitizeNames(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  for (const raw of input) {
+    const name = String(raw ?? '').trim();
+    if (!name || out.includes(name)) continue;
+    out.push(name.slice(0, 128));
+    if (out.length >= 200) break;
+  }
+  return out;
+}
+
+/** 落地目标清洗：视图名必须合法、cardId 限长；全空视为「不设置」 */
+function sanitizeLanding(input: unknown): LandingTarget | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  const raw = input as { view?: unknown; cardId?: unknown };
+  const next: LandingTarget = {};
+  if (typeof raw.view === 'string' && (PORTAL_VIEW_MODES as readonly string[]).includes(raw.view)) {
+    next.view = raw.view as PortalViewMode;
+  }
+  const cardId = String(raw.cardId ?? '').trim();
+  if (cardId) next.cardId = cardId.slice(0, 64);
+  return next.view || next.cardId ? next : undefined;
+}
+
 function toPublic(user: StoredUser): PublicUser {
   return {
     id: user.id,
@@ -94,6 +153,10 @@ function toPublic(user: StoredUser): PublicUser {
     role: user.role,
     mustChangePassword: user.mustChangePassword,
     createdAt: user.createdAt,
+    landing: user.landing,
+    // 统一归一为 string[] | null：null = 不限制，[] = 什么都不给看（两者语义必须区分开）
+    allowedGroups: user.allowedGroups ?? null,
+    allowedCards: user.allowedCards ?? null,
   };
 }
 
@@ -213,6 +276,47 @@ export class AuthStore {
     user.mustChangePassword = mustChange;
     this.persist();
     return toPublic(user);
+  }
+
+  /**
+   * 更新账号的「页面配置」（落地页 + 可见范围白名单）。
+   * 只处理显式传入的字段：缺省 = 不改；显式传 null = 清除该维度限制。
+   */
+  setProfile(id: string, patch: PageProfilePatch): PublicUser | null {
+    this.ensureLoaded();
+    const user = this.users.find((u) => u.id === id);
+    if (!user) return null;
+    if (patch.landing !== undefined) {
+      user.landing = patch.landing ? sanitizeLanding(patch.landing) : undefined;
+    }
+    if (patch.allowedGroups !== undefined) {
+      user.allowedGroups = patch.allowedGroups === null ? null : sanitizeNames(patch.allowedGroups);
+    }
+    if (patch.allowedCards !== undefined) {
+      user.allowedCards = patch.allowedCards === null ? null : sanitizeNames(patch.allowedCards);
+    }
+    this.persist();
+    return toPublic(user);
+  }
+
+  /**
+   * 分组改名/删除后迁移各账号白名单里的旧组名（跨文件一致性）。
+   *  - to 传新组名 → 白名单中的 from 替换为 to
+   *  - to 为 null（分组被删除）→ 从白名单移除 from（取最小权限，避免顺带放开其他分组的看板）
+   * 返回受影响账号数，供前端提示管理员；不迁移会导致被授权账号登录后看到空目录。
+   */
+  remapGroup(from: string, to: string | null): number {
+    this.ensureLoaded();
+    let affected = 0;
+    for (const user of this.users) {
+      if (!Array.isArray(user.allowedGroups) || !user.allowedGroups.includes(from)) continue;
+      const next = user.allowedGroups.filter((g) => g !== from);
+      if (to && !next.includes(to)) next.push(to);
+      user.allowedGroups = next;
+      affected += 1;
+    }
+    if (affected > 0) this.persist();
+    return affected;
   }
 
   countAdmins(): number {
@@ -645,6 +749,44 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
       store.setPassword(id, newPassword, true);
       store.destroySessionsForUser(id);
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (method === 'POST' && url === '/users/profile') {
+      const body = await readJsonBody(req);
+      const id = String(body.id || '');
+      if (!store.findById(id)) {
+        sendJson(res, 404, { detail: 'user not found' });
+        return;
+      }
+      const patch: PageProfilePatch = {};
+      // landing 传 null（或清洗后为空）表示清除落地页
+      if ('landing' in body) patch.landing = sanitizeLanding(body.landing) ?? null;
+      if ('allowedGroups' in body) {
+        patch.allowedGroups = body.allowedGroups === null ? null : sanitizeNames(body.allowedGroups);
+      }
+      if ('allowedCards' in body) {
+        patch.allowedCards = body.allowedCards === null ? null : sanitizeNames(body.allowedCards);
+      }
+      const updated = store.setProfile(id, patch);
+      if (!updated) {
+        sendJson(res, 404, { detail: 'user not found' });
+        return;
+      }
+      sendJson(res, 200, { user: updated });
+      return;
+    }
+
+    if (method === 'POST' && url === '/users/remap-group') {
+      const body = await readJsonBody(req);
+      const from = String(body.from || '').trim();
+      const to =
+        body.to === null || body.to === undefined ? null : String(body.to).trim() || null;
+      if (!from) {
+        sendJson(res, 400, { detail: 'from is required' });
+        return;
+      }
+      sendJson(res, 200, { affected: store.remapGroup(from, to) });
       return;
     }
 

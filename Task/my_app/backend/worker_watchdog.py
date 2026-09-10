@@ -21,6 +21,21 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+# 重启留痕（2026-09-10 加）：worker 的每一次世代更替都写入
+# log/worker_restart_marker.log，让「多 worker 同退是谁干的」一眼可归因。
+# 见 backend/restart_marker.py 顶部的事故背景说明。
+try:
+    from backend.restart_marker import append_marker, recent_intent
+except Exception:  # pragma: no cover - 兼容非 -m 方式直接执行
+    try:
+        from .restart_marker import append_marker, recent_intent
+    except Exception:
+        def append_marker(*_a, **_k):
+            pass
+
+        def recent_intent(*_a, **_k):
+            return None
+
 # 项目根目录（backend 的父目录）
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BACKEND_DIR = PROJECT_ROOT / "backend"
@@ -30,8 +45,29 @@ PID_FILE = Path(os.environ.get(
     str(BACKEND_DIR / "worker_watchdog.pid")
 ))
 LOG_DIR = PROJECT_ROOT / "log"
+# default（未分组）组沿用的旧文件名；分组 worker 各写 worker_runtime_<group>.log
 WORKER_LOG = LOG_DIR / "worker_runtime.log"
 WATCHDOG_LOG = LOG_DIR / "worker_watchdog.log"
+
+
+def worker_log_path(group: str) -> Path:
+    """返回某组 worker 的日志文件路径（每组一个文件 = 单一写入者）。
+
+    2026-09-10 改造原因：此前 4 组 worker 的 stdout/stderr 全部重定向到同一个
+    worker_runtime.log —— 由本模块 open(...,"ab") 打开一个句柄后作为同一个（被继承的）
+    句柄传给 4 个子进程。多个进程共用一个继承句柄即共享文件位置，并发写会互相打断：
+    实测出现撕裂行（`2026-08-21 2026-08-21 13:00:01,171 ...`、
+    `2026-09-10 2026-09-10 09:56:36,166 ...`），并且**文件里的行序完全不代表时序**
+    （不同 worker 的行按调度交错，排障时极易把「顺序」误读成「因果」）。
+    改为每组一个文件后：每个文件只有一个写入者 → 行不会被撕裂，且
+    **文件内行序 == 该 worker 的时序**，可直接据此判断单组是否并发/串行。
+    命名保持 worker_runtime 前缀，`log/worker_runtime*.log` 一把即可搜全部分组。
+    """
+    g = str(group or "").strip()
+    if not g or g == "default":
+        return WORKER_LOG
+    safe = "".join(ch for ch in g if ch.isalnum() or ch in "-_") or "default"
+    return LOG_DIR / f"worker_runtime_{safe}.log"
 
 POLL_INTERVAL = 2.0        # 子进程状态轮询间隔（秒）
 CRASH_THRESHOLD = 10.0     # 子进程存活短于此值（秒）视为异常崩溃
@@ -96,6 +132,8 @@ _children = {}          # group -> Popen
 _spawn_time = {}        # group -> spawn 时间戳
 _crashes = {}           # group -> 连续崩溃计数
 _backoff = {}           # group -> 当前退避秒数
+_last_exit = {}         # group -> 最近一次观测到的退出码（供 worker_spawn 留痕携带，配对用）
+_exit_marked = set()    # 已完成 worker_exit 留痕的 group，避免同一世代重复记
 
 # 心跳文件：供外部守护（start_hidden.ps1 / MyApp_EnsureRunning）判断看门狗是否卡死。
 # 进程在但心跳超过 3 分钟未更新 → 判定 hung，由守护脚本强杀后重新拉起。
@@ -152,12 +190,14 @@ def _another_watchdog_running() -> bool:
 
 
 def _spawn_worker(group: str):
-    """拉起一组 worker 子进程，stdout/stderr 重定向到 worker_runtime.log（追加）。
+    """拉起一组 worker 子进程，stdout/stderr 重定向到【本组专属】日志文件（追加）。
     分组 worker 带 MY_APP_WORKER_TASKS（仅认领本组任务）与独立 PID 文件。"""
     creationflags = 0
     if sys.platform == "win32":
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    log_fh = open(WORKER_LOG, "ab", buffering=0)
+    log_path = worker_log_path(group)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_fh = open(log_path, "ab", buffering=0)
     env = os.environ.copy()
     # 关键：worker 日志流是 charmap（Windows 非 tty 文件默认），中文日志会 UnicodeEncodeError
     # 导致截图等链路被静默打断。强制 UTF-8（与 backend/main.py 的 reconfigure 一致）。
@@ -167,6 +207,19 @@ def _spawn_worker(group: str):
     env["EFLOW_CONNECT_TIMEOUT"] = os.environ.get("EFLOW_CONNECT_TIMEOUT", "10")
     env["EFLOW_READ_TIMEOUT"] = os.environ.get("EFLOW_READ_TIMEOUT", "30")
     env["EFLOW_HTTP_MAX_RETRIES"] = os.environ.get("EFLOW_HTTP_MAX_RETRIES", "2")
+    # 执行模式一致性（2026-09-10 修复）：backend_watchdog 给 uvicorn 显式设了
+    # MY_APP_TASK_QUEUE=1（只投递不执行），但本函数此前遗漏该变量，导致 worker 进程内
+    # QUEUE_ENABLED=0 —— auto_retry 调用 task_runner.run_task_async 时会走 threading.Thread
+    # 分支，在【同一进程内并发】拉起多个任务，撞上 CPython 的 import 竞态：
+    #   ImportError: cannot import name 'HTTPAdapter' from partially initialized module
+    #   'requests.adapters' (most likely due to a circular import)
+    # 实测 2026-09-10 09:35:01 auto_retry 一次投递 eflow_sync/ipran_kpi_sync/mailbox_cleanup，
+    # 三个任务在同一 worker 进程内被 3 个线程同时拉起，抢到导入锁的 eflow_sync 成功，
+    # ipran_kpi_sync 与 mailbox_cleanup 双双失败。
+    # 修复：与 backend_watchdog 对齐——worker 的 run_task_async 只投递 task_queue，
+    # 由本 worker 主循环原子认领后串行执行（与 worker.py 文档声明的"串行执行"一致），
+    # 彻底杜绝进程内并发首次导入。
+    env["MY_APP_TASK_QUEUE"] = "1"
     task_list = GROUP_TASK_MAP.get(group, "")
     if task_list:
         env["MY_APP_WORKER_TASKS"] = task_list
@@ -183,9 +236,20 @@ def _spawn_worker(group: str):
         stderr=log_fh,
         creationflags=creationflags,
     )
+    # 子进程已持有自己的句柄副本；父进程必须关掉本份，否则每次重建 worker 都泄漏一个
+    # 文件句柄（此前 4 组 × 每次重启都漏，长期运行句柄数只增不减）。
+    try:
+        log_fh.close()
+    except Exception:
+        pass
     _children[group] = proc
     _spawn_time[group] = time.time()
-    logger.info(f"已拉起 worker[{group}]: pid={proc.pid} tasks={task_list or '全部'}")
+    _exit_marked.discard(group)
+    prev_exit = _last_exit.pop(group, None)
+    logger.info(f"已拉起 worker[{group}]: pid={proc.pid} log={log_path.name} tasks={task_list or '全部'}")
+    append_marker("worker_spawn", by="watchdog", groups=[group], pid=proc.pid,
+                  prev_exit_code=prev_exit,
+                  note=(f"tasks={len(task_list.split(','))}项" if task_list else "全部任务"))
     return proc.pid
 
 
@@ -202,6 +266,42 @@ def _terminate_child():
         except Exception as e:
             logger.warning(f"终止 worker[{group}] 子进程失败: {e}")
     _children.clear()
+
+
+def _mark_exit(group: str, exit_code, lived: float) -> None:
+    """记录一次 worker 退出留痕（同一世代只记一次）。
+
+    退出码指纹（与用户级记忆一致，用于反推「谁杀的」）：
+        1          = taskkill /F 或 Popen.kill()（TerminateProcess(h,1)）
+        4294967295 = PowerShell Stop-Process -Force（.NET Process.Kill()）
+        3221225786 = CTRL_C / 控制台关闭；1073807364 = 系统关机
+    注意：本函数只能证明「退出码是多少」，无法证明「谁杀的」——
+    「谁杀的」由发起方（restart_workers.py）写 restart_intent 留痕来回答。
+    """
+    if group in _exit_marked:
+        return
+    _exit_marked.add(group)
+    _last_exit[group] = exit_code
+    hint = {
+        1: "taskkill /F 或 Popen.kill()",
+        4294967295: "PowerShell Stop-Process -Force",
+        3221225786: "CTRL_C / 控制台关闭",
+        1073807364: "系统关机/重启",
+        0: "正常退出",
+    }.get(exit_code if isinstance(exit_code, int) else -1, "未知退出码")
+    # 归因联动：回查最近 180s 内是否有覆盖本组的 restart_intent。
+    # 有 → 明确标注是谁/为什么；无 → 标 ⚠ 疑自发退出，这才是真正需要排查的对象。
+    try:
+        intent = recent_intent([group], within_s=180.0)
+    except Exception:
+        intent = None
+    if intent:
+        note = (f"{hint} | 归因: 由 {intent['by']} 发起重启"
+                f"({intent['age_s']}s 前, reason={intent['reason'] or '未说明'})")
+    else:
+        note = f"{hint} | ⚠ 无重启意图记录，疑自发退出/外部强杀"
+    append_marker("worker_exit", by="watchdog", groups=[group], exit_code=exit_code,
+                  lived_s=round(lived, 1), note=note)
 
 
 def _write_heartbeat():
@@ -240,6 +340,7 @@ def _loop_once() -> bool:
                 logger.warning(
                     f"worker[{group}] 已退出 (exit_code={exit_code}, 存活 {lived:.1f}s)，准备重新拉起"
                 )
+                _mark_exit(group, exit_code, lived)
                 _children.pop(group, None)
             # 退避：连续快速崩溃时延迟重拉，避免死循环
             if _backoff.get(group, 0.0) > 0:
@@ -266,6 +367,7 @@ def _loop_once() -> bool:
         exit_code = proc.returncode
         lived = time.time() - _spawn_time.get(group, 0.0)
         logger.warning(f"worker[{group}] 退出 (exit_code={exit_code}, 存活 {lived:.1f}s)")
+        _mark_exit(group, exit_code, lived)
         _children.pop(group, None)
         if _shutdown:
             return False
@@ -279,7 +381,7 @@ def _loop_once() -> bool:
             if _crashes[group] >= STARTUP_FAIL_LIMIT:
                 logger.error(
                     f"worker[{group}] 连续崩溃 {STARTUP_FAIL_LIMIT} 次，停止自动拉起"
-                    f"（请检查 worker_runtime.log）。"
+                    f"（请检查 {worker_log_path(group).name}）。"
                 )
                 _GROUPS.remove(group)
         else:
@@ -311,8 +413,15 @@ def main():
     except Exception as e:
         logger.warning(f"watchdog PID 文件写入失败: {e}")
 
-    logger.info(f"Worker Watchdog 启动: project_root={PROJECT_ROOT}, worker_log={WORKER_LOG}, "
+    logger.info(f"Worker Watchdog 启动: project_root={PROJECT_ROOT}, "
+                f"worker_log={LOG_DIR / 'worker_runtime_<group>.log'}（default 组为 worker_runtime.log）, "
                 f"groups={_GROUPS}")
+    try:
+        _launcher = (os.environ.get("MY_APP_RESTART_BY") or "").strip() or f"ppid={os.getppid()}"
+    except Exception:
+        _launcher = "unknown"
+    append_marker("watchdog_start", by="watchdog", pid=os.getpid(),
+                  groups=_GROUPS, note=f"launcher={_launcher}")
 
     try:
         while not _shutdown:
@@ -329,6 +438,8 @@ def main():
                 except Exception:
                     pass
     finally:
+        append_marker("watchdog_exit", by="watchdog", pid=os.getpid(),
+                      note="进程退出（stop.bat 或收到退出信号）")
         _terminate_child()
         try:
             if PID_FILE.exists() and PID_FILE.read_text(encoding="utf-8").strip() == str(os.getpid()):

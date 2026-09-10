@@ -1,12 +1,28 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
+  CATEGORY_ALL,
   CategoryType,
   DashboardItem,
   PlatformType,
   SortOption,
   ViewMode,
 } from './types/dashboard';
-import { INITIAL_DASHBOARDS } from './data/initialDashboards';
+import { DEFAULT_GROUPS, INITIAL_DASHBOARDS } from './data/initialDashboards';
+import {
+  addGroup,
+  deleteGroup,
+  deriveGroups,
+  dropGroupLabel,
+  groupDisplayName,
+  renameGroup,
+  renameGroupLabel,
+  reorderGroups,
+  sanitizeGroupLabels,
+  sanitizeGroups,
+  setGroupLabel,
+  type GroupLabels,
+  type GroupReorderResult,
+} from './utils/groups';
 import { Navbar } from './components/Navbar';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { QuickStatsBar } from './components/QuickStatsBar';
@@ -24,8 +40,9 @@ import { DesignGuideModal } from './components/DesignGuideModal';
 import { LoginView } from './components/LoginView';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UserManagementModal } from './components/UserManagementModal';
+import { GroupManagerModal, type GroupOpFeedback } from './components/GroupManagerModal';
 import { PORTAL_API, saveEnvConfig, resolveUrl, buildRel, getMyappHost, type EnvConfig } from './config';
-import { useI18n, translateDashboard } from './i18n';
+import { useI18n, translateDashboard, translateCategory } from './i18n';
 import { useAuth } from './auth/AuthContext';
 import {
   Layers,
@@ -127,11 +144,20 @@ function stripPersonalFlags(items: DashboardItem[]): DashboardItem[] {
   });
 }
 
+/** 服务端全局默认目录：看板列表 + 分组列表 + 分组英文标签
+ *  （groups 为 null 表示旧版纯数组格式，需从卡片 category 推导） */
+interface ServerCatalog {
+  dashboards: DashboardItem[];
+  groups: string[] | null;
+  groupLabels: GroupLabels;
+}
+
 /**
  * 从服务端加载全局默认目录（本机 localhost:9267 「保存为默认目录」写入的
  * portal-default.json）。未保存过（404）或网络异常时返回 null，由调用方回退到内置目录。
+ * 兼容两种格式：旧版纯 DashboardItem[] 数组 / 新版 { version, groups, dashboards } 对象。
  */
-async function fetchServerDefault(): Promise<DashboardItem[] | null> {
+async function fetchServerDefault(): Promise<ServerCatalog | null> {
   try {
     const res = await fetch(`${PORTAL_API}/portal-default`);
     if (!res.ok) return null;
@@ -139,7 +165,16 @@ async function fetchServerDefault(): Promise<DashboardItem[] | null> {
     const items = Array.isArray(data)
       ? (data as DashboardItem[])
       : (data as { dashboards?: DashboardItem[] })?.dashboards;
-    return Array.isArray(items) && items.length > 0 ? items : null;
+    if (!Array.isArray(items) || items.length === 0) return null;
+    const rawGroups = Array.isArray(data) ? null : (data as { groups?: unknown })?.groups;
+    const groups = rawGroups == null ? null : sanitizeGroups(rawGroups);
+    const rawLabels = Array.isArray(data) ? undefined : (data as { groupLabels?: unknown })?.groupLabels;
+    return {
+      dashboards: items,
+      groups,
+      // 标签表以「最终生效的分组列表」为准过滤，防止改名/删组后残留脏键
+      groupLabels: sanitizeGroupLabels(rawLabels, groups ?? deriveGroups(items, DEFAULT_GROUPS)),
+    };
   } catch {
     return null;
   }
@@ -173,12 +208,27 @@ export default function App() {
     applySavedOrder(applyPrefs(INITIAL_DASHBOARDS, loadPrefs()))
   );
 
+  // 分组列表（组名是一等实体，可新增/重命名/删除；卡片只存组名 category）。
+  // 与目录同源：随服务端 portal-default.json 的 groups 字段全局下发。
+  const [groups, setGroups] = useState<string[]>(() =>
+    deriveGroups(INITIAL_DASHBOARDS, DEFAULT_GROUPS)
+  );
+
+  // 分组英文标签（key = 分组规范名）。内置分组的英文名仍在 i18n 字典里，
+  // 这里只存「运行时新增/改名」的分组标签，避免两处真相源打架。
+  const [groupLabels, setGroupLabels] = useState<GroupLabels>({});
+
   // 挂载后拉取服务端默认目录覆盖本页（首次渲染先用内置目录避免白屏）
   useEffect(() => {
     let cancelled = false;
-    fetchServerDefault().then((items) => {
-      if (cancelled || !items) return;
-      setDashboards(applySavedOrder(applyPrefs(normalizeCatalogItems(items), loadPrefs())));
+    fetchServerDefault().then((catalog) => {
+      if (cancelled || !catalog) return;
+      setDashboards(
+        applySavedOrder(applyPrefs(normalizeCatalogItems(catalog.dashboards), loadPrefs()))
+      );
+      const nextGroups = deriveGroups(catalog.dashboards, catalog.groups ?? DEFAULT_GROUPS);
+      setGroups(nextGroups);
+      setGroupLabels(sanitizeGroupLabels(catalog.groupLabels, nextGroups));
     });
     return () => {
       cancelled = true;
@@ -200,7 +250,7 @@ export default function App() {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   }, [dashboards]);
 
-  const [selectedCategory, setSelectedCategory] = useState<CategoryType>('全部');
+  const [selectedCategory, setSelectedCategory] = useState<CategoryType>(CATEGORY_ALL);
   const [selectedPlatform, setSelectedPlatform] = useState<'all' | PlatformType>('all');
 
   // 处于「WhatsApp @Me Tasks」视图时，看板过滤条件（平台/分类）并不作用于任务列表；
@@ -215,6 +265,13 @@ export default function App() {
     setSelectedCategory(cat);
     leaveTasksView();
   };
+
+  // 当前选中的分组被重命名/删除后，自动回到「全部」，避免停留在不存在的分组上看到空列表
+  useEffect(() => {
+    if (selectedCategory !== CATEGORY_ALL && !groups.includes(selectedCategory)) {
+      setSelectedCategory(CATEGORY_ALL);
+    }
+  }, [groups, selectedCategory]);
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -232,6 +289,38 @@ export default function App() {
   const [qrDashboard, setQrDashboard] = useState<DashboardItem | null>(null);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
+  const [isGroupManagerOpen, setIsGroupManagerOpen] = useState(false);
+
+  // —— 登录后落地页（管理员在「用户管理 → 页面配置」里为账号指定）——
+  // 会话确认后执行一次：先切视图，再定位目标卡片（滚动过去并高亮）。
+  // 外部页面不自动 window.open —— 非用户手势的弹窗会被浏览器拦截，
+  // 因此只做定位与提示，由用户自己点击进入。
+  const landingAppliedRef = useRef<string | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (status !== 'authed' || !user) return;
+    const target = user.landing;
+    if (!target || (!target.view && !target.cardId)) return;
+    // 同一账号 + 同一目标只应用一次（否则用户手动切视图后会被反复拉回）
+    const key = `${user.id}:${target.view || ''}:${target.cardId || ''}`;
+    if (landingAppliedRef.current === key) return;
+    landingAppliedRef.current = key;
+    if (target.view) setViewMode(target.view);
+    if (target.cardId && dashboards.some((d) => d.id === target.cardId)) {
+      setSelectedCategory(CATEGORY_ALL);
+      setSelectedPlatform('all');
+      setOnlyFavorites(false);
+      setShowHidden(false);
+      setSearchQuery('');
+      setHighlightedId(target.cardId);
+      window.setTimeout(() => {
+        document
+          .querySelector(`[data-dashboard-id="${target.cardId}"]`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
+  }, [status, user, dashboards]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -314,6 +403,72 @@ export default function App() {
       }
       return [item, ...prev];
     });
+    // 兜底：卡片选中的分组若尚未登记（如从旧 JSON 导入），补进分组列表
+    setGroups((prev) => (prev.includes(item.category) ? prev : [...prev, item.category]));
+  };
+
+  // —— 分组管理（新增 / 重命名 / 删除）——
+  // 重命名与删除都会就地改写受影响卡片的 category，卡片与分组的关联随组名一起走，
+  // 不会出现「卡片挂在已不存在的分组上」而在任何分组视图里都看不到的情况。
+
+  /**
+   * 分组改名/删除后，同步迁移各账号「页面配置」里的旧组名。
+   * 不迁的后果：被授权的账号白名单里挂着已不存在的组名 → 登录后看到空目录。
+   * 迁移失败不阻塞本地分组操作（管理员下次保存页面配置时会重新对齐）。
+   */
+  const remapGroupAccess = (from: string, to: string | null) => {
+    if (user?.role !== 'admin') return;
+    void apiFetch(`${PORTAL_API}/auth/users/remap-group`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to }),
+    }).catch(() => undefined);
+  };
+
+  const handleAddGroup = (name: string, enLabel = ''): GroupOpFeedback => {
+    const result = addGroup(groups, name, dashboards);
+    if (result.ok) {
+      setGroups(result.groups);
+      const added = result.groups[result.groups.length - 1];
+      setGroupLabels((prev) => setGroupLabel(prev, added, enLabel));
+    }
+    return { ok: result.ok, error: result.error, moved: result.moved };
+  };
+
+  const handleRenameGroup = (oldName: string, newName: string, enLabel = ''): GroupOpFeedback => {
+    const result = renameGroup(groups, dashboards, oldName, newName);
+    if (result.ok) {
+      setGroups(result.groups);
+      setDashboards(result.dashboards);
+      // 标签随组名一起搬移：旧键删除、新键写入，中英文界面同时生效
+      setGroupLabels((prev) =>
+        renameGroupLabel(prev, oldName, newName.trim() || oldName, enLabel)
+      );
+      // 各账号页面配置里的旧组名同步换成新组名
+      remapGroupAccess(oldName, newName.trim() || oldName);
+    }
+    return { ok: result.ok, error: result.error, moved: result.moved };
+  };
+
+  const handleDeleteGroup = (name: string): GroupOpFeedback => {
+    const result = deleteGroup(groups, dashboards, name);
+    if (result.ok) {
+      setGroups(result.groups);
+      setDashboards(result.dashboards);
+      setGroupLabels((prev) => dropGroupLabel(prev, name));
+      // 分组被删除：从各账号白名单里摘掉该组名（取最小权限，不顺手放开兜底分组）
+      remapGroupAccess(name, null);
+    }
+    return { ok: result.ok, error: result.error, moved: result.moved, fallback: result.fallback };
+  };
+
+  // —— 分组排序：只改 groups 数组顺序，不动任何卡片 ——
+  // 顺序是全局目录的一部分（FilterBar Tab / 矩阵分组块 / 卡片编辑弹窗下拉都按它渲染），
+  // 与其他分组操作一样：本机立即生效，「保存为默认目录」后下发到所有电脑。
+  const handleReorderGroup = (from: number, to: number): GroupReorderResult => {
+    const result = reorderGroups(groups, from, to);
+    if (result.ok) setGroups(result.groups);
+    return result;
   };
 
   const handleSaveEnv = (cfg: EnvConfig) => {
@@ -331,7 +486,15 @@ export default function App() {
   const handleExportJson = () => {
     // 导出前剥离本机 hidden 标记，避免个人隐藏状态随 JSON 备份/默认目录生成流入其他电脑
     const clean = stripPersonalFlags(dashboards);
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(clean, null, 2));
+    // v2 结构：连同分组列表一起导出，空分组（暂无卡片的组）也不丢
+    const payload = {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      groups,
+      groupLabels,
+      dashboards: clean,
+    };
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', dataStr);
     downloadAnchor.setAttribute('download', `enterprise-bi-dashboards-${Date.now()}.json`);
@@ -353,10 +516,25 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (Array.isArray(parsed)) {
-          setDashboards(parsed);
-          alert(t('app.importOk', { n: parsed.length }));
+        const parsed = JSON.parse(event.target?.result as string) as unknown;
+        // 兼容两种导入格式：v2 对象 { groups, dashboards } 与旧版纯数组
+        const items = Array.isArray(parsed)
+          ? (parsed as DashboardItem[])
+          : ((parsed as { dashboards?: DashboardItem[] })?.dashboards as DashboardItem[] | undefined);
+        if (Array.isArray(items)) {
+          const rawGroups = Array.isArray(parsed)
+            ? undefined
+            : (parsed as { groups?: unknown }).groups;
+          const rawLabels = Array.isArray(parsed)
+            ? undefined
+            : (parsed as { groupLabels?: unknown }).groupLabels;
+          // 文件里带了分组列表就用它（空分组也保留），否则用内置默认分组兜底
+          const seeds = Array.isArray(rawGroups) ? sanitizeGroups(rawGroups) : DEFAULT_GROUPS;
+          const nextGroups = deriveGroups(items, seeds);
+          setDashboards(items);
+          setGroups(nextGroups);
+          setGroupLabels(sanitizeGroupLabels(rawLabels, nextGroups));
+          alert(t('app.importOk', { n: items.length }));
         }
       } catch (err) {
         alert(t('app.importErr'));
@@ -368,14 +546,18 @@ export default function App() {
 
   const handleResetDefaults = async () => {
     if (window.confirm(t('app.confirmReset'))) {
-      // 有服务端默认目录则恢复它，否则恢复内置目录
+      // 有服务端默认目录则恢复它，否则恢复内置目录；分组同步恢复
       const serverDefault = await fetchServerDefault();
-      setDashboards(
-        applyPrefs(
-          serverDefault ? normalizeCatalogItems(serverDefault) : INITIAL_DASHBOARDS,
-          loadPrefs()
-        )
-      );
+      if (serverDefault) {
+        const nextGroups = deriveGroups(serverDefault.dashboards, serverDefault.groups ?? DEFAULT_GROUPS);
+        setDashboards(applyPrefs(normalizeCatalogItems(serverDefault.dashboards), loadPrefs()));
+        setGroups(nextGroups);
+        setGroupLabels(sanitizeGroupLabels(serverDefault.groupLabels, nextGroups));
+      } else {
+        setDashboards(applyPrefs(INITIAL_DASHBOARDS, loadPrefs()));
+        setGroups(deriveGroups(INITIAL_DASHBOARDS, DEFAULT_GROUPS));
+        setGroupLabels({});
+      }
     }
   };
 
@@ -393,7 +575,14 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // 保存前剥离本机 hidden 标记：隐藏是个人偏好，绝不进入服务端全局默认
-        body: JSON.stringify(stripPersonalFlags(dashboards)),
+        // v2 结构：分组列表与看板一起落盘，重命名/新增的分组随之全局生效
+        body: JSON.stringify({
+          version: 2,
+          savedAt: new Date().toISOString(),
+          groups,
+          groupLabels,
+          dashboards: stripPersonalFlags(dashboards),
+        }),
       });
       if (res.ok) {
         const data = (await res.json().catch(() => null)) as { count?: number } | null;
@@ -407,9 +596,30 @@ export default function App() {
     }
   };
 
+  // —— 页面级可见范围（管理员在「用户管理 → 页面配置」里按账号下发）——
+  // allowedGroups / allowedCards 同时为 null = 不限制（老账号行为完全不变）；
+  // 只要配置了任一维度就按白名单裁剪：命中分组或命中卡片即可见。
+  // 注意：这是「导航可见性」，不是访问控制——被裁剪的看板仍可通过直链访问。
+  const accessRestricted = user?.allowedGroups != null || user?.allowedCards != null;
+  const allowedGroups = user?.allowedGroups;
+  const allowedCards = user?.allowedCards;
+  const canSeeDashboard = useCallback(
+    (item: DashboardItem) => {
+      if (!accessRestricted) return true;
+      if (allowedGroups?.includes(item.category)) return true;
+      if (allowedCards?.includes(item.id)) return true;
+      return false;
+    },
+    [accessRestricted, allowedGroups, allowedCards]
+  );
+
   const filteredDashboards = useMemo(() => {
     return dashboards
       .filter((board) => {
+        // 页面可见范围白名单（管理员按账号配置）
+        if (!canSeeDashboard(board)) {
+          return false;
+        }
         // 本机隐藏的看板默认不显示（打开「显示已隐藏」开关后可见并置灰）
         if (!showHidden && board.hidden) {
           return false;
@@ -455,11 +665,32 @@ export default function App() {
         }
         return 0;
       });
-  }, [dashboards, selectedCategory, selectedPlatform, onlyFavorites, showHidden, searchQuery, sortOption, isLayoutEditing, hasCustomLayout]);
+  }, [dashboards, selectedCategory, selectedPlatform, onlyFavorites, showHidden, searchQuery, sortOption, isLayoutEditing, hasCustomLayout, canSeeDashboard]);
 
+  // 分组名按当前语言取显示值：zh 用规范名；en 先查运行时标签，再查内置 i18n 字典。
+  // 这样「重命名」中英文一起生效，不会出现英文界面显示中文分组名。
+  const labelOf = useCallback(
+    (name: string) =>
+      groupDisplayName(name, lang, groupLabels, (n) => translateCategory(n, lang, t)),
+    [lang, groupLabels, t]
+  );
+  /** 英文名（供分组管理弹窗回填编辑框） */
+  const labelOfEn = useCallback(
+    (name: string) => groupDisplayName(name, 'en', groupLabels, (n) => translateCategory(n, 'en', t)),
+    [groupLabels, t]
+  );
+
+  // 卡片的 category 也必须走 labelOf：translateDashboard 只会查内置 cat.* 字典，
+  // 重命名/新增的自定义分组名查不到会回退成中文，导致英文界面下矩阵视图标题仍是中文。
   const translatedDashboards = useMemo(() => {
-    return filteredDashboards.map((d) => translateDashboard(d, lang, t));
-  }, [filteredDashboards, lang, t]);
+    return filteredDashboards.map((d) => ({
+      ...translateDashboard(d, lang, t),
+      category: labelOf(d.category),
+    }));
+  }, [filteredDashboards, lang, t, labelOf]);
+
+  // 矩阵视图按分组渲染，分组名与 translatedDashboards.category 必须同源（都走 labelOf）
+  const translatedGroups = useMemo(() => groups.map(labelOf), [groups, labelOf]);
 
   // —— 鉴权门：未登录只能看到登录页 ——
   if (status === 'loading') {
@@ -524,6 +755,9 @@ export default function App() {
 
         {/* Filter Bar */}
         <FilterBar
+          groups={groups}
+          labelOf={labelOf}
+          onManageGroups={() => setIsGroupManagerOpen(true)}
           selectedCategory={selectedCategory}
           onSelectCategory={handleSelectCategory}
           selectedPlatform={selectedPlatform}
@@ -612,12 +846,17 @@ export default function App() {
             {translatedDashboards.map((dashboard) => (
               <div
                 key={dashboard.id}
+                data-dashboard-id={dashboard.id}
                 draggable={isLayoutEditing}
                 onDragStart={() => setDraggedDashboardId(dashboard.id)}
                 onDragOver={(event) => { if (isLayoutEditing) event.preventDefault(); }}
                 onDrop={() => handleCardDrop(dashboard.id)}
                 onDragEnd={() => setDraggedDashboardId(null)}
-                className={`dashboard-grid-item ${draggedDashboardId === dashboard.id ? 'is-dragging' : ''}`}
+                className={`dashboard-grid-item ${draggedDashboardId === dashboard.id ? 'is-dragging' : ''} ${
+                  highlightedId === dashboard.id
+                    ? 'rounded-3xl ring-2 ring-teal-500/70 ring-offset-2 ring-offset-transparent'
+                    : ''
+                }`}
               >
               <DashboardCard
                 dashboard={dashboard}
@@ -660,6 +899,7 @@ export default function App() {
         ) : (
           <DashboardMatrixView
             dashboards={translatedDashboards}
+            groups={translatedGroups}
             onOpen={handleOpenDashboard}
             onPreview={(d) => setPreviewDashboard(d)}
             onShowQR={(d) => setQrDashboard(d)}
@@ -704,6 +944,22 @@ export default function App() {
         }}
         dashboardToEdit={dashboardToEdit}
         onSave={handleSaveDashboard}
+        groups={groups}
+        labelOf={labelOf}
+      />
+
+      <GroupManagerModal
+        isOpen={isGroupManagerOpen}
+        onClose={() => setIsGroupManagerOpen(false)}
+        groups={groups}
+        dashboards={dashboards}
+        onAdd={handleAddGroup}
+        onRename={handleRenameGroup}
+        onDelete={handleDeleteGroup}
+        onReorder={handleReorderGroup}
+        labelOfEn={labelOfEn}
+        canSaveDefault={canSaveDefault}
+        onSaveDefault={() => void handleSaveDefault()}
       />
 
       <EndpointSettingsModal
@@ -738,6 +994,9 @@ export default function App() {
       <UserManagementModal
         isOpen={isUserManagementOpen && user.role === 'admin'}
         onClose={() => setIsUserManagementOpen(false)}
+        groups={groups}
+        dashboards={dashboards}
+        labelOf={labelOf}
       />
     </div>
   );

@@ -23,8 +23,10 @@ ran_ume_alarm_service.py - 按 Alarm Key / Alarm ID 从 RAN UME 查告警详情�
   传完整 positionname 得小区级 2 条。
 - /api/fm-active/v1/activealarms/table 的 secondarycondition.id 在本机 UME 上不生效，
   故数字 Alarm ID 走「历史 by id」兜底。
-- eFlow 的 AID（TT 告警表 aid 列）与 UME 的 Alarm ID 分属两套编号体系，直查必空；
-  借本地告警表把 AID 解析成 站点名+发生时刻，按「站点+时刻」关联 UME 告警。
+- eFlow 与 UME 的告警编号分属两套体系：TT/告警表的 Alarm ID（id 列）是 eFlow
+  编号，告警表 aid 列才是 UME 侧告警 ID。数字输入先经本地表把 eFlow 编号翻译成
+  UME 侧 ID 再直查历史；本地无匹配行时退 eflow_tt 取 站点+时刻，按「站点+时刻」
+  关联 UME 告警。
 
 本模块只读，不写库。
 """
@@ -162,6 +164,25 @@ def _ms_to_str(ms: Any) -> str:
     if ms <= 0:
         return ""
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _dt_to_ms(v: Any) -> int:
+    """'YYYY-MM-DD HH:MM:SS' / datetime / 毫秒值 → 毫秒时间戳（UTC），解析失败返回 0。"""
+    if v in (None, "", "--", "—"):
+        return 0
+    if isinstance(v, (int, float)):
+        return int(float(str(v)))
+    if isinstance(v, datetime):
+        return int(v.replace(tzinfo=v.tzinfo or timezone.utc).timestamp() * 1000)
+    s = str(v).strip()
+    if s.isdigit():
+        return int(s)
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
+        try:
+            return int(datetime.strptime(s, fmt).replace(tzinfo=timezone.utc).timestamp() * 1000)
+        except ValueError:
+            continue
+    return 0
 
 
 def _json_or_none(s: Any) -> Optional[dict]:
@@ -390,12 +411,17 @@ def find_alarm_by_event(site_name: str, raised_ms: int,
 # ------------------------- 本地维表补充 -------------------------
 
 def _local_alarm_by_aid(aid: Any) -> Optional[dict]:
-    """用本地告警表把 eFlow AID 解析为 站点名 + 告警发生时刻（毫秒）。
+    """把数字 Alarm ID 解析为可查 UME 的键（TT 场景链路）。
 
-    eFlow 与 UME 的告警编号分属两套体系（UME 历史接口的 id 过滤只认 UME
-    自身编号），数字 AID 直查必空。本地 realtime_alarm / history_alarm 存了
-    eFlow 侧的 aid 列，可借它拿到站点与 alarmraisedtime，再按「站点+时刻」
-    到 UME 关联同一条底层告警。查不到返回 None。
+    eFlow 与 UME 的告警编号分属两套体系：TT 的 alarm_id 与实时/历史告警表的
+    Alarm ID（id 列）同属 eFlow 编号，告警表的 aid 列才是 UME 侧告警 ID。
+    解析顺序：
+      1. 实时/历史告警表按 id 列匹配（兼容 aid 列直配，覆盖直接粘贴 UME ID）
+         → 取该行 aid（UME 侧）+ 站点 + 发生时刻；
+      2. 告警表无匹配行时，退 eflow_tt 按 alarm_id 反查 站点 + 发生时刻。
+
+    返回 {"source","site_name","site_id","raised_ms","aid"}，aid 可为空串。
+    全部查不到返回 None。
     """
     s = str(aid or "").strip()
     if s.endswith(".0") and s[:-2].isdigit():
@@ -408,11 +434,13 @@ def _local_alarm_by_aid(aid: Any) -> Optional[dict]:
     except Exception:
         return None
     try:
+        # 1) 告警表：id 列 = eFlow 侧告警 ID（TT alarm_id 同体系），匹配后取 aid 列（UME 侧）
         for table in ("realtime_alarm", "history_alarm"):
             try:
                 row = conn.execute(
-                    f"SELECT site_name, site_id, alarmraisedtime FROM {table} "
-                    "WHERE TRIM(CAST(aid AS TEXT))=? LIMIT 1", (s,)).fetchone()
+                    f"SELECT site_name, site_id, alarmraisedtime, aid FROM {table} "
+                    "WHERE TRIM(CAST(id AS TEXT))=? OR TRIM(CAST(aid AS TEXT))=? LIMIT 1",
+                    (s, s)).fetchone()
             except Exception:
                 continue
             if row:
@@ -425,7 +453,24 @@ def _local_alarm_by_aid(aid: Any) -> Optional[dict]:
                     "site_name": str(row[0] or "").strip(),
                     "site_id": str(row[1] or "").strip(),
                     "raised_ms": raised_ms,
+                    "aid": str(row[3] or "").strip(),
                 }
+        # 2) eflow_tt：按 alarm_id 反查 站点 + 发生时刻（告警表未同步该告警时兜底）
+        try:
+            row = conn.execute(
+                "SELECT site_name, site_id, alarm_occur_time, alarm_server_time "
+                "FROM eflow_tt WHERE TRIM(CAST(alarm_id AS TEXT))=? LIMIT 1",
+                (s,)).fetchone()
+        except Exception:
+            row = None
+        if row:
+            return {
+                "source": "eflow_tt",
+                "site_name": str(row[0] or "").strip(),
+                "site_id": str(row[1] or "").strip(),
+                "raised_ms": _dt_to_ms(row[2]) or _dt_to_ms(row[3]),
+                "aid": "",
+            }
         return None
     finally:
         try:
@@ -555,13 +600,15 @@ def _suggestion_source(alarm: dict) -> Tuple[Any, Any, Any]:
 def lookup_alarm(alarm_id: str, days: int = DEFAULT_HISTORY_DAYS,
                  limit: int = DEFAULT_HISTORY_LIMIT,
                  with_history: bool = True) -> Dict[str, Any]:
-    """按 Alarm Key（或数字 Alarm ID / eFlow AID，走历史兜底）查 UME。
+    """按 Alarm Key（或数字 Alarm ID，走历史/站点+时刻兜底）查 UME。
 
     数字输入的解析链：
-      1. UME 历史接口 secondarycondition.id 直查（只认 UME 自身编号）；
-      2. 直查不中视为 eFlow AID —— 本地 realtime/history_alarm 按 aid 列
-         反查 站点名+alarmraisedtime，再按「站点+时刻」关联 UME 告警
-         （find_alarm_by_event），带出详情/建议/历史。
+      1. 本地翻译：告警表 id 列（eFlow 侧告警 ID，与 TT alarm_id 同体系）
+         匹配 → 取该行 aid 列（UME 侧告警 ID）；告警表无匹配行时退
+         eflow_tt 按 alarm_id 反查 站点+发生时刻（见 _local_alarm_by_aid）；
+      2. 用 UME 侧 ID 直查 UME 历史（secondarycondition.id）；
+      3. 直查未命中且有站点+时刻 → find_alarm_by_event 按「站点+时刻」
+         关联 UME 告警，带出详情/建议/历史。
 
     返回 {"ok","error","input","mode","elapsed_sec","alarm","site_cell",
           "suggestion","history","history_cell"}。
@@ -590,8 +637,12 @@ def lookup_alarm(alarm_id: str, days: int = DEFAULT_HISTORY_DAYS,
     else:
         alarm, err_key = fetch_alarm_by_key(key)
 
-    # 2) 数字 Alarm ID 兜底：历史接口 secondarycondition.id 生效
+    # 2) 数字 Alarm ID 兜底：先经本地表把 eFlow 侧编号翻译成 UME 侧告警 ID
+    #    （告警表 id 列 → aid 列），用 UME 侧 ID 直查历史；本地解析不出或
+    #    UME 未命中时，再退「站点+时刻」关联（find_alarm_by_event）。
     if alarm is None and key.isdigit():
+        local = _local_alarm_by_aid(key)
+        ume_id = (local or {}).get("aid") or key
         data, e2 = _post(f"{HISTORY_PATH}?timestamp={int(time.time() * 1000)}", {
             "querynum": 1,
             "condition": {
@@ -601,7 +652,7 @@ def lookup_alarm(alarm_id: str, days: int = DEFAULT_HISTORY_DAYS,
                 "timezonetype": 0, "querymetype": 0, "id": -1, "idstr": "-1",
                 "usefromsize": True, "from": 0, "size": 1,
             },
-            "secondarycondition": {"id": key},
+            "secondarycondition": {"id": ume_id},
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             "manual": True,
         }, timeout=60)
@@ -609,26 +660,23 @@ def lookup_alarm(alarm_id: str, days: int = DEFAULT_HISTORY_DAYS,
         if rows:
             # 历史记录没有 alarmkey 接口的 alarm 包裹层，字段同构，直接复用
             alarm = rows[0]
-            alarm.setdefault("alarmkey", key)
+            alarm.setdefault("alarmkey", ume_id)
             mode = "history_id"
             err = None
+        elif local and local.get("site_name") and local.get("raised_ms"):
+            # 3) 站点+时刻关联兜底（本地解析出站点/时刻但 UME 直查未命中时）
+            ev = find_alarm_by_event(local["site_name"], local["raised_ms"],
+                                     days=days, limit=limit,
+                                     with_history=False)
+            if ev.get("ok"):
+                ev["input"] = key
+                ev["aid_resolved"] = local
+                ev["elapsed_sec"] = round(time.time() - t0, 2)
+                return ev
+            err = ev.get("error") or "AID 关联 UME 告警失败"
         else:
-            # 3) AID 关联兜底：eFlow 的 AID 与 UME 编号分属两套体系，直查必空。
-            #    用本地告警表把 AID 解析为 站点名+发生时刻，再按「站点+时刻」
-            #    到 UME 关联同一条底层告警。
-            local = _local_alarm_by_aid(key)
-            if local and local.get("site_name") and local.get("raised_ms"):
-                ev = find_alarm_by_event(local["site_name"], local["raised_ms"],
-                                         days=days, limit=limit,
-                                         with_history=False)
-                if ev.get("ok"):
-                    ev["input"] = key
-                    ev["aid_resolved"] = local
-                    ev["elapsed_sec"] = round(time.time() - t0, 2)
-                    return ev
-                err = ev.get("error") or "AID 关联 UME 告警失败"
-            else:
-                err = err_key or e2 or "UME 活动告警与历史告警中均无该 Alarm ID"
+            err = e2 or ("UME 活动告警与历史告警中均无该 Alarm ID，"
+                         "本地告警表与 TT 工单中也未找到该编号")
     elif alarm is not None:
         mode = "alarmkey"
         err = None

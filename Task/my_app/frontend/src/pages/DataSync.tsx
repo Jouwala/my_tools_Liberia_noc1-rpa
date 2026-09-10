@@ -163,6 +163,8 @@ export default function DataSync() {
   const [localRunning, setLocalRunning] = useState<Set<string>>(new Set())
   const startedRef = useRef<Set<string>>(new Set())
   const prevRunningRef = useRef<Record<string, boolean>>({})
+  // 手动执行兜底探针的定时器：task_id -> timeout id
+  const runProbeRef = useRef<Record<string, number>>({})
   // 拉取防抖（single-flight）：上一次 /api/tasks 请求未完成时，跳过新的触发
   // （轮询 / 手动刷新 / 完成回调），避免多用户同时打开时请求堆叠
   const loadInFlightRef = useRef(false)
@@ -259,6 +261,12 @@ export default function DataSync() {
     return () => window.clearInterval(timer)
   }, [loadTasks])
 
+  // 卸载时清掉未触发的兜底探针定时器，避免组件销毁后仍发请求 / setState
+  useEffect(() => () => {
+    Object.values(runProbeRef.current).forEach(timer => window.clearTimeout(timer))
+    runProbeRef.current = {}
+  }, [])
+
   // 失败聚合：仅在弹窗打开时拉取，避免常驻轮询
   useEffect(() => {
     if (!aggOpen) return
@@ -284,6 +292,7 @@ export default function DataSync() {
         loadTasks(true)
         if (startedRef.current.has(id)) {
           startedRef.current.delete(id)
+          clearRunProbe(id)
           api.get(`/tasks/${id}`).then(res => {
             const run = res.data.recent_runs?.[0]
             if (run) {
@@ -308,19 +317,68 @@ export default function DataSync() {
     prevRunningRef.current = { ...runningMap }
   }, [runningMap, loadTasks])
 
+  const clearRunProbe = (taskId: string) => {
+    const timer = runProbeRef.current[taskId]
+    if (timer) {
+      window.clearTimeout(timer)
+      delete runProbeRef.current[taskId]
+    }
+  }
+
+  /**
+   * 手动执行兜底核对。
+   *
+   * 「任务完成」提示依赖 runningMap 的 true→false 跳变，而轮询在空闲时是 8s 一次：
+   * 若任务在 1 秒内就被拒绝结束（Worker 判定已禁用/未注册、参数校验不过），
+   * running 从未变 true，完成检测完全miss → 用户只看到按钮一闪即恢复原状 = 「点了没反应」。
+   * 这里在点击后延迟核对一次最近执行记录：若期间确实产生了新的执行记录，
+   * 就直接把结果播报出来（并把 startedRef 清掉，避免与常规完成提示重复）。
+   * 若没有新记录（任务仍在排队等 Worker 认领），保持现状交给常规轮询。
+   */
+  const scheduleRunProbe = (taskId: string, clickedAt: number) => {
+    clearRunProbe(taskId)
+    runProbeRef.current[taskId] = window.setTimeout(async () => {
+      delete runProbeRef.current[taskId]
+      // 期间已被常规完成检测 / 用户停止 处理过 → 不重复干预
+      if (!startedRef.current.has(taskId)) return
+      try {
+        const res = await api.get(`/tasks/${taskId}`)
+        if (!startedRef.current.has(taskId)) return
+        const run = res.data.recent_runs?.[0]
+        const ts = run?.started_at ? new Date(run.started_at).getTime() : 0
+        // 没有晚于本次点击的执行记录：任务可能仍在队列中排队 → 不误报，继续等轮询
+        if (!run || ts < clickedAt - 3000) return
+        startedRef.current.delete(taskId)
+        setLocalRunning(prev => { const s = new Set(prev); s.delete(taskId); return s })
+        if (run.success) {
+          message.success(t('sync.runSuccess', { name: run.task_name || taskId }))
+        } else {
+          const reason = firstLine(run.error) || t('common.unknownError')
+          message.error(`${run.task_name || taskId}: ${reason}`)
+        }
+      } catch {
+        // 查询失败则交给常规轮询，不打断用户
+      }
+    }, 9000)
+  }
+
   const handleRun = async (taskId: string) => {
     // 乐观标记，立即反馈；真实状态由后端轮询接管
+    const clickedAt = Date.now()
     setLocalRunning(prev => new Set(prev).add(taskId))
     startedRef.current.add(taskId)
     try {
       const res = await api.post(`/tasks/${taskId}/run`)
       if (res.data.accepted) {
         message.success(t('sync.runStarted', { name: tasks.find(t2 => t2.task_id === taskId)?.name || taskId }))
+        // 极速失败（<1s）不会产生 running true→false 跳变，补一次延迟核对
+        scheduleRunProbe(taskId, clickedAt)
       } else if (res.data.error) {
         // 未真正启动（如已在运行/已禁用）
         message.error(res.data.error)
         setLocalRunning(prev => { const s = new Set(prev); s.delete(taskId); return s })
         startedRef.current.delete(taskId)
+        clearRunProbe(taskId)
       }
     } catch (err) {
       const status = (err as { response?: { status?: number } })?.response?.status
@@ -331,6 +389,7 @@ export default function DataSync() {
       }
       setLocalRunning(prev => { const s = new Set(prev); s.delete(taskId); return s })
       startedRef.current.delete(taskId)
+      clearRunProbe(taskId)
     }
   }
 
@@ -352,6 +411,7 @@ export default function DataSync() {
     // 乐观清除运行标记，真实状态由后端轮询接管
     setLocalRunning(prev => { const s = new Set(prev); s.delete(taskId); return s })
     startedRef.current.delete(taskId)
+    clearRunProbe(taskId)
     try {
       const res = await api.post(`/tasks/${taskId}/stop`)
       if (res.data.success) {

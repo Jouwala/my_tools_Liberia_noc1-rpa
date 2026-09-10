@@ -11,17 +11,24 @@ import {
   Layers,
   EyeOff,
   MessageSquareText,
+  SlidersHorizontal,
 } from 'lucide-react';
 import {
+  CATEGORY_ALL,
   CategoryType,
   PlatformType,
   ViewMode,
   SortOption,
 } from '../types/dashboard';
-import { CATEGORIES } from '../data/initialDashboards';
-import { useI18n, translateCategory } from '../i18n';
+import { useI18n } from '../i18n';
 
 interface FilterBarProps {
+  /** 运行时分组列表（来自 App 的 groups 状态，可在「分组管理」里增删改） */
+  groups: string[];
+  /** 分组名 → 当前语言的显示名（运行时分组优先用标签表，内置分组回落 i18n 字典） */
+  labelOf: (name: string) => string;
+  /** 打开分组管理弹窗 */
+  onManageGroups: () => void;
   selectedCategory: CategoryType;
   onSelectCategory: (cat: CategoryType) => void;
   selectedPlatform: 'all' | PlatformType;
@@ -42,6 +49,9 @@ interface FilterBarProps {
 }
 
 export const FilterBar: React.FC<FilterBarProps> = ({
+  groups,
+  labelOf,
+  onManageGroups,
   selectedCategory,
   onSelectCategory,
   selectedPlatform,
@@ -59,7 +69,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   onViewModeChange,
   totalFilteredCount,
 }) => {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   return (
     <div className="spatial-panel bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-3 sm:p-4 shadow-sm mb-4 sm:mb-6 space-y-3 sm:space-y-3.5">
       {/* Upper Row: Search & Filters & Layout controls */}
@@ -232,7 +242,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
       {/* Lower Row: Category Tabs */}
       <div className="pt-2 sm:pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between overflow-x-auto gap-2 sm:gap-3 scrollbar-none">
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-          {CATEGORIES.map((cat) => {
+          {[CATEGORY_ALL, ...groups].map((cat) => {
             const active = selectedCategory === cat;
             return (
               <button
@@ -244,14 +254,24 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                     : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
-                {translateCategory(cat, lang, t)}
+                {labelOf(cat)}
               </button>
             );
           })}
         </div>
 
-        <div className="text-xs text-slate-400 shrink-0 font-medium pl-2 whitespace-nowrap">
-          {t('filter.result', { n: totalFilteredCount })}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0 pl-2">
+          <button
+            onClick={onManageGroups}
+            title={t('grp.manageTip')}
+            className="px-2.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-teal-700 dark:hover:text-teal-300 hover:border-teal-300 transition-all flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            {t('grp.manage')}
+          </button>
+          <span className="text-xs text-slate-400 font-medium whitespace-nowrap">
+            {t('filter.result', { n: totalFilteredCount })}
+          </span>
         </div>
       </div>
     </div>

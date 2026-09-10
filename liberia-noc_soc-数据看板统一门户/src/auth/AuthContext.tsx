@@ -16,12 +16,27 @@ import { PORTAL_API } from '../config';
 
 export type Role = 'admin' | 'viewer';
 
+/** 门户自身视图（与 App 的 ViewMode 一致） */
+export type PortalViewMode = 'grid' | 'list' | 'matrix' | 'tasks';
+
+/** 登录后落地目标：门户视图 或 指定卡片（管理员在用户管理里配置） */
+export interface LandingTarget {
+  view?: PortalViewMode;
+  cardId?: string;
+}
+
 export interface AuthUser {
   id: string;
   username: string;
   role: Role;
   mustChangePassword: boolean;
   createdAt: string;
+  /** 登录后落地页（缺省 = 不干预） */
+  landing?: LandingTarget | null;
+  /** 可见分组白名单（分组规范名）；null = 不限制 */
+  allowedGroups?: string[] | null;
+  /** 可见卡片白名单（DashboardItem.id）；null = 不限制 */
+  allowedCards?: string[] | null;
 }
 
 export type AuthStatus = 'loading' | 'anon' | 'authed';
@@ -127,6 +142,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [token, clearSession]);
 
   const updateUser = useCallback((next: AuthUser) => setUser(next), []);
+
+  /** 重新拉取当前用户（管理员改动页面配置/角色后，无需重新登录即可生效） */
+  const refreshUser = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${PORTAL_API}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => null)) as { user?: AuthUser } | null;
+      if (data?.user) setUser(data.user);
+    } catch {
+      // 网络异常时保留现有用户态，避免误判成登出
+    }
+  }, [token]);
+
+  // 窗口重新获得焦点 / 标签页切回时刷新用户态（30s 节流）：
+  // 管理员在用户管理里刚改完「页面配置」，被改的账号切回页面即可看到新范围。
+  useEffect(() => {
+    if (!token) return;
+    let last = 0;
+    const onFocus = () => {
+      const now = Date.now();
+      if (now - last < 30_000) return;
+      last = now;
+      void refreshUser();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [token, refreshUser]);
 
   const setToken = useCallback((next: string) => {
     try {

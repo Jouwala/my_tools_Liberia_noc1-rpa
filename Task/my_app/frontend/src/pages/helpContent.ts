@@ -330,7 +330,7 @@ const COMMON_ZH: CommonText = {
     { q: '看板数据没有更新？', a: '① 先到「任务管理」查看对应任务的最近执行结果与失败聚合；② 检查顶栏「自动刷新」间隔是否被调成关闭；③ 注意部分数据本身低频同步：实时告警每 30 分钟、微波拓扑每天 05:15、丢包每天 06:30、事件总览每小时整点。仍不对可看「数据库数据新鲜度巡检」的执行日志，它会输出调用链与排查方向。' },
     { q: '页面数字与预期口径不一致？', a: '注意各页口径：电池看板默认只统计 24 小时内新鲜读数；MS SLA 看板以实时计算为准（可能与快照文件不一致）；丢包看板只展示最近 7 个完整自然日；CXO 看板内嵌快照，重跑同步任务才更新。' },
     { q: '任务长期停在 pending 不执行？', a: '多半是该任务未被归入任何 worker 组（GROUP_TASK_MAP），队列里永远无人认领——这是本项目已发生过三次的事故模式（finebi_report_sync、whatsapp_send_ext、sp_email_details）。新增任务必须在 worker_watchdog.py 的 GROUP_TASK_MAP 登记分组。' },
-    { q: '任务反复 failed？', a: '到 log/worker_runtime.log 找该 task_id 的堆栈（排障首选日志）。上游不可达 → 先到「系统设置 → 凭据」点「测试连接」；口令变了 → 更新凭据。auto_retry_failed 每 10 分钟自动重试（MAX_ATTEMPTS=2，超 24 小时放弃），无需手动反复点执行。' },
+    { q: '任务反复 failed？', a: '到 log/worker_runtime*.log 找该 task_id 的堆栈（排障首选日志；每组 worker 一个文件，任务所属组见执行认领日志）。上游不可达 → 先到「系统设置 → 凭据」点「测试连接」；口令变了 → 更新凭据。auto_retry_failed 每 10 分钟自动重试（MAX_ATTEMPTS=2，超 24 小时放弃），无需手动反复点执行。' },
     { q: '任务一直「执行中」不动？', a: '调度器没有 per-task 超时（设计缺口）。僵尸运行态由 worker 每 300 秒扫描回收（30 分钟 + PID 存活核对），无需手工干预；若任务真在长跑（如 Playwright 探测），可在任务管理页手动「停止」。' },
     { q: '邮件没发出去？', a: 'EWS 邮箱故障时邮件任务会失败，email_recovery（每 20 分钟）会在恢复后自动补发近 3 小时内失败的邮件——先查它的执行历史，而不是手动重跑原邮件任务。邮箱空间满由 mailbox_cleanup（每小时）守卫。' },
     { q: '如何在大屏/另一个标签页打开看板？', a: '右键点击左侧菜单项 → 「在新标签页打开」；或直接访问直链 http://<host>/myapp/?page=<key>。配合顶栏「自动刷新」即可长期挂机展示。' },
@@ -377,7 +377,7 @@ const COMMON_EN: CommonText = {
     { q: 'The board data is not updating?', a: '① Check the task\'s latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" was set to Off; ③ remember some data is inherently low-frequency: alarms every 30 min, microwave topology daily 05:15, packet loss daily 06:30, incident overview hourly. The "DB Data Freshness Check" task history also logs the call chain and direction when stale.' },
     { q: 'Numbers do not match the expected criteria?', a: 'Watch each page\'s definition: the battery board counts only readings ≤24h fresh by default; the MS SLA board follows the live calculation (snapshot files may differ); packet loss shows only the last 7 complete days; the CXO board embeds a snapshot refreshed only by re-running its sync task.' },
     { q: 'A task stays pending forever?', a: 'Most likely the task was never assigned to a worker group (GROUP_TASK_MAP) — nobody claims it from the queue. This accident happened three times in this project (finebi_report_sync, whatsapp_send_ext, sp_email_details). New tasks MUST be registered in GROUP_TASK_MAP in worker_watchdog.py.' },
-    { q: 'A task keeps failing?', a: 'Find the stack trace for the task_id in log/worker_runtime.log (the first log to check). Upstream unreachable → run "Test Connection" in Settings → Credentials; changed password → update credentials. auto_retry_failed retries every 10 min (MAX_ATTEMPTS=2, gives up after 24h) — no need to click Run repeatedly.' },
+    { q: 'A task keeps failing?', a: 'Find the stack trace for the task_id in log/worker_runtime*.log (the first log to check; one file per worker group). Upstream unreachable → run "Test Connection" in Settings → Credentials; changed password → update credentials. auto_retry_failed retries every 10 min (MAX_ATTEMPTS=2, gives up after 24h) — no need to click Run repeatedly.' },
     { q: 'A task stuck in "running"?', a: 'The scheduler has no per-task timeout (known design gap). Zombie running states are recycled by the worker every 300s (30-min staleness + PID liveness) — no manual action needed; if the task genuinely runs long (e.g. Playwright probing), stop it manually from Task Manager.' },
     { q: 'An email was not delivered?', a: 'When the EWS mailbox is down, email tasks fail; email_recovery (every 20 min) re-sends those from the last 3 hours once EWS is back — check its history first instead of re-running the original task. Mailbox full is guarded by mailbox_cleanup (hourly).' },
     { q: 'How to open a board on a wall screen / another tab?', a: 'Right-click the menu item → "Open in new tab"; or open http://<host>/myapp/?page=<key> directly. Combine with the header auto refresh for unattended display.' },
@@ -456,7 +456,7 @@ const OPS_ZH: OpsText = {
     { title: '手动执行 / 停止', body: '任务管理页「执行」立即投递一次、「停止」中断长任务。验证新排程/新脚本后应先手动跑一次看执行历史。' },
     { title: '新增一个任务', body: '① task_registry.py 的 TASK_SPECS 追加声明（task_id/name/cron/loader）；② worker_watchdog.py 的 GROUP_TASK_MAP 登记分组（漏了永远 pending，已三次踩坑）；③ 业务函数放 backend/services/ 且抛异常不吞；④ stop.bat → start.bat 重启加载注册表；⑤ 手动执行验证并更新文档（04-task-system.md 清单与本帮助页）。' },
     { title: '改工作流脚本', body: '脚本都在 backend/services/ 下（任务清单有对应路径）。改动时注意：① 别改历史拼写名（packet_lost、battary_kpi_fetch、ultilazation 等，多处按字符串引用）；② 动态采集表不进 Alembic；③ 同步更新 task_registry.md / WORKER.md / 本帮助数据（frontend/src/pages/helpTaskDocs.ts）。' },
-    { title: '任务卡 pending / failed 排查顺序', body: '① pending 不动 → 查是否漏分组；② failed → log/worker_runtime.log 找 task_id 堆栈 → 凭据「测试连接」；③ 数据停更 → db_freshness_check 的执行历史有调用链。' },
+    { title: '任务卡 pending / failed 排查顺序', body: '① pending 不动 → 查是否漏分组；② failed → log/worker_runtime*.log（每组 worker 一个文件）找 task_id 堆栈 → 凭据「测试连接」；③ 数据停更 → db_freshness_check 的执行历史有调用链。' },
   ],
   upstreamDown: [
     { sys: 'eFlow / 各 UME 会话被踢', symptom: '该组任务连续 failed', heal: 'auto_retry_failed 每 10 分钟重试；凭据「测试连接」验证账号' },
@@ -482,7 +482,7 @@ const OPS_ZH: OpsText = {
     '数据库新鲜度由 db_freshness_check 每小时 :15 自动巡检，滞后会给出调用链与排查方向',
   ],
   logs: [
-    { file: 'log/worker_runtime.log', body: '任务执行主日志——排障首选，按 task_id 搜堆栈' },
+    { file: 'log/worker_runtime*.log', body: '任务执行主日志——排障首选，按 task_id 搜堆栈（每组 worker 一个文件：_u/_n/_m/_c）' },
     { file: 'log/backend_runtime.log', body: '后端业务日志（API、调度、代理）' },
     { file: 'log/backend_watchdog.log / worker_watchdog.log', body: '进程拉起与崩溃退避记录（连崩 10 次放弃并告警）' },
     { file: 'log/start_hidden_result.txt', body: '上一次启动的逐条结果——启动失败先看这个' },
@@ -550,7 +550,7 @@ const OPS_EN: OpsText = {
     { title: 'Run / stop manually', body: '"Run" enqueues immediately, "Stop" interrupts a long task. After changing a schedule or script, run once manually and check the history.' },
     { title: 'Add a new task', body: '① Append an entry to TASK_SPECS in task_registry.py; ② register it in GROUP_TASK_MAP in worker_watchdog.py (missing = forever pending, three accidents so far); ③ business function in backend/services/, throw exceptions; ④ restart via stop.bat → start.bat; ⑤ verify manually and update docs (04-task-system.md list & this help).' },
     { title: 'Edit a workflow script', body: 'All scripts live under backend/services/ (paths listed in the task catalog). Mind: ① never "fix" historical spellings (packet_lost, battary_kpi_fetch, ultilazation — string-referenced); ② dynamic collection tables stay out of Alembic; ③ sync-update task_registry.md / WORKER.md / the help data (frontend/src/pages/helpTaskDocs.ts).' },
-    { title: 'Pending / failed triage order', body: '① pending forever → check worker-group registration; ② failed → task_id stack in log/worker_runtime.log → "Test Connection" for credentials; ③ data stalled → db_freshness_check history has the call chain.' },
+    { title: 'Pending / failed triage order', body: '① pending forever → check worker-group registration; ② failed → task_id stack in log/worker_runtime*.log (one file per worker group) → "Test Connection" for credentials; ③ data stalled → db_freshness_check history has the call chain.' },
   ],
   upstreamDown: [
     { sys: 'eFlow / UME session kicked', symptom: 'Consecutive failures in the group', heal: 'auto_retry_failed retries every 10 min; verify account via "Test Connection"' },
@@ -576,7 +576,7 @@ const OPS_EN: OpsText = {
     'DB freshness is audited hourly at :15 by db_freshness_check; staleness logs include the call chain',
   ],
   logs: [
-    { file: 'log/worker_runtime.log', body: 'Main task-execution log — first stop for troubleshooting; search by task_id for stacks' },
+    { file: 'log/worker_runtime*.log', body: 'Main task-execution log — first stop for troubleshooting; search by task_id for stacks (one file per worker group)' },
     { file: 'log/backend_runtime.log', body: 'Backend business log (API, scheduler, proxies)' },
     { file: 'log/backend_watchdog.log / worker_watchdog.log', body: 'Process spawn & crash-backoff records (gives up after 10 consecutive crashes)' },
     { file: 'log/start_hidden_result.txt', body: 'Per-step result of the last startup — check this first when startup fails' },

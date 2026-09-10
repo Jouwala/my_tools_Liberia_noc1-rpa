@@ -60,7 +60,13 @@ def _spawn(system: str, browser: str | None) -> str:
 
     def _run():
         try:
-            svc.launch_and_login(system, browser, job_id=job_id)
+            # eFlow 走「直接鉴权」登录：复用 auth_manager 复刻 RSA+OAuth2 拿会话，
+            # 再 CDP 种 cookie 打开已登录主页，绕开登录页 DOM 依赖与 anti-debugger。
+            # 仅对 eflow 生效，其余门户仍走原 launch_and_login（填表）路径，零改动。
+            if system == "eflow":
+                svc.launch_and_login_eflow_direct(system, browser, job_id=job_id)
+            else:
+                svc.launch_and_login(system, browser, job_id=job_id)
         except Exception as e:  # pragma: no cover
             logger.warning(f"[PORTAL] 线程异常 {system}: {e}", exc_info=True)
             svc._job_update(job_id, state="failed",

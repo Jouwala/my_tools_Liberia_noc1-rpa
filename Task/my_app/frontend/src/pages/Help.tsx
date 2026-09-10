@@ -490,7 +490,7 @@ export default function Help() {
 
       {/* 日志 */}
       <Divider orientationMargin={0} style={{ borderColor: dividerColor }}>
-        <Space size={8}><FileSearchOutlined style={{ color: WH.teal }} /><Text strong>{isZh ? '日志速查（排障首选 worker_runtime.log）' : 'Log files (start with worker_runtime.log)'}</Text></Space>
+        <Space size={8}><FileSearchOutlined style={{ color: WH.teal }} /><Text strong>{isZh ? '日志速查（排障首选 worker_runtime*.log）' : 'Log files (start with worker_runtime*.log)'}</Text></Space>
       </Divider>
       <Card style={{ ...cardStyle, marginBottom: 'var(--wh-space-md)' }} styles={{ body: { padding: 'var(--wh-space-sm)' } }}>
         {ops.logs.map(l => (
