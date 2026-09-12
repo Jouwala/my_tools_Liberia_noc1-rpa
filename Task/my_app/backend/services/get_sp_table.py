@@ -10,7 +10,7 @@ WareHouseDashBoard/inventory.db（UNC 网络路径），供 FineBI 仓库看板�
 表名与 WareHouseDashBoard 保持一致：
   - inband_details   （Inbound  Ticket，sp/spinbound）
   - outband_details  （Outbound Ticket，sp/spoutbound）
-  - inventory_details（Inventory，       sp/spinventory，增量去重）
+  - inventory_details（Inventory，       sp/spinventory，增量去重；按保留期清理历史快照）
   - ocrule_details   （OC Rule，         OCAuto/OCAutoOutput，递归找 csv→excel）
   - transfer_details  （WH Transfer，    sp/sp-wh_transfer，递归找 xlsx）
 
@@ -23,7 +23,7 @@ import sys
 import io
 import time
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import paramiko
@@ -154,6 +154,117 @@ if _SP_CONF:
 
 # 增量去重的表（保留历史累计），其余表为「整表替换」
 APPEND_TABLES = {"inventory_details"}
+
+# ====== 增量表保留期（2026-09-11 新增）======
+# inventory_details 是逐日快照表（每天约 2400 行），只追加不清理会无限增长：
+# 镜像库 2026-02 起已累计 41 万行 / 108MB。默认保留最近 180 天。
+#
+# 口径说明（重要）：
+#   1) 基准取**表中最新的合法 update_date**（YYYY-MM-DD），不是系统当天。上游
+#      SFTP 断流时只会保留「最近 N 天有数据的快照」，绝不会把整表清空。
+#   2) 保留天数 = keep_days，即 cutoff = 最新日期 - (keep_days - 1)（含头含尾 N 天）。
+#   3) myapp/?page=warehouse 的「Inventory Quantity Trend」直接读取本表全部
+#      update_date 做趋势（sp_dashboard.load_inventory_trend，无日期参数时返回
+#      全部日期），因此该值同时决定趋势图的最大回溯天数——调小会直接砍掉趋势图
+#      的历史。需求方明确要求 180 天。
+#   4) 可在 sp_sftp_config.json 用 "inventory_retention_days" 覆盖；<=0 表示不清理。
+INVENTORY_RETENTION_DAYS = 180
+RETENTION_DAYS = {"inventory_details": INVENTORY_RETENTION_DAYS}
+
+
+def _retention_days(table_name: str) -> int:
+    """运行时读取某表的保留天数（页面改 sp_sftp_config.json 后免重启生效）。
+
+    优先级：sp_sftp_config.json 的 inventory_retention_days > 模块默认值。
+    返回 <=0 表示不清理。
+    """
+    days = RETENTION_DAYS.get(table_name, 0)
+    try:
+        try:
+            from backend.services.task_config_files import load_json_config
+        except ImportError:
+            from task_config_files import load_json_config
+        conf = load_json_config(Path(__file__).resolve().parent / "sp_sftp_config.json") or {}
+        days = int(conf.get("inventory_retention_days", days))
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "[SILENT-EXCEPT] _retention_days: exception swallowed", exc_info=True)
+    return days
+
+
+def _retention_cutoff(conn, table_name: str, keep_days: int):
+    """按「表中最新合法 update_date - (keep_days-1)」算出截止日，返回 (cutoff, base_date)。
+
+    基准用表内最新日期而非系统当天：上游断流时不会误删整表。
+
+    只在 Python 侧挑出合法的 YYYY-MM-DD 再取 max —— 不用 SQL 的 MAX/GLOB：
+      - SQL 的 MAX 是字符串比较，一条遗留格式（如 '2026/01/05'，'/' > '-'）会
+        污染结果并让解析失败，进而使整表跳过清理；
+      - GLOB 是 SQLite 专有，本模块同时支持 PG 方言。
+    无法计算时返回 (None, None)，调用方应跳过清理（宁可不删）。
+    """
+    if keep_days is None or keep_days <= 0:
+        return None, None
+    try:
+        rows = conn.execute(
+            f'SELECT DISTINCT "update_date" FROM "{table_name}"').fetchall()
+    except _OPERR:
+        return None, None
+    best = None
+    for row in rows:
+        raw = row[0] if not isinstance(row, dict) else row.get("update_date")
+        if raw is None:
+            continue
+        s = str(raw).strip()[:10]
+        try:
+            dt = datetime.strptime(s, "%Y-%m-%d")
+        except ValueError:
+            continue          # 遗留/异常格式：忽略，不参与基准
+        if best is None or dt > best[0]:
+            best = (dt, s)
+    if best is None:
+        return None, None
+    cutoff = (best[0] - timedelta(days=keep_days - 1)).strftime("%Y-%m-%d")
+    return cutoff, best[1]
+
+
+def _prune_by_retention(conn, table_name: str, keep_days: int, label: str = "app.db") -> dict:
+    """删除超过保留期的历史快照行（按 update_date）。返回统计信息，不抛异常。
+
+    只做「删除更早的整日快照」，不触碰保留期内的行；表为空/日期异常/保留期<=0
+    一律跳过。update_date 非 YYYY-MM-DD 的遗留行因字符串比较不成立而天然保留。
+    """
+    info = {"table": table_name, "label": label, "keep_days": keep_days,
+            "base_date": None, "cutoff": None, "deleted": 0, "rows_before": None}
+    try:
+        info["rows_before"] = conn.execute(
+            f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0] or 0
+    except _OPERR as e:
+        info["detail"] = f"表不可读，跳过清理: {e}"
+        return info
+    cutoff, base = _retention_cutoff(conn, table_name, keep_days)
+    info["base_date"] = base
+    if cutoff is None:
+        info["rows_after"] = info["rows_before"]
+        info["detail"] = "保留期<=0 或无合法 update_date，跳过清理"
+        return info
+    info["cutoff"] = cutoff
+    try:
+        cur = conn.execute(
+            f'DELETE FROM "{table_name}" '
+            f'WHERE "update_date" IS NOT NULL AND "update_date" != \'\' '
+            f'AND "update_date" < ?', (cutoff,))
+        info["deleted"] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        info["rows_after"] = conn.execute(
+            f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0] or 0
+        print(f"[保留期][{label}] {table_name}: 基准 {base}，保留 {keep_days} 天"
+              f"（cutoff {cutoff}）→ 删除 {info['deleted']} 行，"
+              f"{info['rows_before']} → {info['rows_after']} 行")
+    except _OPERR as e:
+        info["rows_after"] = info["rows_before"]
+        info["detail"] = f"清理失败: {e}"
+        print(f"[保留期][{label}] {table_name}: 清理失败 {e}")
+    return info
 
 
 # ====== SFTP 辅助函数 ======
@@ -549,6 +660,21 @@ def _mirror_write_all(tables_data: dict) -> dict:
                     attempt_res[table_name] = {
                         "rows": 0, "status": "error", "detail": str(e)}
                     print(f"[镜像][错误] {table_name}: {e}")
+            # ====== 保留期清理（镜像库）：与 app.db 同口径，避免 FineBI 看板库无限增长 ======
+            for _t in MIRROR_APPEND_TABLES:
+                if not _mirror_table_exists(con, _t):
+                    continue
+                try:
+                    _rinfo = _prune_by_retention(
+                        con, _t, _retention_days(_t), label="mirror")
+                    attempt_res.setdefault("_retention", {})[_t] = _rinfo
+                except Exception as e:
+                    logging.getLogger(__name__).warning(
+                        "[SILENT-EXCEPT] mirror retention prune: exception swallowed",
+                        exc_info=True)
+                    attempt_res.setdefault("_retention", {})[_t] = {
+                        "table": _t, "status": "error", "detail": str(e)}
+                    print(f"[保留期][mirror] {_t}: 清理异常 {e}")
             con.commit()
             attempt_res["_meta"] = {"status": "ok", "db": str(db_path), "attempt": attempt}
             return attempt_res
@@ -680,6 +806,24 @@ def run_sp_data_sync() -> dict:
                         result["tables"][table_name] = {"rows": 0, "status": "error", "detail": str(e)}
                         result["success"] = False
 
+            # ====== 保留期清理（app.db）：删除超过 N 天的历史快照，避免表无限增长 ======
+            # 以表中最新的合法 update_date 为基准，只删更早的整日快照；上游断流时不会清空整表。
+            retention_info = {}
+            for _t in RETENTION_DAYS:
+                if not _table_exists(conn, _t):
+                    continue
+                try:
+                    retention_info[_t] = _prune_by_retention(
+                        conn, _t, _retention_days(_t), label="app.db")
+                    conn.commit()
+                except Exception as e:
+                    logging.getLogger(__name__).warning(
+                        "[SILENT-EXCEPT] retention prune: exception swallowed", exc_info=True)
+                    retention_info[_t] = {"table": _t, "status": "error", "detail": str(e)}
+                    print(f"[保留期][app.db] {_t}: 清理异常 {e}")
+            if retention_info:
+                result["retention"] = retention_info
+
             conn.close()
             # ====== 镜像写入 FineBI inventory.db（app.db 全部落库后执行） ======
             if mirror_enabled and mirror_data:
@@ -698,6 +842,11 @@ def run_sp_data_sync() -> dict:
                     print("[镜像] FineBI inventory.db 写入完成")
             ok = sum(1 for v in result["tables"].values() if v.get("status") == "ok")
             result["message"] = f"SP 数据同步完成：{ok}/{len(SP_TABLES)} 个表成功（第{attempt}次尝试）"
+            _pruned = sum(int(v.get("deleted") or 0)
+                          for v in (result.get("retention") or {}).values()
+                          if isinstance(v, dict))
+            if _pruned:
+                result["message"] += f"；保留期清理删除 {_pruned} 行历史快照"
             if mirror_enabled:
                 if result.get("mirror_success"):
                     result["message"] += "；已镜像写入 FineBI inventory.db"

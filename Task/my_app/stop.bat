@@ -50,7 +50,9 @@ REM ---- 2) Kill by port (WITH /T so child processes die too) ----
 REM NOTE: 8787/8790 已从端口列表移除 —— 它们属于 WorkBuddy 的 MCP 服务
 REM       (C:\Users\ZTEEMS\.workbuddy\binaries\python\...\python.exe)，与 my_app 无关。
 REM       2026-09-04 实测：stop.bat 曾把它们误杀，险些打断工具链。
-for %%p in (7038 8000 7040 7090 5173 9268) do (
+REM NOTE: 9268 也已移除（2026-09-11）—— 那是 liberia-noc_soc 门户的 WhatsApp 本地分析
+REM       服务，由该门户自己的 stop.bat 负责停止，不属于 my_app。
+for %%p in (7038 8000 7040 7090 5173) do (
     for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%%p " ^| findstr "LISTENING" 2^>nul') do (
         taskkill /PID %%a /T /F >nul 2>&1
         if !errorlevel!==0 (
@@ -65,9 +67,12 @@ REM ---- 3) Command-line sweep: leftover python/node from my_app ----
 REM Catches orphans whose pid file/port is gone (e.g. workers whose
 REM watchdog died, realtime proxies on odd ports). Pattern is specific
 REM to my_app modules; unrelated python/node (e.g. MCP servers) survive.
+REM NOTE (2026-09-11): the frontend alternative is "my_app.*vite", NOT a bare
+REM       "vite" -- the liberia-noc_soc portal also runs a vite dev server
+REM       (port 9267), and a bare "vite" killed it whenever my_app was stopped.
 echo [*] Scanning for leftover my_app processes...
 powershell -NoProfile -Command ^
-  "$pat='backend\.worker_watchdog|backend\.backend_watchdog|backend\.worker|uvicorn.*backend\.main|realtime_proxy|start-app\.mjs|vite';" ^
+  "$pat='backend\.worker_watchdog|backend\.backend_watchdog|backend\.worker|uvicorn.*backend\.main|realtime_proxy|start-app\.mjs|my_app.*vite';" ^
   "$n=0;" ^
   "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python|node' -and $_.CommandLine -match $pat -and $_.ProcessId -ne $PID } | ForEach-Object { taskkill /PID $_.ProcessId /T /F 2>$null | Out-Null; Write-Host ('[*] Killed leftover ' + $_.Name + ' PID=' + $_.ProcessId); $n++ };" ^
   "if ($n -eq 0) { Write-Host '[OK] No leftover my_app processes found.' }"
@@ -80,7 +85,7 @@ del "%BASE%log\heartbeat_*.json" >nul 2>&1
 
 REM ---- 5) Verify all ports released ----
 set LEFTOVER=0
-for %%p in (7038 8000 7040 7090 5173 9268) do (
+for %%p in (7038 8000 7040 7090 5173) do (
     netstat -ano | findstr ":%%p " | findstr "LISTENING" >nul 2>&1
     if !errorlevel!==0 (
         echo [FAIL] Port %%p still listening
@@ -90,7 +95,7 @@ for %%p in (7038 8000 7040 7090 5173 9268) do (
 if %LEFTOVER%==1 (
     echo.
     echo [FAIL] Some processes failed to stop. Remaining listeners:
-    netstat -ano | findstr "LISTENING" | findstr ":7038 :8000 :7040 :7090 :5173 :9268"
+    netstat -ano | findstr "LISTENING" | findstr ":7038 :8000 :7040 :7090 :5173"
 ) else (
     echo [OK] All app ports released.
 )

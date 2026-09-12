@@ -195,10 +195,12 @@ export default defineConfig(() => {
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      // Do not modify - file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // log/ 放的是 start.bat / stop.bat 以及服务自身写的运行日志，不是前端源码；
+      // 不忽略的话，每写一行日志都会触发一次 HMR 整页刷新。
+      watch: process.env.DISABLE_HMR === 'true' ? null : { ignored: ['**/log/**'] },
       // 本地 dev 时将 /api 代理到 my_app 后端主机（与 nginx /api/ → my_app 后端 7038 拓扑一致），
       // 供 TaskSyncWidget 实时拉取 /api/tasks。
       // 注意：/api/portal-default 与 /api/auth 分别由上方两个插件的中间件直接处理，

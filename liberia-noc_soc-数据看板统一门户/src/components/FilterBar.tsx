@@ -12,6 +12,9 @@ import {
   EyeOff,
   MessageSquareText,
   SlidersHorizontal,
+  Move,
+  Check,
+  RotateCcw,
 } from 'lucide-react';
 import {
   CATEGORY_ALL,
@@ -45,6 +48,10 @@ interface FilterBarProps {
   onSortChange: (sort: SortOption) => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  /** 卡片布局编辑开关（仅网格视图可用） */
+  isLayoutEditing: boolean;
+  onToggleLayoutEditing: () => void;
+  onResetLayout: () => void;
   totalFilteredCount: number;
 }
 
@@ -67,6 +74,9 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   onSortChange,
   viewMode,
   onViewModeChange,
+  isLayoutEditing,
+  onToggleLayoutEditing,
+  onResetLayout,
   totalFilteredCount,
 }) => {
   const { t } = useI18n();
@@ -261,6 +271,33 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 shrink-0 pl-2">
+          {/* 卡片布局编辑：与分组管理同排，不单独占一行（仅网格视图有卡片可拖） */}
+          {viewMode === 'grid' && (
+            <>
+              <button
+                onClick={onToggleLayoutEditing}
+                title={isLayoutEditing ? t('layout.tipEditing') : t('layout.tip')}
+                className={`px-2.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap transition-all ${
+                  isLayoutEditing
+                    ? 'border-teal-400 bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 ring-2 ring-teal-400/20'
+                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-teal-700 dark:hover:text-teal-300 hover:border-teal-300'
+                }`}
+              >
+                {isLayoutEditing ? <Check className="w-3.5 h-3.5" /> : <Move className="w-3.5 h-3.5" />}
+                {isLayoutEditing ? t('layout.done') : t('layout.edit')}
+              </button>
+              {isLayoutEditing && (
+                <button
+                  onClick={onResetLayout}
+                  title={t('layout.reset')}
+                  className="px-2.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-teal-700 dark:hover:text-teal-300 hover:border-teal-300 transition-all flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{t('layout.reset')}</span>
+                </button>
+              )}
+            </>
+          )}
           <button
             onClick={onManageGroups}
             title={t('grp.manageTip')}

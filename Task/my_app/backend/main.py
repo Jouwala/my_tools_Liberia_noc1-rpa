@@ -46,9 +46,10 @@ from backend.models.analysis import AnalysisArchive, UploadedFile
 from backend.routers import (
     tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard,
     packet_loss_dashboard, battery_dashboard, credentials,
-    tasks, sp_dashboard, system,
+    tasks, sp_dashboard, sp_material_summary, system,
     incident_overview, ip_trace, nur_dashboard, ms_sla_dashboard,
     site_availability,
+    ran_cells_kpi,
     email_recipients,
     realtime_proxy,
     settings,
@@ -120,6 +121,8 @@ app.include_router(email_recipients.router)
 # Phase 1 拆分新增：任务管理 / SP 备件看板 / 系统信息
 app.include_router(tasks.router)
 app.include_router(sp_dashboard.router)
+# SP 物料库存/消耗统计汇总（WH/DOP 报表模板，见 routers/sp_material_summary.py）
+app.include_router(sp_material_summary.router)
 app.include_router(system.router)
 # Incident Overview / IP Trace：从 Unified_Tools 集成（Phase 1 拆分时遗漏挂载，
 # 导致 /api/incident-overview/* 与 /api/ip-trace/* 路由不存在、页面取不到数据）
@@ -131,6 +134,8 @@ app.include_router(nur_dashboard.router)
 app.include_router(ms_sla_dashboard.router)
 # FME 站点可用率与工单看板（master_site_db + 远端站点级可用性 + eflow_tt）
 app.include_router(site_availability.router)
+# RAN 2G/3G/4G Cells KPI 看板（小区级可用率，达标值 99.65%）
+app.include_router(ran_cells_kpi.router)
 # 实时代理控制（前端「启用实时刷新」开关按需拉起/关闭本地代理 8787/8790）
 app.include_router(realtime_proxy.router)
 # 全局设置（远程主机等，供「系统设置」页面读写）

@@ -12,6 +12,7 @@ import { getFinebiHost, getMyappHost, buildRel } from '../config';
 // 默认配置由「门户 UI 导出 JSON」重新生成（2026-08-15 08:34 版本，37 条），
 // 2026-08-29 起补充 my_app 新增页面：MW 微波拓扑 / MW 微波实时 / 任务报告文件 / 门户一键登录（共 41 条）。
 // 2026-09-07 补充 my_app 新增页面：Issue Feedback 问题反馈工单台（共 46 条）。
+// 2026-09-12 补充 my_app 新增页面：RAN 小区 KPI / VMAX CXO 原版看板 / SP 物料统计汇总（共 49 条）。
 // ============================================================================
 
 const MYAPP_BASE = `http://${getMyappHost()}/myapp/?page=`;
@@ -566,6 +567,60 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       status: 'online'
     },
     {
+      id: 'custom-ran-cells-kpi',
+      title: 'RAN Cells KPI (RAN 小区可用率达标看板)',
+      description: '按 2G/3G/4G 制式逐日统计小区可用率达标情况：达标 / 未达标 / 无数据小区数与占比，以及整月可用率汇总；达标阈值默认 99.65% 可调，各统计数字可下钻到具体小区清单并导出 Excel。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}ran_cells_kpi`,
+      category: '网络性能',
+      tags: ['RAN', 'Cells KPI', '小区可用率', '2G/3G/4G', '达标率'],
+      iconName: 'Antenna',
+      updateFrequency: '每日0点',
+      department: 'DevOps 架构部',
+      owner: '系统管理员',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'blue',
+      status: 'online'
+    },
+    {
+      id: 'custom-vmax-cxo-dashboard',
+      title: 'VMAX CXO Original View (VMAX CXO 原版看板)',
+      description: 'VMAX CXO Dashboard 原版视觉复刻页，与简化版 CXO Dashboard 完全独立，保留 VMAX 原有决策视图的指标口径与呈现方式，便于新旧口径对照核查。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}vmaxCxoDashboard`,
+      category: 'MS 运维管理',
+      tags: ['VMAX', 'CXO', '决策看板', '原版复刻'],
+      iconName: 'Crown',
+      updateFrequency: '实时流式',
+      department: 'DevOps 架构部',
+      owner: '系统管理员',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'purple',
+      status: 'online'
+    },
+    {
+      id: 'custom-sp-material',
+      title: 'Material Summary (备件物料库存与消耗汇总)',
+      description: 'SP 备件 WH/DOP 汇总报表：按 1st WH / 2nd WH / Gbarnga DOP / Kweaken DOP / Others 统计期初与当前库存（剔除 damaged 件）、待维修件与报修出库，支持锚点日 / 本月 / 本周三个消耗窗口对比，行列可下钻到明细并导出 Excel。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}sp_material`,
+      category: '备件仓储',
+      tags: ['Spare Parts', '物料库存', '消耗统计', 'WH/DOP', '报表导出'],
+      iconName: 'Package',
+      updateFrequency: '每日0点',
+      department: 'DevOps 架构部',
+      owner: '系统管理员',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'emerald',
+      status: 'online'
+    },
+    {
       id: 'finebi-ms-contract-operation-kpis',
       title: 'Contract Operation KPIs (合同运营关键绩效指标)',
       description: '【MS 目录】电信运营服务合同考核指标、SLA 达标情况及月度客户 KPI 交付达成率分析。',
@@ -946,5 +1001,8 @@ export const AVAILABLE_ICONS = [
   { name: 'BookOpen', label: '知识库/文档' },
   { name: 'Signal', label: '站点可用率/覆盖' },
   { name: 'HelpCircle', label: '使用帮助' },
-  { name: 'MessageCircle', label: '问题反馈/建议' }
+  { name: 'MessageCircle', label: '问题反馈/建议' },
+  { name: 'Antenna', label: '小区/无线 KPI' },
+  { name: 'Crown', label: 'CXO 高层视图' },
+  { name: 'Package', label: '物料/备件库存' }
 ];

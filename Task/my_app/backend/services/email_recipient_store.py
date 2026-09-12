@@ -118,6 +118,14 @@ def _default_sp_details() -> Tuple[List[str], List[str]]:
     return _parse_addrs(_SP_DETAILS_DEFAULT_TO), _parse_addrs(_SP_DETAILS_DEFAULT_CC)
 
 
+def _default_sp_material() -> Tuple[List[str], List[str]]:
+    from backend.services.kpi_email_report import (
+        _SP_MATERIAL_DEFAULT_TO,
+        _SP_MATERIAL_DEFAULT_CC,
+    )
+    return _parse_addrs(_SP_MATERIAL_DEFAULT_TO), _parse_addrs(_SP_MATERIAL_DEFAULT_CC)
+
+
 def _default_ran() -> Tuple[List[str], List[str]]:
     from backend.services.kpi_email_report import _RAN_EMAIL
     return _read_remote_dir(_RAN_EMAIL)
@@ -194,6 +202,12 @@ EMAIL_RECIPIENT_GROUPS = [
         "name": "SP 在线未关闭单报表邮件",
         "name_en": "SP Online Open Tickets Report Email",
         "default_loader": _default_sp,
+    },
+    {
+        "key": "sp_material_report",
+        "name": "SP 物料库存与消耗报表邮件",
+        "name_en": "SP Material Stock & Consumption Report Email",
+        "default_loader": _default_sp_material,
     },
     {
         "key": "kpi_ran_availability",

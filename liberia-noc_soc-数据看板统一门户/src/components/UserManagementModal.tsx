@@ -13,10 +13,12 @@ import {
   UserCheck,
   UserX,
   LayoutGrid,
+  Database,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { PORTAL_API } from '../config';
 import { useAuth, type AuthUser, type Role } from '../auth/AuthContext';
+import { PasswordInput } from './PasswordInput';
 import type { DashboardItem } from '../types/dashboard';
 
 /** 账号申请记录（后端 /auth/register-requests 返回结构，已剔除密码哈希） */
@@ -29,6 +31,18 @@ interface AccessRequest {
   ip: string;
   decidedAt?: string;
   decidedBy?: string;
+}
+
+/** GET /auth/storage 返回：账号、密码哈希与看板权限的实际落盘位置和备份情况 */
+interface StorageInfo {
+  backend: 'sqlite' | 'json';
+  location: string;
+  migratedFromJson: boolean;
+  writeCount: number;
+  lastWriteAt: string | null;
+  backups: { name: string; size: number; mtime: string }[];
+  maxBackups: number;
+  backupDir: string;
 }
 
 interface UserManagementModalProps {
@@ -84,6 +98,9 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [profileCards, setProfileCards] = useState<string[]>([]);
   const [savingProfile, setSavingProfile] = useState(false);
 
+  /** 账号与看板权限的落盘位置（SQLite/JSON）与自动备份情况 */
+  const [storage, setStorage] = useState<StorageInfo | null>(null);
+
   const loadRequests = useCallback(async () => {
     setRequestsLoading(true);
     try {
@@ -118,10 +135,21 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     }
   }, [apiFetch]);
 
+  const loadStorage = useCallback(async () => {
+    try {
+      const res = await apiFetch(`${PORTAL_API}/auth/storage`);
+      const data = (await res.json().catch(() => null)) as { storage?: StorageInfo } | null;
+      if (res.ok && data?.storage) setStorage(data.storage);
+    } catch {
+      // 存储信息拿不到不影响账号管理主流程
+    }
+  }, [apiFetch]);
+
   useEffect(() => {
     if (isOpen) {
       void loadUsers();
       void loadRequests();
+      void loadStorage();
       setError('');
       setSuccess('');
       setNewUsername('');
@@ -133,7 +161,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setProfileUserId('');
       setSavingProfile(false);
     }
-  }, [isOpen, loadUsers, loadRequests]);
+  }, [isOpen, loadUsers, loadRequests, loadStorage]);
 
   if (!isOpen) return null;
 
@@ -418,6 +446,40 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
             </div>
           )}
 
+          {/* 存储位置：账号、密码哈希、看板权限到底落在哪，管理员能一眼看到 */}
+          {storage && (
+            <div
+              data-storage-strip
+              className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 flex items-start gap-2 text-[11px] text-slate-500 dark:text-slate-400"
+            >
+              <Database className="w-3.5 h-3.5 mt-0.5 shrink-0 text-teal-600 dark:text-teal-400" />
+              <div className="min-w-0 space-y-0.5">
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {t('um.storage')}
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 font-medium">
+                    {storage.backend === 'sqlite' ? t('um.storageSqlite') : t('um.storageJson')}
+                  </span>
+                  <span>{t('um.backups', { n: storage.backups.length })}</span>
+                  {storage.lastWriteAt && (
+                    <span>
+                      {t('um.lastWrite')} {storage.lastWriteAt.slice(0, 19).replace('T', ' ')}
+                    </span>
+                  )}
+                  {storage.migratedFromJson && (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      {t('um.migrated')}
+                    </span>
+                  )}
+                </div>
+                <div className="font-mono break-all" title={storage.location}>
+                  {storage.location}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 待审批的账号申请 */}
           <div className="border border-amber-200/70 dark:border-amber-900/60 rounded-xl overflow-hidden">
             <div className="px-3 sm:px-4 py-2.5 bg-amber-50/70 dark:bg-amber-950/30 flex items-center gap-2 border-b border-amber-200/70 dark:border-amber-900/60">
@@ -533,12 +595,12 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 className={`${inputClass} flex-1 min-w-0`}
                 required
               />
-              <input
-                type="password"
+              <PasswordInput
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder={t('um.passwordPh')}
-                className={`${inputClass} flex-1 min-w-0`}
+                className={`${inputClass} flex-1 min-w-0 pr-10`}
+                toggleId="new-user"
                 required
               />
               <select
@@ -663,12 +725,12 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                                 <span className="text-xs text-slate-600 dark:text-slate-300 shrink-0">
                                   {t('um.resetHint', { name: u.username })}
                                 </span>
-                                <input
-                                  type="password"
+                                <PasswordInput
                                   value={resetPwd}
                                   onChange={(e) => setResetPwd(e.target.value)}
                                   placeholder={t('um.passwordPh')}
-                                  className={`${inputClass} flex-1 min-w-0`}
+                                  className={`${inputClass} flex-1 min-w-0 pr-10`}
+                                  toggleId="reset-user"
                                 />
                                 <button
                                   onClick={() => handleResetPassword(u)}

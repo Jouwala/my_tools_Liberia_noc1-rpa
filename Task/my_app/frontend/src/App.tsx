@@ -19,6 +19,7 @@ import {
   AimOutlined,
   FileSearchOutlined,
   LineChartOutlined,
+  AreaChartOutlined,
   FundOutlined,
   SafetyOutlined,
   PieChartOutlined,
@@ -70,6 +71,7 @@ const GISMap = lazy(() => import('./pages/GISMap'))
 const ArchiveList = lazy(() => import('./pages/ArchiveList'))
 const DataSync = lazy(() => import('./pages/DataSync'))
 const WarehouseDashboard = lazy(() => import('./pages/WarehouseDashboard'))
+const SpMaterialSummary = lazy(() => import('./pages/SpMaterialSummary'))
 const Overview = lazy(() => import('./pages/Overview'))
 const TTWODashboard = lazy(() => import('./pages/TTWODashboard'))
 const AlarmDashboard = lazy(() => import('./pages/AlarmDashboard'))
@@ -89,14 +91,15 @@ const MwRealTimeDashboard = lazy(() => import('./pages/MwRealTimeDashboard'))
 const PortalLogin = lazy(() => import('./pages/PortalLogin'))
 const EflowQa = lazy(() => import('./pages/EflowQa'))
 const SiteAvailability = lazy(() => import('./pages/SiteAvailability'))
+const RanCellsKpi = lazy(() => import('./pages/RanCellsKpi'))
 const Help = lazy(() => import('./pages/Help'))
 const IssueFeedback = lazy(() => import('./pages/IssueFeedback'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'feedback' | 'help'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'ran_cells_kpi' | 'feedback' | 'help'
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'feedback', 'help']
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'ran_cells_kpi', 'feedback', 'help']
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -221,6 +224,7 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   nur: { icon: <LineChartOutlined />, labelKey: 'nav.nur' },
   ms_sla: { icon: <FundOutlined />, labelKey: 'nav.msSla' },
   site_avail: { icon: <SafetyOutlined />, labelKey: 'nav.siteAvail' },
+  ran_cells_kpi: { icon: <AreaChartOutlined />, labelKey: 'nav.ranCellsKpi' },
   cxoDashboard: { icon: <PieChartOutlined />, labelKey: 'nav.cxoDashboard' },
   vmaxCxoDashboard: { icon: <DashboardOutlined />, labelKey: 'nav.vmaxCxoDashboard' },
   alarmManagement: { icon: <AlertOutlined />, labelKey: 'nav.alarmManagement' },
@@ -238,6 +242,7 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   archive: { icon: <HistoryOutlined />, labelKey: 'nav.archive' },
   dashboard: { icon: <DashboardOutlined />, labelKey: 'nav.dashboard' },
   warehouse: { icon: <AppstoreOutlined />, labelKey: 'nav.sp' },
+  sp_material: { icon: <DatabaseOutlined />, labelKey: 'nav.spMaterial' },
   settings: { icon: <SettingOutlined />, labelKey: 'nav.settings' },
   portalLogin: { icon: <LoginOutlined />, labelKey: 'nav.portalLogin' },
   feedback: { icon: <MessageOutlined />, labelKey: 'nav.feedback' },
@@ -250,7 +255,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_monitor',
     labelKey: 'nav.grp.monitor',
-    items: ['alarm', 'ttwo', 'nur', 'ms_sla', 'site_avail', 'cxoDashboard', 'vmaxCxoDashboard', 'alarmManagement', 'incident_overview'],
+    items: ['alarm', 'ttwo', 'nur', 'ms_sla', 'site_avail', 'ran_cells_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'alarmManagement', 'incident_overview'],
   },
   {
     key: 'grp_network',
@@ -260,7 +265,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_analysis',
     labelKey: 'nav.grp.analysis',
-    items: ['overview', 'tables', 'upload', 'archive', 'dashboard', 'warehouse'],
+    items: ['overview', 'tables', 'upload', 'archive', 'dashboard', 'warehouse', 'sp_material'],
   },
   { key: 'grp_system', labelKey: 'nav.grp.system', items: ['settings', 'portalLogin', 'feedback', 'help'] },
 ]
@@ -1025,6 +1030,8 @@ function AppContent() {
         return <MsSlaDashboard />
       case 'site_avail':
         return <SiteAvailability />
+      case 'ran_cells_kpi':
+        return <RanCellsKpi />
       case 'alarmManagement':
         return <AlarmManagement />
       case 'cxoDashboard':
@@ -1051,6 +1058,8 @@ function AppContent() {
         return <IncidentOverview />
       case 'warehouse':
         return <WarehouseDashboard />
+      case 'sp_material':
+        return <SpMaterialSummary />
       case 'overview':
         return <Overview />
       case 'tables':

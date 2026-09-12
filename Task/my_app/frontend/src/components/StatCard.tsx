@@ -11,6 +11,8 @@ interface StatCardProps {
   iconBg?: string
   subText?: ReactNode
   style?: React.CSSProperties
+  /** 可选：传入后卡片整体可点击（用于下钻等交互），并自动切换手型光标 */
+  onClick?: (e: React.MouseEvent<HTMLDivElement>) => void
 }
 
 export default function StatCard({
@@ -22,12 +24,15 @@ export default function StatCard({
   iconBg,
   subText,
   style,
+  onClick,
 }: StatCardProps) {
   return (
     <div
       className="wh-stat-card spatial-stat-card"
+      onClick={onClick}
       style={{
         '--wh-stat-accent': accentColor,
+        cursor: onClick ? 'pointer' : undefined,
         ...style,
       } as React.CSSProperties}
     >

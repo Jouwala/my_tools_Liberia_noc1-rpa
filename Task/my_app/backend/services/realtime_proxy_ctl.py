@@ -32,6 +32,12 @@ PROXIES = [
 _ROOT = Path(__file__).resolve().parent.parent.parent
 _SCRIPTS = _ROOT / "scripts"
 
+try:
+    from backend.log_writer import resolve_free_path
+except ImportError:  # pragma: no cover - 兼容非包方式导入
+    sys.path.insert(0, str(_ROOT))
+    from backend.log_writer import resolve_free_path
+
 
 def _find_python() -> str:
     venv = _SCRIPTS / "python.exe"
@@ -112,7 +118,13 @@ def ensure_proxy(cfg: dict, timeout: int = 25) -> dict:
     py = _find_python()
     log_dir = _ROOT / "log"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / f"realtime_proxy_{label.lower()}_console.log"
+    # 2026-09-11：文件名加启动日期，配合 log_cleanup 定时任务做 7 天保留。
+    # 另外：代理是 DETACHED 拉起的（生命周期与拉起者不同），不能改用 pipe 泵
+    # —— 父进程退出后 pipe 读端消失，代理会 broken pipe 甚至被缓冲区堵死。
+    # 因此这里只在【拉起时】挑一个还没写满的分片（resolve_free_path），写满后
+    # 靠下一次重启继续切；删除/轮转仍由 log_cleanup 按 7 天保留处理。
+    _base_log = log_dir / f"realtime_proxy_{label.lower()}_{time.strftime('%Y%m%d')}_console.log"
+    log_path = resolve_free_path(_base_log)
 
     creationflags = 0
     if sys.platform == "win32":

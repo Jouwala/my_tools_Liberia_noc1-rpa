@@ -132,6 +132,18 @@ export function getMyappHomeUrl(): string {
   return `http://${currentEnv.myappHost}/myapp/`;
 }
 
+/**
+ * 拼 my_app 深链（含门户鉴权 token）：`?page=<pageKey>[&t=token][#hash]`。
+ * token 取自 uniplam 门户登录态（localStorage liberia_noc_auth_v1），my_app 前端
+ * 会用 ?t= 换自己的会话 Cookie 并随即从地址栏抽走。未登录（无 token）则不加 t，
+ * 保持原链接 —— my_app 会返回 401 引导登录。彩窗/深链统一走这里，勿直接拼字符串。
+ */
+export function getMyappLink(pageKey: string, hash = ''): string {
+  const token = localStorage.getItem('liberia_noc_auth_v1');
+  const tokenParam = token ? `&t=${encodeURIComponent(token)}` : '';
+  return `${getMyappHomeUrl()}?page=${pageKey}${tokenParam}${hash ? '#' + hash : ''}`;
+}
+
 /** my_app 任务列表接口（Task Manager 实时状态） */
 export function getMyappTasksApi(): string {
   return `${currentEnv.myappApiBase || ''}/api/tasks`;

@@ -88,6 +88,51 @@
   .probe-card .pc-title .tag{font-size:0.688rem;font-weight:400;color:var(--muted)}
   .probe-card .chartbox{width:100%;height:170px}
   .probe-card .chartbox.tall{height:210px}
+  /* ===== 派单趋势监控（Assign Trend Monitor）大屏布局 =====
+     全部选择器以 #secAssign 限定作用域：站点宕机统计（secStats）被 site_outage_screenshot
+     计划任务截图，改其布局会影响自动截图产物，故此处不做任何全局类改动。 */
+  #secAssign .asg-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:0.75rem;margin-bottom:0.875rem}
+  #secAssign .asg-kpi{background:#fff;border:1px solid var(--border);border-radius:var(--radius);
+    box-shadow:var(--shadow1);padding:0.625rem 0.875rem;position:relative;overflow:hidden;min-width:0}
+  #secAssign .asg-kpi::after{content:"";position:absolute;left:0;top:0;right:0;height:3px;background:linear-gradient(90deg,#1993ff,#3db0ff)}
+  #secAssign .asg-kpi.k-asg::after{background:linear-gradient(90deg,#f58c1f,#ffb45c)}
+  #secAssign .asg-kpi.k-rate::after{background:linear-gradient(90deg,#37b26c,#6ed49b)}
+  #secAssign .asg-kpi .l{font-size:0.75rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #secAssign .asg-kpi .v{font-size:1.5rem;font-weight:800;letter-spacing:.5px;line-height:1.3;color:#1993ff;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #secAssign .asg-kpi.k-asg .v{color:#f58c1f}
+  #secAssign .asg-kpi.k-rate .v{color:#2f9e63}
+  #secAssign .asg-kpi .v small{font-size:0.75rem;font-weight:500;color:var(--muted);margin-left:2px}
+  #secAssign .asg-kpi .v.txt{font-size:1.063rem;font-weight:700;letter-spacing:0}
+  #secAssign .asg-kpi .sub{font-size:0.688rem;color:var(--placeholder);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 分组卡片：大屏 3 列 × 2 行（6 个分组正好铺满，避免 auto-fill 在 1920px 下排成 5+1） */
+  #secAssign .chart-grid{grid-template-columns:repeat(3,1fr)}
+  #secAssign .probe-card{display:flex;flex-direction:column}
+  #secAssign .probe-card .pc-title{justify-content:space-between;gap:0.375rem}
+  #secAssign .probe-card .pc-title>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #secAssign .probe-card .pc-stats{display:flex;align-items:center;gap:0.5rem;font-size:0.688rem;font-weight:400;
+    color:var(--muted);white-space:nowrap;flex-shrink:0}
+  #secAssign .probe-card .pc-stats b{font-weight:800;font-size:0.75rem}
+  #secAssign .probe-card .pc-stats .b-rep{color:#1993ff}
+  #secAssign .probe-card .pc-stats .b-asg{color:#f58c1f}
+  #secAssign .probe-card .pc-stats .b-rate{color:#2f9e63}
+  /* 图表高度随视口自适应：实测 1080p 视口下 50vh-258px 恰好让 3×2 网格铺满且不出现滚动条
+     （1028px 可用高度 - 标题/说明/概览条/网格间距 = 2 行图表 + 卡片外框）。1440p 封顶 520px。 */
+  #secAssign .probe-card .chartbox.tall{height:clamp(200px,calc(50vh - 258px),520px)}
+  [data-theme="dark"] #secAssign .asg-kpi{background:#112540;border-color:var(--border)}
+  [data-theme="dark"] #secAssign .asg-kpi .sub{color:var(--disabled)}
+  @media (max-width:1500px){
+    #secAssign .asg-kpis{grid-template-columns:repeat(3,1fr)}
+  }
+  @media (max-width:1100px){
+    #secAssign .chart-grid{grid-template-columns:repeat(2,1fr)}
+  }
+  @media (max-width:900px){
+    #secAssign .asg-kpis{grid-template-columns:repeat(2,1fr)}
+  }
+  @media (max-width:700px){
+    #secAssign .chart-grid{grid-template-columns:1fr}
+  }
   .top5-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.875rem}
   .t5-card{background:#fff;border:1px solid var(--border);border-radius:8px;padding:0.75rem 0.875rem;box-shadow:var(--shadow1);border-top:3px solid var(--primary)}
   .t5-card .t5-name{font-size:0.812rem;font-weight:700;color:var(--text)}
@@ -481,10 +526,13 @@ img, svg, canvas, iframe { max-width: 100%; }
       <div class="chart-grid" id="trendGrid"></div>
     </section>
 
-    <!-- ================= SECTION 4: 派单趋势监控 (Assign Dashboard) ================= -->
+    <!-- ================= SECTION 4: 派单趋势监控 (Assign Dashboard) =================
+         ASG_LAYOUT_V1：大屏布局（6 张概览 KPI + 3×2 分组网格 + 视口自适应图表高度）。
+         验证线上是否为新版：grep ASG_LAYOUT_V1 alarm-management.html -->
     <section class="sec" id="secAssign" style="display:none">
       <div class="sec-title"><span class="bar"></span><span class="tt" data-i18n="secAssignTitle">派单趋势监控</span></div>
       <div class="note" data-i18n="noteAssign">数据源：alarm-trend-dashboard/groups/names-with-selection + report-trend + assign-trend（6 个断站→工单告警分组）。</div>
+      <div class="asg-kpis" id="assignKpis"></div>
       <div class="chart-grid" id="assignGrid"></div>
     </section>
 
@@ -873,6 +921,19 @@ const I18N = {
   trendCleared:{zh:'清除告警',en:'Cleared alarms'},
   assignTrend:{zh:'派单趋势',en:'Assign trend'},
   reportTrend:{zh:'上报趋势',en:'Report trend'},
+  asgKpiGroups:{zh:'监控分组',en:'Groups'},
+  asgUnitGroups:{zh:'个',en:''},
+  asgSubGroups:{zh:'断站→工单告警分组',en:'outage→ticket groups'},
+  asgKpiRepPeak:{zh:'上报峰值',en:'Report peak'},
+  asgKpiAsgPeak:{zh:'派单峰值',en:'Assign peak'},
+  asgUnitPer10:{zh:'条/10min',en:'/10min'},
+  asgSubAt:{zh:'出现于',en:'at'},
+  asgKpiAvgRate:{zh:'平均派单率',en:'Avg assign rate'},
+  asgSubAvgRate:{zh:'各组派单率算术平均',en:'mean of per-group rates'},
+  asgKpiTopRate:{zh:'派单率最高',en:'Highest rate'},
+  asgKpiLowRate:{zh:'派单率最低',en:'Lowest rate'},
+  asgRepShort:{zh:'上报',en:'Rep'},
+  asgAsgShort:{zh:'派单',en:'Asg'},
   noteStatsPre:{zh:'表格/地图/图表数据 = FMS 实时接口（本机抓取于 ',en:'Table/map/charts = FMS live APIs (fetched locally at '},
   noteStatsMid:{zh:' · FMS 数据最新点 ',en:' · latest FMS point '},
   noteStatsPost:{zh:'）。接口（与 fetch_site_outage_v2.py 对齐）：getSiteDownMapData / getRegionSiteDataTable / getRegionCellDataTable / getBorDataByVendor(Logical Total) / getCountSiteDownToHour / getAllStatisticsData。',en:'). APIs (aligned with fetch_site_outage_v2.py): getSiteDownMapData / getRegionSiteDataTable / getRegionCellDataTable / getBorDataByVendor(Logical Total) / getCountSiteDownToHour / getAllStatisticsData.'},
@@ -1067,32 +1128,95 @@ function updateTrendCharts(){
   });
 }
 // ---------- 派单趋势监控：每分组 上报 vs 派单（10分钟粒度） ----------
+// ASG_LAYOUT_V1 —— 概览 KPI + 分组卡片内联统计 + 视口自适应高度
+// 口径说明：6 个分组之间存在包含关系（ZTE - Site Down = Complete + 2G + 3G + 4G），
+// 所以概览只做「组内求和」与「跨组取极值 / 派单率均值」，绝不跨组相加，避免重复计数。
 const assignCharts=[];
+// 分组名缩短：去掉 "ZTE - " 前缀与 " Alarm To TT" 后缀，便于放进 KPI 卡片
+function shortGroup(s){ return String(s||'').replace(/^ZTE\s*-\s*/,'').replace(/\s*Alarm To TT$/,''); }
+function assignGroupTotals(){
+  const repAll=(D.assign&&D.assign.report)||{}, asgAll=(D.assign&&D.assign.assign)||{};
+  const groups=((D.assign&&D.assign.groups)||[]).filter(g=>g.selected!==false);
+  return groups.map(g=>{
+    const rep=nBucket((repAll[g.groupName]||{}).today,'count',144);
+    const asg=nBucket((asgAll[g.groupName]||{}).today,'count',144);
+    const repSum=rep.reduce((a,b)=>a+(b||0),0), asgSum=asg.reduce((a,b)=>a+(b||0),0);
+    return {name:g.groupName, rep:repSum, asg:asgSum, rate:(repSum>0?asgSum/repSum:0), repArr:rep, asgArr:asg};
+  });
+}
+// 分组卡片标题右侧的内联统计：上报 / 派单 / 派单率
+function assignStatsHtml(r){
+  if(!r) return '';
+  return '<b class="b-rep">'+L('asgRepShort')+' '+r.rep+'</b>'+
+         '<b class="b-asg">'+L('asgAsgShort')+' '+r.asg+'</b>'+
+         '<b class="b-rate">'+(r.rate*100).toFixed(1)+'%</b>';
+}
+function updateAssignStats(){
+  const byUid={}; assignGroupTotals().forEach(r=>{ byUid[uid(r.name)]=r; });
+  document.querySelectorAll('#assignGrid .pc-stats').forEach(el=>{
+    el.innerHTML=assignStatsHtml(byUid[el.getAttribute('data-g')]);
+  });
+}
+// 概览条：6 张卡片，全部为「无歧义」指标（组内求和 / 跨组极值 / 派单率均值）
+function buildAssignKpis(){
+  const box=document.getElementById('assignKpis'); if(!box) return;
+  const rows=assignGroupTotals();
+  if(!rows.length){ box.innerHTML=''; return; }
+  let repPeak=-1, repPeakT='-', asgPeak=-1, asgPeakT='-';
+  rows.forEach(r=>{
+    r.asgArr.forEach((v,i)=>{ if(v!=null&&v>asgPeak){ asgPeak=v; asgPeakT=T144[i]; } });
+    r.repArr.forEach((v,i)=>{ if(v!=null&&v>repPeak){ repPeak=v; repPeakT=T144[i]; } });
+  });
+  const avgRate=rows.reduce((a,r)=>a+r.rate,0)/rows.length;
+  const topRate=rows.slice().sort((a,b)=>b.rate-a.rate)[0];
+  const lowRate=rows.slice().sort((a,b)=>a.rate-b.rate)[0];
+  const num=(v,u)=>((v<0?'-':v)+'<small>'+u+'</small>');
+  const card=(cls,l,v,sub,txt)=>'<div class="asg-kpi '+cls+'"><div class="l">'+l+'</div>'+
+    '<div class="v'+(txt?' txt':'')+'" title="'+(txt?sub:'')+'">'+v+'</div><div class="sub">'+sub+'</div></div>';
+  box.innerHTML=
+    card('k-grp',L('asgKpiGroups'),rows.length+'<small>'+L('asgUnitGroups')+'</small>',L('asgSubGroups'))+
+    card('k-rep',L('asgKpiRepPeak'),num(repPeak,L('asgUnitPer10')),L('asgSubAt')+' '+repPeakT)+
+    card('k-asg',L('asgKpiAsgPeak'),num(asgPeak,L('asgUnitPer10')),L('asgSubAt')+' '+asgPeakT)+
+    card('k-rate',L('asgKpiAvgRate'),(avgRate*100).toFixed(1)+'<small>%</small>',L('asgSubAvgRate'))+
+    card('k-rate',L('asgKpiTopRate'),shortGroup(topRate&&topRate.name),((topRate?topRate.rate*100:0).toFixed(1)+'%'),true)+
+    card('k-rep',L('asgKpiLowRate'),shortGroup(lowRate&&lowRate.name),((lowRate?lowRate.rate*100:0).toFixed(1)+'%'),true);
+}
 function buildAssignGrid(){
   const grid=document.getElementById('assignGrid'); if(!grid) return;
-  const groups=(D.assign&&D.assign.groups)||[];
-  grid.innerHTML=groups.map(g=>'<div class="probe-card"><div class="pc-title"><span class="tag">Group</span>'+g.groupName+'</div>'+
+  const groups=((D.assign&&D.assign.groups)||[]).filter(g=>g.selected!==false);
+  grid.innerHTML=groups.map(g=>'<div class="probe-card"><div class="pc-title">'+
+    '<span><span class="tag">Group</span> '+g.groupName+'</span>'+
+    '<span class="pc-stats" data-g="'+uid(g.groupName)+'"></span></div>'+
     '<div class="chartbox tall" id="ag_'+uid(g.groupName)+'"></div></div>').join('');
   assignCharts.length=0;
   groups.forEach(g=>{
     const el=document.getElementById('ag_'+uid(g.groupName));
     if(el&&window.echarts) assignCharts.push({name:g.groupName, chart:echarts.init(el, APP_THEME==='dark'?'amDark':'amLight')});
   });
+  updateAssignStats();
 }
 function updateAssignCharts(){
   const repAll=(D.assign&&D.assign.report)||{}, asgAll=(D.assign&&D.assign.assign)||{};
+  const grad=(r,g,b)=>({type:'linear',x:0,y:0,x2:0,y2:1,
+    colorStops:[{offset:0,color:'rgba('+r+','+g+','+b+',.26)'},{offset:1,color:'rgba('+r+','+g+','+b+',0)'}]});
   assignCharts.forEach(ac=>{
     if(!ac.chart) return;
     const g=ac.name;
     ac.chart.setOption({color:['#f58c1f','#1993ff'],
-      grid:{left:42,right:12,top:30,bottom:26},tooltip:{trigger:'axis'},
+      grid:{left:44,right:16,top:30,bottom:26},tooltip:{trigger:'axis'},
       legend:{top:2,itemWidth:9,itemHeight:9,textStyle:{fontSize:11,color:curP().axisLabel}},
       xAxis:{type:'category',data:T144,axisLabel:{interval:11,color:curP().axisLabel,fontSize:11}},yAxis:{type:'value',...AX},
       series:[
-        {name:L('assignTrend'),type:'line',smooth:true,symbol:'none',data:nBucket((asgAll[g]||{}).today,'count',144),lineStyle:{color:'#f58c1f',width:1.8}},
-        {name:L('reportTrend'),type:'line',smooth:true,symbol:'none',data:nBucket((repAll[g]||{}).today,'count',144),lineStyle:{color:'#1993ff',width:1.8}}
+        {name:L('assignTrend'),type:'line',smooth:true,symbol:'circle',showSymbol:false,symbolSize:5,
+         data:nBucket((asgAll[g]||{}).today,'count',144),lineStyle:{color:'#f58c1f',width:2},
+         itemStyle:{color:'#f58c1f'},areaStyle:{color:grad(245,140,31)}},
+        {name:L('reportTrend'),type:'line',smooth:true,symbol:'circle',showSymbol:false,symbolSize:5,
+         data:nBucket((repAll[g]||{}).today,'count',144),lineStyle:{color:'#1993ff',width:2},
+         itemStyle:{color:'#1993ff'},areaStyle:{color:grad(25,147,255)}}
       ]}, true);
   });
+  updateAssignStats();
+  buildAssignKpis();
 }
 // ---------- 告警Top5：域卡片 + 原因/站点TOP5 ----------
 function renderTop5Cards(){

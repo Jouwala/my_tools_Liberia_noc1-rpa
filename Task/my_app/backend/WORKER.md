@@ -55,7 +55,7 @@ Watchdog 进程 (python -m backend.worker_watchdog)  ── 父进程托管 work
 | MY_APP_WORKER_POLL | 2 | Worker 轮询间隔（秒） |
 | MY_APP_WORKER_PID | backend/worker.pid | PID 文件路径 |
 | MY_APP_WORKER_WATCHDOG_PID | backend/worker_watchdog.pid | 看门狗 PID 文件路径（供 stop.bat 树杀） |
-| TASK_LOG_RETENTION_DAYS | 3 | 队列历史记录保留天数（与执行日志一致） |
+| TASK_LOG_RETENTION_DAYS | 7 | 队列历史记录保留天数（与执行日志一致，2026-09-11 由 3 天放宽为 7 天） |
 
 ## 依赖
 

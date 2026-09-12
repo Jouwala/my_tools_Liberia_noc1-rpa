@@ -13,6 +13,7 @@ import {
 import { useI18n } from '../i18n';
 import { PORTAL_API } from '../config';
 import { useAuth } from '../auth/AuthContext';
+import { PasswordInput } from './PasswordInput';
 
 export const LoginView: React.FC = () => {
   const { t, lang, setLang } = useI18n();
@@ -164,14 +165,14 @@ export const LoginView: React.FC = () => {
             </label>
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="password"
+              <PasswordInput
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={t('auth.passwordPh')}
                 autoComplete="current-password"
                 required
-                className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                toggleId="login"
+                className="w-full pl-9 pr-10 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
           </div>
@@ -222,14 +223,14 @@ export const LoginView: React.FC = () => {
             </label>
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="password"
+              <PasswordInput
                 value={reqPwd}
                 onChange={(e) => setReqPwd(e.target.value)}
                 placeholder={t('ar.passwordPh')}
                 autoComplete="new-password"
                 required
-                className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                toggleId="req-pwd"
+                className="w-full pl-9 pr-10 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
           </div>
@@ -237,14 +238,14 @@ export const LoginView: React.FC = () => {
           <div>
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="password"
+              <PasswordInput
                 value={reqPwd2}
                 onChange={(e) => setReqPwd2(e.target.value)}
                 placeholder={t('ar.confirmPh')}
                 autoComplete="new-password"
                 required
-                className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                toggleId="req-pwd2"
+                className="w-full pl-9 pr-10 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
           </div>

@@ -1,0 +1,348 @@
+[2m09:24:33[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:568:4: ERROR: Expected "}" but found "{"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:568:4
+[33m  
+  [33mExpected "}" but found "{"[33m
+  566|        themeColor: 'indigo',
+  567|        status: 'online'
+  568|      {
+     |      ^
+  569|        id: 'custom-ran-cells-kpi',
+  570|        title: 'RAN Cells KPI (RAN 小区可用率达标看板)',
+  [39m
+[2m09:24:33[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:568:4: ERROR: Expected "}" but found "{"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:568:4
+[33m  
+  [33mExpected "}" but found "{"[33m
+  566|        themeColor: 'indigo',
+  567|        status: 'online'
+  568|      {
+     |      ^
+  569|        id: 'custom-ran-cells-kpi',
+  570|        title: 'RAN Cells KPI (RAN 小区可用率达标看板)',
+  [39m
+      at failureErrorWithLog (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m09:24:33[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:568:4: ERROR: Expected "}" but found "{"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:568:4
+[33m  
+  [33mExpected "}" but found "{"[33m
+  566|        themeColor: 'indigo',
+  567|        status: 'online'
+  568|      {
+     |      ^
+  569|        id: 'custom-ran-cells-kpi',
+  570|        title: 'RAN Cells KPI (RAN 小区可用率达标看板)',
+  [39m
+      at failureErrorWithLog (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m09:24:33[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:568:4: ERROR: Expected "}" but found "{"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:568:4
+[33m  
+  [33mExpected "}" but found "{"[33m
+  566|        themeColor: 'indigo',
+  567|        status: 'online'
+  568|      {
+     |      ^
+  569|        id: 'custom-ran-cells-kpi',
+  570|        title: 'RAN Cells KPI (RAN 小区可用率达标看板)',
+  [39m
+[2m09:24:33[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:568:4: ERROR: Expected "}" but found "{"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:568:4
+[33m  
+  [33mExpected "}" but found "{"[33m
+  566|        themeColor: 'indigo',
+  567|        status: 'online'
+  568|      {
+     |      ^
+  569|        id: 'custom-ran-cells-kpi',
+  570|        title: 'RAN Cells KPI (RAN 小区可用率达标看板)',
+  [39m
+      at failureErrorWithLog (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m09:24:33[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:568:4: ERROR: Expected "}" but found "{"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:568:4
+[33m  
+  [33mExpected "}" but found "{"[33m
+  566|        themeColor: 'indigo',
+  567|        status: 'online'
+  568|      {
+     |      ^
+  569|        id: 'custom-ran-cells-kpi',
+  570|        title: 'RAN Cells KPI (RAN 小区可用率达标看板)',
+  [39m
+      at failureErrorWithLog (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m09:24:33[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:568:4: ERROR: Expected "}" but found "{"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:568:4
+[33m  
+  [33mExpected "}" but found "{"[33m
+  566|        themeColor: 'indigo',
+  567|        status: 'online'
+  568|      {
+     |      ^
+  569|        id: 'custom-ran-cells-kpi',
+  570|        title: 'RAN Cells KPI (RAN 小区可用率达标看板)',
+  [39m
+      at failureErrorWithLog (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m09:27:19[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:623:4: ERROR: Unexpected "}"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:623:4
+[33m  
+  [33mUnexpected "}"[33m
+  621|        status: 'online'
+  622|      },
+  623|      },
+     |      ^
+  624|      {
+  625|        id: 'finebi-ms-contract-operation-kpis',
+  [39m
+[2m09:27:19[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:623:4: ERROR: Unexpected "}"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:623:4
+[33m  
+  [33mUnexpected "}"[33m
+  621|        status: 'online'
+  622|      },
+  623|      },
+     |      ^
+  624|      {
+  625|        id: 'finebi-ms-contract-operation-kpis',
+  [39m
+[2m09:27:19[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:623:4: ERROR: Unexpected "}"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:623:4
+[33m  
+  [33mUnexpected "}"[33m
+  621|        status: 'online'
+  622|      },
+  623|      },
+     |      ^
+  624|      {
+  625|        id: 'finebi-ms-contract-operation-kpis',
+  [39m
+      at failureErrorWithLog (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m09:27:19[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:623:4: ERROR: Unexpected "}"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:623:4
+[33m  
+  [33mUnexpected "}"[33m
+  621|        status: 'online'
+  622|      },
+  623|      },
+     |      ^
+  624|      {
+  625|        id: 'finebi-ms-contract-operation-kpis',
+  [39m
+      at failureErrorWithLog (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m09:27:19[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:623:4: ERROR: Unexpected "}"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:623:4
+[33m  
+  [33mUnexpected "}"[33m
+  621|        status: 'online'
+  622|      },
+  623|      },
+     |      ^
+  624|      {
+  625|        id: 'finebi-ms-contract-operation-kpis',
+  [39m
+      at failureErrorWithLog (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m09:27:19[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:623:4: ERROR: Unexpected "}"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:623:4
+[33m  
+  [33mUnexpected "}"[33m
+  621|        status: 'online'
+  622|      },
+  623|      },
+     |      ^
+  624|      {
+  625|        id: 'finebi-ms-contract-operation-kpis',
+  [39m
+      at failureErrorWithLog (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m09:27:19[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:623:4: ERROR: Unexpected "}"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:623:4
+[33m  
+  [33mUnexpected "}"[33m
+  621|        status: 'online'
+  622|      },
+  623|      },
+     |      ^
+  624|      {
+  625|        id: 'finebi-ms-contract-operation-kpis',
+  [39m
+      at failureErrorWithLog (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m09:27:19[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts:623:4: ERROR: Unexpected "}"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts[39m:623:4
+[33m  
+  [33mUnexpected "}"[33m
+  621|        status: 'online'
+  622|      },
+  623|      },
+     |      ^
+  624|      {
+  625|        id: 'finebi-ms-contract-operation-kpis',
+  [39m
+      at failureErrorWithLog (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:1467:15)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m09:43:42[22m [31m[1m[vite][22m[39m Cannot read properties of undefined (reading 'then')
+[2m09:43:42[22m [31m[1m[vite][22m[39m server restart failed
+(node:21156) [DEP0187] DeprecationWarning: Passing invalid argument types to fs.existsSync is deprecated
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[auth-db] 已把历史 users.json / requests.json 迁入 portal-auth.db
+[auth] 保存用户数据失败： Error: UNIQUE constraint failed: users.username
+    at file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234350-a6d60e902c323.mjs:213:16
+    at SqlitePersistence.transact (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234350-a6d60e902c323.mjs:275:7)
+    at SqlitePersistence.saveUsers (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234350-a6d60e902c323.mjs:196:10)
+    at AuthStore.persist (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234350-a6d60e902c323.mjs:618:29)
+    at AuthStore.seedAdmin (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234350-a6d60e902c323.mjs:610:10)
+    at AuthStore.ensureLoaded (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234350-a6d60e902c323.mjs:752:39)
+    at configureServer (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234350-a6d60e902c323.mjs:1147:13)
+    at _createServer (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:38815:26)
+    at async restartServer (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:39041:19)
+    at async restartServerWithUrls (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:39085:3)
+    at async handleHMRUpdate (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:39287:7)
+    at async onHMRUpdate (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:38763:7)
+    at async FSWatcher.<anonymous> (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:38800:5) {
+  code: 'ERR_SQLITE_ERROR',
+  errcode: 2067,
+  errstr: 'constraint failed'
+}
+[auth] 已创建初始管理员：用户名 admin，初始密码 AUv45pcVsump —— 首次登录会强制修改密码，请立即修改并妥善保管！
+[auth] 保存用户数据失败： Error: UNIQUE constraint failed: users.username
+    at file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234351-e4679d5c0b1c78.mjs:213:16
+    at SqlitePersistence.transact (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234351-e4679d5c0b1c78.mjs:275:7)
+    at SqlitePersistence.saveUsers (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234351-e4679d5c0b1c78.mjs:196:10)
+    at AuthStore.persist (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234351-e4679d5c0b1c78.mjs:618:29)
+    at AuthStore.seedAdmin (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234351-e4679d5c0b1c78.mjs:610:10)
+    at AuthStore.ensureLoaded (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234351-e4679d5c0b1c78.mjs:752:39)
+    at configureServer (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/.vite-temp/vite.config.ts.timestamp-1789206234351-e4679d5c0b1c78.mjs:1147:13)
+    at _createServer (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:38815:26)
+    at async restartServer (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:39041:19)
+    at async restartServerWithUrls (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:39085:3)
+    at async handleHMRUpdate (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:39287:7)
+    at async onHMRUpdate (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:38763:7)
+    at async FSWatcher.<anonymous> (file:///D:/01_RPA/liberia-noc_soc-%E6%95%B0%E6%8D%AE%E7%9C%8B%E6%9D%BF%E7%BB%9F%E4%B8%80%E9%97%A8%E6%88%B7/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:38800:5) {
+  code: 'ERR_SQLITE_ERROR',
+  errcode: 2067,
+  errstr: 'constraint failed'
+}
+[auth] 已创建初始管理员：用户名 admin，初始密码 4eYrWwFcKnYi —— 首次登录会强制修改密码，请立即修改并妥善保管！

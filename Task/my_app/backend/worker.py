@@ -257,10 +257,11 @@ def _finish(queue_id: int, success: bool, result, error: str | None):
                  json.dumps(result, ensure_ascii=False, default=str) if result is not None else None,
                  error, queue_id),
             )
+            # 2026-09-11：保留期由 3 天放宽为 7 天（一周），与 task_runner 执行日志一致
             try:
-                _retention_days = max(1, int(os.environ.get("TASK_LOG_RETENTION_DAYS", "3")))
+                _retention_days = max(1, int(os.environ.get("TASK_LOG_RETENTION_DAYS", "7")))
             except (TypeError, ValueError):
-                _retention_days = 3
+                _retention_days = 7
             # PG 无 datetime('now', '-N days')；改用 Python 计算截止时间，双模通用
             from datetime import timedelta
             _cutoff = (datetime.now() - timedelta(days=_retention_days)).isoformat()

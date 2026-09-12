@@ -818,14 +818,15 @@ def _save_task_result(result: dict):
                 result.get("error"),
                 result.get("error_trace"),
             ))
-            # 清理超过保留期的旧日志（默认 3 天，可用环境变量 TASK_LOG_RETENTION_DAYS 调整）。
+            # 清理超过保留期的旧日志（默认 7 天，可用环境变量 TASK_LOG_RETENTION_DAYS 调整）。
             # 注意：之前此处写死 -1 days（与“3天”注释不符），每日任务的失败记录一天后即被清掉，
-            # 导致隔天查看时已无失败信息。改为可配置，默认 3 天。
+            # 导致隔天查看时已无失败信息。改为可配置，默认 3 天；
+            # 2026-09-11 按运维要求放宽为 7 天（一周），仍保留 env 覆盖能力。
             try:
-                _retention_days = max(1, int(os.environ.get("TASK_LOG_RETENTION_DAYS", "3")))
+                _retention_days = max(1, int(os.environ.get("TASK_LOG_RETENTION_DAYS", "7")))
             except (TypeError, ValueError):
                 logging.getLogger(__name__).warning("[SILENT-EXCEPT] _save_task_result: exception swallowed", exc_info=True)
-                _retention_days = 3
+                _retention_days = 7
             # PG 无 datetime('now', '-N days')；改用 Python 计算截止时间，双模通用
             from datetime import timedelta
             _cutoff = (datetime.now() - timedelta(days=_retention_days)).isoformat()

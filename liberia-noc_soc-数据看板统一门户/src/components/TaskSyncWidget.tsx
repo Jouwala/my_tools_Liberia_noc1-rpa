@@ -14,7 +14,7 @@ import {
   RadioTower,
   Bot,
 } from 'lucide-react';
-import { getMyappTasksApi, getMyappHomeUrl } from '../config';
+import { getMyappTasksApi, getMyappLink } from '../config';
 import { useI18n } from '../i18n';
 
 interface ApiTaskRun {
@@ -208,22 +208,22 @@ export const TaskSyncWidget: React.FC = () => {
               className="px-2.5 py-1.5 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:hover:bg-violet-900/60 dark:text-violet-300 text-xs font-medium flex items-center gap-1 transition-colors">
               <Bot className="w-3.5 h-3.5" />{t('task.ragKnowledgeQa')}
             </a>
-            <a href={`${getMyappHomeUrl()}?page=eflow_qa`} target="_blank" rel="noopener noreferrer" title={t('task.knowledgeSearch')}
+            <a href={getMyappLink('eflow_qa')} target="_blank" rel="noopener noreferrer" title={t('task.knowledgeSearch')}
               className="px-2.5 py-1.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-700 dark:bg-cyan-950/50 dark:hover:bg-cyan-900/60 dark:text-cyan-300 text-xs font-medium flex items-center gap-1 transition-colors">
               <Search className="w-3.5 h-3.5" />{t('task.knowledgeSearch')}
             </a>
-            <a href={`${getMyappHomeUrl()}?page=eflow_qa#tt-quick-analysis`} target="_blank" rel="noopener noreferrer" title={t('task.ttQuickAnalysis')}
+            <a href={getMyappLink('eflow_qa', 'tt-quick-analysis')} target="_blank" rel="noopener noreferrer" title={t('task.ttQuickAnalysis')}
               className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 dark:text-amber-300 text-xs font-medium flex items-center gap-1 transition-colors">
               <Ticket className="w-3.5 h-3.5" />{t('task.ttQuickAnalysis')}
             </a>
-            <a href={`${getMyappHomeUrl()}?page=eflow_qa#ran-ume-alarm-analysis`} target="_blank" rel="noopener noreferrer" title={t('task.ranUmeAlarmAnalysis')}
+            <a href={getMyappLink('eflow_qa', 'ran-ume-alarm-analysis')} target="_blank" rel="noopener noreferrer" title={t('task.ranUmeAlarmAnalysis')}
               className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 dark:text-rose-300 text-xs font-medium flex items-center gap-1 transition-colors">
               <RadioTower className="w-3.5 h-3.5" />{t('task.ranUmeAlarmAnalysis')}
             </a>
           </div>
 
           <a
-            href={`${getMyappHomeUrl()}?page=email_reports`}
+            href={getMyappLink('email_reports')}
             target="_blank"
             rel="noopener noreferrer"
             className="px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium text-xs flex items-center gap-1 transition-all shadow-sm shadow-indigo-600/30"
@@ -241,7 +241,7 @@ export const TaskSyncWidget: React.FC = () => {
           </button>
 
           <a
-            href={`${getMyappHomeUrl()}?page=sync`}
+            href={getMyappLink('sync')}
             target="_blank"
             rel="noopener noreferrer"
             className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-medium text-xs flex items-center gap-1 transition-all shadow-sm shadow-teal-600/30"

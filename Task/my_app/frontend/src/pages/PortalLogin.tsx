@@ -53,11 +53,27 @@ export default function PortalLogin() {
   const [status, setStatus] = useState<Record<string, StatusInfo>>({})
   const [loading, setLoading] = useState(true)
   // client = 在访问者自己的浏览器里登录（经 nginx 反代 + 注入脚本自动填表）
-  // server = 老行为：在 my_app 服务器桌面弹浏览器登录
-  const [mode, setMode] = useState<'client' | 'server'>('client')
+  // server = 在 my_app 服务器桌面弹浏览器登录（eFlow 走直接鉴权 + CDP 种 cookie）
+  // 选择持久化：eFlow 必须直连、不适合 client 模式，用户通常固定用 server。
+  const MODE_KEY = 'myapp_portal_login_mode'
+  const [mode, setMode] = useState<'client' | 'server'>(() => {
+    try {
+      return localStorage.getItem(MODE_KEY) === 'server' ? 'server' : 'client'
+    } catch {
+      return 'client'
+    }
+  })
+  const changeMode = useCallback((v: 'client' | 'server') => {
+    setMode(v)
+    try {
+      localStorage.setItem(MODE_KEY, v)
+    } catch {
+      /* 隐私模式等场景忽略 */
+    }
+  }, [])
   const timers = useRef<Record<string, number>>({})
 
-  const showMsg = useCallback((type: 'success' | 'error' | 'info', text: string) => {
+  const showMsg = useCallback((type: 'success' | 'error' | 'info' | 'warning', text: string) => {
     message[type](text)
   }, [])
 
@@ -102,32 +118,44 @@ export default function PortalLogin() {
     timers.current[system] = id
   }, [fetchPortals])
 
+  // eFlow 必须走「直连上游」：其前端把根地址写死为 http://localhost，经同源反代后
+  // 子页面/接口请求会打到访问者本机 → "当前系统异常，稍后重试"、当前告警列与默认模板
+  // 查询失败。因此 eFlow 不经反代（也拿不到注入的填表脚本），打开后需手动登录。
+  const DIRECT_PORTALS = new Set(['eflow'])
+
   // 客户端本机登录：在访问者自己的浏览器中打开门户。
-  // eFlow 不走 my_app 反代，必须直连原始地址；其他 UME 使用独立反代端口。
+  // 非直连门户经 nginx 反代（同源），登录页会被注入 /api/portals/inject.js 自动填表。
   const handleClientLogin = useCallback((p: Portal) => {
-    const base = p.key === 'eflow'
-      ? `https://${p.host}:${p.port}`
-      : (p.proxy_prefix || '').replace('{HOST}', window.location.hostname)
-    if (p.key !== 'eflow' && p.proxy_prefix == null) {
+    const direct = DIRECT_PORTALS.has(p.key)
+    if (!direct && p.proxy_prefix == null) {
       showMsg('info', t('portal.noClient'))
       return
     }
+    const base = direct
+      ? `https://${p.host}:${p.port}`
+      : (p.proxy_prefix || '').replace('{HOST}', window.location.hostname)
     const url = `${base}${p.login_uri || ''}`
-    // UME OAuth2 门户会拒绝从 /myapp/ 带来的 Origin/Referer（3329008）。
-    // eFlow 直连原始地址，也必须用 noreferrer；它不走 nginx 代理。
-    const noReferrerPortals = new Set(['zte_ume', 'ccn_ume', 'ipran_ume', 'mw_ume', 'eflow'])
-    const features = noReferrerPortals.has(p.key) ? 'noopener,noreferrer' : 'noopener=no'
+    // UME 系门户（反代到 808x）历史上出现过 3329008 跨站拒绝，保留 noreferrer 兜底；
+    // eFlow 直连上游，同样用 noreferrer 避免门户跨站校验。
+    // 注意：noopener / noreferrer 会让 window.open 恒返回 null，无法据此判定"打开失败"。
+    const noReferrerPortals = new Set(['zte_ume', 'ccn_ume', 'ipran_ume', 'mw_ume'])
+    const features = direct || noReferrerPortals.has(p.key)
+      ? 'noreferrer,noopener=no'
+      : 'noopener=no'
     const win = window.open(url, '_blank', features)
-    if (!win) {
-      showMsg('error', t('portal.loadError'))
+    // noreferrer 隐含 noopener → 句柄恒为 null，无法据此判定失败，只在未带
+    // noreferrer 时把 null 当作"被弹窗拦截"。
+    if (!win && !features.includes('noreferrer')) {
+      showMsg('warning', t('portal.popupBlocked'))
       return
     }
-    showMsg('info', t('portal.clientOpened'))
+    showMsg('info', t(direct ? 'portal.clientOpenedDirect' : 'portal.clientOpened'))
     setStatus((prev) => ({ ...prev, [p.key]: { state: 'success', message: '' } }))
+    if (win) win.focus()
   }, [showMsg, t])
 
   const handleLogin = useCallback(async (system: string, p?: Portal) => {
-    if (mode === 'client' && p && (p.key === 'eflow' || p.proxy_prefix != null)) {
+    if (mode === 'client' && p && p.proxy_prefix != null) {
       handleClientLogin(p)
       return
     }
@@ -170,7 +198,7 @@ export default function PortalLogin() {
           </span>
           <Segmented
             value={mode}
-            onChange={(v) => setMode(v as 'client' | 'server')}
+            onChange={(v) => changeMode(v as 'client' | 'server')}
             options={[
               { value: 'client', icon: <GlobalOutlined />, label: t('portal.modeClient') },
               { value: 'server', icon: <DesktopOutlined />, label: t('portal.modeServer') },
@@ -230,6 +258,10 @@ export default function PortalLogin() {
                   {p.proxy_prefix == null ? (
                     <Tooltip title={t('portal.noClient')}>
                       <Tag color="default">{t('portal.notProxied')}</Tag>
+                    </Tooltip>
+                  ) : DIRECT_PORTALS.has(p.key) ? (
+                    <Tooltip title={t('portal.clientOpenedDirect')}>
+                      <Tag color="orange">{t('portal.direct')}</Tag>
                     </Tooltip>
                   ) : (
                     <Tag color="blue">{t('portal.modeClient')}</Tag>

@@ -539,6 +539,7 @@ register_config(ConfigResource(
         },
         "mirror_enabled": True,
         "mirror_db_path": r"\\DESKTOP-D4GF62\FineBI6.0\webapps\Python\Unified_Tools\WareHouseDashBoard\inventory.db",
+        "inventory_retention_days": 180,
     },
     schema={
         "sftp_host": {"label_zh": "SFTP 主机", "type": "str"},
@@ -555,6 +556,10 @@ register_config(ConfigResource(
         },
         "mirror_enabled": {"label_zh": "镜像写入 FineBI inventory.db", "type": "bool"},
         "mirror_db_path": {"label_zh": "镜像库路径（UNC）", "type": "str"},
+        "inventory_retention_days": {
+            "label_zh": "Inventory 历史保留天数（仓库看板趋势图的最大回溯天数）",
+            "type": "int", "min": 1, "max": 3650,
+        },
     },
-    description="SP 备件数据同步：SFTP 主机与各报表远程目录（凭据在「凭据管理」）；同步后镜像写入 FineBI WareHouseDashBoard inventory.db",
+    description="SP 备件数据同步：SFTP 主机与各报表远程目录（凭据在「凭据管理」）；同步后镜像写入 FineBI WareHouseDashBoard inventory.db；inventory_details 按保留天数清理历史快照（app.db 与镜像库同口径）",
 ))

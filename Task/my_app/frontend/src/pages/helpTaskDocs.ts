@@ -1,5 +1,5 @@
 /* ==================== 任务清单详解数据（供 Help 页「任务管理详解」使用） ====================
- * 内容依据 backend/task_registry.py 的 TASK_SPECS（44 条声明）、
+ * 内容依据 backend/task_registry.py 的 TASK_SPECS（55 条声明）、
  * backend/worker_watchdog.py 的 GROUP_TASK_MAP（worker 分组）以及
  * docs/manual/04-task-system.md、14-integrations.md、03-data-layer.md 整理。
  * 改动后端任务注册表时请同步更新本文件（字段：cron / group / script / flow / maintain）。
@@ -237,6 +237,22 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
+    id: 'cells_kpi_sync', group: 'u', cron: '50 4 * * *',
+    script: 'services/ran_cells_kpi_sync.py → run_cells_kpi_sync',
+    zh: {
+      name: 'RAN Cells KPI 同步',
+      desc: 'RAN UME 小区数据（2G/3G/4G）每日同步，聚合 Cells KPI（达标值 99.65%）物化写 ran_cells_kpi.sqlite3，只保留当月',
+      flow: ['复用小区可用性同步的 UME 获取方法拉取 GSM/UMTS/FDD 小区数据', '按小区逐条折算可用率并统计达标/未达标/无数据', '物化写 data/ran_cells_kpi.sqlite3（表 cells_kpi_daily，只保留当月）'],
+      maintain: ['口径与达标值定义在 services/ran_cells_kpi_service.py 顶部；2G 用信道折算，3G/4G 用服务时长/86400', '看板 RAN 小区 KPI 优先读物化库，缺失时回退实时聚合 ran_kpi_avalability_1day.sqlite3'],
+    },
+    en: {
+      name: 'RAN Cells KPI Sync',
+      desc: 'Daily RAN UME cell data sync (2G/3G/4G), aggregate Cells KPI (target 99.65%) into ran_cells_kpi.sqlite3, current month only',
+      flow: ['Reuse the availability sync UME fetch to pull GSM/UMTS/FDD cell data', 'Derive per-cell availability and count meeting/below/blank', 'Materialize into data/ran_cells_kpi.sqlite3 (table cells_kpi_daily, current month only)'],
+      maintain: ['Definitions live at the top of services/ran_cells_kpi_service.py; 2G uses channel ratio, 3G/4G use service time / 86400', 'The RAN Cells KPI dashboard reads the materialized DB first, falling back to live aggregation of ran_kpi_avalability_1day.sqlite3'],
+    },
+  },
+  {
     id: 'network_kpi_sync', group: 'u', cron: '0 5 * * *',
     script: 'services/ran_ume_network_kpi.py → run_network_kpi_sync',
     zh: {
@@ -274,14 +290,14 @@ export const TASK_DOCS: TaskDoc[] = [
     zh: {
       name: 'SP 备件数据同步',
       desc: '从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI WareHouseDashBoard inventory.db',
-      flow: ['登录备件 SFTP（凭据分组 sftp_sp）', '拉取 Inbound/Outbound/Inventory/OC Rule/Transfer 5 份报表', '清洗后写主库，供仓库看板与 SP 报表使用', '全部落库后镜像写入 FineBI inventory.db（UNC 路径；普通表整表替换、Inventory 只追加新行）'],
-      maintain: ['仓库看板 iframe 读的就是这批数据；报表缺失先看本任务是否成功', '镜像失败会在任务消息提示但影响不到 app.db；路径/开关在 Settings → 任务配置（mirror_db_path / mirror_enabled）'],
+      flow: ['登录备件 SFTP（凭据分组 sftp_sp）', '拉取 Inbound/Outbound/Inventory/OC Rule/Transfer 5 份报表', '清洗后写主库，供仓库看板与 SP 报表使用', '全部落库后镜像写入 FineBI inventory.db（UNC 路径；普通表整表替换、Inventory 只追加新行）', '最后按保留期清理 Inventory 历史快照（app.db 与镜像库同口径，默认 180 天）'],
+      maintain: ['仓库看板 iframe 读的就是这批数据；报表缺失先看本任务是否成功', '镜像失败会在任务消息提示但影响不到 app.db；路径/开关在 Settings → 任务配置（mirror_db_path / mirror_enabled）', 'inventory_details 只追加不覆盖，靠保留期控制体积：Settings → 任务配置 inventory_retention_days（默认 180）。清理基准取表内最新 update_date，上游断流时不会清空整表', '仓库看板「Inventory Quantity Trend」直接读取本表全部日期（无日期参数时返回全量），调小保留天数会直接缩短趋势图历史'],
     },
     en: {
       name: 'SP Spare Data Sync',
       desc: 'Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db, then mirror into FineBI WareHouseDashBoard inventory.db',
-      flow: ['Log into the spare-parts SFTP (credential group sftp_sp)', 'Fetch the 5 reports', 'Clean and write into the main DB for the warehouse board and SP reports', 'After all tables are stored, mirror into the FineBI inventory.db (UNC path; full replace for normal tables, append-only for Inventory)'],
-      maintain: ['The warehouse board iframe reads exactly this data — if reports are missing, check this task first', 'Mirror failures are reported in the task message without affecting app.db; path/toggle in Settings → Task Config (mirror_db_path / mirror_enabled)'],
+      flow: ['Log into the spare-parts SFTP (credential group sftp_sp)', 'Fetch the 5 reports', 'Clean and write into the main DB for the warehouse board and SP reports', 'After all tables are stored, mirror into the FineBI inventory.db (UNC path; full replace for normal tables, append-only for Inventory)', 'Finally prune Inventory snapshots older than the retention window (same policy for app.db and the mirror, default 180 days)'],
+      maintain: ['The warehouse board iframe reads exactly this data — if reports are missing, check this task first', 'Mirror failures are reported in the task message without affecting app.db; path/toggle in Settings → Task Config (mirror_db_path / mirror_enabled)', 'inventory_details is append-only and bounded by retention: Settings → Task Config, inventory_retention_days (default 180). The cutoff is based on the newest update_date in the table, so an upstream outage never wipes the table', 'The warehouse board\'s "Inventory Quantity Trend" reads every date in this table (no date filter = full history), so lowering the retention window directly shortens the trend chart'],
     },
   },
   {
@@ -442,6 +458,22 @@ export const TASK_DOCS: TaskDoc[] = [
       desc: 'Daily 07:15: send the same assets used by the Comsumables / SpareParts report emails (consolidated XLSX + report PNGs) to the WhatsApp group WH&SP Management',
       flow: ['Pick the consolidated Comsumables / SpareParts XLSX under data/sp_email (excludes the " - Liberia" per-site files)', 'Collect the PNGs of both reports (main chart first, Summary-Changed last)', 'Send via the Playwright mechanism in whatsapp_service to the group WH&SP Management'],
       maintain: ['Upstream is sp_report_generate (group m, 05:15) — if it fails this task finds no report files', 'No email is sent here; emails are handled by kpi_sp_consumables / kpi_sp_spareparts'],
+    },
+  },
+  {
+    id: 'sp_material_report', group: 'm', cron: '33 7 * * *',
+    script: 'services/kpi_email_report.py → run_sp_material_stock_consumption',
+    zh: {
+      name: 'SP 物料库存与消耗报表邮件',
+      desc: '每天 07:33 把 SP 物料库存与消耗汇总（同「SP 物料库存与消耗统计」页面 page=sp_material 的口径）导出为 UNIFIED_EXCEL_V1 版式 Excel 附件 + 同内容 PNG 内嵌正文并邮件发送',
+      flow: ['调用 sp_material_summary_service.get_material_summary()（inventory_details 每日快照 + outband_details 报修出库）', '生成 UNIFIED_EXCEL_V1 版式 Excel（标题 / 副标题 / 两行合并表头 / 合计行在前 / 13 列 + Info 页），与页面「导出 Excel」逐格一致', '用 Pillow 把同一张汇总表画成 PNG（手法同 SP 报表图片：蓝表头 + 橙色区块条 + 斑马纹）', '落盘 data/sp_material_report（只保留最新一份）：Excel 作附件、PNG 内嵌正文发送'],
+      maintain: ['默认 15 主送 + 2 抄送，可在系统设置 → 邮件收件人 覆盖', '汇总表无数据行时跳过发送并记为失败（多为上游 SP 数据同步未跑）', 'PNG 生成失败只告警不阻断，邮件仍带 Excel 发出'],
+    },
+    en: {
+      name: 'SP Material Stock & Consumption Report Email',
+      desc: 'Daily 07:33: export the SP material stock & consumption summary (same scope as the page=sp_material page) to a UNIFIED_EXCEL_V1 Excel attachment plus an inline PNG of the same table, and email it',
+      flow: ['Call sp_material_summary_service.get_material_summary() (inventory_details daily snapshots + outband_details repair outbound)', 'Build a UNIFIED_EXCEL_V1 workbook (title / subtitle / two-row merged header / total row above the data / 13 columns + Info sheet), cell-for-cell identical to the page "Export Excel"', 'Draw the same summary table as a PNG with Pillow (same method as the SP report images: blue header + orange section bands + zebra rows)', 'Save to data/sp_material_report (keeps only the latest): the Excel as attachment, the PNG inlined in the body'],
+      maintain: ['Default 15 To + 2 Cc, overridable in Settings → Email Recipients', 'Skips sending and reports failure when the summary has no data rows (usually the upstream SP data sync did not run)', 'If PNG rendering fails it only warns and does not block the email — the Excel is still sent'],
     },
   },
   {

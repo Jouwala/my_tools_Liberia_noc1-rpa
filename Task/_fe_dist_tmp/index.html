@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- lang / title 为首屏兜底值，挂载后由 I18nProvider 按当前语言覆写 -->
+    <title>数据洞察 MVP</title>
+    <!-- 主题首帧防闪烁：在 React 挂载前按 localStorage（用户选择）→ 系统偏好设置 data-theme。
+         与 src/theme.ts 的 THEME_STORAGE_KEY / detectMode 保持同一逻辑，避免首屏闪白/闪黑。 -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('myapp-theme')
+          var mode = saved === 'dark' || saved === 'light' ? saved
+            : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          document.documentElement.setAttribute('data-theme', mode)
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark')
+        }
+      })()
+    </script>
+    <script type="module" crossorigin src="/myapp/assets/index-CkyTNpse.js"></script>
+    <link rel="modulepreload" crossorigin href="/myapp/assets/rolldown-runtime-aKtaBQYM.js">
+    <link rel="modulepreload" crossorigin href="/myapp/assets/antd-CNFr3zXA.js">
+    <link rel="modulepreload" crossorigin href="/myapp/assets/antd-icons-D96Drme2.js">
+    <link rel="modulepreload" crossorigin href="/myapp/assets/react-vendor-Dxcxxxhu.js">
+    <link rel="modulepreload" crossorigin href="/myapp/assets/vendor-Cv7LHPUQ.js">
+    <link rel="modulepreload" crossorigin href="/myapp/assets/i18n-B7BPM7oo.js">
+    <link rel="stylesheet" crossorigin href="/myapp/assets/index-DOC6-JH9.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

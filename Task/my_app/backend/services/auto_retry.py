@@ -43,13 +43,30 @@
       AUTO_RETRY_MISS_GRACE_MIN     漏跑判定宽限分钟（默认 15，实际取
                                     max(调度间隔, 该值) 并封顶 30 分钟，给慢启动留余量
                                     又避免小时/天级任务漏跑拖满一个调度周期）
-      AUTO_RETRY_MISS_MIN_INTERVAL_MIN  调度间隔小于该分钟数的任务不做漏跑补投
-                                    （默认 30：高频任务下一期很快就到，补投无意义）
+       AUTO_RETRY_MISS_MIN_INTERVAL_MIN  调度间隔小于该分钟数的任务不做漏跑补投
+                                     （默认 30：高频任务下一期很快就到，补投无意义）
+
+   5. 探测驱动重试（2026-09-11 新增，C+ 方案）：
+      网络层失败（连接超时/拒绝）先从 error 文本提取故障目标 host:port，做 TCP 探测：
+        - 目标不可达 → 跳过本次重试（不投递，因此不产生执行记录、不消耗重试额度），
+          等下次扫描再探，实现「恢复即投」；
+        - 目标已恢复 → 立即重试，仅受恢复后冷却约束。
+      非网络层失败（鉴权/业务类）或提取不到目标 → 回退到按调度粒度计算的差异化冷却
+      （小时级约 15 分钟，天级封顶 60 分钟）。
+      环境变量：
+       AUTO_RETRY_PROBE_ENABLED       探测门控开关（默认 1）
+       AUTO_RETRY_PROBE_TIMEOUT_SEC   TCP 探测超时秒（默认 3）
+       AUTO_RETRY_PROBE_CACHE_SEC     探测结果缓存秒（默认 60，同轮多任务复用）
+       AUTO_RETRY_RECOVER_COOLDOWN_MIN  恢复后重试仍失败时的最小间隔（默认 10）
+       AUTO_RETRY_PROBE_MAX_SKIP_MIN  连续不可达超过该分钟数则强制重试一次（默认 60，
+                                      防止 host/port 提取错误导致任务被永久跳过）
 """
 from __future__ import annotations
 
 import logging
 import os
+import re
+import socket
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -80,6 +97,33 @@ MAX_PER_RUN = _env_int("AUTO_RETRY_MAX_PER_RUN", 3)
 MISS_ENABLED = os.environ.get("AUTO_RETRY_MISS_ENABLED", "1") == "1"
 MISS_GRACE_MIN = _env_int("AUTO_RETRY_MISS_GRACE_MIN", 15)
 MISS_MIN_INTERVAL_MIN = _env_int("AUTO_RETRY_MISS_MIN_INTERVAL_MIN", 30)
+
+# --- 2026-09-11 新增：探测驱动重试（C+ 方案） ---
+# 背景：旧逻辑的冷却只在「预测路径」算 next_retry_at，投递路径没有任何时间门控，
+# 真实节拍退化为扫描周期（5 分钟）。持续故障会在几分钟内烧光 2 次额度，网络恢复后
+# 反而因「已达上限」不再重试（09-11 UME 中断中 ran_ume_daily / cell_availability_sync
+# 因此丢掉当天数据）。改为：先探故障目标是否活着，活着才投，不通则跳过且不计额度。
+PROBE_ENABLED = os.environ.get("AUTO_RETRY_PROBE_ENABLED", "1") == "1"
+PROBE_TIMEOUT_SEC = _env_int("AUTO_RETRY_PROBE_TIMEOUT_SEC", 3)
+PROBE_CACHE_SEC = _env_int("AUTO_RETRY_PROBE_CACHE_SEC", 60)
+# 探测通过后重试仍失败（TCP 通但应用层未就绪）时的最小间隔，防止反复轰炸长任务
+RECOVER_COOLDOWN_MIN = _env_int("AUTO_RETRY_RECOVER_COOLDOWN_MIN", 10)
+# 安全阀：因「目标不可达」跳过累计超过该时长后，强制按冷却逻辑投一次，
+# 避免 host/port 提取错误或目标被防火墙静默丢弃时任务被永久跳过
+PROBE_MAX_SKIP_MIN = _env_int("AUTO_RETRY_PROBE_MAX_SKIP_MIN", 60)
+
+# 网络层失败特征（连接/超时类）→ 走 TCP 探测；探不通则跳过并保留重试额度
+NETWORK_ERROR_KEYS = (
+    "Max retries exceeded", "Connection timed out", "ERR_CONNECTION_TIMED_OUT",
+    "Connection refused", "ConnectionRefused", "Name or service not known",
+    "Temporary failure in name resolution", "Network is unreachable",
+    "10060", "10054", "timed out", "Timeout",
+)
+# 应用层失败特征（端口通但鉴权/业务失败）→ TCP 探测无意义，直接走冷却
+APP_ERROR_KEYS = (
+    "鉴权", "登录失败", "登录未成功", "Unauthorized", "Forbidden", "RSA",
+    "未获取到", "无可用", "未通过",
+)
 
 # 永久性失败关键字：重试无意义（甚至有害），直接放弃
 NON_RETRYABLE_KEYS = (
@@ -350,7 +394,88 @@ def _next_scan_after(dt: datetime, interval_min: int) -> datetime:
     return base
 
 
-def _mk_retry_info(will_retry, reason, next_retry_at, attempts, last_retry_at, failed_at):
+# ============ 探测驱动重试（2026-09-11）：恢复即投，故障期不烧额度 ============
+
+_HOST_PORT_PATTERNS = (
+    # requests: HTTPSConnectionPool(host='10.100.2.99', port=28001)
+    re.compile(r"host=['\"](?P<host>[^'\"]+)['\"]\s*,\s*port=(?P<port>\d+)"),
+    # Playwright: net::ERR_CONNECTION_TIMED_OUT at https://10.100.20.8:28001/...
+    re.compile(r"https?://(?P<host>[0-9A-Za-z_.\-]+):(?P<port>\d+)"),
+    # 元组形态：('10.100.2.99', 28001)
+    re.compile(r"['\"](?P<host>\d{1,3}(?:\.\d{1,3}){3})['\"]\s*,\s*(?P<port>\d+)"),
+)
+
+# {(host, port): (ts, alive)}：同一次扫描内多任务复用，避免重复 connect
+_PROBE_CACHE: dict = {}
+
+
+def _classify_error(error) -> str:
+    """把失败原因分层：network（走探测）/ app（走冷却）/ unknown。"""
+    text = error or ""
+    if any(k in text for k in APP_ERROR_KEYS):
+        return "app"
+    if any(k in text for k in NETWORK_ERROR_KEYS):
+        return "network"
+    return "unknown"
+
+
+def _extract_targets(error) -> list:
+    """从失败信息中提取 [(host, port)]，按出现顺序去重。"""
+    text = error or ""
+    out, seen = [], set()
+    for pat in _HOST_PORT_PATTERNS:
+        for m in pat.finditer(text):
+            key = (m.group("host"), int(m.group("port")))
+            if key not in seen:
+                seen.add(key)
+                out.append(key)
+    return out
+
+
+def _probe_alive(host: str, port: int) -> bool:
+    """TCP 连通性探测（带短缓存）。
+
+    只验证端口可达，不验证 TLS/鉴权：故障期绝大多数失败是网络层超时，
+    「TCP 通但应用层未就绪」的残余风险由 RECOVER_COOLDOWN_MIN 兜底。
+    """
+    now_ts = time.time()
+    hit = _PROBE_CACHE.get((host, port))
+    if hit and now_ts - hit[0] < PROBE_CACHE_SEC:
+        return hit[1]
+    ok = False
+    try:
+        with socket.create_connection((host, port), timeout=PROBE_TIMEOUT_SEC):
+            ok = True
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"探测 {host}:{port} 不可达: {e}")
+        ok = False
+    _PROBE_CACHE[(host, port)] = (now_ts, ok)
+    return ok
+
+
+def _probe_targets(targets) -> tuple:
+    """探测一组目标，返回 (是否全部可达, 不可达目标描述)。"""
+    dead = [f"{h}:{p}" for h, p in (targets or []) if not _probe_alive(h, p)]
+    return (not dead), ",".join(dead)
+
+
+def _adaptive_cooldown_min(registry, task_id, now) -> int:
+    """按调度粒度算冷却分钟数（小时级 ~15min，天级封顶 60min）。
+
+    用于「非网络层失败」或「提取不到故障目标」的回退路径：保证天级任务
+    不会像小时级那样在几分钟内耗尽重试额度。
+    """
+    task = (registry or {}).get(task_id) or {}
+    cron = task.get("current_cron") or task.get("default_cron")
+    if not cron:
+        return COOLDOWN_MIN
+    _prev, interval = _cron_prev_fire_and_interval(cron, now)
+    if not interval:
+        return COOLDOWN_MIN
+    return int(min(max(interval.total_seconds() / 60 / 4, COOLDOWN_MIN), 60))
+
+
+def _mk_retry_info(will_retry, reason, next_retry_at, attempts, last_retry_at, failed_at, probe=None):
     return {
         "will_retry": will_retry,
         "reason": reason,
@@ -360,6 +485,7 @@ def _mk_retry_info(will_retry, reason, next_retry_at, attempts, last_retry_at, f
         "attempts_left": max(0, MAX_ATTEMPTS - attempts),
         "last_retry_at": last_retry_at,
         "failed_at": failed_at,
+        "probe": probe,
     }
 
 
@@ -386,16 +512,75 @@ def _evaluate_candidate(task_id, failed_at, error, retry_attempts, last_retry_at
     err_text = error or ""
     if any(k in err_text for k in NON_RETRYABLE_KEYS):
         return _mk_retry_info(False, "永久性错误，重试无意义", None, retry_attempts, last_retry_at, failed_at)
-    # 预测下次重试：下一个扫描边界，且不早于冷却结束、不超出时效窗口
+
     last_dt = _parse_iso(last_retry_at)
-    earliest = max(now, last_dt + timedelta(minutes=COOLDOWN_MIN)) if last_dt else now
-    nxt = _next_scan_after(earliest, interval_min)
-    if nxt > fail_dt + timedelta(hours=SCAN_WINDOW_HOURS):
-        return _mk_retry_info(False, f"时效窗口已过（超过 {SCAN_WINDOW_HOURS}h），放弃重试", None, retry_attempts, last_retry_at, failed_at)
+
+    # ---- 探测门控（2026-09-11）：网络层失败先探目标，不通则跳过且不消耗额度 ----
+    if PROBE_ENABLED and _classify_error(err_text) == "network":
+        targets = _extract_targets(err_text)
+        if targets:
+            alive, dead_desc = _probe_targets(targets)
+            probe = {
+                "targets": [f"{h}:{p}" for h, p in targets],
+                "reachable": alive,
+                "dead": dead_desc or None,
+                "mode": "tcp",
+                "checked_at": now.isoformat(),
+            }
+            stuck_min = (now - fail_dt).total_seconds() / 60
+            if not alive:
+                # 安全阀：长时间探测不通（host/port 提取错误或目标静默丢包）时
+                # 强制回退到冷却逻辑投一次，避免任务被永久跳过
+                if stuck_min > PROBE_MAX_SKIP_MIN and (
+                    not last_dt or now >= last_dt + timedelta(minutes=COOLDOWN_MIN)
+                ):
+                    return _mk_retry_info(
+                        True,
+                        f"目标 {dead_desc} 连续不可达 {int(stuck_min)} 分钟"
+                        f"（超过安全阀 {PROBE_MAX_SKIP_MIN} 分钟），强制重试一次",
+                        now.isoformat(), retry_attempts, last_retry_at, failed_at, probe,
+                    )
+                return _mk_retry_info(
+                    False,
+                    f"故障目标 {dead_desc} 仍不可达，保留重试额度（已等待 {int(stuck_min)} 分钟）",
+                    None, retry_attempts, last_retry_at, failed_at, probe,
+                )
+            # 目标已恢复 → 立即重试，仅受「恢复后冷却」约束（防 TCP 通但应用未就绪）
+            if last_dt and now < last_dt + timedelta(minutes=RECOVER_COOLDOWN_MIN):
+                nxt_cool = last_dt + timedelta(minutes=RECOVER_COOLDOWN_MIN)
+                return _mk_retry_info(
+                    False,
+                    f"目标已恢复，恢复后冷却中（{RECOVER_COOLDOWN_MIN} 分钟），"
+                    f"预计 {nxt_cool:%H:%M} 重试",
+                    nxt_cool.isoformat(), retry_attempts, last_retry_at, failed_at, probe,
+                )
+            return _mk_retry_info(
+                True,
+                f"目标已恢复，立即重试（第 {retry_attempts + 1}/{MAX_ATTEMPTS} 次）",
+                now.isoformat(), retry_attempts, last_retry_at, failed_at, probe,
+            )
+
+    # ---- 回退路径：非网络层失败 / 提取不到目标 → 按调度粒度的差异化冷却 ----
+    # 2026-09-11 修复：旧实现只在预测路径算 next_retry_at，投递路径没有时间门控，
+    # 导致冷却形同虚设、所有任务节拍退化为扫描周期。此处 earliest > now 即跳过。
+    cooldown = _adaptive_cooldown_min(registry, task_id, now)
+    earliest = max(now, last_dt + timedelta(minutes=cooldown)) if last_dt else now
+    if earliest > now:
+        nxt = _next_scan_after(earliest, interval_min)
+        if nxt > fail_dt + timedelta(hours=SCAN_WINDOW_HOURS):
+            return _mk_retry_info(
+                False, f"时效窗口已过（超过 {SCAN_WINDOW_HOURS}h），放弃重试",
+                None, retry_attempts, last_retry_at, failed_at,
+            )
+        return _mk_retry_info(
+            False,
+            f"冷却中（粒度冷却 {cooldown} 分钟），预计 {nxt:%m-%d %H:%M} 重试",
+            nxt.isoformat(), retry_attempts, last_retry_at, failed_at,
+        )
     return _mk_retry_info(
         True,
         f"将在自动重试扫描中重投（第 {retry_attempts + 1}/{MAX_ATTEMPTS} 次）",
-        nxt.isoformat(),
+        now.isoformat(),
         retry_attempts,
         last_retry_at,
         failed_at,
@@ -456,6 +641,9 @@ def scan_and_retry_failed_tasks() -> dict:
         "skipped": {},
     }
 
+    # 主机聚类：同一故障目标本轮只放行一个任务，其余错峰（2026-09-11）
+    released_targets = set()
+
     for task_id, _fail_id, failed_at, error, retry_attempts, last_retry_at in rows:
         if summary["retried"] >= MAX_PER_RUN:
             summary["skipped"][task_id] = f"单次重试上限 {MAX_PER_RUN} 已达，排队待下次扫描"
@@ -488,6 +676,17 @@ def scan_and_retry_failed_tasks() -> dict:
                 continue
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[{task_id}] 运行状态检查异常: {e}")
+
+        # 主机聚类错峰：同一故障目标本轮已放行一个任务时，其余排队到下次扫描，
+        # 避免服务刚恢复就被多个长任务同时压垮（2026-09-11）
+        tgt_key = tuple((info.get("probe") or {}).get("targets") or [])
+        if tgt_key and tgt_key in released_targets:
+            summary["skipped"][task_id] = (
+                f"同故障目标 {'、'.join(tgt_key)} 本轮已放行一个任务，错峰到下次扫描"
+            )
+            continue
+        if tgt_key:
+            released_targets.add(tgt_key)
 
         resp = task_runner.run_task_async(task_id, trigger="auto_retry")
         if resp.get("accepted"):

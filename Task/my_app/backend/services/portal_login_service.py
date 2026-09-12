@@ -925,11 +925,18 @@ def _split_cookies(cookie_str: str) -> list[dict]:
     return out
 
 
-async def _cdp_set_eflow_cookies(port: int, host: str, cookie_str: str) -> int:
+async def _cdp_set_eflow_cookies(port: int, host: str, cookie_str: str,
+                                 csrf_token: str | None = None):
     """通过 CDP 连接把 eFlow 会话 cookie 种到本机 Chrome 的 eFlow 域。
 
-    返回成功种入的 cookie 数量。只启用 Network 域（不启用 Debugger 域，
-    避免触发 eFlow 的 anti-debugger 冻结页面）。
+    返回 (成功种入的 cookie 数, csrftoken 是否写入)。只启用 Network/Runtime 域
+    （不启用 Debugger 域，避免触发 eFlow 的 anti-debugger 冻结页面）。
+
+    ⚠️ 必须同时补写 localStorage.csrftoken：门户的跨站防护要求前端 JS 把
+    `forgerydefense` 响应头的值存进 localStorage.csrftoken，后续请求据此带
+    forgery 头。直接种 cookie 没有"真实登录响应"，这一步没人做 →
+    页面所有接口 403 "This request is prohibited for cross-site access"、
+    "Your session is error. Please login again."（2026-09-12 实测确诊）。
     """
     import json as _json
     import urllib.request
@@ -969,6 +976,7 @@ async def _cdp_set_eflow_cookies(port: int, host: str, cookie_str: str) -> int:
                     return data
 
         await send("Network.enable", await_resp=False)
+        await send("Runtime.enable", await_resp=False)
         await send("Security.setIgnoreCertificateErrors", {"ignore": True}, await_resp=False)
 
         domain = host  # eFlow 无独立域名，直接以 host 作为 cookie domain
@@ -984,7 +992,17 @@ async def _cdp_set_eflow_cookies(port: int, host: str, cookie_str: str) -> int:
             })
             if r.get("result", {}).get("success") is not False:
                 set_count += 1
-    return set_count
+
+        # 补写 CSRF token（门户前端从 forgerydefense 响应头取值后 JSON 序列化存盘）
+        csrf_ok = False
+        if csrf_token:
+            expr = ("localStorage.setItem('csrftoken', JSON.stringify(%s));"
+                    " localStorage.getItem('csrftoken')" % _json.dumps(csrf_token))
+            r = await send("Runtime.evaluate",
+                           {"expression": expr, "returnByValue": True})
+            val = ((r or {}).get("result", {}).get("result", {}) or {}).get("value")
+            csrf_ok = bool(val)
+    return set_count, csrf_ok
 
 
 def launch_and_login_eflow_direct(system_key: str, browser: str | None = None,
@@ -1057,10 +1075,14 @@ def launch_and_login_eflow_direct(system_key: str, browser: str | None = None,
         if not dport:
             raise RuntimeError("无法获取 Chrome 远程调试端口（浏览器可能启动失败）")
 
-        # 4) 种 cookie + 重新导航到已登录主页
-        _job_update(job_id, log=["向浏览器写入 eFlow 会话 cookie ..."])
-        set_count = asyncio.run(_cdp_set_eflow_cookies(dport, host, cookie_str))
-        _job_update(job_id, log=[f"已种入 {set_count} 个会话 cookie"])
+        # 4) 种 cookie + 补写 CSRF token + 重新导航到已登录主页
+        _job_update(job_id, log=["向浏览器写入 eFlow 会话 cookie + CSRF token ..."])
+        set_count, csrf_ok = asyncio.run(
+            _cdp_set_eflow_cookies(dport, host, cookie_str, forgery_token))
+        _job_update(job_id, log=[
+            f"已种入 {set_count} 个会话 cookie",
+            f"csrftoken 写入 localStorage：{'成功' if csrf_ok else '失败（接口可能 403）'}",
+        ])
 
         # 5) 用 CDP 重新导航到 eFlow 门户主页（此时携带会话 cookie → 直接进入已登录态）
         ok, sinfo = asyncio.run(_cdp_navigate_and_verify(
@@ -1140,18 +1162,47 @@ async def _cdp_navigate_and_verify(port: int, host: str, eport: int, spec: dict,
         success_regex = spec.get("success_regex")
         deadline = time.time() + 30
         last_url = ""
+        url_ok = False
         while time.time() < deadline:
             try:
                 r = await eval_js("(() => ({url: location.href}))()")
                 last_url = (r.get("result", {}).get("result", {}) or {}).get("value", {}).get("url", "")
                 if success_regex and re.search(success_regex, last_url):
-                    return True, f"已直接鉴权并进入 eFlow 主页 ({last_url})"
+                    url_ok = True
+                    break
                 if "login" not in last_url.lower() and "/api/oauth2" not in last_url:
-                    return True, f"已离开登录页 ({last_url})"
+                    url_ok = True
+                    break
             except Exception as e:
                 logger.warning(f"[PORTAL] eFlow 导航验证轮询出错: {e}")
             await asyncio.sleep(1.5)
-        return False, f"直接鉴权后未确认进入主页（当前 URL: {last_url}）"
+        if not url_ok:
+            return False, f"直接鉴权后未确认进入主页（当前 URL: {last_url}）"
+
+        # 关键：URL 到了主页 ≠ 会话可用。会话失效时门户会整页渲染
+        # "Your session is error. Please login again." / "prohibited for cross-site access"，
+        # 此时接口全 403，必须按页面文案判定，否则会报出假的"已登录"。
+        # （2026-09-12：仅靠 URL 判定曾把这种状态误判为成功。）
+        text = ""
+        for _ in range(5):
+            try:
+                r = await eval_js("(document.body?document.body.innerText:'').slice(0,800)")
+                text = (((r or {}).get("result", {}) or {})
+                        .get("result", {}) or {}).get("value") or ""
+            except Exception as e:
+                logger.warning(f"[PORTAL] eFlow 页面文案探针出错: {e}")
+            low = text.lower()
+            if "session is error" in low or "cross-site" in low:
+                await asyncio.sleep(2)
+                continue
+            if text.strip():
+                break
+            await asyncio.sleep(1.5)
+
+        low = text.lower()
+        if "session is error" in low or "cross-site" in low:
+            return False, (f"页面已打开但会话被拒（{text.strip().replace(chr(10), ' ')[:90]}）: {last_url}")
+        return True, f"已直接鉴权并进入 eFlow 主页 ({last_url})｜页面文案探针通过"
 
 
 def _keep_alive(system_key, proc, profile_dir=None):

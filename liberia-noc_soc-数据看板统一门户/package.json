@@ -4,8 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/start-wa-service.mjs",
     "dev": "vite --port=9267 --host=0.0.0.0",
     "build": "vite build",
+    "prepreview": "node scripts/start-wa-service.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

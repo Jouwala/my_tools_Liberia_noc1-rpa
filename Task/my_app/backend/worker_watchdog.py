@@ -38,6 +38,14 @@ except Exception:  # pragma: no cover - 兼容非 -m 方式直接执行
 
 # 项目根目录（backend 的父目录）
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# 2026-09-11：日志不再把句柄交给子进程继承，改由父进程 pipe 泵 + 按大小轮转
+# （详见 backend/log_writer.py 的模块说明）。
+try:
+    from backend.log_writer import attach_rotating_output
+except ImportError:  # pragma: no cover - 兼容非 -m 方式直接执行
+    sys.path.insert(0, str(PROJECT_ROOT))
+    from backend.log_writer import attach_rotating_output
 BACKEND_DIR = PROJECT_ROOT / "backend"
 
 PID_FILE = Path(os.environ.get(
@@ -46,8 +54,11 @@ PID_FILE = Path(os.environ.get(
 ))
 LOG_DIR = PROJECT_ROOT / "log"
 # default（未分组）组沿用的旧文件名；分组 worker 各写 worker_runtime_<group>.log
-WORKER_LOG = LOG_DIR / "worker_runtime.log"
-WATCHDOG_LOG = LOG_DIR / "worker_watchdog.log"
+# 2026-09-11：文件名加启动日期，配合 log_cleanup 定时任务做 7 天保留。
+# Windows 下被进程占用的文件无法被外部重命名/删除，只能在写入方按日期分文件。
+_LOG_DATE = datetime.now().strftime("%Y%m%d")
+WORKER_LOG = LOG_DIR / f"worker_runtime_{_LOG_DATE}.log"
+WATCHDOG_LOG = LOG_DIR / f"worker_watchdog_{_LOG_DATE}.log"
 
 
 def worker_log_path(group: str) -> Path:
@@ -67,7 +78,7 @@ def worker_log_path(group: str) -> Path:
     if not g or g == "default":
         return WORKER_LOG
     safe = "".join(ch for ch in g if ch.isalnum() or ch in "-_") or "default"
-    return LOG_DIR / f"worker_runtime_{safe}.log"
+    return LOG_DIR / f"worker_runtime_{safe}_{_LOG_DATE}.log"
 
 POLL_INTERVAL = 2.0        # 子进程状态轮询间隔（秒）
 CRASH_THRESHOLD = 10.0     # 子进程存活短于此值（秒）视为异常崩溃
@@ -81,7 +92,13 @@ STARTUP_FAIL_LIMIT = 10    # 连续快速崩溃达到此次数则放弃并告警
 GROUP_TASK_MAP = {
     "u": (  # UME 192.168.170.2 单账号会话：必须串行
         "ran_ume_daily,main_kpi_sync,cell_availability_sync,network_kpi_sync,packet_loss_sync,"
-        "packet_loss_email,battery_kpi_sync,ipran_kpi_sync,cm_data_sync"),
+        "packet_loss_email,battery_kpi_sync,ipran_kpi_sync,cm_data_sync,"
+        # cells_kpi_sync 2026-09-11 补录：该任务直接调用 ran_cell_availability_sync 的
+        # run_cell_availability_sync()（同一 UME 单账号会话 + 同一份原始库
+        # data/ran_kpi_avalability_1day.sqlite3），必须与 cell_availability_sync 同组串行。
+        # 2026-09-11 10:48 注册任务时漏了本步骤 → 无 worker 认领，队列 pending 卡死
+        # （新任务必须显式分组，同 sp_material_sync / log_cleanup 的教训）
+        "cells_kpi_sync"),
     "n": (  # 网管 / eFlow API / 远程系统：各自独立但保守同组
         "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,eflow_tt_rules_check,"
         "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync,mw_ume_kpi_sync,mw_ume_kpi_sync_rt,"
@@ -114,9 +131,16 @@ GROUP_TASK_MAP = {
         # sp_whatsapp_report 2026-09-09 补录：Comsumables&SpareParts 报表 WhatsApp 发送（07:15），
         # 新任务显式分组防 pending 卡死（同 whatsapp_send_ext / sp_email_details 教训）
         "sp_whatsapp_report,"
+        # sp_material_report 2026-09-11 补录：SP 物料库存与消耗报表邮件（07:33），
+        # 只读本地/PG 数据 + EWS 发信，内务轻任务，归 m 组。
+        # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
+        "sp_material_report,"
         # finebi_report_sync/pg_to_sqlite_sync：注册表中存在但此前未分组，
         # 2026-08-25 分组模式启用后无任何 worker 认领，队列 pending 卡死断档
-        "finebi_report_sync,pg_to_sqlite_sync"),
+        "finebi_report_sync,pg_to_sqlite_sync,"
+        # log_cleanup 2026-09-11 补录：日志文件清理（每天 03:17），内务轻任务。
+        # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
+        "log_cleanup"),
     "c": (  # CN EMS (10.100.2.240) 独立会话：缓存同步与日聚合共享 _pmcache/daily_raw.json，
         # 同组串行保证互斥（ems_kpi_cache_sync 每15分钟 + ems_kpi_daily 每天00:20）
         "ems_kpi_cache_sync,ems_kpi_daily"),
@@ -197,7 +221,6 @@ def _spawn_worker(group: str):
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     log_path = worker_log_path(group)
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_fh = open(log_path, "ab", buffering=0)
     env = os.environ.copy()
     # 关键：worker 日志流是 charmap（Windows 非 tty 文件默认），中文日志会 UnicodeEncodeError
     # 导致截图等链路被静默打断。强制 UTF-8（与 backend/main.py 的 reconfigure 一致）。
@@ -232,16 +255,13 @@ def _spawn_worker(group: str):
         [sys.executable, "-m", "backend.worker"],
         cwd=str(PROJECT_ROOT),
         env=env,
-        stdout=log_fh,
-        stderr=log_fh,
+        # stdout/stderr 由父进程接管（不再是继承的文件句柄），日志写满
+        # LOG_ROTATE_MAX_MB（默认 100MB）后自动切 _pN 分片，无需重启 worker。
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         creationflags=creationflags,
     )
-    # 子进程已持有自己的句柄副本；父进程必须关掉本份，否则每次重建 worker 都泄漏一个
-    # 文件句柄（此前 4 组 × 每次重启都漏，长期运行句柄数只增不减）。
-    try:
-        log_fh.close()
-    except Exception:
-        pass
+    attach_rotating_output(proc, log_path, name=f"worker-{group}")
     _children[group] = proc
     _spawn_time[group] = time.time()
     _exit_marked.discard(group)

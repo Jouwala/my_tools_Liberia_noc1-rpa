@@ -297,18 +297,29 @@ function RelAlarmTabs({ t, isDark, isMobile, border, rel }: {
                 const g = agg[key] || (agg[key] = { codename: cn, count: 0, orig: !!n.is_ume_orig, rel: n.relationflag })
                 g.count++
               })
-              const isOrig = Object.values(agg)[0]?.orig
+              const comps = Object.values(agg).filter(g => !g.orig)
+              const oris = Object.values(agg).filter(g => g.orig)
               return (
-                <div key={ds} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 2 }}>
-                  <Text type="secondary" style={{ fontSize: 12, width: isMobile ? undefined : 64, flexShrink: 0 }}>
-                    {d === 0 ? t('qa.tt.umeRelRoot') : (isOrig ? t('qa.tt.umeRelOrig') : t('qa.tt.umeRelCompress'))}
-                    {d > 0 ? ' ↳' : ''}
+                <div key={ds} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 3 }}>
+                  <Text type="secondary" style={{ fontSize: 12, width: isMobile ? undefined : 64, flexShrink: 0, paddingTop: 1 }}>
+                    {d === 0 ? t('qa.tt.umeRelRoot') : '↳'}
                   </Text>
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {Object.values(agg).map((g, i) => (
-                      <Tag key={i} color={g.orig ? 'green' : 'cyan'} style={{ fontSize: 11, margin: 0 }}>
-                        {g.codename}{g.count > 1 ? ` ×${g.count}` : ''}
-                      </Tag>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {!!comps.length && (
+                      <Text type="secondary" style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b', marginRight: 2 }}>
+                        {d > 0 ? t('qa.tt.umeRelCompress') : ''}
+                      </Text>
+                    )}
+                    {comps.map((g, i) => (
+                      <Tag key={`c${i}`} color="cyan" style={{ fontSize: 11, margin: 0 }}>{g.codename}{g.count > 1 ? ` ×${g.count}` : ''}</Tag>
+                    ))}
+                    {!!oris.length && (
+                      <Text type="secondary" style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b', marginLeft: 6, marginRight: 2 }}>
+                        {t('qa.tt.umeRelOrig')}
+                      </Text>
+                    )}
+                    {oris.map((g, i) => (
+                      <Tag key={`o${i}`} color="green" style={{ fontSize: 11, margin: 0 }}>{g.codename}{g.count > 1 ? ` ×${g.count}` : ''}</Tag>
                     ))}
                   </div>
                 </div>
@@ -996,10 +1007,11 @@ export default function EflowQa() {
                     </div>
                   )}
 
-                  {/* RAN UME 处理建议：后端按 TT → 告警 AID → UME 自动查询 */}
+                  {/* RAN UME 处理建议：有链路时整块横向页签（含主建议）；无链路才直出长文本 */}
                   {(() => {
                     const ume = ttUme?.ume
                     const fullKey = ume?.ok ? (ume?.alarm?.alarm_id || ttAid) : ttAid
+                    const hasRel = !ttUmeLoading && ttUme?.related_ume?.items?.length
                     return (
                       <div style={{ ...cardStyle, background: isDark ? 'rgba(19,194,194,0.08)' : '#f4fbfa' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
@@ -1017,41 +1029,45 @@ export default function EflowQa() {
                             <Spin size="small" />{t('qa.tt.umeLoading')}
                           </div>
                         )}
-                        {!ttUmeLoading && (ttUmeFailed || (ttUme && !ume?.ok)) && (
+                        {!ttUmeLoading && (ttUmeFailed || (ttUme && !ume?.ok)) && !hasRel && (
                           <Alert type="info" showIcon style={{ marginTop: 4 }}
                             message={ttUme?.error || ume?.error || t('qa.tt.umeFailed')} />
                         )}
-                        {!ttUmeLoading && ume?.ok && ume?.alarm && (
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6, alignItems: 'center' }}>
-                            {ume.alarm.title_en && <Tag color="geekblue">{ume.alarm.title_en}</Tag>}
-                            {ume.alarm.alarmcode != null && <Tag>{ume.alarm.alarmcode}</Tag>}
-                            {ume.alarm.severity && <Tag color={severityColor(ume.alarm.severity)}>{ume.alarm.severity}</Tag>}
-                            {ume.alarm.raised_time && <Text type="secondary" style={{ fontSize: 12 }}>{ume.alarm.raised_time}</Text>}
-                            {ume.elapsed_sec != null && <Text type="secondary" style={{ fontSize: 12 }}>{ume.elapsed_sec}s</Text>}
-                          </div>
-                        )}
-                        {!ttUmeLoading && ume?.ok && (
-                          ume?.suggestion?.default || ume?.suggestion?.customer ? (
-                            <div>
-                              {!!ume.suggestion.customer && (
-                                <div style={{ marginBottom: 8 }}>
-                                  <Text type="secondary" style={{ fontSize: 12 }}>customermaintenancename</Text>
-                                  <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '4px 0 0', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.75 }}>{ume.suggestion.customer}</pre>
-                                </div>
-                              )}
-                              {!!ume.suggestion.default && (
+                        {hasRel ? (
+                          <RelAlarmTabs t={t} isDark={isDark} isMobile={isMobile} border={cardStyle.border} rel={ttUme?.related_ume} />
+                        ) : (
+                          <>
+                            {!ttUmeLoading && ume?.ok && ume?.alarm && (
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6, alignItems: 'center' }}>
+                                {ume.alarm.title_en && <Tag color="geekblue">{ume.alarm.title_en}</Tag>}
+                                {ume.alarm.alarmcode != null && <Tag>{ume.alarm.alarmcode}</Tag>}
+                                {ume.alarm.severity && <Tag color={severityColor(ume.alarm.severity)}>{ume.alarm.severity}</Tag>}
+                                {ume.alarm.raised_time && <Text type="secondary" style={{ fontSize: 12 }}>{ume.alarm.raised_time}</Text>}
+                                {ume.elapsed_sec != null && <Text type="secondary" style={{ fontSize: 12 }}>{ume.elapsed_sec}s</Text>}
+                              </div>
+                            )}
+                            {!ttUmeLoading && ume?.ok && (
+                              ume?.suggestion?.default || ume?.suggestion?.customer ? (
                                 <div>
-                                  <Text type="secondary" style={{ fontSize: 12 }}>defaultmaintenancename</Text>
-                                  <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '4px 0 0', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.75 }}>{ume.suggestion.default}</pre>
+                                  {!!ume.suggestion.customer && (
+                                    <div style={{ marginBottom: 8 }}>
+                                      <Text type="secondary" style={{ fontSize: 12 }}>customermaintenancename</Text>
+                                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '4px 0 0', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.6 }}>{ume.suggestion.customer}</pre>
+                                    </div>
+                                  )}
+                                  {!!ume.suggestion.default && (
+                                    <div>
+                                      <Text type="secondary" style={{ fontSize: 12 }}>defaultmaintenancename</Text>
+                                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '4px 0 0', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.6 }}>{ume.suggestion.default}</pre>
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
-                          ) : (
-                            <Alert type="info" showIcon message={ume?.suggestion_error || t('qa.ume.noSuggestion')} />
-                          )
+                              ) : (
+                                <Alert type="info" showIcon message={ume?.suggestion_error || t('qa.ume.noSuggestion')} />
+                              )
+                            )}
+                          </>
                         )}
-                        {/* 关系链全量下级告警建议（推荐） */}
-                        <RelAlarmTabs t={t} isDark={isDark} isMobile={isMobile} border={cardStyle.border} rel={ttUme?.related_ume} />
                       </div>
                     )
                   })()}

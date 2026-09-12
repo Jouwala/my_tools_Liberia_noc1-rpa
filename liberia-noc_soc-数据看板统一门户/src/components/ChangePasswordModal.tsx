@@ -3,6 +3,7 @@ import { X, KeyRound, Save, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { PORTAL_API } from '../config';
 import { useAuth, type AuthUser } from '../auth/AuthContext';
+import { PasswordInput } from './PasswordInput';
 
 interface ChangePasswordModalProps {
   isOpen: boolean;
@@ -140,13 +141,13 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
               {t('pwd.current')}
             </label>
-            <input
-              type="password"
+            <PasswordInput
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               autoComplete="current-password"
               required
-              className={inputClass}
+              toggleId="pwd-current"
+              className={`${inputClass} pr-10`}
             />
           </div>
 
@@ -154,13 +155,13 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
               {t('pwd.new')}
             </label>
-            <input
-              type="password"
+            <PasswordInput
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               autoComplete="new-password"
               required
-              className={inputClass}
+              toggleId="pwd-new"
+              className={`${inputClass} pr-10`}
             />
           </div>
 
@@ -168,13 +169,13 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
               {t('pwd.confirm')}
             </label>
-            <input
-              type="password"
+            <PasswordInput
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               autoComplete="new-password"
               required
-              className={inputClass}
+              toggleId="pwd-confirm"
+              className={`${inputClass} pr-10`}
             />
           </div>
 

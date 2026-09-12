@@ -27,13 +27,25 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BACKEND_DIR = PROJECT_ROOT / "backend"
 
+# 2026-09-11：日志不再把句柄交给子进程继承，改由父进程 pipe 泵 + 按大小轮转
+# （详见 backend/log_writer.py 的模块说明）。
+try:
+    from backend.log_writer import attach_rotating_output
+except ImportError:  # 以脚本方式直接启动时 PROJECT_ROOT 可能不在 sys.path
+    sys.path.insert(0, str(PROJECT_ROOT))
+    from backend.log_writer import attach_rotating_output
+
 PID_FILE = Path(os.environ.get(
     "MY_APP_BACKEND_WATCHDOG_PID",
     str(BACKEND_DIR / "backend_watchdog.pid")
 ))
 LOG_DIR = PROJECT_ROOT / "log"
-BACKEND_LOG = LOG_DIR / "backend_runtime.log"
-WATCHDOG_LOG = LOG_DIR / "backend_watchdog.log"
+# 2026-09-11：日志文件名带启动日期，配合 log_cleanup 定时任务做 7 天保留。
+# Windows 下被进程占用的文件无法被外部重命名/删除，因此必须在「写入方」按日期分文件
+# （此前 backend_runtime.log 等 4 个文件合计 466MB 且无大小上限，只能靠重启截断）。
+_LOG_DATE = datetime.now().strftime("%Y%m%d")
+BACKEND_LOG = LOG_DIR / f"backend_runtime_{_LOG_DATE}.log"
+WATCHDOG_LOG = LOG_DIR / f"backend_watchdog_{_LOG_DATE}.log"
 
 PORT = int(os.environ.get("MY_APP_BACKEND_PORT", "7038"))
 
@@ -140,7 +152,6 @@ def _spawn_backend():
     与 start.bat 保持一致：MY_APP_TASK_QUEUE=1，并清除 WorkBuddy 安全删除守卫变量。"""
     global _child, _spawn_time
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-    log_fh = open(BACKEND_LOG, "ab", buffering=0)
     env = os.environ.copy()
     env["MY_APP_TASK_QUEUE"] = "1"
     # eFlow API 超时加固：默认连 10s / 读 30s / 重试 2 次（可由外部环境变量覆盖）。
@@ -160,10 +171,13 @@ def _spawn_backend():
          "--proxy-headers"],
         cwd=str(PROJECT_ROOT),
         env=env,
-        stdout=log_fh,
-        stderr=log_fh,
+        # stdout/stderr 由父进程接管（不再是继承的文件句柄），日志写满
+        # LOG_ROTATE_MAX_MB 后自动切 _pN 分片，无需重启 uvicorn。
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         creationflags=creationflags,
     )
+    attach_rotating_output(proc, BACKEND_LOG, name="backend")
     _child = proc
     _spawn_time = time.time()
     logger.info(f"已拉起 backend: pid={proc.pid} (port={PORT}, task_queue=1)")
@@ -234,8 +248,25 @@ def _loop_once() -> bool:
         return True
     # 2) backend 存活：端口探活（检测"进程在但端口没起来"的挂死）
     if _port_listening(PORT):
-        _crashes = 0
-        _backoff = 0.0
+        # 2026-09-11 修复（端口被孤儿进程占用 → 无限重拉且永不熔断）：
+        # 原实现是「端口通就把 _crashes 归零」，无法区分端口究竟是谁在监听 ——
+        # 是本 watchdog 拉起的子进程，还是一个不受管理的孤儿 uvicorn。
+        # 后者的实际表现（2026-09-11 实测）：旧实例独占 7038，本 watchdog 的子进程
+        # 每次绑定失败、约 4s 即以 exit_code=3 退出；但端口探活始终成功，
+        # _crashes 被反复清零，STARTUP_FAIL_LIMIT(10) 永远达不到 ——
+        # 单日无效拉起 1500+ 次、日志持续膨胀；又因 watchdog 心跳一直新鲜，
+        # start_hidden.ps1 的 -Force 清理端口占用者分支永不执行，形成自愈死锁。
+        # 修复：只有子进程已稳定存活 >= CRASH_THRESHOLD，才认定端口确由自己托管。
+        lived = time.time() - _spawn_time
+        if lived >= CRASH_THRESHOLD:
+            _crashes = 0
+            _backoff = 0.0
+        else:
+            logger.warning(
+                f"端口 {PORT} 已在监听，但本 watchdog 拉起的子进程仅存活 {lived:.1f}s"
+                f"（< {CRASH_THRESHOLD:.0f}s）：端口疑似被不受管理的孤儿进程占用，"
+                f"本次不计为健康（不清除崩溃计数，当前 {_crashes} 次）"
+            )
     else:
         no_port_for = time.time() - _spawn_time
         if no_port_for > STARTUP_GRACE:

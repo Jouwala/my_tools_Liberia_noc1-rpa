@@ -248,6 +248,15 @@ TASK_SPECS = [
          description_en="RAN UME cell availability day-granularity KPI sync (FDD/UMTS/GSM/TDD), write ran_kpi_avalability_1day.sqlite3 + FTP upload",
          default_cron="30 4 * * *", category="availability"),
 
+    # 9c. RAN 2G/3G/4G Cells KPI 同步（每天 04:50，紧跟小区可用性同步）
+    #     复用 ran_cell_availability_sync 的 RAN_UME 小区数据获取方法，聚合当月每日
+    #     Cells KPI（Total/Meeting/Below/Blank/%/Availability）物化到 ran_cells_kpi.sqlite3。
+    dict(task_id="cells_kpi_sync", name="RAN Cells KPI 同步", name_en="RAN Cells KPI Sync",
+         loader=("backend.services.ran_cells_kpi_sync", "run_cells_kpi_sync"),
+         description="RAN UME 小区数据（2G/3G/4G）每日同步，聚合 Cells KPI（达标值 99.65%）物化写 ran_cells_kpi.sqlite3，只保留当月",
+         description_en="Daily RAN UME cell data sync (2G/3G/4G), aggregate Cells KPI (target 99.65%) into ran_cells_kpi.sqlite3, current month only",
+         default_cron="50 4 * * *", category="availability"),
+
     # 10. RAN UME Network KPI（Zeenshan）同步（每天凌晨5点）
     dict(task_id="network_kpi_sync", name="RAN Network KPI 同步", name_en="RAN Network KPI Sync",
          loader=("backend.services.ran_ume_network_kpi", "run_network_kpi_sync"),
@@ -331,6 +340,16 @@ TASK_SPECS = [
          description="每天 07:00 把 data/sp_email/data 下 4 份备件明细（inventory/inband/outband/transfer）合并为一个 Excel（sheet: Inventory/Inbound/Outbound/Transfer），附件名与主题携带时间戳发送；主送 ansah.boadu@zte.com.cn，抄送 dong.xinmin@zte.com.cn（收件人可在 Settings → Email Recipient Settings 覆盖）",
          description_en="Daily 07:00: merge the 4 spare-part detail files (inventory/inband/outband/transfer) under data/sp_email/data into one Excel (sheets: Inventory/Inbound/Outbound/Transfer) with a timestamped filename and subject; to ansah.boadu@zte.com.cn, cc dong.xinmin@zte.com.cn (recipients editable under Settings → Email Recipient Settings)",
          default_cron="0 7 * * *", category="kpi_email"),
+
+    # 19g. SP 物料库存与消耗报表邮件（每天 07:33）：2026-09-11 新增。
+    #      数据与页面 myapp/?page=sp_material 同源（sp_material_summary_service 读
+    #      inventory_details 快照 + outband_details），导出两行表头 Excel（13 列）后作附件发送。
+    dict(task_id="sp_material_report", name="SP 物料库存与消耗报表邮件",
+         name_en="SP Material Stock & Consumption Report Email",
+         loader=("backend.services.kpi_email_report", "run_sp_material_stock_consumption"),
+         description="每天 07:33 把 SP 物料库存与消耗汇总（同 page=sp_material 页面口径）导出为 UNIFIED_EXCEL_V1 版式 Excel 附件（SP_Material_Summary_<当前快照>.xlsx）+ 同内容 PNG 内嵌正文并邮件发送；默认 15 主送 + 2 抄送（收件人可在 Settings → 邮件收件人 覆盖）",
+         description_en="Daily 07:33: export the SP material stock & consumption summary (same scope as page=sp_material) to a UNIFIED_EXCEL_V1 Excel attachment (SP_Material_Summary_<snapshot>.xlsx) plus an inline PNG of the same table, and email it; default 15 To + 2 Cc (recipients editable under Settings → Email Recipients)",
+         default_cron="33 7 * * *", category="kpi_email"),
 
     # 19d. SP 在线未关闭单报表生成（每天 06:00）：基于最新明细生成 sp_online 的 PNG+XLSX，供 06:20 发送
     dict(task_id="sp_online_report_generate", name="SP 在线未关闭单报表生成", name_en="SP Online Open Tickets Report Generate",
@@ -533,6 +552,17 @@ TASK_SPECS = [
          description="每 3 天 23:59 从 eFlow config-center 拉取全部规则（query filter=\"\"，推单/升级/分组/自动关闭等 28 种类型），逐条合并 detail，导出 backend/services/eflow_rules/eflow_push_rules.xlsx（Push_Rules + Rule_Type_Summary 两个 Sheet）",
          description_en="Every 3 days at 23:59: pull all rules from eFlow config-center (query filter=\"\", 28 rule types incl. push/level/group/auto-close), merge detail per rule into backend/services/eflow_rules/eflow_push_rules.xlsx (sheets Push_Rules + Rule_Type_Summary)",
          default_cron="59 23 */3 * *", category="eflow"),
+
+    # 39. 日志文件清理（每天 03:17）：2026-09-11 新增。log/ 下 runtime 日志此前由各 watchdog
+    #     以 open(...,"ab") 追加且把句柄交给子进程继承 —— Windows 下被占用的文件无法轮转，
+    #     单文件曾涨到 177MB（合计 466MB）。已改为父进程 pipe 泵 + 单文件超 LOG_ROTATE_MAX_MB
+    #     （默认 100MB）自动切 _pN 分片（见 backend/log_writer.py）。本任务负责把已无进程
+    #     写入的旧命名日志补日期后缀，并删除 mtime 超过 7 天的 log/*.log（含分片）。
+    dict(task_id="log_cleanup", name="日志文件清理", name_en="Log Files Cleanup",
+         loader=("backend.services.log_cleanup", "run_log_cleanup"),
+         description="清理 my_app/log 下超过保留期（默认7天）的日志文件，并把已无进程写入的旧命名日志补上日期后缀；与各 watchdog 按日期命名配合实现滚动保留",
+         description_en="Purge log files older than retention (default 7 days) under my_app/log; rename legacy no-longer-written logs with a date suffix",
+         default_cron="17 3 * * *", category="general"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========

@@ -79,8 +79,24 @@ function Start-Hidden {
     param($exe, $argList, $logName)
     $log = Join-Path $logDir $logName
     $err = "$log.err"
-    Start-Process -FilePath $exe -ArgumentList $argList -WorkingDirectory $base `
-        -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError $err
+    try {
+        Start-Process -FilePath $exe -ArgumentList $argList -WorkingDirectory $base `
+            -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError $err -ErrorAction Stop
+    } catch {
+        # 2026-09-11: Windows PowerShell 5.1 的已知缺陷 —— 当环境里存在只有大小写不同的
+        # 两个变量（例如 http_proxy 与 HTTP_PROXY，代理设置或 shell profile 都可能留下），
+        # Start-Process -RedirectStandardOutput 会抛
+        #   "Item has already been added. Key in dictionary: 'http_proxy'"。
+        # 旧代码没有 try/catch，异常直接冒泡，于是「服务根本没被启动」却只表现为
+        # 后面 Wait-Port 超时（或更糟：watchdog 心跳正常时被当成一切正常）。
+        # 去掉小写副本即可绕过，对本地服务无副作用。
+        foreach ($k in @('http_proxy', 'https_proxy', 'no_proxy', 'all_proxy')) {
+            [System.Environment]::SetEnvironmentVariable($k, $null)
+        }
+        Start-Process -FilePath $exe -ArgumentList $argList -WorkingDirectory $base `
+            -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError $err
+        Add-Report '[*] Note: dropped duplicate lower-case proxy env vars to work around a PowerShell 5.1 Start-Process bug.'
+    }
 }
 
 # ---------- Python detection (pythonw preferred; fallback to local venv) ----------
@@ -159,9 +175,37 @@ function Ensure-BackendWatchdog {
     if (Test-PortListening 7038) {
         $owner = (Get-NetTCPConnection -LocalPort 7038 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
         if ($Force) {
-            Add-Report ("[WARN] Port 7038 occupied by non-managed process pid={0}, -Force killed and handing over to watchdog" -f $owner)
+            Add-Report ("[WARN] Port 7038 occupied by non-managed process pid={0}, -Force killing and handing over to watchdog" -f $owner)
             Stop-PidForce $owner
             $script:warnCount++
+            # 2026-09-11 修复（"假 OK" 缺陷）：
+            # Stop-PidForce 里 `taskkill /PID x /T /F 2>$null` 会吞掉失败输出，而旧逻辑紧接着
+            # 只判断「端口是否在监听」——若占用者因**权限不足**没被杀掉，端口会一直在监听，
+            # 随后的 Wait-Port 立刻返回 true，于是把「杀失败」误报成
+            # `[OK] backend_watchdog started, port 7038 listening`。
+            # 实测后果（2026-09-11 12:02 那一轮）：巡检报 OK，但新子进程每次都
+            # `已注册 54 个定时任务` → `Application startup complete` →
+            # `ERROR [Errno 10048] bind 0.0.0.0:7038` → 存活 4s 以 exit_code=3 退出，
+            # 7038 上跑的仍是旧代码，故障被掩盖了整整一天。
+            # 修复：杀完后**显式复核占用者是否真的消失**；仍是同一 pid 则如实报 FAIL 并
+            # 放弃本轮拉起（否则只会再造一个抢不到端口的子进程并刷日志）。
+            # 放弃拉起的代价：孤儿进程一旦消失，恢复要等下一次巡检（≤5 分钟）。
+            # 这是有意的取舍——被卡住的端口必须人工介入，跑一个永远绑不上端口的
+            # watchdog 只会持续制造噪音与无效子进程，收益为零。
+            $still = (Get-NetTCPConnection -LocalPort 7038 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
+            if ($still -and ([int]$still -eq [int]$owner)) {
+                Add-Report ("[FAIL] Port 7038 still held by pid={0} after -Force kill: taskkill was denied (insufficient privilege)." -f $owner)
+                Add-Report '       Known case: an orphan uvicorn (started by a watchdog that has since exited) owns 7038,'
+                Add-Report '       so every new backend starts fine but fails to bind. This task cannot fix it.'
+                Add-Report '       ACTION: run stop.bat on the server (it retries with elevation), then start.bat.'
+                $script:failCount++
+                return $false
+            }
+            if ($still) {
+                Add-Report ("[WARN] Port 7038 re-occupied by another pid={0} after killing pid={1} (possible race)" -f $still, $owner)
+            } else {
+                Add-Report ("[OK] Port 7038 released (pid={0} terminated)" -f $owner)
+            }
         } else {
             Add-Report ("[WARN] Port 7038 occupied by non-managed process pid={0}: backend has no crash guardian, tasks not in queue!" -f $owner)
             Add-Report '       Run stop.bat first, or re-run this script with -Force parameter'
@@ -255,39 +299,12 @@ function Ensure-Frontend {
 }
 $frontendOk = Ensure-Frontend
 
-# ---------- 4) WhatsApp analysis service (9268, external project liberia-noc_soc portal) ----------
-Add-Report "----- 4) WhatsApp analysis (9268) -----"
-function Ensure-WhatsAppAnalysis {
-    if (Test-PortListening 9268) {
-        Add-Report '[OK] WhatsApp analysis service already running (port 9268 listening)'
-        return $true
-    }
-    $waDir = 'D:\01_RPA\liberia-noc_soc-数据看板统一门户\scripts\whatsapp_analysis'
-    if (-not (Test-Path $waDir)) {
-        Add-Report ("[WARN] WhatsApp analysis directory not found: {0}, skipped" -f $waDir)
-        $script:warnCount++
-        return $true
-    }
-    $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
-    if (-not $npm) { $npm = Get-Command npm -ErrorAction SilentlyContinue }
-    if (-not $npm) {
-        Add-Report '[WARN] npm not found, skipping WhatsApp analysis service'
-        $script:warnCount++
-        return $true
-    }
-    Start-Process -FilePath $npm.Source -ArgumentList 'start' `
-        -WorkingDirectory $waDir -WindowStyle Hidden `
-        -RedirectStandardOutput (Join-Path $logDir 'whatsapp_analysis.log') `
-        -RedirectStandardError (Join-Path $logDir 'whatsapp_analysis.log.err')
-    if (Wait-Port 9268 30) {
-        Add-Report '[OK] WhatsApp analysis service started on port 9268'
-        return $true
-    }
-    Add-Report '[WARN] WhatsApp analysis service did not listen on port 9268 within 30s, check log\whatsapp_analysis.log for details'
-    $script:warnCount++
-    return $true
-}
-$waOk = Ensure-WhatsAppAnalysis
+# ---------- 4) WhatsApp analysis service (9268) - NOT managed here ----------
+# 2026-09-11: moved out on purpose. That service belongs to the
+# liberia-noc_soc portal (scripts\whatsapp_analysis) and is started/stopped by
+# that project's own start.bat / stop.bat. Keeping it here was actively harmful:
+# the MyApp_EnsureRunning task runs every 5 minutes, so it resurrected the
+# service right after the portal's stop.bat had killed it.
 
 # ======================================================================
 # Summary: write result file + (non-Quiet) show popup dialog

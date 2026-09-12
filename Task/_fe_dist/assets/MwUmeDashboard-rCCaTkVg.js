@@ -1,0 +1,1 @@
+import{r as e}from"./i18n-Ud1LhDCu.js";import{S as t}from"./react-vendor-AkVtwRYH.js";import{t as n}from"./LegacyToolFrame-Ce_4Hqi5.js";var r=t();function i(){let{t}=e();return(0,r.jsx)(n,{file:`mw_ume_topology.html`,title:t(`nav.mwUmeTopology`)})}export{i as default};

@@ -59,6 +59,38 @@ export function getSiteAvailabilityTickets(params?: Record<string, string>) {
   return api.get('/site-availability/tickets', { params })
 }
 
+// RAN 2G/3G/4G Cells KPI 看板：按天统计各制式小区可用率达标情况
+// 数据源：data/ran_cells_kpi.sqlite3（由 cells_kpi_sync 任务从 RAN_UME 小区数据物化，
+// 只保留当月；缺失时后端回退实时聚合 data/ran_kpi_avalability_1day.sqlite3）
+// params: month=YYYY-MM / threshold=0.9965 / prefer_db=0|1
+export function getRanCellsKpiOverview(params?: Record<string, string | number>) {
+  return api.get('/ran-cells-kpi/overview', { params })
+}
+
+// RAN Cells KPI 小区级明细（看板数字下钻）：返回某制式某天（或整月）背后的小区列表
+// params: month=YYYY-MM / tech=2G|3G|4G / day=YYYY-MM-DD（留空=整月汇总）
+//         / threshold=0.9965 / scope=all|meeting|below|blank
+export function getRanCellsKpiCells(params?: Record<string, string | number>) {
+  return api.get('/ran-cells-kpi/cells', { params })
+}
+
+// SP 物料库存/消耗统计汇总（WH/DOP 汇总报表模板）
+// 数据源：db/app.db inventory_details（每日全量快照，由 sp 数据同步任务写入）
+// 口径见 backend/services/sp_material_summary_service.py 顶部 docstring
+// params: anchor_date=YYYY-MM-DD（期初锚点，缺省=当前快照所在自然月 1 号）
+//         current_date=YYYY-MM-DD（期末，缺省=库内 MAX(update_date)）
+export function getSpMaterialSummary(params?: Record<string, string>) {
+  return api.get('/sp-material/summary', { params })
+}
+
+// 汇总表格子下钻明细
+// params: row_key=1st_wh|2nd_wh|gbarnga_dop|kweaken_dop|others|total
+//         scope=anchor_spare_good|anchor_consumables|current_spare_good
+//               |current_consumables|need_repair
+export function getSpMaterialDetail(params: Record<string, string>) {
+  return api.get('/sp-material/detail', { params })
+}
+
 /* ---------- 界面配置：侧栏菜单结构（全局共享，仅本机可写） ----------
  * 服务端唯一真相源：所有访问者看到同一份目录结构；只有本机（或持 X-API-Token）
  * 能保存，远程会 403。GET 返回 {layout, updated_at, editable}。 */

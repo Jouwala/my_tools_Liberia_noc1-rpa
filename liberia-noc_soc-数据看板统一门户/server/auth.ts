@@ -1,12 +1,15 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
+import { createAuthPersistence, type AuthPersistence, type StorageInfo } from './authDb';
 
 // ============================================================================
 // 门户鉴权模块（挂在 vite 服务上的 /api/auth 中间件）
-//  - 用户存 <dataDir>/users.json：scrypt 加盐哈希，落盘，原子写（临时文件 + rename）
+//  - 用户/账号申请/看板权限统一由 server/authDb.ts 持久化：
+//    默认 SQLite（<dataDir>/portal-auth.db，WAL + 单事务 + 自动滚动备份），
+//    老数据首次启动自动从 users.json / requests.json 迁移；
+//    无 node:sqlite 时回退 JSON 文件存储（同样带原子写与备份）。
+//  - 密码永不存明文：scrypt 加盐哈希（N=16384, r=8, p=1），只存 algorithm$salt$hash。
 //  - 会话仅存内存：随机 token，12h 滑动续期，服务重启后需重新登录
 //  - 首次启动自动播种 admin（随机密码，控制台打印，强制首次改密）
 //  - 登录失败限流：同 IP 连续失败 10 次锁 60s
@@ -96,7 +99,6 @@ const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 10;
 const LOGIN_LOCK_MS = 60 * 1000;
 const MIN_PASSWORD_LENGTH = 8;
-const USERS_FILE = 'users.json';
 
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16);
@@ -171,14 +173,15 @@ export class AuthStore {
   private requests: RegistrationRequest[] = [];
   private sessions = new Map<string, Session>();
   private failures = new Map<string, { count: number; lockedUntil: number }>();
-  private writeQueue: Promise<void> = Promise.resolve();
-  private requestWriteQueue: Promise<void> = Promise.resolve();
+  private persistence: AuthPersistence | null = null;
   private loaded = false;
 
   constructor(private dataDir: string) {}
 
-  private get usersFile(): string {
-    return path.join(this.dataDir, USERS_FILE);
+  /** 持久化实例（惰性创建，避免模块加载时就产生磁盘 IO） */
+  private getPersistence(): AuthPersistence {
+    if (!this.persistence) this.persistence = createAuthPersistence(this.dataDir);
+    return this.persistence;
   }
 
   private seedAdmin(): void {
@@ -196,28 +199,29 @@ export class AuthStore {
     console.warn(
       `[auth] 已创建初始管理员：用户名 admin，初始密码 ${password} —— 首次登录会强制修改密码，请立即修改并妥善保管！`
     );
+    console.warn(`[auth] 账号与看板权限的存储位置：${this.storageInfo().location}`);
   }
 
+  /** 写回存储（SQLite 事务 / JSON 原子写）；出错必须打日志，绝不静默吞掉 */
   private persist(): void {
-    const snapshot = JSON.stringify(this.users, null, 2);
-    this.writeQueue = this.writeQueue
-      .then(() => {
-        const tmp = `${this.usersFile}.tmp`;
-        fs.writeFileSync(tmp, snapshot, 'utf-8');
-        fs.renameSync(tmp, this.usersFile);
-      })
-      .catch((e) => console.error('[auth] 写入 users.json 失败：', e));
+    try {
+      this.getPersistence().saveUsers(this.users);
+    } catch (e) {
+      console.error('[auth] 保存用户数据失败：', e);
+    }
   }
 
   private persistRequests(): void {
-    const snapshot = JSON.stringify(this.requests, null, 2);
-    this.requestWriteQueue = this.requestWriteQueue
-      .then(() => {
-        const tmp = `${this.requestsFile}.tmp`;
-        fs.writeFileSync(tmp, snapshot, 'utf-8');
-        fs.renameSync(tmp, this.requestsFile);
-      })
-      .catch((e) => console.error('[auth] 写入 requests.json 失败：', e));
+    try {
+      this.getPersistence().saveRequests(this.requests);
+    } catch (e) {
+      console.error('[auth] 保存账号申请失败：', e);
+    }
+  }
+
+  /** 供前端「用户管理」展示：账号/密码哈希/看板权限到底存在哪、有多少备份 */
+  storageInfo(): StorageInfo {
+    return this.getPersistence().info();
   }
 
   listUsers(): PublicUser[] {
@@ -324,33 +328,17 @@ export class AuthStore {
     return this.users.filter((u) => u.role === 'admin').length;
   }
 
-  // —— 账号申请（requests.json）——
-
-  private get requestsFile(): string {
-    return path.join(this.dataDir, REQUESTS_FILE);
-  }
+  // —— 账号申请（与账号同库：SQLite 的 registration_requests 表 / JSON 的 requests.json）——
 
   ensureLoaded(): void {
     if (this.loaded) return;
     this.loaded = true;
-    fs.mkdirSync(this.dataDir, { recursive: true });
-    if (fs.existsSync(this.usersFile)) {
-      try {
-        const parsed = JSON.parse(fs.readFileSync(this.usersFile, 'utf-8')) as StoredUser[];
-        if (Array.isArray(parsed)) this.users = parsed;
-      } catch (e) {
-        console.error('[auth] users.json 解析失败，视为空用户表：', e);
-      }
-    }
-    if (fs.existsSync(this.requestsFile)) {
-      try {
-        const parsed = JSON.parse(fs.readFileSync(this.requestsFile, 'utf-8')) as RegistrationRequest[];
-        if (Array.isArray(parsed)) this.requests = parsed;
-      } catch (e) {
-        console.error('[auth] requests.json 解析失败，视为空申请表：', e);
-      }
-    }
-    if (this.users.length === 0) this.seedAdmin();
+    const snapshot = this.getPersistence().load();
+    this.users = snapshot.users;
+    this.requests = snapshot.requests;
+    // 只有「此前确实不存在任何数据文件」时才播种初始 admin。
+    // 旧实现是在 users.json 解析失败时也走这条路 —— 会用一个全新 admin 覆盖整个账号表。
+    if (this.users.length === 0 && snapshot.fresh) this.seedAdmin();
   }
 
   /** 提交申请；失败时抛 Error，message 为机器可读的原因码 */
@@ -689,6 +677,12 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
 
     if (method === 'GET' && url === '/users') {
       sendJson(res, 200, { users: store.listUsers() });
+      return;
+    }
+
+    // 账号/密码哈希/看板权限的存储位置与备份情况（管理员在「用户管理」里可见）
+    if (method === 'GET' && url === '/storage') {
+      sendJson(res, 200, { storage: store.storageInfo() });
       return;
     }
 

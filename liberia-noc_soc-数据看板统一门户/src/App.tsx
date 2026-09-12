@@ -53,9 +53,6 @@ import {
   ExternalLink,
   Lightbulb,
   Loader2,
-  Move,
-  Check,
-  RotateCcw,
 } from 'lucide-react';
 
 const STORAGE_KEY = 'liberia_noc_dashboards_v5'; // legacy：旧版整目录存储，仅用于一次性迁移个人偏好
@@ -780,6 +777,12 @@ export default function App() {
           }}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
+          isLayoutEditing={isLayoutEditing}
+          onToggleLayoutEditing={() => {
+            setIsLayoutEditing((value) => !value);
+            setDraggedDashboardId(null);
+          }}
+          onResetLayout={handleResetLayout}
           totalFilteredCount={translatedDashboards.length}
         />
 
@@ -822,26 +825,6 @@ export default function App() {
           </div>
         ) : viewMode === 'grid' ? (
           <section className="dashboard-layout-shell">
-            <div className="layout-toolbar liquid-glass-panel">
-              <div>
-                <p className="layout-toolbar-title">空间布局</p>
-                <p className="layout-toolbar-hint">{isLayoutEditing ? '拖动卡片到目标位置，布局会自动保存在当前浏览器' : '开启后可自由调整卡片顺序'}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {isLayoutEditing && (
-                  <button onClick={handleResetLayout} className="layout-secondary-button">
-                    <RotateCcw className="w-3.5 h-3.5" />恢复默认
-                  </button>
-                )}
-                <button
-                  onClick={() => { setIsLayoutEditing((value) => !value); setDraggedDashboardId(null); }}
-                  className={`layout-edit-button ${isLayoutEditing ? 'is-active' : ''}`}
-                >
-                  {isLayoutEditing ? <Check className="w-4 h-4" /> : <Move className="w-4 h-4" />}
-                  {isLayoutEditing ? '完成布局' : '编辑布局'}
-                </button>
-              </div>
-            </div>
             <div className={`dashboard-grid ${isLayoutEditing ? 'is-editing' : ''}`}>
             {translatedDashboards.map((dashboard) => (
               <div
