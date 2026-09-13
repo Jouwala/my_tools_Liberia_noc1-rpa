@@ -59,6 +59,7 @@ import {
   resetMenuLayout,
   portalLogin,
   getAuthMe,
+  getAuthMode,
   setOnUnauthorized,
   type MenuLayoutPayload,
 } from './api'
@@ -964,6 +965,14 @@ function AppContent() {
       portalLogin(portalToken)
         .then(() => setAuthGate(false))
         .catch(() => { /* 验证失败：交由数据接口 401 触发引导 */ })
+    } else {
+      // 日常开发免登录（auth-switch.json 的 authEnabled=false）：
+      // 后端已整体放行，这里主动探测一次，避免无谓地弹出登录引导。
+      getAuthMode()
+        .then((res) => {
+          if (res.data?.authEnabled === false) setAuthGate(false)
+        })
+        .catch(() => { /* 探测失败按原有流程走（401 会触发引导） */ })
     }
     setOnUnauthorized(() => setAuthGate(true))
     return () => setOnUnauthorized(null)

@@ -9,18 +9,24 @@ portal_login_service.py - 一键通过默认浏览器登录内部门户
 
 实现要点：
 - 复用 credential_store.get_credential() 读取当前生效凭据（环境变量 > 数据库 > 代码默认）。
-- 启动 Playwright（优先本机 **Google Chrome**，无 Chrome 时回退到系统默认浏览器，
-  exe 都找不到则回退到 playwright 自带 chromium），以 headed 模式 + 独立 user-data-dir
-  打开，登录后**保持窗口打开**供用户继续使用。
-- 所有门户的登录加密都在页面 JS 里完成（RSA / DES+SM3 / SM4 等），因此统一采用
+- 浏览器用【普通子进程】启动本机 Chrome（`--remote-debugging-port=0` + 独立 user-data-dir，
+  **不传 `--enable-automation`**），再用 CDP 连上去做自动登录；登录后**断开 CDP 但保持窗口打开**
+  供用户继续使用。历史：曾用 Playwright，其 CDP 连接会启用 Debugger 域，触发门户的反调试
+  `debugger;` 语句把页面冻结 → 已弃用。自签证书用 CDP `Security.setIgnoreCertificateErrors`
+  绕过，不再用 `--ignore-certificate-errors`（新版 Chrome 已禁用该 flag）。
+- 多数门户的登录加密都在页面 JS 里完成（RSA / DES+SM3 / SM4 等），因此统一采用
   「填充用户名/密码 → 点击真实登录按钮」的方式，由页面自身完成加密提交，无需在
   Python 端复刻各套加密算法。
+- eFlow / RAIS 例外：走「**直接鉴权**」——Python 端复刻各自加密算法拿会话
+  （eFlow：RSA+OAuth2；RAIS：AES-256-CBC 换 SSO token），再用 CDP 把 cookie 种进浏览器，
+  然后打开已登录主页，完全绕开登录页 DOM。
 - 每个系统维护一个常驻浏览器会话（LIVE），用户可手动关闭或经 API 关闭。
 
 > 注意：本模块在后端 Web 进程（uvicorn）里起一个后台线程驱动浏览器。默认浏览器
   必须运行在与用户相同的 Windows 桌面会话（start.bat 以当前用户拉起，满足），
   否则 headed 浏览器可能无法显示。
 """
+import base64
 import os
 import re
 import time
@@ -80,6 +86,35 @@ PORTALS = {
         "default_host": "10.100.20.8", "default_port": 28001,
         "redirect": "/uportal/framework/default.html",
         "success_regex": r"https://[^/]+/uportal/framework/default\.html",
+        # 前端把根地址写死为 http://localhost，经同源反代后子页面/接口会打到访问者本机
+        # → 客户端模式必须直连上游（不反代、无填表），见前端 DIRECT_PORTALS。
+        "direct": True,
+    },
+    "rais": {
+        "name": "RAIS 统一权限平台",
+        "name_en": "RAIS Permission Platform",
+        "cred_key": "rais",
+        # RAIS 是 UAC-Lite 的 hash 路由 SPA（/raisprod/uacliteweb/），登录不靠页面填表，
+        # 而是 POST verify4web.serv（AES-256-CBC 加密密码）换 token，再把 token 写成
+        # SSO cookie 打开主页 —— 与 eFlow 的「直接鉴权」同一套路。
+        "kind": "rais",
+        "host_env": "RAIS_HOST", "port_env": "RAIS_PORT",
+        "default_host": "10.100.20.9", "default_port": 8766,
+        # 入口路径（hash 路由，SPA 会自动落到登录页）
+        "login_path": "/raisprod/uacliteweb/#/login",
+        # 直接鉴权成功后的落地页
+        "redirect": "/raisprod/uacliteweb/#/homepage",
+        # URL 离开登录页且停在 #/homepage 视为成功
+        "success_regex": r"#/homepage",
+        # 首屏就绪判定：hash 切到 #/homepage 是瞬时的，必须等 #app 真正渲染出内容
+        # （用户名 / 工作台入口），否则截图与文案探针会误判成空白页。
+        "ready_js": ("(() => { const a = document.querySelector('#app');"
+                     " return !!(a && a.innerText && a.innerText.trim().length > 100); })()"),
+        # 直接鉴权接口前缀（见 _rais_direct_auth）
+        "api_base": "/raisprod/uaclite",
+        # 客户端模式直连上游：不经 nginx 反代（RAIS 前端把 API 根地址写死为
+        # https://10.100.20.9:8766/，反代到别的 host 会让登录响应种不下 cookie）
+        "direct": True,
     },
     "fw_kpi": {
         "name": "FW 整机吞吐 (UMC)",
@@ -925,8 +960,33 @@ def _split_cookies(cookie_str: str) -> list[dict]:
     return out
 
 
+# 门户主页「真的渲染出来了」的判定（直接鉴权路径共用）。
+# ⚠️ 只判 URL 或「innerText 非空」会假成功：2026-09-13 实测 eFlow 主页其实整页停在
+# "This request is prohibited for cross-site access / Your session is error."，
+# 却因为探针「拿到任意非空文本就 break」被报成「已登录」。
+# 正证据：正文渲染出足够内容 + 无会话错误文案 + 无可见密码框（登录页特征）。
+PORTAL_READY_JS = (
+    "(() => { const b = document.body; if (!b) return false;"
+    " const t = b.innerText || '';"
+    " if (t.trim().length < 120) return false;"
+    " if (/session is error|cross-site|prohibited|please login again"
+    "|重新登录|会话已失效|跨站/i.test(t)) return false;"
+    " const pw = document.querySelectorAll('input[type=password]');"
+    " for (let i = 0; i < pw.length; i++) { const el = pw[i];"
+    " if (el.offsetWidth > 0 || el.offsetHeight > 0 || el.offsetParent !== null) return false; }"
+    " return true; })()"
+)
+
+# 会话被拒 / 未登录的文案特征（中英），命中即判定失败
+_SESSION_ERR_RE = re.compile(
+    r"session is error|cross-site|prohibited|please login again"
+    r"|重新登录|会话已失效|跨站", re.I)
+
+
 async def _cdp_set_eflow_cookies(port: int, host: str, cookie_str: str,
-                                 csrf_token: str | None = None):
+                                 csrf_token: str | None = None,
+                                 origin_url: str | None = None,
+                                 job_id: str | None = None):
     """通过 CDP 连接把 eFlow 会话 cookie 种到本机 Chrome 的 eFlow 域。
 
     返回 (成功种入的 cookie 数, csrftoken 是否写入)。只启用 Network/Runtime 域
@@ -937,6 +997,14 @@ async def _cdp_set_eflow_cookies(port: int, host: str, cookie_str: str,
     forgery 头。直接种 cookie 没有"真实登录响应"，这一步没人做 →
     页面所有接口 403 "This request is prohibited for cross-site access"、
     "Your session is error. Please login again."（2026-09-12 实测确诊）。
+
+    ⚠️⚠️ 写 localStorage 前【必须等启动页真正落到 eFlow 源】（2026-09-13 实测确诊）：
+    Chrome 一启动 DevToolsActivePort 就出现，此时页面还停在 about:blank
+    （origin=null 的不透明源）。在不透明源上执行 localStorage.setItem 会抛
+    SecurityError → csrftoken 写不进去（旧日志里的
+    "csrftoken 写入 localStorage：失败（接口可能 403）"）→ 主页整页渲染
+    "Your session is error. Please login again."。表现为「窗口打开了但没登录」，
+    且因旧的成功判定太松常被误报成「已登录」。
     """
     import json as _json
     import urllib.request
@@ -975,9 +1043,51 @@ async def _cdp_set_eflow_cookies(port: int, host: str, cookie_str: str,
                 if data.get("id") == mid:
                     return data
 
+        async def eval_js(expr):
+            r = await send("Runtime.evaluate",
+                           {"expression": expr, "returnByValue": True})
+            res = (r or {}).get("result", {}) or {}
+            if res.get("exceptionDetails"):
+                raise RuntimeError(f"JS 异常: {str(res['exceptionDetails'])[:160]}")
+            return (res.get("result", {}) or {}).get("value")
+
         await send("Network.enable", await_resp=False)
         await send("Runtime.enable", await_resp=False)
+        await send("Page.enable", await_resp=False)
         await send("Security.setIgnoreCertificateErrors", {"ignore": True}, await_resp=False)
+
+        # 0) 等启动页真正落到 eFlow 源（about:blank 上写 localStorage 会抛 SecurityError）
+        nav_url = origin_url or f"https://{host}/"
+
+        async def _on_portal_origin() -> str:
+            """返回当前页面 href；已在门户源上才算就绪（否则返回空串）。"""
+            try:
+                info = await eval_js("(() => ({href: location.href, rs: document.readyState}))()")
+            except Exception:
+                return ""
+            href = str((info or {}).get("href") or "")
+            if not href.startswith(("https://", "http://")):
+                return ""
+            netloc = href.split("//", 1)[1].split("/", 1)[0]
+            return href if netloc.split(":")[0] == host else ""
+
+        cur = ""
+        for attempt in range(2):
+            deadline = time.time() + 25
+            while time.time() < deadline:
+                cur = await _on_portal_origin()
+                if cur:
+                    break
+                await asyncio.sleep(0.5)
+            if cur:
+                break
+            # 兜底：启动页迟迟不落门户源 → 主动整页导航到门户入口再等
+            _job_update(job_id, log=[f"启动页未落到 {host}（当前 {cur or 'about:blank'}），"
+                                     "主动导航到门户入口"])
+            await send("Page.navigate", {"url": nav_url}, await_resp=False)
+        if not cur:
+            raise RuntimeError(f"启动页未落到 eFlow 源（host={host}），无法写入 csrftoken")
+        _job_update(job_id, log=[f"启动页已落到门户源：{cur[:120]}"])
 
         domain = host  # eFlow 无独立域名，直接以 host 作为 cookie domain
         for ck in _split_cookies(cookie_str):
@@ -992,16 +1102,30 @@ async def _cdp_set_eflow_cookies(port: int, host: str, cookie_str: str,
             })
             if r.get("result", {}).get("success") is not False:
                 set_count += 1
+        if set_count == 0:
+            raise RuntimeError("会话 cookie 一个都没种进去（CDP setCookie 全失败）")
 
         # 补写 CSRF token（门户前端从 forgerydefense 响应头取值后 JSON 序列化存盘）
+        # 写后回读校验；失败重试（页面可能正在重定向，源被换掉）
         csrf_ok = False
         if csrf_token:
-            expr = ("localStorage.setItem('csrftoken', JSON.stringify(%s));"
-                    " localStorage.getItem('csrftoken')" % _json.dumps(csrf_token))
-            r = await send("Runtime.evaluate",
-                           {"expression": expr, "returnByValue": True})
-            val = ((r or {}).get("result", {}).get("result", {}) or {}).get("value")
-            csrf_ok = bool(val)
+            # 门户前端把 forgerydefense 响应头的值 JSON 序列化后存进 localStorage.csrftoken，
+            # 后续请求再把它当作 forgery 头带上。这里复刻同一写法（带引号的 JSON 串）。
+            want = _json.dumps(csrf_token)
+            expr = ("(() => { try { localStorage.setItem('csrftoken', %s);"
+                    " return localStorage.getItem('csrftoken'); }"
+                    " catch (e) { return 'ERR:' + e; } })()" % want)
+            for _ in range(3):
+                try:
+                    val = await eval_js(expr)
+                except Exception as e:
+                    val = f"ERR:{e}"
+                # 容错：门户自己也会写这个键（可能是裸 token，不带引号）——两种都算成功
+                if str(val).strip('"') == csrf_token:
+                    csrf_ok = True
+                    break
+                _job_update(job_id, log=[f"csrftoken 写入未生效（{str(val)[:80]}），重试"])
+                await asyncio.sleep(0.8)
     return set_count, csrf_ok
 
 
@@ -1078,7 +1202,8 @@ def launch_and_login_eflow_direct(system_key: str, browser: str | None = None,
         # 4) 种 cookie + 补写 CSRF token + 重新导航到已登录主页
         _job_update(job_id, log=["向浏览器写入 eFlow 会话 cookie + CSRF token ..."])
         set_count, csrf_ok = asyncio.run(
-            _cdp_set_eflow_cookies(dport, host, cookie_str, forgery_token))
+            _cdp_set_eflow_cookies(dport, host, cookie_str, forgery_token,
+                                   origin_url=login_url, job_id=job_id))
         _job_update(job_id, log=[
             f"已种入 {set_count} 个会话 cookie",
             f"csrftoken 写入 localStorage：{'成功' if csrf_ok else '失败（接口可能 403）'}",
@@ -1151,8 +1276,13 @@ async def _cdp_navigate_and_verify(port: int, host: str, eport: int, spec: dict,
                     return data
 
         async def eval_js(expr):
-            return await send("Runtime.evaluate",
-                             {"expression": expr, "returnByValue": True, "awaitPromise": True})
+            """返回表达式求值结果本身（不是整个 CDP 报文）。"""
+            r = await send("Runtime.evaluate",
+                           {"expression": expr, "returnByValue": True, "awaitPromise": True})
+            res = (r or {}).get("result", {}) or {}
+            if res.get("exceptionDetails"):
+                raise RuntimeError(f"JS 异常: {str(res['exceptionDetails'])[:160]}")
+            return (res.get("result", {}) or {}).get("value")
 
         await send("Runtime.enable", await_resp=False)
         await send("Page.enable", await_resp=False)
@@ -1160,56 +1290,370 @@ async def _cdp_navigate_and_verify(port: int, host: str, eport: int, spec: dict,
         await send("Page.navigate", {"url": home_url}, await_resp=False)
 
         success_regex = spec.get("success_regex")
-        deadline = time.time() + 30
+        ready_js = spec.get("ready_js") or PORTAL_READY_JS
+        deadline = time.time() + 45
         last_url = ""
-        url_ok = False
+        last_text = ""
+        neg_hits = 0
+        pos_hits = 0
         while time.time() < deadline:
             try:
-                r = await eval_js("(() => ({url: location.href}))()")
-                last_url = (r.get("result", {}).get("result", {}) or {}).get("value", {}).get("url", "")
-                if success_regex and re.search(success_regex, last_url):
-                    url_ok = True
-                    break
-                if "login" not in last_url.lower() and "/api/oauth2" not in last_url:
-                    url_ok = True
-                    break
+                last_url = str(await eval_js("location.href") or "")
+                last_text = str(await eval_js(
+                    "(document.body?document.body.innerText:'').slice(0,1500)") or "")
+                ready = bool(await eval_js(ready_js))
             except Exception as e:
                 logger.warning(f"[PORTAL] eFlow 导航验证轮询出错: {e}")
-            await asyncio.sleep(1.5)
-        if not url_ok:
-            return False, f"直接鉴权后未确认进入主页（当前 URL: {last_url}）"
-
-        # 关键：URL 到了主页 ≠ 会话可用。会话失效时门户会整页渲染
-        # "Your session is error. Please login again." / "prohibited for cross-site access"，
-        # 此时接口全 403，必须按页面文案判定，否则会报出假的"已登录"。
-        # （2026-09-12：仅靠 URL 判定曾把这种状态误判为成功。）
-        text = ""
-        for _ in range(5):
-            try:
-                r = await eval_js("(document.body?document.body.innerText:'').slice(0,800)")
-                text = (((r or {}).get("result", {}) or {})
-                        .get("result", {}) or {}).get("value") or ""
-            except Exception as e:
-                logger.warning(f"[PORTAL] eFlow 页面文案探针出错: {e}")
-            low = text.lower()
-            if "session is error" in low or "cross-site" in low:
-                await asyncio.sleep(2)
+                await asyncio.sleep(1.0)
                 continue
-            if text.strip():
-                break
-            await asyncio.sleep(1.5)
 
-        low = text.lower()
-        if "session is error" in low or "cross-site" in low:
-            return False, (f"页面已打开但会话被拒（{text.strip().replace(chr(10), ' ')[:90]}）: {last_url}")
-        return True, f"已直接鉴权并进入 eFlow 主页 ({last_url})｜页面文案探针通过"
+            # 明确失败信号：整页会话错误文案 / 又被打回登录页
+            back_to_login = ("/api/oauth2" in last_url) or ("/login" in last_url.lower())
+            if _SESSION_ERR_RE.search(last_text) or back_to_login:
+                # 连续两次命中才判定（页面重定向过程中会瞬时经过登录页）
+                neg_hits += 1
+                if neg_hits >= 2:
+                    if back_to_login:
+                        return False, f"会话未被接受，页面又回到登录页（{last_url}）"
+                    snippet = " ".join(last_text.strip().split())[:90]
+                    return False, f"页面已打开但会话被拒（{snippet}）: {last_url}"
+            else:
+                neg_hits = 0
+                # 正证据：正文渲染出足够内容 + 无会话错误文案 + 无可见密码框。
+                # 必须【连续两次】命中才算成功：eFlow 主页会周期性刷新，刷新瞬间
+                # 各告警卡片会短暂清空（只剩 "My Favorites / No data."），
+                # 单次命中会把这种中间态误判成「已登录」（2026-09-13 实测）。
+                if ready and (not success_regex or re.search(success_regex, last_url)
+                              or "login" not in last_url.lower()):
+                    pos_hits += 1
+                    if pos_hits >= 2:
+                        return True, (f"已直接鉴权并进入 eFlow 主页 ({last_url})"
+                                      "｜首屏已渲染且无会话错误")
+                else:
+                    pos_hits = 0
+            await asyncio.sleep(1.0)
+
+        snippet = " ".join(last_text.strip().split())[:90]
+        return False, f"等待 eFlow 主页就绪超时（当前 URL: {last_url}｜文案: {snippet}）"
+
+
+# ============ RAIS 直接鉴权登录（UAC-Lite：AES 加密密码换 SSO token） ============
+# 背景：RAIS（https://10.100.20.9:8766/raisprod/uacliteweb/）是 ZTE UAC-Lite 的
+# Vue hash 路由 SPA，登录页有三个「填表 + 点按钮」搞不定的点：
+#   1) 密码不是明文提交：页面用 AES-256-CBC（key/iv 硬编码在前端 chunk 里）加密后再 POST；
+#   2) 有一个 canvas 画出来的图形验证码，提交前只做**前端**比对（服务端 verifyCode 传空）；
+#   3) 登录成功后 token 写进 document.cookie（RAIS_PORTALSSOCookie），不是 localStorage，
+#      后端无法跨域给访问者浏览器种 cookie。
+# 因此与 eFlow 一样走「直接鉴权」：Python 端复刻加密算法拿 token → CDP 把 SSO cookie
+# 种进本机 Chrome → 打开主页即已登录。仅对坐在 my_app 服务器本机的浏览器有效。
+RAIS_AES_KEY = b"ZXUniPOSRAIS20201234567890ABCDEF"
+RAIS_AES_IV = b"ZXUniPOSRAIS2020"
+
+# RAIS 前端把 SSO 状态放在这几个 document.cookie 键里（模块 d1b5 / f1ed），
+# 用户名与 token 各有一个 RAIS_* 与一个 RAIS_ZTEDPG* 别名，两个都要写。
+RAIS_SSO_COOKIES = (
+    ("RAIS_PORTALSSOUser", "user"),
+    ("RAIS_ZTEDPGSSOUser", "user"),
+    ("RAIS_PORTALSSOCookie", "token"),
+    ("RAIS_ZTEDPGSSOCookie", "token"),
+)
+
+
+def _rais_encrypt_password(pwd: str) -> str:
+    """复刻 RAIS 前端密码加密，返回提交用的 Base64 密文。
+
+    前端实现（webpack chunk-4125b5a5 模块 7834）：
+        AES.encrypt(Utf8.parse(pwd), Utf8.parse(KEY),
+                    {iv: Utf8.parse(IV), mode: CBC, padding: Pkcs7})
+            .ciphertext.toString()      // hex 字符串
+        → Hex.parse(...) → Base64.stringify(...)
+    等价于「Base64(裸密文字节)」——注意不是 Base64(hex 字符串)。
+    """
+    from cryptography.hazmat.primitives import padding as sym_padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    padder = sym_padding.PKCS7(128).padder()
+    data = padder.update(pwd.encode("utf-8")) + padder.finalize()
+    enc = Cipher(algorithms.AES(RAIS_AES_KEY), modes.CBC(RAIS_AES_IV)).encryptor()
+    ct = enc.update(data) + enc.finalize()
+    return base64.b64encode(ct).decode("ascii")
+
+
+def _rais_direct_auth(spec: dict):
+    """直接鉴权 RAIS：POST verify4web.serv 换取 SSO token。返回 (account, token)。"""
+    import httpx
+    host, port = resolve_endpoint(spec)
+    user, pwd = _creds(spec["cred_key"])
+    base = f"https://{host}:{port}{spec.get('api_base', '/raisprod/uaclite')}"
+    body = {
+        "account": user,
+        "passWord": _rais_encrypt_password(pwd),
+        "dypwd": "",
+        "loginClientIp": "",
+        "originSystemCode": "",
+        "loginSystemCode": "",
+        "verifyCode": "",
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "X-Emp-No": user,
+        "X-Auth-Value": "",
+        "X-Product-Id": "0",
+        "X-Tenant-Id": "0",
+        "X-Lang-Id": "zh",
+    }
+    # trust_env=False：my_app 主机上可能配了 http_proxy，内网直连必须绕过代理
+    with httpx.Client(verify=False, timeout=30, trust_env=False) as c:
+        r = c.post(base + "/auth/uaccommauth/auth/comm/verify4web.serv",
+                   json=body, headers=headers)
+        r.raise_for_status()
+        data = r.json()
+    code = (data.get("code") or {}).get("code")
+    bocode = (data.get("bo") or {}).get("code")
+    if code != "0000" or bocode != "0000":
+        msg = ((data.get("code") or {}).get("msg")
+               or (data.get("bo") or {}).get("msg") or str(data)[:200])
+        raise RuntimeError(f"RAIS 鉴权失败: {msg}")
+    token = ((data.get("other") or {}).get("token") or "").strip()
+    if not token:
+        raise RuntimeError(f"RAIS 鉴权未返回 token: {str(data)[:200]}")
+    return user, token
+
+
+async def _cdp_rais_seed_and_open(cdp_port: int, host: str, sport: int, account: str,
+                                  token: str, spec: dict, job_id: str):
+    """单一 CDP 连接内完成 RAIS 的「种 SSO cookie + 打开已登录主页」。
+
+    ⚠️ 两个实测坑（2026-09-13）：
+      1) 必须等 Chrome 的启动页文档加载完（readyState=complete）再动 URL。若在加载中
+         就 Page.navigate 到 #/homepage，会得到一个 readyState=complete 但 **JS 从未
+         执行**的空白文档（#app 为空，body 无文本），且之后不会自愈 —— 表现就是
+         「登录成功但页面全白」。
+      2) 只改 hash 属于同文档导航，容易踩上面的时序问题；这里先 about:blank 断一次，
+         再整页加载主页，保证「全新文档 + 已带 cookie」。
+    返回 (ok, message)。
+    """
+    import json as _json
+    import urllib.request
+    import websockets
+
+    base = f"http://127.0.0.1:{cdp_port}"
+    with urllib.request.urlopen(f"{base}/json", timeout=5) as r:
+        targets = _json.loads(r.read().decode("utf-8"))
+    target = None
+    for t in targets:
+        if t.get("type") == "page" and t.get("webSocketDebuggerUrl"):
+            target = t
+            break
+    if target is None and targets:
+        target = targets[0]
+    if not target or not target.get("webSocketDebuggerUrl"):
+        return False, "未找到可用的 CDP page target"
+
+    ws_url = target["webSocketDebuggerUrl"]
+    msg_id = [0]
+    home_url = f"https://{host}:{sport}{spec.get('redirect', '/raisprod/uacliteweb/#/homepage')}"
+    ready_js = spec.get("ready_js") or (
+        "(() => { const a = document.querySelector('#app');"
+        " return !!(a && a.innerText && a.innerText.trim().length > 100); })()")
+    last_url = ""
+
+    async with websockets.connect(ws_url, max_size=None) as ws:
+        async def send(method, params=None, await_resp=True):
+            msg_id[0] += 1
+            mid = msg_id[0]
+            payload = {"id": mid, "method": method}
+            if params is not None:
+                payload["params"] = params
+            await ws.send(_json.dumps(payload))
+            if not await_resp:
+                return None
+            while True:
+                raw = await asyncio.wait_for(ws.recv(), timeout=30)
+                data = _json.loads(raw)
+                if data.get("id") == mid:
+                    return data
+
+        async def eval_js(expr):
+            r = await send("Runtime.evaluate",
+                           {"expression": expr, "returnByValue": True, "awaitPromise": True})
+            return ((r or {}).get("result", {}).get("result", {}) or {}).get("value")
+
+        await send("Runtime.enable", await_resp=False)
+        await send("Page.enable", await_resp=False)
+        await send("Network.enable", await_resp=False)
+        await send("Security.enable", await_resp=False)
+        await send("Security.setIgnoreCertificateErrors", {"ignore": True}, await_resp=False)
+
+        # 1) 等启动页文档加载完（关键，见上面坑 1）
+        for _ in range(40):
+            try:
+                if (await eval_js("document.readyState")) == "complete":
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+
+        # 2) 种 SSO cookie（前端用 document.cookie 读写，故 httpOnly=False）
+        set_count = 0
+        for name, kind in RAIS_SSO_COOKIES:
+            r = await send("Network.setCookie", {
+                "name": name,
+                "value": account if kind == "user" else token,
+                "domain": host,
+                "path": "/",
+                "httpOnly": False,
+                "secure": True,
+            })
+            if r.get("result", {}).get("success") is not False:
+                set_count += 1
+        _job_update(job_id, log=[f"已种入 {set_count} 个 SSO cookie"])
+
+        # 3) 硬导航到主页（最多两次），等首屏真正渲染出内容
+        for attempt in (1, 2):
+            await send("Page.navigate", {"url": "about:blank"}, await_resp=False)
+            await asyncio.sleep(0.6)
+            await send("Page.navigate", {"url": home_url}, await_resp=False)
+            deadline = time.time() + 40
+            while time.time() < deadline:
+                try:
+                    last_url = await eval_js("location.href") or ""
+                except Exception:
+                    last_url = ""
+                if last_url and "login" not in last_url.lower():
+                    try:
+                        if await eval_js(ready_js):
+                            return True, f"已直接鉴权并进入 RAIS 主页 ({last_url})｜首屏已渲染"
+                    except Exception:
+                        pass
+                await asyncio.sleep(1.0)
+            _job_update(job_id, log=[f"第 {attempt} 次打开主页未渲染完成（{last_url}），重试"])
+            await asyncio.sleep(1.0)
+    return False, f"已种入会话但主页未渲染完成（当前 URL: {last_url}）"
+
+
+def launch_and_login_rais_direct(system_key: str, browser: str | None = None,
+                                 job_id: str | None = None) -> dict:
+    """RAIS 专用：直接鉴权拿 token -> CDP 种 SSO cookie -> 打开已登录主页。
+
+    不填表、不点登录按钮、不碰图形验证码，完全绕开登录页 DOM 与前端加密。
+    """
+    if not job_id:
+        job_id = uuid.uuid4().hex[:12]
+    spec = PORTALS[system_key]
+    host, port = resolve_endpoint(spec)
+    _job_update(job_id, system=system_key, state="launching",
+               message="正在直接鉴权...", log=[], start=time.time())
+
+    try:
+        _close_live(system_key)
+    except Exception:
+        pass
+
+    proc = None
+    profile_dir = None
+    try:
+        _job_update(job_id, log=[f"直接鉴权 RAIS {host}:{port} ..."])
+        account, token = _rais_direct_auth(spec)
+        _job_update(job_id, log=[f"鉴权成功（账号 {account}），已获取 SSO token"])
+
+        import subprocess
+        import shutil
+        import asyncio
+        exe = get_default_browser_exe() if browser in (None, "default") else browser
+        PROFILE_ROOT.mkdir(parents=True, exist_ok=True)
+        for stale in [PROFILE_ROOT / system_key] + list(PROFILE_ROOT.glob(f"_tmp_{system_key}_*")):
+            try:
+                if stale.exists():
+                    shutil.rmtree(stale, ignore_errors=True)
+            except Exception:
+                pass
+        profile_dir = str(PROFILE_ROOT / f"_tmp_{system_key}_{uuid.uuid4().hex[:10]}")
+        Path(profile_dir).mkdir(parents=True, exist_ok=True)
+
+        # 先开登录入口（hash 路由的 /login 在白名单里，不会被弹走），
+        # 种完 cookie 后再用 CDP 切到 #/homepage，触发路由守卫放行。
+        login_url = build_login_url(spec)
+        _job_update(job_id, log=["启动浏览器（直接鉴权模式）"])
+        proc = subprocess.Popen(
+            [exe,
+             f"--user-data-dir={profile_dir}",
+             "--remote-debugging-port=0",
+             "--start-maximized",
+             "--no-first-run",
+             "--no-default-browser-check",
+             login_url],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+
+        devtools_file = os.path.join(profile_dir, "DevToolsActivePort")
+        dport = None
+        for _ in range(50):
+            if os.path.exists(devtools_file):
+                try:
+                    with open(devtools_file, "r", encoding="utf-8") as f:
+                        dport = int(f.readline().strip())
+                    break
+                except Exception:
+                    pass
+            time.sleep(0.1)
+        if not dport:
+            raise RuntimeError("无法获取 Chrome 远程调试端口（浏览器可能启动失败）")
+
+        _job_update(job_id, log=["向浏览器写入 RAIS SSO cookie 并打开主页 ..."])
+        ok, sinfo = asyncio.run(
+            _cdp_rais_seed_and_open(dport, host, port, account, token, spec, job_id))
+
+        _maximize_window(exe)
+        _keep_alive(system_key, proc, profile_dir)
+        _job_update(job_id, state="success" if ok else "failed", message=sinfo, end=time.time())
+        return _job_result(job_id, ok, sinfo)
+    except Exception as e:
+        logger.warning(f"[PORTAL] RAIS 直接鉴权登录失败 {system_key}: {e}", exc_info=True)
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        if profile_dir and os.path.exists(profile_dir):
+            try:
+                import shutil
+                shutil.rmtree(profile_dir, ignore_errors=True)
+            except Exception:
+                pass
+        _job_update(job_id, state="failed", message=f"异常: {type(e).__name__}: {e}", end=time.time())
+        return _job_result(job_id, False, f"异常: {type(e).__name__}: {e}")
 
 
 def _keep_alive(system_key, proc, profile_dir=None):
+    """登记常驻浏览器会话，并起守护线程监听进程退出。
+
+    ⚠️ 为什么必须监听：LIVE 原来只进不出，窗口被关掉后 LIVE 里仍有记录 →
+    前端卡片一直显示 Live、点「关闭窗口」返回 closed=false（2026-09-12 实测）。
+    退出时同步清理临时 profile，避免 data/portal_profiles 里残留累积。
+    """
     with LIVE_LOCK:
         LIVE[system_key] = {
             "proc": proc, "started_at": time.time(), "profile_dir": profile_dir,
         }
+
+    def _watch():
+        try:
+            code = proc.wait()
+        except Exception:
+            code = None
+        with LIVE_LOCK:
+            cur = LIVE.get(system_key)
+            if cur is not None and cur.get("proc") is proc:
+                LIVE.pop(system_key, None)
+        logger.info(f"[PORTAL] {system_key} 浏览器窗口已退出 (returncode={code})，已移出常驻列表")
+        if profile_dir and os.path.exists(profile_dir):
+            try:
+                import shutil
+                shutil.rmtree(profile_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+    threading.Thread(target=_watch, daemon=True).start()
 
 
 def _creds(cred_key):
@@ -1237,13 +1681,46 @@ def close_session(system_key: str) -> bool:
     return True
 
 
+_LOCAL_ADDRS: set | None = None
+
+
+def local_addresses() -> set:
+    """本机所有地址（含回环），用于判断「访问者是否就坐在 my_app 服务器上」。"""
+    global _LOCAL_ADDRS
+    if _LOCAL_ADDRS is not None:
+        return _LOCAL_ADDRS
+    out = {"127.0.0.1", "::1", "localhost"}
+    try:
+        import socket
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            out.add(info[4][0])
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[PORTAL] 解析本机地址失败: {e}")
+    _LOCAL_ADDRS = out
+    return out
+
+
+def client_is_local(ip: str | None) -> bool:
+    """访问者 IP 是否就是本机（服务器自己）。
+
+    用途：直连门户（eFlow / RAIS）只能在服务器桌面用「直接鉴权」登录，
+    若访问者浏览器本来就在服务器上，那个窗口正好开在他自己桌面上 → 可以直接走服务器登录；
+    远程访问者则只能打开上游登录页手动登录（见前端 handleLogin）。
+    """
+    if not ip:
+        return False
+    return ip.strip() in local_addresses()
+
+
 def list_portals() -> list:
     """列出全部门户及其当前常驻状态（供前端展示）。"""
     out = []
     for key, spec in PORTALS.items():
         host, port = resolve_endpoint(spec)
         with LIVE_LOCK:
-            live = key in LIVE
+            ent = LIVE.get(key)
+            # 双重保险：即使 watcher 线程还没跑到，也不把已退出的进程报成 live
+            live = bool(ent) and (ent.get("proc") is None or ent["proc"].poll() is None)
         out.append({
             "key": key,
             "name": spec["name"],
@@ -1256,6 +1733,9 @@ def list_portals() -> list:
             # 客户端本机登录（nginx 反代）：/portal/<key>/ → 门户根
             "proxy_prefix": PROXY_PREFIXES.get(key),
             "login_uri": _login_uri(spec),
+            # direct=True：客户端模式直连上游（不经反代、无自动填表），
+            # 前端据此在 client 模式下放行「打开登录页」按钮。
+            "direct": bool(spec.get("direct")),
         })
     return out
 

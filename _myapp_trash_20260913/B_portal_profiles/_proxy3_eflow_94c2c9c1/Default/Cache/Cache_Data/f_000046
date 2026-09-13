@@ -1,0 +1,874 @@
+/*清除样式*/
+
+a {
+  text-decoration: none;
+}
+
+body,
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+dl,
+dt,
+dd {
+  margin: 0px;
+  font-size: 12px;
+}
+
+/*去掉列表的序号和小点*/
+
+ol,
+ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/*去掉图片的边框*/
+
+img {
+  border: none;
+}
+
+.clear:after {
+  content: '';
+  display: block;
+  clear: both;
+}
+
+/*覆盖bootstrap样式*/
+
+.nav-tabs .nav-link {
+  border: 0;
+}
+
+/*错误信息颜色*/
+
+.error_msg_color {
+  color: #f54c4c;
+}
+
+/*由于使用了rem单位和bootstrap3，临时规避*/
+
+html {
+  font-size: 100%;
+}
+
+h1 {
+  margin-left: 20px;
+}
+
+input {
+  text-align: left !important;
+}
+
+/* all table style in view page */
+
+.viewComponent td {
+  vertical-align: middle;
+  border: 1px solid #ddd;
+  padding: 8px !important;
+}
+
+/* all table style in view page(end) */
+
+/* 
+oes 移除后需要去掉
+*/
+
+plx-table-custom-cols [class*='col-'] {
+  float: none;
+}
+
+/* 
+oes 移除后需要去掉 （end）
+*/
+.plx-toggle-switch input[type='checkbox'] + label {
+  background-color: #fff;
+}
+
+/*
+   plx-picklist右侧列表中的label背景色与被plx-form表单中label背景色覆盖
+*/
+
+label.plx-checkbox-container {
+  text-align: left;
+}
+
+/*
+  ZENICTFM-6939
+*/
+
+.modal-header:before {
+  display: none;
+}
+
+.modal-header:after {
+  display: none;
+}
+
+.notification-table .plx-table-customCols button {
+  height: 28px;
+  padding: 5px;
+}
+
+#dashboard_area multi-oes-fm-active-alarm-table table tr th:first-child,
+#dashboard_area multi-oes-fm-active-alarm-table table tr td:first-child {
+  border-left: 0px !important;
+}
+
+#dashboard_area multi-oes-fm-active-alarm-table table tr th:last-child,
+#dashboard_area multi-oes-fm-active-alarm-table table tr td:last-child {
+  border-right: 0px !important;
+}
+
+.form-group .required {
+  padding-right: 4px;
+  color: #e43232;
+}
+
+.form-group label {
+  padding-right: 1px;
+}
+
+.modal-body plx-select .single-filter {
+  position: relative;
+}
+
+.plx-container-page,
+.plx-tab-content {
+  padding-bottom: unset !important;
+}
+
+/*EC:611004468457--start*/
+
+plx-modal-window .close {
+  font-size: 16px !important;
+  background-color: transparent !important;
+  text-shadow: none !important;
+  width: 24px !important;
+  height: 24px !important;
+  border-radius: 20px !important;
+  outline: none !important;
+}
+
+/*EC:611004468457--end*/
+
+micro-alarm-monitor td span,
+oes-fm-alarm-tree-table td span,
+multi-oes-fm-active-alarm-table td span,
+oes-fm-history-alarm-table td span,
+oes-fm-notification-table td span,
+oes-fm-notification-monitor-table td span,
+oes-fm-active-alarm-table td span,
+oes-fm-alarm-relation-table td span,
+active-history-table td span {
+  height: 1.5em;
+}
+
+/**EC:611004739667* 资源选择器中名称列显示不全时可以换行显示，或者出popover*/
+resource-selector-condition td span {
+  height: unset;
+}
+
+/**611004631163*告警监控的数表折叠符号和树节点标签没有中对齐*/
+oes-fm-alarm-tree-table .plx-table-tree-toggle {
+  padding-top: 4px !important;
+}
+
+.renderRowRed .rendercol {
+  background-color: #e43232;
+}
+
+.color-blue.plx-ico-home-f-16 {
+  color: #1681de;
+}
+
+.color-blue.plx-ico-star-f-16 {
+  color: #1681de;
+}
+
+/****===================about dark theme modify start==============****/
+
+.color-white {
+  color: #fff;
+}
+
+.color-text-red {
+  color: #e43232;
+}
+
+.color-text-color {
+  color: #999;
+}
+
+.color-text-green {
+  color: #2ea105;
+}
+
+oes-timepickerr .plx-timepicker-time {
+  text-align: center !important;
+}
+
+#fmColorPicker color-picker .hsla-text {
+  width: 215px !important;
+}
+
+#fmColorPicker color-picker .rgba-text {
+  width: 206px !important;
+}
+
+#fmColorPicker color-picker .hex-text {
+  width: 206px !important;
+}
+
+#fmColorPicker color-picker .plx-color-picker .type-policy {
+  right: 0px !important;
+}
+
+.selection-item-pop-ul .selection-item-pop-li {
+  list-style: none;
+  padding: 4px 16px;
+  color: #404040;
+  text-align: center;
+}
+
+.selection-item-pop-ul .selection-alarmcode-item-pop-li {
+  list-style: none;
+  padding: 4px 16px;
+  color: #404040;
+  text-align: left;
+}
+
+.selection-item-pop-ul .selection-item-pop-li:not(:last-child) {
+  border-bottom: 1px solid #e6e6e6;
+}
+
+.selection-item-pop-ul .selection-alarmcode-item-pop-li:not(:last-child) {
+  border-bottom: 1px solid #e6e6e6;
+}
+
+.warning-color {
+  color: #ebca0f !important;
+}
+
+/****===================about dark theme modify end==============****/
+
+/*EC-ZY:611004564161--start*/
+#position_view_table tbody tr:first-child td:first-child {
+  border-top: 0px !important;
+}
+
+#position_view_table table td {
+  border-left: 0px !important;
+  border-right: 0px !important;
+}
+
+#position_view_table div[id*='plx-table-printId-'] {
+  border-top-style: none;
+}
+
+/*611005097786*/
+#position_view_table .plx-table-content {
+  border-left-style: unset !important;
+}
+
+#position_view_table .plx-table-content-wrapper {
+  width: calc(100% + 1px);
+}
+
+#position_view_table plx-pagination {
+  margin-bottom: 8px;
+  margin-right: 16px;
+}
+
+#position_view_table .plx-table-wrapper .plx-table-scroll .plx-table-scroll-body > tbody > tr:not(:last-child) > td {
+  border-bottom-width: 1px;
+}
+
+/*EC-ZY:611004564161显示过滤1w+网元优化--end*/
+
+.plx-tooltip-inner {
+  max-width: 600px !important;
+}
+
+.classFlag button {
+  margin-right: 0px !important;
+}
+
+.form-group {
+  align-items: center;
+}
+
+.form-group .control-label {
+  margin: 0;
+}
+
+.align-items-start {
+  align-items: start;
+}
+
+/*EC-ZY:611004602860红点覆盖名称*/
+.condition-tabset .plx-tabset.plx-nav-tabs .plx-nav-item {
+  padding: 0 0.5rem;
+}
+/*EC-ZY:611004634553【UX测试V2.20.10】告警监控“另存为”面板问题*/
+#saveAsForm .button-div {
+  text-align: center !important;
+}
+
+/*去掉关联关系表格上面的无用空白*/
+#detailTabContainer .plx-tab-content {
+  height: 0px !important;
+}
+
+/*611004818506*/
+.rule-action-detail-view,
+.time-report-view {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  border-right-width: 0px !important;
+  border-bottom-width: 0px !important;
+  border-top-width: 0px !important;
+}
+
+.rule-action-detail-view tr td,
+.time-report-view tr td {
+  border-top-width: 0px !important;
+  border-left-width: 0px !important;
+}
+
+.rule-action-detail-view th,
+.time-report-view th {
+  border-left-width: 0px !important;
+}
+/** 关联关系的tooltip的样式设置，因d3将tootip添加在body上，微前端存在样式隔离，导致不生效**/
+.detail-relation-chart-tooltip {
+  position: absolute;
+  display: block;
+  border-style: solid;
+  z-index: 9999999;
+  transition: left 0.4s cubic-bezier(0.23, 1, 0.32, 1) 0s, top 0.4s cubic-bezier(0.23, 1, 0.32, 1) 0s;
+  background-color: rgba(50, 50, 50, 0.7);
+  border-width: 0px;
+  border-color: rgb(51, 51, 51);
+  border-radius: 4px;
+  color: rgb(255, 255, 255);
+  font: 14px / 21px 'Microsoft YaHei';
+  padding: 5px;
+  max-width: 40%;
+  max-height: 80%;
+  overflow: auto;
+  word-break: break-all;
+  white-space: pre;
+  pointer-events: auto;
+  opacity: 0;
+}
+
+#active-history-drag .plx-table-opretions-wrapper {
+  background-color: #fff;
+}
+
+#active-history-drag .plx-drag-handle .plx-drag-handle-line-y-top {
+  background-color: #fff;
+}
+
+.taskDescOrType {
+  display: block;
+  line-height: 18px;
+  padding-top: 7px;
+}
+
+micro-alarm-prompt td {
+  border-right: unset !important;
+}
+
+.new_statistic_table td,
+.new_statistic_table th {
+  border-right: unset !important;
+  border-left: unset !important;
+}
+
+/*EC:611004963565*/
+@media print {
+  .plx-view-btn-area-content[class*='col-'],
+  .plx-form .button-div button {
+    display: none !important;
+  }
+  /* 点击打印之后组件库的display和col样式不生效了，所以在这里把宽度写死 */
+  .plx-view-item .plx-view-label,
+  .plx-form label {
+    display: inline-block !important;
+    width: 254.61px;
+  }
+  .plx-view-item .plx-view-content,
+  .plx-form .field-div {
+    display: inline-block !important;
+    width: 636.52px;
+  }
+  /*iDN-1212993*/
+  alarm-severity-color button {
+    color: #4d4d4d !important;
+  }
+
+  /*iDN-1322373*/
+  #detailTable {
+    height: unset !important;
+    overflow-y: unset !important;
+    overflow-x: unset !important;
+  }
+}
+
+/*
+OTCP-1254954 plx-select条件下拉树缩进覆盖
+*/
+condition-tree .tree-dropdown-container .plx-treenode-lable-span {
+  margin-left: -20px !important;
+}
+
+/*
+EC:611005047486 主要是想利用absoult达到自适应高度的效果
+*/
+.custom-drag-handle-cls {
+  position: absolute;
+}
+
+/*
+   新版历史告警基础统计中的树表样式覆盖，与UX保持一致
+----------------------------------------------------------*/
+alarm-statistics-container .plx-table-tree-row-horizon-line,
+alarm-statistics-container .plx-table-tree-row-vertical-line,
+alarm-statistics-container .plx-table-row-layer-vertical-line {
+  display: none;
+}
+
+alarm-statistics-container .plx-table-content-relative {
+  padding-left: 28px !important;
+}
+/*----------------------------------------------------------*/
+
+/*条件面板的按关联网元查询的行高不对
+----------------------------------------------------------*/
+relate-me-condition label {
+  margin-bottom: 0px !important;
+  line-height: 22px;
+  position: relative;
+  top: -1.5px;
+}
+/*--------------------------------------------------------*/
+
+/*
+资源选择器中的已经选资源link，不能换行
+*/
+resource-selector-condition .plx-link {
+  word-break: break-all !important;
+  display: inline-block;
+}
+
+/* EC: 611005135564*/
+oes-fm-alarm-rule-table .fmrule_btn_group {
+  padding-top: 0px;
+  padding-bottom: 8px;
+  width: 100%;
+  font-size: 0;
+}
+
+oes-fm-alarm-rule-table .btn-group {
+  position: relative;
+}
+
+oes-fm-alarm-rule-table .inline {
+  display: inline-block;
+}
+
+/* EC:611005139951 */
+#alarm_code_table .plx-table-opretions-wrapper.plx-table-opretions-has-left {
+  flex-wrap: unset;
+}
+
+#alarmcodeSettings .plx-table-opretions-wrapper.plx-table-opretions-has-left {
+  flex-wrap: unset;
+}
+
+.spliter-line {
+  width: 1px;
+  height: 18px;
+  background-color: #d9d9d9;
+}
+
+th .spliter-line:last-child {
+  display: none;
+}
+
+/*RDC:iDN-361980 原始条件与服务端定制的过滤条件不匹配时，显示的提示信息样式覆盖==start*/
+custom-condition-data-filtering .plx-systemprompt-content {
+  width: calc(100% - 2rem);
+  margin-top: 8px;
+  margin-left: 1rem;
+}
+
+custom-condition-data-filtering .plx-systemprompt-text {
+  display: inline-flex;
+}
+
+custom-condition-data-filtering .plx-systemprompt-custom-title {
+  margin-left: unset;
+}
+/*RDC:iDN-361980 原始条件与服务端定制的过滤条件不匹配时，显示的提示信息样式覆盖== end*/
+
+/*RDC:iDN-415149 业务字段超长样式覆盖==start*/
+.alarmpathLink {
+  max-height: 100px;
+}
+
+.alarmpathWithoutLink {
+  max-height: 100px;
+}
+/*RDC:iDN-415149 业务字段超长样式覆盖==end*/
+
+/*RDC:iDN-476930明细界面网元跳转==start*/
+.mejumpInDetailModal {
+  color: unset !important;
+}
+/*RDC:iDN-476930明细界面网元跳转==end*/
+
+/*RDC:iDN-475717 定时导出任务需求==start*/
+history-report-condition .plx-systemprompt-prompt {
+  width: calc(100% - 16px);
+  margin-bottom: 16px;
+}
+
+.task-timeselection .plx-timeselection-rightstyle {
+  margin-top: 0px;
+}
+
+.task-timeselection .plx-timeselection-leftstyle {
+  margin-top: 2px;
+  margin-right: 0px;
+}
+
+.time-condition-container .plx-timeselection-leftstyle {
+  margin-right: 0px;
+}
+
+.task-timeselection .plx-timeselection-bottomstyle {
+  padding-top: 0px;
+  margin-top: -1rem;
+}
+
+.task-effective-date-period .field-custom-width {
+  margin-bottom: unset;
+  width: 520px;
+}
+
+.task-effective-date-period .plx-timeselection-label.plx-timeselection-word-label {
+  margin-top: 5px;
+  margin-bottom: 0px;
+}
+
+/*RDC:iDN-475717 定时导出任务需求==end*/
+
+/*RDC:iDN-643396 禁用按钮添加tooltip提示需求==start*/
+.disabledButtonContainer {
+  display: table-cell;
+}
+/*RDC:iDN-643396 禁用按钮添加tooltip提示需求==end*/
+
+/*无线UX：当前告警清除设置:只读模式与编辑模式高度保持一致，避免界面抖动==start*/
+clear-settings-of-active-alarms .plx-view-item {
+  line-height: 32px;
+  padding-top: 0px;
+  padding-bottom: 0px;
+  margin-bottom: 16px !important;
+}
+/*无线UX：当前告警清除设置:只读模式与编辑模式高度保持一致，避免界面抖动==start*/
+
+/*======plx-tabset向下箭头位置复写，与多窗口的图标有重叠==================*/
+condition-tabset .plx-nav-tabs-wrapper .plx-tab-dropdown-wrapper {
+  position: absolute;
+  right: 60px !important;
+  bottom: 0px !important;
+}
+
+.multi-table .plx-table-content {
+  border-left: 1px solid #d9d9d9;
+  border-right: 1px solid #d9d9d9;
+}
+
+.multi-table .plx-table-opretions-wrapper {
+  display: grid;
+  grid-template-columns: calc(100% - 32px) 32px;
+}
+
+/* Started by AICoder, pid:0ffbad82a9b743fa9f094781730e324a */
+circle-level-filter .btn-group button:not(:first-child):not(:last-child) {
+  margin-right: 0px;
+  border-radius: 0;
+  border-right: 0px;
+}
+/* Ended by AICoder, pid:0ffbad82a9b743fa9f094781730e324a */
+
+circle-level-filter .btn-group button:first-child {
+  margin-right: 0px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0px;
+}
+
+circle-level-filter .btn-group button:last-child {
+  margin-right: 0px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+oes-fm-alarm-tree-table .hiddenBtn {
+  display: none;
+}
+
+/*RDC:iDN-1087465*/
+alarm-redefine td button::after,
+.plxColorPickerDiv button::after {
+  border-top-color: #ffffff !important;
+  border-right-color: #ffffff !important;
+}
+
+view-sound-setting .dropdown-toggle span:hover {
+  color: unset !important;
+}
+
+/*RDC:iDN-1078603*/
+alarm-redefine .plx-table-opretions-left,
+warning-code-modification .plx-table-opretions-left {
+  min-width: 0 !important;
+}
+
+/*============RDC:iDN-1067997====start============*/
+.zhShowRefreshRate .plx-btn-more {
+  position: absolute;
+  bottom: 0;
+  right: 200px;
+}
+.ehShowRefreshRate .plx-btn-more {
+  position: absolute;
+  bottom: 0;
+  right: 220px;
+}
+.zhHideRefreshRate .plx-btn-more,
+.enHideRefreshRate .plx-btn-more {
+  position: absolute;
+  bottom: 0;
+  right: 24px;
+}
+
+active-alarm-basic-statistics-container ul > div:last-child {
+  min-width: unset !important;
+}
+/*============RDC:iDN-1067997====end============*/
+
+/*RDC:iDN-1079850====start====*/
+.alarm-code-loading-mask {
+  background-color: #fff;
+}
+/*RDC:iDN-1079850====end====*/
+
+.resource-selector-tip-color span {
+  color: #bfbfbf;
+}
+/******适配bootstarp从4.0升级到5.3.3***start********/
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.table > :not(caption) > * > * {
+  background-color: transparent !important;
+}
+
+.table {
+  --bs-table-color: unset;
+}
+/******适配bootstarp从4.0升级到5.3.3***end********/
+
+/*iDN-1209340*/
+#clear-settings-form .thresholdOfClearingAlarmPool {
+  position: relative;
+}
+#clear-settings-form .thresholdOfClearingAlarmPool + div {
+  position: relative;
+  left: -128px;
+}
+
+/*RDC:iDN-1271404*/
+.fm-statistic-condition-tree .plx-tree.plx-tree-padding {
+  width: calc(100% + 18px);
+}
+
+.button-no-box-shadow {
+  box-shadow: none !important;
+}
+
+.dropdown-toggle-no-severity::after {
+  border-top-color: #737373 !important;
+  border-right-color: #737373 !important;
+}
+
+#plxBadge .plx-badge {
+  display: block !important;
+}
+
+#plxBadge .plx-badge-text {
+  display: block !important;
+}
+
+sound-upload .plx-line-clamp {
+  white-space: pre !important;
+}
+
+.plx-tabset.plx-nav-pills .plx-nav-item,
+.plx-textarea-move {
+  background-color: transparent;
+}
+
+.plx-tabset.plx-nav-pills .plx-nav-item.active {
+  background-color: #e6f5ff;
+}
+
+/**====iDN-1610423=start====*/
+.fm-batch-operation-hidden-span-link {
+  visibility: hidden;
+  position: absolute;
+}
+
+.fm-batch-operation-show-span-link {
+  position: absolute;
+  right: 0px;
+  bottom: 0px;
+}
+
+.fm-batch-operation-msg-container {
+  position: relative;
+}
+
+.fm-batch-operation-brief-msg {
+  display: inline-block;
+  word-wrap: break-word;
+  white-space: normal;
+}
+
+.fm-batch-operation-briefendmark {
+  padding-left: 8px;
+}
+
+.fm-batch-operation-detail-link-bottom-container {
+  text-align: right;
+}
+.fm-batch-operation-detail-table-container {
+  margin-top: 16px;
+}
+/**====iDN-1610423=end====*/
+
+.fm-batch-import-falied-message-title .plx-textarea-move-disabled,
+.fm-batch-import-falied-message-title textarea {
+  color: unset !important;
+  border: none !important;
+  cursor: default !important;
+}
+
+.fm-empty-desc {
+  color: #999;
+}
+
+sound-upload .plx-ico-fm-voice-16:hover,
+sound-file-view .plx-ico-fm-voice-16:hover {
+  color: #009fee;
+}
+
+.new-time-condition-group-input .text-input-unit,
+task-execution-period .text-input-unit {
+  width: unset !important;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.fm-alarm-detail-grid-button {
+  max-width: 200px;
+  flex: 0 1 auto; /* 平分剩余空间 */
+  min-width: 50px; /* 最小宽度防止过窄 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*=====iDN-1743196===start==*/
+cmcc-oes-fm-active-alarm-table .plx-data-filtering-btn-wrapper {
+  display: flex;
+}
+
+cmcc-oes-fm-active-alarm-table .plx-data-filtering-btn-left {
+  flex: 1;
+  min-width: 0;
+}
+
+cmcc-oes-fm-active-alarm-table .plx-data-filtering-btn-wrapper .plx-data-filtering-line-font {
+  margin-top: 4px;
+}
+/*=====iDN-1743196===end==*/
+
+/*=======iDN-1756794======start*/
+custom-condition-data-filtering .plx-systemprompt-has-link {
+  display: none !important;
+}
+/*=======iDN-1756794======end*/
+
+.forward-rule-action-container .labelcolor {
+  color: #737373;
+}
+
+/*=================iDN-1994260:start=================================================*/
+oes-fm-alarm-code .alarm-code-info {
+  position: relative;
+  top: 1px;
+  left: 4px;
+}
+
+oes-fm-alarm-code .multi-alarm-code-search .plx-tree-content-wrap {
+  margin-left: -8px;
+  width: calc(100% + 7px);
+}
+oes-fm-alarm-code .fuzzy-search .plx-tree-content-wrap {
+  width: calc(100% - 2px);
+}
+
+oes-fm-alarm-code .multi-alarm-code-search .plx-treenode-label-wrapper {
+  margin-left: 8px;
+}
+
+oes-fm-alarm-code .multi-alarm-code-search .plx-treenode-hide-tree-toggle {
+  display: none !important;
+}
+/*=================iDN-1994260:end=================================================*/
+
+time-condition plx-daterange-picker,
+time-conditon-group plx-daterange-picker {
+  width: 400px !important;
+  display: inline-block;
+  vertical-align: middle;
+}
+/**===========iDN-2084359=start================================*/
+.condition-tree-scroll-will-change .plx-tree-content-wrap {
+  will-change: unset !important;
+}
+/**============iDN-2084359=end===============================*/
+
+
+
+app-root-qr-code .plx-card{
+  border-width: 0px !important;;
+}
+
+app-root-qr-code .plx-card-foot{
+  border-top-color: transparent !important;
+}

@@ -5,6 +5,7 @@ import path from 'path';
 import {defineConfig, type Plugin} from 'vite';
 import type {IncomingMessage, ServerResponse} from 'node:http';
 import {extractBearerToken, getAuthStore, portalAuthPlugin} from './server/auth';
+import {isAuthBypass} from './server/authSwitch';
 
 // ============================================================================
 // 门户默认目录（portal-default.json）服务端持久化
@@ -105,8 +106,11 @@ function portalDefaultStorePlugin(): Plugin {
 
         if (req.method === 'POST') {
           // 鉴权门：必须携带有效管理员会话（前端 apiFetch 自动注入 Bearer token）
+          // 日常开发免登录模式下（见 server/authSwitch.ts）无 token 也按开发管理员放行，
+          // 「只有本机可保存」的约束仍然保留，不随鉴权开关放宽。
           const token = extractBearerToken(req);
-          const caller = token ? authStore.getUserByToken(token) : null;
+          const bypass = isAuthBypass();
+          const caller = (token ? authStore.getUserByToken(token) : null) ?? (bypass ? {role: 'admin'} : null);
           if (!caller) {
             sendJson(401, {detail: '请先登录后再保存默认目录'});
             return;

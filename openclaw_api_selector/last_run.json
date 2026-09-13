@@ -1,12 +1,12 @@
 {
-  "run_at": "2026-09-12T03:02:38",
+  "run_at": "2026-09-13T03:00:22",
   "threshold_ms": 5000,
   "results": [
     {
       "key": "zhipu",
       "name": "ZhiPu GLM 智谱",
       "available": true,
-      "latency_ms": 1422,
+      "latency_ms": 1553,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -16,7 +16,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1422,
+          "latency_ms": 1553,
           "status": "ok",
           "error": null
         }
@@ -74,7 +74,7 @@
       "key": "openrouter",
       "name": "OpenRouter",
       "available": true,
-      "latency_ms": 7229,
+      "latency_ms": 2475,
       "model": "openrouter/free",
       "error": null,
       "status": "ok",
@@ -84,7 +84,7 @@
         {
           "model": "openrouter/free",
           "ok": true,
-          "latency_ms": 7229,
+          "latency_ms": 2475,
           "status": "ok",
           "error": null
         }
@@ -112,8 +112,8 @@
           "model": "ministral-3:8b",
           "ok": false,
           "latency_ms": null,
-          "status": "timeout",
-          "error": "The read operation timed out"
+          "status": "http_error",
+          "error": "HTTP 410"
         },
         {
           "model": "gemma3:12b",
@@ -142,7 +142,7 @@
       "key": "zhipu5",
       "name": "ZhiPu GLM-5 智谱",
       "available": true,
-      "latency_ms": 1492,
+      "latency_ms": 1847,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -152,7 +152,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1492,
+          "latency_ms": 1847,
           "status": "ok",
           "error": null
         }
@@ -361,6 +361,7 @@
     "ollama/qwen3:8b",
     "ollama/qwen3:4b",
     "zhipu5/glm-4-flash",
+    "openrouter/openrouter/free",
     "ollama-cloud/gemma3:27b"
   ]
 }

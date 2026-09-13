@@ -70,6 +70,7 @@ from backend.routers import (
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
 from backend.services import task_runner
 from backend.services import portal_auth  # noqa: F401  (会话路由 + current_user 供鉴权中间件)
+from backend import auth_switch  # noqa: F401  (日常开发免登录总开关，见 backend/auth_switch.py)
 from backend.database import get_raw_connection
 
 start_time = time.time()
@@ -185,6 +186,10 @@ async def require_session_middleware(request: Request, call_next):
         return await call_next(request)
     # CORS 预检放行（CORSMiddleware 在内层处理）
     if request.method == "OPTIONS":
+        return await call_next(request)
+    # 日常开发免登录总开关（见 backend/auth_switch.py）：整体放行，不再要求会话。
+    # 默认开启鉴权，故本分支不影响现有行为；生产环境由 auth_switch 的生产保护兜底。
+    if auth_switch.is_auth_bypass():
         return await call_next(request)
     # 公开路径放行
     if request.url.path.startswith(_PUBLIC_API):

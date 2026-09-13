@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import { createAuthPersistence, type AuthPersistence, type StorageInfo } from './authDb';
+import { getAuthSwitch, isAuthBypass, setAuthEnabled } from './authSwitch';
 
 // ============================================================================
 // 门户鉴权模块（挂在 vite 服务上的 /api/auth 中间件）
@@ -167,6 +168,27 @@ function toPublicRequest(record: RegistrationRequest): PublicRequest {
   const { passwordHash: _hash, ...rest } = record;
   return rest;
 }
+
+// ============================================================================
+// 日常开发免登录（共享鉴权总开关，见 server/authSwitch.ts）
+// ----------------------------------------------------------------------------
+// 当 auth-switch.json 的 authEnabled=false（或 AUTH_ENABLED=0）时，门户侧所有
+// 需要登录的接口都按「本地开发管理员」放行，前端据此跳过登录页。
+// 开关默认开启鉴权，故本分支不影响现有行为；生产环境由 authSwitch 的生产保护兜底。
+// ============================================================================
+export const DEV_ADMIN: PublicUser = {
+  id: 'dev-admin',
+  username: 'dev-admin',
+  role: 'admin',
+  mustChangePassword: false,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  landing: null,
+  allowedGroups: null,
+  allowedCards: null,
+};
+
+/** 免登录模式下签发给前端的占位 token（服务端不落库，仅用于前端携带） */
+export const DEV_TOKEN = 'dev-bypass';
 
 export class AuthStore {
   private users: StoredUser[] = [];
@@ -539,11 +561,34 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
   const method = req.method || 'GET';
   const url = (req.url || '').split('?')[0];
 
+  // 日常开发免登录：开关打开时，未带 token 的请求也按本地开发管理员处理
+  const bypass = isAuthBypass();
+
   const token = extractBearerToken(req);
-  const caller = token ? store.getUserByToken(token) : null;
+  // realCaller 只认「真实登录」的会话；caller 在免登录时回退到占位管理员。
+  // 涉及「关闭鉴权」这类危险动作时必须用 realCaller，占位身份不算数。
+  const realCaller = token ? store.getUserByToken(token) : null;
+  const caller = realCaller ?? (bypass ? DEV_ADMIN : null);
 
   try {
+    // —— 鉴权模式探测（公开，前端启动时据此决定是否显示登录页）——
+    if (method === 'GET' && url === '/mode') {
+      const state = getAuthSwitch();
+      sendJson(res, 200, {
+        authEnabled: state.authEnabled,
+        mode: state.mode,
+        source: state.source,
+        env: state.env,
+      });
+      return;
+    }
+
     if (method === 'POST' && url === '/login') {
+      // 免登录模式：直接返回开发管理员会话，前端无需知道账号密码
+      if (bypass) {
+        sendJson(res, 200, { token: DEV_TOKEN, user: DEV_ADMIN });
+        return;
+      }
       const ip = req.socket.remoteAddress || 'unknown';
       if (store.isLocked(ip)) {
         sendJson(res, 429, { detail: 'too many failed attempts, try again in a minute' });
@@ -601,6 +646,80 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
 
     if (!caller) {
       sendJson(res, 401, { detail: 'authentication required' });
+      return;
+    }
+
+    // —— 鉴权总开关（管理页按钮）——
+    // GET  : 读当前状态 + 当前身份能否关闭/开启
+    // POST : { enabled: boolean } 切换开关
+    // 权限不对称：关闭鉴权（危险方向）必须持**真实管理员** token；
+    // 开启鉴权（安全方向）放行，否则免登录状态下会陷入「没法把鉴权打开」的死结。
+    if (url === '/switch') {
+      const realAdmin = !!realCaller && realCaller.role === 'admin';
+      const state = getAuthSwitch();
+
+      if (method === 'GET') {
+        sendJson(res, 200, {
+          authEnabled: state.authEnabled,
+          mode: state.mode,
+          source: state.source,
+          env: state.env,
+          envOverride: !!state.envOverride,
+          reason: state.reason ?? null,
+          canDisable: realAdmin,
+          canEnable: true,
+          /** 当前是否为真实登录（false = 免登录占位身份） */
+          realLogin: !!realCaller,
+          updatedAt: state.updatedAt ?? null,
+          updatedBy: state.updatedBy ?? null,
+        });
+        return;
+      }
+
+      if (method === 'POST') {
+        let body: Record<string, unknown>;
+        try {
+          body = await readJsonBody(req);
+        } catch {
+          sendJson(res, 400, { detail: 'invalid JSON payload' });
+          return;
+        }
+        if (typeof body.enabled !== 'boolean') {
+          sendJson(res, 400, { detail: 'enabled 必须是布尔值' });
+          return;
+        }
+        const enabled = body.enabled;
+        if (!enabled && !realAdmin) {
+          sendJson(res, 403, {
+            detail: '关闭鉴权需要管理员账号登录后操作（免登录占位身份不可用）',
+          });
+          return;
+        }
+
+        const operator = realCaller ? realCaller.username : 'dev-admin(占位身份)';
+        const result = setAuthEnabled(enabled, operator);
+        if (!result.ok || !result.state) {
+          sendJson(res, 409, { detail: result.detail || '切换失败' });
+          return;
+        }
+        const next = result.state;
+        console.warn(
+          `[auth-switch] ${enabled ? '开启' : '关闭'}鉴权 | 操作者=${operator} 环境=${next.env}`
+        );
+        sendJson(res, 200, {
+          ok: true,
+          authEnabled: next.authEnabled,
+          mode: next.mode,
+          source: next.source,
+          env: next.env,
+          detail: enabled
+            ? '已恢复鉴权：myapp 侧最迟 3 秒内开始要求登录'
+            : '已关闭鉴权：myapp 侧最迟 3 秒内开始免登录',
+        });
+        return;
+      }
+
+      sendJson(res, 405, { detail: 'method not allowed' });
       return;
     }
 
@@ -795,6 +914,8 @@ export function portalAuthPlugin(store: AuthStore, mountPaths: string[] = ['/api
     name: 'portal-auth',
     configureServer(server) {
       store.ensureLoaded();
+      // 启动即解析并打印鉴权模式（免登录模式下会在控制台留下醒目记录）
+      getAuthSwitch();
       // 每个挂载点都注册一次：既支持直连 dev 服务的 /api/auth，
       // 也支持经 nginx /uniplam/ 反代后的 /uniplam/api/auth。
       for (const mount of mountPaths) {

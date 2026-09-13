@@ -40,6 +40,7 @@ import { DesignGuideModal } from './components/DesignGuideModal';
 import { LoginView } from './components/LoginView';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UserManagementModal } from './components/UserManagementModal';
+import { AuthSwitchModal } from './components/AuthSwitchModal';
 import { GroupManagerModal, type GroupOpFeedback } from './components/GroupManagerModal';
 import { PORTAL_API, saveEnvConfig, resolveUrl, buildRel, getMyappHost, type EnvConfig } from './config';
 import { useI18n, translateDashboard, translateCategory } from './i18n';
@@ -53,6 +54,8 @@ import {
   ExternalLink,
   Lightbulb,
   Loader2,
+  ShieldAlert,
+  ShieldCheck,
 } from 'lucide-react';
 
 const STORAGE_KEY = 'liberia_noc_dashboards_v5'; // legacy：旧版整目录存储，仅用于一次性迁移个人偏好
@@ -179,7 +182,7 @@ async function fetchServerDefault(): Promise<ServerCatalog | null> {
 
 export default function App() {
   const { t, lang } = useI18n();
-  const { status, user, apiFetch, logout } = useAuth();
+  const { status, user, apiFetch, logout, authEnabled, refreshAuthMode } = useAuth();
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved !== null) {
@@ -286,6 +289,8 @@ export default function App() {
   const [qrDashboard, setQrDashboard] = useState<DashboardItem | null>(null);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
+  const [isAuthSwitchOpen, setIsAuthSwitchOpen] = useState(false);
+  const [restoringAuth, setRestoringAuth] = useState(false);
   const [isGroupManagerOpen, setIsGroupManagerOpen] = useState(false);
 
   // —— 登录后落地页（管理员在「用户管理 → 页面配置」里为账号指定）——
@@ -593,6 +598,33 @@ export default function App() {
     }
   };
 
+  /**
+   * 警示条上的「恢复鉴权」：开启鉴权是安全方向，服务端无需管理员 token 即放行，
+   * 因此在免登录状态下也能一键把鉴权打开，不会陷入「关掉就再也开不回来」的死结。
+   */
+  const restoreAuth = async () => {
+    if (restoringAuth) return;
+    setRestoringAuth(true);
+    try {
+      const res = await apiFetch(`${PORTAL_API}/auth/switch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: true }),
+      });
+      const data = (await res.json().catch(() => null)) as { detail?: string } | null;
+      if (!res.ok) {
+        window.alert(data?.detail || `HTTP ${res.status}`);
+        return;
+      }
+      await refreshAuthMode();
+      window.alert(t('authSwitch.done'));
+    } catch (e) {
+      window.alert(String(e));
+    } finally {
+      setRestoringAuth(false);
+    }
+  };
+
   // —— 页面级可见范围（管理员在「用户管理 → 页面配置」里按账号下发）——
   // allowedGroups / allowedCards 同时为 null = 不限制（老账号行为完全不变）；
   // 只要配置了任一维度就按白名单裁剪：命中分组或命中卡片即可见。
@@ -716,6 +748,38 @@ export default function App() {
       {/* Top Banner */}
       <AnnouncementBanner />
 
+      {/* 鉴权总开关处于「免登录」时的常驻警示条：避免忘了把鉴权打开 */}
+      {authEnabled === false && (
+        <div className="w-full bg-amber-500/95 text-white">
+          <div className="w-full mx-auto px-3 sm:px-6 lg:px-8 xl:px-10 py-2 flex items-center gap-2 flex-wrap">
+            <ShieldAlert className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-semibold">{t('authSwitch.bannerText')}</span>
+            <div className="ml-auto flex items-center gap-2">
+              {user.role === 'admin' && (
+                <button
+                  onClick={() => setIsAuthSwitchOpen(true)}
+                  className="px-2.5 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-[11px] font-semibold transition-colors"
+                >
+                  {t('authSwitch.bannerManage')}
+                </button>
+              )}
+              <button
+                onClick={() => void restoreAuth()}
+                disabled={restoringAuth}
+                className="px-2.5 py-1 rounded-lg bg-white text-amber-700 hover:bg-amber-50 text-[11px] font-bold transition-colors disabled:opacity-60 flex items-center gap-1"
+              >
+                {restoringAuth ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <ShieldCheck className="w-3 h-3" />
+                )}
+                {t('authSwitch.bannerAction')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Navbar */}
       <Navbar
         darkMode={darkMode}
@@ -734,6 +798,7 @@ export default function App() {
         user={user}
         onChangePassword={() => setIsChangePasswordOpen(true)}
         onOpenUserManagement={() => setIsUserManagementOpen(true)}
+        onOpenAuthSwitch={() => setIsAuthSwitchOpen(true)}
         onLogout={() => void logout()}
       />
 
@@ -980,6 +1045,12 @@ export default function App() {
         groups={groups}
         dashboards={dashboards}
         labelOf={labelOf}
+      />
+
+      {/* 鉴权总开关（仅管理员）：切换 /uniplam/ 与 /myapp/ 是否需要登录 */}
+      <AuthSwitchModal
+        isOpen={isAuthSwitchOpen && user.role === 'admin'}
+        onClose={() => setIsAuthSwitchOpen(false)}
       />
     </div>
   );

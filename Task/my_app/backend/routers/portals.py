@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -35,9 +35,15 @@ class PortalCloseRequest(BaseModel):
 
 
 @router.get("")
-def get_portals():
-    """列出全部可登录门户。"""
-    return {"portals": svc.list_portals()}
+def get_portals(request: Request):
+    """列出全部可登录门户。
+
+    RCK_PORTALS_V2_RAIS：门户表已含 RAIS（10.100.20.9:8766，直接鉴权登录）。
+    RCK_PORTALS_V3_LOCAL：额外返回 `client_is_local`（访问者是否就在 my_app 服务器本机），
+    供前端判断「直连门户（eFlow/RAIS）能否直接用服务器端直接鉴权登录」。
+    """
+    ip = request.client.host if request.client else None
+    return {"portals": svc.list_portals(), "client_is_local": svc.client_is_local(ip)}
 
 
 @router.post("/login")
@@ -65,6 +71,10 @@ def _spawn(system: str, browser: str | None) -> str:
             # 仅对 eflow 生效，其余门户仍走原 launch_and_login（填表）路径，零改动。
             if system == "eflow":
                 svc.launch_and_login_eflow_direct(system, browser, job_id=job_id)
+            elif system == "rais":
+                # RAIS 同为「直接鉴权」：AES-256-CBC 加密密码 POST verify4web.serv 换 SSO token，
+                # 再 CDP 种 cookie（RAIS_PORTALSSOCookie 等）打开已登录主页。
+                svc.launch_and_login_rais_direct(system, browser, job_id=job_id)
             else:
                 svc.launch_and_login(system, browser, job_id=job_id)
         except Exception as e:  # pragma: no cover

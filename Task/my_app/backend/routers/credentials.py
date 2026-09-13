@@ -88,7 +88,8 @@ def reveal_credential(key: str, request: Request):
 def test_credential(body: CredentialTestRequest, request: Request):
     """连接测试：使用当前生效的凭据尝试登录。
 
-    支持 zte_ume / ipran_ume / ccn_ume / eflow（均为 ZTE OAuth2 RSA 登录），
+    支持 zte_ume / ipran_ume / ccn_ume / eflow（均为 ZTE OAuth2 RSA 登录）
+    以及 rais（AES 加密密码 POST verify4web.serv 的直接鉴权）；
     其余组返回"暂不支持自动测试"。
     """
     en = _is_en(request)
@@ -108,6 +109,28 @@ def test_credential(body: CredentialTestRequest, request: Request):
         user, pwd = get_credential(
             group["key"], group["default_user"], group["default_secret"],
         )
+        # RAIS 不是 ZTE OAuth2 RSA 登录，不能走 auth_manager._do_login：
+        # 它走门户登录模块里的「直接鉴权」（AES-256-CBC 加密密码 POST
+        # verify4web.serv 换 SSO token），复用它即可当作真实的登录测试。
+        if body.key == "rais":
+            from backend.services import portal_login_service as portal_svc
+            try:
+                acct, _token = portal_svc._rais_direct_auth(portal_svc.PORTALS["rais"])
+                return {
+                    "status": "ok",
+                    "key": body.key,
+                    "message": (f"Login succeeded (account {acct}, SSO token acquired)" if en
+                                else f"登录成功（账号 {acct}，已获取 SSO token）"),
+                    "elapsed": round(time.time() - t0, 2),
+                }
+            except Exception as e:
+                logger.warning(f"[CRED] RAIS 连接测试失败: {e}")
+                return {
+                    "status": "fail",
+                    "key": body.key,
+                    "message": f"Login failed: {e}" if en else f"登录失败: {e}",
+                    "elapsed": round(time.time() - t0, 2),
+                }
         try:
             from backend.services.auth_manager import _do_login
         except ImportError:

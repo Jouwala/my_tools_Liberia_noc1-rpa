@@ -49,3 +49,17 @@
 /backend/services/cn_ems/pm_query_template.bin
 /backend/services/eflow_rules/eflow_tt_rules_check_latest.json
 _probe_file.txt
+
+# 临时产物目录（截图 / 抓包 / 一次性探针脚本 / Chrome 临时 profile）
+# 服务在用的 TMP/ccn_free_rating_charts、fw_charts、ipran_charts、email_recovery_state.json
+# 同属运行时产出，一并忽略。
+/TMP/
+
+# 代码清洁归档目录（同盘移动，确认无碍后整体删除）
+/_myapp_trash_*/
+
+# 误建的空 sqlite 占位（真正库是 /db/app.db）
+/backend/app.db
+
+# Chrome 临时 profile（portal_login_service 正常退出时会自清，异常退出会残留）
+/data/portal_profiles/_tmp_*/

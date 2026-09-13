@@ -16,6 +16,28 @@ type Portal = {
   // 客户端本机登录（nginx 反代）：null = 未配置；"" = 按门户原生根路径反代
   proxy_prefix?: string | null
   login_uri?: string
+  // 后端标记：该门户在客户端模式下必须「直连上游」（不经反代、无自动填表），
+  // 因为其前端把根地址/接口地址写死为上游绝对地址，反代到别的 host 会失效。
+  direct?: boolean
+}
+
+// 直连上游的门户（后端 spec 里 direct=true 优先；此集合是旧后端/兜底）。
+// eFlow：前端把根地址写死为 http://localhost，经同源反代后子页面/接口会打到访问者本机
+//        → "当前系统异常，稍后重试"、当前告警列与默认模板查询失败。
+// RAIS：前端把 API 根地址写死为 https://10.100.20.9:8766/，登录响应要往该域种 cookie，
+//        经反代打开时 fetch 不带 credentials，SSO cookie 种不下来。
+const DIRECT_PORTALS = new Set(['eflow', 'rais'])
+
+const isDirect = (p: Portal) => p.direct === true || DIRECT_PORTALS.has(p.key)
+// 客户端模式下能否在访问者本机打开：要么配了 nginx 反代（同源 + 注入填表），要么直连上游
+const canClientLogin = (p: Portal) => p.proxy_prefix != null || isDirect(p)
+
+// 访问者的浏览器是否就在 my_app 服务器本机（回环地址）。
+// 此时「服务器模式」弹出的浏览器窗口正好落在用户自己桌面上，等价于「本机登录」，
+// 而直连门户（eFlow/RAIS）恰恰只能靠服务器端直接鉴权登录（见下方 handleLogin 注释）。
+const isOnServerHost = () => {
+  const h = window.location.hostname.toLowerCase()
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]'
 }
 
 type JobState = 'idle' | 'launching' | 'success' | 'failed' | 'need_manual'
@@ -52,6 +74,8 @@ export default function PortalLogin() {
   const [portals, setPortals] = useState<Portal[]>([])
   const [status, setStatus] = useState<Record<string, StatusInfo>>({})
   const [loading, setLoading] = useState(true)
+  // 后端判定：访问者浏览器是否就在 my_app 服务器本机（用于直连门户的登录方式选择）
+  const [clientIsLocal, setClientIsLocal] = useState(false)
   // client = 在访问者自己的浏览器里登录（经 nginx 反代 + 注入脚本自动填表）
   // server = 在 my_app 服务器桌面弹浏览器登录（eFlow 走直接鉴权 + CDP 种 cookie）
   // 选择持久化：eFlow 必须直连、不适合 client 模式，用户通常固定用 server。
@@ -81,6 +105,8 @@ export default function PortalLogin() {
     try {
       const { data } = await api.get('/portals')
       setPortals(data.portals || [])
+      // 后端按访问者 IP 判定：浏览器是否就在 my_app 服务器本机
+      setClientIsLocal(!!data.client_is_local)
     } catch (e) {
       showMsg('error', t('portal.loadError'))
     } finally {
@@ -118,15 +144,11 @@ export default function PortalLogin() {
     timers.current[system] = id
   }, [fetchPortals])
 
-  // eFlow 必须走「直连上游」：其前端把根地址写死为 http://localhost，经同源反代后
-  // 子页面/接口请求会打到访问者本机 → "当前系统异常，稍后重试"、当前告警列与默认模板
-  // 查询失败。因此 eFlow 不经反代（也拿不到注入的填表脚本），打开后需手动登录。
-  const DIRECT_PORTALS = new Set(['eflow'])
-
   // 客户端本机登录：在访问者自己的浏览器中打开门户。
-  // 非直连门户经 nginx 反代（同源），登录页会被注入 /api/portals/inject.js 自动填表。
+  // 非直连门户经 nginx 反代（同源），登录页会被注入 /api/portals/inject.js 自动填表；
+  // 直连门户（后端 direct=true / DIRECT_PORTALS）直接打开上游地址，需手动登录。
   const handleClientLogin = useCallback((p: Portal) => {
-    const direct = DIRECT_PORTALS.has(p.key)
+    const direct = isDirect(p)
     if (!direct && p.proxy_prefix == null) {
       showMsg('info', t('portal.noClient'))
       return
@@ -150,25 +172,41 @@ export default function PortalLogin() {
       return
     }
     showMsg('info', t(direct ? 'portal.clientOpenedDirect' : 'portal.clientOpened'))
-    setStatus((prev) => ({ ...prev, [p.key]: { state: 'success', message: '' } }))
+    // ⚠️ 直连门户（eFlow / RAIS）在客户端模式下只能「打开上游登录页」，后端无法跨域
+    // 给访问者浏览器种会话 cookie、也没有注入填表脚本 → 账号密码是空的，必须用户手输。
+    // 旧行为把它标成 success，卡片显示「已登录，浏览器窗口保持打开」，但页面上
+    // 什么都没填 —— 2026-09-13 用户报的 bug。这里如实标成 need_manual。
+    setStatus((prev) => ({
+      ...prev,
+      [p.key]: direct
+        ? { state: 'need_manual', message: t('portal.clientOpenedDirect') }
+        : { state: 'success', message: '' },
+    }))
     if (win) win.focus()
   }, [showMsg, t])
 
   const handleLogin = useCallback(async (system: string, p?: Portal) => {
-    if (mode === 'client' && p && p.proxy_prefix != null) {
+    // 直连门户（eFlow / RAIS）在客户端模式下没有可用的登录手段：
+    //   · 打开上游登录页 → 不会填表（后端无法跨域种会话 cookie）；
+    //   · 走 nginx 同源反代 + 注入填表 → 实测「能登录但告警数据全 0」
+    //     （门户前端把根地址写死为 http://localhost，子页面/接口打不到上游）。
+    // 所以只要访问者就在服务器本机（localhost），直接走服务器端「直接鉴权」：
+    // 弹出来的浏览器窗口就在他自己桌面上，会话完整可用。
+    const localDirect = !!p && isDirect(p) && (clientIsLocal || isOnServerHost())
+    if (mode === 'client' && p && canClientLogin(p) && !localDirect) {
       handleClientLogin(p)
       return
     }
     setStatus((prev) => ({ ...prev, [system]: { state: 'launching', message: '' } }))
     try {
       const { data } = await api.post('/portals/login', { system })
-      showMsg('info', t('portal.opened'))
+      showMsg('info', t(localDirect ? 'portal.localDirectServer' : 'portal.opened'))
       pollJob(system, data.job_id)
     } catch (e: any) {
       showMsg('error', e?.response?.data?.detail || t('portal.loadError'))
       setStatus((prev) => ({ ...prev, [system]: { state: 'failed', message: '' } }))
     }
-  }, [pollJob, showMsg, t])
+  }, [clientIsLocal, mode, pollJob, showMsg, t])
 
   const handleClose = useCallback(async (system: string) => {
     try {
@@ -217,7 +255,8 @@ export default function PortalLogin() {
           {portals.map((p) => {
             const st = status[p.key]?.state || 'idle'
             const stMsg = status[p.key]?.message || ''
-            const isLive = p.live || st === 'success' || st === 'need_manual'
+            // 客户端直连门户只是「打开了登录页」，没有服务端常驻浏览器 → 不算 Live
+            const isLive = p.live || st === 'success' || (st === 'need_manual' && mode === 'server')
             return (
               <Card
                 key={p.key}
@@ -235,7 +274,7 @@ export default function PortalLogin() {
                       icon={<LoginOutlined />}
                       loading={st === 'launching'}
                       onClick={() => handleLogin(p.key, p)}
-                      disabled={st === 'launching' || (mode === 'client' && p.proxy_prefix == null)}
+                      disabled={st === 'launching' || (mode === 'client' && !canClientLogin(p))}
                     >
                       {t('portal.login')}
                     </Button>
@@ -255,13 +294,13 @@ export default function PortalLogin() {
                   {t('portal.host')}: <code>{p.host}:{p.port}</code>
                 </div>
                 <div style={{ marginBottom: 8 }}>
-                  {p.proxy_prefix == null ? (
-                    <Tooltip title={t('portal.noClient')}>
-                      <Tag color="default">{t('portal.notProxied')}</Tag>
-                    </Tooltip>
-                  ) : DIRECT_PORTALS.has(p.key) ? (
+                  {isDirect(p) ? (
                     <Tooltip title={t('portal.clientOpenedDirect')}>
                       <Tag color="orange">{t('portal.direct')}</Tag>
+                    </Tooltip>
+                  ) : p.proxy_prefix == null ? (
+                    <Tooltip title={t('portal.noClient')}>
+                      <Tag color="default">{t('portal.notProxied')}</Tag>
                     </Tooltip>
                   ) : (
                     <Tag color="blue">{t('portal.modeClient')}</Tag>

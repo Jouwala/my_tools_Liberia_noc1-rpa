@@ -233,10 +233,50 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 
 ## 24. 门户一键登录（`?page=portalLogin`）
 
-用已保存的凭据替你把上游门户登录好（Playwright 自动化），省得逐个手输账号口令。
+用已保存的凭据替你把上游门户登录好，省得逐个手输账号口令。
 
-- 门户清单由后端下发：`GET /api/portals`（`PortalLogin.tsx:60`）。
-- 登录：`POST /api/portals/login {system}`（:102）→ 轮询 `GET /api/portals/login/status?job_id=`（:80）→ 打开门户窗口。
-- 关闭：`POST /api/portals/close {system}`（:113）。
+- 门户清单由后端下发：`GET /api/portals`（`PortalLogin.tsx:106`），响应体含 `client_is_local`（访问者是否就在服务器本机）。
+- 登录：`POST /api/portals/login {system}`（:202）→ 轮询 `GET /api/portals/login/status?job_id=`（:128）→ 打开门户窗口。
+- 关闭：`POST /api/portals/close {system}`（:213）。
 - 与其他页面**共用同一份凭据**（`credential_store` 分组），不必重复填。
 - 会话 cookie 会缓存到 `backend/services/auth_cache/`，等价于有效登录态——按 `05-security-and-credentials.md` 的要求对待该目录。
+
+### 门户清单（`backend/services/portal_login_service.py::PORTALS`）
+
+| key | 门户 | 地址 | 登录方式 |
+|---|---|---|---|
+| `zte_ume` / `ccn_ume` / `ipran_ume` / `mw_ume` | 各 UME 网管 | 见 `PORTALS` 默认值 | ZTE OAuth2 登录页填表（客户端模式反代 8081/8082/8083/8084） |
+| `eflow` | eFlow 告警系统 | 10.100.20.8:28001 | **直接鉴权**（复刻 RSA+OAuth2 拿会话 → CDP 种 cookie） |
+| `rais` | RAIS 统一权限平台 | 10.100.20.9:8766 | **直接鉴权**（AES-256-CBC 加密密码换 SSO token → CDP 种 cookie） |
+| `fw_kpi` | FW 整机吞吐 UMC | 10.100.2.101:443 | 登录页填表（客户端模式反代 8085） |
+| `vmax_cxo` | VMAX CXO 经营看板 | 10.123.255.12:26180 | 登录页填表（客户端模式反代 8086） |
+
+### 两种模式
+
+页面右上角切换，选择存在浏览器 `localStorage.myapp_portal_login_mode`：
+
+- **客户端（默认）**：在访问者自己的浏览器里打开门户，会话落在访问者本机。非直连门户经 nginx 同源反代 + 注入 `/api/portals/inject.js` 自动填表。
+- **服务器**：在 my_app 服务器桌面弹 Chrome。`eflow`/`rais` 走「直接鉴权」，**完全免手工**，直接落到已登录主页。
+
+> **直连门户（`eflow`/`rais`）的特殊处理**（`handleLogin` 的 `localDirect` 分支）：
+> 这两个门户**不能用反代**——实测经 nginx 同源反代后「能登录但告警数据全 0」
+> （`All Alarms 0 / 0`，HTTP 无错，门户报 *Failed to Query Active Alarm Columns and
+> Default Templates*），因为它们的前端把根地址/实时通道写死成上游绝对地址。
+> 所以：
+> - 访问者就在服务器本机（`/api/portals` 的 `client_is_local=true`，或页面主机名是回环）→
+>   点「登录」**自动改走服务器端直接鉴权**，弹出来的窗口就在他自己桌面上（不必手动切「服务器」）；
+> - 远程访问者 → 只打开上游登录页（不会填表，卡片标「已打开页面，请手动登录」），
+>   要一键登录得把「登录位置」切到「服务器」。
+
+> 实现注意（判定「已登录」）：
+> 1. 不能只看 URL——RAIS 的 hash 路由切到 `#/homepage` 是瞬时的，必须等首屏真正渲染出内容
+>    （`PORTALS['rais']['ready_js']`）。
+> 2. eFlow 必须**等启动页真正落到门户源**再写 `localStorage.csrftoken`：Chrome 一启动
+>    `DevToolsActivePort` 就有，此时页面还在 `about:blank`（origin=null），
+>    `localStorage.setItem` 会抛 SecurityError → 整页渲染
+>    `Your session is error. Please login again.`（窗口打开了但没登录）。
+> 3. 成功判定要「正证据 + 连续两次」（`PORTAL_READY_JS` + `_SESSION_ERR_RE`）：正文 ≥120 字、
+>    无会话错误文案、无可见 `input[type=password]`；只判 URL 或「innerText 非空就 break」
+>    会把中间态/会话错误页误报成「已登录」。
+> 4. **不能在 Chrome 启动页还 loading 时就 `Page.navigate` 改 hash**，否则会得到一个
+>    `readyState=complete` 但 JS 从未执行的空白页，且不会自愈。

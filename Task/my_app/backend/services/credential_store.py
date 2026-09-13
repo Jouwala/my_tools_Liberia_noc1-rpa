@@ -130,6 +130,27 @@ CREDENTIAL_GROUPS = [
         "env_secret": "EFLOW_PASS",
     },
     {
+        "key": "rais",
+        "name": "RAIS 统一权限平台 (10.100.20.9:8766)",
+        "name_en": "RAIS Unified Permission Platform (10.100.20.9:8766)",
+        "usage": "一键门户登录（RAIS 统一认证中心 / uacliteweb）使用此账号做直接鉴权登录；"
+                 "该站点与 eFlow 同网段，同为 ZTE UAC 系账号。",
+        "usage_en": "Used by the one-click portal login for RAIS (Unified Permission Platform / "
+                    "uacliteweb) direct authentication.",
+        "default_user": "admin",
+        "default_secret": "ZXUniPOS_rais",
+        "username_label": "用户名",
+        "username_label_en": "Username",
+        "secret_label": "密码",
+        "secret_label_en": "Password",
+        "has_username": True,
+        "testable": True,
+        "test_host": "10.100.20.9",
+        "test_port": 8766,
+        "env_user": "RAIS_USER",
+        "env_secret": "RAIS_PASS",
+    },
+    {
         "key": "fms_portal",
         "name": "FMS 实时代理门户 (10.100.20.8:28001)",
         "name_en": "FMS Realtime Proxy Portal (10.100.20.8:28001)",

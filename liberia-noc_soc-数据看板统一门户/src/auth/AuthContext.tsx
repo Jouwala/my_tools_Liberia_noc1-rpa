@@ -43,6 +43,12 @@ export type AuthStatus = 'loading' | 'anon' | 'authed';
 
 const TOKEN_KEY = 'liberia_noc_auth_v1';
 
+/** 免登录模式下的占位身份 id（与 server/auth.ts 的 DEV_ADMIN 对齐） */
+const DEV_USER_ID = 'dev-admin';
+
+/** 鉴权模式轮询间隔：管理员在页面上切换开关后，其他标签页最多这么久跟上 */
+const MODE_POLL_MS = 10_000;
+
 function readStoredToken(): string | null {
   try {
     return localStorage.getItem(TOKEN_KEY);
@@ -60,6 +66,12 @@ interface AuthContextValue {
   setToken: (token: string) => void;
   /** 自动携带 Bearer token 的 fetch；遇 401 自动清除会话回到登录态 */
   apiFetch: (path: string, init?: RequestInit) => Promise<Response>;
+  /** 服务端鉴权总开关：false = 免登录（仅日常开发）。null = 尚未探测到 */
+  authEnabled: boolean | null;
+  /** 当前是否为真实登录（false = 免登录占位身份，无法执行关闭鉴权等敏感操作） */
+  realLogin: boolean;
+  /** 重新拉取鉴权模式；切换开关后调用可立即刷新界面 */
+  refreshAuthMode: () => Promise<boolean | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -68,6 +80,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setTokenState] = useState<string | null>(() => readStoredToken());
+  const [authEnabled, setAuthEnabled] = useState<boolean | null>(null);
+
+  /** 拉取服务端鉴权总开关状态（公开接口 /auth/mode） */
+  const refreshAuthMode = useCallback(async (): Promise<boolean | null> => {
+    try {
+      const res = await fetch(`${PORTAL_API}/auth/mode`);
+      if (!res.ok) return null;
+      const data = (await res.json().catch(() => null)) as { authEnabled?: boolean } | null;
+      const enabled = typeof data?.authEnabled === 'boolean' ? data.authEnabled : null;
+      setAuthEnabled(enabled);
+      return enabled;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const clearSession = useCallback(() => {
     try {
@@ -81,11 +108,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    if (!token) {
-      setStatus('anon');
-      return;
-    }
     let cancelled = false;
+    // 无本地 token：先问服务端当前鉴权模式。
+    // 日常开发免登录模式下（auth-switch.json 的 authEnabled=false）直接以开发
+    // 管理员进入，不显示登录页；否则保持原有「未登录 → 登录页」行为。
+    if (!token) {
+      void (async () => {
+        const enabled = await refreshAuthMode();
+        if (cancelled) return;
+        if (enabled !== false) {
+          setStatus('anon');
+          return;
+        }
+        try {
+          const res = await fetch(`${PORTAL_API}/auth/me`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = (await res.json()) as { user: AuthUser };
+          if (cancelled) return;
+          setUser(data.user);
+          setStatus('authed');
+        } catch {
+          if (!cancelled) setStatus('anon');
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
     fetch(`${PORTAL_API}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -100,7 +149,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       cancelled = true;
     };
-  }, [token, clearSession]);
+  }, [token, clearSession, refreshAuthMode]);
+
+  // 鉴权模式轮询：管理员在页面上切换开关后，本页与其他标签页自动跟上（无需刷新）。
+  //  - 关闭鉴权 → 无 token 时自动以开发管理员进入
+  //  - 恢复鉴权 → 仅「免登录占位身份」退回登录页；真实登录会话不受影响
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      const enabled = await refreshAuthMode();
+      if (cancelled || enabled === null) return;
+      if (enabled === false && !token && status === 'anon') {
+        try {
+          const res = await fetch(`${PORTAL_API}/auth/me`);
+          if (!res.ok) return;
+          const data = (await res.json()) as { user: AuthUser };
+          if (cancelled) return;
+          setUser(data.user);
+          setStatus('authed');
+        } catch {
+          // 忽略：下一轮再试
+        }
+        return;
+      }
+      if (enabled === true && !token && status === 'authed') {
+        clearSession();
+      }
+    };
+    const timer = window.setInterval(() => void tick(), MODE_POLL_MS);
+    const onFocus = () => void tick();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [token, status, clearSession, refreshAuthMode]);
 
   const login = useCallback(async (username: string, password: string) => {
     const res = await fetch(`${PORTAL_API}/auth/login`, {
@@ -198,8 +282,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, logout, updateUser, setToken, apiFetch }),
-    [status, user, login, logout, updateUser, setToken, apiFetch]
+    () => ({
+      status,
+      user,
+      login,
+      logout,
+      updateUser,
+      setToken,
+      apiFetch,
+      authEnabled,
+      realLogin: !!user && user.id !== DEV_USER_ID,
+      refreshAuthMode,
+    }),
+    [
+      status,
+      user,
+      login,
+      logout,
+      updateUser,
+      setToken,
+      apiFetch,
+      authEnabled,
+      refreshAuthMode,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

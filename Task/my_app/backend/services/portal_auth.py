@@ -48,6 +48,13 @@ uniplam 门户鉴权形态（见 D:/01_RPA/liberia-noc_soc-数据看板统一门
 - MYAPP_SESSION_COOKIE         会话 Cookie 名（默认 myapp_session）
 - MYAPP_KIOSK_KEY              常驻会话密钥；为空则常驻接口关闭（默认空）
 - MYAPP_KIOSK_COOKIE_MAX_AGE   常驻 Cookie 存活秒（默认 10 年）
+
+--- 日常开发免登录（2026-09-13 新增）---
+共享鉴权总开关见 ``backend/auth_switch.py``：当 ``auth-switch.json`` 的
+``authEnabled=false``（或环境变量 ``AUTH_ENABLED=0``）时，``current_user`` 直接返回
+开发管理员，鉴权中间件整体放行，前端也不需要走门户登录引导。
+开关默认开启鉴权，故不影响现有行为；生产环境由 auth_switch 的生产保护兜底。
+切换开关后需重启后端与门户进程。
 """
 import json
 import logging
@@ -63,6 +70,7 @@ from fastapi.responses import RedirectResponse
 
 from backend.security import client_is_local
 from backend.database import get_raw_connection
+from backend import auth_switch
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +89,10 @@ KIOSK_COOKIE_MAX_AGE = int(os.environ.get("MYAPP_KIOSK_COOKIE_MAX_AGE", str(10 *
 _PURGE_INTERVAL = 300.0
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# 免登录模式下的占位身份（与门户侧 server/auth.ts 的 DEV_ADMIN 对齐）
+DEV_USER: dict[str, Any] = {"username": "dev-admin", "role": "admin"}
+DEV_TOKEN = "dev-bypass"
 
 # L1 缓存：sid -> {username, role, exp, created, last_seen, allowedGroups, allowedCards, persistent}
 # exp <= 0 表示永不过期（常驻会话）。真相源是数据库，这里只是热路径缓存。
@@ -383,7 +395,13 @@ def read_session(request: Request) -> Optional[dict]:
 
 
 def current_user(request: Request) -> Optional[dict]:
-    """给鉴权中间件/端点读当前用户；本机回环（内部脚本/调度）视为已授权并给占位身份。"""
+    """给鉴权中间件/端点读当前用户；本机回环（内部脚本/调度）视为已授权并给占位身份。
+
+    日常开发免登录模式下（见 backend/auth_switch.py）一律返回开发管理员，
+    使鉴权中间件与所有依赖当前用户的接口整体放行。
+    """
+    if auth_switch.is_auth_bypass():
+        return dict(DEV_USER)
     if client_is_local(request):
         return {"username": "local", "role": "admin"}
     return read_session(request)
@@ -422,9 +440,23 @@ def _local_session(response: Response) -> dict:
     return {"username": "local", "role": "admin"}
 
 
+@router.get("/mode")
+async def auth_mode():
+    """鉴权模式探测（公开接口）：前端启动时据此决定是否显示登录引导。"""
+    state = auth_switch.get_auth_switch()
+    return {
+        "authEnabled": state["authEnabled"],
+        "mode": state["mode"],
+        "source": state["source"],
+        "env": state["env"],
+    }
+
+
 @router.post("/portal-login")
 async def portal_login(payload: dict, request: Request, response: Response):
     """用门户 token 换 myapp 会话 Cookie。"""
+    if auth_switch.is_auth_bypass():
+        return {"user": dict(DEV_USER), "bypass": True}
     if client_is_local(request):
         return {"user": _local_session(response)}
 

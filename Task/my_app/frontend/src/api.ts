@@ -137,6 +137,12 @@ export function getAuthMe() {
   return api.get('/auth/me')
 }
 
+/** 探测后端鉴权模式（公开接口）：authEnabled=false 表示已开启日常开发免登录，
+ *  前端据此跳过「请通过统一门户登录」引导（见 backend/auth_switch.py）。 */
+export function getAuthMode() {
+  return api.get('/auth/mode')
+}
+
 api.interceptors.response.use(
   (resp) => resp,
   (error) => {

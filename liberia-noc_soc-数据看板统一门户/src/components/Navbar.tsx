@@ -20,6 +20,7 @@ import {
   KeyRound,
   LogOut,
   ShieldCheck,
+  ShieldOff,
   Users,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
@@ -43,6 +44,8 @@ interface NavbarProps {
   onChangePassword: () => void;
   /** 仅 admin 展示用户管理入口 */
   onOpenUserManagement: () => void;
+  /** 仅 admin 展示「鉴权开关」入口 */
+  onOpenAuthSwitch: () => void;
   onLogout: () => void;
 }
 
@@ -60,6 +63,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   user,
   onChangePassword,
   onOpenUserManagement,
+  onOpenAuthSwitch,
   onLogout,
 }) => {
   const { t, lang, setLang } = useI18n();
@@ -80,9 +84,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const toggleMobileMenu = () => setMobileMenuOpen(!mobileMenuOpen);
   const isAdmin = user.role === 'admin';
+  /** 鉴权总开关状态：false = 当前免登录（仅日常开发），null = 尚未探测到 */
+  const { apiFetch, authEnabled } = useAuth();
 
   /** 待审批的账号申请数：管理员菜单上挂红点，避免申请被忽略 */
-  const { apiFetch } = useAuth();
   const [pendingRequests, setPendingRequests] = React.useState(0);
 
   React.useEffect(() => {
@@ -129,6 +134,29 @@ export const Navbar: React.FC<NavbarProps> = ({
               title={t('ar.pendingTitle')}
             >
               {pendingRequests}
+            </span>
+          )}
+        </button>
+      )}
+      {isAdmin && (
+        <button
+          onClick={() => { onOpenAuthSwitch(); onNavigate(); }}
+          title={t('nav.authSwitchTip')}
+          className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
+            authEnabled === false
+              ? 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300'
+              : 'border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+          }`}
+        >
+          {authEnabled === false ? (
+            <ShieldOff className="w-4 h-4 text-amber-500" />
+          ) : (
+            <ShieldCheck className="w-4 h-4 text-emerald-500" />
+          )}
+          <span>{t('nav.authSwitch')}</span>
+          {authEnabled === false && (
+            <span className="ml-auto px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white">
+              {t('nav.authSwitchOff')}
             </span>
           )}
         </button>

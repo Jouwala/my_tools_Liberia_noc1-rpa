@@ -346,3 +346,302 @@ D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts
   errstr: 'constraint failed'
 }
 [auth] 已创建初始管理员：用户名 admin，初始密码 4eYrWwFcKnYi —— 首次登录会强制修改密码，请立即修改并妥善保管！
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[2m10:37:12[22m [31m[1m[vite][22m[39m [31mInternal server error: D:\01_RPA\liberia-noc_soc-数据看板统一门户\src\components\Navbar.tsx: Identifier 'apiFetch' has already been declared. (90:10)
+
+[0m [90m 88 |[31m
+ [90m 89 |[31m   [90m/** 待审批的账号申请数：管理员菜单上挂红点，避免申请被忽略 */[31m
+[31m[1m>[22m[31m[90m 90 |[31m   [36mconst[31m { apiFetch } [33m=[31m useAuth()[33m;[31m
+ [90m    |[31m           [31m[1m^[22m[31m
+ [90m 91 |[31m   [36mconst[31m [pendingRequests[33m,[31m setPendingRequests] [33m=[31m [33mReact[31m[33m.[31museState([35m0[31m)[33m;[31m
+ [90m 92 |[31m
+ [90m 93 |[31m   [33mReact[31m[33m.[31museEffect(() [33m=>[31m {[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/components/Navbar.tsx[39m:90:10
+[33m  89 |    /** 待审批的账号申请数：管理员菜单上挂红点，避免申请被忽略 */
+  90 |    const { apiFetch } = useAuth();
+  91 |    const [pendingRequests, setPendingRequests] = React.useState(0);
+     |                                                                   ^
+  92 |  
+  93 |    React.useEffect(() => {[39m
+      at constructor (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:369:19)
+      at TypeScriptParserMixin.raise (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:6620:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:1623:19)
+      at TypeScriptScopeHandler.declareName (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:1589:12)
+      at TypeScriptScopeHandler.declareName (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:4896:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7588:16)
+      at TypeScriptParserMixin.checkIdentifier (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7584:12)
+      at TypeScriptParserMixin.checkLVal (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7521:12)
+      at TypeScriptParserMixin.checkLVal (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7565:12)
+      at TypeScriptParserMixin.checkLVal (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7561:16)
+      at TypeScriptParserMixin.parseVarId (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13441:10)
+      at TypeScriptParserMixin.parseVarId (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9773:11)
+      at TypeScriptParserMixin.parseVar (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13412:12)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13259:10)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9429:31)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12880:23)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9529:18)
+      at TypeScriptParserMixin.parseStatementLike (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12796:17)
+      at TypeScriptParserMixin.parseStatementListItem (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12776:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13345:61)
+      at TypeScriptParserMixin.parseBlockBody (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13338:10)
+      at TypeScriptParserMixin.parseBlock (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13326:10)
+      at TypeScriptParserMixin.parseFunctionBody (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12129:24)
+      at TypeScriptParserMixin.parseArrowExpression (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12104:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11713:12)
+      at TypeScriptParserMixin.parseExprAtom (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11357:23)
+      at TypeScriptParserMixin.parseExprAtom (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:4780:20)
+      at TypeScriptParserMixin.parseExprSubscripts (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11102:23)
+      at TypeScriptParserMixin.parseUpdate (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11087:21)
+      at TypeScriptParserMixin.parseMaybeUnary (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11067:23)
+      at TypeScriptParserMixin.parseMaybeUnary (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9858:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10920:61)
+      at TypeScriptParserMixin.parseExprOps (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10925:23)
+      at TypeScriptParserMixin.parseMaybeConditional (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10902:23)
+      at TypeScriptParserMixin.parseMaybeAssign (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10852:21)
+      at TypeScriptParserMixin.parseMaybeAssign (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9807:20)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10821:39
+      at TypeScriptParserMixin.allowInAnd (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12450:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10821:17)
+      at TypeScriptParserMixin.parseVar (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13413:91)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13259:10)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9429:31)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12880:23)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9529:18)
+      at TypeScriptParserMixin.parseStatementLike (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12796:17)
+      at TypeScriptParserMixin.parseStatementListItem (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12776:17)
+      at TypeScriptParserMixin.parseExportDeclaration (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13963:17)
+      at TypeScriptParserMixin.parseExportDeclaration (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9650:85)
+      at TypeScriptParserMixin.maybeParseExportDeclaration (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13922:31)
+      at TypeScriptParserMixin.parseExport (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13841:29)
+[2m10:37:12[22m [31m[1m[vite][22m[39m [31mInternal server error: D:\01_RPA\liberia-noc_soc-数据看板统一门户\src\components\Navbar.tsx: Identifier 'apiFetch' has already been declared. (90:10)
+
+[0m [90m 88 |[31m
+ [90m 89 |[31m   [90m/** 待审批的账号申请数：管理员菜单上挂红点，避免申请被忽略 */[31m
+[31m[1m>[22m[31m[90m 90 |[31m   [36mconst[31m { apiFetch } [33m=[31m useAuth()[33m;[31m
+ [90m    |[31m           [31m[1m^[22m[31m
+ [90m 91 |[31m   [36mconst[31m [pendingRequests[33m,[31m setPendingRequests] [33m=[31m [33mReact[31m[33m.[31museState([35m0[31m)[33m;[31m
+ [90m 92 |[31m
+ [90m 93 |[31m   [33mReact[31m[33m.[31museEffect(() [33m=>[31m {[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/components/Navbar.tsx[39m:90:10
+[33m  89 |    /** 待审批的账号申请数：管理员菜单上挂红点，避免申请被忽略 */
+  90 |    const { apiFetch } = useAuth();
+  91 |    const [pendingRequests, setPendingRequests] = React.useState(0);
+     |                                                                   ^
+  92 |  
+  93 |    React.useEffect(() => {[39m
+      at constructor (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:369:19)
+      at TypeScriptParserMixin.raise (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:6620:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:1623:19)
+      at TypeScriptScopeHandler.declareName (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:1589:12)
+      at TypeScriptScopeHandler.declareName (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:4896:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7588:16)
+      at TypeScriptParserMixin.checkIdentifier (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7584:12)
+      at TypeScriptParserMixin.checkLVal (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7521:12)
+      at TypeScriptParserMixin.checkLVal (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7565:12)
+      at TypeScriptParserMixin.checkLVal (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7561:16)
+      at TypeScriptParserMixin.parseVarId (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13441:10)
+      at TypeScriptParserMixin.parseVarId (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9773:11)
+      at TypeScriptParserMixin.parseVar (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13412:12)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13259:10)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9429:31)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12880:23)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9529:18)
+      at TypeScriptParserMixin.parseStatementLike (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12796:17)
+      at TypeScriptParserMixin.parseStatementListItem (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12776:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13345:61)
+      at TypeScriptParserMixin.parseBlockBody (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13338:10)
+      at TypeScriptParserMixin.parseBlock (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13326:10)
+      at TypeScriptParserMixin.parseFunctionBody (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12129:24)
+      at TypeScriptParserMixin.parseArrowExpression (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12104:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11713:12)
+      at TypeScriptParserMixin.parseExprAtom (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11357:23)
+      at TypeScriptParserMixin.parseExprAtom (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:4780:20)
+      at TypeScriptParserMixin.parseExprSubscripts (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11102:23)
+      at TypeScriptParserMixin.parseUpdate (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11087:21)
+      at TypeScriptParserMixin.parseMaybeUnary (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11067:23)
+      at TypeScriptParserMixin.parseMaybeUnary (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9858:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10920:61)
+      at TypeScriptParserMixin.parseExprOps (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10925:23)
+      at TypeScriptParserMixin.parseMaybeConditional (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10902:23)
+      at TypeScriptParserMixin.parseMaybeAssign (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10852:21)
+      at TypeScriptParserMixin.parseMaybeAssign (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9807:20)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10821:39
+      at TypeScriptParserMixin.allowInAnd (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12450:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10821:17)
+      at TypeScriptParserMixin.parseVar (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13413:91)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13259:10)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9429:31)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12880:23)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9529:18)
+      at TypeScriptParserMixin.parseStatementLike (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12796:17)
+      at TypeScriptParserMixin.parseStatementListItem (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12776:17)
+      at TypeScriptParserMixin.parseExportDeclaration (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13963:17)
+      at TypeScriptParserMixin.parseExportDeclaration (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9650:85)
+      at TypeScriptParserMixin.maybeParseExportDeclaration (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13922:31)
+      at TypeScriptParserMixin.parseExport (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13841:29)
+[2m10:37:12[22m [31m[1m[vite][22m[39m [31mInternal server error: D:\01_RPA\liberia-noc_soc-数据看板统一门户\src\components\Navbar.tsx: Identifier 'apiFetch' has already been declared. (90:10)
+
+[0m [90m 88 |[31m
+ [90m 89 |[31m   [90m/** 待审批的账号申请数：管理员菜单上挂红点，避免申请被忽略 */[31m
+[31m[1m>[22m[31m[90m 90 |[31m   [36mconst[31m { apiFetch } [33m=[31m useAuth()[33m;[31m
+ [90m    |[31m           [31m[1m^[22m[31m
+ [90m 91 |[31m   [36mconst[31m [pendingRequests[33m,[31m setPendingRequests] [33m=[31m [33mReact[31m[33m.[31museState([35m0[31m)[33m;[31m
+ [90m 92 |[31m
+ [90m 93 |[31m   [33mReact[31m[33m.[31museEffect(() [33m=>[31m {[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/components/Navbar.tsx[39m:90:10
+[33m  89 |    /** 待审批的账号申请数：管理员菜单上挂红点，避免申请被忽略 */
+  90 |    const { apiFetch } = useAuth();
+  91 |    const [pendingRequests, setPendingRequests] = React.useState(0);
+     |                                                                   ^
+  92 |  
+  93 |    React.useEffect(() => {[39m
+      at constructor (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:369:19)
+      at TypeScriptParserMixin.raise (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:6620:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:1623:19)
+      at TypeScriptScopeHandler.declareName (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:1589:12)
+      at TypeScriptScopeHandler.declareName (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:4896:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7588:16)
+      at TypeScriptParserMixin.checkIdentifier (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7584:12)
+      at TypeScriptParserMixin.checkLVal (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7521:12)
+      at TypeScriptParserMixin.checkLVal (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7565:12)
+      at TypeScriptParserMixin.checkLVal (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7561:16)
+      at TypeScriptParserMixin.parseVarId (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13441:10)
+      at TypeScriptParserMixin.parseVarId (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9773:11)
+      at TypeScriptParserMixin.parseVar (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13412:12)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13259:10)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9429:31)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12880:23)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9529:18)
+      at TypeScriptParserMixin.parseStatementLike (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12796:17)
+      at TypeScriptParserMixin.parseStatementListItem (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12776:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13345:61)
+      at TypeScriptParserMixin.parseBlockBody (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13338:10)
+      at TypeScriptParserMixin.parseBlock (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13326:10)
+      at TypeScriptParserMixin.parseFunctionBody (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12129:24)
+      at TypeScriptParserMixin.parseArrowExpression (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12104:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11713:12)
+      at TypeScriptParserMixin.parseExprAtom (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11357:23)
+      at TypeScriptParserMixin.parseExprAtom (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:4780:20)
+      at TypeScriptParserMixin.parseExprSubscripts (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11102:23)
+      at TypeScriptParserMixin.parseUpdate (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11087:21)
+      at TypeScriptParserMixin.parseMaybeUnary (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11067:23)
+      at TypeScriptParserMixin.parseMaybeUnary (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9858:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10920:61)
+      at TypeScriptParserMixin.parseExprOps (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10925:23)
+      at TypeScriptParserMixin.parseMaybeConditional (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10902:23)
+      at TypeScriptParserMixin.parseMaybeAssign (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10852:21)
+      at TypeScriptParserMixin.parseMaybeAssign (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9807:20)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10821:39
+      at TypeScriptParserMixin.allowInAnd (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12450:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10821:17)
+      at TypeScriptParserMixin.parseVar (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13413:91)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13259:10)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9429:31)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12880:23)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9529:18)
+      at TypeScriptParserMixin.parseStatementLike (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12796:17)
+      at TypeScriptParserMixin.parseStatementListItem (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12776:17)
+      at TypeScriptParserMixin.parseExportDeclaration (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13963:17)
+      at TypeScriptParserMixin.parseExportDeclaration (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9650:85)
+      at TypeScriptParserMixin.maybeParseExportDeclaration (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13922:31)
+      at TypeScriptParserMixin.parseExport (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13841:29)
+[2m10:37:12[22m [31m[1m[vite][22m[39m [31mInternal server error: D:\01_RPA\liberia-noc_soc-数据看板统一门户\src\components\Navbar.tsx: Identifier 'apiFetch' has already been declared. (90:10)
+
+[0m [90m 88 |[31m
+ [90m 89 |[31m   [90m/** 待审批的账号申请数：管理员菜单上挂红点，避免申请被忽略 */[31m
+[31m[1m>[22m[31m[90m 90 |[31m   [36mconst[31m { apiFetch } [33m=[31m useAuth()[33m;[31m
+ [90m    |[31m           [31m[1m^[22m[31m
+ [90m 91 |[31m   [36mconst[31m [pendingRequests[33m,[31m setPendingRequests] [33m=[31m [33mReact[31m[33m.[31museState([35m0[31m)[33m;[31m
+ [90m 92 |[31m
+ [90m 93 |[31m   [33mReact[31m[33m.[31museEffect(() [33m=>[31m {[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mD:/01_RPA/liberia-noc_soc-数据看板统一门户/src/components/Navbar.tsx[39m:90:10
+[33m  89 |    /** 待审批的账号申请数：管理员菜单上挂红点，避免申请被忽略 */
+  90 |    const { apiFetch } = useAuth();
+  91 |    const [pendingRequests, setPendingRequests] = React.useState(0);
+     |                                                                   ^
+  92 |  
+  93 |    React.useEffect(() => {[39m
+      at constructor (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:369:19)
+      at TypeScriptParserMixin.raise (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:6620:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:1623:19)
+      at TypeScriptScopeHandler.declareName (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:1589:12)
+      at TypeScriptScopeHandler.declareName (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:4896:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7588:16)
+      at TypeScriptParserMixin.checkIdentifier (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7584:12)
+      at TypeScriptParserMixin.checkLVal (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7521:12)
+      at TypeScriptParserMixin.checkLVal (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7565:12)
+      at TypeScriptParserMixin.checkLVal (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:7561:16)
+      at TypeScriptParserMixin.parseVarId (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13441:10)
+      at TypeScriptParserMixin.parseVarId (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9773:11)
+      at TypeScriptParserMixin.parseVar (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13412:12)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13259:10)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9429:31)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12880:23)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9529:18)
+      at TypeScriptParserMixin.parseStatementLike (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12796:17)
+      at TypeScriptParserMixin.parseStatementListItem (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12776:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13345:61)
+      at TypeScriptParserMixin.parseBlockBody (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13338:10)
+      at TypeScriptParserMixin.parseBlock (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13326:10)
+      at TypeScriptParserMixin.parseFunctionBody (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12129:24)
+      at TypeScriptParserMixin.parseArrowExpression (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12104:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11713:12)
+      at TypeScriptParserMixin.parseExprAtom (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11357:23)
+      at TypeScriptParserMixin.parseExprAtom (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:4780:20)
+      at TypeScriptParserMixin.parseExprSubscripts (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11102:23)
+      at TypeScriptParserMixin.parseUpdate (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11087:21)
+      at TypeScriptParserMixin.parseMaybeUnary (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:11067:23)
+      at TypeScriptParserMixin.parseMaybeUnary (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9858:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10920:61)
+      at TypeScriptParserMixin.parseExprOps (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10925:23)
+      at TypeScriptParserMixin.parseMaybeConditional (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10902:23)
+      at TypeScriptParserMixin.parseMaybeAssign (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10852:21)
+      at TypeScriptParserMixin.parseMaybeAssign (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9807:20)
+      at D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10821:39
+      at TypeScriptParserMixin.allowInAnd (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12450:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:10821:17)
+      at TypeScriptParserMixin.parseVar (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13413:91)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13259:10)
+      at TypeScriptParserMixin.parseVarStatement (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9429:31)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12880:23)
+      at TypeScriptParserMixin.parseStatementContent (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9529:18)
+      at TypeScriptParserMixin.parseStatementLike (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12796:17)
+      at TypeScriptParserMixin.parseStatementListItem (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:12776:17)
+      at TypeScriptParserMixin.parseExportDeclaration (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13963:17)
+      at TypeScriptParserMixin.parseExportDeclaration (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:9650:85)
+      at TypeScriptParserMixin.maybeParseExportDeclaration (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13922:31)
+      at TypeScriptParserMixin.parseExport (D:\01_RPA\liberia-noc_soc-数据看板统一门户\node_modules\@babel\parser\lib\index.js:13841:29)
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json

@@ -1,7 +1,8 @@
-﻿===== portal start_hidden report 2026-09-12 11:18:03 PORTAL_START_V1 (Quiet=True) =====
+﻿===== portal start_hidden report 2026-09-13 11:08:02 PORTAL_START_V1 (Quiet=True) =====
 ----- 1) Portal dev server (9267) -----
 [OK] Portal dev server already running (pid=21156, port 9267)
 ----- 2) WhatsApp local analysis service (9268) -----
-[WARN] WhatsApp analysis port 9268 is listening but /api/tasks did not answer 200 (got 0)
+[WARN] Port 9268 is held by pid=21156, which is NOT the WhatsApp analysis service.
+       Run stop.bat first (it kills by port), then start.bat.
 ===== Result: 0 failures / 1 warnings =====
 Full log: D:\01_RPA\liberia-noc_soc-数据看板统一门户\log\start_hidden_result.txt
