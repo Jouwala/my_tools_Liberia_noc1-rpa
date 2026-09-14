@@ -1,0 +1,12 @@
+{
+  "REPLACE_WITH_PACKED_EXTENSION_ID": {
+    "installation_mode": "force_installed",
+    "update_url": "https://192.168.100.20/chrome/portal-login/update.xml",
+    "runtime_allowed_hosts": [
+      "http://192.168.100.20/*",
+      "https://192.168.100.20/*",
+      "https://10.100.20.8/*",
+      "https://10.100.20.9/*"
+    ]
+  }
+}

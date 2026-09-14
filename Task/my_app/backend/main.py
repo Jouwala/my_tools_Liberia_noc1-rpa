@@ -176,6 +176,9 @@ _PUBLIC_API = (
     "/api/auth/",          # 登录/注销/会话查询（引导流程必须全开）
     "/api/health",         # 健康检查
     "/api/ui/menu-layout", # 侧栏菜单结构只读（首屏渲染依赖，且 PUT/DELETE 另有 require_protected）
+    # 浏览器扩展消费由已登录网页签发的 45 秒一次性票据；接口本身不接受 Cookie 以外的
+    # 身份替代物，票据随机且单次失效，故只能放行此精确子路径。
+    "/api/portals/client-login/consume",
 )
 
 

@@ -57,9 +57,8 @@ import {
   getMenuLayout,
   saveMenuLayout,
   resetMenuLayout,
-  portalLogin,
   getAuthMe,
-  getAuthMode,
+  runAuthBootstrap,
   setOnUnauthorized,
   type MenuLayoutPayload,
 } from './api'
@@ -378,6 +377,9 @@ function AppContent() {
   const [bareModule, setBareModule] = useState<boolean>(readBareModule)
   // 会话失效 / 未登录访问数据接口 → 展示“请通过统一门户登录”引导（uniplam 鉴权适配）
   const [authGate, setAuthGate] = useState(false)
+  // 启动鉴权引导（?t= 换会话 / 免登录探测 / 会话确认）是否已结束：
+  // 结束前不挂载业务页面，避免页面在会话 Cookie 落地前抢跑数据接口拿到 401
+  const [bootDone, setBootDone] = useState(false)
   // 侧边栏默认隐藏（完全收起、不占空间），展开/收起偏好持久化到 localStorage
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
@@ -951,30 +953,22 @@ function AppContent() {
   }, [])
 
   /* ===== uniplam 门户鉴权引导 =====
-   * 门户深链带 ?t=<门户token> 进来看板：先把 token 交给后端换 myapp 会话 Cookie，
-   * 成功后立刻从地址栏抽走 ?t=（避免门户 token 长期留在 URL/历史/服务器日志）。
-   * 会话失效（数据接口 401）时切到 authGate 引导。 */
+   * 「门户 token（?t= 或门户登录态）→ myapp 会话 Cookie」的换会话动作已在启动时
+   * 完成（api.bootstrapAuth / runAuthBootstrap，见 main.tsx）。这里只负责：
+   *   1. 取启动引导结果，决定是否展示登录引导；
+   *   2. 会话失效（数据接口 401）时切到 authGate 引导。
+   * 业务页面在 bootDone 之前不挂载，因此不会再出现「首屏 401、刷新才好」。 */
   useEffect(() => {
-    const sp = new URLSearchParams(window.location.search)
-    const portalToken = sp.get('t')
-    if (portalToken) {
-      // 先抽走 ?t=，即使后端验证失败也不再暴露门户 token
-      const url = new URL(window.location.href)
-      url.searchParams.delete('t')
-      window.history.replaceState({}, '', url)
-      portalLogin(portalToken)
-        .then(() => setAuthGate(false))
-        .catch(() => { /* 验证失败：交由数据接口 401 触发引导 */ })
-    } else {
-      // 日常开发免登录（auth-switch.json 的 authEnabled=false）：
-      // 后端已整体放行，这里主动探测一次，避免无谓地弹出登录引导。
-      getAuthMode()
-        .then((res) => {
-          if (res.data?.authEnabled === false) setAuthGate(false)
-        })
-        .catch(() => { /* 探测失败按原有流程走（401 会触发引导） */ })
-    }
     setOnUnauthorized(() => setAuthGate(true))
+    runAuthBootstrap()
+      .then((ok) => {
+        setAuthGate(!ok)   // 无身份 → 直接给「请通过统一门户登录」引导
+        setBootDone(true)
+      })
+      .catch(() => {
+        setAuthGate(true)
+        setBootDone(true)
+      })
     return () => setOnUnauthorized(null)
   }, [])
 
@@ -1564,9 +1558,15 @@ function AppContent() {
                 <Spin size="large" />
               </div>
             }>
-              {/* key=refreshTick：自动刷新到点后重挂载当前页面（见文件顶部说明） */}
+              {/* key=refreshTick：自动刷新到点后重挂载当前页面（见文件顶部说明）
+                  bootDone 之前 / 未登录（authGate）时不挂载页面：避免页面在会话 Cookie
+                  落地前抢跑数据接口拿到 401（首屏「Failed to load data」的根因） */}
               <Fragment key={refreshTick}>
-                {renderPage()}
+                {!bootDone || authGate ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+                    <Spin size="large" />
+                  </div>
+                ) : renderPage()}
               </Fragment>
             </Suspense>
           </Content>

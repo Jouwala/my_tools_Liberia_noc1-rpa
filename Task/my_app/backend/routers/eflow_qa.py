@@ -18,9 +18,10 @@ import threading
 import time
 from datetime import timezone
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -541,3 +542,38 @@ def tt_ai(
     ai["alarm_mode"] = (info or {}).get("mode", "")
     ai["elapsed_total_sec"] = round(time.time() - t0, 2)
     return {"report": report, "ai": ai}
+
+
+# ------------------------- TT 批量级别核查（清单上传 → 逐单判定级别是否正常） -------------------------
+
+class TtBatchIn(BaseModel):
+    """批量核查入参：tts 为已解析的单号数组；text 为粘贴/上传的原始文本（二者取并集）。"""
+
+    tts: Optional[List[str]] = Field(default=None, description="TT 单号数组（前端解析文件后直接传）")
+    text: Optional[str] = Field(default=None, description="原始文本，按换行/逗号/分号/制表符拆分")
+    limit: Optional[int] = Field(default=None, ge=1, le=500, description="本次最多核查条数（默认 500）")
+
+
+@router.post("/tt-batch-check")
+def tt_batch_check(payload: TtBatchIn):
+    """TT 批量级别核查：按清单逐单套用 TT Update Severity Rule，判定级别是否正常。
+
+    与每天 04:20 的定时任务 eflow_tt_rules_check 同源（复用 eflow_rules_matcher），
+    区别只是把「取最新 1000 条」换成「取用户指定的 TT 列表」。只读，不落库、不写文件。
+
+    返回 rows（逐单：当前级别 / 规则建议级别 / 判定 正常|需调整|无法判定 / 命中规则 / 匹配详情）
+    与 summary（命中、未找到、正常、需调整、无法判定 计数），供页面表格与 Excel 导出使用。
+    """
+    from backend.services.eflow_rules import tt_batch_severity as batch
+
+    items = list(payload.tts or []) + batch.parse_tt_text(payload.text or "")
+    limit = int(payload.limit or batch.MAX_BATCH)
+    res = batch.check_batch(items, limit=limit)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("error") or "批量核查失败")
+    logger.info(
+        "TT 批量核查：输入 %s 条，命中 %s，需调整 %s，耗时 %ss",
+        res["input"]["valid"], res["summary"]["found"],
+        res["summary"]["level_adjust"], res["elapsed_sec"],
+    )
+    return res

@@ -433,15 +433,31 @@ export const TASK_DOCS: TaskDoc[] = [
     script: 'services/kpi_email_report.py → run_sp_details_email',
     zh: {
       name: 'SP 备件明细报表邮件',
-      desc: '每天 07:00 发送 data/sp_email/data 下 5 份备件明细 Excel（inband/outband/inventory/ocrule/transfer）',
-      flow: ['收集 data/sp_email/data 下 5 份 *_details.xlsx', '整包发送（默认收件人为固定地址，可在系统设置 → 邮件收件人覆盖）'],
-      maintain: ['2026-09-01 上线时曾漏分组导致 pending 卡死，后补入 m 组——新增任务务必登记 GROUP_TASK_MAP'],
+      desc: '把 data/sp_email/data 下 4 份备件明细（inventory/inband/outband/transfer）合并为一个 Excel（sheet: Inventory/Inbound/Outbound/Transfer）发送邮件，邮件发出后把同一份 Excel 作为文档发到 WhatsApp 群 WH&SP Management',
+      flow: [
+        '合并 data/sp_email/data 下 4 份 *_details.xlsx（inventory/inband/outband/transfer）为一个工作簿，附件名与主题带时间戳',
+        '邮件发送（默认收件人为固定地址，可在系统设置 → 邮件收件人覆盖）',
+        '邮件之后把同一份合并 Excel 作为文档发到 WhatsApp 群 WH&SP Management（2026-09-14 新增）',
+      ],
+      maintain: [
+        '2026-09-01 上线时曾漏分组导致 pending 卡死，后补入 m 组——新增任务务必登记 GROUP_TASK_MAP',
+        '本任务在 EMAIL_TASK_IDS 内：WhatsApp 侧失败时 error 只写 WHATSAPP_FAIL 固定标记，不拼底层异常原文，避免命中 EWS 关键字触发 email_recovery 整链补发（11 位收件人重复收报表）',
+        '上游是 sp_report_generate（05:15）：它不产出明细文件，本任务合并即失败，邮件与群都不发',
+      ],
     },
     en: {
       name: 'SP Spare Parts Details Report Email',
-      desc: 'Daily 07:00: email the 5 spare-part detail Excel files (inband/outband/inventory/ocrule/transfer) under data/sp_email/data',
-      flow: ['Collect the 5 *_details.xlsx files under data/sp_email/data', 'Send them in one email (default fixed recipients, overridable in Settings → Email Recipients)'],
-      maintain: ['Missed its worker-group registration on 2026-09-01 and stuck pending; now in group m — always register new tasks in GROUP_TASK_MAP'],
+      desc: 'Merge the 4 spare-part detail files (inventory/inband/outband/transfer) under data/sp_email/data into one Excel (sheets: Inventory/Inbound/Outbound/Transfer) and email it; after the email, send the same Excel as a document to the WhatsApp group WH&SP Management',
+      flow: [
+        'Merge the 4 *_details.xlsx (inventory/inband/outband/transfer) under data/sp_email/data into one workbook with a timestamped filename and subject',
+        'Send the email (default fixed recipients, overridable in Settings → Email Recipients)',
+        'After the email, send the same merged Excel as a document to the WhatsApp group WH&SP Management (added 2026-09-14)',
+      ],
+      maintain: [
+        'Missed its worker-group registration on 2026-09-01 and stuck pending; now in group m — always register new tasks in GROUP_TASK_MAP',
+        'This task is in EMAIL_TASK_IDS: on a WhatsApp-side failure the error carries only the WHATSAPP_FAIL marker, never the raw exception text — otherwise an EWS keyword would make email_recovery replay the whole chain and email the report twice to 11 recipients',
+        'Upstream is sp_report_generate (05:15): without the detail files the merge fails and neither channel sends',
+      ],
     },
   },
   {

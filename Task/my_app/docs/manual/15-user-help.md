@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-02。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-14。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（44 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（47 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -77,7 +77,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过三次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details）。
 
-### 3.3 全量任务清单（44 个）
+### 3.3 全量任务清单（47 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -93,6 +93,7 @@
 | eFlow TT 规则收集与匹配检查 | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
 | RAN Main KPI 同步 | `main_kpi_sync` | `0 4 * * *` | u | `services/ran_ume_main_kpi.py → run_main_kpi_sync` |
 | RAN 小区可用性 1-Day 同步 | `cell_availability_sync` | `30 4 * * *` | u | `services/ran_cell_availability_sync.py → run_cell_availability_sync` |
+| RAN Cells KPI 同步 | `cells_kpi_sync` | `50 4 * * *` | u | `services/ran_cells_kpi_sync.py → run_cells_kpi_sync` |
 | RAN Network KPI 同步 | `network_kpi_sync` | `0 5 * * *` | u | `services/ran_ume_network_kpi.py → run_network_kpi_sync` |
 | CNN UME KPI 同步 | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | SP 备件数据同步 | `sp_data_sync` | `0 7 * * *` | n | `services/get_sp_table.py → run_sp_data_sync` |
@@ -105,6 +106,8 @@
 | Comsumables 耗材报表邮件 | `kpi_sp_consumables` | `50 9 * * *` | m | `services/kpi_email_report.py → run_sp_consumables` |
 | SP 备件报表生成 | `sp_report_generate` | `15 5 * * *` | m | `services/kpi_email_report.py → run_sp_report_generate` |
 | SP 备件明细报表邮件 | `sp_email_details` | `0 7 * * *` | m | `services/kpi_email_report.py → run_sp_details_email` |
+| Comsumables&SpareParts Report Whatsapp | `sp_whatsapp_report` | `15 7 * * *` | m | `services/kpi_email_report.py → run_sp_whatsapp_report` |
+| SP 物料库存与消耗报表邮件 | `sp_material_report` | `33 7 * * *` | m | `services/kpi_email_report.py → run_sp_material_stock_consumption` |
 | MS Network Availability 日报邮件 | `kpi_ran_availability` | `30 9 * * *` | m | `services/kpi_email_report.py → run_ran_availability` |
 | EWS 恢复后邮件补发 | `email_recovery` | `*/20 * * * *` | m | `services/email_recovery.py → run_email_recovery_task` |
 | Packet Loss 丢包同步 | `packet_loss_sync` | `30 6 * * *` | u | `services/packet_loss_service.py → run_packet_loss_sync` |
@@ -336,6 +339,24 @@
 
 - 库名 ran_kpi_avalability_1day.sqlite3 的 avalability 是历史拼写，多处按字符串引用，不要改名
 
+#### RAN Cells KPI 同步（`cells_kpi_sync`）
+
+- 默认 cron: `50 4 * * *`　|　worker 组: **u**
+- 工作流脚本: `services/ran_cells_kpi_sync.py → run_cells_kpi_sync`
+
+**功能**: RAN UME 小区数据（2G/3G/4G）每日同步，聚合 Cells KPI（达标值 99.65%）物化写 ran_cells_kpi.sqlite3，只保留当月
+
+**工作流与数据流**:
+
+1. 复用小区可用性同步的 UME 获取方法拉取 GSM/UMTS/FDD 小区数据
+1. 按小区逐条折算可用率并统计达标/未达标/无数据
+1. 物化写 data/ran_cells_kpi.sqlite3（表 cells_kpi_daily，只保留当月）
+
+**维护要点**:
+
+- 口径与达标值定义在 services/ran_cells_kpi_service.py 顶部；2G 用信道折算，3G/4G 用服务时长/86400
+- 看板 RAN 小区 KPI 优先读物化库，缺失时回退实时聚合 ran_kpi_avalability_1day.sqlite3
+
 #### RAN Network KPI 同步（`network_kpi_sync`）
 
 - 默认 cron: `0 5 * * *`　|　worker 组: **u**
@@ -373,20 +394,22 @@
 - 默认 cron: `0 7 * * *`　|　worker 组: **n**
 - 工作流脚本: `services/get_sp_table.py → run_sp_data_sync`
 
-**功能**: 从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI 服务器上的 WareHouseDashBoard/inventory.db
+**功能**: 从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI WareHouseDashBoard inventory.db
 
 **工作流与数据流**:
 
 1. 登录备件 SFTP（凭据分组 sftp_sp）
 1. 拉取 Inbound/Outbound/Inventory/OC Rule/Transfer 5 份报表
 1. 清洗后写主库，供仓库看板与 SP 报表使用
-1. 全部落库后镜像写入 `\\DESKTOP-D4GF62\FineBI6.0\webapps\Python\Unified_Tools\WareHouseDashBoard\inventory.db`（Inbound/Outbound/OC Rule/Transfer 整表替换；Inventory 按键只追加新行，不删改远端历史）
+1. 全部落库后镜像写入 FineBI inventory.db（UNC 路径；普通表整表替换、Inventory 只追加新行）
+1. 最后按保留期清理 Inventory 历史快照（app.db 与镜像库同口径，默认 180 天）
 
 **维护要点**:
 
 - 仓库看板 iframe 读的就是这批数据；报表缺失先看本任务是否成功
-- FineBI inventory.db 镜像失败会在任务消息中提示（`镜像写入 FineBI inventory.db 失败: ...`），不影响 app.db；路径/开关在 Settings → 任务配置 → SP 备件数据（`mirror_db_path` / `mirror_enabled`）
-- 远端库被 FineBI 占用读锁时靠 busy_timeout 自动等待；网络抖动整体重试 2 次
+- 镜像失败会在任务消息提示但影响不到 app.db；路径/开关在 Settings → 任务配置（mirror_db_path / mirror_enabled）
+- inventory_details 只追加不覆盖，靠保留期控制体积：Settings → 任务配置 inventory_retention_days（默认 180）。清理基准取表内最新 update_date，上游断流时不会清空整表
+- 仓库看板「Inventory Quantity Trend」直接读取本表全部日期（无日期参数时返回全量），调小保留天数会直接缩短趋势图历史
 
 #### iPRAN UME KPI 同步（`ipran_kpi_sync`）
 
@@ -524,17 +547,57 @@
 - 默认 cron: `0 7 * * *`　|　worker 组: **m**
 - 工作流脚本: `services/kpi_email_report.py → run_sp_details_email`
 
-**功能**: 每天 07:00 把 data/sp_email/data 下 4 份备件明细（inventory/inband/outband/transfer）合并为一个 Excel（sheet: Inventory/Inbound/Outbound/Transfer），附件名与主题均携带发送时间戳发送
+**功能**: 把 data/sp_email/data 下 4 份备件明细（inventory/inband/outband/transfer）合并为一个 Excel（sheet: Inventory/Inbound/Outbound/Transfer）发送邮件，邮件发出后把同一份 Excel 作为文档发到 WhatsApp 群 WH&SP Management
 
 **工作流与数据流**:
 
-1. 收集 data/sp_email/data 下 4 份 *_details.xlsx（inventory/inband/outband/transfer）
-1. 合并为 `SP Details Report <YYYY-MM-DD HH-MM-SS>.xlsx`（4 个 sheet，保持原始明细内容）
-1. 以主题 `SP Spare Parts Details Report <YYYY-MM-DD HH-MM-SS>` 发送（默认收件人为固定地址，可在系统设置 → 邮件收件人覆盖）
+1. 合并 data/sp_email/data 下 4 份 *_details.xlsx（inventory/inband/outband/transfer）为一个工作簿，附件名与主题带时间戳
+1. 邮件发送（默认收件人为固定地址，可在系统设置 → 邮件收件人覆盖）
+1. 邮件之后把同一份合并 Excel 作为文档发到 WhatsApp 群 WH&SP Management（2026-09-14 新增）
 
 **维护要点**:
 
 - 2026-09-01 上线时曾漏分组导致 pending 卡死，后补入 m 组——新增任务务必登记 GROUP_TASK_MAP
+- 本任务在 EMAIL_TASK_IDS 内：WhatsApp 侧失败时 error 只写 WHATSAPP_FAIL 固定标记，不拼底层异常原文，避免命中 EWS 关键字触发 email_recovery 整链补发（11 位收件人重复收报表）
+- 上游是 sp_report_generate（05:15）：它不产出明细文件，本任务合并即失败，邮件与群都不发
+
+#### Comsumables&SpareParts Report Whatsapp（`sp_whatsapp_report`）
+
+- 默认 cron: `15 7 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/kpi_email_report.py → run_sp_whatsapp_report`
+
+**功能**: 每天 07:15 把 Comsumables / SpareParts 两个邮件任务的同一批产物（合并总表 XLSX + 报表 PNG）发送到 WhatsApp 群 WH&SP Management
+
+**工作流与数据流**:
+
+1. 在 data/sp_email 下选取 Comsumables / SpareParts 的合并总表 XLSX（不含 " - Liberia" 分站点）
+1. 收集两类报表的 PNG（主图在前、Summary-Changed 在后）
+1. 复用 whatsapp_service 的 Playwright 发送机制发到群 WH&SP Management
+
+**维护要点**:
+
+- 上游是 sp_report_generate（m 组 05:15），它失败会导致本任务找不到报表文件
+- 不发送邮件——邮件由 kpi_sp_consumables / kpi_sp_spareparts 负责
+
+#### SP 物料库存与消耗报表邮件（`sp_material_report`）
+
+- 默认 cron: `33 7 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/kpi_email_report.py → run_sp_material_stock_consumption`
+
+**功能**: 每天 07:33 把 SP 物料库存与消耗汇总（同「SP 物料库存与消耗统计」页面 page=sp_material 的口径）导出为 UNIFIED_EXCEL_V1 版式 Excel 附件 + 同内容 PNG 内嵌正文并邮件发送
+
+**工作流与数据流**:
+
+1. 调用 sp_material_summary_service.get_material_summary()（inventory_details 每日快照 + outband_details 报修出库）
+1. 生成 UNIFIED_EXCEL_V1 版式 Excel（标题 / 副标题 / 两行合并表头 / 合计行在前 / 13 列 + Info 页），与页面「导出 Excel」逐格一致
+1. 用 Pillow 把同一张汇总表画成 PNG（手法同 SP 报表图片：蓝表头 + 橙色区块条 + 斑马纹）
+1. 落盘 data/sp_material_report（只保留最新一份）：Excel 作附件、PNG 内嵌正文发送
+
+**维护要点**:
+
+- 默认 15 主送 + 2 抄送，可在系统设置 → 邮件收件人 覆盖
+- 汇总表无数据行时跳过发送并记为失败（多为上游 SP 数据同步未跑）
+- PNG 生成失败只告警不阻断，邮件仍带 Excel 发出
 
 #### MS Network Availability 日报邮件（`kpi_ran_availability`）
 
@@ -1056,10 +1119,12 @@ OLR 事件（Incident）总览看板：卡片、矩阵、SLA 图表、分页明�
 
 #### eFlow 知识库（`eflow_qa`）
 
-eFlow TT 判定规则知识库：规则/案例文档全文检索，并内置 TT 快速分析。
+eFlow TT 判定规则知识库：规则/案例文档全文检索，并内置 TT 快速分析与 TT 批量核查。
 
 - 空格分隔多关键词检索，或从左侧目录选择文章
 - 输入 TT 单号一键分析：派单归属、时间差、根因分布与结论要点
+- TT 批量核查：上传 xlsx/csv/txt 单号清单或直接粘贴，逐单判定工单级别是否正常（正常/需调整/无法判定），可导出 Excel
+- TT 批量核查支持「下载模板 → 填写 → 上传核查」闭环：点「下载模板」得到带表头的 xlsx，填好单号后把同一个文件传回来即可
 
 #### 分析仪表盘（`dashboard`）
 
@@ -1126,7 +1191,7 @@ IP 链路探测：从服务器侧探测到目标站点的链路连通性与路�
 
 | 日志文件（log/） | 内容 |
 | --- | --- |
-| `log/worker_runtime*.log` | 任务执行主日志——排障首选，按 task_id 搜堆栈；每组 worker 一个文件（`_u`/`_n`/`_m`/`_c`） |
+| `log/worker_runtime*.log` | 任务执行主日志——排障首选，按 task_id 搜堆栈（每组 worker 一个文件：_u/_n/_m/_c） |
 | `log/backend_runtime.log` | 后端业务日志（API、调度、代理） |
 | `log/backend_watchdog.log / worker_watchdog.log` | 进程拉起与崩溃退避记录（连崩 10 次放弃并告警） |
 | `log/start_hidden_result.txt` | 上一次启动的逐条结果——启动失败先看这个 |

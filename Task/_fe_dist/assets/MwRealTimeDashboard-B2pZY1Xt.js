@@ -1,0 +1,1 @@
+import{r as e}from"./i18n-DtDWDDhf.js";import{S as t}from"./react-vendor-Dxcxxxhu.js";import{t as n}from"./LegacyToolFrame-D1wcGAvi.js";var r=t();function i(){let{t}=e();return(0,r.jsx)(n,{file:`mw_real_time.html`,title:t(`nav.mwRealTime`)})}export{i as default};

@@ -10,6 +10,7 @@ portals.py - 一键门户登录 API
 - POST /api/portals/close             关闭常驻浏览器：body {system}
 """
 import logging
+import secrets
 import threading
 import time
 import uuid
@@ -34,6 +35,28 @@ class PortalCloseRequest(BaseModel):
     system: str
 
 
+class PortalClientTicketRequest(BaseModel):
+    system: str
+
+
+class PortalClientConsumeRequest(BaseModel):
+    ticket: str
+
+
+# 浏览器扩展拿不到 my_app 页面的 HttpOnly 会话 Cookie 是正常的；所以前端先在
+# 同源已登录会话下申请一张短票据，扩展再一次性消费它。票据不包含凭据，也不出现在 URL。
+_CLIENT_TICKET_TTL_SECONDS = 45
+_CLIENT_TICKETS: dict[str, dict] = {}
+_CLIENT_TICKETS_LOCK = threading.Lock()
+
+
+def _purge_client_tickets(now: float) -> None:
+    expired = [key for key, item in _CLIENT_TICKETS.items()
+               if item.get("expires_at", 0) <= now]
+    for key in expired:
+        _CLIENT_TICKETS.pop(key, None)
+
+
 @router.get("")
 def get_portals(request: Request):
     """列出全部可登录门户。
@@ -53,6 +76,42 @@ def login_portal(body: PortalLoginRequest):
         raise HTTPException(status_code=400, detail=f"未知门户: {body.system}")
     job_id = _spawn(body.system, body.browser)
     return {"status": "launching", "job_id": job_id, "system": body.system}
+
+
+@router.post("/client-login/ticket")
+def create_client_login_ticket(body: PortalClientTicketRequest):
+    """签发 eFlow/RAIS 客户端扩展的一次性登录票据。
+
+    正常 API 鉴权中间件会保护本接口；扩展只可拿这张随机票据换取一次会话计划。
+    """
+    if body.system not in ("eflow", "rais"):
+        raise HTTPException(status_code=400, detail="该门户不支持客户端会话登录")
+    now = time.monotonic()
+    ticket = secrets.token_urlsafe(32)
+    with _CLIENT_TICKETS_LOCK:
+        _purge_client_tickets(now)
+        _CLIENT_TICKETS[ticket] = {
+            "system": body.system,
+            "expires_at": now + _CLIENT_TICKET_TTL_SECONDS,
+        }
+    return {"ticket": ticket, "expires_in": _CLIENT_TICKET_TTL_SECONDS}
+
+
+@router.post("/client-login/consume")
+def consume_client_login_ticket(body: PortalClientConsumeRequest):
+    """由受管扩展一次性消费短票据，返回不含账号密码的会话写入计划。"""
+    now = time.monotonic()
+    with _CLIENT_TICKETS_LOCK:
+        _purge_client_tickets(now)
+        item = _CLIENT_TICKETS.pop(body.ticket, None)
+    if not item:
+        raise HTTPException(status_code=401, detail="登录票据无效或已过期")
+    try:
+        plan = svc.build_client_login_plan(item["system"])
+    except Exception as exc:  # noqa: BLE001 - 上游鉴权失败须转换为安全的 API 错误
+        logger.warning("[PORTAL] 构造客户端 %s 会话计划失败: %s", item["system"], type(exc).__name__)
+        raise HTTPException(status_code=502, detail="门户会话获取失败，请稍后重试") from exc
+    return {"plan": plan}
 
 
 def _spawn(system: str, browser: str | None) -> str:

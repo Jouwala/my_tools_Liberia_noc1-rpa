@@ -334,11 +334,11 @@ TASK_SPECS = [
          description_en="Download spare-part data from SFTP and generate Comsumables & SpareParts Inbound&Outbound&Inventory reports into local data/sp_email",
          default_cron="15 5 * * *", category="kpi_email"),
 
-    # 19c. SP 备件明细报表邮件（每天 07:00）：4 份明细合并为一个带时间戳的 Excel 发送
+    # 19c. SP 备件明细报表（每天 07:00）：4 份明细合并为一个带时间戳的 Excel，邮件 + WhatsApp 群
     dict(task_id="sp_email_details", name="SP 备件明细报表邮件", name_en="SP Spare Parts Details Report Email",
          loader=("backend.services.kpi_email_report", "run_sp_details_email"),
-         description="每天 07:00 把 data/sp_email/data 下 4 份备件明细（inventory/inband/outband/transfer）合并为一个 Excel（sheet: Inventory/Inbound/Outbound/Transfer），附件名与主题携带时间戳发送；主送 ansah.boadu@zte.com.cn，抄送 dong.xinmin@zte.com.cn（收件人可在 Settings → Email Recipient Settings 覆盖）",
-         description_en="Daily 07:00: merge the 4 spare-part detail files (inventory/inband/outband/transfer) under data/sp_email/data into one Excel (sheets: Inventory/Inbound/Outbound/Transfer) with a timestamped filename and subject; to ansah.boadu@zte.com.cn, cc dong.xinmin@zte.com.cn (recipients editable under Settings → Email Recipient Settings)",
+         description="把 data/sp_email/data 下 4 份备件明细（inventory/inband/outband/transfer）合并为一个 Excel（sheet: Inventory/Inbound/Outbound/Transfer），附件名与主题携带时间戳发送；邮件主送 ansah.boadu@zte.com.cn，抄送 dong.xinmin@zte.com.cn（收件人可在 Settings → Email Recipient Settings 覆盖）；邮件发出后把同一份合并 Excel 作为文档发到 WhatsApp 群 WH&SP Management",
+         description_en="Merge the 4 spare-part detail files (inventory/inband/outband/transfer) under data/sp_email/data into one Excel (sheets: Inventory/Inbound/Outbound/Transfer) with a timestamped filename and subject; email to ansah.boadu@zte.com.cn, cc dong.xinmin@zte.com.cn (recipients editable under Settings → Email Recipient Settings); after the email, also send the same merged Excel as a document to the WhatsApp group WH&SP Management",
          default_cron="0 7 * * *", category="kpi_email"),
 
     # 19g. SP 物料库存与消耗报表邮件（每天 07:33）：2026-09-11 新增。

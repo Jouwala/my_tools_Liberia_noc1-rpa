@@ -42,6 +42,11 @@ const isOnServerHost = () => {
 
 type JobState = 'idle' | 'launching' | 'success' | 'failed' | 'need_manual'
 type StatusInfo = { state: JobState; message: string; jobId?: string }
+type ExtensionResult = { system?: string; ok?: boolean; message?: string }
+
+const PORTAL_EXTENSION_READY_ATTR = 'data-myapp-portal-login-extension'
+const PORTAL_EXTENSION_REQUEST_EVENT = 'myapp:portal-client-login'
+const PORTAL_EXTENSION_RESULT_EVENT = 'myapp:portal-client-login-result'
 
 const STATE_COLOR: Record<JobState, string> = {
   idle: 'default',
@@ -76,6 +81,9 @@ export default function PortalLogin() {
   const [loading, setLoading] = useState(true)
   // 后端判定：访问者浏览器是否就在 my_app 服务器本机（用于直连门户的登录方式选择）
   const [clientIsLocal, setClientIsLocal] = useState(false)
+  // 由受管 Chrome 扩展注入的 bridge 标记。未装扩展时仍保留原来的直连手动登录兜底。
+  const [portalExtensionReady, setPortalExtensionReady] = useState(() =>
+    document.documentElement.getAttribute(PORTAL_EXTENSION_READY_ATTR) === 'ready')
   // client = 在访问者自己的浏览器里登录（经 nginx 反代 + 注入脚本自动填表）
   // server = 在 my_app 服务器桌面弹浏览器登录（eFlow 走直接鉴权 + CDP 种 cookie）
   // 选择持久化：eFlow 必须直连、不适合 client 模式，用户通常固定用 server。
@@ -121,6 +129,29 @@ export default function PortalLogin() {
     }
   }, [fetchPortals])
 
+  useEffect(() => {
+    const onExtensionResult = (event: Event) => {
+      let result: ExtensionResult | null = null
+      try {
+        const raw = (event as CustomEvent<string>).detail
+        result = typeof raw === 'string' ? JSON.parse(raw) : null
+      } catch {
+        return
+      }
+      if (!result?.system || !isDirect({ key: result.system } as Portal)) return
+      setStatus((prev) => ({
+        ...prev,
+        [result.system!]: result!.ok
+          ? { state: 'success', message: result!.message || '' }
+          : { state: 'failed', message: result!.message || t('portal.loadError') },
+      }))
+      if (result.ok) showMsg('success', result.message || t('portal.success'))
+      else showMsg('error', result.message || t('portal.loadError'))
+    }
+    window.addEventListener(PORTAL_EXTENSION_RESULT_EVENT, onExtensionResult)
+    return () => window.removeEventListener(PORTAL_EXTENSION_RESULT_EVENT, onExtensionResult)
+  }, [showMsg, t])
+
   const pollJob = useCallback((system: string, jobId: string) => {
     if (timers.current[system]) window.clearInterval(timers.current[system])
     const id = window.setInterval(async () => {
@@ -153,6 +184,27 @@ export default function PortalLogin() {
       showMsg('info', t('portal.noClient'))
       return
     }
+    // eFlow / RAIS 直连时，由受管扩展在用户自己的 Chrome profile 内种会话 Cookie。
+    // 页面只传一次性票据；账号密码和 Cookie 从不放进 DOM 或 URL。
+    if (direct && portalExtensionReady) {
+      setStatus((prev) => ({ ...prev, [p.key]: { state: 'launching', message: '' } }))
+      void api.post('/portals/client-login/ticket', { system: p.key })
+        .then(({ data }) => {
+          window.dispatchEvent(new CustomEvent(PORTAL_EXTENSION_REQUEST_EVENT, {
+            detail: JSON.stringify({
+              system: p.key,
+              ticket: data.ticket,
+              // 扩展必须只向安装时声明的 my_app origin 请求，不接收任意外部地址。
+              apiOrigin: window.location.origin,
+            }),
+          }))
+        })
+        .catch((e: any) => {
+          showMsg('error', e?.response?.data?.detail || t('portal.loadError'))
+          setStatus((prev) => ({ ...prev, [p.key]: { state: 'failed', message: '' } }))
+        })
+      return
+    }
     const base = direct
       ? `https://${p.host}:${p.port}`
       : (p.proxy_prefix || '').replace('{HOST}', window.location.hostname)
@@ -172,10 +224,7 @@ export default function PortalLogin() {
       return
     }
     showMsg('info', t(direct ? 'portal.clientOpenedDirect' : 'portal.clientOpened'))
-    // ⚠️ 直连门户（eFlow / RAIS）在客户端模式下只能「打开上游登录页」，后端无法跨域
-    // 给访问者浏览器种会话 cookie、也没有注入填表脚本 → 账号密码是空的，必须用户手输。
-    // 旧行为把它标成 success，卡片显示「已登录，浏览器窗口保持打开」，但页面上
-    // 什么都没填 —— 2026-09-13 用户报的 bug。这里如实标成 need_manual。
+    // 未部署扩展时保留直连手动登录兜底，不能把“打开了页面”误报为已登录。
     setStatus((prev) => ({
       ...prev,
       [p.key]: direct
@@ -183,15 +232,12 @@ export default function PortalLogin() {
         : { state: 'success', message: '' },
     }))
     if (win) win.focus()
-  }, [showMsg, t])
+  }, [portalExtensionReady, showMsg, t])
 
   const handleLogin = useCallback(async (system: string, p?: Portal) => {
-    // 直连门户（eFlow / RAIS）在客户端模式下没有可用的登录手段：
-    //   · 打开上游登录页 → 不会填表（后端无法跨域种会话 cookie）；
-    //   · 走 nginx 同源反代 + 注入填表 → 实测「能登录但告警数据全 0」
-    //     （门户前端把根地址写死为 http://localhost，子页面/接口打不到上游）。
-    // 所以只要访问者就在服务器本机（localhost），直接走服务器端「直接鉴权」：
-    // 弹出来的浏览器窗口就在他自己桌面上，会话完整可用。
+    // 直连门户（eFlow / RAIS）优先使用受管扩展写入访问者本机 Chrome 会话；
+    // 未部署扩展时仍只能直连手工登录。访问者就在服务器本机时，保持原有的
+    // 服务器直接鉴权路径，弹出的窗口也正好处于该用户桌面。
     const localDirect = !!p && isDirect(p) && (clientIsLocal || isOnServerHost())
     if (mode === 'client' && p && canClientLogin(p) && !localDirect) {
       handleClientLogin(p)

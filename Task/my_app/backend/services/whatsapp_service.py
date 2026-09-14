@@ -23,32 +23,38 @@ SITE_OUTAGE_DIR = Path(os.environ.get("SITE_OUTAGE_DIR", DEFAULT_DIR))
 _GROUPS_ENV = os.environ.get("WHATSAPP_GROUPS", "test123,Test234")
 GROUPS = [g.strip() for g in _GROUPS_ENV.split(",") if g.strip()]
 
-# 图片获取逻辑
-_PHOTOS_ENV = os.environ.get("WHATSAPP_PHOTOS", "").strip()
-if _PHOTOS_ENV:
-    PHOTOS = [p.strip() for p in _PHOTOS_ENV.split(",") if p.strip()]
-else:
-    valid_extensions = ("*.png", "*.PNG", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG")
-    found_photos = set()  # 使用 set 自动去重，防止 Windows 环境重复匹配
-    for ext in valid_extensions:
-        found_photos.update(SITE_OUTAGE_DIR.glob(ext))
+# 图片获取逻辑（原规则不变，抽成函数：import 时算一次，任务每次执行时再算一次）
+def _collect_photos_and_captions():
+    """按原规则收集「图片清单 + 对应备注」。"""
+    _photos_env = os.environ.get("WHATSAPP_PHOTOS", "").strip()
+    if _photos_env:
+        photos = [p.strip() for p in _photos_env.split(",") if p.strip()]
+    else:
+        valid_extensions = ("*.png", "*.PNG", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG")
+        found_photos = set()  # 使用 set 自动去重，防止 Windows 环境重复匹配
+        for ext in valid_extensions:
+            found_photos.update(SITE_OUTAGE_DIR.glob(ext))
     
-    PHOTOS = sorted(
-        str(p) for p in found_photos
-        if "debug" not in p.name.lower()
-    )
+        photos = sorted(
+            str(p) for p in found_photos
+            if "debug" not in p.name.lower()
+        )
 
-# 备注：与 PHOTOS 一一对应；不足则用文件名（去扩展名）
-_CAPTIONS_ENV = os.environ.get("WHATSAPP_CAPTIONS", "").strip()
-if _CAPTIONS_ENV:
-    CAPTIONS = [c.strip() for c in _CAPTIONS_ENV.split(",") if c.strip()]
-else:
-    CAPTIONS = [f"*{Path(p).stem}*" for p in PHOTOS]
+    # 备注：与 photos 一一对应；不足则用文件名（去扩展名）
+    _captions_env = os.environ.get("WHATSAPP_CAPTIONS", "").strip()
+    if _captions_env:
+        captions = [c.strip() for c in _captions_env.split(",") if c.strip()]
+    else:
+        captions = [f"*{Path(p).stem}*" for p in photos]
+    return photos, captions
+
+
+PHOTOS, CAPTIONS = _collect_photos_and_captions()
 
 HEADLESS = os.environ.get("WHATSAPP_HEADLESS", "false").lower() in ("1", "true", "yes")
 MAX_RETRY = int(os.environ.get("WHATSAPP_MAX_RETRY", "3"))
 WAIT_TIMEOUT = int(os.environ.get("WHATSAPP_WAIT_TIMEOUT", "180000"))
-CLOSE_DELAY = float(os.environ.get("WHATSAPP_CLOSE_DELAY", "8"))
+CLOSE_DELAY = float(os.environ.get("WHATSAPP_CLOSE_DELAY", "28"))
 
 USER_DATA_DIR = os.environ.get(
     "WHATSAPP_SESSION",
@@ -646,8 +652,14 @@ def run_whatsapp_send(photos=None, captions=None, files=None, groups=None) -> di
             return result
         _success("登录成功（已检测到聊天列表）")
 
-        send_photos = PHOTOS if photos is None else [str(p) for p in photos]
-        send_captions = CAPTIONS if captions is None else list(captions)
+        # 每次执行重新收集图片清单：worker 是长驻进程，模块级 PHOTOS 只是 import 时的
+        # 快照，截图任务（site_outage_screenshot）在 worker 启动之后新产出的图片会漏发
+        # （2026-09-14 09:02 新增的 COOL.png 就因此整轮没发出去）。
+        if photos is None:
+            send_photos, send_captions = _collect_photos_and_captions()
+        else:
+            send_photos = [str(p) for p in photos]
+            send_captions = list(captions) if captions is not None else CAPTIONS
         if files is None:
             site_outage_file = _get_latest_site_outage()
             files_to_send = [site_outage_file] if site_outage_file else []

@@ -1,34 +1,44 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
+  Checkbox,
   Collapse,
   Drawer,
   Empty,
   Input,
+  message,
+  Space,
   Spin,
   Table,
   Tag,
+  Tooltip,
   Tree,
   Typography,
+  Upload,
   Button,
   Tabs,
   Spin as SpinIcon,
 } from 'antd'
 import {
   BookOutlined,
+  ClearOutlined,
+  DownloadOutlined,
   FileTextOutlined,
   FolderOutlined,
   MenuOutlined,
   RobotOutlined,
   SearchOutlined,
   ThunderboltOutlined,
+  UploadOutlined,
 } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import * as XLSX from 'xlsx'
 
 import api from '../api'
 import { useI18n } from '../i18n'
 import { useIsMobile, useTheme } from '../theme'
+import { exportAoaReport, exportReport } from '../utils/excelReport'
 
 const { Text, Title } = Typography
 
@@ -180,6 +190,71 @@ function severityColor(sev: string): string | undefined {
   if (s.includes('minor')) return 'gold'
   if (s.includes('warning')) return 'blue'
   return 'default'
+}
+
+/** 工单级别 P1~P4 → Tag 颜色（TT 批量核查用） */
+function levelColor(sev: string): string | undefined {
+  const s = String(sev || '').trim().toUpperCase()
+  if (s === 'P1') return 'red'
+  if (s === 'P2') return 'orange'
+  if (s === 'P3') return 'gold'
+  if (s === 'P4') return 'blue'
+  return undefined
+}
+
+/** 批量核查判定 → Tag 颜色 */
+function verdictColor(status: string): string {
+  if (status === 'ok') return 'green'
+  if (status === 'adjust') return 'red'
+  return 'default'
+}
+
+/* ---------- TT 批量核查：清单解析 ----------
+ * 前端只做「预览用」的粗筛（含数字、长度 >= 5、去重），
+ * 权威清洗在后端 tt_batch_severity.normalize_tt_list，两边规则保持一致。 */
+const TT_TOKEN_SPLIT = /[\s,;，；\t|]+/
+
+/** 从任意单元格值里取出可能的 TT 单号（同一格含多个时也拆开） */
+function pickTtTokens(value: unknown): string[] {
+  if (value === null || value === undefined) return []
+  return String(value)
+    .split(TT_TOKEN_SPLIT)
+    .map(s => s.trim().toUpperCase())
+    .filter(s => s.length >= 5 && /^[A-Z0-9_-]+$/.test(s) && /\d/.test(s))
+}
+
+/** 解析上传的清单文件（xlsx/xls/csv/txt）→ 去重后的 TT 单号数组 */
+async function parseTtListFile(file: File): Promise<string[]> {
+  const name = (file.name || '').toLowerCase()
+  const out: string[] = []
+  if (name.endsWith('.txt') || name.endsWith('.csv')) {
+    const text = await file.text()
+    for (const tok of pickTtTokens(text)) out.push(tok)
+  } else {
+    const buf = await file.arrayBuffer()
+    const wb = XLSX.read(buf, { type: 'array' })
+    for (const sheetName of wb.SheetNames) {
+      const grid: unknown[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {
+        header: 1, blankrows: false, raw: false, defval: '',
+      })
+      for (const row of grid) for (const cell of row) for (const tok of pickTtTokens(cell)) out.push(tok)
+    }
+  }
+  // 保序去重
+  return [...new Set(out)]
+}
+
+function dedupeTokens(tokens: string[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of tokens) {
+    for (const tok of pickTtTokens(raw)) {
+      if (seen.has(tok)) continue
+      seen.add(tok)
+      out.push(tok)
+    }
+  }
+  return out
 }
 
 function HistoryTable({ h, t, isDark, isMobile }: { h: any; t: (k: string) => string; isDark: boolean; isMobile: boolean }) {
@@ -554,6 +629,15 @@ export default function EflowQa() {
   const [ttUmeLoading, setTtUmeLoading] = useState(false)
   const [ttUmeFailed, setTtUmeFailed] = useState(false)
 
+  // ===== TT 批量级别核查 =====
+  const [ttBatchView, setTtBatchView] = useState(false)
+  const [batchText, setBatchText] = useState('')
+  const [batchFile, setBatchFile] = useState('')
+  const [batchLoading, setBatchLoading] = useState(false)
+  const [batchData, setBatchData] = useState<any>(null)
+  const [batchError, setBatchError] = useState('')
+  const [batchOnlyAdjust, setBatchOnlyAdjust] = useState(false)
+
   // ===== RAN UME 告警分析 =====
   const [umeKey, setUmeKey] = useState('')
   const [umeView, setUmeView] = useState(false)
@@ -567,6 +651,7 @@ export default function EflowQa() {
     setUmeKey(clean)
     setUmeView(true)
     setTtView(false)
+    setTtBatchView(false)
     setUmeLoading(true)
     setUmeError('')
     setUmeData(null)
@@ -579,11 +664,149 @@ export default function EflowQa() {
   // 移动端：目录树抽屉
   const [treeOpen, setTreeOpen] = useState(false)
 
+  // ===== TT 批量级别核查：提交 / 上传 / 导出 =====
+  // 粘贴文本里解析出的单号（与后端 normalize_tt_list 同规则，仅用于预览计数）
+  const batchTokens = useMemo(() => dedupeTokens([batchText]), [batchText])
+
+  const runTtBatch = useCallback((tokens?: string[]) => {
+    const list = dedupeTokens(tokens && tokens.length ? tokens : [batchText])
+    if (!list.length) {
+      setBatchError(t('qa.ttBatch.emptyInput'))
+      setTtBatchView(true)
+      return
+    }
+    setTtBatchView(true)
+    setTtView(false)
+    setUmeView(false)
+    setBatchLoading(true)
+    setBatchError('')
+    setBatchOnlyAdjust(false)
+    api.post('/eflow-qa/tt-batch-check', { tts: list })
+      .then(res => setBatchData(res.data))
+      .catch((e: any) => {
+        setBatchData(null)
+        setBatchError(e?.response?.data?.detail || t('qa.ttBatch.failed'))
+      })
+      .finally(() => setBatchLoading(false))
+  }, [batchText, t])
+
+  const onBatchFile = useCallback(async (file: File) => {
+    setTtBatchView(true)
+    setTtView(false)
+    setUmeView(false)
+    try {
+      const tokens = await parseTtListFile(file)
+      setBatchFile(file.name || '')
+      if (!tokens.length) {
+        setBatchError(t('qa.ttBatch.noTtInFile'))
+        return false
+      }
+      setBatchText(tokens.join('\n'))
+      runTtBatch(tokens)
+    } catch {
+      setBatchError(t('qa.ttBatch.fileFailed'))
+    }
+    return false // 阻止 antd 自动上传（纯本地解析）
+  }, [runTtBatch, t])
+
+  const verdictText = useCallback((r: any) => {
+    if (!r?.found) return t('qa.ttBatch.judge.miss')
+    return t(`qa.ttBatch.judge.${r.level_status}`)
+  }, [t])
+
+  /**
+   * 下载「填写模板」—— 用户填好单号后直接把同一个文件上传回来即可核查。
+   *
+   * 两个必须守住的点：
+   * 1. 模板里的说明文字**不能出现真实样式的单号**（如 TT202609140082），否则用户原样上传时
+   *    会被前端解析器当成待查单号，凭空多出一行；所以说明里只写「前缀 TT + 12 位数字」。
+   * 2. 若页面上已有解析好的单号（粘贴/上次上传的），预填进模板，方便「导出 → 改 → 回传」。
+   */
+  const downloadTtBatchTemplate = useCallback(async () => {
+    try {
+      await exportAoaReport({
+        filename: 'tt_batch_check_template.xlsx',
+        sheetName: t('qa.ttBatch.templateSheet'),
+        title: t('qa.ttBatch.templateTitle'),
+        subtitle: t('qa.ttBatch.templateSubtitle'),
+        header: [t('qa.ttBatch.templateColTt'), t('qa.ttBatch.templateColNote')],
+        rows: batchTokens.map(tok => [tok, '']),
+        columnWidths: [26, 46],
+        tabColor: '#2E7D32',
+      })
+    } catch {
+      message.error(t('qa.ttBatch.failed'))
+    }
+  }, [batchTokens, t])
+
+  const exportTtBatch = useCallback(async () => {
+    const rows: any[] = batchData?.rows || []
+    if (!rows.length) {
+      message.warning(t('qa.ttBatch.exportEmpty'))
+      return
+    }
+    const header = [
+      t('qa.ttBatch.col.tt'), t('qa.ttBatch.col.judge'),
+      t('qa.ttBatch.col.current'), t('qa.ttBatch.col.expected'),
+      t('qa.ttBatch.col.site'), t('qa.ttBatch.col.alarm'),
+      t('qa.ttBatch.col.vip'), 'site_type', 'down_site_count',
+      'domain', t('qa.ttBatch.col.status'), t('qa.ttBatch.col.project'),
+      t('qa.ttBatch.col.rule'), t('qa.ttBatch.col.detail'),
+      'alarm_occur_time', 'created_time', 'last_modified_time',
+    ]
+    const toRow = (r: any) => [
+      r.tt_no, verdictText(r), r.ticket_severity, r.expected_severity,
+      r.site_name, r.alarm_code, r.vip_site, r.site_type, r.down_site_count,
+      r.domain, r.status, r.project_name,
+      r.matched_rule_id ? `${r.matched_rule_id}${r.matched_rule_name ? ' ' + r.matched_rule_name : ''}` : '',
+      r.match_details,
+      r.alarm_occur_time, r.created_time, r.last_modified_time,
+    ]
+    const adjust = rows.filter(r => r.level_status === 'adjust')
+    // 导出「当前表格看到的内容」：勾了「只看需调整」就只导该 sheet，
+    // 否则导「全部结果」，并在有需调整行时额外附一个「需调整」sheet。
+    const specs: any[] = batchOnlyAdjust
+      ? [{
+          name: t('qa.ttBatch.sheetAdjust'),
+          title: `${t('qa.ttBatch.title')} — ${t('qa.ttBatch.stat.adjust')}`,
+          header,
+          rows: adjust.map(toRow),
+          numericCols: [8],
+          tabColor: '#BF8F00',
+        }]
+      : [{
+          name: t('qa.ttBatch.sheetAll'),
+          title: t('qa.ttBatch.title'),
+          header,
+          rows: rows.map(toRow),
+          numericCols: [8],
+          tabColor: '#2F5496',
+        }]
+    if (!batchOnlyAdjust && adjust.length) {
+      specs.push({
+        name: t('qa.ttBatch.sheetAdjust'),
+        title: `${t('qa.ttBatch.title')} — ${t('qa.ttBatch.stat.adjust')}`,
+        header,
+        rows: adjust.map(toRow),
+        numericCols: [8],
+        tabColor: '#BF8F00',
+      })
+    }
+    const d = new Date()
+    const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}_${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`
+    try {
+      await exportReport(specs, `tt_batch_severity_${stamp}.xlsx`)
+    } catch {
+      message.error(t('qa.ttBatch.failed'))
+    }
+  }, [batchData, batchOnlyAdjust, t, verdictText])
+
   const runTt = useCallback((no: string) => {
     const clean = no.trim().toUpperCase()
     if (!clean) return
     setTtNo(clean)
     setTtView(true)
+    setTtBatchView(false)
     setTtLoading(true)
     setTtError('')
     setTtAi(null)
@@ -692,6 +915,7 @@ export default function EflowQa() {
   // ===== 读取文档 =====
   const loadDoc = useCallback((path: string) => {
     setTtView(false)
+    setTtBatchView(false)
     setSelectedPath(path)
     setDocLoading(true)
     setDocError('')
@@ -705,6 +929,7 @@ export default function EflowQa() {
     const terms = q.trim().split(/\s+/).filter(Boolean)
     if (!terms.length) return
     setTtView(false)
+    setTtBatchView(false)
     setSearching(true)
     setSearched(true)
     api.get('/eflow-qa/search', { params: { q, lang: locale } }).then(res => {
@@ -772,6 +997,34 @@ export default function EflowQa() {
         onSearch={runTt}
         allowClear
       />
+      <div style={{ borderTop: isDark ? '1px solid rgba(100,255,218,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
+      <div id="tt-batch-check" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <ThunderboltOutlined style={{ color: '#722ed1' }} />
+        <Text strong style={{ fontSize: 13 }}>{t('qa.ttBatch.label')}</Text>
+      </div>
+      <Upload accept=".xlsx,.xls,.csv,.txt" showUploadList={false} beforeUpload={onBatchFile}>
+        <Button block icon={<UploadOutlined />}>{t('qa.ttBatch.upload')}</Button>
+      </Upload>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <Button
+          type="link"
+          size="small"
+          style={{ padding: 0, height: 'auto', textAlign: 'left' }}
+          onClick={() => { setTtBatchView(true); setTtView(false); setUmeView(false) }}
+        >
+          {t('qa.ttBatch.pasteLink')}
+        </Button>
+        <Tooltip title={t('qa.ttBatch.templateTip')}>
+          <Button
+            type="link"
+            size="small"
+            style={{ padding: 0, height: 'auto', textAlign: 'left' }}
+            onClick={downloadTtBatchTemplate}
+          >
+            {t('qa.ttBatch.templateLink')}
+          </Button>
+        </Tooltip>
+      </div>
       <div id="ran-ume-alarm-analysis" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <ThunderboltOutlined style={{ color: '#13c2c2' }} />
         <Text strong style={{ fontSize: 13 }}>{t('qa.ume.label')}</Text>
@@ -885,6 +1138,17 @@ export default function EflowQa() {
             onSearch={runUme}
             allowClear
           />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Upload accept=".xlsx,.xls,.csv,.txt" showUploadList={false} beforeUpload={onBatchFile} style={{ flex: 1 }}>
+              <Button icon={<UploadOutlined />} block>{t('qa.ttBatch.upload')}</Button>
+            </Upload>
+            <Button
+              icon={<ThunderboltOutlined style={{ color: '#722ed1' }} />}
+              onClick={() => { setTtBatchView(true); setTtView(false); setUmeView(false) }}
+            >
+              {t('qa.ttBatch.paste')}
+            </Button>
+          </div>
         </div>
       )}
 
@@ -1134,6 +1398,194 @@ export default function EflowQa() {
           </div>
         )}
 
+        {/* ===== TT 批量级别核查视图 ===== */}
+        {ttBatchView && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+              <ThunderboltOutlined style={{ color: '#722ed1' }} />
+              <Text strong style={{ fontSize: 16 }}>{t('qa.ttBatch.title')}</Text>
+              {!!batchData?.rules?.count && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {t('qa.ttBatch.rules', { n: batchData.rules.count, time: batchData.rules.updated_at || '—' })}
+                </Text>
+              )}
+              <Space style={{ marginLeft: 'auto' }} wrap>
+                <Button size="small" loading={batchLoading} disabled={!batchTokens.length} onClick={() => runTtBatch()}>
+                  {t('qa.ttBatch.rerun')}
+                </Button>
+                <Button size="small" icon={<ClearOutlined />} onClick={() => {
+                  setBatchText(''); setBatchFile(''); setBatchData(null); setBatchError(''); setBatchOnlyAdjust(false)
+                }}>
+                  {t('qa.ttBatch.clear')}
+                </Button>
+                <Button size="small" onClick={() => setTtBatchView(false)}>{t('qa.ttBatch.back')}</Button>
+              </Space>
+            </div>
+            <div style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b', marginBottom: 10 }}>
+              {t('qa.ttBatch.subtitle')}
+            </div>
+
+            {/* 输入区：上传清单文件 / 粘贴单号列表 */}
+            <div style={{
+              border, borderRadius: 8, padding: '10px 14px', marginBottom: 10,
+              background: isDark ? 'rgba(114,46,209,0.10)' : '#faf8ff',
+            }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                <Upload accept=".xlsx,.xls,.csv,.txt" showUploadList={false} beforeUpload={onBatchFile}>
+                  <Button icon={<UploadOutlined />}>{t('qa.ttBatch.upload')}</Button>
+                </Upload>
+                <Tooltip title={t('qa.ttBatch.templateTip')}>
+                  <Button icon={<DownloadOutlined />} onClick={downloadTtBatchTemplate}>
+                    {t('qa.ttBatch.template')}
+                  </Button>
+                </Tooltip>
+                {batchFile && <Tag color="purple">{batchFile}</Tag>}
+                <Text type="secondary" style={{ fontSize: 12 }}>{t('qa.ttBatch.uploadHint')}</Text>
+              </div>
+              <Input.TextArea
+                rows={4}
+                value={batchText}
+                onChange={e => setBatchText(e.target.value)}
+                placeholder={t('qa.ttBatch.placeholder')}
+              />
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+                <Button type="primary" loading={batchLoading} onClick={() => runTtBatch()}>
+                  {batchLoading ? t('qa.ttBatch.checking') : t('qa.ttBatch.run')}
+                </Button>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {t('qa.ttBatch.parsed', { n: batchTokens.length })}
+                </Text>
+              </div>
+            </div>
+
+            {!!batchError && <Alert type="error" showIcon message={batchError} style={{ marginBottom: 10 }} />}
+            {batchLoading && (
+              <div style={{ textAlign: 'center', padding: 50 }}>
+                <Spin size="large" />
+                <div style={{ marginTop: 12, color: isDark ? '#94a3b8' : '#64748b' }}>{t('qa.ttBatch.checking')}</div>
+              </div>
+            )}
+
+            {!batchLoading && batchData && (() => {
+              const s = batchData.summary || {}
+              const allRows: any[] = batchData.rows || []
+              const shown = batchOnlyAdjust ? allRows.filter(r => r.level_status === 'adjust') : allRows
+              const stat = (label: string, value: number, color?: string) => (
+                <Tag color={color} style={{ margin: 0, padding: '2px 10px', fontSize: 13 }}>
+                  {label} <b>{value}</b>
+                </Tag>
+              )
+              const columns = [
+                {
+                  title: t('qa.ttBatch.col.tt'), dataIndex: 'tt_no', width: 150,
+                  fixed: isMobile ? undefined : ('left' as const),
+                  render: (v: string, r: any) => (
+                    <a style={{ fontFamily: 'monospace' }} onClick={() => runTt(r.tt_no)}>{v}</a>
+                  ),
+                },
+                {
+                  title: t('qa.ttBatch.col.judge'), dataIndex: 'level_status', width: 110,
+                  render: (_: any, r: any) => (
+                    <Tag color={verdictColor(r.found ? r.level_status : 'miss')} style={{ margin: 0 }}>
+                      {verdictText(r)}
+                    </Tag>
+                  ),
+                },
+                {
+                  title: t('qa.ttBatch.col.current'), dataIndex: 'ticket_severity', width: 90,
+                  render: (v: string) => (v ? <Tag color={levelColor(v)} style={{ margin: 0 }}>{v}</Tag> : '—'),
+                },
+                {
+                  title: t('qa.ttBatch.col.expected'), dataIndex: 'expected_severity', width: 90,
+                  render: (v: string, r: any) => (v
+                    ? <Tag color={levelColor(v)} style={{ margin: 0, fontWeight: r.level_status === 'adjust' ? 700 : undefined }}>{v}</Tag>
+                    : '—'),
+                },
+                { title: t('qa.ttBatch.col.site'), dataIndex: 'site_name', width: 140, ellipsis: true },
+                { title: t('qa.ttBatch.col.alarm'), dataIndex: 'alarm_code', width: 100 },
+                { title: t('qa.ttBatch.col.vip'), dataIndex: 'vip_site', width: 70 },
+                { title: t('qa.ttBatch.col.status'), dataIndex: 'status', width: 110, ellipsis: true },
+                {
+                  title: t('qa.ttBatch.col.rule'), dataIndex: 'matched_rule_name', ellipsis: true, width: 220,
+                  render: (v: string, r: any) => (v ? <span>{r.matched_rule_id} {v}</span> : '—'),
+                },
+                {
+                  title: t('qa.ttBatch.col.detail'), dataIndex: 'match_details', ellipsis: true,
+                  render: (v: string) => (v
+                    ? <Tooltip title={<span style={{ wordBreak: 'break-all' }}>{v}</span>}>
+                        <span style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>{v}</span>
+                      </Tooltip>
+                    : '—'),
+                },
+              ]
+              return (
+                <div>
+                  {/* 汇总统计 */}
+                  <div style={{ marginBottom: 6 }}>
+                    <Text strong style={{ fontSize: 13 }}>{t('qa.ttBatch.summary')}</Text>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+                    {stat(t('qa.ttBatch.stat.input'), batchData.input?.valid ?? 0)}
+                    {stat(t('qa.ttBatch.stat.found'), s.found ?? 0, 'cyan')}
+                    {stat(t('qa.ttBatch.stat.miss'), s.not_found ?? 0, 'default')}
+                    {stat(t('qa.ttBatch.stat.ok'), s.level_ok ?? 0, 'green')}
+                    {stat(t('qa.ttBatch.stat.adjust'), s.level_adjust ?? 0, 'red')}
+                    {stat(t('qa.ttBatch.stat.unknown'), s.level_unknown ?? 0, 'orange')}
+                  </div>
+                  {/* 表格工具条：筛选 + 行数 + 导出（导出的是当前表格内容） */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                    <Checkbox checked={batchOnlyAdjust} onChange={e => setBatchOnlyAdjust(e.target.checked)}>
+                      <Tooltip title={t('qa.ttBatch.onlyAdjustTip')}>
+                        <span style={{ fontSize: 13 }}>{t('qa.ttBatch.onlyAdjust')}</span>
+                      </Tooltip>
+                    </Checkbox>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {t('qa.ttBatch.tableCount', { n: shown.length, total: allRows.length })}
+                    </Text>
+                    <Space style={{ marginLeft: 'auto' }} wrap>
+                      <Tooltip title={t('qa.ttBatch.exportTip')}>
+                        <Button
+                          size="small"
+                          type="primary"
+                          ghost
+                          icon={<DownloadOutlined />}
+                          disabled={!shown.length}
+                          onClick={exportTtBatch}
+                        >
+                          {t('qa.ttBatch.export')}
+                        </Button>
+                      </Tooltip>
+                    </Space>
+                  </div>
+                  {!!batchData.error && (
+                    <Alert type="warning" showIcon style={{ marginBottom: 8 }}
+                      message={t('qa.ttBatch.rulesFailed', { err: batchData.error })} />
+                  )}
+                  {!!batchData.input?.invalid?.length && (
+                    <Alert type="warning" showIcon style={{ marginBottom: 8 }}
+                      message={t('qa.ttBatch.invalid', {
+                        n: batchData.input.invalid.length,
+                        list: batchData.input.invalid.slice(0, 10).join(', '),
+                      })} />
+                  )}
+                  {batchData.input?.truncated && (
+                    <Alert type="info" showIcon style={{ marginBottom: 8 }}
+                      message={t('qa.ttBatch.truncated', { n: batchData.input.limit })} />
+                  )}
+                  <Table
+                    size="small"
+                    rowKey="tt_no"
+                    dataSource={shown}
+                    columns={columns}
+                    scroll={isMobile ? { x: 1200 } : undefined}
+                    pagination={{ pageSize: 20, showSizeChanger: true, size: 'small' }}
+                  />
+                </div>
+              )
+            })()}
+          </div>
+        )}
+
         {/* ===== RAN UME 告警分析视图 ===== */}
         {umeView && (
           <UmeAlarmView
@@ -1149,7 +1601,7 @@ export default function EflowQa() {
           />
         )}
 
-        {!ttView && !umeView && searched && !docLoading && hits !== null && (
+        {!ttView && !umeView && !ttBatchView && searched && !docLoading && hits !== null && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <Text strong>
@@ -1199,12 +1651,12 @@ export default function EflowQa() {
         )}
 
         {/* 文档视图 */}
-        {!ttView && !umeView && docLoading && <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>}
-        {!ttView && !umeView && !docLoading && docError && <Text type="danger">{docError}</Text>}
-        {!ttView && !umeView && !docLoading && !doc && !searched && (
+        {!ttView && !umeView && !ttBatchView && docLoading && <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>}
+        {!ttView && !umeView && !ttBatchView && !docLoading && docError && <Text type="danger">{docError}</Text>}
+        {!ttView && !umeView && !ttBatchView && !docLoading && !doc && !searched && (
           <Empty description={isMobile ? t('qa.selectDocMobile') : t('qa.selectDoc')} style={{ marginTop: isMobile ? 32 : 80 }} />
         )}
-        {!ttView && !umeView && !docLoading && doc && (
+        {!ttView && !umeView && !ttBatchView && !docLoading && doc && (
           <div>
             <Title level={4} style={{ marginTop: 0, marginBottom: 8, fontSize: isMobile ? 17 : undefined }}>{doc.title}</Title>
             <div style={{ marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>

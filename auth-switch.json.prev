@@ -1,0 +1,6 @@
+{
+  "authEnabled": false,
+  "updatedAt": "2026-09-13T11:38:02.871Z",
+  "note": "共享鉴权总开关（uniplam 门户 + myapp 共用）。authEnabled=false 时两边都跳过用户登录，仅限日常开发。",
+  "updatedBy": "admin"
+}

@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-02.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-14.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (44 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (47 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -77,7 +77,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened three times (finebi_report_sync / whatsapp_send_ext / sp_email_details).
 
-### 3.3 Full task catalog (44 tasks)
+### 3.3 Full task catalog (47 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -93,6 +93,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | eFlow TT Rules Collect & Match Check | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
 | RAN Main KPI Sync | `main_kpi_sync` | `0 4 * * *` | u | `services/ran_ume_main_kpi.py → run_main_kpi_sync` |
 | RAN Cell Availability 1-Day Sync | `cell_availability_sync` | `30 4 * * *` | u | `services/ran_cell_availability_sync.py → run_cell_availability_sync` |
+| RAN Cells KPI Sync | `cells_kpi_sync` | `50 4 * * *` | u | `services/ran_cells_kpi_sync.py → run_cells_kpi_sync` |
 | RAN Network KPI Sync | `network_kpi_sync` | `0 5 * * *` | u | `services/ran_ume_network_kpi.py → run_network_kpi_sync` |
 | CNN UME KPI Sync | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | SP Spare Data Sync | `sp_data_sync` | `0 7 * * *` | n | `services/get_sp_table.py → run_sp_data_sync` |
@@ -105,6 +106,8 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Comsumables Report Email | `kpi_sp_consumables` | `50 9 * * *` | m | `services/kpi_email_report.py → run_sp_consumables` |
 | SP Report Generate | `sp_report_generate` | `15 5 * * *` | m | `services/kpi_email_report.py → run_sp_report_generate` |
 | SP Spare Parts Details Report Email | `sp_email_details` | `0 7 * * *` | m | `services/kpi_email_report.py → run_sp_details_email` |
+| Comsumables&SpareParts Report Whatsapp | `sp_whatsapp_report` | `15 7 * * *` | m | `services/kpi_email_report.py → run_sp_whatsapp_report` |
+| SP Material Stock & Consumption Report Email | `sp_material_report` | `33 7 * * *` | m | `services/kpi_email_report.py → run_sp_material_stock_consumption` |
 | MS Network Availability Daily Report Email | `kpi_ran_availability` | `30 9 * * *` | m | `services/kpi_email_report.py → run_ran_availability` |
 | Email Recovery after EWS Restored | `email_recovery` | `*/20 * * * *` | m | `services/email_recovery.py → run_email_recovery_task` |
 | Packet Loss Sync | `packet_loss_sync` | `30 6 * * *` | u | `services/packet_loss_service.py → run_packet_loss_sync` |
@@ -336,6 +339,24 @@ Workflow & maintenance notes per task:
 
 - The misspelling "avalability" in the DB filename is historical and string-referenced — do NOT rename
 
+#### RAN Cells KPI Sync（`cells_kpi_sync`）
+
+- Default cron: `50 4 * * *`　|　worker group: **u**
+- Workflow script: `services/ran_cells_kpi_sync.py → run_cells_kpi_sync`
+
+**What it does**: Daily RAN UME cell data sync (2G/3G/4G), aggregate Cells KPI (target 99.65%) into ran_cells_kpi.sqlite3, current month only
+
+**Workflow & data flow**:
+
+1. Reuse the availability sync UME fetch to pull GSM/UMTS/FDD cell data
+1. Derive per-cell availability and count meeting/below/blank
+1. Materialize into data/ran_cells_kpi.sqlite3 (table cells_kpi_daily, current month only)
+
+**Maintenance**:
+
+- Definitions live at the top of services/ran_cells_kpi_service.py; 2G uses channel ratio, 3G/4G use service time / 86400
+- The RAN Cells KPI dashboard reads the materialized DB first, falling back to live aggregation of ran_kpi_avalability_1day.sqlite3
+
 #### RAN Network KPI Sync（`network_kpi_sync`）
 
 - Default cron: `0 5 * * *`　|　worker group: **u**
@@ -373,20 +394,22 @@ Workflow & maintenance notes per task:
 - Default cron: `0 7 * * *`　|　worker group: **n**
 - Workflow script: `services/get_sp_table.py → run_sp_data_sync`
 
-**What it does**: Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db, then mirror into the FineBI server's WareHouseDashBoard/inventory.db
+**What it does**: Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db, then mirror into FineBI WareHouseDashBoard inventory.db
 
 **Workflow & data flow**:
 
 1. Log into the spare-parts SFTP (credential group sftp_sp)
 1. Fetch the 5 reports
 1. Clean and write into the main DB for the warehouse board and SP reports
-1. After all tables are stored, mirror into `\\DESKTOP-D4GF62\FineBI6.0\webapps\Python\Unified_Tools\WareHouseDashBoard\inventory.db` (Inbound/Outbound/OC Rule/Transfer full replace; Inventory append-only by key, remote history untouched)
+1. After all tables are stored, mirror into the FineBI inventory.db (UNC path; full replace for normal tables, append-only for Inventory)
+1. Finally prune Inventory snapshots older than the retention window (same policy for app.db and the mirror, default 180 days)
 
 **Maintenance**:
 
 - The warehouse board iframe reads exactly this data — if reports are missing, check this task first
-- A FineBI inventory.db mirror failure is reported in the task message (`镜像写入 FineBI inventory.db 失败: ...`) but does not affect app.db; path/toggle live in Settings → Task Config → SP 备件数据（`mirror_db_path` / `mirror_enabled`）
-- Reader locks on the remote DB are waited out via busy_timeout; network blips retry the whole mirror twice
+- Mirror failures are reported in the task message without affecting app.db; path/toggle in Settings → Task Config (mirror_db_path / mirror_enabled)
+- inventory_details is append-only and bounded by retention: Settings → Task Config, inventory_retention_days (default 180). The cutoff is based on the newest update_date in the table, so an upstream outage never wipes the table
+- The warehouse board's "Inventory Quantity Trend" reads every date in this table (no date filter = full history), so lowering the retention window directly shortens the trend chart
 
 #### iPRAN UME KPI Sync（`ipran_kpi_sync`）
 
@@ -524,17 +547,57 @@ Workflow & maintenance notes per task:
 - Default cron: `0 7 * * *`　|　worker group: **m**
 - Workflow script: `services/kpi_email_report.py → run_sp_details_email`
 
-**What it does**: Daily 07:00: merge the 4 spare-part detail files (inventory/inband/outband/transfer) under data/sp_email/data into one Excel (sheets: Inventory/Inbound/Outbound/Transfer) with a timestamped filename and subject
+**What it does**: Merge the 4 spare-part detail files (inventory/inband/outband/transfer) under data/sp_email/data into one Excel (sheets: Inventory/Inbound/Outbound/Transfer) and email it; after the email, send the same Excel as a document to the WhatsApp group WH&SP Management
 
 **Workflow & data flow**:
 
-1. Collect the 4 *_details.xlsx files under data/sp_email/data (inventory/inband/outband/transfer)
-1. Merge them into `SP Details Report <YYYY-MM-DD HH-MM-SS>.xlsx` (4 sheets, original detail content preserved)
-1. Send with subject `SP Spare Parts Details Report <YYYY-MM-DD HH-MM-SS>` (default fixed recipients, overridable in Settings → Email Recipients)
+1. Merge the 4 *_details.xlsx (inventory/inband/outband/transfer) under data/sp_email/data into one workbook with a timestamped filename and subject
+1. Send the email (default fixed recipients, overridable in Settings → Email Recipients)
+1. After the email, send the same merged Excel as a document to the WhatsApp group WH&SP Management (added 2026-09-14)
 
 **Maintenance**:
 
 - Missed its worker-group registration on 2026-09-01 and stuck pending; now in group m — always register new tasks in GROUP_TASK_MAP
+- This task is in EMAIL_TASK_IDS: on a WhatsApp-side failure the error carries only the WHATSAPP_FAIL marker, never the raw exception text — otherwise an EWS keyword would make email_recovery replay the whole chain and email the report twice to 11 recipients
+- Upstream is sp_report_generate (05:15): without the detail files the merge fails and neither channel sends
+
+#### Comsumables&SpareParts Report Whatsapp（`sp_whatsapp_report`）
+
+- Default cron: `15 7 * * *`　|　worker group: **m**
+- Workflow script: `services/kpi_email_report.py → run_sp_whatsapp_report`
+
+**What it does**: Daily 07:15: send the same assets used by the Comsumables / SpareParts report emails (consolidated XLSX + report PNGs) to the WhatsApp group WH&SP Management
+
+**Workflow & data flow**:
+
+1. Pick the consolidated Comsumables / SpareParts XLSX under data/sp_email (excludes the " - Liberia" per-site files)
+1. Collect the PNGs of both reports (main chart first, Summary-Changed last)
+1. Send via the Playwright mechanism in whatsapp_service to the group WH&SP Management
+
+**Maintenance**:
+
+- Upstream is sp_report_generate (group m, 05:15) — if it fails this task finds no report files
+- No email is sent here; emails are handled by kpi_sp_consumables / kpi_sp_spareparts
+
+#### SP Material Stock & Consumption Report Email（`sp_material_report`）
+
+- Default cron: `33 7 * * *`　|　worker group: **m**
+- Workflow script: `services/kpi_email_report.py → run_sp_material_stock_consumption`
+
+**What it does**: Daily 07:33: export the SP material stock & consumption summary (same scope as the page=sp_material page) to a UNIFIED_EXCEL_V1 Excel attachment plus an inline PNG of the same table, and email it
+
+**Workflow & data flow**:
+
+1. Call sp_material_summary_service.get_material_summary() (inventory_details daily snapshots + outband_details repair outbound)
+1. Build a UNIFIED_EXCEL_V1 workbook (title / subtitle / two-row merged header / total row above the data / 13 columns + Info sheet), cell-for-cell identical to the page "Export Excel"
+1. Draw the same summary table as a PNG with Pillow (same method as the SP report images: blue header + orange section bands + zebra rows)
+1. Save to data/sp_material_report (keeps only the latest): the Excel as attachment, the PNG inlined in the body
+
+**Maintenance**:
+
+- Default 15 To + 2 Cc, overridable in Settings → Email Recipients
+- Skips sending and reports failure when the summary has no data rows (usually the upstream SP data sync did not run)
+- If PNG rendering fails it only warns and does not block the email — the Excel is still sent
 
 #### MS Network Availability Daily Report Email（`kpi_ran_availability`）
 
@@ -1126,7 +1189,7 @@ One-click portal login: auto-logs into upstream portals with saved credentials (
 
 | Log file (log/) | Content |
 | --- | --- |
-| `log/worker_runtime*.log` | Main task-execution log — first stop for troubleshooting; search by task_id for stacks (one file per worker group: `_u`/`_n`/`_m`/`_c`) |
+| `log/worker_runtime*.log` | Main task-execution log — first stop for troubleshooting; search by task_id for stacks (one file per worker group) |
 | `log/backend_runtime.log` | Backend business log (API, scheduler, proxies) |
 | `log/backend_watchdog.log / worker_watchdog.log` | Process spawn & crash-backoff records (gives up after 10 consecutive crashes) |
 | `log/start_hidden_result.txt` | Per-step result of the last startup — check this first when startup fails |

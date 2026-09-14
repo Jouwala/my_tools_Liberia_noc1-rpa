@@ -143,6 +143,62 @@ export function getAuthMode() {
   return api.get('/auth/mode')
 }
 
+/* ---------- 启动前鉴权引导（preflight） ----------
+ * 背景（2026-09-14 修复首屏 401）：门户深链带 ?t=<门户token> 打开看板时，「换会话」
+ * 是异步请求，而业务页面一挂载就抢跑数据接口 → 首屏必然 401，表现为
+ * 「Failed to load data / Request failed with status code 401，刷新就正常」
+ * （刷新时 Cookie 已落地，所以第二次就好）。
+ * 修法：把「换会话」提前到 React 渲染之前完成（见 main.tsx），并让页面在引导
+ * 结束前不挂载，从结构上消除抢跑；runAuthBootstrap 记忆化，重复调用复用同一 Promise。 */
+
+/** 门户登录态在 localStorage 的键（与 uniplam 门户 src/config.ts 保持一致） */
+const PORTAL_TOKEN_KEY = 'liberia_noc_auth_v1'
+
+/** 取门户 token：优先 URL 深链 ?t=（取到即从地址栏抽走，避免门户 token 长期留痕），
+ *  其次门户登录态 localStorage —— myapp 与门户同源，可直接读到，
+ *  因此书签 / 手输 URL 打开看板也能免重复登录。 */
+export function readPortalToken(): string | null {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get('t')?.trim()
+    if (fromUrl) {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('t')
+      window.history.replaceState({}, '', url)
+      return fromUrl
+    }
+  } catch { /* ignore */ }
+  try { return localStorage.getItem(PORTAL_TOKEN_KEY) || null } catch { return null }
+}
+
+/** 启动前把门户 token 换成 myapp 会话 Cookie，返回「是否已具备访问数据的身份」。 */
+export async function bootstrapAuth(): Promise<boolean> {
+  const token = readPortalToken()
+  if (token) {
+    try {
+      await portalLogin(token)
+      return true
+    } catch { /* token 失效 / 门户不可达：继续往下探测会话 */ }
+  }
+  try {
+    const mode = await getAuthMode()
+    if (mode.data?.authEnabled === false) return true // 日常开发免登录
+  } catch { /* 探测失败按未登录处理 */ }
+  try {
+    await getAuthMe()
+    return true
+  } catch {
+    return false
+  }
+}
+
+let _bootstrapPromise: Promise<boolean> | null = null
+
+/** 幂等获取启动鉴权结果：main.tsx 先跑一次，App 再取同一个 Promise（不会重复换会话）。 */
+export function runAuthBootstrap(): Promise<boolean> {
+  if (!_bootstrapPromise) _bootstrapPromise = bootstrapAuth()
+  return _bootstrapPromise
+}
+
 api.interceptors.response.use(
   (resp) => resp,
   (error) => {

@@ -406,6 +406,9 @@ export async function exportAoaReport(opts: {
   filename: string
   sheetName?: string
   title?: string
+  /** 第 2 行副标题；不传则用默认的 `Generated: <时间> | Sheet: <名>`。
+   *  填写模板/回执类导出用它写填写说明，比默认时间戳有用。 */
+  subtitle?: string
   header: string[]
   rows: CellValue[][]
   numericCols?: number[]
@@ -416,6 +419,7 @@ export async function exportAoaReport(opts: {
     [{
       name: opts.sheetName || 'Sheet1',
       title: opts.title,
+      subtitle: opts.subtitle,
       header: opts.header,
       rows: opts.rows,
       numericCols: opts.numericCols,

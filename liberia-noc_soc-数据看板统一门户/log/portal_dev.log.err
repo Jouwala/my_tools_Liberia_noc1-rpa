@@ -645,3 +645,8 @@ D:/01_RPA/liberia-noc_soc-数据看板统一门户/src/data/initialDashboards.ts
 [auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
 [auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
 [auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 鉴权已关闭(免登录) | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 注意：当前 /uniplam/ 与 /myapp/ 均跳过用户登录，仅限日常开发使用。
+[auth-switch] 关闭鉴权 | 操作者=admin 环境=development
+[auth-switch] 鉴权已开启 | 环境=development 来源=file 开关文件=D:\01_RPA\auth-switch.json
+[auth-switch] 开启鉴权 | 操作者=admin 环境=development

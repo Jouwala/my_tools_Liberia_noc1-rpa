@@ -98,6 +98,9 @@ _SP_ONLINE_WA_GROUPS = ["WH&SP Management"]
 _SP_WA_GROUPS = ["WH&SP Management"]
 # Comsumables & SpareParts 报表 WhatsApp 发送的报表类别（与邮件任务口径一致）
 _SP_WA_REPORT_LABELS = ("Comsumables", "SpareParts")
+# SP 备件明细报表（sp_email_details）邮件发出后，同步把同一份合并 Excel
+# 作为文档发到该群（用户 2026-09-14 指定，独立于 WHATSAPP_GROUPS）
+_SP_DETAILS_WA_GROUPS = ["WH&SP Management"]
 _RAN_DATA = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE"                      # 远程 FTP
 _RAN_EMAIL = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE/email"               # 远程 FTP
 
@@ -442,16 +445,41 @@ def _prune_sp_details_reports(keep: "Path") -> int:
     return removed
 
 
+def _send_sp_details_to_whatsapp(merged_path: Path) -> dict:
+    """把合并后的 SP Details Report 作为**文档**发到 WhatsApp 群 WH&SP Management。
+
+    复用 ``whatsapp_service.run_whatsapp_send`` 的 Playwright 机制（与
+    sp_online_report_send / sp_whatsapp_report 同一套）。
+
+    ⚠️ ``photos=[]`` 必须显式传入：``photos=None`` 会触发
+    ``_collect_photos_and_captions()``，把站点中断截图一并灌进这个管理群。
+    """
+    try:
+        from backend.services.whatsapp_service import run_whatsapp_send
+        return run_whatsapp_send(
+            photos=[],
+            captions=[],
+            files=[str(merged_path)],
+            groups=_SP_DETAILS_WA_GROUPS,
+        )
+    except Exception as e:
+        return {"success": False, "groups_sent": [], "errors": [f"WhatsApp 发送异常: {e}"]}
+
+
 def run_sp_details_email(to: str = None, cc: str = None) -> dict:
-    """SP 备件明细报表邮件（每天 07:00）。
+    """SP 备件明细报表：邮件 + WhatsApp（每天一班，时间见 task_registry / 调度配置）。
 
     把 data/sp_email/data 下 4 份明细 xlsx（inventory/inband/outband/transfer）
     合并为一个 Excel 工作簿（sheet：Inventory/Inbound/Outbound/Transfer），
     附件与主题均携带发送时间戳，例如：
       附件: SP Details Report 2026-09-04 11-32-00.xlsx
       主题: SP Spare Parts Details Report 2026-09-04 11-32-00
-    收件人固定：主送 ansah.boadu@zte.com.cn，抄送 dong.xinmin@zte.com.cn；
-    可在 Settings → Email Recipient Settings 覆盖。
+
+    发送渠道（顺序执行，互不阻塞）：
+      1. 邮件：附件为该合并工作簿。收件人固定：主送 ansah.boadu@zte.com.cn，
+         抄送 dong.xinmin@zte.com.cn；可在 Settings → Email Recipient Settings 覆盖。
+      2. WhatsApp：邮件之后把**同一份**合并 Excel 作为文档发到群 WH&SP Management
+         （2026-09-14 新增）。WhatsApp 侧失败不会重发邮件，见下方 error 组装注释。
     """
     from backend.services.email_recipient_store import get_email_recipients
     to_arg, cc_arg = get_email_recipients("sp_email_details", to, cc)
@@ -476,7 +504,8 @@ def run_sp_details_email(to: str = None, cc: str = None) -> dict:
         "[sp_details] 合并完成: %s rows=%s 清理历史文件=%d",
         merged_path.name, row_counts, pruned,
     )
-    return _run_script(
+
+    email_res = _run_script(
         data_dir=_SP_DETAILS_DATA,
         name_filter="",
         to=to_arg,
@@ -485,6 +514,42 @@ def run_sp_details_email(to: str = None, cc: str = None) -> dict:
         attach=[str(merged_path)],
         subject=f"SP Spare Parts Details Report {stamp}",
     )
+
+    # 邮件之后同步发一份到 WhatsApp 群 WH&SP Management（2026-09-14 新增）。
+    # 与邮件互不阻塞：邮件失败也照发群，避免一个渠道故障把另一个渠道一起拖掉。
+    wa_res = _send_sp_details_to_whatsapp(merged_path)
+
+    email_ok = bool(email_res.get("success"))
+    wa_ok = bool(wa_res.get("success"))
+    res = {
+        "success": email_ok and wa_ok,
+        "message": (
+            f"Email={'OK' if email_ok else 'FAIL'}, WhatsApp={'OK' if wa_ok else 'FAIL'}"
+            f" (groups_sent={wa_res.get('groups_sent')}) | "
+            f"合并 {merged_path.name} rows={row_counts} 清理历史={pruned}"
+        ),
+        "merged_file": str(merged_path),
+        "row_counts": row_counts,
+        "pruned": pruned,
+        "email": email_res,
+        "whatsapp": {
+            k: wa_res.get(k)
+            for k in ("success", "groups_sent", "errors", "elapsed_seconds")
+        },
+    }
+
+    # error 的组装必须小心：本任务在 email_recovery.EMAIL_TASK_IDS 内，一旦 error
+    # 文本命中 EWS 关键字（timed out / ConnectionError / 10054 ...），
+    # email_recovery 会把整条失败链「补发」= 11 位收件人重复收到同一份报表邮件。
+    # 所以 WhatsApp 侧只写固定标记，底层异常原文留在 res["whatsapp"]["errors"] 里。
+    if not email_ok:
+        res["error"] = f"Email: {email_res.get('error')}"
+    if not wa_ok:
+        wa_mark = (
+            f"WHATSAPP_FAIL: WhatsApp 发送失败（群 {';'.join(_SP_DETAILS_WA_GROUPS)}）"
+        )
+        res["error"] = f"{res['error']} | {wa_mark}" if res.get("error") else wa_mark
+    return res
 
 
 # =============================================================================

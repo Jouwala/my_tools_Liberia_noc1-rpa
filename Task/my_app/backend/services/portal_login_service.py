@@ -1419,6 +1419,58 @@ def _rais_direct_auth(spec: dict):
     return user, token
 
 
+def build_client_login_plan(system_key: str) -> dict:
+    """构造供受管 Chrome 扩展执行的、一次性的本机登录计划。
+
+    这个函数刻意不返回门户账号或密码。eFlow / RAIS 的密码学登录仍只在
+    my_app 服务端完成；扩展只拿到必须写入其**本机 Chrome**的短期会话材料。
+    调用方必须以短时、单次消费的票据保护返回值，见 routers/portals.py。
+    """
+    if system_key not in ("eflow", "rais"):
+        raise ValueError(f"门户 {system_key} 不支持客户端会话登录")
+
+    spec = PORTALS[system_key]
+    host, port = resolve_endpoint(spec)
+    origin = f"https://{host}:{port}"
+
+    if system_key == "eflow":
+        cookie_str, forgery_token = _eflow_direct_auth(spec)
+        cookies = [
+            {
+                "name": item["name"],
+                "value": item["value"],
+                "httpOnly": True,
+            }
+            for item in _split_cookies(cookie_str)
+        ]
+        if not cookies:
+            raise RuntimeError("eFlow 鉴权未返回会话 cookie")
+        # eFlow 前端会把这个值当 forgery 请求头使用；格式必须是 JSON 字符串。
+        return {
+            "system": system_key,
+            "origin": origin,
+            "target_url": origin + spec["redirect"],
+            "cookies": cookies,
+            "eflow_csrf_token": forgery_token,
+        }
+
+    account, token = _rais_direct_auth(spec)
+    return {
+        "system": system_key,
+        "origin": origin,
+        "target_url": origin + spec["redirect"],
+        "cookies": [
+            {
+                "name": name,
+                "value": account if kind == "user" else token,
+                # RAIS 的前端路由守卫会读取这些 Cookie，不能标成 HttpOnly。
+                "httpOnly": False,
+            }
+            for name, kind in RAIS_SSO_COOKIES
+        ],
+    }
+
+
 async def _cdp_rais_seed_and_open(cdp_port: int, host: str, sport: int, account: str,
                                   token: str, spec: dict, job_id: str):
     """单一 CDP 连接内完成 RAIS 的「种 SSO cookie + 打开已登录主页」。
