@@ -619,7 +619,43 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 0,
       themeColor: 'emerald',
       status: 'online'
+    },    {
+      id: 'custom-vmax-cxo-dashboard-daily',
+      title: 'VMAX CXO Daily View (VMAX CXO 天粒度看板)',
+      description: 'VMAX CXO 天粒度看板：以周一~周日为横轴的本周 / 前一周 / 前两周三条日粒度曲线呈现 CXO 决策指标，与 15 分钟粒度原版大屏完全独立；日值由 1hour 明细本地聚合，上游小时明细仅保留约 8 天，更早日期以灰空格子呈现。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}vmaxCxoDashboard_Daily`,
+      category: 'MS 运维管理',
+      tags: ['VMAX', 'CXO', '决策看板', '日报'],
+      iconName: 'CalendarClock',
+      updateFrequency: '每日0点',
+      department: 'DevOps 架构部',
+      owner: '系统管理员',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'purple',
+      status: 'online'
     },
+    {
+      id: 'custom-ume-in-kpi',
+      title: 'Customer Service KPI (客户业务 KPI)',
+      description: '客户业务 KPI 健康度看板：按 UME KPI 服务逐日统计调用次数、成功数与成功率，拆分系统侧 / 用户侧失败，并对资源类指标（容量 / 已用 / 空闲）做均值与峰值监控，异常自动生成告警，支持趋势下钻。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}ume_in_kpi`,
+      category: '网络性能',
+      tags: ['UME', 'KPI', '成功率', '客户业务'],
+      iconName: 'Gauge',
+      updateFrequency: '每日0点',
+      department: 'DevOps 架构部',
+      owner: '系统管理员',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'blue',
+      status: 'online'
+    },
+
     {
       id: 'finebi-ms-contract-operation-kpis',
       title: 'Contract Operation KPIs (合同运营关键绩效指标)',
@@ -1004,5 +1040,6 @@ export const AVAILABLE_ICONS = [
   { name: 'MessageCircle', label: '问题反馈/建议' },
   { name: 'Antenna', label: '小区/无线 KPI' },
   { name: 'Crown', label: 'CXO 高层视图' },
-  { name: 'Package', label: '物料/备件库存' }
+  { name: 'Package', label: '物料/备件库存' },
+  { name: 'CalendarClock', label: '日历/日粒度' }
 ];

@@ -531,11 +531,11 @@ register_config(ConfigResource(
         "sftp_host": "10.100.20.11",
         "sftp_port": 22,
         "folders": {
-            "inband_details": "sp/spinbound",
-            "outband_details": "sp/spoutbound",
-            "inventory_details": "sp/spinventory",
+            "inband_details": "sp/inbound",
+            "outband_details": "sp/outbound",
+            "inventory_details": "sp/inventory_management",
             "ocrule_details": "OCAuto/OCAutoOutput",
-            "transfer_details": "sp/sp-wh_transfer",
+            "transfer_details": "sp/wh_transfer",
         },
         "mirror_enabled": True,
         "mirror_db_path": r"\\DESKTOP-D4GF62\FineBI6.0\webapps\Python\Unified_Tools\WareHouseDashBoard\inventory.db",
@@ -562,4 +562,121 @@ register_config(ConfigResource(
         },
     },
     description="SP 备件数据同步：SFTP 主机与各报表远程目录（凭据在「凭据管理」）；同步后镜像写入 FineBI WareHouseDashBoard inventory.db；inventory_details 按保留天数清理历史快照（app.db 与镜像库同口径）",
+))
+
+# ========== VMAX 多报表指标采集（vmax_multi_data_sync） ==========
+def _vmax_multi_data_defaults():
+    """默认值直接取服务里的配置（避免设置页与代码两份模板各写一份）。"""
+    from backend.services.vmax_multi_data import vmax_multi_data_service as s
+    return s.load_config()
+
+
+register_config(ConfigResource(
+    task_id="vmax_multi_data_sync", path=_cfg("vmax_multi_data_config.json"),
+    schema={
+        "enabled": {"label_zh": "启用采集", "type": "bool"},
+        "transport": {"label_zh": "传输方式（auto/proxy/direct）", "type": "str"},
+        "granularity": {"label_zh": "默认粒度（hour/date/week/month/5min/quarter）", "type": "str"},
+        "days_back": {"label_zh": "默认回看天数", "type": "int", "min": 1, "max": 60},
+        "top_n": {"label_zh": "默认最大行数（TopN）", "type": "int", "min": 1, "max": 100000},
+        "page_size": {"label_zh": "默认每页行数", "type": "int", "min": 1, "max": 100000},
+        "reports": {
+            "label_zh": "报表列表（report_part = URL 里 rpt_home/<report_part>）", "type": "table",
+            "min_items": 1, "max_items": 20,
+            "fields": {
+                "key": {"label_zh": "报表键（落盘文件名）", "type": "str", "required": True},
+                "title": {"label_zh": "标题", "type": "str"},
+                "report_part": {"label_zh": "report_part", "type": "str", "required": True},
+                "enabled": {"label_zh": "启用", "type": "bool"},
+                "granularity": {"label_zh": "粒度", "type": "str"},
+                "days_back": {"label_zh": "回看天数", "type": "int", "min": 1, "max": 60},
+                "top_n": {"label_zh": "最大行数", "type": "int", "min": 1, "max": 100000},
+            },
+        },
+    },
+    defaults_factory=_vmax_multi_data_defaults,
+    description="VMAX 多报表指标采集：url.txt 抓包的 vreport 报表（report_part、粒度、回看天数、TopN）；维度/指标留空时取报表 design.json 的默认选中项，凭据用「凭据管理 → vmax_cxo」",
+    description_en="VMAX multi-report KPI collect: vreport report_part list (granularity/lookback/TopN); empty dims/kpis fall back to design.json defaults; credentials via vmax_cxo",
+))
+
+# ========== OLIB SOC VMAX 例行报表（olib_soc_vmax_report） ==========
+def _olib_soc_defaults():
+    """默认值直接取服务里的配置（避免设置页与代码两份模板各写一份）。"""
+    from backend.services.olib_soc_report import olib_soc_report_service as s
+    return s.load_config()
+
+
+register_config(ConfigResource(
+    task_id="olib_soc_vmax_report", path=_cfg("olib_soc_report_config.json"),
+    schema={
+        "enabled": {"label_zh": "启用报表", "type": "bool"},
+        "range_mode": {"label_zh": "窗口模式（last_month/this_month/last_n_days/weekly/explicit）", "type": "str"},
+        "days": {"label_zh": "last_n_days 天数", "type": "int", "min": 1, "max": 92},
+        "max_days": {"label_zh": "窗口上限天数（数仓只留约 90 天）", "type": "int", "min": 1, "max": 400},
+        "granularity": {"label_zh": "分区粒度（day/hour）", "type": "str"},
+        "workers": {"label_zh": "并发连接数", "type": "int", "min": 1, "max": 8},
+        "top_service_limit": {"label_zh": "TOP 业务条数（每日）", "type": "int", "min": 1, "max": 200},
+        "top_video_limit": {"label_zh": "TOP 视频 APP 条数（每日）", "type": "int", "min": 1, "max": 200},
+        "cache_server_ips": {"label_zh": "缓存服务器 IP 列表", "type": "list"},
+        "core_fold_unmapped_to": {"label_zh": "未映射网元归入（留空则按 target_<id> 分开）", "type": "str"},
+        "gbase": {
+            "label_zh": "GBase 连接（库 zxvmax；密码在凭据管理 → vmax_gbase）", "type": "object",
+            "fields": {
+                "host": {"label_zh": "主机", "type": "str"},
+                "port": {"label_zh": "端口", "type": "int", "min": 1, "max": 65535},
+                "user": {"label_zh": "用户名", "type": "str"},
+                "database": {"label_zh": "库名", "type": "str"},
+                "charset": {"label_zh": "字符集", "type": "str"},
+                "connect_timeout": {"label_zh": "连接超时(秒)", "type": "int", "min": 1, "max": 60},
+                "read_timeout": {"label_zh": "读取超时(秒)", "type": "int", "min": 10, "max": 1800},
+            },
+        },
+        "blocks": {
+            "label_zh": "报表块开关", "type": "object",
+            "fields": {
+                "traffic": {"label_zh": "traffic 每日总流量", "type": "bool"},
+                "active_user": {"label_zh": "Active_user 活跃用户", "type": "bool"},
+                "cache": {"label_zh": "cache 缓存/非缓存", "type": "bool"},
+                "core": {"label_zh": "GUW 核心网元", "type": "bool"},
+                "video": {"label_zh": "Video 视频业务", "type": "bool"},
+                "game": {"label_zh": "game 游戏业务", "type": "bool"},
+                "tcp": {"label_zh": "TCP 性能", "type": "bool"},
+                "top_service": {"label_zh": "df_TOP_Service TOP业务", "type": "bool"},
+                "top_video": {"label_zh": "df_TOP_Video TOP视频", "type": "bool"},
+            },
+        },
+        "kpi_sync": {
+            "label_zh": "看板 KPI 每日增量（olib_soc_kpi_daily_sync）", "type": "object",
+            "fields": {
+                "days_back": {"label_zh": "回看天数", "type": "int", "min": 1, "max": 92},
+                "only_missing": {"label_zh": "只补缺口（关=每天整窗重取）", "type": "bool"},
+                "refresh_last_days": {"label_zh": "重取最新 N 天（防数仓晚到/漏跑）", "type": "int", "min": 0, "max": 7},
+            },
+        },
+        "persist": {
+            "label_zh": "落盘开关", "type": "object",
+            "fields": {
+                "write_excel": {"label_zh": "写 Excel", "type": "bool"},
+                "write_sqlite": {"label_zh": "写运行记录 sqlite", "type": "bool"},
+                "keep_csv": {"label_zh": "额外导出 CSV", "type": "bool"},
+                "write_kpi": {"label_zh": "写看板 KPI 库（daily_kpi）", "type": "bool"},
+            },
+        },
+        "mail": {
+            "label_zh": "邮件投递（默认关闭）", "type": "object",
+            "fields": {
+                "enabled": {"label_zh": "启用发信", "type": "bool"},
+                "smtp_host": {"label_zh": "SMTP 主机", "type": "str"},
+                "smtp_port": {"label_zh": "SMTP 端口", "type": "int", "min": 1, "max": 65535},
+                "credential_key": {"label_zh": "凭据分组（默认 mail_126）", "type": "str"},
+                "sender": {"label_zh": "发件人", "type": "str"},
+                "sender_name": {"label_zh": "发件人显示名", "type": "str"},
+                "recipients": {"label_zh": "收件人列表", "type": "list"},
+                "subject_prefix": {"label_zh": "主题前缀", "type": "str"},
+            },
+        },
+    },
+    defaults_factory=_olib_soc_defaults,
+    description="OLIB SOC VMAX 例行报表：直连数仓 GBase 按日分区跑 notebook 移植的 9 段 SQL，出多 sheet Excel（traffic/Active_user/cache/GUW/Video/game/TCP/TOP业务/TOP视频）；默认上一个自然月，窗口自动收敛到数仓约 90 天保留期内；凭据用「凭据管理 → vmax_gbase」",
+    description_en="OLIB SOC VMAX routine report: direct GBase queries over daily partitions for the 9 notebook blocks, producing a multi-sheet Excel; default window = previous month, clamped to the ~90-day retention; credentials via vmax_gbase",
 ))

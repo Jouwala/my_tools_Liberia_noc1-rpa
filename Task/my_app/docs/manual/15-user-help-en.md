@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-14.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-15.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -1087,6 +1087,17 @@ Site battery health / SOC / charge-discharge status and alarm details.
 
 - The first dimension is data freshness: by default only readings ≤24h old are counted (battery_kpi_sync hourly :05); turning off "fresh only" mixes in stale data
 - Click a site name to drill into batteries and history; export to Excel supported
+
+#### ume_in_kpi（`ume_in_kpi`）
+
+Customer Service KPI dashboard: pulls Dong customer weekly service KPIs from the UME portal (172.17.208.1:28808) across 7 templates — IVR / P4M / VC / USSD / PPS / CPU / Memory (1-day granularity). Besides volume and success rate, failures are attributed to "system side" vs "user side" — only system-side failure rate and resource utilisation raise alerts, so business-normal outcomes such as PPS "insufficient balance" or USSD "user failure" are not misreported as faults.
+
+- Click "Sync now" to trigger a fetch manually (about 10-60 s); the ume_in_kpi_sync task normally runs daily at 05:45
+- Switch "Last 7 / 14 / 30 days" to change the trend window; columns are sortable and filterable by status
+- Expand a row in the service KPI table to see per-SERVICE volume, success rate, system/user-side failures and failure-reason tags
+- "Failure-rate composition" stacks each KPI's failure rate by attribution; "Success-rate trend" shows the daily movement
+- Resource utilisation is judged on the daily average (≥80% warning, ≥90% critical); peaks are informational only — brief saturation is normal
+- "Export Excel" writes 6 sheets: KPI summary / service detail / failure breakdown / resources / trend / alerts
 
 #### GIS Map（`gis`）
 

@@ -88,6 +88,15 @@ async def _forward_local_proxy(port: int, request: Request) -> Response:
     ct = request.headers.get("content-type")
     if ct:
         fwd_headers["Content-Type"] = ct
+    # 透传调用方的 X-* 头：VMAX RDK 的 RSA 加密查询要求
+    # X-Content-Type: application/x-vmax-s-rsa-encrypted，代理据此让服务端解密
+    # {"param":{"encryptedStr":...}}（vreport report_query / export_data）。
+    # 不回传/不透传 Host、Content-Length、Cookie 等由下游代理自己掌握的头。
+    for name, value in request.headers.items():
+        low = name.lower()
+        if low.startswith("x-") and low not in ("x-forwarded-for", "x-forwarded-host",
+                                                "x-forwarded-proto", "x-real-ip"):
+            fwd_headers[name] = value
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.request(

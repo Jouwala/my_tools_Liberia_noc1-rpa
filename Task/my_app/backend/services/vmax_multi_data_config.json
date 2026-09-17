@@ -1,0 +1,59 @@
+{
+  "enabled": true,
+  "transport": "auto",
+  "granularity": "hour",
+  "days_back": 1,
+  "top_n": 20000,
+  "page_size": 20000,
+  "chunk_days": {
+    "5min": 1,
+    "hour": 7,
+    "date": 30,
+    "week": 60,
+    "month": 180,
+    "quarter": 365
+  },
+  "persist": {
+    "write_json": true,
+    "write_sqlite": true,
+    "write_remote_db": false,
+    "remote_db": "vmax_kpi_daily.sqlite3",
+    "remote_table": "vmax_multi_data_kpi"
+  },
+  "reports": [
+    {
+      "key": "traffic",
+      "title": "5GSA Traffic Overview - NE (Location&Service - Traffic Statistics)",
+      "report_part": "sys_5gsa_traffic_ciservice",
+      "table": "aggr_5gsa_flow_ciservice",
+      "enabled": true,
+      "granularity": "hour",
+      "days_back": 1,
+      "top_n": 20000,
+      "dims": [],
+      "kpis": [
+        "ppc400401001",
+        "ppb400401001",
+        "ppb400401002",
+        "ppc400401004",
+        "ppc400403059",
+        "ppc400401052",
+        "ppc400401053"
+      ],
+      "filters": []
+    },
+    {
+      "key": "video",
+      "title": "5GSA Video Service (Video CIService report)",
+      "report_part": "sys_5gsa_video_ciservice",
+      "table": "aggr_5gsa_video_ciservice",
+      "enabled": true,
+      "granularity": "hour",
+      "days_back": 1,
+      "top_n": 20000,
+      "dims": [],
+      "kpis": [],
+      "filters": []
+    }
+  ]
+}

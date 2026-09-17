@@ -1,1 +1,0 @@
-import{r as e}from"./i18n-CPdsXlef.js";import{S as t}from"./react-vendor-AkVtwRYH.js";import{t as n}from"./LegacyToolFrame-FoCdF2s2.js";var r=t();function i(){let{t}=e();return(0,r.jsx)(n,{file:`alarm-management.html`,title:t(`nav.alarmManagement`)})}export{i as default};

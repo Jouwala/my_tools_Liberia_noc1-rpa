@@ -1,0 +1,1124 @@
+{
+ "rows": [
+  {
+   "scope": "service",
+   "tab": "Mobility",
+   "id": 391,
+   "title": "S1 HO Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300543357"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Mobility",
+   "id": 392,
+   "title": "S1 HI Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300543368"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Mobility",
+   "id": 393,
+   "title": "TAU  Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300503001"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Voice",
+   "id": 412,
+   "title": "Service Request Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300504126"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Voice",
+   "id": 413,
+   "title": "Bearer Activate Success Rate(Non User)",
+   "mon": 5132,
+   "codes": [
+    "ppc300521001"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Voice",
+   "id": 414,
+   "title": "Bearer Activate Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300522214"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Data",
+   "id": 431,
+   "title": "E-RAB Setup Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300541302"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Data",
+   "id": 433,
+   "title": "Attach Success Rate(Non User)",
+   "mon": 5132,
+   "codes": [
+    "ppc300501008"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Data",
+   "id": 434,
+   "title": "Attach Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300501005"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Video",
+   "id": 451,
+   "title": "PS Call Drop Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300542580"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "SMS",
+   "id": 202,
+   "title": "Valid Throughput of Video Download",
+   "mon": 5112,
+   "codes": [
+    "ppc400464046"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "SMS",
+   "id": 204,
+   "title": "TCP Average Network Site RTT",
+   "mon": 5112,
+   "codes": [
+    "ppc400464050"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "SMS",
+   "id": 205,
+   "title": "TCP Average Terminal Site RTT",
+   "mon": 5112,
+   "codes": [
+    "ppc400464051"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "SMS",
+   "id": 206,
+   "title": "TCP UL Retransmission Rate",
+   "mon": 5112,
+   "codes": [
+    "ppc400464030"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "SMS",
+   "id": 207,
+   "title": "TCP DL Retransmission Rate",
+   "mon": 5112,
+   "codes": [
+    "ppc400464031"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "SMS",
+   "id": 208,
+   "title": "Video Initial Buffer Duration",
+   "mon": 5112,
+   "codes": [
+    "ppc400464013"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Web Browse",
+   "id": 221,
+   "title": "Web DL Tput(>500KB)",
+   "mon": 5113,
+   "codes": [
+    "ppc400461018"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Web Browse",
+   "id": 223,
+   "title": "TCP Average Network Side RTT",
+   "mon": 5113,
+   "codes": [
+    "ppc400461040"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Web Browse",
+   "id": 224,
+   "title": "TCP Average Terminal Site RTT",
+   "mon": 5113,
+   "codes": [
+    "ppc400461041"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Web Browse",
+   "id": 225,
+   "title": "TCP UL Retransmission Rate",
+   "mon": 5113,
+   "codes": [
+    "ppc400461044"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Web Browse",
+   "id": 226,
+   "title": "TCP DL Retransmission Rate",
+   "mon": 5113,
+   "codes": [
+    "ppc400461045"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Web Browse",
+   "id": 227,
+   "title": "Success Response Delay",
+   "mon": 5113,
+   "codes": [
+    "ppc400461013"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Web Browse",
+   "id": 228,
+   "title": "Displaying Delay",
+   "mon": 5113,
+   "codes": [
+    "ppc400461014"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Game",
+   "id": 242,
+   "title": "TCP Average Network Site RTT",
+   "mon": 5114,
+   "codes": [
+    "ppc400403047"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Game",
+   "id": 243,
+   "title": "TCP Average Terminal Site RTT",
+   "mon": 5114,
+   "codes": [
+    "ppc400403048"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Game",
+   "id": 244,
+   "title": "TCP UL Retransmission Rate",
+   "mon": 5114,
+   "codes": [
+    "ppc400403018"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "Game",
+   "id": 245,
+   "title": "TCP DL Retransmission Rate",
+   "mon": 5114,
+   "codes": [
+    "ppc400403019"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVoice",
+   "id": 262,
+   "title": "Local MOS",
+   "mon": 5115,
+   "codes": [
+    "ppc400465047"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVoice",
+   "id": 263,
+   "title": "Opposite MOS",
+   "mon": 5115,
+   "codes": [
+    "ppc400465048"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVoice",
+   "id": 264,
+   "title": "Proportion of Local MOS > 3.0",
+   "mon": 5115,
+   "codes": [
+    "ppc400465045"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVoice",
+   "id": 265,
+   "title": "Proportion of Opposite MOS > 3.0",
+   "mon": 5115,
+   "codes": [
+    "ppc400465046"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVoice",
+   "id": 266,
+   "title": "Times of Local Reconnection",
+   "mon": 5115,
+   "codes": [
+    "ppc400465041"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVoice",
+   "id": 267,
+   "title": "Times of Opposite Reconnection",
+   "mon": 5115,
+   "codes": [
+    "ppc400465042"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVoice",
+   "id": 268,
+   "title": "Call Duration",
+   "mon": 5115,
+   "codes": [
+    "ppb400465067"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVoice",
+   "id": 269,
+   "title": "Call DL Tput",
+   "mon": 5115,
+   "codes": [
+    "ppc400465022"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVoice",
+   "id": 270,
+   "title": "Call UL Tput",
+   "mon": 5115,
+   "codes": [
+    "ppc400465021"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVoice",
+   "id": 271,
+   "title": "OTT UL Media Packet Loss Rate",
+   "mon": 5115,
+   "codes": [
+    "ppc400465028"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVoice",
+   "id": 272,
+   "title": "OTT DL Media Packet Loss Rate",
+   "mon": 5115,
+   "codes": [
+    "ppc400465029"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVideo",
+   "id": 282,
+   "title": "Local MOS",
+   "mon": 5116,
+   "codes": [
+    "ppc400465047"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "service",
+   "tab": "OTTVideo",
+   "id": 283,
+   "title": "Times of Local Reconnection",
+   "mon": 5116,
+   "codes": [
+    "ppc400465041"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "Mobility",
+   "id": 391,
+   "title": "S1 HO Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300543357"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "Mobility",
+   "id": 392,
+   "title": "S1 HI Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300543368"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "Mobility",
+   "id": 393,
+   "title": "TAU  Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300503001"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "Service Request",
+   "id": 411,
+   "title": "Paging Request Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300544532"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "Service Request",
+   "id": 412,
+   "title": "Service Request Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300504126"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "Service Request",
+   "id": 413,
+   "title": "Bearer Activate Success Rate(Non User)",
+   "mon": 5132,
+   "codes": [
+    "ppc300521001"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "Service Request",
+   "id": 414,
+   "title": "Bearer Activate Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300522214"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "Accessibility",
+   "id": 431,
+   "title": "E-RAB Setup Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300541302"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "Accessibility",
+   "id": 433,
+   "title": "Attach Success Rate(Non User)",
+   "mon": 5132,
+   "codes": [
+    "ppc300501008"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "Accessibility",
+   "id": 434,
+   "title": "Attach Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300501005"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "Retainability",
+   "id": 451,
+   "title": "PS Call Drop Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300542580"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "InterWorking",
+   "id": 471,
+   "title": "Call Drop from DNB L700",
+   "mon": 5132,
+   "codes": [
+    "ppb300542009"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "InterWorking",
+   "id": 472,
+   "title": "5G-to-4G Handover Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300543001"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  },
+  {
+   "scope": "network",
+   "tab": "InterWorking",
+   "id": 473,
+   "title": "4G-to-5G Handover Success Rate",
+   "mon": 5132,
+   "codes": [
+    "ppc300543002"
+   ],
+   "filter": "<empty>",
+   "period": null,
+   "uid": null,
+   "sceneid": null
+  }
+ ],
+ "distinct": [
+  {
+   "mon": 5132,
+   "code": "ppc300543357",
+   "filter": "<empty>",
+   "tabs": [
+    "N:Mobility",
+    "S:Mobility"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppc300543368",
+   "filter": "<empty>",
+   "tabs": [
+    "N:Mobility",
+    "S:Mobility"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppc300503001",
+   "filter": "<empty>",
+   "tabs": [
+    "N:Mobility",
+    "S:Mobility"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppc300504126",
+   "filter": "<empty>",
+   "tabs": [
+    "N:Service Request",
+    "S:Voice"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppc300521001",
+   "filter": "<empty>",
+   "tabs": [
+    "N:Service Request",
+    "S:Voice"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppc300522214",
+   "filter": "<empty>",
+   "tabs": [
+    "N:Service Request",
+    "S:Voice"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppc300541302",
+   "filter": "<empty>",
+   "tabs": [
+    "N:Accessibility",
+    "S:Data"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppc300501008",
+   "filter": "<empty>",
+   "tabs": [
+    "N:Accessibility",
+    "S:Data"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppc300501005",
+   "filter": "<empty>",
+   "tabs": [
+    "N:Accessibility",
+    "S:Data"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppc300542580",
+   "filter": "<empty>",
+   "tabs": [
+    "N:Retainability",
+    "S:Video"
+   ]
+  },
+  {
+   "mon": 5112,
+   "code": "ppc400464046",
+   "filter": "<empty>",
+   "tabs": [
+    "S:SMS"
+   ]
+  },
+  {
+   "mon": 5112,
+   "code": "ppc400464050",
+   "filter": "<empty>",
+   "tabs": [
+    "S:SMS"
+   ]
+  },
+  {
+   "mon": 5112,
+   "code": "ppc400464051",
+   "filter": "<empty>",
+   "tabs": [
+    "S:SMS"
+   ]
+  },
+  {
+   "mon": 5112,
+   "code": "ppc400464030",
+   "filter": "<empty>",
+   "tabs": [
+    "S:SMS"
+   ]
+  },
+  {
+   "mon": 5112,
+   "code": "ppc400464031",
+   "filter": "<empty>",
+   "tabs": [
+    "S:SMS"
+   ]
+  },
+  {
+   "mon": 5112,
+   "code": "ppc400464013",
+   "filter": "<empty>",
+   "tabs": [
+    "S:SMS"
+   ]
+  },
+  {
+   "mon": 5113,
+   "code": "ppc400461018",
+   "filter": "<empty>",
+   "tabs": [
+    "S:Web Browse"
+   ]
+  },
+  {
+   "mon": 5113,
+   "code": "ppc400461040",
+   "filter": "<empty>",
+   "tabs": [
+    "S:Web Browse"
+   ]
+  },
+  {
+   "mon": 5113,
+   "code": "ppc400461041",
+   "filter": "<empty>",
+   "tabs": [
+    "S:Web Browse"
+   ]
+  },
+  {
+   "mon": 5113,
+   "code": "ppc400461044",
+   "filter": "<empty>",
+   "tabs": [
+    "S:Web Browse"
+   ]
+  },
+  {
+   "mon": 5113,
+   "code": "ppc400461045",
+   "filter": "<empty>",
+   "tabs": [
+    "S:Web Browse"
+   ]
+  },
+  {
+   "mon": 5113,
+   "code": "ppc400461013",
+   "filter": "<empty>",
+   "tabs": [
+    "S:Web Browse"
+   ]
+  },
+  {
+   "mon": 5113,
+   "code": "ppc400461014",
+   "filter": "<empty>",
+   "tabs": [
+    "S:Web Browse"
+   ]
+  },
+  {
+   "mon": 5114,
+   "code": "ppc400403047",
+   "filter": "<empty>",
+   "tabs": [
+    "S:Game"
+   ]
+  },
+  {
+   "mon": 5114,
+   "code": "ppc400403048",
+   "filter": "<empty>",
+   "tabs": [
+    "S:Game"
+   ]
+  },
+  {
+   "mon": 5114,
+   "code": "ppc400403018",
+   "filter": "<empty>",
+   "tabs": [
+    "S:Game"
+   ]
+  },
+  {
+   "mon": 5114,
+   "code": "ppc400403019",
+   "filter": "<empty>",
+   "tabs": [
+    "S:Game"
+   ]
+  },
+  {
+   "mon": 5115,
+   "code": "ppc400465047",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVoice"
+   ]
+  },
+  {
+   "mon": 5115,
+   "code": "ppc400465048",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVoice"
+   ]
+  },
+  {
+   "mon": 5115,
+   "code": "ppc400465045",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVoice"
+   ]
+  },
+  {
+   "mon": 5115,
+   "code": "ppc400465046",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVoice"
+   ]
+  },
+  {
+   "mon": 5115,
+   "code": "ppc400465041",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVoice"
+   ]
+  },
+  {
+   "mon": 5115,
+   "code": "ppc400465042",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVoice"
+   ]
+  },
+  {
+   "mon": 5115,
+   "code": "ppb400465067",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVoice"
+   ]
+  },
+  {
+   "mon": 5115,
+   "code": "ppc400465022",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVoice"
+   ]
+  },
+  {
+   "mon": 5115,
+   "code": "ppc400465021",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVoice"
+   ]
+  },
+  {
+   "mon": 5115,
+   "code": "ppc400465028",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVoice"
+   ]
+  },
+  {
+   "mon": 5115,
+   "code": "ppc400465029",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVoice"
+   ]
+  },
+  {
+   "mon": 5116,
+   "code": "ppc400465047",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVideo"
+   ]
+  },
+  {
+   "mon": 5116,
+   "code": "ppc400465041",
+   "filter": "<empty>",
+   "tabs": [
+    "S:OTTVideo"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppc300544532",
+   "filter": "<empty>",
+   "tabs": [
+    "N:Service Request"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppb300542009",
+   "filter": "<empty>",
+   "tabs": [
+    "N:InterWorking"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppc300543001",
+   "filter": "<empty>",
+   "tabs": [
+    "N:InterWorking"
+   ]
+  },
+  {
+   "mon": 5132,
+   "code": "ppc300543002",
+   "filter": "<empty>",
+   "tabs": [
+    "N:InterWorking"
+   ]
+  }
+ ]
+}

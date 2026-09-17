@@ -184,17 +184,37 @@ $portalOk = Ensure-Portal
 # http://localhost:9268; when it is down the page shows
 # "cannot connect to the local analysis service".
 Add-Report '----- 2) WhatsApp local analysis service (9268) -----'
+
+# Health probe: /api/health is public and returns {"status":"ok",...}.
+# Do NOT use /api/tasks for the health check - it requires auth and answers 401
+# without a token, so a 200 test there can never pass and produces false warnings.
+function Test-WaHealthy {
+    try {
+        $r = Invoke-WebRequest -Uri 'http://127.0.0.1:9268/api/health' -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop
+        return ([string]$r.Content -match '"status"\s*:\s*"ok"')
+    } catch {
+        return $false
+    }
+}
+
 function Ensure-WhatsApp {
     if (Test-PortListening 9268) {
+        # Trust a real HTTP health check over process-cmdline matching. On Windows a
+        # dual-stack listener can make Get-NetTCPConnection report the wrong owner
+        # (e.g. the portal's vite process), which used to raise a false
+        # "NOT the WhatsApp analysis service" warning even though the service was
+        # up and serving /api/health on 9268.
+        if (Test-WaHealthy) {
+            $owner = Get-PortOwnerPid 9268
+            Add-Report ("[OK] WhatsApp analysis service already running on port 9268 (pid={0}, /api/health ok)" -f $owner)
+            return $true
+        }
+        # Health check failed: fall back to the ownership test to tell whether the
+        # port is held by our (unhealthy) service or by an unrelated program.
         $owner = Get-PortOwnerPid 9268
         if (Test-OwnedByProject $owner 'whatsapp_analysis') {
-            $code = Test-Http 'http://127.0.0.1:9268/api/tasks' 10
-            if ($code -eq 200) {
-                Add-Report ("[OK] WhatsApp analysis service already running (pid={0}, port 9268, /api/tasks 200)" -f $owner)
-            } else {
-                Add-Report ("[WARN] WhatsApp analysis port 9268 is listening but /api/tasks did not answer 200 (got {0})" -f $code)
-                $script:warnCount++
-            }
+            Add-Report ("[WARN] WhatsApp analysis port 9268 is listening (owner pid={0}) but /api/health did not return status ok" -f $owner)
+            $script:warnCount++
             return $true
         }
         Add-Report ("[WARN] Port 9268 is held by pid={0}, which is NOT the WhatsApp analysis service." -f $owner)
@@ -212,7 +232,13 @@ function Ensure-WhatsApp {
     # kills it, so the port would come back a second later.
     if ($npm) {
         if ((Start-Hidden $npm.Source @('start') $waDir 'whatsapp_analysis.log') -and (Wait-Port 9268 60)) {
-            return (Confirm-Http 'WhatsApp analysis service' 9268 'http://127.0.0.1:9268/api/tasks')
+            if (Test-WaHealthy) {
+                Add-Report '[OK] WhatsApp analysis service started on port 9268 (/api/health ok)'
+                return $true
+            }
+            Add-Report '[WARN] WhatsApp analysis port 9268 opened but /api/health did not return status ok'
+            $script:warnCount++
+            return $true
         }
         Add-Report '[WARN] npm start did not open port 9268'
         $script:warnCount++
@@ -222,7 +248,13 @@ function Ensure-WhatsApp {
     if ($nodeExe -and (Test-Path $tsxCli)) {
         Add-Report '[*] Retrying with: node scripts\whatsapp_analysis\node_modules\tsx\dist\cli.mjs server/index.ts'
         if ((Start-Hidden $nodeExe @($tsxCli, 'server/index.ts') $waDir 'whatsapp_analysis.log') -and (Wait-Port 9268 60)) {
-            return (Confirm-Http 'WhatsApp analysis service' 9268 'http://127.0.0.1:9268/api/tasks')
+            if (Test-WaHealthy) {
+                Add-Report '[OK] WhatsApp analysis service started on port 9268 (/api/health ok)'
+                return $true
+            }
+            Add-Report '[WARN] WhatsApp analysis port 9268 opened but /api/health did not return status ok'
+            $script:warnCount++
+            return $true
         }
     }
     Add-Report '[FAIL] WhatsApp analysis service did not listen on 9268, check log\whatsapp_analysis.log and log\whatsapp_analysis.log.err'

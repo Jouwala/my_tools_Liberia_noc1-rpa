@@ -1,57 +1,49 @@
 # my_app 项目长期笔记
 
+> 定位：**跨模块硬规则 + 索引**（主文件有注入上限，细节按需读子文件）。
+> - `memory/MODULES.md` —— §4 各业务模块的实现细节 / 口径坑（WhatsApp、SP 报表、eFlow、UME、看板…）
+> - `memory/OPS_RUNBOOK.md` —— 重启 7038 / worker 组、nginx、门户登录鉴权的完整 runbook
+> - `memory/PLAYBOOK.md` —— 验证约定 + 排障套路
+> - `memory/FRONTEND_PITFALLS.md` —— 前端 / Playwright / i18n 硬规则
+> - `memory/YYYY-MM-DD.md` —— 单模块实现细节日志
+
 ## 1. 环境与部署
-- 生产机为 192.168.100.20，本地工作区 `D:\01_RPA\Task\my_app`；nginx 实际配置：`D:\01_RPA\nginx-1.28.0\nginx-1.28.0\conf\nginx.conf`。
-- 前端构建产物必须输出到 `D:\01_RPA\Task\_fe_dist`，nginx `/myapp/` 直接静态托管；使用托管 Node 的 Vite build，避免 `npm run build` 先跑 tsc。
-- API 后端 7038；**7138 = FineBI / my-finebi 独立应用（不在本机，也不在本仓库）**，nginx 把 `/my-finebi/`、`/api/dashboards`、`/api/data/sources`、`/api/finebi/` 都转给它；它没在监听属长期状态，别当成自己改坏了；前端默认 API base `/api`。
-- 映射盘：`Y:`/`/y` 对应共享盘根，生产目录通常是 `/y/01_RPA`；远程改文件不等于能 reload 生产 nginx。
-- 内网请求绕过代理：curl 用 `--noproxy '*'`，Python httpx 用 `trust_env=False`。
+- 生产机 192.168.100.20；工作区 `D:\01_RPA\Task\my_app`；nginx 配置 `D:\01_RPA\nginx-1.28.0\nginx-1.28.0\conf\nginx.conf`。
+- 前端产物必须出到 `D:\01_RPA\Task\_fe_dist`（nginx `/myapp/`）；用托管 Node 直接跑 vite，**别用 `npm run build`**（会先跑 tsc）。
+- `_fe_dist/assets` 无限累积历史 chunk（`vite.config.ts` `emptyOutDir:false` 是刻意的：safe-delete 钩子会拦 Vite 清空目录）。清理 `TMP/t_dist_prune_apply.py --apply`（移到备份目录；回滚 `t_dist_restore.py`）。⚠️ 单次批量移动 >2000 文件会被 safe-delete 钩子 SIGTERM 掐断 → `--limit 300` 反复跑到「待清理 0」；**批量文件操作必须过 alive 白名单**（从 index.html 做 import 图 BFS），曾漏过滤搬走 18 个活 chunk → 404。
+- 端口：后端 **7038**；**7138 = FineBI/my-finebi 独立应用**（不在本机/本仓库，nginx 转 `/my-finebi/`、`/api/dashboards`、`/api/data/sources`、`/api/finebi/` 给它）；它没监听属长期状态，别当自己改坏了。
+- 映射盘 `Y:`/`/y` = 共享盘根；远程改文件 ≠ 能 reload 生产 nginx。
+- 内网请求绕代理：curl `--noproxy '*'`，Python `trust_env=False`。
+- 解释器：后端 = `%LOCALAPPDATA%\Programs\Python\Python312\python.exe`（pandas/psycopg2/uvicorn/playwright/openpyxl/win32com）；工作区 venv `Scripts\python.exe` **无 pandas/pytest**（有 playwright）。pytest 不可用，单测靠 importlib 直接 exec。
+- ⚠️ 生产 `DB_MODE = pg`：业务数据（SP 明细 / 看板 / 会话）都在 **PG**；`db/app.db`（1.58 GB）是**遗留 sqlite**，**别用它判断同步结果**。长任务（写 PG 12 万行）要用后台跑，前台会被 SIGTERM 掐断。
 
-## 2. nginx 与 502
-- `/myapp/` 直接 alias `_fe_dist`，避免 vite preview 7090 重启空窗造成 502。
-- `/api/` 兜底到 7038；`/api/dashboards`、`/api/data/sources`、`/api/finebi/` 到 7138。
-- nginx 配置曾关闭 access/error 日志，排查 502 不能只依赖日志。
-- 修改 nginx 后需在生产机执行 nginx reload；修改后端路由/服务需重启 7038。
-- **重启 7038 的正确姿势**（与用户桌面 `restart_7038.bat` 一致）：uvicorn 由 `backend/backend_watchdog.py` 托管（pid 见 `log/heartbeat_backend_watchdog.json`），只杀 7038 那个 uvicorn pid（`taskkill /PID <pid> /F`，**不要加 `/T`** —— `/T` 会连带杀掉实时代理 8787/8790 及其子进程），看门狗约 3 秒内自动拉起新实例并 reuse 还活着的代理。Git Bash 里 `taskkill //PID` 会被路径转换破坏，改用 `python -c "import subprocess;subprocess.run(['taskkill','/PID','<pid>','/F'])"`。
-- 后端解释器 = `%LOCALAPPDATA%\Programs\Python\Python312\python.exe`（有 pandas/sqlalchemy/psycopg2/uvicorn）；工作区 venv `Scripts\python.exe` 只有少量包，**没装 pandas/pytest**。pytest 本机不可用，单测靠 importlib 直接 exec。
+## 2. 进程与重启（详细 runbook → `memory/OPS_RUNBOOK.md`）
+- 重启 7038 由 `backend/backend_watchdog.py` 托管，≈3s 拉起；`taskkill /PID <pid> /F` **不加 `/T`**（会连带杀实时代理 8787/8790）。改 `backend/services/**` 后**必须重启对应 worker 组**：`python restart_workers.py --groups <g> --reason "..."`（组见 `backend/worker_watchdog.py::GROUP_TASK_MAP`；邮件任务在 m，`ume_in_kpi_sync` 在 n）。
+- ⚠️ **7038 常常杀不掉**（`Access is denied`，token/integrity 差异，非沙箱策略）→ **别硬来，让用户在本机双击 `fix_backend.bat`**。
+- ⚠️ 新增任务只重启 worker 不够，必须 `restart_workers.py --mode watchdog --groups <g> --force` + `Start-ScheduledTask -TaskName MyApp_EnsureRunning`。
+- ⚠️ **Windows nginx 不是守护进程**：沙箱里起的会随 shell 被杀，**唯一可行 = PowerShell 的 WMI 启动**；重启会真中断站点，**动手前必须告知用户**。
 
-## 3. 门户登录
-- `frontend/src/pages/PortalLogin.tsx` + `backend/services/portal_login_service.py` 实现 client/server 双模式。
-- myapp 数据接口强制鉴权：中间件 `backend/main.py::require_session_middleware`，会话实现 `backend/services/portal_auth.py`；放行清单 `_PUBLIC_API`（`/api/auth/`、`/api/health`、`/api/ui/menu-layout`、`/api/portals/client-login/consume`），本机回环 `client_is_local` 放行。
-- 会话存储由 `backend/.env` 的 `MY_APP_DB_MODE` 决定：**生产是 `pg`**（表 `portal_sessions` 在 PostgreSQL），`db/app.db` 里的同名表只是 sqlite 时期遗留。
-- 免登录总开关 `D:\01_RPA\auth-switch.json` 的 `authEnabled`（myapp + 门户共用，默认 true 即要求登录）。
-- 前端鉴权引导约定（2026-09-14 修复首屏 401）：换会话必须在 React 渲染前完成 —— `api.ts::bootstrapAuth/runAuthBootstrap` + `main.tsx` 先 await 再 `createRoot().render()`；`App.tsx` 用 `bootDone` 保证业务页面不在会话就绪前挂载。**新增页面无需处理鉴权时序，但不要再在页面里抢跑数据请求的初始化逻辑**。
-- 门户 token：URL `?t=` 或同源 localStorage `liberia_noc_auth_v1`（门户 `resolveUrl()` 自动追加 `&t=`）。
-- eFlow 与 RAIS 是 `direct=True` 门户：不能走 nginx 反代。反代实测会出现告警 0/0、`Failed to Query Active Alarm Columns and Default Templates`，根因包含 cometd WebSocket 403。
-- 本机访问者通过 `/api/portals` 的 `client_is_local` 自动走服务器桌面直接鉴权；远程访问者当前 client 模式只能直开门户手工登录，server 模式可在服务器桌面一键登录。
-- eFlow 直接鉴权：先等待 Chrome 页面落到门户源，再种 Cookie，并回读校验 `localStorage.csrftoken`；成功判定需正证据和连续两次，不能只看 URL/非空正文。
-- Chrome CDP 不能启用 Debugger 域；访问本机 CDP 前清除 http/https proxy；自签上游先 `Security.setIgnoreCertificateErrors`。
-- 已验证本机 eFlow 直接登录能得到真实告警（6767/6767）；RAIS 直接鉴权回归通过。
-- 无头浏览器验证页面可用 `chrome.exe --headless=new --no-proxy-server --virtual-time-budget=N --dump-dom`；临时种会话可走 `GET /api/auth/kiosk?key=<backend/.env 的 MYAPP_KIOSK_KEY>&next=...`（记得验证后从 PG 删掉该 kiosk 会话）。
+## 3. 门户登录与鉴权（详细 runbook → `memory/OPS_RUNBOOK.md`）
+- `/api/` 全量强制会话（`main.py::require_session_middleware`），放行 `_PUBLIC_API`；本机回环 `client_is_local` 放行（本机 curl/Playwright 免登录）。生产会话存 **PG** 的 `portal_sessions`（`db/app.db` 同名表是遗留）。
+- 前端鉴权引导必须在 React 渲染前完成（`api.ts::bootstrapAuth` + `main.tsx` 先 await 再 render；`App.tsx` 用 `bootDone` 卡页面）。**别在页面里抢跑数据请求初始化。**
+- ⚠️ **门户反代 `location /api/` 靠 Referer 区分上游，对 WebSocket 天然失效** → 带 WS 的门户 API 必须按 URI 开 `^~` 专用 location，别指望 Referer。
+- 免登录总开关 `D:\01_RPA\auth-switch.json` 的 `authEnabled`；临时种会话用 `GET /api/auth/kiosk?key=<MYAPP_KIOSK_KEY>`（用完从 PG 删）。
 
-## 4. WhatsApp 发图任务（whatsapp_send）
-- 图片清单**必须每次执行时重新收集**（`_collect_photos_and_captions()`）：worker 长驻，模块级 `PHOTOS` 只是 import 快照，新产出的截图会漏发（2026-09-14 `COOL.png` 事故）。
-- 当前 WhatsApp Web **没有附件按钮**（`SELECTORS["ATTACH"]` 全不命中），页面常驻隐藏 `input[type=file]`；**只有剪贴板路径能正确挂备注**，不要让 file-input 路径跑起来（`CAPTION_INPUT` 含 `data-tab="10"` = 聊天输入框，会把备注打进输入框）。
-- 用户偏好：此类修复只做**最小改动**，不要顺手重构发送流程（大改被要求全部回退）。
+## 4. 关键业务模块（细节 → `memory/MODULES.md`）
+- **4.1 WhatsApp 发送**：剪贴板路径发送，只做最小改动。
+- **4.2 SP 备件报表**：`sp_report_gen/gernarate_sp_report.py`，任务 05:15；明细预处理会写回 `data/sp_email/data`（`sp_email_details` 同口径）。**数据源 2026-09-16 迁到 `/home/ubuntu/sp/<目录名>/<日期>/<时间戳>/<同名文件>.xlsx`**（旧 `sp/spinbound` 等已停更，同变更也应用于 `get_sp_table.py` / `task_configs_registry.py`）。**每个 sheet 标题下第 3 行有过滤条件说明行**（含 `Operation Result Status ≠ 'Canceled'`）。
+  - **Summary-Current 主表右侧带 4 个补库列**（全英文，2026-09-17 定稿）：`Avg Monthly Consumption`（= 出库量剔除 `SPOB202608160004`/`SPOB202609120014` 后 /9.5）、`Safety Stock`（=6×月均）、`Replenishment Qty`（=安全库存−Inventory Qty，≤0 留空）、`Alert Level`（<50% Urgent Replenish / 50~100% Replenish / >100% Excess）。**报表文案一律英文，不要中文**。
+    - **3 个数值列一律向上取整为整数**，且**逐级取整**（先 `ceil(消耗/9.5)` 得月均，再 `6×月均` 得安全库存 → 表内可验算 `Safety = 6 × Avg`）。Excel 数字格式 `#,##0`。
+    - **口径说明写在文件上方**：Summary-Current 第 4/5 行两行英文说明（`Replenishment basis: Excluded orders ...`），**表头在第 6 行、数据从第 7 行起**（其余 sheet 仍是第 4 行表头）。PNG 侧说明画在标题正下方。
+    - 生成结束由 `_cleanup_old_reports()` 按「前缀+仓库名」只留最新一份 xlsx/png。
+  - ⚠️ 该脚本走 `kpi_email_report.run_sp_report_generate` 的 **subprocess** 执行 → 改完**不用重启 worker 组 m**，05:15 自动用新代码。本地验证可打桩 `sftp_download` / `_save_detail_xlsx`（不写回生产明细）/ `_cleanup_old_reports`，参考 `TMP/t_sp_replenish_verify.py`，配套 `t_sp_final_check.py` / `t_replenish_edge.py` / `t_style_compat.py`。
+- **4.3 eFlow TT**：判定真相源 `eflow_rules_matcher.py`；AI 走 Open WebUI `agnes-2.5-flash`。
+- **4.4 Alarm Management 看板**：`FMS_REAL` 是冻结快照，结构性常量不自愈。
+- **4.5 incident-overview AI**：agnes 直连上游；不存在的模型返回 **503**。
+- **4.6 UME PM-analysis 协议**：socket+TLS+RSA 登录 → history 查询 → ZIP 包裹 xlsx。
+- **4.7 ume_in KPI 看板**：任务尚未被 worker 认领（暂缓）。
+- **4.8 OSG Weekly QoS Report**：改 sheet XML 填数，保公式与图表。
+- **4.9 前端 / Playwright / i18n** → `memory/FRONTEND_PITFALLS.md`。
 
-## 4.5 eFlow 知识库页（eflow_qa）的 TT 能力
-- 单票「TT 快速分析」：`#tt-quick-analysis` → `/api/eflow-qa/inspect-tt` + `/tt-ai` + `/tt-alarm` + `/tt-ume-suggestion`。
-- **TT 批量级别核查**（2026-09-14 新增）：左栏 `#tt-batch-check` / `POST /api/eflow-qa/tt-batch-check`
-  → `backend/services/eflow_rules/tt_batch_severity.py`。前端在浏览器侧解析 xlsx/xls/csv/txt 清单（SheetJS），
-  后端只吃单号数组。判定三态 ok/adjust/unknown，导出走 `utils/excelReport.ts`（全部结果 / 需调整 两个 sheet）。
-- **TT 级别判定口径的唯一真相源** = `backend/services/eflow_rules/eflow_rules_matcher.py`
-  （读 `eflow_TT_rules.xlsx` 的 ACTIVE 规则；每天 04:20 `eflow_tt_rules_check` 定时任务同源）。
-  它内部直连 sqlite `db/app.db`，而生产是 `MY_APP_DB_MODE=pg` → **Web 路径取数必须走
-  `backend.database.get_raw_connection()` 双模连接，再把 DataFrame 交给 matcher**；复用 `load_rules()`
-  时记得 `redirect_stdout` 静音它的 print。
-
-## 5. 当前未决问题
-- 远程电脑访问 `http://192.168.100.20/myapp/?page=portalLogin`，点击 eFlow 显示 `Page opened; please complete login manually`；UME 反代登录正常。
-- 反代 eFlow 诊断：HTTP 失败请求 0，但 `/api/fm-active/v1/cometd` WebSocket 握手连续 403，`/meta/connect` 返回 `402::session_unknown`，页面告警 0/0。当前优先评估是否能安全修复 ws；若不能，必须保持 eFlow 不反代并给远程用户准确提示。
-- 诊断脚本在 `TMP/t_proxy_diag*.py`，临时 Chrome profile 可能位于 TMP；不得删除 `.workbuddy-ai`。
-
-## 6. 验证约定
-- 用系统 Python312 做 FastAPI TestClient（不加载 main）；新端点可检查 `/openapi.json` 标记。
-- **前端真实交互验证优先用 Playwright**：工作区 venv `./Scripts/python.exe`（playwright 1.62 + 自带 chromium），`p.chromium.launch(headless=True, args=["--no-proxy-server"])` + `locale="zh-CN"`。示例见 `TMP/t_ttbatch_e2e.py`、`TMP/t_ttbatch_upload.py`（含真实下载校验）。
-- 无头 Chrome `--dump-dom` 默认语言是 en，grep 中文文案会全部落空；且 antd 空表格的空态占位也是 1 个 `tbody tr`，统计行数要排除 `.ant-table-placeholder`。
-- 同一消息对同一文件的多个 Edit 必须串行。
+## 5. 验证与排障（详细 → `memory/PLAYBOOK.md`）
+- 后端纯逻辑用系统 Python312 起 FastAPI TestClient（**只挂目标 router，不加载 main**，否则鉴权中间件 401）；前端真交互用工作区 venv 的 Playwright（`--no-proxy-server` + `locale="zh-CN"`）。**写/改代码要验证、或排查线上异常时先读 `memory/PLAYBOOK.md`**（含：前端改动是否真上线怎么查、帮助文档生成链路、Excel 导出约定、改 xlsx 模板保图表的三步校验、nginx→7038 瞬时 502 的判法、代理污染 vs 真网络不通、`/api/tasks/history` 参数格式、任务被禁用静默跳过、EWS 邮件网关故障与补发机制）。

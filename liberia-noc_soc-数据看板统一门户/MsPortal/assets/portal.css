@@ -1,0 +1,1004 @@
+/* ==========================================================================
+   MsPortal — 补充样式
+   --------------------------------------------------------------------------
+   版式与配色由 assets/tailwind.css（Tailwind 预编译）承担，本文件只负责：
+     1. 顶栏工具 / 搜索筛选栏 / 弹窗 / Toast 等 ref.html 之外的交互外壳
+     2. 深色主题：对 Tailwind 的浅色原子类做一层变量化覆盖
+     3. 中间列地图 iframe 容器
+   设计参考：ref.html (ZTE OLR MS 布局稿)
+   ========================================================================== */
+
+/* ------------------------------------------------------- 项目统一色板 -- */
+/* [hidden] 兜底：下面多处用了 display:flex / inline-flex，会盖掉 UA 的 [hidden]{display:none} */
+[hidden] { display: none !important; }
+
+/* ==========================================================================
+   项目统一色板（2026-09-17 对齐）
+   --------------------------------------------------------------------------
+   口径来源（三处一致，以后改色以它们为准）：
+     · my_app/frontend/src/theme.ts  —— 开头即「主题设计令牌（深浅两套）」
+     · my_app/frontend/src/index.css —— --wh-* 变量块（液态玻璃体系）
+     · uniplam/src/index.css         —— 注释里写的就是同一组值
+   浅色：品牌 teal #0d9488 / 辅助 #0e7490；页面 #e9eef3 → #f5f7f9 → #e7edf2
+   深色：品牌 teal #64ffda / 辅助 #4fc3f7；页面 #0a1929 → #0d2138
+   严重度：浅色 #d92d20 / #ea580c / #b45309 / #0369a1
+           深色 #ff4757 / #ff922b / #ffd43b / #4fc3f7
+
+   门户此前用的是 ref.html 时代的 blue-600 #2563eb + 自造深色 #0b1220 / #131c2b，
+   与此不符，本次统一。为不动既有的 100+ 条 html.dark 规则，旧的 --dk-* 名字
+   一律保留为别名，指向同一套新令牌。
+   ========================================================================== */
+:root {
+  /* —— 页面与表面 —— */
+  --mp-bg: linear-gradient(155deg, #e9eef3 0%, #f5f7f9 52%, #e7edf2 100%);
+  --mp-page-bg: #e9eef3;
+  --mp-surface: linear-gradient(145deg, rgba(255, 255, 255, .82) 0%, rgba(241, 245, 248, .68) 100%);
+  --mp-surface-flat: #ffffff;
+  --mp-surface-2: #f8fafc;
+  --mp-surface-3: #f1f5f9;
+  --mp-glass-panel: #f7fbfe;
+  --mp-border: rgba(94, 125, 143, .22);
+  --mp-border-soft: rgba(94, 125, 143, .13);
+  --mp-shadow-1: 0 2px 8px rgba(38, 70, 86, .07), inset 0 1px 0 rgba(255, 255, 255, .94);
+  --mp-shadow-2: 0 18px 42px rgba(38, 70, 86, .11), 0 3px 10px rgba(38, 70, 86, .08), inset 0 1px 0 rgba(255, 255, 255, .94);
+  --mp-shadow-3: 0 24px 64px rgba(15, 56, 75, .18), inset 0 1px 0 rgba(255, 255, 255, .94);
+  --mp-scrim: rgba(38, 83, 104, .20);
+  --mp-hover-row: rgba(71, 101, 119, .06);
+  --mp-toast-bg: #16233b;
+  --mp-toast-text: #ffffff;
+
+  /* —— 文字 —— */
+  --mp-text: #16233b;
+  --mp-text-2: #3f5468;
+  --mp-text-3: #5b7288;
+
+  /* —— 品牌强调（只用于交互信号：选中 / 悬停 / 链接 / 焦点） —— */
+  --mp-brand: #0d9488;
+  --mp-brand-2: #0e7490;
+  --mp-accent-grad: linear-gradient(135deg, #0d9488, #0e7490);
+  /* 品牌色要分「文字档」和「实心填充档」——
+     浅色下 #0d9488 落在白底只有 3.74:1、落在品牌淡底只有 3.25:1，
+     都不满足 AA 正文 4.5:1；统一色阶里的 teal-700 #0f766e 是 5.5:1，
+     所以正文/图标取它（uniplam 的 .layout-toolbar-title 用的也是 #0f766e）。 */
+  --mp-brand-text: #0f766e;
+  /* 实心填充（选中 chip / 主按钮）取统一色阶的 700 档渐变，白字 5.4:1 */
+  --mp-accent-solid: linear-gradient(135deg, #0f766e, #0e7490);
+  --mp-on-accent: #ffffff;
+  --mp-brand-soft: rgba(13, 148, 136, .08);
+  --mp-brand-soft-2: rgba(13, 148, 136, .12);
+  --mp-brand-border: rgba(13, 148, 136, .55);
+  --mp-brand-20: rgba(13, 148, 136, .20);
+  --mp-brand-27: rgba(13, 148, 136, .27);
+  --mp-brand-40: rgba(13, 148, 136, .40);
+  --mp-brand-53: rgba(13, 148, 136, .53);
+  --mp-focus-ring: 0 0 0 3px rgba(13, 148, 136, .18);
+
+  /* —— 语义 / 严重度 —— */
+  --mp-sev-critical: #d92d20;
+  --mp-sev-major: #ea580c;
+  --mp-sev-warning: #b45309;
+  --mp-sev-info: #0369a1;
+  --mp-ok: #15803d;
+  --mp-danger: #c0392b;
+  --mp-warn: #b45309;
+  --mp-danger-soft: rgba(192, 57, 43, .08);
+
+  /* —— 旧名别名（历史规则仍在引用；新代码请直接用 --mp-*） —— */
+  --dk-bg: var(--mp-page-bg);
+  --dk-surface: var(--mp-surface-flat);
+  --dk-surface-2: var(--mp-surface-2);
+  --dk-surface-3: var(--mp-surface-3);
+  --dk-border: var(--mp-border);
+  --dk-border-soft: var(--mp-border-soft);
+  --dk-text: var(--mp-text);
+  --dk-text-2: var(--mp-text-2);
+  --dk-text-3: var(--mp-text-3);
+}
+
+html.dark {
+  --mp-bg: linear-gradient(180deg, #0a1929 0%, #0d2138 100%);
+  --mp-page-bg: #0a1929;
+  --mp-surface: linear-gradient(145deg, #141f33 0%, #112540 100%);
+  --mp-surface-flat: #112540;
+  --mp-surface-2: rgba(14, 33, 54, .72);
+  --mp-surface-3: rgba(22, 48, 76, .74);
+  --mp-glass-panel: #0d2138;
+  --mp-border: rgba(100, 255, 218, .18);
+  --mp-border-soft: rgba(100, 255, 218, .10);
+  --mp-shadow-1: 0 4px 14px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .07);
+  --mp-shadow-2: 0 20px 52px rgba(0, 0, 0, .32), 0 2px 10px rgba(79, 195, 247, .05), inset 0 1px 0 rgba(255, 255, 255, .07);
+  --mp-shadow-3: 0 26px 70px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .07);
+  --mp-scrim: rgba(6, 15, 28, .58);
+  --mp-hover-row: rgba(255, 255, 255, .06);
+  --mp-toast-bg: #e6f4ff;
+  --mp-toast-text: #0a1929;
+
+  --mp-text: #e6f4ff;
+  --mp-text-2: #94a3b8;
+  --mp-text-3: #64748b;
+
+  --mp-brand: #64ffda;
+  --mp-brand-2: #4fc3f7;
+  --mp-accent-grad: linear-gradient(135deg, #64ffda, #4fc3f7);
+  /* 深色品牌色本身就亮（#64ffda 在 #0a1929 上 11.8:1），
+     正文取 brand-300 #5eead4（10.4:1，落在卡片底上）；
+     实心填充沿用亮青渐变，但**配深字** —— 白字压亮青只有 1.57:1，读不出来。 */
+  --mp-brand-text: #5eead4;
+  --mp-accent-solid: linear-gradient(135deg, #64ffda, #4fc3f7);
+  --mp-on-accent: #0a1929;
+  --mp-brand-soft: rgba(100, 255, 218, .10);
+  --mp-brand-soft-2: rgba(100, 255, 218, .16);
+  --mp-brand-border: rgba(100, 255, 218, .50);
+  --mp-brand-20: rgba(100, 255, 218, .20);
+  --mp-brand-27: rgba(100, 255, 218, .27);
+  --mp-brand-40: rgba(100, 255, 218, .40);
+  --mp-brand-53: rgba(100, 255, 218, .53);
+  --mp-focus-ring: 0 0 0 3px rgba(100, 255, 218, .18);
+
+  --mp-sev-critical: #ff4757;
+  --mp-sev-major: #ff922b;
+  --mp-sev-warning: #ffd43b;
+  --mp-sev-info: #4fc3f7;
+  --mp-ok: #51cf66;
+  --mp-danger: #ff6b6b;
+  --mp-warn: #ffa940;
+  --mp-danger-soft: rgba(255, 107, 107, .14);
+
+  --dk-bg: var(--mp-page-bg);
+  --dk-surface: var(--mp-surface-flat);
+  --dk-surface-2: var(--mp-surface-2);
+  --dk-surface-3: var(--mp-surface-3);
+  --dk-border: var(--mp-border);
+  --dk-border-soft: var(--mp-border-soft);
+  --dk-text: var(--mp-text);
+  --dk-text-2: var(--mp-text-2);
+  --dk-text-3: var(--mp-text-3);
+}
+
+/* ------------------------------------------------------------ 页面底色 -- */
+/* 统一页面底：浅色雾蓝灰渐变 / 深色 navy 渐变（与 my_app、uniplam 同一口径）。
+   用 background-image + background-attachment 而不是 background 简写，
+   免得把 background-size 之类一起清掉。 */
+html { background-color: var(--mp-page-bg); }
+body {
+  background-color: var(--mp-page-bg);
+  background-image: var(--mp-bg);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  color: var(--mp-text-2);
+}
+
+/* ------------------------------------------------------------- 顶栏工具 -- */
+.seg {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .10);
+  border: 1px solid rgba(255, 255, 255, .12);
+}
+.seg-btn {
+  border: 0;
+  background: transparent;
+  color: rgba(226, 240, 255, .72);
+  font-size: 13px;
+  line-height: 1;
+  padding: 6px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.seg-btn:hover { color: #fff; background: rgba(255, 255, 255, .10); }
+.seg-btn.is-active { background: #fff; color: #002b49; font-weight: 700; }
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .08);
+  color: rgba(226, 240, 255, .85);
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.icon-btn:hover { background: rgba(255, 255, 255, .18); color: #fff; }
+.icon-btn svg { width: 17px; height: 17px; }
+.icon-btn .ic-sun { display: none; }
+html.dark .icon-btn .ic-sun { display: block; }
+html.dark .icon-btn .ic-moon { display: none; }
+.icon-btn.small { width: 24px; height: 24px; border-color: var(--mp-border); background: transparent; color: var(--mp-text-2); }
+.icon-btn.small:hover { background: var(--mp-hover-row); color: var(--mp-text); }
+html.dark .icon-btn.small { border-color: var(--dk-border); color: var(--dk-text-3); }
+html.dark .icon-btn.small:hover { background: var(--dk-surface-3); color: var(--dk-text); }
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .08);
+  color: rgba(226, 240, 255, .85);
+  font-size: 13px;
+  text-decoration: none;
+  transition: background .15s ease, color .15s ease;
+}
+.btn-ghost:hover { background: rgba(255, 255, 255, .18); color: #fff; }
+.btn-ghost svg { width: 15px; height: 15px; }
+.auth-user-badge {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(226, 240, 255, .9);
+  font-size: 12px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+/* ------------------------------------------------------ 搜索 / 筛选栏 --- */
+.control-bar {
+  background: var(--mp-glass-panel);
+  border-bottom: 1px solid var(--mp-border);
+  position: sticky;
+  top: 54px;
+  z-index: 40;
+}
+.control-inner {
+  max-width: 1920px;
+  margin: 0 auto;
+  padding: 9px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  height: 34px;
+  min-width: 240px;
+  flex: 0 1 300px;
+  border-radius: 8px;
+  border: 1px solid var(--mp-border);
+  background: var(--mp-surface-2);
+  color: var(--mp-text-3);
+}
+.search svg { width: 15px; height: 15px; flex: 0 0 15px; }
+.search input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 14px;
+  color: var(--mp-text);
+  width: 100%;
+  padding: 0;
+}
+.search input::placeholder { color: var(--mp-text-3); }
+
+.chips { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; flex: 1 1 auto; }
+
+.control-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+
+.btn-soft {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--mp-border);
+  background: var(--mp-surface-flat);
+  color: var(--mp-text-2);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color .15s ease, color .15s ease, background .15s ease;
+}
+.btn-soft:hover { border-color: var(--mp-brand-border); color: var(--mp-brand-text); }
+.btn-soft svg { width: 14px; height: 14px; }
+.btn-soft.is-on { border-color: var(--mp-brand-border); color: var(--mp-brand-text); background: var(--mp-brand-soft); }
+.btn-soft.danger:hover { border-color: var(--mp-danger); color: var(--mp-danger); }
+.btn-soft.primary { background: var(--mp-accent-solid); border-color: var(--mp-brand-2); color: var(--mp-on-accent); }
+.btn-soft.primary:hover { background: var(--mp-accent-solid); filter: brightness(.93); color: var(--mp-on-accent); }
+
+.edit-hint {
+  margin: 0 auto;
+  max-width: 1920px;
+  padding: 0 16px 8px;
+  font-size: 13px;
+  color: var(--mp-warn);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.edit-hint::before { content: "✎"; font-size: 14px; }
+
+/* ------------------------------------------------------------- 地图容器 -- */
+/* 高度 860px 是按「Leaflet 真实画布 = iframe 高 − 290」反推的：
+   内置 iframe 用的是 my_app 的 React 页面，它把地图卡上方那 290px 的
+   工具栏/统计卡也渲染出来，再由 MAP_STRIP_CSS 隐藏掉，但那段高度不会被回收。
+   860 − 290 ≈ 570px 才是地图真正看得见的高度；列宽 616px 时比例 1.08:1，
+   略高于 ref.html 里利比里亚轮廓的 1.25:1 —— 字号整体放大后按同一基准上调，
+   保证地图不比周围卡片矮。 */
+.map-canvas {
+  position: relative;
+  width: 100%;
+  height: 860px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--mp-border);
+  background: var(--mp-brand-soft);
+}
+.map-canvas > iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.map-canvas > iframe.hidden { display: none; }
+#mapBoot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--mp-text-3);
+  font-size: 14px;
+  background: var(--mp-surface-3);
+}
+#mapBoot[hidden] { display: none; }
+
+/* 未登录提示：盖住整个地图画布，替掉 my_app 自带的英文报错页 */
+#mapAuth {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: var(--mp-surface);
+}
+.map-auth-card {
+  max-width: 26rem;
+  text-align: center;
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: var(--mp-surface-flat);
+  border: 1px solid var(--mp-border);
+  box-shadow: var(--mp-shadow-1);
+}
+.map-auth-ico {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--mp-brand-soft);
+  color: var(--mp-brand-text);
+}
+.map-auth-title { font-size: 15px; font-weight: 700; color: var(--mp-text); }
+.map-auth-tip { margin: 7px 0 14px; font-size: 13.5px; line-height: 1.65; color: var(--mp-text-2); }
+.map-auth-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.map-auth-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  font-size: 13.5px;
+  border-radius: 8px;
+  border: 1px solid var(--mp-border);
+  background: var(--mp-surface-flat);
+  color: var(--mp-text-2);
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.map-auth-btn:hover { border-color: var(--mp-brand-border); color: var(--mp-brand-text); }
+.map-auth-btn.is-primary { border-color: var(--mp-brand-2); background: var(--mp-accent-solid); color: var(--mp-on-accent); }
+.map-auth-btn.is-primary:hover { background: var(--mp-accent-solid); filter: brightness(.93); color: var(--mp-on-accent); }
+
+html.dark #mapAuth { background: var(--mp-surface); }
+html.dark .map-auth-card { background: var(--mp-surface-flat); border-color: var(--mp-border); box-shadow: none; }
+html.dark .map-auth-ico { background: var(--mp-brand-soft-2); color: var(--mp-brand-text); }
+html.dark .map-auth-title { color: var(--mp-text); }
+html.dark .map-auth-tip { color: var(--mp-text-3); }
+html.dark .map-auth-btn { background: transparent; border-color: var(--mp-border); color: var(--mp-text-2); }
+html.dark .map-auth-btn:hover { border-color: var(--mp-brand-border); color: var(--mp-brand-text); }
+html.dark .map-auth-btn.is-primary { background: var(--mp-accent-solid); border-color: var(--mp-brand-2); color: var(--mp-on-accent); }
+html.dark .map-auth-btn.is-primary:hover { background: var(--mp-accent-solid); filter: brightness(.93); color: var(--mp-on-accent); }
+
+/* ------------------------------------------------------------- 未登录门禁 -- */
+/* 门禁生效时只留 #secGate，main 里的其余区块整体隐藏（筛选栏由 JS 置 hidden）。
+   main 本身是 flex-1，把它变成 flex 容器后门禁卡就自然落在页面正中 ——
+   未登录访客看到的第一屏不该是「一张卡贴在顶上、下面一片空」。 */
+main.is-gated { display: flex; align-items: center; justify-content: center; }
+main.is-gated > *:not(#secGate) { display: none !important; }
+
+#secGate {
+  width: 100%;
+  max-width: 32rem;
+  padding: 2rem 1.75rem;
+  text-align: center;
+  border-radius: 12px;
+  background: var(--mp-surface-flat);
+  border: 1px solid var(--mp-border);
+  box-shadow: var(--mp-shadow-1);
+}
+#secGate .map-auth-card {
+  max-width: 30rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+#secGate .map-auth-ico { width: 52px; height: 52px; border-radius: 14px; }
+#secGate .map-auth-title { font-size: 19px; }
+#secGate .map-auth-tip { font-size: 14px; max-width: 26rem; margin: 9px auto 18px; }
+#secGate .map-auth-btn { padding: 9px 18px; font-size: 14px; }
+
+html.dark #secGate { background: var(--mp-surface-flat); border-color: var(--mp-border); box-shadow: none; }
+html.dark #secGate .map-auth-card { background: transparent; border: 0; box-shadow: none; }
+
+/* ------------------------------------------------------ 直接登录弹窗 --- */
+.auth-modal { max-width: 520px; }
+.auth-form { padding: 16px; }
+.auth-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.auth-field label { color: var(--mp-text-2); font-size: 13px; font-weight: 700; }
+.auth-field input {
+  width: 100%; box-sizing: border-box; border: 1px solid var(--mp-border); border-radius: 8px;
+  padding: 9px 10px; font-size: 14px; color: var(--mp-text); background: var(--mp-surface-flat); outline: none;
+}
+.auth-field input:focus { border-color: var(--mp-brand-border); box-shadow: var(--mp-focus-ring); }
+.auth-error {
+  margin: 0 0 14px; padding: 9px 10px; border: 1px solid var(--mp-danger); border-radius: 8px;
+  background: var(--mp-danger-soft); color: var(--mp-danger); font-size: 13px; line-height: 1.5;
+}
+.auth-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+html.dark .auth-field label { color: var(--mp-text-2); }
+html.dark .auth-field input { color: var(--mp-text); background: var(--mp-surface-2); border-color: var(--mp-border); }
+html.dark .auth-field input:focus { border-color: var(--mp-brand-border); box-shadow: var(--mp-focus-ring); }
+html.dark .auth-error { background: var(--mp-danger-soft); border-color: var(--mp-danger); color: var(--mp-danger); }
+
+/* -------------------------------------------------------------- 弹窗 --- */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--mp-scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.modal-mask[hidden] { display: none; }
+.modal {
+  width: 100%;
+  max-width: 720px;
+  max-height: 82vh;
+  overflow: auto;
+  background: var(--mp-surface-flat);
+  border-radius: 14px;
+  border: 1px solid var(--mp-border);
+  box-shadow: var(--mp-shadow-3);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--mp-border);
+}
+.modal-head h3 { margin: 0; font-size: 16px; font-weight: 800; color: var(--mp-text); }
+.modal-body { padding: 14px 16px; }
+.modal-foot { padding: 10px 16px; border-top: 1px solid var(--mp-border); }
+.modal-note { font-size: 13px; color: var(--mp-text-3); }
+
+.group-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.group-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--mp-text-2);
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--mp-border);
+  font-size: 13px;
+}
+.group-table td { padding: 6px 9px; border-bottom: 1px solid var(--mp-border-soft); }
+.group-table td.cnt { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--mp-brand-text); }
+.group-table input {
+  width: 100%;
+  border: 1px solid var(--mp-border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 14px;
+  color: var(--mp-text);
+  background: var(--mp-surface-flat);
+}
+.group-table .del {
+  border: 1px solid var(--mp-danger);
+  background: var(--mp-danger-soft);
+  color: var(--mp-danger);
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.modal-add { display: flex; gap: 6px; margin-top: 12px; }
+.modal-add input {
+  flex: 1;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 14px;
+  color: var(--mp-text);
+  background: var(--mp-surface-flat);
+}
+
+/* --------------------------------------------------- QC 统计下钻弹窗 --- */
+/* 明细列多（最长 12 列），故用 wide 变体放宽弹窗；表格自身横向滚动，
+   不让长内容把弹窗撑破。全部手写 CSS，无需重跑 TMP/build_tailwind.mjs。 */
+.modal.wide { max-width: min(1320px, 96vw); }
+.qc-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.qc-tools input[type="search"] {
+  flex: 1 1 220px;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 14px;
+  color: var(--mp-text);
+  background: var(--mp-surface-flat);
+}
+.qc-scroll { max-height: 56vh; overflow: auto; border: 1px solid var(--mp-border); border-radius: 8px; }
+.qc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.qc-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--mp-text-2);
+  font-size: 12px;
+  padding: 8px 10px;
+  background: var(--mp-surface-2);
+  border-bottom: 1px solid var(--mp-border);
+}
+.qc-table td { padding: 7px 10px; border-bottom: 1px solid var(--mp-border-soft); color: var(--mp-text-2); white-space: nowrap; }
+.qc-table tbody tr:hover td { background: var(--mp-hover-row); }
+.qc-table td.mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.qc-empty { padding: 28px; text-align: center; color: var(--mp-text-3); font-size: 14px; }
+.qc-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.qc-pager { display: inline-flex; align-items: center; gap: 8px; }
+.qc-pager .btn-soft:disabled { opacity: .45; cursor: not-allowed; }
+.qc-pager .btn-soft:disabled:hover { border-color: var(--mp-border); color: var(--mp-text-2); }
+.qc-page { font-size: 13px; color: var(--mp-text-2); font-variant-numeric: tabular-nums; }
+.qc-err { color: var(--mp-danger); font-size: 13px; }
+.qc-hint { margin-top: 10px; display: block; }
+
+html.dark .qc-scroll { border-color: var(--mp-border); }
+html.dark .qc-table th { background: var(--mp-surface-3); color: var(--mp-text-3); border-color: var(--mp-border); }
+html.dark .qc-table td { color: var(--mp-text-2); border-color: var(--mp-border-soft); }
+html.dark .qc-table tbody tr:hover td { background: var(--mp-hover-row); }
+html.dark .qc-tools input[type="search"] { background: var(--mp-surface-2); color: var(--mp-text); border-color: var(--mp-border); }
+html.dark .qc-page { color: var(--mp-text-3); }
+
+/* ------------------------------------------------------------- Toast --- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 300;
+  background: var(--mp-toast-bg);
+  color: var(--mp-toast-text);
+  font-size: 14px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, .45);
+}
+.toast[hidden] { display: none; }
+
+/* -------------------------------------------------- 分组改派浮层 (.g-menu) */
+.g-menu {
+  position: absolute;
+  z-index: 250;
+  min-width: 210px;
+  max-height: 340px;
+  overflow: auto;
+  background: var(--mp-surface-flat);
+  border: 1px solid var(--mp-border);
+  border-radius: 10px;
+  box-shadow: var(--mp-shadow-2);
+  padding: 4px;
+}
+.g-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--mp-text-2);
+  font-size: 14px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.g-menu button:hover { background: var(--mp-brand-soft); color: var(--mp-brand-text); }
+.g-menu .mark { color: var(--mp-ok); font-weight: 700; }
+
+/* ==========================================================================
+   深色主题覆盖（Tailwind 浅色原子类 → 统一令牌）
+   颜色一律走上面的 --mp-*；深浅切换只发生在令牌层，这一段里不再出现具体色值。
+   ========================================================================== */
+
+/* 表面：bg-white 由纯白改成统一玻璃卡渐变（页脚 / 门禁卡 / 编辑态胶囊同源） */
+html.dark .bg-white { background: var(--mp-surface) !important; }
+html.dark .bg-slate-50,
+html.dark .bg-slate-100 { background-color: var(--mp-surface-2) !important; }
+html.dark .bg-slate-50\/90 { background-color: rgb(20 39 63 / .9) !important; }
+html.dark .bg-slate-50\/70 { background-color: rgb(20 39 63 / .7) !important; }
+
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-slate-200\/80,
+html.dark .border-slate-200\/70,
+html.dark .border-slate-200\/60,
+html.dark .border-slate-300 { border-color: var(--mp-border) !important; }
+
+html.dark .text-slate-800,
+html.dark .text-slate-700 { color: var(--mp-text) !important; }
+html.dark .text-slate-600 { color: var(--mp-text-2) !important; }
+/* 深色次级文字取 --mp-text-2（#94a3b8，在 #112540 卡片上 6.0:1）；
+   原 v1 映射到 #64748b 只有 3.35:1，比统一配色前的 #7d8ca3（4.94:1）还差。 */
+html.dark .text-slate-500 { color: var(--mp-text-2) !important; }
+html.dark .text-slate-400,
+html.dark .text-slate-300 { color: var(--mp-text-3) !important; }
+
+html.dark .from-slate-50\/80 {
+  --tw-gradient-from: rgb(20 39 63 / .85) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(20 39 63 / 0) var(--tw-gradient-to-position);
+}
+html.dark .from-slate-50 {
+  --tw-gradient-from: var(--mp-surface-2) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(20 39 63 / 0) var(--tw-gradient-to-position);
+}
+html.dark .to-white { --tw-gradient-to: var(--mp-surface-flat) var(--tw-gradient-to-position); }
+
+html.dark .map-pattern { background-image: radial-gradient(circle, var(--mp-brand-20) 1.5px, transparent 1.5px); }
+
+/* 悬停底：原来是蓝色调，统一成中性 hover */
+html.dark .hover\:bg-slate-50:hover { background-color: var(--mp-hover-row) !important; }
+
+/* 语义色底 / 边（平台徽章、QC 卡图标、区块命中徽章共用） */
+html.dark .bg-cyan-50 { background-color: rgb(79 195 247 / .16) !important; }
+html.dark .bg-violet-50 { background-color: rgb(124 58 237 / .16) !important; }
+html.dark .bg-emerald-50 { background-color: rgb(81 207 102 / .16) !important; }
+html.dark .bg-amber-50 { background-color: rgb(255 212 59 / .16) !important; }
+html.dark .bg-rose-50 { background-color: rgb(255 71 87 / .16) !important; }
+html.dark .bg-teal-50 { background-color: rgb(100 255 218 / .14) !important; }
+html.dark .border-cyan-200 { border-color: rgb(79 195 247 / .35) !important; }
+html.dark .border-violet-200 { border-color: rgb(124 58 237 / .35) !important; }
+html.dark .border-emerald-200 { border-color: rgb(81 207 102 / .35) !important; }
+html.dark .border-amber-200 { border-color: rgb(255 212 59 / .35) !important; }
+html.dark .border-rose-200 { border-color: rgb(255 71 87 / .35) !important; }
+
+/* 装饰色序（ROW_TONES / SOLID_TONES 等）的暗色底：对齐统一色板的深色系列 */
+html.dark .bg-blue-100 { background-color: rgb(92 124 250 / .22) !important; }
+html.dark .bg-cyan-100 { background-color: rgb(79 195 247 / .22) !important; }
+html.dark .bg-indigo-100 { background-color: rgb(121 134 203 / .22) !important; }
+html.dark .bg-sky-100 { background-color: rgb(92 124 250 / .22) !important; }
+html.dark .bg-rose-100 { background-color: rgb(255 107 107 / .22) !important; }
+html.dark .bg-teal-100 { background-color: rgb(99 230 190 / .22) !important; }
+html.dark .bg-amber-100 { background-color: rgb(255 212 59 / .22) !important; }
+html.dark .bg-emerald-100 { background-color: rgb(81 207 102 / .22) !important; }
+html.dark .bg-purple-100 { background-color: rgb(177 151 252 / .22) !important; }
+
+/* 装饰色序的前景：原来取的是 Tailwind 300/400 的默认值，改取统一色板的深色系列 */
+html.dark .text-blue-700 { color: #5c7cfa !important; }
+html.dark .text-cyan-700 { color: #4fc3f7 !important; }
+html.dark .text-indigo-700 { color: #7986cb !important; }
+html.dark .text-sky-700 { color: #5c7cfa !important; }
+html.dark .text-teal-700 { color: #63e6be !important; }
+html.dark .text-amber-700 { color: #ffd43b !important; }
+html.dark .text-emerald-700 { color: #51cf66 !important; }
+html.dark .text-purple-700 { color: #b197fc !important; }
+
+html.dark .bg-slate-100.text-slate-600 { color: var(--mp-text-2) !important; }
+
+/* 顶栏工具 / 搜索栏 / 按钮 */
+html.dark .control-bar { background: var(--mp-glass-panel); border-bottom-color: var(--mp-border); }
+html.dark .search { background: var(--mp-surface-2); border-color: var(--mp-border); }
+html.dark .search input { color: var(--mp-text); }
+html.dark .btn-soft { background: var(--mp-surface-2); border-color: var(--mp-border); color: var(--mp-text-2); }
+html.dark .btn-soft:hover { border-color: var(--mp-brand-border); color: var(--mp-brand-text); }
+html.dark .btn-soft.is-on { background: var(--mp-brand-soft-2); border-color: var(--mp-brand-border); color: var(--mp-brand-text); }
+html.dark .chips button.bg-white { background-color: var(--mp-surface-2) !important; }
+html.dark .chips button.bg-blue-600 {
+  background: var(--mp-accent-solid) !important;
+  color: var(--mp-on-accent) !important;
+}
+
+/* 弹窗 / 表格 / 浮层 */
+html.dark .modal { background: var(--mp-surface-flat); border-color: var(--mp-border); }
+html.dark .modal-head, html.dark .modal-foot { border-color: var(--mp-border); }
+html.dark .modal-head h3 { color: var(--mp-text); }
+html.dark .group-table th { color: var(--mp-text-3); border-bottom-color: var(--mp-border); }
+html.dark .group-table td { border-bottom-color: var(--mp-border-soft); }
+html.dark .group-table input,
+html.dark .modal-add input { background: var(--mp-surface-2); border-color: var(--mp-border); color: var(--mp-text); }
+html.dark .g-menu { background: var(--mp-surface-flat); border-color: var(--mp-border); }
+html.dark .g-menu button { color: var(--mp-text-2); }
+html.dark .g-menu button:hover { background: var(--mp-brand-soft-2); color: var(--mp-brand-text); }
+html.dark #mapBoot { background: var(--mp-surface-3); }
+html.dark .map-canvas { border-color: var(--mp-border); }
+/* 深色主题下地图瓦片是浅色栅格，整块亮白在深色页里很刺眼。
+   只降亮度 + 轻微降饱和，**不动色相** —— 告警等级（红/橙/黄/蓝）的语义必须保住，
+   所以不用常见的 invert(1) hue-rotate(180deg) 那套「伪深色地图」。 */
+html.dark .map-canvas > iframe { filter: brightness(.82) saturate(.88); }
+html.dark .toast { background: var(--mp-toast-bg); color: var(--mp-toast-text); }
+
+/* 打印 / 窄屏微调 */
+@media (max-width: 640px) {
+  .control-inner { padding: 9px 12px; }
+  .search { flex: 1 1 100%; }
+  .control-actions { margin-left: 0; width: 100%; justify-content: flex-end; }
+  /* 窄屏同样保持「iframe 高 − 290 ≈ 地图高」，随主值等比缩小 */
+  .map-canvas { height: 660px; }
+}
+
+/* ==========================================================================
+   区块内搜索（2026-09-17 加）
+   每个看板区块的标题行右侧一个输入框，只筛该区块的看板。
+   与顶栏 .search 的关系：视觉上更小一圈，避免和顶栏那个全局搜索抢注意力、
+   也避免在窄栏里把标题行撑破。中列（Topo / System Admin）宽度只有 3/12，
+   所以 min-width 取 100px 而不是顶栏的 240px。
+   ========================================================================== */
+.section-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  height: 26px;
+  min-width: 100px;
+  flex: 0 1 170px;
+  border-radius: 6px;
+  border: 1px solid var(--mp-border);
+  background: var(--mp-surface-2);
+  color: var(--mp-text-3);
+  transition: border-color .15s ease, background .15s ease;
+}
+.section-search:focus-within { border-color: var(--mp-brand-border); background: var(--mp-surface-flat); }
+.section-search svg { width: 13px; height: 13px; flex: 0 0 13px; }
+.section-search input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 13px;
+  color: var(--mp-text);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+}
+.section-search input::placeholder { color: var(--mp-text-3); }
+/* 去掉 type=search 自带的清除按钮：它在 26px 高的小框里会把文字挤掉，
+   清空改为直接删字符（用户实测里更容易预期） */
+.section-search input::-webkit-search-cancel-button { display: none; }
+
+html.dark .section-search { background: var(--mp-surface-2); border-color: var(--mp-border); }
+html.dark .section-search input { color: var(--mp-text); }
+html.dark .section-search:focus-within { border-color: var(--mp-brand-border); background: var(--mp-surface-2); }
+
+/* 窄屏：区块标题行本就 flex-wrap，搜索框占整行更顺手 */
+@media (max-width: 640px) {
+  .section-search { flex: 1 1 100%; min-width: 0; height: 30px; }
+}
+
+/* ------------------------------------- 看板新增 / 编辑（2026-09-17 加） --- */
+/* 卡片上的「编辑 / 删除」小按钮：只在编辑态 + 服务端可写（= 服务器本机）时渲染，
+   所以默认态观感与 ref 完全一致，不需要额外的隐藏规则。 */
+.board-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--mp-border);
+  border-radius: 6px;
+  background: var(--mp-surface-flat);
+  color: var(--mp-text-2);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.board-tool:hover { border-color: var(--mp-brand-border); color: var(--mp-brand-text); background: var(--mp-brand-soft); }
+.board-tool.danger:hover { border-color: var(--mp-danger); color: var(--mp-danger); background: var(--mp-danger-soft); }
+html.dark .board-tool { background: var(--mp-surface-2); border-color: var(--mp-border); color: var(--mp-text-2); }
+html.dark .board-tool:hover { background: var(--mp-brand-soft-2); border-color: var(--mp-brand-border); color: var(--mp-brand-text); }
+html.dark .board-tool.danger:hover { border-color: var(--mp-danger); color: var(--mp-danger); }
+
+/* 保存后把目标卡片滚到视野中间并闪一下 —— 看板按访问量排序，新增的会排在最后，
+   不定位用户会以为「没加上」。 */
+@keyframes boardFlash {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  30%, 70% { box-shadow: 0 0 0 3px var(--mp-brand-40); }
+}
+.is-flash { animation: boardFlash 1.3s ease-in-out 2; }
+
+/* 弹窗表单：两列网格，长字段（描述 / URL / 分组）占整行 */
+.board-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+/* 看板弹窗字段多（16 个），整窗滚动会把「保存 / 取消」推到滚动区底部 ——
+   改成 head / foot 固定、只滚 body（uniplam 的 DashboardModal 也是这个结构）。
+   用 :has 精确限定，分组管理 / QC 下钻弹窗的滚动行为不受影响。 */
+.modal:has(.board-form) { display: flex; flex-direction: column; overflow: hidden; }
+.modal:has(.board-form) .modal-head,
+.modal:has(.board-form) .modal-foot { flex: 0 0 auto; }
+.modal:has(.board-form) .modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.bf-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.bf-field.bf-full { grid-column: 1 / -1; }
+.bf-field > span { font-size: 13px; font-weight: 600; color: var(--mp-text-2); }
+.bf-field input,
+.bf-field select,
+.bf-field textarea {
+  width: 100%;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--mp-text);
+  background: var(--mp-surface-flat);
+  resize: vertical;
+}
+.bf-field input:focus,
+.bf-field select:focus,
+.bf-field textarea:focus {
+  outline: none;
+  border-color: var(--mp-brand-border);
+  box-shadow: var(--mp-focus-ring);
+}
+/* 分组多选：胶囊复选框，选中态一眼可辨（比原生 checkbox 列表好扫） */
+.bf-groups { display: flex; flex-wrap: wrap; gap: 6px; }
+.bf-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--mp-border);
+  border-radius: 999px;
+  background: var(--mp-surface-flat);
+  font-size: 13px;
+  color: var(--mp-text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.bf-group.is-on { border-color: var(--mp-brand-border); background: var(--mp-brand-soft); color: var(--mp-brand-text); font-weight: 600; }
+.bf-group input { margin: 0; accent-color: var(--mp-brand); }
+.bf-actions { display: inline-flex; gap: 8px; }
+/* 只给看板弹窗的底栏加 flex（用 :has 精确命中）——
+   直接改 .modal-foot 会把 QC 下钻弹窗的 .qc-foot 挤成内容宽度。 */
+.modal-foot:has(.bf-actions) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+html.dark .bf-field > span { color: var(--mp-text-3); }
+html.dark .bf-field input,
+html.dark .bf-field select,
+html.dark .bf-field textarea {
+  background: var(--mp-surface-2);
+  border-color: var(--mp-border);
+  color: var(--mp-text);
+}
+html.dark .bf-group { background: var(--mp-surface-2); border-color: var(--mp-border); color: var(--mp-text-2); }
+html.dark .bf-group.is-on { background: var(--mp-brand-soft-2); border-color: var(--mp-brand-border); color: var(--mp-brand-text); }
+
+/* 窄屏：表单改单列，否则两列在手机上挤成一条 */
+@media (max-width: 640px) {
+  .board-form { grid-template-columns: 1fr; }
+  .modal-foot:has(.bf-actions) { flex-direction: column; align-items: stretch; }
+  .bf-actions { justify-content: flex-end; }
+}
+
+/* ==========================================================================
+   项目统一色板映射层（2026-09-17）
+   --------------------------------------------------------------------------
+   这一层只做一件事：把 ref.html 时代遗留的 Tailwind 原子类颜色，
+   重新指向上面那套统一令牌。必须放在文件最后 —— 靠源码顺序压过前面的规则；
+   凡是前面已经写成 html.dark .xxx 的，这里也要一起写 html.dark，否则特异性不够。
+   ========================================================================== */
+
+/* ------------------------------------------------- 品牌强调（交互信号） -- */
+/* 只重定向「交互信号」用途的 blue：
+     text-blue-600  只出现在平台徽章 / 区块「查看全部」/ QC 卡图标
+     bg-blue-50、border-blue-200/400 只出现在这些徽章与选中态
+   —— 都是品牌语义，统一到 teal。
+   装饰性色序数组（portal.js 的 ROW_TONES / SOLID_TONES / CXO_GRADS /
+   QA_GRADS / FR_ICONS）里的 bg-blue-100 / bg-blue-600 / from-blue-* 保持原样，
+   否则会把有意的色彩轮换压成一片青。 */
+.text-blue-600,
+.text-blue-500,
+.text-blue-400 { color: var(--mp-brand-text) !important; }
+
+.hover\:text-blue-600:hover,
+.hover\:text-blue-700:hover { color: var(--mp-brand-text) !important; }
+.group:hover .group-hover\:text-blue-600,
+.group:hover .group-hover\:text-blue-700 { color: var(--mp-brand-text) !important; }
+
+/* 「已归入该分组」胶囊同时带 bg-blue-50 + text-blue-700；
+   text-blue-700 单独出现时是 ROW_TONES 的装饰色，所以用复合选择器区分。
+   html.dark 版本必须一起写，否则压不过上面那条 html.dark .text-blue-700。 */
+.bg-blue-50.text-blue-700,
+html.dark .bg-blue-50.text-blue-700 { color: var(--mp-brand-text) !important; }
+
+.bg-blue-50,
+.hover\:bg-blue-50:hover,
+.hover\:bg-blue-50\/50:hover,
+.hover\:bg-blue-50\/70:hover { background-color: var(--mp-brand-soft-2) !important; }
+
+.border-blue-200,
+.border-blue-400,
+.border-blue-600,
+.hover\:border-blue-200:hover,
+.hover\:border-blue-400:hover { border-color: var(--mp-brand-border) !important; }
+
+.ring-blue-200 { --tw-ring-color: var(--mp-brand-40) !important; }
+
+.chips button.bg-blue-600 {
+  background: var(--mp-accent-solid) !important;
+  color: var(--mp-on-accent) !important;
+}
+.group:hover .group-hover\:bg-blue-600 {
+  background: var(--mp-accent-solid) !important;
+  color: var(--mp-on-accent) !important;
+}
+
+/* 中性悬停底：原来是蓝调，统一成中性 */
+.hover\:bg-slate-50:hover { background-color: var(--mp-hover-row) !important; }
+
+/* ------------------------------------------------------ 语义 / 严重度 -- */
+/* QC 指标卡数字、告警标题、健康度徽章共用这几个类，全部对齐统一严重度色。 */
+.text-red-600,
+.text-rose-600,
+.text-rose-500,
+.text-rose-700 { color: var(--mp-sev-critical) !important; }
+.text-amber-600,
+.text-amber-500 { color: var(--mp-sev-warning) !important; }
+.text-emerald-600,
+.text-emerald-700,
+.text-lime-600 { color: var(--mp-ok) !important; }
+
+/* ---------------------------------------------------------- 表面统一 -- */
+/* 卡片 / 页脚：ref 时代的纯白 → 统一玻璃卡（渐变 + 边缘光）。
+   只命中 <section> / <footer> 上的 bg-white，
+   不动顶栏语言切换那种需要实心的小胶囊。 */
+section.bg-white,
+footer.bg-white { background: var(--mp-surface); }
+
+/* 卡片阴影：换成统一阴影令牌（深浅各自一套，令牌层已切换） */
+.shadow-card { box-shadow: var(--mp-shadow-1); }
+
+/* 地图区的点阵底：取统一边框色，深浅自动跟随 */
+.map-pattern { background-image: radial-gradient(circle, var(--mp-border) 1.5px, transparent 1.5px); }
+
+/* ------------------------------------------------- 区块标题（非严重度） -- */
+/* 背景：ref.html 时代每个区块标题都写成红/玫红 —— portal.js 的 headHtml() 里
+   kind: 'square-red' | 'square-rose' | 'dot-red' → 标题写死 text-red-600、
+   左侧小色块写死 bg-red-600 / bg-rose-500（只有 System Admin 是 dot-slate 中性）。
+   但项目统一色板里「红」只代表严重度 Critical（--mp-sev-critical），
+   不用来当装饰性标题色 —— 这跟 my_app 的 SectionTitle 约定也不一致。
+   my_app 的约定（见 frontend/src/pages/AlarmDashboard.tsx 的 SectionTitle）：
+   标题用正文色 WH.text，强调只给左侧那个小色块（accent 青绿）。
+   所以这里对齐成：标题 --mp-text，色块 --mp-brand。
+   ⚠️ 只换颜色，版式 / 字号 / 位置 / 字重一律不动。
+   ⚠️ 写在 CSS 而不是改 portal.js，是因为 portal.js 当时正被另一个会话实时编辑。
+   用 h2./span. 提高特异性，压过上面那条 .text-red-600{...!important}。 */
+h2.text-red-600 { color: var(--mp-text) !important; }
+span.bg-red-600,
+span.bg-rose-500 { background-color: var(--mp-brand) !important; }

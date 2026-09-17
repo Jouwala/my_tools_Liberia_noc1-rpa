@@ -15,6 +15,8 @@ import numpy as np
 import paramiko
 import stat
 import os
+import math
+import unicodedata
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.formatting.rule import CellIsRule, ColorScaleRule
 from openpyxl.utils import get_column_letter
@@ -41,6 +43,10 @@ EXCLUDE_WAREHOUSE = 'Liberia Monrovia material warehouse'
 INB_PATH = f'{DATA_DIR}/inband_details.xlsx'
 INV_PATH = f'{DATA_DIR}/inventory_details.xlsx'
 OUTB_PATH = f'{DATA_DIR}/outband_details.xlsx'
+# 转仓明细：只进 SP Details Report（Transfer / Transfer Return 两个 sheet），不参与
+# Inbound&Outbound&Inventory 报表统计
+TRANSFER_PATH = f'{DATA_DIR}/transfer_details.xlsx'
+TRANSFER_RETURN_PATH = f'{DATA_DIR}/transfer_return_details.xlsx'
 
 # SFTP config
 SFTP_HOST = "10.100.20.11"
@@ -48,10 +54,32 @@ SFTP_PORT = 22
 SFTP_USER = "ubuntu"
 SFTP_PASS = "UbuntU1!2@3#4$"
 
+# /home/ubuntu/sp 下每个数据集一个目录，结构为
+#   sp/<目录名>/<yyyymmdd>/<yyyymmddHHMMSSfff>/<文件名>.xlsx
+# 取「最新的、且文件名匹配」的那一份（2026-09-16 用户指定）。
+# 本地一律落到 *_details.xlsx —— 下游 sp_email_details / sp_online / sp_material_summary
+# 都依赖这些本地文件名，不要改。
 SFTP_FOLDERS = {
-    "spinbound": "data/inband_details.xlsx",
-    "spoutbound": "data/outband_details.xlsx",
-    "spinventory": "data/inventory_details.xlsx",
+    "inbound": {
+        "filename": "inbound.xlsx",
+        "local_path": "data/inband_details.xlsx",
+    },
+    "outbound": {
+        "filename": "outbound.xlsx",
+        "local_path": "data/outband_details.xlsx",
+    },
+    "inventory_management": {
+        "filename": "inventory_management.xlsx",
+        "local_path": "data/inventory_details.xlsx",
+    },
+    "wh_transfer": {
+        "filename": "wh_transfer.xlsx",
+        "local_path": "data/transfer_details.xlsx",
+    },
+    "wh_transfer_return": {
+        "filename": "wh_transfer_return.xlsx",
+        "local_path": "data/transfer_return_details.xlsx",
+    },
 }
 
 SFTP_SPECIAL = {
@@ -61,22 +89,18 @@ SFTP_SPECIAL = {
         "search_func": "find_latest_ocrule_csv_recursive",
         "convert_to_excel": True,
     },
-    "transfer": {
-        "remote_folder": "sp/sp-wh_transfer",
-        "local_path": "data/transfer_details.xlsx",
-        "search_func": "find_latest_transfer_xlsx_recursive",
-        "convert_to_excel": False,
-    },
+    # transfer（WH Transfer）2026-09-16 起改由 SFTP_FOLDERS 处理
+    # （sp/wh_transfer/<日期>/<时间戳>/wh_transfer.xlsx），不再走旧的 sp-wh_transfer 递归搜索。
 }
 
-CS_INBOUND_COLS = ['Inbound No.', 'Inbound Type', 'Warehouse Name', 'Material No.',
+CS_INBOUND_COLS = ['Inbound No.', 'Status', 'Inbound Type', 'Warehouse Name', 'Material No.',
                    'Serial No.', 'Material Name', 'Domain', 'Inbound Qty',
                    'Unit', 'Location No.', 'Inbound Time']
-SP_INBOUND_COLS = ['Inbound No.', 'Inbound Type', 'Warehouse Name', 'Material No.',
+SP_INBOUND_COLS = ['Inbound No.', 'Status', 'Inbound Type', 'Warehouse Name', 'Material No.',
                    'Serial No.', 'Material Name', 'Domain', 'Material Type',
                    'Inbound Qty', 'Unit', 'Inbound Time']
 
-CS_OUTBOUND_COLS = ['Outbound No.', 'Warehouse Name', 'Outbound Type', 'Recipient',
+CS_OUTBOUND_COLS = ['Outbound No.', 'Status', 'Warehouse Name', 'Outbound Type', 'Recipient',
                     'Recipient Phone', 'Request Time', 'Related Ticket Type',
                     'Description', 'Domain', 'Outbound Time', 'Borrow Duration',
                     'Related Ticket No.', 'Serial No.', 'Material No.',
@@ -88,8 +112,45 @@ SP_OUTBOUND_COLS = ['Outbound No.', 'Status', 'Warehouse Name', 'Outbound Type',
                     'Related Ticket No.', 'Serial No.', 'Material No.',
                     'Material Name', 'Outbound Qty', 'Unit', 'Return Serial No.']
 
-INVENTORY_COLS = ['Serial No.', 'Material No.', 'Material Name', 'Warehouse Name',
-                  'Domain', 'Storage Age', 'Stock Qty', 'Unit ', 'Location Name']
+INVENTORY_COLS = ['Serial No.', 'Material No.', 'Material Name', 'Material Status',
+                  'Warehouse Name', 'Domain', 'Storage Age', 'Stock Qty', 'Unit ',
+                  'Location Name']
+
+# ------------------------------------------------------------------------------
+# 补库建议（Summary-Current 汇总表右侧的附加列，按 Material Name 与主表同行对齐）
+# ------------------------------------------------------------------------------
+# 出库明细中剔除的异常单据：不计入历史消耗
+REPLENISH_EXCLUDE_ORDERS = ('SPOB202608160004', 'SPOB202609120014')
+# 历史消耗窗口（月）：现有出库数据覆盖 9.5 个月
+REPLENISH_HISTORY_MONTHS = 9.5
+# 安全库存 = 6 个月历史平均消耗
+REPLENISH_SAFETY_MONTHS = 6
+# 补库建议的列（全英文，避免报表出现中文）
+REPLENISH_COLS = ['Material Name', 'Avg Monthly Consumption', 'Safety Stock',
+                  'Replenishment Qty', 'Alert Level']
+# 并入 Summary-Current 主表时追加的 4 列（不含 Material Name，它是主表已有的键）
+REPLENISH_EXTRA_COLS = REPLENISH_COLS[1:]
+REPLENISH_ALERT_COL = 'Alert Level'
+# 这 3 个数值列向上取整（整数）；主表原有列同样是整数展示
+REPLENISH_INT_COLS = ('Avg Monthly Consumption', 'Safety Stock', 'Replenishment Qty')
+# 报表上方的口径说明（Excel 表头上方、PNG 标题下方）：拆成 2 行，否则超过合并区的显示宽度会被裁掉
+REPLENISH_NOTES = (
+    'Replenishment basis:  Excluded orders ' + ' / '.join(REPLENISH_EXCLUDE_ORDERS)
+    + f'  |  History {REPLENISH_HISTORY_MONTHS} months'
+    + f'  |  Safety Stock = {REPLENISH_SAFETY_MONTHS} x Avg Monthly Consumption',
+    'Replenishment Qty = Safety Stock - Inventory Qty (<= 0 left blank)'
+    + '  |  Alert Level = Inventory Qty / Safety Stock'
+    + '  |  Note: Outbound Qty still includes the 2 excluded orders',
+)
+ALERT_URGENT = 'Urgent Replenish'
+ALERT_REPLENISH = 'Replenish'
+ALERT_EXCESS = 'Excess'
+# 预警级别 → (背景色, 文字色)，Excel 与 PNG 共用
+ALERT_COLORS = {
+    ALERT_URGENT: ((255, 199, 206), (156, 0, 6)),
+    ALERT_REPLENISH: ((255, 235, 156), (156, 101, 0)),
+    ALERT_EXCESS: ((198, 239, 206), (0, 97, 0)),
+}
 
 # ==============================================================================
 # Cached Styles
@@ -105,6 +166,7 @@ FONT_CELL = Font(name='Calibri', size=10)
 FONT_TOTAL = Font(name='Calibri', bold=True, size=11, color='1F3864')
 FONT_TITLE = Font(name='Calibri', bold=True, size=14, color='1F3864')
 FONT_SUBTITLE = Font(name='Calibri', size=9, color='808080')
+FONT_FILTER = Font(name='Calibri', size=9, color='4472C4')
 
 FILL_HEADER = PatternFill(start_color='2F5496', end_color='2F5496', fill_type='solid')
 FILL_TOTAL = PatternFill(start_color='D6DCE4', end_color='D6DCE4', fill_type='solid')
@@ -124,6 +186,7 @@ ALIGN_NUM = Alignment(horizontal='right', vertical='center')
 ALIGN_LEFT = Alignment(horizontal='left', vertical='center')
 
 NUM_FMT_INT = '#,##0'
+NUM_FMT_DEC = '#,##0.00'
 
 SHEET_COLORS = {
     'Summary': '2F5496',
@@ -131,6 +194,35 @@ SHEET_COLORS = {
     'Outbound': 'BF8F00',
     'Inventory': '843C0C',
 }
+
+
+def _display_width(text):
+    """估算文本显示宽度：CJK 全角字符按 2 个半角字符宽计算。"""
+    return sum(2 if unicodedata.east_asian_width(ch) in ('W', 'F') else 1 for ch in str(text))
+
+
+def _fmt_replenish_value(val):
+    """补库建议列的数值文本：向上取整后的整数（千分位）；空值（NaN）留白不显示。"""
+    if val is None or pd.isna(val):
+        return ''
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        return f'{int(math.ceil(float(val))):,}'
+    return str(val)
+
+
+def _fmt_summary_cell(col, val):
+    """Summary-Current 单元格的显示文本。
+
+    补库建议的 3 个数值列：向上取整的整数千分位、空值留白（Replenishment Qty <= 0 不显示）；
+    主表原有列：整数千分位，空值按 0 显示。
+    """
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return '' if col in REPLENISH_EXTRA_COLS else '0'
+    if col in REPLENISH_INT_COLS:
+        return _fmt_replenish_value(val)
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        return f'{int(val):,}'
+    return str(val)
 
 # ==============================================================================
 # SFTP Download Functions
@@ -173,6 +265,39 @@ def _find_latest_excel_in_nested(sftp, folder_path):
         return None
     files.sort(key=lambda x: x.st_mtime, reverse=True)
     return f"{time_path}/{files[0].filename}"
+
+
+def _list_subdirs(sftp, path):
+    """列出目录下的子目录名，按修改时间倒序（最新在前）。读不到返回 []。"""
+    try:
+        dirs = [f for f in sftp.listdir_attr(path) if stat.S_ISDIR(f.st_mode)]
+    except IOError:
+        return []
+    dirs.sort(key=lambda x: x.st_mtime, reverse=True)
+    return [d.filename for d in dirs]
+
+
+def _find_latest_named_excel(sftp, folder_path, filename, max_dates=5, max_slots=3):
+    """在 sp/<name>/<yyyymmdd>/<yyyymmddHHMMSSfff>/<name>.xlsx 结构里，
+    取**文件名精确匹配**（忽略大小写）的最新一份。
+
+    从最新的日期目录往前找（最多 max_dates 天、每天最多 max_slots 个时间戳目录），
+    命中即返回，避免对整棵树做全量递归。
+    """
+    target = filename.lower()
+    for date_dir in _list_subdirs(sftp, folder_path)[:max_dates]:
+        date_path = f"{folder_path}/{date_dir}"
+        for ts_dir in _list_subdirs(sftp, date_path)[:max_slots]:
+            ts_path = f"{date_path}/{ts_dir}"
+            try:
+                names = [f.filename for f in sftp.listdir_attr(ts_path)
+                         if not stat.S_ISDIR(f.st_mode)]
+            except IOError:
+                continue
+            for n in names:
+                if n.lower() == target:
+                    return f"{ts_path}/{n}"
+    return None
 
 
 def _find_latest_ocrule_csv_recursive(sftp, folder_path):
@@ -258,15 +383,14 @@ def sftp_download():
         else:
             print(f"  [WARN] {name}: file not found")
 
-    # Regular folders
-    for folder, local_path in SFTP_FOLDERS.items():
-        remote_folder = f"sp/{folder}"
-        remote = _find_latest_excel_in_nested(sftp, remote_folder)
+    # Regular folders: sp/<目录名>/<yyyymmdd>/<时间戳>/<文件名>.xlsx —— 取最新且文件名匹配的一份
+    for folder, cfg in SFTP_FOLDERS.items():
+        remote = _find_latest_named_excel(sftp, f"sp/{folder}", cfg["filename"])
         if remote:
-            _sftp_download_file(sftp, remote, local_path)
-            print(f"  [OK] {folder}: {remote} → {local_path}")
+            _sftp_download_file(sftp, remote, cfg["local_path"])
+            print(f"  [OK] {folder}: {remote} → {cfg['local_path']}")
         else:
-            print(f"  [WARN] {folder}: file not found")
+            print(f"  [WARN] {folder}: {cfg['filename']} not found under sp/{folder}")
 
     sftp.close()
     client.close()
@@ -504,6 +628,83 @@ def apply_status_filters(inb, outb):
     if not _save_detail_xlsx(new_outb, OUTB_PATH):
         print('[Status][WARN] outbound: 写回失败，下游任务将使用未过滤的旧文件')
     return inb, new_outb, {'outbound': n}
+
+
+# ==============================================================================
+# operation result filter - 剔除 Operation Result Status='Canceled' 的明细行
+# ==============================================================================
+# 2026-09-16 用户指定：入库 / 出库 / 转仓明细里 Operation Result Status='Canceled'
+# 的都是已作废单据，不参与 SP Details Report，也不进 Inbound&Outbound&Inventory 报表。
+# inventory_management 没有该列，不受影响。
+OP_RESULT_COL = 'Operation Result Status'
+OP_RESULT_DROP_STATUS = ('Canceled',)
+
+
+def drop_operation_result_canceled(df, statuses=OP_RESULT_DROP_STATUS):
+    """剔除 Operation Result Status 命中 statuses 的行，返回 (新 df, 剔除行数)。"""
+    if df is None or df.empty or OP_RESULT_COL not in df.columns:
+        return df, 0
+    targets = {str(s).strip().casefold() for s in statuses}
+    mask = df[OP_RESULT_COL].map(lambda v: str(v).strip().casefold() in targets)
+    n = int(mask.sum())
+    if n == 0:
+        return df, 0
+    return df.loc[~mask].reset_index(drop=True), n
+
+
+def apply_operation_result_filter(inb, outb):
+    """入库 / 出库明细剔除 Operation Result Status='Canceled' 并写回。返回 (inb, outb, stats)。"""
+    new_inb, n_in = drop_operation_result_canceled(inb)
+    if n_in:
+        print(f'[OpResult] inbound: 剔除 Operation Result Status=Canceled {n_in} 行，'
+              f'{len(inb)} -> {len(new_inb)} 行')
+        if not _save_detail_xlsx(new_inb, INB_PATH):
+            print('[OpResult][WARN] inbound: 写回失败，下游任务将使用未过滤的旧文件')
+    else:
+        print('[OpResult] inbound: 无 Canceled 行，保持原样')
+
+    new_outb, n_out = drop_operation_result_canceled(outb)
+    if n_out:
+        print(f'[OpResult] outbound: 剔除 Operation Result Status=Canceled {n_out} 行，'
+              f'{len(outb)} -> {len(new_outb)} 行')
+        if not _save_detail_xlsx(new_outb, OUTB_PATH):
+            print('[OpResult][WARN] outbound: 写回失败，下游任务将使用未过滤的旧文件')
+    else:
+        print('[OpResult] outbound: 无 Canceled 行，保持原样')
+
+    stats = {}
+    if n_in:
+        stats['inbound'] = n_in
+    if n_out:
+        stats['outbound'] = n_out
+    return new_inb, new_outb, stats
+
+
+def apply_operation_result_filter_to_file(path, label):
+    """对只用于 SP Details Report 的转仓明细文件就地过滤 Canceled 行并写回。
+
+    文件缺失 / 无该列时只打印说明并返回 0，不影响主流程。
+    """
+    if not os.path.exists(path):
+        print(f'[OpResult][WARN] {label}: 文件不存在，跳过（{path}）')
+        return 0
+    try:
+        df = pd.read_excel(path)
+    except Exception as e:
+        print(f'[OpResult][WARN] {label}: 读取失败，跳过（{e}）')
+        return 0
+    if OP_RESULT_COL not in df.columns:
+        print(f'[OpResult] {label}: 无 {OP_RESULT_COL} 列，保持原样')
+        return 0
+    new_df, n = drop_operation_result_canceled(df)
+    if n == 0:
+        print(f'[OpResult] {label}: 无 Canceled 行，保持原样')
+        return 0
+    print(f'[OpResult] {label}: 剔除 Operation Result Status=Canceled {n} 行，'
+          f'{len(df)} -> {len(new_df)} 行')
+    if not _save_detail_xlsx(new_df, path):
+        print(f'[OpResult][WARN] {label}: 写回失败，下游任务将使用未过滤的旧文件')
+    return n
 
 
 # ==============================================================================
@@ -830,6 +1031,61 @@ def build_summary(inb_df, outb_df, inv_df):
 
 
 # ==============================================================================
+# build_replenishment - 补库建议（历史月均消耗 / 安全库存 / 需补库数量 / 预警级别）
+# ==============================================================================
+def build_replenishment(outb_df, inv_df, base_index=None):
+    """按 Material Name 统计补库建议，4 列直接并到 Summary-Current 主表右侧。
+
+    - Avg Monthly Consumption = 出库数量合计（先剔除 REPLENISH_EXCLUDE_ORDERS 两张异常单据）/ 9.5，向上取整
+    - Safety Stock = 6 * Avg Monthly Consumption（整数，表内可直接验算）
+    - Replenishment Qty = Safety Stock - Inventory Qty，<= 0 记为空（不显示，便于求和）；结果向上取整
+    - Alert Level = Inventory Qty / Safety Stock：< 50% Urgent Replenish；50% ~ 100% Replenish；> 100% Excess
+
+    base_index：主表的 Material Name 序列。给了就按它逐行对齐（主表里没有出库消耗的物料
+    按 0 消耗计算，保证与主表行数、顺序一一对应）；不给则只输出有出库消耗的物料。
+    """
+    consumed = pd.Series(dtype='float64')
+    df = outb_df if outb_df is not None else pd.DataFrame()
+    if len(df) > 0:
+        if REPLENISH_EXCLUDE_ORDERS:
+            orders = {str(o).strip() for o in REPLENISH_EXCLUDE_ORDERS}
+            df = df.loc[~df['Outbound No.'].astype(str).str.strip().isin(orders)]
+        consumed = pd.to_numeric(df.groupby('Material Name')['Outbound Qty'].sum(), errors='coerce').fillna(0)
+
+    if inv_df is not None and len(inv_df) > 0:
+        stock = pd.to_numeric(inv_df.groupby('Material Name')['Stock Qty'].sum(), errors='coerce').fillna(0)
+    else:
+        stock = pd.Series(dtype='float64')
+
+    base = consumed.index if base_index is None else pd.Index(list(base_index))
+    consumed_qty = consumed.reindex(base).fillna(0).to_numpy(dtype='float64')
+    stock_qty = stock.reindex(base).fillna(0).to_numpy(dtype='float64')
+
+    result = pd.DataFrame({'Material Name': base})
+    # 向上取整：Avg 为整数，Safety = 6 x Avg（同为整数，表内可直接验算）
+    avg = np.ceil(consumed_qty / REPLENISH_HISTORY_MONTHS)
+    result['Avg Monthly Consumption'] = avg.astype('int64')
+    safety = avg * REPLENISH_SAFETY_MONTHS
+    result['Safety Stock'] = safety.astype('int64')
+
+    need = safety - stock_qty
+    # <= 0 留空（不显示负数/0），避免影响求和；结果同样向上取整
+    result['Replenishment Qty'] = np.where(need > 0, np.ceil(need), np.nan)
+
+    # 安全库存为 0（无消耗）时按冗余处理，不参与补库
+    ratio = np.full(len(result), np.inf)
+    has_safety = safety > 0
+    ratio[has_safety] = stock_qty[has_safety] / safety[has_safety]
+    result[REPLENISH_ALERT_COL] = np.select(
+        [ratio < 0.5, ratio <= 1.0],
+        [ALERT_URGENT, ALERT_REPLENISH],
+        default=ALERT_EXCESS,
+    )
+
+    return result[REPLENISH_COLS]
+
+
+# ==============================================================================
 # build_summary_changed - Daily inbound/outbound statistics by warehouse
 # ==============================================================================
 def build_summary_changed(inb_df, outb_df, timestamp_str):
@@ -951,7 +1207,12 @@ def _auto_width(ws, min_w=10, max_w=42):
         ws.column_dimensions[letter].width = min(max(max_len + 2, min_w), max_w)
 
 
-def _insert_title(ws, title, sheet_name):
+def _insert_title(ws, title, sheet_name, filter_note='', extra_notes=()):
+    """Insert title rows and return the 1-based index of the sheet's header row.
+
+    Row 1 = title, Row 2 = Generated/Sheet, Row 3 = filter note (only when filter_note is given),
+    then one row per entry in extra_notes（补库口径说明等，紧贴表头之上）.
+    """
     ws.insert_rows(1, 2)
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ws.max_column)
     c = ws.cell(1, 1)
@@ -965,6 +1226,28 @@ def _insert_title(ws, title, sheet_name):
     c.font = FONT_SUBTITLE
     c.alignment = ALIGN_LEFT
 
+    next_row = 3
+    if filter_note:
+        ws.insert_rows(next_row, 1)
+        ws.merge_cells(start_row=next_row, start_column=1, end_row=next_row, end_column=ws.max_column)
+        c = ws.cell(next_row, 1)
+        c.value = filter_note
+        c.font = FONT_FILTER
+        c.alignment = ALIGN_LEFT
+        next_row += 1
+
+    # 附加说明行：紧贴表头之上，样式与过滤条件说明一致
+    for text in (extra_notes or ()):
+        ws.insert_rows(next_row, 1)
+        ws.merge_cells(start_row=next_row, start_column=1, end_row=next_row, end_column=ws.max_column)
+        c = ws.cell(next_row, 1)
+        c.value = text
+        c.font = FONT_FILTER
+        c.alignment = ALIGN_LEFT
+        next_row += 1
+
+    return next_row
+
 
 def _apply_header(ws, header_row=3):
     for cell in ws[header_row]:
@@ -974,8 +1257,17 @@ def _apply_header(ws, header_row=3):
         cell.border = BORDER_HEADER
 
 
-def _apply_zebra(ws, start_row=4):
-    for row_idx in range(start_row, ws.max_row + 1):
+def _num_fmt_for_col(header_names, col_idx):
+    """补库建议的 3 个数值列已向上取整，与主表其余列一致用整数格式。"""
+    return NUM_FMT_INT
+
+
+def _apply_zebra(ws, start_row=4, header_row=None, end_row=None):
+    header_names = {}
+    if header_row:
+        header_names = {c: ws.cell(header_row, c).value for c in range(1, ws.max_column + 1)}
+    last_row = end_row if end_row else ws.max_row
+    for row_idx in range(start_row, last_row + 1):
         fill = FILL_ZEBRA if row_idx % 2 == 0 else FILL_WHITE
         for cell in ws[row_idx]:
             cell.fill = fill
@@ -984,21 +1276,24 @@ def _apply_zebra(ws, start_row=4):
             cell.alignment = ALIGN_CELL
             if isinstance(cell.value, (int, float)):
                 cell.alignment = ALIGN_NUM
-                cell.number_format = NUM_FMT_INT
+                cell.number_format = _num_fmt_for_col(header_names, cell.column)
 
 
-def _apply_total_row(ws, row_idx=4):
+def _apply_total_row(ws, row_idx=4, header_row=None):
+    header_names = {}
+    if header_row:
+        header_names = {c: ws.cell(header_row, c).value for c in range(1, ws.max_column + 1)}
     for cell in ws[row_idx]:
         cell.font = FONT_TOTAL
         cell.fill = FILL_TOTAL
         cell.border = BORDER_TOTAL
         if isinstance(cell.value, (int, float)):
             cell.alignment = ALIGN_NUM
-            cell.number_format = NUM_FMT_INT
+            cell.number_format = _num_fmt_for_col(header_names, cell.column)
 
 
-def _apply_conditional(ws, sheet_name, header_row=3, data_start=5):
-    last_row = ws.max_row
+def _apply_conditional(ws, sheet_name, header_row=3, data_start=5, data_end=None):
+    last_row = data_end if data_end is not None else ws.max_row
     # Only apply conditional formatting if there's data
     if data_start <= last_row:
         if sheet_name == 'Summary':
@@ -1024,6 +1319,57 @@ def _apply_conditional(ws, sheet_name, header_row=3, data_start=5):
                 ws.conditional_formatting.add(rng, CellIsRule(operator='greaterThan', formula=['100'], fill=FILL_GREEN, font=FONT_GREEN))
 
 
+def _style_replenish_columns(ws, header_row, data_end):
+    """Summary-Current 右侧补库建议列的收尾样式：Alert Level 三色 + 列宽。
+
+    只对实际存在这几列的 sheet 生效（其它 sheet 的 headers 里查不到列名，直接跳过）。
+    Alert Level 的取值文案较长，_auto_width 按字符数估算会偏窄，这里按显示宽度重撑一遍。
+    """
+    headers = {ws.cell(header_row, c).value: c for c in range(1, ws.max_column + 1)}
+    for name in REPLENISH_COLS[1:]:
+        col = headers.get(name)
+        if not col:
+            continue
+        letter = get_column_letter(col)
+        is_alert = (name == REPLENISH_ALERT_COL)
+        need = _display_width(name) + 3
+        for r in range(header_row + 1, data_end + 1):
+            cell = ws.cell(r, col)
+            val = cell.value
+            if is_alert:
+                fill_rgb, font_rgb = ALERT_COLORS.get(str(val).strip(), (None, None))
+                if fill_rgb:
+                    rgb = f'{fill_rgb[0]:02X}{fill_rgb[1]:02X}{fill_rgb[2]:02X}'
+                    cell.fill = PatternFill(start_color=rgb, end_color=rgb, fill_type='solid')
+                    cell.font = Font(name='Calibri', size=10,
+                                     color=f'{font_rgb[0]:02X}{font_rgb[1]:02X}{font_rgb[2]:02X}')
+                cell.alignment = ALIGN_HEADER
+            if val is not None:
+                need = max(need, _display_width(_fmt_replenish_value(val)) + 3)
+        ws.column_dimensions[letter].width = max(ws.column_dimensions[letter].width or 0, min(need, 42))
+
+
+def _style_replenish_note(ws, first_row, n_cols, notes=REPLENISH_NOTES):
+    """【已停用，保留供回退】补库口径说明写在表身下方的老版式。
+
+    说明行现已改到表头之上（由 `_insert_title(..., extra_notes=REPLENISH_NOTES)` 写入），
+    本函数不再被调用。若日后要退回「表身下方」版式，改回 `generate_report` 里的调用即可。
+    """
+    if n_cols < 1:
+        return
+    for i, text in enumerate(notes):
+        row = first_row + i
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=n_cols)
+        for col in range(1, n_cols + 1):
+            cell = ws.cell(row, col)
+            cell.fill = FILL_WHITE
+            cell.border = Border()
+        c = ws.cell(row, 1)
+        c.value = text
+        c.font = FONT_FILTER
+        c.alignment = ALIGN_LEFT
+
+
 def _apply_page_setup(ws):
     ws.page_setup.orientation = 'landscape'
     ws.page_setup.fitToWidth = 1
@@ -1032,36 +1378,122 @@ def _apply_page_setup(ws):
     ws.page_margins = PageMargins(left=0.4, right=0.4, top=0.5, bottom=0.5, header=0.3, footer=0.3)
 
 
-def style_excel(ws, sheet_name, has_total_row=False, title=''):
+def style_excel(ws, sheet_name, has_total_row=False, title='', filter_note='',
+                table_rows=None, extra_notes=()):
+    """套用 sheet 样式并返回表头行号。
+
+    table_rows：表身（表头 + 数据）占用的行数。给了就把它作为条件格式与自动筛选的
+    下界，避免同一 sheet 下方的附加区块被卷进去。
+    extra_notes：表头之上、过滤条件说明之下的附加说明行（如补库口径）。
+    """
     has_title = bool(title)
     if has_title:
-        _insert_title(ws, title, sheet_name)
-
-    header_row = 3 if has_title else 1
-    data_start = 4 if has_title else 2
+        header_row = _insert_title(ws, title, sheet_name, filter_note, extra_notes)
+    else:
+        header_row = 1
+    data_start = header_row + 1
     total_row = data_start
+    table_end = header_row + table_rows - 1 if table_rows else ws.max_row
 
     _apply_header(ws, header_row)
-    _apply_zebra(ws, start_row=data_start)
+    _apply_zebra(ws, start_row=data_start, header_row=header_row, end_row=table_end)
     if has_total_row:
-        _apply_total_row(ws, row_idx=total_row)
-    _apply_conditional(ws, sheet_name, header_row=header_row, data_start=total_row + 1)
+        _apply_total_row(ws, row_idx=total_row, header_row=header_row)
+    _apply_conditional(ws, sheet_name, header_row=header_row, data_start=total_row + 1, data_end=table_end)
     _auto_width(ws)
+    # 补库建议 4 列（已并到主表右侧）：Alert Level 三色 + 列宽按实际显示宽度撑开
+    _style_replenish_columns(ws, header_row=header_row, data_end=table_end)
     ws.freeze_panes = f'A{header_row + 1}'
-    ws.auto_filter.ref = f'A{header_row}:{get_column_letter(ws.max_column)}{ws.max_row}'
+    ws.auto_filter.ref = f'A{header_row}:{get_column_letter(ws.max_column)}{table_end}'
     if sheet_name in SHEET_COLORS:
         ws.sheet_properties.tabColor = SHEET_COLORS[sheet_name]
     _apply_page_setup(ws)
+    return header_row
 
 
-def style_summary_changed(ws, sheet_name, warehouses, title=''):
+def _style_replenishment(ws, title_row, note_row, header_row, block_len, blank_row=None):
+    """【已停用，保留供回退】补库建议独立区块的样式。
+
+    补库 4 列现已并进 Summary-Current 主表右侧（按 Material Name 同行对齐），
+    样式由 `_style_replenish_columns()` + `_style_replenish_note()` 负责，本函数不再被调用。
+    若日后要退回「表身下方独立区块」的老版式，改回 `generate_report` 里的调用即可。
+
+    title_row / note_row / header_row 为套用 sheet 标题行之后的 1-based 行号。
+    """
+    n_cols = len(REPLENISH_COLS)
+    last_col = max(ws.max_column, n_cols)
+
+    # 区块上方留白行与标题、说明行：清掉斑马纹与边框，只留文字
+    for r in ([blank_row] if blank_row else []) + [title_row, note_row]:
+        for col in range(1, last_col + 1):
+            cell = ws.cell(r, col)
+            cell.fill = FILL_WHITE
+            cell.border = Border()
+            cell.font = FONT_CELL
+
+    c = ws.cell(title_row, 1)
+    c.font = FONT_TOTAL
+    c.alignment = ALIGN_LEFT
+    c = ws.cell(note_row, 1)
+    c.font = FONT_FILTER
+    c.alignment = ALIGN_LEFT
+
+    # 表头
+    for col in range(1, n_cols + 1):
+        cell = ws.cell(header_row, col)
+        cell.font = FONT_HEADER
+        cell.fill = FILL_HEADER
+        cell.alignment = ALIGN_HEADER
+        cell.border = BORDER_HEADER
+
+    # 数据行
+    last_data_row = header_row + block_len
+    for r in range(header_row + 1, last_data_row + 1):
+        zebra = FILL_ZEBRA if r % 2 == 0 else FILL_WHITE
+        for col in range(1, n_cols + 1):
+            cell = ws.cell(r, col)
+            cell.border = BORDER_CELL
+            if col == 1:
+                cell.font = FONT_CELL
+                cell.alignment = ALIGN_CELL
+                cell.fill = zebra
+            elif col == n_cols:
+                fill_rgb, font_rgb = ALERT_COLORS.get(str(cell.value).strip(), (None, None))
+                if fill_rgb:
+                    rgb = f'{fill_rgb[0]:02X}{fill_rgb[1]:02X}{fill_rgb[2]:02X}'
+                    cell.fill = PatternFill(start_color=rgb, end_color=rgb, fill_type='solid')
+                    cell.font = Font(name='Calibri', size=10,
+                                     color=f'{font_rgb[0]:02X}{font_rgb[1]:02X}{font_rgb[2]:02X}')
+                else:
+                    cell.font = FONT_CELL
+                    cell.fill = zebra
+                cell.alignment = ALIGN_HEADER
+            else:
+                cell.font = FONT_CELL
+                cell.alignment = ALIGN_NUM
+                cell.fill = zebra
+                if isinstance(cell.value, (int, float)):
+                    cell.number_format = NUM_FMT_DEC
+
+    # 列宽：中文字符按 2 个半角宽度计算，避免表头被截断
+    for idx, col_name in enumerate(REPLENISH_COLS, start=1):
+        letter = get_column_letter(idx)
+        need = _display_width(col_name) + 2
+        for r in range(header_row + 1, last_data_row + 1):
+            val = ws.cell(r, idx).value
+            if val is not None:
+                need = max(need, _display_width(_fmt_replenish_value(val)) + 2)
+        ws.column_dimensions[letter].width = max(ws.column_dimensions[letter].width or 0, min(need, 42))
+
+
+def style_summary_changed(ws, sheet_name, warehouses, title='', filter_note=''):
     """Style the Summary-Changed sheet with merged headers for Inbound and Outbound sections."""
     has_title = bool(title)
     if has_title:
-        _insert_title(ws, title, sheet_name)
-
-    header_row = 3 if has_title else 1
-    data_start = 4 if has_title else 2
+        header_row = _insert_title(ws, title, sheet_name, filter_note)
+    else:
+        header_row = 1
+    data_start = header_row + 1
 
     # Handle case when no warehouses exist
     num_warehouses = len(warehouses)
@@ -1219,25 +1651,55 @@ def _diff_color(val):
         return (r, g, b)
 
 
+def _load_cjk_font(size, bold=False):
+    """加载支持中文的字体（补库建议区块用）；找不到时退回 Arial / 默认位图字体。"""
+    for name in (('msyhbd.ttc', 'simhei.ttf', 'msyh.ttc') if bold else ('msyh.ttc', 'simhei.ttf', 'simsun.ttc')):
+        try:
+            return ImageFont.truetype(name, size)
+        except Exception:
+            continue
+    try:
+        return ImageFont.truetype('arialbd.ttf' if bold else 'arial.ttf', size)
+    except Exception:
+        return ImageFont.load_default()
+
+
 def _render_summary_image(summary_df, out_img_path, title='', has_total_row=True,
-                          row_h=28, char_w=9, font_size=14, section_groups=None):
+                          row_h=28, char_w=9, font_size=14, section_groups=None,
+                          extra_df=None, extra_title='', notes='', footer=''):
     """Render Summary DataFrame as a PNG image using Pillow.
 
     Args:
         section_groups: optional list of (label, start_col, end_col) tuples
                         for merged section header row (0-based, inclusive).
+        extra_df: optional second table rendered below the main table（补库建议早期版本用，
+                  现已并入主表右侧，保留以备回退）。
+        extra_title: caption line above the second table.
+        notes: optional caption lines right below the title（补库口径说明），str 或 tuple。
+        footer: optional caption lines under the table.
     """
     cols = summary_df.columns.tolist()
     n_rows = len(summary_df)
     n_cols = len(cols)
+    has_extra = extra_df is not None and len(extra_df) > 0
+    extra_cols = extra_df.columns.tolist() if has_extra else []
+    n_extra_rows = len(extra_df) if has_extra else 0
 
     # Dimensions (use positional access to support duplicate column names)
+    # 文本宽度按实际显示口径算（补库小数列保留 2 位小数，避免用整数宽度截断）
     col_widths = []
     for i, c in enumerate(cols):
-        max_w = len(str(c))
+        max_w = _display_width(c)
         for v in summary_df.iloc[:, i]:
-            max_w = max(max_w, len(str(v)))
+            max_w = max(max_w, _display_width(_fmt_summary_cell(c, v)))
         col_widths.append(max_w + 4)
+
+    extra_widths = []
+    for i, c in enumerate(extra_cols):
+        max_w = _display_width(c)
+        for v in extra_df.iloc[:, i]:
+            max_w = max(max_w, _display_width(_fmt_replenish_value(v)))
+        extra_widths.append(max_w + 4)
 
     try:
         font = ImageFont.truetype("arial.ttf", font_size)
@@ -1248,13 +1710,40 @@ def _render_summary_image(summary_df, out_img_path, title='', has_total_row=True
         font_bold = font
         font_title = font
 
+    # 补库建议区块含中文，Arial 无 CJK 字形，单独取中文字体
+    extra_font = extra_font_bold = extra_font_title = None
+    if has_extra:
+        extra_font = _load_cjk_font(font_size)
+        extra_font_bold = _load_cjk_font(font_size, bold=True)
+        extra_font_title = _load_cjk_font(font_size + 4, bold=True)
+
     header_h = font_size + 18
     title_h = font_size + 26
     section_h = header_h if section_groups else 0
     padding = 16
 
-    total_w = sum(col_widths) * char_w + padding * 2
-    total_h = title_h + section_h + header_h + n_rows * row_h + padding * 2
+    # 主表与补库表之间留 1 行空行；补库表 = [标题] + 表头 + 数据行
+    extra_h = (row_h + (title_h if extra_title else 0) + header_h + n_extra_rows * row_h
+               if has_extra else 0)
+
+    table_w = max(sum(col_widths) * char_w, sum(extra_widths) * char_w)
+    # 补库表等比拉伸到与主表同宽，避免右侧留白、与标题右边界错位
+    extra_w = sum(extra_widths) * char_w
+    if has_extra and 0 < extra_w < table_w:
+        extra_widths = [w * table_w / extra_w for w in extra_widths]
+    title_w = _display_width(extra_title) * char_w if (has_extra and extra_title) else 0
+    # 注意：notes/footer 默认是 ''，空串必须当作「没有说明行」，否则会多出一行空白高度
+    notes_lines = (notes,) if isinstance(notes, str) else tuple(notes or ())
+    notes_lines = tuple(t for t in notes_lines if t)
+    notes_h = len(notes_lines) * (font_size + 12)
+    notes_w = max((_display_width(t) * char_w for t in notes_lines), default=0)
+    footer_lines = (footer,) if isinstance(footer, str) else tuple(footer or ())
+    footer_lines = tuple(t for t in footer_lines if t)
+    footer_h = len(footer_lines) * (font_size + 12)
+    footer_w = max((_display_width(t) * char_w for t in footer_lines), default=0)
+    total_w = max(table_w, title_w, notes_w, footer_w) + padding * 2
+    total_h = (title_h + notes_h + section_h + header_h + n_rows * row_h
+               + extra_h + footer_h + padding * 2)
 
     img = Image.new('RGB', (total_w, total_h), (255, 255, 255))
     draw = ImageDraw.Draw(img)
@@ -1264,6 +1753,12 @@ def _render_summary_image(summary_df, out_img_path, title='', has_total_row=True
     if title:
         draw.text((padding, y), title, fill=(47, 84, 150), font=font_title)
         y += title_h
+
+    # 口径说明（表头之上）
+    for i, line in enumerate(notes_lines):
+        draw.text((padding, y + 6 + i * (font_size + 12)), line, fill=(68, 114, 196), font=font)
+    if notes_lines:
+        y += notes_h
 
     # Section header row (optional)
     if section_groups:
@@ -1301,9 +1796,16 @@ def _render_summary_image(summary_df, out_img_path, title='', has_total_row=True
             w = col_widths[i] * char_w
             val = row.iloc[i]
 
+            is_alert = (col == REPLENISH_ALERT_COL)
+            alert_bg, alert_fg = (None, None)
+            if is_alert:
+                alert_bg, alert_fg = ALERT_COLORS.get(str(val).strip(), (None, None))
+
             # Background
             if is_total:
                 bg = (214, 220, 228)
+            elif is_alert and alert_bg:
+                bg = alert_bg
             elif col == 'Difference' and not is_total:
                 bg = _diff_color(val if isinstance(val, (int, float)) else 0)
             elif is_zebra:
@@ -1314,19 +1816,16 @@ def _render_summary_image(summary_df, out_img_path, title='', has_total_row=True
             draw.rectangle([x, y, x + w, y + row_h], fill=bg, outline=(180, 198, 231))
 
             # Text
-            if isinstance(val, (int, float)):
-                txt = f"{int(val):,}"
-            elif val is None or (isinstance(val, float) and pd.isna(val)):
-                txt = "0"
-            else:
-                txt = str(val)
+            txt = _fmt_summary_cell(col, val)
             f = font_bold if is_total else font
             is_numeric = isinstance(val, (int, float)) or val is None or (isinstance(val, float) and pd.isna(val))
             is_zero = is_numeric and (val == 0 or val is None or (isinstance(val, float) and pd.isna(val)))
             # Center text horizontally
-            tx = x + (w - len(txt) * char_w) // 2
+            tx = x + (w - _display_width(txt) * char_w) // 2
             # Text color: light gray for 0 values, dark blue for total row, black otherwise
-            if is_zero:
+            if is_alert and alert_fg:
+                text_color = alert_fg
+            elif is_zero:
                 text_color = (192, 192, 192)
             elif is_total:
                 text_color = (31, 56, 100)
@@ -1335,6 +1834,42 @@ def _render_summary_image(summary_df, out_img_path, title='', has_total_row=True
             draw.text((tx, y + 3), txt, fill=text_color, font=f)
             x += w
         y += row_h
+
+    # 补库建议表（主表下方）：空 1 行 → 标题 → 表头 → 数据
+    if has_extra:
+        y += row_h
+        if extra_title:
+            draw.text((padding, y), extra_title, fill=(47, 84, 150), font=extra_font_title)
+            y += title_h
+
+        x = padding
+        for i, col in enumerate(extra_cols):
+            w = extra_widths[i] * char_w
+            draw.rectangle([x, y, x + w, y + header_h], fill=(47, 84, 150))
+            draw.text((x + 4, y + 5), str(col), fill=(255, 255, 255), font=extra_font_bold)
+            x += w
+        y += header_h
+
+        for row_idx in range(n_extra_rows):
+            row = extra_df.iloc[row_idx]
+            zebra = (242, 242, 242) if row_idx % 2 == 0 else (255, 255, 255)
+            x = padding
+            for i, col in enumerate(extra_cols):
+                w = extra_widths[i] * char_w
+                val = row.iloc[i]
+                txt = _fmt_replenish_value(val)
+                if col == REPLENISH_ALERT_COL:
+                    bg, fg = ALERT_COLORS.get(str(val).strip(), (zebra, (0, 0, 0)))
+                else:
+                    bg, fg = zebra, (0, 0, 0)
+                draw.rectangle([x, y, x + w, y + row_h], fill=bg, outline=(180, 198, 231))
+                tx = x + (w - _display_width(txt) * char_w) // 2
+                draw.text((tx, y + 3), txt, fill=fg, font=extra_font)
+                x += w
+            y += row_h
+
+    for i, line in enumerate(footer_lines):
+        draw.text((padding, y + 6 + i * (font_size + 12)), line, fill=(120, 120, 120), font=font)
 
     img.save(out_img_path, 'PNG')
     print(f"  Summary image: {out_img_path}")
@@ -1367,6 +1902,24 @@ def _resolve_output_path(out_path):
                 seq += 1
 
 
+# 过滤条件说明行：写在每个 sheet 标题下方，方便收件人直接核对报表口径。
+# kind: 'inbound' / 'outbound' / 'inventory' / 'summary'
+def _build_filter_note(kind, material_type, warehouse_name=''):
+    """Build the filter-condition caption shown under a sheet title."""
+    parts = [f'Material Type = {material_type}']
+    if warehouse_name:
+        parts.append(f"Warehouse Name = '{warehouse_name}'")
+    parts.append(f"Warehouse Name \u2260 '{EXCLUDE_WAREHOUSE}'")
+    if kind in ('inbound', 'outbound'):
+        parts.append('Excluded orders: in&out_exclude.xlsx [sheet 3: excluded order serial details]')
+        parts.append(f"Operation Result Status \u2260 '{OP_RESULT_DROP_STATUS[0]}'")
+    if kind == 'outbound':
+        parts.append(f"Status \u2260 '{OUTBOUND_DROP_STATUS[0]}'")
+    if kind == 'summary':
+        parts.append('same exclusions as the Inbound / Outbound / Inventory sheets')
+    return 'Filters:  ' + '  |  '.join(parts)
+
+
 def generate_report(material_type, out_path, inb_src, outb_src, inv_src, timestamp_str, warehouse_name='', generate_image=True):
     """Generate one output workbook + Summary image (optional) for a given Material Type and Warehouse."""
     out_path = _resolve_output_path(out_path)
@@ -1379,6 +1932,19 @@ def generate_report(material_type, out_path, inb_src, outb_src, inv_src, timesta
     inv_df = inv_src.loc[inv_src['Material Type'].eq(material_type), INVENTORY_COLS]
 
     summary = build_summary(inb_df, outb_df, inv_df)
+    # 补库建议：4 列按 Material Name 并到 Summary-Current 汇总表右侧（同一行）
+    # （历史消耗已剔除 REPLENISH_EXCLUDE_ORDERS 两张异常单据）
+    base_cols = list(summary.columns)
+    total_mask = summary['Material Name'].astype(str).str.strip().eq('Total')
+    body = summary.loc[~total_mask].copy()
+    replenish = build_replenishment(outb_df, inv_df,
+                                    base_index=body['Material Name'].tolist())
+    body[REPLENISH_EXTRA_COLS] = replenish[REPLENISH_EXTRA_COLS].to_numpy()
+    total_row = summary.loc[total_mask].copy()
+    for c in REPLENISH_INT_COLS:                          # Total 行：数值列给合计（各行已取整，合计仍为整数）
+        total_row[c] = int(body[c].sum())
+    total_row[REPLENISH_ALERT_COL] = None                 # Alert Level 合计无意义，留空
+    summary = pd.concat([total_row, body], ignore_index=True)[base_cols + REPLENISH_EXTRA_COLS]
     summary_changed, warehouses = build_summary_changed(inb_df, outb_df, timestamp_str)
     title_prefix = 'SpareParts' if is_sp else 'Consumables'
     
@@ -1388,6 +1954,12 @@ def generate_report(material_type, out_path, inb_src, outb_src, inv_src, timesta
     # Fill None with 0 for Excel output
     summary_changed_filled = summary_changed.fillna(0)
 
+    # 每个 sheet 标题下的过滤条件说明（与 generate_report 实际套用的过滤链保持一致）
+    note_in = _build_filter_note('inbound', material_type, warehouse_name)
+    note_out = _build_filter_note('outbound', material_type, warehouse_name)
+    note_inv = _build_filter_note('inventory', material_type, warehouse_name)
+    note_sum = _build_filter_note('summary', material_type, warehouse_name)
+
     # Write Excel
     with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
         summary.to_excel(writer, sheet_name='Summary-Current', index=False)
@@ -1396,16 +1968,26 @@ def generate_report(material_type, out_path, inb_src, outb_src, inv_src, timesta
         outb_df.to_excel(writer, sheet_name='Outbound', index=False)
         inv_df.to_excel(writer, sheet_name='Inventory', index=False)
 
-        style_excel(writer.sheets['Summary-Current'], 'Summary-Current', has_total_row=True,
-                    title=f'{title_prefix} Inbound & Outbound & Inventory Summary{warehouse_suffix}')
+        # 补库建议的 4 列已并进汇总表右侧；口径说明写在表头之上（见 extra_notes）
+        cur = writer.sheets['Summary-Current']
+        cur_len = len(summary) + 1                                   # 汇总表占用的行数（表头 + 数据）
+
+        style_excel(cur, 'Summary-Current', has_total_row=True,
+                    title=f'{title_prefix} Inbound & Outbound & Inventory Summary{warehouse_suffix}',
+                    filter_note=note_sum, table_rows=cur_len,
+                    extra_notes=REPLENISH_NOTES)
         style_summary_changed(writer.sheets['Summary-Changed'], 'Summary-Changed', warehouses,
-                              title=f'{title_prefix} Daily Statistics{warehouse_suffix}')
+                              title=f'{title_prefix} Daily Statistics{warehouse_suffix}',
+                              filter_note=note_sum)
         style_excel(writer.sheets['Inbound'], 'Inbound',
-                    title=f'{title_prefix} Inbound Details{warehouse_suffix}')
+                    title=f'{title_prefix} Inbound Details{warehouse_suffix}',
+                    filter_note=note_in)
         style_excel(writer.sheets['Outbound'], 'Outbound',
-                    title=f'{title_prefix} Outbound Details{warehouse_suffix}')
+                    title=f'{title_prefix} Outbound Details{warehouse_suffix}',
+                    filter_note=note_out)
         style_excel(writer.sheets['Inventory'], 'Inventory',
-                    title=f'{title_prefix} Inventory Details{warehouse_suffix}')
+                    title=f'{title_prefix} Inventory Details{warehouse_suffix}',
+                    filter_note=note_inv)
 
     print(f'Generated: {out_path}')
     print(f'  Inbound: {len(inb_df)}, Outbound: {len(outb_df)}, Inventory: {len(inv_df)}, Summary: {len(summary)}')
@@ -1416,7 +1998,8 @@ def generate_report(material_type, out_path, inb_src, outb_src, inv_src, timesta
         img_path = Path(out_path).with_suffix('.png')
         img_path = _resolve_output_path(str(img_path))
         _render_summary_image(summary, img_path,
-                              title=f'{title_prefix} Summary{warehouse_suffix}  |  {timestamp_str}')
+                              title=f'{title_prefix} Summary{warehouse_suffix}  |  {timestamp_str}',
+                              notes=REPLENISH_NOTES)
 
         # Summary-Changed image: filter by date, keep rows up to yesterday
         if len(summary_changed) > 0:
@@ -1515,7 +2098,14 @@ def main():
     # Step 2.2: 出库明细剔除 Status='WaitingForUpdate'，并写回保存
     inb, outb, _status_stats = apply_status_filters(inb, outb)
 
-    # Step 2.3: 用 inventory 的 Material Name / Material Type 覆盖两份明细同名字段，并写回保存
+    # Step 2.3: 入库/出库明细剔除 Operation Result Status='Canceled'，并写回保存
+    inb, outb, _opres_stats = apply_operation_result_filter(inb, outb)
+
+    # Step 2.4: 转仓明细（只进 SP Details Report）同样剔除 Canceled 行，并写回保存
+    _opres_transfer = apply_operation_result_filter_to_file(TRANSFER_PATH, 'transfer')
+    _opres_transfer_ret = apply_operation_result_filter_to_file(TRANSFER_RETURN_PATH, 'transfer_return')
+
+    # Step 2.5: 用 inventory 的 Material Name / Material Type 覆盖两份明细同名字段，并写回保存
     inb, outb, _matname_stats = apply_inventory_fields(inb, outb, inv)
 
     # Step 3: Filter inbound and outbound types  —— 2026-09-08 停用（保留 ②仓库 与 ③Material Type）
@@ -1575,6 +2165,11 @@ def main():
     if _matname_stats:
         print(f'[MatSync] 汇总: inbound 覆盖 {_matname_stats.get("inbound", 0)} 行, '
               f'outbound 覆盖 {_matname_stats.get("outbound", 0)} 行')
+    if _opres_stats or _opres_transfer or _opres_transfer_ret:
+        print(f'[OpResult] 汇总: inbound 剔除 {_opres_stats.get("inbound", 0)} 行, '
+              f'outbound 剔除 {_opres_stats.get("outbound", 0)} 行, '
+              f'transfer 剔除 {_opres_transfer} 行, '
+              f'transfer_return 剔除 {_opres_transfer_ret} 行')
 
     elapsed = (datetime.now() - t0).total_seconds()
     print(f'Done. Total time: {elapsed:.1f}s')

@@ -141,7 +141,9 @@ function unwrapPayload<T extends object>(payload: unknown): T {
 }
 
 export default function SpMaterialSummary() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
+  // 后端按 lang 组装 warnings 文案（'en' 走英文），切语言时需重新拉取
+  const lang = locale === 'en' ? 'en' : 'zh'
   const { isDark } = useTheme()
 
   const [data, setData] = useState<SummaryResp | null>(null)
@@ -172,7 +174,7 @@ export default function SpMaterialSummary() {
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const params: Record<string, string> = {}
+      const params: Record<string, string> = { lang }
       if (anchorInput) params.anchor_date = anchorInput
       const r = await getSpMaterialSummary(params)
       setData(unwrapPayload<SummaryResp>(r.data))
@@ -183,7 +185,7 @@ export default function SpMaterialSummary() {
     } finally {
       setLoading(false)
     }
-  }, [anchorInput])
+  }, [anchorInput, lang])
 
   useEffect(() => { load() }, [load])
 
@@ -200,7 +202,7 @@ export default function SpMaterialSummary() {
     setDrillRows([]); setDrillCols([]); setDrillWarn([]); setDrillSearch('')
     setDrillTitle(`${rowLabel} · ${t(SCOPE_LABEL[scope])}`)
     try {
-      const params: Record<string, string> = { row_key: rowKey, scope }
+      const params: Record<string, string> = { row_key: rowKey, scope, lang }
       if (anchorInput) params.anchor_date = anchorInput
       const r = await getSpMaterialDetail(params)
       const d = unwrapPayload<{
@@ -215,7 +217,7 @@ export default function SpMaterialSummary() {
     } finally {
       setDrillLoading(false)
     }
-  }, [anchorInput, t])
+  }, [anchorInput, t, lang])
 
   // ---- 下钻明细：客户端跨字段搜索 ----
   const filteredDrill = useMemo(() => {

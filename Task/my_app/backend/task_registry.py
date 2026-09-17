@@ -501,6 +501,16 @@ TASK_SPECS = [
          description_en="MW UME (ZXMW microwave) realtime KPI sync (FINBI 15-min granularity): every 15 min fetch the last 2 hours, in-memory export without disk, direct write to app.db table mw_ume_bw_ultilazation_rt (dashboard uses only the latest 15-min slot)",
          default_cron="*/15 * * * *", category="mw_ume"),
 
+    # 33. UME Dong customer 周度业务 KPI 同步（每天 05:45）
+    #     门户 172.17.208.1:28808（em-portal），抓 7 个模板（IVR/P4M/VC/USSD/PPS/CPU/Memory），
+    #     内存导出不落盘，直写主库表 ume_in_customer_kpi（Begin Time + KPI + NE + SERVICE 联合去重）。
+    #     看板「客户业务 KPI」页 = frontend/src/pages/UmeInKpi.tsx（pageKey ume_in_kpi）。
+    dict(task_id="ume_in_kpi_sync", name="客户业务 KPI 同步", name_en="Customer Service KPI Sync",
+         loader=("backend.services.ume_in.ume_in_kpi_service", "run_ume_in_kpi_sync"),
+         description="从 UME 门户 172.17.208.1:28808 抓取 Dong customer 周度业务 KPI（IVR / P4M / VC / USSD / PPS / CPU / Memory 共 7 个模板，1 天粒度，默认回看 7 天），内存导出不落盘，直写主库表 ume_in_customer_kpi（Begin Time + KPI + NE + SERVICE 联合去重）",
+         description_en="Fetch Dong customer weekly service KPIs from UME portal 172.17.208.1:28808 (7 templates: IVR / P4M / VC / USSD / PPS / CPU / Memory, 1-day granularity, 7-day lookback), in-memory export without disk, direct write to table ume_in_customer_kpi (dedup by Begin Time + KPI + NE + SERVICE)",
+         default_cron="45 5 * * *", category="ume_in"),
+
     # 34b. SP Online 在线工单同步（每小时第 35 分钟）：从 eFlow SP 接口拉全量
     dict(task_id="sp_online_sync", name="SP Online 工单同步", name_en="SP Online Ticket Sync",
          loader=("backend.services.sp_online_sync", "run_sp_online_sync"),
@@ -563,6 +573,56 @@ TASK_SPECS = [
          description="清理 my_app/log 下超过保留期（默认7天）的日志文件，并把已无进程写入的旧命名日志补上日期后缀；与各 watchdog 按日期命名配合实现滚动保留",
          description_en="Purge log files older than retention (default 7 days) under my_app/log; rename legacy no-longer-written logs with a date suffix",
          default_cron="17 3 * * *", category="general"),
+
+    # 40. VMAX CXO 天粒度日值归档（每小时 :15，2026-09-15 新增，服务 vmaxCxoDashboard_Daily 页）：
+    #     VMAX 无原生天粒度（Granularity 枚举只到 1hour），故拉 1hour 明细本地按日聚合。
+    #     上游小时明细仅保留约 8 天 -> 必须每天落盘累积成自己的日存，才能铺满「本周/前一周/前两周」。
+    #     独立文件 + 独立目录 data/vmax_cxo_daily/，不读写 cxo_dashboard 的 last_known_good，
+    #     也不调用 ensure_proxy（不把重启逻辑压到现有看板共用的 8790 代理上），故与任务 36 互不影响。
+    dict(task_id="vmax_cxo_daily_sync", name="VMAX CXO天粒度日值归档", name_en="VMAX CXO Daily Value Archive",
+         loader=("backend.services.vmax_cxo_daily_cache", "run_vmax_cxo_daily_sync"),
+         description="每小时经8790 VMAX代理按监控批量拉取最近8天的1hour明细（共50个指标：6个CXO趋势 + 14个网络KPI + 30个服务/OTT KPI，压成8个多列请求），按流量SUM/用户PEAK/速率AVG聚合为日值，落盘 data/vmax_cxo_daily/daily.json 供页签化天粒度看板累积回看三周",
+         description_en="Hourly: batch-pull the last 8 days of 1-hour detail for 50 KPIs (6 CXO trend + 14 network + 30 service/OTT) from the 8790 VMAX proxy as 8 multi-column requests, aggregate per day (SUM for volume, PEAK for users, AVG for rates) into data/vmax_cxo_daily/daily.json for the tabbed daily board",
+         default_cron="15 * * * *", category="general"),
+
+    # 41. VMAX 多报表指标采集（每小时 :45，2026-09-16 新增）：按用户抓包的 vreport 请求
+    #     （backend/services/vmax_multi_data/url.txt）从 VMAX 取两个 CIService 报表的指标：
+    #       sys_5gsa_traffic_ciservice（5GSA 流量，表 aggr_5gsa_flow_ciservice）
+    #       sys_5gsa_video_ciservice （5GSA 视频）
+    #     走 server/report_query（RSA encryptLong 信封 + X-Content-Type: application/x-vmax-s-rsa-encrypted），
+    #     维度/指标默认取 design.json 的 defaultSelected，可在配置里指定；
+    #     落盘 data/vmax_multi_data/<key>_latest.json + vmax_multi_data.sqlite3（kpi_rows/sync_runs）。
+    #     与任务 40 错峰（:15/:45），同样复用 8790 代理会话，不新开 VMAX 门户会话。
+    dict(task_id="vmax_multi_data_sync", name="VMAX 多报表指标采集", name_en="VMAX Multi-Report KPI Collect",
+         loader=("backend.services.vmax_multi_data.vmax_multi_data_service", "run_vmax_multi_data_sync"),
+         description="每小时经8790 VMAX代理按 url.txt 抓包的 vreport 报表（sys_5gsa_traffic_ciservice 5GSA流量 / sys_5gsa_video_ciservice 5GSA视频）拉取指标明细（report_query，RSA分块加密参数），落盘 data/vmax_multi_data/<报表>_latest.json 与 vmax_multi_data.sqlite3（kpi_rows 明细 + sync_runs 运行记录）",
+         description_en="Hourly: fetch the vreport reports captured in url.txt (sys_5gsa_traffic_ciservice / sys_5gsa_video_ciservice) from VMAX via the 8790 proxy using server/report_query (RSA-encrypted params), persisting to data/vmax_multi_data/<key>_latest.json and vmax_multi_data.sqlite3 (kpi_rows + sync_runs)",
+         default_cron="45 * * * *", category="general"),
+
+    # 42. OLIB SOC VMAX 例行报表（每月 1 日 07:30，2026-09-16 新增）：用户 notebook
+    #     （OLIB SOC VMAX Routine Report）原本是人工在 JupyterLab 上按天循环 SQL 出 Excel；
+    #     这里直连数仓 GBase 8a（10.123.255.12:5258，MySQL 协议，pymysql）自动化。
+    #     9 个块 → 9 个 sheet：traffic / Active_user / cache / GUW / Video / game / TCP /
+    #     df_TOP_Service / df_TOP_Video，SQL 从 notebook 原样移植（表族 _day_ 分区 ≈90 天）。
+    #     与任务 41 的区别：41 走门户 vreport 接口（只有预聚合粒度 + TopN 截断），
+    #     本任务走数仓明细，能出业务/APP/缓存服务器/网元维度；已与门户口径逐字节对账一致。
+    #     产物 data/olib_soc_report/OLIB SOC VMAX <label>.xlsx + olib_soc_report.sqlite3。
+    dict(task_id="olib_soc_vmax_report", name="OLIB SOC VMAX 例行报表", name_en="OLIB SOC VMAX Routine Report",
+         loader=("backend.services.olib_soc_report.olib_soc_report_service", "run_olib_soc_report"),
+         description="直连 VMAX 数仓 GBase（10.123.255.12:5258, 库 zxvmax）按日分区跑 notebook 移植的 9 段 SQL（traffic/Active_user/cache/GUW/Video/game/TCP/TOP业务/TOP视频），生成多 sheet Excel 与运行记录；默认出上一个自然月，可配 last_n_days/weekly/explicit，窗口自动截断到数仓 90 天保留期内",
+         description_en="Direct GBase DWH queries (daily partitions) for the 9 notebook report blocks, producing a multi-sheet Excel plus run records; default window = previous calendar month, clamped to the ~90-day partition retention",
+         default_cron="30 7 1 * *", category="olib_soc"),
+
+    # 43. OLIB SOC 看板 KPI 每日增量（06:20，2026-09-16 新增）：给 VMAX 90 天经营看板
+    #     （?page=vmaxCxoDashboard_90Days）供数。只跑看板需要的 7 个块、只补 daily_kpi 里
+    #     缺的日期（默认回看 7 天，幂等自愈），正常情况下每天 1 天数据、几秒钟，不出 Excel。
+    dict(task_id="olib_soc_kpi_daily_sync", name="OLIB SOC 看板 KPI 增量", name_en="OLIB SOC Dashboard KPI Sync",
+         loader=("backend.services.olib_soc_report.olib_soc_report_service", "run_olib_soc_kpi_sync"),
+         description="每日增量补齐 VMAX 90 天经营看板的 KPI 库（daily_kpi 表）：只跑流量/活跃用户/缓存/视频/游戏/TCP/TOP业务 7 个块，只取缺的日期 + 重取最新 1 天（默认回看 7 天，幂等自愈），不出 Excel",
+         description_en="Daily incremental fill of the 90-day CXO dashboard KPI store (daily_kpi): 7 dashboard blocks, missing days plus the newest day re-read (7-day lookback, idempotent), no Excel output",
+         # 06:20（服务器 UTC）：数仓「前一天」分区不一定在零点后立刻完成，
+         # 与 ems_kpi_daily(05:20) 同一批早班；配合 refresh_last_days 双保险。
+         default_cron="20 6 * * *", category="olib_soc"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========
@@ -581,6 +641,8 @@ CATEGORY_GATEWAY: dict[str, str] = {
     "network_kpi": "ran_ume",
     "packet_loss": "ran_ume",
     "cm_data": "ran_ume",
+    # UME Dong customer 业务 KPI（门户 172.17.208.1:28808，同属 UME 家族）
+    "ume_in": "ran_ume",
     # CNN / iPRAN UME 核心网与路由器
     "cnn_kpi": "cnn_ume",
     "ipran_kpi": "ipran_ume",
@@ -603,6 +665,8 @@ CATEGORY_GATEWAY: dict[str, str] = {
     "ms_sla": "system",
     "mailbox": "system",
     "general": "system",
+    # VMAX 数仓 GBase 8a 直连（10.123.255.12:5258，只读取数）
+    "olib_soc": "vmax_gbase",
 }
 
 # 将 gateway 注入每个 spec，作为一级分组真相源（前端按此动态分组，不再硬编码 ROW_GROUPS）

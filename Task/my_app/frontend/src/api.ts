@@ -74,6 +74,18 @@ export function getRanCellsKpiCells(params?: Record<string, string | number>) {
   return api.get('/ran-cells-kpi/cells', { params })
 }
 
+// 客户业务 KPI（UME Dong customer 周度指标：IVR / P4M / VC / USSD / PPS / CPU / Memory）
+// 数据源：主库表 ume_in_customer_kpi，由 ume_in_kpi_sync 任务（每日 05:45）写入。
+// params: days=7|14|30（回看天数，按已有数据的最后 N 天）
+export function getUmeInOverview(params?: Record<string, string | number>) {
+  return api.get('/ume-in/overview', { params })
+}
+
+// 立即从 UME 门户（172.17.208.1:28808）抓取 7 个模板并写库（约 10~60 秒）
+export function syncUmeIn(params?: Record<string, string | number>) {
+  return api.post('/ume-in/sync', null, { params, timeout: 300000 })
+}
+
 // SP 物料库存/消耗统计汇总（WH/DOP 汇总报表模板）
 // 数据源：db/app.db inventory_details（每日全量快照，由 sp 数据同步任务写入）
 // 口径见 backend/services/sp_material_summary_service.py 顶部 docstring

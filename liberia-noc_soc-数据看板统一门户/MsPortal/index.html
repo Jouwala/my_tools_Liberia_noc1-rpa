@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZTE OLR MS 管理平台 - Liberia 门户看板 (ZTE OLR MS Management Platform)</title>
+<!-- 显式声明图标：否则浏览器会回退去请求站点根的 /favicon.ico，产生 404 -->
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="alternate icon" href="favicon.svg">
+<meta name="description" content="ZTE OLR MS Management Platform — Liberia NOC/SOC 自动化工具平台入口，统一聚合 CXO / MS / FO / FLM / BO / System Admin 各视图看板。">
+<!-- 本地资源，零 CDN 依赖，内网断网可用 -->
+<link rel="stylesheet" href="assets/icons/phosphor.css">
+<link rel="stylesheet" href="assets/tailwind.css">
+<link rel="stylesheet" href="assets/portal.css">
+<script>
+/* 主题首屏防闪烁（默认浅色，与 ref.html 一致；用户选择存 localStorage） */
+(function () {
+  try {
+    var t = localStorage.getItem('msportal.theme.v1');
+    if (t === 'dark') document.documentElement.classList.add('dark');
+    var l = localStorage.getItem('msportal.lang.v1');
+    if (l === 'en') document.documentElement.setAttribute('lang', 'en');
+  } catch (e) { /* ignore */ }
+})();
+</script>
+</head>
+<body class="text-slate-800 antialiased min-h-screen flex flex-col">
+
+<!-- ===================== BEGIN: TopHeader ===================== -->
+<header class="w-full bg-gradient-to-r from-[#07172c] via-[#002b49] to-[#041d38] border-b border-cyan-500/30 text-white shadow-lg sticky top-0 z-50">
+  <div class="w-full px-4 lg:px-6 py-3 flex items-center relative">
+    <div class="w-full flex items-center justify-center py-1.5">
+      <h1 class="text-[22px] lg:text-[24px] font-bold tracking-wide text-white flex items-center gap-2 font-mono">
+        <span class="text-cyan-400 font-extrabold">ZTE</span> OLR MS Management Platform
+      </h1>
+    </div>
+    <div class="absolute right-4 lg:right-6 top-1/2 -translate-y-1/2 flex items-center gap-2">
+      <span class="hidden xl:inline-flex items-center gap-1.5 text-[13px] text-emerald-300/90">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 status-pulse-green"></span>
+        <span data-i18n="header.live">生产运行</span>
+      </span>
+      <span class="hidden lg:inline font-mono text-[13px] text-cyan-200/75" id="clock">--:--:--</span>
+      <div class="seg" role="group" aria-label="Language">
+        <button type="button" class="seg-btn" data-lang="zh">中文</button>
+        <button type="button" class="seg-btn" data-lang="en">EN</button>
+      </div>
+      <button type="button" class="icon-btn" id="themeBtn" title="深色 / 浅色" aria-label="Toggle theme">
+        <svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>
+      </button>
+      <span class="auth-user-badge" id="authUserBadge" hidden></span>
+      <button type="button" class="btn-ghost" id="logoutBtn" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        <span data-i18n="auth.logout">退出登录</span>
+      </button>
+      <a class="btn-ghost" href="/uniplam/" title="返回 uniplam 数据看板门户">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+        <span>uniplam</span>
+      </a>
+    </div>
+  </div>
+</header>
+<!-- ===================== END: TopHeader ===================== -->
+
+<!-- ===================== BEGIN: ControlBar ===================== -->
+<div class="control-bar">
+  <div class="control-inner">
+    <label class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <input type="search" id="searchInput" data-i18n-attr="placeholder:search.placeholder" placeholder="搜索看板名称、描述、责任人、标签…">
+    </label>
+
+    <div class="chips" id="filterChips"></div>
+
+    <div class="control-actions">
+      <button type="button" class="btn-soft" id="editBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>
+        <span data-i18n="btn.editGroups">编辑分组归属</span>
+      </button>
+      <button type="button" class="btn-soft" id="addBoardBtn" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        <span data-i18n="btn.addBoard">新增看板</span>
+      </button>
+      <button type="button" class="btn-soft" id="manageBtn" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"></path></svg>
+        <span data-i18n="btn.manageGroups">分组管理</span>
+      </button>
+      <button type="button" class="btn-soft" id="exportBtn" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        <span data-i18n="btn.export">导出 JSON</span>
+      </button>
+      <button type="button" class="btn-soft" id="importBtn" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+        <span data-i18n="btn.import">导入 JSON</span>
+      </button>
+      <button type="button" class="btn-soft danger" id="resetBtn" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
+        <span data-i18n="btn.reset">恢复默认</span>
+      </button>
+      <!-- 看板目录回滚：删除服务端全局目录，所有人回到 data.js 内置的 51 个看板。
+           与上面的「恢复默认」不同 —— 那个只清本机分组改动，这个影响所有电脑，
+           所以单独一个按钮 + 二次确认。 -->
+      <button type="button" class="btn-soft danger" id="boardResetBtn" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
+        <span data-i18n="btn.boardReset">恢复出厂目录</span>
+      </button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+    </div>
+  </div>
+  <p class="edit-hint" id="editHint" hidden data-i18n="edit.hint">
+    编辑模式：卡片右上角可「编辑 / 删除」看板，分组标签 × 可移出该分组；改动保存到服务器，所有人可见。
+  </p>
+</div>
+<!-- ===================== END: ControlBar ===================== -->
+
+<!-- ===================== BEGIN: MainDashboardContent ===================== -->
+<main class="flex-1 w-full p-4 lg:p-5 space-y-4">
+
+  <!-- 未登录门禁：显隐由 assets/portal.js 的 REQUIRE_LOGIN_FOR_CATALOG 控制 -->
+  <section id="secGate" aria-label="Sign-in required" hidden></section>
+
+  <!-- CXO View -->
+  <section id="secCxo" aria-label="CXO View" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+
+  <!-- Quality Control -->
+  <section id="secQc" aria-label="Quality Control" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+
+  <!-- Core Layout Grid (3 Columns, equal width: Left MS & FLM / Center Topology Map & System Admin / Right BO & FO) -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+
+    <!-- LEFT COLUMN: MS VIEW & FLM VIEW -->
+    <div class="lg:col-span-4 xl:col-span-4 space-y-4">
+      <section id="secMs" aria-label="MS View" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+      <section id="secFlm" aria-label="FLM View" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+    </div>
+
+    <!-- CENTER COLUMN: GIS TOPOLOGY & SYSTEM ADMIN -->
+    <div class="lg:col-span-8 xl:col-span-4 space-y-4">
+      <section id="secTopo" aria-label="Central Liberia Regional Topology" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80 flex flex-col"></section>
+      <section id="secAdmin" aria-label="System Admin" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+      <!-- 当前实际目录中中列地图 + System Admin 高度接近左列，Q&A 放这里可填平两者尾部空档 -->
+      <section id="secQa" aria-label="Knowledge Q&A" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+    </div>
+
+    <!-- RIGHT COLUMN: BO VIEW & FO VIEW + SUPPORT PANEL -->
+    <div class="lg:col-span-12 xl:col-span-4 space-y-4">
+      <section id="secBo" aria-label="BO View" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+      <section id="secFo" aria-label="FO View" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+      <!-- Friends 只有 1 个入口，放在右列尾部，避免底部双栏制造大片空白 -->
+      <section id="secFriends" aria-label="Friends Links" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+    </div>
+  </div>
+  <!-- END: Core Layout Grid -->
+
+  <!-- User-created groups -->
+  <div id="secExtra" class="space-y-4"></div>
+</main>
+<!-- ===================== END: MainDashboardContent ===================== -->
+
+<!-- ===================== BEGIN: PageFooter ===================== -->
+<footer class="bg-white border-t border-slate-200 mt-6 py-3.5 px-6 text-slate-500 text-sm text-center flex flex-col sm:flex-row items-center justify-between gap-2">
+  <div>
+    © 2026 ZTE Corporation. <span data-i18n="footer.copy">中兴通讯股份有限公司 版权所有</span> | <span data-i18n="footer.branch">利比里亚办事处网络运营中心 (OLR MS)</span>
+  </div>
+  <div class="flex items-center gap-4 text-[13px]">
+    <span class="inline-flex items-center gap-1 text-emerald-600"><i class="ph ph-shield-check"></i> <span data-i18n="footer.compliance">安全合规模式运行</span></span>
+    <span data-i18n="footer.source">分组依据：看板清单 (分组优化）</span>
+    <span class="font-mono">Ver 5.1.0-LR</span>
+  </div>
+</footer>
+<!-- ===================== END: PageFooter ===================== -->
+
+<!-- ===================== BEGIN: GroupManagerModal ===================== -->
+<div class="modal-mask" id="modalMask" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head">
+      <h3 id="modalTitle" data-i18n="modal.title">分组管理</h3>
+      <button type="button" class="icon-btn small" id="modalClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <table class="group-table">
+        <thead>
+          <tr>
+            <th data-i18n="modal.colZh">分组名称（中文）</th>
+            <th data-i18n="modal.colEn">分组名称（English）</th>
+            <th data-i18n="modal.colCount">看板数</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="groupTableBody"></tbody>
+      </table>
+      <div class="modal-add">
+        <input type="text" id="newGroupZh" placeholder="新分组中文名 / Chinese name">
+        <input type="text" id="newGroupEn" placeholder="English name">
+        <button type="button" class="btn-soft primary" id="addGroupBtn" data-i18n="modal.add">新增分组</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="modal-note" data-i18n="modal.note">分组改名 / 新增会立即生效，并保存在本机浏览器；删除分组不会删除看板本身。</span>
+    </div>
+  </div>
+</div>
+<!-- ===================== END: GroupManagerModal -->
+
+<!-- ===================== BEGIN: QcDrillModal =====================
+     Quality Control 指标卡的下钻明细弹窗。表头 / 行 / 分页文本由 portal.js 填充，
+     这里只放骨架与中英静态文案（data-i18n、data-i18n-attr 由 render() 统一套用）。
+     ================================================================ -->
+<div class="modal-mask" id="qcMask" hidden>
+  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="qcTitle">
+    <div class="modal-head">
+      <h3 id="qcTitle">Quality Control</h3>
+      <button type="button" class="icon-btn small" id="qcClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="qc-tools">
+        <input type="search" id="qcSearch" autocomplete="off" data-i18n-attr="placeholder:qc.search">
+        <button type="button" class="btn-soft" id="qcReload" data-i18n="qc.reload">刷新</button>
+        <button type="button" class="btn-soft" id="qcExport" data-i18n="qc.export">导出 CSV</button>
+      </div>
+      <div class="qc-scroll" id="qcScroll">
+        <table class="qc-table">
+          <thead id="qcThead"></thead>
+          <tbody id="qcTbody"></tbody>
+        </table>
+      </div>
+      <div class="modal-note qc-hint" data-i18n="qc.filterHint"></div>
+    </div>
+    <div class="modal-foot">
+      <div class="qc-foot">
+        <span class="modal-note" id="qcCount"></span>
+        <span class="qc-pager">
+          <button type="button" class="btn-soft" id="qcPrev">‹</button>
+          <span class="qc-page" id="qcPage"></span>
+          <button type="button" class="btn-soft" id="qcNext">›</button>
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ===================== END: QcDrillModal ===================== -->
+
+<!-- ===================== BEGIN: BoardEditModal =====================
+     看板新增 / 编辑弹窗（字段与 data.js 的看板对象一一对应，参考 uniplam 的
+     DashboardModal 设计）。select 的 option 文本与分组多选框由 portal.js 在
+     openBoardForm() 时按当前语言重建，这里只放空骨架。
+     ================================================================ -->
+<div class="modal-mask" id="boardMask" hidden>
+  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="boardTitle">
+    <div class="modal-head">
+      <h3 id="boardTitle" data-i18n="board.addTitle">新增看板</h3>
+      <button type="button" class="icon-btn small" id="boardClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="board-form">
+        <label class="bf-field">
+          <span data-i18n="board.fTitleZh">标题（中文）*</span>
+          <input type="text" id="bfTitleZh" autocomplete="off">
+        </label>
+        <label class="bf-field">
+          <span data-i18n="board.fTitleEn">标题（English）</span>
+          <input type="text" id="bfTitleEn" autocomplete="off">
+        </label>
+        <label class="bf-field bf-full">
+          <span data-i18n="board.fUrl">链接 URL *</span>
+          <input type="text" id="bfUrl" autocomplete="off" placeholder="http://192.168.100.20/myapp/?page=...">
+        </label>
+        <label class="bf-field bf-full">
+          <span data-i18n="board.fDescZh">描述（中文）</span>
+          <textarea id="bfDescZh" rows="2"></textarea>
+        </label>
+        <label class="bf-field bf-full">
+          <span data-i18n="board.fDescEn">描述（English）</span>
+          <textarea id="bfDescEn" rows="2"></textarea>
+        </label>
+        <label class="bf-field">
+          <span data-i18n="board.fPlatform">平台</span>
+          <select id="bfPlatform"></select>
+        </label>
+        <label class="bf-field">
+          <span data-i18n="board.fStatus">状态</span>
+          <select id="bfStatus"></select>
+        </label>
+        <label class="bf-field">
+          <span data-i18n="board.fOwner">责任人（中文）</span>
+          <input type="text" id="bfOwner" autocomplete="off">
+        </label>
+        <label class="bf-field">
+          <span data-i18n="board.fOwnerEn">责任人（English）</span>
+          <input type="text" id="bfOwnerEn" autocomplete="off">
+        </label>
+        <label class="bf-field">
+          <span data-i18n="board.fDept">部门（中文）</span>
+          <input type="text" id="bfDept" autocomplete="off">
+        </label>
+        <label class="bf-field">
+          <span data-i18n="board.fDeptEn">部门（English）</span>
+          <input type="text" id="bfDeptEn" autocomplete="off">
+        </label>
+        <label class="bf-field">
+          <span data-i18n="board.fFreq">更新频率</span>
+          <input type="text" id="bfFreq" autocomplete="off" placeholder="每日0点">
+        </label>
+        <label class="bf-field">
+          <span data-i18n="board.fIcon">图标</span>
+          <select id="bfIcon"></select>
+        </label>
+        <label class="bf-field">
+          <span data-i18n="board.fClicks">访问量</span>
+          <input type="number" id="bfClicks" min="0" step="1">
+        </label>
+        <label class="bf-field">
+          <span data-i18n="board.fTags">标签（逗号分隔）</span>
+          <input type="text" id="bfTags" autocomplete="off">
+        </label>
+        <div class="bf-field bf-full">
+          <span data-i18n="board.fGroups">归属分组 *（可多选）</span>
+          <div class="bf-groups" id="bfGroups"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="modal-note" id="boardNote" data-i18n="board.serverNote">保存后立即写入服务器，所有人打开门户都会看到。</span>
+      <span class="bf-actions">
+        <button type="button" class="btn-soft" id="boardCancel" data-i18n="board.cancel">取消</button>
+        <button type="button" class="btn-soft primary" id="boardSave" data-i18n="board.save">保存</button>
+      </span>
+    </div>
+  </div>
+</div>
+<!-- ===================== END: BoardEditModal ===================== -->
+
+<!-- ===================== BEGIN: DirectLoginModal ===================== -->
+<div class="modal-mask" id="loginMask" hidden>
+  <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+    <div class="modal-head">
+      <h3 id="loginTitle" data-i18n="auth.directTitle">登录统一门户</h3>
+      <button type="button" class="icon-btn small" id="loginClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <form id="loginForm" class="auth-form">
+      <div class="auth-field">
+        <label for="loginUsername" data-i18n="auth.username">用户名</label>
+        <input id="loginUsername" type="text" autocomplete="username" required>
+      </div>
+      <div class="auth-field">
+        <label for="loginPassword" data-i18n="auth.password">密码</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="auth-error" id="loginError" hidden></div>
+      <div class="auth-foot">
+        <span class="modal-note" data-i18n="auth.sameAccount">使用统一门户同一套账号、密码和权限。</span>
+        <span class="bf-actions">
+          <button type="button" class="btn-soft" id="loginCancel" data-i18n="auth.cancel">取消</button>
+          <button type="submit" class="btn-soft primary" id="loginSubmit" data-i18n="auth.submit">登录</button>
+        </span>
+      </div>
+    </form>
+  </div>
+</div>
+<!-- ===================== END: DirectLoginModal ===================== -->
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/portal.js"></script>
+</body>
+</html>

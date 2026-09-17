@@ -4,12 +4,25 @@ EWS 恢复后自动补发失败的邮件任务
 ================================
 
 背景：Exchange/EWS 服务器降级（TCP 可达但 SOAP 超时）时，所有邮件任务会失败。
-本模块作为一个**低频次定时任务**（默认每 20 分钟）运行：
+本模块作为一个**低频次定时任务**（每 10 分钟）运行：
 
   1. 探测 EWS 是否真正恢复（做一次真实鉴权 SOAP 调用，而非仅 TCP 连通性）；
   2. 仅当恢复时，扫描近 3 小时内因 EWS 超时失败、且尚未被正常调度补发的邮件任务；
   3. 自动重新执行这些邮件任务（复用既有 service 函数），并将补发结果记入
      task_execution_log（task_id = "email_recovery:<原任务>"）。
+
+**探测与补发不受告警静默影响**：每一轮都照常发起真实 SOAP 探测；一旦探测成功，
+本轮立即对时效内的未闭合失败链补发（见 _due_attempt 的"立即首发"分支），
+不存在"因为静默而跳过补发"的代码路径。
+
+告警语义（2026-09-15 引入，方案 C —— 仅在状态翻转时通知）：
+  - EWS 不可用属于「依赖不可用」，不是本任务故障。此时任务返回 success=True，
+    不再触发 task_runner 的失败告警：否则 EWS 长时间降级时，会因"每 10 分钟跑一次
+    + 30 分钟告警冷却"而稳定每 30 分钟刷一封"任务执行失败"邮件。
+  - 改为**只在状态翻转时各通知一次**：刚进入降级（down）通知一次、恢复（up）通知
+    一次；降级持续期间完全静默。状态持久化在本模块 state 文件的 __ews_probe__ 键，
+    跨进程/重启保持（探测子进程与 worker 均以此为唯一判定依据）。
+  - 本任务自身的异常（探测子进程异常、DB 读写异常等）仍照常按失败上报，不受影响。
 
 设计要点：
   - 只对「EWS 相关失败」补发，不对缺附件/数据源等失败误补发；
@@ -25,6 +38,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -64,6 +78,10 @@ EMAIL_TASK_IDS = {
     "ccn_free_rating_chart_email",
     "battery_email",
     "ipran_m6k_chart_email",
+    # 2026-09-15 补录：sp_material_report（SP Material Stock & Consumption Report Email）
+    # 与上面 6 个同批漏补，其失败原因完全一致（returncode=3 + "Unable to connect to the
+    # remote server"），却因不在名单而从未被补发 —— 2026-09-15 EWS 降级期间又漏了一次。
+    "sp_material_report",
 }
 
 # 仅当错误含这些关键字时才视为 EWS 失败（避免对非 EWS 失败误补发）
@@ -98,6 +116,13 @@ EWS_FAIL_KEYS = (
 WINDOW_HOURS = 24  # 扫描窗口（小时）。实际补发还受各任务时效窗口约束
 MAX_PER_RUN = 3   # 单次最多补发 N 个，避免服务刚恢复时任务风暴
 
+# EWS 探测子进程的重试预算（秒）与超时（秒）。
+# 必须大于 email_reports/*.py 的 OWA_RETRY_MAX_WAIT 默认值(60)，否则服务端限流下发的
+# 退避序列(10/20/40/80s)会在拿到真实结论前就触发 RateLimitError，把"限流"误判成"降级"。
+# 240 可覆盖到 80s 那一档退避（累计 150s），超时留出余量。
+_PROBE_RETRY_MAX_WAIT = 240
+_PROBE_TIMEOUT = 300
+
 # 失败链补发策略：EWS 未恢复期间，每 10 分钟仅做真实 SOAP 探测，绝不消耗次数。
 # 首次探测恢复时，对时效内的未闭合失败链立即补发一次；只有该次业务邮件发送仍失败，
 # 才按以下“相对第一次 recovery 实发”的节点继续尝试。连续失败不会重置失败链，
@@ -119,6 +144,16 @@ TASK_POLICY = {
        if task_id not in {"liberia_email_1h", "liberia_email_8h"}},
 }
 
+# 补发队列优先级：时效越紧的越先补。
+# MAX_PER_RUN=3 意味着每轮只有 3 个名额，若按字母序排（原实现），hourly 任务可能被排在
+# 日报类之后、等上好几轮才轮到，而它的时效窗口只有 1 小时 —— 等排到就已经过期、永久丢失。
+_POLICY_PRIORITY = {"hourly": 0, "eight_hour": 1, "daily": 2}
+
+
+def _chain_order_key(task_id: str):
+    """补发顺序：先按时效紧急度（hourly → eight_hour → daily），同档再按 task_id 稳定排序。"""
+    return (_POLICY_PRIORITY.get(TASK_POLICY.get(task_id, "daily"), 9), task_id)
+
 
 def _parse_iso(ts: str):
     """解析 task_execution_log 中的 ISO 时间字符串，失败返回 None。"""
@@ -131,9 +166,16 @@ def _parse_iso(ts: str):
 def _window_expired(task_id: str, failed_dt: datetime, now: datetime) -> bool:
     """判断失败记录是否已越过其报告时效窗口（True = 过期，不应补发）。
 
+    ``failed_dt`` 必须是**该失败链内最近一次「报告期」失败的时间**（见
+    recover_failed_emails 里的 anchor_dt），而不是链首失败时间：
+    补发取的是数据目录里"当前最新"那一份报告，对应的就是最近一个未发出的
+    报告期。若拿链首失败做锚，EWS 长时间降级（如 1H 报告从 01:12 连挂到
+    21:12）时链首早已越过窗口，整条链会被误判过期，连仍在时效内的最新一期
+    也一并丢弃 → 恢复后永远补发不出来。
+
     数据目录只保留最新一期报告文件，补发必然发出"当前最新"那一份：
-      - liberia_email_1h（每小时）：报告每小时被新一期覆盖。失败后一旦进入
-        下一个整点小时，补发将发出新一期数据（而非失败那一期）→ 不补发。
+      - liberia_email_1h（每小时）：报告每小时被新一期覆盖。最近一次失败后
+        一旦进入下一个整点小时，补发将发出新一期数据（而非失败那一期）→ 不补发。
       - liberia_email_8h（每8小时）：同理，进入下一个 8 小时块（按 00/08/16
         对齐）后不再补发。
       - 其余天粒度日报（MS KPI / WOs SLA / 备件 / 可用率）：时间不敏感，
@@ -202,11 +244,92 @@ def _save_state(state: dict):
         logger.warning("保存补发状态失败: %s", e)
 
 
+# ========== EWS 状态翻转跟踪（方案 C：仅在翻转时通知一次）==========
+EWS_STATE_KEY = "__ews_probe__"
+
+
+def _probe_and_track(state: dict, now: datetime) -> tuple[bool, str | None, int, str]:
+    """真实探测 EWS，并把探测结果写入 state，返回本次是否发生状态翻转。
+
+    Returns:
+        (ews_ok, transition, down_count, since)
+        transition = "went_down"（刚进入降级）/ "recovered"（刚恢复）/ None（状态未变）
+
+    **每轮都会真实发起 SOAP 探测**，不受任何静默逻辑影响；探测结果落定后才更新
+    state，由调用方据此决定是否发通知。down_count 用于在告警文案里体现连续失败次数。
+    """
+    ok = probe_ews_reachable()
+    now_iso = now.isoformat(timespec="seconds")
+    prev = state.get(EWS_STATE_KEY)
+    prev = prev if isinstance(prev, dict) else {}
+    prev_status = prev.get("status")
+    down_count = int(prev.get("down_count") or 0)
+
+    if ok:
+        transition = "recovered" if prev_status == "down" else None
+        since = prev.get("since") if prev_status == "up" else now_iso
+        down_count = 0
+    else:
+        if prev_status == "down":
+            transition = None
+            since = prev.get("since") or now_iso
+        else:
+            transition = "went_down"
+            since = now_iso
+        down_count += 1
+
+    state[EWS_STATE_KEY] = {
+        "status": "up" if ok else "down",
+        "since": since,
+        "last_probe_at": now_iso,
+        "down_count": down_count,
+    }
+    return ok, transition, down_count, since
+
+
+def _notify_ews_transition(transition: str, message: str):
+    """EWS 状态翻转时推送一次通知（微信 + 126 邮箱）。
+
+    复用 task_runner 的同一套通道，但标题按语义区分——避免把"依赖不可用/已恢复"
+    包装成"任务执行失败"。翻转本身天然去重（每次翻转只发一次），故不走冷却逻辑。
+    通知失败只记日志，绝不影响本任务的执行结果。
+    """
+    is_down = transition == "went_down"
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    head = "EWS 探测失败（已进入降级静默）" if is_down else "EWS 已恢复"
+
+    try:
+        from backend.services.weixin_notifier import send_weixin_message
+        res = send_weixin_message(f"{head}\n时间：{ts}\n{message}")
+        if not res.get("success"):
+            logger.warning("EWS 翻转微信通知发送失败: %s", res.get("error"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("EWS 翻转微信通知异常: %s", e)
+
+    try:
+        from backend.services.email_notifier import send_ews_status_email
+        send_ews_status_email(
+            subject=("[EWS 降级] 邮件通道不可用，已静默" if is_down
+                     else "[EWS 恢复] 邮件通道已恢复"),
+            title=head, message=message, ts=ts, ok=not is_down,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("EWS 翻转邮件通知异常: %s", e)
+
+
 def probe_ews_reachable() -> bool:
     """探测 EWS 是否真正恢复：做一次真实鉴权 SOAP 调用（访问 inbox 触发 GetFolder）。
 
     仅 TCP 通不代表 SOAP 通（已知降级状态），所以必须发起真实 SOAP。
     返回 True = 服务端可用。探测超时/异常均视为不可用。
+
+    ⚠️ 必须给探测子进程一个**大于**邮件脚本默认值的重试预算：
+    `email_reports/*.py` 的 ``OWA_RETRY_MAX_WAIT`` 默认 60s，而 EWS 服务端在限流时
+    会连续下发 ``ErrorServerBusy`` 退避（实测 10s → 20s → 40s → 80s，累计 70s 时
+    下一次要 80s 就超预算），exchangelib 直接抛
+    ``RateLimitError: Max timeout reached`` —— 服务端**明明有响应**，却被判成"EWS 不可用"，
+    导致整轮补发被跳过、还误发一封「EWS 降级」通知。故这里显式抬高预算并放宽超时，
+    让探测能熬过一轮退避后拿到真实结论（熬不过就说明确实不可用）。
     """
     probe = (
         "import sys; sys.path.insert(0, r'%s');"
@@ -215,19 +338,30 @@ def probe_ews_reachable() -> bool:
     )
     # 必须用 .total_count 强制一次真实 SOAP 往返（GetFolder）：
     # Account/inbox 均为惰性构造，直接访问不发起网络请求，会造成"已恢复"假阳性。
+    env = dict(os.environ)
+    env["OWA_RETRY_MAX_WAIT"] = str(_PROBE_RETRY_MAX_WAIT)
     try:
         r = subprocess.run(
             [_MANAGED_VENV_PY, "-c", probe],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=120, cwd=str(MY_APP_DIR),
+            timeout=_PROBE_TIMEOUT, cwd=str(MY_APP_DIR), env=env,
             creationflags=_SUBPROCESS_FLAGS,
         )
         ok = r.returncode == 0 and "EWS_OK" in r.stdout
         if not ok:
-            logger.info("EWS 探测: 仍不可用 (rc=%s): %s", r.returncode, (r.stderr or r.stdout)[-300:])
+            tail = (r.stderr or r.stdout or "")
+            # 服务端有响应但要求退避 = 限流，不是降级；单独记一条便于区分（否则
+            # 只能看到 rc=1，无法判断到底是网络不通还是被限流）。
+            if "back off" in tail or "RateLimit" in tail or "ServerBusy" in tail:
+                logger.warning(
+                    "EWS 探测: 服务端限流(非降级)，退避预算 %ss 内仍未通过: %s",
+                    _PROBE_RETRY_MAX_WAIT, tail[-300:],
+                )
+            else:
+                logger.info("EWS 探测: 仍不可用 (rc=%s): %s", r.returncode, tail[-300:])
         return ok
     except subprocess.TimeoutExpired:
-        logger.info("EWS 探测: 超时 120s（服务端仍降级）")
+        logger.info("EWS 探测: 超时 %ss（服务端仍降级）", _PROBE_TIMEOUT)
         return False
     except Exception as e:
         logger.warning("EWS 探测异常: %s", e)
@@ -251,6 +385,7 @@ def _log_recovery(orig_task_id: str, success: bool, detail: str, started_iso: st
             "kpi_ran_availability": "MS Network Availability Daily Report",
             "sp_email_details": "SP Spare Parts Details Report Email",
             "sp_online_report_send": "SP Online Open Tickets Report Send",
+            "sp_material_report": "SP Material Stock & Consumption Report Email",
             "packet_loss_email": "Packet Loss Daily Report Email",
             "ccn_free_rating_chart_email": "CNN Free Rating Chart Email",
             "battery_email": "Battery KPI Email",
@@ -319,6 +454,9 @@ def _run_task(orig_task_id: str) -> dict:
         if orig_task_id == "sp_online_report_send":
             from backend.services.kpi_email_report import run_sp_online_report
             return run_sp_online_report()
+        if orig_task_id == "sp_material_report":
+            from backend.services.kpi_email_report import run_sp_material_stock_consumption
+            return run_sp_material_stock_consumption()
         if orig_task_id == "packet_loss_email":
             from backend.services.kpi_email_report import run_packet_loss_email
             return run_packet_loss_email()
@@ -338,16 +476,30 @@ def _run_task(orig_task_id: str) -> dict:
 
 
 def recover_failed_emails() -> dict:
-    """按任务失败链和时效策略扫描并补发邮件。"""
-    if not probe_ews_reachable():
-        return {"recovered": 0, "attempted": 0, "skipped": 0, "expired": 0, "reason": "ews_down"}
+    """按任务失败链和时效策略扫描并补发邮件。
 
+    每轮先做一次**真实** EWS 探测（结果落盘为翻转状态，供通知判定）；一旦探测成功，
+    本轮立即对时效内的未闭合失败链补发——补发路径与告警静默完全无关。
+    """
     now_dt = datetime.now()
+    state = _load_state()
+    ews_ok, transition, down_count, down_since = _probe_and_track(state, now_dt)
+
+    if not ews_ok:
+        # 依赖不可用：落盘状态后直接返回，本轮不扫库、不发送任何邮件。
+        _save_state(state)
+        logger.info("EWS 不可用（连续第 %d 次），本轮不补发；翻转=%s", down_count, transition)
+        return {
+            "recovered": 0, "attempted": 0, "skipped": 0, "expired": 0,
+            "reason": "ews_down", "ews_transition": transition,
+            "ews_down_count": down_count, "ews_down_since": down_since,
+        }
+
     try:
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
             since = (now_dt - timedelta(hours=WINDOW_HOURS)).isoformat(timespec="seconds")
             rows = conn.execute(
-                """SELECT task_id, success, started_at, error
+                """SELECT task_id, success, started_at, error, COALESCE(trigger_type,'') AS trigger_type
                    FROM task_execution_log
                    WHERE task_id IN (%s) AND started_at >= ?
                    ORDER BY task_id, started_at ASC, id ASC""" % ",".join("?" * len(EMAIL_TASK_IDS)),
@@ -355,39 +507,49 @@ def recover_failed_emails() -> dict:
             ).fetchall()
     except Exception as e:
         logger.error("查询失败邮件记录异常: %s", e)
-        return {"recovered": 0, "attempted": 0, "skipped": 0, "expired": 0, "reason": f"db_error:{e}"}
+        _save_state(state)
+        return {"recovered": 0, "attempted": 0, "skipped": 0, "expired": 0,
+                "reason": f"db_error:{e}", "ews_transition": transition}
 
     # 只保留每个 task_id 上一次成功之后的失败记录，形成唯一的未闭合失败链。
     chains: dict[str, list] = {}
-    for task_id, success, started_at, error in rows:
+    for task_id, success, started_at, error, trig in rows:
         if success:
             chains[task_id] = []
         else:
-            chains.setdefault(task_id, []).append((started_at, error or ""))
+            chains.setdefault(task_id, []).append((started_at, error or "", trig or ""))
 
-    state = _load_state()
     recovered = attempted = skipped = expired = 0
     details = []
-    for task_id in sorted(chains):
+    for task_id in sorted(chains, key=_chain_order_key):
         failures = chains[task_id]
         if not failures:
             continue
-        latest_started_at, latest_error = failures[-1]
+        latest_started_at, latest_error, _latest_trig = failures[-1]
         # 只对当前未闭合链的最新失败仍属于邮箱/EWS的问题补发。
         if "BUDGET_EXCEEDED" in latest_error or not any(k in latest_error for k in EWS_FAIL_KEYS):
             skipped += 1
             continue
-        ews_failures = [(ts, err) for ts, err in failures if any(k in err for k in EWS_FAIL_KEYS)]
+        ews_failures = [(ts, err) for ts, err, _t in failures if any(k in err for k in EWS_FAIL_KEYS)]
         first_failed_at, _first_error = ews_failures[0]
         first_failed_dt = _parse_iso(first_failed_at)
         if first_failed_dt is None:
+            skipped += 1
+            continue
+        # 时效窗口锚点 = 链内最近一次「由调度/手工触发」的失败时间。
+        # 补发自身写回的 recovery 记录只代表"尝试过发送"，不代表报告重新生成，
+        # 故不参与锚定；否则补发失败会不断把窗口往后推，可能把已被次日新一期
+        # 覆盖的旧报告当成有效数据补发出去。
+        period_failures = [ts for ts, _e, t in failures if t != "recovery"] or [latest_started_at]
+        anchor_dt = _parse_iso(period_failures[-1])
+        if anchor_dt is None:
             skipped += 1
             continue
         policy_name = TASK_POLICY.get(task_id, "daily")
         chain_key = _chain_key(task_id, first_failed_at)
         chain = _chain_state(state, task_id, first_failed_at)
 
-        if _window_expired(task_id, first_failed_dt, now_dt):
+        if _window_expired(task_id, anchor_dt, now_dt):
             expired += 1
             state[chain_key] = {**chain, "status": "expired", "updated_at": now_dt.isoformat(timespec="seconds")}
             continue
@@ -444,6 +606,7 @@ def recover_failed_emails() -> dict:
         "skipped": skipped,
         "expired": expired,
         "reason": "ews_up",
+        "ews_transition": transition,
         "details": details,
     }
 
@@ -466,20 +629,51 @@ def _already_recovered_since(task_id: str, failed_started_at: str) -> bool:
 
 
 def run_email_recovery_task() -> dict:
-    """供 Task Manager 直接调用的入口（返回 dict）。"""
+    """供 Task Manager 直接调用的入口（返回 dict）。
+
+    告警语义（方案 C）：EWS 不可用属「依赖不可用」，不是本任务故障，故返回
+    success=True，不再触发 task_runner 的失败告警（否则 EWS 长时间降级时会因
+    "每 10 分钟跑一次 + 30 分钟告警冷却"稳定每 30 分钟刷一封失败邮件）；
+    改由状态翻转各通知一次。**探测与补发逻辑不受影响**——探测成功即在本轮
+    立即补发时效内的失败链。
+    """
     logger.info("开始 EWS 恢复后邮件补发检查")
     summary = recover_failed_emails()
     logger.info("邮件补发检查完成: %s", summary)
-    # 将 reason 提到 message 字段，方便在 Run History 的 error 列直接看到 EWS 状态
+
     reason = summary.get("reason", "")
+    transition = summary.get("ews_transition")
+
     if reason == "ews_down":
-        summary["success"] = False
-        summary["error"] = "EWS 仍不可用（探测失败），等待下次重试"
-    elif reason == "ews_up" and summary.get("recovered", 0) == 0 and summary.get("attempted", 0) == 0:
-        # EWS 可用但没有需要补发的邮件
-        summary["message"] = "EWS 正常，无需补发"
+        summary["success"] = True
+        n = int(summary.get("ews_down_count") or 1)
+        summary["message"] = f"EWS 仍不可用（连续第 {n} 次探测失败），本轮无补发，降级期间静默"
+        if transition == "went_down":
+            summary["message"] = "EWS 探测失败，进入降级静默；恢复后自动补发时效内任务"
+            _notify_ews_transition("went_down", (
+                "EWS 邮件通道探测失败（连接 exchmail 超时），已进入降级静默。\n"
+                "降级期间仍每 10 分钟继续真实探测，但不再重复告警；"
+                "恢复后当轮即补发时效内的失败邮件。\n"
+                f"本次降级开始：{summary.get('ews_down_since', '')}"
+            ))
     elif reason == "ews_up":
-        summary["message"] = f"EWS 正常，补发 {summary.get('recovered', 0)}/{summary.get('attempted', 0)} 封"
+        summary["success"] = True
+        if summary.get("attempted", 0) == 0:
+            summary["message"] = "EWS 正常，无需补发"
+        else:
+            summary["message"] = (
+                f"EWS 正常，补发 {summary.get('recovered', 0)}/{summary.get('attempted', 0)} 封"
+            )
+        if transition == "recovered":
+            _notify_ews_transition("recovered", (
+                "EWS 邮件通道已恢复。\n"
+                f"本轮补发：成功 {summary.get('recovered', 0)} 封 / 尝试 {summary.get('attempted', 0)} 封，"
+                f"时效过期跳过 {summary.get('expired', 0)} 封。"
+            ))
+    else:
+        # 非 EWS 依赖问题（如 DB 查询异常）属真实故障，必须照常告警，不能被静默逻辑吞掉。
+        summary["success"] = False
+        summary["error"] = f"邮件补发检查异常: {reason}"
     return summary
 
 

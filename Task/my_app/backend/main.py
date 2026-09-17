@@ -50,6 +50,7 @@ from backend.routers import (
     incident_overview, ip_trace, nur_dashboard, ms_sla_dashboard,
     site_availability,
     ran_cells_kpi,
+    ume_in_kpi,
     email_recipients,
     realtime_proxy,
     settings,
@@ -63,8 +64,12 @@ from backend.routers import (
     eflow_qa,
     cxo_dashboard,
     vmax_cxo_dashboard,
+    vmax_cxo_daily,
+    olib_soc_dashboard,
     feedback,
     ui_config,
+    portal_qc,
+    portal_catalog,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -137,6 +142,7 @@ app.include_router(ms_sla_dashboard.router)
 app.include_router(site_availability.router)
 # RAN 2G/3G/4G Cells KPI 看板（小区级可用率，达标值 99.65%）
 app.include_router(ran_cells_kpi.router)
+app.include_router(ume_in_kpi.router)
 # 实时代理控制（前端「启用实时刷新」开关按需拉起/关闭本地代理 8787/8790）
 app.include_router(realtime_proxy.router)
 # 全局设置（远程主机等，供「系统设置」页面读写）
@@ -160,12 +166,26 @@ app.include_router(eflow_qa.router)
 app.include_router(cxo_dashboard.router)
 # VMAX CXO 原版视觉看板专用聚合接口（与现有简化版页面并存）
 app.include_router(vmax_cxo_dashboard.router)
+# VMAX CXO 天粒度看板（vmaxCxoDashboard_Daily）专用只读接口：
+# 独立数据源 data/vmax_cxo_daily/daily.json，由新任务 vmax_cxo_daily_sync 写入，
+# 与上面两个 CXO 接口/页面完全隔离（新增，不影响现有看板）
+app.include_router(vmax_cxo_daily.router)
+# VMAX 90 天经营看板（vmaxCxoDashboard_90Days）专用只读接口：
+# 数据源 data/olib_soc_report/olib_soc_report.sqlite3 的 daily_kpi 表（数仓 GBase 直连取数，
+# 任务 olib_soc_kpi_daily_sync 每日增量 / olib_soc_vmax_report 每月全量），与上面两个
+# CXO 看板的数据源互不影响。
+app.include_router(olib_soc_dashboard.router)
 # 问题登记（用户反馈）：任何内网用户可提交问题，管理侧可筛选/处理/删除
 app.include_router(feedback.router)
 # 界面配置（侧栏菜单结构）：全局共享一份，仅本机可改（见 routers/ui_config.py）
 app.include_router(ui_config.router)
 # uniplam 门户鉴权适配：/api/auth/portal-login、/api/auth/logout、/api/auth/me（见 services/portal_auth.py）
 app.include_router(portal_auth.router)
+# MsPortal 静态门户「Quality Control」面板的数据库统计与明细下钻（只读，见 routers/portal_qc.py）
+app.include_router(portal_qc.router)
+# MsPortal 静态门户的看板目录：全局共享一份（所有人读同一份），仅本机可增删改
+# （见 routers/portal_catalog.py）。未登录访客读不到——刻意不进 _PUBLIC_API 白名单。
+app.include_router(portal_catalog.router)
 
 
 # ========== 统一门户鉴权中间件 ==========
@@ -309,6 +329,16 @@ async def startup_event():
               + (f"，{len(_failed)} 个失败: {'; '.join(_failed)}" if _failed else ""))
     except Exception as _e:
         print(f"[startup] 公共依赖预热异常（不影响启动）: {_e}")
+    # TT 快速分析依赖的知识库分析模块（eflow_Q&A/tools/inspect_tt.py）启动期预热：
+    # 页面一进就并发打 inspect-tt / tt-ai / tt-ume-suggestion，把首次动态加载放在
+    # 启动期串行做掉，避免「重启后第一次点分析」才首载（并发竞态 + 首击变慢）。
+    try:
+        from backend.routers import eflow_qa as _eflow_qa
+        _warm_err = _eflow_qa.warmup()
+        print("[startup] TT 分析模块预热完成" if not _warm_err
+              else f"[startup] TT 分析模块预热失败（不影响启动）: {_warm_err}")
+    except Exception as _e:
+        print(f"[startup] TT 分析模块预热异常（不影响启动）: {_e}")
     if DISABLE_SCHEDULER:
         print("[startup] MY_APP_DISABLE_SCHEDULER=1: skip APScheduler start (smoke test mode)")
     elif not _got_lock:

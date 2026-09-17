@@ -390,30 +390,38 @@ def run_sp_consumables(to: str = None, cc: str = None) -> dict:
 
 
 def _merge_sp_details_workbook(out_path: Path) -> dict:
-    """把 data/sp_email/data 下 4 份明细 xlsx 合并为**一个**工作簿（每个明细一个 sheet）。
+    """把 data/sp_email/data 下的明细 xlsx 合并为**一个**工作簿（每个明细一个 sheet）。
 
-    sheet 对应关系（保持原始明细内容，不做过滤/加工）：
-      Inventory <- inventory_details.xlsx
-      Inbound   <- inband_details.xlsx
-      Outbound  <- outband_details.xlsx
-      Transfer  <- transfer_details.xlsx
+    sheet 对应关系（明细已在 sp_report_generate 里过滤过，这里原样合并、不再加工）：
+      Inventory       <- inventory_details.xlsx
+      Inbound         <- inband_details.xlsx
+      Outbound        <- outband_details.xlsx
+      Transfer        <- transfer_details.xlsx
+      Transfer Return <- transfer_return_details.xlsx（可选）
 
-    返回 {sheet_name: 行数}；任一源文件缺失抛 FileNotFoundError。
+    返回 {sheet_name: 行数}；前 4 份任一缺失抛 FileNotFoundError，
+    可选明细（Transfer Return）缺失时只告警并跳过，不影响整包发送。
     """
     import pandas as pd
 
     sheet_sources = [
-        ("Inventory", "inventory_details.xlsx"),
-        ("Inbound", "inband_details.xlsx"),
-        ("Outbound", "outband_details.xlsx"),
-        ("Transfer", "transfer_details.xlsx"),
+        ("Inventory", "inventory_details.xlsx", True),
+        ("Inbound", "inband_details.xlsx", True),
+        ("Outbound", "outband_details.xlsx", True),
+        ("Transfer", "transfer_details.xlsx", True),
+        ("Transfer Return", "transfer_return_details.xlsx", False),
     ]
     row_counts = {}
     with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
-        for sheet_name, fname in sheet_sources:
+        for sheet_name, fname, required in sheet_sources:
             src = _SP_DETAILS_DATA / fname
             if not src.is_file():
-                raise FileNotFoundError(f"明细源文件缺失: {src}")
+                if required:
+                    raise FileNotFoundError(f"明细源文件缺失: {src}")
+                logging.getLogger(__name__).warning(
+                    "[sp_details] 可选明细缺失，跳过 sheet %s: %s", sheet_name, src
+                )
+                continue
             df = pd.read_excel(src)
             df.to_excel(writer, sheet_name=sheet_name, index=False)
             row_counts[sheet_name] = int(len(df))

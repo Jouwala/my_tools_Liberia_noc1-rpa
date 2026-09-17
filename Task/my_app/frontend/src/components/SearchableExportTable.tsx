@@ -1,3 +1,4 @@
+import type { HTMLAttributes } from 'react'
 import { Button, Input, Table } from 'antd'
 import { DownloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { useI18n } from '../i18n'
@@ -19,11 +20,13 @@ interface SearchableExportTableProps {
   rowKey: (record: any, index?: number) => string
   /** 无障碍标签（描述本表格内容） */
   ariaLabel: string
+  /** 行级属性；传 onClick 即可让整行可点击（下钻用），记得同时给 style.cursor='pointer' */
+  onRow?: (record: any, index?: number) => HTMLAttributes<HTMLElement>
 }
 
 // 通用「搜索框 + 导出按钮 + 表格」组合，供下钻/明细类抽屉复用
 export function SearchableExportTable({
-  data, columns, search, onSearchChange, onExport, exportText, rowKey, ariaLabel,
+  data, columns, search, onSearchChange, onExport, exportText, rowKey, ariaLabel, onRow,
 }: SearchableExportTableProps) {
   const { t } = useI18n()
   return (
@@ -52,6 +55,7 @@ export function SearchableExportTable({
           pagination={{ pageSize: 10, size: 'small', showTotal: (total: number) => `${total} items` }}
           scroll={{ x: 'max-content' }}
           aria-label={ariaLabel}
+          onRow={onRow}
         />
       </div>
     </>

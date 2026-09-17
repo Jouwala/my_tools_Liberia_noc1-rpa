@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Spin } from 'antd'
 import { useTheme } from '../theme'
 import { useI18n } from '../i18n'
@@ -17,9 +17,14 @@ import { useI18n } from '../i18n'
  * 因此统一让 iframe 填满 Content 可用区域，由页面内部自己滚动 —— 这与在浏览器里
  * 直接打开原版工具的观感一致，也避免了外层再套一层滚动条。
  *
- * 可用高度由 CSS 变量统一计算，避免 Header/margin/padding 改动后这里硬编码失效。
+ * ⚠️ 高度**不能**再自己算 `calc(100vh - Header - margin*2 - padding*2)`：
+ * 外壳在 embed/bare 模式（`?page=` 直链 / `?embed=1`，见 App.tsx 的 shellHidden）
+ * 会把 Header 整个不渲染、并把 Content 自己的 margin/padding 置 0，此时再减一遍
+ * 「外壳留白」就会在页面底部留下一条 108px 的空白（实测 2544×1297 视口下 iframe
+ * 只有 1189 高）。改为 `height:100%` 直接铺满父级 Content 的内容盒：正常模式下
+ * Content 已经把 Header/margin/padding 都扣掉了，实测同样是 1189，两种模式都对。
  */
-const CHROME_OFFSET = 'calc(var(--wh-header-height) + var(--wh-content-margin) * 2 + var(--wh-content-padding) * 2)'
+const FILL_PARENT = '100%'
 
 interface Props {
   /** public/ 下的 HTML 文件名，例如 'ip-trace.html' */
@@ -37,6 +42,25 @@ export default function LegacyToolFrame({ file, title }: Props) {
   const [cacheBust] = useState(() => Date.now())
   const { isDark } = useTheme()
   const { locale } = useI18n()
+  const frameRef = useRef<HTMLIFrameElement>(null)
+
+  // 把「父页面（可能是门户 MsPortal）发来的嵌入指令」转发给内层 legacy HTML。
+  // 背景：MsPortal 的拓扑地图区是三层 iframe（门户 → 本 React 外壳 → legacy HTML）。
+  // postMessage 只到本层就停了 —— 而真正需要隐藏工具栏/切底图的是最里面那一页
+  // （mw_real_time.html）。不转发的话，门户给内层发什么都收不到。
+  // 只转发带 __type 的白名单消息，避免把外壳收到的其它消息顺手透给内层。
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      const d = e.data
+      if (!d || typeof d !== 'object') return
+      if (d.__type !== 'msportal-embed') return
+      try {
+        frameRef.current?.contentWindow?.postMessage(d, '*')
+      } catch { /* ignore */ }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
 
   // 主题同步兜底：父页面 ThemeProvider 在 mount 时会向所有 iframe postMessage 当前主题，
   // 但 LegacyToolFrame 的挂载晚于 ThemeProvider 的 mount effect（iframe 元素此刻还不存在），
@@ -59,7 +83,7 @@ export default function LegacyToolFrame({ file, title }: Props) {
       style={{
         position: 'relative',
         width: '100%',
-        height: `calc(100vh - ${CHROME_OFFSET})`,
+        height: FILL_PARENT,
         borderRadius: 'var(--wh-radius-md)',
         overflow: 'hidden',
         background: 'var(--wh-page-bg)',
@@ -81,6 +105,7 @@ export default function LegacyToolFrame({ file, title }: Props) {
         </div>
       )}
       <iframe
+        ref={frameRef}
         // BASE_URL 为 '/myapp/'，与 nginx 的 location /myapp/ 反代对齐；
         // iframe 内的相对请求（favicon.ico、lr-all.geo.json）会自动落到同一 base 下。
         // allowFullScreen：允许内嵌 legacy 页面（如 mw_ume_topology.html）调用

@@ -21,6 +21,7 @@ import {
   LineChartOutlined,
   AreaChartOutlined,
   FundOutlined,
+  DotChartOutlined,
   SafetyOutlined,
   PieChartOutlined,
   LoginOutlined,
@@ -85,6 +86,8 @@ const MsSlaDashboard = lazy(() => import('./pages/MsSlaDashboard'))
 const AlarmManagement = lazy(() => import('./pages/AlarmManagement'))
 const CxoDashboard = lazy(() => import('./pages/CxoDashboard'))
 const VmaxCxoDashboard = lazy(() => import('./pages/VmaxCxoDashboard'))
+const VmaxCxoDashboardDaily = lazy(() => import('./pages/VmaxCxoDashboardDaily'))
+const VmaxCxoDashboard90Days = lazy(() => import('./pages/VmaxCxoDashboard90Days'))
 const EmailReports = lazy(() => import('./pages/EmailReports'))
 const MwUmeDashboard = lazy(() => import('./pages/MwUmeDashboard'))
 const MwRealTimeDashboard = lazy(() => import('./pages/MwRealTimeDashboard'))
@@ -92,14 +95,15 @@ const PortalLogin = lazy(() => import('./pages/PortalLogin'))
 const EflowQa = lazy(() => import('./pages/EflowQa'))
 const SiteAvailability = lazy(() => import('./pages/SiteAvailability'))
 const RanCellsKpi = lazy(() => import('./pages/RanCellsKpi'))
+const UmeInKpi = lazy(() => import('./pages/UmeInKpi'))
 const Help = lazy(() => import('./pages/Help'))
 const IssueFeedback = lazy(() => import('./pages/IssueFeedback'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'ran_cells_kpi' | 'feedback' | 'help'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'ran_cells_kpi' | 'ume_in_kpi' | 'feedback' | 'help'
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'ran_cells_kpi', 'feedback', 'help']
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'ran_cells_kpi', 'ume_in_kpi', 'feedback', 'help']
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -116,13 +120,18 @@ const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'al
  * 检测到「用户正忙」（正在输入、弹窗/抽屉/下拉打开、标签页在后台）则本轮
  * 跳过、下个间隔再试——空闲挂机的大屏必然按时刷新。 */
 const AR_STORAGE_KEY = 'myapp_auto_refresh_sec'
+/** 当前「生效」间隔（用户选择 > 本页默认 > 全局默认），供 legacy 页面显示用 */
+const AR_EFFECTIVE_KEY = 'myapp_auto_refresh_effective'
 const AR_OPTIONS = [0, 30, 60, 300, 600, 900, 1800]
 const AR_PAGE_DEFAULT_SEC = 300 // 所有页面默认间隔（秒）
 // 按页面覆盖的默认间隔：实时看板数据每 15 分钟同步一次，刷新过快无意义；
-// 帮助页为静态文案，固定关闭自动刷新
-const AR_PAGE_DEFAULTS: Partial<Record<PageKey, number>> = { mwRealTime: 900, help: 0 }
+// 90 天经营看板的数据由 olib_soc_kpi_daily_sync 每天 02:20 增量入库（一天只变一次），
+// 15 分钟足够及时反映最新完成日，也避免无谓查询；帮助页为静态文案，固定关闭自动刷新
+const AR_PAGE_DEFAULTS: Partial<Record<PageKey, number>> = {
+  mwRealTime: 900, help: 0, vmaxCxoDashboard_90Days: 900,
+}
 // 支持软刷新协议（postMessage myapp-refresh 原地重拉数据）的 legacy 页面
-const AR_SOFT_REFRESH_PAGES: PageKey[] = ['mwUmeTopology', 'mwRealTime']
+const AR_SOFT_REFRESH_PAGES: PageKey[] = ['mwUmeTopology', 'mwRealTime', 'vmaxCxoDashboard_90Days']
 
 function arReadOverride(): number | null {
   try {
@@ -225,8 +234,11 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   ms_sla: { icon: <FundOutlined />, labelKey: 'nav.msSla' },
   site_avail: { icon: <SafetyOutlined />, labelKey: 'nav.siteAvail' },
   ran_cells_kpi: { icon: <AreaChartOutlined />, labelKey: 'nav.ranCellsKpi' },
+  ume_in_kpi: { icon: <DotChartOutlined />, labelKey: 'nav.umeInKpi' },
   cxoDashboard: { icon: <PieChartOutlined />, labelKey: 'nav.cxoDashboard' },
   vmaxCxoDashboard: { icon: <DashboardOutlined />, labelKey: 'nav.vmaxCxoDashboard' },
+  vmaxCxoDashboard_Daily: { icon: <LineChartOutlined />, labelKey: 'nav.vmaxCxoDashboardDaily' },
+  vmaxCxoDashboard_90Days: { icon: <FundOutlined />, labelKey: 'nav.vmaxCxoDashboard90Days' },
   alarmManagement: { icon: <AlertOutlined />, labelKey: 'nav.alarmManagement' },
   incident_overview: { icon: <FileSearchOutlined />, labelKey: 'nav.incidentOverview' },
   mwUmeTopology: { icon: <ApartmentOutlined />, labelKey: 'nav.mwUmeTopology' },
@@ -255,7 +267,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_monitor',
     labelKey: 'nav.grp.monitor',
-    items: ['alarm', 'ttwo', 'nur', 'ms_sla', 'site_avail', 'ran_cells_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'alarmManagement', 'incident_overview'],
+    items: ['alarm', 'ttwo', 'nur', 'ms_sla', 'site_avail', 'ran_cells_kpi', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'alarmManagement', 'incident_overview'],
   },
   {
     key: 'grp_network',
@@ -618,6 +630,12 @@ function AppContent() {
     const id = window.setInterval(performAutoRefresh, arEffective * 1000)
     return () => window.clearInterval(id)
   }, [arEffective, performAutoRefresh])
+
+  // 把「当前生效的刷新间隔」公开给 legacy 页面（自刷新页要在界面上如实显示倒计时口径，
+  // 不能各自硬编码一份默认值 —— 有效值来自 用户选择 > 本页默认 > 全局默认）。
+  useEffect(() => {
+    try { localStorage.setItem(AR_EFFECTIVE_KEY, String(arEffective)) } catch { /* noop */ }
+  }, [arEffective])
 
   useEffect(() => () => { if (arSpinTimer.current) window.clearTimeout(arSpinTimer.current) }, [])
 
@@ -1035,12 +1053,18 @@ function AppContent() {
         return <SiteAvailability />
       case 'ran_cells_kpi':
         return <RanCellsKpi />
+      case 'ume_in_kpi':
+        return <UmeInKpi />
       case 'alarmManagement':
         return <AlarmManagement />
       case 'cxoDashboard':
         return <CxoDashboard />
       case 'vmaxCxoDashboard':
         return <VmaxCxoDashboard />
+      case 'vmaxCxoDashboard_Daily':
+        return <VmaxCxoDashboardDaily />
+      case 'vmaxCxoDashboard_90Days':
+        return <VmaxCxoDashboard90Days />
       case 'mwUmeTopology':
         return <MwUmeDashboard />
       case 'mwRealTime':

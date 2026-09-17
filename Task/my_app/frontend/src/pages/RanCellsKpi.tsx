@@ -28,6 +28,8 @@ interface TechBlock {
   tech: string
   label: string
   desc: string
+  /** 英文说明（后端 desc_en；缺失时退回中文） */
+  desc_en?: string
   roster_cells: number
   days: Record<string, DayStat>
   month: {
@@ -152,7 +154,7 @@ const fmtDay = (d: string) => dayjs(d).format('D-MMM-YYYY')
 
 // ==================== 页面 ====================
 export default function RanCellsKpi() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { isDark } = useTheme()
 
   const [month, setMonth] = useState<Dayjs>(() => dayjs())
@@ -479,9 +481,9 @@ export default function RanCellsKpi() {
               title={
                 <Space size="small">
                   <span style={{ color: WH.teal, fontWeight: 700 }}>{tb.label}</span>
-                  <Tooltip title={tb.desc}>
+                  <Tooltip title={locale === 'en' ? (tb.desc_en || tb.desc) : tb.desc}>
                     <Text type="secondary" style={{ fontSize: '0.75rem', fontWeight: 400 }}>
-                      {tb.desc}
+                      {locale === 'en' ? (tb.desc_en || tb.desc) : tb.desc}
                     </Text>
                   </Tooltip>
                 </Space>

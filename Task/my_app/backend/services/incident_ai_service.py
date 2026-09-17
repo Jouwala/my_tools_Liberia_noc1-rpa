@@ -22,6 +22,8 @@ api_key **一律由前端请求体传入**（原版即为此设计：用户在�
 from __future__ import annotations
 
 import json
+import os
+import re
 import time
 import traceback
 from typing import Any, Dict, Iterator, List, Tuple
@@ -371,27 +373,95 @@ def stream_deepseek(api_key: str, prompt: str) -> Iterator[str]:
 # Agnes AI（apihub.agnes-ai.com，OpenAI 兼容格式）
 # --------------------------------------------------------------------------
 AGNES_URL = "https://apihub.agnes-ai.com/v1/chat/completions"
-AGNES_MODEL = "agnes-2.5-flash"
+AGNES_MODELS_URL = "https://apihub.agnes-ai.com/v1/models"
+# 模型可用环境变量覆盖（AGNES_MODEL=...），默认仍是原版的 agnes-2.5-flash，保持「与原版效果一致」。
+AGNES_MODEL = (os.environ.get("AGNES_MODEL", "agnes-2.5-flash") or "").strip() or "agnes-2.5-flash"
+
+# ---- 2026-09-15 加固：上游把模型下线时不再直接失败 ----
+# 原版（以及本文件的初版）把模型写死成 agnes-2.5-flash：上游一旦下线该模型，这个 provider
+# 立刻变成全失败、没有任何退路。这里只加「模型被拒时的兜底」——用同一个 Key 问一次上游
+# /v1/models，挑最新的 agnes-*-flash 重试一次。
+# 注意：**模型正常时行为与原版完全一致**（不额外请求、不换模型），仅在错误文本明确是
+# 「模型不存在 / 无可用通道」时才触发，因此不会影响其它错误分支的呈现。
+#
+# 触发条件是真机测出来的（别想当然）：apihub 这个网关对不存在的模型返回的是
+#   HTTP 503 + {"error":{"message":"No available channel for model xxx under group default (distributor)"}}
+# 而**不是** OpenAI 风格的 400/404 Model not found。所以状态码要连 503 一起收，
+# 但必须用错误文本兜住，否则会把「上游忙」的瞬时 503 误判成模型下线。
+_AGNES_FLASH_RE = re.compile(r"agnes[-_.]?[\d.]+-flash", re.IGNORECASE)
+_AGNES_EXCLUDE_RE = re.compile(r"image|video|embed|bge|whisper|tts", re.IGNORECASE)
+_AGNES_MODEL_GONE_RE = re.compile(
+    r"model\s*(not\s*found|not_available|unavailable|invalid|does\s*not\s*exist)"
+    r"|no\s*such\s*model|unknown\s*model|no\s*available\s*channel\s*for\s*model|模型不存在",
+    re.IGNORECASE)
+_agnes_cache: Dict[str, Any] = {"model": "", "ts": 0.0}
+_AGNES_CACHE_TTL = 600
+
+
+def _agnes_ver_key(model_id: str):
+    """'agnes-3.0-flash' -> (3, 0)，用于「取版本最新」。取不到则 (0,)。"""
+    m = re.search(r"(\d+(?:\.\d+)*)", model_id or "")
+    if not m:
+        return (0,)
+    try:
+        return tuple(int(p) for p in m.group(1).split("."))
+    except ValueError:
+        return (0,)
+
+
+def _agnes_latest_flash(api_key: str) -> str:
+    """问上游 /v1/models，返回最新的 agnes-*-flash；排除 image/video/embed 等多模态条目。
+    任何失败都返回 ''（调用方保持原错误行为）。结果缓存 10 分钟。"""
+    if _agnes_cache["model"] and time.time() - _agnes_cache["ts"] < _AGNES_CACHE_TTL:
+        return _agnes_cache["model"]
+    try:
+        r = requests.get(AGNES_MODELS_URL,
+                         headers={"Authorization": f"Bearer {api_key}"}, timeout=20)
+        if r.status_code != 200:
+            return ""
+        ids = [str(m.get("id") or "") for m in (r.json().get("data") or [])]
+    except Exception:  # noqa: BLE001
+        return ""
+    cands = sorted((i for i in ids
+                    if _AGNES_FLASH_RE.search(i) and not _AGNES_EXCLUDE_RE.search(i)),
+                   key=_agnes_ver_key, reverse=True)
+    if not cands:
+        return ""
+    _agnes_cache.update({"model": cands[0], "ts": time.time()})
+    return cands[0]
 
 
 def call_agnes(api_key: str, prompt: str, **_: Any) -> Result:
     if not api_key:
         return _need_key()
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = {
-        "model": AGNES_MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.7,
-        "max_tokens": 1500,
-    }
+
+    def _post(model: str) -> requests.Response:
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.7,
+            "max_tokens": 1500,
+        }
+        return requests.post(AGNES_URL, headers=headers, json=payload, timeout=60)
+
     try:
-        r = requests.post(AGNES_URL, headers=headers, json=payload, timeout=60)
+        r = _post(AGNES_MODEL)
         if r.status_code != 200:
-            return {"error": f"API returned {r.status_code}",
-                    "detail": _err_msg_from(r)}, 500
+            detail = _err_msg_from(r)
+            # 仅「模型本身不可用」才兜底换最新 flash 重试一次；其它错误维持原行为。
+            # 503 也收：apihub 网关对不存在的模型就是 503 + "No available channel for model ..."。
+            if r.status_code in (400, 404, 503) and _AGNES_MODEL_GONE_RE.search(detail):
+                newer = _agnes_latest_flash(api_key)
+                if newer and newer != AGNES_MODEL:
+                    r = _post(newer)
+                    detail = "" if r.status_code == 200 else _err_msg_from(r)
+            if r.status_code != 200:
+                return {"error": f"API returned {r.status_code}",
+                        "detail": detail}, 500
         result = r.json()
         choices = result.get("choices") or []
         if choices:

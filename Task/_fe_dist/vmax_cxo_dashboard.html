@@ -161,7 +161,7 @@ function render(payload){currentPayload=payload;hasRendered=true;var s=(payload&
    .then(function(data){if(!settled){settled=true;clearTimeout(timer);render(data)}})
    .catch(function(){if(!settled){settled=true;clearTimeout(timer);render(null)}})
  }
- var initialView=new URLSearchParams(location.search).get('view');bindTopApps();if(window.echarts){load();if(initialView==='network'||initialView==='service')activate(initialView)}else{setStatus('ECharts unavailable',false);window.__READY__=false}
+ var initialView=new URLSearchParams(location.search).get('view');bindTopApps();if(window.echarts){load();if(initialView==='network'||initialView==='service')activate(initialView);setInterval(function(){if(state.activeView==='summary'){fetchJson('/api/vmax-cxo-dashboard/summary').then(function(d){if(d&&d.source==='cache')render(d)}).catch(function(){})}else if(currentOperational){loadOperational(currentOperational.view,currentOperational.key)}},60000)}else{setStatus('ECharts unavailable',false);window.__READY__=false}
 })();
 </script>
 </body>

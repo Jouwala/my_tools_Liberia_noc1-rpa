@@ -7,12 +7,12 @@ SP（备件）数据同步服务。
 同时镜像写入 FineBI 服务器（DESKTOP-D4GF62）上的
 WareHouseDashBoard/inventory.db（UNC 网络路径），供 FineBI 仓库看板读取。
 
-表名与 WareHouseDashBoard 保持一致：
-  - inband_details   （Inbound  Ticket，sp/spinbound）
-  - outband_details  （Outbound Ticket，sp/spoutbound）
-  - inventory_details（Inventory，       sp/spinventory，增量去重；按保留期清理历史快照）
+表名与 WareHouseDashBoard 保持一致（2026-09-16 起上游目录/文件名已变更）：
+  - inband_details   （Inbound  Ticket，sp/inbound            → inbound.xlsx）
+  - outband_details  （Outbound Ticket，sp/outbound           → outbound.xlsx）
+  - inventory_details（Inventory，      sp/inventory_management → inventory_management.xlsx）
   - ocrule_details   （OC Rule，         OCAuto/OCAutoOutput，递归找 csv→excel）
-  - transfer_details  （WH Transfer，    sp/sp-wh_transfer，递归找 xlsx）
+  - transfer_details  （WH Transfer，    sp/wh_transfer        → wh_transfer.xlsx）
 
 可直接作为任务集成进任务管理（run_sp_data_sync）。
 """
@@ -102,9 +102,14 @@ def _runtime_credentials():
     return get_credential("sftp_sp", SFTP_USER, SFTP_PASS)
 
 # 5 份报表的下载定义
+# ⚠️ 2026-09-16：上游把数据源迁到 /home/ubuntu/sp 下的新目录 + 固定文件名
+#    sp/<目录名>/<yyyymmdd>/<yyyymmddHHMMSSfff>/<文件名>.xlsx
+#    旧的 sp/spinbound|spoutbound|spinventory|sp-wh_transfer 已于 2026-09-15 08:00 停更，
+#    继续用会静默取到过期快照。带 "filename" 的走 find_latest_named_excel（校验文件名）。
 SP_TABLES = {
     "inband_details": {
-        "remote_folder": "sp/spinbound",
+        "remote_folder": "sp/inbound",
+        "filename": "inbound.xlsx",
         "local_name": "inband_details.xlsx",
         "nested": True,        # 进入 日期/时间戳 子目录找最新 excel
         "csv": False,
@@ -112,7 +117,8 @@ SP_TABLES = {
         "search": None,
     },
     "outband_details": {
-        "remote_folder": "sp/spoutbound",
+        "remote_folder": "sp/outbound",
+        "filename": "outbound.xlsx",
         "local_name": "outband_details.xlsx",
         "nested": True,
         "csv": False,
@@ -120,7 +126,8 @@ SP_TABLES = {
         "search": None,
     },
     "inventory_details": {
-        "remote_folder": "sp/spinventory",
+        "remote_folder": "sp/inventory_management",
+        "filename": "inventory_management.xlsx",
         "local_name": "inventory_details.xlsx",
         "nested": True,
         "csv": False,
@@ -136,12 +143,13 @@ SP_TABLES = {
         "search": "ocrule",
     },
     "transfer_details": {
-        "remote_folder": "sp/sp-wh_transfer",
+        "remote_folder": "sp/wh_transfer",
+        "filename": "wh_transfer.xlsx",
         "local_name": "transfer_details.xlsx",
-        "nested": False,
+        "nested": True,
         "csv": False,
-        "recursive": True,
-        "search": "sp-wh_transfer",
+        "recursive": False,
+        "search": None,
     },
 }
 
@@ -306,6 +314,40 @@ def find_latest_excel_in_nested(sftp, folder_path):
         return None
     files.sort(key=lambda x: x.st_mtime, reverse=True)
     return f"{time_path}/{files[0].filename}"
+
+
+def find_latest_named_excel(sftp, folder_path, filename, max_dates=5, max_slots=3):
+    """在 sp/<目录名>/<yyyymmdd>/<yyyymmddHHMMSSfff>/<文件名>.xlsx 结构里，
+    取**文件名精确匹配**（忽略大小写）的最新一份。
+
+    从最新日期目录往前找（最多 max_dates 天、每天最多 max_slots 个时间戳目录），
+    命中即返回，避免对整棵树做全量递归。
+    """
+    target = str(filename).lower()
+
+    def _subdirs(path):
+        try:
+            ds = [f for f in sftp.listdir_attr(path) if stat.S_ISDIR(f.st_mode)]
+        except IOError:
+            logging.getLogger(__name__).warning(
+                "[SILENT-EXCEPT] find_latest_named_excel: listdir %s", path, exc_info=True)
+            return []
+        ds.sort(key=lambda x: x.st_mtime, reverse=True)
+        return [d.filename for d in ds]
+
+    for date_dir in _subdirs(folder_path)[:max_dates]:
+        date_path = f"{folder_path}/{date_dir}"
+        for ts_dir in _subdirs(date_path)[:max_slots]:
+            ts_path = f"{date_path}/{ts_dir}"
+            try:
+                names = [f.filename for f in sftp.listdir_attr(ts_path)
+                         if not stat.S_ISDIR(f.st_mode)]
+            except IOError:
+                continue
+            for n in names:
+                if n.lower() == target:
+                    return f"{ts_path}/{n}"
+    return None
 
 
 def _scan_recursive(sftp, path, predicate, collector):
@@ -768,7 +810,10 @@ def run_sp_data_sync() -> dict:
                 # 单表重试：失败则重建连接后重试该表
                 for sub in range(1, SFTP_TABLE_RETRY + 2):
                     try:
-                        if cfg["nested"]:
+                        if cfg.get("filename"):
+                            remote_file = find_latest_named_excel(
+                                sftp, cfg["remote_folder"], cfg["filename"])
+                        elif cfg["nested"]:
                             remote_file = find_latest_excel_in_nested(sftp, cfg["remote_folder"])
                         elif cfg["recursive"]:
                             if cfg["csv"]:

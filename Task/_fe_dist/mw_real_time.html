@@ -232,6 +232,19 @@
   #topo-leaflet.dark-map .leaflet-tile-pane{ filter:brightness(.62) invert(1) contrast(3) hue-rotate(200deg) saturate(.4) brightness(.72); }
   #topo-leaflet.light-map{ background:#dbe6f0; }
   #topo-leaflet.light-map .leaflet-container{ background:#dbe6f0; }
+  /* ---------- 嵌入模式（被门户 MsPortal 以 iframe 套嵌时） ----------
+     本页在 MsPortal 里只作为「地图」使用：门户自己已经有标题栏（含
+     GIS Map / MW Real-Time / Realtime Alarm / Packet Loss 页签）。
+     本文件自己那套工具栏（布局切换 / 级别筛选 / 站点搜索 / 刷新 / 全屏 等）
+     在嵌入时全部隐藏，避免同一件事出现两套控件。
+     由 URL 参数 ?mwembed=1 触发（门户会带上）；独立打开本页时行为完全不变。 */
+  html.mw-embed header,
+  html.mw-embed #kpis,
+  html.mw-embed #topo-head,
+  html.mw-embed #bottom,
+  html.mw-embed #right,
+  html.mw-embed #drawer,
+  html.mw-embed #drawer-mask{ display:none !important; }
   /* 级别多选下拉 */
   .msel{position:relative; display:inline-block}
   .msel .btn{padding:0.25rem 0.625rem; font-size:0.75rem}
@@ -1284,12 +1297,40 @@ function ensureLeafletMap(){
   leafMap.on('zoomend', onGeoViewChange);
   leafMap.on('moveend', onGeoViewChange);
 }
-// 默认/重置时按全部站点居中（仅首次自动，避免覆盖用户手动平移缩放）；resetView 也复用
+/* 利比里亚全境边界（2026-09-17 加）：默认取景不再按「站点包围盒」，
+   而是按国土范围 —— 站点只覆盖西北→东南一条带，按站点 fit 会偏上、右侧露出
+   几内亚/科特迪瓦大片空白，利比里亚并不居中。
+   下列坐标取利比里亚国境四至，并额外向南留白：南边界取到 3.9°N（海岸线约 4.35°N），
+   让大西洋留在画面下方，与门户参考图的观感一致。
+   可用 URL 参数覆盖：?mwfitsw=lat,lon&mwfitne=lat,lon（例：mwfitne=4.35,-7.35）。 */
+var LB_BOUNDS = { south: 3.9, west: -11.7, north: 8.75, east: -7.3 };
+(function parseLbBounds(){
+  try{
+    var qs = new URLSearchParams(location.search);
+    function pair(name){
+      var v = qs.get(name);
+      if(!v) return null;
+      var a = v.split(',');
+      if(a.length !== 2) return null;
+      var lat = parseFloat(a[0]), lon = parseFloat(a[1]);
+      return (isFinite(lat) && isFinite(lon)) ? { lat: lat, lon: lon } : null;
+    }
+    var sw = pair('mwfitsw'), ne = pair('mwfitne');
+    if(sw){ LB_BOUNDS.south = sw.lat; LB_BOUNDS.west = sw.lon; }
+    if(ne){ LB_BOUNDS.north = ne.lat; LB_BOUNDS.east = ne.lon; }
+  }catch(e){}
+})();
+// 默认/重置取景：利比里亚全境铺满（仅首次自动，避免覆盖用户手动平移缩放）；resetView 也复用
 function fitAllSites(){
-  if(!leafMap || !DATA) return;
+  if(!leafMap) return;
   try{ leafMap.invalidateSize(); }catch(e){}
-  const gn = DATA.nodes.filter(n => n.lat != null && n.lon != null);
-  if(gn.length) leafMap.fitBounds(L.latLngBounds(gn.map(n => [n.lat, n.lon])), { padding:[60,60], maxZoom:13 });
+  try{
+    leafMap.fitBounds(L.latLngBounds([LB_BOUNDS.south, LB_BOUNDS.west], [LB_BOUNDS.north, LB_BOUNDS.east]),
+      { padding:[0,0], animate:false });
+  }catch(e){ console.warn('countryFit', e); }
+  // 取景落定后补绘一帧站点：moveend 已在途中触发过 renderGeoNodes，
+  // 这里再确认一次，避免 marker 沿用过旧缩放级别的聚合结果。
+  try{ setTimeout(function(){ try{ leafMap.invalidateSize(false); }catch(e){} }, 60); }catch(e){}
 }
 // 视图变化（缩放/平移）→ 重新计算站点标签分级与聚合（链路动画为 CSS，自动保留）
 function onGeoViewChange(){
@@ -2414,6 +2455,51 @@ window.addEventListener('load', function(){
 /* ============ boot ============ */
 applyTheme(APP_THEME);
 syncRightToggle();
+
+/* ---------- 嵌入模式初始化（由门户 MsPortal 触发） ----------
+   1) 给 <html> 加 mw-embed，隐藏本页自带的工具栏/KPI/图表（见上方 CSS）；
+   2) 需要时强制深色底图 —— 为「视觉决定」而非安全边界，故不写
+      localStorage['myapp-theme']（那会污染整个 my_app）。
+
+   ⚠️ 为什么两条通道都要留（2026-09-17 实测踩过）：
+   本页在 MsPortal 里是「三层 iframe」：
+     MsPortal ─(1)─> /myapp/?page=mwRealTime   ← React 外壳，认 URL 参数
+                        └─(2)─> /myapp/mw_real_time.html?_=<ts>  ← 本页
+   第 (2) 层的 src 由 LegacyToolFrame.tsx 写死为 `${BASE_URL}${file}?_=${cacheBust}`，
+   **会把门户给的 query 全部丢掉** —— 所以只靠 URL 参数（?mwembed=1）在门户里
+   根本不生效（直开本页则正常）。外壳那条路能做的就是「收父页面的 postMessage
+   再转发给内层」，与本文件已有的 myapp-theme / myapp-locale 协议同一套做法。
+   因此：
+     · 直开 / 大屏 → URL 参数（?mwembed=1&theme=dark）
+     · 门户嵌入   → postMessage { __type:'msportal-embed', theme }（来自顶层）
+   幂等：两条通道都调 applyEmbedOnce()，重复调用只生效一次。 */
+function applyEmbed(opts){
+  opts = opts || {};
+  try{ document.documentElement.classList.add('mw-embed'); }catch(e){}
+  var th = opts.theme;
+  if(th === 'dark' || th === 'light'){
+    /* 与 applyTheme 的区别：applyTheme 会 renderTopo/renderTrend/renderDist，
+       此刻 DATA 可能还没到（首屏 loadData 尚未跑），但地图容器已存在，
+       所以只切底图与主题变量，避免多余重绘。 */
+    APP_THEME = th;
+    try{ document.documentElement.dataset.theme = th; }catch(e){}
+    applyMapTheme();
+  }
+  return true;
+}
+(function initEmbedFromUrl(){
+  var qs;
+  try{ qs = new URLSearchParams(location.search); }catch(e){ return; }
+  if(qs.get('mwembed') !== '1') return;
+  applyEmbed({ theme: qs.get('theme') });
+})();
+/* 门户嵌入：顶层 MsPortal 直接 postMessage 到本窗（与外壳的转发互为兜底，
+   谁先到都行；applyEmbed 幂等，重复无副作用）。 */
+window.addEventListener('message', function(e){
+  var d = e.data;
+  if(d && d.__type === 'msportal-embed') applyEmbed({ theme: d.theme });
+});
+
 window.addEventListener('load', function(){ loadData(false); });
 /* 独立直开兜底（如大屏直接打开 /myapp/mw_ume_topology.html，不经 App 外壳）：
    每 5 分钟原地重拉一次。嵌入在 ?page=mwUmeTopology 内时由父页面的

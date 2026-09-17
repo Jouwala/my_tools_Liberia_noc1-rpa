@@ -1,0 +1,75 @@
+/* MsPortal — Tailwind v4 源文件（由 TMP/build_tailwind.mjs 编译为 assets/tailwind.css）
+ *
+ * 2026-09-17 从 v3 迁到 v4 语法，原因：
+ *   项目 node_modules 装的是 tailwindcss@4.x（v4），而 v3 CLI 不在其中，
+ *   导致本机长期无法重编译 assets/tailwind.css（只能靠 TMP/patch_msportal_css.cjs 打补丁）。
+ *   现改用 v4 的 compile()/optimize() API 直接编译，编译链恢复可用。
+ *
+ * 迁移对照：
+ *   tailwind.config.js 的 theme.extend.colors.zte.*  → @theme 里的 --color-zte-*
+ *   tailwind.config.js 的 theme.extend.boxShadow.*   → @theme 里的 --shadow-*
+ *   darkMode: 'class'                                → @custom-variant dark (&:where(.dark, .dark *))
+ *   content: [index.html, assets/portal.js]          → 由 TMP/build_tailwind.mjs 扫描后作为候选显式传入
+ *                                                      （类名大量藏在 JS 模板字符串里，@source 自动扫描不可靠）
+ */
+
+@import "tailwindcss";
+
+/* —— 深色主题：跟随 html.dark 类（对应 v3 的 darkMode: 'class'）—— */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* 中文字体栈，逐条对照 ref.html 保持 1:1 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+
+  /* 移植自 tailwind.config.js theme.extend.colors.zte */
+  --color-zte-navy: #002b49;
+  --color-zte-blue: #0066b3;
+  --color-zte-light-blue: #e6f0fa;
+  --color-zte-teal: #00a3e0;
+  --color-zte-accent: #0072ce;
+
+  /* 移植自 tailwind.config.js theme.extend.boxShadow */
+  --shadow-card: 0 2px 10px rgba(0, 43, 73, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03);
+  --shadow-glow-cyan: 0 0 15px rgba(0, 229, 255, 0.35);
+  --shadow-glow-blue: 0 0 20px rgba(0, 102, 179, 0.4);
+}
+
+@layer base {
+  body {
+    background-color: #f1f5f9;
+  }
+}
+
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f5f9;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+  .map-pattern {
+    background: radial-gradient(circle, #e2e8f0 1.5px, transparent 1.5px);
+    background-size: 16px 16px;
+  }
+}
+
+@keyframes pulse-ring {
+  to {
+    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+  }
+}
+
+.status-pulse-green {
+  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  animation: pulse-ring 2s infinite cubic-bezier(0.66, 0, 0, 1);
+}

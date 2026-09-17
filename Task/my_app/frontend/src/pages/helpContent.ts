@@ -22,6 +22,7 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'alarmManagement', iframe: true },
   { key: 'packet_loss' },
   { key: 'battery' },
+  { key: 'ume_in_kpi' },
   { key: 'ip_trace', iframe: true },
   { key: 'incident_overview', iframe: true },
   { key: 'warehouse', iframe: true },
@@ -51,6 +52,7 @@ export const NAV_KEY_MAP: Record<string, string> = {
   alarmManagement: 'nav.alarmManagement',
   packet_loss: 'nav.packetLoss',
   battery: 'nav.battery',
+  ume_in_kpi: 'nav.umeInKpi',
   ip_trace: 'nav.ipTrace',
   incident_overview: 'nav.incidentOverview',
   warehouse: 'nav.sp',
@@ -68,7 +70,7 @@ export const CATEGORIES: { id: string; pages: string[] }[] = [
   { id: 'tasks', pages: ['sync', 'email_reports', 'upload', 'tables', 'overview'] },
   {
     id: 'boards',
-    pages: ['alarm', 'ttwo', 'nur', 'ms_sla', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'packet_loss', 'battery', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse'],
+    pages: ['alarm', 'ttwo', 'nur', 'ms_sla', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'packet_loss', 'battery', 'ume_in_kpi', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse'],
   },
   { id: 'analysis', pages: ['eflow_qa', 'dashboard', 'archive', 'ip_trace'] },
   { id: 'system', pages: ['settings', 'portalLogin'] },
@@ -144,6 +146,17 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     battery: {
       desc: '站点电池健康度 / SOC / 充放电状态与告警明细。',
       usage: ['第一维度是「数据新鲜度」：默认只统计 24 小时内的新鲜读数（battery_kpi_sync 每小时 :05），关闭「仅新鲜」会混入旧数据导致失真', '点站点名下钻电池明细与历史读数；支持导出 Excel'],
+    },
+    ume_in_kpi: {
+      desc: '客户业务 KPI 看板：从 UME 门户（172.17.208.1:28808）抓取 Dong customer 周度业务指标，覆盖 IVR / P4M / VC / USSD / PPS / CPU / Memory 共 7 个模板（1 天粒度）。除业务量与成功率外，本页把失败按「系统侧 / 用户侧」归因——只有系统侧失败率与资源利用率会触发告警，因此像 PPS 的「余额不足」、USSD 的「用户失败」这类业务正常结果不会被误报为故障。',
+      usage: [
+        '顶部「立即同步」手动触发一次抓取（约 10~60 秒）；日常由 ume_in_kpi_sync 任务每天 05:45 自动同步',
+        '「近 7 / 14 / 30 天」切换趋势回看窗口；表头可排序、可按状态筛选',
+        '业务 KPI 表点行首展开，查看每个 SERVICE 的业务量、成功率、系统侧/用户侧失败与失败原因标签',
+        '「失败率构成」按归因堆叠显示各 KPI 的失败率；「成功率多日趋势」看逐日变化',
+        '资源利用率以「日均」判定（≥80% 关注、≥90% 异常），峰值仅作参考——瞬时打满属正常尖峰',
+        '「导出 Excel」输出 6 个 sheet：KPI 汇总 / 服务明细 / 失败分解 / 资源 / 趋势 / 告警',
+      ],
     },
     ip_trace: {
       desc: 'IP 链路探测：从服务器侧探测到目标站点的链路连通性与路径节点。',
@@ -246,6 +259,17 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     battery: {
       desc: 'Site battery health / SOC / charge-discharge status and alarm details.',
       usage: ['The first dimension is data freshness: by default only readings ≤24h old are counted (battery_kpi_sync hourly :05); turning off "fresh only" mixes in stale data', 'Click a site name to drill into batteries and history; export to Excel supported'],
+    },
+    ume_in_kpi: {
+      desc: 'Customer Service KPI dashboard: pulls Dong customer weekly service KPIs from the UME portal (172.17.208.1:28808) across 7 templates — IVR / P4M / VC / USSD / PPS / CPU / Memory (1-day granularity). Besides volume and success rate, failures are attributed to "system side" vs "user side" — only system-side failure rate and resource utilisation raise alerts, so business-normal outcomes such as PPS "insufficient balance" or USSD "user failure" are not misreported as faults.',
+      usage: [
+        'Click "Sync now" to trigger a fetch manually (about 10-60 s); the ume_in_kpi_sync task normally runs daily at 05:45',
+        'Switch "Last 7 / 14 / 30 days" to change the trend window; columns are sortable and filterable by status',
+        'Expand a row in the service KPI table to see per-SERVICE volume, success rate, system/user-side failures and failure-reason tags',
+        '"Failure-rate composition" stacks each KPI\'s failure rate by attribution; "Success-rate trend" shows the daily movement',
+        'Resource utilisation is judged on the daily average (≥80% warning, ≥90% critical); peaks are informational only — brief saturation is normal',
+        '"Export Excel" writes 6 sheets: KPI summary / service detail / failure breakdown / resources / trend / alerts',
+      ],
     },
     ip_trace: {
       desc: 'IP trace: probe link connectivity and path nodes from the server side to a target site.',

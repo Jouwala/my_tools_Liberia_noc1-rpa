@@ -102,10 +102,16 @@ _DOC_PREVIEW_SELECTORS = (
 )
 _SEND_BUTTON_SELECTORS = (
     "span[data-icon='send']",
+    "span[data-icon='wds-ic-send-filled']",
     "span[data-testid='send']",
     "div[aria-label='Send']",
     "button[aria-label='Send']",
     "div[role='button'][aria-label*='Send' i]",
+    # 中文界面（本机 WhatsApp Web 是中文）：aria-label 形如「发送 1 项所选内容」。
+    # 缺这两条时旧代码一个都命中不了，只能退化成按回车——而文档预览页上回车无效
+    # （2026-09-15 SP Details Report 1.5MB 因此没发出去，见 _fast_send_file 注释）。
+    "div[role='button'][aria-label*='发送']",
+    "button[aria-label*='发送']",
 )
 
 
@@ -418,32 +424,94 @@ def _msg_count(page) -> int:
         return -1
 
 
+_MSG_ROW_SEL = "div[role='row'], div[data-testid='msg-container']"
+
+
 def _verify_file_sent(page, file_name: str, timeout: int = 20) -> bool:
     """确认群里确实出现了该文档消息。
 
     WhatsApp 给文档消息的下载入口 title/aria-label 形如 ``下载"<文件名>"`` /
     ``Download "<file name>"``。用它做判据比「数消息条数」可靠——聊天列表是虚拟
     列表，DOM 节点数不随新消息线性增长（实测新增 2 条消息后计数仍是 42）。
+
+    ⚠️ **必须限定在消息行内**（2026-09-15 修复）：粘贴文件后 WhatsApp 会弹出
+    **文档预览页**，页眉同样带文件名；只按「页面上出现文件名」判断，会把还没发出去的
+    预览页当成「已发出」——SP Details Report 1.5MB 就是这样被判成功、实际没进群。
     """
     safe = (file_name or "").replace('"', "").replace("\\", "")
     if not safe:
         return False
-    sels = (
-        f'div[title*="{safe}"]',
-        f'span[title*="{safe}"]',
-        f'div[aria-label*="{safe}"]',
-    )
+    js = """
+    (args) => {
+      const [needle, rowSel] = args;
+      for (const s of ['div[title]', 'span[title]', 'div[aria-label]', 'a[title]']) {
+        for (const el of document.querySelectorAll(s)) {
+          const v = el.getAttribute('title') || el.getAttribute('aria-label') || '';
+          if (v.includes(needle) && el.closest(rowSel)) return true;
+        }
+      }
+      return false;
+    }
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        for sel in sels:
-            try:
-                if page.locator(sel).count() > 0:
-                    return True
-            except Exception:
-                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _verify_file_sent: exception swallowed", exc_info=True)
-                continue
+        try:
+            if page.evaluate(js, [safe, _MSG_ROW_SEL]):
+                return True
+        except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _verify_file_sent: exception swallowed", exc_info=True)
         page.wait_for_timeout(1000)
     return False
+
+
+def _attachment_visible(page, file_name: str) -> bool:
+    """输入框/预览页里是否已出现该文件的附件（文件名出现在 title/aria-label 上）。"""
+    safe = (file_name or "").replace('"', "").replace("\\", "")
+    if not safe:
+        return False
+    try:
+        return bool(page.evaluate("""
+        (needle) => {
+          for (const s of ['div[title]', 'span[title]', 'div[aria-label]', 'a[title]']) {
+            for (const el of document.querySelectorAll(s)) {
+              const v = el.getAttribute('title') || el.getAttribute('aria-label') || '';
+              if (v.includes(needle)) return true;
+            }
+          }
+          return false;
+        }
+        """, safe))
+    except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _attachment_visible: exception swallowed", exc_info=True)
+        return False
+
+
+def _wait_attachment_ready(page, file_name: str, timeout: int = 25) -> bool:
+    """等「文件已挂上、可以发送」：附件预览出现 **且** 发送按钮可见。
+
+    ⚠️ 2026-09-15 修复的根因就在这里：剪贴板路径原来 ``Ctrl+V`` 后固定等 2s 就回车。
+    实测粘贴后 WhatsApp 弹出**文档预览页**，文件名元素出现时刻在 +0.4s ~ +2s 之间
+    浮动（大文件更慢）——回车打空后附件留在预览页里没发出去，而当时的校验又把预览页
+    上的文件名当成「已发出」，于是任务报成功、群里什么都没有。
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _attachment_visible(page, file_name) and _find_send_button(page) is not None:
+            return True
+        page.wait_for_timeout(300)
+    return False
+
+
+def _find_send_button(page):
+    """返回当前可见的发送按钮 Locator（中文界面靠 '发送' 选择器命中），找不到返回 None。"""
+    for sel in _SEND_BUTTON_SELECTORS:
+        try:
+            loc = page.locator(sel).first
+            if loc.count() > 0 and loc.is_visible(timeout=500):
+                return loc
+        except Exception:
+            continue
+    return None
 
 
 def _fast_send_file(page, file_path):
@@ -457,13 +525,15 @@ def _fast_send_file(page, file_path):
       3) **不再无条件 ``sent = True``**：原实现只要没抛异常就算成功，于是假成功后
          跳过剪贴板兜底，Excel 实际没发出却报 success。现在未确认发出就走兜底。
 
-    发送后用 ``_verify_file_sent`` 核对群里是否真出现该文档，仅用于日志证据，
-    **不会**因核对失败而重发（避免群里出现重复文件）。
+    发送后用 ``_verify_file_sent`` 核对群里是否真出现该文档（严格限定消息行内）。
+    返回值 = 是否确认送达；**不会**因核对失败而自动重发（避免群里出现重复文件），
+    但会把 False 交给调用方（run_whatsapp_send 会记进 errors，让失败在任务结果里可见）。
     """
     if not file_path or not os.path.exists(file_path):
-        return
+        return False
 
-    _info(f"发送文件: {os.path.basename(file_path)}")
+    name = os.path.basename(file_path)
+    _info(f"发送文件: {name}")
     page.locator("#main").click(force=True)
 
     sent = False
@@ -527,13 +597,31 @@ def _fast_send_file(page, file_path):
         _copy_file_to_clipboard(file_path)
         page.locator("#main").click(force=True)
         page.keyboard.press("Control+v")
-        page.wait_for_timeout(2000)
-        page.keyboard.press("Enter")
-        page.wait_for_timeout(2000)
-        if _verify_file_sent(page, os.path.basename(file_path)):
-            _success(f"剪贴板文件已发出（群内已核对到）: {os.path.basename(file_path)}")
+
+        # 2026-09-15 修复：粘贴后 WhatsApp 弹出文档预览页，预览未就绪就回车会打空，
+        # 附件留在预览页里没发出去（SP Details Report 1.5MB 就这么丢的）。
+        # 改为：等附件预览 + 发送按钮就绪 → 点发送按钮（中文界面回车无效）→ 严格校验。
+        if not _wait_attachment_ready(page, name, timeout=25):
+            _warn(f"粘贴后等不到附件预览/发送按钮，未发送: {name}（请人工核对）")
+            return False
+
+        btn = _find_send_button(page)
+        if btn is not None:
+            try:
+                btn.click(timeout=5000)
+            except Exception as e:
+                _warn(f"点击发送按钮失败({e})，改用 Enter")
+                page.keyboard.press("Enter")
         else:
-            _warn(f"剪贴板发送后仍未在群内核对到 {os.path.basename(file_path)}（不重发，请人工核对）")
+            page.keyboard.press("Enter")
+        page.wait_for_timeout(2000)
+        if _verify_file_sent(page, name):
+            _success(f"剪贴板文件已发出（群内已核对到）: {name}")
+            return True
+        _warn(f"剪贴板发送后仍未在群内核对到 {name}（不重发，请人工核对）")
+        return False
+
+    return sent
 
 
 def _wait_for_last_message_sent(page, timeout=60):
@@ -676,7 +764,13 @@ def run_whatsapp_send(photos=None, captions=None, files=None, groups=None) -> di
                 _fast_send_photos(page, pairs)
 
                 for file_path in files_to_send:
-                    _fast_send_file(page, file_path)
+                    # 2026-09-15：文件发送改为「确认送达才算成功」。以前 _fast_send_file
+                    # 只记日志不返回结果，文件没发出去时任务照样报成功（SP Details
+                    # Report 1.5MB 就静默丢了一天）。
+                    if not _fast_send_file(page, file_path):
+                        result["errors"].append(
+                            f"群 {group} 文件未确认送达: {os.path.basename(file_path)}"
+                        )
 
                 result["groups_sent"].append(group)
                 _info(f"群 [{group}] 发送完毕")

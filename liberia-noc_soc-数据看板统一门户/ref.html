@@ -1,0 +1,1017 @@
+<!DOCTYPE html><html lang="zh-CN" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>ZTE OLR MS 管理平台 - Liberia 门户看板 (ZTE OLR MS Management Platform)</title>
+<!-- Tailwind CSS v3 with Plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Phosphor Icons for Crisp Telecom & Tech Symbols -->
+<script src="https://unpkg.com/@phosphor-icons/web"></script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/regular/style.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/thin/style.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/light/style.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/bold/style.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/fill/style.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/duotone/style.css">
+<!-- Tailwind Configuration -->
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            zte: {
+              navy: '#002B49',
+              blue: '#0066B3',
+              lightBlue: '#E6F0FA',
+              teal: '#00A3E0',
+              accent: '#0072CE'
+            }
+          },
+          boxShadow: {
+            'card': '0 2px 10px rgba(0, 43, 73, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03)',
+            'glow-cyan': '0 0 15px rgba(0, 229, 255, 0.35)',
+            'glow-blue': '0 0 20px rgba(0, 102, 179, 0.4)'
+          }
+        }
+      }
+    }
+  </script>
+<style data-purpose="base-layout">
+    body {
+      background-color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+    .status-pulse-green {
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+      animation: pulse-ring 2s infinite cubic-bezier(0.66, 0, 0, 1);
+    }
+    @keyframes pulse-ring {
+      to {
+        box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+      }
+    }
+    .map-pattern {
+      background: radial-gradient(circle, #e2e8f0 1.5px, transparent 1.5px);
+      background-size: 16px 16px;
+    }
+  </style>
+</head>
+<body class="text-slate-800 antialiased min-h-screen flex flex-col">
+<!-- BEGIN: TopHeader -->
+<header class="w-full bg-gradient-to-r from-[#07172c] via-[#002b49] to-[#041d38] border-b border-cyan-500/30 text-white shadow-lg sticky top-0 z-50">
+<div class="max-w-[1920px] mx-auto px-4 lg:px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 relative"><div class="w-full flex items-center justify-center py-1.5"><h1 class="text-lg lg:text-xl font-bold tracking-wide text-white flex items-center gap-2 font-mono"><span class="text-cyan-400 font-extrabold">ZTE</span> OLR MS Management Platform</h1></div></div>
+</header>
+<!-- END: TopHeader -->
+<!-- BEGIN: MainDashboardContent -->
+<main class="flex-1 max-w-[1920px] w-full mx-auto p-3 lg:p-4 space-y-3.5">
+<!-- 2. BEGIN: SectionQualityControl -->
+<section aria-label="CXO View" class="bg-white rounded-xl p-3.5 shadow-card border border-slate-200/80">
+<div class="flex items-center justify-between mb-3 pb-1 border-b border-slate-100">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-sm bg-red-600"></span>
+<h2 class="text-base font-bold tracking-tight text-red-600">
+            CXO View <span class="text-xs text-slate-500 font-normal">| 决策战略层统一总控与运营视窗</span>
+</h2>
+</div>
+<div class="flex items-center gap-4 text-xs">
+<span class="text-slate-500 hidden sm:inline">战略大屏直通率: <strong class="text-emerald-600 font-mono">100%</strong></span>
+<a class="text-blue-600 hover:text-blue-800 flex items-center gap-1" href="#cxo-full">
+            完整系统目录 <i class="ph ph-arrow-right text-[11px]"></i>
+</a>
+</div>
+</div>
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-3 items-stretch">
+<!-- Exact Systems from Table -->
+<div class="xl:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-3">
+<!-- 1. CEO Dashboard -->
+<a class="flex items-start gap-3 p-3 rounded-lg border border-slate-200/80 bg-gradient-to-br from-slate-50/80 to-white hover:border-blue-400 hover:shadow-md transition group" href="#ceo-dashboard">
+<div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 text-white flex items-center justify-center text-2xl shadow-sm group-hover:scale-105 transition shrink-0">
+<i class="ph ph-chart-polar"></i>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between gap-1">
+<span class="text-xs font-bold text-slate-800 group-hover:text-blue-600">CEO Dashboard</span>
+<span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200 font-mono">Executive</span>
+</div>
+<p class="text-[11px] text-slate-500 mt-0.5 truncate">战略运营综合看板</p>
+<div class="mt-2 text-[10px] text-slate-400 flex items-center gap-2">
+<span class="text-emerald-600 flex items-center"><i class="ph ph-circle-wavy-check mr-0.5"></i> 核心KPI联通</span>
+<span class="">日级汇总</span>
+</div>
+</div>
+</a>
+<!-- 2. FMAO CEO Integrated View -->
+<a class="flex items-start gap-3 p-3 rounded-lg border border-slate-200/80 bg-gradient-to-br from-slate-50/80 to-white hover:border-blue-400 hover:shadow-md transition group" href="#fmao-ceo">
+<div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 text-white flex items-center justify-center text-2xl shadow-sm group-hover:scale-105 transition shrink-0">
+<i class="ph ph-globe-hemisphere-east"></i>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between gap-1">
+<span class="text-xs font-bold text-slate-800 group-hover:text-blue-600 truncate">FMAO CEO Integrated View</span>
+<span class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-700 border border-cyan-200 font-mono">MEA Hub</span>
+</div>
+<p class="text-[11px] text-slate-500 mt-0.5 truncate">中东非CEO看板</p>
+<div class="mt-2 text-[10px] text-slate-400 flex items-center gap-2">
+<span class="text-cyan-700 flex items-center"><i class="ph ph-buildings mr-0.5"></i> 跨国/大区对标</span>
+<span class="">跨国总控</span>
+</div>
+</div>
+</a>
+</div>
+<!-- 辅助决策指标高亮微型看板 -->
+<div class="xl:col-span-5 grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-slate-50/90 p-2.5 rounded-lg border border-slate-200/70">
+<div class="bg-white p-2 rounded border border-slate-200/60 flex flex-col justify-between">
+<span class="text-[11px] text-slate-500">利比里亚月度考核</span>
+<div class="text-base font-extrabold text-blue-700 font-mono mt-1">99.12%</div>
+<span class="text-[10px] text-emerald-600">达到A级标准</span>
+</div>
+<div class="bg-white p-2 rounded border border-slate-200/60 flex flex-col justify-between">
+<span class="text-[11px] text-slate-500">大区网络健康度</span>
+<div class="text-base font-extrabold text-emerald-600 font-mono mt-1">98.8 分</div>
+<span class="text-[10px] text-slate-400">中东非排名前列</span>
+</div>
+<div class="col-span-2 sm:col-span-1 bg-white p-2 rounded border border-slate-200/60 flex flex-col justify-between">
+<span class="text-[11px] text-slate-500">重大事件闭环率</span>
+<div class="text-base font-extrabold text-slate-800 font-mono mt-1">100%</div>
+<span class="text-[10px] text-blue-600 font-mono">0 超期工单</span>
+</div>
+</div>
+</div>
+</section><section aria-label="Quality Control" class="bg-white rounded-xl p-3.5 shadow-card border border-slate-200/80">
+<div class="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-100">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-sm bg-rose-500"></span>
+<h2 class="text-base font-bold tracking-tight text-red-600 flex items-center gap-2">
+            Quality Control <span class="text-xs text-slate-500 font-normal">| 质量监控核心指标 (Key Performance Indicators)</span>
+</h2>
+</div>
+<div class="flex items-center gap-2 text-xs">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+<i class="ph ph-shield-check mr-1"></i> 达标率 98.7%
+          </span>
+<span class="text-slate-400">更新于: 今天 15:30</span>
+</div>
+</div>
+<!-- 6 Key Quality Metric Cards -->
+<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+<!-- Card 1: Alarm -->
+<div class="bg-gradient-to-br from-slate-50 to-white rounded-lg p-3 border border-slate-200 hover:border-blue-400 hover:shadow-md transition group">
+<div class="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+<span class="">Alarm (告警)</span>
+<span class="p-1 rounded bg-amber-50 text-amber-600"><i class="ph ph-warning"></i></span>
+</div>
+<div class="flex items-baseline justify-between mt-1">
+<div class="text-2xl lg:text-3xl font-extrabold text-lime-600 font-mono tracking-tight group-hover:scale-105 transition-transform">
+              32
+            </div>
+<div class="flex items-center gap-1 text-[11px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium">
+<i class="ph ph-folder-open text-blue-500"></i> 工单库
+            </div>
+</div>
+<div class="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-1 border-t border-slate-100">
+<span class="">上月值: <strong class="text-slate-700 font-mono">6</strong></span>
+<span class="text-rose-500 flex items-center font-medium"><i class="ph ph-arrow-up text-[10px]"></i> +26</span>
+</div>
+</div>
+<!-- Card 2: TTs -->
+<div class="bg-gradient-to-br from-slate-50 to-white rounded-lg p-3 border border-slate-200 hover:border-blue-400 hover:shadow-md transition group">
+<div class="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+<span class="">TTs (故障工单)</span>
+<span class="p-1 rounded bg-blue-50 text-blue-600"><i class="ph ph-ticket"></i></span>
+</div>
+<div class="flex items-baseline justify-between mt-1">
+<div class="text-2xl lg:text-3xl font-extrabold text-lime-600 font-mono tracking-tight group-hover:scale-105 transition-transform">
+              32
+            </div>
+<div class="flex items-center gap-1 text-[11px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium">
+<i class="ph ph-folder-open text-blue-500"></i> 跟踪
+            </div>
+</div>
+<div class="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-1 border-t border-slate-100">
+<span class="">上月值: <strong class="text-slate-700 font-mono">6</strong></span>
+<span class="text-amber-500 flex items-center font-medium"><i class="ph ph-arrows-left-right text-[10px]"></i> 持平</span>
+</div>
+</div>
+<!-- Card 3: WOs -->
+<div class="bg-gradient-to-br from-slate-50 to-white rounded-lg p-3 border border-slate-200 hover:border-blue-400 hover:shadow-md transition group">
+<div class="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+<span class="">WOs (任务工单)</span>
+<span class="p-1 rounded bg-cyan-50 text-cyan-600"><i class="ph ph-briefcase"></i></span>
+</div>
+<div class="flex items-baseline justify-between mt-1">
+<div class="text-2xl lg:text-3xl font-extrabold text-lime-600 font-mono tracking-tight group-hover:scale-105 transition-transform">
+              32
+            </div>
+<div class="flex items-center gap-1 text-[11px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium">
+<i class="ph ph-folder-open text-blue-500"></i> 闭环
+            </div>
+</div>
+<div class="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-1 border-t border-slate-100">
+<span class="">上月值: <strong class="text-slate-700 font-mono">6</strong></span>
+<span class="text-emerald-600 flex items-center font-medium"><i class="ph ph-check-circle text-[10px]"></i> 98%按期</span>
+</div>
+</div>
+<!-- Card 4: CRs -->
+<div class="bg-gradient-to-br from-slate-50 to-white rounded-lg p-3 border border-slate-200 hover:border-blue-400 hover:shadow-md transition group">
+<div class="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+<span class="">CRs (变更需求)</span>
+<span class="p-1 rounded bg-indigo-50 text-indigo-600"><i class="ph ph-git-pull-request"></i></span>
+</div>
+<div class="flex items-baseline justify-between mt-1">
+<div class="text-2xl lg:text-3xl font-extrabold text-lime-600 font-mono tracking-tight group-hover:scale-105 transition-transform">
+              32
+            </div>
+<div class="flex items-center gap-1 text-[11px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium">
+<i class="ph ph-folder-open text-blue-500"></i> 审批中
+            </div>
+</div>
+<div class="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-1 border-t border-slate-100">
+<span class="">上月值: <strong class="text-slate-700 font-mono">6</strong></span>
+<span class="text-blue-500 flex items-center font-medium"><i class="ph ph-arrow-up text-[10px]"></i> 正常计划</span>
+</div>
+</div>
+<!-- Card 5: PMT -->
+<div class="bg-gradient-to-br from-slate-50 to-white rounded-lg p-3 border border-slate-200 hover:border-blue-400 hover:shadow-md transition group">
+<div class="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+<span class="">PMT (预防性维护)</span>
+<span class="p-1 rounded bg-emerald-50 text-emerald-600"><i class="ph ph-wrench"></i></span>
+</div>
+<div class="flex items-baseline justify-between mt-1">
+<div class="text-2xl lg:text-3xl font-extrabold text-lime-600 font-mono tracking-tight group-hover:scale-105 transition-transform">
+              32
+            </div>
+<div class="flex items-center gap-1 text-[11px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium">
+<i class="ph ph-folder-open text-blue-500"></i> 巡检表
+            </div>
+</div>
+<div class="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-1 border-t border-slate-100">
+<span class="">上月值: <strong class="text-slate-700 font-mono">6</strong></span>
+<span class="text-emerald-600 flex items-center font-medium"><i class="ph ph-check text-[10px]"></i> 100%完成</span>
+</div>
+</div>
+<!-- Card 6: SPMS -->
+<div class="bg-gradient-to-br from-slate-50 to-white rounded-lg p-3 border border-slate-200 hover:border-blue-400 hover:shadow-md transition group">
+<div class="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+<span class="">SPMS (备件物资)</span>
+<span class="p-1 rounded bg-purple-50 text-purple-600"><i class="ph ph-package"></i></span>
+</div>
+<div class="flex items-baseline justify-between mt-1">
+<div class="text-2xl lg:text-3xl font-extrabold text-lime-600 font-mono tracking-tight group-hover:scale-105 transition-transform">
+              32
+            </div>
+<div class="flex items-center gap-1 text-[11px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium">
+<i class="ph ph-folder-open text-blue-500"></i> 库存库
+            </div>
+</div>
+<div class="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-1 border-t border-slate-100">
+<span class="">上月值: <strong class="text-slate-700 font-mono">6</strong></span>
+<span class="text-amber-500 flex items-center font-medium"><i class="ph ph-warning-circle text-[10px]"></i> 2件低储</span>
+</div>
+</div>
+</div>
+</section>
+<!-- END: SectionQualityControl -->
+<!-- 3. BEGIN: SectionCXOView (决策战略层) -->
+
+<!-- END: SectionCXOView -->
+<!-- BEGIN: Core Layout Grid (3 Columns: Left MS & FLM / Center Topology Map & FO / Right BO & Admin) -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start">
+<!-- ==================== LEFT COLUMN (3 COLS): MS VIEW & FLM VIEW ==================== -->
+<div class="lg:col-span-4 xl:col-span-3 space-y-3.5">
+<!-- MS View (综合运维管理层) -->
+<div class="bg-white rounded-xl p-3.5 shadow-card border border-slate-200/80">
+<div class="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-red-600"></span>
+<h2 class="text-base font-bold text-red-600">MS View</h2>
+<span class="text-xs text-slate-500 font-normal">综合运维管理层</span>
+</div>
+<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono">9 系统</span>
+</div>
+<!-- Exact 9 systems under MS View -->
+<div class="space-y-1.5">
+<!-- 1. MS Dashboard -->
+<a class="flex items-center justify-between p-2 rounded-lg hover:bg-blue-50/70 border border-slate-100 transition group" href="#ms-dashboard">
+<div class="flex items-center gap-2 min-w-0">
+<div class="w-7 h-7 rounded-md bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-bold shrink-0 group-hover:bg-blue-600 group-hover:text-white transition">
+<i class="ph ph-gauge"></i>
+</div>
+<div class="truncate">
+<div class="text-xs font-semibold text-slate-800 group-hover:text-blue-700 truncate">MS Dashboard</div>
+<div class="text-[10px] text-slate-500 truncate">综合运维看板</div>
+</div>
+</div>
+<i class="ph ph-arrow-up-right text-xs text-slate-300 group-hover:text-blue-600"></i>
+</a>
+<!-- 2. MS Operation KPI -->
+<a class="flex items-center justify-between p-2 rounded-lg hover:bg-blue-50/70 border border-slate-100 transition group" href="#ms-op-kpi">
+<div class="flex items-center gap-2 min-w-0">
+<div class="w-7 h-7 rounded-md bg-cyan-100 text-cyan-700 flex items-center justify-center text-sm font-bold shrink-0 group-hover:bg-cyan-600 group-hover:text-white transition">
+<i class="ph ph-chart-line"></i>
+</div>
+<div class="truncate">
+<div class="text-xs font-semibold text-slate-800 group-hover:text-blue-700 truncate">MS Operation KPI</div>
+<div class="text-[10px] text-slate-500 truncate">运维指标看板</div>
+</div>
+</div>
+<span class="text-[10px] font-mono text-emerald-600">99.4%</span>
+</a>
+<!-- 3. Contract Operation KPI -->
+<a class="flex items-center justify-between p-2 rounded-lg hover:bg-blue-50/70 border border-slate-100 transition group" href="#contract-kpi">
+<div class="flex items-center gap-2 min-w-0">
+<div class="w-7 h-7 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center text-sm font-bold shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition">
+<i class="ph ph-file-text"></i>
+</div>
+<div class="truncate">
+<div class="text-xs font-semibold text-slate-800 group-hover:text-blue-700 truncate">Contract Operation KPI</div>
+<div class="text-[10px] text-slate-500 truncate">运维合同KPI指标看板</div>
+</div>
+</div>
+<i class="ph ph-arrow-up-right text-xs text-slate-300 group-hover:text-blue-600"></i>
+</a>
+<!-- 4. MTSA Dashboard -->
+<a class="flex items-center justify-between p-2 rounded-lg hover:bg-blue-50/70 border border-slate-100 transition group" href="#mtsa-dashboard">
+<div class="flex items-center gap-2 min-w-0">
+<div class="w-7 h-7 rounded-md bg-sky-100 text-sky-700 flex items-center justify-center text-sm font-bold shrink-0 group-hover:bg-sky-600 group-hover:text-white transition">
+<i class="ph ph-calendar-check"></i>
+</div>
+<div class="truncate">
+<div class="text-xs font-semibold text-slate-800 group-hover:text-blue-700 truncate">MTSA Dashboard</div>
+<div class="text-[10px] text-slate-500 truncate">MonthJob Weekly指标监控分析</div>
+</div>
+</div>
+<i class="ph ph-arrow-up-right text-xs text-slate-300 group-hover:text-blue-600"></i>
+</a>
+<!-- 5. Incident Management -->
+<a class="flex items-center justify-between p-2 rounded-lg hover:bg-blue-50/70 border border-slate-100 transition group" href="#incident-mgmt">
+<div class="flex items-center gap-2 min-w-0">
+<div class="w-7 h-7 rounded-md bg-rose-100 text-rose-700 flex items-center justify-center text-sm font-bold shrink-0 group-hover:bg-rose-600 group-hover:text-white transition">
+<i class="ph ph-warning-octagon"></i>
+</div>
+<div class="truncate">
+<div class="text-xs font-semibold text-slate-800 group-hover:text-blue-700 truncate">Incident Management</div>
+<div class="text-[10px] text-slate-500 truncate">重大网络事件监控</div>
+</div>
+</div>
+<span class="text-[10px] px-1.5 py-0.2 rounded bg-rose-50 text-rose-600 font-mono">0 Active</span>
+</a>
+<!-- 6. Metabase -->
+<a class="flex items-center justify-between p-2 rounded-lg hover:bg-blue-50/70 border border-slate-100 transition group" href="#metabase-ms">
+<div class="flex items-center gap-2 min-w-0">
+<div class="w-7 h-7 rounded-md bg-teal-100 text-teal-700 flex items-center justify-center text-sm font-bold shrink-0 group-hover:bg-teal-600 group-hover:text-white transition">
+<i class="ph ph-chart-bar-horizontal"></i>
+</div>
+<div class="truncate">
+<div class="text-xs font-semibold text-slate-800 group-hover:text-blue-700 truncate">Metabase</div>
+<div class="text-[10px] text-slate-500 truncate">可视化分析平台看板</div>
+</div>
+</div>
+<i class="ph ph-arrow-up-right text-xs text-slate-300 group-hover:text-blue-600"></i>
+</a>
+<!-- 7. Warehouse Dashboard -->
+<a class="flex items-center justify-between p-2 rounded-lg hover:bg-blue-50/70 border border-slate-100 transition group" href="#warehouse-dashboard">
+<div class="flex items-center gap-2 min-w-0">
+<div class="w-7 h-7 rounded-md bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-bold shrink-0 group-hover:bg-amber-600 group-hover:text-white transition">
+<i class="ph ph-package"></i>
+</div>
+<div class="truncate">
+<div class="text-xs font-semibold text-slate-800 group-hover:text-blue-700 truncate">Warehouse Dashboard</div>
+<div class="text-[10px] text-slate-500 truncate">备件物资看板</div>
+</div>
+</div>
+<i class="ph ph-arrow-up-right text-xs text-slate-300 group-hover:text-blue-600"></i>
+</a>
+<!-- 8. Truck Management -->
+<a class="flex items-center justify-between p-2 rounded-lg hover:bg-blue-50/70 border border-slate-100 transition group" href="#truck-mgmt">
+<div class="flex items-center gap-2 min-w-0">
+<div class="w-7 h-7 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center text-sm font-bold shrink-0 group-hover:bg-emerald-600 group-hover:text-white transition">
+<i class="ph ph-truck"></i>
+</div>
+<div class="truncate">
+<div class="text-xs font-semibold text-slate-800 group-hover:text-blue-700 truncate">Truck Management</div>
+<div class="text-[10px] text-slate-500 truncate">巡检车辆管理系统看板</div>
+</div>
+</div>
+<span class="text-[10px] font-mono text-slate-500">14 车在线</span>
+</a>
+<!-- 9. Incident Report System -->
+<a class="flex items-center justify-between p-2 rounded-lg hover:bg-blue-50/70 border border-slate-100 transition group" href="#incident-report">
+<div class="flex items-center gap-2 min-w-0">
+<div class="w-7 h-7 rounded-md bg-purple-100 text-purple-700 flex items-center justify-center text-sm font-bold shrink-0 group-hover:bg-purple-600 group-hover:text-white transition">
+<i class="ph ph-file-pdf"></i>
+</div>
+<div class="truncate">
+<div class="text-xs font-semibold text-slate-800 group-hover:text-blue-700 truncate">Incident Report System</div>
+<div class="text-[10px] text-slate-500 truncate">支持中心事故报告</div>
+</div>
+</div>
+<i class="ph ph-arrow-up-right text-xs text-slate-300 group-hover:text-blue-600"></i>
+</a>
+</div>
+</div>
+<!-- FLM View (一线外场维护) -->
+<div class="bg-white rounded-xl p-3.5 shadow-card border border-slate-200/80">
+<div class="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-red-600"></span>
+<h2 class="text-base font-bold text-red-600">FLM View</h2>
+<span class="text-xs text-slate-500 font-normal">一线外场维护</span>
+</div>
+<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono">4 系统</span>
+</div>
+<!-- 4 systems under FLM View -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
+<!-- 1. FLM Main -->
+<a class="p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition group flex items-start gap-2.5" href="#flm-main">
+<div class="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center text-base shrink-0">
+<i class="ph ph-arrows-left-right"></i>
+</div>
+<div class="min-w-0">
+<div class="text-xs font-bold text-slate-800 group-hover:text-blue-600">FLM Main</div>
+<div class="text-[10px] text-slate-500">外场日常巡检工单平衡看板</div>
+</div>
+</a>
+<!-- 2. Online Sites Safe Guard -->
+<a class="p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition group flex items-start gap-2.5" href="#sites-guard">
+<div class="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-base shrink-0">
+<i class="ph ph-shield-check"></i>
+</div>
+<div class="min-w-0">
+<div class="text-xs font-bold text-slate-800 group-hover:text-blue-600 truncate">Online Sites Safe Guard</div>
+<div class="text-[10px] text-slate-500 truncate">安全防护管理看板</div>
+</div>
+</a>
+<!-- 3. Site Fuel Consumption Report -->
+<a class="p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition group flex items-start gap-2.5" href="#fuel-report">
+<div class="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center text-base shrink-0">
+<i class="ph ph-gas-pump"></i>
+</div>
+<div class="min-w-0">
+<div class="text-xs font-bold text-slate-800 group-hover:text-blue-600 truncate">Site Fuel Consumption</div>
+<div class="text-[10px] text-slate-500 truncate">基站油机燃油报表</div>
+</div>
+</a>
+<!-- 4. Site Battery Monitoring -->
+<a class="p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition group flex items-start gap-2.5" href="#battery-monitor">
+<div class="w-8 h-8 rounded-lg bg-cyan-600 text-white flex items-center justify-center text-base shrink-0">
+<i class="ph ph-battery-charging"></i>
+</div>
+<div class="min-w-0">
+<div class="text-xs font-bold text-slate-800 group-hover:text-blue-600 truncate">Site Battery Monitoring</div>
+<div class="text-[10px] text-slate-500 truncate">基站蓄电池监控看板</div>
+</div>
+</a>
+</div>
+<!-- FLM Field Status Indicator -->
+<div class="mt-3 p-2.5 bg-slate-50 rounded-lg border border-slate-200/80 text-xs">
+<div class="flex items-center justify-between text-slate-700 font-medium mb-1">
+<span class="">在途外场维护队伍 (Field Teams)</span>
+<span class="text-blue-600 font-mono font-bold">14 / 16 组</span>
+</div>
+<div class="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+<div class="bg-blue-600 h-1.5 rounded-full" style="width: 87.5%"></div>
+</div>
+<div class="flex justify-between text-[10px] text-slate-500 mt-1.5">
+<span class="">蒙罗维亚核心: 8组在线</span>
+<span class="">外省骨干巡检: 6组在线</span>
+</div>
+</div>
+</div>
+</div>
+<!-- ==================== END LEFT COLUMN ==================== -->
+<!-- ==================== CENTER COLUMN (5 COLS): GIS TOPOLOGY & FO VIEW ==================== -->
+<div class="lg:col-span-8 xl:col-span-5 space-y-3.5">
+<!-- Central Liberia Regional Topology (利比里亚网络拓扑地图) -->
+<div class="bg-white rounded-xl p-3.5 shadow-card border border-slate-200/80 flex flex-col">
+<div class="flex flex-wrap items-center justify-between pb-2 mb-2 border-b border-slate-100 gap-2">
+<div class="flex items-center gap-2">
+<span class="p-1 rounded bg-teal-50 text-teal-600"><i class="ph ph-map-pin text-base"></i></span>
+<div>
+<h3 class="text-sm font-bold text-slate-800">Central Liberia Regional Topology (利比里亚网络拓扑全景)</h3>
+<span class="text-[11px] text-slate-400">利比里亚全境移动基站、骨干微波链路与局所状态</span>
+</div>
+</div>
+<!-- Site Layer Toggle Filters -->
+<div class="flex items-center gap-1.5 bg-slate-100 p-0.5 rounded-lg text-[11px]">
+<button class="px-2 py-0.5 rounded bg-white text-slate-800 font-medium shadow-sm">全部基站</button>
+<button class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900">核心局所</button>
+<button class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900">传输节点</button>
+<button class="px-2 py-0.5 rounded text-slate-600 hover:text-slate-900">油机站点</button>
+</div>
+</div>
+<!-- Interactive GIS Map Canvas Box -->
+<div class="relative w-full h-[380px] bg-[#dbeafe]/40 rounded-lg overflow-hidden border border-slate-200 map-pattern flex items-center justify-center">
+<svg class="w-full h-full object-contain p-2" fill="none" viewBox="0 0 600 480" xmlns="http://www.w3.org/2000/svg">
+<!-- Liberia Contour -->
+<path d="M120,110 L210,50 L280,45 L320,80 L390,95 L440,150 L470,220 L460,310 L440,360 L400,420 L370,440 L340,380 L290,340 L210,290 L160,250 L110,190 Z" fill="#e0f2fe" stroke="#94a3b8" stroke-dasharray="3 3" stroke-width="1.5"></path>
+<!-- Borders -->
+<path d="M210,50 L240,160 L290,200 L390,95" stroke="#cbd5e1" stroke-width="1"></path>
+<path d="M240,160 L180,220 L210,290" stroke="#cbd5e1" stroke-width="1"></path>
+<path d="M290,200 L340,260 L440,280" stroke="#cbd5e1" stroke-width="1"></path>
+<path d="M340,260 L370,370 L440,360" stroke="#cbd5e1" stroke-width="1"></path>
+<!-- County Labels -->
+<text fill="#64748b" font-size="11" font-weight="bold" x="230" y="110">Lofa County</text>
+<text fill="#64748b" font-size="10" x="140" y="175">Grand Cape Mount</text>
+<text fill="#0284c7" font-size="11" font-weight="bold" x="185" y="225">Bong County</text>
+<text fill="#64748b" font-size="11" font-weight="bold" x="350" y="180">Nimba</text>
+<text fill="#002b49" font-size="12" font-weight="bold" x="125" y="270">Monrovia (HQ)</text>
+<text fill="#64748b" font-size="10" x="240" y="305">Grand Bassa</text>
+<text fill="#64748b" font-size="10" x="370" y="320">Grand Gedeh</text>
+<text fill="#64748b" font-size="10" x="380" y="415">Maryland</text>
+<!-- Backbone Microwave Links -->
+<line stroke="#0284c7" stroke-dasharray="2 2" stroke-width="2" x1="165" x2="235" y1="260" y2="210"></line>
+<line stroke="#0284c7" stroke-width="2" x1="235" x2="355" y1="210" y2="175"></line>
+<line stroke="#0284c7" stroke-width="2" x1="165" x2="250" y1="260" y2="295"></line>
+<line stroke="#0284c7" stroke-width="2" x1="250" x2="380" y1="295" y2="310"></line>
+<line stroke="#0284c7" stroke-dasharray="3 3" stroke-width="1.5" x1="380" x2="390" y1="310" y2="405"></line>
+<!-- Monrovia Cluster -->
+<circle cx="160" cy="255" fill="#ef4444" fill-opacity="0.8" r="7"></circle>
+<circle class="animate-pulse" cx="160" cy="255" r="12" stroke="#ef4444" stroke-dasharray="2 2" stroke-width="1.5"></circle>
+<circle cx="152" cy="248" fill="#f97316" r="4"></circle>
+<circle cx="156" cy="265" fill="#22c55e" r="4"></circle>
+<circle cx="168" cy="252" fill="#22c55e" r="3.5"></circle>
+<circle cx="172" cy="260" fill="#eab308" r="4"></circle>
+<!-- Bong & Nimba Cluster -->
+<circle cx="215" cy="235" fill="#f97316" r="4"></circle>
+<circle cx="228" cy="215" fill="#22c55e" r="5"></circle>
+<circle cx="242" cy="205" fill="#22c55e" r="4"></circle>
+<circle cx="345" cy="170" fill="#f97316" r="5.5"></circle>
+<circle cx="358" cy="180" fill="#22c55e" r="4"></circle>
+<!-- Lofa & Southern Sites -->
+<circle cx="225" cy="115" fill="#22c55e" r="4.5"></circle>
+<circle cx="252" cy="300" fill="#22c55e" r="4.5"></circle>
+<circle cx="375" cy="315" fill="#f97316" r="4.5"></circle>
+<circle cx="395" cy="405" fill="#22c55e" r="5"></circle>
+</svg>
+<!-- Floating Info Card -->
+<div class="absolute bottom-3 left-3 bg-white/95 backdrop-blur-sm p-2 rounded-lg shadow border border-slate-200 text-xs w-52">
+<div class="flex items-center justify-between font-bold text-slate-800 border-b border-slate-100 pb-1 mb-1">
+<span class="flex items-center gap-1"><i class="ph ph-radio text-blue-600"></i> Monrovia Core 01</span>
+<span class="text-[9px] px-1 py-0.2 bg-rose-100 text-rose-700 rounded">告警处理中</span>
+</div>
+<div class="text-[10px] text-slate-600 space-y-0.5">
+<div class="">基站运行: <strong class="text-emerald-600 font-mono">148</strong> 正常 / <strong class="text-rose-600 font-mono">2</strong> 告警</div>
+<div class="">主用电源: 市电供应中断 (已切油机)</div>
+<div class="text-[9px] text-slate-400">FLM小组已抵达现场 (EIR: 18min)</div>
+</div>
+</div>
+<!-- Legend -->
+<div class="absolute bottom-3 right-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded shadow-sm border border-slate-200 text-[10px] flex items-center gap-2">
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> 正常运行</span>
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-500"></span> 告警/欠压</span>
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-rose-500"></span> 阻断故障</span>
+</div>
+</div>
+<!-- Bottom Realtime Regional KPI Row (利比里亚关键数据) -->
+<div class="grid grid-cols-3 gap-2 mt-3 text-center">
+<div class="p-2 rounded-lg bg-slate-50 border border-slate-200/60">
+<div class="text-[11px] text-slate-500 font-medium">利比里亚基站在线率</div>
+<div class="text-base lg:text-lg font-bold text-slate-800 font-mono mt-0.5">98.42%</div>
+<span class="text-[10px] text-emerald-600">↑ 环比上升 0.12%</span>
+</div>
+<div class="p-2 rounded-lg bg-slate-50 border border-slate-200/60">
+<div class="text-[11px] text-slate-500 font-medium">核心链路网络可用度</div>
+<div class="text-base lg:text-lg font-bold text-slate-800 font-mono mt-0.5">99.991%</div>
+<span class="text-[10px] text-blue-600 font-medium">达标 Standard</span>
+</div>
+<div class="p-2 rounded-lg bg-slate-50 border border-slate-200/60">
+<div class="text-[11px] text-slate-500 font-medium">平均故障恢复时长 (MTTR)</div>
+<div class="text-base lg:text-lg font-bold text-slate-800 font-mono mt-0.5">42.5 min</div>
+<span class="text-[10px] text-emerald-600 font-medium">优于SLA限制 (60m)</span>
+</div>
+</div>
+</div>
+<!-- FO View (前端网络运营中心 / NOC) -->
+<div class="bg-white rounded-xl p-3.5 shadow-card border border-slate-200/80">
+<div class="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-red-600"></span>
+<h2 class="text-base font-bold text-red-600">FO View</h2>
+<span class="text-xs text-slate-500 font-normal">前端网络运营中心 (Front Office / NOC)</span>
+</div>
+<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono">4 系统</span>
+</div>
+<!-- Exact 4 systems under FO View -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+<!-- 1. Alarm Dashboard -->
+<a class="flex items-start gap-2.5 p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition group" href="#alarm-dashboard">
+<div class="w-8 h-8 rounded-lg bg-rose-600 text-white flex items-center justify-center text-base shrink-0">
+<i class="ph ph-bell"></i>
+</div>
+<div class="min-w-0">
+<div class="text-xs font-bold text-slate-800 group-hover:text-blue-600">Alarm Dashboard</div>
+<div class="text-[10px] text-slate-500">实时告警监控看板</div>
+</div>
+</a>
+<!-- 2. Real-Time Alarm Map -->
+<a class="flex items-start gap-2.5 p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition group" href="#alarm-map">
+<div class="w-8 h-8 rounded-lg bg-teal-600 text-white flex items-center justify-center text-base shrink-0">
+<i class="ph ph-map-trifold"></i>
+</div>
+<div class="min-w-0">
+<div class="text-xs font-bold text-slate-800 group-hover:text-blue-600">Real-Time Alarm Map</div>
+<div class="text-[10px] text-slate-500">网络拓扑地图</div>
+</div>
+</a>
+<!-- 3. Alarm Management -->
+<a class="flex items-start gap-2.5 p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition group" href="#alarm-mgmt">
+<div class="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center text-base shrink-0">
+<i class="ph ph-sliders"></i>
+</div>
+<div class="min-w-0">
+<div class="text-xs font-bold text-slate-800 group-hover:text-blue-600">Alarm Management</div>
+<div class="text-[10px] text-slate-500">告警管理平台</div>
+</div>
+</a>
+<!-- 4. Trouble Ticket Management -->
+<a class="flex items-start gap-2.5 p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition group" href="#tt-mgmt">
+<div class="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center text-base shrink-0">
+<i class="ph ph-ticket"></i>
+</div>
+<div class="min-w-0">
+<div class="text-xs font-bold text-slate-800 group-hover:text-blue-600 truncate">Trouble Ticket Mgmt</div>
+<div class="text-[10px] text-slate-500 truncate">故障处理工单平台看板</div>
+</div>
+</a>
+</div>
+<!-- Live Alert Feed Stream -->
+<div class="mt-3 pt-2.5 border-t border-slate-100">
+<div class="flex items-center justify-between text-[11px] text-slate-500 mb-1.5">
+<span class="">实时告警流 (Alert Feeds)</span>
+<span class="text-rose-600 font-medium flex items-center gap-1"><i class="ph ph-broadcast animate-pulse"></i> 实时监听中</span>
+</div>
+<div class="space-y-1.5 text-[11px]">
+<div class="bg-rose-50/70 border border-rose-200/60 p-2 rounded flex items-center justify-between">
+<span class="text-slate-800 truncate max-w-[280px]">[CRITICAL] Nimba_MW_Hop03 传输微波信号中断</span>
+<span class="text-rose-600 font-mono text-[10px]">刚刚</span>
+</div>
+<div class="bg-amber-50/70 border border-amber-200/60 p-2 rounded flex items-center justify-between">
+<span class="text-slate-800 truncate max-w-[280px]">[MAJOR] Bong_G102 油位告警低于15% (备机自动介入)</span>
+<span class="text-amber-600 font-mono text-[10px]">12m前</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- ==================== END CENTER COLUMN ==================== -->
+<!-- ==================== RIGHT COLUMN (4 COLS): BO VIEW & SYSTEM ADMIN ==================== -->
+<div class="lg:col-span-12 xl:col-span-4 space-y-3.5">
+<!-- BO View (后端专家技术支撑) -->
+<div class="bg-white rounded-xl p-3.5 shadow-card border border-slate-200/80">
+<div class="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-red-600"></span>
+<h2 class="text-base font-bold text-red-600">BO View</h2>
+<span class="text-xs text-slate-500 font-normal">后端专家技术支撑 (Back Office)</span>
+</div>
+<span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-mono">15 系统</span>
+</div>
+<!-- Structured Tabs / Grid for all 15 systems in table -->
+<div class="space-y-2.5">
+<!-- Group 1: Wireless & Radio Network Quality (无线与动力) -->
+<div>
+<div class="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-1 rounded flex items-center justify-between mb-1.5">
+<span class="">无线射频、动力与外场排班</span>
+<span class="text-[10px] text-slate-400 font-mono">6 项</span>
+</div>
+<div class="grid grid-cols-2 gap-1.5">
+<!-- Field Activity Report -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-field-act">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">Field Activity Report</div>
+<div class="text-[10px] text-slate-500 truncate">外场工单统计与排班</div>
+</a>
+<!-- RAM Cellular KPI -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-ram-kpi">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">RAM Cellular KPI</div>
+<div class="text-[10px] text-slate-500 truncate">小区性能指标看板</div>
+</a>
+<!-- 2G_Daily_KPI -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-2g">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">2G_Daily_KPI</div>
+<div class="text-[10px] text-slate-500 truncate">2G语音业务质量监控</div>
+</a>
+<!-- 3G_Daily_KPI -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-3g">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">3G_Daily_KPI</div>
+<div class="text-[10px] text-slate-500 truncate">3G数据业务质量监控</div>
+</a>
+<!-- 4G_EFT_Daily_KPI -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-4g">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">4G_EFT_Daily_KPI</div>
+<div class="text-[10px] text-slate-500 truncate">4G核心专业指标监控</div>
+</a>
+<!-- FM_Daily_KPI -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-fm">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">FM_Daily_KPI</div>
+<div class="text-[10px] text-slate-500 truncate">动力与FM日常监控</div>
+</a>
+</div>
+</div>
+<!-- Group 2: Core Network & NOC Monthly (核心网与月报) -->
+<div>
+<div class="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-1 rounded flex items-center justify-between mb-1.5">
+<span class="">核心网 (CS/PS) 及运营月报</span>
+<span class="text-[10px] text-slate-400 font-mono">5 项</span>
+</div>
+<div class="grid grid-cols-2 gap-1.5">
+<!-- CS_KPI -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-cs">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">CS_KPI</div>
+<div class="text-[10px] text-slate-500 truncate">CS语音呼叫核心性能</div>
+</a>
+<!-- PS_Monthly_KPI -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-ps-month">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">PS_Monthly_KPI</div>
+<div class="text-[10px] text-slate-500 truncate">PS核心网月度性能</div>
+</a>
+<!-- Packet Core Dashboard -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-packet-core">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">Packet Core Dash...</div>
+<div class="text-[10px] text-slate-500 truncate">分组核心网指标看板</div>
+</a>
+<!-- PS Team Project Tracker -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-ps-tracker">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">PS Project Tracker</div>
+<div class="text-[10px] text-slate-500 truncate">分组重点项目进度</div>
+</a>
+<!-- NOC Monthly Team -->
+<a class="col-span-2 p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group flex items-center justify-between" href="#bo-noc-monthly">
+<div class="truncate">
+<span class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700">NOC Monthly Team</span>
+<span class="text-[10px] text-slate-500 ml-1.5">运营网络维护月报 NOC 看板</span>
+</div>
+<span class="text-[10px] text-blue-600"><i class="ph ph-file-text"></i> 月报</span>
+</a>
+</div>
+</div>
+<!-- Group 3: IP Transmission Team Systems (IP专业与承载网) -->
+<div>
+<div class="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-1 rounded flex items-center justify-between mb-1.5">
+<span class="">IP 承载网与工程专家支持</span>
+<span class="text-[10px] text-slate-400 font-mono">4 项</span>
+</div>
+<div class="grid grid-cols-2 gap-1.5">
+<!-- IP Team-L2P -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-ip-l2p">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">IP Team-L2P</div>
+<div class="text-[10px] text-slate-500 truncate">网络规划设计方案</div>
+</a>
+<!-- IP Team Project KPI -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-ip-proj-kpi">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">IP Project KPI</div>
+<div class="text-[10px] text-slate-500 truncate">L2P交付进度看板</div>
+</a>
+<!-- IP Team-CAP-MS NOC & Team -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-ip-cap">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">IP Team-CAP-MS...</div>
+<div class="text-[10px] text-slate-500 truncate">网络性能分析报告</div>
+</a>
+<!-- IP Team Daily Activity Report -->
+<a class="p-1.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left" href="#bo-ip-daily">
+<div class="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 truncate">IP Activity Report</div>
+<div class="text-[10px] text-slate-500 truncate">IP日常活动记录</div>
+</a>
+</div>
+</div>
+</div>
+</div>
+<!-- System Admin (系统与运维配置板块) -->
+<div class="bg-white rounded-xl p-3.5 shadow-card border border-slate-200/80">
+<div class="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-slate-700"></span>
+<h2 class="text-base font-bold text-slate-800">System Admin</h2>
+<span class="text-xs text-slate-500 font-normal">系统与运维配置</span>
+</div>
+<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono">4 系统</span>
+</div>
+<div class="grid grid-cols-2 gap-2 text-xs">
+<!-- 1. Portal Account Management -->
+<a class="p-2 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition flex items-center gap-2 group" href="#admin-accounts">
+<div class="w-7 h-7 rounded-md bg-slate-100 group-hover:bg-blue-600 group-hover:text-white flex items-center justify-center text-slate-600 text-sm transition shrink-0">
+<i class="ph ph-user-gear"></i>
+</div>
+<div class="min-w-0">
+<div class="font-bold text-slate-800 group-hover:text-blue-600 text-[11px] truncate">Portal Account</div>
+<div class="text-[10px] text-slate-400 truncate">用户权限管理</div>
+</div>
+</a>
+<!-- 2. Data Upload -->
+<a class="p-2 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition flex items-center gap-2 group" href="#admin-upload">
+<div class="w-7 h-7 rounded-md bg-slate-100 group-hover:bg-blue-600 group-hover:text-white flex items-center justify-center text-slate-600 text-sm transition shrink-0">
+<i class="ph ph-cloud-arrow-up"></i>
+</div>
+<div class="min-w-0">
+<div class="font-bold text-slate-800 group-hover:text-blue-600 text-[11px] truncate">Data Upload</div>
+<div class="text-[10px] text-slate-400 truncate">基础数据上传中心</div>
+</div>
+</a>
+<!-- 3. Permission Management -->
+<a class="p-2 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition flex items-center gap-2 group" href="#admin-permission">
+<div class="w-7 h-7 rounded-md bg-slate-100 group-hover:bg-blue-600 group-hover:text-white flex items-center justify-center text-slate-600 text-sm transition shrink-0">
+<i class="ph ph-lock-key"></i>
+</div>
+<div class="min-w-0">
+<div class="font-bold text-slate-800 group-hover:text-blue-600 text-[11px] truncate">Permission Mgmt</div>
+<div class="text-[10px] text-slate-400 truncate">审批与权限管控</div>
+</div>
+</a>
+<!-- 4. Metabase -->
+<a class="p-2 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition flex items-center gap-2 group" href="#admin-metabase">
+<div class="w-7 h-7 rounded-md bg-slate-100 group-hover:bg-blue-600 group-hover:text-white flex items-center justify-center text-slate-600 text-sm transition shrink-0">
+<i class="ph ph-database"></i>
+</div>
+<div class="min-w-0">
+<div class="font-bold text-slate-800 group-hover:text-blue-600 text-[11px] truncate">Metabase</div>
+<div class="text-[10px] text-slate-400 truncate">系统底层报表</div>
+</div>
+</a>
+</div>
+</div>
+</div>
+<!-- ==================== END RIGHT COLUMN ==================== -->
+</div>
+<!-- END: Core Layout Grid -->
+<!-- BEGIN: BottomDualPanelsSection (Knowledge Q&A & Ecological Links) -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-3.5 pt-1">
+<!-- Panel 1: Knowledge Q&A (严格采用表格中定义真实项) -->
+<section aria-label="Knowledge Q/A" class="bg-white rounded-xl p-3.5 shadow-card border border-slate-200/80">
+<div class="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-100">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-sm bg-red-600"></span>
+<h2 class="text-base font-bold tracking-tight text-red-600 flex items-center gap-2">
+              Knowledge Q/A <span class="text-xs text-slate-500 font-normal">| 知识库与技术支持 (Operation Manual &amp; Guidance)</span>
+</h2>
+</div>
+<a class="text-xs text-blue-600 hover:underline flex items-center gap-0.5" href="#help-center">
+            知识检索中心 <i class="ph ph-caret-right"></i>
+</a>
+</div>
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+<!-- 1. User Knowledge Base -->
+<a class="flex items-start gap-2.5 p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-slate-50 transition group" href="#qa-user-kb">
+<div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-white flex items-center justify-center text-xl shadow-sm group-hover:scale-105 transition shrink-0">
+<i class="ph ph-book-open-text"></i>
+</div>
+<div class="min-w-0">
+<div class="text-xs font-bold text-slate-800 group-hover:text-blue-600 truncate">User Knowledge Base</div>
+<div class="text-[10px] text-slate-500">用户知识库 / 手册</div>
+<div class="text-[9px] text-emerald-600 mt-1">更新: 120+ 文档</div>
+</div>
+</a>
+<!-- 2. eFlow Knowledge Base -->
+<a class="flex items-start gap-2.5 p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-slate-50 transition group" href="#qa-eflow-kb">
+<div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 text-white flex items-center justify-center text-xl shadow-sm group-hover:scale-105 transition shrink-0">
+<i class="ph ph-flow-arrow"></i>
+</div>
+<div class="min-w-0">
+<div class="text-xs font-bold text-slate-800 group-hover:text-blue-600 truncate">eFlow Knowledge Base</div>
+<div class="text-[10px] text-slate-500">IT与流程客服指引</div>
+<div class="text-[9px] text-blue-600 mt-1">SOP 在线指引</div>
+</div>
+</a>
+<!-- 3. Help -->
+<a class="flex items-start gap-2.5 p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-slate-50 transition group" href="#qa-help">
+<div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 text-white flex items-center justify-center text-xl shadow-sm group-hover:scale-105 transition shrink-0">
+<i class="ph ph-question"></i>
+</div>
+<div class="min-w-0">
+<div class="text-xs font-bold text-slate-800 group-hover:text-blue-600 truncate">Help</div>
+<div class="text-[10px] text-slate-500">帮助指南 / 新手手册</div>
+<div class="text-[9px] text-indigo-600 mt-1">快速上手教程</div>
+</div>
+</a>
+<!-- 4. System Feedback -->
+<a class="flex items-start gap-2.5 p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-slate-50 transition group" href="#qa-feedback">
+<div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-500 to-orange-400 text-white flex items-center justify-center text-xl shadow-sm group-hover:scale-105 transition shrink-0">
+<i class="ph ph-chat-circle-dots"></i>
+</div>
+<div class="min-w-0">
+<div class="text-xs font-bold text-slate-800 group-hover:text-blue-600 truncate">System Feedback</div>
+<div class="text-[10px] text-slate-500">意见反馈 / 需求搜集</div>
+<div class="text-[9px] text-rose-600 mt-1">7*24h 运维响应</div>
+</div>
+</a>
+</div>
+</section>
+<!-- Panel 2: Ecological Links (集团中台与生态协作统一单点登录) -->
+<section aria-label="Ecological Links" class="bg-white rounded-xl p-3.5 shadow-card border border-slate-200/80">
+<div class="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-100">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-sm bg-red-600"></span>
+<h2 class="text-base font-bold tracking-tight text-red-600 flex items-center gap-2">
+              Ecological Links <span class="text-xs text-slate-500 font-normal">| 集团中台与生态系统统一入口单点登录</span>
+</h2>
+</div>
+<a class="text-xs text-blue-600 hover:underline flex items-center gap-0.5" href="#eco-sso">
+            企业导航地图 <i class="ph ph-caret-right"></i>
+</a>
+</div>
+<div class="grid grid-cols-5 sm:grid-cols-10 gap-2 text-center">
+<a class="group flex flex-col items-center p-1 rounded-lg hover:bg-slate-50 transition" href="#f-asm">
+<div class="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center text-lg shadow-sm group-hover:scale-105 transition">
+<i class="ph ph-flask"></i>
+</div>
+<span class="mt-1 text-[10px] text-slate-600 group-hover:text-blue-600 truncate w-full">ASM返修</span>
+</a>
+<a class="group flex flex-col items-center p-1 rounded-lg hover:bg-slate-50 transition" href="#f-csc">
+<div class="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center text-lg shadow-sm group-hover:scale-105 transition">
+<i class="ph ph-headset"></i>
+</div>
+<span class="mt-1 text-[10px] text-slate-600 group-hover:text-blue-600 truncate w-full">CSC支持</span>
+</a>
+<a class="group flex flex-col items-center p-1 rounded-lg hover:bg-slate-50 transition" href="#f-srm">
+<div class="w-9 h-9 rounded-xl bg-indigo-500 text-white flex items-center justify-center text-lg shadow-sm group-hover:scale-105 transition">
+<i class="ph ph-chart-line-up"></i>
+</div>
+<span class="mt-1 text-[10px] text-slate-600 group-hover:text-blue-600 truncate w-full">SRM供应</span>
+</a>
+<a class="group flex flex-col items-center p-1 rounded-lg hover:bg-slate-50 transition" href="#f-imes">
+<div class="w-9 h-9 rounded-xl bg-blue-500 text-white flex items-center justify-center text-lg shadow-sm group-hover:scale-105 transition">
+<i class="ph ph-cube"></i>
+</div>
+<span class="mt-1 text-[10px] text-slate-600 group-hover:text-blue-600 truncate w-full">iMES制造</span>
+</a>
+<a class="group flex flex-col items-center p-1 rounded-lg hover:bg-slate-50 transition" href="#f-ops">
+<div class="w-9 h-9 rounded-xl bg-sky-500 text-white flex items-center justify-center text-lg shadow-sm group-hover:scale-105 transition">
+<i class="ph ph-gear"></i>
+</div>
+<span class="mt-1 text-[10px] text-slate-600 group-hover:text-blue-600 truncate w-full">网络变更</span>
+</a>
+<a class="group flex flex-col items-center p-1 rounded-lg hover:bg-slate-50 transition" href="#f-epm">
+<div class="w-9 h-9 rounded-xl bg-teal-500 text-white flex items-center justify-center text-lg shadow-sm group-hover:scale-105 transition">
+<i class="ph ph-hard-drive"></i>
+</div>
+<span class="mt-1 text-[10px] text-slate-600 group-hover:text-blue-600 truncate w-full">EPM工程</span>
+</a>
+<a class="group flex flex-col items-center p-1 rounded-lg hover:bg-slate-50 transition" href="#f-dev">
+<div class="w-9 h-9 rounded-xl bg-sky-400 text-white flex items-center justify-center text-lg shadow-sm group-hover:scale-105 transition">
+<i class="ph ph-cloud"></i>
+</div>
+<span class="mt-1 text-[10px] text-slate-600 group-hover:text-blue-600 truncate w-full">研发云</span>
+</a>
+<a class="group flex flex-col items-center p-1 rounded-lg hover:bg-slate-50 transition" href="#f-iscp">
+<div class="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center text-lg shadow-sm group-hover:scale-105 transition">
+<i class="ph ph-identification-card"></i>
+</div>
+<span class="mt-1 text-[10px] text-slate-600 group-hover:text-blue-600 truncate w-full">ISCP认证</span>
+</a>
+<a class="group flex flex-col items-center p-1 rounded-lg hover:bg-slate-50 transition" href="#f-mds">
+<div class="w-9 h-9 rounded-xl bg-blue-500 text-white flex items-center justify-center text-lg shadow-sm group-hover:scale-105 transition">
+<i class="ph ph-wrench"></i>
+</div>
+<span class="mt-1 text-[10px] text-slate-600 group-hover:text-blue-600 truncate w-full">MDS工具</span>
+</a>
+<a class="group flex flex-col items-center p-1 rounded-lg hover:bg-slate-50 transition" href="#f-contract">
+<div class="w-9 h-9 rounded-xl bg-cyan-500 text-white flex items-center justify-center text-lg shadow-sm group-hover:scale-105 transition">
+<i class="ph ph-file-text"></i>
+</div>
+<span class="mt-1 text-[10px] text-slate-600 group-hover:text-blue-600 truncate w-full">合同信息</span>
+</a>
+</div>
+</section>
+</div>
+<!-- END: BottomDualPanelsSection -->
+</main>
+<!-- END: MainDashboardContent -->
+<!-- BEGIN: PageFooter -->
+<footer class="bg-white border-t border-slate-200 mt-6 py-3 px-6 text-slate-500 text-xs text-center flex flex-col sm:flex-row items-center justify-between gap-2">
+<div class="">
+      © 2026 ZTE Corporation. 中兴通讯股份有限公司 版权所有 | 利比里亚办事处网络运营中心 (OLR MS)
+    </div>
+<div class="flex items-center gap-4 text-[11px]">
+<span class="inline-flex items-center gap-1 text-emerald-600"><i class="ph ph-shield-check"></i> 安全合规模式运行</span>
+<span class="">当前数据源: NOC Production DB (02-Live)</span>
+<span class="font-mono">Ver 4.9.0-LR</span>
+</div>
+</footer>
+<!-- END: PageFooter -->
+<!-- BEGIN: LiveTimeScript -->
+<script data-purpose="live-clock">
+    function updateClock() {
+      const now = new Date();
+      const el = document.getElementById('header-time');
+      if (el) {
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const seconds = String(now.getSeconds()).padStart(2, '0');
+        el.textContent = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+      }
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+  </script>
+<!-- END: LiveTimeScript -->
+
+
+</body></html>

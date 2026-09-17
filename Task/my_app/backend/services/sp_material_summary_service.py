@@ -431,6 +431,17 @@ def _cache_put(key: str, value) -> None:
                 _CACHE.pop(k, None)
 
 
+# ---------- 语言（前端按 locale 传 lang，默认中文） ----------
+def _w(lang: str, zh: str, en: str) -> str:
+    """按请求语言选文案；只有 lang == 'en' 才走英文，其余一律中文。"""
+    return en if lang == "en" else zh
+
+
+def _sep(lang: str) -> str:
+    """列表连接符：中文用「、」，英文用「, 」。"""
+    return ", " if lang == "en" else "、"
+
+
 # ---------- 主入口 ----------
 def _empty_result(warnings: List[str], anchor: str = "", current: str = "") -> Dict[str, Any]:
     return {
@@ -449,48 +460,79 @@ def _empty_result(warnings: List[str], anchor: str = "", current: str = "") -> D
 
 
 def get_material_summary(anchor_date: Optional[str] = None,
-                         current_date: Optional[str] = None) -> Dict[str, Any]:
+                         current_date: Optional[str] = None,
+                         lang: str = "zh") -> Dict[str, Any]:
     """汇总表主入口。返回结构与前端 SpMaterialSummary.tsx 的 SummaryResp 对齐。"""
     warnings: List[str] = []
     if not _db_exists():
-        return _empty_result([f"数据库不存在：{DB_PATH}"])
+        return _empty_result([_w(lang, f"数据库不存在：{DB_PATH}",
+                                  f"Database not found: {DB_PATH}")])
 
     conn = get_raw_connection(str(DB_PATH))
     try:
         cols = _resolve_columns(conn)
         latest = _max_date(conn, cols[C_DATE])
         if not latest:
-            return _empty_result(["inventory_details 表为空或尚未同步（请先运行 SP 数据同步任务）"])
+            return _empty_result([_w(
+                lang,
+                "inventory_details 表为空或尚未同步（请先运行 SP 数据同步任务）",
+                "inventory_details is empty or has not been synced yet "
+                "(run the SP data sync task first)")])
         current = _norm(current_date) or latest
         if current_date and current > latest:
-            warnings.append(f"指定的当前日期 {current} 超出库内最新快照 {latest}，已按 {latest} 计算")
+            warnings.append(_w(
+                lang,
+                f"指定的当前日期 {current} 超出库内最新快照 {latest}，已按 {latest} 计算",
+                f"Requested current date {current} is later than the latest snapshot "
+                f"{latest}; using {latest} instead"))
             current = latest
         cur_resolved = _nearest_le(conn, cols[C_DATE], current)
         if not cur_resolved:
-            return _empty_result([f"找不到 <= {current} 的库存快照"])
+            return _empty_result([_w(lang, f"找不到 <= {current} 的库存快照",
+                                           f"No inventory snapshot found on or before {current}")])
         if cur_resolved != current:
-            warnings.append(f"当前日期 {current} 无快照，已回退到最近可用快照 {cur_resolved}")
+            warnings.append(_w(
+                lang,
+                f"当前日期 {current} 无快照，已回退到最近可用快照 {cur_resolved}",
+                f"No snapshot for {current}; fell back to the nearest available "
+                f"snapshot {cur_resolved}"))
         current = cur_resolved
 
         # 锚点日：默认当月 1 号（与报表模板 2026/9/1 一致）
         want_anchor = _norm(anchor_date) or _month_start(current)
         anchor = _nearest_le(conn, cols[C_DATE], want_anchor)
         if not anchor:
-            return _empty_result([f"找不到 <= {want_anchor} 的库存快照"], want_anchor, current)
+            return _empty_result([_w(lang, f"找不到 <= {want_anchor} 的库存快照",
+                                           f"No inventory snapshot found on or before {want_anchor}")],
+                                  want_anchor, current)
         if anchor != want_anchor:
-            warnings.append(f"锚点日 {want_anchor} 无快照，已回退到最近可用快照 {anchor}")
+            warnings.append(_w(
+                lang,
+                f"锚点日 {want_anchor} 无快照，已回退到最近可用快照 {anchor}",
+                f"No snapshot for anchor date {want_anchor}; fell back to the nearest "
+                f"available snapshot {anchor}"))
 
         want_month = _month_start(current)
         month_start = _nearest_le(conn, cols[C_DATE], want_month) or anchor
         if month_start != want_month:
-            warnings.append(f"月初 {want_month} 无快照，已回退到最近可用快照 {month_start}")
+            warnings.append(_w(
+                lang,
+                f"月初 {want_month} 无快照，已回退到最近可用快照 {month_start}",
+                f"No snapshot for month start {want_month}; fell back to the nearest "
+                f"available snapshot {month_start}"))
 
         want_week = _week_start(current)
         week_start = _nearest_le(conn, cols[C_DATE], want_week) or month_start
         if week_start != want_week:
-            warnings.append(f"周初 {want_week} 无快照，已回退到最近可用快照 {week_start}")
+            warnings.append(_w(
+                lang,
+                f"周初 {want_week} 无快照，已回退到最近可用快照 {week_start}",
+                f"No snapshot for week start {want_week}; fell back to the nearest "
+                f"available snapshot {week_start}"))
 
-        cache_key = f"{anchor}|{current}|{month_start}|{week_start}"
+        # ⚠️ lang 必须进缓存键：warnings 文案是按语言生成的，
+        # 不带 lang 会让先到的语言污染另一种语言（实测：中文请求先跑，英文拿到中文警告）。
+        cache_key = f"{anchor}|{current}|{month_start}|{week_start}|{lang}"
         cached = _cache_get(cache_key)
         if cached is not None:
             cached["warnings"] = warnings + cached.get("_base_warnings", [])
@@ -504,9 +546,12 @@ def get_material_summary(anchor_date: Optional[str] = None,
         ob_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ob_map = _repair_outbound_agg(conn, _resolve_outband_columns(conn), ob_start, ob_end)
         if not ob_map:
-            warnings.append(
+            warnings.append(_w(
+                lang,
                 f"outband_details 中 {ob_start} → {ob_end} 无 Repair Outbound 记录，"
-                "Repair Outbound 列按 0 显示")
+                "Repair Outbound 列按 0 显示",
+                f"No Repair Outbound records in outband_details between {ob_start} → {ob_end}; "
+                "the Repair Outbound column is shown as 0"))
 
         # 仓库归属（供前端 tooltip / 说明用）
         groups_meta: List[Dict[str, Any]] = []
@@ -576,15 +621,20 @@ def get_material_summary(anchor_date: Optional[str] = None,
                 for k in ordered_keys]
         missing = [g["label"] for g in ROW_GROUPS if g["key"] not in present]
         if missing:
-            warnings.append("以下分组在库中暂无数据，已按 0 处理：" + "、".join(missing))
+            warnings.append(_w(lang, "以下分组在库中暂无数据，已按 0 处理：",
+                                  "No data in the database for these groups; treated as 0: ")
+                            + _sep(lang).join(missing))
 
         if OTHERS_KEY in present:
             o_row = _build_row(OTHERS_KEY, OTHERS_LABEL)
             if o_row["current_total"] or o_row["anchor_total"]:
                 rows.append(o_row)
-                warnings.append(
+                warnings.append(_w(
+                    lang,
                     "存在未归入 1st/2nd WH、Gbarnga/Kweaken DOP 的仓库（见 Others 行），"
-                    "已单独列出并计入 Total")
+                    "已单独列出并计入 Total",
+                    "Some warehouses are not mapped to 1st/2nd WH or Gbarnga/Kweaken DOP "
+                    "(see the Others row); they are listed separately and included in Total"))
 
         # 合计行 = 所有分组之和（含 Others），保证 Total 与明细自洽
         total: Dict[str, Any] = {"key": "total", "label": "Total", "is_total": True}
@@ -601,8 +651,12 @@ def get_material_summary(anchor_date: Optional[str] = None,
                                                    or r["consumption_month"] < 0
                                                    or r["consumption_week"] < 0)]
         if negatives:
-            warnings.append("以下分组出现「消耗为负」（期末库存高于期初，通常为入库回补或调拨进仓）："
-                            + "、".join(negatives))
+            warnings.append(_w(
+                lang,
+                "以下分组出现「消耗为负」（期末库存高于期初，通常为入库回补或调拨进仓）：",
+                "These groups have negative consumption (closing stock above opening stock, "
+                "usually an inbound backfill or a transfer in): ")
+                + _sep(lang).join(negatives))
 
         result = {
             "anchor_date": anchor,
@@ -632,7 +686,7 @@ def get_material_summary(anchor_date: Optional[str] = None,
 # ---------- 单元格下钻 ----------
 def _detail_snapshot(conn, cols: Dict[str, str], summary: Dict[str, Any], scope: str,
                      row_key: str, label: str, want_groups: Optional[set],
-                     warnings: List[str], limit: int) -> Dict[str, Any]:
+                     warnings: List[str], limit: int, lang: str = "zh") -> Dict[str, Any]:
     """快照类下钻：直接取某一日快照的物料行。"""
     spec = _SCOPES[scope]
     d = summary["anchor_date"] if spec["date"] == "anchor" else summary["current_date"]
@@ -643,7 +697,7 @@ def _detail_snapshot(conn, cols: Dict[str, str], summary: Dict[str, Any], scope:
     except Exception as e:
         logger.warning("[SILENT-EXCEPT] _detail_snapshot: query failed", exc_info=True)
         return {"title": "Material Detail", "columns": [], "data": [],
-                "warnings": warnings + [f"查询失败: {e}"]}
+                "warnings": warnings + [_w(lang, f"查询失败: {e}", f"Query failed: {e}")]}
 
     data: List[Dict[str, Any]] = []
     truncated = False
@@ -673,7 +727,9 @@ def _detail_snapshot(conn, cols: Dict[str, str], summary: Dict[str, Any], scope:
             break
 
     if truncated:
-        warnings.append(f"明细超过 {limit} 行，已截断（请用搜索框缩小范围或导出后筛选）")
+        warnings.append(_w(lang, f"明细超过 {limit} 行，已截断（请用搜索框缩小范围或导出后筛选）",
+                           f"Detail exceeds {limit} rows and was truncated "
+                           "(narrow the range with the search box, or export and filter)"))
 
     columns = list(data[0].keys()) if data else []
     return {
@@ -689,7 +745,7 @@ def _detail_snapshot(conn, cols: Dict[str, str], summary: Dict[str, Any], scope:
 
 def _detail_consumption(conn, cols: Dict[str, str], summary: Dict[str, Any], scope: str,
                         row_key: str, label: str, want_groups: Optional[set],
-                        warnings: List[str], limit: int) -> Dict[str, Any]:
+                        warnings: List[str], limit: int, lang: str = "zh") -> Dict[str, Any]:
     """消耗类下钻：期初 vs 期末逐物料对比。
 
     消耗量 = 期初数量 − 期末数量（正数=净消耗，负数=入库回补/调拨进仓）。
@@ -733,7 +789,7 @@ def _detail_consumption(conn, cols: Dict[str, str], summary: Dict[str, Any], sco
     except Exception as e:
         logger.warning("[SILENT-EXCEPT] _detail_consumption: query failed", exc_info=True)
         return {"title": "Material Detail", "columns": [], "data": [],
-                "warnings": warnings + [f"查询失败: {e}"]}
+                "warnings": warnings + [_w(lang, f"查询失败: {e}", f"Query failed: {e}")]}
 
     data: List[Dict[str, Any]] = []
     for row in rows:
@@ -760,7 +816,9 @@ def _detail_consumption(conn, cols: Dict[str, str], summary: Dict[str, Any], sco
     data.sort(key=lambda x: x["Consumption Qty"], reverse=True)
     if len(data) > limit:
         data = data[:limit]
-        warnings.append(f"明细超过 {limit} 行，已截断（请用搜索框缩小范围或导出后筛选）")
+        warnings.append(_w(lang, f"明细超过 {limit} 行，已截断（请用搜索框缩小范围或导出后筛选）",
+                           f"Detail exceeds {limit} rows and was truncated "
+                           "(narrow the range with the search box, or export and filter)"))
 
     return {
         "title": f"Consumption Detail · {label} · {start} → {end}",
@@ -778,7 +836,7 @@ def _detail_consumption(conn, cols: Dict[str, str], summary: Dict[str, Any], sco
 
 def _detail_repair_outbound(conn, summary: Dict[str, Any], row_key: str, label: str,
                             want_groups: Optional[set], warnings: List[str],
-                            limit: int) -> Dict[str, Any]:
+                            limit: int, lang: str = "zh") -> Dict[str, Any]:
     """报修出库下钻：outband_details 里当月 Repair Outbound 的行。"""
     cols = _resolve_outband_columns(conn)
     start = summary.get("repair_outbound_start") or f'{summary.get("month_start") or ""} 00:00:00'
@@ -810,7 +868,7 @@ def _detail_repair_outbound(conn, summary: Dict[str, Any], row_key: str, label: 
         logger.warning("[SILENT-EXCEPT] _detail_repair_outbound: query failed", exc_info=True)
         return {"title": f"Repair Outbound · {label}", "row_key": row_key,
                 "scope": REPAIR_OUTBOUND_SCOPE, "date": f"{start} ~ {end}",
-                "columns": [], "data": [], "warnings": warnings + [f"查询失败: {e}"]}
+                "columns": [], "data": [], "warnings": warnings + [_w(lang, f"查询失败: {e}", f"Query failed: {e}")]}
 
     data: List[Dict[str, Any]] = []
     truncated = False
@@ -830,7 +888,9 @@ def _detail_repair_outbound(conn, summary: Dict[str, Any], row_key: str, label: 
             break
 
     if truncated:
-        warnings.append(f"明细超过 {limit} 行，已截断（请用搜索框缩小范围或导出后筛选）")
+        warnings.append(_w(lang, f"明细超过 {limit} 行，已截断（请用搜索框缩小范围或导出后筛选）",
+                           f"Detail exceeds {limit} rows and was truncated "
+                           "(narrow the range with the search box, or export and filter)"))
 
     return {
         "title": f"Repair Outbound · {label} · {start[:10]} → {end[:10]}",
@@ -846,7 +906,7 @@ def _detail_repair_outbound(conn, summary: Dict[str, Any], row_key: str, label: 
 def get_material_detail(row_key: str, scope: str,
                         anchor_date: Optional[str] = None,
                         current_date: Optional[str] = None,
-                        limit: int = 2000) -> Dict[str, Any]:
+                        limit: int = 2000, lang: str = "zh") -> Dict[str, Any]:
     """返回某个统计格子背后的明细（用于看板数字下钻）。
 
     三类 scope，分派到三个实现：
@@ -857,7 +917,7 @@ def get_material_detail(row_key: str, scope: str,
     非法参数走「200 + warnings 软失败」，不抛 5xx。
     """
     warnings: List[str] = []
-    summary = get_material_summary(anchor_date, current_date)
+    summary = get_material_summary(anchor_date, current_date, lang)
     warnings.extend(summary.get("warnings") or [])
     if not summary.get("rows"):
         return {"title": "Material Detail", "columns": [], "data": [], "warnings": warnings}
@@ -865,7 +925,8 @@ def get_material_detail(row_key: str, scope: str,
     if scope not in _SCOPES and scope not in _CONSUMPTION_SCOPES \
             and scope != REPAIR_OUTBOUND_SCOPE:
         return {"title": "Material Detail", "columns": [], "data": [],
-                "warnings": warnings + [f"未知 scope: {scope}"]}
+                "warnings": warnings + [_w(lang, f"未知 scope: {scope}",
+                                            f"Unknown scope: {scope}")]}
 
     group_keys = [g["key"] for g in ROW_GROUPS] + [OTHERS_KEY]
     if row_key == "total":
@@ -874,7 +935,8 @@ def get_material_detail(row_key: str, scope: str,
         want_groups = {row_key}
     else:
         return {"title": "Material Detail", "columns": [], "data": [],
-                "warnings": warnings + [f"未知 row_key: {row_key}"]}
+                "warnings": warnings + [_w(lang, f"未知 row_key: {row_key}",
+                                            f"Unknown row_key: {row_key}")]}
 
     label = next((r["label"] for r in summary["rows"] if r["key"] == row_key), row_key)
 
@@ -883,12 +945,12 @@ def get_material_detail(row_key: str, scope: str,
         cols = _resolve_columns(conn)
         if scope == REPAIR_OUTBOUND_SCOPE:
             return _detail_repair_outbound(conn, summary, row_key, label,
-                                           want_groups, warnings, limit)
+                                           want_groups, warnings, limit, lang)
         if scope in _CONSUMPTION_SCOPES:
             return _detail_consumption(conn, cols, summary, scope, row_key, label,
-                                       want_groups, warnings, limit)
+                                       want_groups, warnings, limit, lang)
         return _detail_snapshot(conn, cols, summary, scope, row_key, label,
-                                want_groups, warnings, limit)
+                                want_groups, warnings, limit, lang)
     finally:
         try:
             conn.close()

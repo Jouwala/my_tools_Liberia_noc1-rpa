@@ -517,7 +517,7 @@ def _get_dropdown_options(frame):
                                 options.append({"value": text, "text": text, "index": i})
                         if options:
                             break
-                frame.keyboard.press("Escape")
+                _pw_page(frame).keyboard.press("Escape")
                 frame.wait_for_timeout(300)
                 if options:
                     return options
@@ -552,7 +552,7 @@ def _get_dropdown_options(frame):
             text = items.nth(i).inner_text().strip()
             if text:
                 options.append({"value": text, "text": text, "index": i})
-        frame.keyboard.press("Escape")
+        _pw_page(frame).keyboard.press("Escape")
         frame.wait_for_timeout(300)
 
     return options
@@ -612,10 +612,21 @@ def _verify_screenshot(screenshot_path: str) -> bool:
     return True
 
 
+def _pw_page(frame):
+    """取 frame 所属的 Playwright Page。
+
+    ``keyboard`` / ``mouse`` 只存在于 Page 上；本模块各函数收到的 frame 通常是
+    iframe 的 Frame 对象（Playwright 的 Frame **没有**这两个属性，直接调用会抛
+    AttributeError 并被 SILENT-EXCEPT 吞掉，导致"按 ESC 关弹窗/点空白"长期静默失效）。
+    这里统一回到所属 Page；同时兼容调用方直接传 Page 的情形（Page 无 .page，回落到自身）。
+    """
+    return getattr(frame, "page", None) or frame
+
+
 def _cleanup_dropdown_state(frame):
     """失败后清场：关下拉 + 点空白，避免污染下一选项。"""
     try:
-        frame.keyboard.press("Escape")
+        _pw_page(frame).keyboard.press("Escape")
         frame.wait_for_timeout(200)
     except Exception:
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] _cleanup_dropdown_state: exception swallowed", exc_info=True)
@@ -626,7 +637,7 @@ def _cleanup_dropdown_state(frame):
             box = body.bounding_box()
             if box:
                 # 点中央偏下，避开顶栏/右上角按钮
-                frame.mouse.click(
+                _pw_page(frame).mouse.click(
                     box["x"] + box["width"] * 0.5,
                     box["y"] + box["height"] * 0.55,
                 )
@@ -635,7 +646,7 @@ def _cleanup_dropdown_state(frame):
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] _cleanup_dropdown_state: exception swallowed", exc_info=True)
         pass
     try:
-        frame.keyboard.press("Escape")
+        _pw_page(frame).keyboard.press("Escape")
         frame.wait_for_timeout(150)
     except Exception:
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] _cleanup_dropdown_state: exception swallowed", exc_info=True)
@@ -689,7 +700,7 @@ def _close_popups(frame):
 
     # 方案2: 按 Escape 键关闭通用弹窗
     try:
-        frame.keyboard.press("Escape")
+        _pw_page(frame).keyboard.press("Escape")
         frame.wait_for_timeout(300)
     except Exception:
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] _close_popups: exception swallowed", exc_info=True)
@@ -702,7 +713,7 @@ def _close_popups(frame):
             box = body.bounding_box()
             if box:
                 # 点击中央偏右位置（避开左上角弹窗，防止重复触发）
-                frame.mouse.click(box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.4)
+                _pw_page(frame).mouse.click(box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.4)
                 frame.wait_for_timeout(300)
     except Exception:
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] _close_popups: exception swallowed", exc_info=True)
@@ -878,7 +889,7 @@ def _enter_dashboard_fullscreen(frame):
 def _exit_dashboard_fullscreen(frame):
     """退出 dashboard 全屏（按 ESC 或再次点击全屏按钮）。"""
     try:
-        frame.keyboard.press("Escape")
+        _pw_page(frame).keyboard.press("Escape")
         frame.wait_for_timeout(500)
     except Exception:
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] _exit_dashboard_fullscreen: exception swallowed", exc_info=True)

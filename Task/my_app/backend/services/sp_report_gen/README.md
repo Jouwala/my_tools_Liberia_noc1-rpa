@@ -6,11 +6,20 @@
 ## 数据流
 
 ```
-SFTP 10.100.20.11（备件原始数据，每日更新）
-   │  sftp_download()（paramiko）
+SFTP 10.100.20.11 /home/ubuntu/sp（备件原始数据，上游每小时产一份）
+   │  sftp_download()（paramiko）—— 按「目录名 + 固定文件名」取**最新**一份：
+   │    sp/inbound/<yyyymmdd>/<yyyymmddHHMMSSfff>/inbound.xlsx
+   │                                        → data\inband_details.xlsx
+   │    sp/outbound/.../outbound.xlsx        → data\outband_details.xlsx
+   │    sp/inventory_management/.../inventory_management.xlsx
+   │                                        → data\inventory_details.xlsx
+   │    sp/wh_transfer/.../wh_transfer.xlsx  → data\transfer_details.xlsx
+   │    sp/wh_transfer_return/.../wh_transfer_return.xlsx
+   │                                        → data\transfer_return_details.xlsx
+   │  （另有 ocrule：OCAuto/OCAutoOutput 递归找 csv → 转 excel）
    ▼
-my_app\data\sp_email\data\          ← 原始数据（inband/inventory/outbound/ocrule/transfer xlsx）
-   │  明细预处理（剔除 → 状态过滤 → Material Name/Type 同步，均写回同一批 xlsx）
+my_app\data\sp_email\data\          ← 原始数据（本地统一叫 *_details.xlsx）
+   │  明细预处理（剔除单据 → 出库状态 → Canceled → Material Name/Type 同步，均写回同一批 xlsx）
    ▼
 my_app\data\sp_email\data\          ← 处理后明细（下游 sp_online / sp_email_details 同口径）
    │  generate_report()（再按仓库 / Material Type 过滤）
@@ -23,6 +32,13 @@ my_app\data\sp_email\               ← 产出 Comsumables / SpareParts Inbound&
    ▼
 EWS 发送邮件（owa_mail_report.py）
 ```
+
+> ⚠️ **2026-09-16 数据源变更**：上游把目录从 `sp/spinbound|spoutbound|spinventory|sp-wh_transfer`
+> 迁到 `sp/inbound|outbound|inventory_management|wh_transfer`（+ 新增 `wh_transfer_return`），
+> 文件名也从 `spinbound.xlsx` 之类改成与目录同名。**旧目录已于 2026-09-15 08:00 停更**，
+> 继续用会静默取到过期快照（旧逻辑只取「最新 xlsx」、不校验文件名）。
+> 同一变更同步应用于 `backend/services/get_sp_table.py`（仓库看板同步）与
+> `task_configs_registry.py` 的 `sp_sftp_config.json` 默认目录。
 
 ## 文件说明
 
@@ -41,9 +57,14 @@ EWS 发送邮件（owa_mail_report.py）
 |------|------|------|------|
 | Step 2.1 | `apply_exclude_to_details()` | 按 `data\sp_email\data\in&out_exclude.xlsx`（sheet `3_剔除单据Serial明细`）剔除指定单据行，分入库/出库两组 | ✅ |
 | Step 2.2 | `apply_status_filters()` | 出库明细剔除 `Status='WaitingForUpdate'`（`OUTBOUND_DROP_STATUS`） | ✅ |
-| Step 2.3 | `apply_inventory_fields()` | 覆盖明细的 **Material Name**（取数据库表 `sp_material`，回退 inventory）与 **Material Type**（取 inventory） | ✅ |
+| Step 2.3 | `apply_operation_result_filter()` | 入库/出库明细剔除 `Operation Result Status='Canceled'`（`OP_RESULT_DROP_STATUS`） | ✅ |
+| Step 2.4 | `apply_operation_result_filter_to_file()` | 转仓明细（transfer / transfer_return）剔除 `Operation Result Status='Canceled'` | ✅ |
+| Step 2.5 | `apply_inventory_fields()` | 覆盖明细的 **Material Name**（取数据库表 `sp_material`，回退 inventory）与 **Material Type**（取 inventory） | ✅ |
 | Step 4 | `preprocess()` | 排除仓库 `Liberia Monrovia material warehouse` | ❌ 仅报表 |
 | 生成时 | `generate_report()` | 仅保留 `Material Type='SpareParts'`（或 `Consumables`） | ❌ 仅报表 |
+
+`Operation Result Status` 只有 inbound / outbound / wh_transfer 有；`inventory_management`
+没有该列，不受影响。已作废单据（Canceled）在 SP Details Report 与报表里都不出现。
 
 剔除匹配口径（命中任一即删）：
 - `full` = (单据号, Material No., Serial No., Qty) 四字段全等
@@ -74,10 +95,14 @@ EWS 发送邮件（owa_mail_report.py）
 
 ### 报表口径 vs SP Details Report
 
-`sp_email_details` 合并 4 份明细（inventory/inband/outband/transfer），**只经过前三步**；
-SpareParts/Comsumables 报表**额外**再做「排除仓库」+「Material Type 过滤」。
+`sp_email_details` 合并 **5 份**明细（inventory / inband / outband / transfer / transfer_return），
+**只经过 Step 2.x 的过滤**（不做「排除仓库」与「Material Type 过滤」）；
+SpareParts/Comsumables 报表**额外**再做这两项。
 
-以 2026-09-09 14-57-26 版为例：
+`Transfer Return` 是**可选** sheet：源文件缺失时只告警并跳过（其余 4 份缺失仍报错，
+避免静默发出残缺报表）。2026-09 上游的 `wh_transfer_return.xlsx` 一直是空表（0 行）。
+
+以 2026-09-09 14-57-26 版（旧数据源时代）为例：
 
 | 阶段 | Inbound | Outbound | Inventory |
 |------|---------|----------|-----------|
@@ -90,6 +115,65 @@ SpareParts/Comsumables 报表**额外**再做「排除仓库」+「Material Type
 核对脚本：`TMP\verify_sp_report_filters.py "<报表时间戳>"`（如 `"2026-09-08 17-41-32"`），
 逐条套用过滤条件并与报表各 sheet 实际行数比对，输出 PASS/FAIL。
 （注意：报表 sheet 前 3 行是标题 / Generated / 表头，数据行 = 总行数 − 3。）
+
+### Summary-Current 的补库建议列（2026-09-17 起）
+
+`Summary-Current` 主表在原有 6 列右侧追加 4 个补库列，按 `Material Name` 与主表**同行对齐**
+（早期版本写成表身下方的独立区块，已废弃）：
+
+| 列 | 口径 |
+|----|------|
+| Avg Monthly Consumption | 出库量合计（**先剔除 `SPOB202608160004` / `SPOB202609120014` 两张异常单据**）÷ 9.5，**向上取整** |
+| Safety Stock | 6 × Avg Monthly Consumption（因 Avg 已取整，结果同为整数） |
+| Replenishment Qty | Safety Stock − Inventory Qty，**向上取整**；**≤ 0 留空**（不显示 0/负数，便于直接求和） |
+| Alert Level | Inventory Qty / Safety Stock：< 50% `Urgent Replenish`；50%~100% `Replenish`；> 100% `Excess`（红/黄/绿三色） |
+
+- **3 个数值列一律向上取整为整数**（2026-09-17 起；改前保留 2 位小数）。
+  Excel 数字格式与其它列统一为 `#,##0`。
+- 取整是**逐级**做的：先 `ceil(消耗/9.5)` 得 Avg，再 `6 × Avg` 得 Safety。
+  因此表内可逐行验算 `Safety Stock = 6 × Avg Monthly Consumption`；
+  `Replenishment Qty` 同样 `ceil`（如安全库存 12、库存 3.5 → 补库 9）。
+- 主表里没有出库消耗的物料同样出行，月均 / 安全库存记 0、Alert Level 为 `Excess`。
+- `Total` 行：3 个数值列取**各行取整后的合计**（合计仍为整数，与各行相加一致），Alert Level 留空。
+- 口径说明写在**文件上方**（2026-09-17 起，改前在表身下方）：Summary-Current 的第 4、5 行是两行英文说明
+  （`Replenishment basis: Excluded orders ... / History 9.5 months / Safety Stock = 6 x ...` 与
+  `Replenishment Qty = Safety Stock - Inventory Qty (<= 0 left blank) / Alert Level = ...`），
+  由 `_insert_title(..., extra_notes=REPLENISH_NOTES)` 写入；PNG 侧对应 `_render_summary_image(..., notes=...)`，
+  画在标题正下方。**这两个 sheet 的表头因此落在第 6 行**（title / Generated / Filters / 说明 ×2 / 表头）。
+- **文案一律英文，报表内不出现中文**（2026-09-17 起：Inbound / Outbound 说明行原先引用的中文 sheet 名
+  `3_剔除单据Serial明细` 也改写成 `[sheet 3: excluded order serial details]`；
+  `EXCLUDE_SHEET` 常量本身仍是中文，那是读剔除名单用的真实 sheet 名，**不能改**）。
+- ⚠️ 口径差异：SpareParts 的 `Outbound Qty` **仍含**那两张单据（保持原有输出），
+  因此同一行 `Outbound Qty ≠ Avg Monthly Consumption × 9.5`；Consumables 明细里没有这两单，无此差异。
+- 实现：常量 `REPLENISH_*` / `ALERT_*`；`build_replenishment(outb_df, inv_df, base_index=)` 按主表物料逐行对齐；
+  Excel 收尾 `_style_replenish_columns()`（Alert 三色 + 列宽），说明行由 `style_excel(..., extra_notes=)` 透传；
+  PNG 侧由 `_fmt_summary_cell()` 统一整数 / 留白格式。
+  `_style_replenish_note()` / `_style_replenishment()` 均已停用，保留供回退。
+- 生成结束后由 `_cleanup_old_reports()`（`main()` Step 10）按「前缀 + 仓库名」分组，每组只留最新一份
+  xlsx / png，其余删除。**它删的是 `OUT_DIR`（`data/sp_email`）下的正式产物**，不含仓库报表以外的文件。
+- **改这个脚本不用重启 worker**：`sp_report_generate` 任务用 subprocess 调本脚本，每次都是新进程读最新代码。
+
+### 报表内过滤条件说明行（2026-09-16 起）
+
+每个 sheet 在标题下新增第 3 行蓝色小字（Calibri 9 `4472C4`），写明该 sheet 实际套用的过滤条件；
+**第 4 行才是表头，数据从第 5 行开始**（改前表头在第 3 行）。
+
+| sheet | 说明行内容 |
+|-------|-----------|
+| Inbound | `Material Type = <类型>` + `Warehouse Name ≠ 'Liberia Monrovia material warehouse'` + `Excluded orders: in&out_exclude.xlsx [sheet 3: excluded order serial details]` + `Operation Result Status ≠ 'Canceled'` |
+| Outbound | 同 Inbound，末尾再加 `Status ≠ 'WaitingForUpdate'` |
+| Inventory | `Material Type = <类型>` + `Warehouse Name ≠ 'Liberia Monrovia material warehouse'` |
+| Summary-Current / Summary-Changed | `Material Type = <类型>` + 排除仓库 + `same exclusions as the Inbound / Outbound / Inventory sheets` |
+
+分仓报表在说明行里额外带 `Warehouse Name = '<仓库名>'`。
+
+⚠️ `Summary-Current` 因为额外带 2 行补库口径说明（见上一节），**表头在第 6 行、数据从第 7 行开始**；
+其余 sheet 仍是「第 4 行表头、第 5 行起数据」。
+
+实现：`_build_filter_note(kind, material_type, warehouse_name)` 生成文案 →
+`_insert_title(ws, title, sheet_name, filter_note=)`（多插一行并**返回表头行号**）→
+`style_excel(..., filter_note=)` / `style_summary_changed(..., filter_note=)` 据此计算 `header_row` / `data_start`。
+**不传 `filter_note` 时行为与改动前完全一致**，因此 `generate_sp_online_report.py` 等复用方不受影响。
 
 ## SP 在线未关闭单（generate_sp_online_report.py）
 
@@ -133,8 +217,9 @@ SpareParts/Comsumables 报表**额外**再做「排除仓库」+「Material Type
 - 生成成功后校验两类总表 xlsx 是否存在，缺失则任务标记失败，避免静默发出旧数据。
 - 邮件任务附件选择：按 `SpareParts` / `Comsumables` 过滤后取「非分仓（不含 ` - Liberia`）」的最新总表。
 - 旧报表自动清理：每次生成后仅保留各仓库/类型最新一份（脚本 `_cleanup_old_reports`）。
-- 运行耗时：约 30~40 秒（SFTP 下载 + 10 份报表 + 清理），脚本自带总耗时打印。
-- ⚠️ **跑任务前不要打开 `data\sp_email\data\` 下的 xlsx**：文件被 Excel 占用时 `sftp_download()` 会
-  `PermissionError` 直接中断（Windows 上 tmp+replace 也替换不了），任务报 `returncode=1`；
-  系统有 `auto_retry` 会自动补跑，但最好先关闭文件。
+- 运行耗时：约 50 秒（下载 5 份 + 生成 10 份报表 + 清理），脚本自带总耗时打印。
+- ⚠️ **跑任务前不要用 Excel/WPS 打开 `data\sp_email\data\` 下的 xlsx**：文件被占用时
+  `sftp_download()` 会 `PermissionError` 直接中断（Windows 上 tmp+replace 也替换不了被
+  独占锁定的文件），任务报 `returncode=1`。2026-09-16 就因 `outband_details.xlsx` 被 WPS
+  打开而中断过一次；系统有 `auto_retry` 会自动补跑，但最好先关闭文件。
 - 改动脚本后无需重启 worker：报表脚本以子进程方式每次现读。

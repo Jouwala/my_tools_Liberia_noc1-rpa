@@ -1,0 +1,30 @@
+/** MsPortal — Tailwind 预编译配置
+ *  与 ref.html 的 tailwind.config 保持一致（颜色 / 阴影），
+ *  扫描 index.html + assets/portal.js，产出静态 assets/tailwind.css，
+ *  使门户零 CDN 依赖、内网断网也可用。 */
+module.exports = {
+  content: [
+    'D:/01_RPA/liberia-noc_soc-数据看板统一门户/MsPortal/index.html',
+    'D:/01_RPA/liberia-noc_soc-数据看板统一门户/MsPortal/assets/portal.js'
+  ],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        zte: {
+          navy: '#002B49',
+          blue: '#0066B3',
+          lightBlue: '#E6F0FA',
+          teal: '#00A3E0',
+          accent: '#0072CE'
+        }
+      },
+      boxShadow: {
+        card: '0 2px 10px rgba(0, 43, 73, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03)',
+        'glow-cyan': '0 0 15px rgba(0, 229, 255, 0.35)',
+        'glow-blue': '0 0 20px rgba(0, 102, 179, 0.4)'
+      }
+    }
+  },
+  plugins: []
+};

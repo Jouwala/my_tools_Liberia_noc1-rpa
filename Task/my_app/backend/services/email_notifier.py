@@ -139,6 +139,72 @@ def notify_task_failure(task_id: str, task_name: str, error: str,
         return False
 
 
+def send_ews_status_email(subject: str, title: str, message: str, ts: str,
+                          ok: bool = False, receiver: str | None = None) -> bool:
+    """发送 EWS 状态翻转通知邮件（降级 / 恢复）。
+
+    与 notify_task_failure 共用同一条 SMTP 通道与凭据，但**不复用失败告警模板**，
+    避免把「依赖不可用 / 已恢复」包装成「任务执行失败」。本函数不带冷却——状态
+    翻转本身天然去重（每次翻转只调用一次），冷却反而会吞掉"恢复"这条通知。
+
+    Args:
+        subject: 邮件主题
+        title: 正文标题（如「EWS 已恢复」）
+        message: 正文说明文字（纯文本，内部做 HTML 转义）
+        ts: 时间字符串
+        ok: True = 恢复（绿色），False = 降级（红色）
+    """
+    to_addr = (receiver or DEFAULT_RECEIVER).strip()
+    accent = "#1F8A4C" if ok else "#c0392b"
+    msg_esc = escape(str(message))
+    html = f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,'Microsoft YaHei',sans-serif;">
+  <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);">
+    <div style="background:{accent};color:#fff;padding:16px 20px;">
+      <div style="font-size:18px;font-weight:bold;">{escape(str(title))}</div>
+      <div style="font-size:12px;opacity:.9;margin-top:4px;">ZTE NOC · Task Manager · EWS 状态通知</div>
+    </div>
+    <div style="padding:20px;color:#333;font-size:14px;line-height:1.7;">
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:6px 0;color:#888;width:96px;vertical-align:top;">任务名称</td>
+            <td style="padding:6px 0;font-weight:bold;">EWS 恢复后邮件补发</td></tr>
+        <tr><td style="padding:6px 0;color:#888;vertical-align:top;">任务 ID</td>
+            <td style="padding:6px 0;font-family:monospace;">email_recovery</td></tr>
+        <tr><td style="padding:6px 0;color:#888;vertical-align:top;">发生时间</td>
+            <td style="padding:6px 0;">{escape(str(ts))}</td></tr>
+      </table>
+      <h3 style="margin:14px 0 6px;color:{accent};">状态说明</h3>
+      <div style="background:#f7f7f7;border:1px solid #e3e3e3;border-radius:6px;padding:10px;
+                  white-space:pre-wrap;word-break:break-all;color:#333;font-size:13px;">{msg_esc}</div>
+      <div style="margin-top:18px;color:#999;font-size:12px;">
+        本邮件仅在 EWS 状态发生翻转时发送，降级期间不会重复告警。请勿直接回复。
+      </div>
+    </div>
+  </div>
+</body></html>"""
+
+    try:
+        user, pwd = _runtime_credentials()
+        msg = MIMEMultipart("alternative")
+        msg["From"] = formataddr((SENDER_NAME, SENDER))
+        msg["To"] = to_addr
+        msg["Subject"] = subject
+        msg["Date"] = formatdate(usegmt=True)
+        msg.attach(MIMEText(html, "html", "utf-8"))
+
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=30) as server:
+            server.login(user or SENDER, pwd)
+            server.sendmail(SENDER, [to_addr], msg.as_string())
+
+        logger.info(f"[EWS] 状态通知邮件已发送至 {to_addr}: {title}")
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[EWS] 状态通知邮件发送失败: {e}")
+        return False
+
+
 def send_test_email(receiver: str | None = None) -> bool:
     """发送一封测试邮件，用于验证 126 邮箱连通性与凭据有效性。
 

@@ -1,20 +1,20 @@
 # OpenClaw API 优选 — 探测结果
 
-运行时间: 2026-09-14 03:00  |  时延阈值: 5000 ms
+运行时间: 2026-09-17 03:00  |  时延阈值: 5000 ms
 
 ## 汇总
 
 | 提供者 | 可用 | 时延(ms) | 选用模型 | 状态/原因 |
 |---|---|---|---|---|
-| ZhiPu GLM 智谱 | 是 | 1844 | `glm-4-flash` | 正常 |
+| ZhiPu GLM 智谱 | 是 | 1144 | `glm-4-flash` | 正常 |
 | NVIDIA NIM | 否 | - | `mistralai/mistral-7b-instruct-v0.3` | 模型不可用/不存在 |
-| OpenRouter | 是 | 12788 | `openrouter/free` | 正常 |
+| OpenRouter | 是 | 8152 | `openrouter/free` | 正常 |
 | Ollama Cloud | 否 | - | `gemma3:27b` | HTTP 410 |
-| ZhiPu GLM-5 智谱 | 是 | 1852 | `glm-4-flash` | 正常 |
+| ZhiPu GLM-5 智谱 | 是 | 1743 | `glm-4-flash` | 正常 |
 | SiliconFlow 硅基流动 | 否 | - | `Qwen/Qwen3-8B` | 需付费/余额不足 (402) |
 | MiniMax CN | 否 | - | `MiniMax-M2` | 未配置密钥·跳过 |
 | StepFun 阶跃星辰 | 否 | - | `step-2-mini` | 需付费/余额不足 (402) |
-| DAHL 推理 | 否 | - | `deepseek-chat` | 无权限 (403) |
+| DAHL 推理 | 否 | - | `deepseek-ai/DeepSeek-V4-Flash-0731` | 密钥被拒绝 (401) |
 | Together AI | 否 | - | `meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo` | 未配置密钥·跳过 |
 | Groq | 否 | - | `llama-3.1-8b-instant` | 未配置密钥·跳过 |
 | DeepInfra | 否 | - | `meta-llama/Meta-Llama-3.1-8B-Instruct` | 未配置密钥·跳过 |
@@ -25,13 +25,13 @@
 | SenseNova 商汤 | 否 | - | `sensenova-6.7-flash-lite` | 未配置密钥·跳过 |
 
 ## 结论
-- 主用 (primary): **zhipu/glm-4-flash**（1844 ms）
+- 主用 (primary): **zhipu/glm-4-flash**（1144 ms）
 - 备用 (fallbacks): ollama/qwen3:8b, ollama/qwen3:4b, zhipu5/glm-4-flash, ollama-cloud/gemma3:27b
 
 ## 级联尝试明细
 
 ### ZhiPu GLM 智谱
-- `glm-4-flash` → OK 1844 ms
+- `glm-4-flash` → OK 1144 ms
 
 ### NVIDIA NIM
 - `meta/llama-3.1-8b-instruct` → FAIL http_error
@@ -41,7 +41,7 @@
 - `mistralai/mistral-7b-instruct-v0.3` → FAIL model_unavailable
 
 ### OpenRouter
-- `openrouter/free` → OK 12788 ms
+- `openrouter/free` → OK 8152 ms
 
 ### Ollama Cloud
 - `gemma3:4b` → FAIL http_error
@@ -51,7 +51,7 @@
 - `gemma3:27b` → FAIL http_error
 
 ### ZhiPu GLM-5 智谱
-- `glm-4-flash` → OK 1852 ms
+- `glm-4-flash` → OK 1743 ms
 
 ### SiliconFlow 硅基流动
 - `Qwen/Qwen3-8B` → FAIL payment_required
@@ -60,7 +60,7 @@
 - `step-2-mini` → FAIL payment_required
 
 ### DAHL 推理
-- `deepseek-chat` → FAIL forbidden
+- `deepseek-ai/DeepSeek-V4-Flash-0731` → FAIL auth_invalid
 
 ### Local Ollama
 - `gemma4-16k` → FAIL error

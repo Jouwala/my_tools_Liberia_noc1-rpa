@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <link rel="stylesheet" href="./legacy-glass-baseline.css">
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CXO Daily Dashboard</title>
+<script src="/myapp/lib/echarts.min.js"></script>
+<style>
+:root{--bg:#02050c;--panel:#071027;--blue:#258cff;--cyan:#00d9ff;--text:#f5f7ff;--muted:#aebbd4;--edge:#174bba;--glow:rgba(58,118,255,.48)}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Arial,"Microsoft YaHei",sans-serif}
+.screen{min-height:100vh;background:radial-gradient(circle at 50% 8%,rgba(0,127,255,.14),transparent 24%),#02050c;padding:0 6px 10px}
+.mast{height:66px;position:relative;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#080f43 0,#070d31 73%,transparent 74%);border-top:1px solid #aab3c5}
+.mast:after{content:"";position:absolute;left:0;right:0;bottom:6px;height:4px;background:linear-gradient(90deg,#1a35ae 0 13%,#1da7ff 15% 41%,transparent 44% 58%,#03dcef 60% 85%,#3545b4 87%)}
+.logo{position:absolute;left:10px;top:12px;font-size:27px;font-weight:1000;font-style:italic;letter-spacing:-5px;color:#fff}
+.logo b{color:#ffdc00}
+.mast h1{font-size:16px;color:#65dcff;text-shadow:0 0 18px #1da7ff;margin:0}
+.mast .sub{position:absolute;left:96px;top:26px;font-size:11px;color:#7fd2ee}
+.viewbtn{position:absolute;right:14px;top:17px;z-index:3;padding:8px 14px;border:1px solid #16bfe3;border-radius:4px;background:#092348;color:#8cecff;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;box-shadow:0 0 12px rgba(0,203,255,.25)}
+.viewbtn:hover{background:#0d3868}
+.asof{position:absolute;right:14px;top:49px;z-index:3;font-size:10px;color:#8cecff;background:rgba(9,35,72,.75);border:1px solid #17499c;border-radius:12px;padding:2px 10px}
+/* ---- 工具栏：粒度 / 对比窗口 ---- */
+.bar{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;padding:9px 8px 2px}
+.bar .seg{display:flex;border:1px solid #17499c;border-radius:16px;overflow:hidden;background:rgba(9,34,74,.6)}
+.bar .seg button{cursor:pointer;font-family:inherit;font-size:12px;color:#9fd8ee;background:transparent;border:0;padding:5px 16px}
+.bar .seg button:hover{color:#cfeaff;background:rgba(43,111,208,.25)}
+.bar .seg button.active{background:#0d3868;color:#fff;box-shadow:inset 0 0 0 1px #21d5ec}
+.bar .lbl{font-size:11px;color:#7fd2ee}
+/* ---- 卡片 ---- */
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px 4px 0}
+.cards.trio{grid-template-columns:repeat(3,1fr);padding-top:2px}
+.card{position:relative;background:linear-gradient(180deg,#08122c,#050d22);border:1px solid #153db0;border-radius:10px;box-shadow:inset 0 7px 17px var(--glow);padding:10px 12px 8px;overflow:hidden}
+.card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#1da7ff,#00d9ff)}
+.card.sm:before{background:linear-gradient(180deg,#3545b4,#1da7ff)}
+.card .ttl{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
+.card .ttl b{font-size:12.5px;color:#cfe6ff;font-weight:700;letter-spacing:.2px}
+.card .ttl i{font-style:normal;font-size:10px;color:#7fd2ee}
+.card .val{display:flex;align-items:baseline;gap:6px;margin-top:6px}
+.card .val span{font-size:30px;font-weight:800;color:#fff;text-shadow:0 0 16px rgba(29,167,255,.45);font-variant-numeric:tabular-nums;line-height:1.05}
+.card.sm .val span{font-size:23px}
+.card .val em{font-style:normal;font-size:11px;color:#8cecff}
+.card .when{font-size:10px;color:#6f8cb4;margin-top:2px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.chip{font-size:10px;border-radius:11px;padding:2px 8px;border:1px solid #17499c;background:rgba(9,34,74,.6);color:#9fd8ee;white-space:nowrap}
+.chip.up{border-color:#0bc78c;color:#8ff0cc;background:rgba(11,199,140,.14)}
+.chip.down{border-color:#ff5c6c;color:#ffb3bc;background:rgba(255,92,108,.14)}
+.chip.neu{border-color:#2b6fd0;color:#cfeaff}
+.spark{display:block;width:100%;height:26px;margin-top:6px}
+.extremes{display:flex;justify-content:space-between;gap:4px;margin-top:5px;border-top:1px solid #173158;padding-top:5px}
+.extremes div{font-size:10px;color:#8fb0d8;text-align:center;flex:1;line-height:1.35}
+.extremes div b{display:block;color:#e8f3ff;font-size:11.5px;font-variant-numeric:tabular-nums}
+.extremes div.hi b{color:#6ef0b4}
+.extremes div.lo b{color:#ffb3bc}
+/* ---- 区块 ---- */
+.block{margin-top:10px}
+.block h2{font-size:12.5px;color:#00aaff;margin:8px 6px 6px;font-weight:700;display:flex;align-items:center;gap:8px}
+.block h2 em{font-style:normal;color:#7fd2ee;font-size:11px;font-weight:400}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:0 4px}
+.grid.q{grid-template-columns:repeat(3,1fr)}
+.panel{position:relative;background:linear-gradient(180deg,#08122c,#050d22);border:1px solid #153db0;border-radius:9px;box-shadow:inset 0 7px 17px var(--glow);padding:8px 8px 4px}
+.panel-title{font-size:12px;margin:2px 4px 2px;display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.panel-title .pt-name{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;min-width:0}
+.panel-title i{font-style:normal;color:#7fd2ee;font-size:10px}
+/* 图表卡片右上角：最大 / 平均 / 最低（原本画在图里的 markPoint 文字标签挪到这里，
+   既让数值更好找，也不再压住时间坐标轴） */
+.panel-stats{display:flex;gap:12px;flex:0 0 auto;text-align:right}
+.panel-stats span{font-size:9.5px;color:#8fb0d8;white-space:nowrap;line-height:1.25}
+.panel-stats span b{display:block;color:#e8f3ff;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.panel-stats span i{display:block;font-style:normal;color:#6f8cb4;font-size:9px}
+.panel-stats span.hi b{color:#6ef0b4}
+.panel-stats span.lo b{color:#ffb3bc}
+.chart{width:100%;height:232px}
+.grid.q .chart{height:186px}
+/* ---- 明细表 ---- */
+table{width:100%;border-collapse:collapse;font-size:11px}
+th,td{padding:7px 8px;border-bottom:1px solid #173158;text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:#55d7ff;position:sticky;top:0;background:#08122c}
+tbody tr:hover td{background:rgba(37,140,255,.10)}
+.tbl-wrap{max-height:330px;overflow:auto;border:1px solid #153db0;border-radius:9px;background:linear-gradient(180deg,#08122c,#050d22);margin:0 4px}
+.tag{display:inline-block;font-size:9px;border-radius:9px;padding:1px 7px;border:1px solid #2b6fd0;color:#9fd8ee}
+.tag.warn{border-color:#8a6d10;color:#f6cf00;background:rgba(74,60,8,.5)}
+/* ---- 说明条 ---- */
+.notes-wrap{padding:8px 8px 2px;display:flex;flex-direction:column;align-items:center}
+.notes-toggle{cursor:pointer;border:1px solid #17499c;background:rgba(9,34,74,.6);color:#9fd8ee;border-radius:20px;padding:4px 12px;font-size:11px;font-family:inherit;display:inline-flex;align-items:center;gap:6px}
+.notes-toggle:hover{border-color:#2b6fd0;color:#cfeaff}
+.notes-toggle .caret{font-size:9px;transition:transform .15s}
+.notes-toggle[aria-expanded="true"] .caret{transform:rotate(180deg)}
+.cover{display:flex;flex-wrap:wrap;gap:8px;padding:8px 0 2px;font-size:11px;color:#9fd8ee;justify-content:center;max-width:1400px}
+.cover span{padding:4px 10px;border:1px solid #17499c;border-radius:20px;background:rgba(9,34,74,.6)}
+.cover span.warn{border-color:#8a6d10;color:#f6cf00;background:rgba(74,60,8,.5)}
+.cover span.bad{border-color:#8a2330;color:#ff9aa6;background:rgba(74,12,22,.5)}
+/* 状态条**不再浮动**：原来 position:fixed 会盖住页面右下角卡片（含「最低」那一格），
+   现在放在文档流最底部居中，只有滚到底才看到；「是否刷新成功」由顶栏的
+   数据截至/页面版本/下次自动刷新 一并体现，不靠浮层提示。 */
+.status{margin:8px auto 2px;width:max-content;max-width:96%;padding:5px 12px;border-radius:20px;font-size:11px;border:1px solid #16bfe3;background:#092348;color:#8cecff}
+.status.bad{border-color:#ff5c6c;color:#ffb3bc;background:#480a14}
+/* 业务结构（Service Mix）与网络质量（Network Quality）并排同一行 */
+.mixrow{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+@media(max-width:1200px){.mixrow{grid-template-columns:1fr}}
+.empty{padding:26px;text-align:center;color:#9fd8ee;font-size:13px}
+/* ---- 浅色主题 ---- */
+html[data-theme="light"]{--bg:#eaf7fb;--text:#163047;--muted:#526b7d;--edge:rgba(14,116,144,.18);--glow:rgba(14,165,233,.10)}
+html[data-theme="light"],html[data-theme="light"] body{background:#eaf7fb;color:var(--text);color-scheme:light}
+html[data-theme="light"] .screen{background:radial-gradient(circle at 15% 5%,rgba(103,232,249,.36),transparent 28%),linear-gradient(145deg,#eefbff,#e7f1fa 56%,#f7fcff)}
+html[data-theme="light"] .mast{background:linear-gradient(180deg,rgba(255,255,255,.86),rgba(239,249,253,.70) 73%,transparent 74%);border-top-color:rgba(14,116,144,.22)}
+html[data-theme="light"] .mast h1{color:#0e7490;text-shadow:none}html[data-theme="light"] .mast .sub{color:#3c7d94}
+html[data-theme="light"] .logo{color:#12324a;text-shadow:1px 1px 0 rgba(255,255,255,.8)}html[data-theme="light"] .logo b{color:#d69b00}
+html[data-theme="light"] .viewbtn{border-color:rgba(14,116,144,.30);background:rgba(255,255,255,.72);color:#0e7490}
+html[data-theme="light"] .asof{background:rgba(255,255,255,.8);border-color:rgba(14,116,144,.3);color:#0e7490}
+html[data-theme="light"] .bar .seg{border-color:rgba(14,116,144,.3);background:rgba(255,255,255,.75)}
+html[data-theme="light"] .bar .seg button{color:#0e7490}
+html[data-theme="light"] .bar .seg button.active{background:#d9f0f7;color:#075063;box-shadow:inset 0 0 0 1px #0e7490}
+html[data-theme="light"] .bar .lbl{color:#3c7d94}
+html[data-theme="light"] .card{background:linear-gradient(145deg,rgba(255,255,255,.86),rgba(255,255,255,.66));border-color:rgba(14,116,144,.18);box-shadow:0 14px 30px rgba(38,83,104,.10),inset 0 1px 0 rgba(255,255,255,.9)}
+html[data-theme="light"] .card .ttl b{color:#164257}
+html[data-theme="light"] .card .val span{color:#0b3448;text-shadow:none}
+html[data-theme="light"] .card .val em{color:#0e7490}
+html[data-theme="light"] .card .when{color:#6b8a99}
+html[data-theme="light"] .chip{border-color:rgba(14,116,144,.28);background:rgba(255,255,255,.7);color:#0e7490}
+html[data-theme="light"] .chip.up{border-color:#078766;color:#0a6a52;background:rgba(7,135,102,.12)}
+html[data-theme="light"] .chip.down{border-color:#c2334a;color:#a2202f;background:rgba(194,51,74,.10)}
+html[data-theme="light"] .extremes{border-top-color:rgba(14,116,144,.16)}
+html[data-theme="light"] .extremes div{color:#4d6c7f}
+html[data-theme="light"] .extremes div b{color:#12394d}
+html[data-theme="light"] .extremes div.hi b{color:#0a6a52}
+html[data-theme="light"] .extremes div.lo b{color:#a2202f}
+html[data-theme="light"] .block h2{color:#087a98}html[data-theme="light"] .block h2 em{color:#3c7d94}
+html[data-theme="light"] .panel{background:linear-gradient(145deg,rgba(255,255,255,.8),rgba(255,255,255,.62));border-color:rgba(14,116,144,.18);box-shadow:0 16px 34px rgba(38,83,104,.12),inset 0 1px 0 rgba(255,255,255,.9)}
+html[data-theme="light"] .panel-title{color:#164257}html[data-theme="light"] .panel-title i{color:#3c7d94}
+html[data-theme="light"] .panel-stats span{color:#4d6c7f}
+html[data-theme="light"] .panel-stats span b{color:#12394d}
+html[data-theme="light"] .panel-stats span i{color:#6c8a99}
+html[data-theme="light"] .panel-stats span.hi b{color:#0a6a52}
+html[data-theme="light"] .panel-stats span.lo b{color:#a2202f}
+html[data-theme="light"] th,html[data-theme="light"] td{border-bottom-color:rgba(14,116,144,.14);color:#24475d}
+html[data-theme="light"] th{color:#087a98;background:#f2fbfd}
+html[data-theme="light"] .tbl-wrap{background:linear-gradient(145deg,rgba(255,255,255,.8),rgba(255,255,255,.6));border-color:rgba(14,116,144,.18)}
+html[data-theme="light"] .notes-toggle{border-color:rgba(14,116,144,.3);background:rgba(255,255,255,.75);color:#0e7490}
+html[data-theme="light"] .cover span{border-color:rgba(14,116,144,.28);background:rgba(255,255,255,.7);color:#0e7490}
+html[data-theme="light"] .cover span.warn{border-color:#c9a227;color:#8a6d10;background:rgba(255,250,220,.8)}
+html[data-theme="light"] .cover span.bad{border-color:#d97b86;color:#a2202f;background:rgba(255,235,238,.85)}
+html[data-theme="light"] .status{border-color:rgba(14,116,144,.3);background:rgba(255,255,255,.8);color:#0e7490}
+@media(max-width:1200px){.cards,.cards.trio{grid-template-columns:repeat(2,1fr)}.grid,.grid.q{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main class="screen">
+  <header class="mast">
+    <div class="logo"><b>V</b>MAX</div>
+    <h1 id="appTitle">CXO Daily Dashboard</h1>
+    <div class="sub" id="appSub">Day / Week granularity · last 90 days</div>
+    <button class="viewbtn" id="refreshBtn" type="button">↻</button>
+    <div class="asof" id="asof">—</div>
+  </header>
+
+  <div class="bar">
+    <span class="lbl" id="granLabel">Granularity</span>
+    <div class="seg" id="granSeg">
+      <button type="button" data-gran="day" class="active" id="granDay">Day</button>
+      <button type="button" data-gran="week" id="granWeek">Week</button>
+    </div>
+    <span class="lbl" id="arLabel"></span>
+    <span class="lbl" id="verLabel"></span>
+    <span class="lbl" id="hintLabel"></span>
+  </div>
+
+  <div class="cards" id="cardsPrimary"></div>
+
+  <div class="mixrow">
+    <section class="block">
+      <h2 id="hBusiness"><em id="hBusinessSub"></em></h2>
+      <div class="cards trio" id="cardsBusiness"></div>
+    </section>
+
+    <section class="block">
+      <h2 id="hQualCards"><em id="hQualCardsSub"></em></h2>
+      <div class="cards trio" id="cardsQuality"></div>
+    </section>
+  </div>
+
+  <section class="block">
+    <h2 id="hTrend"><em id="hTrendSub"></em></h2>
+    <div class="grid" id="chartsPrimary"></div>
+  </section>
+
+  <section class="block">
+    <h2 id="hQuality"><em id="hQualitySub"></em></h2>
+    <div class="grid q" id="chartsQuality"></div>
+  </section>
+
+  <section class="block">
+    <h2 id="hTable"><em id="hTableSub"></em></h2>
+    <div class="tbl-wrap"><table id="tbl"></table></div>
+  </section>
+
+  <div class="notes-wrap">
+    <button class="notes-toggle" id="notesToggle" aria-expanded="false" aria-controls="cover">
+      <span>ⓘ</span><span id="notesLabel">Data notes</span><span class="caret">▾</span>
+    </button>
+    <div class="cover" id="cover" hidden></div>
+  </div>
+  <div id="status" class="status">loading</div>
+</main>
+<script>
+(function(){
+'use strict';
+
+/* ==================== i18n（跟随 my_app 外壳：localStorage['app-locale'] + postMessage myapp-locale） ==================== */
+var I18N = {
+  zh: {
+    title:'CXO Daily Dashboard', sub:'日 / 周粒度 · 最近 90 天（已完成日）',
+    gran:'粒度', day:'日', week:'周',
+    hint:'卡片为「最新完整日」；趋势随粒度切换；周汇总：流量类求和、比率类按流量加权',
+    trend:'业务趋势', trendSub:'流量 / 用户 / 视频体验 / 业务结构',
+    business:'业务结构', businessSub:'视频 / 缓存 / 游戏',
+    qualCards:'网络质量', qualCardsSub:'建链成功率 / 重传 / 时延（技术指标，供网络侧参考）',
+    quality:'网络质量与业务结构趋势', qualitySub:'建链成功率 / 重传 / 时延 / 视频与缓存',
+    tbl:'最近 14 天明细', tblSub:'日粒度原始值',
+    notes:'数据说明', refresh:'刷新',
+    thDate:'日期', thTraffic:'总流量 (GB)', thUser:'活跃用户', thVideo:'视频流量 (GB)',
+    thRate:'视频速率 (kbps)', thCache:'缓存占比', thTcp:'TCP 成功率', thTop:'TOP 业务', thQ:'数据质量',
+    max:'最大', avg:'平均', min:'最低', latest:'最新', wow:'周同比', mom:'月同比',
+    noWoW:'周同比 —', noMoM:'月同比 —', ok:'正常', suspect:'上游缺数',
+    asof:'数据截至', loading:'加载中…', loaded:'已更新', failed:'加载失败',
+  arOn:'自动刷新', arOff:'自动刷新 已关闭', ver:'页面版本',
+  refreshTip:'重新拉取数据（数据每日 06:20 增量... 当天未完成不纳入）',
+    empty:'KPI 库还没有数据：先跑一次「OLIB SOC 看板 KPI 增量」或「OLIB SOC VMAX 例行报表」任务',
+    n1:'数据源：VMAX 数仓 GBase（10.123.255.12:5258, 库 zxvmax）直连取数，由任务 olib_soc_kpi_daily_sync 每日增量、olib_soc_vmax_report 每月全量入库',
+    n2:'单位：总流量/视频流量 GB（库内 TB × 1024）；视频速率为按视频流量加权的有效下载速率（kbps）；活跃用户为当日去重用户数',
+    n3:'周粒度：流量类为当周合计，比率/速率/时延为按流量加权平均；最后一周可能未走完，图上标注实际天数',
+    n4:'当天数据仍在累积，为保证可比性只看「已完成日」（最新一天 = 昨天）',
+    n5:'数据质量自检：某天主指标低于窗口中位数一半会标「上游缺数」（如 2026-08-11~14 活跃用户异常）',
+    n6:'数仓明细只保留约 90 天，更早的历史不可回补'
+  },
+  en: {
+    title:'CXO Daily Dashboard', sub:'Day / Week granularity · last 90 completed days',
+    gran:'Granularity', day:'Day', week:'Week',
+    hint:'Cards show the latest completed day; charts follow the granularity. Weekly: sums for volume, traffic-weighted averages for rates',
+    trend:'Business Trends', trendSub:'Traffic / Users / Video experience / Service mix',
+    business:'Service Mix', businessSub:'Video / Cache / Gaming',
+    qualCards:'Network Quality', qualCardsSub:'Success rate / Retransmission / Latency (for the network team)',
+    quality:'Network Quality & Service Mix Trends', qualitySub:'Success rate / Retransmission / Latency / Video / Cache',
+    tbl:'Last 14 Days', tblSub:'daily raw values',
+    notes:'Data notes', refresh:'Refresh',
+    thDate:'Date', thTraffic:'Total Traffic (GB)', thUser:'Active Users', thVideo:'Video (GB)',
+    thRate:'Video Rate (kbps)', thCache:'Cache Share', thTcp:'TCP Success', thTop:'Top Service', thQ:'Quality',
+    max:'Max', avg:'Avg', min:'Min', latest:'Latest', wow:'WoW', mom:'MoM',
+    noWoW:'WoW —', noMoM:'MoM —', ok:'OK', suspect:'upstream gap',
+    asof:'As of', loading:'loading…', loaded:'updated', failed:'load failed',
+  arOn:'Auto-refresh', arOff:'Auto-refresh off', ver:'Build',
+  refreshTip:'Re-fetch data (warehouse is topped up daily at 06:20; today is excluded until complete)',
+    empty:'No KPI data yet — run the "OLIB SOC Dashboard KPI Sync" or "OLIB SOC VMAX Report" task first',
+    n1:'Source: VMAX data warehouse GBase (10.123.255.12:5258, db zxvmax) queried directly; filled daily by olib_soc_kpi_daily_sync and monthly by olib_soc_vmax_report',
+    n2:'Units: traffic/video in GB (stored as TB × 1024); video rate is the traffic-weighted valid download throughput (kbps); active users are distinct subscribers per day',
+    n3:'Weekly: volumes are summed, rates/latency are traffic-weighted averages; the last week may be partial (day count shown on the chart)',
+    n4:'The current day is still accumulating, so only completed days are shown (latest = yesterday)',
+    n5:'Data-quality self-check: a day whose key metric drops below half of the window median is flagged (e.g. the 2026-08-11~14 active-user gap)',
+    n6:'Warehouse detail is retained for about 90 days; older history cannot be back-filled'
+  }
+};
+var LOCALE='zh';
+function t(k){ var s=(I18N[LOCALE]&&I18N[LOCALE][k])||I18N.zh[k]||k; return s; }
+
+var API='/api/olib-soc-dashboard/overview?days=90';
+/* ==================== 自动刷新（按项目外壳的统一协议） ====================
+ * 项目要求：自动刷新由 App 外壳统一驱动（顶栏可选间隔，默认 5 分钟，持久化在
+ * localStorage['myapp_auto_refresh_sec']）。支持软刷新协议的页面——本页已在
+ * App.tsx 的 AR_SOFT_REFRESH_PAGES 里登记——会收到 postMessage({__type:'myapp-refresh'})
+ * 后「原地」重拉数据：不重载文档、不闪屏、不打断大屏/全屏，也不重置粒度和滚动位置。
+ * 因此本页在外壳内**不自己起定时器**（避免与外壳双跑、也避免忽略用户「关闭自动刷新」的选择），
+ * 只有直接被单独打开（不在 iframe 里）时才用下面的 5 分钟兜底自刷。 */
+var REFRESH_MS=300000;
+function embedded(){ try{ return !!(window.parent&&window.parent!==window) }catch(e){ return true } }
+/* 生效间隔由外壳写入（用户选择 > 本页默认 > 全局默认）；读不到就退回外壳全局默认 300s。
+   本页默认 900s（数据每天 06:20 才增量一次）见 App.tsx 的 AR_PAGE_DEFAULTS。 */
+function shellRefreshSec(){
+  try{
+    var raw=localStorage.getItem('myapp_auto_refresh_effective');
+    if(raw==null)raw=localStorage.getItem('myapp_auto_refresh_sec');
+    if(raw==null)return null;
+    var v=parseInt(raw,10); return isNaN(v)?null:v;
+  }catch(e){ return null }
+}
+function arText(){
+  var sec=shellRefreshSec(), inShell=embedded(), s=(sec!=null)?sec:(inShell?300:REFRESH_MS/1000);
+  if(s===0) return t('arOff');
+  var human=(s>=60)?(Math.round(s/60)+(LOCALE==='en'?' min':' 分钟')):(s+(LOCALE==='en'?' s':' 秒'));
+  var next='';
+  if(lastLoadedAt){                     // 让「会不会自动刷新」看得见：显示下一次时间
+    var d=new Date(lastLoadedAt+s*1000), p=function(n){return (n<10?'0':'')+n};
+    next=' · '+(LOCALE==='en'?'next ':'下次 ')+p(d.getHours())+':'+p(d.getMinutes());
+  }
+  return t('arOn')+' '+human+next;
+}
+var GRAN='day';
+var payload=null, charts={}, lastLoadedAt=0;
+/* 页面版本 = 本文件在服务器上的 Last-Modified（HEAD 自取，不用手工维护）。
+   排查「刷新没变化」时先看这个：它变新说明浏览器已经拿到新页面，没变就是缓存/没刷到。 */
+function stampVersion(){
+  var el=document.getElementById('verLabel'); if(!el)return;
+  try{
+    fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){
+      var lm=r.headers.get('Last-Modified'); if(!lm)return;
+      var d=new Date(lm); if(isNaN(d.getTime()))return;
+      var p=function(n){return (n<10?'0':'')+n};
+      el.textContent=t('ver')+' '+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+    });
+  }catch(e){ /* HEAD 失败就不显示，不影响主流程 */ }
+}
+
+/* ==================== 主题（与外壳一致的 data-theme + 变量） ==================== */
+function initialTheme(){var q=new URLSearchParams(location.search).get('theme');if(q==='dark'||q==='light')return q;try{var s=localStorage.getItem('myapp-theme');if(s==='dark'||s==='light')return s}catch(e){}return window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'}
+function applyTheme(mode){if(mode!=='dark'&&mode!=='light')return;document.documentElement.dataset.theme=mode;try{localStorage.setItem('myapp-theme',mode)}catch(e){}if(payload&&window.echarts)drawAll()}
+function isLight(){return document.documentElement.dataset.theme==='light'}
+function txt(){return isLight()?'#12394d':'#ffffff'}
+function muted(){return isLight()?'#4d6c7f':'#dce7ff'}
+function axisCol(){return isLight()?'#8fb1bf':'#52617d'}
+function splitCol(){return isLight()?'rgba(14,116,144,.16)':'rgba(23,49,88,.85)'}
+
+function applyLocale(locale){
+  LOCALE=(locale==='en')?'en':'zh';
+  try{ localStorage.setItem('app-locale',LOCALE); }catch(e){}
+  try{ document.documentElement.lang=(LOCALE==='zh'?'zh-CN':'en'); }catch(e){}
+  paintStatic();
+  if(payload) renderAll();
+}
+document.documentElement.dataset.theme=initialTheme();
+try{ var _l=localStorage.getItem('app-locale'); if(_l==='en'||_l==='zh')LOCALE=_l; }catch(e){}
+
+/* ==================== 小工具 ==================== */
+function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function fmt(v,digits){if(v==null||v==='')return '—';var n=Number(v);return Number.isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:digits==null?2:digits}):esc(v)}
+function pct(v){if(v==null||!Number.isFinite(Number(v)))return null;return (v>0?'+':'')+Number(v).toFixed(1)+'%'}
+function setStatus(msg,ok){var e=document.getElementById('status');e.textContent=msg;e.className='status '+(ok?'ok':'bad')}
+function chart(id){ if(charts[id]){try{charts[id].dispose()}catch(e){}} charts[id]=echarts.init(document.getElementById(id),null,{renderer:'canvas'}); return charts[id]; }
+function resizeAll(){Object.keys(charts).forEach(function(k){try{charts[k].resize()}catch(e){}})}
+
+/* 迷你走势：纯 SVG（不额外起 ECharts 实例） */
+function sparkline(values,color){
+  var pts=(values||[]).filter(function(v){return v!=null&&Number.isFinite(Number(v))}).map(Number);
+  if(pts.length<2)return '<svg class="spark" viewBox="0 0 100 26" preserveAspectRatio="none"></svg>';
+  var min=Math.min.apply(null,pts),max=Math.max.apply(null,pts),span=(max-min)||1,n=pts.length;
+  var step=100/(n-1);
+  var line=pts.map(function(v,i){var x=(i*step).toFixed(2),y=(24-((v-min)/span*20)).toFixed(2);return x+','+y}).join(' ');
+  var area='0,26 '+line+' 100,26';
+  var gid='sg'+Math.random().toString(36).slice(2,8);
+  return '<svg class="spark" viewBox="0 0 100 26" preserveAspectRatio="none">'+
+    '<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1">'+
+    '<stop offset="0%" stop-color="'+color+'" stop-opacity="0.42"/><stop offset="100%" stop-color="'+color+'" stop-opacity="0"/></linearGradient></defs>'+
+    '<polygon points="'+area+'" fill="url(#'+gid+')"/>'+
+    '<polyline points="'+line+'" fill="none" stroke="'+color+'" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+}
+
+/* 同比涨跌的配色：better=up 涨绿跌红；better=down 反过来；flat 中性 */
+function chipCls(metricId,v){
+  var m=(payload.metrics||[]).filter(function(x){return x.id===metricId})[0]||{better:'up'};
+  if(v==null)return 'chip neu';
+  if(m.better==='flat')return 'chip neu';
+  var good=(m.better==='down')? (v<0) : (v>0);
+  if(Math.abs(v)<0.05)return 'chip neu';
+  return 'chip '+(good?'up':'down');
+}
+
+/* ==================== 静态文案 ==================== */
+/* 写标题时只替换 <h2> 的文本节点，保留其中的 <em id="...Sub"> 子元素。
+   反面教材：直接 h2.innerHTML='标题 <em>副标题</em>' 会把原来的 <em id> 元素一起丢掉，
+   后面 getElementById('hTrendSub') 就拿到 null → 渲染中途抛错（图表/表格停在旧内容）。 */
+function setHead(h2Id,subId,label,sub){
+  var h2=document.getElementById(h2Id); if(!h2)return;
+  var em=document.getElementById(subId);
+  [].slice.call(h2.childNodes).forEach(function(n){ if(n.nodeType===3) h2.removeChild(n) });
+  h2.insertBefore(document.createTextNode(label+' '),h2.firstChild);
+  if(em) em.textContent=sub||'';
+}
+function paintStatic(){
+  document.getElementById('appTitle').textContent=t('title');
+  document.getElementById('appSub').textContent=t('sub');
+  document.getElementById('granLabel').textContent=t('gran');
+  document.getElementById('granDay').textContent=t('day');
+  document.getElementById('granWeek').textContent=t('week');
+  document.getElementById('hintLabel').textContent=t('hint');
+  document.getElementById('arLabel').textContent=arText();
+  setHead('hTrend','hTrendSub',t('trend'),t('trendSub'));
+  setHead('hBusiness','hBusinessSub',t('business'),t('businessSub'));
+  setHead('hQualCards','hQualCardsSub',t('qualCards'),t('qualCardsSub'));
+  setHead('hQuality','hQualitySub',t('quality'),t('qualitySub'));
+  setHead('hTable','hTableSub',t('tbl'),t('tblSub'));
+  document.getElementById('notesLabel').textContent=t('notes');
+  document.getElementById('refreshBtn').title=t('refreshTip');
+  stampVersion();
+  document.getElementById('cover').innerHTML=[t('n1'),t('n2'),t('n3'),t('n4'),t('n5'),t('n6')]
+    .map(function(x,i){return '<span'+(i===4?' class="warn"':'')+'>'+esc(x)+'</span>'}).join('');
+  document.title=t('title')+' · VMAX';
+}
+
+/* ==================== 卡片渲染 ==================== */
+function metricMeta(id){return (payload.metrics||[]).filter(function(m){return m.id===id})[0]||{}}
+function cardHtml(c,small){
+  var m=metricMeta(c.id), color=isLight()?'#0e7490':'#1da7ff';
+  var wow=(c.wow_pct==null)?null:pct(c.wow_pct);
+  var mom=(c.mom_pct==null)?null:pct(c.mom_pct);
+  var chips='';
+  chips+='<span class="'+chipCls(c.id,c.wow_pct)+'">'+esc(t('wow'))+' '+(wow==null?'—':esc(wow))+'</span>';
+  chips+='<span class="'+chipCls(c.id,c.mom_pct)+'">'+esc(t('mom'))+' '+(mom==null?'—':esc(mom))+'</span>';
+  var digits=m.digits==null?2:m.digits;
+  return '<div class="card'+(small?' sm':'')+'">'+
+    '<div class="ttl"><b>'+esc(LOCALE==='en'?(m.title_en||c.title):(m.title||c.title))+'</b><i>'+esc(m.unit||c.unit||'')+'</i></div>'+
+    '<div class="val"><span>'+fmt(c.latest.value,digits)+'</span><em>'+esc(m.unit||c.unit||'')+'</em></div>'+
+    '<div class="when">'+esc(t('latest'))+' · '+esc(c.latest.date)+'（'+esc(t('asof'))+' '+esc((payload.as_of)||'')+'）</div>'+
+    '<div class="chips">'+chips+'</div>'+
+    (small?'':sparkline(c.spark,color))+
+    '<div class="extremes">'+
+      '<div class="hi">'+esc(t('max'))+'<b>'+fmt(c.max.value,digits)+'</b>'+esc(c.max.date)+'</div>'+
+      '<div>'+esc(t('avg'))+'<b>'+fmt(c.avg,digits)+'</b>'+esc(String(c.n))+' '+esc(LOCALE==='en'?'days':'天')+'</div>'+
+      '<div class="lo">'+esc(t('min'))+'<b>'+fmt(c.min.value,digits)+'</b>'+esc(c.min.date)+'</div>'+
+    '</div></div>';
+}
+
+/* ==================== 图表 ==================== */
+function seriesFor(id){
+  var s=payload.series[GRAN];
+  return {labels:(GRAN==='day'? s.dates : s.labels), values:(s.values||{})[id]||[]};
+}
+/* 上游缺数的日子：在按天趋势上打一条淡红色竖带，避免 CEO 把「数据缺失」误读成业务暴跌 */
+function suspectAreas(labels){
+  var days={}; (payload.quality||[]).forEach(function(q){ if(q&&q.day) days[q.day]=q; });
+  var areas=[];
+  Object.keys(days).forEach(function(d){
+    if(labels.indexOf(d)<0)return;
+    areas.push([{xAxis:d,itemStyle:{color:'rgba(255,92,108,.14)'}},{xAxis:d}]);
+  });
+  return areas;
+}
+function ma(values,win){
+  var out=[],sum=0,buf=[];
+  for(var i=0;i<values.length;i++){
+    var v=values[i]===null?null:Number(values[i]);
+    buf.push(v); if(buf.length>win)buf.shift();
+    var nums=buf.filter(function(x){return x!=null&&Number.isFinite(x)});
+    out.push(nums.length===win? nums.reduce(function(a,b){return a+b},0)/win : null);
+  }
+  return out;
+}
+function optionFor(id,big){
+  var m=metricMeta(id), s=seriesFor(id), digits=m.digits==null?2:m.digits;
+  var dayMode=(GRAN==='day');
+  var series=[{
+    name:(LOCALE==='en'?(m.title_en||id):(m.title||id)), type:'line', smooth:true, symbol:'none',
+    data:s.values, lineStyle:{width:2,color:isLight()?'#0e7490':'#25c8ff'},
+    areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[
+      {offset:0,color:isLight()?'rgba(14,116,144,.30)':'rgba(37,200,255,.38)'},
+      {offset:1,color:'rgba(37,140,255,0)'}]}},
+    /* 最大/最小只留一个小圆点做位置锚点，数值文字移到卡片右上角（见 panelStats），
+       避免文字标签压住时间坐标轴 */
+    markPoint:{symbol:'circle',symbolSize:big?8:6,itemStyle:{color:isLight()?'#0e7490':'#25c8ff',
+      borderColor:isLight()?'#ffffff':'#04101f',borderWidth:1},label:{show:false},data:[
+      {type:'max',name:t('max')},{type:'min',name:t('min')}]},
+    markArea:(dayMode?{silent:true,data:suspectAreas(s.labels)}:undefined)
+  }];
+  if(dayMode&&big){
+    series.push({name:(LOCALE==='en'?'7-day avg':'7日均线'),type:'line',smooth:true,symbol:'none',
+      data:ma(s.values,7),lineStyle:{width:1.2,type:'dashed',color:isLight()?'#c2334a':'#ffb45c'},itemStyle:{color:isLight()?'#c2334a':'#ffb45c'}});
+  }
+  return {
+    animationDuration:420,
+    grid:{left:54,right:16,top:big?24:16,bottom:30},
+    tooltip:{trigger:'axis',backgroundColor:isLight()?'rgba(255,255,255,.96)':'rgba(6,14,32,.94)',
+      borderColor:isLight()?'rgba(14,116,144,.3)':'#153db0',textStyle:{color:txt(),fontSize:11},
+      axisPointer:{type:'line',lineStyle:{color:isLight()?'rgba(14,116,144,.45)':'rgba(37,200,255,.45)'}},
+      valueFormatter:function(v){return fmt(v,digits)}},
+    legend:big?{top:0,right:6,textStyle:{color:muted(),fontSize:10},itemWidth:12,itemHeight:8}:undefined,
+    /* 时间坐标轴：标签只留「月-日」/「W37」，间距交给 ECharts 自动算（interval:'auto'），
+       重叠再兜底隐藏（hideOverlap）——90 个点也不会糊成一片，首尾标签也不会被切掉 */
+    xAxis:{type:'category',data:s.labels,boundaryGap:(GRAN!=='day'),axisTick:{show:false},
+      axisLine:{lineStyle:{color:axisCol()}},
+      axisLabel:{color:muted(),fontSize:9,margin:9,interval:'auto',hideOverlap:true,
+        formatter:function(v){var x=String(v==null?'':v);
+          return GRAN==='day'?(x.length>=10?x.slice(5):x):x.replace(/^\d{4}-/,'')}},
+      splitLine:{show:false}},
+    yAxis:{type:'value',scale:true,axisLine:{show:false},axisLabel:{color:muted(),fontSize:9,
+        formatter:function(v){return fmt(v,0)}},splitLine:{lineStyle:{color:splitCol()}}},
+    series:series
+  };
+}
+/* 卡片右上角的 最大 / 平均 / 最低：按「当前粒度正在展示的那条序列」现算，
+   切日/周或刷新后由 renderAll 重新生成 */
+function panelStats(id,digits){
+  var s=seriesFor(id), labels=s.labels||[];
+  var vals=[],idx=[];
+  (s.values||[]).forEach(function(v,i){ var n=Number(v); if(v!=null&&isFinite(n)){vals.push(n);idx.push(i)} });
+  if(!vals.length)return '';
+  var mx=Math.max.apply(null,vals), mn=Math.min.apply(null,vals);
+  var avg=vals.reduce(function(a,b){return a+b},0)/vals.length;
+  function lab(v){ var x=String(labels[idx[vals.indexOf(v)]]==null?'':labels[idx[vals.indexOf(v)]]);
+    return GRAN==='day'?(x.length>=10?x.slice(5):x):x.replace(/^\d{4}-/,''); }
+  return '<div class="panel-stats">'+
+    '<span class="hi">'+esc(t('max'))+'<b>'+fmt(mx,digits)+'</b><i>'+esc(lab(mx))+'</i></span>'+
+    '<span>'+esc(t('avg'))+'<b>'+fmt(avg,digits)+'</b><i>'+esc(vals.length+(LOCALE==='en'?' pts':' 点'))+'</i></span>'+
+    '<span class="lo">'+esc(t('min'))+'<b>'+fmt(mn,digits)+'</b><i>'+esc(lab(mn))+'</i></span>'+
+  '</div>';
+}
+function panelHtml(id,big){
+  var m=metricMeta(id), digits=m.digits==null?2:m.digits;
+  var unit=esc(m.unit||'');
+  var note=(LOCALE==='en'?(m.note_en||m.note):m.note)||'';
+  var extra='';
+  if(GRAN==='week'&&payload.series.week.days&&payload.series.week.days.length){
+    var ds=payload.series.week.days, last=ds[ds.length-1];
+    if(last<7)extra=' · '+(LOCALE==='en'?('last week '+last+'d'):('最后一周 '+last+' 天'));
+  }
+  // 口径说明改成 hover 提示（ⓘ），把卡片右上角腾给 最大/平均/最低
+  return '<div class="panel"><div class="panel-title">'+
+    '<span class="pt-name" title="'+esc(note)+'">'+esc(LOCALE==='en'?(m.title_en||id):(m.title||id))+
+      ' <i>'+unit+'</i>'+(note?' <i>ⓘ</i>':'')+esc(extra)+'</span>'+
+    panelStats(id,digits)+
+    '</div><div class="chart" id="ch_'+id+'"></div></div>';
+}
+var PRIMARY_CHART_IDS=['traffic_gb','active_user_k','video_thr_kbps','video_share_pct'];
+var QUALITY_CHART_IDS=['video_tb','cache_ratio_pct','game_tb','tcp_success_pct','tcp_dl_retrans_pct','tcp_dl_rtt_ms'];
+
+function drawAll(){
+  PRIMARY_CHART_IDS.forEach(function(id){ try{chart('ch_'+id).setOption(optionFor(id,true),true)}catch(e){} });
+  QUALITY_CHART_IDS.forEach(function(id){ try{chart('ch_'+id).setOption(optionFor(id,false),true)}catch(e){} });
+}
+
+/* ==================== 明细表 ==================== */
+function renderTable(){
+  var rows=payload.table||[];
+  var head='<thead><tr><th>'+esc(t('thDate'))+'</th><th>'+esc(t('thTraffic'))+'</th><th>'+esc(t('thUser'))+
+    '</th><th>'+esc(t('thVideo'))+'</th><th>'+esc(t('thRate'))+'</th><th>'+esc(t('thCache'))+'</th><th>'+esc(t('thTcp'))+
+    '</th><th>'+esc(t('thTop'))+'</th><th>'+esc(t('thQ'))+'</th></tr></thead>';
+  var body=rows.map(function(r){
+    return '<tr><td>'+esc(r.date)+'</td><td>'+fmt(r.traffic_gb,0)+'</td><td>'+fmt(r.active_user,0)+'</td>'+
+      '<td>'+fmt(r.video_gb,0)+'</td><td>'+fmt(r.video_thr_kbps,0)+'</td><td>'+fmt(r.cache_ratio_pct,1)+'</td>'+
+      '<td>'+fmt(r.tcp_success_pct,2)+'</td><td>'+esc(r.top_service||'—')+'</td>'+
+      '<td>'+(r.suspect? '<span class="tag warn">'+esc(t('suspect'))+'</span>' : '<span class="tag">'+esc(t('ok'))+'</span>')+'</td></tr>';
+  }).join('');
+  document.getElementById('tbl').innerHTML=head+'<tbody>'+body+'</tbody>';
+}
+
+/* ==================== 渲染 + 取数 ==================== */
+function renderAll(){
+  var m=payload.metrics||[];
+  var byGroup=function(g){return m.filter(function(x){return x.group===g})};
+  var byId={}; (payload.cards||[]).forEach(function(c){byId[c.id]=c});
+  var fill=function(elem,list,small){
+    document.getElementById(elem).innerHTML=list.map(function(x){
+      return byId[x.id]?cardHtml(byId[x.id],small):''}).join('');
+  };
+  fill('cardsPrimary',byGroup('primary'),false);
+  fill('cardsBusiness',byGroup('business'),false);
+  fill('cardsQuality',byGroup('quality'),false);
+  document.getElementById('chartsPrimary').innerHTML=PRIMARY_CHART_IDS.map(function(id){return panelHtml(id,true)}).join('');
+  document.getElementById('chartsQuality').innerHTML=QUALITY_CHART_IDS.map(function(id){return panelHtml(id,false)}).join('');
+  renderTable();
+  var cov=payload.coverage||{};
+  document.getElementById('asof').textContent=t('asof')+' '+(payload.as_of||'—')+
+    '  ·  '+(cov.stored_days||0)+'/'+(cov.expected_days||90)+(LOCALE==='en'?' days':' 天')+
+    (payload.updated_at?('  ·  sync '+payload.updated_at):'');
+  document.getElementById('hTrendSub').textContent=(GRAN==='day'?t('day'):t('week'))+' · '+
+    (LOCALE==='en'?'last 90 days':'最近 90 天');
+  drawAll();
+}
+function renderEmpty(msg){
+  var html='<div class="empty">'+esc(msg||t('empty'))+'</div>';
+  document.getElementById('cardsPrimary').innerHTML=html;
+  document.getElementById('cardsBusiness').innerHTML='';
+  document.getElementById('cardsQuality').innerHTML='';
+  document.getElementById('chartsPrimary').innerHTML='';
+  document.getElementById('chartsQuality').innerHTML='';
+  document.getElementById('tbl').innerHTML='';
+  document.getElementById('asof').textContent='—';
+}
+function load(){
+  setStatus(t('loading'),true);
+  fetch(API,{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})
+    .then(function(d){
+      payload=d;
+      if(d.status!=='ok'){ renderEmpty(d.message); setStatus((d.status||'empty')+' · '+(d.message||''),false); return; }
+      renderAll();
+      lastLoadedAt=Date.now();
+      document.getElementById('arLabel').textContent=arText();   // 下次自动刷新时间随本次刷新顺延
+      setStatus(t('loaded')+' · '+new Date().toLocaleTimeString()+' · '+(d.as_of||''),true);
+    })
+    .catch(function(e){ setStatus(t('failed')+': '+e.message,false); });
+}
+document.getElementById('refreshBtn').addEventListener('click',load);
+document.getElementById('granSeg').addEventListener('click',function(ev){
+  var btn=ev.target.closest('button[data-gran]'); if(!btn)return;
+  GRAN=btn.getAttribute('data-gran');
+  [].forEach.call(this.querySelectorAll('button'),function(b){b.classList.toggle('active',b===btn)});
+  try{localStorage.setItem('vmax-90d-gran',GRAN)}catch(e){}
+  if(payload&&payload.status==='ok')renderAll();
+});
+document.getElementById('notesToggle').addEventListener('click',function(){
+  var box=document.getElementById('cover'), open=box.hasAttribute('hidden');
+  if(open){box.removeAttribute('hidden')}else{box.setAttribute('hidden','')}
+  this.setAttribute('aria-expanded',open?'true':'false');
+});
+window.addEventListener('resize',function(){clearTimeout(window.__rz);window.__rz=setTimeout(resizeAll,60)});
+window.addEventListener('message',function(e){
+  if(!e.data)return;
+  if(e.data.__type==='myapp-theme')applyTheme(e.data.mode);
+  else if(e.data.__type==='myapp-locale')applyLocale(e.data.locale);
+  else if(e.data.__type==='myapp-refresh'){        // 外壳自动刷新：原地重拉，不重载文档
+    try{ paintStatic(); load(); }catch(err){ /* 数据未就绪时忽略 */ }
+  }
+});
+try{ var g=localStorage.getItem('vmax-90d-gran'); if(g==='day'||g==='week'){GRAN=g;
+  [].forEach.call(document.querySelectorAll('#granSeg button'),function(b){b.classList.toggle('active',b.getAttribute('data-gran')===g)}) } }catch(e){}
+paintStatic();
+if(window.echarts){
+  load();
+  // 外壳内由 App 的自动刷新定时器统一驱动（软刷新协议）；单独打开时本页兜底自刷
+  if(!embedded()) window.__rt=setInterval(load,REFRESH_MS);
+}else{setStatus('echarts missing',false)}
+})();
+</script>
+</body>
+</html>

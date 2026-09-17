@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Checkbox,
@@ -26,6 +26,7 @@ import {
   FileTextOutlined,
   FolderOutlined,
   MenuOutlined,
+  ReloadOutlined,
   RobotOutlined,
   SearchOutlined,
   ThunderboltOutlined,
@@ -65,6 +66,43 @@ interface SearchHit {
   match_count: number
   term_lines: Record<string, number[]>
   snippets: { line: number; text: string }[]
+}
+
+/* ---------- TT 快速分析请求：瞬时故障自动重试 ----------
+ * 背景（2026-09-15 修复「首次点分析失败、再点一次就好」）：
+ * TT 快速分析一进来就并发打三个接口。若首次请求赶上后端刚重启的几秒空窗 /
+ * 网关抖动 / 连接被重置，axios 直接 reject，页面只留一句「分析失败」，
+ * 用户再点一次（此时后端已恢复）就成功 —— 表现为「首次失败、重试成功」。
+ * 这类失败在服务端不留任何访问日志，属传输层瞬时故障，重试即可自愈。
+ * 只对「网络错误 / 超时 / 5xx」重试；4xx（单号非法、未登录等）是确定性错误，
+ * 重试无意义，直接抛出。延迟取 0.8s + 2s + 4s：累计覆盖约 7 秒，
+ * 足够跨过「后端重启空窗」（看门狗检测 ≤3s + 进程启动 3~4.5s）。 */
+const TT_RETRY_DELAYS = [800, 2000, 4000]
+
+function isRetriable(err: any): boolean {
+  const status = err?.response?.status
+  if (!status) return true            // 无响应 = 网络错误/超时/连接被重置
+  return status === 408 || status === 429 || status >= 500
+}
+
+/** 带瞬时故障重试的 GET（TT 快速分析专用）。 */
+async function ttGet(url: string, params: Record<string, any>) {
+  for (let i = 0; ; i++) {
+    try {
+      return await api.get(url, { params })
+    } catch (e) {
+      if (i >= TT_RETRY_DELAYS.length || !isRetriable(e)) throw e
+      await new Promise(r => setTimeout(r, TT_RETRY_DELAYS[i]))
+    }
+  }
+}
+
+/** 失败原因摘要（展示在「分析失败」旁，便于用户反馈 / 排查）。 */
+function ttFailReason(err: any, t: (k: string) => string): string {
+  const status = err?.response?.status
+  if (status) return `HTTP ${status}`
+  if (err?.code === 'ECONNABORTED') return t('qa.tt.timeout')
+  return t('qa.tt.netError')
 }
 
 /** 状态 → Tag 颜色（与 CONTRIBUTING.md 的状态语义对应） */
@@ -412,7 +450,7 @@ function RelAlarmTabs({ t, isDark, isMobile, border, rel }: {
   )
 }
 
-function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, data, onBack }: {
+function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, data, onBack, onRetry }: {
   t: (k: string) => string
   isDark: boolean
   isMobile: boolean
@@ -422,6 +460,7 @@ function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, dat
   error: string
   data: any
   onBack: () => void
+  onRetry: () => void
 }) {
   const header = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -444,11 +483,27 @@ function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, dat
     )
   }
   if (error) {
-    return <div>{header}<Text type="danger">{error}</Text></div>
+    return (
+      <div>
+        {header}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Text type="danger">{error}</Text>
+          <Button size="small" icon={<ReloadOutlined />} onClick={onRetry}>{t('qa.tt.retry')}</Button>
+        </div>
+      </div>
+    )
   }
   if (!data) return null
   if (!data.ok) {
-    return <div>{header}<Alert type="warning" showIcon message={data.error || t('qa.ume.failed')} /></div>
+    return (
+      <div>
+        {header}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Alert type="warning" showIcon message={data.error || t('qa.ume.failed')} />
+          <Button size="small" icon={<ReloadOutlined />} onClick={onRetry}>{t('qa.tt.retry')}</Button>
+        </div>
+      </div>
+    )
   }
 
   const cardStyle = { border, borderRadius: 8, padding: '10px 14px', marginBottom: 10, background: isDark ? 'rgba(100,255,218,0.04)' : '#fafcfe' }
@@ -617,6 +672,8 @@ export default function EflowQa() {
   const [ttLoading, setTtLoading] = useState(false)
   const [ttReport, setTtReport] = useState<any>(null)
   const [ttError, setTtError] = useState('')
+  // 当前分析的请求序号（见 runTt）：旧请求的迟到结果直接丢弃
+  const ttSeqRef = useRef(0)
   const [ttAi, setTtAi] = useState<any>(null)
   const [ttAiLoading, setTtAiLoading] = useState(false)
   const [ttAlarm, setTtAlarm] = useState<any>(null)
@@ -644,10 +701,14 @@ export default function EflowQa() {
   const [umeLoading, setUmeLoading] = useState(false)
   const [umeData, setUmeData] = useState<any>(null)
   const [umeError, setUmeError] = useState('')
+  // 与 TT 快速分析同款：请求序号，旧请求的迟到结果不回写
+  const umeSeqRef = useRef(0)
 
   const runUme = useCallback((key: string) => {
     const clean = key.trim()
     if (!clean) return
+    const seq = ++umeSeqRef.current
+    const alive = () => seq === umeSeqRef.current
     setUmeKey(clean)
     setUmeView(true)
     setTtView(false)
@@ -655,10 +716,11 @@ export default function EflowQa() {
     setUmeLoading(true)
     setUmeError('')
     setUmeData(null)
-    api.get('/eflow-qa/ume-alarm', { params: { alarm_id: clean, days: 30, limit: 50 } })
-      .then(res => setUmeData(res.data))
-      .catch(() => setUmeError(t('qa.ume.failed')))
-      .finally(() => setUmeLoading(false))
+    // 同 ttGet：瞬时 502/网络抖动自动重试，避免「首次查询失败、再点一次就好」
+    ttGet('/eflow-qa/ume-alarm', { alarm_id: clean, days: 30, limit: 50 })
+      .then(res => { if (alive()) setUmeData(res.data) })
+      .catch((e) => { if (alive()) setUmeError(`${t('qa.ume.failed')}（${ttFailReason(e, t)}）`) })
+      .finally(() => { if (alive()) setUmeLoading(false) })
   }, [t])
 
   // 移动端：目录树抽屉
@@ -804,6 +866,9 @@ export default function EflowQa() {
   const runTt = useCallback((no: string) => {
     const clean = no.trim().toUpperCase()
     if (!clean) return
+    // 请求序号：连点两次 / 换单号时，旧请求的失败结果不再回写，避免「旧失败盖住新成功」
+    const seq = ++ttSeqRef.current
+    const alive = () => seq === ttSeqRef.current
     setTtNo(clean)
     setTtView(true)
     setTtBatchView(false)
@@ -820,7 +885,9 @@ export default function EflowQa() {
     setTtUmeFailed(false)
     setTtUmeLoading(true)
     // 基础报告（本地 sqlite，快）先到先显；告警与 AI 各自独立加载
-    api.get('/eflow-qa/inspect-tt', { params: { tt: clean } }).then(res => {
+    // 三个请求都走 ttGet：瞬时故障自动重试，消除「首次点分析失败、再点一次就好」
+    ttGet('/eflow-qa/inspect-tt', { tt: clean }).then(res => {
+      if (!alive()) return
       const rep = res.data.report
       setTtReport(rep)
       if (rep?.found && rep.alarm?.found) {
@@ -829,25 +896,31 @@ export default function EflowQa() {
       } else if (rep?.found) {
         // 本地告警库未命中 → 单独查 eFlow 活接口（较慢，不阻塞其它块）
         setTtAlarmLoading(true)
-        api.get('/eflow-qa/tt-alarm', { params: { tt: clean } }).then(r2 => {
+        ttGet('/eflow-qa/tt-alarm', { tt: clean }).then(r2 => {
+          if (!alive()) return
           setTtAlarm(r2.data.alarm)
           setTtAlarmLookup(r2.data.alarm_lookup)
-        }).catch(() => setTtAlarmLookup({ mode: 'error', error: t('qa.tt.alarmQueryFailed') }))
-          .finally(() => setTtAlarmLoading(false))
+        }).catch(() => { if (alive()) setTtAlarmLookup({ mode: 'error', error: t('qa.tt.alarmQueryFailed') }) })
+          .finally(() => { if (alive()) setTtAlarmLoading(false) })
       }
-    }).catch(() => setTtError(t('qa.tt.failed'))).finally(() => setTtLoading(false))
+    }).catch((e) => {
+      if (!alive()) return
+      setTtError(`${t('qa.tt.failed')}（${ttFailReason(e, t)}）`)
+    }).finally(() => { if (alive()) setTtLoading(false) })
     // AI 结论并行请求（Open WebUI「TT单分析」技能，约 10s）
-    api.get('/eflow-qa/tt-ai', { params: { tt: clean, lang: locale } }).then(res => {
+    ttGet('/eflow-qa/tt-ai', { tt: clean, lang: locale }).then(res => {
+      if (!alive()) return
       setTtAi(res.data.ai)
       const rep = res.data.report
       // tt-ai 内部同样会回填 eFlow 兜底结果，告警块未到则顺带补上
       if (rep?.alarm?.found) setTtAlarm((prev: any) => prev || rep.alarm)
-    }).catch(() => { /* AI 失败不阻塞工单信息展示 */ }).finally(() => setTtAiLoading(false))
+    }).catch(() => { /* AI 失败不阻塞工单信息展示 */ }).finally(() => { if (alive()) setTtAiLoading(false) })
     // RAN UME 处理建议并行请求（TT → 告警 AID → UME，不阻塞其它块）
-    api.get('/eflow-qa/tt-ume-suggestion', { params: { tt: clean } }).then(res => {
+    ttGet('/eflow-qa/tt-ume-suggestion', { tt: clean }).then(res => {
+      if (!alive()) return
       setTtUme(res.data)
       if (res.data?.aid) setTtAid(res.data.aid)
-    }).catch(() => setTtUmeFailed(true)).finally(() => setTtUmeLoading(false))
+    }).catch(() => { if (alive()) setTtUmeFailed(true) }).finally(() => { if (alive()) setTtUmeLoading(false) })
   }, [t, locale])
 
   // ===== 文档树 =====
@@ -1070,9 +1143,12 @@ export default function EflowQa() {
   )
 
   return (
+    // height:'100%' 而不是 calc(100vh - Header - margin*2 - padding*2)：
+    // 外壳 embed/bare 模式（?page= 直链 / ?embed=1）会把 Header 不渲染、Content 留白置 0，
+    // 再减一遍「外壳留白」底部就会多出 108px 空白（同 LegacyToolFrame 的坑）。
     <div style={isMobile
       ? { display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }
-      : { display: 'flex', gap: 12, height: 'calc(100vh - var(--wh-header-height) - var(--wh-content-margin) * 2 - var(--wh-content-padding) * 2)', minHeight: 480 }
+      : { display: 'flex', gap: 12, height: '100%', minHeight: 480 }
     }>
       <style>{mdStyle}</style>
 
@@ -1179,7 +1255,14 @@ export default function EflowQa() {
                 <div style={{ marginTop: 12, color: isDark ? '#94a3b8' : '#64748b' }}>{t('qa.tt.analyzing')}</div>
               </div>
             )}
-            {!ttLoading && ttError && <Text type="danger">{ttError}</Text>}
+            {!ttLoading && ttError && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <Text type="danger">{ttError}</Text>
+                <Button size="small" icon={<ReloadOutlined />} onClick={() => runTt(ttNo)}>
+                  {t('qa.tt.retry')}
+                </Button>
+              </div>
+            )}
             {!ttLoading && !ttError && ttReport && !ttReport.found && (
               <div>
                 <Alert type="warning" showIcon message={`${t('qa.tt.notFound')}${ttReport.error ? `：${ttReport.error}` : ''}`} />
@@ -1598,6 +1681,7 @@ export default function EflowQa() {
             error={umeError}
             data={umeData}
             onBack={() => setUmeView(false)}
+            onRetry={() => runUme(umeKey)}
           />
         )}
 

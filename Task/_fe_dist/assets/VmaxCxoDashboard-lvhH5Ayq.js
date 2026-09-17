@@ -1,1 +1,0 @@
-import{r as e}from"./i18n-ilAQNhTU.js";import{S as t}from"./react-vendor-Dxcxxxhu.js";import{t as n}from"./LegacyToolFrame-UlMJk-9Y.js";var r=t();function i(){let{t}=e();return(0,r.jsx)(n,{file:`vmax_cxo_dashboard.html`,title:t(`nav.vmaxCxoDashboard`)})}export{i as default};

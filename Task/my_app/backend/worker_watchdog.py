@@ -113,7 +113,14 @@ GROUP_TASK_MAP = {
         # eflow_alarm_rules_collect 2026-09-02 补录：eFlow 告警关联规则收集，走 eFlow API 同源会话
         "eflow_alarm_rules_collect,"
         # eflow_push_rules_collect 2026-09-03 补录：eFlow 推单规则收集，走 config-center 同源会话
-        "eflow_push_rules_collect"),
+        "eflow_push_rules_collect,"
+        # ume_in_kpi_sync 2026-09-15 补录：UME Dong customer 业务 KPI（门户 172.17.208.1:28808，
+        # 与 MW UME 不同主机/不同会话，但与其它网管类任务保守同组）
+        "ume_in_kpi_sync,"
+        # vmax_cxo_daily_sync 2026-09-15 补录：VMAX CXO 天粒度日值归档，同样只经 8790 VMAX
+        # 代理进程取数、写独立目录 data/vmax_cxo_daily/，与 cxo_dashboard_cache_sync 同组串行
+        # （共用同一 VMAX 单会话代理，串行可避免互相挤会话）
+        "vmax_cxo_daily_sync"),
     "m": (  # 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖
         # whatsapp_send_ext 2026-08-31 补录：新注册时漏分组，无 worker 认领，
         # 任务管理页手动执行一直「队列中等待」直到 300s 超时（同下方 finebi 教训）

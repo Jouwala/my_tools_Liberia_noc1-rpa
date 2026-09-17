@@ -95,6 +95,7 @@ TECH_SPEC: Dict[str, Dict[str, Any]] = {
         },
         "label": "2G Cells KPI",
         "desc": "小区可用率 = 可用信道 / 全部信道（静态 TCH/F、TCH/H + 动态信道）",
+        "desc_en": "Cell availability = available channels / total channels (static TCH/F, TCH/H + dynamic channels)",
     },
     "3G": {
         "table": "Daily_KPI_RPA_CELL_AVAIL_UMTS",
@@ -111,6 +112,7 @@ TECH_SPEC: Dict[str, Dict[str, Any]] = {
         },
         "label": "3G Cells KPI",
         "desc": "小区可用率 = 小区服务时长 / 86400",
+        "desc_en": "Cell availability = cell service time / 86400",
     },
     "4G": {
         "table": "Daily_KPI_RPA_CELL_AVAIL_FDD",
@@ -127,6 +129,7 @@ TECH_SPEC: Dict[str, Dict[str, Any]] = {
         },
         "label": "4G Cells KPI",
         "desc": "小区可用率 = 小区服务时长 / 86400",
+        "desc_en": "Cell availability = cell service time / 86400",
     },
 }
 
@@ -671,6 +674,7 @@ def read_month_from_db(month: str) -> Optional[Dict[str, Any]]:
             "tech": tech,
             "label": TECH_SPEC[tech]["label"],
             "desc": TECH_SPEC[tech]["desc"],
+            "desc_en": TECH_SPEC[tech]["desc_en"],
             "roster_cells": roster_n,
             "days": daily,
             "month": {

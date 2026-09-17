@@ -1,0 +1,100 @@
+Username: 10172755
+password: Zte@liberia202609
+https://172.17.208.1:28808/em-portal/
+
+
+url:
+
+请求 URL
+https://172.17.208.1:28808/api/pm-analysis/v2/history
+请求方法
+POST
+状态代码
+200 OK
+远程地址
+172.17.208.1:28808
+引用站点策略
+strict-origin-when-cross-origin
+
+{"arraycounterinfos":[],"displaymode":0,"favoriteconditionname":"Dong_customer weekly IVR KPI","gr":"86400","groupattributetype":0,"groupbygroup":false,"groupbyplmn":false,"grouptype":0,"items":["C637210002","C637210003"],"itemsposition":[0,0],"itemsposition1":[0,0],"motid":"64300","nfctid":"cn.vas.zxin","plmnpdfdisplaymode":false,"queryallbusiness":false,"showbusinesscolumn":false,"showintegrity":false,"straightquery":false,"templatename":"Dong_customer weekly IVR KPI","templateid":"1731730870314","versiondatacompare":false,"needdeployfilter":false,"timeinfo":{"mode":1,"start":"2026-09-12T00:00:00.000Z","end":"2026-09-15T00:00:00.000Z","relative":-7,"timezonetype":"1","clienttimezone":"Atlantic/Reykjavik","showtimezoneoffset":false,"querylongtime":{"type":0,"value":"3"},"timespanfilter":"00:00:00-24:00:00","dayfiltertype":0,"dayinmonthfilter":"1111111111111111111111111111111"},"thresholdinfos":[],"templatetype":0,"filterlayer":"all","grouplayer":"me,fservice","containvcell":0,"resfilterattribute":"","uilocations":[],"reslocation":[],"inexistenceres":false,"firstDayOfWeek":7,"iswireless":false,"hidehistorystopbutton":false,"opencustomizehistoryexport":false,"opentemplatecustomcolumn":false}
+
+请求 URL
+https://172.17.208.1:28808/api/pm-analysis/v2/history
+请求方法
+POST
+状态代码
+200 OK
+远程地址
+172.17.208.1:28808
+引用站点策略
+strict-origin-when-cross-origin
+
+{"arraycounterinfos":[],"displaymode":0,"favoriteconditionname":"Dong_customer weekly P4M KPI","gr":"86400","groupattributetype":0,"groupbygroup":false,"groupbyplmn":false,"grouptype":0,"items":["C637240001","C637240002","C637240005","C637240006"],"itemsposition":[0,0,0,0],"itemsposition1":[0,0,0,0],"motid":"64300","nfctid":"cn.vas.zxin","plmnpdfdisplaymode":false,"queryallbusiness":false,"showbusinesscolumn":false,"showintegrity":false,"straightquery":false,"templatename":"Dong_customer weekly P4M KPI","templateid":"1731730870313","versiondatacompare":false,"needdeployfilter":false,"timeinfo":{"mode":1,"start":"2026-09-12T00:00:00.000Z","end":"2026-09-15T00:00:00.000Z","relative":-7,"timezonetype":"1","clienttimezone":"Atlantic/Reykjavik","showtimezoneoffset":false,"querylongtime":{"type":0,"value":"3"},"timespanfilter":"00:00:00-24:00:00","dayfiltertype":0,"dayinmonthfilter":"1111111111111111111111111111111"},"thresholdinfos":[],"templatetype":0,"filterlayer":"all","grouplayer":"me,fservice","containvcell":0,"resfilterattribute":"","uilocations":[],"reslocation":[],"inexistenceres":false,"firstDayOfWeek":7,"iswireless":false,"hidehistorystopbutton":false,"opencustomizehistoryexport":false,"opentemplatecustomcolumn":false,"invaliditems":[]}
+
+
+请求 URL
+https://172.17.208.1:28808/api/pm-analysis/v2/history
+请求方法
+POST
+状态代码
+200 OK
+远程地址
+172.17.208.1:28808
+引用站点策略
+strict-origin-when-cross-origin
+
+{"arraycounterinfos":[],"displaymode":0,"favoriteconditionname":"Dong_Customer Weekly_Memory_KPI","gr":"86400","groupattributetype":0,"groupbygroup":false,"groupbyplmn":false,"grouptype":0,"items":["C557040003","C557040004","C557040005","C557040006","C557040007","C557040008","C557040009"],"itemsposition":[0,0,0,0,0,0,0],"itemsposition1":[0,0,0,0,0,0,0],"motid":"61016","nfctid":"cn.vas.zxin","plmnpdfdisplaymode":false,"queryallbusiness":false,"showbusinesscolumn":false,"showintegrity":false,"straightquery":false,"templatename":"Dong_Customer Weekly_Memory_KPI","templateid":"1731730870312","versiondatacompare":false,"needdeployfilter":false,"timeinfo":{"mode":1,"start":"2026-09-12T00:00:00.000Z","end":"2026-09-15T00:00:00.000Z","relative":-7,"timezonetype":"1","clienttimezone":"Atlantic/Reykjavik","showtimezoneoffset":false,"querylongtime":{"type":0,"value":"3"},"timespanfilter":"00:00:00-24:00:00","dayfiltertype":0,"dayinmonthfilter":"1111111111111111111111111111111"},"thresholdinfos":[],"templatetype":0,"filterlayer":"all","grouplayer":"me,fservice","containvcell":0,"resfilterattribute":"","uilocations":[],"reslocation":[],"inexistenceres":false,"firstDayOfWeek":7,"iswireless":false,"hidehistorystopbutton":false,"opencustomizehistoryexport":false,"opentemplatecustomcolumn":false,"invaliditems":[]}
+
+请求 URL
+https://172.17.208.1:28808/api/pm-analysis/v2/history
+请求方法
+POST
+状态代码
+200 OK
+远程地址
+172.17.208.1:28808
+引用站点策略
+strict-origin-when-cross-origin
+
+{"arraycounterinfos":[],"displaymode":0,"favoriteconditionname":"Dong_Customer_Weekly_CPU KPI","gr":"86400","groupattributetype":0,"groupbygroup":false,"groupbyplmn":false,"grouptype":0,"items":["C557050003","C557050004"],"itemsposition":[0,0],"itemsposition1":[0,0],"motid":"61017","nfctid":"cn.vas.zxin","plmnpdfdisplaymode":false,"queryallbusiness":false,"showbusinesscolumn":false,"showintegrity":false,"straightquery":false,"templatename":"Dong_Customer_Weekly_CPU KPI","templateid":"1731730870311","versiondatacompare":false,"needdeployfilter":false,"timeinfo":{"mode":1,"start":"2026-09-12T00:00:00.000Z","end":"2026-09-15T00:00:00.000Z","relative":-7,"timezonetype":"1","clienttimezone":"Atlantic/Reykjavik","showtimezoneoffset":false,"querylongtime":{"type":0,"value":"3"},"timespanfilter":"00:00:00-24:00:00","dayfiltertype":0,"dayinmonthfilter":"1111111111111111111111111111111"},"thresholdinfos":[],"templatetype":0,"filterlayer":"all","grouplayer":"me,fservice","containvcell":0,"resfilterattribute":"","uilocations":[],"reslocation":[],"inexistenceres":false,"firstDayOfWeek":7,"iswireless":false,"hidehistorystopbutton":false,"opencustomizehistoryexport":false,"opentemplatecustomcolumn":false,"invaliditems":[]}
+
+请求 URL
+https://172.17.208.1:28808/api/pm-analysis/v2/history
+请求方法
+POST
+状态代码
+200 OK
+远程地址
+172.17.208.1:28808
+引用站点策略
+strict-origin-when-cross-origin
+
+{"arraycounterinfos":[],"displaymode":0,"favoriteconditionname":"Dong_customer_weekly_VC_KPI","gr":"86400","groupattributetype":0,"groupbygroup":false,"groupbyplmn":false,"grouptype":0,"items":["C637260001","C637260002","C637260014","C637260003","C637260015","C637260013"],"itemsposition":[0,0,0,0,0,0],"itemsposition1":[0,0,0,0,0,0],"motid":"64300","nfctid":"cn.vas.zxin","plmnpdfdisplaymode":false,"queryallbusiness":false,"showbusinesscolumn":false,"showintegrity":false,"straightquery":false,"templatename":"Dong_customer_weekly_VC_KPI","templateid":"1731730870310","versiondatacompare":false,"needdeployfilter":false,"timeinfo":{"mode":1,"start":"2026-09-12T00:00:00.000Z","end":"2026-09-15T00:00:00.000Z","relative":-7,"timezonetype":"1","clienttimezone":"Atlantic/Reykjavik","showtimezoneoffset":false,"querylongtime":{"type":0,"value":"3"},"timespanfilter":"00:00:00-24:00:00","dayfiltertype":0,"dayinmonthfilter":"1111111111111111111111111111111"},"thresholdinfos":[],"templatetype":0,"filterlayer":"all","grouplayer":"me,fservice","containvcell":0,"resfilterattribute":"","uilocations":[],"reslocation":[],"inexistenceres":false,"firstDayOfWeek":7,"iswireless":false,"hidehistorystopbutton":false,"opencustomizehistoryexport":false,"opentemplatecustomcolumn":false,"invaliditems":[]}
+
+请求 URL
+https://172.17.208.1:28808/api/pm-analysis/v2/history
+请求方法
+POST
+状态代码
+200 OK
+远程地址
+172.17.208.1:28808
+引用站点策略
+strict-origin-when-cross-origin
+
+{"arraycounterinfos":[],"displaymode":0,"favoriteconditionname":"Dong_customer Weekly_USSD_KPI","gr":"86400","groupattributetype":0,"groupbygroup":false,"groupbyplmn":false,"grouptype":0,"items":["C637120003","C637120007","C637120030","C637120029","C637120028"],"itemsposition":[0,0,0,0,0],"itemsposition1":[0,0,0,0,0],"motid":"64301","nfctid":"cn.vas.zxin","plmnpdfdisplaymode":false,"queryallbusiness":false,"showbusinesscolumn":false,"showintegrity":false,"straightquery":false,"templatename":"Dong_customer Weekly_USSD_KPI","templateid":"1731730870309","versiondatacompare":false,"needdeployfilter":false,"timeinfo":{"mode":1,"start":"2026-09-12T00:00:00.000Z","end":"2026-09-15T00:00:00.000Z","relative":-7,"timezonetype":"1","clienttimezone":"Atlantic/Reykjavik","showtimezoneoffset":false,"querylongtime":{"type":0,"value":"3"},"timespanfilter":"00:00:00-24:00:00","dayfiltertype":0,"dayinmonthfilter":"1111111111111111111111111111111"},"thresholdinfos":[],"templatetype":0,"filterlayer":"all","grouplayer":"me,fservice","containvcell":0,"resfilterattribute":"","uilocations":[],"reslocation":[],"inexistenceres":false,"firstDayOfWeek":7,"iswireless":false,"hidehistorystopbutton":false,"opencustomizehistoryexport":false,"opentemplatecustomcolumn":false,"invaliditems":[]}
+
+请求 URL
+https://172.17.208.1:28808/api/pm-analysis/v2/history
+请求方法
+POST
+状态代码
+200 OK
+远程地址
+172.17.208.1:28808
+引用站点策略
+strict-origin-when-cross-origin
+
+{"arraycounterinfos":[],"displaymode":0,"favoriteconditionname":"Dong_customer_PPS_KPI","gr":"86400","groupattributetype":0,"groupbygroup":false,"groupbyplmn":false,"grouptype":0,"items":["C637000001","C637000102","C637000103","C637000104","C637000105","C637000101"],"itemsposition":[0,0,0,0,0,0],"itemsposition1":[0,0,0,0,0,0],"motid":"64300","nfctid":"cn.vas.zxin","plmnpdfdisplaymode":false,"queryallbusiness":false,"showbusinesscolumn":false,"showintegrity":false,"straightquery":false,"templatename":"Dong_customer_PPS_KPI","templateid":"1731730870308","versiondatacompare":false,"needdeployfilter":false,"timeinfo":{"mode":1,"start":"2026-09-12T00:00:00.000Z","end":"2026-09-15T00:00:00.000Z","relative":-7,"timezonetype":"1","clienttimezone":"Atlantic/Reykjavik","showtimezoneoffset":false,"querylongtime":{"type":0,"value":"3"},"timespanfilter":"00:00:00-24:00:00","dayfiltertype":0,"dayinmonthfilter":"1111111111111111111111111111111"},"thresholdinfos":[],"templatetype":0,"filterlayer":"all","grouplayer":"me,fservice","containvcell":0,"resfilterattribute":"","uilocations":[],"reslocation":[],"inexistenceres":false,"firstDayOfWeek":7,"iswireless":false,"hidehistorystopbutton":false,"opencustomizehistoryexport":false,"opentemplatecustomcolumn":false,"invaliditems":[]}
+
+

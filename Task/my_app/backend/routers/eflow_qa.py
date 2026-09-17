@@ -220,24 +220,47 @@ def search(
 # ------------------------- TT 工单分析（复用知识库 tools/inspect_tt.py） -------------------------
 
 _INSPECT_LOADER = {"mod": None}
+_INSPECT_LOCK = threading.Lock()
 
 
 def _load_inspect_module():
-    """动态加载知识库 tools/inspect_tt.py，与 CLI 共用同一份分析实现。"""
+    """动态加载知识库 tools/inspect_tt.py，与 CLI 共用同一份分析实现。
+
+    加锁 + 双检（2026-09-15）：TT 快速分析一进页面就并发打 inspect-tt / tt-ai /
+    tt-ume-suggestion 三个请求，后端重启后的首次访问若不加锁，三个线程会同时
+    exec_module 同一个文件（首次 import 竞态）。启动期另有 warmup() 预热。
+    """
     mod = _INSPECT_LOADER["mod"]
     if mod is not None:
         return mod
-    import importlib.util
-    path = _KB_ROOT / "tools" / "inspect_tt.py"
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail=f"分析模块不存在: {path}")
-    spec = importlib.util.spec_from_file_location("eflow_qa_inspect_tt", path)
-    if spec is None or spec.loader is None:
-        raise HTTPException(status_code=500, detail="加载 inspect_tt.py 失败")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    _INSPECT_LOADER["mod"] = mod
-    return mod
+    with _INSPECT_LOCK:
+        mod = _INSPECT_LOADER["mod"]  # 等锁期间别的线程可能已加载完成
+        if mod is not None:
+            return mod
+        import importlib.util
+        path = _KB_ROOT / "tools" / "inspect_tt.py"
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail=f"分析模块不存在: {path}")
+        spec = importlib.util.spec_from_file_location("eflow_qa_inspect_tt", path)
+        if spec is None or spec.loader is None:
+            raise HTTPException(status_code=500, detail="加载 inspect_tt.py 失败")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _INSPECT_LOADER["mod"] = mod
+        return mod
+
+
+def warmup():
+    """启动期预热：把 inspect_tt.py 的首次加载从「用户第一次点分析」提前到启动期。
+
+    消除两个差异：① 首次点击要多付一次模块加载；② 重启后首次点击的并发首载竞态。
+    失败不阻断启动，返回错误串供 startup 日志打印。
+    """
+    try:
+        _load_inspect_module()
+        return None
+    except Exception as e:  # noqa: BLE001
+        return f"{type(e).__name__}: {e}"
 
 
 # ---------------- 实时单票回退（本地工单缺失时回 eFlow 拉取，纯内存不落库） ----------------

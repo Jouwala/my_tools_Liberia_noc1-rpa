@@ -1,0 +1,74 @@
+{
+  "enabled": true,
+  "gbase": {
+    "host": "10.123.255.12",
+    "port": 5258,
+    "user": "gbase",
+    "database": "zxvmax",
+    "charset": "utf8mb4",
+    "connect_timeout": 8,
+    "read_timeout": 300
+  },
+  "credential_key": "vmax_gbase",
+  "range_mode": "last_month",
+  "days": 30,
+  "max_days": 92,
+  "granularity": "day",
+  "workers": 3,
+  "cache_server_ips": [
+    "41.191.107.211",
+    "41.191.107.212",
+    "41.191.107.222",
+    "41.191.107.225",
+    "41.191.107.228"
+  ],
+  "core_target_names": {
+    "50331658": "SGW_HQ_122",
+    "50331660": "SGW_ODC_22"
+  },
+  "core_fold_unmapped_to": "SGW_ODC_22",
+  "video_apps": [
+    [5, 26],
+    [5, 74961],
+    [5, 74676]
+  ],
+  "game_apps": [
+    [8, 74866],
+    [8, 80693],
+    [8, 78027]
+  ],
+  "top_service_limit": 20,
+  "top_video_limit": 10,
+  "kpi_sync": {
+    "days_back": 7,
+    "only_missing": true,
+    "refresh_last_days": 1
+  },
+  "blocks": {
+    "traffic": true,
+    "active_user": true,
+    "cache": true,
+    "core": true,
+    "video": true,
+    "game": true,
+    "tcp": true,
+    "top_service": true,
+    "top_video": true
+  },
+  "persist": {
+    "write_excel": true,
+    "write_sqlite": true,
+    "keep_csv": false,
+    "write_kpi": true
+  },
+  "mail": {
+    "enabled": false,
+    "smtp_host": "smtp.126.com",
+    "smtp_port": 465,
+    "credential_key": "mail_126",
+    "sender": "",
+    "sender_name": "ZTE NOC",
+    "recipients": [],
+    "subject_prefix": "OLIB SOC VMAX Report"
+  }
+}
