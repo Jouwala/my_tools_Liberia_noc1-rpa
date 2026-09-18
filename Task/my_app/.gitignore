@@ -63,3 +63,6 @@ _probe_file.txt
 
 # Chrome 临时 profile（portal_login_service 正常退出时会自清，异常退出会残留）
 /data/portal_profiles/_tmp_*/
+
+# 根目录一次性探针脚本禁止入库（2026-09-18 清理：98 个误随 2177afa 入库的 _tmp_* 已归档到 _myapp_trash_20260918/）
+/_tmp_*
