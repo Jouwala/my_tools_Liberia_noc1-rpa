@@ -447,7 +447,9 @@ def _send_email(to: list, cc: list, subject: str, body: str,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=180,
+            # 180 → 300（2026-09-18）：实测冷启动完整发送要 198.49s，180s 会把正在
+            # 发送的子进程杀掉，任务记失败却可能已经发出。见 kpi_email_report._run_script。
+            timeout=300,
             cwd=str(MY_APP_DIR),
             creationflags=_SUBPROCESS_FLAGS,
         )

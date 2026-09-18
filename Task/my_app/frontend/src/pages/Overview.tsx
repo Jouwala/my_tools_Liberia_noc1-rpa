@@ -42,15 +42,15 @@ export default function Overview() {
     .slice(0, 10)
 
   // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
-  const cText = isDark ? '#e6f4ff' : '#16233b'
-  const cTextMuted = isDark ? '#94a3b8' : '#3f5468'
+  const cText = isDark ? '#f5f7ff' : '#16233b'
+  const cTextMuted = isDark ? '#aebbd4' : '#3f5468'
   const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
-  const cAxisLine = isDark ? '#22324d' : '#c8d8e8'
+  const cAxisLine = isDark ? '#173158' : '#c8d8e8'
   const cSplit = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(13,148,136,0.12)'
   const cTooltip = {
-    backgroundColor: isDark ? 'rgba(10,25,41,0.95)' : 'rgba(255,255,255,0.97)',
-    borderColor: isDark ? '#64ffda' : '#0d9488',
-    textStyle: { color: isDark ? '#e6f4ff' : '#16233b' },
+    backgroundColor: isDark ? 'rgba(8, 18, 44,0.95)' : 'rgba(255,255,255,0.97)',
+    borderColor: isDark ? '#00d9ff' : '#0d9488',
+    textStyle: { color: isDark ? '#f5f7ff' : '#16233b' },
   }
 
   const barOption = {
@@ -78,7 +78,7 @@ export default function Overview() {
       type: 'pie',
       radius: ['40%', '70%'],
       data: topTables.map((t, i) => ({ name: t.name, value: t.rows, itemStyle: { color: cPalette[i % cPalette.length] } })),
-      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.3)' } },
+      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: isDark ? 'rgba(0, 217, 255,0.35)' : 'rgba(13,148,136,0.3)' } },
       label: { color: cText, formatter: '{b}\n{d}%' },
     }],
   }
@@ -91,7 +91,7 @@ export default function Overview() {
             title={<>{t('overview.totalTables')} <ExplainIcon text={t('overview.explain.totalTables')} /></>}
             value={info.total_tables}
             prefix={<TableOutlined />}
-            accentColor={isDark ? '#64ffda' : '#0d9488'}
+            accentColor={isDark ? '#00d9ff' : '#0d9488'}
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -99,7 +99,7 @@ export default function Overview() {
             title={<>{t('overview.totalRows')} <ExplainIcon text={t('overview.explain.totalRows')} /></>}
             value={info.total_rows}
             prefix={<FieldNumberOutlined />}
-            accentColor={isDark ? '#4fc3f7' : '#0e7490'}
+            accentColor={isDark ? '#258cff' : '#0e7490'}
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -107,7 +107,7 @@ export default function Overview() {
             title={<>{t('overview.coreTables')} <ExplainIcon text={t('overview.explain.coreTables')} /></>}
             value={info.tables.filter(t => !t.name.startsWith('_')).length}
             prefix={<DatabaseOutlined />}
-            accentColor={isDark ? '#7986cb' : '#6366f1'}
+            accentColor={isDark ? '#7c8ff0' : '#6366f1'}
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -115,7 +115,7 @@ export default function Overview() {
             title={<>{t('overview.status')}</>}
             value={t('overview.statusOk')}
             prefix={<CheckCircleOutlined />}
-            accentColor={isDark ? '#51cf66' : '#15803d'}
+            accentColor={isDark ? '#0bc78c' : '#15803d'}
           />
         </Col>
       </Row>

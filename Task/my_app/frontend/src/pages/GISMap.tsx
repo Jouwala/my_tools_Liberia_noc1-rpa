@@ -187,9 +187,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       case 'rt_alarm_overdue': return '#ff1e1e'
       case 'rt_alarm_ontime': return '#ffd400'
       case 'his_alarm': return '#ffa94d'
-      case 'tt': return '#4fc3f7'
+      case 'tt': return '#258cff'
       case 'wo': return '#51cf66'
-      case 'vip': return '#b197fc'
+      case 'vip': return '#a99cff'
       default: return '#94a3b8'
     }
   }
@@ -292,9 +292,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     { key: 'rt_alarm_ontime', color: '#ffd400', label: t('gis.legend.rtAlarmOnTime'), count: categoryCounts.rt_alarm_ontime },
     { key: 'rt_alarm', color: '#ff6b6b', label: t('gis.legend.rtAlarm'), count: categoryCounts.rt_alarm },
     { key: 'his_alarm', color: '#ffa94d', label: t('gis.legend.hisAlarm'), count: categoryCounts.his_alarm },
-    { key: 'tt', color: '#4fc3f7', label: t('gis.legend.tt'), count: ticketTotals.tt },
+    { key: 'tt', color: '#258cff', label: t('gis.legend.tt'), count: ticketTotals.tt },
     { key: 'wo', color: '#51cf66', label: t('gis.legend.wo'), count: ticketTotals.wo },
-    { key: 'vip', color: '#b197fc', label: t('gis.legend.vip'), count: categoryCounts.vip },
+    { key: 'vip', color: '#a99cff', label: t('gis.legend.vip'), count: categoryCounts.vip },
     { key: 'normal', color: '#94a3b8', label: t('gis.legend.normal'), count: categoryCounts.normal },
   ].filter(item =>
     mode === 'realtime'
@@ -314,7 +314,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const layerOptions: { key: LayerKey; label: string; color: string }[] = [
     { key: 'rt_alarm', label: t('gis.layer.rtAlarm'), color: '#ff6b6b' },
     { key: 'his_alarm', label: t('gis.layer.hisAlarm'), color: '#ffa94d' },
-    { key: 'tt', label: t('gis.layer.tt'), color: '#4fc3f7' },
+    { key: 'tt', label: t('gis.layer.tt'), color: '#258cff' },
     { key: 'wo', label: t('gis.layer.wo'), color: '#51cf66' },
   ].filter(lo => mode === 'realtime' ? lo.key !== 'his_alarm' : true) as { key: LayerKey; label: string; color: string }[]
 
@@ -471,7 +471,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 {t('gis.topologyHubLink')} ({topologyLinks.filter(l => l.is_hub_link).length})
               </span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--wh-space-xs)', fontSize: '0.75rem', marginRight: 'var(--wh-space-md)', color: WH.text }}>
-                <span style={{ display: 'inline-block', width: 20, height: 2, backgroundColor: '#4fc3f7', borderRadius: 1 }} />
+                <span style={{ display: 'inline-block', width: 20, height: 2, backgroundColor: '#258cff', borderRadius: 1 }} />
                 {t('gis.topologyNormalLink')} ({topologyLinks.filter(l => !l.is_hub_link).length})
               </span>
             </>
@@ -618,7 +618,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                         </>
                       )
                     })()}
-                    <em style={{ color: '#4fc3f7' }}>{t('gis.popup.clickDetail')}</em>
+                    <em style={{ color: '#258cff' }}>{t('gis.popup.clickDetail')}</em>
                   </div>
                 </Popup>
               </CircleMarker>
@@ -641,7 +641,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 key={`topo-${idx}`}
                 positions={[[link.lat_a, link.lng_a], [link.lat_b, link.lng_b]]}
                 pathOptions={{
-                  color: link.is_hub_link ? '#ff6b6b' : '#4fc3f7',
+                  color: link.is_hub_link ? '#ff6b6b' : '#258cff',
                   weight: link.is_hub_link ? 3 : 1.5,
                   opacity: 0.6,
                 }}

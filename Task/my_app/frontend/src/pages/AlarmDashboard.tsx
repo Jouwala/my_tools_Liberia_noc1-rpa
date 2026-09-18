@@ -26,7 +26,7 @@ const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: stri
   <div style={{
     display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
     margin: '1rem 0 0.625rem', padding: '0 0 0.5rem',
-    borderBottom: '1px solid rgba(100,255,218,0.18)',
+    borderBottom: '1px solid rgba(0, 217, 255,0.18)',
   }}>
     <span style={{
       width: 28, height: 28, borderRadius: 'var(--wh-radius-sm)',
@@ -216,9 +216,9 @@ export default function AlarmDashboard() {
   // ========== ECharts 图表配置（Warehouse 暗色风格） ==========
 
   // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
-  const cText = isDark ? '#e6f4ff' : '#16233b'
-  const cTextMuted = isDark ? '#94a3b8' : '#3f5468'
-  const cTeal = isDark ? '#64ffda' : '#0d9488'
+  const cText = isDark ? '#f5f7ff' : '#16233b'
+  const cTextMuted = isDark ? '#aebbd4' : '#3f5468'
+  const cTeal = isDark ? '#00d9ff' : '#0d9488'
   const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
 
   // 持续时长分布（柱状，可点击下钻）
@@ -244,7 +244,7 @@ export default function AlarmDashboard() {
           name: t('alarm.seriesAll'), type: 'bar', barMaxWidth: 24, barGap: '30%',
           data: allData,
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#64ffda' : '#0d9488' }, { offset: 1, color: isDark ? '#4fc3f7' : '#0284c7' }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#00d9ff' : '#0d9488' }, { offset: 1, color: isDark ? '#258cff' : '#0284c7' }] },
             borderRadius: [4, 4, 0, 0],
           },
         },
@@ -252,7 +252,7 @@ export default function AlarmDashboard() {
           name: t('alarm.seriesMains'), type: 'bar', barMaxWidth: 24,
           data: mainsData,
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#ff6b6b' : '#dc2626' }, { offset: 1, color: isDark ? '#ffa94d' : '#ea580c' }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#ff5c6c' : '#dc2626' }, { offset: 1, color: isDark ? '#ff922b' : '#ea580c' }] },
             borderRadius: [4, 4, 0, 0],
           },
         },
@@ -287,7 +287,7 @@ export default function AlarmDashboard() {
         data: entries.map(([, v], i) => ({
           value: v,
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: cPalette[i % cPalette.length] }, { offset: 1, color: isDark ? '#0d2138' : '#dcebf5' }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: cPalette[i % cPalette.length] }, { offset: 1, color: isDark ? '#050d22' : '#dcebf5' }] },
             borderRadius: [4, 4, 0, 0],
           },
         })),
@@ -311,7 +311,7 @@ export default function AlarmDashboard() {
           itemStyle: { color: cPalette[i % cPalette.length] },
         })),
         label: { fontSize: 10, color: cText, formatter: '{b}\n{d}%' },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.4)' : 'rgba(13,148,136,0.35)' } },
+        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(0, 217, 255,0.4)' : 'rgba(13,148,136,0.35)' } },
       }],
     }
   }, [data?.logical_total, t, isDark])
@@ -331,7 +331,7 @@ export default function AlarmDashboard() {
         data: entries.map(([, v], i) => ({
           value: v,
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: isDark ? '#ff6b6b' : '#dc2626' }, { offset: 1, color: isDark ? '#ffa94d' : '#ea580c' }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: isDark ? '#ff5c6c' : '#dc2626' }, { offset: 1, color: isDark ? '#ff922b' : '#ea580c' }] },
             borderRadius: [0, 4, 4, 0],
           },
         })),
@@ -351,7 +351,7 @@ export default function AlarmDashboard() {
         type: 'pie', radius: ['32%', '62%'], center: ['50%', '50%'],
         data: entries.map(([k, v]) => ({ name: k, value: v, itemStyle: { color: sev[k] || cPalette[0] } })),
         label: { fontSize: 11, formatter: '{b}\n{d}%', color: cText },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.4)' : 'rgba(13,148,136,0.35)' } },
+        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(0, 217, 255,0.4)' : 'rgba(13,148,136,0.35)' } },
       }],
     }
   }, [data?.severity_stats, isDark])
@@ -376,9 +376,9 @@ export default function AlarmDashboard() {
     if (!data?.site_attribute) return {}
     const entries = Object.entries(data.site_attribute)
     const attrColors: Record<string, string> = {
-      REGULAR: isDark ? '#51cf66' : '#15803d',
-      ERA: isDark ? '#7986cb' : '#6366f1',
-      '--': isDark ? '#64748b' : '#5b7288',
+      REGULAR: isDark ? '#0bc78c' : '#15803d',
+      ERA: isDark ? '#7c8ff0' : '#6366f1',
+      '--': isDark ? '#6f8cb4' : '#5b7288',
     }
     return {
       tooltip: { ...darkTooltip(isDark), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
@@ -418,13 +418,13 @@ export default function AlarmDashboard() {
       {/* ====== 1. 头部警报横幅 ====== */}
       <Card size="small" style={{
         ...cardStyle,
-        background: isDark ? 'linear-gradient(135deg, #1a0f14 0%, #112540 100%)' : 'linear-gradient(135deg, #fdf0f0 0%, #fbe4e4 100%)',
+        background: isDark ? 'linear-gradient(135deg, #1a0f14 0%, #050d22 100%)' : 'linear-gradient(135deg, #fdf0f0 0%, #fbe4e4 100%)',
         borderLeft: `4px solid ${WH.sev.Critical}`,
         marginBottom: 'var(--wh-space-xs)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
-            <FireOutlined style={{ fontSize: '1.375rem', color: isDark ? '#ff6b6b' : '#dc2626' }} />
+            <FireOutlined style={{ fontSize: '1.375rem', color: isDark ? '#ff5c6c' : '#dc2626' }} />
             <span style={{ fontSize: '0.9375rem', fontWeight: 700, color: isDark ? '#ff8787' : '#b91c1c' }}>
               {t('alarm.realtimeStatus')}
             </span>
@@ -613,17 +613,17 @@ export default function AlarmDashboard() {
               {Object.entries(sevStats).map(([k, v]) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '0.125rem var(--wh-space-xs)', borderRadius: 'var(--wh-radius-sm)' }}
                   onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'severity', value: k, title: t('alarm.drillSeverity', { v: k }) })}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(100,255,218,0.08)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0, 217, 255,0.08)' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
                   <Tag color={WH.sev[k] || '#999'} style={{ borderRadius: 'var(--wh-radius-lg)', fontWeight: 500 }}>{k}</Tag>
                   <span style={{ fontSize: '1.125rem', fontWeight: 700, color: WH.sev[k] || WH.text }}>{fmt(v as number)}</span>
                 </div>
               ))}
-              <div style={{ marginTop: 'var(--wh-space-sm)', borderTop: '1px solid rgba(100,255,218,0.18)', paddingTop: 'var(--wh-space-sm)' }}>
+              <div style={{ marginTop: 'var(--wh-space-sm)', borderTop: '1px solid rgba(0, 217, 255,0.18)', paddingTop: 'var(--wh-space-sm)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '0.125rem var(--wh-space-xs)', borderRadius: 'var(--wh-radius-sm)' }}
                   onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'all', title: t('alarm.totalActive') })}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(100,255,218,0.08)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0, 217, 255,0.08)' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
                   <Tag color="cyan" style={{ borderRadius: 'var(--wh-radius-lg)', fontWeight: 500 }}>{t('alarm.totalTag')}</Tag>

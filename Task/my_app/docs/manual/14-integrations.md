@@ -16,8 +16,8 @@ my_app 本身不产生数据，它的价值取决于上游是否连得通。本�
 | **FW**（防火墙吞吐） | 网管 KPI + 出图 | `fw_kpi_sync` | `fw_kpi` | FW 图表邮件 |
 | **FMS Portal** | 门户登录 + 实时抓取（经 `127.0.0.1:8787` 实时代理） | 实时代理线程 | `fms_portal` | 实时告警看板、实时告警地图 |
 | **VMAX** | 实时保障看板（经 `127.0.0.1:8790` 代理），快照内嵌在 `cxo_dashboard.html` | 代理线程 | `vmax_cxo` | CXO 经营看板 |
-| **VMAX（DIM 明细查询）** | 同一 8790 代理打 `/query/v2/history`（RSA `encryptLong` 参数），取 `1hour` 明细本地聚合为日值（共 **50 个指标**：6 个 CXO 趋势 + 14 个网络 KPI + 30 个服务/OTT KPI；汇总/视频类走 `interfaceid=11&rat=6`，RAN 网络类与服务/OTT 类走空过滤）。指标按监控**多列合批**取数（每周期仅 8 个请求，实测 14 列一次返回 0.06s），**响应列顺序由服务端决定、与请求顺序不同，必须按列名映射**。日值口径：流量/次数 SUM、用户数 PEAK、其余率/时延/吞吐/MOS/频次一律取未加权小时均值。**上游无天粒度、明细仅保留约 8 天**，故必须每日落盘累积 | `vmax_cxo_daily_sync`（每小时 :15，n 组） | `vmax_cxo` | VMAX CXO 天粒度看板（`vmaxCxoDashboard_Daily`，页签与参考看板 `vmaxCxoDashboard` 一致：汇总 / 网络（5 子页签）/ 服务（9 子页签）） |
-| **VMAX（数仓 GBase 直连）** | MySQL 协议直连数仓 **GBase 8a**（`10.123.255.12:5258`，库 `zxvmax`，pymysql），按 `_day_` 分区表逐日取数：9 段业务 SQL 移植自用户 notebook `OLIB SOC VMAX Routine Report`（流量/活跃用户/缓存/核心网/视频/游戏/TCP/TOP业务/TOP视频）。**明细只保留约 90 天**；当天分区持续累积，故只统计已完成日。日粒度 KPI 落 `data/olib_soc_report/olib_soc_report.sqlite3` 的 `daily_kpi` 表（原始值落库、占比类查询时现算，保证周汇总精确加权） | `olib_soc_vmax_report`（每月 1 日 07:30）、`olib_soc_kpi_daily_sync`（每天 02:20，只补缺口） | `vmax_gbase` | VMAX 90 天经营看板（`vmaxCxoDashboard_90Days`：CEO 卡片 + 业务/网络质量趋势 + 近 14 天明细）、OLIB SOC VMAX 月报 Excel |
+| **VMAX（DIM 明细查询）** | 同一 8790 代理打 `/query/v2/history`（RSA `encryptLong` 参数），取 `1hour` 明细本地聚合为日值（共 **50 个指标**：6 个 CXO 趋势 + 14 个网络 KPI + 30 个服务/OTT KPI；汇总/视频类走 `interfaceid=11&rat=6`，RAN 网络类与服务/OTT 类走空过滤）。指标按监控**多列合批**取数（每周期仅 8 个请求，实测 14 列一次返回 0.06s），**响应列顺序由服务端决定、与请求顺序不同，必须按列名映射**。日值口径：流量/次数 SUM、用户数 PEAK、其余率/时延/吞吐/MOS/频次一律取未加权小时均值。**上游无天粒度、明细仅保留约 8 天**，故必须每日落盘累积 | `vmax_cxo_daily_sync`（每小时 :15，v 组） | `vmax_cxo` | VMAX CXO 天粒度看板（`vmaxCxoDashboard_Daily`，页签与参考看板 `vmaxCxoDashboard` 一致：汇总 / 网络（5 子页签）/ 服务（9 子页签）） |
+| **VMAX（数仓 GBase 直连）** | MySQL 协议直连数仓 **GBase 8a**（`10.123.255.12:5258`，库 `zxvmax`，pymysql），按 `_day_` 分区表逐日取数：9 段业务 SQL 移植自用户 notebook `OLIB SOC VMAX Routine Report`（流量/活跃用户/缓存/核心网/视频/游戏/TCP/TOP业务/TOP视频）。**明细只保留约 90 天**；当天分区持续累积，故只统计已完成日。日粒度 KPI 落 `data/olib_soc_report/olib_soc_report.sqlite3` 的 `daily_kpi` 表（原始值落库、占比类查询时现算，保证周汇总精确加权） | `olib_soc_vmax_report`（每月 1 日 07:30）、`olib_soc_kpi_daily_sync`（每天 06:20，只补缺口） | `vmax_gbase` | VMAX 90 天经营看板（`vmaxCxoDashboard_90Days`：CEO 卡片 + 业务/网络质量趋势 + 近 14 天明细）、OLIB SOC VMAX 月报 Excel |
 | **FineBI** | FTP 读 `/webroot/WEB-INF/schedule` 各子目录最新 Excel | `finebi_report_sync`、`incident_overview_sync` | `sftp_sp` 体系/FTP 变量 | 任务报告文件、事件总览、丢包/仓库 |
 | **远程主机（文件与 DB 写入服务）** | FTP/SMB + HTTP 写库 API（`DB_WRITER_PORT`=8765、`FTP_PORT`=21）。地址由「系统设置 → 远程主机」维护，改后即时生效 | `cm_data_sync`、`sp_data_sync`、各报表上传 | `sftp_sp` | 几乎所有采集任务的落库/上传 |
 | **Exchange / OWA 邮箱** | `exchangelib`（EWS）读邮件附件、清理空间 | `mailbox_cleanup`（每小时）、`email_recovery`（每 20 分钟） | `owa_mail` | 任务报告文件 |
@@ -54,7 +54,7 @@ my_app 本身不产生数据，它的价值取决于上游是否连得通。本�
 
 1. 凭据分组：在 `credential_store.py` 注册组元数据（`key`/`name`/`usage`/`user_label`/`secret_label`/`env_user`/`env_secret`/`testable`），使「系统设置 → 凭据」能填能测。
 2. 采集模块放 `backend/services/`，**抛异常**而不是返回错误码（否则重试与失败通知都不生效）。
-3. 注册 `TASK_SPECS` + **选定 `GROUP_TASK_MAP` 分组**（同会话互斥的必须同组）。
+3. 注册 `TASK_SPECS` + **选定 `GROUP_TASK_MAP` 分组**（同会话互斥的必须同组；漏分组 = 入队后无 worker 认领、永远 pending 且不报错，已踩四次）。守卫：`tests/test_worker_group_coverage.py`（任务覆盖/重复/幽灵 id + 三处组集合一致 + 8790 任务同组 + 前端任务帮助一致，`python tests\test_worker_group_coverage.py` 直跑）；新建组要同步 `start_hidden.ps1` 的 `MY_APP_WORKER_GROUPS` 与 `restart_workers.py` 的 `ALL_GROUPS`，并把该任务写进 `frontend/src/pages/helpTaskDocs.ts`。
 4. 若需要新库表：结构表走 Alembic；动态采集表按 `03-data-layer.md` 约定不进 migration。
 5. 产物若供页面下载，落到 `data/<task_id>/` 并在任务报告文件页登记。
 6. 更新本章表格与 `04-task-system.md` 的任务清单。

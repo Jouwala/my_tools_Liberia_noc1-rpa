@@ -100,7 +100,7 @@ export function TaskHistoryModal({
       width={'min(95vw, 43.75rem)' as any}
       styles={{
         root: { background: WH.bg },
-        header: { background: 'var(--wh-page-bg)', borderBottom: '1px solid rgba(100,255,218,0.15)' },
+        header: { background: 'var(--wh-page-bg)', borderBottom: '1px solid rgba(0, 217, 255,0.15)' },
         body: { background: WH.bg },
       }}
     >
@@ -219,7 +219,7 @@ export function TaskHistoryModal({
         )}
         <div style={{ textAlign: 'right', marginTop: 'var(--wh-space-sm)' }}>
           <Button size="small" icon={<DownloadOutlined />} onClick={exportCsv} disabled={!runs.length}
-            style={{ color: WH.text, borderColor: 'rgba(100,255,218,0.25)' }}>
+            style={{ color: WH.text, borderColor: 'rgba(0, 217, 255,0.25)' }}>
             {locale === 'zh' ? '导出 CSV' : 'Export CSV'}
           </Button>
         </div>

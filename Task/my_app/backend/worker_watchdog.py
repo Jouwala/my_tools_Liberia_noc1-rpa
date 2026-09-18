@@ -99,7 +99,7 @@ GROUP_TASK_MAP = {
         # 2026-09-11 10:48 注册任务时漏了本步骤 → 无 worker 认领，队列 pending 卡死
         # （新任务必须显式分组，同 sp_material_sync / log_cleanup 的教训）
         "cells_kpi_sync"),
-    "n": (  # 网管 / eFlow API / 远程系统：各自独立但保守同组
+    "n": (  # 网管 / eFlow API / 远程系统：各自独立但保守同组（VMAX 门户任务已拆至 v 组）
         "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,eflow_tt_rules_check,"
         "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync,mw_ume_kpi_sync,mw_ume_kpi_sync_rt,"
         # sp_online_sync 2026-09-02 补录：SP 在线工单走 eFlow API 同源会话，归入 eFlow 组
@@ -107,9 +107,6 @@ GROUP_TASK_MAP = {
         # sp_material_sync 2026-09-09 补录：SP 物料主数据同样走 eFlow API 同源会话，
         # 新建任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
         "sp_material_sync,"
-        # cxo_dashboard_cache_sync 2026-09-02 补录：CXO 看板缓存同步走独立 8790 VMAX 代理
-        # 进程（DETACHED、单会话），与 n 组其它任务的 eFlow/网管会话互不冲突
-        "cxo_dashboard_cache_sync,"
         # eflow_alarm_rules_collect 2026-09-02 补录：eFlow 告警关联规则收集，走 eFlow API 同源会话
         "eflow_alarm_rules_collect,"
         # eflow_push_rules_collect 2026-09-03 补录：eFlow 推单规则收集，走 config-center 同源会话
@@ -117,10 +114,29 @@ GROUP_TASK_MAP = {
         # ume_in_kpi_sync 2026-09-15 补录：UME Dong customer 业务 KPI（门户 172.17.208.1:28808，
         # 与 MW UME 不同主机/不同会话，但与其它网管类任务保守同组）
         "ume_in_kpi_sync,"
-        # vmax_cxo_daily_sync 2026-09-15 补录：VMAX CXO 天粒度日值归档，同样只经 8790 VMAX
-        # 代理进程取数、写独立目录 data/vmax_cxo_daily/，与 cxo_dashboard_cache_sync 同组串行
-        # （共用同一 VMAX 单会话代理，串行可避免互相挤会话）
-        "vmax_cxo_daily_sync"),
+        # ume_in_osg_report 2026-09-18 注册：客户业务 KPI + OSG 周报邮件（每天 06:30）。
+        # 第 1 步就调用 ume_in_kpi_service.run_ume_in_kpi_sync()，与 ume_in_kpi_sync 共用
+        # 同一 UME Dong 门户会话，必须同组串行（且第 3 步走 EWS 发信，组内串行不影响时效）。
+        "ume_in_osg_report"),
+    "v": (  # VMAX 门户（本机 8790 单会话代理）：三个任务共用同一个 VMAX 会话，必须彼此串行。
+        # 2026-09-18 从 n 组拆出独立成组：它们与 eFlow/网管任务本就无会话冲突，混在 n 组只会
+        # 让每小时 :15/:45 的 VMAX 采集排在 sp_data_sync（实测 1.5~2h）、ms_sla_full 等长任务
+        # 后面，看板与 vreport 明细长期滞后一个多小时。拆组后 n 组 16 项、v 组 3 项并行消费。
+        # ⚠ 新增分组必须同步三处，否则该组任务仍然无人认领：
+        #   start_hidden.ps1 的 MY_APP_WORKER_GROUPS、restart_workers.py 的 ALL_GROUPS、
+        #   以及本表（守卫 tests/test_worker_group_coverage.py 会交叉校验三处一致性）。
+        # cxo_dashboard_cache_sync 2026-09-02 补录：CXO 看板缓存同步（每 10 分钟）经 8790
+        # VMAX 代理进程（DETACHED、单会话）取数
+        "cxo_dashboard_cache_sync,"
+        # vmax_cxo_daily_sync 2026-09-15 补录：VMAX CXO 天粒度日值归档（每小时 :15），
+        # 写独立目录 data/vmax_cxo_daily/
+        "vmax_cxo_daily_sync,"
+        # vmax_multi_data_sync 2026-09-18 补录：任务 41（每小时 :45）vreport 明细采集。
+        # 上线时只登记了 TASK_SPECS、漏登记本表 → 队列 id=39082（created 2026-09-16T19:45）
+        # 无人认领一直 pending，且这条陈旧 pending 占住该任务
+        # 的单飞名额，把之后每一次小时级调度全部挡掉（vreport 明细断档约 37 小时）。
+        # 教训同 finebi_report_sync / whatsapp_send_ext / sp_email_details：第四次踩坑。
+        "vmax_multi_data_sync"),
     "m": (  # 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖
         # whatsapp_send_ext 2026-08-31 补录：新注册时漏分组，无 worker 认领，
         # 任务管理页手动执行一直「队列中等待」直到 300s 超时（同下方 finebi 教训）
@@ -147,7 +163,17 @@ GROUP_TASK_MAP = {
         "finebi_report_sync,pg_to_sqlite_sync,"
         # log_cleanup 2026-09-11 补录：日志文件清理（每天 03:17），内务轻任务。
         # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
-        "log_cleanup"),
+        "log_cleanup,"
+        # tmp_cleanup 2026-09-18 注册：TMP 目录两段式回收（每天 03:47），同为内务轻任务。
+        "tmp_cleanup,"
+        # olib_soc_kpi_daily_sync / olib_soc_vmax_report 2026-09-18 补录：VMAX 数仓 GBase 8a
+        # 直连取数（10.123.255.12:5258，只读），独立会话、只写 data/olib_soc_report/ 自己的
+        # sqlite，与 m 组其它任务无会话/写库冲突（日增量几秒、月报约 4 分钟，量级可接受）。
+        # 2026-09-16 上线时同样漏登记本表 → 两个任务从未执行过一次
+        # （task_execution_log 0 条记录），队列 id=39422（created 2026-09-17T02:20）一直
+        # pending + 单飞保护挡掉后续调度 → 90 天经营看板（?page=vmaxCxoDashboard_90Days）
+        # 停在 2026-09-16（那天的数据还是手工 CLI 补进去的）。
+        "olib_soc_kpi_daily_sync,olib_soc_vmax_report"),
     "c": (  # CN EMS (10.100.2.240) 独立会话：缓存同步与日聚合共享 _pmcache/daily_raw.json，
         # 同组串行保证互斥（ems_kpi_cache_sync 每15分钟 + ems_kpi_daily 每天00:20）
         "ems_kpi_cache_sync,ems_kpi_daily"),
@@ -443,6 +469,26 @@ def main():
     logger.info(f"Worker Watchdog 启动: project_root={PROJECT_ROOT}, "
                 f"worker_log={LOG_DIR / 'worker_runtime_<group>.log'}（default 组为 worker_runtime.log）, "
                 f"groups={_GROUPS}")
+    # 配置自检（2026-09-18 拆 v 组时新增）：分组表与本组集合各写一处，任一侧漏改都会出事：
+    #   · GROUP_TASK_MAP 有、MY_APP_WORKER_GROUPS 无 → 该组从不被拉起，任务永远 pending
+    #     （现象与「漏登记分组」完全一样，已发生过四次）
+    #   · MY_APP_WORKER_GROUPS 有、GROUP_TASK_MAP 无 → 该 worker 拿到空白名单，
+    #     按 _spawn_worker 语义【全量认领】所有 pending，直接破坏分组串行约束（更危险）
+    # 只告警不退出：宁可降级跑着，也不要让看门狗本身不起来。
+    if _WORKER_GROUPS:
+        _map_only = sorted(set(GROUP_TASK_MAP) - set(_GROUPS))
+        _env_only = sorted(set(_GROUPS) - set(GROUP_TASK_MAP))
+        if _map_only:
+            logger.warning(
+                f"⚠ GROUP_TASK_MAP 定义了组 {_map_only}，但 MY_APP_WORKER_GROUPS={_WORKER_GROUPS} "
+                f"未启用 → 这些组的任务不会被任何 worker 认领（请同步 start_hidden.ps1 / "
+                f"restart_workers.py 的组集合）"
+            )
+        if _env_only:
+            logger.warning(
+                f"⚠ MY_APP_WORKER_GROUPS 启用了组 {_env_only}，但 GROUP_TASK_MAP 无对应清单 → "
+                f"该组 worker 无任务白名单，会全量认领所有 pending 任务（分组串行约束失效）"
+            )
     try:
         _launcher = (os.environ.get("MY_APP_RESTART_BY") or "").strip() or f"ppid={os.getppid()}"
     except Exception:

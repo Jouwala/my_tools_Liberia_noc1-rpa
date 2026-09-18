@@ -631,8 +631,8 @@ export default function SpMaterialSummary() {
             className="ant-input"
             style={{
               width: 240, padding: '4px 8px', borderRadius: 6,
-              background: isDark ? 'rgba(10,25,41,0.6)' : '#fff',
-              color: isDark ? '#e6f4ff' : '#16233b',
+              background: isDark ? 'rgba(8, 18, 44,0.6)' : '#fff',
+              color: isDark ? '#f5f7ff' : '#16233b',
               border: WH.cardBorder,
             }}
             placeholder={t('spMat.search')}

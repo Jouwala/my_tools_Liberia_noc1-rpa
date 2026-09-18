@@ -156,7 +156,21 @@ run_olib_soc_report(start="2026-08-01", end="2026-08-31", blocks=["traffic"])
 * `backend/services/task_configs_registry.py`：注册 `ConfigResource`（设置页可视化编辑/导入导出）。
 * ⚠️ 新增任务只在进程启动时注册（`backend/main.py`、`backend/worker.py`），
   需要重启后端/worker 后才出现在任务列表（重启命令：`python restart_workers.py --reason "..."`）。
+* ⚠️ **两个任务必须同时登记进 `backend/worker_watchdog.py` 的 `GROUP_TASK_MAP`**（2026-09-18 补录：
+  `olib_soc_kpi_daily_sync` / `olib_soc_vmax_report` → **m 组**，GBase 直连、只写本模块自己的 sqlite，
+  与 m 组其它任务无会话/写库冲突；分组清单在 watchdog 进程内存里，改完必须
+  `python restart_workers.py --mode watchdog --force` 才生效（**需管理员权限**，否则旧 watchdog
+  进程杀不掉会静默失败，要回查 `log/worker_restart_marker.log` 确认 pids 真的变了）。上线时只写了 `TASK_SPECS` 的后果是
+  **静默停摆**：无任何 worker 认领→队列 pending 常坐→占住 `enqueue_task` 的单飞名额→之后每次调度
+  全部被挡；`task_execution_log` 一条记录都没有，而看板只是“数据没更新”，不报错不告警。
+  现在三道防线兼得：`tests/test_worker_group_coverage.py`（5 个用例：任务覆盖/重复/幽灵 id、三处组集合一致、
+  8790 任务同组、前端任务帮助与分组表一致；不依赖 pytest：`python tests\test_worker_group_coverage.py`）
+  + `worker.py::_expire_orphan_pending`
+  （pending 超 6h 无人认领则置 failed 并释放单飞名额）+ `services/task_health_alert.py`
+  （每小时巡检后把“未归组 / 无执行记录 / 队列滞留 / 成功逾期”按翻转去重主动微信+邮件通知）。
 * 与任务 41 `vmax_multi_data_sync`（门户接口，小时级）互补：41 管实时趋势，42 管业务维度月报/看板。
+  41 与 `cxo_dashboard_cache_sync`、`vmax_cxo_daily_sync` 共用本机 8790 VMAX 单会话代理，
+  2026-09-18 从 n 组拆出独立成 **v 组**（组内串行、不被 sp_data_sync 这类 1.5~2h 长任务堵住）。
 
 ## 8. 邮件投递（默认关闭）
 

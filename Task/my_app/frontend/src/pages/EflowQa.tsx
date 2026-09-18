@@ -309,7 +309,7 @@ function HistoryTable({ h, t, isDark, isMobile }: { h: any; t: (k: string) => st
   ]
   return (
     <>
-      <div style={{ marginBottom: 6, fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
+      <div style={{ marginBottom: 6, fontSize: 12, color: isDark ? '#aebbd4' : '#64748b' }}>
         {h?.position} · {t('qa.ume.totalRows')} {h?.total ?? 0}
         {items.length < (h?.total ?? 0) ? `（${t('qa.ume.totalRows')} ${items.length}）` : ''}
       </div>
@@ -398,7 +398,7 @@ function RelAlarmTabs({ t, isDark, isMobile, border, rel }: {
           <div style={{ marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>{t('qa.tt.umeRelPath')}</Text>
-              <Text type="secondary" style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>{t('qa.tt.umeRelTips2')}</Text>
+              <Text type="secondary" style={{ fontSize: 11, color: isDark ? '#aebbd4' : '#64748b' }}>{t('qa.tt.umeRelTips2')}</Text>
             </div>
             {Object.keys(byDepth).sort((a, b) => +a - +b).map(ds => {
               const d = +ds
@@ -419,7 +419,7 @@ function RelAlarmTabs({ t, isDark, isMobile, border, rel }: {
                   </Text>
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                     {!!comps.length && (
-                      <Text type="secondary" style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b', marginRight: 2 }}>
+                      <Text type="secondary" style={{ fontSize: 11, color: isDark ? '#aebbd4' : '#64748b', marginRight: 2 }}>
                         {d > 0 ? t('qa.tt.umeRelCompress') : ''}
                       </Text>
                     )}
@@ -427,7 +427,7 @@ function RelAlarmTabs({ t, isDark, isMobile, border, rel }: {
                       <Tag key={`c${i}`} color="cyan" style={{ fontSize: 11, margin: 0 }}>{g.codename}{g.count > 1 ? ` ×${g.count}` : ''}</Tag>
                     ))}
                     {!!oris.length && (
-                      <Text type="secondary" style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b', marginLeft: 6, marginRight: 2 }}>
+                      <Text type="secondary" style={{ fontSize: 11, color: isDark ? '#aebbd4' : '#64748b', marginLeft: 6, marginRight: 2 }}>
                         {t('qa.tt.umeRelOrig')}
                       </Text>
                     )}
@@ -477,7 +477,7 @@ function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, dat
         {header}
         <div style={{ textAlign: 'center', padding: 60 }}>
           <Spin size="large" />
-          <div style={{ marginTop: 12, color: isDark ? '#94a3b8' : '#64748b' }}>{t('qa.ume.analyzing')}</div>
+          <div style={{ marginTop: 12, color: isDark ? '#aebbd4' : '#64748b' }}>{t('qa.ume.analyzing')}</div>
         </div>
       </div>
     )
@@ -506,7 +506,7 @@ function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, dat
     )
   }
 
-  const cardStyle = { border, borderRadius: 8, padding: '10px 14px', marginBottom: 10, background: isDark ? 'rgba(100,255,218,0.04)' : '#fafcfe' }
+  const cardStyle = { border, borderRadius: 8, padding: '10px 14px', marginBottom: 10, background: isDark ? 'rgba(0, 217, 255,0.04)' : '#fafcfe' }
   const a = data.alarm || {}
   const sc = data.site_cell || {}
   const local = sc.local
@@ -1012,20 +1012,20 @@ export default function EflowQa() {
   }, [locale])
 
   const panelBg = isDark ? '#0f2744' : '#ffffff'
-  const border = isDark ? '1px solid rgba(100,255,218,0.2)' : '1px solid #d9e6f2'
+  const border = isDark ? '1px solid rgba(0, 217, 255,0.2)' : '1px solid #d9e6f2'
 
   const mdStyle = `
     .eflowqa-md { line-height: 1.75; font-size: 0.9375rem; }
     .eflowqa-md h1, .eflowqa-md h2, .eflowqa-md h3, .eflowqa-md h4 { margin: 1.2em 0 0.5em; color: ${isDark ? '#e2e8f0' : '#1e293b'}; }
-    .eflowqa-md h1 { font-size: 1.35em; border-bottom: 1px solid ${isDark ? 'rgba(100,255,218,0.2)' : '#d9e6f2'}; padding-bottom: 0.3em; }
+    .eflowqa-md h1 { font-size: 1.35em; border-bottom: 1px solid ${isDark ? 'rgba(0, 217, 255,0.2)' : '#d9e6f2'}; padding-bottom: 0.3em; }
     .eflowqa-md h2 { font-size: 1.2em; }
     .eflowqa-md h3 { font-size: 1.05em; }
     .eflowqa-md p { margin: 0.6em 0; }
     .eflowqa-md table { border-collapse: collapse; margin: 0.8em 0; width: 100%; font-size: 0.875em; }
     .eflowqa-md th, .eflowqa-md td { border: 1px solid ${isDark ? 'rgba(148,163,184,0.35)' : '#cbd5e1'}; padding: 6px 10px; text-align: left; }
     .eflowqa-md th { background: ${isDark ? 'rgba(19,194,194,0.12)' : '#f0f5fa'}; }
-    .eflowqa-md code { background: ${isDark ? 'rgba(100,255,218,0.1)' : 'rgba(13,148,136,0.08)'}; padding: 1px 5px; border-radius: 4px; font-size: 0.875em; }
-    .eflowqa-md pre { background: ${isDark ? '#0a1929' : '#0f172a'}; color: ${isDark ? '#dbeafe' : '#e2e8f0'}; padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
+    .eflowqa-md code { background: ${isDark ? 'rgba(0, 217, 255,0.1)' : 'rgba(13,148,136,0.08)'}; padding: 1px 5px; border-radius: 4px; font-size: 0.875em; }
+    .eflowqa-md pre { background: ${isDark ? '#02050c' : '#0f172a'}; color: ${isDark ? '#dbeafe' : '#e2e8f0'}; padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
     .eflowqa-md pre code { background: transparent; padding: 0; color: inherit; }
     .eflowqa-md blockquote { border-left: 3px solid #13c2c2; margin: 0.8em 0; padding: 0.2em 1em; background: ${isDark ? 'rgba(19,194,194,0.06)' : 'rgba(19,194,194,0.05)'}; }
     .eflowqa-md ul, .eflowqa-md ol { padding-left: 1.6em; margin: 0.5em 0; }
@@ -1057,7 +1057,7 @@ export default function EflowQa() {
         onSearch={doSearch}
         allowClear
       />
-      <div style={{ borderTop: isDark ? '1px solid rgba(100,255,218,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
+      <div style={{ borderTop: isDark ? '1px solid rgba(0, 217, 255,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
       <div id="tt-quick-analysis" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <ThunderboltOutlined style={{ color: '#faad14' }} />
         <Text strong style={{ fontSize: 13 }}>{t('qa.tt.label')}</Text>
@@ -1070,7 +1070,7 @@ export default function EflowQa() {
         onSearch={runTt}
         allowClear
       />
-      <div style={{ borderTop: isDark ? '1px solid rgba(100,255,218,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
+      <div style={{ borderTop: isDark ? '1px solid rgba(0, 217, 255,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
       <div id="tt-batch-check" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <ThunderboltOutlined style={{ color: '#722ed1' }} />
         <Text strong style={{ fontSize: 13 }}>{t('qa.ttBatch.label')}</Text>
@@ -1252,7 +1252,7 @@ export default function EflowQa() {
             {ttLoading && (
               <div style={{ textAlign: 'center', padding: 60 }}>
                 <Spin size="large" />
-                <div style={{ marginTop: 12, color: isDark ? '#94a3b8' : '#64748b' }}>{t('qa.tt.analyzing')}</div>
+                <div style={{ marginTop: 12, color: isDark ? '#aebbd4' : '#64748b' }}>{t('qa.tt.analyzing')}</div>
               </div>
             )}
             {!ttLoading && ttError && (
@@ -1280,7 +1280,7 @@ export default function EflowQa() {
             )}
             {!ttLoading && !ttError && ttReport?.found && (() => {
               const ruleDoc = items?.find(i => i.path.includes('掉站工单派单归属判定规则'))
-              const cardStyle = { border, borderRadius: 8, padding: '10px 14px', marginBottom: 10, background: isDark ? 'rgba(100,255,218,0.04)' : '#fafcfe' }
+              const cardStyle = { border, borderRadius: 8, padding: '10px 14px', marginBottom: 10, background: isDark ? 'rgba(0, 217, 255,0.04)' : '#fafcfe' }
               return (
                 <div>
                   {/* AI 分析结论（TT单分析技能，页面顶部） */}
@@ -1288,7 +1288,7 @@ export default function EflowQa() {
                     <div style={{ ...cardStyle, background: isDark ? 'rgba(24,144,255,0.06)' : '#f0f7ff' }}>
                       <RobotOutlined style={{ color: '#1677ff', marginRight: 8 }} />
                       <Text strong>{t('qa.tt.aiConclusion')}</Text>
-                      <div style={{ marginTop: 6, color: isDark ? '#94a3b8' : '#64748b', fontSize: 13 }}>{t('qa.tt.aiAnalyzing')}</div>
+                      <div style={{ marginTop: 6, color: isDark ? '#aebbd4' : '#64748b', fontSize: 13 }}>{t('qa.tt.aiAnalyzing')}</div>
                     </div>
                   )}
                   {!ttAiLoading && ttAi && !ttAi.ok && (
@@ -1305,7 +1305,7 @@ export default function EflowQa() {
                       <div className="eflowqa-md" style={{ fontSize: 13, lineHeight: 1.7 }}>
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{ttAi.conclusion}</ReactMarkdown>
                       </div>
-                      <div style={{ marginTop: 8, fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
+                      <div style={{ marginTop: 8, fontSize: 12, color: isDark ? '#aebbd4' : '#64748b' }}>
                         {ttAi.skill_title && <Tag color="blue" style={{ marginRight: 6 }}>{ttAi.skill_title}</Tag>}
                         {ttAi.model && <Tag style={{ marginRight: 6 }}>{ttAi.model}</Tag>}
                         {ttAi.alarm_source && <Tag color="cyan" style={{ marginRight: 6 }}>{t('qa.tt.alarmSource')}: {ttAi.alarm_source}</Tag>}
@@ -1316,10 +1316,10 @@ export default function EflowQa() {
 
                   {/* 告警信息（本地告警库命中即显；未命中则 eFlow 活查，期间只在本卡内 loading） */}
                   {ttAlarmLoading && (
-                    <div style={{ ...cardStyle, background: isDark ? 'rgba(100,255,218,0.06)' : '#f4fbfa' }}>
+                    <div style={{ ...cardStyle, background: isDark ? 'rgba(0, 217, 255,0.06)' : '#f4fbfa' }}>
                       <Spin size="small" style={{ marginRight: 8 }} />
                       <Text strong>{t('qa.tt.alarmCard')}</Text>
-                      <div style={{ marginTop: 6, color: isDark ? '#94a3b8' : '#64748b', fontSize: 13 }}>
+                      <div style={{ marginTop: 6, color: isDark ? '#aebbd4' : '#64748b', fontSize: 13 }}>
                         {t('qa.tt.alarmEflowLoading')}
                       </div>
                     </div>
@@ -1372,7 +1372,7 @@ export default function EflowQa() {
                           )}
                         </div>
                         {ttUmeLoading && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: isDark ? '#94a3b8' : '#64748b', fontSize: 13 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: isDark ? '#aebbd4' : '#64748b', fontSize: 13 }}>
                             <Spin size="small" />{t('qa.tt.umeLoading')}
                           </div>
                         )}
@@ -1504,7 +1504,7 @@ export default function EflowQa() {
                 <Button size="small" onClick={() => setTtBatchView(false)}>{t('qa.ttBatch.back')}</Button>
               </Space>
             </div>
-            <div style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b', marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: isDark ? '#aebbd4' : '#64748b', marginBottom: 10 }}>
               {t('qa.ttBatch.subtitle')}
             </div>
 
@@ -1545,7 +1545,7 @@ export default function EflowQa() {
             {batchLoading && (
               <div style={{ textAlign: 'center', padding: 50 }}>
                 <Spin size="large" />
-                <div style={{ marginTop: 12, color: isDark ? '#94a3b8' : '#64748b' }}>{t('qa.ttBatch.checking')}</div>
+                <div style={{ marginTop: 12, color: isDark ? '#aebbd4' : '#64748b' }}>{t('qa.ttBatch.checking')}</div>
               </div>
             )}
 
@@ -1596,7 +1596,7 @@ export default function EflowQa() {
                   title: t('qa.ttBatch.col.detail'), dataIndex: 'match_details', ellipsis: true,
                   render: (v: string) => (v
                     ? <Tooltip title={<span style={{ wordBreak: 'break-all' }}>{v}</span>}>
-                        <span style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>{v}</span>
+                        <span style={{ fontSize: 12, color: isDark ? '#aebbd4' : '#64748b' }}>{v}</span>
                       </Tooltip>
                     : '—'),
                 },
@@ -1710,7 +1710,7 @@ export default function EflowQa() {
                     border,
                     marginBottom: 10,
                     cursor: 'pointer',
-                    background: isDark ? 'rgba(100,255,218,0.04)' : '#fafcfe',
+                    background: isDark ? 'rgba(0, 217, 255,0.04)' : '#fafcfe',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1723,7 +1723,7 @@ export default function EflowQa() {
                   </div>
                   <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 2 }}>{displayPath(h.path, locale)}</Text>
                   {h.snippets.map(s => (
-                    <div key={s.line} style={{ fontSize: 13, marginTop: 4, color: isDark ? '#94a3b8' : '#475569' }}>
+                    <div key={s.line} style={{ fontSize: 13, marginTop: 4, color: isDark ? '#aebbd4' : '#475569' }}>
                       <Text type="secondary" style={{ fontSize: 11, marginRight: 6 }}>{s.line}</Text>
                       <Highlight text={s.text} terms={searchTerms} />
                     </div>

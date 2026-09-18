@@ -84,7 +84,7 @@ const PAGE_ICONS: Record<string, ReactNode> = {
   portalLogin: <LoginOutlined />,
 }
 
-const GROUP_TAG_COLOR: Record<string, string> = { u: 'orange', n: 'geekblue', m: 'cyan', c: 'purple' }
+const GROUP_TAG_COLOR: Record<string, string> = { u: 'orange', n: 'geekblue', v: 'magenta', m: 'cyan', c: 'purple' }
 
 /** 帮助页渲染用的页面条目（PAGE_LIST 条目 + 图标） */
 interface PageMeta { key: string; iframe?: boolean }
@@ -319,8 +319,8 @@ export default function Help() {
         ))}
         <Paragraph type="secondary" style={{ margin: '8px 0 0', fontSize: 12 }}>
           {isZh
-            ? '⚠️ 新增任务必须同时登记进 worker_watchdog.py 的 GROUP_TASK_MAP——只写 TASK_SPECS 不分组 = 任务入队后永远 pending。这是本项目已发生过三次的事故模式。'
-            : '⚠️ New tasks MUST also be registered in GROUP_TASK_MAP in worker_watchdog.py — declaring them only in TASK_SPECS leaves them pending forever. This accident happened three times in this project.'}
+            ? '⚠️ 新增任务必须同时登记进 worker_watchdog.py 的 GROUP_TASK_MAP——只写 TASK_SPECS 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式。'
+            : '⚠️ New tasks MUST also be registered in GROUP_TASK_MAP in worker_watchdog.py — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times in this project.'}
         </Paragraph>
       </Card>
 

@@ -97,8 +97,8 @@ REMOTE_CHECKS = [
          write_path="DbWriterClient.write_data(upsert) → /api/write（失败回退本地）",
          local_db=str(MY_APP_DIR / "data" / "ipran_ume" / "ipran_ume_kpi.sqlite3"),
          allow_empty=False, skip_match=None),
-    dict(db="lbr_ms_sla_kpi.sqlite3", granularity="daily", run_by="06:30",
-         task_id="ms_sla_full", task_cron="0 */6 * * *",
+    dict(db="lbr_ms_sla_kpi.sqlite3", granularity="daily", run_by="05:11",
+         task_id="ms_sla_full", task_cron="0 5 * * *",
          service="backend/services/ms_sla_sync.py::run_ms_sla_sync",
          write_path="DbWriterClient.write_data(upsert) → /api/write（失败回退本地+日志）",
          local_db=str(MY_APP_DIR / "data" / "ms_sla" / "lbr_ms_sla_kpi.sqlite3"),
@@ -139,6 +139,20 @@ LOCAL_CHECKS = [
 TASK_HEALTH_LOOKBACK_HOURS = 24
 TASK_HEALTH_PENDING_MAX_MINUTES = 10
 TASK_HEALTH_RUNNING_MAX_MINUTES = 30
+
+# 「外部依赖不可用」类失败特征（EWS / 邮件网关 + 通用网络不可达）。
+# 用于把"依赖故障导致的逾期"与"任务真停摆"分开：前者汇总成一条告警，后者逐条告警。
+# 见 _is_dependency_failure()。
+_DEPENDENCY_FAIL_KEYS = (
+    # EWS / 邮件网关
+    "RateLimitError", "UnauthorizedError", "Invalid credentials", "HTTP 401",
+    "back off", "ServerBusy", "ErrorServerBusy", "exchmail",
+    "Unable to connect to the remote server",
+    # 通用网络不可达
+    "TransportError", "ReadTimeout", "ConnectTimeout", "ConnectionError",
+    "ConnectionReset", "RemoteDisconnected",
+    "10054", "10060", "10061",
+)
 
 
 # ============================================================
@@ -293,9 +307,10 @@ def _ensure_my_app_importable():
 
 def _task_health_db_query():
     """连接本机历史库（pg/sqlite 双模），一次查询返回：
-    (exec_latest, success_latest, disabled_ids, cron_map, stuck, error)
+    (exec_latest, success_latest, fail_latest, disabled_ids, cron_map, stuck, error)
     - exec_latest: {task_id: 最近 started_at}（GROUP BY 一次取全，避免 N+1）
     - success_latest: {task_id: 最近一次成功的 started_at}（成功逾期检查用）
+    - fail_latest: {task_id: (最近一次失败的 error, started_at)}（区分依赖故障/真停摆）
     - disabled_ids: 已禁用任务集合（task_schedule_config enabled=0）
     - cron_map: {task_id: cron}（调度配置持久化表）
     - stuck: 滞留队列记录 [dict(id, task_id, status, since)]
@@ -314,6 +329,19 @@ def _task_health_db_query():
                 "SELECT task_id, MAX(started_at) FROM task_execution_log "
                 "WHERE success = 1 GROUP BY task_id"
             ).fetchall()}
+            # 最近一次失败的 error（回看窗口内），用于区分「依赖不可用」与「任务停摆」。
+            # 不能只看 started_at：2026-09-18 的 EWS 故障里 14 个报表任务都在跑、
+            # 只是每次都失败，光凭"有执行记录"无法判断该不该额外叫醒人。
+            _lookback = (datetime.now()
+                         - timedelta(hours=TASK_HEALTH_LOOKBACK_HOURS)).isoformat()
+            fail_latest: dict = {}
+            for _tid, _err, _ts in conn.execute(
+                "SELECT task_id, error, started_at FROM task_execution_log "
+                "WHERE success = 0 AND started_at >= ?", (_lookback,)
+            ).fetchall():
+                _prev = fail_latest.get(_tid)
+                if _prev is None or str(_ts) > _prev[1]:
+                    fail_latest[_tid] = (str(_err or ""), str(_ts))
             sched_rows = conn.execute(
                 "SELECT task_id, cron, enabled FROM task_schedule_config"
             ).fetchall()
@@ -327,12 +355,12 @@ def _task_health_db_query():
             stuck += [dict(id=q[0], task_id=q[1], status="running", since=q[2]) for q in conn.execute(
                 "SELECT id, task_id, started_at FROM task_queue "
                 "WHERE status = 'running' AND started_at < ?", (r_cut,)).fetchall()]
-        return exec_latest, success_latest, disabled_ids, cron_map, stuck, None
+        return exec_latest, success_latest, fail_latest, disabled_ids, cron_map, stuck, None
     except Exception as e:
         msg = str(e)
         if "no such table" in msg or "42P01" in msg or "does not exist" in msg:
-            return {}, {}, set(), {}, [], None
-        return None, None, None, None, None, f"历史库查询失败: {msg}"
+            return {}, {}, {}, set(), {}, [], None
+        return None, None, None, None, None, None, f"历史库查询失败: {msg}"
 
 
 def _task_group_coverage():
@@ -367,26 +395,87 @@ def _cron_next_and_interval(cron: str, after: datetime):
         if f1 is None:
             return None, None
         f2 = trig.get_next_fire_time(None, f1 + timedelta(seconds=1))
+        # ⚠ 间隔必须在两者仍同为 aware 时算：旧代码先把 f1 去时区再算 f2 - f1，
+        # aware 减 naive 直接抛 TypeError 被下面 except 吞掉 → 永远返回 (None, None)，
+        # 导致「成功逾期」这一整个检查维度自 2026-08-13 上线以来默默禁用（2026-09-18
+        # 接入健康告警时才发现：实测所有任务都不报逾期）。
+        interval = (f2 - f1) if f2 else None
         if f1.tzinfo is not None:
             f1 = f1.replace(tzinfo=None)
-        return f1, (f2 - f1) if f2 else None
-    except Exception:
+        return f1, interval
+    except Exception as e:  # noqa: BLE001
+        # 不静默吞异常：一旦解析失败，整个逾期/低频判定都会降级，必须留痕迹
+        logger.warning("[cron] 解析 cron=%r 失败（逾期/低频判定将降级）: %s: %s",
+                       cron, type(e).__name__, e)
         return None, None
+
+
+def _silent_task_candidates(registry, exec_latest: dict, disabled_ids, cutoff: str,
+                            cron_map: dict, specs: dict, lookback_hours: float) -> list:
+    """“静默停摆”候选：超出回看窗口无执行记录的任务。
+
+    2026-09-18 收紧（接入健康告警后不再能靠“没人看”容忍误报）：
+      * 仍按原判据取“最后执行时间 < cutoff”，但低频任务（调度间隔 > 回看窗口，
+        如 eFlow 规则收集 `59 23 */3 * *` 每 3 天一次）本来就不该在 24h 内有记录，
+        一律报出来就是误报 → 按 cron 周期判定后跳过；
+      * 仍保留“仍无执行记录 = 从未跑过”的报告（这正是漏分组/漏注册的典型症状）；
+      * cron 解析不出间隔时仍按原规则报（宁可多报不可漏报）。
+    """
+    out = []
+    for t in registry:
+        if t in disabled_ids:
+            continue
+        last = exec_latest.get(t)
+        if not last:
+            out.append(t)                 # 从未执行：漏分组/漏注册的典型症状
+            continue
+        if str(last) >= cutoff:
+            continue
+        cron = cron_map.get(t) or (specs.get(t) or {}).get("default_cron") or ""
+        try:
+            last_dt = datetime.fromisoformat(str(last))
+        except Exception:  # noqa: BLE001
+            last_dt = None
+        interval = None
+        if last_dt is not None:
+            _, interval = _cron_next_and_interval(cron, last_dt)
+        if interval and interval > timedelta(hours=lookback_hours):
+            continue                      # 低频任务，尚未到下一期
+        out.append(t)
+    return out
+
+
+def _is_dependency_failure(error: str) -> bool:
+    """失败原因是否属于「外部依赖不可用」（EWS/邮件网关、通用网络不可达）。
+
+    这类失败不是任务停摆，而是依赖故障：任务在正常重试、task_runner 的失败告警
+    也已覆盖。区分出来的目的是**把 N 个任务汇总成一条告警**，而不是（原实现）
+    整体从告警里剔除 —— 剔除会让聚合信号彻底消失（2026-09-18 的 65 小时里
+    14 个报表任务全部逾期，却一条 task-health 告警都没有）。
+    """
+    blob = str(error or "")
+    return any(k in blob for k in _DEPENDENCY_FAIL_KEYS)
 
 
 def _check_task_execution_health(now: datetime, results: list, stale_items: list):
     """任务执行健康检查（4 个维度，均为只读查询）。
-    返回 (ok, issues)：ok=False 表示检查手段本身不可用（影响 success）。"""
+    返回 (ok, issues, findings)：ok=False 表示检查手段本身不可用（影响 success）；
+    findings = {group_missing/silent/stuck/overdue/overdue_dependency: [...]}，供
+    task_health_alert 做翻转去重告警（stuck 为 dict，带队列 id 与滞留时长）。
+    """
     registry, groups, specs, err = _task_group_coverage()
     if err or registry is None:
         stale_items.append(dict(db="task_health", table="*",
                                 reason=f"任务健康配置加载失败: {err}",
                                 guidance=["检查 backend/task_registry.py 与 backend/worker_watchdog.py 能否正常 import"]))
-        return False, 1
+        return False, 1, {}
     issues = 0
+    findings: dict = {"group_missing": [], "silent": [], "stuck": [],
+                      "overdue": [], "overdue_dependency": []}
 
     # 1) 注册表 vs worker 分组清单覆盖（新增任务只注册未加分组 → 永远无人认领）
     missing = [t for t in registry if t not in groups]
+    findings["group_missing"] = list(missing)
     if missing:
         issues += 1
         stale_items.append(dict(
@@ -398,18 +487,18 @@ def _check_task_execution_health(now: datetime, results: list, stale_items: list
                 "3. 查 task_queue 是否有滞留 pending 记录（新 worker 会自动认领执行）",
             ]))
 
-    exec_latest, success_latest, disabled_ids, cron_map, stuck, err = _task_health_db_query()
+    exec_latest, success_latest, fail_latest, disabled_ids, cron_map, stuck, err = _task_health_db_query()
     if err:
         stale_items.append(dict(db="task_health", table="task_execution_log/task_queue",
                                 reason=err,
                                 guidance=["检查后端历史库连接（PG 5432 / db/app.db）与 worker 进程状态"]))
-        return False, issues + 1
+        return False, issues + 1, findings
 
-    # 2) 注册任务最近 24h 无执行记录（排除已禁用任务）
+    # 2) 注册任务超出回看窗口无执行记录（排除已禁用任务）
     cutoff = (now - timedelta(hours=TASK_HEALTH_LOOKBACK_HOURS)).isoformat()
-    silent = [t for t in registry
-              if t not in disabled_ids
-              and (not exec_latest.get(t) or exec_latest[t] < cutoff)]
+    silent = _silent_task_candidates(registry, exec_latest, disabled_ids, cutoff,
+                                     cron_map, specs, TASK_HEALTH_LOOKBACK_HOURS)
+    findings["silent"] = list(silent)
     if silent:
         issues += 1
         stale_items.append(dict(
@@ -425,6 +514,9 @@ def _check_task_execution_health(now: datetime, results: list, stale_items: list
     # 3) task_queue 滞留记录
     if stuck:
         issues += 1
+        findings["stuck"] = [dict(task_id=s["task_id"],
+                                  detail=f"队列 id={s['id']} {s['status']} since={s['since']}")
+                             for s in stuck]
         lines = "\n".join(f"    {s['task_id']} id={s['id']} {s['status']} since={s['since']}"
                            for s in stuck[:10])
         stale_items.append(dict(
@@ -433,13 +525,15 @@ def _check_task_execution_health(now: datetime, results: list, stale_items: list
             guidance=[
                 "1. pending: 任务可能不在任何 worker 分组清单（见分组覆盖检查）或 worker 未启动",
                 "2. running 超 30min: 大概率 worker 已崩溃（僵尸记录），worker 周期回收会自动补写失败并交 auto_retry 重试；也可手动重跑",
-                "3. 确认 3 个分组 worker（u/n/m）均在运行: worker_watchdog.log",
+                "3. 确认所有分组 worker（见 worker_watchdog.GROUP_TASK_MAP，当前 u/n/v/m/c）均在运行: worker_watchdog.log",
             ]))
 
     # 4) 成功逾期：上次成功之后按 cron 应再产出的周期已过一个完整周期下限，
     #    仍无成功执行（补「24h 无记录」对小时级任务不敏感的盲区：
     #    eflow_sync 僵尸事件中断档 3 小时，旧检查因 9 点有成功记录全程未报）
     overdue = []
+    overdue_alert = []   # 进入健康告警的子集（真停摆 / 非依赖类失败）
+    overdue_dependency = []   # 因外部依赖不可用而逾期（汇总告警，非逐条刷屏）
     for t in registry:
         if t in disabled_ids:
             continue
@@ -457,6 +551,45 @@ def _check_task_execution_health(now: datetime, results: list, stale_items: list
         grace = max(interval or timedelta(hours=1), timedelta(minutes=30))
         if now > next_fire + grace:
             overdue.append(f"{t}（最后成功 {last_ok[:19]}，{next_fire:%m-%d %H:%M} 应产出新一期）")
+            detail = f"最后成功 {last_ok[:16]}，应于 {next_fire:%m-%d %H:%M} 产出新一期"
+            _last_try = exec_latest.get(t) or ""
+            _last_err = (fail_latest.get(t) or ("", ""))[0]
+            if _last_try >= cutoff and _last_try > last_ok:
+                # 近 24h 有执行记录 = 任务在跑、只是失败。逐条"逾期"告警会和 task_runner
+                # 的失败告警重复（2026-09-18 实跑：EWS 发信失败连带 14 个报表任务全部"逾期"）。
+                # 但**不能整体剔除**：那样聚合信号就消失了，65 小时里只剩每条原始异常
+                # 刷屏（且文案是 "RateLimitError: Max timeout reached"，看着像服务端限流，
+                # 完全指不出"密码失效"）。故按失败原因分流：依赖不可用 → 汇总一条；
+                # 其他（应用/数据类错误）→ 仍逐条告警。
+                if _is_dependency_failure(_last_err):
+                    overdue_dependency.append(dict(
+                        task_id=t, detail=detail,
+                        last_try=_last_try[:19], last_error=_last_err[:200]))
+                else:
+                    overdue_alert.append(dict(task_id=t, detail=detail,
+                                              last_error=_last_err[:200]))
+            else:
+                # 连尝试都没有 = 真停摆，必须单独叫醒人
+                overdue_alert.append(dict(task_id=t, detail=detail))
+
+    findings["overdue"] = overdue_alert
+    findings["overdue_dependency"] = overdue_dependency
+
+    if overdue_dependency:
+        issues += 1
+        _dep_names = [d["task_id"] for d in overdue_dependency]
+        _shown = "、".join(_dep_names[:10]) + (f" 等 {len(_dep_names)} 个" if len(_dep_names) > 10 else "")
+        _sample = overdue_dependency[0].get("last_error", "")
+        stale_items.append(dict(
+            db="task_health", table="task_execution_log(success)",
+            reason=(f"{len(overdue_dependency)} 个任务因**外部依赖不可用**而逾期"
+                    f"（任务在正常重试，非停摆；逐条失败告警由 task_runner 发出）: {_shown}\n"
+                    f"    最近失败示例: {_sample}"),
+            guidance=[
+                "1. 看 email_recovery 的 EWS 状态通知：依赖故障分 server_down / auth_error / cred_mismatch",
+                "2. auth_error / cred_mismatch **不会自行恢复**，需到「设置 → Exchange/OWA Mailbox」核对账号密码是否被锁/改",
+                "3. server_down 只能等 Orange 侧恢复；恢复后 email_recovery 当轮即补发时效内的失败邮件",
+            ]))
     if overdue:
         issues += 1
         stale_items.append(dict(
@@ -473,7 +606,7 @@ def _check_task_execution_health(now: datetime, results: list, stale_items: list
                         status="ok" if not (missing or silent or stuck or overdue) else "STALE",
                         silent_tasks=silent, stuck_queue=len(stuck), group_missing=missing,
                         success_overdue=overdue))
-    return True, issues
+    return True, issues, findings
 
 
 # ============================================================
@@ -595,7 +728,22 @@ def run_db_freshness_check() -> dict:
     # ---------- 任务执行健康检查 ----------
     # 2026-08-12 新增：补齐“任务注册但无 worker 认领 / 从未执行”盲区
     # （db_freshness_check 与 sp_report_generate 曾因此无历史记录）
-    task_health_ok, task_health_issues = _check_task_execution_health(now, results, stale_items)
+    task_health_ok, task_health_issues, task_health_findings = _check_task_execution_health(
+        now, results, stale_items)
+
+    # ---------- 任务健康异常告警（翻转去重）----------
+    # 2026-09-18 补：上面的检查每小时都算得出来，但结果只进日志与任务历史，
+    # 没人盯就等于没监控（olib_soc 看板因此静默停摆两天、是用户先发现的）。
+    # 只对调度健康（分组缺失/静默停摆/队列滞留/成功逾期）告警，且同一条异常
+    # 只在首次出现、持续超阈值、以及消失时各通知一次。任何异常不得影响巡检本身。
+    task_health_alert = {}
+    if task_health_ok:
+        try:
+            from backend.services.task_health_alert import evaluate_and_notify
+            task_health_alert = evaluate_and_notify(task_health_findings, now=now)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[task_health_alert] 调用异常（不影响巡检结果）: %s", e)
+            task_health_alert = {"evaluated": False, "error": str(e)[:200]}
 
     # ---------- 汇总 ----------
     stale_count = len(stale_items)
@@ -607,6 +755,10 @@ def run_db_freshness_check() -> dict:
           f"任务健康检查 {'正常' if task_health_ok else '不可用'}")
     if task_health_issues and task_health_ok:
         print(f"[TASK-HEALTH] 发现 {task_health_issues} 项任务执行健康异常（详见下方 STALE 条目）")
+    if task_health_alert.get("notified"):
+        print(f"[TASK-HEALTH-ALERT] 已推送告警: new={task_health_alert.get('new')} "
+              f"renotify={task_health_alert.get('renotified')} "
+              f"resolved={task_health_alert.get('resolved')}")
     if stale_items:
         for si in stale_items:
             print(f"[STALE] {si.get('db')}/{si.get('table')}: {si.get('reason')}")
@@ -628,6 +780,7 @@ def run_db_freshness_check() -> dict:
         "db_total": db_total,
         "task_health_ok": task_health_ok,
         "task_health_issues": task_health_issues,
+        "task_health_alert": task_health_alert,
         "stale": stale_items,
         "details": results,
         "elapsed_seconds": round(elapsed, 2),

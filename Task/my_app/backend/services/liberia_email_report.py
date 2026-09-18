@@ -92,8 +92,8 @@ def _run_script(
     to: str = None,
     cc: str = None,
     retries: int = 2,
-    per_attempt_timeout: int = 120,
-    budget: int = 180,
+    per_attempt_timeout: int = 300,
+    budget: int = 360,
 ) -> dict:
     """调用指定邮件脚本，返回 {success, message/detail/error}。
 
@@ -101,7 +101,19 @@ def _run_script(
     秒后返回，避免 EWS 服务端降级时一个邮件任务长期霸占调度 worker、吞掉后续整点任务。
     - 正常情况下（数分钟内完成）会在 budget 内拿到真实结果并返回。
     - 极端缓慢时（超过 budget）脱离主线程返回失败，后台线程继续发送；
-      这类「超时脱离」不会被 email_recovery 重复补发（错误关键字不匹配 EWS 失败）。
+      这类「超时脱离」不会被 email_recovery 重复补发（BUDGET_EXCEEDED 不在
+      EWS 失败关键字集合内）。
+
+    超时预算（2026-09-18 调整：120/180 → 300/360）：
+      - per_attempt_timeout 与邮件脚本自身的 OWA_SOAP_TIMEOUT=300 对齐。实测 1H
+        报告带 5.61MB 附件经 EWS 发送耗时约 198s——上行带宽不是瓶颈（5.61MB 裸上传
+        仅约 4s），慢在 EWS 往返延迟与 exchangelib 内部重试退避；旧的 120s 上限
+        必然在发送完成前杀掉子进程，任务每轮都以 timeout 告终。
+      - budget 相应放到 360，给「单次 300s 超时 + 收尾」留出余量。
+      - 注意 subprocess.TimeoutExpired 的错误文本形如
+        "timeout: Command ... timed out after N seconds"，含 "timed out"，
+        而该关键字在 email_recovery.EWS_FAIL_KEYS 内 → 会被判为 EWS 失败并补发。
+        放宽上限同时也缩小了「服务端已接收、本地却判失败」的重复发送窗口。
     """
     py = _resolve_python()
     script = EMAIL_REPORTS_DIR / script_name

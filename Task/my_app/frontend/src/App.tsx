@@ -133,6 +133,68 @@ const AR_PAGE_DEFAULTS: Partial<Record<PageKey, number>> = {
 // 支持软刷新协议（postMessage myapp-refresh 原地重拉数据）的 legacy 页面
 const AR_SOFT_REFRESH_PAGES: PageKey[] = ['mwUmeTopology', 'mwRealTime', 'vmaxCxoDashboard_90Days']
 
+/**
+ * antd 深色档 map token —— 全量对齐 vmax 90 天看板口径。
+ *
+ * 背景（2026-09-18）：只把 --wh-* 自研令牌换成 vmax 色值是不够的。
+ * my_app 的界面由**两套互不相干的调色系统**画出来：
+ *   1) 自研 CSS 层（index.css 的 --wh-* / 各页内联样式）—— 已对齐 vmax；
+ *   2) antd 组件层 —— antd v6 的 darkAlgorithm 会从种子色**派生出一整套中性灰**：
+ *        #141414 容器底 / #272727 表头 / #303030 描边 / #424242 描边
+ *        rgba(255,255,255,.85) 正文 / rgba(255,255,255,.25) 次级文字
+ *      这些灰**一点蓝都不带**，跟 vmax 的深空蓝（#02050c / #08122c / #153db0 /
+ *      #f5f7ff）根本不是一个体系。实测 ?page=tables 深色下出现次数最多的颜色是
+ *      rgba(255,255,255,.85)×2091、#303030×1180、#272727×626 —— 也就是说那张
+ *      表格页**基本就是 antd 默认深色主题**，而不是 vmax。
+ *
+ * 这就是「?page=sync 深色 ≠ ?page=vmaxCxoDashboard_90Days 深色」的主因：
+ * 后者是内嵌的独立 HTML（CSS 100% 是 vmax），前者是 React + antd。
+ *
+ * 因此这里把 antd 的 map token 也钉到 vmax 值上，让两套体系同源。
+ * 只影响深色档；浅色档继续用 antd 原值。
+ *
+ * 注意：antd v6 生成的是静态 CSS-in-JS（不是 CSS 变量模式），且规则用 :where()
+ * 包裹（特异性 0），所以 index.css 里已有的 .ant-* 覆盖仍然会赢 —— 两者不冲突。
+ */
+const VMAX_DARK_TOKEN = {
+  /* 种子色（antd 由这些派生 hover / active / bg 等） */
+  colorPrimary: '#00d9ff',
+  colorInfo: '#258cff',
+  colorSuccess: '#0bc78c',
+  colorWarning: '#f6cf00',
+  colorError: '#ff5c6c',
+  colorLink: '#7fd2ee',
+
+  /* 背景四层：页面 / 容器（卡片·表格·输入框）/ 浮层（弹窗·下拉·抽屉）/ 聚光（Tooltip） */
+  colorBgBase: '#02050c',
+  colorBgLayout: '#02050c',
+  colorBgContainer: '#08122c',
+  colorBgElevated: '#070d31',
+  colorBgSpotlight: '#0a1730',
+  colorBgMask: 'rgba(2, 5, 12, 0.65)',
+
+  /* 文字四层 */
+  colorText: '#f5f7ff',
+  colorTextSecondary: '#aebbd4',
+  colorTextTertiary: '#6f8cb4',
+  colorTextQuaternary: '#4a5f7d',
+  colorTextHeading: '#f5f7ff',
+  colorTextDescription: '#aebbd4',
+  colorTextPlaceholder: '#6f8cb4',
+  colorTextDisabled: '#4a5f7d',
+
+  /* 描边：主描边用 vmax 的实心宝蓝，次级 / 分割线用暗一档的 #173158 */
+  colorBorder: '#153db0',
+  colorBorderSecondary: '#173158',
+  colorSplit: '#173158',
+
+  /* 填充：hover / active / 标签底 / 开关 —— vmax 是「蓝色叠加」而不是「白色叠加」 */
+  colorFill: 'rgba(37, 140, 255, 0.16)',
+  colorFillSecondary: 'rgba(37, 140, 255, 0.14)',
+  colorFillTertiary: 'rgba(37, 140, 255, 0.10)',
+  colorFillQuaternary: 'rgba(37, 140, 255, 0.06)',
+} as const
+
 function arReadOverride(): number | null {
   try {
     const raw = localStorage.getItem(AR_STORAGE_KEY)
@@ -1115,14 +1177,64 @@ function AppContent() {
       locale={locale === 'zh' ? zhCN : enUS}
       theme={{
         algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
-        token: {
-          colorPrimary: '#13c2c2',
-          colorInfo: '#13c2c2',
-          borderRadius: 6,
-        },
-        components: isDark ? {} : {
-          Table: { headerBg: '#f0f5fa', headerColor: '#334155', rowHoverBg: '#e8f4f2' },
-        },
+        token: isDark
+          ? { ...VMAX_DARK_TOKEN, borderRadius: 6 }
+          : { colorPrimary: '#13c2c2', colorInfo: '#13c2c2', borderRadius: 6 },
+        components: isDark
+          ? {
+              // 表头 / 边框：antd 默认给 #272727 表头 + #303030 描边，换成 vmax 的
+              // #08122c 表头 + #173158 描边（基准页 th 就是 #08122c / 文字 #55d7ff）
+              Table: {
+                colorBgContainer: '#050d22',
+                headerBg: '#08122c',
+                headerColor: '#55d7ff',
+                headerSplitColor: '#173158',
+                borderColor: '#173158',
+                rowHoverBg: 'rgba(37, 140, 255, 0.10)',
+                footerBg: '#08122c',
+              },
+              // 卡片：底色走 token，但把自带阴影调成 vmax 的内辉光观感
+              Card: {
+                colorBgContainer: '#08122c',
+                headerBg: 'transparent',
+                colorBorderSecondary: '#153db0',
+              },
+              // 弹窗 / 抽屉 / 下拉：浮层底用 #070d31（vmax mast 色）
+              Modal: { contentBg: '#070d31', headerBg: '#070d31', titleColor: '#f5f7ff' },
+              Drawer: { colorBgElevated: '#070d31' },
+              Dropdown: { colorBgElevated: '#070d31', controlItemBgHover: 'rgba(37, 140, 255, 0.14)' },
+              Tooltip: { colorBgSpotlight: '#0a1730', colorTextLightSolid: '#f5f7ff' },
+              // 侧栏菜单：选中态用 vmax 的电光青 + 蓝色叠加底
+              Menu: {
+                itemBg: 'transparent',
+                subMenuItemBg: 'transparent',
+                itemSelectedBg: 'rgba(37, 140, 255, 0.16)',
+                itemSelectedColor: '#00d9ff',
+                itemHoverBg: 'rgba(37, 140, 255, 0.10)',
+                itemColor: '#aebbd4',
+              },
+              Tabs: { itemSelectedColor: '#00d9ff', itemHoverColor: '#7fd2ee', inkBarColor: '#00d9ff', itemColor: '#aebbd4' },
+              // 分段控件对应基准页的 .seg（底 rgba(9,34,74,.6) / 描边 #17499c / 选中字 #7fd2ee）
+              Segmented: {
+                trackBg: 'rgba(9, 34, 74, 0.60)',
+                itemColor: '#aebbd4',
+                itemHoverColor: '#f5f7ff',
+                itemSelectedBg: '#17499c',
+                itemSelectedColor: '#7fd2ee',
+              },
+              Alert: { colorTextHeading: '#f5f7ff' },
+              Pagination: { itemBg: 'transparent' },
+              Input: { colorBgContainer: 'rgba(9, 34, 74, 0.58)', activeBorderColor: '#258cff', hoverBorderColor: '#258cff' },
+              Select: { colorBgContainer: 'rgba(9, 34, 74, 0.58)', optionSelectedBg: 'rgba(37, 140, 255, 0.16)' },
+              Button: { defaultBg: 'rgba(9, 34, 74, 0.58)', defaultBorderColor: '#153db0', defaultColor: '#f5f7ff' },
+              Tag: { defaultBg: 'rgba(37, 140, 255, 0.10)', defaultColor: '#aebbd4' },
+              Progress: { remainingColor: '#173158' },
+              Switch: { handleBg: '#f5f7ff' },
+              Empty: { colorTextDescription: '#6f8cb4' },
+            }
+          : {
+              Table: { headerBg: '#f0f5fa', headerColor: '#334155', rowHoverBg: '#e8f4f2' },
+            },
       }}
     >
       <Layout

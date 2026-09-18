@@ -236,6 +236,25 @@ def _wrap_plain_to_html(body: str) -> str:
 # =====================================================================
 # 核心：登录 + 发送邮件
 # =====================================================================
+def _resolve_credentials() -> Tuple[str, str]:
+    """解析当前生效的 OWA 凭据，返回 (username, password)。
+
+    优先级：环境变量(OWA_USERNAME/OWA_PASSWORD) > 数据库(设置页) > 代码默认值。
+
+    ⚠️ 任何**真正发起认证**的地方都必须走这里，不能直接用模块常量
+    OWA_USERNAME / OWA_PASSWORD —— 常量在 import 时求值，在「设置」页改完密码后
+    仍是旧的硬编码默认值。2026-09-18 的 65 小时故障正是这么来的（探测走
+    credential_store 显示正常，发送分支却拿旧常量去认证）。
+
+    实现在 ``email_reports/owa_credentials.py``（全项目唯一一处凭据解析逻辑）。
+    """
+    try:
+        from email_reports.owa_credentials import resolve_owa_credentials
+    except ImportError:
+        from owa_credentials import resolve_owa_credentials
+    return resolve_owa_credentials()
+
+
 def get_account(
     server: str = OWA_SERVER,
     username: str = OWA_USERNAME,
@@ -246,18 +265,7 @@ def get_account(
     """登录 OWA 并返回 exchangelib Account 对象。"""
     # 凭据优先级：环境变量(OWA_USERNAME/OWA_PASSWORD) > 数据库(设置页) > 代码默认值
     # 这样在「设置」页改完 OWA 邮箱密码后，无需改代码、无需重启即可生效。
-    try:
-        from backend.services.credential_store import get_credential
-    except ImportError:
-        import sys as _sys
-        _myapp = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if _myapp not in _sys.path:
-            _sys.path.insert(0, _myapp)
-        from backend.services.credential_store import get_credential
-    _owa_user, _owa_pass = get_credential(
-        "owa_mail", OWA_USERNAME, OWA_PASSWORD,
-        env_user="OWA_USERNAME", env_secret="OWA_PASSWORD",
-    )
+    _owa_user, _owa_pass = _resolve_credentials()
     if username == OWA_USERNAME and _owa_user:
         username = _owa_user
     if password == OWA_PASSWORD and _owa_pass:

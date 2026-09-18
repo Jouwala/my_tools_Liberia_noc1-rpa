@@ -71,7 +71,7 @@ const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: stri
   <div style={{
     display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
     margin: 'var(--wh-space-lg) 0 var(--wh-space-md)', padding: '0 0 var(--wh-space-sm)',
-    borderBottom: '1px solid rgba(100,255,218,0.18)',
+    borderBottom: '1px solid rgba(0, 217, 255,0.18)',
   }}>
     <span style={{
       width: 28, height: 28, borderRadius: 'var(--wh-radius-md)', background: WH.accentGrad,
@@ -326,13 +326,13 @@ export default function BatteryDashboard() {
 
   // ===== 图表 option =====
   // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
-  const cText = isDark ? '#e6f4ff' : '#16233b'
-  const cTextMuted = isDark ? '#94a3b8' : '#3f5468'
-  const cTextDim = isDark ? '#64748b' : '#5b7288'
-  const cTeal = isDark ? '#64ffda' : '#0d9488'
-  const cBlue = isDark ? '#4fc3f7' : '#0284c7'
-  const cIndigo = isDark ? '#7986cb' : '#6366f1'
-  const cPieBorder = isDark ? '#0d2138' : '#ffffff'
+  const cText = isDark ? '#f5f7ff' : '#16233b'
+  const cTextMuted = isDark ? '#aebbd4' : '#3f5468'
+  const cTextDim = isDark ? '#6f8cb4' : '#5b7288'
+  const cTeal = isDark ? '#00d9ff' : '#0d9488'
+  const cBlue = isDark ? '#258cff' : '#0284c7'
+  const cIndigo = isDark ? '#7c8ff0' : '#6366f1'
+  const cPieBorder = isDark ? '#050d22' : '#ffffff'
 
   const pieOption = (rows: { name: string; value: number }[], colors: Record<string, string>, title?: string) => ({
     tooltip: { ...darkTooltip(isDark), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
@@ -391,9 +391,9 @@ export default function BatteryDashboard() {
     ],
     series: [
       { name: t('batt.batteries'), type: 'bar', barMaxWidth: 38, data: view.byCategory.map(c => c.batteries), itemStyle: { color: cIndigo, borderRadius: [4, 4, 0, 0] } },
-      { name: t('batt.critical'), type: 'bar', barMaxWidth: 38, data: view.byCategory.map(c => c.critical_soc), itemStyle: { color: isDark ? '#ff4757' : '#d92d20', borderRadius: [4, 4, 0, 0] } },
+      { name: t('batt.critical'), type: 'bar', barMaxWidth: 38, data: view.byCategory.map(c => c.critical_soc), itemStyle: { color: isDark ? '#ff5c6c' : '#d92d20', borderRadius: [4, 4, 0, 0] } },
       { name: t('batt.freshRate'), type: 'line', yAxisIndex: 1, smooth: true, data: view.byCategory.map(c => c.fresh_rate), itemStyle: { color: cTeal }, lineStyle: { width: 2 } },
-      { name: t('batt.avgSoc'), type: 'line', yAxisIndex: 1, smooth: true, data: view.byCategory.map(c => c.avg_soc), itemStyle: { color: isDark ? '#ffd43b' : '#ca8a04' }, lineStyle: { width: 2, type: 'dashed' } },
+      { name: t('batt.avgSoc'), type: 'line', yAxisIndex: 1, smooth: true, data: view.byCategory.map(c => c.avg_soc), itemStyle: { color: isDark ? '#f6cf00' : '#ca8a04' }, lineStyle: { width: 2, type: 'dashed' } },
     ],
   }), [view, t, isDark])
 
@@ -413,10 +413,10 @@ export default function BatteryDashboard() {
         { type: 'value', name: t('batt.count'), nameTextStyle: { color: cTextDim, fontSize: 10 }, axisLabel: axisLabel(isDark), axisLine: axisLine(isDark), splitLine: { show: false } },
       ],
       series: [
-        { name: t('batt.avgSoc'), type: 'line', smooth: true, symbol: 'circle', symbolSize: 5, data: pts.map((p: any) => p.avg_soc), itemStyle: { color: isDark ? '#ffd43b' : '#ca8a04' }, areaStyle: { color: isDark ? 'rgba(255,212,59,0.08)' : 'rgba(202,138,4,0.10)' } },
+        { name: t('batt.avgSoc'), type: 'line', smooth: true, symbol: 'circle', symbolSize: 5, data: pts.map((p: any) => p.avg_soc), itemStyle: { color: isDark ? '#f6cf00' : '#ca8a04' }, areaStyle: { color: isDark ? 'rgba(255,212,59,0.08)' : 'rgba(202,138,4,0.10)' } },
         ...(isPoll ? [{ name: t('batt.freshRate'), type: 'line', smooth: true, data: pts.map((p: any) => p.fresh_rate), itemStyle: { color: cTeal } }] : []),
         { name: t('batt.discharging'), type: 'bar', yAxisIndex: 1, barMaxWidth: 14, data: pts.map((p: any) => p.discharging), itemStyle: { color: isDark ? '#ff922b' : '#ea580c', borderRadius: [3, 3, 0, 0] } },
-        { name: t('batt.critical'), type: 'bar', yAxisIndex: 1, barMaxWidth: 14, data: pts.map((p: any) => p.critical_soc), itemStyle: { color: isDark ? '#ff4757' : '#d92d20', borderRadius: [3, 3, 0, 0] } },
+        { name: t('batt.critical'), type: 'bar', yAxisIndex: 1, barMaxWidth: 14, data: pts.map((p: any) => p.critical_soc), itemStyle: { color: isDark ? '#ff5c6c' : '#d92d20', borderRadius: [3, 3, 0, 0] } },
         ...(isPoll ? [] : [{ name: t('batt.samples'), type: 'line', yAxisIndex: 1, smooth: true, symbol: 'none', lineStyle: { type: 'dotted', width: 1.5 }, data: pts.map((p: any) => p.reported), itemStyle: { color: cTextDim } }]),
       ],
     }
@@ -555,7 +555,7 @@ export default function BatteryDashboard() {
           <Tag color="cyan" style={{ border: 'none' }}>
             <ClockCircleOutlined /> {t('batt.lastSync')}: {data.meta.last_sync_ts || '--'}
           </Tag>
-          <Tag style={{ border: 'none', background: 'rgba(100,255,218,0.1)', color: WH.textMuted }}>
+          <Tag style={{ border: 'none', background: 'rgba(0, 217, 255,0.1)', color: WH.textMuted }}>
             {`${t('batt.freshDef')}: ≤${thresholds.fresh_hours}${t('batt.unitH')} · ${t('batt.staleDef')}: >${thresholds.stale_days}${t('batt.unitD')}`}
           </Tag>
           {Object.entries(alarmCounts).map(([sev, n]) => (
@@ -563,7 +563,7 @@ export default function BatteryDashboard() {
           ))}
           <span style={{ flex: 1 }} />
           <Button size="small" icon={<ReloadOutlined />} onClick={load}
-            style={{ color: WH.teal, borderColor: 'rgba(100,255,218,0.35)', background: 'transparent' }}>
+            style={{ color: WH.teal, borderColor: 'rgba(0, 217, 255,0.35)', background: 'transparent' }}>
             {t('batt.refresh')}
           </Button>
         </div>
@@ -617,7 +617,7 @@ export default function BatteryDashboard() {
               <Switch size="small" checked={includeNullMetric} onChange={setIncludeNullMetric} />
             </div>
 
-            <div style={{ marginTop: '0.875rem', paddingTop: '0.625rem', borderTop: '1px dashed rgba(100,255,218,0.15)', fontSize: '0.6875rem', color: WH.textDim }}>
+            <div style={{ marginTop: '0.875rem', paddingTop: '0.625rem', borderTop: '1px dashed rgba(0, 217, 255,0.15)', fontSize: '0.6875rem', color: WH.textDim }}>
               {t('batt.matched')}: <span style={{ color: WH.teal, fontWeight: 700 }}>{filtered.length}</span> / {batteries.length}
               {filterActive && <Tag color="cyan" style={{ marginLeft: '0.375rem', border: 'none' }}>{t('batt.filtered')}</Tag>}
             </div>
@@ -664,7 +664,7 @@ export default function BatteryDashboard() {
                 hint={t('batt.hintCriticalSoc')} />
             </Col>
             <Col xs={12} sm={8} lg={6} xxl={3}>
-              <KpiCard value={view.stale} label={t('batt.kpiStale')} color="#7986cb"
+              <KpiCard value={view.stale} label={t('batt.kpiStale')} color="#7c8ff0"
                 icon={<DatabaseOutlined />} sub={`${view.staleSites} ${t('batt.sitesUnit')}`}
                 hint={t('batt.hintStale')} />
             </Col>
@@ -744,7 +744,7 @@ export default function BatteryDashboard() {
                 placeholder={t('batt.searchAlarm')} value={alarmSearch} onChange={e => setAlarmSearch(e.target.value)} />
               <span style={{ flex: 1 }} />
               <Button size="small" icon={<DownloadOutlined />} onClick={() => exportXlsx(alarms, 'battery_alarms')}
-                style={{ color: WH.teal, borderColor: 'rgba(100,255,218,0.35)', background: 'transparent' }}>
+                style={{ color: WH.teal, borderColor: 'rgba(0, 217, 255,0.35)', background: 'transparent' }}>
                 {t('batt.export')}
               </Button>
             </div>
@@ -763,7 +763,7 @@ export default function BatteryDashboard() {
               <span style={{ fontSize: '0.75rem', color: WH.textDim }}>{t('batt.siteSummaryHint')}</span>
               <span style={{ flex: 1 }} />
               <Button size="small" icon={<DownloadOutlined />} onClick={() => exportXlsx(sites, 'battery_sites')}
-                style={{ color: WH.teal, borderColor: 'rgba(100,255,218,0.35)', background: 'transparent' }}>
+                style={{ color: WH.teal, borderColor: 'rgba(0, 217, 255,0.35)', background: 'transparent' }}>
                 {t('batt.export')}
               </Button>
             </div>

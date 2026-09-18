@@ -80,6 +80,21 @@ try:
 except (TypeError, ValueError):
     STALE_RUNNING_SECONDS = 30 * 60
 
+# 陈旧 pending 过期阈值（2026-09-18 新增）：分组模式下每个 worker 只认领
+# MY_APP_WORKER_TASKS 白名单内的任务，一旦某任务漏登记 worker_watchdog.GROUP_TASK_MAP，
+# 没有任何 worker 会认领它 → 这条 pending 永久滞留，并且占住 enqueue_task 的单飞名额
+# （WHERE NOT EXISTS pending/running），把该任务之后的每一次调度静默挡掉。
+# 2026-09-16 上线的 olib_soc_kpi_daily_sync / olib_soc_vmax_report / vmax_multi_data_sync
+# 正是这样停摆：队列里挂着 09-16T19:45 / 09-17T02:20 两条 pending，task_execution_log
+# 0 条记录，任务管理页却一直显示「队列中等待」，看门狗只在本组日志里打 STALE。
+# 现在超过阈值仍无人认领的 pending 直接置 failed 并补一条执行日志（让巡检/自动重试
+# 看得见、也能顺势重新投递），单飞名额同时释放，下一次调度恢复正常入队。
+# 阈值取 6h：远大于正常积压（同组串行排队一般分钟级），不会误伤合法排队中的任务。
+try:
+    STALE_PENDING_SECONDS = max(1800, int(os.environ.get("WORKER_STALE_PENDING_SECONDS", str(6 * 3600))))
+except (TypeError, ValueError):
+    STALE_PENDING_SECONDS = 6 * 3600
+
 
 def _pid_alive(pid) -> bool:
     """核对 worker_pid 是否仍存活（Windows 用 OpenProcess，POSIX 用 kill 0）。
@@ -214,6 +229,59 @@ def _recover_stale_running():
         logger.warning(f"回收残留 running 记录失败: {e}")
 
 
+def _expire_orphan_pending():
+    """把长期无人认领的 pending 队列记录置为失败（防陈旧 pending 永久占住单飞名额）。
+
+    与 _recover_stale_running 同频调用（仅每 300s 的周期分支，启动时不调用，
+    见主循环注释：要让刚分组好的 worker 先认领到积压的那条 pending）。
+    判定只看 created_at：
+    running 的回收要靠 PID 核对以免误伤在跑的长任务，而 pending 从未被执行过，
+    过期即置失败没有数据风险，最多是让一个确实排不到队的任务显式失败一次。
+    不写 error_trace、也不触发失败通知（通知在 run_task 内），只留执行日志供排查。
+    """
+    try:
+        cutoff = (datetime.now() - timedelta(seconds=STALE_PENDING_SECONDS)).isoformat()
+        expired = []
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            _ensure_queue_table(conn)
+            rows = conn.execute(
+                "SELECT id, task_id, trigger_type, created_at FROM task_queue "
+                "WHERE status = 'pending' AND created_at < ? ORDER BY id",
+                (cutoff,),
+            ).fetchall()
+            now_iso = datetime.now().isoformat()
+            err = (f"队列 pending 超过 {STALE_PENDING_SECONDS // 3600}h 无人认领："
+                   f"多为任务未登记 worker_watchdog.GROUP_TASK_MAP 分组（无 worker 认领该 task_id）")
+            for qid, task_id, trigger_type, created_at in rows:
+                conn.execute(
+                    "UPDATE task_queue SET status = 'failed', finished_at = ?, error = ? WHERE id = ?",
+                    (now_iso, err, qid),
+                )
+                expired.append((qid, task_id, trigger_type, created_at))
+            conn.commit()
+            conn.close()
+        for qid, task_id, trigger_type, created_at in expired:
+            task_runner._save_task_result({
+                "task_id": task_id,
+                "task_name": task_runner._task_registry.get(task_id, {}).get("name"),
+                "category": task_runner._task_registry.get(task_id, {}).get("category"),
+                "trigger": trigger_type or "scheduled",
+                "success": False,
+                "started_at": created_at,
+                "completed_at": datetime.now().isoformat(),
+                "elapsed_seconds": None,
+                "result": None,
+                "error": "队列 pending 超时无人认领（未登记 worker 分组？）",
+                "error_trace": None,
+            })
+            logger.warning(
+                f"已过期 {STALE_PENDING_SECONDS // 3600}h 无人认领的排队记录: "
+                f"queue_id={qid} task={task_id} created={created_at} → failed（单飞名额已释放）"
+            )
+    except Exception as e:
+        logger.warning(f"过期陈旧 pending 记录失败: {e}")
+
+
 def _claim_next():
     """原子认领一条 pending 记录：UPDATE+RETURNING 保证同一记录只会被一个执行者认领。
     设置了 MY_APP_WORKER_TASKS 时仅认领清单内任务（多 worker 分流）。"""
@@ -336,9 +404,13 @@ def main():
         while not _shutdown:
             # 周期性回收滞留的 running/pending 队列记录（不只启动时），避免陈旧记录长期
             # 滞留导致 running 状态卡死、手动触发被拒。每 300s 一次，开销极低。
+            # 注：陈旧 pending 的过期只放在周期分支、不放在启动时 —— 启动瞬间
+            # 新分组的 worker 还没来得及认领队列里那条 pending（它就是等了两天的调度），
+            # 先让它被认领执行，5 分钟后再把仍无人认领的过期掉。
             if time.time() - last_recover_ts >= 300:
                 try:
                     _recover_stale_running()
+                    _expire_orphan_pending()
                 except Exception as e:
                     logger.warning(f"周期性回收残留记录失败: {e}")
                 last_recover_ts = time.time()

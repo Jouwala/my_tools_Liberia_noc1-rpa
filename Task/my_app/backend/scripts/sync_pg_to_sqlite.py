@@ -42,8 +42,32 @@ SQLITE_PATH = ROOT / "db" / "app.db"
 LOCK_PATH = ROOT / "db" / "pg_sync.lock"  # 跨进程单飞锁（防重复实例并发写 app.db）
 BATCH_SIZE = 5000  # 每批写入行数
 
-# 需要跳过的系统/元数据表
-SKIP_TABLES = {"alembic_version"}
+# 需要跳过的表。
+#
+# 分两类：
+#  1) 系统/元数据表（PG 侧无意义）
+#  2) **本地权威表** —— 由本机应用直接写 SQLite（db/app.db），PG 不是它们的权威来源。
+#     这类表必须跳过，否则 sync_table 会对 SQLite 侧执行 `DROP TABLE` 再从 PG 重建，
+#     把本地数据整体抹掉。
+#
+# ⚠️ 2026-09-18 事故（本注释即事故记录）：PG 里存在 `app.credentials`
+#    （SQLAlchemy 建的壳表，恒为 0 行），`get_pg_tables()` 会把它列出来，而
+#    `sanitize_table_name("app", ...)` 又把 app schema 映射成**无前缀**表名 —— 于是
+#    每小时 :45 的同步把 SQLite 的 `credentials` 整表重建为空。用户在「设置」页保存的
+#    邮箱密码因此最多只活 1 小时就被抹掉，应用随即回退到代码里已失效的
+#    Postcode@202608，EWS 全线 HTTP 401（表现为"密码改了也没用、过一阵又坏"）。
+#    实例：用户 14:48:47 保存密码 → 15:45 那次同步（15:50:30 落盘）后消失。
+#
+# 判定标准：看这张表的**写入方**是否与 DB 模式无关地固定写 SQLite。
+#   - credentials      → backend/services/credential_store.py 硬编码 sqlite3.connect
+#   - email_recipients → backend/services/email_recipient_store.py 同样硬编码
+# 反例：issue_reports（routers/feedback.py）走 get_raw_connection 双模，pg 模式下 PG
+# 才是权威，故**不能**跳过。
+SKIP_TABLES = {
+    "alembic_version",     # 迁移版本表
+    "credentials",         # 凭据：本地权威（设置页写 SQLite）
+    "email_recipients",    # 邮件收件人名单：本地权威（设置页写 SQLite）
+}
 
 logging.basicConfig(
     level=logging.INFO,

@@ -9,11 +9,11 @@ window.MS_PORTAL_DATA = {
     "total": 51,
     "online": 34,
     "beta": 17,
-    "myapp": 31,
+    "myapp": 32,
     "finebi": 17,
-    "external": 3,
-    "groups": 8,
-    "totalClicks": 24289,
+    "external": 2,
+    "groups": 9,
+    "totalClicks": 24409,
     "maxClicks": 1652
   },
   "groups": [
@@ -40,6 +40,14 @@ window.MS_PORTAL_DATA = {
       "style": "card",
       "subZh": "一线外场维护",
       "subEn": "Field Level Maintenance"
+    },
+    {
+      "id": "SP View",
+      "zh": "SP View",
+      "en": "SP View",
+      "style": "card",
+      "subZh": "备品备件管理",
+      "subEn": "Spare Parts Management"
     },
     {
       "id": "FO View",
@@ -217,37 +225,6 @@ window.MS_PORTAL_DATA = {
       "clicks": 960,
       "lastVisited": "2026-08-14 11:15",
       "icon": "chart-line",
-      "qc": [],
-      "boSub": "",
-      "isNew": false
-    },
-    {
-      "no": 3,
-      "groups": [
-        "CXO View"
-      ],
-      "titleZh": "CXO Dashboard (战略决策总览)",
-      "titleEn": "CXO Dashboard (Strategic Overview)",
-      "descZh": "面向 CXO 高管的战略级总览：MTTR 趋势、NUR 环比、SLA 达标率、工单闭环率与财务影响，支持按区域/专业下钻。",
-      "descEn": "Strategic overview for CXO executives: MTTR trends, NUR comparison, SLA achievement rate, ticket closure rate and financial impact, supports drill-down by region/specialty.",
-      "platform": "external",
-      "platformZh": "外部系统",
-      "url": "http://192.168.100.20/myapp/?page=cxoDashboard",
-      "tags": [
-        "高管专属",
-        "CXO",
-        "核心决策",
-        "全网概览"
-      ],
-      "owner": "高管助理",
-      "ownerEn": "",
-      "dept": "总裁办 / 战略部",
-      "deptEn": "",
-      "status": "online",
-      "freq": "每日0点",
-      "clicks": 880,
-      "lastVisited": "2026-08-14 09:30",
-      "icon": "chart-polar",
       "qc": [],
       "boSub": "",
       "isNew": false
@@ -1192,7 +1169,7 @@ window.MS_PORTAL_DATA = {
     {
       "no": 33,
       "groups": [
-        "MS View"
+        "SP View"
       ],
       "titleZh": "Warehouse Dashboard (备件仓库流转看板)",
       "titleEn": "Warehouse Dashboard (Spare Parts Warehouse Management)",
@@ -1225,7 +1202,7 @@ window.MS_PORTAL_DATA = {
     {
       "no": 34,
       "groups": [
-        "MS View"
+        "SP View"
       ],
       "titleZh": "Material Summary (备件物料库存与消耗汇总)",
       "titleEn": "Material Summary (Spare Parts Inventory & Consumption)",
@@ -1259,7 +1236,7 @@ window.MS_PORTAL_DATA = {
     {
       "no": 35,
       "groups": [
-        "MS View"
+        "SP View"
       ],
       "titleZh": "Spare Management Audit Dashboard (备件管理与审计)",
       "titleEn": "Spare Management Audit Dashboard (Spare Parts Management & Audit)",
@@ -1788,6 +1765,90 @@ window.MS_PORTAL_DATA = {
       "qc": [],
       "boSub": "wireless",
       "isNew": true
+    },
+
+    /* 2026-09-18 手工加入（本文件的生成脚本 TMP/gen_data_js.py 已滞后于现状，此文件实际以手工维护为准）：
+       CXO View 新增 90 天经营看板 ?page=vmaxCxoDashboard_90Days，并去掉原来的
+       「CXO Dashboard (战略决策总览)」(?page=cxoDashboard，原编号 3)。
+       clicks=1000 是刻意的：CXO View 按 byUsage 渲染（clicks 降序、同值再按 no 升序），
+       同组另外两张卡都是 0，只有把访问量给到更高，新卡才稳定排在 CXO View 第一张。
+       编号取 max+1=52，与门户「新增看板」表单 nextBoardNo() 的取值一致。 */
+    {
+      "no": 52,
+      "groups": [
+        "CXO View"
+      ],
+      "titleZh": "CXO Daily Dashboard (CXO 90 天经营看板)",
+      "titleEn": "CXO Daily Dashboard (Last 90 Days)",
+      "descZh": "面向 CEO 的经营视角大屏：直连 VMAX 数仓（GBase zxvmax）取最近 90 个已完成日，支持日 / 周粒度切换。顶部卡片给出总流量、活跃用户、视频体验等主指标及周同比 / 月同比，下方为业务结构（视频 / 缓存 / 游戏）、网络质量（建链成功率 / 重传 / 时延）趋势与最近 14 天明细，上游缺数日单独标注。",
+      "descEn": "CEO-facing business dashboard: queries the VMAX warehouse (GBase zxvmax) directly for the last 90 completed days, with day / week granularity switching. Hero cards show total traffic, active users and video experience with WoW / MoM deltas; below are service-mix (video / cache / gaming) and network-quality (success rate / retransmission / latency) trends plus the last 14 days of detail, with upstream data gaps flagged.",
+      "platform": "myapp",
+      "platformZh": "自研 my_app",
+      "url": "http://192.168.100.20/myapp/?page=vmaxCxoDashboard_90Days",
+      "tags": [
+        "VMAX",
+        "CXO",
+        "决策看板",
+        "90 天",
+        "经营看板"
+      ],
+      "owner": "系统管理员",
+      "ownerEn": "System Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "每日06:20",
+      "clicks": 1000,
+      "lastVisited": "",
+      "icon": "chart-polar",
+      "qc": [],
+      "boSub": "",
+      "isNew": true
     }
-  ]
+  ],
+
+  /* ==========================================================================
+     升级机制 / Escalation Matrix
+     --------------------------------------------------------------------------
+     数据来源：升级机制.xlsx（sheet "Sheet1"，表头 1 行 + 数据 21 行，LEVEL1–LEVEL4）。
+     逐格照抄，未做任何"顺手修正"—— 源表里的空格 / 缺号 / 大小写一律保留：
+       · LEVEL1 第 1 条 ZTEMSNOC 是值班热线（Position 与 Name 同值）；
+       · IP/DWDM/OLT Engineer 一行源表缺 Orange / LONESTAR，邮箱填的是另一位同事；
+       · VAS/OSG Engineer 的 LONESTAR 源表写作 888563686（少一位前导 0）；
+       · OCS Engineer 之后有一行无 Position（dai.wenhao），是同一岗的第二联系人。
+     唯一清理：OCS Engineer 邮箱在源表末尾多一个逗号，这里已去掉。
+     这些若要改，请改源表后重新同步，不要只改这里 —— 否则门户与源表会对不上。
+     ========================================================================== */
+  "escalation": {
+    "source": "升级机制.xlsx",
+    "levels": [
+      { "id": "LEVEL1", "zh": "LEVEL 1 · 值班热线与专业工程师", "en": "LEVEL 1 · Duty hotline & discipline engineers" },
+      { "id": "LEVEL2", "zh": "LEVEL 2 · NOC / FLM / BO 经理", "en": "LEVEL 2 · NOC / FLM / BO Managers" },
+      { "id": "LEVEL3", "zh": "LEVEL 3 · 本地 PD / 中方 TD", "en": "LEVEL 3 · Local PD / Chinese TD" },
+      { "id": "LEVEL4", "zh": "LEVEL 4 · 中方 PD", "en": "LEVEL 4 · Chinese PD" }
+    ],
+    "rows": [
+      { "level": "LEVEL1", "position": "ZTEMSNOC", "name": "ZTEMSNOC", "orange": "-0773777115/0774777115", "lonestar": "0555193438", "email": "ZTENOC.olr@orange.com" },
+      { "level": "LEVEL1", "position": "RAN Engineer", "name": "NathanaelLATRO", "orange": "0777509528", "lonestar": "0881560337", "email": "latro.nathanel@zte.com.cn" },
+      { "level": "LEVEL1", "position": "MW Engineer", "name": "PradeepSirirathna", "orange": "0772741600", "lonestar": "0887092721", "email": "pradeep.gosthinadurage@zte.com.cn" },
+      { "level": "LEVEL1", "position": "PSCore Engineer", "name": "PountounyinyiEmmanuel", "orange": "0776291037", "lonestar": "0888291783", "email": "pountounyinyi.emmanuel1@zte.com.cn" },
+      { "level": "LEVEL1", "position": "CSCore Engineer", "name": "ShekuSheriff", "orange": "0778699566", "lonestar": "0888563518", "email": "sheku.sheriff@zte.com.cn" },
+      { "level": "LEVEL1", "position": "IP/DWDM/OLT Engineer", "name": "Goni Mustapha", "orange": "", "lonestar": "", "email": "samuel.sarpong@zte.com.cn" },
+      { "level": "LEVEL1", "position": "VAS/OSG Engineer", "name": "DjoumeneReussite", "orange": "0776291055", "lonestar": "888563686", "email": "djoumene.reussite1@zte.com.cn" },
+      { "level": "LEVEL1", "position": "OCS Engineer", "name": "KonanAtchelo.Desire", "orange": "0771431174", "lonestar": "", "email": "konanatchelo.desire@iwhalecloud.com" },
+      { "level": "LEVEL1", "position": "", "name": "dai.wenhao", "orange": "0770972123", "lonestar": "088 987 8310", "email": "dai.wenhao@iwhalecloud.com" },
+      { "level": "LEVEL1", "position": "SOC Manager", "name": "ZeeshanMazhar", "orange": "0772360781", "lonestar": "0887479843", "email": "zeeshan.mazhar2@zte.com.cn" },
+      { "level": "LEVEL1", "position": "FLMsupervisor", "name": "VarfeeSarnor", "orange": "0777777279", "lonestar": "0880522684", "email": "varfee.sarnor@zte.com.cn" },
+      { "level": "LEVEL1", "position": "FLMsupervisor", "name": "FranklinPeter", "orange": "0772320622", "lonestar": "0888680221", "email": "franklin.peter@zte.com.cn" },
+      { "level": "LEVEL1", "position": "FLMsupervisor", "name": "Festus Emmanuel", "orange": "0776559255", "lonestar": "0880382876", "email": "festus.emmanuel1@zte.com.cn" },
+      { "level": "LEVEL1", "position": "FLM ERA Engineer", "name": "LuogonJustin", "orange": "0775503110", "lonestar": "0886503134", "email": "justin.luogon@zte.com.cn" },
+      { "level": "LEVEL1", "position": "SPMSManager", "name": "GorsonPrinceT", "orange": "0778086806", "lonestar": "0888823616", "email": "gorson.t@zte.com.cn" },
+      { "level": "LEVEL2", "position": "NOCManager", "name": "NathanielSeku", "orange": "0777733770", "lonestar": "0886501585", "email": "nathaniel.seku@zte.com.cn" },
+      { "level": "LEVEL2", "position": "FLMManager", "name": "AhmedAbdulwahed", "orange": "0773224338", "lonestar": "0889232199", "email": "ahmed.youssif@zte.com.cn" },
+      { "level": "LEVEL2", "position": "BOManager", "name": "PountounyinyiEmmanuel", "orange": "0776291037", "lonestar": "0888291783", "email": "pountounyinyi.emmanuel1@zte.com.cn" },
+      { "level": "LEVEL3", "position": "Local PD", "name": "KouassiJeanPaulAKPOUE", "orange": "0772742123", "lonestar": "0881047316", "email": "akpoue.paul@zte.com.cn" },
+      { "level": "LEVEL3", "position": "Chinese TD", "name": "Chenxibin", "orange": "0775961237", "lonestar": "", "email": "chen.xibin@zte.com.cn" },
+      { "level": "LEVEL4", "position": "Chinese PD", "name": "Yasin(ZhangWanqing)", "orange": "0778201440", "lonestar": "0887929005", "email": "zhang.wanqing3@zte.com.cn" }
+    ]
+  }
 };

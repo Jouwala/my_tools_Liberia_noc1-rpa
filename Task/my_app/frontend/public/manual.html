@@ -82,19 +82,19 @@ footer.colophon { text-align: center; color: var(--muted); font-size: 12px; marg
 <body>
 <nav class="sidebar no-print">
   <h3>📘 my_app 手册</h3>
-  <div class="toc-part"><div class="toc-part-label">前言</div><ul><li><a class="toc-ch" href="#ch-00">关于本手册</a><ul class="toc-sub"><li><a href="#ch-00-s0">这份手册和 PROJECT_DOCS.md 有什么区别</a></li><li><a href="#ch-00-s1">三条阅读路径</a></li><li><a href="#ch-00-s2">目录</a></li><li><a href="#ch-00-s5">手册维护约定</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">设计篇</div><ul><li><a class="toc-ch" href="#ch-01">01 项目总览</a><ul class="toc-sub"><li><a href="#ch-01-s0">一句话定位</a></li><li><a href="#ch-01-s1">能力边界</a></li><li><a href="#ch-01-s2">数据从哪来、到哪去</a></li><li><a href="#ch-01-s3">术语表</a></li><li><a href="#ch-01-s4">阅读下一步</a></li></ul></li><li><a class="toc-ch" href="#ch-02">02 架构设计</a><ul class="toc-sub"><li><a href="#ch-02-s0">进程拓扑</a></li><li><a href="#ch-02-s1">后端启动序列</a></li><li><a href="#ch-02-s2">静态资源与 SPA 兜底</a></li><li><a href="#ch-02-s3">分层约定（以及实际偏差）</a></li><li><a href="#ch-02-s4">前端架构</a></li><li><a href="#ch-02-s5">构建产物</a></li></ul></li><li><a class="toc-ch" href="#ch-03">03 数据层设计</a><ul class="toc-sub"><li><a href="#ch-03-s0">双模数据库：当前跑的是 PostgreSQL</a></li><li><a href="#ch-03-s1">方言适配层</a></li><li><a href="#ch-03-s2">例外：仍然硬绑 SQLite 的代码</a></li><li><a href="#ch-03-s3">PG → SQLite 快照</a></li><li><a href="#ch-03-s4">迁移与建表：三套东西各司其职</a></li><li><a href="#ch-03-s5">运行时目录</a></li><li><a href="#ch-03-s6">给新功能作者的检查清单</a></li></ul></li><li><a class="toc-ch" href="#ch-04">04 任务与调度系统</a><ul class="toc-sub"><li><a href="#ch-04-s0">一条任务的一生</a></li><li><a href="#ch-04-s1">worker 分组：组内串行、组间并行</a></li><li><a href="#ch-04-s2">全量任务清单（默认 cron）</a></li><li><a href="#ch-04-s3">超时、僵尸与自动重试</a></li><li><a href="#ch-04-s4">看门狗与自愈</a></li><li><a href="#ch-04-s5">加一个任务的最小步骤</a></li></ul></li><li><a class="toc-ch" href="#ch-05">05 访问控制与凭据</a><ul class="toc-sub"><li><a href="#ch-05-s0">结论先说</a></li><li><a href="#ch-05-s1">唯一的接口防护：require_protected</a></li><li><a href="#ch-05-s2">凭据存储</a></li><li><a href="#ch-05-s3">上游站点会话</a></li><li><a href="#ch-05-s4">TLS</a></li><li><a href="#ch-05-s5">仓库内的敏感文件（已验证未被 git 跟踪）</a></li><li><a href="#ch-05-s6">手册里禁止出现的内容（字段名级清单）</a></li><li><a href="#ch-05-s7">如果要提升安全性（按投入产出排序）</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">使用篇</div><ul><li><a class="toc-ch" href="#ch-10">10 快速上手</a><ul class="toc-sub"><li><a href="#ch-10-s0">环境要求</a></li><li><a href="#ch-10-s1">第一次装</a></li><li><a href="#ch-10-s3">启动</a></li><li><a href="#ch-10-s4">访问</a></li><li><a href="#ch-10-s5">停止</a></li><li><a href="#ch-10-s6">装完之后必须做的三步</a></li><li><a href="#ch-10-s7">换机器部署要改的硬编码</a></li></ul></li><li><a class="toc-ch" href="#ch-11">11 功能页使用手册</a><ul class="toc-sub"><li><a href="#ch-11-s0">1. 任务管理（?page=sync）— 全站控制中心</a></li><li><a href="#ch-11-s1">2. 任务报告文件（?page=email_reports）</a></li><li><a href="#ch-11-s2">3. 实时告警看板（?page=alarm）</a></li><li><a href="#ch-11-s3">4. TT&amp;WO 看板（?page=ttwo）</a></li><li><a href="#ch-11-s4">5. NUR 看板（?page=nur）</a></li><li><a href="#ch-11-s5">6. MS Operation KPI 看板（?page=ms_sla）</a></li><li><a href="#ch-11-s6">7. CXO 经营看板（?page=cxoDashboard）— iframe</a></li><li><a href="#ch-11-s7">8. MW 微波拓扑（?page=mwUmeTopology）— iframe</a></li><li><a href="#ch-11-s8">9. MW 微波实时（?page=mwRealTime）— iframe</a></li><li><a href="#ch-11-s9">10 / 11. GIS 地图 与 实时告警地图（?page=gis / ?page=realtime_alarm）</a></li><li><a href="#ch-11-s10">12. 告警管理看板（?page=alarmManagement）— iframe</a></li><li><a href="#ch-11-s11">13. 丢包看板（?page=packet_loss）</a></li><li><a href="#ch-11-s12">14. 电池看板（?page=battery）</a></li><li><a href="#ch-11-s13">15. IP 链路探测（?page=ip_trace）— iframe</a></li><li><a href="#ch-11-s14">16. 事件总览（?page=incident_overview）— iframe</a></li><li><a href="#ch-11-s15">17. 仓库看板（?page=warehouse）— iframe</a></li><li><a href="#ch-11-s16">18. 数据总览（?page=overview）</a></li><li><a href="#ch-11-s17">19. 表浏览器（?page=tables）</a></li><li><a href="#ch-11-s18">20. 数据上传（?page=upload）</a></li><li><a href="#ch-11-s19">21. 分析归档（?page=archive）</a></li><li><a href="#ch-11-s20">22. 分析仪表盘（?page=dashboard）</a></li><li><a href="#ch-11-s21">23. 系统设置（?page=settings）</a></li><li><a href="#ch-11-s22">24. 门户一键登录（?page=portalLogin）</a></li></ul></li><li><a class="toc-ch" href="#ch-12">12 配置项与开关</a><ul class="toc-sub"><li><a href="#ch-12-s0">一、界面能改的（推荐）</a></li><li><a href="#ch-12-s1">二、.env / 环境变量（改这些要重启）</a></li><li><a href="#ch-12-s2">三、配置文件（JSON）</a></li><li><a href="#ch-12-s3">四、前端与构建</a></li><li><a href="#ch-12-s4">五、Python 依赖</a></li></ul></li><li><a class="toc-ch" href="#ch-13">13 运维手册</a><ul class="toc-sub"><li><a href="#ch-13-s0">进程与端口速查</a></li><li><a href="#ch-13-s1">日常巡检（5 分钟）</a></li><li><a href="#ch-13-s2">日志</a></li><li><a href="#ch-13-s3">排障 FAQ</a></li><li><a href="#ch-13-s4">备份与恢复</a></li><li><a href="#ch-13-s5">局域网访问</a></li><li><a href="#ch-13-s6">开机自启</a></li><li><a href="#ch-13-s7">定期清理</a></li><li><a href="#ch-13-s8">测试</a></li></ul></li><li><a class="toc-ch" href="#ch-14">14 外部系统与数据流</a><ul class="toc-sub"><li><a href="#ch-14-s0">上游（读）</a></li><li><a href="#ch-14-s1">下游（写/发）</a></li><li><a href="#ch-14-s2">发送通道选型（照抄自 EMAIL_SEND_MODES.md）</a></li><li><a href="#ch-14-s3">上游不可用时怎么表现</a></li><li><a href="#ch-14-s4">接入一个新的上游系统（检查清单）</a></li></ul></li><li><a class="toc-ch" href="#ch-15">使用帮助（一站式指南）</a><ul class="toc-sub"><li><a href="#ch-15-s0">目录</a></li><li><a href="#ch-15-s1">1. 平台简介</a></li><li><a href="#ch-15-s2">2. 通用操作</a></li><li><a href="#ch-15-s3">3. 任务管理详解</a></li><li><a href="#ch-15-s57">4. 页面指南</a></li><li><a href="#ch-15-s88">5. 运维与排障</a></li><li><a href="#ch-15-s95">6. 常见问题</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">附录</div><ul><li><a class="toc-ch" href="#ch-90">90 附录</a><ul class="toc-sub"><li><a href="#ch-90-s0">A. 后端接口前缀速查</a></li><li><a href="#ch-90-s1">B. 数据库对象速查</a></li><li><a href="#ch-90-s2">C. 页面 → 接口对照（一图速查）</a></li><li><a href="#ch-90-s3">D. 待清理的仓库残留（已验证未被代码引用）</a></li><li><a href="#ch-90-s4">E. 本手册迁移说明</a></li></ul></li></ul></div>
+  <div class="toc-part"><div class="toc-part-label">前言</div><ul><li><a class="toc-ch" href="#ch-00">关于本手册</a><ul class="toc-sub"><li><a href="#ch-00-s0">这份手册和 PROJECT_DOCS.md 有什么区别</a></li><li><a href="#ch-00-s1">三条阅读路径</a></li><li><a href="#ch-00-s2">目录</a></li><li><a href="#ch-00-s5">手册维护约定</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">设计篇</div><ul><li><a class="toc-ch" href="#ch-01">01 项目总览</a><ul class="toc-sub"><li><a href="#ch-01-s0">一句话定位</a></li><li><a href="#ch-01-s1">能力边界</a></li><li><a href="#ch-01-s2">数据从哪来、到哪去</a></li><li><a href="#ch-01-s3">术语表</a></li><li><a href="#ch-01-s4">阅读下一步</a></li></ul></li><li><a class="toc-ch" href="#ch-02">02 架构设计</a><ul class="toc-sub"><li><a href="#ch-02-s0">进程拓扑</a></li><li><a href="#ch-02-s1">后端启动序列</a></li><li><a href="#ch-02-s2">静态资源与 SPA 兜底</a></li><li><a href="#ch-02-s3">分层约定（以及实际偏差）</a></li><li><a href="#ch-02-s4">前端架构</a></li><li><a href="#ch-02-s5">构建产物</a></li></ul></li><li><a class="toc-ch" href="#ch-03">03 数据层设计</a><ul class="toc-sub"><li><a href="#ch-03-s0">双模数据库：当前跑的是 PostgreSQL</a></li><li><a href="#ch-03-s1">方言适配层</a></li><li><a href="#ch-03-s2">例外：仍然硬绑 SQLite 的代码</a></li><li><a href="#ch-03-s3">PG → SQLite 快照</a></li><li><a href="#ch-03-s4">迁移与建表：三套东西各司其职</a></li><li><a href="#ch-03-s5">运行时目录</a></li><li><a href="#ch-03-s6">给新功能作者的检查清单</a></li></ul></li><li><a class="toc-ch" href="#ch-04">04 任务与调度系统</a><ul class="toc-sub"><li><a href="#ch-04-s0">一条任务的一生</a></li><li><a href="#ch-04-s1">worker 分组：组内串行、组间并行</a></li><li><a href="#ch-04-s2">任务健康告警（漏跑不再靠人肉发现）</a></li><li><a href="#ch-04-s3">全量任务清单（默认 cron）</a></li><li><a href="#ch-04-s4">超时、僵尸与自动重试</a></li><li><a href="#ch-04-s5">看门狗与自愈</a></li><li><a href="#ch-04-s6">加一个任务的最小步骤</a></li></ul></li><li><a class="toc-ch" href="#ch-05">05 访问控制与凭据</a><ul class="toc-sub"><li><a href="#ch-05-s0">结论先说</a></li><li><a href="#ch-05-s1">唯一的接口防护：require_protected</a></li><li><a href="#ch-05-s2">凭据存储</a></li><li><a href="#ch-05-s3">上游站点会话</a></li><li><a href="#ch-05-s4">TLS</a></li><li><a href="#ch-05-s5">仓库内的敏感文件（已验证未被 git 跟踪）</a></li><li><a href="#ch-05-s6">手册里禁止出现的内容（字段名级清单）</a></li><li><a href="#ch-05-s7">如果要提升安全性（按投入产出排序）</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">使用篇</div><ul><li><a class="toc-ch" href="#ch-10">10 快速上手</a><ul class="toc-sub"><li><a href="#ch-10-s0">环境要求</a></li><li><a href="#ch-10-s1">第一次装</a></li><li><a href="#ch-10-s3">启动</a></li><li><a href="#ch-10-s4">访问</a></li><li><a href="#ch-10-s5">停止</a></li><li><a href="#ch-10-s6">装完之后必须做的三步</a></li><li><a href="#ch-10-s7">换机器部署要改的硬编码</a></li></ul></li><li><a class="toc-ch" href="#ch-11">11 功能页使用手册</a><ul class="toc-sub"><li><a href="#ch-11-s0">1. 任务管理（?page=sync）— 全站控制中心</a></li><li><a href="#ch-11-s1">2. 任务报告文件（?page=email_reports）</a></li><li><a href="#ch-11-s2">3. 实时告警看板（?page=alarm）</a></li><li><a href="#ch-11-s3">4. TT&amp;WO 看板（?page=ttwo）</a></li><li><a href="#ch-11-s4">5. NUR 看板（?page=nur）</a></li><li><a href="#ch-11-s5">6. MS Operation KPI 看板（?page=ms_sla）</a></li><li><a href="#ch-11-s6">7. CXO 经营看板（?page=cxoDashboard）— iframe</a></li><li><a href="#ch-11-s7">8. MW 微波拓扑（?page=mwUmeTopology）— iframe</a></li><li><a href="#ch-11-s8">9. MW 微波实时（?page=mwRealTime）— iframe</a></li><li><a href="#ch-11-s9">10 / 11. GIS 地图 与 实时告警地图（?page=gis / ?page=realtime_alarm）</a></li><li><a href="#ch-11-s10">12. 告警管理看板（?page=alarmManagement）— iframe</a></li><li><a href="#ch-11-s11">13. 丢包看板（?page=packet_loss）</a></li><li><a href="#ch-11-s12">14. 电池看板（?page=battery）</a></li><li><a href="#ch-11-s13">15. IP 链路探测（?page=ip_trace）— iframe</a></li><li><a href="#ch-11-s14">16. 事件总览（?page=incident_overview）— iframe</a></li><li><a href="#ch-11-s15">17. 仓库看板（?page=warehouse）— iframe</a></li><li><a href="#ch-11-s16">18. 数据总览（?page=overview）</a></li><li><a href="#ch-11-s17">19. 表浏览器（?page=tables）</a></li><li><a href="#ch-11-s18">20. 数据上传（?page=upload）</a></li><li><a href="#ch-11-s19">21. 分析归档（?page=archive）</a></li><li><a href="#ch-11-s20">22. 分析仪表盘（?page=dashboard）</a></li><li><a href="#ch-11-s21">23. 系统设置（?page=settings）</a></li><li><a href="#ch-11-s22">24. 门户一键登录（?page=portalLogin）</a></li></ul></li><li><a class="toc-ch" href="#ch-12">12 配置项与开关</a><ul class="toc-sub"><li><a href="#ch-12-s0">一、界面能改的（推荐）</a></li><li><a href="#ch-12-s1">二、.env / 环境变量（改这些要重启）</a></li><li><a href="#ch-12-s2">三、配置文件（JSON）</a></li><li><a href="#ch-12-s3">四、前端与构建</a></li><li><a href="#ch-12-s4">五、Python 依赖</a></li></ul></li><li><a class="toc-ch" href="#ch-13">13 运维手册</a><ul class="toc-sub"><li><a href="#ch-13-s0">进程与端口速查</a></li><li><a href="#ch-13-s1">日常巡检（5 分钟）</a></li><li><a href="#ch-13-s2">日志</a></li><li><a href="#ch-13-s3">排障 FAQ</a></li><li><a href="#ch-13-s4">备份与恢复</a></li><li><a href="#ch-13-s5">局域网访问</a></li><li><a href="#ch-13-s6">开机自启</a></li><li><a href="#ch-13-s7">定期清理</a></li><li><a href="#ch-13-s8">测试</a></li></ul></li><li><a class="toc-ch" href="#ch-14">14 外部系统与数据流</a><ul class="toc-sub"><li><a href="#ch-14-s0">上游（读）</a></li><li><a href="#ch-14-s1">下游（写/发）</a></li><li><a href="#ch-14-s2">发送通道选型（照抄自 EMAIL_SEND_MODES.md）</a></li><li><a href="#ch-14-s3">上游不可用时怎么表现</a></li><li><a href="#ch-14-s4">接入一个新的上游系统（检查清单）</a></li></ul></li><li><a class="toc-ch" href="#ch-15">使用帮助（一站式指南）</a><ul class="toc-sub"><li><a href="#ch-15-s0">目录</a></li><li><a href="#ch-15-s1">1. 平台简介</a></li><li><a href="#ch-15-s2">2. 通用操作</a></li><li><a href="#ch-15-s3">3. 任务管理详解</a></li><li><a href="#ch-15-s72">4. 页面指南</a></li><li><a href="#ch-15-s103">5. 运维与排障</a></li><li><a href="#ch-15-s110">6. 常见问题</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">附录</div><ul><li><a class="toc-ch" href="#ch-90">90 附录</a><ul class="toc-sub"><li><a href="#ch-90-s0">A. 后端接口前缀速查</a></li><li><a href="#ch-90-s1">B. 数据库对象速查</a></li><li><a href="#ch-90-s2">C. 页面 → 接口对照（一图速查）</a></li><li><a href="#ch-90-s3">D. 待清理的仓库残留（已验证未被代码引用）</a></li><li><a href="#ch-90-s4">E. 本手册迁移说明</a></li></ul></li></ul></div>
 </nav>
 <div class="wrap">
   <section class="cover">
     <div class="logo">📘</div>
     <h1>my_app 项目手册</h1>
     <div class="sub">网络运维数据平台 · 设计手册 + 使用手册</div>
-    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-09-15<br>含 13 章 · 97 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
+    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-09-18<br>含 13 章 · 98 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
     <ul class="parts"><li><a href="#ch-00">前言 · 关于本手册</a></li><li><a href="#ch-01">设计篇 · 01 项目总览</a></li><li><a href="#ch-02">设计篇 · 02 架构设计</a></li><li><a href="#ch-03">设计篇 · 03 数据层设计</a></li><li><a href="#ch-04">设计篇 · 04 任务与调度系统</a></li><li><a href="#ch-05">设计篇 · 05 访问控制与凭据</a></li><li><a href="#ch-10">使用篇 · 10 快速上手</a></li><li><a href="#ch-11">使用篇 · 11 功能页使用手册</a></li><li><a href="#ch-12">使用篇 · 12 配置项与开关</a></li><li><a href="#ch-13">使用篇 · 13 运维手册</a></li><li><a href="#ch-14">使用篇 · 14 外部系统与数据流</a></li><li><a href="#ch-15">使用篇 · 使用帮助（一站式指南）</a></li><li><a href="#ch-90">附录 · 90 附录</a></li></ul>
   </section>
   <section class="toc-section">
     <h2>目录</h2>
-    <div class="toc-part"><div class="toc-part-label">前言</div><ul><li><a class="toc-ch" href="#ch-00">关于本手册</a><ul class="toc-sub"><li><a href="#ch-00-s0">这份手册和 PROJECT_DOCS.md 有什么区别</a></li><li><a href="#ch-00-s1">三条阅读路径</a></li><li><a href="#ch-00-s2">目录</a></li><li><a href="#ch-00-s5">手册维护约定</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">设计篇</div><ul><li><a class="toc-ch" href="#ch-01">01 项目总览</a><ul class="toc-sub"><li><a href="#ch-01-s0">一句话定位</a></li><li><a href="#ch-01-s1">能力边界</a></li><li><a href="#ch-01-s2">数据从哪来、到哪去</a></li><li><a href="#ch-01-s3">术语表</a></li><li><a href="#ch-01-s4">阅读下一步</a></li></ul></li><li><a class="toc-ch" href="#ch-02">02 架构设计</a><ul class="toc-sub"><li><a href="#ch-02-s0">进程拓扑</a></li><li><a href="#ch-02-s1">后端启动序列</a></li><li><a href="#ch-02-s2">静态资源与 SPA 兜底</a></li><li><a href="#ch-02-s3">分层约定（以及实际偏差）</a></li><li><a href="#ch-02-s4">前端架构</a></li><li><a href="#ch-02-s5">构建产物</a></li></ul></li><li><a class="toc-ch" href="#ch-03">03 数据层设计</a><ul class="toc-sub"><li><a href="#ch-03-s0">双模数据库：当前跑的是 PostgreSQL</a></li><li><a href="#ch-03-s1">方言适配层</a></li><li><a href="#ch-03-s2">例外：仍然硬绑 SQLite 的代码</a></li><li><a href="#ch-03-s3">PG → SQLite 快照</a></li><li><a href="#ch-03-s4">迁移与建表：三套东西各司其职</a></li><li><a href="#ch-03-s5">运行时目录</a></li><li><a href="#ch-03-s6">给新功能作者的检查清单</a></li></ul></li><li><a class="toc-ch" href="#ch-04">04 任务与调度系统</a><ul class="toc-sub"><li><a href="#ch-04-s0">一条任务的一生</a></li><li><a href="#ch-04-s1">worker 分组：组内串行、组间并行</a></li><li><a href="#ch-04-s2">全量任务清单（默认 cron）</a></li><li><a href="#ch-04-s3">超时、僵尸与自动重试</a></li><li><a href="#ch-04-s4">看门狗与自愈</a></li><li><a href="#ch-04-s5">加一个任务的最小步骤</a></li></ul></li><li><a class="toc-ch" href="#ch-05">05 访问控制与凭据</a><ul class="toc-sub"><li><a href="#ch-05-s0">结论先说</a></li><li><a href="#ch-05-s1">唯一的接口防护：require_protected</a></li><li><a href="#ch-05-s2">凭据存储</a></li><li><a href="#ch-05-s3">上游站点会话</a></li><li><a href="#ch-05-s4">TLS</a></li><li><a href="#ch-05-s5">仓库内的敏感文件（已验证未被 git 跟踪）</a></li><li><a href="#ch-05-s6">手册里禁止出现的内容（字段名级清单）</a></li><li><a href="#ch-05-s7">如果要提升安全性（按投入产出排序）</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">使用篇</div><ul><li><a class="toc-ch" href="#ch-10">10 快速上手</a><ul class="toc-sub"><li><a href="#ch-10-s0">环境要求</a></li><li><a href="#ch-10-s1">第一次装</a></li><li><a href="#ch-10-s3">启动</a></li><li><a href="#ch-10-s4">访问</a></li><li><a href="#ch-10-s5">停止</a></li><li><a href="#ch-10-s6">装完之后必须做的三步</a></li><li><a href="#ch-10-s7">换机器部署要改的硬编码</a></li></ul></li><li><a class="toc-ch" href="#ch-11">11 功能页使用手册</a><ul class="toc-sub"><li><a href="#ch-11-s0">1. 任务管理（?page=sync）— 全站控制中心</a></li><li><a href="#ch-11-s1">2. 任务报告文件（?page=email_reports）</a></li><li><a href="#ch-11-s2">3. 实时告警看板（?page=alarm）</a></li><li><a href="#ch-11-s3">4. TT&amp;WO 看板（?page=ttwo）</a></li><li><a href="#ch-11-s4">5. NUR 看板（?page=nur）</a></li><li><a href="#ch-11-s5">6. MS Operation KPI 看板（?page=ms_sla）</a></li><li><a href="#ch-11-s6">7. CXO 经营看板（?page=cxoDashboard）— iframe</a></li><li><a href="#ch-11-s7">8. MW 微波拓扑（?page=mwUmeTopology）— iframe</a></li><li><a href="#ch-11-s8">9. MW 微波实时（?page=mwRealTime）— iframe</a></li><li><a href="#ch-11-s9">10 / 11. GIS 地图 与 实时告警地图（?page=gis / ?page=realtime_alarm）</a></li><li><a href="#ch-11-s10">12. 告警管理看板（?page=alarmManagement）— iframe</a></li><li><a href="#ch-11-s11">13. 丢包看板（?page=packet_loss）</a></li><li><a href="#ch-11-s12">14. 电池看板（?page=battery）</a></li><li><a href="#ch-11-s13">15. IP 链路探测（?page=ip_trace）— iframe</a></li><li><a href="#ch-11-s14">16. 事件总览（?page=incident_overview）— iframe</a></li><li><a href="#ch-11-s15">17. 仓库看板（?page=warehouse）— iframe</a></li><li><a href="#ch-11-s16">18. 数据总览（?page=overview）</a></li><li><a href="#ch-11-s17">19. 表浏览器（?page=tables）</a></li><li><a href="#ch-11-s18">20. 数据上传（?page=upload）</a></li><li><a href="#ch-11-s19">21. 分析归档（?page=archive）</a></li><li><a href="#ch-11-s20">22. 分析仪表盘（?page=dashboard）</a></li><li><a href="#ch-11-s21">23. 系统设置（?page=settings）</a></li><li><a href="#ch-11-s22">24. 门户一键登录（?page=portalLogin）</a></li></ul></li><li><a class="toc-ch" href="#ch-12">12 配置项与开关</a><ul class="toc-sub"><li><a href="#ch-12-s0">一、界面能改的（推荐）</a></li><li><a href="#ch-12-s1">二、.env / 环境变量（改这些要重启）</a></li><li><a href="#ch-12-s2">三、配置文件（JSON）</a></li><li><a href="#ch-12-s3">四、前端与构建</a></li><li><a href="#ch-12-s4">五、Python 依赖</a></li></ul></li><li><a class="toc-ch" href="#ch-13">13 运维手册</a><ul class="toc-sub"><li><a href="#ch-13-s0">进程与端口速查</a></li><li><a href="#ch-13-s1">日常巡检（5 分钟）</a></li><li><a href="#ch-13-s2">日志</a></li><li><a href="#ch-13-s3">排障 FAQ</a></li><li><a href="#ch-13-s4">备份与恢复</a></li><li><a href="#ch-13-s5">局域网访问</a></li><li><a href="#ch-13-s6">开机自启</a></li><li><a href="#ch-13-s7">定期清理</a></li><li><a href="#ch-13-s8">测试</a></li></ul></li><li><a class="toc-ch" href="#ch-14">14 外部系统与数据流</a><ul class="toc-sub"><li><a href="#ch-14-s0">上游（读）</a></li><li><a href="#ch-14-s1">下游（写/发）</a></li><li><a href="#ch-14-s2">发送通道选型（照抄自 EMAIL_SEND_MODES.md）</a></li><li><a href="#ch-14-s3">上游不可用时怎么表现</a></li><li><a href="#ch-14-s4">接入一个新的上游系统（检查清单）</a></li></ul></li><li><a class="toc-ch" href="#ch-15">使用帮助（一站式指南）</a><ul class="toc-sub"><li><a href="#ch-15-s0">目录</a></li><li><a href="#ch-15-s1">1. 平台简介</a></li><li><a href="#ch-15-s2">2. 通用操作</a></li><li><a href="#ch-15-s3">3. 任务管理详解</a></li><li><a href="#ch-15-s57">4. 页面指南</a></li><li><a href="#ch-15-s88">5. 运维与排障</a></li><li><a href="#ch-15-s95">6. 常见问题</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">附录</div><ul><li><a class="toc-ch" href="#ch-90">90 附录</a><ul class="toc-sub"><li><a href="#ch-90-s0">A. 后端接口前缀速查</a></li><li><a href="#ch-90-s1">B. 数据库对象速查</a></li><li><a href="#ch-90-s2">C. 页面 → 接口对照（一图速查）</a></li><li><a href="#ch-90-s3">D. 待清理的仓库残留（已验证未被代码引用）</a></li><li><a href="#ch-90-s4">E. 本手册迁移说明</a></li></ul></li></ul></div>
+    <div class="toc-part"><div class="toc-part-label">前言</div><ul><li><a class="toc-ch" href="#ch-00">关于本手册</a><ul class="toc-sub"><li><a href="#ch-00-s0">这份手册和 PROJECT_DOCS.md 有什么区别</a></li><li><a href="#ch-00-s1">三条阅读路径</a></li><li><a href="#ch-00-s2">目录</a></li><li><a href="#ch-00-s5">手册维护约定</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">设计篇</div><ul><li><a class="toc-ch" href="#ch-01">01 项目总览</a><ul class="toc-sub"><li><a href="#ch-01-s0">一句话定位</a></li><li><a href="#ch-01-s1">能力边界</a></li><li><a href="#ch-01-s2">数据从哪来、到哪去</a></li><li><a href="#ch-01-s3">术语表</a></li><li><a href="#ch-01-s4">阅读下一步</a></li></ul></li><li><a class="toc-ch" href="#ch-02">02 架构设计</a><ul class="toc-sub"><li><a href="#ch-02-s0">进程拓扑</a></li><li><a href="#ch-02-s1">后端启动序列</a></li><li><a href="#ch-02-s2">静态资源与 SPA 兜底</a></li><li><a href="#ch-02-s3">分层约定（以及实际偏差）</a></li><li><a href="#ch-02-s4">前端架构</a></li><li><a href="#ch-02-s5">构建产物</a></li></ul></li><li><a class="toc-ch" href="#ch-03">03 数据层设计</a><ul class="toc-sub"><li><a href="#ch-03-s0">双模数据库：当前跑的是 PostgreSQL</a></li><li><a href="#ch-03-s1">方言适配层</a></li><li><a href="#ch-03-s2">例外：仍然硬绑 SQLite 的代码</a></li><li><a href="#ch-03-s3">PG → SQLite 快照</a></li><li><a href="#ch-03-s4">迁移与建表：三套东西各司其职</a></li><li><a href="#ch-03-s5">运行时目录</a></li><li><a href="#ch-03-s6">给新功能作者的检查清单</a></li></ul></li><li><a class="toc-ch" href="#ch-04">04 任务与调度系统</a><ul class="toc-sub"><li><a href="#ch-04-s0">一条任务的一生</a></li><li><a href="#ch-04-s1">worker 分组：组内串行、组间并行</a></li><li><a href="#ch-04-s2">任务健康告警（漏跑不再靠人肉发现）</a></li><li><a href="#ch-04-s3">全量任务清单（默认 cron）</a></li><li><a href="#ch-04-s4">超时、僵尸与自动重试</a></li><li><a href="#ch-04-s5">看门狗与自愈</a></li><li><a href="#ch-04-s6">加一个任务的最小步骤</a></li></ul></li><li><a class="toc-ch" href="#ch-05">05 访问控制与凭据</a><ul class="toc-sub"><li><a href="#ch-05-s0">结论先说</a></li><li><a href="#ch-05-s1">唯一的接口防护：require_protected</a></li><li><a href="#ch-05-s2">凭据存储</a></li><li><a href="#ch-05-s3">上游站点会话</a></li><li><a href="#ch-05-s4">TLS</a></li><li><a href="#ch-05-s5">仓库内的敏感文件（已验证未被 git 跟踪）</a></li><li><a href="#ch-05-s6">手册里禁止出现的内容（字段名级清单）</a></li><li><a href="#ch-05-s7">如果要提升安全性（按投入产出排序）</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">使用篇</div><ul><li><a class="toc-ch" href="#ch-10">10 快速上手</a><ul class="toc-sub"><li><a href="#ch-10-s0">环境要求</a></li><li><a href="#ch-10-s1">第一次装</a></li><li><a href="#ch-10-s3">启动</a></li><li><a href="#ch-10-s4">访问</a></li><li><a href="#ch-10-s5">停止</a></li><li><a href="#ch-10-s6">装完之后必须做的三步</a></li><li><a href="#ch-10-s7">换机器部署要改的硬编码</a></li></ul></li><li><a class="toc-ch" href="#ch-11">11 功能页使用手册</a><ul class="toc-sub"><li><a href="#ch-11-s0">1. 任务管理（?page=sync）— 全站控制中心</a></li><li><a href="#ch-11-s1">2. 任务报告文件（?page=email_reports）</a></li><li><a href="#ch-11-s2">3. 实时告警看板（?page=alarm）</a></li><li><a href="#ch-11-s3">4. TT&amp;WO 看板（?page=ttwo）</a></li><li><a href="#ch-11-s4">5. NUR 看板（?page=nur）</a></li><li><a href="#ch-11-s5">6. MS Operation KPI 看板（?page=ms_sla）</a></li><li><a href="#ch-11-s6">7. CXO 经营看板（?page=cxoDashboard）— iframe</a></li><li><a href="#ch-11-s7">8. MW 微波拓扑（?page=mwUmeTopology）— iframe</a></li><li><a href="#ch-11-s8">9. MW 微波实时（?page=mwRealTime）— iframe</a></li><li><a href="#ch-11-s9">10 / 11. GIS 地图 与 实时告警地图（?page=gis / ?page=realtime_alarm）</a></li><li><a href="#ch-11-s10">12. 告警管理看板（?page=alarmManagement）— iframe</a></li><li><a href="#ch-11-s11">13. 丢包看板（?page=packet_loss）</a></li><li><a href="#ch-11-s12">14. 电池看板（?page=battery）</a></li><li><a href="#ch-11-s13">15. IP 链路探测（?page=ip_trace）— iframe</a></li><li><a href="#ch-11-s14">16. 事件总览（?page=incident_overview）— iframe</a></li><li><a href="#ch-11-s15">17. 仓库看板（?page=warehouse）— iframe</a></li><li><a href="#ch-11-s16">18. 数据总览（?page=overview）</a></li><li><a href="#ch-11-s17">19. 表浏览器（?page=tables）</a></li><li><a href="#ch-11-s18">20. 数据上传（?page=upload）</a></li><li><a href="#ch-11-s19">21. 分析归档（?page=archive）</a></li><li><a href="#ch-11-s20">22. 分析仪表盘（?page=dashboard）</a></li><li><a href="#ch-11-s21">23. 系统设置（?page=settings）</a></li><li><a href="#ch-11-s22">24. 门户一键登录（?page=portalLogin）</a></li></ul></li><li><a class="toc-ch" href="#ch-12">12 配置项与开关</a><ul class="toc-sub"><li><a href="#ch-12-s0">一、界面能改的（推荐）</a></li><li><a href="#ch-12-s1">二、.env / 环境变量（改这些要重启）</a></li><li><a href="#ch-12-s2">三、配置文件（JSON）</a></li><li><a href="#ch-12-s3">四、前端与构建</a></li><li><a href="#ch-12-s4">五、Python 依赖</a></li></ul></li><li><a class="toc-ch" href="#ch-13">13 运维手册</a><ul class="toc-sub"><li><a href="#ch-13-s0">进程与端口速查</a></li><li><a href="#ch-13-s1">日常巡检（5 分钟）</a></li><li><a href="#ch-13-s2">日志</a></li><li><a href="#ch-13-s3">排障 FAQ</a></li><li><a href="#ch-13-s4">备份与恢复</a></li><li><a href="#ch-13-s5">局域网访问</a></li><li><a href="#ch-13-s6">开机自启</a></li><li><a href="#ch-13-s7">定期清理</a></li><li><a href="#ch-13-s8">测试</a></li></ul></li><li><a class="toc-ch" href="#ch-14">14 外部系统与数据流</a><ul class="toc-sub"><li><a href="#ch-14-s0">上游（读）</a></li><li><a href="#ch-14-s1">下游（写/发）</a></li><li><a href="#ch-14-s2">发送通道选型（照抄自 EMAIL_SEND_MODES.md）</a></li><li><a href="#ch-14-s3">上游不可用时怎么表现</a></li><li><a href="#ch-14-s4">接入一个新的上游系统（检查清单）</a></li></ul></li><li><a class="toc-ch" href="#ch-15">使用帮助（一站式指南）</a><ul class="toc-sub"><li><a href="#ch-15-s0">目录</a></li><li><a href="#ch-15-s1">1. 平台简介</a></li><li><a href="#ch-15-s2">2. 通用操作</a></li><li><a href="#ch-15-s3">3. 任务管理详解</a></li><li><a href="#ch-15-s72">4. 页面指南</a></li><li><a href="#ch-15-s103">5. 运维与排障</a></li><li><a href="#ch-15-s110">6. 常见问题</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">附录</div><ul><li><a class="toc-ch" href="#ch-90">90 附录</a><ul class="toc-sub"><li><a href="#ch-90-s0">A. 后端接口前缀速查</a></li><li><a href="#ch-90-s1">B. 数据库对象速查</a></li><li><a href="#ch-90-s2">C. 页面 → 接口对照（一图速查）</a></li><li><a href="#ch-90-s3">D. 待清理的仓库残留（已验证未被代码引用）</a></li><li><a href="#ch-90-s4">E. 本手册迁移说明</a></li></ul></li></ul></div>
   </section>
   
 <section class="chapter" id="ch-00">
@@ -326,8 +326,8 @@ Exchange/OWA 邮箱  ─┘                                                  │
 <td>数据源 <code>lte_pl.sqlite3</code>，STATUS 为 0~23 小时标志块，最近 3 天同整点丢包均 &gt;0.5% 记 1（<code>frontend/src/pages/PacketLossDashboard.tsx:2-5</code>）</td>
 </tr>
 <tr>
-<td><strong>worker 组 u/n/m/c</strong></td>
-<td>4 组独立 worker 进程，组内任务串行执行，见 <code>04-task-system.md</code></td>
+<td><strong>worker 组 u/n/v/m/c</strong></td>
+<td>5 组独立 worker 进程，组内任务串行执行（<code>v</code>=VMAX 门户 8790 单会话，2026-09-18 从 <code>n</code> 拆出），见 <code>04-task-system.md</code></td>
 </tr>
 <tr>
 <td><strong>task_id</strong></td>
@@ -381,7 +381,7 @@ Exchange/OWA 邮箱  ─┘                                                  │
 <td>FastAPI，提供 <code>/api/*</code> 与 SPA 兜底</td>
 </tr>
 <tr>
-<td>worker × 4 组</td>
+<td>worker × 5 组</td>
 <td>无端口</td>
 <td><code>worker_watchdog.py:36-66</code></td>
 <td>消费 <code>task_queue</code>，执行采集/报表任务</td>
@@ -394,7 +394,7 @@ Exchange/OWA 邮箱  ─┘                                                  │
 </tr>
 </tbody>
 </table>
-<p>worker 组的实际启用集合由环境变量 <code>MY_APP_WORKER_GROUPS='u,n,m,c'</code> 决定（<code>start_hidden.ps1:116</code>）。</p>
+<p>worker 组的实际启用集合由环境变量 <code>MY_APP_WORKER_GROUPS='u,n,m,c,v'</code> 决定（<code>start_hidden.ps1:134</code>）：<code>u</code>=RAN UME 会话、<code>n</code>=网管/eFlow/远程系统、<code>v</code>=VMAX 门户（8790 单会话）、<code>m</code>=内务轻任务、<code>c</code>=CN EMS。<strong>分组表、启动脚本、<code>restart_workers.py</code> 三处必须同步</strong>，否则该组任务永远 pending（详见 <code>04-task-system.md</code>）。</p>
 <p><a id="ch-02-s1"></a></p>
 <h3>后端启动序列</h3>
 <p><code>backend/main.py</code> 的 startup 钩子按序做四件事（<code>main.py:216-250</code>）：</p>
@@ -664,21 +664,27 @@ schemas/   预留，实际为空
 <tbody>
 <tr>
 <td><code>u</code></td>
-<td>9</td>
+<td>10</td>
 <td>RAN UME 单账号会话，必须串行（并发会被踢会话）</td>
-<td><code>ran_ume_daily</code>, <code>main_kpi_sync</code>, <code>cell_availability_sync</code>, <code>network_kpi_sync</code>, <code>packet_loss_sync</code>, <code>packet_loss_email</code>, <code>battery_kpi_sync</code>, <code>ipran_kpi_sync</code>, <code>cm_data_sync</code></td>
+<td><code>ran_ume_daily</code>, <code>main_kpi_sync</code>, <code>cell_availability_sync</code>, <code>network_kpi_sync</code>, <code>packet_loss_sync</code>, <code>packet_loss_email</code>, <code>battery_kpi_sync</code>, <code>ipran_kpi_sync</code>, <code>cm_data_sync</code>, <code>cells_kpi_sync</code></td>
 </tr>
 <tr>
 <td><code>n</code></td>
-<td>11</td>
-<td>网管/eFlow API/远程系统，彼此独立但保守同组</td>
-<td><code>eflow_sync</code>, <code>eflow_sync_full</code>, <code>eflow_active_alarm</code>, <code>eflow_history_alarm</code>, <code>eflow_tt_rules_check</code>, <code>ms_sla_full</code>, <code>cnn_kpi_sync</code>, <code>fw_kpi_sync</code>, <code>sp_data_sync</code>, <code>mw_ume_kpi_sync</code>, <code>mw_ume_kpi_sync_rt</code></td>
+<td>16</td>
+<td>网管/eFlow API/远程系统：彼此独立但保守同组</td>
+<td><code>eflow_sync</code>, <code>eflow_sync_full</code>, <code>eflow_active_alarm</code>, <code>eflow_history_alarm</code>, <code>eflow_tt_rules_check</code>, <code>ms_sla_full</code>, <code>cnn_kpi_sync</code>, <code>fw_kpi_sync</code>, <code>sp_data_sync</code>, <code>mw_ume_kpi_sync</code>, <code>mw_ume_kpi_sync_rt</code>, <code>sp_online_sync</code>, <code>sp_material_sync</code>, <code>eflow_alarm_rules_collect</code>, <code>eflow_push_rules_collect</code>, <code>ume_in_kpi_sync</code></td>
+</tr>
+<tr>
+<td><code>v</code></td>
+<td>3</td>
+<td>VMAX 门户（本机 8790 单会话代理）：三个任务共用同一个 VMAX 会话，必须彼此串行；2026-09-18 从 <code>n</code> 组拆出（原先排在 <code>sp_data_sync</code> 这类 1.5~2h 长任务后面，小时级采集滞后一个多小时）</td>
+<td><code>cxo_dashboard_cache_sync</code>, <code>vmax_cxo_daily_sync</code>, <code>vmax_multi_data_sync</code></td>
 </tr>
 <tr>
 <td><code>m</code></td>
-<td>20</td>
-<td>内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖</td>
-<td><code>site_outage_screenshot</code>, <code>whatsapp_send</code>, <code>liberia_email_1h</code>, <code>liberia_email_8h</code>, <code>kpi_ms_contract</code>, <code>kpi_ms_wo_sla</code>, <code>kpi_sp_spareparts</code>, <code>kpi_sp_consumables</code>, <code>kpi_ran_availability</code>, <code>email_recovery</code>, <code>ipran_m6k_chart_email</code>, <code>ccn_free_rating_chart_email</code>, <code>battery_email</code>, <code>mailbox_cleanup</code>, <code>incident_overview_sync</code>, <code>auto_retry_failed</code>, <code>db_freshness_check</code>, <code>sp_report_generate</code>, <code>finebi_report_sync</code>, <code>pg_to_sqlite_sync</code></td>
+<td>29</td>
+<td>内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数</td>
+<td><code>site_outage_screenshot</code>, <code>whatsapp_send</code>, <code>whatsapp_send_ext</code>, <code>liberia_email_1h</code>, <code>liberia_email_8h</code>, <code>kpi_ms_contract</code>, <code>kpi_ms_wo_sla</code>, <code>kpi_sp_spareparts</code>, <code>kpi_sp_consumables</code>, <code>kpi_ran_availability</code>, <code>email_recovery</code>, <code>ipran_m6k_chart_email</code>, <code>ccn_free_rating_chart_email</code>, <code>battery_email</code>, <code>mailbox_cleanup</code>, <code>incident_overview_sync</code>, <code>auto_retry_failed</code>, <code>db_freshness_check</code>, <code>sp_report_generate</code>, <code>sp_email_details</code>, <code>sp_online_report_generate</code>, <code>sp_online_report_send</code>, <code>sp_whatsapp_report</code>, <code>sp_material_report</code>, <code>finebi_report_sync</code>, <code>pg_to_sqlite_sync</code>, <code>log_cleanup</code>, <code>olib_soc_kpi_daily_sync</code>, <code>olib_soc_vmax_report</code></td>
 </tr>
 <tr>
 <td><code>c</code></td>
@@ -688,12 +694,70 @@ schemas/   预留，实际为空
 </tr>
 </tbody>
 </table>
-<p><code>m</code> 组末尾两条有注释记录：<code>finebi_report_sync</code>/<code>pg_to_sqlite_sync</code> 在 2026-08-25 启用分组模式后因<strong>未归入任何组而无人认领，队列 pending 卡死断档</strong>，才补进来的（<code>worker_watchdog.py:58-60</code>）。</p>
+<p><code>m</code> 组末尾几条有注释记录：<code>finebi_report_sync</code>/<code>pg_to_sqlite_sync</code>（2026-08-25）、<code>whatsapp_send_ext</code>（08-31）、<code>sp_email_details</code>（09-01）、<code>cells_kpi_sync</code>/<code>sp_material_sync</code>（09-09~11）在启用分组模式后都因<strong>未归入任何组而无人认领，队列 pending 卡死断档</strong>才补进来（<code>worker_watchdog.py</code> 内的补录注释）。</p>
 <blockquote>
-<p><strong>新增任务必须同时登记进 <code>GROUP_TASK_MAP</code>。</strong> 只写进 <code>TASK_SPECS</code> 而不分组 = 任务入队后永远 pending。这是本项目已发生过的事故模式。</p>
+<p><strong>新增任务必须同时登记进 <code>GROUP_TASK_MAP</code>；新增/调整「组」必须同步三处</strong>：<code>worker_watchdog.py::GROUP_TASK_MAP</code> 的键、<code>start_hidden.ps1</code> 的 <code>$env:MY_APP_WORKER_GROUPS</code>、<code>restart_workers.py</code> 的 <code>ALL_GROUPS</code>。只加分组表不改启动脚本 = 该组 worker 从不被拉起，症状与漏登记完全一样。</p>
+<p>只写进 <code>TASK_SPECS</code> 而不分组 = 任务入队后永远 pending，且不报任何错。这是本项目已发生<strong>四次</strong>的事故模式，2026-09-18 第四次（<code>olib_soc_kpi_daily_sync</code>、<code>olib_soc_vmax_report</code>、<code>vmax_multi_data_sync</code> 上线后一次也没跑过，90 天经营看板停在 09-16）之后上了三道防线：
+① <code>tests/test_worker_group_coverage.py</code>（不依赖 pytest，<code>python tests\test_worker_group_coverage.py</code> 即可跑，2026-09-18 实跑 PASS=5）—— 5 个用例：任务覆盖（缺项 + 幽灵 id）、同组不重复、三处组集合一致、共用 8790 会话的任务必须同组、前端任务帮助（<code>frontend/src/pages/helpTaskDocs.ts</code> 的 <code>TASK_DOCS</code>）与分组表一一对应且组名相同；任一项失配在跑测试时就失败。<strong>跑它必须用 PATH 上的 <code>python</code>（系统 3.12）</strong>，工作区的 <code>Scripts\python.exe</code> 与 <code>.venv\Scripts\python.exe</code> 都没装 apscheduler，用错解释器会报 <code>ModuleNotFoundError: apscheduler</code> 而“假失败”（看着像分组配错了）；
+② <code>worker.py::_expire_orphan_pending</code>（每 300s）—— pending 超过 <code>STALE_PENDING_SECONDS</code>（默认 6h）仍无人认领就置 failed 并补执行日志，释放被它占住的单飞名额，让下一次调度能正常入队（以前一条陈旧 pending 会把该任务<strong>之后每一次</strong>调度静默挡在门外）；
+③ <code>worker_watchdog.py::main()</code> 启动自检 —— 分组表与 <code>MY_APP_WORKER_GROUPS</code> 两侧任一漏改，看门狗启动时打 warning（只告警不退出）。</p>
 </blockquote>
 <p><a id="ch-04-s2"></a></p>
+<h3>任务健康告警（漏跑不再靠人肉发现）</h3>
+<p><code>db_freshness_check</code>（每小时 <code>15 * * * *</code>）除了查数据滞后，还算五类<strong>任务执行健康异常</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>kind</th>
+<th>判据</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>group_missing</code></td>
+<td><code>TASK_SPECS</code> 有、<code>GROUP_TASK_MAP</code> 无</td>
+<td>未登记 = 永不认领</td>
+</tr>
+<tr>
+<td><code>silent</code></td>
+<td>注册任务在回看窗口（<code>TASK_HEALTH_LOOKBACK_HOURS</code>，默认 24h）内<strong>完全没有执行记录</strong></td>
+<td>按 cron 收紧：调度间隔大于窗口的低频任务（如 <code>59 23 */3 * *</code>）未到下一期不报；cron 解析不出来则宁可多报</td>
+</tr>
+<tr>
+<td><code>stuck</code></td>
+<td><code>task_queue</code> 滞留 pending&gt;<code>10min</code> / running&gt;<code>30min</code></td>
+<td>running 超时由 worker 周期回收补写失败</td>
+</tr>
+<tr>
+<td><code>overdue</code></td>
+<td>上次成功后按 cron 过一个完整周期（+grace）仍无新的成功</td>
+<td>与 <code>silent</code> 互补：小时级任务中断 3 小时，<code>silent</code> 因当天有记录而不报</td>
+</tr>
+<tr>
+<td><code>overdue_dependency</code></td>
+<td><code>overdue</code> 的<strong>子集</strong>：最新一次失败是「外部依赖不可用」（EWS 401 / 连接失败 / 子进程超时）而非任务自身停摆</td>
+<td>2026-09-18 新增。<code>overdue</code> 仍保留该任务（用于算 <code>status</code> 与 STALE 清单），本类只把告警<strong>聚合成一条</strong>并改文案，见下</td>
+</tr>
+</tbody>
+</table>
+<p>2026-09-18 之前这些结果<strong>只进日志没人看</strong>（本次停摆两天是用户先发现的），故新增 <code>backend/services/task_health_alert.py</code> 把 findings 推到人前：</p>
+<ul>
+<li><strong>翻转去重</strong>：以 <code>kind:task_id</code> 为键，状态文件 <code>TMP/task_health_alert_state.json</code>（原子写 tmp + <code>os.replace</code>）。新增异常通知一次、恢复通知一次，不再每小时刷屏；</li>
+<li><strong>持续重提</strong>：同一异常持续超过 <code>TASK_HEALTH_ALERT_RENOTIFY_HOURS</code>（默认 24h）再提一次；</li>
+<li><strong>发送失败不记为已通知</strong>：<code>notified_at</code> 留空，下一轮巡检自动重试；</li>
+<li><strong>通道</strong>：微信 <code>weixin_notifier.send_weixin_message</code> + 邮件 <code>email_notifier.send_status_email</code>（复用 task_runner 的同两套凭据）；</li>
+<li><strong>降噪</strong>：<code>overdue</code> 只收「近 24h 连尝试都没有」的真停摆；「跑了但一直失败」由 <code>task_runner</code> 的失败告警通道负责，不重复刷两条；</li>
+<li><strong>再降噪（2026-09-18 晚，<code>overdue_dependency</code>）</strong>：<code>overdue</code> 中「最新失败是外部依赖不可用」的任务（EWS 401 / 连接失败 / 子进程超时）另归一类，<strong>聚合成一条</strong>告警并给出依赖侧（凭据/网络）修复指引。理由：一次 EWS 故障会连带十几个报表任务各自&quot;逾期&quot;，逐条推送等于刷屏，而真正要看的只有&quot;EWS 挂了&quot;这一条；</li>
+<li><strong>静音</strong>：<code>TASK_HEALTH_ALERT_ENABLED=0</code>（维护窗口用）；</li>
+<li>告警本身<strong>不影响巡检结论</strong>（异常置 <code>success=False</code> 会让巡检被 auto_retry 反复重跑），通知失败只记 warning。</li>
+</ul>
+<blockquote>
+<p>同期修掉两个既有缺陷：<code>_cron_next_and_interval</code> 因 aware/naive datetime 相减抛 <code>TypeError</code> 被裸 <code>except</code> 吞掉，「成功逾期」维度自 2026-08-13 上线以来<strong>从未生效</strong>；以及「24h 无执行记录」对每 3 天跑一次的低频任务每小时误报一次。守卫见 <code>tests/test_task_health_detect.py</code>（检测判据）与 <code>tests/test_task_health_alert.py</code>（告警翻转去重，6 场景）。</p>
+</blockquote>
+<p><a id="ch-04-s3"></a></p>
 <h3>全量任务清单（默认 cron）</h3>
+<p>下表与 <code>GROUP_TASK_MAP</code> 逐一对应（task_id 覆盖与组名由 <code>tests/test_worker_group_coverage.py</code> 校验，其中组名校验针对前端帮助；本表本身无守卫，新增任务后请手工补行）。</p>
 <table>
 <thead>
 <tr>
@@ -956,9 +1020,123 @@ schemas/   预留，实际为空
 <td><code>20 0 * * *</code></td>
 <td>c</td>
 </tr>
+<tr>
+<td><code>vmax_multi_data_sync</code></td>
+<td>VMAX 多报表指标采集</td>
+<td><code>45 * * * *</code></td>
+<td>v</td>
+</tr>
+<tr>
+<td><code>olib_soc_vmax_report</code></td>
+<td>OLIB SOC VMAX 例行报表</td>
+<td><code>30 7 1 * *</code></td>
+<td>m</td>
+</tr>
+<tr>
+<td><code>olib_soc_kpi_daily_sync</code></td>
+<td>OLIB SOC 看板 KPI 增量</td>
+<td><code>20 6 * * *</code></td>
+<td>m</td>
+</tr>
+<tr>
+<td><code>whatsapp_send_ext</code></td>
+<td>WhatsApp 消息发送（扩展）</td>
+<td><code>0 3 * * *</code></td>
+<td>m</td>
+</tr>
+<tr>
+<td><code>cells_kpi_sync</code></td>
+<td>RAN Cells KPI 同步</td>
+<td><code>50 4 * * *</code></td>
+<td>u</td>
+</tr>
+<tr>
+<td><code>sp_email_details</code></td>
+<td>SP 备件明细报表邮件</td>
+<td><code>0 7 * * *</code></td>
+<td>m</td>
+</tr>
+<tr>
+<td><code>sp_material_report</code></td>
+<td>SP 物料库存与消耗报表邮件</td>
+<td><code>33 7 * * *</code></td>
+<td>m</td>
+</tr>
+<tr>
+<td><code>sp_online_report_generate</code></td>
+<td>SP 在线未关闭单报表生成</td>
+<td><code>0 6 * * *</code></td>
+<td>m</td>
+</tr>
+<tr>
+<td><code>sp_online_report_send</code></td>
+<td>SP 在线未关闭单报表发送</td>
+<td><code>20 6 * * *</code></td>
+<td>m</td>
+</tr>
+<tr>
+<td><code>sp_whatsapp_report</code></td>
+<td>Comsumables&amp;SpareParts Report Whatsapp</td>
+<td><code>15 7 * * *</code></td>
+<td>m</td>
+</tr>
+<tr>
+<td><code>sp_online_sync</code></td>
+<td>SP Online 工单同步</td>
+<td><code>35 * * * *</code></td>
+<td>n</td>
+</tr>
+<tr>
+<td><code>sp_material_sync</code></td>
+<td>SP 物料主数据同步</td>
+<td><code>55 4 * * *</code></td>
+<td>n</td>
+</tr>
+<tr>
+<td><code>ume_in_kpi_sync</code></td>
+<td>客户业务 KPI 同步</td>
+<td><code>45 5 * * *</code></td>
+<td>n</td>
+</tr>
+<tr>
+<td><code>ume_in_osg_report</code></td>
+<td>客户业务 KPI + OSG 周报邮件</td>
+<td><code>30 6 * * *</code></td>
+<td>n</td>
+</tr>
+<tr>
+<td><code>eflow_alarm_rules_collect</code></td>
+<td>eFlow 告警规则收集</td>
+<td><code>59 23 */3 * *</code></td>
+<td>n</td>
+</tr>
+<tr>
+<td><code>eflow_push_rules_collect</code></td>
+<td>eFlow 推单规则收集</td>
+<td><code>59 23 */3 * *</code></td>
+<td>n</td>
+</tr>
+<tr>
+<td><code>log_cleanup</code></td>
+<td>日志文件清理</td>
+<td><code>17 3 * * *</code></td>
+<td>m</td>
+</tr>
+<tr>
+<td><code>cxo_dashboard_cache_sync</code></td>
+<td>CXO看板数据缓存同步</td>
+<td><code>*/10 * * * *</code></td>
+<td>v</td>
+</tr>
+<tr>
+<td><code>vmax_cxo_daily_sync</code></td>
+<td>VMAX CXO天粒度日值归档</td>
+<td><code>15 * * * *</code></td>
+<td>v</td>
+</tr>
 </tbody>
 </table>
-<p><a id="ch-04-s3"></a></p>
+<p><a id="ch-04-s4"></a></p>
 <h3>超时、僵尸与自动重试</h3>
 <table>
 <thead>
@@ -978,6 +1156,11 @@ schemas/   预留，实际为空
 <td>僵尸 running 回收</td>
 <td><code>STALE_RUNNING_SECONDS = 30min</code>，并用 PID 存活核对，每 300s 扫一次</td>
 <td><code>worker.py:78,82,302</code></td>
+</tr>
+<tr>
+<td>陈旧 pending 过期</td>
+<td><code>STALE_PENDING_SECONDS = 6h</code>（漏分组/无 worker 认领时不再永久占住单飞名额），每 300s 扫一次</td>
+<td><code>worker.py:_expire_orphan_pending</code></td>
 </tr>
 <tr>
 <td>失败自动重试</td>
@@ -1000,6 +1183,11 @@ schemas/   预留，实际为空
 <td><code>task_runner.py:52-62</code></td>
 </tr>
 <tr>
+<td>漏跑/停摆通知</td>
+<td>每小时巡检后按 <code>kind:task_id</code> 翻转去重推送（24h 重提）</td>
+<td><code>services/task_health_alert.py</code></td>
+</tr>
+<tr>
 <td>保留期</td>
 <td>队列与执行日志保留 <strong>3 天</strong></td>
 <td><code>task_runner.py:764</code>、<code>worker.py:240</code></td>
@@ -1007,21 +1195,21 @@ schemas/   预留，实际为空
 </tbody>
 </table>
 <p>重试的判定不是&quot;失败就重跑&quot;，而是<strong>先看数据缺口是否已被后续成功执行补上</strong>；超过 24h 硬上限直接放弃（<code>task_registry.py:320</code>）。</p>
-<p><a id="ch-04-s4"></a></p>
+<p><a id="ch-04-s5"></a></p>
 <h3>看门狗与自愈</h3>
 <ul>
 <li><code>backend_watchdog.py</code>：托管 uvicorn，端口探活，启动宽限 <code>STARTUP_GRACE=60s</code>，崩溃退避 <code>min(30, 2^n)</code>，<strong>连崩 10 次放弃并告警</strong>（:38-44）。</li>
-<li><code>worker_watchdog.py</code>：同参数托管 4 组 worker（:36-39）。子进程存活 &lt;<code>CRASH_THRESHOLD=10s</code> 视为异常崩溃。</li>
+<li><code>worker_watchdog.py</code>：同参数托管 5 组 worker（u/n/v/m/c，:36-39）。子进程存活 &lt;<code>CRASH_THRESHOLD=10s</code> 视为异常崩溃。</li>
 <li>心跳：<code>log/heartbeat_*.json</code>，15s 一次。启动脚本判定&quot;心跳超过 3 分钟未更新即 hung&quot;并强杀重拉（<code>start_hidden.ps1:63,154-158</code>）。</li>
 </ul>
-<p><a id="ch-04-s5"></a></p>
+<p><a id="ch-04-s6"></a></p>
 <h3>加一个任务的最小步骤</h3>
 <ol>
 <li><code>backend/task_registry.py</code> 的 <code>TASK_SPECS</code> 追加一条 <code>dict(task_id, name, name_en, description, description_en, loader|func, default_cron, category)</code>；</li>
-<li><strong><code>worker_watchdog.py</code> 的 <code>GROUP_TASK_MAP</code> 选定归属组</strong>（漏了就会 pending 卡死）；</li>
+<li><strong><code>worker_watchdog.py</code> 的 <code>GROUP_TASK_MAP</code> 选定归属组</strong>（漏了就会 pending 卡死；新建组则三处同步，见上方分组章）；</li>
 <li>业务函数放 <code>backend/services/</code>，抛异常即算失败，不要自己吞异常；</li>
-<li>重启后端（<code>stop.bat</code> → <code>start.bat</code>）让注册表重载；</li>
-<li>在任务管理页手动&quot;执行&quot;一次验证链路，再更新本页任务清单表格。</li>
+<li>重启后端（<code>stop.bat</code> → <code>start.bat</code>）让注册表重载；只改分组清单无需重启后端，<code>python restart_workers.py --mode watchdog --force</code>（<strong>需管理员权限</strong>，否则 watchdog 进程杀不掉而静默失败，旧组清单会一直在内存里生效）；</li>
+<li>在任务管理页手动&quot;执行&quot;一次验证链路，再更新本页任务清单表格与前端帮助（<code>frontend/src/pages/helpTaskDocs.ts</code>，改完跑 <code>npm run docs</code>）。</li>
 </ol>
 
 </section>
@@ -1225,7 +1413,7 @@ npm run build
 <p>放在 <code>backend/.env</code>。键名如下，值按你自己的环境填（<strong>不要把带真实值的 .env 提交或外发</strong>）：</p>
 <pre><code class="language-ini">MY_APP_DB_MODE=pg
 DATABASE_URL=postgresql+psycopg://&lt;user&gt;:&lt;pass&gt;@&lt;host&gt;:5432/&lt;db&gt;
-MY_APP_WORKER_GROUPS=u,n,m,c
+MY_APP_WORKER_GROUPS=u,n,m,c,v
 # 可选：对外暴露接口时启用
 # MY_APP_API_TOKEN=&lt;随机长串&gt;
 # 可选：覆盖 CORS 白名单
@@ -1246,7 +1434,7 @@ MY_APP_WORKER_GROUPS=u,n,m,c
 <tr>
 <td>日常手动启动</td>
 <td><code>start.bat</code></td>
-<td>清 <code>stopped.flag</code> → 调 <code>start_hidden.ps1</code> → 轮询 7038 就绪 → 校验 watchdog 与 4 个 worker PID → 打印访问地址（<code>start.bat:13,24,29-43,77-78</code>）</td>
+<td>清 <code>stopped.flag</code> → 调 <code>start_hidden.ps1</code> → 轮询 7038 就绪 → 校验 worker 看门狗 PID 文件（各组 worker 由它托管，当前 5 组）→ 打印访问地址（<code>start.bat:13,24,29-43,77-78</code>）</td>
 </tr>
 <tr>
 <td>静默启动（开机自启用）</td>
@@ -1580,7 +1768,7 @@ stop.bat all    # 连 PostgreSQL 一起停
 <li><strong>数据三层叠加</strong>（2026-09-02 起）：
 <ol>
 <li>HTML 内嵌快照（构建时冻结，保底渲染）；</li>
-<li><strong>last-known-good 缓存</strong>：worker 任务 <code>cxo_dashboard_cache_sync</code>（每 10 分钟，n 组）经本机 8790 VMAX 代理拉全量接口、<strong>空值保留旧值</strong>，落盘 <code>data/cxo_dashboard/last_known_good.json</code>，页面打开/每 5 分钟自动刷新时经 <code>GET /api/cxo-dashboard/cache</code> 应用；</li>
+<li><strong>last-known-good 缓存</strong>：worker 任务 <code>cxo_dashboard_cache_sync</code>（每 10 分钟，v 组）经本机 8790 VMAX 代理拉全量接口、<strong>空值保留旧值</strong>，落盘 <code>data/cxo_dashboard/last_known_good.json</code>，页面打开/每 5 分钟自动刷新时经 <code>GET /api/cxo-dashboard/cache</code> 应用；</li>
 <li>实时拉取（经 <code>/api/realtime-proxy/cxo</code> 转发 8790 代理）成功则覆盖缓存。
 实时不可用时页面显示最近可用缓存数据（状态行 <code>offline · cached data</code>），Health 页 live 为空时回退缓存并在标题标注 <code>cached &lt;时间&gt;</code>。</li>
 </ol>
@@ -1885,7 +2073,7 @@ Default Templates</em>），因为它们的前端把根地址/实时通道写死
 </table>
 <p><a id="ch-12-s1"></a></p>
 <h3>二、<code>.env</code> / 环境变量（改这些要重启）</h3>
-<p>放在 <code>backend/.env</code>。全仓库共有 <strong>147 个</strong>可被环境变量覆盖的键（统计口径：<code>grep -rhoE 'environ\.get\(&quot;[A-Z_0-9]+&quot;|getenv\(&quot;[A-Z_0-9]+&quot;' --include=*.py backend</code>）。下面只列<strong>需要知道存在</strong>的分组，键名可写、值不可写。</p>
+<p>放在 <code>backend/.env</code>。全仓库共有 <strong>203 个</strong>可被环境变量覆盖的键（统计口径：<code>grep -rhoE 'environ\.get\(&quot;[A-Z_0-9]+&quot;|getenv\(&quot;[A-Z_0-9]+&quot;' --include=*.py backend</code> 去重，2026-09-18 复算）。下面只列<strong>需要知道存在</strong>的分组，键名可写、值不可写。</p>
 <p><strong>运行模式（最关键的一组）</strong></p>
 <table>
 <thead>
@@ -1919,12 +2107,22 @@ Default Templates</em>），因为它们的前端把根地址/实时通道写死
 <tr>
 <td><code>MY_APP_WORKER_GROUPS</code></td>
 <td>空</td>
-<td>空=单 worker 全量；<code>u,n,m,c</code>=四组并行（<strong>新增任务未归组会 pending 卡死</strong>）</td>
+<td>空=单 worker 全量；<code>u,n,m,c,v</code>=五组并行（<strong>新增任务未归组会 pending 卡死</strong>；新增组必须与 <code>GROUP_TASK_MAP</code>、<code>start_hidden.ps1</code>、<code>restart_workers.py</code> 三处同步）</td>
 </tr>
 <tr>
 <td><code>MY_APP_WORKER_TASKS</code> / <code>MY_APP_WORKER_POLL</code></td>
 <td>—</td>
 <td>单 worker 模式的任务白名单与轮询间隔</td>
+</tr>
+<tr>
+<td><code>WORKER_STALE_RUNNING_SECONDS</code></td>
+<td><code>2160</code>（30min）</td>
+<td>僵尸 running 回收阈值（配合 PID 存活核对）</td>
+</tr>
+<tr>
+<td><code>WORKER_STALE_PENDING_SECONDS</code></td>
+<td><code>21600</code>（6h）</td>
+<td>pending 无人认领判陈旧并置 failed（释放单飞名额；下限 1800s）</td>
 </tr>
 <tr>
 <td><code>MY_APP_DISABLE_SCHEDULER</code></td>
@@ -1958,8 +2156,9 @@ Default Templates</em>），因为它们的前端把根地址/实时通道写死
 <p><strong>上游连接与超时</strong>（各系统同名套路：<code>*_HOST</code>/<code>*_PORT</code>/<code>*_USER</code>/<code>*_PASS(WORD)</code>/<code>*_CONNECT_TIMEOUT</code>/<code>*_READ_TIMEOUT</code>/<code>*_HTTP_MAX_RETRIES</code>/<code>*_HTTP_RETRY_DELAY</code>/<code>*_PARALLEL_WORKERS</code>/<code>*_DAYS_BACK</code>）</p>
 <p><code>RAN_UME_*</code>、<code>CNN_KPI_*</code>、<code>IPRAN_KPI_*</code>、<code>EFLOW_*</code>、<code>BATT_*</code>、<code>EMS_*</code>、<code>FTP_*</code>、<code>FW_*</code>、<code>SLA_PARALLEL_WORKERS</code>、<code>SLA_DAYS_BACK</code>。
 证书校验开关见 <code>backend/security_tls.py:29-39</code>（<code>*_TLS_VERIFY</code>，<strong>默认关闭</strong>）。</p>
-<p><strong>通知</strong>：<code>WHATSAPP_*</code>、<code>TWILIO_*</code>、<code>PHONE</code>/<code>SMS_SERVICE_PROVIDER</code>、SMTP 系列、微信/OpenClaw 相关（走 <code>services/weixin_notifier.py</code>）。
-<strong>其他</strong>：<code>GEMINI_API_KEY</code>（指标解释文本生成）、<code>CALL_CHAIN_DEPTH</code>（新鲜度巡检调用链深度）、<code>BATT_FRESH_HOURS</code>/<code>BATT_STALE_DAYS</code>/<code>BATT_SOC_LOW</code>/<code>BATT_HEALTH_*</code>（电池看板的&quot;新鲜度/低电量/健康度&quot;阈值——<strong>页面上的数字直接受这些值影响</strong>）。</p>
+<p><strong>通知</strong>：<code>WHATSAPP_*</code>、<code>TWILIO_*</code>、<code>PHONE</code>/<code>SMS_SERVICE_PROVIDER</code>、SMTP 系列、微信/OpenClaw 相关（走 <code>services/weixin_notifier.py</code>）。</p>
+<p><strong>任务健康告警</strong>（<code>services/task_health_alert.py</code>，2026-09-18 新增）：<code>TASK_HEALTH_ALERT_ENABLED</code>（默认 <code>1</code>，置 <code>0</code>/<code>false</code> 静音，维护窗口用）、<code>TASK_HEALTH_ALERT_RENOTIFY_HOURS</code>（同一异常持续多久后重提，默认 <code>24</code>）。告警去重状态文件：<code>TMP/task_health_alert_state.json</code>（可安全删：删后下轮会把当前异常当新异常再通知一次，不影响判定）。</p>
+<p><strong>其他</strong>：<code>GEMINI_API_KEY</code>（指标解释文本生成）、<code>CALL_CHAIN_DEPTH</code>（新鲜度巡检调用链深度）、<code>BATT_FRESH_HOURS</code>/<code>BATT_STALE_DAYS</code>/<code>BATT_SOC_LOW</code>/<code>BATT_HEALTH_*</code>（电池看板的&quot;新鲜度/低电量/健康度&quot;阈值——<strong>页面上的数字直接受这些值影响</strong>）。</p>
 <p><a id="ch-12-s2"></a></p>
 <h3>三、配置文件（JSON）</h3>
 <table>
@@ -2125,7 +2324,7 @@ Default Templates</em>），因为它们的前端把根地址/实时通道写死
 </tr>
 <tr>
 <td>无端口</td>
-<td>worker × 4 组</td>
+<td>worker × 5 组（u/n/v/m/c）</td>
 <td>—</td>
 <td><code>worker_watchdog.py</code></td>
 </tr>
@@ -2176,7 +2375,7 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 </tr>
 <tr>
 <td><code>worker_runtime*.log</code></td>
-<td>任务执行主日志（<strong>排障首选</strong>）；每组 worker 一个文件：<code>_u</code>/<code>_n</code>/<code>_m</code>/<code>_c</code></td>
+<td>任务执行主日志（<strong>排障首选</strong>）；每组 worker 一个文件：<code>_u</code>/<code>_n</code>/<code>_v</code>/<code>_m</code>/<code>_c</code></td>
 <td>合计 ≈28 MB</td>
 </tr>
 <tr>
@@ -2249,8 +2448,13 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 </tr>
 <tr>
 <td>某类数据全停更</td>
-<td>任务管理里对应任务是否 pending</td>
-<td>pending 且从不执行 → <strong>该 task_id 不在 <code>GROUP_TASK_MAP</code> 任何组</strong>（<code>04-task-system.md</code>）</td>
+<td>任务管理里对应任务是否 pending；<code>db/app.db</code> 里 <code>select * from task_queue where status='pending'</code> 是否只有那一条、且 <code>task_execution_log</code> 里该任务 0 条记录</td>
+<td>pending 且从不执行 → <strong>该 task_id 不在 <code>GROUP_TASK_MAP</code> 任何组</strong>（已踩四次，<code>04-task-system.md</code>）。补登记分组后需 <code>python restart_workers.py --mode watchdog --force</code>（<strong>要管理员权限</strong>：分组清单在 watchdog 进程内存里，只重启子 worker 不生效；无权限时 taskkill 会 Access denied 而静默失败，必须回查 <code>log/worker_restart_marker.log</code> 确认 pids 真的变了）；陈旧 pending 占住的单飞名额会在 6h 后被 <code>_expire_orphan_pending</code> 自动释放</td>
+</tr>
+<tr>
+<td>任务漏跑但没人发现</td>
+<td><code>db_freshness_check</code> 执行历史里搜 <code>[TASK-HEALTH]</code>；告警去重状态 <code>TMP/task_health_alert_state.json</code></td>
+<td>2026-09-18 起漏跑（无执行记录/队列滞留/成功逾期/未归组）会微信+邮件主动通知，新异常与恢复各通知一次、持续超 24h 重提；维护窗口静音用 <code>TASK_HEALTH_ALERT_ENABLED=0</code></td>
 </tr>
 <tr>
 <td>任务反复 failed</td>
@@ -2493,6 +2697,20 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <td>CXO 经营看板</td>
 </tr>
 <tr>
+<td><strong>VMAX（DIM 明细查询）</strong></td>
+<td>同一 8790 代理打 <code>/query/v2/history</code>（RSA <code>encryptLong</code> 参数），取 <code>1hour</code> 明细本地聚合为日值（共 <strong>50 个指标</strong>：6 个 CXO 趋势 + 14 个网络 KPI + 30 个服务/OTT KPI；汇总/视频类走 <code>interfaceid=11&amp;rat=6</code>，RAN 网络类与服务/OTT 类走空过滤）。指标按监控<strong>多列合批</strong>取数（每周期仅 8 个请求，实测 14 列一次返回 0.06s），<strong>响应列顺序由服务端决定、与请求顺序不同，必须按列名映射</strong>。日值口径：流量/次数 SUM、用户数 PEAK、其余率/时延/吞吐/MOS/频次一律取未加权小时均值。<strong>上游无天粒度、明细仅保留约 8 天</strong>，故必须每日落盘累积</td>
+<td><code>vmax_cxo_daily_sync</code>（每小时 :15，v 组）</td>
+<td><code>vmax_cxo</code></td>
+<td>VMAX CXO 天粒度看板（<code>vmaxCxoDashboard_Daily</code>，页签与参考看板 <code>vmaxCxoDashboard</code> 一致：汇总 / 网络（5 子页签）/ 服务（9 子页签））</td>
+</tr>
+<tr>
+<td><strong>VMAX（数仓 GBase 直连）</strong></td>
+<td>MySQL 协议直连数仓 <strong>GBase 8a</strong>（<code>10.123.255.12:5258</code>，库 <code>zxvmax</code>，pymysql），按 <code>_day_</code> 分区表逐日取数：9 段业务 SQL 移植自用户 notebook <code>OLIB SOC VMAX Routine Report</code>（流量/活跃用户/缓存/核心网/视频/游戏/TCP/TOP业务/TOP视频）。<strong>明细只保留约 90 天</strong>；当天分区持续累积，故只统计已完成日。日粒度 KPI 落 <code>data/olib_soc_report/olib_soc_report.sqlite3</code> 的 <code>daily_kpi</code> 表（原始值落库、占比类查询时现算，保证周汇总精确加权）</td>
+<td><code>olib_soc_vmax_report</code>（每月 1 日 07:30）、<code>olib_soc_kpi_daily_sync</code>（每天 06:20，只补缺口）</td>
+<td><code>vmax_gbase</code></td>
+<td>VMAX 90 天经营看板（<code>vmaxCxoDashboard_90Days</code>：CEO 卡片 + 业务/网络质量趋势 + 近 14 天明细）、OLIB SOC VMAX 月报 Excel</td>
+</tr>
+<tr>
 <td><strong>FineBI</strong></td>
 <td>FTP 读 <code>/webroot/WEB-INF/schedule</code> 各子目录最新 Excel</td>
 <td><code>finebi_report_sync</code>、<code>incident_overview_sync</code></td>
@@ -2614,7 +2832,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ol>
 <li>凭据分组：在 <code>credential_store.py</code> 注册组元数据（<code>key</code>/<code>name</code>/<code>usage</code>/<code>user_label</code>/<code>secret_label</code>/<code>env_user</code>/<code>env_secret</code>/<code>testable</code>），使「系统设置 → 凭据」能填能测。</li>
 <li>采集模块放 <code>backend/services/</code>，<strong>抛异常</strong>而不是返回错误码（否则重试与失败通知都不生效）。</li>
-<li>注册 <code>TASK_SPECS</code> + <strong>选定 <code>GROUP_TASK_MAP</code> 分组</strong>（同会话互斥的必须同组）。</li>
+<li>注册 <code>TASK_SPECS</code> + <strong>选定 <code>GROUP_TASK_MAP</code> 分组</strong>（同会话互斥的必须同组；漏分组 = 入队后无 worker 认领、永远 pending 且不报错，已踩四次）。守卫：<code>tests/test_worker_group_coverage.py</code>（任务覆盖/重复/幽灵 id + 三处组集合一致 + 8790 任务同组 + 前端任务帮助一致，<code>python tests\test_worker_group_coverage.py</code> 直跑）；新建组要同步 <code>start_hidden.ps1</code> 的 <code>MY_APP_WORKER_GROUPS</code> 与 <code>restart_workers.py</code> 的 <code>ALL_GROUPS</code>，并把该任务写进 <code>frontend/src/pages/helpTaskDocs.ts</code>。</li>
 <li>若需要新库表：结构表走 Alembic；动态采集表按 <code>03-data-layer.md</code> 约定不进 migration。</li>
 <li>产物若供页面下载，落到 <code>data/&lt;task_id&gt;/</code> 并在任务报告文件页登记。</li>
 <li>更新本章表格与 <code>04-task-system.md</code> 的任务清单。</li>
@@ -2629,7 +2847,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
     <h2>使用帮助（一站式指南）</h2>
   </header>
   <blockquote>
-<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-15。</p>
+<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-18。</p>
 </blockquote>
 <blockquote>
 <p>站内入口：侧边栏「使用帮助」，或直链 <code>http://&lt;host&gt;/myapp/?page=help</code>。</p>
@@ -2640,7 +2858,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li><a href="#1-%E5%B9%B3%E5%8F%B0%E7%AE%80%E4%BB%8B">1. 平台简介</a></li>
 <li><a href="#2-%E9%80%9A%E7%94%A8%E6%93%8D%E4%BD%9C">2. 通用操作</a></li>
-<li><a href="#3-%E4%BB%BB%E5%8A%A1%E7%AE%A1%E7%90%86%E8%AF%A6%E8%A7%A3">3. 任务管理详解（47 个任务）</a></li>
+<li><a href="#3-%E4%BB%BB%E5%8A%A1%E7%AE%A1%E7%90%86%E8%AF%A6%E8%A7%A3">3. 任务管理详解（62 个任务）</a></li>
 <li><a href="#4-%E9%A1%B5%E9%9D%A2%E6%8C%87%E5%8D%97">4. 页面指南</a></li>
 <li><a href="#5-%E8%BF%90%E7%BB%B4%E4%B8%8E%E6%8E%92%E9%9A%9C">5. 运维与排障</a></li>
 <li><a href="#6-%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98">6. 常见问题</a></li>
@@ -2730,6 +2948,10 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <td>网管 / eFlow API / 远程系统：彼此独立但保守同组</td>
 </tr>
 <tr>
+<td><strong>v</strong></td>
+<td>VMAX 门户（本机 8790 单会话代理）：三个任务共用同一会话必须串行；2026-09-18 从 n 组拆出，不再被 1.5~2h 长任务堵住</td>
+</tr>
+<tr>
 <td><strong>m</strong></td>
 <td>内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖</td>
 </tr>
@@ -2740,10 +2962,10 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 </tbody>
 </table>
 <blockquote>
-<p>⚠️ <strong>新增任务必须同时登记进 <code>worker_watchdog.py</code> 的 <code>GROUP_TASK_MAP</code></strong> —— 只写 <code>TASK_SPECS</code> 不分组 = 任务入队后永远 pending。这是本项目已发生过三次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details）。</p>
+<p>⚠️ <strong>新增任务必须同时登记进 <code>worker_watchdog.py</code> 的 <code>GROUP_TASK_MAP</code></strong> —— 只写 <code>TASK_SPECS</code> 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。</p>
 </blockquote>
 <p><a id="ch-15-s6"></a></p>
-<h4>3.3 全量任务清单（47 个）</h4>
+<h4>3.3 全量任务清单（62 个）</h4>
 <table>
 <thead>
 <tr>
@@ -3083,6 +3305,111 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <td><code>20 0 * * *</code></td>
 <td>c</td>
 <td><code>services/cn_ems/ems_kpi_service.py → run_ems_kpi_daily</code></td>
+</tr>
+<tr>
+<td>CXO 看板数据缓存同步</td>
+<td><code>cxo_dashboard_cache_sync</code></td>
+<td><code>*/10 * * * *</code></td>
+<td>v</td>
+<td><code>services/cxo_dashboard_cache.py → run_cxo_dashboard_cache_sync</code></td>
+</tr>
+<tr>
+<td>VMAX CXO 天粒度日值归档</td>
+<td><code>vmax_cxo_daily_sync</code></td>
+<td><code>15 * * * *</code></td>
+<td>v</td>
+<td><code>services/vmax_cxo_daily_cache.py → run_vmax_cxo_daily_sync</code></td>
+</tr>
+<tr>
+<td>VMAX 多报表指标采集</td>
+<td><code>vmax_multi_data_sync</code></td>
+<td><code>45 * * * *</code></td>
+<td>v</td>
+<td><code>services/vmax_multi_data/vmax_multi_data_service.py → run_vmax_multi_data_sync</code></td>
+</tr>
+<tr>
+<td>OLIB SOC 看板 KPI 增量</td>
+<td><code>olib_soc_kpi_daily_sync</code></td>
+<td><code>20 6 * * *</code></td>
+<td>m</td>
+<td><code>services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_kpi_sync</code></td>
+</tr>
+<tr>
+<td>OLIB SOC VMAX 例行报表</td>
+<td><code>olib_soc_vmax_report</code></td>
+<td><code>30 7 1 * *</code></td>
+<td>m</td>
+<td><code>services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_report</code></td>
+</tr>
+<tr>
+<td>客户业务 KPI 同步</td>
+<td><code>ume_in_kpi_sync</code></td>
+<td><code>45 5 * * *</code></td>
+<td>n</td>
+<td><code>services/ume_in/ume_in_kpi_service.py → run_ume_in_kpi_sync</code></td>
+</tr>
+<tr>
+<td>客户业务 KPI + OSG 周报邮件</td>
+<td><code>ume_in_osg_report</code></td>
+<td><code>30 6 * * *</code></td>
+<td>n</td>
+<td><code>services/ume_in/osg_report_task.py → run_ume_in_osg_report（内部依次调 ume_in_kpi_service + t_osg_build.py）</code></td>
+</tr>
+<tr>
+<td>SP Online 工单同步</td>
+<td><code>sp_online_sync</code></td>
+<td><code>35 * * * *</code></td>
+<td>n</td>
+<td><code>services/sp_online_sync.py → run_sp_online_sync</code></td>
+</tr>
+<tr>
+<td>SP 物料主数据同步</td>
+<td><code>sp_material_sync</code></td>
+<td><code>55 4 * * *</code></td>
+<td>n</td>
+<td><code>services/sp_material_sync.py → run_sp_material_sync</code></td>
+</tr>
+<tr>
+<td>SP 在线未关闭单报表生成</td>
+<td><code>sp_online_report_generate</code></td>
+<td><code>0 6 * * *</code></td>
+<td>m</td>
+<td><code>services/kpi_email_report.py → run_sp_online_report_generate</code></td>
+</tr>
+<tr>
+<td>SP 在线未关闭单报表发送</td>
+<td><code>sp_online_report_send</code></td>
+<td><code>20 6 * * *</code></td>
+<td>m</td>
+<td><code>services/kpi_email_report.py → run_sp_online_report</code></td>
+</tr>
+<tr>
+<td>eFlow 告警规则收集</td>
+<td><code>eflow_alarm_rules_collect</code></td>
+<td><code>59 23 */3 * *</code></td>
+<td>n</td>
+<td><code>services/eflow_rules/eflow_Alarm_Rule_Collector.py → run_eflow_alarm_rules</code></td>
+</tr>
+<tr>
+<td>eFlow 推单规则收集</td>
+<td><code>eflow_push_rules_collect</code></td>
+<td><code>59 23 */3 * *</code></td>
+<td>n</td>
+<td><code>services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules</code></td>
+</tr>
+<tr>
+<td>日志文件清理</td>
+<td><code>log_cleanup</code></td>
+<td><code>17 3 * * *</code></td>
+<td>m</td>
+<td><code>services/log_cleanup.py → run_log_cleanup</code></td>
+</tr>
+<tr>
+<td>TMP 目录清理</td>
+<td><code>tmp_cleanup</code></td>
+<td><code>47 3 * * *</code></td>
+<td>m</td>
+<td><code>services/tmp_cleanup.py → run_tmp_cleanup</code></td>
 </tr>
 </tbody>
 </table>
@@ -3890,6 +4217,276 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>与缓存同步共享 _pmcache/daily_raw.json，同在 c 组串行保证互斥</li>
 </ul>
 <p><a id="ch-15-s54"></a></p>
+<h5>CXO 看板数据缓存同步（<code>cxo_dashboard_cache_sync</code>）</h5>
+<ul>
+<li>默认 cron: <code>*/10 * * * *</code>　|　worker 组: <strong>v</strong></li>
+<li>工作流脚本: <code>services/cxo_dashboard_cache.py → run_cxo_dashboard_cache_sync</code></li>
+</ul>
+<p><strong>功能</strong>: 每 10 分钟经本机 8790 VMAX 代理拉取 CXO 看板全量接口，按接口粒度合并为 last-known-good 缓存（空值保留旧值），供看板兜底展示</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每 10 分钟经 127.0.0.1:8790 VMAX 代理拉取 CXO 看板全部接口</li>
+<li>按接口粒度合并 last-known-good：某接口本轮取空只保留旧值，不把看板打成空白</li>
+<li>落盘 data/cxo_dashboard/last_known_good.json</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>2026-09-18 与另两个 8790 任务一起从 n 组拆到 v 组：同会话必须串行，但不再排在 sp_data_sync（1.5~2h）后面</li>
+<li>上线时曾漏登记 GROUP_TASK_MAP → 队列 pending 卡死、看板停在旧日期（第四次踩坑）</li>
+<li>8790 会话失效时本任务失败，而看板会继续用 last-known-good 展示（看着正常其实已停更）——以任务执行历史为准</li>
+</ul>
+<p><a id="ch-15-s55"></a></p>
+<h5>VMAX CXO 天粒度日值归档（<code>vmax_cxo_daily_sync</code>）</h5>
+<ul>
+<li>默认 cron: <code>15 * * * *</code>　|　worker 组: <strong>v</strong></li>
+<li>工作流脚本: <code>services/vmax_cxo_daily_cache.py → run_vmax_cxo_daily_sync</code></li>
+</ul>
+<p><strong>功能</strong>: 每小时经 8790 VMAX 代理按监控批量拉取最近 8 天的 1hour 明细（50 个指标压成 8 个多列请求），聚合为日值落盘，供页签化天粒度看板累积回看约三周</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每小时 :15 按监控批量拉最近 8 天的 1hour 明细（6 个 CXO 趋势 + 14 个网络 KPI + 30 个服务/OTT KPI）</li>
+<li>按流量 SUM / 用户 PEAK / 速率 AVG 聚合为日值</li>
+<li>落盘 data/vmax_cxo_daily/daily.json</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>与 cxo_dashboard_cache_sync、vmax_multi_data_sync 共用 8790 单会话，同在 v 组串行</li>
+<li>日值由小时明细聚合：错过几个小时可由 8 天窗口自动补回，无需人工回填</li>
+</ul>
+<p><a id="ch-15-s56"></a></p>
+<h5>VMAX 多报表指标采集（<code>vmax_multi_data_sync</code>）</h5>
+<ul>
+<li>默认 cron: <code>45 * * * *</code>　|　worker 组: <strong>v</strong></li>
+<li>工作流脚本: <code>services/vmax_multi_data/vmax_multi_data_service.py → run_vmax_multi_data_sync</code></li>
+</ul>
+<p><strong>功能</strong>: 每小时经 8790 VMAX 代理抓取 url.txt 记录的 vreport 报表（5GSA 流量 / 5GSA 视频）指标明细，落盘 latest.json 与 vmax_multi_data.sqlite3</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每小时 :45 经 8790 代理请求 vreport 报表（sys_5gsa_traffic_ciservice / sys_5gsa_video_ciservice）</li>
+<li>report_query 参数走 RSA 分块加密</li>
+<li>落盘 data/vmax_multi_data/&lt;报表&gt;_latest.json 与 vmax_multi_data.sqlite3（kpi_rows 明细 + sync_runs 运行记录）</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>2026-09-18 补登记分组前从未执行过（第四次踩坑），现与另两个 8790 任务同属 v 组</li>
+<li>页面取的是 latest.json 快照，任务失败时页面仍显示上一次数据，不会报错</li>
+</ul>
+<p><a id="ch-15-s57"></a></p>
+<h5>OLIB SOC 看板 KPI 增量（<code>olib_soc_kpi_daily_sync</code>）</h5>
+<ul>
+<li>默认 cron: <code>20 6 * * *</code>　|　worker 组: <strong>m</strong></li>
+<li>工作流脚本: <code>services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_kpi_sync</code></li>
+</ul>
+<p><strong>功能</strong>: 每日增量补齐 VMAX 90 天经营看板的 KPI 库（daily_kpi 表）：只跑 7 个看板块，只取缺的日期 + 重取最新 1 天，不出 Excel</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每天 06:20 直连 VMAX 数仓 GBase（10.123.255.12:5258，库 zxvmax）</li>
+<li>只跑流量/活跃用户/缓存/视频/游戏/TCP/TOP 业务 7 个块</li>
+<li>只取缺失日期 + 重取最新 1 天（默认回看 7 天，幂等自愈），写 data/olib_soc_report/olib_soc_report.sqlite3 的 daily_kpi</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>数仓分区只保留约 90 天，回看窗口必须落在保留期内</li>
+<li>GBase 不可达时本任务失败；链路恢复后 days_back=7 会自动补齐断档，无需人工回填</li>
+<li>上线时漏登记分组→ 90 天看板停在旧日期（2026-09-18 补录 m 组）</li>
+</ul>
+<p><a id="ch-15-s58"></a></p>
+<h5>OLIB SOC VMAX 例行报表（<code>olib_soc_vmax_report</code>）</h5>
+<ul>
+<li>默认 cron: <code>30 7 1 * *</code>　|　worker 组: <strong>m</strong></li>
+<li>工作流脚本: <code>services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_report</code></li>
+</ul>
+<p><strong>功能</strong>: 直连 VMAX 数仓 GBase 按日分区跑 notebook 移植的 9 段 SQL，生成多 sheet Excel 与运行记录；默认出上一个自然月</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每月 1 日 07:30 直连 GBase 按日分区跑 9 段 SQL（traffic/Active_user/cache/GUW/Video/game/TCP/TOP 业务/TOP 视频）</li>
+<li>生成多 sheet Excel 与运行记录，默认窗口为上一个自然月（可配 last_n_days/weekly/explicit）</li>
+<li>窗口自动截断到数仓约 90 天保留期内</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>低频任务（每月一次）：健康巡检按 cron 间隔判定，不会因为“24h 没跑”被误报</li>
+<li>配置在 services/olib_soc_report/ 的 json（range_mode/days/mail.enabled）；GBase 口令走凭据分组 vmax_gbase</li>
+</ul>
+<p><a id="ch-15-s59"></a></p>
+<h5>客户业务 KPI 同步（<code>ume_in_kpi_sync</code>）</h5>
+<ul>
+<li>默认 cron: <code>45 5 * * *</code>　|　worker 组: <strong>n</strong></li>
+<li>工作流脚本: <code>services/ume_in/ume_in_kpi_service.py → run_ume_in_kpi_sync</code></li>
+</ul>
+<p><strong>功能</strong>: 从 UME 门户 172.17.208.1:28808 抓取 Dong customer 周期业务 KPI（IVR/P4M/VC/USSD/PPS/CPU/Memory 共 7 个模板，1 天粒度，默认回看 7 天），直写主库表 ume_in_customer_kpi</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每天 05:45 登录 UME 门户抓 7 个模板的 1 天粒度 KPI</li>
+<li>内存导出不落盘</li>
+<li>直写主库表 ume_in_customer_kpi（Begin Time + KPI + NE + SERVICE 联合去重）</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>与其它网管类任务同在 n 组串行</li>
+<li>默认回看 7 天幂等：门户侧延迟出数会自动补回</li>
+</ul>
+<p><a id="ch-15-s60"></a></p>
+<h5>客户业务 KPI + OSG 周报邮件（<code>ume_in_osg_report</code>）</h5>
+<ul>
+<li>默认 cron: <code>30 6 * * *</code>　|　worker 组: <strong>n</strong></li>
+<li>工作流脚本: <code>services/ume_in/osg_report_task.py → run_ume_in_osg_report（内部依次调 ume_in_kpi_service + t_osg_build.py）</code></li>
+</ul>
+<p><strong>功能</strong>: 每天早上分步执行：先做一次 ume_in KPI 同步，再按 ume_in_customer_kpi 最新 7 天生成 OSG Weekly QoS Analysis Report Excel，最后把该 Excel 作为附件发给 <a href="mailto:djoumene.reussite1@zte.com.cn">djoumene.reussite1@zte.com.cn</a>（抄送 <a href="mailto:dong.xinmin@zte.com.cn">dong.xinmin@zte.com.cn</a>）</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>06:30 ① 调 ume_in_kpi_service.run_ume_in_kpi_sync() 同步 7 个模板到 ume_in_customer_kpi（与 ume_in_kpi_sync 同一门户会话）</li>
+<li>② 调 services/ume_in/t_osg_build.py 取表里最新 7 天填充 OSG 模板，产出 data/in_data/OSG Weekly QoS Analysis Report_&lt;起&gt;_&lt;止&gt;.xlsx（图表/条件格式/样式不动；派生列按原模板公式写入公式+缓存值：PPS 的 C/E/J、USSD 的 C/E/I、VC 的 H、IVR 的 E）</li>
+<li>③ 附件经 Orange EWS 发给主送 <a href="mailto:djoumene.reussite1@zte.com.cn">djoumene.reussite1@zte.com.cn</a>、抄送 <a href="mailto:dong.xinmin@zte.com.cn">dong.xinmin@zte.com.cn</a></li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>与 ume_in_kpi_sync 同组 n 串行：同一步骤共用 UME Dong 门户单会话</li>
+<li>第 1 步同步失败即中止，不会把上一窗口的旧数据当新报告发出去</li>
+<li>收件人可在 Settings → Email Recipient Settings 的 ume_in_osg_report 组覆盖；产物只保留最近 10 份</li>
+</ul>
+<p><a id="ch-15-s61"></a></p>
+<h5>SP Online 工单同步（<code>sp_online_sync</code>）</h5>
+<ul>
+<li>默认 cron: <code>35 * * * *</code>　|　worker 组: <strong>n</strong></li>
+<li>工作流脚本: <code>services/sp_online_sync.py → run_sp_online_sync</code></li>
+</ul>
+<p><strong>功能</strong>: 每小时从 eFlow SP 接口拉全量在线工单（sp-outbound / sp-inbound / sp-transfer），写 app.db 对应三张表</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每小时 :35 请求 eFlow SP 三个接口拉全量在线工单</li>
+<li>写 app.db 表 sp_outbound / sp_inbound / sp_transfer</li>
+<li>「表浏览器」可直查，下游 sp_online_report_generate 消费明细</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>上游账号走 eflow 凭据分组；eFlow 会话被踢时表现为该组任务连续 failed，由 auto_retry_failed 兜底</li>
+</ul>
+<p><a id="ch-15-s62"></a></p>
+<h5>SP 物料主数据同步（<code>sp_material_sync</code>）</h5>
+<ul>
+<li>默认 cron: <code>55 4 * * *</code>　|　worker 组: <strong>n</strong></li>
+<li>工作流脚本: <code>services/sp_material_sync.py → run_sp_material_sync</code></li>
+</ul>
+<p><strong>功能</strong>: 从 eFlow SP 物料接口（eflow-sp-material）拉全量物料主数据，按 materialNo 唯一键 upsert 写 app.db 表 sp_material</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每天 04:55 拉 eflow-sp-material 全量物料主数据</li>
+<li>按 materialNo upsert 写 app.db 表 sp_material</li>
+<li>「表浏览器」可查，下游 sp_material_report 出库存与消耗报表</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>下游 sp_material_report（07:33）只读表不拉接口：本任务停更时邮件仍会正常发，但内容是旧数据</li>
+</ul>
+<p><a id="ch-15-s63"></a></p>
+<h5>SP 在线未关闭单报表生成（<code>sp_online_report_generate</code>）</h5>
+<ul>
+<li>默认 cron: <code>0 6 * * *</code>　|　worker 组: <strong>m</strong></li>
+<li>工作流脚本: <code>services/kpi_email_report.py → run_sp_online_report_generate</code></li>
+</ul>
+<p><strong>功能</strong>: 基于 data/sp_email/data 最新 inband/outband 明细，过滤未关闭单生成 sp_online 下 Inbound/Outbound 报表（PNG+XLSX，Create Time 倒序）</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每天 06:00 读 data/sp_email/data 下最新 inband/outband 明细</li>
+<li>过滤未关闭单</li>
+<li>生成 data/sp_email/sp_online 的 Inbound/Outbound 报表（PNG + XLSX）</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>纯生成不发信，发送由 06:20 的 sp_online_report_send 负责——两者拆开后重跑发送不必重新取数</li>
+</ul>
+<p><a id="ch-15-s64"></a></p>
+<h5>SP 在线未关闭单报表发送（<code>sp_online_report_send</code>）</h5>
+<ul>
+<li>默认 cron: <code>20 6 * * *</code>　|　worker 组: <strong>m</strong></li>
+<li>工作流脚本: <code>services/kpi_email_report.py → run_sp_online_report</code></li>
+</ul>
+<p><strong>功能</strong>: 发送 sp_online 未关闭单报表：邮件（PNG 内嵌 + XLSX 附件，默认复用 SP 报表远程名单）+ WhatsApp 群</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每天 06:20 取 sp_online 最新报表文件</li>
+<li>邮件：Inbound/Outbound PNG 内嵌 + XLSX 附件</li>
+<li>同时发到 WhatsApp 群，收件人可在「系统设置 → 邮件收件人」覆盖</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>依赖 06:00 的 sp_online_report_generate 产物，上游缺文件时本任务直接失败</li>
+<li>属邮件类任务：默认不参与漏跑补投，EWS 恢复后由 email_recovery 补发</li>
+</ul>
+<p><a id="ch-15-s65"></a></p>
+<h5>eFlow 告警规则收集（<code>eflow_alarm_rules_collect</code>）</h5>
+<ul>
+<li>默认 cron: <code>59 23 */3 * *</code>　|　worker 组: <strong>n</strong></li>
+<li>工作流脚本: <code>services/eflow_rules/eflow_Alarm_Rule_Collector.py → run_eflow_alarm_rules</code></li>
+</ul>
+<p><strong>功能</strong>: 每 3 天 23:59 从 eFlow 拉取规则类型目录与告警关联规则（correlation-mgt），导出 eflow_alarm_rules.xlsx</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每 3 天 23:59 拉 eFlow 规则类型目录与告警关联规则（correlation-mgt）</li>
+<li>导出 backend/services/eflow_rules/eflow_alarm_rules.xlsx（Alarm_Rules + Rule_Types 两个 Sheet）</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>低频任务（每 3 天）：健康巡检按 cron 间隔判定，不会因“24h 未执行”被误报</li>
+<li>导出的 xlsx 是下游规则比对的输入，属代码资产，不要手工改动</li>
+</ul>
+<p><a id="ch-15-s66"></a></p>
+<h5>eFlow 推单规则收集（<code>eflow_push_rules_collect</code>）</h5>
+<ul>
+<li>默认 cron: <code>59 23 */3 * *</code>　|　worker 组: <strong>n</strong></li>
+<li>工作流脚本: <code>services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules</code></li>
+</ul>
+<p><strong>功能</strong>: 每 3 天 23:59 从 eFlow config-center 拉取全部规则（推单/升级/分组/自动关闭等 28 种类型），逐条合并 detail 后导出 eflow_push_rules.xlsx</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每 3 天 23:59 以 query filter=&quot;&quot; 拉 config-center 全部规则（28 种类型）</li>
+<li>逐条合并规则 detail</li>
+<li>导出 backend/services/eflow_rules/eflow_push_rules.xlsx（Push_Rules + Rule_Type_Summary）</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>低频任务（每 3 天），与告警规则收集同组同周期</li>
+<li>与 eflow_tt_rules_check 用的规则表同处 services/eflow_rules/，目录与文件名不要改名</li>
+</ul>
+<p><a id="ch-15-s67"></a></p>
+<h5>日志文件清理（<code>log_cleanup</code>）</h5>
+<ul>
+<li>默认 cron: <code>17 3 * * *</code>　|　worker 组: <strong>m</strong></li>
+<li>工作流脚本: <code>services/log_cleanup.py → run_log_cleanup</code></li>
+</ul>
+<p><strong>功能</strong>: 每天清理 my_app/log 下超过保留期（默认 7 天，LOG_RETENTION_DAYS 可调）的日志，并把已无进程写入的旧命名日志补上日期后缀</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每天 03:17 扫描 log/ 下符合日志特征的文件</li>
+<li>删除超过保留期的（LOG_CLEANUP_DRY_RUN=1 只报告不删）</li>
+<li>给已无进程写入的旧命名日志补日期后缀，与各 watchdog 的按日期命名配合滚动保留</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>Windows 下被进程占用的日志无法外部重命名/删除，只能由写入方按日期分文件——这就是日志名带日期的原因</li>
+<li>db/app.db（含凭据表）、backend/services/auth_cache/、data/ 下任务产物不在清理范围</li>
+</ul>
+<p><a id="ch-15-s68"></a></p>
+<h5>TMP 目录清理（<code>tmp_cleanup</code>）</h5>
+<ul>
+<li>默认 cron: <code>47 3 * * *</code>　|　worker 组: <strong>m</strong></li>
+<li>工作流脚本: <code>services/tmp_cleanup.py → run_tmp_cleanup</code></li>
+</ul>
+<p><strong>功能</strong>: 两段式回收 my_app/TMP 下超过保留期（默认 7 天）的临时产物：先同盘移进 TMP/_quarantine_YYYYMMDD/（可还原），隔离再满 7 天才真删</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每天 03:47 扫描 TMP/ 下超过保留期的条目</li>
+<li>同盘 mv 进 <em>quarantine</em>&lt;日期&gt;/ 隔离（不直接删，留一次反悔机会）</li>
+<li>隔离期满 7 天后彻底删除；服务在用路径按 WHITELIST 跳过</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>TMP/ 是临时产物的固定去处，但体积没人管（上线首日实测 462MB）——清理是必需的</li>
+<li>charts/dl/状态文件等服务在用路径在 WHITELIST 里，永不处理；新增此类路径要补白名单</li>
+<li>与 log_cleanup（03:17）错峰，避免同一时段两次全盘扫描</li>
+</ul>
+<p><a id="ch-15-s69"></a></p>
 <h4>3.4 可靠性机制（超时 / 重试 / 自愈）</h4>
 <table>
 <thead>
@@ -3912,8 +4509,16 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <td>时效窗口内应触发却完全没有执行记录的任务自动补投一次（MISS_GRACE_MIN=15 宽限；邮件类默认排除，由 EWS 补发机制负责）。</td>
 </tr>
 <tr>
+<td><strong>陈旧 pending 过期</strong></td>
+<td>pending 超 6 小时无人认领（典型原因：漏登记 worker 分组）会被置 failed 并补写执行日志，释放被它占住的单飞名额，让下一次调度能正常入队（否则一条陈旧记录会挡住该任务之后的每一次调度）。</td>
+</tr>
+<tr>
 <td><strong>失败通知</strong></td>
 <td>任务失败经微信 + 邮件双通道告警（services/weixin_notifier.py 支持 openclaw/wecom/serverchan/pushplus）。</td>
+</tr>
+<tr>
+<td><strong>漏跑/停摆主动告警</strong></td>
+<td>db_freshness_check 每小时算四类健康异常（未归组 / 超出周期无执行记录 / 队列滞留 / 上次成功后逾期无新成功），由 services/task_health_alert.py 按「新异常通知一次、恢复通知一次、持续超 24h 再提一次」推微信+邮件，不必等看板没数据了才人工发现（2026-09-18 上线）。</td>
 </tr>
 <tr>
 <td><strong>进程自愈</strong></td>
@@ -3925,17 +4530,17 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 </tr>
 </tbody>
 </table>
-<p><a id="ch-15-s55"></a></p>
+<p><a id="ch-15-s70"></a></p>
 <h4>3.5 任务维护指南</h4>
 <p><strong>改排程（cron）</strong> 「任务管理 → 排程」弹窗修改，写入主库 task_schedule_config 表，立即生效、重启不丢；无需改代码。</p>
 <p><strong>改业务参数</strong> 「系统设置 → 任务配置」页签（注意在系统设置里，不在任务管理页）。优先级：环境变量 &gt; 配置文件 &gt; 默认值。</p>
 <p><strong>改上游账号口令</strong> 「系统设置 → 凭据」选分组更新，点「测试连接」验证（凭据明文存于 db/app.db 的 credentials 表，缓存 30s）。</p>
 <p><strong>改收件人</strong> 「系统设置 → 邮件收件人」分组编辑，可重置默认；改完对所有 kpi_* / *_email 任务生效。</p>
 <p><strong>手动执行 / 停止</strong> 任务管理页「执行」立即投递一次、「停止」中断长任务。验证新排程/新脚本后应先手动跑一次看执行历史。</p>
-<p><strong>新增一个任务</strong> ① task_registry.py 的 TASK_SPECS 追加声明（task_id/name/cron/loader）；② worker_watchdog.py 的 GROUP_TASK_MAP 登记分组（漏了永远 pending，已三次踩坑）；③ 业务函数放 backend/services/ 且抛异常不吞；④ stop.bat → start.bat 重启加载注册表；⑤ 手动执行验证并更新文档（04-task-system.md 清单与本帮助页）。</p>
+<p><strong>新增一个任务</strong> ① task_registry.py 的 TASK_SPECS 追加声明（task_id/name/cron/loader）；② worker_watchdog.py 的 GROUP_TASK_MAP 登记分组（漏了永远 pending，已四次踩坑；tests/test_worker_group_coverage.py 交叉校验 task_id 覆盖与三处组集合一致）；新建组则必须同步 GROUP_TASK_MAP 键、start_hidden.ps1 的 MY_APP_WORKER_GROUPS、restart_workers.py 的 ALL_GROUPS 三处；③ 业务函数放 backend/services/ 且抛异常不吞；④ stop.bat → start.bat 重启加载注册表（只改分组清单则 python restart_workers.py --mode watchdog --force，<strong>要管理员权限</strong>）；⑤ 手动执行验证并更新文档（04-task-system.md 清单与本帮助数据 helpTaskDocs.ts，改完跑 npm run docs）。</p>
 <p><strong>改工作流脚本</strong> 脚本都在 backend/services/ 下（任务清单有对应路径）。改动时注意：① 别改历史拼写名（packet_lost、battary_kpi_fetch、ultilazation 等，多处按字符串引用）；② 动态采集表不进 Alembic；③ 同步更新 task_registry.md / WORKER.md / 本帮助数据（frontend/src/pages/helpTaskDocs.ts）。</p>
 <p><strong>任务卡 pending / failed 排查顺序</strong> ① pending 不动 → 查是否漏分组；② failed → log/worker_runtime*.log（每组 worker 一个文件）找 task_id 堆栈 → 凭据「测试连接」；③ 数据停更 → db_freshness_check 的执行历史有调用链。</p>
-<p><a id="ch-15-s56"></a></p>
+<p><a id="ch-15-s71"></a></p>
 <h4>3.6 上游不可用时怎么表现</h4>
 <table>
 <thead>
@@ -3974,12 +4579,12 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 </tbody>
 </table>
 <hr />
-<p><a id="ch-15-s57"></a></p>
+<p><a id="ch-15-s72"></a></p>
 <h3>4. 页面指南</h3>
 <p>所有页面可用 <code>?page=&lt;key&gt;</code> 直链打开，例如 <code>http://&lt;host&gt;/myapp/?page=battery</code>；或右键菜单项「在新标签页打开」。标注 iframe 的页面实际界面在 <code>frontend/public/*.html</code>，样式与 React 页面略有差异。</p>
-<p><a id="ch-15-s58"></a></p>
+<p><a id="ch-15-s73"></a></p>
 <h4>4.1 任务与数据</h4>
-<p><a id="ch-15-s59"></a></p>
+<p><a id="ch-15-s74"></a></p>
 <h5>任务管理（<code>sync</code>）</h5>
 <p>全站控制中心：查看所有定时同步/采集任务的状态与排程，手动执行、停止、启停、修改 cron 排程，查看执行历史与按天失败聚合。详见本页「任务管理详解」。</p>
 <ul>
@@ -3987,21 +4592,21 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>单任务「排程」弹窗修改 cron（写入 task_schedule_config，持久化，重启不丢）</li>
 <li>「全局历史」跨任务检索执行记录；任务完成后语音播报可在本页开关</li>
 </ul>
-<p><a id="ch-15-s60"></a></p>
+<p><a id="ch-15-s75"></a></p>
 <h5>任务报告文件（<code>email_reports</code>）</h5>
 <p>汇总三类任务产物并供下载：邮件发送的最新报告附件、FineBI FTP 报表、eFlow TT 规则检查结果（规则表/矫正表/报告）。</p>
 <ul>
 <li>顶部页签切换类别，点文件名或「下载」保存；可设每类保留最近 N 份</li>
 <li>eFlow 规则页签可「立即执行」手动触发一次检查（3 秒后自动刷新一次，任务慢时需手动再刷）</li>
 </ul>
-<p><a id="ch-15-s61"></a></p>
+<p><a id="ch-15-s76"></a></p>
 <h5>数据上传（<code>upload</code>）</h5>
 <p>拖拽 Excel/CSV 入库，并给出数据质量评分。</p>
 <ul>
 <li>拖文件到上传区即可；上传后先看「问题面板 / 结论面板」再决定用不用这批数据</li>
 <li>历史列表可手动刷新</li>
 </ul>
-<p><a id="ch-15-s62"></a></p>
+<p><a id="ch-15-s77"></a></p>
 <h5>表浏览器（<code>tables</code>）</h5>
 <p>表浏览器：不写 SQL 就能翻看任意表、看字段画像、导入导出，是最常用的兜底工具。</p>
 <ul>
@@ -4009,85 +4614,85 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>列显隐可保存为视图模板（同一张表常看固定几列时先存模板）</li>
 <li>「画像」页签查看字段级统计；支持 Excel/CSV 导入</li>
 </ul>
-<p><a id="ch-15-s63"></a></p>
+<p><a id="ch-15-s78"></a></p>
 <h5>数据总览（<code>overview</code>）</h5>
 <p>数据库体检页：库内有多少张表、每张表多少行、Top10 规模排名。</p>
 <ul>
 <li>「行数」列可排序；页面只读——只回答「数据在不在、大不大」</li>
 </ul>
-<p><a id="ch-15-s64"></a></p>
+<p><a id="ch-15-s79"></a></p>
 <h4>4.2 监控看板</h4>
-<p><a id="ch-15-s65"></a></p>
+<p><a id="ch-15-s80"></a></p>
 <h5>实时告警看板（<code>alarm</code>）</h5>
 <p>全网当前活跃告警的综合视图：总量、级别、站点等多维统计与趋势。</p>
 <ul>
 <li>点任意数字弹出可搜索的下钻明细表</li>
 <li>「实时」数据来自 eFlow 活动告警（eflow_active_alarm 每 30 分钟同步），并非秒级推送</li>
 </ul>
-<p><a id="ch-15-s66"></a></p>
+<p><a id="ch-15-s81"></a></p>
 <h5>TT&amp;WO 看板（<code>ttwo</code>）</h5>
 <p>故障工单（TT）与工作单（WO）的处理量、时效、积压趋势分析。</p>
 <ul>
 <li>下拉 + 分段控件 + 日期区间组合筛选，点数字下钻明细</li>
 <li>页头显示数据最近同步时间；数据来自 eFlow 每小时同步（eflow_sync）与每日全量兜底（eflow_sync_full）</li>
 </ul>
-<p><a id="ch-15-s67"></a></p>
+<p><a id="ch-15-s82"></a></p>
 <h5>NUR 看板（<code>nur</code>）</h5>
 <p>网络不可用率（NUR）的日/周/月趋势、多维分析与站点达标情况。</p>
 <ul>
 <li>切换粒度与日期区间，多维下拉筛选</li>
 <li>点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel</li>
 </ul>
-<p><a id="ch-15-s68"></a></p>
+<p><a id="ch-15-s83"></a></p>
 <h5>MS Operation KPI 看板（<code>ms_sla</code>）</h5>
 <p>MS 合同 KPI 与工单 SLA 达成情况：NUR / SLA / Network KPI / Per-Site / WO SLA（指标为行、期间为列）。</p>
 <ul>
 <li>粒度只有日/月两档；下钻明细与 NUR 页一致</li>
 <li>数字以 nur_calc 实时计算为准（ms_sla_full 每 6 小时驱动），可能与历史快照文件不一致——以本页为准</li>
 </ul>
-<p><a id="ch-15-s69"></a></p>
+<p><a id="ch-15-s84"></a></p>
 <h5>CXO 经营看板（<code>cxoDashboard</code>，iframe 页）</h5>
 <p>Service / Network / Summary 三层经营看板（源自 VMAX 实时保障看板）。</p>
 <ul>
 <li>iframe 页面内嵌一份完整数据快照：上游不可用时仍能完整渲染，代价是看到的可能不是最新数据</li>
 <li>要最新数据需重跑对应同步任务；凭据在「系统设置 → 凭据 → vmax_cxo」</li>
 </ul>
-<p><a id="ch-15-s70"></a></p>
+<p><a id="ch-15-s85"></a></p>
 <h5>MW 微波拓扑（<code>mwUmeTopology</code>，iframe 页）</h5>
 <p>ZXMW 微波网络拓扑与带宽利用率 NOC 看板（日粒度）。</p>
 <ul>
 <li>数据每天 05:15 由 mw_ume_kpi_sync 写入 mw_ume_bw_ultilazation，本页一天只变一次</li>
 <li>风险榜、抽屉、趋势图均可交互</li>
 </ul>
-<p><a id="ch-15-s71"></a></p>
+<p><a id="ch-15-s86"></a></p>
 <h5>MW 微波实时（<code>mwRealTime</code>，iframe 页）</h5>
 <p>与微波拓扑同构的 15 分钟粒度实时版（拓扑骨架、风险榜、抽屉、趋势完全一致）。</p>
 <ul>
 <li>默认只展示最新一个 15 分钟槽位，滑杆可回看最近 2 小时窗口</li>
 <li>页面默认 900 秒自动刷新，且支持「软刷新」（不重载 iframe、不闪屏）</li>
 </ul>
-<p><a id="ch-15-s72"></a></p>
+<p><a id="ch-15-s87"></a></p>
 <h5>告警管理看板（<code>alarmManagement</code>，iframe 页）</h5>
 <p>宕站（Site Outage）监控看板：以「站点是否宕」为视角，ERA / Regular / ALL 三个视图。</p>
 <ul>
 <li>每天 01:00 site_outage_screenshot 自动对本页截图，03:00 whatsapp_send 发送到 WhatsApp 群</li>
 <li>注意：改动此页面 DOM 会连带影响自动截图任务，改前先确认截图选择器仍有效</li>
 </ul>
-<p><a id="ch-15-s73"></a></p>
+<p><a id="ch-15-s88"></a></p>
 <h5>丢包看板（<code>packet_loss</code>）</h5>
 <p>LTE 丢包看板（RAN UME SDR / IPRAN IPPD）：最近 7 个完整自然日、小时粒度，当天没过完不展示。</p>
 <ul>
 <li>口径与 Packet_Loss 自动化 Excel 报告完全一致；Popover 可查看口径说明</li>
 <li>Switch 控制是否包含 OK 站点；支持下钻明细与拓扑叠加</li>
 </ul>
-<p><a id="ch-15-s74"></a></p>
+<p><a id="ch-15-s89"></a></p>
 <h5>电池看板（<code>battery</code>）</h5>
 <p>站点电池健康度 / SOC / 充放电状态与告警明细。</p>
 <ul>
 <li>第一维度是「数据新鲜度」：默认只统计 24 小时内的新鲜读数（battery_kpi_sync 每小时 :05），关闭「仅新鲜」会混入旧数据导致失真</li>
 <li>点站点名下钻电池明细与历史读数；支持导出 Excel</li>
 </ul>
-<p><a id="ch-15-s75"></a></p>
+<p><a id="ch-15-s90"></a></p>
 <h5>ume_in_kpi（<code>ume_in_kpi</code>）</h5>
 <p>客户业务 KPI 看板：从 UME 门户（172.17.208.1:28808）抓取 Dong customer 周度业务指标，覆盖 IVR / P4M / VC / USSD / PPS / CPU / Memory 共 7 个模板（1 天粒度）。除业务量与成功率外，本页把失败按「系统侧 / 用户侧」归因——只有系统侧失败率与资源利用率会触发告警，因此像 PPS 的「余额不足」、USSD 的「用户失败」这类业务正常结果不会被误报为故障。</p>
 <ul>
@@ -4098,36 +4703,36 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>资源利用率以「日均」判定（≥80% 关注、≥90% 异常），峰值仅作参考——瞬时打满属正常尖峰</li>
 <li>「导出 Excel」输出 6 个 sheet：KPI 汇总 / 服务明细 / 失败分解 / 资源 / 趋势 / 告警</li>
 </ul>
-<p><a id="ch-15-s76"></a></p>
+<p><a id="ch-15-s91"></a></p>
 <h5>GIS地图（<code>gis</code>）</h5>
 <p>站点地图：告警/工单在地图上的分布、拓扑线、区域面与多维筛选（历史/工单口径）。</p>
 <ul>
 <li>区域下拉 + 图层 Tag 开关筛选；图例点击可隐藏该类图层；时间支持分段切换与自定义区间</li>
 <li>点站点打开右侧抽屉，四个页签明细可搜索、可导出 Excel</li>
 </ul>
-<p><a id="ch-15-s77"></a></p>
+<p><a id="ch-15-s92"></a></p>
 <h5>实时告警地图（<code>realtime_alarm</code>）</h5>
 <p>GIS 地图的实时模式：当前活跃告警站点的地图分布（带红色「实时」标识）。</p>
 <ul>
 <li>操作与 GIS 地图页一致</li>
 <li>数据来自 eFlow 活动告警（eflow_active_alarm），每 30 分钟同步一次</li>
 </ul>
-<p><a id="ch-15-s78"></a></p>
+<p><a id="ch-15-s93"></a></p>
 <h5>事件总览（<code>incident_overview</code>，iframe 页）</h5>
 <p>OLR 事件（Incident）总览看板：卡片、矩阵、SLA 图表、分页明细与地图。</p>
 <ul>
 <li>数据每小时整点由 incident_overview_sync 从 FineBI FTP 取最新 incident_overview.xlsx（版本化落盘，上游文件被占用也不会取数失败）</li>
 </ul>
-<p><a id="ch-15-s79"></a></p>
+<p><a id="ch-15-s94"></a></p>
 <h5>仓库看板（<code>warehouse</code>，iframe 页）</h5>
 <p>备件/耗材库存看板（Spare Management），与原工具看板完全一致。</p>
 <ul>
 <li>数据来自 sp_data_sync（每天 07:00 从 SFTP 拉取的 5 份备件报表）</li>
 <li>按仓库/备件类型查看库存与明细</li>
 </ul>
-<p><a id="ch-15-s80"></a></p>
+<p><a id="ch-15-s95"></a></p>
 <h4>4.3 分析与工具</h4>
-<p><a id="ch-15-s81"></a></p>
+<p><a id="ch-15-s96"></a></p>
 <h5>eFlow 知识库（<code>eflow_qa</code>）</h5>
 <p>eFlow TT 判定规则知识库：规则/案例文档全文检索，并内置 TT 快速分析与 TT 批量核查。</p>
 <ul>
@@ -4136,30 +4741,30 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>TT 批量核查：上传 xlsx/csv/txt 单号清单或直接粘贴，逐单判定工单级别是否正常（正常/需调整/无法判定），可导出 Excel</li>
 <li>TT 批量核查支持「下载模板 → 填写 → 上传核查」闭环：点「下载模板」得到带表头的 xlsx，填好单号后把同一个文件传回来即可</li>
 </ul>
-<p><a id="ch-15-s82"></a></p>
+<p><a id="ch-15-s97"></a></p>
 <h5>分析仪表盘（<code>dashboard</code>）</h5>
 <p>分析仪表盘：选一张表自动生成多维图表与结论，可归档保存。</p>
 <ul>
 <li>选表 → 修改分析名称 → 生成分析 → 归档</li>
 <li>开启「联动筛选」后点饼图/柱图即设置筛选，再点取消</li>
 </ul>
-<p><a id="ch-15-s83"></a></p>
+<p><a id="ch-15-s98"></a></p>
 <h5>分析归档（<code>archive</code>）</h5>
 <p>分析归档：历史分析结果的检索、详情查看与删除，与分析仪表盘配套。</p>
 <ul>
 <li>关键字搜索 + 分页浏览；详情含结论文字与图表快照</li>
 <li>删除需二次确认，谨慎操作</li>
 </ul>
-<p><a id="ch-15-s84"></a></p>
+<p><a id="ch-15-s99"></a></p>
 <h5>IP 链路探测（<code>ip_trace</code>，iframe 页）</h5>
 <p>IP 链路探测：从服务器侧探测到目标站点的链路连通性与路径节点。</p>
 <ul>
 <li>输入目标开始探测，结果表格/地图实时刷新</li>
 <li>探测是可中断的长任务，卡住时可手动停止</li>
 </ul>
-<p><a id="ch-15-s85"></a></p>
+<p><a id="ch-15-s100"></a></p>
 <h4>4.4 系统管理</h4>
-<p><a id="ch-15-s86"></a></p>
+<p><a id="ch-15-s101"></a></p>
 <h5>系统设置（<code>settings</code>）</h5>
 <p>系统设置：凭据、邮件收件人、远程主机、任务配置四个页签。</p>
 <ul>
@@ -4168,7 +4773,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>远程主机：改完即时生效无需重启（写 backend/data/settings.json）</li>
 <li>任务配置：任务的业务参数（非排程），优先级 环境变量 &gt; 配置文件 &gt; 默认值</li>
 </ul>
-<p><a id="ch-15-s87"></a></p>
+<p><a id="ch-15-s102"></a></p>
 <h5>门户一键登录（<code>portalLogin</code>）</h5>
 <p>门户一键登录：用已保存的凭据自动登录上游门户（Playwright 自动化），省去逐个手输账号口令。</p>
 <ul>
@@ -4176,9 +4781,9 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>与系统设置共用同一份凭据；会话 cookie 缓存在后端 auth_cache/，请按敏感信息对待</li>
 </ul>
 <hr />
-<p><a id="ch-15-s88"></a></p>
+<p><a id="ch-15-s103"></a></p>
 <h3>5. 运维与排障</h3>
-<p><a id="ch-15-s89"></a></p>
+<p><a id="ch-15-s104"></a></p>
 <h4>5.1 进程与端口速查</h4>
 <table>
 <thead>
@@ -4211,21 +4816,21 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 </tr>
 <tr>
 <td><code>—</code></td>
-<td>worker × 4 组（u/n/m/c，消费 task_queue）</td>
+<td>worker × 5 组（u/n/v/m/c，消费 task_queue）</td>
 <td>worker_watchdog.py</td>
 </tr>
 </tbody>
 </table>
-<p><a id="ch-15-s90"></a></p>
+<p><a id="ch-15-s105"></a></p>
 <h4>5.2 日常巡检（5 分钟）</h4>
 <ul>
 <li>任务管理页：有没有 failed、有没有长期 pending（失败聚合视图比翻列表快）</li>
 <li>页头同步标签：GIS / TT&amp;WO / Dashboard 的「最近同步」是否在预期窗口内</li>
 <li>数据总览页：表数量与行数是否明显异常</li>
 <li>命令行：五个关键进程是否都在、心跳 heartbeat_*.json 是否新鲜（超 3 分钟会被强杀重拉）</li>
-<li>数据库新鲜度由 db_freshness_check 每小时 :15 自动巡检，滞后会给出调用链与排查方向</li>
+<li>数据库新鲜度由 db_freshness_check 每小时 :15 自动巡检，滞后会给出调用链与排查方向；任务本身漏跑/停摆（未归组、无执行记录、队列滞留、成功逾期）也会在同一巡检里主动微信+邮件告警，不需要人工等看板空了才发现</li>
 </ul>
-<p><a id="ch-15-s91"></a></p>
+<p><a id="ch-15-s106"></a></p>
 <h4>5.3 日志速查</h4>
 <table>
 <thead>
@@ -4237,7 +4842,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <tbody>
 <tr>
 <td><code>log/worker_runtime*.log</code></td>
-<td>任务执行主日志——排障首选，按 task_id 搜堆栈（每组 worker 一个文件：_u/_n/_m/_c）</td>
+<td>任务执行主日志——排障首选，按 task_id 搜堆栈（每组 worker 一个文件：_u/_n/_v/_m/_c）</td>
 </tr>
 <tr>
 <td><code>log/backend_runtime.log</code></td>
@@ -4264,7 +4869,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <blockquote>
 <p>⚠️ 全仓库没有日志轮转，<code>log/</code> 只会一直涨，需人工定期清理；部分日志报错原文含账号，外发前先扫一遍。</p>
 </blockquote>
-<p><a id="ch-15-s92"></a></p>
+<p><a id="ch-15-s107"></a></p>
 <h4>5.4 备份（三处都要备，缺一不完整）</h4>
 <ul>
 <li><strong>远程 PostgreSQL（主库）</strong>: pg_dump 备份业务数据与 task_queue/task_execution_log/task_schedule_config；pg_to_sqlite_sync 每小时 :45 已提供一份镜像到 db/app.db</li>
@@ -4272,7 +4877,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li><strong>data/ + backend/data/</strong>: 各任务报表产物与 settings.json（丢 settings.json 会退回内置默认远程主机）</li>
 <li><strong>backend/services/*.json</strong>: 上游连接参数与 TT 规则表等，属代码资产随仓库走</li>
 </ul>
-<p><a id="ch-15-s93"></a></p>
+<p><a id="ch-15-s108"></a></p>
 <h4>5.5 定期清理：什么能删、什么别动</h4>
 <p><strong>可以清理</strong></p>
 <ul>
@@ -4288,9 +4893,9 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>backend/services/eflow_rules/eflow_TT_rules.xlsx —— 正式 TT 规则表（根目录同名文件只是副本）</li>
 <li>历史拼写目录/文件名（data/packet_lost、battary_kpi_fetch、mw_ume_bw_ultilazation 等）——多处按字符串引用，不要顺手改名</li>
 </ul>
-<p><a id="ch-15-s94"></a></p>
+<p><a id="ch-15-s109"></a></p>
 <h4>5.6 配置与凭据</h4>
-<p>三层配置，优先级从高到低：环境变量（backend/.env，147 个键，改后需重启） &gt; 数据库/配置文件（凭据、收件人、排程、远程主机、任务参数——界面改，即时生效） &gt; 代码默认值。</p>
+<p>三层配置，优先级从高到低：环境变量（backend/.env，203 个键，改后需重启） &gt; 数据库/配置文件（凭据、收件人、排程、远程主机、任务参数——界面改，即时生效） &gt; 代码默认值。</p>
 <ul>
 <li>12 个凭据分组：zte_ume、vmax_cxo、ipran_ume、ccn_ume、eflow、fms_portal、fw_kpi、mw_ume、sftp_sp、mail_126、owa_mail、weixin（系统设置 → 凭据 统一维护）</li>
 <li>读取优先级：环境变量 &gt; 数据库 &gt; 空；列表接口返回掩码，「显示明文」与「测试连接」单独提供</li>
@@ -4298,14 +4903,14 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>backend/services/auth_cache/ 里的会话 cookie 等同有效登录态，不外发、不入 git、不进截图</li>
 </ul>
 <hr />
-<p><a id="ch-15-s95"></a></p>
+<p><a id="ch-15-s110"></a></p>
 <h3>6. 常见问题</h3>
 <p><strong>看板数据没有更新？</strong></p>
 <p>① 先到「任务管理」查看对应任务的最近执行结果与失败聚合；② 检查顶栏「自动刷新」间隔是否被调成关闭；③ 注意部分数据本身低频同步：实时告警每 30 分钟、微波拓扑每天 05:15、丢包每天 06:30、事件总览每小时整点。仍不对可看「数据库数据新鲜度巡检」的执行日志，它会输出调用链与排查方向。</p>
 <p><strong>页面数字与预期口径不一致？</strong></p>
 <p>注意各页口径：电池看板默认只统计 24 小时内新鲜读数；MS SLA 看板以实时计算为准（可能与快照文件不一致）；丢包看板只展示最近 7 个完整自然日；CXO 看板内嵌快照，重跑同步任务才更新。</p>
 <p><strong>任务长期停在 pending 不执行？</strong></p>
-<p>多半是该任务未被归入任何 worker 组（GROUP_TASK_MAP），队列里永远无人认领——这是本项目已发生过三次的事故模式（finebi_report_sync、whatsapp_send_ext、sp_email_details）。新增任务必须在 worker_watchdog.py 的 GROUP_TASK_MAP 登记分组。</p>
+<p>多半是该任务未被归入任何 worker 组（GROUP_TASK_MAP），队列里永远无人认领——这是本项目已发生过四次的事故模式（finebi_report_sync、whatsapp_send_ext、sp_email_details，以及 2026-09-18 查出的 olib_soc 看板增量与 vmax_multi_data_sync）。新增任务必须在 worker_watchdog.py 的 GROUP_TASK_MAP 登记分组；陈旧 pending 占住的单飞名额 6 小时后会被 worker 自动过期释放。2026-09-18 起这类停摆不再靠人肉发现：db_freshness_check（每小时）会把未归组 / 无执行记录 / 队列滞留 / 成功逾期四类健康异常按翻转去重主动微信+邮件通知。</p>
 <p><strong>任务反复 failed？</strong></p>
 <p>到 log/worker_runtime*.log 找该 task_id 的堆栈（排障首选日志；每组 worker 一个文件，任务所属组见执行认领日志）。上游不可达 → 先到「系统设置 → 凭据」点「测试连接」；口令变了 → 更新凭据。auto_retry_failed 每 10 分钟自动重试（MAX_ATTEMPTS=2，超 24 小时放弃），无需手动反复点执行。</p>
 <p><strong>任务一直「执行中」不动？</strong></p>
@@ -4673,7 +5278,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <p><strong>保留在 PROJECT_DOCS.md 不动</strong>（属于历史决策与复盘，不是&quot;现状描述&quot;）：§2 迁移计划、§3 架构评估与 Django 论证、§4 FastAPI 架构优化方案、§5–§6 i18n 审计与复查、§8 IP Trace 集成方案、§10 迁移失败复盘、§11 优化建议。</p>
 
 </section>
-  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-09-15 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
+  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-09-18 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
 </div>
 </body>
 </html>

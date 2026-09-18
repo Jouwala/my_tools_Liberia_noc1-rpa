@@ -116,36 +116,50 @@ SpareParts/Comsumables 报表**额外**再做这两项。
 逐条套用过滤条件并与报表各 sheet 实际行数比对，输出 PASS/FAIL。
 （注意：报表 sheet 前 3 行是标题 / Generated / 表头，数据行 = 总行数 − 3。）
 
-### Summary-Current 的补库建议列（2026-09-17 起）
+### Summary-Current 的列结构（2026-09-17 起，2026-09-18 更新）
 
-`Summary-Current` 主表在原有 6 列右侧追加 4 个补库列，按 `Material Name` 与主表**同行对齐**
-（早期版本写成表身下方的独立区块，已废弃）：
+`Summary-Current` 共 **12 列（A:L）**，前 7 列是主表原有列（其中 `Domain` 是 2026-09-18 新增、
+固定在第 2 列），后 5 列是补库建议列（早期版本写成表身下方的独立区块，已废弃）：
 
-| 列 | 口径 |
-|----|------|
-| Avg Monthly Consumption | 出库量合计（**先剔除 `SPOB202608160004` / `SPOB202609120014` 两张异常单据**）÷ 9.5，**向上取整** |
-| Safety Stock | 6 × Avg Monthly Consumption（因 Avg 已取整，结果同为整数） |
-| Replenishment Qty | Safety Stock − Inventory Qty，**向上取整**；**≤ 0 留空**（不显示 0/负数，便于直接求和） |
-| Alert Level | Inventory Qty / Safety Stock：< 50% `Urgent Replenish`；50%~100% `Replenish`；> 100% `Excess`（红/黄/绿三色） |
+| # | 列 | 口径 |
+|---|----|------|
+| 1 | Material Name | 主键，来自 Inventory / Inbound / Outbound 的并集 |
+| 2 | **Domain** | **取自 Inventory 明细的 `Domain` 列**；同一物料多行时取第一个非空；`Total` 行留空 |
+| 3 | Inbound Qty | 入库数量合计 |
+| 4 | Outbound Qty | 出库数量合计 |
+| 5 | Inventory Qty | 库存数量合计 |
+| 6 | Balance | Inbound Qty − Outbound Qty |
+| 7 | Difference | Inventory Qty − Balance |
+| 8 | Avg Monthly Consumption | 出库量合计（**先剔除 `SPOB202608160004` / `SPOB202609120014` 两张异常单据**）÷ 9.5，**向上取整** |
+| 9 | Safety Stock | 月均消耗 > 0 → `6 × Avg Monthly Consumption`；**月均消耗 = 0 → 保底 `1`** |
+| 10 | **Remark** | 月均消耗 > 0 → `Actual Consumption`；**月均消耗 = 0 → `Failure Rate`**（`Total` 行留空） |
+| 11 | Replenishment Qty | Safety Stock − Inventory Qty，**向上取整**；**≤ 0 留空**（不显示 0/负数，便于直接求和） |
+| 12 | Alert Level | Inventory Qty / Safety Stock：< 50% `Urgent Replenish`；50%~100% `Replenish`；> 100% `Excess`（红/黄/绿三色；`Total` 行留空） |
 
-- **3 个数值列一律向上取整为整数**（2026-09-17 起；改前保留 2 位小数）。
+- **3 个数值列（8/9/11）一律向上取整为整数**（2026-09-17 起；改前保留 2 位小数）。
   Excel 数字格式与其它列统一为 `#,##0`。
 - 取整是**逐级**做的：先 `ceil(消耗/9.5)` 得 Avg，再 `6 × Avg` 得 Safety。
-  因此表内可逐行验算 `Safety Stock = 6 × Avg Monthly Consumption`；
+  因此**月均 > 0 的行**可验算 `Safety Stock = 6 × Avg Monthly Consumption`；
   `Replenishment Qty` 同样 `ceil`（如安全库存 12、库存 3.5 → 补库 9）。
-- 主表里没有出库消耗的物料同样出行，月均 / 安全库存记 0、Alert Level 为 `Excess`。
-- `Total` 行：3 个数值列取**各行取整后的合计**（合计仍为整数，与各行相加一致），Alert Level 留空。
-- 口径说明写在**文件上方**（2026-09-17 起，改前在表身下方）：Summary-Current 的第 4、5 行是两行英文说明
-  （`Replenishment basis: Excluded orders ... / History 9.5 months / Safety Stock = 6 x ...` 与
-  `Replenishment Qty = Safety Stock - Inventory Qty (<= 0 left blank) / Alert Level = ...`），
+- **月均消耗 = 0 的物料**（无出库记录）按「故障率」备件处理：`Safety Stock` 保底 `1`、`Remark = Failure Rate`。
+  这类物料的 Alert Level 同样按 `库存 / 1` 判定（库存 0 → `Urgent Replenish`，库存 1 → `Replenish`，≥2 → `Excess`）。
+  常量：`REPLENISH_NO_CONSUMPTION_SAFETY` / `REMARK_FAILURE_RATE` / `REMARK_ACTUAL_CONSUMPTION`。
+- `Total` 行：3 个数值列取**各行取整后的合计**（合计仍为整数，与各行相加一致），
+  `Domain` / `Remark` / `Alert Level` 留空。
+- 口径说明写在**文件上方**（2026-09-17 起，改前在表身下方）：Summary-Current 的第 4/5/6 行是**三行**英文说明
+  （`Replenishment basis: ...` / `Replenishment Qty = ... / Alert Level = ...` /
+  `Remark: Failure Rate = ... | Actual Consumption = ...`），
   由 `_insert_title(..., extra_notes=REPLENISH_NOTES)` 写入；PNG 侧对应 `_render_summary_image(..., notes=...)`，
-  画在标题正下方。**这两个 sheet 的表头因此落在第 6 行**（title / Generated / Filters / 说明 ×2 / 表头）。
+  画在标题正下方。**Summary-Current 的表头因此落在第 7 行**（title / Generated / Filters / 说明 ×3 / 表头），
+  数据从第 8 行开始。
 - **文案一律英文，报表内不出现中文**（2026-09-17 起：Inbound / Outbound 说明行原先引用的中文 sheet 名
   `3_剔除单据Serial明细` 也改写成 `[sheet 3: excluded order serial details]`；
   `EXCLUDE_SHEET` 常量本身仍是中文，那是读剔除名单用的真实 sheet 名，**不能改**）。
 - ⚠️ 口径差异：SpareParts 的 `Outbound Qty` **仍含**那两张单据（保持原有输出），
   因此同一行 `Outbound Qty ≠ Avg Monthly Consumption × 9.5`；Consumables 明细里没有这两单，无此差异。
-- 实现：常量 `REPLENISH_*` / `ALERT_*`；`build_replenishment(outb_df, inv_df, base_index=)` 按主表物料逐行对齐；
+- 实现：常量 `REPLENISH_*` / `ALERT_*` / `REMARK_*`；
+  `build_summary()` 负责前 7 列（含 Domain 映射），`build_replenishment(outb_df, inv_df, base_index=)`
+  按主表物料逐行对齐后 5 列；
   Excel 收尾 `_style_replenish_columns()`（Alert 三色 + 列宽），说明行由 `style_excel(..., extra_notes=)` 透传；
   PNG 侧由 `_fmt_summary_cell()` 统一整数 / 留白格式。
   `_style_replenish_note()` / `_style_replenishment()` 均已停用，保留供回退。
@@ -167,7 +181,7 @@ SpareParts/Comsumables 报表**额外**再做这两项。
 
 分仓报表在说明行里额外带 `Warehouse Name = '<仓库名>'`。
 
-⚠️ `Summary-Current` 因为额外带 2 行补库口径说明（见上一节），**表头在第 6 行、数据从第 7 行开始**；
+⚠️ `Summary-Current` 因为额外带 3 行补库口径说明（见上一节），**表头在第 7 行、数据从第 8 行开始**；
 其余 sheet 仍是「第 4 行表头、第 5 行起数据」。
 
 实现：`_build_filter_note(kind, material_type, warehouse_name)` 生成文案 →

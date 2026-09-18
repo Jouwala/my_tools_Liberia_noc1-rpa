@@ -20,11 +20,26 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple, Union
 
 log = logging.getLogger(__name__)
+
+
+def resolve_owa_credentials() -> Tuple[str, str]:
+    """解析当前生效的 OWA 凭据，返回 (username, password)。
+
+    实现在 ``email_reports/owa_credentials.py``（全项目唯一一处凭据解析逻辑）；
+    优先级：环境变量(OWA_USERNAME/OWA_PASSWORD) > 数据库(设置页) > 代码默认值。
+    ``email_reports/ews_probe.py`` 会调用本函数做「各发送方凭据一致性」校验。
+    """
+    try:
+        from email_reports.owa_credentials import resolve_owa_credentials as _resolve
+    except ImportError:
+        from owa_credentials import resolve_owa_credentials as _resolve
+    return _resolve()
 
 # DotNetEwsSender.ps1 路径（本文件同目录）
 # 注意：固定使用原始三阶段版 DotNetEwsSender.ps1 ——
@@ -91,35 +106,18 @@ def send_mail_dotnet(
         {"success": bool, "message": str, "error": str}
     """
     # ── 获取凭据 ──
-    _myapp = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if _myapp not in __import__("sys").path:
-        __import__("sys").path.insert(0, _myapp)
-
     # 从环境变量或邮件脚本导入默认值
     if server is None:
         server = os.getenv("OWA_SERVER", "exchmail.orange-cit.ci")
     if smtp is None:
         smtp = os.getenv("OWA_SMTP", "ztenoc.olr@orange.com")
 
-    # 从 credential_store 获取凭据
-    try:
-        from backend.services.credential_store import get_credential
-        _user, _pwd = get_credential(
-            "owa_mail",
-            os.getenv("OWA_USERNAME", "ZTENOC_OLR"),
-            os.getenv("OWA_PASSWORD", "Postcode@202608"),
-            env_user="OWA_USERNAME",
-            env_secret="OWA_PASSWORD",
-        )
-        if username is None:
-            username = _user
-        if password is None:
-            password = _pwd
-    except ImportError:
-        if username is None:
-            username = os.getenv("OWA_USERNAME", "ZTENOC_OLR")
-        if password is None:
-            password = os.getenv("OWA_PASSWORD", "Postcode@202608")
+    # 从 credential_store 获取凭据（统一走 resolve_owa_credentials）
+    _user, _pwd = resolve_owa_credentials()
+    if username is None:
+        username = _user
+    if password is None:
+        password = _pwd
 
     # ── 构建收件人字符串 ──
     to_str = _format_addresses(to)

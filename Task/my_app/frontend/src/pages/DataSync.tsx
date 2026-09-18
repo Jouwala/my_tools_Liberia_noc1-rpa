@@ -650,8 +650,8 @@ export default function DataSync() {
   }[] = [
     { key: 'all', color: WH.teal, icon: <AppstoreOutlined /> },
     { key: 'running', color: WH.blue, icon: <SyncOutlined spin /> },
-    { key: 'success', color: '#51cf66', icon: <CheckCircleFilled /> },
-    { key: 'failed', color: '#ff6b6b', icon: <CloseCircleFilled /> },
+    { key: 'success', color: WH.ok, icon: <CheckCircleFilled /> },
+    { key: 'failed', color: WH.danger, icon: <CloseCircleFilled /> },
     { key: 'disabled', color: WH.textDim, icon: <PauseCircleOutlined /> },
   ]
 
@@ -981,8 +981,8 @@ export default function DataSync() {
             <div style={{ marginBottom: 'var(--wh-space-sm)', fontSize: '0.75rem' }}>
               <Space size={8} wrap>
                 {lastRun.success
-                  ? <CheckCircleFilled style={{ color: '#51cf66' }} />
-                  : <CloseCircleFilled style={{ color: '#ff6b6b' }} />
+                  ? <CheckCircleFilled style={{ color: WH.ok }} />
+                  : <CloseCircleFilled style={{ color: WH.danger }} />
                 }
                 <Text style={{ color: WH.textMuted }}>
                   {locale === 'zh' ? '上次：' : 'Last: '}
@@ -1155,7 +1155,7 @@ export default function DataSync() {
           {timeline.dated.map(({ task, parsed, runs, running, scheduled }) => {
             const latestRun = task.recent_runs?.[0]
             // 未来计划始终为绿色；运行状态只由当前时间位置的独立蓝点表达。
-            const nextColor = !task.enabled ? '#000000' : '#b7eb8f'
+            const nextColor = !task.enabled ? '#000000' : WH.tlPlan
             const nextLabel = !task.enabled ? (locale === 'zh' ? '已禁用（未排程）' : 'Disabled')
               : (locale === 'zh' ? '将要执行' : 'Upcoming')
             const nextText = parsed === null
@@ -1168,10 +1168,10 @@ export default function DataSync() {
 
             // 灰色仅表示每个任务最近一次成功，直径略小以降低视觉噪声
             const sizeOf = (color: string, hollow: boolean) =>
-              !hollow && color === '#8c8c8c' ? '0.2rem' : '0.35rem'
+              !hollow && color === WH.tlDone ? '0.2rem' : '0.35rem'
             const dots = [
               ...runs.map(({ run, key, point }) => {
-                const color = run.success ? '#8c8c8c' : '#ff4d4f'
+                const color = run.success ? WH.tlDone : WH.tlFail
                 return { kind: key.slice(task.task_id.length + 1), point, color, label: run.success ? (locale === 'zh' ? '执行成功' : 'Succeeded') : (locale === 'zh' ? '执行失败' : 'Failed'), hollow: false, size: sizeOf(color, false), run }
               }),
               ...(running ? [{ kind: 'running', point: running, color: WH.blue, label: locale === 'zh' ? '运行中' : 'Running', hollow: false, size: '0.39rem', run: undefined }] : []),
@@ -1233,9 +1233,9 @@ export default function DataSync() {
           <span>{locale === 'zh' ? `${timeline.dated.length} 个任务` : `${timeline.dated.length} tasks`}</span>
           <Space size={10} wrap>
             <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: WH.blue, marginRight: 4 }} />{locale === 'zh' ? '运行中' : 'Running'}</span>
-            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: '#ff4d4f', marginRight: 4 }} />{locale === 'zh' ? '失败' : 'Failed'}</span>
-            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: '#8c8c8c', marginRight: 4 }} />{locale === 'zh' ? '最近成功' : 'Latest success'}</span>
-            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: '#b7eb8f', marginRight: 4 }} />{locale === 'zh' ? '计划执行' : 'Scheduled'}</span>
+            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: WH.tlFail, marginRight: 4 }} />{locale === 'zh' ? '失败' : 'Failed'}</span>
+            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: WH.tlDone, marginRight: 4 }} />{locale === 'zh' ? '最近成功' : 'Latest success'}</span>
+            <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: WH.tlPlan, marginRight: 4 }} />{locale === 'zh' ? '计划执行' : 'Scheduled'}</span>
             <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: '#000000', marginRight: 4 }} />{locale === 'zh' ? '已禁用' : 'Disabled'}</span>
             <span>{locale === 'zh' ? '最近成功 · 全部失败 · 当前运行 · 可见计划' : 'Latest success · all failures · running · visible plans'}</span>
           </Space>
@@ -1298,7 +1298,16 @@ export default function DataSync() {
                   {active && (
                     <Tag
                       color={color}
-                      style={{ fontSize: '0.625rem', lineHeight: '1rem', margin: 0, padding: '0 var(--wh-space-xs)', borderRadius: 'var(--wh-radius-sm)' }}
+                      style={{
+                        // color 传的是 var(--wh-*) 字符串，antd 无法据它派生底色，
+                        // 会退回组件内部固定灰 #f2f2f2（深色下是一块浅灰，很扎眼）。
+                        // 这里显式给底与描边，走主题令牌。
+                        background: 'var(--wh-subtle-bg)',
+                        borderColor: 'var(--wh-subtle-border)',
+                        color,
+                        fontSize: '0.625rem', lineHeight: '1rem', margin: 0,
+                        padding: '0 var(--wh-space-xs)', borderRadius: 'var(--wh-radius-sm)',
+                      }}
                     >
                       {t('sync.statActive')}
                     </Tag>

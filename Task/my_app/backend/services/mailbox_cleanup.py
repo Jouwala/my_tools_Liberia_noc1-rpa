@@ -113,25 +113,46 @@ def get_account() -> Account:
     )
 
 
-def _target_folders(account):
-    folders = []
+def _resolve_target_folders(account):
+    """返回 (可用文件夹列表, 获取失败的 getter 名列表)。"""
+    folders, failed = [], []
     for name in _TARGET_FOLDER_GETTERS:
         try:
             folders.append(getattr(account, name))
         except Exception as e:  # noqa: BLE001
             logger.warning("获取文件夹 %s 失败: %s", name, e)
-    return folders
+            failed.append(name)
+    return folders, failed
 
 
-def get_total_count(account: Account) -> int:
-    """各目标文件夹 total_count 之和（含子文件夹，单次 GetFolder 即可）。"""
+def _target_folders(account):
+    return _resolve_target_folders(account)[0]
+
+
+def get_total_count(account: Account) -> tuple[int, list]:
+    """各目标文件夹 total_count 之和（含子文件夹，单次 GetFolder 即可）。
+
+    Returns
+    -------
+    (total, failed)
+        ``failed`` 是「拿不到邮件数」的文件夹名列表。
+
+    ⚠️ 必须把失败一并返回。原实现吞掉异常后返回 0，于是从 2026-09-15 起整整 65 小时
+    本任务稳定上报 ``{"success": true, "action": "skip",
+    "reason": "count_under_threshold", "total_count": 0}`` —— 邮箱里实际有 712 封
+    （2.34 GB），"读取全失败"被伪装成了"邮箱很空"，容量守卫全程空转且从不告警。
+    """
     total = 0
-    for f in _target_folders(account):
+    failed: list = []
+    folders, missing = _resolve_target_folders(account)
+    failed.extend(missing)
+    for f in folders:
         try:
             total += int(f.total_count or 0)
         except Exception as e:  # noqa: BLE001
             logger.warning("统计 %s 邮件数失败: %s", getattr(f, "name", "?"), e)
-    return total
+            failed.append(str(getattr(f, "name", "?")))
+    return total, failed
 
 
 def _all_folders(folder):
@@ -225,16 +246,33 @@ def run_mailbox_cleanup() -> dict:
             "message": f"EWS 不可达（{e}），本次跳过清理，等待下次重试",
         }
 
-    total_count = get_total_count(account)
-    logger.info("邮箱总邮件数: %d (触发阈值 %d)", total_count, count_threshold)
+    total_count, failed_folders = get_total_count(account)
+    logger.info("邮箱总邮件数: %d (触发阈值 %d)；读取失败的文件夹: %s",
+                total_count, count_threshold, failed_folders or "无")
+
+    # 一个文件夹都没读到 ≠ 邮箱是空的。原实现会在这里返回 success=True +
+    # count_under_threshold，把"读取全失败"伪装成"邮箱很空"（2026-09-15 起 65 小时）。
+    if total_count == 0 and failed_folders:
+        return {
+            "success": False,
+            "action": "error",
+            "reason": "count_unavailable",
+            "total_count": 0,
+            "failed_folders": failed_folders,
+            "error": f"所有目标文件夹都读取失败，无法判断邮箱占用: {failed_folders}",
+            "message": "邮箱容量检查失败（并非'邮箱为空'），需检查 EWS 文件夹访问权限",
+        }
+
     if total_count <= count_threshold:
+        note = (f"（注意：{failed_folders} 读取失败，统计可能偏低）" if failed_folders else "")
         return {
             "success": True,
             "action": "skip",
             "reason": "count_under_threshold",
             "total_count": total_count,
             "count_threshold": count_threshold,
-            "message": f"邮件数 {total_count} <= {count_threshold}，无需清理",
+            "failed_folders": failed_folders,
+            "message": f"邮件数 {total_count} <= {count_threshold}，无需清理{note}",
         }
 
     # 邮件数已超阈值 -> 进入循环清理

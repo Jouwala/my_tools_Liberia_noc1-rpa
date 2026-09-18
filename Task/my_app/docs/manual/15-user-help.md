@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-15。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-18。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（47 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（62 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -72,12 +72,13 @@
 | --- | --- |
 | **u** | RAN UME 单账号会话，组内必须串行（并发会被踢会话） |
 | **n** | 网管 / eFlow API / 远程系统：彼此独立但保守同组 |
+| **v** | VMAX 门户（本机 8790 单会话代理）：三个任务共用同一会话必须串行；2026-09-18 从 n 组拆出，不再被 1.5~2h 长任务堵住 |
 | **m** | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 |
 | **c** | CN EMS 独立会话：缓存同步与日聚合共享 _pmcache，同组保证互斥 |
 
-> ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过三次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details）。
+> ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（47 个）
+### 3.3 全量任务清单（62 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -128,6 +129,21 @@
 | MW UME KPI 实时同步 | `mw_ume_kpi_sync_rt` | `*/15 * * * *` | n | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync_rt` |
 | CN EMS KPI 缓存同步 | `ems_kpi_cache_sync` | `*/15 * * * *` | c | `services/cn_ems/ems_kpi_service.py → run_ems_kpi_cache_sync` |
 | CN EMS KPI 日粒度CSV | `ems_kpi_daily` | `20 0 * * *` | c | `services/cn_ems/ems_kpi_service.py → run_ems_kpi_daily` |
+| CXO 看板数据缓存同步 | `cxo_dashboard_cache_sync` | `*/10 * * * *` | v | `services/cxo_dashboard_cache.py → run_cxo_dashboard_cache_sync` |
+| VMAX CXO 天粒度日值归档 | `vmax_cxo_daily_sync` | `15 * * * *` | v | `services/vmax_cxo_daily_cache.py → run_vmax_cxo_daily_sync` |
+| VMAX 多报表指标采集 | `vmax_multi_data_sync` | `45 * * * *` | v | `services/vmax_multi_data/vmax_multi_data_service.py → run_vmax_multi_data_sync` |
+| OLIB SOC 看板 KPI 增量 | `olib_soc_kpi_daily_sync` | `20 6 * * *` | m | `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_kpi_sync` |
+| OLIB SOC VMAX 例行报表 | `olib_soc_vmax_report` | `30 7 1 * *` | m | `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_report` |
+| 客户业务 KPI 同步 | `ume_in_kpi_sync` | `45 5 * * *` | n | `services/ume_in/ume_in_kpi_service.py → run_ume_in_kpi_sync` |
+| 客户业务 KPI + OSG 周报邮件 | `ume_in_osg_report` | `30 6 * * *` | n | `services/ume_in/osg_report_task.py → run_ume_in_osg_report（内部依次调 ume_in_kpi_service + t_osg_build.py）` |
+| SP Online 工单同步 | `sp_online_sync` | `35 * * * *` | n | `services/sp_online_sync.py → run_sp_online_sync` |
+| SP 物料主数据同步 | `sp_material_sync` | `55 4 * * *` | n | `services/sp_material_sync.py → run_sp_material_sync` |
+| SP 在线未关闭单报表生成 | `sp_online_report_generate` | `0 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report_generate` |
+| SP 在线未关闭单报表发送 | `sp_online_report_send` | `20 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report` |
+| eFlow 告警规则收集 | `eflow_alarm_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Alarm_Rule_Collector.py → run_eflow_alarm_rules` |
+| eFlow 推单规则收集 | `eflow_push_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules` |
+| 日志文件清理 | `log_cleanup` | `17 3 * * *` | m | `services/log_cleanup.py → run_log_cleanup` |
+| TMP 目录清理 | `tmp_cleanup` | `47 3 * * *` | m | `services/tmp_cleanup.py → run_tmp_cleanup` |
 
 每个任务的工作流与维护要点：
 
@@ -933,6 +949,276 @@
 
 - 与缓存同步共享 _pmcache/daily_raw.json，同在 c 组串行保证互斥
 
+#### CXO 看板数据缓存同步（`cxo_dashboard_cache_sync`）
+
+- 默认 cron: `*/10 * * * *`　|　worker 组: **v**
+- 工作流脚本: `services/cxo_dashboard_cache.py → run_cxo_dashboard_cache_sync`
+
+**功能**: 每 10 分钟经本机 8790 VMAX 代理拉取 CXO 看板全量接口，按接口粒度合并为 last-known-good 缓存（空值保留旧值），供看板兜底展示
+
+**工作流与数据流**:
+
+1. 每 10 分钟经 127.0.0.1:8790 VMAX 代理拉取 CXO 看板全部接口
+1. 按接口粒度合并 last-known-good：某接口本轮取空只保留旧值，不把看板打成空白
+1. 落盘 data/cxo_dashboard/last_known_good.json
+
+**维护要点**:
+
+- 2026-09-18 与另两个 8790 任务一起从 n 组拆到 v 组：同会话必须串行，但不再排在 sp_data_sync（1.5~2h）后面
+- 上线时曾漏登记 GROUP_TASK_MAP → 队列 pending 卡死、看板停在旧日期（第四次踩坑）
+- 8790 会话失效时本任务失败，而看板会继续用 last-known-good 展示（看着正常其实已停更）——以任务执行历史为准
+
+#### VMAX CXO 天粒度日值归档（`vmax_cxo_daily_sync`）
+
+- 默认 cron: `15 * * * *`　|　worker 组: **v**
+- 工作流脚本: `services/vmax_cxo_daily_cache.py → run_vmax_cxo_daily_sync`
+
+**功能**: 每小时经 8790 VMAX 代理按监控批量拉取最近 8 天的 1hour 明细（50 个指标压成 8 个多列请求），聚合为日值落盘，供页签化天粒度看板累积回看约三周
+
+**工作流与数据流**:
+
+1. 每小时 :15 按监控批量拉最近 8 天的 1hour 明细（6 个 CXO 趋势 + 14 个网络 KPI + 30 个服务/OTT KPI）
+1. 按流量 SUM / 用户 PEAK / 速率 AVG 聚合为日值
+1. 落盘 data/vmax_cxo_daily/daily.json
+
+**维护要点**:
+
+- 与 cxo_dashboard_cache_sync、vmax_multi_data_sync 共用 8790 单会话，同在 v 组串行
+- 日值由小时明细聚合：错过几个小时可由 8 天窗口自动补回，无需人工回填
+
+#### VMAX 多报表指标采集（`vmax_multi_data_sync`）
+
+- 默认 cron: `45 * * * *`　|　worker 组: **v**
+- 工作流脚本: `services/vmax_multi_data/vmax_multi_data_service.py → run_vmax_multi_data_sync`
+
+**功能**: 每小时经 8790 VMAX 代理抓取 url.txt 记录的 vreport 报表（5GSA 流量 / 5GSA 视频）指标明细，落盘 latest.json 与 vmax_multi_data.sqlite3
+
+**工作流与数据流**:
+
+1. 每小时 :45 经 8790 代理请求 vreport 报表（sys_5gsa_traffic_ciservice / sys_5gsa_video_ciservice）
+1. report_query 参数走 RSA 分块加密
+1. 落盘 data/vmax_multi_data/<报表>_latest.json 与 vmax_multi_data.sqlite3（kpi_rows 明细 + sync_runs 运行记录）
+
+**维护要点**:
+
+- 2026-09-18 补登记分组前从未执行过（第四次踩坑），现与另两个 8790 任务同属 v 组
+- 页面取的是 latest.json 快照，任务失败时页面仍显示上一次数据，不会报错
+
+#### OLIB SOC 看板 KPI 增量（`olib_soc_kpi_daily_sync`）
+
+- 默认 cron: `20 6 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_kpi_sync`
+
+**功能**: 每日增量补齐 VMAX 90 天经营看板的 KPI 库（daily_kpi 表）：只跑 7 个看板块，只取缺的日期 + 重取最新 1 天，不出 Excel
+
+**工作流与数据流**:
+
+1. 每天 06:20 直连 VMAX 数仓 GBase（10.123.255.12:5258，库 zxvmax）
+1. 只跑流量/活跃用户/缓存/视频/游戏/TCP/TOP 业务 7 个块
+1. 只取缺失日期 + 重取最新 1 天（默认回看 7 天，幂等自愈），写 data/olib_soc_report/olib_soc_report.sqlite3 的 daily_kpi
+
+**维护要点**:
+
+- 数仓分区只保留约 90 天，回看窗口必须落在保留期内
+- GBase 不可达时本任务失败；链路恢复后 days_back=7 会自动补齐断档，无需人工回填
+- 上线时漏登记分组→ 90 天看板停在旧日期（2026-09-18 补录 m 组）
+
+#### OLIB SOC VMAX 例行报表（`olib_soc_vmax_report`）
+
+- 默认 cron: `30 7 1 * *`　|　worker 组: **m**
+- 工作流脚本: `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_report`
+
+**功能**: 直连 VMAX 数仓 GBase 按日分区跑 notebook 移植的 9 段 SQL，生成多 sheet Excel 与运行记录；默认出上一个自然月
+
+**工作流与数据流**:
+
+1. 每月 1 日 07:30 直连 GBase 按日分区跑 9 段 SQL（traffic/Active_user/cache/GUW/Video/game/TCP/TOP 业务/TOP 视频）
+1. 生成多 sheet Excel 与运行记录，默认窗口为上一个自然月（可配 last_n_days/weekly/explicit）
+1. 窗口自动截断到数仓约 90 天保留期内
+
+**维护要点**:
+
+- 低频任务（每月一次）：健康巡检按 cron 间隔判定，不会因为“24h 没跑”被误报
+- 配置在 services/olib_soc_report/ 的 json（range_mode/days/mail.enabled）；GBase 口令走凭据分组 vmax_gbase
+
+#### 客户业务 KPI 同步（`ume_in_kpi_sync`）
+
+- 默认 cron: `45 5 * * *`　|　worker 组: **n**
+- 工作流脚本: `services/ume_in/ume_in_kpi_service.py → run_ume_in_kpi_sync`
+
+**功能**: 从 UME 门户 172.17.208.1:28808 抓取 Dong customer 周期业务 KPI（IVR/P4M/VC/USSD/PPS/CPU/Memory 共 7 个模板，1 天粒度，默认回看 7 天），直写主库表 ume_in_customer_kpi
+
+**工作流与数据流**:
+
+1. 每天 05:45 登录 UME 门户抓 7 个模板的 1 天粒度 KPI
+1. 内存导出不落盘
+1. 直写主库表 ume_in_customer_kpi（Begin Time + KPI + NE + SERVICE 联合去重）
+
+**维护要点**:
+
+- 与其它网管类任务同在 n 组串行
+- 默认回看 7 天幂等：门户侧延迟出数会自动补回
+
+#### 客户业务 KPI + OSG 周报邮件（`ume_in_osg_report`）
+
+- 默认 cron: `30 6 * * *`　|　worker 组: **n**
+- 工作流脚本: `services/ume_in/osg_report_task.py → run_ume_in_osg_report（内部依次调 ume_in_kpi_service + t_osg_build.py）`
+
+**功能**: 每天早上分步执行：先做一次 ume_in KPI 同步，再按 ume_in_customer_kpi 最新 7 天生成 OSG Weekly QoS Analysis Report Excel，最后把该 Excel 作为附件发给 djoumene.reussite1@zte.com.cn（抄送 dong.xinmin@zte.com.cn）
+
+**工作流与数据流**:
+
+1. 06:30 ① 调 ume_in_kpi_service.run_ume_in_kpi_sync() 同步 7 个模板到 ume_in_customer_kpi（与 ume_in_kpi_sync 同一门户会话）
+1. ② 调 services/ume_in/t_osg_build.py 取表里最新 7 天填充 OSG 模板，产出 data/in_data/OSG Weekly QoS Analysis Report_<起>_<止>.xlsx（图表/条件格式/样式不动；派生列按原模板公式写入公式+缓存值：PPS 的 C/E/J、USSD 的 C/E/I、VC 的 H、IVR 的 E）
+1. ③ 附件经 Orange EWS 发给主送 djoumene.reussite1@zte.com.cn、抄送 dong.xinmin@zte.com.cn
+
+**维护要点**:
+
+- 与 ume_in_kpi_sync 同组 n 串行：同一步骤共用 UME Dong 门户单会话
+- 第 1 步同步失败即中止，不会把上一窗口的旧数据当新报告发出去
+- 收件人可在 Settings → Email Recipient Settings 的 ume_in_osg_report 组覆盖；产物只保留最近 10 份
+
+#### SP Online 工单同步（`sp_online_sync`）
+
+- 默认 cron: `35 * * * *`　|　worker 组: **n**
+- 工作流脚本: `services/sp_online_sync.py → run_sp_online_sync`
+
+**功能**: 每小时从 eFlow SP 接口拉全量在线工单（sp-outbound / sp-inbound / sp-transfer），写 app.db 对应三张表
+
+**工作流与数据流**:
+
+1. 每小时 :35 请求 eFlow SP 三个接口拉全量在线工单
+1. 写 app.db 表 sp_outbound / sp_inbound / sp_transfer
+1. 「表浏览器」可直查，下游 sp_online_report_generate 消费明细
+
+**维护要点**:
+
+- 上游账号走 eflow 凭据分组；eFlow 会话被踢时表现为该组任务连续 failed，由 auto_retry_failed 兜底
+
+#### SP 物料主数据同步（`sp_material_sync`）
+
+- 默认 cron: `55 4 * * *`　|　worker 组: **n**
+- 工作流脚本: `services/sp_material_sync.py → run_sp_material_sync`
+
+**功能**: 从 eFlow SP 物料接口（eflow-sp-material）拉全量物料主数据，按 materialNo 唯一键 upsert 写 app.db 表 sp_material
+
+**工作流与数据流**:
+
+1. 每天 04:55 拉 eflow-sp-material 全量物料主数据
+1. 按 materialNo upsert 写 app.db 表 sp_material
+1. 「表浏览器」可查，下游 sp_material_report 出库存与消耗报表
+
+**维护要点**:
+
+- 下游 sp_material_report（07:33）只读表不拉接口：本任务停更时邮件仍会正常发，但内容是旧数据
+
+#### SP 在线未关闭单报表生成（`sp_online_report_generate`）
+
+- 默认 cron: `0 6 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/kpi_email_report.py → run_sp_online_report_generate`
+
+**功能**: 基于 data/sp_email/data 最新 inband/outband 明细，过滤未关闭单生成 sp_online 下 Inbound/Outbound 报表（PNG+XLSX，Create Time 倒序）
+
+**工作流与数据流**:
+
+1. 每天 06:00 读 data/sp_email/data 下最新 inband/outband 明细
+1. 过滤未关闭单
+1. 生成 data/sp_email/sp_online 的 Inbound/Outbound 报表（PNG + XLSX）
+
+**维护要点**:
+
+- 纯生成不发信，发送由 06:20 的 sp_online_report_send 负责——两者拆开后重跑发送不必重新取数
+
+#### SP 在线未关闭单报表发送（`sp_online_report_send`）
+
+- 默认 cron: `20 6 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/kpi_email_report.py → run_sp_online_report`
+
+**功能**: 发送 sp_online 未关闭单报表：邮件（PNG 内嵌 + XLSX 附件，默认复用 SP 报表远程名单）+ WhatsApp 群
+
+**工作流与数据流**:
+
+1. 每天 06:20 取 sp_online 最新报表文件
+1. 邮件：Inbound/Outbound PNG 内嵌 + XLSX 附件
+1. 同时发到 WhatsApp 群，收件人可在「系统设置 → 邮件收件人」覆盖
+
+**维护要点**:
+
+- 依赖 06:00 的 sp_online_report_generate 产物，上游缺文件时本任务直接失败
+- 属邮件类任务：默认不参与漏跑补投，EWS 恢复后由 email_recovery 补发
+
+#### eFlow 告警规则收集（`eflow_alarm_rules_collect`）
+
+- 默认 cron: `59 23 */3 * *`　|　worker 组: **n**
+- 工作流脚本: `services/eflow_rules/eflow_Alarm_Rule_Collector.py → run_eflow_alarm_rules`
+
+**功能**: 每 3 天 23:59 从 eFlow 拉取规则类型目录与告警关联规则（correlation-mgt），导出 eflow_alarm_rules.xlsx
+
+**工作流与数据流**:
+
+1. 每 3 天 23:59 拉 eFlow 规则类型目录与告警关联规则（correlation-mgt）
+1. 导出 backend/services/eflow_rules/eflow_alarm_rules.xlsx（Alarm_Rules + Rule_Types 两个 Sheet）
+
+**维护要点**:
+
+- 低频任务（每 3 天）：健康巡检按 cron 间隔判定，不会因“24h 未执行”被误报
+- 导出的 xlsx 是下游规则比对的输入，属代码资产，不要手工改动
+
+#### eFlow 推单规则收集（`eflow_push_rules_collect`）
+
+- 默认 cron: `59 23 */3 * *`　|　worker 组: **n**
+- 工作流脚本: `services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules`
+
+**功能**: 每 3 天 23:59 从 eFlow config-center 拉取全部规则（推单/升级/分组/自动关闭等 28 种类型），逐条合并 detail 后导出 eflow_push_rules.xlsx
+
+**工作流与数据流**:
+
+1. 每 3 天 23:59 以 query filter="" 拉 config-center 全部规则（28 种类型）
+1. 逐条合并规则 detail
+1. 导出 backend/services/eflow_rules/eflow_push_rules.xlsx（Push_Rules + Rule_Type_Summary）
+
+**维护要点**:
+
+- 低频任务（每 3 天），与告警规则收集同组同周期
+- 与 eflow_tt_rules_check 用的规则表同处 services/eflow_rules/，目录与文件名不要改名
+
+#### 日志文件清理（`log_cleanup`）
+
+- 默认 cron: `17 3 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/log_cleanup.py → run_log_cleanup`
+
+**功能**: 每天清理 my_app/log 下超过保留期（默认 7 天，LOG_RETENTION_DAYS 可调）的日志，并把已无进程写入的旧命名日志补上日期后缀
+
+**工作流与数据流**:
+
+1. 每天 03:17 扫描 log/ 下符合日志特征的文件
+1. 删除超过保留期的（LOG_CLEANUP_DRY_RUN=1 只报告不删）
+1. 给已无进程写入的旧命名日志补日期后缀，与各 watchdog 的按日期命名配合滚动保留
+
+**维护要点**:
+
+- Windows 下被进程占用的日志无法外部重命名/删除，只能由写入方按日期分文件——这就是日志名带日期的原因
+- db/app.db（含凭据表）、backend/services/auth_cache/、data/ 下任务产物不在清理范围
+
+#### TMP 目录清理（`tmp_cleanup`）
+
+- 默认 cron: `47 3 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/tmp_cleanup.py → run_tmp_cleanup`
+
+**功能**: 两段式回收 my_app/TMP 下超过保留期（默认 7 天）的临时产物：先同盘移进 TMP/_quarantine_YYYYMMDD/（可还原），隔离再满 7 天才真删
+
+**工作流与数据流**:
+
+1. 每天 03:47 扫描 TMP/ 下超过保留期的条目
+1. 同盘 mv 进 _quarantine_<日期>/ 隔离（不直接删，留一次反悔机会）
+1. 隔离期满 7 天后彻底删除；服务在用路径按 WHITELIST 跳过
+
+**维护要点**:
+
+- TMP/ 是临时产物的固定去处，但体积没人管（上线首日实测 462MB）——清理是必需的
+- charts/dl/状态文件等服务在用路径在 WHITELIST 里，永不处理；新增此类路径要补白名单
+- 与 log_cleanup（03:17）错峰，避免同一时段两次全盘扫描
+
 ### 3.4 可靠性机制（超时 / 重试 / 自愈）
 
 | 机制 | 说明 |
@@ -940,7 +1226,9 @@
 | **僵尸 running 回收** | 无 per-task 超时（设计缺口）。worker 每 300s 扫描：running 超 30 分钟（STALE_RUNNING_SECONDS）且 PID 已死亡的记录按失败回收。 |
 | **失败自动重试** | auto_retry_failed 每 10 分钟扫描：失败任务先判断数据缺口是否已被后续成功执行补上，未补上且未超 MAX_ATTEMPTS=2 才重投；超过 24h 硬上限直接放弃。 |
 | **漏跑补投** | 时效窗口内应触发却完全没有执行记录的任务自动补投一次（MISS_GRACE_MIN=15 宽限；邮件类默认排除，由 EWS 补发机制负责）。 |
+| **陈旧 pending 过期** | pending 超 6 小时无人认领（典型原因：漏登记 worker 分组）会被置 failed 并补写执行日志，释放被它占住的单飞名额，让下一次调度能正常入队（否则一条陈旧记录会挡住该任务之后的每一次调度）。 |
 | **失败通知** | 任务失败经微信 + 邮件双通道告警（services/weixin_notifier.py 支持 openclaw/wecom/serverchan/pushplus）。 |
+| **漏跑/停摆主动告警** | db_freshness_check 每小时算四类健康异常（未归组 / 超出周期无执行记录 / 队列滞留 / 上次成功后逾期无新成功），由 services/task_health_alert.py 按「新异常通知一次、恢复通知一次、持续超 24h 再提一次」推微信+邮件，不必等看板没数据了才人工发现（2026-09-18 上线）。 |
 | **进程自愈** | backend_watchdog / worker_watchdog 托管进程：端口探活、崩溃退避重拉（连崩 10 次放弃并告警）；心跳 log/heartbeat_*.json 超 3 分钟未更新判定 hung 强杀重拉。 |
 | **保留期** | task_queue 与 task_execution_log 保留 3 天（task_runner.py / worker.py 自动清理），无需手工。 |
 
@@ -956,7 +1244,7 @@
 
 **手动执行 / 停止** 任务管理页「执行」立即投递一次、「停止」中断长任务。验证新排程/新脚本后应先手动跑一次看执行历史。
 
-**新增一个任务** ① task_registry.py 的 TASK_SPECS 追加声明（task_id/name/cron/loader）；② worker_watchdog.py 的 GROUP_TASK_MAP 登记分组（漏了永远 pending，已三次踩坑）；③ 业务函数放 backend/services/ 且抛异常不吞；④ stop.bat → start.bat 重启加载注册表；⑤ 手动执行验证并更新文档（04-task-system.md 清单与本帮助页）。
+**新增一个任务** ① task_registry.py 的 TASK_SPECS 追加声明（task_id/name/cron/loader）；② worker_watchdog.py 的 GROUP_TASK_MAP 登记分组（漏了永远 pending，已四次踩坑；tests/test_worker_group_coverage.py 交叉校验 task_id 覆盖与三处组集合一致）；新建组则必须同步 GROUP_TASK_MAP 键、start_hidden.ps1 的 MY_APP_WORKER_GROUPS、restart_workers.py 的 ALL_GROUPS 三处；③ 业务函数放 backend/services/ 且抛异常不吞；④ stop.bat → start.bat 重启加载注册表（只改分组清单则 python restart_workers.py --mode watchdog --force，**要管理员权限**）；⑤ 手动执行验证并更新文档（04-task-system.md 清单与本帮助数据 helpTaskDocs.ts，改完跑 npm run docs）。
 
 **改工作流脚本** 脚本都在 backend/services/ 下（任务清单有对应路径）。改动时注意：① 别改历史拼写名（packet_lost、battary_kpi_fetch、ultilazation 等，多处按字符串引用）；② 动态采集表不进 Alembic；③ 同步更新 task_registry.md / WORKER.md / 本帮助数据（frontend/src/pages/helpTaskDocs.ts）。
 
@@ -1188,7 +1476,7 @@ IP 链路探测：从服务器侧探测到目标站点的链路连通性与路�
 | `7090` | vite preview 前端（生产经 nginx /myapp/ 反代） | start_hidden.ps1 |
 | `5432` | PostgreSQL 16 主库 | 自启脚本 pg_ctl 拉起 |
 | `8787 / 8790` | FMS / VMAX 实时代理（仅 127.0.0.1） | backend 启动线程 |
-| `—` | worker × 4 组（u/n/m/c，消费 task_queue） | worker_watchdog.py |
+| `—` | worker × 5 组（u/n/v/m/c，消费 task_queue） | worker_watchdog.py |
 
 ### 5.2 日常巡检（5 分钟）
 
@@ -1196,13 +1484,13 @@ IP 链路探测：从服务器侧探测到目标站点的链路连通性与路�
 - 页头同步标签：GIS / TT&WO / Dashboard 的「最近同步」是否在预期窗口内
 - 数据总览页：表数量与行数是否明显异常
 - 命令行：五个关键进程是否都在、心跳 heartbeat_*.json 是否新鲜（超 3 分钟会被强杀重拉）
-- 数据库新鲜度由 db_freshness_check 每小时 :15 自动巡检，滞后会给出调用链与排查方向
+- 数据库新鲜度由 db_freshness_check 每小时 :15 自动巡检，滞后会给出调用链与排查方向；任务本身漏跑/停摆（未归组、无执行记录、队列滞留、成功逾期）也会在同一巡检里主动微信+邮件告警，不需要人工等看板空了才发现
 
 ### 5.3 日志速查
 
 | 日志文件（log/） | 内容 |
 | --- | --- |
-| `log/worker_runtime*.log` | 任务执行主日志——排障首选，按 task_id 搜堆栈（每组 worker 一个文件：_u/_n/_m/_c） |
+| `log/worker_runtime*.log` | 任务执行主日志——排障首选，按 task_id 搜堆栈（每组 worker 一个文件：_u/_n/_v/_m/_c） |
 | `log/backend_runtime.log` | 后端业务日志（API、调度、代理） |
 | `log/backend_watchdog.log / worker_watchdog.log` | 进程拉起与崩溃退避记录（连崩 10 次放弃并告警） |
 | `log/start_hidden_result.txt` | 上一次启动的逐条结果——启动失败先看这个 |
@@ -1236,7 +1524,7 @@ IP 链路探测：从服务器侧探测到目标站点的链路连通性与路�
 
 ### 5.6 配置与凭据
 
-三层配置，优先级从高到低：环境变量（backend/.env，147 个键，改后需重启） > 数据库/配置文件（凭据、收件人、排程、远程主机、任务参数——界面改，即时生效） > 代码默认值。
+三层配置，优先级从高到低：环境变量（backend/.env，203 个键，改后需重启） > 数据库/配置文件（凭据、收件人、排程、远程主机、任务参数——界面改，即时生效） > 代码默认值。
 
 - 12 个凭据分组：zte_ume、vmax_cxo、ipran_ume、ccn_ume、eflow、fms_portal、fw_kpi、mw_ume、sftp_sp、mail_126、owa_mail、weixin（系统设置 → 凭据 统一维护）
 - 读取优先级：环境变量 > 数据库 > 空；列表接口返回掩码，「显示明文」与「测试连接」单独提供
@@ -1257,7 +1545,7 @@ IP 链路探测：从服务器侧探测到目标站点的链路连通性与路�
 
 **任务长期停在 pending 不执行？**
 
-多半是该任务未被归入任何 worker 组（GROUP_TASK_MAP），队列里永远无人认领——这是本项目已发生过三次的事故模式（finebi_report_sync、whatsapp_send_ext、sp_email_details）。新增任务必须在 worker_watchdog.py 的 GROUP_TASK_MAP 登记分组。
+多半是该任务未被归入任何 worker 组（GROUP_TASK_MAP），队列里永远无人认领——这是本项目已发生过四次的事故模式（finebi_report_sync、whatsapp_send_ext、sp_email_details，以及 2026-09-18 查出的 olib_soc 看板增量与 vmax_multi_data_sync）。新增任务必须在 worker_watchdog.py 的 GROUP_TASK_MAP 登记分组；陈旧 pending 占住的单飞名额 6 小时后会被 worker 自动过期释放。2026-09-18 起这类停摆不再靠人肉发现：db_freshness_check（每小时）会把未归组 / 无执行记录 / 队列滞留 / 成功逾期四类健康异常按翻转去重主动微信+邮件通知。
 
 **任务反复 failed？**
 

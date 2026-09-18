@@ -63,8 +63,19 @@
 <!-- ===================== END: TopHeader ===================== -->
 
 <!-- ===================== BEGIN: ControlBar ===================== -->
-<div class="control-bar">
-  <div class="control-inner">
+<!-- 搜索 / 筛选那一整行默认收起，点击才展开（用户要求）。
+     折叠态下 #barSummary 会回显当前生效的搜索词与筛选条件 ——
+     否则用户看到「怎么只剩 3 个看板」却找不到原因（chip 和搜索框都被收起来了）。 -->
+<div class="control-bar is-collapsed" id="controlBar">
+  <div class="control-toggle-row">
+    <button type="button" class="control-toggle" id="controlToggle" aria-expanded="false" aria-controls="controlInner">
+      <svg class="ct-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <span data-i18n="bar.toggle">搜索与筛选</span>
+      <span class="ct-summary" id="barSummary" hidden></span>
+      <svg class="ct-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </button>
+  </div>
+  <div class="control-inner" id="controlInner">
     <label class="search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
       <input type="search" id="searchInput" data-i18n-attr="placeholder:search.placeholder" placeholder="搜索看板名称、描述、责任人、标签…">
@@ -125,32 +136,49 @@
   <!-- Quality Control -->
   <section id="secQc" aria-label="Quality Control" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
 
-  <!-- Core Layout Grid (3 Columns, equal width: Left MS & FLM / Center Topology Map & System Admin / Right BO & FO) -->
+  <!-- Core Layout Grid (3 Columns, equal width: Left MS & FLM / Center Topology Map & System Admin / Right BO & FO)
+       知识问答与友情链接已移出三列，改放最下面一整行（见下面的 BOTTOM ROW）——
+       它们是「辅助入口」，与三列的业务视图不是一类，塞在列尾只会制造高度差与尾部空白。 -->
   <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
 
-    <!-- LEFT COLUMN: MS VIEW & FLM VIEW -->
+    <!-- LEFT COLUMN: MS VIEW & FLM VIEW & SP VIEW -->
     <div class="lg:col-span-4 xl:col-span-4 space-y-4">
       <section id="secMs" aria-label="MS View" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
       <section id="secFlm" aria-label="FLM View" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+      <!-- SP View（备品备件管理）：按需求放在 FLM View 正下方，
+           看板为 #33 Warehouse / #34 Material Summary / #35 Spare Management Audit，
+           原先挂在 MS View 下，2026-09-18 整体迁到本区块（不在 MS View 重复出现）。 -->
+      <section id="secSp" aria-label="SP View" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
     </div>
 
-    <!-- CENTER COLUMN: GIS TOPOLOGY & SYSTEM ADMIN -->
+    <!-- CENTER COLUMN: GIS TOPOLOGY（地图作为整页的视觉焦点）
+         + ESCALATION MATRIX（按需求放在地图组件正下方） -->
     <div class="lg:col-span-8 xl:col-span-4 space-y-4">
       <section id="secTopo" aria-label="Central Liberia Regional Topology" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80 flex flex-col"></section>
-      <section id="secAdmin" aria-label="System Admin" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
-      <!-- 当前实际目录中中列地图 + System Admin 高度接近左列，Q&A 放这里可填平两者尾部空档 -->
-      <section id="secQa" aria-label="Knowledge Q&A" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+      <!-- 升级机制表格：内容来自 升级机制.xlsx，由 portal.js 的 escSection() 渲染。
+           本区块是**静态参考信息**，不参与顶栏搜索/筛选，也不受编辑模式影响 ——
+           与地图一样只在 render() 里建一次，不放进 renderSections()。 -->
+      <section id="secEsc" aria-label="Escalation Matrix" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
     </div>
 
-    <!-- RIGHT COLUMN: BO VIEW & FO VIEW + SUPPORT PANEL -->
+    <!-- RIGHT COLUMN: BO VIEW & FO VIEW & SYSTEM ADMIN
+         System Admin 原在中列地图下方。实测：中列的地图卡是固定高 860px，必然是三列里最高的，
+         把 Admin 留在这儿只会让它替右列承担全部高度差；挪到右列后三列极差 448px → 225px。
+         实测数据与对照实验见 TMP/probe_column_balance.cjs。 -->
     <div class="lg:col-span-12 xl:col-span-4 space-y-4">
       <section id="secBo" aria-label="BO View" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
       <section id="secFo" aria-label="FO View" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
-      <!-- Friends 只有 1 个入口，放在右列尾部，避免底部双栏制造大片空白 -->
-      <section id="secFriends" aria-label="Friends Links" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+      <section id="secAdmin" aria-label="System Admin" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
     </div>
   </div>
   <!-- END: Core Layout Grid -->
+
+  <!-- BOTTOM ROW: Knowledge Q&A + Friends Links（各占一半，lg 以下自动堆叠成两行） -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+    <section id="secQa" aria-label="Knowledge Q&A" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+    <section id="secFriends" aria-label="Friends Links" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+  </div>
+  <!-- END: Bottom Row -->
 
   <!-- User-created groups -->
   <div id="secExtra" class="space-y-4"></div>
@@ -243,6 +271,27 @@
   </div>
 </div>
 <!-- ===================== END: QcDrillModal ===================== -->
+
+<!-- ===================== BEGIN: EscalationModal =====================
+     升级机制「放大查看」弹窗。中列（地图下方）只有 394~582px，6 列表格在里面
+     必须横向滚动才看得全邮箱，所以给一个全宽弹窗：表格按全宽放大、6 列全部单行。
+     表体由 portal.js 的 openEscModal() 用 escTableHtml(true) 填充，这里只放骨架。
+     ================================================================ -->
+<div class="modal-mask" id="escMask" hidden>
+  <div class="modal wide esc-modal" role="dialog" aria-modal="true" aria-labelledby="escTitle">
+    <div class="modal-head">
+      <h3 id="escTitle" data-i18n="esc.modalTitle">升级机制 (Escalation Matrix)</h3>
+      <button type="button" class="icon-btn small" id="escClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="escModalBody"></div>
+    <div class="modal-foot">
+      <span class="modal-note" data-i18n="esc.modalNote"></span>
+    </div>
+  </div>
+</div>
+<!-- ===================== END: EscalationModal ===================== -->
 
 <!-- ===================== BEGIN: BoardEditModal =====================
      看板新增 / 编辑弹窗（字段与 data.js 的看板对象一一对应，参考 uniplam 的

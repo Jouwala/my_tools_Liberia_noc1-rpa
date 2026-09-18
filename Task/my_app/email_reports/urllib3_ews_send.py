@@ -282,6 +282,12 @@ class UrllibEwsSender:
             }
 
 
+try:                                    # 包内导入 / 直接运行 两种方式都能用
+    from email_reports.owa_credentials import resolve_owa_credentials
+except ImportError:
+    from owa_credentials import resolve_owa_credentials
+
+
 def send_via_urllib3(
     to: str,
     subject: str,
@@ -289,8 +295,8 @@ def send_via_urllib3(
     attachments: Optional[List[str]] = None,
     inline_images: Optional[List[str]] = None,
     server: str = "exchmail.orange-cit.ci",
-    username: str = "ZTENOC_OLR",
-    password: str = "Postcode@202608",
+    username: Optional[str] = None,
+    password: Optional[str] = None,
     from_email: str = "ztenoc.olr@orange.com",
     cc: Optional[str] = None
 ) -> dict:
@@ -325,7 +331,9 @@ def send_via_urllib3(
     dict
         {"success": bool, "message": str, "error": str}
     """
-    
+    # 凭据统一解析（原本是硬编码旧密码的参数默认值，见 owa_credentials 模块说明）
+    username, password = resolve_owa_credentials(username, password)
+
     sender = UrllibEwsSender(server, username, password, from_email)
     return sender.send_mail(to=to, subject=subject, body=body, cc=cc)
 

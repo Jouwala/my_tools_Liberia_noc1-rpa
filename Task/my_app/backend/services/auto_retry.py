@@ -143,15 +143,59 @@ def _parse_iso(ts: str):
         return None
 
 
+def _email_task_ids() -> set:
+    """邮件类任务集合（email_recovery 专属补发的对象）。"""
+    if os.environ.get("AUTO_RETRY_INCLUDE_EMAIL", "0") == "1":
+        return set()
+    try:
+        from backend.services.email_recovery import EMAIL_TASK_IDS
+        return set(EMAIL_TASK_IDS)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"加载 EMAIL_TASK_IDS 失败，邮件任务未被排除: {e}")
+        return set()
+
+
+def _is_excluded_from_retry(task_id: str, error=None) -> bool:
+    """auto_retry 是否应跳过该任务（判定「要不要重试」的唯一入口）。
+
+    - 自身任务 / `AUTO_RETRY_EXTRA_EXCLUDE`：永远跳过
+    - 邮件类任务：**只有「失败会被补发通道真正处理」时才跳过**。非 EWS 失败
+      （数据源、网络、子进程超时）必须留给 auto_retry —— 否则 auto_retry 因任务在
+      `EMAIL_TASK_IDS` 里跳过、补发通道又因失败不是 EWS 类跳过，两边互相谦让，
+      任务再没人重试。判据复用 `email_recovery.is_ews_resendable()`，两边共用一套规则，
+      既避免「互相谦让」也避免「互相争抢」（重复发送）。
+    - 传 `error=None`（漏跑扫描没有失败原因）时按任务级粗排除处理。
+    - `AUTO_RETRY_INCLUDE_EMAIL=1` 时邮件任务完全不被排除。
+
+    2026-09-18：`fw_kpi_sync` 登记进 `EMAIL_TASK_IDS` 后，它的远端 API 连接失败
+    （`[WinError 10065]`）正落进这个空档；历史上它靠 auto_retry 恢复过
+    （09:00 失败 → 10:07 trig=auto_retry 成功）。
+    """
+    if task_id == SELF_TASK_ID:
+        return True
+    extra = {t.strip() for t in os.environ.get("AUTO_RETRY_EXTRA_EXCLUDE", "").split(",") if t.strip()}
+    if task_id in extra:
+        return True
+    if task_id not in _email_task_ids():
+        return False
+    if error is None:
+        return True  # 没有失败原因可用 → 维持任务级粗排除
+    try:
+        from backend.services.email_recovery import is_ews_resendable
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"加载 is_ews_resendable 失败，邮件任务按原行为全部让路: {e}")
+        return True  # 保守：维持旧行为，宁可漏重试也不重复发送
+    return is_ews_resendable(error)
+
+
 def _exclude_task_ids() -> set:
-    """排除集：自身 + 邮件类（email_recovery 专属补发）+ 环境变量追加。"""
+    """排除集：自身 + 邮件类（email_recovery 专属补发）+ 环境变量追加。
+
+    仅用于**拿不到失败原因**的场合（漏跑扫描）。判定「失败是否重试」请用
+    `_is_excluded_from_retry(task_id, error)`，它会按失败原因细分。
+    """
     ids = {SELF_TASK_ID}
-    if os.environ.get("AUTO_RETRY_INCLUDE_EMAIL", "0") != "1":
-        try:
-            from backend.services.email_recovery import EMAIL_TASK_IDS
-            ids |= set(EMAIL_TASK_IDS)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"加载 EMAIL_TASK_IDS 失败，邮件任务未被排除: {e}")
+    ids |= _email_task_ids()
     extra = os.environ.get("AUTO_RETRY_EXTRA_EXCLUDE", "")
     ids |= {t.strip() for t in extra.split(",") if t.strip()}
     return ids
@@ -490,7 +534,7 @@ def _mk_retry_info(will_retry, reason, next_retry_at, attempts, last_retry_at, f
 
 
 def _evaluate_candidate(task_id, failed_at, error, retry_attempts, last_retry_at,
-                         now, exclude_ids, registry, interval_min) -> dict:
+                         now, registry, interval_min) -> dict:
     """判定某失败任务是否会被自动重试，并预测下次重试时间。
 
     与 scan_and_retry_failed_tasks 共用同一套判定规则（次数上限 / 冷却 / 永久错误 /
@@ -502,8 +546,8 @@ def _evaluate_candidate(task_id, failed_at, error, retry_attempts, last_retry_at
         return _mk_retry_info(False, f"失败时间无法解析: {failed_at}", None, retry_attempts, last_retry_at, failed_at)
     if now >= fail_dt + timedelta(hours=SCAN_WINDOW_HOURS):
         return _mk_retry_info(False, f"超过 {SCAN_WINDOW_HOURS}h 硬上限", None, retry_attempts, last_retry_at, failed_at)
-    if task_id in exclude_ids:
-        return _mk_retry_info(False, "任务被排除（邮件类由 recovery 补发）", None, retry_attempts, last_retry_at, failed_at)
+    if _is_excluded_from_retry(task_id, error):
+        return _mk_retry_info(False, "任务被排除（EWS 发信失败由 recovery 补发）", None, retry_attempts, last_retry_at, failed_at)
     task = registry.get(task_id)
     if task and not task.get("enabled", True):
         return _mk_retry_info(False, "任务已禁用", None, retry_attempts, last_retry_at, failed_at)
@@ -595,7 +639,6 @@ def get_all_retry_info() -> dict:
     """一次性算出当前所有「最新执行为失败」任务的重试信息，供 /api/tasks 批量挂载。"""
     now = datetime.now()
     cutoff_iso = (now - timedelta(hours=SCAN_WINDOW_HOURS)).isoformat()
-    exclude_ids = _exclude_task_ids()
     try:
         from backend.services import task_runner
         registry = task_runner._task_registry
@@ -606,7 +649,7 @@ def get_all_retry_info() -> dict:
     out = {}
     for task_id, _fid, failed_at, error, attempts, last_retry_at in rows:
         out[task_id] = _evaluate_candidate(
-            task_id, failed_at, error, attempts, last_retry_at, now, exclude_ids, registry, interval_min
+            task_id, failed_at, error, attempts, last_retry_at, now, registry, interval_min
         )
     return out
 
@@ -648,7 +691,7 @@ def scan_and_retry_failed_tasks() -> dict:
         if summary["retried"] >= MAX_PER_RUN:
             summary["skipped"][task_id] = f"单次重试上限 {MAX_PER_RUN} 已达，排队待下次扫描"
             continue
-        if task_id in exclude_ids:
+        if _is_excluded_from_retry(task_id, error):
             continue  # 排除集静默跳过，不计入 skipped（每 10 分钟一次，避免日志噪音）
 
         task = registry.get(task_id)
@@ -661,7 +704,7 @@ def scan_and_retry_failed_tasks() -> dict:
 
         # 与前端语音播报共用同一判定规则，保证预测一致
         info = _evaluate_candidate(
-            task_id, failed_at, error, retry_attempts, last_retry_at, now, exclude_ids, registry, interval_min
+            task_id, failed_at, error, retry_attempts, last_retry_at, now, registry, interval_min
         )
         if not info["will_retry"]:
             summary["skipped"][task_id] = info["reason"]

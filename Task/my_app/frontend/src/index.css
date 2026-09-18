@@ -1,41 +1,48 @@
 /* 主题变量：默认深色（跟随系统由 index.html 内联脚本在首帧前设置 data-theme） */
 :root {
-  --wh-bg: linear-gradient(180deg, #0a1929 0%, #0d2138 100%);
-  --wh-card-bg: linear-gradient(145deg, #141f33 0%, #112540 100%);
-  --wh-card-border: 1px solid rgba(100, 255, 218, 0.18);
-  --wh-card-border-hover: 1px solid rgba(100, 255, 218, 0.55);
-  --wh-teal: #64ffda;
-  --wh-blue: #4fc3f7;
-  --wh-indigo: #7986cb;
-  --wh-text: #e6f4ff;
-  --wh-text-muted: #94a3b8;
-  --wh-text-dim: #64748b;
-  --wh-accent-grad: linear-gradient(135deg, #64ffda, #4fc3f7);
-  --wh-sev-critical: #ff4757;
+  --wh-bg: linear-gradient(180deg, #02050c 0%, #04091a 52%, #02050c 100%);
+  --wh-card-bg: linear-gradient(180deg, #08122c 0%, #050d22 100%);
+  --wh-card-border: 1px solid #153db0;
+  --wh-card-border-hover: 1px solid #258cff;
+  --wh-teal: #00d9ff;
+  --wh-blue: #258cff;
+  --wh-indigo: #7c8ff0;
+  --wh-text: #f5f7ff;
+  --wh-text-muted: #aebbd4;
+  --wh-text-dim: #6f8cb4;
+  --wh-accent-grad: linear-gradient(135deg, #00d9ff, #258cff);
+  --wh-sev-critical: #ff5c6c;
   --wh-sev-major: #ff922b;
-  --wh-sev-warning: #ffd43b;
-  --wh-sev-info: #4fc3f7;
-  --wh-teal-20: rgba(100, 255, 218, 0.20);
-  --wh-teal-27: rgba(100, 255, 218, 0.27);
-  --wh-teal-40: rgba(100, 255, 218, 0.40);
-  --wh-teal-53: rgba(100, 255, 218, 0.53);
+  --wh-sev-warning: #f6cf00;
+  --wh-sev-info: #258cff;
+  --wh-teal-20: rgba(0, 217, 255, 0.20);
+  --wh-teal-27: rgba(0, 217, 255, 0.27);
+  --wh-teal-40: rgba(0, 217, 255, 0.40);
+  --wh-teal-53: rgba(0, 217, 255, 0.53);
   /* 页面底色（body/antd 未覆盖处兜底） */
-  --wh-page-bg: #0a1929;
-  --wh-hover-row: rgba(255, 255, 255, 0.06);
-  --wh-table-sort-icon: #94a3b8;
+  --wh-page-bg: #02050c;
+  --wh-hover-row: rgba(37, 140, 255, 0.10);
+  --wh-table-sort-icon: #aebbd4;
   --wh-seg-bg: rgba(255, 255, 255, 0.06);
   /* 语义辅助色 */
-  --wh-subtle-bg: rgba(255, 255, 255, 0.05);
-  --wh-subtle-border: rgba(100, 255, 218, 0.12);
-  --wh-error-text: #ff8788;
-  --wh-success-text: #51cf66;
-  --wh-warn-text: #ffa940;
+  --wh-subtle-bg: rgba(37, 140, 255, 0.06);
+  --wh-subtle-border: #173158;
+  --wh-error-text: #ffb3bc;
+  --wh-success-text: #0bc78c;
+  --wh-warn-text: #f6cf00;
   /* 状态色（保存状态 / 只读提示 / 隐藏目录等交互反馈共用） */
-  --wh-ok: #51cf66;
-  --wh-danger: #ff6b6b;
-  --wh-warn: #ffa940;
-  --wh-input-bg: rgba(255, 255, 255, 0.05);
-  --wh-input-border: rgba(100, 255, 218, 0.18);
+  --wh-ok: #0bc78c;
+  --wh-danger: #ff5c6c;
+  --wh-warn: #f6cf00;
+  /* 任务分发时间线的三个语义点色（Task Manager 的 Task Distribution Timeline）。
+     原来在 DataSync.tsx 里写死 antd 预设色（#8c8c8c / #b7eb8f / #ff4d4f），
+     深色下与 vmax 的深空蓝+电光青体系脱节 —— 实测时间线上有 1300+ 个点，
+     是 ?page=sync 深色页面里最大的一块非 vmax 色。这里收进令牌，深浅各一档。 */
+  --wh-tl-done: #6f8cb4;
+  --wh-tl-fail: #ff5c6c;
+  --wh-tl-plan: #8ff0cc;
+  --wh-input-bg: rgba(9, 34, 74, 0.60);
+  --wh-input-border: #17499c;
   /* ================= 液态玻璃体系（深浅主题共用同一套变量名） =================
    * 四个空间层级，模糊强度与不透明度自下而上递增：
    *   panel   顶栏 / 侧栏 —— 覆盖在内容之上，模糊最强、最「实」
@@ -44,18 +51,18 @@
    *   overlay Dropdown / Modal / Popover —— 浮在最上，对比度最高
    * 每个层级都配一个 *-solid 值：无 backdrop-filter 时由 @supports 统一降级，
    * 避免半透明底直接透出内容导致文字不可读（见文件末尾降级段）。 */
-  --wh-glass-panel: rgba(8, 25, 41, 0.70);
-  --wh-glass-panel-solid: #0d2138;
-  --wh-glass-card: linear-gradient(145deg, rgba(20, 39, 63, 0.72), rgba(9, 27, 45, 0.56));
-  --wh-glass-card-solid: linear-gradient(145deg, #141f33, #0d2138);
-  --wh-glass-control: rgba(14, 33, 54, 0.58);
-  --wh-glass-control-hover: rgba(22, 48, 76, 0.74);
-  --wh-glass-control-solid: #10243c;
-  --wh-glass-overlay: rgba(9, 27, 45, 0.80);
-  --wh-glass-overlay-solid: #0d2138;
+  --wh-glass-panel: rgba(8, 15, 67, 0.70);
+  --wh-glass-panel-solid: #070d31;
+  --wh-glass-card: linear-gradient(145deg, rgba(8, 18, 44, 0.72), rgba(5, 13, 34, 0.56));
+  --wh-glass-card-solid: linear-gradient(180deg, #08122c, #050d22);
+  --wh-glass-control: rgba(9, 34, 74, 0.58);
+  --wh-glass-control-hover: rgba(21, 61, 176, 0.74);
+  --wh-glass-control-solid: #0a1730;
+  --wh-glass-overlay: rgba(5, 13, 34, 0.80);
+  --wh-glass-overlay-solid: #070d31;
 
   /* 折射高光（斜向叠层）与边缘光（顶部 1px 内阴影） */
-  --wh-glass-specular: linear-gradient(118deg, rgba(255, 255, 255, 0.075), transparent 27%, transparent 73%, rgba(79, 195, 247, 0.055));
+  --wh-glass-specular: linear-gradient(118deg, rgba(255, 255, 255, 0.075), transparent 27%, transparent 73%, rgba(37, 140, 255, 0.055));
   --wh-glass-rim: inset 0 1px 0 rgba(255, 255, 255, 0.07);
 
   /* 模糊强度：层级越高越模糊，保证上层文字不被下层内容干扰 */
@@ -66,28 +73,28 @@
   --wh-glass-saturate: 145%;
 
   /* 阴影层级：1 静态控件/卡片 2 面板与卡片悬浮 3 浮层（均含一层边缘光） */
-  --wh-shadow-1: 0 4px 14px rgba(0, 0, 0, 0.22), var(--wh-glass-rim);
-  --wh-shadow-2: 0 20px 52px rgba(0, 0, 0, 0.32), 0 2px 10px rgba(79, 195, 247, 0.05), var(--wh-glass-rim);
+  --wh-shadow-1: 0 4px 14px rgba(0, 0, 0, 0.32), inset 0 7px 17px rgba(58, 118, 255, 0.22), var(--wh-glass-rim);
+  --wh-shadow-2: 0 20px 52px rgba(0, 0, 0, 0.32), 0 2px 10px rgba(37, 140, 255, 0.05), var(--wh-glass-rim);
   --wh-shadow-3: 0 26px 70px rgba(0, 0, 0, 0.42), var(--wh-glass-rim);
 
-  --wh-glass-border: rgba(100, 255, 218, 0.20);
-  --wh-glass-border-strong: rgba(100, 255, 218, 0.45);
+  --wh-glass-border: #153db0;
+  --wh-glass-border-strong: #258cff;
 
   /* 装饰性元素：顶栏网格纹理、方向箭头、标题辉光（统一由主题驱动） */
-  --wh-grid-line: rgba(100, 255, 218, 0.03);
-  --wh-decor: rgba(100, 255, 218, 0.25);
-  --wh-title-shadow: 0 0 20px rgba(100, 255, 218, 0.40), 0 0 40px rgba(100, 255, 218, 0.20);
+  --wh-grid-line: rgba(0, 217, 255, 0.03);
+  --wh-decor: rgba(0, 217, 255, 0.25);
+  --wh-title-shadow: 0 0 20px rgba(0, 217, 255, 0.40), 0 0 40px rgba(0, 217, 255, 0.20);
   /* 标题下方装饰线的外发光：浅色下无辉光，取 none */
-  --wh-title-rule-glow: 0 0 8px rgba(100, 255, 218, 0.53);
+  --wh-title-rule-glow: 0 0 8px rgba(0, 217, 255, 0.53);
   /* 抽屉/弹层蒙版：比浮层更暗，用于把背景内容压下去 */
-  --wh-scrim: rgba(6, 15, 28, 0.38);
-  --wh-scrim-solid: rgba(6, 15, 28, 0.55);
+  --wh-scrim: rgba(2, 5, 12, 0.38);
+  --wh-scrim-solid: rgba(2, 5, 12, 0.55);
 
   /* 旧变量名保留为别名，避免逐处改调用方后遗漏（新增代码请用新名） */
   --wh-surface-glass: var(--wh-glass-panel);
   --wh-surface-glass-strong: var(--wh-glass-overlay);
-  --wh-overlay: rgba(2, 10, 20, 0.58);
-  --wh-focus-ring: 0 0 0 2px rgba(8, 25, 41, 0.92), 0 0 0 4px rgba(100, 255, 218, 0.45);
+  --wh-overlay: rgba(2, 5, 12, 0.58);
+  --wh-focus-ring: 0 0 0 2px rgba(8, 15, 67, 0.92), 0 0 0 4px rgba(0, 217, 255, 0.45);
   --wh-shadow-soft: var(--wh-shadow-2);
   --wh-border-glass: var(--wh-glass-border);
   --wh-border-glass-strong: var(--wh-glass-border-strong);
@@ -202,6 +209,10 @@
   --wh-ok: #0f9d58;
   --wh-danger: #d93025;
   --wh-warn: #d97706;
+  /* 时间线语义点色：浅色档保持换版前的原值不变 */
+  --wh-tl-done: #8c8c8c;
+  --wh-tl-fail: #ff4d4f;
+  --wh-tl-plan: #b7eb8f;
   --wh-input-bg: rgba(255, 255, 255, 0.82);
   --wh-input-border: rgba(94, 125, 143, 0.28);
   --wh-overlay: rgba(31, 53, 68, 0.28);
@@ -499,7 +510,7 @@ html {
 }
 :root[data-theme='dark'] .dark-table .ant-table-thead > tr > th {
   background: transparent !important;
-  color: #e6f4ff !important;
+  color: #f5f7ff !important;
 }
 :root[data-theme='dark'] .dark-table .ant-table-tbody > tr > td {
   background: transparent !important;
@@ -510,7 +521,7 @@ html {
 }
 /* 表头排序/筛选图标在深背景下不可见，提亮 */
 :root[data-theme='dark'] .dark-table .ant-table-thead th .anticon {
-  color: #94a3b8 !important;
+  color: #aebbd4 !important;
 }
 
 /* 浅色主题：表格使用 antd 默认浅色样式（透明背景 + 深色文字） */
@@ -552,30 +563,30 @@ html {
 :root[data-theme='dark'] .leaflet-control-zoom a {
   background: #12263f;
   color: var(--wh-teal);
-  border-color: rgba(100, 255, 218, 0.25);
+  border-color: rgba(0, 217, 255, 0.25);
 }
 :root[data-theme='dark'] .leaflet-control-zoom a:hover {
   background: #1b3357;
 }
 :root[data-theme='dark'] .leaflet-control-attribution {
-  background: rgba(10, 25, 41, 0.85);
-  color: #94a3b8;
+  background: rgba(8, 18, 44, 0.85);
+  color: #aebbd4;
 }
 :root[data-theme='dark'] .leaflet-control-attribution a {
-  color: #4fc3f7;
+  color: #258cff;
 }
 :root[data-theme='dark'] .leaflet-popup-content-wrapper,
 :root[data-theme='dark'] .leaflet-popup-tip {
   background: #0f2744;
-  color: #e6f4ff;
-  border: 1px solid rgba(100, 255, 218, 0.25);
+  color: #f5f7ff;
+  border: 1px solid rgba(0, 217, 255, 0.25);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 :root[data-theme='dark'] .leaflet-popup-content a {
-  color: #64ffda;
+  color: #00d9ff;
 }
 :root[data-theme='dark'] .leaflet-popup-close-button {
-  color: #94a3b8 !important;
+  color: #aebbd4 !important;
 }
 
 /* ---------- 响应式工具类（与 antd 共存，不覆盖其组件核心样式） ---------- */
@@ -662,8 +673,8 @@ html {
     font-size: 1.25rem !important;
   }
   :root[data-theme='dark'] .wh-sider-toggle {
-    background: rgba(100, 255, 218, 0.12) !important;
-    border-color: rgba(100, 255, 218, 0.35) !important;
+    background: rgba(0, 217, 255, 0.12) !important;
+    border-color: rgba(0, 217, 255, 0.35) !important;
   }
 }
 
@@ -1014,11 +1025,11 @@ html {
   background: transparent;
 }
 :root[data-theme='dark'] ::-webkit-scrollbar-thumb {
-  background: rgba(100, 255, 218, 0.2);
+  background: rgba(0, 217, 255, 0.2);
   border-radius: 3px;
 }
 :root[data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 255, 218, 0.4);
+  background: rgba(0, 217, 255, 0.4);
 }
 :root[data-theme='light'] ::-webkit-scrollbar-thumb {
   background: rgba(13, 148, 136, 0.25);
@@ -1026,6 +1037,19 @@ html {
 }
 :root[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
   background: rgba(13, 148, 136, 0.5);
+}
+
+/* ---------- antd Typography code 的深色档 ----------
+ * antd v6 的 `code` 用的是组件内部固定灰：底 rgba(150,150,150,.1) + 边
+ * rgba(100,100,100,.2)。这两个值不吃 map token（设 colorFillTertiary /
+ * colorBorder 都不生效），深色下是一块中性灰，与 vmax 的深蓝体系无关。
+ * 实测 ?page=sync 深色下有 72 个 code 元素、288 条灰边框。
+ * 注意：部分调用方（DataSync / ScheduleEditor）已自行覆盖 background，
+ * 这里补齐边框色并给未覆盖的兜底底色。 */
+:root[data-theme='dark'] .ant-typography code {
+  background: var(--wh-input-bg);
+  border-color: var(--wh-subtle-border);
+  color: var(--wh-text);
 }
 
 /* ---------- 侧边栏 Menu 质感增强 ---------- *
@@ -1037,9 +1061,9 @@ html {
   color: var(--wh-teal) !important;
 }
 :root[data-theme='dark'] .ant-menu.ant-menu-dark .ant-menu-item-selected {
-  background: linear-gradient(90deg, rgba(100, 255, 218, 0.16) 0%, rgba(79, 195, 247, 0.08) 100%) !important;
-  border-right: 3px solid #64ffda !important;
-  color: #64ffda !important;
+  background: linear-gradient(90deg, rgba(0, 217, 255, 0.16) 0%, rgba(37, 140, 255, 0.08) 100%) !important;
+  border-right: 3px solid #00d9ff !important;
+  color: #00d9ff !important;
   font-weight: 600;
 }
 :root[data-theme='light'] .ant-menu-light .ant-menu-item-selected {
@@ -1138,7 +1162,7 @@ html {
   justify-content: center;
   font-size: 1.375rem;
   flex-shrink: 0;
-  background: var(--wh-stat-icon-bg, rgba(100, 255, 218, 0.1));
+  background: var(--wh-stat-icon-bg, rgba(0, 217, 255, 0.1));
   color: var(--wh-stat-icon-color, var(--wh-teal));
   box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.05);
 }
@@ -1146,12 +1170,12 @@ html {
 
 /* ---------- 深色主题液态玻璃空间体系（实际 Ant Design DOM 覆盖） ---------- */
 :root[data-theme='dark'] {
-  --wh-bg: radial-gradient(circle at 9% 10%, rgba(100,255,218,.11), transparent 30rem), radial-gradient(circle at 92% 13%, rgba(79,195,247,.12), transparent 32rem), linear-gradient(155deg,#07131f 0%,#0a1929 48%,#0d2138 100%);
-  --wh-card-bg: linear-gradient(145deg,rgba(20,39,63,.72),rgba(9,27,45,.56));
-  --wh-card-border: 1px solid rgba(100,255,218,.20);
+  --wh-bg: radial-gradient(circle at 9% 10%, rgba(0, 217, 255,.11), transparent 30rem), radial-gradient(circle at 92% 13%, rgba(37, 140, 255,.12), transparent 32rem), linear-gradient(155deg,#02050c 0%,#02050c 48%,#050d22 100%);
+  --wh-card-bg: linear-gradient(145deg,rgba(8, 18, 44,.72),rgba(5, 13, 34,.56));
+  --wh-card-border: 1px solid #153db0;
 }
 :root[data-theme='dark'] body {
-  background: radial-gradient(circle at 8% 10%,rgba(100,255,218,.12),transparent 30rem),radial-gradient(circle at 91% 15%,rgba(79,195,247,.13),transparent 32rem),radial-gradient(circle at 70% 84%,rgba(121,134,203,.08),transparent 36rem),#07131f;
+  background: radial-gradient(circle at 8% 10%,rgba(0, 217, 255,.12),transparent 30rem),radial-gradient(circle at 91% 15%,rgba(37, 140, 255,.13),transparent 32rem),radial-gradient(circle at 70% 84%,rgba(124, 108, 255,.08),transparent 36rem),#02050c;
   background-attachment: fixed;
 }
 :root[data-theme='dark'] #root{position:relative;isolation:isolate}
@@ -1160,7 +1184,7 @@ html {
 :root[data-theme='dark'] .wh-page-wrap{
   position:relative;
   background:var(--wh-bg);
-  border:1px solid rgba(100,255,218,.09);
+  border:1px solid rgba(0, 217, 255,.09);
   box-shadow:var(--wh-shadow-2);
 }
 
@@ -1214,7 +1238,7 @@ html {
 :root[data-theme='dark'] .sync-section-title{font-size:.875rem!important;font-weight:700!important}
 :root[data-theme='dark'] .sync-task-card{border-radius:var(--wh-radius-lg)!important}
 :root[data-theme='dark'] .sync-card-schedule,
-:root[data-theme='dark'] .sync-timeline-surface{border-color:rgba(100,255,218,.10)!important;border-radius:var(--wh-radius-md)!important}
+:root[data-theme='dark'] .sync-timeline-surface{border-color:rgba(0, 217, 255,.10)!important;border-radius:var(--wh-radius-md)!important}
 
 /* ---------- 移动端侧栏抽屉遮罩：点击任意处收起 ---------- *
  * 遮罩压在 Header 之下（inset 从 --wh-header-height 起），顶栏汉堡按钮仍可点，

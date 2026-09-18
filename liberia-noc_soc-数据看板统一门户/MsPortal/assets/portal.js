@@ -39,6 +39,10 @@
       'section.searchPh': '在本区块内搜索看板…',
       'section.hit': '匹配 {n}',
       'section.noHit': '本区块无匹配',
+      /* 区块内折叠 / 顶栏控制条折叠（2026-09-17 加） */
+      'sec.more': '展开全部',
+      'sec.less': '收起',
+      'bar.toggle': '搜索与筛选',
       'btn.editGroups': '编辑分组归属',
       'btn.editGroupsOn': '退出编辑',
       'btn.manageGroups': '分组管理',
@@ -101,6 +105,7 @@
       'sec.count': '个系统',
       'sec.ms.sub': '综合运维管理层',
       'sec.flm.sub': '一线外场维护',
+      'sec.sp.sub': '备品备件管理 (Spare Parts)',
       'sec.fo.sub': '前端网络运营中心 (Front Office / NOC)',
       'sec.bo.sub': '后端专家技术支撑 (Back Office)',
       'sec.admin.title': 'System Admin',
@@ -111,6 +116,24 @@
       'sec.friends.title': 'Friends Links',
       'sec.friends.sub': '| 集团中台与生态协作统一入口',
       'sec.friends.link': '企业导航地图',
+      /* ---- 升级机制表格（2026-09-18 加，内容来自 升级机制.xlsx，见 data.js 的 escalation） ---- */
+      'esc.title': '升级机制 (Escalation Matrix)',
+      'esc.sub': '值班升级联系人 · Orange / LONESTAR 双网号码',
+      'esc.count': '{n} 条 · {lv} 级',
+      'esc.col.level': '职级',
+      'esc.col.position': '岗位',
+      'esc.col.name': '姓名',
+      'esc.col.orange': 'Orange',
+      'esc.col.lonestar': 'LONESTAR',
+      'esc.col.email': '邮箱',
+      'esc.empty': '升级机制数据未加载',
+      'esc.srcNote': '数据源：升级机制.xlsx',
+      'esc.pax': '{n} 人',
+      'esc.expand': '放大查看',
+      'esc.expandTip': '表格在中列放不全（6 列需 796px），点开按全宽查看完整 21 条',
+      'esc.modalTitle': '升级机制 (Escalation Matrix)',
+      'esc.modalNote': 'LEVEL1 为一线值班热线与专业工程师，逐级上报至 LEVEL4 中方 PD。',
+      'esc.close': '关闭',
       'qc.click': '点击查看明细',
       /* 2026-09-17：随大数字改为数据库统计，删掉了 qc.self / qc.bi / qc.linked ——
          那是旧语义的残留（大数字原本=本维度挂了几块看板，故标注「关联看板」并按
@@ -219,6 +242,10 @@
       'section.searchPh': 'Filter dashboards in this section…',
       'section.hit': '{n} match',
       'section.noHit': 'No match in this section',
+      /* 区块内折叠 / 顶栏控制条折叠（2026-09-17 加） */
+      'sec.more': 'Show all',
+      'sec.less': 'Collapse',
+      'bar.toggle': 'Search & filters',
       'btn.editGroups': 'Edit group assignment',
       'btn.editGroupsOn': 'Exit editing',
       'btn.manageGroups': 'Manage groups',
@@ -280,6 +307,7 @@
       'sec.count': 'systems',
       'sec.ms.sub': 'Integrated O&M Management',
       'sec.flm.sub': 'Field Level Maintenance',
+      'sec.sp.sub': 'Spare Parts Management',
       'sec.fo.sub': 'Front Office / NOC',
       'sec.bo.sub': 'Back Office Expert Support',
       'sec.admin.title': 'System Admin',
@@ -290,6 +318,24 @@
       'sec.friends.title': 'Friends Links',
       'sec.friends.sub': '| Group middle-platform & ecosystem SSO',
       'sec.friends.link': 'Enterprise nav map',
+      /* ---- Escalation matrix table (added 2026-09-18; data from 升级机制.xlsx, see data.js) ---- */
+      'esc.title': 'Escalation Matrix',
+      'esc.sub': 'Duty escalation contacts · Orange / LONESTAR numbers',
+      'esc.count': '{n} rows · {lv} levels',
+      'esc.col.level': 'Level',
+      'esc.col.position': 'Position',
+      'esc.col.name': 'Name',
+      'esc.col.orange': 'Orange',
+      'esc.col.lonestar': 'LONESTAR',
+      'esc.col.email': 'Email',
+      'esc.empty': 'Escalation data not loaded',
+      'esc.srcNote': 'Source: 升级机制.xlsx',
+      'esc.pax': '{n} pax',
+      'esc.expand': 'Expand',
+      'esc.expandTip': 'All 6 columns need 796px; open the full-width view for the complete matrix',
+      'esc.modalTitle': 'Escalation Matrix',
+      'esc.modalNote': 'LEVEL1 is the duty hotline and discipline engineers; escalates step by step up to LEVEL4 Chinese PD.',
+      'esc.close': 'Close',
       'qc.click': 'Click for details',
       'qc.drillSuffix': ' · Details',
       'qc.search': 'Search…',
@@ -423,6 +469,8 @@
     'arrow': 'ph-arrow-right',
     'arrow-up-right': 'ph-arrow-up-right',
     'chevron': 'ph-caret-down',
+    'chevron-down': 'ph-caret-down',
+    'chevron-up': 'ph-caret-up',
     'plus': 'ph-plus',
     'folder': 'ph-folder-open',
     'check-circle': 'ph-check-circle',
@@ -441,7 +489,8 @@
     'moon': 'ph-moon',
     'edit': 'ph-pencil-simple',
     'trash': 'ph-trash',
-    'floppy': 'ph-floppy-disk'
+    'floppy': 'ph-floppy-disk',
+    'expand': 'ph-arrows-out'
   };
 
   function ico(name, cls) {
@@ -474,6 +523,13 @@
        刻意不落 localStorage —— 它是"临时找一下"的动作，持久化会让用户下次打开
        看到被筛过的区块却想不起为什么。 */
     secQuery: {},
+    /* 各区块「展开全部」的状态 { 组id: true }（2026-09-17 加）。
+       与 secQuery 同理刻意不落 localStorage —— 默认只展示最常用的几个才是版式本身，
+       持久化会让"展开过一次"变成新默认，区块又慢慢长回去。 */
+    secExpanded: {},
+    /* 顶栏「搜索与筛选」那一整行是否展开（2026-09-17 加）。
+       默认 false = 收起（用户要求「默认收起，点击才展开」），同样不落 localStorage。 */
+    barOpen: false,
     /* 默认页签 = MW Real-Time（2026-09-17 按需求改，原为 'gis'）。
        仅当用户从未手动切过页签时才用这个默认值；切过就会写 LS.mapTab 覆盖。
        想恢复成 GIS 默认：把这里改回 'gis'，或访问 ?map=gis 后再点任意页签。 */
@@ -554,6 +610,14 @@
      注意：本机回环会被 my_app 放行，所以本机打开永远是"已登录"态。 */
   var REQUIRE_LOGIN_FOR_CATALOG = true;
 
+  /* 地图「按最终尺寸重新取景」开关（2026-09-18 加）。
+     背景：stripFrame() 注入 MAP_STRIP_CSS 把地图撑满后，只调 invalidateLeaflet()
+     重测尺寸、**不重算 zoom**；而内层页的 fitBounds 是在容器还矮的时候跑的
+     （按高度受限 → zoom 低一级）。结果：地图停在 z6，国土只占画布宽 0.37，
+     而按最终容器尺寸算应为 0.87（实测见 TMP/probe_map_refit_ab.cjs）。
+     置 false 即回到「只重测尺寸、不重新取景」的原行为。 */
+  var MAP_REFIT_ON_STRIP = true;
+
   function t(key) {
     var d = I18N[state.lang] || I18N.zh;
     return Object.prototype.hasOwnProperty.call(d, key) ? d[key] : (I18N.zh[key] || key);
@@ -588,7 +652,8 @@
     eflow_qa: 'custom-eflow-qa', site_avail: 'custom-site-availability', help: 'custom-help',
     feedback: 'custom-issue-feedback', ran_cells_kpi: 'custom-ran-cells-kpi',
     vmaxCxoDashboard: 'custom-vmax-cxo-dashboard', sp_material: 'custom-sp-material',
-    vmaxCxoDashboard_Daily: 'custom-vmax-cxo-dashboard-daily', ume_in_kpi: 'custom-ume-in-kpi'
+    vmaxCxoDashboard_Daily: 'custom-vmax-cxo-dashboard-daily',
+    vmaxCxoDashboard_90Days: 'custom-vmax-cxo-dashboard-90days', ume_in_kpi: 'custom-ume-in-kpi'
   };
   var FINEBI_ACCESS_IDS = {
     '/webroot/decision/link/qXUp': 'finebi-ms-contract-operation-kpis',
@@ -879,13 +944,66 @@
     return (b.clicks || 0) - (a.clicks || 0) || (a.no - b.no);
   }
 
-  /** 某个分组下的看板（已按使用量排序，全部展示，与 ref.html 一致） */
+  /* ------------------------------------------------ 区块内折叠（2026-09-17 加） --
+     「都设定默认展示最多看的几个，剩下的隐藏，点击后展示」。
+     背景：MS View 这类分组会一直加看板，越长就把同排其他列甩出一大截空白。
+     规则：
+       · 默认只画访问量最高的 SEC_SHOW_N 个（byUsage 已按 clicks 降序）；
+       · 隐藏数不足 SEC_MIN_HIDDEN 个就不给折叠按钮 —— 为了藏 1~2 行加个按钮不值当；
+       · 区块内搜索有词时**强制全展开**：此刻用户是"来找东西的"，
+         还要他再点一次「展开全部」才看到命中项就太别扭；
+       · 展开状态不落 localStorage（理由见 state.secExpanded 的注释）。 */
+  var SEC_SHOW_N = 6;
+  /* 个别区块的默认展示条数覆盖（2026-09-18 加）。
+     FLM View 用 5：它只有 8 条，按全局的 6 折叠时「隐藏数 2 < SEC_MIN_HIDDEN(3)」
+     根本不会折叠，8 条全铺出来；用户明确要求「FLM View 显示 5 个」。
+     设成 5 后隐藏数 = 3，正好达到 SEC_MIN_HIDDEN，按钮自然出现，无需另加判断。 */
+  var SEC_SHOW_N_BY = { 'FLM View': 5 };
+  var SEC_MIN_HIDDEN = 3;
+
+  /** 某个分组下的看板（按访问量降序；超出 SEC_SHOW_N 的部分默认折叠）。
+      —— 计数口径：total = 该分组下（经全局筛选后）的全部看板数；
+         hit = 再经本区块搜索后命中的数量；list = 本次真正画出来的。
+         三者必须分开：以前 total 与 hit 都取过滤后的长度，
+         区块内搜索时会显示成「3 / 3」，看不出"11 个里命中了 3 个"。 */
   function sectionItems(gid) {
     var q = state.secQuery[gid] || '';
-    var list = filtered().filter(inGroup(gid))
-      .filter(bySectionQuery(q))
-      .sort(byUsage);
-    return { list: list, total: list.length, query: q, hit: list.length };
+    var all = filtered().filter(inGroup(gid)).sort(byUsage);
+    var total = all.length;
+    var matched = q ? all.filter(bySectionQuery(q)) : all;
+    var limit = SEC_SHOW_N_BY[gid] || SEC_SHOW_N;
+    var foldable = total - limit >= SEC_MIN_HIDDEN;
+    var open = !!q || !!state.secExpanded[gid];
+    var shown = (foldable && !open) ? matched.slice(0, limit) : matched;
+    return {
+      list: shown,
+      /* matched = 该分组下（经全局筛选 + 区块内搜索后）的**全部**看板，未做折叠截断。
+         BO View 的子组标题要拿它算「本子组真实有几项」，否则折叠态会显示成
+         「画出来的数量」（3 个子组全写 2 项），与区块级胶囊的「6 / 16」口径对不上。 */
+      matched: matched,
+      total: total,
+      query: q,
+      hit: matched.length,
+      /* 折叠元信息，供 sectionHtml 决定计数怎么写、要不要画按钮 */
+      foldable: foldable,
+      folded: foldable && !open,
+      hiddenN: matched.length - shown.length
+    };
+  }
+
+  /** 「展开全部 / 收起」按钮。放在卡片列表**下方**而不是标题栏里：
+      标题栏右侧已经挤了计数胶囊 + 区块内搜索框，再塞一个按钮窄屏必换行。 */
+  function moreHtml(g, pack) {
+    if (!pack.foldable || pack.query) return '';
+    var inner = pack.folded
+      ? '<span>' + esc(t('sec.more')) + '</span>' +
+        '<span class="font-mono opacity-70">+' + pack.hiddenN + '</span>' +
+        ico('chevron-down', 'text-[13px]')
+      : '<span>' + esc(t('sec.less')) + '</span>' + ico('chevron-up', 'text-[13px]');
+    return '<div class="sec-more-row">' +
+      '<button type="button" class="sec-more" data-act="sec-toggle" data-gid="' + esc(g.id) + '" ' +
+        'aria-expanded="' + (pack.folded ? 'false' : 'true') + '">' + inner + '</button>' +
+      '</div>';
   }
 
   /* ---------------------------------------------------------- html utils -- */
@@ -943,11 +1061,22 @@
   ];
 
   /* -------------------------------------------------------------- pieces -- */
+  /* 看板卡片链接：默认走「看板查看器」外壳（viewer.html），在新页面左侧提供
+     同组其他看板导航。仅 Friends Link 保持直连外链（本就是快速跳转的第三方链接）。
+     gid 取当前区块（bodyHtml 里写入 state._curGid），CXO 等未走 bodyHtml 的区块
+     回退到该看板所属的第一个组。 */
+  function cardHref(item) {
+    var gid = state._curGid || (item.groups && item.groups[0]) || '';
+    if (gid === 'Friends Link') return item.url;
+    return 'viewer.html?no=' + encodeURIComponent(item.no) +
+      (gid ? '&gid=' + encodeURIComponent(gid) : '');
+  }
+
   function shell(cls, item, inner) {
     // data-board-no：编辑/删除后的定位锚点（看板按访问量排序，新增的会排到最后）
     var noAttr = ' data-board-no="' + esc(item.no) + '"';
     if (state.editing) return '<div class="' + cls + ' relative"' + noAttr + '>' + inner + '</div>';
-    return '<a class="' + cls + '"' + noAttr + ' href="' + esc(item.url) + '" target="_blank" ' +
+    return '<a class="' + cls + '"' + noAttr + ' href="' + esc(cardHref(item)) + '" target="_blank" ' +
       'rel="noopener noreferrer" title="' + esc(titleOf(item)) + '">' + inner + '</a>';
   }
 
@@ -1098,13 +1227,17 @@
     return shell('p-3 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition group flex items-start gap-2.5', item, inner);
   }
 
-  /** BO View 极简小卡 */
+  /** BO View 小卡
+      2026-09-18 按需求「如果显示两行，则里面的内容要大一点」：卡片保持两行（标题 + 描述），
+      字号整体上调一档（标题 13→14px、描述 12→13px）、内边距 2→2.5。
+      配合 boBody() 把网格从 4 列改成每行 2 个 —— 卡片宽度 140px → 287px，
+      标题可见字符数从约 10 个涨到约 20 个，右侧不再留空。 */
   function boCard(item) {
     var inner =
-      '<div class="text-[13px] font-bold text-slate-700 group-hover:text-blue-700 truncate flex items-center gap-1">' +
+      '<div class="text-[14px] font-bold text-slate-700 group-hover:text-blue-700 truncate flex items-center gap-1">' +
         (item.status === 'beta' ? '<span class="text-amber-500">β</span>' : '') + esc(titleOf(item)) + '</div>' +
-      '<div class="text-[12px] text-slate-500 truncate">' + esc(descOf(item)) + '</div>' + assignHtml(item);
-    return shell('p-2 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left', item, inner);
+      '<div class="text-[13px] text-slate-500 truncate">' + esc(descOf(item)) + '</div>' + assignHtml(item);
+    return shell('p-2.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left', item, inner);
   }
 
   /** System Admin 图标卡 */
@@ -1154,6 +1287,7 @@
   function gridOpen(cls) { return '<div class="' + cls + '">'; }
 
   function bodyHtml(g, items, pack) {
+    state._curGid = g.id; // 供 shell() 生成查看器链接时确定「同组」上下文
     if (!items.length) return sectionEmpty(pack);
     switch (g.id) {
       case 'CXO View':
@@ -1161,8 +1295,16 @@
       case 'MS View':
         return '<div class="space-y-1.5">' + items.map(msRow).join('') + '</div>';
       case 'FLM View':
-        return gridOpen('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2') +
-          items.map(function (it, i) { return solidCard(it, i, false); }).join('') + '</div>';
+        /* 2026-09-18 按需求「FLM View 字体大小风格跟 MS View 要一致」：
+           原来用 solidCard（实心彩底图标 w-10/h-10 + 标题 font-bold + p-3 + 双列网格），
+           与 MS View 的 msRow（浅色底图标 w-9/h-9 + 标题 font-semibold + p-2.5 + 单列）
+           在字号字重、图标尺寸、内边距上都不一致。这里直接复用 msRow，
+           连右侧的状态/访问量徽章与箭头也一并统一。 */
+        return '<div class="space-y-1.5">' + items.map(msRow).join('') + '</div>';
+      case 'SP View':
+        /* 2026-09-18 加：SP View 紧贴 FLM View 下方，沿用同一套 msRow 行卡，
+           两个区块上下相邻时字号/行高/图标尺寸完全一致，不会看起来像两个系统。 */
+        return '<div class="space-y-1.5">' + items.map(msRow).join('') + '</div>';
       case 'FO View':
         return gridOpen('grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2.5') +
           items.map(function (it, i) { return solidCard(it, i, true); }).join('') + '</div>';
@@ -1173,30 +1315,41 @@
       case 'Friends Link':
         return '<div class="flex flex-wrap gap-1">' + items.map(friendsCard).join('') + '</div>';
       case 'BO View':
-        return boBody(items);
+        return boBody(items, pack);
       default:
         return gridOpen('grid grid-cols-1 sm:grid-cols-2 gap-2.5') +
           items.map(function (it, i) { return solidCard(it, i, true); }).join('') + '</div>';
     }
   }
 
-  function boBody(items) {
+  /* BO View 正文：按 BO_SUBS 分桶，每桶「标题行 + 每行 2 个的网格」。
+     items  = 本次真正要画的（折叠态已被截到 limit 条）；
+     pack   = sectionItems 的返回，pack.matched 是未截断的全量。
+     计数口径（2026-09-18 对齐）：折叠态写「画出来的 / 本子组真实数」（如「2 / 8 项」），
+     与区块级胶囊的「6 / 16 个系统」一致；不折叠时只写真实数（如「8 项」）。
+     早前这里直接写 list.length，折叠态三个子组会全写「2 项」，看着像数据错了。 */
+  function boBody(items, pack) {
+    var full = (pack && pack.matched) || items;
     var used = {}, html = '';
+    function subHead(key, drawn, realN) {
+      var n = (drawn < realN) ? drawn + ' / ' + realN : String(realN);
+      return '<div class="text-[13px] font-semibold text-slate-600 bg-slate-100 px-2.5 py-1.5 rounded flex items-center justify-between mb-2">' +
+        '<span>' + esc(t(key)) + '</span>' +
+        '<span class="text-[12px] text-slate-400 font-mono">' + n + ' 项</span></div>';
+    }
     BO_SUBS.forEach(function (s) {
       var list = items.filter(function (it) { return it.boSub === s.id; });
+      var realN = full.filter(function (it) { return it.boSub === s.id; }).length;
       list.forEach(function (it) { used[it.no] = true; });
       if (!list.length) return;
-      html += '<div class="text-[13px] font-semibold text-slate-600 bg-slate-100 px-2.5 py-1.5 rounded flex items-center justify-between mb-2">' +
-        '<span>' + esc(t(s.key)) + '</span>' +
-        '<span class="text-[12px] text-slate-400 font-mono">' + list.length + ' 项</span></div>' +
-        gridOpen('grid grid-cols-2 2xl:grid-cols-4 gap-2') + list.map(boCard).join('') + '</div>';
+      html += subHead(s.key, list.length, realN) +
+        gridOpen('grid grid-cols-2 gap-2.5') + list.map(boCard).join('') + '</div>';
     });
     var rest = items.filter(function (it) { return !used[it.no]; });
     if (rest.length) {
-      html += '<div class="text-[13px] font-semibold text-slate-600 bg-slate-100 px-2.5 py-1.5 rounded flex items-center justify-between mb-2">' +
-        '<span>' + esc(t('sub.others')) + '</span>' +
-        '<span class="text-[12px] text-slate-400 font-mono">' + rest.length + ' 项</span></div>' +
-        gridOpen('grid grid-cols-2 2xl:grid-cols-4 gap-2') + rest.map(boCard).join('') + '</div>';
+      var restReal = full.filter(function (it) { return BO_SUBS.every(function (s) { return it.boSub !== s.id; }); }).length;
+      html += subHead('sub.others', rest.length, restReal) +
+        gridOpen('grid grid-cols-2 gap-2.5') + rest.map(boCard).join('') + '</div>';
     }
     return '<div class="space-y-3">' + html + '</div>';
   }
@@ -1208,6 +1361,7 @@
       注：拓扑区底部原本也有一份同样的统计小卡，早前已因「与这里重复」移除；
       现在两处都不再展示这组数字 —— 汇总数字的落点见页头统计条。 */
   function cxoSection() {
+    state._curGid = 'CXO View'; // CXO 不经 bodyHtml，显式设定，避免 shell() 读到上一区块的残留 gid
     var pack = sectionItems('CXO View');
     var body =
       '<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">' +
@@ -1500,6 +1654,7 @@
   var SEC_META = {
     'MS View': { kind: 'dot-red', subKey: 'sec.ms.sub' },
     'FLM View': { kind: 'dot-red', subKey: 'sec.flm.sub' },
+    'SP View': { kind: 'dot-red', subKey: 'sec.sp.sub' },
     'FO View': { kind: 'dot-red', subKey: 'sec.fo.sub' },
     'BO View': { kind: 'dot-red', subKey: 'sec.bo.sub' },
     'System Admin': { kind: 'dot-slate', subKey: 'sec.admin.sub' },
@@ -1510,10 +1665,11 @@
   function sectionHtml(g, pack) {
     var meta = SEC_META[g.id] || { kind: 'dot-slate', subKey: '' };
     var sub = meta.subKey ? t(meta.subKey) : groupSub(g);
-    /* 计数：有区块内搜索时显示「命中 / 总数」，否则只显示总数。
-       只看总数会在筛过之后误导（显示 16 个，底下只画出来 2 张）。 */
-    var countTxt = pack.query
-      ? pack.hit + ' / ' + pack.total + ' ' + esc(t('sec.count'))
+    /* 计数：折叠或区块内搜索时显示「画出来的 / 总数」，否则只显示总数。
+       只写总数会在筛过 / 折过之后误导 —— 底下只画了 6 张却写「11 个系统」。
+       两边都是同一个口径：分子 = 眼睛能看到的，分母 = 该区块的全部。 */
+    var countTxt = (pack.query || pack.folded)
+      ? pack.list.length + ' / ' + pack.total + ' ' + esc(t('sec.count'))
       : pack.total + ' ' + esc(t('sec.count'));
     var tools = '<span class="text-[12px] px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-mono">' +
       countTxt + '</span>' + sectionSearchHtml(g.id, pack.hit);
@@ -1530,7 +1686,7 @@
     }
 
     return headHtml({ kind: meta.kind, title: groupLabel(g), sub: sub, subInline: false, tools: tools }) +
-      bodyHtml(g, pack.list, pack);
+      bodyHtml(g, pack.list, pack) + moreHtml(g, pack);
   }
 
   /* -------------------------------------------- 拓扑地图页签（内嵌 iframe） */
@@ -1681,6 +1837,50 @@
     return false;
   }
 
+  /** 让内层页按**最终**容器尺寸重新取景（2026-09-18 加）。
+      为什么需要：stripFrame 注入 CSS 把地图撑满后，invalidateLeaflet 只重测尺寸、
+      不重算 zoom；而内层页的 fitBounds 跑在容器还矮的时刻 → zoom 低一级。
+      做法：在加载期观察容器高度，**每次高度落定（500ms 内不再变）就重新取景一次**，
+      直到观察窗口结束。最后一次必然对应最终尺寸。
+      ⚠️ 不能只做「第一次落定就收工」：实测容器会在**前 strip 的 318px 假稳态**
+         停留 1s 以上再跳到 856px，只做一次会被假稳态骗到、锁死在 z6
+         （2026-09-18 踩过，见 TMP/verify_need123.cjs 的落定门控注释）。
+      守卫：① 只对暴露了 fitAllSites 的内层页生效 —— 当前只有 mw_real_time.html；
+            其余三个页签是 React SPA，GISMap.tsx 写死 zoom=8（设计如此），
+            没有 fitAllSites，直接跳过；
+            ② 每个 document 只挂一次观察器（reload 后自动重置）；
+            ③ 观察窗口约 12s 后停止 —— 之后只有用户改布局才可能改容器高度，
+            不会因为平移/缩放而误触发；
+            ④ MAP_REFIT_ON_STRIP 总开关。 */
+  function refitLeaflet(d) {
+    if (!MAP_REFIT_ON_STRIP) return false;
+    var w = d.defaultView;
+    if (!w || typeof w.fitAllSites !== 'function') return false;
+    if (d.__msRefitState) return false;
+    var st = d.__msRefitState = { lastH: -1, tries: 0, timer: null };
+    function apply() {
+      st.timer = null;
+      var lc = d.querySelector('.leaflet-container');
+      if (!lc) return;
+      var h = Math.round(lc.getBoundingClientRect().height);
+      if (h <= 0 || h !== st.lastH) return;   // 期间又变了，等下一轮
+      try { w.fitAllSites(); } catch (e) { /* 内层页自己会兜底 */ }
+    }
+    (function tick() {
+      var lc = d.querySelector('.leaflet-container');
+      if (lc) {
+        var h = Math.round(lc.getBoundingClientRect().height);
+        if (h > 0 && h !== st.lastH) {
+          st.lastH = h;
+          if (st.timer) clearTimeout(st.timer);
+          st.timer = setTimeout(apply, 500);
+        }
+      }
+      if (st.tries++ < 40) setTimeout(tick, 300);   // 观察窗口 ≈ 12s
+    })();
+    return true;
+  }
+
   /** 给 iframe 注入「只留地图」样式；React 重渲染后重新确认。
       depth 用于穿透同源内层 iframe（最多 2 层）。 */
   function stripFrame(f, depth) {
@@ -1704,6 +1904,9 @@
         // 关键：注入 CSS 改变了容器高度，必须让 Leaflet 重算尺寸，
         // 否则 tile 会按旧尺寸铺出去被裁掉（见 invalidateLeaflet 注释）。
         invalidateLeaflet(d);
+        // 尺寸重算完还不够：fitBounds 是在容器还矮时跑的，zoom 会低一级。
+        // 等布局稳定后按最终尺寸重新取景一次（内部有三重守卫，见 refitLeaflet）。
+        refitLeaflet(d);
         setTimeout(function () { invalidateLeaflet(d); }, 400);
         setTimeout(function () { invalidateLeaflet(d); }, 1200);
         return;
@@ -1781,7 +1984,12 @@
             '<span class="text-[13px] text-slate-400 truncate block">' + esc(t('topo.sub')) + '</span>' +
           '</div>' +
         '</div>' +
-        '<div class="flex items-center gap-1.5">' +
+        /* 2026-09-18 加 flex-wrap + justify-end：这组按钮（实时状态 + 4 个页签 + 刷新 + 新窗口打开）
+           最小内容宽约 410px，而窄屏下本行可用宽度只有 356px（#secTopo 388 − p-4 两侧）。
+           原来是 nowrap，子元素又都缩不到内容宽以下 → 整组撑到 443px，**横向溢出视口 23px**
+           （420px 下实测；`verify_msportal` 的「全断点无横向溢出」一直红的就是这条）。
+           改换行后：≥640px 有空间时行为不变，只在 <480px 左右才折成两行。 */
+        '<div class="flex flex-wrap items-center justify-end gap-1.5">' +
           '<span class="text-[13px] text-emerald-600 flex items-center gap-1 mr-1">' +
             '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 status-pulse-green"></span>' + esc(t('topo.live')) + '</span>' +
           '<div class="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-lg text-[13px]" id="mapTabs" role="tablist" aria-label="Topology maps"></div>' +
@@ -1805,6 +2013,157 @@
        这些汇总数字在 CXO View 右侧已经有一份，不必重复占地图的高度。 */
     return head + canvas;
   }
+
+  /* ------------------------------------------------- 升级机制表格（2026-09-18 加） --
+     内容来自 升级机制.xlsx，逐格照抄在 data.js 的 MS_PORTAL_DATA.escalation 里
+     （源表的缺号 / 空格一律保留，理由见那边的注释）。
+
+     版式决策：
+       · LEVEL 列用 rowspan 合并，与源表的合并单元格一致 —— 22 行里 15 行是 LEVEL1，
+         每行重复写一遍既啰嗦又把列宽浪费掉；合并后一眼能看出"这一档有几个人"。
+       · 号码 / 邮箱用等宽字体；邮箱做成 mailto 链接（值班时点一下就能发）。
+         号码**不做 tel: 链接** —— 源表是利比里亚本地号（077…/088…），
+         加 +231 是猜测，猜错比不给链接更糟。
+       · 中列在 xl 断点只有 3/12 宽（≈360px），6 列必然放不下，所以外层 .esc-scroll
+         横向滚动兜底，绝不让表格把整页撑出横向滚动条。
+       · 高度给 420px 上限 + 内部纵向滚动：22 行全铺开约 700px，
+         会把中列甩出左/右列一大截（版式平衡的实测见 index.html 里 Admin 那段的注释）。
+       · 本区块是静态参考信息：不参与搜索/筛选/折叠/编辑模式，只在 render() 里建。 */
+  var ESC_LV_CLS = {
+    LEVEL1: 'esc-lv-1', LEVEL2: 'esc-lv-2', LEVEL3: 'esc-lv-3', LEVEL4: 'esc-lv-4'
+  };
+
+  /** 某一档的中/英文说明（如 "LEVEL 1 · 值班热线与专业工程师"），取不到就退回 id */
+  function escLevelLabel(id) {
+    var lv = (((DATA.escalation || {}).levels) || []).filter(function (l) { return l.id === id; })[0];
+    if (!lv) return id;
+    return state.lang === 'en' ? (lv.en || lv.zh || id) : (lv.zh || lv.en || id);
+  }
+
+  /** 空值统一画成灰色破折号 —— 源表里确实有空格（IP/DWDM/OLT 那行缺两个号码），
+      留白会让人以为是渲染漏了，写 "—" 才读得出"源表就没有"。 */
+  function escVal(v) {
+    return v ? esc(v) : '<span class="esc-dash">—</span>';
+  }
+
+  /** 号码里的 "/" 后面插一个 <wbr>：源表有 "-0773777115/0774777115" 这种双号写法，
+      列宽按单号（10~11 位）定的，不给断点的话这个格子会把整列顶宽 60px。
+      只给断点、不改写内容 —— 显示出来还是原样的两个号。 */
+  function escNum(v) {
+    if (!v) return '<span class="esc-dash">—</span>';
+    return esc(v).replace(/\//g, '/<wbr>');
+  }
+
+  /** 表格本体（页内小表与「放大查看」弹窗共用一份）。
+      wide=false → 页内版：table-layout: fixed + min-width 640，装不下由 .esc-scroll 滚；
+      wide=true  → 弹窗版：min-width 归零、不限高，列宽按同比例放大到全宽，
+                   6 列全部单行（浏览器实测 796px 即可全单行，弹窗宽 ≥1000px）。
+      —— 两份 HTML 由同一个函数生成，避免"页内改了、弹窗忘了改"两处走样。 */
+  function escTableHtml(wide) {
+    var E = DATA.escalation;
+    var rows = E.rows;
+
+    /* 同 level 的行必须连续（源表本来就是分档排列）；断开就当成新的一档重新起 rowspan，
+       这样即使以后源表顺序被打乱，也不会把不相邻的行算进同一个合并格里。 */
+    var starts = {};
+    var curKey = null;
+    rows.forEach(function (r, i) {
+      if (i === 0 || rows[i - 1].level !== r.level) {
+        starts[i] = { id: r.level, n: 1 };
+        curKey = i;
+      } else {
+        starts[curKey].n++;
+      }
+    });
+
+    var body = rows.map(function (r, i) {
+      var g = starts[i];
+      var lvCell = '';
+      if (g) {
+        var lbl = escLevelLabel(g.id) + ' · ' + tf('esc.pax', { n: g.n });
+        lvCell = '<td class="esc-lv ' + (ESC_LV_CLS[g.id] || 'esc-lv-1') + '" rowspan="' + g.n + '" title="' + esc(lbl) + '">' +
+            '<span class="esc-lv-badge">' + esc(g.id) + '</span>' +
+            '<span class="esc-lv-n">' + esc(tf('esc.pax', { n: g.n })) + '</span>' +
+          '</td>';
+      }
+      var mail = r.email
+        ? '<a href="mailto:' + esc(r.email) + '" title="' + esc(r.email) + '">' + esc(r.email) + '</a>'
+        : '<span class="esc-dash">—</span>';
+      return '<tr class="' + (ESC_LV_CLS[r.level] || 'esc-lv-1') + '">' + lvCell +
+          '<td class="esc-pos">' + escVal(r.position) + '</td>' +
+          '<td class="esc-name">' + escVal(r.name) + '</td>' +
+          '<td class="esc-num">' + escNum(r.orange) + '</td>' +
+          '<td class="esc-num">' + escNum(r.lonestar) + '</td>' +
+          '<td class="esc-mail">' + mail + '</td>' +
+        '</tr>';
+    }).join('');
+
+    return '<div class="esc-scroll' + (wide ? ' esc-scroll--wide' : '') + '">' +
+        '<table class="esc-table">' +
+          '<thead><tr>' +
+            '<th class="esc-th-lv">' + esc(t('esc.col.level')) + '</th>' +
+            '<th>' + esc(t('esc.col.position')) + '</th>' +
+            '<th>' + esc(t('esc.col.name')) + '</th>' +
+            '<th>' + esc(t('esc.col.orange')) + '</th>' +
+            '<th>' + esc(t('esc.col.lonestar')) + '</th>' +
+            '<th>' + esc(t('esc.col.email')) + '</th>' +
+          '</tr></thead>' +
+          '<tbody>' + body + '</tbody>' +
+        '</table>' +
+      '</div>';
+  }
+
+  /** 四档职级说明（弹窗里有横向空间，就把页内只能塞进 tooltip 的档位名摆出来） */
+  function escLegendHtml() {
+    var E = DATA.escalation;
+    var counts = {};
+    E.rows.forEach(function (r) { counts[r.level] = (counts[r.level] || 0) + 1; });
+    return '<div class="esc-legend">' + (E.levels || []).map(function (lv) {
+      return '<span class="esc-legend-item ' + (ESC_LV_CLS[lv.id] || 'esc-lv-1') + '">' +
+          '<b>' + esc(lv.id) + '</b>' +
+          '<span>' + esc(escLevelLabel(lv.id).replace(new RegExp('^' + lv.id + '\\s*·\\s*'), '')) + '</span>' +
+          '<i>' + esc(tf('esc.pax', { n: counts[lv.id] || 0 })) + '</i>' +
+        '</span>';
+    }).join('') + '</div>';
+  }
+
+  function escSection() {
+    var E = DATA.escalation;
+    if (!E || !E.rows || !E.rows.length) {
+      return headHtml({ kind: 'square-red', title: t('esc.title'), sub: t('esc.sub'), subInline: false, tools: '' }) +
+        '<div class="esc-empty">' + esc(t('esc.empty')) + '</div>';
+    }
+
+    var tools = '<span class="text-[12px] px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-mono">' +
+        esc(tf('esc.count', { n: E.rows.length, lv: (E.levels || []).length })) + '</span>' +
+      /* 「放大查看」：中列只有 394~582px，6 列表格必须横向滚动才看得全邮箱。
+         弹窗里表格按全宽放大、6 列全部单行 —— 位置仍按需求留在地图正下方。 */
+      '<button type="button" class="btn-soft" data-act="esc-expand" title="' + esc(t('esc.expandTip')) + '">' +
+        ico('expand', 'text-[13px]') + '<span>' + esc(t('esc.expand')) + '</span></button>';
+
+    return headHtml({
+      kind: 'square-red', title: t('esc.title'), sub: t('esc.sub'), subInline: false, tools: tools
+    }) +
+      escTableHtml(false) +
+      '<p class="esc-note">' + esc(t('esc.srcNote')) + '</p>';
+  }
+
+  /* 「放大查看」弹窗：骨架在 index.html 的 EscalationModal，内容每次打开时重建
+     （表体是静态数据，没有异步，不需要像 QC 那样维护加载态）。 */
+  function openEscModal() {
+    var mask = document.getElementById('escMask');
+    var host = document.getElementById('escModalBody');
+    if (!mask || !host) return;
+    host.innerHTML = escLegendHtml() + escTableHtml(true) +
+      '<p class="esc-note">' + esc(t('esc.srcNote')) + '</p>';
+    mask.hidden = false;
+  }
+
+  function closeEscModal() {
+    var mask = document.getElementById('escMask');
+    if (mask) mask.hidden = true;
+  }
+
 
   function renderMapTabs() {
     var host = document.getElementById('mapTabs');
@@ -2214,6 +2573,38 @@
     plus.title = t('btn.aPlus') + '  ·  ' + label;
   }
 
+  /* ------------------------------------------------- 顶栏控制条折叠（2026-09-17 加） --
+     用户要求：搜索 / 筛选那一整行默认收起，点击才展开。
+     —— 不落 localStorage：默认收起是版式的一部分，持久化会让"打开过一次"
+        变成新默认，等于没折叠（同 state.secQuery / secExpanded 的理由）。
+     —— 折叠态下把「当前生效的搜索词 / 筛选」回显在按钮里：否则用户看到
+        "怎么只剩 3 个看板"却找不到原因（chip 和搜索框都被收起来了）。 */
+  function setBarOpen(open) {
+    state.barOpen = !!open;
+    var bar = document.getElementById('controlBar');
+    var btn = document.getElementById('controlToggle');
+    if (bar) bar.classList.toggle('is-collapsed', !state.barOpen);
+    if (btn) btn.setAttribute('aria-expanded', state.barOpen ? 'true' : 'false');
+    syncBarSummary();
+  }
+
+  /** 折叠时在开关按钮里回显当前筛选条件；展开时清空（用户已经能直接看到） */
+  function syncBarSummary() {
+    var el = document.getElementById('barSummary');
+    if (!el) return;
+    if (state.barOpen) { el.hidden = true; el.textContent = ''; return; }
+    var parts = [];
+    if (state.query) parts.push('“' + state.query + '”');
+    if (state.filter !== 'all') {
+      var g = allGroups().filter(function (x) { return x.id === state.filter; })[0];
+      var qc = (DATA.qc || []).filter(function (x) { return x.id === state.filter; })[0];
+      parts.push(g ? groupLabel(g) : (qc ? (state.lang === 'en' ? qc.en : qc.zh) : state.filter));
+    }
+    if (parts.length) parts.push(filtered().length + ' ' + t('sec.count'));
+    el.textContent = parts.join('  ·  ');
+    el.hidden = !parts.length;
+  }
+
   /* ------------------------------------------------------------- chips -- */
   function chipHtml() {
     var counts = {};
@@ -2240,7 +2631,7 @@
 
   /* -------------------------------------------------------------- render -- */
   var SLOT = {
-    'MS View': 'secMs', 'FLM View': 'secFlm', 'FO View': 'secFo',
+    'MS View': 'secMs', 'FLM View': 'secFlm', 'SP View': 'secSp', 'FO View': 'secFo',
     'BO View': 'secBo', 'System Admin': 'secAdmin',
     'Knowledge Q&A': 'secQa', 'Friends Link': 'secFriends'
   };
@@ -2269,6 +2660,10 @@
     /* 下钻弹窗里除 data-i18n 覆盖的静态文案外，标题/计数/页码都是本文件动态写入的，
        切语言不会自动跟着变 —— 弹窗开着就重刷一遍（静态文案由上面的 data-i18n 循环处理）。 */
     if (state.qcDrill.metric) { applyQcDrillTitle(); renderQcDrill(); }
+    /* 升级机制弹窗的表体也是本文件动态写入的（含职级说明、人数单位），
+       弹窗开着时切语言要跟着重建 —— 静态文案（标题/脚注）由上面的 data-i18n 循环处理。 */
+    var escMaskEl = document.getElementById('escMask');
+    if (escMaskEl && !escMaskEl.hidden) openEscModal();
 
     var eb = document.getElementById('editBtn');
     eb.querySelector('span').textContent = state.editing ? t('btn.editGroupsOn') : t('btn.editGroups');
@@ -2285,12 +2680,15 @@
     document.getElementById('editHint').hidden = !state.editing;
 
     chipHtml();
+    /* 控制条折叠态下要回显「当前生效的搜索词 / 筛选」——
+       筛选或搜索一变就得同步，否则折叠着的按钮里还写着上一轮的旧条件。 */
+    syncBarSummary();
 
     // 未登录门禁：门禁生效时不再渲染任何看板区块（目录/链接/统计都不能漏出去）
     applyGate();
     if (REQUIRE_LOGIN_FOR_CATALOG && state.authOk !== true) {
       // 清掉可能残留的旧内容，避免只是被 CSS 藏起来
-      ['secCxo', 'secQc', 'secTopo', 'secMs', 'secFlm', 'secFo', 'secBo',
+      ['secCxo', 'secQc', 'secTopo', 'secEsc', 'secMs', 'secFlm', 'secSp', 'secFo', 'secBo',
        'secAdmin', 'secQa', 'secFriends', 'secExtra'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.innerHTML = '';
@@ -2314,6 +2712,12 @@
     document.getElementById('secTopo').innerHTML = topoSection();
     renderMapTabs();
     ensureMap();
+    /* 升级机制表格：与地图同理只在 render() 里建一次（不放进 renderSections()）。
+       它是静态参考信息，不参与搜索/筛选/折叠，重建代价虽小但没必要跟着每次
+       区块搜索一起重画 —— 而且放这里可以保证「未登录门禁」那条 return 之前
+       不会被单独渲染出来（门禁分支已把 secEsc 一起清空）。 */
+    var escEl = document.getElementById('secEsc');
+    if (escEl) escEl.innerHTML = escSection();
   }
 
   /** 只重画看板区块（不动地图）。区块内搜索每次输入都走这里 ——
@@ -2730,9 +3134,20 @@
       renderSections();
     });
 
+    /* ---- 顶栏「搜索与筛选」整行的展开 / 收起（2026-09-17 加） ---- */
+    document.getElementById('controlToggle').addEventListener('click', function () {
+      setBarOpen(!state.barOpen);
+    });
+    /* 首屏同步一次：index.html 里已经写成 .is-collapsed（避免展开态闪一下），
+       这里把 aria-expanded 与折叠回显对齐。 */
+    setBarOpen(state.barOpen);
+
     document.getElementById('editBtn').addEventListener('click', function () {
       state.editing = !state.editing;
       closeMenu();
+      /* 进编辑模式就把控制条展开：编辑用的按钮（新增看板 / 分组管理 / 导出 /
+         恢复默认）全在那一行里，收着等于功能"消失"，用户会以为没做。 */
+      if (state.editing) setBarOpen(true);
       render();
     });
 
@@ -2796,8 +3211,21 @@
     });
     /* Esc 关闭。只在弹窗真的开着时接管，不影响其它 Esc 行为。 */
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && !qcMask.hidden) closeQcDrill();
+      if (e.key !== 'Escape') return;
+      if (!qcMask.hidden) { closeQcDrill(); return; }
+      var em = document.getElementById('escMask');
+      if (em && !em.hidden) closeEscModal();
     });
+
+    /* ---- 升级机制「放大查看」弹窗（骨架见 index.html 的 EscalationModal） ----
+       打开按钮画在 #secEsc 里，而那个区块每次 render() 都会重建 innerHTML，
+       所以走下面那个 document 级事件委托（data-act="esc-expand"），
+       这里只绑静态的关闭控件。 */
+    var escMask = document.getElementById('escMask');
+    if (escMask) {
+      document.getElementById('escClose').addEventListener('click', closeEscModal);
+      escMask.addEventListener('click', function (e) { if (e.target === escMask) closeEscModal(); });
+    }
 
     document.getElementById('addGroupBtn').addEventListener('click', function () {
       var zh = document.getElementById('newGroupZh').value.trim();
@@ -2834,6 +3262,14 @@
 
     /* 地图区交互用事件委托绑定（区块 HTML 每次 render 会重建） */
     document.addEventListener('click', function (e) {
+      /* 升级机制「放大查看」（按钮在 #secEsc 里，每次 render 会重建，必须走委托） */
+      var escBtn = e.target.closest('[data-act="esc-expand"]');
+      if (escBtn) {
+        e.preventDefault(); e.stopPropagation();
+        openEscModal();
+        return;
+      }
+
       var menuBtn = e.target.closest('[data-act="assign-menu"]');
       if (menuBtn) {
         e.preventDefault(); e.stopPropagation();
@@ -2889,6 +3325,18 @@
         state.filter = flt.getAttribute('data-filter');
         writeLS(LS.filter, state.filter);
         render();
+        return;
+      }
+
+      /* 区块「展开全部 / 收起」：只重画区块，**不碰拓扑区** ——
+         render() 会顺带跑 ensureMap()，重建 #secTopo 等于 4 个地图 iframe 重新加载。 */
+      var st = e.target.closest('[data-act="sec-toggle"]');
+      if (st) {
+        e.preventDefault();
+        var gid3 = st.getAttribute('data-gid');
+        if (state.secExpanded[gid3]) delete state.secExpanded[gid3];
+        else state.secExpanded[gid3] = true;
+        renderSections();
         return;
       }
 

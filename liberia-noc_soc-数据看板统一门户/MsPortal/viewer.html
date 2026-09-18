@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MS View · 看板查看器</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="alternate icon" href="favicon.svg">
+<!-- 图标字体是完整集合（非 Tailwind，不受 purge 影响）；布局样式全部走本文件内联手写 CSS，
+     刻意不依赖 assets/tailwind.css —— 那是预编译产物，viewer 里新写的类名不会被编译进去。 -->
+<link rel="stylesheet" href="assets/icons/phosphor.css">
+<script>
+/* 主题/语言首屏防闪烁：与门户 index.html 同源，读同一份 localStorage */
+(function () {
+  try {
+    if (localStorage.getItem('msportal.theme.v1') === 'dark') document.documentElement.classList.add('dark');
+    if (localStorage.getItem('msportal.lang.v1') === 'en') document.documentElement.setAttribute('lang', 'en');
+  } catch (e) { /* ignore */ }
+})();
+</script>
+<style>
+  /* 2026-09-18：口径换成 my_app「VMAX 90 天经营看板」
+     (public/vmax_cxo_dashboard_90days.html) 的深/浅两套样式颜色，
+     与 assets/portal.css 的 --mp-* 令牌同源，保证门户与查看器观感一致。 */
+  :root {
+    --bg: #eaf7fb; --panel: #ffffff; --panel-2: #f2fbfd; --border: rgba(14,116,144,.18);
+    --text: #163047; --text-2: #526b7d; --text-3: #596f85;
+    --brand: #087a98; --brand-text: #075063; --brand-soft: rgba(14,116,144,.08); --accent: #0891b2;
+    --on-brand: #ffffff;
+    --shadow: 0 2px 8px rgba(38,83,104,.08), 0 14px 30px rgba(38,83,104,.10);
+    /* 侧栏顶部「分组标题」块（MS View / Integrated O&M Management / 8 dashboards）：
+       浅色用 vmax 90 天看板的浅色表面档 #f2fbfd→#e7f1fa，压在白色侧栏上能看出一块，
+       文字取门户浅色 mast 的标题色 #12324a 与第二/三档灰（4.5:1 以上）。 */
+    --sb-head-bg: linear-gradient(180deg, #f2fbfd 0%, #e7f1fa 100%);
+    --sb-head-fg: #12324a;
+    --sb-head-sub: #526b7d;
+    --sb-head-cnt: #596f85;
+    --sb-w: 268px;
+  }
+  html.dark {
+    --bg: #02050c; --panel: #071027; --panel-2: #050d22; --border: #153db0;
+    --text: #f5f7ff; --text-2: #aebbd4; --text-3: #6f8cb4;
+    --brand: #00d9ff; --brand-soft: rgba(0,217,255,.10); --accent: #258cff;
+    --brand-text: #7fd2ee;
+    /* 亮青底配白字只有 1.6:1，深色下实心填充一律配深字 */
+    --on-brand: #04122b;
+    --shadow: 0 4px 14px rgba(0,0,0,.32), inset 0 7px 17px rgba(58,118,255,.48);
+    /* 深色保持原来的 vmax mast 渐变；次级文字用等价的 rgba，
+       因为原来的 opacity:.72/.6 在**不透明**渐变上叠加结果与 rgba 完全相同 */
+    --sb-head-bg: linear-gradient(180deg, #080f43, #070d31);
+    --sb-head-fg: #ffffff;
+    --sb-head-sub: rgba(255,255,255,.72);
+    --sb-head-cnt: rgba(255,255,255,.60);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); overflow: hidden;
+    display: flex; height: 100vh;
+  }
+
+  /* ---------------- sidebar ---------------- */
+  #sidebar {
+    width: var(--sb-w); flex: 0 0 var(--sb-w); background: var(--panel);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    height: 100%; transition: margin-left .22s ease;
+  }
+  body.sb-collapsed #sidebar { margin-left: calc(-1 * var(--sb-w)); }
+  .sb-head {
+    padding: 14px 16px 12px; border-bottom: 1px solid var(--border);
+    background: var(--sb-head-bg); color: var(--sb-head-fg);
+  }
+  .sb-head .grp { font-size: 15px; font-weight: 700; letter-spacing: .3px; display: flex; align-items: center; gap: 8px; }
+  .sb-head .sub { font-size: 11.5px; margin-top: 3px; font-weight: 400; color: var(--sb-head-sub); }
+  .sb-head .cnt { font-size: 11px; margin-top: 6px; color: var(--sb-head-cnt); }
+  .sb-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .sb-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px;
+    color: var(--text); text-decoration: none; font-size: 13.5px; line-height: 1.3;
+    cursor: pointer; border: 1px solid transparent; margin-bottom: 2px; position: relative;
+  }
+  .sb-item:hover { background: var(--panel-2); border-color: var(--border); }
+  .sb-item.active { background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 35%, var(--border)); color: var(--brand-text); font-weight: 600; }
+  .sb-item .ic {
+    width: 30px; height: 30px; flex: 0 0 30px; border-radius: 8px; display: flex;
+    align-items: center; justify-content: center; font-size: 17px;
+    background: color-mix(in srgb, var(--brand) 12%, var(--panel-2)); color: var(--brand-text);
+  }
+  .sb-item.active .ic { background: var(--brand); color: var(--on-brand); }
+  .sb-item .tx { min-width: 0; flex: 1; }
+  .sb-item .tt { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sb-item .pl { font-size: 10.5px; color: var(--text-3); }
+  .sb-item .ext { font-size: 13px; color: var(--text-3); flex: 0 0 auto; }
+  .sb-foot { padding: 8px; border-top: 1px solid var(--border); }
+  .sb-foot a {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px;
+    color: var(--text-2); text-decoration: none; font-size: 12.5px;
+  }
+  .sb-foot a:hover { background: var(--panel-2); color: var(--brand-text); }
+
+  /* ---------------- main ---------------- */
+  #main { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; }
+  #topbar {
+    height: 46px; flex: 0 0 46px; background: var(--panel); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; padding: 0 12px;
+  }
+  #topbar .title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .iconbtn {
+    width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel);
+    color: var(--text-2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 16px;
+  }
+  .iconbtn:hover { background: var(--panel-2); color: var(--brand-text); border-color: var(--brand); }
+  #frame-wrap { flex: 1; position: relative; background: var(--panel-2); }
+  /* iframe 底色：写死 #fff 会在深色主题下先闪一块白（iframe 文档还没绘制时
+     露出的是这一层），改用 --panel-2 随主题走 */
+  #frame { width: 100%; height: 100%; border: 0; display: block; background: var(--panel-2); }
+  #placeholder {
+    position: absolute; inset: 0; display: none; flex-direction: column; align-items: center;
+    justify-content: center; gap: 14px; text-align: center; padding: 24px; color: var(--text-2);
+  }
+  #placeholder.show { display: flex; }
+  #placeholder .big { font-size: 46px; color: var(--text-3); }
+  #placeholder h3 { margin: 0; font-size: 17px; color: var(--text); }
+  #placeholder p { margin: 0; max-width: 420px; font-size: 13px; line-height: 1.6; }
+  #placeholder .btn {
+    margin-top: 6px; padding: 10px 18px; border-radius: 10px; border: 0; background: var(--brand); color: var(--on-brand);
+    font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+  }
+  #placeholder .btn:hover { filter: brightness(1.08); }
+  .loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: 13px; pointer-events: none; }
+</style>
+</head>
+<body>
+  <aside id="sidebar">
+    <div class="sb-head">
+      <div class="grp"><i class="ph ph-squares-four" aria-hidden="true"></i><span id="grpName">MS View</span></div>
+      <div class="sub" id="grpSub"></div>
+      <div class="cnt" id="grpCnt"></div>
+    </div>
+    <nav class="sb-list" id="sbList"></nav>
+    <div class="sb-foot">
+      <a href="index.html"><i class="ph ph-arrow-left" aria-hidden="true"></i><span id="backTxt">返回门户首页</span></a>
+    </div>
+  </aside>
+
+  <div id="main">
+    <div id="topbar">
+      <button class="iconbtn" id="toggleSb" title="收起/展开侧栏"><i class="ph ph-list" aria-hidden="true"></i></button>
+      <div class="title" id="curTitle"></div>
+      <button class="iconbtn" id="reloadBtn" title="重新加载"><i class="ph ph-arrow-clockwise" aria-hidden="true"></i></button>
+      <button class="iconbtn" id="openBtn" title="在新窗口打开"><i class="ph ph-arrow-square-out" aria-hidden="true"></i></button>
+    </div>
+    <div id="frame-wrap">
+      <div class="loading" id="loading"><i class="ph ph-circle-notch" aria-hidden="true" style="margin-right:8px"></i>加载中…</div>
+      <iframe id="frame" title="report" src="about:blank"></iframe>
+      <div id="placeholder">
+        <div class="big"><i class="ph ph-arrow-square-out"></i></div>
+        <h3 id="phTitle"></h3>
+        <p id="phDesc"></p>
+        <a class="btn" id="phBtn" href="#" target="_blank" rel="noopener noreferrer"><i class="ph ph-arrow-up-right"></i><span id="phBtnTxt">在新窗口打开</span></a>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/viewer.js"></script>
+</body>
+</html>

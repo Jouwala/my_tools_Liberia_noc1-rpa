@@ -11,18 +11,18 @@ export const THEME_STORAGE_KEY = 'myapp-theme'
 
 // ---------- 具体色值（ECharts / 程序化场景使用） ----------
 export const DARK = {
-  bg: 'linear-gradient(180deg, #0a1929 0%, #0d2138 100%)',
-  cardBg: 'linear-gradient(145deg, #141f33 0%, #112540 100%)',
-  cardBorder: '1px solid rgba(100,255,218,0.18)',
-  cardBorderHover: '1px solid rgba(100,255,218,0.55)',
-  teal: '#64ffda',
-  blue: '#4fc3f7',
-  indigo: '#7986cb',
-  text: '#e6f4ff',
-  textMuted: '#94a3b8',
-  textDim: '#64748b',
-  accentGrad: 'linear-gradient(135deg, #64ffda, #4fc3f7)',
-  sev: { Critical: '#ff4757', Major: '#ff922b', Warning: '#ffd43b', Info: '#4fc3f7' } as Record<string, string>,
+  bg: 'linear-gradient(180deg, #02050c 0%, #050d22 100%)',
+  cardBg: 'linear-gradient(145deg, #08122c 0%, #050d22 100%)',
+  cardBorder: '1px solid rgba(0, 217, 255,0.18)',
+  cardBorderHover: '1px solid rgba(0, 217, 255,0.55)',
+  teal: '#00d9ff',
+  blue: '#258cff',
+  indigo: '#7c8ff0',
+  text: '#f5f7ff',
+  textMuted: '#aebbd4',
+  textDim: '#6f8cb4',
+  accentGrad: 'linear-gradient(135deg, #00d9ff, #258cff)',
+  sev: { Critical: '#ff5c6c', Major: '#ff922b', Warning: '#f6cf00', Info: '#258cff' } as Record<string, string>,
 }
 
 export const LIGHT = {
@@ -42,8 +42,8 @@ export const LIGHT = {
 
 // 系列色（图表、强调背景）：深色主题用亮色系，浅色主题用深色系保证对比度
 export const WH_COLORS = [
-  '#64ffda', '#4fc3f7', '#7986cb', '#ffd43b', '#ff6b6b',
-  '#51cf66', '#b197fc', '#ffa94d', '#63e6be', '#5c7cfa',
+  '#00d9ff', '#258cff', '#7c8ff0', '#f6cf00', '#ff5c6c',
+  '#0bc78c', '#a99cff', '#ff922b', '#6ef0b4', '#7c8ff0',
 ]
 export const LIGHT_COLORS = [
   '#0d9488', '#0e7490', '#6366f1', '#b45309', '#d92d20',
@@ -69,6 +69,14 @@ export const WH = {
     Warning: 'var(--wh-sev-warning)',
     Info: 'var(--wh-sev-info)',
   } as Record<string, string>,
+  /* 状态色（成功 / 危险 / 警告）—— 深浅各一档，见 index.css */
+  ok: 'var(--wh-ok)',
+  danger: 'var(--wh-danger)',
+  warn: 'var(--wh-warn)',
+  /* 任务分发时间线的三个语义点色（DataSync 的 Task Distribution Timeline） */
+  tlDone: 'var(--wh-tl-done)',
+  tlFail: 'var(--wh-tl-fail)',
+  tlPlan: 'var(--wh-tl-plan)',
   // teal 的 alpha 变体（字符串插值场景：textShadow / boxShadow 用）
   teal20: 'var(--wh-teal-20)',
   teal27: 'var(--wh-teal-27)',
@@ -79,10 +87,10 @@ export const WH = {
 // ECharts 主题辅助（工厂函数，避免多个图表共享同一对象被 ECharts 内部修改）
 export const darkTooltip = (isDark: boolean = true) => isDark
   ? {
-      backgroundColor: 'rgba(10,25,41,0.95)',
-      borderColor: 'rgba(100,255,218,0.25)',
+      backgroundColor: 'rgba(8, 18, 44,0.95)',
+      borderColor: 'rgba(0, 217, 255,0.25)',
       borderWidth: 1,
-      textStyle: { color: '#e6f4ff', fontSize: 12 },
+      textStyle: { color: '#f5f7ff', fontSize: 12 },
       extraCssText: 'box-shadow:0 4px 16px rgba(0,0,0,0.4);',
     }
   : {
@@ -93,8 +101,8 @@ export const darkTooltip = (isDark: boolean = true) => isDark
       extraCssText: 'box-shadow:0 4px 16px rgba(0,0,0,0.12);',
     }
 
-export const axisLabel = (isDark: boolean = true) => ({ color: isDark ? '#94a3b8' : '#3f5468', fontSize: 11 })
-export const axisLine = (isDark: boolean = true) => ({ lineStyle: { color: isDark ? '#22324d' : '#c8d8e8' } })
+export const axisLabel = (isDark: boolean = true) => ({ color: isDark ? '#aebbd4' : '#3f5468', fontSize: 11 })
+export const axisLine = (isDark: boolean = true) => ({ lineStyle: { color: isDark ? '#173158' : '#c8d8e8' } })
 export const splitLine = (isDark: boolean = true) => ({ lineStyle: { type: 'dashed' as const, color: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(13,148,136,0.12)' } })
 
 // antd Card 通用样式（DOM 层：CSS 变量）

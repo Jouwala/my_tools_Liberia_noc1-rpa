@@ -266,7 +266,7 @@ export default function SiteAvailability() {
           label: { formatter: `${t('siteAvail.threshold')} ${thresholdPct.toFixed(2)}%`, color: '#cf1322' },
           data: [{ yAxis: +thresholdPct.toFixed(3) }],
         },
-        markArea: areas.length ? { silent: true, itemStyle: { color: isDark ? 'rgba(100,255,218,0.05)' : 'rgba(19,194,194,0.06)' }, data: areas } : undefined,
+        markArea: areas.length ? { silent: true, itemStyle: { color: isDark ? 'rgba(0, 217, 255,0.05)' : 'rgba(19,194,194,0.06)' }, data: areas } : undefined,
       }],
     }
   }, [tech, overview, threshold, thresholdPct, isDark, palette, t])

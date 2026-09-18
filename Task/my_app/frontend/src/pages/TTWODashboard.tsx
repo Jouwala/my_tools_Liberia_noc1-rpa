@@ -27,7 +27,7 @@ const SEVERITY_COLORS = {
   major: '#ff922b',
   medium: '#ffd43b',
   minor: '#51cf66',
-  info: '#4fc3f7',
+  info: '#258cff',
 }
 const SEVERITY_COLORS_LIGHT = {
   critical: '#dc2626',
@@ -45,7 +45,7 @@ const SectionTitle = ({ icon, title, explain }: { icon: React.ReactNode; title: 
   <div style={{
     display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
     margin: '1rem 0 0.625rem', padding: '0 0 0.5rem',
-    borderBottom: '1px solid rgba(100,255,218,0.18)',
+    borderBottom: '1px solid rgba(0, 217, 255,0.18)',
   }}>
     <span style={{
       width: 28, height: 28, borderRadius: 'var(--wh-radius-sm)',
@@ -209,9 +209,9 @@ export default function TTWODashboard() {
 
   // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
   const tooltipStyle = darkTooltip(isDark)
-  const cText = isDark ? '#e6f4ff' : '#16233b'
-  const cTextMuted = isDark ? '#94a3b8' : '#3f5468'
-  const cTeal = isDark ? '#64ffda' : '#0d9488'
+  const cText = isDark ? '#f5f7ff' : '#16233b'
+  const cTextMuted = isDark ? '#aebbd4' : '#3f5468'
+  const cTeal = isDark ? '#00d9ff' : '#0d9488'
   const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
   const sevColors = isDark ? SEVERITY_COLORS : SEVERITY_COLORS_LIGHT
 
@@ -228,16 +228,16 @@ export default function TTWODashboard() {
       xAxis: { type: 'category', data: weeks, axisLabel: { ...axisLabel(isDark), rotate: 45 }, axisLine: axisLine(isDark) },
       yAxis: [
         { type: 'value', name: t('ttwo.seriesTTCount'), position: 'left', nameTextStyle: { color: cTeal, fontSize: 11 }, axisLabel: { color: cTeal }, splitLine: splitLine(isDark) },
-        { type: 'value', name: t('ttwo.seriesMTTR'), position: 'right', nameTextStyle: { color: isDark ? '#ff6b6b' : '#dc2626', fontSize: 11 }, axisLabel: { color: isDark ? '#ff6b6b' : '#dc2626' }, splitLine: { show: false } },
+        { type: 'value', name: t('ttwo.seriesMTTR'), position: 'right', nameTextStyle: { color: isDark ? '#ff5c6c' : '#dc2626', fontSize: 11 }, axisLabel: { color: isDark ? '#ff5c6c' : '#dc2626' }, splitLine: { show: false } },
       ],
       series: [
         {
           name: t('ttwo.seriesTTCount'), type: 'bar', data: counts, yAxisIndex: 0, barMaxWidth: 28,
-          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#64ffda' : '#0d9488' }, { offset: 1, color: isDark ? '#4fc3f7' : '#0284c7' }] }, borderRadius: [4, 4, 0, 0] },
+          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#00d9ff' : '#0d9488' }, { offset: 1, color: isDark ? '#258cff' : '#0284c7' }] }, borderRadius: [4, 4, 0, 0] },
         },
         {
           name: t('ttwo.seriesMTTR'), type: 'line', data: mttrs, yAxisIndex: 1, smooth: true,
-          itemStyle: { color: isDark ? '#ff6b6b' : '#dc2626' }, lineStyle: { width: 2.5 }, symbol: 'circle', symbolSize: 6,
+          itemStyle: { color: isDark ? '#ff5c6c' : '#dc2626' }, lineStyle: { width: 2.5 }, symbol: 'circle', symbolSize: 6,
           areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? 'rgba(255,107,107,0.25)' : 'rgba(220,38,38,0.18)' }, { offset: 1, color: 'rgba(255,107,107,0.02)' }] } },
         },
       ],
@@ -275,7 +275,7 @@ export default function TTWODashboard() {
       type: 'pie', radius: ['35%', '65%'], center: ['35%', '50%'],
       data: entries.map((e: any, i: number) => ({ name: e[0], value: e[1], itemStyle: { color: cPalette[i % cPalette.length] } })),
       label: { fontSize: 10, color: cText, formatter: '{b}\n{d}%' },
-      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 2, shadowColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.3)' } },
+      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 2, shadowColor: isDark ? 'rgba(0, 217, 255,0.35)' : 'rgba(13,148,136,0.3)' } },
     }],
   }), [tooltipStyle, cText, cTextMuted, cPalette, isDark])
 
@@ -304,7 +304,7 @@ export default function TTWODashboard() {
         type: 'bar', barMaxWidth: 22,
         data: entries.map((e: any) => ({
           value: e[1],
-          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: isDark ? '#51cf66' : '#15803d' }, { offset: 1, color: isDark ? '#94d82d' : '#4d7c0f' }] }, borderRadius: [0, 4, 4, 0] },
+          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: isDark ? '#0bc78c' : '#15803d' }, { offset: 1, color: isDark ? '#94d82d' : '#4d7c0f' }] }, borderRadius: [0, 4, 4, 0] },
         })),
         label: { show: true, position: 'right', fontSize: 10, color: cTextMuted, formatter: (p: any) => p.value.toLocaleString(numLocale(locale)) },
       }],
@@ -317,7 +317,7 @@ export default function TTWODashboard() {
     const entries = Object.entries(data.wo_stats.status).sort((a: any, b: any) => b[1] - a[1])
     const statusColors: Record<string, string[]> = isDark
       ? {
-          Closed: ['#51cf66', '#94d82d'], Open: ['#4fc3f7', '#74c0fc'], 'In Progress': ['#ffd43b', '#fcc419'],
+          Closed: ['#51cf66', '#94d82d'], Open: ['#258cff', '#74c0fc'], 'In Progress': ['#ffd43b', '#fcc419'],
           Pending: ['#ffa94d', '#ff922b'], Cancelled: ['#adb5bd', '#dee2e6'],
         }
       : {
@@ -354,7 +354,7 @@ export default function TTWODashboard() {
         type: 'pie', radius: ['35%', '60%'], center: ['35%', '50%'],
         data: entries.map((e: any, i: number) => ({ name: e[0], value: e[1], itemStyle: { color: cPalette[i % cPalette.length] } })),
         label: { fontSize: 9, color: cText, formatter: '{b}\n{d}%' },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.3)' } },
+        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(0, 217, 255,0.35)' : 'rgba(13,148,136,0.3)' } },
       }],
     }
   }, [data?.site_stats?.power_sources, isDark, tooltipStyle, cText, cTextMuted, cPalette])
@@ -372,7 +372,7 @@ export default function TTWODashboard() {
         type: 'bar', barMaxWidth: 18,
         data: entries.map((e: any) => ({
           value: e[1],
-          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: isDark ? '#b197fc' : '#7c3aed' }, { offset: 1, color: isDark ? '#d0bfff' : '#a78bfa' }] }, borderRadius: [0, 4, 4, 0] },
+          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: isDark ? '#a99cff' : '#7c3aed' }, { offset: 1, color: isDark ? '#d0bfff' : '#a78bfa' }] }, borderRadius: [0, 4, 4, 0] },
         })),
         label: { show: true, position: 'right', fontSize: 9, color: cTextMuted },
       }],
@@ -389,7 +389,7 @@ export default function TTWODashboard() {
         type: 'pie', radius: ['35%', '65%'],
         data: entries.map((e: any, i: number) => ({ name: e[0], value: e[1], itemStyle: { color: cPalette[i % cPalette.length] } })),
         label: { fontSize: 11, color: cText, formatter: '{b}\n{d}%' },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.3)' } },
+        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(0, 217, 255,0.35)' : 'rgba(13,148,136,0.3)' } },
       }],
     }
   }, [data?.site_stats?.power_vendor, isDark, tooltipStyle, cText, cPalette])
@@ -406,9 +406,9 @@ export default function TTWODashboard() {
     Unknown: isDark ? '#adb5bd' : '#64748b'
   }
   const slaColor: Record<string, string> = {
-    Pass: isDark ? '#51cf66' : '#15803d',
-    Failed: isDark ? '#ff6b6b' : '#dc2626',
-    'Within SLA': isDark ? '#4fc3f7' : '#0284c7',
+    Pass: isDark ? '#0bc78c' : '#15803d',
+    Failed: isDark ? '#ff5c6c' : '#dc2626',
+    'Within SLA': isDark ? '#258cff' : '#0284c7',
     Unknown: isDark ? '#adb5bd' : '#64748b',
   }
   const autoPalette = cPalette
@@ -423,7 +423,7 @@ export default function TTWODashboard() {
     <Space wrap size={[8, 8]}>
       {Object.entries(stats).map(([k, v], idx) => {
         const tagColor = colorMap[k] || getAutoColor(k, idx)
-        const tagBg = isDark ? 'rgba(10,25,41,0.6)' : `${tagColor}1f`
+        const tagBg = isDark ? 'rgba(8, 18, 44,0.6)' : `${tagColor}1f`
         return (
           <Tag key={k}
             style={{ borderRadius: 'var(--wh-radius-lg)', padding: 'var(--wh-space-xs) 0.875rem', fontSize: '0.8125rem', lineHeight: '1.5rem', cursor: 'pointer', transition: 'all 0.2s', fontWeight: 500, background: tagBg, borderColor: tagColor, color: tagColor }}
@@ -439,11 +439,11 @@ export default function TTWODashboard() {
   // Status 颜色编码（随主题适配：深色主题用亮色，浅色主题用饱和暗色保证对比度）
   const getStatusColor = (key: string): string => {
     const lower = key.toLowerCase()
-    if (lower.includes('closed') || lower.includes('complete')) return isDark ? '#51cf66' : '#15803d'
-    if (lower.includes('open') || lower.includes('in progress')) return isDark ? '#4fc3f7' : '#0284c7'
-    if (lower.includes('waiting') || lower.includes('pending')) return isDark ? '#ffa94d' : '#ea580c'
+    if (lower.includes('closed') || lower.includes('complete')) return isDark ? '#0bc78c' : '#15803d'
+    if (lower.includes('open') || lower.includes('in progress')) return isDark ? '#258cff' : '#0284c7'
+    if (lower.includes('waiting') || lower.includes('pending')) return isDark ? '#ff922b' : '#ea580c'
     if (lower.includes('cancel') || lower.includes('reject')) return isDark ? '#adb5bd' : '#64748b'
-    return isDark ? '#64ffda' : '#0d9488'
+    return isDark ? '#00d9ff' : '#0d9488'
   }
 
   const shortenLabel = (key: string): string => {
@@ -565,13 +565,13 @@ export default function TTWODashboard() {
       {/* 汇总卡片 */}
       <Row gutter={12}>
         <Col xs={24} sm={12} md={data.summary.wo_total > 0 ? 8 : 24}>
-          <SummaryCard color="#4fc3f7" icon={<ThunderboltOutlined />} value={data.summary.tt_total} label={t('ttwo.ttTotal')} explain={t('ttwo.explain.ttTotal')} onClick={(e) => openDrilldown(e, 'all_tt')} />
+          <SummaryCard color="#258cff" icon={<ThunderboltOutlined />} value={data.summary.tt_total} label={t('ttwo.ttTotal')} explain={t('ttwo.explain.ttTotal')} onClick={(e) => openDrilldown(e, 'all_tt')} />
         </Col>
         {data.summary.wo_total > 0 && <Col xs={24} sm={12} md={8}>
           <SummaryCard color="#51cf66" icon={<FileTextOutlined />} value={data.summary.wo_total} label={t('ttwo.woTotal')} explain={t('ttwo.explain.woTotal')} onClick={(e) => openDrilldown(e, 'all_wo')} />
         </Col>}
         {data.summary.wo_total > 0 && <Col xs={24} sm={12} md={8}>
-          <SummaryCard color="#b197fc" icon={<NumberOutlined />} value={data.summary.wo_no_count} label={t('ttwo.woNoUnique')} explain={t('ttwo.explain.woNo')} onClick={(e) => openDrilldown(e, 'all_wo')} />
+          <SummaryCard color="#a99cff" icon={<NumberOutlined />} value={data.summary.wo_no_count} label={t('ttwo.woNoUnique')} explain={t('ttwo.explain.woNo')} onClick={(e) => openDrilldown(e, 'all_wo')} />
         </Col>}
       </Row>
 

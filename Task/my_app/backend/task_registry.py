@@ -206,12 +206,17 @@ TASK_SPECS = [
          description_en="Dispatch a send job; a browser extension sends Site Outage screenshots in the logged-in WhatsApp Web",
          default_cron="0 3 * * *", category="whatsapp"),
 
-    # 6. MS SLA 完整同步（每6小时）
+    # 6. MS SLA 完整同步（每天 05:00）
+    #    时序约束（2026-09-18 修复）：必须在 kpi_ms_contract(05:30) / kpi_ms_wo_sla(05:35)
+    #    之前完成——两封邮件只读本任务产出的 data/ms_sla/*.xlsx，早于本任务就只能发前一版。
+    #    实测耗时 9~11min，05:00 起跑 → 05:11 左右完成，留 19/24min 余量。
+    #    上游 KPI list（FTP /webroot/WEB-INF/schedule/NUR_SLA/<date>/）实测约 15:04 发布，
+    #    内容覆盖到发布当天；故 05:00 取到的正是「覆盖到昨天」的最新一版，不损失数据。
     dict(task_id="ms_sla_full", name="MS SLA 完整同步", name_en="MS SLA Full Sync",
          loader=("backend.services.ms_sla_service", "run_full_sync"),
          description="SLA 指标同步 + Contract KPIs 报表更新（项目自包含，无需外部文件）",
          description_en="SLA metrics sync + Contract KPIs report update (self-contained, no external files)",
-         default_cron="0 */6 * * *", category="ms_sla"),
+         default_cron="0 5 * * *", category="ms_sla"),
 
     # 7. eFlow 实时告警同步（每30分钟）
     dict(task_id="eflow_active_alarm", name="eFlow 实时告警同步", name_en="eFlow Realtime Alarm Sync",
@@ -285,33 +290,39 @@ TASK_SPECS = [
          description_en="iPRAN UME M6000 router KPI sync (HQ M6K-FW etc.), export Excel and import to SQLite + FTP upload",
          default_cron="0 8 * * *", category="ipran_kpi"),
 
-    # 14. Liberia 站点宕 1 小时报告邮件（每小时第5分钟）
+    # 14. Liberia 站点宕 1 小时报告邮件（每小时第 15 分钟）
+    #     时序约束：数据是 eflow_sync(每小时 :00，实测 ~6min 完成) 产出的
+    #     data/eflow/tt_reports/*.xlsx，必须留足余量，故排在 :15。
     dict(task_id="liberia_email_1h", name="Liberia 宕站 1小时报告邮件", name_en="Liberia Site-Down 1H Report Email",
          loader=("backend.services.liberia_email_report", "run_1h_report"),
          description="发送 Liberia Orange Site Down hourly Report（内嵌图 + Excel）到主送/抄送名单",
          description_en="Email Liberia Orange Site Down hourly Report (inline images + Excel) to recipient lists",
-         default_cron="5 * * * *", category="email"),
+         default_cron="15 * * * *", category="email"),
 
-    # 15. Liberia 站点宕 8 小时报告邮件（每8小时第10分钟）
+    # 15. Liberia 站点宕 8 小时报告邮件（每8小时第 20 分钟）
+    #     时序约束：同 liberia_email_1h。原先排在 :07，与 eflow_sync 的完成时刻
+    #     （实测 :06~:07）几乎重合，实测出现过抢跑读到上一期报告的情况。
     dict(task_id="liberia_email_8h", name="Liberia 宕站 8小时报告邮件", name_en="Liberia Site-Down 8H Report Email",
          loader=("backend.services.liberia_email_report", "run_8h_report"),
          description="发送 Liberia Orange Site Down 8 hours Report（内嵌图 + Excel）到主送/抄送名单",
          description_en="Email Liberia Orange Site Down 8 hours Report (inline images + Excel) to recipient lists",
-         default_cron="10 */8 * * *", category="email"),
+         default_cron="20 */8 * * *", category="email"),
 
     # 16. MS Contract KPIs Achievements Daily Report 邮件（数据本地 ms_sla）
+    #     时序约束：必须晚于 ms_sla_full(05:00，约 05:11 完成)
     dict(task_id="kpi_ms_contract", name="MS Contract KPIs 日报邮件", name_en="MS Contract KPIs Daily Report Email",
          loader=("backend.services.kpi_email_report", "run_ms_contract_kpi"),
          description="发送 MS Contract KPIs Achievements Daily Report（本地数据 + 远程名单）",
          description_en="Email MS Contract KPIs Achievements Daily Report (local data + remote recipient list)",
-         default_cron="30 17 * * *", category="kpi_email"),
+         default_cron="30 5 * * *", category="kpi_email"),
 
     # 17. MS WOs SLA Achievements Daily Report 邮件（数据本地 ms_sla）
+    #     时序约束：必须晚于 ms_sla_full(05:00，约 05:11 完成)
     dict(task_id="kpi_ms_wo_sla", name="MS WOs SLA 日报邮件", name_en="MS WOs SLA Daily Report Email",
          loader=("backend.services.kpi_email_report", "run_ms_wo_sla"),
          description="发送 MS WOs SLA Achievements Daily Report（本地数据 + 远程名单）",
          description_en="Email MS WOs SLA Achievements Daily Report (local data + remote recipient list)",
-         default_cron="35 17 * * *", category="kpi_email"),
+         default_cron="35 5 * * *", category="kpi_email"),
 
     # 18. SpareParts 备件报表邮件（数据本地 sp_email 生成端产出 + 远程共享名单）
     dict(task_id="kpi_sp_spareparts", name="SpareParts 备件报表邮件", name_en="SpareParts Report Email",
@@ -341,15 +352,18 @@ TASK_SPECS = [
          description_en="Merge the 4 spare-part detail files (inventory/inband/outband/transfer) under data/sp_email/data into one Excel (sheets: Inventory/Inbound/Outbound/Transfer) with a timestamped filename and subject; email to ansah.boadu@zte.com.cn, cc dong.xinmin@zte.com.cn (recipients editable under Settings → Email Recipient Settings); after the email, also send the same merged Excel as a document to the WhatsApp group WH&SP Management",
          default_cron="0 7 * * *", category="kpi_email"),
 
-    # 19g. SP 物料库存与消耗报表邮件（每天 07:33）：2026-09-11 新增。
+    # 19g. SP 物料库存与消耗报表邮件（每天 07:45）：2026-09-11 新增。
     #      数据与页面 myapp/?page=sp_material 同源（sp_material_summary_service 读
     #      inventory_details 快照 + outband_details），导出两行表头 Excel（13 列）后作附件发送。
+    #      时序约束（2026-09-18 修复）：必须晚于 sp_data_sync(07:00，实测 1~9min 完成，
+    #      偶发 SFTP 慢时可达 90min)——这两张表由 sp_data_sync 从 SFTP 拉取后写入 app.db，
+    #      原先排在 06:45 会永远读到前一天的快照。
     dict(task_id="sp_material_report", name="SP 物料库存与消耗报表邮件",
          name_en="SP Material Stock & Consumption Report Email",
          loader=("backend.services.kpi_email_report", "run_sp_material_stock_consumption"),
-         description="每天 07:33 把 SP 物料库存与消耗汇总（同 page=sp_material 页面口径）导出为 UNIFIED_EXCEL_V1 版式 Excel 附件（SP_Material_Summary_<当前快照>.xlsx）+ 同内容 PNG 内嵌正文并邮件发送；默认 15 主送 + 2 抄送（收件人可在 Settings → 邮件收件人 覆盖）",
-         description_en="Daily 07:33: export the SP material stock & consumption summary (same scope as page=sp_material) to a UNIFIED_EXCEL_V1 Excel attachment (SP_Material_Summary_<snapshot>.xlsx) plus an inline PNG of the same table, and email it; default 15 To + 2 Cc (recipients editable under Settings → Email Recipients)",
-         default_cron="33 7 * * *", category="kpi_email"),
+         description="每天 07:45 把 SP 物料库存与消耗汇总（同 page=sp_material 页面口径）导出为 UNIFIED_EXCEL_V1 版式 Excel 附件（SP_Material_Summary_<当前快照>.xlsx）+ 同内容 PNG 内嵌正文并邮件发送；默认 15 主送 + 2 抄送（收件人可在 Settings → 邮件收件人 覆盖）",
+         description_en="Daily 07:45: export the SP material stock & consumption summary (same scope as page=sp_material) to a UNIFIED_EXCEL_V1 Excel attachment (SP_Material_Summary_<snapshot>.xlsx) plus an inline PNG of the same table, and email it; default 15 To + 2 Cc (recipients editable under Settings → Email Recipients)",
+         default_cron="45 7 * * *", category="kpi_email"),
 
     # 19d. SP 在线未关闭单报表生成（每天 06:00）：基于最新明细生成 sp_online 的 PNG+XLSX，供 06:20 发送
     dict(task_id="sp_online_report_generate", name="SP 在线未关闭单报表生成", name_en="SP Online Open Tickets Report Generate",
@@ -430,12 +444,14 @@ TASK_SPECS = [
          description="从 UME(192.168.170.2) 拉取电池实时 KPI（健康度/SOC/充放电状态），全程内存不落盘，写入 battery_kpi.sqlite3 供电池看板使用",
          description_en="Fetch battery realtime KPI (health/SOC/charge status) from UME(192.168.170.2), in-memory only, write to battery_kpi.sqlite3 for Battery Dashboard",
          default_cron="5 * * * *", category="battery"),
-    # 28. 电池 KPI 邮件（每天 07:00 与 19:00）
+    # 28. 电池 KPI 邮件（每天 07:10 与 19:10）
+    #     时序约束：读 battery_kpi.sqlite3，由 battery_kpi_sync（每小时 :05）写入。
+    #     原先排在 07:00/19:00，恰好落在 :05 同步之前，只能用到 55min 前的数据。
     dict(task_id="battery_email", name="电池 KPI 邮件", name_en="Battery KPI Email",
          loader=("backend.services.battary_kpi_fetch.battery_kpi_service", "run_battery_email"),
-         description="将电池 KPI 报表（Excel）发送至远程名单中的邮箱，每日 07:00 与 19:00 各一次",
-         description_en="Email the battery KPI report (Excel) to recipients from remote FTP list, daily at 07:00 & 19:00",
-         default_cron="0 7,19 * * *", category="battery"),
+         description="将电池 KPI 报表（Excel）发送至远程名单中的邮箱，每日 07:10 与 19:10 各一次",
+         description_en="Email the battery KPI report (Excel) to recipients from remote FTP list, daily at 07:10 & 19:10",
+         default_cron="10 7,19 * * *", category="battery"),
 
     # 27. 邮箱空间守卫（每小时第 0 分钟）：容量超阈值自动清理最旧邮件，避免存储上限告警
     dict(task_id="mailbox_cleanup", name="邮箱空间清理", name_en="Mailbox Storage Guard",
@@ -510,6 +526,19 @@ TASK_SPECS = [
          description="从 UME 门户 172.17.208.1:28808 抓取 Dong customer 周度业务 KPI（IVR / P4M / VC / USSD / PPS / CPU / Memory 共 7 个模板，1 天粒度，默认回看 7 天），内存导出不落盘，直写主库表 ume_in_customer_kpi（Begin Time + KPI + NE + SERVICE 联合去重）",
          description_en="Fetch Dong customer weekly service KPIs from UME portal 172.17.208.1:28808 (7 templates: IVR / P4M / VC / USSD / PPS / CPU / Memory, 1-day granularity, 7-day lookback), in-memory export without disk, direct write to table ume_in_customer_kpi (dedup by Begin Time + KPI + NE + SERVICE)",
          default_cron="45 5 * * *", category="ume_in"),
+
+    # 33b. 客户业务 KPI 同步 + OSG 周报邮件（每天 06:30，2026-09-18 新增）
+    #      一条任务分步执行：① ume_in_kpi_service.run_ume_in_kpi_sync()（同步 7 模板到
+    #      ume_in_customer_kpi）→ ② ume_in/t_osg_build.py 取最新 7 天填充 OSG Weekly QoS
+    #      Analysis Report 模板 → ③ 附件邮件发给 djoumene.reussite1@zte.com.cn
+    #      （抄送 dong.xinmin@zte.com.cn，Settings → Email Recipient Settings 可覆盖）。
+    #      与 ume_in_kpi_sync 同一 UME Dong 门户会话，故同组 n 串行（见 GROUP_TASK_MAP）。
+    dict(task_id="ume_in_osg_report", name="客户业务 KPI + OSG 周报邮件",
+         name_en="Customer Service KPI + OSG Weekly Report Email",
+         loader=("backend.services.ume_in.osg_report_task", "run_ume_in_osg_report"),
+         description="每天早上分步执行：先 ume_in KPI 同步（UME 门户 172.17.208.1:28808，7 模板直写 ume_in_customer_kpi），再按表里最新 7 天生成 OSG Weekly QoS Analysis Report Excel（backend/services/ume_in/t_osg_build.py），最后把该 Excel 作为附件邮件发送给 djoumene.reussite1@zte.com.cn，抄送 dong.xinmin@zte.com.cn（收件人可在 Settings → Email Recipient Settings 的 ume_in_osg_report 组覆盖）",
+         description_en="Every morning, step by step: run the ume_in KPI sync (UME portal 172.17.208.1:28808, 7 templates into ume_in_customer_kpi), build the OSG Weekly QoS Analysis Report Excel from the latest 7 days (backend/services/ume_in/t_osg_build.py), then email that Excel to djoumene.reussite1@zte.com.cn, cc dong.xinmin@zte.com.cn (recipients editable under Settings → Email Recipient Settings, group ume_in_osg_report)",
+         default_cron="30 6 * * *", category="ume_in"),
 
     # 34b. SP Online 在线工单同步（每小时第 35 分钟）：从 eFlow SP 接口拉全量
     dict(task_id="sp_online_sync", name="SP Online 工单同步", name_en="SP Online Ticket Sync",
@@ -623,6 +652,17 @@ TASK_SPECS = [
          # 06:20（服务器 UTC）：数仓「前一天」分区不一定在零点后立刻完成，
          # 与 ems_kpi_daily(05:20) 同一批早班；配合 refresh_last_days 双保险。
          default_cron="20 6 * * *", category="olib_soc"),
+
+    # 44. TMP 目录定期清理（每天 03:47，2026-09-18 新增）：TMP/ 是临时产物固定去处
+    #     （见 CODE_CLEANUP_GUIDE），但体积没人管，上线首日实测 462MB（4 个
+    #     _diag*_eflow_* 诊断目录占 ~380MB）。两段式回收：超 7 天条目同盘 mv 进
+    #     TMP/_quarantine_YYYYMMDD/（可还原），隔离再超 7 天才真删；服务在用路径
+    #     （charts/dl/状态文件）白名单永不处理。与 log_cleanup(03:17) 错峰。
+    dict(task_id="tmp_cleanup", name="TMP 目录清理", name_en="TMP Directory Cleanup",
+         loader=("backend.services.tmp_cleanup", "run_tmp_cleanup"),
+         description="隔离 my_app/TMP 下超过保留期（默认7天）的临时产物到 _quarantine_ 目录，隔离满 7 天后彻底删除；白名单保护服务在用路径",
+         description_en="Quarantine TMP entries idle beyond retention (default 7 days) into _quarantine_ dirs, purge quarantine after another 7 days; service paths whitelisted",
+         default_cron="47 3 * * *", category="general"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========

@@ -285,7 +285,7 @@ export function GlobalHistoryModal({
 
       <div style={{ textAlign: 'right', marginTop: 'var(--wh-space-sm)' }}>
         <Button size="small" icon={<DownloadOutlined />} onClick={exportCsv} disabled={!rows.length}
-          style={{ color: WH.text, borderColor: 'rgba(100,255,218,0.25)' }}>
+          style={{ color: WH.text, borderColor: 'rgba(0, 217, 255,0.25)' }}>
           {t('sync.ghExport')}
         </Button>
       </div>

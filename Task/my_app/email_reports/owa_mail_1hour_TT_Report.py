@@ -222,6 +222,26 @@ EWS_VERSION = Version(build=EXCHANGE_2016, api_version="Exchange2016")
 Protocol.TIMEOUT = OWA_SOAP_TIMEOUT
 
 
+def _resolve_credentials() -> Tuple[str, str]:
+    """解析当前生效的 OWA 凭据，返回 (username, password)。
+
+    优先级：环境变量(OWA_USERNAME/OWA_PASSWORD) > 数据库(设置页) > 代码默认值。
+
+    ⚠️ 所有「真正发起认证」的地方都必须走这里，不能直接用模块常量
+    OWA_USERNAME / OWA_PASSWORD：常量在 import 时求值，在「设置」页改完密码后
+    仍是旧的硬编码默认值。2026-09-18 的故障即由此而来——get_account() 走的是
+    credential_store（登录成功），而发送分支把常量传给 ews_send_enhanced，
+    于是用过期密码认证，报 "Invalid credentials"，liberia_email_1h 每小时必失败。
+
+    实现在 ``email_reports/owa_credentials.py``（全项目唯一一处凭据解析逻辑）。
+    """
+    try:
+        from email_reports.owa_credentials import resolve_owa_credentials
+    except ImportError:
+        from owa_credentials import resolve_owa_credentials
+    return resolve_owa_credentials()
+
+
 def get_account(
     server: str = OWA_SERVER,
     username: str = OWA_USERNAME,
@@ -232,18 +252,7 @@ def get_account(
     """登录 OWA 并返回 exchangelib Account 对象。"""
     # 凭据优先级：环境变量(OWA_USERNAME/OWA_PASSWORD) > 数据库(设置页) > 代码默认值
     # 这样在「设置」页改完 OWA 邮箱密码后，无需改代码、无需重启即可生效。
-    try:
-        from backend.services.credential_store import get_credential
-    except ImportError:
-        import sys as _sys
-        _myapp = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if _myapp not in _sys.path:
-            _sys.path.insert(0, _myapp)
-        from backend.services.credential_store import get_credential
-    _owa_user, _owa_pass = get_credential(
-        "owa_mail", OWA_USERNAME, OWA_PASSWORD,
-        env_user="OWA_USERNAME", env_secret="OWA_PASSWORD",
-    )
+    _owa_user, _owa_pass = _resolve_credentials()
     if username == OWA_USERNAME and _owa_user:
         username = _owa_user
     if password == OWA_PASSWORD and _owa_pass:
@@ -631,14 +640,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("[INFO] 加载 WinHTTP 邮件发送器...")
             from email_reports import winhttp_ews_send
             
+            # 原实现引用的是未定义的 config.*（NameError），改为解析后的生效凭据
+            _wh_user, _wh_pwd = _resolve_credentials()
             result = winhttp_ews_send.send_via_winhttp(
                 to=', '.join(to),
                 subject=subject,
                 body=body,
-                server=config.server,
-                username=config.username,
-                password=config.password,
-                from_email=config.from_addr
+                server=OWA_SERVER,
+                username=_wh_user,
+                password=_wh_pwd,
+                from_email=OWA_SMTP
             )
             return result
             
@@ -655,6 +666,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             
             from email_reports import send_via_browser_correct
             
+            _br_user, _br_pwd = _resolve_credentials()
             result = send_via_browser_correct.send_owa_correct(
                 to=', '.join(to),
                 subject=subject,
@@ -662,8 +674,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 attachments=[str(f) for f in attachments],
                 inline_images=inline_images,
                 server=OWA_SERVER,
-                username=OWA_USERNAME,
-                password=OWA_PASSWORD,
+                username=_br_user,
+                password=_br_pwd,
                 from_email=OWA_SMTP
             )
             return result
@@ -702,13 +714,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("[CORE] This is the PRIMARY sending method - more reliable than browser automation")
             from email_reports import ews_send_enhanced
                     
+            # 必须用 _resolve_credentials()：模块常量 OWA_USERNAME/OWA_PASSWORD
+            # 是 import 时的硬编码默认值，设置页改密后不会更新（见其 docstring）。
+            _ews_user, _ews_pwd = _resolve_credentials()
             result = ews_send_enhanced.send_via_ews_enhanced(
                 to=', '.join(to),
                 subject=subject,
                 body=body,
                 server=OWA_SERVER,
-                username=OWA_USERNAME,
-                password=OWA_PASSWORD,
+                username=_ews_user,
+                password=_ews_pwd,
                 from_email=OWA_SMTP,
                 cc=', '.join(cc) if cc else None,
                 attachments=[str(f) for f in attachments],

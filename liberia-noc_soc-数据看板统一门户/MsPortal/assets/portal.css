@@ -13,75 +13,155 @@
 [hidden] { display: none !important; }
 
 /* ==========================================================================
-   项目统一色板（2026-09-17 对齐）
+   项目统一色板（2026-09-18 换版：对齐 my_app「VMAX 90 天经营看板」）
    --------------------------------------------------------------------------
-   口径来源（三处一致，以后改色以它们为准）：
-     · my_app/frontend/src/theme.ts  —— 开头即「主题设计令牌（深浅两套）」
-     · my_app/frontend/src/index.css —— --wh-* 变量块（液态玻璃体系）
-     · uniplam/src/index.css         —— 注释里写的就是同一组值
-   浅色：品牌 teal #0d9488 / 辅助 #0e7490；页面 #e9eef3 → #f5f7f9 → #e7edf2
-   深色：品牌 teal #64ffda / 辅助 #4fc3f7；页面 #0a1929 → #0d2138
-   严重度：浅色 #d92d20 / #ea580c / #b45309 / #0369a1
-           深色 #ff4757 / #ff922b / #ffd43b / #4fc3f7
+   唯一口径来源 = my_app 前端 public/vmax_cxo_dashboard_90days.html 的 <style>
+   内联配色，即 http://localhost/myapp/?page=vmaxCxoDashboard_90Days 这个页面。
+   该页自身的令牌（原样抄录，改色以它为准）：
 
-   门户此前用的是 ref.html 时代的 blue-600 #2563eb + 自造深色 #0b1220 / #131c2b，
-   与此不符，本次统一。为不动既有的 100+ 条 html.dark 规则，旧的 --dk-* 名字
-   一律保留为别名，指向同一套新令牌。
+     深色  :root{--bg:#02050c;--panel:#071027;--blue:#258cff;--cyan:#00d9ff;
+                 --text:#f5f7ff;--muted:#aebbd4;--edge:#174bba;
+                 --glow:rgba(58,118,255,.48)}
+           .screen  = radial-gradient(circle at 50% 8%,rgba(0,127,255,.14),transparent 24%), #02050c
+           .mast    = linear-gradient(180deg,#080f43 0,#070d31 73%,transparent 74%) + border-top #aab3c5
+           .card/.panel = linear-gradient(180deg,#08122c,#050d22) + 1px #153db0
+                          + box-shadow: inset 0 7px 17px var(--glow)
+           .card:before = 3px 竖条 linear-gradient(180deg,#1da7ff,#00d9ff)
+           表头 th  = #55d7ff on #08122c ；行分隔 #173158 ；hover rgba(37,140,255,.10)
+           chip     = #17499c 边 / rgba(9,34,74,.6) 底 / #9fd8ee 字
+           status   = #16bfe3 边 / #092348 底 / #8cecff 字
+           正/负/警 = #0bc78c·#6ef0b4 / #ff5c6c·#ffb3bc / #f6cf00
+
+     浅色  html[data-theme="light"]{--bg:#eaf7fb;--text:#163047;--muted:#526b7d;
+                 --edge:rgba(14,116,144,.18);--glow:rgba(14,165,233,.10)}
+           .screen  = radial-gradient(circle at 15% 5%,rgba(103,232,249,.36),transparent 28%),
+                      linear-gradient(145deg,#eefbff,#e7f1fa 56%,#f7fcff)
+           .card/.panel = linear-gradient(145deg,rgba(255,255,255,.86),rgba(255,255,255,.66))
+                          + rgba(14,116,144,.18) 边 + 0 14px 30px rgba(38,83,104,.10)
+           .mast h1 = #0e7490 ；.block h2 / th = #087a98 ；表头底 #f2fbfd
+           chip 正/负 = #078766·#0a6a52 / #c2334a·#a2202f ；警示 #8a6d10 / #c9a227
+
+   本次换版：把上面这套「深空蓝 #02050c + 电光青 #00d9ff + #153db0 描边 + 蓝色内辉光」
+   铺到门户全部 --mp-* 令牌上，浅色同步换成该页的浅色口径（#eaf7fb + #0e7490/#087a98）。
+   为不动既有的 100+ 条 html.dark 规则，旧的 --dk-* 名字一律保留为别名，指向同一套新令牌。
    ========================================================================== */
 :root {
-  /* —— 页面与表面 —— */
-  --mp-bg: linear-gradient(155deg, #e9eef3 0%, #f5f7f9 52%, #e7edf2 100%);
-  --mp-page-bg: #e9eef3;
-  --mp-surface: linear-gradient(145deg, rgba(255, 255, 255, .82) 0%, rgba(241, 245, 248, .68) 100%);
+  /* —— 页面与表面（= vmax 90 天看板浅色 .screen / .card / .panel） —— */
+  --mp-bg: radial-gradient(circle at 15% 5%, rgba(103, 232, 249, .36), transparent 28rem),
+          linear-gradient(145deg, #eefbff 0%, #e7f1fa 56%, #f7fcff 100%);
+  --mp-page-bg: #eaf7fb;
+  --mp-surface: linear-gradient(145deg, rgba(255, 255, 255, .86) 0%, rgba(255, 255, 255, .66) 100%);
   --mp-surface-flat: #ffffff;
-  --mp-surface-2: #f8fafc;
-  --mp-surface-3: #f1f5f9;
-  --mp-glass-panel: #f7fbfe;
-  --mp-border: rgba(94, 125, 143, .22);
-  --mp-border-soft: rgba(94, 125, 143, .13);
-  --mp-shadow-1: 0 2px 8px rgba(38, 70, 86, .07), inset 0 1px 0 rgba(255, 255, 255, .94);
-  --mp-shadow-2: 0 18px 42px rgba(38, 70, 86, .11), 0 3px 10px rgba(38, 70, 86, .08), inset 0 1px 0 rgba(255, 255, 255, .94);
-  --mp-shadow-3: 0 24px 64px rgba(15, 56, 75, .18), inset 0 1px 0 rgba(255, 255, 255, .94);
-  --mp-scrim: rgba(38, 83, 104, .20);
-  --mp-hover-row: rgba(71, 101, 119, .06);
-  --mp-toast-bg: #16233b;
+  --mp-surface-2: #f2fbfd;
+  --mp-surface-3: #e7f1fa;
+  --mp-glass-panel: rgba(255, 255, 255, .86);
+  /* 半透明档（.from-slate-50/80 等渐变停靠点用）：与 --mp-surface-2 同源 */
+  --mp-surface-2-rgb: 242 251 253;
+  --mp-border: rgba(14, 116, 144, .18);
+  --mp-border-soft: rgba(14, 116, 144, .10);
+  /* 阴影直接取该看板浅色 .card / .panel 的两档：
+     .card  = 0 14px 30px rgba(38,83,104,.10) + inset 0 1px 0 rgba(255,255,255,.9)
+     .panel = 0 16px 34px rgba(38,83,104,.12) + 同上 */
+  --mp-shadow-1: 0 14px 30px rgba(38, 83, 104, .10), inset 0 1px 0 rgba(255, 255, 255, .90);
+  --mp-shadow-2: 0 16px 34px rgba(38, 83, 104, .12), inset 0 1px 0 rgba(255, 255, 255, .90);
+  --mp-shadow-3: 0 24px 52px rgba(38, 83, 104, .18), inset 0 1px 0 rgba(255, 255, 255, .90);
+  --mp-scrim: rgba(22, 48, 71, .24);
+  --mp-hover-row: rgba(14, 165, 233, .08);
+  --mp-toast-bg: #0e7490;
   --mp-toast-text: #ffffff;
 
-  /* —— 文字 —— */
-  --mp-text: #16233b;
-  --mp-text-2: #3f5468;
-  --mp-text-3: #5b7288;
+  /* —— 文字（= 浅色 --text / --muted；第三档压深到 #596f85 保 AA） —— */
+  /* 该看板浅色的最暗文字档是 .card .when #6b8a99 / .panel-stats span i #6c8a99，
+     但它落在白卡上只有 3.67:1、落在页面底 #eaf7fb 上 3.36:1，不满足 AA 正文 4.5:1
+     （原页面自己就没达标）。门户有全站 AA 要求，故第三档不用它。
+     页面底 4.56:1 / 白卡 4.99:1。 */
+  --mp-text: #163047;
+  --mp-text-2: #526b7d;
+  /* #5b7288 落在最深的浅色面 --mp-surface-3（#e7f1fa）上只有 4.36:1，
+     差一点点到 AA；压深一档到 #596f85：surface-3 上 4.55:1 / 页面底 4.60:1 / 白卡 5.20:1。 */
+  --mp-text-3: #596f85;
+
+  /* 区块标题（= 该看板浅色 .block h2 的 #087a98；深色同名令牌取 #00aaff）——
+     门户此前按 my_app SectionTitle 约定把标题写成正文色，本次按「全部对齐
+     VMAX 90 天看板样式颜色」的要求改成该看板的标题色。
+     落白卡 4.94:1、落页面底 #eaf7fb 4.52:1，满足 AA。想改回正文色，
+     把文件末尾 h2.text-red-600 那条规则的 var(--mp-heading) 换回 var(--mp-text) 即可。 */
+  --mp-heading: #087a98;
 
   /* —— 品牌强调（只用于交互信号：选中 / 悬停 / 链接 / 焦点） —— */
-  --mp-brand: #0d9488;
-  --mp-brand-2: #0e7490;
-  --mp-accent-grad: linear-gradient(135deg, #0d9488, #0e7490);
-  /* 品牌色要分「文字档」和「实心填充档」——
-     浅色下 #0d9488 落在白底只有 3.74:1、落在品牌淡底只有 3.25:1，
-     都不满足 AA 正文 4.5:1；统一色阶里的 teal-700 #0f766e 是 5.5:1，
-     所以正文/图标取它（uniplam 的 .layout-toolbar-title 用的也是 #0f766e）。 */
-  --mp-brand-text: #0f766e;
-  /* 实心填充（选中 chip / 主按钮）取统一色阶的 700 档渐变，白字 5.4:1 */
-  --mp-accent-solid: linear-gradient(135deg, #0f766e, #0e7490);
+  /* 浅色品牌取 vmax 90 天看板浅色口径：#0e7490（.mast h1 / .card .val em）
+     与 #087a98（.block h2 / th）。但两者当「正文/链接」用都不够：
+     #0e7490 在白底 4.16:1、#087a98 在品牌淡底 rgba(14,116,144,.12) 上只有 3.85:1。
+     故文字档取该看板 .bar .seg button.active 的 #075063（品牌淡底 7.0:1 / 页面底 8.2:1）。 */
+  --mp-brand: #0e7490;
+  --mp-brand-2: #087a98;
+  --mp-accent-grad: linear-gradient(135deg, #0e7490, #0891b2);
+  --mp-brand-text: #075063;
+  /* 实心填充（选中 chip / 主按钮）：白字压 #0e7490 是 4.16:1，
+     压更深的 #087a98 是 5.4:1，故实心档用深的那一档 */
+  --mp-accent-solid: linear-gradient(135deg, #087a98, #0e7490);
   --mp-on-accent: #ffffff;
-  --mp-brand-soft: rgba(13, 148, 136, .08);
-  --mp-brand-soft-2: rgba(13, 148, 136, .12);
-  --mp-brand-border: rgba(13, 148, 136, .55);
-  --mp-brand-20: rgba(13, 148, 136, .20);
-  --mp-brand-27: rgba(13, 148, 136, .27);
-  --mp-brand-40: rgba(13, 148, 136, .40);
-  --mp-brand-53: rgba(13, 148, 136, .53);
-  --mp-focus-ring: 0 0 0 3px rgba(13, 148, 136, .18);
+  --mp-brand-soft: rgba(14, 116, 144, .08);
+  --mp-brand-soft-2: rgba(14, 116, 144, .12);
+  --mp-brand-border: rgba(14, 116, 144, .55);
+  --mp-brand-20: rgba(14, 116, 144, .20);
+  --mp-brand-27: rgba(14, 116, 144, .27);
+  --mp-brand-40: rgba(14, 116, 144, .40);
+  --mp-brand-53: rgba(14, 116, 144, .53);
+  --mp-focus-ring: 0 0 0 3px rgba(14, 116, 144, .18);
 
-  /* —— 语义 / 严重度 —— */
-  --mp-sev-critical: #d92d20;
-  --mp-sev-major: #ea580c;
-  --mp-sev-warning: #b45309;
+  /* —— 语义 / 严重度（浅色档取该看板 chip.up / chip.down / tag.warn 的**文字色**，
+       不是它的边框色 —— 边框色当文字用普遍差 0.5~1.5 个对比度档，
+       实测 #c2334a 在淡底上 4.42:1、#ea580c 只有 2.96:1，都不到 AA 4.5:1） —— */
+  --mp-sev-critical: #a2202f;
+  --mp-sev-major: #9a3412;
+  --mp-sev-warning: #7c5e07;
   --mp-sev-info: #0369a1;
-  --mp-ok: #15803d;
-  --mp-danger: #c0392b;
-  --mp-warn: #b45309;
-  --mp-danger-soft: rgba(192, 57, 43, .08);
+  --mp-ok: #0a6a52;
+  --mp-danger: #a2202f;
+  --mp-warn: #7c5e07;
+  --mp-danger-soft: rgba(194, 51, 74, .10);
+  --mp-sev-critical-soft: rgba(194, 51, 74, .07);
+  --mp-sev-major-soft: rgba(154, 52, 18, .06);
+  --mp-sev-warning-soft: rgba(124, 94, 7, .07);
+  --mp-sev-info-soft: rgba(3, 105, 161, .06);
+
+  /* —— 装饰色序令牌的浅色档 ——
+     portal.js 的 ROW_TONES / SOLID_TONES / CXO_GRADS / QA_GRADS / FR_ICONS /
+     PLAT_TAG 是一组「有意做色彩轮换」的原子类。深色侧已把它们换到该看板的
+     蓝青家族；浅色侧此前直接吃 Tailwind 默认值，与基准页不是一套。
+     这里给出浅色档：色相与深色一致，文字档取该看板的深文字口径，
+     落在各自淡底上实测 4.95 ~ 8.01:1（见文件末尾的审计说明）。 */
+  --mp-tone-soft-a: .10;    /* *-50  淡底 */
+  --mp-tone-100-a: .16;     /* *-100 图标底 */
+  --mp-tone-border-a: .28;  /* *-200 描边 */
+  --mp-tone-blue-fg: #0369a1;
+  --mp-tone-cyan-fg: #0e7490;
+  --mp-tone-indigo-fg: #3730a3;
+  --mp-tone-sky-fg: #0369a1;
+  --mp-tone-rose-fg: #a2202f;
+  --mp-tone-teal-fg: #0a6a52;
+  --mp-tone-amber-fg: #7c5e07;
+  --mp-tone-emerald-fg: #0a6a52;
+  --mp-tone-purple-fg: #5b21b6;
+  --mp-tone-violet-fg: #5b21b6;
+
+  /* 装饰色序的「实心填充档」：ROW_TONES/SOLID_TONES/FR_ICONS 的 bg-*-500/600
+     与 CXO_GRADS/QA_GRADS 的渐变停靠点，都是「白字压色底」的图标砖，
+     所以取该看板的深色档（白字对比度 4.79 ~ 9.93:1）。
+     这些令牌只在 html:not(.dark) 的规则里用，深色主题不受影响。 */
+  --mp-tone-blue-fill: #0369a1;
+  --mp-tone-cyan-fill: #0e7490;
+  --mp-tone-indigo-fill: #3730a3;
+  --mp-tone-sky-fill: #0369a1;
+  --mp-tone-rose-fill: #a2202f;
+  --mp-tone-teal-fill: #0a6a52;
+  --mp-tone-amber-fill: #8a6d10;
+  --mp-tone-emerald-fill: #0a6a52;
+  --mp-tone-purple-fill: #5b21b6;
+  --mp-tone-violet-fill: #5b21b6;
+  --mp-tone-orange-fill: #9a3412;
+  --mp-tone-slate-fill: #526b7d;
 
   /* —— 旧名别名（历史规则仍在引用；新代码请直接用 --mp-*） —— */
   --dk-bg: var(--mp-page-bg);
@@ -96,53 +176,100 @@
 }
 
 html.dark {
-  --mp-bg: linear-gradient(180deg, #0a1929 0%, #0d2138 100%);
-  --mp-page-bg: #0a1929;
-  --mp-surface: linear-gradient(145deg, #141f33 0%, #112540 100%);
-  --mp-surface-flat: #112540;
-  --mp-surface-2: rgba(14, 33, 54, .72);
-  --mp-surface-3: rgba(22, 48, 76, .74);
-  --mp-glass-panel: #0d2138;
-  --mp-border: rgba(100, 255, 218, .18);
-  --mp-border-soft: rgba(100, 255, 218, .10);
-  --mp-shadow-1: 0 4px 14px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .07);
-  --mp-shadow-2: 0 20px 52px rgba(0, 0, 0, .32), 0 2px 10px rgba(79, 195, 247, .05), inset 0 1px 0 rgba(255, 255, 255, .07);
-  --mp-shadow-3: 0 26px 70px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .07);
-  --mp-scrim: rgba(6, 15, 28, .58);
-  --mp-hover-row: rgba(255, 255, 255, .06);
-  --mp-toast-bg: #e6f4ff;
-  --mp-toast-text: #0a1929;
+  /* —— 页面与表面（= vmax 90 天看板深色 .screen / .card / .panel） —— */
+  --mp-bg: radial-gradient(circle at 50% 8%, rgba(0, 127, 255, .14), transparent 32rem),
+          linear-gradient(180deg, #02050c 0%, #04091a 52%, #02050c 100%);
+  --mp-page-bg: #02050c;
+  --mp-surface: linear-gradient(180deg, #08122c 0%, #050d22 100%);
+  --mp-surface-flat: #071027;
+  --mp-surface-2: rgba(9, 34, 74, .60);
+  --mp-surface-3: rgba(13, 46, 94, .55);
+  --mp-glass-panel: rgba(5, 13, 34, .88);
+  --mp-surface-2-rgb: 9 34 74;
+  --mp-border: #153db0;
+  --mp-border-soft: #173158;
+  /* 内辉光 inset 0 7px 17px rgba(58,118,255,.48) 是该看板卡片的招牌（--glow），
+     门户卡片一并继承；外阴影相应压深，避免在 #02050c 上糊成一片 */
+  --mp-shadow-1: 0 4px 14px rgba(0, 0, 0, .32), inset 0 7px 17px rgba(58, 118, 255, .48);
+  --mp-shadow-2: 0 20px 52px rgba(0, 0, 0, .45), inset 0 7px 17px rgba(58, 118, 255, .48);
+  --mp-shadow-3: 0 26px 70px rgba(0, 0, 0, .55), inset 0 7px 17px rgba(58, 118, 255, .48);
+  --mp-scrim: rgba(2, 5, 12, .72);
+  --mp-hover-row: rgba(37, 140, 255, .10);
+  --mp-toast-bg: #092348;
+  --mp-toast-text: #8cecff;
 
-  --mp-text: #e6f4ff;
-  --mp-text-2: #94a3b8;
-  --mp-text-3: #64748b;
+  /* —— 文字（= 深色 --text #f5f7ff / --muted #aebbd4 / 次级 #6f8cb4） —— */
+  --mp-text: #f5f7ff;
+  --mp-text-2: #aebbd4;
+  --mp-text-3: #6f8cb4;
 
-  --mp-brand: #64ffda;
-  --mp-brand-2: #4fc3f7;
-  --mp-accent-grad: linear-gradient(135deg, #64ffda, #4fc3f7);
-  /* 深色品牌色本身就亮（#64ffda 在 #0a1929 上 11.8:1），
-     正文取 brand-300 #5eead4（10.4:1，落在卡片底上）；
-     实心填充沿用亮青渐变，但**配深字** —— 白字压亮青只有 1.57:1，读不出来。 */
-  --mp-brand-text: #5eead4;
-  --mp-accent-solid: linear-gradient(135deg, #64ffda, #4fc3f7);
-  --mp-on-accent: #0a1929;
-  --mp-brand-soft: rgba(100, 255, 218, .10);
-  --mp-brand-soft-2: rgba(100, 255, 218, .16);
-  --mp-brand-border: rgba(100, 255, 218, .50);
-  --mp-brand-20: rgba(100, 255, 218, .20);
-  --mp-brand-27: rgba(100, 255, 218, .27);
-  --mp-brand-40: rgba(100, 255, 218, .40);
-  --mp-brand-53: rgba(100, 255, 218, .53);
-  --mp-focus-ring: 0 0 0 3px rgba(100, 255, 218, .18);
+  /* 区块标题：该看板深色 .block h2 是 #00aaff（卡片底 #08122c 上 7.2:1） */
+  --mp-heading: #00aaff;
 
-  --mp-sev-critical: #ff4757;
+  /* —— 品牌强调 —— */
+  /* 深色品牌取该看板的 --cyan #00d9ff / --blue #258cff；
+     正文档取它页面里的 #7fd2ee（.mast .sub / .panel-title i / .block h2 em），
+     在 #02050c 上 12.3:1、在卡片 #08122c 上 10.8:1。
+     实心填充沿用 #1da7ff→#00d9ff 竖条渐变（卡片左侧竖条同源），配深字 ——
+     白字压亮青只有 1.6:1，读不出来。 */
+  --mp-brand: #00d9ff;
+  --mp-brand-2: #258cff;
+  --mp-accent-grad: linear-gradient(135deg, #1da7ff, #00d9ff);
+  --mp-brand-text: #7fd2ee;
+  --mp-accent-solid: linear-gradient(135deg, #1da7ff, #00d9ff);
+  --mp-on-accent: #04122b;
+  --mp-brand-soft: rgba(0, 217, 255, .10);
+  --mp-brand-soft-2: rgba(0, 217, 255, .16);
+  --mp-brand-border: rgba(0, 217, 255, .50);
+  --mp-brand-20: rgba(0, 217, 255, .20);
+  --mp-brand-27: rgba(0, 217, 255, .27);
+  --mp-brand-40: rgba(0, 217, 255, .40);
+  --mp-brand-53: rgba(0, 217, 255, .53);
+  --mp-focus-ring: 0 0 0 3px rgba(0, 217, 255, .20);
+
+  /* —— 语义 / 严重度（= 该看板 chip.up/down 与 tag.warn 的深色档） —— */
+  --mp-sev-critical: #ff5c6c;
   --mp-sev-major: #ff922b;
-  --mp-sev-warning: #ffd43b;
-  --mp-sev-info: #4fc3f7;
-  --mp-ok: #51cf66;
-  --mp-danger: #ff6b6b;
-  --mp-warn: #ffa940;
-  --mp-danger-soft: rgba(255, 107, 107, .14);
+  --mp-sev-warning: #f6cf00;
+  --mp-sev-info: #258cff;
+  --mp-ok: #0bc78c;
+  --mp-danger: #ff5c6c;
+  --mp-warn: #f6cf00;
+  --mp-danger-soft: rgba(255, 92, 108, .14);
+  --mp-sev-critical-soft: rgba(255, 92, 108, .13);
+  --mp-sev-major-soft: rgba(255, 146, 43, .13);
+  --mp-sev-warning-soft: rgba(246, 207, 0, .13);
+  --mp-sev-info-soft: rgba(37, 140, 255, .13);
+
+  /* —— 装饰色序（portal.js 的 ROW_TONES / SOLID_TONES / CXO_GRADS / QA_GRADS /
+        FR_ICONS / PLAT_TAG 用；只存 RGB 三元组，透明度在下面规则里给）——
+     换成该看板的蓝青家族：#258cff / #00d9ff / #1da7ff / #3545b4 / #0bc78c /
+     #6ef0b4 / #f6cf00 / #ff5c6c / #7c6cff（紫为蓝青家族的补位，原页无紫）。 —— */
+  --mp-tone-blue-rgb: 37 140 255;
+  --mp-tone-cyan-rgb: 0 217 255;
+  --mp-tone-indigo-rgb: 53 69 180;
+  --mp-tone-sky-rgb: 29 167 255;
+  --mp-tone-rose-rgb: 255 92 108;
+  --mp-tone-teal-rgb: 11 199 140;
+  --mp-tone-amber-rgb: 246 207 0;
+  --mp-tone-emerald-rgb: 110 240 180;
+  --mp-tone-purple-rgb: 124 108 255;
+  --mp-tone-violet-rgb: 124 108 255;
+
+  --mp-tone-blue-fg: #258cff;
+  --mp-tone-cyan-fg: #00d9ff;
+  --mp-tone-indigo-fg: #7c8ff0;
+  --mp-tone-sky-fg: #1da7ff;
+  --mp-tone-rose-fg: #ff8f9c;
+  --mp-tone-teal-fg: #6ef0b4;
+  --mp-tone-amber-fg: #f6cf00;
+  --mp-tone-emerald-fg: #8ff0cc;
+  --mp-tone-purple-fg: #a99cff;
+  --mp-tone-violet-fg: #a99cff;
+  /* 装饰色淡底 / 描边的透明度档（深浅各一套，规则里不再写死） */
+  --mp-tone-soft-a: .16;
+  --mp-tone-100-a: .22;
+  --mp-tone-border-a: .35;
 
   --dk-bg: var(--mp-page-bg);
   --dk-surface: var(--mp-surface-flat);
@@ -245,6 +372,59 @@ html.dark .icon-btn.small:hover { background: var(--dk-surface-3); color: var(--
   position: sticky;
   top: 54px;
   z-index: 40;
+}
+
+/* ---- 折叠开关（2026-09-17 加）：搜索 / 筛选那一整行默认收起，点击才展开 ---- */
+/* 收起时只留这一条细栏（高度约 34px），展开时它原地变成「收起」把手 ——
+   把手位置不变，展开 / 收起不会让下方内容跳一下。 */
+.control-toggle-row {
+  max-width: 1920px;
+  margin: 0 auto;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+}
+.control-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px;
+  margin: 4px 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--mp-text-2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.control-toggle:hover { border-color: var(--mp-brand-border); color: var(--mp-brand-text); background: var(--mp-brand-soft); }
+.control-toggle:focus-visible { outline: 0; box-shadow: var(--mp-focus-ring); }
+.control-toggle .ct-ico { width: 14px; height: 14px; flex: 0 0 14px; }
+.control-toggle .ct-chev { width: 13px; height: 13px; flex: 0 0 13px; transition: transform .18s ease; }
+/* 展开态箭头朝上（提示"点它收起"），收起态朝下 */
+.control-bar:not(.is-collapsed) .control-toggle .ct-chev { transform: rotate(180deg); }
+/* 折叠时回显当前生效的搜索词 / 筛选条件 —— 否则用户看到"怎么只剩 3 个看板"找不到原因 */
+.ct-summary {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--mp-brand-text);
+  background: var(--mp-brand-soft);
+  border-radius: 5px;
+  padding: 1px 7px;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 收起 = 整行隐藏。用 display:none 而不是 height:0 —— 否则里面的输入框还能被 Tab 聚焦到 */
+.control-bar.is-collapsed .control-inner { display: none; }
+
+@media (max-width: 640px) {
+  .control-toggle-row { padding: 0 12px; }
+  .ct-summary { max-width: 34vw; }
 }
 .control-inner {
   max-width: 1920px;
@@ -639,8 +819,8 @@ html.dark .qc-page { color: var(--mp-text-3); }
 html.dark .bg-white { background: var(--mp-surface) !important; }
 html.dark .bg-slate-50,
 html.dark .bg-slate-100 { background-color: var(--mp-surface-2) !important; }
-html.dark .bg-slate-50\/90 { background-color: rgb(20 39 63 / .9) !important; }
-html.dark .bg-slate-50\/70 { background-color: rgb(20 39 63 / .7) !important; }
+html.dark .bg-slate-50\/90 { background-color: rgb(var(--mp-surface-2-rgb) / .9) !important; }
+html.dark .bg-slate-50\/70 { background-color: rgb(var(--mp-surface-2-rgb) / .7) !important; }
 
 html.dark .border-slate-100,
 html.dark .border-slate-200,
@@ -653,59 +833,70 @@ html.dark .text-slate-800,
 html.dark .text-slate-700 { color: var(--mp-text) !important; }
 html.dark .text-slate-600 { color: var(--mp-text-2) !important; }
 /* 深色次级文字取 --mp-text-2（#94a3b8，在 #112540 卡片上 6.0:1）；
-   原 v1 映射到 #64748b 只有 3.35:1，比统一配色前的 #7d8ca3（4.94:1）还差。 */
-html.dark .text-slate-500 { color: var(--mp-text-2) !important; }
+   原 v1 映射到 #64748b 只有 3.35:1，比统一配色前的 #7d8ca3（4.94:1）还差。
+   ⚠️ 2026-09-18：slate-400/300 原来映射到 --mp-text-3 ——
+   正是上面这句话判定「太差」的那个值，属于漏改。已按同一先例并入本条（6.2:1）。 */
+html.dark .text-slate-500,
 html.dark .text-slate-400,
-html.dark .text-slate-300 { color: var(--mp-text-3) !important; }
+html.dark .text-slate-300 { color: var(--mp-text-2) !important; }
 
 html.dark .from-slate-50\/80 {
-  --tw-gradient-from: rgb(20 39 63 / .85) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(20 39 63 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-from: rgb(var(--mp-surface-2-rgb) / .85);
+  --tw-gradient-to: rgb(var(--mp-surface-2-rgb) / 0);
 }
 html.dark .from-slate-50 {
-  --tw-gradient-from: var(--mp-surface-2) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(20 39 63 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-from: var(--mp-surface-2);
+  --tw-gradient-to: rgb(var(--mp-surface-2-rgb) / 0);
 }
-html.dark .to-white { --tw-gradient-to: var(--mp-surface-flat) var(--tw-gradient-to-position); }
+html.dark .to-white { --tw-gradient-to: var(--mp-surface-flat); }
 
 html.dark .map-pattern { background-image: radial-gradient(circle, var(--mp-brand-20) 1.5px, transparent 1.5px); }
 
 /* 悬停底：原来是蓝色调，统一成中性 hover */
 html.dark .hover\:bg-slate-50:hover { background-color: var(--mp-hover-row) !important; }
 
-/* 语义色底 / 边（平台徽章、QC 卡图标、区块命中徽章共用） */
-html.dark .bg-cyan-50 { background-color: rgb(79 195 247 / .16) !important; }
-html.dark .bg-violet-50 { background-color: rgb(124 58 237 / .16) !important; }
-html.dark .bg-emerald-50 { background-color: rgb(81 207 102 / .16) !important; }
-html.dark .bg-amber-50 { background-color: rgb(255 212 59 / .16) !important; }
-html.dark .bg-rose-50 { background-color: rgb(255 71 87 / .16) !important; }
-html.dark .bg-teal-50 { background-color: rgb(100 255 218 / .14) !important; }
-html.dark .border-cyan-200 { border-color: rgb(79 195 247 / .35) !important; }
-html.dark .border-violet-200 { border-color: rgb(124 58 237 / .35) !important; }
-html.dark .border-emerald-200 { border-color: rgb(81 207 102 / .35) !important; }
-html.dark .border-amber-200 { border-color: rgb(255 212 59 / .35) !important; }
-html.dark .border-rose-200 { border-color: rgb(255 71 87 / .35) !important; }
+/* 语义色底 / 边（平台徽章、QC 卡图标、区块命中徽章共用）
+   —— 换成 vmax 90 天看板的蓝青家族，不再用 my_app 的 teal/blue 系列 */
+.bg-cyan-50 { background-color: rgb(var(--mp-tone-cyan-rgb) / var(--mp-tone-soft-a)) !important; }
+.bg-violet-50 { background-color: rgb(var(--mp-tone-violet-rgb) / var(--mp-tone-soft-a)) !important; }
+.bg-emerald-50 { background-color: rgb(var(--mp-tone-teal-rgb) / var(--mp-tone-soft-a)) !important; }
+.bg-amber-50 { background-color: rgb(var(--mp-tone-amber-rgb) / var(--mp-tone-soft-a)) !important; }
+.bg-rose-50 { background-color: rgb(var(--mp-tone-rose-rgb) / var(--mp-tone-soft-a)) !important; }
+.bg-teal-50 { background-color: rgb(var(--mp-tone-emerald-rgb) / var(--mp-tone-soft-a)) !important; }
+html.dark .bg-teal-50 { background-color: rgb(var(--mp-tone-emerald-rgb) / .14) !important; }
+.border-cyan-200 { border-color: rgb(var(--mp-tone-cyan-rgb) / var(--mp-tone-border-a)) !important; }
+.border-violet-200 { border-color: rgb(var(--mp-tone-violet-rgb) / var(--mp-tone-border-a)) !important; }
+.border-emerald-200 { border-color: rgb(var(--mp-tone-teal-rgb) / var(--mp-tone-border-a)) !important; }
+.border-amber-200 { border-color: rgb(var(--mp-tone-amber-rgb) / var(--mp-tone-border-a)) !important; }
+.border-rose-200 { border-color: rgb(var(--mp-tone-rose-rgb) / var(--mp-tone-border-a)) !important; }
 
-/* 装饰色序（ROW_TONES / SOLID_TONES 等）的暗色底：对齐统一色板的深色系列 */
-html.dark .bg-blue-100 { background-color: rgb(92 124 250 / .22) !important; }
-html.dark .bg-cyan-100 { background-color: rgb(79 195 247 / .22) !important; }
-html.dark .bg-indigo-100 { background-color: rgb(121 134 203 / .22) !important; }
-html.dark .bg-sky-100 { background-color: rgb(92 124 250 / .22) !important; }
-html.dark .bg-rose-100 { background-color: rgb(255 107 107 / .22) !important; }
-html.dark .bg-teal-100 { background-color: rgb(99 230 190 / .22) !important; }
-html.dark .bg-amber-100 { background-color: rgb(255 212 59 / .22) !important; }
-html.dark .bg-emerald-100 { background-color: rgb(81 207 102 / .22) !important; }
-html.dark .bg-purple-100 { background-color: rgb(177 151 252 / .22) !important; }
+/* 装饰色序（ROW_TONES / SOLID_TONES 等）的暗色底：对齐 vmax 90 天看板的蓝青家族 */
+.bg-blue-100 { background-color: rgb(var(--mp-tone-blue-rgb) / var(--mp-tone-100-a)) !important; }
+.bg-cyan-100 { background-color: rgb(var(--mp-tone-cyan-rgb) / var(--mp-tone-100-a)) !important; }
+.bg-indigo-100 { background-color: rgb(var(--mp-tone-indigo-rgb) / var(--mp-tone-100-a)) !important; }
+.bg-sky-100 { background-color: rgb(var(--mp-tone-sky-rgb) / var(--mp-tone-100-a)) !important; }
+.bg-rose-100 { background-color: rgb(var(--mp-tone-rose-rgb) / var(--mp-tone-100-a)) !important; }
+.bg-teal-100 { background-color: rgb(var(--mp-tone-teal-rgb) / var(--mp-tone-100-a)) !important; }
+.bg-amber-100 { background-color: rgb(var(--mp-tone-amber-rgb) / var(--mp-tone-100-a)) !important; }
+.bg-emerald-100 { background-color: rgb(var(--mp-tone-emerald-rgb) / var(--mp-tone-100-a)) !important; }
+.bg-purple-100 { background-color: rgb(var(--mp-tone-purple-rgb) / var(--mp-tone-100-a)) !important; }
 
-/* 装饰色序的前景：原来取的是 Tailwind 300/400 的默认值，改取统一色板的深色系列 */
-html.dark .text-blue-700 { color: #5c7cfa !important; }
-html.dark .text-cyan-700 { color: #4fc3f7 !important; }
-html.dark .text-indigo-700 { color: #7986cb !important; }
-html.dark .text-sky-700 { color: #5c7cfa !important; }
-html.dark .text-teal-700 { color: #63e6be !important; }
-html.dark .text-amber-700 { color: #ffd43b !important; }
-html.dark .text-emerald-700 { color: #51cf66 !important; }
-html.dark .text-purple-700 { color: #b197fc !important; }
+/* 装饰色序的前景：同样换成蓝青家族（对比度见各 token 上方注释） */
+.text-blue-700 { color: var(--mp-tone-blue-fg) !important; }
+.text-cyan-700 { color: var(--mp-tone-cyan-fg) !important; }
+.text-indigo-700 { color: var(--mp-tone-indigo-fg) !important; }
+.text-sky-700 { color: var(--mp-tone-sky-fg) !important; }
+.text-teal-700,
+.text-teal-600,
+.text-teal-500 { color: var(--mp-tone-teal-fg) !important; }
+.text-amber-700 { color: var(--mp-tone-amber-fg) !important; }
+.text-emerald-700 { color: var(--mp-tone-emerald-fg) !important; }
+.text-purple-700 { color: var(--mp-tone-purple-fg) !important; }
+/* violet-700 原来漏了（2026-09-18 补）。受影响的是 PLAT_TAG.external 徽章
+   （bg-violet-50 text-violet-700）：底色被上面的 .bg-violet-50 改暗了，
+   前景却仍是 Tailwind 浅色 #7008e7，实测 1.94:1，是全站唯一不达 AA 的语义色。
+   现与 purple-700 同值 #a99cff，在深色徽章底上 6.9:1。 */
+.text-violet-700 { color: var(--mp-tone-violet-fg) !important; }
 
 html.dark .bg-slate-100.text-slate-600 { color: var(--mp-text-2) !important; }
 
@@ -796,6 +987,35 @@ html.dark .section-search:focus-within { border-color: var(--mp-brand-border); b
 @media (max-width: 640px) {
   .section-search { flex: 1 1 100%; min-width: 0; height: 30px; }
 }
+
+/* ------------------------------------- 区块内「展开全部 / 收起」（2026-09-17 加） --- */
+/* 默认只画访问量最高的 SEC_SHOW_N 个看板（见 portal.js 的 sectionItems），
+   其余折叠，点这里展开。按钮放在卡片列表**下方**而不是标题栏里 ——
+   标题栏右侧已经挤了计数胶囊 + 区块内搜索框，再塞一个窄屏必换行；
+   而且用户翻到列表末尾时手就在这儿，不用再回到顶部找。 */
+.sec-more-row {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--mp-border-soft);
+  display: flex;
+  justify-content: center;
+}
+.sec-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 13px;
+  border: 1px solid var(--mp-border);
+  border-radius: 999px;
+  background: var(--mp-surface-2);
+  color: var(--mp-text-2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.sec-more:hover { border-color: var(--mp-brand-border); color: var(--mp-brand-text); background: var(--mp-brand-soft); }
+.sec-more:focus-visible { outline: 0; box-shadow: var(--mp-focus-ring); }
 
 /* ------------------------------------- 看板新增 / 编辑（2026-09-17 加） --- */
 /* 卡片上的「编辑 / 删除」小按钮：只在编辑态 + 服务端可写（= 服务器本机）时渲染，
@@ -907,6 +1127,175 @@ html.dark .bf-group.is-on { background: var(--mp-brand-soft-2); border-color: va
 }
 
 /* ==========================================================================
+   升级机制表格（2026-09-18 加）
+   --------------------------------------------------------------------------
+   内容来自 升级机制.xlsx，由 portal.js 的 escSection() 渲染，放在地图组件正下方。
+   刻意插在「统一色板映射层」**之前** —— 那一层的注释要求它自己留在文件最后。
+
+   为什么外层要滚动：
+     · 中列在 xl 断点只有 4/12 宽（1024~1920px 实测内容宽 641→611px），而 6 列全单行
+       需要 796px（浏览器实测，见 TMP/measure_esc_cols.cjs）。所以表格给
+       min-width: 640px（6 列显式宽度之和），装不下时由 .esc-scroll 横向滚动兜底 ——
+       **页面级永远不会出现横向滚动条**（TMP/verify_msportal.cjs 的断点检查依赖这点）。
+     · 纵向 420px 上限 + 内部滚动：21 行铺开约 650px，会把中列甩出左/右列一大截。
+
+   配色全部走 --mp-* 令牌（--mp-sev-* 已按深浅主题各有一套），所以本区块不需要
+   再写一份 html.dark 覆盖；只有"淡底"这种需要独立透明度的值才单独给深色一套。
+   ========================================================================== */
+
+/* 四档职级的语义色：LEVEL1 最先升级 = Critical，往上递减到 Info
+   淡底也走令牌（--mp-sev-*-soft 深浅各一套），不再在规则里写死 rgba */
+.esc-lv-1 { --esc-lv: var(--mp-sev-critical); --esc-lv-soft: var(--mp-sev-critical-soft); }
+.esc-lv-2 { --esc-lv: var(--mp-sev-major);    --esc-lv-soft: var(--mp-sev-major-soft); }
+.esc-lv-3 { --esc-lv: var(--mp-sev-warning);  --esc-lv-soft: var(--mp-sev-warning-soft); }
+.esc-lv-4 { --esc-lv: var(--mp-sev-info);     --esc-lv-soft: var(--mp-sev-info-soft); }
+
+.esc-scroll {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  background: var(--mp-surface-flat);
+}
+
+.esc-table {
+  width: 100%;
+  /* 640px = 6 列显式宽度之和（见下面的列宽注释），也是「不横向滚动」的下限：
+     中列在 ≥1024px 时内容宽 641px 起，刚好放下；再窄就交给 .esc-scroll 横向滚动。 */
+  min-width: 640px;
+  border-collapse: collapse;
+  /* fixed：列宽只由下面 6 条显式宽度决定，不再被内容反向撑宽。
+     不这样写的话，一个 20 字符的连写姓名（KouassiJeanPaulAKPOUE）或一行双号
+     就能把整列顶宽、逼出滚动条。 */
+  table-layout: fixed;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.esc-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  text-align: left;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--mp-text-2);
+  padding: 7px 8px;
+  background: var(--mp-surface-2);
+  border-bottom: 1px solid var(--mp-border);
+}
+.esc-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--mp-border-soft);
+  color: var(--mp-text-2);
+  vertical-align: top;
+}
+.esc-table tbody tr:last-child td { border-bottom: 0; }
+.esc-table tbody tr:hover td { background: var(--mp-hover-row); }
+
+/* 列宽（table-layout: fixed 生效；px 按表格 min-width 640 解释）。
+   数值不是拍脑袋估的 —— 用 TMP/measure_esc_cols.cjs 在浏览器里量过「每列不折行
+   需要多宽」（结果：职级 57 / 岗位 149 / 姓名 158 / Orange 99 / LONESTAR 99 / 邮箱 234
+   = 796px 才能全部单行）。796px 放进中列（1024~1920px 实测内容宽 641~611px）必然要
+   横向滚动，所以这里做的是"保住关键列、其余让它折"：
+     · 职级 57 / Orange 99 / LONESTAR 99 —— 原样单行。
+       号码列低于 99 就会把 10 位号裁掉（83px 时实测裁掉最后两位），这是硬下限。
+     · 岗位 130 / 姓名 132 —— 只让最长的两条（"IP/DWDM/OLT Engineer"、
+       "KouassiJeanPaulAKPOUE"）各折一行，其余 19 行仍是单行。
+     · 邮箱 123 —— 最长的地址折成两行（地址里本就没有可断点）。
+   = 640px：≥1024px 的中列（641px）刚好不滚动；1280~1920px 需要横向滚动，
+   由 .esc-scroll 承担，页面级不出现横向滚动条。 */
+.esc-th-lv { width: 57px; }
+.esc-table th:nth-child(2) { width: 130px; }
+.esc-table th:nth-child(3) { width: 132px; }
+.esc-table th:nth-child(4) { width: 99px; }
+.esc-table th:nth-child(5) { width: 99px; }
+.esc-table th:nth-child(6) { width: 123px; }
+
+/* 职级列（rowspan 合并）：整档一个淡底 + 左侧色条，一眼能看出分档 */
+.esc-table td.esc-lv {
+  white-space: nowrap;
+  background: var(--esc-lv-soft);
+  border-left: 3px solid var(--esc-lv);
+  border-bottom: 1px solid var(--mp-border);
+}
+.esc-lv-badge {
+  display: block;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: var(--esc-lv);
+}
+.esc-lv-n { display: block; margin-top: 2px; font-size: 11px; color: var(--mp-text-2); }
+
+/* 岗位 / 姓名：允许在词内断行 —— 否则 KouassiJeanPaulAKPOUE 这类连写姓名
+   在 118px 的列里会横向溢出（table-layout: fixed 下溢出会被裁掉，不是撑宽） */
+.esc-pos,
+.esc-name { overflow-wrap: anywhere; }
+.esc-name { color: var(--mp-text); font-weight: 600; }
+
+/* 号码：等宽 + 不折行（列宽就是按 10~11 位单号定的）。
+   ZTEMSNOC 那行的双号 "-0773777115/0774777115" 靠 escNum() 在 "/" 后插的
+   <wbr> 断成两行 —— 只加断点、不改写内容，显示出来还是原样的两个号。 */
+.esc-num {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 邮箱：做成 mailto，允许在任意位置折行（地址里没有可断的地方） */
+.esc-mail a {
+  color: var(--mp-brand-text);
+  text-decoration: none;
+  word-break: break-all;
+}
+.esc-mail a:hover { text-decoration: underline; }
+
+.esc-dash { color: var(--mp-text-3); }
+.esc-note { margin: 8px 0 0; font-size: 12px; color: var(--mp-text-3); }
+.esc-empty { padding: 24px; text-align: center; color: var(--mp-text-3); font-size: 14px; }
+
+/* ------------------------------------------------- 「放大查看」弹窗（2026-09-18） --
+   中列（地图下方）只有 394~582px，页内表格必须横向滚动才看得全邮箱；
+   弹窗里把表格按全宽放大：table-layout: fixed 下"表格宽 > 各列声明宽度之和"时，
+   多出来的空间会按比例分给各列，于是 6 列全部单行（浏览器实测 796px 就够全单行）。 */
+.esc-scroll--wide { max-height: none; overflow: visible; }
+.esc-scroll--wide .esc-table { min-width: 0; }
+/* 弹窗里职级格的「LEVEL4 / 1 人」两行并成一行 —— 否则 rowspan=1 的那一档
+   （LEVEL4）会被这两行顶到 45px，比其余 20 行高出一截，看着像渲染错位。 */
+.esc-scroll--wide .esc-lv-badge,
+.esc-scroll--wide .esc-lv-n { display: inline; }
+.esc-scroll--wide .esc-lv-n { margin: 0 0 0 5px; }
+
+/* 弹窗骨架：头/脚固定，只有表体滚动 —— 与 .modal:has(.board-form) 同一套做法 */
+.esc-modal { display: flex; flex-direction: column; overflow: hidden; }
+.esc-modal .modal-head,
+.esc-modal .modal-foot { flex: 0 0 auto; }
+.esc-modal .modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+/* 四档职级说明：页内只能塞进 tooltip，弹窗有横向空间就摆出来 */
+.esc-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.esc-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--mp-border);
+  border-left: 3px solid var(--esc-lv);
+  background: var(--esc-lv-soft);
+  font-size: 12px;
+  color: var(--mp-text-2);
+}
+.esc-legend-item b {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--esc-lv);
+}
+.esc-legend-item i { font-style: normal; font-size: 11px; color: var(--mp-text-3); }
+
+/* ==========================================================================
    项目统一色板映射层（2026-09-17）
    --------------------------------------------------------------------------
    这一层只做一件事：把 ref.html 时代遗留的 Tailwind 原子类颜色，
@@ -962,6 +1351,19 @@ html.dark .bg-blue-50.text-blue-700 { color: var(--mp-brand-text) !important; }
 /* 中性悬停底：原来是蓝调，统一成中性 */
 .hover\:bg-slate-50:hover { background-color: var(--mp-hover-row) !important; }
 
+/* ----------------------------------------------- 次级文字（置灰档） -- */
+/* 浅色侧原来**一条 .text-slate-400/300 映射都没有** → 落到 Tailwind 默认
+   oklch(0.704 0.04 256.788) ≈ #90a1b9，在近白卡底上只有 2.56:1（AA 正文需 4.5:1）。
+   深色侧虽有映射但指向 --mp-text-3 = #64748b，也只有 3.35:1。
+   按上面 slate-500 那条先例补齐：浅色 → --mp-text-3（#596f85，4.55~5.20:1），
+   深色 → --mp-text-2（#94a3b8，6.2:1，见文件上方 html.dark .text-slate-400）。
+   实测（TMP/probe_contrast_fix_ab.cjs，1600px，212 个文字元素）：
+     浅色 slate 组 27 个 2.40–2.56:1 → 4.56–4.86:1，硬失败 3 → 0
+     深色 slate 组 27 个 3.35–3.40:1 → 6.23–6.32:1，硬失败 3 → 0
+   ⚠️ 这条**不带** html.dark 前缀：深色由特异度更高的 html.dark 那条覆盖（0,2,1 > 0,1,0）。 */
+.text-slate-400,
+.text-slate-300 { color: var(--mp-text-3) !important; }
+
 /* ------------------------------------------------------ 语义 / 严重度 -- */
 /* QC 指标卡数字、告警标题、健康度徽章共用这几个类，全部对齐统一严重度色。 */
 .text-red-600,
@@ -999,6 +1401,217 @@ footer.bg-white { background: var(--mp-surface); }
    ⚠️ 只换颜色，版式 / 字号 / 位置 / 字重一律不动。
    ⚠️ 写在 CSS 而不是改 portal.js，是因为 portal.js 当时正被另一个会话实时编辑。
    用 h2./span. 提高特异性，压过上面那条 .text-red-600{...!important}。 */
-h2.text-red-600 { color: var(--mp-text) !important; }
+h2.text-red-600,
+h2.text-slate-800,
+html.dark h2.text-slate-800 { color: var(--mp-heading) !important; }
 span.bg-red-600,
 span.bg-rose-500 { background-color: var(--mp-brand) !important; }
+
+/* ==========================================================================
+   顶栏（TopHeader）—— 套用 vmax 90 天看板的 .mast 配色（2026-09-18）
+   --------------------------------------------------------------------------
+   index.html 的顶栏写死了 Tailwind 的 from-[#07172c] via-[#002b49] to-[#041d38]，
+   那是 ref.html 时代的 ZTE 深蓝，与本次换的「深空蓝 #02050c + 电光青」不是一套。
+   这里用 body > header 提高特异性压过它（0,2,2 > 0,1,0），不必改 index.html。
+
+   深色：照搬该看板 .mast 的 linear-gradient(180deg,#080f43 0,#070d31 73%…)
+         + 底部四段渐变横条（它的招牌元素之一）。
+   浅色：顶栏保持原来的深蓝品牌条。该看板浅色的 mast 是白玻璃条，若照搬，
+         需要同时重做 .seg / .icon-btn / .btn-ghost / .auth-user-badge 这 4 个
+         只按深底设计的控件（全是 rgba(255,255,255,.1) 底 + 浅字，落白底会消失），
+         属于另一件事，本次不做 —— 门户顶栏在两种主题下都是「深色门面」。
+   ========================================================================== */
+html.dark body > header {
+  background-image: linear-gradient(180deg, #080f43 0%, #070d31 73%, #02050c 100%);
+  border-bottom-color: #17499c;
+  box-shadow: 0 1px 0 rgba(29, 167, 255, .22), 0 8px 24px rgba(0, 0, 0, .55);
+}
+html.dark body > header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    #1a35ae 0 13%, #1da7ff 15% 41%, transparent 44% 58%, #03dcef 60% 85%, #3545b4 87%);
+}
+
+/* ==========================================================================
+   浅色侧映射层（2026-09-18 补完）
+   --------------------------------------------------------------------------
+   上面那层「深色主题覆盖」只写了 html.dark .xxx，浅色侧**一条对应映射都没有**，
+   于是结构性原子类直接落到 Tailwind 默认调色板（slate 的 oklch 原值），
+   与基准页的「青灰文字 + 青系描边 + 白玻璃面」不是一套。这里补齐。
+   ⚠️ 一律**不带** html.dark 前缀：特异性 (0,1,0) 低于 html.dark 那层 (0,2,1)，
+      所以对深色主题零影响 —— 深色侧仍由上面那层说了算。
+   ⚠️ 装饰色序（ROW_TONES / SOLID_TONES / …）不在这里压成一片青：
+      只换色相家族，轮换本身保留（色相令牌见文件上方 --mp-tone-*-rgb）。
+   ========================================================================== */
+
+/* 表面：slate-50 / slate-100 → 该看板的两档浅面 */
+.bg-slate-50 { background-color: var(--mp-surface-2) !important; }
+.bg-slate-100 { background-color: var(--mp-surface-3) !important; }
+.bg-slate-50\/90 { background-color: rgb(var(--mp-surface-2-rgb) / .9) !important; }
+.bg-slate-50\/70 { background-color: rgb(var(--mp-surface-2-rgb) / .7) !important; }
+
+/* 描边：slate-100/200/300 → 该看板的青系描边（浅色 --mp-border = rgba(14,116,144,.18)） */
+.border-slate-100 { border-color: var(--mp-border-soft) !important; }
+.border-slate-200,
+.border-slate-200\/80,
+.border-slate-200\/70,
+.border-slate-200\/60,
+.border-slate-300 { border-color: var(--mp-border) !important; }
+
+/* 文字：slate-800/700 → 正文色；slate-600/500 → 次级色
+   （浅色 --mp-text = #163047 / --mp-text-2 = #526b7d，就是基准页的 --text / --muted）
+   slate-400/300 见上面已有的那条无前缀规则（→ --mp-text-3）。 */
+.text-slate-800,
+.text-slate-700 { color: var(--mp-text) !important; }
+.text-slate-600,
+.text-slate-500 { color: var(--mp-text-2) !important; }
+
+/* 渐变停靠点：与深色侧同源，浅色下等价于原来的 from-slate-50 / to-white */
+.from-slate-50\/80 {
+  --tw-gradient-from: rgb(var(--mp-surface-2-rgb) / .85);
+  --tw-gradient-to: rgb(var(--mp-surface-2-rgb) / 0);
+}
+.from-slate-50 {
+  --tw-gradient-from: var(--mp-surface-2);
+  --tw-gradient-to: rgb(var(--mp-surface-2-rgb) / 0);
+}
+.to-white { --tw-gradient-to: var(--mp-surface-flat); }
+
+/* 弹窗表头：基准页浅色 th = #087a98 on #f2fbfd（--mp-heading / --mp-surface-2）。
+   深色仍由上面 html.dark .qc-table th / .group-table th 覆盖。 */
+.group-table th,
+.qc-table th { color: var(--mp-heading) !important; background-color: var(--mp-surface-2) !important; }
+
+/* ==========================================================================
+   顶栏浅色档 —— 照搬基准页浅色 .mast 的「白玻璃条」
+   --------------------------------------------------------------------------
+   基准页浅色：background:linear-gradient(180deg,rgba(255,255,255,.86),
+              rgba(239,249,253,.70) 73%,transparent 74%); border-top-color:rgba(14,116,144,.22)
+              .mast h1 → #0e7490；.bar .seg → 边 rgba(14,116,144,.3) / 底 rgba(255,255,255,.75)
+              .seg button.active → 底 #d9f0f7 / 字 #075063 / 内描边 #0e7490
+              .viewbtn / .asof → 边 rgba(14,116,144,.30) / 底 rgba(255,255,255,.72~.8) / 字 #0e7490
+              .logo → #12324a
+   门户顶栏的 4 个控件（.seg / .icon-btn / .btn-ghost / .auth-user-badge）原来
+   只按深底设计（rgba(255,255,255,.1) 底 + 浅字），落白玻璃上会直接看不见，
+   所以这里一并给出浅色档。
+
+   特异性安排（关键）：
+     · 顶栏盒子用 :root body > header = (0,1,2)
+         > index.html 写死的 bg-gradient-to-r / from-[#07172c] / border-cyan-500/30
+           / shadow-lg / text-white（都是 0,1,0）
+         < 深色那条 html.dark body > header = (0,1,3)
+       → 浅色生效、深色不受影响。
+     · 控件与子元素用 html:not(.dark) 前缀（(0,1,3)~(0,2,2)）：
+       深色侧没有任何同名规则，不会泄漏到深色。
+   ========================================================================== */
+:root body > header {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, .86) 0%, rgba(239, 249, 253, .70) 73%, #eaf7fb 100%);
+  border-bottom-color: rgba(14, 116, 144, .22);
+  box-shadow: 0 1px 0 rgba(14, 116, 144, .10), 0 8px 24px rgba(38, 83, 104, .10);
+}
+/* 标题：基准页浅色 .logo 是 #12324a（深海军蓝），.mast h1 是 #0e7490 */
+html:not(.dark) body > header h1 { color: #12324a; }
+html:not(.dark) body > header h1 .text-cyan-400 { color: #0e7490 !important; }
+html:not(.dark) body > header .seg {
+  background: rgba(255, 255, 255, .75);
+  border-color: rgba(14, 116, 144, .30);
+}
+html:not(.dark) body > header .seg-btn { color: #0e7490; }
+html:not(.dark) body > header .seg-btn:hover { background: rgba(14, 116, 144, .08); color: #075063; }
+html:not(.dark) body > header .seg-btn.is-active {
+  background: #d9f0f7;
+  color: #075063;
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px #0e7490;
+}
+html:not(.dark) body > header .icon-btn,
+html:not(.dark) body > header .btn-ghost {
+  background: rgba(255, 255, 255, .72);
+  border-color: rgba(14, 116, 144, .30);
+  color: #0e7490;
+}
+html:not(.dark) body > header .icon-btn:hover,
+html:not(.dark) body > header .btn-ghost:hover { background: #d9f0f7; color: #075063; }
+html:not(.dark) body > header .auth-user-badge { color: #0e7490; }
+/* 时钟 / 运行状态：基准页浅色 .mast .sub = #3c7d94；绿点用它的 chip.up 文字档 */
+html:not(.dark) body > header #clock { color: #3c7d94; }
+html:not(.dark) body > header .text-emerald-300\/90 { color: #0a6a52 !important; }
+html:not(.dark) body > header .bg-emerald-400 { background-color: #078766 !important; }
+
+/* ==========================================================================
+   浅色补完 · 第三批：装饰色序的实心砖 / 渐变砖（2026-09-18）
+   --------------------------------------------------------------------------
+   四组原子类见本段上方注释；全部带 html:not(.dark) 前缀，深色主题零影响。
+   .chips button.bg-blue-600（选中态走 --mp-accent-solid）与
+   .group:hover .group-hover\:bg-blue-600 特异性更高，仍按原样生效。
+   ========================================================================== */
+html:not(.dark) .bg-blue-600,
+html:not(.dark) .bg-blue-500 { background-color: var(--mp-tone-blue-fill) !important; }
+html:not(.dark) .bg-cyan-600,
+html:not(.dark) .bg-cyan-500 { background-color: var(--mp-tone-cyan-fill) !important; }
+html:not(.dark) .bg-indigo-600,
+html:not(.dark) .bg-indigo-500 { background-color: var(--mp-tone-indigo-fill) !important; }
+html:not(.dark) .bg-sky-500,
+html:not(.dark) .bg-sky-400 { background-color: var(--mp-tone-sky-fill) !important; }
+html:not(.dark) .bg-rose-600 { background-color: var(--mp-tone-rose-fill) !important; }
+html:not(.dark) .bg-teal-600,
+html:not(.dark) .bg-teal-500 { background-color: var(--mp-tone-teal-fill) !important; }
+html:not(.dark) .bg-amber-600 { background-color: var(--mp-tone-amber-fill) !important; }
+html:not(.dark) .bg-emerald-600 { background-color: var(--mp-tone-emerald-fill) !important; }
+html:not(.dark) .bg-violet-500 { background-color: var(--mp-tone-violet-fill) !important; }
+html:not(.dark) .bg-purple-500 { background-color: var(--mp-tone-purple-fill) !important; }
+html:not(.dark) .bg-slate-600,
+html:not(.dark) .bg-slate-700 { background-color: var(--mp-tone-slate-fill) !important; }
+/* 运行状态绿点：基准页浅色 chip.up 的边色 #078766 */
+html:not(.dark) .bg-emerald-400,
+html:not(.dark) .bg-emerald-500 { background-color: #078766 !important; }
+
+/* 渐变停靠点（只改 --tw-gradient-from/to；--tw-gradient-stops 是 var() 引用，
+   会在计算值阶段自动取到新值 —— 与上面 html.dark .from-slate-50 同一套机制） */
+html:not(.dark) .from-blue-700,
+html:not(.dark) .from-blue-600 { --tw-gradient-from: var(--mp-tone-blue-fill); }
+html:not(.dark) .from-cyan-600 { --tw-gradient-from: var(--mp-tone-cyan-fill); }
+html:not(.dark) .from-violet-600 { --tw-gradient-from: var(--mp-tone-violet-fill); }
+html:not(.dark) .from-emerald-600,
+html:not(.dark) .from-emerald-500 { --tw-gradient-from: var(--mp-tone-emerald-fill); }
+html:not(.dark) .from-indigo-500 { --tw-gradient-from: var(--mp-tone-indigo-fill); }
+html:not(.dark) .from-rose-500 { --tw-gradient-from: var(--mp-tone-rose-fill); }
+html:not(.dark) .to-indigo-600 { --tw-gradient-to: var(--mp-tone-indigo-fill); }
+html:not(.dark) .to-blue-600 { --tw-gradient-to: var(--mp-tone-blue-fill); }
+html:not(.dark) .to-teal-600,
+html:not(.dark) .to-teal-400 { --tw-gradient-to: var(--mp-tone-teal-fill); }
+html:not(.dark) .to-cyan-500 { --tw-gradient-to: var(--mp-tone-cyan-fill); }
+html:not(.dark) .to-purple-500 { --tw-gradient-to: var(--mp-tone-purple-fill); }
+html:not(.dark) .to-orange-400 { --tw-gradient-to: var(--mp-tone-orange-fill); }
+
+/* ------------------------------------------------ 三列对齐（2026-09-18 加） --
+   背景：三列高度完全由内容决定，而内容量天生不等 —— 中列被「地图画布 860 + 升级机制表 420」
+   顶到最高，右列被「BO View 折叠到 6 张」压到最矮；容器上又有 Tailwind 的 items-start，
+   三列各自收缩到内容高，于是谁矮谁在列尾留一大块空白（1920px 下右列 424px，1280~2560 极差 284~424px）。
+
+   做法：把三列改成等高，列内的富余/亏空由「列内可伸缩的区块」吸收，而不是堆在列尾：
+     · align-items:stretch 压掉 items-start（Tailwind 工具类在 @layer utilities 里，
+       无层级的本文件无条件胜出，所以不必改 index.html）；
+     · 每列成为纵向 flex，列内所有区块共同均摊 —— 实测单卡最多被拉伸 78px，
+       比"只拉末卡"的方案（最多 594px）均匀得多；
+     · 中列单独接：地图卡定高（#secTopo flex:0 0 auto，画布仍是 .map-canvas 里的 860px），
+       升级机制表吸收中列的全部富余/亏空（flex:1 1 0），
+       所以对齐之后地图一点没变小，只是表格可见行数随列高自适应。
+
+   实测（TMP/verify_align3_live.cjs）：1280/1440/1920/2560 四个宽度 × 中文/深色/英文/字号+20%/筛选 myapp
+   共 8 组，三列高度极差全部 = 0、横向溢出 = 0、地图画布高度与改动前完全一致。
+   min-height 的两个数字是唯二的兜底：筛选后左右列只剩 577px 时，防止升级表被压没。 */
+@media (min-width: 1280px) {
+  main > div.grid { align-items: stretch; }
+  main > div.grid > div { display: flex; flex-direction: column; }
+  main > div.grid > div > section { flex: 1 1 auto; }
+  #secTopo { flex: 0 0 auto; }
+  #secEsc { display: flex; flex-direction: column; flex: 1 1 0; min-height: 300px; }
+  #secEsc .esc-scroll { flex: 1 1 auto; min-height: 160px; max-height: none; }
+}

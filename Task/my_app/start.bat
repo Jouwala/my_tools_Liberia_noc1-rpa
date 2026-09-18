@@ -52,7 +52,7 @@ if %errorlevel%==0 (
 )
 
 if exist "%~dp0backend\worker_watchdog.pid" (
-    echo [OK] Task worker watchdog is running (auto-restart enabled, groups=u,n,m,c)
+    echo [OK] Task worker watchdog is running (auto-restart enabled, groups=u,n,m,c,v)
 ) else (
     echo [WARN] Worker watchdog PID file not found! Check log\worker_watchdog_console.log
 )

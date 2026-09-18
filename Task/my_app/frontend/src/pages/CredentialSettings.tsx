@@ -127,8 +127,8 @@ export default function CredentialSettings() {
   }
 
   const inputStyle: React.CSSProperties = {
-    background: 'rgba(10,25,41,0.6)',
-    borderColor: 'rgba(100,255,218,0.25)',
+    background: 'rgba(8, 18, 44,0.6)',
+    borderColor: 'rgba(0, 217, 255,0.25)',
     color: WH.text,
   }
 

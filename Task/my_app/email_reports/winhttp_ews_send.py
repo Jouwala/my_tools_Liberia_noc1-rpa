@@ -226,6 +226,12 @@ class WinHttpMailer:
                 pass
 
 
+try:                                    # 包内导入 / 直接运行 两种方式都能用
+    from email_reports.owa_credentials import resolve_owa_credentials
+except ImportError:
+    from owa_credentials import resolve_owa_credentials
+
+
 def send_via_winhttp(
     to: str,
     subject: str,
@@ -233,8 +239,8 @@ def send_via_winhttp(
     attachments: Optional[List[str]] = None,
     inline_images: Optional[List[str]] = None,
     server: str = "exchmail.orange-cit.ci",
-    username: str = "ZTENOC_OLR",
-    password: str = "Postcode@202608",
+    username: Optional[str] = None,
+    password: Optional[str] = None,
     from_email: str = "ztenoc.olr@orange.com",
 ) -> dict:
     """
@@ -266,7 +272,10 @@ def send_via_winhttp(
     dict
         {"success": bool, "message": str, "error": str}
     """
-    
+    # 凭据统一解析：本模块的参数默认值曾是硬编码旧密码，调用方一旦依赖它就会拿
+    # 失效密码去认证（2026-09-18 那次 65 小时故障的成因之一）。现在不再有字面量默认值。
+    username, password = resolve_owa_credentials(username, password)
+
     try:
         # 创建邮件发送器
         mailer = WinHttpMailer(server, username, password, from_email)

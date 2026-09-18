@@ -122,13 +122,13 @@ export default function Dashboard() {
     const displayTitle = translateChartTitle(chart)
 
     // 主题感知的图表色板（canvas 无法解析 CSS 变量）
-    const cText = isDark ? '#e6f4ff' : '#16233b'
-    const cTextMuted = isDark ? '#94a3b8' : '#3f5468'
-    const cTeal = isDark ? '#64ffda' : '#0d9488'
+    const cText = isDark ? '#f5f7ff' : '#16233b'
+    const cTextMuted = isDark ? '#aebbd4' : '#3f5468'
+    const cTeal = isDark ? '#00d9ff' : '#0d9488'
     const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
-    const cGrid = isDark ? 'rgba(100,255,218,0.15)' : 'rgba(13,148,136,0.25)'
-    const cGridSoft = isDark ? 'rgba(100,255,218,0.1)' : 'rgba(13,148,136,0.18)'
-    const cSplit = isDark ? ['rgba(100,255,218,0.03)', 'rgba(100,255,218,0.06)'] : ['rgba(13,148,136,0.04)', 'rgba(13,148,136,0.08)']
+    const cGrid = isDark ? 'rgba(0, 217, 255,0.15)' : 'rgba(13,148,136,0.25)'
+    const cGridSoft = isDark ? 'rgba(0, 217, 255,0.1)' : 'rgba(13,148,136,0.18)'
+    const cSplit = isDark ? ['rgba(0, 217, 255,0.03)', 'rgba(0, 217, 255,0.06)'] : ['rgba(13,148,136,0.04)', 'rgba(13,148,136,0.08)']
 
     const onEvents: Record<string, Function> = {}
     if (chart.type === 'pie' || chart.type === 'bar') {
@@ -147,7 +147,7 @@ export default function Dashboard() {
             radius: ['30%', '60%'],
             center: ['50%', '45%'],
             data: chart.data.map((d: any, i: number) => ({ ...d, itemStyle: { color: cPalette[i % cPalette.length] } })),
-            emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.3)' } },
+            emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(0, 217, 255,0.35)' : 'rgba(13,148,136,0.3)' } },
             label: { color: cText, formatter: '{b}\n{d}%' },
           }],
         }
@@ -189,7 +189,7 @@ export default function Dashboard() {
             type: 'line',
             data: chart.data.map((d: any) => d.count),
             smooth: true,
-            areaStyle: { opacity: 0.3, color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.25)' }, { offset: 1, color: 'rgba(100,255,218,0.02)' }] } },
+            areaStyle: { opacity: 0.3, color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? 'rgba(0, 217, 255,0.35)' : 'rgba(13,148,136,0.25)' }, { offset: 1, color: 'rgba(0, 217, 255,0.02)' }] } },
             lineStyle: { width: 2, color: cTeal },
             itemStyle: { color: cTeal },
           }],
@@ -252,13 +252,13 @@ export default function Dashboard() {
             left: 'center',
             bottom: 0,
             textStyle: { color: cTextMuted },
-            inRange: { color: isDark ? ['#0d2138', '#4fc3f7', '#64ffda'] : ['#dcebf5', '#0284c7', '#0d9488'] },
+            inRange: { color: isDark ? ['#050d22', '#258cff', '#00d9ff'] : ['#dcebf5', '#0284c7', '#0d9488'] },
           },
           series: [{
             type: 'heatmap',
             data: chart.data,
             label: { show: true, fontSize: 10, color: cText },
-            emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.35)' : 'rgba(13,148,136,0.3)' } },
+            emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(0, 217, 255,0.35)' : 'rgba(13,148,136,0.3)' } },
           }],
           grid: { left: 80, right: 20, bottom: 60, top: 50 },
         }
@@ -366,8 +366,8 @@ export default function Dashboard() {
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: '1.75rem',
-              background: isDark ? 'rgba(100,255,218,0.08)' : 'rgba(13,148,136,0.08)',
-              border: isDark ? '1px dashed rgba(100,255,218,0.25)' : '1px dashed rgba(13,148,136,0.35)',
+              background: isDark ? 'rgba(0, 217, 255,0.08)' : 'rgba(13,148,136,0.08)',
+              border: isDark ? '1px dashed rgba(0, 217, 255,0.25)' : '1px dashed rgba(13,148,136,0.35)',
             }}>
               📊
             </div>

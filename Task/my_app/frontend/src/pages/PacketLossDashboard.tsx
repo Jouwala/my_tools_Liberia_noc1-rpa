@@ -75,7 +75,7 @@ const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: stri
   <div style={{
     display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
     margin: '1.375rem 0 0.875rem', padding: '0 0 0.625rem',
-    borderBottom: '1px solid rgba(100,255,218,0.18)',
+    borderBottom: '1px solid rgba(0, 217, 255,0.18)',
   }}>
     <span style={{
       width: 28, height: 28, borderRadius: 'var(--wh-radius-sm)',
@@ -314,9 +314,9 @@ export default function PacketLossDashboard() {
 
   // ========== 图表配置 ==========
   // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
-  const cText = isDark ? '#e6f4ff' : '#16233b'
-  const cTextMuted = isDark ? '#94a3b8' : '#3f5468'
-  const cTeal = isDark ? '#64ffda' : '#0d9488'
+  const cText = isDark ? '#f5f7ff' : '#16233b'
+  const cTextMuted = isDark ? '#aebbd4' : '#3f5468'
+  const cTeal = isDark ? '#00d9ff' : '#0d9488'
   const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
   const statusColors = isDark ? STATUS_COLORS : STATUS_COLORS_LIGHT
 
@@ -331,7 +331,7 @@ export default function PacketLossDashboard() {
           name: s.status, value: s.count, itemStyle: { color: statusColors[s.status] || cTeal },
         })),
         label: { fontSize: 10, color: cText, formatter: '{c}' },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(100,255,218,0.4)' : 'rgba(13,148,136,0.35)' } },
+        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: isDark ? 'rgba(0, 217, 255,0.4)' : 'rgba(13,148,136,0.35)' } },
       }],
     }
   }, [data, isDark, statusColors, cText, cTextMuted, cTeal])
@@ -358,7 +358,7 @@ export default function PacketLossDashboard() {
         data: entries.map(([, b], i) => ({
           value: b.sites,
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: i === 0 ? (isDark ? '#ff4757' : '#d92d20') : cTeal }, { offset: 1, color: isDark ? '#0d2138' : '#dcebf5' }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: i === 0 ? (isDark ? '#ff5c6c' : '#d92d20') : cTeal }, { offset: 1, color: isDark ? '#050d22' : '#dcebf5' }] },
             borderRadius: [4, 4, 0, 0],
           },
         })),
@@ -384,7 +384,7 @@ export default function PacketLossDashboard() {
           name: t('pl.median'), type: 'bar', barMaxWidth: 22,
           data: data.daily_trend.map((d: any) => d.median_pl),
           itemStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#64ffda' : '#0d9488' }, { offset: 1, color: isDark ? '#4fc3f7' : '#0284c7' }] },
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#00d9ff' : '#0d9488' }, { offset: 1, color: isDark ? '#258cff' : '#0284c7' }] },
             borderRadius: [4, 4, 0, 0],
           },
           label: { show: true, position: 'top', fontSize: 10, color: cTextMuted, formatter: (p: any) => `${p.value}%` },
@@ -492,8 +492,8 @@ export default function PacketLossDashboard() {
       {/* 1. 头部横幅 */}
       <Card size="small" style={{
         ...cardStyle,
-        background: isDark ? 'linear-gradient(135deg, #101a2e 0%, #112540 100%)' : 'linear-gradient(135deg, #eef4fa 0%, #e0edf7 100%)',
-        borderLeft: isDark ? '4px solid #ff4757' : '4px solid #d92d20',
+        background: isDark ? 'linear-gradient(135deg, #101a2e 0%, #050d22 100%)' : 'linear-gradient(135deg, #eef4fa 0%, #e0edf7 100%)',
+        borderLeft: isDark ? '4px solid #ff5c6c' : '4px solid #d92d20',
         marginBottom: 'var(--wh-space-xs)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>

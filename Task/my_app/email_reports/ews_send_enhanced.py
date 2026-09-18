@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """EWS 邮件发送 - 简洁实用版"""
 
+import os
 import re
+import sys
 import time
 import uuid
 import logging
@@ -31,13 +33,36 @@ def _make_cid(path: Path) -> str:
     return f"{safe}_{uuid.uuid4().hex}"
 
 
+# 与 owa_mail_1hour_TT_Report.py / dotnet_ews_send.py 保持一致的代码默认值。
+# 仅作最后回退，正常运行时应由 credential_store（设置页）提供真实凭据。
+_DEFAULT_USER = "ZTENOC_OLR"
+_DEFAULT_PASSWORD = "Postcode@202608"
+
+
+def _resolve_credentials(username: Optional[str], password: Optional[str]) -> tuple:
+    """解析生效凭据：显式传入 > 环境变量 > 数据库(设置页) > 代码默认值。
+
+    2026-09-18：本模块原先只有硬编码默认值、完全不读 credential_store，
+    导致调用方即使已在设置页更新密码，这里仍拿旧密码认证并报
+    "Invalid credentials"（liberia_email_1h 每小时必失败）。此处补齐兜底，
+    避免今后再有调用方踩同一个坑。
+
+    实现在 ``email_reports/owa_credentials.py``（全项目唯一一处凭据解析逻辑）。
+    """
+    try:
+        from email_reports.owa_credentials import resolve_owa_credentials
+    except ImportError:
+        from owa_credentials import resolve_owa_credentials
+    return resolve_owa_credentials(username, password)
+
+
 def send_via_ews_enhanced(
     to: str | List[str],
     subject: str,
     body: str,
     server: str = "exchmail.orange-cit.ci",
-    username: str = "ZTENOC_OLR",
-    password: str = "Postcode@202608",
+    username: Optional[str] = None,
+    password: Optional[str] = None,
     from_email: str = "ztenoc.olr@orange.com",
     cc: Optional[str | List[str]] = None,
     attachments: Optional[List[str]] = None,
@@ -48,6 +73,9 @@ def send_via_ews_enhanced(
     
     logging.basicConfig(level=logging.INFO)
     log = logging.getLogger(__name__)
+
+    # 凭据兜底：不传/传旧默认值时自动改用设置页里的当前密码
+    username, password = _resolve_credentials(username, password)
     
     # Windows 下无法本地验证 Orange 证书链 → 关闭 SSL 校验（仍走 HTTPS 加密通道）
     Protocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter

@@ -128,8 +128,11 @@ if (-not $py) {
 $env:CODEBUDDY_SESSION_ID = ''
 $env:CLAUDE_SESSION_ID = ''
 $env:CODEBUDDY_SAFE_DELETE_SANDBOX = ''
-# Worker groups: u=UME session group, n=NetMgr/eFlow group, m=light admin tasks group, c=CN EMS group
-$env:MY_APP_WORKER_GROUPS = 'u,n,m,c'
+# Worker groups: u=UME session group, n=NetMgr/eFlow group, m=light admin tasks group, c=CN EMS group,
+# v=VMAX portal (8790 single-session proxy) group. MUST stay in sync with backend/worker_watchdog.py
+# GROUP_TASK_MAP keys and restart_workers.py ALL_GROUPS
+# (guarded by tests/test_worker_group_coverage.py -- run: python tests\test_worker_group_coverage.py).
+$env:MY_APP_WORKER_GROUPS = 'u,n,m,c,v'
 
 # ======================================================================
 # Startup report header
@@ -226,7 +229,7 @@ function Ensure-BackendWatchdog {
 }
 $backendOk = Ensure-BackendWatchdog
 
-# ---------- 2) worker_watchdog (manage u/n/m/c worker groups consuming queue) ----------
+# ---------- 2) worker_watchdog (manage u/n/v/m/c worker groups consuming queue) ----------
 Add-Report "----- 2) worker_watchdog + workers -----"
 function Ensure-WorkerWatchdog {
     $wwPidFile = Join-Path $base 'backend\worker_watchdog.pid'

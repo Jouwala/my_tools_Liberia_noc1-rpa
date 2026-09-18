@@ -39,6 +39,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -89,6 +90,18 @@ _SP_MATERIAL_DEFAULT_TO = (
     "marcus.nyomah@zte.com.cn;bakare.gbenga@zte.com.cn"
 )
 _SP_MATERIAL_DEFAULT_CC = "zhang.wanqing3@zte.com.cn;dong.xinmin@zte.com.cn"
+# UME Dong customer 客户业务 KPI + OSG 周报（任务 ume_in_osg_report，2026-09-18 新增）：
+# 附件 = backend/services/ume_in/t_osg_build.py 生成的
+#        data/in_data/OSG Weekly QoS Analysis Report_<起>_<止>.xlsx
+# 收件人为主送/抄送默认值（用户指定），可在 Settings → Email Recipient Settings 覆盖。
+_UME_IN_OSG_DEFAULT_TO = "djoumene.reussite1@zte.com.cn"
+_UME_IN_OSG_DEFAULT_CC = "dong.xinmin@zte.com.cn"
+_UME_IN_OSG_DATA = MY_APP_DIR / "data" / "in_data"
+_UME_IN_OSG_NAME_PREFIX = "OSG Weekly QoS Analysis Report"
+# 带窗口日期的产物名（模板本体 "OSG Weekly QoS Analysis Report.xlsx" 不匹配）
+_UME_IN_OSG_WINDOW_RE = re.compile(
+    r"^OSG Weekly QoS Analysis Report_(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})$"
+)
 # SP 在线未关闭单报表：sp_report_gen/generate_sp_online_report.py 产出 PNG+XLSX
 _SP_ONLINE_DATA = MY_APP_DIR / "data" / "sp_email" / "sp_online"
 _SP_ONLINE_GEN_SCRIPT = Path(__file__).resolve().parent / "sp_report_gen" / "generate_sp_online_report.py"
@@ -166,8 +179,8 @@ def _run_script(
     attach: Optional[list] = None,
     subject: Optional[str] = None,
     retries: int = 3,
-    per_attempt_timeout: int = 120,
-    budget: int = 180,
+    per_attempt_timeout: int = 300,
+    budget: int = 360,
 ) -> dict:
     """调用通用邮件脚本，返回 {success, message/detail/error}。
 
@@ -177,6 +190,12 @@ def _run_script(
 
     异步/防阻塞：实际发送在后台 daemon 线程执行，主线程最多等待 ``budget`` 秒后返回，
     避免 EWS 降级时一个邮件任务长期霸占调度 worker。正常情况会在 budget 内拿到真实结果。
+
+    ⚠️ 超时预算 120/180 → 300/360（2026-09-18）。原值对**冷启动**太紧：实测一次
+    完整发送（NTLM 握手 + 附件上传 5.6MB + CreateItem/SendItem）冷启动耗时
+    **198.49s**，被 ``per_attempt_timeout=120`` 直接杀掉，任务记为失败却可能已经发出。
+    网络本身没问题（同一封邮件热态只需 5.36s，裸上传速率 1.3MB/s），所以放宽即可。
+    与 ``liberia_email_report._run_script`` 的 300/360 保持一致。
     """
     py = _resolve_python()
     script = EMAIL_REPORTS_DIR / "owa_mail_report.py"
@@ -1543,3 +1562,58 @@ def run_packet_loss_email(to: str = None, cc: str = None) -> dict:
         cc=cc_arg,
     )
     return result
+
+
+# =============================================================================
+# 客户业务 KPI + OSG 周报邮件（任务 ume_in_osg_report）
+# =============================================================================
+def _latest_osg_report() -> Optional[Path]:
+    """data/in_data 下最新一份带窗口日期的 OSG 周报（忽略模板本体与 Excel 临时文件）。"""
+    try:
+        cands = [p for p in _UME_IN_OSG_DATA.glob(f"{_UME_IN_OSG_NAME_PREFIX}_*.xlsx")
+                 if _UME_IN_OSG_WINDOW_RE.match(p.stem) and not p.name.startswith("~$")]
+    except OSError:
+        return None
+    if not cands:
+        return None
+    cands.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return cands[0]
+
+
+def run_ume_in_osg_report_email(report_path=None, to: str = None, cc: str = None) -> dict:
+    """发送客户业务 KPI + OSG 周报（附件 = t_osg_build 生成的 Excel）。
+
+    收件人：主送 djoumene.reussite1@zte.com.cn，抄送 dong.xinmin@zte.com.cn
+    （可在 Settings → Email Recipient Settings 的 ``ume_in_osg_report`` 组覆盖）。
+
+    Args:
+        report_path: 指定附件；省略时取 data/in_data 下最新一份带窗口日期的 OSG 周报。
+        to / cc: 显式覆盖收件人（测试用）。
+    """
+    from backend.services.email_recipient_store import get_email_recipients
+
+    to_arg, cc_arg = get_email_recipients("ume_in_osg_report", to, cc)
+    if not to_arg:
+        return {"success": False,
+                "error": "主送收件人为空，请在 Settings → Email Recipient Settings 配置 ume_in_osg_report"}
+
+    report = Path(report_path) if report_path else _latest_osg_report()
+    if report is None or not Path(report).is_file():
+        return {"success": False,
+                "error": f"未找到 OSG 周报 Excel（目录 {_UME_IN_OSG_DATA}）"}
+    report = Path(report)
+
+    # 主题带报告窗口（文件名形如 OSG Weekly QoS Analysis Report_2026-09-08_2026-09-14.xlsx）
+    m = _UME_IN_OSG_WINDOW_RE.match(report.stem)
+    subject = (f"{_UME_IN_OSG_NAME_PREFIX} {m.group(1)} ~ {m.group(2)}" if m
+               else f"{_UME_IN_OSG_NAME_PREFIX} {time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    return _run_script(
+        data_dir=_UME_IN_OSG_DATA,
+        name_filter="",          # 不按名称自动发现 Excel，附件由 --attach 显式指定
+        to=to_arg,
+        cc=cc_arg,
+        no_excel=True,
+        attach=[str(report)],
+        subject=subject,
+    )

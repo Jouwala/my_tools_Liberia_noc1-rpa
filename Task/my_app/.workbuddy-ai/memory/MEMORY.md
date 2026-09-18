@@ -32,9 +32,12 @@
 ## 4. 关键业务模块（细节 → `memory/MODULES.md`）
 - **4.1 WhatsApp 发送**：剪贴板路径发送，只做最小改动。
 - **4.2 SP 备件报表**：`sp_report_gen/gernarate_sp_report.py`，任务 05:15；明细预处理会写回 `data/sp_email/data`（`sp_email_details` 同口径）。**数据源 2026-09-16 迁到 `/home/ubuntu/sp/<目录名>/<日期>/<时间戳>/<同名文件>.xlsx`**（旧 `sp/spinbound` 等已停更，同变更也应用于 `get_sp_table.py` / `task_configs_registry.py`）。**每个 sheet 标题下第 3 行有过滤条件说明行**（含 `Operation Result Status ≠ 'Canceled'`）。
-  - **Summary-Current 主表右侧带 4 个补库列**（全英文，2026-09-17 定稿）：`Avg Monthly Consumption`（= 出库量剔除 `SPOB202608160004`/`SPOB202609120014` 后 /9.5）、`Safety Stock`（=6×月均）、`Replenishment Qty`（=安全库存−Inventory Qty，≤0 留空）、`Alert Level`（<50% Urgent Replenish / 50~100% Replenish / >100% Excess）。**报表文案一律英文，不要中文**。
+  - **Summary-Current 共 12 列（A:L）**（全英文，2026-09-17 定稿、2026-09-18 加列）：
+    前 7 列 = `Material Name` / **`Domain`（2026-09-18 新增，固定第 2 列，取自 Inventory 明细，同一物料取第一个非空，Total 行留空）** / `Inbound Qty` / `Outbound Qty` / `Inventory Qty` / `Balance` / `Difference`；
+    后 5 列 = `Avg Monthly Consumption`（= 出库量剔除 `SPOB202608160004`/`SPOB202609120014` 后 /9.5）、`Safety Stock`（=6×月均）、**`Remark`（月均>0 → `Actual Consumption`；月均=0 → `Failure Rate`）**、`Replenishment Qty`（=安全库存−Inventory Qty，≤0 留空）、`Alert Level`（<50% Urgent Replenish / 50~100% Replenish / >100% Excess）。**报表文案一律英文，不要中文**。
     - **3 个数值列一律向上取整为整数**，且**逐级取整**（先 `ceil(消耗/9.5)` 得月均，再 `6×月均` 得安全库存 → 表内可验算 `Safety = 6 × Avg`）。Excel 数字格式 `#,##0`。
-    - **口径说明写在文件上方**：Summary-Current 第 4/5 行两行英文说明（`Replenishment basis: Excluded orders ...`），**表头在第 6 行、数据从第 7 行起**（其余 sheet 仍是第 4 行表头）。PNG 侧说明画在标题正下方。
+    - **月均消耗 = 0 的物料按「故障率」备件处理**：`Safety Stock` 保底 **1**、`Remark = Failure Rate`；其 Alert 按 `库存/1` 判（库存 0 → Urgent、1 → Replenish、≥2 → Excess）。
+    - **口径说明写在文件上方**：Summary-Current 第 4/5/6 行**三行**英文说明（`Replenishment basis: ...` / `Replenishment Qty = ...` / `Remark: ...`），**表头在第 7 行、数据从第 8 行起**（其余 sheet 仍是第 4 行表头）。
     - 生成结束由 `_cleanup_old_reports()` 按「前缀+仓库名」只留最新一份 xlsx/png。
   - ⚠️ 该脚本走 `kpi_email_report.run_sp_report_generate` 的 **subprocess** 执行 → 改完**不用重启 worker 组 m**，05:15 自动用新代码。本地验证可打桩 `sftp_download` / `_save_detail_xlsx`（不写回生产明细）/ `_cleanup_old_reports`，参考 `TMP/t_sp_replenish_verify.py`，配套 `t_sp_final_check.py` / `t_replenish_edge.py` / `t_style_compat.py`。
 - **4.3 eFlow TT**：判定真相源 `eflow_rules_matcher.py`；AI 走 Open WebUI `agnes-2.5-flash`。

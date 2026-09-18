@@ -456,10 +456,10 @@ function anchorFromChart(p: unknown): { x: number; y: number } {
  *  会回落成默认灰底，再叠加白字就变成「看不见」。这里全部用内联样式。 */
 const BADGE_PALETTE: Record<'dark' | 'light', Record<Status, { bg: string; fg: string }>> = {
   dark: {
-    good: { bg: 'rgba(100,255,218,0.18)', fg: '#64ffda' },
+    good: { bg: 'rgba(0, 217, 255,0.18)', fg: '#00d9ff' },
     warning: { bg: 'rgba(255,212,59,0.18)', fg: '#ffd43b' },
     critical: { bg: 'rgba(255,71,87,0.20)', fg: '#ff8a94' },
-    info: { bg: 'rgba(79,195,247,0.18)', fg: '#4fc3f7' },
+    info: { bg: 'rgba(37, 140, 255,0.18)', fg: '#258cff' },
     unknown: { bg: 'rgba(148,163,184,0.18)', fg: '#94a3b8' },
   },
   light: {

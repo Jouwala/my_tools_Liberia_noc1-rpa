@@ -9,10 +9,10 @@
 | nginx | `:80` | 人工/系统服务 | 生产入口，把 `/myapp/` 反代到 vite preview |
 | vite preview | `:7090`（`0.0.0.0`） | `start_hidden.ps1:244` | 托管前端构建产物 + `/api` 反代到 7038 |
 | uvicorn (backend) | `:7038`（`0.0.0.0`） | `backend_watchdog.py:147-150` | FastAPI，提供 `/api/*` 与 SPA 兜底 |
-| worker × 4 组 | 无端口 | `worker_watchdog.py:36-66` | 消费 `task_queue`，执行采集/报表任务 |
+| worker × 5 组 | 无端口 | `worker_watchdog.py:36-66` | 消费 `task_queue`，执行采集/报表任务 |
 | realtime proxy | `127.0.0.1:8787`、`:8790` | backend 启动线程（`main.py:216-250`） | 代理 FMS/VMAX 实时抓取，**只绑回环** |
 
-worker 组的实际启用集合由环境变量 `MY_APP_WORKER_GROUPS='u,n,m,c'` 决定（`start_hidden.ps1:116`）。
+worker 组的实际启用集合由环境变量 `MY_APP_WORKER_GROUPS='u,n,m,c,v'` 决定（`start_hidden.ps1:134`）：`u`=RAN UME 会话、`n`=网管/eFlow/远程系统、`v`=VMAX 门户（8790 单会话）、`m`=内务轻任务、`c`=CN EMS。**分组表、启动脚本、`restart_workers.py` 三处必须同步**，否则该组任务永远 pending（详见 `04-task-system.md`）。
 
 ## 后端启动序列
 

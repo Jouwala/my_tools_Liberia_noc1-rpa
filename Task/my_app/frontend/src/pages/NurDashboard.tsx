@@ -35,18 +35,18 @@ const NUR_SCALE = 100000
 
 // 趋势图系列配色（浅色主题用深色系保证对比度）
 const NUR_SERIES_COLORS: Record<string, Record<'dark' | 'light', string>> = {
-  Global_NUR: { dark: '#4fc3f7', light: '#0284c7' },
-  '2G_NUR': { dark: '#5c7cfa', light: '#4f46e5' },
-  '3G_NUR': { dark: '#b197fc', light: '#7c3aed' },
-  '4G_NUR': { dark: '#51cf66', light: '#16a34a' },
-  '5G_NUR': { dark: '#64ffda', light: '#0d9488' },
+  Global_NUR: { dark: '#258cff', light: '#0284c7' },
+  '2G_NUR': { dark: '#7c8ff0', light: '#4f46e5' },
+  '3G_NUR': { dark: '#a99cff', light: '#7c3aed' },
+  '4G_NUR': { dark: '#0bc78c', light: '#16a34a' },
+  '5G_NUR': { dark: '#00d9ff', light: '#0d9488' },
 }
 const SLA_SERIES_COLORS: Record<string, Record<'dark' | 'light', string>> = {
-  P1: { dark: '#ff6b6b', light: '#dc2626' },
-  P2: { dark: '#ffa94d', light: '#ea580c' },
-  P3: { dark: '#ffd43b', light: '#ca8a04' },
-  P4: { dark: '#51cf66', light: '#16a34a' },
-  Total: { dark: '#4fc3f7', light: '#0284c7' },
+  P1: { dark: '#ff5c6c', light: '#dc2626' },
+  P2: { dark: '#ff922b', light: '#ea580c' },
+  P3: { dark: '#f6cf00', light: '#ca8a04' },
+  P4: { dark: '#0bc78c', light: '#16a34a' },
+  Total: { dark: '#258cff', light: '#0284c7' },
 }
 
 interface NurRow { metric: string; [period: string]: number | string | null }
@@ -93,10 +93,10 @@ function nurTextColor(v: number, max: number): string {
 }
 
 const cardStyle: React.CSSProperties = {
-  background: WH.cardBg, borderRadius: 'var(--wh-radius-md)', border: '1px solid rgba(100,255,218,0.12)',
+  background: WH.cardBg, borderRadius: 'var(--wh-radius-md)', border: '1px solid rgba(0, 217, 255,0.12)',
 }
 const headStyle: React.CSSProperties = {
-  borderBottom: '1px solid rgba(100,255,218,0.12)', color: WH.teal, fontSize: '0.8125rem', fontWeight: 600,
+  borderBottom: '1px solid rgba(0, 217, 255,0.12)', color: WH.teal, fontSize: '0.8125rem', fontWeight: 600,
 }
 // 表格/图表等高，保证"趋势图大小跟表格一样"
 const TABLE_H = 240
@@ -259,10 +259,10 @@ function trendOption(opts: {
     backgroundColor: 'transparent',
     title: {
       text: title, left: 'center', top: 0,
-      textStyle: { color: isDark ? '#e6f4ff' : '#16233b', fontSize: '0.8125rem', fontWeight: 600 },
+      textStyle: { color: isDark ? '#f5f7ff' : '#16233b', fontSize: '0.8125rem', fontWeight: 600 },
       // 提示：数据点可点击下钻明细
       subtext: clickHint,
-      subtextStyle: { color: isDark ? '#64748b' : '#94a3b8', fontSize: '0.625rem', lineHeight: 14 },
+      subtextStyle: { color: isDark ? '#6f8cb4' : '#94a3b8', fontSize: '0.625rem', lineHeight: 14 },
       itemGap: 2,
     },
     tooltip: {
@@ -270,7 +270,7 @@ function trendOption(opts: {
       valueFormatter: (v: any) => (v === null || v === undefined || Number.isNaN(v)
         ? '-' : `${percent ? `${Number(v).toFixed(2)}%` : Number(v).toFixed(2)}${tooltipSuffix}`),
     },
-    legend: { bottom: 0, textStyle: { color: isDark ? '#94a3b8' : '#3f5468', fontSize: '0.625rem' }, itemWidth: 14, itemHeight: 8 },
+    legend: { bottom: 0, textStyle: { color: isDark ? '#aebbd4' : '#3f5468', fontSize: '0.625rem' }, itemWidth: 14, itemHeight: 8 },
     // bottom 预留 84px：45° 旋转的日期标签约占 48px，避免与底部图例重叠
     grid: { left: 52, right: 16, top: 46, bottom: 84 },
     xAxis: {
@@ -311,7 +311,7 @@ function NurTrendChart({ rows, gran, onDrill }: {
       clickHint: t('nur.clickDrill'),
       series: (rows || []).map(r => ({
         name: `${r.metric}_${cap}`,
-        color: NUR_SERIES_COLORS[r.metric]?.[isDark ? 'dark' : 'light'] || (isDark ? '#64ffda' : '#0d9488'),
+        color: NUR_SERIES_COLORS[r.metric]?.[isDark ? 'dark' : 'light'] || (isDark ? '#00d9ff' : '#0d9488'),
         data: periods.map(p => {
           const v = r[p]
           return typeof v === 'number' ? +(v * NUR_SCALE).toFixed(2) : null
@@ -357,7 +357,7 @@ function SlaTrendChart({ rows, gran, onDrill }: {
       clickHint: t('nur.clickDrill'),
       series: (rows || []).map(r => ({
         name: `${r.metric}_${cap}`,
-        color: SLA_SERIES_COLORS[r.metric]?.[isDark ? 'dark' : 'light'] || (isDark ? '#64ffda' : '#0d9488'),
+        color: SLA_SERIES_COLORS[r.metric]?.[isDark ? 'dark' : 'light'] || (isDark ? '#00d9ff' : '#0d9488'),
         data: periods.map(p => {
           const v = r[`${p}__achieve`]
           return typeof v === 'number' ? +(v * 100).toFixed(2) : null

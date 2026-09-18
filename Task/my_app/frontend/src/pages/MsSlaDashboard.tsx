@@ -54,7 +54,7 @@ const NUR_NAMES: Record<string, string> = {
   NUR_NETWORK: 'Global', NUR_2G: '2G', NUR_3G: '3G', NUR_4G: '4G',
 }
 const NUR_COLORS: Record<string, string> = {
-  Global: '#4fc3f7', '2G': '#5c7cfa', '3G': '#b197fc', '4G': '#51cf66',
+  Global: '#258cff', '2G': '#7c8ff0', '3G': '#a99cff', '4G': '#51cf66',
 }
 // NUR 指标名 → 下钻 tech 参数（NUR_NETWORK = Global）
 const NUR_TECH: Record<string, string> = {
@@ -89,10 +89,10 @@ function nurTextColor(v: number, max: number): string {
 }
 
 const cardStyle: React.CSSProperties = {
-  background: WH.cardBg, borderRadius: 'var(--wh-radius-md)', border: '1px solid rgba(100,255,218,0.12)',
+  background: WH.cardBg, borderRadius: 'var(--wh-radius-md)', border: '1px solid rgba(0, 217, 255,0.12)',
 }
 const headStyle: React.CSSProperties = {
-  borderBottom: '1px solid rgba(100,255,218,0.12)', color: WH.teal, fontSize: '0.8125rem', fontWeight: 600,
+  borderBottom: '1px solid rgba(0, 217, 255,0.12)', color: WH.teal, fontSize: '0.8125rem', fontWeight: 600,
 }
 const TABLE_H = 240
 
@@ -179,10 +179,10 @@ function trendOption(opts: {
     backgroundColor: 'transparent',
     title: {
       text: title, left: 'center', top: 0,
-      textStyle: { color: isDark ? '#e6f4ff' : '#16233b', fontSize: '0.8125rem', fontWeight: 600 },
+      textStyle: { color: isDark ? '#f5f7ff' : '#16233b', fontSize: '0.8125rem', fontWeight: 600 },
       // 提示：数据点可点击下钻明细
       subtext: clickHint,
-      subtextStyle: { color: isDark ? '#64748b' : '#94a3b8', fontSize: '0.625rem', lineHeight: 14 },
+      subtextStyle: { color: isDark ? '#6f8cb4' : '#94a3b8', fontSize: '0.625rem', lineHeight: 14 },
       itemGap: 2,
     },
     tooltip: {
@@ -190,7 +190,7 @@ function trendOption(opts: {
       valueFormatter: (v: any) => (v === null || v === undefined || Number.isNaN(v)
         ? '-' : `${Number(v).toFixed(2)}${percent ? '%' : ''}`),
     },
-    legend: { bottom: 0, textStyle: { color: isDark ? '#94a3b8' : '#3f5468', fontSize: '0.625rem' }, itemWidth: 14, itemHeight: 8 },
+    legend: { bottom: 0, textStyle: { color: isDark ? '#aebbd4' : '#3f5468', fontSize: '0.625rem' }, itemWidth: 14, itemHeight: 8 },
     // bottom 预留 84px：45° 旋转的日期标签约占 48px，避免与底部图例重叠
     grid: { left: 52, right: 16, top: 46, bottom: 84 },
     xAxis: {

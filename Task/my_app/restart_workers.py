@@ -59,7 +59,14 @@ sys.path.insert(0, str(ROOT))
 
 from backend.restart_marker import append_marker, caller_name, read_markers  # noqa: E402
 
-ALL_GROUPS = ("u", "n", "m", "c")
+# 组清单单一来源（2026-09-18）：直接从 worker_watchdog.GROUP_TASK_MAP 取键，
+# 避免“拆了新组但本脚本 ALL_GROUPS 没跟上”导致 --list/--groups 默认值漏掉该组
+# （旧值 ("u", "n", "m", "c") 在两处写死，拆 v 组时就是靠测试守卫发现这类遗漏）。
+try:
+    from backend.worker_watchdog import GROUP_TASK_MAP as _GROUP_TASK_MAP
+    ALL_GROUPS = tuple(_GROUP_TASK_MAP.keys())
+except Exception:  # pragma: no cover - import 失败时不阻断运维入口
+    ALL_GROUPS = ("u", "n", "m", "c", "v")
 WD_PID_FILE = BACKEND / "worker_watchdog.pid"
 WD_CONSOLE = LOG_DIR / "worker_watchdog_console.log"
 WD_CONSOLE_ERR = LOG_DIR / "worker_watchdog_console.log.err"
@@ -202,7 +209,7 @@ def python_exe() -> Path:
 def canonical_env() -> dict:
     """复刻 start_hidden.ps1 line 111-116 的启动环境。"""
     env = os.environ.copy()
-    env["MY_APP_WORKER_GROUPS"] = "u,n,m,c"
+    env["MY_APP_WORKER_GROUPS"] = ",".join(ALL_GROUPS)
     env["MY_APP_TASK_QUEUE"] = "1"          # 纵深防御：子 worker 只投递，由主循环串行认领
     env["PYTHONUTF8"] = "1"
     env["CODEBUDDY_SESSION_ID"] = ""
@@ -432,7 +439,8 @@ def main() -> int:
     ap.add_argument("--tail", type=int, metavar="N", help="查看最近 N 条重启留痕")
     ap.add_argument("--mode", choices=("worker", "watchdog"), default="worker",
                     help="worker=只重启子进程(默认)；watchdog=连 watchdog 一起重启(env 变更时才需要)")
-    ap.add_argument("--groups", default=",".join(ALL_GROUPS), help="逗号分隔，默认 u,n,m,c")
+    ap.add_argument("--groups", default=",".join(ALL_GROUPS),
+                    help=f"逗号分隔，默认 {','.join(ALL_GROUPS)}（取自 worker_watchdog.GROUP_TASK_MAP）")
     ap.add_argument("--reason", default="", help="重启目的（强烈建议写，会进留痕）")
     ap.add_argument("--by", default=None, help="发起方（默认自动推断）")
     ap.add_argument("--wait", type=int, default=60, help="等待新 pid 就绪的最长秒数，默认 60")

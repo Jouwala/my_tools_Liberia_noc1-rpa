@@ -1,8 +1,9 @@
 /* ==================== 任务清单详解数据（供 Help 页「任务管理详解」使用） ====================
- * 内容依据 backend/task_registry.py 的 TASK_SPECS（55 条声明）、
- * backend/worker_watchdog.py 的 GROUP_TASK_MAP（worker 分组）以及
+ * 内容依据 backend/task_registry.py 的 TASK_SPECS（60 条声明）、
+ * backend/worker_watchdog.py 的 GROUP_TASK_MAP（worker 分组 u/n/v/m/c）以及
  * docs/manual/04-task-system.md、14-integrations.md、03-data-layer.md 整理。
  * 改动后端任务注册表时请同步更新本文件（字段：cron / group / script / flow / maintain）。
+ * 2026-09-18：补齐此前注册表有、本清单缺的 13 个任务，现与 GROUP_TASK_MAP 一一对应。
  * ================================================ */
 
 export interface TaskDocText {
@@ -16,7 +17,7 @@ export interface TaskDocText {
 
 export interface TaskDoc {
   id: string
-  group: 'u' | 'n' | 'm' | 'c'
+  group: 'u' | 'n' | 'v' | 'm' | 'c'
   cron: string
   /** 工作流脚本（backend/services/ 下的模块） */
   script: string
@@ -32,6 +33,10 @@ export const WORKER_GROUP_INFO: Record<string, { zh: string; en: string }> = {
   n: {
     zh: '网管 / eFlow API / 远程系统：彼此独立但保守同组',
     en: 'NMS / eFlow API / remote systems: independent but conservatively grouped',
+  },
+  v: {
+    zh: 'VMAX 门户（本机 8790 单会话代理）：三个任务共用同一会话必须串行；2026-09-18 从 n 组拆出，不再被 1.5~2h 长任务堵住',
+    en: 'VMAX portal (local 8790 single-session proxy): the three tasks share one session and must serialize; split out of group n on 2026-09-18 so long tasks no longer block them',
   },
   m: {
     zh: '内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖',
@@ -810,6 +815,347 @@ export const TASK_DOCS: TaskDoc[] = [
       desc: 'Aggregate the previous complete UTC day of CN EMS KPIs into csv_out/<TEMPLATE>.csv per Query_Template.xml (7 templates: VLR/USSD/voice/location update/License/TDD/data subscribers)',
       flow: ['Daily 00:20 UTC (08:20 Beijing): best-effort refetch of the previous-day window', 'Aggregate purely from the local _pmcache (server-independent)', 'Emit csv_out/<TEMPLATE>.csv per Query_Template.xml + samples formulas (7 templates)'],
       maintain: ['Shares _pmcache/daily_raw.json with the cache sync — serialized in group c for mutual exclusion'],
+    },
+  },
+  // ==================== 2026-09-18 补齐：注册表里有、本页此前缺失的 13 个任务 ====================
+  {
+    id: 'cxo_dashboard_cache_sync', group: 'v', cron: '*/10 * * * *',
+    script: 'services/cxo_dashboard_cache.py → run_cxo_dashboard_cache_sync',
+    zh: {
+      name: 'CXO 看板数据缓存同步',
+      desc: '每 10 分钟经本机 8790 VMAX 代理拉取 CXO 看板全量接口，按接口粒度合并为 last-known-good 缓存（空值保留旧值），供看板兜底展示',
+      flow: ['每 10 分钟经 127.0.0.1:8790 VMAX 代理拉取 CXO 看板全部接口', '按接口粒度合并 last-known-good：某接口本轮取空只保留旧值，不把看板打成空白', '落盘 data/cxo_dashboard/last_known_good.json'],
+      maintain: [
+        '2026-09-18 与另两个 8790 任务一起从 n 组拆到 v 组：同会话必须串行，但不再排在 sp_data_sync（1.5~2h）后面',
+        '上线时曾漏登记 GROUP_TASK_MAP → 队列 pending 卡死、看板停在旧日期（第四次踩坑）',
+        '8790 会话失效时本任务失败，而看板会继续用 last-known-good 展示（看着正常其实已停更）——以任务执行历史为准',
+      ],
+    },
+    en: {
+      name: 'CXO Dashboard Cache Sync',
+      desc: 'Every 10 min pull all CXO dashboard APIs via the local 8790 VMAX proxy and merge them per-endpoint into a last-known-good cache (empty fetch keeps the old value) as the dashboard fallback',
+      flow: ['Pull every CXO dashboard endpoint via 127.0.0.1:8790 every 10 min', 'Merge per endpoint: an empty fetch keeps the old value instead of blanking the board', 'Persist data/cxo_dashboard/last_known_good.json'],
+      maintain: [
+        'Split out of group n into group v on 2026-09-18 with the other two 8790 tasks: still serialized on the shared session, no longer queued behind sp_data_sync (1.5-2h)',
+        'Missed its GROUP_TASK_MAP registration at launch → stuck pending and the board froze on a stale date (the fourth such accident)',
+        'When the 8790 session dies this task fails but the board keeps showing last-known-good (looks fine, actually stalled) — trust the execution history',
+      ],
+    },
+  },
+  {
+    id: 'vmax_cxo_daily_sync', group: 'v', cron: '15 * * * *',
+    script: 'services/vmax_cxo_daily_cache.py → run_vmax_cxo_daily_sync',
+    zh: {
+      name: 'VMAX CXO 天粒度日值归档',
+      desc: '每小时经 8790 VMAX 代理按监控批量拉取最近 8 天的 1hour 明细（50 个指标压成 8 个多列请求），聚合为日值落盘，供页签化天粒度看板累积回看约三周',
+      flow: ['每小时 :15 按监控批量拉最近 8 天的 1hour 明细（6 个 CXO 趋势 + 14 个网络 KPI + 30 个服务/OTT KPI）', '按流量 SUM / 用户 PEAK / 速率 AVG 聚合为日值', '落盘 data/vmax_cxo_daily/daily.json'],
+      maintain: [
+        '与 cxo_dashboard_cache_sync、vmax_multi_data_sync 共用 8790 单会话，同在 v 组串行',
+        '日值由小时明细聚合：错过几个小时可由 8 天窗口自动补回，无需人工回填',
+      ],
+    },
+    en: {
+      name: 'VMAX CXO Daily Value Archive',
+      desc: 'Hourly: batch-pull the last 8 days of 1-hour detail for 50 KPIs (compressed into 8 multi-column requests) via the 8790 VMAX proxy, aggregate to daily values for the tabbed daily board (~3 weeks of review)',
+      flow: ['At :15 every hour pull 8 days of 1-hour detail (6 CXO trend + 14 network + 30 service/OTT KPIs)', 'Aggregate per day: SUM for volume, PEAK for users, AVG for rates', 'Persist data/vmax_cxo_daily/daily.json'],
+      maintain: [
+        'Shares the single 8790 session with cxo_dashboard_cache_sync and vmax_multi_data_sync — serialized in group v',
+        'Daily values are aggregated from hourly detail: missing hours are refilled from the 8-day window automatically',
+      ],
+    },
+  },
+  {
+    id: 'vmax_multi_data_sync', group: 'v', cron: '45 * * * *',
+    script: 'services/vmax_multi_data/vmax_multi_data_service.py → run_vmax_multi_data_sync',
+    zh: {
+      name: 'VMAX 多报表指标采集',
+      desc: '每小时经 8790 VMAX 代理抓取 url.txt 记录的 vreport 报表（5GSA 流量 / 5GSA 视频）指标明细，落盘 latest.json 与 vmax_multi_data.sqlite3',
+      flow: ['每小时 :45 经 8790 代理请求 vreport 报表（sys_5gsa_traffic_ciservice / sys_5gsa_video_ciservice）', 'report_query 参数走 RSA 分块加密', '落盘 data/vmax_multi_data/<报表>_latest.json 与 vmax_multi_data.sqlite3（kpi_rows 明细 + sync_runs 运行记录）'],
+      maintain: [
+        '2026-09-18 补登记分组前从未执行过（第四次踩坑），现与另两个 8790 任务同属 v 组',
+        '页面取的是 latest.json 快照，任务失败时页面仍显示上一次数据，不会报错',
+      ],
+    },
+    en: {
+      name: 'VMAX Multi-Report KPI Collect',
+      desc: 'Hourly: fetch the vreport reports listed in url.txt (5GSA traffic / 5GSA video) via the 8790 proxy and persist latest.json plus vmax_multi_data.sqlite3',
+      flow: ['At :45 every hour request the vreport reports (sys_5gsa_traffic_ciservice / sys_5gsa_video_ciservice) via the 8790 proxy', 'report_query parameters are RSA block-encrypted', 'Persist data/vmax_multi_data/<key>_latest.json and vmax_multi_data.sqlite3 (kpi_rows + sync_runs)'],
+      maintain: [
+        'Never ran before its group registration on 2026-09-18 (the fourth accident); now in group v with the other two 8790 tasks',
+        'Pages read the latest.json snapshot, so a failing task still shows the previous run without any error',
+      ],
+    },
+  },
+  {
+    id: 'olib_soc_kpi_daily_sync', group: 'm', cron: '20 6 * * *',
+    script: 'services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_kpi_sync',
+    zh: {
+      name: 'OLIB SOC 看板 KPI 增量',
+      desc: '每日增量补齐 VMAX 90 天经营看板的 KPI 库（daily_kpi 表）：只跑 7 个看板块，只取缺的日期 + 重取最新 1 天，不出 Excel',
+      flow: ['每天 06:20 直连 VMAX 数仓 GBase（10.123.255.12:5258，库 zxvmax）', '只跑流量/活跃用户/缓存/视频/游戏/TCP/TOP 业务 7 个块', '只取缺失日期 + 重取最新 1 天（默认回看 7 天，幂等自愈），写 data/olib_soc_report/olib_soc_report.sqlite3 的 daily_kpi'],
+      maintain: [
+        '数仓分区只保留约 90 天，回看窗口必须落在保留期内',
+        'GBase 不可达时本任务失败；链路恢复后 days_back=7 会自动补齐断档，无需人工回填',
+        '上线时漏登记分组→ 90 天看板停在旧日期（2026-09-18 补录 m 组）',
+      ],
+    },
+    en: {
+      name: 'OLIB SOC Dashboard KPI Sync',
+      desc: 'Daily incremental fill of the 90-day CXO dashboard KPI store (daily_kpi): only the 7 dashboard blocks, missing days plus the newest day re-read, no Excel output',
+      flow: ['Daily 06:20 connect straight to the VMAX GBase DWH (10.123.255.12:5258, db zxvmax)', 'Run only the 7 board blocks (traffic/active users/cache/video/game/TCP/top services)', 'Fetch missing days plus re-read the newest day (7-day lookback, idempotent) into daily_kpi in data/olib_soc_report/olib_soc_report.sqlite3'],
+      maintain: [
+        'DWH partitions are kept ~90 days, so the lookback window must stay inside that retention',
+        'When GBase is unreachable the task fails; once the link returns, days_back=7 refills the gap by itself',
+        'Missed its group registration at launch, freezing the 90-day board on a stale date (added to group m on 2026-09-18)',
+      ],
+    },
+  },
+  {
+    id: 'olib_soc_vmax_report', group: 'm', cron: '30 7 1 * *',
+    script: 'services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_report',
+    zh: {
+      name: 'OLIB SOC VMAX 例行报表',
+      desc: '直连 VMAX 数仓 GBase 按日分区跑 notebook 移植的 9 段 SQL，生成多 sheet Excel 与运行记录；默认出上一个自然月',
+      flow: ['每月 1 日 07:30 直连 GBase 按日分区跑 9 段 SQL（traffic/Active_user/cache/GUW/Video/game/TCP/TOP 业务/TOP 视频）', '生成多 sheet Excel 与运行记录，默认窗口为上一个自然月（可配 last_n_days/weekly/explicit）', '窗口自动截断到数仓约 90 天保留期内'],
+      maintain: [
+        '低频任务（每月一次）：健康巡检按 cron 间隔判定，不会因为“24h 没跑”被误报',
+        '配置在 services/olib_soc_report/ 的 json（range_mode/days/mail.enabled）；GBase 口令走凭据分组 vmax_gbase',
+      ],
+    },
+    en: {
+      name: 'OLIB SOC VMAX Routine Report',
+      desc: 'Direct GBase DWH queries on daily partitions for the 9 notebook report blocks, producing a multi-sheet Excel plus run records; default window = previous calendar month',
+      flow: ['Monthly on the 1st at 07:30 run the 9 SQL blocks against GBase daily partitions', 'Emit a multi-sheet Excel and run records; default window is the previous calendar month (last_n_days/weekly/explicit configurable)', 'The window is clamped to the ~90-day partition retention'],
+      maintain: [
+        'Low-frequency (monthly): the health check scales its window by cron, so it is not falsely reported as “silent for 24h”',
+        'Config lives in the JSON files under services/olib_soc_report/ (range_mode/days/mail.enabled); the GBase password comes from credential group vmax_gbase',
+      ],
+    },
+  },
+  {
+    id: 'ume_in_kpi_sync', group: 'n', cron: '45 5 * * *',
+    script: 'services/ume_in/ume_in_kpi_service.py → run_ume_in_kpi_sync',
+    zh: {
+      name: '客户业务 KPI 同步',
+      desc: '从 UME 门户 172.17.208.1:28808 抓取 Dong customer 周期业务 KPI（IVR/P4M/VC/USSD/PPS/CPU/Memory 共 7 个模板，1 天粒度，默认回看 7 天），直写主库表 ume_in_customer_kpi',
+      flow: ['每天 05:45 登录 UME 门户抓 7 个模板的 1 天粒度 KPI', '内存导出不落盘', '直写主库表 ume_in_customer_kpi（Begin Time + KPI + NE + SERVICE 联合去重）'],
+      maintain: [
+        '与其它网管类任务同在 n 组串行',
+        '默认回看 7 天幂等：门户侧延迟出数会自动补回',
+      ],
+    },
+    en: {
+      name: 'Customer Service KPI Sync',
+      desc: 'Fetch Dong customer service KPIs from the UME portal 172.17.208.1:28808 (7 templates: IVR/P4M/VC/USSD/PPS/CPU/Memory, 1-day granularity, 7-day lookback) and write table ume_in_customer_kpi',
+      flow: ['Daily 05:45 log into the UME portal and fetch the 7 templates at 1-day granularity', 'In-memory export, nothing written to disk', 'Direct write to ume_in_customer_kpi (dedup by Begin Time + KPI + NE + SERVICE)'],
+      maintain: [
+        'Serialized in group n with the other NMS tasks',
+        'Idempotent thanks to the 7-day lookback: late-arriving portal data is refilled automatically',
+      ],
+    },
+  },
+  {
+    id: 'ume_in_osg_report', group: 'n', cron: '30 6 * * *',
+    script: 'services/ume_in/osg_report_task.py → run_ume_in_osg_report（内部依次调 ume_in_kpi_service + t_osg_build.py）',
+    zh: {
+      name: '客户业务 KPI + OSG 周报邮件',
+      desc: '每天早上分步执行：先做一次 ume_in KPI 同步，再按 ume_in_customer_kpi 最新 7 天生成 OSG Weekly QoS Analysis Report Excel，最后把该 Excel 作为附件发给 djoumene.reussite1@zte.com.cn（抄送 dong.xinmin@zte.com.cn）',
+      flow: [
+        '06:30 ① 调 ume_in_kpi_service.run_ume_in_kpi_sync() 同步 7 个模板到 ume_in_customer_kpi（与 ume_in_kpi_sync 同一门户会话）',
+        '② 调 services/ume_in/t_osg_build.py 取表里最新 7 天填充 OSG 模板，产出 data/in_data/OSG Weekly QoS Analysis Report_<起>_<止>.xlsx（图表/条件格式/样式不动；派生列按原模板公式写入公式+缓存值：PPS 的 C/E/J、USSD 的 C/E/I、VC 的 H、IVR 的 E）',
+        '③ 附件经 Orange EWS 发给主送 djoumene.reussite1@zte.com.cn、抄送 dong.xinmin@zte.com.cn',
+      ],
+      maintain: [
+        '与 ume_in_kpi_sync 同组 n 串行：同一步骤共用 UME Dong 门户单会话',
+        '第 1 步同步失败即中止，不会把上一窗口的旧数据当新报告发出去',
+        '收件人可在 Settings → Email Recipient Settings 的 ume_in_osg_report 组覆盖；产物只保留最近 10 份',
+      ],
+    },
+    en: {
+      name: 'Customer Service KPI + OSG Weekly Report Email',
+      desc: 'Every morning, step by step: run the ume_in KPI sync, build the OSG Weekly QoS Analysis Report Excel from the latest 7 days in ume_in_customer_kpi, then email that Excel to djoumene.reussite1@zte.com.cn (cc dong.xinmin@zte.com.cn)',
+      flow: [
+        '06:30 ① call ume_in_kpi_service.run_ume_in_kpi_sync() to sync the 7 templates into ume_in_customer_kpi (same portal session as ume_in_kpi_sync)',
+        '② call services/ume_in/t_osg_build.py to fill the OSG template with the latest 7 days, producing data/in_data/OSG Weekly QoS Analysis Report_<start>_<end>.xlsx (charts/conditional formatting/styles untouched; derived columns get both formula and cached value, per the original template formulas: PPS C/E/J, USSD C/E/I, VC H, IVR E)',
+        '③ attach it to an Orange EWS mail to djoumene.reussite1@zte.com.cn, cc dong.xinmin@zte.com.cn',
+      ],
+      maintain: [
+        'Serialized in group n with ume_in_kpi_sync: step ① shares the UME Dong portal session',
+        'A failed sync aborts the run — a stale previous-window report is never emailed as the new one',
+        'Recipients are editable under Settings → Email Recipient Settings (group ume_in_osg_report); only the latest 10 artifacts are kept',
+      ],
+    },
+  },
+  {
+    id: 'sp_online_sync', group: 'n', cron: '35 * * * *',
+    script: 'services/sp_online_sync.py → run_sp_online_sync',
+    zh: {
+      name: 'SP Online 工单同步',
+      desc: '每小时从 eFlow SP 接口拉全量在线工单（sp-outbound / sp-inbound / sp-transfer），写 app.db 对应三张表',
+      flow: ['每小时 :35 请求 eFlow SP 三个接口拉全量在线工单', '写 app.db 表 sp_outbound / sp_inbound / sp_transfer', '「表浏览器」可直查，下游 sp_online_report_generate 消费明细'],
+      maintain: [
+        '上游账号走 eflow 凭据分组；eFlow 会话被踢时表现为该组任务连续 failed，由 auto_retry_failed 兜底',
+      ],
+    },
+    en: {
+      name: 'SP Online Ticket Sync',
+      desc: 'Hourly: fetch all online tickets from the eFlow SP APIs (sp-outbound/sp-inbound/sp-transfer) into the matching app.db tables',
+      flow: ['At :35 every hour call the three eFlow SP APIs', 'Write app.db tables sp_outbound / sp_inbound / sp_transfer', 'Queryable in Table Browser; sp_online_report_generate consumes the details'],
+      maintain: [
+        'Upstream account comes from the eflow credential group; a kicked eFlow session shows up as consecutive failures in the group, covered by auto_retry_failed',
+      ],
+    },
+  },
+  {
+    id: 'sp_material_sync', group: 'n', cron: '55 4 * * *',
+    script: 'services/sp_material_sync.py → run_sp_material_sync',
+    zh: {
+      name: 'SP 物料主数据同步',
+      desc: '从 eFlow SP 物料接口（eflow-sp-material）拉全量物料主数据，按 materialNo 唯一键 upsert 写 app.db 表 sp_material',
+      flow: ['每天 04:55 拉 eflow-sp-material 全量物料主数据', '按 materialNo upsert 写 app.db 表 sp_material', '「表浏览器」可查，下游 sp_material_report 出库存与消耗报表'],
+      maintain: [
+        '下游 sp_material_report（07:33）只读表不拉接口：本任务停更时邮件仍会正常发，但内容是旧数据',
+      ],
+    },
+    en: {
+      name: 'SP Material Master Sync',
+      desc: 'Fetch the full material master from the eFlow SP API (eflow-sp-material) into app.db table sp_material (upsert by materialNo)',
+      flow: ['Daily 04:55 pull the full eflow-sp-material master', 'Upsert into app.db table sp_material by materialNo', 'Queryable in Table Browser; sp_material_report builds the stock/consumption report from it'],
+      maintain: [
+        'sp_material_report (07:33) only reads the table: if this task stalls, the email still sends but with stale content',
+      ],
+    },
+  },
+  {
+    id: 'sp_online_report_generate', group: 'm', cron: '0 6 * * *',
+    script: 'services/kpi_email_report.py → run_sp_online_report_generate',
+    zh: {
+      name: 'SP 在线未关闭单报表生成',
+      desc: '基于 data/sp_email/data 最新 inband/outband 明细，过滤未关闭单生成 sp_online 下 Inbound/Outbound 报表（PNG+XLSX，Create Time 倒序）',
+      flow: ['每天 06:00 读 data/sp_email/data 下最新 inband/outband 明细', '过滤未关闭单', '生成 data/sp_email/sp_online 的 Inbound/Outbound 报表（PNG + XLSX）'],
+      maintain: [
+        '纯生成不发信，发送由 06:20 的 sp_online_report_send 负责——两者拆开后重跑发送不必重新取数',
+      ],
+    },
+    en: {
+      name: 'SP Online Open Tickets Report Generate',
+      desc: 'Build the open-ticket Inbound/Outbound reports (PNG+XLSX, sorted by Create Time desc) under data/sp_email/sp_online from the latest details',
+      flow: ['Daily 06:00 read the newest inband/outband details under data/sp_email/data', 'Filter to open tickets', 'Emit Inbound/Outbound PNG + XLSX into data/sp_email/sp_online'],
+      maintain: [
+        'Generates only — sp_online_report_send (06:20) delivers, so re-sending never requires regenerating',
+      ],
+    },
+  },
+  {
+    id: 'sp_online_report_send', group: 'm', cron: '20 6 * * *',
+    script: 'services/kpi_email_report.py → run_sp_online_report',
+    zh: {
+      name: 'SP 在线未关闭单报表发送',
+      desc: '发送 sp_online 未关闭单报表：邮件（PNG 内嵌 + XLSX 附件，默认复用 SP 报表远程名单）+ WhatsApp 群',
+      flow: ['每天 06:20 取 sp_online 最新报表文件', '邮件：Inbound/Outbound PNG 内嵌 + XLSX 附件', '同时发到 WhatsApp 群，收件人可在「系统设置 → 邮件收件人」覆盖'],
+      maintain: [
+        '依赖 06:00 的 sp_online_report_generate 产物，上游缺文件时本任务直接失败',
+        '属邮件类任务：默认不参与漏跑补投，EWS 恢复后由 email_recovery 补发',
+      ],
+    },
+    en: {
+      name: 'SP Online Open Tickets Report Send',
+      desc: 'Send the open-ticket report: email (inline Inbound/Outbound PNG + XLSX attachments, default SP shared recipient list) + WhatsApp groups',
+      flow: ['Daily 06:20 pick up the newest sp_online report files', 'Email with inline PNG plus XLSX attachments', 'Also push to WhatsApp groups; recipients overridable under Settings → Email Recipients'],
+      maintain: [
+        'Depends on the 06:00 generation task output — missing files make this one fail outright',
+        'An email task: excluded from missed-run backfill by default, email_recovery replays it once EWS is back',
+      ],
+    },
+  },
+  {
+    id: 'eflow_alarm_rules_collect', group: 'n', cron: '59 23 */3 * *',
+    script: 'services/eflow_rules/eflow_Alarm_Rule_Collector.py → run_eflow_alarm_rules',
+    zh: {
+      name: 'eFlow 告警规则收集',
+      desc: '每 3 天 23:59 从 eFlow 拉取规则类型目录与告警关联规则（correlation-mgt），导出 eflow_alarm_rules.xlsx',
+      flow: ['每 3 天 23:59 拉 eFlow 规则类型目录与告警关联规则（correlation-mgt）', '导出 backend/services/eflow_rules/eflow_alarm_rules.xlsx（Alarm_Rules + Rule_Types 两个 Sheet）'],
+      maintain: [
+        '低频任务（每 3 天）：健康巡检按 cron 间隔判定，不会因“24h 未执行”被误报',
+        '导出的 xlsx 是下游规则比对的输入，属代码资产，不要手工改动',
+      ],
+    },
+    en: {
+      name: 'eFlow Alarm Rules Collect',
+      desc: 'Every 3 days at 23:59 pull rule types and alarm correlation rules from eFlow into eflow_alarm_rules.xlsx (sheets Alarm_Rules + Rule_Types)',
+      flow: ['Every 3 days at 23:59 pull the rule-type catalog and correlation rules (correlation-mgt)', 'Export backend/services/eflow_rules/eflow_alarm_rules.xlsx'],
+      maintain: [
+        'Low-frequency (every 3 days): the health check scales its window by cron, so “no run in 24h” is not a false alarm',
+        'The exported xlsx feeds downstream rule matching — treat it as a code asset, never hand-edit',
+      ],
+    },
+  },
+  {
+    id: 'eflow_push_rules_collect', group: 'n', cron: '59 23 */3 * *',
+    script: 'services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules',
+    zh: {
+      name: 'eFlow 推单规则收集',
+      desc: '每 3 天 23:59 从 eFlow config-center 拉取全部规则（推单/升级/分组/自动关闭等 28 种类型），逐条合并 detail 后导出 eflow_push_rules.xlsx',
+      flow: ['每 3 天 23:59 以 query filter="" 拉 config-center 全部规则（28 种类型）', '逐条合并规则 detail', '导出 backend/services/eflow_rules/eflow_push_rules.xlsx（Push_Rules + Rule_Type_Summary）'],
+      maintain: [
+        '低频任务（每 3 天），与告警规则收集同组同周期',
+        '与 eflow_tt_rules_check 用的规则表同处 services/eflow_rules/，目录与文件名不要改名',
+      ],
+    },
+    en: {
+      name: 'eFlow Push Rules Collect',
+      desc: 'Every 3 days at 23:59 pull all rules from the eFlow config-center (28 types: push/escalation/grouping/auto-close...), merging detail per rule into eflow_push_rules.xlsx',
+      flow: ['Every 3 days at 23:59 query the config-center with filter="" for all rules (28 types)', 'Merge the detail of each rule', 'Export backend/services/eflow_rules/eflow_push_rules.xlsx (Push_Rules + Rule_Type_Summary)'],
+      maintain: [
+        'Low-frequency (every 3 days), same group and cadence as the alarm-rules collector',
+        'Lives in services/eflow_rules/ next to the rule sheet used by eflow_tt_rules_check — do not rename paths',
+      ],
+    },
+  },
+  {
+    id: 'log_cleanup', group: 'm', cron: '17 3 * * *',
+    script: 'services/log_cleanup.py → run_log_cleanup',
+    zh: {
+      name: '日志文件清理',
+      desc: '每天清理 my_app/log 下超过保留期（默认 7 天，LOG_RETENTION_DAYS 可调）的日志，并把已无进程写入的旧命名日志补上日期后缀',
+      flow: ['每天 03:17 扫描 log/ 下符合日志特征的文件', '删除超过保留期的（LOG_CLEANUP_DRY_RUN=1 只报告不删）', '给已无进程写入的旧命名日志补日期后缀，与各 watchdog 的按日期命名配合滚动保留'],
+      maintain: [
+        'Windows 下被进程占用的日志无法外部重命名/删除，只能由写入方按日期分文件——这就是日志名带日期的原因',
+        'db/app.db（含凭据表）、backend/services/auth_cache/、data/ 下任务产物不在清理范围',
+      ],
+    },
+    en: {
+      name: 'Log Files Cleanup',
+      desc: 'Daily purge of log files older than the retention window (7 days by default, LOG_RETENTION_DAYS) under my_app/log, plus date-suffixing of legacy names no process writes to',
+      flow: ['Daily 03:17 scan log/ for log-shaped files', 'Delete those past retention (LOG_CLEANUP_DRY_RUN=1 reports without deleting)', 'Add date suffixes to legacy names so they roll with the date-based watchdog log names'],
+      maintain: [
+        'On Windows a file held open cannot be renamed/deleted from outside — that is why the writers split logs by date',
+        'db/app.db (credentials), backend/services/auth_cache/ and data/ task outputs are out of scope',
+      ],
+    },
+  },
+  {
+    id: 'tmp_cleanup', group: 'm', cron: '47 3 * * *',
+    script: 'services/tmp_cleanup.py → run_tmp_cleanup',
+    zh: {
+      name: 'TMP 目录清理',
+      desc: '两段式回收 my_app/TMP 下超过保留期（默认 7 天）的临时产物：先同盘移进 TMP/_quarantine_YYYYMMDD/（可还原），隔离再满 7 天才真删',
+      flow: ['每天 03:47 扫描 TMP/ 下超过保留期的条目', '同盘 mv 进 _quarantine_<日期>/ 隔离（不直接删，留一次反悔机会）', '隔离期满 7 天后彻底删除；服务在用路径按 WHITELIST 跳过'],
+      maintain: [
+        'TMP/ 是临时产物的固定去处，但体积没人管（上线首日实测 462MB）——清理是必需的',
+        'charts/dl/状态文件等服务在用路径在 WHITELIST 里，永不处理；新增此类路径要补白名单',
+        '与 log_cleanup（03:17）错峰，避免同一时段两次全盘扫描',
+      ],
+    },
+    en: {
+      name: 'TMP Directory Cleanup',
+      desc: 'Two-stage reclaim of temp artifacts older than the retention window (7 days) under my_app/TMP: same-volume move into TMP/_quarantine_YYYYMMDD/ first (restorable), real delete only after another 7 days',
+      flow: ['Daily 03:47 scan TMP/ for entries past retention', 'Same-volume mv into _quarantine_<date>/ (nothing deleted outright)', 'Purge after another 7 days in quarantine; service paths in WHITELIST are skipped'],
+      maintain: [
+        'TMP/ is the designated place for temp artifacts but nothing bounded its size (462MB on day one) — cleanup is required',
+        'Service paths (charts/dl/state files) are whitelisted and never touched; add new ones to WHITELIST',
+        'Staggered against log_cleanup (03:17) so the two full scans do not overlap',
+      ],
     },
   },
 ]

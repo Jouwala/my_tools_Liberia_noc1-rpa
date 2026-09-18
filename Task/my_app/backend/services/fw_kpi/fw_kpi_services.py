@@ -720,7 +720,10 @@ def _send_email(to, cc, subject, body, inline_images):
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=180,
+            # 180 → 300（2026-09-18）：实测一次冷启动完整发送（NTLM 握手 + 内嵌图上传
+            # + CreateItem/SendItem）要 198.49s，180s 会把**正在发送**的子进程杀掉，
+            # 任务记失败却可能已经发出。与 kpi_email_report/liberia_email_report 对齐。
+            timeout=300,
             cwd=MY_APP_DIR,
             creationflags=_SUBPROCESS_FLAGS,
         )
@@ -847,9 +850,29 @@ def run():
     if email_result:
         print(f"[MAIN] 邮件: success={email_result.get('success')}")
     print("[MAIN] Done.")
-    return {"success": True, "rows_written": total_inserted, "remote_api": api_ok,
-            "devices": list(device_rows.keys()), "email": email_result,
-            "elapsed_seconds": round(elapsed, 2)}
+
+    # 邮件失败必须让任务失败（2026-09-18 修正）。
+    # 原实现无论邮件成败都返回 success=True，导致：
+    #   (a) 失败不会进入 email_recovery 的失败链 → EWS 恢复后**永不补发**；
+    #   (b) 任务历史/看板显示成功 —— 典型的假绿。
+    # 这正是 fw_kpi_sync 长期游离在 EMAIL_TASK_IDS 之外却没人发现的另一半原因。
+    # 数据同步本身已完成，故在 error 里同时说明，避免误判成"数据没同步"。
+    email_failed = bool(email_result) and not email_result.get("success")
+    result = {
+        "success": not email_failed,
+        "rows_written": total_inserted,
+        "remote_api": api_ok,
+        "devices": list(device_rows.keys()),
+        "email": email_result,
+        "elapsed_seconds": round(elapsed, 2),
+    }
+    if email_failed:
+        reason = (email_result.get("error") or email_result.get("message")
+                  or str(email_result))
+        result["error"] = (f"邮件发送失败（数据已同步 {total_inserted} 条，"
+                           f"remote_api={api_ok}）: {str(reason)[:800]}")
+        print(f"[MAIN] 邮件失败，任务判定为失败: {str(reason)[:200]}")
+    return result
 
 
 def run_fw_kpi_sync() -> dict:

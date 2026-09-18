@@ -294,7 +294,7 @@ export default function TaskConfigTab() {
       .finally(() => setImporting(false))
   }
 
-  const inputStyle = { background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(100,255,218,0.25)', color: WH.text }
+  const inputStyle = { background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0, 217, 255,0.25)', color: WH.text }
 
   return (
     <div style={{ maxWidth: 'min(100%, 75rem)' }}>
@@ -319,8 +319,8 @@ export default function TaskConfigTab() {
                         onClick={() => setSelected(t.task_id)}
                         style={{
                           cursor: 'pointer', padding: 'var(--wh-space-xs) var(--wh-space-sm)', borderRadius: 'var(--wh-radius-sm)', marginTop: '0.125rem',
-                          background: selected === t.task_id ? 'rgba(100,255,218,0.12)' : 'transparent',
-                          border: selected === t.task_id ? '1px solid rgba(100,255,218,0.4)' : '1px solid transparent',
+                          background: selected === t.task_id ? 'rgba(0, 217, 255,0.12)' : 'transparent',
+                          border: selected === t.task_id ? '1px solid rgba(0, 217, 255,0.4)' : '1px solid transparent',
                         }}
                       >
                         <Space style={{ width: '100%', justifyContent: 'space-between', gap: '0.375rem' }}>
@@ -395,7 +395,7 @@ export default function TaskConfigTab() {
                 </Space>
               </Space>
 
-              <Divider style={{ borderColor: 'rgba(100,255,218,0.15)', margin: '0.875rem 0' }} />
+              <Divider style={{ borderColor: 'rgba(0, 217, 255,0.15)', margin: '0.875rem 0' }} />
               <div>
                 <Text style={{ color: WH.textMuted, fontSize: '0.75rem' }}>{L.importTitle}</Text>
                 <Input.TextArea
@@ -438,7 +438,7 @@ export default function TaskConfigTab() {
 
               {selected === 'cm_data_sync' && (
                 <>
-                  <Divider style={{ borderColor: 'rgba(100,255,218,0.15)', margin: '0.875rem 0' }} />
+                  <Divider style={{ borderColor: 'rgba(0, 217, 255,0.15)', margin: '0.875rem 0' }} />
                   <div>
                     <Text style={{ color: WH.textMuted, fontSize: '0.75rem', fontWeight: 600 }}>
                       🗂️ {zh ? '网元配置（RAN CM 流程，来源 new_url.txt / cm_flows.json）' : 'NE Config (RAN CM flows)'}

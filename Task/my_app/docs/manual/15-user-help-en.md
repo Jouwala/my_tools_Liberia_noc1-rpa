@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-15.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-18.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (47 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (62 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -72,12 +72,13 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | --- | --- |
 | **u** | RAN UME single-account session; tasks run serially (parallel runs kick the session) |
 | **n** | NMS / eFlow API / remote systems: independent but conservatively grouped |
+| **v** | VMAX portal (local 8790 single-session proxy): the three tasks share one session and must serialize; split out of group n on 2026-09-18 so long tasks no longer block them |
 | **m** | Housekeeping tasks: EWS mail session + screenshot/WhatsApp file dependencies |
 | **c** | CN EMS dedicated session: cache sync & daily aggregation share _pmcache, serialized for mutual exclusion |
 
-> ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened three times (finebi_report_sync / whatsapp_send_ext / sp_email_details).
+> ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (47 tasks)
+### 3.3 Full task catalog (62 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -128,6 +129,21 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | MW UME KPI Realtime Sync | `mw_ume_kpi_sync_rt` | `*/15 * * * *` | n | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync_rt` |
 | CN EMS KPI Cache Sync | `ems_kpi_cache_sync` | `*/15 * * * *` | c | `services/cn_ems/ems_kpi_service.py → run_ems_kpi_cache_sync` |
 | CN EMS KPI Daily CSV | `ems_kpi_daily` | `20 0 * * *` | c | `services/cn_ems/ems_kpi_service.py → run_ems_kpi_daily` |
+| CXO Dashboard Cache Sync | `cxo_dashboard_cache_sync` | `*/10 * * * *` | v | `services/cxo_dashboard_cache.py → run_cxo_dashboard_cache_sync` |
+| VMAX CXO Daily Value Archive | `vmax_cxo_daily_sync` | `15 * * * *` | v | `services/vmax_cxo_daily_cache.py → run_vmax_cxo_daily_sync` |
+| VMAX Multi-Report KPI Collect | `vmax_multi_data_sync` | `45 * * * *` | v | `services/vmax_multi_data/vmax_multi_data_service.py → run_vmax_multi_data_sync` |
+| OLIB SOC Dashboard KPI Sync | `olib_soc_kpi_daily_sync` | `20 6 * * *` | m | `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_kpi_sync` |
+| OLIB SOC VMAX Routine Report | `olib_soc_vmax_report` | `30 7 1 * *` | m | `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_report` |
+| Customer Service KPI Sync | `ume_in_kpi_sync` | `45 5 * * *` | n | `services/ume_in/ume_in_kpi_service.py → run_ume_in_kpi_sync` |
+| Customer Service KPI + OSG Weekly Report Email | `ume_in_osg_report` | `30 6 * * *` | n | `services/ume_in/osg_report_task.py → run_ume_in_osg_report（内部依次调 ume_in_kpi_service + t_osg_build.py）` |
+| SP Online Ticket Sync | `sp_online_sync` | `35 * * * *` | n | `services/sp_online_sync.py → run_sp_online_sync` |
+| SP Material Master Sync | `sp_material_sync` | `55 4 * * *` | n | `services/sp_material_sync.py → run_sp_material_sync` |
+| SP Online Open Tickets Report Generate | `sp_online_report_generate` | `0 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report_generate` |
+| SP Online Open Tickets Report Send | `sp_online_report_send` | `20 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report` |
+| eFlow Alarm Rules Collect | `eflow_alarm_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Alarm_Rule_Collector.py → run_eflow_alarm_rules` |
+| eFlow Push Rules Collect | `eflow_push_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules` |
+| Log Files Cleanup | `log_cleanup` | `17 3 * * *` | m | `services/log_cleanup.py → run_log_cleanup` |
+| TMP Directory Cleanup | `tmp_cleanup` | `47 3 * * *` | m | `services/tmp_cleanup.py → run_tmp_cleanup` |
 
 Workflow & maintenance notes per task:
 
@@ -933,6 +949,276 @@ Workflow & maintenance notes per task:
 
 - Shares _pmcache/daily_raw.json with the cache sync — serialized in group c for mutual exclusion
 
+#### CXO Dashboard Cache Sync（`cxo_dashboard_cache_sync`）
+
+- Default cron: `*/10 * * * *`　|　worker group: **v**
+- Workflow script: `services/cxo_dashboard_cache.py → run_cxo_dashboard_cache_sync`
+
+**What it does**: Every 10 min pull all CXO dashboard APIs via the local 8790 VMAX proxy and merge them per-endpoint into a last-known-good cache (empty fetch keeps the old value) as the dashboard fallback
+
+**Workflow & data flow**:
+
+1. Pull every CXO dashboard endpoint via 127.0.0.1:8790 every 10 min
+1. Merge per endpoint: an empty fetch keeps the old value instead of blanking the board
+1. Persist data/cxo_dashboard/last_known_good.json
+
+**Maintenance**:
+
+- Split out of group n into group v on 2026-09-18 with the other two 8790 tasks: still serialized on the shared session, no longer queued behind sp_data_sync (1.5-2h)
+- Missed its GROUP_TASK_MAP registration at launch → stuck pending and the board froze on a stale date (the fourth such accident)
+- When the 8790 session dies this task fails but the board keeps showing last-known-good (looks fine, actually stalled) — trust the execution history
+
+#### VMAX CXO Daily Value Archive（`vmax_cxo_daily_sync`）
+
+- Default cron: `15 * * * *`　|　worker group: **v**
+- Workflow script: `services/vmax_cxo_daily_cache.py → run_vmax_cxo_daily_sync`
+
+**What it does**: Hourly: batch-pull the last 8 days of 1-hour detail for 50 KPIs (compressed into 8 multi-column requests) via the 8790 VMAX proxy, aggregate to daily values for the tabbed daily board (~3 weeks of review)
+
+**Workflow & data flow**:
+
+1. At :15 every hour pull 8 days of 1-hour detail (6 CXO trend + 14 network + 30 service/OTT KPIs)
+1. Aggregate per day: SUM for volume, PEAK for users, AVG for rates
+1. Persist data/vmax_cxo_daily/daily.json
+
+**Maintenance**:
+
+- Shares the single 8790 session with cxo_dashboard_cache_sync and vmax_multi_data_sync — serialized in group v
+- Daily values are aggregated from hourly detail: missing hours are refilled from the 8-day window automatically
+
+#### VMAX Multi-Report KPI Collect（`vmax_multi_data_sync`）
+
+- Default cron: `45 * * * *`　|　worker group: **v**
+- Workflow script: `services/vmax_multi_data/vmax_multi_data_service.py → run_vmax_multi_data_sync`
+
+**What it does**: Hourly: fetch the vreport reports listed in url.txt (5GSA traffic / 5GSA video) via the 8790 proxy and persist latest.json plus vmax_multi_data.sqlite3
+
+**Workflow & data flow**:
+
+1. At :45 every hour request the vreport reports (sys_5gsa_traffic_ciservice / sys_5gsa_video_ciservice) via the 8790 proxy
+1. report_query parameters are RSA block-encrypted
+1. Persist data/vmax_multi_data/<key>_latest.json and vmax_multi_data.sqlite3 (kpi_rows + sync_runs)
+
+**Maintenance**:
+
+- Never ran before its group registration on 2026-09-18 (the fourth accident); now in group v with the other two 8790 tasks
+- Pages read the latest.json snapshot, so a failing task still shows the previous run without any error
+
+#### OLIB SOC Dashboard KPI Sync（`olib_soc_kpi_daily_sync`）
+
+- Default cron: `20 6 * * *`　|　worker group: **m**
+- Workflow script: `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_kpi_sync`
+
+**What it does**: Daily incremental fill of the 90-day CXO dashboard KPI store (daily_kpi): only the 7 dashboard blocks, missing days plus the newest day re-read, no Excel output
+
+**Workflow & data flow**:
+
+1. Daily 06:20 connect straight to the VMAX GBase DWH (10.123.255.12:5258, db zxvmax)
+1. Run only the 7 board blocks (traffic/active users/cache/video/game/TCP/top services)
+1. Fetch missing days plus re-read the newest day (7-day lookback, idempotent) into daily_kpi in data/olib_soc_report/olib_soc_report.sqlite3
+
+**Maintenance**:
+
+- DWH partitions are kept ~90 days, so the lookback window must stay inside that retention
+- When GBase is unreachable the task fails; once the link returns, days_back=7 refills the gap by itself
+- Missed its group registration at launch, freezing the 90-day board on a stale date (added to group m on 2026-09-18)
+
+#### OLIB SOC VMAX Routine Report（`olib_soc_vmax_report`）
+
+- Default cron: `30 7 1 * *`　|　worker group: **m**
+- Workflow script: `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_report`
+
+**What it does**: Direct GBase DWH queries on daily partitions for the 9 notebook report blocks, producing a multi-sheet Excel plus run records; default window = previous calendar month
+
+**Workflow & data flow**:
+
+1. Monthly on the 1st at 07:30 run the 9 SQL blocks against GBase daily partitions
+1. Emit a multi-sheet Excel and run records; default window is the previous calendar month (last_n_days/weekly/explicit configurable)
+1. The window is clamped to the ~90-day partition retention
+
+**Maintenance**:
+
+- Low-frequency (monthly): the health check scales its window by cron, so it is not falsely reported as “silent for 24h”
+- Config lives in the JSON files under services/olib_soc_report/ (range_mode/days/mail.enabled); the GBase password comes from credential group vmax_gbase
+
+#### Customer Service KPI Sync（`ume_in_kpi_sync`）
+
+- Default cron: `45 5 * * *`　|　worker group: **n**
+- Workflow script: `services/ume_in/ume_in_kpi_service.py → run_ume_in_kpi_sync`
+
+**What it does**: Fetch Dong customer service KPIs from the UME portal 172.17.208.1:28808 (7 templates: IVR/P4M/VC/USSD/PPS/CPU/Memory, 1-day granularity, 7-day lookback) and write table ume_in_customer_kpi
+
+**Workflow & data flow**:
+
+1. Daily 05:45 log into the UME portal and fetch the 7 templates at 1-day granularity
+1. In-memory export, nothing written to disk
+1. Direct write to ume_in_customer_kpi (dedup by Begin Time + KPI + NE + SERVICE)
+
+**Maintenance**:
+
+- Serialized in group n with the other NMS tasks
+- Idempotent thanks to the 7-day lookback: late-arriving portal data is refilled automatically
+
+#### Customer Service KPI + OSG Weekly Report Email（`ume_in_osg_report`）
+
+- Default cron: `30 6 * * *`　|　worker group: **n**
+- Workflow script: `services/ume_in/osg_report_task.py → run_ume_in_osg_report（内部依次调 ume_in_kpi_service + t_osg_build.py）`
+
+**What it does**: Every morning, step by step: run the ume_in KPI sync, build the OSG Weekly QoS Analysis Report Excel from the latest 7 days in ume_in_customer_kpi, then email that Excel to djoumene.reussite1@zte.com.cn (cc dong.xinmin@zte.com.cn)
+
+**Workflow & data flow**:
+
+1. 06:30 ① call ume_in_kpi_service.run_ume_in_kpi_sync() to sync the 7 templates into ume_in_customer_kpi (same portal session as ume_in_kpi_sync)
+1. ② call services/ume_in/t_osg_build.py to fill the OSG template with the latest 7 days, producing data/in_data/OSG Weekly QoS Analysis Report_<start>_<end>.xlsx (charts/conditional formatting/styles untouched; derived columns get both formula and cached value, per the original template formulas: PPS C/E/J, USSD C/E/I, VC H, IVR E)
+1. ③ attach it to an Orange EWS mail to djoumene.reussite1@zte.com.cn, cc dong.xinmin@zte.com.cn
+
+**Maintenance**:
+
+- Serialized in group n with ume_in_kpi_sync: step ① shares the UME Dong portal session
+- A failed sync aborts the run — a stale previous-window report is never emailed as the new one
+- Recipients are editable under Settings → Email Recipient Settings (group ume_in_osg_report); only the latest 10 artifacts are kept
+
+#### SP Online Ticket Sync（`sp_online_sync`）
+
+- Default cron: `35 * * * *`　|　worker group: **n**
+- Workflow script: `services/sp_online_sync.py → run_sp_online_sync`
+
+**What it does**: Hourly: fetch all online tickets from the eFlow SP APIs (sp-outbound/sp-inbound/sp-transfer) into the matching app.db tables
+
+**Workflow & data flow**:
+
+1. At :35 every hour call the three eFlow SP APIs
+1. Write app.db tables sp_outbound / sp_inbound / sp_transfer
+1. Queryable in Table Browser; sp_online_report_generate consumes the details
+
+**Maintenance**:
+
+- Upstream account comes from the eflow credential group; a kicked eFlow session shows up as consecutive failures in the group, covered by auto_retry_failed
+
+#### SP Material Master Sync（`sp_material_sync`）
+
+- Default cron: `55 4 * * *`　|　worker group: **n**
+- Workflow script: `services/sp_material_sync.py → run_sp_material_sync`
+
+**What it does**: Fetch the full material master from the eFlow SP API (eflow-sp-material) into app.db table sp_material (upsert by materialNo)
+
+**Workflow & data flow**:
+
+1. Daily 04:55 pull the full eflow-sp-material master
+1. Upsert into app.db table sp_material by materialNo
+1. Queryable in Table Browser; sp_material_report builds the stock/consumption report from it
+
+**Maintenance**:
+
+- sp_material_report (07:33) only reads the table: if this task stalls, the email still sends but with stale content
+
+#### SP Online Open Tickets Report Generate（`sp_online_report_generate`）
+
+- Default cron: `0 6 * * *`　|　worker group: **m**
+- Workflow script: `services/kpi_email_report.py → run_sp_online_report_generate`
+
+**What it does**: Build the open-ticket Inbound/Outbound reports (PNG+XLSX, sorted by Create Time desc) under data/sp_email/sp_online from the latest details
+
+**Workflow & data flow**:
+
+1. Daily 06:00 read the newest inband/outband details under data/sp_email/data
+1. Filter to open tickets
+1. Emit Inbound/Outbound PNG + XLSX into data/sp_email/sp_online
+
+**Maintenance**:
+
+- Generates only — sp_online_report_send (06:20) delivers, so re-sending never requires regenerating
+
+#### SP Online Open Tickets Report Send（`sp_online_report_send`）
+
+- Default cron: `20 6 * * *`　|　worker group: **m**
+- Workflow script: `services/kpi_email_report.py → run_sp_online_report`
+
+**What it does**: Send the open-ticket report: email (inline Inbound/Outbound PNG + XLSX attachments, default SP shared recipient list) + WhatsApp groups
+
+**Workflow & data flow**:
+
+1. Daily 06:20 pick up the newest sp_online report files
+1. Email with inline PNG plus XLSX attachments
+1. Also push to WhatsApp groups; recipients overridable under Settings → Email Recipients
+
+**Maintenance**:
+
+- Depends on the 06:00 generation task output — missing files make this one fail outright
+- An email task: excluded from missed-run backfill by default, email_recovery replays it once EWS is back
+
+#### eFlow Alarm Rules Collect（`eflow_alarm_rules_collect`）
+
+- Default cron: `59 23 */3 * *`　|　worker group: **n**
+- Workflow script: `services/eflow_rules/eflow_Alarm_Rule_Collector.py → run_eflow_alarm_rules`
+
+**What it does**: Every 3 days at 23:59 pull rule types and alarm correlation rules from eFlow into eflow_alarm_rules.xlsx (sheets Alarm_Rules + Rule_Types)
+
+**Workflow & data flow**:
+
+1. Every 3 days at 23:59 pull the rule-type catalog and correlation rules (correlation-mgt)
+1. Export backend/services/eflow_rules/eflow_alarm_rules.xlsx
+
+**Maintenance**:
+
+- Low-frequency (every 3 days): the health check scales its window by cron, so “no run in 24h” is not a false alarm
+- The exported xlsx feeds downstream rule matching — treat it as a code asset, never hand-edit
+
+#### eFlow Push Rules Collect（`eflow_push_rules_collect`）
+
+- Default cron: `59 23 */3 * *`　|　worker group: **n**
+- Workflow script: `services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules`
+
+**What it does**: Every 3 days at 23:59 pull all rules from the eFlow config-center (28 types: push/escalation/grouping/auto-close...), merging detail per rule into eflow_push_rules.xlsx
+
+**Workflow & data flow**:
+
+1. Every 3 days at 23:59 query the config-center with filter="" for all rules (28 types)
+1. Merge the detail of each rule
+1. Export backend/services/eflow_rules/eflow_push_rules.xlsx (Push_Rules + Rule_Type_Summary)
+
+**Maintenance**:
+
+- Low-frequency (every 3 days), same group and cadence as the alarm-rules collector
+- Lives in services/eflow_rules/ next to the rule sheet used by eflow_tt_rules_check — do not rename paths
+
+#### Log Files Cleanup（`log_cleanup`）
+
+- Default cron: `17 3 * * *`　|　worker group: **m**
+- Workflow script: `services/log_cleanup.py → run_log_cleanup`
+
+**What it does**: Daily purge of log files older than the retention window (7 days by default, LOG_RETENTION_DAYS) under my_app/log, plus date-suffixing of legacy names no process writes to
+
+**Workflow & data flow**:
+
+1. Daily 03:17 scan log/ for log-shaped files
+1. Delete those past retention (LOG_CLEANUP_DRY_RUN=1 reports without deleting)
+1. Add date suffixes to legacy names so they roll with the date-based watchdog log names
+
+**Maintenance**:
+
+- On Windows a file held open cannot be renamed/deleted from outside — that is why the writers split logs by date
+- db/app.db (credentials), backend/services/auth_cache/ and data/ task outputs are out of scope
+
+#### TMP Directory Cleanup（`tmp_cleanup`）
+
+- Default cron: `47 3 * * *`　|　worker group: **m**
+- Workflow script: `services/tmp_cleanup.py → run_tmp_cleanup`
+
+**What it does**: Two-stage reclaim of temp artifacts older than the retention window (7 days) under my_app/TMP: same-volume move into TMP/_quarantine_YYYYMMDD/ first (restorable), real delete only after another 7 days
+
+**Workflow & data flow**:
+
+1. Daily 03:47 scan TMP/ for entries past retention
+1. Same-volume mv into _quarantine_<date>/ (nothing deleted outright)
+1. Purge after another 7 days in quarantine; service paths in WHITELIST are skipped
+
+**Maintenance**:
+
+- TMP/ is the designated place for temp artifacts but nothing bounded its size (462MB on day one) — cleanup is required
+- Service paths (charts/dl/state files) are whitelisted and never touched; add new ones to WHITELIST
+- Staggered against log_cleanup (03:17) so the two full scans do not overlap
+
 ### 3.4 Reliability mechanisms (timeout / retry / self-healing)
 
 | Mechanism | Description |
@@ -940,7 +1226,9 @@ Workflow & maintenance notes per task:
 | **Zombie running recycling** | No per-task timeout (known gap). Worker scans every 300s: running rows older than 30 min (STALE_RUNNING_SECONDS) with a dead PID are marked failed. |
 | **Auto retry** | auto_retry_failed scans every 10 min: a failed task is re-enqueued only if its data gap is not yet filled and attempts < MAX_ATTEMPTS=2; abandoned beyond the 24h hard cap. |
 | **Missed-run backfill** | Tasks that should have fired but have no execution record at all are backfilled once (MISS_GRACE_MIN=15; email tasks excluded — handled by EWS recovery). |
+| **Stale pending expiry** | A pending row unclaimed for over 6 hours (typical cause: the task was never registered in a worker group) is marked failed with an execution-log entry, freeing the single-flight slot it held — otherwise one stale row would block every later trigger of that task. |
 | **Failure notification** | Failures notify via WeChat + email (services/weixin_notifier.py supports openclaw/wecom/serverchan/pushplus). |
+| **Missed-run / stall alert** | db_freshness_check computes four health findings hourly (ungrouped / no execution record within the cron-scaled window / stuck queue / overdue since last success); services/task_health_alert.py pushes them to WeChat + email, notifying once per new anomaly and once on recovery, re-raising after 24h (added 2026-09-18). |
 | **Process self-healing** | backend_watchdog / worker_watchdog supervise processes: port probing, crash backoff (give up & alert after 10 consecutive crashes); heartbeats in log/heartbeat_*.json stale >3 min → force kill & restart. |
 | **Retention** | task_queue & task_execution_log are kept 3 days (auto-cleaned), no manual work. |
 
@@ -956,7 +1244,7 @@ Workflow & maintenance notes per task:
 
 **Run / stop manually** "Run" enqueues immediately, "Stop" interrupts a long task. After changing a schedule or script, run once manually and check the history.
 
-**Add a new task** ① Append an entry to TASK_SPECS in task_registry.py; ② register it in GROUP_TASK_MAP in worker_watchdog.py (missing = forever pending, three accidents so far); ③ business function in backend/services/, throw exceptions; ④ restart via stop.bat → start.bat; ⑤ verify manually and update docs (04-task-system.md list & this help).
+**Add a new task** ① Append an entry to TASK_SPECS in task_registry.py; ② register it in GROUP_TASK_MAP in worker_watchdog.py (missing = forever pending, four accidents so far; tests/test_worker_group_coverage.py cross-checks task_id coverage and the three group-set declarations) — a brand-new group must be synced in three places: GROUP_TASK_MAP keys, MY_APP_WORKER_GROUPS in start_hidden.ps1, ALL_GROUPS in restart_workers.py; ③ business function in backend/services/, throw exceptions; ④ restart via stop.bat → start.bat (group-list-only changes: python restart_workers.py --mode watchdog --force, **needs elevation**); ⑤ verify manually and update docs (04-task-system.md list & helpTaskDocs.ts, then npm run docs).
 
 **Edit a workflow script** All scripts live under backend/services/ (paths listed in the task catalog). Mind: ① never "fix" historical spellings (packet_lost, battary_kpi_fetch, ultilazation — string-referenced); ② dynamic collection tables stay out of Alembic; ③ sync-update task_registry.md / WORKER.md / the help data (frontend/src/pages/helpTaskDocs.ts).
 
@@ -1186,7 +1474,7 @@ One-click portal login: auto-logs into upstream portals with saved credentials (
 | `7090` | vite preview frontend (production via nginx /myapp/) | start_hidden.ps1 |
 | `5432` | PostgreSQL 16 main DB | autostart scripts via pg_ctl |
 | `8787 / 8790` | FMS / VMAX realtime proxies (127.0.0.1 only) | backend startup threads |
-| `—` | workers × 4 groups (u/n/m/c consuming task_queue) | worker_watchdog.py |
+| `—` | workers × 5 groups (u/n/v/m/c consuming task_queue) | worker_watchdog.py |
 
 ### 5.2 Daily inspection (5 minutes)
 
@@ -1194,7 +1482,7 @@ One-click portal login: auto-logs into upstream portals with saved credentials (
 - Header sync badges: are "last synced" labels on GIS / TT&WO / Dashboard within the expected window
 - Overview page: table count & row counts clearly abnormal?
 - CLI: are the five key processes alive and heartbeats (heartbeat_*.json) fresh (>3 min stale → force-restart)
-- DB freshness is audited hourly at :15 by db_freshness_check; staleness logs include the call chain
+- DB freshness is audited hourly at :15 by db_freshness_check; staleness logs include the call chain. The same audit alerts proactively (WeChat + email) when tasks themselves stall — ungrouped, no execution record, stuck queue, or overdue since the last success
 
 ### 5.3 Log files
 
@@ -1234,7 +1522,7 @@ One-click portal login: auto-logs into upstream portals with saved credentials (
 
 ### 5.6 Configuration & credentials
 
-Three config layers, highest first: environment variables (backend/.env, 147 keys, restart required) > DB/config files (credentials, recipients, schedules, remote host, task params — edited via UI, effective immediately) > code defaults.
+Three config layers, highest first: environment variables (backend/.env, 203 keys, restart required) > DB/config files (credentials, recipients, schedules, remote host, task params — edited via UI, effective immediately) > code defaults.
 
 - 12 credential groups: zte_ume, vmax_cxo, ipran_ume, ccn_ume, eflow, fms_portal, fw_kpi, mw_ume, sftp_sp, mail_126, owa_mail, weixin (maintained in Settings → Credentials)
 - Read priority: env var > DB > empty; the list API returns masks, with separate "reveal" and "test connection" endpoints
@@ -1255,7 +1543,7 @@ Watch each page's definition: the battery board counts only readings ≤24h fres
 
 **A task stays pending forever?**
 
-Most likely the task was never assigned to a worker group (GROUP_TASK_MAP) — nobody claims it from the queue. This accident happened three times in this project (finebi_report_sync, whatsapp_send_ext, sp_email_details). New tasks MUST be registered in GROUP_TASK_MAP in worker_watchdog.py.
+Most likely the task was never assigned to a worker group (GROUP_TASK_MAP) — nobody claims it from the queue. This accident happened four times in this project (finebi_report_sync, whatsapp_send_ext, sp_email_details, and on 2026-09-18 the olib_soc dashboard sync plus vmax_multi_data_sync). New tasks MUST be registered in GROUP_TASK_MAP in worker_watchdog.py; a stale pending row holding the single-flight slot is now auto-expired by the worker after 6 hours. Since 2026-09-18 such stalls no longer need a human to spot them: db_freshness_check (hourly) pushes the four health findings (ungrouped / no execution record / stuck queue / overdue since last success) through WeChat + email, deduplicated by state flips.
 
 **A task keeps failing?**
 

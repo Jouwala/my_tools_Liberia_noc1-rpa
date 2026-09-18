@@ -17,8 +17,14 @@ from exchangelib import Account, Configuration, Credentials, Mailbox, Message
 # === CONFIGURATION ===
 OWA_SERVER = "exchmail.orange-cit.ci"
 OWA_USERNAME = "ZTENOC_OLR"
-OWA_PASSWORD = "Postcode@202608"  # CORRECT PASSWORD!
+# 不要在这里写密码字面量：设置页改完密码后常量仍是旧值，会拿失效密码去认证。
+# 统一走 email_reports/owa_credentials.py（环境变量 > 设置页 > 代码默认值）。
 FROM_EMAIL = "ZTENOC_OLR@orange-cit.ci"  # Use mailbox's own email
+
+try:                                    # 包内导入 / 直接运行 两种方式都能用
+    from email_reports.owa_credentials import resolve_owa_credentials
+except ImportError:
+    from owa_credentials import resolve_owa_credentials
 
 
 def send_via_ews(
@@ -26,8 +32,8 @@ def send_via_ews(
     subject: str,
     body: str,
     server: str = OWA_SERVER,
-    username: str = OWA_USERNAME,
-    password: str = OWA_PASSWORD,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
     from_email: str = FROM_EMAIL,
     attachments: Optional[List[str]] = None,
     max_retries: int = 5,
@@ -36,6 +42,9 @@ def send_via_ews(
     
     logging.basicConfig(level=logging.INFO)
     log = logging.getLogger(__name__)
+
+    # 凭据统一解析（原本是硬编码旧密码的模块常量 + 参数默认值）
+    username, password = resolve_owa_credentials(username, password)
     
     # Create configuration
     import urllib3

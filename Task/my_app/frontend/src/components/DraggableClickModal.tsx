@@ -72,31 +72,31 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
 
 /* ---- 暗色主题（Warehouse 深空蓝） ---- */
 .dcm-modal.dcm-dark {
-  background: linear-gradient(145deg, #141f33 0%, #112540 100%);
+  background: linear-gradient(145deg, #08122c 0%, #050d22 100%);
   box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-  border: 1px solid rgba(100,255,218,0.22);
+  border: 1px solid rgba(0, 217, 255,0.22);
 }
 .dcm-modal.dcm-dark .dcm-header {
-  background: rgba(10,25,41,0.6);
-  border-bottom: 1px solid rgba(100,255,218,0.22);
+  background: rgba(8, 18, 44,0.6);
+  border-bottom: 1px solid rgba(0, 217, 255,0.22);
 }
-.dcm-modal.dcm-dark .dcm-title { color: #e6f4ff; }
-.dcm-modal.dcm-dark .dcm-close { color: #94a3b8; }
-.dcm-modal.dcm-dark .dcm-close:hover { color: #ff6b6b; }
+.dcm-modal.dcm-dark .dcm-title { color: #f5f7ff; }
+.dcm-modal.dcm-dark .dcm-close { color: #aebbd4; }
+.dcm-modal.dcm-dark .dcm-close:hover { color: #ff5c6c; }
 .dcm-modal.dcm-dark .dcm-body { background: transparent; }
 
 /* antd 组件在暗色弹窗内的适配 */
-.dcm-dark .ant-table, .dcm-dark .ant-table table { background: transparent; color: #e6f4ff; }
-.dcm-dark .ant-table-thead > tr > th { background: rgba(100,255,218,0.10) !important; color: #b3e5fc !important; border-bottom: 1px solid rgba(100,255,218,0.18) !important; }
-.dcm-dark .ant-table-tbody > tr > td { border-bottom: 1px solid rgba(255,255,255,0.06) !important; color: #e6f4ff; }
-.dcm-dark .ant-table-tbody > tr:hover > td { background: rgba(100,255,218,0.08) !important; }
-.dcm-dark .ant-table-tbody > tr > td .ant-tag { color: #e6f4ff; }
-.dcm-dark .ant-input { background: rgba(10,25,41,0.6); border-color: rgba(100,255,218,0.25); color: #e6f4ff; }
-.dcm-dark .ant-input::placeholder { color: #64748b; }
-.dcm-dark .ant-pagination { color: #94a3b8; }
-.dcm-dark .ant-pagination .ant-pagination-total-text { color: #94a3b8; }
-.dcm-dark .ant-empty-description { color: #94a3b8; }
-.dcm-dark .ant-spin-text { color: #94a3b8; }
+.dcm-dark .ant-table, .dcm-dark .ant-table table { background: transparent; color: #f5f7ff; }
+.dcm-dark .ant-table-thead > tr > th { background: rgba(0, 217, 255,0.10) !important; color: #7fd2ee !important; border-bottom: 1px solid rgba(0, 217, 255,0.18) !important; }
+.dcm-dark .ant-table-tbody > tr > td { border-bottom: 1px solid rgba(255,255,255,0.06) !important; color: #f5f7ff; }
+.dcm-dark .ant-table-tbody > tr:hover > td { background: rgba(0, 217, 255,0.08) !important; }
+.dcm-dark .ant-table-tbody > tr > td .ant-tag { color: #f5f7ff; }
+.dcm-dark .ant-input { background: rgba(8, 18, 44,0.6); border-color: rgba(0, 217, 255,0.25); color: #f5f7ff; }
+.dcm-dark .ant-input::placeholder { color: #6f8cb4; }
+.dcm-dark .ant-pagination { color: #aebbd4; }
+.dcm-dark .ant-pagination .ant-pagination-total-text { color: #aebbd4; }
+.dcm-dark .ant-empty-description { color: #aebbd4; }
+.dcm-dark .ant-spin-text { color: #aebbd4; }
 `
     document.head.appendChild(style)
   }, [])

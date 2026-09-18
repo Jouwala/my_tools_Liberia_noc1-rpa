@@ -40,17 +40,47 @@
 ### 任务执行健康检查（2026-08-12 新增）
 
 补齐“任务注册但从未执行”盲区（曾因 worker 分组清单漏配导致 `db_freshness_check`、
-`sp_report_generate` 无历史记录）。每小时随巡检执行，3 个维度：
+`sp_report_generate` 无历史记录）。每小时随巡检执行，4 个维度：
 
-1. **注册表 vs 分组清单覆盖**：`task_registry.py::TASK_SPECS` 的 task_id 是否全部在
-   `worker_watchdog.py::GROUP_TASK_MAP` 中（缺失 → 永远无 worker 认领）
-2. **24h 无执行记录**：`task_execution_log` 按任务 `MAX(started_at)` 一次 GROUP BY 取全，
-   最近 24h 无记录则告警（已禁用任务从 `task_schedule_config` 排除，避免误报）
-3. **队列滞留**：`task_queue` 中 pending 超 10 分钟 / running 超 2 小时（参考 worker.py
-   回收阈值）的滞留记录
+1. **注册表 vs 分组清单覆盖**（`group_missing`）：`task_registry.py::TASK_SPECS` 的 task_id 是否全部在
+   `worker_watchdog.py::GROUP_TASK_MAP` 中（缺失 → 永远无 worker 认领；当前分组 u/n/v/m/c）
+2. **回看窗口无执行记录**（`silent`）：`task_execution_log` 按任务 `MAX(started_at)` 一次 GROUP BY 取全，
+   最近 24h 无记录则告警（已禁用任务从 `task_schedule_config` 排除）。
+   2026-09-18 收紧：按任务 cron 缩放阈值——调度间隔大于窗口的低频任务（如每 3 天的
+   `59 23 */3 * *`）未到下一期不算异常；cron 解析不出来则宁可多报（helper `_silent_task_candidates`）
+3. **队列滞留**（`stuck`）：`task_queue` 中 pending 超 `TASK_HEALTH_PENDING_MAX_MINUTES`（10）分钟 /
+   running 超 `TASK_HEALTH_RUNNING_MAX_MINUTES`（30）分钟的滞留记录（与 worker.py 回收阈值同源）
+4. **成功逾期**（`overdue`）：上次成功之后按 cron 应再产出的周期已过（+一个周期 grace）仍无成功，
+   补「24h 无记录」对小时级任务不敏感的盲区。2026-09-18 才发现：
+   `_cron_next_and_interval` 把 aware 时间与 naive 时间相减抛 `TypeError` 被裸 `except` 吞掉，
+   **本维度自 2026-08-13 上线以来默默禁用**（先算间隔再去时区，解析失败改为打 warning）
+5. **逾期（外部依赖不可用）**（`overdue_dependency`，2026-09-18 晚新增）：`overdue` 的**子集**——
+   该任务最新一次失败的 error 命中 `_DEPENDENCY_FAIL_KEYS`（EWS 401 / 连接失败 / 子进程超时等），
+   即「任务跑了，是被外部依赖拖死的」而非自身停摆。判定只多查一次 `fail_latest`（`_task_health_db_query`
+   返回值第 7 项，`{task_id: (error, started_at)}`），**不再多打一次库**。
+   该任务**仍留在 `overdue` 里**（`status`/STALE 判定依赖它），本类只决定告警形态：
+   全部依赖类任务聚合成**一条** STALE 项 + 一条告警，文案给出 EWS 侧修复指引；
+   真停摆仍逐条报。理由：一次 EWS 故障会连带十几个报表任务各自"逾期"，逐条推送等于刷屏
 
 均通过 `backend.database.get_raw_connection` 只读查询本机历史库（pg/sqlite 双模兼容），
 表不存在（开发环境）视为“无可检查”不告警。
+
+### 健康告警推送（2026-09-18 新增）
+
+上面五类结果以前**只进日志**（本次停摆两天是用户先发现的），现接入 `backend/services/task_health_alert.py`
+把 findings 推到人前（微信 `weixin_notifier` + 邮件 `email_notifier.send_status_email`）：
+
+- **翻转去重**：以 `kind:task_id` 为键，状态文件 `TMP/task_health_alert_state.json`（原子写 tmp + `os.replace`），
+  新增/恢复各通知一次，不再每小时刷屏
+- **持续重提**：同一异常超过 `TASK_HEALTH_ALERT_RENOTIFY_HOURS`（默认 24h）再提一次
+- **发送失败不算已通知**：`notified_at` 留空，下轮巡检自动重试
+- **降噪**：`overdue` 只收“近 24h 连尝试都没有”的真停摆；“跑了但始终失败”已由
+  `task_runner` 的失败告警通道通知过，不重复刷第二条（实跑发现：EWS 发信故障会连带 14 个报表任务“逾期”）
+- **再降噪（`overdue_dependency`）**：上述连带里「最新失败是外部依赖不可用」的（EWS 401 / 连接失败 /
+  子进程超时）聚合成一条，文案指向依赖侧（凭据/网络）；真停摆才逐条报
+- **静音**：`TASK_HEALTH_ALERT_ENABLED=0`；告警异常不影响巡检结论（只记 warning）
+- 自测：`python -m backend.services.task_health_alert`（演练不发真信）、
+  `python tests\test_task_health_alert.py`、`python tests\test_task_health_detect.py`
 
 ## 输出与判定
 
@@ -63,7 +93,8 @@
     integrity_check/.recover、UME 数据源、手动回补等 6 步
   - 若本地回退库已有数据，会额外提示“数据在本地，重跑任务即可回补”
   - 任务健康异常项输出对应修复指引（补分组清单、查队列滞留、确认 worker 存活等）
-- 扩展字段：`task_health_ok`（健康检查手段是否可用）、`task_health_issues`（异常项数）
+- 扩展字段：`task_health_ok`（健康检查手段是否可用）、`task_health_issues`（异常项数）、
+  `task_health_alert`（本次告警结果：new/renotify/resolved 条数，或静音/失败原因）
 
 ## 设计约定
 

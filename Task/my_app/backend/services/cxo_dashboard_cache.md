@@ -11,14 +11,17 @@ VMAX / 代理不可用时静默退回过期快照，看板出现大片空数据�
 
 - **任务 ID**：`cxo_dashboard_cache_sync`（任务管理页可手动执行 / 调整 cron）
 - **默认计划**：`*/10 * * * *`（每 10 分钟）
-- **worker 分组**：`n` 组（网管 / eFlow / 远程系统组；VMAX 走独立 8790 代理进程，无会话冲突）
+- **worker 分组**：`v` 组（2026-09-18 从 `n` 组拆出）。拆组理由：本任务与
+  `vmax_cxo_daily_sync`、`vmax_multi_data_sync` 共用同一个 8790 VMAX 代理会话（门户 JSESSIONID
+  单用户并发），彼此必须串行；但与 `n` 组的 eFlow/网管任务并无会话冲突，同组时反而被
+  `sp_data_sync`（1.5~2h）这类长任务排在后面，导致 10 分钟级的缓存滞后一个多小时
 - 注册位置：`backend/task_registry.py`（TASK_SPECS）+ `backend/worker_watchdog.py`（GROUP_TASK_MAP）
 - **改注册表后必须重启 worker 进程树**（stop.bat → start.bat），旧 worker 内存里持旧任务清单
 
 ## 数据链路
 
 ```
-worker(n组) → ensure_proxy(8790) → http://127.0.0.1:8790/proxy?url=<VMAX目标>
+worker(v组) → ensure_proxy(8790) → http://127.0.0.1:8790/proxy?url=<VMAX目标>
             → VMAX 门户 (10.123.255.12:26180, JSESSIONID 单会话, 代理内部自动 re-login)
 ```
 

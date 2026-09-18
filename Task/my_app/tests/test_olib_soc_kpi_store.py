@@ -638,6 +638,18 @@ check("任务 olib_soc_kpi_daily_sync 已注册",
       "olib_soc_kpi_daily_sync" in reg_text and "run_olib_soc_kpi_sync" in reg_text)
 check("每日同步 cron 在早班低峰（留出数仓出数余量）", '"20 6 * * *"' in reg_text)
 check("归入 olib_soc 分类", 'category="olib_soc"' in reg_text)
+# 分组登记守卫（2026-09-18 事故）：只写 TASK_SPECS、漏登记 worker_watchdog.GROUP_TASK_MAP
+# 的后果不是报错而是静默停摆 —— 队列 pending 无人认领，且陈旧 pending 占住单飞
+# 名额把后续所有调度挡掉（task_execution_log 一条都没有，看板停在 09-16）。
+try:
+    from backend.worker_watchdog import GROUP_TASK_MAP as _GT_MAP                      # noqa: F401
+    _grouped = {t.strip() for _v in _GT_MAP.values()
+                for t in (_v or "").split(",") if t.strip()}
+except Exception:                                                                      # noqa: BLE001
+    _grouped = set()
+check("两个 olib_soc 任务已登记 worker 分组（漏分组 = 无 worker 认领、永远 pending）",
+      {"olib_soc_kpi_daily_sync", "olib_soc_vmax_report"} <= _grouped,
+      str(sorted({"olib_soc_kpi_daily_sync", "olib_soc_vmax_report"} - _grouped)))
 main_text = (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
 check("路由已在 main.py 挂载", "olib_soc_dashboard.router" in main_text
       and "olib_soc_dashboard," in main_text)

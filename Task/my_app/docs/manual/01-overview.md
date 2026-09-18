@@ -59,7 +59,7 @@ Exchange/OWA 邮箱  ─┘                                                  │
 | **FW KPI** | 防火墙吞吐 KPI（`fw_kpi_sync`，含图表邮件） |
 | **CXO** | 经营层看板，数据源是 VMAX 实时保障看板快照（`public/cxo_dashboard.html` 内嵌快照） |
 | **丢包看板** | 数据源 `lte_pl.sqlite3`，STATUS 为 0~23 小时标志块，最近 3 天同整点丢包均 >0.5% 记 1（`frontend/src/pages/PacketLossDashboard.tsx:2-5`） |
-| **worker 组 u/n/m/c** | 4 组独立 worker 进程，组内任务串行执行，见 `04-task-system.md` |
+| **worker 组 u/n/v/m/c** | 5 组独立 worker 进程，组内任务串行执行（`v`=VMAX 门户 8790 单会话，2026-09-18 从 `n` 拆出），见 `04-task-system.md` |
 | **task_id** | 任务唯一键，同时是 URL 片段（`/api/tasks/{task_id}/run`）与队列表主键 |
 
 ## 阅读下一步

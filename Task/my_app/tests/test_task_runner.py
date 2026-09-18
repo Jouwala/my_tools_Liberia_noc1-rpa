@@ -212,3 +212,20 @@ def test_get_task_history_by_task(tmp_db):
     rows = tr.get_task_history_by_task("__t_hist_a__", limit=50)
     assert len(rows) == 2
     assert all(r["task_id"] == "__t_hist_a__" for r in rows)
+
+
+def test_all_registered_tasks_have_worker_group():
+    """分组覆盖守卫（实现已移到不依赖 pytest 的独立文件，本机 venv 未装 pytest）。
+
+    2026-09-18 第四次踩坑（前三次 finebi_report_sync / whatsapp_send_ext /
+    sp_email_details）：olib_soc_kpi_daily_sync、olib_soc_vmax_report、
+    vmax_multi_data_sync 上线时只写了 TASK_SPECS，分组模式下没有 worker 认领
+    → 队列 pending 无人认领、陈旧 pending 又占住单飞名额把后续调度全挡掉，
+    三个任务上线后一次也没执行过（task_execution_log 0 条），且不报任何错。
+    完整守卫（任务/分组/启动脚本三处一致 + VMAX 同组）见
+    tests/test_worker_group_coverage.py，可 `python tests/test_worker_group_coverage.py` 直跑。
+    """
+    from tests.test_worker_group_coverage import CHECKS as _COVERAGE_CHECKS
+
+    for _fn in _COVERAGE_CHECKS:
+        _fn()

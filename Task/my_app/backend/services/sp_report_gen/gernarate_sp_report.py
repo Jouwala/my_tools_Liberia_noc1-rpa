@@ -125,15 +125,20 @@ REPLENISH_EXCLUDE_ORDERS = ('SPOB202608160004', 'SPOB202609120014')
 REPLENISH_HISTORY_MONTHS = 9.5
 # 安全库存 = 6 个月历史平均消耗
 REPLENISH_SAFETY_MONTHS = 6
-# 补库建议的列（全英文，避免报表出现中文）
-REPLENISH_COLS = ['Material Name', 'Avg Monthly Consumption', 'Safety Stock',
+# 补库建议的列（全英文，避免报表出现中文）；Remark 紧跟在 Safety Stock 之后
+REPLENISH_COLS = ['Material Name', 'Avg Monthly Consumption', 'Safety Stock', 'Remark',
                   'Replenishment Qty', 'Alert Level']
-# 并入 Summary-Current 主表时追加的 4 列（不含 Material Name，它是主表已有的键）
+# 并入 Summary-Current 主表时追加的列（不含 Material Name，它是主表已有的键）
 REPLENISH_EXTRA_COLS = REPLENISH_COLS[1:]
 REPLENISH_ALERT_COL = 'Alert Level'
+REPLENISH_REMARK_COL = 'Remark'
+# 月均消耗为 0 的物料按「故障率」备件处理：安全库存保底 1，Remark 记 Failure Rate
+REPLENISH_NO_CONSUMPTION_SAFETY = 1
+REMARK_FAILURE_RATE = 'Failure Rate'
+REMARK_ACTUAL_CONSUMPTION = 'Actual Consumption'
 # 这 3 个数值列向上取整（整数）；主表原有列同样是整数展示
 REPLENISH_INT_COLS = ('Avg Monthly Consumption', 'Safety Stock', 'Replenishment Qty')
-# 报表上方的口径说明（Excel 表头上方、PNG 标题下方）：拆成 2 行，否则超过合并区的显示宽度会被裁掉
+# 报表上方的口径说明（Excel 表头上方、PNG 标题下方）：拆成多行，否则超过合并区的显示宽度会被裁掉
 REPLENISH_NOTES = (
     'Replenishment basis:  Excluded orders ' + ' / '.join(REPLENISH_EXCLUDE_ORDERS)
     + f'  |  History {REPLENISH_HISTORY_MONTHS} months'
@@ -141,6 +146,9 @@ REPLENISH_NOTES = (
     'Replenishment Qty = Safety Stock - Inventory Qty (<= 0 left blank)'
     + '  |  Alert Level = Inventory Qty / Safety Stock'
     + '  |  Note: Outbound Qty still includes the 2 excluded orders',
+    f'Remark: {REMARK_FAILURE_RATE} = Avg Monthly Consumption is 0'
+    + f' (Safety Stock floors at {REPLENISH_NO_CONSUMPTION_SAFETY})'
+    + f'  |  {REMARK_ACTUAL_CONSUMPTION} = Avg Monthly Consumption > 0',
 )
 ALERT_URGENT = 'Urgent Replenish'
 ALERT_REPLENISH = 'Replenish'
@@ -1002,8 +1010,11 @@ def fill_missing(df, mno_to_name, mn_to_domain):
 # build_summary - vectorized with Balance & Difference
 # ==============================================================================
 def build_summary(inb_df, outb_df, inv_df):
-    """Build summary with Material Name, Inbound, Outbound, Inventory, Balance, Difference.
-    Total row at the top."""
+    """Build summary with Material Name, Domain, Inbound, Outbound, Inventory, Balance, Difference.
+    Total row at the top.
+
+    Domain 取自 Inventory 明细（2026-09-18 起），放在第 2 列；同一物料多行时取第一个非空值。
+    """
     inb_sum = inb_df.groupby('Material Name', sort=True)['Inbound Qty'].sum()
     outb_sum = outb_df.groupby('Material Name', sort=True)['Outbound Qty'].sum()
     inv_sum = inv_df.groupby('Material Name', sort=True)['Stock Qty'].sum()
@@ -1015,12 +1026,23 @@ def build_summary(inb_df, outb_df, inv_df):
     for c in ['Inbound Qty', 'Outbound Qty', 'Inventory Qty']:
         merged[c] = merged[c].fillna(0)
 
+    # Domain：从 Inventory 明细取（同一物料多行时取第一个非空）
+    if inv_df is not None and len(inv_df) > 0 and 'Domain' in inv_df.columns:
+        domain_map = (inv_df.loc[inv_df['Domain'].notna(), ['Material Name', 'Domain']]
+                      .drop_duplicates('Material Name')
+                      .set_index('Material Name')['Domain'])
+        merged['Domain'] = merged['Material Name'].map(domain_map).fillna('')
+    else:
+        merged['Domain'] = ''
+
     merged['Balance'] = merged['Inbound Qty'] - merged['Outbound Qty']
     merged['Difference'] = merged['Inventory Qty'] - merged['Balance']
-    merged = merged[['Material Name', 'Inbound Qty', 'Outbound Qty', 'Inventory Qty', 'Balance', 'Difference']]
+    merged = merged[['Material Name', 'Domain', 'Inbound Qty', 'Outbound Qty',
+                     'Inventory Qty', 'Balance', 'Difference']]
 
     total = pd.DataFrame({
         'Material Name': ['Total'],
+        'Domain': [''],                       # Total 行不显示 Domain
         'Inbound Qty': [merged['Inbound Qty'].sum()],
         'Outbound Qty': [merged['Outbound Qty'].sum()],
         'Inventory Qty': [merged['Inventory Qty'].sum()],
@@ -1034,10 +1056,12 @@ def build_summary(inb_df, outb_df, inv_df):
 # build_replenishment - 补库建议（历史月均消耗 / 安全库存 / 需补库数量 / 预警级别）
 # ==============================================================================
 def build_replenishment(outb_df, inv_df, base_index=None):
-    """按 Material Name 统计补库建议，4 列直接并到 Summary-Current 主表右侧。
+    """按 Material Name 统计补库建议，直接并到 Summary-Current 主表右侧。
 
     - Avg Monthly Consumption = 出库数量合计（先剔除 REPLENISH_EXCLUDE_ORDERS 两张异常单据）/ 9.5，向上取整
-    - Safety Stock = 6 * Avg Monthly Consumption（整数，表内可直接验算）
+    - Safety Stock = 6 * Avg Monthly Consumption（整数，表内可直接验算）；
+      月均消耗为 0 的物料按「故障率」备件处理，安全库存保底 1
+    - Remark = Actual Consumption（月均消耗 > 0）/ Failure Rate（月均消耗 = 0）
     - Replenishment Qty = Safety Stock - Inventory Qty，<= 0 记为空（不显示，便于求和）；结果向上取整
     - Alert Level = Inventory Qty / Safety Stock：< 50% Urgent Replenish；50% ~ 100% Replenish；> 100% Excess
 
@@ -1065,14 +1089,19 @@ def build_replenishment(outb_df, inv_df, base_index=None):
     # 向上取整：Avg 为整数，Safety = 6 x Avg（同为整数，表内可直接验算）
     avg = np.ceil(consumed_qty / REPLENISH_HISTORY_MONTHS)
     result['Avg Monthly Consumption'] = avg.astype('int64')
-    safety = avg * REPLENISH_SAFETY_MONTHS
+    # 月均消耗为 0 → 按「故障率」备件处理：安全库存保底 1，Remark 记 Failure Rate
+    has_consumption = avg > 0
+    safety = np.where(has_consumption, avg * REPLENISH_SAFETY_MONTHS,
+                      float(REPLENISH_NO_CONSUMPTION_SAFETY))
     result['Safety Stock'] = safety.astype('int64')
+    result[REPLENISH_REMARK_COL] = np.where(has_consumption, REMARK_ACTUAL_CONSUMPTION,
+                                            REMARK_FAILURE_RATE)
 
     need = safety - stock_qty
     # <= 0 留空（不显示负数/0），避免影响求和；结果同样向上取整
     result['Replenishment Qty'] = np.where(need > 0, np.ceil(need), np.nan)
 
-    # 安全库存为 0（无消耗）时按冗余处理，不参与补库
+    # 安全库存恒 >= 1（无消耗物料保底 1），这里仍保留分母保护
     ratio = np.full(len(result), np.inf)
     has_safety = safety > 0
     ratio[has_safety] = stock_qty[has_safety] / safety[has_safety]
@@ -1944,6 +1973,7 @@ def generate_report(material_type, out_path, inb_src, outb_src, inv_src, timesta
     for c in REPLENISH_INT_COLS:                          # Total 行：数值列给合计（各行已取整，合计仍为整数）
         total_row[c] = int(body[c].sum())
     total_row[REPLENISH_ALERT_COL] = None                 # Alert Level 合计无意义，留空
+    total_row[REPLENISH_REMARK_COL] = None                # Remark 合计无意义，留空
     summary = pd.concat([total_row, body], ignore_index=True)[base_cols + REPLENISH_EXTRA_COLS]
     summary_changed, warehouses = build_summary_changed(inb_df, outb_df, timestamp_str)
     title_prefix = 'SpareParts' if is_sp else 'Consumables'

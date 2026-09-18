@@ -126,6 +126,14 @@ def _default_sp_material() -> Tuple[List[str], List[str]]:
     return _parse_addrs(_SP_MATERIAL_DEFAULT_TO), _parse_addrs(_SP_MATERIAL_DEFAULT_CC)
 
 
+def _default_ume_in_osg() -> Tuple[List[str], List[str]]:
+    from backend.services.kpi_email_report import (
+        _UME_IN_OSG_DEFAULT_TO,
+        _UME_IN_OSG_DEFAULT_CC,
+    )
+    return _parse_addrs(_UME_IN_OSG_DEFAULT_TO), _parse_addrs(_UME_IN_OSG_DEFAULT_CC)
+
+
 def _default_ran() -> Tuple[List[str], List[str]]:
     from backend.services.kpi_email_report import _RAN_EMAIL
     return _read_remote_dir(_RAN_EMAIL)
@@ -214,6 +222,12 @@ EMAIL_RECIPIENT_GROUPS = [
         "name": "MS Network Availability 日报邮件",
         "name_en": "MS Network Availability Daily Report Email",
         "default_loader": _default_ran,
+    },
+    {
+        "key": "ume_in_osg_report",
+        "name": "客户业务 KPI + OSG 周报邮件",
+        "name_en": "Customer Service KPI + OSG Weekly Report Email",
+        "default_loader": _default_ume_in_osg,
     },
     {
         "key": "packet_loss_email",

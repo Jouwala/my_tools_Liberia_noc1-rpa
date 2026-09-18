@@ -534,6 +534,9 @@ def update_wo_sla_report(kpi_list_file):
         logger.warning("WOs SLA: 未找到 Month 行")
         return
 
+    # 模板日期行是硬编码的，先滚动到当月（与 Contract KPIs sheet 同一区间）
+    date_rows = _roll_date_rows(ws, month_row, date_rows)
+
     current_month = datetime.now().strftime("%Y-%m")
 
     # 更新 Month 行
@@ -1499,6 +1502,81 @@ def _locate_report_rows(ws):
     return month_row, date_rows
 
 
+def _target_report_dates(today=None):
+    """报表日度行应覆盖的日期：当月 1 日 → 昨天。
+
+    今天就是 1 号时退化为只含当月 1 日（否则区间为空）。
+    """
+    today = today or datetime.now()
+    month_start = today.replace(hour=0, minute=0, second=0, microsecond=0, day=1)
+    end = today.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    if end < month_start:
+        end = month_start
+    dates = []
+    cur = month_start
+    while cur <= end:
+        dates.append(cur)
+        cur += timedelta(days=1)
+    return dates
+
+
+def _copy_row_style(ws, src_row, dst_row):
+    """把 src_row 的单元格样式与行高复制到 dst_row（openpyxl 的 insert_rows 不带格式）"""
+    for col in range(1, ws.max_column + 1):
+        src = ws.cell(row=src_row, column=col)
+        dst = ws.cell(row=dst_row, column=col)
+        dst.number_format = src.number_format
+        if src.has_style:
+            dst._style = copy.copy(src._style)
+    src_dim = ws.row_dimensions[src_row]
+    dst_dim = ws.row_dimensions[dst_row]
+    dst_dim.height = src_dim.height
+    dst_dim.customHeight = src_dim.customHeight
+
+
+def _roll_date_rows(ws, month_row, date_rows, dates=None):
+    """把日度日期行（A 列）滚动到目标日期区间，返回滚动后的 date_rows。
+
+    背景（2026-09-18 修复）：报表文件本身兼作模板，其 A 列日期行是硬编码的，
+    而原逻辑只往"已存在的日期行"里填数、从不滚动日期，导致进入新月份后
+    每天都仍在重写上月那 31 行（表现为"生成的文件还是 8 月份的"）。
+    此函数按目标区间增删日期行，并复制格式，保证条件格式/边框不掉。
+    """
+    if not date_rows:
+        return []
+
+    dates = dates if dates is not None else _target_report_dates()
+    if not dates:
+        return date_rows
+
+    first_row = date_rows[0]
+    contiguous = date_rows == list(range(first_row, first_row + len(date_rows)))
+    if not contiguous:
+        logger.warning("日期行不连续，跳过行增删，仅改写已有行日期")
+        for row_idx, d in zip(date_rows, dates):
+            ws.cell(row=row_idx, column=1).value = d
+        return date_rows
+
+    n_old = len(date_rows)
+    n_new = len(dates)
+    template_row = date_rows[-1]  # 以最后一个日期行为格式样板
+
+    if n_new > n_old:
+        ws.insert_rows(first_row + n_old, n_new - n_old)
+        for row_idx in range(first_row + n_old, first_row + n_new):
+            _copy_row_style(ws, template_row, row_idx)
+    elif n_new < n_old:
+        ws.delete_rows(first_row + n_new, n_old - n_new)
+
+    new_rows = list(range(first_row, first_row + n_new))
+    for row_idx, d in zip(new_rows, dates):
+        ws.cell(row=row_idx, column=1).value = d
+    logger.info(
+        f"日期行已滚动: {dates[0].strftime('%Y-%m-%d')} ~ {dates[-1].strftime('%Y-%m-%d')} "
+        f"({n_old} 行 -> {n_new} 行)")
+    return new_rows
+
+
 def _update_month_row(ws, month_row, conn, nur_monthly, sla_monthly, current_month):
     """用月度 NUR/SLA 数据与数据库月度 KPI 更新 Month 行"""
     ws.cell(row=month_row, column=TARGET_COL_NUR_NETWORK).value = nur_monthly.get("NUR_NETWORK")
@@ -1648,6 +1726,9 @@ def run_contract_kpis_report():
             wb_target.close()
             conn.close()
             return {"success": False, "error": "未找到 Month 行"}
+
+        # 模板日期行是硬编码的，先滚动到当月（否则永远在重写上月那几行）
+        date_rows = _roll_date_rows(ws, month_row, date_rows)
 
         current_month = datetime.now().strftime("%Y-%m")
         nur_monthly = datasets["nur_monthly"].get(current_month, {})

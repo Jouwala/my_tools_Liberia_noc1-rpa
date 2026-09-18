@@ -97,7 +97,7 @@ export default function TaskConfigFileEditor({ taskId, zh }: { taskId: string; z
 
   const labelOf = (sub: any) => (zh ? sub.label_zh : sub.label_en || sub.label_zh) || ''
 
-  const inputStyle = { background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(100,255,218,0.25)', color: WH.text }
+  const inputStyle = { background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0, 217, 255,0.25)', color: WH.text }
 
   const renderScalar = (key: string, sub: any, value: any) => {
     const t = sub.type
@@ -148,7 +148,7 @@ export default function TaskConfigFileEditor({ taskId, zh }: { taskId: string; z
           {rows.map((row: any, i: number) => (
             <div key={i} style={{
               marginTop: '0.375rem', padding: 'var(--wh-space-sm)', borderRadius: 'var(--wh-radius-sm)',
-              border: '1px solid rgba(100,255,218,0.15)', background: 'rgba(0,0,0,0.15)',
+              border: '1px solid rgba(0, 217, 255,0.15)', background: 'rgba(0,0,0,0.15)',
             }}>
               <Space wrap style={{ gap: '0.375rem' }}>
                 {Object.entries(sub.fields || {}).map(([f, s]: [string, any]) => (
@@ -216,7 +216,7 @@ export default function TaskConfigFileEditor({ taskId, zh }: { taskId: string; z
 
   return (
     <div>
-      <Divider style={{ borderColor: 'rgba(100,255,218,0.15)', margin: '0.875rem 0' }} />
+      <Divider style={{ borderColor: 'rgba(0, 217, 255,0.15)', margin: '0.875rem 0' }} />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>
         <Text style={{ color: WH.textMuted, fontSize: '0.75rem', fontWeight: 600 }}>
           ⚙️ {zh ? '配置文件管理' : 'Config File Management'}
