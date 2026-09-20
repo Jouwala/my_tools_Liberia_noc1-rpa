@@ -1,7 +1,11 @@
 /* viewer.js — MsPortal「看板查看器」外壳
  * 作用：从门户首页点击某个看板（如 MS View 下的报告）后，在新页面左侧提供
  *       「同组其他看板」导航（类似 my_app 的侧边栏），右侧内嵌当前看板。
- * 数据：直接读同目录 assets/data.js 里的 window.MS_PORTAL_DATA（与门户同源）。
+ * 数据：目录真相源与门户首页（portal.js）**完全一致**的三层优先级 ——
+ *        服务端全局目录 /api/portal-catalog > 本机 localStorage 兜底 > assets/data.js 内置。
+ *        （2026-09-19 修：此前只读 assets/data.js，于是「门户里改了、查看器左侧不变」——
+ *          门户首页拉的是服务端目录，本文件却停在出厂内置值，两边长期不一致。
+ *          实测：服务端 MS View 只剩 no=1/2，viewer 左侧仍列 8 条。）
  * 内嵌策略：
  *   · my_app 页面（URL 路径以 /myapp/ 开头，无 X-Frame-Options）→ 改写为**同源**
  *     /myapp/?page=xxx 后用 iframe 内嵌。my_app 深链带 ?page= 时自身进入 bare 模式
@@ -33,6 +37,101 @@
   var DATA = window.MS_PORTAL_DATA || { items: [], groups: [] };
   var LANG = 'zh';
   try { LANG = localStorage.getItem('msportal.lang.v1') === 'en' ? 'en' : 'zh'; } catch (e) {}
+
+  /* ---- 看板目录：与门户首页同一条真相源（2026-09-19 修） ----
+     背景：门户首页（portal.js）的目录优先级是「服务端全局目录 > 本机 localStorage
+     兜底 > data.js 内置」；本查看器原来**只**读 data.js，于是门户里做的增删改
+     （全部落在服务端 /api/portal-catalog）在首页立刻生效，点进查看器后左侧却还是
+     出厂那 51 条 —— 同一套门户两个答案。
+
+     这里补齐同一套优先级，实现刻意保持"外壳先渲染、不白屏"：
+       1) 同步先用内置 data.js 渲染（首屏立刻有内容）；
+       2) 再依次尝试服务端目录 → 本机兜底目录，拿到就替换 DATA.items 并重绘。
+     注意：DATA 整体替换，不做 items/groups 局部赋值 —— 服务端目录只带 items，
+     groups 的显示名仍用 data.js 内置的（服务端没存分组元数据，与 portal.js 一致）。 */
+  var LS_CATALOG = 'msportal.catalog.v1';
+  function readCatalogLS() {
+    try {
+      var raw = localStorage.getItem(LS_CATALOG);
+      var v = raw ? JSON.parse(raw) : null;
+      return (v && v.length) ? v : null;
+    } catch (e) { return null; }
+  }
+  /* 服务端目录与 data.js 的 items 字段并非逐字相同（服务端会补 platform/status 默认值、
+     截断长文本），这里只挑渲染真正用到的键做浅合并，避免 undefined 把内置值覆盖掉。 */
+  var CATALOG_KEYS = ['no', 'groups', 'titleZh', 'titleEn', 'descZh', 'descEn', 'platform', 'url', 'icon', 'clicks'];
+  function applyCatalog(items) {
+    if (!items || !items.length) return false;
+    DATA = {
+      items: items.map(function (src) {
+        var out = {}, i;
+        for (i = 0; i < CATALOG_KEYS.length; i++) {
+          if (src[CATALOG_KEYS[i]] !== undefined) out[CATALOG_KEYS[i]] = src[CATALOG_KEYS[i]];
+        }
+        return out;
+      }),
+      groups: DATA.groups || []
+    };
+    // ⚠️ 必须重算 LIST：它是一次性算好的数组，换了目录不重算的话
+    // renderList() 画的还是旧目录（实测：接口请求成功、界面纹丝不动）。
+    recomputeList();
+    return true;
+  }
+  function reloadCatalog() {
+    if (!LIST.length) { elGrpCnt.textContent = '0 ' + TXT.cnt; return; }
+    /* 先按 URL 的 startNo 重定位（2026-09-19 补）。
+       背景：首屏是拿**内置 data.js** 定位的（外壳先渲染、不白屏），而门户里新增的看板
+       只存在于服务端目录里 —— 那时 findItem(startNo) 必然落空，初始化会回落到 LIST[0]；
+       等目录对齐后，下面的逻辑只认 current.no（= 回落的那条），于是 URL 明明写着
+       ?no=53，页面却一直显示 no=35 的内容（实测：点门户新加的卡片进查看器，标题/内嵌
+       全是另一张看板）。这里在目录对齐后补一次按 startNo 的定位；
+       startNo 不在新目录、或不属于本组时，保持下面原有的回落逻辑。 */
+    var want = startNo ? findItem(startNo) : null;
+    if (want && groupsOf(want).indexOf(GID) !== -1) {
+      renderHead();
+      select(want, false);
+      return;
+    }
+    /* current 指向的是**旧目录**里的那个对象（applyCatalog 整体换掉了 DATA.items），
+       必须按 no 到新目录里重新解析一次 —— 否则 groupsOf(keep) 读到的还是旧 groups，
+       看板明明已被移出本组也判不出来（实测：no=7 在服务端已被移出 MS View，
+       左侧却仍把它当本组成员保留、且没有任何条目高亮）。 */
+    var keep = current ? findItem(current.no) : null;
+    current = null;
+    if (!keep || groupsOf(keep).indexOf(GID) === -1) { select(LIST[0], false); return; }
+    renderHead();
+    elCurTitle.textContent = titleOf(keep);
+    current = keep;
+    if (isEmbeddable(keep)) showEmbed(keep); else showExternal(keep);
+    renderList();
+  }
+  /* 服务端目录只拉一次：它是全局的，不会因为本机操作而变化（口径同 portal.js）。
+     401 / 接口未注册（my_app 的 SPA 兜底会把未知 /api/xxx 回成 HTML）都当作
+     「没有服务端目录」，继续用本机兜底 / 内置，绝不因为拉取失败而空列表。 */
+  function loadCatalog() {
+    fetch('/api/portal-catalog', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (r) {
+        var ct = (r.headers.get('Content-Type') || '').toLowerCase();
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (ct.indexOf('json') === -1) throw new Error('non-JSON');
+        return r.json();
+      })
+      .then(function (data) {
+        var items = data && data.catalog && data.catalog.items;
+        if (items && items.length) {
+          if (applyCatalog(items)) reloadCatalog();
+          try { localStorage.removeItem(LS_CATALOG); } catch (e) { /* ignore */ }
+          return;
+        }
+        // 服务端从未保存过（catalog=null）→ 本机兜底目录，再没有就用内置
+        var local = readCatalogLS();
+        if (local && applyCatalog(local)) reloadCatalog();
+      })
+      .catch(function () {
+        var local = readCatalogLS();
+        if (local && applyCatalog(local)) reloadCatalog();
+      });
+  }
 
   var PLAT_LABEL = {
     myapp: LANG === 'en' ? 'my_app' : '自研 my_app',
@@ -104,10 +203,89 @@
     return want;
   }
 
+  /* ---- 访问控制（2026-09-20 加） ----
+     背景（实测出来的越权口子）：本页是**真正把报告 iframe 加载出来**的地方，
+     但原先既没有登录判定、也没有 allowedGroups/allowedCards 判定 ——
+     给账号只放行 1 张看板后，首页确实只剩 1 张，可只要把地址栏的
+     ?gid= 换成别的分组，左侧照旧列出该组全部看板，并且
+     ?page=vmaxCxoDashboard_90Days 会被真的加载进 iframe。
+     修法：先解析门户登录态 → 再按与首页同一份实现（assets/access.js）过滤
+     左侧清单 → 选中项无权时**不赋 src**（连请求都不发），只显示无权限提示。
+
+     身份口径必须与门户首页 probeSession() **完全一致**，否则会出现
+     「首页看得到、点进去却被挡」这种自相矛盾：
+       · 先问 my_app /api/auth/me —— 本机回环会被 my_app 放行（占位 admin，
+         不带白名单），所以「在自己机器上直接打开」照旧全放行，与首页一致；
+       · 手里有门户 token 时以门户用户为准（只有它带 allowedGroups/allowedCards）；
+       · my_app 不认但手里有门户 token（缺 myapp_session Cookie）→ 先换一次会话再问。
+     真正的越权场景（局域网上的受限账号、以及完全匿名的访问）都会被挡住：
+     前者拿到的是带白名单的门户身份，后者 my_app 直接 401。
+
+     ⚠️ allowed() 与 access.js 的 canSee() 有一处刻意的差别：canSee 在「没有 user」
+     时放行（首页靠自己的登录门禁兜底），而本页必须 fail-closed ——
+     没解析出身份就当作无权，绝不能"没登录 = 全放行"。 */
+  var PORTAL_TOKEN_KEY = 'liberia_noc_auth_v1';
+  var portalUser = null;
+  var authReady = false;
+
+  function readPortalToken() {
+    try { return localStorage.getItem(PORTAL_TOKEN_KEY) || null; } catch (e) { return null; }
+  }
+  /** my_app 会话（本机回环会被放行；远端无 Cookie 则 401 → null） */
+  function askMyApp() {
+    return fetch('/api/auth/me', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { return d && d.user ? d.user : null; })
+      .catch(function () { return null; });
+  }
+  /** 门户用户（带 allowedGroups/allowedCards 的那个身份） */
+  function askPortal(token) {
+    if (!token) return Promise.resolve(null);
+    return fetch('/uniplam/api/auth/me', {
+      credentials: 'same-origin',
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }
+    }).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { return d && d.user ? d.user : null; })
+      .catch(function () { return null; });
+  }
+  /** 用门户 token 换 myapp 会话 Cookie（与门户首页 exchangePortalToken 同一个接口） */
+  function exchangePortalToken(token) {
+    return fetch('/api/auth/portal-login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ token: token })
+    }).then(function (r) { return r.ok; }).catch(function () { return false; });
+  }
+  /** 返回 { authed, user }；authed=false 才整页挡住 */
+  function resolveIdentity() {
+    var token = readPortalToken();
+    return askMyApp().then(function (me) {
+      if (me) return askPortal(token).then(function (pu) { return { authed: true, user: pu || me }; });
+      if (!token) return { authed: false, user: null };
+      return exchangePortalToken(token).then(function (ok) {
+        if (!ok) return { authed: false, user: null };
+        return askMyApp().then(function (next) { return { authed: !!next, user: next || null }; });
+      });
+    });
+  }
+  function allowed(it) {
+    if (!authReady || !portalUser) return false;
+    var A = window.MSPortalAccess;
+    return !!(A && A.canSee(portalUser, it));
+  }
+
   // ---- 状态 ----
+  /* 分组归属可能因目录切换（内置 → 服务端）而变化：startNo 指向的看板在新目录里
+     可能不属于 startGid 了（实测：服务端目录把 no=7 从 MS View 移走）。
+     所以 GID 固定在入口参数上（gid 优先，其次该看板在**当前**目录里的第一个组），
+     每次换目录后只重算 LIST，不跟着看板漂移 —— 否则左侧会从「MS View」跳到别的组。 */
   var GID = startGid || (findItem(startNo) && groupsOf(findItem(startNo))[0]) || 'MS View';
-  var LIST = siblingsOf(GID);
+  var LIST = [];
   var current = null;
+  /** 左侧清单 = 本组看板 ∩ 当前账号有权看的。未登录时恒为空（fail-closed）。 */
+  function recomputeList() { LIST = siblingsOf(GID).filter(allowed); }
+  recomputeList();
 
   // DOM
   var elList = document.getElementById('sbList');
@@ -124,8 +302,16 @@
   var phBtnTxt = document.getElementById('phBtnTxt');
 
   var TXT = LANG === 'en'
-    ? { back: 'Back to portal', cnt: 'dashboards', ext: 'This board is an external system (FineBI / 3rd party) and cannot be embedded here for security reasons (X-Frame-Options).', open: 'Open in new window', loading: 'Loading…' }
-    : { back: '返回门户首页', cnt: '个看板', ext: '该看板属于外部系统（FineBI / 第三方），出于安全策略（X-Frame-Options）无法在本页内嵌显示。', open: '在新窗口打开', loading: '加载中…' };
+    ? {
+      back: 'Back to portal', cnt: 'dashboards', ext: 'This board is an external system (FineBI / 3rd party) and cannot be embedded here for security reasons (X-Frame-Options).', open: 'Open in new window', loading: 'Loading…',
+      needLogin: 'Sign-in required', needLoginDesc: 'This page embeds report content, so it needs a unified-portal sign-in. Please sign in on the portal home page first.', goLogin: 'Go to sign in',
+      denied: 'No access to this dashboard', deniedDesc: 'This dashboard is not in your page permissions. Ask an administrator to tick it under User Management → Page configuration.', backPortal: 'Back to portal home'
+    }
+    : {
+      back: '返回门户首页', cnt: '个看板', ext: '该看板属于外部系统（FineBI / 第三方），出于安全策略（X-Frame-Options）无法在本页内嵌显示。', open: '在新窗口打开', loading: '加载中…',
+      needLogin: '需要登录', needLoginDesc: '本页用于内嵌查看报告内容，需要统一门户账号登录。请先在门户首页登录。', goLogin: '去登录',
+      denied: '无权查看该看板', deniedDesc: '当前账号的页面权限里没有这张看板。如需开通，请联系管理员在「用户管理 → 页面配置」里勾选。', backPortal: '返回门户首页'
+    };
   document.getElementById('backTxt').textContent = TXT.back;
   phBtnTxt.textContent = TXT.open;
   loading.innerHTML = '<i class="ph ph-circle-notch" aria-hidden="true" style="margin-right:8px"></i>' + esc(TXT.loading);
@@ -168,8 +354,44 @@
     placeholder.classList.add('show');
   }
 
+  /** 未登录：清空左侧、不加载任何报告，只给一个去登录的引导。
+      必须把 frame 置回 about:blank —— 否则上一轮的报告会留在 iframe 里。 */
+  function showAuthGate() {
+    current = null;
+    LIST = [];
+    elList.innerHTML = '';
+    elGrpCnt.textContent = '0 ' + TXT.cnt;
+    elCurTitle.textContent = TXT.needLogin;
+    frame.style.visibility = 'hidden';
+    frame.src = 'about:blank';
+    loading.style.display = 'none';
+    phTitle.textContent = TXT.needLogin;
+    phDesc.textContent = TXT.needLoginDesc;
+    phBtn.href = 'index.html';
+    phBtnTxt.textContent = TXT.goLogin;
+    placeholder.classList.add('show');
+  }
+
+  /** 已登录但当前看板不在白名单里：不赋 src（连请求都不发），只显示提示。
+      左侧仍保留他有权看的其他看板，方便直接切过去。 */
+  function showDenied(it) {
+    current = null;
+    elCurTitle.textContent = titleOf(it);
+    frame.style.visibility = 'hidden';
+    frame.src = 'about:blank';
+    loading.style.display = 'none';
+    phTitle.textContent = TXT.denied;
+    phDesc.textContent = TXT.deniedDesc;
+    phBtn.href = 'index.html';
+    phBtnTxt.textContent = TXT.backPortal;
+    placeholder.classList.add('show');
+    renderList();
+  }
+
   function select(it, push) {
     if (!it) return;
+    /* 权限判定放在最前面：无权就不进 showEmbed/showExternal，避免报告被加载 */
+    if (!allowed(it)) { showDenied(it); return; }
     current = it;
     elCurTitle.textContent = titleOf(it);
     if (isEmbeddable(it)) showEmbed(it); else showExternal(it);
@@ -186,6 +408,9 @@
     e.preventDefault();
     var it = findItem(a.getAttribute('data-no'));
     if (!it) return;
+    /* 清单本身已按权限过滤，这里再判一次：外链分支是 window.open(真实报告地址)，
+       一旦漏进来就是直接把越权报告开在用户面前，不能只靠清单过滤。 */
+    if (!allowed(it)) { showDenied(it); return; }
     if (!isEmbeddable(it)) {
       // 外部系统：直接新窗口打开（用户手势，弹窗不被拦截），当前内嵌视图保持不变
       window.open(it.url, '_blank', 'noopener');
@@ -222,13 +447,32 @@
     try { frame.contentWindow.location.reload(); } catch (err) { frame.src = embedSrc(current); }
   });
 
-  // ---- 初始化：定位当前看板（no 缺省或不属于本组时，取本组第一个） ----
+  // ---- 初始化：**先鉴权、再渲染** ----
+  /* ⚠️ 顺序很重要：不能像原来那样先用内置目录把左侧画出来、再异步补权限 ——
+     那样受限用户会先看到（并且 iframe 已经加载了）被禁止的报告。所以这里
+     先解析门户登录态，拿到结果之后才决定渲染什么。 */
   renderHead();
-  var init = findItem(startNo);
-  if (!init || groupsOf(init).indexOf(GID) === -1) init = LIST[0] || null;
-  if (!init) {
-    elCurTitle.textContent = '(no dashboards)';
-  } else {
+  elCurTitle.textContent = TXT.loading;
+  resolveIdentity().then(function (idn) {
+    authReady = true;
+    portalUser = idn.authed ? idn.user : null;
+
+    if (!idn.authed) { showAuthGate(); return; }
+
+    recomputeList();
+    renderHead();
+    var init = findItem(startNo);
+    /* 入口指定的看板在「本组 ∩ 有权看」里找不到时，退到第一张有权看的；
+       都为空说明该分组下没有任何他有权看的看板 —— 直接给无权限提示，
+       不渲染清单也不加载报告。 */
+    if (!init || groupsOf(init).indexOf(GID) === -1 || !allowed(init)) init = LIST[0] || null;
+    if (!init) {
+      var want = findItem(startNo);
+      if (want) { showDenied(want); } else { elCurTitle.textContent = '(no dashboards)'; }
+      return;
+    }
     select(init, false);
-  }
+    // 首屏就绪后再异步对齐服务端目录（口径同门户首页）
+    loadCatalog();
+  });
 })();

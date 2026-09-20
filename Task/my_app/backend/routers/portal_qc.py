@@ -10,10 +10,20 @@ $portal_ref 的 eflow 规则，故不会被误转给门户上游）。
 口径（与现有看板保持一致，勿在此处另立标准）：
 - alarm：realtime_alarm 未清除且命中断站告警白名单。白名单直接复用
   eflow_alarm_service.ALARM_CODE_CONDS（与实时/历史告警同步同一份，保证口径唯一）。
-- tt/wo/cr/pmt：沿用 gis.py 的「只有 Closed 是终态」约定
+- tt/wo（2026-09-20 按需求改口径）：**告警未清除** —— 即 eflow_tt / eflow_wo 的
+  alarm_clear_time 为空（NULL 或空串）。原来用的是「未关闭 status <> 'Closed'」，
+  那是工单流程状态，与「告警是否消除」并不等价：实测同一时刻 TT 未关闭 8133 条，
+  而告警未清除只有 79 条 —— 面板上摆的是质量指标，看的应是告警本身还没消。
+- cr/pmt：沿用 gis.py 的「只有 Closed 是终态」约定
   （eflow_cr 额外把 Canceled 视为终态）。
-- spms：inband_details / outbound_details 的未关闭单，closed 词表与
-  get_sp_table._status_breakdown 一致。
+- spms：inband_details / outband_details 的未关闭单，closed 词表与
+  get_sp_table._status_breakdown 一致；此外剔除 Status = WaitingForUpdate
+  （尚未生效的出库单，见 SP_IGNORED_WORDS）—— 大数字与下钻明细共用同一份谓词。
+
+下钻明细列（_COLUMNS 的 tt / wo 两项）必须与 my_app 的 TT&WO 看板
+（frontend/src/pages/TTWODashboard.tsx，页面 http://<host>/myapp/?page=ttwo）
+逐字一致：同样的字段、同样的顺序、同样的表头（表头由 _auto_label 按该页面前端
+的同一条规则从字段名生成）。改这里就要同步改那边，反之亦然。
 
 注意：本模块的 SQL 必须用 `?` 占位符 —— get_raw_connection 的 PG 包装层
 （database._PsycopgRaw）在带参数时会把字面 '%' 转义成 '%%' 并把 '?' 转成 '%s'，
@@ -22,6 +32,7 @@ $portal_ref 的 eflow 规则，故不会被误转给门户上游）。
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -41,12 +52,35 @@ METRICS = ("alarm", "tt", "wo", "cr", "pmt", "spms")
 _SUMMARY_TTL_SEC = 60
 _summary_lock = threading.Lock()
 _summary_cache: dict = {"at": 0.0, "payload": None}
+# 告警单项的独立缓存（2026-09-18 加，配合 only=alarm）。必须与全量分开：
+# MsPortal 的 QC 面板对告警做 5 分钟级刷新、其余做每小时刷新，若共用一份缓存，
+# 每 5 分钟一次的告警请求会把全量那份 60s 缓存顶掉 → 「其余每小时」白白多跑 6 条全表 COUNT。
+_alarm_cache: dict = {"at": 0.0, "payload": None}
 
 # 与 get_sp_table._status_breakdown 完全一致的「已关闭」词表
 SP_CLOSED_WORDS = ("closed", "close", "done", "已关闭", "完成", "yes", "y", "1", "true")
 
-_TT_OPEN = "status <> 'Closed'"
-_WO_OPEN = "status <> 'Closed'"
+# 额外「不算未关闭」的在途状态（2026-09-20 按需求加）：WaitingForUpdate 是**尚未生效**
+# 的单（申请人还没提交更新，属在途态，见 sp_online_sync.STATUS_ALL），不是真正待处理的
+# 出入库任务 —— 所以既不计入 SPMS 大数字，也不出现在下钻明细里。
+# 与报表侧同一口径：sp_report_gen.gernarate_sp_report.OUTBOUND_DROP_STATUS 与
+# sp_report_gen.generate_sp_online_report.EXCLUDED_STATUS 生成报表前也都剔除它。
+# 只影响本面板：get_sp_table._status_breakdown 的 closed 口径不动（那边是仓库看板的
+# 「已关闭/未关闭」拆分，语义不同，不能顺手改）。
+SP_IGNORED_WORDS = ("waitingforupdate",)
+
+# 「未关闭」= status 既不属已关闭词表、也不属被忽略词表。合并成一份，统计与下钻共用。
+SP_NOT_OPEN_WORDS = SP_CLOSED_WORDS + SP_IGNORED_WORDS
+
+# TT / WO 的口径 = 「告警未清除」：alarm_clear_time 为空（NULL 或空串）。
+# 2026-09-20 由「未关闭 status <> 'Closed'」改来，见模块 docstring 的口径说明。
+# 同时判 IS NULL 与 = ''：源表里空值既有 NULL 也有空串（导出链路两种都见过），
+# 只判其中一种会漏（实测 TT 的 79 条全是 NULL，但 WO 侧空串出现过）。
+_ALARM_UNCLEARED = (
+    "(alarm_clear_time IS NULL OR TRIM(CAST(alarm_clear_time AS TEXT)) = '')"
+)
+_TT_UNCLEARED = _ALARM_UNCLEARED
+_WO_UNCLEARED = _ALARM_UNCLEARED
 _CR_OPEN = "status NOT IN ('Closed','Canceled')"
 _PM_OPEN = "status <> 'Closed'"
 
@@ -125,21 +159,35 @@ def _sp_status_column(conn, table: str):
     return None
 
 
+def _sp_words_sql(words) -> str:
+    """词表 → SQL 的 IN 列表字面量（值里的单引号做转义）。"""
+    return ",".join("'" + w.replace("'", "''") + "'" for w in words)
+
+
+def _sp_open_predicate(col_quoted: str) -> str:
+    """SP 明细的「未关闭」谓词 —— 统计与下钻共用这一份，避免两处漂移。
+
+    COALESCE 到 '' 与 _status_breakdown 把空值/NaN 计入 unclosed 的行为一致；
+    WaitingForUpdate 随 SP_IGNORED_WORDS 一并排除（见常量注释）。
+    """
+    return (
+        f"LOWER(TRIM(COALESCE(CAST({col_quoted} AS TEXT), ''))) "
+        f"NOT IN ({_sp_words_sql(SP_NOT_OPEN_WORDS)})"
+    )
+
+
 def _sp_open_counts(conn):
-    """inband_details / outband_details 的未关闭单数。"""
+    """inband_details / outband_details 的未关闭单数（已剔除 WaitingForUpdate）。"""
     total_unclosed = 0
     detail = {}
-    words = ",".join("'" + w.replace("'", "''") + "'" for w in SP_CLOSED_WORDS)
     for table in ("inband_details", "outband_details"):
         col = _sp_status_column(conn, table)
         if not col:
             raise RuntimeError(f"{table} 未找到 status 列")
         col_quoted = '"' + str(col).replace('"', '""') + '"'
-        # COALESCE 到 '' 与 _status_breakdown 把空值/NaN 计入 unclosed 的行为一致
         unclosed = _scalar(
             conn,
-            f"SELECT COUNT(*) FROM {table} WHERE "
-            f"LOWER(TRIM(COALESCE(CAST({col_quoted} AS TEXT), ''))) NOT IN ({words})",
+            f"SELECT COUNT(*) FROM {table} WHERE {_sp_open_predicate(col_quoted)}",
         )
         unclosed = int(unclosed or 0)
         detail[table] = unclosed
@@ -182,11 +230,11 @@ def _collect_summary() -> dict:
 
         def tt():
             table_ok("eflow_tt")
-            return int(_scalar(conn, f"SELECT COUNT(*) FROM eflow_tt WHERE {_TT_OPEN}") or 0)
+            return int(_scalar(conn, f"SELECT COUNT(*) FROM eflow_tt WHERE {_TT_UNCLEARED}") or 0)
 
         def wo():
             table_ok("eflow_wo")
-            return int(_scalar(conn, f"SELECT COUNT(*) FROM eflow_wo WHERE {_WO_OPEN}") or 0)
+            return int(_scalar(conn, f"SELECT COUNT(*) FROM eflow_wo WHERE {_WO_UNCLEARED}") or 0)
 
         def cr():
             table_ok("eflow_cr")
@@ -243,9 +291,66 @@ def _collect_summary() -> dict:
     }
 
 
+def _collect_alarm_only() -> dict:
+    """只算「未清除的断站告警」（2026-09-18 加，配合 only=alarm）。
+
+    口径必须与 _collect_summary 里的 alarm 完全一致（同一段 SQL、同一份 _ALARM_WHERE、
+    同一个 clearstate='0' 判定），否则两个入口会给出不同的数字 —— 面板上同一张卡
+    会因为走了哪条路径而变值。
+
+    比全量那份多做一步：把「表正在被 DROP/CREATE 重建」这种瞬时错误也纳入重试。
+    realtime_alarm 是整表重建写法的受害者（eflow_active_alarm 每 5 分钟 replace 一次），
+    全量路径里 table_ok 是在重试之外抛的，重建窗口内那一轮只能报错；
+    这条 5 分钟级的路径调用频率高，值得跨过窗口而不是把错误推给面板。
+    """
+    def run():
+        with get_raw_connection() as conn:
+            if "realtime_alarm" not in set(list_table_names(conn)):
+                raise RuntimeError("表不存在: realtime_alarm")
+            sql = (
+                "SELECT COUNT(*) AS alarms, COUNT(DISTINCT site_id) AS sites "
+                "FROM realtime_alarm WHERE TRIM(CAST(clearstate AS TEXT)) = '0' AND "
+                + _ALARM_WHERE
+            )
+            return conn.execute(sql, _ALARM_PARAMS).fetchone()
+
+    metrics: dict = {}
+    try:
+        row = _retry_missing_table(run, attempts=4, delay=0.8)
+        metrics["alarm"] = {"value": int(row[0] or 0), "sites": int(row[1] or 0), "error": None}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[portal-qc] alarm 单项统计失败: %s", exc, exc_info=True)
+        metrics["alarm"] = {"value": None, "error": f"{type(exc).__name__}: {exc}"[:200]}
+    return {
+        "generated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
+        "metrics": metrics,
+    }
+
+
 @router.get("/api/portal-qc/summary")
-def portal_qc_summary(refresh: int = 0):
-    """QC 面板 6 项统计。默认 60s 缓存；refresh=1 强制刷新。"""
+def portal_qc_summary(refresh: int = 0, only: str = ""):
+    """QC 面板统计。
+
+    - 不传 only：六项全量，默认 60s 缓存，refresh=1 强制刷新。
+    - only=alarm（2026-09-18 加）：**只算断站告警一项**。MsPortal 的 QC 面板按
+      「告警 5 分钟级 / 其余每小时」分频刷新，而六项里只有 realtime_alarm 是高频变化的
+      （eflow_active_alarm 每 5 分钟同步；tt/wo/cr/pmt/spms/sla 的源 eflow_sync 每小时
+      :00 起跑、约 :06 才跑完）。给告警单开一条，避免每 5 分钟把 6 条全表 COUNT 重跑一遍。
+      只返回 metrics.alarm，前端只覆盖 alarm 那一格。
+    """
+    if only.strip().lower() == "alarm":
+        now = time.time()
+        with _summary_lock:
+            cached = _alarm_cache["payload"]
+            fresh = cached is not None and (now - _alarm_cache["at"]) < _SUMMARY_TTL_SEC
+            if fresh and not refresh:
+                return {**cached, "cached": True}
+        payload = _collect_alarm_only()
+        with _summary_lock:
+            _alarm_cache["payload"] = payload
+            _alarm_cache["at"] = time.time()
+        return {**payload, "cached": False}
+
     now = time.time()
     with _summary_lock:
         cached = _summary_cache["payload"]
@@ -262,6 +367,35 @@ def portal_qc_summary(refresh: int = 0):
 
 # ========== 明细下钻 ==========
 # 每项一份列定义：(SQL 表达式, 输出 key, 表头)；SQL 表达式统一用原名，需要引号的自带引号。
+
+
+def _auto_label(key: str) -> str:
+    """字段名 → 表头，规则与 my_app TT&WO 看板前端**逐字相同**。
+
+    对应 TTWODashboard.tsx 里那段：
+        k.replace(/_/g, ' ').replace(/\b\\w/g, c => c.toUpperCase())
+    例：tt_no → 'Tt No'、alarm_clear_time → 'Alarm Clear Time'。
+    放在这里（而不是各写一份表头）是为了让 QC 下钻的表头与
+    http://<host>/myapp/?page=ttwo 的明细表永远一致 —— 那边是前端算的，
+    两边一旦各写各的就会慢慢漂移。
+    """
+    return re.sub(r"\b\w", lambda m: m.group(0).upper(), key.replace("_", " "))
+
+
+# tt / wo 的字段与顺序 = TTWODashboard.tsx 的 _build_tt_fields() / WO_FIELDS
+# （site_join_field=site_id、creator_field=creator、sev_field=alarm_severity，
+#  由 tt_wo_dashboard._detect_schema() 对当前库判定得出）。
+_TT_DRILL_FIELDS = (
+    "title", "tt_no", "wo_no", "site_id", "status", "creator",
+    "ticket_severity", "alarm_severity", "sla_status",
+    "alarm_occur_time", "alarm_clear_time", "domain", "root_cause", "sub_root_cause",
+)
+_WO_DRILL_FIELDS = (
+    "wo_no", "tt_no", "title", "status", "creator", "created_time",
+    "alarm_occur_time", "alarm_clear_time", "source",
+    "rc_main_category", "rc_sub_category", "ticket_severity", "alarm_severity",
+)
+
 _COLUMNS = {
     "alarm": [
         ("tt_id", "tt_id", "TT No."),
@@ -276,33 +410,8 @@ _COLUMNS = {
         ("assign_rulename", "assign_rule", "Assign Rule"),
         ("region", "region", "Region"),
     ],
-    "tt": [
-        ("tt_no", "tt_no", "TT No."),
-        ("title", "title", "Title"),
-        ("status", "status", "Status"),
-        ("ticket_severity", "severity", "Severity"),
-        ("sla_status", "sla", "SLA Status"),
-        ("site_name", "site_name", "Site Name"),
-        ("alarm_occur_time", "occur", "Occurrence Time"),
-        ("created_time", "created", "Created Time"),
-        ("fault_duration_time", "duration", "Fault Duration"),
-        ("site_outage", "outage", "Site Outage"),
-        ("last_processer_group", "group", "Last Processer Group"),
-        ("last_processer", "processer", "Last Processer"),
-    ],
-    "wo": [
-        ("wo_no", "wo_no", "WO No."),
-        ("tt_no", "tt_no", "TT No."),
-        ("status", "status", "Status"),
-        ("ticket_severity", "severity", "Severity"),
-        ("sla_status", "sla", "SLA Status"),
-        ("site_name", "site_name", "Site Name"),
-        ("created_time", "created", "Created Time"),
-        ("expected_finish_time", "expected", "Expected Finish Time"),
-        ("rc_main_category", "rc_main", "RCA Main Category"),
-        ("rc_sub_category", "rc_sub", "RCA Sub Category"),
-        ("source", "source", "Source"),
-    ],
+    "tt": [(f, f, _auto_label(f)) for f in _TT_DRILL_FIELDS],
+    "wo": [(f, f, _auto_label(f)) for f in _WO_DRILL_FIELDS],
     "cr": [
         ("change_request_id", "cr_id", "CR ID"),
         ("cr_title", "title", "CR Title"),
@@ -342,8 +451,10 @@ _COLUMNS = {
 
 _ORDER = {
     "alarm": "alarmraisedtime DESC",
-    "tt": "created_time DESC",
-    "wo": "created_time DESC",
+    # tt / wo 的排序 = TTWODashboard.tsx 下钻的 ORDER BY t.alarm_occur_time DESC /
+    # w.alarm_occur_time DESC（那边也是按告警发生时间倒序，不是创建时间）。
+    "tt": "alarm_occur_time DESC",
+    "wo": "alarm_occur_time DESC",
     "cr": "request_registration_time DESC",
     "pmt": "created_time DESC",
     "spms": "create_time DESC",
@@ -363,12 +474,11 @@ _SP_UNION = (
 
 
 def _sp_open_expr(conn, table: str) -> str:
+    """下钻 UNION 里每张表的「未关闭」条件 —— 与 _sp_open_counts 同一份谓词。"""
     col = _sp_status_column(conn, table)
     if not col:
         raise RuntimeError(f"{table} 未找到 status 列")
-    col_quoted = '"' + str(col).replace('"', '""') + '"'
-    words = ",".join("'" + w.replace("'", "''") + "'" for w in SP_CLOSED_WORDS)
-    return f"LOWER(TRIM(COALESCE(CAST({col_quoted} AS TEXT), ''))) NOT IN ({words})"
+    return _sp_open_predicate('"' + str(col).replace('"', '""') + '"')
 
 
 def _detail_source(conn, metric: str):
@@ -376,9 +486,9 @@ def _detail_source(conn, metric: str):
     if metric == "alarm":
         return "realtime_alarm", "TRIM(CAST(clearstate AS TEXT)) = '0' AND " + _ALARM_WHERE, list(_ALARM_PARAMS)
     if metric == "tt":
-        return "eflow_tt", _TT_OPEN, []
+        return "eflow_tt", _TT_UNCLEARED, []
     if metric == "wo":
-        return "eflow_wo", _WO_OPEN, []
+        return "eflow_wo", _WO_UNCLEARED, []
     if metric == "cr":
         return "eflow_cr", _CR_OPEN, []
     if metric == "pmt":

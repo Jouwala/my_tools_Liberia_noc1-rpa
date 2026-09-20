@@ -270,6 +270,7 @@ function localeName(locale: Locale, key: string): string {
     alarmManagement: '告警管理看板', packet_loss: '丢包看板', battery: '电池看板', ip_trace: 'IP 链路探测',
     incident_overview: '事件总览', warehouse: '仓库看板', overview: '数据总览', tables: '表浏览器',
     upload: '数据上传', archive: '分析归档', dashboard: '分析仪表盘', settings: '系统设置', portalLogin: '门户一键登录',
+    imonitor: 'UME iMonitor 大屏',
   }
   const EN: Record<string, string> = {
     sync: 'Task Manager', email_reports: 'Task Report Files', alarm: 'Alarm Dashboard', ttwo: 'TT&WO Dashboard',
@@ -278,6 +279,7 @@ function localeName(locale: Locale, key: string): string {
     alarmManagement: 'Alarm Management', packet_loss: 'Packet Loss', battery: 'Battery Dashboard', ip_trace: 'IP Trace',
     incident_overview: 'Incident Overview', warehouse: 'Warehouse', overview: 'Overview', tables: 'Table Browser',
     upload: 'Data Upload', archive: 'Archive', dashboard: 'Dashboard', settings: 'Settings', portalLogin: 'Portal Login',
+    imonitor: 'UME iMonitor Screen',
   }
   return locale === 'zh' ? (ZH[key] ?? key) : (EN[key] ?? key)
 }

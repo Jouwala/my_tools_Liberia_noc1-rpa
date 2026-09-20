@@ -4,6 +4,83 @@
     <link rel="stylesheet" href="./legacy-glass-baseline.css">
 
 <meta charset="utf-8"/>
+
+    <!-- vmax 深空蓝令牌：深色档唯一真相源（与 React 外壳 frontend/src/index.css 的
+         :root 逐条对应）。必须排在下面 tailwind-config 之前 —— Tailwind 侧通过
+         rgb(var(--vmax-*-rgb) / <alpha-value>) 直接引用这里的令牌。 -->
+    <link rel="stylesheet" href="./legacy-vmax-theme.css">
+
+    <script>
+    /* ============ theme（在首次绘制前钉住 data-theme，避免先闪一档）============
+       与其它 legacy 页同一套约定：localStorage['myapp-theme'] → prefers-color-scheme
+       → 默认 dark；运行时由 React 外壳 LegacyToolFrame 发来的
+       postMessage({__type:'myapp-theme', mode}) 驱动。
+       ⚠️ 本页目前只有深色一套色值（浅色档未实现），所以 data-theme 会跟随外壳
+          切换，但观感始终保持深色 —— 与改动前一致。补浅色档要做的三件事写在
+          applyTheme() 里。
+       老写法把深色色值在 <style> / tailwind.config / 页面 JS 里各写一份，
+       三份必须手工同步 —— 正是深色跑偏的根因。现在 JS 侧只读 CSS 令牌。 */
+    function cssVar(name, fallback){
+      try {
+        var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return v || fallback;
+      } catch(e){ return fallback; }
+    }
+    /* 只在需要时读一次（getComputedStyle 有开销，不进渲染热路径），
+       applyTheme 里置空缓存让下次 curP() 重读 —— 与 mw_real_time.html 同一套做法。 */
+    function readPalette(){
+      return {
+        bg:       cssVar('--vmax-bg',         '#02050c'),
+        panel:    cssVar('--vmax-panel',      '#08122c'),
+        panel2:   cssVar('--vmax-panel-2',    '#050d22'),
+        line:     cssVar('--vmax-edge',       '#153db0'),
+        lineSoft: cssVar('--vmax-edge-2',     '#173158'),
+        text:     cssVar('--vmax-text',       '#f5f7ff'),
+        muted:    cssVar('--vmax-text-muted', '#aebbd4'),
+        caption:  cssVar('--vmax-text-2',     '#8fb0d8'),
+        dim:      cssVar('--vmax-text-dim',   '#6f8cb4'),
+        accent:   cssVar('--vmax-cyan',       '#00d9ff'),
+        blue:     cssVar('--vmax-blue',       '#258cff'),
+        green:    cssVar('--vmax-green',      '#0bc78c'),
+        yellow:   cssVar('--vmax-yellow',     '#f6cf00'),
+        red:      cssVar('--vmax-red',        '#ff5c6c'),
+        fill:     cssVar('--vmax-fill-1',     'rgba(37,140,255,0.16)')
+      };
+    }
+    var APP_THEME = (function(){
+      try { var s = localStorage.getItem('myapp-theme'); if (s === 'dark' || s === 'light') return s; } catch(e){}
+      try { if (window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches) return 'light'; } catch(e){}
+      return 'dark';
+    })();
+    var PALETTE = null;
+    try { document.documentElement.dataset.theme = APP_THEME; } catch(e){}
+    function curP(){
+      if (!PALETTE) PALETTE = readPalette();
+      return PALETTE;
+    }
+    function applyTheme(mode){
+      APP_THEME = (mode === 'light') ? 'light' : 'dark';
+      try { document.documentElement.dataset.theme = APP_THEME; } catch(e){}
+      PALETTE = null;
+      /* ⚠️ 浅色档未实现：这里刻意不动 <html class="dark">，所以 Tailwind 的 dark:
+         变体与深色令牌始终生效，切到 light 时观感与改动前一致。
+         将来补浅色档要在这里加三件事：
+           ① document.documentElement.classList.toggle('dark', APP_THEME === 'dark');
+           ② 页内 <style> 加 html[data-theme="light"] 块，覆盖 --ipt-* 与 --vmax-*-rgb；
+           ③ 重绘本页用 JS 上色的图（updateLatencyChart / updateHopTimeChart /
+              drawMapRoute 都走 setAttribute 上色，改档必须重绘）。 */
+    }
+    window.addEventListener('message', function(e){
+      if (e.data && e.data.__type === 'myapp-theme') applyTheme(e.data.mode);
+    });
+    try {
+      if (window.matchMedia) {
+        matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e){
+          try { if (!localStorage.getItem('myapp-theme')) applyTheme(e.matches ? 'dark' : 'light'); } catch(err){}
+        });
+      }
+    } catch(e){}
+    </script>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>IP Trace &amp; Node Detection Dashboard</title>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
@@ -14,15 +91,35 @@
             darkMode: "class",
             theme: {
                 extend: {
+                    /* 深色档色值不再写死 —— 唯一真相源是 ./legacy-vmax-theme.css 的
+                       --vmax-* 令牌（与 React 外壳 index.css 同源）。用
+                       rgb(var(--vmax-*-rgb) / <alpha-value>) 引用：Tailwind 的 /30
+                       透明度修饰符要求色值可解析，直接写 var(--vmax-cyan) 会让
+                       bg-primary/30 静默退化成不透明（实测）。 */
                     colors: {
-                        "primary": "#00dbc9",
-                        "background-light": "#f5f8f8",
-                        "background-dark": "#090c15",
-                        "card-dark": "#161b22",
-                        "border-dark": "#204b47",
-                        "danger": "#ef4444",
-                        "warning": "#f59e0b",
-                        "info": "#3b82f6"
+                        /* 强调青：原 #00dbc9 */
+                        "primary": "rgb(var(--vmax-cyan-rgb) / <alpha-value>)",
+                        /* 页面底：原 #090c15 */
+                        "background-dark": "rgb(var(--vmax-bg-rgb) / <alpha-value>)",
+                        /* 卡片/控件底：原 #161b22 */
+                        "card-dark": "rgb(var(--vmax-panel-rgb) / <alpha-value>)",
+                        /* 描边（外框/控件框）：原 #204b47 */
+                        "border-dark": "rgb(var(--vmax-edge-rgb) / <alpha-value>)",
+                        /* 语义色：原 #ef4444 / #f59e0b / #3b82f6；
+                           success 原配置里漏了（AI Analysis 按钮的 bg-success/20 一直
+                           没生成），本次补上并指向 vmax 成功色。 */
+                        "danger": "rgb(var(--vmax-red-rgb) / <alpha-value>)",
+                        "warning": "rgb(var(--vmax-yellow-rgb) / <alpha-value>)",
+                        "info": "rgb(var(--vmax-blue-rgb) / <alpha-value>)",
+                        "success": "rgb(var(--vmax-green-rgb) / <alpha-value>)",
+                        /* vmax 文字四层：替换原来的「白色 + 透明度」写法
+                           （vmax 是蓝色叠加，见令牌表 文字/主/次/图注/弱化） */
+                        "ink": "var(--vmax-text)",
+                        "muted": "var(--vmax-text-muted)",
+                        "caption": "var(--vmax-text-2)",
+                        "dim": "var(--vmax-text-dim)",
+                        /* 浅色档页面底：本页未实现浅色档，保留原值不动 */
+                        "background-light": "#f5f8f8"
                     },
                     fontFamily: {
                         "display": ["Space Grotesk", "sans-serif"],
@@ -34,19 +131,50 @@
         }
     </script>
     <style>
+/* ============================================================================
+   本页私有语义名 → vmax 令牌（深色档唯一真相源：./legacy-vmax-theme.css）
+   ----------------------------------------------------------------------------
+   本页历史上把色值写死在三个地方：这份 <style>、tailwind.config、页面 JS。
+   现在收敛成一处：这里把本页自用的语义名集中定义一次，值全部指向共享令牌；
+   下面所有规则只引用这些名字，JS 侧走 <head> theme 段的 curP()/cssVar()。
+   ========================================================================== */
+:root{
+  --ipt-accent:    var(--vmax-cyan);      /* 原 #00dbc9 强调青 */
+  --ipt-bg:        var(--vmax-bg);        /* 原 #090c15 页面底 */
+  --ipt-card:      var(--vmax-panel);     /* 原 #161b22 卡片/控件底 */
+  --ipt-edge:      var(--vmax-edge);      /* 原 #204b47 卡片外框 */
+  --ipt-edge-soft: var(--vmax-edge-2);    /* 原 #204b47 内部发丝分割线 */
+  --ipt-on-accent: var(--vmax-bg);        /* 强调色上的文字（原 #090c15） */
+  --ipt-text:      var(--vmax-text);      /* 主文字（原「白色」叠加） */
+  --ipt-dim:       var(--vmax-text-dim);  /* 弱化文字（原「白色 + 20/30/40 透明度」） */
+}
+/* Tailwind preflight 的默认边框色是 gray-200 #e5e7eb —— 不在 vmax 体系里。
+   本页只有少数没写 border-* 类的元素会落到它上面，统一改到 vmax 发丝线。
+   html * 特异性 (0,0,1) 压过 preflight 的 * (0,0,0)；
+   Tailwind 的 .border-* 工具类 (0,1,0) 优先级更高，不受影响。 */
+html *, html ::before, html ::after { border-color: var(--ipt-edge-soft); }
+/* 内部发丝分隔线：vmax 把描边分两档（外框 #153db0 / 内部线 #173158，见共享文件
+   --line-soft 注释）。本页历史上只有一种描边色 #204b47 同时充当两者，这里按
+   「只带单边 border-{t,b,l,r} 的 = 内部分割线」把高频的表格网格线、面板内部分节线
+   降到暗一档 —— 否则 70+ 条亮蓝网格线会比 vmax 基准页刺眼得多。 */
+.border-b.border-border-dark, .border-t.border-border-dark,
+.border-l.border-border-dark, .border-r.border-border-dark,
+.divide-border-dark > :not([hidden]) ~ :not([hidden]) { border-color: var(--ipt-edge-soft) !important; }
+/* 日志控制台右上角辉光：原来是墨绿 #1a2a29，vmax 用蓝色叠加 */
+#logContainer { background-image: radial-gradient(circle at top right, var(--vmax-fill-1), transparent 60%); }
 .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #204b47; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #00dbc9; }
-.terminal-glow { text-shadow: 0 0 5px rgba(0, 219, 201, 0.5); }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--ipt-edge-soft); border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--ipt-accent); }
+.terminal-glow { text-shadow: 0 0 5px rgb(var(--vmax-cyan-rgb) / 0.5); }
 
 /* Leaflet 连线样式增强 - 确保连线可见 */
 .leaflet-container {
-    background-color: #f5f5f5 !important;
+    background-color: var(--ipt-bg) !important;
 }
 /* SVG 路径样式 */
 .leaflet-overlay-pane svg path {
-    stroke: #00dbc9 !important;
+    stroke: var(--ipt-accent) !important;
     stroke-width: 5px !important;
     stroke-opacity: 1 !important;
     fill: none !important;
@@ -76,7 +204,7 @@
     flex-shrink: 0;
 }
 .resizer:hover {
-    background: #00dbc9;
+    background: var(--ipt-accent);
 }
 .resizer::before {
     content: '';
@@ -85,11 +213,11 @@
     top: 0;
     bottom: 0;
     width: 2px;
-    background: #204b47;
+    background: var(--ipt-edge-soft);
     transform: translateX(-50%);
 }
 .resizer:hover::before {
-    background: #00dbc9;
+    background: var(--ipt-accent);
 }
 #logPanelResizer {
     width: 100%;
@@ -126,7 +254,7 @@ select.form-input {
 }
 
 select.form-input option {
-    background-color: #161b22 !important;
+    background-color: var(--ipt-card) !important;
     color: white !important;
     padding:0.5rem 0.75rem !important;
     white-space: normal !important;
@@ -148,7 +276,7 @@ select.form-input:focus {
 
 /* AI模态框下拉框样式 - 完整显示 */
 #aiProviderSelect {
-    background-color: #161b22 !important;
+    background-color: var(--ipt-card) !important;
     color: white !important;
     width: 100% !important;
     max-width: 100% !important;
@@ -162,7 +290,7 @@ select.form-input:focus {
 }
 
 #aiProviderSelect option {
-    background-color: #161b22 !important;
+    background-color: var(--ipt-card) !important;
     color: white !important;
     padding:0.625rem 0.75rem !important;
     white-space: normal !important;
@@ -233,7 +361,7 @@ select.form-input {
 
 /* 扣子智能体模态框样式优化 */
 #cozeChatModal .bg-background-dark {
-    background-color: #090c15;
+    background-color: var(--ipt-bg);
 }
 
 /* 确保扣子聊天界面适应暗色主题 */
@@ -255,7 +383,7 @@ select.form-input {
         /* 修复下拉框白底白字问题 */
         select.form-input {
             color: white !important;
-            background-color: #161b22 !important;
+            background-color: var(--ipt-card) !important;
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M6 9L1 4h10z'/%3E%3C/svg%3E") !important;
             background-repeat: no-repeat !important;
             background-position: right 12px center !important;
@@ -265,24 +393,24 @@ select.form-input {
             -moz-appearance: none !important;
         }
         select.form-input option {
-            background-color: #161b22 !important;
+            background-color: var(--ipt-card) !important;
             color: white !important;
             padding:0.5rem 0.75rem !important;
         }
         /* 确保下拉框打开时选项可见 */
         select.form-input:focus {
-            background-color: #161b22 !important;
+            background-color: var(--ipt-card) !important;
             color: white !important;
             outline: none !important;
-            border-color: #00dbc9 !important;
+            border-color: var(--ipt-accent) !important;
         }
         /* 修复所有select元素 */
         select {
             color: white !important;
-            background-color: #161b22 !important;
+            background-color: var(--ipt-card) !important;
         }
         select option {
-            background-color: #161b22 !important;
+            background-color: var(--ipt-card) !important;
             color: white !important;
         }
         /* AI模态框调整大小功能 */
@@ -290,11 +418,11 @@ select.form-input {
             z-index: 100;
             opacity: 0.6;
             transition: opacity 0.2s;
-            background: linear-gradient(135deg, transparent 0%, transparent 40%, #00dbc9 40%, #00dbc9 50%, transparent 50%, transparent 100%);
+            background: linear-gradient(135deg, transparent 0%, transparent 40%, var(--ipt-accent) 40%, var(--ipt-accent) 50%, transparent 50%, transparent 100%);
         }
         #aiModalResizer:hover {
             opacity: 1;
-            background: linear-gradient(135deg, transparent 0%, transparent 40%, #00dbc9 40%, #00dbc9 50%, transparent 50%, transparent 100%);
+            background: linear-gradient(135deg, transparent 0%, transparent 40%, var(--ipt-accent) 40%, var(--ipt-accent) 50%, transparent 50%, transparent 100%);
         }
         #aiAnalysisModalContent {
             resize: none;
@@ -322,7 +450,7 @@ img, svg, canvas, iframe { max-width: 100%; }
 @media (max-width: 768px) {
   main { flex-direction: column !important; overflow: auto !important; height: auto !important; }
   #dataStatsView { min-width: 0 !important; width: 100% !important; }
-  #latencySidebar, #hopTimeChartContainer { width: 100% !important; min-width: 0 !important; max-width: none !important; border-left: none; border-top: 1px solid #204b47; }
+  #latencySidebar, #hopTimeChartContainer { width: 100% !important; min-width: 0 !important; max-width: none !important; border-left: none; border-top: 1px solid var(--ipt-edge-soft); }
   #sidebarResizer, #hopTimeChartResizer, #logPanelResizer { display: none !important; }
   .resizer { display: none !important; }
   #aiAnalysisModalContent { min-width: 0 !important; width: 95vw !important; max-width: 95vw !important; height: 85vh !important; max-height: 90vh !important; }
@@ -337,7 +465,7 @@ img, svg, canvas, iframe { max-width: 100%; }
 
 </style>
 </head>
-<body class="bg-background-light dark:bg-background-dark font-display text-white selection:bg-primary/30">
+<body class="bg-background-light dark:bg-background-dark font-display text-ink selection:bg-primary/30">
 <div class="flex flex-col h-screen overflow-hidden">
     <!-- Header Component -->
     <!-- Top Control Bar -->
@@ -345,7 +473,7 @@ img, svg, canvas, iframe { max-width: 100%; }
     <div class="flex items-center gap-6">
         <div class="flex items-center gap-3 text-primary">
             <span class="material-symbols-outlined text-3xl">hub</span>
-            <h1 class="text-xl font-bold tracking-tight">IP Trace <span class="text-white/50 font-light">v1.0</span></h1>
+            <h1 class="text-xl font-bold tracking-tight">IP Trace <span class="text-caption font-light">v1.0</span></h1>
         </div>
         <div class="h-8 w-px bg-border-dark mx-2"></div>
         <div class="flex items-center gap-4">
@@ -354,16 +482,16 @@ img, svg, canvas, iframe { max-width: 100%; }
                     <div class="text-primary/70 flex bg-transparent items-center justify-center pl-3">
                         <span class="material-symbols-outlined text-[20px]">language</span>
                     </div>
-                    <input id="targetInput" class="form-input w-full border-none bg-transparent text-white placeholder:text-white/30 px-3 text-sm font-medium focus:ring-0" placeholder="Target Hostname (e.g. hc.jiandaoyun.com)" value="exchmail.orange-cit.ci"/>
+                    <input id="targetInput" class="form-input w-full border-none bg-transparent text-ink placeholder:text-dim px-3 text-sm font-medium focus:ring-0" placeholder="Target Hostname (e.g. hc.jiandaoyun.com)" value="exchmail.orange-cit.ci"/>
                 </div>
             </label>
             <label class="flex items-center gap-2">
-                <span class="text-xs font-semibold text-white/50 uppercase tracking-wider">Cycles</span>
+                <span class="text-xs font-semibold text-caption uppercase tracking-wider">Cycles</span>
                 <input id="cyclesInput" class="form-input w-20 h-10 rounded-lg border border-border-dark bg-transparent text-center text-primary font-bold focus:ring-0 focus:border-primary" type="number" min="1" max="1000" value="100" step="1"/>
             </label>
             <div class="flex items-center gap-2">
-                <span class="text-xs font-semibold text-white/50 uppercase tracking-wider">Lang</span>
-                <select id="langSelect" class="form-input h-10 rounded-lg border border-border-dark bg-transparent text-sm text-white focus:ring-0 focus:border-primary pr-10 px-3">
+                <span class="text-xs font-semibold text-caption uppercase tracking-wider">Lang</span>
+                <select id="langSelect" class="form-input h-10 rounded-lg border border-border-dark bg-transparent text-sm text-ink focus:ring-0 focus:border-primary pr-10 px-3">
                     <option value="en">English</option>
                     <option value="zh">中文</option>
                 </select>
@@ -371,7 +499,7 @@ img, svg, canvas, iframe { max-width: 100%; }
         </div>
     </div>
     <div class="flex items-center gap-3">
-        <button id="startBtn" class="flex items-center justify-center rounded-lg h-10 bg-primary text-background-dark gap-2 px-5 text-sm font-bold transition-transform active:scale-95 shadow-[0_0_15px_rgba(0,219,201,0.3)]">
+        <button id="startBtn" class="flex items-center justify-center rounded-lg h-10 bg-primary text-background-dark gap-2 px-5 text-sm font-bold transition-transform active:scale-95 shadow-[0_0_15px_rgb(var(--vmax-cyan-rgb)/0.3)]">
             <span class="material-symbols-outlined text-[20px]">play_circle</span>
             <span>Start Analysis</span>
         </button>
@@ -392,7 +520,7 @@ img, svg, canvas, iframe { max-width: 100%; }
             <span>扣子助手</span>
         </button>
         <div class="h-8 w-px bg-border-dark mx-2"></div>
-        <button class="p-2 text-white/50 hover:text-white transition-colors">
+        <button class="p-2 text-caption hover:text-ink transition-colors">
             <span class="material-symbols-outlined">settings</span>
         </button>
         <div class="size-8 rounded-full border-2 border-primary/20 bg-cover bg-center" data-alt="User avatar profile picture" style="background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuA4QUHUQFUSgC2zrABDclHRVM_Il-ObaEE6BBIy-oNOhpci2Qn5JCr6eugkW2o8xmQ-i4-uW6Yhx8VsOTzKd652jZfaZ-v_HDNRFiHG-zSwlqC3i4MxcNrc0lYtLm7vuqFS3yEl6XUgzlv_E4EsxsDuq1nhVvdu79nWqgrublTVLA3ZlciBYo2kb7KI3B2N7LBlg0kCEcf11FHE53WkRf8Ixhuq9Sex_eL63pfUao70DvmwJN3aWa24tEyhOB3-v-jdC8HyEUGv9mI');"></div>
@@ -402,17 +530,17 @@ img, svg, canvas, iframe { max-width: 100%; }
     <!-- Risk Legend Component -->
     <!-- Risk Legend Strip -->
 <div class="flex items-center gap-8 px-6 py-2 bg-background-dark border-b border-border-dark">
-    <span class="text-[10px] font-bold text-white/40 uppercase tracking-widest">Risk Level Status:</span>
+    <span class="text-[10px] font-bold text-dim uppercase tracking-widest">Risk Level Status:</span>
     <div class="flex items-center gap-2">
-        <span class="size-2 rounded-full bg-danger shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
+        <span class="size-2 rounded-full bg-danger shadow-[0_0_8px_rgb(var(--vmax-red-rgb)/0.6)]"></span>
         <span class="text-xs font-medium">High (ECMP Forwarding)</span>
     </div>
     <div class="flex items-center gap-2">
-        <span class="size-2 rounded-full bg-warning shadow-[0_0_8px_rgba(245,158,11,0.6)]"></span>
+        <span class="size-2 rounded-full bg-warning shadow-[0_0_8px_rgb(var(--vmax-yellow-rgb)/0.6)]"></span>
         <span class="text-xs font-medium">Medium (Jitter Fluctuations)</span>
     </div>
     <div class="flex items-center gap-2">
-        <span class="size-2 rounded-full bg-primary shadow-[0_0_8px_rgba(0,219,201,0.6)]"></span>
+        <span class="size-2 rounded-full bg-primary shadow-[0_0_8px_rgb(var(--vmax-cyan-rgb)/0.6)]"></span>
         <span class="text-xs font-medium">Low (Stable Connection)</span>
     </div>
 </div>
@@ -426,7 +554,7 @@ img, svg, canvas, iframe { max-width: 100%; }
         <span class="material-symbols-outlined text-[18px]">query_stats</span>
         Data Statistics
     </button>
-    <button id="linkMapTab" class="px-4 py-3 text-sm font-bold border-b-2 border-transparent text-white/40 hover:text-white/70 transition-colors flex items-center gap-2">
+    <button id="linkMapTab" class="px-4 py-3 text-sm font-bold border-b-2 border-transparent text-dim hover:text-muted transition-colors flex items-center gap-2">
         <span class="material-symbols-outlined text-[18px]">map</span>
         Link Map
     </button>
@@ -440,12 +568,12 @@ img, svg, canvas, iframe { max-width: 100%; }
         <!-- DNS Resolution -->
         <section>
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-sm font-bold uppercase tracking-wider text-white/60">DNS Resolution Records</h3>
+                <h3 class="text-sm font-bold uppercase tracking-wider text-caption">DNS Resolution Records</h3>
                 <span class="px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-tighter">Cached</span>
             </div>
             <div class="rounded-xl border border-border-dark overflow-hidden bg-card-dark/40">
                 <table class="w-full text-left text-sm">
-                    <thead class="bg-border-dark/30 text-white/60 font-medium">
+                    <thead class="bg-border-dark/30 text-caption font-medium">
                         <tr>
                             <th class="px-4 py-2 border-r border-border-dark">Type</th>
                             <th class="px-4 py-2 border-r border-border-dark">Hostname</th>
@@ -476,21 +604,21 @@ img, svg, canvas, iframe { max-width: 100%; }
         <!-- Trace Result -->
         <section>
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-sm font-bold uppercase tracking-wider text-white/60">Hop Analysis &amp; Path Detection</h3>
+                <h3 class="text-sm font-bold uppercase tracking-wider text-caption">Hop Analysis &amp; Path Detection</h3>
                 <div class="flex gap-4">
                     <div class="flex items-center gap-2">
                         <button id="icmpTableBtn" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-background-dark transition-colors hover:bg-primary/80">
                             ICMP
                         </button>
-                        <button id="tcpTableBtn" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-border-dark/50 text-white/60 transition-colors hover:bg-border-dark/70">
+                        <button id="tcpTableBtn" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-border-dark/50 text-caption transition-colors hover:bg-border-dark/70">
                             TCP
                         </button>
                     </div>
                     <div class="flex gap-4">
-                        <div class="flex items-center gap-2 text-xs text-white/40">
+                        <div class="flex items-center gap-2 text-xs text-dim">
                             <span class="size-2 rounded bg-primary"></span> Best
                         </div>
-                        <div class="flex items-center gap-2 text-xs text-white/40">
+                        <div class="flex items-center gap-2 text-xs text-dim">
                             <span class="size-2 rounded bg-danger"></span> Loss
                         </div>
                     </div>
@@ -499,7 +627,7 @@ img, svg, canvas, iframe { max-width: 100%; }
             <!-- ICMP Table -->
             <div id="icmpTableContainer" class="rounded-xl border border-border-dark overflow-hidden bg-card-dark/40">
                 <table class="w-full text-left text-sm">
-                    <thead class="bg-border-dark/30 text-white/60 font-medium sticky top-0">
+                    <thead class="bg-border-dark/30 text-caption font-medium sticky top-0">
                         <tr>
                             <th class="px-4 py-3 border-r border-border-dark w-12 text-center">#</th>
                             <th class="px-4 py-3 border-r border-border-dark min-w-[140px]">IP Address</th>
@@ -514,7 +642,7 @@ img, svg, canvas, iframe { max-width: 100%; }
                     </thead>
                     <tbody id="icmpTableBody" class="divide-y divide-border-dark font-mono text-xs">
                         <tr class="hover:bg-primary/5 cursor-default transition-colors">
-                            <td class="px-4 py-2.5 border-r border-border-dark text-center text-white/40">1</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center text-dim">1</td>
                             <td class="px-4 py-2.5 border-r border-border-dark text-primary">192.168.1.1</td>
                             <td class="px-4 py-2.5 border-r border-border-dark text-center">1</td>
                             <td class="px-4 py-2.5 border-r border-border-dark text-right font-bold">0.8</td>
@@ -524,11 +652,11 @@ img, svg, canvas, iframe { max-width: 100%; }
                             <td class="px-4 py-2.5 border-r border-border-dark text-center">
                                 <span class="material-symbols-outlined text-primary text-[18px]">verified_user</span>
                             </td>
-                            <td class="px-4 py-2.5 text-white/60">Local Gateway</td>
+                            <td class="px-4 py-2.5 text-caption">Local Gateway</td>
                         </tr>
                         <tr class="hover:bg-primary/5 cursor-default transition-colors">
-                            <td class="px-4 py-2.5 border-r border-border-dark text-center text-white/40">2</td>
-                            <td class="px-4 py-2.5 border-r border-border-dark text-white/80">10.124.0.1</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center text-dim">2</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-muted">10.124.0.1</td>
                             <td class="px-4 py-2.5 border-r border-border-dark text-center">4</td>
                             <td class="px-4 py-2.5 border-r border-border-dark text-right font-bold">12.4</td>
                             <td class="px-4 py-2.5 border-r border-border-dark text-right">45.8</td>
@@ -537,10 +665,10 @@ img, svg, canvas, iframe { max-width: 100%; }
                             <td class="px-4 py-2.5 border-r border-border-dark text-center">
                                 <span class="material-symbols-outlined text-warning text-[18px]">warning</span>
                             </td>
-                            <td class="px-4 py-2.5 text-white/60">ISP Backbone</td>
+                            <td class="px-4 py-2.5 text-caption">ISP Backbone</td>
                         </tr>
                         <tr class="hover:bg-primary/5 cursor-default transition-colors bg-danger/5">
-                            <td class="px-4 py-2.5 border-r border-border-dark text-center text-white/40">3</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center text-dim">3</td>
                             <td class="px-4 py-2.5 border-r border-border-dark text-danger">58.21.144.12</td>
                             <td class="px-4 py-2.5 border-r border-border-dark text-center">12</td>
                             <td class="px-4 py-2.5 border-r border-border-dark text-right font-bold">142.1</td>
@@ -550,11 +678,11 @@ img, svg, canvas, iframe { max-width: 100%; }
                             <td class="px-4 py-2.5 border-r border-border-dark text-center">
                                 <span class="material-symbols-outlined text-danger text-[18px]">gpp_maybe</span>
                             </td>
-                            <td class="px-4 py-2.5 text-white/60">Beijing AS4837</td>
+                            <td class="px-4 py-2.5 text-caption">Beijing AS4837</td>
                         </tr>
                         <tr class="hover:bg-primary/5 cursor-default transition-colors">
-                            <td class="px-4 py-2.5 border-r border-border-dark text-center text-white/40">4</td>
-                            <td class="px-4 py-2.5 border-r border-border-dark text-white/80">106.14.241.144</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-center text-dim">4</td>
+                            <td class="px-4 py-2.5 border-r border-border-dark text-muted">106.14.241.144</td>
                             <td class="px-4 py-2.5 border-r border-border-dark text-center">1</td>
                             <td class="px-4 py-2.5 border-r border-border-dark text-right font-bold">14.2</td>
                             <td class="px-4 py-2.5 border-r border-border-dark text-right">16.1</td>
@@ -563,7 +691,7 @@ img, svg, canvas, iframe { max-width: 100%; }
                             <td class="px-4 py-2.5 border-r border-border-dark text-center">
                                 <span class="material-symbols-outlined text-primary text-[18px]">verified_user</span>
                             </td>
-                            <td class="px-4 py-2.5 text-white/60">Alibaba Cloud Shanghai</td>
+                            <td class="px-4 py-2.5 text-caption">Alibaba Cloud Shanghai</td>
                         </tr>
                     </tbody>
                 </table>
@@ -571,7 +699,7 @@ img, svg, canvas, iframe { max-width: 100%; }
             <!-- TCP Table -->
             <div id="tcpTableContainer" class="hidden rounded-xl border border-border-dark overflow-hidden bg-card-dark/40">
                 <table class="w-full text-left text-sm">
-                    <thead class="bg-border-dark/30 text-white/60 font-medium sticky top-0">
+                    <thead class="bg-border-dark/30 text-caption font-medium sticky top-0">
                         <tr>
                             <th class="px-4 py-3 border-r border-border-dark w-12 text-center">#</th>
                             <th class="px-4 py-3 border-r border-border-dark min-w-[140px]">IP Address</th>
@@ -597,13 +725,13 @@ img, svg, canvas, iframe { max-width: 100%; }
 <div id="sidebarResizer" class="resizer"></div>
 <!-- Latency Sidebar Chart -->
 <div id="latencySidebar" class="border-l border-border-dark bg-card-dark/20 p-6 flex flex-col" style="width: 320px; min-width: 200px; max-width: 800px;">
-    <h3 class="text-xs font-bold uppercase tracking-wider text-white/60 mb-6 flex items-center gap-2">
+    <h3 class="text-xs font-bold uppercase tracking-wider text-caption mb-6 flex items-center gap-2">
         <span class="material-symbols-outlined text-[16px]">show_chart</span>
         Latency Spectrum (ms)
     </h3>
     <div class="flex-1 flex flex-col justify-between py-4 relative">
         <!-- Chart Axis Labels -->
-        <div id="yAxisLabels" class="absolute left-0 top-0 bottom-0 flex flex-col justify-between text-[10px] font-mono text-white/70 -ml-4">
+        <div id="yAxisLabels" class="absolute left-0 top-0 bottom-0 flex flex-col justify-between text-[10px] font-mono text-muted -ml-4">
             <span>500</span>
             <span>250</span>
             <span>100</span>
@@ -612,22 +740,22 @@ img, svg, canvas, iframe { max-width: 100%; }
         <!-- Visual representation of line chart -->
         <div id="latencyChart" class="flex-1 ml-4 border-l border-b border-border-dark relative" style="min-height: 200px;">
             <!-- Chart will be dynamically generated here -->
-            <div class="absolute inset-0 flex items-center justify-center text-white/20 text-xs">
+            <div class="absolute inset-0 flex items-center justify-center text-dim text-xs">
                 Waiting for data...
             </div>
         </div>
     </div>
     <div class="mt-6 p-4 rounded-lg bg-border-dark/20 space-y-3">
         <div class="flex justify-between items-center">
-            <span class="text-xs text-white/40">Avg Latency</span>
+            <span class="text-xs text-dim">Avg Latency</span>
             <span id="avgLatency" class="text-sm font-bold text-primary">- ms</span>
         </div>
         <div class="flex justify-between items-center">
-            <span class="text-xs text-white/40">Max Spike</span>
+            <span class="text-xs text-dim">Max Spike</span>
             <span id="maxSpike" class="text-sm font-bold text-danger">- ms</span>
         </div>
         <div class="flex justify-between items-center">
-            <span class="text-xs text-white/40">Std Deviation</span>
+            <span class="text-xs text-dim">Std Deviation</span>
             <span id="stdDev" class="text-sm font-bold text-warning">-</span>
         </div>
     </div>
@@ -638,23 +766,23 @@ img, svg, canvas, iframe { max-width: 100%; }
 <div id="hopTimeChartResizer" class="resizer"></div>
 <!-- Hop-Time Area Chart Component -->
 <div id="hopTimeChartContainer" class="border-l border-border-dark bg-card-dark/20 p-6 flex flex-col" style="width: 400px; min-width: 300px; max-width: 800px;">
-    <h3 class="text-xs font-bold uppercase tracking-wider text-white/60 mb-6 flex items-center gap-2">
+    <h3 class="text-xs font-bold uppercase tracking-wider text-caption mb-6 flex items-center gap-2">
         <span class="material-symbols-outlined text-[16px]">show_chart</span>
         Latency
     </h3>
     <div class="flex-1 flex flex-col justify-between py-4 relative">
         <!-- X Axis Labels (Latency - at top) -->
-        <div id="hopXAxisLabels" class="absolute top-0 left-4 right-0 text-[10px] font-mono text-white/70" style="height: 20px; margin-top:-1.25rem;">
+        <div id="hopXAxisLabels" class="absolute top-0 left-4 right-0 text-[10px] font-mono text-muted" style="height: 20px; margin-top:-1.25rem;">
             <!-- Latency labels will be dynamically generated here -->
         </div>
         <!-- Y Axis Labels (HOP numbers) -->
-        <div id="hopYAxisLabels" class="absolute left-0 top-0 bottom-0 flex flex-col justify-start text-[10px] font-mono text-white/70 -ml-4 pr-2">
+        <div id="hopYAxisLabels" class="absolute left-0 top-0 bottom-0 flex flex-col justify-start text-[10px] font-mono text-muted -ml-4 pr-2">
             <!-- HOP labels will be dynamically generated here -->
         </div>
         <!-- Chart container -->
         <div id="hopTimeChart" class="flex-1 ml-4 border-l border-b border-border-dark relative" style="min-height: 300px;">
             <!-- Chart will be dynamically generated here -->
-            <div class="absolute inset-0 flex items-center justify-center text-white/20 text-xs">
+            <div class="absolute inset-0 flex items-center justify-center text-dim text-xs">
                 Waiting for data...
             </div>
         </div>
@@ -665,7 +793,7 @@ img, svg, canvas, iframe { max-width: 100%; }
 
     <!-- AI Analysis Modal Component -->
     <!-- AI Analysis Modal -->
-<div id="aiAnalysisModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+<div id="aiAnalysisModal" class="hidden fixed inset-0 bg-[var(--vmax-scrim)] z-50 flex items-center justify-center p-4">
     <div id="aiAnalysisModalContent" class="bg-background-dark border border-primary/30 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col relative" style="min-width: 0; min-height: 0; width: min(600px, 95vw); max-width: 95vw; height: 85vh; max-height: 90vh;">
         <!-- Resizer for AI Modal -->
         <div id="aiModalResizer" class="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize"></div>
@@ -681,8 +809,8 @@ img, svg, canvas, iframe { max-width: 100%; }
             </div>
             <div class="flex flex-col gap-3">
                 <div class="flex items-center gap-3">
-                    <label class="text-xs font-semibold text-white/50 uppercase tracking-wider min-w-[100px]">Provider:</label>
-                    <select id="aiProviderSelect" class="form-input flex-1 h-9 rounded-lg border border-border-dark bg-transparent text-sm text-white focus:ring-0 focus:border-primary px-3">
+                    <label class="text-xs font-semibold text-caption uppercase tracking-wider min-w-[100px]">Provider:</label>
+                    <select id="aiProviderSelect" class="form-input flex-1 h-9 rounded-lg border border-border-dark bg-transparent text-sm text-ink focus:ring-0 focus:border-primary px-3">
                         <option value="local">本地智能分析 (免费，无需API)</option>
                         <option value="qwen">通义千问 Qwen (阿里云)</option>
                         <option value="gemini">Gemini (推荐，免费额度高)</option>
@@ -691,8 +819,8 @@ img, svg, canvas, iframe { max-width: 100%; }
                     </select>
                 </div>
                 <div id="doubaoModelContainer" class="hidden flex items-center gap-3">
-                    <label class="text-xs font-semibold text-white/50 uppercase tracking-wider min-w-[100px]">Model:</label>
-                    <select id="doubaoModelSelect" class="form-input flex-1 h-9 rounded-lg border border-border-dark bg-transparent text-sm text-white focus:ring-0 focus:border-primary px-3">
+                    <label class="text-xs font-semibold text-caption uppercase tracking-wider min-w-[100px]">Model:</label>
+                    <select id="doubaoModelSelect" class="form-input flex-1 h-9 rounded-lg border border-border-dark bg-transparent text-sm text-ink focus:ring-0 focus:border-primary px-3">
                         <option value="kimi-k2-thinking-251104">Kimi K2 Thinking (kimi-k2-thinking-251104)</option>
                         <option value="doubao-1-5-pro-32k-250115">Doubao Pro 32k (doubao-1-5-pro-32k-250115)</option>
                         <option value="doubao-seed-1-6-flash-250828">Doubao Flash (doubao-seed-1-6-flash-250828)</option>
@@ -700,13 +828,13 @@ img, svg, canvas, iframe { max-width: 100%; }
                     </select>
                 </div>
                 <div class="flex items-center gap-3">
-                    <label class="text-xs font-semibold text-white/50 uppercase tracking-wider min-w-[100px]">API Key:</label>
-                    <input id="aiApiKeyInput" type="password" placeholder="API Key (可选，已设置环境变量则留空)" class="form-input flex-1 h-9 rounded-lg border border-border-dark bg-transparent text-sm text-white/60 focus:ring-0 focus:border-primary px-3">
+                    <label class="text-xs font-semibold text-caption uppercase tracking-wider min-w-[100px]">API Key:</label>
+                    <input id="aiApiKeyInput" type="password" placeholder="API Key (可选，已设置环境变量则留空)" class="form-input flex-1 h-9 rounded-lg border border-border-dark bg-transparent text-sm text-caption focus:ring-0 focus:border-primary px-3">
                 </div>
             </div>
         </div>
-        <div id="aiAnalysisContent" class="flex-1 overflow-y-auto custom-scrollbar p-6 text-white/80 leading-relaxed">
-            <div class="text-center text-white/40 py-8">
+        <div id="aiAnalysisContent" class="flex-1 overflow-y-auto custom-scrollbar p-6 text-muted leading-relaxed">
+            <div class="text-center text-dim py-8">
                 点击"开始分析"按钮获取AI专业分析
             </div>
         </div>
@@ -720,7 +848,7 @@ img, svg, canvas, iframe { max-width: 100%; }
 
     <!-- Coze Chat Modal Component -->
     <!-- Coze Chat Modal -->
-<div id="cozeChatModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+<div id="cozeChatModal" class="hidden fixed inset-0 bg-[var(--vmax-scrim)] z-50 flex items-center justify-center p-4">
     <div class="bg-background-dark border border-primary/30 rounded-xl shadow-2xl max-w-6xl w-full max-h-[90vh] flex flex-col">
         <div class="px-6 py-4 border-b border-border-dark">
             <div class="flex items-center justify-between">
@@ -741,54 +869,54 @@ img, svg, canvas, iframe { max-width: 100%; }
 
     <!-- Log Panel Component -->
     <!-- Bottom Log Panel -->
-<footer id="logPanel" class="border-t border-border-dark bg-[#05070a] flex flex-col" style="height: 192px; min-height: 100px; max-height: 600px;">
+<footer id="logPanel" class="border-t border-border-dark bg-[var(--vmax-panel-2)] flex flex-col" style="height: 192px; min-height: 100px; max-height: 600px;">
     <!-- Log Panel Resizer -->
     <div id="logPanelResizer" class="resizer"></div>
     <div class="flex items-center justify-between px-4 py-1.5 bg-border-dark/20 border-b border-border-dark">
         <div class="flex items-center gap-2">
             <span class="material-symbols-outlined text-[16px] text-primary">terminal</span>
-            <span class="text-[10px] font-bold uppercase tracking-widest text-white/60">Live Debugging Console</span>
+            <span class="text-[10px] font-bold uppercase tracking-widest text-caption">Live Debugging Console</span>
         </div>
         <div class="flex gap-4">
-            <button id="clearLogBtn" class="text-[10px] font-bold text-white/30 hover:text-white uppercase">Clear</button>
-            <button class="text-[10px] font-bold text-white/30 hover:text-white uppercase">Wrap</button>
+            <button id="clearLogBtn" class="text-[10px] font-bold text-dim hover:text-ink uppercase">Clear</button>
+            <button class="text-[10px] font-bold text-dim hover:text-ink uppercase">Wrap</button>
         </div>
     </div>
-    <div id="logContainer" class="flex-1 p-4 font-mono text-[11px] leading-relaxed text-primary/80 overflow-y-auto custom-scrollbar terminal-glow bg-[radial-gradient(circle_at_top_right,_#1a2a29,_transparent_60%)]">
+    <div id="logContainer" class="flex-1 p-4 font-mono text-[11px] leading-relaxed text-primary/80 overflow-y-auto custom-scrollbar terminal-glow">
         <div class="flex gap-3">
-            <span class="text-white/20">[14:20:01]</span>
+            <span class="text-dim">[14:20:01]</span>
             <span>Initializing ICMP socket engine... <span class="text-primary font-bold">READY</span></span>
         </div>
         <div class="flex gap-3">
-            <span class="text-white/20">[14:20:01]</span>
-            <span class="text-white/40">Resolving target: hc.jiandaoyun.com -&gt; 106.14.241.144</span>
+            <span class="text-dim">[14:20:01]</span>
+            <span class="text-dim">Resolving target: hc.jiandaoyun.com -&gt; 106.14.241.144</span>
         </div>
         <div class="flex gap-3">
-            <span class="text-white/20">[14:20:02]</span>
-            <span class="text-white">Tracing path to hc.jiandaoyun.com (106.14.241.144), 30 hops max, 60 byte packets</span>
+            <span class="text-dim">[14:20:02]</span>
+            <span class="text-ink">Tracing path to hc.jiandaoyun.com (106.14.241.144), 30 hops max, 60 byte packets</span>
         </div>
         <div class="flex gap-3">
-            <span class="text-white/20">[14:20:02]</span>
+            <span class="text-dim">[14:20:02]</span>
             <span>1: 192.168.1.1 (192.168.1.1) 0.824 ms / 0.791 ms / 0.812 ms</span>
         </div>
         <div class="flex gap-3">
-            <span class="text-white/20">[14:20:03]</span>
+            <span class="text-dim">[14:20:03]</span>
             <span>2: 10.124.0.1 (10.124.0.1) 12.412 ms / 14.502 ms / 12.110 ms</span>
         </div>
         <div class="flex gap-3">
-            <span class="text-white/20">[14:20:04]</span>
+            <span class="text-dim">[14:20:04]</span>
             <span class="text-warning">3: * * * Request timed out. (Retrying sequence 12...)</span>
         </div>
         <div class="flex gap-3">
-            <span class="text-white/20">[14:20:05]</span>
+            <span class="text-dim">[14:20:05]</span>
             <span class="text-danger">Detecting ECMP path divergence at hop 3. Found 12 sub-paths.</span>
         </div>
         <div class="flex gap-3">
-            <span class="text-white/20">[14:20:05]</span>
+            <span class="text-dim">[14:20:05]</span>
             <span>Analyzing AS4837 (China Unicom) congestion patterns...</span>
         </div>
         <div class="flex gap-3 animate-pulse">
-            <span class="text-white/20">[14:20:06]</span>
+            <span class="text-dim">[14:20:06]</span>
             <span class="text-primary">_</span>
         </div>
     </div>
@@ -1104,7 +1232,7 @@ function updateLanguage() {
     // 更新AI内容区域的提示文本
     const aiContent = document.getElementById('aiAnalysisContent');
     if (aiContent && aiContent.children.length === 1 && aiContent.children[0].classList.contains('text-center')) {
-        aiContent.innerHTML = `<div class="text-center text-white/40 py-8">${t.clickToStartAnalysis}</div>`;
+        aiContent.innerHTML = `<div class="text-center text-dim py-8">${t.clickToStartAnalysis}</div>`;
     }
 
     // 更新扣子助手按钮文本
@@ -1167,10 +1295,10 @@ function addLog(message, type = 'info') {
 
     const colorClass = type === 'error' ? 'text-danger' :
                       type === 'warning' ? 'text-warning' :
-                      type === 'success' ? 'text-primary' : 'text-white/40';
+                      type === 'success' ? 'text-primary' : 'text-dim';
 
     logEntry.innerHTML = `
-        <span class="text-white/20">[${timestamp}]</span>
+        <span class="text-dim">[${timestamp}]</span>
         <span class="${colorClass}">${message}</span>
     `;
 
@@ -1535,23 +1663,23 @@ function switchTable(type) {
         if (icmpTableContainer) icmpTableContainer.classList.remove('hidden');
         if (tcpTableContainer) tcpTableContainer.classList.add('hidden');
         if (icmpTableBtn) {
-            icmpTableBtn.classList.remove('bg-border-dark/50', 'text-white/60');
+            icmpTableBtn.classList.remove('bg-border-dark/50', 'text-caption');
             icmpTableBtn.classList.add('bg-primary', 'text-background-dark');
         }
         if (tcpTableBtn) {
             tcpTableBtn.classList.remove('bg-primary', 'text-background-dark');
-            tcpTableBtn.classList.add('bg-border-dark/50', 'text-white/60');
+            tcpTableBtn.classList.add('bg-border-dark/50', 'text-caption');
         }
     } else {
         if (icmpTableContainer) icmpTableContainer.classList.add('hidden');
         if (tcpTableContainer) tcpTableContainer.classList.remove('hidden');
         if (tcpTableBtn) {
-            tcpTableBtn.classList.remove('bg-border-dark/50', 'text-white/60');
+            tcpTableBtn.classList.remove('bg-border-dark/50', 'text-caption');
             tcpTableBtn.classList.add('bg-primary', 'text-background-dark');
         }
         if (icmpTableBtn) {
             icmpTableBtn.classList.remove('bg-primary', 'text-background-dark');
-            icmpTableBtn.classList.add('bg-border-dark/50', 'text-white/60');
+            icmpTableBtn.classList.add('bg-border-dark/50', 'text-caption');
         }
     }
 
@@ -1635,7 +1763,7 @@ function addTableRow(hop, pingInfo, tableType) {
     const loss = pingInfo?.loss ? pingInfo.loss.toFixed(1) : '0.0';
 
     row.innerHTML = `
-        <td class="px-4 py-2.5 border-r border-border-dark text-center text-white/40">${hop.hop}</td>
+        <td class="px-4 py-2.5 border-r border-border-dark text-center text-dim">${hop.hop}</td>
         <td class="px-4 py-2.5 border-r border-border-dark ${hop.ip === '*' ? 'text-danger' : 'text-primary'}">${hop.ip}</td>
         <td class="px-4 py-2.5 border-r border-border-dark text-center">${pingInfo?.count || 0}</td>
         <td class="px-4 py-2.5 border-r border-border-dark text-right font-bold">${avg}</td>
@@ -1645,7 +1773,7 @@ function addTableRow(hop, pingInfo, tableType) {
         <td class="px-4 py-2.5 border-r border-border-dark text-center">
             <span class="material-symbols-outlined ${riskColor} text-[18px]">${riskIcon}</span>
         </td>
-        <td class="px-4 py-2.5 text-white/60">${hop.location || 'Unknown'}</td>
+        <td class="px-4 py-2.5 text-caption">${hop.location || 'Unknown'}</td>
     `;
 
     tableBody.appendChild(row);
@@ -1721,7 +1849,7 @@ function clearChart() {
     if (chartContainer) {
         chartContainer.innerHTML = '';
         const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-white/20 text-xs';
+        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-dim text-xs';
         emptyMsg.textContent = 'Waiting for data...';
         chartContainer.appendChild(emptyMsg);
     }
@@ -1729,10 +1857,10 @@ function clearChart() {
     const yAxisLabels = document.getElementById('yAxisLabels');
     if (yAxisLabels) {
         yAxisLabels.innerHTML = `
-            <span class="text-white/70">500</span>
-            <span class="text-white/70">250</span>
-            <span class="text-white/70">100</span>
-            <span class="text-white/70">0</span>
+            <span class="text-muted">500</span>
+            <span class="text-muted">250</span>
+            <span class="text-muted">100</span>
+            <span class="text-muted">0</span>
         `;
     }
 }
@@ -1745,7 +1873,7 @@ function updateLatencyChart(hops, pingData) {
 
     if (!hops || hops.length === 0) {
         const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-white/20 text-xs';
+        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-dim text-xs';
         emptyMsg.textContent = 'Waiting for data...';
         chartContainer.appendChild(emptyMsg);
         return;
@@ -1811,7 +1939,7 @@ function updateLatencyChart(hops, pingData) {
         line.setAttribute('y1', y);
         line.setAttribute('x2', width);
         line.setAttribute('y2', y);
-        line.setAttribute('stroke', '#204b47');
+        line.setAttribute('stroke', curP().lineSoft);
         line.setAttribute('stroke-width', '1');
         line.setAttribute('opacity', '0.3');
         gridLines.appendChild(line);
@@ -1820,7 +1948,9 @@ function updateLatencyChart(hops, pingData) {
 
     // 绘制趋势线
     const hopKeys = Object.keys(hopHistoryData).sort((a, b) => parseInt(a) - parseInt(b));
-    const colors = ['#00dbc9', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#ec4899', '#10b981'];
+        /* 前 5 档 + 末档取 vmax 令牌；#8b5cf6(紫) / #ec4899(粉) 是图表系列身份色，
+       保留原值（vmax 令牌表里没有对应语义，硬换会损失 7 条曲线的可区分性）。 */
+    const colors = [curP().accent, curP().yellow, curP().red, curP().blue, '#8b5cf6', '#ec4899', curP().green];
 
     hopKeys.forEach((hopNum, hopIndex) => {
         const history = hopHistoryData[hopNum];
@@ -1889,7 +2019,7 @@ function updateLatencyChart(hops, pingData) {
                     <div class="w-3 h-0.5 relative" style="background-color: ${color}; opacity: ${opacity}">
                         ${!isVisible ? '<div class="absolute inset-0 bg-white/50" style="transform: rotate(45deg);"></div>' : ''}
                     </div>
-                    <span class="text-white/60" style="opacity: ${opacity}">Hop ${hopNum}</span>
+                    <span class="text-caption" style="opacity: ${opacity}">Hop ${hopNum}</span>
                 `;
 
                 legendItem.addEventListener('click', () => {
@@ -1915,11 +2045,11 @@ function updateLatencyChart(hops, pingData) {
         const y0 = 0;
 
         yAxisLabels.innerHTML = `
-            <span class="text-white/70">${yMax}</span>
-            <span class="text-white/70">${y75}</span>
-            <span class="text-white/70">${y50}</span>
-            <span class="text-white/70">${y25}</span>
-            <span class="text-white/70">${y0}</span>
+            <span class="text-muted">${yMax}</span>
+            <span class="text-muted">${y75}</span>
+            <span class="text-muted">${y50}</span>
+            <span class="text-muted">${y25}</span>
+            <span class="text-muted">${y0}</span>
         `;
     }
 }
@@ -1968,7 +2098,7 @@ function updateHopTimeChart(hops, pingData) {
 
     if (!hops || hops.length === 0) {
         const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-white/20 text-xs';
+        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-dim text-xs';
         emptyMsg.textContent = 'Waiting for data...';
         chartContainer.appendChild(emptyMsg);
         return;
@@ -1978,7 +2108,7 @@ function updateHopTimeChart(hops, pingData) {
     const validHops = hops.filter(hop => !hop.timeout && hop.ip);
     if (validHops.length === 0) {
         const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-white/20 text-xs';
+        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-dim text-xs';
         emptyMsg.textContent = 'No valid hops...';
         chartContainer.appendChild(emptyMsg);
         return;
@@ -1997,7 +2127,7 @@ function updateHopTimeChart(hops, pingData) {
 
     if (Object.keys(currentData).length === 0) {
         const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-white/20 text-xs';
+        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-dim text-xs';
         emptyMsg.textContent = 'Waiting for data...';
         chartContainer.appendChild(emptyMsg);
         return;
@@ -2040,7 +2170,7 @@ function updateHopTimeChart(hops, pingData) {
 
     // 添加网格线
     const gridLines = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    gridLines.setAttribute('stroke', '#204b47');
+    gridLines.setAttribute('stroke', curP().lineSoft);
     gridLines.setAttribute('stroke-width', '1');
     gridLines.setAttribute('opacity', '0.3');
 
@@ -2107,7 +2237,7 @@ function updateHopTimeChart(hops, pingData) {
     areaPathData += ` L ${lastX} ${height - padding.bottom} L ${padding.left} ${height - padding.bottom} Z`;
 
     areaPath.setAttribute('d', areaPathData);
-    areaPath.setAttribute('fill', 'rgba(59, 130, 246, 0.2)'); // 浅蓝色填充
+    areaPath.setAttribute('fill', curP().fill); // vmax 蓝色叠加填充
     areaPath.setAttribute('stroke', 'none');
     svg.appendChild(areaPath);
 
@@ -2127,7 +2257,7 @@ function updateHopTimeChart(hops, pingData) {
 
     linePath.setAttribute('d', linePathData);
     linePath.setAttribute('fill', 'none');
-    linePath.setAttribute('stroke', '#3b82f6'); // 蓝色线条
+    linePath.setAttribute('stroke', curP().blue); // vmax 主色蓝
     linePath.setAttribute('stroke-width', '2');
     linePath.setAttribute('opacity', '0.8');
     svg.appendChild(linePath);
@@ -2142,8 +2272,8 @@ function updateHopTimeChart(hops, pingData) {
         circle.setAttribute('cx', x);
         circle.setAttribute('cy', y);
         circle.setAttribute('r', '4');
-        circle.setAttribute('fill', '#3b82f6');
-        circle.setAttribute('stroke', 'white');
+        circle.setAttribute('fill', curP().blue);
+        circle.setAttribute('stroke', curP().text);
         circle.setAttribute('stroke-width', '1.5');
         circle.setAttribute('data-hop', point.hop);
         circle.setAttribute('data-delay', point.delay.toFixed(1));
@@ -2153,7 +2283,7 @@ function updateHopTimeChart(hops, pingData) {
         const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         text.setAttribute('x', x + 8);
         text.setAttribute('y', y + 4);
-        text.setAttribute('fill', '#3b82f6');
+        text.setAttribute('fill', curP().blue);
         text.setAttribute('font-size', '10px');
         text.setAttribute('font-family', 'monospace');
         text.textContent = `${point.delay.toFixed(1)}ms`;
@@ -2168,7 +2298,7 @@ function updateHopTimeChart(hops, pingData) {
         yAxisLabels.innerHTML = '';
         allHopNums.forEach((hopNum, index) => {
             const label = document.createElement('span');
-            label.className = 'text-white/70';
+            label.className = 'text-muted';
             label.textContent = `H${hopNum}`;
             // 计算每个HOP标签的位置，使其与图表中的HOP行对齐
             if (index > 0) {
@@ -2187,7 +2317,7 @@ function updateHopTimeChart(hops, pingData) {
         for (let i = 0; i <= labelCount; i++) {
             const delayValue = (maxDelay / labelCount) * i;
             const label = document.createElement('span');
-            label.className = 'text-white/70';
+            label.className = 'text-muted';
             label.textContent = `${delayValue.toFixed(0)}`;
             const xPos = padding.left + (delayValue / maxDelay) * chartWidth;
             label.style.position = 'absolute';
@@ -2204,7 +2334,7 @@ function clearHopTimeChart() {
     if (chartContainer) {
         chartContainer.innerHTML = '';
         const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-white/20 text-xs';
+        emptyMsg.className = 'absolute inset-0 flex items-center justify-center text-dim text-xs';
         emptyMsg.textContent = 'Waiting for data...';
         chartContainer.appendChild(emptyMsg);
     }
@@ -2430,7 +2560,7 @@ function showAIAnalysis() {
         modal.classList.remove('hidden');
         const content = document.getElementById('aiAnalysisContent');
         if (content) {
-            content.innerHTML = '<div class="text-center text-white/40 py-8">点击"开始分析"按钮获取AI专业分析</div>';
+            content.innerHTML = '<div class="text-center text-dim py-8">点击"开始分析"按钮获取AI专业分析</div>';
         }
     }
 }
@@ -2465,7 +2595,7 @@ async function startAIAnalysis() {
         content.innerHTML = `
             <div class="text-center py-8">
                 <div class="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mb-4"></div>
-                <p class="text-white/60">${t.aiAnalyzing || 'AI正在分析路由数据，请稍候...'}</p>
+                <p class="text-caption">${t.aiAnalyzing || 'AI正在分析路由数据，请稍候...'}</p>
             </div>
         `;
 
@@ -2503,15 +2633,15 @@ async function startAIAnalysis() {
         if (data.error) {
             let errorHint = '';
             if (data.error.includes('API密钥') || data.error.includes('未配置')) {
-                errorHint = '<p class="mt-2 text-sm text-white/60">提示：可以在输入框中输入API Key，或设置环境变量 GEMINI_API_KEY 或 OPENAI_API_KEY</p>';
+                errorHint = '<p class="mt-2 text-sm text-caption">提示：可以在输入框中输入API Key，或设置环境变量 GEMINI_API_KEY 或 OPENAI_API_KEY</p>';
             } else if (data.error.includes('配额已用完') || data.error.includes('quota') || data.error.includes('exceeded')) {
-                errorHint = '<div class="mt-3 p-3 bg-warning/10 border border-warning/30 rounded-lg"><p class="text-warning font-bold mb-2">💡 建议：</p><p class="text-white/80 text-sm">1. 切换到 <strong>Gemini</strong> 作为替代方案（免费额度更高）<br>2. 检查OpenAI账户配额和账单<br>3. 等待配额重置或升级账户计划</p></div>';
+                errorHint = '<div class="mt-3 p-3 bg-warning/10 border border-warning/30 rounded-lg"><p class="text-warning font-bold mb-2">💡 建议：</p><p class="text-muted text-sm">1. 切换到 <strong>Gemini</strong> 作为替代方案（免费额度更高）<br>2. 检查OpenAI账户配额和账单<br>3. 等待配额重置或升级账户计划</p></div>';
             } else if (data.error.includes('429') || data.error.includes('频率')) {
-                errorHint = '<p class="mt-2 text-sm text-white/60">提示：API请求频率过高，请等待几分钟后重试，或切换到Gemini作为替代方案</p>';
+                errorHint = '<p class="mt-2 text-sm text-caption">提示：API请求频率过高，请等待几分钟后重试，或切换到Gemini作为替代方案</p>';
             } else if (data.error.includes('401') || data.error.includes('无效')) {
-                errorHint = '<p class="mt-2 text-sm text-white/60">提示：请检查API密钥是否正确，确保密钥有效且未过期</p>';
+                errorHint = '<p class="mt-2 text-sm text-caption">提示：请检查API密钥是否正确，确保密钥有效且未过期</p>';
             } else if (data.error.includes('402') || data.error.includes('余额')) {
-                errorHint = '<p class="mt-2 text-sm text-white/60">提示：账户余额不足，请访问OpenAI账户页面充值</p>';
+                errorHint = '<p class="mt-2 text-sm text-caption">提示：账户余额不足，请访问OpenAI账户页面充值</p>';
             }
 
             const formattedError = data.error.replace(/\n/g, '<br>');
@@ -2530,7 +2660,7 @@ async function startAIAnalysis() {
             const providerLabel = currentLanguage === 'en' ? 'Analysis Provider: ' : '分析提供方: ';
 
             content.innerHTML = `
-                <div class="mb-4 flex items-center gap-2 text-sm text-white/60">
+                <div class="mb-4 flex items-center gap-2 text-sm text-caption">
                     <span class="material-symbols-outlined text-[16px]">psychology</span>
                     <span>${providerLabel}${provider}</span>
                 </div>
@@ -2689,7 +2819,7 @@ async function showCozeChat() {
         if (modal) modal.classList.remove('hidden');
         const container = document.getElementById('cozeChatContainer');
         if (container) {
-            container.innerHTML = '<div class="flex items-center justify-center h-full"><div class="text-center text-white/60 max-w-md px-4"><p class="mb-2 text-lg font-bold">Coze 智能体未启用</p><p class="text-sm text-white/40">当前部署未配置有效的 Coze Token / AppId，已临时停用此功能以避免反复弹出认证窗口。如需启用，请在 ip-trace.html 中将 window.COZE_CHAT_ENABLED 设为 true 并填写有效凭据。</p></div></div>';
+            container.innerHTML = '<div class="flex items-center justify-center h-full"><div class="text-center text-caption max-w-md px-4"><p class="mb-2 text-lg font-bold">Coze 智能体未启用</p><p class="text-sm text-dim">当前部署未配置有效的 Coze Token / AppId，已临时停用此功能以避免反复弹出认证窗口。如需启用，请在 ip-trace.html 中将 window.COZE_CHAT_ENABLED 设为 true 并填写有效凭据。</p></div></div>';
         }
         return;
     }
@@ -2711,10 +2841,10 @@ async function showCozeChat() {
     if (container) {
         container.innerHTML = `
             <div class="flex items-center justify-center h-full">
-                <div class="text-center text-white/60">
+                <div class="text-center text-caption">
                     <div class="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mb-4"></div>
                     <p class="mb-2">正在加载扣子智能体...</p>
-                    <p class="text-sm text-white/40 mt-2">请稍候</p>
+                    <p class="text-sm text-dim mt-2">请稍候</p>
                 </div>
             </div>
         `;
@@ -2739,9 +2869,9 @@ async function showCozeChat() {
         if (container) {
             container.innerHTML = `
                 <div class="flex items-center justify-center h-full">
-                    <div class="text-center text-white/60">
+                    <div class="text-center text-caption">
                         <p class="mb-2 text-lg">扣子SDK加载失败</p>
-                        <p class="text-sm text-white/40 mb-4">${error.message || '请检查网络连接'}</p>
+                        <p class="text-sm text-dim mb-4">${error.message || '请检查网络连接'}</p>
                         <div class="flex gap-3 justify-center">
                             <button onclick="window.location.reload()" class="px-4 py-2 bg-primary/20 text-primary border border-primary/30 rounded-lg hover:bg-primary/30 transition-colors">
                                 刷新页面
@@ -2778,13 +2908,13 @@ function handleCozeError(error) {
     if (is401Error) {
         container.innerHTML = `
             <div class="flex items-center justify-center h-full">
-                <div class="text-center text-white/60 max-w-md px-4">
+                <div class="text-center text-caption max-w-md px-4">
                     <div class="mb-4">
                         <span class="material-symbols-outlined text-6xl text-danger">error</span>
                     </div>
                     <p class="mb-2 text-lg font-bold">认证失败 (401)</p>
-                    <p class="text-sm text-white/40 mb-4">Token 或 AppId 无效或已过期</p>
-                    <div class="text-left text-xs text-white/30 mb-4 bg-card-dark p-4 rounded-lg border border-border-dark">
+                    <p class="text-sm text-dim mb-4">Token 或 AppId 无效或已过期</p>
+                    <div class="text-left text-xs text-dim mb-4 bg-card-dark p-4 rounded-lg border border-border-dark">
                         <p class="mb-2"><strong>可能的原因：</strong></p>
                         <ul class="list-disc list-inside space-y-1">
                             <li>Token 已过期或无效</li>
@@ -2793,7 +2923,7 @@ function handleCozeError(error) {
                             <li>Token 或 AppId 不属于当前区域</li>
                         </ul>
                     </div>
-                    <div class="text-left text-xs text-white/30 mb-4 bg-card-dark p-4 rounded-lg border border-border-dark">
+                    <div class="text-left text-xs text-dim mb-4 bg-card-dark p-4 rounded-lg border border-border-dark">
                         <p class="mb-2"><strong>解决方案：</strong></p>
                         <ol class="list-decimal list-inside space-y-1">
                             <li>在 Coze 控制台检查 Token 和 AppId</li>
@@ -2827,9 +2957,9 @@ function initCozeChat() {
     if (!initCozeSDK()) {
         container.innerHTML = `
             <div class="flex items-center justify-center h-full">
-                <div class="text-center text-white/60">
+                <div class="text-center text-caption">
                     <p class="mb-2">扣子SDK加载失败</p>
-                    <p class="text-sm text-white/40">请检查网络连接</p>
+                    <p class="text-sm text-dim">请检查网络连接</p>
                     <button onclick="window.cozeChat.show()" class="mt-4 px-4 py-2 bg-primary/20 text-primary border border-primary/30 rounded-lg hover:bg-primary/30 transition-colors">
                         重试
                     </button>
@@ -2939,10 +3069,10 @@ function initCozeChat() {
                 // 显示提示信息
                 container.innerHTML = `
                     <div class="flex items-center justify-center h-full">
-                        <div class="text-center text-white/60">
+                        <div class="text-center text-caption">
                             <div class="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mb-4"></div>
                             <p class="mb-2">正在加载聊天界面...</p>
-                            <p class="text-sm text-white/40">如果长时间无响应，请检查控制台错误信息</p>
+                            <p class="text-sm text-dim">如果长时间无响应，请检查控制台错误信息</p>
                         </div>
                     </div>
                 `;
@@ -2958,10 +3088,10 @@ function initCozeChat() {
                 } else {
                     container.innerHTML = `
                         <div class="flex items-center justify-center h-full">
-                            <div class="text-center text-white/60 max-w-md px-4">
+                            <div class="text-center text-caption max-w-md px-4">
                                 <p class="mb-2 text-lg">加载超时</p>
-                                <p class="text-sm text-white/40 mb-4">聊天界面加载失败，请检查：</p>
-                                <ul class="text-xs text-white/30 text-left mb-4 space-y-1">
+                                <p class="text-sm text-dim mb-4">聊天界面加载失败，请检查：</p>
+                                <ul class="text-xs text-dim text-left mb-4 space-y-1">
                                     <li>• 网络连接是否正常</li>
                                     <li>• Token 和 AppId 是否有效</li>
                                     <li>• 浏览器控制台是否有错误</li>
@@ -3001,10 +3131,10 @@ function initCozeChat() {
 
         container.innerHTML = `
             <div class="flex items-center justify-center h-full">
-                <div class="text-center text-white/60 max-w-md px-4">
+                <div class="text-center text-caption max-w-md px-4">
                     <p class="mb-2 text-lg">扣子智能体初始化失败</p>
-                    <p class="text-sm text-white/40 mb-2">${errorMessage}</p>
-                    <p class="text-xs text-white/30 mb-4">错误类型: ${error.name || 'Unknown'}</p>
+                    <p class="text-sm text-dim mb-2">${errorMessage}</p>
+                    <p class="text-xs text-dim mb-4">错误类型: ${error.name || 'Unknown'}</p>
                     <div class="flex gap-3 justify-center">
                         <button onclick="window.location.reload()" class="px-4 py-2 bg-primary/20 text-primary border border-primary/30 rounded-lg hover:bg-primary/30 transition-colors">
                             刷新页面
@@ -3141,9 +3271,9 @@ function showLinkMap() {
     }
     if (linkMapTab && dataStatsTab) {
         linkMapTab.classList.add('border-primary', 'text-primary');
-        linkMapTab.classList.remove('border-transparent', 'text-white/40');
+        linkMapTab.classList.remove('border-transparent', 'text-dim');
         dataStatsTab.classList.remove('border-primary', 'text-primary');
-        dataStatsTab.classList.add('border-transparent', 'text-white/40');
+        dataStatsTab.classList.add('border-transparent', 'text-dim');
     }
 }
 
@@ -3153,9 +3283,9 @@ function hideLinkMap() {
     }
     if (linkMapTab && dataStatsTab) {
         dataStatsTab.classList.add('border-primary', 'text-primary');
-        dataStatsTab.classList.remove('border-transparent', 'text-white/40');
+        dataStatsTab.classList.remove('border-transparent', 'text-dim');
         linkMapTab.classList.remove('border-primary', 'text-primary');
-        linkMapTab.classList.add('border-transparent', 'text-white/40');
+        linkMapTab.classList.add('border-transparent', 'text-dim');
     }
 }
 
@@ -3243,7 +3373,7 @@ function drawMapRoute(hops) {
 
         const hopIcon = L.divIcon({
             className: 'custom-hop-marker',
-            html: `<div style="background-color: #00dbc9; border: 2px solid #fff; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #090c15; font-weight: bold; font-size:0.75rem; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">${hop.hop}</div>`,
+            html: `<div style="background-color: ${curP().accent}; border: 2px solid ${curP().text}; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: ${curP().bg}; font-weight: bold; font-size:0.75rem; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">${hop.hop}</div>`,
             iconSize: [32, 32],
             iconAnchor: [16, 16]
         });
@@ -3271,7 +3401,7 @@ function drawMapRoute(hops) {
 
         try {
             const line = L.polyline([[lat1, lon1], [lat2, lon2]], {
-                color: '#00dbc9', weight: 3, opacity: 0.8, dashArray: '10, 5',
+                color: curP().accent, weight: 3, opacity: 0.8, dashArray: '10, 5',
                 lineCap: 'round', lineJoin: 'round', isMapElement: true,
                 renderer: L.canvas({ padding: 0.5 })
             });
@@ -3280,7 +3410,7 @@ function drawMapRoute(hops) {
             map.invalidateSize();
         } catch (e) {
             const lineFallback = L.polyline([[lat1, lon1], [lat2, lon2]], {
-                color: '#00dbc9', weight: 3, opacity: 0.8, dashArray: '10, 5',
+                color: curP().accent, weight: 3, opacity: 0.8, dashArray: '10, 5',
                 lineCap: 'round', lineJoin: 'round', isMapElement: true
             });
             lineFallback.addTo(map);
@@ -3296,7 +3426,7 @@ function drawMapRoute(hops) {
             const arrowMarker = L.marker([arrowLat, arrowLon], {
                 icon: L.divIcon({
                     className: 'arrow-marker',
-                    html: `<div style="color: #00dbc9; font-size:1.25rem; line-height: 1; transform: rotate(${angle}deg); text-shadow: 0 0 4px rgba(0,0,0,0.8); filter: drop-shadow(0 0 2px rgba(0, 219, 201, 0.8));">▶</div>`,
+                    html: `<div style="color: ${curP().accent}; font-size:1.25rem; line-height: 1; transform: rotate(${angle}deg); text-shadow: 0 0 4px rgba(0,0,0,0.8); filter: drop-shadow(0 0 2px rgb(var(--vmax-cyan-rgb) / 0.8));">▶</div>`,
                     iconSize: [20, 20], iconAnchor: [10, 10]
                 }),
                 isMapElement: true, zIndexOffset: 100
@@ -3318,7 +3448,7 @@ function drawMapRoute(hops) {
 
         try {
             const labelLine = L.polyline([[midLat, midLon], [labelLat, labelLon]], {
-                color: '#00dbc9', weight: 1, opacity: 0.5, dashArray: '3, 3',
+                color: curP().accent, weight: 1, opacity: 0.5, dashArray: '3, 3',
                 isMapElement: true, renderer: L.canvas({ padding: 0.5 })
             });
             labelLine.addTo(map);
@@ -3326,7 +3456,7 @@ function drawMapRoute(hops) {
             const delayLabel = L.marker([labelLat, labelLon], {
                 icon: L.divIcon({
                     className: 'delay-label',
-                    html: `<div style="color: #00dbc9; font-size:0.75rem; font-weight: bold; white-space: nowrap; text-shadow: 0 0 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6); font-family: monospace;">${delayText}</div>`,
+                    html: `<div style="color: ${curP().accent}; font-size:0.75rem; font-weight: bold; white-space: nowrap; text-shadow: 0 0 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6); font-family: monospace;">${delayText}</div>`,
                     iconSize: [80, 20], iconAnchor: [40, 10]
                 }),
                 isMapElement: true, zIndexOffset: 300

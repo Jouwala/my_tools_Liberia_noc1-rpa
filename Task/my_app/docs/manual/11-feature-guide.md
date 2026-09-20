@@ -250,6 +250,10 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 | `rais` | RAIS 统一权限平台 | 10.100.20.9:8766 | **直接鉴权**（AES-256-CBC 加密密码换 SSO token → CDP 种 cookie） |
 | `fw_kpi` | FW 整机吞吐 UMC | 10.100.2.101:443 | 登录页填表（客户端模式反代 8085） |
 | `vmax_cxo` | VMAX CXO 经营看板 | 10.123.255.12:26180 | 登录页填表（客户端模式反代 8086） |
+| `ume_in` | UME iMonitor 大屏 | 172.17.208.1:28808 | 登录页填表（客户端模式反代 **8088**；同时被 `?page=imonitor` 复用） |
+
+> 反代端口分配：**8081 ZTE UME / 8082 CCN UME / 8083 iPRAN UME / 8084 MW UME / 8085 FW UMC / 8086 VMAX CXO / 8088 UME iMonitor**。
+> ⚠️ **8087 不能用**——被 ShadowBot（RPA 工具）占用且绑在回环上，`localhost:8087` 会落到它而不是 nginx。
 
 ### 两种模式
 
@@ -280,3 +284,57 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 >    会把中间态/会话错误页误报成「已登录」。
 > 4. **不能在 Chrome 启动页还 loading 时就 `Page.navigate` 改 hash**，否则会得到一个
 >    `readyState=complete` 但 JS 从未执行的空白页，且不会自愈。
+
+## 25. UME iMonitor 大屏（`?page=imonitor`）— 原版门户页面嵌入
+
+把 UME 门户（172.17.208.1:28808）的原版监控大屏 `guard-imonitor-iui` 的
+`#/screen/screen-view?screen_id=1` **原样**嵌进 myapp，并自动完成 em-portal 登录。
+形态与 `vmaxCxoDashboard` 同属「原版页面嵌入」，但这个页面**必须登录**，且**不能直连上游**。
+
+- 页面：`frontend/src/pages/ImonitorScreen.tsx`（不是 `LegacyToolFrame`——需要工具条与登录编排）
+- 反代：`nginx/portal_ume_in_8088.conf`（线上生效的那份在 nginx 安装目录的 `conf/portal_ports.conf`）
+- 门户注册：`portal_login_service.py` 的 `PORTALS['ume_in']` + `PROXY_PREFIXES['ume_in']`
+- 凭据：`credential_store` key=`ume_in`（与客户业务 KPI 看板同一套 em-portal 账号）
+
+### 为什么必须走反代，不能直接 iframe 上游
+
+1. **同源才能带会话**：浏览器要带门户 Cookie 才能打开大屏，而 Cookie 只能由门户自己种；
+   myapp(80) 与门户(172.17.208.1:28808) 不同源 → 既种不了也读不了。
+2. **上游禁止被嵌**：上游返回 `Content-Security-Policy: frame-ancestors 'self'`，
+   直接 iframe 会被浏览器拦死（Chromium 报 `Framing ... violates ... frame-ancestors 'self'`），
+   页面只剩一个 chrome-error。反代必须 `proxy_hide_header Content-Security-Policy`（连 XFO/HSTS 一起摘）。
+3. **上游有 frame-bust**（三处，实测确诊）：
+   - 登录页内联 `if (self === top) {} else { top.location = self.location; }`
+   - `login.min.js`：`top!=self&&(top.location=self.location)`
+   - `security.min.js`：登录成功后 `redirectToUrl(top.location, home)`
+   前两者可被 nginx `sub_filter` 改掉；三者都靠 **iframe `sandbox`（不含 `allow-top-navigation`）**
+   从浏览器层封死——没有它，用户刚点过 myapp（激活窗口约 5 秒内）时登录页就可能把整个 myapp
+   标签页导航走、冲掉外壳。**两处都要保留，别只留一处。**
+
+### 登录时序（首次访问自动发生）
+
+```
+iframe 载入大屏 → SPA 调 /api/guard-imonitor-service/v1/largescreen/screen?_id=1
+→ 401 → SPA 自己跳到 /api/oauth2/v1/authorize?redirect_uri=/iui/guard-imonitor-iui/
+→ 注入脚本(/api/portals/inject.js?system=ume_in)填表并提交，同时 postMessage 通知宿主
+→ login_rsa 200 → 门户把浏览器送到 redirect_uri 的根路径（hash 必丢）
+→ 宿主收到 postMessage 后等 3s 把 iframe 重指回 #/screen/screen-view?screen_id=1
+```
+
+实测：3.0s 出 401 → 3.0s 提交登录 → 6.1s 大屏接口 200 并出图。
+
+⚠️ 最后一步不能省：门户登录成功只回落到 `redirect_uri` 根路径，`#/screen/screen-view?screen_id=1`
+这段 hash 路由在跳转中必然丢失。这也是 `build_inject_js` 里那条 `myapp-portal-autologin`
+postMessage 的唯一用途。自愈循环上限 4 次（`MAX_AUTO_RELOGIN`），工具条手动「刷新/重新登录」会重新武装。
+
+### 其它注意
+
+- 自动刷新：本页登记在 `AR_SOFT_REFRESH_PAGES`，顶栏到点时外壳广播 `myapp-refresh`、
+  由页面在 iframe 内原地重载（跨端口 iframe 重挂载会整页闪白）。
+- 端口号有**三处**必须一致：页面 `PORTAL_PORT` / `PROXY_PREFIXES['ume_in']` / nginx conf。
+  `tests/test_imonitor_screen.py` 会离线核对这三处。
+- Cookie 按**主机**共享、不分端口，所以门户 Cookie 名带端口后缀（`Z-AUTH-CODE-28808` 等）。
+  同主机的 `ccn_ume`（10.121.1.2:28808，反代 8082）与 `ume_in`（172.17.208.1:28808，反代 8088）
+  Cookie 名**相同**，两个门户不要在同一浏览器里同时登录。
+- 离线测试：`python tests/test_imonitor_screen.py`（不连门户、不起浏览器）。
+

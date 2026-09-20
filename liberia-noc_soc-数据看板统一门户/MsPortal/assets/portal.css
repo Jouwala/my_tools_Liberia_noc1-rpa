@@ -528,8 +528,56 @@ html.dark .icon-btn.small:hover { background: var(--dk-surface-3); color: var(--
 }
 #mapBoot[hidden] { display: none; }
 
-/* 未登录提示：盖住整个地图画布，替掉 my_app 自带的英文报错页 */
-#mapAuth {
+/* ------------------------------------------- Task Report Files 内嵌卡（2026-09-18 加） --
+   右列第三格（原 System Admin 的位置）内嵌 /myapp/?page=email_reports。
+   复用 .map-canvas 的圆角/描边/overflow，只改两件事：
+     · 高度：默认 480px（lg 断点与窄屏走这个值 —— 那些断点下右列是整行宽，
+       内容页比地图矮一截更好看）；xl 及以上由下面的 .col-right-stretch 接管成「撑满」。
+     · 底色：地图是瓦片底所以用品牌浅色，这里是一张白底内容页，用卡片底色避免加载瞬间闪色。
+   —— 为什么不给 iframe 加 html.dark 的 brightness 滤镜（地图有）：那个滤镜是为了压暗
+      浅色地图瓦片；内容页的文字/表格被压暗会直接掉对比度，深色下改由 my_app 自己出深色
+      （门户把主题写进 localStorage['myapp-theme']，见 portal.js 的 syncEmailTheme）。 */
+.embed-canvas { height: 480px; background: var(--mp-surface-flat); }
+#emailBoot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--mp-text-3);
+  font-size: 14px;
+  background: var(--mp-surface-3);
+}
+#emailBoot[hidden] { display: none; }
+html.dark #emailBoot { background: var(--mp-surface-3); }
+html.dark .embed-canvas { border-color: var(--mp-border); }
+
+/* 右列底部对齐（xl 及以上）：System Admin 2026-09-18 移出右列后，右列只剩
+   BO + FO + 本卡。文件末尾的「三列对齐」块（main > div.grid 那组规则）已经把三列拉成等高、
+   并让列内区块均摊富余高度，所以这里只需要补两件事：
+     · 把本卡做成纵向 flex 容器，画布才能吃到卡片内的富余高度；
+     · 画布从「写死 480px」改成「撑满」—— 否则右列会比中列高出约 160px，
+       三列底部就不再齐平（而画布变高只是多显示几行文件列表，不是留白）。
+   flex:1 1 auto 与「三列对齐」块里 section 的那条同值，写在这里只为让本卡自洽
+   （那组规则针对的是「列 > section」的通例，看不出这一格的意图）。
+   min-height 240px 是兜底：万一右列内容比中列还高，至少还留得住一块能看的画布。 */
+@media (min-width: 1280px) {
+  #secEmail { flex: 1 1 auto; display: flex; flex-direction: column; }
+  #secEmail > .embed-canvas { flex: 1 1 auto; height: auto; min-height: 240px; }
+}
+@media (max-width: 640px) {
+  /* 必须写成「#secEmail > .embed-canvas」而不是光一个 .embed-canvas：
+     上面 .map-canvas 在同一个断点里也有 height:660px（它是给地图定的），
+     两个选择器权重相同、谁在后面谁赢，光写类名会被它压掉。 */
+  #secEmail > .embed-canvas { height: 380px; }
+}
+
+/* 未登录提示：盖住整个画布，替掉 my_app 自带的英文报错页。
+   #emailAuth 是 Task Report Files 内嵌卡的同款提示（2026-09-18 加），
+   两张卡共用下面这整套 .map-auth-* 卡片样式，只是宿主 id 不同。 */
+#mapAuth,
+#emailAuth {
   position: absolute;
   inset: 0;
   display: flex;
@@ -579,7 +627,8 @@ html.dark .icon-btn.small:hover { background: var(--dk-surface-3); color: var(--
 .map-auth-btn.is-primary { border-color: var(--mp-brand-2); background: var(--mp-accent-solid); color: var(--mp-on-accent); }
 .map-auth-btn.is-primary:hover { background: var(--mp-accent-solid); filter: brightness(.93); color: var(--mp-on-accent); }
 
-html.dark #mapAuth { background: var(--mp-surface); }
+html.dark #mapAuth,
+html.dark #emailAuth { background: var(--mp-surface); }
 html.dark .map-auth-card { background: var(--mp-surface-flat); border-color: var(--mp-border); box-shadow: none; }
 html.dark .map-auth-ico { background: var(--mp-brand-soft-2); color: var(--mp-brand-text); }
 html.dark .map-auth-title { color: var(--mp-text); }
@@ -673,6 +722,28 @@ html.dark .auth-error { background: var(--mp-danger-soft); border-color: var(--m
 .modal-head h3 { margin: 0; font-size: 16px; font-weight: 800; color: var(--mp-text); }
 .modal-body { padding: 14px 16px; }
 .modal-foot { padding: 10px 16px; border-top: 1px solid var(--mp-border); }
+/* 分组管理弹窗的底部要同时放说明 + 「未保存」提示 + 保存按钮，
+   所以在这里切成两端对齐；其它弹窗的 .modal-foot 内容不变，不受影响。 */
+.group-modal .modal-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.group-modal .modal-foot .modal-note { flex: 1 1 auto; min-width: 0; }
+.group-modal .modal-foot .btn-soft { flex: 0 0 auto; }
+/* 「未保存」提示：琥珀色，和主按钮的蓝色区分开，不抢保存按钮的注意力。 */
+.sub-dirty {
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  color: var(--mp-warn-text, #b45309);
+  background: var(--mp-warn-bg, #fef3c7);
+  border: 1px solid var(--mp-warn-border, #fcd34d);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+/* 只读态（非本机访问）下保存按钮点不动，压暗一点给出「不可用」的视觉信号 */
+#subSaveBtn:disabled { opacity: .5; cursor: not-allowed; }
 .modal-note { font-size: 13px; color: var(--mp-text-3); }
 
 .group-table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -713,6 +784,165 @@ html.dark .auth-error { background: var(--mp-danger-soft); border-color: var(--m
   font-size: 14px;
   color: var(--mp-text);
   background: var(--mp-surface-flat);
+}
+
+/* ---------------------------------------- 分组管理：二级子分组（2026-09-19） ---
+   子分组行要同时容纳「两个名称输入框 + 计数 + 删除」和一行看板 chips，
+   720px 的默认弹窗宽度会把 chips 挤成一条竖线，所以这里放宽到 1000px。
+   颜色全部走 --mp-* 变量 —— 深色主题在 html.dark 里整体覆盖了这套变量，
+   不需要再写一份 html.dark 规则（写了反而容易漏项）。 */
+.modal.group-modal { max-width: min(1000px, 96vw); }
+
+.group-table th.tree,
+.group-table td.tree { width: 28px; padding-right: 0; }
+.sub-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mp-text-3);
+  cursor: pointer;
+}
+.sub-toggle:hover { background: var(--mp-brand-soft); color: var(--mp-brand-text); }
+.sub-toggle svg { width: 14px; height: 14px; transition: transform .15s ease; }
+.sub-toggle.open svg { transform: rotate(90deg); }
+
+/* 展开的分组行加一点底色，让「这行下面挂着子分组」在视觉上连起来 */
+.group-table tr.sub-open > td { background: var(--mp-surface-2); }
+
+.sub-row > td { background: var(--mp-surface-2); vertical-align: top; }
+.sub-rail {
+  width: 28px;
+  padding: 0 !important;
+  border-left: 2px solid var(--mp-brand-27);
+}
+.sub-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.sub-line .sub-name {
+  flex: 1 1 0;
+  min-width: 0;
+  border: 1px solid var(--mp-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mp-text);
+  background: var(--mp-surface-flat);
+}
+.sub-label { flex: 1 1 auto; font-size: 13px; font-weight: 700; color: var(--mp-text); }
+.sub-cnt {
+  flex: 0 0 auto;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--mp-brand-text);
+  background: var(--mp-brand-soft);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.sub-line .del { flex: 0 0 auto; }
+
+/* chips 容器**始终存在**：它是拖拽落点，空的时候也要能接住拖动 */
+.sub-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-height: 30px;
+  padding: 5px 6px;
+  border: 1px dashed var(--mp-border);
+  border-radius: 8px;
+  background: var(--mp-surface-flat);
+}
+.sub-chips.empty { align-items: center; }
+.sub-chips.drop-hot {
+  border-color: var(--mp-brand);
+  border-style: solid;
+  background: var(--mp-brand-soft-2);
+}
+.sub-empty { font-size: 12px; color: var(--mp-text-3); }
+.sub-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 5px 2px 7px;
+  border: 1px solid var(--mp-border);
+  border-radius: 6px;
+  background: var(--mp-surface-2);
+  font-size: 12.5px;
+  color: var(--mp-text);
+}
+.sub-chip[draggable="true"] { cursor: grab; }
+.sub-chip[draggable="true"]:active { cursor: grabbing; }
+.sub-chip.dragging { opacity: .45; }
+.sub-chip .chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub-chip .chip-x {
+  border: 0;
+  background: transparent;
+  color: var(--mp-text-3);
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.sub-chip .chip-x:hover { color: var(--mp-danger); }
+
+.sub-pick { margin-top: 5px; }
+.sub-pick.none { font-size: 12px; color: var(--mp-text-3); }
+.sub-pick select {
+  width: 100%;
+  border: 1px solid var(--mp-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12.5px;
+  color: var(--mp-text);
+  background: var(--mp-surface-flat);
+}
+/* ⚠️ 两个类名分工必须分清（2026-09-19 踩过坑）：
+   `tr.sub-add-tr` = 「新增子分组」这一**行**，`div.sub-add-row` = 行内那排输入框。
+   早前两者都叫 sub-add-row，`.sub-add-row{display:flex}` 命中了 <tr>，
+   表格行布局垮掉、两个输入框各只剩 26px（对照 Add group 是 439px），
+   中文/英文名完全看不清。所以：tr 只给底色，flex 只加在 div 上。 */
+.sub-add-tr > td { background: var(--mp-surface-2); }
+.sub-add-tr .sub-add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 与弹窗底部「新增分组」(.modal-add input) 保持同一套尺寸，
+   两处都是「输入名称」的同一件事，视觉上不该有两种规格。 */
+.sub-add-tr .sub-add-row input {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  border: 1px solid var(--mp-border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 14px;
+  color: var(--mp-text);
+  background: var(--mp-surface-flat);
+}
+.sub-add-tr .sub-add-row .btn-soft { flex: 0 0 auto; }
+.sub-note { margin: 10px 0 0; line-height: 1.6; }
+/* 「自动」徽章：标在「其他系统」兜底桶上，说明它不是可编辑的子分组、删不掉。 */
+.sub-auto {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--mp-text-3);
+  background: var(--mp-surface-2);
+  border: 1px solid var(--mp-border);
+  border-radius: 999px;
+  padding: 0 7px;
+  cursor: help;
 }
 
 /* --------------------------------------------------- QC 统计下钻弹窗 --- */
@@ -1407,6 +1637,49 @@ html.dark h2.text-slate-800 { color: var(--mp-heading) !important; }
 span.bg-red-600,
 span.bg-rose-500 { background-color: var(--mp-brand) !important; }
 
+/* ------------------------------------------- 区块标题可点 → 下级页面（2026-09-18 加） --- */
+/* 需求：点区块标题也能进入下级页面（如点「CXO View」进入该分组的看板查看器
+   viewer.html?gid=CXO%20View，与卡片一致新标签页打开）。
+   链接只包住「色块 + 标题 + 副标题」，右侧工具条（计数胶囊 / 区块内搜索 / 链接标签）
+   不参与点击 —— 否则点搜索框旁边会误跳走。
+   静止态与 ref 1:1：不加边框、不加图标、不动间距，hover / focus 才给反馈。
+
+   ⚠️ 可点提示为什么是「柔光底」而不是右上角小箭头：
+   实测标题行右侧的空隙（标题块右缘 → 工具条左缘）在 1920px 的 FO View 只有 12px、
+   1600px 的 FLM View 只有 11px（TMP/verify_titlelink_hover_layout.cjs），
+   14px 的箭头 + 4px 间距必然压到计数胶囊上；而柔光底只向外扩 5px，全断点安全。
+   柔光走 box-shadow（不参与布局），所以静止态与 ref 仍然逐像素一致。 */
+.sec-head-link {
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  border-radius: 5px;
+  transition: background-color .15s ease, box-shadow .15s ease;
+}
+.sec-head-link:hover,
+.sec-head-link:focus-visible {
+  background-color: var(--mp-brand-soft);
+  box-shadow: 0 0 0 5px var(--mp-brand-soft);
+}
+/* 标题变色 / 下划线：必须写成 `.sec-head-link:hover h2.text-red-600` 才压得过上面那条
+   `h2.text-red-600 { color: var(--mp-heading) !important; }`（两条同为 !important 时比特异性，
+   (0,3,1) > (0,1,1)）。
+   ⚠️ 2026-09-18 补 h3：Task Report Files 内嵌卡的标题是 `<h3 class="… text-slate-800">`
+   （见 portal.js 的 emailSection），不是 h2 —— 漏掉 h3 的话那条 `.text-slate-800
+   { color: var(--mp-text) !important; }` 会赢，hover 只有柔光底、标题不变色。 */
+.sec-head-link:hover h2.text-red-600,
+.sec-head-link:hover h2.text-slate-800,
+.sec-head-link:hover h3.text-slate-800,
+.sec-head-link:focus-visible h2.text-red-600,
+.sec-head-link:focus-visible h2.text-slate-800,
+.sec-head-link:focus-visible h3.text-slate-800 {
+  color: var(--mp-brand-text) !important;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* 键盘 Tab 聚焦时用统一的焦点环，盖掉上面那条柔光底（焦点环比特异性更高） */
+.sec-head-link:focus-visible { outline: 0; box-shadow: var(--mp-focus-ring); }
+
 /* ==========================================================================
    顶栏（TopHeader）—— 套用 vmax 90 天看板的 .mast 配色（2026-09-18）
    --------------------------------------------------------------------------
@@ -1615,3 +1888,230 @@ html:not(.dark) .to-orange-400 { --tw-gradient-to: var(--mp-tone-orange-fill); }
   #secEsc { display: flex; flex-direction: column; flex: 1 1 0; min-height: 300px; }
   #secEsc .esc-scroll { flex: 1 1 auto; min-height: 160px; max-height: none; }
 }
+
+/* ------------------------------------------- QC 自动刷新指示（2026-09-18 加） --
+   标题栏右侧那一行「● 每小时 :06 自动刷新 · 更新于 HH:MM:SS · 下次 MM:SS」（见 portal.js
+   qcSection() 的 qc-live）。用意是让「面板在自动刷新」这件事**看得见**：数字不变时
+   能区分「源数据还没到下一个同步点」与「页面卡住了」。
+
+   为什么不用 Tailwind 的 hidden / md:inline 组合：本目录的 tailwind.css 是预编译产物
+   （tailwind.src.css + npx tailwindcss 生成），实测只编出了 .md\:inline 与
+   .md\:grid-cols-3 两个 md: 工具类 —— 没有 md:inline-flex / inline-block / align-middle。
+   断点写在这里不依赖重新编译，也不会和 .hidden 抢同权重（都是 0,1,0）的先后顺序。
+   可见性与改动前的「更新于」一致：<768px 隐藏，md 及以上显示。 */
+.qc-live { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 767px) { .qc-live { display: none; } }
+
+/* ===================================================== 用户管理（2026-09-20 加） ===
+   弹窗骨架见 index.html 的 #umMask，表体/表单/页面配置面板由 portal.js 的
+   renderUserMgmt() 整块重画。样式全部走 --mp-* 变量 —— 深色主题在 html.dark 里
+   整体覆盖了这套变量，这里不需要（也不应该）再写一份 html.dark 规则。
+
+   与 /uniplam/ 的关系：这是同一个用户数据库的第二个操作界面（接口走
+   /uniplam/api/auth/*），所以视觉上刻意与门户的弹窗体系保持一致：
+   壳子复用 .modal / .modal-head / .modal-body / .modal-foot / .btn-soft，
+   这里只补 .um-* 这一层内容样式。 */
+
+.um-modal {
+  max-width: min(1120px, 96vw);
+  max-height: 88vh;
+  /* 头/底固定、只有 body 滚：表体很长时「保存页面配置」不能跟着滚出视野 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.um-head-txt { min-width: 0; }
+.um-sub { margin: 2px 0 0; font-size: 12.5px; color: var(--mp-text-3); }
+.um-head-actions { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.um-head-actions a.btn-soft { text-decoration: none; }
+
+.um-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ⚠️ 必须显式写这条：下面的 .um-foot 会命中 .modal-foot:has(.bf-actions) 的
+   display:flex（作者样式，权重高于 UA 的 [hidden]{display:none}），
+   不覆盖的话「收起页面配置」后底栏还会留在那里。 */
+.um-foot[hidden] { display: none; }
+.um-foot-who { font-size: 13px; font-weight: 700; color: var(--mp-text); }
+
+/* ---- 提示条 ---- */
+.um-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: 10px; font-size: 13px;
+  border: 1px solid var(--mp-border);
+}
+.um-banner.is-ok { background: var(--mp-brand-soft); border-color: var(--mp-brand-border); color: var(--mp-brand-text); }
+.um-banner.is-err { background: var(--mp-danger-soft); border-color: var(--mp-danger); color: var(--mp-danger); }
+
+/* ---- 存储位置条（后端类型 / 备份数 / 最后写入 / 落盘路径）---- */
+.um-storage {
+  display: flex; gap: 8px;
+  padding: 9px 12px; border-radius: 10px;
+  border: 1px solid var(--mp-border-soft); background: var(--mp-surface-2);
+  font-size: 12px; color: var(--mp-text-3);
+}
+.um-storage-ico { font-size: 15px; color: var(--mp-brand-text); margin-top: 2px; }
+.um-storage-txt { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.um-storage-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.um-storage-row b { color: var(--mp-text-2); }
+.um-tag {
+  padding: 1px 6px; border-radius: 5px; font-weight: 600;
+  background: var(--mp-brand-soft); color: var(--mp-brand-text);
+}
+.um-warn { color: var(--mp-warn); }
+
+/* ---- 卡片式分区（待审批 / 新增用户 / 用户表）---- */
+.um-box {
+  border: 1px solid var(--mp-border);
+  border-radius: 12px;
+  background: var(--mp-surface-flat);
+  overflow: hidden;
+}
+.um-box-warn { border-color: var(--mp-sev-warning); }
+.um-box-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; font-size: 13px; font-weight: 700;
+  background: var(--mp-surface-2);
+  border-bottom: 1px solid var(--mp-border-soft);
+  color: var(--mp-heading);
+}
+.um-box-warn .um-box-head { background: var(--mp-sev-warning-soft); color: var(--mp-warn); }
+.um-pill {
+  margin-left: auto;
+  padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 700;
+  background: var(--mp-sev-warning); color: var(--mp-surface-flat);
+}
+
+/* ---- 表格 ---- */
+.um-scroll { overflow-x: auto; }
+.um-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.um-table th {
+  text-align: left; white-space: nowrap;
+  padding: 7px 10px; font-size: 12.5px; font-weight: 600;
+  color: var(--mp-text-2); background: var(--mp-surface-2);
+  border-bottom: 1px solid var(--mp-border);
+}
+.um-table td {
+  padding: 7px 10px; vertical-align: middle;
+  color: var(--mp-text-2);
+  border-bottom: 1px solid var(--mp-border-soft);
+}
+.um-table tbody tr:hover > td { background: var(--mp-hover-row); }
+.um-table tbody tr.is-open > td { background: var(--mp-brand-soft); }
+.um-table .um-right { text-align: right; }
+.um-strong { font-weight: 600; color: var(--mp-text); }
+.um-dim { color: var(--mp-text-3); }
+.um-mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.um-ellipsis { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.um-empty { padding: 18px 10px; text-align: center; color: var(--mp-text-3); }
+
+.um-self {
+  margin-left: 6px; padding: 1px 6px;
+  font-size: 11px; border-radius: 999px;
+  background: var(--mp-brand-soft); color: var(--mp-brand-text);
+  border: 1px solid var(--mp-brand-border);
+}
+.um-role {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; font-size: 12px; border-radius: 999px;
+  border: 1px solid var(--mp-border); background: var(--mp-surface-2); color: var(--mp-text-2);
+}
+.um-role.is-admin {
+  border-color: var(--mp-brand-border); background: var(--mp-brand-soft);
+  color: var(--mp-brand-text); font-weight: 600;
+}
+
+/* ---- 行内操作按钮（页面配置 / 重置密码 / 删除）---- */
+.um-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.um-table select {
+  padding: 4px 6px; font-size: 12.5px; font-family: inherit;
+  border: 1px solid var(--mp-border); border-radius: 7px;
+  background: var(--mp-surface-flat); color: var(--mp-text);
+}
+.um-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  font-size: 15px; cursor: pointer;
+  border: 1px solid var(--mp-border); border-radius: 8px;
+  background: var(--mp-surface-flat); color: var(--mp-text-2);
+}
+.um-icon-btn:hover { border-color: var(--mp-brand-border); background: var(--mp-brand-soft); color: var(--mp-brand-text); }
+.um-icon-btn.is-on { border-color: var(--mp-brand-border); background: var(--mp-brand-soft); color: var(--mp-brand-text); }
+.um-icon-btn.is-danger:hover { border-color: var(--mp-danger); background: var(--mp-danger-soft); color: var(--mp-danger); }
+.um-icon-btn:disabled { opacity: .42; cursor: not-allowed; }
+.um-icon-btn:disabled:hover { border-color: var(--mp-border); background: var(--mp-surface-flat); color: var(--mp-text-2); }
+
+/* ---- 新增用户 ---- */
+.um-add-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+.um-add-row input,
+.um-add-row select {
+  min-width: 0; padding: 7px 10px; font-size: 13.5px; font-family: inherit;
+  border: 1px solid var(--mp-border); border-radius: 8px;
+  background: var(--mp-surface-flat); color: var(--mp-text);
+}
+.um-add-row input { flex: 1 1 200px; }
+.um-add-row input:focus,
+.um-add-row select:focus,
+.um-inline input:focus,
+.um-field select:focus {
+  outline: none; border-color: var(--mp-brand-border); box-shadow: var(--mp-focus-ring);
+}
+
+/* ---- 行内重置密码 ---- */
+.um-inline-row > td { background: var(--mp-surface-2); }
+.um-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.um-inline input {
+  flex: 1 1 220px; min-width: 0;
+  padding: 6px 9px; font-size: 13.5px; font-family: inherit;
+  border: 1px solid var(--mp-border); border-radius: 8px;
+  background: var(--mp-surface-flat); color: var(--mp-text);
+}
+
+/* ---- 页面配置面板（落地 + 可见范围）---- */
+.um-profile-row > td { padding: 0; background: var(--mp-surface-2); }
+.um-profile { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+.um-profile-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--mp-text); }
+.um-profile-head b { font-size: 14px; }
+.um-field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.um-field-col { align-items: flex-start; }
+.um-label { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--mp-text-2); }
+.um-field select {
+  max-width: 100%; padding: 6px 9px; font-size: 13px; font-family: inherit;
+  border: 1px solid var(--mp-border); border-radius: 8px;
+  background: var(--mp-surface-flat); color: var(--mp-text);
+}
+.um-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--mp-text-2); cursor: pointer; }
+.um-check input { margin: 0; accent-color: var(--mp-brand); }
+
+.um-groups { display: flex; flex-direction: column; gap: 10px; }
+.um-group-block { display: flex; flex-direction: column; gap: 6px; }
+.um-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.um-chip {
+  padding: 3px 10px; font-size: 12.5px; cursor: pointer;
+  border: 1px solid var(--mp-border); border-radius: 999px;
+  background: var(--mp-surface-flat); color: var(--mp-text-2);
+}
+.um-chip:hover { border-color: var(--mp-brand-border); color: var(--mp-brand-text); }
+/* 全局目录读不到时「按看板」候选项被锁住（见 portal.js umCardsAreShared）：
+   明确画成不可点，别让人以为只是没生效。 */
+.um-chip[disabled] { opacity: .45; cursor: not-allowed; }
+.um-chip[disabled]:hover { border-color: var(--mp-border); color: var(--mp-text-2); }
+.um-chip.is-on {
+  border-color: var(--mp-brand-border); background: var(--mp-brand-soft);
+  color: var(--mp-brand-text); font-weight: 600;
+}
+.um-hint { margin: 0; font-size: 12px; line-height: 1.55; }
+
+/* 窄屏：说明文字与存储路径允许换行，别把弹窗顶宽 */
+@media (max-width: 767px) {
+  .um-sub { display: none; }
+  .um-head-actions a.btn-soft { display: none; }
+}
+

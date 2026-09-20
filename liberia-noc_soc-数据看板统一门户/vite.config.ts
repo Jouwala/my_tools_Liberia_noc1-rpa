@@ -202,9 +202,24 @@ export default defineConfig(() => {
       // Do not modify - file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      // log/ 放的是 start.bat / stop.bat 以及服务自身写的运行日志，不是前端源码；
-      // 不忽略的话，每写一行日志都会触发一次 HMR 整页刷新。
-      watch: process.env.DISABLE_HMR === 'true' ? null : { ignored: ['**/log/**'] },
+      // 忽略清单（每一项都有具体理由，不是照抄模板）：
+      //  · log/        start.bat / stop.bat 与服务自身写的运行日志，不是前端源码；
+      //                不忽略的话每写一行日志都会触发一次 HMR 整页刷新。
+      //  · auth-data/  用户库（portal-auth.db + WAL/SHM + backups/）。用户管理每次
+      //                增删改密都会写这里 —— 它是**被 SQLite 独占锁住的二进制文件**，
+      //                让 watcher 去 watch 只有坏处：既会因锁冲突抛 EBUSY 直接打挂
+      //                整个 dev server（2026-09-20 实测发生过），又会把每次保存变成
+      //                一次无意义的整页刷新。数据库内容不需要热更新。
+      //  · TMP/        测试脚本、截图、以及历次 CDP 测试留下的 Chrome user-data-dir。
+      //                Chrome 会在自己的 profile 里频繁建/删/锁 .tmp 文件，watcher
+      //                踩到就是同一个 EBUSY 崩溃（2026-09-20 实测：TMP/_chrome_compact
+      //                下的 VariationsSeed*.tmp 把 9267 打挂，/uniplam/ 与
+      //                /MsPortal/ 的用户管理接口一起 502）。TMP 里没有任何前端源码。
+      //  · dist/       vite build 产物，只在部署时生成。
+      watch:
+        process.env.DISABLE_HMR === 'true'
+          ? null
+          : { ignored: ['**/log/**', '**/auth-data/**', '**/TMP/**', '**/dist/**'] },
       // 本地 dev 时将 /api 代理到 my_app 后端主机（与 nginx /api/ → my_app 后端 7038 拓扑一致），
       // 供 TaskSyncWidget 实时拉取 /api/tasks。
       // 注意：/api/portal-default 与 /api/auth 分别由上方两个插件的中间件直接处理，

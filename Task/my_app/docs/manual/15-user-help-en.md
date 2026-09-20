@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-18.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-20.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -1327,12 +1327,26 @@ Network Unavailability Rate (NUR) daily/weekly/monthly trends, multi-dimension a
 - Switch granularity and date range, filter by dimensions
 - Click numbers to drill into a detail table (in-column filters & sorting); export to Excel
 
+#### ms_nur_only（`ms_nur_only`）
+
+The "NUR only" cut of the NUR Dashboard: identical to the NUR half of page=nur (NUR daily/weekly/monthly tables + trends), with the three SLA blocks removed — handy for a NUR-only desk or wall screen.
+
+- Filters, drill-down and Excel export are shared with the NUR Dashboard, so usage is identical
+- Direct link http://<host>/myapp/?page=ms_nur_only; the other half is page=ms_sla_only (SLA scope, from the MS Operation KPI Dashboard)
+
 #### MS Operation KPI Dashboard（`ms_sla`）
 
 MS contract KPIs and WO SLA attainment: NUR / SLA / Network KPI / Per-Site / WO SLA (metrics as rows, periods as columns).
 
 - Granularity is daily/monthly only; drill-down reuses the NUR detail table
 - Numbers come from the live nur_calc calculation (driven by ms_sla_full every 6h) and may differ from historical snapshot files — trust this page
+
+#### ms_sla_only（`ms_sla_only`）
+
+The "SLA only" cut of the MS Operation KPI Dashboard: KPI List SLA daily/monthly attainment (TTR / TTR_P1~P4) plus the WOs SLA block (Total / Within SLA / Achieve + trend), without NUR, Network or Per-Site.
+
+- Attainment ≥95% is green, below target is red — same scope as page=ms_sla
+- Click cells and data points to drill into TT details and export to Excel; granularity is daily/monthly only
 
 #### CXO Dashboard（`cxoDashboard`, iframe page）
 
@@ -1386,6 +1400,17 @@ Customer Service KPI dashboard: pulls Dong customer weekly service KPIs from the
 - "Failure-rate composition" stacks each KPI's failure rate by attribution; "Success-rate trend" shows the daily movement
 - Resource utilisation is judged on the daily average (≥80% warning, ≥90% critical); peaks are informational only — brief saturation is normal
 - "Export Excel" writes 6 sheets: KPI summary / service detail / failure breakdown / resources / trend / alerts
+
+#### UME iMonitor Screen（`imonitor`, iframe page）
+
+UME iMonitor screen (guard-imonitor-iui, screen_id=1): embeds the original UME monitoring screen from the UME portal (172.17.208.1:28808) inside myapp, keeping all of its charts and interactions. The page is reverse-proxied to the upstream through nginx port 8088 (the portal dedicated-port scheme); on first visit an injected script signs in to em-portal automatically using the credentials from Settings → Credentials ("UME Customer Service KPI Portal", key ume_in). The login page frame-bust is neutralised in the proxy and the iframe additionally carries a sandbox, so the sign-in flow can never replace the myapp shell.
+
+- The first visit takes about 3-6 s to sign in automatically, then the screen renders; later visits inside the same session open instantly
+- When the session expires the screen SPA redirects itself to the login page, the injected script signs in again and the iframe is pulled back to screen_id=1 — no user action needed
+- Toolbar "Re-login" forces a fresh portal login (use when the account changes or the portal drops the session); "Refresh" just reloads the screen page
+- Open in new tab shows this screen in its own browser tab (it shares the same browser session — cookies are scoped per host, not per port)
+- Auto Refresh (header) reloads the screen in place via the iframe instead of remounting the page, so there is no white flash; the page is listed in AR_SOFT_REFRESH_PAGES
+- The upstream sets Content-Security-Policy: frame-ancestors self, so the page must go through the proxy (nginx/portal_ume_in_8088.conf) and cannot be embedded directly; port 8088 must stay in sync across the nginx config and PROXY_PREFIXES
 
 #### GIS Map（`gis`）
 

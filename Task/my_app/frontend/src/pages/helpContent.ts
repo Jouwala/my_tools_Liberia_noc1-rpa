@@ -13,7 +13,9 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'ttwo' },
   { key: 'eflow_qa' },
   { key: 'nur' },
+  { key: 'ms_nur_only' },
   { key: 'ms_sla' },
+  { key: 'ms_sla_only' },
   { key: 'cxoDashboard', iframe: true },
   { key: 'mwUmeTopology', iframe: true },
   { key: 'mwRealTime', iframe: true },
@@ -23,6 +25,7 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'packet_loss' },
   { key: 'battery' },
   { key: 'ume_in_kpi' },
+  { key: 'imonitor', iframe: true },
   { key: 'ip_trace', iframe: true },
   { key: 'incident_overview', iframe: true },
   { key: 'warehouse', iframe: true },
@@ -43,7 +46,9 @@ export const NAV_KEY_MAP: Record<string, string> = {
   ttwo: 'nav.ttwo',
   eflow_qa: 'nav.eflowQa',
   nur: 'nav.nur',
+  ms_nur_only: 'nav.msNurOnly',
   ms_sla: 'nav.msSla',
+  ms_sla_only: 'nav.msSlaOnly',
   cxoDashboard: 'nav.cxoDashboard',
   mwUmeTopology: 'nav.mwUmeTopology',
   mwRealTime: 'nav.mwRealTime',
@@ -53,6 +58,7 @@ export const NAV_KEY_MAP: Record<string, string> = {
   packet_loss: 'nav.packetLoss',
   battery: 'nav.battery',
   ume_in_kpi: 'nav.umeInKpi',
+  imonitor: 'nav.imonitor',
   ip_trace: 'nav.ipTrace',
   incident_overview: 'nav.incidentOverview',
   warehouse: 'nav.sp',
@@ -70,7 +76,7 @@ export const CATEGORIES: { id: string; pages: string[] }[] = [
   { id: 'tasks', pages: ['sync', 'email_reports', 'upload', 'tables', 'overview'] },
   {
     id: 'boards',
-    pages: ['alarm', 'ttwo', 'nur', 'ms_sla', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'packet_loss', 'battery', 'ume_in_kpi', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse'],
+    pages: ['alarm', 'ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'packet_loss', 'battery', 'ume_in_kpi', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse'],
   },
   { id: 'analysis', pages: ['eflow_qa', 'dashboard', 'archive', 'ip_trace'] },
   { id: 'system', pages: ['settings', 'portalLogin'] },
@@ -111,9 +117,17 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: '网络不可用率（NUR）的日/周/月趋势、多维分析与站点达标情况。',
       usage: ['切换粒度与日期区间，多维下拉筛选', '点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel'],
     },
+    ms_nur_only: {
+      desc: 'NUR 看板的「只保留 NUR」版：内容与 page=nur 的 NUR 部分完全一致（NUR 日/周/月 的表格 + 趋势），不再渲染 SLA 三档，适合只看 NUR 的值班位或大屏。',
+      usage: ['筛选条、下钻明细与导出与 NUR 看板同源，用法一致', '直链 http://<host>/myapp/?page=ms_nur_only；另一半内容见 page=ms_sla_only（SLA 口径，来自 MS Operation KPI 看板）'],
+    },
     ms_sla: {
       desc: 'MS 合同 KPI 与工单 SLA 达成情况：NUR / SLA / Network KPI / Per-Site / WO SLA（指标为行、期间为列）。',
       usage: ['粒度只有日/月两档；下钻明细与 NUR 页一致', '数字以 nur_calc 实时计算为准（ms_sla_full 每 6 小时驱动），可能与历史快照文件不一致——以本页为准'],
+    },
+    ms_sla_only: {
+      desc: 'MS Operation KPI 看板的「只保留 SLA」版：KPI List SLA 日/月达成率（TTR / TTR_P1~P4）与 WOs SLA 区（Total / Within SLA / Achieve + 趋势），不渲染 NUR、Network、Per-Site。',
+      usage: ['达成率 ≥95% 显示绿色、低于目标标红，与 page=ms_sla 同一口径', '单元格与数据点可点击下钻 TT 明细，并可导出 Excel；粒度只有日/月两档'],
     },
     cxoDashboard: {
       desc: 'Service / Network / Summary 三层经营看板（源自 VMAX 实时保障看板）。',
@@ -156,6 +170,17 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '「失败率构成」按归因堆叠显示各 KPI 的失败率；「成功率多日趋势」看逐日变化',
         '资源利用率以「日均」判定（≥80% 关注、≥90% 异常），峰值仅作参考——瞬时打满属正常尖峰',
         '「导出 Excel」输出 6 个 sheet：KPI 汇总 / 服务明细 / 失败分解 / 资源 / 趋势 / 告警',
+      ],
+    },
+    imonitor: {
+      desc: 'UME iMonitor 大屏（guard-imonitor-iui，screen_id=1）：把 UME 门户（172.17.208.1:28808）的原版监控大屏原样嵌进 myapp，保留其全部图表与交互。页面经 nginx 8088 反代到上游（门户独立端口方案），首次进入会由注入脚本自动完成 em-portal 登录（账号取自 Settings → 凭据的「UME 客户业务 KPI 门户」，即 ume_in），无需手工输入；登录页的 frame-bust 已在反代里中和、iframe 另加 sandbox，保证登录过程不会把 myapp 外壳冲掉。',
+      usage: [
+        '首次进入约 3~6 秒完成自动登录后出图；会话有效期内再次进入直接秒开',
+        '会话过期时大屏 SPA 会自己跳登录页，注入脚本自动重新登录并把 iframe 拉回 screen_id=1，全程无需干预',
+        '工具条「重新登录」强制重走一次门户登录（换账号 / 门户把会话顶掉时用）；「刷新」只重载大屏页面',
+        '「新窗口打开」在独立标签页里看这块大屏（与页内共用同一份浏览器会话，Cookie 按主机共享、不分端口）',
+        '自动刷新（顶栏）到点后由本页在 iframe 内原地重载，不会整页闪白；该页已登记在 AR_SOFT_REFRESH_PAGES',
+        '上游把 Content-Security-Policy: frame-ancestors 设为 self，故必须走反代（nginx/portal_ume_in_8088.conf）而不能直连；反代端口 8088 与 nginx 配置、PROXY_PREFIXES 三处需保持一致',
       ],
     },
     ip_trace: {
@@ -224,9 +249,17 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: 'Network Unavailability Rate (NUR) daily/weekly/monthly trends, multi-dimension analysis and site compliance.',
       usage: ['Switch granularity and date range, filter by dimensions', 'Click numbers to drill into a detail table (in-column filters & sorting); export to Excel'],
     },
+    ms_nur_only: {
+      desc: 'The "NUR only" cut of the NUR Dashboard: identical to the NUR half of page=nur (NUR daily/weekly/monthly tables + trends), with the three SLA blocks removed — handy for a NUR-only desk or wall screen.',
+      usage: ['Filters, drill-down and Excel export are shared with the NUR Dashboard, so usage is identical', 'Direct link http://<host>/myapp/?page=ms_nur_only; the other half is page=ms_sla_only (SLA scope, from the MS Operation KPI Dashboard)'],
+    },
     ms_sla: {
       desc: 'MS contract KPIs and WO SLA attainment: NUR / SLA / Network KPI / Per-Site / WO SLA (metrics as rows, periods as columns).',
       usage: ['Granularity is daily/monthly only; drill-down reuses the NUR detail table', 'Numbers come from the live nur_calc calculation (driven by ms_sla_full every 6h) and may differ from historical snapshot files — trust this page'],
+    },
+    ms_sla_only: {
+      desc: 'The "SLA only" cut of the MS Operation KPI Dashboard: KPI List SLA daily/monthly attainment (TTR / TTR_P1~P4) plus the WOs SLA block (Total / Within SLA / Achieve + trend), without NUR, Network or Per-Site.',
+      usage: ['Attainment ≥95% is green, below target is red — same scope as page=ms_sla', 'Click cells and data points to drill into TT details and export to Excel; granularity is daily/monthly only'],
     },
     cxoDashboard: {
       desc: 'Service / Network / Summary three-tier executive dashboard (from the VMAX assurance board).',
@@ -269,6 +302,17 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '"Failure-rate composition" stacks each KPI\'s failure rate by attribution; "Success-rate trend" shows the daily movement',
         'Resource utilisation is judged on the daily average (≥80% warning, ≥90% critical); peaks are informational only — brief saturation is normal',
         '"Export Excel" writes 6 sheets: KPI summary / service detail / failure breakdown / resources / trend / alerts',
+      ],
+    },
+    imonitor: {
+      desc: 'UME iMonitor screen (guard-imonitor-iui, screen_id=1): embeds the original UME monitoring screen from the UME portal (172.17.208.1:28808) inside myapp, keeping all of its charts and interactions. The page is reverse-proxied to the upstream through nginx port 8088 (the portal dedicated-port scheme); on first visit an injected script signs in to em-portal automatically using the credentials from Settings → Credentials ("UME Customer Service KPI Portal", key ume_in). The login page frame-bust is neutralised in the proxy and the iframe additionally carries a sandbox, so the sign-in flow can never replace the myapp shell.',
+      usage: [
+        'The first visit takes about 3-6 s to sign in automatically, then the screen renders; later visits inside the same session open instantly',
+        'When the session expires the screen SPA redirects itself to the login page, the injected script signs in again and the iframe is pulled back to screen_id=1 — no user action needed',
+        'Toolbar "Re-login" forces a fresh portal login (use when the account changes or the portal drops the session); "Refresh" just reloads the screen page',
+        'Open in new tab shows this screen in its own browser tab (it shares the same browser session — cookies are scoped per host, not per port)',
+        'Auto Refresh (header) reloads the screen in place via the iframe instead of remounting the page, so there is no white flash; the page is listed in AR_SOFT_REFRESH_PAGES',
+        'The upstream sets Content-Security-Policy: frame-ancestors self, so the page must go through the proxy (nginx/portal_ume_in_8088.conf) and cannot be embedded directly; port 8088 must stay in sync across the nginx config and PROXY_PREFIXES',
       ],
     },
     ip_trace: {

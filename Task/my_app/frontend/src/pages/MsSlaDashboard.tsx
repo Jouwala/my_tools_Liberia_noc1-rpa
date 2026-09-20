@@ -388,9 +388,22 @@ function WoAchieveTrendChart({ rows }: { rows: WoRow[] }) {
   return <ReactECharts option={option} style={{ height: TABLE_H + 32, width: '100%' }} notMerge />
 }
 
-export default function MsSlaDashboard() {
+/**
+ * MS Operation KPI 看板主体（page=ms_sla：NUR / SLA / Network / Per-Site / WO SLA）。
+ *
+ * only 用于派生「只保留 SLA」的直链页面（同一份实现切片，避免复制粘贴走样）：
+ *   - only='sla' → 只渲染 KPI List SLA（达成率表 + 趋势）与 WOs SLA 区，
+ *                  Network / Per-Site / NUR 一律不出，供 page=ms_sla_only 使用；
+ *   - only='nur' → 只渲染 KPI List NUR 区（保留给同类切片复用）；
+ *   - 缺省       → 全量，page=ms_sla 行为与改造前完全一致。
+ */
+export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
   const { t } = useI18n()
   const isMobile = useIsMobile()
+  const showNur = only !== 'sla'
+  const showSla = only !== 'nur'
+  // Network / Per-Site 既非 NUR 也非 SLA：只在全量模式下出现
+  const showOthers = only == null
   const [gran, setGran] = useState<Gran>('daily')
   // 默认最近 6 个月（含今天），与 NUR 看板一致；仅过滤实时计算部分
   //（nur/sla/wo/Per-Site 站点占比），Network/Per-Site 快照不受影响
@@ -563,7 +576,8 @@ export default function MsSlaDashboard() {
           <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-md)' } }}
             title={`${t('msSla.contractKpis')} · ${granLabel}`}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
-              {/* NUR：表格（×100000）+ 趋势 */}
+              {/* NUR：表格（×100000）+ 趋势（only='sla' 时不渲染） */}
+              {showNur && (
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
                 <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
                   title={`KPI List NUR ${granLabel}`} extra={<Tag color="cyan" style={{ marginRight: 0 }}>{t('msSla.unit')}</Tag>}>
@@ -577,7 +591,9 @@ export default function MsSlaDashboard() {
                     onDrill={(e, name, p) => handleNurDrill(e, gran, name, p)} />
                 </Card>
               </div>
-              {/* SLA：达成率表格 + 趋势 */}
+              )}
+              {/* SLA：达成率表格 + 趋势（only='nur' 时不渲染） */}
+              {showSla && (
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
                 <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
                   title={`KPI List SLA ${granLabel}`}>
@@ -590,7 +606,9 @@ export default function MsSlaDashboard() {
                     onDrill={(e, name, p) => handleSlaDrill(e, gran, SLA_SEV[name] || name, 'achieve', p)} />
                 </Card>
               </div>
-              {/* Network KPIs：表格 + 趋势 */}
+              )}
+              {/* Network KPIs：表格 + 趋势（既非 NUR 也非 SLA，只在全量模式下渲染） */}
+              {showOthers && (
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
                 <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
                   title={`Network KPIs ${granLabel}`}>
@@ -601,7 +619,9 @@ export default function MsSlaDashboard() {
                   <ScalarTrendChart title={`Network KPIs Trend ${granLabel}`} rows={data?.network?.[gran] || []} percent />
                 </Card>
               </div>
-              {/* Per-Site 占比：表格 + 趋势 */}
+              )}
+              {/* Per-Site 占比：表格 + 趋势（既非 NUR 也非 SLA，只在全量模式下渲染） */}
+              {showOthers && (
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
                 <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
                   title={`Per-Site KPIs ${granLabel}`}>
@@ -613,10 +633,12 @@ export default function MsSlaDashboard() {
                   <ScalarTrendChart title={`Per-Site KPIs Trend ${granLabel}`} rows={data?.persite?.[gran] || []} percent />
                 </Card>
               </div>
+              )}
             </div>
           </Card>
 
-          {/* ---------- WOs SLA 区 ---------- */}
+          {/* ---------- WOs SLA 区（工单 SLA 达成，属 SLA 内容：only='sla' 保留、only='nur' 不渲染） ---------- */}
+          {showSla && (
           <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-md)' } }}
             title={`${t('msSla.woSla')} · ${granLabel}`}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
@@ -632,6 +654,7 @@ export default function MsSlaDashboard() {
               </div>
             </div>
           </Card>
+          )}
         </div>
       </Spin>
 

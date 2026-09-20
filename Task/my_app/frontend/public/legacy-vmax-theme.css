@@ -1,0 +1,184 @@
+/* ============================================================================
+   legacy-vmax-theme.css —— legacy 单文件 HTML 页的「深色档」唯一真相源
+   ============================================================================
+
+   为什么需要这个文件（2026-09-19）：
+   my_app 的界面由两套互不相干的调色系统画出来：
+     1) React 外壳层 —— index.css 的 --wh-*、theme.ts 的 WH/DARK、App.tsx 的
+        VMAX_DARK_TOKEN（antd）。2026-09-18 已统一到 vmax 深空蓝。
+     2) legacy 单文件 HTML 层 —— public/*.html，经 LegacyToolFrame 以同源 iframe
+        嵌入。这些页各自在 <style> / JS 里**自带一份私有调色板**，只和外壳共享
+        「深/浅档这个状态」（data-theme + localStorage['myapp-theme'] +
+        postMessage myapp-theme），**从不共享色值**。
+   结果：外壳是 vmax 深空蓝、iframe 内部还是各页自己的老配色，接缝处能直接看到
+   一条颜色台阶（实测 ?page=mwRealTime 的 iframe body 是 #03141d 墨绿青，
+   基准页 ?page=vmaxCxoDashboard_90Days 是 #02050c 深空蓝）。
+
+   本文件把「深色档」的 vmax 令牌集中定义一次，各 legacy 页 <link> 引入后
+   **删掉自己那份深色定义**，从此色值只有一处来源。
+
+   ── 用法（三步）────────────────────────────────────────────────────────────
+   1) <head> 里加一行（放在 legacy-glass-baseline.css 之后）：
+        <link rel="stylesheet" href="./legacy-vmax-theme.css">
+   2) 删掉本页 <style> 里**深色档**的变量定义块（如 mw_real_time.html 的
+      `:root{--bg:...;--accent:#19c3ff}`）。⚠️ 不删不生效 —— 本文件在 head 里、
+      页面 <style> 在其后，同特异性下后者胜出，这也是「引入即可、逐页迁移」
+      的开关。
+   3) **浅色档保持原样**，不要动：本文件只管深色。各页自己的
+      `html[data-theme="light"]{...}` 特异性更高（0,1,1 > 0,0,1），会正常覆盖。
+
+   ── JS 侧 ──────────────────────────────────────────────────────────────────
+   页内 JS 不要再自己存一份色值常量（那是「CSS 与 JS 两处定义必须手工同步」的
+   老毛病）。改为读 CSS 变量：
+     getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
+   见 mw_real_time.html 的 cssVar() / readPaletteFromCss()。
+
+   ── 维护约定 ────────────────────────────────────────────────────────────────
+   本文件的 --vmax-* 值必须与 frontend/src/index.css 的 `:root` 逐条对应；
+   改色请同时改两处，并同步 App.tsx 的 VMAX_DARK_TOKEN（antd 层）。
+   ========================================================================== */
+
+:root {
+  /* ---------- vmax 深空蓝基准令牌（对应 index.css :root） ---------- */
+  /* 背景四层：页面 / 容器 / 次级容器 / 浮层 */
+  --vmax-bg: #02050c;
+  --vmax-panel: #08122c;
+  --vmax-panel-2: #050d22;
+  --vmax-elev: #070d31;
+  --vmax-mast: #080f43;              /* 顶栏渐变起点（vmax 页 .mast） */
+
+  /* 描边四档：卡片外框 / 发丝分割线 / 控件框 / 控件 hover */
+  --vmax-edge: #153db0;
+  --vmax-edge-2: #173158;
+  --vmax-edge-3: #17499c;
+  --vmax-edge-hover: #2b6fd0;
+
+  /* 文字四层 */
+  --vmax-text: #f5f7ff;
+  --vmax-text-muted: #aebbd4;
+  --vmax-text-2: #8fb0d8;            /* 图注/次级数值 */
+  --vmax-text-dim: #6f8cb4;
+
+  /* 主色 / 强调 */
+  --vmax-blue: #258cff;
+  --vmax-cyan: #00d9ff;
+  --vmax-cyan-soft: #7fd2ee;         /* 强调文字（vmax 页 .mast .sub 等） */
+  --vmax-cyan-deep: #55d7ff;         /* 表头文字 */
+  --vmax-indigo: #7c8ff0;
+
+  /* 语义色 */
+  --vmax-green: #0bc78c;
+  --vmax-green-soft: #6ef0b4;
+  --vmax-yellow: #f6cf00;
+  --vmax-orange: #ff922b;
+  --vmax-red: #ff5c6c;
+  --vmax-red-soft: #ffb3bc;
+
+  /* 链路健康度 7 级色阶（拓扑类页面专用）
+     只有 4 档能直接取自 vmax 语义色，其余 3 档是为保持 7 级可区分性保留的
+     中间步进（moderate/major 就是 vmax 的 orange 与其暖色邻档）。 */
+  --vmax-lvl-healthy: #0bc78c;
+  --vmax-lvl-negligible: #6ef0b4;
+  --vmax-lvl-minor: #f6cf00;
+  --vmax-lvl-moderate: #ff922b;
+  --vmax-lvl-major: #ff7a45;
+  --vmax-lvl-critical: #ff5c6c;
+  --vmax-lvl-unknown: #6f8cb4;
+
+  /* 填充 / 叠加：vmax 是「蓝色叠加」而不是「白色叠加」 */
+  --vmax-fill-1: rgba(37, 140, 255, 0.16);
+  --vmax-fill-2: rgba(37, 140, 255, 0.10);
+  --vmax-fill-3: rgba(9, 34, 74, 0.60);
+  --vmax-row-hover: rgba(37, 140, 255, 0.10);
+
+  /* 观感层：卡片渐变、内辉光、顶栏渐变、页面径向辉光、蒙版 */
+  --vmax-card-bg: linear-gradient(180deg, #08122c, #050d22);
+  --vmax-card-shadow: inset 0 7px 17px var(--vmax-glow);
+  --vmax-glow: rgba(58, 118, 255, 0.48);
+  --vmax-mast-bg: linear-gradient(180deg, #080f43 0, #070d31 73%, transparent 74%);
+  --vmax-page-glow: radial-gradient(circle at 50% 8%, rgba(0, 127, 255, 0.14), transparent 24%);
+  --vmax-scrim: rgba(2, 5, 12, 0.55);
+
+  /* 表面观感开关：深色 = vmax 卡片渐变 + 内辉光。
+     各页在 `html[data-theme="light"]` 块里改回 `--surface-bg:var(--panel)` /
+     `--surface-shadow:none` 即可让浅色档保持改动前的平涂观感 —— 于是页内
+     所有卡片/面板规则只需写 background:var(--surface-bg)，
+     不必再为深浅两档各写一条。 */
+  --surface-bg: var(--vmax-card-bg);
+  --surface-shadow: var(--vmax-card-shadow);
+
+  /* ---------- 兼容别名：各 legacy 页历史上自用的变量名 ----------
+     迁移时页面 CSS 一行都不用改，只删掉它自己的深色定义块即可。
+     各组按「哪几页在用」分开，避免语义冲突。 */
+
+  /* mw_real_time.html / mw_ume_topology.html / cxo_dashboard.html */
+  --bg: var(--vmax-bg);
+  --panel: var(--vmax-panel);
+  --panel2: var(--vmax-panel-2);
+  --line: var(--vmax-edge);
+  /* 发丝分割线（表行底边、面板内标题下边）：vmax 用 #173158，比外框 #153db0 暗一档。
+     页内凡是 border-bottom / border-top 这类**内部**分隔线都应改用本变量，
+     外框（border / border-left）继续用 --line。 */
+  --line-soft: var(--vmax-edge-2);
+  --accent: var(--vmax-cyan);
+  --text: var(--vmax-text);
+  --muted: var(--vmax-text-muted);
+  --green: var(--vmax-green);
+  --yellow: var(--vmax-yellow);
+  --orange: var(--vmax-orange);
+  --red: var(--vmax-red);
+  --gray: var(--vmax-text-dim);
+
+  /* alarm-management.html / warehouse-dashboard.html */
+  --border: var(--vmax-edge);
+  --border-strong: var(--vmax-edge-3);
+  --panel-sub: var(--vmax-panel-2);
+
+  /* cxo_dashboard.html */
+  --accent2: var(--vmax-cyan-soft);
+  --good: var(--vmax-green);
+  --bad: var(--vmax-red);
+
+  /* ---------- Tailwind CDN 桥接：同一批令牌的「r g b」三元组 ----------
+     用在哪：ip-trace.html（warehouse-dashboard.html / incident-overview.html
+     也是 Tailwind CDN 页，迁移时可同样引用）。
+     为什么需要：Tailwind 的 `/30` 透明度修饰符（bg-primary/30 等，本页用了
+     70+ 处）要求色值能被解析成颜色。若在 tailwind.config 里直接写
+     `"primary": "var(--vmax-cyan)"`，Tailwind 的 parseColor() 返回 null，
+     透明度会被**静默丢弃** —— bg-primary/30 退化成整块不透明强调青。
+     所以这里额外给出三元组，页内 tailwind.config 写成：
+       "primary": "rgb(var(--vmax-cyan-rgb) / <alpha-value>)"
+     于是 bg-primary/30 → rgb(var(--vmax-cyan-rgb) / 0.3)：
+     既保住透明度，又保持唯一真相源（浅色档只需在页内覆盖 --vmax-*-rgb）。
+     ⚠️ 值必须与上面同名 hex 令牌一致（改色请同时改两处）。 */
+  --vmax-bg-rgb: 2 5 12;                 /* = --vmax-bg #02050c */
+  --vmax-panel-rgb: 8 18 44;             /* = --vmax-panel #08122c */
+  --vmax-panel-2-rgb: 5 13 34;           /* = --vmax-panel-2 #050d22 */
+  --vmax-edge-rgb: 21 61 176;            /* = --vmax-edge #153db0 */
+  --vmax-cyan-rgb: 0 217 255;            /* = --vmax-cyan #00d9ff */
+  --vmax-blue-rgb: 37 140 255;           /* = --vmax-blue #258cff */
+  --vmax-green-rgb: 11 199 140;          /* = --vmax-green #0bc78c */
+  --vmax-orange-rgb: 255 146 43;         /* = --vmax-orange #ff922b（incident-overview 的琥珀档要用） */
+  --vmax-indigo-rgb: 124 143 240;        /* = --vmax-indigo #7c8ff0（incident-overview 的紫档要用） */
+  --vmax-yellow-rgb: 246 207 0;          /* = --vmax-yellow #f6cf00 */
+  --vmax-red-rgb: 255 92 108;            /* = --vmax-red #ff5c6c */
+  --vmax-text-rgb: 245 247 255;          /* = --vmax-text #f5f7ff */
+  --vmax-text-muted-rgb: 174 187 212;    /* = --vmax-text-muted #aebbd4 */
+  --vmax-text-2-rgb: 143 176 216;        /* = --vmax-text-2 #8fb0d8 */
+  --vmax-text-dim-rgb: 111 140 180;      /* = --vmax-text-dim #6f8cb4 */
+  --vmax-fill-1-rgb: 37 140 255;         /* = --vmax-fill-1 rgba(37,140,255,.16) 的基色 */
+  --vmax-scrim-rgb: 2 5 12;              /* = --vmax-scrim rgba(2,5,12,.55) 的基色 */
+}
+
+/* 浅色档兜底：只要 <html data-theme="light">，就把「表面观感开关」复位成
+   「平涂 + 无阴影」。为什么放在共享文件而不是只靠各页自己覆盖：`:root` 里的
+   --surface-bg 是 vmax **深色**卡片渐变，而 legacy 页的浅色极性有两种写法 ——
+   有的用 html[data-theme="light"]，有的把浅色放在 :root、深色才走
+   [data-theme="dark"]（如 alarm-management.html）。只要某页漏写覆盖，浅色档
+   就会拿到深色渐变。这里统一兜底；各页自己的 light 块特异性同为 (0,1,1)、
+   文档顺序在后，仍可覆盖本规则 —— 即「默认安全，需要时才特化」。
+   （注：本规则不改变任何页当前的浅色渲染 —— 已接入的页都显式覆盖过。） */
+html[data-theme="light"] {
+  --surface-bg: var(--panel);
+  --surface-shadow: none;
+}

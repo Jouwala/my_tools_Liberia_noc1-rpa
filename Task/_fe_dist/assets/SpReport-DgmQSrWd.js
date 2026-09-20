@@ -1,0 +1,1 @@
+import{S as e}from"./react-vendor-Dxcxxxhu.js";import{t}from"./SpReportBase-BPkyDw1J.js";var n=e();function r(){return(0,n.jsx)(t,{kind:`spareparts`})}export{r as default};

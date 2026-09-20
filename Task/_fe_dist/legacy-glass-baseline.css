@@ -1,9 +1,13 @@
 /* Shared baseline for legacy pages embedded by /myapp/. Page-specific styles remain authoritative. */
+/* 深色档四项已对齐 legacy-vmax-theme.css 的 vmax 令牌（原来用的是 #0a1929 slate + 薄荷绿
+   rgba(100,255,218,·) 那套老体系）。浅色档不动。
+   实际被消费的只有 --legacy-glass-focus（:focus-visible 环）与 --legacy-glass-strong
+   （不支持 backdrop-filter 时的兜底底色）；另两项保留为将来使用。 */
 :root {
-  --legacy-glass-bg: rgba(15, 39, 68, 0.72);
-  --legacy-glass-strong: rgba(10, 25, 41, 0.88);
-  --legacy-glass-border: rgba(100, 255, 218, 0.24);
-  --legacy-glass-focus: 0 0 0 3px rgba(100, 255, 218, 0.28);
+  --legacy-glass-bg: rgba(8, 18, 44, 0.72);       /* --vmax-panel #08122c */
+  --legacy-glass-strong: rgba(5, 13, 34, 0.88);   /* --vmax-panel-2 #050d22 */
+  --legacy-glass-border: rgba(21, 61, 176, 0.60); /* --vmax-edge #153db0 */
+  --legacy-glass-focus: 0 0 0 3px rgba(0, 217, 255, 0.30); /* --vmax-cyan #00d9ff */
 }
 html[data-theme="light"] {
   --legacy-glass-bg: rgba(255, 255, 255, 0.72);

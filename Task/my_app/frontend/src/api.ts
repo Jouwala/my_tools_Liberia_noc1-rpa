@@ -103,6 +103,75 @@ export function getSpMaterialDetail(params: Record<string, string>) {
   return api.get('/sp-material/detail', { params })
 }
 
+/* ---------- SP 备件明细报表（page=sp_details / SpDetailsReport） ----------
+ * 数据源：data/sp_email/data 下由任务 sp_email_details（SP Spare Parts Details
+ * Report Email）每天生成的合并工作簿「SP Details Report <时间戳>.xlsx」
+ * （sheet：Inventory / Inbound / Outbound / Transfer）—— 与邮件附件是同一份文件，
+ * 口径见 backend/services/sp_details_service.py 顶部 docstring。 */
+// 统计卡片 + 各 sheet 元信息 + 数据来源
+export function getSpDetailsSummary() {
+  return api.get('/sp-details/summary')
+}
+
+// 某 sheet 的分页明细
+// params: sheet=Inventory|Inbound|Outbound|Transfer
+//         page / page_size / q（全列模糊搜索）/ sort（列名）/ order=asc|desc
+//         filters=JSON 字符串，如 {"Status":"Closed"}（值为数组时按 IN 处理）
+export function getSpDetailsRows(params: Record<string, string | number>) {
+  return api.get('/sp-details/rows', { params })
+}
+
+// 某 sheet 的筛选下拉候选值（状态 / 仓库 / 物料大类 / 业务类型 / 域 / 物料状态）
+export function getSpDetailsFilters(sheet: string) {
+  return api.get('/sp-details/filters', { params: { sheet } })
+}
+
+/* ---------- SP 备件 / 耗材汇总报表（page=sp_report / com_report） ----------
+ * 数据源：data/sp_email 下由任务 sp_report_generate（SP 备件报表生成，每天 05:15）
+ * 产出的两份汇总工作簿「<前缀> <时间戳>.xlsx」（sheet：Summary-Current /
+ * Summary-Changed / Inbound / Outbound / Inventory）—— 与邮件附件是同一份文件。
+ * kind: 'spareparts'（备件，?page=sp_report）| 'consumables'（耗材，?page=com_report） */
+export type SpReportKind = 'spareparts' | 'consumables'
+
+// 统计卡片 + 各 sheet 元信息 + 每日矩阵 + 报表自带口径说明
+export function getSpReportSummary(kind: SpReportKind) {
+  return api.get('/sp-report/summary', { params: { kind } })
+}
+
+// 某 sheet 的分页明细
+// params: kind / sheet / page / page_size / q / sort / order / filters(JSON 字符串)
+export function getSpReportRows(params: Record<string, string | number>) {
+  return api.get('/sp-report/rows', { params })
+}
+
+// 某 sheet 的筛选下拉候选值
+export function getSpReportFilters(kind: SpReportKind, sheet: string) {
+  return api.get('/sp-report/filters', { params: { kind, sheet } })
+}
+
+/* ---------- MS Contract KPIs / WOs SLA 报表（page=ms_contract_kpi / ms_wo_sla） ----------
+ * 数据源：data/ms_sla 下任务产出的报表工作簿本体（与邮件附件是同一份文件）——
+ *   wo_sla       : ZTE OLR MS WOs SLA Achievements Daily Report_<日期>.xlsx（kpi_ms_wo_sla 任务）
+ *   contract_kpi : ZTE OLR MS Contract KPIs & WOs Achievement Auto-Reports.xlsx（ms_sla_full 任务）
+ * 口径见 backend/services/ms_kpi_report_service.py 顶部 docstring。 */
+export type MsKpiReportKind = 'wo_sla' | 'contract_kpi'
+
+// 统计卡片 + KPI 矩阵（表头/日行/月行/逐指标统计）+ 分表元信息
+export function getMsKpiReportSummary(kind: MsKpiReportKind) {
+  return api.get('/ms-kpi-report/summary', { params: { kind } })
+}
+
+// 某 sheet 的分页明细（矩阵 sheet 会被压平成「一行一天」）
+// params: kind / sheet / page / page_size / q / sort / order / filters(JSON 字符串)
+export function getMsKpiReportRows(params: Record<string, string | number>) {
+  return api.get('/ms-kpi-report/rows', { params })
+}
+
+// 某 sheet 的筛选下拉候选值（FineBI 规划的 Domain/Priority、自动化报表的团队/频率 …）
+export function getMsKpiReportFilters(kind: MsKpiReportKind, sheet: string) {
+  return api.get('/ms-kpi-report/filters', { params: { kind, sheet } })
+}
+
 /* ---------- 界面配置：侧栏菜单结构（全局共享，仅本机可写） ----------
  * 服务端唯一真相源：所有访问者看到同一份目录结构；只有本机（或持 X-API-Token）
  * 能保存，远程会 403。GET 返回 {layout, updated_at, editable}。 */

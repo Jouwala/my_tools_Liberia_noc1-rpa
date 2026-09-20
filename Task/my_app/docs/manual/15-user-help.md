@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-18。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-20。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -1327,12 +1327,26 @@
 - 切换粒度与日期区间，多维下拉筛选
 - 点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel
 
+#### ms_nur_only（`ms_nur_only`）
+
+NUR 看板的「只保留 NUR」版：内容与 page=nur 的 NUR 部分完全一致（NUR 日/周/月 的表格 + 趋势），不再渲染 SLA 三档，适合只看 NUR 的值班位或大屏。
+
+- 筛选条、下钻明细与导出与 NUR 看板同源，用法一致
+- 直链 http://<host>/myapp/?page=ms_nur_only；另一半内容见 page=ms_sla_only（SLA 口径，来自 MS Operation KPI 看板）
+
 #### MS Operation KPI 看板（`ms_sla`）
 
 MS 合同 KPI 与工单 SLA 达成情况：NUR / SLA / Network KPI / Per-Site / WO SLA（指标为行、期间为列）。
 
 - 粒度只有日/月两档；下钻明细与 NUR 页一致
 - 数字以 nur_calc 实时计算为准（ms_sla_full 每 6 小时驱动），可能与历史快照文件不一致——以本页为准
+
+#### ms_sla_only（`ms_sla_only`）
+
+MS Operation KPI 看板的「只保留 SLA」版：KPI List SLA 日/月达成率（TTR / TTR_P1~P4）与 WOs SLA 区（Total / Within SLA / Achieve + 趋势），不渲染 NUR、Network、Per-Site。
+
+- 达成率 ≥95% 显示绿色、低于目标标红，与 page=ms_sla 同一口径
+- 单元格与数据点可点击下钻 TT 明细，并可导出 Excel；粒度只有日/月两档
 
 #### CXO 经营看板（`cxoDashboard`，iframe 页）
 
@@ -1386,6 +1400,17 @@ LTE 丢包看板（RAN UME SDR / IPRAN IPPD）：最近 7 个完整自然日、�
 - 「失败率构成」按归因堆叠显示各 KPI 的失败率；「成功率多日趋势」看逐日变化
 - 资源利用率以「日均」判定（≥80% 关注、≥90% 异常），峰值仅作参考——瞬时打满属正常尖峰
 - 「导出 Excel」输出 6 个 sheet：KPI 汇总 / 服务明细 / 失败分解 / 资源 / 趋势 / 告警
+
+#### UME iMonitor 大屏（`imonitor`，iframe 页）
+
+UME iMonitor 大屏（guard-imonitor-iui，screen_id=1）：把 UME 门户（172.17.208.1:28808）的原版监控大屏原样嵌进 myapp，保留其全部图表与交互。页面经 nginx 8088 反代到上游（门户独立端口方案），首次进入会由注入脚本自动完成 em-portal 登录（账号取自 Settings → 凭据的「UME 客户业务 KPI 门户」，即 ume_in），无需手工输入；登录页的 frame-bust 已在反代里中和、iframe 另加 sandbox，保证登录过程不会把 myapp 外壳冲掉。
+
+- 首次进入约 3~6 秒完成自动登录后出图；会话有效期内再次进入直接秒开
+- 会话过期时大屏 SPA 会自己跳登录页，注入脚本自动重新登录并把 iframe 拉回 screen_id=1，全程无需干预
+- 工具条「重新登录」强制重走一次门户登录（换账号 / 门户把会话顶掉时用）；「刷新」只重载大屏页面
+- 「新窗口打开」在独立标签页里看这块大屏（与页内共用同一份浏览器会话，Cookie 按主机共享、不分端口）
+- 自动刷新（顶栏）到点后由本页在 iframe 内原地重载，不会整页闪白；该页已登记在 AR_SOFT_REFRESH_PAGES
+- 上游把 Content-Security-Policy: frame-ancestors 设为 self，故必须走反代（nginx/portal_ume_in_8088.conf）而不能直连；反代端口 8088 与 nginx 配置、PROXY_PREFIXES 三处需保持一致
 
 #### GIS地图（`gis`）
 

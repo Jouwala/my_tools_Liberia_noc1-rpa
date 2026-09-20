@@ -123,7 +123,7 @@ INVENTORY_COLS = ['Serial No.', 'Material No.', 'Material Name', 'Material Statu
 REPLENISH_EXCLUDE_ORDERS = ('SPOB202608160004', 'SPOB202609120014')
 # 历史消耗窗口（月）：现有出库数据覆盖 9.5 个月
 REPLENISH_HISTORY_MONTHS = 9.5
-# 安全库存 = 6 个月历史平均消耗
+# 安全库存 = 6 个月历史平均消耗后向上取整（2026-09-19 起 Avg 保留小数，Safety 取整）
 REPLENISH_SAFETY_MONTHS = 6
 # 补库建议的列（全英文，避免报表出现中文）；Remark 紧跟在 Safety Stock 之后
 REPLENISH_COLS = ['Material Name', 'Avg Monthly Consumption', 'Safety Stock', 'Remark',
@@ -132,22 +132,27 @@ REPLENISH_COLS = ['Material Name', 'Avg Monthly Consumption', 'Safety Stock', 'R
 REPLENISH_EXTRA_COLS = REPLENISH_COLS[1:]
 REPLENISH_ALERT_COL = 'Alert Level'
 REPLENISH_REMARK_COL = 'Remark'
-# 月均消耗为 0 的物料按「故障率」备件处理：安全库存保底 1，Remark 记 Failure Rate
-REPLENISH_NO_CONSUMPTION_SAFETY = 1
+# 月均消耗为 0 的物料按「故障率」备件处理：安全库存 = 主表 Inbound/Outbound/Inventory
+# 三列最大值的 20% 向上取整（2026-09-19 起，替代旧的保底 1），Remark 记 Failure Rate
+REPLENISH_ZERO_CONSUMPTION_SAFETY_PCT = 0.2
 REMARK_FAILURE_RATE = 'Failure Rate'
 REMARK_ACTUAL_CONSUMPTION = 'Actual Consumption'
-# 这 3 个数值列向上取整（整数）；主表原有列同样是整数展示
-REPLENISH_INT_COLS = ('Avg Monthly Consumption', 'Safety Stock', 'Replenishment Qty')
+# Avg Monthly Consumption 保留 2 位小数（2026-09-19 起不再取整）；
+# Safety Stock = ceil(6 x Avg)，与 Replenishment Qty 同为向上取整的整数列
+REPLENISH_DEC_COLS = ('Avg Monthly Consumption',)
+REPLENISH_INT_COLS = ('Safety Stock', 'Replenishment Qty')
 # 报表上方的口径说明（Excel 表头上方、PNG 标题下方）：拆成多行，否则超过合并区的显示宽度会被裁掉
 REPLENISH_NOTES = (
     'Replenishment basis:  Excluded orders ' + ' / '.join(REPLENISH_EXCLUDE_ORDERS)
     + f'  |  History {REPLENISH_HISTORY_MONTHS} months'
-    + f'  |  Safety Stock = {REPLENISH_SAFETY_MONTHS} x Avg Monthly Consumption',
-    'Replenishment Qty = Safety Stock - Inventory Qty (<= 0 left blank)'
+    + f'  |  Safety Stock = ceil({REPLENISH_SAFETY_MONTHS} x Avg Monthly Consumption)',
+    f'Zero-consumption materials (Remark = {REMARK_FAILURE_RATE}): '
+    + f'Safety Stock = ceil({int(REPLENISH_ZERO_CONSUMPTION_SAFETY_PCT * 100)}%'
+    + ' x max(Inbound Qty, Outbound Qty, Inventory Qty))',
+    'Replenishment Qty = Safety Stock - Inventory Qty (<= 0 left blank, rounded up)'
     + '  |  Alert Level = Inventory Qty / Safety Stock'
     + '  |  Note: Outbound Qty still includes the 2 excluded orders',
     f'Remark: {REMARK_FAILURE_RATE} = Avg Monthly Consumption is 0'
-    + f' (Safety Stock floors at {REPLENISH_NO_CONSUMPTION_SAFETY})'
     + f'  |  {REMARK_ACTUAL_CONSUMPTION} = Avg Monthly Consumption > 0',
 )
 ALERT_URGENT = 'Urgent Replenish'
@@ -210,7 +215,7 @@ def _display_width(text):
 
 
 def _fmt_replenish_value(val):
-    """补库建议列的数值文本：向上取整后的整数（千分位）；空值（NaN）留白不显示。"""
+    """补库建议取整列的数值文本：向上取整后的整数（千分位）；空值（NaN）留白不显示。"""
     if val is None or pd.isna(val):
         return ''
     if isinstance(val, (int, float, np.integer, np.floating)):
@@ -218,14 +223,33 @@ def _fmt_replenish_value(val):
     return str(val)
 
 
+def _fmt_replenish_dec(val):
+    """补库建议小数列（Avg Monthly Consumption）的数值文本：保留 2 位小数（千分位）。"""
+    if val is None or pd.isna(val):
+        return ''
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        return f'{float(val):,.2f}'
+    return str(val)
+
+
+def _fmt_replenish_cell(col, val):
+    """补库建议数值列的显示文本：小数列 2 位，其余（Replenishment Qty）向上取整。"""
+    if col in REPLENISH_DEC_COLS:
+        return _fmt_replenish_dec(val)
+    return _fmt_replenish_value(val)
+
+
 def _fmt_summary_cell(col, val):
     """Summary-Current 单元格的显示文本。
 
-    补库建议的 3 个数值列：向上取整的整数千分位、空值留白（Replenishment Qty <= 0 不显示）；
+    Avg Monthly Consumption：保留 2 位小数千分位；
+    Safety Stock / Replenishment Qty：向上取整的整数千分位（Replenishment Qty 空值留白，<= 0 不显示）；
     主表原有列：整数千分位，空值按 0 显示。
     """
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return '' if col in REPLENISH_EXTRA_COLS else '0'
+    if col in REPLENISH_DEC_COLS:
+        return _fmt_replenish_dec(val)
     if col in REPLENISH_INT_COLS:
         return _fmt_replenish_value(val)
     if isinstance(val, (int, float, np.integer, np.floating)):
@@ -377,9 +401,21 @@ def _sftp_download_file(sftp, remote_file, local_path, convert_to_excel=False):
 def sftp_download():
     """Download all data files from SFTP server."""
     print("=== SFTP Download ===")
-    client = paramiko.Transport((SFTP_HOST, SFTP_PORT))
+    # 2026-09-20 加固（同 get_sp_table._connect_sftp 事故）：原写法 Transport((host,port))
+    # 无连接超时、无 channel 读超时——服务端应用层挂死时 channel 读永久阻塞，
+    # worker 卡死后整组任务 pending。改为：连接 30s 超时 + keepalive + channel 读 180s 超时。
+    import socket as _socket
+    _sock = _socket.create_connection((SFTP_HOST, SFTP_PORT), timeout=30)
+    client = paramiko.Transport(_sock)
+    client.set_keepalive(30)
     client.connect(username=SFTP_USER, password=SFTP_PASS)
     sftp = paramiko.SFTPClient.from_transport(client)
+    try:
+        _chan = sftp.get_channel()
+        if _chan is not None:
+            _chan.settimeout(180)
+    except Exception as _e:
+        print(f"  [WARN] SFTP channel 超时设置失败（退回无超时模式）: {_e}")
 
     # Special files
     for name, cfg in SFTP_SPECIAL.items():
@@ -741,14 +777,16 @@ def _read_database_url():
 
 
 def load_material_maps_from_db():
-    """从数据库表 sp_material 读 {materialNo: materialName} 与 {materialNo: materialType}。
+    """从数据库表 sp_material 读 {materialNo: materialName}、{materialNo: materialType}
+    与 {materialName: domain}（2026-09-19 起，Summary-Current 的 Domain 列用）。
 
     PG（DATABASE_URL / backend/.env）优先，失败回退 sqlite db/app.db；
-    都不可用或表不存在时返回 ({}, {})，由调用方回退到 inventory。
+    都不可用或表不存在时返回 ({}, {}, {})，由调用方回退到 inventory。
+    domain 列缺失时只丢 domain 映射，不影响 Name/Type（2026-09-19 防旧表无该列）。
     """
     def _pack(rows):
-        name_lut, type_lut = {}, {}
-        for no, nm, tp in rows:
+        name_lut, type_lut, domain_lut = {}, {}, {}
+        for no, nm, tp, dm in rows:
             k = _norm_excl_value(no)
             if not k:
                 continue
@@ -756,7 +794,11 @@ def load_material_maps_from_db():
                 name_lut.setdefault(k, str(nm).strip())
             if tp and str(tp).strip() and str(tp).strip().lower() not in ('nan', 'none'):
                 type_lut.setdefault(k, str(tp).strip())
-        return name_lut, type_lut
+            # domain 按 materialName 建映射（同一名称多值时取首个非空）
+            nk = _norm_excl_value(nm)
+            if nk and dm and str(dm).strip() and str(dm).strip().lower() not in ('nan', 'none'):
+                domain_lut.setdefault(nk, str(dm).strip())
+        return name_lut, type_lut, domain_lut
 
     # 1) PostgreSQL
     url = _read_database_url()
@@ -775,11 +817,19 @@ def load_material_maps_from_db():
                     print(f'[MatSync][WARN] PG 中不存在表 {MATERIAL_TABLE}，回退 inventory')
                 else:
                     schema = row[0]
-                    cur.execute(f'SELECT "materialNo", "materialName", "materialType" '
-                                f'FROM "{schema}"."{MATERIAL_TABLE}"')
-                    lut = _pack(cur.fetchall())
+                    cur.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema=%s AND table_name=%s",
+                        (schema, MATERIAL_TABLE))
+                    has_domain = any(r[0].lower() == 'domain' for r in cur.fetchall())
+                    sel = ('"materialNo", "materialName", "materialType"'
+                           + (', "domain"' if has_domain else ''))
+                    cur.execute(f'SELECT {sel} FROM "{schema}"."{MATERIAL_TABLE}" ORDER BY "materialNo"')
+                    rows = [(*r, None) if len(r) == 3 else r for r in cur.fetchall()]
+                    lut = _pack(rows)
                     print(f'[MatSync] 读取 sp_material(PG {schema}.{MATERIAL_TABLE}): '
-                          f'Name {len(lut[0])} 条, Type {len(lut[1])} 条')
+                          f'Name {len(lut[0])} 条, Type {len(lut[1])} 条, Domain {len(lut[2])} 条'
+                          + ('' if has_domain else '（无 domain 列）'))
                     return lut
             finally:
                 conn.close()
@@ -793,17 +843,38 @@ def load_material_maps_from_db():
             import sqlite3
             conn = sqlite3.connect(str(db_file))
             try:
-                cur = conn.execute(f'SELECT materialNo, materialName, materialType FROM {MATERIAL_TABLE}')
-                lut = _pack(cur.fetchall())
+                cols = {r[1].lower() for r in conn.execute(f'PRAGMA table_info({MATERIAL_TABLE})')}
+                if not cols:
+                    print(f'[MatSync][WARN] sqlite 中无表 {MATERIAL_TABLE}，回退 inventory')
+                    return {}, {}, {}
+                sel = ('materialNo, materialName, materialType'
+                       + (', domain' if 'domain' in cols else ''))
+                cur = conn.execute(f'SELECT {sel} FROM {MATERIAL_TABLE} ORDER BY materialNo')
+                rows = [(*r, None) if len(r) == 3 else r for r in cur.fetchall()]
+                lut = _pack(rows)
                 if lut[0] or lut[1]:
-                    print(f'[MatSync] 读取 sp_material(sqlite): Name {len(lut[0])} 条, Type {len(lut[1])} 条')
+                    print(f'[MatSync] 读取 sp_material(sqlite): Name {len(lut[0])} 条, '
+                          f'Type {len(lut[1])} 条, Domain {len(lut[2])} 条'
+                          + ('' if 'domain' in cols else '（无 domain 列）'))
                     return lut
                 print(f'[MatSync][WARN] sqlite 中无 {MATERIAL_TABLE} 数据，回退 inventory')
             finally:
                 conn.close()
         except Exception as e:
             print(f'[MatSync][WARN] 读取 sqlite sp_material 失败({e})，回退 inventory')
-    return {}, {}
+    return {}, {}, {}
+
+
+# 进程内缓存：同一次报表运行里多个 sheet 都要用 domain 映射，只读一次库
+_MATERIAL_MAPS_CACHE = None
+
+
+def get_material_maps():
+    """load_material_maps_from_db() 的进程内缓存版（返回 (name_lut, type_lut, domain_lut)）。"""
+    global _MATERIAL_MAPS_CACHE
+    if _MATERIAL_MAPS_CACHE is None:
+        _MATERIAL_MAPS_CACHE = load_material_maps_from_db()
+    return _MATERIAL_MAPS_CACHE
 
 
 def build_material_maps(inv):
@@ -875,7 +946,7 @@ def apply_inventory_fields(inb, outb, inv):
     - Material Type：取 inventory（同物料多值取首个）
     命中才替换，未命中保留原值。返回 (inb, outb, stats)。
     """
-    db_name, _db_type = load_material_maps_from_db()
+    db_name, _db_type, _db_domain = get_material_maps()
     inv_name, inv_type = build_material_maps(inv)
     if db_name:
         name_lut, name_src = db_name, f'sp_material(DB)'
@@ -1007,13 +1078,15 @@ def fill_missing(df, mno_to_name, mn_to_domain):
 
 
 # ==============================================================================
-# build_summary - vectorized with Balance & Difference
+# build_summary - vectorized, with Difference (Balance 列 2026-09-19 已删)
 # ==============================================================================
 def build_summary(inb_df, outb_df, inv_df):
-    """Build summary with Material Name, Domain, Inbound, Outbound, Inventory, Balance, Difference.
+    """Build summary with Material Name, Domain, Inbound, Outbound, Inventory, Difference.
     Total row at the top.
 
-    Domain 取自 Inventory 明细（2026-09-18 起），放在第 2 列；同一物料多行时取第一个非空值。
+    Domain 取自数据库表 sp_material（materialName→domain，2026-09-19 起），
+    库里取不到的物料回退 Inventory 明细的 Domain；同一物料多行时取第一个非空值。
+    Balance 列 2026-09-19 删除；Difference 口径不变 = Inventory Qty - (Inbound Qty - Outbound Qty)。
     """
     inb_sum = inb_df.groupby('Material Name', sort=True)['Inbound Qty'].sum()
     outb_sum = outb_df.groupby('Material Name', sort=True)['Outbound Qty'].sum()
@@ -1026,19 +1099,21 @@ def build_summary(inb_df, outb_df, inv_df):
     for c in ['Inbound Qty', 'Outbound Qty', 'Inventory Qty']:
         merged[c] = merged[c].fillna(0)
 
-    # Domain：从 Inventory 明细取（同一物料多行时取第一个非空）
+    # Domain：优先取数据库表 sp_material（按 materialName），取不到回退 Inventory 明细
+    inv_domain = {}
     if inv_df is not None and len(inv_df) > 0 and 'Domain' in inv_df.columns:
-        domain_map = (inv_df.loc[inv_df['Domain'].notna(), ['Material Name', 'Domain']]
-                      .drop_duplicates('Material Name')
-                      .set_index('Material Name')['Domain'])
-        merged['Domain'] = merged['Material Name'].map(domain_map).fillna('')
-    else:
-        merged['Domain'] = ''
+        for nm, dm in zip(inv_df['Material Name'], inv_df['Domain']):
+            k = _norm_excl_value(nm)
+            if k and dm is not None and not (isinstance(dm, float) and pd.isna(dm)) \
+                    and str(dm).strip():
+                inv_domain.setdefault(k, str(dm).strip())
+    db_domain = get_material_maps()[2]
+    merged['Domain'] = [db_domain.get(k) or inv_domain.get(k, '')
+                        for k in merged['Material Name'].map(_norm_excl_value)]
 
-    merged['Balance'] = merged['Inbound Qty'] - merged['Outbound Qty']
-    merged['Difference'] = merged['Inventory Qty'] - merged['Balance']
+    merged['Difference'] = merged['Inventory Qty'] - (merged['Inbound Qty'] - merged['Outbound Qty'])
     merged = merged[['Material Name', 'Domain', 'Inbound Qty', 'Outbound Qty',
-                     'Inventory Qty', 'Balance', 'Difference']]
+                     'Inventory Qty', 'Difference']]
 
     total = pd.DataFrame({
         'Material Name': ['Total'],
@@ -1046,7 +1121,6 @@ def build_summary(inb_df, outb_df, inv_df):
         'Inbound Qty': [merged['Inbound Qty'].sum()],
         'Outbound Qty': [merged['Outbound Qty'].sum()],
         'Inventory Qty': [merged['Inventory Qty'].sum()],
-        'Balance': [merged['Balance'].sum()],
         'Difference': [merged['Difference'].sum()],
     })
     return pd.concat([total, merged], ignore_index=True)
@@ -1055,18 +1129,23 @@ def build_summary(inb_df, outb_df, inv_df):
 # ==============================================================================
 # build_replenishment - 补库建议（历史月均消耗 / 安全库存 / 需补库数量 / 预警级别）
 # ==============================================================================
-def build_replenishment(outb_df, inv_df, base_index=None):
+def build_replenishment(outb_df, inv_df, base_index=None, summary_qty=None):
     """按 Material Name 统计补库建议，直接并到 Summary-Current 主表右侧。
 
-    - Avg Monthly Consumption = 出库数量合计（先剔除 REPLENISH_EXCLUDE_ORDERS 两张异常单据）/ 9.5，向上取整
-    - Safety Stock = 6 * Avg Monthly Consumption（整数，表内可直接验算）；
-      月均消耗为 0 的物料按「故障率」备件处理，安全库存保底 1
+    - Avg Monthly Consumption = 出库数量合计（先剔除 REPLENISH_EXCLUDE_ORDERS 两张异常单据）/ 9.5，
+      保留 2 位小数，不再向上取整（2026-09-19 起）
+    - Safety Stock = ceil(6 * Avg Monthly Consumption)（整数，月均按 2 位小数验算：
+      Safety = 向上取整(6 x Avg)）；
+      月均消耗为 0 的物料按「故障率」备件处理：Safety Stock =
+      ceil(20% * max(Inbound Qty, Outbound Qty, Inventory Qty))（三列取自 summary_qty，整数）
     - Remark = Actual Consumption（月均消耗 > 0）/ Failure Rate（月均消耗 = 0）
     - Replenishment Qty = Safety Stock - Inventory Qty，<= 0 记为空（不显示，便于求和）；结果向上取整
     - Alert Level = Inventory Qty / Safety Stock：< 50% Urgent Replenish；50% ~ 100% Replenish；> 100% Excess
 
     base_index：主表的 Material Name 序列。给了就按它逐行对齐（主表里没有出库消耗的物料
     按 0 消耗计算，保证与主表行数、顺序一一对应）；不给则只输出有出库消耗的物料。
+    summary_qty：主表的 Material Name + Inbound/Outbound/Inventory Qty 列（月均=0 的物料
+    算安全库存用），缺省时退化为全 0（旧行为保底 1 已删，不会触发）。
     """
     consumed = pd.Series(dtype='float64')
     df = outb_df if outb_df is not None else pd.DataFrame()
@@ -1085,15 +1164,29 @@ def build_replenishment(outb_df, inv_df, base_index=None):
     consumed_qty = consumed.reindex(base).fillna(0).to_numpy(dtype='float64')
     stock_qty = stock.reindex(base).fillna(0).to_numpy(dtype='float64')
 
+    # 月均=0 物料的安全库存基数：主表三列数量逐行最大值（按归一化物料名对齐 base）
+    qty_cols = ['Inbound Qty', 'Outbound Qty', 'Inventory Qty']
+    if summary_qty is not None and len(summary_qty) > 0:
+        q = pd.DataFrame({'__key': pd.Index(summary_qty['Material Name'].tolist()).map(_norm_excl_value)})
+        for c in qty_cols:
+            q[c] = pd.to_numeric(summary_qty[c].to_numpy(), errors='coerce')
+        mx = q.groupby('__key')[qty_cols].max().max(axis=1)
+        base_keys = pd.Index(base).map(_norm_excl_value)
+        max_qty = mx.reindex(base_keys).fillna(0).to_numpy(dtype='float64')
+    else:
+        max_qty = np.zeros(len(base), dtype='float64')
+
     result = pd.DataFrame({'Material Name': base})
-    # 向上取整：Avg 为整数，Safety = 6 x Avg（同为整数，表内可直接验算）
-    avg = np.ceil(consumed_qty / REPLENISH_HISTORY_MONTHS)
-    result['Avg Monthly Consumption'] = avg.astype('int64')
-    # 月均消耗为 0 → 按「故障率」备件处理：安全库存保底 1，Remark 记 Failure Rate
-    has_consumption = avg > 0
-    safety = np.where(has_consumption, avg * REPLENISH_SAFETY_MONTHS,
-                      float(REPLENISH_NO_CONSUMPTION_SAFETY))
-    result['Safety Stock'] = safety.astype('int64')
+    # Avg 保留 2 位小数（2026-09-19 起不再向上取整）；Safety = ceil(6 x Avg)，仍为整数
+    avg = np.round(consumed_qty / REPLENISH_HISTORY_MONTHS, 2)
+    result['Avg Monthly Consumption'] = avg
+    # 月均消耗为 0 → 按「故障率」备件处理：安全库存 = max(三列数量) x 20% 向上取整
+    # 先 round(x, 6) 再 ceil：防浮点误差误进位（如 15 * 0.2 = 3.0000000000000004 → ceil 会变 4）
+    has_consumption = consumed_qty > 0
+    safety = np.where(has_consumption,
+                      np.ceil(np.round(avg * REPLENISH_SAFETY_MONTHS, 6)),
+                      np.ceil(np.round(max_qty * REPLENISH_ZERO_CONSUMPTION_SAFETY_PCT, 6)))
+    result['Safety Stock'] = safety
     result[REPLENISH_REMARK_COL] = np.where(has_consumption, REMARK_ACTUAL_CONSUMPTION,
                                             REMARK_FAILURE_RATE)
 
@@ -1101,7 +1194,7 @@ def build_replenishment(outb_df, inv_df, base_index=None):
     # <= 0 留空（不显示负数/0），避免影响求和；结果同样向上取整
     result['Replenishment Qty'] = np.where(need > 0, np.ceil(need), np.nan)
 
-    # 安全库存恒 >= 1（无消耗物料保底 1），这里仍保留分母保护
+    # 分母保护：无消耗且三列数量全 0 时 Safety Stock 可能为 0，不能拿它除
     ratio = np.full(len(result), np.inf)
     has_safety = safety > 0
     ratio[has_safety] = stock_qty[has_safety] / safety[has_safety]
@@ -1287,7 +1380,9 @@ def _apply_header(ws, header_row=3):
 
 
 def _num_fmt_for_col(header_names, col_idx):
-    """补库建议的 3 个数值列已向上取整，与主表其余列一致用整数格式。"""
+    """Avg Monthly Consumption 保留 2 位小数（2026-09-19 起）；其余数值列（含 Safety Stock）整数格式。"""
+    if header_names.get(col_idx) in REPLENISH_DEC_COLS:
+        return NUM_FMT_DEC
     return NUM_FMT_INT
 
 
@@ -1374,7 +1469,7 @@ def _style_replenish_columns(ws, header_row, data_end):
                                      color=f'{font_rgb[0]:02X}{font_rgb[1]:02X}{font_rgb[2]:02X}')
                 cell.alignment = ALIGN_HEADER
             if val is not None:
-                need = max(need, _display_width(_fmt_replenish_value(val)) + 3)
+                need = max(need, _display_width(_fmt_replenish_cell(name, val)) + 3)
         ws.column_dimensions[letter].width = max(ws.column_dimensions[letter].width or 0, min(need, 42))
 
 
@@ -1967,10 +2062,14 @@ def generate_report(material_type, out_path, inb_src, outb_src, inv_src, timesta
     total_mask = summary['Material Name'].astype(str).str.strip().eq('Total')
     body = summary.loc[~total_mask].copy()
     replenish = build_replenishment(outb_df, inv_df,
-                                    base_index=body['Material Name'].tolist())
+                                    base_index=body['Material Name'].tolist(),
+                                    summary_qty=body[['Material Name', 'Inbound Qty',
+                                                      'Outbound Qty', 'Inventory Qty']])
     body[REPLENISH_EXTRA_COLS] = replenish[REPLENISH_EXTRA_COLS].to_numpy()
     total_row = summary.loc[total_mask].copy()
-    for c in REPLENISH_INT_COLS:                          # Total 行：数值列给合计（各行已取整，合计仍为整数）
+    for c in REPLENISH_DEC_COLS:                          # Avg：各行保留 2 位小数，合计也为 2 位小数
+        total_row[c] = round(float(body[c].sum()), 2)
+    for c in REPLENISH_INT_COLS:                         # Safety / Replenishment Qty：各行已取整，合计仍为整数
         total_row[c] = int(body[c].sum())
     total_row[REPLENISH_ALERT_COL] = None                 # Alert Level 合计无意义，留空
     total_row[REPLENISH_REMARK_COL] = None                # Remark 合计无意义，留空

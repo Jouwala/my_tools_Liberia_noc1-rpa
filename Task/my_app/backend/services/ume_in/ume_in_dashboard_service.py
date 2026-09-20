@@ -14,11 +14,26 @@
   body 结构不同：时间是**本地时间字符串**（"%Y-%m-%d %H:%M:%S"，非 PM-analysis 的 ISO UTC），
   且靠 ``dashboard_id`` + ``panel_id`` 定位看板上的某块面板。
 
+每日落库（本模块新增能力）：
+- 每天只记 **1 行/曲线**：取「裁决时间」（默认 20:00）截至前 **3 个 5 分钟粒度点**
+  （即 time ∈ {20:00, 19:55, 19:50}）的 **最大值** 作为当天的值，异常标志取该最大点。
+- 直写主库表 ``ume_in_dashboard_daily``（复用 mw_ume 的 save_to_db：全 TEXT 列 +
+  唯一索引 upsert，主键 day+dashboard_id+panel_id+series_name，重跑幂等）。
+- **滚动保留 14 天**：每次同步后 DELETE day < 今天-14 的行。
+- 仅做能力，未接调度器；接入定时任务时需另行登记 task_registry / worker 分组 / 前端帮助。
+
 用法：
-    # 抓默认看板面板（dashboard_id=4, panel_id=39，最近 6 小时），打印结构化摘要
+    # 预览：抓默认看板面板（dashboard_id=4, panel_id=39，最近 6 小时），打印结构化摘要（不落库）
     python -m backend.services.ume_in.ume_in_dashboard_service
 
-    # 指定看板/面板/时间窗，并把原始 JSON 落文件核对
+    # 每日同步落库：当天 20:00 裁决前 3 粒度取最大 → 落库 → 清理 14 天前
+    python -m backend.services.ume_in.ume_in_dashboard_service --sync
+
+    # 回补指定日 / 指定裁决小时 / 多面板（dashboard:panel 逗号分隔）
+    python -m backend.services.ume_in.ume_in_dashboard_service --sync --decision-day 2026-09-17
+    python -m backend.services.ume_in.ume_in_dashboard_service --sync --hour 15 --panels "4:39,4:40"
+
+    # 预览指定看板/面板/时间窗，并把原始 JSON 落文件核对
     python -m backend.services.ume_in.ume_in_dashboard_service \
         --dashboard-id 4 --panel-id 39 --hours 6 --save TMP/dash_4_39.json
 """
@@ -31,7 +46,13 @@ import sys
 import time
 from datetime import datetime, timedelta
 
-from backend.services.ume_in.ume_in_kpi_service import UMEPortalClient, _runtime_credentials
+from backend.database import get_raw_connection
+from backend.services.ume_in.ume_in_kpi_service import (
+    UMEPortalClient,
+    _runtime_credentials,
+)
+# 落库复用项目统一的 sqlite/PG 双模 upsert（全 TEXT 列 + key_cols 唯一索引）
+from backend.services.mw_ume.mw_ume_kpi_service import save_to_db
 
 logger = logging.getLogger("ume_in_dashboard_service")
 
@@ -57,6 +78,28 @@ DEFAULT_HOURS = int(os.environ.get("UME_IN_DASHBOARD_HOURS", "6"))
 
 # 看板 body 里的时间格式：本地时间字符串（**不是** PM-analysis 的 ISO UTC）
 TIME_FMT = "%Y-%m-%d %H:%M:%S"
+
+# ============================================================
+# 落库 / 每日聚合 / 保留期配置（可用环境变量覆盖）
+# ============================================================
+# 每天只存 1 行/曲线：取“裁决时间”（默认 20:00）截至前 3 个 5 分钟粒度点的最大值。
+TABLE_NAME = os.environ.get("UME_IN_DASHBOARD_TABLE", "ume_in_dashboard_daily")
+RETENTION_DAYS = int(os.environ.get("UME_IN_DASHBOARD_RETENTION_DAYS", "14"))
+DECISION_HOUR = int(os.environ.get("UME_IN_DASHBOARD_DECISION_HOUR", "20"))  # 20:00
+GRANULARITY_MIN = int(os.environ.get("UME_IN_DASHBOARD_GRANULARITY_MIN", "5"))
+POINTS_PER_DAY = int(os.environ.get("UME_IN_DASHBOARD_POINTS_PER_DAY", "3"))
+# 每日任务要记录的面板清单 (dashboard_id, panel_id)；默认与抓包一致
+DEFAULT_PANELS = [(DEFAULT_DASHBOARD_ID, DEFAULT_PANEL_ID)]
+
+# 落库列（全 TEXT）：每天×每曲线一行；主键 day+dashboard_id+panel_id+series_name
+HEADERS = [
+    "day", "dashboard_id", "panel_id", "series_name", "series_type",
+    "value_max", "value_max_time", "points_found",
+    "is_abnormal", "is_wave_abnormal", "is_threshold_abnormal",
+    "is_ai_suspected", "is_ai_abnormal", "is_avg_abnormal",
+    "window_begin", "window_end", "fetch_time",
+]
+KEY_COLS = ["day", "dashboard_id", "panel_id", "series_name"]
 
 
 # ============================================================
@@ -171,6 +214,204 @@ def parse_panel_result(data):
 
 
 # ============================================================
+# 每日聚合：“裁决时间”前 N 个粒度点取最大 → 1 行/曲线
+# ============================================================
+def _num(v):
+    """PM value 转 float；不可解析返回 None。"""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def decision_time(day=None, hour=DECISION_HOUR):
+    """当天裁决时刻（默认 20:00:00）。day 可为 None(今天)/"YYYY-MM-DD"/date。"""
+    if day is None:
+        base = datetime.now()
+    elif isinstance(day, str):
+        base = datetime.strptime(day[:10], "%Y-%m-%d")
+    else:  # date / datetime
+        base = datetime(day.year, day.month, day.day)
+    return base.replace(hour=hour, minute=0, second=0, microsecond=0)
+
+
+def target_point_times(dec_dt, n=POINTS_PER_DAY, step=GRANULARITY_MIN):
+    """裁决时刻截至前 n 个粒子的 time 集（含裁决点）：如 {20:00, 19:55, 19:50}。"""
+    return {(dec_dt - timedelta(minutes=step * i)).strftime(TIME_FMT) for i in range(n)}
+
+
+def fetch_window_for_decision(dec_dt, minutes_before=40, minutes_after=10):
+    """确保含目标点的拉取窗口 [dec-before, dec+after]（本地时间字符串）。"""
+    begin = dec_dt - timedelta(minutes=minutes_before)
+    end = dec_dt + timedelta(minutes=minutes_after)
+    return begin.strftime(TIME_FMT), end.strftime(TIME_FMT)
+
+
+def _reduce_series(series_obj, targets):
+    """从单条曲线的 pmdata 中取目标粒度点，返回最大点摘要（含异常标志）。"""
+    st = series_obj.get("series_types") or {}
+    pts = [p for p in (series_obj.get("pmdata") or []) if p.get("time") in targets]
+    base = {
+        "series_name": st.get("series_name"), "series_type": st.get("series_type"),
+        "value_max": None, "value_max_time": None, "points_found": len(pts),
+        "is_abnormal": None, "is_wave_abnormal": None, "is_threshold_abnormal": None,
+        "is_ai_suspected": None, "is_ai_abnormal": None, "is_avg_abnormal": None,
+    }
+    if not pts:
+        return base
+
+    # 取 value 最大点；并列时取时间更晚的那个（靠近裁决时刻）
+    def keyf(p):
+        v = _num(p.get("value"))
+        return (v if v is not None else float("-inf"), str(p.get("time") or ""))
+
+    best = max(pts, key=keyf)
+    base.update({
+        "value_max": best.get("value"),
+        "value_max_time": best.get("time"),
+        "is_abnormal": best.get("isAbnormal"),
+        "is_wave_abnormal": best.get("isWaveAbnormal"),
+        "is_threshold_abnormal": best.get("isThresholdAbnormal"),
+        "is_ai_suspected": best.get("isAiSuspected"),
+        "is_ai_abnormal": best.get("isAiAbnormal"),
+        "is_avg_abnormal": best.get("isAvgAbnormal"),
+    })
+    return base
+
+
+def compute_daily_rows(data, dashboard_id, panel_id, dec_dt, window, fetch_time):
+    """把单面板响应聚合为今日行列表（每曲线一行），返回 (rows:list[list], parsed)。
+
+    rows 按 HEADERS 顺序；即使未命中目标点（points_found=0）也落一行以便看出缺口。
+    """
+    parsed = parse_panel_result(data)
+    result = (data or {}).get("result") or {}
+    series_list = result.get("data") or []
+    targets = target_point_times(dec_dt)
+    day = dec_dt.strftime("%Y-%m-%d")
+    wb, we = window
+
+    rows = []
+    for s in series_list:
+        r = _reduce_series(s, targets)
+        rows.append([
+            day, str(dashboard_id), str(panel_id),
+            r["series_name"] if r["series_name"] is not None else "",
+            r["series_type"],
+            r["value_max"], r["value_max_time"], str(r["points_found"]),
+            r["is_abnormal"], r["is_wave_abnormal"], r["is_threshold_abnormal"],
+            r["is_ai_suspected"], r["is_ai_abnormal"], r["is_avg_abnormal"],
+            wb, we, fetch_time,
+        ])
+    return rows, parsed
+
+
+def save_daily_rows(all_rows):
+    """把聚合行 upsert 到主库表（复用 save_to_db），返回写入行数。"""
+    if not all_rows:
+        return 0
+    return save_to_db(TABLE_NAME, HEADERS, all_rows, KEY_COLS)
+
+
+def purge_old_rows(retention_days=RETENTION_DAYS):
+    """删除 day < 今天-retention_days 的行（滚动保留，默认 14 天）。返回删除行数。
+
+    day 为 "YYYY-MM-DD" 定宽日期，字典序比较与时间序一致；首次无表则静默跳过。
+    """
+    cutoff = (datetime.now() - timedelta(days=retention_days)).strftime("%Y-%m-%d")
+    try:
+        with get_raw_connection(timeout=30.0) as conn:
+            cur = conn.cursor()
+            cur.execute(f'DELETE FROM "{TABLE_NAME}" WHERE day < ?', (cutoff,))
+            n = cur.rowcount or 0
+            try:
+                conn.commit()
+            except Exception:  # noqa: BLE001 - PG autocommit 下 commit 可能空操作
+                pass
+        logger.info(f"[PURGE] {TABLE_NAME}: 删除 day<{cutoff} 共 {n} 行")
+        return n
+    except Exception as e:  # noqa: BLE001
+        logger.info(f"[PURGE] 跳过（可能尚未建表）: {e}")
+        return 0
+
+
+# ============================================================
+# 定时任务入口（只做能力，不自动接调度；需接入时由调用方 / 人工触发）
+# ============================================================
+def run_ume_in_dashboard_sync(panels=None, decision_day=None, hour=DECISION_HOUR,
+                              retention_days=RETENTION_DAYS, client=None):
+    """登录 → 逐面板拉当天裁决窗 → 取3粒度最大 → 落库 → 清理过期。
+
+    Args:
+        panels: [(dashboard_id, panel_id), ...]；None 用 DEFAULT_PANELS。
+        decision_day: 裁决日（None=今天；"YYYY-MM-DD"=回补指定日）。
+        hour: 裁决小时（默认 20）。
+        retention_days: 保留天数（默认 14）。
+        client: 复用已登录的 UMEPortalClient（None 则自行登录）。
+
+    Returns: {success, rows_written, purged, table, day, panels, errors}
+    """
+    t0 = time.time()
+    panels = panels or DEFAULT_PANELS
+    result = {"success": False, "rows_written": 0, "purged": 0, "table": TABLE_NAME,
+              "day": None, "panels": [], "errors": []}
+
+    dec_dt = decision_time(decision_day, hour)
+    result["day"] = dec_dt.strftime("%Y-%m-%d")
+    fetch_time = datetime.now().strftime(TIME_FMT)
+    window = fetch_window_for_decision(dec_dt)
+    logger.info(f"[SYNC] ume_in dashboard day={result['day']} 裁决{dec_dt.strftime('%H:%M')} "
+                f"窗 {window[0]}~{window[1]} panels={panels} table={TABLE_NAME}")
+
+    owns_client = client is None
+    cli = client or UMEPortalClient(**_login_args())
+    if owns_client:
+        cli.login()
+
+    all_rows = []
+    for (did, pid) in panels:
+        try:
+            data = fetch_panel(cli, did, pid, window[0], window[1])
+            rows, parsed = compute_daily_rows(data, did, pid, dec_dt, window, fetch_time)
+            if not parsed.get("ok"):
+                result["errors"].append(
+                    f"panel {did}/{pid}: err_code={parsed.get('err_code')} "
+                    f"msg={parsed.get('err_message')}")
+                continue
+            if not rows:
+                result["errors"].append(f"panel {did}/{pid}: 无曲线数据")
+                continue
+            all_rows.extend(rows)
+            result["panels"].append({
+                "dashboard_id": did, "panel_id": pid,
+                "series": [{"name": r[HEADERS.index("series_name")],
+                            "value_max": r[HEADERS.index("value_max")],
+                            "at": r[HEADERS.index("value_max_time")],
+                            "points_found": r[HEADERS.index("points_found")]}
+                           for r in rows],
+            })
+        except Exception as e:  # noqa: BLE001
+            result["errors"].append(f"panel {did}/{pid}: {e}")
+            logger.error(f"[SYNC] panel {did}/{pid} failed: {e}")
+
+    try:
+        result["rows_written"] = save_daily_rows(all_rows)
+    except Exception as e:  # noqa: BLE001
+        result["errors"].append(f"写库: {e}")
+        logger.exception("[SYNC] save failed")
+
+    try:
+        result["purged"] = purge_old_rows(retention_days)
+    except Exception as e:  # noqa: BLE001
+        result["errors"].append(f"清理: {e}")
+
+    result["success"] = result["rows_written"] > 0 and not result["errors"]
+    logger.info(f"[SYNC] done in {time.time() - t0:.1f}s rows={result['rows_written']} "
+                f"purged={result['purged']} errors={result['errors']}")
+    return result
+
+
+# ============================================================
 # 便捷入口（可被定时任务/其它模块直接调用）
 # ============================================================
 def fetch_dashboard(dashboard_id=DEFAULT_DASHBOARD_ID, panel_id=DEFAULT_PANEL_ID,
@@ -211,20 +452,45 @@ def _summary(data):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="UME 看板(guard-imonitor-service)数据抓取")
+    ap = argparse.ArgumentParser(description="UME 看板(guard-imonitor-service)数据抓取与落库")
     ap.add_argument("--dashboard-id", type=int, default=DEFAULT_DASHBOARD_ID)
     ap.add_argument("--panel-id", type=int, nargs="*", default=[DEFAULT_PANEL_ID],
                     help="可传多个面板 id")
-    ap.add_argument("--hours", type=int, default=DEFAULT_HOURS, help="回看小时数")
+    ap.add_argument("--hours", type=int, default=DEFAULT_HOURS, help="预览模式回看小时数")
     ap.add_argument("--begin", help=f"覆盖 begintime（{TIME_FMT}）")
     ap.add_argument("--end", help=f"覆盖 endtime（{TIME_FMT}）")
     ap.add_argument("--save", help="把原始 JSON 写到该文件路径")
     ap.add_argument("--full", action="store_true", help="打印完整 JSON（默认只打摘要）")
+    # ---- 落库/每日聚合模式 ----
+    ap.add_argument("--sync", action="store_true",
+                    help="每日同步模式：取当天20:00裁决前3粒度最大→落库→清理14天")
+    ap.add_argument("--decision-day", help="回补指定日 YYYY-MM-DD（默今天）")
+    ap.add_argument("--hour", type=int, default=DECISION_HOUR, help="裁决小时（默认 20）")
+    ap.add_argument("--panels", help='面板清单，形如 "4:39,4:40"（dashboard:panel）')
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
+    # ---- 同步落库模式 ----
+    if args.sync:
+        panels = _parse_panels_arg(args.panels) or DEFAULT_PANELS
+        res = run_ume_in_dashboard_sync(panels=panels, decision_day=args.decision_day,
+                                        hour=args.hour)
+        print(f"\n[sync] day={res['day']} table={res['table']} "
+              f"rows={res['rows_written']} purged={res['purged']} success={res['success']}")
+        for p in res["panels"]:
+            for s in p["series"]:
+                print(f"  · dash={p['dashboard_id']} panel={p['panel_id']} "
+                      f"{s['name']}: value_max={s['value_max']} @ {s['at']} "
+                      f"(points_found={s['points_found']})")
+        if res["errors"]:
+            print("  errors:")
+            for e in res["errors"]:
+                print(f"    - {e}")
+        return res
+
+    # ---- 预览模式（打印结构，不落库）----
     user, pwd = _runtime_credentials()
     client = UMEPortalClient(username=user, password=pwd).login()
 
@@ -252,6 +518,23 @@ def main(argv=None):
         print(f"\n[saved] {args.save}")
 
     return results
+
+
+def _parse_panels_arg(s):
+    """解析 "4:39,4:40" → [(4,39),(4,40)]；空/非法返回 None。"""
+    if not s:
+        return None
+    out = []
+    for part in s.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            did, pid = part.split(":", 1)
+            out.append((int(did), int(pid)))
+        except ValueError:
+            logger.warning(f"[CLI] 忽略非法 panel 描述: {part!r}")
+    return out or None
 
 
 if __name__ == "__main__":

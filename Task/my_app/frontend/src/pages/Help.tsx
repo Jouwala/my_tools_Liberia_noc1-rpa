@@ -38,6 +38,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   PrinterOutlined,
+  DesktopOutlined,
 } from '@ant-design/icons'
 import { useI18n } from '../i18n'
 import { WH, cardStyle, useTheme } from '../theme'
@@ -72,6 +73,7 @@ const PAGE_ICONS: Record<string, ReactNode> = {
   alarmManagement: <AlertOutlined />,
   packet_loss: <DisconnectOutlined />,
   battery: <ThunderboltOutlined />,
+  imonitor: <DesktopOutlined />,
   ip_trace: <AimOutlined />,
   incident_overview: <FileSearchOutlined />,
   warehouse: <AppstoreOutlined />,

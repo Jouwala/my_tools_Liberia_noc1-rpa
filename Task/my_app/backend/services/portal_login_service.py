@@ -150,6 +150,24 @@ PORTALS = {
         "redirect": "/uportal/framework/default.html",
         "success_regex": r"https://[^/]+/uportal/framework/default\.html",
     },
+    # UME iMonitor 大屏门户（172.17.208.1:28808）——「客户业务 KPI」同步任务用的同一套
+    # em-portal 账号（credential_store key=ume_in）。这里加进注册表有两个作用：
+    #   1) 「门户登录」页出现一键登录入口（server 模式 = 本机 Chrome 自动填表）；
+    #   2) client 模式经 nginx 8088 反代（见 PROXY_PREFIXES），登录页注入自动填表脚本，
+    #      会话 Cookie 落在**访问者自己的浏览器**里 —— iMonitor 大屏页
+    #      （?page=imonitor，frontend/src/pages/ImonitorScreen.tsx）正是靠这份
+    #      浏览器会话在 iframe 里直接打开 https://172.17.208.1:28808/iui/guard-imonitor-iui/。
+    "ume_in": {
+        "name": "UME iMonitor 大屏 (172.17.208.1:28808)",
+        "name_en": "UME iMonitor Screen (172.17.208.1:28808)",
+        "cred_key": "ume_in",
+        "kind": "oauth2",
+        "host_env": "UME_IN_HOST", "port_env": "UME_IN_PORT",
+        "default_host": "172.17.208.1", "default_port": 28808,
+        "redirect": "/em-portal/",
+        # 登录成功即落到 /em-portal/（该页再 meta refresh 到 framework/default.html）
+        "success_regex": r"https://[^/]+/em-portal",
+    },
 }
 
 
@@ -1815,6 +1833,8 @@ PROXY_PREFIXES = {
     "mw_ume":    "//{HOST}:8084",
     "fw_kpi":    "//{HOST}:8085",
     "vmax_cxo":  "//{HOST}:8086",
+    # 8087 被 ShadowBot 占用，iMonitor 用 8088（见 nginx/portal_ume_in_8088.conf）
+    "ume_in":    "//{HOST}:8088",
 }
 
 
@@ -1919,6 +1939,15 @@ def build_inject_js(system_key: str, user: str, pwd: str) -> str:
     }}
     var r = clickLogin();
     console.log('[MYAPP-AUTOLOGIN] ' + SYS + ' filled, submit=' + r);
+    // 通知宿主页面：登录已提交。宿主（myapp 的 iframe 容器，如 iMonitor 大屏页）
+    // 据此在门户跳转完成后把 iframe 重新指回目标深链 —— 门户登录成功只会落到
+    // redirect_uri 的根路径，带 hash 的路由（#/screen/screen-view?screen_id=1）会丢。
+    try {{
+      if (window.parent && window.parent !== window) {{
+        window.parent.postMessage(
+          {{ __type: 'myapp-portal-autologin', system: SYS, submit: r }}, '*');
+      }}
+    }} catch (e) {{}}
     return true;
   }}
   var tries = 0;

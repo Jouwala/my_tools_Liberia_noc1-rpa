@@ -1,7 +1,7 @@
-﻿===== portal start_hidden report 2026-09-18 16:38:02 PORTAL_START_V1 (Quiet=True) =====
+﻿===== portal start_hidden report 2026-09-20 15:03:02 PORTAL_START_V1 (Quiet=True) =====
 ----- 1) Portal dev server (9267) -----
-[OK] Portal dev server already running (pid=12672, port 9267)
+[OK] Portal dev server already running (pid=61884, port 9267)
 ----- 2) WhatsApp local analysis service (9268) -----
-[WARN] WhatsApp analysis port 9268 is listening (owner pid=45476) but /api/health did not return status ok
-===== Result: 0 failures / 1 warnings =====
+[OK] WhatsApp analysis service already running on port 9268 (pid=45476, /api/health ok)
+===== Result: 0 failures / 0 warnings =====
 Full log: D:\01_RPA\liberia-noc_soc-数据看板统一门户\log\start_hidden_result.txt

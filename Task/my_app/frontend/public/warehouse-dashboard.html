@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
     <link rel="stylesheet" href="./legacy-glass-baseline.css">
+    <!-- 深色档 vmax 令牌（唯一真相源，见文件头注释）。浅色档仍由下方
+         [data-theme="light"] 定义，本文件不介入。 -->
+    <link rel="stylesheet" href="./legacy-vmax-theme.css">
 
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -25,6 +28,8 @@
 
       function applyTheme(mode) {
         document.documentElement.setAttribute('data-theme', mode === 'light' ? 'light' : 'dark');
+        // 先按新档位刷新 CSS 变量色值缓存，再重绘图表（见 refreshChartPalette）
+        if (typeof window.__refreshWhdPalette === 'function') window.__refreshWhdPalette();
         if (typeof window.__applyWhdChartTheme === 'function') window.__applyWhdChartTheme();
       }
       window.addEventListener('message', function (e) {
@@ -78,37 +83,64 @@
 
   <style>
     /* ===== 深/浅主题变量（whd = warehouse dashboard）===== */
-    /* 深色（默认）：与原版硬编码色值完全一致，保证深色观感不变 */
+    /* 深色档（默认）：色值全部改为引用 legacy-vmax-theme.css 的 vmax 深空蓝令牌
+       （唯一真相源，与 React 外壳 frontend/src/index.css 的 :root 同源）。
+       老写法是本页自带一份 #0a1929 / #112540 / 薄荷绿 #64ffda 的私有调色板，
+       与外壳「只共享深浅档状态、从不共享色值」，于是 iframe 接缝处出现颜色台阶。
+       浅色档仍由下方 [data-theme="light"] 块逐条覆盖，取值一字未动。 */
     :root {
-      --whd-bg:         #0a1929;
-      --whd-card:       #112540;
-      --whd-highlight:  #1a365d;
-      --whd-border:     #2c3e50;
-      --whd-text:       #ffffff;
-      --whd-text-muted: #b3e5fc;
-      --whd-accent-1:   #64ffda;
-      --whd-accent-2:   #4fc3f7;
-      --whd-accent-3:   #7986cb;
-      --whd-danger:     #ff4757;
-      --whd-teal-rgb:   100, 255, 218;
-      --whd-blue-rgb:   79, 195, 247;
-      --whd-indigo-rgb: 121, 134, 203;
-      --whd-danger-rgb: 255, 71, 87;
-      --whd-gray-rgb:   148, 163, 184;
-      --whd-grid-line:  rgba(34, 50, 77, 0.3);
-      --whd-scrollbar-track: #141f33;
-      --whd-scrollbar-thumb: #22324d;
-      --whd-glow-teal:  rgba(100, 255, 218, 0.5);
-      --whd-glow-teal-strong: rgba(100, 255, 218, 0.8);
-      --whd-glow-blue:  rgba(0, 212, 255, 0.6);
-      --whd-row-hover:  rgba(79, 195, 247, 0.08);
-      --whd-title-shadow: 0 0 4px rgba(0, 212, 255, 0.6);
-      --whd-card-grad: linear-gradient(145deg, #141f33, #112540);
+      --whd-bg:         var(--vmax-bg);
+      --whd-card:       var(--vmax-panel);
+      --whd-highlight:  var(--vmax-fill-1);
+      --whd-border:     var(--vmax-edge);
+      --whd-text:       var(--vmax-text);
+      --whd-text-muted: var(--vmax-text-muted);
+      --whd-accent-1:   var(--vmax-cyan);
+      --whd-accent-2:   var(--vmax-blue);
+      --whd-accent-3:   var(--vmax-indigo);
+      --whd-danger:     var(--vmax-red);
+      /* rgba(var(--whd-*-rgb), a) 需要「逗号分隔」三元组，而共享文件里的
+         --vmax-*-rgb 是 CSS Color 4 的空格分隔形式（rgb(var(--x) / a) 用），
+         两者不能直接拼接。这里保留逗号形式字面量，取值与同名 vmax 令牌一一对应，
+         并逐条注明来源令牌（改色时两处一起改）。 */
+      --whd-teal-rgb:   0, 217, 255;        /* = --vmax-cyan #00d9ff */
+      --whd-blue-rgb:   37, 140, 255;       /* = --vmax-blue #258cff */
+      --whd-indigo-rgb: 124, 143, 240;      /* = --vmax-indigo #7c8ff0 */
+      --whd-danger-rgb: 255, 92, 108;       /* = --vmax-red #ff5c6c */
+      --whd-gray-rgb:   174, 187, 212;      /* = --vmax-text-muted #aebbd4 */
+      --whd-grid-line:  var(--vmax-fill-2);
+      --whd-scrollbar-track: var(--vmax-panel-2);
+      --whd-scrollbar-thumb: var(--vmax-edge-2);
+      --whd-glow-teal:  rgb(var(--vmax-cyan-rgb) / 50%);
+      --whd-glow-teal-strong: rgb(var(--vmax-cyan-rgb) / 80%);
+      --whd-glow-blue:  rgb(var(--vmax-cyan-rgb) / 60%);
+      --whd-row-hover:  var(--vmax-row-hover);
+      --whd-title-shadow: 0 0 4px rgb(var(--vmax-cyan-rgb) / 60%);
+      --whd-card-grad: var(--vmax-card-bg);
+      /* 投影是中性黑，不属于任何调色体系，深浅两档共用，保持原值 */
       --whd-shadow-hover: 0 20px 40px rgba(0, 0, 0, 0.3);
       --whd-modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-      --whd-overlay: rgba(0, 0, 0, 0.7);
-      --whd-fp-bg: #112540;
-      --whd-fp-text: #b3e5fc;
+      --whd-overlay: var(--vmax-scrim);
+      --whd-fp-bg: var(--vmax-panel);
+      --whd-fp-text: var(--vmax-text-muted);
+
+      /* 图表色板：JS 不再自己存色值常量（见文件末尾 CHART_PALETTE 段），
+         统一从这里读。浅色取值在同名 [data-theme="light"] 块里，逐字等于
+         原 CHART_PALETTE.light，因此浅色图表渲染不变。 */
+      --whd-chart-tick: var(--vmax-text-muted);
+      --whd-chart-grid: var(--vmax-fill-2);
+      --whd-chart-tooltip-bg: #0a1730;   /* vmax 聚光 tooltip 令牌（index.css --wh-glass-control-solid）；共享文件暂无，见报告 */
+      --whd-chart-tooltip-title: var(--vmax-text-muted);
+      --whd-chart-tooltip-body: var(--vmax-text);
+      --whd-chart-tooltip-border: var(--vmax-edge-2);
+      --whd-chart-teal: var(--vmax-cyan);
+      --whd-chart-blue: var(--vmax-blue);
+      --whd-chart-indigo: var(--vmax-indigo);
+      --whd-chart-inbound: rgb(var(--vmax-cyan-rgb) / 50%);
+      /* ⚠️ 有意保留的业务身份色：Outbound Qty 这条序列在深色档一直是 DeepPink。
+         它没有 vmax 等价令牌，且属于「某个图表系列自己的身份色」，
+         按约定不为统一而改（详见报告）。 */
+      --whd-chart-outbound: rgba(255, 20, 147, 0.7);
     }
     /* 浅色：映射 my_app LIGHT 色板 */
     [data-theme="light"] {
@@ -142,18 +174,52 @@
       --whd-fp-bg: #ffffff;
       --whd-fp-text: #3f5468;
     }
+    /* 浅色档图表色板：把原先写死在 JS CHART_PALETTE.light 里的 11 个色值
+       上移到 CSS（逐字一致），于是 JS 侧只读变量、不再有第二份色值定义。
+       单独成块是为了让上面的浅色变量块保持改动前原样。 */
+    [data-theme="light"] {
+      --whd-chart-tick: #3f5468;
+      --whd-chart-grid: rgba(22, 35, 59, 0.10);
+      --whd-chart-tooltip-bg: rgba(255,255,255,0.97);
+      --whd-chart-tooltip-title: #16233b;
+      --whd-chart-tooltip-body: #16233b;
+      --whd-chart-tooltip-border: rgba(13,148,136,0.35);
+      --whd-chart-teal: #0d9488;
+      --whd-chart-blue: #0e7490;
+      --whd-chart-indigo: #6366f1;
+      --whd-chart-inbound: rgba(13, 148, 136, 0.55);
+      --whd-chart-outbound: rgba(217, 45, 32, 0.65);
+    }
+
+    /* ===== 深色档专属覆盖（只作用于 data-theme="dark"）=====
+       下面这些规则原本是深浅两档**共用**的写死色值。为了只改深色档、让浅色档
+       渲染结果与改动前逐像素一致，这里不直接改共用规则，而是用 html[data-theme="dark"]
+       前缀（特异性 0,2,1 > 0,1,0，与书写顺序无关）做深色专属覆盖。 */
+    /* 顶部 3px 加载条渐变（原 #64ffda/#4fc3f7/#7986cb 薄荷绿→蓝→靛） */
+    /* 只覆盖 background-image：base 规则里的 background-size:300% 100%（跑马灯动画）
+       是 background 简写之外的独立属性，这里若用 background 简写会把它重置掉。 */
+    html[data-theme="dark"] .loading-overlay {
+      background-image: linear-gradient(90deg, var(--vmax-cyan), var(--vmax-blue), var(--vmax-indigo), var(--vmax-cyan));
+    }
+    /* 表单占位符 / 辅助说明 / 用户信息标签的 #64748b（Tailwind slate-500 中性色，
+       不在 vmax 体系里）→ vmax 弱化文字 --vmax-text-dim */
+    html[data-theme="dark"] .form-input::placeholder,
+    html[data-theme="dark"] .form-helper,
+    html[data-theme="dark"] .user-info-label {
+      color: var(--vmax-text-dim);
+    }
   </style>
 
   <style type="text/tailwindcss">
     @layer utilities {
       .text-shadow-glow {
-        text-shadow: 0 0 4px rgba(0, 255, 65, 0.5);
+        text-shadow: 0 0 4px rgb(var(--vmax-cyan-rgb) / 50%);
       }
       .text-shadow-glow-blue {
         text-shadow: var(--whd-title-shadow);
       }
       .metric-gradient {
-        background: linear-gradient(90deg, #64ffda, #4fc3f7);
+        background: linear-gradient(90deg, var(--vmax-cyan), var(--vmax-blue));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
@@ -210,7 +276,7 @@
     .toast-notification.show {
       opacity: 1; transform: translateX(0);
     }
-    .toast-error   { background: rgba(255, 71, 87, 0.9); border: 1px solid #ff4757; }
+    .toast-error   { background: rgb(var(--vmax-red-rgb) / 90%); border: 1px solid var(--vmax-red); }
     .toast-success { background: rgba(var(--whd-teal-rgb), 0.2); border: 1px solid var(--whd-accent-1); }
     [data-theme="light"] .toast-success { background: rgba(var(--whd-teal-rgb), 0.85); color: #fff; }
 
@@ -392,7 +458,7 @@
     }
     /* 原生 select 下拉选项在浅色主题下的可读性（option 样式部分浏览器不继承 var） */
     select option { background: #ffffff; color: #16233b; }
-    [data-theme="dark"] select option { background: #112540; color: #b3e5fc; }
+    [data-theme="dark"] select option { background: var(--vmax-panel); color: var(--vmax-text-muted); }
   </style>
 
 <style id="responsive-base">
@@ -1415,35 +1481,44 @@ img, svg, canvas, iframe { max-width: 100%; }
       return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 
-    /* Chart.js 深浅主题色板：深色与原版完全一致，浅色对齐 my_app LIGHT 色板 */
-    const CHART_PALETTE = {
-      dark: {
-        tick: '#b3e5fc',
-        grid: 'rgba(34, 50, 77, 0.3)',
-        tooltipBg: 'rgba(17,37,64,0.95)',
-        tooltipTitle: '#b3e5fc',
-        tooltipBody: '#fff',
-        tooltipBorder: '#22324d',
-        teal: '#64ffda', blue: '#4fc3f7', indigo: '#7986cb',
-        inbound: 'rgba(100, 255, 218, 0.5)',
-        outbound: 'rgba(255, 20, 147, 0.7)',
-      },
-      light: {
-        tick: '#3f5468',
-        grid: 'rgba(22, 35, 59, 0.10)',
-        tooltipBg: 'rgba(255,255,255,0.97)',
-        tooltipTitle: '#16233b',
-        tooltipBody: '#16233b',
-        tooltipBorder: 'rgba(13,148,136,0.35)',
-        teal: '#0d9488', blue: '#0e7490', indigo: '#6366f1',
-        inbound: 'rgba(13, 148, 136, 0.55)',
-        outbound: 'rgba(217, 45, 32, 0.65)',
-      },
-    };
+    /* Chart.js 深浅主题色板 —— 色值不再写死在 JS 里，改为读 CSS 变量。
+       唯一真相源：深色 = legacy-vmax-theme.css 的 --vmax-*；
+                   浅色 = 本页 [data-theme="light"] 块里的 --whd-chart-*。
+       老写法是「CSS 一份 + 这里一份」，两份必须手工同步，正是深色跑偏的根因之一。
+       ⚠️ getComputedStyle 有开销，只在加载时与切换主题时各读一次（applyTheme 里
+          通过 window.__refreshWhdPalette() 刷新缓存），不要放进 render 热路径。 */
+    function cssVar(name, fallback){
+      try {
+        const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return v || fallback;
+      } catch (e) { return fallback; }
+    }
+    function readChartPalette(){
+      return {
+        tick:          cssVar('--whd-chart-tick', '#aebbd4'),
+        grid:          cssVar('--whd-chart-grid', 'rgba(37, 140, 255, 0.10)'),
+        tooltipBg:     cssVar('--whd-chart-tooltip-bg', '#0a1730'),
+        tooltipTitle:  cssVar('--whd-chart-tooltip-title', '#aebbd4'),
+        tooltipBody:   cssVar('--whd-chart-tooltip-body', '#f5f7ff'),
+        tooltipBorder: cssVar('--whd-chart-tooltip-border', '#173158'),
+        teal:          cssVar('--whd-chart-teal', '#00d9ff'),
+        blue:          cssVar('--whd-chart-blue', '#258cff'),
+        indigo:        cssVar('--whd-chart-indigo', '#7c8ff0'),
+        inbound:       cssVar('--whd-chart-inbound', 'rgb(0 217 255 / 50%)'),
+        outbound:      cssVar('--whd-chart-outbound', 'rgba(255, 20, 147, 0.7)'),
+      };
+    }
+    const CHART_PALETTE = { dark: readChartPalette(), light: readChartPalette() };
     function chartTheme() {
       return document.documentElement.getAttribute('data-theme') === 'light'
         ? CHART_PALETTE.light : CHART_PALETTE.dark;
     }
+    /* 主题切换后刷新缓存（浅色档色值来自本页自己的 --whd-chart-* 浅色块） */
+    function refreshChartPalette(){
+      const mode = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+      CHART_PALETTE[mode] = readChartPalette();
+    }
+    window.__refreshWhdPalette = refreshChartPalette;
 
     /* 数据集配色跟随主题（按 label 识别，与创建时的样式保持一致） */
     function applyDatasetTheme(ds, p) {
@@ -1684,7 +1759,7 @@ img, svg, canvas, iframe { max-width: 100%; }
           labels: [],
           datasets: [
             makeDataset('Inbound Qty',  chartTheme().teal),
-            makeDataset('Outbound Qty', '#FF1493'),
+            makeDataset('Outbound Qty', chartTheme().outbound),
           ],
         },
         options: options,

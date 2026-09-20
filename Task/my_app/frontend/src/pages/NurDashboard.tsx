@@ -382,9 +382,20 @@ function SlaTrendChart({ rows, gran, onDrill }: {
   )
 }
 
-export default function NurDashboard() {
+/**
+ * NUR 看板主体（page=nur：NUR 三档 + SLA 三档）。
+ *
+ * only 用于派生两个「只保留一半」的直链页面（同一份实现切片，避免复制粘贴走样）：
+ *   - only='nur' → 只渲染 NUR 日/周/月，供 page=ms_nur_only 使用；
+ *   - only='sla' → 只渲染 SLA 日/周/月，供 page=ms_sla_only 使用；
+ *   - 缺省     → NUR + SLA 全量，page=nur 行为与改造前完全一致。
+ * 筛选条（Vendor/Project/Exclude/时间范围）、TT 下钻与导出两条直链同样具备。
+ */
+export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
   const { t } = useI18n()
   const isMobile = useIsMobile()
+  const showNur = only !== 'sla'
+  const showSla = only !== 'nur'
   const [options, setOptions] = useState<OptionsResp | null>(null)
   const [data, setData] = useState<OverviewResp | null>(null)
   const [loading, setLoading] = useState(false)
@@ -574,10 +585,10 @@ export default function NurDashboard() {
       )}
 
       <Spin spinning={loading}>
-        {/* ---------- 每个粒度一行：左表格 + 右趋势图（NUR 三行 + SLA 三行） ---------- */}
+        {/* ---------- 每个粒度一行：左表格 + 右趋势图（NUR 三行 + SLA 三行；only 切片时只出其一） ---------- */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
-          {GRANS.map(g => (
-            // minmax(0,1fr)：防止宽表格撑破网格列，表格在卡片内横向滚动，趋势图保持等宽
+          {/* minmax(0,1fr)：防止宽表格撑破网格列，表格在卡片内横向滚动，趋势图保持等宽 */}
+          {showNur && GRANS.map(g => (
             <div key={`nur_${g}`} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)', gap: 'var(--wh-space-md)' }}>
               <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
                 title={`KPI List NUR ${granTitle[g]}`}
@@ -597,7 +608,7 @@ export default function NurDashboard() {
               </Card>
             </div>
           ))}
-          {GRANS.map(g => (
+          {showSla && GRANS.map(g => (
             <div key={`sla_${g}`} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)', gap: 'var(--wh-space-md)' }}>
               <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
                 title={`KPI List SLA ${granTitle[g]}`}>

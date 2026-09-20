@@ -2,32 +2,51 @@
 <html lang="zh-CN">
 <head>
     <link rel="stylesheet" href="./legacy-glass-baseline.css">
+    <!-- 深色档 vmax 令牌（唯一真相源，见文件头注释）。浅色档仍由下方
+         html[data-theme="light"] 定义，本文件不介入。 -->
+    <link rel="stylesheet" href="./legacy-vmax-theme.css">
 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MW UME 微波网络拓扑 NOC 看板</title>
 <style>
-  :root{
-    --bg:#03141d; --panel:#0a2330; --panel2:#0d2b3b; --text:#e7f3f8; --muted:#8fb3c4;
-    --line:rgba(255,255,255,.08); --accent:#19c3ff;
-    --green:#27d39a; --yellow:#ffd43b; --orange:#ff922b; --red:#ff6b6b; --gray:#64748b;
-  }
+  /* 深色档色值已上移到 legacy-vmax-theme.css（vmax 深空蓝，与 React 外壳同源）。
+     此处只保留浅色档：html[data-theme="light"] 特异性 (0,1,1) 高于共享文件的
+     :root (0,0,1)，覆盖关系不变。 */
   html[data-theme="light"]{
     --bg:#eef3f8; --panel:#ffffff; --panel2:#f4f8fc; --text:#16233b; --muted:#5b7288;
     --line:rgba(22,35,59,.12); --accent:#0e7490;
     --green:#0f9d6b; --yellow:#b45309; --orange:#c2410c; --red:#d92d20; --gray:#94a3b8;
+    /* 浅色档回到平涂表面（不带 vmax 深色卡片渐变/内辉光）；
+       浅色下内部分割线仍与 --line 同色（保持改动前的单一描边观感）。 */
+    --surface-bg:var(--panel); --surface-shadow:none;
+    --line-soft:rgba(22,35,59,.12);
+    /* 健康度色阶在浅底上要更深才可读：取值与改动前 `.lvl-*` 与 `.dot-*` 的浅色观感一致
+       （原文件里 healthy/minor/moderate/critical/unknown 走的是浅色变量，
+       negligible/major 是两档共用的硬编码值）。 */
+    --vmax-lvl-healthy:#0f9d6b; --vmax-lvl-negligible:#94d82d; --vmax-lvl-minor:#b45309;
+    --vmax-lvl-moderate:#c2410c; --vmax-lvl-major:#ff7a45; --vmax-lvl-critical:#d92d20;
+    --vmax-lvl-unknown:#94a3b8;
+    --vmax-green-soft:#94d82d;
+    /* 提示徽标 .kpi .k-why 的底原本是**与主题无关**的 rgba(255,255,255,.08)
+       （hover 为 rgba(25,195,255,.18)）；深色档已换成 vmax 蓝色叠加，
+       浅色档这里还原原值，保证浅色档逐元素零差异。 */
+    --vmax-fill-1:rgba(25,195,255,.18); --vmax-fill-2:rgba(255,255,255,.08);
   }
   *{box-sizing:border-box; margin:0; padding:0}
   html,body{height:100%}
   body{
-    background:var(--bg); color:var(--text); font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    background:var(--vmax-page-glow), var(--bg); color:var(--text); font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
     display:flex; flex-direction:column; overflow:hidden; font-size:0.812rem;
   }
+  /* 浅色档没有辉光可用，回到纯色底（与改动前的浅色观感一致） */
+  html[data-theme="light"] body{background:var(--bg)}
   /* ---------- header ---------- */
   header{
-    display:flex; align-items:center; gap:0.75rem; padding:0.5rem 0.875rem; background:var(--panel);
+    display:flex; align-items:center; gap:0.75rem; padding:0.5rem 0.875rem; background:var(--vmax-mast-bg);
     border-bottom:1px solid var(--line); flex:0 0 auto; flex-wrap:wrap;
   }
+  html[data-theme="light"] header{background:var(--panel)}
   header h1{font-size:0.938rem; font-weight:600; letter-spacing:.3px; white-space:nowrap}
   header h1 span{color:var(--accent)}
   .meta{color:var(--muted); font-size:0.75rem; white-space:nowrap}
@@ -86,27 +105,30 @@
   #kpis{
     display:grid; grid-template-columns:repeat(10,1fr); gap:0.625rem; padding:0.625rem 0.875rem; flex:0 0 auto;
   }
-  .kpi{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:0.5rem 0.6rem; min-width:0}
+  .kpi{background:var(--surface-bg); border:1px solid var(--line); border-radius:10px; padding:0.5rem 0.6rem; min-width:0;
+    box-shadow:var(--surface-shadow)}
   .kpi .k-label{color:var(--muted); font-size:0.688rem; letter-spacing:.4px; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .kpi .k-val{font-size:1.35rem; font-weight:700; line-height:1.2; font-variant-numeric:tabular-nums}
   .kpi .k-sub{font-size:0.688rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .kpi.green .k-val{color:var(--green)} .kpi.yellow .k-val{color:var(--yellow)}
   .kpi.orange .k-val{color:var(--orange)} .kpi.red .k-val{color:var(--red)}
-  .kpi.lime .k-val{color:#94d82d} .kpi.tomato .k-val{color:#ff7a45}
+  .kpi.lime .k-val{color:var(--vmax-green-soft)} .kpi.tomato .k-val{color:var(--vmax-lvl-major)}
   .kpi.blue .k-val{color:var(--accent)}
   /* ---------- main body ---------- */
   #main{flex:1; display:flex; gap:0.625rem; padding:0 0.875rem 0.625rem; min-height:0}
   #left{flex:1; display:flex; flex-direction:column; gap:0.625rem; min-width:0; min-height:0}
-  #topo-wrap{flex:1; background:var(--panel); border:1px solid var(--line); border-radius:10px;
+  #topo-wrap{flex:1; background:var(--surface-bg); border:1px solid var(--line); border-radius:10px;
+    box-shadow:var(--surface-shadow);
     display:flex; flex-direction:column; min-height:0; position:relative}
-  #topo-head{display:flex; align-items:center; gap:0.625rem; padding:0.375rem 0.75rem; border-bottom:1px solid var(--line); flex:0 0 auto; position:relative; z-index:2}
+  #topo-head{display:flex; align-items:center; gap:0.625rem; padding:0.375rem 0.75rem; border-bottom:1px solid var(--line-soft); flex:0 0 auto; position:relative; z-index:2}
   #topo-head h3{font-size:0.812rem; font-weight:600}
   #topo{flex:1; min-height:0}
   #topo-hint{position:absolute; right:10px; bottom:8px; font-size:0.688rem; color:var(--muted); pointer-events:none}
   #right{width:320px; flex:0 0 auto; display:flex; flex-direction:column; gap:0.625rem; min-height:0}
-  #risks{flex:1; background:var(--panel); border:1px solid var(--line); border-radius:10px;
+  #risks{flex:1; background:var(--surface-bg); border:1px solid var(--line); border-radius:10px;
+    box-shadow:var(--surface-shadow);
     display:flex; flex-direction:column; min-height:0}
-  #risks h3{font-size:0.812rem; font-weight:600; padding:0.5rem 0.75rem; border-bottom:1px solid var(--line)}
+  #risks h3{font-size:0.812rem; font-weight:600; padding:0.5rem 0.75rem; border-bottom:1px solid var(--line-soft)}
   #risk-list{flex:1; overflow-y:auto; padding:0.375rem}
   .risk-item{
     display:flex; align-items:center; gap:0.5rem; padding:0.375rem 0.5rem; border-radius:8px; cursor:pointer;
@@ -122,7 +144,8 @@
   .risk-item .r-txrx{font-size:0.625rem; color:var(--muted); flex:0 0 auto; text-align:right; line-height:1.3}
   /* ---------- bottom ---------- */
   #bottom{flex:0 0 auto; display:flex; gap:0.625rem; padding:0 0.875rem 0.625rem}
-  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:0.5rem 0.75rem; flex:1}
+  .card{background:var(--surface-bg); border:1px solid var(--line); border-radius:10px; padding:0.5rem 0.75rem; flex:1;
+    box-shadow:var(--surface-shadow)}
   .card h3{font-size:0.812rem; font-weight:600; margin-bottom:0.375rem}
   .chart{width:100%}
   /* ---------- drawer (link details) ---------- */
@@ -133,7 +156,7 @@
   }
   #drawer.open{right:0}
   #drawer-head{
-    display:flex; align-items:center; padding:0.875rem 1.125rem; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; padding:0.875rem 1.125rem; border-bottom:1px solid var(--line-soft);
   }
   #drawer-head h3{font-size:0.875rem; font-weight:600; letter-spacing:.8px; flex:1}
   #drawer-close{
@@ -155,12 +178,12 @@
   .d-cap-label{font-size:0.688rem; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; margin-top:0.25rem}
   /* endpoints */
   .d-ep{display:flex; align-items:center; gap:0.625rem; margin-top:0.875rem; margin-bottom:0.375rem}
-  .d-ep-card{flex:1; background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:0.562rem 0.625rem; min-width:0}
+  .d-ep-card{flex:1; background:var(--panel2); border:1px solid var(--line-soft); border-radius:8px; padding:0.562rem 0.625rem; min-width:0}
   .d-ep-icon{font-size:0.875rem; color:var(--muted); margin-bottom:0.188rem}
   .d-ep-name{font-size:0.75rem; font-weight:600; word-break:break-all; line-height:1.25}
   .d-ep-arrow{color:var(--accent); font-size:1.25rem; flex:0 0 auto}
   .d-ep-row{display:grid; grid-template-columns:1fr 1fr; gap:0.375rem; margin-top:0.375rem; margin-bottom:0.875rem}
-  .d-ep-row .d-cell{background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:0.438rem 0.625rem}
+  .d-ep-row .d-cell{background:var(--panel2); border:1px solid var(--line-soft); border-radius:8px; padding:0.438rem 0.625rem}
   .d-ep-row .d-cell .k{font-size:0.625rem; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:0.125rem}
   .d-ep-row .d-cell .v{font-size:0.75rem; font-weight:600; font-family:Consolas,monospace; word-break:break-all}
   /* TX / RX blocks */
@@ -168,18 +191,18 @@
   .d-tr{
     border:1px solid var(--line); border-radius:10px; padding:0.625rem 0.75rem; position:relative; overflow:hidden;
   }
-  .d-tr.tx{background:linear-gradient(135deg, rgba(255,107,107,.14) 0%, rgba(255,107,107,.04) 100%); border-color:rgba(255,107,107,.4)}
-  .d-tr.rx{background:linear-gradient(135deg, rgba(39,211,154,.14) 0%, rgba(39,211,154,.04) 100%); border-color:rgba(39,211,154,.4)}
+  .d-tr.tx{background:linear-gradient(135deg, rgba(255,92,108,.14) 0%, rgba(255,92,108,.04) 100%); border-color:rgba(255,92,108,.4)}
+  .d-tr.rx{background:linear-gradient(135deg, rgba(11,199,140,.14) 0%, rgba(11,199,140,.04) 100%); border-color:rgba(11,199,140,.4)}
   .d-tr-title{font-size:0.688rem; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); display:flex; align-items:center; gap:0.375rem}
-  .d-tr.tx .d-tr-title{color:#ff6b6b}
-  .d-tr.rx .d-tr-title{color:#27d39a}
+  .d-tr.tx .d-tr-title{color:var(--red)}
+  .d-tr.rx .d-tr-title{color:var(--green)}
   .d-tr-val{font-size:1.375rem; font-weight:700; line-height:1.1; margin-top:0.25rem; font-variant-numeric:tabular-nums}
   .d-tr-sub{font-size:0.625rem; color:var(--muted); margin-top:0.125rem}
   .d-tr-u{font-size:0.875rem; font-weight:700; margin-top:0.375rem; font-variant-numeric:tabular-nums}
-  .d-tr.u-crit{color:#ff4d4f} .d-tr.u-major{color:#ff7a45} .d-tr.u-mod{color:#ff922b} .d-tr.u-minor{color:#ffd43b} .d-tr.u-neg{color:#94d82d} .d-tr.u-ok{color:#27d39a}
+  .d-tr.u-crit{color:var(--vmax-lvl-critical)} .d-tr.u-major{color:var(--vmax-lvl-major)} .d-tr.u-mod{color:var(--vmax-lvl-moderate)} .d-tr.u-minor{color:var(--vmax-lvl-minor)} .d-tr.u-neg{color:var(--vmax-lvl-negligible)} .d-tr.u-ok{color:var(--vmax-lvl-healthy)}
   /* trend */
   .d-trend-card{
-    border:1px solid var(--line); border-radius:10px; padding:0.625rem 0.75rem; margin-bottom:0.875rem;
+    border:1px solid var(--line-soft); border-radius:10px; padding:0.625rem 0.75rem; margin-bottom:0.875rem;
   }
   .d-trend-title{font-size:0.688rem; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; display:flex; align-items:center; gap:0.375rem; margin-bottom:0.375rem}
   .d-trend{width:100%; height:140px}
@@ -191,10 +214,10 @@
   .d-cps-hint{font-size:0.625rem; color:var(--muted); margin-top:0.375rem}
   .d-cps{margin-top:0.375rem}
   .badge{font-size:0.625rem; padding:0.062rem 0.375rem; border-radius:8px; margin-left:0.375rem; vertical-align:middle}
-  .lvl-healthy{color:var(--green)} .lvl-negligible{color:#94d82d} .lvl-minor{color:var(--yellow)}
-  .lvl-moderate{color:var(--orange)} .lvl-major{color:#ff7a45} .lvl-critical{color:var(--red)} .lvl-unknown{color:var(--gray)}
-  .dot-healthy{background:var(--green)} .dot-negligible{background:#94d82d} .dot-minor{background:var(--yellow)}
-  .dot-moderate{background:var(--orange)} .dot-major{background:#ff7a45} .dot-critical{background:var(--red)} .dot-unknown{background:var(--gray)}
+  .lvl-healthy{color:var(--vmax-lvl-healthy)} .lvl-negligible{color:var(--vmax-lvl-negligible)} .lvl-minor{color:var(--vmax-lvl-minor)}
+  .lvl-moderate{color:var(--vmax-lvl-moderate)} .lvl-major{color:var(--vmax-lvl-major)} .lvl-critical{color:var(--vmax-lvl-critical)} .lvl-unknown{color:var(--vmax-lvl-unknown)}
+  .dot-healthy{background:var(--vmax-lvl-healthy)} .dot-negligible{background:var(--vmax-lvl-negligible)} .dot-minor{background:var(--vmax-lvl-minor)}
+  .dot-moderate{background:var(--vmax-lvl-moderate)} .dot-major{background:var(--vmax-lvl-major)} .dot-critical{background:var(--vmax-lvl-critical)} .dot-unknown{background:var(--vmax-lvl-unknown)}
   .empty{color:var(--muted); text-align:center; padding:1.875rem 0.625rem; font-size:0.75rem}
   /* PDF 导出：浏览器打印 SVG 时保留矢量路径，链路可无限放大 */
   #pdf-print-sheet{display:none}
@@ -216,20 +239,20 @@
 
   /* scrollbar */
   ::-webkit-scrollbar{width:8px; height:8px}
-  ::-webkit-scrollbar-thumb{background:var(--line); border-radius:4px}
+  ::-webkit-scrollbar-thumb{background:var(--line-soft); border-radius:4px}
   ::-webkit-scrollbar-track{background:transparent}
   /* Leaflet 在线地图容器（geo 模式） */
-  #topo-leaflet{ position:absolute; inset:0; display:none; z-index:1; background:#0b1620; }
-  #topo-leaflet .leaflet-container{ background:#0b1620; }
-  #topo-leaflet .leaflet-control-attribution{ font-size:0.625rem; background:rgba(0,0,0,.5); color:#9fb3c8; }
-  #topo-leaflet .leaflet-control-attribution a{ color:#19c3ff; }
+  #topo-leaflet{ position:absolute; inset:0; display:none; z-index:1; background:var(--bg); }
+  #topo-leaflet .leaflet-container{ background:var(--bg); }
+  #topo-leaflet .leaflet-control-attribution{ font-size:0.625rem; background:var(--vmax-scrim); color:var(--vmax-text-muted); }
+  #topo-leaflet .leaflet-control-attribution a{ color:var(--vmax-cyan); }
   /* KPI 卡可点击 */
   .kpi{cursor:pointer; transition:transform .12s ease, box-shadow .12s ease; position:relative}
-  .kpi:hover{transform:translateY(-1px); box-shadow:0 4px 14px rgba(0,0,0,.25)}
+  .kpi:hover{transform:translateY(-1px); box-shadow:var(--surface-shadow), 0 4px 14px rgba(0,0,0,.25)}
   .kpi .k-why{position:absolute; top:6px; right:8px; width:16px; height:16px; border-radius:50%;
-    background:rgba(255,255,255,.08); color:var(--muted); font-size:0.688rem; font-weight:700; line-height:16px;
+    background:var(--vmax-fill-2); color:var(--muted); font-size:0.688rem; font-weight:700; line-height:16px;
     text-align:center; opacity:.6; transition:opacity .12s}
-  .kpi:hover .k-why{opacity:1; background:rgba(25,195,255,.18); color:var(--accent)}
+  .kpi:hover .k-why{opacity:1; background:var(--vmax-fill-1); color:var(--accent)}
   /* KPI 弹窗表格（Antd dark 风格） */
   #kpi-modal-mask{position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:200; display:none}
   #kpi-modal-mask.open{display:block}
@@ -238,14 +261,14 @@
     border-radius:10px; box-shadow:0 14px 48px rgba(0,0,0,.55); z-index:201; display:none;
     flex-direction:column; overflow:hidden}
   #kpi-modal.open{display:flex}
-  #kpi-modal-head{display:flex; align-items:center; padding:0.75rem 1.125rem; border-bottom:1px solid var(--line); gap:0.625rem}
+  #kpi-modal-head{display:flex; align-items:center; padding:0.75rem 1.125rem; border-bottom:1px solid var(--line-soft); gap:0.625rem}
   #kpi-modal-head h3{font-size:0.875rem; font-weight:600; letter-spacing:.4px; flex:1}
   #kpi-modal-meta{color:var(--muted); font-size:0.688rem}
   #kpi-modal-close{background:transparent; border:none; color:var(--muted); font-size:1.25rem; cursor:pointer; padding:0.25rem 0.625rem; line-height:1}
   #kpi-modal-close:hover{color:var(--text)}
   #kpi-modal-body{flex:1; overflow:auto}
   .kpi-tbl{width:100%; border-collapse:separate; border-spacing:0; font-size:0.75rem}
-  .kpi-tbl th, .kpi-tbl td{padding:0.438rem 0.625rem; text-align:left; border-bottom:1px solid var(--line); vertical-align:middle}
+  .kpi-tbl th, .kpi-tbl td{padding:0.438rem 0.625rem; text-align:left; border-bottom:1px solid var(--line-soft); vertical-align:middle}
   .kpi-tbl th{position:sticky; top:0; background:var(--panel2); color:var(--muted); font-weight:600; letter-spacing:.3px; font-size:0.656rem; text-transform:uppercase; z-index:1}
   .kpi-tbl tr.kpi-row{cursor:pointer}
   .kpi-tbl tr.kpi-row:hover td{background:var(--panel2)}
@@ -291,16 +314,16 @@
     .edge-hit { cursor: pointer; }
     /* 物理拓扑常驻 TX/RX 标签（与逻辑拓扑 chk-label 同步） */
     .geo-txrx-wrap { background: transparent !important; border: none !important; }
-    .geo-txrx { display:inline-block; padding:0.062rem 0.375rem; border-radius:8px; background:rgba(3,20,29,.80);
-      border:1px solid rgba(25,195,255,.35); color:#cfe9f5; font:600 10px/1.3 Consolas,'Courier New',monospace;
+    .geo-txrx { display:inline-block; padding:0.062rem 0.375rem; border-radius:8px; background:rgba(2,5,12,.80);
+      border:1px solid rgba(0,217,255,.35); color:var(--vmax-cyan-soft); font:600 10px/1.3 Consolas,'Courier New',monospace;
       white-space:nowrap; text-shadow:0 1px 2px #000; pointer-events:none; }
 /* 站点节点：dot 位于 divIcon 中心 (iconSize=9, iconAnchor=4.5,4.5)，与链路端点精确对齐 */
   .geo-node { display:inline-flex; align-items:center; gap:0.188rem; white-space:nowrap; }
   .geo-dot { width:9px; height:9px; border-radius:50%; display:inline-block; border:1px solid rgba(255,255,255,.75); }
     .geo-name { color:#e6f0f7; font:600 11px/1 system-ui,'Segoe UI',sans-serif; text-shadow:0 1px 2px #000,0 0 3px #000; }
     .geo-ip { color:#9fb3c2; font:400 9px/1 system-ui,sans-serif; text-shadow:0 1px 2px #000; }
-    .geo-cluster { display:inline-block; padding:0.125rem 0.438rem; border-radius:12px; background:rgba(8,26,40,.88);
-      border:1px solid #19c3ff; color:#19c3ff; font:700 11px/1 system-ui,sans-serif; box-shadow:0 0 8px rgba(25,195,255,.5); white-space:nowrap; }
+    .geo-cluster { display:inline-block; padding:0.125rem 0.438rem; border-radius:12px; background:rgba(8,18,44,.88);
+      border:1px solid var(--vmax-cyan); color:var(--vmax-cyan); font:700 11px/1 system-ui,sans-serif; box-shadow:0 0 8px rgba(0,217,255,.5); white-space:nowrap; }
   </style>
 
 <style id="responsive-base">
@@ -480,16 +503,48 @@ img, svg, canvas, iframe { max-width: 100%; }
 <script src="./lib/svg2pdf.umd.min.js"></script>
 <script>
 /* ============ theme (TDZ-safe: declare BEFORE anything reads it) ============ */
-const PALETTE = {
-  dark:  { bg:'#03141d', panel:'#0a2330', text:'#e7f3f8', muted:'#8fb3c4', accent:'#19c3ff' },
-  light: { bg:'#eef3f8', panel:'#ffffff', text:'#16233b', muted:'#5b7288', accent:'#0e7490' },
-};
+/* 深色档色值不再写死在这里 —— 唯一真相源是 legacy-vmax-theme.css 的 CSS 变量
+   （与 React 外壳的 index.css 同源）。老写法是「CSS 的 :root 一份 + 这里的
+   PALETTE 一份」，两份必须手工同步，正是深色跑偏的根因之一。
+   ⚠️ 只在加载时与切换主题时各读一次（getComputedStyle 有开销），不要放进
+      render 热路径；所以下面用 PALETTE 缓存，applyTheme 里刷新。 */
+function cssVar(name, fallback){
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  } catch(e){ return fallback; }
+}
+function readPalette(){
+  return {
+    bg:     cssVar('--bg', '#02050c'),
+    panel:  cssVar('--panel', '#08122c'),
+    panel2: cssVar('--panel2', '#050d22'),
+    text:   cssVar('--text', '#f5f7ff'),
+    muted:  cssVar('--muted', '#aebbd4'),
+    accent: cssVar('--accent', '#00d9ff'),
+    line:   cssVar('--line-soft', '#173158'),
+    green:  cssVar('--green', '#0bc78c'),
+    yellow: cssVar('--yellow', '#f6cf00'),
+    orange: cssVar('--orange', '#ff922b'),
+    red:    cssVar('--red', '#ff5c6c'),
+  };
+}
 let APP_THEME = (function(){
   try { const s = localStorage.getItem('myapp-theme'); if(s==='dark'||s==='light') return s; } catch(e){}
   try { if(window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches) return 'light'; } catch(e){}
   return 'dark';
 })();
+/* 必须先钉住 data-theme 再读变量，否则读到的是上一次的档位 */
+try { document.documentElement.dataset.theme = APP_THEME; } catch(e){}
+const PALETTE = { dark: readPalette(), light: readPalette() };
 function curP(){ return PALETTE[APP_THEME]; }
+/* 主题切换后刷新缓存（浅色档的色值来自本页自己的 light 变量块）。
+   refreshLvlColors 用函数声明（会提升），此处先判存在再调 —— 保证 boot 阶段
+   任何顺序都不会踩到 LVL_COLOR 的 TDZ。 */
+function refreshPalette(){
+  PALETTE[APP_THEME] = readPalette();
+  if (typeof refreshLvlColors === 'function') refreshLvlColors();
+}
 
 /* ============ i18n (跟随 my_app 外壳语言: localStorage['app-locale'] + postMessage myapp-locale) ============ */
 const I18N = {
@@ -647,7 +702,7 @@ const TIER_ORDER = { CORE:0, HUB:1, SITE:2, ACCESS:3 };
 function nodeTier(d){ const x = d||0; return x>=8 ? 'CORE' : x>=4 ? 'HUB' : x>=2 ? 'SITE' : 'ACCESS'; }
 // 平行/重复链路按索引分配不同弧度，形成扇形避让
 const EDGE_CURVES = [0.22, 0.13, 0.04, -0.05, -0.14, -0.23];
-function neutralFill(){ return APP_THEME==='light' ? '#cdddea' : '#15384f'; }
+function neutralFill(){ return APP_THEME==='light' ? '#cdddea' : '#0d2a4d'; }
 function computeLayout(){
   if(!DATA) return { pos:{}, tier:{}, centerX:0, xRange:1 };
   const deg = {}; DATA.nodes.forEach(n => deg[n.id] = n.degree||0);
@@ -827,7 +882,25 @@ window.addEventListener('message', function(e){
 });
 
 /* ============ level colors ============ */
-const LVL_COLOR = { healthy:'#27d39a', negligible:'#94d82d', minor:'#ffd43b', moderate:'#ff922b', major:'#ff7a45', critical:'#ff4d4f', unknown:'#64748b' };
+/* 健康度 7 级色阶取自 CSS 令牌 --vmax-lvl-*（唯一真相源，见 legacy-vmax-theme.css）：
+   其中 4 档是 vmax 语义色的原值，moderate/major 是为保持 7 级可区分性保留的
+   暖色中间步进，unknown 用 vmax 的次级文字色。
+   浅色档在页内 light 变量块里覆盖成更深的一档（见文件头 html[data-theme=light]）。 */
+function readLvlColors(){
+  return {
+    healthy:    cssVar('--vmax-lvl-healthy',    '#0bc78c'),
+    negligible: cssVar('--vmax-lvl-negligible', '#6ef0b4'),
+    minor:      cssVar('--vmax-lvl-minor',      '#f6cf00'),
+    moderate:   cssVar('--vmax-lvl-moderate',   '#ff922b'),
+    major:      cssVar('--vmax-lvl-major',      '#ff7a45'),
+    critical:   cssVar('--vmax-lvl-critical',   '#ff5c6c'),
+    unknown:    cssVar('--vmax-lvl-unknown',    '#6f8cb4'),
+  };
+}
+const LVL_COLOR = readLvlColors();
+/* 主题切换后重取（深浅两档的健康度色阶不同）。函数声明会提升，
+   由 refreshPalette() 以 typeof 探测后调用，见上方 theme 段。 */
+function refreshLvlColors(){ Object.assign(LVL_COLOR, readLvlColors()); }
 const LVL_TEXT = { healthy:'Healthy', negligible:'Negligible', minor:'Minor', moderate:'Moderate', major:'Major', critical:'Critical', unknown:'Unknown' };
 /* 利用率 -> 分级 key（与后端 level_of 口径一致：>90 critical，>=80 major，>=70 moderate，>=60 minor，>=50 negligible，<50 healthy） */
 function lvlOfUtil(u){
@@ -842,16 +915,19 @@ function lvlOfUtil(u){
 }
 
 /* ============ echarts themes ============ */
+/* 深色主题（amDark）的色值同样读 CSS 令牌，不再另存一份 vmax 色值 */
 function regThemes(){
-  const darkAxis = { color:'#8fb3c4', fontSize:11 };
+  const darkAxis = { color:cssVar('--muted','#aebbd4'), fontSize:11 };
   const lightAxis = { color:'#5b7288', fontSize:11 };
+  const darkText = cssVar('--text','#f5f7ff');
+  const darkEdge = cssVar('--line-soft','#173158');
   echarts.registerTheme('amDark', {
-    color:['#19c3ff','#27d39a','#ffd43b','#ff922b','#ff6b6b','#7986cb','#b197fc'],
-    backgroundColor:'transparent', textStyle:{ color:'#e7f3f8' },
-    legend:{ textStyle:{ color:'#e7f3f8' } },
-    tooltip:{ backgroundColor:'rgba(3,20,29,0.95)', borderColor:'rgba(25,195,255,0.25)', textStyle:{color:'#e7f3f8'} },
-    categoryAxis:{ axisLine:{lineStyle:{color:'#16415a'}}, axisLabel:darkAxis, splitLine:{lineStyle:{color:'rgba(255,255,255,0.06)'}} },
-    valueAxis:{ axisLine:{lineStyle:{color:'#16415a'}}, axisLabel:darkAxis, splitLine:{lineStyle:{color:'rgba(255,255,255,0.06)'}} },
+    color:[cssVar('--accent','#00d9ff'), cssVar('--green','#0bc78c'), cssVar('--yellow','#f6cf00'), cssVar('--orange','#ff922b'), cssVar('--red','#ff5c6c'), cssVar('--vmax-indigo','#7c8ff0'), cssVar('--vmax-cyan-soft','#7fd2ee')],
+    backgroundColor:'transparent', textStyle:{ color:darkText },
+    legend:{ textStyle:{ color:darkText } },
+    tooltip:{ backgroundColor:'rgba(8,18,44,0.95)', borderColor:'rgba(0,217,255,0.25)', textStyle:{color:darkText} },
+    categoryAxis:{ axisLine:{lineStyle:{color:darkEdge}}, axisLabel:darkAxis, splitLine:{lineStyle:{color:'rgba(37,140,255,0.10)'}} },
+    valueAxis:{ axisLine:{lineStyle:{color:darkEdge}}, axisLabel:darkAxis, splitLine:{lineStyle:{color:'rgba(37,140,255,0.10)'}} },
   });
   echarts.registerTheme('amLight', {
     color:['#0e7490','#0f9d6b','#b45309','#c2410c','#d92d20','#6366f1','#15803d'],
@@ -867,8 +943,12 @@ regThemes();
 function applyTheme(mode){
   APP_THEME = (mode === 'light') ? 'light' : 'dark';
   try { document.documentElement.dataset.theme = APP_THEME; } catch(e){}
+  refreshPalette();
   applyMapTheme();
   renderTopo(); renderTrend(); renderDist();
+  // 地图站点标记的内联色来自 LVL_COLOR（随主题变化），而标记是「建图时一次性生成」的；
+  // 不重建就会保留上一档的颜色 —— 实测切到浅色档后地图点仍是深色档色值。
+  if (typeof renderGeoNodes === 'function') { try { renderGeoNodes(); } catch(e){} }
 }
 // 地图底图跟随主题：深色 → OSM 瓦片暗色滤镜；浅色 → 浅底
 function applyMapTheme(){
@@ -1389,7 +1469,7 @@ function addGeoNode(n, lvl){
       if(pl._hit) return;   // 跳过透明命中区，只重描可见弧线
       const ed = pl._edge;
       if(ed && (ed.source === n.id || ed.target === n.id)){
-        pl.setStyle({ weight:6, opacity:1, color:'#19c3ff' });
+        pl.setStyle({ weight:6, opacity:1, color:curP().accent });
       } else if(ed){
         pl.setStyle({ weight:2, opacity:.45, color: LVL_COLOR[ed.status] || LVL_COLOR.unknown });
       }
@@ -1584,8 +1664,8 @@ function renderTopoEcharts(keepView){
     tooltip: {
       trigger: 'item',
       // 主题适配：浅色主题用浅底深字，深色主题用深底浅字（原先固定深底，浅色主题下黑底黑字不可读）
-      backgroundColor: APP_THEME === 'dark' ? 'rgba(3,20,29,0.92)' : 'rgba(255,255,255,0.96)',
-      borderColor: APP_THEME === 'dark' ? 'rgba(25,195,255,0.3)' : 'rgba(14,116,144,0.45)',
+      backgroundColor: APP_THEME === 'dark' ? 'rgba(8,18,44,0.92)' : 'rgba(255,255,255,0.96)',
+      borderColor: APP_THEME === 'dark' ? 'rgba(0,217,255,0.3)' : 'rgba(14,116,144,0.45)',
       textStyle: { color: curP().text },
       formatter: function(p){
         if(p.dataType === 'edge'){
@@ -1697,7 +1777,7 @@ function selectEdge(edge, openDrawer){
       if(pl._hit) return;   // 跳过透明命中区，只重描可见弧线
       const ed = pl._edge;
       if(ed && ((ed.source===full.source && ed.target===full.target) || (ed.source===full.target && ed.target===full.source))){
-        pl.setStyle({weight:6, opacity:1, color:'#19c3ff'});
+        pl.setStyle({weight:6, opacity:1, color:curP().accent});
       } else {
         pl.setStyle({weight:edgeWidth(ed), opacity:.8, color:LVL_COLOR[ed.status]||LVL_COLOR.unknown});
       }
@@ -1841,25 +1921,25 @@ function renderDrawerTrend(e){
     if (yMax <= yMin) yMax = yMin + 1;
   }
   drawerTrend.setOption({
-    tooltip: { trigger: 'axis', backgroundColor:'rgba(3,20,29,0.92)', borderColor:'rgba(25,195,255,0.3)', textStyle:{color:'#e7f3f8'} },
+    tooltip: { trigger: 'axis', backgroundColor:'rgba(8,18,44,0.92)', borderColor:'rgba(0,217,255,0.3)', textStyle:{color:curP().text} },
     legend: { data:['TX','RX','Max'], textStyle:{color:curP().muted}, top:0, right:0, textStyle:{color:curP().muted, fontSize:10} },
     grid: { left: 28, right: 8, top: 22, bottom: 20 },
     xAxis: {
       type:'category', data: isSingle ? ['Now'] : dates,
       boundaryGap:false, axisLabel:{color:curP().muted, fontSize:9},
-      axisLine:{lineStyle:{color:curP().line||'rgba(255,255,255,.1)'}}
+      axisLine:{lineStyle:{color:curP().line}}
     },
     yAxis: {
       type:'value', min: yMin, max: yMax, axisLabel:{formatter:'{value}%', color:curP().muted, fontSize:9},
-      splitLine:{lineStyle:{color:curP().line||'rgba(255,255,255,.06)'}}
+      splitLine:{lineStyle:{color:'rgba(37,140,255,0.10)'}}
     },
     series: [
       { name:'Max', type:'line', smooth:false, showSymbol:!isSingle, symbolSize:6,
         data: maxData, itemStyle:{color: LVL_COLOR[e.status]}, lineStyle:{width:2, color: LVL_COLOR[e.status]} },
       { name:'TX',  type:'line', smooth:false, showSymbol:!isSingle, symbolSize:5,
-        data: txData,  itemStyle:{color:'#ff6b6b'}, lineStyle:{width:1.5, color:'#ff6b6b', type:'dashed'} },
+        data: txData,  itemStyle:{color:curP().red}, lineStyle:{width:1.5, color:curP().red, type:'dashed'} },
       { name:'RX',  type:'line', smooth:false, showSymbol:!isSingle, symbolSize:5,
-        data: rxData,  itemStyle:{color:'#27d39a'}, lineStyle:{width:1.5, color:'#27d39a', type:'dashed'} },
+        data: rxData,  itemStyle:{color:curP().green}, lineStyle:{width:1.5, color:curP().green, type:'dashed'} },
     ],
   }, true);
   setTimeout(function(){ if(drawerTrend) drawerTrend.resize(); }, 50);
@@ -2187,9 +2267,9 @@ function renderTrend(){
     ],
     series: [
       { name:t('trend.avg'), type:'line', smooth:true, data: tr.map(d=>d.avg_util),
-        itemStyle:{color:'#19c3ff'}, lineStyle:{width: mobile?1.5:2}, showSymbol:false },
+        itemStyle:{color:curP().accent}, lineStyle:{width: mobile?1.5:2}, showSymbol:false },
       { name:t('trend.max'), type:'line', smooth:true, data: tr.map(d=>d.max_util),
-        itemStyle:{color:'#ff6b6b'}, lineStyle:{width: mobile?1.5:2}, areaStyle:{opacity:.08}, showSymbol:false,
+        itemStyle:{color:curP().red}, lineStyle:{width: mobile?1.5:2}, areaStyle:{opacity:.08}, showSymbol:false,
         // 选中日期竖线标记（与顶部滑杆联动）
         markLine: {
           symbol:'none', silent:true, label:{show:false},
@@ -2197,7 +2277,7 @@ function renderTrend(){
           data: CUR_DATE ? [{ xAxis: CUR_DATE }] : []
         } },
       { name:t('trend.crit'), type:'bar', yAxisIndex:1, data: tr.map(d=>d.critical),
-        itemStyle:{color:'rgba(255,107,107,.45)'}, barMaxWidth: mobile?10:14 },
+        itemStyle:{color:'rgba(255,92,108,.45)'}, barMaxWidth: mobile?10:14 },
     ],
   }, true);
   // 点击趋势点 → 切换到该日期（与滑杆联动）
@@ -2475,10 +2555,10 @@ function topologySvg(options){
   // 密集城市总览锚点与连接线；展开后的节点在右侧框中逐一可见。
   bubbles.forEach((b,i)=>{
     const ox=px(b.cx),oy=py(b.cy),box=b.box;
-    out.push(`<circle cx="${ox.toFixed(1)}" cy="${oy.toFixed(1)}" r="28" fill="rgba(25,195,255,.10)" stroke="#0e7490" stroke-width="2" stroke-dasharray="7 6"/>`);
-    out.push(`<text x="${ox.toFixed(1)}" y="${(oy+5).toFixed(1)}" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="14" font-weight="700" fill="#0e7490">${b.id}</text>`);
-    out.push(`<line x1="${ox.toFixed(1)}" y1="${oy.toFixed(1)}" x2="${box.x}" y2="${box.y+28}" stroke="#0e7490" stroke-width="1.4" stroke-dasharray="8 6" opacity=".65"/>`);
-    out.push(`<rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="12" fill="#ffffff" stroke="#0e7490" stroke-width="2"/>`);
+    out.push(`<circle cx="${ox.toFixed(1)}" cy="${oy.toFixed(1)}" r="28" fill="rgba(0,217,255,.10)" stroke="${cssVar('--accent','#00d9ff')}" stroke-width="2" stroke-dasharray="7 6"/>`);
+    out.push(`<text x="${ox.toFixed(1)}" y="${(oy+5).toFixed(1)}" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="14" font-weight="700" fill="${cssVar('--accent','#00d9ff')}">${b.id}</text>`);
+    out.push(`<line x1="${ox.toFixed(1)}" y1="${oy.toFixed(1)}" x2="${box.x}" y2="${box.y+28}" stroke="${cssVar('--accent','#00d9ff')}" stroke-width="1.4" stroke-dasharray="8 6" opacity=".65"/>`);
+    out.push(`<rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="12" fill="${cssVar('--panel','#08122c')}" stroke="${cssVar('--accent','#00d9ff')}" stroke-width="2"/>`);
     out.push(`<text x="${box.x+24}" y="${box.y+32}" font-family="Segoe UI,sans-serif" font-size="18" font-weight="700" fill="#16233b">${b.id} ${svgEsc(b.name)} · ${b.nodes.length} nodes</text>`);
   });
   // 节点与名称：密集节点画到展开框，普通节点保留真实位置。
@@ -2529,7 +2609,7 @@ function geoPdfTip(show, text){
     tip = document.createElement('div');
     tip.id = 'pdf-export-tip';
     tip.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:9999;'+
-      'background:rgba(10,35,48,.95);color:#e7f3f8;border:1px solid #1c4c63;padding:8px 14px;border-radius:8px;'+
+      'background:'+cssVar('--panel','#08122c')+';color:'+cssVar('--text','#f5f7ff')+';border:1px solid '+cssVar('--accent','#00d9ff')+';padding:8px 14px;border-radius:8px;'+
       'font:12px/1.5 "Segoe UI","Microsoft YaHei",sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.45);pointer-events:none';
     document.body.appendChild(tip);
   }
@@ -2592,7 +2672,7 @@ async function buildBasemap(bounds, zt, dark, onProgress){
   if(!jobs.length || jobs.length > 1600) throw new Error('底图瓦片数量过大（'+jobs.length+'），请调整视图范围后再导出');
   const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
   const ctx=cv.getContext('2d');
-  ctx.fillStyle = dark ? '#0b1620' : '#dbe6f0'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = dark ? cssVar('--bg','#02050c') : '#dbe6f0'; ctx.fillRect(0,0,W,H);
   // 暗色主题：与网页 .dark-map 的 CSS 滤镜一致，逐瓦片应用
   if(dark && ctx.filter !== undefined){
     try{ ctx.filter='brightness(.62) invert(1) contrast(3) hue-rotate(200deg) saturate(.4) brightness(.72)'; }catch(e){}

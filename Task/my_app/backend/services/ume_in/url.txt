@@ -98,3 +98,83 @@ strict-origin-when-cross-origin
 {"arraycounterinfos":[],"displaymode":0,"favoriteconditionname":"Dong_customer_PPS_KPI","gr":"86400","groupattributetype":0,"groupbygroup":false,"groupbyplmn":false,"grouptype":0,"items":["C637000001","C637000102","C637000103","C637000104","C637000105","C637000101"],"itemsposition":[0,0,0,0,0,0],"itemsposition1":[0,0,0,0,0,0],"motid":"64300","nfctid":"cn.vas.zxin","plmnpdfdisplaymode":false,"queryallbusiness":false,"showbusinesscolumn":false,"showintegrity":false,"straightquery":false,"templatename":"Dong_customer_PPS_KPI","templateid":"1731730870308","versiondatacompare":false,"needdeployfilter":false,"timeinfo":{"mode":1,"start":"2026-09-12T00:00:00.000Z","end":"2026-09-15T00:00:00.000Z","relative":-7,"timezonetype":"1","clienttimezone":"Atlantic/Reykjavik","showtimezoneoffset":false,"querylongtime":{"type":0,"value":"3"},"timespanfilter":"00:00:00-24:00:00","dayfiltertype":0,"dayinmonthfilter":"1111111111111111111111111111111"},"thresholdinfos":[],"templatetype":0,"filterlayer":"all","grouplayer":"me,fservice","containvcell":0,"resfilterattribute":"","uilocations":[],"reslocation":[],"inexistenceres":false,"firstDayOfWeek":7,"iswireless":false,"hidehistorystopbutton":false,"opencustomizehistoryexport":false,"opentemplatecustomcolumn":false,"invaliditems":[]}
 
 
+================================================================================
+割接大屏（guard-imonitor-iui largescreen）—— 见 ume_in_screen_service.py
+页面：https://172.17.208.1:28808/iui/guard-imonitor-iui/#/screen/screen-view?screen_id=1
+Referer 必须是 iui 页面，不是门户首页。
+
+请求 URL
+https://172.17.208.1:28808/api/guard-imonitor-service/v1/largescreen/screen?screen_id=1
+请求方法
+GET
+状态代码
+200 OK
+
+返回 screen_id=1 的 4 个子模板（templateJson.elements 是组件清单，params 是 NEID/title/lasthours）：
+  _id=1 template_id=1 OLib_OSG_CAPs        （10 个 line4multi2）
+  _id=2 template_id=4 OLib_OSG_SuccessRate （5 个 line4yesterday）
+  _id=3 template_id=3 OLib_OSG_Service_KPI （5 个 line4yesterday + 2 个 line4multi）
+  _id=4 template_id=2 OSG_Platform_KPI     （10 个 line4yesterday）
+params（4 个子模板相同）：
+  NEID      = 798d8d5e-d722-455a-b960-80fbd98c8fdb  (pr-zxin-osg, moc=cn.vas.zxin)
+  title     = Performance SERVICE CAPS / ...
+  lasthours = 6   (NUMBER, min 1 max 24)
+
+请求 URL
+https://172.17.208.1:28808/api/guard-imonitor-service/v1/largescreen/data4component
+请求方法
+POST
+状态代码
+200 OK
+引用站点策略
+strict-origin-when-cross-origin
+
+{"class":"line4multi2","screen_id":1,"args":{"group_level":"NE","series":[{"kpi_ids":[{"ne_ids":"$NEID$","kpi_id":"cn.osg_1673528793774","id":"caps"}],"ne_ids":"$NEID$","expression":"sum(caps)","min":0,"name":"Actual","error":0},{"kpi_ids":[{"ne_ids":"$NEID$","kpi_id":"cn.osg_1673528793774","id":"caps_ago","hours_ago":"168"}],"ne_ids":"$NEID$","expression":"sum(caps_ago)","min":0,"name":"Last 7 days","error":0}],"decimal_digits":0,"gr":"5min","last_hours":"$lasthours$"}}
+
+要点（实测）：
+1. args 原样透传，$NEID$ / $lasthours$ 由**服务端**按 screen_id 的大屏参数解析，
+   客户端替换成 NE 的 uuid/label/moc/空串 都会 200 但 series 为空（0 点）。
+2. last_hours 可覆盖（数字生效：1→1 小时窗口，12→12 小时）。
+3. gr 命中白名单才生效（5min / 15min / 1h 生效；30min / 60min / 1hour / 1day 静默回落 15min）。
+4. 响应 result.data[0] = {series[], begintime, endtime, gr}；
+   点 = {begintime, endtime, timestamp, value}，**最后一个未走完的时间桶 value 是空串 ""**。
+
+================================================================================
+大屏「一模一样」离线还原所需的其它端点（见 ume_in_screen_render.py）
+================================================================================
+
+背景图（attributes.src 是资源 id，不是 URL）
+GET /api/guard-imonitor-service/v1/largescreen/blob?_id=49
+  -> 200, 原始 PNG，content-disposition: attachment;filename=bg_base.png
+  screen_id=1 只用到 3 张图：49=bg_base(1920x1080) / 50=bg_box / 51=bg_label
+
+服务器时间（current 元素用它对齐，本地每秒自增）
+GET /api/guard-imonitor-service/v1/largescreen/current
+  -> {"err_code":0,"result":{"data":[1789752499000]}}   毫秒时间戳
+
+单模板（含 width/height，渲染必需）
+GET /api/guard-imonitor-service/v1/largescreen/screen?_id=1
+  -> 单个子模板，json.width=1920 json.height=1080
+
+前端 bundle（还原样式的依据，静态文件，无需登录也可取）
+/iui/guard-imonitor-iui/main-es2015.212c55663e4959fc5782.js   (8.0MB, 含 angular+echarts)
+/iui/guard-imonitor-iui/9-es2015.c1c11013f2a6a61c13df.js      (606KB, **大屏模块 BigScreenModule**)
+  lazy chunk 清单在 runtime-es2015.*.js 里：
+  0=ac79a19aef8ec069be9e 2=be99379c157a215ec600 3=common/c1c706b65a337b33c99b
+  4=ca6885be53bc5ee51299 9=c1c11013f2a6a61c13df 10=a5a7b9a3f298d1b0d5c1
+  11=7a59aedddc6ecbaf4775 12=f6a9e117e4cf59252fd7 13=9dcb1eef947a0781503e
+  URL 形如 /iui/guard-imonitor-iui/9-es2015.c1c11013f2a6a61c13df.js
+
+渲染规则（从 chunk 9 反查，ume_in_screen_render.py 已逐条实现）：
+- 画布：width_percent=innerWidth/template.width，height_percent=innerHeight/template.height，
+  X/Y **独立拉伸**；style={top:y*h%, left:x*w%, width:width*w%, height:height*h%, z-index}
+- 字号：setFontSize(initWidth, initHeight) → n = (t>e) ? e/width*fs : t/height*fs
+- 组件分派：current/date4other | label/latest4kpi* | line4multi/line4multi2/line4yesterday/double_domain | png
+- 图表：tooltip rgba(33,66,121,.8)、grid 25/25、xAxis category HH:mm、轴线 #979797、
+  y 轴标签 #FFFFFF、legend top+scroll+itemStyle.opacity=0、series line smooth symbolSize=2
+  lineStyle.width=2、animationEasing=elasticOut；y 轴 min/max 走 niceNum(floor(0.9*min))
+- line4yesterday 配色由前端**硬编码覆盖**：Actual #0191F2 实线 / Last N days #00E3EA 虚线
+  （line4multi2 用模板里的 #0d6efd / #0dcaf0）
+- line4yesterday 的 target 序列在最后一个有效点上打 markPoint 徽标 [64,45]
+- 时间元素 current：格式 en=yyyy/MM/dd HH:mm:ss，zh=yyyy年MM月dd日 HH:mm:ss
+

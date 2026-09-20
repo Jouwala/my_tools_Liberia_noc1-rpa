@@ -1540,7 +1540,7 @@ React 副作用**自子向父**执行，`TaskStatusProvider` 的首个 `/tasks` 
 | 目录组织 | `backend/routers/`（API 层）、`backend/services/`（业务逻辑层）、`backend/models`、`backend/schemas`、`frontend/src/pages`、`frontend/src/components` |
 | 模块注册 | 路由：`backend/routers/*.py` 定义 `APIRouter(prefix="/api/<module>", tags=[...])`，在 `main.py` 中 `app.include_router()`；页面：`App.tsx` 中 `lazy()` 懒加载 + `menuItems` + `renderPage()` switch |
 | 任务调度 | `backend/task_registry.py` 声明式 TASK_SPECS + `task_runner` 通用调度（本次集成为在线交互功能，无需注册定时任务） |
-| UI 风格 | React 19 + antd 6 + echarts + leaflet/react-leaflet；深色主题（背景 `#0a1929`、主色 teal `#13c2c2`，`theme.ts` 的 `WH` 常量）；中英双语 `i18n.tsx` |
+| UI 风格 | React 19 + antd 6 + echarts + leaflet/react-leaflet；**深色主题 = vmax 深空蓝**（页面底 `#02050c`、面板 `#08122c`、描边 `#153db0`、主色 `#258cff`、强调青 `#00d9ff`、主文字 `#f5f7ff`；`theme.ts` 的 `WH` 常量 + `App.tsx` 的 `VMAX_DARK_TOKEN`）；中英双语 `i18n.tsx` |
 | 命名规范 | router 文件名 snake_case（如 `alarm_dashboard.py`），页面组件 PascalCase（如 `AlarmDashboard.tsx`），API 前缀 kebab-case（如 `/api/alarm-dashboard`） |
 | 配置管理 | 环境变量 + `credentials` 表（凭据集中管理，`CredentialSettings` 页面）；CORS 由 `MY_APP_CORS_ORIGINS` 控制 |
 | 公共能力 | `logging`（禁裸 print）、`get_raw_connection`（SQLite）、`backend/security.py`（受保护接口）、`api.ts` 统一 axios 实例（baseURL `/api`，timeout 120s） |
@@ -2011,3 +2011,162 @@ ECharts/Leaflet 只会在真正进入对应页面时才加载，首屏体积可�
 ---
 
 原报告中已落地的 P0/P1 国际化，连同本次 P1 加载效率，即为本次分析提出的**全部可落地优化项**。如需进一步压榨（如 ECharts 按需引入、路由预加载、图片/字体优化），可另开一轮。
+
+---
+
+## ✅ legacy 页「深色档」统一到 vmax 深空蓝（2026-09-19）
+
+### 背景：两套互不相干的调色系统
+
+| 层 | 色值来源 | 状态 |
+|---|---|---|
+| React 外壳 | `frontend/src/index.css` 的 `--wh-*`、`theme.ts` 的 `WH/DARK`、`App.tsx` 的 `VMAX_DARK_TOKEN`（antd） | 2026-09-18 已统一到 vmax 深空蓝 |
+| legacy 单文件页 | `frontend/public/*.html`，经 `LegacyToolFrame.tsx` 以**同源 iframe** 嵌入 | 各页**自带一份私有调色板**，本次统一 |
+
+两层**只共享「深/浅档这个状态」**（`html[data-theme]` + `localStorage['myapp-theme']` +
+`postMessage({__type:'myapp-theme', mode})`），**从不共享色值**。于是外壳是 vmax 深空蓝、
+iframe 内部还是各页自己的老配色，接缝处直接看到一条颜色台阶。实测深色档 iframe 的
+`body` 底色：`mwRealTime` / `mwUmeTopology` / `cxoDashboard` = `#03141d`（墨绿青）、
+`alarmManagement` / `warehouse` = `#0a1929`（slate，且 warehouse 用薄荷绿 `#64ffda`）、
+`ip_trace` = `#090c15`（强调青 `#00dbc9`），而基准页 `vmaxCxoDashboard_90Days` = `#02050c`。
+
+**这不是「某一页忘了改」，而是「逐页私有调色板」这个结构本身的必然结果** ——
+只要色值有 N 份副本，就有 N 个漂移点。
+
+### 约定：`frontend/public/legacy-vmax-theme.css` 是深色档唯一真相源
+
+- 定义全部 `--vmax-*` 令牌：背景四层（`#02050c` / `#08122c` / `#050d22` / `#070d31`）、
+  描边四档（`#153db0` / `#173158` / `#17499c` / `#2b6fd0`）、文字四层
+  （`#f5f7ff` / `#aebbd4` / `#8fb0d8` / `#6f8cb4`）、主色强调（`#258cff` / `#00d9ff` /
+  `#7fd2ee` / `#55d7ff`）、语义色（`#0bc78c` / `#f6cf00` / `#ff922b` / `#ff5c6c`）、
+  7 级健康度色阶、蓝色叠加填充、卡片渐变·内辉光·顶栏 mast·页面辉光。
+- 提供**兼容别名**，使各页 CSS 一行都不用改：`--bg --panel --panel2 --line --line-soft
+  --accent --text --muted --green --yellow --orange --red --gray`、
+  `--border --border-strong --panel-sub`、`--accent2 --good --bad`。
+- 提供**观感开关** `--surface-bg` / `--surface-shadow`：深色 = vmax 卡片渐变 + 内辉光；
+  浅色由 `html[data-theme="light"]` 在共享文件里**统一兜底**复位成「平涂 + 无阴影」。
+- 提供 **Tailwind CDN 桥接** `--vmax-*-rgb` 三元组（供 `ip-trace` / `warehouse` /
+  `incident-overview` 这类 Tailwind 页使用）。⚠️ 必须写成
+  `rgb(var(--vmax-cyan-rgb) / <alpha-value>)`；直接写 `var(--vmax-cyan)` 会让 Tailwind 的
+  `parseColor()` 返回 null 并**静默丢弃透明度**（`bg-primary/30` 退化成不透明整块）。
+- **维护约定**：`--vmax-*` 的值必须与 `frontend/src/index.css` 的 `:root` 逐条对应；
+  改色请同时改两处，并同步 `App.tsx` 的 `VMAX_DARK_TOKEN`。
+
+### 三步迁移法（新增 legacy 页时照做）
+
+1. `<head>` 里 `legacy-glass-baseline.css` 之后加
+   `<link rel="stylesheet" href="./legacy-vmax-theme.css">`。
+2. 处理本页自己的深色色值定义。**先判断极性**：
+   - 极性正常（`:root` 是深色、浅色走 `html[data-theme="light"]`，如 `mw_real_time.html`）→
+     **删掉 `:root` 深色块**。
+   - 极性相反（`:root` 是浅色、深色走 `[data-theme="dark"]`，如 `alarm-management.html`）→
+     **浅色块一字不动，把 `[data-theme="dark"]` 块内的色值收敛为 `var(--vmax-*)`**，
+     并补齐它漏覆盖的变量（漏覆盖正是深色跑偏的根因）。
+   - ⚠️ 不处理不生效：共享文件在 `<head>`、页面 `<style>` 在其后，同特异性下后者胜出。
+3. 页内 JS 不再自己存色值常量，改为读 CSS 变量
+   （`cssVar()` / `readPalette()` / `refreshPalette()`，见 `mw_real_time.html`）。
+   ⚠️ 只在加载时与切主题时各读一次（`getComputedStyle` 有开销），不要放进 render 热路径。
+
+**浅色档一律不动**：迁移后必须用实测数据证明浅色渲染与改动前逐项一致。
+
+### 本次接入范围（7 个 legacy 页）
+
+`mw_real_time.html`（试点）、`mw_ume_topology.html`、`cxo_dashboard.html`（含内嵌 776KB DATA 里
+烘焙的图表 chrome：轴文字、地图描边/底、visualMap 四段色阶）、`alarm-management.html`、
+`warehouse-dashboard.html`、`incident-overview.html`、`ip-trace.html`。
+另有 `legacy-glass-baseline.css` 的深色四项对齐 vmax（原来用 `#0a1929` + 薄荷绿）。
+
+**`ip-trace.html` 是唯一连主题机制都没有的页**（`data-theme` 为 `(none)`），本次补上
+`data-theme` 钩子（`localStorage` → `prefers-color-scheme` → 默认 `dark`，并监听外壳
+`postMessage`）。**其浅色档未实现** —— 与改动前行为一致（浅色外壳下仍是深色外观）。
+
+### 浅色档保真（硬约束）
+
+迁移后必须证明**浅色档没变**。只比 `body` 底色/主文字**不够** —— 本轮靠逐元素核对才挖出
+三个真问题（见下）。约定：
+
+- **不新增浅色档样式**：原浅色块一字节不改；确需新变量时**新增** `[data-theme="light"]` 规则，
+  取值逐字等于原字面量。
+- **原本与主题无关的东西不许改成随主题切换**。地图浮层就是典型：`.geo-cluster`、
+  Leaflet 版权条（含缩放控件的 SVG 图标与版权条里的 Leaflet logo —— 它们靠 `currentColor`
+  继承 `<a>` 的颜色）原本硬编码 `#19c3ff` / `#9fb3c8`，它们浮在地图瓦片上，本就与页面深浅档无关，
+  必须用固定令牌（`var(--vmax-cyan)` / `var(--vmax-text-muted)`）而不是 `var(--accent)` / `var(--muted)`。
+  同理 `.kpi .k-why` 的底（原 `rgba(255,255,255,.08)`，hover `rgba(25,195,255,.18)`）。
+- **同一语义不要留多套色值来源**。原文件里同一个健康度等级有**三套**：CSS `.lvl-*`（走主题变量）、
+  CSS `.d-tr.u-*`（硬编码）、JS `LVL_COLOR`（硬编码）。统一到 `--vmax-lvl-*` 一档是对的，
+  但要意识到浅色档下后两者会从原来的亮色变成浅色档色阶（白底上更可读）——这属于**已披露的
+  同族换色**，不是回归。
+
+### 验证方式
+
+- 断言式逐页验证：`TMP/t_mwrt_dark_verify.py`（试点 22 项）、`TMP/t_cxo_dark_verify.py`（40 项）、
+  以及各页自己的 `TMP/t_am_*.py` / `TMP/t_iptrace_*.py` / `TMP/t_fp2*.py` / `TMP/t_palette_audit.py`。
+- **全量独立复核**：`TMP/t_legacy_dark_rollout_verify.py` —— 把每页改动前备份复制成
+  `_fe_dist/_orig_<name>.html` 作为**浅色档回归基线副本**，逐页测
+  `{基线, 现版} × {深色, 浅色}` 四组数据，断言深色基色/主文字 + 浅色与基线逐项一致。
+  可用 `python TMP/t_legacy_dark_rollout_verify.py <pageKey>...` 只跑指定页。
+- **浅色档逐元素核对**：`TMP/t_legacy_light_elementdiff.py` —— 把每个元素的 computed style 拆成
+  6 个字段，按字段做**多重集**对比基线与现版（现版多一个 `<link>`，按索引比会整体错位、
+  全是假差异）。判定用显式白名单 `RETINT_ALLOWLIST`（只放行同族换色），有未知差异则非 0 退出。
+- **CSS 注释审计**：`TMP/t_css_comment_audit.py` —— 见坑 3，务必在每次改完 CSS 后跑一遍。
+
+### 已知坑（做同类迁移时先看这里）
+
+1. **CRLF**：这些 legacy 页是纯 CRLF。Python 必须 `newline=None` 读、`newline='\r\n'` 写回。
+2. **批量替换要对每个锚点断言「命中且仅命中期望次数」**，任一不符即整体失败、不落盘。
+3. **CSS 注释正文里绝不能出现 `*/`** —— 会在那里**提前闭合注释**，紧随其后的那条声明被
+   CSS 错误恢复逻辑吞掉。**症状极隐蔽**：页面不报错、其它声明照常生效，只有那一条静默失效。
+   本项目一天内踩了两次：
+   - `alarm-management` 的注释写 `--chart-*/--map-*`，把整个 `[data-theme="dark"]{…}` 吞掉、深色失效。
+   - `mw_real_time` / `mw_ume_topology` 的浅色档注释写「`.lvl-*/.dot-*` 的浅色观感」，
+     把紧随其后的 `--vmax-lvl-healthy:#0f9d6b` 吞掉 → 浅色档 healthy 一档静默回落成深色值。
+   「星号简写」是重灾区（想写 `.lvl-*/.dot-*` 就会产生 `*/`），改成 `` `.lvl-*` 与 `.dot-*` ``。
+4. **Tailwind preflight 假阳性**：Tailwind 给 `*` 设 `border-color:#e5e7eb` 但宽度为 0，
+   扫描 computed style 时须配合 `border-*-width > 0` 才算可见。
+5. **`networkidle` 不可用**：这些页有 5 分钟轮询/长连接，改用 `domcontentloaded` + 固定等待。
+6. **「有效页面底色」不能只看 `body`**：Tailwind 页 body 常透明；做法是视口打网格采样、
+   从每个采样点向上找第一个不透明背景、取众数。
+7. **Tailwind CDN 会静默丢弃「`var()` 色值 + `/NN` 透明度」**：`border-[var(--text-primary)]/20`
+   这类工具类**从未生成过**，描边一直落在 preflight 的 gray-200 上。要么用
+   `rgb(var(--vmax-*-rgb) / <alpha-value>)`，要么写 `rgb(var(--vmax-*-rgb) / 20%)`。
+8. **切主题时要刷新 JS 侧缓存**：`applyTheme()` 里除了 `refreshPalette()`，还要重建那些
+   「一次性生成、颜色写进 inline style」的元素。`mw_ume_topology.html` 就漏了 `refreshPalette()`
+   （首屏对、运行时切档不刷新），地图站点标记则漏了重建（标记色来自 `LVL_COLOR`，
+   不重建就保留上一档颜色）。
+9. **Tailwind 任意值类的深色覆盖用 `[class*="..."]` 属性选择器**时，改类名字符串会让覆盖
+   **静默失效**；更稳的做法是换成命名工具类。
+10. **数据驱动的色值，白名单要按整条色阶补全**。健康度 7 级色由 JS 写进 inline style，
+   而地图上出现哪些站点状态是数据驱动的 —— 只抽到 healthy/critical 的那一轮不会报错，
+   抽到 moderate 的那一轮才暴露，于是变成「随机失败」的假告警。
+11. **Leaflet 内部结构会造成元素数抖动**：`leaflet-tile-container` / `leaflet-tile-pane` /
+   `leaflet-zoom-animated` 会在瓦片加载与缩放动画中被创建销毁（实测同一版本两次跑
+   1601/1602 个元素）。做逐元素核对时必须排除这些内部 pane，但**保留 `.leaflet-control-*`**
+   （缩放控件、版权条）—— 那些确实带颜色、需要核对。
+12. 备份按老规矩留在原地：`*_bak_20260919_vmax_dark`。
+
+### 已知遗留（有意未修，需单开任务）
+
+- `incident-overview.html` 地图图例的 mid/low 两档**在浅色档历史上就是写反的**
+  （地图 `>0.4→#d9700f`、`>0.2→#c77d00`；图例 `>0.4→#c77d00`、`>0.2→#d9700f`）。
+  修它会改浅色渲染，与「浅色档不动」冲突，故保留原对调关系（深色档与地图一致）。
+- `incident-overview.html` 的 `text-[var(--text-primary)]/90`（15 处）是失效工具类
+  （不产生错色，文字色继承 `--text-primary`）；清理需去掉 `/90`。
+- 若干死变量（`--ioc-map-no-data` / `--ioc-map-border` / `--bg-card-hover` / `--hud-blue` /
+  `--hud-green`）只有定义无引用，未删除（删除属重构）。
+
+### 有意保留（不是遗漏）
+
+- 图表**系列身份色**：`cxo_dashboard` 的 day-0..day-7、`ip_trace` 的 HOP 7 色（含紫/粉）、
+  `alarm-management` 的 donut 第 5 档紫 `#9b59b6`、`warehouse` 的 `Outbound Qty` DeepPink
+  `rgba(255,20,147,.7)`。彩虹式多系列配色是刻意的数据身份编码，vmax 无对应语义，
+  硬换会损失可区分性。
+- **业务分级顺序色**：`incident-overview` 的 P1–P4 严重度色阶、SLA 徽章 red-orange-amber-blue-green
+  —— 只换 vmax 同名语义基色，不跨语义搬运。
+- KML 橙色 `#ff9500`（地图 KML 图层业务色）。
+- 彩色底上的 `#fff`（按钮/徽标文字）；`cxo_dashboard` 烘焙数据里的 `#fff`/`#ffffff`
+  另有原因：`patchLight()` 依赖 `rgba(255,255,255,*)`/`#fff` 字面量做浅色档翻转。
+- **纯黑投影/遮罩/inset 高光**（中性色，不属于任何调色体系）。
+- `--whd-*-rgb` 保持**逗号分隔**字面量（约 40 处调用点写 `rgba(var(--whd-teal-rgb), A)` 逗号拼接，
+  而共享文件的 `--vmax-*-rgb` 是 CSS Color 4 空格分隔形式、不能拼接；浅色块也用逗号三元组）。
+
+详见 `.workbuddy-ai/memory/2026-09-19.md`。

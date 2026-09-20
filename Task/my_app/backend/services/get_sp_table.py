@@ -754,6 +754,13 @@ SFTP_KEEPALIVE = 30
 SFTP_MAX_ATTEMPTS = 3          # 整体连接/同步重试次数
 SFTP_ATTEMPT_BACKOFF = 5       # 退避基数（秒），第 n 次整体重试等待 n*base
 SFTP_TABLE_RETRY = 2           # 单表下载失败后，重建连接重试次数
+# 2026-09-20 加固：channel 级读超时。此前只有连接超时+keepalive，但 keepalive 只能
+# 维持 TCP 会话——当 SFTP 服务端应用层挂死（TCP 仍 ESTABLISHED、keepalive 报文被
+# 对端内核 ACK）时，SFTPClient 的 channel 读会【永久阻塞】，worker 卡死 5.5h，
+# 连带 n 组全部任务 pending（sp_data_sync 2026-09-20 07:06 事故）。
+# 显式给 channel 设超时后，挂死读会在 SFTP_CHANNEL_TIMEOUT 秒抛 socket.timeout，
+# 由已有的 SFTP_TABLE_RETRY / SFTP_MAX_ATTEMPTS 重试机制接管，任务失败可自愈。
+SFTP_CHANNEL_TIMEOUT = 180    # 单个 SFTP 操作（listdir/get 读块）最大等待秒数
 
 
 def _connect_sftp():
@@ -764,6 +771,13 @@ def _connect_sftp():
     _sftp_user, _sftp_pass = _runtime_credentials()
     client.connect(username=_sftp_user, password=_sftp_pass)
     sftp = paramiko.SFTPClient.from_transport(client)
+    # 关键：channel 读超时（keepalive 防不了应用层挂死，见上方注释）
+    try:
+        chan = sftp.get_channel()
+        if chan is not None:
+            chan.settimeout(SFTP_CHANNEL_TIMEOUT)
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"[SFTP] channel 超时设置失败（退回无超时模式）: {e}")
     return client, sftp
 
 

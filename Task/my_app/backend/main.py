@@ -46,11 +46,12 @@ from backend.models.analysis import AnalysisArchive, UploadedFile
 from backend.routers import (
     tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard,
     packet_loss_dashboard, battery_dashboard, credentials,
-    tasks, sp_dashboard, sp_material_summary, system,
-    incident_overview, ip_trace, nur_dashboard, ms_sla_dashboard,
+    tasks, sp_dashboard, sp_material_summary, sp_details, sp_report, system,
+    incident_overview, ip_trace, nur_dashboard, ms_sla_dashboard, ms_kpi_report,
     site_availability,
     ran_cells_kpi,
     ume_in_kpi,
+    ume_in_screen,
     email_recipients,
     realtime_proxy,
     settings,
@@ -129,6 +130,12 @@ app.include_router(tasks.router)
 app.include_router(sp_dashboard.router)
 # SP 物料库存/消耗统计汇总（WH/DOP 报表模板，见 routers/sp_material_summary.py）
 app.include_router(sp_material_summary.router)
+# SP 备件明细报表（page=sp_details；数据源 = sp_email_details 任务生成的合并工作簿，
+# 见 routers/sp_details.py 与 services/sp_details_service.py）
+app.include_router(sp_details.router)
+# SP 备件 / 耗材汇总报表（page=sp_report / com_report；数据源 = sp_report_generate 任务
+# 生成的汇总工作簿，见 routers/sp_report.py 与 services/sp_report_service.py）
+app.include_router(sp_report.router)
 app.include_router(system.router)
 # Incident Overview / IP Trace：从 Unified_Tools 集成（Phase 1 拆分时遗漏挂载，
 # 导致 /api/incident-overview/* 与 /api/ip-trace/* 路由不存在、页面取不到数据）
@@ -138,11 +145,16 @@ app.include_router(ip_trace.router)
 app.include_router(nur_dashboard.router)
 # MS SLA 看板（MS Contract KPIs / MS WOs SLA 日报数据，ms_sla_dashboard 库）
 app.include_router(ms_sla_dashboard.router)
+# MS Contract KPIs / WOs SLA 报表（page=ms_contract_kpi / ms_wo_sla；数据源 = ms_sla_full /
+# kpi_ms_wo_sla 任务产出的工作簿本体，见 routers/ms_kpi_report.py）
+app.include_router(ms_kpi_report.router)
 # FME 站点可用率与工单看板（master_site_db + 远端站点级可用性 + eflow_tt）
 app.include_router(site_availability.router)
 # RAN 2G/3G/4G Cells KPI 看板（小区级可用率，达标值 99.65%）
 app.include_router(ran_cells_kpi.router)
 app.include_router(ume_in_kpi.router)
+# UME 割接大屏「实时还原」：后端代理 UME 大屏鉴权+取数，页面任意时刻打开都是当前值
+app.include_router(ume_in_screen.router)
 # 实时代理控制（前端「启用实时刷新」开关按需拉起/关闭本地代理 8787/8790）
 app.include_router(realtime_proxy.router)
 # 全局设置（远程主机等，供「系统设置」页面读写）

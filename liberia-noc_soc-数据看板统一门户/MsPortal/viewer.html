@@ -164,6 +164,10 @@
   </div>
 
   <script src="assets/data.js"></script>
+  <!-- 访问控制：与门户首页（index.html）共用同一份实现。本页是**真正内嵌报告内容**
+       的页面，必须自己按 allowedGroups / allowedCards 过滤 —— 不能只靠首页把入口
+       藏起来（否则改一下 URL 的 ?no=/?gid= 就能看到被禁止的报告，2026-09-20 实测）。 -->
+  <script src="assets/access.js"></script>
   <script src="assets/viewer.js"></script>
 </body>
 </html>

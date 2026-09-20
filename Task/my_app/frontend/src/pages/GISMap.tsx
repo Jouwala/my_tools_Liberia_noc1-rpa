@@ -8,6 +8,7 @@ import dayjs, { Dayjs } from 'dayjs'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { ExplainIcon } from '../components/MetricExplain'
+import MapWheelZoomOnClick, { isEmbeddedInPortal } from '../components/MapWheelZoomOnClick'
 import { useDataTimestamps } from '../useDataTimestamps'
 import { WH, WH_COLORS, cardStyle, controlCardStyle, pageWrap, useTheme } from '../theme'
 import { MapController } from './gismap/MapController'
@@ -555,6 +556,8 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         </Card>
       )}
 
+      {/* 门户内嵌时地图铺满整个区块：滚轮缩放先关掉，点击地图后才生效
+          （避免门户页面滚动被地图吃掉，见 components/MapWheelZoomOnClick） */}
       <Card styles={{ body: { padding: 0 } }} style={{ ...cardStyle, overflow: 'hidden' }}>
         {loading ? (
           <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />
@@ -564,8 +567,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
             zoom={8}
             className={mapClassName}
             style={{ height: 'calc(100vh - 290px)', width: '100%', background: 'var(--wh-page-bg)' }}
-            scrollWheelZoom={true}
+            scrollWheelZoom={!isEmbeddedInPortal()}
           >
+            <MapWheelZoomOnClick />
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

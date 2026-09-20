@@ -80,6 +80,18 @@ try:
 except (TypeError, ValueError):
     STALE_RUNNING_SECONDS = 30 * 60
 
+# 任务运行时长上限（2026-09-20 新增）：已知 worker 存活、但单条 running 记录超过
+# 该时长时，判定为「进程活着但任务挂死」，由周期回收逻辑强杀该 worker（watchdog
+# 会自动重拉），并把残留行标 failed 释放单飞名额。这是对「无超时网络调用」类
+# 挂死的最终兜底——sp_data_sync 2026-09-20 事故中 SFTP channel 读挂死 5.5h，
+# 整个 n 组（含 MW 实时看板、实时告警）停摆，旧回收逻辑因「pid 存活且已知」
+# 永不回收。阈值默认 4h：sp_data_sync 实测最长 1.5~2h、pg_to_sqlite 全量 1h+，
+# 4h 足够避开一切合法长任务。可用环境变量 WORKER_TASK_MAX_SECONDS 覆盖。
+try:
+    TASK_MAX_RUNNING_SECONDS = max(1800, int(os.environ.get("WORKER_TASK_MAX_SECONDS", str(4 * 3600))))
+except (TypeError, ValueError):
+    TASK_MAX_RUNNING_SECONDS = 4 * 3600
+
 # 陈旧 pending 过期阈值（2026-09-18 新增）：分组模式下每个 worker 只认领
 # MY_APP_WORKER_TASKS 白名单内的任务，一旦某任务漏登记 worker_watchdog.GROUP_TASK_MAP，
 # 没有任何 worker 会认领它 → 这条 pending 永久滞留，并且占住 enqueue_task 的单飞名额
@@ -98,7 +110,14 @@ except (TypeError, ValueError):
 
 def _pid_alive(pid) -> bool:
     """核对 worker_pid 是否仍存活（Windows 用 OpenProcess，POSIX 用 kill 0）。
-    无法判定（pid 非法/权限异常）时保守返回 True，交给时间阈值兜底。"""
+    无法判定（pid 非法/权限异常）时保守返回 True，交给时间阈值兜底。
+
+    2026-09-20 加固：Windows 上还要核对退出码。taskkill /F 对卡在内核调用
+    （如无超时 SFTP 读）的进程发起终止后，进程对象可能长时间处于
+    「已终止(exit_code=1) 但未回收」状态——OpenProcess 仍成功，但用户线程
+    已全部销毁、不可能再执行任何任务。此前这种僵尸被判为"存活"，导致
+    sp_data_sync 残留 running 行占用单飞名额 5.5h+。显式核对
+    GetExitCodeProcess != STILL_ACTIVE(259) 即视为已死。"""
     try:
         pid = int(pid)
         if pid <= 0:
@@ -108,6 +127,7 @@ def _pid_alive(pid) -> bool:
     if sys.platform == "win32":
         try:
             import ctypes
+            import ctypes.wintypes  # noqa: F401  确保 DWORD 可用
             kernel32 = ctypes.windll.kernel32
             # 必须显式设置 restype：ctypes 默认按 32 位有符号 int 解释返回值，
             # 64 位句柄高位被截断后可能变成 0/负数，把存活进程误判为不存在
@@ -119,7 +139,19 @@ def _pid_alive(pid) -> bool:
             h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if not h:
                 return False  # 打开失败=进程不存在（或无权限，本机自身进程不会无权限）
-            kernel32.CloseHandle(h)
+            try:
+                STILL_ACTIVE = 259
+                exit_code = ctypes.wintypes.DWORD()
+                # GetExitCodeProcess 同样需要显式 restype/argtypes（64 位安全）
+                kernel32.GetExitCodeProcess.restype = ctypes.c_int
+                kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p,
+                                                        ctypes.POINTER(ctypes.wintypes.DWORD)]
+                if kernel32.GetExitCodeProcess(h, ctypes.byref(exit_code)):
+                    if exit_code.value != STILL_ACTIVE:
+                        return False  # 已终止未回收的僵尸：不可能再执行任务
+                # 退出码查询失败时保守视为存活，交由时间阈值兜底
+            finally:
+                kernel32.CloseHandle(h)
             return True
         except Exception:
             return True
@@ -175,7 +207,30 @@ def _recover_stale_running():
                 if _pid_int is not None:
                     if _pid_alive(_pid_int):
                         if task_runner._is_known_worker_pid(_pid_int):
-                            continue  # 活 worker 正在执行（长任务合法），不回收
+                            # 活 worker 正在执行（长任务合法），正常不回收。
+                            # 2026-09-20 兜底：单条记录运行超过 TASK_MAX_RUNNING_SECONDS
+                            # 视为任务挂死（进程活着但不干活），强杀 worker 释放整组
+                            # ——watchdog 会自动重拉，_pid_alive 的僵尸识别兜住回收窗口。
+                            if started_at:
+                                try:
+                                    _ran = (datetime.now() - datetime.fromisoformat(started_at)).total_seconds()
+                                except ValueError:
+                                    _ran = 0
+                                if _ran > TASK_MAX_RUNNING_SECONDS:
+                                    logger.error(
+                                        f"任务 {task_id} 已运行 {_ran/3600:.1f}h 超过上限 "
+                                        f"{TASK_MAX_RUNNING_SECONDS/3600:.1f}h，判定挂死，"
+                                        f"强杀 worker(pid={_pid_int}) 释放单飞名额（watchdog 将自动重拉）"
+                                    )
+                                    task_runner._kill_worker_process(_pid_int)
+                                    time.sleep(3)
+                                    if _pid_alive(_pid_int):
+                                        continue  # 击杀未生效（权限等）：不动它，下轮再试
+                                    pid_dead = True
+                                else:
+                                    continue
+                            else:
+                                continue
                         pid_dead = True  # PID 被无关进程复用，视为原 worker 已死
                     else:
                         pid_dead = True

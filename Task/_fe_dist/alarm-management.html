@@ -2,6 +2,9 @@
 <html lang="zh-CN">
 <head>
     <link rel="stylesheet" href="./legacy-glass-baseline.css">
+    <!-- 深色档 vmax 令牌（唯一真相源，见 legacy-vmax-theme.css 文件头）。
+         浅色档仍由下方 :root 定义，本文件不介入；深色档由 [data-theme="dark"] 引用 --vmax-*。 -->
+    <link rel="stylesheet" href="./legacy-vmax-theme.css">
 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -119,7 +122,8 @@
   /* 图表高度随视口自适应：实测 1080p 视口下 50vh-258px 恰好让 3×2 网格铺满且不出现滚动条
      （1028px 可用高度 - 标题/说明/概览条/网格间距 = 2 行图表 + 卡片外框）。1440p 封顶 520px。 */
   #secAssign .probe-card .chartbox.tall{height:clamp(200px,calc(50vh - 258px),520px)}
-  [data-theme="dark"] #secAssign .asg-kpi{background:#112540;border-color:var(--border)}
+  /* 深色档卡片：vmax 卡片渐变 + 内辉光（色值唯一真相源 legacy-vmax-theme.css） */
+  [data-theme="dark"] #secAssign .asg-kpi{background:var(--vmax-card-bg);border-color:var(--border);box-shadow:var(--vmax-card-shadow)}
   [data-theme="dark"] #secAssign .asg-kpi .sub{color:var(--disabled)}
   @media (max-width:1500px){
     #secAssign .asg-kpis{grid-template-columns:repeat(3,1fr)}
@@ -294,45 +298,95 @@
   .drawer .db{flex:1;overflow:auto;padding:0.75rem 1rem;font-family:Consolas,Menlo,monospace;font-size:0.719rem;white-space:pre-wrap;word-break:break-all}
   .drawer .dbtns{padding:0.75rem 1rem;border-top:1px solid rgba(255,255,255,.12);display:flex;gap:0.5rem}
 
-  /* ===== 站点宕机看板 深/浅主题（与 myapp 同步，键 myapp-theme） ===== */
+  /* ===== 站点宕机看板 深/浅主题（与 myapp 同步，键 myapp-theme） =====
+     深色档色值不再写死在这里 —— 唯一真相源是 legacy-vmax-theme.css 的 --vmax-* 令牌
+     （与 React 外壳 frontend/src/index.css 的 :root 同源）。本块只做两件事：
+       1) 把本页历史上自用的变量名（--bg/--panel/--text/...）映射到 vmax 令牌；
+       2) 补上 vmax 里没有、且只属于本页的「页内局部变量」（--chart-… / --map-… / --avail-… 等），
+          它们只在深色档定义，浅色档由使用处的 var(--x, 浅色原值) 兜底 —— 所以文件开头
+          :root 里的浅色档定义一个字都不用改，浅色渲染与改动前逐元素一致。
+     历史根因：深色档此前只覆盖了 15 个变量，--primary/#1993ff、--crit/#e5484d、
+     --maj/#f58c1f、--hm-* 等直接吃 :root 的浅色值，于是「外壳是 vmax 深空蓝、
+     iframe 里还是老 slate-blue + 老主色」，接缝处一条颜色台阶。 */
   [data-theme="dark"]{
-    --bg:#0a1929; --panel:#112540; --panel-sub:#0e1d33; --text:#e6f4ff; --muted:#94a3b8;
-    --placeholder:#64748b; --disabled:#475569; --border:#22324d; --border-strong:#2c3e5c;
-    --hover:#16304f; --zte-blue:#7fb4e6; --shadow1:0 1px 3px rgba(0,0,0,.4); --shadow2:0 4px 16px rgba(0,0,0,.5);
-    /* 深色主题下 Total 单元格背景：比 --panel-sub 略亮一档，保持与普通 rowh/th 的层次差；
-       文字继承 .rowh 的 var(--text)=浅色，自然变成"浅字深底"，修复"白字白底"隐形问题。 */
-    --tcell-bg:#1f2d44;
-    --tcrow-label-bg:#1a2942;
-    --tcell-text:#e6f4ff;
+    /* --- 别名：本页原有变量名 → vmax 令牌（页面 CSS 调用方一行都不用改） --- */
+    --bg:var(--vmax-bg); --panel:var(--vmax-panel); --panel-sub:var(--vmax-panel-2);
+    --text:var(--vmax-text); --muted:var(--vmax-text-muted);
+    --placeholder:var(--vmax-text-dim); --disabled:var(--vmax-text-dim);
+    --border:var(--vmax-edge); --border-strong:var(--vmax-edge-3);
+    --hover:var(--vmax-fill-2); --zte-blue:var(--vmax-cyan-soft);
+    /* 主色：深色档以前没有覆盖，直接吃浅色档的 #1993ff/#1178d9/#3db0ff（老体系蓝） */
+    --primary:var(--vmax-blue); --primary-dark:var(--vmax-blue);
+    --primary-grad:linear-gradient(135deg,var(--vmax-blue),var(--vmax-cyan));
+    /* 语义色：与 vmax 语义等价 → 深色档换值（浅色档 :root 里保留原值） */
+    --crit:var(--vmax-red); --maj:var(--vmax-orange); --min:var(--vmax-yellow);
+    --warn:var(--vmax-cyan); --ok:var(--vmax-green);
+    --hm-red:var(--vmax-red); --hm-orange:var(--vmax-orange); --hm-green:var(--vmax-green);
+    --shadow1:0 1px 3px rgba(0,0,0,.4); --shadow2:0 4px 16px rgba(0,0,0,.5);
+    /* 深色主题下 Total 单元格背景：vmax 用「蓝色叠加」而不是白/灰叠加，
+       比普通 rowh/th 亮一档保持层次差；文字继承 .rowh 的 var(--text)=浅色，
+       自然变成"浅字深底"，修复"白字白底"隐形问题。 */
+    --tcell-bg:var(--vmax-fill-1);
+    --tcrow-label-bg:var(--vmax-fill-3);
+    --tcell-text:var(--vmax-text);
+    --heat-total-bg:var(--vmax-edge-3);
+    /* --- 页内局部变量（仅深色档定义；浅色档靠使用处 var() 兜底） --- */
+    --chart-axis:var(--vmax-edge-2);            /* 图表轴线 */
+    --chart-split:var(--vmax-fill-2);           /* 图表网格线 */
+    --chart-legend:var(--vmax-text-muted);
+    --chart-bar-label:var(--vmax-text);
+    --chart-map-border:var(--vmax-edge);
+    --map-bg:var(--vmax-bg);                    /* 地图兜底底图 */
+    --map-emph:var(--vmax-edge);                /* 地图 hover 高亮 */
+    --avail-bad:var(--vmax-red);                /* 可用率 < 阈值 */
+    --avail-good:var(--vmax-green);
+    --series-cleared:var(--vmax-blue);          /* 告警"清除"折线 */
+    --ok-ring:rgba(11,199,140,.18);             /* 实时脉冲环 */
+    --err-ring:rgba(255,92,108,.18);
+    --chip-ok-bg:var(--vmax-fill-1); --chip-ok-fg:var(--vmax-green);
+    --focus-ring:rgba(37,140,255,.20);
+    --btn-primary-glow:rgba(37,140,255,.35);
+    --dot-off:var(--vmax-text-dim);
+    --sev-min:var(--vmax-indigo); --sev-warn:var(--vmax-text-dim);
+    --grad-blue:linear-gradient(90deg,var(--vmax-blue),var(--vmax-cyan));
+    --grad-orange:linear-gradient(90deg,var(--vmax-orange),#ffb45c);
+    --grad-green:linear-gradient(90deg,var(--vmax-green),var(--vmax-green-soft));
+    --mast-bg:var(--vmax-mast-bg);
+    --scroll-thumb:var(--vmax-edge-2);
+    --userdd-link:var(--vmax-text-2);
+    --map-wrap-bg:radial-gradient(900px 500px at 50% 20%, var(--vmax-panel), var(--vmax-bg) 70%);
   }
-  [data-theme="dark"] body{ background:
-      radial-gradient(1200px 400px at 15% -50px, rgba(25,147,255,.10), transparent),
-      radial-gradient(1000px 400px at 90% -80px, rgba(61,176,255,.08), transparent),
-      #0a1929; color:var(--text); }
-  [data-theme="dark"] .ptl-header{ background:linear-gradient(90deg,#0d2138,#16304f 60%,#0e2440); }
-  [data-theme="dark"] .ptl-search input{ background:rgba(255,255,255,.10); color:#e6f4ff; }
-  [data-theme="dark"] .ptl-search input::placeholder{ color:rgba(230,244,255,.7); }
-  [data-theme="dark"] .user-dd{ background:#112540; color:var(--text); }
+  [data-theme="dark"] body{ background:var(--vmax-page-glow), var(--vmax-bg); color:var(--text); }
+  [data-theme="dark"] .ptl-header{ background:var(--mast-bg); }
+  [data-theme="dark"] .ptl-search input{ background:var(--vmax-fill-2); color:var(--vmax-text); }
+  [data-theme="dark"] .ptl-search input::placeholder{ color:rgba(245,247,255,.7); }
+  [data-theme="dark"] .user-dd{ background:var(--panel); color:var(--text); }
   [data-theme="dark"] .user-dd .uhead{ background:var(--panel-sub); border-color:var(--border); }
-  [data-theme="dark"] .user-dd li a{ color:#cdd9e8; }
+  [data-theme="dark"] .user-dd li a{ color:var(--userdd-link); }
   [data-theme="dark"] .user-dd li a:hover{ background:var(--hover); }
-  [data-theme="dark"] .secnav a{ background:#112540; border-color:var(--border); color:var(--muted); }
+  [data-theme="dark"] .secnav a{ background:var(--vmax-fill-3); border-color:var(--vmax-edge-3); color:var(--muted); }
   [data-theme="dark"] .secnav a:hover{ color:var(--primary); border-color:var(--primary); }
+  /* 深色档补齐：.secnav a.active 的特异性 (0,2,1) 与上面的 [data-theme="dark"] .secnav a 完全相同、
+     且更靠前，改动前就被后者吃掉 —— 深色下当前 Tab 与未选中态同色（老问题，实测改前
+     active 与普通 tab 都是 #112540/#94a3b8）。补一条深色档专用规则把选中态还原为 vmax 主色。 */
+  [data-theme="dark"] .secnav a.active{ background:var(--primary); border-color:var(--primary); color:#fff; }
+  /* 同一类被吃掉的情况：.chip input:focus (0,2,1) 被 [data-theme="dark"] .chip input 覆盖 */
+  [data-theme="dark"] .chip input:focus{ border-color:var(--primary); }
   [data-theme="dark"] .probe-card,
   [data-theme="dark"] .t5-card,
   [data-theme="dark"] .ac,
-  [data-theme="dark"] .kpi{ background:#112540; border-color:var(--border); }
-  [data-theme="dark"] .panel{ background:#112540; border-color:var(--border); }
-  [data-theme="dark"] .panel .ph{ background:linear-gradient(180deg,#0e2138,#0c1c30); border-color:var(--border); }
+  [data-theme="dark"] .kpi{ background:var(--vmax-card-bg); border-color:var(--border); box-shadow:var(--vmax-card-shadow); }
+  [data-theme="dark"] .panel{ background:var(--vmax-card-bg); border-color:var(--border); box-shadow:var(--vmax-card-shadow); }
+  [data-theme="dark"] .panel .ph{ background:linear-gradient(180deg,var(--vmax-elev),var(--vmax-panel-2)); border-color:var(--border); }
   [data-theme="dark"] .panel .ph .tt{ color:var(--text); }
-  [data-theme="dark"] .dash-toolbar{ background:#112540; border-color:var(--border); }
+  [data-theme="dark"] .dash-toolbar{ background:var(--vmax-card-bg); border-color:var(--border); box-shadow:var(--vmax-card-shadow); }
   [data-theme="dark"] .dash-title{ color:var(--text); }
-  [data-theme="dark"] .fullbtn{ background:#112540; border-color:var(--border-strong); color:var(--muted); }
+  [data-theme="dark"] .fullbtn{ background:var(--vmax-fill-3); border-color:var(--vmax-edge-3); color:var(--muted); }
   [data-theme="dark"] .fullbtn:hover{ background:var(--hover); color:var(--primary); }
-  [data-theme="dark"] .site-type-select select{ background:#112540; color:var(--text); border-color:var(--border-strong); }
-  [data-theme="dark"] .chip input{ background:#0e1d33; color:var(--text); border-color:var(--border-strong); }
-  [data-theme="dark"] .live-pill{ background:#112540; border-color:var(--border); color:var(--muted); }
-  [data-theme="dark"] .carousel-btn{ background:#112540; border-color:var(--border); color:var(--muted); }
+  [data-theme="dark"] .site-type-select select{ background:var(--vmax-fill-3); color:var(--text); border-color:var(--vmax-edge-3); }
+  [data-theme="dark"] .chip input{ background:var(--vmax-fill-3); color:var(--text); border-color:var(--vmax-edge-3); }
+  [data-theme="dark"] .live-pill{ background:var(--vmax-fill-3); border-color:var(--border); color:var(--muted); }
+  [data-theme="dark"] .carousel-btn{ background:var(--vmax-fill-3); border-color:var(--border); color:var(--muted); }
   [data-theme="dark"] .carousel-btn:hover{ background:var(--hover); color:var(--primary); }
   [data-theme="dark"] .carousel-btn.on{ background:var(--primary); border-color:var(--primary); color:#fff; }
   [data-theme="dark"] .kpis .kpi .l{ color:var(--muted); }
@@ -341,9 +395,9 @@
   [data-theme="dark"] table.grid th{ background:var(--panel-sub); color:var(--muted); }
   [data-theme="dark"] table.grid th,table.grid td{ border-color:var(--border); }
   [data-theme="dark"] table.grid td.rowh{ background:var(--panel-sub); color:var(--text); }
-  [data-theme="dark"] .mapwrap{ background:radial-gradient(900px 500px at 50% 20%,#0b1e4e,#030132 70%); }
-  [data-theme="dark"] .clock{ color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.7); }
-  [data-theme="dark"] ::-webkit-scrollbar-thumb{ background:#2c3e5c; }
+  [data-theme="dark"] .mapwrap{ background:var(--map-wrap-bg); }
+  [data-theme="dark"] .clock{ color:var(--vmax-text); text-shadow:0 1px 4px rgba(0,0,0,.7); }
+  [data-theme="dark"] ::-webkit-scrollbar-thumb{ background:var(--scroll-thumb); }
   [data-theme="dark"] .sec-title .tt{ color:var(--text); }
   [data-theme="dark"] .subtt{ color:var(--text); }
   [data-theme="dark"] .breadcrumb{ color:var(--muted); }
@@ -352,6 +406,42 @@
   [data-theme="dark"] .t5-card .t5-num{ color:var(--primary); }
   [data-theme="dark"] .ac .l{ color:var(--muted); }
   [data-theme="dark"] .ac .l .tag{ background:var(--panel-sub); color:var(--placeholder); }
+  /* --- 深色档补齐：改动前这几处没有深色覆盖，弹窗/抽屉/按钮仍是浅色底（接缝色差） --- */
+  [data-theme="dark"] .modal{ background:var(--vmax-elev); color:var(--text); box-shadow:0 18px 60px rgba(0,0,0,.6); }
+  [data-theme="dark"] .field input,[data-theme="dark"] .field select{ background:var(--vmax-fill-3); color:var(--text); border-color:var(--vmax-edge-3); }
+  [data-theme="dark"] .src-row input{ background:var(--vmax-fill-3); color:var(--text); border-color:var(--vmax-edge-3); }
+  [data-theme="dark"] .src-row .del{ background:var(--vmax-fill-3); border-color:var(--border); }
+  [data-theme="dark"] .btn.ghost{ background:var(--vmax-fill-3); color:var(--muted); border-color:var(--vmax-edge-3); }
+  [data-theme="dark"] .add-src{ background:var(--vmax-fill-2); }
+  [data-theme="dark"] .drawer{ background:var(--vmax-elev); color:var(--vmax-text-muted); }
+  [data-theme="dark"] .mask{ background:var(--vmax-scrim); }
+  /* --- 深色档：页内「非变量」硬编码色的收敛（浅色档由 var() 兜底保持原值） --- */
+  [data-theme="dark"] #secAssign .asg-kpi::after{ background:var(--grad-blue); }
+  [data-theme="dark"] #secAssign .asg-kpi.k-asg::after{ background:var(--grad-orange); }
+  [data-theme="dark"] #secAssign .asg-kpi.k-rate::after{ background:var(--grad-green); }
+  [data-theme="dark"] #secAssign .asg-kpi .v{ color:var(--primary); }
+  [data-theme="dark"] #secAssign .asg-kpi.k-asg .v{ color:var(--maj); }
+  [data-theme="dark"] #secAssign .asg-kpi.k-rate .v{ color:var(--ok); }
+  [data-theme="dark"] #secAssign .probe-card .pc-stats .b-rep{ color:var(--primary); }
+  [data-theme="dark"] #secAssign .probe-card .pc-stats .b-asg{ color:var(--maj); }
+  [data-theme="dark"] #secAssign .probe-card .pc-stats .b-rate{ color:var(--ok); }
+  [data-theme="dark"] .ac.all::after{ background:var(--grad-blue); }
+  [data-theme="dark"] .ac.crit::after{ background:var(--crit); }
+  [data-theme="dark"] .ac.major::after{ background:var(--maj); }
+  [data-theme="dark"] .ac.minor::after{ background:var(--min); }
+  [data-theme="dark"] .ac.warn::after{ background:var(--warn); }
+  [data-theme="dark"] .ac.evt::after{ background:var(--vmax-text-dim); }
+  [data-theme="dark"] .ac.minor .n{ color:var(--min); }
+  [data-theme="dark"] .t5-card .t5-sev .crit{ color:var(--crit); }
+  [data-theme="dark"] .t5-card .t5-sev .maj{ color:var(--maj); }
+  [data-theme="dark"] .t5-card .t5-sev .min{ color:var(--sev-min); }
+  [data-theme="dark"] .t5-card .t5-sev .warn{ color:var(--sev-warn); }
+  [data-theme="dark"] .live-pill .dot{ background:var(--dot-off); }
+  [data-theme="dark"] .live-pill .dot.on{ background:var(--ok); box-shadow:0 0 0 3px var(--ok-ring); }
+  [data-theme="dark"] .live-pill .dot.err{ background:var(--crit); box-shadow:0 0 0 3px var(--err-ring); }
+  [data-theme="dark"] .kpi .sub .chip{ background:var(--chip-ok-bg); color:var(--chip-ok-fg); }
+  [data-theme="dark"] .field input:focus,[data-theme="dark"] .field select:focus{ border-color:var(--primary); box-shadow:0 0 0 3px var(--focus-ring); }
+  [data-theme="dark"] .btn.primary{ box-shadow:0 4px 12px var(--btn-primary-glow); }
 
 </style>
 
@@ -586,16 +676,48 @@ img, svg, canvas, iframe { max-width: 100%; }
 <script>
 /* ===== 主题变量（深/浅）前置声明：必须在任何引用 APP_THEME / curP / PALETTE 的看板代码之前定义，
           否则加载期触发 Temporal Dead Zone (TDZ) ReferenceError，导致整段脚本中止、所有点击失效 ===== */
-const PALETTE={
-  light:{axis:'#dfe5ee',axisLabel:'#6b7787',split:'#f0f3f8',text:'#3d4757',legend:'#6b7787',barLabel:'#4d4d4d',mapBorder:'#d8e3f5'},
-  dark:{axis:'#2a3a52',axisLabel:'#94a3b8',split:'rgba(255,255,255,.06)',text:'#e6f4ff',legend:'#c5d2e0',barLabel:'#e6f4ff',mapBorder:'#33507a'}
-};
+/* 深色档色值不再写死在这里 —— 唯一真相源是 legacy-vmax-theme.css 的 CSS 变量
+   （与 React 外壳 index.css 同源）。老写法是「CSS 一份 + 这里的 PALETTE 一份」，
+   两份必须手工同步，正是深色跑偏的根因之一。
+   ⚠️ 只在加载时与切换主题时各读一次（getComputedStyle 有开销），不要放进 render 热路径；
+      所以下面用 PALETTE 缓存，applyTheme() 里刷新。 */
+function cssVar(name, fallback){
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  } catch(e){ return fallback; }
+}
+/* 浅色档的 axis/split/legend/barLabel/mapBorder 历史上不是 CSS 变量，故写在各字段的
+   var() 兜底里（值 = 改动前的浅色档取值，逐字未变）；深色档由 [data-theme="dark"]
+   里的 --chart-* 提供 vmax 值。 */
+function readPalette(){
+  return {
+    axis:      cssVar('--chart-axis',      '#dfe5ee'),
+    axisLabel: cssVar('--muted',           '#6b7787'),
+    split:     cssVar('--chart-split',     '#f0f3f8'),
+    text:      cssVar('--text',            '#3d4757'),
+    legend:    cssVar('--chart-legend',    '#6b7787'),
+    barLabel:  cssVar('--chart-bar-label', '#4d4d4d'),
+    mapBorder: cssVar('--chart-map-border','#d8e3f5'),
+  };
+}
 let APP_THEME=(function(){
   try{ const s=localStorage.getItem('myapp-theme'); if(s==='dark'||s==='light') return s; }catch(e){}
   try{ return (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'; }catch(e){ return 'light'; }
 })();
+/* 必须先钉住 data-theme 再读变量，否则读到的是上一次的档位 */
+try{ document.documentElement.dataset.theme=APP_THEME; }catch(e){}
+const PALETTE={ light:readPalette(), dark:readPalette() };
 let APP_LOCALE=(function(){ try{ const v=localStorage.getItem('app-locale'); if(v==='zh'||v==='en') return v; }catch(e){} return 'zh'; })();
 function curP(){ return PALETTE[APP_THEME]; }
+/* 主题切换后刷新缓存（浅色档色值来自本页 :root，深色档来自 [data-theme=dark]）。
+   refreshHeat / refreshSeriesColors 用函数声明（会提升），此处先判存在再调 ——
+   保证 boot 阶段任何顺序都不会踩到 HM / C 的 TDZ。 */
+function refreshPalette(){
+  PALETTE[APP_THEME]=readPalette();
+  if (typeof refreshHeat === 'function') refreshHeat();
+  if (typeof refreshSeriesColors === 'function') refreshSeriesColors();
+}
 regThemes();   /* 注册 amLight / amDark 主题（window.echarts 此时已就绪），必须在任何 echarts.init 之前 */
 
 /* =================================================================
@@ -607,7 +729,17 @@ const D = JSON.parse(JSON.stringify(FMS_REAL)); JSON.parse(JSON.stringify(FMS_RE
 if(D.raw024 && D.raw024.physical && D.raw024.physical.length){ D.kpis.down = D.raw024.physical[D.raw024.physical.length-1]; }
 // Logical Total 的 SITE/CELL 行 = 实时 getBorDataByVendor（门户 Logical Total 真源），而非各州 Site/Cell 表求和或 0-24 序列
 const ABBR_NAME = D.abbrNames || {};
-const HM = {red:'#ce4c4a', orange:'#d89f42', green:'#349a6d'};
+/* 热力表 / 地图 / 柱状图的 3 档语义色：不再写死，改为读 CSS 令牌（深色档 → vmax 语义色，
+   浅色档 → 改动前的原值）。refreshPalette() 在切主题时调 refreshHeat() 刷新缓存。 */
+function readHeat(){
+  return {
+    red:    cssVar('--hm-red',    '#ce4c4a'),
+    orange: cssVar('--hm-orange', '#d89f42'),
+    green:  cssVar('--hm-green',  '#349a6d'),
+  };
+}
+const HM = readHeat();
+function refreshHeat(){ try{ Object.assign(HM, readHeat()); }catch(e){} }
 // 热力配色：>=5 红、1~4 橙、0 绿。Number() 把字符串/小数等统一归一，避免历史数据里出现 "5" / 5.0
 // 之类被漏判（≥5 本来就应该红色，不要让 ≤4 的边界吃成橙色）。
 function heat(v){ const n=Number(v); if(!isFinite(n)) return HM.green; if(n===0) return HM.green; if(n<=4) return HM.orange; return HM.red; }
@@ -633,7 +765,7 @@ function buildTable(elId, headFirst, headCols, rows, totalRow, totalLabel){
   });
   if(totalRow){
     h+='<tr><td class="rowh" style="background:var(--tcrow-label-bg)">'+totalLabel+'</td>';
-    totalRow.forEach(v=>{ h+='<td class="hm" style="background:#375a8f">'+v+'</td>'; });
+    totalRow.forEach(v=>{ h+='<td class="hm" style="background:var(--heat-total-bg,#375a8f)">'+v+'</td>'; });
     h+='<td class="rowh" style="background:var(--tcrow-label-bg)">'+totalRow.reduce((a,b)=>a+b,0)+'</td></tr>';
   }
   h+='</table>'; el.innerHTML=h;
@@ -727,19 +859,19 @@ function setMapOption(){
   if(!ensureMapChart()) return;
   const md=countyData();
   // 颜色函数：>=5 红色，1-4 橙色，0 绿色
-  const heat=v=> v>=5?'#ce4c4a':(v>0?'#d89f42':'#349a6d');
+  const heat=v=> v>=5?HM.red:(v>0?HM.orange:HM.green);
   mapChart.setOption({
     backgroundColor:'transparent',
     tooltip:{trigger:'item', formatter:p=>{
       const it=md.find(x=>x.name===p.name);
-      if(it) return '<b>'+it.name.replace(/_/g,' ')+'</b> ('+it.abbr+')<br>'+T('宕站数: ','Down sites: ')+'<b style="color:#e5484d">'+it.count+'</b>';
+      if(it) return '<b>'+it.name.replace(/_/g,' ')+'</b> ('+it.abbr+')<br>'+T('宕站数: ','Down sites: ')+'<b style="color:'+HM.red+'">'+it.count+'</b>';
       return p.name||'Liberia'; }},
     // 分档上色：>=5 红、1~4 橙、0 绿。
     // 注意：必须用 gte/gt/lt 显式指定边界。ECharts 的 min/max 闭区间在数据恰好落在
     // 分段边界（如所有区域都是 5，或 4/5 相邻）时会出现边界归属错误，导致 >=5 被画成
     // 默认色（透明/黑底）。 previous fixes using {min:5} regressed because of this.
     visualMap:{type:'piecewise', show:false, pieces:[
-      {gte:5, color:'#ce4c4a'}, {gt:0, lt:5, color:'#d89f42'}, {value:0, color:'#349a6d'}]},
+      {gte:5, color:HM.red}, {gt:0, lt:5, color:HM.orange}, {value:0, color:HM.green}]},
     series:[{type:'map', map:'liberia', roam:false,
       // 利比里亚实际约 457km(东西) x 466km(南北)，近正方；echarts 默认 aspectScale=0.75 会横向压扁，改回真实比例
       aspectScale:1, top:12, bottom:12,
@@ -747,9 +879,9 @@ function setMapOption(){
       // 避免“两个地方都能改颜色”带来的维护混乱。颜色唯一真相源 = visualMap.pieces。
       data:md.map(x=>({name:x.name, value:x.count})),
       label:{show:true, formatter:p=>{ const it=md.find(x=>x.name===p.name); return it?(it.abbr+' '+it.count):p.name; },
-        color:APP_THEME==='dark'?'#fff':'#1f2d3d', fontSize:10, textShadowBlur:2, textShadowColor:APP_THEME==='dark'?'rgba(0,0,0,.55)':'rgba(255,255,255,.7)'},
+        color:APP_THEME==='dark'?cssVar('--text','#f5f7ff'):'#1f2d3d', fontSize:10, textShadowBlur:2, textShadowColor:APP_THEME==='dark'?'rgba(0,0,0,.55)':'rgba(255,255,255,.7)'},
       itemStyle:{borderColor:curP().mapBorder, borderWidth:.7},
-      emphasis:{itemStyle:{areaColor:'#15349f'}, label:{show:true, color:APP_THEME==='dark'?'#fff':'#1f2d3d', fontSize:12}}}]  
+      emphasis:{itemStyle:{areaColor:cssVar('--map-emph','#15349f')}, label:{show:true, color:APP_THEME==='dark'?cssVar('--text','#f5f7ff'):'#1f2d3d', fontSize:12}}}]  
   }, true);
 }
 function renderLibFallback(){
@@ -758,19 +890,19 @@ function renderLibFallback(){
   const W=LIBERIA_SVG?LIBERIA_SVG.w:700, H=LIBERIA_SVG?LIBERIA_SVG.h:440;
   const x=l=>((l-mLng)/(MLng-mLng||1))*W, y=t=>((MLat-t)/(MLat-mLat||1))*H;
   const byAbbr={}; D.pins.forEach(p=>{ byAbbr[p[0]]=p[4]; });
-  const col=v=> v>=5?'#ce4c4a':(v>0?'#d89f42':'#349a6d');
+  const col=v=> v>=5?HM.red:(v>0?HM.orange:HM.green);
   let svg='';
   if(LIBERIA_SVG){ svg='<svg viewBox="0 0 '+W+' '+H+'" style="position:absolute;inset:0;width:100%;height:100%">'+
     LIBERIA_SVG.paths.map(p=>{
       const disp=p.name.replace(/_/g,' ');
       const abbr=Object.keys(D.abbrNames).find(a=>D.abbrNames[a]===disp)||'';
       const v=byAbbr[abbr]||0;
-      return '<path d="'+p.d+'" fill="'+col(v)+'" opacity=".85" stroke="#d8e3f5" stroke-width=".6"/>';
+      return '<path d="'+p.d+'" fill="'+col(v)+'" opacity=".85" stroke="'+curP().mapBorder+'" stroke-width=".6"/>';
     }).join('')+'</svg>'; }
-  mapEl.style.background = APP_THEME==='dark' ? '#030132' : '#dce6f5';
+  mapEl.style.background = APP_THEME==='dark' ? cssVar('--map-bg','#02050c') : '#dce6f5';
   mapEl.innerHTML=svg+'<div style="position:absolute;inset:0;pointer-events:none">'+
     D.pins.map(p=>{ const px=x(p[2]), py=y(p[3]);
-      const lc = APP_THEME==='dark' ? '#fff' : '#1f2d3d';
+      const lc = APP_THEME==='dark' ? cssVar('--text','#f5f7ff') : '#1f2d3d';
       const ls = APP_THEME==='dark' ? '#000' : 'rgba(255,255,255,.8)';
       return '<div style="position:absolute;left:'+px+'px;top:'+py+'px;transform:translate(-50%,-50%);white-space:nowrap;color:'+lc+';font-size:11px;font-weight:700;text-shadow:0 1px 2px '+ls+'">'+
         p[0]+' '+p[4]+'</div>';}).join('')+'</div>';
@@ -799,24 +931,39 @@ function regThemes(){
   if(!window.echarts || !echarts.registerTheme) return;
   echarts.registerTheme('amLight', {
     textStyle:{color:'#3d4757'}, title:{textStyle:{color:'#3d4757'}},
-    legend:{textStyle:{color:curP().axisLabel}},
+    legend:{textStyle:{color:'#6b7787'}},
     tooltip:{backgroundColor:'rgba(255,255,255,.97)',borderColor:'rgba(13,148,136,.25)',borderWidth:1,textStyle:{color:'#16233b'}},
-    categoryAxis:{axisLine:{lineStyle:{color:'#dfe5ee'}},axisLabel:{color:curP().axisLabel},splitLine:{lineStyle:{color:'#f0f3f8'}}},
-    valueAxis:{axisLine:{lineStyle:{color:'#dfe5ee'}},axisLabel:{color:curP().axisLabel},splitLine:{lineStyle:{color:'#f0f3f8'}}}
+    categoryAxis:{axisLine:{lineStyle:{color:'#dfe5ee'}},axisLabel:{color:'#6b7787'},splitLine:{lineStyle:{color:'#f0f3f8'}}},
+    valueAxis:{axisLine:{lineStyle:{color:'#dfe5ee'}},axisLabel:{color:'#6b7787'},splitLine:{lineStyle:{color:'#f0f3f8'}}}
   });
+  /* amDark 一律从 --vmax-* 令牌取值：这些令牌在 :root（共享文件）里深浅两档都有定义，
+     所以即使在浅色档 boot 时注册，也不会读到浅色值（老写法用 curP() 就会串档）。 */
   echarts.registerTheme('amDark', {
-    textStyle:{color:'#e6f4ff'}, title:{textStyle:{color:'#e6f4ff'}},
-    legend:{textStyle:{color:'#c5d2e0'}},
-    tooltip:{backgroundColor:'rgba(10,25,41,.95)',borderColor:'rgba(100,255,218,.25)',borderWidth:1,textStyle:{color:'#e6f4ff'}},
-    categoryAxis:{axisLine:{lineStyle:{color:'#2a3a52'}},axisLabel:{color:'#94a3b8'},splitLine:{lineStyle:{color:'rgba(255,255,255,.06)'}}},
-    valueAxis:{axisLine:{lineStyle:{color:'#2a3a52'}},axisLabel:{color:'#94a3b8'},splitLine:{lineStyle:{color:'rgba(255,255,255,.06)'}}}
+    textStyle:{color:cssVar('--vmax-text','#f5f7ff')}, title:{textStyle:{color:cssVar('--vmax-text','#f5f7ff')}},
+    legend:{textStyle:{color:cssVar('--vmax-text-muted','#aebbd4')}},
+    tooltip:{backgroundColor:'rgba(7,13,49,.95)',borderColor:cssVar('--vmax-cyan','#00d9ff'),borderWidth:1,textStyle:{color:cssVar('--vmax-text','#f5f7ff')}},
+    categoryAxis:{axisLine:{lineStyle:{color:cssVar('--vmax-edge-2','#173158')}},axisLabel:{color:cssVar('--vmax-text-muted','#aebbd4')},splitLine:{lineStyle:{color:cssVar('--vmax-fill-2','rgba(37,140,255,.10)')}}},
+    valueAxis:{axisLine:{lineStyle:{color:cssVar('--vmax-edge-2','#173158')}},axisLabel:{color:cssVar('--vmax-text-muted','#aebbd4')},splitLine:{lineStyle:{color:cssVar('--vmax-fill-2','rgba(37,140,255,.10)')}}}
   });
 }
 /* 主题变量已前置声明于 <script> 顶部（见文件开头），此处不再重复定义 */
 function mkAX(){ const p=curP(); return {axisLine:{lineStyle:{color:p.axis}},axisLabel:{color:p.axisLabel,fontSize:11},splitLine:{lineStyle:{color:p.split}}}; }
 let AX=mkAX();
 function initChart(id){ if(!window.echarts) return null; return echarts.init(document.getElementById(id), APP_THEME==='dark'?'amDark':'amLight'); }
-const C={ '#e5484d':'#e5484d', '#f58c1f':'#f58c1f', '#1993ff':'#1993ff', '#37b26c':'#37b26c', '#9b59b6':'#9b59b6' };
+/* 宕站时长分布 donut 的 5 个系列色：前 4 档与语义色同源（读 CSS 令牌，深色档 → vmax），
+   第 5 档 #9b59b6 是纯系列身份色（vmax 无等价紫，去掉它会与其它档撞色），
+   按「纯业务身份色不为统一而改」的约定原样保留。键序即 Object.values(C) 的取色顺序，未变。 */
+function readSeriesColors(){
+  return {
+    crit:    cssVar('--crit',    '#e5484d'),
+    maj:     cssVar('--maj',     '#f58c1f'),
+    primary: cssVar('--primary', '#1993ff'),
+    ok:      cssVar('--ok',      '#37b26c'),
+    purple:  '#9b59b6',
+  };
+}
+const C=readSeriesColors();
+function refreshSeriesColors(){ try{ Object.assign(C, readSeriesColors()); }catch(e){} }
 function applyTheme(mode){
   if(mode!=='dark'&&mode!=='light') return;
   // 父页面在 ThemeProvider mount 和每次 iframe onLoad 都会重发主题，模式通常没变；
@@ -824,6 +971,8 @@ function applyTheme(mode){
   if(mode===APP_THEME) return;
   APP_THEME=mode;
   document.documentElement.dataset.theme=mode;
+  /* 先把 data-theme 钉住，再重读 CSS 令牌刷新 JS 侧缓存（色值唯一真相源在 CSS） */
+  refreshPalette();
   AX=mkAX();
   rethemeCharts();
 }
@@ -849,6 +998,9 @@ function rethemeCharts(){
   updateAssignCharts();
   rerenderTop5();
   setMapOption();
+  /* 热力表的行内背景来自 JS 的 HM（已随 refreshPalette 刷新），而表格 HTML 只在加载时
+     生成一次；切主题后必须重画一次，否则会留着上一档的热力色。 */
+  try{ renderTables(); }catch(e){}
 }
 // 早期同步 <html data-theme>，并监听父页面(myapp)主题切换的 postMessage
 document.documentElement.dataset.theme=APP_THEME;
@@ -994,8 +1146,8 @@ function setTrend(){
     xAxis:{type:'category',data:x,...AX},
     yAxis:{type:'value',...AX},
     series:[{type:'line',smooth:true,symbol:'circle',symbolSize:5,data:y,
-      lineStyle:{color:'#1993ff',width:2.5},itemStyle:{color:'#1993ff'},
-      endLabel:{show:true,formatter:p=>p.value,color:'#1993ff',fontSize:12,fontWeight:800},
+      lineStyle:{color:cssVar('--primary','#1993ff'),width:2.5},itemStyle:{color:cssVar('--primary','#1993ff')},
+      endLabel:{show:true,formatter:p=>p.value,color:cssVar('--primary','#1993ff'),fontSize:12,fontWeight:800},
       areaStyle:{color:safeArea()}}]};
   try{ chTrend.setOption(opt, true); }
   catch(e){ try{ chTrend.setOption({xAxis:{type:'category',data:x},yAxis:{type:'value'},series:[{type:'line',data:y}]}, true); }catch(e2){} }
@@ -1026,16 +1178,18 @@ function setHour(){
     xAxis:{type:'category',data:D.charts.hour.fields,...AX},
     yAxis:{type:'value',...AX},
     series:[{type:'bar',barWidth:'50%',data:D.charts.hour.values,
-      itemStyle:{color:p=>p.value>=5?'#ce4c4a':(p.value>0?'#d89f42':'#349a6d'),borderRadius:[4,4,0,0]}}]}, true);
+      itemStyle:{color:p=>p.value>=5?HM.red:(p.value>0?HM.orange:HM.green),borderRadius:[4,4,0,0]}}]}, true);
 }
 setHour();
 let chRan=initChart('chRan');
 function setRan(){
   if(!chRan) return;
   const all=[
-    {name:'2G',key:'g2',color:'#f58c1f'},
-    {name:'3G',key:'g3',color:'#37b26c'},
-    {name:'4G',key:'g4',color:'#1993ff'}];
+    /* 2G/3G/4G 三档是 RAN 制式的固定身份色（橙/绿/蓝），与 vmax 语义色一一对应，
+       深色档换 vmax 值、浅色档保持原值（走 --maj/--ok/--primary 令牌）。 */
+    {name:'2G',key:'g2',color:cssVar('--maj','#f58c1f')},
+    {name:'3G',key:'g3',color:cssVar('--ok','#37b26c')},
+    {name:'4G',key:'g4',color:cssVar('--primary','#1993ff')}];
   const active=ranFilter==='ALL'?all:all.filter(x=>x.name===ranFilter);
   const series=active.length?active:all;
   chRan.setOption({grid:{left:40,right:16,top:24,bottom:28},tooltip:{trigger:'axis'},
@@ -1053,7 +1207,7 @@ function setMainsFail(){
     xAxis:{type:'category',data:d.header.map(x=>x.startsWith('>')?x:x+'h'),...AX,axisLabel:{interval:0,rotate:25,fontSize:10}},
     yAxis:{type:'value',...AX},
     series:[{type:'bar',barWidth:'55%',data:d.value,
-      itemStyle:{color:p=>p.value>=5?'#ce4c4a':(p.value>0?'#d89f42':'#349a6d'),borderRadius:[4,4,0,0]}}]}, true);
+      itemStyle:{color:p=>p.value>=5?HM.red:(p.value>0?HM.orange:HM.green),borderRadius:[4,4,0,0]}}]}, true);
 }
 setMainsFail();
 // Site Class Statistics（getSiteDownStatisticOfClass）
@@ -1065,7 +1219,7 @@ function setSiteClass(){
     xAxis:{type:'category',data:d.header,...AX,axisLabel:{interval:0,rotate:0,fontSize:11}},
     yAxis:{type:'value',...AX},
     series:[{type:'bar',barWidth:'50%',data:d.value,
-      itemStyle:{color:'#37b26c',borderRadius:[4,4,0,0]}}]}, true);
+      itemStyle:{color:cssVar('--ok','#37b26c'),borderRadius:[4,4,0,0]}}]}, true);
 }
 setSiteClass();
 
@@ -1107,7 +1261,7 @@ function updateTrendCharts(){
   trendCharts.forEach(tc=>{
     const p=tc.name, snap=snapAll[p]||{};
     if(tc.bar){
-      tc.bar.setOption({color:['#1993ff','#f58c1f','#37b26c'],
+      tc.bar.setOption({color:[cssVar('--primary','#1993ff'),cssVar('--maj','#f58c1f'),cssVar('--ok','#37b26c')],
         grid:{left:42,right:12,top:30,bottom:26},tooltip:{trigger:'axis'},
         legend:{top:2,itemWidth:9,itemHeight:9,textStyle:{fontSize:11,color:curP().axisLabel}},
         xAxis:{type:'category',data:HOURS24,...AX},yAxis:{type:'value',...AX},
@@ -1118,13 +1272,13 @@ function updateTrendCharts(){
         ]}, true);
     }
     if(tc.line){
-      tc.line.setOption({color:['#e5484d','#2f80ed'],
+      tc.line.setOption({color:[cssVar('--crit','#e5484d'),cssVar('--series-cleared','#2f80ed')],
         grid:{left:42,right:12,top:30,bottom:26},tooltip:{trigger:'axis'},
         legend:{top:2,itemWidth:9,itemHeight:9,textStyle:{fontSize:11,color:curP().axisLabel}},
         xAxis:{type:'category',data:T144,axisLabel:{interval:11,color:curP().axisLabel,fontSize:11}},yAxis:{type:'value',...AX},
         series:[
-          {name:L('trendNew'),type:'line',smooth:true,symbol:'none',data:nBucket(lineAll[p],'totalAlarmCount',144),lineStyle:{color:'#e5484d',width:1.8}},
-          {name:L('trendCleared'),type:'line',smooth:true,symbol:'none',data:nBucket(clearAll[p],'clearedAlarmCount',144),lineStyle:{color:'#2f80ed',width:1.8}}
+          {name:L('trendNew'),type:'line',smooth:true,symbol:'none',data:nBucket(lineAll[p],'totalAlarmCount',144),lineStyle:{color:cssVar('--crit','#e5484d'),width:1.8}},
+          {name:L('trendCleared'),type:'line',smooth:true,symbol:'none',data:nBucket(clearAll[p],'clearedAlarmCount',144),lineStyle:{color:cssVar('--series-cleared','#2f80ed'),width:1.8}}
         ]}, true);
     }
   });
@@ -1204,17 +1358,24 @@ function updateAssignCharts(){
   assignCharts.forEach(ac=>{
     if(!ac.chart) return;
     const g=ac.name;
-    ac.chart.setOption({color:['#f58c1f','#1993ff'],
+    /* gradOf：把令牌色解析成 rgb 供面积渐变复用，避免 JS 里再存一份色值常量 */
+    const gradOf=(cssName,fallback)=>{
+      const raw=cssVar(cssName,fallback).replace('#','');
+      const h=raw.length===3?raw.split('').map(c=>c+c).join(''):raw;
+      const n=parseInt(h,16); if(!isFinite(n)) return grad(245,140,31);
+      return grad((n>>16)&255,(n>>8)&255,n&255);
+    };
+    ac.chart.setOption({color:[cssVar('--maj','#f58c1f'),cssVar('--primary','#1993ff')],
       grid:{left:44,right:16,top:30,bottom:26},tooltip:{trigger:'axis'},
       legend:{top:2,itemWidth:9,itemHeight:9,textStyle:{fontSize:11,color:curP().axisLabel}},
       xAxis:{type:'category',data:T144,axisLabel:{interval:11,color:curP().axisLabel,fontSize:11}},yAxis:{type:'value',...AX},
       series:[
         {name:L('assignTrend'),type:'line',smooth:true,symbol:'circle',showSymbol:false,symbolSize:5,
-         data:nBucket((asgAll[g]||{}).today,'count',144),lineStyle:{color:'#f58c1f',width:2},
-         itemStyle:{color:'#f58c1f'},areaStyle:{color:grad(245,140,31)}},
+         data:nBucket((asgAll[g]||{}).today,'count',144),lineStyle:{color:cssVar('--maj','#f58c1f'),width:2},
+         itemStyle:{color:cssVar('--maj','#f58c1f')},areaStyle:{color:gradOf('--maj','#f58c1f')}},
         {name:L('reportTrend'),type:'line',smooth:true,symbol:'circle',showSymbol:false,symbolSize:5,
-         data:nBucket((repAll[g]||{}).today,'count',144),lineStyle:{color:'#1993ff',width:2},
-         itemStyle:{color:'#1993ff'},areaStyle:{color:grad(25,147,255)}}
+         data:nBucket((repAll[g]||{}).today,'count',144),lineStyle:{color:cssVar('--primary','#1993ff'),width:2},
+         itemStyle:{color:cssVar('--primary','#1993ff')},areaStyle:{color:gradOf('--primary','#1993ff')}}
       ]}, true);
   });
   updateAssignStats();
@@ -1287,7 +1448,7 @@ function setTop5Group(kind,idx){
     xAxis:{type:'value',...AX},yAxis:{type:'category',data:rows.map(r=>r.name),...AX,
       axisLabel:{fontSize:10,width:gl.labelW,overflow:'truncate',color:curP().axisLabel}},
     series:[{type:'bar',barWidth:'58%',data:rows.map(r=>r.num),
-      itemStyle:{color:p=>p.value>=300?'#ce4c4a':(p.value>=100?'#d89f42':'#349a6d'),borderRadius:[0,4,4,0]},
+      itemStyle:{color:p=>p.value>=300?HM.red:(p.value>=100?HM.orange:HM.green),borderRadius:[0,4,4,0]},
       label:{show:true,position:'right',fontSize:11,fontWeight:700,color:curP().barLabel}}]}, true);
 }
 function initTop5Charts(){
@@ -1422,7 +1583,7 @@ async function loadAlarmOverview(){
         var nh='<div>';
         net.forEach(function(n){
           var latestPct=(n.latest*100); var monthPct=(n.month_avg==null?null:n.month_avg*100);
-          var col = latestPct < thr ? '#cf1322' : '#237804';
+          var col = latestPct < thr ? cssVar('--avail-bad','#cf1322') : cssVar('--avail-good','#237804');
           nh+='<div style="display:flex;justify-content:space-between;gap:0.625rem;padding:0.125rem 0">'
             +'<span style="color:var(--text)">'+n.cell_group+'</span>'
             +'<span style="font-weight:700;color:'+col+'">'+latestPct.toFixed(2)+'%</span>'

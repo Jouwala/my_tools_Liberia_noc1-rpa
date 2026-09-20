@@ -1530,8 +1530,12 @@ def _copy_row_style(ws, src_row, dst_row):
             dst._style = copy.copy(src._style)
     src_dim = ws.row_dimensions[src_row]
     dst_dim = ws.row_dimensions[dst_row]
+    # 注意（2026-09-19 修复）：RowDimension.customHeight 在 openpyxl 里是只读
+    # property（值 = ht is not None），赋值会抛
+    # AttributeError: property 'customHeight' of 'RowDimension' object has no setter。
+    # 只设 height 即可，customHeight 会自动跟随。
     dst_dim.height = src_dim.height
-    dst_dim.customHeight = src_dim.customHeight
+    dst_dim.hidden = src_dim.hidden
 
 
 def _roll_date_rows(ws, month_row, date_rows, dates=None):

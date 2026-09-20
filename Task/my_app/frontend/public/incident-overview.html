@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="en"><head>
     <link rel="stylesheet" href="./legacy-glass-baseline.css">
+    <!-- 深色档 vmax 令牌（唯一真相源，见文件头注释）。浅色档仍由下方
+         [data-theme="light"] 定义，本文件不介入。 -->
+    <link rel="stylesheet" href="./legacy-vmax-theme.css">
 
 <meta charset="utf-8"/>
 <script>
@@ -50,49 +53,93 @@ window.__IOC_THEME = (function () {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4leaflet/1.0.2/proj4leaflet.min.js"></script>
 <style type="text/tailwindcss">
         :root {
-            --bg-main: #000000;
-            --bg-card: #0a0a0a;
-            --bg-card-hover: #1a1a1a;
-            --text-primary: #4dd0e1;
-            --text-secondary: #66bb6a;
-            --border-color: rgba(0, 212, 255, 0.2);
-            --corporate-blue: rgba(0, 255, 65, 0.3);
-            --emerald-success: #00d4ff;
-            --soft-amber: #ffaa00;
-            --soft-red: #ff0040;
-            --accent-glow: rgba(0, 212, 255, 0.3);
-            --hud-red: #ff0040;
-            --hud-orange: #ff6600;
-            --hud-amber: #ffaa00;
-            --hud-blue: #00ff41;
-            --hud-green: #00d4ff;
+            /* 深色档色值全部改为引用 legacy-vmax-theme.css 的 vmax 深空蓝令牌
+               （唯一真相源，与 React 外壳 frontend/src/index.css 的 :root 同源）。
+               老写法是本页自带一份 #000000 / #0a0a0a / #00d4ff / #00ff41 的 HUD 私有调色板，
+               与外壳「只共享深浅档状态、从不共享色值」，于是 iframe 接缝处出现颜色台阶。
+               浅色档仍由下方 [data-theme="light"] 块逐条覆盖，取值一字未动。 */
+            --bg-main: var(--vmax-bg);
+            --bg-card: var(--vmax-panel);
+            --bg-card-hover: var(--vmax-elev);
+            --text-primary: var(--vmax-text);
+            --text-secondary: var(--vmax-green);
+            --border-color: var(--vmax-edge);
+            --corporate-blue: var(--vmax-fill-1);
+            --emerald-success: var(--vmax-cyan);
+            --soft-amber: var(--vmax-yellow);
+            --soft-red: var(--vmax-red);
+            --accent-glow: rgb(var(--vmax-cyan-rgb) / 30%);
+            /* 下面 5 个 --hud-* 在本页已无引用（历史遗留），一并收敛到 vmax 语义色。
+               注意原值里 hud-blue 是霓虹绿、hud-green 是青，名字与值本来就错位。 */
+            --hud-red: var(--vmax-red);
+            --hud-orange: var(--vmax-orange);
+            --hud-amber: var(--vmax-yellow);
+            --hud-blue: var(--vmax-cyan);
+            --hud-green: var(--vmax-cyan);
 
-            /* === my_app 主题桥接变量（深色 = 原版值） ===
-               浅色值在下方 [data-theme="light"] 块中覆盖，对齐 my_app LIGHT 色板 */
-            --ioc-bg-grad: linear-gradient(135deg, #000000 0%, #0a0a0a 50%, #000000 100%);
-            --ioc-text-strong: #ffffff;
-            --ioc-slate-300: #cbd5e1;
-            --ioc-slate-400: #94a3b8;
-            --ioc-slate-500: #64748b;
-            --ioc-panel: #1A2234;
-            --ioc-panel-hover: #252D42;
-            --ioc-input-border: rgba(255, 255, 255, 0.1);
-            --ioc-divider: rgba(255, 255, 255, 0.05);
-            --ioc-row-hover: rgba(255, 255, 255, 0.05);
-            --ioc-chip: rgba(255, 255, 255, 0.05);
-            --ioc-chip-hover: rgba(255, 255, 255, 0.10);
-            --ioc-header-bar: rgba(0, 0, 0, 0.5);
-            --ioc-shadow-cyan: 0 4px 20px rgba(0, 212, 255, 0.2);
-            --ioc-title-glow: 0 0 15px rgba(0, 212, 255, 0.5);
-            --ioc-map-bg: #0a0a0a;
-            --ioc-map-no-data: #3a3f4a;
-            --ioc-map-border: #555b66;
-            --ioc-cyan-dashed: rgba(77, 208, 225, 0.4);
-            --ioc-badge-red: #fca5a5;
-            --ioc-badge-orange: #fdba74;
-            --ioc-badge-amber: #fcd34d;
-            --ioc-badge-blue: #93c5fd;
-            --ioc-badge-green: #86efac;
+            /* === my_app 主题桥接变量（深色 = vmax 令牌） ===
+               浅色值在下方 [data-theme="light"] 块中覆盖，取值一字未动 */
+            --ioc-bg-grad: var(--vmax-page-glow), var(--vmax-bg);
+            --ioc-text-strong: var(--vmax-text);
+            --ioc-slate-300: var(--vmax-text-muted);
+            --ioc-slate-400: var(--vmax-text-2);
+            --ioc-slate-500: var(--vmax-text-dim);
+            --ioc-panel: var(--vmax-panel);
+            --ioc-panel-hover: var(--vmax-fill-1);
+            --ioc-input-border: var(--vmax-edge-3);
+            --ioc-divider: var(--vmax-edge-2);
+            --ioc-row-hover: var(--vmax-row-hover);
+            --ioc-chip: var(--vmax-fill-2);
+            --ioc-chip-hover: var(--vmax-fill-1);
+            --ioc-header-bar: var(--vmax-scrim);
+            --ioc-shadow-cyan: 0 4px 20px rgb(var(--vmax-cyan-rgb) / 20%);
+            --ioc-title-glow: 0 0 15px rgb(var(--vmax-cyan-rgb) / 50%);
+            --ioc-map-bg: var(--vmax-bg);
+            --ioc-map-no-data: var(--vmax-panel);
+            --ioc-map-border: var(--vmax-edge-2);
+            --ioc-cyan-dashed: rgb(var(--vmax-cyan-rgb) / 40%);
+            --ioc-badge-red: var(--vmax-red-soft);
+            --ioc-badge-orange: var(--vmax-orange);
+            --ioc-badge-amber: var(--vmax-yellow);
+            --ioc-badge-blue: var(--vmax-cyan-soft);
+            --ioc-badge-green: var(--vmax-green-soft);
+
+            /* 州级热力图「数量强度」色阶：JS 不再自己存色值（见 readIocPalette()）。
+               浅色取值在同名 [data-theme="light"] 新增块里，逐字等于原 JS 字面量。 */
+            --ioc-choro-nodata: var(--vmax-edge-2);
+            --ioc-choro-nodata-border: var(--vmax-text-dim);
+            --ioc-choro-high: var(--vmax-red);
+            --ioc-choro-high-border: var(--vmax-red-soft);
+            --ioc-choro-mid: var(--vmax-orange);
+            --ioc-choro-mid-border: var(--vmax-yellow);
+            --ioc-choro-low: var(--vmax-yellow);
+            --ioc-choro-low-border: var(--vmax-yellow);
+            --ioc-choro-ok: var(--vmax-green);
+            --ioc-choro-ok-border: var(--vmax-green-soft);
+            --ioc-choro-select: var(--vmax-cyan);
+            /* 图例点的 4 档（浅色档原值的 mid/low 与地图是**对调**的，见报告「存疑点」；
+               为不改动浅色渲染，这里保留原对调关系，深色档则与地图一致） */
+            --ioc-choro-leg-high: var(--vmax-red);
+            --ioc-choro-leg-mid: var(--vmax-orange);
+            --ioc-choro-leg-low: var(--vmax-yellow);
+            --ioc-choro-leg-ok: var(--vmax-green);
+            /* 深色档卡片外框。原 markup 写的是 border-[var(--text-primary)]/20|30 ——
+               Tailwind 无法给 var() 色值套透明度修饰符，那 14 处从未生成，
+               描边一直落在 preflight 默认的 gray-200 #e5e7eb 上。 */
+            --ioc-border-strong: var(--vmax-edge);
+
+            /* === 主题中性「仪表盘色」三元组 ===
+               下面这些色原先是写死在 inline style / CSS / JS 里的 Tailwind 调色板色值
+               （KPI 圆徽的 box-shadow、3 个面板标题的 text-shadow、resize 手柄与分隔条）。
+               inline 样式优先级最高，唯一能让它随主题解析的办法就是 var()；
+               浅色值与原字面量逐字一致，因此浅色档渲染不变。 */
+            --ioc-kpi-indigo-rgb: var(--vmax-indigo-rgb);
+            --ioc-kpi-neutral-rgb: var(--vmax-text-muted-rgb);
+            --ioc-kpi-cyan-rgb: var(--vmax-cyan-rgb);
+            --ioc-kpi-amber-rgb: var(--vmax-yellow-rgb);
+            --ioc-kpi-red-rgb: var(--vmax-red-rgb);
+            --ioc-kpi-green-rgb: var(--vmax-green-rgb);
+            --ioc-chrome-blue-rgb: var(--vmax-blue-rgb);
 
             /* 优化的字体大小体系 - 提升可读性 */
             /* 极小字体：辅助信息、时间戳 */
@@ -214,7 +261,270 @@ window.__IOC_THEME = (function () {
         }
         /* 深色渐变底的头像/按钮容器保持白字 */
         [data-theme="light"] .bg-gradient-to-r .material-symbols-outlined { color: #ffffff; }
-        
+
+        /* ===== 浅色档新增变量（取值 = 原 JS 里的字面量，逐字一致，渲染不变）=====
+           1) --ioc-border-strong：修好 markup 里 border-[var(--text-primary)]/20|30
+              （Tailwind 丢弃 var() + 透明度修饰符，那 14 处描边一直落到 preflight
+              默认 gray-200 #e5e7eb）。浅色档继续给 #e5e7eb，深色档在 :root 里给
+              var(--vmax-edge)。
+           2) --ioc-choro-*：州级热力图色阶，原先是 JS 里的 isLight ? A : B 双份硬编码，
+              现上移到 CSS，JS 只读变量。 */
+        [data-theme="light"] {
+            --ioc-border-strong: #e5e7eb;
+            --ioc-choro-nodata: #e2e8f0;
+            --ioc-choro-nodata-border: #b6c5d4;
+            --ioc-choro-high: #d92d20;
+            --ioc-choro-high-border: #a91610;
+            --ioc-choro-mid: #d9700f;
+            --ioc-choro-mid-border: #a35309;
+            --ioc-choro-low: #c77d00;
+            --ioc-choro-low-border: #965d00;
+            --ioc-choro-ok: #15803d;
+            --ioc-choro-ok-border: #0f5c2c;
+            --ioc-choro-select: #00ffff;
+            --ioc-choro-leg-high: #d92d20;
+            --ioc-choro-leg-mid: #c77d00;
+            --ioc-choro-leg-low: #d9700f;
+            --ioc-choro-leg-ok: #15803d;
+            /* 主题中性仪表盘色：与原 inline/CSS/JS 字面量逐字一致（浅色档渲染不变） */
+            --ioc-kpi-indigo-rgb: 147 51 234;
+            --ioc-kpi-neutral-rgb: 148 163 184;
+            --ioc-kpi-cyan-rgb: 6 182 212;
+            --ioc-kpi-amber-rgb: 255 170 0;
+            --ioc-kpi-red-rgb: 239 68 68;
+            --ioc-kpi-green-rgb: 16 185 129;
+            --ioc-chrome-blue-rgb: 59 130 246;
+        }
+
+        /* ==================================================================
+           ===== 深色档专属覆盖（只作用于 data-theme="dark"）=====
+           ==================================================================
+           为什么需要这一段：本页大量颜色写在「深浅两档共用」的规则里（HUD 能量槽、
+           徽章、状态辉光…），另有 88 个 Tailwind 颜色工具类把色值写死在
+           Tailwind 生成表里（dark: 变体吃不到 CSS 变量）。硬约束是**浅色档渲染
+           必须与改动前逐像素一致**，所以这里一律用 html[data-theme="dark"] 前缀
+           （特异性 0,2,1，高于工具类的 0,1,0，与书写顺序无关）做深色专属覆盖，
+           而不去改共用规则本身。 */
+        /* ---- Tailwind 文字色工具类 → vmax 语义色 ---- */
+        html[data-theme="dark"] .text-cyan-400 { color: var(--vmax-cyan); }
+        html[data-theme="dark"] .text-cyan-300 { color: var(--vmax-cyan-soft); }
+        html[data-theme="dark"] .text-emerald-400 { color: var(--vmax-green); }
+        html[data-theme="dark"] .text-emerald-500 { color: var(--vmax-green); }
+        html[data-theme="dark"] .text-emerald-300 { color: var(--vmax-green-soft); }
+        html[data-theme="dark"] .text-emerald-200 { color: var(--vmax-green-soft); }
+        html[data-theme="dark"] .text-green-400 { color: var(--vmax-green); }
+        html[data-theme="dark"] .text-green-500 { color: var(--vmax-green); }
+        html[data-theme="dark"] .text-amber-300 { color: var(--vmax-yellow); }
+        html[data-theme="dark"] .text-amber-400 { color: var(--vmax-yellow); }
+        html[data-theme="dark"] .text-amber-500 { color: var(--vmax-yellow); }
+        html[data-theme="dark"] .text-orange-300 { color: var(--vmax-orange); }
+        html[data-theme="dark"] .text-orange-400 { color: var(--vmax-orange); }
+        html[data-theme="dark"] .text-orange-500 { color: var(--vmax-orange); }
+        html[data-theme="dark"] .text-red-300 { color: var(--vmax-red-soft); }
+        html[data-theme="dark"] .text-red-400 { color: var(--vmax-red); }
+        html[data-theme="dark"] .text-red-500 { color: var(--vmax-red); }
+        html[data-theme="dark"] .text-blue-400 { color: var(--vmax-blue); }
+        html[data-theme="dark"] .text-blue-500 { color: var(--vmax-blue); }
+        html[data-theme="dark"] .text-purple-300 { color: var(--vmax-indigo); }
+        html[data-theme="dark"] .text-purple-400 { color: var(--vmax-indigo); }
+        html[data-theme="dark"] .placeholder-slate-500::placeholder { color: var(--vmax-text-dim); }
+        /* ---- Tailwind 背景色工具类（实底） ---- */
+        html[data-theme="dark"] .bg-cyan-500\/20 { background-color: rgb(var(--vmax-cyan-rgb) / 20%); }
+        html[data-theme="dark"] .bg-cyan-900\/30 { background-color: var(--vmax-fill-1); }
+        html[data-theme="dark"] .bg-emerald-500 { background-color: var(--vmax-green); }
+        html[data-theme="dark"] .bg-emerald-600 { background-color: var(--vmax-green); }
+        html[data-theme="dark"] .bg-emerald-700 { background-color: var(--vmax-green); }
+        html[data-theme="dark"] .bg-emerald-500\/10 { background-color: rgb(var(--vmax-green-rgb) / 14%); }
+        html[data-theme="dark"] .bg-emerald-500\/20 { background-color: rgb(var(--vmax-green-rgb) / 20%); }
+        html[data-theme="dark"] .bg-emerald-500\/40 { background-color: rgb(var(--vmax-green-rgb) / 40%); }
+        html[data-theme="dark"] .bg-emerald-900\/30 { background-color: rgb(var(--vmax-green-rgb) / 14%); }
+        html[data-theme="dark"] .bg-green-500\/20 { background-color: rgb(var(--vmax-green-rgb) / 20%); }
+        html[data-theme="dark"] .bg-red-500 { background-color: var(--vmax-red); }
+        html[data-theme="dark"] .bg-red-500\/10 { background-color: rgb(var(--vmax-red-rgb) / 14%); }
+        html[data-theme="dark"] .bg-red-500\/20 { background-color: rgb(var(--vmax-red-rgb) / 20%); }
+        html[data-theme="dark"] .bg-red-500\/40 { background-color: rgb(var(--vmax-red-rgb) / 40%); }
+        html[data-theme="dark"] .bg-red-900\/30 { background-color: rgb(var(--vmax-red-rgb) / 14%); }
+        html[data-theme="dark"] .bg-orange-500\/20 { background-color: rgb(var(--vmax-orange-rgb) / 20%); }
+        html[data-theme="dark"] .bg-orange-500\/40 { background-color: rgb(var(--vmax-orange-rgb) / 40%); }
+        html[data-theme="dark"] .bg-amber-500\/20 { background-color: rgb(var(--vmax-yellow-rgb) / 20%); }
+        html[data-theme="dark"] .bg-amber-500\/40 { background-color: rgb(var(--vmax-yellow-rgb) / 40%); }
+        html[data-theme="dark"] .bg-amber-900\/30 { background-color: rgb(var(--vmax-yellow-rgb) / 14%); }
+        html[data-theme="dark"] .bg-blue-500\/20 { background-color: rgb(var(--vmax-blue-rgb) / 20%); }
+        html[data-theme="dark"] .bg-purple-500\/20 { background-color: rgb(var(--vmax-indigo-rgb) / 20%); }
+        html[data-theme="dark"] .bg-purple-900\/30 { background-color: rgb(var(--vmax-indigo-rgb) / 14%); }
+        html[data-theme="dark"] .bg-slate-500 { background-color: var(--vmax-edge-2); }
+        html[data-theme="dark"] .bg-slate-800 { background-color: var(--vmax-panel-2); }
+        html[data-theme="dark"] .bg-black\/50 { background-color: var(--vmax-scrim); }
+        /* ---- Tailwind 描边色工具类 ---- */
+        html[data-theme="dark"] .border-cyan-500 { border-color: var(--vmax-cyan); }
+        html[data-theme="dark"] .border-cyan-600 { border-color: var(--vmax-cyan); }
+        html[data-theme="dark"] .border-cyan-500\/30 { border-color: rgb(var(--vmax-cyan-rgb) / 30%); }
+        html[data-theme="dark"] .border-cyan-500\/50 { border-color: rgb(var(--vmax-cyan-rgb) / 50%); }
+        html[data-theme="dark"] .border-emerald-400 { border-color: var(--vmax-green); }
+        html[data-theme="dark"] .border-emerald-500 { border-color: var(--vmax-green); }
+        html[data-theme="dark"] .border-emerald-600 { border-color: var(--vmax-green); }
+        html[data-theme="dark"] .border-emerald-500\/20 { border-color: rgb(var(--vmax-green-rgb) / 20%); }
+        html[data-theme="dark"] .border-emerald-500\/30 { border-color: rgb(var(--vmax-green-rgb) / 30%); }
+        html[data-theme="dark"] .border-green-500\/30 { border-color: rgb(var(--vmax-green-rgb) / 30%); }
+        html[data-theme="dark"] .border-red-400 { border-color: var(--vmax-red); }
+        html[data-theme="dark"] .border-red-600 { border-color: var(--vmax-red); }
+        html[data-theme="dark"] .border-red-500\/20 { border-color: rgb(var(--vmax-red-rgb) / 20%); }
+        html[data-theme="dark"] .border-red-500\/30 { border-color: rgb(var(--vmax-red-rgb) / 30%); }
+        html[data-theme="dark"] .border-red-500\/50 { border-color: rgb(var(--vmax-red-rgb) / 50%); }
+        html[data-theme="dark"] .border-orange-400 { border-color: var(--vmax-orange); }
+        html[data-theme="dark"] .border-orange-500\/30 { border-color: rgb(var(--vmax-orange-rgb) / 30%); }
+        html[data-theme="dark"] .border-orange-500\/50 { border-color: rgb(var(--vmax-orange-rgb) / 50%); }
+        html[data-theme="dark"] .border-amber-400 { border-color: var(--vmax-yellow); }
+        html[data-theme="dark"] .border-amber-600 { border-color: var(--vmax-yellow); }
+        html[data-theme="dark"] .border-amber-500\/30 { border-color: rgb(var(--vmax-yellow-rgb) / 30%); }
+        html[data-theme="dark"] .border-amber-500\/50 { border-color: rgb(var(--vmax-yellow-rgb) / 50%); }
+        html[data-theme="dark"] .border-blue-500\/30 { border-color: rgb(var(--vmax-blue-rgb) / 30%); }
+        html[data-theme="dark"] .border-blue-500\/50 { border-color: rgb(var(--vmax-blue-rgb) / 50%); }
+        html[data-theme="dark"] .border-purple-600 { border-color: var(--vmax-indigo); }
+        html[data-theme="dark"] .border-purple-500\/30 { border-color: rgb(var(--vmax-indigo-rgb) / 30%); }
+        html[data-theme="dark"] .border-purple-500\/50 { border-color: rgb(var(--vmax-indigo-rgb) / 50%); }
+        html[data-theme="dark"] .border-slate-600 { border-color: var(--vmax-edge-2); }
+        /* ---- hover / focus 变体 ---- */
+        html[data-theme="dark"] .hover\:bg-cyan-500\/30:hover { background-color: rgb(var(--vmax-cyan-rgb) / 30%); }
+        html[data-theme="dark"] .hover\:bg-amber-500\/30:hover { background-color: rgb(var(--vmax-yellow-rgb) / 30%); }
+        html[data-theme="dark"] .hover\:bg-purple-500\/30:hover { background-color: rgb(var(--vmax-indigo-rgb) / 30%); }
+        html[data-theme="dark"] .focus\:border-cyan-500\/50:focus { border-color: rgb(var(--vmax-cyan-rgb) / 50%); }
+        html[data-theme="dark"] .focus\:border-purple-500\/50:focus { border-color: rgb(var(--vmax-indigo-rgb) / 50%); }
+        html[data-theme="dark"] .ring-cyan-400 { --tw-ring-color: var(--vmax-cyan); }
+        html[data-theme="dark"] .focus\:ring-cyan-500\/50 { --tw-ring-color: rgb(var(--vmax-cyan-rgb) / 50%); }
+        html[data-theme="dark"] .focus\:ring-purple-500\/50 { --tw-ring-color: rgb(var(--vmax-indigo-rgb) / 50%); }
+        /* ---- 渐变（AI Analysis 面板标题条）：改 Tailwind 的 --tw-gradient-* 变量，
+               避免直接写 background-image 与另一条 from/to 规则互相覆盖 ---- */
+        html[data-theme="dark"] .from-purple-500 {
+            --tw-gradient-from: rgb(var(--vmax-indigo-rgb) / 100%) var(--tw-gradient-from-position);
+            --tw-gradient-to: rgb(var(--vmax-indigo-rgb) / 0%) var(--tw-gradient-to-position);
+            --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+        }
+        html[data-theme="dark"] .from-purple-500\/20 {
+            --tw-gradient-from: rgb(var(--vmax-indigo-rgb) / 20%) var(--tw-gradient-from-position);
+            --tw-gradient-to: rgb(var(--vmax-indigo-rgb) / 0%) var(--tw-gradient-to-position);
+            --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+        }
+        html[data-theme="dark"] .to-blue-500 { --tw-gradient-to: rgb(var(--vmax-blue-rgb) / 100%) var(--tw-gradient-to-position); }
+        html[data-theme="dark"] .to-blue-500\/20 { --tw-gradient-to: rgb(var(--vmax-blue-rgb) / 20%) var(--tw-gradient-to-position); }
+        /* ---- HUD 能量槽：霓虹 #00d4ff/#ff0040/#ff6600/#ffaa00 → vmax 语义色；
+               内层高光由「白色叠加」换成 vmax 的「蓝色叠加」--vmax-fill-1 ---- */
+        html[data-theme="dark"] .hud-bar-fill,
+        html[data-theme="dark"] .hud-bar-blue .hud-bar-fill {
+            background: linear-gradient(90deg, rgb(var(--vmax-cyan-rgb) / 80%) 0%, var(--vmax-cyan) 50%, rgb(var(--vmax-cyan-rgb) / 80%) 100%);
+            box-shadow: 0 0 10px rgb(var(--vmax-cyan-rgb) / 60%), inset 0 0 10px var(--vmax-fill-1);
+        }
+        html[data-theme="dark"] .hud-bar-blue {
+            border-color: rgb(var(--vmax-cyan-rgb) / 40%);
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5), 0 0 10px rgb(var(--vmax-cyan-rgb) / 30%), 0 0 18px rgb(var(--vmax-cyan-rgb) / 20%);
+        }
+        html[data-theme="dark"] .hud-bar-red .hud-bar-fill {
+            background: linear-gradient(90deg, rgb(var(--vmax-red-rgb) / 80%) 0%, var(--vmax-red) 50%, rgb(var(--vmax-red-rgb) / 80%) 100%);
+            box-shadow: 0 0 15px rgb(var(--vmax-red-rgb) / 80%), inset 0 0 10px var(--vmax-fill-1);
+        }
+        html[data-theme="dark"] .hud-bar-red {
+            border-color: rgb(var(--vmax-red-rgb) / 50%);
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5), 0 0 15px rgb(var(--vmax-red-rgb) / 30%), 0 0 25px rgb(var(--vmax-red-rgb) / 20%);
+        }
+        html[data-theme="dark"] .hud-bar-orange .hud-bar-fill {
+            background: linear-gradient(90deg, rgb(var(--vmax-orange-rgb) / 80%) 0%, var(--vmax-orange) 50%, rgb(var(--vmax-orange-rgb) / 80%) 100%);
+            box-shadow: 0 0 12px rgb(var(--vmax-orange-rgb) / 70%), inset 0 0 10px var(--vmax-fill-1);
+        }
+        html[data-theme="dark"] .hud-bar-orange {
+            border-color: rgb(var(--vmax-orange-rgb) / 40%);
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5), 0 0 12px rgb(var(--vmax-orange-rgb) / 30%), 0 0 20px rgb(var(--vmax-orange-rgb) / 20%);
+        }
+        html[data-theme="dark"] .hud-bar-amber .hud-bar-fill {
+            background: linear-gradient(90deg, rgb(var(--vmax-yellow-rgb) / 80%) 0%, var(--vmax-yellow) 50%, rgb(var(--vmax-yellow-rgb) / 80%) 100%);
+            box-shadow: 0 0 10px rgb(var(--vmax-yellow-rgb) / 60%), inset 0 0 10px var(--vmax-fill-1);
+        }
+        html[data-theme="dark"] .hud-bar-amber {
+            border-color: rgb(var(--vmax-yellow-rgb) / 40%);
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5), 0 0 10px rgb(var(--vmax-yellow-rgb) / 30%), 0 0 18px rgb(var(--vmax-yellow-rgb) / 20%);
+        }
+        /* ---- SLA / Severity 徽章：Tailwind 语义色 rgba(239,68,68,·) 等 → vmax 语义色 ---- */
+        html[data-theme="dark"] .badge-sla-red {
+            background: rgb(var(--vmax-red-rgb) / 15%);
+            border-color: rgb(var(--vmax-red-rgb) / 40%);
+        }
+        html[data-theme="dark"] .badge-sla-orange {
+            background: rgb(var(--vmax-orange-rgb) / 15%);
+            border-color: rgb(var(--vmax-orange-rgb) / 40%);
+        }
+        html[data-theme="dark"] .badge-sla-amber {
+            background: rgb(var(--vmax-yellow-rgb) / 15%);
+            border-color: rgb(var(--vmax-yellow-rgb) / 40%);
+        }
+        html[data-theme="dark"] .badge-sla-blue {
+            background: rgb(var(--vmax-blue-rgb) / 15%);
+            border-color: rgb(var(--vmax-blue-rgb) / 40%);
+        }
+        html[data-theme="dark"] .badge-sla-green {
+            background: rgb(var(--vmax-green-rgb) / 15%);
+            border-color: rgb(var(--vmax-green-rgb) / 40%);
+        }
+        html[data-theme="dark"] .badge-severity-p1 {
+            background: linear-gradient(135deg, rgb(var(--vmax-red-rgb) / 20%), rgb(var(--vmax-red-rgb) / 15%));
+            border-color: rgb(var(--vmax-red-rgb) / 50%);
+            box-shadow: 0 0 8px rgb(var(--vmax-red-rgb) / 30%);
+        }
+        html[data-theme="dark"] .badge-severity-p2 {
+            background: linear-gradient(135deg, rgb(var(--vmax-orange-rgb) / 20%), rgb(var(--vmax-orange-rgb) / 15%));
+            border-color: rgb(var(--vmax-orange-rgb) / 50%);
+            box-shadow: 0 0 6px rgb(var(--vmax-orange-rgb) / 30%);
+        }
+        html[data-theme="dark"] .badge-severity-p3 {
+            background: linear-gradient(135deg, rgb(var(--vmax-yellow-rgb) / 20%), rgb(var(--vmax-yellow-rgb) / 15%));
+            border-color: rgb(var(--vmax-yellow-rgb) / 50%);
+            box-shadow: 0 0 6px rgb(var(--vmax-yellow-rgb) / 30%);
+        }
+        html[data-theme="dark"] .badge-severity-p4 {
+            background: linear-gradient(135deg, rgb(var(--vmax-blue-rgb) / 20%), rgb(var(--vmax-blue-rgb) / 15%));
+            border-color: rgb(var(--vmax-blue-rgb) / 50%);
+            box-shadow: 0 0 6px rgb(var(--vmax-blue-rgb) / 30%);
+        }
+        /* ---- 状态卡辉光 / 缩放手柄 / 轮播按钮：老 Tailwind blue-500 rgba(59,130,246,·) → vmax 主色蓝 ---- */
+        html[data-theme="dark"] .glow-red { box-shadow: 0 0 15px rgb(var(--vmax-red-rgb) / 10%); }
+        html[data-theme="dark"] .glow-orange { box-shadow: 0 0 15px rgb(var(--vmax-orange-rgb) / 10%); }
+        html[data-theme="dark"] .glow-yellow { box-shadow: 0 0 15px rgb(var(--vmax-yellow-rgb) / 10%); }
+        html[data-theme="dark"] .glow-blue { box-shadow: 0 0 15px rgb(var(--vmax-blue-rgb) / 10%); }
+        html[data-theme="dark"] .resizable::-webkit-resizer { background: rgb(var(--vmax-blue-rgb) / 30%); }
+        html[data-theme="dark"] .resizable:hover::-webkit-resizer { background: rgb(var(--vmax-blue-rgb) / 50%); }
+        /* 这两条 base 规则带 !important，覆盖时必须同样带 !important 且特异性更高 */
+        html[data-theme="dark"] .resize-handle:hover { background: rgb(var(--vmax-blue-rgb) / 60%) !important; }
+        html[data-theme="dark"] .resize-handle[data-resizing] { background: rgb(var(--vmax-blue-rgb) / 80%) !important; }
+        html[data-theme="dark"] #ioc-carousel-btn.on {
+            background: rgb(var(--vmax-cyan-rgb) / 18%);
+            border-color: var(--vmax-edge);
+            box-shadow: 0 0 12px rgb(var(--vmax-cyan-rgb) / 35%);
+        }
+        /* ---- 表格行分隔线：divide-y 只设 border-width，颜色落到 Tailwind preflight 的
+           默认 gray-200 #e5e7eb；markup 里的 divide-[var(--text-primary)]/10 因为
+           「var() 色值 + 透明度修饰符」被 Tailwind 丢弃、从未生成。
+           这里补上深色档真正的行分隔线色（浅色档维持原 gray-200 观感）。 ---- */
+        html[data-theme="dark"] .divide-y > :not([hidden]) ~ :not([hidden]) {
+            border-color: var(--vmax-edge-2);
+        }
+        /* ---- Tailwind 任意值阴影里写死的 emerald-500 / blue-500（3 个类名）。
+           类名里含 , . [ ] ( )，用属性选择器避免转义地狱；只作用于深色档。 ---- */
+        html[data-theme="dark"] [class*="shadow-[0_0_10px_rgba(16,185,129,0.3)]"] {
+            box-shadow: 0 0 10px rgb(var(--vmax-green-rgb) / 30%);
+        }
+        html[data-theme="dark"] [class*="shadow-[0_0_10px_rgba(59,130,246,0.4)]"] {
+            box-shadow: 0 0 10px rgb(var(--vmax-blue-rgb) / 40%);
+        }
+        html[data-theme="dark"] [class*="shadow-[0_0_15px_rgba(59,130,246,0.3)]"] {
+            box-shadow: 0 0 15px rgb(var(--vmax-blue-rgb) / 30%);
+        }
+        /* ---- Leaflet 缩放控件是 leaflet.css 的默认白底黑字（第三方库），
+           深浅两档都是白的；这里只给深色档换成 vmax 面板色，浅色档不动。 ---- */
+        html[data-theme="dark"] .leaflet-control-zoom-in,
+        html[data-theme="dark"] .leaflet-control-zoom-out {
+            background: var(--vmax-panel);
+            color: var(--vmax-text);
+            border-color: var(--vmax-edge-2);
+        }
+
         /* 移动端基础优化 */
         @media (max-width: 768px) {
             body {
@@ -246,8 +556,8 @@ window.__IOC_THEME = (function () {
             left: 50%;
             width: calc(100% - 1rem);
             height: 2px;
-            background: linear-gradient(90deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.5) 50%, rgba(255, 255, 255, 0.3) 100%);
-            box-shadow: 0 0 6px rgba(255, 255, 255, 0.4);
+            background: linear-gradient(90deg, rgb(var(--vmax-blue-rgb) / 30%) 0%, var(--vmax-cyan) 50%, rgb(var(--vmax-blue-rgb) / 30%) 100%);
+            box-shadow: 0 0 6px rgb(var(--vmax-cyan-rgb) / 40%);
             z-index: 0;
         }
         .status-line::before {
@@ -257,11 +567,11 @@ window.__IOC_THEME = (function () {
             right: 0;
             width: 0;
             height: 0;
-            border-left: 8px solid rgba(255, 255, 255, 0.5);
+            border-left: 8px solid var(--vmax-cyan);
             border-top: 4px solid transparent;
             border-bottom: 4px solid transparent;
             z-index: 1;
-            filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.5));
+            filter: drop-shadow(0 0 3px rgb(var(--vmax-cyan-rgb) / 50%));
         }
         /* 浅色主题下的状态连线与箭头（深色线才可见） */
         [data-theme="light"] .status-line::after {
@@ -281,7 +591,7 @@ window.__IOC_THEME = (function () {
         .glow-red { box-shadow: 0 0 15px rgba(239, 68, 68, 0.1); }
         .glow-orange { box-shadow: 0 0 15px rgba(245, 158, 11, 0.1); }
         .glow-yellow { box-shadow: 0 0 15px rgba(251, 191, 36, 0.1); }
-        .glow-blue { box-shadow: 0 0 15px rgba(59, 130, 246, 0.1); }
+        .glow-blue { box-shadow: 0 0 15px rgb(var(--ioc-chrome-blue-rgb) / 10%); }
         ::-webkit-scrollbar {
             width: 6px;
             height: 6px;
@@ -307,11 +617,11 @@ window.__IOC_THEME = (function () {
             max-width: 90%;
         }
         .resizable::-webkit-resizer {
-            background: rgba(59, 130, 246, 0.3);
+            background: rgb(var(--ioc-chrome-blue-rgb) / 30%);
             border-radius: 4px;
         }
         .resizable:hover::-webkit-resizer {
-            background: rgba(59, 130, 246, 0.5);
+            background: rgb(var(--ioc-chrome-blue-rgb) / 50%);
         }
         .resize-handle {
             pointer-events: auto;
@@ -319,10 +629,10 @@ window.__IOC_THEME = (function () {
             -webkit-user-select: none;
         }
         .resize-handle:hover {
-            background: rgba(59, 130, 246, 0.6) !important;
+            background: rgb(var(--ioc-chrome-blue-rgb) / 60%) !important;
         }
         .resize-handle[data-resizing] {
-            background: rgba(59, 130, 246, 0.8) !important;
+            background: rgb(var(--ioc-chrome-blue-rgb) / 80%) !important;
         }
         .resize-handle-horizontal {
             width: 4px;
@@ -351,14 +661,14 @@ window.__IOC_THEME = (function () {
             position: relative;
             width: 100%;
             height: 26px;
-            background: rgba(0, 0, 0, 0.8);
-            border: 2px solid rgba(0, 212, 255, 0.3);
+            background: var(--vmax-fill-3);
+            border: 2px solid rgb(var(--vmax-cyan-rgb) / 30%);
             border-radius: 2px;
             overflow: hidden;
             box-shadow:
                 inset 0 0 10px rgba(0, 0, 0, 0.5),
-                0 0 10px rgba(0, 212, 255, 0.2),
-                0 0 20px rgba(0, 212, 255, 0.1);
+                0 0 10px rgb(var(--vmax-cyan-rgb) / 20%),
+                0 0 20px rgb(var(--vmax-cyan-rgb) / 10%);
         }
         /* 浅色下 HUD 槽体改浅底、文字转深色（能量条填充色本身语义色通用） */
         [data-theme="light"] .hud-bar-container {
@@ -465,7 +775,7 @@ window.__IOC_THEME = (function () {
             font-family: 'Inter', 'Roboto', sans-serif;
             font-weight: 600;
             font-size:0.688rem;
-            color: #ffffff;
+            color: var(--vmax-text);
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
             z-index: 10;
             pointer-events: none;
@@ -479,7 +789,7 @@ window.__IOC_THEME = (function () {
             font-family: 'Inter', 'Roboto', sans-serif;
             font-weight: 500;
             font-size:0.875rem;
-            color: #ffffff;
+            color: var(--vmax-text);
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
             z-index: 10;
             pointer-events: none;
@@ -487,15 +797,15 @@ window.__IOC_THEME = (function () {
 
         /* P1告警样式（无动画） */
         .p1-alert {
-            box-shadow: 0 0 20px rgba(255, 0, 64, 0.5);
+            box-shadow: 0 0 20px rgb(var(--vmax-red-rgb) / 50%);
         }
         /* 工业风格边框 */
         .industrial-border {
-            border: 2px solid rgba(0, 212, 255, 0.3);
+            border: 2px solid var(--vmax-edge);
             box-shadow:
-                inset 0 0 20px rgba(0, 212, 255, 0.1),
-                0 0 20px rgba(0, 212, 255, 0.2),
-                0 0 40px rgba(0, 212, 255, 0.1);
+                inset 0 7px 17px var(--vmax-glow),
+                0 0 20px rgb(var(--vmax-blue-rgb) / 20%),
+                0 0 40px rgb(var(--vmax-blue-rgb) / 10%);
         }
 
         /* 重新设计的字体大小体系 - 美观清晰的层次结构 */
@@ -635,9 +945,9 @@ window.__IOC_THEME = (function () {
         }
         
         .badge-sla-blue {
-            background: rgba(59, 130, 246, 0.15);
+            background: rgb(var(--ioc-chrome-blue-rgb) / 15%);
             color: var(--ioc-badge-blue);
-            border: 1px solid rgba(59, 130, 246, 0.4);
+            border: 1px solid rgb(var(--ioc-chrome-blue-rgb) / 40%);
         }
         
         .badge-sla-green {
@@ -681,10 +991,10 @@ window.__IOC_THEME = (function () {
         }
         
         .badge-severity-p4 {
-            background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.15));
+            background: linear-gradient(135deg, rgb(var(--ioc-chrome-blue-rgb) / 20%), rgba(37, 99, 235, 0.15));
             color: var(--ioc-badge-blue);
-            border: 2px solid rgba(59, 130, 246, 0.5);
-            box-shadow: 0 0 6px rgba(59, 130, 246, 0.3);
+            border: 2px solid rgb(var(--ioc-chrome-blue-rgb) / 50%);
+            box-shadow: 0 0 6px rgb(var(--ioc-chrome-blue-rgb) / 30%);
         }
         
         /* ACTIVE INCIDENT LOG 表格优化 */
@@ -1465,6 +1775,45 @@ img, svg, canvas, iframe { max-width: 100%; }
 </head>
 <body class="min-h-screen screen-mode">
 <script>
+    /* ===== 主题色板：JS 不再自己存色值常量，统一读 CSS 变量 =====
+       唯一真相源：深色 = legacy-vmax-theme.css 的 --vmax-*（经 :root 里的 --ioc-* 桥接）；
+                   浅色 = 本页 [data-theme="light"] 块。
+       老写法是 `isLight ? '#d92d20' : '#ff0040'` 这种「同一语义两处硬编码」，
+       切主题时还得逐个分支改，正是深色跑偏的根因之一。
+       ⚠️ getComputedStyle 有开销：只在加载时与切主题时各读一次，见 refreshIocPalette()。 */
+    function cssVar(name, fallback){
+        try {
+            const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+            return v || fallback;
+        } catch (e) { return fallback; }
+    }
+    function readIocPalette(){
+        return {
+            mapNoData:       cssVar('--ioc-choro-nodata', '#08122c'),
+            mapNoDataBorder: cssVar('--ioc-choro-nodata-border', '#6f8cb4'),
+            mapHigh:         cssVar('--ioc-choro-high', '#ff5c6c'),
+            mapHighBorder:   cssVar('--ioc-choro-high-border', '#ffb3bc'),
+            mapMid:          cssVar('--ioc-choro-mid', '#ff922b'),
+            mapMidBorder:    cssVar('--ioc-choro-mid-border', '#f6cf00'),
+            mapLow:          cssVar('--ioc-choro-low', '#f6cf00'),
+            mapLowBorder:    cssVar('--ioc-choro-low-border', '#f6cf00'),
+            mapOk:           cssVar('--ioc-choro-ok', '#0bc78c'),
+            mapOkBorder:     cssVar('--ioc-choro-ok-border', '#6ef0b4'),
+            mapSelect:       cssVar('--ioc-choro-select', '#00d9ff'),
+            legHigh:         cssVar('--ioc-choro-leg-high', '#ff5c6c'),
+            legMid:          cssVar('--ioc-choro-leg-mid', '#ff922b'),
+            legLow:          cssVar('--ioc-choro-leg-low', '#f6cf00'),
+            legOk:           cssVar('--ioc-choro-leg-ok', '#0bc78c'),
+        };
+    }
+    const IOC_PALETTE = { dark: readIocPalette(), light: readIocPalette() };
+    function iocThemeMode(){
+        return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    }
+    function iocP(){ return IOC_PALETTE[iocThemeMode()]; }
+    /* 主题切换后刷新缓存（浅色档色值来自本页 [data-theme="light"] 块） */
+    function refreshIocPalette(){ IOC_PALETTE[iocThemeMode()] = readIocPalette(); }
+
     // API基础URL（支持子路径部署）
     const API_BASE = window.location.origin;
     const API_BASE_PATH = '/api/incident-overview';
@@ -2994,8 +3343,8 @@ Respond in English.`;
         // 创建一个简单的深色SVG瓦片作为默认背景
         const darkTileSvg = 'data:image/svg+xml;base64,' + btoa(`
             <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg">
-                <rect width="256" height="256" fill="#0a0a0a"/>
-                <rect x="0" y="0" width="256" height="256" fill="#1a1a1a" opacity="0.3"/>
+                <rect width="256" height="256" fill="${cssVar('--vmax-bg', '#02050c')}"/>
+                <rect x="0" y="0" width="256" height="256" fill="${cssVar('--vmax-panel', '#08122c')}" opacity="0.3"/>
             </svg>
         `);
         // 浅色主题的浅色错误瓦片
@@ -3138,7 +3487,7 @@ Respond in English.`;
                 font-size: 11px !important;
                 font-weight: bold !important;
                 color: var(--text-primary) !important;
-                text-shadow: 0 0 3px rgba(0, 212, 255, 0.8), 0 0 6px rgba(0, 212, 255, 0.6) !important;
+                text-shadow: 0 0 3px rgb(var(--vmax-cyan-rgb) / 80%), 0 0 6px rgb(var(--vmax-cyan-rgb) / 60%) !important;
                 white-space: nowrap !important;
                 pointer-events: none !important;
             }
@@ -3222,14 +3571,14 @@ Respond in English.`;
             stateLayers.forEach(layer => liberiaMap.removeLayer(layer));
             stateLayers = [];
             // 显示所有州为无数据状态（使用GeoJSON）
-            const noDataLight = document.documentElement.getAttribute('data-theme') === 'light';
+            const _mp = iocP();
             geoData.features.forEach(feature => {
                 const stateName = getStateNameFromFeature(feature);
                 if (stateName) {
                     const layer = L.geoJSON(feature, {
                         style: {
-                            fillColor: noDataLight ? '#e2e8f0' : '#e8e8e8',
-                            color: noDataLight ? '#b6c5d4' : '#cccccc',
+                            fillColor: _mp.mapNoData,
+                            color: _mp.mapNoDataBorder,
                             weight: 1,
                             opacity: 1,
                             fillOpacity: 0.3
@@ -3389,29 +3738,29 @@ Respond in English.`;
                 }
             }
             
-            // 根据数量设置颜色（语义色红/橙/绿两种主题通用；无数据底色与边界随主题）
+            // 根据数量设置颜色：色值全部来自 CSS 令牌（iocP()），深浅两档各自解析
             const intensity = maxCount > 0 ? count / maxCount : 0;
-            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-            let fillColor = isLight ? '#e2e8f0' : '#e8e8e8'; // 无数据：浅色用浅灰蓝，深色用浅灰
-            let borderColor = isLight ? '#b6c5d4' : '#cccccc';
+            const _mp = iocP();
+            let fillColor = _mp.mapNoData; // 无数据
+            let borderColor = _mp.mapNoDataBorder;
             let borderWidth = 1;
-            
+
             if (count > 0) {
                 if (intensity > 0.7) {
-                    fillColor = isLight ? '#d92d20' : '#ff0040'; // 红色（多）
-                    borderColor = isLight ? '#a91610' : '#cc0033';
+                    fillColor = _mp.mapHigh; // 红色（多）
+                    borderColor = _mp.mapHighBorder;
                     borderWidth = 2;
                 } else if (intensity > 0.4) {
-                    fillColor = isLight ? '#d9700f' : '#ff6600'; // 橙红色
-                    borderColor = isLight ? '#a35309' : '#cc5200';
+                    fillColor = _mp.mapMid; // 橙红色
+                    borderColor = _mp.mapMidBorder;
                     borderWidth = 2;
                 } else if (intensity > 0.2) {
-                    fillColor = isLight ? '#c77d00' : '#ffaa00'; // 橙色（中）
-                    borderColor = isLight ? '#965d00' : '#cc8800';
+                    fillColor = _mp.mapLow; // 橙色（中）
+                    borderColor = _mp.mapLowBorder;
                     borderWidth = 2;
                 } else {
-                    fillColor = isLight ? '#15803d' : '#00ff41'; // 绿色（少）
-                    borderColor = isLight ? '#0f5c2c' : '#00cc33';
+                    fillColor = _mp.mapOk; // 绿色（少）
+                    borderColor = _mp.mapOkBorder;
                     borderWidth = 2;
                 }
             }
@@ -3453,7 +3802,7 @@ Respond in English.`;
                             layer.setStyle({
                                 fillOpacity: count > 0 ? 0.95 : 0.6,
                                 weight: 5,
-                                color: '#00ffff'
+                                color: _mp.mapSelect
                             });
                         } else {
                             layer.setStyle({
@@ -3470,7 +3819,7 @@ Respond in English.`;
                             layer.setStyle({
                                 fillOpacity: count > 0 ? 0.9 : 0.6,
                                 weight: 4,
-                                color: '#00ffff'
+                                color: _mp.mapSelect
                             });
                         } else {
                             // 恢复原始样式
@@ -3594,14 +3943,16 @@ Respond in English.`;
 
         sortedStates.forEach(([state, count]) => {
             const intensity = count / maxCount;
-            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-            let color = isLight ? '#15803d' : '#00ff41';
+            const _lp = iocP();
+            // 注意：浅色档历史上把 mid/low 两档写反了（见报告「存疑点」），
+            // 为不改动浅色渲染，这里保持原顺序，深色档的取值与地图一致。
+            let color = _lp.legOk;
             if (intensity > 0.7) {
-                color = isLight ? '#d92d20' : '#ff0040';
+                color = _lp.legHigh;
             } else if (intensity > 0.4) {
-                color = isLight ? '#c77d00' : '#ffaa00';
+                color = _lp.legMid;
             } else if (intensity > 0.2) {
-                color = isLight ? '#d9700f' : '#ff6600';
+                color = _lp.legLow;
             }
 
             // 如果这个州被选中，添加高亮样式
@@ -3640,7 +3991,7 @@ Respond in English.`;
                     // 高亮选中的州
                     layer.setStyle({
                         weight: 4,
-                        color: '#00ffff',
+                        color: iocP().mapSelect,
                         fillOpacity: 0.9,
                         opacity: 1
                     });
@@ -6003,7 +6354,7 @@ Respond in English.`;
         handle.className = `resize-handle resize-handle-${direction}`;
         handle.style.cssText = `
             position: absolute;
-            background: rgba(59, 130, 246, 0.3);
+            background: rgb(var(--ioc-chrome-blue-rgb) / 30%);
             transition: background 0.2s;
             z-index: 100;
             ${isHorizontal ? 'width: 4px; height: 100%; right: 0; top: 0; cursor: col-resize;' : ''}
@@ -6023,13 +6374,13 @@ Respond in English.`;
 
         const handleMouseEnter = () => {
             if (!isResizing) {
-                handle.style.background = 'rgba(59, 130, 246, 0.6)';
+                handle.style.background = 'rgb(var(--ioc-chrome-blue-rgb) / 60%)';
             }
         };
 
         const handleMouseLeave = () => {
             if (!isResizing) {
-                handle.style.background = 'rgba(59, 130, 246, 0.3)';
+                handle.style.background = 'rgb(var(--ioc-chrome-blue-rgb) / 30%)';
             }
         };
 
@@ -6041,7 +6392,7 @@ Respond in English.`;
             handle.dataset.resizing = 'true';
             document.body.style.cursor = isHorizontal ? 'col-resize' : 'row-resize';
             document.body.style.userSelect = 'none';
-            handle.style.background = 'rgba(59, 130, 246, 0.8)';
+            handle.style.background = 'rgb(var(--ioc-chrome-blue-rgb) / 80%)';
 
             if (isHorizontal) {
                 startPos = e.clientX;
@@ -6092,7 +6443,7 @@ Respond in English.`;
                 delete handle.dataset.resizing;
                 document.body.style.cursor = '';
                 document.body.style.userSelect = '';
-                handle.style.background = 'rgba(59, 130, 246, 0.3)';
+                handle.style.background = 'rgb(var(--ioc-chrome-blue-rgb) / 30%)';
             }
         };
 
@@ -6116,13 +6467,13 @@ Respond in English.`;
         // 创建分隔条
         const divider = document.createElement('div');
         divider.className = 'resize-divider-horizontal';
-        divider.style.cssText = 'width: 4px; background: rgba(59, 130, 246, 0.3); cursor: col-resize; position: relative; flex-shrink: 0; transition: background 0.2s; margin: 0 2px;';
+        divider.style.cssText = 'width: 4px; background: rgb(var(--ioc-chrome-blue-rgb) / 30%); cursor: col-resize; position: relative; flex-shrink: 0; transition: background 0.2s; margin: 0 2px;';
         divider.addEventListener('mouseenter', () => {
-            divider.style.background = 'rgba(59, 130, 246, 0.6)';
+            divider.style.background = 'rgb(var(--ioc-chrome-blue-rgb) / 60%)';
         });
         divider.addEventListener('mouseleave', () => {
             if (!divider.dataset.resizing) {
-                divider.style.background = 'rgba(59, 130, 246, 0.3)';
+                divider.style.background = 'rgb(var(--ioc-chrome-blue-rgb) / 30%)';
             }
         });
 
@@ -6140,7 +6491,7 @@ Respond in English.`;
             startWidth = severityContainer.offsetWidth;
             document.body.style.cursor = 'col-resize';
             document.body.style.userSelect = 'none';
-            divider.style.background = 'rgba(59, 130, 246, 0.8)';
+            divider.style.background = 'rgb(var(--ioc-chrome-blue-rgb) / 80%)';
             e.preventDefault();
         });
 
@@ -6164,7 +6515,7 @@ Respond in English.`;
                 delete divider.dataset.resizing;
                 document.body.style.cursor = '';
                 document.body.style.userSelect = '';
-                divider.style.background = 'rgba(59, 130, 246, 0.3)';
+                divider.style.background = 'rgb(var(--ioc-chrome-blue-rgb) / 30%)';
             }
         });
     }
@@ -6287,13 +6638,13 @@ Respond in English.`;
 
         // 分隔条悬停效果
         divider.addEventListener('mouseenter', (e) => {
-            divider.style.background = 'rgba(59, 130, 246, 0.6)';
+            divider.style.background = 'rgb(var(--ioc-chrome-blue-rgb) / 60%)';
             divider.style.height = '12px';
             divider.style.cursor = 'row-resize';
         });
         divider.addEventListener('mouseleave', (e) => {
             if (!divider.dataset.resizing) {
-                divider.style.background = 'rgba(59, 130, 246, 0.3)';
+                divider.style.background = 'rgb(var(--ioc-chrome-blue-rgb) / 30%)';
                 divider.style.height = '8px';
             }
         });
@@ -6322,7 +6673,7 @@ Respond in English.`;
 
             document.body.style.cursor = 'row-resize';
             document.body.style.userSelect = 'none';
-            divider.style.background = 'rgba(59, 130, 246, 0.8)';
+            divider.style.background = 'rgb(var(--ioc-chrome-blue-rgb) / 80%)';
             divider.style.height = '12px';
 
             console.log('Resize started', {
@@ -6383,7 +6734,7 @@ Respond in English.`;
                 delete divider.dataset.resizing;
                 document.body.style.cursor = '';
                 document.body.style.userSelect = '';
-                divider.style.background = 'rgba(59, 130, 246, 0.3)';
+                divider.style.background = 'rgb(var(--ioc-chrome-blue-rgb) / 30%)';
                 divider.style.height = '8px';
                 console.log('Resize ended');
             }
@@ -6656,6 +7007,8 @@ Respond in English.`;
             const mode = (e.detail && e.detail.mode) || 'dark';
             if (mode === lastThemeMode) return;
             lastThemeMode = mode;
+            // 先按新档位刷新 CSS 变量色值缓存，再重绘地图/图例（见 refreshIocPalette）
+            try { refreshIocPalette(); } catch (err) { console.warn('palette refresh failed:', err); }
             try {
                 if (typeof window.__IOC_setMapTheme === 'function') window.__IOC_setMapTheme(mode);
                 // 重绘州区域与图例，使 GeoJSON 填充/边界色按新主题重新计算。
@@ -6667,7 +7020,7 @@ Respond in English.`;
         });
     });
 </script>
-<header class="w-full bg-[var(--bg-main)] border-b-2 border-[var(--text-primary)]/30 px-5 py-3 flex items-center justify-between sticky top-0 z-50 industrial-border" style="box-shadow: var(--ioc-shadow-cyan);">
+<header class="w-full bg-[var(--bg-main)] border-b-2 border-[var(--ioc-border-strong)] px-5 py-3 flex items-center justify-between sticky top-0 z-50 industrial-border" style="box-shadow: var(--ioc-shadow-cyan);">
 <div class="flex items-center gap-4">
 <div class="shadow-[0_0_15px_rgba(59,130,246,0.3)] inline-block overflow-hidden" style="background-color: var(--corporate-blue);">
 <img src="favicon.ico" alt="Logo" class="w-14 h-14 block"/>
@@ -6692,7 +7045,7 @@ Respond in English.`;
 </header>
 <main class="p-5 space-y-4 w-full">
                 <div class="flex gap-4 items-start">
-                    <div class="flex-[1] bg-[var(--bg-card)] p-4 rounded-xl border-2 border-[var(--text-primary)]/20 flex flex-col shadow-2xl industrial-border">
+                    <div class="flex-[1] bg-[var(--bg-card)] p-4 rounded-xl border-2 border-[var(--ioc-border-strong)] flex flex-col shadow-2xl industrial-border">
                         <div class="flex gap-2 flex-1 items-center justify-center">
                             <div class="flex-1 text-center">
                                 <p class="text-[var(--text-primary)]/90 text-[16px] font-semibold mb-1 font-['Inter']">Total</p>
@@ -6716,37 +7069,37 @@ Respond in English.`;
                     </div>
                     <div class="flex-[4] grid grid-cols-6 gap-0 relative">
                         <div class="flex flex-col items-center gap-3 status-line relative z-10">
-                            <div class="w-14 h-14 rounded-full bg-purple-900/30 border-2 border-purple-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgba(147, 51, 234, 0.5);">
+                            <div class="w-14 h-14 rounded-full bg-purple-900/30 border-2 border-purple-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgb(var(--ioc-kpi-indigo-rgb) / 50%);">
                                 <span class="text-[24px] font-bold text-purple-400 font-['Inter']" data-status="Reassign">0</span>
                             </div>
                             <span class="text-[16px] tracking-widest text-purple-400 font-bold font-['Inter']">Reassign</span>
                         </div>
                         <div class="flex flex-col items-center gap-3 status-line relative z-10">
-                            <div class="w-14 h-14 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgba(148, 163, 184, 0.3);">
+                            <div class="w-14 h-14 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgb(var(--ioc-kpi-neutral-rgb) / 30%);">
                                 <span class="text-[24px] font-bold text-[var(--ioc-slate-300)] font-['Inter']" data-status="WaitingConfirm">3</span>
                             </div>
                             <span class="text-[16px] tracking-widest text-[var(--ioc-slate-300)] font-bold font-['Inter']">WaitingConfirm</span>
                         </div>
                         <div class="flex flex-col items-center gap-3 status-line relative z-10">
-                            <div class="w-14 h-14 rounded-full bg-cyan-900/30 border-2 border-cyan-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 20px rgba(6, 182, 212, 0.6);">
+                            <div class="w-14 h-14 rounded-full bg-cyan-900/30 border-2 border-cyan-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 20px rgb(var(--ioc-kpi-cyan-rgb) / 60%);">
                                 <span class="text-[24px] font-bold text-cyan-400 font-['Inter']" data-status="WaitingAccept">343</span>
                             </div>
                             <span class="text-[16px] tracking-widest text-cyan-400 font-bold font-['Inter']">WaitingAccept</span>
                         </div>
                         <div class="flex flex-col items-center gap-3 status-line relative z-10">
-                            <div class="w-14 h-14 rounded-full bg-amber-900/30 border-2 border-amber-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgba(255, 170, 0, 0.5);">
+                            <div class="w-14 h-14 rounded-full bg-amber-900/30 border-2 border-amber-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgb(var(--ioc-kpi-amber-rgb) / 50%);">
                                 <span class="text-[24px] font-bold text-amber-400 font-['Inter']" data-status="WaitingProcess">17</span>
                             </div>
                             <span class="text-[16px] tracking-widest text-amber-400 font-bold font-['Inter']">WaitingProcess</span>
                         </div>
                         <div class="flex flex-col items-center gap-3 status-line relative z-10">
-                            <div class="w-14 h-14 rounded-full bg-red-900/30 border-2 border-red-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);">
+                            <div class="w-14 h-14 rounded-full bg-red-900/30 border-2 border-red-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgb(var(--ioc-kpi-red-rgb) / 50%);">
                                 <span class="text-[24px] font-bold text-red-400 font-['Inter']" data-status="WaitingClose">934</span>
                             </div>
                             <span class="text-[16px] tracking-widest text-red-400 font-bold font-['Inter']">WaitingClose</span>
                         </div>
                         <div class="flex flex-col items-center gap-3 status-line relative z-10">
-                            <div class="w-14 h-14 rounded-full bg-emerald-900/30 border-2 border-emerald-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);">
+                            <div class="w-14 h-14 rounded-full bg-emerald-900/30 border-2 border-emerald-600 flex items-center justify-center relative z-20 industrial-border" style="box-shadow: 0 0 15px rgb(var(--ioc-kpi-green-rgb) / 50%);">
                                 <span class="text-[24px] font-bold text-emerald-400 font-['Inter']" data-status="Closed">748</span>
                             </div>
                             <span class="text-[16px] tracking-widest text-emerald-400 font-bold font-['Inter']">Closed</span>
@@ -6755,7 +7108,7 @@ Respond in English.`;
                 </div>
 <div class="flex gap-4 items-stretch">
 <div class="flex flex-col relative min-h-0" style="flex: 0 0 16.67%; align-self: stretch;" data-ai-analysis-container>
-<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col absolute inset-0 industrial-border">
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--ioc-border-strong)] overflow-hidden shadow-2xl flex flex-col absolute inset-0 industrial-border">
 <div class="bg-gradient-to-r from-purple-500/20 to-blue-500/20 px-4 py-3 border-b border-[var(--ioc-divider)] flex items-center justify-between gap-2">
 <div class="flex items-center gap-2">
 <span class="material-symbols-outlined text-purple-400 text-[28.8px]">psychology</span>
@@ -6927,10 +7280,10 @@ Respond in English.`;
 </div>
 <!-- Liberia States Map Component with SLA -->
 <div class="flex gap-4 h-full map-container">
-<div class="flex-[2] bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl industrial-border map-main-container">
-<div class="px-5 py-3 border-b-2 border-[var(--text-primary)]/20 flex justify-between items-center bg-[var(--ioc-header-bar)]">
+<div class="flex-[2] bg-[var(--bg-card)] rounded-xl border-2 border-[var(--ioc-border-strong)] overflow-hidden shadow-2xl industrial-border map-main-container">
+<div class="px-5 py-3 border-b-2 border-[var(--ioc-border-strong)] flex justify-between items-center bg-[var(--ioc-header-bar)]">
 <div class="flex items-center gap-4">
-<h3 class="text-[22px] font-bold text-[var(--ioc-text-strong)] tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);">Liberia States Incident Distribution</h3>
+<h3 class="text-[22px] font-bold text-[var(--ioc-text-strong)] tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgb(var(--vmax-cyan-rgb) / 50%);">Liberia States Incident Distribution</h3>
 <span class="px-2 py-0.5 rounded bg-green-500/20 text-green-400 text-[12px] font-bold border border-green-500/30" id="map-record-count">0 RECORDS</span>
 </div>
 </div>
@@ -6943,7 +7296,7 @@ Respond in English.`;
 <!-- SLA Components -->
 <div class="resizable" style="flex: 0 0 calc(83.33% * 0.5 - 2rem); align-self: stretch; position: relative;" data-sla-container>
 <div class="flex flex-col w-full gap-1" style="min-height: 100%;">
-<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col industrial-border" data-sla-card="zte" style="flex: 1 1 auto;">
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--ioc-border-strong)] overflow-hidden shadow-2xl flex flex-col industrial-border" data-sla-card="zte" style="flex: 1 1 auto;">
 <div class="bg-[var(--ioc-chip)] px-4 py-2 border-b border-[var(--ioc-divider)] flex items-center gap-2">
 <span class="w-2 h-2 rounded-full bg-[var(--corporate-blue)]"></span>
 <span class="text-[18px] font-bold text-[var(--text-primary)] uppercase tracking-wider font-['Inter']">SLA Performance - Vendor ZTE</span>
@@ -7003,8 +7356,8 @@ Respond in English.`;
 </div>
 </div>
 </div>
-<div class="sla-resize-divider" style="height: 10px; background: rgba(59, 130, 246, 0.3); cursor: row-resize; position: relative; flex-shrink: 0; transition: background 0.2s; margin:0; border-radius: 4px; z-index: 100; pointer-events: auto; user-select: none; -webkit-user-select: none;"></div>
-<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl flex flex-col industrial-border" data-sla-card="3rd" style="flex: 1 1 auto;">
+<div class="sla-resize-divider" style="height: 10px; background: rgb(var(--ioc-chrome-blue-rgb) / 30%); cursor: row-resize; position: relative; flex-shrink: 0; transition: background 0.2s; margin:0; border-radius: 4px; z-index: 100; pointer-events: auto; user-select: none; -webkit-user-select: none;"></div>
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--ioc-border-strong)] overflow-hidden shadow-2xl flex flex-col industrial-border" data-sla-card="3rd" style="flex: 1 1 auto;">
 <div class="bg-[var(--ioc-chip)] px-4 py-2 border-b border-[var(--ioc-divider)] flex items-center gap-2">
 <span class="w-2 h-2 rounded-full bg-slate-500"></span>
 <span class="text-[18px] font-bold text-[var(--text-primary)] uppercase tracking-wider font-['Inter']">SLA Performance - Vendor 3rd</span>
@@ -7070,10 +7423,10 @@ Respond in English.`;
 </div>
 </div>
 </div>
-<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl w-full industrial-border" data-details-container>
-<div class="px-5 py-3 border-b-2 border-[var(--text-primary)]/20 flex justify-between items-center bg-[var(--ioc-header-bar)]">
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--ioc-border-strong)] overflow-hidden shadow-2xl w-full industrial-border" data-details-container>
+<div class="px-5 py-3 border-b-2 border-[var(--ioc-border-strong)] flex justify-between items-center bg-[var(--ioc-header-bar)]">
 <div class="flex items-center gap-4">
-<h3 class="text-[22px] font-bold text-[var(--ioc-text-strong)] tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);">Active Incident Log(SLA>50%)</h3>
+<h3 class="text-[22px] font-bold text-[var(--ioc-text-strong)] tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgb(var(--vmax-cyan-rgb) / 50%);">Active Incident Log(SLA>50%)</h3>
 <span class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[12px] font-bold border border-blue-500/30" id="details-record-count">26 RECORDS</span>
 </div>
 <div class="flex gap-2 items-center">
@@ -7096,12 +7449,12 @@ Respond in English.`;
 </div>
 <div class="overflow-x-auto max-h-[450px] w-full" style="position: relative;">
 <table class="min-w-full text-left text-[15px] whitespace-nowrap font-['Inter']" style="table-layout: auto;">
-<thead class="bg-[var(--bg-card)] sticky top-0 z-10 border-b-2 border-[var(--text-primary)]/30" style="backdrop-filter: blur(10px);">
+<thead class="bg-[var(--bg-card)] sticky top-0 z-10 border-b-2 border-[var(--ioc-border-strong)]" style="backdrop-filter: blur(10px);">
                         <tr class="text-[var(--ioc-slate-500)] font-bold" id="details-header">
                             <!-- 表头将由JavaScript动态生成 -->
                         </tr>
 </thead>
-                        <tbody class="font-medium text-[var(--text-primary)]/90 divide-y divide-[var(--text-primary)]/10" id="details-body" style="line-height: 1.5;">
+                        <tbody class="font-medium text-[var(--text-primary)]/90 divide-y" id="details-body" style="line-height: 1.5;">
                             <!-- 数据行将由JavaScript动态生成 -->
                         </tbody>
 </table>
@@ -7117,10 +7470,10 @@ Respond in English.`;
 </div>
 
 <!-- Incident Log Component -->
-<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 overflow-hidden shadow-2xl w-full industrial-border" data-incident-log-container>
-<div class="px-5 py-3 border-b-2 border-[var(--text-primary)]/20 flex justify-between items-center bg-[var(--ioc-header-bar)]">
+<div class="bg-[var(--bg-card)] rounded-xl border-2 border-[var(--ioc-border-strong)] overflow-hidden shadow-2xl w-full industrial-border" data-incident-log-container>
+<div class="px-5 py-3 border-b-2 border-[var(--ioc-border-strong)] flex justify-between items-center bg-[var(--ioc-header-bar)]">
 <div class="flex items-center gap-4">
-<h3 class="text-[22px] font-bold text-[var(--ioc-text-strong)] tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);">Incident Log</h3>
+<h3 class="text-[22px] font-bold text-[var(--ioc-text-strong)] tracking-wider font-['Inter']" style="text-shadow: 0 0 15px rgb(var(--vmax-cyan-rgb) / 50%);">Incident Log</h3>
 <span class="px-2 py-0.5 rounded bg-green-500/20 text-green-400 text-[12px] font-bold border border-green-500/30" id="incident-log-record-count">0 RECORDS</span>
 </div>
 <div class="flex gap-2 items-center">
@@ -7143,12 +7496,12 @@ Respond in English.`;
 </div>
 <div class="overflow-x-auto max-h-[450px] w-full" style="position: relative; overflow-y: auto;" data-incident-log-scroll>
 <table class="min-w-full text-left text-[15px] whitespace-nowrap font-['Inter']" style="table-layout: auto;">
-<thead class="bg-[var(--bg-card)] sticky top-0 z-10 border-b-2 border-[var(--text-primary)]/30" style="backdrop-filter: blur(10px);">
+<thead class="bg-[var(--bg-card)] sticky top-0 z-10 border-b-2 border-[var(--ioc-border-strong)]" style="backdrop-filter: blur(10px);">
                         <tr class="text-[var(--ioc-slate-500)] font-bold" id="incident-log-header">
                             <!-- 表头将由JavaScript动态生成 -->
                         </tr>
 </thead>
-                        <tbody class="font-medium text-[var(--text-primary)]/90 divide-y divide-[var(--text-primary)]/10" id="incident-log-body" style="line-height: 1.5;">
+                        <tbody class="font-medium text-[var(--text-primary)]/90 divide-y" id="incident-log-body" style="line-height: 1.5;">
                             <!-- 数据行将由JavaScript动态生成 -->
                         </tbody>
 </table>
@@ -7219,7 +7572,7 @@ Respond in English.`;
     </button>
     
     <!-- Assistant Panel -->
-    <div id="assistant-panel" class="hidden absolute bottom-20 right-0 w-96 bg-[var(--bg-card)] rounded-xl border-2 border-[var(--text-primary)]/20 shadow-2xl overflow-hidden">
+    <div id="assistant-panel" class="hidden absolute bottom-20 right-0 w-96 bg-[var(--bg-card)] rounded-xl border-2 border-[var(--ioc-border-strong)] shadow-2xl overflow-hidden">
         <div class="bg-gradient-to-r from-purple-500/20 to-blue-500/20 px-4 py-3 border-b border-[var(--ioc-divider)] flex items-center justify-between">
             <div class="flex items-center gap-2">
                 <span class="material-symbols-outlined text-purple-400 text-[24px]">smart_toy</span>

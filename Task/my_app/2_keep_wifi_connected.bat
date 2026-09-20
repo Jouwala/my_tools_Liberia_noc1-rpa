@@ -26,8 +26,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp02_wifi_power_fix.ps1"
 
 echo.
 echo [3/4] Install keep-alive task: ping mail server via Wi-Fi every 5 min ...
+echo       (via wscript hidden wrapper - a bare "ping" action flashes a black
+echo        console window every 5 minutes in an interactive session)
 schtasks /delete /tn "MailWifiKeepAlive" /f >nul 2>&1
-schtasks /create /tn "MailWifiKeepAlive" /tr "ping -n 1 -w 2000 41.202.66.149" /sc minute /mo 5 /f
+schtasks /create /tn "MailWifiKeepAlive" /tr "wscript.exe \"%~dp0mail_wifi_keepalive_hidden.vbs\"" /sc minute /mo 5 /f
 
 echo.
 echo [4/4] Reconnect to the last Wi-Fi profile ...

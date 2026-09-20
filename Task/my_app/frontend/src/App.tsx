@@ -46,6 +46,9 @@ import {
   SearchOutlined,
   EyeOutlined,
   EyeInvisibleOutlined,
+  DesktopOutlined,
+  FileDoneOutlined,
+  SolutionOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -73,6 +76,11 @@ const ArchiveList = lazy(() => import('./pages/ArchiveList'))
 const DataSync = lazy(() => import('./pages/DataSync'))
 const WarehouseDashboard = lazy(() => import('./pages/WarehouseDashboard'))
 const SpMaterialSummary = lazy(() => import('./pages/SpMaterialSummary'))
+const SpDetailsReport = lazy(() => import('./pages/SpDetailsReport'))
+const SpReport = lazy(() => import('./pages/SpReport'))
+const ComReport = lazy(() => import('./pages/ComReport'))
+const MsWoSLReport = lazy(() => import('./pages/MsWoSLReport'))
+const MsContractKpiReport = lazy(() => import('./pages/MsContractKpiReport'))
 const Overview = lazy(() => import('./pages/Overview'))
 const TTWODashboard = lazy(() => import('./pages/TTWODashboard'))
 const AlarmDashboard = lazy(() => import('./pages/AlarmDashboard'))
@@ -83,11 +91,15 @@ const IpTrace = lazy(() => import('./pages/IpTrace'))
 const IncidentOverview = lazy(() => import('./pages/IncidentOverview'))
 const NurDashboard = lazy(() => import('./pages/NurDashboard'))
 const MsSlaDashboard = lazy(() => import('./pages/MsSlaDashboard'))
+// 只保留一半内容的直链页（同一实现的切片，见 pages/MsNurOnly.tsx / MsSlaOnly.tsx）
+const MsNurOnly = lazy(() => import('./pages/MsNurOnly'))
+const MsSlaOnly = lazy(() => import('./pages/MsSlaOnly'))
 const AlarmManagement = lazy(() => import('./pages/AlarmManagement'))
 const CxoDashboard = lazy(() => import('./pages/CxoDashboard'))
 const VmaxCxoDashboard = lazy(() => import('./pages/VmaxCxoDashboard'))
 const VmaxCxoDashboardDaily = lazy(() => import('./pages/VmaxCxoDashboardDaily'))
 const VmaxCxoDashboard90Days = lazy(() => import('./pages/VmaxCxoDashboard90Days'))
+const ImonitorScreen = lazy(() => import('./pages/ImonitorScreen'))
 const EmailReports = lazy(() => import('./pages/EmailReports'))
 const MwUmeDashboard = lazy(() => import('./pages/MwUmeDashboard'))
 const MwRealTimeDashboard = lazy(() => import('./pages/MwRealTimeDashboard'))
@@ -101,9 +113,9 @@ const IssueFeedback = lazy(() => import('./pages/IssueFeedback'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'ran_cells_kpi' | 'ume_in_kpi' | 'feedback' | 'help'
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'ran_cells_kpi' | 'ume_in_kpi' | 'feedback' | 'help'
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'ran_cells_kpi', 'ume_in_kpi', 'feedback', 'help']
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'ran_cells_kpi', 'ume_in_kpi', 'feedback', 'help']
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -131,7 +143,9 @@ const AR_PAGE_DEFAULTS: Partial<Record<PageKey, number>> = {
   mwRealTime: 900, help: 0, vmaxCxoDashboard_90Days: 900,
 }
 // 支持软刷新协议（postMessage myapp-refresh 原地重拉数据）的 legacy 页面
-const AR_SOFT_REFRESH_PAGES: PageKey[] = ['mwUmeTopology', 'mwRealTime', 'vmaxCxoDashboard_90Days']
+// imonitor：跨端口 iframe 无法由外壳重挂载来刷新（会整页闪白），改由页面自己
+// 监听 myapp-refresh 后在 iframe 内原地重载（见 ImonitorScreen.tsx）。
+const AR_SOFT_REFRESH_PAGES: PageKey[] = ['mwUmeTopology', 'mwRealTime', 'vmaxCxoDashboard_90Days', 'imonitor']
 
 /**
  * antd 深色档 map token —— 全量对齐 vmax 90 天看板口径。
@@ -294,6 +308,9 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   ttwo: { icon: <BarChartOutlined />, labelKey: 'nav.ttwo' },
   nur: { icon: <LineChartOutlined />, labelKey: 'nav.nur' },
   ms_sla: { icon: <FundOutlined />, labelKey: 'nav.msSla' },
+  // 只保留一半内容的直链页：图标沿用其数据源看板，便于在侧栏一眼认出父子关系
+  ms_nur_only: { icon: <LineChartOutlined />, labelKey: 'nav.msNurOnly' },
+  ms_sla_only: { icon: <FundOutlined />, labelKey: 'nav.msSlaOnly' },
   site_avail: { icon: <SafetyOutlined />, labelKey: 'nav.siteAvail' },
   ran_cells_kpi: { icon: <AreaChartOutlined />, labelKey: 'nav.ranCellsKpi' },
   ume_in_kpi: { icon: <DotChartOutlined />, labelKey: 'nav.umeInKpi' },
@@ -301,6 +318,7 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   vmaxCxoDashboard: { icon: <DashboardOutlined />, labelKey: 'nav.vmaxCxoDashboard' },
   vmaxCxoDashboard_Daily: { icon: <LineChartOutlined />, labelKey: 'nav.vmaxCxoDashboardDaily' },
   vmaxCxoDashboard_90Days: { icon: <FundOutlined />, labelKey: 'nav.vmaxCxoDashboard90Days' },
+  imonitor: { icon: <DesktopOutlined />, labelKey: 'nav.imonitor' },
   alarmManagement: { icon: <AlertOutlined />, labelKey: 'nav.alarmManagement' },
   incident_overview: { icon: <FileSearchOutlined />, labelKey: 'nav.incidentOverview' },
   mwUmeTopology: { icon: <ApartmentOutlined />, labelKey: 'nav.mwUmeTopology' },
@@ -317,6 +335,11 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   dashboard: { icon: <DashboardOutlined />, labelKey: 'nav.dashboard' },
   warehouse: { icon: <AppstoreOutlined />, labelKey: 'nav.sp' },
   sp_material: { icon: <DatabaseOutlined />, labelKey: 'nav.spMaterial' },
+  sp_details: { icon: <FileSearchOutlined />, labelKey: 'nav.spDetails' },
+  sp_report: { icon: <BarChartOutlined />, labelKey: 'nav.spReport' },
+  com_report: { icon: <FundOutlined />, labelKey: 'nav.comReport' },
+  ms_wo_sla: { icon: <FileDoneOutlined />, labelKey: 'nav.msWoSl' },
+  ms_contract_kpi: { icon: <SolutionOutlined />, labelKey: 'nav.msContractKpi' },
   settings: { icon: <SettingOutlined />, labelKey: 'nav.settings' },
   portalLogin: { icon: <LoginOutlined />, labelKey: 'nav.portalLogin' },
   feedback: { icon: <MessageOutlined />, labelKey: 'nav.feedback' },
@@ -329,7 +352,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_monitor',
     labelKey: 'nav.grp.monitor',
-    items: ['alarm', 'ttwo', 'nur', 'ms_sla', 'site_avail', 'ran_cells_kpi', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'alarmManagement', 'incident_overview'],
+    items: ['alarm', 'ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'site_avail', 'ran_cells_kpi', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview'],
   },
   {
     key: 'grp_network',
@@ -339,7 +362,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_analysis',
     labelKey: 'nav.grp.analysis',
-    items: ['overview', 'tables', 'upload', 'archive', 'dashboard', 'warehouse', 'sp_material'],
+    items: ['overview', 'tables', 'upload', 'archive', 'dashboard', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report'],
   },
   { key: 'grp_system', labelKey: 'nav.grp.system', items: ['settings', 'portalLogin', 'feedback', 'help'] },
 ]
@@ -1111,6 +1134,10 @@ function AppContent() {
         return <NurDashboard />
       case 'ms_sla':
         return <MsSlaDashboard />
+      case 'ms_nur_only':
+        return <MsNurOnly />
+      case 'ms_sla_only':
+        return <MsSlaOnly />
       case 'site_avail':
         return <SiteAvailability />
       case 'ran_cells_kpi':
@@ -1127,6 +1154,8 @@ function AppContent() {
         return <VmaxCxoDashboardDaily />
       case 'vmaxCxoDashboard_90Days':
         return <VmaxCxoDashboard90Days />
+      case 'imonitor':
+        return <ImonitorScreen />
       case 'mwUmeTopology':
         return <MwUmeDashboard />
       case 'mwRealTime':
@@ -1149,6 +1178,16 @@ function AppContent() {
         return <WarehouseDashboard />
       case 'sp_material':
         return <SpMaterialSummary />
+      case 'sp_details':
+        return <SpDetailsReport />
+      case 'sp_report':
+        return <SpReport />
+      case 'com_report':
+        return <ComReport />
+      case 'ms_wo_sla':
+        return <MsWoSLReport />
+      case 'ms_contract_kpi':
+        return <MsContractKpiReport />
       case 'overview':
         return <Overview />
       case 'tables':

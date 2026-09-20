@@ -221,6 +221,7 @@ def _another_watchdog_running() -> bool:
     try:
         if sys.platform == "win32":
             import ctypes
+            import ctypes.wintypes  # noqa: F401  确保 DWORD 可用
             kernel32 = ctypes.windll.kernel32
             # 显式 restype：ctypes 默认按 32 位 int 截断 64 位句柄，存活进程
             # 可能被误判为不存在 → 重复启动第二个 watchdog 抢队列。
@@ -236,7 +237,24 @@ def _another_watchdog_running() -> bool:
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if h:
+                # 2026-09-20 加固：OpenProcess 成功 ≠ 存活。taskkill /F 对卡在内核
+                # 调用的进程发起终止后，进程对象可能长时间「已终止(exit_code≠259)
+                # 但未回收」——此时它不可能再执行任何任务，若仍视为运行中，
+                # 新 watchdog 会被互斥检查永久挡住（2026-09-20 全链停摆事故的
+                # 死锁环：旧 watchdog 僵尸 → 新 watchdog 拒启 → 无人拉 worker）。
+                kernel32.GetExitCodeProcess.restype = ctypes.c_int
+                kernel32.GetExitCodeProcess.argtypes = [
+                    ctypes.c_void_p, ctypes.POINTER(ctypes.wintypes.DWORD)]
+                ec = ctypes.wintypes.DWORD()
+                terminated = bool(kernel32.GetExitCodeProcess(h, ctypes.byref(ec))) \
+                    and ec.value != 259  # 259 = STILL_ACTIVE
                 kernel32.CloseHandle(h)
+                if terminated:
+                    try:
+                        PID_FILE.unlink()
+                    except OSError:
+                        pass
+                    return False
                 return True
             return False
         else:
@@ -377,6 +395,45 @@ def _write_heartbeat():
         pass
 
 
+def _child_exit_code(proc):
+    """读取子进程退出码；仍在运行返回 None（正常路径）。
+
+    2026-09-20 加固：Windows 下 taskkill /F 对卡在内核调用（如无超时 SFTP 读）
+    的子进程发起终止后，退出码已置值但进程对象未 signaled——proc.poll() 长期
+    返回 None，_loop_once 的 wait(timeout) 永远超时，watchdog 永不重拉该组
+    （2026-09-20 sp_data_sync 挂死事故：worker[n] 僵尸 15 分钟无人重拉）。
+    这里直读 GetExitCodeProcess：非 STILL_ACTIVE(259) 即视为已退出，
+    返回其退出码。"""
+    if proc is None:
+        return None
+    rc = proc.poll()
+    if rc is not None:
+        return rc
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        import ctypes.wintypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+        h = kernel32.OpenProcess(0x1000, False, proc.pid)
+        if not h:
+            return 1  # 对象已消失（等回收）：视作已退出
+        try:
+            kernel32.GetExitCodeProcess.restype = ctypes.c_int
+            kernel32.GetExitCodeProcess.argtypes = [
+                ctypes.c_void_p, ctypes.POINTER(ctypes.wintypes.DWORD)]
+            ec = ctypes.wintypes.DWORD()
+            if kernel32.GetExitCodeProcess(h, ctypes.byref(ec)) and ec.value != 259:
+                return ec.value
+        finally:
+            kernel32.CloseHandle(h)
+    except Exception:
+        return None
+    return None
+
+
 def _loop_once() -> bool:
     """单轮主循环：逐组确保 worker 存活。
 
@@ -385,10 +442,13 @@ def _loop_once() -> bool:
     """
     for group in list(_GROUPS):
         proc = _children.get(group)
+        # 0) 2026-09-20：poll() 无法感知「已终止未排空」的僵尸子进程，
+        #    直读退出码补判（见 _child_exit_code 文档）。
+        zombied_exit = _child_exit_code(proc) if proc is not None else None
         # 1) 确保该组 worker 在跑
-        if proc is None or proc.poll() is not None:
+        if proc is None or proc.poll() is not None or zombied_exit is not None:
             if proc is not None:
-                exit_code = proc.returncode
+                exit_code = proc.returncode if proc.returncode is not None else zombied_exit
                 lived = time.time() - _spawn_time.get(group, 0.0)
                 logger.warning(
                     f"worker[{group}] 已退出 (exit_code={exit_code}, 存活 {lived:.1f}s)，准备重新拉起"
