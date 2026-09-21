@@ -56,6 +56,7 @@
       'aux.qa': '知识库与技术支持', 'aux.friends': '生态协作入口', 'aux.admin': '系统与运维配置',
       'aux.reports': '任务报告文件', 'aux.tools': '本页相关',
       'aux.ms': '在 MsPortal 维护分组 / 看板 / 账号', 'aux.uni': '统一门户看板门户',
+      'aux.more': '展开其余 {n} 项', 'aux.less': '收起',
       'foot.branch': '利比里亚办事处网络运营中心 (OLR MS)', 'foot.ok': '安全合规模式运行',
       'foot.src': '目录：{n} 个看板 · 生成于 {d}',
       'st.online': '在线', 'st.beta': '试用',
@@ -97,6 +98,7 @@
       'aux.qa': 'Knowledge & support', 'aux.friends': 'Ecosystem entries', 'aux.admin': 'System & O&M',
       'aux.reports': 'Task report files', 'aux.tools': 'About this page',
       'aux.ms': 'Manage groups / dashboards / accounts in MsPortal', 'aux.uni': 'Unified dashboard portal',
+      'aux.more': 'Show {n} more', 'aux.less': 'Show less',
       'foot.branch': 'Liberia Office · Network Operation Center (OLR MS)', 'foot.ok': 'Compliance mode',
       'foot.src': 'Catalog: {n} dashboards · built {d}',
       'st.online': 'online', 'st.beta': 'beta',
@@ -142,10 +144,15 @@
   function ic(name) { return '<i class="ph ' + (PH[name] || PH.dashboard) + '" aria-hidden="true"></i>'; }
 
   /* ------------------------------------------------------------- layout -- */
-  /* 三级层级的归属写在这里（数据里没有 tier 字段）。T0 焦点 / T1 主视图 / T2 辅助。 */
-  var T0 = ['CXO View'];
-  var T1 = ['MS View', 'FLM View', 'FO View', 'BO View', 'SP View'];
+  /* 三级层级的归属写在这里（数据里没有 tier 字段）。
+     T0 = 左栏焦点区（CXO 用大卡、SP 用行式，两块叠在地图左边）；
+     T1 = 主视图：一组一个页签，一次只展开一个面板，面板内是卡片流；
+     T2 = 辅助：默认只显示 2 行。 */
+  var T0 = ['CXO View', 'SP View'];
+  var T1 = ['MS View', 'FLM View', 'FO View', 'BO View'];
   var T2 = ['Knowledge Q&A', 'Friends Link', 'System Admin'];
+  var AUX_ROWS = 2;           /* 辅助分组默认露出的行数 */
+  var OTHER = '__other';      /* 不属于任何已知分组的看板，在页签里单列一项 */
   var AUX_TITLES = {
     'Knowledge Q&A': 'aux.qa', 'Friends Link': 'aux.friends', 'System Admin': 'aux.admin'
   };
@@ -182,7 +189,9 @@
     items: (D.items || []).slice(), groups: (D.groups || []).slice(), order: {},
     qc: { loading: true, err: '', at: 0, m: {} },
     escOpen: false, escLv: 'LEVEL1',
+    auxOpen: {},
     mapTab: ls('olbr.maptab', 'gis'),
+    viewTab: ls('olbr.viewtab', ''),
     drill: { metric: '', title: '', q: '', page: 1, size: 25, rows: [], columns: [], total: 0, loading: false, err: '' }
   };
 
@@ -251,8 +260,10 @@
     if (!g) return '';
     return state.lang === 'en' ? (g.subEn || '') : (g.subZh || '');
   }
-  function titleOf(it) { return esc((state.lang === 'en' ? (it.titleEn || it.titleZh) : (it.titleZh || it.titleEn)) || '#' + it.no); }
-  function descOf(it) { return esc(state.lang === 'en' ? (it.descEn || it.descZh || '') : (it.descZh || it.descEn || '')); }
+  /* titleOf/descOf 返回**原文**，转义只发生在写进 HTML 的那一刻：
+     这里再 esc() 会和 hl()/esc() 叠成 &amp;amp;，页面上就露出 &amp; 这种字面实体。 */
+  function titleOf(it) { return (state.lang === 'en' ? (it.titleEn || it.titleZh) : (it.titleZh || it.titleEn)) || '#' + it.no; }
+  function descOf(it) { return state.lang === 'en' ? (it.descEn || it.descZh || '') : (it.descZh || it.descEn || ''); }
   function ownerOf(it) { return state.lang === 'en' ? (it.ownerEn || it.owner) : (it.owner || it.ownerEn); }
   function pfOf(it) { return t('pf.' + it.platform) || it.platform; }
   function stOf(it) { return it.status === 'beta' ? t('st.beta') : t('st.online'); }
@@ -288,17 +299,18 @@
     bits.push('<span class="st st-' + (it.status === 'beta' ? 'beta' : 'online') + '">' + stOf(it) + '</span>');
     bits.push('<span class="pf">' + esc(pfOf(it)) + '</span>');
     if (it.freq) bits.push('<span>' + esc(it.freq) + '</span>');
-    var ow = ownerOf(it); if (ow) bits.push('<span>' + esc(ow) + '</span>');
+    var ow = ownerOf(it); if (ow) bits.push('<span class="ow">' + esc(ow) + '</span>');
     return '<span class="meta">' + bits.join('<span class="dot">·</span>') + '</span>';
   }
+  /* 条目卡：卡片流 —— 一行放得下几张就几张，排满自动折到下一行。
+     说明在卡里最多两行，全文留在 title 提示里。 */
   function itemCard(it, gid) {
-    var tip = descOf(it);
-    return '<a class="icard" href="' + esc(vlink(it, gid)) + '" target="_blank" rel="noopener noreferrer" ' +
-      'title="' + esc(tip) + '" data-no="' + esc(it.no) + '">' +
-      '<span class="ic-ico">' + ic(it.icon) + '</span>' +
-      '<span class="ic-bd"><span class="ic-t">' + hl(titleOf(it)) + '</span>' +
-      '<span class="ic-d">' + hl(descOf(it)) + '</span>' + metaHtml(it) + '</span>' +
-      '<i class="ph ph-arrow-right ic-go" aria-hidden="true"></i></a>';
+    return '<a class="card" href="' + esc(vlink(it, gid)) + '" target="_blank" rel="noopener noreferrer" ' +
+      'title="' + esc(descOf(it)) + '" data-no="' + esc(it.no) + '">' +
+      '<span class="c-ico">' + ic(it.icon) + '</span>' +
+      '<span class="c-bd"><span class="c-t">' + hl(titleOf(it)) + '</span>' +
+      '<span class="c-d">' + hl(descOf(it)) + '</span>' + metaHtml(it) + '</span>' +
+      '<i class="ph ph-arrow-up-right ic-go" aria-hidden="true"></i></a>';
   }
   function focusCard(it, gid) {
     return '<a class="fcard" href="' + esc(vlink(it, gid)) + '" target="_blank" rel="noopener noreferrer" data-no="' + it.no + '">' +
@@ -398,8 +410,23 @@
   function renderL0() {
     var box = $('#l0');
     var maps = mapItems();
-    var cxo = filtered('CXO View');
-    var html = '';
+    var cxo = filtered('CXO View'), sp = filtered('SP View');
+    /* 左栏：CXO 焦点卡在上、SP View 行式清单在下（按需求放在 CXO 下面），
+       两块一起和右边的地图并排；窄到 1240 以下时地图整宽换行。 */
+    var side = '';
+    if (cxo.length || !filtering()) {
+      side += '<section class="panel" data-tier="0" data-gid="CXO View" aria-label="CXO View">' +
+        panelHead('CXO View') +
+        (cxo.length ? cxo.map(function (it) { return focusCard(it, 'CXO View'); }).join('')
+          : '<div class="empty"><b>' + esc(t('v.empty')) + '</b></div>') + '</section>';
+    }
+    if (sp.length || !filtering()) {
+      side += '<section class="panel" data-tier="0" data-gid="SP View" aria-label="SP View">' +
+        panelHead('SP View') +
+        (sp.length ? '<div class="cards">' + sp.map(function (it) { return itemCard(it, 'SP View'); }).join('') + '</div>'
+          : '<div class="empty"><b>' + esc(t('v.empty')) + '</b></div>') + '</section>';
+    }
+    var html = side ? '<div class="l0-col">' + side + '</div>' : '';
     if (maps.length) {
       html += '<section class="panel map" data-tier="0" aria-label="Topology">' +
         '<div class="p-head"><span class="p-hd"><span class="p-t">' + esc(t('map.title')) + '</span>' +
@@ -414,11 +441,6 @@
         '<div class="canvas"><iframe id="mapFrame" title="' + esc(t('map.title')) + '" src="' + esc(curMap().src) + '"></iframe>' +
         '<div class="canvas-note"><span>' + esc(curMap().title) + '</span>' +
         '<span>/myapp/?page=' + esc(curMap().page) + '</span></div></div></section>';
-    }
-    if (cxo.length || !filtering()) {
-      html += '<div class="l0-side panel" data-tier="0">' + (panelHead('CXO View', '') || '') +
-        (cxo.length ? cxo.map(function (it) { return focusCard(it, 'CXO View'); }).join('')
-          : '<div class="empty"><b>' + esc(t('v.empty')) + '</b></div>') + '</div>';
     }
     box.innerHTML = html;
     wireMap();
@@ -440,48 +462,73 @@
     return ms.filter(function (m) { return m.page === state.mapTab; })[0] || ms[0] || { page: '', src: 'about:blank', title: '' };
   }
 
+  /* L1 主视图改成页签：一次只展开一个分组。四个面板全叠着时，光 BO View 的 16 张卡
+     就能把页面拖到三千多 px；页签条沿用顶部筛选 chip 的胶囊样式，但语义是 tab。
+     空分组不进页签（没有可看内容的页签只是噪声），全空才出「无匹配」占位。 */
   function renderViews() {
-    var box = $('#views'), html = '';
-    T1.forEach(function (gid) {
-      var list = filtered(gid);
-      if (!list.length && filtering()) return;            /* 关键：筛空的面板整块消失，不留空框 */
-      html += '<section class="panel" data-tier="1" data-gid="' + esc(gid) + '" aria-label="' + esc(gid) + '">' +
-        panelHead(gid) +
-        (list.length ? '<div class="items">' + list.map(function (it) { return itemCard(it, gid); }).join('') + '</div>'
-          : '<div class="empty"><b>' + esc(t('v.empty')) + '</b></div>') + '</section>';
-    });
+    var box = $('#views');
+    var tabs = T1.map(function (gid) { return { id: gid, label: gName(gid), list: filtered(gid) }; });
     var others = allowed().filter(function (it) {
       return !T0.concat(T1, T2).some(function (g) { return inGroup(it, g); }) &&
         (state.group === 'all' || inGroup(it, state.group)) && match(it, tokens()) &&
         (state.status === 'all' || it.status === state.status);
     });
-    if (others.length) {
-      html += '<section class="panel" data-tier="1" aria-label="Other">' +
-        '<div class="p-head"><span class="p-hd"><span class="p-t">' + esc(state.lang === 'en' ? 'Other dashboards' : '其他看板') + '</span></span>' +
-        '<span class="cnt">' + others.length + '</span></div>' +
-        '<div class="items">' + others.map(function (it) { return itemCard(it, ''); }).join('') + '</div></section>';
+    if (others.length) tabs.push({ id: OTHER, label: state.lang === 'en' ? 'Other dashboards' : '其他看板', list: others });
+    tabs = tabs.filter(function (x) { return x.list.length; });
+    if (!tabs.length) {
+      box.innerHTML = '<div class="panel empty"><b>' + esc(t('v.emptyFilter')) + '</b> — ' + esc(t('v.adjust')) + '</div>';
+      return;
     }
-    box.innerHTML = html || '<div class="panel empty"><b>' + esc(t('v.emptyFilter')) + '</b> — ' + esc(t('v.adjust')) + '</div>';
+    var cur = tabs.some(function (x) { return x.id === state.viewTab; }) ? state.viewTab : tabs[0].id;
+    state.viewTab = cur; ss('olbr.viewtab', cur);
+    var act = tabs.filter(function (x) { return x.id === cur; })[0];
+    /* 「其他看板」不是数据里真实存在的分组名，往下传会拼出 gid=__other 的死链接，
+       传空串让 vlink 回退到条目自己的主分组。 */
+    var gid = cur === OTHER ? '' : cur;
+    var head = cur === OTHER
+      ? '<div class="p-head"><span class="p-hd"><span class="p-t">' + esc(act.label) + '</span></span>' +
+        '<span class="cnt">' + act.list.length + '</span></div>'
+      : panelHead(cur);
+    box.innerHTML =
+      '<div class="view-1"><div class="tabs-v" role="tablist">' + tabs.map(function (x) {
+        return '<button type="button" class="tabv" role="tab" data-view="' + esc(x.id) +
+          '" aria-selected="' + (x.id === cur ? 'true' : 'false') + '">' + esc(x.label) +
+          '<small>' + x.list.length + '</small></button>';
+      }).join('') + '</div>' +
+      '<section class="panel" data-tier="1" data-gid="' + esc(gid) + '" aria-label="' + esc(act.label) + '">' +
+      head + '<div class="cards">' + act.list.map(function (it) { return itemCard(it, gid); }).join('') +
+      '</div></section></div>';
   }
 
+  /* 辅助区分组标题：默认只露 AUX_ROWS 行，多出来的靠「展开 / 收起」按钮。
+     收缩用 CSS 隐藏第 3 条起的 li（而不是 max-height），避免半行被裁一半。 */
+  function auxHead(key, label, n) {
+    var open = !!state.auxOpen[key], cut = n > AUX_ROWS;
+    return '<h3 class="aux-h"><span class="aux-n">' + esc(label) + '</span><span class="cnt">' + n + '</span>' +
+      (cut ? '<button type="button" class="aux-x" data-act="aux-toggle" data-key="' + esc(key) +
+        '" aria-expanded="' + (open ? 'true' : 'false') + '"><i class="ph ph-' + (open ? 'caret-up' : 'caret-down') +
+        '" aria-hidden="true"></i><span>' + esc(open ? t('aux.less') : tf('aux.more', { n: n - AUX_ROWS })) +
+        '</span></button>' : '') + '</h3>';
+  }
+  function auxRow(it, gid) {
+    return '<li><a class="lrow" href="' + esc(vlink(it, gid)) + '" target="_blank" rel="noopener noreferrer">' +
+      ic(it.icon) + '<span>' + hl(titleOf(it)) + '</span>' +
+      (it.status === 'beta' ? '<em>' + esc(stOf(it)) + '</em>' : '') +
+      '<i class="ph ph-arrow-right go" aria-hidden="true"></i></a></li>';
+  }
   function renderAux() {
     var box = $('#aux'), html = '';
     T2.forEach(function (gid) {
       var list = filtered(gid);
       if (!list.length && filtering()) return;
-      html += '<div class="aux-g"><h3 class="aux-h">' + esc(t(AUX_TITLES[gid] || gid)) +
-        '<span class="cnt">' + list.length + '</span></h3><ul>' +
-        (list.length ? list.map(function (it) {
-          return '<li><a class="lrow" href="' + esc(vlink(it, gid)) + '" target="_blank" rel="noopener noreferrer">' +
-            ic(it.icon) + '<span>' + hl(titleOf(it)) + '</span>' +
-            (it.status === 'beta' ? '<em>' + esc(stOf(it)) + '</em>' : '') +
-            '<i class="ph ph-arrow-right go" aria-hidden="true"></i></a></li>';
-        }).join('') : '<li><span class="lrow">' + esc(t('v.empty')) + '</span></li>') + '</ul></div>';
+      html += '<div class="aux-g" data-key="' + esc(gid) + '" data-open="' + (state.auxOpen[gid] ? '1' : '0') + '">' +
+        auxHead(gid, t(AUX_TITLES[gid] || gid), list.length) + '<ul>' +
+        (list.length ? list.map(function (it) { return auxRow(it, gid); }).join('')
+          : '<li><span class="lrow">' + esc(t('v.empty')) + '</span></li>') + '</ul></div>';
     });
-    html += '<div class="aux-g"><h3 class="aux-h">' + esc(t('aux.tools')) + '</h3><ul>' +
-      '<li><a class="lrow" href="/MsPortal/">' + ic('wrench') + '<span>' + esc(t('aux.ms')) + '</span><i class="ph ph-arrow-right go"></i></a></li>' +
-      '<li><a class="lrow" href="/uniplam/">' + ic('globe') + '<span>' + esc(t('aux.uni')) + '</span><i class="ph ph-arrow-right go"></i></a></li>' +
-      '</ul></div>';
+    var tools = '<li><a class="lrow" href="/MsPortal/">' + ic('wrench') + '<span>' + esc(t('aux.ms')) + '</span><i class="ph ph-arrow-right go" aria-hidden="true"></i></a></li>' +
+      '<li><a class="lrow" href="/uniplam/">' + ic('globe') + '<span>' + esc(t('aux.uni')) + '</span><i class="ph ph-arrow-right go" aria-hidden="true"></i></a></li>';
+    html += '<div class="aux-g" data-key="_tools" data-open="1">' + auxHead('_tools', t('aux.tools'), 2) + '<ul>' + tools + '</ul></div>';
     box.innerHTML = html;
   }
 
@@ -892,7 +939,11 @@
     });
     $('#chips').addEventListener('click', function (e) {
       var c = e.target.closest('.chip'); if (!c) return;
-      state.group = c.getAttribute('data-gid'); render();
+      state.group = c.getAttribute('data-gid');
+      /* 点分组 chip 时把主视图页签一起切过去：不然筛选条件变了、下面展示的却还是上一个分组，
+         看起来像是筛选没生效。'all' 和辅助分组不动页签。 */
+      if (T1.indexOf(state.group) !== -1) state.viewTab = state.group;
+      render();
     });
     /* 直接绑在按钮上：index.html 里带 data-status 的是 .seg-b，容器 .seg 没有这个属性，
        原先写成 $$('.seg[data-status]') → 一个都选不到，状态筛选整条是死的。 */
@@ -921,11 +972,21 @@
       }
       if (e.target.closest('[data-act="map-reload"]')) { var f = $('#mapFrame'); if (f) f.src = curMap().src; }
     });
+    $('#views').addEventListener('click', function (e) {
+      var tb = e.target.closest('[data-view]'); if (!tb) return;
+      state.viewTab = tb.getAttribute('data-view');
+      ss('olbr.viewtab', state.viewTab); renderViews();
+    });
     $('#esc').addEventListener('click', function (e) {
       var lv = e.target.closest('[data-lv]');
       if (lv) { state.escLv = lv.getAttribute('data-lv'); if (!state.escOpen) state.escOpen = true; renderEsc(); return; }
       if (e.target.closest('[data-act="esc-toggle"]')) { state.escOpen = !state.escOpen; renderEsc(); return; }
       if (e.target.closest('[data-act="esc-copy"]')) { copyEsc(); return; }
+    });
+    $('#aux').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-act="aux-toggle"]'); if (!b) return;
+      var k = b.getAttribute('data-key');
+      state.auxOpen[k] = !state.auxOpen[k]; renderAux();
     });
     $('#drClose').addEventListener('click', closeDrill);
     $('#scrim').addEventListener('click', closeDrill);

@@ -121,6 +121,15 @@
   --mp-danger: #a2202f;
   --mp-warn: #7c5e07;
   --mp-danger-soft: rgba(194, 51, 74, .10);
+  /* 2026-09-22 补：QC 指标卡分级配色需要「正常档」的淡底/描边，
+     以及三档统一的描边色（旧版只有 --mp-danger-soft，没有 ok/warn 的对应档，
+     也没有任何描边档）。徽章用「淡底 + 同色描边 + 同色文字」三件套，
+     描边不能直接用 --mp-ok/--mp-warn 实色 —— 那样在浅色下会压过文字。
+     深色档见下面 html.dark。 */
+  --mp-ok-soft: rgba(10, 106, 82, .10);
+  --mp-ok-line: rgba(10, 106, 82, .34);
+  --mp-warn-line: rgba(124, 94, 7, .34);
+  --mp-danger-line: rgba(194, 51, 74, .34);
   --mp-sev-critical-soft: rgba(194, 51, 74, .07);
   --mp-sev-major-soft: rgba(154, 52, 18, .06);
   --mp-sev-warning-soft: rgba(124, 94, 7, .07);
@@ -135,6 +144,30 @@
   --mp-tone-soft-a: .10;    /* *-50  淡底 */
   --mp-tone-100-a: .16;     /* *-100 图标底 */
   --mp-tone-border-a: .28;  /* *-200 描边 */
+
+  /* ⚠️ 2026-09-22 补：*-rgb 三元组此前**只在 html.dark 里定义过**，
+     浅色侧整个漏掉了。而下面 1084~1112 行的规则全部写成
+       .bg-blue-100 { background-color: rgb(var(--mp-tone-blue-rgb) / var(--mp-tone-100-a)) !important }
+     —— 变量在浅色下解析为空 → `rgb( / .16)` 是非法值 → 整条声明失效 →
+     所有 *-50 / *-100 色调类在浅色主题下**全部渲染成透明**。
+     实测（TMP/audit_tone_light.cjs，浅色、14 个探针类）：12 个算出 rgba(0,0,0,0)，
+     只有 bg-slate-100（另有独立规则）和 bg-blue-50（另有品牌规则）正常。
+     受害的是所有「彩底图标砖」：MS View 行图标（ROW_TONES）、FO/FLM/SP 卡图标
+     （SOLID_TONES）、QA/Friends 图标（QA_GRADS/FR_ICONS）、平台徽章（PLAT_TAG）等 ——
+     浅色下这些图标块都没有底色，只剩一个裸图标。
+     这里给出的浅色档与上面的 --mp-tone-*-fg 同色相（即该看板配色在浅底上的深色口径），
+     保证「浅色 = 该色相的深档半透明底 + 深字」，与深色侧结构对称。 */
+  --mp-tone-blue-rgb: 3 105 161;      /* = --mp-tone-blue-fg #0369a1 */
+  --mp-tone-cyan-rgb: 14 116 144;     /* = --mp-tone-cyan-fg #0e7490 */
+  --mp-tone-indigo-rgb: 55 48 163;    /* = --mp-tone-indigo-fg #3730a3 */
+  --mp-tone-sky-rgb: 3 105 161;       /* = --mp-tone-sky-fg #0369a1 */
+  --mp-tone-rose-rgb: 162 32 47;      /* = --mp-tone-rose-fg #a2202f */
+  --mp-tone-teal-rgb: 10 106 82;      /* = --mp-tone-teal-fg #0a6a52 */
+  --mp-tone-amber-rgb: 124 94 7;      /* = --mp-tone-amber-fg #7c5e07 */
+  --mp-tone-emerald-rgb: 10 106 82;   /* = --mp-tone-emerald-fg #0a6a52 */
+  --mp-tone-purple-rgb: 91 33 182;    /* = --mp-tone-purple-fg #5b21b6 */
+  --mp-tone-violet-rgb: 91 33 182;    /* = --mp-tone-violet-fg #5b21b6 */
+
   --mp-tone-blue-fg: #0369a1;
   --mp-tone-cyan-fg: #0e7490;
   --mp-tone-indigo-fg: #3730a3;
@@ -236,6 +269,11 @@ html.dark {
   --mp-danger: #ff5c6c;
   --mp-warn: #f6cf00;
   --mp-danger-soft: rgba(255, 92, 108, .14);
+  /* 2026-09-22 补：QC 指标卡分级配色的深色档（浅色档见 :root 同名令牌） */
+  --mp-ok-soft: rgba(11, 199, 140, .16);
+  --mp-ok-line: rgba(11, 199, 140, .42);
+  --mp-warn-line: rgba(246, 207, 0, .40);
+  --mp-danger-line: rgba(255, 92, 108, .42);
   --mp-sev-critical-soft: rgba(255, 92, 108, .13);
   --mp-sev-major-soft: rgba(255, 146, 43, .13);
   --mp-sev-warning-soft: rgba(246, 207, 0, .13);
@@ -992,6 +1030,188 @@ html.dark .qc-table td { color: var(--mp-text-2); border-color: var(--mp-border-
 html.dark .qc-table tbody tr:hover td { background: var(--mp-hover-row); }
 html.dark .qc-tools input[type="search"] { background: var(--mp-surface-2); color: var(--mp-text); border-color: var(--mp-border); }
 html.dark .qc-page { color: var(--mp-text-3); }
+
+/* ==========================================================================
+   QC 指标卡（2026-09-22 全面改版）
+   --------------------------------------------------------------------------
+   改版前的问题（实测截图 + 代码逐行核对，不是主观感觉）：
+     1. 六张卡的数字**同色同字号**。整张卡上唯一有颜色的元素是右上角 6px 圆点，
+        而它的取值是 `failed ? 'bg-rose-400' : 'bg-blue-500'` —— 只在**接口报错**
+        时变色，与业务好坏无关，纯装饰。于是 PMT 916（其中 490 条已超期）和
+        Alarm 56 长得完全一样，扫一眼看不出该先动哪个。
+     2. 「达标率」徽章颜色**写死** emerald（portal.js:2397），88.2% 也渲染成
+        绿色 = 健康。
+     3. 面板「更新于」只反映两档刷新里**较新的那一份**，另外五项到底多旧，
+        只能 hover 看 tooltip（portal.js:2292 的注释自己也承认了这点）。
+
+   改版原则：
+     A. 颜色只由**阈值**决定（.qc-lv-ok / -warn / -crit），阈值集中在
+        portal.js 的 QC_TARGETS 一处（⚠️ 首版默认值待业务确认）。
+     B. **不靠颜色单通道传意**：等级同时给「左侧竖条 + 数字色 + 等级文字徽章」
+        三个通道，色盲用户与黑白打印件都能读出分档（WCAG 1.4.1 Use of Color）。
+     C. 全部走 --mp-* 令牌 + **手写 CSS**，不新增 Tailwind 原子类 ——
+        本目录的 tailwind.css 是预编译产物，新增原子类必须重跑
+        TMP/build_tailwind.mjs；手写 CSS 零构建依赖，也不会漏编译。
+     D. 分层：主卡（Alarm / TTs / WOs —— 需要立即处理）字号更大、带趋势线；
+        次卡（CRs / PMT / SPMS —— 积压与合规）更紧凑。层级靠**字号与内容密度**
+        表达，不靠宽度 —— 六张卡等宽才能保证换行与窄屏下不错位。
+   ========================================================================== */
+
+.qc-groups { display: flex; flex-direction: column; gap: 14px; }
+
+.qc-group-hd {
+  display: flex; align-items: baseline; gap: 7px;
+  margin: 0 0 8px 2px;
+  font-size: 12px; font-weight: 600;
+  color: var(--mp-text-2);
+}
+.qc-group-hd em { font-style: normal; font-weight: 500; font-size: 11px; color: var(--mp-text-3); }
+
+.qc-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 900px) { .qc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* —— 卡片本体 —— */
+.qc-card {
+  --qc-accent: var(--mp-brand);
+  --qc-accent-soft: var(--mp-brand-soft-2);
+  --qc-accent-line: var(--mp-brand-border);
+  position: relative;
+  display: block; width: 100%;
+  text-align: left; cursor: pointer; overflow: hidden;
+  padding: 11px 14px 11px 17px;
+  border: 1px solid var(--mp-border);
+  border-radius: 12px;
+  background: var(--mp-surface-flat);
+  transition: border-color .18s ease-out, box-shadow .18s ease-out, transform .18s ease-out;
+}
+.qc-card:hover { border-color: var(--mp-brand-border); box-shadow: var(--mp-shadow-1); transform: translateY(-2px); }
+.qc-card.is-on { border-color: var(--mp-brand-border); box-shadow: var(--mp-shadow-1); }
+.qc-card:focus-visible { outline: none; box-shadow: var(--mp-focus-ring); }
+
+/* 等级 → 竖条 / 数字 / 徽章三通道共用同一组色 */
+.qc-lv-ok   { --qc-accent: var(--mp-ok);     --qc-accent-soft: var(--mp-ok-soft);          --qc-accent-line: var(--mp-ok-line); }
+.qc-lv-warn { --qc-accent: var(--mp-warn);   --qc-accent-soft: var(--mp-sev-warning-soft); --qc-accent-line: var(--mp-warn-line); }
+.qc-lv-crit { --qc-accent: var(--mp-danger); --qc-accent-soft: var(--mp-danger-soft);     --qc-accent-line: var(--mp-danger-line); }
+.qc-lv-na   { --qc-accent: var(--mp-text-3); --qc-accent-soft: transparent;               --qc-accent-line: var(--mp-border); }
+
+.qc-rail {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  background: var(--qc-accent); opacity: .85;
+  transition: opacity .18s ease-out;
+}
+.qc-card:hover .qc-rail, .qc-card.is-on .qc-rail { opacity: 1; }
+.qc-lv-na .qc-rail { opacity: .35; }
+
+.qc-hd { display: flex; align-items: center; gap: 7px; }
+.qc-ico {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 6px;
+  color: var(--qc-accent); background: var(--qc-accent-soft);
+  font-size: 13px;
+}
+.qc-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-weight: 600; color: var(--mp-text-2);
+}
+.qc-lvchip {
+  flex: none; margin-left: auto;
+  font-size: 10px; font-weight: 600; line-height: 1;
+  padding: 3px 6px; border-radius: 999px;
+  color: var(--qc-accent); background: var(--qc-accent-soft);
+  border: 1px solid var(--qc-accent-line);
+}
+
+.qc-numrow { display: flex; align-items: baseline; gap: 8px; margin-top: 7px; }
+.qc-num {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600; line-height: 1;
+  color: var(--qc-accent);
+}
+.qc-num.is-na { color: var(--mp-text-3); }
+.qc-card--lg .qc-num { font-size: 30px; }
+.qc-card--sm .qc-num { font-size: 23px; }
+
+/* 环比徽章。注意「变大 = 更差」只对 up 类指标成立；SLA 是 down 类
+   （越大越好），方向语义由 portal.js 的 qcDelta() 判定后给类，CSS 不管方向。 */
+.qc-delta {
+  display: inline-flex; align-items: center; gap: 2px;
+  font-size: 11px; font-weight: 600; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--mp-text-3);
+}
+.qc-delta.is-bad  { color: var(--mp-danger); }
+.qc-delta.is-good { color: var(--mp-ok); }
+
+/* 趋势线：内联 SVG，无第三方依赖（门户要求零 CDN、断网可用） */
+.qc-spark { display: block; margin-top: 8px; height: 26px; }
+.qc-spark svg { display: block; width: 100%; height: 26px; overflow: visible; }
+.qc-spark .sp-area { fill: var(--qc-accent-soft); }
+.qc-spark .sp-line { fill: none; stroke: var(--qc-accent); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.qc-spark .sp-dot { fill: var(--qc-accent); }
+.qc-spark-empty {
+  margin-top: 8px; height: 26px;
+  display: flex; align-items: center;
+  font-size: 11px; color: var(--mp-text-3);
+}
+
+.qc-sub {
+  display: block;   /* 卡内用的是 <span>：<button> 只允许短语内容，故靠 display 布局 */
+  margin-top: 7px;
+  font-size: 11.5px; line-height: 1.35; color: var(--mp-text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.qc-card.is-failed .qc-sub { color: var(--mp-danger); white-space: normal; }
+
+.qc-age {
+  display: block;
+  margin-top: 5px; font-size: 10.5px; color: var(--mp-text-3); font-variant-numeric: tabular-nums;
+}
+
+/* 达标率徽章：颜色由数值档位决定（旧版写死 emerald，88.2% 也显示成绿=好） */
+.qc-sla {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 9px; border-radius: 6px;
+  font-size: 13px; font-weight: 500;
+  color: var(--qc-accent); background: var(--qc-accent-soft);
+  border: 1px solid var(--qc-accent-line);
+  cursor: help;
+}
+.qc-sla strong { font-family: ui-monospace, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------- 下钻弹窗：列体验（2026-09-22 加） --
+   ① 首列固定：明细最长 12 列，横向滚动时 Site Name / TT No. 会滚出视野，
+      剩下的数字列失去参照物。首列 sticky 后「这一行是谁」永远可见。
+      同时把表头左上角那格（既 sticky top 又 sticky left）的层级提到最高，
+      否则会被其它列的表头盖住。
+   ② 表头可点排序：加了 aria-sort 与 ▲▼ 指示，键盘可达（用 <button>）。
+   ③ 空值统一渲染成「—」：源表里 tt_id 有空串、也有字面量 'empty'（实测
+      alarm 明细 51 行里 22 行如此），直接把 'empty' 摊给用户看像是页面出错。 */
+.qc-table th.qc-sortable { padding: 0; }
+.qc-table th.qc-sortable > button {
+  display: flex; align-items: center; gap: 4px;
+  width: 100%; padding: 8px 10px;
+  background: none; border: 0; cursor: pointer;
+  font: inherit; color: inherit; text-align: left; white-space: nowrap;
+}
+.qc-table th.qc-sortable > button:hover { color: var(--mp-brand-text); }
+.qc-table th.qc-sortable .qc-sort-ico { font-size: 9px; opacity: .45; }
+.qc-table th[aria-sort="ascending"] .qc-sort-ico,
+.qc-table th[aria-sort="descending"] .qc-sort-ico { opacity: 1; color: var(--mp-brand-text); }
+
+.qc-table th.qc-sticky-col, .qc-table td.qc-sticky-col {
+  position: sticky; left: 0;
+  background: var(--mp-surface-flat);
+  box-shadow: 1px 0 0 var(--mp-border-soft);
+}
+.qc-table th.qc-sticky-col { z-index: 3; background: var(--mp-surface-2); }
+.qc-table td.qc-sticky-col { z-index: 2; }
+.qc-table tbody tr:hover td.qc-sticky-col { background: var(--mp-surface-2); }
+html.dark .qc-table th.qc-sticky-col { background: var(--mp-surface-3); }
+html.dark .qc-table td.qc-sticky-col { background: var(--mp-surface-flat); }
+html.dark .qc-table tbody tr:hover td.qc-sticky-col { background: var(--mp-surface-3); }
+
+.qc-null { color: var(--mp-text-3); }
 
 /* ------------------------------------------------------------- Toast --- */
 .toast {
@@ -1899,7 +2119,11 @@ html:not(.dark) .to-orange-400 { --tw-gradient-to: var(--mp-tone-orange-fill); }
    .md\:grid-cols-3 两个 md: 工具类 —— 没有 md:inline-flex / inline-block / align-middle。
    断点写在这里不依赖重新编译，也不会和 .hidden 抢同权重（都是 0,1,0）的先后顺序。
    可见性与改动前的「更新于」一致：<768px 隐藏，md 及以上显示。 */
-.qc-live { display: inline-flex; align-items: center; gap: 6px; }
+.qc-live { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--mp-text-2); }
+/* 2026-09-22 加：分隔点。原来三个信息段之间用 text-slate-500 的「·」硬拼，
+   深色下被 html.dark .text-slate-500 一并压成 --mp-text-2，与正文同色 → 分隔失效。 */
+.qc-live .qc-sep { color: var(--mp-text-3); }
+.qc-live .qc-when { font-variant-numeric: tabular-nums; }
 @media (max-width: 767px) { .qc-live { display: none; } }
 
 /* ===================================================== 用户管理（2026-09-20 加） ===

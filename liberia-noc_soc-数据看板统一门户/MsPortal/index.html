@@ -444,6 +444,12 @@
         <!-- 2026-09-20：CSV -> xlsx（my_app 统一格式 UNIFIED_EXCEL_V1，见 assets/excelReport.js）。
              这里的静态文案只是 i18n 生效前的兜底，运行时仍由 portal.js 的 qc.export 覆盖。 -->
         <button type="button" class="btn-soft" id="qcExport" data-i18n="qc.export">导出 Excel</button>
+        <!-- 2026-09-22 加：跳到 my_app 里对应的完整看板继续处理。
+             只给「目录里确实存在对应看板」的维度显示（alarm/tt/wo/spms），
+             cr/pmt 在 my_app 侧没有对应页面 —— 配一个错的链接比不给链接更糟。
+             href 与显隐都由 portal.js 的 applyQcDrillTitle() 设置。 -->
+        <a class="btn-soft qc-open-board" id="qcOpenBoard" hidden target="_blank" rel="noopener"
+           data-i18n="qc.openBoard">打开完整看板</a>
       </div>
       <div class="qc-scroll" id="qcScroll">
         <table class="qc-table">

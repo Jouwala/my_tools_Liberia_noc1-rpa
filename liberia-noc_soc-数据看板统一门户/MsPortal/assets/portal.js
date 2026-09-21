@@ -177,7 +177,10 @@
       'qc.total': '共 {n} 条',
       'qc.sites': '断站站点',
       'qc.overdue': '超期',
-      'qc.filterHint': '提示：按维度筛选看板目录的功能在筛选栏的对应标签上，本弹窗只做明细下钻。',
+      /* 2026-09-22：原文案是「提示：按维度筛选看板目录的功能在筛选栏的对应标签上，
+         本弹窗只做明细下钻。」—— 这是写给开发自己看的实现说明（解释两个入口为什么不
+         合并），不是给运维看的。已换成对使用者真正有用的操作提示。 */
+      'qc.filterHint': '提示：点表头可排序；列较多时表格可左右滚动，首列会固定在左侧。',
       'qc.sub.alarm': '未清除的断站告警',
       /* 2026-09-20 按需求改口径：TT / WO 的大数字不再是「未关闭工单数」，
          而是「告警未清除的单数」—— 即 my_app 侧 eflow_tt / eflow_wo 的
@@ -191,6 +194,36 @@
          既不计入大数字、也不进下钻明细（后端 portal_qc.py 的 SP_IGNORED_WORDS）。
          副行必须写出来，否则运维拿这里和 SP 报表的「未关闭单」对不上时会以为数字错了。 */
       'qc.sub.spms': '未关闭出入库单 (SPMS，不含 WaitingForUpdate)',
+      /* ---- 2026-09-22 QC 展示改版新增 ---- */
+      /* 分级：颜色只由阈值决定（见 portal.js 的 QC_TARGETS），且同时给
+         「左侧竖条 + 数字色 + 这枚文字徽章」三个通道 —— 只靠颜色传意对色盲用户
+         和黑白打印件都不可读（WCAG 1.4.1）。 */
+      'qc.lv.ok': '正常',
+      'qc.lv.warn': '关注',
+      'qc.lv.crit': '严重',
+      'qc.lv.na': '不可用',
+      /* 每张卡自己的数据时间。比面板级那一个「更新于」准 —— 那个只反映两档刷新里
+         较新的那份，告警一刷新，其余五项的时间戳就被顶掉了。 */
+      'qc.dataAt': '数据 {t}（{ago}）',
+      'qc.ago.now': '刚刚',
+      'qc.ago.min': '{n} 分钟前',
+      'qc.ago.hour': '{n} 小时前',
+      'qc.ago.day': '{n} 天前',
+      /* 环比：与上一整点快照比（后端 portal_qc_snapshot 每小时落一行）。
+         方向是**业务方向**，不是数字方向 —— 积压涨了是坏，达标率涨了是好。 */
+      'qc.delta.flat': '持平',
+      'qc.delta.tip': '与上一整点快照相比：{v}',
+      'qc.accumulating': '趋势积累中',
+      'qc.inbound': '入库',
+      'qc.outbound': '出库',
+      'qc.grp.primary': '需要处理',
+      'qc.grp.secondary': '积压与合规',
+      /* 阈值说明进 tooltip：不写出来，运维看到红色也不知道「为什么算红」。
+         分 up / down 两句，因为比较方向相反（达标率是「越大越好」）。 */
+      'qc.targetTip.up': '分级阈值：关注 ≥ {warn} · 严重 ≥ {crit}（数值越大越差）',
+      'qc.targetTip.down': '分级阈值：关注 < {crit} · 严重 < {warn}（数值越大越好）',
+      /* 跳到 my_app 里对应的完整看板（只对有对应页面的维度显示） */
+      'qc.openBoard': '打开完整看板',
       'status.online': '在线',
       'status.beta': '试运行',
       /* 卡片徽标的 hover 备注（2026-09-19 加）。
@@ -535,7 +568,9 @@
       'qc.total': '{n} records',
       'qc.sites': 'sites down',
       'qc.overdue': 'overdue',
-      'qc.filterHint': 'Note: filtering the catalogue by dimension lives on the filter bar chips; this dialog only drills into details.',
+      /* 2026-09-22: the original string was an implementation note for developers
+         (explaining why the two entry points are not merged), not user guidance. */
+      'qc.filterHint': 'Tip: click a column header to sort; the table scrolls horizontally and keeps the first column pinned.',
       'qc.sub.alarm': 'Uncleared site-outage alarms',
       'qc.sub.tt': 'Trouble tickets with uncleared alarm',
       'qc.sub.wo': 'Work orders with uncleared alarm',
@@ -543,6 +578,26 @@
       'qc.sub.pmt': 'Pending preventive maintenance',
       /* 2026-09-20: WaitingForUpdate rows are excluded — see the zh block. */
       'qc.sub.spms': 'Unclosed inbound/outbound orders (excl. WaitingForUpdate)',
+      /* ---- 2026-09-22 QC presentation revamp — see the zh block ---- */
+      'qc.lv.ok': 'OK',
+      'qc.lv.warn': 'Watch',
+      'qc.lv.crit': 'Critical',
+      'qc.lv.na': 'N/A',
+      'qc.dataAt': 'data {t} ({ago})',
+      'qc.ago.now': 'just now',
+      'qc.ago.min': '{n}m ago',
+      'qc.ago.hour': '{n}h ago',
+      'qc.ago.day': '{n}d ago',
+      'qc.delta.flat': 'flat',
+      'qc.delta.tip': 'Versus the previous hourly snapshot: {v}',
+      'qc.accumulating': 'Trend accumulating',
+      'qc.inbound': 'Inbound',
+      'qc.outbound': 'Outbound',
+      'qc.grp.primary': 'Action needed',
+      'qc.grp.secondary': 'Backlog & compliance',
+      'qc.targetTip.up': 'Thresholds: watch ≥ {warn} · critical ≥ {crit} (higher is worse)',
+      'qc.targetTip.down': 'Thresholds: watch < {crit} · critical < {warn} (higher is better)',
+      'qc.openBoard': 'Open full dashboard',
       'status.online': 'Online',
       'status.beta': 'Beta',
       /* Hover notes for the card badges (added 2026-09-19) — see the zh block. */
@@ -891,8 +946,16 @@
        alarm = 告警那份。标题栏的「更新于」取两者中较新的一个。 */
     qcFullAt: '',
     qcAlarmAt: '',
-    /* 下钻明细弹窗状态。metric=null 表示弹窗关闭。 */
-    qcDrill: { metric: null, page: 1, size: 50, q: '', total: 0, rows: [], columns: [], loading: false, err: '' },
+    /* 每小时快照历史（2026-09-22 加，走 GET /api/portal-qc/history）。
+       形状：{ alarm: [{h:'YYYY-MM-DD HH:00', v: 56}, …], tt: [...], … }，
+       只含**已走完的整点**（不含当前这一小时），故最后一项就是「上一小时」，
+       环比直接拿它比即可，不用在前端猜时区。历史不足时是 null / 空数组 →
+       环比徽章与趋势线都不渲染，改显示「趋势积累中」，绝不假装有趋势。 */
+    qcHistory: null,
+    /* 下钻明细弹窗状态。metric=null 表示弹窗关闭。
+       2026-09-22 加 sort/dir：表头可点排序。排序在**服务端**做（不是只排当前页）——
+       只排当前页会让「按 Raised Time 排序」在翻页后失效，是错的。 */
+    qcDrill: { metric: null, page: 1, size: 50, q: '', sort: '', dir: 'desc', total: 0, rows: [], columns: [], loading: false, err: '' },
 
     /* ---- 看板目录（2026-09-17 加：组件内的看板可增删改，参考 uniplam 的设计）----
        目录真相源优先级：服务端全局目录 > 本机 localStorage 兜底 > data.js 内置。
@@ -1031,9 +1094,17 @@
        实测 800×856 / 1000×700 / 1100×856 等 15 组候选全部 coversLbAt8=false
        （见 TMP/probe_map_centroid_canvas.cjs）。
 
-     中心微调目标 = **站点实际分布重心**（35 个站实测 6.4173N / 9.3062E），
+     中心微调目标 = **站点实际分布重心**（按 649 个站点经纬度求平均，实测 6.4173N / 9.3062E），
      与国土 bbox 中心（6.325N / 9.5W）只差 +0.09°纬 / +0.19°经 —— 是很轻的修正，
      比死守 bbox 中心更能把站点留在画面里。站点点位取不到时退回 fitAllSites 的中心。
+
+     ✅ 为什么选「放大一级」正好合适（2026-09-21 实测，见 TMP/probe_map_label_level.cjs）：
+       内层页按缩放分级显示站点 —— geoLabelLevel(z){ return z < 8 ? 0 : (z < 11 ? 1 : 2); }
+         · z ≤ 7（level 0）：按 48px 屏幕网格**聚合**相邻站点，649 个站只剩 32 个簇；
+         · z ≥ 8（level 1）：**逐站显示**，649 个站全部单独出点。
+       也就是说 zoom 8 恰好是「聚合点 → 真实站点」的分界。
+       放大一级不只是"看着近一点"，而是让 MW 实时页从 32 个簇变成全量站点明细，
+       对 NOC 值班是有实际信息增益的默认值。
 
      风险兜底：内层页 leafMap 是页面作用域变量、不在 window 上，
      门户侧只能靠「注入 <script> 到同源内层 document 执行」才拿得到（实测可行，
@@ -1042,7 +1113,7 @@
      置 false 即回到「全国 fitBounds」的原行为。 */
   var MAP_DEFAULT_ZOOM_IN = true;
 
-  /* 站点重心（纬度, 经度）：35 个站实测值，见上面注释。取不到站点时用这个兜底。 */
+  /* 站点重心（纬度, 经度）：按 649 个站点实测均值，见上面注释。取不到点位时用这个兜底。 */
   var MAP_SITE_CENTER = [6.4173, -9.3062];
 
   function t(key) {
@@ -1564,20 +1635,10 @@
     'from-violet-600 to-blue-600',
     'from-emerald-600 to-teal-600'
   ];
-  /* MS View 行图标底色 */
-  var ROW_TONES = [
-    'bg-blue-100 text-blue-700',
-    'bg-cyan-100 text-cyan-700',
-    'bg-indigo-100 text-indigo-700',
-    'bg-sky-100 text-sky-700',
-    'bg-rose-100 text-rose-700',
-    'bg-teal-100 text-teal-700',
-    'bg-amber-100 text-amber-700',
-    'bg-emerald-100 text-emerald-700',
-    'bg-purple-100 text-purple-700',
-    'bg-slate-100 text-slate-700'
-  ];
-  /* FLM / FO 小卡图标底色 */
+  /* 2026-09-22 删除 ROW_TONES（原 MS View 行图标底色，bg-blue-100 text-blue-700 那组淡底）。
+     全站图标砖统一成实心后它已无引用；MS/FLM/SP 的 msRow() 改用下面的 SOLID_TONES。
+     淡底档（bg-*-100 / text-*-700）在 portal.css 里仍有规则，是给别处（如 QC 卡）用的，不要一起删。 */
+  /* FLM / FO / BO / MS / SP 小卡图标底色：**全站统一这一套实心色** */
   var SOLID_TONES = [
     'bg-blue-600', 'bg-emerald-600', 'bg-amber-600', 'bg-cyan-600',
     'bg-rose-600', 'bg-teal-600', 'bg-indigo-600', 'bg-slate-600'
@@ -1589,6 +1650,16 @@
     'from-indigo-500 to-purple-500',
     'from-rose-500 to-orange-400'
   ];
+  /* BO View 小卡图标底色：**直接复用 SOLID_TONES**（与 FLM / FO 小卡同一套）。
+     2026-09-22 首版曾在这里单独定义过一组浅色档 BO_TONES（bg-blue-100 text-blue-700 之类），
+     但按用户对照 FO View 的反馈「BO 的图标背景要跟 FO 一样」，浅色档不符合预期：
+     浅色档是「淡底 + 深字」的轻量图标砖，FO 用的是「实心饱和底 + 白字」，两者观感差异明显。
+     故删掉 BO_TONES，改用与 solidCard() 完全相同的实心色序 + text-white，
+     让 BO 与 FO/FLM 的卡片图标在深浅两个主题下都保持一致。
+     颜色怎么落地（不用改这里，portal.css 已收口）：
+       · 浅色 html:not(.dark) .bg-blue-600 → --mp-tone-blue-fill（#0369a1 实心深蓝）
+       · 深色 html.dark 的 --mp-tone-blue-rgb + 透明度档 → 半透明实心
+     两个主题下图标都是白字压色底，对比度由 portal.css 末尾的审计保证。 */
   /* Friends Links 纯色图标 */
   var FR_ICONS = [
     'bg-emerald-500', 'bg-blue-600', 'bg-indigo-500', 'bg-blue-500',
@@ -1705,12 +1776,28 @@
                 默认外观与 ref 1:1 一致，hover / focus 才出现主题色、下划线与柔光底
                 （见 portal.css 的 .sec-head-link），所以传 href 不会改变静止态的版式。 */
   function headHtml(opts) {
+    /* 2026-09-22 统一区块标题前的色块：**形状一律圆点**。
+       改之前是「汇总层用方块（square-red / square-rose）、业务视图用圆点（dot-red）」，
+       而 10px 的方块和圆点肉眼几乎分不出差别，承载不了「汇总层 vs 业务层」这层语义，
+       结果只被读成「有的圆有的方，没对齐」—— 这正是用户反馈的那个问题
+       （「CXO View / FO View 前面有图标，BO View 没有」）。实际上九个区块**都有**色块，
+       差别只在形状，所以统一形状即可消除这种观感上的不一致。
+
+       ⚠️ 颜色**不在这里定**：portal.css 末尾的收口层已经有
+         span.bg-red-600, span.bg-rose-500 { background-color: var(--mp-brand) !important }
+         h2.text-red-600 { color: var(--mp-heading) !important }
+       把标题色与色块色统一收到品牌青 + 正文色，理由是项目色板里「红」只代表严重度
+       Critical，不用来做装饰性标题色（与 my_app 的 SectionTitle 约定一致）。
+       所以这里保留 bg-red-600 / bg-rose-500 / bg-slate-700 三个类名当「层级标记」，
+       不再在 JS 里另起一套配色 —— 另起了也会被上面那两条 !important 压掉，
+       属于改不动的死代码（实测：无论写 bg-blue-600 还是 bg-red-600，
+       最终 computedStyle 都是品牌青 rgb(3,105,161)）。 */
     var dot = {
-      'square-red': 'w-2.5 h-2.5 rounded-sm bg-red-600',
-      'square-rose': 'w-2.5 h-2.5 rounded-sm bg-rose-500',
-      'dot-red': 'w-2.5 h-2.5 rounded-full bg-red-600',
-      'dot-slate': 'w-2.5 h-2.5 rounded-full bg-slate-700'
-    }[opts.kind] || 'w-2.5 h-2.5 rounded-sm bg-red-600';
+      'square-red': 'w-2.5 h-2.5 rounded-full bg-red-600',      // 汇总层
+      'square-rose': 'w-2.5 h-2.5 rounded-full bg-rose-500',    // 汇总层
+      'dot-red': 'w-2.5 h-2.5 rounded-full bg-red-600',         // 业务视图
+      'dot-slate': 'w-2.5 h-2.5 rounded-full bg-slate-700'      // 系统 / 支撑
+    }[opts.kind] || 'w-2.5 h-2.5 rounded-full bg-red-600';
     var titleCls = opts.kind === 'dot-slate' ? 'text-slate-800' : 'text-red-600';
 
     var title = '<h2 class="text-[19px] font-bold tracking-tight ' + titleCls +
@@ -1760,12 +1847,20 @@
     return shell('flex items-start gap-3 p-3.5 rounded-lg border border-slate-200/80 bg-gradient-to-br from-slate-50/80 to-white hover:border-blue-400 hover:shadow-md transition group', item, inner);
   }
 
-  /** MS View 单列行卡 */
+  /** MS / FLM / SP View 单列行卡
+      2026-09-22 图标砖改实心（按用户「其他还是有些是空心的，请全部改成实心的」）：
+      原来这里用 ROW_TONES（bg-blue-100 text-blue-700 之类的**淡底 + 深字**），
+      底色 alpha 只有 .16，视觉上是一块「空心/半透」的浅色砖，与 FO/BO 的实心砖不一致。
+      现在改为与 FO/BO 同一套 SOLID_TONES + text-white（实心饱和底 + 白字）。
+      ⚠️ 同时去掉 group-hover:bg-blue-600 / group-hover:text-white：
+      底色本身就是实心色了，再叠一层悬停统一变蓝会让 cyan/rose/amber 等色相的图标
+      在悬停瞬间跳成蓝色，观感突兀；FO 的 solidCard 也没有这一层。
+      卡片的可交互反馈由卡片自身承担（hover:bg-blue-50/70）。 */
   function msRow(item, idx) {
     var inner =
       '<div class="flex items-center gap-2.5 min-w-0">' +
-        '<div class="w-9 h-9 rounded-md ' + ROW_TONES[idx % ROW_TONES.length] +
-          ' flex items-center justify-center text-[18px] font-bold shrink-0 group-hover:bg-blue-600 group-hover:text-white transition">' +
+        '<div class="w-9 h-9 rounded-md ' + SOLID_TONES[idx % SOLID_TONES.length] +
+          ' text-white flex items-center justify-center text-[18px] font-bold shrink-0">' +
           ico(item.icon) + '</div>' +
         '<div class="truncate">' +
           '<div class="text-[14px] font-semibold text-slate-800 group-hover:text-blue-700 truncate">' + esc(titleOf(item)) + '</div>' +
@@ -1801,19 +1896,48 @@
       2026-09-18 按需求「如果显示两行，则里面的内容要大一点」：卡片保持两行（标题 + 描述），
       字号整体上调一档（标题 13→14px、描述 12→13px）、内边距 2→2.5。
       配合 boBody() 把网格从 4 列改成每行 2 个 —— 卡片宽度 140px → 287px，
-      标题可见字符数从约 10 个涨到约 20 个，右侧不再留空。 */
-  function boCard(item) {
+      标题可见字符数从约 10 个涨到约 20 个，右侧不再留空。
+      2026-09-22 补图标：BO 是九个区块里唯一卡片无图标的（其余 CXO/MS/FLM/FO/Admin/QA/
+      Friends 都有），观感像未完成的列表。这里给 `item.icon`（数据里本来就有）配一个
+      圆角底色块，底色**与 FO/FLM 小卡同款实心色**（SOLID_TONES + 白字，见上方说明）。
+
+      ⚠️ 尺寸只能取 **w-9 h-9**，不能写 w-8 h-8：
+      assets/tailwind.css 是 TMP/build_tailwind.mjs 预编译的产物（无构建步骤、不发 CDN），
+      编译时只把「源码里出现过的类」编进去。实测该产物里的 w-/h- 刻度只有
+      4 / 9 / 10 / 11 / 12 / 13 —— **没有 8**。写 w-8 h-8 不会报错，但类根本不存在，
+      图标块会塌成字号大小（17px）且底色透明，看起来像没生效（首版就踩了这个坑：
+      量到 w-8 h-8 的容器实际只有 17x17、background 是 rgba(0,0,0,0)）。
+      w-9 h-9 与 System Admin 的 adminCard 同档，已在产物内，拿来即用。
+      若将来确实需要新刻度，必须重跑 `node TMP/build_tailwind.mjs` 再交付。
+
+      图标块**不带 group-hover 变色**（原来是 pale 底 → hover 变蓝）：
+      底色现在本身就是实心色，再叠一层 hover 变蓝会让 emerald/amber 等色相的图标
+      在悬停时整块跳成蓝色，观感突兀；FO 的 solidCard 也没有这一层。
+      卡片的可交互反馈由卡片自身承担（hover:bg-blue-50 / hover:border-blue-200）。 */
+  function boCard(item, idx) {
     var inner =
-      '<div class="text-[14px] font-bold text-slate-700 group-hover:text-blue-700 truncate flex items-center gap-1">' +
-        (item.status === 'beta' ? '<span class="text-amber-500">β</span>' : '') + esc(titleOf(item)) + '</div>' +
-      '<div class="text-[13px] text-slate-500 truncate">' + esc(descOf(item)) + '</div>' + assignHtml(item);
-    return shell('p-2.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left', item, inner);
+      '<div class="w-9 h-9 rounded-md ' + SOLID_TONES[(idx || 0) % SOLID_TONES.length] +
+        ' text-white flex items-center justify-center text-[18px] shrink-0">' +
+        ico(item.icon) + '</div>' +
+      '<div class="min-w-0 flex-1">' +
+        '<div class="text-[14px] font-bold text-slate-700 group-hover:text-blue-700 truncate flex items-center gap-1">' +
+          (item.status === 'beta' ? '<span class="text-amber-500">β</span>' : '') + esc(titleOf(item)) + '</div>' +
+        '<div class="text-[13px] text-slate-500 truncate">' + esc(descOf(item)) + '</div>' +
+      '</div>' + assignHtml(item);
+    return shell('p-2.5 rounded border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition group text-left flex items-center gap-2', item, inner);
   }
 
-  /** System Admin 图标卡 */
+  /** System Admin 图标卡
+      2026-09-22 图标砖改实心（同上）：原为 bg-slate-100 text-slate-600，
+      浅灰底在白卡上几乎看不出是一块砖（computed 为 --mp-surface-3 #e7f1fa），
+      也是「空心」观感的一部分。改为实心中性灰 bg-slate-600 + 白字。
+      **刻意保持中性灰**（不像 MS/FLM/SP 那样用 SOLID_TONES 彩色轮转）：
+      System Admin 是「系统与运维配置」，SEC_META 给它的标题圆点也是 dot-slate（中性），
+      整段保持中性色系才自洽；只把「淡底」换成「实心」，色相家族不变。
+      ⚠️ 同样去掉 group-hover:bg-blue-600（理由见 msRow）。 */
   function adminCard(item) {
     var inner =
-      '<div class="w-9 h-9 rounded-md bg-slate-100 group-hover:bg-blue-600 group-hover:text-white flex items-center justify-center text-slate-600 text-[18px] transition shrink-0">' +
+      '<div class="w-9 h-9 rounded-md bg-slate-600 text-white flex items-center justify-center text-[18px] shrink-0">' +
         ico(item.icon) + '</div>' +
       '<div class="min-w-0">' +
         '<div class="font-bold text-slate-800 group-hover:text-blue-600 text-[13px] truncate">' + esc(titleOf(item)) + '</div>' +
@@ -2219,6 +2343,151 @@
     return p(Math.floor(left / 60)) + ':' + p(left % 60);
   }
 
+  /* ===== QC 指标分级阈值（2026-09-22 加） =====
+     ⚠️⚠️ 待业务确认 ⚠️⚠️
+     下面这组是**首版默认值**，依据只有两条：
+       ① 当前实测量级（2026-09-21：alarm 56 / tt 73 / wo 169 / cr 86 /
+          pmt 916（其中超期 490）/ spms 106 / sla 88.2%）；
+       ② NOC 常识（断站告警是最要紧的一格，几十条就该报红；变更单和备件出入库
+          本来就是常态化积压，几百条才算事；TT 达标率 95% 是行业常见目标）。
+     **它不是业务方给出的目标值**。正式目标值到位后只需改这一处，其余代码不动。
+
+     为什么把阈值调到「六项里能有 ok / warn / crit 三档都出现」的量级：
+     第一版按更严的口径给（alarm warn20/crit50、tt warn50/crit150…），实测六项里
+     五项全落在 warn —— 全黄等于没分级，扫一眼仍然看不出重点。分级的意义在于
+     **区分**，不在于「都不及格」。
+
+     dir 语义：
+       'up'   = 越大越差（积压类）：n >= crit 判严重、n >= warn 判关注
+       'down' = 越大越好（达标率）：n <  warn 判严重、n <  crit 判关注
+     为什么必须分方向而不是统一「超阈值就红」：达标率 95% 是好事，用同一套比较
+     方向会把它判进最严重的一档 —— 分级一旦出现这种反向误报，运维就会整体忽略它。 */
+  var QC_TARGETS = {
+    alarm: { dir: 'up',   warn: 10,   crit: 30   },
+    tt:    { dir: 'up',   warn: 30,   crit: 80   },
+    wo:    { dir: 'up',   warn: 50,   crit: 150  },
+    cr:    { dir: 'up',   warn: 100,  crit: 250  },
+    pmt:   { dir: 'up',   warn: 1000, crit: 2000 },
+    spms:  { dir: 'up',   warn: 150,  crit: 400  },
+    sla:   { dir: 'down', warn: 90,   crit: 95   }
+  };
+
+  /* 主卡 = 需要立即处理；次卡 = 积压与合规。
+     分组依据是「这条数字变了，当班要不要马上有人动」：断站告警与故障/任务工单
+     是当班就要响应的；变更需求、预防性维护、备件出入库是周期性消化的积压。
+     顺序写死在这里（不依赖 DATA.qc 的排列），避免目录数据调整后版面跟着乱。 */
+  var QC_PRIMARY_ORDER = ['alarm', 'tt', 'wo'];
+  var QC_SECONDARY_ORDER = ['cr', 'pmt', 'spms'];
+
+  var QC_LV_KEY = { ok: 'qc.lv.ok', warn: 'qc.lv.warn', crit: 'qc.lv.crit', na: 'qc.lv.na' };
+
+  /** 值 + 阈值 → 'ok' | 'warn' | 'crit' | 'na'。
+      无值 / 非数字 / 没配阈值一律 'na'（不参与配色），绝不当成 0、也绝不当成正常。 */
+  function qcLevel(id, v) {
+    var tg = QC_TARGETS[id];
+    if (!tg || v == null || isNaN(Number(v))) return 'na';
+    var n = Number(v);
+    if (tg.dir === 'down') {
+      if (n < tg.warn) return 'crit';
+      if (n < tg.crit) return 'warn';
+      return 'ok';
+    }
+    if (n >= tg.crit) return 'crit';
+    if (n >= tg.warn) return 'warn';
+    return 'ok';
+  }
+
+  /** 该指标自己的数据时间。告警走 5 分钟档，其余走小时档 —— 面板级那一个
+      「更新于」只反映两档里较新的那份，拿它代表某一张卡是不准的。 */
+  function qcMetricAt(id) {
+    return id === 'alarm' ? (state.qcAlarmAt || '') : (state.qcFullAt || '');
+  }
+
+  /** 相对时间。比绝对时刻更能一眼判断「这份数据是不是还新鲜」。 */
+  function qcAgo(iso) {
+    if (!iso) return '';
+    var ms = new Date(iso).getTime();
+    if (isNaN(ms)) return '';
+    var s = Math.round((Date.now() - ms) / 1000);
+    if (s < 0) s = 0;
+    if (s < 90) return t('qc.ago.now');
+    if (s < 3600) return tf('qc.ago.min', { n: Math.round(s / 60) });
+    if (s < 86400) return tf('qc.ago.hour', { n: Math.round(s / 3600) });
+    return tf('qc.ago.day', { n: Math.round(s / 86400) });
+  }
+
+  /** 历史序列里的有效数值点（剔除 null / 非数字）。
+      必须**显式**剔 null：Number(null) === 0，直接转会把「那一小时没取到数」
+      画成「积压清零」的假谷底 —— 那比不画线严重得多。
+      后端也只写 / 只回真数字，这里是第二道闸。 */
+  function qcHistVals(h) {
+    if (!h || !h.length) return [];
+    return h.map(function (p) { return p && p.v; })
+            .filter(function (v) { return v != null && !isNaN(Number(v)); })
+            .map(Number);
+  }
+
+  /** 环比（与上一整点快照比）。返回 {n, dir} 或 null（历史不足时）。
+      dir 是**业务方向**：SLA 涨了是 good，积压涨了是 bad。 */
+  function qcDelta(id, v) {
+    var vals = qcHistVals(state.qcHistory && state.qcHistory[id]);
+    if (!vals.length || v == null || isNaN(Number(v))) return null;
+    var prev = vals[vals.length - 1], cur = Number(v);
+    var d = Math.round((cur - prev) * 10) / 10;
+    var tg = QC_TARGETS[id];
+    var better = tg && tg.dir === 'down' ? d > 0 : d < 0;
+    return { n: d, dir: d === 0 ? 'flat' : (better ? 'good' : 'bad') };
+  }
+
+  function qcDeltaHtml(id, v) {
+    var d = qcDelta(id, v);
+    if (!d) return '';
+    var arrow = d.n > 0 ? '▲' : (d.n < 0 ? '▼' : '＝');
+    var txt = d.n === 0 ? t('qc.delta.flat') : arrow + ' ' + fmt(Math.abs(d.n));
+    var cls = d.dir === 'flat' ? '' : (d.dir === 'good' ? ' is-good' : ' is-bad');
+    var tip = tf('qc.delta.tip', { v: (d.n > 0 ? '+' : '') + d.n });
+    return '<span class="qc-delta' + cls + '" title="' + esc(tip) + '">' + esc(txt) + '</span>';
+  }
+
+  /** 迷你趋势线（内联 SVG，零第三方依赖 —— 门户要求零 CDN、断网可用）。
+      历史点 < 2 时返回 ''，由调用方渲染「趋势积累中」占位：
+      只有一个点时画线等于假装有趋势，宁可空着。 */
+  function qcSpark(id) {
+    var vals = qcHistVals(state.qcHistory && state.qcHistory[id]);
+    if (vals.length < 2) return '';
+    var W = 300, H = 26, PAD = 4;
+    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    var span = (max - min) || 1;
+    var step = W / (vals.length - 1);
+    var pts = vals.map(function (n, i) {
+      return [i * step, PAD + (H - PAD * 2) * (1 - (n - min) / span)];
+    });
+    var line = pts.map(function (p, i) {
+      return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1);
+    }).join(' ');
+    var area = line + ' L' + W + ' ' + H + ' L0 ' + H + ' Z';
+    /* preserveAspectRatio="none" 让折线随卡片宽度拉伸；stroke 上加
+       vector-effect="non-scaling-stroke" 保证 1.6px 不被拉粗或拉细。
+       刻意不画端点圆点：非等比缩放下圆会变成椭圆，看着像渲染 bug。 */
+    return '<span class="qc-spark" aria-hidden="true"><svg viewBox="0 0 ' + W + ' ' + H +
+      '" preserveAspectRatio="none">' +
+      '<path class="sp-area" d="' + area + '"/>' +
+      '<path class="sp-line" d="' + line + '" vector-effect="non-scaling-stroke"/>' +
+      '</svg></span>';
+  }
+
+  /** 主卡趋势位：有 ≥2 个历史点就画线；历史接口**根本没通**时返回 ''（什么都不占），
+      只有「接口通了、但这个指标的点数还不够」才提示「趋势积累中」。
+      为什么要区分这两种空：首屏（或后端还没重启）时三张主卡会同时显示三行
+      「趋势积累中」，看着像页面报错；而真正在积累数据时提示一次是有意义的。 */
+  function qcSparkSlot(id, v) {
+    var spark = qcSpark(id);
+    if (spark) return spark;
+    if (v == null || !state.qcHistory) return '';
+    if (qcHistVals(state.qcHistory[id]).length >= 2) return '';
+    return '<span class="qc-spark-empty">' + esc(t('qc.accumulating')) + '</span>';
+  }
+
   function qcSection() {
     /* 精确到秒（原为 HH:MM）：秒在跳，才看得出「页面确实在自动刷新」；
        只到分钟时，轮询 + 后端 60s 缓存叠起来会出现「一分钟没变」的错觉。 */
@@ -2234,12 +2503,16 @@
       a: state.qcAlarmAt ? qcClock(state.qcAlarmAt) : '—',
       f: state.qcFullAt ? qcClock(state.qcFullAt) : '—',
     });
-    var cadence = '<span class="qc-live text-slate-400 text-[13px] font-mono" title="' +
-        esc(tip) + '">' + liveDot +
-        '<span>' + esc(t('qc.cadence')) + '</span>' +
-        '<span class="text-slate-500">·</span>' +
-        '<span>' + esc(upd || t('qc.loading')) + '</span>' +
-        '<span class="text-slate-500">·</span>' +
+    /* 2026-09-22 顶栏瘦身。原来这里是四段并列：
+         「告警 5 分钟 · 其余每小时 :06 · 更新于 HH:MM:SS · 下次 MM:SS」
+       13px + text-slate-400（深色下被压成 --mp-text-2，与正文同色）。
+       其中「其余每小时 :06」是实现细节（cron 网格），对看板读者没有意义，
+       却占了整整一行、还把真正要紧的「更新于」压成低对比度。
+       现在只留「绿点 + 更新于 + 下次」，「节奏」整段移进 tooltip；
+       每张卡自己也带了数据时间（qc-age），比面板级一个时间戳准得多。 */
+    var cadence = '<span class="qc-live" title="' + esc(tip) + '">' + liveDot +
+        '<span class="qc-when">' + esc(upd || t('qc.loading')) + '</span>' +
+        '<span class="qc-sep">·</span>' +
         /* 倒计时由 1s 心跳（tick）刷新，不随 paintQc 的重绘走。
            id 必须与下钻弹窗的分页按钮（index.html 的 id="qcNext"）区分开：
            同名时 getElementById 只返回文档里靠前的那个，而 #secQc 在弹窗之前 —— 
@@ -2247,7 +2520,9 @@
         '<span id="qcNextIn">' + esc(tf('qc.next', { t: qcCountdown() })) + '</span>' +
       '</span>';
 
-    var cards = DATA.qc.map(function (q) {
+    /* 单张指标卡。分级 / 配色 / 分层的完整理由见上面 QC_TARGETS 与 portal.css 的
+       「QC 指标卡（2026-09-22 全面改版）」注释块。 */
+    function cardHtml(q) {
       var on = state.filter === q.id;
 
       var m = qcMetric(q.id);
@@ -2256,86 +2531,118 @@
       var failed = !!(m && m.error) || (!!state.qcErr && !state.qcStats);
       var v = m && m.value != null ? m.value : null;
       var errMsg = (m && m.error) || state.qcErr || '';
+      /* 分级只看**数值**（失败 / 无值一律 'na'，不参与配色）——
+         旧版唯一的颜色语义是「接口有没有报错」，与业务好坏完全无关。 */
+      var lv = (failed || v == null) ? 'na' : qcLevel(q.id, v);
+      var big = QC_PRIMARY_ORDER.indexOf(q.id) !== -1;
 
-      /* 副行 = 数据库口径；Alarm 追加去重站点数、PMT 追加超期数（同样来自接口）。 */
-      var sub = t(QC_SUB_KEY[q.id] || '') || (state.lang === 'en' ? q.subEn : q.subZh);
-      if (m && !failed) {
-        if (q.id === 'alarm' && m.sites != null) {
-          sub += ' · ' + fmt(m.sites) + ' ' + t('qc.sites');
-        } else if (q.id === 'pmt' && m.overdue != null) {
-          sub += ' · ' + t('qc.overdue') + ' ' + fmt(m.overdue);
-        }
-      } else if (failed) {
+      /* 口径整句（「未关闭出入库单 (SPMS，不含 WaitingForUpdate)」这类）——
+         改版前它是卡面第三行，但那是**文档不是信息**：既被 truncate 截断，
+         又和标题重复（标题已写「TTs (故障工单)」，副行再写「告警未清除的故障工单 (TT)」）。
+         现在整句移进 tooltip，卡面第三行让给「这一格独有的、会变的信息」。 */
+      var def = t(QC_SUB_KEY[q.id] || '') || (state.lang === 'en' ? q.subEn : q.subZh);
+
+      var sub;
+      if (failed) {
         sub = t('qc.err') + (errMsg ? ': ' + errMsg : '');
+      } else if (q.id === 'alarm' && m && m.sites != null) {
+        sub = fmt(m.sites) + ' ' + t('qc.sites');
+      } else if (q.id === 'pmt' && m && m.overdue != null) {
+        sub = t('qc.overdue') + ' ' + fmt(m.overdue);
+      } else if (q.id === 'spms' && m && m.tables) {
+        sub = t('qc.inbound') + ' ' + fmt(m.tables.inband_details || 0) +
+              ' · ' + t('qc.outbound') + ' ' + fmt(m.tables.outband_details || 0);
+      } else {
+        /* tt / wo / cr 接口没给额外的次要统计，退回口径 —— 保证这一行永远不空。
+           等快照历史积累起来后，数字旁的环比徽章（qc-delta）会补上
+           「在变好还是变坏」这层信息。 */
+        sub = def;
       }
 
       /* 数字为 null（未加载 / 拉取失败）一律显示 —，绝不显示 0 —— 统计里的 0 是真的
          一个都没有，与"没取到"必须能分辨，否则运维会误判成"已清空"。 */
       var num = v == null ? '—' : fmt(v);
-      var numCls = v == null ? 'text-slate-300' : 'text-lime-600';
-      var tip = failed ? sub : t('qc.click');
 
-      /* 2026-09-19：大数字由「左对齐」改为「居中」（num 那行加 text-center）。
-         标题行（名称 + 图标）与副行（口径 / 报错）**仍保持左对齐** ——
-         卡内三行只让数字居中，是需求原话（"卡片上的数字要居中"），
-         把整卡都改成 text-center 会连标题和口径一起挪，属于超范围改动。 */
-      /* 2026-09-19：卡片视觉优化（仅动 QC 卡，不动数据口径）
-         - 去掉整卡渐变，改纯白 + 细边框 + 柔和阴影，弱化"贴纸感"；
-         - 左侧 3px 主题色竖条做状态语义（正常=蓝 / 失败=玫红），一眼区分；
-         - 标题 13px、副行 11px，主次分明；数字仍居中（沿用既定需求）；
-         - hover 用轻微上浮 + 阴影，替代原来的缩放放大。 */
-      /* 2026-09-20：卡片美观度优化（仅动 QC 卡样式，数据口径 / 交互 / data-act 全部不变）
-         - 卡面改「上淡下白」渐变 + 圆角 2xl，去掉纯白死板感；
-         - 左侧 3px 竖条换成「左上角柔光晕」，状态语义更含蓄（正常=蓝 / 失败=玫红）；
-         - 图标由实心小方块改「圆形浅底徽标」，与标题上下叠放，视觉重心更集中；
-         - 数字保留居中（沿用既定需求），字重/字号微调并加 tabular-nums 防跳动；
-         - 选中态改「描边 + 拉长阴影条」，不再只是边框变色；
-         - hover 上浮 + 阴影加深，过渡曲线统一 ease-out。 */
-      var accentCls = failed ? 'bg-rose-400' : 'bg-blue-500';
-      /* 2026-09-21 视觉优化（只改样式，数据 / 交互 / data-act 不动）
-         - 竖条由"圆点柔光"回归细竖条，靠左贴边：状态语义更直接，也不再遮挡内容；
-         - 卡面回到纯白 + 1px 细边，靠间距与细边分区，避免渐变"贴纸感"；
-         - 数字去掉 text-center，改左对齐并与标题同轴，标题 → 数字 → 口径形成一条左对齐基线；
-         - 数字上色：正常=深石板、失败=玫红，字重降到 semibold，弱化"大号数字"压迫感。 */
-      var iconCls = failed ? (on ? 'bg-rose-100/80 text-rose-600' : 'bg-rose-50 text-rose-500') : (on ? 'bg-blue-100/80 text-blue-700' : 'bg-blue-50 text-blue-600');
-      var numCls = failed ? 'text-rose-500' : 'text-slate-800';
-      var railCls = failed ? 'bg-rose-400' : 'bg-blue-500';
-      return '<button type="button" class="group relative overflow-hidden text-left rounded-xl border bg-white ' +
-        (on ? 'border-blue-400 shadow-[0_6px_18px_-6px_rgba(37,99,235,0.45)]' : 'border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.05)] hover:border-blue-300 hover:shadow-[0_6px_16px_-8px_rgba(15,23,42,0.35)] hover:-translate-y-0.5') +
-        ' transition-all duration-200 ease-out" data-act="qc" data-qc="' + esc(q.id) + '" title="' + esc(tip) + '">' +
-        '<span class="pointer-events-none absolute left-0 top-0 h-full w-[3px] ' + railCls + ' ' + (on ? 'opacity-100' : 'opacity-60 group-hover:opacity-100') + ' transition-opacity"></span>' +
-        /* 左上角柔光晕：替代原来的整条竖条，状态语义更轻 */
-        '<div class="relative pl-4 pr-3.5 pt-3.5 pb-3">' +
-          '<div class="flex items-center gap-2">' +
-            '<span class="flex h-6 w-6 items-center justify-center rounded-md ' + iconCls + ' shrink-0 transition-colors">' + ico(q.icon) + '</span>' +
-            '<span class="truncate text-[12px] font-medium tracking-wide text-slate-500 group-hover:text-slate-700 transition-colors">' +
-              esc(state.lang === 'en' ? q.en : q.zh) + '</span>' +
-            '<span class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full ' + accentCls + (on || failed ? '' : ' opacity-40') + '"></span>' +
-          '</div>' +
-          '<div class="mt-2.5 text-[26px] lg:text-[30px] font-semibold ' + numCls + ' font-mono tracking-tight leading-none tabular-nums">' +
-            num + '</div>' +
-          '<div class="mt-1.5 truncate text-[11px] leading-tight ' + (failed ? 'text-rose-500' : 'text-slate-400') + '" title="' + esc(sub) + '">' +
-            esc(sub) + '</div>' +
-        '</div>' +
-      '</button>';
-    }).join('');
+      /* tooltip = 口径 + 阈值 + 点击提示。阈值必须写出来，否则分级是个黑盒：
+         运维看到红色也不知道「凭什么算红」。 */
+      var tg = QC_TARGETS[q.id];
+      var tips = [def];
+      if (tg) {
+        tips.push(tf(tg.dir === 'down' ? 'qc.targetTip.down' : 'qc.targetTip.up',
+                     { warn: fmt(tg.warn), crit: fmt(tg.crit) }));
+      }
+      if (!failed) tips.push(t('qc.click'));
+
+      /* 每张卡自己的数据时间。面板级那一个「更新于」只反映两档刷新里较新的那份，
+         拿它代表某一张卡是不准的（告警一刷新，其余五项的时间戳就被顶掉）。 */
+      var at = qcMetricAt(q.id);
+      var atTxt = at ? qcClock(at) : '';
+      var agoTxt = qcAgo(at);
+
+      return '<button type="button" class="qc-card qc-lv-' + lv +
+          (big ? ' qc-card--lg' : ' qc-card--sm') +
+          (on ? ' is-on' : '') + (failed ? ' is-failed' : '') +
+          '" data-act="qc" data-qc="' + esc(q.id) + '" title="' + esc(tips.join('\n')) + '">' +
+          '<span class="qc-rail" aria-hidden="true"></span>' +
+          '<span class="qc-hd">' +
+            '<span class="qc-ico" aria-hidden="true">' + ico(q.icon) + '</span>' +
+            '<span class="qc-name">' + esc(state.lang === 'en' ? q.en : q.zh) + '</span>' +
+            '<span class="qc-lvchip">' + esc(t(QC_LV_KEY[lv])) + '</span>' +
+          '</span>' +
+          '<span class="qc-numrow">' +
+            '<span class="qc-num' + (v == null ? ' is-na' : '') + '">' + esc(num) + '</span>' +
+            qcDeltaHtml(q.id, failed ? null : v) +
+          '</span>' +
+          /* 趋势线只给主卡（需要立即处理的三格）。次卡保持紧凑 ——
+             六张卡都塞趋势线会让面板变成一片噪点，反而看不出重点。 */
+          (big ? qcSparkSlot(q.id, v) : '') +
+          '<span class="qc-sub" title="' + esc(sub) + '">' + esc(sub) + '</span>' +
+          (atTxt ? '<span class="qc-age">' + esc(tf('qc.dataAt', { t: atTxt, ago: agoTxt })) + '</span>' : '') +
+        '</button>';
+    }
+
+    /* 顺序写死在这里（不依赖 DATA.qc 的排列），目录数据以后调整也不会打乱版面。 */
+    function pickCards(ids) {
+      return ids.map(function (id) {
+        var q = DATA.qc.filter(function (x) { return x.id === id; })[0];
+        return q ? cardHtml(q) : '';
+      }).join('');
+    }
+
+    /* 分层：主卡（需要立即处理）在上、次卡（积压与合规）在下。
+       层级靠**字号与内容密度**表达，不靠宽度 —— 六张卡等宽才能保证换行与窄屏不错位。 */
+    var groups =
+      '<div class="qc-group">' +
+        '<div class="qc-group-hd">' + esc(t('qc.grp.primary')) + '</div>' +
+        '<div class="qc-grid">' + pickCards(QC_PRIMARY_ORDER) + '</div>' +
+      '</div>' +
+      '<div class="qc-group">' +
+        '<div class="qc-group-hd">' + esc(t('qc.grp.secondary')) + '</div>' +
+        '<div class="qc-grid">' + pickCards(QC_SECONDARY_ORDER) + '</div>' +
+      '</div>';
 
     /* 标题栏「达标率」：原来是写死的字符串，2026-09-17 改为接口算出的真实值
-       （近 30 天 TT 的 SLA Pass 占比）。取不到就显示 —，不保留假数字。 */
+       （近 30 天 TT 的 SLA Pass 占比）。取不到就显示 —，不保留假数字。
+       2026-09-22：徽章颜色改为**按数值档位**取色 —— 改版前写死 emerald
+       （bg-emerald-50 text-emerald-700 border-emerald-200），88.2% 也渲染成
+       绿色 = 健康，等于把「接口有返回值」当成了「指标达标」。 */
     var sla = qcMetric('sla');
     var slaVal = sla && sla.value != null ? Number(sla.value).toFixed(1) + '%' : '—';
     var slaTip = sla && sla.total
       ? tf('sec.qc.sla.tip', { d: sla.days, pass: fmt(sla.pass), total: fmt(sla.total) })
       : (sla && sla.error ? t('qc.err') + ': ' + sla.error : t('qc.loading'));
+    var slaLv = sla && sla.value != null ? qcLevel('sla', sla.value) : 'na';
+    var slaTg = QC_TARGETS.sla;
+    slaTip += '\n' + tf('qc.targetTip.down', { warn: fmt(slaTg.warn), crit: fmt(slaTg.crit) });
 
     return headHtml({
       kind: 'square-rose', title: t('sec.qc.title'), sub: t('sec.qc.sub'), subInline: true,
       tools: cadence +
         '<button type="button" class="btn-soft" data-act="qc-reload" title="' + esc(t('qc.reload')) + '">' +
           ico('refresh') + esc(t('qc.reload')) + '</button>' +
-        '<span class="inline-flex items-center px-2.5 py-1 rounded text-[13px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200" title="' + esc(slaTip) + '">' +
-          ico('shield', 'mr-1') + esc(t('sec.qc.sla.label')) + ' <strong class="font-mono">' + esc(slaVal) + '</strong></span>'
-    }) + '<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3.5">' + cards + '</div>';
+        '<span class="qc-sla qc-lv-' + slaLv + '" title="' + esc(slaTip) + '">' +
+          ico('shield') + esc(t('sec.qc.sla.label')) + ' <strong>' + esc(slaVal) + '</strong></span>'
+    }) + '<div class="qc-groups">' + groups + '</div>';
   }
   /* ================================================ QC 统计 / 明细下钻 ==
      数据来自 my_app 的只读接口（backend/routers/portal_qc.py），经 nginx 的
@@ -2449,17 +2756,46 @@
   }
 
   /* ------------------------------------------------------------ 明细下钻 -- */
-  /** 弹窗标题 = 卡片名 + 「· 明细」。切语言时要重算，故单独抽出来。 */
+  /* 「在完整看板中打开」的目标（2026-09-22 加）。
+     只给**目录里确实存在对应看板**的维度配链接 —— 配一个错的链接比不给链接更糟。
+     页面 key 取自 assets/data.js 里已经在用的 my_app 页面（realtime_alarm /
+     ttwo / sp_material），不是新造路由。cr / pmt 在 my_app 侧没有对应看板，
+     故不配，弹窗里就不出现这个按钮。 */
+  var QC_BOARD_PAGE = {
+    alarm: 'realtime_alarm',
+    tt: 'ttwo',
+    wo: 'ttwo',
+    spms: 'sp_material'
+  };
+
+  /** 弹窗标题 = 卡片名 + 「· 明细」。切语言时要重算，故单独抽出来。
+      2026-09-22：顺带维护「打开完整看板」按钮（href + 显隐）。 */
   function applyQcDrillTitle() {
     var id = state.qcDrill.metric;
     var q = DATA.qc.filter(function (x) { return x.id === id; })[0];
     document.getElementById('qcTitle').textContent =
       (q ? (state.lang === 'en' ? q.en : q.zh) : id) + t('qc.drillSuffix');
+
+    var link = document.getElementById('qcOpenBoard');
+    if (link) {
+      var page = QC_BOARD_PAGE[id];
+      if (page) {
+        /* 同源相对路径：门户与 my_app 经同一个 nginx，用相对路径就不会把
+           「本机 192.168.100.20」写死进代码（换 IP / 换域名时不用改这里）。 */
+        link.href = '/myapp/?page=' + encodeURIComponent(page);
+        link.hidden = false;
+      } else {
+        link.removeAttribute('href');
+        link.hidden = true;
+      }
+    }
   }
 
   function openQcDrill(id) {
     document.getElementById('qcSearch').value = '';
-    state.qcDrill = { metric: id, page: 1, size: 50, q: '', total: 0,
+    /* sort/dir 必须一起重置：换一张卡还沿用上一张的排序列，后端会因为该列不在
+       本 metric 的列白名单里而忽略它，看上去像「排序点了没反应」。 */
+    state.qcDrill = { metric: id, page: 1, size: 50, q: '', sort: '', dir: 'desc', total: 0,
                       rows: [], columns: [], loading: true, err: '' };
     applyQcDrillTitle();
     document.getElementById('qcMask').hidden = false;
@@ -2481,7 +2817,10 @@
     renderQcDrill();
     qcApi('/api/portal-qc/detail?metric=' + encodeURIComponent(d.metric) +
           '&page=' + d.page + '&size=' + d.size +
-          (d.q ? '&q=' + encodeURIComponent(d.q) : ''))
+          (d.q ? '&q=' + encodeURIComponent(d.q) : '') +
+          /* 排序下发到服务端（不是只排当前页）。后端会拿 sort 去撞该 metric 的
+             列白名单，撞不上就忽略 —— 前端不需要知道后端有哪些列。 */
+          (d.sort ? '&sort=' + encodeURIComponent(d.sort) + '&dir=' + encodeURIComponent(d.dir) : ''))
       .then(function (data) {
         if (seq !== qcDrillSeq || state.qcDrill.metric !== d.metric) return;   // 过期响应
         d.loading = false;
@@ -2515,6 +2854,24 @@
     return s.replace(/^(-?\d+)\.0+$/, '$1');
   }
 
+  /** 「空」判定（2026-09-22 加）。除了 null / 空串，还要吃掉字面量 'empty' ——
+      源表里 alarm 的 tt_id 既有空串也有字符串 'empty'（实测 51 行里 22 行如此），
+      直接摊给用户看像是页面出错。
+      只影响**显示**，不改任何统计口径：后端 COUNT 与下钻 WHERE 一个字节都没动，
+      所以不会出现「屏幕上是 22 条，导出/统计却是 51 条」这种不一致 ——
+      被替换成 — 的行仍然在表里、仍然参与计数。 */
+  function qcIsEmpty(v) {
+    if (v == null) return true;
+    var s = String(v).trim();
+    return s === '' || s.toLowerCase() === 'empty';
+  }
+
+  /** 单元格 → HTML。空值渲染成灰色的 —，其余走 qcCell 后转义。 */
+  function qcCellHtml(v) {
+    if (qcIsEmpty(v)) return '<span class="qc-null">—</span>';
+    return esc(qcCell(v));
+  }
+
   function renderQcDrill() {
     var d = state.qcDrill;
     if (!d.metric) return;
@@ -2523,8 +2880,21 @@
     if (!thead || !tbody) return;
 
     var span = Math.max(1, d.columns.length);
-    thead.innerHTML = '<tr>' + d.columns.map(function (c) {
-      return '<th>' + esc(c.label) + '</th>';
+    /* 表头可点排序（2026-09-22 加）。用 <button> 而不是给 <th> 绑 onclick：
+       键盘 Tab 能到、回车能触发，aria-sort 也能正确播报当前列与方向。
+       首列加 qc-sticky-col —— 明细最长 12 列，横向滚动时首列滚出视野后，
+       剩下的数字列就失去了参照物（「这一行是谁」看不见了）。 */
+    thead.innerHTML = '<tr>' + d.columns.map(function (c, i) {
+      var active = d.sort === c.key;
+      var dir = active ? d.dir : '';
+      return '<th class="qc-sortable' + (i === 0 ? ' qc-sticky-col' : '') +
+        '" aria-sort="' + (active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none') + '">' +
+        '<button type="button" data-act="qc-sort" data-key="' + esc(c.key) + '">' +
+          '<span>' + esc(c.label) + '</span>' +
+          '<span class="qc-sort-ico" aria-hidden="true">' +
+            (active ? (dir === 'asc' ? '▲' : '▼') : '⇅') +
+          '</span>' +
+        '</button></th>';
     }).join('') + '</tr>';
 
     var ph;
@@ -2543,9 +2913,12 @@
          把前端脚本的错误伪装成了数据库故障。行高亮要恢复时，请连同 portal.css
          的样式类一起补上，不要再留这种只有调用没有定义的半截代码。 */
       tbody.innerHTML = d.rows.map(function (row) {
-        return '<tr>' + d.columns.map(function (c) {
-          var val = qcCell(row[c.key]);
-          return '<td' + (QC_MONO_KEY.test(c.key) ? ' class="mono"' : '') + '>' + esc(val) + '</td>';
+        return '<tr>' + d.columns.map(function (c, i) {
+          var cls = [];
+          if (QC_MONO_KEY.test(c.key)) cls.push('mono');
+          if (i === 0) cls.push('qc-sticky-col');
+          return '<td' + (cls.length ? ' class="' + cls.join(' ') + '"' : '') + '>' +
+            qcCellHtml(row[c.key]) + '</td>';
         }).join('') + '</tr>';
       }).join('');
     }
@@ -3055,7 +3428,7 @@
     var head =
       '<div class="flex flex-wrap items-center justify-between pb-2.5 mb-3 border-b border-slate-100 gap-2">' +
         '<div class="flex items-center gap-2 min-w-0">' +
-          '<span class="p-1.5 rounded bg-teal-50 text-teal-600 shrink-0">' + ico('map-pin', 'text-[20px]') + '</span>' +
+          '<span class="p-1.5 rounded bg-teal-600 text-white shrink-0">' + ico('map-pin', 'text-[20px]') + '</span>' +
           '<div class="min-w-0">' +
             '<h3 class="text-[17px] font-bold text-slate-800 truncate">' + esc(t('topo.title')) + '</h3>' +
             '<span class="text-[13px] text-slate-400 truncate block">' + esc(t('topo.sub')) + '</span>' +
@@ -4372,7 +4745,7 @@
       '<div class="flex flex-wrap items-center justify-between pb-2.5 mb-3 border-b border-slate-100 gap-2">' +
         '<a class="flex items-center gap-2 min-w-0 sec-head-link" href="' + esc(emailSrc()) + '" target="_blank" ' +
           'rel="noopener noreferrer" title="' + esc(t('email.openTip')) + '">' +
-          '<span class="p-1.5 rounded bg-teal-50 text-teal-600 shrink-0">' + ico('folder', 'text-[20px]') + '</span>' +
+          '<span class="p-1.5 rounded bg-teal-600 text-white shrink-0">' + ico('folder', 'text-[20px]') + '</span>' +
           '<div class="min-w-0">' +
             '<h3 class="text-[17px] font-bold text-slate-800 truncate">' + esc(t('email.title')) + '</h3>' +
             '<span class="text-[13px] text-slate-400 truncate block">' + esc(t('email.sub')) + '</span>' +
@@ -5890,6 +6263,26 @@
       if (e.target.closest('[data-act="qc-reload"]')) {
         e.preventDefault();
         fetchQcStats(true);
+        return;
+      }
+
+      /* 下钻弹窗表头排序（2026-09-22 加）。排序在**服务端**做：只排当前页会让
+         「按 Raised Time 排序」在翻页后失效 —— 那是错的排序，不如不做。
+         同一列再点一次切换升降序；换列则从 desc 起（明细表都是「最近的先看」）。 */
+      var qs = e.target.closest('[data-act="qc-sort"]');
+      if (qs) {
+        e.preventDefault();
+        var key = qs.getAttribute('data-key');
+        var dd = state.qcDrill;
+        if (!dd.metric) return;
+        if (dd.sort === key) {
+          dd.dir = dd.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          dd.sort = key;
+          dd.dir = 'desc';
+        }
+        dd.page = 1;
+        fetchQcDrill();
         return;
       }
 

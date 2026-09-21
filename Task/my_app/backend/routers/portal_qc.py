@@ -40,7 +40,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.database import get_raw_connection
-from backend.dialect_helpers import list_table_names, table_columns
+from backend.dialect_helpers import list_table_names, table_columns, upsert
 from backend.services.eflow_alarm_service import ALARM_CODE_CONDS
 
 logger = logging.getLogger(__name__)
@@ -99,6 +99,80 @@ def _rows_as_dicts(cursor):
 def _scalar(conn, sql, params=None):
     row = conn.execute(sql, params or []).fetchone()
     return row[0] if row else None
+
+
+# ======================= 每小时快照（2026-09-22 加） =======================
+# 为什么需要：面板原本只有「此刻的绝对值」，看不出在好转还是在恶化 ——
+# 169 比昨天好了还是坏了，面板回答不了。TT/WO/CR/PMT 的 created_time 能算「新增趋势」，
+# 但「积压量趋势」必须要历史快照，源表里根本没有过去某一时刻的积压数。
+#
+# 写入方式：**懒写入** —— 每次 _collect_summary() 真正跑完（不是命中 60s 缓存）时，
+# 顺带把这一组数字 upsert 进「当前小时」那一行。这样不需要动任何调度器配置，
+# 也不新增定时任务。代价是：**只有门户被打开过的小时才有快照**。
+# NOC 大屏通常 7×24 开着，所以实际几乎不断档；但如果门户长时间没人访问，
+# 那几小时就是空的（前端对空档只画不出的点，不会画成 0 —— 见 qcSpark）。
+# 要把覆盖做到无缺口，后续应把 _record_snapshot 挂到现有调度器上（task_schedule_config），
+# 那是独立一步，不在本次改动范围内。
+#
+# 表结构（sqlite / PG 双模，DDL 相同 —— TEXT / INTEGER 两边都合法）：
+#   hour_key      'YYYY-MM-DD HH:00'，主键，按后端时区（+08:00）分桶，
+#                 与 generated_at 同一把尺子，前端不需要猜时区。
+#   *_overdue     PMT 的超期数单独存一列：只看 PMT 总数会漏掉「总数没变但超期在涨」
+#                 这种情况，而超期才是真正要催的。
+_SNAPSHOT_TABLE = "portal_qc_snapshot"
+_SNAPSHOT_TZ = timezone(timedelta(hours=8))
+_HISTORY_DEFAULT_HOURS = 168      # 7 天
+_HISTORY_MAX_HOURS = 24 * 30      # 上限 30 天，避免前端一个参数把整表拉出来
+
+
+def _snapshot_hour(now=None) -> str:
+    """当前小时桶 key（后端时区 +08:00，与 generated_at 同源）。"""
+    return (now or datetime.now(_SNAPSHOT_TZ)).strftime("%Y-%m-%d %H:00")
+
+
+def _ensure_snapshot_table(conn) -> None:
+    """幂等建表。放在这里而不是 alembic：这张表是**纯附加**的展示辅助数据，
+    丢了只是趋势线断一段，不影响任何业务读数；用 alembic 迁移会把
+    「加一条趋势线」变成一次需要协调的 schema 变更，不成比例。"""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS " + _SNAPSHOT_TABLE + " ("
+        " hour_key TEXT PRIMARY KEY,"
+        " alarm INTEGER, tt INTEGER, wo INTEGER, cr INTEGER,"
+        " pmt INTEGER, pmt_overdue INTEGER, spms INTEGER,"
+        " captured_at TEXT)"
+    )
+    conn.commit()
+
+
+def _record_snapshot(metrics: dict) -> None:
+    """把一次全量结果落成当前小时的快照行。**任何失败都只记日志** ——
+    趋势是锦上添花，绝不能因为它写不进去而让面板的六个数字也拿不到。"""
+    try:
+        now = datetime.now(_SNAPSHOT_TZ)
+
+        def num(metric, field="value"):
+            m = metrics.get(metric) or {}
+            v = m.get(field)
+            # 只接受真数字：接口失败时 value 是 None，绝不能当成 0 落库 ——
+            # 那会在趋势线上画出一个「积压突然清零」的假谷底。
+            return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+        row = {
+            "hour_key": _snapshot_hour(now),
+            "alarm": num("alarm"),
+            "tt": num("tt"),
+            "wo": num("wo"),
+            "cr": num("cr"),
+            "pmt": num("pmt"),
+            "pmt_overdue": num("pmt", "overdue"),
+            "spms": num("spms"),
+            "captured_at": now.isoformat(timespec="seconds"),
+        }
+        with get_raw_connection() as conn:
+            _ensure_snapshot_table(conn)
+            upsert(conn, _SNAPSHOT_TABLE, [row], ["hour_key"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[portal-qc] 快照写入失败（不影响面板读数）: %s", exc, exc_info=True)
 
 
 # 实时告警表是「整表重建」写法的受害者：eflow_active_alarm 任务每 30 分钟跑一次，
@@ -285,6 +359,10 @@ def _collect_summary() -> dict:
         guard("spms", spms)
         guard("sla", sla)
 
+    # 快照只在**真正跑完一次统计**时写（缓存命中不会走到这里），且失败不影响返回。
+    # 放在 with 之外：快照用自己的短连接，不占用/不延长这次统计的事务。
+    _record_snapshot(metrics)
+
     return {
         "generated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
         "metrics": metrics,
@@ -363,6 +441,63 @@ def portal_qc_summary(refresh: int = 0, only: str = ""):
         _summary_cache["payload"] = payload
         _summary_cache["at"] = time.time()
     return {**payload, "cached": False}
+
+
+@router.get("/api/portal-qc/history")
+def portal_qc_history(hours: int = Query(_HISTORY_DEFAULT_HOURS, ge=2, le=_HISTORY_MAX_HOURS)):
+    """每小时快照序列，供 QC 面板画趋势线与环比（2026-09-22 加）。
+
+    返回按 metric 分组的 series：{"alarm": [{"h": "2026-09-21 14:00", "v": 56}, …], …}
+    —— 前端 state.qcHistory 直接就是这个形状，不用再做一次转置。
+
+    **只返回「已走完的整点」，不含当前这一小时。** 原因：快照是懒写入的，
+    当前小时那一行随时会被下一次统计覆盖。把它一起返回，前端算环比就会拿
+    「当前值」和「几分钟前的当前值」比 —— 差值恒接近 0，看起来像「没变化」，
+    这是错的。排除之后，序列最后一项必然是上一个完整整点，环比语义就干净了。
+
+    表不存在（后端刚升级、还没有任何一次全量统计落过盘）时返回空 series 而不是 500：
+    前端对空序列有「趋势积累中」的降级路径，报错反而会在面板上弹出红字。
+    """
+    cur_hour = _snapshot_hour()
+    since = (datetime.now(_SNAPSHOT_TZ) - timedelta(hours=hours)).strftime("%Y-%m-%d %H:00")
+
+    rows = []
+    try:
+        with get_raw_connection() as conn:
+            if _SNAPSHOT_TABLE in set(list_table_names(conn)):
+                rows = _rows_as_dicts(conn.execute(
+                    "SELECT hour_key, alarm, tt, wo, cr, pmt, pmt_overdue, spms "
+                    "FROM " + _SNAPSHOT_TABLE + " "
+                    "WHERE hour_key < ? AND hour_key >= ? ORDER BY hour_key",
+                    [cur_hour, since],
+                ))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[portal-qc] 历史快照读取失败（返回空序列）: %s", exc, exc_info=True)
+
+    # PMT 的趋势线用**超期数**而不是总数：总数常年几百上千、变化平缓，看不出问题；
+    # 超期数才是要催的那部分。键名沿用前端卡片 id（pmt），故这里单独映射。
+    field_of = {
+        "alarm": "alarm", "tt": "tt", "wo": "wo", "cr": "cr",
+        "pmt": "pmt_overdue", "spms": "spms",
+    }
+    series = {}
+    for metric, field in field_of.items():
+        pts = []
+        for r in rows:
+            v = r.get(field)
+            # 只放真数字：某一小时接口失败时该列是 NULL，绝不能补 0 ——
+            # 那会在趋势线上画出一个「积压突然清零」的假谷底。
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                pts.append({"h": r["hour_key"], "v": int(v)})
+        series[metric] = pts
+
+    return {
+        "generated_at": datetime.now(_SNAPSHOT_TZ).isoformat(timespec="seconds"),
+        "hours": hours,
+        "current_hour": cur_hour,
+        "points": len(rows),
+        "series": series,
+    }
 
 
 # ========== 明细下钻 ==========
@@ -511,13 +646,28 @@ def portal_qc_detail(
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE),
     q: str = Query("", description="跨列模糊搜索"),
+    sort: str = Query("", description="排序列（必须是本 metric 的列 key，否则忽略）"),
+    dir: str = Query("", description="asc / desc，默认 desc"),
 ):
-    """某项统计的明细列表（分页 + 模糊搜索）。"""
+    """某项统计的明细列表（分页 + 模糊搜索 + 排序）。
+
+    排序（2026-09-22 加）刻意放在**服务端**：只排当前页会让「按 Raised Time 排序」
+    在翻页后失效 —— 那是个错的排序，不如不做。
+
+    注入面：sort 只用来在**本 metric 自己的列定义表 _COLUMNS** 里查 SQL 表达式，
+    查到什么就用什么，查不到就退回默认排序。用户输入永远不会拼进 SQL 文本，
+    dir 也只映射到 ASC / DESC 两个字面量。
+    """
     metric = (metric or "").strip().lower()
     if metric not in METRICS:
         raise HTTPException(status_code=400, detail=f"未知 metric: {metric}")
 
     spec = _COLUMNS[metric]
+    order_by = _ORDER[metric]
+    expr_of = {key: expr for expr, key, _ in spec}
+    if sort and sort in expr_of:
+        order_by = f"{expr_of[sort]} {'ASC' if (dir or '').strip().lower() == 'asc' else 'DESC'}"
+
     with get_raw_connection() as conn:
         src, where, params = _detail_source(conn, metric)
         if metric != "spms" and src not in set(list_table_names(conn)):
@@ -539,7 +689,7 @@ def portal_qc_detail(
             lambda: _scalar(conn, f"SELECT COUNT(*) FROM {src} WHERE {where}", params)) or 0)
         offset = (page - 1) * size
         rows = _retry_missing_table(lambda: _rows_as_dicts(conn.execute(
-            f"SELECT {select} FROM {src} WHERE {where} ORDER BY {_ORDER[metric]} LIMIT ? OFFSET ?",
+            f"SELECT {select} FROM {src} WHERE {where} ORDER BY {order_by} LIMIT ? OFFSET ?",
             params + [size, offset],
         )))
 
@@ -548,6 +698,8 @@ def portal_qc_detail(
         "total": total,
         "page": page,
         "size": size,
+        "sort": sort if sort in expr_of else "",
+        "dir": "asc" if (dir or "").strip().lower() == "asc" else "desc",
         "columns": [{"key": key, "label": label} for _, key, label in spec],
         "rows": rows,
     }
