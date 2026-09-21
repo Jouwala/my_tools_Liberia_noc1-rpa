@@ -8,6 +8,7 @@ import time
 import re
 import sqlite3
 import logging
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -33,11 +34,15 @@ STATUS_ORDER = ["Critical[>5]", "Major[1-5]", "Minor[0.5-1]", "Warning[0.1-0.5]"
 # ========== 简易 TTL 缓存 ==========
 _cache: dict = {}
 _CACHE_TTL = 60
+# 整页聚合结果（overview）要扫 packet_loss_data 最近 7 天 + 24 小时的全部读数，
+# 重算一次约 1.9s；而源数据是小时级更新。给它更长的 TTL，避免用户每隔一分钟
+# 打开页面就要等 2 秒（实测 60s TTL 下，长时间使用时会周期性地撞上冷重算）。
+_OVERVIEW_TTL = 600
 
 
-def _cache_get(key: str):
+def _cache_get(key: str, ttl: int | None = None):
     item = _cache.get(key)
-    if item and time.time() - item[0] < _CACHE_TTL:
+    if item and time.time() - item[0] < (ttl if ttl is not None else _CACHE_TTL):
         return item[1]
     return None
 
@@ -107,6 +112,11 @@ def _load_meta():
 @router.get("/overview")
 def pl_overview():
     """丢包看板总览：状态分布 / Top站点 / 区域分布 / 每日趋势"""
+    # 整页结果缓存：daily_trend 与 top_sites 要扫 packet_loss_data 最近 7 天 +
+    # 24 小时的全部读数，实测即便 site_pl_summary 已缓存，单次仍要 1.8s。
+    cached = _cache_get("overview", _OVERVIEW_TTL)
+    if cached is not None:
+        return cached
     rows = _load_summary_rows()
     meta = _load_meta()
 
@@ -229,7 +239,7 @@ def pl_overview():
 
     # 要求3：Affected Sites = Critical + Major（严格按此定义，不含 Minor/Warning）
     affected_total = status_counts.get("Critical[>5]", 0) + status_counts.get("Major[1-5]", 0)
-    return {
+    return _cache_set("overview", {
         "generated_at": meta.get("last_sync_time"),
         "report_path": meta.get("report_path"),
         "total_sites": total_sites,
@@ -239,7 +249,20 @@ def pl_overview():
         "top_sites": top_sites,
         "region_dist": dict(sorted(region_counts.items(), key=lambda kv: -kv[1]["sites"])),
         "daily_trend": daily_trend,
-    }
+    })
+
+
+def warmup() -> None:
+    """启动期后台预热总览，避免后端重启后第一个用户等约 2 秒。"""
+    def _job() -> None:
+        try:
+            t0 = time.time()
+            pl_overview()
+            logger.info("[丢包看板] 启动预热完成 %.0fms", (time.time() - t0) * 1000)
+        except Exception:  # noqa: BLE001  预热失败不能影响启动
+            logger.warning("[丢包看板] 启动预热失败（不影响启动）", exc_info=True)
+
+    threading.Thread(target=_job, name="pl-warmup", daemon=True).start()
 
 
 @router.get("/map-sites")

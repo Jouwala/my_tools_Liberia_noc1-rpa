@@ -1,0 +1,220 @@
+1',
+    /* 看板目录的本机兜底（2026-09-17 加）。服务端 /api/portal-catalog 不可写时的
+       临时落点；服务端有目录时以服务端为准，并清掉这里的副本。 */
+    catalog: 'msportal.catalog.v1',
+    /* 子分组定义的本机兜底（2026-09-19 加）。与服务端目录同一份文档
+       （catalog.subGroups），这里只在服务端写失败时留一份，口径同 catalog。 */
+    subGroups: 'msportal.subgroups.v1',
+    /* 拖拽排序的**个人层**（2026-09-20 加）。与 catalog/subGroups 不同，这一份
+       刻意**不**往服务端同步：它就是「只有我这么看」的那一层，见 byOrder 上方说明。 */
+    order: 'msportal.order.v1'
+  };
+
+  /* ------------------------------------------------------------- i18n ---- */
+  var I18N = {
+    zh: {
+      'search.placeholder': '搜索看板名称、描述、责任人、标签…',
+      'section.searchPh': '在本区块内搜索看板…',
+      'section.hit': '匹配 {n}',
+      'section.noHit': '本区块无匹配',
+      /* 区块内折叠 / 顶栏控制条折叠（2026-09-17 加） */
+      'sec.more': '展开全部',
+      'sec.less': '收起',
+      'bar.toggle': '搜索与筛选',
+      'btn.editGroups': '编辑分组归属',
+      'btn.editGroupsOn': '退出编辑',
+      'btn.manageGroups': '分组管理',
+      'btn.export': '导出 JSON',
+      'btn.import': '导入 JSON',
+      'btn.reset': '恢复默认',
+      'btn.addBoard': '新增看板',
+      'btn.boardReset': '恢复出厂目录',
+      'btn.aPlus': '放大字号',
+      'btn.aMinus': '缩小字号',
+      'toast.fontScale': '字号 {p}%（仅本机浏览器）',
+      'edit.hint': '编辑模式：卡片右上角的 ✎ / 🗑 可编辑或删除看板，分组标签的 × 可移出该分组；改动保存到服务器，所有人可见。',
+      /* ---- 看板新增 / 编辑弹窗（2026-09-17 加） ---- */
+      'board.addTitle': '新增看板',
+      'board.editTitle': '编辑看板',
+      'board.cancel': '取消',
+      'board.save': '保存',
+      'board.edit': '编辑此看板',
+      'board.del': '删除此看板',
+      'board.added': '已新增看板',
+      'board.saved': '已保存看板',
+      'board.deleted': '已删除看板',
+      'board.savedServer': '已同步到服务器，所有人可见',
+      'board.savedLocal': '仅保存在本机浏览器（服务端不可写）',
+      'board.saveFail': '保存失败',
+      'board.readonly': '仅可在服务器本机编辑',
+      'board.confirmDel': '确定删除看板「{name}」？该改动对所有访问者生效。',
+      'board.resetConfirm': '确定恢复出厂目录？将删除服务器上的全局看板目录，所有人回到内置的看板清单。',
+      'board.resetDone': '已恢复出厂目录',
+      'board.errTitle': '请填写看板标题（中文或英文至少一项）',
+      'board.errUrl': '请填写以 http:// 或 https:// 开头的链接',
+      'board.errGroups': '请至少选择一个归属分组，否则看板不会出现在任何区块',
+      'board.serverNote': '保存后立即写入服务器，所有人打开门户都会看到。',
+      'board.localNote': '当前服务端不可写，改动只保存在本机浏览器。',
+      'board.fTitleZh': '标题（中文）*',
+      'board.fTitleEn': '标题（English）',
+      'board.fUrl': '链接 URL *',
+      'board.fDescZh': '描述（中文）',
+      'board.fDescEn': '描述（English）',
+      'board.fPlatform': '平台',
+      'board.fStatus': '状态',
+      'board.fOwner': '责任人（中文）',
+      'board.fOwnerEn': '责任人（English）',
+      'board.fDept': '部门（中文）',
+      'board.fDeptEn': '部门（English）',
+      'board.fFreq': '更新频率',
+      'board.fIcon': '图标',
+      /* 2026-09-20 改名：原为「访问量」。这个字段**从来没有任何东西在统计**——
+         全项目没有 clicks 自增、没有埋点、没有上报接口，它只是管理员手输的一个数字，
+         唯一作用是决定卡片顺序。展示它的「访问量」徽标已在 2026-09-19 删除，
+         现在顺序主要靠拖拽（「调整顺序」按钮），这个数字退化成「没被拖过的看板按它排」。 */
+      'board.fClicks': '初始排序权重',
+      'board.fTags': '标签（逗号分隔）',
+      'board.fGroups': '归属分组 *（可多选）',
+      'chip.all': '全部',
+      'sec.cxo.title': 'CXO View',
+      'sec.cxo.sub': '| 决策战略层统一总控与运营视窗',
+      'sec.qc.title': 'Quality Control',
+      'sec.qc.sub': '| 质量监控核心指标 (Key Performance Indicators)',
+      'sec.qc.sla.label': '达标率',
+      'sec.qc.sla.tip': '近 {d} 天创建的 TT 中 SLA 判定为 Pass 的占比（分母只含已判定 Pass/Failed 的单，在途未超期的不计入）：{pass} / {total}',
+      'sec.count': '个系统',
+      'sec.ms.sub': '综合运维管理层',
+      'sec.flm.sub': '一线外场维护',
+      'sec.sp.sub': '备品备件管理 (Spare Parts)',
+      'sec.fo.sub': '前端网络运营中心 (Front Office / NOC)',
+      'sec.bo.sub': '后端专家技术支撑 (Back Office)',
+      'sec.admin.title': 'System Admin',
+      'sec.admin.sub': '系统与运维配置',
+      'sec.qa.title': 'Knowledge Q/A',
+      'sec.qa.sub': '| 知识库与技术支持 (Operation Manual & Guidance)',
+      'sec.friends.title': 'Friends Links',
+      'sec.friends.sub': '| 集团中台与生态协作统一入口',
+      /* 区块标题可点（2026-09-18 加）：点标题 = 进入该区块的下级页面
+         （viewer.html?gid=xxx，列出同组全部看板），与卡片一样新标签页打开。 */
+      'sec.openTip': '在新标签页打开「{name}」的下级页面（该分组看板列表）',
+      /* ---- 升级机制表格（2026-09-18 加，内容来自 升级机制.xlsx，见 data.js 的 escalation） ---- */
+      'esc.title': '升级机制 (Escalation Matrix)',
+      'esc.sub': '值班升级联系人 · Orange / LONESTAR 双网号码',
+      'esc.count': '{n} 条 · {lv} 级',
+      'esc.col.level': '职级',
+      'esc.col.position': '岗位',
+      'esc.col.name': '姓名',
+      'esc.col.orange': 'Orange',
+      'esc.col.lonestar': 'LONESTAR',
+      'esc.col.email': '邮箱',
+      'esc.empty': '升级机制数据未加载',
+      'esc.srcNote': '数据源：升级机制.xlsx',
+      'esc.pax': '{n} 人',
+      'esc.expand': '放大查看',
+      'esc.expandTip': '表格在中列放不全（6 列需 796px），点开按全宽查看完整 21 条',
+      'esc.modalTitle': '升级机制 (Escalation Matrix)',
+      'esc.modalNote': 'LEVEL1 为一线值班热线与专业工程师，逐级上报至 LEVEL4 中方 PD。',
+      'esc.close': '关闭',
+      'qc.click': '点击查看明细',
+      /* 2026-09-17：随大数字改为数据库统计，删掉了 qc.self / qc.bi / qc.linked ——
+         那是旧语义的残留（大数字原本=本维度挂了几块看板，故标注「关联看板」并按
+         自研/FineBI 拆开计数）。数字换成「未关闭 TT 数」这类业务量后，再接
+         「关联看板」就是把业务量标成看板数，属于错误信息，故一并移除。 */
+      /* 2026-09-17：QC 六卡改为数据库实时统计（/api/portal-qc/summary），点击下钻明细 */
+      'qc.drillSuffix': ' · 明细',
+      'qc.search': '搜索…',
+      'qc.reload': '刷新',
+      /* 2026-09-20：导出由「当前页 CSV」改为「当前搜索条件下的全部行 .xlsx」，
+         格式套 my_app 的统一格式 UNIFIED_EXCEL_V1（见 assets/excelReport.js）。
+         文案必须跟着改：按钮写「导出 CSV」而给的是 xlsx，用户会以为没生效。 */
+      'qc.export': '导出 Excel',
+      'qc.exporting': '导出中…',
+      'qc.exportErr': '导出失败',
+      'qc.updated': '更新于',
+      /* 2026-09-18：把「刷新节奏」和「数据源节奏」摆到标题栏上。
+         起因：用户看到 QC 数字长时间不变，无法判断是「页面没在刷新」还是
+         「源数据本来就没到下一个同步点」——而 eflow_sync 每小时 :00 才跑（实测约 374s，
+         ≈:06 跑完）、SP 备件明细 sp_data_sync 每小时 :10、断站告警每 5 分钟，所以 TT/WO/CR/PMT 这类数字
+         一小时才变一次是**数据源的节奏**。
+         最终节奏（同日第三轮，用户定）：**告警 5 分钟级 / 其余每小时** ——
+         六项里只有 realtime_alarm 高频变化（源 eflow_active_alarm 每 5 分钟 replace 一次），
+         其余五项 + 达标率的源都是每小时才动。见 QC_FULL_MIN / QC_ALARM_MIN。 */
+      'qc.cadence': '告警 5 分钟 · 其余每小时 :06',
+      'qc.next': '下次 {t}',
+      'qc.cadenceTip': '本面板分两档刷新：断站告警每 5 分钟（源 eflow_active_alarm 每 5 分钟同步，最近 {a}）；TT/WO/CR/PMT/SPMS 与达标率每小时 :06（源 eflow_sync 每小时 :00 起跑、实测约 :06 跑完，SP 备件明细 sp_data_sync 每小时 :10，最近 {f}）。切回本页或点「刷新」会立刻重拉全量。',
+      'qc.loading': '加载中…',
+      'qc.err': '数据库统计不可用',
+      'qc.empty': '没有匹配的记录',
+      'qc.noCsv': '当前没有可导出的数据',
+      'qc.page': '第 {p} / {n} 页',
+      'qc.total': '共 {n} 条',
+      'qc.sites': '断站站点',
+      'qc.overdue': '超期',
+      'qc.filterHint': '提示：按维度筛选看板目录的功能在筛选栏的对应标签上，本弹窗只做明细下钻。',
+      'qc.sub.alarm': '未清除的断站告警',
+      /* 2026-09-20 按需求改口径：TT / WO 的大数字不再是「未关闭工单数」，
+         而是「告警未清除的单数」—— 即 my_app 侧 eflow_tt / eflow_wo 的
+         alarm_clear_time 为空。副行文案必须跟着改，否则卡片标题在说一件事、
+         数字在说另一件事（旧文案「未关闭」会让人以为数字还是 8000 那一档）。 */
+      'qc.sub.tt': '告警未清除的故障工单 (TT)',
+      'qc.sub.wo': '告警未清除的任务工单 (WO)',
+      'qc.sub.cr': '未关闭变更单 (CR)',
+      'qc.sub.pmt': '未完成的预防性维护 (PMT)',
+      /* 2026-09-20 按需求加口径：Status = WaitingForUpdate 的出入库单（尚未生效的在途单）
+         既不计入大数字、也不进下钻明细（后端 portal_qc.py 的 SP_IGNORED_WORDS）。
+         副行必须写出来，否则运维拿这里和 SP 报表的「未关闭单」对不上时会以为数字错了。 */
+      'qc.sub.spms': '未关闭出入库单 (SPMS，不含 WaitingForUpdate)',
+      'status.online': '在线',
+      'status.beta': '试运行',
+      /* 卡片徽标的 hover 备注（2026-09-19 加）。
+         「在线」这个词最容易被读成「此刻在线」，实际它只是目录里的一个静态状态字段，
+         所以必须把口径写出来。平台 / 部门同理 —— 值本身是真的，但没说清是什么。 */
+      'tag.online.tip': '该看板已上线运行（取自目录的状态字段，不是实时在线探测）',
+      'tag.beta.tip': '该看板试运行中（取自目录的状态字段）',
+      'tag.plat.tip': '看板所属平台：{p}',
+      'tag.dept.tip': '责任部门：{d}',
+      'tag.new': '新增',
+      /* ---- 拖拽排序（2026-09-20 加）---- */
+      'btn.order': '调整顺序',
+      'btn.orderOn': '退出排序',
+      'order.dragTip': '按住拖动可调整本区块内的顺序',
+      'order.hintLocal': '排序模式：在本区块内按住卡片拖动即可调顺序 · 只影响你自己的浏览器',
+      'order.hintGlobal': '排序模式：在本区块内按住卡片拖动即可调顺序 · 保存后所有人可见',
+      'order.scopeLocal': '仅我可见',
+      'order.scopeGlobal': '所有人可见',
+      'order.resetLocal': '恢复默认顺序',
+      'order.resetConfirm': '清掉你在这台电脑上拖过的全部顺序，回到初始排序权重？\n（不影响服务器上「所有人可见」的顺序）',
+      'order.resetDone': '已恢复默认顺序',
+      'order.noLocal': '这台电脑上还没有拖过顺序',
+      'order.savedGlobal': '顺序已保存',
+      'order.backendOld': '但服务器未重启，顺序只在服务器本机生效（order 键被丢弃）',
+      'open': '打开',
+      'empty': '暂无看板，可在「编辑分组归属」中把其他看板移入本组',
+      'emptyFilter': '没有匹配的看板，请调整搜索或筛选条件',
+      'topo.title': 'Central Liberia Regional Topology',
+      'topo.sub': '利比里亚网络拓扑全景',
+      'map.tab.gis': 'GIS 地图',
+      'map.tab.mw': '微波实时',
+      'map.tab.alarm': '实时告警',
+      'map.tab.loss': '传输丢包',
+      'map.refresh': '刷新',
+      'map.open': '新窗口',
+      'map.loading': '正在加载地图…',
+      'auth.title': '需要登录统一门户',
+      'auth.tip': '本页面可直接使用统一门户的同一套账号、密码和权限登录。',
+      'auth.login': '本页直接登录',
+      'auth.portal': '在统一门户登录',
+      'auth.retry': '我已登录，重试',
+      'auth.checking': '正在校验登录状态…',
+      'auth.directTitle': '登录统一门户',
+      'auth.username': '用户名',
+      'auth.password': '密码',
+      'auth.sameAccount': '使用统一门户同一套账号、密码和权限。',
+      'auth.submit': '登录',
+      'auth.cancel': '取消',
+      'auth.logout': '退出登录',
+      'auth.loggingIn': '登录中…',
+      'auth.badCredentials': '用户名或密码错误',
+      'auth.locked': '登录失败次数过多，请稍后再试',
+      'auth.networkError': '登录服务不可用，请检查门户服务',
+      'auth.mustChange': '当前账号需要先修

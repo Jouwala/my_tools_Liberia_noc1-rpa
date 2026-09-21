@@ -62,6 +62,18 @@ def list_all_tasks(request: Request):
     return {"tasks": task_runner.list_tasks(include_runs=True, lang=_req_lang(request))}
 
 
+# 必须定义在 /api/tasks/{task_id} 之前，否则 "running" 会被当成 task_id
+@router.get("/api/tasks/running")
+def tasks_running():
+    """轻量运行状态：{task_id: bool}。
+
+    应用顶层 TaskStatusContext 每 8s（有任务运行时 2s）轮询一次，只关心
+    running 一个布尔值。走 /api/tasks 的话每次要传 ~75KB 并现算最新执行记录、
+    重试预测、中英文名等（实测 150~490ms）；这里约 1KB、几毫秒。
+    """
+    return {"running": task_runner.get_running_map()}
+
+
 @router.get("/api/tasks/history")
 def get_tasks_history(
     limit: int = 50,

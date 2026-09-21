@@ -23,9 +23,11 @@
      masthead 顶 #051c42 → 中 #021d4a → 底 #032152；底部约 20px 起蓝光（左 #063c7e
      弱、右 #0832b7 强）；副标题钢蓝 #93b3cf；时钟 #9abedb；环境绿点 #22e57a；
      图钉 #ffd24a；语言选中 pill #0d6fe0；控件描边 rgba(255,255,255,.16)。
-     品牌色（2026-09-19 按需求改）：标题「MS Management Platform」纯白 #ffffff、
-     「OLR」橙 #ff8c1a、ZTE 字标中兴蓝 #0b84e6；「Z」标改为「渐变字形 + 橙色轨道环
-     + 圆角底牌」，画在 index.html 的内联 SVG 里。
+     品牌色（2026-09-21 更新）：标题「MS Management Platform」纯白 #ffffff、
+     「OLR」橙金 #ff9d1c、ZTE 字标 = ZTE Blue (新) #0078d4、品牌分隔竖线 #47adef。
+     「Z」标已由内联 SVG 换成官方品牌资产 PNG（assets/logo-zte-z-{116,174}.png，
+     1254×1254 透明源图裁内容框 + 补正方形 + 无损重编码后的 2x/3x）。
+     回退用 index.html_bak_20260921_新Logo部署前 + 本文件同名备份。
      工具条（浅色）顶 #f4f9fd → 底 #e6f2fb，文字 #3f587b，达标率绿 #12925f。
 
    尺寸：参考截图是 1.25 倍缩放的 1736×99 视口，除以 1.25 后所有控件高 ≈36px、
@@ -44,8 +46,10 @@
    同一个 --mp-mast-h 还喂给地球尺寸和顶栏 min-height，缩高度时球会等比跟着缩。 */
 html {
   /* 品牌区高度 = 标题行盒 + 副标题上边距 6px + 副标题行盒。
-     「Z」底牌（正方形）、分隔线、文本块共用它 → 顶栏左上起排、底边天然齐平。 */
-  --mp-brand-h: calc(1.625rem * 1.15 + .375rem + .75rem * 1.2);
+     「Z」底牌（正方形）、分隔线、文本块共用它 → 顶栏左上起排、底边天然齐平。
+     2026-09-21 标题 1.625rem(26px) → 1.5rem(24px)（对齐顶栏独立稿），
+     这里的第一个乘数必须同步改，否则品牌区会高出 1.7px、底边不再齐平。 */
+  --mp-brand-h: calc(1.5rem * 1.15 + .375rem + .75rem * 1.2);
   --mp-mast-h: max(3rem, calc(var(--mp-brand-h) + 1.125rem));
 }
 
@@ -54,10 +58,21 @@ html {
   /* 深色门面在两种主题下都成立：文字/控件一律按深底设计 */
   --mp-ink: #ffffff;
   --mp-ink-2: #e6f2fb;
-  /* 品牌色（2026-09-19 按需求改）：OLR 橙、ZTE 中兴蓝、其余标题走 --mp-ink 纯白。
-     中兴蓝官方档约 #0072CE，这里提到 #0b84e6 —— 顶栏是深海军蓝底，原档偏闷。 */
-  --mp-olr: #ff8c1a;
-  --mp-zte-blue: #0b84e6;
+  /* 品牌色（2026-09-21 按品牌规范更新）：
+       ZTE 字标基准色 = ZTE Blue (新) #0078D4 —— 取代旧版 #0067B9 / 上一轮的 #0b84e6。
+       OLR = 橙金 #FF9D1C（与顶栏独立稿统一，原 #ff8c1a）。
+       其余标题走 --mp-ink 纯白。
+
+       ⚠️ 深底提亮变体：本顶栏的字标不用 #0078D4 原值，用 --mp-zte-blue-dark。
+       #0078D4 是为白底设计的，放到 #071A46→#0D2860 的深底上对比度只有 3.69:1，
+       字标看着「沉」。实测过：给它加 text-shadow 辉光**没用** —— 辉光只影响字后
+       面的背景像素，字形本体逐像素不变（量过：字形核心开/关辉光都是 #0078D4，
+       差值为 0）。要提亮必须改字形自身的颜色。
+       #1E90E8 = #0078D4 同色相（206°）提亮档，实测对比度 ≈4.9:1。
+       品牌原色 #0078D4 保留在本变量里，浅色底/文档/印刷仍用它。 */
+  --mp-olr: #ff9d1c;
+  --mp-zte-blue: #0078d4;
+  --mp-zte-blue-dark: #1e90e8;
   --mp-dim: #93b3cf;
   --mp-clock: #9abedb;
   --mp-line: rgba(255, 255, 255, .16);
@@ -196,34 +211,49 @@ html.dark .mp-globe { opacity: .78; }
   width: var(--mp-brand-h);
   height: var(--mp-brand-h);
   flex: 0 0 auto;
-  /* 底牌是实心深色方块，离深海军蓝背景需要一点投影才不糊在一起 */
-  filter: drop-shadow(0 2px 7px rgba(0, 8, 26, .55));
+  /* 官方 PNG 资产自带一层很淡的落影，这里只补一点点就够，压深会糊成一团 */
+  filter: drop-shadow(0 2px 5px rgba(0, 8, 26, .40));
 }
-.mp-zte-mark svg { display: block; width: 100%; height: 100%; }
+.mp-zte-mark svg,
+.mp-zte-mark img { display: block; width: 100%; height: 100%; }
 .mp-zte-word {
-  align-self: flex-end;
+  /* 2026-09-21：原来是 align-self: flex-end —— 品牌区高度 = 标题行 + 副标题行，
+     而 Logo 占满整个品牌区，所以字标被顶到「副标题那一行」的高度上，看着比 Logo 低一截。
+     量参考图：Logo 瓦片 y 14..80（中心 47）、ZTE 字形 y 36..62（中心 49），
+     两者是垂直居中的。这里改成 center 对齐 Logo 中心。
+     注意 .mp-brand 是 align-items: flex-start，靠 align-self 单独覆盖这一项。 */
+  align-self: center;
   font-size: 1.75rem;
   font-weight: 800;
   line-height: 1;
   letter-spacing: .01em;
-  color: var(--mp-zte-blue);
+  color: var(--mp-zte-blue-dark);
   flex: 0 0 auto;
+  /* 2026-09-21：颜色已经用深底提亮档 #1E90E8（见 --mp-zte-blue-dark 注释），
+     字形本体亮度够了，这里只留一层很淡的辉光柔化边缘、顺带把字从深底上「托」起来。
+     上一版把 alpha 开到 .60 想靠辉光解决「沉」是走错了路 —— 辉光改不了字形颜色。 */
+  text-shadow: 0 0 10px rgba(30, 144, 232, .35);
 }
+/* 品牌区与标题区之间的细青蓝竖线。
+   2026-09-21 按新稿对齐：色值 #47ADEF（参考图实测），高度收到品牌区的 85%
+   （≈ Header 高的 63%，与参考图一致），并改为垂直居中 —— 原来是满高、
+   靠 align-items:flex-start 顶到上沿，缩短后会明显偏上。 */
 .mp-brand-sep {
   width: 1px;
-  height: var(--mp-brand-h);
+  height: calc(var(--mp-brand-h) * .85);
   margin: 0 6px;
   flex: 0 0 auto;
+  align-self: center;
   background: linear-gradient(180deg,
-    rgba(120, 190, 255, 0) 0%,
-    rgba(120, 190, 255, .45) 22%,
-    rgba(120, 190, 255, .45) 78%,
-    rgba(120, 190, 255, 0) 100%);
+    rgba(71, 173, 239, .35) 0%,
+    #47ADEF 12%,
+    #47ADEF 88%,
+    rgba(71, 173, 239, .35) 100%);
 }
 .mp-brand-text { min-width: 0; height: var(--mp-brand-h); }
 .mp-title {
   margin: 0;
-  font-size: 1.625rem;
+  font-size: 1.5rem;
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -.005em;

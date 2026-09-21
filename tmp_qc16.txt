@@ -1,0 +1,7 @@
+ 2253:           '<span class="truncate">' + esc(state.lang === 'en' ? q.en : q.zh) + '</span>' +
+ 2254:           '<span class="p-1 rounded bg-blue-50 text-blue-600 shrink-0">' + ico(q.icon) + '</span>' +
+ 2255:         '</div>' +
+ 2256:         '<div class="text-center text-[30px] lg:text-[36px] font-extrabold ' + numCls + ' font-mono tracking-tight group-hover:scale-105 transition-transform mt-1">' +
+ 2257:           num + '</div>' +
+ 2258:         '<div class="text-[12px] mt-1.5 truncate ' + (failed ? 'text-rose-500' : 'text-slate-500') + '" title="' + esc(sub) + '">' +
+ 2259:           esc(sub) + '</div>' +

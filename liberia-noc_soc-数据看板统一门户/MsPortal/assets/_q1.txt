@@ -1,0 +1,12 @@
+
+LineNumber Line
+---------- ----
+         6                CXO View → Quality Control → 三列核心区 (3:5:4) → 底部双面板
+       108       'sec.qc.title': 'Quality Control',
+       109       'sec.qc.sub': '| 质量监控核心指标 (Key Performance Indicators)',
+       482       'sec.qc.title': 'Quality Control',
+       880     /* Quality Control 的数据库统计（2026-09-17 加）。
+      2099   /** Quality Control —— 6 张指标卡。
+      2112       刻意**不加区块内搜索框**：本区块列的是 6 个「质量维度」
+      4783     // 特殊区块：CXO / Quality Control / 拓扑地图（拓扑区只在 render() 里建一次，
+

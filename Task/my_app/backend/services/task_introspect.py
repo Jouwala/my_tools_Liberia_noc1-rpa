@@ -286,6 +286,16 @@ TASK_IO: dict[str, list[str]] = {
     "main_kpi_sync": ["远程DB: db.sqlite3 (via db_writer API)"],
     # 10. RAN Network KPI
     "network_kpi_sync": ["本地DB: ran_kpi_daily.sqlite3", "远程DB: ran_kpi_daily.sqlite3 (via db_writer API)"],
+    # 10b-10d. 派生宽表重建（2026-09-21 从已退役 my-finebi 的手工 ETL 收进 my_app，
+    #          产物落本机 data/，看板经 dashboard_service.DB_ALIASES 直读）
+    "avail_recon_sync": ["远程DB: db.sqlite3 (via remote API, 2G/3G/4G_Main_Kpi_Site_Daily)",
+                         "远程DB: olbr_ms_master_database.sqlite3 (via remote API)",
+                         "本地DB: data/avail_recon.sqlite3"],
+    "mttr_tt_sync": ["远程DB: db.sqlite3 (via remote API, Eflow_TT_FB)",
+                     "本地DB: data/excel_ds.sqlite3",
+                     "本地DB: data/mttr_tt.sqlite3"],
+    "progress_sync": ["远程DB: db.sqlite3 (via remote API, Eflow_TT_FB + Eflow_WO_FB)",
+                      "本地DB: data/progress.sqlite3"],
     # 11. CNN UME KPI
     "cnn_kpi_sync": ["远程DB: db_ps_cs_cn.sqlite3 (CNN, via API)"],
     # 12. SP 备件

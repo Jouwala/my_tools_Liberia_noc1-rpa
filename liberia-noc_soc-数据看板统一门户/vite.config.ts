@@ -216,10 +216,56 @@ export default defineConfig(() => {
       //                下的 VariationsSeed*.tmp 把 9267 打挂，/uniplam/ 与
       //                /MsPortal/ 的用户管理接口一起 502）。TMP 里没有任何前端源码。
       //  · dist/       vite build 产物，只在部署时生成。
+      //  · portal-default.json  门户目录的运行时数据：管理员在页面上点一次"保存为默认"
+      //                就写一次，写一次就让所有在线客户端整页刷新一次。它不在模块图里，
+      //                src 里是 fetch('/api/portal-default') 取的（见 src/App.tsx），
+      //                不是 import，所以不需要热更新。
+      //  · MsPortal/  OlrPortal/  olbrportal/   三个静态壳（HTML + 手写 JS），线上由
+      //                nginx 直接发静态文件，src/ 里没有任何地方 import 它们。但 root
+      //                覆盖了它们，于是每次改动都会让 /uniplam/ 整页刷新：2026-09-21 查
+      //                "页面变慢"时，log\portal_dev.log 里刷满了
+      //                "page reload MsPortal/assets/*.js" / "page reload MsPortal/_qc*.txt"
+      //                ——那些 _qc*.txt 是 QC 脚本在写（MsPortal 下此类临时文件有 160 个
+      //                以上），不是人在编辑器里改。代价：不再有"改 MsPortal 资源 → 浏览器
+      //                自动刷新"这个便利（它本来也没有 HMR 客户端，靠的就是整页刷新）。
+      //  · scripts/  *.py  *.ps1   后端与运维脚本（my_app 迁移脚本、whatsapp 分析服务、
+      //                start/stop 脚本），都不在前端模块图里。
+      //  · *.bak*  *.xlsx  备份件与数据导出（vite.config.ts_bak_*、portal-default.json.bak_*、
+      //                看板清单 xlsx …）。
+      //  · _*  .tmp_*  tmp_*.txt  temp_*.txt  seg*.txt  listing.txt  out.txt
+      //                仓库根目录与各处的临时件（已确认 src/ server/ assets/ 下没有任何
+      //                以 _ 开头的文件，全部集中在 MsPortal/ 里）。
       watch:
         process.env.DISABLE_HMR === 'true'
           ? null
-          : { ignored: ['**/log/**', '**/auth-data/**', '**/TMP/**', '**/dist/**'] },
+          : {
+              ignored: [
+                '**/log/**',
+                '**/auth-data/**',
+                '**/TMP/**',
+                '**/dist/**',
+                '**/portal-default.json',
+                '**/MsPortal/**',
+                '**/OlrPortal/**',
+                '**/olbrportal/**',
+                '**/scripts/**',
+                '**/*.py',
+                '**/*.ps1',
+                '**/*.bak',
+                '**/*.bak_*',
+                '**/*_bak_*',
+                '**/*.xlsx',
+                '**/_*',
+                '**/.tmp_*',
+                '**/tmp_*.txt',
+                '**/temp_*.txt',
+                '**/seg*.txt',
+                '**/listing.txt',
+                '**/out.txt',
+                '**/*.tmp',
+                '**/*.old',
+              ],
+            },
       // 本地 dev 时将 /api 代理到 my_app 后端主机（与 nginx /api/ → my_app 后端 7038 拓扑一致），
       // 供 TaskSyncWidget 实时拉取 /api/tasks。
       // 注意：/api/portal-default 与 /api/auth 分别由上方两个插件的中间件直接处理，

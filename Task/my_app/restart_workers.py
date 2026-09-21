@@ -57,6 +57,18 @@ BACKEND = ROOT / "backend"
 LOG_DIR = ROOT / "log"
 sys.path.insert(0, str(ROOT))
 
+# ⚠ 本脚本的输出**全是中文**，而 Windows 上 python 的 stdout 默认跟随控制台代码页
+# （本机 cp1252）→ 第一句 print 就 UnicodeEncodeError 崩掉。
+# 后果不是"看不到日志"而是**运维入口整体不可用**：2026-09-21 用它重启 watchdog 时，
+# 脚本死在 `print("=== 重启前 ===")`，进程一个都没杀、也没留痕，只留一行 traceback，
+# 很容易被误读成"重启失败但杀过了"。
+# 与仓库其它脚本（db_freshness_check / avail_recon_sync …）保持一致：显式改 UTF-8。
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:  # pragma: no cover - 非 TTY / 老版本兜底
+    pass
+
 from backend.restart_marker import append_marker, caller_name, read_markers  # noqa: E402
 
 # 组清单单一来源（2026-09-18）：直接从 worker_watchdog.GROUP_TASK_MAP 取键，

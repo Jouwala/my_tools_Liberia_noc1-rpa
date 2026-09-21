@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OLR MS Management Platform · Header (1340 × 70)</title>
+<!--
+  ============================================================================
+  OLR MS Management Platform — 企业级网络管理平台 Header
+  画布：1340px × 70px   |   纯 HTML + CSS + SVG，零图片、零 CDN、断网可用
+  ----------------------------------------------------------------------------
+  规格对照
+    · Header 高度        70px
+    · 背景               linear-gradient(90deg, #071A46, #0D2860)
+    · Logo 区域宽度      约 165px（左侧 20px 内边距 + 145px 品牌区）
+    · Logo               SVG 绘制，58 × 58 圆角蓝色方形（圆角 9px ≈ 15%），深蓝→亮蓝渐变 +
+                         玻璃质感 + 柔和阴影，内含抽象 Z + 橙金色/浅蓝色双流线轨道
+    · 字标               ZTE，26px / 800 / ZTE Blue (新) #0078D4（Logo 与字标间距 13px）
+    · 分隔线             1px 青蓝色竖线（品牌区与标题区之间）
+    · 主标题             OLR(#FF9D1C) + MS Management Platform(#FFFFFF)，24px / 700，单行，垂直居中
+    · 副标题             12px / #9DB8E8 / margin-top 4px
+    · 背景装饰           右下角 2~3 条蓝色弧形科技流线，透明度 .30~.60，pointer-events:none 且不遮挡文字
+    · 响应式             整块画布按视口等比缩放（transform: scale）
+  ----------------------------------------------------------------------------
+  嵌入到真实门户时：把 <header class="olr-header"> 整块（含 .olr-header__bg）
+  搬走即可；外层 .olr-stage / .olr-scaler 只是本预览页用来演示等比缩放的容器。
+  ============================================================================
+-->
+<style>
+  /* ---------- 设计令牌 ---------- */
+  :root{
+    --olr-canvas-w: 1340px;      /* 画布宽 */
+    --olr-header-h: 70px;        /* Header 高 */
+    --olr-brand-w:  145px;       /* 品牌区宽（+ 左内边距 20px = 165px） */
+    --olr-pad-l:    20px;
+    --olr-pad-r:    24px;
+    --olr-gap-logo: 13px;
+    --olr-gap-sep:  24px;
+
+    --olr-navy-1:   #071A46;     /* 渐变起 */
+    --olr-navy-2:   #0D2860;     /* 渐变止 */
+    --olr-orange:   #FF9D1C;     /* OLR */
+    --olr-white:    #FFFFFF;
+    --olr-sub:      #9DB8E8;     /* 副标题 */
+    --olr-cyan:     #47ADEF;     /* 分隔线（取自参考图实测 #47ADEF） */
+    --olr-brand-blue:#0078D4;    /* ZTE 字标：ZTE Blue (新) 主品牌色，旧版 #0067B9 */
+
+    --olr-font: "Segoe UI","Helvetica Neue",Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+  }
+
+  *,*::before,*::after{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+
+  /* ---------- 预览页外壳（非 Header 本体） ---------- */
+  body{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:14px;
+    padding:40px 24px;
+    background:#EEF3FA;
+    font-family:var(--olr-font);
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+  .demo-meta{
+    width:100%;
+    max-width:var(--olr-canvas-w);
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-size:12px;
+    letter-spacing:.2px;
+    color:#64748B;
+  }
+  .demo-meta__dot{
+    width:7px;height:7px;border-radius:50%;
+    background:#FF9D1C;
+    flex:0 0 7px;
+  }
+  .demo-meta__sep{ flex:0 0 1px; width:1px; height:11px; background:#C8D4E4; }
+  .demo-hint{
+    width:100%;
+    max-width:var(--olr-canvas-w);
+    margin:0;
+    font-size:12px;
+    line-height:1.7;
+    color:#8494A8;
+  }
+  .demo-hint code{
+    font-family:Consolas,"SF Mono",Menlo,monospace;
+    font-size:11.5px;
+    color:#5A6B80;
+    background:#E3EAF4;
+    border-radius:3px;
+    padding:1px 5px;
+  }
+
+  /* ---------- 等比缩放舞台：保证 1340×70 设计稿在任意视口下按比例缩放 ---------- */
+  .olr-stage{
+    width:100%;
+    max-width:var(--olr-canvas-w);
+    height:calc(var(--olr-header-h) * var(--olr-scale,1));
+    overflow:hidden;               /* JS 不可用时的兜底：裁切而不是撑破布局 */
+  }
+  .olr-scaler{
+    width:var(--olr-canvas-w);
+    height:var(--olr-header-h);
+    transform:scale(var(--olr-scale,1));
+    transform-origin:top left;
+  }
+
+  /* ==========================================================================
+     Header 本体
+     ========================================================================== */
+  .olr-header{
+    position:relative;
+    width:100%;
+    height:var(--olr-header-h);
+    display:flex;
+    align-items:center;
+    overflow:hidden;
+    background:linear-gradient(90deg,#071A46,#0D2860);
+    /* 1px 底部分隔发丝线：用 inset 阴影实现，不占布局高度，Header 恒为 70px */
+    box-shadow:inset 0 -1px 0 rgba(120,170,255,.14);
+    isolation:isolate;
+  }
+
+  /* ---------- 背景装饰层（右下角弧形流线） ---------- */
+  .olr-header__bg{
+    position:absolute;
+    inset:0;
+    z-index:1;
+    pointer-events:none;           /* 纯装饰，不拦截任何交互 */
+    overflow:hidden;
+  }
+  .olr-header__bg svg{
+    position:absolute;
+    right:0;
+    bottom:0;
+    display:block;
+    width:760px;
+    height:70px;
+  }
+
+  /* ---------- 内容层 ---------- */
+  .olr-header__inner{
+    position:relative;
+    z-index:2;
+    display:flex;
+    align-items:center;
+    width:100%;
+    height:100%;
+    padding:0 var(--olr-pad-r) 0 var(--olr-pad-l);
+  }
+
+  /* 品牌区：Logo + ZTE，固定 145px（含左侧 20px 内边距后 = 165px） */
+  .olr-brand{
+    flex:0 0 var(--olr-brand-w);
+    display:flex;
+    align-items:center;
+    gap:var(--olr-gap-logo);
+    min-width:0;
+  }
+  .olr-brand__logo{
+    flex:0 0 58px;
+    width:58px;
+    height:58px;
+    display:block;
+    line-height:0;
+    /* 柔和阴影：只给底牌一层很浅的落影，不做厚重投影 */
+    filter:drop-shadow(0 2px 5px rgba(0,0,0,.45));
+  }
+  .olr-brand__logo svg{ display:block; width:58px; height:58px; }
+  .olr-brand__word{
+    font-size:26px;
+    font-weight:800;               /* 参考图字标更重，用 800 贴近 */
+    line-height:1;
+    letter-spacing:.6px;
+    color:var(--olr-brand-blue);   /* ZTE Blue (新) #0078D4，不是白色 */
+    white-space:nowrap;
+  }
+
+  /* 品牌区 / 标题区 之间的细青蓝色竖线（参考图约 65% Header 高、实心不发虚） */
+  .olr-brand-sep{
+    flex:0 0 1px;
+    width:1px;
+    height:44px;
+    background:linear-gradient(180deg,
+      rgba(71,173,239,.35) 0%,
+      var(--olr-cyan) 12%,
+      var(--olr-cyan) 88%,
+      rgba(71,173,239,.35) 100%);
+  }
+
+  /* 标题区 */
+  .olr-brand-text{
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    margin-left:var(--olr-gap-sep);
+    min-width:0;
+  }
+  .olr-title{
+    margin:0;
+    font-size:24px;
+    font-weight:700;
+    line-height:28px;
+    letter-spacing:.4px;
+    color:var(--olr-white);
+    white-space:nowrap;            /* 单行显示 */
+  }
+  .olr-title__olr{ color:var(--olr-orange); }
+  .olr-subtitle{
+    margin:4px 0 0;                /* margin-top:4px */
+    font-size:12px;
+    font-weight:400;
+    font-style:italic;             /* 参考图副标题是斜体 */
+    line-height:14px;
+    letter-spacing:.9px;           /* 参考图字距明显更松 */
+    color:var(--olr-sub);
+    white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+
+<div class="demo-meta">
+  <span class="demo-meta__dot" aria-hidden="true"></span>
+  <span>OLR MS Management Platform · Header</span>
+  <span class="demo-meta__sep" aria-hidden="true"></span>
+  <span id="scaleInfo">1340 × 70 · 100%</span>
+</div>
+
+<!-- ===================== BEGIN: OLR MS Header ===================== -->
+<div class="olr-stage" id="olrStage">
+  <div class="olr-scaler">
+
+    <header class="olr-header" role="banner">
+
+      <!-- 背景装饰：右下角 3 条蓝色弧形科技流线（透明度 .30 / .42 / .58），不遮挡文字 -->
+      <div class="olr-header__bg" aria-hidden="true">
+        <svg viewBox="0 0 760 70" xmlns="http://www.w3.org/2000/svg" focusable="false">
+          <defs>
+            <!-- 流线渐变：左下隐去 → 右上渐亮，制造“流动”方向感 -->
+            <linearGradient id="olrArcA" gradientUnits="userSpaceOnUse" x1="380" y1="70" x2="760" y2="0">
+              <stop offset="0%"   stop-color="#2E6FE0" stop-opacity="0"/>
+              <stop offset="42%"  stop-color="#4FA6FF" stop-opacity=".85"/>
+              <stop offset="100%" stop-color="#8FE0FF" stop-opacity="1"/>
+            </linearGradient>
+            <linearGradient id="olrArcB" gradientUnits="userSpaceOnUse" x1="380" y1="70" x2="760" y2="0">
+              <stop offset="0%"   stop-color="#2E6FE0" stop-opacity="0"/>
+              <stop offset="50%"  stop-color="#3F8BFF" stop-opacity=".8"/>
+              <stop offset="100%" stop-color="#6FC6FF" stop-opacity="1"/>
+            </linearGradient>
+            <linearGradient id="olrArcC" gradientUnits="userSpaceOnUse" x1="380" y1="70" x2="760" y2="0">
+              <stop offset="0%"   stop-color="#24509E" stop-opacity="0"/>
+              <stop offset="55%"  stop-color="#2F6FD8" stop-opacity=".8"/>
+              <stop offset="100%" stop-color="#4E9BF5" stop-opacity="1"/>
+            </linearGradient>
+            <!-- 右下角极淡的辉光，给弧形流线一个“光源” -->
+            <radialGradient id="olrCornerGlow" gradientUnits="userSpaceOnUse" cx="700" cy="70" r="360">
+              <stop offset="0%"   stop-color="#2F7BFF" stop-opacity=".26"/>
+              <stop offset="100%" stop-color="#2F7BFF" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+
+          <rect x="0" y="0" width="760" height="70" fill="url(#olrCornerGlow)"/>
+
+          <!-- 三条同心大半径圆弧，圆心落在画布右下角外侧 → 呈现向右下角收拢的科技流线 -->
+          <circle cx="860" cy="330" r="500" fill="none" stroke="url(#olrArcC)" stroke-width="2.2" opacity=".30"/>
+          <circle cx="860" cy="330" r="420" fill="none" stroke="url(#olrArcB)" stroke-width="2.8" opacity=".42"/>
+          <circle cx="860" cy="330" r="345" fill="none" stroke="url(#olrArcA)" stroke-width="3.4" opacity=".58"/>
+        </svg>
+      </div>
+
+      <!-- 内容：品牌区 ─ 竖线 ─ 标题区 -->
+      <div class="olr-header__inner">
+
+        <div class="olr-brand">
+            <!-- Logo：58×58 圆角蓝色方形 + 抽象 Z + 橙金/浅蓝流线轨道
+                 ⚠️ 默认用官方品牌资产 PNG（assets/logo/，已裁到内容框、带透明角、降到 2x/3x）。
+                    想切回「纯 SVG、零图片」版本：删掉下面这个 <img>，把紧随其后的
+                    <span class="olr-brand__logo olr-brand__logo--svg"> 的 style="display:none" 去掉即可。
+                 两个版本的尺寸/对齐完全一致，都占 58×58。 -->
+            <!-- 图标直接内联为 data URI：HTML 单文件自包含，不依赖任何外部请求，
+                 因此在 file:// 直接打开、GUI 预览、门户服务器、单独拷走 HTML 等
+                 任何环境下都能正常显示（相对路径在这些场景下会 404）。
+                 需要外部文件版（便于门户打包/缓存）时，把 src 换回：
+                   src="assets/logo/zte-z-116.png"
+                   srcset="assets/logo/zte-z-116.png 2x, assets/logo/zte-z-174.png 3x"
+                 两个文件都在 assets/logo/ 下，116=2x、174=3x，均已无损压缩。 -->
+            <img class="olr-brand__logo olr-brand__logo--img"
+                 src="data:image/png;base64,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"
+                 width="58" height="58" alt="ZTE" decoding="async">
+            <!-- 备用：纯 SVG 版 Logo（默认隐藏）
+                 · 底牌：深蓝 → 亮蓝 对角渐变，顶部一层极淡白色高光 + 底部亮蓝辉光 = 玻璃质感
+                 · 轨道：橙金色内环 + 浅蓝色外环，同心同倾角（rotate(-18 29 29)），靠半径差拉开
+                 · 每条轨道拆成“远侧半环 / 近侧半环”，分别压在 Z 字形下方与上方，
+                   才有“环环绕字形”的立体感；整条 ellipse 画出来只会贴在字面上。
+                 · 柔和阴影在 CSS 里用 filter:drop-shadow 给，不写进 SVG。 -->
+            <span class="olr-brand__logo olr-brand__logo--svg" style="display:none">
+            <svg viewBox="0 0 58 58" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ZTE" focusable="false">
+              <defs>
+                <!-- 底牌：深蓝 → 亮蓝 对角渐变（参考图左上角最亮、四周压深） -->
+                <linearGradient id="olrLogoBg" x1=".05" y1="0" x2=".8" y2="1">
+                  <stop offset="0%"   stop-color="#3E78E0"/>
+                  <stop offset="42%"  stop-color="#1E3591"/>
+                  <stop offset="100%" stop-color="#121A50"/>
+                </linearGradient>
+                <!-- 玻璃质感：底部亮蓝内辉光 + 顶部极淡白色高光 -->
+                <radialGradient id="olrLogoGlow" cx="50%" cy="90%" r="70%">
+                  <stop offset="0%"   stop-color="#6FA8E8" stop-opacity=".45"/>
+                  <stop offset="100%" stop-color="#6FA8E8" stop-opacity="0"/>
+                </radialGradient>
+                <linearGradient id="olrLogoGloss" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%"   stop-color="#FFFFFF" stop-opacity=".14"/>
+                  <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+                </linearGradient>
+                <!-- Z 正面：浅蓝 → 中蓝 -->
+                <linearGradient id="olrLogoZFace" x1=".1" y1="0" x2=".85" y2="1">
+                  <stop offset="0%"   stop-color="#B4E4FE"/>
+                  <stop offset="45%"  stop-color="#8FD2FC"/>
+                  <stop offset="100%" stop-color="#6FA9F0"/>
+                </linearGradient>
+                <!-- Z 厚度面：深海军蓝，做出往右下延伸的立体厚度 -->
+                <linearGradient id="olrLogoZDepth" x1=".1" y1="0" x2=".8" y2="1">
+                  <stop offset="0%"   stop-color="#2A3A9E"/>
+                  <stop offset="100%" stop-color="#131A50"/>
+                </linearGradient>
+                <!-- 橙金色轨道 -->
+                <linearGradient id="olrLogoRing" x1="0" y1="1" x2="1" y2="0">
+                  <stop offset="0%"   stop-color="#D9690A"/>
+                  <stop offset="45%"  stop-color="#FF9D1C"/>
+                  <stop offset="100%" stop-color="#FFCB80"/>
+                </linearGradient>
+                <!-- 浅蓝色轨道 -->
+                <linearGradient id="olrLogoRing2" x1="0" y1="1" x2="1" y2="0">
+                  <stop offset="0%"   stop-color="#5FB4F0"/>
+                  <stop offset="55%"  stop-color="#A6DDFF"/>
+                  <stop offset="100%" stop-color="#E4F6FF"/>
+                </linearGradient>
+                <!-- 高光只画在圆角底牌内部，避免圆角处露出直角边界 -->
+                <clipPath id="olrLogoClip"><rect width="58" height="58" rx="10"/></clipPath>
+              </defs>
+
+              <!-- 圆角蓝色方形底牌：58 × 58，圆角 10px ≈ 17%（规格“约 15%”） -->
+              <rect x="0" y="0" width="58" height="58" rx="10" fill="url(#olrLogoBg)"/>
+              <g clip-path="url(#olrLogoClip)">
+                <rect width="58" height="58" fill="url(#olrLogoGlow)"/>
+                <rect x="0" y="0" width="58" height="26" fill="url(#olrLogoGloss)"/>
+              </g>
+              <!-- 1.2px 内描边 = 玻璃边缘的高光，不是边框 -->
+              <rect x=".6" y=".6" width="56.8" height="56.8" rx="9.4"
+                    fill="none" stroke="#FFFFFF" stroke-opacity=".20" stroke-width="1.2"/>
+
+              <!-- 浅蓝轨道 · 远侧半环（外环，在字形下方） -->
+              <path d="M1.5 29 A27.5 9.6 0 0 1 56.5 29"
+                    fill="none" stroke="url(#olrLogoRing2)" stroke-width="1.6"
+                    stroke-linecap="round" opacity=".8" transform="rotate(-18 29 29)"/>
+
+              <!-- 橙金轨道 · 远侧半环（内环，在字形下方） -->
+              <path d="M5 29 A24 6.4 0 0 1 53 29"
+                    fill="none" stroke="url(#olrLogoRing)" stroke-width="4"
+                    stroke-linecap="round" opacity=".95" transform="rotate(-18 29 29)"/>
+
+              <!-- 抽象 Z 字母：x 11..47 / y 13..45，横杠 10 厚；
+                   斜杠水平位移 19、垂直位移 12 → 与横杠等视觉线宽（约 9.1）。
+                   立体感 = 同一路径先往右下平移 3.6 画一层“厚度面”，再叠正面浅蓝渐变。 -->
+              <path d="M11 13 H47 V23 L28 35 H47 V45 H11 V35 L30 23 H11 Z"
+                    transform="translate(3.6 3.6)" fill="url(#olrLogoZDepth)"/>
+              <path d="M11 13 H47 V23 L28 35 H47 V45 H11 V35 L30 23 H11 Z"
+                    fill="url(#olrLogoZFace)"/>
+
+              <!-- 橙金轨道 · 近侧半环（内环，在字形上方） -->
+              <path d="M53 29 A24 6.4 0 0 1 5 29"
+                    fill="none" stroke="url(#olrLogoRing)" stroke-width="4"
+                    stroke-linecap="round" transform="rotate(-18 29 29)"/>
+
+              <!-- 浅蓝轨道 · 近侧半环（外环，在字形上方） -->
+              <path d="M56.5 29 A27.5 9.6 0 0 1 1.5 29"
+                    fill="none" stroke="url(#olrLogoRing2)" stroke-width="1.6"
+                    stroke-linecap="round" opacity=".8" transform="rotate(-18 29 29)"/>
+            </svg>
+            </span>
+          <span class="olr-brand__word">ZTE</span>
+        </div>
+
+        <span class="olr-brand-sep" aria-hidden="true"></span>
+
+        <div class="olr-brand-text">
+          <h1 class="olr-title"><span class="olr-title__olr">OLR</span> MS Management Platform</h1>
+          <p class="olr-subtitle">Smarter Operations · Higher Efficiency · Better Network</p>
+        </div>
+
+      </div>
+    </header>
+
+  </div>
+</div>
+<!-- ====================== END: OLR MS Header ====================== -->
+
+<p class="demo-hint">
+  画布 1340 × 70，整块按视口等比缩放（<code>transform: scale()</code>）。嵌入门户时把
+  <code>&lt;header class="olr-header"&gt;</code> 连同内部背景层搬走即可，外层
+  <code>.olr-stage / .olr-scaler</code> 只是本页的预览容器。
+</p>
+
+<script>
+(function () {
+  var DESIGN_W = 1340;
+  var stage = document.getElementById('olrStage');
+  var info  = document.getElementById('scaleInfo');
+
+  function fit() {
+    // 视口可用宽度（扣掉页面左右各 24px 内边距），等比缩放到不超过 1
+    var avail = document.documentElement.clientWidth - 48;
+    var scale = Math.min(1, Math.max(0.25, avail / DESIGN_W));
+    scale = Math.round(scale * 1000) / 1000;
+    stage.style.setProperty('--olr-scale', scale);
+    if (info) info.textContent = DESIGN_W + ' × 70 · ' + Math.round(scale * 100) + '%';
+  }
+
+  fit();
+  window.addEventListener('resize', fit, { passive: true });
+  window.addEventListener('orientationchange', fit, { passive: true });
+})();
+</script>
+
+</body>
+</html>

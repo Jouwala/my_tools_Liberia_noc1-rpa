@@ -1,0 +1,35 @@
+ 2211:            id 必须与下钻弹窗的分页按钮（index.html 的 id="qcNext"）区分开：
+ 2212:            同名时 getElementById 只返回文档里靠前的那个，而 #secQc 在弹窗之前 —— 
+ 2213:            会把弹窗「下一页」按钮的 disabled 打到这个 span 上。 */
+ 2214:         '<span id="qcNextIn">' + esc(tf('qc.next', { t: qcCountdown() })) + '</span>' +
+ 2215:       '</span>';
+ 2216: 
+ 2217:     var cards = DATA.qc.map(function (q) {
+ 2218:       var on = state.filter === q.id;
+ 2219: 
+ 2220:       var m = qcMetric(q.id);
+ 2221:       /* 失败分两种：整体取不到（state.qcStats 为空）与单项失败（m.error，后端逐项容错）。
+ 2222:          两种情况都要按「不可用」呈现 —— 绝不能把上一次的旧数字留在屏幕上冒充实时值。 */
+ 2223:       var failed = !!(m && m.error) || (!!state.qcErr && !state.qcStats);
+ 2224:       var v = m && m.value != null ? m.value : null;
+ 2225:       var errMsg = (m && m.error) || state.qcErr || '';
+ 2226: 
+ 2227:       /* 副行 = 数据库口径；Alarm 追加去重站点数、PMT 追加超期数（同样来自接口）。 */
+ 2228:       var sub = t(QC_SUB_KEY[q.id] || '') || (state.lang === 'en' ? q.subEn : q.subZh);
+ 2229:       if (m && !failed) {
+ 2230:         if (q.id === 'alarm' && m.sites != null) {
+ 2231:           sub += ' · ' + fmt(m.sites) + ' ' + t('qc.sites');
+ 2232:         } else if (q.id === 'pmt' && m.overdue != null) {
+ 2233:           sub += ' · ' + t('qc.overdue') + ' ' + fmt(m.overdue);
+ 2234:         }
+ 2235:       } else if (failed) {
+ 2236:         sub = t('qc.err') + (errMsg ? ': ' + errMsg : '');
+ 2237:       }
+ 2238: 
+ 2239:       /* 数字为 null（未加载 / 拉取失败）一律显示 —，绝不显示 0 —— 统计里的 0 是真的
+ 2240:          一个都没有，与"没取到"必须能分辨，否则运维会误判成"已清空"。 */
+ 2241:       var num = v == null ? '—' : fmt(v);
+ 2242:       var numCls = v == null ? 'text-slate-300' : 'text-lime-600';
+ 2243:       var tip = failed ? sub : t('qc.click');
+ 2244: 
+ 2245:       /* 2026-09-19：大数字由「左对齐」改为「居中」（num 那行加 text-center）。

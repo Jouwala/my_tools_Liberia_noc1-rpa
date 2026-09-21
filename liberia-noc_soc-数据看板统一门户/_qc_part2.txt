@@ -1,0 +1,216 @@
+          '<div class="text-center text-[30px] lg:text-[36px] font-extrabold ' + numCls + ' font-mono tracking-tight leading-none mt-2 transition-transform duration-200 group-hover:scale-105">' +
+            num + '</div>' +
+          '<div class="text-[11px] mt-2 truncate text-center leading-tight ' + (failed ? 'text-rose-500' : 'text-slate-400') + '" title="' + esc(sub) + '">' +
+            esc(sub) + '</div>' +
+        '</div>' +
+      '</button>';
+    }).join('');
+
+    /* 标题栏「达标率」：原来是写死的字符串，2026-09-17 改为接口算出的真实值
+       （近 30 天 TT 的 SLA Pass 占比）。取不到就显示 —，不保留假数字。 */
+    var sla = qcMetric('sla');
+    var slaVal = sla && sla.value != null ? Number(sla.value).toFixed(1) + '%' : '—';
+    var slaTip = sla && sla.total
+      ? tf('sec.qc.sla.tip', { d: sla.days, pass: fmt(sla.pass), total: fmt(sla.total) })
+      : (sla && sla.error ? t('qc.err') + ': ' + sla.error : t('qc.loading'));
+
+    return headHtml({
+      kind: 'square-rose', title: t('sec.qc.title'), sub: t('sec.qc.sub'), subInline: true,
+      tools: cadence +
+        '<button type="button" class="btn-soft" data-act="qc-reload" title="' + esc(t('qc.reload')) + '">' +
+          ico('refresh') + esc(t('qc.reload')) + '</button>' +
+        '<span class="inline-flex items-center px-2.5 py-1 rounded text-[13px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200" title="' + esc(slaTip) + '">' +
+          ico('shield', 'mr-1') + esc(t('sec.qc.sla.label')) + ' <strong class="font-mono">' + esc(slaVal) + '</strong></span>'
+    }) + '<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3.5">' + cards + '</div>';
+  }
+  /* ================================================ QC 统计 / 明细下钻 ==
+     数据来自 my_app 的只读接口（backend/routers/portal_qc.py），经 nginx 的
+     /api/ 兜底同源转发到本机 7038 —— 前端拿不到、也不需要任何数据库凭证。
+
+     **必须校验响是不是 JSON**：my_app 末尾的 `@app.get("/{full_path:path}")`
+     会把任何未注册的 /api/xxx 也回成 SPA 的 index.html（200 + text/html）。
+     不校验就会把一坨 HTML 当统计读，页面静默变成一排「—」且查不出原因。 */
+  /* QC 刷新节奏（2026-09-18，第三轮定稿：**告警 5 分钟级 / 其余每小时**）。
+     先把事实量清楚，再决定节奏 —— 数据源的实际 cron（`GET /api/tasks` 的 current_cron，
+     不是 default_cron）：eflow_sync 每小时 :00 起跑、实测约 374s（≈:06 完成，TT/WO/CR/PMT
+     的源）；eflow_active_alarm 每 5 分钟（断站告警）。
+     SPMS 的源（2026-09-20 更正）：不是 sp_online_sync（那个每小时 :35，写的是
+     sp_inbound/sp_outbound/sp_transfer 三张表，本面板根本不读），而是 **sp_data_sync
+     「SP 备件数据同步」** —— 它写 inband_details / outband_details，本面板的 SPMS 就是
+     数这两张表；该任务 2026-09-20 起由每天 07:00 改为**每小时 :10**（上游 SFTP 本就
+     每小时 :00:03 导出一份），所以 SPMS 现在也是小时级，只是它 :10 起跑、末尾还要写
+     FineBI 镜像，落在 :06:30 这次刷新之后 → 面板上看到的是上一小时 :10 那份（约 50 分钟前）。
+     所以：
+       - 全量（tt/wo/cr/pmt/spms/sla + alarm 兜底）：每小时 :06:30 —— 紧跟 eflow_sync 跑完，
+         而不是「从进页面起算 60 分钟」（那样 :06 同步好的数据最多要再等 54 分钟才上屏）；
+       - 告警单项：每 5 分钟 :00:30/:05:30… —— 它的源每 5 分钟 replace 一次整表，
+         按小时刷新会让告警卡最长滞后 1 小时，这是 NOC 看板上最不该旧的一项。
+     告警走 `?only=alarm`（后端只算这一项，不重跑 6 条全表 COUNT），前端只覆盖 alarm 一格。
+     加载即拉全量、切回前台补拉全量、点「刷新」强制拉全量。 */
+  var QC_FULL_MIN = 60;        // 全量：小时网格
+  var QC_FULL_OFFSET = 390;    // + :06:30（6*60+30）
+  var QC_ALARM_MIN = 5;        // 告警：5 分钟网格
+  var QC_ALARM_OFFSET = 30;    // + :00:30
+  var QC_MONO_KEY = /^(tt_no|wo_no|cr_id|pmt_no|doc_no|site_id|alarmcode|raised)$/;
+
+  var qcStatsBusy = false;
+  var qcAlarmBusy = false;
+  var qcDrillSeq = 0;
+
+  function qcApi(url) {
+    return fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (r) {
+        var ct = (r.headers.get('Content-Type') || '').toLowerCase();
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (ct.indexOf('json') === -1) throw new Error('非 JSON 响应（接口未注册或后端未重启）');
+        return r.json();
+      });
+  }
+
+  /** 只重绘 #secQc。刻意不调 render()：render() 会走 ensureMap()，
+      把当前地图 iframe 再 strip 一遍；统计刷新与地图无关，不该每分钟打扰一次。 */
+  function paintQc() {
+    if (REQUIRE_LOGIN_FOR_CATALOG && state.authOk !== true) return;
+    var el = document.getElementById('secQc');
+    if (el) el.innerHTML = qcSection();
+  }
+
+  function fetchQcStats(force) {
+    if (qcStatsBusy) return;
+    if (REQUIRE_LOGIN_FOR_CATALOG && state.authOk !== true) return;
+    qcStatsBusy = true;
+    qcApi('/api/portal-qc/summary' + (force ? '?refresh=1' : ''))
+      .then(function (data) {
+        qcStatsBusy = false;
+        state.qcStats = data;
+        state.qcFullAt = (data && data.generated_at) || '';
+        /* 全量响应里也带 alarm（同一口径、同一段 SQL），把它一并接管：
+           ① 首屏就用它给「告警最近」打底，否则 tooltip 在第一次 ?only=alarm 之前显示「—」；
+           ② 点「刷新」走的是全量，这样刷新后的告警数与它自己的时间戳成对一致，
+              不会出现「数是新的、时间戳还是 5 分钟前那份」。
+           失败分支**不动** alarm：它由自己的 5 分钟循环独立维护、有自己的错误态，
+           全量挂了不代表告警那份也挂了。 */
+        var fa = data && data.metrics && data.metrics.alarm;
+        if (fa) state.qcAlarm = fa;
+        if (state.qcFullAt) state.qcAlarmAt = state.qcFullAt;
+        state.qcErr = '';
+        paintQc();
+        renderQcDrill();          // 弹窗开着时同步刷新（分页/搜索不变）
+      })
+      .catch(function (e) {
+        qcStatsBusy = false;
+        state.qcErr = (e && e.message) || String(e);
+        // 清空旧值：宁可显示 —，也不要把上一次的数字留在屏幕上冒充实时统计
+        state.qcStats = null;
+        state.qcFullAt = '';
+        paintQc();
+        renderQcDrill();
+      });
+  }
+
+  /** 只刷「未清除的断站告警」这一项（2026-09-18 加，每 5 分钟一次）。
+      走 ?only=alarm：后端只跑那一条 COUNT，不重算其余六项 —— 分频刷新的意义就在这里，
+      否则每 5 分钟一次的全量刷新等于把「其余每小时」白做了。
+      失败时把 alarm 置成 error 态（而不是保留旧值）：宁可显示「不可用」，
+      也不要让一小时前的告警数继续冒充实时值 —— 这是本面板最要紧的一格。 */
+  function fetchQcAlarm() {
+    if (qcAlarmBusy) return;
+    if (REQUIRE_LOGIN_FOR_CATALOG && state.authOk !== true) return;
+    qcAlarmBusy = true;
+    qcApi('/api/portal-qc/summary?only=alarm')
+      .then(function (data) {
+        qcAlarmBusy = false;
+        var m = data && data.metrics && data.metrics.alarm;
+        if (!m) throw new Error('响应里没有 metrics.alarm');
+        state.qcAlarm = m;
+        state.qcAlarmAt = (data && data.generated_at) || '';
+        paintQc();
+      })
+      .catch(function (e) {
+        qcAlarmBusy = false;
+        state.qcAlarm = { value: null, error: (e && e.message) || String(e) };
+        state.qcAlarmAt = '';
+        paintQc();
+      });
+  }
+
+  /* ------------------------------------------------------------ 明细下钻 -- */
+  /** 弹窗标题 = 卡片名 + 「· 明细」。切语言时要重算，故单独抽出来。 */
+  function applyQcDrillTitle() {
+    var id = state.qcDrill.metric;
+    var q = DATA.qc.filter(function (x) { return x.id === id; })[0];
+    document.getElementById('qcTitle').textContent =
+      (q ? (state.lang === 'en' ? q.en : q.zh) : id) + t('qc.drillSuffix');
+  }
+
+  function openQcDrill(id) {
+    document.getElementById('qcSearch').value = '';
+    state.qcDrill = { metric: id, page: 1, size: 50, q: '', total: 0,
+                      rows: [], columns: [], loading: true, err: '' };
+    applyQcDrillTitle();
+    document.getElementById('qcMask').hidden = false;
+    fetchQcDrill();
+  }
+
+  function closeQcDrill() {
+    qcDrillSeq++;                       // 作废在途请求，避免关掉后又被写回
+    state.qcDrill.metric = null;
+    state.qcDrill.loading = false;
+    document.getElementById('qcMask').hidden = true;
+  }
+
+  function fetchQcDrill() {
+    var d = state.qcDrill;
+    if (!d.metric) return;
+    var seq = ++qcDrillSeq;
+    d.loading = true; d.err = '';
+    renderQcDrill();
+    qcApi('/api/portal-qc/detail?metric=' + encodeURIComponent(d.metric) +
+          '&page=' + d.page + '&size=' + d.size +
+          (d.q ? '&q=' + encodeURIComponent(d.q) : ''))
+      .then(function (data) {
+        if (seq !== qcDrillSeq || state.qcDrill.metric !== d.metric) return;   // 过期响应
+        d.loading = false;
+        d.total = data.total;
+        d.rows = data.rows || [];
+        d.columns = data.columns || [];
+        renderQcDrill();
+      })
+      .catch(function (e) {
+        if (seq !== qcDrillSeq || state.qcDrill.metric !== d.metric) return;
+        d.loading = false;
+        d.err = (e && e.message) || String(e);
+        renderQcDrill();
+      });
+  }
+
+  /** 单元格显示。接口一律回文本，这里只做两件轻格式化：
+      · 13 位纯数字 → 按 epoch 毫秒转本地时间（realtime_alarm.alarmraisedtime 就是这种）
+      · 整数型 numeric 的尾巴 .0 去掉（PG 的 auxiliarycount 会回 '2.0'） */
+  function qcCell(v) {
+    if (v == null || v === '') return '';
+    var s = String(v);
+    if (/^\d{13}$/.test(s)) {
+      var dt = new Date(Number(s));
+      if (!isNaN(dt.getTime())) {
+        var p = function (n) { return (n < 10 ? '0' : '') + n; };
+        return dt.getFullYear() + '-' + p(dt.getMonth() + 1) + '-' + p(dt.getDate()) +
+          ' ' + p(dt.getHours()) + ':' + p(dt.getMinutes()) + ':' + p(dt.getSeconds());
+      }
+    }
+    return s.replace(/^(-?\d+)\.0+$/, '$1');
+  }
+
+  function renderQcDrill() {
+    var d = state.qcDrill;
+    if (!d.metric) return;
+    var thead = document.getElementById('qcThead');
+    var tbody = document.getElementById('qcTbody');
+    if (!thead || !tbody) return;
+
+    var span = Math.max(1, d.columns.length);
+    thead.innerHTML = '<tr>' + d.columns.map(function (c) {
+      return '<th>' + esc(c.label) + '</th>';
+    }).join('') + '</tr>';
+
+    var ph;

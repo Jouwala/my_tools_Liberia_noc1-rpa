@@ -103,6 +103,28 @@ await exportAoaReport({
 | `pages/TTWODashboard.tsx` | ⬜ 待迁移 |
 | `pages/gismap/helpers.tsx` | ⬜ 待迁移 |
 
+### 4.1 服务端导出（openpyxl）
+
+上述前端模块基于 `exceljs`。原生看板（17 个，见 `backend/services/dashboard_service.py`
+的 `build_excel`）因一次要导 10+ 个 sheet、且需在服务端复用已取好的数据，改为
+**服务端 openpyxl 生成后以 blob 下发**（`GET /api/native-boards/{slug}/export`）。
+
+两端配色/字号取值**保持同源**，改样式时须同时改：
+
+| 元素 | 取值 |
+| --- | --- |
+| 标题 | Calibri 14 bold `#1F3864`，横向合并 |
+| 副标题 | Calibri 9 `#808080`，`Generated: <时间>    |    Sheet: <名>` |
+| 表头 | Calibri 11 bold `#FFFFFF` / 底纹 `#2F5496` |
+| 数据行 | Calibri 10，偶数绝对行号底纹 `#F2F2F2` |
+| 边框 | 细框 `#B4C6E7` |
+| 冻结/筛选 | 冻结表头下方；`auto_filter` 覆盖表头→末行 |
+| 页面 | 横向、`fitToWidth=1` |
+| 数字列 | 右对齐 + `#,##0` |
+
+每个 sheet 名取组件标题（>31 字符截断、非法字符替换 `_`、重名加 `_2` 后缀），
+另附首个「说明」sheet 记录看板名/数据源/时间窗口/取数时间，便于对账。
+
 ## 5. 注意事项
 
 - 改动本模块后需重新 `vite build`；**不需要重启后端**（纯前端静态资源）。

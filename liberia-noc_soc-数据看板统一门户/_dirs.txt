@@ -1,0 +1,14 @@
+.idea
+.Liberia门户看板清单_分组划分参考.ref
+.workbuddy
+.workbuddy-ai
+assets
+auth-data
+dist
+log
+MsPortal
+node_modules
+scripts
+server
+src
+TMP

@@ -1,0 +1,26 @@
+ +
+            '<span class="truncate tracking-wide">' + esc(state.lang === 'en' ? q.en : q.zh) + '</span>' +
+            '<span class="p-1 rounded-md ' + iconCls + ' shrink-0 transition-colors">' + ico(q.icon) + '</span>' +
+          '</div>' +
+          '<div class="text-center text-[30px] lg:text-[36px] font-extrabold ' + numCls + ' font-mono tracking-tight leading-none mt-2 transition-transform duration-200 group-hover:scale-105">' +
+            num + '</div>' +
+          '<div class="text-[11px] mt-2 truncate text-center leading-tight ' + (failed ? 'text-rose-500' : 'text-slate-400') + '" title="' + esc(sub) + '">' +
+            esc(sub) + '</div>' +
+        '</div>' +
+      '</button>';
+    }).join('');
+
+    /* 标题栏「达标率」：原来是写死的字符串，2026-09-17 改为接口算出的真实值
+       （近 30 天 TT 的 SLA Pass 占比）。取不到就显示 —，不保留假数字。 */
+    var sla = qcMetric('sla');
+    var slaVal = sla && sla.value != null ? Number(sla.value).toFixed(1) + '%' : '—';
+    var slaTip = sla && sla.total
+      ? tf('sec.qc.sla.tip', { d: sla.days, pass: fmt(sla.pass), total: fmt(sla.total) })
+      : (sla && sla.error ? t('qc.err') + ': ' + sla.error : t('qc.loading'));
+
+    return headHtml({
+      kind: 'square-rose', title: t('sec.qc.title'), sub: t('sec.qc.sub'), subInline: true,
+      tools: cadence +
+        '<button type="button" class="btn-soft" data-act="qc-reload" title="' + esc(t('qc.reload')) + '">' +
+          ico('refresh') + esc(t('qc.reload')) + '</button>' +
+        '<span class="inline-flex items-center px-2.5 py-1 rounded text-[13px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200" 

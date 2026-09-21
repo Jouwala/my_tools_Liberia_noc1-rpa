@@ -1,0 +1,29 @@
+ 2179:   /** 倒计时文本 MM:SS（定宽，避免标题栏每秒抖动）。取两档里更近的那次刷新。 */
+ 2180:   function qcCountdown() {
+ 2181:     var left = Math.max(0, Math.round(Math.min(
+ 2182:       qcNextDelay(QC_FULL_MIN, QC_FULL_OFFSET),
+ 2183:       qcNextDelay(QC_ALARM_MIN, QC_ALARM_OFFSET)
+ 2184:     ) / 1000));
+ 2185:     function p(v) { return String(v).padStart(2, '0'); }
+ 2186:     return p(Math.floor(left / 60)) + ':' + p(left % 60);
+ 2187:   }
+ 2188: 
+ 2189:   function qcSection() {
+ 2190:     /* 精确到秒（原为 HH:MM）：秒在跳，才看得出「页面确实在自动刷新」；
+ 2191:        只到分钟时，轮询 + 后端 60s 缓存叠起来会出现「一分钟没变」的错觉。 */
+ 2192:     var stamp = qcLatestStamp();
+ 2193:     var upd = stamp ? t('qc.updated') + ' ' + qcClock(stamp) : '';
+ 2194:     /* 心跳点：取不到数据时变红且不脉冲 —— 绿色脉冲 = 这个面板正在自动刷新。 */
+ 2195:     var liveDot = (state.qcErr && !state.qcStats)
+ 2196:       ? '<span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>'
+ 2197:       : '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 status-pulse-green shrink-0"></span>';
+ 2198:     /* 悬浮说明里带上两档各自的数据时间：分频刷新后，「更新于」只反映较新的那份，
+ 2199:        想知道「其余五项到底多旧」只能看这里。 */
+ 2200:     var tip = tf('qc.cadenceTip', {
+ 2201:       a: state.qcAlarmAt ? qcClock(state.qcAlarmAt) : '—',
+ 2202:       f: state.qcFullAt ? qcClock(state.qcFullAt) : '—',
+ 2203:     });
+ 2204:     var cadence = '<span class="qc-live text-slate-400 text-[13px] font-mono" title="' +
+ 2205:         esc(tip) + '">' + liveDot +
+ 2206:         '<span>' + esc(t('qc.cadence')) + '</span>' +
+ 2207:         '<span class="text-slate-500">·</span>' +

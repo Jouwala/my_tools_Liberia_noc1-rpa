@@ -1,0 +1,91 @@
+ 2471:     if (d.err) ph = '<span class="qc-err">' + esc(t('qc.err')) + '<br>' + esc(d.err) + '</span>';
+ 2472:     else if (d.loading && !d.rows.length) ph = esc(t('qc.loading'));
+ 2473:     else if (!d.rows.length) ph = esc(t('qc.empty'));
+ 2474: 
+ 2475:     if (ph) {
+ 2476:       tbody.innerHTML = '<tr><td colspan="' + span + '"><div class="qc-empty">' + ph + '</div></td></tr>';
+ 2477:     } else {
+ 2478:       tbody.innerHTML = d.rows.map(function (row) {
+ 2479:         var cls = qcRowClass(row);
+ 2480:         return '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' + d.columns.map(function (c) {
+ 2481:           var val = qcCell(row[c.key]);
+ 2482:           return '<td' + (QC_MONO_KEY.test(c.key) ? ' class="mono"' : '') + '>' + esc(val) + '</td>';
+ 2483:         }).join('') + '</tr>';
+ 2484:       }).join('');
+ 2485:     }
+ 2486: 
+ 2487:     var pages = Math.max(1, Math.ceil(d.total / d.size));
+ 2488:     document.getElementById('qcCount').textContent =
+ 2489:       d.err ? '' : tf('qc.total', { n: fmt(d.total) });
+ 2490:     document.getElementById('qcPage').textContent = tf('qc.page', { p: d.page, n: pages });
+ 2491:     document.getElementById('qcPrev').disabled = d.loading || d.page <= 1;
+ 2492:     document.getElementById('qcNext').disabled = d.loading || d.page >= pages;
+ 2493:   }
+ 2494: 
+ 2495:   /* ---- 导出：当前搜索条件下的**全部行** → .xlsx（my_app 统一格式）----
+ 2496:      与旧版「导出当前页 CSV」的差别有两点，都是刻意的：
+ 2497: 
+ 2498:       1) 范围：翻到第 3 页再点导出，旧版只给第 3 页那 50 条；现在按当前搜索关键字把
+ 2499:          total 拉满（后端 _MAX_PAGE_SIZE=200，逐页取），导出的就是「这套筛选结果的全部」
+ 2500:          —— 弹窗底部写着「共 N 条」，导出却只有 50 条说不通。
+ 2501:       2) 格式：套 my_app 的统一格式 UNIFIED_EXCEL_V1（assets/excelReport.js），与
+ 2502:          /myapp/ 各看板的「导出 Excel」同款：标题行 + Generated 副标题 + 深蓝表头 +
+ 2503:          隔行底纹 + 细边框 + 冻结表头 + 自动筛选；不再是裸 CSV。
+ 2504: 
+ 2505:      单元格取值仍走 qcCell()，保证 Excel 里的值与屏幕上看到的逐字一致。
+ 2506:      注意 toast 里的 qc.noCsv 键名保留（含义已从「没有可导出的 CSV」变成
+ 2507:      「没有可导出的数据」）。 */
+ 2508:   var QC_EXPORT_SIZE = 200;     // = my_app backend/routers/portal_qc.py 的 _MAX_PAGE_SIZE
+ 2509:   var QC_EXPORT_MAX_PAGES = 100; // 兜底：最多 2 万行，避免异常 total 把页面拖死
+ 2510:   var qcExporting = false;
+ 2511: 
+ 2512:   function qcPad2(n) { return (n < 10 ? '0' : '') + n; }
+ 2513: 
+ 2514:   /** 文件名时间戳 20260920_141230 */
+ 2515:   function qcFileStamp() {
+ 2516:     var d = new Date();
+ 2517:     return d.getFullYear() + qcPad2(d.getMonth() + 1) + qcPad2(d.getDate()) + '_' +
+ 2518:       qcPad2(d.getHours()) + qcPad2(d.getMinutes()) + qcPad2(d.getSeconds());
+ 2519:   }
+ 2520: 
+ 2521:   /** 报表副标题时间戳 2026-09-20 14:12:30（与统一格式的默认副标题同形） */
+ 2522:   function qcTextStamp() {
+ 2523:     var d = new Date();
+ 2524:     return d.getFullYear() + '-' + qcPad2(d.getMonth() + 1) + '-' + qcPad2(d.getDate()) + ' ' +
+ 2525:       qcPad2(d.getHours()) + ':' + qcPad2(d.getMinutes()) + ':' + qcPad2(d.getSeconds());
+ 2526:   }
+ 2527: 
+ 2528:   /** 卡片名（当前语言）→ 报表标题 / sheet 名。Excel 的 sheet 名有字符与长度限制。 */
+ 2529:   function qcMetricLabel(metric) {
+ 2530:     var q = DATA.qc.filter(function (x) { return x.id === metric; })[0];
+ 2531:     return q ? (state.lang === 'en' ? q.en : q.zh) : metric;
+ 2532:   }
+ 2533: 
+ 2534:   function exportQcExcel() {
+ 2535:     var d = state.qcDrill;
+ 2536:     if (!d.metric) { toast(t('qc.noCsv')); return; }
+ 2537:     if (qcExporting) return;                       // 连点不重复跑
+ 2538:     if (!window.MsExcelReport) { toast(t('qc.exportErr')); return; }
+ 2539: 
+ 2540:     var metric = d.metric;
+ 2541:     var keyword = d.q || '';
+ 2542:     var label = qcMetricLabel(metric);
+ 2543:     var columns = d.columns.slice();
+ 2544:     var rows = [];
+ 2545:     var btn = document.getElementById('qcExport');
+ 2546:     var btnText = btn ? btn.textContent : '';
+ 2547: 
+ 2548:     qcExporting = true;
+ 2549:     if (btn) { btn.disabled = true; btn.textContent = t('qc.exporting'); }
+ 2550:     var reset = function () {
+ 2551:       qcExporting = false;
+ 2552:       if (btn) { btn.disabled = false; btn.textContent = btnText; }
+ 2553:     };
+ 2554: 
+ 2555:     /* 逐页取满。第一页顺便拿 columns/total；中途某页失败就用手上已有的行导出，
+ 2556:        而不是整单作废 —— 导出一半也好过什么都拿不到（失败原因最后一起 toast）。 */
+ 2557:     var page = 1;
+ 2558:     var total = null;
+ 2559:     var failed = null;
+ 2560: 
+ 2561:     function nextPage() {

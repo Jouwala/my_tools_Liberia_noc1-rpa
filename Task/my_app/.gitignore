@@ -61,6 +61,10 @@ _probe_file.txt
 # 误建的空 sqlite 占位（真正库是 /db/app.db）
 /backend/app.db
 
+# 原生看板磁盘缓存（运行时产物，可由源库重建；单页 JSON 可达数 MB）
+# 见 backend/services/dashboard_service.py 的 CACHE_DIR
+/backend/data/native_board_cache/
+
 # Chrome 临时 profile（portal_login_service 正常退出时会自清，异常退出会残留）
 /data/portal_profiles/_tmp_*/
 

@@ -998,6 +998,85 @@ def _apply_fb_aliases(df, table_name: str):
     return df
 
 
+# 远端 FB 表里被视为「空日期」的字面量（见 _normalize_fb_nulls 的说明）。
+# ⚠ 刻意**只收 NaT 系**，不收 'nan'/''/'None'：那几种字面量在 FB 表里是**既有事实**
+# （"WO No." 有 22226 行是字符串 'nan'、"Current Handler" 27351 行 …），
+# 全应用（含 FineBI 数据集口径与 my_app 的宽表 ETL）都按「非空字符串」容忍它们。
+# 把它们一起改成 NULL 是一次影响面极大的语义变更，收益却只是"看着干净"，
+# 不属于本次故障范围。见下方 docstring。
+_FB_NULLISH = {"NaT", "NAT"}
+
+
+def _normalize_fb_nulls(df, table_name: str):
+    """写入远端前把**空日期**统一成 NULL（而不是字面量 'NaT'）。
+
+    为什么必须有这一步（2026-09-21 事故）：
+        pandas 的 datetime64 列在 `.values.tolist()` 时把 NaT 原样交出来，而
+        DbWriterClient 用 `json.dumps(default=str)` 序列化 → `str(pd.NaT) == 'NaT'`，
+        于是 eFlow 导出里的**空日期**落到远端就成了**字符串 'NaT'**。
+        （float 列的 NaN 则被 json 写成裸 NaN，SQLite 侧本来就落成 NULL，不是问题。）
+
+    实测污染面（远端 db.sqlite3，2026-09-21）：
+        Eflow_TT_FB."Alarm Occur Time" = 'NaT' →   3 行（别名列 "Occurrence Time" 同）
+        Eflow_TT_FB."Alarm Clear Time" = 'NaT' →  95 行（别名列 "Alarm Clearing Time" 同）
+        Eflow_WO_FB."Alarm Occur Time" = 'NaT' →   1 行 / "Alarm Clear Time" → 180 行
+    危害不是"看着脏"（这正是本次故障的次生缺陷）：
+        1. 文本排序下 'NaT' > '2026-09-21 …'，`ORDER BY "Alarm Occur Time" DESC`
+           把脏行排到**最前面** → 看板 TT 明细顶部出现空白行；
+        2. `MAX("Alarm Occur Time")` 直接返回 'NaT' → 任何"最新时间"判定都算错；
+        3. `julianday('NaT')` → NULL → MTTR / 时长类指标静默变空。
+
+    实现（刻意做窄）：
+        - datetime64 列：`str(Timestamp)`（与 json default=str 产物一致，含微秒也一致），
+          NaT → None；
+        - 数值列：有 NaN 时逐格置 None（顺手让 payload 里不再出现裸 NaN —— 那是
+          非法 JSON，严格的解析器会直接 400）；
+        - 其它列：只把 'NaT' 字面量置 None，**不动 'nan'/''/'None'**（理由见 _FB_NULLISH）。
+        int/bool 列不动。
+    """
+    if df is None or len(df.columns) == 0:
+        return df
+
+    def _nn(v):
+        if v is None:
+            return None
+        if isinstance(v, float) and v != v:          # NaN（含 numpy.float64）
+            return None
+        try:
+            if pd.isna(v):                            # NaT / None / np.nan
+                return None
+        except (TypeError, ValueError):
+            pass                                      # 数组类值：isna 会抛，跳过
+        if isinstance(v, str) and v.strip() in _FB_NULLISH:
+            return None
+        return v
+
+    df = df.copy()
+    converted = []
+    for col in df.columns:
+        s = df[col]
+        if pd.api.types.is_datetime64_any_dtype(s):
+            df[col] = pd.Series([None if pd.isna(v) else str(v) for v in s],
+                                index=s.index, dtype=object)
+            if s.isna().any():
+                converted.append(str(col))
+        elif pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
+            if s.isna().any():          # 只在此列真有 NaN 时重建（否则保持原 dtype）
+                df[col] = pd.Series([None if pd.isna(v) else v for v in s],
+                                    index=s.index, dtype=object)
+                converted.append(str(col))
+        else:
+            if not any(isinstance(v, str) and v.strip() in _FB_NULLISH for v in s):
+                continue                # 绝大多数文本列不含 NaT，直接跳过（省一次全列 map）
+            # ⚠ 必须显式构造 object dtype：pandas 3.x 的 str dtype 会把 None 又变回 NaN
+            df[col] = pd.Series([_nn(v) for v in s], index=s.index, dtype=object)
+            converted.append(str(col))
+    if converted:
+        logger.info(f"[FB] {table_name}: 空日期归一为 NULL 的列 {len(converted)} 个: "
+                    f"{converted[:12]}{' ...' if len(converted) > 12 else ''}")
+    return df
+
+
 def _fill_wo_from_tt(df_wo, df_tt, columns: list):
     """WO 表的空列按 WO No. 关联 TT 表回填（取每个 WO 首个非空值）。"""
     if df_wo is None or df_tt is None or df_wo.empty or df_tt.empty:
@@ -1070,6 +1149,11 @@ def generate_and_upload_fb_excel(all_data: dict) -> dict:
                 ["Region Level1", "Region Level2",
                  "Latest Power Generation Time", "LatesPower Generation Time"],
             )
+
+        # 空值归一（NaN / NaT / 'nan' / 'NaT' / '' → NULL）必须放在**所有列变换之后、
+        # 写库之前**：`_fill_wo_from_tt` 也会引入 NaN。详见 _normalize_fb_nulls 的说明。
+        df_tt = _normalize_fb_nulls(df_tt, "Eflow_TT_FB")
+        df_wo = _normalize_fb_nulls(df_wo, "Eflow_WO_FB")
 
         for df, table_name, pk_cols in [
             (df_tt, "Eflow_TT_FB", ["TT No."]),

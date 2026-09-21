@@ -1,0 +1,38 @@
+  const cards = useMemo(() => {
+    if (!ov) return []
+    const worst = ov.worst ?? []
+    return [
+      {
+        key: 'kpi', label: t('msKpi.card.kpiCount'), value: (ov.kpi_count ?? 0).toLocaleString(loc),
+        hint: t('msKpi.hint.kpiCount'),
+      },
+      {
+        key: 'met', label: t('msKpi.card.metKpi'), value: (ov.met_count ?? 0).toLocaleString(loc),
+        hint: t('msKpi.hint.metKpi'), color: WH.ok,
+      },
+      {
+        key: 'below', label: t('msKpi.card.belowKpi'), value: (ov.below_count ?? 0).toLocaleString(loc),
+        hint: t('msKpi.hint.belowKpi'),
+        color: (ov.below_count ?? 0) > 0 ? WH.danger : WH.ok,
+        emphasis: (ov.below_count ?? 0) > 0,
+      },
+      {
+        key: 'unknown', label: t('msKpi.card.unknownKpi'),
+        value: (ov.unknown_count ?? 0).toLocaleString(loc),
+        hint: t('msKpi.hint.unknownKpi'), color: WH.textMuted,
+      },
+      {
+        key: 'days', label: t('msKpi.card.days'), value: (ov.days ?? 0).toLocaleString(loc),
+        hint: `${ov.first_day || '-'} ~ ${ov.last_day || '-'}`,
+      },
+      {
+        key: 'worst', label: t('msKpi.card.worst'), value: worst.length ? worst[0].label : '-',
+        hint: worst.length
+          ? `${t('msKpi.monthValue')}: ${fmtValue(worst[0].month_value, worst[0].format, loc)}`
+            + ` / ${t('msKpi.target')}: ${fmtValue(worst[0].target, worst[0].format, loc)}`
+          : t('msKpi.hint.allMet'),
+        color: worst.length ? WH.danger : WH.ok,
+        emphasis: worst.length > 0,
+      },
+    ]
+  }, [ov, t, loc])

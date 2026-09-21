@@ -1,0 +1,70 @@
+     （见 boBody），其余分组的正文暂不分区显示 —— 但定义与归属都真实存下来，
+     将来给某个分组加分区渲染时数据已经就位。 */
+  function subCapable(gid) { return !!gid; }
+
+  /** 内置子分组（= 改造前写死的 BO_SUBS）。文案仍走 i18n，中英各取一份 ——
+      这样默认态下英文界面显示英文名，且不用把两份文案硬编码进这里。
+      ⚠️ 只给 BO View 铺底：其它分组出厂就是「没有子分组」，
+      否则一放开就会出现一堆空标题把每个区块撑高。 */
+  function builtinSubGroups() {
+    return {
+      'BO View': [
+        { id: 'wireless', zh: I18N.zh['sub.wireless'], en: I18N.en['sub.wireless'] },
+        { id: 'core', zh: I18N.zh['sub.core'], en: I18N.en['sub.core'] },
+        { id: 'ip', zh: I18N.zh['sub.ip'], en: I18N.en['sub.ip'] }
+      ]
+    };
+  }
+
+  /** 归一化服务端下发的 subGroups：非对象 → null（回落内置）；
+      数组里缺 id 的条目丢掉；保留空数组（语义见上）。 */
+  function normalizeSubMap(v) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+    var out = {};
+    Object.keys(v).forEach(function (gid) {
+      if (!Array.isArray(v[gid])) return;
+      out[gid] = v[gid].filter(function (s) {
+        return s && typeof s === 'object' && s.id;
+      }).map(function (s) {
+        return { id: String(s.id), zh: s.zh || '', en: s.en || '' };
+      });
+    });
+    return Object.keys(out).length ? out : null;
+  }
+
+  /** 某父分组当前生效的子分组定义（服务端优先，缺省回落内置）。 */
+  function subGroupsOf(gid) {
+    var m = state.subGroups;
+    if (m && Object.prototype.hasOwnProperty.call(m, gid)) {
+      return Array.isArray(m[gid]) ? m[gid] : [];
+    }
+    return builtinSubGroups()[gid] || [];
+  }
+
+  /** 某看板在**指定父分组**下的二级归属。
+      subOf 是权威来源（按分组分别记录）；boSub 只作**迁移前的兜底**：
+      仅当整条 subOf 都不存在时，才拿 boSub 去当前分组的定义里校验 ——
+      校验通过才认，避免 A 分组的归属被当成 B 分组的（那会串改、甚至丢归属）。
+      为什么必须按分组读：一个看板可以同时属于多个分组（实测 no=11/12/13/18/36
+      同时挂在 FO View + FLM View），而 boSub 只有一个值。 */
+  function subOfItem(it, gid) {
+    var m = it && it.subOf;
+    var hasSubOf = m && typeof m === 'object' && !Array.isArray(m);
+    if (hasSubOf && m[gid]) return String(m[gid]);
+    if (hasSubOf) return '';          // subOf 已存在：它说了算，绝不回落（防串改）
+    var legacy = (it && it.boSub) ? String(it.boSub) : '';
+    if (!legacy) return '';
+    /* 迁移前的旧数据：boSub 只对它真正所属的分组有效 ——
+       用「该分组下确实有这个名字的子分组」来判定，判不出来就当没有。 */
+    return subGroupsOf(gid).some(function (s) { return s.id === legacy; }) ? legacy : '';
+  }
+
+  /** 写回归属：只动指定父分组这一格，其它分组的值原样保留（避免串改）。 */
+  function withSubOf(it, gid, sid) {
+    var c = {};
+    Object.keys(it).forEach(function (k) { c[k] = it[k]; });
+    var m = {};
+    if (it.subOf && typeof it.subOf === 'object' && !Array.isArray(it.subOf)) {
+      Object.keys(it.subOf).forEach(function (k) { m[k] = it.subOf[k]; });
+    }
+    if (sid) m[gid] = sid; else delete m[gid];

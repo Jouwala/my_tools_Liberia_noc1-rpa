@@ -1,0 +1,13 @@
+242:          它取 /api/portal-qc/summary 的 sla 指标，而该值与 Quality Control 面板
+245:          英文是 Compliance，不是 Strategy pass rate）。该指标在 QC 面板里仍有权威
+329:   <!-- Quality Control -->
+330:   <section id="secQc" aria-label="Quality Control" class="bg-white rounded-xl p-4 lg:p-5 shadow-card border border-slate-200/80"></section>
+446:      Quality Control 指标卡的下钻明细弹窗。表头 / 行 / 分页文本由 portal.js 填充，
+452:       <h3 id="qcTitle">Quality Control</h3>
+458:       <div class="qc-tools">
+465:       <div class="qc-scroll" id="qcScroll">
+466:         <table class="qc-table">
+471:       <div class="modal-note qc-hint" data-i18n="qc.filterHint"></div>
+474:       <div class="qc-foot">
+476:         <span class="qc-pager">
+478:           <span class="qc-page" id="qcPage"></span>

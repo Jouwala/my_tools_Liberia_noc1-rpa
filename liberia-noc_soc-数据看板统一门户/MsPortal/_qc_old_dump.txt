@@ -1,0 +1,14 @@
+`        '<span class="pointer-events-none absolute -left-6 -top-6 h-16 w-16 rounded-full blur-xl ' + glowCls + '"></span>' +
+        /* 选中态底部高亮条，比整圈描边更含蓄 */
+        (on ? '<span class="absolute left-3 right-3 bottom-0 h-[2px] rounded-full ' + accentCls + '"></span>' : '') +
+        '<div class="relative pl-3.5 pr-3.5 py-3.5">' +
+          '<div class="flex items-center gap-2">' +
+            '<span class="flex h-7 w-7 items-center justify-center rounded-full ring-1 ' + iconCls + ' shrink-0 transition-colors">' + ico(q.icon) + '</span>' +
+            '<span class="truncate text-[12.5px] font-semibold tracking-wide text-slate-500 group-hover:text-slate-700 transition-colors">' +
+              esc(state.lang === 'en' ? q.en : q.zh) + '</span>' +
+          '</div>' +
+          '<div class="text-center text-[30px] lg:text-[34px] font-bold ' + numTint + ' font-mono tracking-tight leading-none mt-2.5 tabular-nums">' +
+            num + '</div>' +
+          '<div class="text-[11px] mt-2 truncate text-center leading-tight ' + (failed ? 'text-rose-500' : 'text-slate-400') + '" title="' + esc(sub) + '">' +
+            esc(sub) + '</div>' +
+`

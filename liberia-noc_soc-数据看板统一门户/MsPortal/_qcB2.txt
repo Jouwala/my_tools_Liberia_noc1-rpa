@@ -1,0 +1,35 @@
+2111: 
+2112:       刻意**不加区块内搜索框**：本区块列的是 6 个「质量维度」
+2113:       （Alarm / TTs / WOs / CRs / PMT / SPMS），不是看板清单 ——
+2114:       底下没有"看板名字"可筛，给个搜索框只会是个筛不出东西的摆设。
+2115:       其余 8 个区块（CXO/MS/FLM/FO/BO/Admin/QA/Friends）都是看板清单，均已加搜索框。 */
+2116:   var QC_SUB_KEY = {
+2117:     alarm: 'qc.sub.alarm', tt: 'qc.sub.tt', wo: 'qc.sub.wo',
+2118:     cr: 'qc.sub.cr', pmt: 'qc.sub.pmt', spms: 'qc.sub.spms'
+2119:   };
+2120: 
+2121:   /** i18n 插值：t() 只做查表，{p}/{n} 这类占位在调用层替换。 */
+2122:   function tf(key, vars) {
+2123:     var s = t(key);
+2124:     Object.keys(vars || {}).forEach(function (k) {
+2125:       s = s.split('{' + k + '}').join(String(vars[k]));
+2126:     });
+2127:     return s;
+2128:   }
+2129: 
+2130:   function qcMetric(id) {
+2131:     /* 告警优先用「5 分钟级」那份（state.qcAlarm）：它比全量那份新，且失败时会被
+2132:        置成 error 态（见 fetchQcAlarm），不会把旧数字留在屏幕上冒充实时值。 */
+2133:     if (id === 'alarm' && state.qcAlarm) return state.qcAlarm;
+2134:     var m = state.qcStats && state.qcStats.metrics;
+2135:     return (m && m[id]) || null;
+2136:   }
+2137: 
+2138:   /** 面板「更新于」= 两档里较新的那份数据时间（都交给 qcClock 按本地时区渲染）。 */
+2139:   function qcLatestStamp() {
+2140:     var a = state.qcAlarmAt, f = state.qcFullAt;
+2141:     if (a && f) {
+2142:       var da = new Date(a).getTime(), df = new Date(f).getTime();
+2143:       if (!isNaN(da) && !isNaN(df)) return da >= df ? a : f;
+2144:     }
+2145:     return a || f || '';

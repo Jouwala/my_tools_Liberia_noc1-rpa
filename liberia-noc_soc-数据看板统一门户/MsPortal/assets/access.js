@@ -62,6 +62,32 @@
     'http://192.168.100.27:3000/': 'external-rag-knowledge-qa'
   };
 
+  /* 2026-09-21 加：原来的 FineBI 卡片已改用 my_app 的 FINEBI Board 原生页
+     （http://192.168.100.20/myapp/?page=finebi_<slug>，iYiQ 用 ?page=cn_kpi），
+     URL 路径不再是 /webroot/decision/link/...，上面 FINEBI_ACCESS_IDS 就查不到了。
+     这里按「新 URL 的 page 键 → 迁移前那个 id」再补一张表，保证 allowedCards 里
+     那套 finebi-* id 继续命中 —— 否则受限用户会看不到这些卡（fail-closed，
+     不是越权，但属于功能回归）。映射依据见 scripts/migrate_finebi_to_myapp.py。
+     FINEBI_ACCESS_IDS 保留不动：本机 localStorage 里的旧目录 / 历史数据仍可能带旧 URL。 */
+  var FINEBI_PAGE_ACCESS_IDS = {
+    finebi_mttr: 'finebi-ms-mttr-monthly-weekly',
+    finebi_availability_tt: 'finebi-fo-availability-tt-related',
+    finebi_kpi_2g: 'finebi-bo-2g-daily-kpi',
+    finebi_kpi_3g: 'finebi-bo-3g-daily-kpi',
+    finebi_kpi_4g: 'finebi-bo-4g-kpi-daily',
+    finebi_fw_daily: 'finebi-bo-fw-daily-kpi',
+    cn_kpi: 'finebi-bo-cn-kpi-v2',
+    finebi_cn_kpi_monthly: 'finebi-bo-cn-monthly-kpi',
+    finebi_ipran_4region: 'finebi-bo-ip-ran-region-kpi',
+    finebi_ipran_hq: 'finebi-bo-ip-ran-core-hq-odc',
+    finebi_metro_ring: 'finebi-bo-ip-ran-metor-ring',
+    /* 服务端目录已下架、但仍留在兜底目录 data.js 里的 4 张，一并映射 */
+    finebi_availability_daily: 'finebi-fo-availability-daily',
+    finebi_cm_dashboard: 'finebi-flm-cm-dashboard',
+    finebi_daily_availability: 'finebi-bo-daily-availability-kpi',
+    finebi_spare: 'finebi-fo-spare-management-audit'
+  };
+
   /** 卡片 → 统一门户的看板 id。带 item.id 时直接用（服务端目录可能自带 id）。 */
   function dashboardAccessId(item) {
     if (item && item.id) return String(item.id);
@@ -70,6 +96,7 @@
       var u = new URL(raw, location.href);
       var page = u.searchParams.get('page');
       if (page && MYAPP_ACCESS_IDS[page]) return MYAPP_ACCESS_IDS[page];
+      if (page && FINEBI_PAGE_ACCESS_IDS[page]) return FINEBI_PAGE_ACCESS_IDS[page];
       var path = u.pathname;
       if (FINEBI_ACCESS_IDS[path]) return FINEBI_ACCESS_IDS[path];
       var exact = u.origin + u.pathname;

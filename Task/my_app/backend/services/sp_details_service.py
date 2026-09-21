@@ -717,3 +717,21 @@ def invalidate_cache() -> None:
     with _CACHE_LOCK:
         _CACHE["key"] = None
         _CACHE["data"] = None
+
+
+def warmup() -> None:
+    """启动期后台预热：先把合并工作簿解析一次。
+
+    _load() 首次要整份读 xlsx（实测 4.7s），之后按文件 mtime/size 缓存。
+    后端每次重启缓存都为空，于是这 4.7s 冷成本就落在第一个打开
+    ``?page=sp_details`` 的用户头上（实测该页 5.3s）。预热后首访约 0.5s。
+    """
+    def _job() -> None:
+        try:
+            t0 = time.time()
+            _load(force=True)
+            logger.info("[SP详情] 启动预热完成 %.0fms", (time.time() - t0) * 1000)
+        except Exception:  # noqa: BLE001  预热失败不能影响启动
+            logger.warning("[SP详情] 启动预热失败（不影响启动）", exc_info=True)
+
+    threading.Thread(target=_job, name="sp-details-warmup", daemon=True).start()

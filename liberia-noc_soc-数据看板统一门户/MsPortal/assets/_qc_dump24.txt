@@ -1,0 +1,78 @@
+    if (Object.keys(m).length) c.subOf = m; else delete c.subOf;
+    /* boSub 退化为**只读镜像**（给还没升级的读取方看）：取分组顺序里第一个有归属的值。
+       关键点：渲染永远只信 subOf，所以这个镜像再怎么写错，也不会把 A 分组的归属
+       泄漏到 B 分组去 —— 之前正是「同步写 boSub + 读取回落 boSub」凑成了串改。 */
+    var mirror = '';
+    groupsOf(c).forEach(function (g) { if (!mirror && m[g]) mirror = m[g]; });
+    if (mirror) c.boSub = mirror; else delete c.boSub;
+    return c;
+  }
+
+  /** 旧数据迁移：把 boSub 搬进 subOf[真正所属的分组]。
+      只在加载时跑一次；subOf 里已有的格子一律不动（它是权威）。
+      boSub 仍保留在数据里当镜像，老读取方不受影响。
+      判定「真正所属」的依据：该分组下确实定义了同名的子分组。 */
+  function migrateSubOf(items) {
+    return (items || []).map(function (it) {
+      if (!it || typeof it !== 'object') return it;
+      var legacy = it.boSub ? String(it.boSub) : '';
+      if (!legacy) return it;
+      var hasSubOf = it.subOf && typeof it.subOf === 'object' && !Array.isArray(it.subOf);
+      /* 定义了这个名字的分组（可能有多个，取第一个；其余分组留空，不猜测） */
+      var owner = groupsOf(it).filter(function (g) {
+        return subGroupsOf(g).some(function (s) { return s.id === legacy; });
+      })[0];
+      if (!owner) return it;                                  // 判不出来：原样保留
+      if (hasSubOf && it.subOf[owner]) return it;             // 该格已有权威值：不动
+      var c = {};
+      Object.keys(it).forEach(function (k) { c[k] = it[k]; });
+      var m = {};
+      if (hasSubOf) Object.keys(it.subOf).forEach(function (k) { m[k] = it.subOf[k]; });
+      m[owner] = legacy;
+      c.subOf = m;
+      return c;
+    });
+  }
+
+  function subLabel(s) {
+    if (!s) return '';
+    return state.lang === 'en' ? (s.en || s.zh || s.id) : (s.zh || s.en || s.id);
+  }
+
+  /** 某子分组的成员看板（限该父分组内）。 */
+  function subMembers(gid, sid) {
+    return catalogItems().filter(function (it) {
+      return groupsOf(it).indexOf(gid) !== -1 && subOfItem(it, gid) === sid;
+    });
+  }
+
+  /** 「其他系统」桶：在该父分组里，但二级归属为空或指向已不存在的子分组。
+      ⚠️ 它**不是一个存储的实体**，而是每次按当前定义算出来的 ——
+      所以它没有 id、不能改名、也不能删除（删了它下一帧又会被算出来）。
+      要「清掉」它只有两条路：给里面的看板指定一个子分组，或把它们移出该分组。 */
+  function subOthers(gid) {
+    var ids = subGroupsOf(gid).map(function (s) { return s.id; });
+    return catalogItems().filter(function (it) {
+      return groupsOf(it).indexOf(gid) !== -1 && ids.indexOf(subOfItem(it, gid)) === -1;
+    });
+  }
+
+  function gridOpen(cls) { return '<div class="' + cls + '">'; }
+
+  function bodyHtml(g, items, pack) {
+    state._curGid = g.id; // 供 shell() 生成查看器链接时确定「同组」上下文
+    if (!items.length) return sectionEmpty(pack);
+    /* 该分组配了子分组时，正文一律走「按子分组分区」渲染（2026-09-19 从 BO View 推广到所有分组）。
+       原来只有 BO View 会分桶，其它分组即便配了子分组也看不出来 ——
+       那等于「改了没反应」。这里统一先分桶，桶内再套用该分组原本的卡片样式，
+       所以放开子分组不会改变任何分组「没配子分组时」的观感。 */
+    if (subGroupsOf(g.id).length) return subBody(g, items, pack);
+    switch (g.id) {
+      case 'CXO View':
+        return gridOpen('grid grid-cols-1 sm:grid-cols-2 gap-3') + items.map(cxoCard).join('') + '</div>';
+      case 'MS View':
+        return '<div class="space-y-1.5">' + items.map(msRow).join('') + '</div>';
+      case 'FLM View':
+        /* 2026-09-18 按需求「FLM View 字体大小风格跟 MS View 要一致」：
+           原来用 solidCard（实心彩底图标 w-10/h-10 + 标题 font-bold + p-3 + 双列网格），
+           与 MS View 的 msRow（浅色底图标 w-9/h-9 + 标题 font-semibold + p-2.5 + 单列）

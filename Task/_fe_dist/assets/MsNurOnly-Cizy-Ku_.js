@@ -1,0 +1,1 @@
+import{S as e}from"./react-vendor-CYpmbbga.js";import t from"./NurDashboard-B_DcgiOW.js";var n=e();function r(){return(0,n.jsx)(t,{only:`nur`})}export{r as default};

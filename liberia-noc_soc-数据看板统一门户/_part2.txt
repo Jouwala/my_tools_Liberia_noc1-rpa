@@ -1,0 +1,13 @@
+src\components\Navbar.tsx_bak_20260913_authswitch
+src\components\PasswordInput.tsx
+src\components\PreviewDrawer.tsx
+src\components\QRCodeModal.tsx
+src\components\QuickStatsBar.tsx
+src\components\TaskSyncWidget.tsx
+src\components\UserManagementModal.tsx
+src\components\WhatsAppTasksView.tsx
+src\data\initialDashboards.ts
+src\data\initialDashboards.ts.bak_20260817_144854
+src\data\initialDashboards.ts.bak_20260912
+src\types\dashboard.ts
+src\utils\groups.ts

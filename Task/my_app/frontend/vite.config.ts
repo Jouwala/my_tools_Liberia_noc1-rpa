@@ -56,6 +56,17 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
+        // 【循环分包修复·勿删】rolldown 默认把 ESM/CJS 互操作 runtime helper 合并进
+        // 第一个共享业务分包（src/api.ts → api-*.js），而 api 分包本身要 import vendor(axios)，
+        // vendor → react-vendor → antd 又反过来从 api 分包 import 这些 helper，
+        // 于是分包图出现环 antd ↔ api ↔ vendor。浏览器按深度优先执行时 antd 先跑，
+        // 此时 api 分包的 helper 变量还没赋值（var 提升为 undefined），
+        // 报 "Uncaught TypeError: t is not a function"（antd-*.js:1:52）→ 整站白屏。
+        // strictExecutionOrder 会让 rolldown 把 runtime helper 单独拆成无依赖的
+        // rolldown-runtime-*.js 叶子分包，并按 import 顺序注入初始化，分包图无环。
+        // 代价约 +100KB(≈2%) 的初始化包装代码。可用
+        // `node TMP/checkgraph.mjs <dist>` 校验产物分包图无环后再上线。
+        strictExecutionOrder: true,
         // 按依赖拆分 vendor 分包：浏览器可并行下载 + 长缓存，首屏不必一次性拉全部
         manualChunks(id: string) {
           if (!id.includes('node_modules')) return

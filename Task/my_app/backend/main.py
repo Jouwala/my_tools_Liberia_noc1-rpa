@@ -71,6 +71,9 @@ from backend.routers import (
     ui_config,
     portal_qc,
     portal_catalog,
+    cn_kpi,
+    native_boards,
+    repeat_site_down,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -198,6 +201,16 @@ app.include_router(portal_qc.router)
 # MsPortal 静态门户的看板目录：全局共享一份（所有人读同一份），仅本机可增删改
 # （见 routers/portal_catalog.py）。未登录访客读不到——刻意不进 _PUBLIC_API 白名单。
 app.include_router(portal_catalog.router)
+# CN KPI 看板：原 my-finebi「CN KPI」看板原生重建（18 组件，经远端只读 SQL API 取数，
+# 不依赖 my-finebi 进程）。数据源/口径见 services/cn_kpi_service.py 顶部说明。
+app.include_router(cn_kpi.router)
+# 原生看板（泛化版）：my-finebi 其余全部看板（IP RAN Metro Ring / 可用率 / 2G-3G-4G KPI /
+# MTTR / CM / 备件 / Progress 等 17 个）统一由一套引擎驱动，经远端只读 SQL API 取数，
+# 不依赖 my-finebi 进程；支持时间窗口过滤与 Excel 导出。
+# 数据源/口径见 services/dashboard_service.py 顶部说明，看板定义见 native_catalog.py。
+app.include_router(native_boards.router)
+# Daily repeat site-down count dashboard (eflow_tt + eflow_site).
+app.include_router(repeat_site_down.router)
 
 
 # ========== 统一门户鉴权中间件 ==========
@@ -351,6 +364,47 @@ async def startup_event():
               else f"[startup] TT 分析模块预热失败（不影响启动）: {_warm_err}")
     except Exception as _e:
         print(f"[startup] TT 分析模块预热异常（不影响启动）: {_e}")
+    # 原生看板缓存预热：这些看板源数据天粒度更新，一次冷取数要 4~6 秒
+    # （成本几乎全在行数：metro_ring 8 组件共 4.4 万行）。后台串行预热，
+    # 不阻塞 startup；磁盘缓存命中时几乎无事可做（看门狗重启后即属此列）。
+    try:
+        from backend.services import dashboard_service as _nb_svc
+        _pw = _nb_svc.prewarm()
+        _pending = _pw["pending"]
+        if not _pending:
+            print("[startup] 原生看板缓存预热：全部命中，无需回源")
+        else:
+            _show = ", ".join(_pending[:5]) + ("..." if len(_pending) > 5 else "")
+            print(f"[startup] 原生看板缓存预热：{len(_pending)} 个待回源 -> {_show}")
+    except Exception as _e:
+        print(f"[startup] 原生看板缓存预热异常（不影响启动）: {_e}")
+
+    # NUR/SLA 看板基础数据预热：冷路径首个请求要 ~3.9s（建基础表 + 首次连库 +
+    # 拉 FTP 排除名单）。后台预热后用户首个请求只剩计算（~0.8s）。
+    try:
+        from backend.services import nur_calc as _nur
+        _nur.warmup()
+        print("[startup] NUR 看板基础数据预热已启动（后台）")
+    except Exception as _e:
+        print(f"[startup] NUR 看板预热异常（不影响启动）: {_e}")
+
+    # SP 备件明细看板预热：首次要整份解析合并工作簿（实测 4.7s），
+    # 后端重启后缓存为空，冷成本会落在第一个打开该页的用户头上。
+    try:
+        from backend.services import sp_details_service as _spd
+        _spd.warmup()
+        print("[startup] SP 备件明细看板预热已启动（后台）")
+    except Exception as _e:
+        print(f"[startup] SP 备件明细看板预热异常（不影响启动）: {_e}")
+
+    # 丢包看板总览预热：daily_trend/top_sites 要扫 7 天+24 小时读数（约 2s）。
+    try:
+        from backend.routers import packet_loss_dashboard as _pl
+        _pl.warmup()
+        print("[startup] 丢包看板总览预热已启动（后台）")
+    except Exception as _e:
+        print(f"[startup] 丢包看板预热异常（不影响启动）: {_e}")
+
     if DISABLE_SCHEDULER:
         print("[startup] MY_APP_DISABLE_SCHEDULER=1: skip APScheduler start (smoke test mode)")
     elif not _got_lock:

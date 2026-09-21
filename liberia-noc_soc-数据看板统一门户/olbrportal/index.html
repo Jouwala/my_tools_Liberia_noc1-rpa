@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OLR MS 门户 · Liberia NOC/SOC 统一入口 (ZTE OLR MS Portal)</title>
+<meta name="description" content="ZTE OLR MS 门户看板 —— 利比里亚 NOC/SOC 自动化工具平台入口（只读展示版）。">
+<link rel="icon" type="image/png" sizes="32x32" href="/MsPortal/assets/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/MsPortal/assets/favicon-180.png">
+<!-- 零 CDN：图标与看板目录都从 /MsPortal/ 只读引用，本页面不写它的任何文件 -->
+<link rel="stylesheet" href="/MsPortal/assets/icons/phosphor.css">
+<link rel="stylesheet" href="assets/olbr.css">
+<script>
+/* 主题/语言在首帧前落到 <html>，避免闪白。
+   键名刻意用 olbr.* 而不是复用 msportal.* —— 两个页面各自记忆各自的选择，
+   并且本页面**不持久化搜索与筛选**（MsPortal 那版会把上一次的筛选带进下次
+   会话，7 个面板看起来像坏了，这是本次改版要修掉的一类问题）。 */
+(function () {
+  try {
+    if (localStorage.getItem('olbr.theme') === 'dark') document.documentElement.classList.add('dark');
+    if (localStorage.getItem('olbr.lang') === 'en') document.documentElement.setAttribute('lang', 'en');
+  } catch (e) { /* ignore */ }
+})();
+</script>
+</head>
+<body>
+<a class="skip" href="#main" data-i18n="skip">跳到主内容</a>
+
+<!-- ===================== masthead ===================== -->
+<header class="mast" id="mast">
+  <div class="mast-bg" aria-hidden="true">
+    <!-- 地球：半径固定为 2.9×顶栏高，只让球顶带和球缘亮边落在门面内。
+         <1100px 整层隐藏 —— 顶栏再矮就只剩一条弧，那个视觉资产会退化成噪点。 -->
+    <div class="globe">
+      <svg viewBox="0 0 200 200" focusable="false">
+        <defs>
+          <radialGradient id="gBody" cx="74%" cy="8%" r="96%">
+            <stop offset="0%" stop-color="#2b7fdd"></stop>
+            <stop offset="10%" stop-color="#17579f"></stop>
+            <stop offset="26%" stop-color="#0d3672"></stop>
+            <stop offset="48%" stop-color="#082450"></stop>
+            <stop offset="76%" stop-color="#05152f"></stop>
+            <stop offset="100%" stop-color="#03101f"></stop>
+          </radialGradient>
+          <linearGradient id="gRim" x1="0" y1="0.72" x2="1" y2="0.04">
+            <stop offset="0%" stop-color="#3f9dff" stop-opacity="0"></stop>
+            <stop offset="16%" stop-color="#63c8ff" stop-opacity=".22"></stop>
+            <stop offset="42%" stop-color="#a8f0ff" stop-opacity=".58"></stop>
+            <stop offset="68%" stop-color="#f2ffff" stop-opacity="1"></stop>
+            <stop offset="82%" stop-color="#9fe6ff" stop-opacity=".8"></stop>
+            <stop offset="100%" stop-color="#3f92f0" stop-opacity=".25"></stop>
+          </linearGradient>
+          <pattern id="gDot" width="1.35" height="1.35" patternUnits="userSpaceOnUse">
+            <circle cx=".67" cy=".67" r=".3" fill="#8fd8ff" fill-opacity=".22"></circle>
+          </pattern>
+          <pattern id="gLand" width="1.35" height="1.35" patternUnits="userSpaceOnUse">
+            <circle cx=".67" cy=".67" r=".36" fill="#cdf4ff" fill-opacity=".7"></circle>
+          </pattern>
+          <clipPath id="gClip"><circle cx="100" cy="100" r="98"></circle></clipPath>
+        </defs>
+        <circle cx="100" cy="100" r="101" fill="none" stroke="#5aa8f0" stroke-opacity=".16" stroke-width="1"></circle>
+        <circle cx="100" cy="100" r="98" fill="url(#gBody)"></circle>
+        <g clip-path="url(#gClip)">
+          <circle cx="100" cy="100" r="98" fill="url(#gDot)"></circle>
+          <g fill="url(#gLand)">
+            <path d="M56 32 L64 20 L80 14 L98 18 L107 26 L100 35 L86 40 L68 41 Z"></path>
+            <path d="M118 26 L127 15 L146 12 L163 18 L168 28 L156 36 L136 39 L123 34 Z"></path>
+            <path d="M28 38 L38 29 L50 32 L54 41 L42 45 L32 44 Z"></path>
+          </g>
+          <g fill="none" stroke="#8fd8ff" stroke-opacity=".09" stroke-width=".55">
+            <ellipse cx="100" cy="100" rx="30" ry="98"></ellipse>
+            <ellipse cx="100" cy="100" rx="62" ry="98"></ellipse>
+            <ellipse cx="100" cy="100" rx="98" ry="30"></ellipse>
+          </g>
+        </g>
+        <circle cx="100" cy="100" r="97.5" fill="none" stroke="url(#gRim)" stroke-width="2.6"></circle>
+      </svg>
+    </div>
+  </div>
+
+  <div class="mast-in wrap">
+    <div class="brand">
+      <img class="mark" src="/MsPortal/assets/logo-zte-z-116.png"
+           srcset="/MsPortal/assets/logo-zte-z-116.png 2x, /MsPortal/assets/logo-zte-z-174.png 3x"
+           alt="ZTE" decoding="async">
+      <span class="word-zte">ZTE</span>
+      <span class="brand-sep" aria-hidden="true"></span>
+      <h1 class="title"><span class="t-olr">OLR</span><span class="t-ms"> MS</span><span class="t-tail"> Management Platform</span></h1>
+      <p class="tagline" data-i18n="tagline">Smarter Operations · Higher Efficiency · Better Network</p>
+    </div>
+
+    <nav class="tools" aria-label="Tools">
+      <span class="env" id="envBadge"><i class="env-dot" aria-hidden="true"></i><span id="envLabel">—</span></span>
+      <time class="clock" id="clock">--:--:--</time>
+      <span class="tools-sep" aria-hidden="true"></span>
+      <span class="seg" role="group" aria-label="Language">
+        <button type="button" class="seg-b" data-lang="zh">中文</button>
+        <button type="button" class="seg-b" data-lang="en">EN</button>
+      </span>
+      <button type="button" class="ib" id="themeBtn" aria-label="Toggle theme" title="深色 / 浅色">
+        <i class="ph ph-moon" aria-hidden="true"></i>
+      </button>
+      <a class="gb" href="/MsPortal/" title="分组编辑 / 看板维护 / 用户管理仍在 MsPortal 完成">
+        <i class="ph ph-wrench" aria-hidden="true"></i><span data-i18n="mast.admin">管理门户</span>
+      </a>
+      <a class="gb" href="/uniplam/">
+        <i class="ph ph-map-pin" aria-hidden="true"></i><span data-i18n="mast.uni">统一门户</span>
+      </a>
+      <span class="who" id="whoBadge" hidden></span>
+      <button type="button" class="gb" id="logoutBtn" hidden>
+        <i class="ph ph-sign-out" aria-hidden="true"></i><span data-i18n="mast.logout">退出</span>
+      </button>
+    </nav>
+  </div>
+</header>
+
+<!-- ===================== 常驻检索轨（不再默认收起） ===================== -->
+<div class="rail" id="rail">
+  <div class="rail-in wrap">
+    <label class="q">
+      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <input type="search" id="q" autocomplete="off" spellcheck="false"
+             placeholder="搜索看板名称、描述、责任人、标签…" aria-label="搜索看板">
+      <kbd class="kbd">Ctrl K</kbd>
+    </label>
+    <div class="chips" id="chips" role="group" aria-label="分组筛选"></div>
+    <div class="rail-end">
+      <span class="seg" role="group" aria-label="状态筛选">
+        <button type="button" class="seg-b" data-status="all" data-i18n="rail.all">全部</button>
+        <button type="button" class="seg-b" data-status="online">Online</button>
+        <button type="button" class="seg-b" data-status="beta">Beta</button>
+      </span>
+      <span class="count" id="count">—</span>
+      <button type="button" class="gb" id="clearBtn" hidden>
+        <i class="ph ph-x" aria-hidden="true"></i><span data-i18n="rail.clear">清除筛选</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<main id="main" class="wrap">
+  <section id="gate" hidden></section>
+
+  <!-- L0 · 决策带：达标率 + 六个实时指标 -->
+  <section class="band" id="band" aria-label="Quality Control"></section>
+
+  <!-- L0 · 焦点区：拓扑地图（左，2/3）+ CXO 焦点卡（右） -->
+  <div class="l0" id="l0"></div>
+
+  <!-- 升级机制：默认收成一条 52px 值班带，展开才出全表（原来常驻 583px） -->
+  <section class="esc" id="esc" aria-label="Escalation Matrix"></section>
+
+  <!-- L1 · 五个业务视图，等宽 auto-fit，不再出现 12 栏与 4 栏混用 -->
+  <div class="views" id="views"></div>
+
+  <!-- L2 · 辅助入口：去卡片化，无边框无色块，只留标题与行链接 -->
+  <section class="aux" id="aux" aria-label="Auxiliary"></section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span>© 2026 ZTE Corporation · <span data-i18n="foot.branch">利比里亚办事处网络运营中心 (OLR MS)</span></span>
+    <span class="foot-r">
+      <span class="ok"><i class="ph ph-shield-check" aria-hidden="true"></i> <span data-i18n="foot.ok">安全合规模式运行</span></span>
+      <span id="footSrc">—</span>
+      <span class="ver">Ver 1.0-OLBR · 只读展示版</span>
+    </span>
+  </div>
+</footer>
+
+<!-- QC 下钻抽屉 -->
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-labelledby="drTitle" hidden>
+  <header class="dr-head">
+    <div class="dr-t">
+      <h3 id="drTitle">Quality Control</h3>
+      <p id="drSub" class="dr-sub"></p>
+    </div>
+    <div class="dr-tools">
+      <input type="search" id="drQ" autocomplete="off" aria-label="过滤明细">
+      <button type="button" class="gb" id="drReload"><i class="ph ph-arrow-clockwise" aria-hidden="true"></i></button>
+      <button type="button" class="ib" id="drClose" aria-label="Close"><i class="ph ph-x" aria-hidden="true"></i></button>
+    </div>
+  </header>
+  <div class="dr-body" id="drBody"></div>
+  <footer class="dr-foot">
+    <span id="drCount" class="mono"></span>
+    <span class="pager">
+      <button type="button" class="gb" id="drPrev"><i class="ph ph-caret-left" aria-hidden="true"></i></button>
+      <span id="drPage" class="mono"></span>
+      <button type="button" class="gb" id="drNext"><i class="ph ph-caret-right" aria-hidden="true"></i></button>
+    </span>
+  </footer>
+</aside>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/MsPortal/assets/data.js"></script>
+<script src="/MsPortal/assets/access.js"></script>
+<script src="assets/olbr.js"></script>
+</body>
+</html>

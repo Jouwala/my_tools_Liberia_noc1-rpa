@@ -910,6 +910,22 @@ def stop_scheduler():
 # ========== 查询接口 ==========
 
 
+def get_running_map() -> dict:
+    """轻量运行状态：{task_id: 是否运行中}。
+
+    /api/tasks 会顺带算每个任务的最新执行记录、重试预测、中英文名、新鲜度等，
+    单次 ~75KB / 数百 ms；而应用顶层的轮询只关心 running 这一个布尔值
+    （见前端 TaskStatusContext，空闲 8s、有任务运行 2s 一次）。
+    这里只做批量状态查询，返回约 1KB，避免每个页面都背着 75KB 的轮询。
+    """
+    with _active_lock:
+        local_active = set(_active_runs.keys())
+    queue_active = get_queue_running_task_ids()
+    if QUEUE_ENABLED:
+        return {tid: (tid in queue_active) for tid in _task_registry}
+    return {tid: (tid in local_active) for tid in _task_registry}
+
+
 def list_tasks(include_runs: bool = False, lang: str = "zh") -> list[dict]:
     """列出所有已注册的任务（include_runs=True 时附带每个任务最新一条执行记录）"""
     sched = get_scheduler()

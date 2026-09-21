@@ -1,0 +1,42 @@
+custom-task-manager || 自动化调度与数据集成 || Task Manager (任务管理 / 自动化调度总控) || /myapp/?page=sync || http://192.168.100.20/myapp/?page=sync&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-alarm-dashboard || 告警看板 || Alarm Dashboard (实时告警看板) || /myapp/?page=alarm || http://192.168.100.20/myapp/?page=alarm&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-tt-wo-dashboard || 故障单 || TT&WO Dashboard (故障与运维工单流转看板) || /myapp/?page=ttwo&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5 || http://192.168.100.20/myapp/?page=ttwo&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-nur-dashboard || MS 运维管理 || NUR Dashboard (网络不可用率分析) || /myapp/?page=nur || http://192.168.100.20/myapp/?page=nur&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-ms-sla-dashboard || MS 运维管理 || MS Operation KPI 看板 (MS SLA 运营考核) || /myapp/?page=ms_sla || http://192.168.100.20/myapp/?page=ms_sla&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-cxo-dashboard || MS 运维管理 || CXO Dashboard (战略决策总览) ||  || http://192.168.100.20/myapp/?page=cxoDashboard
+custom-gis-map || MS 运维管理 || GIS Map (全网故障与工单地理分布) || /myapp/?page=gis || http://192.168.100.20/myapp/?page=gis&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-realtime-alarm-map || 告警看板 || RealTime Alarm Map (实时告警地图) || /myapp/?page=realtime_alarm || http://192.168.100.20/myapp/?page=realtime_alarm&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-alarm-management || 告警看板 || Alarm Management (告警管理) ||  || http://192.168.100.20/myapp/?page=alarmManagement
+custom-packet-loss || 传输承载 || Packet Loss Dashboard (传输链路丢包看板) || /myapp/?page=packet_loss || http://192.168.100.20/myapp/?page=packet_loss&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-mw-ume-topology || 传输承载 || MW Topology (微波网络拓扑看板) || /myapp/?page=mwUmeTopology || http://192.168.100.20/myapp/?page=mwUmeTopology&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-mw-realtime || 传输承载 || MW Real-Time (微波实时 NOC 看板) || /myapp/?page=mwRealTime || http://192.168.100.20/myapp/?page=mwRealTime&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-battery || 现场动力 || Battery Dashboard (基站电池健康度看板) || /myapp/?page=battery&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5 || http://192.168.100.20/myapp/?page=battery&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-ip-trace || 传输承载 || IP Trace (IP 链路探测诊断) || /myapp/?page=ip_trace || http://192.168.100.20/myapp/?page=ip_trace&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-incident-overview || 故障单 || Incident Overview (重大故障事件总览) || /myapp/?page=incident_overview&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5 || http://192.168.100.20/myapp/?page=incident_overview&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-warehouse || 备件仓储 || Warehouse Dashboard (备件仓库流转看板) || /myapp/?page=warehouse || http://192.168.100.20/myapp/?page=warehouse&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-overview || 其他 || Overview (运营总览) || /myapp/?page=overview || http://192.168.100.20/myapp/?page=overview&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-table-browser || 自动化调度与数据集成 || Table Browser (数据表浏览器) || /myapp/?page=tables || http://192.168.100.20/myapp/?page=tables&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-data-upload || 自动化调度与数据集成 || Data Upload (离线数据上传中心) || /myapp/?page=upload || http://192.168.100.20/myapp/?page=upload&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-archive || 其他 || Archive (历史归档) || /myapp/?page=archive || http://192.168.100.20/myapp/?page=archive&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-analysis-dashboard || 其他 || Dashboard (分析仪表盘) || /myapp/?page=dashboard || http://192.168.100.20/myapp/?page=dashboard&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-settings || 自动化调度与数据集成 || Settings (系统设置 / 凭据管理) || /myapp/?page=settings || http://192.168.100.20/myapp/?page=settings&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-email-reports || 自动化调度与数据集成 || Task Report Files (任务报告文件中心) || /myapp/?page=email_reports || http://192.168.100.20/myapp/?page=email_reports&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-portal-login || 自动化调度与数据集成 || Portal Login (网管门户一键登录) || /myapp/?page=portalLogin || http://192.168.100.20/myapp/?page=portalLogin&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+external-rag-knowledge-qa || 其他 || RAG Knowledge Q&A (本地知识问答 / Open WebUI) ||  || http://192.168.100.27:3000/
+custom-eflow-qa || 其他 || eFlow Knowledge Base (eFlow 知识库 / TT 快速分析) || /myapp/?page=eflow_qa&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5 || http://192.168.100.20/myapp/?page=eflow_qa&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-site-availability || MS 运维管理 || Site Availability (站点可用率看板) || /myapp/?page=site_avail || http://192.168.100.20/myapp/?page=site_avail&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-help || 其他 || Help (使用帮助 / 操作手册) || /myapp/?page=help || http://192.168.100.20/myapp/?page=help&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-issue-feedback || 其他 || Issue Feedback (问题反馈 / 建议提报) || /myapp/?page=feedback || http://192.168.100.20/myapp/?page=feedback&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
+custom-ran-cells-kpi || 网络性能 || RAN Cells KPI (RAN 小区可用率达标看板) || /myapp/?page=ran_cells_kpi || http://192.168.100.20/myapp/?page=ran_cells_kpi
+custom-vmax-cxo-dashboard || MS 运维管理 || VMAX CXO Original View (VMAX CXO 原版看板) || /myapp/?page=vmaxCxoDashboard || http://192.168.100.20/myapp/?page=vmaxCxoDashboard
+custom-sp-material || 备件仓储 || Material Summary (备件物料库存与消耗汇总) || /myapp/?page=sp_material || http://192.168.100.20/myapp/?page=sp_material
+custom-vmax-cxo-dashboard-daily || MS 运维管理 || VMAX CXO Daily View (VMAX CXO 天粒度看板) || /myapp/?page=vmaxCxoDashboard_Daily || http://192.168.100.20/myapp/?page=vmaxCxoDashboard_Daily
+custom-ume-in-kpi || 网络性能 || Customer Service KPI (客户业务 KPI) || /myapp/?page=ume_in_kpi || http://192.168.100.20/myapp/?page=ume_in_kpi
+finebi-ms-contract-operation-kpis || MS 运维管理 || Contract Operation KPIs (合同运营关键绩效指标) || /webroot/decision/link/qXUp || http://192.168.100.19/webroot/decision/link/qXUp
+finebi-ms-mttr-monthly-weekly || MS 运维管理 || MTTR Dashboard Monthly&Weekly (平均修复时间分析) || /webroot/decision/link/NGk1 || http://192.168.100.19/webroot/decision/link/NGk1
+finebi-ms-nur-monthly-weekly || MS 运维管理 || NUR Dashboard Monthly&Weekly (网络不可用率周/月报) || /webroot/decision/link/B7E3 || http://192.168.100.19/webroot/decision/link/B7E3
+finebi-fo-availability-daily || 故障单 || Availability Daily Dashboard (全网可用率日度看板) || /webroot/decision/link/AIfA || http://192.168.100.19/webroot/decision/link/AIfA
+finebi-fo-spare-management-audit || 备件仓储 || Spare Management Audit Dashboard (备件管理与审计) || /webroot/decision/link/2XPO || http://192.168.100.19/webroot/decision/link/2XPO
+finebi-fo-availability-tt-related || 故障单 || Availability Dashboard (TT Related) (工单关联可用性) || /webroot/decision/link/435X || http://192.168.100.19/webroot/decision/link/435X
+finebi-flm-cm-dashboard || 故障单 || CM Dashboard (纠正性维护与现场抢修看板) || /webroot/decision/link/3GnT || http://192.168.100.19/webroot/decision/link/3GnT
+finebi-bo-2g-daily-kpi || 网络性能 || 2G_Daily_KPI (2G 语音与无线质量日报) || /webroot/decision/link/dXv0 || http://192.168.100.19/webroot/decision/link/dXv0

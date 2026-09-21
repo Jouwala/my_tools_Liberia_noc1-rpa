@@ -4,8 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MS View · 看板查看器</title>
-<link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="alternate icon" href="favicon.svg">
+<!-- 2026-09-21 同步新 Logo：与 index.html 一致，改用官方品牌资产降采样版。
+     原来这里指的是 favicon.svg，该文件已归档改名（favicon.svg_bak_20260921_改用PNG前），
+     不改会 404 并回退到站点根 /favicon.ico。 -->
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/favicon-180.png">
 <!-- 图标字体是完整集合（非 Tailwind，不受 purge 影响）；布局样式全部走本文件内联手写 CSS，
      刻意不依赖 assets/tailwind.css —— 那是预编译产物，viewer 里新写的类名不会被编译进去。 -->
 <link rel="stylesheet" href="assets/icons/phosphor.css">

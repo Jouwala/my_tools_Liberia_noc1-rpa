@@ -25,10 +25,10 @@ export function TaskStatusProvider({ children }: { children: ReactNode }) {
     const poll = async () => {
       let map: Record<string, boolean> = {}
       try {
-        const res = await api.get('/tasks')
-        const list = res.data.tasks || []
-        map = {}
-        list.forEach((t: any) => { map[t.task_id] = !!t.running })
+        // 只取运行状态（约 1KB）；/tasks 会带上最新执行记录/重试预测等，约 75KB，
+        // 而这里只需要一个布尔值，且是每 8s（忙时 2s）轮询一次。
+        const res = await api.get('/tasks/running')
+        map = res.data.running || {}
         if (!cancelled) setRunningMap(map)
       } catch {
         // 轮询失败忽略，下次继续

@@ -1,0 +1,25 @@
+ 2254:       var accentCls = failed ? 'bg-rose-400' : 'bg-blue-500';
+ 2255:       var iconCls = failed ? 'bg-rose-50 text-rose-500' : 'bg-blue-50 text-blue-600';
+ 2256:       return '<button type="button" class="relative overflow-hidden text-left bg-white rounded-xl border ' +
+ 2257:         (on ? 'border-blue-400 ring-1 ring-blue-200 shadow-sm' : 'border-slate-200/80 hover:border-blue-300') +
+ 2258:         ' shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-lg hover:-translate-y-0.5' +
+ 2259:         ' transition-all duration-200 group" data-act="qc" data-qc="' + esc(q.id) + '" title="' + esc(tip) + '">' +
+ 2260:         '<span class="absolute left-0 top-0 h-full w-[3px] ' + accentCls + '"></span>' +
+ 2261:         '<div class="pl-3.5 pr-3 py-3">' +
+ 2262:           '<div class="flex items-center justify-between gap-2 text-[13px] font-semibold text-slate-600">' +
+ 2263:             '<span class="truncate tracking-wide">' + esc(state.lang === 'en' ? q.en : q.zh) + '</span>' +
+ 2264:             '<span class="p-1 rounded-md ' + iconCls + ' shrink-0 transition-colors">' + ico(q.icon) + '</span>' +
+ 2265:           '</div>' +
+ 2266:           '<div class="text-center text-[30px] lg:text-[36px] font-extrabold ' + numCls + ' font-mono tracking-tight leading-none mt-2 transition-transform duration-200 group-hover:scale-105">' +
+ 2267:             num + '</div>' +
+ 2268:           '<div class="text-[11px] mt-2 truncate text-center leading-tight ' + (failed ? 'text-rose-500' : 'text-slate-400') + '" title="' + esc(sub) + '">' +
+ 2269:             esc(sub) + '</div>' +
+ 2270:         '</div>' +
+ 2271:       '</button>';
+ 2272:     }).join('');
+ 2273: 
+ 2274:     /* 标题栏「达标率」：原来是写死的字符串，2026-09-17 改为接口算出的真实值
+ 2275:        （近 30 天 TT 的 SLA Pass 占比）。取不到就显示 —，不保留假数字。 */
+ 2276:     var sla = qcMetric('sla');
+ 2277:     var slaVal = sla && sla.value != null ? Number(sla.value).toFixed(1) + '%' : '—';
+ 2278:     var slaTip = sla && sla.total

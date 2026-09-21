@@ -1,0 +1,65 @@
+const fs = require('fs');
+const file = 'assets/portal.js';
+const src = fs.readFileSync(file, 'utf8');
+
+/* ---------- 卡片容器 ---------- */
+const oldCardTag = `      var accentCls = failed ? 'bg-rose-400' : 'bg-blue-500';
+      var cardTint = failed ? 'from-rose-50/70' : 'from-blue-50/70';
+      var glowCls = failed ? 'bg-rose-200/40' : 'bg-blue-200/40';
+      var iconCls = failed ? 'bg-rose-50 text-rose-500 ring-rose-100' : 'bg-blue-50 text-blue-600 ring-blue-100';
+      var numTint = failed ? 'text-rose-500' : 'text-slate-800';
+      return '<button type="button" class="relative overflow-hidden text-left rounded-2xl border bg-gradient-to-b ' + cardTint + ' to-white ' +
+        (on ? 'border-blue-400 ring-2 ring-blue-100 shadow-md' : 'border-slate-200/70 hover:border-blue-300') +
+        ' shadow-[0_1px_3px_rgba(15,23,42,0.06)] hover:shadow-lg hover:-translate-y-0.5' +
+        ' transition-all duration-200 ease-out group" data-act="qc" data-qc="' + esc(q.id) + '" title="' + esc(tip) + '">' +
+`;
+
+const newCardTag = `      var accentCls = failed ? 'bg-rose-400' : 'bg-blue-500';
+      /* 2026-09-21 视觉优化（只改样式，数据 / 交互 / data-act 不动）
+         - 竖条由"圆点柔光"回归细竖条，靠左贴边：状态语义更直接，也不再遮挡内容；
+         - 卡面回到纯白 + 1px 细边，靠间距与细边分区，避免渐变"贴纸感"；
+         - 数字去掉 text-center，改左对齐并与标题同轴，标题 → 数字 → 口径形成一条左对齐基线；
+         - 数字上色：正常=深石板、失败=玫红，字重降到 semibold，弱化"大号数字"压迫感。 */
+      var iconCls = failed ? (on ? 'bg-rose-100/80 text-rose-600' : 'bg-rose-50 text-rose-500') : (on ? 'bg-blue-100/80 text-blue-700' : 'bg-blue-50 text-blue-600');
+      var numCls = failed ? 'text-rose-500' : 'text-slate-800';
+      var railCls = failed ? 'bg-rose-400' : 'bg-blue-500';
+      return '<button type="button" class="group relative overflow-hidden text-left rounded-xl border bg-white ' +
+        (on ? 'border-blue-400 shadow-[0_6px_18px_-6px_rgba(37,99,235,0.45)]' : 'border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.05)] hover:border-blue-300 hover:shadow-[0_6px_16px_-8px_rgba(15,23,42,0.35)] hover:-translate-y-0.5') +
+        ' transition-all duration-200 ease-out" data-act="qc" data-qc="' + esc(q.id) + '" title="' + esc(tip) + '">' +
+        '<span class="pointer-events-none absolute left-0 top-0 h-full w-[3px] ' + railCls + ' ' + (on ? 'opacity-100' : 'opacity-60 group-hover:opacity-100') + ' transition-opacity"></span>' +
+`;
+if (!src.includes(oldCardTag)) { console.error('未匹配到卡片容器'); process.exit(1); }
+
+/* ---------- 内层结构 ---------- */
+const oldInner = `        '<span class="pointer-events-none absolute -left-6 -top-6 h-16 w-16 rounded-full blur-xl ' + glowCls + '"></span>' +
+        /* 选中态底部高亮条，比整圈描边更含蓄 */
+        (on ? '<span class="absolute left-3 right-3 bottom-0 h-[2px] rounded-full ' + accentCls + '"></span>' : '') +
+        '<div class="relative pl-3.5 pr-3.5 py-3.5">' +
+          '<div class="flex items-center gap-2">' +
+            '<span class="flex h-7 w-7 items-center justify-center rounded-full ring-1 ' + iconCls + ' shrink-0 transition-colors">' + ico(q.icon) + '</span>' +
+            '<span class="truncate text-[12.5px] font-semibold tracking-wide text-slate-500 group-hover:text-slate-700 transition-colors">' +
+              esc(state.lang === 'en' ? q.en : q.zh) + '</span>' +
+          '</div>' +
+          '<div class="text-center text-[30px] lg:text-[34px] font-bold ' + numTint + ' font-mono tracking-tight leading-none mt-2.5 tabular-nums">' +
+            num + '</div>' +
+          '<div class="text-[11px] mt-2 truncate text-center leading-tight ' + (failed ? 'text-rose-500' : 'text-slate-400') + '" title="' + esc(sub) + '">' +
+            esc(sub) + '</div>' +
+`;
+
+const newInner = `        '<div class="relative pl-4 pr-3.5 pt-3.5 pb-3">' +
+          '<div class="flex items-center gap-2">' +
+            '<span class="flex h-6 w-6 items-center justify-center rounded-md ' + iconCls + ' shrink-0 transition-colors">' + ico(q.icon) + '</span>' +
+            '<span class="truncate text-[12px] font-medium tracking-wide text-slate-500 group-hover:text-slate-700 transition-colors">' +
+              esc(state.lang === 'en' ? q.en : q.zh) + '</span>' +
+            '<span class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full ' + accentCls + (on || failed ? '' : ' opacity-40') + '"></span>' +
+          '</div>' +
+          '<div class="mt-2.5 text-[26px] lg:text-[30px] font-semibold ' + numCls + ' font-mono tracking-tight leading-none tabular-nums">' +
+            num + '</div>' +
+          '<div class="mt-1.5 truncate text-[11px] leading-tight ' + (failed ? 'text-rose-500' : 'text-slate-400') + '" title="' + esc(sub) + '">' +
+            esc(sub) + '</div>' +
+`;
+if (!src.includes(oldInner)) { console.error('未匹配到卡片内层'); process.exit(1); }
+
+let out = src.replace(oldCardTag, newCardTag).replace(oldInner, newInner);
+fs.writeFileSync(file, out);
+console.log('QC 卡片样式已更新，字节数：', src.length, '->', out.length);

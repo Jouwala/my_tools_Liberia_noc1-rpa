@@ -1,0 +1,54 @@
+      return '<div class="text-[13px] font-semibold text-slate-600 bg-slate-100 px-2.5 py-1.5 rounded flex items-center justify-between mb-2">' +
+        '<span>' + esc(label) + '</span>' +
+        '<span class="text-[12px] text-slate-400 font-mono">' + n + ' 项</span></div>';
+    }
+    subs.forEach(function (s) {
+      var list = items.filter(function (it) { return subOfItem(it, gid) === s.id; });
+      var realN = full.filter(function (it) { return subOfItem(it, gid) === s.id; }).length;
+      list.forEach(function (it) { used[it.no] = true; });
+      /* 空子分组不画标题行：默认是折叠态，给没内容的桶留一行空标题会把区块撑高，
+         也让「刚建的子分组还没放看板」看起来像渲染出错。 */
+      if (!list.length) return;
+      html += subHead(subLabel(s), list.length, realN) + plainBodyHtml(gid, list);
+    });
+    var rest = items.filter(function (it) { return !used[it.no]; });
+    if (rest.length) {
+      var ids = subs.map(function (s) { return s.id; });
+      var restReal = full.filter(function (it) { return ids.indexOf(subOfItem(it, gid)) === -1; }).length;
+      html += subHead(t('sub.others'), rest.length, restReal) + plainBodyHtml(gid, rest);
+    }
+    return '<div class="space-y-3">' + html + '</div>';
+  }
+
+  /* BO View 正文：沿用通用分区渲染（保留函数名，调用点无需改）。
+     它的子分组是出厂内置的三个（Radio, Power & Field Dispatch / Core Network / IP Bearer），
+     现在同样可在「分组管理」里增删改。 */
+  function boBody(items, pack) {
+    return subBody({ id: 'BO View' }, items, pack);
+  }
+
+  /** CXO View —— 只放系统卡，整行铺满。
+      2026-09-17 按需求移除了右侧那三张 KPI 小卡（门户看板总数 / 在线运行 / 累计访问量）：
+      用户明确要求「CXO View 下面要能看见看板，不要只写那几个数字」，
+      同时左侧看板卡由 xl:col-span-7 放开成整行，卡片有更多横向空间。
+      注：拓扑区底部原本也有一份同样的统计小卡，早前已因「与这里重复」移除；
+      现在两处都不再展示这组数字 —— 汇总数字的落点见页头统计条。 */
+  function cxoSection() {
+    state._curGid = 'CXO View'; // CXO 不经 bodyHtml，显式设定，避免 shell() 读到上一区块的残留 gid
+    var pack = sectionItems('CXO View');
+    var body =
+      '<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">' +
+        (pack.list.length ? pack.list.map(cxoCard).join('') : sectionEmpty(pack)) +
+      '</div>';
+
+    return headHtml({
+      kind: 'square-red', title: t('sec.cxo.title'), sub: t('sec.cxo.sub'), subInline: true,
+      /* 标题可点：进入 CXO View 的下级页面（该分组看板列表） */
+      href: groupHref('CXO View'),
+      hrefTip: tf('sec.openTip', { name: t('sec.cxo.title') }),
+      /* 2026-09-18 按需求移除标题栏右侧两处「无时间维度、也无实际用途」的文字：
+         ·「战略大屏直通率: 100%」—— 100% 是模板里写死的常量，没有任何后端来源，
+           永远显示 100%，既不随时间变化也不反映任何真实指标；
+         ·「完整系统目录」—— 是个不可点的 <span>（看着像链接，点了没反应），
+           真正的下级入口是左侧标题（href=viewer.html?gid=CXO View），功能没丢。
+         区块内搜索框是能用的，保留。 */

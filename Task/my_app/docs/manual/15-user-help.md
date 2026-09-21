@@ -97,7 +97,7 @@
 | RAN Cells KPI 同步 | `cells_kpi_sync` | `50 4 * * *` | u | `services/ran_cells_kpi_sync.py → run_cells_kpi_sync` |
 | RAN Network KPI 同步 | `network_kpi_sync` | `0 5 * * *` | u | `services/ran_ume_network_kpi.py → run_network_kpi_sync` |
 | CNN UME KPI 同步 | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
-| SP 备件数据同步 | `sp_data_sync` | `0 7 * * *` | n | `services/get_sp_table.py → run_sp_data_sync` |
+| SP 备件数据同步 | `sp_data_sync` | `10 * * * *` | n | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI 同步 | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
 | Liberia 宕站 1小时报告邮件 | `liberia_email_1h` | `5 * * * *` | m | `services/liberia_email_report.py → run_1h_report` |
 | Liberia 宕站 8小时报告邮件 | `liberia_email_8h` | `10 */8 * * *` | m | `services/liberia_email_report.py → run_8h_report` |
@@ -407,7 +407,7 @@
 
 #### SP 备件数据同步（`sp_data_sync`）
 
-- 默认 cron: `0 7 * * *`　|　worker 组: **n**
+- 默认 cron: `10 * * * *`　|　worker 组: **n**
 - 工作流脚本: `services/get_sp_table.py → run_sp_data_sync`
 
 **功能**: 从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI WareHouseDashBoard inventory.db
@@ -426,6 +426,8 @@
 - 镜像失败会在任务消息提示但影响不到 app.db；路径/开关在 Settings → 任务配置（mirror_db_path / mirror_enabled）
 - inventory_details 只追加不覆盖，靠保留期控制体积：Settings → 任务配置 inventory_retention_days（默认 180）。清理基准取表内最新 update_date，上游断流时不会清空整表
 - 仓库看板「Inventory Quantity Trend」直接读取本表全部日期（无日期参数时返回全量），调小保留天数会直接缩短趋势图历史
+- 2026-09-20 起由每天 07:00 改为每小时 :10：上游 SFTP 本就每小时 :00:03 导出一份，而 MsPortal 的 QC 面板 SPMS 卡读本任务写的 inband_details/outband_details，按天同步时那个数字最长滞后 24 小时。排 :10 是为了避开同组的 eflow_sync(:00) 与 sp_online_sync(:35)
+- 单次耗时被末尾的 FineBI 镜像拖长（UNC inventory.db 偶发 database is locked，实测 1~9min）；队列有单飞保护，上一轮没跑完会跳过本轮触发，不会堆叠，但那一小时的数据就是旧的。若 QC 面板其它指标（TT/WO/CR/PMT）跟着一起变慢，先查本任务是否占住了 n 组 worker
 
 #### iPRAN UME KPI 同步（`ipran_kpi_sync`）
 

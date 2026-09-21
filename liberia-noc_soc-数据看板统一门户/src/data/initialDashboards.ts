@@ -5,14 +5,18 @@ import { getFinebiHost, getMyappHost, buildRel } from '../config';
 // 看板目录数据（真实环境填充）
 //  - custom 平台：Task\my_app (Data Insight MVP) 前端页面，
 //    直链格式 http://<myappHost>/myapp/?page=<PageKey>
-//  - finebi 平台：17 个看板全部使用 FineBI「公共链接」（匿名、免登录直达），
-//    地址形如 http://<finebiHost>/webroot/decision/link/<code>
+//  - finebi 平台：仅剩 2 个看板（qXUp / B7E3）在 my_app 侧没有原生页，仍走
+//    FineBI「公共链接」（匿名、免登录直达），地址形如
+//    http://<finebiHost>/webroot/decision/link/<code>
 // 说明：主机（192.168.100.19 / .20）统一收口到 src/config.ts，此处仅描述相对路径；
 // 完整 URL 在导出时由 withRel 计算，运行时再由配置 + rel 拼出，改 IP 只需改配置一处。
 // 默认配置由「门户 UI 导出 JSON」重新生成（2026-08-15 08:34 版本，37 条），
 // 2026-08-29 起补充 my_app 新增页面：MW 微波拓扑 / MW 微波实时 / 任务报告文件 / 门户一键登录（共 41 条）。
 // 2026-09-07 补充 my_app 新增页面：Issue Feedback 问题反馈工单台（共 46 条）。
 // 2026-09-12 补充 my_app 新增页面：RAN 小区 KPI / VMAX CXO 原版看板 / SP 物料统计汇总（共 49 条）。
+// 2026-09-21 原来走 FineBI 的 15 个看板改用 my_app 的 FINEBI Board 原生页
+//    （?page=finebi_<slug>；CN KPI _V2 用 ?page=cn_kpi），platform 由 finebi 改为 custom。
+//    映射与依据见 scripts/migrate_finebi_to_myapp.py。
 // ============================================================================
 
 const MYAPP_BASE = `http://${getMyappHost()}/myapp/?page=`;
@@ -679,8 +683,8 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       id: 'finebi-ms-mttr-monthly-weekly',
       title: 'MTTR Dashboard Monthly&Weekly (平均修复时间分析)',
       description: '【MS 目录】故障平均修复时间 MTTR（Mean Time To Repair）周度/月度走势与各专业响应时延。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/NGk1`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_mttr`,
       category: 'MS 综合运维管理',
       tags: ['MTTR', 'FineBI', 'Mean Repair Time', 'Weekly/Monthly Report', 'Link to be updated'],
       iconName: 'Clock',
@@ -692,7 +696,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 840,
       lastVisited: '2026-08-14 11:00',
       themeColor: 'indigo',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-ms-nur-monthly-weekly',
@@ -717,8 +721,8 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       id: 'finebi-fo-availability-daily',
       title: 'Availability Daily Dashboard (全网可用率日度看板)',
       description: '【FO 目录】Front Office 一线监控 24 小时可用率 Daily 追踪，涵盖各地区网元健康度。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/AIfA`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_availability_daily`,
       category: '网络性能与无线/核心网',
       tags: ['FO', 'Availability', 'Daily', 'Front-line Monitoring', 'Link to be updated'],
       iconName: 'TrendingUp',
@@ -730,14 +734,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 710,
       lastVisited: '2026-08-14 09:10',
       themeColor: 'emerald',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-fo-spare-management-audit',
       title: 'Spare Management Audit Dashboard (备件管理与审计)',
       description: '【FO 目录】各站点备品备件消耗流向、周转率、安全库存水位及定期盘点审计报表。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/2XPO`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_spare`,
       category: '现场动力与备件仓储',
       tags: ['FO', 'Spare Audit', 'Inventory Check', 'Material Allocation', 'Link to be updated'],
       iconName: 'Boxes',
@@ -749,14 +753,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 460,
       lastVisited: '2026-08-12 11:20',
       themeColor: 'amber',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-fo-availability-tt-related',
       title: 'Availability Dashboard (TT Related) (工单关联可用性)',
       description: '【FO 目录】将网络停机可用率损失与具体 Trouble Ticket (TT) 故障工单精确关联溯源。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/435X`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_availability_tt`,
       category: '告警与工单故障',
       tags: ['FO', 'TT Correlation', 'Fault Ticket', 'Availability Tracing', 'Link to be updated'],
       iconName: 'ShieldCheck',
@@ -768,14 +772,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 580,
       lastVisited: '2026-08-13 14:15',
       themeColor: 'rose',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-flm-cm-dashboard',
       title: 'CM Dashboard (纠正性维护与现场抢修看板)',
       description: '【FLM 目录】Field Level Maintenance 现场紧急故障纠正性抢修（Corrective Maintenance）完成时效。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/3GnT`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_cm_dashboard`,
       category: '现场动力与备件仓储',
       tags: ['FLM', 'CM Repair', 'Field Operation', 'Defect Elimination Deadline', 'Link to be updated'],
       iconName: 'Factory',
@@ -787,14 +791,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 520,
       lastVisited: '2026-08-13 10:00',
       themeColor: 'amber',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-bo-2g-daily-kpi',
       title: '2G_Daily_KPI (2G 语音与无线质量日报)',
       description: '【BO 目录】2G GSM 掉话率 Call Drop Rate、拥塞率、话务量 Erlang 及无线接通率 Daily 报表，数据由 RAN UME 每日同步。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/dXv0`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_kpi_2g`,
       category: '网络性能与无线/核心网',
       tags: ['2G', 'GSM', 'Call Drop Rate', 'Traffic Volume', 'Link to be updated'],
       iconName: 'TrendingUp',
@@ -806,14 +810,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 430,
       lastVisited: '2026-08-14 08:45',
       themeColor: 'blue',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-bo-3g-daily-kpi',
       title: '3G_Daily_KPI (3G 性能与吞吐量日报)',
       description: '【BO 目录】3G UMTS CS 语音与 PS 数据吞吐量、HSDPA 速率、软切换成功率 Daily 统计。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/51Le`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_kpi_3g`,
       category: '网络性能与无线/核心网',
       tags: ['3G', 'UMTS', 'Throughput', 'Call Drop Rate', 'Link to be updated'],
       iconName: 'TrendingUp',
@@ -825,14 +829,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 410,
       lastVisited: '2026-08-14 08:50',
       themeColor: 'blue',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-bo-4g-kpi-daily',
       title: '4G_KPI_Daily (4G LTE 核心性能日报)',
       description: '【BO 目录】4G LTE RRC 连接建立成功率、E-RAB 掉线率、下行吞吐量 Throughput 与 VoLTE 质量分析。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/wJmG`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_kpi_4g`,
       category: '网络性能与无线/核心网',
       tags: ['4G', 'LTE', 'VoLTE', 'Downlink Speed', 'Link to be updated'],
       iconName: 'Zap',
@@ -844,14 +848,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 860,
       lastVisited: '2026-08-14 14:10',
       themeColor: 'indigo',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-bo-daily-availability-kpi',
       title: 'Daily_Availability_KPI (日常全网可用性统计)',
       description: '【BO 目录】全网基站物理站点与逻辑小区的日度整体可用性 KPI 计算与劣质站点 Top 排行。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/1neE`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_daily_availability`,
       category: '网络性能与无线/核心网',
       tags: ['可用性', 'Top Worst Cells', 'NE Availability', 'Link to be updated'],
       iconName: 'Gauge',
@@ -863,14 +867,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 550,
       lastVisited: '2026-08-14 09:20',
       themeColor: 'emerald',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-bo-cn-kpi-v2',
       title: 'CN KPI _V2 (核心网性能与附着成功率 V2)',
       description: '【BO 目录】Core Network 核心网 PS 域附着成功率、SGSN/MME 负荷、SGW/PGW 流量与用户面时延。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/iYiQ`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}cn_kpi`,
       category: '网络性能与无线/核心网',
       tags: ['Core Network', 'CN', 'MME', 'Attach Rate', 'Link to be updated'],
       iconName: 'Cpu',
@@ -882,14 +886,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 490,
       lastVisited: '2026-08-13 15:10',
       themeColor: 'purple',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-bo-ip-ran-region-kpi',
       title: 'IP RAN Region KPI (IP 承载网分区性能报表)',
       description: '【BO 目录】各行政区 IP RAN 承载网路由器端口利用率、MPLS 隧道时延与链路丢包率，数据由 iPRAN UME 每小时同步。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/k74G`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_ipran_4region`,
       category: '传输承载与业务时延',
       tags: ['IP RAN', 'Regional Report', 'MPLS', 'Port Utilization', 'Link to be updated'],
       iconName: 'Activity',
@@ -901,14 +905,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 440,
       lastVisited: '2026-08-12 16:30',
       themeColor: 'cyan',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-bo-ip-ran-core-hq-odc',
       title: 'IP RAN (IPCORE HQ-ODC & Banjor/ELWA & OLT)',
       description: '【BO 目录】IPCORE 核心汇聚节点（HQ-ODC、Banjor、ELWA）及 OLT 上行骨干环链路大屏。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/Dv5z`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_ipran_hq`,
       category: '传输承载与业务时延',
       tags: ['IPCORE', 'HQ-ODC', 'Banjor', 'ELWA', 'Link to be updated'],
       iconName: 'Globe',
@@ -920,14 +924,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 530,
       lastVisited: '2026-08-14 11:40',
       themeColor: 'indigo',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-bo-ip-ran-metor-ring',
       title: 'IP RAN Metor Ring KPI (城域环网性能 KPI)',
       description: '【BO 目录】城域网光纤环路负载均衡度、保护倒换状态与波分系统健康度。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/PUVx`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_metro_ring`,
       category: '传输承载与业务时延',
       tags: ['Metro Ring', 'Ring Load', 'Protection Switching', 'Link to be updated'],
       iconName: 'Globe',
@@ -939,14 +943,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 380,
       lastVisited: '2026-08-11 14:00',
       themeColor: 'blue',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-bo-fw-daily-kpi',
       title: 'FW_Daily_KPI (防火墙安全与出口流量日报)',
       description: '【BO 目录】核心防火墙会话并发数、攻击拦截事件、国际出口吞吐量及安全告警，每日 07:15 自动同步并邮件图表。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/uq6f`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_fw_daily`,
       category: '网络性能与无线/核心网',
       tags: ['Firewall', 'Security Protection', 'Egress Traffic', 'Concurrent Sessions', 'Link to be updated'],
       iconName: 'ShieldCheck',
@@ -958,14 +962,14 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 360,
       lastVisited: '2026-08-10 10:30',
       themeColor: 'rose',
-      status: 'beta'
+      status: 'online'
     },
     {
       id: 'finebi-bo-cn-monthly-kpi',
       title: 'CN Monthly KPI (核心网月度综合运营报表)',
       description: '【BO 目录】核心网容量规划、月度峰值话务量、计费 CDR 记录完整性及长期扩容建议报表。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/cCc5`,
+      platform: 'custom',
+      url: `${MYAPP_BASE}finebi_cn_kpi_monthly`,
       category: '网络性能与无线/核心网',
       tags: ['CN Monthly Report', 'Capacity Planning', 'CDR Billing', 'Link to be updated'],
       iconName: 'PieChart',
@@ -977,7 +981,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       clickCount: 290,
       lastVisited: '2026-08-05 16:20',
       themeColor: 'purple',
-      status: 'beta'
+      status: 'online'
     },
 ];
 

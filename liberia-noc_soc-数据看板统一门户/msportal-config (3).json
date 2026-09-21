@@ -1,0 +1,1373 @@
+{
+  "assign": {},
+  "groups": [],
+  "renames": [],
+  "lang": "en",
+  "catalog": [
+    {
+      "no": 1,
+      "groups": [
+        "MS View"
+      ],
+      "titleZh": "NUR Dashboard",
+      "titleEn": "NUR Dashboard",
+      "descZh": "Network Unavailability Rate 深度分析，基于 RAN UME 数据按站点、区域与故障根因统计停机损失时长，与 MS SLA 看板口径对齐。",
+      "descEn": "Network Unavailability Rate in-depth analysis, based on RAN UME data to calculate downtime loss duration by site, region and fault root cause, aligned with MS SLA dashboard caliber.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=nur&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "NUR",
+        "Unavailability Rate",
+        "Downtime",
+        "Network Quality"
+      ],
+      "owner": "NUR 专项工程师",
+      "ownerEn": "NUR Special Engineer",
+      "dept": "MS 运营管理部",
+      "deptEn": "MS Operation Management Dept",
+      "status": "online",
+      "freq": "每日0点",
+      "clicks": 1180,
+      "icon": "dashboard"
+    },
+    {
+      "no": 4,
+      "groups": [
+        "FLM View"
+      ],
+      "titleZh": "GIS Map (全网故障与工单地理分布)",
+      "titleEn": "GIS Map (Network Fault & Ticket Geographic Distribution)",
+      "descZh": "基于 Leaflet 的利比里亚全网 GIS 地图，叠加站点故障、工单分布与传输链路，支持按级别/状态筛选与弹窗下钻。",
+      "descEn": "Leaflet-based Liberia network-wide GIS map, overlaying site faults, ticket distribution and transmission links, supports filtering by level/status and popup drill-down.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=gis&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "GIS",
+        "地图拓扑",
+        "基站分布",
+        "空间大屏"
+      ],
+      "owner": "GIS 工程师",
+      "ownerEn": "",
+      "dept": "网规网优部",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 750,
+      "icon": "map"
+    },
+    {
+      "no": 5,
+      "groups": [
+        "FLM View"
+      ],
+      "titleZh": "Site Availability (站点可用率看板)",
+      "titleEn": "Site Availability (Site Availability Dashboard)",
+      "descZh": "按站点/制式（2G/3G/4G）统计月度与周度可用率，含低于阈值天数、VIP 站点、FME/主管维度与关联工单（总数/未结/已结），支持筛选与 Excel 导出。",
+      "descEn": "Monthly and weekly availability per site and technology (2G/3G/4G), including days below threshold, VIP sites, FME/supervisor dimensions and related tickets (total/open/closed), with filtering and Excel export.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=site_avail&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "Site Availability",
+        "Availability",
+        "VIP Site",
+        "Tickets"
+      ],
+      "owner": "运维经理",
+      "ownerEn": "",
+      "dept": "MS 运营管理部",
+      "deptEn": "MS Operation Management Dept",
+      "status": "online",
+      "freq": "每日0点",
+      "clicks": 0,
+      "icon": "gauge"
+    },
+    {
+      "no": 6,
+      "groups": [
+        "CXO View"
+      ],
+      "titleZh": "VMAX CXO Original View (VMAX CXO 原版看板)",
+      "titleEn": "VMAX CXO Original View (Legacy VMAX CXO Dashboard)",
+      "descZh": "VMAX CXO Dashboard 原版视觉复刻页，与简化版 CXO Dashboard 完全独立，保留 VMAX 原有决策视图的指标口径与呈现方式，便于新旧口径对照核查。",
+      "descEn": "A faithful reproduction of the original VMAX CXO Dashboard, fully separated from the simplified CXO Dashboard. It preserves the original metric definitions and layout so the legacy and current views can be cross-checked.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=vmaxCxoDashboard",
+      "tags": [
+        "VMAX",
+        "CXO",
+        "决策看板",
+        "原版复刻"
+      ],
+      "owner": "系统管理员",
+      "ownerEn": "System Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "chart-polar"
+    },
+    {
+      "no": 8,
+      "groups": [
+        "FO View"
+      ],
+      "titleZh": "MTTR Dashboard Monthly&Weekly (平均修复时间分析)",
+      "titleEn": "MTTR Dashboard Monthly&Weekly (Mean Time To Repair Analysis)",
+      "descZh": "【MS 目录】故障平均修复时间 MTTR（Mean Time To Repair）周度/月度走势与各专业响应时延。",
+      "descEn": "[MS Directory] Mean Time To Repair (MTTR) weekly/monthly trends and response latency by specialty.",
+      "platform": "finebi",
+      "url": "http://192.168.100.19/webroot/decision/link/NGk1",
+      "tags": [
+        "MTTR",
+        "FineBI",
+        "Mean Repair Time",
+        "Weekly/Monthly Report",
+        "Link to be updated"
+      ],
+      "owner": "质量主管",
+      "ownerEn": "Quality Manager",
+      "dept": "MS 质量管理组",
+      "deptEn": "MS Quality Management Team",
+      "status": "beta",
+      "freq": "周度更新",
+      "clicks": 840,
+      "icon": "clock",
+      "qc": [
+        "tt"
+      ]
+    },
+    {
+      "no": 11,
+      "groups": [
+        "FO View",
+        "FLM View"
+      ],
+      "titleZh": "RealTime Alarm Map (实时告警地图)",
+      "titleEn": "RealTime Alarm Map (Real-time Alarm Map)",
+      "descZh": "以 GIS 地图红点形式实时呈现 eFlow Active 告警分布，与 Alarm Dashboard 时间口径统一，快速定位区域性故障聚集。",
+      "descEn": "Network-wide real-time alarm geographic distribution based on FM Active data, supports filtering by alarm level, specialty and region, click site popup to view alarm details.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=realtime_alarm&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "活动告警",
+        "地图红点",
+        "区域聚集",
+        "FM Active"
+      ],
+      "owner": "告警监控岗",
+      "ownerEn": "",
+      "dept": "FO 监控中心",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 820,
+      "icon": "bell",
+      "qc": [
+        "alarm"
+      ]
+    },
+    {
+      "no": 12,
+      "groups": [
+        "FO View",
+        "FLM View"
+      ],
+      "titleZh": "Alarm Management (告警管理)",
+      "titleEn": "Alarm Management (Alarm Management)",
+      "descZh": "告警全生命周期管理：告警确认、派单、关闭与统计，支持按时间/区域/级别多维筛选与 Excel 导出。",
+      "descEn": "Alarm full lifecycle management: alarm acknowledgment, dispatch, closure and statistics, supports multi-dimensional filtering by time/region/level and Excel export.",
+      "platform": "external",
+      "url": "http://192.168.100.20/myapp/?page=alarmManagement",
+      "tags": [
+        "告警规则",
+        "告警收敛",
+        "阈值配置",
+        "智能关联"
+      ],
+      "owner": "规则架构师",
+      "ownerEn": "",
+      "dept": "运维专家组",
+      "deptEn": "",
+      "status": "online",
+      "freq": "每日0点",
+      "clicks": 420,
+      "icon": "bell",
+      "qc": [
+        "alarm"
+      ]
+    },
+    {
+      "no": 13,
+      "groups": [
+        "FO View",
+        "FLM View"
+      ],
+      "titleZh": "TT&WO Dashboard (故障与运维工单流转看板)",
+      "titleEn": "TT&WO Dashboard (Fault & O&M Ticket Workflow)",
+      "descZh": "Trouble Ticket (TT) 与 Work Order (WO) 工单生命周期闭环追踪、SLA 处理时效与分区完成率，全部组件支持下钻表格、列筛选排序与 Excel 导出。",
+      "descEn": "Trouble Ticket (TT) and Work Order (WO) lifecycle closed-loop tracking, SLA processing timeliness and regional completion rate, all components support drill-down tables, column filtering/sorting and Excel export.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=ttwo&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "工单流转",
+        "TT",
+        "WO",
+        "派单闭环",
+        "eFlow"
+      ],
+      "owner": "工单调度员",
+      "ownerEn": "Ticket Dispatcher",
+      "dept": "FO / FLM 工单派发组",
+      "deptEn": "FO / FLM Ticket Dispatch Team",
+      "status": "online",
+      "freq": "每小时",
+      "clicks": 1312,
+      "icon": "ticket",
+      "qc": [
+        "tt",
+        "wo"
+      ]
+    },
+    {
+      "no": 16,
+      "groups": [
+        "FO View"
+      ],
+      "titleZh": "Availability Dashboard (TT Related) (工单关联可用性)",
+      "titleEn": "Availability Dashboard (TT Related) (Ticket-related Availability)",
+      "descZh": "【FO 目录】将网络停机可用率损失与具体 Trouble Ticket (TT) 故障工单精确关联溯源。",
+      "descEn": "[FO Directory] Precisely correlate network downtime availability loss with specific Trouble Ticket (TT) fault tickets for tracing.",
+      "platform": "finebi",
+      "url": "http://192.168.100.19/webroot/decision/link/435X",
+      "tags": [
+        "FO",
+        "TT Correlation",
+        "Fault Ticket",
+        "Availability Tracing",
+        "Link to be updated"
+      ],
+      "owner": "工单分析师",
+      "ownerEn": "Ticket Analyst",
+      "dept": "FO 一线值班室",
+      "deptEn": "FO Front-line Duty Room",
+      "status": "beta",
+      "freq": "每日0点",
+      "clicks": 580,
+      "icon": "gauge",
+      "qc": [
+        "tt"
+      ]
+    },
+    {
+      "no": 19,
+      "groups": [
+        "FO View"
+      ],
+      "titleZh": "RAN Cells KPI (RAN 小区可用率达标看板)",
+      "titleEn": "RAN Cells KPI (RAN Cell Availability Compliance)",
+      "descZh": "按 2G/3G/4G 制式逐日统计小区可用率达标情况：达标 / 未达标 / 无数据小区数与占比，以及整月可用率汇总；达标阈值默认 99.65% 可调，各统计数字可下钻到具体小区清单并导出 Excel。",
+      "descEn": "Daily availability compliance per technology (2G/3G/4G): counts and ratios of meeting / below-threshold / no-data cells plus a month-to-date availability roll-up. The compliance threshold defaults to 99.65% and is adjustable; every figure drills down to the underlying cell list and can be exported to Excel.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=ran_cells_kpi",
+      "tags": [
+        "RAN",
+        "Cells KPI",
+        "小区可用率",
+        "2G/3G/4G",
+        "达标率"
+      ],
+      "owner": "系统管理员",
+      "ownerEn": "System Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "每日0点",
+      "clicks": 0,
+      "icon": "dashboard",
+      "boSub": "wireless"
+    },
+    {
+      "no": 20,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "2G_Daily_KPI",
+      "titleEn": "2G_Daily_KPI",
+      "descZh": "【BO 目录】2G GSM 掉话率 Call Drop Rate、拥塞率、话务量 Erlang 及无线接通率 Daily 报表，数据由 RAN UME 每日同步。",
+      "descEn": "[BO Directory] 2G GSM Call Drop Rate, congestion rate, traffic volume Erlang and wireless connection rate Daily report, data synced daily by RAN UME.",
+      "platform": "finebi",
+      "url": "http://192.168.100.19/webroot/decision/link/dXv0",
+      "tags": [
+        "2G",
+        "GSM",
+        "Call Drop Rate",
+        "Traffic Volume",
+        "Link to be updated"
+      ],
+      "owner": "2G 网优专家",
+      "ownerEn": "2G Network Optimization Expert",
+      "dept": "BO 二线无线优化部",
+      "deptEn": "BO Back-office Wireless Optimization Dept",
+      "status": "beta",
+      "freq": "每日0点",
+      "clicks": 430,
+      "icon": "chart-line",
+      "boSub": "wireless",
+      "subOf": {
+        "BO View": "wireless"
+      }
+    },
+    {
+      "no": 21,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "3G_Daily_KPI",
+      "titleEn": "3G_Daily_KPI",
+      "descZh": "【BO 目录】3G UMTS CS 语音与 PS 数据吞吐量、HSDPA 速率、软切换成功率 Daily 统计。",
+      "descEn": "[BO Directory] 3G UMTS CS voice and PS data throughput, HSDPA rate, soft handover success rate Daily statistics.",
+      "platform": "finebi",
+      "url": "http://192.168.100.19/webroot/decision/link/51Le",
+      "tags": [
+        "3G",
+        "UMTS",
+        "Throughput",
+        "Call Drop Rate",
+        "Link to be updated"
+      ],
+      "owner": "3G 网优专家",
+      "ownerEn": "3G Network Optimization Expert",
+      "dept": "BO 二线无线优化部",
+      "deptEn": "BO Back-office Wireless Optimization Dept",
+      "status": "beta",
+      "freq": "每日0点",
+      "clicks": 410,
+      "icon": "chart-line",
+      "boSub": "wireless",
+      "subOf": {
+        "BO View": "wireless"
+      }
+    },
+    {
+      "no": 22,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "4G_KPI_Daily",
+      "titleEn": "4G_KPI_Daily",
+      "descZh": "【BO 目录】4G LTE RRC 连接建立成功率、E-RAB 掉线率、下行吞吐量 Throughput 与 VoLTE 质量分析。",
+      "descEn": "[BO Directory] 4G LTE RRC connection establishment success rate, E-RAB drop rate, downlink throughput and VoLTE quality analysis.",
+      "platform": "finebi",
+      "url": "http://192.168.100.19/webroot/decision/link/wJmG",
+      "tags": [
+        "4G",
+        "LTE",
+        "VoLTE",
+        "Downlink Speed",
+        "Link to be updated"
+      ],
+      "owner": "LTE 网优专家",
+      "ownerEn": "LTE Network Optimization Expert",
+      "dept": "BO 二线无线优化部",
+      "deptEn": "BO Back-office Wireless Optimization Dept",
+      "status": "beta",
+      "freq": "每日0点",
+      "clicks": 860,
+      "icon": "chart-line",
+      "boSub": "wireless",
+      "subOf": {
+        "BO View": "wireless"
+      }
+    },
+    {
+      "no": 23,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "FW_Daily_KPI (防火墙安全与出口流量日报)",
+      "titleEn": "FW_Daily_KPI (Firewall Security & Egress Traffic Daily Report)",
+      "descZh": "【BO 目录】核心防火墙会话并发数、攻击拦截事件、国际出口吞吐量及安全告警，每日 07:15 自动同步并邮件图表。",
+      "descEn": "[BO Directory] Core firewall session concurrency, attack interception events, international egress throughput and security alarms, auto-synced daily at 07:15 with email charts.",
+      "platform": "finebi",
+      "url": "http://192.168.100.19/webroot/decision/link/uq6f",
+      "tags": [
+        "Firewall",
+        "Security Protection",
+        "Egress Traffic",
+        "Concurrent Sessions",
+        "Link to be updated"
+      ],
+      "owner": "网络安全官",
+      "ownerEn": "Network Security Officer",
+      "dept": "BO 网络安全组",
+      "deptEn": "BO Network Security Team",
+      "status": "beta",
+      "freq": "每日0点",
+      "clicks": 360,
+      "icon": "chart-line",
+      "boSub": "core",
+      "subOf": {
+        "BO View": "core"
+      }
+    },
+    {
+      "no": 24,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "CN KPI _V2 (核心网性能与附着成功率 V2)",
+      "titleEn": "CN KPI _V2 (Core Network Performance & Attach Success Rate V2)",
+      "descZh": "【BO 目录】Core Network 核心网 PS 域附着成功率、SGSN/MME 负荷、SGW/PGW 流量与用户面时延。",
+      "descEn": "[BO Directory] Core Network PS domain attach success rate, SGSN/MME load, SGW/PGW traffic and user plane latency.",
+      "platform": "finebi",
+      "url": "http://192.168.100.19/webroot/decision/link/iYiQ",
+      "tags": [
+        "Core Network",
+        "CN",
+        "MME",
+        "Attach Rate",
+        "Link to be updated"
+      ],
+      "owner": "核心网主管",
+      "ownerEn": "Core Network Manager",
+      "dept": "BO 核心网专家组",
+      "deptEn": "BO Core Network Expert Team",
+      "status": "beta",
+      "freq": "每日0点",
+      "clicks": 490,
+      "icon": "chart-line",
+      "boSub": "core",
+      "subOf": {
+        "BO View": "core"
+      }
+    },
+    {
+      "no": 25,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "CN Monthly KPI (核心网月度综合运营报表)",
+      "titleEn": "CN Monthly KPI (Core Network Monthly Comprehensive Operation Report)",
+      "descZh": "【BO 目录】核心网容量规划、月度峰值话务量、计费 CDR 记录完整性及长期扩容建议报表。",
+      "descEn": "[BO Directory] Core network capacity planning, monthly peak traffic volume, billing CDR record integrity and long-term expansion recommendation reports.",
+      "platform": "finebi",
+      "url": "http://192.168.100.19/webroot/decision/link/cCc5",
+      "tags": [
+        "CN Monthly Report",
+        "Capacity Planning",
+        "CDR Billing",
+        "Link to be updated"
+      ],
+      "owner": "核心网规划师",
+      "ownerEn": "Core Network Planner",
+      "dept": "BO 核心网专家组",
+      "deptEn": "BO Core Network Expert Team",
+      "status": "beta",
+      "freq": "月度汇总",
+      "clicks": 290,
+      "icon": "chart-line",
+      "boSub": "core",
+      "subOf": {
+        "BO View": "core"
+      }
+    },
+    {
+      "no": 26,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "Packet Loss Dashboard",
+      "titleEn": "Packet Loss Dashboard",
+      "descZh": "监控 IP RAN 回传链路时延、抖动与丢包率（站点级聚合口径），每日 06:30 同步数据、06:45 自动邮件日报，定位传输质量劣化。",
+      "descEn": "IP RAN network-wide packet loss rate monitoring, based on iPRAN UME data to calculate packet loss rate, latency and jitter by site, region and link, supports drill-down details.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=packet_loss&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "丢包率",
+        "QoS",
+        "IP RAN",
+        "传输质量"
+      ],
+      "owner": "IP 传输工程师",
+      "ownerEn": "IP 传输工程师",
+      "dept": "传输与 IP 网管部",
+      "deptEn": "传输与 IP 网管部",
+      "status": "online",
+      "freq": "每日0点",
+      "clicks": 610,
+      "icon": "chart-line",
+      "boSub": "wireless",
+      "subOf": {
+        "BO View": "wireless"
+      }
+    },
+    {
+      "no": 27,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "MW Topology (微波网络拓扑看板)",
+      "titleEn": "MW Topology (Microwave Network Topology Dashboard)",
+      "descZh": "基于 UME 微波网管数据呈现全网微波链路拓扑与站点连接关系，支持按日期滑杆回溯、链路状态着色与故障链路定位下钻。",
+      "descEn": "Microwave network link topology and site connections based on UME MW management data, supports date-slider lookback, link status coloring and faulty link drill-down.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=mwUmeTopology&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "微波",
+        "MW",
+        "拓扑",
+        "UME"
+      ],
+      "owner": "传输工程师",
+      "ownerEn": "Transmission Engineer",
+      "dept": "传输与 IP 网管部",
+      "deptEn": "",
+      "status": "online",
+      "freq": "每日0点",
+      "clicks": 0,
+      "icon": "map",
+      "boSub": "MW",
+      "subOf": {
+        "BO View": "MW"
+      }
+    },
+    {
+      "no": 28,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "MW Real-Time (微波实时 NOC 看板)",
+      "titleEn": "MW Real-Time (Microwave Real-time NOC Dashboard)",
+      "descZh": "MW UME 微波网络实时 NOC 监控大屏：链路实时状态、告警与性能指标持续刷新，支持日期回溯与链路明细下钻，快速定位微波传输中断。",
+      "descEn": "MW UME real-time NOC monitoring dashboard: live link status, alarms and performance metrics continuously refreshed, with date lookback and link detail drill-down to quickly locate microwave transmission outages.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=mwRealTime&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "微波",
+        "MW",
+        "实时监控",
+        "NOC",
+        "UME"
+      ],
+      "owner": "传输工程师",
+      "ownerEn": "Transmission Engineer",
+      "dept": "传输与 IP 网管部",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "broadcast",
+      "boSub": "MW",
+      "subOf": {
+        "BO View": "MW"
+      }
+    },
+    {
+      "no": 29,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "IP Trace (IP 链路探测诊断)",
+      "titleEn": "IP Trace (IP Link Trace Tool)",
+      "descZh": "端到端 IP 报文追踪与路由跳数检测，对骨干网链路节点进行实时探测，快速定位传输中断与劣化段落。",
+      "descEn": "IP link trace tool: supports traceroute/mtr visualization, packet loss rate and hop count statistics, quickly locate transmission bottlenecks.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=ip_trace&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "IP Trace",
+        "路由追踪",
+        "承载网",
+        "网络探测"
+      ],
+      "owner": "网络专家",
+      "ownerEn": "",
+      "dept": "IP 核心网部",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 490,
+      "icon": "link",
+      "boSub": "ip",
+      "subOf": {
+        "BO View": "ip"
+      }
+    },
+    {
+      "no": 30,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "IP RAN Region KPI (IP 承载网分区性能报表)",
+      "titleEn": "IP RAN Region KPI (IP Bearer Network Regional Performance Report)",
+      "descZh": "【BO 目录】各行政区 IP RAN 承载网路由器端口利用率、MPLS 隧道时延与链路丢包率，数据由 iPRAN UME 每小时同步。",
+      "descEn": "[BO Directory] IP RAN bearer network router port utilization, MPLS tunnel latency and link packet loss rate by administrative region, data synced hourly by iPRAN UME.",
+      "platform": "finebi",
+      "url": "http://192.168.100.19/webroot/decision/link/k74G",
+      "tags": [
+        "IP RAN",
+        "Regional Report",
+        "MPLS",
+        "Port Utilization",
+        "Link to be updated"
+      ],
+      "owner": "承载网主管",
+      "ownerEn": "Bearer Network Manager",
+      "dept": "BO 传输专家组",
+      "deptEn": "BO Transmission Expert Team",
+      "status": "beta",
+      "freq": "每小时",
+      "clicks": 440,
+      "icon": "chart-line",
+      "boSub": "ip",
+      "subOf": {
+        "BO View": "ip"
+      }
+    },
+    {
+      "no": 31,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "IP RAN (IPCORE HQ-ODC & Banjor/ELWA & OLT)",
+      "titleEn": "IP RAN (IPCORE HQ-ODC & Banjor/ELWA & OLT)",
+      "descZh": "【BO 目录】IPCORE 核心汇聚节点（HQ-ODC、Banjor、ELWA）及 OLT 上行骨干环链路大屏。",
+      "descEn": "[BO Directory] IPCORE core aggregation nodes (HQ-ODC, Banjor, ELWA) and OLT upstream backbone ring link dashboard.",
+      "platform": "finebi",
+      "url": "http://192.168.100.19/webroot/decision/link/Dv5z",
+      "tags": [
+        "IPCORE",
+        "HQ-ODC",
+        "Banjor",
+        "ELWA",
+        "Link to be updated"
+      ],
+      "owner": "传输骨干工程师",
+      "ownerEn": "Backbone Transmission Engineer",
+      "dept": "BO 骨干传输组",
+      "deptEn": "BO Backbone Transmission Team",
+      "status": "beta",
+      "freq": "实时流式",
+      "clicks": 530,
+      "icon": "chart-line",
+      "boSub": "ip",
+      "subOf": {
+        "BO View": "ip"
+      }
+    },
+    {
+      "no": 32,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "IP RAN Metor Ring KPI (城域环网性能 KPI)",
+      "titleEn": "IP RAN Metor Ring KPI (Metro Ring Network Performance KPI)",
+      "descZh": "【BO 目录】城域网光纤环路负载均衡度、保护倒换状态与波分系统健康度。",
+      "descEn": "[BO Directory] Metro network fiber ring load balance, protection switching status and WDM system health.",
+      "platform": "finebi",
+      "url": "http://192.168.100.19/webroot/decision/link/PUVx",
+      "tags": [
+        "Metro Ring",
+        "Ring Load",
+        "Protection Switching",
+        "Link to be updated"
+      ],
+      "owner": "城域网工程师",
+      "ownerEn": "Metro Network Engineer",
+      "dept": "BO 传输专家组",
+      "deptEn": "BO Transmission Expert Team",
+      "status": "beta",
+      "freq": "每小时",
+      "clicks": 380,
+      "icon": "chart-line",
+      "boSub": "ip",
+      "subOf": {
+        "BO View": "ip"
+      }
+    },
+    {
+      "no": 34,
+      "groups": [
+        "SP View"
+      ],
+      "titleZh": "Material Summary (备件物料库存与消耗汇总)",
+      "titleEn": "Material Summary (Spare Parts Inventory & Consumption)",
+      "descZh": "SP 备件 WH/DOP 汇总报表：按 1st WH / 2nd WH / Gbarnga DOP / Kweaken DOP / Others 统计期初与当前库存（剔除 damaged 件）、待维修件与报修出库，支持锚点日 / 本月 / 本周三个消耗窗口对比，行列可下钻到明细并导出 Excel。",
+      "descEn": "WH/DOP spare parts summary report: opening and current stock by warehouse (1st WH / 2nd WH / Gbarnga DOP / Kweaken DOP / Others, damaged items excluded), items pending repair and repair outbound, with three consumption windows (anchor day / current month / current week), drill-down to row/column details and Excel export.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=sp_material",
+      "tags": [
+        "Spare Parts",
+        "物料库存",
+        "消耗统计",
+        "WH/DOP",
+        "报表导出"
+      ],
+      "owner": "系统管理员",
+      "ownerEn": "System Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "每日0点",
+      "clicks": 0,
+      "icon": "package",
+      "qc": [
+        "spms"
+      ]
+    },
+    {
+      "no": 36,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "Battery Dashboard",
+      "titleEn": "Battery Dashboard",
+      "descZh": "基站动环蓄电池监控：充放电曲线、市电停电续航时长与电池组老化预警，每小时同步（:05），每日 07:00/19:00 自动邮件报表。",
+      "descEn": "Battery and power environment monitoring: battery voltage, temperature, charge/discharge status and alarms, supports filtering by site/region and historical trend analysis.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=battery&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "蓄电池",
+        "基站动环",
+        "后备电源",
+        "动力保障"
+      ],
+      "owner": "动环工程师",
+      "ownerEn": "动环工程师",
+      "dept": "动力配套部",
+      "deptEn": "动力配套部",
+      "status": "online",
+      "freq": "每小时",
+      "clicks": 571,
+      "icon": "dashboard",
+      "qc": [
+        "pmt"
+      ],
+      "boSub": "wireless",
+      "subOf": {
+        "BO View": "wireless"
+      }
+    },
+    {
+      "no": 37,
+      "groups": [
+        "System Admin"
+      ],
+      "titleZh": "Task Manager (任务管理 / 自动化调度总控)",
+      "titleEn": "Task Manager (Automation Scheduling Hub)",
+      "descZh": "调度全部 34 个自动化任务：ZTE eFlow API 同步、RAN/iPRAN/CNN UME KPI、电池、丢包、邮件日报与 WhatsApp 推送，支持手动触发、失败自动重试与 Cron 修改。",
+      "descEn": "Schedules all 34 automation tasks: ZTE eFlow API sync, RAN/iPRAN/CNN UME KPI, battery, packet loss, email reports and WhatsApp push, supports manual trigger, auto-retry on failure and Cron modification.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=sync&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "eFlow API",
+        "Task Manager",
+        "自动同步",
+        "ETL",
+        "ZTE"
+      ],
+      "owner": "调度管理员",
+      "ownerEn": "Scheduling Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 1652,
+      "icon": "dashboard",
+      "qc": [
+        "pmt"
+      ]
+    },
+    {
+      "no": 40,
+      "groups": [
+        "System Admin"
+      ],
+      "titleZh": "Settings (系统设置 / 凭据管理)",
+      "titleEn": "Settings (System Settings / Credential Management)",
+      "descZh": "系统凭据集中管理（credentials 表）、邮件收件人配置与系统参数设置，支撑多设备部署的凭据统一维护。",
+      "descEn": "Centralized credential management (credentials table), email recipient configuration and system parameter settings, supporting unified credential maintenance for multi-device deployment.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=settings&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "凭据管理",
+        "系统配置",
+        "邮件名单"
+      ],
+      "owner": "系统管理员",
+      "ownerEn": "System Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 300,
+      "icon": "gear"
+    },
+    {
+      "no": 42,
+      "groups": [
+        "Friends Link"
+      ],
+      "titleZh": "Portal Login (网管门户一键登录)",
+      "titleEn": "Portal Login (NMS Portal One-click Login)",
+      "descZh": "UME / eFlow 等网管门户账号集中管理与一键自动登录，实时显示各门户登录状态，支持失败重试与会话关闭。",
+      "descEn": "Centralized account management and one-click auto login for NMS portals (UME / eFlow), showing live login status per portal with retry and session close.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=portalLogin&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "一键登录",
+        "门户",
+        "凭据管理"
+      ],
+      "owner": "系统管理员",
+      "ownerEn": "System Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 1,
+      "icon": "key"
+    },
+    {
+      "no": 46,
+      "groups": [
+        "Knowledge Q&A"
+      ],
+      "titleZh": "RAG Knowledge Q&A (本地知识问答 / Open WebUI)",
+      "titleEn": "RAG Knowledge Q&A (Local Knowledge Base / Open WebUI)",
+      "descZh": "本地部署的 RAG 知识问答系统（基于 Open WebUI），支持对内部文档与运维知识库进行自然语言检索问答与对话式查询，全员可用。",
+      "descEn": "Locally deployed RAG knowledge Q&A system powered by Open WebUI; supports natural-language search and conversational queries over internal documents and the O&M knowledge base. Available to everyone.",
+      "platform": "external",
+      "url": "http://192.168.100.27:3000/",
+      "tags": [
+        "RAG",
+        "Open WebUI",
+        "LLM",
+        "AI Q&A",
+        "Knowledge Base"
+      ],
+      "owner": "数据分析员",
+      "ownerEn": "",
+      "dept": "数据运营部",
+      "deptEn": "Data Operation Dept",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "book"
+    },
+    {
+      "no": 47,
+      "groups": [
+        "Knowledge Q&A"
+      ],
+      "titleZh": "eFlow Knowledge Base (eFlow 知识库 / TT 快速分析)",
+      "titleEn": "eFlow Knowledge Base (eFlow Docs & TT Quick Analysis)",
+      "descZh": "eFlow 告警与工单知识库：规则/经验文档目录树、全文检索与 TT 工单快速分析（根因归属、CSD/PSD、派单判定与时效），支撑一线快速定位与派单。",
+      "descEn": "eFlow alarm & ticket knowledge base: a catalog tree of rules/experience docs, full-text search and TT quick analysis (root-cause ownership, CSD/PSD, dispatch rules and timeliness) to help front-line staff locate faults and dispatch quickly.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=eflow_qa&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "eFlow",
+        "Knowledge Base",
+        "TT",
+        "Full-text Search"
+      ],
+      "owner": "规则架构师",
+      "ownerEn": "",
+      "dept": "运维专家组",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "book"
+    },
+    {
+      "no": 48,
+      "groups": [
+        "Knowledge Q&A"
+      ],
+      "titleZh": "Help (使用帮助 / 操作手册)",
+      "titleEn": "Help (User Guide & Manual)",
+      "descZh": "my_app（数据洞察 MVP）内置使用帮助与操作手册：功能说明、各看板使用指引与常见问题，帮助新用户快速上手。",
+      "descEn": "Built-in help and user manual for my_app (Data Insight MVP): feature notes, per-dashboard usage guides and FAQs to help new users get started quickly.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=help&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "Help",
+        "User Guide",
+        "FAQ",
+        "Manual"
+      ],
+      "owner": "系统管理员",
+      "ownerEn": "System Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "book"
+    },
+    {
+      "no": 49,
+      "groups": [
+        "Knowledge Q&A"
+      ],
+      "titleZh": "Issue Feedback (问题反馈 / 建议提报)",
+      "titleEn": "Issue Feedback (Bug Reports & Suggestions)",
+      "descZh": "my_app 内置问题反馈工单台：提交功能缺陷、数据异常与改进建议，支持分类（缺陷/数据/需求/其他）、优先级与状态流转，管理员可指派处理人并回填解决结论，支持按状态/分类筛选与关键字检索。",
+      "descEn": "Built-in issue desk for my_app: report functional defects, data anomalies and improvement ideas with a category (defect / data / requirement / other), priority and status workflow. Administrators can assign owners and write back resolutions, with filtering by status/category and keyword search.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=feedback&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "tags": [
+        "Issue Feedback",
+        "问题反馈",
+        "Bug",
+        "需求建议",
+        "工单流转"
+      ],
+      "owner": "系统管理员",
+      "ownerEn": "System Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "ticket"
+    },
+    {
+      "no": 51,
+      "groups": [
+        "BO View"
+      ],
+      "titleZh": "Customer Service KPI (客户业务 KPI)",
+      "titleEn": "Customer Service KPI",
+      "descZh": "客户业务 KPI 健康度看板：按 UME KPI 服务逐日统计调用次数、成功数与成功率，拆分系统侧 / 用户侧失败，并对资源类指标（容量 / 已用 / 空闲）做均值与峰值监控，异常自动生成告警，支持趋势下钻。",
+      "descEn": "Customer service KPI health dashboard: per UME KPI service it tracks daily attempts, successes and success rate, splits system-side vs user-side failures, and monitors resource metrics (capacity / used / free) by average and peak, auto-raising alerts on breach with trend drill-down.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=ume_in_kpi",
+      "tags": [
+        "UME",
+        "KPI",
+        "成功率",
+        "客户业务"
+      ],
+      "owner": "系统管理员",
+      "ownerEn": "System Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "每日0点",
+      "clicks": 0,
+      "icon": "chart-line",
+      "boSub": "OCS",
+      "subOf": {
+        "BO View": "OCS"
+      }
+    },
+    {
+      "no": 52,
+      "groups": [
+        "CXO View"
+      ],
+      "titleZh": "CXO Daily Dashboard (CXO 90 天经营看板)",
+      "titleEn": "CXO Daily Dashboard (Last 90 Days)",
+      "descZh": "面向 CEO 的经营视角大屏：直连 VMAX 数仓（GBase zxvmax）取最近 90 个已完成日，支持日 / 周粒度切换。顶部卡片给出总流量、活跃用户、视频体验等主指标及周同比 / 月同比，下方为业务结构（视频 / 缓存 / 游戏）、网络质量（建链成功率 / 重传 / 时延）趋势与最近 14 天明细，上游缺数日单独标注。",
+      "descEn": "CEO-facing business dashboard: queries the VMAX warehouse (GBase zxvmax) directly for the last 90 completed days, with day / week granularity switching. Hero cards show total traffic, active users and video experience with WoW / MoM deltas; below are service-mix (video / cache / gaming) and network-quality (success rate / retransmission / latency) trends plus the last 14 days of detail, with upstream data gaps flagged.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=vmaxCxoDashboard_90Days",
+      "tags": [
+        "VMAX",
+        "CXO",
+        "决策看板",
+        "90 天",
+        "经营看板"
+      ],
+      "owner": "系统管理员",
+      "ownerEn": "System Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "每日06:20",
+      "clicks": 1000,
+      "icon": "chart-polar"
+    },
+    {
+      "no": 53,
+      "groups": [
+        "SP View"
+      ],
+      "titleZh": "Spare Parts Report (备件出入库与库存汇总报表)",
+      "titleEn": "Spare Parts Report (Spare Parts Inbound/Outbound & Inventory)",
+      "descZh": "SP 备件汇总报表：数据来自任务 sp_report_generate 每日 05:15 产出的 SpareParts Inbound&Outbound&Inventory 工作簿，页面呈现汇总 KPI（库存 / 月均消耗 / 安全库存 / 补库量）、补库与异常告警、每日入出库矩阵与明细表格，支持下钻与 Excel 导出 —— 与邮件/WhatsApp 发出去的是同一份文件。",
+      "descEn": "SP spare parts summary report built from the SpareParts Inbound/Outbound/Inventory workbook generated daily at 05:15 by task sp_report_generate: KPI cards (inventory, avg monthly consumption, safety stock, replenishment), replenishment & exception alerts, daily inbound/outbound matrix and detail tables, with drill-down and Excel export - same source file as the emailed report.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=sp_report",
+      "tags": [
+        "备件报表",
+        "出入库",
+        "库存汇总",
+        "补库告警",
+        "报表导出"
+      ],
+      "owner": "系统管理员",
+      "ownerEn": "System Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "每日 05:15",
+      "clicks": 0,
+      "icon": "package",
+      "qc": [
+        "spms"
+      ]
+    },
+    {
+      "no": 54,
+      "groups": [
+        "SP View"
+      ],
+      "titleZh": "Consumables Report (耗材出入库与库存汇总报表)",
+      "titleEn": "Consumables Report (Consumables Inbound/Outbound & Inventory)",
+      "descZh": "SP 耗材汇总报表：与备件报表同源同结构，数据来自任务 sp_report_generate 每日 05:15 产出的 Comsumables Inbound&Outbound&Inventory 工作簿，按耗材维度统计入出库与库存、补库与异常告警，支持每日入出库矩阵、明细下钻与 Excel 导出。",
+      "descEn": "SP consumables summary report sharing the same source and layout as the spare parts report: built from the Comsumables Inbound/Outbound/Inventory workbook generated daily at 05:15 by task sp_report_generate, with inbound/outbound & inventory statistics, replenishment and exception alerts, daily matrix, drill-down and Excel export.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=com_report",
+      "tags": [
+        "耗材报表",
+        "出入库",
+        "库存汇总",
+        "补库告警",
+        "报表导出"
+      ],
+      "owner": "系统管理员",
+      "ownerEn": "System Administrator",
+      "dept": "DevOps 架构部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "每日 05:15",
+      "clicks": 0,
+      "icon": "package",
+      "qc": [
+        "spms"
+      ]
+    },
+    {
+      "no": 55,
+      "groups": [
+        "Friends Link"
+      ],
+      "titleZh": "ZTE UME NMS",
+      "titleEn": "ZTE UME NMS",
+      "descZh": "RAN 无线网管（10.100.28.27:28001）登录页，直连系统本身，账号密码由自己输入。",
+      "descEn": "RAN NMS (10.100.28.27:28001) sign-in page, direct to the system itself.",
+      "platform": "external",
+      "url": "https://10.100.28.27:28001/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html",
+      "tags": [
+        "NMS",
+        "登录入口",
+        "ZTE UME NMS"
+      ],
+      "owner": "",
+      "ownerEn": "",
+      "dept": "",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "cpu",
+      "custom": true
+    },
+    {
+      "no": 56,
+      "groups": [
+        "Friends Link"
+      ],
+      "titleZh": "CCN UME NMS",
+      "titleEn": "CCN UME NMS",
+      "descZh": "核心网 CCN 网管（10.121.1.2:28808）登录页，直连系统本身，账号密码由自己输入。",
+      "descEn": "Core-network CCN NMS (10.121.1.2:28808) sign-in page, direct to the system itself.",
+      "platform": "external",
+      "url": "https://10.121.1.2:28808/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/em-portal",
+      "tags": [
+        "NMS",
+        "登录入口",
+        "CCN UME NMS"
+      ],
+      "owner": "",
+      "ownerEn": "",
+      "dept": "",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "buildings",
+      "custom": true
+    },
+    {
+      "no": 57,
+      "groups": [
+        "Friends Link"
+      ],
+      "titleZh": "iPRAN UME NMS",
+      "titleEn": "iPRAN UME NMS",
+      "descZh": "IP RAN 承载网网管（10.100.2.99:28001）登录页，直连系统本身，账号密码由自己输入。",
+      "descEn": "IP RAN bearer-network NMS (10.100.2.99:28001) sign-in page, direct to the system itself.",
+      "platform": "external",
+      "url": "https://10.100.2.99:28001/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/portal-athena/framework/default.html",
+      "tags": [
+        "NMS",
+        "登录入口",
+        "iPRAN UME NMS"
+      ],
+      "owner": "",
+      "ownerEn": "",
+      "dept": "",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "link",
+      "custom": true
+    },
+    {
+      "no": 58,
+      "groups": [
+        "Friends Link"
+      ],
+      "titleZh": "MW UME NMS",
+      "titleEn": "MW UME NMS",
+      "descZh": "微波网管 ZXMW（192.168.169.247:28001）登录页，直连系统本身，账号密码由自己输入。",
+      "descEn": "Microwave NMS ZXMW (192.168.169.247:28001) sign-in page, direct to the system itself.",
+      "platform": "external",
+      "url": "https://192.168.169.247:28001/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html",
+      "tags": [
+        "NMS",
+        "登录入口",
+        "MW UME NMS"
+      ],
+      "owner": "",
+      "ownerEn": "",
+      "dept": "",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "broadcast",
+      "custom": true
+    },
+    {
+      "no": 59,
+      "groups": [
+        "Friends Link"
+      ],
+      "titleZh": "FW UMC (防火墙)",
+      "titleEn": "FW UMC (Firewall)",
+      "descZh": "防火墙整机吞吐 UMC（10.100.2.101）登录页，直连系统本身，账号密码由自己输入。",
+      "descEn": "Firewall throughput UMC (10.100.2.101) sign-in page, direct to the system itself.",
+      "platform": "external",
+      "url": "https://10.100.2.101/UMC/Login!start.action",
+      "tags": [
+        "NMS",
+        "登录入口",
+        "FW UMC"
+      ],
+      "owner": "",
+      "ownerEn": "",
+      "dept": "",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "flame",
+      "custom": true
+    },
+    {
+      "no": 60,
+      "groups": [
+        "Friends Link"
+      ],
+      "titleZh": "VMAX CXO 看板",
+      "titleEn": "VMAX CXO Dashboard",
+      "descZh": "VMAX CXO 经营看板（10.123.255.12:26180）登录页，直连系统本身；该页有图形验证码。",
+      "descEn": "VMAX CXO dashboard (10.123.255.12:26180) sign-in page, direct to the system itself (has a captcha).",
+      "platform": "external",
+      "url": "https://10.123.255.12:26180/web/iui/framework/default.html",
+      "tags": [
+        "NMS",
+        "登录入口",
+        "VMAX CXO"
+      ],
+      "owner": "",
+      "ownerEn": "",
+      "dept": "",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "chart-polar",
+      "custom": true
+    },
+    {
+      "no": 61,
+      "groups": [
+        "Friends Link"
+      ],
+      "titleZh": "UME iMonitor 大屏",
+      "titleEn": "UME iMonitor Screen",
+      "descZh": "UME iMonitor 大屏门户（172.17.208.1:28808）登录页，直连系统本身，账号密码由自己输入。",
+      "descEn": "UME iMonitor screen portal (172.17.208.1:28808) sign-in page, direct to the system itself.",
+      "platform": "external",
+      "url": "https://172.17.208.1:28808/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/em-portal/",
+      "tags": [
+        "NMS",
+        "登录入口",
+        "UME iMonitor"
+      ],
+      "owner": "",
+      "ownerEn": "",
+      "dept": "",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "eye",
+      "custom": true
+    },
+    {
+      "no": 62,
+      "groups": [
+        "Friends Link"
+      ],
+      "titleZh": "eFlow 告警系统",
+      "titleEn": "eFlow Alarm System",
+      "descZh": "eFlow 告警系统（10.100.20.8:28001）登录页，直连系统本身，账号密码由自己输入。",
+      "descEn": "eFlow alarm system (10.100.20.8:28001) sign-in page, direct to the system itself.",
+      "platform": "external",
+      "url": "https://10.100.20.8:28001/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri=/uportal/framework/default.html",
+      "tags": [
+        "NMS",
+        "登录入口",
+        "eFlow NMS"
+      ],
+      "owner": "",
+      "ownerEn": "",
+      "dept": "",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "bell",
+      "custom": true
+    },
+    {
+      "no": 63,
+      "groups": [
+        "Friends Link"
+      ],
+      "titleZh": "RAIS 统一权限平台",
+      "titleEn": "RAIS Permission Platform",
+      "descZh": "RAIS 统一权限平台（10.100.20.9:8766）登录页，直连系统本身，账号密码由自己输入。",
+      "descEn": "RAIS permission platform (10.100.20.9:8766) sign-in page, direct to the system itself.",
+      "platform": "external",
+      "url": "https://10.100.20.9:8766/raisprod/uacliteweb/#/login",
+      "tags": [
+        "NMS",
+        "登录入口",
+        "RAIS"
+      ],
+      "owner": "",
+      "ownerEn": "",
+      "dept": "",
+      "deptEn": "",
+      "status": "online",
+      "freq": "实时流式",
+      "clicks": 0,
+      "icon": "shield",
+      "custom": true
+    },
+    {
+      "no": 64,
+      "groups": [
+        "MS View"
+      ],
+      "titleZh": "SLA Achievements",
+      "titleEn": "SLA Achievements",
+      "descZh": "MS 工单 SLA 达成日报：数据来自任务 kpi_ms_wo_sla 所读的同一份工作簿 ZTE OLR MS WOs SLA Achievements Daily Report_<日期>.xlsx，页面不做二次加工 —— 总览卡片（月工单 / 达标 / 达成率 / 未达标指标）、5 个 TTR 指标卡、达成率日趋势（含目标线）与每日明细矩阵，版式与 Excel 一致，支持导出。",
+      "descEn": "MS Work Orders SLA achievements daily report, built from the same workbook (ZTE OLR MS WOs SLA Achievements Daily Report_<date>.xlsx) that task kpi_ms_wo_sla emails out: overview cards (monthly WOs / achieved / achievement rate / missed metrics), 5 TTR metric cards, daily achievement trend with target lines, and a daily detail matrix matching the Excel layout, with export.",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=ms_wo_sla",
+      "tags": [
+        "SLA",
+        "工单达成",
+        "达成率",
+        "TTR",
+        "日报"
+      ],
+      "owner": "MS SLA 专员",
+      "ownerEn": "System Administrator",
+      "dept": "MS 运维部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "每日 05:35",
+      "clicks": 0,
+      "icon": "dashboard"
+    },
+    {
+      "no": 65,
+      "groups": [
+        "MS View"
+      ],
+      "titleZh": "MS Contract KPIs & WOs Achievement (合同 KPI 与工单达成)",
+      "titleEn": "MS Contract KPIs & WOs Achievement Auto-Reports",
+      "descZh": "MS 合同 KPI 与工单达成自动化报表：数据源是任务 ms_sla_full（每天 05:00）就地更新的 ZTE OLR MS Contract KPIs & WOs Achievement Auto-Reports.xlsx，含 4 张 sheet —— Contract KPIs Report（27 个合同 KPI，Operation / Network / PerSite 三层）、WOs SLA achievement Report（与工单 SLA 日报同构）、FineBI 看板建设规划、利比里亚自动化报表清单；页面提供总览卡片、分类达标、27 个 KPI 卡（点击看日趋势）与 4 个页签（后两个支持搜索/筛选/分页）。",
+      "descEn": "MS contract KPIs & work-order achievement auto-report, sourced from ZTE OLR MS Contract KPIs & WOs Achievement Auto-Reports.xlsx which task ms_sla_full refreshes in place daily at 05:00: four sheets - Contract KPIs Report (27 contract KPIs across Operation / Network / PerSite), WOs SLA achievement Report, FineBI dashboard planning, and the Liberia automation report list; the page shows overview cards, per-category achievement, 27 KPI cards with daily trends, and four tabs (the last two searchable / filterable / paged).",
+      "platform": "myapp",
+      "url": "http://192.168.100.20/myapp/?page=ms_contract_kpi",
+      "tags": [
+        "合同KPI",
+        "工单达成",
+        "SLA",
+        "自动化报表",
+        "27KPI"
+      ],
+      "owner": "MS SLA 专员",
+      "ownerEn": "System Administrator",
+      "dept": "MS 运维部",
+      "deptEn": "DevOps Architecture Dept",
+      "status": "online",
+      "freq": "每日 05:00",
+      "clicks": 0,
+      "icon": "briefcase"
+    }
+  ],
+  "subGroups": {
+    "BO View": [
+      {
+        "id": "wireless",
+        "zh": "无线射频、动力与外场排班",
+        "en": "Radio, Power & Field Dispatch"
+      },
+      {
+        "id": "core",
+        "zh": "核心网 (CS/PS) 及运营月报",
+        "en": "Core Network (CS/PS) & Monthly Report"
+      },
+      {
+        "id": "ip",
+        "zh": "IP 承载网与工程专家支持",
+        "en": "IP Bearer & Engineering Expert Support"
+      },
+      {
+        "id": "MW",
+        "zh": "MW",
+        "en": "MW"
+      },
+      {
+        "id": "OCS",
+        "zh": "OCS",
+        "en": "OCS"
+      }
+    ]
+  }
+}

@@ -4,9 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ZTE OLR MS 管理平台 - Liberia 门户看板 (ZTE OLR MS Management Platform)</title>
-<!-- 显式声明图标：否则浏览器会回退去请求站点根的 /favicon.ico，产生 404 -->
-<link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="alternate icon" href="favicon.svg">
+<!-- 显式声明图标：否则浏览器会回退去请求站点根的 /favicon.ico，产生 404。
+     2026-09-21 同步新 Logo：直接用官方品牌资产降采样（assets/favicon-{16,32,180}.png），
+     这样标签页图标与 favicon-32.png 完全一致。
+       源图 logo-zte-z-174.png，降采样用面积平均（预乘 alpha，避免透明边发黑）；
+       16/32 额外做了一层反锐化掩模 —— 直接降采样在 16px 下 Z 字形会糊成一团蓝，
+       加锐化后轮廓可辨（A/B 实测过）。
+     注：曾用过一版按新配色重绘的 SVG favicon（16px 更锐利，但与官方资产不同源），
+     已归档为 favicon.svg_bak_20260921_改用PNG前，需要可换回。 -->
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/favicon-180.png">
 <meta name="description" content="ZTE OLR MS Management Platform — Liberia NOC/SOC 自动化工具平台入口，统一聚合 CXO / MS / FO / FLM / BO / System Admin 各视图看板。">
 <!-- 本地资源，零 CDN 依赖，内网断网可用 -->
 <link rel="stylesheet" href="assets/icons/phosphor.css">
@@ -126,44 +134,19 @@
     <!-- 品牌区 -->
     <div class="mp-brand">
       <span class="mp-zte-mark">
-        <!-- 「Z」标（2026-09-19 按用户给的参考图重做）：深海军蓝圆角底牌 + 浅蓝→紫罗兰
-             渐变字形 + 一圈倾斜的橙色轨道环（橙与标题里的 OLR 同档）。
-             环必须拆成两条半椭圆分别画 —— 远侧半环压在字形**下面**、近侧半环压在字形
-             **上面**，才出现「环绕」的立体感；一整个 ellipse 画出来环就只是贴在字上。
-             两条弧共用 rotate(-20 50 54)，端点 (8,54)/(92,54) 是椭圆的左右顶点。 -->
-        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ZTE" focusable="false">
-          <defs>
-            <linearGradient id="mpZBadge" x1="0" y1="0" x2=".55" y2="1">
-              <stop offset="0%" stop-color="#2a3468"></stop>
-              <stop offset="55%" stop-color="#1a2150"></stop>
-              <stop offset="100%" stop-color="#121738"></stop>
-            </linearGradient>
-            <radialGradient id="mpZSheen" cx="34%" cy="12%" r="62%">
-              <stop offset="0%" stop-color="#8fb6ff" stop-opacity=".30"></stop>
-              <stop offset="100%" stop-color="#8fb6ff" stop-opacity="0"></stop>
-            </radialGradient>
-            <linearGradient id="mpZGlyph" x1=".15" y1="0" x2=".85" y2="1">
-              <stop offset="0%" stop-color="#dcf5ff"></stop>
-              <stop offset="28%" stop-color="#8ad2ff"></stop>
-              <stop offset="62%" stop-color="#6f9bf5"></stop>
-              <stop offset="100%" stop-color="#9b7cf2"></stop>
-            </linearGradient>
-            <linearGradient id="mpZRing" x1="0" y1="1" x2="1" y2="0">
-              <stop offset="0%" stop-color="#d9530b"></stop>
-              <stop offset="45%" stop-color="#ff8c1a"></stop>
-              <stop offset="100%" stop-color="#ffc46b"></stop>
-            </linearGradient>
-          </defs>
-          <rect x="1.5" y="1.5" width="97" height="97" rx="24" fill="url(#mpZBadge)"></rect>
-          <rect x="1.5" y="1.5" width="97" height="97" rx="24" fill="url(#mpZSheen)"></rect>
-          <rect x="2.25" y="2.25" width="95.5" height="95.5" rx="23.25" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="1.5"></rect>
-          <path d="M8 54A42 15 0 0 1 92 54" fill="none" stroke="url(#mpZRing)" stroke-width="7"
-                stroke-linecap="round" opacity=".8" transform="rotate(-20 50 54)"></path>
-          <path d="M20 20 L80 20 L80 38 L52 64 L80 64 L80 82 L20 82 L20 64 L48 38 L20 38 Z"
-                fill="url(#mpZGlyph)"></path>
-          <path d="M92 54A42 15 0 0 1 8 54" fill="none" stroke="url(#mpZRing)" stroke-width="7"
-                stroke-linecap="round" transform="rotate(-20 50 54)"></path>
-        </svg>
+        <!-- 「Z」标（2026-09-21 部署：换成官方品牌资产）
+             源图是 1254×1254 的透明 PNG（Format32bppArgb，四角 A=0），
+             已做三步处理后才放进 assets/：
+               1. 裁到内容框 —— 原图四周各有 130+px 全透明留白，不裁的话在 50px 的
+                  槽位里标会缩小约 21% 且偏左上，跟 ZTE、竖线全部对不齐
+               2. 按内容中心补成正方形 —— 内容框是 987×967，直接拉伸会变形
+               3. 无损重编码 + 降到 2x/3x —— 987KB → 23KB/44KB，逐像素比对 0 差异
+             尺寸完全由 .mp-zte-mark 的 width/height 控制（100%/100%），
+             所以门户的字号放大缩小照样带着它一起缩放。
+             要回退到原来的内联 SVG：见 index.html_bak_20260921_新Logo部署前。 -->
+        <img src="assets/logo-zte-z-116.png"
+             srcset="assets/logo-zte-z-116.png 2x, assets/logo-zte-z-174.png 3x"
+             alt="ZTE" decoding="async">
       </span>
       <span class="mp-zte-word">ZTE</span>
       <span class="mp-brand-sep" aria-hidden="true"></span>

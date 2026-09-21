@@ -1,0 +1,1 @@
+import{S as e}from"./react-vendor-CYpmbbga.js";import t from"./MsSlaDashboard-CwChy5g5.js";var n=e();function r(){return(0,n.jsx)(t,{only:`sla`})}export{r as default};

@@ -49,6 +49,31 @@ export function getSiteAvailabilityFilters() {
   return api.get('/site-availability/filters')
 }
 
+// Daily site-down occurrence dashboard: eflow_tt + eflow_site.
+export function getRepeatSiteDownFilters() {
+  return api.get('/repeat-site-down/filters')
+}
+
+export function getRepeatSiteDownOverview(params?: Record<string, string | number>) {
+  return api.get('/repeat-site-down/overview', { params })
+}
+
+export function getRepeatSiteDownEvents(params?: Record<string, string | number>) {
+  return api.get('/repeat-site-down/events', { params })
+}
+
+export function getRepeatSiteDownDayDrilldown(params: Record<string, string | number>) {
+  return api.get('/repeat-site-down/day-drilldown', { params })
+}
+
+export function getRepeatSiteDownSiteDrilldown(params: Record<string, string | number>) {
+  return api.get('/repeat-site-down/site-drilldown', { params })
+}
+
+export function getRepeatSiteDownEventDetail(params: Record<string, string | number>) {
+  return api.get('/repeat-site-down/event-detail', { params })
+}
+
 // params: month / supervisor / fme / tech / threshold / only_with_data
 export function getSiteAvailabilityOverview(params?: Record<string, string | number>) {
   return api.get('/site-availability/overview', { params })
@@ -59,8 +84,88 @@ export function getSiteAvailabilityTickets(params?: Record<string, string>) {
   return api.get('/site-availability/tickets', { params })
 }
 
-// RAN 2G/3G/4G Cells KPI 看板：按天统计各制式小区可用率达标情况
-// 数据源：data/ran_cells_kpi.sqlite3（由 cells_kpi_sync 任务从 RAN_UME 小区数据物化，
+// CN KPI 看板（原 my-finebi「CN KPI」看板原生重建）
+// 数据源：db_ps_cs_cn.sqlite3，经远端只读 SQL API（backend/config/remote_host.py）；
+// **不依赖 my-finebi 进程**。18 个组件的 SQL 与图表类型对齐 FineBI 原看板。
+// params: start/end=YYYY-MM-DD（自定义区间，留空=近31天）/ force=true 跳过后端 60s 缓存
+export function getCnKpiOverview(params?: { start?: string; end?: string; force?: boolean }) {
+  const q: Record<string, string | number> = {}
+  if (params?.start) q.start = params.start
+  if (params?.end) q.end = params.end
+  if (params?.force) q.force = 1
+  return api.get('/cn-kpi/overview', { params: Object.keys(q).length ? q : undefined })
+}
+
+// 远端只读 SQL API 连通性探测（供 CN KPI 页诊断提示）
+export function getCnKpiHealth() {
+  return api.get('/cn-kpi/health')
+}
+
+// ===== 原生看板（my-finebi 其余看板泛化迁移） =====
+// 一套端点驱动 17 个看板（IP RAN Metro Ring / 可用率 / 2G-3G-4G KPI / MTTR /
+// CM / 备件 / Progress 等），slug 见 backend/services/native_catalog.py。
+// 数据源经远端只读 SQL API（backend/config/remote_host.py），**不依赖 my-finebi 进程**。
+// params: start/end=YYYY-MM-DD（时间窗口，须成对；留空=各组件原口径全量）
+//         force=true 跳过后端 60s 缓存
+export interface NativeBoardWindow {
+  start?: string
+  end?: string
+  force?: boolean
+}
+
+function _nbParams(p?: NativeBoardWindow) {
+  const q: Record<string, string | number> = {}
+  if (p?.start) q.start = p.start
+  if (p?.end) q.end = p.end
+  if (p?.force) q.force = 1
+  return Object.keys(q).length ? q : undefined
+}
+
+/** 原生看板清单（菜单/路由用，轻量不含 SQL） */
+export function listNativeBoards() {
+  return api.get('/native-boards')
+}
+
+/** 单个原生看板整页数据 */
+export function getNativeBoard(slug: string, params?: NativeBoardWindow) {
+  return api.get(`/native-boards/${encodeURIComponent(slug)}`, { params: _nbParams(params) })
+}
+
+/** 原生看板远端连通性探测 */
+export function getNativeBoardHealth(slug: string) {
+  return api.get(`/native-boards/${encodeURIComponent(slug)}/health`)
+}
+
+/**
+ * 导出原生看板数据为 Excel（每组件一个 sheet + 说明 sheet）。
+ * 走 blob 下载，文件名优先取响应头 filename*（后端做了 RFC 5987 编码）。
+ */
+export async function exportNativeBoard(slug: string, params?: NativeBoardWindow) {
+  const res = await api.get(`/native-boards/${encodeURIComponent(slug)}/export`, {
+    params: _nbParams(params),
+    responseType: 'blob',
+  })
+  const cd = String(res.headers?.['content-disposition'] || '')
+  let name = `${slug}.xlsx`
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(cd)
+  const plain = /filename="?([^";]+)"?/i.exec(cd)
+  if (utf8) {
+    try { name = decodeURIComponent(utf8[1]) } catch { /* 保底用原值 */ }
+  } else if (plain) {
+    name = plain[1]
+  }
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  return name
+}
+
+// RAN 2G/3G/4G Cells KPI 看板：按天统计各制式小区可用率达标情况// 数据源：data/ran_cells_kpi.sqlite3（由 cells_kpi_sync 任务从 RAN_UME 小区数据物化，
 // 只保留当月；缺失时后端回退实时聚合 data/ran_kpi_avalability_1day.sqlite3）
 // params: month=YYYY-MM / threshold=0.9965 / prefer_db=0|1
 export function getRanCellsKpiOverview(params?: Record<string, string | number>) {

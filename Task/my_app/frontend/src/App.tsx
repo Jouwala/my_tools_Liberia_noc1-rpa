@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { ConfigProvider, Layout, Menu, theme, Button, Spin, Tooltip, Select, Modal, Input, Popconfirm } from 'antd'
 import {
   DatabaseOutlined,
+  ClusterOutlined,
   AppstoreOutlined,
   UploadOutlined,
   DashboardOutlined,
@@ -20,6 +21,7 @@ import {
   FileSearchOutlined,
   LineChartOutlined,
   AreaChartOutlined,
+  FundProjectionScreenOutlined,
   FundOutlined,
   DotChartOutlined,
   SafetyOutlined,
@@ -106,16 +108,48 @@ const MwRealTimeDashboard = lazy(() => import('./pages/MwRealTimeDashboard'))
 const PortalLogin = lazy(() => import('./pages/PortalLogin'))
 const EflowQa = lazy(() => import('./pages/EflowQa'))
 const SiteAvailability = lazy(() => import('./pages/SiteAvailability'))
+const RepeatSiteDown = lazy(() => import('./pages/RepeatSiteDown'))
 const RanCellsKpi = lazy(() => import('./pages/RanCellsKpi'))
+const CnKpi = lazy(() => import('./pages/CnKpi'))
+const NativeBoard = lazy(() => import('./pages/NativeBoard'))
 const UmeInKpi = lazy(() => import('./pages/UmeInKpi'))
 const Help = lazy(() => import('./pages/Help'))
 const IssueFeedback = lazy(() => import('./pages/IssueFeedback'))
 
 const { Header, Sider, Content } = Layout
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'ran_cells_kpi' | 'ume_in_kpi' | 'feedback' | 'help'
+/**
+ * 原生看板（原 my-finebi 看板迁移）—— 除两个示例页外的全部看板。
+ * key 形如 finebi_<slug>，slug 与后端 backend/services/native_catalog.py 一一对应。
+ * 顺序 = 侧栏展示顺序；labelKey 在 i18n.tsx 的 nav.* 下。
+ */
+const FINEBI_BOARDS: { slug: string; icon: React.ReactNode; labelKey: string }[] = [
+  { slug: 'metro_ring', icon: <ClusterOutlined />, labelKey: 'nav.fbMetroRing' },
+  { slug: 'ipran_hq', icon: <ClusterOutlined />, labelKey: 'nav.fbIpranHq' },
+  { slug: 'ipran_4region', icon: <ClusterOutlined />, labelKey: 'nav.fbIpran4Region' },
+  { slug: 'fw_daily', icon: <SafetyOutlined />, labelKey: 'nav.fbFwDaily' },
+  { slug: 'cn_kpi_monthly', icon: <FundProjectionScreenOutlined />, labelKey: 'nav.fbCnKpiMonthly' },
+  { slug: 'daily_availability', icon: <AreaChartOutlined />, labelKey: 'nav.fbDailyAvail' },
+  { slug: 'availability_daily', icon: <AreaChartOutlined />, labelKey: 'nav.fbAvailDaily' },
+  { slug: 'availability_tt', icon: <AreaChartOutlined />, labelKey: 'nav.fbAvailTt' },
+  { slug: 'kpi_4g', icon: <LineChartOutlined />, labelKey: 'nav.fbKpi4g' },
+  { slug: 'kpi_3g', icon: <LineChartOutlined />, labelKey: 'nav.fbKpi3g' },
+  { slug: 'kpi_2g', icon: <LineChartOutlined />, labelKey: 'nav.fbKpi2g' },
+  { slug: 'mttr', icon: <BarChartOutlined />, labelKey: 'nav.fbMttr' },
+  { slug: 'cm_dashboard', icon: <BarChartOutlined />, labelKey: 'nav.fbCmDashboard' },
+  { slug: 'spare', icon: <DatabaseOutlined />, labelKey: 'nav.fbSpare' },
+  { slug: 'progress', icon: <FundOutlined />, labelKey: 'nav.fbProgress' },
+  { slug: 'progress_v3', icon: <FundOutlined />, labelKey: 'nav.fbProgressV3' },
+]
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'ran_cells_kpi', 'ume_in_kpi', 'feedback', 'help']
+/** page key（finebi_<slug>）→ slug，供路由 switch 反查 */
+const FINEBI_PAGE_TO_SLUG: Record<string, string> = Object.fromEntries(
+  FINEBI_BOARDS.map((b) => [`finebi_${b.slug}`, b.slug]),
+)
+
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'repeat_site_down' | 'ran_cells_kpi' | 'cn_kpi' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
+
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'repeat_site_down', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -280,8 +314,8 @@ function readSiderWidth(): number {
  *   - **只有本机能改**：PUT/DELETE 走 require_protected（回环直放，远程 403），
  *     前端用返回的 editable 决定是否显示编辑入口；
  *   - 浏览器只留一份本地镜像（首屏不闪），随后被服务端返回覆盖。
- * 无论哪种来源都过 normalizeMenuLayout：过滤非法页面、去重，并把代码里新增的
- * 页面并入最后一个目录（老配置不会把新页面藏起来）。 */
+ * 无论哪种来源都过 normalizeMenuLayout：过滤非法页面、去重，并补回代码里新增的
+ * 目录与页面（老配置不会把新页面藏起来，也不会把新页面全堆进最后一个目录）。 */
 type MenuGroup = { key: string; label?: string; hidden?: boolean; items: PageKey[] }
 type MenuLayout = { v: number; groups: MenuGroup[]; itemLabels?: Partial<Record<PageKey, string>> }
 
@@ -312,7 +346,9 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   ms_nur_only: { icon: <LineChartOutlined />, labelKey: 'nav.msNurOnly' },
   ms_sla_only: { icon: <FundOutlined />, labelKey: 'nav.msSlaOnly' },
   site_avail: { icon: <SafetyOutlined />, labelKey: 'nav.siteAvail' },
+  repeat_site_down: { icon: <DisconnectOutlined />, labelKey: 'nav.repeatSiteDown' },
   ran_cells_kpi: { icon: <AreaChartOutlined />, labelKey: 'nav.ranCellsKpi' },
+  cn_kpi: { icon: <FundProjectionScreenOutlined />, labelKey: 'nav.cnKpi' },
   ume_in_kpi: { icon: <DotChartOutlined />, labelKey: 'nav.umeInKpi' },
   cxoDashboard: { icon: <PieChartOutlined />, labelKey: 'nav.cxoDashboard' },
   vmaxCxoDashboard: { icon: <DashboardOutlined />, labelKey: 'nav.vmaxCxoDashboard' },
@@ -344,6 +380,11 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   portalLogin: { icon: <LoginOutlined />, labelKey: 'nav.portalLogin' },
   feedback: { icon: <MessageOutlined />, labelKey: 'nav.feedback' },
   help: { icon: <QuestionCircleOutlined />, labelKey: 'nav.help' },
+  // 原生看板（原 my-finebi 看板迁移）：由 FINEBI_BOARDS 统一注入，避免两处维护
+  ...Object.fromEntries(FINEBI_BOARDS.map((b) => [
+    `finebi_${b.slug}`,
+    { icon: b.icon, labelKey: b.labelKey },
+  ])),
 }
 
 /** 默认目录结构（key 稳定，用于旧布局兼容与默认名称回退） */
@@ -352,7 +393,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_monitor',
     labelKey: 'nav.grp.monitor',
-    items: ['alarm', 'ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'site_avail', 'ran_cells_kpi', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview'],
+    items: ['alarm', 'ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'site_avail', 'repeat_site_down', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview'],
   },
   {
     key: 'grp_network',
@@ -364,8 +405,20 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
     labelKey: 'nav.grp.analysis',
     items: ['overview', 'tables', 'upload', 'archive', 'dashboard', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report'],
   },
+  // 原生看板（原 my-finebi 看板逐个迁移而来，不依赖 my-finebi 进程）
+  {
+    key: 'grp_finebi',
+    labelKey: 'nav.grp.finebi',
+    items: FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey),
+  },
   { key: 'grp_system', labelKey: 'nav.grp.system', items: ['settings', 'portalLogin', 'feedback', 'help'] },
 ]
+
+/** 页面 → 它「默认」所属的目录 key。
+ *  新增页面时用它把页面放回正确的目录，而不是无脑塞进最后一个目录
+ *  （见 normalizeMenuLayout 第 2 步）。 */
+const DEFAULT_GROUP_OF: Partial<Record<PageKey, string>> = {}
+for (const g of DEFAULT_GROUPS) for (const k of g.items) DEFAULT_GROUP_OF[k] = g.key
 
 function defaultMenuLayout(): MenuLayout {
   return { v: 1, groups: DEFAULT_GROUPS.map(g => ({ key: g.key, items: [...g.items] })) }
@@ -399,8 +452,33 @@ function normalizeMenuLayout(raw: unknown): MenuLayout | null {
     })
   }
   if (!groups.length) return null
+
+  // 1) 补回「代码里新增、但保存的布局里还没有」的内置目录。
+  //    并把该目录默认该有的页面从别的目录**收回来** —— 这些页面只可能是被
+  //    下面第 2 步的旧逻辑（新页面一律并入最后一个目录）塞进去的，
+  //    不可能是用户有意搬动，因为目录本身就是这次才有的。
+  const present = new Set(groups.map(g => g.key))
+  DEFAULT_GROUPS.forEach((dg, idx) => {
+    if (present.has(dg.key)) return
+    present.add(dg.key)
+    const members = dg.items.filter(k => seen.has(k))
+    if (members.length) {
+      const claim = new Set<PageKey>(members)
+      for (const g of groups) g.items = g.items.filter(k => !claim.has(k))
+    }
+    groups.splice(Math.min(idx, groups.length), 0, { key: dg.key, items: [...members] })
+  })
+
+  // 2) 仍然没出现在任何目录里的新页面：并入它「默认所属」的目录；
+  //    没有默认归属时才退回最后一个目录（保持旧行为，不至于让页面失踪）。
+  const byKey = new Map(groups.map(g => [g.key, g]))
   const fresh = (VALID_PAGES as PageKey[]).filter(k => !seen.has(k))
-  if (fresh.length) groups[groups.length - 1].items.push(...fresh)
+  for (const k of fresh) {
+    const target = byKey.get(DEFAULT_GROUP_OF[k] ?? '') ?? groups[groups.length - 1]
+    target.items.push(k)
+    seen.add(k)
+  }
+
   const itemLabels = obj.itemLabels && typeof obj.itemLabels === 'object' ? obj.itemLabels : undefined
   return { v: 1, groups, itemLabels }
 }
@@ -1140,8 +1218,12 @@ function AppContent() {
         return <MsSlaOnly />
       case 'site_avail':
         return <SiteAvailability />
+      case 'repeat_site_down':
+        return <RepeatSiteDown />
       case 'ran_cells_kpi':
         return <RanCellsKpi />
+      case 'cn_kpi':
+        return <CnKpi />
       case 'ume_in_kpi':
         return <UmeInKpi />
       case 'alarmManagement':
@@ -1207,6 +1289,10 @@ function AppContent() {
       case 'help':
         return <Help />
       default:
+        // 原生看板（finebi_<slug>）：一套组件渲染 17 个看板
+        if (FINEBI_PAGE_TO_SLUG[currentPage]) {
+          return <NativeBoard slug={FINEBI_PAGE_TO_SLUG[currentPage]} />
+        }
         return <Overview />
     }
   }

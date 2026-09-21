@@ -1,0 +1,34 @@
+ 2287:         '<span class="inline-flex items-center px-2.5 py-1 rounded text-[13px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200" title="' + esc(slaTip) + '">' +
+ 2288:           ico('shield', 'mr-1') + esc(t('sec.qc.sla.label')) + ' <strong class="font-mono">' + esc(slaVal) + '</strong></span>'
+ 2289:     }) + '<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3.5">' + cards + '</div>';
+ 2290:   }
+ 2291:   /* ================================================ QC 统计 / 明细下钻 ==
+ 2292:      数据来自 my_app 的只读接口（backend/routers/portal_qc.py），经 nginx 的
+ 2293:      /api/ 兜底同源转发到本机 7038 —— 前端拿不到、也不需要任何数据库凭证。
+ 2294: 
+ 2295:      **必须校验响是不是 JSON**：my_app 末尾的 `@app.get("/{full_path:path}")`
+ 2296:      会把任何未注册的 /api/xxx 也回成 SPA 的 index.html（200 + text/html）。
+ 2297:      不校验就会把一坨 HTML 当统计读，页面静默变成一排「—」且查不出原因。 */
+ 2298:   /* QC 刷新节奏（2026-09-18，第三轮定稿：**告警 5 分钟级 / 其余每小时**）。
+ 2299:      先把事实量清楚，再决定节奏 —— 数据源的实际 cron（`GET /api/tasks` 的 current_cron，
+ 2300:      不是 default_cron）：eflow_sync 每小时 :00 起跑、实测约 374s（≈:06 完成，TT/WO/CR/PMT
+ 2301:      的源）；eflow_active_alarm 每 5 分钟（断站告警）。
+ 2302:      SPMS 的源（2026-09-20 更正）：不是 sp_online_sync（那个每小时 :35，写的是
+ 2303:      sp_inbound/sp_outbound/sp_transfer 三张表，本面板根本不读），而是 **sp_data_sync
+ 2304:      「SP 备件数据同步」** —— 它写 inband_details / outband_details，本面板的 SPMS 就是
+ 2305:      数这两张表；该任务 2026-09-20 起由每天 07:00 改为**每小时 :10**（上游 SFTP 本就
+ 2306:      每小时 :00:03 导出一份），所以 SPMS 现在也是小时级，只是它 :10 起跑、末尾还要写
+ 2307:      FineBI 镜像，落在 :06:30 这次刷新之后 → 面板上看到的是上一小时 :10 那份（约 50 分钟前）。
+ 2308:      所以：
+ 2309:        - 全量（tt/wo/cr/pmt/spms/sla + alarm 兜底）：每小时 :06:30 —— 紧跟 eflow_sync 跑完，
+ 2310:          而不是「从进页面起算 60 分钟」（那样 :06 同步好的数据最多要再等 54 分钟才上屏）；
+ 2311:        - 告警单项：每 5 分钟 :00:30/:05:30… —— 它的源每 5 分钟 replace 一次整表，
+ 2312:          按小时刷新会让告警卡最长滞后 1 小时，这是 NOC 看板上最不该旧的一项。
+ 2313:      告警走 `?only=alarm`（后端只算这一项，不重跑 6 条全表 COUNT），前端只覆盖 alarm 一格。
+ 2314:      加载即拉全量、切回前台补拉全量、点「刷新」强制拉全量。 */
+ 2315:   var QC_FULL_MIN = 60;        // 全量：小时网格
+ 2316:   var QC_FULL_OFFSET = 390;    // + :06:30（6*60+30）
+ 2317:   var QC_ALARM_MIN = 5;        // 告警：5 分钟网格
+ 2318:   var QC_ALARM_OFFSET = 30;    // + :00:30
+ 2319:   var QC_MONO_KEY = /^(tt_no|wo_no|cr_id|pmt_no|doc_no|site_id|alarmcode|raised)$/;
+ 2320: 

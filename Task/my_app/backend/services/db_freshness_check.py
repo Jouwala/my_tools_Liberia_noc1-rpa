@@ -128,6 +128,46 @@ LOCAL_CHECKS = [
          task_id="ms_sla_full"),
 ]
 
+# my_app **自持**的本地派生表（跨库 join 才能算出来的宽表，见
+# dashboard_service.LOCAL_SQLITE_FILES / DB_ALIASES）。
+#
+# 为什么单独一类：这些表既不在远端库清单里（REMOTE_CHECKS 查不到），
+# 也不是「API 失败时的本地回退库」（LOCAL_CHECKS 只记录、不判新鲜度）——
+# 它们是看板的**唯一真相源**，由 my_app 自己的任务重建，因此必须像远端库一样
+# 有明确的新鲜度要求。
+#
+# 事故背景（2026-09-21，本清单就是补这个盲区）：
+#   这三张表原本是**已退役 my-finebi 项目** data/ 目录下的**手工 ETL 快照**
+#   （TMP/etl_avail_recon_v2.py / etl_mttr_tt.py / etl_progress.py；my-finebi 的
+#   PROJECT_DOCS 把它们归类为「ETL 快照刷新 …… 变更后**重跑**」，即无调度）。
+#   门户退役后无人再跑，三张表分别冻结在 2026-09-13 / 2026-08-31 / 2026-08-31，
+#   四个看板（finebi_daily_availability / availability_tt / mttr / progress(_v3)）
+#   静默停更 1~3 周，**全程没有任何告警** —— 因为当时它们既不在 REMOTE_CHECKS，
+#   也不在 LOCAL_CHECKS 的判定范围内。用户是先看页面才发现的那一方。
+DERIVED_CHECKS = [
+    dict(label="avail_recon 可用率核对宽表",
+         path=str(MY_APP_DIR / "data" / "avail_recon.sqlite3"),
+         table="availability_daily", column="Begin_Time",
+         granularity="daily", run_by="06:10",
+         task_id="avail_recon_sync", task_cron="10 6 * * *",
+         service="backend/services/avail_recon_sync.py::run_avail_recon_sync",
+         write_path="远端只读 API 聚合 → 原子替换本机 data/avail_recon.sqlite3（不发远端）"),
+    dict(label="mttr_tt MTTR/TT 宽表",
+         path=str(MY_APP_DIR / "data" / "mttr_tt.sqlite3"),
+         table="tt_full", column="Alarm Occur Time",
+         granularity="daily", run_by="07:40",
+         task_id="mttr_tt_sync", task_cron="40 7 * * *",
+         service="backend/services/mttr_tt_sync.py::run_mttr_tt_sync",
+         write_path="远端只读 API + 本机 excel_ds 参考库 → 原子替换本机 data/mttr_tt.sqlite3"),
+    dict(label="progress Progress 宽表",
+         path=str(MY_APP_DIR / "data" / "progress.sqlite3"),
+         table="progress_full", column="Alarm Occur Time",
+         granularity="daily", run_by="07:50",
+         task_id="progress_sync", task_cron="50 7 * * *",
+         service="backend/services/progress_sync.py::run_progress_sync",
+         write_path="远端只读 API（TT LEFT JOIN WO）→ 原子替换本机 data/progress.sqlite3"),
+]
+
 # 任务执行健康检查参数（2026-08-12 新增，2026-08-13 收紧）：
 #   - 注册任务最近 N 小时无执行记录 → 告警（日级任务 24h 内必有记录；已禁用任务排除）
 #   - task_queue 滞留阈值：pending 超 10 分钟（正常秒级被 worker 认领）、
@@ -206,13 +246,18 @@ def _local_tables(path: str) -> list:
 
 
 def _local_max_begin_time(path: str, table: str):
+    return _local_max_col(path, table, "Begin Time")
+
+
+def _local_max_col(path: str, table: str, column: str):
+    """任意日期/时间列的 MAX（派生表用；回退库固定用 Begin Time）。"""
     q = lambda c: '"' + c.replace('"', '""') + '"'
     with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=60) as conn:
         cols = [r[1] for r in conn.execute(f'PRAGMA table_info({q(table)})').fetchall()]
-        if "Begin Time" not in cols:
-            return None, "no_begin_time_col"
+        if column not in cols:
+            return None, f"no_{column}_col"
         row = conn.execute(
-            f'SELECT MAX({q("Begin Time")}) FROM {q(table)}').fetchone()
+            f'SELECT MAX({q(column)}) FROM {q(table)}').fetchone()
     mx = row[0] if row else None
     return (str(mx)[:19] if mx else None), None
 
@@ -319,7 +364,12 @@ def _task_health_db_query():
         _ensure_my_app_importable()
         from backend.database import get_raw_connection, DB_PATH as _APP_DB
     except Exception as e:
-        return None, None, None, None, None, f"导入 backend.database 失败: {e}"
+        # ⚠ 必须与成功分支一样返回 7 个值：此前只返回 6 个，调用方
+        # `a, b, c, d, e, f, g = _task_health_db_query()` 会抛
+        # "not enough values to unpack (expected 7, got 6)"，
+        # 把「backend.database 导入失败」这个真实原因整个盖掉
+        # （2026-09-21 在缺 sqlalchemy 的 .venv 下复现）。
+        return None, None, None, None, None, None, f"导入 backend.database 失败: {e}"
     try:
         with get_raw_connection(str(_APP_DB), timeout=30) as conn:
             exec_latest = {r[0]: r[1] for r in conn.execute(
@@ -629,6 +679,73 @@ def _check_local_table(check: dict, table: str, now: datetime, results: list, st
     results.append(dict(scope="local", db=label, table=table, status="info", latest=mx))
 
 
+def _derived_advice(check: dict) -> list:
+    """派生表滞后时的调用链路与检查方向（与 _stale_advice 同构，链路是本机写入）。"""
+    chain = [
+        f"定时任务 {check['task_id']} (cron: {check['task_cron']})",
+        f"→ {check['service']}",
+        f"→ {check['write_path']}",
+        f"→ 本机 {check['path']} 表 {check['table']}",
+    ]
+    advice = [
+        f"1. Task Manager 查看任务 {check['task_id']} 最近运行历史（success/error）",
+        "2. 手动跑一次该任务的 __main__（python -m backend.services.<模块名>）看真实报错",
+        f"3. 该表是**本机派生表**，不是远端库：确认本机文件存在且未被占用/损坏（PRAGMA integrity_check）",
+        f"4. 看板侧数据源别名在 backend/services/dashboard_service.py 的 DB_ALIASES"
+        f"（{check['table']} 所属库应指向 LOCAL_SQLITE_FILES 里的本机文件）",
+        "5. 历史教训：这类表若由外部项目的手工 ETL 维护、没有调度，就会静默停更（2026-09-21 事故）",
+    ]
+    return ["调用链路:"] + [f"  {c}" for c in chain] + ["检查方向:"] + [f"  {a}" for a in advice]
+
+
+def _check_derived_table(check: dict, now: datetime, results: list, stale_items: list):
+    """本机派生表的新鲜度判定（缺文件 / 读失败 / 最新值早于期望 都算滞后）。"""
+    path, label = check["path"], check["label"]
+    table, column = check["table"], check["column"]
+    since, expected = _window_since(check["granularity"], now, check)
+
+    if not os.path.exists(path):
+        results.append(dict(scope="derived", db=label, table=table,
+                            status="STALE", detail=f"文件不存在: {path}"))
+        stale_items.append(dict(
+            db=label, table=table,
+            reason=f"派生表文件不存在（任务 {check['task_id']} 从未成功跑过？）: {path}",
+            guidance=_derived_advice(check)))
+        return
+
+    try:
+        mx, err = _local_max_col(path, table, column)
+    except Exception as e:
+        results.append(dict(scope="derived", db=label, table=table,
+                            status="read_error", detail=str(e)[:200]))
+        stale_items.append(dict(db=label, table=table,
+                                reason=f"派生表读取失败: {e}",
+                                guidance=_derived_advice(check)))
+        return
+
+    if mx is None:
+        results.append(dict(scope="derived", db=label, table=table,
+                            status="STALE", detail=err or "表为空",
+                            expected=expected))
+        stale_items.append(dict(db=label, table=table,
+                                reason=f"表 {table} 无数据（{err or '空表'}），期望 {expected}",
+                                guidance=_derived_advice(check)))
+        return
+
+    # 日期与时间戳都按文本比较：'2026-09-21 08:21:06' >= '2026-09-20' 成立
+    if mx >= since:
+        results.append(dict(scope="derived", db=label, table=table,
+                            status="ok", latest=mx, expected=expected))
+        return
+
+    results.append(dict(scope="derived", db=label, table=table,
+                        status="STALE", latest=mx, expected=expected))
+    stale_items.append(dict(
+        db=label, table=table,
+        reason=f"最新 {column}={mx}，早于期望（{expected}）—— 派生表停更",
+        guidance=_derived_advice(check)))
+
+
 def run_db_freshness_check() -> dict:
     """小时级数据新鲜度巡检入口。"""
     t_start = time.time()
@@ -706,6 +823,13 @@ def run_db_freshness_check() -> dict:
             continue
         for t in tables:
             _check_local_table(check, t, now, results, stale_items)
+
+    # ---------- 本机派生表检查 ----------
+    # 2026-09-21 新增：这三张宽表是看板的唯一真相源，此前**不在任何新鲜度判定里**
+    # （REMOTE_CHECKS 查不到、LOCAL_CHECKS 只记录不告警），
+    # 于是 my-finebi 退役后它们静默停更 1~3 周都没人知道。见 DERIVED_CHECKS 注释。
+    for check in DERIVED_CHECKS:
+        _check_derived_table(check, now, results, stale_items)
 
     # 汇总本地库各任务 max 日期（供远程滞后对照）
     for r in results:

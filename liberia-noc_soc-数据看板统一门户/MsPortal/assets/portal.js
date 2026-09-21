@@ -161,14 +161,14 @@
       /* 2026-09-18：把「刷新节奏」和「数据源节奏」摆到标题栏上。
          起因：用户看到 QC 数字长时间不变，无法判断是「页面没在刷新」还是
          「源数据本来就没到下一个同步点」——而 eflow_sync 每小时 :00 才跑（实测约 374s，
-         ≈:06 跑完）、SPMS 每小时 :35、断站告警每 5 分钟，所以 TT/WO/CR/PMT 这类数字
+         ≈:06 跑完）、SP 备件明细 sp_data_sync 每小时 :10、断站告警每 5 分钟，所以 TT/WO/CR/PMT 这类数字
          一小时才变一次是**数据源的节奏**。
          最终节奏（同日第三轮，用户定）：**告警 5 分钟级 / 其余每小时** ——
          六项里只有 realtime_alarm 高频变化（源 eflow_active_alarm 每 5 分钟 replace 一次），
          其余五项 + 达标率的源都是每小时才动。见 QC_FULL_MIN / QC_ALARM_MIN。 */
       'qc.cadence': '告警 5 分钟 · 其余每小时 :06',
       'qc.next': '下次 {t}',
-      'qc.cadenceTip': '本面板分两档刷新：断站告警每 5 分钟（源 eflow_active_alarm 每 5 分钟同步，最近 {a}）；TT/WO/CR/PMT/SPMS 与达标率每小时 :06（源 eflow_sync 每小时 :00 起跑、实测约 :06 跑完，SPMS 源每小时 :35，最近 {f}）。切回本页或点「刷新」会立刻重拉全量。',
+      'qc.cadenceTip': '本面板分两档刷新：断站告警每 5 分钟（源 eflow_active_alarm 每 5 分钟同步，最近 {a}）；TT/WO/CR/PMT/SPMS 与达标率每小时 :06（源 eflow_sync 每小时 :00 起跑、实测约 :06 跑完，SP 备件明细 sp_data_sync 每小时 :10，最近 {f}）。切回本页或点「刷新」会立刻重拉全量。',
       'qc.loading': '加载中…',
       'qc.err': '数据库统计不可用',
       'qc.empty': '没有匹配的记录',
@@ -526,7 +526,7 @@
       /* 2026-09-18：见中文块同名键的注释（刷新节奏 / 数据源节奏写到标题栏）。 */
       'qc.cadence': 'alarms 5 min · rest hourly :06',
       'qc.next': 'next {t}',
-      'qc.cadenceTip': 'Two refresh cadences: site-outage alarms every 5 min (source eflow_active_alarm syncs every 5 min, latest {a}); TT/WO/CR/PMT/SPMS and the SLA rate hourly at :06 (eflow_sync starts at :00 and takes ~6 min, SPMS source at :35, latest {f}). Coming back to this tab or clicking Refresh re-pulls the full set immediately.',
+      'qc.cadenceTip': 'Two refresh cadences: site-outage alarms every 5 min (source eflow_active_alarm syncs every 5 min, latest {a}); TT/WO/CR/PMT/SPMS and the SLA rate hourly at :06 (eflow_sync starts at :00 and takes ~6 min, the SP spare-part details sync sp_data_sync runs hourly at :10, latest {f}). Coming back to this tab or clicking Refresh re-pulls the full set immediately.',
       'qc.loading': 'Loading…',
       'qc.err': 'Database stats unavailable',
       'qc.empty': 'No matching records',
@@ -1011,6 +1011,39 @@
      而按最终容器尺寸算应为 0.87（实测见 TMP/probe_map_refit_ab.cjs）。
      置 false 即回到「只重测尺寸、不重新取景」的原行为。 */
   var MAP_REFIT_ON_STRIP = true;
+
+  /* 地图默认取景「比全国再放大一级」（2026-09-21 加，按用户需求）。
+     需求原话：默认显示的 MW RealTime 地图，「比下钻再放大一点，跟点一次加号一样的效果」，
+     并且要「以利比里亚国土或者站点分布居中」。
+
+     现状（实测 TMP/probe_map_fit_zoom8.cjs，1920×1200 视口，画布 570×856）：
+       · 内层页 fitAllSites() 对 LB_BOUNDS(south 3.9 / west -11.7 / north 8.75 / east -7.3)
+         做 fitBounds → 停在 **zoom 7**；
+       · 用户点一次加号 → **zoom 8**，中心不变。
+     所以本开关就是把默认落点从「fitBounds 的结果」再往上提一级。
+
+     ⚠️ 为什么是「放大一级 + 中心微调」而不是纯 zoomIn：
+       实测 zoom 8 在该画布下的可视范围只有 4.70°纬 × 3.13°经，
+       而利比里亚国土要 4.85°纬 × 4.40°经 —— **zoom 8 装不下整个国家**
+       （北边 8.75 > 8.66、东西两边也各差一截）。
+       用户已知悉并选定「放大一级优先，允许裁掉国土边缘，同时把中心微调到站点重心」。
+       改画布尺寸救不回来：纬向要 ≥883px 高才装得下，而中列是窄竖条，
+       实测 800×856 / 1000×700 / 1100×856 等 15 组候选全部 coversLbAt8=false
+       （见 TMP/probe_map_centroid_canvas.cjs）。
+
+     中心微调目标 = **站点实际分布重心**（35 个站实测 6.4173N / 9.3062E），
+     与国土 bbox 中心（6.325N / 9.5W）只差 +0.09°纬 / +0.19°经 —— 是很轻的修正，
+     比死守 bbox 中心更能把站点留在画面里。站点点位取不到时退回 fitAllSites 的中心。
+
+     风险兜底：内层页 leafMap 是页面作用域变量、不在 window 上，
+     门户侧只能靠「注入 <script> 到同源内层 document 执行」才拿得到（实测可行，
+     见 TMP/probe_map_reach_leafmap.cjs）。若哪天内层页改名/换实现，
+     下面的注入会整段静默失败 → 自动退回 fitAllSites 的原取景，**不会白屏**。
+     置 false 即回到「全国 fitBounds」的原行为。 */
+  var MAP_DEFAULT_ZOOM_IN = true;
+
+  /* 站点重心（纬度, 经度）：35 个站实测值，见上面注释。取不到站点时用这个兜底。 */
+  var MAP_SITE_CENTER = [6.4173, -9.3062];
 
   function t(key) {
     var d = I18N[state.lang] || I18N.zh;
@@ -2246,17 +2279,44 @@
          标题行（名称 + 图标）与副行（口径 / 报错）**仍保持左对齐** ——
          卡内三行只让数字居中，是需求原话（"卡片上的数字要居中"），
          把整卡都改成 text-center 会连标题和口径一起挪，属于超范围改动。 */
-      return '<button type="button" class="text-left bg-gradient-to-br from-slate-50 to-white rounded-lg p-3.5 border ' +
-        (on ? 'border-blue-400 ring-1 ring-blue-200' : 'border-slate-200') +
-        ' hover:border-blue-400 hover:shadow-md transition group" data-act="qc" data-qc="' + esc(q.id) + '" title="' + esc(tip) + '">' +
-        '<div class="flex items-center justify-between text-[14px] font-bold text-slate-700 mb-1">' +
-          '<span class="truncate">' + esc(state.lang === 'en' ? q.en : q.zh) + '</span>' +
-          '<span class="p-1 rounded bg-blue-50 text-blue-600 shrink-0">' + ico(q.icon) + '</span>' +
+      /* 2026-09-19：卡片视觉优化（仅动 QC 卡，不动数据口径）
+         - 去掉整卡渐变，改纯白 + 细边框 + 柔和阴影，弱化"贴纸感"；
+         - 左侧 3px 主题色竖条做状态语义（正常=蓝 / 失败=玫红），一眼区分；
+         - 标题 13px、副行 11px，主次分明；数字仍居中（沿用既定需求）；
+         - hover 用轻微上浮 + 阴影，替代原来的缩放放大。 */
+      /* 2026-09-20：卡片美观度优化（仅动 QC 卡样式，数据口径 / 交互 / data-act 全部不变）
+         - 卡面改「上淡下白」渐变 + 圆角 2xl，去掉纯白死板感；
+         - 左侧 3px 竖条换成「左上角柔光晕」，状态语义更含蓄（正常=蓝 / 失败=玫红）；
+         - 图标由实心小方块改「圆形浅底徽标」，与标题上下叠放，视觉重心更集中；
+         - 数字保留居中（沿用既定需求），字重/字号微调并加 tabular-nums 防跳动；
+         - 选中态改「描边 + 拉长阴影条」，不再只是边框变色；
+         - hover 上浮 + 阴影加深，过渡曲线统一 ease-out。 */
+      var accentCls = failed ? 'bg-rose-400' : 'bg-blue-500';
+      /* 2026-09-21 视觉优化（只改样式，数据 / 交互 / data-act 不动）
+         - 竖条由"圆点柔光"回归细竖条，靠左贴边：状态语义更直接，也不再遮挡内容；
+         - 卡面回到纯白 + 1px 细边，靠间距与细边分区，避免渐变"贴纸感"；
+         - 数字去掉 text-center，改左对齐并与标题同轴，标题 → 数字 → 口径形成一条左对齐基线；
+         - 数字上色：正常=深石板、失败=玫红，字重降到 semibold，弱化"大号数字"压迫感。 */
+      var iconCls = failed ? (on ? 'bg-rose-100/80 text-rose-600' : 'bg-rose-50 text-rose-500') : (on ? 'bg-blue-100/80 text-blue-700' : 'bg-blue-50 text-blue-600');
+      var numCls = failed ? 'text-rose-500' : 'text-slate-800';
+      var railCls = failed ? 'bg-rose-400' : 'bg-blue-500';
+      return '<button type="button" class="group relative overflow-hidden text-left rounded-xl border bg-white ' +
+        (on ? 'border-blue-400 shadow-[0_6px_18px_-6px_rgba(37,99,235,0.45)]' : 'border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.05)] hover:border-blue-300 hover:shadow-[0_6px_16px_-8px_rgba(15,23,42,0.35)] hover:-translate-y-0.5') +
+        ' transition-all duration-200 ease-out" data-act="qc" data-qc="' + esc(q.id) + '" title="' + esc(tip) + '">' +
+        '<span class="pointer-events-none absolute left-0 top-0 h-full w-[3px] ' + railCls + ' ' + (on ? 'opacity-100' : 'opacity-60 group-hover:opacity-100') + ' transition-opacity"></span>' +
+        /* 左上角柔光晕：替代原来的整条竖条，状态语义更轻 */
+        '<div class="relative pl-4 pr-3.5 pt-3.5 pb-3">' +
+          '<div class="flex items-center gap-2">' +
+            '<span class="flex h-6 w-6 items-center justify-center rounded-md ' + iconCls + ' shrink-0 transition-colors">' + ico(q.icon) + '</span>' +
+            '<span class="truncate text-[12px] font-medium tracking-wide text-slate-500 group-hover:text-slate-700 transition-colors">' +
+              esc(state.lang === 'en' ? q.en : q.zh) + '</span>' +
+            '<span class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full ' + accentCls + (on || failed ? '' : ' opacity-40') + '"></span>' +
+          '</div>' +
+          '<div class="mt-2.5 text-[26px] lg:text-[30px] font-semibold ' + numCls + ' font-mono tracking-tight leading-none tabular-nums">' +
+            num + '</div>' +
+          '<div class="mt-1.5 truncate text-[11px] leading-tight ' + (failed ? 'text-rose-500' : 'text-slate-400') + '" title="' + esc(sub) + '">' +
+            esc(sub) + '</div>' +
         '</div>' +
-        '<div class="text-center text-[30px] lg:text-[36px] font-extrabold ' + numCls + ' font-mono tracking-tight group-hover:scale-105 transition-transform mt-1">' +
-          num + '</div>' +
-        '<div class="text-[12px] mt-1.5 truncate ' + (failed ? 'text-rose-500' : 'text-slate-500') + '" title="' + esc(sub) + '">' +
-          esc(sub) + '</div>' +
       '</button>';
     }).join('');
 
@@ -2287,7 +2347,13 @@
   /* QC 刷新节奏（2026-09-18，第三轮定稿：**告警 5 分钟级 / 其余每小时**）。
      先把事实量清楚，再决定节奏 —— 数据源的实际 cron（`GET /api/tasks` 的 current_cron，
      不是 default_cron）：eflow_sync 每小时 :00 起跑、实测约 374s（≈:06 完成，TT/WO/CR/PMT
-     的源）；sp_online_sync 每小时 :35（SPMS）；eflow_active_alarm 每 5 分钟（断站告警）。
+     的源）；eflow_active_alarm 每 5 分钟（断站告警）。
+     SPMS 的源（2026-09-20 更正）：不是 sp_online_sync（那个每小时 :35，写的是
+     sp_inbound/sp_outbound/sp_transfer 三张表，本面板根本不读），而是 **sp_data_sync
+     「SP 备件数据同步」** —— 它写 inband_details / outband_details，本面板的 SPMS 就是
+     数这两张表；该任务 2026-09-20 起由每天 07:00 改为**每小时 :10**（上游 SFTP 本就
+     每小时 :00:03 导出一份），所以 SPMS 现在也是小时级，只是它 :10 起跑、末尾还要写
+     FineBI 镜像，落在 :06:30 这次刷新之后 → 面板上看到的是上一小时 :10 那份（约 50 分钟前）。
      所以：
        - 全量（tt/wo/cr/pmt/spms/sla + alarm 兜底）：每小时 :06:30 —— 紧跟 eflow_sync 跑完，
          而不是「从进页面起算 60 分钟」（那样 :06 同步好的数据最多要再等 54 分钟才上屏）；
@@ -2469,6 +2535,13 @@
     if (ph) {
       tbody.innerHTML = '<tr><td colspan="' + span + '"><div class="qc-empty">' + ph + '</div></td></tr>';
     } else {
+      /* 2026-09-21：删掉这里的 `var cls = qcRowClass(row);` —— 该函数在整个
+         portal.js 里从来没有定义过（既无 function 声明也无 var 赋值，portal.css
+         里也没有对应的行样式类），是一次未完成的改动留下的死调用。它会在
+         renderQcDrill() 里抛 ReferenceError，被 fetchQcDrill() 的 .catch 抓住写进
+         d.err，于是下钻弹窗显示成「数据库统计不可用: qcRowClass is not defined」，
+         把前端脚本的错误伪装成了数据库故障。行高亮要恢复时，请连同 portal.css
+         的样式类一起补上，不要再留这种只有调用没有定义的半截代码。 */
       tbody.innerHTML = d.rows.map(function (row) {
         return '<tr>' + d.columns.map(function (c) {
           var val = qcCell(row[c.key]);
@@ -2796,6 +2869,47 @@
     return false;
   }
 
+  /** 在内层页里「多放大一级 + 居中对齐站点重心」（2026-09-21 加）。
+      必须在**内层页自己的作用域**里跑：leafMap 是页面作用域变量、不在 window 上，
+      门户侧按私有属性名猜（_leaflet_map / _map / React fiber …）全都拿不到
+      —— 容器上只有 _leaflet_events / _leaflet_id / __mwWheelBound（实测）。
+      同源 iframe 可以直接往里插 <script>，脚本与页面脚本共享同一个 realm，
+      于是能像页面自己的代码那样读到 leafMap（实测 zoom 7→8 成功，
+      见 TMP/probe_map_reach_leafmap.cjs）。
+
+      为什么不直接 leafMap.zoomIn(1)：需求要求同时「以站点分布居中」，
+      而 zoomIn 只改 zoom、不动中心。这里显式 setView(站点重心, 目标级别) 一次到位。
+      目标级别 = 当前 fitBounds 的 zoom + 1（**不写死 8**：视口一变，
+      fitAllSites 的结果也会变，跟着 +1 才始终等于「用户点一次加号」）。
+
+      返回：脚本是否插进去了（脚本异步执行，这里不保证执行成功）。 */
+  function zoomInInnerMap(d) {
+    if (!MAP_DEFAULT_ZOOM_IN) return false;
+    try {
+      var s = d.createElement('script');
+      s.id = 'msportal-default-zoom';
+      /* 用 IIFE 包住，不往内层页扔全局变量。
+         整体 try：内层页若换了实现（没有 leafMap）就整段静默失败，
+         取景退回 fitAllSites 的原结果，不会白屏。 */
+      s.textContent = '(function(){try{' +
+        'if(typeof leafMap==="undefined"||!leafMap||typeof leafMap.getZoom!=="function")return;' +
+        'var z=leafMap.getZoom()+1;' +
+        'if(typeof leafMap.getMaxZoom==="function"){var mz=leafMap.getMaxZoom();if(isFinite(mz)&&z>mz)z=mz;}' +
+        /* 站点重心：优先按实际点位现算（页面改数据后自适应），取不到用门户兜底常量 */
+        'var c=' + JSON.stringify(MAP_SITE_CENTER) + ';' +
+        'try{if(typeof nodeLayer!=="undefined"&&nodeLayer&&nodeLayer.eachLayer){' +
+        'var n=0,la=0,lo=0;' +
+        'nodeLayer.eachLayer(function(l){if(l&&typeof l.getLatLng==="function"){var p=l.getLatLng();la+=p.lat;lo+=p.lng;n++;}});' +
+        'if(n>0)c=[la/n,lo/n];}}catch(e){}' +
+        /* setView(center, zoom) 一次设完：避免 zoomIn 之后再 pan 造成的两帧抖动 */
+        'leafMap.setView(c,z,{animate:false});' +
+        'try{leafMap.invalidateSize(false);}catch(e){}' +
+        '}catch(e){}})();';
+      d.body.appendChild(s);
+      return true;
+    } catch (e) { return false; }
+  }
+
   /** 让内层页按**最终**容器尺寸重新取景（2026-09-18 加）。
       为什么需要：stripFrame 注入 CSS 把地图撑满后，invalidateLeaflet 只重测尺寸、
       不重算 zoom；而内层页的 fitBounds 跑在容器还矮的时刻 → zoom 低一级。
@@ -2824,6 +2938,10 @@
       var h = Math.round(lc.getBoundingClientRect().height);
       if (h <= 0 || h !== st.lastH) return;   // 期间又变了，等下一轮
       try { w.fitAllSites(); } catch (e) { /* 内层页自己会兜底 */ }
+      /* 全国取景落定后，再按需求放大一级并居中到站点重心（见 MAP_DEFAULT_ZOOM_IN）。
+         同步调用是对的：此刻 leafMap.getZoom() 已是本次 fitAllSites 的结果，
+         +1 才真正等于「用户点一次加号」；晚一帧调用就可能落在别的取景上。 */
+      zoomInInnerMap(d);
     }
     (function tick() {
       var lc = d.querySelector('.leaflet-container');
@@ -5953,6 +6071,11 @@
     }, qcNextDelay(QC_FULL_MIN, QC_FULL_OFFSET));
   })();
   (function qcLoopAlarm() {
+    /* 开页面时先补一发 ?only=alarm：首屏那三个告警数字是从全量里借来的，
+       时间戳走的也是全量的时间轴（每小时 :06:30），而告警这里的刻度是 :00:30/:05:30。
+       不补的话页面刚进来时「告警最近」可能是近一小时前的旧时间，得等下一个 5 分钟
+       刻度才被刷新 —— 期间 tooltip 显示的时间与真实新鲜度对不上。 */
+    setTimeout(fetchQcAlarm, 0);
     setTimeout(function () {
       fetchQcAlarm();
       qcLoopAlarm();

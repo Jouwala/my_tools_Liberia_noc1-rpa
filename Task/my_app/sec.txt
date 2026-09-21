@@ -1,0 +1,42 @@
+471             </Button>
+472             {/* 扁平表页签（FineBI / 自动化清单）由面板自己带搜索+筛选+导出，
+473                 这里不再重复给一个 disabled 的按钮，避免两个「导出 Excel」。 */}
+474             {activeMatrix && (
+475               <Button type="primary" icon={<DownloadOutlined />} loading={exporting}
+476                 onClick={() => exportMatrix(activeMatrix, tab)}>
+477                 {t('msKpi.export')}
+478               </Button>
+479             )}
+480           </Space>
+481         )}
+482       >
+483         <Space wrap style={{ marginBottom: 12 }}>
+484           <Tag color="cyan">{`${t('msKpi.sourceFile')}: ${summary?.source.file || '-'}`}</Tag>
+485           <Tag>{`${t('msKpi.dataTime')}: ${summary?.source.generated_at || '-'}`}</Tag>
+486           <Tag>{`${t('msKpi.task')}: ${summary?.source.task || '-'}`}</Tag>
+487           <Tag>{`${t('msKpi.queryTime')}: ${summary?.generated_at || '-'}`}</Tag>
+488         </Space>
+489 
+490         {error && (
+491           <Alert type="error" showIcon style={{ marginBottom: 12 }}
+492             message={t('msKpi.loadFailed')} description={error} />
+493         )}
+494         {!!summary?.warnings?.length && (
+495           <Alert type="warning" showIcon style={{ marginBottom: 12 }}
+496             message={t('msKpi.warnTitle')}
+497             description={<ul style={{ margin: 0, paddingLeft: 18 }}>
+498               {summary.warnings.map((w, i) => <li key={i}>{w}</li>)}
+499             </ul>} />
+500         )}
+501 
+502         <Spin spinning={loading}>
+503           <Row gutter={[12, 12]}>
+504             {cards.map(c => (
+505               <Col key={c.key} xs={12} sm={8} lg={4}>
+506                 <StatCard label={c.label} value={c.value} hint={c.hint}
+507                   color={c.color} emphasis={c.emphasis} />
+508               </Col>
+509             ))}
+510           </Row>
+511         </Spin>
+512       </Card>

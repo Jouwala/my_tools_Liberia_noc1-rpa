@@ -313,7 +313,6 @@ function FlatSheetPanel(props: {
 // ============================================================================
 export default function MsContractKpiReport() {
   const { t, locale } = useI18n()
-  const { isDark } = useTheme()
   const loc = numLocale(locale)
 
   const [summary, setSummary] = useState<MsKpiSummary | null>(null)

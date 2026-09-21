@@ -98,7 +98,13 @@ GROUP_TASK_MAP = {
         # data/ran_kpi_avalability_1day.sqlite3），必须与 cell_availability_sync 同组串行。
         # 2026-09-11 10:48 注册任务时漏了本步骤 → 无 worker 认领，队列 pending 卡死
         # （新任务必须显式分组，同 sp_material_sync / log_cleanup 的教训）
-        "cells_kpi_sync"),
+        "cells_kpi_sync,"
+        # avail_recon_sync 2026-09-21 注册：重建可用率核对宽表（读远端 Site_Daily，
+        # 写本机 data/avail_recon.sqlite3）。归 u 组的理由：源表 2G/3G/4G_Main_Kpi_Site_Daily
+        # 正是同组 main_kpi_sync(04:00) 写的，同组串行 + 排队先后即可保证「先写后读」，
+        # 也避免与写入方并发。此前该表由已退役的 my-finebi 手工 ETL 维护，
+        # 无人调度 → 冻结在 2026-09-13，看板静默停更（本次事故）。
+        "avail_recon_sync"),
     "n": (  # 网管 / eFlow API / 远程系统：各自独立但保守同组（VMAX 门户任务已拆至 v 组）
         "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,eflow_tt_rules_check,"
         "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync,mw_ume_kpi_sync,mw_ume_kpi_sync_rt,"
@@ -151,6 +157,12 @@ GROUP_TASK_MAP = {
         # sp_online_report_generate/send 2026-09-02 补录：SP 在线未关闭单报表
         # 生成（06:00）+ 邮件/WhatsApp 发送（06:20），新任务显式分组防 pending 卡死
         "sp_online_report_generate,sp_online_report_send,"
+        # mttr_tt_sync / progress_sync 2026-09-21 注册：MTTR/TT 与 Progress 宽表重建。
+        # 数据源 Eflow_TT_FB / Eflow_WO_FB 由 n 组的 eflow_sync（每小时 :22）写，
+        # 但本任务只用远端**只读** API + 写本机 data/*.sqlite3，不占任何业务会话；
+        # 排在 :40/:50 取到的一定是 :22 那一版，故与 db_freshness_check 等内务任务同组。
+        # 此前这两张表由已退役 my-finebi 的手工 ETL 维护，无调度 → 冻结在 2026-08-31。
+        "mttr_tt_sync,progress_sync,"
         # sp_whatsapp_report 2026-09-09 补录：Comsumables&SpareParts 报表 WhatsApp 发送（07:15），
         # 新任务显式分组防 pending 卡死（同 whatsapp_send_ext / sp_email_details 教训）
         "sp_whatsapp_report,"

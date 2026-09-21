@@ -274,6 +274,22 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
+    id: 'avail_recon_sync', group: 'u', cron: '10 6 * * *',
+    script: 'services/avail_recon_sync.py → run_avail_recon_sync',
+    zh: {
+      name: '可用率核对宽表重建',
+      desc: '重建 avail_recon 可用率核对宽表（远端 Site_Daily × Master_Site_Database Region 近似聚合），写本机 data/avail_recon.sqlite3，供 Daily Availability KPI / Availability(TT) 看板',
+      flow: ['读远端 olbr_ms_master_database 的站点主数据（Site_Name → Region）', '按 Region 把站点名单内联进 SQL，在远端聚合 2G/3G/4G_Main_Kpi_Site_Daily 的 AVG(可用率)', '原子替换本机 data/avail_recon.sqlite3（表 availability_daily）'],
+      maintain: ['口径在 services/avail_recon_sync.py 顶部：Cell_Availability=AVG(rate)，不是「达标站点占比」（v1 曾算错，值域 40~100%）', '看板侧经 dashboard_service.DB_ALIASES 把 avail_recon.sqlite3 解析到本机库；新增派生库照此登记', '本任务 2026-09-21 上线前，该表由已退役的 my-finebi 手工 ETL 维护，无人调度导致冻结在 2026-09-13、看板静默停更'],
+    },
+    en: {
+      name: 'Availability Recon Rebuild',
+      desc: 'Rebuild the avail_recon availability reconciliation table (approx. aggregate of remote Site_Daily x Master_Site_Database region) into local data/avail_recon.sqlite3 for the Daily Availability KPI / Availability(TT) boards',
+      flow: ['Read site master data from remote olbr_ms_master_database (Site_Name -> Region)', 'Inline each region\'s site list into SQL and aggregate AVG(availability) of 2G/3G/4G_Main_Kpi_Site_Daily remotely', 'Atomically replace local data/avail_recon.sqlite3 (table availability_daily)'],
+      maintain: ['Definitions live at the top of services/avail_recon_sync.py: Cell_Availability=AVG(rate), NOT the share of sites meeting the target (v1 got this wrong, range 40-100%)', 'The board resolves avail_recon.sqlite3 to the local file via dashboard_service.DB_ALIASES; register new derived DBs the same way', 'Before 2026-09-21 this table was maintained by a manual ETL in the retired my-finebi project; with no scheduler it froze at 2026-09-13 and the board went silently stale'],
+    },
+  },
+  {
     id: 'cnn_kpi_sync', group: 'n', cron: '0 6 * * *',
     script: 'services/ccn_ume_kpi_service.py → run_cnn_kpi_sync',
     zh: {
@@ -290,19 +306,19 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'sp_data_sync', group: 'n', cron: '0 7 * * *',
+    id: 'sp_data_sync', group: 'n', cron: '10 * * * *',
     script: 'services/get_sp_table.py → run_sp_data_sync',
     zh: {
       name: 'SP 备件数据同步',
       desc: '从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI WareHouseDashBoard inventory.db',
       flow: ['登录备件 SFTP（凭据分组 sftp_sp）', '拉取 Inbound/Outbound/Inventory/OC Rule/Transfer 5 份报表', '清洗后写主库，供仓库看板与 SP 报表使用', '全部落库后镜像写入 FineBI inventory.db（UNC 路径；普通表整表替换、Inventory 只追加新行）', '最后按保留期清理 Inventory 历史快照（app.db 与镜像库同口径，默认 180 天）'],
-      maintain: ['仓库看板 iframe 读的就是这批数据；报表缺失先看本任务是否成功', '镜像失败会在任务消息提示但影响不到 app.db；路径/开关在 Settings → 任务配置（mirror_db_path / mirror_enabled）', 'inventory_details 只追加不覆盖，靠保留期控制体积：Settings → 任务配置 inventory_retention_days（默认 180）。清理基准取表内最新 update_date，上游断流时不会清空整表', '仓库看板「Inventory Quantity Trend」直接读取本表全部日期（无日期参数时返回全量），调小保留天数会直接缩短趋势图历史'],
+      maintain: ['仓库看板 iframe 读的就是这批数据；报表缺失先看本任务是否成功', '镜像失败会在任务消息提示但影响不到 app.db；路径/开关在 Settings → 任务配置（mirror_db_path / mirror_enabled）', 'inventory_details 只追加不覆盖，靠保留期控制体积：Settings → 任务配置 inventory_retention_days（默认 180）。清理基准取表内最新 update_date，上游断流时不会清空整表', '仓库看板「Inventory Quantity Trend」直接读取本表全部日期（无日期参数时返回全量），调小保留天数会直接缩短趋势图历史', '2026-09-20 起由每天 07:00 改为每小时 :10：上游 SFTP 本就每小时 :00:03 导出一份，而 MsPortal 的 QC 面板 SPMS 卡读本任务写的 inband_details/outband_details，按天同步时那个数字最长滞后 24 小时。排 :10 是为了避开同组的 eflow_sync(:00) 与 sp_online_sync(:35)', '单次耗时被末尾的 FineBI 镜像拖长（UNC inventory.db 偶发 database is locked，实测 1~9min）；队列有单飞保护，上一轮没跑完会跳过本轮触发，不会堆叠，但那一小时的数据就是旧的。若 QC 面板其它指标（TT/WO/CR/PMT）跟着一起变慢，先查本任务是否占住了 n 组 worker'],
     },
     en: {
       name: 'SP Spare Data Sync',
       desc: 'Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db, then mirror into FineBI WareHouseDashBoard inventory.db',
       flow: ['Log into the spare-parts SFTP (credential group sftp_sp)', 'Fetch the 5 reports', 'Clean and write into the main DB for the warehouse board and SP reports', 'After all tables are stored, mirror into the FineBI inventory.db (UNC path; full replace for normal tables, append-only for Inventory)', 'Finally prune Inventory snapshots older than the retention window (same policy for app.db and the mirror, default 180 days)'],
-      maintain: ['The warehouse board iframe reads exactly this data — if reports are missing, check this task first', 'Mirror failures are reported in the task message without affecting app.db; path/toggle in Settings → Task Config (mirror_db_path / mirror_enabled)', 'inventory_details is append-only and bounded by retention: Settings → Task Config, inventory_retention_days (default 180). The cutoff is based on the newest update_date in the table, so an upstream outage never wipes the table', 'The warehouse board\'s "Inventory Quantity Trend" reads every date in this table (no date filter = full history), so lowering the retention window directly shortens the trend chart'],
+      maintain: ['The warehouse board iframe reads exactly this data — if reports are missing, check this task first', 'Mirror failures are reported in the task message without affecting app.db; path/toggle in Settings → Task Config (mirror_db_path / mirror_enabled)', 'inventory_details is append-only and bounded by retention: Settings → Task Config, inventory_retention_days (default 180). The cutoff is based on the newest update_date in the table, so an upstream outage never wipes the table', 'The warehouse board\'s "Inventory Quantity Trend" reads every date in this table (no date filter = full history), so lowering the retention window directly shortens the trend chart', 'Since 2026-09-20 this runs hourly at :10 instead of daily 07:00: the upstream SFTP already exports every hour at :00:03, and the MsPortal QC panel\'s SPMS card reads the inband_details/outband_details this task writes — a daily sync left that number up to 24h stale. :10 avoids eflow_sync (:00) and sp_online_sync (:35) in the same worker group', 'A run is lengthened by the trailing FineBI mirror (UNC inventory.db occasionally reports "database is locked"; observed 1-9 min). The queue has single-flight protection, so an unfinished run makes the next trigger skip — no pile-up, but that hour keeps the old data. If other QC metrics (TT/WO/CR/PMT) slow down too, check whether this task is occupying the group-n worker'],
     },
   },
   {
@@ -703,6 +719,38 @@ export const TASK_DOCS: TaskDoc[] = [
       desc: 'Hourly freshness audit of remote DBs (via db_writer_api) and local fallback DBs; outputs call chain and guidance when stale',
       flow: ['Hourly :15 check the latest data date per table in remote & local fallback DBs', 'When stale, log the call chain and troubleshooting direction in the execution history'],
       maintain: ['Suspect stalled data? Check this task\'s history first and follow its call chain — faster than browsing the task list'],
+    },
+  },
+  {
+    id: 'mttr_tt_sync', group: 'm', cron: '40 7 * * *',
+    script: 'services/mttr_tt_sync.py → run_mttr_tt_sync',
+    zh: {
+      name: 'MTTR/TT 宽表重建',
+      desc: '重建 mttr_tt 宽表（Eflow_TT_FB + OLR_CELLS/Site_Maintainer_Category 参考库），写本机 data/mttr_tt.sqlite3，供 MTTR Monthly&Weekly 看板',
+      flow: ['读本机参考库 data/excel_ds.sqlite3（Site ID→Site Category、Site Name→各制式小区数）', '经只读 API 读远端 Eflow_TT_FB 全量', '推导 Vender/MTTR1/MTTR2/MTTR_RANG_2H/Month/WK/Outage_Mins 后原子替换 data/mttr_tt.sqlite3'],
+      maintain: ['口径解析自 FineDB 数据集 4bc5a679，定义在 services/mttr_tt_sync.py 顶部；MTTR2 只在 0<MTTR1<48h 时非空', '参考库 excel_ds.sqlite3 是从 my-finebi 固化的静态文件（114KB，2026-08-31 后未变）；FineBI 侧 Excel 数据集若更新需重新导出覆盖', '2026-09-21 上线前该表由已退役 my-finebi 的手工 ETL 维护，无调度 → 冻结在 2026-08-31'],
+    },
+    en: {
+      name: 'MTTR/TT Wide Table Rebuild',
+      desc: 'Rebuild the mttr_tt wide table (Eflow_TT_FB + OLR_CELLS/Site_Maintainer_Category reference) into local data/mttr_tt.sqlite3 for the MTTR Monthly&Weekly board',
+      flow: ['Read local reference DB data/excel_ds.sqlite3 (Site ID->Site Category, Site Name->per-RAT cell counts)', 'Read the full remote Eflow_TT_FB via the read-only API', 'Derive Vender/MTTR1/MTTR2/MTTR_RANG_2H/Month/WK/Outage_Mins then atomically replace data/mttr_tt.sqlite3'],
+      maintain: ['Definitions parsed from FineDB dataset 4bc5a679, documented at the top of services/mttr_tt_sync.py; MTTR2 is non-null only when 0<MTTR1<48h', 'excel_ds.sqlite3 is a static 114KB reference frozen from my-finebi (unchanged since 2026-08-31); re-export it if the FineBI Excel datasets ever change', 'Before 2026-09-21 a manual ETL in the retired my-finebi project maintained this table; with no scheduler it froze at 2026-08-31'],
+    },
+  },
+  {
+    id: 'progress_sync', group: 'm', cron: '50 7 * * *',
+    script: 'services/progress_sync.py → run_progress_sync',
+    zh: {
+      name: 'Progress 宽表重建',
+      desc: '重建 progress 宽表（Eflow_TT_FB LEFT JOIN Eflow_WO_FB，复刻 FineBI Progress 计算列），写本机 data/progress.sqlite3，供 Progress / Progress V3 看板',
+      flow: ['经只读 API 读远端 Eflow_TT_FB 与 Eflow_WO_FB（按 WO No. 1:1 关联）', '逐行复刻 FineDB 数据集 4bc5a679 的 Progress 计算列（各环节 ORG/STATUS、FB_* 级联、ORG_Handler、Month、MTTR1/2、clear_null）', '原子替换 data/progress.sqlite3'],
+      maintain: ['Duration(Hours)/SLA(%) 依赖「当前时间」，刻意不落库，组件 SQL 用 julianday(\'now\',\'localtime\') 实时算', '口径在 services/progress_sync.py 的 _derive()；SWITCH 级联逐字移植，改动前先对照原脚本 TMP/etl_progress.py', '2026-09-21 上线前该表由已退役 my-finebi 的手工 ETL 维护，无调度 → 冻结在 2026-08-31'],
+    },
+    en: {
+      name: 'Progress Wide Table Rebuild',
+      desc: 'Rebuild the progress wide table (Eflow_TT_FB LEFT JOIN Eflow_WO_FB, replicating FineBI Progress computed columns) into local data/progress.sqlite3 for the Progress / Progress V3 boards',
+      flow: ['Read remote Eflow_TT_FB and Eflow_WO_FB via the read-only API (1:1 join on WO No.)', 'Replicate FineDB dataset 4bc5a679 Progress columns per row (per-stage ORG/STATUS, FB_* cascade, ORG_Handler, Month, MTTR1/2, clear_null)', 'Atomically replace data/progress.sqlite3'],
+      maintain: ['Duration(Hours)/SLA(%) depend on the current time and are deliberately NOT stored; widget SQL computes them live via julianday(\'now\',\'localtime\')', 'Definitions live in _derive() of services/progress_sync.py; the SWITCH cascades are a verbatim port — compare with the original TMP/etl_progress.py before changing', 'Before 2026-09-21 a manual ETL in the retired my-finebi project maintained this table; with no scheduler it froze at 2026-08-31'],
     },
   },
   {

@@ -1,0 +1,60 @@
+       · 它显示成「访问量」，但全项目**没有任何东西在统计访问** ——
+         grep 不到 clicks 自增、没有埋点、没有上报接口（portal.js 里唯一的 POST 是登录/登出）；
+       · 后端 backend/routers/portal_catalog.py 只是把 clicks 原样存取；
+       · 编辑看板的表单里 bfClicks 是管理员手输框（board.fClicks = 访问量）；
+       · data.js 自己的注释写明 clicks=1000 是刻意的，只为让新卡稳定排在 CXO View 第一张。
+     即：它是人工维护的排序权重，被当成统计值展示。按门户一贯的「绝不显示假数字」
+     原则（同 2026-09-17 删掉的写死 98.7%），这里把展示删掉。
+     clicks 字段本身**保留**：CXO View 仍按它降序排（见 byUsage），排序行为不变。 */
+
+  function emptyHtml() {
+    var isFiltering = !!state.query || state.filter !== 'all';
+    return '<div class="text-center text-slate-400 text-sm py-8 border border-dashed border-slate-200 rounded-lg">' +
+      esc(isFiltering ? t('emptyFilter') : t('empty')) + '</div>';
+  }
+
+  /** 区块空态：区分「本区块内搜索没命中」与「本来就没看板 / 被全局条件筛掉」，
+      否则用户搜了没结果会以为该区块本身是空的。 */
+  function sectionEmpty(pack) {
+    if (pack && pack.query && !pack.hit) {
+      return '<div class="col-span-full text-center text-slate-400 text-sm py-6 border border-dashed border-slate-200 rounded-lg">' +
+        esc(t('emptyFilter')) + '</div>';
+    }
+    return emptyHtml();
+  }
+
+  /* ------------------------------------------------ 区块标题行（照 ref） -- */
+  /** 区块标题行。
+      kind: 'square-red' | 'square-rose' | 'dot-red' | 'dot-slate'
+      subInline: 副标题是否写在 h2 内部（ref 里 CXO/QC/QA 是 inline，MS/FLM/FO/BO/Admin 是独立 span）
+      href:     传了就把「色块 + 标题 + 副标题」整块变成链接 —— 点标题进入该区块的**下级页面**
+                （viewer.html?gid=xxx，即该分组的看板查看器，与卡片一样新标签页打开）。
+                默认外观与 ref 1:1 一致，hover / focus 才出现主题色、下划线与柔光底
+                （见 portal.css 的 .sec-head-link），所以传 href 不会改变静止态的版式。 */
+  function headHtml(opts) {
+    var dot = {
+      'square-red': 'w-2.5 h-2.5 rounded-sm bg-red-600',
+      'square-rose': 'w-2.5 h-2.5 rounded-sm bg-rose-500',
+      'dot-red': 'w-2.5 h-2.5 rounded-full bg-red-600',
+      'dot-slate': 'w-2.5 h-2.5 rounded-full bg-slate-700'
+    }[opts.kind] || 'w-2.5 h-2.5 rounded-sm bg-red-600';
+    var titleCls = opts.kind === 'dot-slate' ? 'text-slate-800' : 'text-red-600';
+
+    var title = '<h2 class="text-[19px] font-bold tracking-tight ' + titleCls +
+      (opts.subInline ? ' flex items-center gap-2' : '') + '">' + esc(opts.title) +
+      (opts.subInline && opts.sub ? ' <span class="text-[13px] text-slate-500 font-normal">' + esc(opts.sub) + '</span>' : '') +
+      '</h2>' +
+      (!opts.subInline && opts.sub ? '<span class="text-[13px] text-slate-500 font-normal">' + esc(opts.sub) + '</span>' : '');
+
+    var inner = '<span class="' + dot + '"></span>' + title;
+    var wrapCls = opts.subInline ? 'flex items-center gap-2' : 'flex items-center gap-1.5';
+    /* 刻意**不**在标题右边挂箭头图标：实测标题行右侧的空隙在 1920px 的 FO View 只有 12px、
+       1600px 的 FLM View 只有 11px（TMP/verify_titlelink_hover_layout.cjs），
+       14px 的箭头必然压到右侧计数胶囊上。可点提示改由 portal.css 的 hover 柔光底承担
+       （只向外扩 5px，全断点都安全，且不参与布局、不挤动工具条）。 */
+    var wrap = opts.href
+      ? '<a class="' + wrapCls + ' sec-head-link" href="' + esc(opts.href) + '" target="_blank" ' +
+        'rel="noopener noreferrer" title="' + esc(opts.hrefTip || opts.title) + '">' +
+        inner + '</a>'
+      : '<div class="' + wrapCls + '">' + inner + '</div>';
+

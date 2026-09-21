@@ -1,0 +1,1 @@
+import{S as e}from"./react-vendor-Dxcxxxhu.js";import t from"./NurDashboard-Cxd-ZFD3.js";var n=e();function r(){return(0,n.jsx)(t,{only:`nur`})}export{r as default};

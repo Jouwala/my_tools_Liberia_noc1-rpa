@@ -7,8 +7,7 @@
  * 所有数字原样来自 Excel，不做二次加工；达标判定用「月值 vs 目标值 + 方向」。
  * ========================================================================== */
 import { useMemo } from 'react'
-import { Empty, Space, Table, Tag, Typography } from 'antd'
-import type { ColumnsType } from 'antd/es/table'
+import { Empty, Space, Tag, Typography } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import { useTheme, WH, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
@@ -554,64 +553,6 @@ export function MetricTrendModal(props: {
         </div>
       )}
     </DraggableClickModal>
-  )
-}
-
-// ==================== 通用扁平表（FineBI 规划 / 自动化报表清单） ====================
-export function FlatTable(props: {
-  columns: string[]
-  numericColumns: string[]
-  rows: Record<string, string | number | null>[]
-  loading?: boolean
-  loc: string
-  t: (k: string) => string
-  onRowClick?: (row: Record<string, string | number | null>, e: React.MouseEvent) => void
-  pagination?: false | {
-    current: number
-    pageSize: number
-    total: number
-    onChange: (page: number, pageSize: number) => void
-  }
-}) {
-  const { columns, numericColumns, rows, loading, loc, t, onRowClick, pagination } = props
-  const numericSet = useMemo(() => new Set(numericColumns), [numericColumns])
-
-  const cols = useMemo<ColumnsType<Record<string, string | number | null>>>(() => columns.map(name => ({
-    title: name,
-    dataIndex: name,
-    key: name,
-    ellipsis: true,
-    align: numericSet.has(name) ? ('right' as const) : undefined,
-    render: (v: string | number | null) => {
-      if (v === null || v === undefined || v === '') return <Text type="secondary">-</Text>
-      if (numericSet.has(name)) return num(v).toLocaleString(loc, { maximumFractionDigits: 2 })
-      return <span style={{ whiteSpace: 'pre-wrap' }}>{String(v)}</span>
-    },
-  })), [columns, numericSet, loc])
-
-  return (
-    <Table<Record<string, string | number | null>>
-      size="small"
-      rowKey={(_r, i) => String(i)}
-      columns={cols}
-      dataSource={rows}
-      loading={loading}
-      scroll={{ x: 'max-content' }}
-      onRow={onRowClick ? (record => ({
-        onClick: (e) => onRowClick(record, e),
-        style: { cursor: 'pointer' },
-      })) : undefined}
-      pagination={pagination === false || !pagination ? false : {
-        current: pagination.current,
-        pageSize: pagination.pageSize,
-        total: pagination.total,
-        size: 'small',
-        showSizeChanger: true,
-        pageSizeOptions: ['20', '50', '100', '200'],
-        showTotal: (n) => `${n.toLocaleString(loc)} ${t('msKpi.rows')}`,
-        onChange: pagination.onChange,
-      }}
-    />
   )
 }
 

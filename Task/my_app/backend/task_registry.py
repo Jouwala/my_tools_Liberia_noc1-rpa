@@ -269,6 +269,53 @@ TASK_SPECS = [
          description_en="RAN UME Network KPI (Zeenshan) history sync (2G/3G/4G x Group/NW), export Excel and import to SQLite + FTP upload",
          default_cron="0 5 * * *", category="network_kpi"),
 
+    # 10b. 可用率核对宽表 avail_recon 重建（每天 06:10）
+    #      为什么需要：看板 daily_availability(id=9) / availability_tt(id=11) 共 15 个
+    #      组件读 avail_recon.sqlite3.availability_daily。该表不是任何业务系统的原生表 ——
+    #      FineBI 原版依赖**自助数据集**（基表在 FineDB 内部），且区域维度要跨库 JOIN
+    #      Master_Site_Database，而远端只读 API 一次只能查一个库，只能用近似口径重建。
+    #      2026-09-21 事故：这张表原本是 my-finebi 项目 data/ 下的**手工 ETL 快照**
+    #      （TMP/etl_avail_recon_v2.py，其 PROJECT_DOCS 归类为「ETL 快照刷新 …… 变更后重跑」），
+    #      my-finebi 门户退役后无人再跑 → 表冻结在 2026-09-13，看板静默停更两周。
+    #      现收进 my_app 每日重建到本机 data/avail_recon.sqlite3（看板经 DB_ALIASES 直读）。
+    #      为什么排 06:10 且归 u 组：源表 2G/3G/4G_Main_Kpi_Site_Daily 由同组的
+    #      main_kpi_sync(04:00) 写入，同组串行 + 排队先后即可保证「先写后读」，
+    #      也避免与写入方并发。整表只有 ~8k 行、实测 3s 跑完。
+    dict(task_id="avail_recon_sync", name="可用率核对宽表重建", name_en="Availability Recon Rebuild",
+         loader=("backend.services.avail_recon_sync", "run_avail_recon_sync"),
+         description="重建 avail_recon 可用率核对宽表（读远端 Site_Daily × Master_Site_Database Region 近似聚合），写本机 data/avail_recon.sqlite3，供 Daily Availability KPI / Availability(TT) 看板",
+         description_en="Rebuild the avail_recon availability reconciliation table (approx. aggregate of remote Site_Daily x Master_Site_Database region) into local data/avail_recon.sqlite3 for the Daily Availability KPI / Availability(TT) boards",
+         default_cron="10 6 * * *", category="availability"),
+
+    # 10c. MTTR/TT 宽表重建（每天 07:40，紧跟 eflow_sync 的 07:22 那一轮）
+    #      为什么需要：看板 mttr(id=15) 读 mttr_tt.sqlite3.tt_full，那是 Eflow_TT_FB 的
+    #      宽表（Vender / MTTR1 / MTTR2 / MTTR_RANG_2H / Month / WK / Outage_Mins /
+    #      Site Category / 各制式小区数），口径解析自 FineDB 数据集 4bc5a679。
+    #      与 avail_recon 同源事故：该表原由已退役 my-finebi 的手工 ETL
+    #      （TMP/etl_mttr_tt.py）维护，无调度 → 冻结在 2026-08-31，看板静默停更。
+    #      现每日重建到本机 data/mttr_tt.sqlite3（看板经 DB_ALIASES 直读）。
+    #      为什么 07:40 且归 m 组：数据源 Eflow_TT_FB 由 eflow_sync（n 组，每小时 :22、
+    #      约 6min 跑完）写；:40 取到的一定是 :22 那一版。本任务只用远端**只读** API
+    #      + 写本机文件，不占任何业务会话，与 db_freshness_check 等内务任务同组。
+    dict(task_id="mttr_tt_sync", name="MTTR/TT 宽表重建", name_en="MTTR/TT Wide Table Rebuild",
+         loader=("backend.services.mttr_tt_sync", "run_mttr_tt_sync"),
+         description="重建 mttr_tt 宽表（Eflow_TT_FB + OLR_CELLS/Site_Maintainer_Category 参考库），写本机 data/mttr_tt.sqlite3，供 MTTR Monthly&Weekly 看板",
+         description_en="Rebuild the mttr_tt wide table (Eflow_TT_FB + OLR_CELLS/Site_Maintainer_Category reference) into local data/mttr_tt.sqlite3 for the MTTR Monthly&Weekly board",
+         default_cron="40 7 * * *", category="availability"),
+
+    # 10d. Progress 宽表重建（每天 07:50，紧随 10c）
+    #      为什么需要：看板 progress(id=18) / progress_v3(id=19) 读 progress.sqlite3.progress_full
+    #      —— Eflow_TT_FB LEFT JOIN Eflow_WO_FB 的宽表，逐行复刻 FineDB 数据集 4bc5a679 的
+    #      Progress 计算列（各环节 ORG/STATUS、FB_* 级联、ORG_Handler、Month、MTTR1/2）。
+    #      同样因 my-finebi 退役、手工 ETL 无人调度 → 冻结在 2026-08-31。
+    #      现每日重建到本机 data/progress.sqlite3（看板经 DB_ALIASES 直读）。
+    #      注意：Duration(Hours)/SLA(%) 依赖「当前时间」，不落库，组件 SQL 实时算。
+    dict(task_id="progress_sync", name="Progress 宽表重建", name_en="Progress Wide Table Rebuild",
+         loader=("backend.services.progress_sync", "run_progress_sync"),
+         description="重建 progress 宽表（Eflow_TT_FB LEFT JOIN Eflow_WO_FB，复刻 FineBI Progress 计算列），写本机 data/progress.sqlite3，供 Progress / Progress V3 看板",
+         description_en="Rebuild the progress wide table (Eflow_TT_FB LEFT JOIN Eflow_WO_FB, replicating FineBI Progress computed columns) into local data/progress.sqlite3 for the Progress / Progress V3 boards",
+         default_cron="50 7 * * *", category="availability"),
+
     # 11. CNN UME KPI 同步（每天凌晨6点）
     dict(task_id="cnn_kpi_sync", name="CNN UME KPI 同步", name_en="CNN UME KPI Sync",
          loader=("backend.services.ccn_ume_kpi_service", "run_cnn_kpi_sync"),
@@ -276,12 +323,22 @@ TASK_SPECS = [
          description_en="CNN UME Core Network KPI sync (xGW License/CPU/Voice/VLR/Data/3G/4G/Free Rating), API write to DB CNN",
          default_cron="0 6 * * *", category="cnn_kpi"),
 
-    # 12. SP 备件数据同步（每天凌晨7点）
+    # 12. SP 备件数据同步（2026-09-20 起改为每小时 :10，原为每天 07:00）
+    #     为什么改小时级：上游 SFTP（sp/inbound、sp/outbound）本来就是**每小时 :00:03
+    #     导出一份**（每天 24 个时间戳目录），而 MsPortal 的 QC 面板 SPMS 卡读的正是本任务
+    #     写的 inband_details / outband_details —— 按天同步时那个数字最长滞后 24 小时。
+    #     为什么排 :10：同组（n）的 eflow_sync 每小时 :00 起跑、实测约 6min 跑完，
+    #     sp_online_sync 在 :35；:10 两边都不撞，且上游导出 :00:03 已落盘，拿到的一定是新那份。
+    #     ⚠ 本任务与 n 组的 eflow_sync / eflow_active_alarm 等**串行**执行，而它末尾的
+    #     FineBI 镜像（UNC inventory.db，113MB）偶尔报 "database is locked" —— 实测单次
+    #     1~9min，最坏曾 2h+（见 get_sp_table.SFTP_CHANNEL_TIMEOUT 处的 2026-09-20 事故）。
+    #     队列有单飞保护：上一轮没跑完就跳过本轮触发，不会堆叠，但那一小时的数就是旧的。
+    #     若日后 QC 的 TT/WO/CR/PMT 出现「跟着 SP 一起变慢」，先怀疑这里占用了 n 组 worker。
     dict(task_id="sp_data_sync", name="SP 备件数据同步", name_en="SP Spare Data Sync",
          loader=("backend.services.get_sp_table", "run_sp_data_sync"),
          description="从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI WareHouseDashBoard inventory.db",
          description_en="Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db, then mirror into FineBI WareHouseDashBoard inventory.db",
-         default_cron="0 7 * * *", category="sp"),
+         default_cron="10 * * * *", category="sp"),
 
     # 13. iPRAN UME KPI 同步（每天凌晨8点）
     dict(task_id="ipran_kpi_sync", name="iPRAN UME KPI 同步", name_en="iPRAN UME KPI Sync",

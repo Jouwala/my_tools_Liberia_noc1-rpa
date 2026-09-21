@@ -3149,7 +3149,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <tr>
 <td>SP 备件数据同步</td>
 <td><code>sp_data_sync</code></td>
-<td><code>0 7 * * *</code></td>
+<td><code>10 * * * *</code></td>
 <td>n</td>
 <td><code>services/get_sp_table.py → run_sp_data_sync</code></td>
 </tr>
@@ -3739,7 +3739,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <p><a id="ch-15-s22"></a></p>
 <h5>SP 备件数据同步（<code>sp_data_sync</code>）</h5>
 <ul>
-<li>默认 cron: <code>0 7 * * *</code>　|　worker 组: <strong>n</strong></li>
+<li>默认 cron: <code>10 * * * *</code>　|　worker 组: <strong>n</strong></li>
 <li>工作流脚本: <code>services/get_sp_table.py → run_sp_data_sync</code></li>
 </ul>
 <p><strong>功能</strong>: 从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI WareHouseDashBoard inventory.db</p>
@@ -3757,6 +3757,8 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>镜像失败会在任务消息提示但影响不到 app.db；路径/开关在 Settings → 任务配置（mirror_db_path / mirror_enabled）</li>
 <li>inventory_details 只追加不覆盖，靠保留期控制体积：Settings → 任务配置 inventory_retention_days（默认 180）。清理基准取表内最新 update_date，上游断流时不会清空整表</li>
 <li>仓库看板「Inventory Quantity Trend」直接读取本表全部日期（无日期参数时返回全量），调小保留天数会直接缩短趋势图历史</li>
+<li>2026-09-20 起由每天 07:00 改为每小时 :10：上游 SFTP 本就每小时 :00:03 导出一份，而 MsPortal 的 QC 面板 SPMS 卡读本任务写的 inband_details/outband_details，按天同步时那个数字最长滞后 24 小时。排 :10 是为了避开同组的 eflow_sync(:00) 与 sp_online_sync(:35)</li>
+<li>单次耗时被末尾的 FineBI 镜像拖长（UNC inventory.db 偶发 database is locked，实测 1~9min）；队列有单飞保护，上一轮没跑完会跳过本轮触发，不会堆叠，但那一小时的数据就是旧的。若 QC 面板其它指标（TT/WO/CR/PMT）跟着一起变慢，先查本任务是否占住了 n 组 worker</li>
 </ul>
 <p><a id="ch-15-s23"></a></p>
 <h5>iPRAN UME KPI 同步（<code>ipran_kpi_sync</code>）</h5>

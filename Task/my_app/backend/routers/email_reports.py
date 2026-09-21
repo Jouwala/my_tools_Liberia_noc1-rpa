@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from backend.task_registry import TASK_SPECS
 
@@ -125,9 +125,11 @@ def email_reports_latest(request: Request, limit: int = 1):
     return {"reports": reports}
 
 
-@router.get("/api/email-reports/download/{source_id}/{filename:path}")
-def email_reports_download(source_id: str, filename: str):
-    """下载指定报告文件：仅放行命中源 patterns 且真实位于源目录内的文件。"""
+def _resolve_download_file(source_id: str, filename: str) -> Path:
+    """下载接口的公共校验：源存在 + 文件名合法 + 命中白名单 + 真实位于源目录内。
+
+    GET 与 HEAD 共用同一套判断，保证两个方法放行/拒绝的文件集合完全一致。
+    """
     import fnmatch
 
     src = _SOURCE_BY_ID.get(source_id)
@@ -140,12 +142,45 @@ def email_reports_download(source_id: str, filename: str):
     fpath = (src["dir"] / filename).resolve()
     if not fpath.is_file() or src["dir"].resolve() not in fpath.parents:
         raise HTTPException(status_code=404, detail="文件不存在")
+    return fpath
+
+
+@router.get("/api/email-reports/download/{source_id}/{filename:path}")
+def email_reports_download(source_id: str, filename: str):
+    """下载指定报告文件：仅放行命中源 patterns 且真实位于源目录内的文件。"""
+    fpath = _resolve_download_file(source_id, filename)
     # RFC5987 编码文件名（含空格 / & 等特殊字符），保证浏览器下载名正确
     quoted = quote(filename)
     return FileResponse(
         fpath,
         media_type="application/octet-stream",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
+    )
+
+
+@router.head("/api/email-reports/download/{source_id}/{filename:path}", include_in_schema=False)
+def email_reports_download_head(source_id: str, filename: str):
+    """HEAD 版本：只回响应头，不回文件体（2026-09-21 新增）。
+
+    背景：Starlette 不会拿 GET 处理器去处理 HEAD，所以这个下载地址对 HEAD 一律返回
+    405（Allow: GET）。浏览器扩展（content_script.js）会拿页面上每个下载链接发 HEAD
+    探测，控制台因此刷一堆 "405 Method Not Allowed / net::ERR_ABORTED"。
+    这里复用 GET 的同一套校验，头部与 GET 保持一致（Content-Length / Last-Modified），
+    但 body 为空 —— 既符合 HEAD 语义，也不产生任何文件传输开销。
+    """
+    from email.utils import formatdate
+
+    fpath = _resolve_download_file(source_id, filename)
+    quoted = quote(filename)
+    st = fpath.stat()
+    return Response(
+        status_code=200,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quoted}",
+            "Content-Length": str(st.st_size),
+            "Last-Modified": formatdate(st.st_mtime, usegmt=True),
+        },
     )
 
 

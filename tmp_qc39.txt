@@ -1,0 +1,46 @@
+ 2351:         paintQc();
+ 2352:         renderQcDrill();          // 弹窗开着时同步刷新（分页/搜索不变）
+ 2353:       })
+ 2354:       .catch(function (e) {
+ 2355:         qcStatsBusy = false;
+ 2356:         state.qcErr = (e && e.message) || String(e);
+ 2357:         // 清空旧值：宁可显示 —，也不要把上一次的数字留在屏幕上冒充实时统计
+ 2358:         state.qcStats = null;
+ 2359:         state.qcFullAt = '';
+ 2360:         paintQc();
+ 2361:         renderQcDrill();
+ 2362:       });
+ 2363:   }
+ 2364: 
+ 2365:   /** 只刷「未清除的断站告警」这一项（2026-09-18 加，每 5 分钟一次）。
+ 2366:       走 ?only=alarm：后端只跑那一条 COUNT，不重算其余六项 —— 分频刷新的意义就在这里，
+ 2367:       否则每 5 分钟一次的全量刷新等于把「其余每小时」白做了。
+ 2368:       失败时把 alarm 置成 error 态（而不是保留旧值）：宁可显示「不可用」，
+ 2369:       也不要让一小时前的告警数继续冒充实时值 —— 这是本面板最要紧的一格。 */
+ 2370:   function fetchQcAlarm() {
+ 2371:     if (qcAlarmBusy) return;
+ 2372:     if (REQUIRE_LOGIN_FOR_CATALOG && state.authOk !== true) return;
+ 2373:     qcAlarmBusy = true;
+ 2374:     qcApi('/api/portal-qc/summary?only=alarm')
+ 2375:       .then(function (data) {
+ 2376:         qcAlarmBusy = false;
+ 2377:         var m = data && data.metrics && data.metrics.alarm;
+ 2378:         if (!m) throw new Error('响应里没有 metrics.alarm');
+ 2379:         state.qcAlarm = m;
+ 2380:         state.qcAlarmAt = (data && data.generated_at) || '';
+ 2381:         paintQc();
+ 2382:       })
+ 2383:       .catch(function (e) {
+ 2384:         qcAlarmBusy = false;
+ 2385:         state.qcAlarm = { value: null, error: (e && e.message) || String(e) };
+ 2386:         state.qcAlarmAt = '';
+ 2387:         paintQc();
+ 2388:       });
+ 2389:   }
+ 2390: 
+ 2391:   /* ------------------------------------------------------------ 明细下钻 -- */
+ 2392:   /** 弹窗标题 = 卡片名 + 「· 明细」。切语言时要重算，故单独抽出来。 */
+ 2393:   function applyQcDrillTitle() {
+ 2394:     var id = state.qcDrill.metric;
+ 2395:     var q = DATA.qc.filter(function (x) { return x.id === id; })[0];
+ 2396:     document.getElementById('qcTitle').textContent =

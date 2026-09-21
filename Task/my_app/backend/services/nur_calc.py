@@ -26,6 +26,7 @@ import ftplib
 import io
 import logging
 import re
+import threading
 import time
 from datetime import date, datetime
 from typing import Dict, List, Optional, Set, Tuple
@@ -261,6 +262,9 @@ def attach_cells(tt: pd.DataFrame, pivot: pd.DataFrame) -> pd.DataFrame:
     site_id_n = _norm_series(tt["site_id"])
     site_name_n = _norm_series(tt["site_name"]).str.lower()
     site_key = site_id_n.where(site_id_n != "", "_" + site_name_n)
+    # 预存站点键：站点级 NUR 占比对每个制式都要用一次，不存的话要在
+    # _site_nur_ratio_for_tech 里对 3.5 万行重复归一化 8 次（实测约 400ms）
+    tt["site_key"] = site_key
 
     for t in TECHS:
         tt[f"site_cells_{t}"] = 0
@@ -386,9 +390,11 @@ def _site_nur_ratio_for_tech(df: pd.DataFrame, col: str, periods: List[str],
     if denom_sites.empty:
         return {p: None for p in periods}
     d = df[df["mttr_valid"]]
-    site_id_n = _norm_series(d["site_id"])
-    site_name_n = _norm_series(d["site_name"]).str.lower()
-    d = d.assign(site_key=site_id_n.where(site_id_n != "", "_" + site_name_n))
+    # site_key 已由 attach_cells 预存；只有外部传入未经处理的 df 时才兜底重算
+    if "site_key" not in d.columns:
+        _sid = _norm_series(d["site_id"])
+        d = d.assign(site_key=_sid.where(_sid != "",
+                                        "_" + _norm_series(d["site_name"]).str.lower()))
 
     # 分子：tech 单按 (期间, 站点) 聚合；sitewide 单按该站该制式小区数拆分。
     # 增量合并而非从空 Series 起步，避免 pandas3 空 Series 与 MultiIndex add 时
@@ -421,6 +427,81 @@ def _site_nur_ratio_for_tech(df: pd.DataFrame, col: str, periods: List[str],
 
 
 # ============================================================
+# 基础数据缓存（与请求参数无关的那部分）
+# ------------------------------------------------------------
+# 每次请求都重读 3.5 万行 eflow_tt（约 210ms），并重跑 attach_cells +
+# enrich_periods 的逐行预处理（分类、站点键、MTTR、日/周/月标签，约 0.6~1.2s）。
+# 这些**只取决于底层表，与 vendor/project/exclude/start/end 全都无关**，
+# 却每个请求重算一遍 —— 实测 /api/nur/overview 因此要 2 秒。
+#
+# 缓存「预处理后的基础表」后，每个请求只剩过滤 + 分组（几十毫秒）。
+# 底层表由定时任务同步，2 分钟 TTL 足够安全。
+# ============================================================
+BASE_CACHE_TTL = 120  # 秒
+
+_base_lock = threading.Lock()
+_base_cache: Dict[str, object] = {}
+
+# 整页结果缓存：nur 与 ms_nur_only 两个页面打的是**同一个接口、同一组参数**，
+# 缓存后第二个页面直接命中（实测 770ms -> 0ms）。refresh_exclude 时绕过。
+RESULT_CACHE_TTL = 120  # 秒
+_result_cache: Dict[str, Dict] = {}
+
+
+def get_base_data(force: bool = False):
+    """返回 (enriched_tt, cm, site_pivot, cells_all)，带 TTL 缓存。
+
+    ⚠ 调用方**不得就地修改**返回的 tt（要加列请先 ``.copy()``），否则会污染缓存。
+    """
+    def _fresh() -> bool:
+        at = _base_cache.get("at")
+        return bool(at) and (time.time() - float(at)) < BASE_CACHE_TTL  # type: ignore[arg-type]
+
+    if not force and _fresh():
+        return (_base_cache["tt"], _base_cache["cm"],
+                _base_cache["site_pivot"], _base_cache["cells_all"])
+    with _base_lock:
+        if not force and _fresh():          # 双检：并发下只重建一次
+            return (_base_cache["tt"], _base_cache["cm"],
+                    _base_cache["site_pivot"], _base_cache["cells_all"])
+        t0 = time.time()
+        tt = load_tt_df()
+        cm = load_cm_summary()
+        site_pivot, cells_all = build_cell_pivot(cm)
+        if not tt.empty:
+            tt = enrich_periods(attach_cells(tt, site_pivot))
+        _base_cache.update({"at": time.time(), "tt": tt, "cm": cm,
+                            "site_pivot": site_pivot, "cells_all": cells_all})
+        logger.info("[NUR] 基础数据已重建 %.0fms (tt=%d 行)",
+                    (time.time() - t0) * 1000, len(tt))
+        return tt, cm, site_pivot, cells_all
+
+
+def invalidate_base_cache() -> None:
+    """底层表更新后调用，强制下次请求重建基础数据。"""
+    _base_cache.clear()
+    _result_cache.clear()
+
+
+def warmup() -> None:
+    """启动期后台预热（不阻塞 startup）。
+
+    冷路径要建基础表 + 首次连库 + 拉 FTP 排除名单，实测首个请求 ~3.9s；
+    预热后用户的第一个请求只剩计算（~0.8s），页面总耗时可控在 3s 内。
+    """
+    def _job() -> None:
+        try:
+            t0 = time.time()
+            get_base_data(force=True)
+            get_exclude_info()
+            logger.info("[NUR] 启动预热完成 %.0fms", (time.time() - t0) * 1000)
+        except Exception:  # noqa: BLE001  预热失败不能影响启动
+            logger.warning("[NUR] 启动预热失败（不影响启动）", exc_info=True)
+
+    threading.Thread(target=_job, name="nur-warmup", daemon=True).start()
+
+
+# ============================================================
 # 主计算
 # ============================================================
 def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
@@ -434,14 +515,23 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
     t0 = time.time()
     warnings: List[str] = []
 
-    tt = load_tt_df()
-    cm = load_cm_summary()
+    rkey = f"{vendor}|{project}|{exclude}|{start}|{end}"
+    if not refresh_exclude:
+        hit = _result_cache.get(rkey)
+        if hit and (time.time() - hit["at"]) < RESULT_CACHE_TTL:
+            out = dict(hit["data"])
+            out["cached"] = True
+            out["elapsed_seconds"] = round(time.time() - t0, 3)
+            return out
+
+    tt, cm, site_pivot, cells_all = get_base_data()
     if tt.empty:
         return {"nur": {}, "sla": {}, "cells_by_tech": {}, "denominator_cells": {},
                 "exclude": get_exclude_info(refresh_exclude), "warnings": ["eflow_tt 无数据"],
                 "elapsed_seconds": round(time.time() - t0, 2)}
 
-    tt = enrich_periods(attach_cells(tt, build_cell_pivot(cm)[0]))
+    # 基础表来自共享缓存：下面要加 "excluded" 列，必须先复制，否则污染后续请求
+    tt = tt.copy()
 
     # ---- 排除名单标记 ----
     ex_info = get_exclude_info(refresh_exclude)
@@ -470,7 +560,7 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
 
     # ---- 分母小区数（Project 生效时按 site_caregory 圈定）----
     # site_pivot 同时供站点级 NUR 达标占比使用（分母站点集合与全网分母同口径）
-    site_pivot, cells_all = build_cell_pivot(cm)
+    # 注：未筛选的 site_pivot/cells_all 已随基础数据缓存，无需重复透视
     if project and not cm.empty:
         mask = cm["site_caregory"].map(lambda v: _cat_match(_norm_str(v), project))
         site_pivot, denom = build_cell_pivot(cm[mask])
@@ -569,7 +659,7 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
             site_nur_out[gran][t] = _site_nur_ratio_for_tech(
                 df, col, periods, site_pivot[t], t, gran, today)
 
-    return {
+    out = {
         "nur": nur_out,
         "sla": sla_out,
         "persite_nur": site_nur_out,
@@ -578,8 +668,15 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
         "tt_total": int(len(df)),
         "exclude": {k: v for k, v in ex_info.items() if k != "set"},
         "warnings": warnings,
+        "cached": False,
         "elapsed_seconds": round(time.time() - t0, 2),
     }
+    if not refresh_exclude:
+        _result_cache[rkey] = {"at": time.time(), "data": out}
+        if len(_result_cache) > 32:          # 容量保护：清掉最旧的一半
+            for k in sorted(_result_cache, key=lambda x: _result_cache[x]["at"])[:16]:
+                _result_cache.pop(k, None)
+    return out
 
 
 # ============================================================

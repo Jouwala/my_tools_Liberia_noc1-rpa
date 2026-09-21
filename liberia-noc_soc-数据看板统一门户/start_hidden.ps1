@@ -47,6 +47,42 @@ function Test-OwnedByProject([int]$procId, [string]$needle) {
     } catch { return $false }
 }
 
+# Priority hygiene for the processes this script owns.
+#
+# Why this exists (2026-09-21): this script is launched by the Task Scheduler task
+# "Portal_EnsureRunning". A task whose XML has no <Priority> element starts its
+# processes at BELOW_NORMAL (Task Scheduler default 7), and everything the task
+# spawns inherits that class. Result: the portal dev server (9267) and the WhatsApp
+# service (9268) ran at BelowNormal while nginx / my_app / anything started by hand
+# ran at Normal. On this box (28 logical CPUs, ~10 agents + browsers competing,
+# only ~3 GB free RAM) a BelowNormal process gets starved for seconds to minutes:
+# measured 2.3 s ... 113.7 s with NO response on /uniplam/api/*, while TCP connect
+# still completed in 0.4 ms and a Normal-priority Node server answered in 1 ms.
+# The page load then shows one request "taking 23 s" - it is only the victim.
+# Windows also trims low-priority working sets first (the dev server sat at 52 MB
+# of a 194 MB private set), which adds hard page faults on top.
+#
+# Setting the real listener back to Normal is idempotent and needs no admin, and
+# because this script runs every 5 minutes it also self-heals a service that an
+# older run (or a manual start) left at BelowNormal.
+function Set-ServicePriority([int]$port, [string]$label) {
+    $procId = Get-PortOwnerPid $port
+    if ($procId -le 0) { return }
+    try {
+        $p = Get-Process -Id $procId -ErrorAction Stop
+        $before = $p.PriorityClass
+        if ($before -eq [System.Diagnostics.ProcessPriorityClass]::Normal) {
+            Add-Report ("[OK] {0}: pid={1} priority is Normal" -f $label, $procId)
+            return
+        }
+        $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::Normal
+        Add-Report ("[*] {0}: pid={1} priority {2} -> Normal (a scheduled-task child inherits BelowNormal, which starves it on a busy box)" -f $label, $procId, $before)
+    } catch {
+        Add-Report ("[WARN] {0}: cannot raise priority of pid={1}: {2}" -f $label, $procId, $_.Exception.Message)
+        $script:warnCount++
+    }
+}
+
 function Wait-Port([int]$port, [int]$seconds) {
     for ($i = 0; $i -lt $seconds; $i++) {
         if (Test-PortListening $port) { return $true }
@@ -178,6 +214,10 @@ function Ensure-Portal {
     return $false
 }
 $portalOk = Ensure-Portal
+# See Set-ServicePriority: without this the dev server stays at BelowNormal (inherited
+# from the Portal_EnsureRunning scheduled task) and the portal API stalls for tens of
+# seconds whenever the machine is busy. Runs on every 5-minute task tick.
+Set-ServicePriority 9267 'Portal dev server (9267)'
 
 # ---------- 2) WhatsApp local analysis service (9268) ----------
 # This is the service the portal page calls directly from the browser at
@@ -262,6 +302,8 @@ function Ensure-WhatsApp {
     return $false
 }
 $waOk = Ensure-WhatsApp
+# Same BelowNormal-inheritance problem as the portal dev server - see Set-ServicePriority.
+Set-ServicePriority 9268 'WhatsApp analysis service (9268)'
 
 # ======================================================================
 # Summary: write result file + popup (only when something needs attention)
