@@ -6,6 +6,7 @@ P2#8 重构（2026-08-03）：
   拆分为单一职责的 SQL 构建 / 统计采集 / 行组装助手函数。
 """
 import logging
+import re
 import time as _time
 import sqlite3
 from pathlib import Path
@@ -225,11 +226,86 @@ def _his_alarm_ms_expr():
     return "CAST(alarmraisedtime AS INTEGER)"
 
 
+def _alarm_ms_expr(col="alarmraisedtime"):
+    """history_alarm / realtime_alarm 的毫秒时间戳列 → 数值化表达式（带列名参数）。
+
+    与 _his_alarm_ms_expr 同款方言防护，供按天聚合复用。
+    """
+    if DB_MODE == "pg":
+        return (f"CASE WHEN {col} IS NOT NULL AND {col} ~ '^[0-9]+$' "
+                f"THEN {col}::bigint ELSE NULL END")
+    return f"CAST({col} AS INTEGER)"
+
+
+def _parse_day(value, default=None):
+    """校验 YYYY-MM-DD 日期字符串 → 规范化字符串；非法返回 default。
+
+    日期会被内联进 SQL 片段（与 _time_window_clauses 既有风格一致），
+    因此这里必须严格校验格式，杜绝任意字符串进入 SQL。
+    """
+    if not value:
+        return default
+    try:
+        return datetime.strptime(str(value).strip()[:10], "%Y-%m-%d").strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return default
+
+
+def _resolve_window(time_start, time_end, days):
+    """统一解析下钻窗口 → (start, end, end_exclusive)。
+
+    规则：显式 time_start/time_end 优先（各自独立校验，非法则忽略）；
+    只给 time_start 不给 time_end 时，end 取今天；
+    都不给时按 days 从今天回溯（含当天，故为 days-1）。
+    start/end 均为 'YYYY-MM-DD'，end_exclusive 为 end+1 天，便于用
+    ``col >= start AND col < end_exclusive`` 做半开区间比较。
+    """
+    end = _parse_day(time_end)
+    start = _parse_day(time_start)
+    if not start:
+        end = end or datetime.now().strftime("%Y-%m-%d")
+        end_dt = datetime.strptime(end, "%Y-%m-%d")
+        start = (end_dt - timedelta(days=max(1, int(days)) - 1)).strftime("%Y-%m-%d")
+    elif not end:
+        end = datetime.now().strftime("%Y-%m-%d")
+    end_excl = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    return start, end, end_excl
+
+
+def _day_expr(col):
+    """时间列 → 'YYYY-MM-DD' 表达式（sqlite substr / PG 取值截断）。
+
+    列名均为代码内常量，不接受外部输入，无注入面。
+    注意：eflow_tt.alarm_occur_time 在本项目里是 **text** 列（'YYYY-MM-DD HH:MM:SS'），
+    PG 下 to_char(text, ...) 不存在（UndefinedFunction），故 PG 分支用
+    substr(col::text, 1, 10) —— 对 text / timestamp 两种存储都安全。
+    """
+    if DB_MODE == "pg":
+        return f"substr({col}::text, 1, 10)"
+    return f"substr({col}, 1, 10)"
+
+
+def _alarm_day_expr(col="alarmraisedtime"):
+    """毫秒时间戳列 → 'YYYY-MM-DD'（epoch ms → 秒 → 日期）。
+
+    先经 _alarm_ms_expr 数值化为 bigint，再转 timestamp。
+    """
+    ms = _alarm_ms_expr(col)
+    if DB_MODE == "pg":
+        return f"to_char(to_timestamp(({ms}) / 1000.0), 'YYYY-MM-DD')"
+    return f"date(({ms}) / 1000, 'unixepoch')"
+
+
 def _time_window_clauses(time_start, time_end):
-    """构建时间窗口过滤片段 → (tt_where, wo_where, his_alarm_where)"""
+    """构建时间窗口过滤片段 → (tt_where, wo_where, his_alarm_where)
+
+    时间参数先经 _parse_day 校验（仅 YYYY-MM-DD），不接受任意字符串。
+    """
     tt_where = ""
     wo_where = ""
     his_where = ""
+    time_start = _parse_day(time_start)
+    time_end = _parse_day(time_end)
     if time_start:
         tt_where += f" AND alarm_occur_time >= '{time_start}'"
         wo_where += f" AND alarm_occur_time >= '{time_start}'"
@@ -435,19 +511,32 @@ def _alarm_match_params(site_id):
     return "CAST(site_id AS TEXT) = ?", (str(site_id),)
 
 
-def _fetch_alarm_list(conn, S, table_key, table_name, site_id):
-    """实时/历史告警列表查询（表不存在或查询失败时返回 []）"""
+def _fetch_alarm_list(conn, S, table_key, table_name, site_id, time_start=None, time_end_excl=None):
+    """实时/历史告警列表查询（表不存在或查询失败时返回 []）
+
+    time_start / time_end_excl 仅对带 alarmraisedtime（epoch ms）的历史告警生效；
+    实时告警是当前快照，不做时间过滤。
+    """
     if not S[table_key]:
         return []
     try:
         site_match, site_params = _alarm_match_params(site_id)
+        win, win_params = "", []
+        if table_name == "history_alarm" and (time_start or time_end_excl):
+            ms_expr = _alarm_ms_expr("alarmraisedtime")
+            if time_start:
+                win += f" AND {ms_expr} >= ?"
+                win_params.append(int(datetime.strptime(time_start, "%Y-%m-%d").timestamp() * 1000))
+            if time_end_excl:
+                win += f" AND {ms_expr} < ?"
+                win_params.append(int(datetime.strptime(time_end_excl, "%Y-%m-%d").timestamp() * 1000))
         cursor = conn.execute(f"""
             SELECT *
             FROM {table_name}
-            WHERE {site_match}
+            WHERE {site_match} {win}
             ORDER BY alarmraisedtime DESC
             LIMIT 100
-        """, site_params)
+        """, list(site_params) + win_params)
         return _dict_rows(cursor)
     except Exception:
         logger.warning("[SILENT-EXCEPT] _fetch_alarm_list: exception swallowed", exc_info=True)
@@ -455,14 +544,17 @@ def _fetch_alarm_list(conn, S, table_key, table_name, site_id):
 
 
 def _fetch_wo_list_by_site(conn, S, site_match, site_params):
-    """按站点条件查 WO 列表（表不存在或查询失败时返回 []）"""
+    """按站点条件查 WO 列表（表不存在或查询失败时返回 []）
+
+    site_params 由调用方按「站点条件 + 时间窗口」顺序拼好传入。
+    """
     if not S["has_wo"]:
         return []
     try:
         cursor = conn.execute(f"""
             SELECT {_WO_SELECT_COLS}
             FROM eflow_wo
-            WHERE {site_match}
+            WHERE {site_match} AND alarm_occur_time >= ? AND alarm_occur_time < ?
             ORDER BY alarm_occur_time DESC
             LIMIT 50
         """, site_params)
@@ -573,61 +665,296 @@ def get_sites(
         }
 
 
-def _load_site_kpis(site_id: str, site_detail: dict) -> dict:
-    """补充站点下钻 KPI。各数据域独立容错，缺表/缺数据不影响原有下钻。"""
+# ========== 站点级分制式 KPI 序列（2G/3G/4G 页签） ==========
+# 数据源：主库 ms_sla_*_SITE 三张站点级日表（2026-06-18 起，约 96 天）。
+# 关联口径（实测）：
+#   4G  用 site_id 直接命中 eNodeBId；
+#   2G/3G 的 SITE ID / NodeB ID 是另一套编号（BSC/NodeB 域），
+#        与主数据 site_id 不同源，必须回退到「站点名规范化匹配」才能命中。
+# 站点名前缀差异（4G 的 'eNodeB Name' 缺行政前缀）由 norm_site_name 消解。
+_RAT_KPI_SPEC = [
+    # (RAT, 表名, ID 列, 名称列, 指标列清单)
+    ("2G", "ms_sla_Hourly_KPI_RPA_SITE_MS_SLA_GSM1day_SITE", "SITE ID", "SITE Name", [
+        ("tch_service_rate", "TCH in service rate(%)", True),
+        ("tch_congestion", "TCH in congestion rate(include handover)(%)", False),
+        ("sdcch_congestion", "SDCCH in congestion rate(%)", False),
+        ("tch_drop", "TCH in call drop rate(include handover)(%)", False),
+        ("sdcch_drop", "SDCCH channel in call drop rate(%)", False),
+        ("cssr", "OCI_2G_CSSR_CS(%)", True),
+        ("ho_in", "Handover in success rate(%)", True),
+        ("ho_out", "Handover out success rate(%)", True),
+        ("traffic_erl", "TCH total traffic number(erl)", None),
+        ("outage_min", "2G outage(min)", None),
+    ]),
+    ("3G", "ms_sla_Hourly_KPI_RPA_SITE_MS_SLA_UMTS1day_SITE", "NodeB ID", "NodeB Name", [
+        ("cell_validity", "Cell Validity Rate(%)", True),
+        ("cs_setup", "U31_3G Call Setup Success Rate - CS_901593_2_UROP.RNC-MO", True),
+        ("rrc_setup", "Ratio of successful RRC connection establishment(%)", True),
+        ("cs_rab_setup", "Ratio of successful CS RAB establishment(%)", True),
+        ("ps_rab_setup", "Ratio of successful PS RAB establishment(%)", True),
+        ("cs_drop", "Ratio of CS Call Drop(%)", False),
+        ("ps_drop", "Ratio of PS Call Drop(%)", False),
+        ("traffic_erl", "Cell Traffic Volume, CS(Erl)", None),
+        ("ps_dl_gb", "U31_Cell DL Traffic Volume, PS(GB)_901411_2_UROP.RNC-MO", None),
+        ("ps_ul_gb", "U31_Cell UL Traffic Volume, PS(GB)_901410_2_UROP.RNC-MO", None),
+    ]),
+    ("4G", "ms_sla_Hourly_KPI_RPA_SITE_MS_SLA_FDD1day_SITE", "eNodeBId", "eNodeB Name", [
+        ("cell_availability", "[FDD]Cell Availability[SDR_ITBBU]", True),
+        ("call_setup", "[FDD]Call Setup Success Rate[SDR_ITBBU]", True),
+        ("rrc_setup", "[FDD]RRC Establishment Success Rate[SDR_ITBBU]", True),
+        ("erab_setup", "[FDD]E-RAB Setup Success Rate[SDR_ITBBU]", True),
+        ("erab_drop", "[FDD]E-RAB Drop Rate[SDR_ITBBU]", False),
+        ("ho_success", "[FDD]Intra-RAT HO Success Rate[SDR_ITBBU]", True),
+        ("dl_prb", "[FDD]DL PRB Utilization Rate[SDR_ITBBU]", False),
+        ("ul_prb", "[FDD]UL PRB Utilization Rate[SDR_ITBBU]", False),
+        ("dl_gb", "[FDD]DL Traffic Volume (GBytes)-new", None),
+        ("ul_gb", "[FDD]UL Traffic Volume (GBytes)-new", None),
+        ("dl_throughput", "[FDD]DL IP Throughput(Mbps)[SDR_ITBBU]", None),
+        ("ul_throughput", "[FDD]UL IP Throughput(Mbps)[SDR_ITBBU]", None),
+    ]),
+]
+
+
+def _norm_site_name(value):
+    """站点名规范化：去空白 + 去非字母数字字符 + 转小写。
+
+    实测 4G 的 eNodeB Name 为 'Qcell LMTI (Marshall)'，而 2G/3G 为
+    'Qcell LMTI (Marshall)'-同形；但部分站点存在行政前缀差异，
+    故统一剥离非字母数字字符后比较。
+    """
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def _resolve_kpi_table(conn, declared_name, available=None):
+    """把逻辑表名解析为库中真实表名。
+
+    后端同步链路在不同历史阶段写入的表名不一致：SQLite 里是带
+    'ms_sla_' 前缀的全名，PG 里前缀被去掉（'Hourly_KPI_RPA_SITE_...'）。
+    这里按「全名 → 去 ms_sla_ 前缀 → 后缀匹配」依次尝试，两种库都能命中。
+    """
+    names = available if available is not None else set(list_table_names(conn))
+    if declared_name in names:
+        return declared_name
+    stripped = declared_name[len("ms_sla_"):] if declared_name.startswith("ms_sla_") else declared_name
+    if stripped in names:
+        return stripped
+    tail = stripped[-48:]
+    matches = sorted(n for n in names if n.endswith(tail))
+    return matches[0] if matches else None
+
+
+def _load_site_kpi_series(site_id, site_name, days=60):
+    """按站点读取 2G/3G/4G 站点级日粒度 KPI 序列（图表用）。
+
+    返回 {rat: {"matched_by":..., "site_name":..., "metrics":[...],
+                "daily":[{day, <key>: value, ...}], "days": n}}。
+    单制式失败不影响其它制式；无数据时该 RAT 返回空。
+    """
+    out = {}
+    sid = str(site_id or "").strip()
+    nm = _norm_site_name(site_name)
+    if not sid and not nm:
+        return out
+    try:
+        with get_raw_connection() as conn:
+            available = set(list_table_names(conn))
+            for rat, declared, id_col, name_col, metrics in _RAT_KPI_SPEC:
+                out[rat] = _load_one_rat_series(
+                    conn, available, rat, declared, id_col, name_col, metrics, sid, nm, days)
+    except Exception as exc:
+        logger.warning("[gis/kpi] series connection failed site=%s: %s", sid, exc)
+        for rat, *_ in _RAT_KPI_SPEC:
+            out.setdefault(rat, {"matched_by": None, "site_name": None,
+                                 "metrics": [], "daily": [], "days": 0})
+    return out
+
+
+def _load_one_rat_series(conn, available, rat, declared, id_col, name_col, metrics,
+                         sid, nm, days):
+    """单个制式的站点级 KPI 序列。"""
+    entry = {"matched_by": None, "site_name": None, "metrics": [], "daily": [], "days": 0}
+    try:
+        table = _resolve_kpi_table(conn, declared, available)
+        if not table:
+            entry["error"] = "表不存在"
+            return entry
+        cols = set(table_columns(conn, table))
+        if id_col not in cols or name_col not in cols:
+            entry["error"] = "关键列缺失"
+            return entry
+        avail = [(k, c, r) for (k, c, r) in metrics if c in cols]
+        if not avail:
+            entry["error"] = "指标列全缺失"
+            return entry
+
+        # 定位站点：4G 用 site_id 直接命中；2G/3G 的 ID 是另一套编号，回退名称匹配
+        target_name, matched_by = None, None
+        if sid:
+            row = conn.execute(
+                f'SELECT "{name_col}" FROM "{table}" '
+                f'WHERE CAST("{id_col}" AS TEXT) = ? AND "Begin Time" IS NOT NULL '
+                f'ORDER BY "Begin Time" DESC LIMIT 1', (sid,)).fetchone()
+            if row and row[0]:
+                target_name, matched_by = row[0], "site_id"
+        if target_name is None and nm:
+            cand = conn.execute(
+                f'SELECT DISTINCT "{name_col}" FROM "{table}" '
+                f'WHERE "{name_col}" IS NOT NULL').fetchall()
+            hit = next((c[0] for c in cand if _norm_site_name(c[0]) == nm), None)
+            if hit:
+                target_name, matched_by = hit, "site_name"
+        if target_name is None:
+            entry["error"] = "该制式无本站点数据"
+            return entry
+
+        entry["matched_by"] = matched_by
+        entry["site_name"] = str(target_name)
+        entry["metrics"] = [{"key": k, "label": c, "is_rate": r} for k, c, r in avail]
+
+        sel = ", ".join(f'"{c}"' for _, c, _ in avail)
+        day_sql = _day_expr('"Begin Time"')
+        rows = conn.execute(
+            f'SELECT {day_sql} AS day, {sel} FROM "{table}" '
+            f'WHERE "{name_col}" = ? AND "Begin Time" IS NOT NULL '
+            f'ORDER BY "Begin Time" DESC LIMIT ?',
+            (target_name, max(1, int(days)))).fetchall()
+
+        daily = []
+        for r in reversed(rows):
+            day = str(r[0])[:10] if r[0] else None
+            if not day:
+                continue
+            item = {"day": day}
+            for idx, (k, _c, _r) in enumerate(avail, start=1):
+                v = r[idx]
+                try:
+                    item[k] = None if v is None else float(v)
+                except (TypeError, ValueError):
+                    item[k] = None
+            daily.append(item)
+        entry["daily"] = daily
+        entry["days"] = len(daily)
+    except Exception as exc:
+        logger.warning("[gis/kpi] series failed rat=%s site=%s: %s", rat, sid, exc)
+        entry["error"] = str(exc)[:160]
+    return entry
+
+
+def _load_site_kpis(site_id: str, site_detail: dict, days: int = 60) -> dict:
+    """补充站点下钻 KPI。各数据域独立容错，缺表/缺数据不影响原有下钻。
+
+    days 控制「站点可用率」回溯窗口（默认 60 天，跨月回溯），
+    以及分制式 KPI 序列的取数天数。
+    """
     result = {"availability": [], "packet_loss": [], "microwave": [], "warnings": []}
     site_name = str(site_detail.get("site_name") or site_detail.get("Site_Name") or "").strip()
     sid = str(site_id or "").strip()
 
-    # 站点可用率：复用站点可用率服务的月份聚合口径。
+    # 站点可用率：跨月回溯最近 days 天（原实现只取当月，月初只剩 1~2 个点）。
     try:
         from backend.services import site_availability_service as avail_svc
-        month = datetime.now().strftime("%Y-%m")
-        overview = avail_svc.build_overview(month)
         norm_name = getattr(avail_svc, "norm_name", lambda value: str(value or "").strip().lower())
-        row = next((r for r in overview.get("sites", [])
-                    if str(r.get("site_id") or "").strip() == sid
-                    or norm_name(r.get("site_name")) == norm_name(site_name)), None)
-        if row:
+        end_day = datetime.now().date()
+        start_day = end_day - timedelta(days=max(1, days) - 1)
+        months, cursor_day = [], end_day.replace(day=1)
+        while cursor_day >= start_day.replace(day=1):
+            months.append(cursor_day.strftime("%Y-%m"))
+            cursor_day = (cursor_day - timedelta(days=1)).replace(day=1)
+        lo, hi = start_day.strftime("%Y-%m-%d"), end_day.strftime("%Y-%m-%d")
+
+        merged = {}  # (tech, day) -> value，跨月同 key 取后值
+        for month in sorted(set(months)):
+            try:
+                overview = avail_svc.build_overview(month)
+            except Exception as exc:
+                logger.warning("[gis/kpi] availability month=%s failed site=%s: %s", month, sid, exc)
+                continue
+            row = next((r for r in overview.get("sites", [])
+                        if str(r.get("site_id") or "").strip() == sid
+                        or norm_name(r.get("site_name")) == norm_name(site_name)), None)
+            if not row:
+                continue
             for tech, values in (row.get("techs") or {}).items():
                 daily = values.get("daily") if isinstance(values, dict) else None
                 if isinstance(daily, dict):
-                    result["availability"].extend({"tech": tech, "day": day, "availability": value}
-                                                   for day, value in sorted(daily.items()))
+                    for day, value in daily.items():
+                        if lo <= str(day)[:10] <= hi:
+                            merged[(tech, str(day)[:10])] = value
+        if merged:
+            result["availability"] = [
+                {"tech": tech, "day": day, "availability": value}
+                for (tech, day), value in sorted(merged.items(), key=lambda kv: (kv[0][1], kv[0][0]))
+            ]
         else:
-            result["warnings"].append("本月暂无站点可用率数据")
+            result["warnings"].append(f"近 {days} 天暂无站点可用率数据")
     except Exception as exc:
         logger.warning("[gis/kpi] availability failed site=%s: %s", sid, exc)
         result["warnings"].append("站点可用率暂不可用")
 
-    # 丢包：独立 lte_pl 库，优先按站点编码匹配 Managed Element 的末尾编码，再按名称匹配。
+    # 丢包：独立 lte_pl 库。优先按站点编码匹配 Managed Element 末尾编码，再按名称匹配。
+    # 双模：PG 模式下数据在 lte_pl.packet_loss_data（线上实时写入，约 167 万行）；
+    # 本地 data/packet_lost/lte_pl.sqlite3 是迁移前的冻结快照（停在 2026-08-07），
+    # 因此 PG 模式绝不能回落到该文件，否则图表会静默展示一个多月前的旧数据。
     try:
-        pl_path = Path(r"d:\01_RPA\Task\my_app\data\packet_lost\lte_pl.sqlite3")
-        if pl_path.exists():
-            conn = sqlite3.connect(str(pl_path))
-            conn.row_factory = sqlite3.Row
-            conditions, params = [], []
-            if sid:
-                conditions.append('"Managed Element" LIKE ?')
-                params.append(f"%({sid})")
-            if site_name:
-                conditions.append('"Managed Element" LIKE ?')
-                params.append(f"%{site_name}%")
-            rows = []
-            if conditions:
-                rows = conn.execute(
-                    'SELECT substr("Begin Time",1,10) AS day, '
+        conditions, params = [], []
+        if sid:
+            conditions.append('"Managed Element" LIKE ?')
+            params.append(f"%({sid})")
+        if site_name:
+            conditions.append('"Managed Element" LIKE ?')
+            params.append(f"%{site_name}%")
+        rows = []
+        if conditions:
+            where = " OR ".join(conditions)
+            # 与 Packet Loss 看板/日报口径一致：当天未过完，不纳入统计，
+            # 否则半个自然日会被画成一个「跌到 0」的假数据点。
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            if DB_MODE == "pg":
+                # ::text 兼容 timestamp / text 两种存储
+                sql = (
+                    'SELECT substr("Begin Time"::text, 1, 10) AS day, '
                     'MAX("Packet Loss Rate(%)") AS max_packet_loss, '
                     'AVG("Packet Loss Rate(%)") AS avg_packet_loss, '
                     'COUNT(*) AS samples '
-                    'FROM packet_loss_data WHERE (' + ' OR '.join(conditions) + ') '
-                    'GROUP BY substr("Begin Time",1,10) ORDER BY day DESC LIMIT 31',
-                    params,
-                ).fetchall()
-            conn.close()
-            result["packet_loss"] = [dict(r) for r in reversed(rows)]
-        else:
-            result["warnings"].append("丢包数据源不存在")
+                    'FROM lte_pl.packet_loss_data WHERE (' + where + ') '
+                    'AND substr("Begin Time"::text, 1, 10) < ? '
+                    'GROUP BY substr("Begin Time"::text, 1, 10) '
+                    'ORDER BY day DESC LIMIT 31'
+                )
+                with get_raw_connection() as conn:
+                    cur = conn.execute(sql, tuple(params) + (today_str,))
+                    cols = [d[0] for d in cur.description]
+                    rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            else:
+                pl_path = Path(r"d:\01_RPA\Task\my_app\data\packet_lost\lte_pl.sqlite3")
+                if not pl_path.exists():
+                    result["warnings"].append("丢包数据源不存在")
+                else:
+                    conn = sqlite3.connect(str(pl_path))
+                    conn.row_factory = sqlite3.Row
+                    sql = (
+                        'SELECT substr("Begin Time",1,10) AS day, '
+                        'MAX("Packet Loss Rate(%)") AS max_packet_loss, '
+                        'AVG("Packet Loss Rate(%)") AS avg_packet_loss, '
+                        'COUNT(*) AS samples '
+                        'FROM packet_loss_data WHERE (' + where + ') '
+                        'AND substr("Begin Time",1,10) < ? '
+                        'GROUP BY substr("Begin Time",1,10) ORDER BY day DESC LIMIT 31'
+                    )
+                    rows = [dict(r) for r in conn.execute(sql, params + [today_str]).fetchall()]
+                    conn.close()
+        result["packet_loss"] = list(reversed(rows))
+        # 数值化，避免驱动差异导致前端拿到字符串
+        for it in result["packet_loss"]:
+            for k in ("max_packet_loss", "avg_packet_loss"):
+                try:
+                    it[k] = None if it.get(k) is None else round(float(it[k]), 4)
+                except (TypeError, ValueError):
+                    it[k] = None
+            try:
+                it["samples"] = int(it.get("samples") or 0)
+            except (TypeError, ValueError):
+                it["samples"] = 0
     except Exception as exc:
         logger.warning("[gis/kpi] packet loss failed site=%s: %s", sid, exc)
         result["warnings"].append("站点丢包数据暂不可用")
@@ -643,6 +970,9 @@ def _load_site_kpis(site_id: str, site_detail: dict) -> dict:
         for edge in topology.get("edges", []):
             source, target = str(edge.get("source") or ""), str(edge.get("target") or "")
             if source in matched or target in matched:
+                # history 为逐日聚合的 [{date, tx_util, rx_util, max_util}]，
+                # 供下钻抽屉画「逐日利用率趋势」；原实现把它丢弃了。
+                history = edge.get("history") or []
                 result["microwave"].append({
                     "source": nodes.get(source, {}).get("site") or source,
                     "target": nodes.get(target, {}).get("site") or target,
@@ -650,21 +980,299 @@ def _load_site_kpis(site_id: str, site_detail: dict) -> dict:
                     "rx_utilization": edge.get("rx_util"),
                     "capacity_mbps": edge.get("capacity"),
                     "level": edge.get("status"),
-                    "begin_time": edge.get("begin_time") or edge.get("bt") or ((edge.get("history") or [{}])[-1].get("date")),
+                    "max_util": edge.get("max_util"),
+                    "begin_time": edge.get("begin_time") or edge.get("bt")
+                                  or (history[-1].get("date") if history else None),
+                    "history": [
+                        {"day": h.get("date"), "tx_util": h.get("tx_util"),
+                         "rx_util": h.get("rx_util"), "max_util": h.get("max_util")}
+                        for h in history if h.get("date")
+                    ],
                 })
     except Exception as exc:
         logger.warning("[gis/kpi] microwave failed site=%s: %s", sid, exc)
         result["warnings"].append("微波链路利用率暂不可用")
 
+    result["kpi_series"] = _load_site_kpi_series(site_id, site_name)
     return result
 
 
-@router.get("/drilldown/{site_id}")
-def get_site_drilldown(site_id: str):
-    """站点下钻：基本信息 + 关联TT/WO列表 + SLA达成情况（自适应数据库结构）"""
+# ========== 下钻图表聚合 ==========
+# 下钻明细列表受 LIMIT 50/100 限制（最近 N 条），直接对明细做统计会得到
+# 「最近 N 条」而非「站点全量」的分布，画出来的图会误导人。
+# 这里在 SQL 层 GROUP BY，返回站点全量口径的聚合结果，专供图表使用。
+
+
+def _parse_duration_sec(value):
+    """eflow_tt.fault_duration_time 形如 '0d0h15m' / '1d2h30m' → 秒；无法解析返回 None。
+
+    也兼容纯数字（部分来源直接写秒数）。供故障时长分桶统计使用。
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    m = re.match(r"^(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$", s)
+    if m and any(m.groups()):
+        d, h, mi, sec = (int(x) if x else 0 for x in m.groups())
+        return d * 86400 + h * 3600 + mi * 60 + sec
+    try:
+        return int(float(s))
+    except (TypeError, ValueError):
+        return None
+
+
+def _bucket_counts(rows, key_idx=0, count_idx=1, top_n=None):
+    """(值, 计数) 行 → [{name, value}, ...]，按计数降序。
+
+    空值 / 'None' / '' 统一归到 'Unknown'，保证各图口径一致。
+    """
+    out = []
+    for r in rows:
+        name = r[key_idx]
+        name = "Unknown" if name is None or str(name).strip() in ("", "None") else str(name).strip()
+        out.append({"name": name, "value": int(r[count_idx] or 0)})
+    out.sort(key=lambda x: -x["value"])
+    return out[:top_n] if top_n else out
+
+
+def _tt_wo_analytics(conn, S, site_match, site_params, start=None, end=None):
+    """TT / WO 全量聚合统计（图表专用，不受列表 LIMIT 限制）。
+
+    start / end 为已校验的 'YYYY-MM-DD'；end 为闭区间末日（内部 +1 天转半开）。
+    """
+    result = {"tt": {}, "wo": {}, "warnings": []}
+    tt_time = "alarm_occur_time" if "alarm_occur_time" in S["tt_cols"] else "created_time"
+    wo_time = "alarm_occur_time"
+
+    # 时间窗口片段（与 site_match 并列 AND）
+    end_excl = None
+    if end:
+        end_excl = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    tt_win, tt_win_params = "", []
+    if start:
+        tt_win += f" AND {tt_time} >= ?"
+        tt_win_params.append(start)
+    if end_excl:
+        tt_win += f" AND {tt_time} < ?"
+        tt_win_params.append(end_excl)
+    wo_win, wo_win_params = "", []
+    if start:
+        wo_win += f" AND {wo_time} >= ?"
+        wo_win_params.append(start)
+    if end_excl:
+        wo_win += f" AND {wo_time} < ?"
+        wo_win_params.append(end_excl)
+
+    tt_params = list(site_params) + tt_win_params
+    wo_params = list(site_params) + wo_win_params
+
+    # ---- TT 汇总 ----
+    try:
+        row = conn.execute(f"""
+            SELECT COUNT(*),
+                   SUM(CASE WHEN status = 'Closed' THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN sla_status IN ('Pass', 'Within SLA') THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN sla_status = 'Failed' THEN 1 ELSE 0 END),
+                   MIN({tt_time}), MAX({tt_time})
+            FROM eflow_tt WHERE {site_match} {tt_win}
+        """, tt_params).fetchone()
+        total = int(row[0] or 0)
+        result["tt"]["total"] = total
+        result["tt"]["closed"] = int(row[1] or 0)
+        result["tt"]["open"] = total - int(row[1] or 0)
+        result["tt"]["sla_met"] = int(row[2] or 0)
+        result["tt"]["sla_violated"] = int(row[3] or 0)
+        result["tt"]["first_time"] = row[4]
+        result["tt"]["last_time"] = row[5]
+        result["tt"]["sla_rate"] = round(result["tt"]["sla_met"] / total * 100, 2) if total else None
+    except Exception:
+        logger.warning("[SILENT-EXCEPT] _tt_wo_analytics tt summary", exc_info=True)
+        result["warnings"].append("TT 汇总统计失败")
+        result["tt"]["total"] = 0
+
+    # ---- TT 分布（按日 / 状态 / 严重度 / SLA / 根因） ----
+    try:
+        result["tt"]["daily"] = [
+            {"day": str(r[0])[:10], "total": int(r[1] or 0), "closed": int(r[2] or 0)}
+            for r in conn.execute(f"""
+                SELECT {_day_expr(tt_time)} AS day, COUNT(*),
+                       SUM(CASE WHEN status = 'Closed' THEN 1 ELSE 0 END)
+                FROM eflow_tt WHERE {site_match} AND {tt_time} IS NOT NULL {tt_win}
+                GROUP BY {_day_expr(tt_time)} ORDER BY day
+            """, tt_params).fetchall()
+        ]
+        for key, col in (("by_status", "status"), ("by_severity", "ticket_severity"),
+                         ("by_sla", "sla_status"), ("by_root_cause", "root_cause")):
+            result["tt"][key] = _bucket_counts(conn.execute(
+                f"SELECT {col}, COUNT(*) FROM eflow_tt WHERE {site_match} {tt_win} "
+                f"GROUP BY 1 ORDER BY 2 DESC",
+                tt_params).fetchall(), top_n=10 if key == "by_root_cause" else None)
+    except Exception:
+        logger.warning("[SILENT-EXCEPT] _tt_wo_analytics tt distribute", exc_info=True)
+        result["warnings"].append("TT 分布统计失败")
+
+    # ---- TT 故障时长分桶（解析 '0d0h15m'，SQL 层做不了） ----
+    try:
+        rows = conn.execute(
+            f"SELECT fault_duration_time FROM eflow_tt "
+            f"WHERE {site_match} AND fault_duration_time IS NOT NULL AND fault_duration_time != '' "
+            f"{tt_win}", tt_params).fetchall()
+        buckets = [("≤15m", 0, 900), ("15-30m", 900, 1800), ("30-60m", 1800, 3600),
+                   ("1-4h", 3600, 14400), ("4-12h", 14400, 43200), (">12h", 43200, None)]
+        counts = {b[0]: 0 for b in buckets}
+        parsed = 0
+        for r in rows:
+            sec = _parse_duration_sec(r[0])
+            if sec is None:
+                continue
+            parsed += 1
+            for label, lo, hi in buckets:
+                if sec >= lo and (hi is None or sec < hi):
+                    counts[label] += 1
+                    break
+        result["tt"]["duration_buckets"] = [{"name": b[0], "value": counts[b[0]]} for b in buckets]
+        result["tt"]["duration_parsed"] = parsed
+        result["tt"]["duration_total"] = len(rows)
+    except Exception:
+        logger.warning("[SILENT-EXCEPT] _tt_wo_analytics tt duration", exc_info=True)
+        result["tt"]["duration_buckets"] = []
+
+    # ---- WO 汇总 + 分布 ----
+    if S["has_wo"]:
+        try:
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM eflow_wo WHERE {site_match} {wo_win}", wo_params).fetchone()
+            result["wo"]["total"] = int(row[0] or 0)
+            for key, col in (("by_status", "status"), ("by_source", "source"),
+                             ("by_root_cause", "rc_main_category"),
+                             ("by_severity", "ticket_severity")):
+                try:
+                    result["wo"][key] = _bucket_counts(conn.execute(
+                        f"SELECT {col}, COUNT(*) FROM eflow_wo WHERE {site_match} {wo_win} "
+                        f"GROUP BY 1 ORDER BY 2 DESC", wo_params).fetchall(), top_n=10)
+                except Exception:
+                    result["wo"][key] = []
+            try:
+                result["wo"]["daily"] = [
+                    {"day": str(r[0])[:10], "total": int(r[1] or 0)}
+                    for r in conn.execute(f"""
+                        SELECT {_day_expr(wo_time)} AS day, COUNT(*)
+                        FROM eflow_wo WHERE {site_match} AND {wo_time} IS NOT NULL {wo_win}
+                        GROUP BY {_day_expr(wo_time)} ORDER BY day
+                    """, wo_params).fetchall()
+                ]
+            except Exception:
+                result["wo"]["daily"] = []
+        except Exception:
+            logger.warning("[SILENT-EXCEPT] _tt_wo_analytics wo", exc_info=True)
+            result["wo"]["total"] = 0
+            result["warnings"].append("WO 统计失败")
+
+    return result
+
+
+def _alarm_analytics(conn, S, site_id, start=None, end=None):
+    """历史告警全量按日聚合（实时告警行数极少，不做时间序列）。"""
+    out = {"his": {}}
+    if not S["has_history_alarm"]:
+        return out
+    try:
+        site_match, site_params = _alarm_match_params(site_id)
+        win, win_params = "", []
+        ms_expr = _alarm_ms_expr("alarmraisedtime")
+        if start:
+            win += f" AND {ms_expr} >= ?"
+            win_params.append(int(datetime.strptime(start, "%Y-%m-%d").timestamp() * 1000))
+        if end:
+            end_dt = datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)
+            win += f" AND {ms_expr} < ?"
+            win_params.append(int(end_dt.timestamp() * 1000))
+        params = list(site_params) + win_params
+        day_expr = _alarm_day_expr("alarmraisedtime")
+        out["his"]["daily"] = [
+            {"day": str(r[0])[:10], "total": int(r[1] or 0)}
+            for r in conn.execute(f"""
+                SELECT {day_expr} AS day, COUNT(*)
+                FROM history_alarm WHERE {site_match} AND alarmraisedtime IS NOT NULL {win}
+                GROUP BY {day_expr} ORDER BY day
+            """, params).fetchall() if r[0]
+        ]
+        out["his"]["by_severity"] = _bucket_counts(conn.execute(
+            f"SELECT perceivedseverityname, COUNT(*) FROM history_alarm "
+            f"WHERE {site_match} {win} GROUP BY 1 ORDER BY 2 DESC", params).fetchall())
+        out["his"]["by_title"] = _bucket_counts(conn.execute(
+            f"SELECT alarm_title, COUNT(*) FROM history_alarm "
+            f"WHERE {site_match} {win} GROUP BY 1 ORDER BY 2 DESC", params).fetchall(), top_n=10)
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM history_alarm WHERE {site_match} {win}", params).fetchone()
+        out["his"]["total"] = int(row[0] or 0)
+    except Exception:
+        logger.warning("[SILENT-EXCEPT] _alarm_analytics his", exc_info=True)
+        out["his"] = {}
+    return out
+
+
+
+@router.get("/drilldown/{site_id}/analytics")
+def get_site_drilldown_analytics(
+    site_id: str,
+    days: int = Query(60, ge=1, le=365, description="统计窗口天数，默认 60"),
+    time_start: str = Query(None, description="起始日 YYYY-MM-DD，优先于 days"),
+    time_end: str = Query(None, description="结束日 YYYY-MM-DD（含），优先于 days"),
+):
+    """站点下钻「图表用」全量聚合统计（TT/WO/历史告警）。
+
+    与 /drilldown/{site_id} 的明细列表不同：这里在 SQL 层 GROUP BY，
+    统计口径是站点全量，不受列表 LIMIT 50/100 截断影响。
+    默认只统计最近 60 天（days=60），可用 time_start/time_end 覆盖。
+    """
     S = _detect_gis_schema()
     if not S["site_table"]:
         raise HTTPException(status_code=404, detail="站点表不存在")
+
+    # 与 /drilldown/{site_id} 同口径的窗口解析
+    start, end, _ = _resolve_window(time_start, time_end, days)
+
+    with get_raw_connection() as conn:
+        col_names, site_row = _fetch_site_detail(conn, S["site_table"], site_id)
+        if not site_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"站点 {site_id} 不存在")
+        site_detail = dict(zip(col_names, site_row))
+        site_match, site_params = _tt_site_match(S, site_id, site_detail)
+        if not site_match:
+            conn.close()
+            return {"tt": {}, "wo": {}, "his": {}, "warnings": ["无法确定站点关联字段"]}
+        data = _tt_wo_analytics(conn, S, site_match, site_params, start, end)
+        data.update(_alarm_analytics(conn, S, site_id, start, end))
+        conn.close()
+        data["site_id"] = str(site_id)
+        data["site_name"] = site_detail.get("site_name")
+        data["range"] = {"start": start, "end": end, "days": days}
+        return data
+
+
+@router.get("/drilldown/{site_id}")
+def get_site_drilldown(
+    site_id: str,
+    days: int = Query(60, ge=1, le=365, description="明细列表窗口天数，默认 60"),
+    time_start: str = Query(None, description="起始日 YYYY-MM-DD，优先于 days"),
+    time_end: str = Query(None, description="结束日 YYYY-MM-DD（含），优先于 days"),
+):
+    """站点下钻：基本信息 + 关联TT/WO列表 + SLA达成情况（自适应数据库结构）
+
+    明细列表默认只取最近 60 天（days=60），避免长周期站点一次拉回上千行。
+    上限由 LIMIT 50/100 保证，时间窗口进一步收敛范围。
+    """
+    S = _detect_gis_schema()
+    if not S["site_table"]:
+        raise HTTPException(status_code=404, detail="站点表不存在")
+
+    # 与 /analytics 同口径的窗口解析
+    win_start, win_end, win_end_excl = _resolve_window(time_start, time_end, days)
+
     with get_raw_connection() as conn:
         st = S["site_table"]
 
@@ -675,33 +1283,38 @@ def get_site_drilldown(site_id: str):
         site_detail = dict(zip(col_names, site_row))
 
         tt_site_match, tt_site_params = _tt_site_match(S, site_id, site_detail)
+        # 明细时间窗口（? 占位，与 site_match 的 params 顺序拼接）
+        tt_win_sql = " AND alarm_occur_time >= ? AND alarm_occur_time < ?"
+        tt_win_params = [win_start, win_end_excl]
 
         # TT列表 - 动态选择存在的列
         tt_cursor = conn.execute(f"""
             SELECT {_tt_select_clause(S)}
             FROM eflow_tt
-            WHERE {tt_site_match}
+            WHERE {tt_site_match} {tt_win_sql}
             ORDER BY alarm_occur_time DESC
             LIMIT 50
-        """, tt_site_params)
+        """, list(tt_site_params) + tt_win_params)
         tt_list = _dict_rows(tt_cursor)
 
         # WO列表（仅当表存在时）
-        wo_list = _fetch_wo_list_by_site(conn, S, tt_site_match, tt_site_params)
+        wo_list = _fetch_wo_list_by_site(conn, S, tt_site_match,
+                                         list(tt_site_params) + tt_win_params)
 
-        # SLA统计
+        # SLA统计（与明细同窗口，口径一致）
         sla_cursor = conn.execute(f"""
             SELECT COUNT(*),
                    SUM(CASE WHEN status = 'Closed' THEN 1 ELSE 0 END),
                    SUM(CASE WHEN sla_status IN ('Pass', 'Within SLA') THEN 1 ELSE 0 END),
                    SUM(CASE WHEN sla_status = 'Failed' THEN 1 ELSE 0 END)
-            FROM eflow_tt WHERE {tt_site_match}
-        """, tt_site_params)
+            FROM eflow_tt WHERE {tt_site_match} {tt_win_sql}
+        """, list(tt_site_params) + tt_win_params)
         sla_row = sla_cursor.fetchone()
 
         # 实时 / 历史告警列表
         rt_alarm_list = _fetch_alarm_list(conn, S, "has_realtime_alarm", "realtime_alarm", site_id)
-        his_alarm_list = _fetch_alarm_list(conn, S, "has_history_alarm", "history_alarm", site_id)
+        his_alarm_list = _fetch_alarm_list(conn, S, "has_history_alarm", "history_alarm", site_id,
+                                           win_start, win_end_excl)
 
         conn.close()
 
@@ -721,7 +1334,8 @@ def get_site_drilldown(site_id: str):
                 "sla_met": sla_row[2] or 0,
                 "sla_violated": sla_row[3] or 0,
             },
-            "kpis": _load_site_kpis(site_id, site_detail),
+            "range": {"start": win_start, "end": win_end, "days": days},
+            "kpis": _load_site_kpis(site_id, site_detail, days),
         }
 
 

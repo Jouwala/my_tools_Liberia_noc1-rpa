@@ -8,7 +8,7 @@ import pandas as pd
 from pathlib import Path
 from backend.database import get_raw_connection
 from backend.dialect_helpers import (
-    list_table_names, table_columns, safe_pragma, write_df,
+    list_table_names, table_columns, safe_pragma, write_df, ensure_table_indexes,
 )
 
 # 配置
@@ -125,35 +125,11 @@ def load_excel_to_db(excel_path: Path, table_prefix: str, conn: sqlite3.Connecti
         # 写入数据库（先删除旧表再创建）
         write_df(df, table_name, if_exists='replace')
 
-        # 建立索引
-        if 'site_id' in df.columns:
-            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_site_id ON {table_name}(site_id)")
-            print(f"    索引: site_id")
-        if 'region_level1' in df.columns:
-            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_region1 ON {table_name}(region_level1)")
-            print(f"    索引: region_level1")
-        if 'region' in df.columns:
-            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_region ON {table_name}(region)")
-            print(f"    索引: region")
-        if 'status' in df.columns:
-            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_status ON {table_name}(status)")
-            print(f"    索引: status")
-        if 'created_time' in df.columns:
-            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_created_time ON {table_name}(created_time)")
-            print(f"    索引: created_time")
-        if 'alarm_occur_time' in df.columns:
-            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_alarm_occur ON {table_name}(alarm_occur_time)")
-            print(f"    索引: alarm_occur_time")
-            # 复合索引：时间+站点（加速JOIN+时间过滤）
-            if 'site_id' in df.columns:
-                conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_alarm_site ON {table_name}(alarm_occur_time, site_id)")
-                print(f"    索引: alarm_occur_time+site_id (复合)")
-        if 'site_name' in df.columns:
-            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_site_name ON {table_name}(site_name)")
-            print(f"    索引: site_name")
-        if 'ticket_no' in df.columns:
-            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_ticket_no ON {table_name}(ticket_no)")
-            print(f"    索引: ticket_no")
+        # 建立索引：清单与「表浏览器导入 / 上传建表」共用
+        # backend.dialect_helpers.TABLE_INDEX_SPECS，三处不再是各写一份。
+        idx_names = ensure_table_indexes(conn, table_name, df.columns)
+        for n in idx_names:
+            print(f"    索引: {n}")
 
         conn.commit()
         print(f"    [OK] 写入完成")

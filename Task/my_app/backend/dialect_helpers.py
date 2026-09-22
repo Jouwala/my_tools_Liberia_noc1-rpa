@@ -17,6 +17,7 @@
 判定方式：``isinstance(conn, sqlite3.Connection)`` 走 sqlite 分支，否则走 PG
 分支。这样服务/路由代码无需 import DB_MODE，纯靠连接对象类型分派。
 """
+import logging
 import sqlite3
 
 from backend.database import engine  # SQLAlchemy 引擎（双模），供 write_df / to_sql 使用
@@ -166,3 +167,69 @@ def write_df(df, table, engine_override=None, if_exists="append", index=False):
     eng = engine_override or engine
     df.to_sql(table, eng, if_exists=if_exists, index=index)
     return len(df)
+
+
+# ============ 导入类操作的索引约定（单一事实来源） ============
+# 凡是「Excel/CSV → 建表」的入口（init_db 初始化、表浏览器导入、上传建表）
+# 都调用 ensure_table_indexes()，避免各处各写一份清单导致索引漂移。
+#
+# 每项为 (索引名后缀, 需要同时存在的列元组)。列表顺序 = 建索引顺序。
+# 命名沿用 init_db 的历史命名（含 region_level1 → region1 这种缩写），
+# 以兼容已存在的旧索引；改名会让老库上多出一份重复索引。
+TABLE_INDEX_SPECS = (
+    ("site_id", ("site_id",)),
+    ("region1", ("region_level1",)),
+    ("region", ("region",)),
+    ("status", ("status",)),
+    ("created_time", ("created_time",)),
+    ("alarm_occur", ("alarm_occur_time",)),
+    # 复合索引：时间+站点（加速 JOIN + 时间过滤）
+    ("alarm_site", ("alarm_occur_time", "site_id")),
+    ("site_name", ("site_name",)),
+    ("ticket_no", ("ticket_no",)),
+)
+
+
+def ensure_table_indexes(conn, table, columns, *, logger=None):
+    """按 ``TABLE_INDEX_SPECS`` 为 ``table`` 建索引（双模）。
+
+    columns: 该表的最终列名集合（如 ``df.columns``）。
+    返回：本次已建立的索引名列表（供调用方打印 / 审计）。
+
+    行为约定
+    --------
+    * 仅当某项 spec 要求的列**全部存在**时才建该索引，否则跳过（不算失败）。
+    * 表名 / 列名 / 索引名一律按方言加双引号；PG 下索引名与表名按 63 字节
+      UTF-8 截断（PG 会静默截断超长标识符，不截断会报 relation does not exist）。
+    * 失败**不再静默吞掉**：记录 warning 日志后继续建其余索引，最后一个都不
+      因前一个失败而丢。
+    * **不 commit**：事务边界由调用方掌握。
+
+    关于失败隔离（为何不需要 SAVEPOINT）
+    ------------------------------------
+    PG 分支的连接是 autocommit=True（backend/database.py 的 _PsycopgRaw），
+    每条 DDL 独立提交，因此不存在「一条失败导致整个事务 aborted、后续语句
+    全部报 current transaction is aborted」的问题；sqlite 分支的 DDL 失败
+    也不会污染已开启的事务。故此处只需逐条 try/except。
+    """
+    log = logger or logging.getLogger(__name__)
+    is_pg = not isinstance(conn, sqlite3.Connection)
+    have = set(columns)
+    table_sql = _quote_table(table, truncate=is_pg)
+
+    done = []
+    for suffix, spec_cols in TABLE_INDEX_SPECS:
+        if not all(c in have for c in spec_cols):
+            continue
+        idx_name = pg_trunc_ident(f"idx_{table}_{suffix}") if is_pg else f"idx_{table}_{suffix}"
+        col_sql = ", ".join(_quote_ident(c) for c in spec_cols)
+        try:
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS {_quote_ident(idx_name)} "
+                f"ON {table_sql} ({col_sql})"
+            )
+            done.append(idx_name)
+        except Exception as e:  # noqa: BLE001 - 单个索引失败不应中断导入
+            log.warning("[INDEX] 建索引失败: %s ON %s(%s) -> %s",
+                        idx_name, table, ", ".join(spec_cols), e)
+    return done

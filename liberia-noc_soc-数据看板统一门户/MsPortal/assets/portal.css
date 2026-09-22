@@ -1,4 +1,4 @@
-/* ==========================================================================
+﻿/* ==========================================================================
    MsPortal — 补充样式
    --------------------------------------------------------------------------
    版式与配色由 assets/tailwind.css（Tailwind 预编译）承担，本文件只负责：
@@ -984,52 +984,21 @@ html.dark .auth-error { background: var(--mp-danger-soft); border-color: var(--m
 }
 
 /* --------------------------------------------------- QC 统计下钻弹窗 --- */
-/* 明细列多（最长 12 列），故用 wide 变体放宽弹窗；表格自身横向滚动，
-   不让长内容把弹窗撑破。全部手写 CSS，无需重跑 TMP/build_tailwind.mjs。 */
-.modal.wide { max-width: min(1320px, 96vw); }
-.qc-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-.qc-tools input[type="search"] {
-  flex: 1 1 220px;
-  border: 1px solid var(--mp-border);
-  border-radius: 8px;
-  padding: 7px 10px;
-  font-size: 14px;
-  color: var(--mp-text);
-  background: var(--mp-surface-flat);
-}
-.qc-scroll { max-height: 56vh; overflow: auto; border: 1px solid var(--mp-border); border-radius: 8px; }
-.qc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.qc-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  text-align: left;
-  white-space: nowrap;
-  font-weight: 600;
-  color: var(--mp-text-2);
-  font-size: 12px;
-  padding: 8px 10px;
-  background: var(--mp-surface-2);
-  border-bottom: 1px solid var(--mp-border);
-}
-.qc-table td { padding: 7px 10px; border-bottom: 1px solid var(--mp-border-soft); color: var(--mp-text-2); white-space: nowrap; }
-.qc-table tbody tr:hover td { background: var(--mp-hover-row); }
-.qc-table td.mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
-.qc-empty { padding: 28px; text-align: center; color: var(--mp-text-3); font-size: 14px; }
-.qc-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.qc-pager { display: inline-flex; align-items: center; gap: 8px; }
-.qc-pager .btn-soft:disabled { opacity: .45; cursor: not-allowed; }
-.qc-pager .btn-soft:disabled:hover { border-color: var(--mp-border); color: var(--mp-text-2); }
-.qc-page { font-size: 13px; color: var(--mp-text-2); font-variant-numeric: tabular-nums; }
-.qc-err { color: var(--mp-danger); font-size: 13px; }
-.qc-hint { margin-top: 10px; display: block; }
+/* 2026-09-23：本区块的样式**已整体移出**到 assets/qcDrill.css（+ qcDrill.theme.css）。
+   原因：/olbrportal/ 的同一个下钻弹窗此前是右侧抽屉（.drawer + table.grid），
+   与本页的居中弹窗（.modal.wide + .qc-table）两套长相两套能力，同一个数字点开
+   是两个样。现在两边共引 qcDrill.css，类名统一为 .qc-mask / .qc-modal / .qc-head /
+    .qc-body / .qc-tools / .qc-scroll / .qc-table / .qc-foot / .qc-btn / .qc-pager。
 
-html.dark .qc-scroll { border-color: var(--mp-border); }
-html.dark .qc-table th { background: var(--mp-surface-3); color: var(--mp-text-3); border-color: var(--mp-border); }
-html.dark .qc-table td { color: var(--mp-text-2); border-color: var(--mp-border-soft); }
-html.dark .qc-table tbody tr:hover td { background: var(--mp-hover-row); }
-html.dark .qc-tools input[type="search"] { background: var(--mp-surface-2); color: var(--mp-text); border-color: var(--mp-border); }
-html.dark .qc-page { color: var(--mp-text-3); }
+   为什么不在本文件里改，而是整块搬走：
+     olbrportal 是 MsPortal 的只读展示版，引 portal.css 会把本页整套首页样式
+     （.mast / .rail / .card / html.dark 全量变量…）灌进去互相打架 ——
+     和 olbr.js 顶部「只读版不能引 portal.js」是同一条理由。抽成只含下钻弹窗的
+     最小样式表，两边才能安全共用。
+
+   ⚠️ 不要再在这里补 .qc-* 规则：qcDrill.css 在本文件**之后**加载，同特异性下
+      本文件的规则会被它盖掉（等于改了不生效），不同特异性下又会造出两套样式打架。
+      要改下钻弹窗外观，改 assets/qcDrill.css。 */
 
 /* ==========================================================================
    QC 指标卡（2026-09-22 全面改版；同日二次改版：六卡一行 + CXO 观感）
@@ -1215,39 +1184,12 @@ html.dark .qc-page { color: var(--mp-text-3); }
 }
 .qc-sla strong { font-family: ui-monospace, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
 
-/* ------------------------------------------- 下钻弹窗：列体验（2026-09-22 加） --
-   ① 首列固定：明细最长 12 列，横向滚动时 Site Name / TT No. 会滚出视野，
-      剩下的数字列失去参照物。首列 sticky 后「这一行是谁」永远可见。
-      同时把表头左上角那格（既 sticky top 又 sticky left）的层级提到最高，
-      否则会被其它列的表头盖住。
-   ② 表头可点排序：加了 aria-sort 与 ▲▼ 指示，键盘可达（用 <button>）。
-   ③ 空值统一渲染成「—」：源表里 tt_id 有空串、也有字面量 'empty'（实测
-      alarm 明细 51 行里 22 行如此），直接把 'empty' 摊给用户看像是页面出错。 */
-.qc-table th.qc-sortable { padding: 0; }
-.qc-table th.qc-sortable > button {
-  display: flex; align-items: center; gap: 4px;
-  width: 100%; padding: 8px 10px;
-  background: none; border: 0; cursor: pointer;
-  font: inherit; color: inherit; text-align: left; white-space: nowrap;
-}
-.qc-table th.qc-sortable > button:hover { color: var(--mp-brand-text); }
-.qc-table th.qc-sortable .qc-sort-ico { font-size: 9px; opacity: .45; }
-.qc-table th[aria-sort="ascending"] .qc-sort-ico,
-.qc-table th[aria-sort="descending"] .qc-sort-ico { opacity: 1; color: var(--mp-brand-text); }
+/* ------------------------------------------- 下钻弹窗：列体验（已移出） --
+   2026-09-23：原先这里的 ① 首列固定 ② 表头可点排序 ③ 空值渲染「—」
+   全部移到 assets/qcDrill.css（.qc-table th.qc-sortable / .qc-sticky-col /
+   .qc-null / .qc-sort-ico），与 /olbrportal/ 共用同一份实现。
+   视图层未变：仍是 portal.js 的 renderQcDrill() 产出同样的 DOM。 */
 
-.qc-table th.qc-sticky-col, .qc-table td.qc-sticky-col {
-  position: sticky; left: 0;
-  background: var(--mp-surface-flat);
-  box-shadow: 1px 0 0 var(--mp-border-soft);
-}
-.qc-table th.qc-sticky-col { z-index: 3; background: var(--mp-surface-2); }
-.qc-table td.qc-sticky-col { z-index: 2; }
-.qc-table tbody tr:hover td.qc-sticky-col { background: var(--mp-surface-2); }
-html.dark .qc-table th.qc-sticky-col { background: var(--mp-surface-3); }
-html.dark .qc-table td.qc-sticky-col { background: var(--mp-surface-flat); }
-html.dark .qc-table tbody tr:hover td.qc-sticky-col { background: var(--mp-surface-3); }
-
-.qc-null { color: var(--mp-text-3); }
 
 /* ------------------------------------------------------------- Toast --- */
 .toast {

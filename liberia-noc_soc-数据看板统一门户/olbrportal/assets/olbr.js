@@ -7,15 +7,21 @@
      · GET/PUT /api/portal-catalog → 服务端全局目录（有则覆盖内置，无则用内置；编辑态可写）
      · GET /api/portal-qc/*       → 六个实时指标与下钻明细
      · /MsPortal/viewer.html      → 看板查看器（打开动作整个交给它，本页不重复实现）
-   本页提供「分组 / 子分组 + 排序」的编辑（2026-09-22 加），不提供看板维护 / 用户管理
-   —— 后两样仍归 /MsPortal/。编辑态只在服务端 GET 回 `editable:true` 时出现（= 服务器
+     · /uniplam/api/auth/*        → 用户管理读写**共用**那一份账号库（SQLite，见下）
+   本页提供「分组 / 子分组 + 排序」的编辑（2026-09-22 加）；看板维护仍归 /MsPortal/。
+   编辑态只在服务端 GET 回 `editable:true` 时出现（= 服务器
    本机或持 X-API-Token），局域网访客看到的仍是纯只读页。改动走 PUT 落到**全局共享**的
    目录，与 MsPortal 同一份文档、同一套语义（subGroups / order / item.subOf），
    所以这边一存，MsPortal 刷新后就是同一个结果；反之 MsPortal 的改动这里也能读到。
+   用户管理（2026-09-22 加）是 /uniplam/ 那个弹窗的移植：只走 HTTP 打 /uniplam/api/auth/*，
+   不新增 localStorage 键、不新增后端，三个门户改的是同一行记录；入口仅 admin 登录后可见。
    ⚠️ 三条不能碰的红线：
      1  绝不写 `msportal.*` 那几个 localStorage 键（那是 MsPortal 的**个人层**：
         order / assign / groups / renames，跟着写会把别人的界面悄悄改掉）；
         本页自己的持久化只有 `olbr.*`，且只有主题 / 语言 / 页签，不含目录。
+        唯一的例外是 `myapp-theme`：my_app 只认这一个键（theme.ts 的 detectMode 在启动时
+        读一次），要把内嵌的报告文件中心染成同一个主题就必须先写它再重设 src —— 与
+        MsPortal 的同名内嵌卡是同一件事，副作用也一样（之后直接打开 /myapp/ 也是这个主题）。
      2  PUT 是**整份文档替换**（后端 `_normalize_catalog` 重建字典，没带的键等于删掉），
         所以每次写都要把 items + subGroups + order 三份发全，且 items 用服务端原样那份
         （ITEMS 全量），不是屏幕上的筛选子集 —— 少发一条，全站就少一条看板。
@@ -23,8 +29,9 @@
         且一次只改一个字段就立刻落盘，不攒批量改动放大覆盖窗口。
 
    与 MsPortal 刻意不同的四处（都是上一轮评审的结论）：
-     1  搜索与筛选常驻、且**不持久化**。MsPortal 会把上次的筛选写进 localStorage，
-        下次打开时 13 个面板里 7 个显示空态，用户以为系统坏了。
+     1  搜索与筛选默认收起成一条（2026-09-22 改），且**不持久化**。MsPortal 会把上次的
+        筛选写进 localStorage，下次打开时 13 个面板里 7 个显示空态，用户以为系统坏了；
+        收起态那条上永远写着命中数和「按什么筛的」，不清空筛选也能收起这一条。
      2  筛选生效时**隐藏没有结果的分组面板**，而不是给每个面板摆一个空态框。
      3  升级机制默认收成一条值班带（52px），展开才出全表（原来常驻 583px）。
      4  卡片只有两种、强调色只有两个色相，图标砖不再按分组上实色。
@@ -46,18 +53,56 @@
       'skip': '跳到主内容',
       'search.ph': '搜索看板名称、描述、责任人、标签…',
       'rail.all': '全部', 'rail.clear': '清除筛选',
+      /* 检索轨默认收起成一条（2026-09-22）：入口要图标 + 文字，光一个放大镜图标不够直白 */
+      'rail.btn': '搜索与筛选', 'rail.tip': '展开搜索框与分组 / 状态筛选（Ctrl K）',
       'count.all': '{n} 个看板 · {g} 个分组',
       'count.hit': '{n} / {t} 个看板命中',
       'qc.title': 'Quality Control 质量监控核心指标',
       'qc.sub': '未清除告警 / 工单 / 变更 / 维护 / 备件 · 30 天达标口径',
-      'qc.sla': '30 天达标率', 'qc.of': '{p} / {q} 站点',
-      'qc.when': '告警每 5 分钟 · 其余每小时 :06 · 更新于 {t}',
-      'qc.err': '指标接口不可用：{e}', 'qc.retry': '重试',
+      'qc.sla': '30 天达标率',
+      'qc.slaTip': '近 {d} 天创建的 TT 中 SLA 判定为 Pass 的占比（分母只含已判定 Pass/Failed 的单，'
+        + '在途未判定的不计入）：{pass} / {total}',
+      'qc.err': '数据库统计不可用', 'qc.retry': '重试',
       'qc.drill': '点击查看明细',
+      /* QC 指标卡与 MsPortal 的 Quality Control 对齐（2026-09-22）。
+         阈值、趋势口径、两档刷新节奏都照抄 portal.js，文案也沿用同一套说法 ——
+         同一个数字在两个门户上被读成两件事，比样式不一致更糟。 */
+      'qc.updated': '更新于', 'qc.next': '下次 {t}', 'qc.reload': '刷新', 'qc.loading': '加载中…',
+      'qc.na': '不可用',
+      'qc.lv.ok': '正常', 'qc.lv.warn': '关注', 'qc.lv.crit': '严重', 'qc.lv.na': '不可用',
+      'qc.dataAt': '数据 {t}（{ago}）',
+      'qc.ago.now': '刚刚', 'qc.ago.min': '{n} 分钟前', 'qc.ago.hour': '{n} 小时前', 'qc.ago.day': '{n} 天前',
+      'qc.sites': '断站站点', 'qc.overdue': '超期', 'qc.inbound': '入库', 'qc.outbound': '出库',
+      'qc.sub.alarm': '未清除的断站告警', 'qc.sub.tt': '告警未清除的故障工单 (TT)',
+      'qc.sub.wo': '告警未清除的任务工单 (WO)', 'qc.sub.cr': '未关闭变更单 (CR)',
+      'qc.sub.pmt': '未完成的预防性维护 (PMT)',
+      'qc.sub.spms': '未关闭出入库单 (SPMS，不含 WaitingForUpdate)',
+      'qc.targetTip.up': '分级阈值：关注 ≥ {warn} · 严重 ≥ {crit}（数值越大越差）',
+      'qc.targetTip.down': '分级阈值：关注 < {crit} · 严重 < {warn}（数值越大越好）',
+      'qc.trend.cap': '近 {n} 天新增 {total} 次（每格 {unit}）',
+      'qc.trend.capToday': '今天 {total} 次（每格 {unit}）',
+      'qc.trend.hours': '1 小时', 'qc.trend.days': '1 天',
+      'qc.trend.tip': '按源表时间列分桶的「新增量」（近 {n} 天，每格 {unit}）。\n'
+                    + '空档补 0：那段时间确实没有新增。\n'
+                    + '注意这是「来单速度」，不是卡片上那个「存量」，两者量级不同、不能互相印证。',
+      'qc.trend.tipToday': '按源表时间列分桶的「新增量」（今天 00:00 至 23:00，每格 {unit}）。\n'
+                    + '空档补 0：那个小时确实没有新告警。\n'
+                    + '最后一格是「尚未走完的当前小时」，值会随分钟继续增长。\n'
+                    + '注意这是「新告警速度」，不是卡片上那个「存量」，两者不能互相印证。',
+      'qc.trend.starving': '趋势数据不足',
+      'qc.cadenceTip': '本面板分两档刷新：断站告警每 5 分钟（源 eflow_active_alarm 每 5 分钟同步，最近 {a}）；'
+                     + 'TT/WO/CR/PMT/SPMS 与达标率每小时 :06（源 eflow_sync 每小时 :00 起跑、实测约 :06 跑完，'
+                     + 'SP 备件明细 sp_data_sync 每小时 :10，最近 {f}）。切回本页或点「刷新」会立刻重拉全量。',
       'cxo.title': 'CXO View 决策战略层', 'cxo.sub': '统一总控与运营视窗',
       'map.title': '利比里亚网络拓扑全景', 'map.sub': 'Central Liberia Regional Topology',
       'map.gis': 'GIS 地图', 'map.mw': '微波实时', 'map.alarm': '实时告警', 'map.loss': '传输丢包',
       'map.open': '新窗口打开', 'map.reload': '重新加载', 'map.load': '加载中…',
+      /* 报告文件页签（2026-09-22 加）：内嵌 my_app 的任务报告文件中心，
+         标题说法与 MsPortal 那张 Task Report Files 卡一致，同一内容在两个门户不该有两名。 */
+      'email.tab': '报告文件',
+      'email.title': 'Task Report Files', 'email.sub': '任务报告文件中心（Email Reports）',
+      'email.needLogin': '登录后显示报告文件',
+      'email.noAccess': '当前账号没有「Task Report Files」这块看板的权限',
       'esc.title': '升级机制 Escalation Matrix',
       'esc.sub': '值班升级联系人 · Orange / LONESTAR 双网号码',
       'esc.expand': '展开全部 {n} 条', 'esc.collapse': '收起',
@@ -124,14 +169,105 @@
       'dr.title': '明细', 'dr.rows': '{n} 条', 'dr.page': '{p} / {q}',
       'dr.load': '正在读取明细…', 'dr.empty': '没有匹配的记录', 'dr.err': '明细读取失败：{e}',
       'dr.none': '暂无数据', 'dr.qPh': '过滤明细…',
+      /* 2026-09-23 统一下钻弹窗：补齐与 MsPortal 同名同义的文案键。
+         MsPortal 侧对应 qc.reload / qc.export / qc.openBoard / qc.filterHint /
+         qc.loading / qc.page / qc.total / qc.drillSuffix / qc.exportErr。 */
+      'dr.reload': '刷新', 'dr.export': '导出 Excel', 'dr.openBoard': '打开完整看板',
+      'dr.filterHint': '提示：按维度筛选看板列表请用筛选条，这个弹窗只下钻明细。',
+      'dr.drillSuffix': ' · 明细', 'dr.total': '共 {n} 条', 'dr.exportErr': '导出失败',
+      'dr.noData': '没有可导出的数据',
       'env.local': '本机', 'env.lr': '利比里亚',
       'foot.ver': 'Ver 1.0-OLBR · 展示版',
       'doc.title': 'OLR MS 门户 · Liberia NOC/SOC 统一入口 (ZTE OLR MS Portal)',
       'doc.desc': 'ZTE OLR MS 门户看板 —— 利比里亚 NOC/SOC 自动化工具平台入口（展示版）。',
       'attr.theme': '深色 / 浅色',
-      'attr.adminTitle': '看板维护 / 用户管理仍在 MsPortal 完成（本页只改分组、子分组与排序）',
+      'attr.adminTitle': '看板维护仍在 MsPortal 完成（本页改分组、子分组、排序与用户权限）',
       'attr.searchAria': '搜索看板', 'attr.chipsAria': '分组筛选', 'attr.statusAria': '状态筛选',
-      'attr.drQAria': '过滤明细'
+      'attr.drQAria': '过滤明细',
+      /* ---- 用户管理（2026-09-22 加）----
+         文案与 /uniplam/ 的 UserManagementModal、/MsPortal/ 的移植版同一口径，
+         因为三者操作的是**同一份用户数据库**（auth-data/portal-auth.db）：
+         本页只调 /uniplam/api/auth/*，不复制用户表，改完另一边刷新即可见。
+         只有提到「本页」的两处把 MsPortal 换成了 olbrportal —— 分组体系按本页算。 */
+      'um.entry': '用户管理',
+      'um.entryTip': '管理统一门户账号（与 /uniplam/ 共用同一份用户数据库）',
+      'um.title': '用户管理',
+      'um.subtitle': '统一门户账号的增删与权限设置（仅管理员可见，与 /uniplam/ 同库同步）',
+      'um.reload': '刷新',
+      'um.openPortal': '在统一门户打开',
+      'um.addTitle': '新增用户',
+      'um.usernamePh': '用户名（2-32 位小写字母/数字/_.-）',
+      'um.passwordPh': '初始密码（至少 8 位）',
+      'um.roleAdmin': '管理员',
+      'um.roleViewer': '普通用户',
+      'um.add': '添加',
+      'um.added': '用户已创建，其首次登录将被强制修改密码',
+      'um.duplicate': '用户名已存在',
+      'um.invalidInput': '用户名或密码格式不符合要求',
+      'um.pwdTooShort': '密码至少需要 8 个字符',
+      'um.colUser': '用户',
+      'um.colRole': '角色',
+      'um.colCreated': '创建时间',
+      'um.colActions': '操作',
+      'um.loading': '加载中…',
+      'um.empty': '暂无账号',
+      'um.self': '我',
+      'um.reset': '重置密码',
+      'um.resetHint': '为 {name} 设置新密码',
+      'um.resetConfirm': '确认重置',
+      'um.resetOk': '已重置 {name} 的密码，其下次登录需修改密码',
+      'um.delete': '删除用户',
+      'um.confirmDelete': '确定要删除用户 {name} 吗？该操作不可恢复。',
+      'um.selfDelete': '不能删除当前登录的自己',
+      'um.lastAdmin': '不能删除最后一个管理员',
+      'um.pages': '页面配置',
+      'um.pagesTitle': '页面配置 · {name}',
+      'um.pagesSubtitle': '指定登录后打开哪个看板、以及可见的看板范围（与 /uniplam/ 同一条记录）',
+      'um.landing': '登录后落地',
+      'um.landingNone': '不干预（停在全部看板）',
+      'um.landingNoCard': '不指定看板',
+      'um.viewGrid': '卡片网格（统一门户）',
+      'um.viewList': '列表（统一门户）',
+      'um.viewMatrix': '分组矩阵（统一门户）',
+      'um.viewTasks': '任务视图（统一门户）',
+      'um.allowed': '可见范围',
+      'um.allowedAll': '不限制（可见全部分组与看板）',
+      'um.allowedCustom': '自定义白名单',
+      'um.groupsMsportal': '按分组 · 本页（/olbrportal/）',
+      'um.groupsPortal': '按分组 · 统一门户（/uniplam/）',
+      'um.groupsPortalNone': '统一门户未保存全局目录，暂不能按业务分组授权',
+      'um.allowedCards': '按看板（两边通用）',
+      'um.cardsLocalOnly': '读不到统一门户的全局目录，候选项暂时锁住：这里的看板 id 是按 URL 推导的，与 /uniplam/ 实际使用的那套不一致，勾选后保存会让对方认不出来。请刷新重试。',
+      'um.allowedHint': '「按看板」用的是两套门户共用的看板 id，勾选后在 /olbrportal/ 与 /uniplam/ 同时生效；两组「按分组」各自只在本侧生效，可都勾。',
+      'um.allowedEmpty': '白名单为空：该账号登录后将看不到任何看板。',
+      'um.navVisibilityOnly': '仅影响门户的导航可见性，不是访问控制；被隐藏的看板仍可通过直链打开。',
+      'um.pagesSaved': '已保存 {name} 的页面配置',
+      'um.pagesSave': '保存页面配置',
+      'um.pagesCancel': '收起',
+      'um.storage': '存储位置',
+      'um.storageSqlite': 'SQLite 数据库',
+      'um.storageJson': 'JSON 文件',
+      'um.backups': '自动备份 {n} 份',
+      'um.lastWrite': '最后写入',
+      'um.migrated': '已从旧 JSON 迁移',
+      'um.requestFail': '用户数据加载失败：{msg}',
+      'um.needAdmin': '仅管理员可管理用户',
+      /* 本机回环访问时 my_app 会把请求当成管理员（占位身份，没有门户 id），
+         那种身份调不动门户的用户接口，所以这里明确引导去登录门户账号。 */
+      'um.needPortalLogin': '用户管理需要统一门户账号登录，请先在本页登录',
+      'um.pendingTitle': '待审批申请',
+      'um.pendingEmpty': '暂无待审批申请',
+      'um.colApplicant': '申请人',
+      'um.colNote': '申请说明',
+      'um.colTime': '申请时间',
+      'um.colIp': '来源 IP',
+      'um.approve': '批准',
+      'um.reject': '驳回',
+      'um.approveConfirm': '确定批准 {name} 的账号申请吗？',
+      'um.rejectConfirm': '确定驳回 {name} 的账号申请吗？',
+      'um.approved': '已批准 {name}：申请时设置的密码即刻生效，其首次登录需修改密码',
+      'um.rejected': '已驳回 {name} 的账号申请',
+      'um.notFound': '申请不存在或已被处理'
     },
     en: {
       'tagline': 'Smarter Operations · Higher Efficiency · Better Network',
@@ -139,18 +275,51 @@
       'skip': 'Skip to main content',
       'search.ph': 'Search dashboards, owners, tags…',
       'rail.all': 'All', 'rail.clear': 'Clear filters',
+      'rail.btn': 'Search & filters', 'rail.tip': 'Open the search box and the group / status filters (Ctrl K)',
       'count.all': '{n} dashboards · {g} groups',
       'count.hit': '{n} / {t} dashboards match',
       'qc.title': 'Quality Control — key indicators',
       'qc.sub': 'Active alarms / tickets / changes / PMT / spares · 30-day compliance',
-      'qc.sla': '30-day compliance', 'qc.of': '{p} / {q} sites',
-      'qc.when': 'alarms every 5 min · others hourly :06 · updated {t}',
-      'qc.err': 'Indicator API unavailable: {e}', 'qc.retry': 'Retry',
+      'qc.sla': '30-day compliance',
+      'qc.slaTip': 'Share of TTs created in the last {d} days rated Pass on SLA (the denominator counts '
+        + 'only tickets already judged Pass/Failed; in-flight ones are excluded): {pass} / {total}',
+      'qc.err': 'Database stats unavailable', 'qc.retry': 'Retry',
       'qc.drill': 'Click for details',
+      'qc.updated': 'Updated', 'qc.next': 'next {t}', 'qc.reload': 'Refresh', 'qc.loading': 'Loading…',
+      'qc.na': 'n/a',
+      'qc.lv.ok': 'OK', 'qc.lv.warn': 'Watch', 'qc.lv.crit': 'Critical', 'qc.lv.na': 'N/A',
+      'qc.dataAt': 'data {t} ({ago})',
+      'qc.ago.now': 'just now', 'qc.ago.min': '{n}m ago', 'qc.ago.hour': '{n}h ago', 'qc.ago.day': '{n}d ago',
+      'qc.sites': 'sites down', 'qc.overdue': 'overdue', 'qc.inbound': 'Inbound', 'qc.outbound': 'Outbound',
+      'qc.sub.alarm': 'Uncleared site-outage alarms', 'qc.sub.tt': 'Trouble tickets with uncleared alarm',
+      'qc.sub.wo': 'Work orders with uncleared alarm', 'qc.sub.cr': 'Unclosed change requests',
+      'qc.sub.pmt': 'Pending preventive maintenance',
+      'qc.sub.spms': 'Unclosed inbound/outbound orders (excl. WaitingForUpdate)',
+      'qc.targetTip.up': 'Thresholds: watch ≥ {warn} · critical ≥ {crit} (higher is worse)',
+      'qc.targetTip.down': 'Thresholds: watch < {crit} · critical < {warn} (higher is better)',
+      'qc.trend.cap': 'New in last {n}d: {total} (per {unit})',
+      'qc.trend.capToday': 'Today: {total} (per {unit})',
+      'qc.trend.hours': '1h', 'qc.trend.days': '1 day',
+      'qc.trend.tip': 'New items bucketed by the source time column (last {n} days, per {unit}).\n'
+                    + 'Empty buckets are filled with 0 (nothing was raised then).\n'
+                    + 'Note: this is incoming rate, not the backlog shown above.',
+      'qc.trend.tipToday': 'New items bucketed by the source time column (today 00:00-23:00, per {unit}).\n'
+                    + 'Empty buckets are filled with 0 (no new alarm in that hour).\n'
+                    + 'The last bucket is the current, still-running hour.\n'
+                    + 'Note: this is the incoming alarm rate, not the backlog shown above.',
+      'qc.trend.starving': 'Not enough trend data',
+      'qc.cadenceTip': 'Two refresh cadences: site-outage alarms every 5 min (source eflow_active_alarm syncs every '
+                     + '5 min, latest {a}); TT/WO/CR/PMT/SPMS and the SLA rate hourly at :06 (eflow_sync starts at '
+                     + ':00 and takes ~6 min, the SP spare-part details sync sp_data_sync runs hourly at :10, '
+                     + 'latest {f}). Coming back to this tab or clicking Refresh re-pulls the full set immediately.',
       'cxo.title': 'CXO View', 'cxo.sub': 'Executive strategy & operation window',
       'map.title': 'Central Liberia Regional Topology', 'map.sub': 'Network panorama',
       'map.gis': 'GIS map', 'map.mw': 'MW real-time', 'map.alarm': 'Live alarms', 'map.loss': 'Packet loss',
       'map.open': 'Open in new tab', 'map.reload': 'Reload', 'map.load': 'Loading…',
+      'email.tab': 'Report files',
+      'email.title': 'Task Report Files', 'email.sub': 'Task report file center (Email Reports)',
+      'email.needLogin': 'Sign in to view the report files',
+      'email.noAccess': 'This account has no access to the "Task Report Files" dashboard',
       'esc.title': 'Escalation Matrix',
       'esc.sub': 'Duty contacts · Orange / LONESTAR numbers',
       'esc.expand': 'Expand all {n} rows', 'esc.collapse': 'Collapse',
@@ -216,14 +385,96 @@
       'dr.title': 'Details', 'dr.rows': '{n} rows', 'dr.page': '{p} / {q}',
       'dr.load': 'Loading details…', 'dr.empty': 'No matching record', 'dr.err': 'Detail failed: {e}',
       'dr.none': 'No data', 'dr.qPh': 'Filter rows…',
+      'dr.reload': 'Refresh', 'dr.export': 'Export Excel', 'dr.openBoard': 'Open full dashboard',
+      'dr.filterHint': 'Note: filtering the catalogue by dimension lives on the filter bar chips; this dialog only drills into details.',
+      'dr.drillSuffix': ' · Details', 'dr.total': '{n} rows in total', 'dr.exportErr': 'Export failed',
+      'dr.noData': 'Nothing to export',
       'env.local': 'Local host', 'env.lr': 'Liberia',
       'foot.ver': 'Ver 1.0-OLBR · showcase edition',
       'doc.title': 'OLR MS Portal · Liberia NOC/SOC unified entry',
       'doc.desc': 'ZTE OLR MS portal — entry to the Liberia NOC/SOC automation tool platform (showcase edition).',
       'attr.theme': 'Dark / Light',
-      'attr.adminTitle': 'Dashboard maintenance and user management stay in MsPortal (this page edits groups, sub-groups and order only)',
+      'attr.adminTitle': 'Dashboard maintenance stays in MsPortal (this page edits groups, sub-groups, order and user access)',
       'attr.searchAria': 'Search dashboards', 'attr.chipsAria': 'Group filter', 'attr.statusAria': 'Status filter',
-      'attr.drQAria': 'Filter rows'
+      'attr.drQAria': 'Filter rows',
+      /* ---- User management (added 2026-09-22) ---- mirrors the zh um.* set 1:1 */
+      'um.entry': 'User Management',
+      'um.entryTip': 'Manage unified-portal accounts (shares the same user database as /uniplam/)',
+      'um.title': 'User Management',
+      'um.subtitle': 'Add, remove and configure unified-portal accounts (admin only, same DB as /uniplam/)',
+      'um.reload': 'Refresh',
+      'um.openPortal': 'Open in unified portal',
+      'um.addTitle': 'Add User',
+      'um.usernamePh': 'username (2-32 chars a-z 0-9 _.-)',
+      'um.passwordPh': 'initial password (min 8 chars)',
+      'um.roleAdmin': 'Admin',
+      'um.roleViewer': 'Viewer',
+      'um.add': 'Add',
+      'um.added': 'User created; password change required at first login',
+      'um.duplicate': 'Username already exists',
+      'um.invalidInput': 'Invalid username or password format',
+      'um.pwdTooShort': 'Password must be at least 8 characters',
+      'um.colUser': 'User',
+      'um.colRole': 'Role',
+      'um.colCreated': 'Created',
+      'um.colActions': 'Actions',
+      'um.loading': 'Loading…',
+      'um.empty': 'No accounts yet',
+      'um.self': 'You',
+      'um.reset': 'Reset password',
+      'um.resetHint': 'Set a new password for {name}',
+      'um.resetConfirm': 'Reset',
+      'um.resetOk': 'Password reset for {name}; change required at next login',
+      'um.delete': 'Delete user',
+      'um.confirmDelete': 'Delete user {name}? This cannot be undone.',
+      'um.selfDelete': 'You cannot delete yourself',
+      'um.lastAdmin': 'Cannot delete the last admin',
+      'um.pages': 'Page access',
+      'um.pagesTitle': 'Page access · {name}',
+      'um.pagesSubtitle': 'Set the landing dashboard after login and which dashboards are visible (same record as /uniplam/)',
+      'um.landing': 'Landing',
+      'um.landingNone': 'No redirect (stay on all dashboards)',
+      'um.landingNoCard': 'No specific dashboard',
+      'um.viewGrid': 'Card grid (unified portal)',
+      'um.viewList': 'List (unified portal)',
+      'um.viewMatrix': 'Group matrix (unified portal)',
+      'um.viewTasks': 'Task view (unified portal)',
+      'um.allowed': 'Visible range',
+      'um.allowedAll': 'Unrestricted (all groups and dashboards)',
+      'um.allowedCustom': 'Custom allowlist',
+      'um.groupsMsportal': 'By group · this page (/olbrportal/)',
+      'um.groupsPortal': 'By group · unified portal (/uniplam/)',
+      'um.groupsPortalNone': 'The unified portal has no saved global catalog, so business groups cannot be granted yet',
+      'um.allowedCards': 'By dashboard (shared by both)',
+      'um.cardsLocalOnly': 'The unified-portal global catalogue could not be read, so these options are locked: the dashboard ids here are derived from URLs and do not match the set /uniplam/ actually uses — saving them would leave values it cannot recognise. Please refresh and retry.',
+      'um.allowedHint': 'The dashboard allowlist uses ids shared by both portals, so it applies to /olbrportal/ and /uniplam/ at once; each group list only affects its own side, and both may be used together.',
+      'um.allowedEmpty': 'Allowlist is empty: this account will see no dashboard at all.',
+      'um.navVisibilityOnly': 'Affects portal navigation visibility only, not access control; hidden dashboards are still reachable by direct URL.',
+      'um.pagesSaved': 'Page access saved for {name}',
+      'um.pagesSave': 'Save page access',
+      'um.pagesCancel': 'Collapse',
+      'um.storage': 'Storage',
+      'um.storageSqlite': 'SQLite database',
+      'um.storageJson': 'JSON file',
+      'um.backups': '{n} auto backup(s)',
+      'um.lastWrite': 'Last write',
+      'um.migrated': 'migrated from legacy JSON',
+      'um.requestFail': 'Failed to load user data: {msg}',
+      'um.needAdmin': 'Admin role required to manage users',
+      'um.needPortalLogin': 'User management needs a unified-portal sign-in — please sign in on this page first',
+      'um.pendingTitle': 'Pending requests',
+      'um.pendingEmpty': 'No pending requests',
+      'um.colApplicant': 'Applicant',
+      'um.colNote': 'Note',
+      'um.colTime': 'Requested',
+      'um.colIp': 'Source IP',
+      'um.approve': 'Approve',
+      'um.reject': 'Reject',
+      'um.approveConfirm': 'Approve the account request from {name}?',
+      'um.rejectConfirm': 'Reject the account request from {name}?',
+      'um.approved': 'Approved {name}: the password they chose is now active, change required at first login',
+      'um.rejected': 'Rejected the account request from {name}',
+      'um.notFound': 'Request not found or already handled'
     }
   };
 
@@ -263,7 +514,11 @@
     archive: 'ph-archive', chat: 'ph-chat-circle-dots', book: 'ph-book-open-text', gear: 'ph-gear',
     dashboard: 'ph-squares-four', key: 'ph-lock-key', warning: 'ph-warning', briefcase: 'ph-briefcase',
     git: 'ph-git-pull-request', user: 'ph-user', flame: 'ph-fire', folder: 'ph-folder-open',
-    'arrow-up-right': 'ph-arrow-up-right', 'shield': 'ph-shield-check', 'globe': 'ph-globe-hemisphere-west'
+    'arrow-up-right': 'ph-arrow-up-right', 'shield': 'ph-shield-check', 'globe': 'ph-globe-hemisphere-west',
+    refresh: 'ph-arrows-clockwise',
+    /* 用户管理弹窗用的几个（MsPortal 那边是内联 svg，本页统一走 phosphor 字体图标） */
+    plus: 'ph-plus', check: 'ph-check', 'check-circle': 'ph-check-circle', trash: 'ph-trash',
+    'user-plus': 'ph-user-plus', 'user-check': 'ph-user-check', 'user-x': 'ph-user-x'
   };
   function ic(name) { return '<i class="ph ' + (PH[name] || PH.dashboard) + '" aria-hidden="true"></i>'; }
 
@@ -286,6 +541,11 @@
     { page: 'realtime_alarm', key: 'map.alarm', icon: 'bell' },
     { page: 'packet_loss', key: 'map.loss', icon: 'link' }
   ];
+  /* 页签条最右边的「报告文件」：内嵌 my_app 的任务报告文件中心（MsPortal 右列同名卡）。
+     EMAIL_TAB 不是分组 id —— 它没有 gid，不进目录、不参与筛选与计数，所以往下任何
+     一处拿到它都不能拼 viewer 链接（vlink / groupHref 只认看板的 no / 真分组）。 */
+  var EMAIL_PAGE = 'email_reports';
+  var EMAIL_TAB = '__email';
   /* 与 MsPortal 同一份剥离样式：让同源 iframe 只留 Leaflet 画布，
      否则地图外面会套着该页面自己的筛选栏 / KPI 卡 / 侧栏。 */
   var MAP_STRIP_CSS = [
@@ -320,8 +580,14 @@
     user: null, authOk: false, booted: false,
     items: (D.items || []).slice(), groups: (D.groups || []).slice(), order: {},
     qc: { loading: true, err: '', at: 0, m: {} },
+    /* 断站告警单独一档（每 5 分钟），其余五项 + 达标率一小时一档：
+       六项里只有告警的源表高频变化，用全量轮询追它等于每小时白跑十一次。 */
+    qcAlarm: null, qcFullAt: '', qcAlarmAt: '', qcTrend: {},
     escOpen: false, escLv: 'LEVEL1',
     auxOpen: {},
+    /* 检索轨（搜索 + 分组 / 状态筛选）默认收起。刻意不写 localStorage：
+       用户的预期就是「每次进来都是干净的一条」，跟筛选条件一样不跨会话。 */
+    railOpen: false,
     mapTab: ls('olbr.maptab', 'gis'),
     /* 默认落在 BO View：16 张卡、五个子分组，是这块最能说明「门户里到底有什么」的一组 */
     viewTab: ls('olbr.viewtab', 'BO View'),
@@ -335,7 +601,18 @@
     grpFor: null,                         /* 分组归属浮层当前挂在看板编号上 */
     popForm: null,                        /* 改名类浮层：{kind:'grp'|'grpadd'|'title', id} */
     dragKind: '', dragNo: null, dragGid: '', dragEl: null, dragBefore: false,
-    drill: { metric: '', title: '', q: '', page: 1, size: 25, rows: [], columns: [], total: 0, loading: false, err: '' }
+    /* ---- 用户管理弹窗（2026-09-22 加）----
+       只放界面态，账号数据一律现取现用（state.um.users 是 /uniplam/api/auth/users
+       的返回，不落本地）：同一份库有三个操作界面，缓存下来必然读到旧数据。 */
+    um: {
+      open: false, loading: false, users: [], requests: [], storage: null,
+      portalGroups: null, portalGroupLabels: null, portalDashboards: null, portalGroupsErr: false,
+      nu: '', np: '', nr: 'viewer',
+      resetId: '', resetPwd: '', approveRoles: {},
+      profileId: '', pv: '', pc: '', restricted: false, groups: [], cards: [],
+      saving: false, busy: '', error: '', success: ''
+    },
+    drill: { metric: '', q: '', page: 1, size: 50, sort: '', dir: 'desc', rows: [], columns: [], total: 0, loading: false, err: '' }
   };
 
   /* ---------------------------------------------------------- catalog -- */
@@ -551,55 +828,297 @@
       : '<b>' + all.length + '</b> ' + esc(t('rail.all')) + ' · ' + state.groups.length + ' ' + esc(state.lang === 'en' ? 'groups' : '个分组');
     $('#clearBtn').hidden = !filtering();
     $('#rail').classList.toggle('is-filtered', filtering());
+    /* 收起态唯一的一条信息出口：不写「49 全部」这种在展开区里读得通、单看一条却莫名其妙的话，
+       直接走 count.all / count.hit 两句完整文案，后面再缀上「是按什么筛的」。
+       没有这行，收起时就变成「下面的卡莫名其妙少了」—— 所以它跟清除按钮同生同灭。 */
+    var sum = $('#railSum');
+    if (sum) {
+      var bits = [];
+      if (tk.length) bits.push('「' + esc(String(state.q).trim()) + '」');
+      if (state.group !== 'all') bits.push(esc(gName(state.group)));
+      if (state.status !== 'all') bits.push(esc(state.status));
+      sum.innerHTML = (filtering() ? tf('count.hit', { n: '<b>' + hit + '</b>', t: all.length })
+        : tf('count.all', { n: '<b>' + all.length + '</b>', g: state.groups.length })) +
+        (bits.length ? ' <i class="dot">·</i> ' + bits.map(function (x) { return '<em>' + x + '</em>'; }).join(' ') : '');
+    }
+  }
+
+  /** 展开 / 收起检索轨。展开态不进 localStorage（见 state.railOpen），只负责把 DOM 和 aria 对齐。 */
+  function setRailOpen(on) {
+    state.railOpen = !!on;
+    var rail = $('#rail'), inp = $('#railIn'), btn = $('#railBtn');
+    if (!rail || !inp || !btn) return;
+    rail.classList.toggle('is-open', state.railOpen);
+    inp.hidden = !state.railOpen;
+    btn.setAttribute('aria-expanded', state.railOpen ? 'true' : 'false');
+  }
+
+  /* =============== QC 指标卡（与 MsPortal 的 Quality Control 同一套口径）===============
+     阈值 / 趋势分桶 / 两档刷新节奏照抄 MsPortal/assets/portal.js 的 2026-09-22 改版实现，
+     连文案都沿用同一份 —— 同一个数字在两个门户上给出不同的红黄判定，比样式不一致更糟。
+     ⚠️ QC_TARGETS 是**首版默认值**（依据只有实测量级 + NOC 常识），不是业务方给的目标值；
+        正式目标到位后只改这一处，并且记得同步 MsPortal 那份。 */
+  var QC_TARGETS = {
+    alarm: { dir: 'up', warn: 10, crit: 30 },
+    tt: { dir: 'up', warn: 30, crit: 80 },
+    wo: { dir: 'up', warn: 50, crit: 150 },
+    cr: { dir: 'up', warn: 100, crit: 250 },
+    pmt: { dir: 'up', warn: 1000, crit: 2000 },
+    spms: { dir: 'up', warn: 150, crit: 400 },
+    sla: { dir: 'down', warn: 90, crit: 95 }
+  };
+  /* 主卡 = 当班要立刻有人动的；次卡 = 周期性消化的积压。
+     六张等宽同排后「主/次」靠字号表达，不再各占一行分组小标题。 */
+  var QC_PRIMARY_ORDER = ['alarm', 'tt', 'wo'];
+  var QC_SECONDARY_ORDER = ['cr', 'pmt', 'spms'];
+  /* 只有这四项后端提供「新增量」趋势（cr / pmt 明确回 no_trend）：不发请求、也不画线。 */
+  var QC_TREND_METRICS = ['alarm', 'tt', 'wo', 'spms'];
+  var QC_SUB_KEY = { alarm: 'qc.sub.alarm', tt: 'qc.sub.tt', wo: 'qc.sub.wo',
+    cr: 'qc.sub.cr', pmt: 'qc.sub.pmt', spms: 'qc.sub.spms' };
+  var QC_LV_KEY = { ok: 'qc.lv.ok', warn: 'qc.lv.warn', crit: 'qc.lv.crit', na: 'qc.lv.na' };
+  /* 全量每小时 :06:30（紧跟 eflow_sync 跑完），告警每 5 分钟 :00:30（紧跟整表 replace）。 */
+  var QC_FULL_MIN = 60, QC_FULL_OFFSET = 390, QC_ALARM_MIN = 5, QC_ALARM_OFFSET = 30;
+
+  function fmt(n) { return n == null || isNaN(Number(n)) ? '—' : Number(n).toLocaleString('en-US'); }
+  /* 分级只看数值：无值 / 非数字 / 没配阈值一律 'na'，绝不当成 0、也绝不当成正常。
+     达标率必须走 dir='down'，否则 95% 这种好值会被判进最严重一档 —— 分级一旦出现
+     这种反向误报，运维就会整体忽略它。 */
+  function qcLevel(id, v) {
+    var tg = QC_TARGETS[id];
+    if (!tg || v == null || isNaN(Number(v))) return 'na';
+    var n = Number(v);
+    if (tg.dir === 'down') return n < tg.warn ? 'crit' : (n < tg.crit ? 'warn' : 'ok');
+    return n >= tg.crit ? 'crit' : (n >= tg.warn ? 'warn' : 'ok');
+  }
+  /* 告警优先用 5 分钟那一档：它比全量新，且失败时会被置成 error 态，
+     不会把一小时前的旧数字留在屏幕上冒充实时值。 */
+  function qcMetric(id) {
+    if (id === 'alarm' && state.qcAlarm) return state.qcAlarm;
+    return (state.qc.m && state.qc.m[id]) || null;
+  }
+  /* 后端 generated_at 写死 +08:00，页面时钟用浏览器本地时区：直接切字符串会出现
+     「时钟 18:07 / 更新于 02:07」，看着像 8 小时前的旧数据（MsPortal 踩过这个坑）。 */
+  function qcClock(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso || '').slice(11, 19);
+    function p(v) { return String(v).padStart(2, '0'); }
+    return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+  function qcAgo(iso) {
+    if (!iso) return '';
+    var ms = new Date(iso).getTime();
+    if (isNaN(ms)) return '';
+    var s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    if (s < 90) return t('qc.ago.now');
+    if (s < 3600) return tf('qc.ago.min', { n: Math.round(s / 60) });
+    if (s < 86400) return tf('qc.ago.hour', { n: Math.round(s / 3600) });
+    return tf('qc.ago.day', { n: Math.round(s / 86400) });
+  }
+  function qcMetricAt(id) { return id === 'alarm' ? (state.qcAlarmAt || '') : (state.qcFullAt || ''); }
+  function qcLatestStamp() {
+    var a = state.qcAlarmAt, f = state.qcFullAt;
+    if (a && f) {
+      var da = new Date(a).getTime(), df = new Date(f).getTime();
+      if (!isNaN(da) && !isNaN(df)) return da >= df ? a : f;
+    }
+    return a || f || '';
+  }
+  /* 下一格还有多少毫秒：按**墙上的钟**算，不用 interval 累加 —— interval 从进页面那刻
+     起算，:07 进页面时 :06 刚同步好的数据就要再等 59 分钟才上屏。
+     网格原点取本地当天 0 点（不是 epoch），+05:30 这类半小时时区才不会整体偏 30 分钟。 */
+  function qcNextDelay(stepMin, offsetSec, now) {
+    var n = now || new Date();
+    var step = stepMin * 60000;
+    var dayStart = new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime();
+    var target = dayStart + Math.floor((n.getTime() - dayStart) / step) * step + offsetSec * 1000;
+    if (target <= n.getTime()) target += step;
+    return target - n.getTime();
+  }
+  function qcCountdown() {
+    var left = Math.max(0, Math.round(Math.min(
+      qcNextDelay(QC_FULL_MIN, QC_FULL_OFFSET),
+      qcNextDelay(QC_ALARM_MIN, QC_ALARM_OFFSET)) / 1000));
+    function p(v) { return String(v).padStart(2, '0'); }
+    return p(Math.floor(left / 60)) + ':' + p(left % 60);
+  }
+
+  /* ---- 新增量趋势（GET /api/portal-qc/trend）：粒度和窗口由后端按指标定，前端不猜 ---- */
+  function qcTrendSeries(id) {
+    var tr = state.qcTrend && state.qcTrend[id];
+    if (!tr || !tr.points || !tr.points.length) return null;
+    var grain = tr.grain === 'day' ? 'day' : 'hour';
+    var map = {};
+    tr.points.forEach(function (p) { map[p.t] = (map[p.t] || 0) + Number(p.v || 0); });
+    var keys = Object.keys(map).sort();
+    if (keys.length < 2) return null;
+    function parseKey(k) {
+      var m = grain === 'day' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(k)
+                              : /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2})/.exec(k);
+      if (!m) return null;
+      return new Date(+m[1], +m[2] - 1, +m[3], grain === 'day' ? 0 : +m[4], 0, 0);
+    }
+    function fmtKey(d) {
+      var p = function (n) { return (n < 10 ? '0' : '') + n; };
+      var s = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+      return grain === 'day' ? s : s + ' ' + p(d.getHours()) + ':00';
+    }
+    var start = parseKey(keys[0]), end = parseKey(keys[keys.length - 1]);
+    if (!start || !end) return null;
+    /* 连续时间轴逐格推进、缺桶补 0：按点数等距排开会把「中间断了 8 小时」画成
+       「连续 8 小时」，等于在横轴上撒谎。格子数超上限时从尾部收窄窗口，
+       始终保证连续（近 30 天按小时是 720 格，上一版在这里静默降级过）。 */
+    var stepMs = grain === 'day' ? 86400000 : 3600000, MAX_SLOTS = 200;
+    if (Math.round((end - start) / stepMs) + 1 > MAX_SLOTS) {
+      start = new Date(end.getTime() - (MAX_SLOTS - 1) * stepMs);
+    }
+    if (grain === 'hour' && tr.window === 'today') {
+      /* 「今天」要铺满 00:00→23:00：凌晨那条空白本身就是要看的信息，
+         而且横轴恒为 24 格，刷新时卡片宽度才不会一会儿宽一会儿窄。 */
+      start = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 0, 0, 0);
+      end = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 0, 0);
+    } else if (grain === 'day') {
+      var span = Math.max(2, tr.days || 30) - 1, now = new Date();
+      end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      start = new Date(end.getTime() - span * 86400000);
+    }
+    var vals = [], labels = [];
+    for (var tk = start.getTime(); tk <= end.getTime(); tk += stepMs) {
+      var k = fmtKey(new Date(tk));
+      vals.push(map[k] || 0);
+      labels.push(k);
+    }
+    return { grain: grain, vals: vals, labels: labels, window: tr.window || 'days',
+      days: tr.days || null, total: vals.reduce(function (a, b) { return a + b; }, 0) };
+  }
+  /* 迷你趋势线：内联 SVG，零依赖（门户要求零 CDN、断网可用）。点 < 2 返回 ''。
+     preserveAspectRatio=none 让它随卡宽拉伸，所以刻意不画端点圆点（会被拉成椭圆）。 */
+  function qcSpark(id) {
+    var s = qcTrendSeries(id);
+    if (!s || s.vals.length < 2) return '';
+    var vals = s.vals, W = 300, H = 26, PAD = 4;
+    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    var span = (max - min) || 1, step = W / (vals.length - 1);
+    var pts = vals.map(function (n, i) {
+      return [i * step, PAD + (H - PAD * 2) * (1 - (n - min) / span)];
+    });
+    var line = pts.map(function (p, i) {
+      return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1);
+    }).join(' ');
+    return '<span class="qc-spark" aria-hidden="true"><svg viewBox="0 0 ' + W + ' ' + H +
+      '" preserveAspectRatio="none"><path class="sp-area" d="' + line + ' L' + W + ' ' + H +
+      ' L0 ' + H + ' Z"/><path class="sp-line" d="' + line +
+      '" vector-effect="non-scaling-stroke"/></svg></span>';
+  }
+  /* 三种状态要分清，否则首屏三行「趋势积累中」看着像报错：
+       有趋势且点够 → 画线 + 说明；接口通了但点不够 → 只给说明；无趋势 → 不占位。
+     说明文字带「窗口 + 每格时长」：折线是流量（新增量）、大数字是存量（积压），
+     不说清单位就没法把两者对上。 */
+  function qcSparkSlot(id) {
+    var s = qcTrendSeries(id), spark = qcSpark(id);
+    if (!spark) return s ? '<span class="qc-spark-empty">' + esc(t('qc.trend.starving')) + '</span>' : '';
+    var v = { total: fmt(s.total), unit: t(s.grain === 'day' ? 'qc.trend.days' : 'qc.trend.hours'),
+      n: s.days || s.labels.length };
+    var c = s.window === 'today' ? { k: 'qc.trend.capToday', tip: 'qc.trend.tipToday' }
+                                 : { k: 'qc.trend.cap', tip: 'qc.trend.tip' };
+    return '<span class="qc-spark-wrap" title="' + esc(tf(c.tip, v)) + '">' + spark +
+      '<span class="qc-spark-cap">' + esc(tf(c.k, v)) + '</span></span>';
+  }
+
+  function qcCardHtml(d) {
+    var m = qcMetric(d.id);
+    /* 失败分两种：整体取不到（全量都没回来）与单项失败（后端逐项容错）。
+       两种都按「不可用」呈现，绝不能留上一次的旧数字冒充实时值。 */
+    var failed = !!(m && m.error) || (!!state.qc.err && !state.qc.at);
+    var errMsg = (m && m.error) || state.qc.err || '';
+    var v = m && m.value != null ? m.value : null;
+    var lv = (failed || v == null) ? 'na' : qcLevel(d.id, v);
+    var big = QC_PRIMARY_ORDER.indexOf(d.id) !== -1;
+    var def = t(QC_SUB_KEY[d.id]) || (state.lang === 'en' ? d.subEn : d.subZh);
+    var sub;
+    if (failed) sub = t('qc.err') + (errMsg ? ': ' + errMsg : '');
+    else if (d.id === 'alarm' && m && m.sites != null) sub = fmt(m.sites) + ' ' + t('qc.sites');
+    else if (d.id === 'pmt' && m && m.overdue != null) sub = t('qc.overdue') + ' ' + fmt(m.overdue);
+    else if (d.id === 'spms' && m && m.tables) {
+      sub = t('qc.inbound') + ' ' + fmt(m.tables.inband_details || 0) +
+            ' · ' + t('qc.outbound') + ' ' + fmt(m.tables.outband_details || 0);
+    } else sub = def;
+    /* tooltip = 口径 + 阈值 + 点击提示。阈值必须写出来，否则分级是黑盒：
+       看到红色也说不出「凭什么算红」。 */
+    var tg = QC_TARGETS[d.id], tips = [def];
+    if (tg) tips.push(tf(tg.dir === 'down' ? 'qc.targetTip.down' : 'qc.targetTip.up',
+      { warn: fmt(tg.warn), crit: fmt(tg.crit) }));
+    if (!failed) tips.push(t('qc.drill'));
+    var at = qcMetricAt(d.id);
+    /* 数字没取到一律 —，绝不显示 0：统计里的 0 是「真的一个都没有」，
+       与「没取到」必须能分辨，否则会被误读成「已清空」。 */
+    return '<button type="button" class="qc-card qc-lv-' + lv + (big ? ' qc-card--lg' : ' qc-card--sm') +
+      (failed ? ' is-failed' : '') + '" data-qc="' + esc(d.id) + '" title="' + esc(tips.join('\n')) + '">' +
+      '<span class="qc-hd"><span class="qc-ico" aria-hidden="true">' + ic(d.icon) + '</span>' +
+        '<span class="qc-name">' + esc(state.lang === 'en' ? d.en : d.zh) + '</span></span>' +
+      /* 等级徽章单独一行：六张卡并排每张只有 ~240px，挤在标题行会把卡名截断。
+         颜色之外再给一枚文字徽章 —— 只靠颜色传意对色盲和黑白打印都不可读。 */
+      '<span class="qc-lvchip">' + esc(t(QC_LV_KEY[lv])) + '</span>' +
+      '<span class="qc-numrow"><span class="qc-num' + (v == null ? ' is-na' : '') + '">' +
+        esc(v == null ? '—' : fmt(v)) + '</span></span>' +
+      (big || QC_TREND_METRICS.indexOf(d.id) !== -1 ? qcSparkSlot(d.id) : '') +
+      '<span class="qc-sub" title="' + esc(sub) + '">' + esc(sub) + '</span>' +
+      (at ? '<span class="qc-age">' + esc(tf('qc.dataAt', { t: qcClock(at), ago: qcAgo(at) })) + '</span>' : '') +
+      '</button>';
   }
 
   function renderBand() {
     var box = $('#band'), q = state.qc;
-    if (q.loading) {
-      box.innerHTML = '<div class="band-l"><span class="sk" style="width:96px;height:96px;border-radius:50%"></span>' +
+    var has = q.m && Object.keys(q.m).length;
+    if (q.loading && !has) {
+      box.innerHTML = '<div class="band-h"><span class="sk" style="width:84px;height:84px;border-radius:50%"></span>' +
         '<div class="band-txt" style="flex:1"><span class="sk" style="width:52%"></span>' +
-        '<span class="sk s" style="width:72%"></span><span class="sk s" style="width:40%"></span></div></div>' +
-        '<div class="metrics">' + (D.qc || []).map(function () {
-          return '<div class="metric"><span class="sk" style="width:56%"></span><span class="sk v"></span><span class="sk s"></span></div>';
+        '<span class="sk s" style="width:72%"></span></div></div>' +
+        '<div class="qc-grid">' + (D.qc || []).map(function () {
+          return '<div class="qc-card"><span class="sk" style="width:56%"></span>' +
+            '<span class="sk v"></span><span class="sk s"></span></div>';
         }).join('') + '</div>';
       return;
     }
-    if (q.err) {
-      /* 上一版这里直接显示「—」，六个格子全是破折号，读起来像系统坏了 */
-      box.innerHTML = '<div class="band-l"><div class="band-txt"><div class="band-k">' + esc(t('qc.title')) +
-        '</div><p class="band-n" style="color:var(--crit)">' + esc(tf('qc.err', { e: q.err })) + '</p></div></div>' +
-        '<div class="metrics" style="align-content:center"><button class="gb" data-act="qc-retry">' +
+    if (!has && q.err) {
+      box.innerHTML = '<div class="band-h"><div class="band-txt"><div class="band-k">' +
+        esc(t('qc.title')) + '</div><p class="band-n" style="color:var(--crit)">' +
+        esc(t('qc.err') + (q.err ? ': ' + q.err : '')) + '</p></div>' +
+        '<button type="button" class="gb" data-act="qc-reload">' + ic('refresh') +
         esc(t('qc.retry')) + '</button></div>';
       return;
     }
-    var m = q.m, sla = m.sla || {}, defs = D.qc || [];
-    var pct = sla.value == null ? 0 : Math.max(0, Math.min(100, +sla.value));
-    var tone = function (id, v) {
-      if (id === 'alarm') return v > 0 ? 'crit' : 'ok';
-      return '';
-    };
-    var sub = function (id) {
-      var x = m[id] || {};
-      if (id === 'alarm') return (x.sites != null ? x.sites + ' ' + esc(state.lang === 'en' ? 'sites down' : '断站站点') : '');
-      if (id === 'pmt') return x.overdue != null ? (state.lang === 'en' ? 'overdue ' : '超期 ') + x.overdue : '';
-      if (id === 'spms' && x.tables) return Object.keys(x.tables).map(function (k) { return k + ' ' + x.tables[k]; }).join(' · ');
-      return '';
-    };
+    var byId = {};
+    (D.qc || []).forEach(function (d) { byId[d.id] = d; });
+    var cards = QC_PRIMARY_ORDER.concat(QC_SECONDARY_ORDER).map(function (id) {
+      return byId[id] ? qcCardHtml(byId[id]) : '';
+    }).join('');
+    var sla = qcMetric('sla') || {}, pct = sla.value == null ? 0 : Math.max(0, Math.min(100, Number(sla.value)));
+    var slaLv = sla.value == null ? 'na' : qcLevel('sla', sla.value);
+    /* 环上的百分比必须自带分母口径：不写清「近 30 天已判定 Pass 的占比」，
+       88.5% 会被读成「工单完成率」—— 而这两件事在 NOC 语境下完全不同。 */
+    var slaTip = (sla.total ? tf('qc.slaTip', { d: sla.days || 30, pass: fmt(sla.pass), total: fmt(sla.total) })
+      : (sla.error ? t('qc.err') + ': ' + sla.error : t('qc.loading'))) + '\n' +
+      tf('qc.targetTip.down', { warn: fmt(QC_TARGETS.sla.warn), crit: fmt(QC_TARGETS.sla.crit) });
+    var stamp = qcLatestStamp();
+    /* 心跳点：取不到数据时变红且不脉冲 —— 绿色脉冲 = 这块面板确实在自动刷新。
+       秒必须精确到秒：只到分钟时，轮询 + 后端 60s 缓存叠起来会出现「一分钟没变」的错觉。 */
+    var live = '<span class="qc-live" title="' +
+      esc(tf('qc.cadenceTip', { a: state.qcAlarmAt ? qcClock(state.qcAlarmAt) : '—',
+        f: state.qcFullAt ? qcClock(state.qcFullAt) : '—' })) + '">' +
+      '<span class="' + (q.err && !has ? 'qc-dot qc-dot-bad' : 'qc-dot') + '" aria-hidden="true"></span>' +
+      '<span class="qc-when">' + esc(stamp ? t('qc.updated') + ' ' + qcClock(stamp) : t('qc.loading')) + '</span>' +
+      '<span class="qc-sep">·</span><span id="qcNextIn">' + esc(tf('qc.next', { t: qcCountdown() })) + '</span></span>';
     box.innerHTML =
-      '<div class="band-l"><div class="ring" style="--v:' + pct + '"><b>' + (sla.value == null ? '—' : pct.toFixed(1) + '%') + '</b></div>' +
-      '<div class="band-txt"><div class="band-k">' + esc(t('qc.sla')) + '</div>' +
-      '<p class="band-n">' + esc(t('qc.title')) + ' · <em>' + (sla.pass || 0) + '</em> / <em>' + (sla.total || 0) + '</em></p>' +
-      '<p class="band-when">' + esc(tf('qc.when', { t: q.at ? fmtTime(q.at).slice(11) : '--:--:--' })) + '</p></div></div>' +
-      '<div class="metrics">' + defs.map(function (d) {
-        var v = m[d.id] && m[d.id].value, err = m[d.id] && m[d.id].error;
-        var tn = err ? 'err' : tone(d.id, v);
-        return '<button type="button" class="metric" data-qc="' + esc(d.id) + '" data-tone="' + tn + '" ' +
-          'title="' + esc(tf('qc.drill')) + ' · ' + esc(state.lang === 'en' ? d.subEn : d.subZh) + '">' +
-          '<span class="metric-k">' + ic(d.icon) + esc(state.lang === 'en' ? d.en : d.zh) + '</span>' +
-          '<span class="metric-v">' + (err ? esc(state.lang === 'en' ? 'n/a' : '不可用') : (v == null ? '—' : Number(v).toLocaleString('en-US'))) + '</span>' +
-          '<span class="metric-s">' + (sub(d.id) || esc(state.lang === 'en' ? d.subEn : d.subZh)) + '</span>' +
-          '<span class="metric-tick"></span></button>';
-      }).join('') + '</div>';
+      '<div class="band-h">' +
+        '<div class="ring qc-lv-' + slaLv + '" style="--v:' + pct + '" title="' + esc(slaTip) + '"><b>' +
+          (sla.value == null ? '—' : pct.toFixed(1) + '%') + '</b></div>' +
+        '<div class="band-txt"><div class="band-k">' + esc(t('qc.sla')) + '</div>' +
+          '<p class="band-n">' + esc(t('qc.title')) + ' · <em>' + (sla.pass || 0) + '</em> / <em>' +
+          (sla.total || 0) + '</em></p></div>' +
+        live +
+        '<button type="button" class="gb" data-act="qc-reload" title="' + esc(t('qc.reload')) + '">' +
+          ic('refresh') + esc(t('qc.reload')) + '</button>' +
+      '</div><div class="qc-grid">' + cards + '</div>';
   }
 
   function renderL0(keepMap) {
@@ -1399,7 +1918,10 @@
      就能把页面拖到三千多 px；页签条沿用顶部筛选 chip 的胶囊样式，但语义是 tab。
      空分组不进页签（没有可看内容的页签只是噪声），全空才出「无匹配」占位。
      BO 这类配了子分组的分组，面板里再叠一行轻量子页签把 16 张卡切小 ——
-     默认仍是「全部」，子页签只是定位器，不拿它藏内容。 */
+     默认仍是「全部」，子页签只是定位器，不拿它藏内容。
+     最右边固定一颗「报告文件」页签（2026-09-22 加）：内嵌 my_app 的
+     /myapp/?page=email_reports，与 MsPortal 右列那张 Task Report Files 卡同一内容。
+     它不是分组，所以不吃搜索 / 状态筛选、也没有条数可报。 */
   function renderViews() {
     var box = $('#views');
     var tabs = tabGids().map(function (gid) { return { id: gid, label: gName(gid), list: filtered(gid) }; });
@@ -1415,37 +1937,170 @@
     tabs = tabs.filter(function (x) {
       return x.list.length || (state.editing && x.id !== OTHER && !isBuiltinGroup(x.id));
     });
+    if (emailItem()) tabs.push({ id: EMAIL_TAB, label: t('email.tab'), email: true });
+    var gtabs = tabs.filter(function (x) { return !x.email; });
     if (!tabs.length) {
       box.innerHTML = '<div class="panel empty"><b>' + esc(t('v.emptyFilter')) + '</b> — ' + esc(t('v.adjust')) + '</div>';
+      emailLang = null;                 /* 骨架跟着 .view-1 一起没了，回来时要重建 */
       return;
     }
-    var cur = tabs.some(function (x) { return x.id === state.viewTab; }) ? state.viewTab : tabs[0].id;
-    state.viewTab = cur; ss('olbr.viewtab', cur);
-    var act = tabs.filter(function (x) { return x.id === cur; })[0];
-    /* 「其他看板」不是数据里真实存在的分组名，往下传会拼出 gid=__other 的死链接，
-       传空串让 vlink 回退到条目自己的主分组。 */
-    var gid = cur === OTHER ? '' : cur;
-    var list = act.list, subRow = '';
-    if (gid) {
-      var sub = (canEdit() ? subManageHtml : subLocatorHtml)(gid, act.list, list);
-      subRow = sub.html; list = sub.list;
-    }
-    if (!subRow) state.viewSub = '';
-    var head = cur === OTHER
-      ? '<div class="p-head"><span class="p-hd"><span class="p-t">' + esc(act.label) + '</span></span>' +
-        '<span class="cnt">' + list.length + '</span></div>'
-      : panelHead(cur, '', list.length);
-    box.innerHTML =
-      '<div class="view-1"><div class="tabs-v" role="tablist">' + tabs.map(function (x) {
-        return '<button type="button" class="tabv" role="tab" data-view="' + esc(x.id) +
-          '" aria-selected="' + (x.id === cur ? 'true' : 'false') + '">' + esc(x.label) +
-          '<small>' + x.list.length + '</small></button>';
-      }).join('') + '</div>' +
-      '<section class="panel" data-tier="1" data-gid="' + esc(gid) + '" aria-label="' + esc(act.label) + '">' +
-      head + subRow + '<div class="cards">' + (list.length
+    viewsShell();
+    var hasEmail = !!emailItem();
+    var cur = state.viewTab === EMAIL_TAB && hasEmail ? EMAIL_TAB
+      : gtabs.filter(function (x) { return x.id === state.viewTab; })[0] ? state.viewTab
+        : (gtabs.length ? gtabs[0].id : EMAIL_TAB);
+    /* 兜底到「报告文件」的那一次不写回：分组全被筛掉不代表用户想离开 BO View，
+       存下去等他清掉关键词，位置就真没了。 */
+    if (cur !== EMAIL_TAB || state.viewTab === EMAIL_TAB) { state.viewTab = cur; ss('olbr.viewtab', cur); }
+    var onEmail = cur === EMAIL_TAB;
+    $('#vTabs').innerHTML = tabs.map(function (x) {
+      return '<button type="button" class="tabv" role="tab" data-view="' + esc(x.id) +
+        '" aria-selected="' + (x.id === cur ? 'true' : 'false') + '">' + esc(x.label) +
+        (x.email ? '' : '<small>' + x.list.length + '</small>') + '</button>';
+    }).join('');
+    var gPanel = $('#vGroup'), ePanel = $('#vEmail');
+    var act = gtabs.filter(function (x) { return x.id === cur; })[0] || gtabs[0] || null;
+    if (act) {
+      /* 「其他看板」不是数据里真实存在的分组名，往下传会拼出 gid=__other 的死链接，
+         传空串让 vlink 回退到条目自己的主分组。 */
+      var gid = act.id === OTHER ? '' : act.id;
+      var list = act.list, subRow = '';
+      if (gid) {
+        var sub = (canEdit() ? subManageHtml : subLocatorHtml)(gid, act.list, list);
+        subRow = sub.html; list = sub.list;
+      }
+      if (!subRow) state.viewSub = '';
+      var head = act.id === OTHER
+        ? '<div class="p-head"><span class="p-hd"><span class="p-t">' + esc(act.label) + '</span></span>' +
+          '<span class="cnt">' + list.length + '</span></div>'
+        : panelHead(act.id, '', list.length);
+      /* 停在报告文件页签时这份内容照画、只把整块藏起来：切回来立刻就是最新的，
+         不用等一次重渲染（而 .view-1 只有两行，谁在上面由 hidden 说了算）。 */
+      gPanel.hidden = onEmail;
+      gPanel.setAttribute('data-gid', esc(gid));
+      gPanel.setAttribute('aria-label', esc(act.label));
+      gPanel.innerHTML = head + subRow + '<div class="cards">' + (list.length
         ? list.map(function (it) { return itemCard(it, gid); }).join('')
         : '<div class="empty"><b>' + esc(t('v.empty')) + '</b></div>') +
-      '</div></section></div>';
+        '</div>';
+    } else {
+      gPanel.hidden = onEmail;
+      gPanel.removeAttribute('data-gid');
+      gPanel.innerHTML = '<div class="empty"><b>' + esc(t('v.emptyFilter')) + '</b> — ' + esc(t('v.adjust')) + '</div>';
+    }
+    ePanel.hidden = !onEmail;
+    if (onEmail) renderEmailSection();
+  }
+
+  /* ---------------------------------------------------- 报告文件内嵌页签 --
+     四条规矩从 MsPortal 的同名卡照搬（那边实测踩出来的，换门户不换个道理）：
+       ① 未登录不建 iframe —— 否则内层会渲染 my_app 自己的英文报错登录页，
+          比这块空着更难看（本页通常整块被 #gate 盖住，这里只是兜住边界情况）；
+       ② 只有 canSee(那块看板) 才加载，与目录 / 搜索同一套权限口径；
+       ③ 主题：my_app 只在启动时读一次 localStorage['myapp-theme']（theme.ts 的
+          detectMode，没有父窗口消息通道），所以切主题必须「先写键、再重设 src」；
+       ④ 骨架只在「首次 / 切语言 / 被门禁清空」时重建 —— 搜索框每敲一个字都会走
+          render()，跟着重建就等于每敲一个字重下一遍整页。
+     第 ④ 条在本页还多一层：#vEmail 整棵子树从建立起就不再 innerHTML，
+     iframe 一旦离开文档 Chrome 就直接丢弃它的内容文档（见 renderL0 里地图那段同样的
+     结论），所以切页签只动 hidden，不动内容。 */
+  var emailLang = null;      /* 报告文件骨架上次渲染时用的语言 */
+
+  /* 这条看板在**服务端全局目录里没有**（实测：服务端 49 条、内置 51 条，缺的 17 条里
+     就有 no=41 Task Report Files —— MsPortal 那张卡同样读不到，才要靠它自己的兜底文案）。
+     所以查归属时把内置那份接在后面一起找：查得到才谈权限，查不到不等于「这块不存在」，
+     这一页签本来就是本页固定功能，不是目录条目渲染出来的。 */
+  function emailItem() {
+    var pool = ITEMS.concat(D.items || []);
+    return pool.filter(function (x) { return String(x.url || '').indexOf('page=' + EMAIL_PAGE) !== -1; })[0] || null;
+  }
+  function emailAllowed() { var it = emailItem(); return !!it && canSee(it); }
+  /* 相对路径：门户从 localhost 还是局域网 IP 打开都自适应（与地图同一考虑）。
+     深链自身就是 bare 模式（自己的侧栏 / Header 都隐藏），不用地图那套 MAP_STRIP_CSS。 */
+  function emailSrc() { return '/myapp/?page=' + EMAIL_PAGE; }
+
+  function emailSectionHtml() {
+    return '<div class="p-head"><span class="p-hd"><span class="p-t">' + esc(t('email.title')) + '</span>' +
+      '<span class="p-s">' + esc(t('email.sub')) + '</span></span>' +
+      '<button type="button" class="gb gb--t" data-act="email-reload" title="' + esc(t('map.reload')) + '">' +
+      '<i class="ph ph-arrow-clockwise" aria-hidden="true"></i><span>' + esc(t('map.reload')) + '</span></button>' +
+      '<a class="gb gb--t" id="emailOpen" href="' + esc(emailSrc()) + '" target="_blank" rel="noopener noreferrer"' +
+      ' title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out" aria-hidden="true"></i><span>' +
+      esc(t('map.open')) + '</span></a></div>' +
+      '<div class="canvas" id="emailHost">' +
+      '<div class="embed-boot" id="emailBoot"><i class="embed-ring" aria-hidden="true"></i>' +
+      '<span>' + esc(t('map.load')) + '</span></div></div>';
+  }
+
+  function emailNote(msg) {
+    var host = $('#emailHost'); if (!host) return;
+    var el = $('#emailNote');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'emailNote'; el.className = 'embed-boot';
+      host.appendChild(el);
+    }
+    el.innerHTML = '<i class="ph ph-shield-warning" aria-hidden="true"></i><span>' + esc(msg) + '</span>';
+    var boot = $('#emailBoot'); if (boot) boot.hidden = true;
+  }
+  function clearEmailNote() {
+    var el = $('#emailNote');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+  function syncEmailBoot() {
+    var boot = $('#emailBoot'); if (!boot) return;
+    var f = $('#emailFrame');
+    boot.hidden = !!(f && f.getAttribute('src') && f.dataset.loaded === '1');
+  }
+
+  function ensureEmail() {
+    var host = $('#emailHost'); if (!host) return;
+    if (!state.authOk) { emailNote(t('email.needLogin')); return; }
+    if (!emailAllowed()) { emailNote(t('email.noAccess')); return; }
+    clearEmailNote();
+
+    var f = $('#emailFrame');
+    if (!f) {
+      f = document.createElement('iframe');
+      f.id = 'emailFrame';
+      f.setAttribute('title', t('email.title'));
+      // 没设 src 的 iframe 也会先 load 一次 about:blank，所以判据必须是「有没有 src」
+      f.addEventListener('load', function () {
+        if (!f.getAttribute('src')) return;
+        f.dataset.loaded = '1';
+        syncEmailBoot();
+      });
+      host.appendChild(f);
+    }
+    var want = state.theme === 'dark' ? 'dark' : 'light';
+    if (!f.getAttribute('src') || f.dataset.theme !== want) {
+      if (ls('myapp-theme', '') !== want) ss('myapp-theme', want);   // ⚠️ 必须在设 src 之前
+      f.dataset.theme = want;
+      delete f.dataset.loaded;
+      f.setAttribute('src', emailSrc());
+    }
+    var open = $('#emailOpen'); if (open) open.href = emailSrc();
+    syncEmailBoot();
+  }
+
+  function renderEmailSection() {
+    var el = $('#vEmail'); if (!el) return;
+    if (emailLang !== state.lang || !el.querySelector('#emailHost')) {
+      el.innerHTML = emailSectionHtml();
+      emailLang = state.lang;
+    }
+    ensureEmail();
+  }
+
+  /* .view-1 建好就一直留着：#vTabs / #vGroup 每次换内容，#vEmail 只切显隐（见上面第 ④ 条） */
+  function viewsShell() {
+    var box = $('#views');
+    if (box.querySelector('.view-1')) return;
+    box.innerHTML = '<div class="view-1">' +
+      '<div class="tabs-v" id="vTabs" role="tablist"></div>' +
+      '<section class="panel" id="vGroup" data-tier="1"></section>' +
+      '<section class="panel" id="vEmail" data-tier="1" aria-label="' + esc(t('email.title')) + '" hidden></section>' +
+      '</div>';
   }
 
   /* 辅助区分组标题：默认只露 AUX_ROWS 行，多出来的靠「展开 / 收起」按钮。
@@ -1550,6 +2205,11 @@
     var n = u && (u.username || u.id || u.name);
     if (b) { b.hidden = !n; b.textContent = n || ''; }
     if (o) o.hidden = !state.authOk;
+    /* 用户管理入口只对「真门户管理员」开：role 判定照 uniplam/MsPortal 两处，
+       还要有 id —— 本机回环下 my_app 给的占位身份也是 admin，但调不动门户接口，
+       与其点了弹一句「请先登录」，不如干脆不显示。 */
+    var m = $('#umBtn');
+    if (m) m.hidden = !(u && u.role === 'admin' && u.id);
   }
   function renderGate() {
     var box = $('#gate');
@@ -1596,6 +2256,661 @@
     state.user = null; state.authOk = false; renderGate(); renderWho();
   }
 
+  /* =============================================================== 用户管理 -- */
+  /* 目标：让 http://localhost/olbrportal/ 与 http://localhost/uniplam/ 一样能管账号。
+     天然同库，不是「同步」：本页没有自己的用户表，所有读写都打到
+     /uniplam/api/auth/* —— 那是 server/auth.ts 挂在门户 vite 服务上的同一组接口，
+     落盘 <项目根>/auth-data/portal-auth.db。所以在这一页建/删/改权限，
+     /uniplam/ 与 /MsPortal/ 刷新即可见。功能与 src/components/UserManagementModal.tsx
+     逐条对齐（存储位置 / 待审批 / 新增 / 删除 / 重置密码 / 页面配置）。
+
+     ⚠️ 两个容易写错的语义，都是照 MsPortal 那一份移植过来的：
+       · allowedGroups 是「分组规范名/ id」数组，而三边的分组体系不同 —— 所以面板给
+         两组 chips（本页分组 + 统一门户业务分组），同写进一个 allowedGroups。
+         只提供本侧一组，保存就会把对方设的白名单整条覆盖掉。
+       · landing 是整对象替换，必须 view + cardId 一起回填一起提交，否则落地视图被清。
+     与 MsPortal 唯一有意的差别：文案里「本页」指 /olbrportal/，白名单空了会立刻
+     体现在本页自己的卡片流上（同一份 access.js），所以保存自己时顺手走 renderCatalog()。 */
+  var UM_API = '/uniplam/api/auth';
+
+  function umCall(path, init) {
+    var headers = { Accept: 'application/json' };
+    var token = tok();
+    if (token) headers.Authorization = 'Bearer ' + token;
+    var opts = { method: (init && init.method) || 'GET', credentials: 'same-origin', headers: headers };
+    if (init && init.body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(init.body);
+    }
+    return fetch(UM_API + path, opts).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (data) {
+        if (r.status === 401) umDropSession();
+        return { ok: r.ok, status: r.status, data: data || {} };
+      });
+    });
+  }
+
+  /* 会话过期：清本地 token 回到登录门禁（与 uniplam 的 apiFetch 一致）。
+     弹窗必须一起关掉 —— 留着一个调不动接口的空壳，只会让人以为是自己点错了。 */
+  function umDropSession() {
+    try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    state.user = null; state.authOk = false;
+    closeUserMgmt();
+    renderGate(); renderWho();
+  }
+
+  /** 服务端错误文案 → 当前语言的可读提示（认不出的原因原样透出，便于排查） */
+  function umErrorText(status, detail) {
+    var d = String(detail || '');
+    if (d === 'cannot delete yourself') return t('um.selfDelete');
+    if (d === 'cannot delete the last admin') return t('um.lastAdmin');
+    if (status === 409) return t('um.duplicate');
+    if (d === 'admin role required') return t('um.needAdmin');
+    if (d === 'request not found, already handled, or username taken') return t('um.notFound');
+    if (d === 'request not found or already handled') return t('um.notFound');
+    if (d.indexOf('password must be at least') === 0) return t('um.pwdTooShort');
+    if (d.indexOf('username must be') === 0) return t('um.invalidInput');
+    if (status === 400) return t('um.invalidInput');
+    return d || ('HTTP ' + status);
+  }
+
+  function umSet(patch) {
+    Object.keys(patch).forEach(function (k) { state.um[k] = patch[k]; });
+    renderUserMgmt();
+  }
+
+  /** 顶部提示条：成功 3 秒后自动消失，失败一直留着（用户要看清原因） */
+  function umFlash(kind, msg) {
+    var patch = { success: kind === 'ok' ? msg : '', error: kind === 'err' ? msg : '' };
+    umSet(patch);
+    if (kind === 'ok') {
+      clearTimeout(umFlash._t);
+      umFlash._t = setTimeout(function () {
+        if (state.um.success === msg) umSet({ success: '' });
+      }, 3000);
+    }
+  }
+
+  /** 本页的视图分组清单：value = 分组 id（如 'BO View'），标签跟着语言走 */
+  function umMsGroups() {
+    return state.groups.map(function (g) { return { id: g.id, label: gName(g.id) }; });
+  }
+
+  /** 统一门户的业务分组：来自 GET /uniplam/api/portal-default 的 groups。
+      拿不到时返回 null，面板给出说明而不是画空列表。 */
+  function umPortalGroups() {
+    var g = state.um.portalGroups;
+    if (!Array.isArray(g) || !g.length) return null;
+    return g.map(function (name) { return { id: String(name), label: String(name) }; });
+  }
+
+  function umPortalGroupLabel(cat) {
+    var map = state.um.portalGroupLabels;
+    if (map && typeof map === 'object' && map[cat]) return String(map[cat]);
+    return String(cat || '');
+  }
+
+  /** 跨门户共用的看板 id（access.js 的映射表）；ACC 只剩兜底 stub 时退回按编号推导 */
+  function accId(it) {
+    return typeof ACC.dashboardAccessId === 'function' ? ACC.dashboardAccessId(it) : ('ms-item-' + (it && it.no));
+  }
+
+  /** 「按看板」候选项是否来自统一门户的全局目录。
+      只有这一份的 id 是 DashboardItem.id —— allowedCards 存的就是它。
+      读不到时退化成按映射表推导的 id，此时面板会锁住候选项并给出说明：
+      在这种状态下保存会往共用字段里写对方认不出的值。 */
+  function umCardsAreShared() {
+    return !!(state.um.portalDashboards && state.um.portalDashboards.length);
+  }
+
+  function umCards() {
+    var shared = state.um.portalDashboards;
+    if (Array.isArray(shared) && shared.length) {
+      return shared.map(function (d) {
+        return { id: String(d.id), label: String(d.title || d.id), group: umPortalGroupLabel(d.category) };
+      });
+    }
+    return ITEMS.map(function (it) {
+      return { id: accId(it), label: titleOf(it), group: gName((it.groups || [])[0]) };
+    });
+  }
+
+  /** 拉齐弹窗要用的四份数据。任一项失败都不影响其余项展示。 */
+  function loadUserMgmt() {
+    state.um.loading = true;
+    state.um.error = '';
+    renderUserMgmt();
+
+    var jobs = [
+      umCall('/users').then(function (r) {
+        if (!r.ok) {
+          state.um.error = tf('um.requestFail', { msg: umErrorText(r.status, r.data && r.data.detail) });
+          return;
+        }
+        state.um.users = Array.isArray(r.data.users) ? r.data.users : [];
+      }),
+      umCall('/register-requests').then(function (r) {
+        if (r.ok && Array.isArray(r.data.requests)) state.um.requests = r.data.requests;
+      }),
+      umCall('/storage').then(function (r) {
+        if (r.ok && r.data.storage) state.um.storage = r.data.storage;
+      }),
+      fetch('/uniplam/api/portal-default', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          state.um.portalGroups = d && Array.isArray(d.groups) ? d.groups : null;
+          state.um.portalGroupLabels = d && d.groupLabels && typeof d.groupLabels === 'object' ? d.groupLabels : null;
+          state.um.portalDashboards = d && Array.isArray(d.dashboards) ? d.dashboards : null;
+          state.um.portalGroupsErr = !(d && Array.isArray(d.groups) && d.groups.length);
+        })
+        .catch(function () {
+          state.um.portalGroups = null;
+          state.um.portalGroupLabels = null;
+          state.um.portalDashboards = null;
+          state.um.portalGroupsErr = true;
+        })
+    ];
+
+    return Promise.all(jobs).then(function () {
+      state.um.loading = false;
+      renderUserMgmt();
+    });
+  }
+
+  function openUserMgmt() {
+    var mask = $('#umMask');
+    if (!mask) return;
+    var user = state.user;
+    if (!user || user.role !== 'admin') { toast(t('um.needAdmin')); return; }
+    /* 没有 id = 这是 my_app 的占位身份（本机 local / 免登录 dev-admin），不是门户账号；
+       门户的用户接口只认门户会话，先去登录再回来。 */
+    if (!user.id) { toast(t('um.needPortalLogin')); return; }
+    state.um.open = true;
+    /* 每次打开都清掉上一轮的草稿与提示，避免「上次没保存的勾选」被当成现状 */
+    state.um.error = ''; state.um.success = '';
+    state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer';
+    state.um.resetId = ''; state.um.resetPwd = '';
+    state.um.approveRoles = {};
+    state.um.profileId = '';
+    state.um.saving = false;
+    state.um.busy = '';
+    mask.hidden = false;
+    loadUserMgmt();
+  }
+
+  function closeUserMgmt() {
+    var mask = $('#umMask');
+    if (mask) mask.hidden = true;
+    state.um.open = false;
+  }
+
+  /** 页面配置面板：用服务端返回的账号数据回填（含 view，避免保存时把落地视图清掉） */
+  function umOpenProfile(u) {
+    var landing = u.landing || {};
+    state.um.profileId = u.id;
+    state.um.pv = landing.view || '';
+    state.um.pc = landing.cardId || '';
+    state.um.restricted = u.allowedGroups != null || u.allowedCards != null;
+    state.um.groups = Array.isArray(u.allowedGroups) ? u.allowedGroups.slice() : [];
+    state.um.cards = Array.isArray(u.allowedCards) ? u.allowedCards.slice() : [];
+    state.um.error = '';
+    state.um.success = '';
+    renderUserMgmt();
+    var el = $('[data-um="landing-view"]');
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+  }
+
+  function umToggle(list, value) {
+    var next = list.slice();
+    var i = next.indexOf(value);
+    if (i === -1) next.push(value); else next.splice(i, 1);
+    return next;
+  }
+
+  function umHasProfile(u) {
+    return !!u.landing || u.allowedGroups != null || u.allowedCards != null;
+  }
+
+  var UM_VIEWS = ['grid', 'list', 'matrix', 'tasks'];
+  function umViewLabel(v) {
+    return { grid: t('um.viewGrid'), list: t('um.viewList'), matrix: t('um.viewMatrix'), tasks: t('um.viewTasks') }[v] || v;
+  }
+
+  /* ------------------------------------------------------ 用户管理：渲染 -- */
+
+  function umStorageHtml() {
+    var st = state.um.storage;
+    if (!st) return '';
+    var bits = [
+      '<span class="um-tag">' + esc(st.backend === 'sqlite' ? t('um.storageSqlite') : t('um.storageJson')) + '</span>',
+      '<span>' + esc(tf('um.backups', { n: (st.backups || []).length })) + '</span>'
+    ];
+    if (st.lastWriteAt) {
+      bits.push('<span>' + esc(t('um.lastWrite')) + ' ' +
+        esc(String(st.lastWriteAt).slice(0, 19).replace('T', ' ')) + '</span>');
+    }
+    if (st.migratedFromJson) bits.push('<span class="um-warn">' + esc(t('um.migrated')) + '</span>');
+    return '<div class="um-storage">' + ic('table') +
+      '<div class="um-storage-txt">' +
+        '<div class="um-storage-row"><b>' + esc(t('um.storage')) + '</b>' + bits.join('') + '</div>' +
+        '<div class="um-mono" title="' + esc(st.location) + '">' + esc(st.location) + '</div>' +
+      '</div></div>';
+  }
+
+  function umRequestsHtml() {
+    var list = state.um.requests || [];
+    var rows = list.length
+      ? list.map(function (r) {
+          var role = state.um.approveRoles[r.id] || 'viewer';
+          return '<tr>' +
+            '<td class="um-strong">' + esc(r.username) + '</td>' +
+            '<td class="um-dim um-ellipsis" title="' + esc(r.note || '') + '">' + esc(r.note || '—') + '</td>' +
+            '<td class="um-dim um-mono">' + esc(String(r.createdAt || '').slice(0, 19).replace('T', ' ')) + '</td>' +
+            '<td class="um-dim um-mono">' + esc(r.ip || '') + '</td>' +
+            '<td class="um-right"><span class="um-row-actions">' +
+              '<select data-um="approve-role" data-id="' + esc(r.id) + '" aria-label="' + esc(t('um.colRole')) + '">' +
+                '<option value="viewer"' + (role === 'viewer' ? ' selected' : '') + '>' + esc(t('um.roleViewer')) + '</option>' +
+                '<option value="admin"' + (role === 'admin' ? ' selected' : '') + '>' + esc(t('um.roleAdmin')) + '</option>' +
+              '</select>' +
+              '<button type="button" class="gb um-primary" data-um="approve" data-id="' + esc(r.id) + '"' +
+                (state.um.busy === 'decide' ? ' disabled' : '') + '>' + ic('user-check') + esc(t('um.approve')) + '</button>' +
+              '<button type="button" class="gb um-danger" data-um="reject" data-id="' + esc(r.id) + '"' +
+                (state.um.busy === 'decide' ? ' disabled' : '') + '>' + ic('user-x') + esc(t('um.reject')) + '</button>' +
+            '</span></td></tr>';
+        }).join('')
+      : '<tr><td colspan="5" class="um-empty">' + esc(t('um.pendingEmpty')) + '</td></tr>';
+
+    return '<div class="um-box um-box-warn">' +
+      '<div class="um-box-head">' + ic('clock') + '<span>' + esc(t('um.pendingTitle')) + '</span>' +
+        (list.length ? '<span class="um-pill">' + list.length + '</span>' : '') +
+      '</div>' +
+      '<div class="um-scroll"><table class="um-table">' +
+        '<thead><tr>' +
+          '<th>' + esc(t('um.colApplicant')) + '</th>' +
+          '<th>' + esc(t('um.colNote')) + '</th>' +
+          '<th>' + esc(t('um.colTime')) + '</th>' +
+          '<th>' + esc(t('um.colIp')) + '</th>' +
+          '<th class="um-right">' + esc(t('um.colActions')) + '</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody>' +
+      '</table></div></div>';
+  }
+
+  function umAddFormHtml() {
+    var busy = state.um.busy === 'add';
+    return '<form class="um-box um-add" id="umAddForm">' +
+      '<div class="um-box-head">' + ic('user-plus') + '<span>' + esc(t('um.addTitle')) + '</span></div>' +
+      '<div class="um-add-row">' +
+        '<input type="text" id="umNewUser" autocomplete="off" placeholder="' + esc(t('um.usernamePh')) + '" value="' + esc(state.um.nu) + '">' +
+        '<input type="password" id="umNewPass" autocomplete="new-password" placeholder="' + esc(t('um.passwordPh')) + '" value="' + esc(state.um.np) + '">' +
+        '<select id="umNewRole">' +
+          '<option value="viewer"' + (state.um.nr === 'viewer' ? ' selected' : '') + '>' + esc(t('um.roleViewer')) + '</option>' +
+          '<option value="admin"' + (state.um.nr === 'admin' ? ' selected' : '') + '>' + esc(t('um.roleAdmin')) + '</option>' +
+        '</select>' +
+        '<button type="submit" class="gb um-primary" id="umAddBtn"' +
+          (busy ? ' disabled' : '') + '>' + ic('plus') + esc(t('um.add')) + '</button>' +
+      '</div></form>';
+  }
+
+  function umProfileHtml(u) {
+    var msGroups = umMsGroups();
+    var portalGroups = umPortalGroups();
+    var cards = umCards();
+
+    function chips(kind, list, locked) {
+      return list.map(function (g) {
+        var on = state.um[kind].indexOf(g.id) !== -1;
+        return '<button type="button" class="um-chip' + (on ? ' is-on' : '') + '"' +
+          (locked ? ' disabled aria-disabled="true"' : '') +
+          ' aria-pressed="' + (on ? 'true' : 'false') + '"' +
+          ' data-um="' + (kind === 'groups' ? 'group' : 'card') + '" data-val="' + esc(g.id) + '">' +
+          esc(g.label) + '</button>';
+      }).join('');
+    }
+
+    var landingCards = '<option value="">' + esc(t('um.landingNoCard')) + '</option>' +
+      cards.map(function (c) {
+        return '<option value="' + esc(c.id) + '"' + (state.um.pc === c.id ? ' selected' : '') + '>' +
+          esc(c.group) + ' · ' + esc(c.label) + '</option>';
+      }).join('');
+
+    return '<tr class="um-profile-row"><td colspan="4">' +
+      '<div class="um-profile">' +
+        '<div class="um-profile-head">' + ic('dashboard') +
+          '<b>' + esc(tf('um.pagesTitle', { name: u.username })) + '</b>' +
+          '<span class="um-dim">' + esc(t('um.pagesSubtitle')) + '</span></div>' +
+
+        '<div class="um-field">' +
+          '<span class="um-label">' + esc(t('um.landing')) + '</span>' +
+          '<select data-um="landing-view" aria-label="' + esc(t('um.landing')) + '">' +
+            '<option value="">' + esc(t('um.landingNone')) + '</option>' +
+            UM_VIEWS.map(function (v) {
+              return '<option value="' + v + '"' + (state.um.pv === v ? ' selected' : '') + '>' + esc(umViewLabel(v)) + '</option>';
+            }).join('') +
+          '</select>' +
+          '<select data-um="landing-card" aria-label="' + esc(t('um.landingNoCard')) + '">' + landingCards + '</select>' +
+        '</div>' +
+
+        '<div class="um-field um-field-col">' +
+          '<label class="um-check">' +
+            '<input type="checkbox" data-um="restricted"' + (state.um.restricted ? ' checked' : '') + '>' +
+            '<span>' + esc(state.um.restricted ? t('um.allowedCustom') : t('um.allowedAll')) + '</span>' +
+          '</label>' +
+        '</div>' +
+
+        (state.um.restricted ?
+          '<div class="um-groups">' +
+            '<div class="um-group-block">' +
+              '<p class="um-label">' + esc(t('um.groupsMsportal')) + '（' + state.um.groups.filter(function (g) {
+                return msGroups.some(function (x) { return x.id === g; });
+              }).length + '/' + msGroups.length + '）</p>' +
+              '<div class="um-chips">' + chips('groups', msGroups) + '</div>' +
+            '</div>' +
+            '<div class="um-group-block">' +
+              '<p class="um-label">' + esc(t('um.groupsPortal')) + (portalGroups ?
+                '（' + state.um.groups.filter(function (g) {
+                  return portalGroups.some(function (x) { return x.id === g; });
+                }).length + '/' + portalGroups.length + '）' : '') + '</p>' +
+              (portalGroups
+                ? '<div class="um-chips">' + chips('groups', portalGroups) + '</div>'
+                : '<p class="um-dim">' + esc(t('um.groupsPortalNone')) + '</p>') +
+            '</div>' +
+            '<div class="um-group-block">' +
+              '<p class="um-label">' + esc(t('um.allowedCards')) + '（' + state.um.cards.length + '/' + cards.length + '）</p>' +
+              '<div class="um-chips">' + chips('cards', cards, !umCardsAreShared()) + '</div>' +
+              (umCardsAreShared() ? '' : '<p class="um-warn">' + ic('warning') + esc(t('um.cardsLocalOnly')) + '</p>') +
+            '</div>' +
+            (state.um.groups.length === 0 && state.um.cards.length === 0
+              ? '<p class="um-warn">' + ic('warning') + esc(t('um.allowedEmpty')) + '</p>' : '') +
+          '</div>' : '') +
+
+        '<p class="um-dim um-hint">' + esc(t('um.allowedHint')) + ' ' + esc(t('um.navVisibilityOnly')) + '</p>' +
+      '</div></td></tr>';
+  }
+
+  /* 账号表。两张表（待审批 / 账号）tr 结构相似，排查时需要一个明确锚点区分，
+     所以外层带 data-um="users-table"。 */
+  function umUsersHtml() {
+    var u = state.um;
+    if (u.loading && !u.users.length) {
+      return '<div class="um-box" data-um="users-table"><div class="um-empty">' + esc(t('um.loading')) + '</div></div>';
+    }
+    var admins = u.users.filter(function (x) { return x.role === 'admin'; }).length;
+    var me = state.user;
+
+    var rows = u.users.map(function (x) {
+      var isSelf = !!me && me.id === x.id;
+      var lastAdmin = x.role === 'admin' && admins <= 1;
+      var blocked = isSelf || lastAdmin;
+      var open = u.profileId === x.id;
+      var out = '<tr' + (open ? ' class="is-open"' : '') + '>' +
+        '<td class="um-strong">' + esc(x.username) +
+          (isSelf ? '<span class="um-self">' + esc(t('um.self')) + '</span>' : '') + '</td>' +
+        '<td><span class="um-role' + (x.role === 'admin' ? ' is-admin' : '') + '">' +
+          (x.role === 'admin' ? ic('shield') : '') +
+          esc(x.role === 'admin' ? t('um.roleAdmin') : t('um.roleViewer')) + '</span></td>' +
+        '<td class="um-dim um-mono">' + esc(String(x.createdAt || '').slice(0, 19).replace('T', ' ')) + '</td>' +
+        '<td class="um-right"><span class="um-row-actions">' +
+          '<button type="button" class="um-icon-btn' + (umHasProfile(x) ? ' is-on' : '') + '" data-um="profile" data-id="' + esc(x.id) + '"' +
+            ' title="' + esc(t('um.pages')) + '" aria-label="' + esc(t('um.pages')) + '">' + ic('dashboard') + '</button>' +
+          '<button type="button" class="um-icon-btn" data-um="reset" data-id="' + esc(x.id) + '"' +
+            ' title="' + esc(t('um.reset')) + '" aria-label="' + esc(t('um.reset')) + '">' + ic('key') + '</button>' +
+          '<button type="button" class="um-icon-btn is-danger" data-um="delete" data-id="' + esc(x.id) + '"' +
+            (blocked ? ' disabled' : '') +
+            ' title="' + esc(blocked ? (isSelf ? t('um.selfDelete') : t('um.lastAdmin')) : t('um.delete')) + '"' +
+            ' aria-label="' + esc(t('um.delete')) + '">' + ic('trash') + '</button>' +
+        '</span></td></tr>';
+
+      if (u.resetId === x.id) {
+        out += '<tr class="um-inline-row"><td colspan="4"><div class="um-inline">' +
+          '<span class="um-dim">' + esc(tf('um.resetHint', { name: x.username })) + '</span>' +
+          '<input type="password" data-um="reset-pwd" autocomplete="new-password" placeholder="' +
+            esc(t('um.passwordPh')) + '" value="' + esc(u.resetPwd) + '">' +
+          '<button type="button" class="gb um-primary" data-um="reset-confirm" data-id="' + esc(x.id) + '"' +
+            (u.busy === 'reset' || !u.resetPwd ? ' disabled' : '') + '>' + ic('check') + esc(t('um.resetConfirm')) + '</button>' +
+        '</div></td></tr>';
+      }
+      if (open) out += umProfileHtml(x);
+      return out;
+    }).join('');
+
+    return '<div class="um-box" data-um="users-table"><div class="um-scroll"><table class="um-table">' +
+      '<thead><tr>' +
+        '<th>' + esc(t('um.colUser')) + '</th>' +
+        '<th>' + esc(t('um.colRole')) + '</th>' +
+        '<th>' + esc(t('um.colCreated')) + '</th>' +
+        '<th class="um-right">' + esc(t('um.colActions')) + '</th>' +
+      '</tr></thead><tbody>' +
+      (rows || '<tr><td colspan="4" class="um-empty">' + esc(t('um.empty')) + '</td></tr>') +
+      '</tbody></table></div></div>';
+  }
+
+  /** 整块重画弹窗体（输入到一半的值都取自 state.um，不会被清掉） */
+  function renderUserMgmt() {
+    var body = $('#umBody');
+    if (!body) return;
+    var u = state.um;
+
+    var html = '';
+    if (u.success) html += '<div class="um-banner is-ok">' + ic('check-circle') + '<span>' + esc(u.success) + '</span></div>';
+    if (u.error) html += '<div class="um-banner is-err">' + ic('warning') + '<span>' + esc(u.error) + '</span></div>';
+    html += umStorageHtml() + umRequestsHtml() + umAddFormHtml() + umUsersHtml();
+    body.innerHTML = html;
+
+    /* 底部固定操作栏：只在页面配置面板展开时出现（与 uniplam 的布局一致） */
+    var foot = $('#umFoot');
+    var profileUser = null;
+    for (var i = 0; i < u.users.length; i++) {
+      if (u.users[i].id === u.profileId) { profileUser = u.users[i]; break; }
+    }
+    if (foot) {
+      foot.hidden = !profileUser;
+      var who = $('#umFootWho');
+      if (who) who.textContent = profileUser ? tf('um.pagesTitle', { name: profileUser.username }) : '';
+      var save = $('#umSaveBtn');
+      if (save) save.disabled = !!u.saving;
+    }
+  }
+
+  /* ------------------------------------------------------ 用户管理：动作 -- */
+
+  function umAddUser() {
+    if (state.um.busy === 'add') return;
+    var username = String(state.um.nu || '').trim().toLowerCase();
+    var password = String(state.um.np || '');
+    if (password.length < 8) { umFlash('err', t('um.pwdTooShort')); return; }
+    state.um.busy = 'add';
+    renderUserMgmt();
+    umCall('/users', { method: 'POST', body: { username: username, password: password, role: state.um.nr } })
+      .then(function (r) {
+        if (!r.ok) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
+        state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer';
+        umFlash('ok', t('um.added'));
+        return loadUserMgmt();
+      })
+      .catch(function (e) { umFlash('err', String(e)); })
+      .then(function () { state.um.busy = ''; renderUserMgmt(); });
+  }
+
+  function umDeleteUser(id) {
+    var target = state.um.users.filter(function (x) { return x.id === id; })[0];
+    if (!target) return;
+    if (!window.confirm(tf('um.confirmDelete', { name: target.username }))) return;
+    umCall('/users/delete', { method: 'POST', body: { id: id } })
+      .then(function (r) {
+        if (!r.ok) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
+        if (state.um.profileId === id) state.um.profileId = '';
+        return loadUserMgmt();
+      })
+      .catch(function (e) { umFlash('err', String(e)); });
+  }
+
+  function umResetPassword(id) {
+    if (state.um.busy === 'reset') return;
+    var target = state.um.users.filter(function (x) { return x.id === id; })[0];
+    var pwd = String(state.um.resetPwd || '');
+    if (pwd.length < 8) { umFlash('err', t('um.pwdTooShort')); return; }
+    state.um.busy = 'reset';
+    renderUserMgmt();
+    umCall('/users/reset-password', { method: 'POST', body: { id: id, newPassword: pwd } })
+      .then(function (r) {
+        if (!r.ok) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
+        state.um.resetId = ''; state.um.resetPwd = '';
+        umFlash('ok', tf('um.resetOk', { name: target ? target.username : '' }));
+        return loadUserMgmt();
+      })
+      .catch(function (e) { umFlash('err', String(e)); })
+      .then(function () { state.um.busy = ''; renderUserMgmt(); });
+  }
+
+  function umDecide(id, action) {
+    var target = state.um.requests.filter(function (r) { return r.id === id; })[0];
+    if (!target) return;
+    var ask = action === 'approve'
+      ? tf('um.approveConfirm', { name: target.username })
+      : tf('um.rejectConfirm', { name: target.username });
+    if (!window.confirm(ask)) return;
+    var body = action === 'approve'
+      ? { id: id, role: state.um.approveRoles[id] || 'viewer' }
+      : { id: id };
+    state.um.busy = 'decide';
+    renderUserMgmt();
+    umCall('/register-requests/' + action, { method: 'POST', body: body })
+      .then(function (r) {
+        if (!r.ok) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
+        umFlash('ok', tf(action === 'approve' ? 'um.approved' : 'um.rejected', { name: target.username }));
+        return loadUserMgmt();
+      })
+      .catch(function (e) { umFlash('err', String(e)); })
+      .then(function () { state.um.busy = ''; renderUserMgmt(); });
+  }
+
+  /** 保存页面配置。
+      不受限 → 两个维度都传 null；受限 → 传勾选结果（空数组 = 什么都看不到）。
+      landing 必须带 view + cardId 一起提交：服务端是整对象替换。 */
+  function umSaveProfile() {
+    if (state.um.saving) return;
+    var id = state.um.profileId;
+    var target = state.um.users.filter(function (x) { return x.id === id; })[0];
+    if (!target) return;
+    state.um.saving = true;
+    renderUserMgmt();
+
+    var landing = (state.um.pv || state.um.pc)
+      ? (function () {
+          var o = {};
+          if (state.um.pv) o.view = state.um.pv;
+          if (state.um.pc) o.cardId = state.um.pc;
+          return o;
+        })()
+      : null;
+
+    umCall('/users/profile', {
+      method: 'POST',
+      body: {
+        id: id,
+        landing: landing,
+        allowedGroups: state.um.restricted ? state.um.groups : null,
+        allowedCards: state.um.restricted ? state.um.cards : null
+      }
+    }).then(function (r) {
+      if (!r.ok || !r.data.user) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
+      var saved = r.data.user;
+      state.um.users = state.um.users.map(function (x) { return x.id === saved.id ? saved : x; });
+      state.um.profileId = '';
+      umFlash('ok', tf('um.pagesSaved', { name: target.username }));
+      /* 改的是自己 → 本页可见范围当场变了（canSee 读的就是这一份），必须重画。
+         走 renderCatalog() 而不是 render()：后者会重建地图 iframe。 */
+      if (state.user && state.user.id === saved.id) {
+        state.user = saved;
+        renderCatalog();
+      }
+    }).catch(function (e) {
+      umFlash('err', String(e));
+    }).then(function () {
+      state.um.saving = false;
+      renderUserMgmt();
+    });
+  }
+
+  /** 重置密码输入框内容变化时只切「确认重置」的可用态，避免整块重绘丢焦点 */
+  function syncUmResetBtn() {
+    var btn = $('[data-um="reset-confirm"]');
+    if (btn) btn.disabled = !String(state.um.resetPwd || '');
+  }
+
+  /** 用户管理弹窗的文档级事件委托（面板是整块重画的，不能逐个 addEventListener） */
+  function bindUserMgmt() {
+    var mask = $('#umMask');
+    if (!mask) return;
+
+    $('#umBtn').addEventListener('click', openUserMgmt);
+    $('#umClose').addEventListener('click', closeUserMgmt);
+    mask.addEventListener('click', function (e) { if (e.target === mask) closeUserMgmt(); });
+    $('#umReload').addEventListener('click', function () { loadUserMgmt(); });
+    $('#umCancelBtn').addEventListener('click', function () {
+      state.um.profileId = '';
+      renderUserMgmt();
+    });
+    $('#umSaveBtn').addEventListener('click', umSaveProfile);
+
+    /* 输入类：直接写回 state.um，不做重绘（重绘会打断输入） */
+    mask.addEventListener('input', function (e) {
+      var el = e.target;
+      var act = el.getAttribute && el.getAttribute('data-um');
+      if (act === 'reset-pwd') { state.um.resetPwd = el.value; syncUmResetBtn(); return; }
+      if (el.id === 'umNewUser') { state.um.nu = el.value; return; }
+      if (el.id === 'umNewPass') { state.um.np = el.value; return; }
+    });
+    mask.addEventListener('change', function (e) {
+      var el = e.target;
+      var act = el.getAttribute && el.getAttribute('data-um');
+      if (el.id === 'umNewRole') { state.um.nr = el.value; return; }
+      if (act === 'approve-role') { state.um.approveRoles[el.getAttribute('data-id')] = el.value; return; }
+      if (act === 'landing-view') { state.um.pv = el.value; return; }
+      if (act === 'landing-card') { state.um.pc = el.value; return; }
+      if (act === 'restricted') { state.um.restricted = !!el.checked; renderUserMgmt(); return; }
+    });
+    mask.addEventListener('submit', function (e) {
+      if (e.target && e.target.id === 'umAddForm') { e.preventDefault(); umAddUser(); }
+    });
+
+    mask.addEventListener('click', function (e) {
+      var el = e.target.closest ? e.target.closest('[data-um]') : null;
+      if (!el) return;
+      var act = el.getAttribute('data-um');
+      var id = el.getAttribute('data-id');
+      if (act === 'group') { state.um.groups = umToggle(state.um.groups, el.getAttribute('data-val')); renderUserMgmt(); return; }
+      /* 全局目录读不到时「按看板」候选项是 disabled 的（id 空间不对，见 umCardsAreShared），
+         这里再挡一次：disabled 只是渲染属性，不能当成唯一防线。 */
+      if (act === 'card') {
+        if (!umCardsAreShared()) { toast(t('um.cardsLocalOnly')); return; }
+        state.um.cards = umToggle(state.um.cards, el.getAttribute('data-val'));
+        renderUserMgmt(); return;
+      }
+      if (act === 'profile') {
+        if (state.um.profileId === id) { state.um.profileId = ''; renderUserMgmt(); }
+        else {
+          var uu = state.um.users.filter(function (x) { return x.id === id; })[0];
+          if (uu) umOpenProfile(uu);
+        }
+        return;
+      }
+      if (act === 'reset') {
+        state.um.resetId = state.um.resetId === id ? '' : id;
+        state.um.resetPwd = '';
+        state.um.error = '';
+        renderUserMgmt();
+        var inp = $('[data-um="reset-pwd"]');
+        if (inp) inp.focus();
+        return;
+      }
+      if (act === 'reset-confirm') { umResetPassword(id); return; }
+      if (act === 'delete') { umDeleteUser(id); return; }
+      if (act === 'approve') { umDecide(id, 'approve'); return; }
+      if (act === 'reject') { umDecide(id, 'reject'); return; }
+    });
+  }
+
   /* ---------------------------------------------------------------- QC -- */
   function api(u) {
     return fetch(u, { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) {
@@ -1606,70 +2921,336 @@
       return r.json();
     });
   }
-  function loadQc() {
-    api('/api/portal-qc/summary').then(function (d) {
-      state.qc = { loading: false, err: '', at: d.generated_at ? new Date(d.generated_at).getTime() : Date.now(), m: d.metrics || {} };
+  var qcFullBusy = false, qcAlarmBusy = false;
+  function loadQc(force) {
+    if (qcFullBusy) return;
+    qcFullBusy = true;
+    api('/api/portal-qc/summary' + (force ? '?refresh=1' : '')).then(function (d) {
+      qcFullBusy = false;
+      var m = d.metrics || {};
+      state.qc = { loading: false, err: '', at: d.generated_at ? new Date(d.generated_at).getTime() : Date.now(), m: m };
+      state.qcFullAt = d.generated_at || '';
+      /* 全量响应里也带 alarm（同一口径、同一段 SQL），一并接管：首屏在第一次 ?only=alarm
+         回来之前就有配对的数字与时间戳；点「刷新」走全量，也不会出现「数是新的、
+         时间戳还是 5 分钟前那份」。失败分支不动 alarm —— 它有自己的循环和错误态。 */
+      if (m.alarm) state.qcAlarm = m.alarm;
+      if (state.qcFullAt) state.qcAlarmAt = state.qcFullAt;
       renderBand();
+      fetchQcTrend();          /* 趋势粒度是小时/天，跟全量同节奏就够 */
     }).catch(function (e) {
+      qcFullBusy = false;
       state.qc = { loading: false, err: (e && e.message) || String(e), at: 0, m: {} };
+      state.qcFullAt = '';
       renderBand();
     });
   }
-  function openDrill(id) {
+  /* 只刷「未清除的断站告警」：走 ?only=alarm，后端只跑那一条 COUNT。
+     失败时把 alarm 置成 error 态而不是保留旧值 —— 宁可显示「不可用」，
+     也不要让一小时前的告警数冒充实时值，这是这块面板最要紧的一格。 */
+  function loadQcAlarm() {
+    if (qcAlarmBusy) return;
+    qcAlarmBusy = true;
+    api('/api/portal-qc/summary?only=alarm').then(function (d) {
+      qcAlarmBusy = false;
+      var m = d && d.metrics && d.metrics.alarm;
+      if (!m) throw new Error(t('qc.na'));
+      state.qcAlarm = m;
+      state.qcAlarmAt = (d && d.generated_at) || '';
+      renderBand();
+    }).catch(function (e) {
+      qcAlarmBusy = false;
+      state.qcAlarm = { value: null, error: (e && e.message) || String(e) };
+      state.qcAlarmAt = '';
+      renderBand();
+    });
+  }
+  /* 只请求后端确实有趋势的四个（cr / pmt 回 no_trend，不必白跑一个来回）。
+     失败不清空已有趋势：拿不到线只是不画，不是错误状态。 */
+  function fetchQcTrend() {
+    QC_TREND_METRICS.forEach(function (id) {
+      api('/api/portal-qc/trend?metric=' + id + '&days=30').then(function (d) {
+        if (!d || !d.points) return;
+        state.qcTrend = state.qcTrend || {};
+        state.qcTrend[id] = d;
+        renderBand();
+      }).catch(function () {});
+    });
+  }
+  /* ======================================================== QC 下钻弹窗 --
+     2026-09-23 统一：本段由「右侧抽屉」改写为与 /MsPortal/ **同构**的实现。
+
+     改版前本页是 .drawer（右侧滑入）+ table.grid，能力只有「搜索 + 翻页」；
+     MsPortal 是居中弹窗 + 可排序表头 + 导出 Excel + 跳完整看板。两边取的是
+     同一个接口（/api/portal-qc/detail，同样的 total/rows/columns），
+     于是同一个数字点开是两个长相、两种能力 —— 用户会以为是两个系统。
+
+     现在两边的 DOM 类名（.qc-mask/.qc-modal/.qc-table…）与函数行为逐条对齐，
+     样式共用 /MsPortal/assets/qcDrill.css。改这里时请对照
+     MsPortal/assets/portal.js 的 openQcDrill / closeQcDrill / fetchQcDrill /
+     renderQcDrill / exportQcExcel —— 两边要一起改，别只改一边
+     （与文件顶部 wireMap 那段「两份若要改动，请同时改」是同一条约定）。
+
+     仍然保持只读版的三条红线：不写 msportal.* 键、不 PUT 目录、不改权限判定。
+     下面只发 GET /api/portal-qc/* 与本地导出，不触碰任何写接口。 */
+
+  /* 弹窗标题 = 卡片名 + 「· 明细」，并顺带维护「打开完整看板」按钮。
+     映射只给**目录里确实存在对应看板**的维度（源码见 MsPortal/portal.js 的
+     QC_BOARD_PAGE）：cr / pmt 在 my_app 侧没有对应页面 ——
+     配一个错的链接比不给链接更糟，故不配、按钮不出现。 */
+  var QC_BOARD_PAGE = {
+    alarm: 'realtime_alarm',
+    tt: 'ttwo',
+    wo: 'ttwo',
+    spms: 'sp_material'
+  };
+
+  function applyDrillTitle() {
+    var id = state.drill.metric;
+    var q = (D.qc || []).filter(function (x) { return x.id === id; })[0];
+    $('#qcTitle').textContent = (q ? (state.lang === 'en' ? q.en : q.zh) : id) + t('dr.drillSuffix');
+
+    var link = $('#qcOpenBoard');
+    if (link) {
+      var page = QC_BOARD_PAGE[id];
+      if (page) {
+        /* 同源相对路径：门户与 my_app 经同一个 nginx，用相对路径就不会把
+           「本机 192.168.100.20」写死进代码（换 IP / 换域名时不用改这里）。 */
+        link.href = '/myapp/?page=' + encodeURIComponent(page);
+        link.hidden = false;
+      } else {
+        link.removeAttribute('href');
+        link.hidden = true;
+      }
+    }
+  }
+
+  /* anchor：触发下钻的那次点击的屏幕坐标。2026-09-23 加 —— 弹窗改为
+     「以点击位置为中心弹出」（对齐 myapp 的 DraggableClickModal），
+     所以要把坐标从事件里带进来；键盘触发（无坐标）时传 null = 居中于屏幕。
+     与 MsPortal/portal.js 的 openQcDrill(id, anchor) 同签名。 */
+  function openDrill(id, anchor) {
     var def = (D.qc || []).filter(function (x) { return x.id === id; })[0];
     if (!def) return;
-    state.drill = { metric: id, title: state.lang === 'en' ? def.en : def.zh, q: '', page: 1, size: 25, rows: [], columns: [], total: 0, loading: true, err: '' };
-    var d = $('#drawer');
-    d.hidden = false; $('#scrim').hidden = false;
-    /* 用一次强制重排而不是 requestAnimationFrame 来做「unhide → 加类」的帧间隔：
-       页面在后台时 rAF 根本不会回调，抽屉就永远停在关上的位置。 */
-    void d.offsetWidth;
-    d.classList.add('open');
-    $('#drQ').value = '';
+    /* sort/dir 必须一起重置：换一张卡还沿用上一张的排序列，后端会因为该列不在
+       本 metric 的列白名单里而忽略它，看上去像「排序点了没反应」。 */
+    state.drill = { metric: id, q: '', page: 1, size: 50, sort: '', dir: 'desc',
+                    rows: [], columns: [], total: 0, loading: true, err: '' };
+    $('#qcSearch').value = '';
+    applyDrillTitle();
+    $('#qcMask').hidden = false;
+    /* 先量尺寸再定位：position() 读 offsetWidth/Height，
+       必须在弹窗已可见（hidden=false）之后调用，否则量到 0 会定位到左上角。 */
+    if (window.QcDrill) window.QcDrill.position(anchor || null);
     fetchDrill();
   }
+
   function closeDrill() {
-    $('.drawer').classList.remove('open');
+    drillSeq++;                 /* 作废在途请求，避免关掉后又被写回 */
     state.drill.metric = '';
-    window.setTimeout(function () { $('#drawer').hidden = true; $('#scrim').hidden = true; }, 220);
+    state.drill.loading = false;
+    $('#qcMask').hidden = true;
   }
+
   var drillSeq = 0;
   function fetchDrill() {
     var d = state.drill; if (!d.metric) return;
     var seq = ++drillSeq;
     d.loading = true; d.err = ''; renderDrill();
-    api('/api/portal-qc/detail?metric=' + encodeURIComponent(d.metric) + '&page=' + d.page + '&size=' + d.size +
-      (d.q ? '&q=' + encodeURIComponent(d.q) : ''))
+    api('/api/portal-qc/detail?metric=' + encodeURIComponent(d.metric) +
+        '&page=' + d.page + '&size=' + d.size +
+        (d.q ? '&q=' + encodeURIComponent(d.q) : '') +
+        /* 排序下发到服务端（不是只排当前页）。后端会拿 sort 去撞该 metric 的
+           列白名单，撞不上就忽略 —— 前端不需要知道后端有哪些列。
+           MsPortal 走的是同一个参数口径。 */
+        (d.sort ? '&sort=' + encodeURIComponent(d.sort) + '&dir=' + encodeURIComponent(d.dir) : ''))
       .then(function (r) {
-        if (seq !== drillSeq) return;
+        if (seq !== drillSeq || state.drill.metric !== d.metric) return;   /* 过期响应 */
         d.loading = false; d.total = r.total || 0; d.rows = r.rows || []; d.columns = r.columns || [];
         renderDrill();
       })
-      .catch(function (e) { if (seq !== drillSeq) return; d.loading = false; d.err = (e && e.message) || String(e); renderDrill(); });
+      .catch(function (e) {
+        if (seq !== drillSeq || state.drill.metric !== d.metric) return;
+        d.loading = false; d.err = (e && e.message) || String(e); renderDrill();
+      });
   }
-  function cell(k, v) {
-    if (v == null || v === '') return '—';
-    if (/^(raised|closed|update|created)/i.test(k) && typeof v === 'number') return esc(fmtTime(v).slice(5));
-    if (typeof v === 'number') return esc(v % 1 ? v.toFixed(1) : v.toLocaleString('en-US'));
-    return esc(v);
+
+  /* 单元格显示。与 MsPortal 的 qcCell 同一口径，只做两件轻格式化：
+       · 13 位纯数字 → 按 epoch 毫秒转本地时间（realtime_alarm.alarmraisedtime 就是这种）
+       · 整数型 numeric 的尾巴 .0 去掉（PG 的 auxiliarycount 会回 '2.0'）
+     接口一律回文本，所以这里不做数字千分位（旧 drawer 版会 toFixed/toLocaleString，
+     于是同一个值在两个门户上显示成 1234 与 1,234 —— 统一后一律按 MsPortal 的口径）。 */
+  function drillCell(v) {
+    if (v == null || v === '') return '';
+    var s = String(v);
+    if (/^\d{13}$/.test(s)) {
+      var dt = new Date(Number(s));
+      if (!isNaN(dt.getTime())) {
+        var p = function (n) { return (n < 10 ? '0' : '') + n; };
+        return dt.getFullYear() + '-' + p(dt.getMonth() + 1) + '-' + p(dt.getDate()) +
+          ' ' + p(dt.getHours()) + ':' + p(dt.getMinutes()) + ':' + p(dt.getSeconds());
+      }
+    }
+    return s.replace(/^(-?\d+)\.0+$/, '$1');
   }
+
+  /** 「空」判定：除 null / 空串，还要吃掉字面量 'empty' —— 源表里 alarm 的 tt_id
+      既有空串也有字符串 'empty'（实测 51 行里 22 行如此），直接摊给用户看像是页面出错。
+      只影响**显示**，不改任何统计口径：被替换成 — 的行仍在表里、仍参与计数。 */
+  function drillIsEmpty(v) {
+    if (v == null) return true;
+    var s = String(v).trim();
+    return s === '' || s.toLowerCase() === 'empty';
+  }
+
+  function drillCellHtml(v) {
+    if (drillIsEmpty(v)) return '<span class="qc-null">—</span>';
+    return esc(drillCell(v));
+  }
+
   function renderDrill() {
-    var d = state.drill, box = $('#drBody');
-    $('#drTitle').textContent = d.title || t('dr.title');
-    $('#drSub').textContent = t('qc.sub');
-    $('#drCount').textContent = d.loading ? '…' : tf('dr.rows', { n: d.total });
-    $('#drPage').textContent = tf('dr.page', { p: d.page, q: Math.max(1, Math.ceil(d.total / d.size)) });
-    $('#drPrev').disabled = d.page <= 1; $('#drNext').disabled = d.page * d.size >= d.total;
-    if (d.loading) { box.innerHTML = '<div class="dr-empty">' + esc(t('dr.load')) + '</div>'; return; }
-    if (d.err) { box.innerHTML = '<div class="dr-empty" style="color:var(--crit)">' + esc(tf('dr.err', { e: d.err })) + '</div>'; return; }
-    if (!d.rows.length) { box.innerHTML = '<div class="dr-empty">' + esc(t('dr.empty')) + '</div>'; return; }
-    box.innerHTML = '<table class="grid"><thead><tr>' + d.columns.map(function (c) {
-      return '<th' + (typeof d.rows[0][c.key] === 'number' ? ' class="num"' : '') + '>' + esc(c.label || c.key) + '</th>';
-    }).join('') + '</tr></thead><tbody>' + d.rows.map(function (r) {
-      return '<tr>' + d.columns.map(function (c) {
-        return '<td' + (typeof r[c.key] === 'number' ? ' class="num"' : '') + '>' + cell(c.key, r[c.key]) + '</td>';
-      }).join('') + '</tr>';
-    }).join('') + '</tbody></table>';
+    var d = state.drill;
+    if (!d.metric) return;
+    var thead = $('#qcThead'), tbody = $('#qcTbody');
+    if (!thead || !tbody) return;
+
+    var span = Math.max(1, d.columns.length);
+    /* 表头可点排序。用 <button> 而不是给 <th> 绑 onclick：键盘 Tab 能到、
+       回车能触发，aria-sort 也能正确播报当前列与方向。
+       首列加 qc-sticky-col —— 明细最长 12 列，横向滚动时首列滚出视野后，
+       剩下的数字列就失去了参照物（「这一行是谁」看不见了）。 */
+    thead.innerHTML = '<tr>' + d.columns.map(function (c, i) {
+      var active = d.sort === c.key;
+      var dir = active ? d.dir : '';
+      return '<th class="qc-sortable' + (i === 0 ? ' qc-sticky-col' : '') +
+        '" aria-sort="' + (active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none') + '">' +
+        '<button type="button" data-act="drill-sort" data-key="' + esc(c.key) + '">' +
+          '<span>' + esc(c.label || c.key) + '</span>' +
+          '<span class="qc-sort-ico" aria-hidden="true">' +
+            (active ? (dir === 'asc' ? '▲' : '▼') : '⇅') +
+          '</span>' +
+        '</button></th>';
+    }).join('') + '</tr>';
+
+    var ph;
+    if (d.err) ph = '<span class="qc-err">' + esc(t('dr.err').replace(/\{e\}.*$/, '')) + '<br>' + esc(d.err) + '</span>';
+    else if (d.loading && !d.rows.length) ph = esc(t('dr.load'));
+    else if (!d.rows.length) ph = esc(t('dr.empty'));
+
+    if (ph) {
+      tbody.innerHTML = '<tr><td colspan="' + span + '"><div class="qc-empty">' + ph + '</div></td></tr>';
+    } else {
+      tbody.innerHTML = d.rows.map(function (row) {
+        return '<tr>' + d.columns.map(function (c, i) {
+          var cls = [];
+          if (i === 0) cls.push('qc-sticky-col');
+          return '<td' + (cls.length ? ' class="' + cls.join(' ') + '"' : '') + '>' +
+            drillCellHtml(row[c.key]) + '</td>';
+        }).join('') + '</tr>';
+      }).join('');
+    }
+
+    var pages = Math.max(1, Math.ceil(d.total / d.size));
+    $('#qcCount').textContent = d.err ? '' : tf('dr.total', { n: fmt(d.total) });
+    $('#qcPage').textContent = tf('dr.page', { p: d.page, q: pages });
+    $('#qcPrev').disabled = d.loading || d.page <= 1;
+    $('#qcNext').disabled = d.loading || d.page >= pages;
+  }
+
+  /* ---- 导出：当前搜索条件下的**全部行** → .xlsx（my_app 统一格式）----
+     与 MsPortal 的 exportQcExcel 同一口径、同一个库（MsExcelReport）：
+       1) 范围：不是只导当前页，而是按当前搜索关键字把 total 拉满
+          （后端 _MAX_PAGE_SIZE=200，逐页取）—— 弹窗底部写着「共 N 条」，
+          导出却只有 50 条说不通。
+       2) 格式：UNIFIED_EXCEL_V1（标题行 + Generated 副标题 + 深蓝表头 +
+          隔行底纹 + 细边框 + 冻结表头 + 自动筛选），与 /myapp/ 各看板同款。
+     单元格取值仍走 drillCell()，保证 Excel 里的值与屏幕上看到的逐字一致。 */
+  var DRILL_EXPORT_SIZE = 200;      /* = my_app backend/routers/portal_qc.py 的 _MAX_PAGE_SIZE */
+  var DRILL_EXPORT_MAX_PAGES = 100; /* 兜底：最多 2 万行，避免异常 total 把页面拖死 */
+  var drillExporting = false;
+
+  function drillPad2(n) { return (n < 10 ? '0' : '') + n; }
+  function drillFileStamp() {
+    var d = new Date();
+    return d.getFullYear() + drillPad2(d.getMonth() + 1) + drillPad2(d.getDate()) + '_' +
+      drillPad2(d.getHours()) + drillPad2(d.getMinutes()) + drillPad2(d.getSeconds());
+  }
+  function drillTextStamp() {
+    var d = new Date();
+    return d.getFullYear() + '-' + drillPad2(d.getMonth() + 1) + '-' + drillPad2(d.getDate()) + ' ' +
+      drillPad2(d.getHours()) + ':' + drillPad2(d.getMinutes()) + ':' + drillPad2(d.getSeconds());
+  }
+
+  function exportDrillExcel() {
+    var d = state.drill;
+    if (!d.metric || drillExporting) return;
+    if (!window.MsExcelReport) { toast(t('dr.exportErr') + ': MsExcelReport'); return; }
+
+    drillExporting = true;
+    var btn = $('#qcExport'); if (btn) btn.disabled = true;
+
+    var metric = d.metric;
+    var keyword = d.q || '';
+    var label = (function () {
+      var q = (D.qc || []).filter(function (x) { return x.id === metric; })[0];
+      return q ? (state.lang === 'en' ? q.en : q.zh) : metric;
+    })();
+
+    var columns = d.columns.slice();
+    var rows = [];
+    var reset = function () { drillExporting = false; if (btn) btn.disabled = false; };
+
+    /* 逐页取满。第一页顺便拿 columns/total；中途某页失败就用手上已有的行导出，
+       而不是整单作废 —— 导出一半也好过什么都拿不到（失败原因最后一起 toast）。 */
+    var page = 1, total = null, failed = null;
+    function nextPage() {
+      return api('/api/portal-qc/detail?metric=' + encodeURIComponent(metric) +
+                 '&page=' + page + '&size=' + DRILL_EXPORT_SIZE +
+                 (keyword ? '&q=' + encodeURIComponent(keyword) : ''))
+        .then(function (data) {
+          if (total === null) {
+            total = data.total || 0;
+            if (data.columns && data.columns.length) columns = data.columns;
+          }
+          var got = data.rows || [];
+          rows = rows.concat(got);
+          if (got.length && rows.length < total && page < DRILL_EXPORT_MAX_PAGES) {
+            page += 1;
+            return nextPage();
+          }
+          return null;
+        });
+    }
+
+    nextPage()
+      .catch(function (e) { failed = (e && e.message) || String(e); })
+      .then(function () {
+        if (!rows.length) {
+          reset();
+          toast(failed ? t('dr.exportErr') + ': ' + failed : t('dr.noData'));
+          return null;
+        }
+        var sheetName = String(label).replace(/[\\\/\?\*\[\]:]/g, ' ').slice(0, 31);
+        var subtitle = 'Generated: ' + drillTextStamp() + '    |    Sheet: ' + sheetName +
+          (keyword ? '    |    Search: ' + keyword : '');
+        return window.MsExcelReport.exportAoaReport({
+          filename: 'qc-' + metric + '-' + drillFileStamp() + '.xlsx',
+          sheetName: sheetName,
+          title: label + t('dr.drillSuffix'),
+          subtitle: subtitle,
+          header: columns.map(function (c) { return c.label || c.key; }),
+          rows: rows.map(function (row) {
+            return columns.map(function (c) { return drillCell(row[c.key]); });
+          })
+        });
+      })
+      .then(function () {
+        reset();
+        if (failed) toast(t('dr.exportErr') + ': ' + failed);
+      })
+      .catch(function (e) {
+        reset();
+        toast(t('dr.exportErr') + ': ' + ((e && e.message) || String(e)));
+      });
   }
 
   /* ---------------------------------------------------------- map embed -- */
@@ -1733,37 +3314,42 @@
     try { doc.defaultView.dispatchEvent(new Event('resize')); } catch (e) { /* ignore */ }
     return true;
   }
-  function invalidateLeaflet(doc) {
+  /* 从 Leaflet 画布反查地图实例：四条常见挂载点 + React  fiber 兜底。
+     （原来这段长在 invalidateLeaflet 里，加一级缩放也要用它，故抽出来。） */
+  function findLeafletMap(doc) {
     var lc = doc.querySelector('.leaflet-container');
-    if (!lc) return false;
+    if (!lc) return null;
     var map = null;
     ['_leaflet_map', '__leaflet_map', '_map', 'map'].forEach(function (k) {
       if (!map && lc[k] && typeof lc[k].invalidateSize === 'function') map = lc[k];
     });
-    if (!map) {
-      try {
-        var fk = Object.keys(lc).filter(function (k) { return k.indexOf('__reactFiber') === 0; })[0];
-        if (fk) {
-          var seen = new Set(), stack = [lc[fk]], guard = 0;
-          while (stack.length && guard++ < 4000) {
-            var n = stack.pop();
-            if (!n || seen.has(n)) continue;
-            seen.add(n);
-            if (n.stateNode && typeof n.stateNode.invalidateSize === 'function') { map = n.stateNode; break; }
-            var mp = n.memoizedProps || n.pendingProps;
-            if (mp) {
-              for (var key in mp) {
-                var v = mp[key];
-                if (v && typeof v === 'object' && typeof v.invalidateSize === 'function') { map = v; break; }
-              }
-              if (map) break;
-            }
-            if (n.child) stack.push(n.child);
-            if (n.sibling) stack.push(n.sibling);
+    if (map) return map;
+    try {
+      var fk = Object.keys(lc).filter(function (k) { return k.indexOf('__reactFiber') === 0; })[0];
+      if (!fk) return null;
+      var seen = new Set(), stack = [lc[fk]], guard = 0;
+      while (stack.length && guard++ < 4000) {
+        var n = stack.pop();
+        if (!n || seen.has(n)) continue;
+        seen.add(n);
+        if (n.stateNode && typeof n.stateNode.invalidateSize === 'function') return n.stateNode;
+        var mp = n.memoizedProps || n.pendingProps;
+        if (mp) {
+          for (var key in mp) {
+            var v = mp[key];
+            if (v && typeof v === 'object' && typeof v.invalidateSize === 'function') return v;
           }
         }
-      } catch (e) { /* ignore */ }
-    }
+        if (n.child) stack.push(n.child);
+        if (n.sibling) stack.push(n.sibling);
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+  function invalidateLeaflet(doc) {
+    var lc = doc.querySelector('.leaflet-container');
+    if (!lc) return false;
+    var map = findLeafletMap(doc);
     if (map) {
       try {
         map.invalidateSize(false);
@@ -1782,7 +3368,38 @@
     }
     return false;
   }
-  /* 只有暴露了 fitAllSites 的内层页（当前是 mw_real_time.html）需要重新取景：
+  /* 默认比内层页自己的取景再近一级（2026-09-22 用户：「跟手动点一次加号一个效果」）。
+     只在本页面这一侧做：/myapp/ 是两个门户共用的预编译产物，改它的默认 zoom 等于
+     把展示版的偏好推给 MsPortal，而且要连带重新发布一批与本次无关的源码。
+     先点内层页自己的 + 控件（走它自己的行为链，maxZoom 和它自己的 zoomend 都由它管），
+     控件不存在（有的内层页关了 zoomControl）才退到直接改地图实例。 */
+  function zoomInLeaflet(d) {
+    var btn = d.querySelector('.leaflet-control-zoom-in');
+    if (btn) { try { btn.click(); return true; } catch (e) { /* 落到实例 */ } }
+    var map = findLeafletMap(d);
+    if (!map) return false;
+    try {
+      var z = map.getZoom(), mz = map.getMaxZoom();
+      if (mz != null && z >= mz) return true;         // 已经在最大档：算成了，不用再试
+      map.setZoom(z + 1);
+      return true;
+    } catch (e) { return false; }
+  }
+  /* stripFrame 在 0 / 1.4s / 3.4s 会被反复调用，所以必须去重，否则变成 +3。
+     延迟到 1.8s：内层 React 应用在挂载时才 setView，早于它的取景加一级会被盖掉。 */
+  var MAP_ZOOM_DELAY = 1800;
+  function zoomOnce(d) {
+    var w = d.defaultView;
+    /* 会自己重新取景的内层页（暴露 fitAllSites）不在这里加：它每次 fit 都会把视野
+       拉回「刚好包住所有站点」，加一级得跟在每次 fit 之后做，见 refitLeaflet。 */
+    if (!w || typeof w.fitAllSites === 'function') return;
+    if (d.__olbrZoomed) return;
+    window.setTimeout(function () {
+      if (d.__olbrZoomed || !d.querySelector('.leaflet-container')) return;
+      if (zoomInLeaflet(d)) d.__olbrZoomed = true;
+    }, MAP_ZOOM_DELAY);
+  }
+  /* 只有暴露了 fitAllSites 的内层页（当前是 mwRealTime）需要重新取景：
      fitBounds 跑在容器还矮的时刻，zoom 会低一级。容器高度每落定一次就重跑一次，
      直到约 12s 的观察窗口结束 —— 中途存在「前 strip 的假稳态」，只做一次会被骗。 */
   function refitLeaflet(d) {
@@ -1797,6 +3414,9 @@
       var h = Math.round(lc.getBoundingClientRect().height);
       if (h <= 0 || h !== st.lastH) return;
       try { w.fitAllSites(); } catch (e) { /* 内层页自己会兜底 */ }
+      /* fit 之后才加一级（fit 会重置视野）；再晚一点：fit 带动画时立刻 setZoom 会被忽略。
+         这里不去重是刻意的 —— 每轮都是「重新 fit + 一级」，反复收敛到 fit+1，不会累加。 */
+      window.setTimeout(function () { zoomInLeaflet(d); }, 700);
     };
     (function tick() {
       var lc = d.querySelector('.leaflet-container');
@@ -1827,6 +3447,7 @@
         refitLeaflet(d);
         setTimeout(function () { invalidateLeaflet(d); }, 400);
         setTimeout(function () { invalidateLeaflet(d); }, 1200);
+        zoomOnce(d);
         return;
       }
       if (depth >= 2) return;
@@ -1873,11 +3494,17 @@
     $('#footSrc').textContent = tf('foot.src', { n: (D.stats && D.stats.total) || ITEMS.length, d: src.generated || '' });
     /* 编辑按钮的文案 / 提示是动态写的（语言一换要跟着换），所以也归这里出口 */
     syncEditBtn();
+    /* 用户管理弹窗整块是 JS 画的，语言换了不重绘就会留着上一门语言 */
+    if (state.um.open) renderUserMgmt();
   }
   function setTheme(v) {
     state.theme = v; root.classList.toggle('dark', v === 'dark'); ss('olbr.theme', v);
     applyI18n();
     var f = $('#mapFrame'); if (f) { f.src = curMap().src; }
+    /* 报告文件那块不看 URL 参数也不收 postMessage（my_app 只在启动时读 myapp-theme），
+       只能靠 ensureEmail 里的「上次主题 ≠ 本次」判据重设 src；不在这一档时不用管，
+       切过去自然会走同样的判断。 */
+    if (state.viewTab === EMAIL_TAB) renderEmailSection();
   }
   function setLang(v) { state.lang = v; ss('olbr.lang', v); render(); }
   function toast(msg) {
@@ -1885,7 +3512,13 @@
     el.className = 'toast';
     window.setTimeout(function () { el.hidden = true; }, 2200);
   }
-  function tick() { $('#clock').textContent = fmtTime(Date.now()); }
+  function tick() {
+    $('#clock').textContent = fmtTime(Date.now());
+    /* 倒计时只改文本、不重画整块面板：renderBand 会重建 iframe 之外的所有卡片，
+       每秒一次既浪费也会让 hover / tooltip 状态被冲掉。 */
+    var nx = $('#qcNextIn');
+    if (nx) nx.textContent = tf('qc.next', { t: qcCountdown() });
+  }
 
   /* --------------------------------------------------------- env badge -- */
   /* 只探活，文案由 applyI18n 写（语言切换才会跟着变）。 */
@@ -1897,13 +3530,30 @@
   /* ------------------------------------------------------------ events -- */
   function bind() {
     var qEl = $('#q'), deb;
+    $('#railBtn').addEventListener('click', function () {
+      setRailOpen(!state.railOpen);
+      if (state.railOpen) qEl.focus();          /* 展开就是为了输东西，顺手把光标放进去 */
+    });
     qEl.addEventListener('input', function () {
       window.clearTimeout(deb);
       deb = window.setTimeout(function () { state.q = qEl.value || ''; render(); }, 120);
     });
     document.addEventListener('keydown', function (e) {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); qEl.focus(); qEl.select(); }
-      if (e.key === 'Escape') { if (state.drill.metric) closeDrill(); else if (qEl === document.activeElement) { qEl.value = ''; state.q = ''; render(); } }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        /* 收起态下 #railIn 是 display:none，对隐藏元素 focus() 是空操作 —— 必须先展开 */
+        setRailOpen(true); qEl.focus(); qEl.select();
+      }
+      if (e.key === 'Escape') {
+        /* 弹窗优先吃掉 Esc：用户管理里有未保存的白名单草稿，让它先于下钻 / 检索轨关闭 */
+        if (state.um.open) closeUserMgmt();
+        else if (state.drill.metric) closeDrill();
+        else if (qEl === document.activeElement) {
+          /* 有词先清词、没词才收轨：一步到位会让「按两次 Esc」这种肌肉记忆失去其中一档 */
+          if (qEl.value) { qEl.value = ''; state.q = ''; render(); }
+          else { setRailOpen(false); qEl.blur(); }
+        }
+      }
     });
     $('#chips').addEventListener('click', function (e) {
       var c = e.target.closest('.chip'); if (!c) return;
@@ -1928,10 +3578,18 @@
       b.addEventListener('click', function () { setLang(b.getAttribute('data-lang')); });
     });
     $('#logoutBtn').addEventListener('click', logout);
+    bindUserMgmt();
 
     $('#band').addEventListener('click', function (e) {
-      if (e.target.closest('[data-act="qc-retry"]')) { state.qc.loading = true; renderBand(); loadQc(); return; }
-      var m = e.target.closest('.metric'); if (m && m.getAttribute('data-qc')) openDrill(m.getAttribute('data-qc'));
+      if (e.target.closest('[data-act="qc-reload"]')) { loadQc(true); return; }
+      /* 把点击坐标带给 openDrill —— 弹窗以点击位置为中心弹出。
+         键盘触发（Enter/Space）时 clientX/clientY 都是 0，那种情况交给
+         qcDrill 判空并回落到「居中于屏幕」（myapp 同样是 anchor 为空即居中）。 */
+      var m = e.target.closest('.qc-card');
+      if (m && m.getAttribute('data-qc')) {
+        var anchor = (e.clientX || e.clientY) ? { x: e.clientX, y: e.clientY } : null;
+        openDrill(m.getAttribute('data-qc'), anchor);
+      }
     });
     $('#l0').addEventListener('click', function (e) {
       var tb = e.target.closest('[data-map]');
@@ -1941,6 +3599,13 @@
       if (e.target.closest('[data-act="map-reload"]')) { var f = $('#mapFrame'); if (f) f.src = curMap().src; }
     });
     $('#views').addEventListener('click', function (e) {
+      /* 「刷新」不能等下面的 data-act 让路规则：它不属于编辑态那套动作 */
+      if (e.target.closest('[data-act="email-reload"]')) {
+        var ef = $('#emailFrame');
+        if (ef && ef.getAttribute('src')) { delete ef.dataset.loaded; syncEmailBoot(); ef.src = emailSrc(); }
+        else renderEmailSection();
+        return;
+      }
       /* 编辑态的小按钮（改名 / 删除 / 新增 / 分组）交给 onEditClick 统一处理，
          这里先让路：不然点「改名」会连带把子页签切一次、多渲染一遍。 */
       if (e.target.closest('[data-act]')) return;
@@ -1963,22 +3628,58 @@
       var k = b.getAttribute('data-key');
       state.auxOpen[k] = !state.auxOpen[k]; renderAux();
     });
-    $('#drClose').addEventListener('click', closeDrill);
-    $('#scrim').addEventListener('click', closeDrill);
-    $('#drReload').addEventListener('click', fetchDrill);
-    $('#drPrev').addEventListener('click', function () { if (state.drill.page > 1) { state.drill.page--; fetchDrill(); } });
-    $('#drNext').addEventListener('click', function () { state.drill.page++; fetchDrill(); });
-    var dq = $('#drQ'), dd;
+    /* ---- QC 下钻弹窗（骨架见 index.html 的「QC 下钻弹窗」块）----
+       2026-09-23：元素 id 换成与 MsPortal 的 QcDrillModal 同名的一套
+       （qcMask/qcClose/qcSearch/qcReload/qcExport/qcPrev/qcNext…）。 */
+    var qcSearch = $('#qcSearch');
+    $('#qcClose').addEventListener('click', closeDrill);
+    /* 点遮罩**不关闭**（2026-09-23 改）。原来这里是
+       `if (e.target === qcMask) closeDrill()`，与 myapp 的 DraggableClickModal
+       不一致 —— 那边的注释写明是刻意的：「仅通过右上角 × 与 Esc 关闭，
+       点遮罩不关闭（避免误触）」。弹窗可拖动后更容易拖到边缘误点遮罩，
+       关掉一个正在看的明细代价更大。关闭只保留 × 与 Esc 两条路径。 */
+    $('#qcReload').addEventListener('click', fetchDrill);
+    $('#qcExport').addEventListener('click', exportDrillExcel);
+    $('#qcPrev').addEventListener('click', function () { if (state.drill.page > 1) { state.drill.page--; fetchDrill(); } });
+    $('#qcNext').addEventListener('click', function () {
+      var pages = Math.max(1, Math.ceil(state.drill.total / state.drill.size));
+      if (state.drill.page < pages) { state.drill.page++; fetchDrill(); }
+    });
+    /* 表头排序走事件委托：表头每次 render 都会重建 innerHTML，
+       直接绑在 <button> 上会在第一次渲染后就失效。
+
+       方向口径与 MsPortal/portal.js 的 [data-act="qc-sort"] 分支**必须一致**：
+       同一列再点一次切换升降序；换列则从 desc 起（明细表都是「最近的先看」）。
+       写成 asc 起会让同一张表在两个门户上第一次点击得到相反的排列 ——
+       这正是本次统一要消掉的那类差异。 */
+    $('#qcThead').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-act="drill-sort"]'); if (!b) return;
+      var key = b.getAttribute('data-key');
+      var d = state.drill;
+      if (!d.metric) return;
+      if (d.sort === key) {
+        d.dir = (d.dir === 'asc' ? 'desc' : 'asc');
+      } else {
+        d.sort = key;
+        d.dir = 'desc';
+      }
+      d.page = 1;
+      fetchDrill();
+    });
+    var dq = qcSearch, dd;
     dq.addEventListener('input', function () {
       window.clearTimeout(dd);
-      dd = window.setTimeout(function () { state.drill.q = dq.value || ''; state.drill.page = 1; fetchDrill(); }, 220);
+      dd = window.setTimeout(function () { state.drill.q = dq.value || ''; state.drill.page = 1; fetchDrill(); }, 300);
     });
     $('#gate').addEventListener('submit', function (e) {
       if (e.target.id !== 'lf') return;
       e.preventDefault();
       var err = $('#le'), go = $('#lgo'); go.disabled = true; go.textContent = t('gate.busy'); err.hidden = true;
       login($('#lu').value.trim(), $('#lp').value).then(function () {
-        renderGate(); mainLocked(false); start();
+        /* renderWho 必须一起调：login() 只把 state.user / authOk 写好，
+           徽标、退出按钮、用户管理入口三处的可见性全在 renderWho 里判。
+           少了这一行，在本页登录完顶栏仍是「没人登录」的样子，要刷新才恢复。 */
+        renderGate(); renderWho(); mainLocked(false); start();
       }).catch(function (x) {
         err.textContent = t('gate.' + (x.code || 'net')); err.hidden = false;
         go.disabled = false; go.textContent = t('gate.go');
@@ -1998,9 +3699,33 @@
   }
 
   /* -------------------------------------------------------------- boot -- */
+  /* 分两档刷新（与 MsPortal 同一口径，别改回单一定时器）：
+       - 全量（其余五项 + 达标率）：每小时 :06:30，紧跟 eflow_sync 跑完；
+       - 告警单项：每 5 分钟 :00:30，紧跟 eflow_active_alarm 的整表 replace。
+     都用 setTimeout 自链而不是 setInterval —— 对齐按墙上的钟算，interval 只会从进页面
+     那一刻起累加，进页面时若是 :07，下一轮就整体偏了。 */
+  function startQcLoops() {
+    (function qcLoopFull() {
+      window.setTimeout(function () { loadQc(); qcLoopFull(); },
+        qcNextDelay(QC_FULL_MIN, QC_FULL_OFFSET));
+    })();
+    (function qcLoopAlarm() {
+      /* 开页时先补一发 ?only=alarm：首屏那三个告警数字是从全量借来的、时间戳走全量
+         的时间轴（:06:30），而这一档的刻度是 :00:30。不补的话刚进来时「告警最近」
+         可能是一小时前的旧时间，要等下一个 5 分钟刻度才被刷新。 */
+      window.setTimeout(loadQcAlarm, 0);
+      window.setTimeout(function () { loadQcAlarm(); qcLoopAlarm(); },
+        qcNextDelay(QC_ALARM_MIN, QC_ALARM_OFFSET));
+    })();
+    /* 切回前台补一发全量：后台标签页的定时器会被降频甚至冻结，不补的话回到页面看到的
+       可能是几小时前的数字 —— 比「延迟刷新」更容易被误读成故障。 */
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) { loadQc(); loadQcAlarm(); }
+    });
+  }
   function start() {
     loadQc();
-    window.setInterval(loadQc, 300000);           /* 与「告警每 5 分钟」的口径对齐 */
+    startQcLoops();
     loadCatalog();
   }
   function loadCatalog() {

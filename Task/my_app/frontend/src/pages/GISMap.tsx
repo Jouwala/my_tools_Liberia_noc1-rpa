@@ -13,7 +13,7 @@ import { useDataTimestamps } from '../useDataTimestamps'
 import { WH, WH_COLORS, cardStyle, controlCardStyle, pageWrap, useTheme } from '../theme'
 import { MapController } from './gismap/MapController'
 import { SiteDrilldownDrawer } from './gismap/SiteDrilldownDrawer'
-import type { Site, DrilldownData, TopologyLink, LegendKey, LayerKey, TimePreset } from './gismap/types'
+import type { Site, DrilldownData, DrilldownAnalytics, TopologyLink, LegendKey, LayerKey, TimePreset } from './gismap/types'
 
 export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) {
   const [sites, setSites] = useState<Site[]>([])
@@ -24,6 +24,10 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const [drilldownLoading, setDrilldownLoading] = useState(false)
   const [drawerVisible, setDrawerVisible] = useState(false)
   const [selectedSite, setSelectedSite] = useState<string>('')
+  const [analytics, setAnalytics] = useState<DrilldownAnalytics | null>(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(false)
+  // 下钻统计/明细窗口天数（默认 60 天）
+  const [drillRangeDays, setDrillRangeDays] = useState(60)
   const [hiddenLegends, setHiddenLegends] = useState<Set<LegendKey>>(new Set())
   const [timePreset, setTimePreset] = useState<TimePreset>(mode === 'realtime' ? 'all' : '7d')
   const [customRange, setCustomRange] = useState<[Dayjs, Dayjs] | null>(null)
@@ -110,10 +114,42 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     setDrilldownLoading(true)
     setDrawerVisible(true)
 
-    api.get(`/${mode === 'realtime' ? 'gis/realtime/drilldown' : 'gis/drilldown'}/${site.site_id}`)
+    api.get(`/${mode === 'realtime' ? 'gis/realtime/drilldown' : 'gis/drilldown'}/${site.site_id}`,
+      { params: { days: drillRangeDays } })
       .then(res => setDrilldown(res.data))
       .catch(() => setDrilldown(null))
       .finally(() => setDrilldownLoading(false))
+
+    // 图表用的全量聚合统计（与明细并行请求，互不阻塞）
+    // 实时告警地图场景下无历史告警，无需拉取
+    if (mode === 'realtime') {
+      setAnalytics(null)
+    } else {
+      setAnalyticsLoading(true)
+      api.get(`/gis/drilldown/${site.site_id}/analytics`, { params: { days: drillRangeDays } })
+        .then(res => setAnalytics(res.data))
+        .catch(() => setAnalytics(null))
+        .finally(() => setAnalyticsLoading(false))
+    }
+  }
+
+  // 切换统计范围：仅重新拉取，不重新打开抽屉
+  const handleRangeDaysChange = (days: number) => {
+    setDrillRangeDays(days)
+    if (!selectedSite) return
+    setDrilldownLoading(true)
+    api.get(`/${mode === 'realtime' ? 'gis/realtime/drilldown' : 'gis/drilldown'}/${selectedSite}`,
+      { params: { days } })
+      .then(res => setDrilldown(res.data))
+      .catch(() => setDrilldown(null))
+      .finally(() => setDrilldownLoading(false))
+    if (mode !== 'realtime') {
+      setAnalyticsLoading(true)
+      api.get(`/gis/drilldown/${selectedSite}/analytics`, { params: { days } })
+        .then(res => setAnalytics(res.data))
+        .catch(() => setAnalytics(null))
+        .finally(() => setAnalyticsLoading(false))
+    }
   }
 
   const toggleLegend = (key: LegendKey) => {
@@ -662,6 +698,10 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         drilldown={drilldown}
         selectedSite={selectedSite}
         mode={mode}
+        analytics={analytics}
+        analyticsLoading={analyticsLoading}
+        rangeDays={drillRangeDays}
+        onRangeDaysChange={handleRangeDaysChange}
       />
     </div>
   )

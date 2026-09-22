@@ -75,6 +75,7 @@ from backend.routers import (
     cn_kpi,
     native_boards,
     repeat_site_down,
+    fme_ranking,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -213,6 +214,8 @@ app.include_router(cn_kpi.router)
 app.include_router(native_boards.router)
 # Daily repeat site-down count dashboard (eflow_tt + eflow_site).
 app.include_router(repeat_site_down.router)
+# FME 工程师 WO / 站点可用率排名（master_site_db + eflow_wo + 站点可用率服务）
+app.include_router(fme_ranking.router)
 
 
 # ========== 统一门户鉴权中间件 ==========

@@ -2979,7 +2979,10 @@
     }
   }
 
-  function openQcDrill(id) {
+  /* anchor：触发下钻的那次点击的屏幕坐标。2026-09-23 加 —— 弹窗改为
+     「以点击位置为中心弹出」（对齐 myapp 的 DraggableClickModal），
+     所以要把坐标从事件里带进来；键盘触发（无坐标）时传 null = 居中于屏幕。 */
+  function openQcDrill(id, anchor) {
     document.getElementById('qcSearch').value = '';
     /* sort/dir 必须一起重置：换一张卡还沿用上一张的排序列，后端会因为该列不在
        本 metric 的列白名单里而忽略它，看上去像「排序点了没反应」。 */
@@ -2987,6 +2990,10 @@
                       rows: [], columns: [], loading: true, err: '' };
     applyQcDrillTitle();
     document.getElementById('qcMask').hidden = false;
+    /* 先量尺寸再定位：qcDrill 里的 position() 读 offsetWidth/Height，
+       必须在弹窗已可见（hidden=false）之后调用，否则量到 0 会定位到左上角。
+       表格是异步填的，但 max-height 固定 82vh，首帧高度已足够夹取。 */
+    if (window.QcDrill) window.QcDrill.position(anchor || null);
     fetchQcDrill();
   }
 
@@ -6327,7 +6334,11 @@
     var qcMask = document.getElementById('qcMask');
     var qcSearch = document.getElementById('qcSearch');
     document.getElementById('qcClose').addEventListener('click', closeQcDrill);
-    qcMask.addEventListener('click', function (e) { if (e.target === qcMask) closeQcDrill(); });
+    /* 点遮罩**不关闭**（2026-09-23 改）。原来这里是
+       `if (e.target === qcMask) closeQcDrill()`，与 myapp 的
+       DraggableClickModal 不一致 —— 那边的注释写明是刻意的：
+       「仅通过右上角 × 与 Esc 关闭，点遮罩不关闭（避免误触）」。
+       弹窗可拖动后更容易拖到边缘误点遮罩，关掉一个正在看的明细代价更大。 */
     document.getElementById('qcReload').addEventListener('click', function () { fetchQcDrill(); });
     document.getElementById('qcExport').addEventListener('click', exportQcExcel);
     document.getElementById('qcPrev').addEventListener('click', function () {
@@ -6450,11 +6461,16 @@
       }
 
       /* QC 卡片：点开数据库明细弹窗（2026-09-17 改，原为「按该维度筛选看板目录」）。
-         筛选能力没有丢 —— 仍在筛选栏的 chip 上（见下面那个 data-act="filter" 分支）。 */
+         筛选能力没有丢 —— 仍在筛选栏的 chip 上（见下面那个 data-act="filter" 分支）。
+
+         2026-09-23：把点击坐标带给 openQcDrill —— 弹窗以点击位置为中心弹出。
+         键盘触发（Enter/Space）时 clientX/clientY 都是 0，那种情况交给
+         qcDrill 判空并回落到「居中于屏幕」（myapp 同样是 anchor 为空即居中）。 */
       var qc = e.target.closest('[data-act="qc"]');
       if (qc) {
         e.preventDefault();
-        openQcDrill(qc.getAttribute('data-qc'));
+        var anchor = (e.clientX || e.clientY) ? { x: e.clientX, y: e.clientY } : null;
+        openQcDrill(qc.getAttribute('data-qc'), anchor);
         return;
       }
 

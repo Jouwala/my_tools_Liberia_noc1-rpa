@@ -108,6 +108,7 @@ const MwRealTimeDashboard = lazy(() => import('./pages/MwRealTimeDashboard'))
 const PortalLogin = lazy(() => import('./pages/PortalLogin'))
 const EflowQa = lazy(() => import('./pages/EflowQa'))
 const SiteAvailability = lazy(() => import('./pages/SiteAvailability'))
+const FmeRanking = lazy(() => import('./pages/FmeRanking'))
 const RepeatSiteDown = lazy(() => import('./pages/RepeatSiteDown'))
 const RanCellsKpi = lazy(() => import('./pages/RanCellsKpi'))
 const CnKpi = lazy(() => import('./pages/CnKpi'))
@@ -147,9 +148,9 @@ const FINEBI_PAGE_TO_SLUG: Record<string, string> = Object.fromEntries(
   FINEBI_BOARDS.map((b) => [`finebi_${b.slug}`, b.slug]),
 )
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'repeat_site_down' | 'ran_cells_kpi' | 'cn_kpi' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'fme_ranking' | 'repeat_site_down' | 'ran_cells_kpi' | 'cn_kpi' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'repeat_site_down', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'fme_ranking', 'repeat_site_down', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -346,6 +347,7 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   ms_nur_only: { icon: <LineChartOutlined />, labelKey: 'nav.msNurOnly' },
   ms_sla_only: { icon: <FundOutlined />, labelKey: 'nav.msSlaOnly' },
   site_avail: { icon: <SafetyOutlined />, labelKey: 'nav.siteAvail' },
+  fme_ranking: { icon: <BarChartOutlined />, labelKey: 'nav.fmeRanking' },
   repeat_site_down: { icon: <DisconnectOutlined />, labelKey: 'nav.repeatSiteDown' },
   ran_cells_kpi: { icon: <AreaChartOutlined />, labelKey: 'nav.ranCellsKpi' },
   cn_kpi: { icon: <FundProjectionScreenOutlined />, labelKey: 'nav.cnKpi' },
@@ -393,7 +395,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_monitor',
     labelKey: 'nav.grp.monitor',
-    items: ['alarm', 'ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'site_avail', 'repeat_site_down', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview'],
+    items: ['alarm', 'ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'site_avail', 'fme_ranking', 'repeat_site_down', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview'],
   },
   {
     key: 'grp_network',
@@ -1218,6 +1220,8 @@ function AppContent() {
         return <MsSlaOnly />
       case 'site_avail':
         return <SiteAvailability />
+      case 'fme_ranking':
+        return <FmeRanking />
       case 'repeat_site_down':
         return <RepeatSiteDown />
       case 'ran_cells_kpi':

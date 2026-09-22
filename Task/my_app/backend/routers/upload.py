@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Depends
 
 from backend.database import get_raw_connection, DB_PATH
-from backend.dialect_helpers import write_df
+from backend.dialect_helpers import write_df, ensure_table_indexes
 from backend.services.profiler import DataProfiler
 from backend.security import require_protected
 
@@ -97,10 +97,8 @@ async def upload_excel(file: UploadFile = File(...)):
             # 写入数据库
             write_df(df, table_name, if_exists="replace")
 
-            # 建立索引
-            for idx_col in ['site_id', 'region_level1', 'region', 'status', 'created_time']:
-                if idx_col in df.columns:
-                    conn.execute(f'CREATE INDEX IF NOT EXISTS idx_{table_name}_{idx_col} ON "{table_name}"({idx_col})')
+            # 建立索引（与 init_db / 表浏览器导入共用同一份约定）
+            ensure_table_indexes(conn, table_name, df.columns)
 
             conn.commit()
 

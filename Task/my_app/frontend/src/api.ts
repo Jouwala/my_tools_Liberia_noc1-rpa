@@ -49,6 +49,15 @@ export function getSiteAvailabilityFilters() {
   return api.get('/site-availability/filters')
 }
 
+// FME 工程师 WO / 站点可用率排名
+export function getFmeRankingFilters() {
+  return api.get('/fme-ranking/filters')
+}
+
+export function getFmeRankingOverview(params?: Record<string, string | number>) {
+  return api.get('/fme-ranking/overview', { params })
+}
+
 // Daily site-down occurrence dashboard: eflow_tt + eflow_site.
 export function getRepeatSiteDownFilters() {
   return api.get('/repeat-site-down/filters')

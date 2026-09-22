@@ -10,6 +10,12 @@
 <!-- 零 CDN：图标与看板目录都从 /MsPortal/ 只读引用，本页面不写它的任何文件 -->
 <link rel="stylesheet" href="/MsPortal/assets/icons/phosphor.css">
 <link rel="stylesheet" href="assets/olbr.css">
+<!-- QC 下钻弹窗的统一外壳（2026-09-23 加）。与 /MsPortal/ 引的是**同一个文件** ——
+     这是「两个门户的下钻弹窗长相与交互一致」的实现方式：一份 qcDrill.css，
+     两边同名同类。文件内部只用 --qc-* 变量，本页由下面 assets/olbr.css 末尾的
+     映射块灌入本页主题色，所以弹窗结构与 MsPortal 逐条一致，而深浅色仍随本页。
+     排在 olbr.css 之后：万一有同特异性的旧规则，以本文件为准。 -->
+<link rel="stylesheet" href="/MsPortal/assets/qcDrill.css">
 <!-- 主题/语言在首帧前落到 <html>，避免闪白。
    键名刻意用 olbr.* 而不是复用 msportal.* —— 两个页面各自记忆各自的选择，
    并且本页面**不持久化搜索与筛选**（MsPortal 那版会把上一次的筛选带进下次
@@ -116,6 +122,11 @@
               data-i18n-attr="title:edit.tipOn">
         <i class="ph ph-pencil-simple" aria-hidden="true"></i><span>编辑分组</span>
       </button>
+      <!-- 用户管理：只对「真门户管理员」显示（olbr.js renderWho 里判 role + id）。
+           账号数据不在本页，走的还是 /uniplam/api/auth/* 那套接口。 -->
+      <button type="button" class="gb" id="umBtn" hidden data-i18n-attr="title:um.entryTip">
+        <i class="ph ph-shield-check" aria-hidden="true"></i><span data-i18n="um.entry">用户管理</span>
+      </button>
       <a class="gb" href="/MsPortal/" data-i18n-attr="title:attr.adminTitle">
         <i class="ph ph-wrench" aria-hidden="true"></i><span data-i18n="mast.admin">管理门户</span>
       </a>
@@ -141,9 +152,25 @@
   <button type="button" class="gb eb-x edit-leave" data-act="edit-leave">退出编辑</button>
 </div>
 
-<!-- ===================== 常驻检索轨（不再默认收起） ===================== -->
+<!-- ===================== 检索轨：默认收起成一条，点「搜索与筛选」才展开 =====================
+     2026-09-22 改：原先整条常驻展开（≈94px），首页一进来先被它吃掉两行。收起态照样把
+     「有没有在筛选」讲清楚 —— 条上写命中数和筛选条件，并留一颗「清除筛选」，
+     否则下面的卡少了几张会被当成系统问题。展开状态不持久化：每次进来都是收起。
+     清除按钮只有这一颗（从 .rail-end 移到了条上），展开态也在同一行，不重复绑事件。 -->
 <div class="rail" id="rail">
-  <div class="rail-in wrap">
+  <div class="rail-bar wrap">
+    <button type="button" class="rail-t" id="railBtn" aria-expanded="false" aria-controls="railIn"
+            data-i18n-attr="title:rail.tip">
+      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <span data-i18n="rail.btn">搜索与筛选</span>
+      <i class="ph ph-caret-down rail-cv" aria-hidden="true"></i>
+    </button>
+    <span class="rail-sum" id="railSum"></span>
+    <button type="button" class="gb" id="clearBtn" hidden>
+      <i class="ph ph-x" aria-hidden="true"></i><span data-i18n="rail.clear">清除筛选</span>
+    </button>
+  </div>
+  <div class="rail-in wrap" id="railIn" hidden>
     <label class="q">
       <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
       <input type="search" id="q" autocomplete="off" spellcheck="false"
@@ -159,9 +186,6 @@
         <button type="button" class="seg-b" data-status="beta">Beta</button>
       </span>
       <span class="count" id="count">—</span>
-      <button type="button" class="gb" id="clearBtn" hidden>
-        <i class="ph ph-x" aria-hidden="true"></i><span data-i18n="rail.clear">清除筛选</span>
-      </button>
     </div>
   </div>
 </div>
@@ -201,31 +225,69 @@
   </div>
 </footer>
 
-<!-- QC 下钻抽屉 -->
-<div class="scrim" id="scrim" hidden></div>
-<aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-labelledby="drTitle" hidden>
-  <header class="dr-head">
-    <div class="dr-t">
-      <h3 id="drTitle">Quality Control</h3>
-      <p id="drSub" class="dr-sub"></p>
+<!-- ===================== QC 下钻弹窗（统一下钻弹窗前 = 右侧抽屉） =============
+     2026-09-23 改版：由「右侧滑入抽屉 .drawer + table.grid」换成与
+     /MsPortal/ **逐类一致**的居中弹窗（.qc-mask / .qc-modal / …），
+     样式来自两边共引的 /MsPortal/assets/qcDrill.css。
+
+     为什么统一：两个门户的 QC 卡取自同一个接口（/api/portal-qc/detail，
+     同样的 total/rows/columns），此前却是两种长相、两种能力 ——
+     MsPortal 能排序 / 能导出 / 能跳完整看板，只读版都不能，
+     同一个数字点开像是两个系统。
+
+     为什么类名用 .qc-* 而不是复用本页的 .gp/.toast：
+     那套是本页私有的浮层样式，.qc-* 是 qcDrill.css 的独立命名空间，
+     两边同名同类，改一处两边同时生效。
+
+     id 与 MsPortal 的 QcDrillModal **完全同名**：qcMask / qcTitle / qcSearch /
+     qcReload / qcExport / qcOpenBoard / qcThead / qcTbody / qcCount / qcPage /
+     qcPrev / qcNext / qcClose —— 两份 index.html 可以直接对着 diff。
+     ======================================================================== -->
+<div class="qc-mask" id="qcMask" hidden>
+  <div class="qc-modal" role="dialog" aria-modal="true" aria-labelledby="qcTitle">
+    <div class="qc-head">
+      <!-- 拖动抓手：标题栏整体可拖（cursor:move），这条纹理让「能拖」一眼可见。
+           仅装饰，不参与任何事件逻辑，故 aria-hidden。与 MsPortal 同款。 -->
+      <span class="qc-grip" aria-hidden="true"></span>
+      <h3 id="qcTitle">Quality Control</h3>
+      <button type="button" class="qc-x" id="qcClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
     </div>
-    <div class="dr-tools">
-      <input type="search" id="drQ" autocomplete="off" aria-label="过滤明细"
-             data-i18n-attr="aria-label:attr.drQAria,placeholder:dr.qPh">
-      <button type="button" class="gb" id="drReload"><i class="ph ph-arrow-clockwise" aria-hidden="true"></i></button>
-      <button type="button" class="ib" id="drClose" aria-label="Close"><i class="ph ph-x" aria-hidden="true"></i></button>
+    <div class="qc-body">
+      <div class="qc-tools">
+        <input type="search" id="qcSearch" autocomplete="off"
+               data-i18n-attr="aria-label:attr.drQAria,placeholder:dr.qPh">
+        <button type="button" class="qc-btn" id="qcReload" data-i18n="dr.reload">刷新</button>
+        <!-- 导出：与 MsPortal 同一套 UNIFIED_EXCEL_V1（/MsPortal/assets/excelReport.js）。
+             只读版原本没有导出，是这次统一补齐的能力之一。 -->
+        <button type="button" class="qc-btn" id="qcExport" data-i18n="dr.export">导出 Excel</button>
+        <!-- 跳到 my_app 里对应的完整看板继续处理。只给目录里确实存在对应看板的
+             维度（alarm/tt/wo/spms）；cr/pmt 在 my_app 侧没有页面 ——
+             配一个错的链接比不给链接更糟。href 与显隐由 olbr.js 设置。 -->
+        <a class="qc-btn" id="qcOpenBoard" hidden target="_blank" rel="noopener"
+           data-i18n="dr.openBoard">打开完整看板</a>
+      </div>
+      <div class="qc-scroll" id="qcScroll">
+        <table class="qc-table">
+          <thead id="qcThead"></thead>
+          <tbody id="qcTbody"></tbody>
+        </table>
+      </div>
+      <div class="qc-hint" data-i18n="dr.filterHint"></div>
     </div>
-  </header>
-  <div class="dr-body" id="drBody"></div>
-  <footer class="dr-foot">
-    <span id="drCount" class="mono"></span>
-    <span class="pager">
-      <button type="button" class="gb" id="drPrev"><i class="ph ph-caret-left" aria-hidden="true"></i></button>
-      <span id="drPage" class="mono"></span>
-      <button type="button" class="gb" id="drNext"><i class="ph ph-caret-right" aria-hidden="true"></i></button>
-    </span>
-  </footer>
-</aside>
+    <div class="qc-foot">
+      <div class="qc-foot-in">
+        <span class="qc-note" id="qcCount"></span>
+        <span class="qc-pager">
+          <button type="button" class="qc-btn" id="qcPrev">‹</button>
+          <span class="qc-page" id="qcPage"></span>
+          <button type="button" class="qc-btn" id="qcNext">›</button>
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- 编辑态的「分组归属」浮层：内容随点开的卡片生成（fixed 定位贴在卡片旁边，
      不用 modal —— 改归属时还得看见卡片本身，遮罩会把上下文全挡住） -->
@@ -234,11 +296,58 @@
 <!-- 编辑态的「改名」浮层：一级分组改名 / 新增分组 / 看板改标题共用这一颗（同一时刻只开一个） -->
 <div class="gp gp--form" id="editPop" hidden></div>
 
+<!-- ===================== 用户管理弹窗（2026-09-22 加） =====================
+     与 http://localhost/uniplam/ 的 UserManagementModal、/MsPortal/ 的移植版是
+     **同一个用户库的第三个操作界面**：骨架只放静态壳子与固定按钮，表体 / 表单 /
+     页面配置面板全部由 olbr.js 的 renderUserMgmt() 按 state.um 整块重画
+     （输入到一半的值先落 state 再画，否则重绘会清掉用户正在敲的内容）。
+     样式在 olbr.css 的 .um-* 段，走本页令牌，不引 MsPortal 的 portal.css。 -->
+<div class="um-mask" id="umMask" hidden>
+  <div class="um-modal" role="dialog" aria-modal="true" aria-labelledby="umTitle">
+    <div class="um-head">
+      <div class="um-head-txt">
+        <h3 id="umTitle" data-i18n="um.title">用户管理</h3>
+        <p class="um-sub" data-i18n="um.subtitle">统一门户账号的增删与权限设置（仅管理员可见，与 /uniplam/ 同库同步）</p>
+      </div>
+      <span class="um-head-actions">
+        <button type="button" class="gb" id="umReload" data-i18n="um.reload">刷新</button>
+        <a class="gb" id="umOpenPortal" href="/uniplam/" target="_blank" rel="noopener noreferrer"
+           data-i18n="um.openPortal">在统一门户打开</a>
+        <button type="button" class="ib" id="umClose" aria-label="Close">
+          <i class="ph ph-x" aria-hidden="true"></i>
+        </button>
+      </span>
+    </div>
+    <div class="um-body" id="umBody"></div>
+    <!-- 底部固定操作栏：放在滚动区之外，页面配置面板展开时「保存」常驻可见 -->
+    <div class="um-foot" id="umFoot" hidden>
+      <span class="um-foot-who" id="umFootWho"></span>
+      <span class="um-foot-actions">
+        <button type="button" class="gb" id="umCancelBtn" data-i18n="um.pagesCancel">收起</button>
+        <button type="button" class="gb um-primary" id="umSaveBtn" data-i18n="um.pagesSave">保存页面配置</button>
+      </span>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
 <script src="/MsPortal/assets/data.js"></script>
 <script src="/MsPortal/assets/terms.js"></script>
 <script src="/MsPortal/assets/access.js"></script>
+<!-- 下钻弹窗的「导出 Excel」（2026-09-23 加）。与 MsPortal 用的是同一个文件、
+     同一套格式 UNIFIED_EXCEL_V1 → 两个门户导出的表头 / 底纹 / 冻结行完全同款。
+
+     刻意**不**在这里引 vendor/exceljs.min.js（约 0.9MB）：excelReport.js 内部会按
+     自身脚本地址推出 assets/ 基址，点「导出」时才 loadExcelJS() 注入同目录的
+     vendor/exceljs.min.js —— 本页以 /MsPortal/assets/excelReport.js 的绝对路径加载，
+     所以那个相对推导结果是 /MsPortal/assets/vendor/… 命中同一个文件。
+     多引一行只会让只读版首屏白白多下 0.9MB。 -->
+<script src="/MsPortal/assets/excelReport.js"></script>
+<!-- QC 下钻弹窗的拖动 / 点击位置定位（2026-09-23 加）。与 /MsPortal/ 共用同一个
+     文件，行为逐条对齐 /myapp/ 的 DraggableClickModal：以点击位置为中心弹出、
+     按住标题栏可拖、点遮罩不关闭。 -->
+<script src="/MsPortal/assets/qcDrill.drag.js"></script>
 <script src="assets/olbr.js"></script>
 </body>
 </html>

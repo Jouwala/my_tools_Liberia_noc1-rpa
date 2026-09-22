@@ -24,6 +24,12 @@
      新顶栏与 portal.css 里旧的顶栏规则同特异性，靠加载顺序取胜。
      新增文件，portal.css / portal.js 一行未改。 -->
 <link rel="stylesheet" href="assets/masthead.css">
+<!-- QC 下钻弹窗的统一外壳（2026-09-23 加）。与 /olbrportal/assets/olbr.css 引的是
+     **同一个文件**：同名同类名，两边结构 / 间距 / 字号 / 交互逐条一致；文件内部只用
+     --qc-* 变量，主题色由下面这段 :root 映射，所以两边各随各的深浅色不打架。
+     排在 portal.css 之后：旧的内联 .qc-* 规则若还留着，以本文件为准。 -->
+<link rel="stylesheet" href="assets/qcDrill.css">
+<link rel="stylesheet" href="assets/qcDrill.theme.css">
 <script>
 /* 主题与语言首屏防闪烁（主题默认浅色，与 ref.html 一致；用户选择存 localStorage）。
    语言没选过时按浏览器语言定默认 —— 之前硬默认中文，利比里亚用户第一次打开满屏中文。
@@ -437,27 +443,36 @@
 <!-- ===================== BEGIN: QcDrillModal =====================
      Quality Control 指标卡的下钻明细弹窗。表头 / 行 / 分页文本由 portal.js 填充，
      这里只放骨架与中英静态文案（data-i18n、data-i18n-attr 由 render() 统一套用）。
+
+     2026-09-23：外壳类名从 .modal-mask/.modal.wide/.modal-head… 换成 .qc-*，
+     样式移入 assets/qcDrill.css —— 与 /olbrportal/ 的同一个弹窗**逐类一致**。
+     此前两个门户各写一套（这里居中 modal、olbrportal 右侧抽屉），同一个数字
+     点开是两种长相两种能力。.qc-* 是自成一体的命名空间，只映射主题变量，
+     与页面其它弹窗（.modal / .group-modal / .esc-modal）互不影响。
      ================================================================ -->
-<div class="modal-mask" id="qcMask" hidden>
-  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="qcTitle">
-    <div class="modal-head">
+<div class="qc-mask" id="qcMask" hidden>
+  <div class="qc-modal" role="dialog" aria-modal="true" aria-labelledby="qcTitle">
+    <div class="qc-head">
+      <!-- 拖动抓手：标题栏整体可拖（cursor:move），这条纹理让「能拖」一眼可见。
+           仅装饰，不参与任何事件逻辑，故 aria-hidden。 -->
+      <span class="qc-grip" aria-hidden="true"></span>
       <h3 id="qcTitle">Quality Control</h3>
-      <button type="button" class="icon-btn small" id="qcClose" aria-label="Close">
+      <button type="button" class="qc-x" id="qcClose" aria-label="Close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
     </div>
-    <div class="modal-body">
+    <div class="qc-body">
       <div class="qc-tools">
         <input type="search" id="qcSearch" autocomplete="off" data-i18n-attr="placeholder:qc.search">
-        <button type="button" class="btn-soft" id="qcReload" data-i18n="qc.reload">刷新</button>
+        <button type="button" class="qc-btn" id="qcReload" data-i18n="qc.reload">刷新</button>
         <!-- 2026-09-20：CSV -> xlsx（my_app 统一格式 UNIFIED_EXCEL_V1，见 assets/excelReport.js）。
              这里的静态文案只是 i18n 生效前的兜底，运行时仍由 portal.js 的 qc.export 覆盖。 -->
-        <button type="button" class="btn-soft" id="qcExport" data-i18n="qc.export">导出 Excel</button>
+        <button type="button" class="qc-btn" id="qcExport" data-i18n="qc.export">导出 Excel</button>
         <!-- 2026-09-22 加：跳到 my_app 里对应的完整看板继续处理。
              只给「目录里确实存在对应看板」的维度显示（alarm/tt/wo/spms），
              cr/pmt 在 my_app 侧没有对应页面 —— 配一个错的链接比不给链接更糟。
              href 与显隐都由 portal.js 的 applyQcDrillTitle() 设置。 -->
-        <a class="btn-soft qc-open-board" id="qcOpenBoard" hidden target="_blank" rel="noopener"
+        <a class="qc-btn qc-open-board" id="qcOpenBoard" hidden target="_blank" rel="noopener"
            data-i18n="qc.openBoard">打开完整看板</a>
       </div>
       <div class="qc-scroll" id="qcScroll">
@@ -466,15 +481,15 @@
           <tbody id="qcTbody"></tbody>
         </table>
       </div>
-      <div class="modal-note qc-hint" data-i18n="qc.filterHint"></div>
+      <div class="qc-hint" data-i18n="qc.filterHint"></div>
     </div>
-    <div class="modal-foot">
-      <div class="qc-foot">
-        <span class="modal-note" id="qcCount"></span>
+    <div class="qc-foot">
+      <div class="qc-foot-in">
+        <span class="qc-note" id="qcCount"></span>
         <span class="qc-pager">
-          <button type="button" class="btn-soft" id="qcPrev">‹</button>
+          <button type="button" class="qc-btn" id="qcPrev">‹</button>
           <span class="qc-page" id="qcPage"></span>
-          <button type="button" class="btn-soft" id="qcNext">›</button>
+          <button type="button" class="qc-btn" id="qcNext">›</button>
         </span>
       </div>
     </div>
@@ -684,6 +699,11 @@
      window.MsExcelReport，真正的 ExcelJS（约 0.9MB）等点「导出 Excel」时
      才由 loadExcelJS() 按需注入 assets/vendor/exceljs.min.js。 -->
 <script src="assets/excelReport.js"></script>
+<!-- QC 下钻弹窗的拖动 / 点击位置定位（2026-09-23 加）。与 /olbrportal/ 共用同一个
+     文件 —— 行为逐条对齐 /myapp/ 的 DraggableClickModal：以点击位置为中心弹出、
+     按住标题栏可拖、点遮罩不关闭。排在 portal.js 之前：它自身只挂 document 级
+     委托并在 DOMContentLoaded 绑定，先加载可保证首次打开前就绪。 -->
+<script src="assets/qcDrill.drag.js"></script>
 <script src="assets/portal.js"></script>
 </body>
 </html>

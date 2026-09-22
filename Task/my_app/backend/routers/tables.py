@@ -12,12 +12,13 @@ from fastapi import APIRouter, Query, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from backend.database import get_raw_connection, list_tables, DB_PATH
-from backend.dialect_helpers import table_columns, write_df
+from backend.dialect_helpers import table_columns, write_df, ensure_table_indexes
 from backend.routers.upload import clean_column_name, UPLOAD_DIR
 from backend.services.profiler import DataProfiler
 import pandas as pd
 
 router = APIRouter(prefix="/api/tables", tags=["tables"])
+logger = logging.getLogger(__name__)
 
 # ---------------- 列显示模板（持久化，跟随 DB_MODE 双模） ----------------
 # 表名以 _ 开头：get_tables 列表接口会跳过下划线前缀表，Table Browser 不可见
@@ -338,6 +339,31 @@ def export_table_data(
 
 
 # ---------------- 自定义导入：Excel/CSV → 用户命名的新表（写入当前数据库） ----------------
+# 导入记账列：与 backend/scripts/init_db.py:113-115 完全同源（同名义列、同取值语义），
+# 保证「表浏览器导入」与「系统初始化导入」产出的表结构一致，可互相替换。
+IMPORT_META_COLS = ("_source_file", "_source_sheet", "_import_time")
+
+
+def _attach_import_meta(df, source_file, source_sheet):
+    """给待入库的 DataFrame 追加 3 个记账列（就地返回，不修改调用方对象）。
+
+    - _source_file：原始上传文件名（非落盘的 uuid 临时名）
+    - _source_sheet：来源工作表名（CSV 为 Sheet1）
+    - _import_time：导入时刻 ISO 字符串
+
+    列名以 ``_`` 开头：clean_column_name 会剥掉源表列名的前导下划线，
+    因此这两个命名空间不会与用户表头冲突。
+    """
+    if any(c in df.columns for c in IMPORT_META_COLS):
+        # 极端情况：源表头被清洗后恰好撞上记账列名，记账列让位（保留用户数据）
+        df = df.drop(columns=[c for c in IMPORT_META_COLS if c in df.columns])
+    df = df.copy()
+    df["_source_file"] = source_file
+    df["_source_sheet"] = source_sheet
+    df["_import_time"] = pd.Timestamp.now().isoformat()
+    return df
+
+
 @router.post("/import")
 async def import_excel_to_table(
     file: UploadFile = File(...),
@@ -477,20 +503,20 @@ async def import_excel_to_table(
     created = []
     with get_raw_connection() as conn:
         for tname, sheet_name, df in cleaned:
+            # 记账列：与 backend/scripts/init_db.py 的导入约定保持一致，
+            # 任何来源的表都能追溯「哪个文件、哪个 sheet、什么时候导入的」。
+            df = _attach_import_meta(df, raw_name, sheet_name)
             write_df(df, tname, if_exists="replace" if overwrite else "append")
-            for idx_col in ['site_id', 'region_level1', 'region', 'status', 'created_time']:
-                if idx_col in df.columns:
-                    try:
-                        conn.execute(
-                            f'CREATE INDEX IF NOT EXISTS idx_{tname}_{idx_col} ON "{tname}"({idx_col})')
-                    except Exception:
-                        pass
+            # 索引：与 init_db 初始化导入共用同一份约定（含 site_name / alarm_occur_time
+            # 复合索引等），失败会记 warning 而非静默跳过。
+            idx_names = ensure_table_indexes(conn, tname, df.columns, logger=logger)
             conn.commit()
             created.append({
                 "table_name": tname,
                 "sheet_name": sheet_name,
                 "row_count": int(len(df)),
                 "col_count": int(len(df.columns)),
+                "indexes": idx_names,
             })
         conn.close()
 

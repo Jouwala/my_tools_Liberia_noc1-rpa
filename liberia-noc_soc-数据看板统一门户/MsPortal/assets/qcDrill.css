@@ -48,7 +48,14 @@
 }
 
 /* ------------------------------------------------------------------ 遮罩 -- */
-/* 两侧共用：居中定位 + 点遮罩关闭（关闭逻辑在各自 JS 里）。 */
+/* 2026-09-23 二次改版：对齐 /myapp/ 的 DraggableClickModal（见
+   Task/my_app/frontend/src/components/DraggableClickModal.tsx）——
+   上一版只是「长得像」，交互仍不一致：不能拖、点遮罩就关、不会跟着点弹出。
+
+   · 遮罩只用 flex 做「无 JS 时的兜底居中」；真正定位由 JS 写 left/top
+     （以点击位置为中心、越界 clamp 到视口内），所以弹窗是 position: fixed。
+   · 点遮罩**不关闭**。myapp 的注释写明是刻意的：「仅通过右上角 × 与 Esc 关闭，
+     点遮罩不关闭（避免误触）」。之前两边都点遮罩关，这次一起改成不关。 */
 .qc-mask {
   position: fixed;
   inset: 0;
@@ -64,6 +71,17 @@
 .qc-mask[hidden] { display: none; }
 
 .qc-modal {
+  /* fixed + JS 写 left/top：与 myapp 的 .dcm-modal 同一套定位模型，
+     这是「能拖」与「以点击点为中心弹出」的前提 —— 用 flex 居中时
+     拖动要改 margin/transform，会和居中逻辑互相打架。 */
+  position: fixed;
+  /* 无 JS / JS 尚未跑到时的兜底居中：fixed + left/top 都缺省会退回到
+     「静态位置」，表现为弹窗贴在视口左上角闪一下。这里先用 50% + translate
+     居中，QcDrill.position() 一旦写入 left/top 会同时把 transform 置为 none，
+     两者不会互相打架（见 qcDrill.drag.js 的 apply()）。 */
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   width: 100%;
   /* 明细最长 12 列，故放宽到 1320px；再宽会在 1366 屏上贴边。 */
   max-width: min(1320px, 96vw);
@@ -75,6 +93,7 @@
   border: 1px solid var(--qc-border);
   border-radius: var(--qc-radius-modal);
   box-shadow: var(--qc-shadow);
+  z-index: 201;
 }
 
 .qc-head {
@@ -85,14 +104,39 @@
   padding: 12px 16px;
   border-bottom: 1px solid var(--qc-border);
   flex: 0 0 auto;
+  /* 标题栏 = 拖动把手。cursor: move + 禁选文字，与 myapp 的 .dcm-header 一致：
+     按住标题栏拖，且拖动过程中不会把标题文字框选成蓝底。 */
+  cursor: move;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* 拖动把手：myapp 只靠 cursor:move 提示（鼠标移上去才知道能拖）。这里补一条
+   常驻的抓手纹理，让「能拖」这件事一眼可见 —— 是加法，不改 myapp 的任何行为。 */
+.qc-grip {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 16px;
+  margin-right: 2px;
+  opacity: .45;
+  background-image: radial-gradient(currentColor 1px, transparent 1px);
+  background-size: 4px 4px;
+  background-position: 0 0;
 }
 .qc-head h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin: 0;
   font-size: 16px;
   font-weight: 800;
   color: var(--qc-heading);
 }
+/* 关闭按钮要排除在拖动之外（点它必须只关窗、不起拖），
+   光标也退回普通指针，否则用户会以为点 × 也能拖。 */
 .qc-x {
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
