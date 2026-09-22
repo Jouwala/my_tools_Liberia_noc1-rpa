@@ -35,8 +35,16 @@
   }
 
   var DATA = window.MS_PORTAL_DATA || { items: [], groups: [] };
-  var LANG = 'zh';
-  try { LANG = localStorage.getItem('msportal.lang.v1') === 'en' ? 'en' : 'zh'; } catch (e) {}
+  var LANG = (function () {
+    try {
+      var v = localStorage.getItem('msportal.lang.v1');
+      if (v === 'en' || v === 'zh') return v;
+    } catch (e) { /* ignore */ }
+    /* 没切过语言时跟随浏览器 —— 与 viewer.html 首屏脚本同一口径，
+       否则首帧 <html lang> 是 en、下面 JS 却按 zh 画。 */
+    var nav = (navigator.language || navigator.userLanguage || 'zh') + '';
+    return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+  })();
 
   /* ---- 看板目录：与门户首页同一条真相源（2026-09-19 修） ----
      背景：门户首页（portal.js）的目录优先级是「服务端全局目录 > 本机 localStorage
@@ -305,13 +313,20 @@
     ? {
       back: 'Back to portal', cnt: 'dashboards', ext: 'This board is an external system (FineBI / 3rd party) and cannot be embedded here for security reasons (X-Frame-Options).', open: 'Open in new window', loading: 'Loading…',
       needLogin: 'Sign-in required', needLoginDesc: 'This page embeds report content, so it needs a unified-portal sign-in. Please sign in on the portal home page first.', goLogin: 'Go to sign in',
-      denied: 'No access to this dashboard', deniedDesc: 'This dashboard is not in your page permissions. Ask an administrator to tick it under User Management → Page configuration.', backPortal: 'Back to portal home'
+      denied: 'No access to this dashboard', deniedDesc: 'This dashboard is not in your page permissions. Ask an administrator to tick it under User Management → Page configuration.', backPortal: 'Back to portal home',
+      sb: 'Collapse / expand sidebar', reload: 'Reload'
     }
     : {
       back: '返回门户首页', cnt: '个看板', ext: '该看板属于外部系统（FineBI / 第三方），出于安全策略（X-Frame-Options）无法在本页内嵌显示。', open: '在新窗口打开', loading: '加载中…',
       needLogin: '需要登录', needLoginDesc: '本页用于内嵌查看报告内容，需要统一门户账号登录。请先在门户首页登录。', goLogin: '去登录',
-      denied: '无权查看该看板', deniedDesc: '当前账号的页面权限里没有这张看板。如需开通，请联系管理员在「用户管理 → 页面配置」里勾选。', backPortal: '返回门户首页'
+      denied: '无权查看该看板', deniedDesc: '当前账号的页面权限里没有这张看板。如需开通，请联系管理员在「用户管理 → 页面配置」里勾选。', backPortal: '返回门户首页',
+      sb: '收起/展开侧栏', reload: '重新加载'
     };
+  /* 工具条图标按钮的 title 之前只写在 viewer.html 里（中文），英文模式下是残留。 */
+  [['toggleSb', 'sb'], ['reloadBtn', 'reload'], ['openBtn', 'open']].forEach(function (p) {
+    var el = document.getElementById(p[0]);
+    if (el) el.setAttribute('title', TXT[p[1]]);
+  });
   document.getElementById('backTxt').textContent = TXT.back;
   phBtnTxt.textContent = TXT.open;
   loading.innerHTML = '<i class="ph ph-circle-notch" aria-hidden="true" style="margin-right:8px"></i>' + esc(TXT.loading);
@@ -321,7 +336,7 @@
     elGrpName.textContent = LANG === 'en' ? (m.en || m.id) : (m.zh || m.id);
     elGrpSub.textContent = LANG === 'en' ? (m.subEn || '') : (m.subZh || '');
     elGrpCnt.textContent = LIST.length + ' ' + TXT.cnt;
-    document.title = (LANG === 'en' ? (m.en || m.id) : (m.zh || m.id)) + ' · MS Portal';
+    document.title = (LANG === 'en' ? (m.en || m.id) : (m.zh || m.id)) + (LANG === 'en' ? ' · MS Portal' : ' · 看板查看器');
   }
 
   function renderList() {

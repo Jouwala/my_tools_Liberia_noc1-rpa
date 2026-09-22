@@ -3,7 +3,7 @@ import { Card, Table, Input, Button, Tag, Modal, Descriptions, Space, Popconfirm
 import { SearchOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
-import dayjs from 'dayjs'
+import { formatDateTime } from '../datetime'
 import { useI18n } from '../i18n'
 
 interface Analysis {
@@ -108,7 +108,7 @@ export default function ArchiveList() {
       dataIndex: 'created_at',
       key: 'created_at',
       minWidth: 180,
-      render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '-',
+      render: (v: string) => formatDateTime(v),
     },
     {
       title: t('archive.colAction'),
@@ -227,8 +227,8 @@ export default function ArchiveList() {
           <div>
             <Descriptions column={3} size="small" bordered style={{ marginBottom: 'var(--wh-space-md)' }}>
               <Descriptions.Item label={t('archive.colTable')}><Tag color="blue">{detail.table_name}</Tag></Descriptions.Item>
-              <Descriptions.Item label={t('archive.colCreated')}>{dayjs(detail.created_at).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
-              <Descriptions.Item label={t('archive.colCreated')}>{dayjs(detail.updated_at).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
+              <Descriptions.Item label={t('archive.colCreated')}>{formatDateTime(detail.created_at)}</Descriptions.Item>
+              <Descriptions.Item label={t('archive.colUpdated')}>{formatDateTime(detail.updated_at)}</Descriptions.Item>
             </Descriptions>
 
             {detail.conclusions && detail.conclusions.length > 0 && (

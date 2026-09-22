@@ -1,0 +1,1 @@
+import{n as e}from"./rolldown-runtime-DaJ6WEGw.js";import{H as t}from"./react-vendor-DJS8GeoD.js";import{C as n,x as r}from"./index-Bpgf3bHG.js";import{n as i,t as a}from"./LegacyToolFrame-vn1--g-Z.js";function o(){let{t:e}=n();return(0,s.jsx)(a,{file:`vmax_cxo_dashboard.html`,title:e(`nav.vmaxCxoDashboard`)})}var s;e((()=>{i(),r(),s=t()}))();export{o as default};

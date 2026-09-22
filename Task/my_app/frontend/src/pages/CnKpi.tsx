@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx'
 import ReactECharts from 'echarts-for-react'
 import { getCnKpiOverview } from '../api'
 import { useI18n } from '../i18n'
+import { formatDateTime } from '../datetime'
 import { WH, axisLabel, axisLine, cardStyle, darkTooltip, splitLine, useTheme } from '../theme'
 
 const { RangePicker } = DatePicker
@@ -351,7 +352,7 @@ export default function CnKpi() {
       ['CN KPI (CCN_Daily_KPI)'],
       [t('cnkpi.exportRange'), rangeLabel],
       [t('cnkpi.exportSource'), `${data.meta.db} @ ${data.meta.host}`],
-      [t('cnkpi.exportGenerated'), dayjs().format('YYYY-MM-DD HH:mm:ss')],
+      [t('cnkpi.exportGenerated'), formatDateTime(new Date(), { zone: true })],
       [],
     ]
     for (const w of kpiWidgets) {

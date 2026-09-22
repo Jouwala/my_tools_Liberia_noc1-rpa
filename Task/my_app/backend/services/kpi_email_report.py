@@ -408,43 +408,58 @@ def run_sp_consumables(to: str = None, cc: str = None) -> dict:
     )
 
 
-def _merge_sp_details_workbook(out_path: Path) -> dict:
+def _raw_detail_name(fname: str) -> str:
+    """明细文件名 -> 原始快照名（inband_details.xlsx -> inband_details_source.xlsx）。"""
+    root, ext = os.path.splitext(fname)
+    return f"{root}_source{ext}"
+
+
+#: (sheet 名, 明细文件名, 是否必需) —— 与 sp_details_service.SHEET_SOURCES 逐条一致
+_SP_DETAILS_SHEET_SOURCES = [
+    ("Inventory", "inventory_details.xlsx", True),
+    ("Inbound", "inband_details.xlsx", True),
+    ("Outbound", "outband_details.xlsx", True),
+    ("Transfer", "transfer_details.xlsx", True),
+    ("Transfer Return", "transfer_return_details.xlsx", False),
+]
+
+
+def _merge_sp_details_workbook(out_path: Path) -> tuple:
     """把 data/sp_email/data 下的明细 xlsx 合并为**一个**工作簿（每个明细一个 sheet）。
 
-    sheet 对应关系（明细已在 sp_report_generate 里过滤过，这里原样合并、不再加工）：
-      Inventory       <- inventory_details.xlsx
-      Inbound         <- inband_details.xlsx
-      Outbound        <- outband_details.xlsx
-      Transfer        <- transfer_details.xlsx
-      Transfer Return <- transfer_return_details.xlsx（可选）
+    优先读 `*_details_source.xlsx` —— sp_report_generate（05:15）Step 1.5 在任何过滤
+    之前原样留的**未过滤**快照（含 Canceled / WaitingForUpdate / 手工剔除名单行），
+    与 SFTP 上游一致；`*_details.xlsx` 是处理过的，只服务 SpareParts/Comsumables 报表。
+    快照缺失（首次上线、或 05:15 那次没跑）时回退读过滤后的明细，并把回退说明带回结果。
 
-    返回 {sheet_name: 行数}；前 4 份任一缺失抛 FileNotFoundError，
+    返回 (row_counts, fallback_notes)；前 4 份任一缺失抛 FileNotFoundError，
     可选明细（Transfer Return）缺失时只告警并跳过，不影响整包发送。
     """
     import pandas as pd
 
-    sheet_sources = [
-        ("Inventory", "inventory_details.xlsx", True),
-        ("Inbound", "inband_details.xlsx", True),
-        ("Outbound", "outband_details.xlsx", True),
-        ("Transfer", "transfer_details.xlsx", True),
-        ("Transfer Return", "transfer_return_details.xlsx", False),
-    ]
     row_counts = {}
+    notes = []
+    log = logging.getLogger(__name__)
     with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
-        for sheet_name, fname, required in sheet_sources:
-            src = _SP_DETAILS_DATA / fname
+        for sheet_name, fname, required in _SP_DETAILS_SHEET_SOURCES:
+            raw = _SP_DETAILS_DATA / _raw_detail_name(fname)
+            if raw.is_file():
+                src = raw
+            else:
+                src = _SP_DETAILS_DATA / fname
+                if src.is_file():
+                    note = f"{sheet_name}: 无原始快照，回退过滤后的 {fname}"
+                    log.warning("[sp_details] %s", note)
+                    notes.append(note)
             if not src.is_file():
                 if required:
                     raise FileNotFoundError(f"明细源文件缺失: {src}")
-                logging.getLogger(__name__).warning(
-                    "[sp_details] 可选明细缺失，跳过 sheet %s: %s", sheet_name, src
-                )
+                log.warning("[sp_details] 可选明细缺失，跳过 sheet %s: %s", sheet_name, src)
                 continue
             df = pd.read_excel(src)
             df.to_excel(writer, sheet_name=sheet_name, index=False)
             row_counts[sheet_name] = int(len(df))
-    return row_counts
+    return row_counts, notes
 
 
 def _prune_sp_details_reports(keep: "Path") -> int:
@@ -496,9 +511,9 @@ def _send_sp_details_to_whatsapp(merged_path: Path) -> dict:
 def run_sp_details_email(to: str = None, cc: str = None) -> dict:
     """SP 备件明细报表：邮件 + WhatsApp（每天一班，时间见 task_registry / 调度配置）。
 
-    把 data/sp_email/data 下 4 份明细 xlsx（inventory/inband/outband/transfer）
-    合并为一个 Excel 工作簿（sheet：Inventory/Inbound/Outbound/Transfer），
-    附件与主题均携带发送时间戳，例如：
+    把 data/sp_email/data 下的明细合并为一个 Excel 工作簿（sheet：Inventory/Inbound/
+    Outbound/Transfer/Transfer Return）。数据取 sp_report_generate 留的
+    ``*_details_source.xlsx`` **原始快照**（未过滤，与 SFTP 上游一致），见附件名时间戳：
       附件: SP Details Report 2026-09-04 11-32-00.xlsx
       主题: SP Spare Parts Details Report 2026-09-04 11-32-00
 
@@ -520,7 +535,7 @@ def run_sp_details_email(to: str = None, cc: str = None) -> dict:
     merged_path = _SP_DETAILS_DATA / f"SP Details Report {stamp}.xlsx"
 
     try:
-        row_counts = _merge_sp_details_workbook(merged_path)
+        row_counts, raw_notes = _merge_sp_details_workbook(merged_path)
     except Exception as e:
         return {"success": False, "error": f"明细合并失败: {e}"}
 
@@ -528,8 +543,8 @@ def run_sp_details_email(to: str = None, cc: str = None) -> dict:
     pruned = _prune_sp_details_reports(keep=merged_path)
 
     logging.getLogger(__name__).info(
-        "[sp_details] 合并完成: %s rows=%s 清理历史文件=%d",
-        merged_path.name, row_counts, pruned,
+        "[sp_details] 合并完成: %s rows=%s 清理历史文件=%d 回退=%s",
+        merged_path.name, row_counts, pruned, raw_notes or "无",
     )
 
     email_res = _run_script(
@@ -554,9 +569,11 @@ def run_sp_details_email(to: str = None, cc: str = None) -> dict:
             f"Email={'OK' if email_ok else 'FAIL'}, WhatsApp={'OK' if wa_ok else 'FAIL'}"
             f" (groups_sent={wa_res.get('groups_sent')}) | "
             f"合并 {merged_path.name} rows={row_counts} 清理历史={pruned}"
+            + (f" 回退过滤后明细: {'; '.join(raw_notes)}" if raw_notes else "")
         ),
         "merged_file": str(merged_path),
         "row_counts": row_counts,
+        "raw_fallback": raw_notes,
         "pruned": pruned,
         "email": email_res,
         "whatsapp": {

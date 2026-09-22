@@ -322,12 +322,11 @@ function splitCol(){return isLight()?'rgba(14,116,144,.16)':'rgba(23,49,88,.85)'
 function applyLocale(locale){
   LOCALE=(locale==='en')?'en':'zh';
   try{ localStorage.setItem('app-locale',LOCALE); }catch(e){}
-  try{ document.documentElement.lang=(LOCALE==='zh'?'zh-CN':'en'); }catch(e){}
   paintStatic();
   if(payload) renderAll();
 }
 document.documentElement.dataset.theme=initialTheme();
-try{ var _l=localStorage.getItem('app-locale'); if(_l==='en'||_l==='zh')LOCALE=_l; }catch(e){}
+try{ var _l=localStorage.getItem('app-locale'); LOCALE=(_l==='en'||_l==='zh')?_l:((((navigator.language||navigator.userLanguage||'zh')+'').toLowerCase().indexOf('zh')===0)?'zh':'en'); }catch(e){}
 
 /* ==================== 小工具 ==================== */
 function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -375,6 +374,8 @@ function setHead(h2Id,subId,label,sub){
   if(em) em.textContent=sub||'';
 }
 function paintStatic(){
+  // lang 跟着 LOCALE 走：LOCALE 可能在启动时来自 localStorage，只挂在 applyLocale 上会漏掉单独打开的场景
+  try{ document.documentElement.lang=(LOCALE==='zh'?'zh-CN':'en'); }catch(e){}
   document.getElementById('appTitle').textContent=t('title');
   document.getElementById('appSub').textContent=t('sub');
   document.getElementById('granLabel').textContent=t('gran');

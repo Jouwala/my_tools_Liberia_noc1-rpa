@@ -15,6 +15,7 @@ import numpy as np
 import paramiko
 import stat
 import os
+import shutil
 import math
 import unicodedata
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
@@ -47,6 +48,19 @@ OUTB_PATH = f'{DATA_DIR}/outband_details.xlsx'
 # Inbound&Outbound&Inventory 报表统计
 TRANSFER_PATH = f'{DATA_DIR}/transfer_details.xlsx'
 TRANSFER_RETURN_PATH = f'{DATA_DIR}/transfer_return_details.xlsx'
+
+# 原始快照：下载后、任何过滤之前原样复制一份 <明细名>_source.xlsx。
+# SP Details Report（邮件附件 + 页面 ?page=sp_details）读这份未过滤数据；
+# *_details.xlsx 仍是 Step 2.1~2.5 处理过的，供 SpareParts/Comsumables 报表与下游任务用。
+RAW_SUFFIX = '_source'
+DETAIL_PATHS = (INB_PATH, INV_PATH, OUTB_PATH, TRANSFER_PATH, TRANSFER_RETURN_PATH)
+
+
+def raw_source_path(detail_path):
+    """明细路径 -> 原始快照路径（inband_details.xlsx -> inband_details_source.xlsx）。"""
+    root, ext = os.path.splitext(detail_path)
+    return f'{root}{RAW_SUFFIX}{ext}'
+
 
 # SFTP config
 SFTP_HOST = "10.100.20.11"
@@ -121,6 +135,8 @@ INVENTORY_COLS = ['Serial No.', 'Material No.', 'Material Name', 'Material Statu
 # ------------------------------------------------------------------------------
 # 出库明细中剔除的异常单据：不计入历史消耗
 REPLENISH_EXCLUDE_ORDERS = ('SPOB202608160004', 'SPOB202609120014')
+# 历史消耗中剔除的出库类型：Repair Outbound（报修出库）不算真实消耗
+REPLENISH_EXCLUDE_OUTBOUND_TYPE = 'Repair Outbound'
 # 历史消耗窗口（月）：现有出库数据覆盖 9.5 个月
 REPLENISH_HISTORY_MONTHS = 9.5
 # 安全库存 = 6 个月历史平均消耗后向上取整（2026-09-19 起 Avg 保留小数，Safety 取整）
@@ -144,14 +160,16 @@ REPLENISH_INT_COLS = ('Safety Stock', 'Replenishment Qty')
 # 报表上方的口径说明（Excel 表头上方、PNG 标题下方）：拆成多行，否则超过合并区的显示宽度会被裁掉
 REPLENISH_NOTES = (
     'Replenishment basis:  Excluded orders ' + ' / '.join(REPLENISH_EXCLUDE_ORDERS)
+    + f'  |  Excluded outbound type {REPLENISH_EXCLUDE_OUTBOUND_TYPE}'
     + f'  |  History {REPLENISH_HISTORY_MONTHS} months'
     + f'  |  Safety Stock = ceil({REPLENISH_SAFETY_MONTHS} x Avg Monthly Consumption)',
     f'Zero-consumption materials (Remark = {REMARK_FAILURE_RATE}): '
     + f'Safety Stock = ceil({int(REPLENISH_ZERO_CONSUMPTION_SAFETY_PCT * 100)}%'
-    + ' x max(Inbound Qty, Outbound Qty, Inventory Qty))',
+    + ' x max(Inbound Qty, net Outbound Qty, Inventory Qty))',
     'Replenishment Qty = Safety Stock - Inventory Qty (<= 0 left blank, rounded up)'
     + '  |  Alert Level = Inventory Qty / Safety Stock'
-    + '  |  Note: Outbound Qty still includes the 2 excluded orders',
+    + '  |  Note: the Outbound Qty column still includes the 2 excluded orders'
+    + f' and {REPLENISH_EXCLUDE_OUTBOUND_TYPE}',
     f'Remark: {REMARK_FAILURE_RATE} = Avg Monthly Consumption is 0'
     + f'  |  {REMARK_ACTUAL_CONSUMPTION} = Avg Monthly Consumption > 0',
 )
@@ -640,6 +658,36 @@ def _save_detail_xlsx(df, path):
         except OSError:
             pass
         return False
+
+
+# ==============================================================================
+# raw snapshot - 下载后先留一份未过滤数据，供 SP Details Report 使用
+# ==============================================================================
+def snapshot_raw_details():
+    """把刚下载的明细原样复制成 *_details_source.xlsx（固定名，每次覆盖）。
+
+    必须在 Step 2.1 之前调用——之后 *_details.xlsx 已经被就地过滤过了。
+    单个文件复制失败只告警：下游读不到快照会回退用过滤后的明细，
+    不能因为快照故障把整个报表任务拖挂。
+    """
+    print('=== Step 1.5: Raw Snapshot ===')
+    for src in DETAIL_PATHS:
+        if not os.path.exists(src):
+            print(f'[Raw][WARN] 明细缺失，跳过快照: {src}')
+            continue
+        dst = raw_source_path(src)
+        tmp = f'{dst}.tmp.xlsx'
+        try:
+            shutil.copyfile(src, tmp)
+            os.replace(tmp, dst)
+            print(f'[Raw] {os.path.basename(src)} -> {os.path.basename(dst)}')
+        except Exception as e:
+            print(f'[Raw][WARN] 快照失败（{e}），下游将回退读过滤后的明细: {dst}')
+            try:
+                if os.path.isfile(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
 
 
 # ==============================================================================
@@ -1132,12 +1180,13 @@ def build_summary(inb_df, outb_df, inv_df):
 def build_replenishment(outb_df, inv_df, base_index=None, summary_qty=None):
     """按 Material Name 统计补库建议，直接并到 Summary-Current 主表右侧。
 
-    - Avg Monthly Consumption = 出库数量合计（先剔除 REPLENISH_EXCLUDE_ORDERS 两张异常单据）/ 9.5，
-      保留 2 位小数，不再向上取整（2026-09-19 起）
+    - Avg Monthly Consumption = 出库数量合计（先剔除 REPLENISH_EXCLUDE_ORDERS 两张异常单据，
+      再剔除 Outbound Type = 'Repair Outbound' 的报修出库）/ 9.5，保留 2 位小数，不再向上取整（2026-09-19 起）
     - Safety Stock = ceil(6 * Avg Monthly Consumption)（整数，月均按 2 位小数验算：
       Safety = 向上取整(6 x Avg)）；
       月均消耗为 0 的物料按「故障率」备件处理：Safety Stock =
-      ceil(20% * max(Inbound Qty, Outbound Qty, Inventory Qty))（三列取自 summary_qty，整数）
+      ceil(20% * max(Inbound Qty, net Outbound Qty, Inventory Qty))（三列取自 summary_qty，整数；
+      net Outbound Qty 为已剔除异常单据与 Repair Outbound 的净消耗）
     - Remark = Actual Consumption（月均消耗 > 0）/ Failure Rate（月均消耗 = 0）
     - Replenishment Qty = Safety Stock - Inventory Qty，<= 0 记为空（不显示，便于求和）；结果向上取整
     - Alert Level = Inventory Qty / Safety Stock：< 50% Urgent Replenish；50% ~ 100% Replenish；> 100% Excess
@@ -1153,6 +1202,10 @@ def build_replenishment(outb_df, inv_df, base_index=None, summary_qty=None):
         if REPLENISH_EXCLUDE_ORDERS:
             orders = {str(o).strip() for o in REPLENISH_EXCLUDE_ORDERS}
             df = df.loc[~df['Outbound No.'].astype(str).str.strip().isin(orders)]
+        # 报修出库（Repair Outbound）不代表真实消耗，同样计入剔除
+        if REPLENISH_EXCLUDE_OUTBOUND_TYPE and 'Outbound Type' in df.columns:
+            df = df.loc[~df['Outbound Type'].astype(str).str.strip()
+                        .eq(REPLENISH_EXCLUDE_OUTBOUND_TYPE)]
         consumed = pd.to_numeric(df.groupby('Material Name')['Outbound Qty'].sum(), errors='coerce').fillna(0)
 
     if inv_df is not None and len(inv_df) > 0:
@@ -1165,11 +1218,17 @@ def build_replenishment(outb_df, inv_df, base_index=None, summary_qty=None):
     stock_qty = stock.reindex(base).fillna(0).to_numpy(dtype='float64')
 
     # 月均=0 物料的安全库存基数：主表三列数量逐行最大值（按归一化物料名对齐 base）
+    # 注意：主表 Outbound Qty 含 Repair Outbound，这里换成与 consumed 同口径的净出库量，
+    # 否则「只报修过、从未真实消耗」的物料会靠 Outbound Qty 拿到一份虚假的安全库存。
     qty_cols = ['Inbound Qty', 'Outbound Qty', 'Inventory Qty']
     if summary_qty is not None and len(summary_qty) > 0:
         q = pd.DataFrame({'__key': pd.Index(summary_qty['Material Name'].tolist()).map(_norm_excl_value)})
         for c in qty_cols:
             q[c] = pd.to_numeric(summary_qty[c].to_numpy(), errors='coerce')
+        # Outbound Qty 替换为已剔除异常单据 + Repair Outbound 的净消耗（无记录即 0）
+        net_out = consumed.reindex(
+            pd.Index(q['__key']).drop_duplicates()).fillna(0)
+        q['Outbound Qty'] = q['__key'].map(net_out).fillna(0).to_numpy()
         mx = q.groupby('__key')[qty_cols].max().max(axis=1)
         base_keys = pd.Index(base).map(_norm_excl_value)
         max_qty = mx.reindex(base_keys).fillna(0).to_numpy(dtype='float64')
@@ -2057,7 +2116,7 @@ def generate_report(material_type, out_path, inb_src, outb_src, inv_src, timesta
 
     summary = build_summary(inb_df, outb_df, inv_df)
     # 补库建议：4 列按 Material Name 并到 Summary-Current 汇总表右侧（同一行）
-    # （历史消耗已剔除 REPLENISH_EXCLUDE_ORDERS 两张异常单据）
+    # （历史消耗已剔除 REPLENISH_EXCLUDE_ORDERS 两张异常单据，以及 Repair Outbound 报修出库）
     base_cols = list(summary.columns)
     total_mask = summary['Material Name'].astype(str).str.strip().eq('Total')
     body = summary.loc[~total_mask].copy()
@@ -2215,6 +2274,9 @@ def main():
 
     # Step 1: SFTP download
     sftp_download()
+
+    # Step 1.5: 原样留一份未过滤快照（SP Details Report 用），必须在任何过滤之前
+    snapshot_raw_details()
 
     # Step 2: Load data
     inb, inv, outb = load_data()

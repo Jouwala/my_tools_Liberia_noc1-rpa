@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge, Button, Dropdown, message, Modal, Checkbox, Divider, Upload, Space } from 'antd'
+import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge, Button, Dropdown, message, Modal, Checkbox, Divider, Upload, Space, AutoComplete } from 'antd'
 import { DownloadOutlined, SettingOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
+import * as XLSX from 'xlsx'
 import api from '../api'
 import { useI18n, numLocale } from '../i18n'
 import { cardStyle, controlCardStyle } from '../theme'
@@ -110,6 +111,26 @@ export default function TableBrowser() {
   const [importOverwrite, setImportOverwrite] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<any>(null)
+  const [importSheets, setImportSheets] = useState<string[]>([])
+  const [importSheet, setImportSheet] = useState('__all__')
+  const ALL_SHEETS = '__all__'
+
+  // 目标表名：可选已有表（下拉）或输入新表名（自由文本）
+  const importNameExists = useMemo(
+    () => !!importName.trim() && tables.some(tb => tb.name === importName.trim()),
+    [importName, tables],
+  )
+  const existingTableOptions = useMemo(() => tables.map(tb => ({
+    value: tb.name,
+    label: (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--wh-space-sm)' }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tb.name}</span>
+        <span style={{ color: '#999', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+          {tb.row_count.toLocaleString(numLocale(locale))} {t('common.rows')}
+        </span>
+      </div>
+    ),
+  })), [tables, locale, t])
 
   const suggestTableName = (filename: string) => {
     const stem = filename.replace(/\.[^.]+$/, '')
@@ -126,14 +147,44 @@ export default function TableBrowser() {
     setImportName('')
     setImportOverwrite(false)
     setImportResult(null)
+    setImportSheets([])
+    setImportSheet(ALL_SHEETS)
     setImportOpen(true)
+  }
+
+  // 读取工作表列表（仅表头信息，不解析全部数据），失败则退回“无 sheet 选择”行为
+  const detectSheets = async (file: any) => {
+    setImportSheets([])
+    setImportSheet(ALL_SHEETS)
+    const fname = String(file?.name || '').toLowerCase()
+    if (!/\.(xlsx|xlsm|xls)$/.test(fname)) return
+    try {
+      const raw: any = file?.originFileObj || file
+      const buf: ArrayBuffer = typeof raw.arrayBuffer === 'function'
+        ? await raw.arrayBuffer()
+        : await new Promise<ArrayBuffer>((resolve, reject) => {
+            const fr = new FileReader()
+            fr.onload = () => resolve(fr.result as ArrayBuffer)
+            fr.onerror = () => reject(fr.error)
+            fr.readAsArrayBuffer(raw)
+          })
+      const wb = XLSX.read(buf, { type: 'array', bookSheets: true })
+      const names: string[] = wb.SheetNames || []
+      setImportSheets(names)
+      setImportSheet(names.length > 1 ? ALL_SHEETS : (names[0] || ALL_SHEETS))
+    } catch {
+      setImportSheets([])
+      setImportSheet(ALL_SHEETS)
+    }
   }
 
   const onImportFileChange = (info: any) => {
     const file: File | undefined = info?.file
     if (file) {
       setImportFile(file)
+      setImportResult(null)
       if (!importName) setImportName(suggestTableName(file.name))
+      void detectSheets(file)
     }
   }
 
@@ -146,6 +197,7 @@ export default function TableBrowser() {
     formData.append('file', importFile)
     formData.append('table_name', importName.trim())
     formData.append('overwrite', String(importOverwrite))
+    if (importSheets.length > 1 && importSheet) formData.append('sheet', importSheet)
     api.post('/tables/import', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120000,
@@ -177,6 +229,48 @@ export default function TableBrowser() {
     api.get('/tables/view-templates', { params: { table_name: selectedTable } })
       .then(res => setTemplates(res.data.templates || []))
       .catch(() => setTemplates([]))
+  }
+
+  // ---- MW Links (KML) 专用导入：目标表锁死 kml_mw_links，只影响 MW 叠加图层 ----
+  const [mwOpen, setMwOpen] = useState(false)
+  const [mwFile, setMwFile] = useState<File | null>(null)
+  const [mwImporting, setMwImporting] = useState(false)
+  const [mwStatus, setMwStatus] = useState<any>(null)
+  const [mwResult, setMwResult] = useState<any>(null)
+
+  const loadMwStatus = () => {
+    api.get('/mw-links/status').then(r => setMwStatus(r.data)).catch(() => setMwStatus(null))
+  }
+
+  const openMwImport = () => {
+    setMwFile(null)
+    setMwResult(null)
+    setMwStatus(null)
+    loadMwStatus()
+    setMwOpen(true)
+  }
+
+  const submitMwImport = () => {
+    if (!mwFile) { message.warning(t('table.mwFileRequired')); return }
+    setMwImporting(true)
+    setMwResult(null)
+    const fd = new FormData()
+    fd.append('file', mwFile)
+    api.post('/mw-links/import', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000,
+    })
+      .then((res) => {
+        setMwResult(res.data)
+        setMwStatus(res.data.status)
+        message.success(t('table.mwImportSuccess', {
+          s: res.data.sites, l: res.data.links, t: res.data.elapsed_seconds,
+        }))
+      })
+      .catch((err: any) => {
+        message.error(t('table.importFailed', { msg: err.response?.data?.detail || err.message }))
+      })
+      .finally(() => setMwImporting(false))
   }
 
   const loadTableData = useCallback((page: number, search?: string) => {
@@ -412,6 +506,9 @@ export default function TableBrowser() {
               <Button icon={<UploadOutlined />} onClick={openImport}>
                 {t('table.import')}
               </Button>
+              <Button icon={<UploadOutlined />} onClick={openMwImport}>
+                {t('table.mwImport')}
+              </Button>
               <Button icon={<SettingOutlined />} disabled={!selectedTable} onClick={openColModal}>
                 {t('table.customizeCols')}
               </Button>
@@ -508,20 +605,47 @@ export default function TableBrowser() {
             accept=".xlsx,.xls,.csv"
             fileList={importFile ? [{ uid: '-1', name: importFile.name, status: 'done' } as any] : []}
             onChange={onImportFileChange}
-            onRemove={() => { setImportFile(null); setImportName('') }}
+            onRemove={() => { setImportFile(null); setImportName(''); setImportSheets([]); setImportSheet(ALL_SHEETS) }}
           >
             <Button icon={<UploadOutlined />}>{t('table.importFilePh')}</Button>
           </Upload>
         </div>
-        <div style={{ marginBottom: 'var(--wh-space-xs)', color: '#555' }}>{t('table.importNamePh')}</div>
-        <Input
+        {importSheets.length > 1 && (
+          <div style={{ marginBottom: 'var(--wh-space-sm)' }}>
+            <div style={{ marginBottom: 'var(--wh-space-xs)', color: '#555' }}>{t('table.importSheetPh')}</div>
+            <Select
+              value={importSheet}
+              onChange={(v: string) => setImportSheet(v)}
+              disabled={importing}
+              style={{ width: '100%' }}
+              options={[
+                { value: ALL_SHEETS, label: t('table.importSheetAll', { n: importSheets.length }) },
+                ...importSheets.map((s: string) => ({ value: s, label: s })),
+              ]}
+            />
+            <div style={{ marginTop: 'var(--wh-space-xs)', color: '#999', fontSize: '0.75rem' }}>
+              {importSheet === ALL_SHEETS
+                ? t('table.importMultiSheetNote', { names: importSheets.join(', ') })
+                : t('table.importSheetHint')}
+            </div>
+          </div>
+        )}
+        <div style={{ marginBottom: 'var(--wh-space-xs)', color: '#555' }}>{t('table.importNameLabel')}</div>
+        <AutoComplete
           value={importName}
-          onChange={e => setImportName(e.target.value)}
+          options={existingTableOptions}
+          onChange={(v: string) => setImportName(v || '')}
+          filterOption={(input, option) =>
+            String(option?.value ?? '').toLowerCase().includes(String(input ?? '').toLowerCase())}
           placeholder={t('table.importNamePh')}
           maxLength={63}
+          allowClear
           disabled={importing}
+          style={{ width: '100%' }}
         />
-        <div style={{ marginTop: 'var(--wh-space-xs)', color: '#999', fontSize: '0.75rem' }}>{t('table.importNameHint')}</div>
+        <div style={{ marginTop: 'var(--wh-space-xs)', color: importNameExists ? '#fa8c16' : '#999', fontSize: '0.75rem' }}>
+          {importNameExists ? t('table.importNameExists') : t('table.importNameHint')}
+        </div>
         <div style={{ marginTop: 'var(--wh-space-md)' }}>
           <Checkbox checked={importOverwrite} onChange={e => setImportOverwrite(e.target.checked)} disabled={importing}>
             {t('table.importOverwrite')}
@@ -538,6 +662,60 @@ export default function TableBrowser() {
                 </span>
               </div>
             ))}
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title={t('table.mwImportTitle')}
+        open={mwOpen}
+        onCancel={() => !mwImporting && setMwOpen(false)}
+        width={'min(90vw, 38rem)' as any}
+        footer={[
+          <Button key="cancel" disabled={mwImporting} onClick={() => setMwOpen(false)}>{t('table.cancel')}</Button>,
+          <Button key="ok" type="primary" loading={mwImporting} onClick={submitMwImport}>
+            {t('table.import')}
+          </Button>,
+        ]}
+      >
+        <div style={{ marginBottom: 'var(--wh-space-sm)', padding: 'var(--wh-space-sm)', background: 'rgba(22,138,255,0.08)', borderRadius: 'var(--wh-radius-sm)' }}>
+          {t('table.mwImportNote')}
+        </div>
+
+        <div style={{ marginBottom: 'var(--wh-space-xs)', color: '#555' }}>{t('table.mwFilePh')}</div>
+        <Upload
+          beforeUpload={() => false}
+          maxCount={1}
+          accept=".kml"
+          fileList={mwFile ? [{ uid: '-1', name: mwFile.name, status: 'done' } as any] : []}
+          onChange={(info: any) => { const f = info?.file; if (f) { setMwFile(f); setMwResult(null) } }}
+          onRemove={() => { setMwFile(null); setMwResult(null) }}
+        >
+          <Button icon={<UploadOutlined />}>{t('table.mwFilePh')}</Button>
+        </Upload>
+
+        {mwStatus && mwStatus.exists && (
+          <div style={{ marginTop: 'var(--wh-space-md)', color: '#666', fontSize: '0.8125rem' }}>
+            <div>{t('table.mwCurrent')}</div>
+            <div style={{ marginTop: 'var(--wh-space-xs)' }}>
+              <Tag color="blue">{t('table.mwSites', { n: mwStatus.sites })}</Tag>
+              <Tag color="green">{t('table.mwLinks', { n: mwStatus.links })}</Tag>
+              {mwStatus.import_time && <Tag>{mwStatus.import_time}</Tag>}
+            </div>
+            {mwStatus.source_file && (
+              <div style={{ marginTop: 'var(--wh-space-xs)', color: '#999' }}>{mwStatus.source_file}</div>
+            )}
+          </div>
+        )}
+
+        {mwResult && (
+          <div style={{ marginTop: 'var(--wh-space-md)' }}>
+            <Tag color="green">{t('table.mwSites', { n: mwResult.sites })}</Tag>
+            <Tag color="green">{t('table.mwLinks', { n: mwResult.links })}</Tag>
+            {mwResult.skipped > 0 && <Tag color="orange">skip {mwResult.skipped}</Tag>}
+            <div style={{ marginTop: 'var(--wh-space-xs)', color: '#888', fontSize: '0.8125rem' }}>
+              {t('table.mwImportedHint')}
+            </div>
           </div>
         )}
       </Modal>

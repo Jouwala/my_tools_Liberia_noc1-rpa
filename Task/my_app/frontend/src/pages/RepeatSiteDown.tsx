@@ -5,6 +5,7 @@ import dayjs, { Dayjs } from 'dayjs'
 import * as XLSX from 'xlsx'
 import ReactECharts from 'echarts-for-react'
 import { getRepeatSiteDownDayDrilldown, getRepeatSiteDownEventDetail, getRepeatSiteDownFilters, getRepeatSiteDownOverview, getRepeatSiteDownSiteDrilldown } from '../api'
+import { useI18n } from '../i18n'
 import DraggableClickModal from '../components/DraggableClickModal'
 
 const { Text } = Typography
@@ -14,6 +15,7 @@ type Overview = { filters: { start: string; end: string }; meta: { generated_at:
 const fmt = (v: unknown) => v == null || v === '' ? '-' : String(v)
 
 export default function RepeatSiteDown() {
+  const { t } = useI18n()
   const [start, setStart] = useState<Dayjs | null>(dayjs().subtract(30, 'day')); const [end, setEnd] = useState<Dayjs | null>(dayjs()); const [region, setRegion] = useState(''); const [site, setSite] = useState(''); const [regions, setRegions] = useState<string[]>([])
   const [data, setData] = useState<Overview | null>(null); const [loading, setLoading] = useState(false); const [error, setError] = useState('')
   const [modal, setModal] = useState<'day' | 'site' | 'event' | null>(null); const [modalTitle, setModalTitle] = useState(''); const [modalLoading, setModalLoading] = useState(false); const [modalAnchor, setModalAnchor] = useState<{ x: number; y: number } | null>(null)
@@ -24,9 +26,9 @@ export default function RepeatSiteDown() {
   useEffect(() => { load() }, [load])
   const common = () => ({ start: data?.filters.start || start?.format('YYYY-MM-DD') || '', end: data?.filters.end || end?.format('YYYY-MM-DD') || '', region, site })
 
-  const openDay = async (day: string, anchor?: { x: number; y: number }) => { setModal('day'); setModalTitle(`日下钻 — ${day}`); setModalAnchor(anchor || null); setModalLoading(true); try { setDayData((await getRepeatSiteDownDayDrilldown({ ...common(), day })).data) } catch { setDayData(null) } finally { setModalLoading(false) } }
-  const openSite = async (row: SiteRow, anchor?: { x: number; y: number }) => { setModal('site'); setModalTitle(`站点下钻 — ${row.site_name}`); setModalAnchor(anchor || null); setModalLoading(true); try { setSiteData((await getRepeatSiteDownSiteDrilldown({ ...common(), site_id: row.site_id, site_name: row.site_name })).data) } catch { setSiteData(null) } finally { setModalLoading(false) } }
-  const openEvent = async (row: EventRow, anchor?: { x: number; y: number }) => { setModal('event'); setModalTitle(`TT 完整详情 — ${row.tt_no || row.alarm_occur_time}`); setModalAnchor(anchor || null); setModalLoading(true); try { setEventData((await getRepeatSiteDownEventDetail({ ...common(), tt_no: row.tt_no || '', alarm_occur_time: row.alarm_occur_time || '', site_id: row.site_id, site_name: row.site_name })).data?.event || null) } catch { setEventData(null) } finally { setModalLoading(false) } }
+  const openDay = async (day: string, anchor?: { x: number; y: number }) => { setModal('day'); setModalTitle(t('rsd.dayDrill', { day })); setModalAnchor(anchor || null); setModalLoading(true); try { setDayData((await getRepeatSiteDownDayDrilldown({ ...common(), day })).data) } catch { setDayData(null) } finally { setModalLoading(false) } }
+  const openSite = async (row: SiteRow, anchor?: { x: number; y: number }) => { setModal('site'); setModalTitle(t('rsd.siteDrill', { site: row.site_name })); setModalAnchor(anchor || null); setModalLoading(true); try { setSiteData((await getRepeatSiteDownSiteDrilldown({ ...common(), site_id: row.site_id, site_name: row.site_name })).data) } catch { setSiteData(null) } finally { setModalLoading(false) } }
+  const openEvent = async (row: EventRow, anchor?: { x: number; y: number }) => { setModal('event'); setModalTitle(t('rsd.ttDetail', { tt: row.tt_no || row.alarm_occur_time })); setModalAnchor(anchor || null); setModalLoading(true); try { setEventData((await getRepeatSiteDownEventDetail({ ...common(), tt_no: row.tt_no || '', alarm_occur_time: row.alarm_occur_time || '', site_id: row.site_id, site_name: row.site_name })).data?.event || null) } catch { setEventData(null) } finally { setModalLoading(false) } }
 
   const chart = useMemo(() => ({ tooltip: { trigger: 'axis' }, grid: { left: 50, right: 24, top: 28, bottom: 48 }, xAxis: { type: 'category', data: (data?.daily || []).map(x => x.day.slice(5)), axisLabel: { rotate: 35 } }, yAxis: [{ type: 'value', name: 'Occurrences' }, { type: 'value', name: 'Sites' }], series: [{ name: 'Outage occurrences', type: 'bar', data: (data?.daily || []).map(x => x.outage_count), itemStyle: { color: '#ff7875' } }, { name: 'Affected sites', type: 'line', yAxisIndex: 1, data: (data?.daily || []).map(x => x.affected_sites), smooth: true, itemStyle: { color: '#1677ff' } }] }), [data])
   const onChartEvents = { click: (p: any) => { const day = data?.daily?.[p.dataIndex]?.day; if (day) openDay(day, { x: p.event?.event?.clientX || 0, y: p.event?.event?.clientY || 0 }) } }

@@ -36,11 +36,12 @@ import {
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
+import { formatDateTime, parseServerDate } from '../datetime'
 import { useTaskStatus } from '../TaskStatusContext'
 import { cachedGet, invalidateCache } from '../cache'
 import { speak, warmSpeech } from '../utils/speak'
 import { WH, cardStyle, controlCardStyle, pageWrap } from '../theme'
-import { firstLine, cronToHuman, CATEGORY_CONFIG, formatTime } from './datasync/helpers'
+import { firstLine, cronToHuman, CATEGORY_CONFIG } from './datasync/helpers'
 import { ScheduleEditor } from './datasync/ScheduleEditor'
 import { TaskHistoryModal } from './datasync/TaskHistoryModal'
 import { GlobalHistoryModal } from './datasync/GlobalHistoryModal'
@@ -107,19 +108,20 @@ function cronTimesInWindow(cron: string, startTs: number, endTs: number, limit =
 
   const out: number[] = []
   const cursor = new Date(startTs)
-  cursor.setSeconds(0, 0)
-  if (cursor.getTime() < startTs) cursor.setMinutes(cursor.getMinutes() + 1)
+  cursor.setUTCSeconds(0, 0)
+  if (cursor.getTime() < startTs) cursor.setUTCMinutes(cursor.getUTCMinutes() + 1)
   const dayWildcard = dayRaw === '*'
   const dowWildcard = dowRaw === '*'
   while (cursor.getTime() <= endTs && out.length < limit) {
-    const dayMatches = day.has(cursor.getDate())
-    const dowMatches = dow.has(cursor.getDay())
+    // 调度器与服务器时钟同为 UTC，按 UTC 字段匹配，避免非 UTC 浏览器把计划点整体平移。
+    const dayMatches = day.has(cursor.getUTCDate())
+    const dowMatches = dow.has(cursor.getUTCDay())
     // Cron 中日与星期同时受限时采用 OR；任一为 * 时由另一项决定。
     const calendarMatches = dayWildcard ? dowMatches : dowWildcard ? dayMatches : dayMatches || dowMatches
-    if (minute.has(cursor.getMinutes()) && hour.has(cursor.getHours()) && month.has(cursor.getMonth() + 1) && calendarMatches) {
+    if (minute.has(cursor.getUTCMinutes()) && hour.has(cursor.getUTCHours()) && month.has(cursor.getUTCMonth() + 1) && calendarMatches) {
       out.push(cursor.getTime())
     }
-    cursor.setMinutes(cursor.getMinutes() + 1)
+    cursor.setUTCMinutes(cursor.getUTCMinutes() + 1)
   }
   return out
 }
@@ -487,15 +489,9 @@ export default function DataSync() {
     }
   }
 
-  /** 把 ISO 时间格式化为「月/日 时:分」，用于播报重试时间。 */
-  const formatRetryTime = (iso: string): string => {
-    try {
-      const dt = new Date(iso)
-      return dt.toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US', {
-        month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-      })
-    } catch { return iso }
-  }
+  /** 播报用紧凑时间：只到分钟、不带时区后缀，避免语音朗读冗余字符。 */
+  const formatRetryTime = (iso: string): string =>
+    formatDateTime(iso, { seconds: false, fallback: iso })
 
   /** 构造失败播报文本：任务名 + 失败原因 + 预计重试时间（或无重试说明）。 */
   const buildAnnounceText = (task: { name: string; recent_runs?: RunRecord[]; retry_info?: any }): string => {
@@ -537,24 +533,13 @@ export default function DataSync() {
     return detail.recent_runs[0]
   }
 
-  const getNextRunTime = (task: TaskInfo): string => {
-    if (!task.next_run) return '-'
-    // Parse ISO datetime
-    try {
-      const dt = new Date(task.next_run)
-      return dt.toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US', {
-        month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-      })
-    } catch {
-      return task.next_run
-    }
-  }
+  const getNextRunTime = (task: TaskInfo): string =>
+    formatDateTime(task.next_run, { zone: true, fallback: task.next_run || '-' })
 
   /** 距离下次运行的相对时间，如 "约 2 小时 15 分后"；解析失败返回空串。 */
   const getNextRunEta = (task: TaskInfo): string => {
     if (!task.next_run) return ''
-    const ts = new Date(task.next_run).getTime()
+    const ts = parseServerDate(task.next_run)?.getTime() ?? Number.NaN
     if (Number.isNaN(ts)) return ''
     const diffMin = Math.round((ts - nowTs) / 60000)
     if (diffMin <= 0) return locale === 'zh' ? '即将执行' : 'due now'
@@ -573,7 +558,7 @@ export default function DataSync() {
   /** 5 分钟内即将执行 → 高亮提示 */
   const isImminent = (task: TaskInfo): boolean => {
     if (!task.next_run) return false
-    const ts = new Date(task.next_run).getTime()
+    const ts = parseServerDate(task.next_run)?.getTime() ?? Number.NaN
     return !Number.isNaN(ts) && ts - nowTs <= 5 * 60 * 1000
   }
 
@@ -693,16 +678,16 @@ export default function DataSync() {
     // next_run 仍作为调度器真实的下一次时间用于 Tooltip；Cron 解析失败时回退只画该点。
     const dated = allTasks
       .map((task, index) => {
-        const nextTs = task.next_run ? new Date(task.next_run).getTime() : Number.NaN
+        const nextTs = parseServerDate(task.next_run)?.getTime() ?? Number.NaN
         const taskRuns = timelineRuns.filter(run => run.task_id === task.task_id)
         const fallbackRuns = taskRuns.length === 0 ? (task.recent_runs || []).filter(run => {
-          const ts = new Date(run.started_at).getTime()
+          const ts = parseServerDate(run.started_at)?.getTime() ?? Number.NaN
           return Number.isFinite(ts) && ts >= startTs && ts <= Math.min(endTs, nowTs)
         }) : []
         const mappedRuns = [...taskRuns, ...fallbackRuns].map((run, runIndex) => ({
           run,
           key: `${task.task_id}:run:${runIndex}`,
-          point: toPoint(new Date(run.started_at).getTime()),
+          point: toPoint(parseServerDate(run.started_at)?.getTime() ?? Number.NaN),
         })).filter(item => item.point !== null) as { run: RunRecord; key: string; point: NonNullable<ReturnType<typeof toPoint>> }[]
         // 时间轴按真实执行时间展示完整历史：成功与失败记录均保留，避免灰色成功点异常偏少。
         // point.ts 直接来自 run.started_at，因此每个点都对应实际执行时刻。
@@ -986,7 +971,7 @@ export default function DataSync() {
                 }
                 <Text style={{ color: WH.textMuted }}>
                   {locale === 'zh' ? '上次：' : 'Last: '}
-                  {formatTime(lastRun.started_at)}
+                  {formatDateTime(lastRun.started_at, { zone: true })}
                 </Text>
                 <Text style={{ color: WH.textDim }}>⏱ {(lastRun.elapsed_seconds ?? 0).toFixed(1)}s</Text>
                 {lastRun.error && (
@@ -1152,19 +1137,16 @@ export default function DataSync() {
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} style={{ position: 'absolute', left: `${i * 25}%`, top: `calc(${axisBox.axis} - 0.4rem)`, width: 1, height: '0.8rem', background: 'var(--wh-subtle-border)' }} />
           ))}
-          {timeline.dated.map(({ task, parsed, runs, running, scheduled }) => {
+          {timeline.dated.map(({ task, runs, running, scheduled }) => {
             const latestRun = task.recent_runs?.[0]
             // 未来计划始终为绿色；运行状态只由当前时间位置的独立蓝点表达。
             const nextColor = !task.enabled ? '#000000' : WH.tlPlan
             const nextLabel = !task.enabled ? (locale === 'zh' ? '已禁用（未排程）' : 'Disabled')
               : (locale === 'zh' ? '将要执行' : 'Upcoming')
-            const nextText = parsed === null
-              ? (locale === 'zh' ? '未排程' : 'Not scheduled')
-              : new Date(parsed).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
             const executedText = latestRun?.started_at
-              ? new Date(latestRun.started_at).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+              ? formatDateTime(latestRun.started_at, { zone: true })
               : (locale === 'zh' ? '暂无执行记录' : 'No execution record')
-            const fmt = (ts: number) => new Date(ts).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+            const fmt = (ts: number) => formatDateTime(ts, { zone: true })
 
             // 灰色仅表示每个任务最近一次成功，直径略小以降低视觉噪声
             const sizeOf = (color: string, hollow: boolean) =>
@@ -1218,7 +1200,7 @@ export default function DataSync() {
           })}
           {[0, 0.25, 0.5, 0.75, 1].map(ratio => {
             const tick = new Date(timeline.start.getTime() + ratio * (timeline.end.getTime() - timeline.start.getTime()))
-            const tickLabel = tick.toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+            const tickLabel = formatDateTime(tick, { seconds: false }).slice(11)
             return (
               <span key={ratio} style={{ position: 'absolute', left: `calc(${ratio * 100}% - ${ratio === 1 ? 1.6 : ratio === 0 ? 0 : 0.8}rem)`, bottom: '0.25rem', color: WH.textDim, fontSize: '0.6875rem' }}>
                 {tickLabel}

@@ -48,7 +48,8 @@
       'health.up': '正常',
       'health.down': '不可达',
       'health.tip': '门户数据接口探活：{state} · 最近 {at}',
-      'health.wait': '探测中'
+      'health.wait': '探测中',
+      'theme.tip': '深色 / 浅色'
     },
     en: {
       'tagline': 'Smarter Operations · Higher Efficiency · Better Network',
@@ -64,7 +65,8 @@
       'health.up': 'reachable',
       'health.down': 'unreachable',
       'health.tip': 'Portal data API health: {state} · last {at}',
-      'health.wait': 'probing'
+      'health.wait': 'probing',
+      'theme.tip': 'Dark / Light'
     }
   };
 

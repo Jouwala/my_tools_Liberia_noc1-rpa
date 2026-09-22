@@ -343,11 +343,13 @@ async def import_excel_to_table(
     file: UploadFile = File(...),
     table_name: str = Form(...),
     overwrite: bool = Form(False),
+    sheet: str = Form(""),
 ):
     """将 Excel/CSV 导入为一张（或多张）用户命名的新表，写入当前数据库。
 
     - table_name：目标表名，必须是合法标识符；拒绝以 _ 开头（内部表命名空间）与已存在表（除非 overwrite=True）。
-    - 单 Sheet：直接用 table_name 建表；多 Sheet：table_name_<sheet> 各建一张。
+    - sheet：可选。留空或 __all__ 表示全部 sheet；指定某个 sheet 名时只导入该 sheet，表名即 table_name。
+    - 单 Sheet：直接用 table_name 建表；多 Sheet（未指定 sheet）：table_name_<sheet> 各建一张。
     - 列名自动清洗（clean_column_name），与 /api/upload 同源逻辑。
     """
     if not file.filename or not file.filename.endswith(('.xlsx', '.xls', '.csv')):
@@ -377,13 +379,45 @@ async def import_excel_to_table(
         f.write(content)
 
     start_time = time.time()
+    raw_sheet = sheet or ""
+    want_sheet = raw_sheet.strip()
+    if want_sheet.lower() in ("__all__", "all", "*"):
+        want_sheet = ""
+        raw_sheet = ""
     try:
-        if raw_name.endswith('.csv'):
+        if raw_name.lower().endswith('.csv'):
+            if want_sheet:
+                raise HTTPException(status_code=400, detail="CSV 文件没有工作表，无需指定 sheet")
             xls_sheets = {"Sheet1": pd.read_csv(str(file_path))}
         else:
             xls = pd.ExcelFile(str(file_path), engine='openpyxl')
-            xls_sheets = {s: pd.read_excel(xls, sheet_name=s) for s in xls.sheet_names}
+            all_sheets = list(xls.sheet_names)
+            if want_sheet:
+                # Excel 的 sheet 名允许首尾空格（如 "Master Site Database  "），
+                # 前端传回的值可能被中间环节 strip 掉，故先精确匹配，再按去空格唯一匹配。
+                if raw_sheet in all_sheets:
+                    picked = [raw_sheet]
+                else:
+                    cands = [s for s in all_sheets if s.strip() == want_sheet]
+                    if len(cands) == 1:
+                        picked = cands
+                    else:
+                        hint = ", ".join(f'"{s}"' for s in all_sheets)
+                        if not cands:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"工作表不存在: {want_sheet}（可用: {hint}）",
+                            )
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"工作表名不唯一（仅首尾空格不同）: {want_sheet}（可用: {hint}）",
+                        )
+            else:
+                picked = all_sheets
+            xls_sheets = {s: pd.read_excel(xls, sheet_name=s) for s in picked}
             xls.close()
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"文件解析失败: {str(e)}")
     finally:

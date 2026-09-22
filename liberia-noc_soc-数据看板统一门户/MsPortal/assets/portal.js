@@ -40,6 +40,12 @@
   /* ------------------------------------------------------------- i18n ---- */
   var I18N = {
     zh: {
+      'doc.title': 'ZTE OLR MS 管理平台 - Liberia 门户看板',
+      'doc.desc': 'ZTE OLR MS Management Platform — Liberia NOC/SOC 自动化工具平台入口，统一聚合 CXO / MS / FO / FLM / BO / System Admin 各视图看板。',
+      /* 接口异常的原文会拼在 t('qc.err') 后面直接显示，所以也属于界面文案 */
+      'api.notJson': '非 JSON 响应（接口未注册或后端未重启）',
+      'api.noAlarm': '响应里没有 metrics.alarm',
+      'tag.unassign': '移出 / remove',
       'search.placeholder': '搜索看板名称、描述、责任人、标签…',
       'section.searchPh': '在本区块内搜索看板…',
       'section.hit': '匹配 {n}',
@@ -100,6 +106,8 @@
          唯一作用是决定卡片顺序。展示它的「访问量」徽标已在 2026-09-19 删除，
          现在顺序主要靠拖拽（「调整顺序」按钮），这个数字退化成「没被拖过的看板按它排」。 */
       'board.fClicks': '初始排序权重',
+      'board.clicksTip': '没被拖拽排序过的看板按这个数字从大到小排；拖过的以拖拽结果为准。',
+      'board.freqPh': '每日0点',
       'board.fTags': '标签（逗号分隔）',
       'board.fGroups': '归属分组 *（可多选）',
       'chip.all': '全部',
@@ -209,11 +217,27 @@
       'qc.ago.min': '{n} 分钟前',
       'qc.ago.hour': '{n} 小时前',
       'qc.ago.day': '{n} 天前',
-      /* 环比：与上一整点快照比（后端 portal_qc_snapshot 每小时落一行）。
-         方向是**业务方向**，不是数字方向 —— 积压涨了是坏，达标率涨了是好。 */
-      'qc.delta.flat': '持平',
-      'qc.delta.tip': '与上一整点快照相比：{v}',
-      'qc.accumulating': '趋势积累中',
+      /* 趋势线说明（2026-09-22）。线画的是**新增量**（源表时间列按天分桶），
+         与卡片大数字的**存量**不是一个东西，所以必须写清窗口和每格代表多长时间。
+         注意单位要挂在「每格」上，不能挂在总数后面 ——
+         写成「近 30 天新增 91 次/时」会被读成「每小时 91 次」，那是错的。 */
+      'qc.trend.cap': '近 {n} 天新增 {total} 次（每格 {unit}）',
+      'qc.trend.hours': '1 小时',
+      'qc.trend.days': '1 天',
+      /* alarm 是实时指标 → 看「今天按小时」的节奏，措辞与「近 N 天」必须分开：
+         写成「近 1 天新增 28 次」既别扭、又会被读成滚动 24 小时。
+         横轴铺的是今天 00:00→23:00 满 24 格，所以「今天」是准确的。 */
+      'qc.trend.capToday': '今天 {total} 次（每格 {unit}）',
+      /* title 属性里的文字**不会**渲染 markdown —— 早期版本在这里写了
+         `**新增量**`，浮层里会把星号原样显示出来。故一律用中文引号强调。 */
+      'qc.trend.tip': '按源表时间列分桶的「新增量」（近 {n} 天，每格 {unit}）。\n'
+                    + '空档补 0：那段时间确实没有新增。\n'
+                    + '注意这是「来单速度」，不是卡片上那个「存量」，两者量级不同、不能互相印证。',
+      'qc.trend.tipToday': '按源表时间列分桶的「新增量」（今天 00:00 至 23:00，每格 {unit}）。\n'
+                    + '空档补 0：那个小时确实没有新告警。\n'
+                    + '最后一格是「尚未走完的当前小时」，值会随分钟继续增长。\n'
+                    + '注意这是「新告警速度」，不是卡片上那个「存量」，两者不能互相印证。',
+      'qc.trend.starving': '趋势数据不足',
       'qc.inbound': '入库',
       'qc.outbound': '出库',
       'qc.grp.primary': '需要处理',
@@ -391,6 +415,7 @@
       'modal.colEn': '分组名称（English）',
       'modal.colCount': '看板数',
       'modal.add': '新增分组',
+      'modal.newGroupZh': '新分组中文名 / Chinese name',
       'modal.del': '删除',
       'modal.confirmDel': '确认删除该分组？组内看板仍可通过编辑归属改派到其他分组。',
       'modal.note': '分组改名 / 新增会立即生效并保存在本机浏览器；删除分组只影响归属展示，不会删除看板本身。',
@@ -424,6 +449,7 @@
       'subm.add': '新增子分组',
       'subm.addZh': '子分组中文名',
       'subm.addEn': 'English name',
+      'subm.count': '{n} 项',
       'subm.del': '删除',
       'subm.delConfirm': '确认删除子分组「{name}」？组内 {n} 个看板会移入「其他系统」，不会删除看板本身。',
       'subm.emptyName': '子分组名称不能为空',
@@ -448,6 +474,11 @@
       'subm.readonlyHint': '当前不是服务器本机访问，子分组只读。',
     },
     en: {
+      'doc.title': 'ZTE OLR MS Management Platform — Liberia dashboard portal',
+      'doc.desc': 'ZTE OLR MS Management Platform — entry to the Liberia NOC/SOC automation tooling, aggregating the CXO / MS / FO / FLM / BO / System Admin views.',
+      'api.notJson': 'Non-JSON response (API not registered, or backend not restarted)',
+      'api.noAlarm': 'Response has no metrics.alarm',
+      'tag.unassign': 'Remove',
       'search.placeholder': 'Search dashboards by name, description, owner or tag…',
       'section.searchPh': 'Filter dashboards in this section…',
       'section.hit': '{n} match',
@@ -507,6 +538,8 @@
          displayed it was removed 2026-09-19; ordering is now done by dragging
          (the "Sort order" button), so this is the fallback weight only. */
       'board.fClicks': 'Initial sort weight',
+      'board.clicksTip': 'Dashboards that were never drag-reordered rank by this number, high to low; once dragged, the drag order wins.',
+      'board.freqPh': 'Daily 00:00',
       'board.fTags': 'Tags (comma separated)',
       'board.fGroups': 'Groups * (multi-select)',
       'chip.all': 'All',
@@ -540,7 +573,7 @@
       'esc.col.lonestar': 'LONESTAR',
       'esc.col.email': 'Email',
       'esc.empty': 'Escalation data not loaded',
-      'esc.srcNote': 'Source: 升级机制.xlsx',
+      'esc.srcNote': 'Source: escalation matrix',
       'esc.pax': '{n} pax',
       'esc.expand': 'Expand',
       'esc.expandTip': 'All 6 columns need 796px; open the full-width view for the complete matrix',
@@ -588,9 +621,18 @@
       'qc.ago.min': '{n}m ago',
       'qc.ago.hour': '{n}h ago',
       'qc.ago.day': '{n}d ago',
-      'qc.delta.flat': 'flat',
-      'qc.delta.tip': 'Versus the previous hourly snapshot: {v}',
-      'qc.accumulating': 'Trend accumulating',
+      'qc.trend.cap': 'New in last {n}d: {total} (per {unit})',
+      'qc.trend.hours': '1h',
+      'qc.trend.days': '1 day',
+      'qc.trend.capToday': 'Today: {total} (per {unit})',
+      'qc.trend.tip': 'New items bucketed by the source time column (last {n} days, per {unit}).\n'
+                    + 'Empty buckets are filled with 0 (nothing was raised then).\n'
+                    + 'Note: this is incoming rate, not the backlog shown above.',
+      'qc.trend.tipToday': 'New items bucketed by the source time column (today 00:00-23:00, per {unit}).\n'
+                    + 'Empty buckets are filled with 0 (no new alarm in that hour).\n'
+                    + 'The last bucket is the current, still-running hour.\n'
+                    + 'Note: this is the incoming alarm rate, not the backlog shown above.',
+      'qc.trend.starving': 'Not enough trend data',
       'qc.inbound': 'Inbound',
       'qc.outbound': 'Outbound',
       'qc.grp.primary': 'Action needed',
@@ -755,10 +797,11 @@
       'topo.stat.online': 'Online dashboards',
       'topo.stat.clicks': 'Total visits',
       'modal.title': 'Manage groups',
-      'modal.colZh': 'Group name (中文)',
+      'modal.colZh': 'Group name (Chinese)',
       'modal.colEn': 'Group name (English)',
       'modal.colCount': 'Dashboards',
       'modal.add': 'Add group',
+      'modal.newGroupZh': 'Chinese name',
       'modal.del': 'Delete',
       'modal.confirmDel': 'Delete this group? Its dashboards can still be reassigned afterwards.',
       'modal.note': 'Renaming or adding a group applies immediately and is stored in this browser; deleting a group only affects the display, never the dashboard itself.',
@@ -774,7 +817,7 @@
       'footer.copy': 'ZTE Corporation. All rights reserved',
       'footer.branch': 'Liberia Branch Network Operation Center (OLR MS)',
       'footer.compliance': 'Running in security compliance mode',
-      'footer.source': 'Grouping source: 看板清单 (分组优化）',
+      'footer.source': 'Grouping source: dashboard catalog (grouped edition)',
       'plat.myapp': 'In-house my_app',
       'plat.finebi': 'FineBI Report',
       'plat.external': 'External System',
@@ -790,8 +833,9 @@
       'subm.expand': 'Expand sub-groups',
       'subm.collapse': 'Collapse sub-groups',
       'subm.add': 'Add sub-group',
-      'subm.addZh': 'Sub-group name (中文)',
+      'subm.addZh': 'Chinese name',
       'subm.addEn': 'English name',
+      'subm.count': '{n} item(s)',
       'subm.del': 'Delete',
       'subm.delConfirm': 'Delete sub-group "{name}"? Its {n} dashboard(s) move to "Other systems"; no dashboard is deleted.',
       'subm.emptyName': 'Sub-group name cannot be empty',
@@ -882,7 +926,14 @@
   /* ------------------------------------------------------- local storage -- */
   function readLS(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function writeLS(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
-  function readJSON(k, d) {
+  /* 默认语言跟随浏览器（与 index.html 首屏脚本的 guessLang 同一口径）。
+     只有用户从未手动切过语言时才生效；?lang= 深链在 applyDeepLink 里优先级更高。 */
+  function detectLang() {
+    var v = readLS(LS.lang);
+    if (v === 'en' || v === 'zh') return v;
+    var nav = (navigator.language || navigator.userLanguage || 'zh') + '';
+    return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+  }  function readJSON(k, d) {
     try { var raw = localStorage.getItem(k); return raw ? JSON.parse(raw) : d; } catch (e) { return d; }
   }
   function writeJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } }
@@ -893,7 +944,7 @@
 
   /* ------------------------------------------------------------- state --- */
   var state = {
-    lang: readLS(LS.lang) === 'en' ? 'en' : 'zh',
+    lang: detectLang(),
     theme: readLS(LS.theme) === 'dark' ? 'dark' : 'light',
     editing: false,
     /* 拖拽排序模式（2026-09-20 加）。与 editing 互斥：进一个就退出另一个 ——
@@ -946,12 +997,14 @@
        alarm = 告警那份。标题栏的「更新于」取两者中较新的一个。 */
     qcFullAt: '',
     qcAlarmAt: '',
-    /* 每小时快照历史（2026-09-22 加，走 GET /api/portal-qc/history）。
-       形状：{ alarm: [{h:'YYYY-MM-DD HH:00', v: 56}, …], tt: [...], … }，
-       只含**已走完的整点**（不含当前这一小时），故最后一项就是「上一小时」，
-       环比直接拿它比即可，不用在前端猜时区。历史不足时是 null / 空数组 →
-       环比徽章与趋势线都不渲染，改显示「趋势积累中」，绝不假装有趋势。 */
-    qcHistory: null,
+    /* 新增量趋势（2026-09-22 加，走 GET /api/portal-qc/trend）。
+       形状：{ alarm: {grain:'hour', days:30, points:[{t:'YYYY-MM-DD HH:00', v:16}, …]}, … }
+       points 是**稀疏**的（后端只回有数据的桶），前端 qcTrendSeries() 再补齐成
+       连续时间轴。cr / pmt 后端明确回 no_trend（它们近 7 天新增都是 0，
+       按时间列画会得到一条长期贴 0 的直线，信息量为负），故这里不会有它们。
+       旧版这里是 qcHistory（每小时积压快照，走 /history）—— 后端那张
+       portal_qc_snapshot 表本次保留但前端已不再读写，留作以后做「存量趋势」用。 */
+    qcTrend: null,
     /* 下钻明细弹窗状态。metric=null 表示弹窗关闭。
        2026-09-22 加 sort/dir：表头可点排序。排序在**服务端**做（不是只排当前页）——
        只排当前页会让「按 Raised Time 排序」在翻页后失效，是错的。 */
@@ -1183,7 +1236,7 @@
         if (!r.ok) throw new Error('HTTP ' + r.status);
         // my_app 末尾的 @app.get("/{full_path:path}") 会把未注册的 /api/xxx 也回成
         // SPA 的 index.html（200 + text/html）。不校验就会把一坨 HTML 当目录读。
-        if (ct.indexOf('json') === -1) throw new Error('非 JSON 响应（接口未注册或后端未重启）');
+        if (ct.indexOf('json') === -1) throw new Error(t('api.notJson'));
         return r.json();
       })
       .then(function (data) {
@@ -1372,8 +1425,19 @@
   function descOf(item) { return state.lang === 'en' ? (item.descEn || item.descZh) : item.descZh; }
   function platLabel(item) { return t('plat.' + item.platform); }
   function platShort(item) { return t('platShort.' + item.platform); }
-  function ownerOf(item) { return state.lang === 'en' ? (item.ownerEn || item.owner) : item.owner; }
-  function deptOf(item) { return state.lang === 'en' ? (item.deptEn || item.dept) : item.dept; }
+  function ownerOf(item) { return state.lang === 'en' ? msEnOf(item.ownerEn, 'owner', item.owner) : item.owner; }
+  function deptOf(item) { return state.lang === 'en' ? msEnOf(item.deptEn, 'dept', item.dept) : item.dept; }
+  /* 目录数据里 freq / owner 只有中文、没有 *En 字段，英文模式会整片漏出中文。
+     映射表在 assets/terms.js —— 刻意不写进 data.js，那份是 TMP/gen_msportal.py 从
+     xlsx 重新生成的，加字段下一次同步就被冲掉。terms.js 没加载时原样返回中文。 */
+  function msTerm(kind, zh) {
+    return typeof window.msPortalTerm === 'function' ? window.msPortalTerm(kind, zh) : (zh || '');
+  }
+  /* 目录里还有 *En 被填成中文原值的脏数据（ownerEn="IP 传输工程师"），
+     所以取英文字段统一走这里：含汉字就回查映射表。 */
+  function msEnOf(en, kind, zh) {
+    return typeof window.msPortalEnOf === 'function' ? window.msPortalEnOf(en, kind, zh) : (en || msTerm(kind, zh));
+  }
   function statusText(item) { return item.status === 'beta' ? t('status.beta') : t('status.online'); }
 
   function filtered() {
@@ -1397,7 +1461,8 @@
        用户说"搜看板名字"，但只匹配名字会让人搜"暗号"（如 no=50）时一无所获。 */
   function matchQuery(it, q) {
     var blob = [it.titleZh, it.titleEn, it.descZh, it.descEn,
-                it.owner, it.ownerEn, it.dept, it.deptEn,
+                it.owner, it.ownerEn, msTerm('owner', it.owner),
+                it.dept, it.deptEn, msTerm('dept', it.dept), it.freq, msTerm('freq', it.freq),
                 platShort(it), platLabel(it),
                 'no' + it.no + ' #' + it.no,
                 (it.tags || []).join(' ')].join(' ').toLowerCase();
@@ -1714,7 +1779,7 @@
       return '<span class="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200">' +
         esc(groupLabel(groupById(gid))) +
         '<button type="button" class="text-blue-400 hover:text-rose-600 leading-none" data-act="unassign" data-no="' + item.no +
-        '" data-gid="' + esc(gid) + '" title="移出 / remove">×</button></span>';
+        '" data-gid="' + esc(gid) + '" title="' + esc(t('tag.unassign')) + '">×</button></span>';
     }).join('');
     var tools = '';
     if (state.catalogEditable) {
@@ -2197,7 +2262,7 @@
       var n = (drawn < realN) ? drawn + ' / ' + realN : String(realN);
       return '<div class="text-[13px] font-semibold text-slate-600 bg-slate-100 px-2.5 py-1.5 rounded flex items-center justify-between mb-2">' +
         '<span>' + esc(label) + '</span>' +
-        '<span class="text-[12px] text-slate-400 font-mono">' + n + ' 项</span></div>';
+        '<span class="text-[12px] text-slate-400 font-mono">' + esc(tf('subm.count', { n: n })) + '</span></div>';
     }
     subs.forEach(function (s) {
       var list = items.filter(function (it) { return subOfItem(it, gid) === s.id; });
@@ -2379,6 +2444,12 @@
   var QC_PRIMARY_ORDER = ['alarm', 'tt', 'wo'];
   var QC_SECONDARY_ORDER = ['cr', 'pmt', 'spms'];
 
+  /* 提供「新增量趋势」的指标（走 GET /api/portal-qc/trend）。
+     其余（cr / pmt）后端明确回 no_trend，故不发请求、也不画线。
+     声明必须放在 qcSection() 之前 —— 虽然 var 会提升、运行时也不会出错，
+     但把常量放在使用点之后读起来像是笔误。 */
+  var QC_TREND_METRICS = ['alarm', 'tt', 'wo', 'spms'];
+
   var QC_LV_KEY = { ok: 'qc.lv.ok', warn: 'qc.lv.warn', crit: 'qc.lv.crit', na: 'qc.lv.na' };
 
   /** 值 + 阈值 → 'ok' | 'warn' | 'crit' | 'na'。
@@ -2416,45 +2487,109 @@
     return tf('qc.ago.day', { n: Math.round(s / 86400) });
   }
 
-  /** 历史序列里的有效数值点（剔除 null / 非数字）。
-      必须**显式**剔 null：Number(null) === 0，直接转会把「那一小时没取到数」
-      画成「积压清零」的假谷底 —— 那比不画线严重得多。
-      后端也只写 / 只回真数字，这里是第二道闸。 */
-  function qcHistVals(h) {
-    if (!h || !h.length) return [];
-    return h.map(function (p) { return p && p.v; })
-            .filter(function (v) { return v != null && !isNaN(Number(v)); })
-            .map(Number);
-  }
+  /* ---------------------------------------------------- 新增量趋势（时间列） --
+     2026-09-22 改版：趋势线的数据源从「每小时积压快照」换成**源表自己的时间列分桶**。
+     原因：积压快照要攒一周才有 7 天数据，而源表本来就有时间列，立即有数据。
 
-  /** 环比（与上一整点快照比）。返回 {n, dir} 或 null（历史不足时）。
-      dir 是**业务方向**：SLA 涨了是 good，积压涨了是 bad。 */
-  function qcDelta(id, v) {
-    var vals = qcHistVals(state.qcHistory && state.qcHistory[id]);
-    if (!vals.length || v == null || isNaN(Number(v))) return null;
-    var prev = vals[vals.length - 1], cur = Number(v);
-    var d = Math.round((cur - prev) * 10) / 10;
-    var tg = QC_TARGETS[id];
-    var better = tg && tg.dir === 'down' ? d > 0 : d < 0;
-    return { n: d, dir: d === 0 ? 'flat' : (better ? 'good' : 'bad') };
-  }
+     两种趋势回答的是**不同问题**，别混：
+       积压快照（portal_qc_snapshot，后端保留但本次不读写）→ 存量在堆积还是在消化
+       时间列分桶（/api/portal-qc/trend）              → 最近来单/告警是变多还是变少
+     本次只做后者（用户口径：「用详情里的 RAISED TIME 列，换成小时数个数」）。 */
 
-  function qcDeltaHtml(id, v) {
-    var d = qcDelta(id, v);
-    if (!d) return '';
-    var arrow = d.n > 0 ? '▲' : (d.n < 0 ? '▼' : '＝');
-    var txt = d.n === 0 ? t('qc.delta.flat') : arrow + ' ' + fmt(Math.abs(d.n));
-    var cls = d.dir === 'flat' ? '' : (d.dir === 'good' ? ' is-good' : ' is-bad');
-    var tip = tf('qc.delta.tip', { v: (d.n > 0 ? '+' : '') + d.n });
-    return '<span class="qc-delta' + cls + '" title="' + esc(tip) + '">' + esc(txt) + '</span>';
+  /** 趋势序列：把后端的**稀疏**桶补齐成连续时间轴（缺的桶补 0）。
+      为什么要补：后端只回「有数据的桶」，而「那天没有新增」和「数据没同步」
+      是两件事。补 0 只在**窗口内**进行，窗口外不凭空造点。
+      返回 null 表示该 metric 不提供趋势（cr/pmt）或数据没到位。 */
+  function qcTrendSeries(id) {
+    var tr = state.qcTrend && state.qcTrend[id];
+    if (!tr || !tr.points || !tr.points.length) return null;
+    var grain = tr.grain === 'day' ? 'day' : 'hour';
+
+    /* 桶 key 是 'YYYY-MM-DD HH:00'（小时）或 'YYYY-MM-DD'（天）。用 Date 逐格推进，
+       而不是按点数等距排开 —— 等距排开会把「中间断了 8 小时」画成和「连续 8 小时」
+       一样的间距，等于在横轴上撒谎。 */
+    var map = {};
+    tr.points.forEach(function (p) {
+      map[p.t] = (map[p.t] || 0) + Number(p.v || 0);
+    });
+
+    var keys = Object.keys(map).sort();
+    if (keys.length < 2) return null;
+
+    function parseKey(k) {
+      var m = grain === 'day'
+        ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(k)
+        : /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2})/.exec(k);
+      if (!m) return null;
+      return new Date(+m[1], +m[2] - 1, +m[3], grain === 'day' ? 0 : +m[4], 0, 0);
+    }
+    function fmtKey(d) {
+      var p = function (n) { return (n < 10 ? '0' : '') + n; };
+      var s = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+      return grain === 'day' ? s : s + ' ' + p(d.getHours()) + ':00';
+    }
+
+    var start = parseKey(keys[0]), end = parseKey(keys[keys.length - 1]);
+    if (!start || !end) return null;
+
+    /* 连续时间轴：逐格推进，缺的桶补 0。
+       ⚠️ 这里**不允许**退化成「只用有数据的桶、按点数等距排开」——
+       那会把「中间断了 20 天」画成和「连续 20 天」一样的间距，等于在横轴上撒谎。
+       上一版就是这么写的（slots > 200 时静默走稀疏分支），实测按小时铺 30 天
+       是 720 格，于是每次都静默降级，横轴是假的。
+       现在的做法：超过上限就把**窗口从尾部收窄**，始终保证是连续轴。
+       上限 200 格按「近 30 天按天 = 30 格」定的，余量足够。 */
+    var stepMs = grain === 'day' ? 86400000 : 3600000;
+    var MAX_SLOTS = 200;
+    var slots = Math.round((end - start) / stepMs) + 1;
+    if (slots > MAX_SLOTS) {
+      start = new Date(end.getTime() - (MAX_SLOTS - 1) * stepMs);
+    }
+
+    /* 「今天」窗口（目前只有 alarm）：把横轴铺满**一整天 00:00→23:00**，
+       而不是只从第一条数据铺到最后一条。
+       不这么做的话，凌晨 01 时之前、以及最后一条之后的空白会被吃掉 ——
+       而「从 00 时到 05 时才起第一条告警」这件事本身就是要看的信息。
+       同时这让横轴永远是 24 格，不同时刻刷新时宽度稳定，不会一会儿宽一会儿窄。 */
+    if (grain === 'hour' && tr.window === 'today') {
+      start = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 0, 0, 0);
+      end = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 0, 0);
+    } else if (grain === 'day') {
+      /* 按天的窗口同样要**铺满**，理由与上面一致：后端只回有数据的桶，
+         若直接从首桶画到末桶，那么「最近 7 天一条 TT 都没有」这段会被整个吃掉，
+         线的左端看上去就是「一直在来单」，与实际不符。
+         铺满近 N 天（今天含在内，故 -1）后，两端各有一段贴 0 的平线 ——
+         那才是事实。alarm 之外的三项都用这个分支。 */
+      var span = Math.max(2, (tr.days || 30)) - 1;
+      var now = new Date();
+      end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      start = new Date(end.getTime() - span * 86400000);
+    }
+
+    var vals = [], labels = [];
+    for (var t = start.getTime(); t <= end.getTime(); t += stepMs) {
+      var k = fmtKey(new Date(t));
+      vals.push(map[k] || 0);          // 窗口内缺的桶 = 那个时段确实没有新增 → 0
+      labels.push(k);
+    }
+
+    return {
+      grain: grain, vals: vals, labels: labels,
+      total: vals.reduce(function (a, b) { return a + b; }, 0),
+      /* 有数据的桶数 —— 用来判断这条线是不是稀到没意义。
+         与 vals.length（连续轴长度）不是一回事。 */
+      filled: keys.length,
+      window: tr.window || 'days',
+      days: tr.days || null,
+    };
   }
 
   /** 迷你趋势线（内联 SVG，零第三方依赖 —— 门户要求零 CDN、断网可用）。
-      历史点 < 2 时返回 ''，由调用方渲染「趋势积累中」占位：
-      只有一个点时画线等于假装有趋势，宁可空着。 */
+      点 < 2 时返回 ''，由调用方决定怎么占位。 */
   function qcSpark(id) {
-    var vals = qcHistVals(state.qcHistory && state.qcHistory[id]);
-    if (vals.length < 2) return '';
+    var s = qcTrendSeries(id);
+    if (!s || s.vals.length < 2) return '';
+    var vals = s.vals;
     var W = 300, H = 26, PAD = 4;
     var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
     var span = (max - min) || 1;
@@ -2476,16 +2611,32 @@
       '</svg></span>';
   }
 
-  /** 主卡趋势位：有 ≥2 个历史点就画线；历史接口**根本没通**时返回 ''（什么都不占），
-      只有「接口通了、但这个指标的点数还不够」才提示「趋势积累中」。
-      为什么要区分这两种空：首屏（或后端还没重启）时三张主卡会同时显示三行
-      「趋势积累中」，看着像页面报错；而真正在积累数据时提示一次是有意义的。 */
-  function qcSparkSlot(id, v) {
+  /** 主卡趋势位 + 说明文字。
+      三种状态要分清楚，否则首屏会三行「趋势积累中」看着像报错：
+        · 有趋势接口且点够  → 画线 + 说明文字
+        · 接口通了但点不够  → 不画线（一个点画线 = 假装有趋势）
+        · 该指标无趋势      → 返回 ''（cr/pmt，后端明确回 no_trend） */
+  function qcSparkSlot(id) {
     var spark = qcSpark(id);
-    if (spark) return spark;
-    if (v == null || !state.qcHistory) return '';
-    if (qcHistVals(state.qcHistory[id]).length >= 2) return '';
-    return '<span class="qc-spark-empty">' + esc(t('qc.accumulating')) + '</span>';
+    var s = qcTrendSeries(id);
+    if (!spark) {
+      // 接口没通 / 该 metric 无趋势 → 什么都不占，不要留一行空占位
+      if (!s) return '';
+      return '<span class="qc-spark-empty">' + esc(t('qc.trend.starving')) + '</span>';
+    }
+    /* 说明文字带上「窗口 + 每格时长」：只画一条线不说清是「每小时新增」还是「每天」，
+       读者没法把线的量级和卡片大数字对上（两者一个是流量、一个是存量，本来就不同）。
+       窗口有两种，措辞必须分开 —— alarm 是「今天 00 时起」，把它写成
+       「近 1 天新增 28 次」既别扭又会让人以为是滚动 24 小时。 */
+    var unitKey = s.grain === 'day' ? 'qc.trend.days' : 'qc.trend.hours';
+    var tv = s.window === 'today'
+      ? { cap: 'qc.trend.capToday', tip: 'qc.trend.tipToday' }
+      : { cap: 'qc.trend.cap', tip: 'qc.trend.tip' };
+    var vars = { total: fmt(s.total), unit: t(unitKey), n: s.days || s.labels.length };
+    var cap = tf(tv.cap, vars);
+    var tip = tf(tv.tip, vars);
+    return '<span class="qc-spark-wrap" title="' + esc(tip) + '">' + spark +
+      '<span class="qc-spark-cap">' + esc(cap) + '</span></span>';
   }
 
   function qcSection() {
@@ -2583,19 +2734,24 @@
           (big ? ' qc-card--lg' : ' qc-card--sm') +
           (on ? ' is-on' : '') + (failed ? ' is-failed' : '') +
           '" data-act="qc" data-qc="' + esc(q.id) + '" title="' + esc(tips.join('\n')) + '">' +
-          '<span class="qc-rail" aria-hidden="true"></span>' +
+          /* 2026-09-22 二次改版：去掉左侧竖条（qc-rail），改用**整卡等级色描边 + 内发光**
+             （见 portal.css 的 .qc-lv-*）。竖条在窄卡上占宽度、且和居中的数字不在一条
+             视觉轴上；整卡描边在六张并排时更容易横向扫读，也更接近 CXO 看板的观感。 */
           '<span class="qc-hd">' +
             '<span class="qc-ico" aria-hidden="true">' + ico(q.icon) + '</span>' +
             '<span class="qc-name">' + esc(state.lang === 'en' ? q.en : q.zh) + '</span>' +
-            '<span class="qc-lvchip">' + esc(t(QC_LV_KEY[lv])) + '</span>' +
           '</span>' +
+          /* 等级徽章单独一行放在标题下面：六张卡并排后每张只有 ~240px，
+             徽章挤在标题行会把卡名 truncate 掉（「TTs (故障工单)」只剩「TTs…」）。
+             独立成行后卡名有整行可用，窄屏友好。 */
+          '<span class="qc-lvchip">' + esc(t(QC_LV_KEY[lv])) + '</span>' +
           '<span class="qc-numrow">' +
             '<span class="qc-num' + (v == null ? ' is-na' : '') + '">' + esc(num) + '</span>' +
-            qcDeltaHtml(q.id, failed ? null : v) +
           '</span>' +
-          /* 趋势线只给主卡（需要立即处理的三格）。次卡保持紧凑 ——
-             六张卡都塞趋势线会让面板变成一片噪点，反而看不出重点。 */
-          (big ? qcSparkSlot(q.id, v) : '') +
+          /* 趋势线：主卡必给，次卡只在**确实有趋势数据**时给（目前只有 spms）。
+             不给 cr/pmt 的原因是它们的时间列近 30 天没有数据 —— 那画出来不是趋势，
+             是一条贴 0 的直线（详见后端 _TREND_SPEC 的实测记录）。 */
+          (big || QC_TREND_METRICS.indexOf(q.id) !== -1 ? qcSparkSlot(q.id) : '') +
           '<span class="qc-sub" title="' + esc(sub) + '">' + esc(sub) + '</span>' +
           (atTxt ? '<span class="qc-age">' + esc(tf('qc.dataAt', { t: atTxt, ago: agoTxt })) + '</span>' : '') +
         '</button>';
@@ -2609,16 +2765,17 @@
       }).join('');
     }
 
-    /* 分层：主卡（需要立即处理）在上、次卡（积压与合规）在下。
-       层级靠**字号与内容密度**表达，不靠宽度 —— 六张卡等宽才能保证换行与窄屏不错位。 */
-    var groups =
-      '<div class="qc-group">' +
-        '<div class="qc-group-hd">' + esc(t('qc.grp.primary')) + '</div>' +
-        '<div class="qc-grid">' + pickCards(QC_PRIMARY_ORDER) + '</div>' +
-      '</div>' +
-      '<div class="qc-group">' +
-        '<div class="qc-group-hd">' + esc(t('qc.grp.secondary')) + '</div>' +
-        '<div class="qc-grid">' + pickCards(QC_SECONDARY_ORDER) + '</div>' +
+    /* 六张卡**一行排开**（2026-09-22 二次改版，用户要求）。
+       原来是「主卡一行 / 次卡一行」两组带分组标题 —— 两行占了竖向空间，
+       而这一屏下面还有别的区块。
+       分组标题一并去掉：六张卡等宽同排之后，「主/次」这层信息改由**字号**表达
+       （主卡 26px / 次卡 21px，见 .qc-card--lg / --sm），
+       不再需要两个小标题各占一行。
+       窄屏降级：容器放不下时由 CSS 自动折成 3 列 / 2 列（见 .qc-grid 的媒体查询），
+       不写死在 JS 里 —— 断点该跟视口走，不该跟渲染逻辑走。 */
+    var cards =
+      '<div class="qc-grid">' +
+        pickCards(QC_PRIMARY_ORDER) + pickCards(QC_SECONDARY_ORDER) +
       '</div>';
 
     /* 标题栏「达标率」：原来是写死的字符串，2026-09-17 改为接口算出的真实值
@@ -2642,7 +2799,7 @@
           ico('refresh') + esc(t('qc.reload')) + '</button>' +
         '<span class="qc-sla qc-lv-' + slaLv + '" title="' + esc(slaTip) + '">' +
           ico('shield') + esc(t('sec.qc.sla.label')) + ' <strong>' + esc(slaVal) + '</strong></span>'
-    }) + '<div class="qc-groups">' + groups + '</div>';
+    }) + cards;
   }
   /* ================================================ QC 统计 / 明细下钻 ==
      数据来自 my_app 的只读接口（backend/routers/portal_qc.py），经 nginx 的
@@ -2683,7 +2840,7 @@
       .then(function (r) {
         var ct = (r.headers.get('Content-Type') || '').toLowerCase();
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        if (ct.indexOf('json') === -1) throw new Error('非 JSON 响应（接口未注册或后端未重启）');
+        if (ct.indexOf('json') === -1) throw new Error(t('api.notJson'));
         return r.json();
       });
   }
@@ -2717,6 +2874,9 @@
         state.qcErr = '';
         paintQc();
         renderQcDrill();          // 弹窗开着时同步刷新（分页/搜索不变）
+        /* 顺带拉一次新增量趋势（趋势线用）。放在这里而不是单独的定时器：
+           趋势的粒度是小时/天，跟全量刷新同节奏就够了。 */
+        fetchQcTrend();
       })
       .catch(function (e) {
         qcStatsBusy = false;
@@ -2742,7 +2902,7 @@
       .then(function (data) {
         qcAlarmBusy = false;
         var m = data && data.metrics && data.metrics.alarm;
-        if (!m) throw new Error('响应里没有 metrics.alarm');
+        if (!m) throw new Error(t('api.noAlarm'));
         state.qcAlarm = m;
         state.qcAlarmAt = (data && data.generated_at) || '';
         paintQc();
@@ -2753,6 +2913,34 @@
         state.qcAlarmAt = '';
         paintQc();
       });
+  }
+
+  /** 拉新增量趋势（2026-09-22 加），供主卡的趋势线使用。
+      只请求**有趋势的四个**：alarm / tt / wo / spms。
+      cr / pmt 后端明确回 no_trend，不必发请求浪费一个来回。
+
+      **粒度和窗口由后端按指标定**（见 portal_qc.py 的 _TREND_SPEC），前端不猜：
+        alarm     → 今天 + 按小时（实时指标，看当班节奏）
+        tt/wo/spms → 近 30 天 + 按天（日级量级，按小时是一条贴底的直线）
+      所以这里统一发 days=30，后端对 alarm 会忽略它、回 window="today"。
+
+      与 fetchQcStats 同一节奏（每次全量刷新顺带拉一次）。
+      ⚠️ alarm 的趋势**不**跟着 5 分钟的告警轮询走 —— 小时桶 5 分钟内不会变，
+      多发三次只是白跑。它跟全量刷新（每小时 :06:30）走。
+      失败**不清空** state.qcTrend：已经拿到的趋势不该因为一次网络抖动消失，
+      而「拿不到趋势」本身有降级路径（不画线），不是错误状态。 */
+  function fetchQcTrend() {
+    if (REQUIRE_LOGIN_FOR_CATALOG && state.authOk !== true) return;
+    QC_TREND_METRICS.forEach(function (m) {
+      qcApi('/api/portal-qc/trend?metric=' + m + '&days=30')
+        .then(function (data) {
+          if (!data || !data.points) return;
+          state.qcTrend = state.qcTrend || {};
+          state.qcTrend[m] = data;
+          paintQc();
+        })
+        .catch(function () { /* 见上：静默降级 */ });
+    });
   }
 
   /* ------------------------------------------------------------ 明细下钻 -- */
@@ -5156,8 +5344,19 @@
     'Knowledge Q&A': 'secQa', 'Friends Link': 'secFriends'
   };
 
+  function syncDocMeta() {
+    var title = t('doc.title');
+    if (document.title !== title) document.title = title;
+    var md = document.querySelector('meta[name="description"]');
+    var desc = t('doc.desc');
+    if (md && md.getAttribute('content') !== desc) md.setAttribute('content', desc);
+  }
+
   function render() {
     document.documentElement.setAttribute('lang', state.lang === 'en' ? 'en' : 'zh-CN');
+    /* 浏览器标签页标题与 meta description 也是文案 —— 静态写死在 index.html 里
+       就永远不会跟着语言变。render 每次搜索都会跑，所以只在值真的变了时写。 */
+    syncDocMeta();
     document.documentElement.classList.toggle('dark', state.theme === 'dark');
     document.body.classList.toggle('editing', state.editing);
 

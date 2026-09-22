@@ -9,7 +9,7 @@ import {
 } from '@ant-design/icons'
 import api from '../../api'
 import { WH } from '../../theme'
-import { formatTime } from './helpers'
+import { formatDateTime } from '../../datetime'
 import type { TaskDetail, RunRecord } from './types'
 
 const { Text } = Typography
@@ -147,7 +147,7 @@ export function TaskHistoryModal({
                       {run.success ? (locale === 'zh' ? '成功' : 'Success') : (locale === 'zh' ? '失败' : 'Failed')}
                     </Tag>
                     <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
-                      {run.trigger === 'manual' ? '🔧' : '⏰'} {formatTime(run.started_at)}
+                      {run.trigger === 'manual' ? '🔧' : '⏰'} {formatDateTime(run.started_at, { zone: true })}
                     </Text>
                   </Space>
                 }

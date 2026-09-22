@@ -10,16 +10,27 @@
 <!-- 零 CDN：图标与看板目录都从 /MsPortal/ 只读引用，本页面不写它的任何文件 -->
 <link rel="stylesheet" href="/MsPortal/assets/icons/phosphor.css">
 <link rel="stylesheet" href="assets/olbr.css">
-<script>
-/* 主题/语言在首帧前落到 <html>，避免闪白。
+<!-- 主题/语言在首帧前落到 <html>，避免闪白。
    键名刻意用 olbr.* 而不是复用 msportal.* —— 两个页面各自记忆各自的选择，
    并且本页面**不持久化搜索与筛选**（MsPortal 那版会把上一次的筛选带进下次
-   会话，7 个面板看起来像坏了，这是本次改版要修掉的一类问题）。 */
+   会话，7 个面板看起来像坏了，这是本次改版要修掉的一类问题）。
+   没有用户选择时按浏览器语言定默认（与 my_app 的 detectLocale 同一口径）——
+   之前硬默认中文，利比里亚用户第一次打开满屏中文、必须先找到语言开关。
+   这段和 title/meta 的覆写与 assets/olbr.js 的 detectLang() 必须保持一致，
+   两边不一致会让首帧和挂载后的语言不同，表现为闪一下另一种语言。 -->
+<script>
 (function () {
+  function guessLang() {
+    var v = null;
+    try { v = localStorage.getItem('olbr.lang'); } catch (e) { /* ignore */ }
+    if (v === 'en' || v === 'zh') return v;
+    var nav = (navigator.language || navigator.userLanguage || 'zh') + '';
+    return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+  }
   try {
     if (localStorage.getItem('olbr.theme') === 'dark') document.documentElement.classList.add('dark');
-    if (localStorage.getItem('olbr.lang') === 'en') document.documentElement.setAttribute('lang', 'en');
   } catch (e) { /* ignore */ }
+  document.documentElement.setAttribute('lang', guessLang() === 'en' ? 'en' : 'zh-CN');
 })();
 </script>
 </head>
@@ -97,10 +108,15 @@
         <button type="button" class="seg-b" data-lang="zh">中文</button>
         <button type="button" class="seg-b" data-lang="en">EN</button>
       </span>
-      <button type="button" class="ib" id="themeBtn" aria-label="Toggle theme" title="深色 / 浅色">
+      <button type="button" class="ib" id="themeBtn" aria-label="Toggle theme"
+              data-i18n-attr="title:attr.theme">
         <i class="ph ph-moon" aria-hidden="true"></i>
       </button>
-      <a class="gb" href="/MsPortal/" title="分组编辑 / 看板维护 / 用户管理仍在 MsPortal 完成">
+      <button type="button" class="gb" id="editBtn" hidden aria-pressed="false"
+              data-i18n-attr="title:edit.tipOn">
+        <i class="ph ph-pencil-simple" aria-hidden="true"></i><span>编辑分组</span>
+      </button>
+      <a class="gb" href="/MsPortal/" data-i18n-attr="title:attr.adminTitle">
         <i class="ph ph-wrench" aria-hidden="true"></i><span data-i18n="mast.admin">管理门户</span>
       </a>
       <a class="gb" href="/uniplam/">
@@ -114,18 +130,30 @@
   </div>
 </header>
 
+<!-- ===================== 编辑模式提示条 =====================
+     只有点了顶栏「编辑分组」才出现。它不是装饰：这一页的编辑改动写进的是
+     /api/portal-catalog 的**全局共享**目录，MsPortal 的用户刷新就能看到，
+     所以第一眼必须说清楚「你现在动的是公共数据」，以及三种落点各是什么。 -->
+<div class="editbar wrap" id="editBar" hidden>
+  <span class="eb-k" data-i18n="edit.bannerK">编辑模式</span>
+  <span class="eb-t" data-i18n="edit.banner"></span>
+  <span class="eb-h edit-hint"></span>
+  <button type="button" class="gb eb-x edit-leave" data-act="edit-leave">退出编辑</button>
+</div>
+
 <!-- ===================== 常驻检索轨（不再默认收起） ===================== -->
 <div class="rail" id="rail">
   <div class="rail-in wrap">
     <label class="q">
       <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
       <input type="search" id="q" autocomplete="off" spellcheck="false"
-             placeholder="搜索看板名称、描述、责任人、标签…" aria-label="搜索看板">
+             aria-label="搜索看板"
+             data-i18n-attr="placeholder:search.ph,aria-label:attr.searchAria">
       <kbd class="kbd">Ctrl K</kbd>
     </label>
-    <div class="chips" id="chips" role="group" aria-label="分组筛选"></div>
+    <div class="chips" id="chips" role="group" aria-label="分组筛选" data-i18n-attr="aria-label:attr.chipsAria"></div>
     <div class="rail-end">
-      <span class="seg" role="group" aria-label="状态筛选">
+      <span class="seg" role="group" aria-label="状态筛选" data-i18n-attr="aria-label:attr.statusAria">
         <button type="button" class="seg-b" data-status="all" data-i18n="rail.all">全部</button>
         <button type="button" class="seg-b" data-status="online">Online</button>
         <button type="button" class="seg-b" data-status="beta">Beta</button>
@@ -144,14 +172,19 @@
   <!-- L0 · 决策带：达标率 + 六个实时指标 -->
   <section class="band" id="band" aria-label="Quality Control"></section>
 
-  <!-- L0 · 焦点区：左栏 CXO 焦点卡 + SP 行式清单，右边地图 -->
-  <div class="l0" id="l0"></div>
+  <!-- 宽屏（≥1600）时这三块进同一个栅格：地图让出一半宽度，右边给 L1 页签；
+       升级带整宽压在下面一行。窄于 1600 就退回 DOM 顺序的上下排布。 -->
+  <div class="stage">
+    <!-- L0 · 焦点区：左栏 CXO 焦点卡 + SP 行式清单，右边地图 -->
+    <div class="l0" id="l0"></div>
 
-  <!-- 升级机制：默认收成一条 52px 值班带，展开才出全表（原来常驻 583px） -->
-  <section class="esc" id="esc" aria-label="Escalation Matrix"></section>
+    <!-- 升级机制：默认收成一条 52px 值班带，展开才出全表（原来常驻 583px） -->
+    <section class="esc" id="esc" aria-label="Escalation Matrix"></section>
 
-  <!-- L1 · 业务视图：MS / FLM / FO / BO 一组一个页签，一次只展开一个 -->
-  <div id="views"></div>
+    <!-- L1 · 业务视图：MS / FLM / FO / BO 一组一个页签，一次只展开一个。
+         .vcol 是宽屏那套「等高」机制的定位上下文，本身不装内容 -->
+    <div class="vcol"><div id="views"></div></div>
+  </div>
 
   <!-- L2 · 辅助入口：去卡片化，无边框无色块，只留标题与行链接 -->
   <section class="aux" id="aux" aria-label="Auxiliary"></section>
@@ -163,7 +196,7 @@
     <span class="foot-r">
       <span class="ok"><i class="ph ph-shield-check" aria-hidden="true"></i> <span data-i18n="foot.ok">安全合规模式运行</span></span>
       <span id="footSrc">—</span>
-      <span class="ver">Ver 1.0-OLBR · 只读展示版</span>
+      <span class="ver" data-i18n="foot.ver">Ver 1.0-OLBR · 只读展示版</span>
     </span>
   </div>
 </footer>
@@ -177,7 +210,8 @@
       <p id="drSub" class="dr-sub"></p>
     </div>
     <div class="dr-tools">
-      <input type="search" id="drQ" autocomplete="off" aria-label="过滤明细">
+      <input type="search" id="drQ" autocomplete="off" aria-label="过滤明细"
+             data-i18n-attr="aria-label:attr.drQAria,placeholder:dr.qPh">
       <button type="button" class="gb" id="drReload"><i class="ph ph-arrow-clockwise" aria-hidden="true"></i></button>
       <button type="button" class="ib" id="drClose" aria-label="Close"><i class="ph ph-x" aria-hidden="true"></i></button>
     </div>
@@ -193,9 +227,17 @@
   </footer>
 </aside>
 
+<!-- 编辑态的「分组归属」浮层：内容随点开的卡片生成（fixed 定位贴在卡片旁边，
+     不用 modal —— 改归属时还得看见卡片本身，遮罩会把上下文全挡住） -->
+<div class="gp" id="grpPop" hidden></div>
+
+<!-- 编辑态的「改名」浮层：一级分组改名 / 新增分组 / 看板改标题共用这一颗（同一时刻只开一个） -->
+<div class="gp gp--form" id="editPop" hidden></div>
+
 <div class="toast" id="toast" hidden></div>
 
 <script src="/MsPortal/assets/data.js"></script>
+<script src="/MsPortal/assets/terms.js"></script>
 <script src="/MsPortal/assets/access.js"></script>
 <script src="assets/olbr.js"></script>
 </body>

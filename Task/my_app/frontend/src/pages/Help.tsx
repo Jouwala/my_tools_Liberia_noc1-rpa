@@ -624,7 +624,7 @@ export default function Help() {
       <Paragraph type="secondary" style={{ fontSize: 12, textAlign: 'center', marginTop: 'var(--wh-space-lg)' }}>
         {isZh
           ? '更多细节参见项目文档：docs/manual/（01 总览与术语表 · 04 任务系统 · 11 功能页手册 · 13 运维手册 · 14 外部系统与数据流）。本页可导出 Markdown，仓库内同源文档为 docs/manual/15-user-help.md；整本手册网页版见 /myapp/manual.html。'
-          : 'See the project docs for more: docs/manual/ (01 overview & glossary · 04 task system · 11 feature guide · 13 operations · 14 integrations & data flows). This page exports to Markdown; the repo copy is docs/manual/15-user-help.md; the full manual web edition lives at /myapp/manual.html.'}
+          : 'See the project docs for more: docs/manual/ (01 overview & glossary · 04 task system · 11 feature guide · 13 operations · 14 integrations & data flows). This page exports to Markdown; the repo copy is docs/manual/15-user-help.md. The full manual web edition (/myapp/manual.html) is currently Chinese-only — this Help page is the English reference.'}
       </Paragraph>
     </div>
   )

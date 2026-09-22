@@ -60,6 +60,7 @@ from backend.routers import (
     email_reports,
     finebi_reports,
     mw_ume,
+    mw_links,
     portals,
     whatsapp_outbox,
     eflow_qa,
@@ -171,6 +172,7 @@ app.include_router(email_reports.router)
 # FineBI 报表文件（Task Report Files → FINEBI report 页签：FTP 同步的最新 Excel 列表/下载）
 app.include_router(finebi_reports.router)
 app.include_router(mw_ume.router)
+app.include_router(mw_links.router)
 # 一键门户登录（用默认浏览器打开 ZTE/CCN/iPRAN UME、eFlow、FW(UMC)、VMAX 并自动登录）
 app.include_router(portals.router)
 # WhatsApp 出图接口（供「WhatsApp 定时发图」Chrome 扩展拉取图片与配置）

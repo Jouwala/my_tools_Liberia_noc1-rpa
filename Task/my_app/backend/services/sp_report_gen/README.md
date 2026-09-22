@@ -19,6 +19,8 @@ SFTP 10.100.20.11 /home/ubuntu/sp（备件原始数据，上游每小时产一�
    │  （另有 ocrule：OCAuto/OCAutoOutput 递归找 csv → 转 excel）
    ▼
 my_app\data\sp_email\data\          ← 原始数据（本地统一叫 *_details.xlsx）
+   │  Step 1.5 snapshot_raw_details()：原样复制一份 *_details_source.xlsx（未过滤）
+   │    → 供 sp_email_details 合并 SP Details Report（2026-09-22 起）
    │  明细预处理（剔除单据 → 出库状态 → Canceled → Material Name/Type 同步，均写回同一批 xlsx）
    ▼
 my_app\data\sp_email\data\          ← 处理后明细（下游 sp_online / sp_email_details 同口径）
@@ -50,11 +52,13 @@ EWS 发送邮件（owa_mail_report.py）
 
 ## 明细预处理流水线（gernarate_sp_report.py main）
 
-下载 → 处理 → 生成报表。**前三步都会写回 `data\sp_email\data\` 下的明细 xlsx**，
-因此 `sp_online_report_generate`（06:00）与 `sp_email_details`（07:00）复用的是同一份已处理数据。
+下载 → 处理 → 生成报表。**Step 2.x 都会写回 `data\sp_email\data\` 下的明细 xlsx**，
+因此 `sp_online_report_generate`（06:00）复用的是同一份已处理数据；
+`sp_email_details`（05:55）例外，它读 Step 1.5 留下的未过滤 `*_details_source.xlsx`。
 
 | 步骤 | 函数 | 作用 | 写回 |
 |------|------|------|------|
+| Step 1.5 | `snapshot_raw_details()` | 下载后、任何过滤之前把 5 份明细原样复制成 `*_details_source.xlsx`（固定名，每次覆盖）；复制失败只告警，下游回退读过滤后的明细 | ➕ 新文件 |
 | Step 2.1 | `apply_exclude_to_details()` | 按 `data\sp_email\data\in&out_exclude.xlsx`（sheet `3_剔除单据Serial明细`）剔除指定单据行，分入库/出库两组 | ✅ |
 | Step 2.2 | `apply_status_filters()` | 出库明细剔除 `Status='WaitingForUpdate'`（`OUTBOUND_DROP_STATUS`） | ✅ |
 | Step 2.3 | `apply_operation_result_filter()` | 入库/出库明细剔除 `Operation Result Status='Canceled'`（`OP_RESULT_DROP_STATUS`） | ✅ |
@@ -64,7 +68,8 @@ EWS 发送邮件（owa_mail_report.py）
 | 生成时 | `generate_report()` | 仅保留 `Material Type='SpareParts'`（或 `Consumables`） | ❌ 仅报表 |
 
 `Operation Result Status` 只有 inbound / outbound / wh_transfer 有；`inventory_management`
-没有该列，不受影响。已作废单据（Canceled）在 SP Details Report 与报表里都不出现。
+没有该列，不受影响。已作废单据（Canceled）在 SpareParts/Comsumables 报表里不出现，
+但在 SP Details Report 里**保留**（它读 Step 1.5 的原始快照，见下）。
 
 剔除匹配口径（命中任一即删）：
 - `full` = (单据号, Material No., Serial No., Qty) 四字段全等
@@ -98,9 +103,20 @@ EWS 发送邮件（owa_mail_report.py）
 
 ### 报表口径 vs SP Details Report
 
-`sp_email_details` 合并 **5 份**明细（inventory / inband / outband / transfer / transfer_return），
-**只经过 Step 2.x 的过滤**（不做「排除仓库」与「Material Type 过滤」）；
-SpareParts/Comsumables 报表**额外**再做这两项。
+`sp_email_details`（05:55）合并 **5 份** `*_details_source.xlsx` 原始快照
+（inventory / inband / outband / transfer / transfer_return），**不经过任何过滤** ——
+含 `Operation Result Status=Canceled`、出库 `Status=WaitingForUpdate` 与
+`in&out_exclude.xlsx` 手工剔除名单里的行，与 SFTP 上游逐行一致。
+2026-09-22 起生效（此前合并的是 Step 2.x 处理过的 `*_details.xlsx`）。
+`*_source.xlsx` 缺失时逐份回退到过滤后的明细，并在任务 message / 页面 warnings 里注明。
+
+SpareParts/Comsumables 报表走的是**另一条**：过滤后的 `*_details.xlsx`，
+再叠加「排除仓库」与「Material Type 过滤」两项。
+
+以 2026-09-22 实测为例（同一份上游快照）：Inbound 原始 4251 → 过滤后 3950
+（Canceled 301，其中 299 条正是剔除名单里的行）；Outbound 2258 → 2187
+（WaitingForUpdate 45 + Canceled 26，名单 6 条含在 Canceled 内）。
+Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 
 `Transfer Return` 是**可选** sheet：源文件缺失时只告警并跳过（其余 4 份缺失仍报错，
 避免静默发出残缺报表）。2026-09 上游的 `wh_transfer_return.xlsx` 一直是空表（0 行）。

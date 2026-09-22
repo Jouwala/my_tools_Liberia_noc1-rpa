@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { Card, Table, Button, Space, Select, Tag, Typography, message, Empty, Tabs, Row, Col, Statistic } from 'antd'
 import { ReloadOutlined, DownloadOutlined, FileExcelOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import api from '../api'
-import { useI18n, numLocale } from '../i18n'
+import { useI18n } from '../i18n'
+import { formatDateTime } from '../datetime'
 import { cardStyle, pageWrap } from '../theme'
 
 const { Text } = Typography
@@ -78,7 +79,7 @@ function formatSize(bytes: number): string {
 }
 
 export default function EmailReports() {
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(false)
   // 每个报告类型保留最近几份（默认 1 = 只要最新一份）
@@ -221,7 +222,7 @@ export default function EmailReports() {
       dataIndex: 'mtime',
       key: 'mtime',
       minWidth: 180,
-      render: (v: number) => new Date(v * 1000).toLocaleString(numLocale(locale)),
+      render: (v: number) => formatDateTime(v),
     },
     {
       title: t('emailReports.colAction'),
@@ -267,7 +268,7 @@ export default function EmailReports() {
       dataIndex: 'mtime',
       key: 'mtime',
       minWidth: 180,
-      render: (v: number) => new Date(v * 1000).toLocaleString(numLocale(locale)),
+      render: (v: number) => formatDateTime(v),
     },
     {
       title: t('emailReports.colAction'),
@@ -427,13 +428,13 @@ export default function EmailReports() {
                       {eflowSummary.rules_collected && (
                         <div style={{ marginBottom: '0.75rem' }}>
                           <Space wrap>
-                            <Text type="secondary">规则收集：</Text>
+                            <Text type="secondary">{t('emailReports.rulesCollected')}</Text>
                             {eflowSummary.rules_collected.success
-                              ? <Tag color="green">成功</Tag>
-                              : <Tag color="red">失败（降级用已有规则）</Tag>}
+                              ? <Tag color="green">{t('emailReports.rulesOk')}</Tag>
+                              : <Tag color="red">{t('emailReports.rulesFail')}</Tag>}
                             <Text type="secondary">
-                              {eflowSummary.rules_count != null ? `${eflowSummary.rules_count} 条规则` : ''}
-                              {eflowSummary.rules_collected.rules_file_exists ? ' · eflow_TT_rules.xlsx 已就绪' : ' · 规则文件缺失'}
+                              {eflowSummary.rules_count != null ? t('emailReports.rulesCount', { n: eflowSummary.rules_count }) : ''}
+                              {eflowSummary.rules_collected.rules_file_exists ? t('emailReports.rulesFileReady') : t('emailReports.rulesFileMissing')}
                             </Text>
                           </Space>
                         </div>
@@ -441,7 +442,7 @@ export default function EmailReports() {
                       {eflowSummary.change_matrix && eflowSummary.change_matrix.length > 0 && (
                         <div style={{ marginBottom: '0.75rem' }}>
                           <Space wrap>
-                            <Text type="secondary">变更方向：</Text>
+                            <Text type="secondary">{t('emailReports.changeDir')}</Text>
                             {eflowSummary.change_matrix.map((c, i) => (
                               <Tag key={i} color="orange">{c.from} → {c.to}: {c.count}</Tag>
                             ))}
@@ -467,10 +468,10 @@ export default function EmailReports() {
                   {eflowFiles.length > 0 && (
                     <div style={{ marginTop: '0.75rem' }}>
                       <Space wrap>
-                        <Text type="secondary">下载：</Text>
+                        <Text type="secondary">{t('emailReports.downloadLabel')}</Text>
                         {eflowFiles.map(f => (
                           <Button key={f.name} size="small" icon={<DownloadOutlined />} href={eflowDownloadUrl(f)} download={f.name}>
-                            {f.name}（{formatSize(f.size)}）
+                            {t('emailReports.fileSize', { name: f.name, size: formatSize(f.size) })}
                           </Button>
                         ))}
                       </Space>

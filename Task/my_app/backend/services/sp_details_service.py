@@ -7,18 +7,24 @@
 → ``run_sp_details_email``）生成的**合并工作簿**：
 
     SP Details Report YYYY-MM-DD HH-MM-SS.xlsx
-      sheet Inventory       <- inventory_details.xlsx
-      sheet Inbound         <- inband_details.xlsx
-      sheet Outbound        <- outband_details.xlsx
-      sheet Transfer        <- transfer_details.xlsx
-      sheet Transfer Return <- transfer_return_details.xlsx（可选，通常为空）
+      sheet Inventory       <- inventory_details_source.xlsx
+      sheet Inbound         <- inband_details_source.xlsx
+      sheet Outbound        <- outband_details_source.xlsx
+      sheet Transfer        <- transfer_details_source.xlsx
+      sheet Transfer Return <- transfer_return_details_source.xlsx（可选，通常为空）
+
+``_source`` 是 sp_report_generate（05:15）Step 1.5 在**任何过滤之前**原样复制的
+SFTP 快照，所以本页与邮件附件**含** ``Operation Result Status=Canceled``、
+出库 ``Status=WaitingForUpdate`` 以及 ``in&out_exclude.xlsx`` 手工剔除名单里的行
+（2026-09-22 起改为这个口径；此前读的是处理过的 ``*_details.xlsx``）。
+过滤后的 ``*_details.xlsx`` 仍服务 SpareParts/Comsumables 报表与 sp_online 等下游。
 
 ``_prune_sp_details_reports`` 只保留最新一份合并文件，所以「目录里最新的
 SP Details Report *.xlsx」就是报表任务最近一次发出去的那一份 —— 页面上
 展示的与邮件附件逐行一致（同一份文件，不做二次加工）。
 
-合并文件缺失时回退到同目录的 4 份原始明细 xlsx（口径一致，只是分文件存放），
-并在 ``warnings`` 里说明。
+合并文件缺失时回退到同目录的 5 份明细（口径一致，只是分文件存放），
+并在 ``warnings`` 里说明；``*_source.xlsx`` 也缺失时逐份回退到过滤后的明细。
 
 统计口径
 --------
@@ -27,27 +33,25 @@ SP Details Report *.xlsx」就是报表任务最近一次发出去的那一份 �
                （Inventory=Stock Qty / Inbound=Inbound Qty /
                  Outbound=Outbound Qty / Transfer=Transfer Qty）
 - 未关闭单   = ``Status`` 不含 "closed"（大小写不敏感）的行数
-               （本页明细里只会出现 Closed / WaitingForConfirm / WaitingForReturn）
+               原始快照下会出现 Closed / WaitingForReturn / WaitingForConfirm /
+               WaitingForUpdate，未关闭单数因此比旧口径高
 - 仓库数     = 各 sheet 仓库列去重（Transfer 取 Original + Target 两侧并集）
 - 物料种类   = 各 sheet ``Material No.`` 去重并集
 
-与 MsPortal QC 面板（portal_qc）SPMS 口径的关系（2026-09-20 校正）
-----------------------------------------------------------------
-原文写「与 portal_qc 的 SP 未关闭单口径一致」，在 portal_qc 加了口径之后不再成立，
-**两者不完全一致** —— 别把两页数字的差异一律当成口径差异：
+与 MsPortal QC 面板（portal_qc）SPMS 口径的关系（2026-09-20 校正，2026-09-22 更新）
+------------------------------------------------------------------------------
 - 判据：本页 =「含 'closed' 关键字即已关闭」；portal_qc = 显式词表
   ``NOT IN ('closed','close','done','已关闭','完成','yes','y','1','true')``。
-  现网取值上两者等价（只出现 Closed / WaitingForConfirm / WaitingForReturn），
-  将来出现 "WaitingForClose" 这类新枚举才会分叉。
-- 范围：portal_qc 额外剔除 ``Status = WaitingForUpdate``（尚未生效的出库单，
-  见 portal_qc.SP_IGNORED_WORDS）；本页**不判它、也判不到它** —— 本页读的是
-  已处理明细，而 sp_report_generate（每天 05:15）在 Step 2.2 就把它从出库明细里
-  删掉并写回 xlsx 了（见 sp_report_gen/README.md）。
+  现网取值上两者等价（只出现 Closed / WaitingForConfirm / WaitingForReturn /
+  WaitingForUpdate），将来出现 "WaitingForClose" 这类新枚举才会分叉。
+- 范围：portal_qc 显式剔除 ``Status = WaitingForUpdate``（尚未生效的出库单，
+  见 portal_qc.SP_IGNORED_WORDS）；本页自 2026-09-22 起读原始快照，**不再剔除它**，
+  同一批 WaitingForUpdate 出库单会计入本页的未关闭单。
 - 数据落点不同（数字差异的真正来源）：本页 = ``data/sp_email/data`` 下的报表快照
-  （sp_email_details 每天 05:55 产出的合并工作簿）；portal_qc = 数据库表
-  inband_details / outband_details，由 sp_data_sync 直接落**未做状态过滤**的 SFTP
-  原始导出（``backend/data/sp``，每天 07:00，可手动补跑）。同一份上游导出、两处
-  落点、两个刷新时点，所以两边的未关闭单数本来就可以不同。
+  （sp_email_details 每天 05:55 产出的合并工作簿，源是 05:15 的 SFTP 下载）；
+  portal_qc = 数据库表 inband_details / outband_details，由 sp_data_sync 每天 07:00
+  从 ``backend/data/sp`` 落库（同样是未过滤的原始导出）。同一份上游数据、两处落点、
+  两个刷新时点，所以两边的未关闭单数本来就可以不同。
 
 性能
 ----
@@ -82,6 +86,20 @@ SHEET_SOURCES: Tuple[Tuple[str, str, bool], ...] = (
     ("Transfer", "transfer_details.xlsx", True),
     ("Transfer Return", "transfer_return_details.xlsx", False),
 )
+
+#: 原始快照后缀（sp_report_generate Step 1.5 在任何过滤之前复制的一份）
+RAW_SUFFIX = "_source"
+
+
+def _detail_file(fname: str) -> Path:
+    """明细文件名 -> 实际读取路径：优先未过滤的 ``*_source.xlsx``，缺失才回退过滤后的明细。
+
+    与 ``kpi_email_report._merge_sp_details_workbook`` 同一套选择规则，保证页面
+    （无合并工作簿时走 ``_read_individual``）与邮件附件口径一致。
+    """
+    root, ext = Path(fname).stem, Path(fname).suffix
+    raw = SP_DETAILS_DIR / f"{root}{RAW_SUFFIX}{ext}"
+    return raw if raw.is_file() else SP_DETAILS_DIR / fname
 
 #: 各 sheet 的「数量列」——卡片上的数量合计就取这一列
 QTY_COLUMN: Dict[str, str] = {
@@ -335,13 +353,16 @@ def _read_individual() -> _Data:
     sheets: Dict[str, SheetData] = {}
     warnings: List[str] = []
     paths: List[Path] = []
+    filtered_fallback: List[str] = []
     newest = 0.0
     for key, fname, required in SHEET_SOURCES:
-        p = SP_DETAILS_DIR / fname
+        p = _detail_file(fname)
         if not p.is_file():
             if required:
                 warnings.append(f"明细源文件缺失：{fname}")
             continue
+        if not p.name.endswith(f"{RAW_SUFFIX}.xlsx"):
+            filtered_fallback.append(key)
         paths.append(p)
         newest = max(newest, p.stat().st_mtime)
         wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
@@ -358,6 +379,11 @@ def _read_individual() -> _Data:
     # 回退路径必须显式说明：页面上的「数据来源」标签只能看出文件名不同，
     # 这句告诉使用者为什么读的不是邮件附件那份合并工作簿。
     warnings.insert(0, "未找到合并工作簿（SP Details Report *.xlsx），已回退读取同目录的原始明细文件")
+    if filtered_fallback:
+        warnings.append(
+            f"{'、'.join(filtered_fallback)} 缺 *_source.xlsx 原始快照，"
+            "读的是过滤后的明细（不含 Canceled / WaitingForUpdate / 剔除名单行）"
+        )
     source = {
         "mode": "individual",
         "file": "；".join(p.name for p in paths),
@@ -376,7 +402,7 @@ def _load(force: bool = False) -> _Data:
     if merged is not None:
         key = ("merged",) + _cache_key([merged])
     else:
-        key = ("individual",) + _cache_key([SP_DETAILS_DIR / f for _k, f, _r in SHEET_SOURCES])
+        key = ("individual",) + _cache_key([_detail_file(f) for _k, f, _r in SHEET_SOURCES])
 
     if not force:
         with _CACHE_LOCK:

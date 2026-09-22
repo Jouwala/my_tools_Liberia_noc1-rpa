@@ -241,7 +241,7 @@ function applyLocale(locale){
   if (payload && window.echarts) draw(payload);      // 全部文案走 t()，切语言整体重渲染
   updateCarouselBtn();
 }
-try { var _l = localStorage.getItem('app-locale'); if(_l==='en'||_l==='zh') LOCALE=_l; } catch(e){}
+try { var _l = localStorage.getItem('app-locale'); LOCALE=(_l==='en'||_l==='zh')?_l:((((navigator.language||navigator.userLanguage||'zh')+'').toLowerCase().indexOf('zh')===0)?'zh':'en'); } catch(e){}
 
 /* ---- 工具 ---- */
 function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}

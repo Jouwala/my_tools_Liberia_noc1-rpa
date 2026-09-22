@@ -500,6 +500,206 @@ def portal_qc_history(hours: int = Query(_HISTORY_DEFAULT_HOURS, ge=2, le=_HISTO
     }
 
 
+# ========== 新增量趋势（按源表时间列分桶，2026-09-22 加） ==========
+# 与上面的 portal_qc_snapshot（积压快照）是**互补**的两种趋势，回答不同问题：
+#   积压快照 → 「存量是在堆积还是在消化」（需要历史，只能从上线那天开始攒）
+#   新增分桶 → 「最近来单/告警是变多了还是变少了」（源表本来就有时间列，立即有数据）
+# 本次按用户要求只做后者，快照表保留但不再读写。
+#
+# 每个 metric 的「时间列」就是下钻明细里那一列（用户明确要求「点 Alarm 出现详情里的
+# RAISED TIME 列」），所以两边看到的永远是同一个时间语义，不会出现明细按 A 时间排、
+# 趋势按 B 时间分桶这种对不上的情况。
+#
+# 三种列类型要分开处理（实测）：
+#   alarm  : realtime_alarm.alarmraisedtime  → bigint，13 位 epoch **毫秒**
+#   tt/wo  : eflow_tt/wo.alarm_occur_time    → text，'YYYY-MM-DD HH:MM:SS'
+#   spms   : inband/outband_details."Create Time" → text，同上
+# 用 substr 取小时是最稳的写法：源表的时间是**本地墙钟文本**（不带时区），
+# 转成 timestamp 再分组会引入一次时区解释，而 substr 只是切字符串，零歧义。
+#
+# 粒度按数据密度定（实测**近 30 天非空桶占比**，2026-09-22）：
+#   metric  按天          按小时        结论
+#   tt      14/30 = 47%   36/720 =  5%  按天
+#   wo      13/30 = 43%   34/720 =  5%  按天
+#   spms    38/30 ≈ 63%   90/720 =  6%  按天（in+out 两张表合计）
+#   cr       8/30 = 27%   16/720 =  2%  可画，但很稀（本次未启用，见下）
+#   pmt      0/30 =  0%    0/720 =  0%  **无数据，不画**
+#
+# ⚠️ 这里改过一次，记录原因：第一版按「近 7 天条数」定粒度，得出 tt 147 条/天、
+# 每桶约 6 条 → 选了按小时。那是被一个尖峰日误导的 —— 近 7 天正好赶上一批集中告警。
+# 换成 30 天窗口重测，按小时的非空桶只有 5%，画出来是一条贴底的直线加几根尖刺，
+# 不是趋势。**按天对四个指标都是唯一可读的粒度。**
+#
+# cr/pmt 不画的原因（实测）：
+#   cr  近 30 天只有 20 条、8 个非空桶 → 曲线几乎全是 0
+#   pmt 近 30 天 **0 条**。eftow_pm 是「批量生成」型：2026-01-11 一天 267 条、
+#       03-13 一天 388 条、06-02 一天 380 条、06-23 一天 490 条，中间长期静默。
+#       按时间列画会得到一条长期贴 0、偶尔一根尖峰的线，信息量为负 —— 不如不画。
+#       它需要的不是「新增趋势」而是「存量趋势」，那要靠 portal_qc_snapshot（本次保留未用）。
+_TREND_SPEC = {
+    # metric: (from_sql, 时间列, 列类型, 粒度, 窗口)
+    #
+    # 窗口 "today" = 从库里「今天 00:00」起（配合下面的 SET TIME ZONE 'Asia/Shanghai'）。
+    # 只有 alarm 用 —— 见下方 alarm 那段的说明。
+    "alarm": ("realtime_alarm", "alarmraisedtime", "epoch_ms", "hour", "today"),
+    "tt": ("eflow_tt", "alarm_occur_time", "text", "day", "days"),
+    "wo": ("eflow_wo", "alarm_occur_time", "text", "day", "days"),
+    "spms": ("(__SP_UNION__) t", "create_time", "text", "day", "days"),
+}
+
+# alarm 单独走「今天 + 按小时」，理由（2026-09-22 用户要求，实测支持）：
+#
+# alarm 是**实时**指标 —— 源表 realtime_alarm 每 5 分钟整表 replace 一次，
+# 卡片本身也是 5 分钟刷新（见 portal.js 的 QC_ALARM_MIN）。对实时指标问
+# 「近 30 天新增」意义不大（那是历史归档的视角），当班关心的是**今天这一天
+# 的节奏**：什么时候在集中起告警、现在是不是又在涨。
+#
+# 实测支持这个选择（2026-09-22 19:32，今天已过 20 小时）：
+#   今天 28 条告警，落在 14 个不同小时里（14/20 = 70% 非空），
+#   01/03/05/06/07/08/09/10/11/13/14/16/18/19 时都有，峰值 19 时 7 条。
+#   按小时完全读得出节奏 —— 这与 tt/wo/spms 形成鲜明对比：
+#   后三者按小时的非空桶只有 5%（见上面的实测表），画出来是一条贴底的直线。
+#   所以「alarm 按小时、其余按天」不是将就，是各自的量级决定的。
+#
+# 注意最后一个桶是**当前这个还没走完的小时**，值天然偏低（会随分钟增长），
+# 前端在说明文字里写的是「今天」而不是「近 24 小时」，避免误读成完整小时。
+_TREND_PREDICATE = {
+    # 与卡片大数字**同口径**（用户确认）：只算未清除 / 未关闭的，
+    # 否则趋势线的数会比卡片大数字大一个量级，两个数对不上，反而更糊涂。
+    "alarm": ("TRIM(CAST(clearstate AS TEXT)) = '0' AND " + _ALARM_WHERE, list(_ALARM_PARAMS)),
+    "tt": (_TT_UNCLEARED, []),
+    "wo": (_WO_UNCLEARED, []),
+    "spms": ("1 = 1", []),
+}
+_TREND_DEFAULT_DAYS = 30
+_TREND_MAX_DAYS = 180
+_TREND_MAX_POINTS = 400        # 防御：再密就不画了，交给前端降级
+
+
+def _trend_bucket_expr(col, kind: str, grain: str):
+    """分桶表达式。返回 (表达式, 比较用表达式)。全部为**常量拼接**，无用户输入。"""
+    q = '"' + col.replace('"', '""') + '"'
+    if kind == "epoch_ms":
+        # 毫秒 → 秒 → timestamp。用 server 时区（源数据就是本地墙钟）。
+        base = f"to_timestamp(({q})::bigint / 1000.0)"
+    else:
+        # 源表是 'YYYY-MM-DD HH:MM:SS' 文本（可能是空串），先挡掉再转。
+        base = f"({q})::timestamp"
+    fmt = "'YYYY-MM-DD HH24:00'" if grain == "hour" else "'YYYY-MM-DD'"
+    return f"to_char({base}, {fmt})", base
+
+
+@router.get("/api/portal-qc/trend")
+def portal_qc_trend(
+    metric: str = Query(..., description="alarm/tt/wo/spms（cr/pmt 无趋势）"),
+    days: int = Query(_TREND_DEFAULT_DAYS, ge=1, le=_TREND_MAX_DAYS),
+):
+    """按源表时间列分桶的**新增量**趋势（2026-09-22 加）。
+
+    返回 {"grain": "hour"|"day", "window": "today"|"days", "days": N, "unit": ...,
+          "points": [{"t": "2026-09-22 08:00", "v": 16}, ...]}
+
+    粒度和窗口**按指标定**（见 _TREND_SPEC）：
+      alarm      → 今天 + 按小时（实时指标，看当班节奏）
+      tt/wo/spms → 近 N 天 + 按天（日级量级，按小时会是一条贴底的直线）
+
+    `days` 参数只对 window="days" 的指标生效；window="today" 的指标忽略它，
+    响应里的 days 恒为 1（真实跨度），前端据此写说明文字。
+
+    与 /history 的关键区别：这里用的是源表自己的时间列，**立即有数据**，
+    不需要靠门户被打开来积累。
+
+    空桶**不下发**（只回有数据的时间点），由前端按时间轴对齐 —— 这样
+    「那天没有新增」和「那天数据没同步」在语义上仍然分开：前者前端会画成 0，
+    后者根本不在序列里。
+    """
+    metric = (metric or "").strip().lower()
+    if metric not in _TREND_SPEC:
+        # cr/pmt 落在这里。返回空序列而不是 400 —— 前端对空序列有
+        # 「该指标不提供趋势」的降级路径，报错会变成面板上的红字。
+        return {"metric": metric, "grain": None, "points": [],
+                "reason": "no_trend" if metric in METRICS else "unknown_metric"}
+
+    table, col, kind, grain, window = _TREND_SPEC[metric]
+    where, params = _TREND_PREDICATE[metric]
+    # 窗口为 "today" 的指标（目前只有 alarm），days 参数对它无意义，回 1
+    # 是为了让响应里的 days 字段始终能反映真实跨度，前端好写说明文字。
+    eff_days = 1 if window == "today" else days
+
+    try:
+        with get_raw_connection() as conn:
+            if table == "(__SP_UNION__) t":
+                table = "(" + _SP_UNION.format(
+                    in_open=_sp_open_expr(conn, "inband_details"),
+                    out_open=_sp_open_expr(conn, "outband_details"),
+                ) + ") t"
+            elif table not in set(list_table_names(conn)):
+                return {"metric": metric, "grain": grain, "points": [], "reason": "no_table"}
+
+            expr, base = _trend_bucket_expr(col, kind, grain)
+            # 时间下界 + 脏值粗筛。两种列类型必须用**不同**的守卫：
+            #   bigint 列不能和 '' 比大小（PG 会报「无效的 bigint 输入语法: ""」）；
+            #   text  列可能是空串 / 短串，直接 ::timestamp 会炸，先卡长度。
+            #
+            # ⚠️ 时区：**必须显式 SET TIME ZONE 再取 NOW()**。
+            # 实测这个库的 TimeZone 是 Atlantic/Reykjavik（UTC+0），而源表里存的是
+            # **本地墙钟文本**（应用侧按 +08:00 理解）。直接写 `NOW() - INTERVAL '30 days'`
+            # 会把窗口错开 8 小时：看起来只差一点点，但「近 30 天」这种口径
+            # 在整点边界上会多算/漏算当天的数据。这里把会话时区设成应用时区，
+            # 让 NOW() 与源数据的墙钟语义对齐。
+            conn.execute("SET TIME ZONE 'Asia/Shanghai'")
+            q = '"' + col.replace('"', '""') + '"'
+            # 时间下界：两种**窗口**（today / 近 N 天）× 两种**列类型**（epoch_ms / text）。
+            #   today → date_trunc('day', NOW())，即库里今天的 00:00（上面已设成 +08:00）
+            #   days  → NOW() - INTERVAL 'N days'
+            # 两种列类型必须用**不同**的守卫：
+            #   bigint 列不能和 '' 比大小（PG 会报「无效的 bigint 输入语法: ""」）；
+            #   text  列可能是空串 / 短串，直接 ::timestamp 会炸，先卡长度。
+            if window == "today":
+                lo_expr = "date_trunc('day', NOW())"
+                lo_epoch = "EXTRACT(EPOCH FROM date_trunc('day', NOW()))"
+            else:
+                lo_expr = f"NOW() - INTERVAL '{int(days)} days'"
+                lo_epoch = f"EXTRACT(EPOCH FROM NOW()) - {int(days) * 86400}"
+            if kind == "epoch_ms":
+                lo = (f"{q} IS NOT NULL AND "
+                      f"({q})::bigint >= ({lo_epoch}) * 1000")
+            else:
+                lo = (f"{q} IS NOT NULL AND length(coalesce({q}, '')) >= 19 AND "
+                      f"({q})::timestamp >= {lo_expr}")
+            sql = (f"SELECT {expr} AS b, COUNT(*) AS n FROM {table} "
+                   f"WHERE ({where}) AND {lo} "
+                   f"GROUP BY 1 ORDER BY 1")
+            rows = _retry_missing_table(lambda: _rows_as_dicts(conn.execute(sql, params)))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[portal-qc] 趋势取数失败 metric=%s: %s", metric, exc, exc_info=True)
+        return {"metric": metric, "grain": grain, "points": [], "reason": "error",
+                "detail": str(exc)[:200]}
+
+    points = []
+    for r in rows:
+        try:
+            points.append({"t": str(r["b"]), "v": int(r["n"])})
+        except (TypeError, ValueError):
+            continue
+    if len(points) > _TREND_MAX_POINTS:
+        points = points[-_TREND_MAX_POINTS:]
+
+    return {
+        "metric": metric,
+        "grain": grain,
+        "days": eff_days,
+        "window": window,
+        "unit": t_unit_for(grain),
+        "points": points,
+        "total": sum(p["v"] for p in points),
+    }
+
+
+def t_unit_for(grain: str) -> str:
+    return "hour" if grain == "hour" else "day"
+
+
 # ========== 明细下钻 ==========
 # 每项一份列定义：(SQL 表达式, 输出 key, 表头)；SQL 表达式统一用原名，需要引号的自带引号。
 

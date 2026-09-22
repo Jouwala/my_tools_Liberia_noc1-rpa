@@ -33,7 +33,7 @@ export function buildHelpMarkdown(locale: Locale): string {
   out.push('')
 
   // ---------- 目录 ----------
-  out.push('## 目录')
+  out.push(L ? '## 目录' : '## Contents')
   out.push('')
   out.push(L ? '- [1. 平台简介](#1-平台简介)' : '- [1. Platform Overview](#1-platform-overview)')
   out.push(L ? '- [2. 通用操作](#2-通用操作)' : '- [2. General Usage](#2-general-usage)')

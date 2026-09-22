@@ -7722,7 +7722,7 @@ function iocCarouselNext() {
     iocCarouselGo(next === undefined ? 0 : next); // 到底回顶部，循环播放
 }
 function iocCarouselZh() {
-    try { return (localStorage.getItem('app-locale') || '').indexOf('zh') === 0; } catch (e) { return false; }
+    try { var v = localStorage.getItem('app-locale'); if (v === 'zh' || v === 'en') return v === 'zh'; return (((navigator.language || '') + '').toLowerCase().indexOf('zh') === 0); } catch (e) { return false; }
 }
 function refreshIocCarouselBtn() {
     const b = document.getElementById('ioc-carousel-btn'); if (!b) return;

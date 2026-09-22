@@ -1247,7 +1247,7 @@ export default function UmeInKpi() {
         formatter: (ps: { name: string; seriesName: string; value: number; marker: string; dataIndex: number }[]) => {
           const r = rows[ps[0].dataIndex]
           const lines = ps.map(p => `${p.marker}${p.seriesName}: ${p.value.toFixed(3)}%`)
-          lines.push(`系统侧失败: ${num(r.sysF)} 次`, `用户侧失败: ${num(r.userF)} 次`)
+          lines.push(t('uk.chart.sysFail', { n: num(r.sysF) }), t('uk.chart.userFail', { n: num(r.userF) }))
           return `<b>${r.key}</b><br/>${lines.join('<br/>')}`
         },
       },

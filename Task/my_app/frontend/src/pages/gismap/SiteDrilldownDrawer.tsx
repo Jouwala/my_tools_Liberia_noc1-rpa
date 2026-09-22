@@ -200,7 +200,7 @@ export function SiteDrilldownDrawer({ open, onClose, loading, drilldown, selecte
               },
               {
                 key: 'availability',
-                label: `站点可用率 (${drilldown.kpis?.availability?.length || 0})`,
+                label: `${t('gis.drilldown.availTab')} (${drilldown.kpis?.availability?.length || 0})`,
                 children: (
                   <Table
                     size="small"
@@ -208,16 +208,16 @@ export function SiteDrilldownDrawer({ open, onClose, loading, drilldown, selecte
                     rowKey={(r: any) => `${r.tech}-${r.day}`}
                     dataSource={drilldown.kpis?.availability || []}
                     columns={[
-                      { title: '制式', dataIndex: 'tech', key: 'tech' },
-                      { title: '日期', dataIndex: 'day', key: 'day' },
-                      { title: '可用率', dataIndex: 'availability', key: 'availability', render: (v: number) => `${(Number(v) <= 1 ? Number(v) * 100 : Number(v)).toFixed(2)}%` },
+                      { title: t('gis.drilldown.colTech'), dataIndex: 'tech', key: 'tech' },
+                      { title: t('gis.drilldown.colDay'), dataIndex: 'day', key: 'day' },
+                      { title: t('gis.drilldown.colAvailability'), dataIndex: 'availability', key: 'availability', render: (v: number) => `${(Number(v) <= 1 ? Number(v) * 100 : Number(v)).toFixed(2)}%` },
                     ]}
                   />
                 ),
               },
               {
                 key: 'packet_loss',
-                label: `丢包 (${drilldown.kpis?.packet_loss?.length || 0})`,
+                label: `${t('gis.drilldown.lossTab')} (${drilldown.kpis?.packet_loss?.length || 0})`,
                 children: (
                   <Table
                     size="small"
@@ -225,17 +225,17 @@ export function SiteDrilldownDrawer({ open, onClose, loading, drilldown, selecte
                     rowKey={(r: any) => r.day}
                     dataSource={drilldown.kpis?.packet_loss || []}
                     columns={[
-                      { title: '日期', dataIndex: 'day', key: 'day' },
-                      { title: '最大丢包率', dataIndex: 'max_packet_loss', key: 'max_packet_loss', render: (v: number) => `${Number(v || 0).toFixed(2)}%` },
-                      { title: '平均丢包率', dataIndex: 'avg_packet_loss', key: 'avg_packet_loss', render: (v: number) => `${Number(v || 0).toFixed(2)}%` },
-                      { title: '采样数', dataIndex: 'samples', key: 'samples' },
+                      { title: t('gis.drilldown.colDay'), dataIndex: 'day', key: 'day' },
+                      { title: t('gis.drilldown.colMaxLoss'), dataIndex: 'max_packet_loss', key: 'max_packet_loss', render: (v: number) => `${Number(v || 0).toFixed(2)}%` },
+                      { title: t('gis.drilldown.colAvgLoss'), dataIndex: 'avg_packet_loss', key: 'avg_packet_loss', render: (v: number) => `${Number(v || 0).toFixed(2)}%` },
+                      { title: t('gis.drilldown.colSamples'), dataIndex: 'samples', key: 'samples' },
                     ]}
                   />
                 ),
               },
               {
                 key: 'microwave',
-                label: `微波利用率 (${drilldown.kpis?.microwave?.length || 0})`,
+                label: `${t('gis.drilldown.mwTab')} (${drilldown.kpis?.microwave?.length || 0})`,
                 children: (
                   <Table
                     size="small"
@@ -243,12 +243,12 @@ export function SiteDrilldownDrawer({ open, onClose, loading, drilldown, selecte
                     rowKey={(r: any, i?: number) => `${r.source}-${r.target}-${i}`}
                     dataSource={drilldown.kpis?.microwave || []}
                     columns={[
-                      { title: '源端', dataIndex: 'source', key: 'source' },
-                      { title: '目标端', dataIndex: 'target', key: 'target' },
-                      { title: 'Tx利用率', dataIndex: 'tx_utilization', key: 'tx_utilization', render: (v: number) => v == null ? '-' : `${Number(v).toFixed(2)}%` },
-                      { title: 'Rx利用率', dataIndex: 'rx_utilization', key: 'rx_utilization', render: (v: number) => v == null ? '-' : `${Number(v).toFixed(2)}%` },
-                      { title: '容量(Mbps)', dataIndex: 'capacity_mbps', key: 'capacity_mbps' },
-                      { title: '级别', dataIndex: 'level', key: 'level' },
+                      { title: t('gis.drilldown.colMwSource'), dataIndex: 'source', key: 'source' },
+                      { title: t('gis.drilldown.colMwTarget'), dataIndex: 'target', key: 'target' },
+                      { title: t('gis.drilldown.colTxUtil'), dataIndex: 'tx_utilization', key: 'tx_utilization', render: (v: number) => v == null ? '-' : `${Number(v).toFixed(2)}%` },
+                      { title: t('gis.drilldown.colRxUtil'), dataIndex: 'rx_utilization', key: 'rx_utilization', render: (v: number) => v == null ? '-' : `${Number(v).toFixed(2)}%` },
+                      { title: t('gis.drilldown.colCapacity'), dataIndex: 'capacity_mbps', key: 'capacity_mbps' },
+                      { title: t('gis.drilldown.colLevel'), dataIndex: 'level', key: 'level' },
                     ]}
                   />
                 ),

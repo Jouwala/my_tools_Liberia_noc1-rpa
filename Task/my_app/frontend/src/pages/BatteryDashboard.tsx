@@ -25,6 +25,7 @@ import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
 import api from '../api'
 import { useI18n } from '../i18n'
+import { formatDateTime } from '../datetime'
 import { WH, useTheme, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, pageWrap } from '../theme'
 import { ExplainIcon } from '../components/MetricExplain'
 
@@ -553,7 +554,7 @@ export default function BatteryDashboard() {
           </span>
           <ExplainIcon text={t('batt.explain.title')} size={15} />
           <Tag color="cyan" style={{ border: 'none' }}>
-            <ClockCircleOutlined /> {t('batt.lastSync')}: {data.meta.last_sync_ts || '--'}
+            <ClockCircleOutlined /> {t('batt.lastSync')}: {formatDateTime(data.meta.last_sync_ts, { fallback: '--' })}
           </Tag>
           <Tag style={{ border: 'none', background: 'rgba(0, 217, 255,0.1)', color: WH.textMuted }}>
             {`${t('batt.freshDef')}: ≤${thresholds.fresh_hours}${t('batt.unitH')} · ${t('batt.staleDef')}: >${thresholds.stale_days}${t('batt.unitD')}`}

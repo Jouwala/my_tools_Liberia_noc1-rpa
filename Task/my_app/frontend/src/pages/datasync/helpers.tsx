@@ -107,8 +107,3 @@ export const CATEGORY_CONFIG: Record<string, { color: string; icon: ReactNode; l
   mailbox: { color: '#cf1322', icon: <MailOutlined />, label_zh: '邮箱清理', label_en: 'Mailbox Cleanup' },
   incident_overview: { color: '#c41d7f', icon: <FileSearchOutlined />, label_zh: 'Incident 事件总览', label_en: 'Incident Overview' },
 }
-
-export function formatTime(isoStr: string | null): string {
-  if (!isoStr) return '-'
-  return isoStr.replace('T', ' ').substring(0, 19)
-}

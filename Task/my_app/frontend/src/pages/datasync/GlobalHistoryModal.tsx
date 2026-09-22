@@ -11,7 +11,7 @@ import {
 } from '@ant-design/icons'
 import api from '../../api'
 import { WH } from '../../theme'
-import { formatTime } from './helpers'
+import { formatDateTime } from '../../datetime'
 import { useI18n } from '../../i18n'
 import type { TaskInfo, RunRecord } from './types'
 
@@ -143,8 +143,8 @@ export function GlobalHistoryModal({
       title: t('sync.ghTime'),
       dataIndex: 'started_at',
       key: 'started_at',
-      minWidth: 120,
-      render: (v: string) => <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>{formatTime(v)}</Text>,
+      minWidth: 160,
+      render: (v: string) => <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>{formatDateTime(v)}</Text>,
     },
     {
       title: t('sync.ghTask'),

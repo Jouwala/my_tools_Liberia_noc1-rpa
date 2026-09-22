@@ -614,7 +614,7 @@ const I18N = {
     'date.prev':'Previous day', 'date.next':'Next day', 'date.pick':'Drag the slider to pick a date',
     'risks.title':'Top Risk Links', 'risks.hint':'— click to locate',
     'risks.empty':'Loading…', 'risks.nodata':'No data', 'risks.noMatch':'No match', 'risks.search':'Filter critical sites…', 'risks.itemHint':'Click to locate on topology and view details',
-    'trend.title':'Network Utilization Trend', 'trend.note':'（auto-accumulated daily at 05:15）',
+    'trend.title':'Network Utilization Trend', 'trend.note':'(auto-accumulated daily at 05:15)',
     'trend.avg':'Avg Utilization', 'trend.max':'Max Utilization', 'trend.crit':'Critical',
     'dist.title':'Link Health Distribution',
     'dist.health':'Healthy <50%', 'dist.negligible':'Negligible 50-60%', 'dist.minor':'Minor 60-70%',
@@ -634,7 +634,7 @@ const I18N = {
     'why.links':'Unique ME↔Neighbor ME link pairs (1 per link)',
     'why.linkLevel':'Link-level: aggregate max(TX%,RX%) over all PM checkpoints per link; ≥ threshold counts as 1',
     'why.max':'The single link with the highest utilization across the network',
-    'why.trend':'Row-level (per port): counts rows per day where max(TX%,RX%)≥90%; KPI is link-level — different口径',
+    'why.trend':'Row-level (per port): counts rows per day where max(TX%,RX%)≥90%; KPI is link-level — different measurement basis',
     'kpiModal.metaCount':'— rows',
     'kpiModal.colNum':'#', 'kpiModal.colSite':'Site', 'kpiModal.colIP':'IP', 'kpiModal.colPeer':'Peer', 'kpiModal.colPeerIP':'Peer IP',
     'kpiModal.colTX':'TX%', 'kpiModal.colRX':'RX%', 'kpiModal.colMax':'Max%', 'kpiModal.colStatus':'Status',
@@ -664,6 +664,8 @@ function updateStatus(){
 
 function applyLocale(locale){
   LOCALE = (locale === 'en') ? 'en' : 'zh';
+  document.documentElement.lang = LOCALE === 'zh' ? 'zh-CN' : 'en';
+  document.title = 'MW UME ' + t('app.subtitle') + ' NOC';
   document.querySelectorAll('[data-i18n]').forEach(function(n){ n.textContent = t(n.getAttribute('data-i18n')); });
   document.querySelectorAll('[data-i18n-ph]').forEach(function(n){ n.setAttribute('placeholder', t(n.getAttribute('data-i18n-ph'))); });
   document.querySelectorAll('[data-i18n-title]').forEach(function(n){ n.setAttribute('title', t(n.getAttribute('data-i18n-title'))); });
@@ -672,7 +674,7 @@ function applyLocale(locale){
   if(el('drawer').classList.contains('open') && selEdge) openDrawerFor(selEdge);
   try { refreshLevelFilterUI(); syncGeoLabelBtn(); } catch(e){}  // 初始化早期 LVL_TEXT 尚在 TDZ，忽略
 }
-try { const l = localStorage.getItem('app-locale'); if(l === 'en' || l === 'zh') LOCALE = l; } catch(e){}
+try { const l = localStorage.getItem('app-locale'); LOCALE = (l === 'en' || l === 'zh') ? l : (((navigator.language || navigator.userLanguage || 'zh') + '').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en'); } catch(e){}
 
 /* ============ global state ============ */
 let DATA = null;
@@ -2340,13 +2342,28 @@ function syncOrangeKmlBtn(){
   b.classList.toggle('active', orangeKmlLayerOn);
   b.style.display = (layoutMode === 'geo') ? 'inline-block' : 'none';
 }
-// KML 拓扑(Orange) 叠加层：懒加载 GeoJSON 静态资产，纯展示，不影响既有拓扑与数据
+// KML 拓扑(Orange) 叠加层：懒加载 GeoJSON，纯展示，不影响既有拓扑与数据
+// 数据源优先级：数据库接口 /api/mw-links/geojson（由页面上传 KML 更新）
+//              -> 失败回退静态 ./mw_ume_orange_links.geojson（保证页面永不白屏）
+function fetchOrangeKmlData(){
+  return fetch('/api/mw-links/geojson', { cache:'no-store' })
+    .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(fc){
+      if(!fc || !Array.isArray(fc.features)) throw new Error('bad payload');
+      console.log('[orangeKml] 数据源: 数据库 kml_mw_links (' + fc.features.length + ' 要素)');
+      return fc;
+    })
+    .catch(function(err){
+      console.warn('[orangeKml] 数据库接口不可用，回退静态 geojson:', err && err.message);
+      return fetch('./mw_ume_orange_links.geojson')
+        .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+    });
+}
 function loadOrangeKmlLayer(){
   if(orangeLayer) return;
   if(orangeKmlPromise) return orangeKmlPromise;
   const layer = L.layerGroup();
-  orangeKmlPromise = fetch('./mw_ume_orange_links.geojson')
-    .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+  orangeKmlPromise = fetchOrangeKmlData()
     .then(function(fc){
       ORANGE_KML_FEATURES = Array.isArray(fc.features) ? fc.features : [];
       const gj = L.geoJSON(fc, {

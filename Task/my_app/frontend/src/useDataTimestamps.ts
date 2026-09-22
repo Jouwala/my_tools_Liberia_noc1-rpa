@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import api from './api'
 import { useI18n } from './i18n'
+import { formatDateTime } from './datetime'
 
 interface DataTimestamps {
   last_sync: string | null
@@ -23,8 +24,7 @@ export function useDataTimestamps() {
 
   const formatTime = (isoStr: string | null) => {
     if (!isoStr) return null
-    // ISO format: 2026-07-10T17:23:21.468956 -> 2026-07-10 17:23:21
-    return isoStr.replace('T', ' ').substring(0, 19)
+    return formatDateTime(isoStr)
   }
 
   const lastSyncDisplay = timestamps?.last_sync
@@ -37,7 +37,7 @@ export function useDataTimestamps() {
     : (timestamps?.latest_data_time || null)
 
   const latestDataDisplay = timestamps?.latest_data_time
-    ? timestamps.latest_data_time
+    ? formatDateTime(timestamps.latest_data_time)
     : t('datasource.noData')
 
   return {

@@ -1032,9 +1032,9 @@ html.dark .qc-tools input[type="search"] { background: var(--mp-surface-2); colo
 html.dark .qc-page { color: var(--mp-text-3); }
 
 /* ==========================================================================
-   QC 指标卡（2026-09-22 全面改版）
+   QC 指标卡（2026-09-22 全面改版；同日二次改版：六卡一行 + CXO 观感）
    --------------------------------------------------------------------------
-   改版前的问题（实测截图 + 代码逐行核对，不是主观感觉）：
+   首次改版解决的问题（实测截图 + 代码逐行核对，不是主观感觉）：
      1. 六张卡的数字**同色同字号**。整张卡上唯一有颜色的元素是右上角 6px 圆点，
         而它的取值是 `failed ? 'bg-rose-400' : 'bg-blue-500'` —— 只在**接口报错**
         时变色，与业务好坏无关，纯装饰。于是 PMT 916（其中 490 条已超期）和
@@ -1047,28 +1047,39 @@ html.dark .qc-page { color: var(--mp-text-3); }
    改版原则：
      A. 颜色只由**阈值**决定（.qc-lv-ok / -warn / -crit），阈值集中在
         portal.js 的 QC_TARGETS 一处（⚠️ 首版默认值待业务确认）。
-     B. **不靠颜色单通道传意**：等级同时给「左侧竖条 + 数字色 + 等级文字徽章」
+     B. **不靠颜色单通道传意**：等级同时给「卡面描边 + 数字色 + 等级文字徽章」
         三个通道，色盲用户与黑白打印件都能读出分档（WCAG 1.4.1 Use of Color）。
      C. 全部走 --mp-* 令牌 + **手写 CSS**，不新增 Tailwind 原子类 ——
         本目录的 tailwind.css 是预编译产物，新增原子类必须重跑
         TMP/build_tailwind.mjs；手写 CSS 零构建依赖，也不会漏编译。
-     D. 分层：主卡（Alarm / TTs / WOs —— 需要立即处理）字号更大、带趋势线；
-        次卡（CRs / PMT / SPMS —— 积压与合规）更紧凑。层级靠**字号与内容密度**
-        表达，不靠宽度 —— 六张卡等宽才能保证换行与窄屏下不错位。
+     D. 分层靠**字号**（主卡 26px / 次卡 21px），不靠宽度、不靠分组标题。
+
+   ---- 二次改版（同日，用户要求「弄成 CXO 看板那种卡片，六张排一行」）----
+   视觉参照：my_app 的 VMAX CXO 看板（frontend/public/vmax_cxo_dashboard.html）
+   的 .kpi 块 —— 结构是「小标题在上、大数字在下、整体居中堆叠」。
+
+   照搬 = 结构照搬，**配色不照搬**。CXO 那张卡是写死的深蓝渐变
+   （linear-gradient(120deg,#203b80,#25275c) + 蓝边 #174fd8 + 内发光 rgba(42,131,255,.2)），
+   它整块看板只有深色一套。门户有浅/深两套主题，硬搬深蓝会在浅色下糊成一块，
+   所以这里保持 --mp-surface-* 跟随主题，只把 CXO 的**居中堆叠结构**
+   和**发光的质感**（内阴影 + 描边光晕）借过来。
+
+   CXO 卡片本体只有一个蓝色、没有状态语义，而本面板的颜色语义是上一版的
+   核心成果（一眼看出哪项严重）。所以把 CXO 那圈**蓝色发光边换成等级色**：
+   描边 + 内发光 + 数字 + 徽章共用 --qc-accent，一眼扫过去既像 CXO 又能分档。
    ========================================================================== */
 
-.qc-groups { display: flex; flex-direction: column; gap: 14px; }
-
-.qc-group-hd {
-  display: flex; align-items: baseline; gap: 7px;
-  margin: 0 0 8px 2px;
-  font-size: 12px; font-weight: 600;
-  color: var(--mp-text-2);
+.qc-grid {
+  display: grid;
+  gap: 10px;
+  /* 六张一行。用 minmax(0,1fr) 而不是 1fr：1fr 的最小尺寸是 auto，
+     内容（长卡名 / 长副行）会把列撑破、把整行挤出容器。 */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
-.qc-group-hd em { font-style: normal; font-weight: 500; font-size: 11px; color: var(--mp-text-3); }
-
-.qc-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (min-width: 900px) { .qc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* 窄屏降级：不写死在 JS 里 —— 断点该跟视口走，不该跟渲染逻辑走。
+   1200px 以下三列（两行）、760px 以下两列（三行）。 */
+@media (max-width: 1200px) { .qc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px)  { .qc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* —— 卡片本体 —— */
 .qc-card {
@@ -1076,52 +1087,61 @@ html.dark .qc-page { color: var(--mp-text-3); }
   --qc-accent-soft: var(--mp-brand-soft-2);
   --qc-accent-line: var(--mp-brand-border);
   position: relative;
-  display: block; width: 100%;
-  text-align: left; cursor: pointer; overflow: hidden;
-  padding: 11px 14px 11px 17px;
-  border: 1px solid var(--mp-border);
-  border-radius: 12px;
+  display: flex;              /* 居中堆叠（CXO 的 .kpi 就是 flex column + center） */
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%; min-width: 0;
+  text-align: center; cursor: pointer; overflow: hidden;
+  padding: 11px 11px 12px;
+  border: 1px solid var(--qc-accent-line);
+  border-radius: 11px;
   background: var(--mp-surface-flat);
-  transition: border-color .18s ease-out, box-shadow .18s ease-out, transform .18s ease-out;
+  /* CXO 的「内发光」质感，但用等级色：inset 阴影落在卡内，配合描边形成一圈光晕。
+     用 color-mix 把强调色调成低透明度，避免为每个等级再定义一组 rgba 令牌。 */
+  box-shadow: inset 0 0 16px color-mix(in srgb, var(--qc-accent) 14%, transparent);
+  transition: box-shadow .18s ease-out, transform .18s ease-out, border-color .18s ease-out;
 }
-.qc-card:hover { border-color: var(--mp-brand-border); box-shadow: var(--mp-shadow-1); transform: translateY(-2px); }
-.qc-card.is-on { border-color: var(--mp-brand-border); box-shadow: var(--mp-shadow-1); }
+.qc-card:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 0 20px color-mix(in srgb, var(--qc-accent) 22%, transparent),
+              0 8px 20px color-mix(in srgb, var(--qc-accent) 18%, transparent);
+}
+.qc-card.is-on {
+  box-shadow: inset 0 0 20px color-mix(in srgb, var(--qc-accent) 24%, transparent),
+              0 8px 20px color-mix(in srgb, var(--qc-accent) 20%, transparent);
+}
 .qc-card:focus-visible { outline: none; box-shadow: var(--mp-focus-ring); }
 
-/* 等级 → 竖条 / 数字 / 徽章三通道共用同一组色 */
+/* 等级 → 描边 / 内发光 / 数字 / 徽章 共用同一组色（--qc-accent-line 供 border，
+   --qc-accent 供 box-shadow 的 color-mix 与文字色）。 */
 .qc-lv-ok   { --qc-accent: var(--mp-ok);     --qc-accent-soft: var(--mp-ok-soft);          --qc-accent-line: var(--mp-ok-line); }
 .qc-lv-warn { --qc-accent: var(--mp-warn);   --qc-accent-soft: var(--mp-sev-warning-soft); --qc-accent-line: var(--mp-warn-line); }
 .qc-lv-crit { --qc-accent: var(--mp-danger); --qc-accent-soft: var(--mp-danger-soft);     --qc-accent-line: var(--mp-danger-line); }
 .qc-lv-na   { --qc-accent: var(--mp-text-3); --qc-accent-soft: transparent;               --qc-accent-line: var(--mp-border); }
 
-.qc-rail {
-  position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
-  background: var(--qc-accent); opacity: .85;
-  transition: opacity .18s ease-out;
-}
-.qc-card:hover .qc-rail, .qc-card.is-on .qc-rail { opacity: 1; }
-.qc-lv-na .qc-rail { opacity: .35; }
-
-.qc-hd { display: flex; align-items: center; gap: 7px; }
+/* 标题行：图标 + 卡名，居中。宽度撑满以便卡名居中而不被 icon 顶偏。 */
+.qc-hd { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-width: 0; }
 .qc-ico {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; border-radius: 6px;
+  width: 20px; height: 20px; border-radius: 6px;
   color: var(--qc-accent); background: var(--qc-accent-soft);
-  font-size: 13px;
+  font-size: 12px;
 }
 .qc-name {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12px; font-weight: 600; color: var(--mp-text-2);
 }
+/* 等级徽章独立成行（原来挤在标题行右侧，六卡并排后会把卡名 truncate 掉） */
 .qc-lvchip {
-  flex: none; margin-left: auto;
+  margin-top: 5px;
   font-size: 10px; font-weight: 600; line-height: 1;
-  padding: 3px 6px; border-radius: 999px;
+  padding: 3px 7px; border-radius: 999px;
   color: var(--qc-accent); background: var(--qc-accent-soft);
   border: 1px solid var(--qc-accent-line);
 }
 
-.qc-numrow { display: flex; align-items: baseline; gap: 8px; margin-top: 7px; }
+.qc-numrow { display: flex; align-items: baseline; justify-content: center; gap: 6px; margin-top: 8px; }
 .qc-num {
   font-family: ui-monospace, Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
@@ -1129,8 +1149,10 @@ html.dark .qc-page { color: var(--mp-text-3); }
   color: var(--qc-accent);
 }
 .qc-num.is-na { color: var(--mp-text-3); }
-.qc-card--lg .qc-num { font-size: 30px; }
-.qc-card--sm .qc-num { font-size: 23px; }
+/* 分层改为纯字号（去掉分组标题后，「主/次」只剩这一个通道表达）。
+   六卡一行时单卡约 240px，30px 数字在窄卡上会顶到边，故主卡降到 26px。 */
+.qc-card--lg .qc-num { font-size: 26px; }
+.qc-card--sm .qc-num { font-size: 21px; }
 
 /* 环比徽章。注意「变大 = 更差」只对 up 类指标成立；SLA 是 down 类
    （越大越好），方向语义由 portal.js 的 qcDelta() 判定后给类，CSS 不管方向。 */
@@ -1149,6 +1171,17 @@ html.dark .qc-page { color: var(--mp-text-3); }
 .qc-spark .sp-area { fill: var(--qc-accent-soft); }
 .qc-spark .sp-line { fill: none; stroke: var(--qc-accent); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
 .qc-spark .sp-dot { fill: var(--qc-accent); }
+/* 趋势线 + 说明文字（2026-09-22）。说明文字是必需的：线画的是**新增量**
+   （源表时间列分桶），卡片大数字是**存量**，两者量级不同、不能互相印证，
+   不写清「近 N 天 / 单位」读者会把线的起伏当成那个大数字的起伏。 */
+.qc-spark-wrap { display: block; margin-top: 8px; }
+.qc-spark-wrap .qc-spark { margin-top: 0; }
+.qc-spark-cap {
+  display: block; margin-top: 3px;
+  font-size: 10.5px; line-height: 1.2; color: var(--mp-text-3);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .qc-spark-empty {
   margin-top: 8px; height: 26px;
   display: flex; align-items: center;
@@ -1157,15 +1190,18 @@ html.dark .qc-page { color: var(--mp-text-3); }
 
 .qc-sub {
   display: block;   /* 卡内用的是 <span>：<button> 只允许短语内容，故靠 display 布局 */
+  width: 100%;
   margin-top: 7px;
-  font-size: 11.5px; line-height: 1.35; color: var(--mp-text-2);
+  font-size: 11px; line-height: 1.35; color: var(--mp-text-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .qc-card.is-failed .qc-sub { color: var(--mp-danger); white-space: normal; }
 
 .qc-age {
   display: block;
-  margin-top: 5px; font-size: 10.5px; color: var(--mp-text-3); font-variant-numeric: tabular-nums;
+  width: 100%;
+  margin-top: 5px; font-size: 10px; color: var(--mp-text-3); font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 /* 达标率徽章：颜色由数值档位决定（旧版写死 emerald，88.2% 也显示成绿=好） */

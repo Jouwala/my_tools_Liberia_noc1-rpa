@@ -14,12 +14,20 @@
      刻意不依赖 assets/tailwind.css —— 那是预编译产物，viewer 里新写的类名不会被编译进去。 -->
 <link rel="stylesheet" href="assets/icons/phosphor.css">
 <script>
-/* 主题/语言首屏防闪烁：与门户 index.html 同源，读同一份 localStorage */
+/* 主题/语言首屏防闪烁：与门户 index.html 同源，读同一份 localStorage。
+   没有用户选择时按浏览器语言定默认，口径必须与 viewer.js 的 LANG 判定一致。 */
 (function () {
+  function guessLang() {
+    var v = null;
+    try { v = localStorage.getItem('msportal.lang.v1'); } catch (e) { /* ignore */ }
+    if (v === 'en' || v === 'zh') return v;
+    var nav = (navigator.language || navigator.userLanguage || 'zh') + '';
+    return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+  }
   try {
     if (localStorage.getItem('msportal.theme.v1') === 'dark') document.documentElement.classList.add('dark');
-    if (localStorage.getItem('msportal.lang.v1') === 'en') document.documentElement.setAttribute('lang', 'en');
   } catch (e) { /* ignore */ }
+  document.documentElement.setAttribute('lang', guessLang() === 'en' ? 'en' : 'zh-CN');
 })();
 </script>
 <style>

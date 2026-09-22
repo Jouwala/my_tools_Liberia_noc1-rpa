@@ -18,10 +18,17 @@
 
 持久化：backend/data/portal_catalog.json（原子替换写，避免半个文件）。
 结构：{"v": 1, "savedAt": "2026-09-17T17:30:00", "items": [ <看板对象> … ],
-       "subGroups": {"BO View": [ {"id": "wireless", "zh": "…", "en": "…"}, … ]}}
+       "subGroups": {"BO View": [ {"id": "wireless", "zh": "…", "en": "…"}, … ]},
+       "order": {"FO View": [19, 13, …]},
+       "groups": [ {"id": "CXO View", "zh": "…", "en": "…", "subZh": "…", "style": "spotlight"} ]}
       文件不存在 = 从未保存过，GET 返回 catalog=null，前端用 data.js 内置目录。
       「内置目录」与「服务端目录」的关系 = uniplam 的 INITIAL_DASHBOARDS 与
       portal-default.json：前者是出厂值，后者是运行时覆盖，DELETE 即可回退。
+
+一级分组（2026-09-22 加）：分组名以前只在前端 data.js + 各机 localStorage
+（msportal.renames.v1 / .groups.v1），改一次只在这台电脑生效。现在随目录一起落盘，
+**数组顺序即展示顺序、id 不可改**（item.groups / order / subGroups 全都按 id 引用，
+改名只动 zh/en 就不会打断引用）。语义与 subGroups 一致：键不存在 = 用内置分组。
 
 子分组（2026-09-19 加）：BO View 正文里的「Radio, Power & Field Dispatch /
 Core Network / IP Bearer」原来写死在前端常量 BO_SUBS + i18n 文案里，只能在代码里改。
@@ -79,6 +86,12 @@ MAX_SUB_LABEL_LEN = 64        # 子分组中/英文显示名
 # ---- 拖拽排序（catalog.order）上限 ----
 MAX_ORDER_PARENTS = 60        # 允许自定义顺序的父分组数（与 MAX_SUB_PARENTS 同量级）
 MAX_ORDER_ITEMS = 500         # 单个分组内的排序条目数（= MAX_ITEMS，防重复写爆）
+# ---- 一级分组定义（catalog.groups）上限 ----
+MAX_GROUPS = 60               # 一级分组数（内置 9 个，留足冗余）
+MAX_GROUP_ID_LEN = 64         # 与 _str_list 里 item.groups 的取值同宽，两边必须一致
+MAX_GROUP_LABEL_LEN = 64      # 分组中/英文显示名
+MAX_GROUP_SUB_LEN = 200       # 分组副标题（面板头部那一行说明）
+MAX_GROUP_STYLE_LEN = 20      # 版式名，未知值前端按默认版式渲染，不做枚举校验
 
 PLATFORMS = {"myapp", "finebi", "external"}
 STATUSES = {"online", "beta"}
@@ -321,6 +334,52 @@ def _normalize_sub_groups(raw: Any) -> dict:
     return out
 
 
+def _normalize_groups(raw: Any) -> list:
+    """归一化一级分组定义：[{"id","zh","en","subZh","subEn","style"}, …]，数组顺序即展示顺序。
+
+    为什么 2026-09-22 才加：分组名以前只写在前端 `data.js`（出厂值）+ 各机
+    localStorage（`msportal.renames.v1` / `.groups.v1`），改一次只在这台电脑上生效 ——
+    和 subGroups 当初一模一样，所以照抄它的语义：
+
+    - 键**不存在**（或空数组）= 前端用内置 `data.js` 的分组；键存在且非空 = 以此为准；
+    - **id 不可改**：`item.groups`、`order` 的键、`subGroups` 的键全都按 id 引用。
+      改名只动 zh/en/subZh/subEn，id 保持原值，所以一处改名不会把三处引用打断；
+      新增分组才产生新 id（缺 id 时用 en→zh 兜底，与前端 addGroup 的取 id 规则一致）。
+    - 重复 id 丢弃保留第一条（前端去重过，这里只是兜底，不让整份目录保存失败）。
+    - `style` 不做枚举校验：未知值前端按默认版式渲染，比 400 掉整次保存划算。
+    - 删除分组是**前端**的责任：要把该 id 从每个 item.groups 里摘掉再 PUT。这里如果
+      替前端「自动清理孤儿引用」，就会出现「以为只删了个名字，结果看板被移出分组」，
+      所以后端只如实落盘，指向不存在分组的 id 由前端忽略（看板不会丢）。
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="catalog.groups 必须是数组")
+    if len(raw) > MAX_GROUPS:
+        raise HTTPException(status_code=400, detail=f"一级分组数超过上限 {MAX_GROUPS}")
+
+    out: list = []
+    seen: set = set()
+    for g in raw:
+        if not isinstance(g, dict):
+            raise HTTPException(status_code=400, detail="catalog.groups 的条目必须是对象")
+        zh = _clip(g.get("zh"), MAX_GROUP_LABEL_LEN)
+        en = _clip(g.get("en"), MAX_GROUP_LABEL_LEN)
+        gid = _clip(g.get("id"), MAX_GROUP_ID_LEN) or en or zh
+        if not gid or gid in seen:
+            continue
+        seen.add(gid)
+        out.append({
+            "id": gid,
+            "zh": zh or gid,
+            "en": en or gid,
+            "subZh": _clip(g.get("subZh"), MAX_GROUP_SUB_LEN),
+            "subEn": _clip(g.get("subEn"), MAX_GROUP_SUB_LEN),
+            "style": _clip(g.get("style"), MAX_GROUP_STYLE_LEN),
+        })
+    return out
+
+
 def _normalize_catalog(raw: Any) -> dict:
     """校验 + 归一化整个目录；结构非法直接 400，不做「猜」的兜底。"""
     if not isinstance(raw, dict):
@@ -360,6 +419,12 @@ def _normalize_catalog(raw: Any) -> dict:
     order = _normalize_order(raw.get("order"))
     if order:
         catalog["order"] = order
+    # 一级分组定义（2026-09-22 加）：非空才落键，空数组与「从未配置」同样回落到内置 data.js
+    # —— 这里刻意不像 subGroups 那样区分「显式清空」：把全部一级分组删光等于把门户清空，
+    # 没有合理语义，前端也不该发出这种请求。
+    groups = _normalize_groups(raw.get("groups"))
+    if groups:
+        catalog["groups"] = groups
     return catalog
 
 

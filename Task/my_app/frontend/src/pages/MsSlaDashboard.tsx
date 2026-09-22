@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx'
 import dayjs, { Dayjs } from 'dayjs'
 import api, { getMsSlaOverview } from '../api'
 import { useI18n } from '../i18n'
+import { formatDateTime } from '../datetime'
 import { useTheme, WH, WH_COLORS, useIsMobile, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
 
@@ -433,7 +434,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
   useEffect(() => { fetchData() }, [fetchData])
 
   const meta = data?.meta || {}
-  const lastSync = meta.last_sync_time || '-'
+  const lastSync = meta.last_sync_time ? formatDateTime(meta.last_sync_time) : '-'
   const granLabel = t(gran === 'daily' ? 'msSla.daily' : 'msSla.monthly')
   const granTitle: Record<Gran, string> = {
     daily: t('nur.daily'), monthly: t('nur.monthly'),

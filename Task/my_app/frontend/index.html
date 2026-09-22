@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- lang / title 为首屏兜底值，挂载后由 I18nProvider 按当前语言覆写 -->
+    <!-- lang / title 为首屏兜底值，下面这段在 React 挂载前就按当前语言写好；
+         口径与 src/i18n.tsx 的 detectLocale 一致（localStorage → 浏览器语言），
+         两边不一致会闪一下另一种语言/另一个标题。 -->
     <title>数据洞察 MVP</title>
     <!-- 主题首帧防闪烁：在 React 挂载前按 localStorage（用户选择）→ 系统偏好设置 data-theme。
          与 src/theme.ts 的 THEME_STORAGE_KEY / detectMode 保持同一逻辑，避免首屏闪白/闪黑。 -->
@@ -17,6 +19,17 @@
         } catch (e) {
           document.documentElement.setAttribute('data-theme', 'dark')
         }
+        var lang = 'zh'
+        try {
+          var l = localStorage.getItem('app-locale')
+          if (l === 'en' || l === 'zh') lang = l
+          else {
+            var nav = (navigator.language || navigator.userLanguage || 'zh') + ''
+            lang = nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en'
+          }
+        } catch (e) { /* 读不到就用中文兜底 */ }
+        document.documentElement.setAttribute('lang', lang === 'en' ? 'en' : 'zh-CN')
+        document.title = lang === 'en' ? 'Data Insight MVP' : '数据洞察 MVP'
       })()
     </script>
   </head>

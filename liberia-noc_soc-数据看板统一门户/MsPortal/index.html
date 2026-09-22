@@ -25,14 +25,21 @@
      新增文件，portal.css / portal.js 一行未改。 -->
 <link rel="stylesheet" href="assets/masthead.css">
 <script>
-/* 主题首屏防闪烁（默认浅色，与 ref.html 一致；用户选择存 localStorage） */
+/* 主题与语言首屏防闪烁（主题默认浅色，与 ref.html 一致；用户选择存 localStorage）。
+   语言没选过时按浏览器语言定默认 —— 之前硬默认中文，利比里亚用户第一次打开满屏中文。
+   口径必须和 portal.js 的 detectLang() 一致，两边不一致首帧和挂载后语言不同会闪一下。 */
 (function () {
+  function guessLang() {
+    var v = null;
+    try { v = localStorage.getItem('msportal.lang.v1'); } catch (e) { /* ignore */ }
+    if (v === 'en' || v === 'zh') return v;
+    var nav = (navigator.language || navigator.userLanguage || 'zh') + '';
+    return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+  }
   try {
-    var t = localStorage.getItem('msportal.theme.v1');
-    if (t === 'dark') document.documentElement.classList.add('dark');
-    var l = localStorage.getItem('msportal.lang.v1');
-    if (l === 'en') document.documentElement.setAttribute('lang', 'en');
+    if (localStorage.getItem('msportal.theme.v1') === 'dark') document.documentElement.classList.add('dark');
   } catch (e) { /* ignore */ }
+  document.documentElement.setAttribute('lang', guessLang() === 'en' ? 'en' : 'zh-CN');
 })();
 </script>
 </head>
@@ -172,7 +179,8 @@
         <button type="button" class="seg-btn" data-lang="zh">中文</button>
         <button type="button" class="seg-btn" data-lang="en">EN</button>
       </div>
-      <button type="button" class="icon-btn" id="themeBtn" title="深色 / 浅色" aria-label="Toggle theme">
+      <button type="button" class="icon-btn" id="themeBtn" title="深色 / 浅色" aria-label="Toggle theme"
+              data-mp-i18n-attr="title:theme.tip">
         <svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
         <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>
       </button>
@@ -409,7 +417,8 @@
       <!-- 子分组（二级分组）说明：文案按当前是否可写切换，见 renderGroupTable() -->
       <p class="modal-note sub-note" id="groupSubNote"></p>
       <div class="modal-add">
-        <input type="text" id="newGroupZh" placeholder="新分组中文名 / Chinese name">
+        <input type="text" id="newGroupZh" placeholder="新分组中文名 / Chinese name"
+               data-i18n-attr="placeholder:modal.newGroupZh">
         <input type="text" id="newGroupEn" placeholder="English name">
         <button type="button" class="btn-soft primary" id="addGroupBtn" data-i18n="modal.add">新增分组</button>
       </div>
@@ -555,13 +564,15 @@
         </label>
         <label class="bf-field">
           <span data-i18n="board.fFreq">更新频率</span>
-          <input type="text" id="bfFreq" autocomplete="off" placeholder="每日0点">
+          <input type="text" id="bfFreq" autocomplete="off" placeholder="每日0点"
+                 data-i18n-attr="placeholder:board.freqPh">
         </label>
         <label class="bf-field">
           <span data-i18n="board.fIcon">图标</span>
           <select id="bfIcon"></select>
         </label>
-        <label class="bf-field" title="没被拖拽排序过的看板按这个数字从大到小排；拖过的以拖拽结果为准。">
+        <label class="bf-field" title="没被拖拽排序过的看板按这个数字从大到小排；拖过的以拖拽结果为准。"
+               data-i18n-attr="title:board.clicksTip">
           <span data-i18n="board.fClicks">初始排序权重</span>
           <input type="number" id="bfClicks" min="0" step="1">
         </label>
@@ -659,6 +670,9 @@
 <div class="toast" id="toast" hidden></div>
 
 <script src="assets/data.js"></script>
+<!-- 数据层英文术语表（freq / dept / owner 这些 xlsx 里只有中文的字段）；
+     与 data.js 分开是因为 data.js 由 TMP/gen_msportal.py 重新生成，写进去会被冲掉 -->
+<script src="assets/terms.js"></script>
 <!-- 访问控制（看板 id 映射 + allowedGroups/allowedCards 判定）：必须在 portal.js
      之前加载，它给 window.MSPortalAccess 挂实现；看板查看器 viewer.html 用的是
      同一份，两边不会漂移。 -->

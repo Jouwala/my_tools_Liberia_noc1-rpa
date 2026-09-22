@@ -1,0 +1,1 @@
+import{n as e}from"./rolldown-runtime-DaJ6WEGw.js";import{H as t}from"./react-vendor-Da0saO8s.js";import{C as n,x as r}from"./index-RyuyME9d.js";import{n as i,t as a}from"./LegacyToolFrame-DCoaHjLR.js";function o(){let{t:e}=n();return(0,s.jsx)(a,{file:`vmax_cxo_dashboard_90days.html`,title:e(`nav.vmaxCxoDashboard90Days`)})}var s;e((()=>{i(),r(),s=t()}))();export{o as default};

@@ -387,7 +387,7 @@ img, svg, canvas, iframe { max-width: 100%; }
     <label class="lbl"><input type="checkbox" id="chk-label" style="vertical-align:middle"> <span data-i18n="topo.label">TX/RX 标签</span></label>
     <label class="lbl" title="折叠/展开逻辑拓扑 ACCESS 层"><input type="checkbox" id="chk-access" checked style="vertical-align:middle"> <span data-i18n="topo.access">ACCESS 层</span></label>
     <button id="btn-geo-label" class="btn" data-i18n="topo.geoLabel">站点名</button>
-    <button id="btn-orange-kml" class="btn orange-toggle" title="Orange 网络拓扑（KML 导入的微波链路/站点叠加层，默认关闭）">KML 拓扑(Orange)</button>
+    <button id="btn-orange-kml" class="btn orange-toggle" data-i18n="topo.orangeKml" data-i18n-title="topo.orangeKmlTip" title="Orange 网络拓扑（KML 导入的微波链路/站点叠加层，默认关闭）">KML 拓扑(Orange)</button>
     <input type="search" id="inp-search" data-i18n-ph="topo.search" placeholder="搜索站点 / IP…">
     <button id="btn-refresh" class="btn" data-i18n="topo.refresh">刷新</button>
     <button id="btn-toggle-right" class="btn" data-i18n="topo.risks" style="display:none">风险</button>
@@ -404,7 +404,7 @@ img, svg, canvas, iframe { max-width: 100%; }
     <div class="kpi orange" data-kpi="moderate" data-why="moderate"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.moderate">Moderate</div><div class="k-val" id="k-moderate">—</div><div class="k-sub" data-i18n="kpi.r7080">70 – 80%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，70–80% 计 1 条</div></div>
     <div class="kpi tomato" data-kpi="major" data-why="major"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.major">Major</div><div class="k-val" id="k-major">—</div><div class="k-sub" data-i18n="kpi.r8090">80 – 90%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，80–90% 计 1 条</div></div>
     <div class="kpi red" data-kpi="critical" data-why="critical"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.critical">Critical</div><div class="k-val" id="k-critical">—</div><div class="k-sub" data-i18n="kpi.gt90">&gt; 90%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，&gt;90% 计 1 条</div></div>
-    <div class="kpi" style="background:var(--panel);border-color:var(--line);color:var(--muted)" data-kpi="unknown" data-why="unknown"><div class="k-label" data-i18n="kpi.unknown">Unknown</div><div class="k-val" id="k-unknown">—</div><div class="k-sub" data-i18n="kpi.noKpi">no KPI</div><div class="kpi-tooltip">物理链路中尚无 KPI 数据的链路数</div></div>
+    <div class="kpi" style="background:var(--panel);border-color:var(--line);color:var(--muted)" data-kpi="unknown" data-why="unknown"><div class="k-label" data-i18n="kpi.unknown">Unknown</div><div class="k-val" id="k-unknown">—</div><div class="k-sub" data-i18n="kpi.noKpi">no KPI</div><div class="kpi-tooltip" data-i18n="why.unknown">物理链路中尚无 KPI 数据的链路数</div></div>
     <div class="kpi red" data-kpi="max" data-why="max"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.max">Max Utilization</div><div class="k-val" id="k-max">—</div><div class="k-sub" id="k-max-sub">—</div><div class="kpi-tooltip" data-i18n="why.max">全网利用率最高的单条链路</div></div>
   </div>
 
@@ -520,6 +520,7 @@ const I18N = {
     'topo.title':'网络拓扑', 'topo.hint':'滚轮缩放 · 拖拽平移 · 悬停查看 · 点击链路看详情',
     'topo.cNodes':'节点', 'topo.cLinks':'链路',
     'topo.geoLabel':'站点名', 'topo.access':'ACCESS 层', 'topo.ip10':'骨干网',
+    'topo.orangeKml':'KML 拓扑(Orange)', 'topo.orangeKmlTip':'Orange 网络拓扑（KML 导入的微波链路/站点叠加层，默认关闭）',
     'topo.overview':'概览', 'topo.focusRisk':'风险聚焦', 'topo.aggSuffix':'等 {n} 个节点',
     'date.prev':'前一槽位', 'date.next':'后一槽位', 'date.pick':'拖动滑杆选择时间槽位',
     'risks.title':'Top Risk Links', 'risks.hint':'— 点击定位到拓扑',
@@ -545,6 +546,7 @@ const I18N = {
     'why.linkLevel':'链路级：聚合所有端口对(PM Checkpoint)的 max(TX%,RX%)，≥阈值计 1 条',
     'why.max':'全网利用率最高的单条链路',
     'why.trend':'行级（端口对）：按 15 分钟槽位统计原始 PM 行里 max(TX%,RX%)≥90% 的行数；与 KPI 的链路口径不同',
+    'why.unknown':'物理链路中尚无 KPI 数据的链路数',
     'kpiModal.metaCount':'— 行',
     'kpiModal.colNum':'#', 'kpiModal.colSite':'站点', 'kpiModal.colIP':'IP', 'kpiModal.colPeer':'对端', 'kpiModal.colPeerIP':'对端 IP',
     'kpiModal.colTX':'TX%', 'kpiModal.colRX':'RX%', 'kpiModal.colMax':'Max%', 'kpiModal.colStatus':'级别',
@@ -571,11 +573,12 @@ const I18N = {
     'topo.title':'Network Topology', 'topo.hint':'Scroll to zoom · Drag to pan · Hover to inspect · Click a link for details',
     'topo.cNodes':'nodes', 'topo.cLinks':'links',
     'topo.geoLabel':'Site labels', 'topo.access':'ACCESS tier', 'topo.ip10':'Backbone',
+    'topo.orangeKml':'KML Overlay (Orange)', 'topo.orangeKmlTip':'Orange network topology: microwave links / sites imported from KML (off by default)',
     'topo.overview':'Overview', 'topo.focusRisk':'Risk Focus', 'topo.aggSuffix':'+ {n} nodes',
     'date.prev':'Previous slot', 'date.next':'Next slot', 'date.pick':'Drag the slider to pick a time slot',
     'risks.title':'Top Risk Links', 'risks.hint':'— click to locate',
     'risks.empty':'Loading…', 'risks.nodata':'No data', 'risks.noMatch':'No match', 'risks.search':'Filter critical sites…', 'risks.itemHint':'Click to locate on topology and view details',
-    'trend.title':'Network Utilization Trend', 'trend.note':'（auto-updated every 15 min）',
+    'trend.title':'Network Utilization Trend', 'trend.note':'(auto-updated every 15 min)',
     'trend.avg':'Avg Utilization', 'trend.max':'Max Utilization', 'trend.crit':'Critical',
     'dist.title':'Link Health Distribution',
     'dist.health':'Healthy <50%', 'dist.negligible':'Negligible 50-60%', 'dist.minor':'Minor 60-70%',
@@ -595,7 +598,8 @@ const I18N = {
     'why.links':'Unique ME↔Neighbor ME link pairs (1 per link)',
     'why.linkLevel':'Link-level: aggregate max(TX%,RX%) over all PM checkpoints per link; ≥ threshold counts as 1',
     'why.max':'The single link with the highest utilization across the network',
-    'why.trend':'Row-level (per port): counts rows per 15-min slot where max(TX%,RX%)≥90%; KPI is link-level — different口径',
+    'why.trend':'Row-level (per port): counts rows per 15-min slot where max(TX%,RX%)≥90%; KPI is link-level — different measurement basis',
+    'why.unknown':'Links on the physical topology that have no KPI data yet',
     'kpiModal.metaCount':'— rows',
     'kpiModal.colNum':'#', 'kpiModal.colSite':'Site', 'kpiModal.colIP':'IP', 'kpiModal.colPeer':'Peer', 'kpiModal.colPeerIP':'Peer IP',
     'kpiModal.colTX':'TX%', 'kpiModal.colRX':'RX%', 'kpiModal.colMax':'Max%', 'kpiModal.colStatus':'Status',
@@ -625,6 +629,8 @@ function updateStatus(){
 
 function applyLocale(locale){
   LOCALE = (locale === 'en') ? 'en' : 'zh';
+  document.documentElement.lang = LOCALE === 'zh' ? 'zh-CN' : 'en';
+  document.title = 'MW UME ' + t('app.subtitle') + ' NOC';
   document.querySelectorAll('[data-i18n]').forEach(function(n){ n.textContent = t(n.getAttribute('data-i18n')); });
   document.querySelectorAll('[data-i18n-ph]').forEach(function(n){ n.setAttribute('placeholder', t(n.getAttribute('data-i18n-ph'))); });
   document.querySelectorAll('[data-i18n-title]').forEach(function(n){ n.setAttribute('title', t(n.getAttribute('data-i18n-title'))); });
@@ -633,7 +639,7 @@ function applyLocale(locale){
   if(el('drawer').classList.contains('open') && selEdge) openDrawerFor(selEdge);
   try { refreshLevelFilterUI(); syncGeoLabelBtn(); } catch(e){}  // 初始化早期 LVL_TEXT 尚在 TDZ，忽略
 }
-try { const l = localStorage.getItem('app-locale'); if(l === 'en' || l === 'zh') LOCALE = l; } catch(e){}
+try { const l = localStorage.getItem('app-locale'); LOCALE = (l === 'en' || l === 'zh') ? l : (((navigator.language || navigator.userLanguage || 'zh') + '').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en'); } catch(e){}
 
 /* ============ global state ============ */
 let DATA = null;
@@ -2357,12 +2363,27 @@ function syncOrangeKmlBtn(){
   b.classList.toggle('active', orangeKmlLayerOn);
   b.style.display = (layoutMode === 'geo') ? 'inline-block' : 'none';
 }
-// KML 拓扑(Orange) 叠加层：懒加载 GeoJSON 静态资产，纯展示，不影响既有拓扑与数据
+// KML 拓扑(Orange) 叠加层：懒加载 GeoJSON，纯展示，不影响既有拓扑与数据
+// 数据源优先级：数据库接口 /api/mw-links/geojson（由页面上传 KML 更新）
+//              -> 失败回退静态 ./mw_ume_orange_links.geojson（保证页面永不白屏）
+function fetchOrangeKmlData(){
+  return fetch('/api/mw-links/geojson', { cache:'no-store' })
+    .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(fc){
+      if(!fc || !Array.isArray(fc.features)) throw new Error('bad payload');
+      console.log('[orangeKml] 数据源: 数据库 kml_mw_links (' + fc.features.length + ' 要素)');
+      return fc;
+    })
+    .catch(function(err){
+      console.warn('[orangeKml] 数据库接口不可用，回退静态 geojson:', err && err.message);
+      return fetch('./mw_ume_orange_links.geojson')
+        .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+    });
+}
 function loadOrangeKmlLayer(){
   if(orangeLayer) return;
   const layer = L.layerGroup();
-  fetch('./mw_ume_orange_links.geojson')
-    .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+  fetchOrangeKmlData()
     .then(function(fc){
       const gj = L.geoJSON(fc, {
         style: function(f){

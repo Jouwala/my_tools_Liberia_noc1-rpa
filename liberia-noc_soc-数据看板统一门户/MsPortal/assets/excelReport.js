@@ -186,7 +186,7 @@
     if (exceljsPromise) return exceljsPromise;
     exceljsPromise = new Promise(function (resolve, reject) {
       if (typeof document === 'undefined') {
-        reject(new Error('ExcelJS 不可用（非浏览器环境且未预先注入）'));
+        reject(new Error('ExcelJS unavailable (non-browser environment and not pre-injected)'));
         return;
       }
       var s = document.createElement('script');
@@ -194,11 +194,11 @@
       s.async = true;
       s.onload = function () {
         if (root.ExcelJS) resolve(root.ExcelJS);
-        else { exceljsPromise = null; reject(new Error('ExcelJS 未挂到 window：' + EXCELJS_SRC)); }
+        else { exceljsPromise = null; reject(new Error('ExcelJS not attached to window: ' + EXCELJS_SRC)); }
       };
       s.onerror = function () {
         exceljsPromise = null;                     // 允许下次重试
-        reject(new Error('ExcelJS 加载失败：' + EXCELJS_SRC));
+        reject(new Error('ExcelJS failed to load: ' + EXCELJS_SRC));
       };
       document.head.appendChild(s);
     });
@@ -376,7 +376,7 @@
   /** 构建工作簿（不下载），便于单测 / 二次加工。需先 loadExcelJS()。 */
   function buildReportWorkbook(specs) {
     var ExcelJS = root.ExcelJS;
-    if (!ExcelJS) throw new Error('ExcelJS 尚未加载，请先 await MsExcelReport.loadExcelJS()');
+    if (!ExcelJS) throw new Error('ExcelJS not loaded yet; await MsExcelReport.loadExcelJS() first');
     var wb = new ExcelJS.Workbook();
     wb.creator = 'NOC Dashboard';
     wb.created = new Date();

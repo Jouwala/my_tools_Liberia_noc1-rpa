@@ -708,7 +708,7 @@ let APP_THEME=(function(){
 /* 必须先钉住 data-theme 再读变量，否则读到的是上一次的档位 */
 try{ document.documentElement.dataset.theme=APP_THEME; }catch(e){}
 const PALETTE={ light:readPalette(), dark:readPalette() };
-let APP_LOCALE=(function(){ try{ const v=localStorage.getItem('app-locale'); if(v==='zh'||v==='en') return v; }catch(e){} return 'zh'; })();
+let APP_LOCALE=(function(){ try{ const v=localStorage.getItem('app-locale'); if(v==='zh'||v==='en') return v; return (((navigator.language||navigator.userLanguage||'zh')+'').toLowerCase().indexOf('zh')===0)?'zh':'en'; }catch(e){} return 'zh'; })();
 function curP(){ return PALETTE[APP_THEME]; }
 /* 主题切换后刷新缓存（浅色档色值来自本页 :root，深色档来自 [data-theme=dark]）。
    refreshHeat / refreshSeriesColors 用函数声明（会提升），此处先判存在再调 ——
@@ -1108,6 +1108,7 @@ function applyStaticI18n(){ document.querySelectorAll('[data-i18n]').forEach(fun
 async function applyLocale(loc, rerender){
   if(loc!=='zh'&&loc!=='en') loc='zh';
   APP_LOCALE=loc;
+  document.documentElement.lang = loc==='en' ? 'en' : 'zh-CN';
   document.documentElement.classList.toggle('lang-en', loc==='en');
   try{ setKpi(); }catch(e){}
   try{ updateTrendCharts(); }catch(e){}

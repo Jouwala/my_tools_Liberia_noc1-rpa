@@ -11,6 +11,7 @@ import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { getSpMaterialDetail, getSpMaterialSummary } from '../api'
 import { useI18n } from '../i18n'
+import { formatDateTime } from '../datetime'
 import { useTheme, WH } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportReport, safeFileName, type CellValue, type HeaderCell } from '../utils/excelReport'
@@ -321,7 +322,7 @@ export default function SpMaterialSummary() {
     // 除首列外全部为数字列；消耗列（下标 7~12）套用 0 灰 / 正绿 / 负红
     const numericCols = Array.from({ length: 12 }, (_, i) => i + 1)
     const sheetName = 'SP Material Summary'
-    const subtitle = `Generated: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}    |    Sheet: ${sheetName}`
+    const subtitle = `Generated: ${formatDateTime(new Date(), { zone: true })}    |    Sheet: ${sheetName}`
       + `    |    Current Date: ${currentDate || '-'}    |    Baseline: ${anchorDate || '-'}`
       + `    |    Need Repair / Repair Outbound window: ${data.repair_outbound_start || '-'} ~ ${data.repair_outbound_end || '-'}`
 
