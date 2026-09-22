@@ -8,16 +8,22 @@
 schema 同时驱动：后端校验 + 前端表单渲染。类型：
   int / float / str / bool / json / list / object(fields) / table(fields, min_items, max_items)
 可选字段写 null 一律放行（等价于未填，由服务侧默认值兜底）；required 字段仍会校验。
+str 字段可加 int_list:true，要求值是逗号分隔整数（服务在导入期 int() 解析的字段必须标，
+否则页面上一个字母就会让整个服务模块 import 失败）。
 """
 from __future__ import annotations
 
 import copy
 import json
 import os
+import re
 from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _REGISTRY: dict[str, "ConfigResource"] = {}
+
+# 逗号分隔整数：允许空格与负数，允许单个数字，不允许尾随逗号
+_INT_LIST_RE = re.compile(r"\s*-?\d+(\s*,\s*-?\d+)*\s*")
 
 
 def load_json_config(path) -> dict | None:
@@ -199,6 +205,12 @@ def _validate_value(key: str, schema: dict, value, errors: list, path: str = "")
             errors.append(f"{where}: {label} 必须为字符串")
         elif schema.get("required") and not value.strip():
             errors.append(f"{where}: {label} 不能为空")
+        elif schema.get("int_list") and value.strip():
+            # 逗号整数串（itemsposition / itempositionbusiness 等）：服务在**导入期**
+            # 用 int() 解析，写进字母会让整个模块 import 崩掉 → 任务直接不起，
+            # 而不是"这个字段没生效"。所以在保存时就拦下，给明确提示。
+            if not _INT_LIST_RE.fullmatch(value):
+                errors.append(f"{where}: {label} 必须是逗号分隔的整数（如 0,1,2），当前值 {value[:40]!r}")
     elif t == "float":
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             errors.append(f"{where}: {label} 必须为数字")
