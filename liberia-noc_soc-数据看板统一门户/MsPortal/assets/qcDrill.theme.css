@@ -1,0 +1,72 @@
+/* ============================================================================
+   qcDrill.theme.css —— MsPortal 侧的「主题映射」
+   ----------------------------------------------------------------------------
+   2026-09-23 加。assets/qcDrill.css 是**两边共用**的下钻弹窗外壳，它内部只用一套
+   自有的 --qc-* 变量，不认任何一方的私有变量名。本文件负责把 MsPortal 的 --mp-*
+   主题色灌进那套变量 —— 因此：
+
+     · 结构 / 间距 / 字号 / 交互：两边由同一个 qcDrill.css 决定 → 完全一致
+     · 配色 / 深浅色：各由各的主题映射决定 → 各随各的主题
+
+   为什么不直接把 --mp-* 写进 qcDrill.css：
+     那样 olbrportal 引这个文件时，--mp-* 全是未定义 → 弹窗变成一堆透明框。
+     分开之后，谁引用谁负责映射，缺映射也只会退回 qcDrill.css 里的兜底默认色。
+
+   维护约定：qcDrill.css 里**新增任何 --qc-* 变量**，两个门户的 theme.css 都要补上
+   对应的映射行（olbrportal 侧是 olbrportal/assets/olbr.css 末尾的同名区块）。
+   ========================================================================== */
+
+/* ------------------------------------------------------------- 浅色（默认） -- */
+:root {
+  --qc-scrim: var(--mp-scrim);
+  --qc-surface: var(--mp-surface-flat);
+  --qc-surface-2: var(--mp-surface-2);
+  --qc-surface-3: var(--mp-surface-3);
+  --qc-border: var(--mp-border);
+  --qc-border-soft: var(--mp-border-soft);
+  --qc-text: var(--mp-text);
+  --qc-text-2: var(--mp-text-2);
+  --qc-text-3: var(--mp-text-3);
+  --qc-heading: var(--mp-heading);
+  --qc-brand: var(--mp-brand);
+  --qc-danger: var(--mp-danger);
+  --qc-hover-row: var(--mp-hover-row);
+  --qc-shadow: var(--mp-shadow-3);
+  --qc-focus-ring: var(--mp-focus-ring);
+}
+
+/* ------------------------------------------------------------------ 深色 -- */
+/* ⚠️ 深色必须**再映射一遍**，不能只靠上面那块 :root 自动跟着翻。
+
+   自定义属性在**声明它的那个元素**上完成替换。上面 :root 里的
+   `--qc-surface: var(--mp-surface-flat)` 是在 :root 上求值的；而深色档
+   `html.dark { --mp-surface-flat: #071027 }` 声明在 html 元素上，特异性
+   （0,1,1）高于 :root（0,1,0）。html 上的 --mp-surface-flat 确实翻成了深色，
+   但 :root 上那条 --qc-surface 早已按浅色 #ffffff 定死 —— 若不在这里重指一次，
+   html.dark 下弹窗就会是**浅底 + 浅色字**。
+
+   实测：olbrportal 侧未加这段时，深色下 .qc-modal 的 background-color 是
+   rgb(255,255,255)（见 TMP/verify_qc_export_dark.mjs 的输出）。本页与之共用
+   同一套模式，故一并补上，避免以后有人把 qcDrill.theme.css 的顺序挪一下就复现。 */
+html.dark {
+  --qc-scrim: var(--mp-scrim);
+  --qc-surface: var(--mp-surface-flat);
+  --qc-surface-2: var(--mp-surface-2);
+  --qc-surface-3: var(--mp-surface-3);
+  --qc-border: var(--mp-border);
+  --qc-border-soft: var(--mp-border-soft);
+  --qc-text: var(--mp-text);
+  --qc-text-2: var(--mp-text-2);
+  --qc-text-3: var(--mp-text-3);
+  --qc-heading: var(--mp-heading);
+  --qc-brand: var(--mp-brand);
+  --qc-danger: var(--mp-danger);
+  --qc-hover-row: var(--mp-hover-row);
+  --qc-shadow: var(--mp-shadow-3);
+  --qc-focus-ring: var(--mp-focus-ring);
+}
+
+/* 表头与首列吸附在深色下需要额外压深，不能靠变量翻档解决 */
+html.dark .qc-table th.qc-sticky-col { background: var(--mp-surface-3); }
+html.dark .qc-table td.qc-sticky-col { background: var(--mp-surface-flat); }
+html.dark .qc-table tbody tr:hover td.qc-sticky-col { background: var(--mp-surface-3); }

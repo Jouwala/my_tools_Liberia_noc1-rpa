@@ -1,0 +1,311 @@
+/* ============================================================================
+   qcDrill.css —— QC 指标下钻弹窗的**唯一**样式来源
+   ----------------------------------------------------------------------------
+   2026-09-23 新增。在此之前，同一个「QC 指标卡 → 下钻明细」弹窗有两套实现：
+
+     · /MsPortal/   portal.css 里内联的 .modal.wide + .qc-table（居中弹窗）
+     · /olbrportal/ olbr.css 里内联的 .drawer + table.grid（右侧抽屉）
+
+   两边数据源完全相同（GET /api/portal-qc/detail，同样的 total/rows/columns），
+   差别纯在外壳与交互层。结果同一个数字在两个门户上点开是两种长相、两种能力
+   （MsPortal 能排序 / 能导出 / 能跳完整看板，olbrportal 都不能），
+   用户会以为是两个系统。本文件把那层差异收敛成一套。
+
+   为什么单独一个文件而不是继续写进 portal.css：
+     portal.css 是 MsPortal 的私有样式表，olbrportal 引它会连带把 MsPortal 的
+     整套首页样式（.mast/.rail/.card…）灌进只读版，选择器互相打架 ——
+     olbr.js 顶部注释里「只读版不能引 portal.js」是同一个理由。所以抽成这个
+     只含下钻弹窗的、两边都能安全引用的最小样式表。
+
+   主题适配（关键）：
+     本文件**只用一套自有的 --qc-* 变量**，不直接引用任何一方的私有变量名。
+     引用的页面各自用一句 :root / html.dark 把自己的主题色映射进来 ——
+     于是两边**结构、间距、字号、交互完全一致**，而深浅色仍各随各的主题，
+     不会出现「olbrportal 深色下弹出个白框」。
+   ========================================================================== */
+
+:root {
+  /* 下面这组是兜底默认（浅色）。两个门户都会在自己的样式里覆盖成各自的主题色。
+     故意给全默认值：即使某一方忘了映射，弹窗也是可读的，不是一堆 inherit 透明。 */
+  --qc-scrim: rgba(15, 23, 42, .38);
+  --qc-surface: #ffffff;
+  --qc-surface-2: #f1f5f9;
+  --qc-surface-3: #e2e8f0;
+  --qc-border: #d8e0ea;
+  --qc-border-soft: #e8eef5;
+  --qc-text: #0f172a;
+  --qc-text-2: #334155;
+  --qc-text-3: #64748b;
+  --qc-heading: #0f172a;
+  --qc-brand: #0b6bcb;
+  --qc-danger: #b42318;
+  --qc-hover-row: #f5f9ff;
+  --qc-shadow: 0 24px 60px rgba(15, 23, 42, .22);
+  --qc-focus-ring: 0 0 0 3px rgba(11, 107, 203, .18);
+  --qc-radius: 8px;
+  --qc-radius-modal: 14px;
+  --qc-mono: ui-monospace, Menlo, Consolas, "Courier New", monospace;
+}
+
+/* ------------------------------------------------------------------ 遮罩 -- */
+/* 两侧共用：居中定位 + 点遮罩关闭（关闭逻辑在各自 JS 里）。 */
+.qc-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--qc-scrim);
+}
+/* [hidden] 必须显式压掉 display:flex —— 属性选择器优先级低于类选择器，
+   不写这条的话 hidden 属性会被上面的 display:flex 盖掉，弹窗永远关不上。 */
+.qc-mask[hidden] { display: none; }
+
+.qc-modal {
+  width: 100%;
+  /* 明细最长 12 列，故放宽到 1320px；再宽会在 1366 屏上贴边。 */
+  max-width: min(1320px, 96vw);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--qc-surface);
+  border: 1px solid var(--qc-border);
+  border-radius: var(--qc-radius-modal);
+  box-shadow: var(--qc-shadow);
+}
+
+.qc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--qc-border);
+  flex: 0 0 auto;
+}
+.qc-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--qc-heading);
+}
+.qc-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--qc-border);
+  border-radius: var(--qc-radius);
+  background: var(--qc-surface);
+  color: var(--qc-text-2);
+  cursor: pointer;
+}
+.qc-x:hover { border-color: var(--qc-brand); color: var(--qc-brand); }
+.qc-x:focus-visible { outline: none; box-shadow: var(--qc-focus-ring); }
+.qc-x svg { width: 15px; height: 15px; }
+
+.qc-body {
+  padding: 14px 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------------ 工具条 -- */
+.qc-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  flex: 0 0 auto;
+}
+.qc-tools input[type="search"] {
+  flex: 1 1 220px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--qc-border);
+  border-radius: var(--qc-radius);
+  background: var(--qc-surface);
+  color: var(--qc-text);
+  font-size: 14px;
+  font-family: inherit;
+}
+.qc-tools input[type="search"]:focus {
+  outline: none;
+  border-color: var(--qc-brand);
+  box-shadow: var(--qc-focus-ring);
+}
+/* 两侧的按钮各自带自己的 btn 类，这里只统一「下钻弹窗内」的高度与字号，
+   不改它们各自的配色 —— 配色跟随各门户的主题，这正是不统一的部分。 */
+.qc-tools .qc-btn {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--qc-border);
+  border-radius: var(--qc-radius);
+  background: var(--qc-surface);
+  color: var(--qc-text-2);
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.qc-tools .qc-btn:hover { border-color: var(--qc-brand); color: var(--qc-brand); }
+.qc-tools .qc-btn:focus-visible { outline: none; box-shadow: var(--qc-focus-ring); }
+.qc-tools .qc-btn:disabled { opacity: .45; cursor: not-allowed; }
+.qc-tools .qc-btn:disabled:hover { border-color: var(--qc-border); color: var(--qc-text-2); }
+.qc-tools .qc-btn[hidden] { display: none; }
+
+/* -------------------------------------------------------------------- 表格 -- */
+.qc-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 56vh;
+  overflow: auto;
+  border: 1px solid var(--qc-border);
+  border-radius: var(--qc-radius);
+}
+.qc-table {
+  width: 100%;
+  border-collapse: separate;   /* sticky 表头 + 边框要用 separate，collapse 下边框会跟着滚 */
+  border-spacing: 0;
+  font-size: 13px;
+}
+.qc-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 8px 10px;
+  color: var(--qc-text-3);
+  background: var(--qc-surface-2);
+  border-bottom: 1px solid var(--qc-border);
+}
+.qc-table td {
+  padding: 7px 10px;
+  white-space: nowrap;
+  color: var(--qc-text-2);
+  border-bottom: 1px solid var(--qc-border-soft);
+}
+.qc-table tbody tr:last-child td { border-bottom: 0; }
+.qc-table tbody tr:hover td { background: var(--qc-hover-row); }
+.qc-table td.mono {
+  font-family: var(--qc-mono);
+  font-variant-numeric: tabular-nums;
+}
+.qc-null { color: var(--qc-text-3); }
+
+/* 表头可点排序：用 <button> 而不是给 <th> 绑 onclick ——
+   键盘 Tab 能到、回车能触发，aria-sort 也能正确播报当前列与方向。 */
+.qc-table th.qc-sortable { padding: 0; }
+.qc-table th.qc-sortable > button {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.qc-table th.qc-sortable > button:hover { color: var(--qc-brand); }
+.qc-table th.qc-sortable > button:focus-visible { outline: none; box-shadow: var(--qc-focus-ring); }
+.qc-sort-ico { font-size: 9px; opacity: .45; }
+.qc-table th[aria-sort="ascending"] .qc-sort-ico,
+.qc-table th[aria-sort="descending"] .qc-sort-ico { opacity: 1; color: var(--qc-brand); }
+
+/* 首列吸附：明细最长 12 列，横向滚动时首列滚出视野后，
+   剩下的数字列就失去了参照物（「这一行是谁」看不见了）。 */
+.qc-table th.qc-sticky-col,
+.qc-table td.qc-sticky-col {
+  position: sticky;
+  left: 0;
+  border-right: 1px solid var(--qc-border);
+}
+.qc-table th.qc-sticky-col { z-index: 3; background: var(--qc-surface-2); }
+.qc-table td.qc-sticky-col { z-index: 2; background: var(--qc-surface); }
+.qc-table tbody tr:hover td.qc-sticky-col { background: var(--qc-hover-row); }
+
+.qc-empty {
+  padding: 28px;
+  text-align: center;
+  color: var(--qc-text-3);
+  font-size: 14px;
+}
+.qc-err { color: var(--qc-danger); font-size: 13px; }
+
+/* ------------------------------------------------------------ 底部与分页 -- */
+.qc-foot {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  border-top: 1px solid var(--qc-border);
+}
+.qc-foot-in {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.qc-note { font-size: 13px; color: var(--qc-text-3); }
+.qc-pager { display: inline-flex; align-items: center; gap: 8px; }
+.qc-page {
+  font-size: 13px;
+  color: var(--qc-text-2);
+  font-variant-numeric: tabular-nums;
+}
+.qc-pager .qc-btn {
+  height: 30px;
+  min-width: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid var(--qc-border);
+  border-radius: var(--qc-radius);
+  background: var(--qc-surface);
+  color: var(--qc-text-2);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.qc-pager .qc-btn:hover { border-color: var(--qc-brand); color: var(--qc-brand); }
+.qc-pager .qc-btn:focus-visible { outline: none; box-shadow: var(--qc-focus-ring); }
+.qc-pager .qc-btn:disabled { opacity: .45; cursor: not-allowed; }
+.qc-pager .qc-btn:disabled:hover { border-color: var(--qc-border); color: var(--qc-text-2); }
+
+/* 弹窗内的提示（「按维度筛选在筛选条上，这个弹窗只下钻明细」） */
+.qc-hint {
+  margin-top: 10px;
+  display: block;
+  font-size: 13px;
+  color: var(--qc-text-3);
+}
+
+/* --------------------------------------------------------------- 窄屏 -- */
+@media (max-width: 720px) {
+  .qc-mask { padding: 10px; }
+  .qc-modal { max-width: 100%; max-height: 94vh; }
+  .qc-scroll { max-height: 60vh; }
+  .qc-body { padding: 10px; }
+  .qc-head, .qc-foot { padding: 10px; }
+}
