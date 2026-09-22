@@ -116,6 +116,32 @@ UME_PASSWORD = "Zte@2025!"
 
 
 # ============================================================
+# 外部化配置（Settings →「任务配置」维护的 ms_sla_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认；FTP/UME 账号密码不进配置文件（走「凭据管理」）。
+#   ⚠ 必须位于 ms_sla_sync / ms_sla_report 里 `from ms_sla_service import …` 取值之前：
+#     那两个模块是值拷贝，覆盖晚了就只影响本模块自身。
+# ============================================================
+try:
+    from backend.services.task_config_files import apply_config_overrides
+except ImportError:
+    from task_config_files import apply_config_overrides  # type: ignore
+
+apply_config_overrides(
+    globals(),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "ms_sla_config.json"),
+    {
+        "ume_host": ("UME_HOST", str, "MS_SLA_UME_HOST"),
+        "ume_port": ("UME_PORT", int, "MS_SLA_UME_PORT"),
+        "batch_size": ("BATCH_SIZE", lambda v: max(1, int(v)), None),
+        "ftp_up_port": ("FTP_UP_PORT", int, None),
+        "ftp_up_remote_dir": ("FTP_UP_REMOTE_DIR", str, "MS_SLA_FTP_DIR"),
+        "ftp_src_port": ("FTP_SRC_PORT", int, None),
+        "ftp_src_base_dir": ("FTP_SRC_BASE_DIR", str, "MS_SLA_SRC_DIR"),
+    },
+    log_name="ms_sla",
+)
+
+# ============================================================
 # 统一同步入口（SLA 同步 + Contract KPIs 报表更新）
 # 注：数据同步实现已拆至 ms_sla_sync.py，报表生成已拆至 ms_sla_report.py（Phase 4）
 # ============================================================

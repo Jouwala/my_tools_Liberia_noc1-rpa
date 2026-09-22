@@ -184,6 +184,49 @@ TECH_MAPPING = {
     "NRCellDU": "5G",
 }
 
+# ============================================================
+# 外部化配置（Settings →「任务配置」维护的 cm_data_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认；凭据走 credential_store(cm_data)。
+#   ⚠ 必须位于上面所有被覆盖常量（含 TECH_MAPPING）之后、使用它们的函数之前；
+#     REFERER 依赖 HOST/PORT，故在本块末尾重算。
+# ============================================================
+try:
+    from backend.services.task_config_files import apply_config_overrides
+except ImportError:
+    from task_config_files import apply_config_overrides  # type: ignore
+
+_CM_CONF = apply_config_overrides(
+    globals(),
+    os.path.join(os.path.dirname(SCRIPT_DIR), "cm_data_config.json"),
+    {
+        "host": ("HOST", str, "CM_HOST"),
+        "port": ("PORT", int, "CM_PORT"),
+        "http_retry_max": ("HTTP_RETRY_MAX", lambda v: max(0, int(v)), None),
+        "export_flow_retry_max": ("EXPORT_FLOW_RETRY_MAX", lambda v: max(0, int(v)), None),
+        "moquery_retry_max": ("MOQUERY_RETRY_MAX", lambda v: max(0, int(v)), None),
+        "login_retry_max": ("LOGIN_RETRY_MAX", lambda v: max(0, int(v)), None),
+    },
+    log_name="cm_data",
+)
+if _CM_CONF:
+    _cm_paths = _CM_CONF.get("urls") or {}
+    if isinstance(_cm_paths, dict):
+        if _cm_paths.get("moquery"):
+            MOQUERY_PATH = _cm_paths["moquery"]
+        if _cm_paths.get("export"):
+            EXPORT_VERMO_PATH = _cm_paths["export"]
+        if _cm_paths.get("status"):
+            STATUS_PATH = _cm_paths["status"]
+        if _cm_paths.get("download"):
+            DOWNLOAD_PATH = _cm_paths["download"]
+    _cm_sheets = _CM_CONF.get("target_sheets")
+    if isinstance(_cm_sheets, list) and _cm_sheets:
+        TARGET_SHEETS = [str(s).strip() for s in _cm_sheets if str(s).strip()]
+        SHEET_MAPPING = {s: s for s in TARGET_SHEETS}
+        for _s in TARGET_SHEETS:
+            TECH_MAPPING.setdefault(_s, "4G")
+REFERER = f"https://{HOST}:{PORT}/uportal/framework/default.html"
+
 # 字段候选（按优先级）
 SITE_ID_FIELDS = ["ManagedElement", "NE_Name"]
 SITE_NAME_FIELDS = ["NE_Name", "moDescription", "ManagedElement"]

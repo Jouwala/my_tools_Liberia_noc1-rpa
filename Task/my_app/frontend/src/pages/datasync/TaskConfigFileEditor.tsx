@@ -1,5 +1,5 @@
 // 通用任务配置文件编辑器（Settings「任务配置」页签 -> 配置文件管理）
-// schema 驱动：int/str/bool/object/table 自动渲染；支持保存/导出/导入。
+// schema 驱动：int/float/str/bool/json/list/object/table 自动渲染；支持保存/导出/导入。
 import { useEffect, useState } from 'react'
 import {
   Alert, Button, Divider, Input, InputNumber, message, Space, Switch, Tag, Typography, Upload,
@@ -78,12 +78,19 @@ export default function TaskConfigFileEditor({ taskId, zh }: { taskId: string; z
     })
   }
 
+  const defaultValueFor = (sub: any) => {
+    const t = sub.type
+    if (t === 'bool') return false
+    if (t === 'int' || t === 'float') return 0
+    if (t === 'list') return []
+    if (t === 'json') return {}
+    return ''
+  }
+
   const addTableRow = (key: string, fields: Schema) => {
     setEdit((prev) => {
       const row: Record<string, any> = {}
-      Object.keys(fields).forEach((f) => {
-        row[f] = fields[f].type === 'bool' ? false : fields[f].type === 'int' ? 0 : ''
-      })
+      Object.keys(fields).forEach((f) => { row[f] = defaultValueFor(fields[f]) })
       return { ...prev, [key]: [...(Array.isArray(prev[key]) ? prev[key] : []), row] }
     })
   }
@@ -99,10 +106,20 @@ export default function TaskConfigFileEditor({ taskId, zh }: { taskId: string; z
 
   const inputStyle = { background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0, 217, 255,0.25)', color: WH.text }
 
+  // 列表项增删（device_ids / target_sheets / cache_server_ips 这类字符串数组）
+  const setListItem = (key: string, idx: number, value: string) => {
+    setEdit((prev) => {
+      const arr = Array.isArray(prev[key]) ? [...prev[key]] : []
+      arr[idx] = value
+      return { ...prev, [key]: arr }
+    })
+  }
+
   const renderScalar = (key: string, sub: any, value: any) => {
     const t = sub.type
-    if (t === 'int') {
+    if (t === 'int' || t === 'float') {
       return <InputNumber size="small" value={value} min={sub.min} max={sub.max}
+        step={t === 'float' ? 0.1 : 1}
         onChange={(v) => setField(key, v ?? sub.min ?? 0)} style={{ width: 'min(100%, 7.5rem)', ...inputStyle }} />
     }
     if (t === 'bool') {
@@ -119,6 +136,26 @@ export default function TaskConfigFileEditor({ taskId, zh }: { taskId: string; z
           }} />
       )
     }
+    if (t === 'list') {
+      const arr = Array.isArray(value) ? value : []
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', maxWidth: '26rem' }}>
+          {arr.map((item: any, i: number) => (
+            <Space key={i} style={{ gap: '0.25rem' }}>
+              <Input size="small" value={String(item ?? '')} style={{ width: 'min(100%, 16rem)', ...inputStyle }}
+                onChange={(e) => setListItem(key, i, e.target.value)} />
+              <Button size="small" danger type="text" onClick={() => setField(key, arr.filter((_: any, j: number) => j !== i))}>
+                {L.del}
+              </Button>
+            </Space>
+          ))}
+          <Button size="small" type="dashed" icon={<PlusOutlined />} style={{ alignSelf: 'flex-start' }}
+            onClick={() => setField(key, [...arr, ''])}>
+            {L.add}
+          </Button>
+        </div>
+      )
+    }
     return <Input size="small" value={value ?? ''} onChange={(e) => setField(key, e.target.value)} style={{ ...inputStyle }} />
   }
 
@@ -133,7 +170,7 @@ export default function TaskConfigFileEditor({ taskId, zh }: { taskId: string; z
             {Object.entries((sub.fields || {}) as Record<string, any>).map(([k, s]) => (
               <div key={k} style={{ marginTop: '0.375rem' }}>
                 <Text style={{ color: WH.textMuted, fontSize: '0.6875rem', display: 'block' }}>{labelOf(s)}</Text>
-                {renderScalar(k, s, (value && value[k]) ?? (s.type === 'bool' ? false : s.type === 'int' ? 0 : ''))}
+                {renderScalar(k, s, (value && value[k]) ?? defaultValueFor(s))}
               </div>
             ))}
           </div>
@@ -156,8 +193,21 @@ export default function TaskConfigFileEditor({ taskId, zh }: { taskId: string; z
                     <Text style={{ color: WH.textMuted, fontSize: '0.625rem', display: 'block' }}>{labelOf(s)}</Text>
                     {s.type === 'bool'
                       ? <Switch size="small" checked={!!row[f]} onChange={(v) => setTableItem(key, i, f, v)} />
-                      : <Input size="small" value={row[f] ?? ''} style={{ width: 'min(100%, 10rem)', ...inputStyle }}
-                          onChange={(e) => setTableItem(key, i, f, e.target.value)} />}
+                      : s.type === 'int' || s.type === 'float'
+                        ? <InputNumber size="small" value={row[f]} min={s.min} max={s.max} step={s.type === 'float' ? 0.1 : 1}
+                            style={{ width: '5.5rem', ...inputStyle }}
+                            onChange={(v) => setTableItem(key, i, f, v ?? s.min ?? 0)} />
+                        : s.type === 'json' || s.type === 'list'
+                          ? <Input.TextArea size="small" rows={2} style={{ width: 'min(100%, 12rem)', ...inputStyle, fontFamily: 'monospace', fontSize: '0.625rem' }}
+                              value={typeof row[f] === 'string' ? row[f] : JSON.stringify(row[f] ?? (s.type === 'list' ? [] : {}))}
+                              onChange={(e) => {
+                                const txt = e.target.value
+                                let parsed: any = txt
+                                try { parsed = JSON.parse(txt) } catch { /* 编辑中先保留原文 */ }
+                                setTableItem(key, i, f, parsed)
+                              }} />
+                          : <Input size="small" value={row[f] ?? ''} style={{ width: 'min(100%, 10rem)', ...inputStyle }}
+                              onChange={(e) => setTableItem(key, i, f, e.target.value)} />}
                   </span>
                 ))}
                 <Button size="small" danger type="text" onClick={() => removeTableRow(key, i)}>{L.del}</Button>

@@ -78,6 +78,25 @@ DDL = """CREATE TABLE tt_full (
 
 NULLISH = ("", "nan", "NaT", "None")
 
+# ============================================================
+# 外部化配置（Settings →「任务配置」维护的 mttr_tt_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认。这里配的是「远端库逻辑名/源表名」。
+# ============================================================
+try:
+    from backend.services.task_config_files import apply_config_overrides
+except ImportError:
+    from task_config_files import apply_config_overrides  # type: ignore
+
+apply_config_overrides(
+    globals(),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "mttr_tt_config.json"),
+    {
+        "src_db": ("SRC_DB", str, "MTTR_SRC_DB"),
+        "tt_table": ("TT_TABLE", str, "MTTR_TT_TABLE"),
+    },
+    log_name="mttr_tt",
+)
+
 
 class MttrTtError(Exception):
     """重建失败（远端不可达 / 参考库缺失等）。"""

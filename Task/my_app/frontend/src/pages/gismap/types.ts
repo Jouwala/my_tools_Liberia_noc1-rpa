@@ -26,7 +26,8 @@ export interface Site {
   hubsite?: string
   site_information?: string
   supervisor?: string
-  updated_fme_name_new?: string
+  /** 现场维护工程师姓名（站点表 fme_name 列，人名如 "Mark D. Paye"） */
+  fme_name?: string
 }
 
 // ========== 图表数据结构（与 backend/routers/gis.py 聚合接口对齐）==========

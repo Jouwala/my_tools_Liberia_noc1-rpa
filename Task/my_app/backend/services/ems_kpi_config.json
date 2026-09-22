@@ -1,0 +1,8 @@
+{
+  "host": "10.100.2.240",
+  "java_path": "D:\\ems1\\ems1\\jdk\\jdk\\windows\\bin\\java.exe",
+  "classpath": ".;_kpi_launcher.jar",
+  "counters": "40716.|40738.|40748.|40408.|40971.|4868.|48680.|40508.|43100.",
+  "proc_timeout": 7200,
+  "pmcache_keep_days": 1
+}

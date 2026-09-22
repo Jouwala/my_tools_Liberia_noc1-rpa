@@ -1,0 +1,38 @@
+{
+  "host": "192.168.169.247",
+  "port": 28001,
+  "login_portal": "/uportal/framework/default.html",
+  "days_back": 1,
+  "max_parallel_workers": 4,
+  "urls": {
+    "history": "/api/pm-analysis/v2/history",
+    "poll": "/api/pm-analysis/v1/history",
+    "export": "/api/pm-analysis/v3/history/export"
+  },
+  "table_name": "mw_ume_bw_ultilazation",
+  "rt": {
+    "table_name": "mw_ume_bw_ultilazation_rt",
+    "window_hours": 2.0,
+    "retention_hours": 25.0,
+    "gr": "900"
+  },
+  "query_configs": [
+    {
+      "favoriteconditionname": "FINBI",
+      "gr": "86400",
+      "groupbygroup": false,
+      "filterlayer": "all",
+      "grouplayer": "orignaldata_layermoc",
+      "motid": "BNCTN.PMP",
+      "nfctid": "bn.me.ZXMW.ER2020D.V2A,bn.me.ZXMW.ER2020E.V2A,bn.me.ZXMW.ER2020H.V2A,bn.me.ZXMW.ER2020.V2A,bn.me.ZXMW.NR8000TR.A1,bn.me.ZXMW.NR8000TR.V2A,bn.me.ZXMW.NR8120.A1,bn.me.ZXMW.NR8120.V2A,bn.me.ZXMW.NR8150.A1,bn.me.ZXMW.NR8150.V2A,bn.me.ZXMW.NR8250.A1,bn.me.ZXMW.NR8250.V2A,bn.me.ZXMW.NR8950.A1,bn.me.ZXMW.NR8961.EBU.V2A,bn.me.ZXMW.NR8961.V2A,bn.me.ZXMW.NR9000TR.V2A,bn.me.ZXMW.NR9120.V2A,bn.me.ZXMW.NR9150.V2A,bn.me.ZXMW.NR9250.V2A,bn.me.ZXMW.NR9350.V2A,bn.me.ZXMW.NR9961.MBU.V2A",
+      "items": "C083085151,C083085153,C083085155,C083085161,C083085163,C083085165",
+      "itemsposition": "0,0,0,0,0,0",
+      "itemsposition1": "0,0,0,0,0,0",
+      "templatename": "FINBI",
+      "templateid": "1700328565985",
+      "containvcell": 0,
+      "drawitems": [],
+      "key": "FINBI"
+    }
+  ]
+}

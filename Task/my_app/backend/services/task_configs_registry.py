@@ -17,6 +17,58 @@ def _cfg(name: str) -> str:
     return str(_SVC / name)
 
 
+def _to_jsonable(v):
+    """模块常量 → 可 JSON 序列化（tuple 转 list，页面导出/导入才不会报错）。"""
+    if isinstance(v, (list, tuple)):
+        return [_to_jsonable(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _to_jsonable(x) for k, x in v.items()}
+    if v is None or isinstance(v, (bool, int, float, str)):
+        return v
+    return str(v)
+
+
+def _num(label, lo=None, hi=None, t="int"):
+    d = {"label_zh": label, "type": t}
+    if lo is not None:
+        d["min"] = lo
+    if hi is not None:
+        d["max"] = hi
+    return d
+
+
+def _txt(label):
+    return {"label_zh": label, "type": "str"}
+
+
+def _obj(label, fields):
+    return {"label_zh": label, "type": "object", "fields": fields}
+
+
+def _const_defaults(module: str, mapping: dict, extra=None):
+    """从服务模块的当前常量生成默认值（页面首次打开即看到真实生效值，避免两处抄写）。
+
+    mapping 值：模块常量名字符串，或 {子键: 常量名} 字典（渲染成 object 字段）。
+    extra(module, out) 用于 query_configs 这类需要转换的复合键。
+    """
+    def _factory():
+        import importlib
+        m = importlib.import_module(module)
+        out = {}
+        for ckey, spec in mapping.items():
+            if isinstance(spec, dict):
+                out[ckey] = {k2: _to_jsonable(getattr(m, v2)) for k2, v2 in spec.items()
+                             if getattr(m, v2, None) is not None}
+            else:
+                v = getattr(m, spec, None)
+                if v is not None:
+                    out[ckey] = _to_jsonable(v)
+        if extra:
+            extra(m, out)
+        return out
+    return _factory
+
+
 # ========== Packet Loss Sync（丢包率同步） ==========
 _PL_KEEP_SDR = [
     "Begin Time", "End Time", "Granularity", "SubnetWork ID", "SubnetWork Name",
@@ -27,13 +79,25 @@ _PL_KEEP_ITRAN = [
     "Begin Time", "End Time", "Granularity", "SubnetWork ID", "SubnetWork Name",
     "ManagedElement ID", "Managed Element", "dstIp", "srcIp", "Packet Loss Rate(%)",
 ]
+
+
+def _pl_defaults():
+    """默认值取 packet_loss_service 当前模块常量（页面所见 = 任务所用）。"""
+    from backend.services import packet_loss_service as s
+    return {
+        "days_back": s.PL_DAYS_BACK,
+        "urls": {"history": s.PM_HISTORY_PATH, "poll": s.PM_HISTORY_POLL_PATH,
+                 "export": s.PM_HISTORY_EXPORT_PATH},
+        "query_configs": _to_jsonable(s.PL_QUERY_CONFIGS),
+    }
+
+
 register_config(ConfigResource(
     task_id="packet_loss_sync",
     path=_cfg("pl_config.json"),
+    defaults_factory=_pl_defaults,
     defaults={
         "days_back": 8,
-        "host": "10.100.28.27",
-        "port": 28001,
         "urls": {
             "history": "/api/pm-analysis/v2/history",
             "poll": "/api/pm-analysis/v1/history",
@@ -64,8 +128,6 @@ register_config(ConfigResource(
     },
     schema={
         "days_back": {"label_zh": "时间范围（天）", "label_en": "Days back", "type": "int", "min": 1, "max": 30},
-        "host": {"label_zh": "UME 主机", "label_en": "Host", "type": "str"},
-        "port": {"label_zh": "端口", "label_en": "Port", "type": "int", "min": 1, "max": 65535},
         "urls": {
             "label_zh": "PM 接口地址", "label_en": "PM API URLs", "type": "object",
             "fields": {
@@ -86,8 +148,9 @@ register_config(ConfigResource(
             },
         },
     },
-    description="丢包率同步：时间范围、PM 接口、指标模板（网元范围由模板决定）",
-    description_en="Packet Loss sync: time range, PM APIs, templates",
+    description="丢包率同步：时间范围、PM 接口、指标模板（网元范围由模板决定）。"
+                "UME 主机/端口/账号由 ran_ume_config.json 与「凭据管理 → ran_ume」统一维护（同一登录会话，不在此重复配置）",
+    description_en="Packet Loss sync: time range, PM APIs, templates. UME host/port come from ran_ume_config.json (same login session)",
 ))
 
 # ========== eFlow API（eflow_sync / eflow_sync_full 共用 eflow_config.json） ==========
@@ -129,6 +192,19 @@ for _tid, _desc in [
 ]:
     register_config(ConfigResource(task_id=_tid, path=_cfg("eflow_config.json"),
                                    defaults=_EFLOW_DEFAULTS, schema=_EFLOW_SCHEMA,
+                                   defaults_factory=_const_defaults(
+                                       "backend.services.eflow_api_client",
+                                       {"host": "HOST", "port": "PORT",
+                                        "tt_api_path": "TT_API_PATH", "wo_api_path": "WO_API_PATH",
+                                        "cr_api_path": "CR_API_PATH", "pm_api_path": "PM_API_PATH",
+                                        "site_api_path": "SITE_API_PATH",
+                                        "person_api_path": "PERSON_API_PATH",
+                                        "ftp_remote_dir": "FTP_REMOTE_DIR",
+                                        "delta_days": "EFLOW_DELTA_DAYS",
+                                        "full_days": "EFLOW_FULL_DAYS",
+                                        "connect_timeout": "HTTP_CONNECT_TIMEOUT",
+                                        "read_timeout": "HTTP_READ_TIMEOUT",
+                                        "max_retries": "HTTP_MAX_RETRIES"}),
                                    description=_desc))
 
 # ========== eFlow 告警（eflow_active_alarm / eflow_history_alarm 共用 eflow_alarm_config.json） ==========
@@ -194,6 +270,18 @@ for _tid, _desc in [
 ]:
     register_config(ConfigResource(task_id=_tid, path=_cfg("eflow_alarm_config.json"),
                                    defaults=_EFLOW_ALARM_DEFAULTS, schema=_EFLOW_ALARM_SCHEMA,
+                                   defaults_factory=_const_defaults(
+                                       "backend.services.eflow_alarm_service",
+                                       {"active_alarm_path": "ALARM_API_PATH",
+                                        "his_alarm_path": "HIS_ALARM_API_PATH",
+                                        "alarm_referer": "ALARM_REFERER",
+                                        "his_alarm_hours": "HIS_ALARM_HOURS",
+                                        "his_alarm_days_back": "HIS_ALARM_DAYS_BACK",
+                                        "his_alarm_page_size": "HIS_ALARM_PAGE_SIZE",
+                                        "his_alarm_workers": "HIS_ALARM_WORKERS",
+                                        "alarm_code_conds": "ALARM_CODE_CONDS",
+                                        "alarm_condition": "ALARM_CONDITION",
+                                        "his_alarm_condition": "HIS_ALARM_CONDITION"}),
                                    description=_desc))
 
 # ========== RAN UME 日报（ran_ume_daily） ==========
@@ -266,6 +354,47 @@ _MAIN_TASKS = [
     {"tech": "FDD", "grouplayer": "all", "gr": "86400", "groupbygroup": True, "layer": "Group", "table": "4G_Main_Kpi_group_Daily", "add_group_column": False},
     {"tech": "FDD", "grouplayer": "all", "gr": "86400", "groupbygroup": False, "layer": "NW", "table": "4G_Main_Kpi_group_Daily", "add_group_column": True},
 ]
+def _main_kpi_defaults():
+    """默认值取 ran_ume_main_kpi 当前常量（模板字典 → 页面表格行，指标项/分组位置逗号分隔）。
+
+    tasks 必须连 showbusinesscolumn 一起导出：页面保存会整体替换该表，
+    少了这一列 FDD 的 Group/NW 层会被代码默认（模板值 True）改写，导出列数与写入表就对不上。
+    """
+    from backend.services import ran_ume_main_kpi as s
+    qc = []
+    for tech, cfg in s.MAIN_KPI_QUERY_CONFIGS.items():
+        row = {
+            "tech": tech,
+            "templatename": cfg.get("templatename", ""),
+            "templateid": str(cfg.get("templateid", "")),
+            "motid": cfg.get("motid", ""),
+            "nfctid": cfg.get("nfctid", ""),
+            "containvcell": cfg.get("containvcell", 0),
+            "indexfillingtype": cfg.get("indexfillingtype", "default"),
+            "items": ",".join(str(x) for x in cfg.get("items", [])),
+            "uilocations": ",".join(str(u.get("id", "")) for u in cfg.get("uilocations", [])),
+        }
+        if cfg.get("businessmotid"):
+            row["businessmotid"] = cfg["businessmotid"]
+        qc.append(row)
+    tasks = []
+    for t in s.MAIN_KPI_TASKS:
+        sbc = t.get("showbusinesscolumn")
+        if sbc is None:  # None = 跟随模板默认，写出时展平成具体布尔
+            base = s.MAIN_KPI_QUERY_CONFIGS.get(t["tech"]) or {}
+            sbc = base.get("showbusinesscolumn", False)
+        tasks.append({
+            "tech": t["tech"], "grouplayer": t.get("grouplayer", ""), "gr": str(t.get("gr", "86400")),
+            "groupbygroup": bool(t.get("groupbygroup", False)), "layer": t.get("layer", ""),
+            "table": t.get("table", ""), "add_group_column": bool(t.get("add_group_column", False)),
+            "showbusinesscolumn": bool(sbc),
+        })
+    return {
+        "host": s.HOST, "port": int(s.PORT), "days_back": int(s.DAYS_BACK),
+        "query_configs": qc, "tasks": tasks,
+    }
+
+
 register_config(ConfigResource(
     task_id="main_kpi_sync", path=_cfg("main_kpi_config.json"),
     defaults={
@@ -302,9 +431,11 @@ register_config(ConfigResource(
                 "layer": {"label_zh": "层级（Cells/Sites/Group/NW）", "type": "str"},
                 "table": {"label_zh": "写入表", "type": "str"},
                 "add_group_column": {"label_zh": "附加 Group 列", "type": "bool"},
+                "showbusinesscolumn": {"label_zh": "含业务列", "type": "bool"},
             },
         },
     },
+    defaults_factory=_main_kpi_defaults,
     description="RAN Main KPI 同步：主机、回看天数、KPI 模板与指标项/分组位置、查询任务与写入表",
     description_en="RAN Main KPI sync: host, days back, KPI templates/items/locations, query tasks and target tables",
 ))
@@ -365,6 +496,36 @@ _NW_QUERY_CONFIGS = [
      "nfctid": "ITBBU,SDR,#", "containvcell": 0, "indexfillingtype": "default",
      "items": "1638004469353,1638004469355,1638004469356,1638004469352,1638004469358,1638004469359,1638004469360,1638004469361,C373200029,341089,341088"},
 ]
+def _nw_kpi_defaults():
+    """默认值取 ran_ume_network_kpi 当前常量（模板字典/分组位置对象 → 逗号分隔表格行）。"""
+    from backend.services import ran_ume_network_kpi as s
+    qc = []
+    for tech, cfg in s.NW_KPI_QUERY_CONFIGS.items():
+        row = {
+            "tech": tech,
+            "templatename": cfg.get("templatename", ""),
+            "templateid": str(cfg.get("templateid", "")),
+            "motid": cfg.get("motid", ""),
+            "nfctid": cfg.get("nfctid", ""),
+            "containvcell": cfg.get("containvcell", 0),
+            "indexfillingtype": cfg.get("indexfillingtype", "default"),
+            "items": ",".join(str(x) for x in cfg.get("items", [])),
+        }
+        if cfg.get("businessmotid"):
+            row["businessmotid"] = cfg["businessmotid"]
+        qc.append(row)
+    tasks = [{
+        "tech": t["tech"], "gr": str(t.get("gr", "86400")),
+        "groupbygroup": bool(t.get("groupbygroup", False)), "layer": t.get("layer", ""),
+    } for t in s.NW_KPI_TASKS]
+    return {
+        "host": s.HOST, "port": int(s.PORT), "days_back": int(s.DAYS_BACK),
+        "query_configs": qc, "tasks": tasks,
+        "locations": ",".join(str(u.get("id", "")) for u in s.UILOCATIONS),
+        "old_locations": ",".join(str(u.get("id", "")) for u in s.OLD_UILOCATIONS),
+    }
+
+
 register_config(ConfigResource(
     task_id="network_kpi_sync", path=_cfg("network_kpi_config.json"),
     defaults={
@@ -404,6 +565,7 @@ register_config(ConfigResource(
         "locations": {"label_zh": "Group 层 rangroup 位置（逗号分隔 UUID）", "type": "str"},
         "old_locations": {"label_zh": "旧命名 ZTE-OLR 分组位置（逗号分隔 UUID）", "type": "str"},
     },
+    defaults_factory=_nw_kpi_defaults,
     description="RAN Network KPI（Zeenshan）：主机、回看天数、KPI 模板与指标项、查询任务分组、分组位置",
     description_en="RAN Network KPI (Zeenshan): host, days back, KPI templates/items, task groups, group locations",
 ))
@@ -479,25 +641,23 @@ register_config(ConfigResource(
 # ========== FW 吞吐 KPI（fw_kpi_sync） ==========
 register_config(ConfigResource(
     task_id="fw_kpi_sync", path=_cfg("fw_kpi_config.json"),
-    defaults={"host": "10.100.2.101", "port": 443, "days_back": 30, "chart_days_back": 14},
     schema={
         "host": {"label_zh": "DPtech UMC 主机", "type": "str"},
         "port": {"label_zh": "端口", "type": "int", "min": 1, "max": 65535},
         "days_back": {"label_zh": "同步回看天数", "type": "int", "min": 1, "max": 180},
         "chart_days_back": {"label_zh": "图表回看天数", "type": "int", "min": 1, "max": 90},
+        "device_ids": {"label_zh": "目标设备 ID 列表", "type": "list"},
     },
-    description="FW 整机吞吐 KPI：DPtech UMC 主机、端口、回看天数",
+    defaults_factory=_const_defaults(
+        "backend.services.fw_kpi.fw_kpi_services",
+        {"host": "HOST", "port": "PORT", "days_back": "_DAYS_BACK",
+         "chart_days_back": "CHART_DAYS_BACK", "device_ids": "DEVICE_IDS"}),
+    description="FW 整机吞吐 KPI：DPtech UMC 主机、端口、同步/图表回看天数、目标设备 ID 列表（凭据在「凭据管理 → fw_kpi」）",
 ))
 
 # ========== 电池 KPI（battery_kpi_sync） ==========
 register_config(ConfigResource(
     task_id="battery_kpi_sync", path=_cfg("battery_config.json"),
-    defaults={
-        "fresh_hours": 24, "stale_days": 7,
-        "health_degraded": 90, "health_good": 95,
-        "soc_critical": 20, "soc_low": 50,
-        "reading_retention_days": 90, "trend_retention_days": 180,
-    },
     schema={
         "fresh_hours": {"label_zh": "新鲜阈值（小时）", "type": "int", "min": 1, "max": 720},
         "stale_days": {"label_zh": "延迟阈值（天）", "type": "int", "min": 1, "max": 60},
@@ -508,14 +668,28 @@ register_config(ConfigResource(
         "reading_retention_days": {"label_zh": "读数保留天数", "type": "int", "min": 1, "max": 365},
         "trend_retention_days": {"label_zh": "趋势保留天数", "type": "int", "min": 1, "max": 730},
     },
+    defaults_factory=_const_defaults(
+        "backend.services.battary_kpi_fetch.battery_kpi_service",
+        {"fresh_hours": "FRESH_HOURS", "stale_days": "STALE_DAYS",
+         "health_degraded": "HEALTH_DEGRADED", "health_good": "HEALTH_GOOD",
+         "soc_critical": "SOC_CRITICAL", "soc_low": "SOC_LOW",
+         "reading_retention_days": "READING_RETENTION_DAYS",
+         "trend_retention_days": "TREND_RETENTION_DAYS"}),
     description="电池 KPI：新鲜度/健康度/电量阈值、保留天数（UME 主机见代码，未外置）",
     description_en="Battery KPI: freshness/health/SOC thresholds, retention days",
 ))
 
 # ========== Site Outage 截图（site_outage_screenshot） ==========
+def _site_outage_defaults():
+    """默认值取 site_outage_service 当前常量（模块里 PORT 是 str，页面按 int 渲染需转换）。"""
+    from backend.services import site_outage_service as s
+    return {"host": s.HOST, "port": int(s.PORT)}
+
+
 register_config(ConfigResource(
     task_id="site_outage_screenshot", path=_cfg("site_outage_config.json"),
     defaults={"host": "10.100.20.8", "port": 28001},
+    defaults_factory=_site_outage_defaults,
     schema={
         "host": {"label_zh": "eFlow/网管主机（看板 URL 由此生成）", "type": "str"},
         "port": {"label_zh": "端口", "type": "int", "min": 1, "max": 65535},
@@ -525,8 +699,25 @@ register_config(ConfigResource(
 ))
 
 # ========== SP 备件数据（sp_data_sync，SFTP） ==========
+def _sp_defaults():
+    """默认值取 get_sp_table 当前常量：目录从 SP_TABLES[*]["remote_folder"] 反读，
+    保留天数用服务自己的 _retention_days()（它是运行时读文件，与任务实际口径一致）。
+    """
+    from backend.services import get_sp_table as s
+    keys = ["inband_details", "outband_details", "inventory_details", "ocrule_details", "transfer_details"]
+    return {
+        "sftp_host": s.SFTP_HOST,
+        "sftp_port": int(s.SFTP_PORT),
+        "folders": {k: (s.SP_TABLES.get(k) or {}).get("remote_folder", "") for k in keys},
+        "mirror_enabled": bool(s.MIRROR_ENABLED),
+        "mirror_db_path": s.MIRROR_DB_PATH,
+        "inventory_retention_days": int(s._retention_days("inventory_details")),
+    }
+
+
 register_config(ConfigResource(
     task_id="sp_data_sync", path=_cfg("sp_sftp_config.json"),
+    defaults_factory=_sp_defaults,
     defaults={
         "sftp_host": "10.100.20.11",
         "sftp_port": 22,
@@ -679,4 +870,313 @@ register_config(ConfigResource(
     defaults_factory=_olib_soc_defaults,
     description="OLIB SOC VMAX 例行报表：直连数仓 GBase 按日分区跑 notebook 移植的 9 段 SQL，出多 sheet Excel（traffic/Active_user/cache/GUW/Video/game/TCP/TOP业务/TOP视频）；默认上一个自然月，窗口自动收敛到数仓约 90 天保留期内；凭据用「凭据管理 → vmax_gbase」",
     description_en="OLIB SOC VMAX routine report: direct GBase queries over daily partitions for the 9 notebook blocks, producing a multi-sheet Excel; default window = previous month, clamped to the ~90-day retention; credentials via vmax_gbase",
+))
+
+
+# ==========================================================================
+# 以下为 2026-09-22 补齐的卡片：此前 14+ 个业务任务的服务端常量只能改代码，
+# 「任务配置」页看不到。每个卡片里的键都必须在服务模块导入期被真实消费
+# （见各模块的 apply_config_overrides 调用），否则保存后不生效。
+# ==========================================================================
+
+_PM_URLS_SCHEMA = _obj("PM 接口地址", {
+    "history": {"label_zh": "查询", "type": "str"},
+    "poll": {"label_zh": "轮询", "type": "str"},
+    "export": {"label_zh": "导出", "type": "str"},
+})
+_PM_URLS_MAP = {"history": "HISTORY_PATH", "poll": "HISTORY_POLL_PATH",
+                "export": "HISTORY_EXPORT_PATH"}
+
+# ========== MW UME 传输带宽/利用率 KPI（mw_ume_kpi_sync / _rt 共用 mw_ume_config.json） ==========
+_MW_UME_SCHEMA = {
+    "host": _txt("UME 主机/IP"),
+    "port": _num("端口", 1, 65535),
+    "login_portal": _txt("门户路径（登录 Referer）"),
+    "days_back": _num("日粒度回看天数", 1, 90),
+    "max_parallel_workers": _num("并发查询线程数", 1, 16),
+    "urls": _PM_URLS_SCHEMA,
+    "table_name": _txt("日粒度写入表"),
+    "rt": _obj("15 分钟实时同步（mw_ume_kpi_sync_rt）", {
+        "table_name": _txt("实时写入表"),
+        "window_hours": _num("每次回看窗口（小时）", 0.25, 24, "float"),
+        "retention_hours": _num("实时表保留时长（小时）", 1, 168, "float"),
+        "gr": _txt("实时粒度（秒，900=15 分钟）"),
+    }),
+    "query_configs": {
+        "label_zh": "KPI 模板（FINBI；指标项逗号分隔）", "type": "table",
+        "min_items": 1, "max_items": 10,
+        "fields": {
+            "key": {"label_zh": "标识", "type": "str", "required": True},
+            "favoriteconditionname": _txt("查询名"),
+            "templatename": _txt("模板名"),
+            "templateid": _txt("模板ID"),
+            "gr": _txt("粒度（秒）"),
+            "motid": _txt("MO 类型"),
+            "nfctid": _txt("NE 类型（逗号分隔）"),
+            "grouplayer": _txt("分组层级"),
+            "filterlayer": _txt("过滤层级"),
+            "groupbygroup": {"label_zh": "按分组聚合", "type": "bool"},
+            "items": _txt("指标项（逗号分隔）"),
+        },
+    },
+}
+_MW_UME_MODULE = "backend.services.mw_ume.mw_ume_kpi_service"
+for _tid, _desc in [
+    ("mw_ume_kpi_sync", "MW UME 带宽/利用率日 KPI：主机端口、门户路径、PM 接口、回看天数、"
+                        "FINBI 模板（NE 类型/指标项）与写入表（凭据在「凭据管理 → mw_ume」）"),
+    ("mw_ume_kpi_sync_rt", "MW UME 15 分钟实时 KPI：与日粒度共用 mw_ume_config.json，"
+                           "实时表/回看窗口/保留时长/粒度见「15 分钟实时同步」"),
+]:
+    register_config(ConfigResource(
+        task_id=_tid, path=_cfg("mw_ume_config.json"), schema=_MW_UME_SCHEMA,
+        description=_desc,
+        defaults_factory=_const_defaults(
+            _MW_UME_MODULE,
+            {"host": "HOST", "port": "PORT", "login_portal": "LOGIN_PORTAL",
+             "days_back": "DAYS_BACK", "max_parallel_workers": "MAX_PARALLEL_WORKERS",
+             "urls": _PM_URLS_MAP, "table_name": "TABLE_NAME",
+             "rt": {"table_name": "RT_TABLE_NAME", "window_hours": "RT_WINDOW_HOURS",
+                    "retention_hours": "RT_RETENTION_HOURS", "gr": "RT_GR"}},
+            extra=lambda m, out: out.update(
+                {"query_configs": serialize_query_configs(m.MW_UME_KPI_QUERY_CONFIGS)})),
+    ))
+
+# ========== UME 利比里亚 Dong customer 业务 KPI（ume_in_* 共用 ume_in_config.json） ==========
+_UME_IN_MODULE = "backend.services.ume_in.ume_in_kpi_service"
+_UME_IN_SCHEMA = {
+    "host": _txt("UME 主机/IP"),
+    "port": _num("端口", 1, 65535),
+    "login_portal": _txt("门户路径（登录 Referer）"),
+    "table_name": _txt("写入表"),
+    "days_back": _num("回看天数", 1, 90),
+    "max_parallel_workers": _num("并发查询线程数", 1, 16),
+    "urls": _PM_URLS_SCHEMA,
+    "success_warn": _num("成功率关注线", 0, 1, "float"),
+    "success_crit": _num("成功率异常线", 0, 1, "float"),
+    "sys_fail_warn": _num("系统侧失败率关注线", 0, 1, "float"),
+    "sys_fail_crit": _num("系统侧失败率异常线", 0, 1, "float"),
+    "res_warn": _num("资源利用率关注线（%）", 0, 100, "float"),
+    "res_crit": _num("资源利用率异常线（%）", 0, 100, "float"),
+    "res_spike_top": _num("资源峰值告警线（%）", 0, 100, "float"),
+    "res_spike_base": _num("峰值判定基线（%）", 0, 100, "float"),
+    "kpi_specs": {"label_zh": "KPI 模板清单（JSON：key/template/templateid/items/fail_cols 等）",
+                  "type": "json"},
+}
+for _tid, _desc in [
+    ("ume_in_kpi_sync", "UME 利比里亚 Dong customer 业务 KPI：主机端口、PM 接口、回看天数、"
+                        "7 个模板（IVR/P4M/VC/USSD/PPS/CPU/MEM）与健康判定阈值"),
+    ("ume_in_osg_report", "UME Dong customer OSG 周报：先跑 ume_in_kpi_sync 再出报告邮件"
+                          "（共用 ume_in_config.json；收件人在「邮件收件人」页维护）"),
+]:
+    register_config(ConfigResource(
+        task_id=_tid, path=_cfg("ume_in_config.json"), schema=_UME_IN_SCHEMA, description=_desc,
+        defaults_factory=_const_defaults(
+            _UME_IN_MODULE,
+            {"host": "HOST", "port": "PORT", "login_portal": "LOGIN_PORTAL",
+             "table_name": "TABLE_NAME", "days_back": "DAYS_BACK",
+             "max_parallel_workers": "MAX_PARALLEL_WORKERS", "urls": _PM_URLS_MAP,
+             "success_warn": "SUCCESS_WARN", "success_crit": "SUCCESS_CRIT",
+             "sys_fail_warn": "SYS_FAIL_WARN", "sys_fail_crit": "SYS_FAIL_CRIT",
+             "res_warn": "RES_WARN", "res_crit": "RES_CRIT",
+             "res_spike_top": "RES_SPIKE_TOP", "res_spike_base": "RES_SPIKE_BASE",
+             "kpi_specs": "KPI_SPECS"}),
+    ))
+
+# ========== CM 小区主数据导出（cm_data_sync） ==========
+register_config(ConfigResource(
+    task_id="cm_data_sync", path=_cfg("cm_data_config.json"),
+    schema={
+        "host": _txt("RAN UME 主机"),
+        "port": _num("端口", 1, 65535),
+        "urls": _obj("CM 接口路径", {
+            "moquery": _txt("moquery 查询"),
+            "export": _txt("导出任务"),
+            "status": _txt("任务状态轮询"),
+            "download": _txt("文件下载"),
+        }),
+        "http_retry_max": _num("HTTP 重试次数", 0, 10),
+        "export_flow_retry_max": _num("导出流程重试次数", 0, 10),
+        "moquery_retry_max": _num("moquery 重试次数", 0, 10),
+        "login_retry_max": _num("登录重试次数", 0, 10),
+        "target_sheets": {"label_zh": "导出的 sheet（小区类型）", "type": "list"},
+    },
+    description="CM 小区主数据同步：UME 主机、4 个 CM 接口路径、重试次数、需要导出的 sheet 列表"
+                "（凭据在「凭据管理 → cm_data」；写入库为远端 db.sqlite3 的 cm_cell_data/cm_site_summary）",
+    defaults_factory=_const_defaults(
+        "backend.services.cm_data.cm_data_export",
+        {"host": "HOST", "port": "PORT",
+         "urls": {"moquery": "MOQUERY_PATH", "export": "EXPORT_VERMO_PATH",
+                  "status": "STATUS_PATH", "download": "DOWNLOAD_PATH"},
+         "http_retry_max": "HTTP_RETRY_MAX", "export_flow_retry_max": "EXPORT_FLOW_RETRY_MAX",
+         "moquery_retry_max": "MOQUERY_RETRY_MAX", "login_retry_max": "LOGIN_RETRY_MAX",
+         "target_sheets": "TARGET_SHEETS"}),
+))
+
+# ========== RAN 小区可用率（cell_availability_sync / cells_kpi_sync 共用一个文件） ==========
+_AV_QC_FIELDS = {
+    "key": {"label_zh": "模板名（表名后缀）", "type": "str", "required": True},
+    "templateid": _txt("模板ID"),
+    "motid": _txt("MO 类型"),
+    "nfctid": _txt("NE 类型（逗号分隔）"),
+    "grouplayer": _txt("分组层级"),
+    "containvcell": _num("含VCell(0/1/2)", 0, 2),
+    "indexfillingtype": _txt("填充方式"),
+    "businessmotid": _txt("业务 MO 类型"),
+    "items": _txt("指标项（逗号分隔）"),
+}
+for _tid, _desc in [
+    ("cell_availability_sync", "RAN 小区可用率（1 天粒度）：FTP 上传主机与远端目录、本地产物库名、"
+                               "4 个可用性模板（FDD/UMTS/GSM/TDD）。UME 主机见 ran_ume_config.json"),
+    ("cells_kpi_sync", "RAN Cells KPI（复用可用率的 UME 查询与 FTP 产物，共用 "
+                       "ran_cell_availability_config.json）"),
+]:
+    register_config(ConfigResource(
+        task_id=_tid, path=_cfg("ran_cell_availability_config.json"),
+        schema={
+            "ftp_host": _txt("FTP 主机"),
+            "ftp_remote_dir": _txt("FTP 远端目录"),
+            "db_name": _txt("本地产物文件名（决定 data 下的 sqlite 文件名）"),
+            "query_configs": {"label_zh": "可用性模板（指标项逗号分隔）", "type": "table",
+                              "min_items": 1, "max_items": 10, "fields": _AV_QC_FIELDS},
+        },
+        description=_desc,
+        defaults_factory=_const_defaults(
+            "backend.services.ran_cell_availability_sync",
+            {"ftp_host": "FTP_HOST", "ftp_remote_dir": "FTP_REMOTE_DIR",
+             "db_name": "DB_NAME"},
+            extra=lambda m, out: out.update(
+                {"query_configs": serialize_query_configs(m.AVAILABILITY_PM_CONFIGS)})),
+    ))
+
+# ========== CN EMS（U31）KPI：缓存抓取 + 日聚合 共用 ems_kpi_config.json ==========
+_EMS_SCHEMA = {
+    "host": _txt("EMS(U31) 主机"),
+    "java_path": _txt("java.exe 路径"),
+    "classpath": _txt("Java classpath"),
+    "counters": _txt("计数器前缀正则（| 分隔）"),
+    "proc_timeout": _num("单次进程超时（秒）", 60, 7200),
+    "pmcache_keep_days": _num("_pmcache 保留天数", 1, 30),
+}
+for _tid, _desc in [
+    ("ems_kpi_cache_sync", "CN EMS(U31) PM 文件增量缓存：主机、java 路径、计数器、进程超时、缓存保留天数"),
+    ("ems_kpi_daily", "CN EMS(U31) KPI 日聚合出表：同上（共用 ems_kpi_config.json）"),
+]:
+    register_config(ConfigResource(
+        task_id=_tid, path=_cfg("ems_kpi_config.json"), schema=_EMS_SCHEMA, description=_desc,
+        defaults_factory=_const_defaults(
+            "backend.services.cn_ems.ems_kpi_service",
+            {"host": "HOST", "java_path": "JAVA", "classpath": "CP", "counters": "COUNTERS",
+             "proc_timeout": "PROC_TIMEOUT", "pmcache_keep_days": "PMCACHE_KEEP_DAYS"}),
+    ))
+
+# ========== 其余简单卡片：一个 JSON 文件覆盖服务模块常量 ==========
+_SIMPLE_CARDS = [
+    ("ms_sla_full", "ms_sla_config.json",
+     "backend.services.ms_sla_service",
+     {"ume_host": _txt("UME 主机"), "ume_port": _num("UME 端口", 1, 65535),
+      "batch_size": _num("入库批量行数", 1, 100000),
+      "ftp_up_port": _num("上传 FTP 端口", 1, 65535),
+      "ftp_up_remote_dir": _txt("上传远端目录"),
+      "ftp_src_port": _num("源 FTP 端口", 1, 65535),
+      "ftp_src_base_dir": _txt("源 FTP 目录（NUR_SLA）")},
+     {"ume_host": "UME_HOST", "ume_port": "UME_PORT", "batch_size": "BATCH_SIZE",
+      "ftp_up_port": "FTP_UP_PORT", "ftp_up_remote_dir": "FTP_UP_REMOTE_DIR",
+      "ftp_src_port": "FTP_SRC_PORT", "ftp_src_base_dir": "FTP_SRC_BASE_DIR"},
+     "MS 合同 KPI / SLA 全量同步：UME 主机端口、入库批量、上传与源 FTP 目录"
+     "（三套 FTP/UME 账号密码都在「凭据管理」，不在配置文件）"),
+    ("avail_recon_sync", "avail_recon_config.json",
+     "backend.services.avail_recon_sync",
+     {"src_db": _txt("源库逻辑名（远端 DbWriter）"),
+      "master_db": _txt("主站点库逻辑名"),
+      "master_table": _txt("主站点表名"),
+      "query_timeout": _num("单查询超时（秒）", 30, 3600)},
+     {"src_db": "SRC_DB", "master_db": "MASTER_DB", "master_table": "MASTER_TABLE",
+      "query_timeout": "QUERY_TIMEOUT"},
+     "可用率核对宽表重建：源库/主站点库逻辑名与表名、查询超时"),
+    ("mttr_tt_sync", "mttr_tt_config.json",
+     "backend.services.mttr_tt_sync",
+     {"src_db": _txt("源库逻辑名"), "tt_table": _txt("TT 源表名")},
+     {"src_db": "SRC_DB", "tt_table": "TT_TABLE"},
+     "MTTR 工单明细重建：源库逻辑名与 TT 源表名"),
+    ("progress_sync", "progress_config.json",
+     "backend.services.progress_sync",
+     {"src_db": _txt("源库逻辑名")},
+     {"src_db": "SRC_DB"},
+     "工单进度宽表重建：源库逻辑名（TT/WO 查询 SQL 在代码内）"),
+    ("db_freshness_check", "db_freshness_config.json",
+     "backend.services.db_freshness_check",
+     {"api_port": _num("DbWriter 端口", 1, 65535),
+      "http_timeout": _num("HTTP 超时（秒）", 5, 600),
+      "lookback_hours": _num("任务健康回溯（小时）", 1, 168),
+      "pending_max_minutes": _num("pending 允许上限（分钟）", 1, 720),
+      "running_max_minutes": _num("running 允许上限（分钟）", 1, 1440)},
+     {"api_port": "API_PORT", "http_timeout": "HTTP_TIMEOUT",
+      "lookback_hours": "TASK_HEALTH_LOOKBACK_HOURS",
+      "pending_max_minutes": "TASK_HEALTH_PENDING_MAX_MINUTES",
+      "running_max_minutes": "TASK_HEALTH_RUNNING_MAX_MINUTES"},
+     "数据新鲜度巡检：DbWriter 端口、HTTP 超时、任务健康回溯与 pending/running 超时阈值"),
+    ("incident_overview_sync", "incident_overview_config.json",
+     "backend.services.incident_overview_sync",
+     {"ftp_port": _num("FTP 端口", 1, 65535),
+      "ftp_base_dir": _txt("FTP 源目录（TT_WO）"),
+      "target_filename": _txt("目标文件名"),
+      "keep_versions": _num("本地保留版本数", 1, 30)},
+     {"ftp_port": "FTP_PORT", "ftp_base_dir": "FTP_BASE_DIR",
+      "target_filename": "TARGET_FILENAME", "keep_versions": "KEEP_VERSIONS"},
+     "Incident Overview 报表：FTP 端口与源目录、目标文件名、本地保留版本数（账号在「凭据管理」）"),
+    ("sp_online_sync", "sp_online_config.json",
+     "backend.services.sp_online_sync",
+     {"page_size": _num("分页大小", 1, 5000),
+      "table_by_key": {"label_zh": "报表键 → 写入表（JSON）", "type": "json"}},
+     {"page_size": "PAGE_SIZE", "table_by_key": "TABLE_BY_KEY"},
+     "SP 在线工单：分页大小与各报表写入表（eFlow 主机/凭据在「凭据管理 → eflow_api」）"),
+    ("sp_material_sync", "sp_material_config.json",
+     "backend.services.sp_material_sync",
+     {"api_path": _txt("接口路径"), "table": _txt("写入表"),
+      "page_size": _num("分页大小", 1, 5000), "max_pages": _num("最大翻页数", 1, 2000)},
+     {"api_path": "API_PATH", "table": "TABLE", "page_size": "PAGE_SIZE", "max_pages": "MAX_PAGES"},
+     "SP 物料主数据：接口路径、写入表、分页大小与最大翻页数"),
+    ("cxo_dashboard_cache_sync", "cxo_dashboard_config.json",
+     "backend.services.cxo_dashboard_cache",
+     {"proxy_base": _txt("VMAX 代理前缀"), "vmax_base": _txt("VMAX 门户前缀"),
+      "summary_trend_ids": {"label_zh": "趋势组件 view_id 列表（JSON）", "type": "json"},
+      "summary_overview_ids": {"label_zh": "总览组件 view_id 列表（JSON）", "type": "json"}},
+     {"proxy_base": "PROXY_BASE", "vmax_base": "VMAX_BASE",
+      "summary_trend_ids": "SUMMARY_TREND_IDS", "summary_overview_ids": "SUMMARY_OVERVIEW_IDS"},
+     "CXO 看板缓存：本机 VMAX 代理前缀、门户前缀与需要采集的组件 view_id 清单"),
+    ("vmax_cxo_daily_sync", "vmax_cxo_daily_config.json",
+     "backend.services.vmax_cxo_daily_cache",
+     {"proxy_base": _txt("VMAX 代理前缀"), "vmax_host": _txt("VMAX 主机"),
+      "history_endpoint": _txt("历史查询接口"), "granularity": _txt("粒度（1hour/1day）"),
+      "retention_days": _num("归档保留天数", 1, 90), "lookback_days": _num("每次回看天数", 1, 90)},
+     {"proxy_base": "PROXY_BASE", "vmax_host": "VMAX_HOST",
+      "history_endpoint": "HISTORY_ENDPOINT", "granularity": "GRANULARITY",
+      "retention_days": "RETENTION_DAYS", "lookback_days": "LOOKBACK_DAYS"},
+     "VMAX CXO 天粒度归档：代理前缀、门户主机、历史接口、粒度、保留与回看天数"),
+]
+for _tid, _fname, _module, _schema, _map, _desc in _SIMPLE_CARDS:
+    register_config(ConfigResource(
+        task_id=_tid, path=_cfg(_fname), schema=_schema, description=_desc,
+        defaults_factory=_const_defaults(_module, _map),
+    ))
+
+# ========== OLIB SOC 看板 KPI 每日增量（复用 olib_soc_report_config.json） ==========
+register_config(ConfigResource(
+    task_id="olib_soc_kpi_daily_sync", path=_cfg("olib_soc_report_config.json"),
+    schema={
+        "kpi_sync": _obj("每日增量窗口", {
+            "days_back": _num("回看天数", 1, 92),
+            "only_missing": {"label_zh": "只补缺口（关=整窗重取）", "type": "bool"},
+            "refresh_last_days": _num("重取最新 N 天", 0, 7),
+        }),
+        "granularity": _txt("分区粒度（day/hour）"),
+        "workers": _num("并发连接数", 1, 8),
+    },
+    description="OLIB SOC 看板 KPI 每日增量：回看天数、是否只补缺口、重取最新 N 天、粒度与并发"
+                "（与 olib_soc_vmax_report 共用 olib_soc_report_config.json；GBase 连接与凭据见 vmax_gbase）",
+    defaults_factory=_const_defaults(
+        "backend.services.olib_soc_report.olib_soc_report_service", {},
+        extra=lambda m, out: out.update({"kpi_sync": m.load_config().get("kpi_sync", {}),
+                                         "granularity": m.load_config().get("granularity"),
+                                         "workers": m.load_config().get("workers")})),
 ))

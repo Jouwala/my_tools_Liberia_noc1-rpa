@@ -147,9 +147,12 @@ def fetch_report(report: Dict[str, Any], cfg: Dict[str, Any],
     if begin is None or end is None:
         begin, end = vrc.time_window(days, gran)
     top_n = int(report.get("top_n") or cfg.get("top_n") or 20000)
+    # page_size 单独可配：上游 paging.pageSize 决定单请求实际返回行数（不配则跟 top_n 一致）
+    page_size = int(report.get("page_size") or cfg.get("page_size") or top_n)
     res = client.query_kpis_range(
         part, begin, end, granularity=gran,
         dims=report.get("dims"), kpis=report.get("kpis"), top_n=top_n,
+        page_size=page_size,
         chunk_days=report.get("chunk_days") or cfg.get("chunk_days"),
         filters=report.get("filters") or [], progress=progress)
     if not res["fields"] and res.get("errors"):

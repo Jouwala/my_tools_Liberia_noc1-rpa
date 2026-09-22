@@ -65,6 +65,27 @@ MAX_PAGES = int(os.environ.get("SP_MATERIAL_MAX_PAGES", "200"))
 KEY_COL = "materialNo"
 FETCHED_AT_COL = "_fetched_at"
 
+# ============================================================
+# 外部化配置（Settings →「任务配置」维护的 sp_material_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认；eFlow 主机/凭据来自「凭据管理 → eflow_api」。
+# ============================================================
+try:
+    from backend.services.task_config_files import apply_config_overrides
+except ImportError:
+    from task_config_files import apply_config_overrides  # type: ignore
+
+apply_config_overrides(
+    globals(),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "sp_material_config.json"),
+    {
+        "api_path": ("API_PATH", str, None),
+        "table": ("TABLE", str, "SP_MATERIAL_TABLE"),
+        "page_size": ("PAGE_SIZE", lambda v: max(1, int(v)), "SP_MATERIAL_PAGE_SIZE"),
+        "max_pages": ("MAX_PAGES", lambda v: max(1, int(v)), "SP_MATERIAL_MAX_PAGES"),
+    },
+    log_name="sp_material",
+)
+
 
 # ---------------- 拉取 ----------------
 def _post(payload):

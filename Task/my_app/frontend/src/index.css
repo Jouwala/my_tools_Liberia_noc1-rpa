@@ -77,6 +77,18 @@
   --wh-shadow-2: 0 20px 52px rgba(0, 0, 0, 0.32), 0 2px 10px rgba(37, 140, 255, 0.05), var(--wh-glass-rim);
   --wh-shadow-3: 0 26px 70px rgba(0, 0, 0, 0.42), var(--wh-glass-rim);
 
+  /* 卡片阴影总成（theme.ts 的 cardStyle.boxShadow 指向它）。
+   * 深色档 = 原 --wh-shadow-1，用户已确认深色不套 olbr 皮肤，保持改动前原值零回归；
+   * 浅色档在下方 :root[data-theme='light'] 里重定义为 olbr 内发光 + --wh-shadow-2。 */
+  --wh-card-shadow: var(--wh-shadow-1);
+  --wh-card-glow: none;
+  --wh-card-glow-hover: none;
+  --wh-card-drop-hover: 0 8px 18px rgba(38, 70, 86, 0.16);
+  --wh-card-accent: var(--wh-teal);
+  --wh-card-accent-soft: var(--wh-teal-20);
+  --wh-card-accent-line: var(--wh-glass-border);
+  --wh-card-elevate: -2px;
+
   --wh-glass-border: #153db0;
   --wh-glass-border-strong: #258cff;
 
@@ -216,6 +228,35 @@
   --wh-input-bg: rgba(255, 255, 255, 0.82);
   --wh-input-border: rgba(94, 125, 143, 0.28);
   --wh-overlay: rgba(31, 53, 68, 0.28);
+
+  /* ================= olbr 卡片皮肤令牌（浅色档） ================= *
+   * 来源：olbrportal/assets/olbr.css 的 .qc-card 一档（该文件 :root 与 html.dark 两块）。
+   * 只取「皮肤」——描边 / 内发光 / 悬停上浮与彩色投影——不搬它的信息结构
+   * （图标+徽章+大数字+趋势线的居中堆叠），各页 JSX 保持原样。
+   *
+   * 色值不新造，全部由本文件既有的语义色合成：
+   *   品牌青 --wh-teal(#0d9488) 对位 olbr 的 --b(#0e7490)，两者同为 teal 系品牌色，
+   *   差异仅在色相微调（0d9488 偏绿、0e7490 偏蓝）；这里刻意沿用 my_app 自己的
+   *   --wh-teal，避免同一个页面里出现两种品牌青。
+   * 等级档复用 --wh-ok/--wh-warn/--wh-danger，与 --wh-sev-* 同源。
+   *
+   * 深色档不覆盖：my_app 深色已有成熟的深空蓝+电光青体系，olbr 深色档是另一套
+   * 深色规范，两套并存会互相打架。内发光与悬停只在本浅色块内生效。 */
+  --wh-card-accent: var(--wh-teal);
+  --wh-card-accent-soft: var(--wh-teal-20);
+  /* color-mix 在 :root 上求值：本变量的声明元素就是 :root，浅色块内替换成立。
+     不支持 color-mix 的浏览器整条声明失效，由文件末尾 @supports 降级段兜底。 */
+  --wh-card-accent-line: color-mix(in srgb, var(--wh-teal) 32%, transparent);
+  /* olbr 的招牌内发光：inset 0 0 14px <accent 12%>。静态卡用 12%，悬停加深到 20%。 */
+  --wh-card-glow: inset 0 0 14px color-mix(in srgb, var(--wh-card-accent) 12%, transparent);
+  --wh-card-glow-hover: inset 0 0 18px color-mix(in srgb, var(--wh-card-accent) 20%, transparent);
+  --wh-card-drop-hover: 0 8px 18px color-mix(in srgb, var(--wh-card-accent) 16%, transparent);
+  --wh-card-elevate: -2px;
+  /* 卡片阴影总成：内发光 + 既有 --wh-shadow-2（olbr 的 .qc-card 静态态只有内发光，
+     这里额外保留 my_app 的外阴影，因为 my_app 卡片是浮在渐变页底上的实体块，
+     去掉外阴影会显得「贴」在背景上）。--wh-card-shadow 同时供 index.css 的 .ant-card
+     规则和 theme.ts 的 cardStyle.boxShadow 使用。 */
+  --wh-card-shadow: var(--wh-card-glow), var(--wh-shadow-2);
 }
 
 * {
@@ -276,16 +317,54 @@ body {
   opacity: 0.55;
 }
 
-/* 卡片层：背景 / 描边 / 阴影 / 模糊全部取令牌，不再按主题各写一份 */
+/* 卡片层：背景 / 描边 / 阴影 / 模糊全部取令牌，不再按主题各写一份。
+ *
+ * 2026-09-24 卡片风格统一：阴影改用「总成」令牌 --wh-card-shadow，
+ * 该令牌在深色 :root 与浅色 :root[data-theme='light'] 里各定义一次：
+ *   深色 = var(--wh-shadow-1)                  ← 改动前原值，零回归（用户已确认深色不套 olbr）
+ *   浅色 = var(--wh-card-glow), var(--wh-shadow-2) ← olbr .qc-card 的招牌内发光 + 既有外阴影
+ * 于是「按主题切换卡片皮肤」只发生在令牌层，类规则本身不需要任何 data-theme 分支。
+ *
+ * 为什么不用 box-shadow: var(--wh-card-glow), var(--wh-shadow-2) 直接拼：
+ * 一旦某个 --wh-card-glow 未定义，guaranteed-invalid 会让**整条**简写声明失效，
+ * 卡片会掉成无阴影；收敛到单一总成令牌后，兜底只需保证该令牌始终有值。
+ *
+ * .wh-card 是「项目默认卡片」的官方入口（CardBase 组件挂在根节点上）：
+ * 卡片皮肤的所有规则都以它为一等公民，新代码走 CardBase 即可自动获得，
+ * 不需要在页面里写任何样式。 */
 .ant-card,
+.wh-card,
 .wh-stat-card,
 .spatial-stat-card,
 .dcm-modal {
   background: var(--wh-glass-card) !important;
   border-color: var(--wh-glass-border) !important;
-  box-shadow: var(--wh-shadow-2) !important;
+  box-shadow: var(--wh-card-shadow) !important;
   -webkit-backdrop-filter: blur(var(--wh-glass-blur-card)) saturate(var(--wh-glass-saturate));
   backdrop-filter: blur(var(--wh-glass-blur-card)) saturate(var(--wh-glass-saturate));
+}
+
+/* 描边也随皮肤走：浅色档用 accent 线（olbr 的 --qc-accent-line），深色档保持原玻璃描边 */
+:root[data-theme='light'] .ant-card,
+:root[data-theme='light'] .wh-card,
+:root[data-theme='light'] .wh-stat-card,
+:root[data-theme='light'] .spatial-stat-card,
+:root[data-theme='light'] .dcm-modal {
+  border-color: var(--wh-card-accent-line) !important;
+}
+
+/* 裸 div 形态的 .wh-card（CardBase 的 as="div"）没有 antd 的内边距，这里补上 */
+.wh-card:not(.ant-card) {
+  border: 1px solid var(--wh-glass-border);
+  border-radius: var(--wh-radius-lg);
+  padding: var(--wh-space-md);
+}
+/* CardBase as="div" 的卡头：与 antd Card 头部同排版，不再逐个页面写内联 */
+.wh-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wh-space-sm);
+  margin-bottom: var(--wh-space-sm);
 }
 
 /* ---------- 控件层玻璃：Select / Input / Button / Picker / Segmented / 表头 ---------- *
@@ -427,6 +506,41 @@ textarea:focus-visible,
   .ant-select-dropdown,
   .ant-picker-panel-container {
     background: var(--wh-glass-overlay-solid) !important;
+  }
+}
+
+/* ---------- 降级：不支持 color-mix() 时去掉 olbr 内发光与彩色投影 ---------- *
+ * 令牌 --wh-card-accent-line / --wh-card-glow / --wh-card-shadow（浅色档）全部由
+ * color-mix() 合成，这些浏览器上相关声明整条失效。这里把卡片退回纯 --wh-shadow-*
+ * 阴影、描边退回不依赖 color-mix 的 --wh-glass-border，保证卡片不至于掉成
+ * 「无描边无阴影」的裸块。注意 @supports 内的规则同样要带 !important —— 被覆盖的
+ * 原规则大多带 !important，不带就压不过去。 */
+@supports not (color: color-mix(in srgb, red 50%, transparent)) {
+  :root[data-theme='light'] {
+    --wh-card-accent-line: var(--wh-glass-border);
+    --wh-card-shadow: var(--wh-shadow-2);
+    --wh-card-glow: none;
+    --wh-card-glow-hover: none;
+    --wh-card-drop-hover: none;
+  }
+  .ant-card,
+  .wh-card,
+  .wh-stat-card,
+  .spatial-stat-card,
+  .dcm-modal,
+  .wh-card-glow,
+  .wh-card-lv-ok,
+  .wh-card-lv-warn,
+  .wh-card-lv-crit {
+    border-color: var(--wh-glass-border) !important;
+    box-shadow: var(--wh-shadow-2) !important;
+  }
+  :root[data-theme='light'] .wh-card-interactive:hover,
+  :root[data-theme='light'] .wh-card:hover,
+  :root[data-theme='light'] .wh-stat-card:hover,
+  :root[data-theme='light'] .ant-card:hover {
+    border-color: var(--wh-glass-border-strong) !important;
+    box-shadow: var(--wh-shadow-3) !important;
   }
 }
 
@@ -1114,17 +1228,72 @@ html {
 .ant-card-head,
 .wh-stat-card > * { position: relative; z-index: 1; }
 
-/* ---------- 卡片悬浮与发光动画 ---------- */
+/* ---------- 卡片悬浮与发光动画 ---------- *
+ * 浅色档对齐 olbr .qc-card:hover：上浮 2px + 描边转为 accent 线 + 内发光加深
+ * 并多一层彩色投影（olbr.css:432-436）。深色档保持 my_app 原有的「上浮 + 阴影加深」，
+ * 不引入彩色投影 —— 深色档用户已确认不对齐 olbr。 */
 .wh-card-interactive {
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease;
 }
 .wh-card-interactive:hover {
-  transform: translateY(-2px);
+  transform: translateY(var(--wh-card-elevate, -2px));
   border-color: var(--wh-glass-border-strong) !important;
   box-shadow: var(--wh-shadow-3) !important;
 }
+:root[data-theme='light'] .wh-card-interactive:hover,
+:root[data-theme='light'] .wh-card:hover {
+  border-color: var(--wh-card-accent-line) !important;
+  box-shadow: var(--wh-card-glow-hover), var(--wh-card-drop-hover) !important;
+}
 
-/* ---------- StatCard 统计卡片通用样式 ---------- */
+/* ---------- olbr 卡片皮肤工具类 ---------- *
+ * 与 olbr .qc-card / .qc-lv-* 一一对位（olbr.css:419-443）。用途：
+ *   1. 给任意既有元素单独叠内发光而不改底色 → .wh-card-glow
+ *   2. 给卡片按阈值分档（正常/警告/严重）→ .wh-card-lv-ok|warn|crit
+ *
+ * ⚠️ 必须在这里**重算** --wh-card-glow / --wh-card-shadow，不能只覆盖 --wh-card-accent：
+ * 自定义属性在**声明它的那个元素**上完成替换。--wh-card-glow:
+ * `inset 0 0 14px color-mix(... var(--wh-card-accent) 12% ...)` 是在 :root 上求值的，
+ * 那时 --wh-card-accent 还是浅色档的 --wh-teal；等到卡片元素上把 --wh-card-accent
+ * 改成 --wh-ok，:root 上那条 --wh-card-glow 早已定死成青色。
+ * （同一个坑 olbr.css:1001-1017 有记录：深色档必须把 --qc-* 整块再映射一遍。）
+ * 因此每个等级档都要把依赖 accent 的三个合成值一并重算。 */
+.wh-card-glow {
+  border-color: var(--wh-card-accent-line) !important;
+  box-shadow: var(--wh-card-shadow) !important;
+}
+
+.wh-card-lv-ok,
+.wh-card-lv-warn,
+.wh-card-lv-crit {
+  border-color: var(--wh-card-accent-line) !important;
+  /* 内发光 / 悬停阴影随 accent 重算（静态阴影总成由下面各档自己的 --wh-card-shadow 给出） */
+  --wh-card-glow: inset 0 0 14px color-mix(in srgb, var(--wh-card-accent) 12%, transparent);
+  --wh-card-glow-hover: inset 0 0 18px color-mix(in srgb, var(--wh-card-accent) 20%, transparent);
+  --wh-card-drop-hover: 0 8px 18px color-mix(in srgb, var(--wh-card-accent) 16%, transparent);
+  --wh-card-shadow: var(--wh-card-glow), var(--wh-shadow-2);
+  box-shadow: var(--wh-card-shadow) !important;
+}
+
+.wh-card-lv-ok {
+  --wh-card-accent: var(--wh-ok);
+  --wh-card-accent-soft: color-mix(in srgb, var(--wh-ok) 12%, transparent);
+  --wh-card-accent-line: color-mix(in srgb, var(--wh-ok) 32%, transparent);
+}
+.wh-card-lv-warn {
+  --wh-card-accent: var(--wh-warn);
+  --wh-card-accent-soft: color-mix(in srgb, var(--wh-warn) 12%, transparent);
+  --wh-card-accent-line: color-mix(in srgb, var(--wh-warn) 32%, transparent);
+}
+.wh-card-lv-crit {
+  --wh-card-accent: var(--wh-danger);
+  --wh-card-accent-soft: color-mix(in srgb, var(--wh-danger) 12%, transparent);
+  --wh-card-accent-line: color-mix(in srgb, var(--wh-danger) 38%, transparent);
+}
+
+/* ---------- StatCard 统计卡片通用样式 ---------- *
+ * 阴影取总成令牌 --wh-card-shadow（与上方卡片层同一来源），不要再写死 --wh-shadow-1：
+ * 本规则在文件里位于卡片层之后，写死会把卡片层的 olbr 皮肤盖掉。 */
 .wh-stat-card {
   position: relative;
   overflow: hidden;
@@ -1135,13 +1304,17 @@ html {
   border-radius: var(--wh-radius-lg);
   background: var(--wh-card-bg);
   border: var(--wh-card-border);
-  box-shadow: var(--wh-shadow-1);
+  box-shadow: var(--wh-card-shadow);
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }
 .wh-stat-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(var(--wh-card-elevate, -2px));
   border-color: var(--wh-glass-border-strong) !important;
   box-shadow: var(--wh-shadow-2) !important;
+}
+:root[data-theme='light'] .wh-stat-card:hover {
+  border-color: var(--wh-card-accent-line) !important;
+  box-shadow: var(--wh-card-glow-hover), var(--wh-card-drop-hover) !important;
 }
 .wh-stat-card::after {
   content: '';

@@ -37,6 +37,7 @@ import { EndpointSettingsModal } from './components/EndpointSettingsModal';
 import { PreviewDrawer } from './components/PreviewDrawer';
 import { QRCodeModal } from './components/QRCodeModal';
 import { DesignGuideModal } from './components/DesignGuideModal';
+import { DocsIndexModal } from './components/DocsIndexModal';
 import { LoginView } from './components/LoginView';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UserManagementModal } from './components/UserManagementModal';
@@ -53,6 +54,7 @@ import {
   HelpCircle,
   ExternalLink,
   Lightbulb,
+  BookOpen,
   Loader2,
   ShieldAlert,
   ShieldCheck,
@@ -285,6 +287,7 @@ export default function App() {
   const [dashboardToEdit, setDashboardToEdit] = useState<DashboardItem | null>(null);
   const [isEndpointModalOpen, setIsEndpointModalOpen] = useState(false);
   const [isDesignGuideModalOpen, setIsDesignGuideModalOpen] = useState(false);
+  const [isDocsIndexModalOpen, setIsDocsIndexModalOpen] = useState(false);
   const [previewDashboard, setPreviewDashboard] = useState<DashboardItem | null>(null);
   const [qrDashboard, setQrDashboard] = useState<DashboardItem | null>(null);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
@@ -790,6 +793,7 @@ export default function App() {
         }}
         onOpenEnvironmentModal={() => setIsEndpointModalOpen(true)}
         onOpenDesignGuideModal={() => setIsDesignGuideModalOpen(true)}
+        onOpenDocsIndexModal={() => setIsDocsIndexModalOpen(true)}
         onExportJson={handleExportJson}
         onImportJson={handleImportJson}
         onResetDefaults={handleResetDefaults}
@@ -976,6 +980,14 @@ export default function App() {
               {t('app.footerGuide')}
             </button>
             <span>·</span>
+            <button
+              onClick={() => setIsDocsIndexModalOpen(true)}
+              className="text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 font-medium"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              {t('nav.docsIndex')}
+            </button>
+            <span>·</span>
             <span className="font-mono text-[11px] text-slate-400">
               {t('app.footerHost')}: {getMyappHost()}
             </span>
@@ -1019,6 +1031,11 @@ export default function App() {
       <DesignGuideModal
         isOpen={isDesignGuideModalOpen}
         onClose={() => setIsDesignGuideModalOpen(false)}
+      />
+
+      <DocsIndexModal
+        isOpen={isDocsIndexModalOpen}
+        onClose={() => setIsDocsIndexModalOpen(false)}
       />
 
       <PreviewDrawer

@@ -21,6 +21,7 @@ import api from '../api'
 import { cachedGet } from '../cache'
 import DraggableClickModal from '../components/DraggableClickModal'
 import MapWheelZoomOnClick, { isEmbeddedInPortal } from '../components/MapWheelZoomOnClick'
+import { CardBase } from '../components/cards'
 import { useI18n, numLocale } from '../i18n'
 import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, useIsMobile, darkTooltip, axisLabel, axisLine, splitLine, pageWrap, cardStyle } from '../theme'
 
@@ -545,27 +546,27 @@ export default function PacketLossDashboard() {
       <SectionTitle icon={<BarChartOutlined />} title={t('pl.lossDistribution')} sub={t('pl.lossDistSub')} />
       <Row gutter={[12, 12]}>
         <Col xs={24} lg={7}>
-          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.statusDist')}</span>} style={cardStyle}>
+          <CardBase title={t('pl.statusDist')}>
             <ReactECharts option={statusPieOption} style={{ height: CHART_HEIGHT }} onEvents={{ click: chartClick('Status') }} />
-          </Card>
+          </CardBase>
         </Col>
         <Col xs={24} lg={10}>
-          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.dailyTrend')}</span>} style={cardStyle}>
+          <CardBase title={t('pl.dailyTrend')}>
             <ReactECharts option={trendOption} style={{ height: CHART_HEIGHT }} />
-          </Card>
+          </CardBase>
         </Col>
         <Col xs={24} lg={7}>
-          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.byRegion')}</span>} style={cardStyle}>
+          <CardBase title={t('pl.byRegion')}>
             <ReactECharts option={regionOption} style={{ height: CHART_HEIGHT }} />
-          </Card>
+          </CardBase>
         </Col>
       </Row>
 
       {/* 4. Top 站点（地图已移至右侧 1/3 列） */}
       <SectionTitle icon={<PieChartOutlined />} title={t('pl.topSites')} sub={t('pl.topSitesSub')} />
-      <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.topSitesTitle')}</span>} style={cardStyle}>
+      <CardBase title={t('pl.topSitesTitle')}>
         <ReactECharts option={topSitesOption} style={{ height: 520 }} />
-      </Card>
+      </CardBase>
       </div>
 
       {/* ===== 右侧 1/3：Packet Loss Map 单独占整列，可固定（移动端整列堆叠在下方） ===== */}

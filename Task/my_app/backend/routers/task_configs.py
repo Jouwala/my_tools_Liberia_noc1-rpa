@@ -7,7 +7,7 @@
 - GET  /api/task-configs/{task_id}/export       导出完整配置 JSON
 - POST /api/task-configs/{task_id}/import       导入（整体替换，schema 校验）
 
-保存/导入成功后自动重启 u/n 组 Worker（看门狗秒级重拉），使配置在下次
+保存/导入成功后自动重启全部 Worker 组（u/n/v/m/c，看门狗秒级重拉），使配置在下次
 任务运行时即生效（服务在模块导入时读取配置文件，Worker 长驻会缓存旧值）。
 """
 import logging
@@ -31,18 +31,27 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def _restart_config_workers():
-    """重启 u/n 组 Worker（配置任务所在组），看门狗会自动重新拉起。"""
-    for name in ("worker_u.pid", "worker_n.pid"):
-        pf = _PROJECT_ROOT / "backend" / name
+    """重启全部 Worker 组（u/n/v/m/c），看门狗会秒级重新拉起。
+
+    各组配置文件都是在服务模块导入期读取的（长驻 worker 会缓存旧值），所以任何一组
+    的任务保存后都要杀掉对应 worker 才生效。早期只重启 u/n 两组，导致 v 组（VMAX）
+    与 m/c 组任务改完配置后仍跑旧值。
+    ⚠ 只杀 worker_{组名单字母}.pid：worker_watchdog.pid 也是 worker_*.pid，误杀它就没有
+      进程再把各组 worker 拉起来（表现是「改了配置后任务再也不跑」）。
+    """
+    for pf in sorted((_PROJECT_ROOT / "backend").glob("worker_*.pid")):
+        group = pf.stem.split("_")[-1]
+        if not group.isalpha() or len(group) != 1:
+            continue
         try:
             if pf.exists():
                 pid = int(pf.read_text(encoding="utf-8").strip())
                 subprocess.run(["taskkill", "/PID", str(pid), "/F"],
                                capture_output=True, timeout=10,
                                creationflags=_SUBPROCESS_FLAGS)
-                logger.info(f"[task-configs] 已重启 Worker {name} (pid={pid}) 使配置生效")
+                logger.info(f"[task-configs] 已重启 {pf.name} (pid={pid}) 使配置生效")
         except Exception as e:
-            logger.warning(f"[task-configs] 重启 {name} 失败: {e}")
+            logger.warning(f"[task-configs] 重启 {pf.name} 失败: {e}")
 
 
 @router.get("/api/task-configs")

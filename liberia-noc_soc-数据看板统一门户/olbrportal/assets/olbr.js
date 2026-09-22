@@ -95,7 +95,7 @@
                      + 'SP 备件明细 sp_data_sync 每小时 :10，最近 {f}）。切回本页或点「刷新」会立刻重拉全量。',
       'cxo.title': 'CXO View 决策战略层', 'cxo.sub': '统一总控与运营视窗',
       'map.title': '利比里亚网络拓扑全景', 'map.sub': 'Central Liberia Regional Topology',
-      'map.gis': 'GIS 地图', 'map.mw': '微波实时', 'map.alarm': '实时告警', 'map.loss': '传输丢包',
+      'map.gis': '全球地图', 'map.mw': '微波实时', 'map.alarm': '实时告警', 'map.loss': '传输丢包',
       'map.open': '新窗口打开', 'map.reload': '重新加载', 'map.load': '加载中…',
       /* 报告文件页签（2026-09-22 加）：内嵌 my_app 的任务报告文件中心，
          标题说法与 MsPortal 那张 Task Report Files 卡一致，同一内容在两个门户不该有两名。 */
@@ -314,7 +314,7 @@
                      + 'latest {f}). Coming back to this tab or clicking Refresh re-pulls the full set immediately.',
       'cxo.title': 'CXO View', 'cxo.sub': 'Executive strategy & operation window',
       'map.title': 'Central Liberia Regional Topology', 'map.sub': 'Network panorama',
-      'map.gis': 'GIS map', 'map.mw': 'MW real-time', 'map.alarm': 'Live alarms', 'map.loss': 'Packet loss',
+      'map.gis': 'Global Map', 'map.mw': 'MW real-time', 'map.alarm': 'Live alarms', 'map.loss': 'Packet loss',
       'map.open': 'Open in new tab', 'map.reload': 'Reload', 'map.load': 'Loading…',
       'email.tab': 'Report files',
       'email.title': 'Task Report Files', 'email.sub': 'Task report file center (Email Reports)',

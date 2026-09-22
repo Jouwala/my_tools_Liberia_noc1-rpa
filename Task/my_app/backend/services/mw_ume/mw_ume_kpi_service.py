@@ -33,6 +33,7 @@ import sys
 import time
 import warnings
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 import openpyxl
 
@@ -68,7 +69,6 @@ MAX_PARALLEL_WORKERS = int(os.environ.get("MW_UME_KPI_PARALLEL_WORKERS", "4"))
 HISTORY_PATH = "/api/pm-analysis/v2/history"
 HISTORY_POLL_PATH = "/api/pm-analysis/v1/history"
 HISTORY_EXPORT_PATH = "/api/pm-analysis/v3/history/export"
-HISTORY_REFERER = f"https://{HOST}:{PORT}{LOGIN_PORTAL}"
 
 # 目标表名（用户指定，保持原拼写）
 TABLE_NAME = os.environ.get("MW_UME_KPI_TABLE", "mw_ume_bw_ultilazation")
@@ -91,6 +91,8 @@ RT_WINDOW_HOURS = float(os.environ.get("MW_UME_KPI_RT_WINDOW_HOURS", "2"))
 # RT 表保留期（小时）：仅保留最近 N 小时数据（默认 25h，覆盖看板 24h 趋势 + 1h 出数延迟容忍），
 # 每次同步末尾顺带清理更早的槽位，避免该表无限增长（实测约 721 行/槽、~70,900 行/天）。
 RT_RETENTION_HOURS = float(os.environ.get("MW_UME_KPI_RT_RETENTION_HOURS", "25"))
+# RT 查询粒度（秒）：900 = 15 分钟
+RT_GR = os.environ.get("MW_UME_KPI_RT_GR", "900")
 
 
 def _runtime_credentials():
@@ -157,10 +159,75 @@ _FINBI_CONFIG = {
 MW_UME_KPI_QUERY_CONFIGS = {"FINBI": _FINBI_CONFIG}
 MW_UME_KPI_TASKS = [{"key": "FINBI"}]
 
-# 15 分钟实时（RT）查询：与日粒度共用 FINBI 模板，仅粒度不同（900 秒 = 15 分钟）
-_FINBI_RT_CONFIG = dict(_FINBI_CONFIG, gr="900")
-MW_UME_KPI_QUERY_CONFIGS_RT = {"FINBI_RT": _FINBI_RT_CONFIG}
-MW_UME_KPI_TASKS_RT = [{"key": "FINBI_RT"}]
+
+# ============================================================
+# 外部化配置（Settings →「任务配置」页维护的 mw_ume_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认；凭据走 credential_store(mw_ume)。
+#   文件缺失/损坏时行为与旧版完全一致（用上面的内置默认）。
+#   ⚠ 必须在 HISTORY_REFERER 与查询 dict 构造之前完成覆盖：这三者都在导入期
+#     用当时的 HOST/PORT/模板值算出，晚于本行的赋值不会影响它们。
+# ============================================================
+# ⚠ 路径必须与 task_configs_registry 注册的路径一致（backend/services/ 下）：
+#   本模块在 mw_ume/ 子包内，要用 parents[1]，写 parent 会导致页面保存的文件没人读。
+_MW_CONFIG_PATH = Path(__file__).resolve().parents[1] / "mw_ume_config.json"
+
+try:
+    from backend.services.task_config_files import load_json_config, normalize_query_configs
+    _MW_CONF = load_json_config(_MW_CONFIG_PATH)
+except ImportError:
+    from task_config_files import load_json_config, normalize_query_configs  # type: ignore
+    _MW_CONF = load_json_config(_MW_CONFIG_PATH)
+except Exception as _e:  # noqa: BLE001 - 配置读取失败一律回退内置默认
+    _MW_CONF = None
+
+if _MW_CONF:
+    if not os.environ.get("MW_UME_HOST"):
+        HOST = str(_MW_CONF.get("host") or HOST).strip() or HOST
+    if not os.environ.get("MW_UME_PORT") and _MW_CONF.get("port"):
+        PORT = int(_MW_CONF["port"])
+    if not os.environ.get("MW_UME_KPI_DAYS_BACK") and _MW_CONF.get("days_back"):
+        DAYS_BACK = max(1, int(_MW_CONF["days_back"]))
+    if not os.environ.get("MW_UME_KPI_PARALLEL_WORKERS") and _MW_CONF.get("max_parallel_workers"):
+        MAX_PARALLEL_WORKERS = max(1, int(_MW_CONF["max_parallel_workers"]))
+    if _MW_CONF.get("login_portal"):
+        LOGIN_PORTAL = str(_MW_CONF["login_portal"])
+    _mw_urls = _MW_CONF.get("urls") or {}
+    if isinstance(_mw_urls, dict):
+        if _mw_urls.get("history"):
+            HISTORY_PATH = _mw_urls["history"]
+        if _mw_urls.get("poll"):
+            HISTORY_POLL_PATH = _mw_urls["poll"]
+        if _mw_urls.get("export"):
+            HISTORY_EXPORT_PATH = _mw_urls["export"]
+    if not os.environ.get("MW_UME_KPI_TABLE") and _MW_CONF.get("table_name"):
+        TABLE_NAME = str(_MW_CONF["table_name"]).strip()
+    _mw_rt = _MW_CONF.get("rt") or {}
+    if isinstance(_mw_rt, dict):
+        if not os.environ.get("MW_UME_KPI_TABLE_RT") and _mw_rt.get("table_name"):
+            RT_TABLE_NAME = str(_mw_rt["table_name"]).strip()
+        if not os.environ.get("MW_UME_KPI_RT_WINDOW_HOURS") and _mw_rt.get("window_hours"):
+            RT_WINDOW_HOURS = float(_mw_rt["window_hours"])
+        if not os.environ.get("MW_UME_KPI_RT_RETENTION_HOURS") and _mw_rt.get("retention_hours"):
+            RT_RETENTION_HOURS = float(_mw_rt["retention_hours"])
+        if not os.environ.get("MW_UME_KPI_RT_GR") and _mw_rt.get("gr"):
+            RT_GR = str(_mw_rt["gr"])
+    # KPI 模板：配置文件里的每一行按自身的 key 合并到内置模板之上。
+    # 不锁死 "FINBI"：页面上改标识、增删模板都要能生效（标识被改也不至于整套模板失效）。
+    _mw_qc = normalize_query_configs(_MW_CONF.get("query_configs") or [])
+    if _mw_qc:
+        MW_UME_KPI_QUERY_CONFIGS = {
+            k: dict(_FINBI_CONFIG, **{f: v for f, v in row.items() if f != "key"})
+            for k, row in _mw_qc.items()
+        }
+        MW_UME_KPI_TASKS = [{"key": k} for k in MW_UME_KPI_QUERY_CONFIGS]
+
+# Referer 依赖可能被上面覆盖过的 HOST/PORT/LOGIN_PORTAL，故在其之后计算
+HISTORY_REFERER = f"https://{HOST}:{PORT}{LOGIN_PORTAL}"
+
+# 15 分钟实时（RT）查询：沿用上面（可能已被配置覆盖过的）同一批模板，仅把粒度换成 RT_GR
+MW_UME_KPI_QUERY_CONFIGS_RT = {f"{k}_RT": dict(cfg, gr=RT_GR)
+                               for k, cfg in MW_UME_KPI_QUERY_CONFIGS.items()}
+MW_UME_KPI_TASKS_RT = [{"key": k} for k in MW_UME_KPI_QUERY_CONFIGS_RT]
 
 
 # ============================================================

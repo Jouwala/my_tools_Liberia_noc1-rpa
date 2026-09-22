@@ -75,12 +75,21 @@ def _detect_gis_schema() -> dict:
 _GIS_FILTER_COLS = [
     ("trm_type", "trm_type", "TRM Type"),
     ("site_type", "site_type", "Site Type"),
-    ("area", "area", "Area"),
     ("hubsite", "hub_site", "Hub Site"),
-    ("site_information", "site_information", "Site Information"),
     ("vip_site", "vip_site", "VIP Site"),
+    # 现场维护与区域职责
     ("supervisor", "supervisor", "Supervisor"),
-    ("updated_fme_name_new", "updated_fme_name_new", "FME Name"),
+    # 注意：GIS 站点表(master_site_db)的 FME 列名是 fme_name（人名，如 "Mark D. Paye"）。
+    # 早前误用了 updated_fme_name_new —— 那是 eFlow 侧(eflow_site)的维护班组编码
+    # （如 "FE_FE_112;FE_FE_115"），在站点表里并不存在，导致该筛选项恒为空。
+    ("fme_name", "fme_name", "FME Name"),
+    ("province_county", "province_county", "Province/County"),
+    ("network_type", "network_type", "Network Type"),
+    ("power_sources", "power_sources", "Power Sources"),
+    ("site_caregory", "site_caregory", "Site Category"),
+    # 说明：原配置里的 "area" 与 "site_information" 两列在 master_site_db 中并不存在，
+    # 属于历史遗留的失效配置（前端因此永远渲染不出这两个下拉框），已移除。
+    # 若后续站点表补上这两列，按 (参数名, 列名, 标签) 三元组加回即可，无需改动其它逻辑。
 ]
 
 # 下钻 TT 列表候选列（按存在性动态选择）
@@ -579,12 +588,13 @@ def get_sites(
     region: str = Query(None),
     trm_type: str = Query(None),
     site_type: str = Query(None),
-    area: str = Query(None),
     hubsite: str = Query(None),
-    site_information: str = Query(None),
     vip_site: str = Query(None),
     supervisor: str = Query(None),
-    updated_fme_name_new: str = Query(None),
+    fme_name: str = Query(None),
+    province_county: str = Query(None),
+    power_sources: str = Query(None),
+    site_caregory: str = Query(None),
     network_type: str = Query(None),
     time_start: str = Query(None, description="时间窗口开始 YYYY-MM-DD"),
     time_end: str = Query(None, description="时间窗口结束 YYYY-MM-DD"),
@@ -604,10 +614,11 @@ def get_sites(
             "CAST(longitude AS REAL) != 0",
         ]
         filter_params = {
-            "trm_type": trm_type, "site_type": site_type, "area": area,
-            "hubsite": hubsite, "site_information": site_information,
-            "vip_site": vip_site, "supervisor": supervisor,
-            "updated_fme_name_new": updated_fme_name_new,
+            "trm_type": trm_type, "site_type": site_type,
+            "hubsite": hubsite, "vip_site": vip_site,
+            "supervisor": supervisor, "fme_name": fme_name,
+            "province_county": province_county, "power_sources": power_sources,
+            "site_caregory": site_caregory,
         }
         extra_where, params = _build_filter_where(S, filter_params, region, network_type)
         where_parts.extend(extra_where)
@@ -1344,12 +1355,13 @@ def get_realtime_sites(
     region: str = Query(None),
     trm_type: str = Query(None),
     site_type: str = Query(None),
-    area: str = Query(None),
     hubsite: str = Query(None),
-    site_information: str = Query(None),
     vip_site: str = Query(None),
     supervisor: str = Query(None),
-    updated_fme_name_new: str = Query(None),
+    fme_name: str = Query(None),
+    province_county: str = Query(None),
+    power_sources: str = Query(None),
+    site_caregory: str = Query(None),
     network_type: str = Query(None),
 ):
     """RealTime Alarm Map 站点：仅含实时告警站点，TT/WO 关联实时告警 tt_id
@@ -1390,10 +1402,11 @@ def get_realtime_sites(
         ]
         params: list = list(alarm_site_ids)
         filter_params = {
-            "trm_type": trm_type, "site_type": site_type, "area": area,
-            "hubsite": hubsite, "site_information": site_information,
-            "vip_site": vip_site, "supervisor": supervisor,
-            "updated_fme_name_new": updated_fme_name_new,
+            "trm_type": trm_type, "site_type": site_type,
+            "hubsite": hubsite, "vip_site": vip_site,
+            "supervisor": supervisor, "fme_name": fme_name,
+            "province_county": province_county, "power_sources": power_sources,
+            "site_caregory": site_caregory,
         }
         extra_where, extra_params = _build_filter_where(S, filter_params, region, network_type)
         where_parts.extend(extra_where)

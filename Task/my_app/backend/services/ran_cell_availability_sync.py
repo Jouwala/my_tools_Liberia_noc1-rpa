@@ -130,6 +130,37 @@ _PK_CELLNAME_LOOKUP = {
     "KPI_RPA_CELL_AVAIL_TDD": "E-UTRAN TDD Cell Name",
 }
 
+# ============================================================
+# 外部化配置（Settings →「任务配置」维护的 ran_cell_availability_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认；FTP 账号密码不在此文件（走 credential_store）。
+#   UME 主机/端口不在这里：本服务复用 ran_ume_service，见 ran_ume_config.json。
+# ============================================================
+try:
+    from backend.services.task_config_files import (
+        apply_config_overrides, normalize_query_configs)
+except ImportError:
+    from task_config_files import apply_config_overrides, normalize_query_configs  # type: ignore
+
+_AV_CONF = apply_config_overrides(
+    globals(),
+    os.path.join(BASE_DIR, "ran_cell_availability_config.json"),
+    {
+        "ftp_host": ("FTP_HOST", str, "AVAIL_FTP_HOST"),
+        "ftp_remote_dir": ("FTP_REMOTE_DIR", str, "AVAIL_FTP_DIR"),
+        "db_name": ("DB_NAME", str, None),
+    },
+    log_name="cell_availability",
+)
+if _AV_CONF:
+    # DB_PATH 是由 DB_NAME 推导的（上面已算过一次），改名的场景必须在覆盖后重算，否则改名不生效
+    DB_PATH = os.path.abspath(os.path.join(BASE_DIR, "..", "..", "data", DB_NAME))
+    _av_qc = normalize_query_configs(_AV_CONF.get("query_configs") or [])
+    if _av_qc:
+        AVAILABILITY_PM_CONFIGS = _av_qc
+        # 主键小区标识列按模板名保留，未在配置里出现的模板回退到通用「Cell Name」
+        for _k in AVAILABILITY_PM_CONFIGS:
+            _PK_CELLNAME_LOOKUP.setdefault(_k, "Cell Name")
+
 
 # ============================================================
 # 工具函数

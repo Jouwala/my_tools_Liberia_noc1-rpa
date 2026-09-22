@@ -91,6 +91,27 @@ DDL = """CREATE TABLE availability_daily(
       Begin_Time TEXT, End_Time TEXT, Tech TEXT, FME_Region TEXT, Cell_Group TEXT,
       Numerator INTEGER, Denominator INTEGER, Cell_Availability REAL, WK TEXT, Month TEXT)"""
 
+# ============================================================
+# 外部化配置（Settings →「任务配置」维护的 avail_recon_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认。这里配的是「远端库逻辑名/表名」，不是本地路径。
+# ============================================================
+try:
+    from backend.services.task_config_files import apply_config_overrides
+except ImportError:
+    from task_config_files import apply_config_overrides  # type: ignore
+
+apply_config_overrides(
+    globals(),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "avail_recon_config.json"),
+    {
+        "src_db": ("SRC_DB", str, "AVAIL_RECON_SRC_DB"),
+        "master_db": ("MASTER_DB", str, None),
+        "master_table": ("MASTER_TABLE", str, None),
+        "query_timeout": ("QUERY_TIMEOUT", lambda v: max(30, int(v)), None),
+    },
+    log_name="avail_recon",
+)
+
 
 class AvailReconError(Exception):
     """重建失败（远端不可达 / 源表缺失等）。"""

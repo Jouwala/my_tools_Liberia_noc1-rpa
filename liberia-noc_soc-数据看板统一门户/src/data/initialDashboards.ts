@@ -659,6 +659,24 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       themeColor: 'blue',
       status: 'online'
     },
+    {
+      id: 'custom-fme-ranking',
+      title: 'FME Ranking (FME 工程师排名)',
+      description: '按 FME / Supervisor 归属统计每位现场维护工程师所辖站点的可用率与工单（WO）处理情况，给出可用率排名与 WO 排名；支持月份、制式（2G/3G/4G/TDD）、Supervisor 与 FME 筛选，含前 15 名对比图与明细表，可导出 Excel。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}fme_ranking`,
+      category: 'MS 运维管理',
+      tags: ['FME', '工程师排名', '站点可用率', '工单', '排名'],
+      iconName: 'Trophy',
+      updateFrequency: '每日0点',
+      department: 'FLM 现场抢修部',
+      owner: 'FLM 总监',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'indigo',
+      status: 'online'
+    },
 
     {
       id: 'finebi-ms-contract-operation-kpis',

@@ -8,6 +8,7 @@ import {
   Moon,
   Sun,
   Lightbulb,
+  BookOpen,
   Compass,
   Layers,
   RotateCcw,
@@ -33,6 +34,7 @@ interface NavbarProps {
   onOpenAddModal: () => void;
   onOpenEnvironmentModal: () => void;
   onOpenDesignGuideModal: () => void;
+  onOpenDocsIndexModal: () => void;
   onExportJson: () => void;
   onImportJson: () => void;
   onResetDefaults: () => void;
@@ -55,6 +57,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAddModal,
   onOpenEnvironmentModal,
   onOpenDesignGuideModal,
+  onOpenDocsIndexModal,
   onExportJson,
   onImportJson,
   onResetDefaults,
@@ -204,6 +207,15 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
             <span>{t('nav.designGuide')}</span>
+          </button>
+
+          {/* Docs Index Trigger */}
+          <button
+            onClick={onOpenDocsIndexModal}
+            className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-teal-200 dark:border-teal-800/80 bg-teal-50/60 dark:bg-teal-950/40 hover:bg-teal-100 dark:hover:bg-teal-900/50 text-teal-700 dark:text-teal-300 text-xs font-semibold transition-all shadow-2xs"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+            <span>{t('nav.docsIndex')}</span>
           </button>
 
           {/* Save as Default（仅本机 localhost 显示）：当前目录存为服务端全局默认 */}
@@ -357,6 +369,15 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Lightbulb className="w-4 h-4 text-amber-500" />
             <span>{t('nav.designGuide')}</span>
+          </button>
+
+          {/* Docs Index */}
+          <button
+            onClick={() => { onOpenDocsIndexModal(); setMobileMenuOpen(false); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-teal-200 dark:border-teal-800/80 bg-teal-50/60 dark:bg-teal-950/40 hover:bg-teal-100 dark:hover:bg-teal-900/50 text-teal-700 dark:text-teal-300 text-xs font-semibold transition-all"
+          >
+            <BookOpen className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+            <span>{t('nav.docsIndex')}</span>
           </button>
 
           {/* Environment Setting */}

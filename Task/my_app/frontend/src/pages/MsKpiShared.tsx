@@ -187,10 +187,13 @@ export function StatCard(props: {
       onKeyDown={onClick
         ? (e) => { if (e.key === 'Enter') (e.target as HTMLElement).click() }
         : undefined}
+      /* 卡片皮肤交给 CSS 层（.wh-stat-card / .wh-card-interactive），与其余页面的
+         antd Card 走同一套浅色档描边+内发光+悬停上浮，不再在这里内联背景/描边/圆角
+         —— 内联值会盖过统一层，正是这个组件此前游离在统一风格之外的原因。
+         emphasis 仍保留：它只把描边提到实色，表达「该指标被强调」。 */
+      className="wh-stat-card wh-card-interactive"
       style={{
-        background: WH.cardBg,
-        border: emphasis ? `1px solid ${color || WH.teal}` : WH.cardBorder,
-        borderRadius: 8,
+        border: emphasis ? `1px solid ${color || WH.teal}` : undefined,
         padding: '12px 14px',
         height: '100%',
         boxSizing: 'border-box',

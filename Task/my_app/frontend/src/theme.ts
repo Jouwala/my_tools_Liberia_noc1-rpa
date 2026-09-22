@@ -106,12 +106,23 @@ export const axisLine = (isDark: boolean = true) => ({ lineStyle: { color: isDar
 export const splitLine = (isDark: boolean = true) => ({ lineStyle: { type: 'dashed' as const, color: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(13,148,136,0.12)' } })
 
 // antd Card 通用样式（DOM 层：CSS 变量）
-// 阴影取统一令牌 --wh-shadow-1，深浅主题各自定义，不再在 JS 里按主题硬编码 rgba
+// 阴影取统一令牌，深浅主题各自定义，不再在 JS 里按主题硬编码 rgba。
+//
+// 2026-09-24 卡片风格统一：boxShadow 由 --wh-shadow-1 改为 --wh-card-shadow。
+//
+// 为什么必须换名：本对象是**行内样式**，行内样式优先级高于 index.css 里的类选择器。
+// 原来写死 var(--wh-shadow-1) 时，index.css 中统一卡片层的 box-shadow 永远被它盖掉，
+// 于是 143 处引用 cardStyle 的卡片无法继承新的 olbr 内发光皮肤。
+//
+// --wh-card-shadow 是「卡片阴影总成」：浅色档 = olbr 内发光 + --wh-shadow-2，
+// 深色档 = --wh-shadow-1（保持改动前原值，零回归），不支持 color-mix 的浏览器
+// 由 index.css 末尾的 @supports 段退回 --wh-shadow-2。
+// 改阴影样式请改 index.css 里的 --wh-card-shadow，不要改回这里。
 export const cardStyle: React.CSSProperties = {
   background: WH.cardBg,
   border: WH.cardBorder,
   borderRadius: 'var(--wh-radius-lg)',
-  boxShadow: 'var(--wh-shadow-1)',
+  boxShadow: 'var(--wh-card-shadow)',
   transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease',
 }
 

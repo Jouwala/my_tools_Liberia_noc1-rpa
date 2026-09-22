@@ -577,6 +577,7 @@ class VmaxReportClient:
     def query_kpis_range(self, report_part: str, begin: Any = None, end: Any = None,
                          granularity: str = "hour", dims: Optional[Sequence[str]] = None,
                          kpis: Optional[Sequence[str]] = None, top_n: int = 20000,
+                         page_size: Optional[int] = None,
                          chunk_days: Any = None, days_back: Optional[int] = None,
                          filters: Optional[Iterable[dict]] = None,
                          progress: bool = False, **kwargs) -> Dict[str, Any]:
@@ -600,7 +601,8 @@ class VmaxReportClient:
         for idx, (b, e) in enumerate(windows, 1):
             try:
                 res = self.query_kpis(report_part, b, e, granularity=g, dims=dims, kpis=kpis,
-                                      top_n=top_n, page_size=top_n, filters=filters, **kwargs)
+                                      top_n=top_n, page_size=page_size or top_n,
+                                      filters=filters, **kwargs)
             except Exception as exc:                                     # noqa: BLE001
                 failures.append("%s~%s: %s" % (b, e, exc))
                 logger.warning("[vmax_multi_data] 分片 %s~%s 失败: %s", b, e, exc)

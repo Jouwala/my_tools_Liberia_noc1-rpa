@@ -79,6 +79,28 @@ SUMMARY_OVERVIEW_IDS = [131, 132, 133, 134]
 
 _REQ_TIMEOUT = (10, 60)
 
+# ============================================================
+# 外部化配置（Settings →「任务配置」维护的 cxo_dashboard_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认。
+#   proxy_base 指向本机 VMAX 单会话代理（默认 127.0.0.1:8790），vmax_base 是被代理的门户前缀。
+# ============================================================
+try:
+    from backend.services.task_config_files import apply_config_overrides
+except ImportError:
+    from task_config_files import apply_config_overrides  # type: ignore
+
+apply_config_overrides(
+    globals(),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "cxo_dashboard_config.json"),
+    {
+        "proxy_base": ("PROXY_BASE", str, "CXO_PROXY_BASE"),
+        "vmax_base": ("VMAX_BASE", str, "CXO_VMAX_BASE"),
+        "summary_trend_ids": "SUMMARY_TREND_IDS",
+        "summary_overview_ids": "SUMMARY_OVERVIEW_IDS",
+    },
+    log_name="cxo_dashboard",
+)
+
 
 # ---------- 空值判定（按组件类型；空值 => 保留旧缓存） ----------
 def _series_has_data(option):

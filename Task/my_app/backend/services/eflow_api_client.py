@@ -97,18 +97,13 @@ if _EFLOW_CONF is not None:
         HTTP_READ_TIMEOUT = float(_EFLOW_CONF.get("read_timeout", HTTP_READ_TIMEOUT))
     if not os.environ.get("EFLOW_HTTP_MAX_RETRIES"):
         HTTP_MAX_RETRIES = max(0, int(_EFLOW_CONF.get("max_retries", HTTP_MAX_RETRIES)))
-    if not os.environ.get("EFLOW_DELTA_DAYS"):
-        # 注意：EFLOW_DELTA_DAYS 定义在本块之后，这里用与内置默认一致的常量值
-        EFLOW_DELTA_DAYS = max(1, int(_EFLOW_CONF.get("delta_days", 3)))
-    if not os.environ.get("EFLOW_FULL_DAYS"):
-        EFLOW_FULL_DAYS = max(0, int(_EFLOW_CONF.get("full_days", 0)))
     TT_API_PATH = _EFLOW_CONF.get("tt_api_path", TT_API_PATH)
     WO_API_PATH = _EFLOW_CONF.get("wo_api_path", WO_API_PATH)
     CR_API_PATH = _EFLOW_CONF.get("cr_api_path", CR_API_PATH)
     PM_API_PATH = _EFLOW_CONF.get("pm_api_path", PM_API_PATH)
     SITE_API_PATH = _EFLOW_CONF.get("site_api_path", SITE_API_PATH)
     PERSON_API_PATH = _EFLOW_CONF.get("person_api_path", PERSON_API_PATH)
-    logger.info(f"[eFlow] 已加载 eflow_config.json: host={HOST}, delta={EFLOW_DELTA_DAYS}天")
+    logger.info(f"[eFlow] 已加载 eflow_config.json: host={HOST}")
 ALARM_API_PATH = "/api/fm-active/v1/activealarms/table"
 HIS_ALARM_API_PATH = "/api/fm-history/v1/hisalarms/pageinfo"
 
@@ -125,9 +120,14 @@ SEND_EMAIL_AFTER_REPORT = False          # 是否在生成报告后发送邮件
 
 # ========== 抓取时间窗口 ==========
 # delta 模式（每小时）：只抓最近 N 天修改过的工单，配合增量写入保留历史
-EFLOW_DELTA_DAYS = int(os.environ.get("EFLOW_DELTA_DAYS", "3"))
 # full 模式（每日兜底）：0 = 自 2026-01-01 全量（保持原始语义），>0 = 最近 N 天
-EFLOW_FULL_DAYS = int(os.environ.get("EFLOW_FULL_DAYS", "0"))
+# 优先级：环境变量 > eflow_config.json（Settings 页面）> 内置默认。
+# ⚠ 页面键 delta_days / full_days 只能在**这里**读：曾经在上面那个覆盖块里赋值，
+#   被本行重新定义冲掉，导致页面上改了不生效（静态检查看得到键名，动态验证才暴露）。
+EFLOW_DELTA_DAYS = max(1, int(os.environ.get("EFLOW_DELTA_DAYS")
+                              or ((_EFLOW_CONF or {}).get("delta_days") or 3)))
+EFLOW_FULL_DAYS = max(0, int(os.environ.get("EFLOW_FULL_DAYS")
+                             or ((_EFLOW_CONF or {}).get("full_days") or 0)))
 
 # eFlow TT 导出列名 -> mail_126.ExcelDataProcessor 期望列名
 # 注意：Site Category 不再取 TT 自带的 Site Class（P1-P4 严重级别），

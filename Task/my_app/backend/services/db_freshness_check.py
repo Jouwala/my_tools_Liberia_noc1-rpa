@@ -180,6 +180,29 @@ TASK_HEALTH_LOOKBACK_HOURS = 24
 TASK_HEALTH_PENDING_MAX_MINUTES = 10
 TASK_HEALTH_RUNNING_MAX_MINUTES = 30
 
+# ============================================================
+# 外部化配置（Settings →「任务配置」维护的 db_freshness_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认。
+#   这里的阈值直接决定「哪些表/任务算过期」，改完保存即生效（worker 会被重启重导）。
+# ============================================================
+try:
+    from backend.services.task_config_files import apply_config_overrides
+except ImportError:
+    from task_config_files import apply_config_overrides  # type: ignore
+
+apply_config_overrides(
+    globals(),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "db_freshness_config.json"),
+    {
+        "api_port": ("API_PORT", int, "DB_WRITER_PORT"),
+        "http_timeout": ("HTTP_TIMEOUT", lambda v: max(5, int(v)), None),
+        "lookback_hours": ("TASK_HEALTH_LOOKBACK_HOURS", lambda v: max(1, int(v)), None),
+        "pending_max_minutes": ("TASK_HEALTH_PENDING_MAX_MINUTES", lambda v: max(1, int(v)), None),
+        "running_max_minutes": ("TASK_HEALTH_RUNNING_MAX_MINUTES", lambda v: max(1, int(v)), None),
+    },
+    log_name="db_freshness",
+)
+
 # 「外部依赖不可用」类失败特征（EWS / 邮件网关 + 通用网络不可达）。
 # 用于把"依赖故障导致的逾期"与"任务真停摆"分开：前者汇总成一条告警，后者逐条告警。
 # 见 _is_dependency_failure()。

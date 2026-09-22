@@ -33,6 +33,7 @@ import ssl
 import sys
 import time
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 from backend.database import get_raw_connection
 from backend.services.mw_ume.mw_ume_kpi_service import (
@@ -205,6 +206,54 @@ KPI_SPECS = [
         "free_col": "Size of free memory(KB)",
     },
 ]
+
+# ============================================================
+# 外部化配置（Settings →「任务配置」维护的 ume_in_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认；凭据走 credential_store(ume_in)。
+#   文件缺失/损坏时行为与未外置完全一致。KPI 模板整体替换（kpi_specs 为 JSON 数组，
+#   fail_cols/extra_cols 三元组用数组表示，解包语义不变）。
+# ============================================================
+try:
+    from backend.services.task_config_files import apply_config_overrides
+except ImportError:  # 脚本直跑
+    from task_config_files import apply_config_overrides  # type: ignore
+
+_UME_IN_CONF = apply_config_overrides(
+    globals(),
+    Path(__file__).resolve().parents[1] / "ume_in_config.json",
+    {
+        "host": ("HOST", str, "UME_IN_HOST"),
+        "port": ("PORT", int, "UME_IN_PORT"),
+        "login_portal": ("LOGIN_PORTAL", str, "UME_IN_PORTAL"),
+        "table_name": ("TABLE_NAME", str, "UME_IN_TABLE"),
+        "days_back": ("DAYS_BACK", lambda v: max(1, int(v)), "UME_IN_DAYS_BACK"),
+        "max_parallel_workers": ("MAX_PARALLEL_WORKERS", lambda v: max(1, int(v)),
+                                 "UME_IN_PARALLEL_WORKERS"),
+        "success_warn": ("SUCCESS_WARN", float, "UME_IN_SUCCESS_WARN"),
+        "success_crit": ("SUCCESS_CRIT", float, "UME_IN_SUCCESS_CRIT"),
+        "sys_fail_warn": ("SYS_FAIL_WARN", float, "UME_IN_SYS_FAIL_WARN"),
+        "sys_fail_crit": ("SYS_FAIL_CRIT", float, "UME_IN_SYS_FAIL_CRIT"),
+        "res_warn": ("RES_WARN", float, "UME_IN_RES_WARN"),
+        "res_crit": ("RES_CRIT", float, "UME_IN_RES_CRIT"),
+        "res_spike_top": ("RES_SPIKE_TOP", float, "UME_IN_RES_SPIKE_TOP"),
+        "res_spike_base": ("RES_SPIKE_BASE", float, "UME_IN_RES_SPIKE_BASE"),
+    },
+    log_name="ume_in",
+)
+if _UME_IN_CONF:
+    _ui_urls = _UME_IN_CONF.get("urls") or {}
+    if isinstance(_ui_urls, dict):
+        if _ui_urls.get("history"):
+            HISTORY_PATH = _ui_urls["history"]
+        if _ui_urls.get("poll"):
+            HISTORY_POLL_PATH = _ui_urls["poll"]
+        if _ui_urls.get("export"):
+            HISTORY_EXPORT_PATH = _ui_urls["export"]
+    _ui_specs = _UME_IN_CONF.get("kpi_specs")
+    if isinstance(_ui_specs, list) and _ui_specs:
+        KPI_SPECS = _ui_specs
+# REFERER 依赖可能被上面改过的 HOST/PORT/LOGIN_PORTAL，故在其之后重算
+REFERER = f"https://{HOST}:{PORT}{LOGIN_PORTAL}"
 
 SPEC_BY_KEY = {s["key"]: s for s in KPI_SPECS}
 

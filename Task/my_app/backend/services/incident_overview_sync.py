@@ -65,6 +65,27 @@ POINTER_FILE = DATA_DIR / "current.json"
 KEEP_VERSIONS = 1                       # 只保留最新 1 份版本化文件，旧版每次同步后清理
 VERSION_PREFIX = "incident_overview_"  # 版本化文件前缀：incident_overview_<ts>_<rand>.xlsx
 
+# ============================================================
+# 外部化配置（Settings →「任务配置」维护的 incident_overview_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认；FTP 主机与账号密码走「凭据管理」，不在此文件。
+# ============================================================
+try:
+    from backend.services.task_config_files import apply_config_overrides
+except ImportError:
+    from task_config_files import apply_config_overrides  # type: ignore
+
+apply_config_overrides(
+    globals(),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "incident_overview_config.json"),
+    {
+        "ftp_port": ("FTP_PORT", int, None),
+        "ftp_base_dir": ("FTP_BASE_DIR", str, "INCIDENT_FTP_DIR"),
+        "target_filename": ("TARGET_FILENAME", str, None),
+        "keep_versions": ("KEEP_VERSIONS", lambda v: max(1, int(v)), None),
+    },
+    log_name="incident_overview",
+)
+
 
 # ---------------------------------------------------------------------------
 # FTP 连接

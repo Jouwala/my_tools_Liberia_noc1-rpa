@@ -31,6 +31,30 @@ COUNTERS = "40716.|40738.|40748.|40408.|40971.|4868.|48680.|40508.|43100."
 PROC_TIMEOUT = 7200  # 秒（全量解析约 10 分钟，留足余量）
 PMCACHE_KEEP_DAYS = 1  # _pmcache 保留最近 N 天（含今天）；日聚合完成后的旧数据自动删除，避免无限增长
 
+# ============================================================
+# 外部化配置（Settings →「任务配置」维护的 ems_kpi_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认。EMS 登录凭据不在此文件（走 credential_store）。
+#   ⚠ 位置要求：必须在下面用到这些常量的函数定义之前（默认参数在 def 时绑定）。
+# ============================================================
+try:
+    from backend.services.task_config_files import apply_config_overrides
+except ImportError:
+    from task_config_files import apply_config_overrides  # type: ignore
+
+apply_config_overrides(
+    globals(),
+    os.path.join(os.path.dirname(HERE), "ems_kpi_config.json"),
+    {
+        "host": ("HOST", str, "CN_EMS_HOST"),
+        "java_path": ("JAVA", str, "CN_EMS_JAVA"),
+        "classpath": ("CP", str, None),
+        "counters": ("COUNTERS", str, None),
+        "proc_timeout": ("PROC_TIMEOUT", lambda v: max(60, int(v)), None),
+        "pmcache_keep_days": ("PMCACHE_KEEP_DAYS", lambda v: max(1, int(v)), None),
+    },
+    log_name="cn_ems",
+)
+
 # java.exe 是控制台程序：worker 以 pythonw（无控制台）运行时若不加此标志，
 # Windows 会为它新建一个标题为 java.exe 路径的黑色控制台窗口（每 15 分钟弹一次）。
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)

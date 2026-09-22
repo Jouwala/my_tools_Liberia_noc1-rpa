@@ -272,12 +272,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const FILTER_CONFIG = [
     { key: 'trm_type', label: t('gis.filter.trmType') },
     { key: 'site_type', label: t('gis.filter.siteType') },
-    { key: 'area', label: t('gis.filter.area') },
     { key: 'hubsite', label: t('gis.filter.hubSite') },
-    { key: 'site_information', label: t('gis.filter.siteInfo') },
     { key: 'vip_site', label: t('gis.filter.vipSite') },
     { key: 'supervisor', label: t('gis.filter.supervisor') },
-    { key: 'updated_fme_name_new', label: t('gis.filter.fmeName') },
+    { key: 'fme_name', label: t('gis.filter.fmeName') },
+    { key: 'province_county', label: t('gis.filter.province') },
+    { key: 'network_type', label: t('gis.filter.networkType') },
+    { key: 'power_sources', label: t('gis.filter.powerSources') },
+    { key: 'site_caregory', label: t('gis.filter.siteCategory') },
   ]
 
   const activeFilterCount = Object.values(selectedFilters).filter(Boolean).length

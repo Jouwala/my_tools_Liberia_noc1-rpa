@@ -288,6 +288,30 @@ KPI_TABS = {
     "282": ["service/OTTVideo"], "283": ["service/OTTVideo"],
 }
 
+# ============================================================
+# 外部化配置（Settings →「任务配置」维护的 vmax_cxo_daily_config.json）
+#   优先级：环境变量 > 配置文件 > 内置默认。
+#   retention_days 决定归档文件回溯天数（改小会裁掉更早的日值），lookback_days 是每次补数窗口。
+# ============================================================
+try:
+    from backend.services.task_config_files import apply_config_overrides
+except ImportError:
+    from task_config_files import apply_config_overrides  # type: ignore
+
+apply_config_overrides(
+    globals(),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "vmax_cxo_daily_config.json"),
+    {
+        "proxy_base": ("PROXY_BASE", str, "VMAX_CXO_PROXY_BASE"),
+        "vmax_host": ("VMAX_HOST", str, "VMAX_CXO_HOST"),
+        "history_endpoint": ("HISTORY_ENDPOINT", str, None),
+        "granularity": ("GRANULARITY", str, None),
+        "retention_days": ("RETENTION_DAYS", lambda v: max(1, int(v)), None),
+        "lookback_days": ("LOOKBACK_DAYS", lambda v: max(1, int(v)), None),
+    },
+    log_name="vmax_cxo_daily",
+)
+
 
 def build_tab_tree():
     """按 TAB_ORDER / KPI_TABS 组装页签树（只保留实际存在的 KPI）。"""

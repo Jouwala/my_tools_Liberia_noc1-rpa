@@ -178,10 +178,12 @@ function StatCard(props: {
   const { label, value, unit, hint, color, emphasis } = props
   return (
     <div
+      /* 卡片皮肤交给 CSS 层（.wh-stat-card），与其余页面的 antd Card 统一走浅色档
+         描边+内发光；此前内联的 background/border/borderRadius 会盖过统一层，
+         是该组件游离在统一风格之外的根因。emphasis 保留描边强调语义。 */
+      className="wh-stat-card"
       style={{
-        background: WH.cardBg,
-        border: emphasis ? `1px solid ${color || WH.teal}` : WH.cardBorder,
-        borderRadius: 8,
+        border: emphasis ? `1px solid ${color || WH.teal}` : undefined,
         padding: '12px 14px',
         height: '100%',
         boxSizing: 'border-box',

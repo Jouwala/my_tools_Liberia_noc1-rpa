@@ -6,7 +6,8 @@
     register_config(ConfigResource(task_id, path, defaults, schema, ...))
 
 schema 同时驱动：后端校验 + 前端表单渲染。类型：
-  int / str / bool / object(fields) / table(fields, min_items, max_items)
+  int / float / str / bool / json / list / object(fields) / table(fields, min_items, max_items)
+可选字段写 null 一律放行（等价于未填，由服务侧默认值兜底）；required 字段仍会校验。
 """
 from __future__ import annotations
 
@@ -33,6 +34,32 @@ def load_json_config(path) -> dict | None:
     except Exception as e:
         print(f"[CONFIG] 读取 {p.name} 失败，回退默认: {e}")
     return None
+
+
+def apply_config_overrides(globals_dict: dict, path, spec: dict, log_name: str = "") -> dict | None:
+    """把外部化 JSON 配置应用到模块级常量（优先级：环境变量 > 配置文件 > 内置默认）。
+
+    spec: {配置文件键: (模块全局名, 转换函数或 None, 对应环境变量名或 None)}
+    只覆盖「配置文件里存在且非空」的键；env 已显式设置时让 env 赢；转换失败跳过该键
+    而不是让服务导入崩掉。嵌套结构（urls / 模板表）由调用方在返回值上自行处理。
+
+    返回读到的原始 dict（文件缺失/损坏返回 None），行为与未外置时完全一致。
+    """
+    conf = load_json_config(path)
+    if not isinstance(conf, dict):
+        return None
+    for ckey, rule in spec.items():
+        gname, cast, env = (list(rule) + [None, None])[:3] if isinstance(rule, (tuple, list)) else (rule, None, None)
+        val = conf.get(ckey)
+        if val is None or val == "":
+            continue
+        if env and os.environ.get(env):
+            continue
+        try:
+            globals_dict[gname] = cast(val) if cast else val
+        except (TypeError, ValueError):
+            print(f"[CONFIG] {log_name or gname}: 键 {ckey} 值 {val!r} 转换失败，保留默认")
+    return conf
 
 
 def serialize_query_configs(configs: dict) -> list:
@@ -157,6 +184,8 @@ def _validate_value(key: str, schema: dict, value, errors: list, path: str = "")
     t = schema.get("type", "str")
     label = schema.get("label_zh", key)
     where = f"{path}{key}"
+    if value is None and not schema.get("required"):
+        return                                  # 可选字段写 null = 未填，交给服务侧默认值（老配置里常见）
     if t == "int":
         if isinstance(value, bool) or not isinstance(value, int):
             errors.append(f"{where}: {label} 必须为整数")
@@ -170,12 +199,23 @@ def _validate_value(key: str, schema: dict, value, errors: list, path: str = "")
             errors.append(f"{where}: {label} 必须为字符串")
         elif schema.get("required") and not value.strip():
             errors.append(f"{where}: {label} 不能为空")
+    elif t == "float":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            errors.append(f"{where}: {label} 必须为数字")
+            return
+        if "min" in schema and value < schema["min"]:
+            errors.append(f"{where}: {label} 不能小于 {schema['min']}")
+        if "max" in schema and value > schema["max"]:
+            errors.append(f"{where}: {label} 不能大于 {schema['max']}")
     elif t == "bool":
         if not isinstance(value, bool):
             errors.append(f"{where}: {label} 必须为布尔值")
     elif t == "json":
         if not isinstance(value, (dict, list)):
             errors.append(f"{where}: {label} 必须为 JSON 对象或数组")
+    elif t == "list":
+        if not isinstance(value, list):
+            errors.append(f"{where}: {label} 必须为数组（JSON 列表，如 [\"a\",\"b\"]）")
     elif t == "object":
         if not isinstance(value, dict):
             errors.append(f"{where}: {label} 必须为对象")

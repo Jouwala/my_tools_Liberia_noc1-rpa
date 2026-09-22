@@ -75,19 +75,24 @@ def _runtime_credentials():
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 查询参数（来自 url.txt）——支持多台设备，按设备分别拉取/入库/出图
+# 目标设备 ID 可由配置文件 device_ids 覆盖（见下方外部化配置块）
 DEVICE_IDS = ["37781505", "37781506"]
 
 # ========== 外部化配置（Settings 页面可编辑的 fw_kpi_config.json） ==========
 # 优先级：环境变量 > 配置文件 > 内置默认
+# ⚠ 路径必须与 task_configs_registry 注册的路径一致（backend/services/ 下），
+#   否则页面保存的文件没人读：本模块在 fw_kpi/ 子包内，要用 parents[1]。
 try:
     from backend.services.task_config_files import load_json_config
-    _FW_CONF = load_json_config(Path(__file__).resolve().parent / "fw_kpi_config.json")
+    _FW_CONF = load_json_config(Path(__file__).resolve().parents[1] / "fw_kpi_config.json")
 except Exception:
     _FW_CONF = None
 if _FW_CONF:
     HOST = _FW_CONF.get("host", HOST)
     PORT = int(_FW_CONF.get("port", PORT))
-    print(f"[FW] 已加载 fw_kpi_config.json: host={HOST}")
+    if isinstance(_FW_CONF.get("device_ids"), list) and _FW_CONF["device_ids"]:
+        DEVICE_IDS = [str(d).strip() for d in _FW_CONF["device_ids"] if str(d).strip()]
+    print(f"[FW] 已加载 fw_kpi_config.json: host={HOST}, 设备数={len(DEVICE_IDS)}")
 
 # 时间范围：当前时间往前 30 天的 00:00:00 起，到当前时刻止。
 # 例如今天 2026-08-04 21:30 → start 2026-07-06 00:00:00, end 2026-08-04 21:30:xx
@@ -132,8 +137,8 @@ _MANAGED_VENV_PY = (
     r"C:\Users\ZTEEMS\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
 )
 
-# 图表回看天数（默认 14 天，可用环境变量 FW_CHART_DAYS_BACK 覆盖）
-CHART_DAYS_BACK = int(os.environ.get("FW_CHART_DAYS_BACK", "14"))
+# 图表回看天数（默认 14 天，可用环境变量 FW_CHART_DAYS_BACK 或配置文件 chart_days_back 覆盖）
+CHART_DAYS_BACK = int(os.environ.get("FW_CHART_DAYS_BACK") or ((_FW_CONF or {}).get("chart_days_back", 14)))
 # 是否在同步后生成图表并发送邮件（FW_CHART_EMAIL=0 可关闭）
 ENABLE_CHART_EMAIL = os.environ.get("FW_CHART_EMAIL", "1") != "0"
 

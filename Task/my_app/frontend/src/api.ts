@@ -58,6 +58,16 @@ export function getFmeRankingOverview(params?: Record<string, string | number>) 
   return api.get('/fme-ranking/overview', { params })
 }
 
+// FME 下钻：该 FME 名下的 WO 明细
+export function getFmeRankingWoDrilldown(params?: Record<string, string | number>) {
+  return api.get('/fme-ranking/wo-drilldown', { params })
+}
+
+// FME 下钻：该 FME 名下的站点级可用率 + WO 明细
+export function getFmeRankingSiteDrilldown(params?: Record<string, string | number>) {
+  return api.get('/fme-ranking/site-drilldown', { params })
+}
+
 // Daily site-down occurrence dashboard: eflow_tt + eflow_site.
 export function getRepeatSiteDownFilters() {
   return api.get('/repeat-site-down/filters')

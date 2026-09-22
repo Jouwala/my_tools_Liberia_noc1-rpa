@@ -41,6 +41,7 @@ const zh: Record<string, string> = {
 
   'nav.subtitle': 'Liberia Data Portal (FineBI) · Data Insight MVP (自研系统) · 统一调度直通',
   'nav.designGuide': '设计与美化方案',
+  'nav.docsIndex': '项目文档',
   'nav.envConfig': '环境配置',
   'nav.envTip': '配置服务器 IP / 域名环境',
   'nav.exportTip': '导出配置 JSON 备份',
@@ -338,6 +339,35 @@ const zh: Record<string, string> = {
   'guide.urlNote3': '// 3. Data Insight MVP 自研系统首页及子页面（?page= 直链，非 hash 路由）：',
   'guide.ok': '我已知晓，开始体验门户',
 
+  // —— 文档索引弹窗（工作区 8 份体系文档）——
+  // 命名约定：docs.<key>T = 文件名，docs.<key> = 一句话说明。
+  // 左右两列的顺序（01/03/05/07 与 02/04/06/08）在 DocsIndexModal.tsx 里定义。
+  'docs.title': '项目文档体系',
+  'docs.subtitle': 'AI 与人都从这里进入项目：8 份文档，各管一件事',
+  'docs.close': '关闭',
+  'docs.ok': '我知道了',
+  'docs.slogan': '工具负责整理，人与 AI 负责协作执行。',
+  'docs.copyHint': '点击复制文件路径',
+  'docs.copied': '路径已复制',
+  'docs.orderNote':
+    '编号 01–08 是阅读顺序，不是执行顺序。文档随代码演进，如与源码不一致，以源码为准。',
+  'docs.agentsT': 'AGENTS.md',
+  'docs.agents': 'AI 进入项目首先需要知道的信息',
+  'docs.designT': 'DESIGN.md',
+  'docs.design': '整个项目的视觉规则',
+  'docs.todoT': 'TODO.md',
+  'docs.todo': '当前任务、优先级和开发进度',
+  'docs.overviewT': 'project-overview.md',
+  'docs.overview': '项目整体说明',
+  'docs.architectureT': 'architecture.md',
+  'docs.architecture': '架构和数据流',
+  'docs.userguideT': 'user-guide.md',
+  'docs.userguide': '面向使用者的功能说明',
+  'docs.developmentT': 'development.md',
+  'docs.development': '开发方式、命令和回归清单',
+  'docs.componentapiT': 'component-api.md',
+  'docs.componentapi': '组件相关',
+
   // —— 服务器 / 域名端点配置（环境配置弹窗）——
   'eps.title': '服务器 / 域名端点配置',
   'eps.subtitle': '统一设置 FineBI 与 my_app 的主机地址，修改后全站看板链接立即生效',
@@ -537,6 +567,7 @@ const en: Record<string, string> = {
 
   'nav.subtitle': 'Liberia Data Portal (FineBI) · Data Insight MVP (In-house) · Unified Scheduling',
   'nav.designGuide': 'Design Guide',
+  'nav.docsIndex': 'Project Docs',
   'nav.envConfig': 'Environment',
   'nav.envTip': 'Configure server IP / domain environment',
   'nav.exportTip': 'Export config JSON backup',
@@ -841,6 +872,33 @@ const en: Record<string, string> = {
   'guide.urlNote2': '// 2. Direct view of a single FineBI report (MS / FO / FLM / BO / SOC):',
   'guide.urlNote3': '// 3. Data Insight MVP homepage & sub-pages (?page= deep links, not hash routing):',
   'guide.ok': 'Got it, start exploring',
+
+  // —— Docs index modal (the 8-doc project documentation system) ——
+  'docs.title': 'Project Documentation',
+  'docs.subtitle': 'One entry point for both people and AI: 8 documents, each owning one concern',
+  'docs.close': 'Close',
+  'docs.ok': 'Got it',
+  'docs.slogan': 'Tools organize; people and AI collaborate and execute.',
+  'docs.copyHint': 'Click to copy the file path',
+  'docs.copied': 'Path copied',
+  'docs.orderNote':
+    'Numbers 01–08 indicate reading order, not execution order. Docs evolve with the code; when they disagree, the source code wins.',
+  'docs.agentsT': 'AGENTS.md',
+  'docs.agents': 'What AI must know first when entering the project',
+  'docs.designT': 'DESIGN.md',
+  'docs.design': 'Visual rules for the whole project',
+  'docs.todoT': 'TODO.md',
+  'docs.todo': 'Current tasks, priorities and progress',
+  'docs.overviewT': 'project-overview.md',
+  'docs.overview': 'Overall description of the project',
+  'docs.architectureT': 'architecture.md',
+  'docs.architecture': 'Architecture and data flow',
+  'docs.userguideT': 'user-guide.md',
+  'docs.userguide': 'Feature guide for end users',
+  'docs.developmentT': 'development.md',
+  'docs.development': 'How to develop, commands and regression checklist',
+  'docs.componentapiT': 'component-api.md',
+  'docs.componentapi': 'All about components',
 
   // —— Server / domain endpoint config (Environment modal) ——
   'eps.title': 'Server / Domain Endpoint Config',
@@ -1193,6 +1251,12 @@ const zhDashboard: Record<string, string> = {
   'tag.历史回溯': 'Historical Review',
   'tag.报告留存': 'Report Retention',
   'tag.可用性': 'Availability',
+
+  'dash.custom-fme-ranking.title': 'FME Ranking (FME 工程师排名)',
+  'dash.custom-fme-ranking.desc': '按 FME / Supervisor 归属统计每位现场维护工程师所辖站点的可用率与工单（WO）处理情况，给出可用率排名与 WO 排名；支持月份、制式（2G/3G/4G/TDD）、Supervisor 与 FME 筛选，含前 15 名对比图与明细表，可导出 Excel。',
+  'tag.工程师排名': 'Engineer Ranking',
+  'tag.站点可用率': 'Site Availability',
+  'tag.排名': 'Ranking',
 
 
   // 标签
@@ -1635,6 +1699,12 @@ const enDashboard: Record<string, string> = {
   'tag.历史回溯': 'Historical Review',
   'tag.报告留存': 'Report Retention',
   'tag.可用性': 'Availability',
+
+  'dash.custom-fme-ranking.title': 'FME Ranking (FME Engineer Ranking)',
+  'dash.custom-fme-ranking.desc': 'Ranks field maintenance engineers (FME) by the availability of the sites they own and by their work orders (WO). Supports filters for month, technology (2G/3G/4G/TDD), supervisor and FME, with a top-15 comparison chart, a detail table and Excel export.',
+  'tag.工程师排名': 'Engineer Ranking',
+  'tag.站点可用率': 'Site Availability',
+  'tag.排名': 'Ranking',
 
 
   // Tags

@@ -1,0 +1,223 @@
+{
+  "host": "172.17.208.1",
+  "port": 28808,
+  "login_portal": "/em-portal/",
+  "table_name": "ume_in_customer_kpi",
+  "days_back": 7,
+  "max_parallel_workers": 4,
+  "urls": {
+    "history": "/api/pm-analysis/v2/history",
+    "poll": "/api/pm-analysis/v1/history",
+    "export": "/api/pm-analysis/v3/history/export"
+  },
+  "success_warn": 0.99,
+  "success_crit": 0.95,
+  "sys_fail_warn": 0.001,
+  "sys_fail_crit": 0.01,
+  "res_warn": 80.0,
+  "res_crit": 90.0,
+  "res_spike_top": 95.0,
+  "res_spike_base": 50.0,
+  "kpi_specs": [
+    {
+      "key": "IVR",
+      "template": "Dong_customer weekly IVR KPI",
+      "motid": "64300",
+      "templateid": "1731730870314",
+      "items": [
+        "C637210002",
+        "C637210003"
+      ],
+      "title_zh": "IVR 语音自助",
+      "title_en": "IVR Self-service",
+      "kind": "success_rate",
+      "attempt_col": "PA Times",
+      "success_col": null,
+      "fail_cols": [
+        [
+          "PA Failed Times",
+          "处理失败",
+          "system"
+        ]
+      ]
+    },
+    {
+      "key": "P4M",
+      "template": "Dong_customer weekly P4M KPI",
+      "motid": "64300",
+      "templateid": "1731730870313",
+      "items": [
+        "C637240001",
+        "C637240002",
+        "C637240005",
+        "C637240006"
+      ],
+      "title_zh": "P4M 业务开通",
+      "title_en": "P4M Provisioning",
+      "kind": "success_rate",
+      "attempt_col": "Request Times",
+      "success_col": "Subscribe Times",
+      "fail_cols": [],
+      "rate_label_zh": "订阅转化率",
+      "rate_label_en": "Subscribe conversion",
+      "alarm": false,
+      "extra_cols": [
+        [
+          "Black list management Times",
+          "黑名单管理",
+          "Black list management"
+        ],
+        [
+          "White list management Times",
+          "白名单管理",
+          "White list management"
+        ]
+      ]
+    },
+    {
+      "key": "VC",
+      "template": "Dong_customer_weekly_VC_KPI",
+      "motid": "64300",
+      "templateid": "1731730870310",
+      "items": [
+        "C637260001",
+        "C637260002",
+        "C637260014",
+        "C637260003",
+        "C637260015",
+        "C637260013"
+      ],
+      "title_zh": "VC 充值",
+      "title_en": "VC Recharge",
+      "kind": "success_rate",
+      "attempt_col": "Recharge received times",
+      "success_col": "Recharge success times",
+      "fail_cols": [
+        [
+          "Recharge failed times",
+          "充值失败",
+          "system"
+        ],
+        [
+          "User recharge failed times",
+          "用户侧失败",
+          "user"
+        ]
+      ]
+    },
+    {
+      "key": "USSD",
+      "template": "Dong_customer Weekly_USSD_KPI",
+      "motid": "64301",
+      "templateid": "1731730870309",
+      "items": [
+        "C637120003",
+        "C637120007",
+        "C637120030",
+        "C637120029",
+        "C637120028"
+      ],
+      "title_zh": "USSD 交互",
+      "title_en": "USSD Session",
+      "kind": "success_rate",
+      "attempt_col": "Call Attempts",
+      "success_col": "Send Success Times",
+      "fail_cols": [
+        [
+          "DataBase result error Times",
+          "数据库错误",
+          "system"
+        ],
+        [
+          "System Fail Times",
+          "系统失败",
+          "system"
+        ],
+        [
+          "User Fail Times",
+          "用户失败",
+          "user"
+        ]
+      ]
+    },
+    {
+      "key": "PPS",
+      "template": "Dong_customer_PPS_KPI",
+      "motid": "64300",
+      "templateid": "1731730870308",
+      "items": [
+        "C637000001",
+        "C637000102",
+        "C637000103",
+        "C637000104",
+        "C637000105",
+        "C637000101"
+      ],
+      "title_zh": "PPS 预付费呼叫",
+      "title_en": "PPS Prepaid Call",
+      "kind": "success_rate",
+      "attempt_col": "Call attempts",
+      "success_col": "Success Times",
+      "fail_cols": [
+        [
+          "User Status Abnormal Times",
+          "用户状态异常",
+          "user"
+        ],
+        [
+          "Balance Insufficient Times",
+          "余额不足",
+          "user"
+        ],
+        [
+          "Other User Failed Times",
+          "其他用户失败",
+          "user"
+        ],
+        [
+          "System Failed Times",
+          "系统失败",
+          "system"
+        ]
+      ]
+    },
+    {
+      "key": "CPU",
+      "template": "Dong_Customer_Weekly_CPU KPI",
+      "motid": "61017",
+      "templateid": "1731730870311",
+      "items": [
+        "C557050003",
+        "C557050004"
+      ],
+      "title_zh": "CPU 利用率",
+      "title_en": "CPU Utilisation",
+      "kind": "resource",
+      "primary_col": "Usage average ratio of CPU(%)",
+      "top_col": "Usage top ratio of CPU(%)"
+    },
+    {
+      "key": "MEM",
+      "template": "Dong_Customer Weekly_Memory_KPI",
+      "motid": "61016",
+      "templateid": "1731730870312",
+      "items": [
+        "C557040003",
+        "C557040004",
+        "C557040005",
+        "C557040006",
+        "C557040007",
+        "C557040008",
+        "C557040009"
+      ],
+      "title_zh": "内存利用率",
+      "title_en": "Memory Utilisation",
+      "kind": "resource",
+      "primary_col": "Mean ratio of the memory usage(%)",
+      "top_col": "Usage top ratio of memory(%)",
+      "capacity_col": "Capacity of memory(KB)",
+      "used_col": "Size of used memory(KB)",
+      "free_col": "Size of free memory(KB)"
+    }
+  ]
+}
