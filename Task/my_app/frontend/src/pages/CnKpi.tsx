@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Col, DatePicker, Empty, Row, Space, Spin, Statistic, Tag, Tooltip, Typography } from 'antd'
 import { DownloadOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
-import * as XLSX from 'xlsx'
+import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import ReactECharts from 'echarts-for-react'
 import { getCnKpiOverview } from '../api'
 import { useI18n } from '../i18n'
@@ -344,51 +344,51 @@ export default function CnKpi() {
    */
   const exportExcel = useCallback(() => {
     if (!data) return
-    const wb = XLSX.utils.book_new()
     const stamp = dayjs().format('YYYYMMDD_HHmmss')
 
     // 总览表：元信息 + KPI 单值
-    const ov: (string | number)[][] = [
-      ['CN KPI (CCN_Daily_KPI)'],
+    // 已迁统一格式 UNIFIED_EXCEL_V1（见 docs/EXCEL_EXPORT_STANDARD.md）。
+    // 元信息三行原样保留为数据行 —— 它们是「口径说明」，落在 title/subtitle 位反而会被
+    // 模块固定成 Generated: <时间> 的格式而丢失 SQL 文本，故继续走 rows。
+    const ovRows: (string | number)[][] = [
       [t('cnkpi.exportRange'), rangeLabel],
       [t('cnkpi.exportSource'), `${data.meta.db} @ ${data.meta.host}`],
       [t('cnkpi.exportGenerated'), formatDateTime(new Date(), { zone: true })],
       [],
-    ]
-    for (const w of kpiWidgets) {
-      ov.push([w.title, w.rows[0]?.[0] ?? ''])
-    }
-    const wsOv = XLSX.utils.aoa_to_sheet(ov)
-    wsOv['!cols'] = [{ wch: 22 }, { wch: 46 }]
-    XLSX.utils.book_append_sheet(wb, wsOv, 'Overview')
+      ...kpiWidgets.map(w => [w.title, (w.rows[0]?.[0] ?? '') as string | number]),
+    ] as (string | number)[][]
+    const sheets: ReportSheetSpec[] = [{
+      name: 'Overview',
+      title: 'CN KPI (CCN_Daily_KPI)',
+      subtitle: `${t('cnkpi.exportRange')}: ${rangeLabel}`,
+      header: ['', ''],
+      rows: ovRows,
+      columnWidths: [22, 46],
+    }]
 
     // 每个组件一张表：口径 + 数据
-    const used = new Set<string>(['Overview'])
+    // sheet 名唯一性与 31 字符截断由 excelReport 内部统一处理，这里不再手写去重循环
     for (const w of widgets) {
       if (w.chart === 'kpi' || w.chart === 'text') continue
-      const aoa: (string | number | null)[][] = [
-        [w.title],
+      const meta: (string | number)[][] = [
         [t('cnkpi.exportRange'), rangeLabel],
         [t('cnkpi.exportSQL'), w.sql],
-        [],
-        w.columns,
-        ...w.rows,
       ]
-      if (w.error) aoa.splice(4, 0, [t('cnkpi.queryFail'), w.error])
-      const ws = XLSX.utils.aoa_to_sheet(aoa)
-      ws['!cols'] = w.columns.map((c, i) => ({ wch: i === 0 ? 20 : Math.max(12, String(c).length + 2) }))
-      // sheet 名需唯一且 <=31 字符，并去掉 Excel 禁用字符
-      let name = w.id.replace(/[:\\/?*[\]]/g, '_').substring(0, 28)
-      let n = 1
-      while (used.has(name)) name = `${w.id}_${++n}`.substring(0, 28)
-      used.add(name)
-      XLSX.utils.book_append_sheet(wb, ws, name)
+      if (w.error) meta.push([t('cnkpi.queryFail'), w.error])
+      sheets.push({
+        name: w.id,
+        title: w.title,
+        subtitle: `${t('cnkpi.exportRange')}: ${rangeLabel}`,
+        header: w.columns,
+        rows: [...meta, [], ...w.rows] as (string | number | null)[][],
+        columnWidths: w.columns.map((c, i) => (i === 0 ? 20 : Math.max(12, String(c).length + 2))),
+      })
     }
 
     const rng = (data.meta.start || data.meta.end)
       ? `_${(data.meta.start || 'start')}_${(data.meta.end || 'end')}`
       : '_last31d'
-    XLSX.writeFile(wb, `CN_KPI${rng}_${stamp}.xlsx`)
+    void exportReport(sheets, `CN_KPI${rng}_${stamp}.xlsx`)
   }, [data, kpiWidgets, widgets, rangeLabel, t])
 
   return (

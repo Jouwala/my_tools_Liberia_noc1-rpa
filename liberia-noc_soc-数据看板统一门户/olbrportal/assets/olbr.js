@@ -152,7 +152,9 @@
       'edit.f.zh': '中文名', 'edit.f.en': '英文名', 'edit.f.subZh': '中文说明', 'edit.f.subEn': '英文说明',
       'edit.fph.zh': '显示给中文用户', 'edit.fph.en': 'Shown to English users',
       'edit.fph.subZh': '一句话说明这一组是什么', 'edit.fph.subEn': 'Optional one-line description',
-      'edit.kGroups': '一级分组',
+      'edit.kGroups': '一级分组', 'edit.kLabels': '地图页签名',
+      'edit.maptabTip': '改这个地图页签的中文名 / 英文名（存服务端，所有人可见；两项都清空则恢复默认）',
+      'edit.maptabRenamed': '地图页签名已更新',
       'v.emptyFilter': '当前筛选下没有看板', 'v.adjust': '调整关键词或清除筛选',
       'aux.qa': '知识库与技术支持', 'aux.friends': '生态协作入口', 'aux.admin': '系统与运维配置',
       'aux.reports': '任务报告文件', 'aux.tools': '本页相关',
@@ -367,7 +369,9 @@
       'edit.f.zh': 'Chinese name', 'edit.f.en': 'English name', 'edit.f.subZh': 'Chinese note', 'edit.f.subEn': 'English note',
       'edit.fph.zh': 'Shown to Chinese users', 'edit.fph.en': 'Shown to English users',
       'edit.fph.subZh': 'One-line description of this group', 'edit.fph.subEn': 'Optional one-line description',
-      'edit.kGroups': 'first-level groups',
+      'edit.kGroups': 'first-level groups', 'edit.kLabels': 'map tab labels',
+      'edit.maptabTip': 'Edit this map tab’s Chinese / English name (stored on the server, visible to everyone; clear both to restore the default)',
+      'edit.maptabRenamed': 'Map tab label updated',
       'v.emptyFilter': 'Nothing matches the current filters', 'v.adjust': 'Adjust keywords or clear filters',
       'aux.qa': 'Knowledge & support', 'aux.friends': 'Ecosystem entries', 'aux.admin': 'System & O&M',
       'aux.reports': 'Task report files', 'aux.tools': 'About this page',
@@ -593,13 +597,18 @@
     viewTab: ls('olbr.viewtab', 'BO View'),
     viewSub: '',                          /* 当前分组下的二级子页签，不跨分组记 */
     subGroups: null,                      /* catalog.subGroups 归一化后的定义，null = 用内置 */
+    /* 拓扑地图 4 个页签的显示名覆盖（2026-09-23 加），来自服务端 catalog.tabLabels：
+       { 'gis': {zh:'…', en:'…'}, … }。未加载/未配置时为 null → 用 i18n 字典的内置文案。
+       搬上服务端的理由与 subGroups/groups 当初一样：写死在代码里就只能改代码 + 强刷，
+       而且 MsPortal 与 olbrportal 各有一份字典、容易改歪。 */
+    tabLabels: null,
     /* ---- 编辑态（2026-09-22 加）---- */
     /* catalogEditable 只认服务端 GET 回的 `editable`（= 服务器本机 / 持 X-API-Token），
        不写死、也不从本地推断 —— 猜错的表现是「点了保存才 403」。 */
     catalogEditable: false, editing: false, saving: false,
     subEdit: '',                          /* 正在改名的子分组 id（同时只开一个） */
     grpFor: null,                         /* 分组归属浮层当前挂在看板编号上 */
-    popForm: null,                        /* 改名类浮层：{kind:'grp'|'grpadd'|'title', id} */
+    popForm: null,                        /* 改名类浮层：{kind:'grp'|'grpadd'|'title'|'maptab', id} */
     dragKind: '', dragNo: null, dragGid: '', dragEl: null, dragBefore: false,
     /* ---- 用户管理弹窗（2026-09-22 加）----
        只放界面态，账号数据一律现取现用（state.um.users 是 /uniplam/api/auth/users
@@ -1158,9 +1167,11 @@
       html += '<section class="panel map" id="l0Map" data-tier="0" aria-label="Topology">' +
         '<div class="p-head"><span class="p-hd"><span class="p-t">' + esc(t('map.title')) + '</span>' +
         '<span class="p-s">' + esc(t('map.sub')) + '</span></span>' +
-        '<div class="map-tabs"><div class="tabs" role="tablist">' + maps.map(function (m) {
+        '<div class="map-tabs"><div class="tabs' + (canEdit() ? ' is-renaming' : '') + '" role="tablist">' + maps.map(function (m) {
           return '<button type="button" class="tab" role="tab" data-map="' + esc(m.page) + '" aria-selected="' +
-            (m.page === state.mapTab ? 'true' : 'false') + '">' + ic(m.icon) + esc(t(m.key)) + '</button>';
+            (m.page === state.mapTab ? 'true' : 'false') + '" title="' +
+            esc(canEdit() ? t('edit.maptabTip') : m.title) + '">' + ic(m.icon) + esc(tabLabelOf(m.page, m.key)) +
+            (canEdit() ? '<i class="ph ph-pencil-simple maptab-pen" aria-hidden="true"></i>' : '') + '</button>';
         }).join('') + '</div>' +
         '<button type="button" class="gb gb--t" data-act="map-reload" title="' + esc(t('map.reload')) + '"><i class="ph ph-arrow-clockwise"></i><span>' + esc(t('map.reload')) + '</span></button>' +
         '<a class="gb gb--t" id="mapOpen" href="' + esc(curMap().src) + '" target="_blank" rel="noopener noreferrer" title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out"></i><span>' + esc(t('map.open')) + '</span></a>' +
@@ -1289,8 +1300,33 @@
     });
     return out;
   }
-  function putCatalog(cat) {
-    return fetch('/api/portal-catalog', {
+  /* ---- 拓扑地图页签改名（2026-09-23 加）----
+     服务端 catalog.tabLabels 只存 {page:{zh,en}}，**不做语言回落**：某个语言缺值就当
+     没配、用 i18n 字典里的内置文案。与后端 _normalize_tab_labels 的语义严格对齐 ——
+     两边不一致会出现「后端存了 A、前端显示成 B」这种最难查的错位。 */
+  function normTabLabels(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    var out = {};
+    MAP_TABS.forEach(function (m) {
+      var v = raw[m.page];
+      if (!v || typeof v !== 'object') return;
+      var zh = typeof v.zh === 'string' ? v.zh.trim() : '';
+      var en = typeof v.en === 'string' ? v.en.trim() : '';
+      if (!zh && !en) return;               /* 全空 = 没配（后端也会丢弃空壳） */
+      out[m.page] = { zh: zh, en: en };
+    });
+    return out;
+  }
+  /** 页签显示名：目录里配过就用它，否则回落 i18n 字典的内置文案（t(key)）。 */
+  function tabLabelOf(page, key) {
+    var v = state.tabLabels && state.tabLabels[page];
+    if (v) {
+      var s = state.lang === 'en' ? (v.en || '') : (v.zh || '');
+      if (s) return s;                      /* 只认当前语言的值，缺就回落内置 */
+    }
+    return t(key);
+  }
+  function putCatalog(cat) {    return fetch('/api/portal-catalog', {
       method: 'PUT', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ catalog: cat })
@@ -1307,7 +1343,7 @@
   function commit(mutate, msg) {
     if (state.saving) { toast(t('edit.busy')); return; }
     if (!state.catalogEditable) { toast(t('edit.readonly')); return; }
-    var snap = { items: itemsAll(), subs: state.subGroups, order: state.order, groups: state.groups };
+    var snap = { items: itemsAll(), subs: state.subGroups, order: state.order, groups: state.groups, labels: state.tabLabels };
     mutate();
     renderCatalog();
     var cat = { items: itemsAll() };
@@ -1319,6 +1355,10 @@
        所以「和内置一模一样」时也照发不误（多发一次不会改变出厂语义）。 */
     var sentGroups = !!(state.groups && state.groups.length);
     if (sentGroups) cat.groups = state.groups;
+    /* 地图页签名覆盖（2026-09-23 加）：与 order/groups 同理必须**每次都带** ——
+       后端是整体替换，不带就等于删掉，「改一个子分组名字」会把页签名还原成内置文案。 */
+    var sentLabels = !!(state.tabLabels && Object.keys(state.tabLabels).length);
+    if (sentLabels) cat.tabLabels = state.tabLabels;
     var sentSubs = !!state.subGroups, sentOrder = !!(cat.order && Object.keys(cat.order).length);
     state.saving = true; syncEditBtn();
     putCatalog(cat).then(function (d) {
@@ -1329,6 +1369,7 @@
         state.subGroups = normalizeSubMap(c.subGroups);
         state.order = normOrderMap(c.order);
         if (Array.isArray(c.groups) && c.groups.length) state.groups = normalizeGroupList(c.groups);
+        state.tabLabels = normTabLabels(c.tabLabels);
         applyItems(migrateSubOf(c.items));
       }
       var lost = [];
@@ -1337,6 +1378,7 @@
       if (sentSubs && !state.subGroups) lost.push(t('edit.kSub'));
       if (sentOrder && !(state.order && Object.keys(state.order).length)) lost.push(t('edit.kOrder'));
       if (sentGroups && !(c && Array.isArray(c.groups) && c.groups.length)) lost.push(t('edit.kGroups'));
+      if (sentLabels && !(state.tabLabels && Object.keys(state.tabLabels).length)) lost.push(t('edit.kLabels'));
       toast(msg + ' · ' + (lost.length ? tf('edit.lost', { k: lost.join(' / ') }) : t('edit.saved')));
       renderCatalog();
     }).catch(function (e) {
@@ -1346,7 +1388,7 @@
   }
   function rollback(snap) {
     applyItems(snap.items); state.subGroups = snap.subs; state.order = snap.order;
-    state.groups = snap.groups;
+    state.groups = snap.groups; state.tabLabels = snap.labels;
   }
 
   /* ---- 拖拽排序：order[父分组] = [看板编号,…]，数组顺序即展示顺序 ---- */
@@ -1478,6 +1520,20 @@
       return c;
     });
     commit(function () { state.groups = next; }, t('edit.grpRenamed'));
+  }
+  /* 拓扑地图页签改名（2026-09-23 加）。写的是服务端共享目录 catalog.tabLabels，
+     所有人刷新都能看到 —— 与分组改名同一个语义层级。 */
+  function renameTab(page, zh, en) {
+    if (!MAP_TABS.some(function (m) { return m.page === page; })) return;
+    zh = String(zh || '').trim(); en = String(en || '').trim();
+    var next = {};
+    Object.keys(state.tabLabels || {}).forEach(function (k) { next[k] = state.tabLabels[k]; });
+    /* 中英文都清空 = 恢复内置文案（而不是把页签变成空白）。
+       与后端「全空对象直接丢弃」的语义一致，这样"清空"是一个可用的还原动作。 */
+    if (!zh && !en) delete next[page];
+    else next[page] = { zh: zh, en: en };
+    commit(function () { state.tabLabels = Object.keys(next).length ? next : null; },
+      t('edit.maptabRenamed'));
   }
   function addGroup(zh, en) {
     zh = String(zh || '').trim(); en = String(en || '').trim();
@@ -1740,7 +1796,10 @@
   var FORMS = {
     grp: { fields: ['zh', 'en', 'subZh', 'subEn'], tip: 'edit.grpEditTip', ok: 'edit.formSave' },
     grpadd: { fields: ['zh', 'en'], tip: 'edit.grpAddTip', ok: 'edit.formAdd' },
-    title: { fields: ['zh', 'en'], tip: 'edit.titleTip', ok: 'edit.formSave' }
+    title: { fields: ['zh', 'en'], tip: 'edit.titleTip', ok: 'edit.formSave' },
+    /* 拓扑地图页签名（2026-09-23 加）：字段与 title 相同，独立的 kind 只为让提示语
+       说清「改的是地图页签」并走 renameTab 这条路（写的是 catalog.tabLabels）。 */
+    maptab: { fields: ['zh', 'en'], tip: 'edit.maptabTip', ok: 'edit.formSave' }
   };
   function openForm(kind, id, btn) {
     var f = FORMS[kind], pop = $('#editPop');
@@ -1754,7 +1813,16 @@
       if (!it) return;
       vals = { zh: it.titleZh || '', en: it.titleEn || '' };
     }
-    var hd = kind === 'grp' ? gName(id) : kind === 'title' ? ('#' + id + ' ' + (vals.zh || vals.en)) : t('edit.grpAdd');
+    else if (kind === 'maptab') {
+      /* 当前值：配过就是配置里的，没配过用内置文案（不要让输入框空着 ——
+         空框会让人以为「本来就没名字」，而实际是有内置名的）。 */
+      var mt = mapItems().filter(function (x) { return x.page === id; })[0];
+      if (!mt) return;
+      var cv = (state.tabLabels && state.tabLabels[id]) || {};
+      vals = { zh: cv.zh || tabLabelOf(id, mt.key), en: cv.en || tabLabelOf(id, mt.key) };
+    }
+    var hd = kind === 'grp' ? gName(id) : kind === 'title' ? ('#' + id + ' ' + (vals.zh || vals.en))
+      : kind === 'maptab' ? (t('map.title') + ' · ' + (vals.zh || vals.en)) : t('edit.grpAdd');
     pop.hidden = false;
     pop.innerHTML = '<div class="gp-hd"><b>' + esc(hd) + '</b><span>' + esc(t(f.tip)) + '</span></div>' +
       f.fields.map(function (k) {
@@ -1787,6 +1855,7 @@
     closeForm();                                    /* 先收浮层再提交：commit 会重绘，留着会看见「保存完了框还在」 */
     if (kind === 'grp') renameGroup(id, v);
     else if (kind === 'grpadd') addGroup(v.zh, v.en);
+    else if (kind === 'maptab') renameTab(id, v.zh, v.en);
     else renameItem(id, v.zh, v.en);
   }
   function bindFormPop() {
@@ -3594,7 +3663,11 @@
     $('#l0').addEventListener('click', function (e) {
       var tb = e.target.closest('[data-map]');
       if (tb) {
-        state.mapTab = tb.getAttribute('data-map'); ss('olbr.maptab', state.mapTab); renderL0(); return;
+        var pg = tb.getAttribute('data-map');
+        /* 编辑模式：点页签 = 改名浮层；非编辑模式：照旧切地图。
+           两者必须分开 —— 同时生效会让「想看看微波实时」变成误开改名框。 */
+        if (canEdit()) { openForm('maptab', pg, tb); return; }
+        state.mapTab = pg; ss('olbr.maptab', state.mapTab); renderL0(); return;
       }
       if (e.target.closest('[data-act="map-reload"]')) { var f = $('#mapFrame'); if (f) f.src = curMap().src; }
     });
@@ -3738,6 +3811,7 @@
         /* 顺序：subGroups 必须先落好，migrateSubOf 靠它判断 boSub 真正属于哪个分组 */
         state.subGroups = normalizeSubMap(c.subGroups);
         state.order = normOrderMap(c.order);
+        state.tabLabels = normTabLabels(c.tabLabels);
         setCatalog(migrateSubOf(c.items));
         state.groups = Array.isArray(c.groups) && c.groups.length ? normalizeGroupList(c.groups) : state.groups;
       }

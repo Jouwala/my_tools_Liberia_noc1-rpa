@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Col, DatePicker, Empty, Input, Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography } from 'antd'
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
-import * as XLSX from 'xlsx'
+import { exportAoaReport } from '../utils/excelReport'
 import ReactECharts from 'echarts-for-react'
 import { getRepeatSiteDownDayDrilldown, getRepeatSiteDownEventDetail, getRepeatSiteDownFilters, getRepeatSiteDownOverview, getRepeatSiteDownSiteDrilldown } from '../api'
 import { useI18n } from '../i18n'
@@ -32,7 +32,19 @@ export default function RepeatSiteDown() {
 
   const chart = useMemo(() => ({ tooltip: { trigger: 'axis' }, grid: { left: 50, right: 24, top: 28, bottom: 48 }, xAxis: { type: 'category', data: (data?.daily || []).map(x => x.day.slice(5)), axisLabel: { rotate: 35 } }, yAxis: [{ type: 'value', name: 'Occurrences' }, { type: 'value', name: 'Sites' }], series: [{ name: 'Outage occurrences', type: 'bar', data: (data?.daily || []).map(x => x.outage_count), itemStyle: { color: '#ff7875' } }, { name: 'Affected sites', type: 'line', yAxisIndex: 1, data: (data?.daily || []).map(x => x.affected_sites), smooth: true, itemStyle: { color: '#1677ff' } }] }), [data])
   const onChartEvents = { click: (p: any) => { const day = data?.daily?.[p.dataIndex]?.day; if (day) openDay(day, { x: p.event?.event?.clientX || 0, y: p.event?.event?.clientY || 0 }) } }
-  const exportRows = (rows: any[], name: string) => { if (!rows.length) return; const ws = XLSX.utils.json_to_sheet(rows); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Drilldown'); XLSX.writeFile(wb, `${name}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`) }
+  // 已迁统一格式 UNIFIED_EXCEL_V1：样式与邮件报表同源，见 docs/EXCEL_EXPORT_STANDARD.md
+// 原用 json_to_sheet（列头取对象键），此处显式取键，保持列头与列序不变。
+const exportRows = (rows: any[], name: string) => {
+  if (!rows.length) return
+  const keys = Object.keys(rows[0])
+  void exportAoaReport({
+    filename: `${name}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
+    sheetName: 'Drilldown',
+    title: name,
+    header: keys,
+    rows: rows.map(r => keys.map(k => (r[k] == null ? '' : r[k]))),
+  })
+}
   const siteColumns = [{ title: 'Site', key: 'site', render: (_: unknown, r: SiteRow) => <><Text strong>{fmt(r.site_name)}</Text><br /><Text type="secondary">ID: {fmt(r.site_id)}</Text></> }, { title: 'Region', dataIndex: 'region', render: fmt }, { title: 'Occurrences', dataIndex: 'outage_count', sorter: (a: SiteRow, b: SiteRow) => a.outage_count - b.outage_count }, { title: 'Repeat days', dataIndex: 'repeat_days', render: (v: number) => v > 1 ? <Tag color="red">{v}</Tag> : fmt(v) }, { title: 'Drilldown', key: 'action', render: (_: unknown, r: SiteRow) => <Button type="link" onClick={(e) => openSite(r, { x: e.clientX, y: e.clientY })}>View</Button> }]
   const eventColumns = [{ title: 'Day', dataIndex: 'day' }, { title: 'TT No.', dataIndex: 'tt_no', render: fmt }, { title: 'Occurred', dataIndex: 'alarm_occur_time', render: fmt }, { title: 'Title', dataIndex: 'title', render: fmt }, { title: 'Status', dataIndex: 'status', render: fmt }, { title: 'Detail', key: 'detail', render: (_: unknown, r: EventRow) => <Button type="link" onClick={(e) => openEvent(r, { x: e.clientX, y: e.clientY })}>Full fields</Button> }]
   const modalBody = modal === 'day' ? <><Space wrap><Tag color="red">Events {dayData?.summary?.outage_events || 0}</Tag><Tag color="blue">Sites {dayData?.summary?.affected_sites || 0}</Tag><Button size="small" icon={<DownloadOutlined />} onClick={() => exportRows(dayData?.sites || [], 'repeat_site_down_day')}>Export</Button></Space><Table rowKey={(r: SiteRow) => `${r.site_id}-${r.site_name}`} dataSource={dayData?.sites || []} columns={siteColumns} loading={modalLoading} pagination={{ pageSize: 12 }} /></> : modal === 'site' ? <><Space wrap><Tag color="red">Events {siteData?.summary?.outage_events || 0}</Tag><Tag color="orange">Repeat days {siteData?.summary?.repeat_days || 0}</Tag><Button size="small" icon={<DownloadOutlined />} onClick={() => exportRows(siteData?.events || [], 'repeat_site_down_events')}>Export</Button></Space><Table rowKey={(r: EventRow, i) => `${r.tt_no}-${i}`} dataSource={siteData?.events || []} columns={eventColumns} loading={modalLoading} pagination={{ pageSize: 10 }} scroll={{ x: 900 }} /></> : <>{eventData ? <Table showHeader={false} pagination={false} dataSource={Object.entries(eventData).map(([key, value]) => ({ key, value }))} rowKey="key" columns={[{ title: 'Field', dataIndex: 'key', width: 260 }, { title: 'Value', dataIndex: 'value', render: fmt }]} /> : <Empty description="No TT detail" />}</>

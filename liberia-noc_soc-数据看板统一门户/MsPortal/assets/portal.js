@@ -65,7 +65,7 @@
       'btn.aPlus': '放大字号',
       'btn.aMinus': '缩小字号',
       'toast.fontScale': '字号 {p}%（仅本机浏览器）',
-      'edit.hint': '编辑模式：卡片右上角的 ✎ / 🗑 可编辑或删除看板，分组标签的 × 可移出该分组；改动保存到服务器，所有人可见。',
+      'edit.hint': '编辑模式：卡片右上角的 ✎ / 🗑 可编辑或删除看板，分组标签的 × 可移出该分组；拓扑地图的页签可直接点击改名；改动保存到服务器，所有人可见。',
       /* ---- 看板新增 / 编辑弹窗（2026-09-17 加） ---- */
       'board.addTitle': '新增看板',
       'board.editTitle': '编辑看板',
@@ -283,6 +283,12 @@
       'map.tab.loss': '传输丢包',
       'map.refresh': '刷新',
       'map.open': '新窗口',
+      /* 页签改名（2026-09-23 加）。提示里必须写明「所有人可见」——
+         写的是服务端共享目录，不写清楚会被当成只改本机。 */
+      'map.renameZh': '页签中文名（清空则恢复默认）：',
+      'map.renameEn': '页签英文名（清空则恢复默认）：',
+      'map.renamed': '页签名已保存',
+      'map.labelBackendOld': '但服务器未重启，页签名只在服务器本机生效（tabLabels 键被丢弃）',
       'map.loading': '正在加载地图…',
       'auth.title': '需要登录统一门户',
       'auth.tip': '本页面可直接使用统一门户的同一套账号、密码和权限登录。',
@@ -498,7 +504,7 @@
       'btn.aPlus': 'Larger text',
       'btn.aMinus': 'Smaller text',
       'toast.fontScale': 'Text size {p}% (this browser only)',
-      'edit.hint': 'Edit mode: use the ✎ / 🗑 buttons on a card to edit or delete it, × on a group tag to remove it from that group. Changes are saved to the server and visible to everyone.',
+      'edit.hint': 'Edit mode: use the ✎ / 🗑 buttons on a card to edit or delete it, × on a group tag to remove it from that group. Topology map tabs can be clicked to rename. Changes are saved to the server and visible to everyone.',
       'board.addTitle': 'Add dashboard',
       'board.editTitle': 'Edit dashboard',
       'board.cancel': 'Cancel',
@@ -673,6 +679,12 @@
       'map.tab.loss': 'Packet Loss',
       'map.refresh': 'Refresh',
       'map.open': 'New window',
+      /* Tab rename (added 2026-09-23). The prompt must say "everyone" —— it writes the
+         server-side shared catalog, and omitting that reads as "only my computer". */
+      'map.renameZh': 'Tab name in Chinese (clear to restore default):',
+      'map.renameEn': 'Tab name in English (clear to restore default):',
+      'map.renamed': 'Tab labels saved',
+      'map.labelBackendOld': 'but the server was not restarted, so the tab labels only apply on the server host (the "tabLabels" key was dropped)',
       'map.loading': 'Loading map…',
       'auth.title': 'Sign-in required',
       'auth.tip': 'Use the same unified-portal account, password and permissions to sign in directly on this page.',
@@ -958,6 +970,11 @@
     orderLocal: readJSON(LS.order, {}),
     /* 全局层顺序，来自服务端 catalog.order；未加载/未配置时为 null。 */
     orderGlobal: null,
+    /* 拓扑地图 4 个页签的显示名覆盖（2026-09-23 加），来自服务端 catalog.tabLabels：
+       { 'gis': {zh:'…', en:'…'}, … }。未加载/未配置时为 null → 用 i18n 字典的内置文案。
+       搬上服务端的理由与 groups/subGroups 当初一样：写死在代码里就只能改代码 + 强刷，
+       而且 MsPortal 与 olbrportal 各有一份字典、容易改歪。 */
+    tabLabels: null,
     assign: readJSON(LS.assign, {}),
     groups: readJSON(LS.groups, []),
     renames: readJSON(LS.renames, []),
@@ -1249,6 +1266,8 @@
           /* 全局层拖拽顺序（2026-09-20 加）。未配置时为 null → byOrder 回落到
              「初始排序权重」，与这个功能上线前的顺序完全一致。 */
           state.orderGlobal = normOrderMap(data.catalog.order);
+          /* 地图页签名覆盖（2026-09-23 加）：与 order 同层，未配置时为 {} → 用内置文案 */
+          state.tabLabels = normTabLabels(data.catalog.tabLabels);
           /* 旧数据迁移必须在任何编辑之前跑：把老的 boSub 搬进 subOf。
              否则「在 FO View 下改一张本来靠 boSub 归属 BO View 的看板」会因为
              subOf 一旦存在就说了算，把 BO View 的归属悄悄丢掉。 */
@@ -1293,6 +1312,11 @@
        否则「改一张看板的标题」会顺手把全局顺序抹掉（后端是整体替换，不带就是删掉）。 */
     var sentOrder = !!(state.orderGlobal && Object.keys(state.orderGlobal).length);
     if (sentOrder) payload.order = state.orderGlobal;
+    /* 地图页签名覆盖（2026-09-23 加）：与 order 同理必须**每次都带**——后端是整体替换，
+       不带就等于删掉，「改一张看板的标题」会顺手把页签名还原成内置文案。 */
+    var lblMap = state.tabLabels || {};
+    var sentLabels = Object.keys(lblMap).length > 0;
+    if (sentLabels) payload.tabLabels = lblMap;
     /* 发请求前记下「这次到底带没带子分组」：后端若是旧版（未重启/未升级），
        _normalize_catalog 会把 subGroups 丢掉并原样返回 —— 不比对就会提示「已同步到服务器」，
        而刷新后子分组悄悄变回内置三个，属于最难查的那类假成功。order 同理。 */
@@ -1315,6 +1339,7 @@
       state.catalogEditable = !!data.editable;
       state.subGroups = normalizeSubMap(data.catalog && data.catalog.subGroups);
       state.orderGlobal = normOrderMap(data.catalog && data.catalog.order);
+      state.tabLabels = normTabLabels(data.catalog && data.catalog.tabLabels);
       try {
         localStorage.removeItem(LS.catalog);
         localStorage.removeItem(LS.subGroups);
@@ -1324,6 +1349,10 @@
          否则「提示已同步、刷新后顺序变回去」又是一次假成功。 */
       if (sentOrder && !(state.orderGlobal && Object.keys(state.orderGlobal).length)) {
         toast(okMsg + ' · ' + t('order.backendOld'));
+      } else if (sentLabels && !(state.tabLabels && Object.keys(state.tabLabels).length)) {
+        /* 后端旧版会静默丢掉 tabLabels（_normalize_catalog 是白名单重拼）——
+           不比对就会「提示已同步、刷新后页签名变回去」，又是一次假成功。 */
+        toast(okMsg + ' · ' + t('map.labelBackendOld'));
       } else if (sentSubs && !state.subGroups) toast(okMsg + ' · ' + t('subm.backendOld'));
       else toast(okMsg + ' · ' + t('board.savedServer'));
       return true;
@@ -1533,9 +1562,37 @@
     return out;
   }
 
+  /* ------------------------------------------- 拓扑地图页签改名（2026-09-23 加） --
+     服务端 catalog.tabLabels 只存 {page:{zh,en}}，**不做语言回落**：
+     某个语言缺值就当没配、用 i18n 字典里的内置文案。理由是与后端 _normalize_tab_labels
+     的语义完全对齐（那边也是 zh/en 各自独立，缺一个不当成另一个的兜底）——
+     两边语义不一致时会出现「后端存了 A、前端显示成 B」这种最难查的错位。 */
+  function normTabLabels(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    var out = {};
+    MAP_TABS.forEach(function (m) {
+      var v = raw[m.page];
+      if (!v || typeof v !== 'object') return;
+      var zh = typeof v.zh === 'string' ? v.zh.trim() : '';
+      var en = typeof v.en === 'string' ? v.en.trim() : '';
+      if (!zh && !en) return;           // 全空 = 没配（后端也会丢弃空壳）
+      out[m.page] = { zh: zh, en: en };
+    });
+    return out;
+  }
+
+  /** 页签显示名：目录里配过就用它，否则回落 i18n 字典的内置文案（t(key)）。 */
+  function tabLabelOf(page, key) {
+    var v = state.tabLabels && state.tabLabels[page];
+    if (v) {
+      var s = state.lang === 'en' ? (v.en || '') : (v.zh || '');
+      if (s) return s;                  // 只认当前语言的值，缺就回落内置，见 normTabLabels
+    }
+    return t(key);
+  }
+
   /** 某分组当前生效的顺序表；两层都没有则返回 null = 按初始排序权重。 */
-  function orderNosFor(gid) {
-    var loc = state.orderLocal && state.orderLocal[gid];
+  function orderNosFor(gid) {    var loc = state.orderLocal && state.orderLocal[gid];
     if (loc && loc.length) return loc;
     var glob = state.orderGlobal && state.orderGlobal[gid];
     if (glob && glob.length) return glob;
@@ -3813,15 +3870,22 @@
   function renderMapTabs() {
     var host = document.getElementById('mapTabs');
     if (!host) return;
-    /* whitespace-nowrap：中列窄，中文页签名（"GIS 地图"/"告警实时"）会被挤成两行，
-       行高不定还把页签栏撑高。禁止换行，宁可让文字稍长也不折行。 */
+    /* 编辑模式（且本机可写）下点页签是「改名」而不是「切地图」——
+       与「拖拽模式与编辑模式互斥」同一个思路：两种命中区叠在一起必然互相抢手势。
+       改名只在 catalogEditable 时给（否则点了必然 403，等于骗用户）。 */
+    var renaming = !!state.editing && !!state.catalogEditable;
     host.innerHTML = mapItems().map(function (m) {
       var on = state.mapTab === m.page;
+      /* whitespace-nowrap：中列窄，中文页签名（"GIS 地图"/"告警实时"）会被挤成两行，
+         行高不定还把页签栏撑高。禁止换行，宁可让文字稍长也不折行。 */
       return '<button type="button" role="tab" aria-selected="' + on + '" data-page="' + esc(m.page) + '" title="' + esc(m.title) + '" ' +
         'class="px-2.5 py-1 rounded transition flex items-center gap-1 whitespace-nowrap ' +
         (on ? 'bg-white text-slate-800 font-medium shadow-sm' : 'text-slate-600 hover:text-slate-900') + '">' +
-        esc(t(m.key)) + (m.item && m.item.status === 'beta' ? '<span class="text-amber-500">β</span>' : '') + '</button>';
+        esc(tabLabelOf(m.page, m.key)) +
+        (renaming ? '<span class="map-tab-edit" aria-hidden="true">' + ico('edit', 'text-[11px]') + '</span>' : '') +
+        (m.item && m.item.status === 'beta' ? '<span class="text-amber-500">β</span>' : '') + '</button>';
     }).join('');
+    host.classList.toggle('is-renaming', renaming);
   }
 
   /** 加载遮罩：当前页签的 iframe 真正加载完成才隐藏 */
@@ -4858,13 +4922,46 @@
     syncMapBoot();
   }
 
+  /* ------------------------------------------------- 地图页签改名（2026-09-23 加） --
+     为什么用 window.prompt 而不是照抄 BoardEditModal 那套弹窗骨架：
+       这个操作只有两个短文本输入（中/英），而为它再建一套遮罩 + 草稿态 + 校验，
+       代码量与「改个页签名」这件事完全不成比例；本文件里同类的小改名（分组改名）
+       用的也是 prompt（见 addGroupBtn 那条路）。真要做成弹窗，等页签名要支持
+       图标/配色时再一起做。
+     写入的是**全局共享**目录（/api/portal-catalog），所有人刷新都能看到 ——
+     所以确认框里必须把这件事说出来，不能让人以为是只改自己那台。 */
+  function promptTabRename(page) {
+    var m = mapItems().filter(function (x) { return x.page === page; })[0];
+    if (!m) return;
+    var cur = (state.tabLabels && state.tabLabels[page]) || {};
+    var zh = window.prompt(t('map.renameZh'), cur.zh || tabLabelOf(page, m.key));
+    if (zh === null) return;                       // 取消
+    var en = window.prompt(t('map.renameEn'), cur.en || cur.zh || tabLabelOf(page, m.key));
+    if (en === null) return;
+    zh = String(zh).trim();
+    en = String(en).trim();
+    /* 两个都清空 = 恢复内置文案（而不是把页签变成空白）。
+       与后端「全空对象直接丢弃」的语义一致 —— 这样"清空"是一个可用的还原动作。 */
+    var next = {};
+    Object.keys(state.tabLabels || {}).forEach(function (k) { next[k] = state.tabLabels[k]; });
+    if (!zh && !en) delete next[page];
+    else next[page] = { zh: zh, en: en };
+    state.tabLabels = Object.keys(next).length ? next : null;
+    renderMapTabs();
+    saveCatalog(state.catalog, t('map.renamed'));
+  }
+
   function bindMap() {
     var tabs = document.getElementById('mapTabs');
     if (tabs) {
       tabs.addEventListener('click', function (e) {
         var b = e.target.closest('[data-page]');
         if (!b) return;
-        state.mapTab = b.getAttribute('data-page');
+        var page = b.getAttribute('data-page');
+        /* 编辑模式：点页签 = 改名。非编辑模式：照旧切地图。
+           两者必须分开——同时生效会让「想看看微波实时」变成误开改名框。 */
+        if (state.editing && state.catalogEditable) { promptTabRename(page); return; }
+        state.mapTab = page;
         writeLS(LS.mapTab, state.mapTab);
         renderMapTabs();
         ensureMap();

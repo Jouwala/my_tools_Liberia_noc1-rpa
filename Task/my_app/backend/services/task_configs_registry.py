@@ -372,6 +372,10 @@ def _main_kpi_defaults():
             "containvcell": cfg.get("containvcell", 0),
             "indexfillingtype": cfg.get("indexfillingtype", "default"),
             "items": ",".join(str(x) for x in cfg.get("items", [])),
+            "itemsposition": ",".join(str(x) for x in cfg.get("itemsposition", [])),
+            "itemsposition1": ",".join(str(x) for x in cfg.get("itemsposition1", [])),
+            "itempositionbusiness": ",".join(str(x) for x in cfg.get("itempositionbusiness", [])),
+            "showbusinesscolumn": bool(cfg.get("showbusinesscolumn", False)),
             "uilocations": ",".join(str(u.get("id", "")) for u in cfg.get("uilocations", [])),
         }
         if cfg.get("businessmotid"):
@@ -418,6 +422,10 @@ register_config(ConfigResource(
                 "containvcell": {"label_zh": "含VCell(0/1/2)", "type": "int", "min": 0, "max": 2},
                 "indexfillingtype": {"label_zh": "填充方式", "type": "str"},
                 "items": {"label_zh": "指标项（逗号分隔）", "type": "str"},
+                "itemsposition": {"label_zh": "指标位置（逗号分隔）", "type": "str"},
+                "itemsposition1": {"label_zh": "指标位置1（逗号分隔）", "type": "str"},
+                "itempositionbusiness": {"label_zh": "业务指标位置（逗号分隔）", "type": "str"},
+                "showbusinesscolumn": {"label_zh": "含业务列", "type": "bool"},
                 "uilocations": {"label_zh": "分组位置（逗号分隔 UUID）", "type": "str"},
             },
         },
@@ -510,6 +518,11 @@ def _nw_kpi_defaults():
             "containvcell": cfg.get("containvcell", 0),
             "indexfillingtype": cfg.get("indexfillingtype", "default"),
             "items": ",".join(str(x) for x in cfg.get("items", [])),
+            "itemsposition": ",".join(str(x) for x in cfg.get("itemsposition", [])),
+            "itemsposition1": ",".join(str(x) for x in cfg.get("itemsposition1", [])),
+            "itempositionbusiness": ",".join(str(x) for x in cfg.get("itempositionbusiness", [])),
+            "showbusinesscolumn": bool(cfg.get("showbusinesscolumn", False)),
+            "versiondatacompare": bool(cfg.get("versiondatacompare", False)),
         }
         if cfg.get("businessmotid"):
             row["businessmotid"] = cfg["businessmotid"]
@@ -551,6 +564,11 @@ register_config(ConfigResource(
                 "containvcell": {"label_zh": "含VCell(0/1)", "type": "int", "min": 0, "max": 1},
                 "indexfillingtype": {"label_zh": "填充方式", "type": "str"},
                 "items": {"label_zh": "指标项（逗号分隔）", "type": "str"},
+                "itemsposition": {"label_zh": "指标位置（逗号分隔）", "type": "str"},
+                "itemsposition1": {"label_zh": "指标位置1（逗号分隔）", "type": "str"},
+                "itempositionbusiness": {"label_zh": "业务指标位置（逗号分隔）", "type": "str"},
+                "showbusinesscolumn": {"label_zh": "含业务列", "type": "bool"},
+                "versiondatacompare": {"label_zh": "版本数据比对", "type": "bool"},
             },
         },
         "tasks": {

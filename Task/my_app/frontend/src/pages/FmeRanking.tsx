@@ -5,8 +5,8 @@ import {
   ArrowUpOutlined, ArrowDownOutlined, WarningOutlined, FireOutlined,
   SafetyOutlined, ClockCircleOutlined,
 } from '@ant-design/icons'
-import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
+import { exportAoaReport } from '../utils/excelReport'
 import ReactECharts from 'echarts-for-react'
 import {
   getFmeRankingFilters, getFmeRankingOverview,
@@ -215,9 +215,10 @@ export default function FmeRanking() {
   const fmtPct = (value: number | null) => value == null ? '-' : `${(value * 100).toFixed(3)}%`
   const valueColor = (value: number | null) => value != null && value < (data?.meta.threshold ?? 0.9965) ? WH.danger : WH.ok
   // SLA 达成率：百分比显示（1 位小数）；无样本时为 '-'
-  const fmtSla = (row: FmeRow) => row.sla_rate == null ? '-' : `${(row.sla_rate * 100).toFixed(1)}%`
+  // 用 useCallback 保持引用稳定，供下方 useCallback/useMemo 安全入依赖
+  const fmtSla = useCallback((row: { sla_rate: number | null }) => row.sla_rate == null ? '-' : `${(row.sla_rate * 100).toFixed(1)}%`, [])
   // SLA 颜色：达成率 < 90% 视为需要关注（红），否则绿
-  const slaColor = (row: FmeRow) => row.sla_rate == null ? WH.textDim : row.sla_rate < 0.9 ? WH.danger : WH.ok
+  const slaColor = useCallback((row: { sla_rate: number | null }) => row.sla_rate == null ? WH.textDim : row.sla_rate < 0.9 ? WH.danger : WH.ok, [])
 
   // ========== 前/后三名 ==========
   // 可用率口径：剔除无可用率数据的 FME 后再取前后三名（无数据不参与排名）
@@ -314,11 +315,24 @@ export default function FmeRanking() {
     onFilter: (v: any, r: any) => String(r[col.key]) === v,
     render: col.key === 'availability'
       ? (v: number | null) => <span style={{ color: valueColor(v), fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtPct(v)}</span>
-      : col.key === 'wo_total' || col.key === 'wo_open'
-        ? (v: number) => <Text strong style={{ color: col.key === 'wo_open' && v ? WH.danger : undefined }}>{fmt(v)}</Text>
-        : col.key === 'days_below_threshold'
-          ? (v: number) => v ? <Tag color="red">{v}</Tag> : 0
-          : undefined,
+      : col.key === 'sla_rate'
+        // 站点级 SLA 达成率：与卡片同一口径（<90% 红）
+        ? (v: number | null) => <span style={{ color: v == null ? WH.textDim : v < 0.9 ? WH.danger : WH.ok, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{v == null ? '-' : `${(v * 100).toFixed(1)}%`}</span>
+        : col.key === 'sla_status'
+          // WO 明细里的 SLA 状态：Pass 绿 / Failed 红
+          ? (v: string | null) => {
+              const s = String(v ?? '').trim()
+              if (!s) return '-'
+              const ok = ['pass', 'within sla'].includes(s.toLowerCase())
+              return <Tag color={ok ? 'green' : 'red'}>{s}</Tag>
+            }
+          : col.key === 'sla_fail'
+            ? (v: number) => v ? <Tag color="red">{v}</Tag> : 0
+            : col.key === 'wo_total' || col.key === 'wo_open'
+              ? (v: number) => <Text strong style={{ color: col.key === 'wo_open' && v ? WH.danger : undefined }}>{fmt(v)}</Text>
+              : col.key === 'days_below_threshold'
+                ? (v: number) => v ? <Tag color="red">{v}</Tag> : 0
+                : undefined,
   })), [locale, valueColor])
 
   const siteColumns = useMemo(() => {
@@ -337,17 +351,21 @@ export default function FmeRanking() {
   const woColumns = useMemo(() => buildColumns(woCols, visibleWoRows), [woCols, visibleWoRows, buildColumns])
 
   // 导出当前下钻表
+  // 已迁统一格式 UNIFIED_EXCEL_V1：样式与邮件报表同源，见 docs/EXCEL_EXPORT_STANDARD.md
   const exportDrill = useCallback(() => {
     const list = drillTab === 'sites' ? visibleSiteRows : visibleWoRows
     const cols = drillTab === 'sites' ? siteCols : woCols
     if (!list.length) return
     const header = cols.map(c => locale === 'en' ? c.en : c.zh)
     const body = list.map(r => cols.map(c => r[c.key] == null ? '' : String(r[c.key])))
-    const ws = XLSX.utils.aoa_to_sheet([header, ...body])
-    ws['!cols'] = header.map(() => ({ wch: 18 }))
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, drillTab === 'sites' ? 'Sites' : 'WO')
-    XLSX.writeFile(wb, `FME_${drillFme.replace(/[^\w]+/g, '_')}_${drillTab}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`)
+    void exportAoaReport({
+      filename: `FME_${drillFme.replace(/[^\w]+/g, '_')}_${drillTab}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
+      sheetName: drillTab === 'sites' ? 'Sites' : 'WO',
+      title: `FME ${drillFme} · ${drillTab === 'sites' ? 'Sites' : 'WO'}`,
+      header,
+      rows: body,
+      columnWidths: header.map(() => 18),
+    })
   }, [drillTab, visibleSiteRows, visibleWoRows, siteCols, woCols, drillFme, locale])
 
   const exportRows = useCallback(() => {
@@ -358,9 +376,14 @@ export default function FmeRanking() {
     const body = rows.map(row => [row.availability_rank, row.fme_name, row.supervisors.join(', '), row.site_count, fmtPct(row.availability), row.sites_below_threshold,
       fmtSla(row), `${row.sla_pass}/${row.sla_total}`, row.sla_fail, row.sla_rank ?? '',
       row.wo_total, row.wo_open, row.wo_closed, row.wo_rank])
-    const ws = XLSX.utils.aoa_to_sheet([header, ...body]); ws['!cols'] = header.map((_, i) => ({ wch: i === 1 ? 24 : 16 }))
-    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'FME Ranking')
-    XLSX.writeFile(wb, `FME_Ranking_${month}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`)
+    void exportAoaReport({
+      filename: `FME_Ranking_${month}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
+      sheetName: 'FME Ranking',
+      title: `FME Ranking ${month}`,
+      header,
+      rows: body,
+      columnWidths: header.map((_, i) => (i === 1 ? 24 : 16)),
+    })
   }, [rows, month, t, fmtSla])
 
   const chart = useMemo(() => {

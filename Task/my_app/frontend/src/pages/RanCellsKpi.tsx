@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import { ReloadOutlined, DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
-import * as XLSX from 'xlsx'
+import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import { getRanCellsKpiOverview, getRanCellsKpiCells } from '../api'
 import { useI18n } from '../i18n'
 import { useTheme, WH } from '../theme'
@@ -246,6 +246,7 @@ export default function RanCellsKpi() {
   }, [drillAll, drillQuery])
 
   // 下钻明细导出 Excel（表头随界面语言；导出「当前筛选后」的行）
+  // 已迁统一格式 UNIFIED_EXCEL_V1：样式与邮件报表同源，见 docs/EXCEL_EXPORT_STANDARD.md
   const exportDrill = useCallback(() => {
     if (!drill || !drillRows.length) return
     const cols: Array<{ h: string; get: (r: DrillRow) => any; w?: number }> = [
@@ -264,16 +265,16 @@ export default function RanCellsKpi() {
         { h: t('rck.drill.daysBelow'), get: (r: DrillRow) => r.days_below ?? 0, w: 12 },
       ]),
     ]
-    const ws = XLSX.utils.aoa_to_sheet([
-      cols.map(c => c.h),
-      ...drillRows.map(r => cols.map(c => c.get(r))),
-    ])
-    ws['!cols'] = cols.map(c => ({ wch: c.w ?? 16 }))
-    const wb = XLSX.utils.book_new()
     const fname = `Cells_${drill.tech}_${drill.day || 'month'}_${dayjs().format('YYYYMMDD_HHmmss')}`
       .replace(/[\\/:*?"<>|]/g, '_')
-    XLSX.utils.book_append_sheet(wb, ws, `${drill.tech}_Cells`.substring(0, 31))
-    XLSX.writeFile(wb, `${fname}.xlsx`)
+    void exportAoaReport({
+      filename: `${fname}.xlsx`,
+      sheetName: `${drill.tech}_Cells`,
+      title: `${drill.tech} Cells`,
+      header: cols.map(c => c.h),
+      rows: drillRows.map(r => cols.map(c => c.get(r))),
+      columnWidths: cols.map(c => c.w ?? 16),
+    })
   }, [drill, drillRows, t])
 
   // 只展示「已有数据」的日期列（当月未来日期不展开）
@@ -288,27 +289,27 @@ export default function RanCellsKpi() {
   )
 
   // 导出 Excel：每个制式一张表，布局与页面一致
+  // 已迁统一格式：多 sheet 走 exportReport，sheet 名超 31 字符由模块内统一截断处理
   const exportExcel = useCallback(() => {
     if (!data) return
-    const wb = XLSX.utils.book_new()
-    for (const tb of shownTechs) {
-      const aoa: (string | number)[][] = []
-      aoa.push([tb.label, ...activeDays.map(fmtDay)])
-      for (const m of METRICS) {
-        aoa.push([
-          t(m.labelKey),
-          ...activeDays.map(d => {
-            const v = tb.days?.[d]?.[m.key] as number | null | undefined
-            return v == null ? '-' : (m.fmt === 'int' ? Number(v) : Number((v * 100).toFixed(2)))
-          }),
-        ])
+    const sheets: ReportSheetSpec[] = shownTechs.map(tb => {
+      const rows: (string | number)[][] = METRICS.map(m => [
+        t(m.labelKey),
+        ...activeDays.map(d => {
+          const v = tb.days?.[d]?.[m.key] as number | null | undefined
+          return v == null ? '-' : (m.fmt === 'int' ? Number(v) : Number((v * 100).toFixed(2)))
+        }),
+      ])
+      return {
+        name: `${tb.tech}_Cells_KPI`,
+        title: tb.label,
+        header: ['', ...activeDays.map(fmtDay)],
+        rows,
+        columnWidths: [30, ...activeDays.map(() => 12)],
       }
-      const ws = XLSX.utils.aoa_to_sheet(aoa)
-      ws['!cols'] = [{ wch: 30 }, ...activeDays.map(() => ({ wch: 12 }))]
-      XLSX.utils.book_append_sheet(wb, ws, `${tb.tech}_Cells_KPI`.substring(0, 31))
-    }
+    })
     const fname = `RAN_Cells_KPI_${data.meta.month}_${dayjs().format('YYYYMMDD_HHmmss')}`
-    XLSX.writeFile(wb, `${fname}.xlsx`)
+    void exportReport(sheets, `${fname}.xlsx`)
   }, [data, shownTechs, activeDays, t])
 
   // ---------- 主题相关样式（深浅自适应） ----------

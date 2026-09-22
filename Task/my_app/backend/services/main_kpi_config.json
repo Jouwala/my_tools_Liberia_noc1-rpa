@@ -50,7 +50,8 @@
       "groupbygroup": true,
       "layer": "Cells",
       "table": "2G_Main_Kpi_Cell_Daily",
-      "add_group_column": false
+      "add_group_column": false,
+      "showbusinesscolumn": false
     },
     {
       "tech": "GSM",
@@ -59,7 +60,8 @@
       "groupbygroup": true,
       "layer": "Sites",
       "table": "2G_Main_Kpi_Site_Daily",
-      "add_group_column": false
+      "add_group_column": false,
+      "showbusinesscolumn": false
     },
     {
       "tech": "GSM",
@@ -68,7 +70,8 @@
       "groupbygroup": true,
       "layer": "Group",
       "table": "2G_Main_Kpi_group_Daily",
-      "add_group_column": false
+      "add_group_column": false,
+      "showbusinesscolumn": false
     },
     {
       "tech": "GSM",
@@ -77,7 +80,8 @@
       "groupbygroup": false,
       "layer": "NW",
       "table": "2G_Main_Kpi_group_Daily",
-      "add_group_column": true
+      "add_group_column": true,
+      "showbusinesscolumn": false
     },
     {
       "tech": "UMTS",
@@ -86,7 +90,8 @@
       "groupbygroup": true,
       "layer": "Cells",
       "table": "3G_Main_Kpi_Cell_Daily",
-      "add_group_column": false
+      "add_group_column": false,
+      "showbusinesscolumn": false
     },
     {
       "tech": "UMTS",
@@ -95,7 +100,8 @@
       "groupbygroup": true,
       "layer": "Sites",
       "table": "3G_Main_Kpi_Site_Daily",
-      "add_group_column": false
+      "add_group_column": false,
+      "showbusinesscolumn": false
     },
     {
       "tech": "UMTS",
@@ -104,7 +110,8 @@
       "groupbygroup": true,
       "layer": "Group",
       "table": "3G_Main_Kpi_group_Daily",
-      "add_group_column": false
+      "add_group_column": false,
+      "showbusinesscolumn": false
     },
     {
       "tech": "UMTS",
@@ -113,7 +120,8 @@
       "groupbygroup": false,
       "layer": "NW",
       "table": "3G_Main_Kpi_group_Daily",
-      "add_group_column": true
+      "add_group_column": true,
+      "showbusinesscolumn": false
     },
     {
       "tech": "FDD",
@@ -122,7 +130,8 @@
       "groupbygroup": true,
       "layer": "Cells",
       "table": "4G_Main_Kpi_Cell_Daily",
-      "add_group_column": false
+      "add_group_column": false,
+      "showbusinesscolumn": true
     },
     {
       "tech": "FDD",
@@ -131,7 +140,8 @@
       "groupbygroup": true,
       "layer": "Sites",
       "table": "4G_Main_Kpi_Site_Daily",
-      "add_group_column": false
+      "add_group_column": false,
+      "showbusinesscolumn": true
     },
     {
       "tech": "FDD",
@@ -140,7 +150,8 @@
       "groupbygroup": true,
       "layer": "Group",
       "table": "4G_Main_Kpi_group_Daily",
-      "add_group_column": false
+      "add_group_column": false,
+      "showbusinesscolumn": true
     },
     {
       "tech": "FDD",
@@ -149,7 +160,8 @@
       "groupbygroup": false,
       "layer": "NW",
       "table": "4G_Main_Kpi_group_Daily",
-      "add_group_column": true
+      "add_group_column": true,
+      "showbusinesscolumn": true
     }
   ]
 }

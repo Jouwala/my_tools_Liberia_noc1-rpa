@@ -1,6 +1,6 @@
 import { Tag } from 'antd'
-import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
+import { exportAoaReport } from '../../utils/excelReport'
 import type { TFn } from './types'
 
 // 按关键字全字段过滤表格行
@@ -13,6 +13,9 @@ export const filterBySearch = (data: any[], search: string) => {
 }
 
 // 导出表格数据为 Excel
+// 已迁统一格式 UNIFIED_EXCEL_V1：样式与邮件报表同源，见 docs/EXCEL_EXPORT_STANDARD.md
+// 注意 filename 同时用作 sheet 名，可能含 Excel 禁用字符（如 "/"）—— 净化与重名去重
+// 现由 excelReport 的 uniqueSheetName 统一处理，这里不再手写。
 export const exportToExcel = (data: any[], filename: string, columns: { title: string; dataIndex: string }[]) => {
   if (!data.length) return
   const header = columns.map(c => c.title)
@@ -21,11 +24,14 @@ export const exportToExcel = (data: any[], filename: string, columns: { title: s
     const v = row[k]
     return v == null ? '' : String(v)
   }))
-  const ws = XLSX.utils.aoa_to_sheet([header, ...rows])
-  ws['!cols'] = columns.map(() => ({ wch: 18 }))
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, filename)
-  XLSX.writeFile(wb, `${filename}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`)
+  void exportAoaReport({
+    filename: `${filename}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
+    sheetName: filename,
+    title: filename,
+    header,
+    rows,
+    columnWidths: columns.map(() => 18),
+  })
 }
 
 export const strSorter = (a: any, b: any, key: string) => {

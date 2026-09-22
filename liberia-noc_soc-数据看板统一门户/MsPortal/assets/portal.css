@@ -1,4 +1,4 @@
-﻿/* ==========================================================================
+/* ==========================================================================
    MsPortal — 补充样式
    --------------------------------------------------------------------------
    版式与配色由 assets/tailwind.css（Tailwind 预编译）承担，本文件只负责：
@@ -553,6 +553,16 @@ html.dark .icon-btn.small:hover { background: var(--dk-surface-3); color: var(--
 }
 .map-canvas > iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .map-canvas > iframe.hidden { display: none; }
+
+/* ---- 地图页签改名（2026-09-23 加）----
+   编辑模式下点页签是改名而不是切地图，所以必须给出可见的「可编辑」暗示，
+   否则用户会以为页签坏了（点了没切地图）。铅笔图标 + 虚线描边即为该暗示。 */
+#mapTabs.is-renaming button[role="tab"] {
+  outline: 1px dashed var(--mp-brand-40, rgba(13, 148, 136, .45));
+  outline-offset: -1px;
+  cursor: text;
+}
+.map-tab-edit { display: inline-flex; opacity: .7; }
 #mapBoot {
   position: absolute;
   inset: 0;

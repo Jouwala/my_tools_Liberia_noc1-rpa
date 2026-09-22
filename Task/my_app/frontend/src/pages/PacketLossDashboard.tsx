@@ -1,8 +1,8 @@
-// Packet Loss Dashboard - 丢包看板（参考 RealTime Alarm Map 风格）
-// 数据源: lte_pl.sqlite3（RAN UME SDR/IPRAN IPPD 丢包率，最近 7 个完整自然日小时粒度，当天未过完不展示）
-// 口径与 Excel 报告（Packet_Loss_Status_Output Automation）完全一致：
-//   STATUS = 0~23 标志块（最近 3 天同整点丢包均 >0.5% 记 1）全 0 -> OK，否则 NOK
-//   FINAL_STATUS = STATUS=OK 强制 No Packet loss[<0.1]，否则按 Last 1 day Max PL 五级分类
+﻿// Packet Loss Dashboard - ä¸¢åŒ…çœ‹æ¿ï¼ˆå‚è€ƒ RealTime Alarm Map é£Žæ ¼ï¼‰
+// æ•°æ®æº: lte_pl.sqlite3ï¼ˆRAN UME SDR/IPRAN IPPD ä¸¢åŒ…çŽ‡ï¼Œæœ€è¿‘ 7 ä¸ªå®Œæ•´è‡ªç„¶æ—¥å°æ—¶ç²’åº¦ï¼Œå½“å¤©æœªè¿‡å®Œä¸å±•ç¤ºï¼‰
+// å£å¾„ä¸Ž Excel æŠ¥å‘Šï¼ˆPacket_Loss_Status_Output Automationï¼‰å®Œå…¨ä¸€è‡´ï¼š
+//   STATUS = 0~23 æ ‡å¿—å—ï¼ˆæœ€è¿‘ 3 å¤©åŒæ•´ç‚¹ä¸¢åŒ…å‡ >0.5% è®° 1ï¼‰å…¨ 0 -> OKï¼Œå¦åˆ™ NOK
+//   FINAL_STATUS = STATUS=OK å¼ºåˆ¶ No Packet loss[<0.1]ï¼Œå¦åˆ™æŒ‰ Last 1 day Max PL äº”çº§åˆ†ç±»
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Card, Row, Col, Tag, Spin, Alert, Empty, Table, Input, Button, Switch, Popover } from 'antd'
 import {
@@ -15,7 +15,7 @@ import {
 import ReactECharts from 'echarts-for-react'
 import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Tooltip } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
-import * as XLSX from 'xlsx'
+import { exportAoaReport } from '../utils/excelReport'
 import dayjs from 'dayjs'
 import api from '../api'
 import { cachedGet } from '../cache'
@@ -48,7 +48,7 @@ const STATUS_SHORT: Record<string, string> = {
   'No Packet loss[<0.1]': 'OK',
 }
 
-// 指标计算说明（鼠标悬停「?」查看，可复制）
+// æŒ‡æ ‡è®¡ç®—è¯´æ˜Žï¼ˆé¼ æ ‡æ‚¬åœã€Œ?ã€æŸ¥çœ‹ï¼Œå¯å¤åˆ¶ï¼‰
 const getMetricExplain = (t: (key: string) => string): Record<string, string> => ({
   'Total Sites': t('pl.explain.totalSites'),
   'Critical': t('pl.explain.critical'),
@@ -60,12 +60,12 @@ const getMetricExplain = (t: (key: string) => string): Record<string, string> =>
   'Data Granularity': t('pl.explain.granularity'),
 })
 
-// 拓扑视图：按 backhaul/transport 类型（gateway 字段）聚合站点，
-// 每个 gateway 计算质心作为「汇聚节点」，并把每个成员站点连到其最近的同网关邻居，
-// 形成 hub-and-spoke 拓扑。以下为各 gateway 的配色。
+// æ‹“æ‰‘è§†å›¾ï¼šæŒ‰ backhaul/transport ç±»åž‹ï¼ˆgateway å­—æ®µï¼‰èšåˆç«™ç‚¹ï¼Œ
+// æ¯ä¸ª gateway è®¡ç®—è´¨å¿ƒä½œä¸ºã€Œæ±‡èšèŠ‚ç‚¹ã€ï¼Œå¹¶æŠŠæ¯ä¸ªæˆå‘˜ç«™ç‚¹è¿žåˆ°å…¶æœ€è¿‘çš„åŒç½‘å…³é‚»å±…ï¼Œ
+// å½¢æˆ hub-and-spoke æ‹“æ‰‘ã€‚ä»¥ä¸‹ä¸ºå„ gateway çš„é…è‰²ã€‚
 const GW_COLORS: Record<string, string> = {
-  'MW': '#36cfc9',            // 微波
-  'Satellite Link': '#ffc53d', // 卫星链路
+  'MW': '#36cfc9',            // å¾®æ³¢
+  'Satellite Link': '#ffc53d', // å«æ˜Ÿé“¾è·¯
   'IPRAN': '#9254de',         // IPRAN
   'Start Link': '#ff7a45',    // Start Link
 }
@@ -90,7 +90,7 @@ const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: stri
   </div>
 )
 
-// 通用「计算说明」悬停气泡（带复制）。供指标卡以外的地方（如头部 Affected Sites 标签）复用
+// é€šç”¨ã€Œè®¡ç®—è¯´æ˜Žã€æ‚¬åœæ°”æ³¡ï¼ˆå¸¦å¤åˆ¶ï¼‰ã€‚ä¾›æŒ‡æ ‡å¡ä»¥å¤–çš„åœ°æ–¹ï¼ˆå¦‚å¤´éƒ¨ Affected Sites æ ‡ç­¾ï¼‰å¤ç”¨
 const MetricExplainPopover = ({ text, children, t }: { text: string; children: React.ReactNode; t: (key: string) => string }) => {
   const [copied, setCopied] = useState(false)
   const copy = useCallback(async () => {
@@ -161,7 +161,7 @@ const SummaryCard = ({ icon, value, label, color, onClick, explain, t }: {
           mouseEnterDelay={0.1}
           content={
             <div style={{ maxWidth: '17.5rem', fontSize: '0.75rem', lineHeight: 1.7 }}>
-              <div style={{ fontWeight: 700, color: WH.teal, marginBottom: 'var(--wh-space-xs)' }}>{label} · {t('pl.calcExplain')}</div>
+              <div style={{ fontWeight: 700, color: WH.teal, marginBottom: 'var(--wh-space-xs)' }}>{label} Â· {t('pl.calcExplain')}</div>
               <div style={{ color: WH.textMuted, whiteSpace: 'pre-line' }}>{explain}</div>
               <Button size="small" type="link" icon={<CopyOutlined />} onClick={copyExplain}
                 style={{ paddingLeft: 0, marginTop: 'var(--wh-space-sm)', height: 'auto', color: WH.teal }}>
@@ -214,10 +214,10 @@ export default function PacketLossDashboard() {
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<any>(null)
   const [mapSites, setMapSites] = useState<PlSite[]>([])
-  // 默认显示 OK 站点（include_ok=true），地图展示全量有坐标站点
+  // é»˜è®¤æ˜¾ç¤º OK ç«™ç‚¹ï¼ˆinclude_ok=trueï¼‰ï¼Œåœ°å›¾å±•ç¤ºå…¨é‡æœ‰åæ ‡ç«™ç‚¹
   const [includeOk, setIncludeOk] = useState(true)
   const [hiddenStatuses, setHiddenStatuses] = useState<Set<string>>(new Set())
-  // 拓扑显示开关：开启后复用 GIS Map 的真实拓扑链路（/api/gis/topology），按传输类型着色
+  // æ‹“æ‰‘æ˜¾ç¤ºå¼€å…³ï¼šå¼€å¯åŽå¤ç”¨ GIS Map çš„çœŸå®žæ‹“æ‰‘é“¾è·¯ï¼ˆ/api/gis/topologyï¼‰ï¼ŒæŒ‰ä¼ è¾“ç±»åž‹ç€è‰²
   const [showTopology, setShowTopology] = useState(false)
   const [gisTopology, setGisTopology] = useState<any[]>([])
   useEffect(() => {
@@ -235,7 +235,7 @@ export default function PacketLossDashboard() {
     })
   }, [])
 
-  // 下钻
+  // ä¸‹é’»
   const [drillOpen, setDrillOpen] = useState(false)
   const [drillLoading, setDrillLoading] = useState(false)
   const [drillData, setDrillData] = useState<any[]>([])
@@ -288,16 +288,20 @@ export default function PacketLossDashboard() {
     return drillData.filter(row => Object.values(row).some(v => v != null && String(v).toLowerCase().includes(lower)))
   }, [drillData, drillSearch])
 
+  // å·²è¿ç»Ÿä¸€æ ¼å¼ UNIFIED_EXCEL_V1ï¼šæ ·å¼ä¸Žé‚®ä»¶æŠ¥è¡¨åŒæºï¼Œè§ docs/EXCEL_EXPORT_STANDARD.md
   const exportToExcel = useCallback(() => {
     if (!filteredDrillData.length) return
     const keys = Object.keys(filteredDrillData[0])
     const rows = filteredDrillData.map(row => keys.map(k => row[k] == null ? '' : String(row[k])))
-    const ws = XLSX.utils.aoa_to_sheet([keys, ...rows])
-    ws['!cols'] = keys.map(() => ({ wch: 18 }))
-    const wb = XLSX.utils.book_new()
     const fname = `PacketLoss_${dayjs().format('YYYYMMDD_HHmmss')}`
-    XLSX.utils.book_append_sheet(wb, ws, fname.substring(0, 31))
-    XLSX.writeFile(wb, `${fname}.xlsx`)
+    void exportAoaReport({
+      filename: `${fname}.xlsx`,
+      sheetName: 'PacketLoss',
+      title: 'Packet Loss Detail',
+      header: keys,
+      rows,
+      columnWidths: keys.map(() => 18),
+    })
   }, [filteredDrillData])
 
   const drillColumns = useMemo(() => {
@@ -314,8 +318,8 @@ export default function PacketLossDashboard() {
     }))
   }, [drillData])
 
-  // ========== 图表配置 ==========
-  // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
+  // ========== å›¾è¡¨é…ç½® ==========
+  // ä¸»é¢˜æ„ŸçŸ¥çš„å›¾è¡¨è‰²æ¿ï¼ˆcanvas æ— æ³•è§£æž CSS å˜é‡ï¼Œå–å…·ä½“è‰²å€¼ï¼‰
   const cText = isDark ? '#f5f7ff' : '#16233b'
   const cTextMuted = isDark ? '#aebbd4' : '#3f5468'
   const cTeal = isDark ? '#00d9ff' : '#0d9488'
@@ -434,22 +438,22 @@ export default function PacketLossDashboard() {
     }
   }, [data, isDark, statusColors, cText, cTextMuted, cTeal])
 
-  // 图例过滤：隐藏选中的状态 → 地图上不渲染对应站点
-  // 必须放在 early-return 之前，保证 hook 调用顺序在每次渲染都一致（否则会改变 hook 数量 → 组件崩溃）
+  // å›¾ä¾‹è¿‡æ»¤ï¼šéšè—é€‰ä¸­çš„çŠ¶æ€ â†’ åœ°å›¾ä¸Šä¸æ¸²æŸ“å¯¹åº”ç«™ç‚¹
+  // å¿…é¡»æ”¾åœ¨ early-return ä¹‹å‰ï¼Œä¿è¯ hook è°ƒç”¨é¡ºåºåœ¨æ¯æ¬¡æ¸²æŸ“éƒ½ä¸€è‡´ï¼ˆå¦åˆ™ä¼šæ”¹å˜ hook æ•°é‡ â†’ ç»„ä»¶å´©æºƒï¼‰
   const visibleSites = useMemo(
     () => mapSites.filter(s => !hiddenStatuses.has(s.status)),
     [mapSites, hiddenStatuses],
   )
 
-  // 拓扑：复用 GIS Map 的真实链路（/api/gis/topology），按传输类型（gateway）着色。
-  // 用「可见站点的坐标 → gateway」就近匹配链路两端，判定该链路属于哪种传输类型并取色。
-  // 仅绘制至少一端落在当前可见 PL 站点内的链路（随图例显隐联动）。放在 early-return 前，保持 hook 顺序稳定。
+  // æ‹“æ‰‘ï¼šå¤ç”¨ GIS Map çš„çœŸå®žé“¾è·¯ï¼ˆ/api/gis/topologyï¼‰ï¼ŒæŒ‰ä¼ è¾“ç±»åž‹ï¼ˆgatewayï¼‰ç€è‰²ã€‚
+  // ç”¨ã€Œå¯è§ç«™ç‚¹çš„åæ ‡ â†’ gatewayã€å°±è¿‘åŒ¹é…é“¾è·¯ä¸¤ç«¯ï¼Œåˆ¤å®šè¯¥é“¾è·¯å±žäºŽå“ªç§ä¼ è¾“ç±»åž‹å¹¶å–è‰²ã€‚
+  // ä»…ç»˜åˆ¶è‡³å°‘ä¸€ç«¯è½åœ¨å½“å‰å¯è§ PL ç«™ç‚¹å†…çš„é“¾è·¯ï¼ˆéšå›¾ä¾‹æ˜¾éšè”åŠ¨ï¼‰ã€‚æ”¾åœ¨ early-return å‰ï¼Œä¿æŒ hook é¡ºåºç¨³å®šã€‚
   const topology = useMemo(() => {
     const pts: { lat: number; lng: number; gw: string }[] = []
     for (const s of visibleSites) {
       if (s.lat != null && s.lng != null) pts.push({ lat: s.lat, lng: s.lng, gw: s.gateway || '' })
     }
-    const TH = 0.006 // ≈ 600m 容差，避免浮点/格式差异导致匹配不上
+    const TH = 0.006 // â‰ˆ 600m å®¹å·®ï¼Œé¿å…æµ®ç‚¹/æ ¼å¼å·®å¼‚å¯¼è‡´åŒ¹é…ä¸ä¸Š
     const matchGw = (lat: number, lng: number): string => {
       let best = ''; let bd = TH * TH
       for (const p of pts) {
@@ -462,7 +466,7 @@ export default function PacketLossDashboard() {
     const gwSeen = new Set<string>()
     for (const l of gisTopology) {
       const gw = matchGw(l.lat_a, l.lng_a) || matchGw(l.lat_b, l.lng_b)
-      if (!gw) continue // 两端都不在当前可见 PL 站点内 → 跳过
+      if (!gw) continue // ä¸¤ç«¯éƒ½ä¸åœ¨å½“å‰å¯è§ PL ç«™ç‚¹å†… â†’ è·³è¿‡
       gwSeen.add(gw)
       edges.push({
         positions: [[l.lat_a, l.lng_a], [l.lat_b, l.lng_b]],
@@ -473,7 +477,7 @@ export default function PacketLossDashboard() {
     return { edges, gateways: [...gwSeen] }
   }, [visibleSites, gisTopology])
 
-  // ========== 渲染 ==========
+  // ========== æ¸²æŸ“ ==========
   if (loading) return (
     <div style={{ ...pageWrap, textAlign: 'center', padding: '3.75rem' }}>
       <Spin size="large" />
@@ -489,9 +493,9 @@ export default function PacketLossDashboard() {
 
   return (
     <div style={{ ...pageWrap, display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '0.75rem', alignItems: isMobile ? 'stretch' : 'flex-start' }}>
-      {/* ===== 左侧 2/3：其余组件，排列顺序不变 ===== */}
+      {/* ===== å·¦ä¾§ 2/3ï¼šå…¶ä½™ç»„ä»¶ï¼ŒæŽ’åˆ—é¡ºåºä¸å˜ ===== */}
       <div style={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-xs)' }}>
-      {/* 1. 头部横幅 */}
+      {/* 1. å¤´éƒ¨æ¨ªå¹… */}
       <Card size="small" style={{
         ...cardStyle,
         background: isDark ? 'linear-gradient(135deg, #101a2e 0%, #050d22 100%)' : 'linear-gradient(135deg, #eef4fa 0%, #e0edf7 100%)',
@@ -519,7 +523,7 @@ export default function PacketLossDashboard() {
         </div>
       </Card>
 
-      {/* 2. 核心指标卡片 */}
+      {/* 2. æ ¸å¿ƒæŒ‡æ ‡å¡ç‰‡ */}
       <Row gutter={[12, 12]}>
         <Col xs={12} sm={8} lg={4}>
           <SummaryCard icon={<EnvironmentOutlined />} value={fmt(data.total_sites)} label={t('pl.totalSites')} color={WH.teal}
@@ -542,7 +546,7 @@ export default function PacketLossDashboard() {
         </Col>
       </Row>
 
-      {/* 3. 状态分布 + 每日趋势 + 区域分布 */}
+      {/* 3. çŠ¶æ€åˆ†å¸ƒ + æ¯æ—¥è¶‹åŠ¿ + åŒºåŸŸåˆ†å¸ƒ */}
       <SectionTitle icon={<BarChartOutlined />} title={t('pl.lossDistribution')} sub={t('pl.lossDistSub')} />
       <Row gutter={[12, 12]}>
         <Col xs={24} lg={7}>
@@ -562,14 +566,14 @@ export default function PacketLossDashboard() {
         </Col>
       </Row>
 
-      {/* 4. Top 站点（地图已移至右侧 1/3 列） */}
+      {/* 4. Top ç«™ç‚¹ï¼ˆåœ°å›¾å·²ç§»è‡³å³ä¾§ 1/3 åˆ—ï¼‰ */}
       <SectionTitle icon={<PieChartOutlined />} title={t('pl.topSites')} sub={t('pl.topSitesSub')} />
       <CardBase title={t('pl.topSitesTitle')}>
         <ReactECharts option={topSitesOption} style={{ height: 520 }} />
       </CardBase>
       </div>
 
-      {/* ===== 右侧 1/3：Packet Loss Map 单独占整列，可固定（移动端整列堆叠在下方） ===== */}
+      {/* ===== å³ä¾§ 1/3ï¼šPacket Loss Map å•ç‹¬å æ•´åˆ—ï¼Œå¯å›ºå®šï¼ˆç§»åŠ¨ç«¯æ•´åˆ—å †å åœ¨ä¸‹æ–¹ï¼‰ ===== */}
       <div style={isMobile
         ? { width: '100%', minWidth: 0 }
         : { flex: '0 0 33.333%', width: '33.333%', position: 'sticky', top: 'var(--wh-space-md)', alignSelf: 'flex-start' }}>
@@ -589,8 +593,8 @@ export default function PacketLossDashboard() {
           <MapContainer center={[6.4, -9.4]} zoom={8} className={isDark ? 'gis-dark-map' : ''} style={{ height: isMobile ? '55vh' : 'calc(100vh - 180px)', minHeight: isMobile ? '18.75rem' : '26.25rem', width: '100%', background: 'var(--wh-page-bg)', borderRadius: 'var(--wh-radius-md)' }} scrollWheelZoom={!isEmbeddedInPortal()}>
             <MapWheelZoomOnClick />
             <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            {/* 拓扑连线：复用 GIS Map 真实链路，按传输类型着色（MW / IPRAN 等）。
-                先白色描边(casing)增强对比，再画彩色线；hub 链路更粗。 */}
+            {/* æ‹“æ‰‘è¿žçº¿ï¼šå¤ç”¨ GIS Map çœŸå®žé“¾è·¯ï¼ŒæŒ‰ä¼ è¾“ç±»åž‹ç€è‰²ï¼ˆMW / IPRAN ç­‰ï¼‰ã€‚
+                å…ˆç™½è‰²æè¾¹(casing)å¢žå¼ºå¯¹æ¯”ï¼Œå†ç”»å½©è‰²çº¿ï¼›hub é“¾è·¯æ›´ç²—ã€‚ */}
             {showTopology && topology.edges.map((e, i) => (
               <Polyline key={`topo-c-${i}`} positions={e.positions}
                 pathOptions={{ color: '#ffffff', weight: e.isHub ? 5 : 3, opacity: 0.3, interactive: false }} />
@@ -608,9 +612,9 @@ export default function PacketLossDashboard() {
                     <strong>{s.site_name}</strong> {s.site_code && `(${s.site_code})`}<br />
                     {t('pl.popup.status')}: <strong style={{ color: STATUS_COLORS[s.status] }}>{STATUS_SHORT[s.status] || s.status}</strong><br />
                     {t('pl.popup.maxPL')}: <strong>{s.last_day_max_pl}%</strong><br />
-                    {t('pl.popup.totalPL')}: {s.total_pl}% · {t('pl.popup.affectedHours')}: {s.affected_hours}<br />
+                    {t('pl.popup.totalPL')}: {s.total_pl}% Â· {t('pl.popup.affectedHours')}: {s.affected_hours}<br />
                     {t('pl.popup.region')}: {s.region || '-'} / {s.province_county || '-'}<br />
-                    {t('pl.popup.gateway')}: {s.gateway || '-'} · {t('pl.popup.network')}: {s.network_type || '-'}
+                    {t('pl.popup.gateway')}: {s.gateway || '-'} Â· {t('pl.popup.network')}: {s.network_type || '-'}
                   </div>
                 </Popup>
               </CircleMarker>
@@ -650,7 +654,7 @@ export default function PacketLossDashboard() {
         </Card>
       </div>
 
-      {/* 下钻弹窗 */}
+      {/* ä¸‹é’»å¼¹çª— */}
       <DraggableClickModal
         open={drillOpen}
         anchor={drillAnchor}

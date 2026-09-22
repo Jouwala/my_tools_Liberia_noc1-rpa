@@ -10,7 +10,7 @@ import {
   DownloadOutlined, SearchOutlined, RightOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
-import * as XLSX from 'xlsx'
+import { exportAoaReport } from '../utils/excelReport'
 import dayjs from 'dayjs'
 import api from '../api'
 import { cachedGet } from '../cache'
@@ -183,17 +183,21 @@ export default function AlarmDashboard() {
   }, [drillData, drillSearch])
 
   // 导出Excel
+  // 已迁统一格式 UNIFIED_EXCEL_V1：样式与邮件报表同源，见 docs/EXCEL_EXPORT_STANDARD.md
   const exportToExcel = useCallback(() => {
     if (!filteredDrillData.length) return
     const keys = Object.keys(filteredDrillData[0])
     const header = keys.map(k => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))
     const rows = filteredDrillData.map(row => keys.map(k => row[k] == null ? '' : String(row[k])))
-    const ws = XLSX.utils.aoa_to_sheet([header, ...rows])
-    ws['!cols'] = keys.map(() => ({ wch: 18 }))
-    const wb = XLSX.utils.book_new()
     const fname = `Alarm_${dayjs().format('YYYYMMDD_HHmmss')}`
-    XLSX.utils.book_append_sheet(wb, ws, fname.substring(0, 31))
-    XLSX.writeFile(wb, `${fname}.xlsx`)
+    void exportAoaReport({
+      filename: `${fname}.xlsx`,
+      sheetName: 'Alarm',
+      title: 'Alarm Detail',
+      header,
+      rows,
+      columnWidths: keys.map(() => 18),
+    })
   }, [filteredDrillData])
 
   // 下钻表格列定义

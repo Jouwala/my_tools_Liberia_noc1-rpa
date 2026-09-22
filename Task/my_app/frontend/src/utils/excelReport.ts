@@ -215,8 +215,32 @@ export function safeFileName(name: string): string {
 // =============================================================================
 // 核心：构建单个 sheet
 // =============================================================================
+
+/**
+ * Excel 对 sheet 名有硬性限制，ExcelJS 会在违反时**直接抛错**（实测）：
+ *   1. 不得含 `* ? : \ / [ ]` —— `Worksheet name a[b]c:d cannot include ...`
+ *   2. 长度 ≤ 31 字符
+ *   3. 同一 workbook 内不得重名 —— `Worksheet name already exists: X`
+ *      注意第 2 条与第 3 条会叠加：两个长名截断到 31 字符后可能**变成同名**而抛错。
+ *
+ * 各调用方曾各自手写去重循环（如 CnKpi 的 `used` Set），既重复又容易漏。
+ * 这里统一收口，调用方传原始业务名即可，不必关心 Excel 的命名限制。
+ */
+function uniqueSheetName(wb: ExcelJS.Workbook, rawName: string): string {
+  // 去掉 Excel 禁用字符，再把长度压到 31 以内
+  const base = (rawName || 'Sheet1').replace(/[*?:\\/[\]]/g, '_').slice(0, 31) || 'Sheet1'
+  let name = base
+  let n = 1
+  while (wb.getWorksheet(name)) {
+    // 预留后缀位，确保加后缀后仍 ≤ 31 字符
+    const suffix = `_${++n}`
+    name = `${base.slice(0, 31 - suffix.length)}${suffix}`
+  }
+  return name
+}
+
 function buildSheet(wb: ExcelJS.Workbook, spec: ReportSheetSpec) {
-  const ws = wb.addWorksheet(spec.name.slice(0, 31), {
+  const ws = wb.addWorksheet(uniqueSheetName(wb, spec.name), {
     views: [],
     pageSetup: {
       orientation: 'landscape',

@@ -21,6 +21,10 @@ frontend/src/utils/excelReport.ts
 | `downloadBlob(buf, filename)` / `safeFileName(name)` | 底层下载 / 文件名净化 |
 | `SHEET_TAB_COLORS` / `UNIFIED_EXCEL_VERSION` | 标签页配色表 / 版本标记 |
 
+> **sheet 名由模块统一净化**（`uniqueSheetName`，内部函数）：替换 Excel 禁用字符 `* ? : \ / [ ]`、
+> 截断到 31 字符、重名追加 `_2`。传入业务名即可，**调用方不要自己 `substring(0,31)` 或写去重循环**。
+> 这三条都是 ExcelJS 的**硬性限制，违反会直接抛错**（非静默降级）。
+
 ### `ReportSheetSpec` 字段
 
 ```ts
@@ -88,20 +92,43 @@ await exportAoaReport({
 
 ## 4. 迁移清单
 
-仍在用裸 `xlsx`（无样式）的导出点，建议逐个迁到本模块：
+> **状态：前端导出已全部迁移完成（2026-09-24）。** 全仓已无裸 `xlsx` 写文件调用，
+> 校验命令：`Select-String -Path frontend\src\pages\*.tsx -Pattern "XLSX\.utils\.(aoa|json)_to_sheet|XLSX\.writeFile"`
+> 应返回空（`utils\excelReport.ts` 内部的注释除外）。
 
 | 文件 | 状态 |
 | --- | --- |
 | `pages/SpMaterialSummary.tsx` | ✅ 已迁移（汇总 + 下钻明细） |
-| `pages/SiteAvailability.tsx` | ⬜ 待迁移 |
-| `pages/RanCellsKpi.tsx` | ⬜ 待迁移（多 sheet） |
-| `pages/PacketLossDashboard.tsx` | ⬜ 待迁移 |
-| `pages/AlarmDashboard.tsx` | ⬜ 待迁移 |
-| `pages/BatteryDashboard.tsx` | ⬜ 待迁移 |
-| `pages/MsSlaDashboard.tsx` | ⬜ 待迁移 |
-| `pages/NurDashboard.tsx` | ⬜ 待迁移 |
-| `pages/TTWODashboard.tsx` | ⬜ 待迁移 |
-| `pages/gismap/helpers.tsx` | ⬜ 待迁移 |
+| `pages/SiteAvailability.tsx` | ✅ 已迁移 |
+| `pages/RanCellsKpi.tsx` | ✅ 已迁移（多 sheet） |
+| `pages/PacketLossDashboard.tsx` | ✅ 已迁移 |
+| `pages/AlarmDashboard.tsx` | ✅ 已迁移 |
+| `pages/BatteryDashboard.tsx` | ✅ 已迁移（原 `json_to_sheet`） |
+| `pages/MsSlaDashboard.tsx` | ✅ 已迁移 |
+| `pages/NurDashboard.tsx` | ✅ 已迁移 |
+| `pages/TTWODashboard.tsx` | ✅ 已迁移 |
+| `pages/gismap/helpers.tsx` | ✅ 已迁移 |
+| `pages/FmeRanking.tsx` | ✅ 已迁移 |
+| `pages/CnKpi.tsx` | ✅ 已迁移（多 sheet，元信息行保留在数据区） |
+| `pages/RepeatSiteDown.tsx` | ✅ 已迁移（原 `json_to_sheet`） |
+| `pages/EflowQa.tsx` | ✅ 导出已迁移。**仍 import `xlsx`**：用于上传清单文件的**解析**（`XLSX.read`），非导出用途，应保留 |
+| `pages/TableBrowser.tsx` | ⛔ **无需迁移**：导出走后端接口 `GET /api/tables/{name}/export`，前端不生成 Excel。**仍 import `xlsx`** 用于上传文件解析 |
+| `pages/DataUpload.tsx`、`pages/Help.tsx` | ⛔ 无需迁移：同样仅用 `xlsx` 做上传解析 |
+
+### 4.0 迁移要点（留给后续新页面）
+
+- **单表** → `exportAoaReport({ filename, sheetName, title, header, rows, numericCols, columnWidths, tabColor })`。
+  它直接替代 `XLSX.utils.aoa_to_sheet([header, ...rows])` + `book_new` + `book_append_sheet` + `writeFile` 四连。
+- **多表** → `exportReport(sheets, filename)`，`sheets: ReportSheetSpec[]`。
+- **`json_to_sheet` 的替代**：`json_to_sheet` 会按对象键自动生成列头，`exportAoaReport` 不会。
+  迁移时须显式取键：`const keys = Object.keys(rows[0])`，再 `header: keys` / `rows: rows.map(r => keys.map(k => r[k] ?? ''))`，
+  否则列头与列序会与原来不一致。
+- **sheet 名不要自己截断/去重**：`xlsx` 的 `substring(0,31)` 惯用法可以删掉。
+  `excelReport` 的 `uniqueSheetName()` 已统一处理「禁用字符 `* ? : \ / [ ]` 替换」+「31 字符截断」
+  +「重名追加 `_2`」，且处理了**截断后才撞名**的边界情况
+  （此三种情形下 ExcelJS 会**直接抛错**，实测：`Worksheet name already exists` / `cannot include any of the following characters`）。
+- **非表格的前置说明行**（如 CnKpi 的口径/SQL 文本）继续放在 `rows` 里，
+  不要塞进 `subtitle` —— `subtitle` 是为 `Generated: <时间> | Sheet: <名>` 之类固定格式准备的。
 
 ### 4.1 服务端导出（openpyxl）
 

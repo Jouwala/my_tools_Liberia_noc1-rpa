@@ -92,10 +92,20 @@ MAX_GROUP_ID_LEN = 64         # 与 _str_list 里 item.groups 的取值同宽，
 MAX_GROUP_LABEL_LEN = 64      # 分组中/英文显示名
 MAX_GROUP_SUB_LEN = 200       # 分组副标题（面板头部那一行说明）
 MAX_GROUP_STYLE_LEN = 20      # 版式名，未知值前端按默认版式渲染，不做枚举校验
+# ---- 拓扑地图页签改名（catalog.tabLabels，2026-09-23 加） ----
+MAX_TAB_LABEL_LEN = 32        # 页签名的中/英文字数上限（页签栏很窄，名字长了会撑破版式）
 
 PLATFORMS = {"myapp", "finebi", "external"}
 STATUSES = {"online", "beta"}
 DEFAULT_ICON = "dashboard"
+
+# 拓扑地图页签的合法 page 值。**必须与前端 MAP_TABS 的 page 完全一致**：
+#   MsPortal/assets/portal.js   var MAP_TABS = [{page:'gis'},{page:'mwRealTime'},…]
+#   olbrportal/assets/olbr.js   var MAP_TABS = [{page:'gis'},{page:'mwRealTime'},…]
+# 这是「能改名的页签」白名单——认不出的 key 直接丢弃而不是 400：
+# 前端将来加了新页签而后端还没重启时，不该因为一个多余的键让整份目录保存失败
+# （与 groups 的 style 不做枚举校验同一个理由）。
+TAB_PAGES = {"gis", "mwRealTime", "realtime_alarm", "packet_loss"}
 
 # 看板对象允许落盘的字段白名单。**必须白名单**：请求体来自浏览器，
 # 不做过滤的话任何字段都会被原样存下来，再被前端 `esc()` 之外的地方读到。
@@ -334,6 +344,42 @@ def _normalize_sub_groups(raw: Any) -> dict:
     return out
 
 
+def _normalize_tab_labels(raw: Any) -> dict:
+    """归一化拓扑地图页签的显示名：{"gis": {"zh": …, "en": …}, …}。
+
+    为什么加（2026-09-23）：这 4 个页签名原先只写死在**两个前端文件**的 i18n 字典里
+    （MsPortal/assets/portal.js 的 'map.tab.gis' 等、olbrportal/assets/olbr.js 的
+    'map.gis' 等），想让页签叫别的名字就得改代码 + 强刷浏览器，而且两个门户各改一处、
+    容易改歪。这里把它搬到服务端目录，改名在界面上点一下即可、且两个门户天然一致。
+    语义照抄 subGroups / order / groups：
+      · 键**不存在**（或空字典）= 前端用 i18n 字典里的内置文案；
+      · 键存在 = 以此为准（zh/en 缺哪个回落到内置文案，不是回落到另一个语言）；
+      · 认不出的 page 键丢弃保留其余（同 groups 的 style 不做枚举校验的理由）。
+
+    中文/英文都留空的对象视为「没配」直接丢弃 —— 落一个空壳进去会让前端以为
+    "已配置"，反而把内置文案盖成空字符串，页签会变成一片空白。
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="catalog.tabLabels 必须是对象")
+
+    out: dict = {}
+    for page, val in raw.items():
+        if page not in TAB_PAGES:
+            continue                      # 未知页签 → 丢弃（见 TAB_PAGES 注释）
+        if not isinstance(val, dict):
+            raise HTTPException(
+                status_code=400, detail=f"catalog.tabLabels[{page}] 必须是对象"
+            )
+        zh = _clip(val.get("zh"), MAX_TAB_LABEL_LEN)
+        en = _clip(val.get("en"), MAX_TAB_LABEL_LEN)
+        if not zh and not en:
+            continue                      # 全空 = 没配，别落空壳（见 docstring）
+        out[page] = {"zh": zh, "en": en}
+    return out
+
+
 def _normalize_groups(raw: Any) -> list:
     """归一化一级分组定义：[{"id","zh","en","subZh","subEn","style"}, …]，数组顺序即展示顺序。
 
@@ -425,6 +471,10 @@ def _normalize_catalog(raw: Any) -> dict:
     groups = _normalize_groups(raw.get("groups"))
     if groups:
         catalog["groups"] = groups
+    # 拓扑地图页签改名（2026-09-23 加）：同样非空才落键，空字典 = 用前端 i18n 内置文案。
+    tab_labels = _normalize_tab_labels(raw.get("tabLabels"))
+    if tab_labels:
+        catalog["tabLabels"] = tab_labels
     return catalog
 
 

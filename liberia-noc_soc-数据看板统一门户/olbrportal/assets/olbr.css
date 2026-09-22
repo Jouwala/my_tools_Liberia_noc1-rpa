@@ -613,6 +613,11 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .tab:hover { color: var(--b-ink); }
 .tab[aria-selected="true"] { background: var(--surface); color: var(--b-ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
 html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
+/* 编辑模式下点地图页签是「改名」而不是「切地图」，必须给出可见暗示，
+   否则用户会以为页签坏了（点了不切地图）。虚线描边 + 铅笔图标即为该暗示。 */
+.tabs.is-renaming .tab { outline: 1px dashed var(--b-line, rgba(13, 148, 136, .45)); outline-offset: -1px; }
+.tabs.is-renaming .tab:hover { color: var(--b-ink); }
+.maptab-pen { opacity: .65; font-size: 12px !important; }
 .canvas {
   position: relative; flex: 1; min-height: 460px; margin-top: var(--s3);
   border: 1px solid var(--line); border-radius: var(--r2); overflow: hidden;
