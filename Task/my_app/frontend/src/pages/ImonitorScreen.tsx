@@ -283,6 +283,17 @@ export default function ImonitorScreen() {
           // 大屏内可能用到剪贴板 / 全屏；摄像头麦克风一律不给
           allow="fullscreen; clipboard-read; clipboard-write"
           /**
+           * 门户的跨站过滤（3329008）只看 Referer：Referer 必须落在 redirect_uri 那个
+           * 应用路径（/iui/guard-imonitor-iui/）之下，否则一律 403。工具条的「重新登录」
+           * 是**由外层页面**把 iframe 指到 /api/oauth2/v1/authorize 的，浏览器默认策略
+           * （strict-origin-when-cross-origin）会把宿主页的 origin 当作 Referer 带过去
+           * → 门户回一屏 JSON。same-origin 策略正好：外层(80 口)→门户(8088) 是跨源，
+           * Referer 直接不发（实测无 Referer → 200，登录页照常出）；而门户自己发出的
+           * 同源请求（含大屏接口与 /api/oauth2/v1/login_rsa 登录提交）Referer 原样保留，
+           * 自动填表链路不受影响。
+           */
+          referrerPolicy="same-origin"
+          /**
            * sandbox 是这里最关键的一道保险：门户**不止**在登录页内联了 frame-bust，
            * 其 JS 里还有两处会去操作顶层窗口（实测定位）：
            *   · login.min.js    : `top!=self&&(top.location=self.location)`（同一段被压缩成两份）

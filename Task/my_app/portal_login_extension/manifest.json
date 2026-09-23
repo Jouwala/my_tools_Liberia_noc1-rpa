@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "my_app Portal Login",
-  "description": "在受管 Chrome 中为 eFlow 和 RAIS 写入由 my_app 签发的一次性本机会话，不保存门户账号密码。",
+  "description": "在受管 Chrome 中为 eFlow / RAIS / Battery UME 写入由 my_app 签发的一次性本机会话，不保存门户账号密码。",
   "version": "1.0.0",
   "minimum_chrome_version": "102",
   "permissions": ["cookies", "storage"],
@@ -9,7 +9,8 @@
     "http://192.168.100.20/*",
     "https://192.168.100.20/*",
     "https://10.100.20.8/*",
-    "https://10.100.20.9/*"
+    "https://10.100.20.9/*",
+    "https://192.168.170.2/*"
   ],
   "background": {
     "service_worker": "background.js"

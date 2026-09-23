@@ -6,6 +6,7 @@
 
 注意：按产品要求只返回文档类报告（xlsx/html），不返回图片（png）。
 """
+import fnmatch
 import json
 import logging
 from pathlib import Path
@@ -70,9 +71,13 @@ _SOURCES = [
          dir=_BASE / "backend" / "services" / "battary_kpi_fetch" / "output_socket",
          patterns=["battery_latest_*.xlsx"],
          label="Battery KPI 报告", label_en="Battery KPI Report"),
+    # 2026-09-23：除 TT 规则表外，把另外两个 eFlow 规则收集任务的产物
+    # （告警关联规则 / 推单配置规则）一并纳入本源的下载白名单，
+    # 页面「eFlow 规则检查」页签因此可下载从 eFlow 获取的全部规则表。
     dict(id="eflow_tt_rules_check", task_id="eflow_tt_rules_check",
          dir=_BASE / "backend" / "services" / "eflow_rules",
-         patterns=["eflow_tt_severity_correction*.xlsx", "MATCHING_REPORT*.md", "eflow_TT_rules.xlsx"],
+         patterns=["eflow_tt_severity_correction*.xlsx", "MATCHING_REPORT*.md", "eflow_TT_rules.xlsx",
+                   "eflow_alarm_rules*.xlsx", "eflow_push_rules*.xlsx"],
          label="eFlow TT 规则收集与匹配报告", label_en="eFlow TT Rules Collect & Match Report"),
 ]
 
@@ -81,6 +86,33 @@ _SOURCE_BY_ID = {s["id"]: s for s in _SOURCES}
 _EFLOW_RULES_CHECK_JSON = _BASE / "backend" / "services" / "eflow_rules" / "eflow_tt_rules_check_latest.json"
 _TASK_NAMES = {s["task_id"]: (s.get("name") or s["task_id"], s.get("name_en") or s["task_id"])
                for s in TASK_SPECS}
+
+# eflow_tt_rules_check 页签的文件分类与展示名（2026-09-23 新增）
+# kind=rule   —— 从 eFlow 直接收集的规则表（三个收集器各一份，供下载）
+# kind=report —— 规则匹配检查的产物（级别矫正表 / 匹配报告）
+# ⚠ pattern 必须与 _SOURCES 中 eflow_tt_rules_check 的 patterns 保持一致，
+#   否则文件能列出却下载不了（下载接口按 patterns 做白名单校验，见 _resolve_download_file）。
+_EFLOW_FILE_SPECS = [
+    dict(pattern="eflow_TT_rules.xlsx", kind="rule",
+         label="TT 级别矫正规则", label_en="TT Severity Rules"),
+    dict(pattern="eflow_alarm_rules*.xlsx", kind="rule",
+         label="告警关联规则", label_en="Alarm Correlation Rules"),
+    dict(pattern="eflow_push_rules*.xlsx", kind="rule",
+         label="推单/配置规则", label_en="Push / Config Rules"),
+    dict(pattern="eflow_tt_severity_correction*.xlsx", kind="report",
+         label="TT 级别矫正表", label_en="Severity Correction Sheet"),
+    dict(pattern="MATCHING_REPORT*.md", kind="report",
+         label="匹配检查报告", label_en="Matching Report"),
+]
+
+
+def _eflow_file_meta(filename: str, lang: str) -> dict:
+    """按文件名判定 eFlow 页签文件的类别（rule/report）与展示名；未命中则回退为 report。"""
+    for spec in _EFLOW_FILE_SPECS:
+        if fnmatch.fnmatch(filename, spec["pattern"]):
+            return {"kind": spec["kind"],
+                    "label": spec["label_en"] if lang == "en" else spec["label"]}
+    return {"kind": "report", "label": filename}
 
 
 def _req_lang(request: Request) -> str:
@@ -130,8 +162,6 @@ def _resolve_download_file(source_id: str, filename: str) -> Path:
 
     GET 与 HEAD 共用同一套判断，保证两个方法放行/拒绝的文件集合完全一致。
     """
-    import fnmatch
-
     src = _SOURCE_BY_ID.get(source_id)
     if not src:
         raise HTTPException(status_code=404, detail=f"未知报告源: {source_id}")
@@ -189,8 +219,11 @@ def eflow_tt_rules_check_summary(request: Request):
     """eflow_tt_rules_check 页签：最新一次「规则收集 + 匹配检查」的摘要 + 可下载文件。
 
     摘要来自 eflow_tt_rules_check 定时任务落盘的 eflow_tt_rules_check_latest.json；
-    文件列表复用 _SOURCES 中 eflow_tt_rules_check 源的扫描
-    （规则 eflow_TT_rules.xlsx / 矫正表 eflow_tt_severity_correction.xlsx / 报告 MATCHING_REPORT.md）。
+    文件列表复用 _SOURCES 中 eflow_tt_rules_check 源的扫描。
+
+    返回的每个文件带 kind / label（见 _EFLOW_FILE_SPECS）：
+      - kind=rule   ：从 eFlow 收集到的规则表 —— TT 级别矫正规则、告警关联规则、推单/配置规则
+      - kind=report ：本次匹配检查的产物 —— 级别矫正表、匹配报告
     """
     lang = _req_lang(request)
     summary = None
@@ -212,14 +245,26 @@ def eflow_tt_rules_check_summary(request: Request):
                 except OSError as e:
                     logger.warning(f"扫描 eflow_tt_rules_check 目录失败 ({d}): {e}")
             found = [f for f in found if f.is_file()]
-            found.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-            files = [
-                {
+            files = []
+            for f in found:
+                st = f.stat()
+                meta = _eflow_file_meta(f.name, lang)
+                files.append({
                     "name": f.name,
-                    "size": f.stat().st_size,
-                    "mtime": f.stat().st_mtime,
+                    "size": st.st_size,
+                    "mtime": st.st_mtime,
                     "source_id": "eflow_tt_rules_check",
-                }
-                for f in found
-            ]
+                    "kind": meta["kind"],
+                    "label": meta["label"],
+                })
+            # 排序：规则表在前（按 _EFLOW_FILE_SPECS 顺序：TT → 告警 → 推单），检查产物在后；
+            # 同组内按修改时间倒序（最新在前）。
+            patterns = [s["pattern"] for s in _EFLOW_FILE_SPECS]
+
+            def _order(item: dict) -> tuple:
+                kind_rank = 0 if item["kind"] == "rule" else 1
+                idx = next((i for i, pat in enumerate(patterns)
+                            if fnmatch.fnmatch(item["name"], pat)), len(patterns))
+                return (kind_rank, idx, -item["mtime"])
+            files.sort(key=_order)
     return {"summary": summary, "files": files, "lang": lang}

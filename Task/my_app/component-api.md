@@ -265,11 +265,13 @@ Select-String -Path backend\task_registry.py -Pattern "task_id=" | Select-Object
 
 | 内容 | 去哪里 |
 | --- | --- |
+| **新增功能页规范（配套可编译模板）** | `docs\manual\16-new-page-guide.md` + `frontend\src\pages\_TemplatePage.tsx` |
 | **逐页功能说明（权威）** | `docs\manual\11-feature-guide.md` |
+| **Excel 导出规范** | `docs\EXCEL_EXPORT_STANDARD.md` |
+| **卡片风格统一实施记录** | `docs\card-style-unification.md` |
 | 接口与任务 ID 速查 | `docs\manual\90-appendix.md` |
 | 设计令牌与主题 | `DESIGN.md`、`frontend\src\theme.ts` |
 | 架构与分层 | `architecture.md`、`docs\manual\02-architecture.md` |
-| Excel 导出规范 | `docs\EXCEL_EXPORT_STANDARD.md` |
 | AI 上手须知 | `AGENTS.md` |
 | 全域组件索引 | `D:\01_RPA\component-api.md` |
 | 统一门户组件 | `..\..\liberia-noc_soc-数据看板统一门户\docs\component-api.md` |

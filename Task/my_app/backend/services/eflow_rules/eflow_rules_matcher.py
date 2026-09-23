@@ -291,6 +291,14 @@ def _fmt_detail(vf: pd.DataFrame, conds: list[dict]) -> pd.Series:
     return detail
 
 
+def format_details(vf: pd.DataFrame, conds: list[dict]) -> pd.Series:
+    """对外暴露 `_fmt_detail`：推单规则（ttPushOrderRule）等复用同一套「逐条匹配」文案。
+
+    单独包一层是为了让 `tt_rule_evidence` 不必调用下划线函数 —— 匹配语义仍是**同一份实现**。
+    """
+    return _fmt_detail(vf, conds)
+
+
 # ------------------------------------------------------------------ #
 # 报告
 # ------------------------------------------------------------------ #

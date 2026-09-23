@@ -1157,8 +1157,16 @@ def fetch_battery_records() -> list[dict]:
         logger.warning("[Battery] RSA 登录失败，尝试回退 auth_info.json")
         auth = fetcher.load_auth_info_fallback()
         if auth is None:
+            # 回退文件不存在/已失效：用 credential_store 的账号密码再试一次并落盘，
+            # 避免"回退链是空的"导致任务必然失败（详见 fetcher.ensure_auth_info）
+            logger.warning("[Battery] auth_info.json 不可用，尝试经 RSA 接口重新生成")
+            if fetcher.ensure_auth_info(force=True):
+                auth = fetcher.load_auth_info_fallback()
+        if auth is None:
             raise RuntimeError(
-                "Battery UME 鉴权失败：RSA 登录未成功且无可用 auth_info.json"
+                "Battery UME 鉴权失败：RSA 登录未成功且无可用 auth_info.json。"
+                "请检查「设置 → 凭据管理 → Battery UME」的账号密码，"
+                "或确认该 UME 是否已启用图形验证码（需人工登录一次）"
             )
     if not auth.get("host"):
         auth["host"] = credentials["host"]

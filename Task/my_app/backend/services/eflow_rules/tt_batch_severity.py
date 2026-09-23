@@ -134,6 +134,16 @@ def _fetch_tt_rows(tts: Sequence[str]) -> tuple[list[dict], dict[str, str]]:
     return out, hit_col
 
 
+def fetch_tt_raw(tts: Sequence[str]) -> tuple[list[dict], dict[str, str]]:
+    """取 eflow_tt **原始行**（含规则匹配所需的全部列），返回 (rows, {单号: 命中列})。
+
+    对外暴露 `_fetch_tt_rows` 的薄封装：`tt_rule_evidence` 要用同一批原始列
+    去跑**推单规则**的条件求值（`eflow_rules_matcher.build_value_frame`），
+    而 `check_batch` 返回的是已整形过的展示行（缺 site_information 等回退列）。
+    """
+    return _fetch_tt_rows(tts)
+
+
 # ------------------------------------------------------------------ #
 # 规则加载（按文件 mtime 缓存）
 # ------------------------------------------------------------------ #
@@ -361,4 +371,5 @@ def parse_tt_text(text: str) -> list[str]:
     return [p for p in re.split(r"[\s,;，；\t|]+", str(text)) if p]
 
 
-__all__ = ["MAX_BATCH", "check_batch", "normalize_tt_list", "parse_tt_text", "load_rules_ready"]
+__all__ = ["MAX_BATCH", "check_batch", "normalize_tt_list", "parse_tt_text",
+           "load_rules_ready", "fetch_tt_raw"]

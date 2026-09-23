@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node ../scripts/start-app.mjs dev",
-    "build": "tsc && vite build",
+    "build": "node scripts/check-i18n.mjs && tsc && vite build",
+    "check:i18n": "node scripts/check-i18n.mjs",
     "preview": "node ../scripts/start-app.mjs",
     "docs:help": "node scripts/generate-help-doc.mjs",
     "docs:manual": "node scripts/generate-manual-html.mjs",

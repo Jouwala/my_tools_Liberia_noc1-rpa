@@ -64,6 +64,7 @@ from backend.routers import (
     portals,
     whatsapp_outbox,
     eflow_qa,
+    eflow_flow,
     cxo_dashboard,
     vmax_cxo_dashboard,
     vmax_cxo_daily,
@@ -180,6 +181,8 @@ app.include_router(portals.router)
 app.include_router(whatsapp_outbox.router)
 # eFlow 知识库（Task/eflow_Q&A 只读：文档树 / 读取 / 检索）
 app.include_router(eflow_qa.router)
+# eFlow 全流程查询（输入告警/TT → 规则驱动的流程图 + 该单实际路径高亮，只读）
+app.include_router(eflow_flow.router)
 # CXO 看板 last-known-good 缓存（cxo_dashboard_cache_sync 定时任务写入，前端三层叠加兜底）
 app.include_router(cxo_dashboard.router)
 # VMAX CXO 原版视觉看板专用聚合接口（与现有简化版页面并存）

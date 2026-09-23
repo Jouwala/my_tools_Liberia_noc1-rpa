@@ -618,6 +618,13 @@ html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
 .tabs.is-renaming .tab { outline: 1px dashed var(--b-line, rgba(13, 148, 136, .45)); outline-offset: -1px; }
 .tabs.is-renaming .tab:hover { color: var(--b-ink); }
 .maptab-pen { opacity: .65; font-size: 12px !important; }
+/* 面板标题在编辑态变成可点按钮（改的是这一栏的标题/副标题，与页签改名同一入口） */
+.p-t-edit {
+  font: inherit; color: inherit; background: none; border: 0; padding: 0 4px; margin: 0 -4px;
+  border-radius: 4px; display: inline-flex; align-items: center; gap: 5px; cursor: text;
+  outline: 1px dashed var(--b-line, rgba(13, 148, 136, .45)); outline-offset: 0;
+}
+.p-t-edit:hover { color: var(--b-ink); }
 .canvas {
   position: relative; flex: 1; min-height: 460px; margin-top: var(--s3);
   border: 1px solid var(--line); border-radius: var(--r2); overflow: hidden;

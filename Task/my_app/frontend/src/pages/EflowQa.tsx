@@ -23,6 +23,8 @@ import {
   BookOutlined,
   ClearOutlined,
   DownloadOutlined,
+  FileExcelOutlined,
+  FileSearchOutlined,
   FileTextOutlined,
   FolderOutlined,
   MenuOutlined,
@@ -38,6 +40,7 @@ import * as XLSX from 'xlsx'
 
 import api from '../api'
 import { useI18n } from '../i18n'
+import TtPostmortemPanel from '../components/TtPostmortemPanel'
 import { useIsMobile, useTheme } from '../theme'
 import { exportAoaReport, exportReport } from '../utils/excelReport'
 
@@ -245,6 +248,200 @@ function verdictColor(status: string): string {
   if (status === 'ok') return 'green'
   if (status === 'adjust') return 'red'
   return 'default'
+}
+
+/* ---------- AI 分析结论：规则命中证据（本地规则引擎，确定性） ----------
+ * 数据来自 GET /api/eflow-qa/tt-ai 的 ai.rules
+ * （后端 backend/services/eflow_rules/tt_rule_evidence.py）。
+ * 判定与每天 04:20 的 eflow_tt_rules_check 定时任务、Email Reports →
+ * eFlow TT Rules Check 页签的矫正表**同源**（内部复用 eflow_rules_matcher），
+ * 所以这里的「命中规则 / 目标级别 / 匹配详情」与那两处逐字一致。
+ * 作用：在 AI 文本之外给出可核对的事实，并指明规则来自哪个文件、谁维护、
+ * 工单当前谁在处理 —— 避免结论只说级别却说不清依据。 */
+function TtRuleEvidence({ ev, t, isDark, isMobile, border, onOpenRule }: {
+  ev: any
+  t: (k: string, params?: Record<string, string | number>) => string
+  isDark: boolean
+  isMobile: boolean
+  border: string
+  onOpenRule?: () => void
+}) {
+  if (!ev) return null
+  const rf = ev.rules_file || {}
+  const xlsx = rf.xlsx || {}
+  const m = ev.matched || null
+  const h = ev.handler || {}
+  const verdictKey = ev.level_status === 'adjust' ? 'qa.tt.verdictAdjust'
+    : ev.level_status === 'ok' ? 'qa.tt.verdictOk' : 'qa.tt.verdictUnknown'
+
+  // 规则元信息（规则表原始列）：优先级 / 目标级别 / 工单类型 / 触发步骤 / 维护人
+  const ruleKv: [string, any][] = []
+  if (m) {
+    ruleKv.push([t('qa.tt.ruleId'), m.rule_id || '—'])
+    ruleKv.push([t('qa.tt.rulePriority'), m.priority || '—'])
+    if (m.ticket_type) ruleKv.push([t('qa.tt.ruleTicketType'), m.ticket_type])
+    if (m.trigger_step) ruleKv.push([t('qa.tt.ruleTriggerStep'), m.trigger_step])
+    if (m.creator || m.updater) {
+      ruleKv.push([t('qa.tt.ruleOwner'),
+        `${t('qa.tt.ruleCreatedBy')} ${m.creator || '—'} / ${t('qa.tt.ruleUpdatedBy')} ${m.updater || '—'}`
+        + (m.updated_at ? ` · ${m.updated_at}` : '')])
+    }
+    if (m.status) ruleKv.push([t('qa.tt.ruleStatus'), m.status])
+  }
+  const handlerText = [
+    h.last_processer || '',
+    h.last_processer_group || '',
+    h.last_process_time || '',
+    h.vendor || '',
+    h.organization_id || '',
+  ].filter(Boolean).join(' · ')
+
+  // 推单规则（TT Push Order Rule，触发步骤 FOAccept）：决定「是否自动推 WO、推给谁、谁自动处理」。
+  // 字段名沿用 eFlow 规则页签的英文写法（Rule Name / Push Order Path / *Auto Operator …）。
+  const pr = ev.push_rules || {}
+  const prHit: any[] = pr.matched || []
+  const prFile = pr.rules_file || {}
+  const pushKv = (r: any): [string, any][] => [
+    [t('qa.tt.fRuleName'), `${r.rule_name || '—'}${r.rule_id ? ` (ID ${r.rule_id})` : ''}`],
+    [t('qa.tt.fRuleType'), r.rule_type_text || r.rule_type || '—'],
+    [t('qa.tt.fRuleStep'), r.trigger_step_text || r.trigger_step || '—'],
+    [t('qa.tt.fRulePath'), r.push_path || '—'],
+    [t('qa.tt.fRuleAutoOp'), r.auto_operator || '—'],
+    [t('qa.tt.fRuleTarget'), r.target_handler || '—'],
+  ]
+
+  return (
+    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${border}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+        <Text strong style={{ fontSize: 13 }}>{t('qa.tt.ruleEvidence')}</Text>
+        {ev.available
+          ? <Tag color={verdictColor(ev.level_status)}>{t(verdictKey)}</Tag>
+          : <Tag>{t('qa.tt.ruleUnavailable')}</Tag>}
+        {!!ev.current_severity && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {t('qa.tt.ruleCurrent')}<b>{ev.current_severity}</b>
+            {' → '}{t('qa.tt.ruleTarget')}<b>{ev.expected_severity || '—'}</b>
+          </Text>
+        )}
+      </div>
+
+      {m ? (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+            <Tag color="purple">{t('qa.tt.ruleHit')}</Tag>
+            {!!m.severity && <Tag color={levelColor(m.severity)}>{m.severity}</Tag>}
+            <Text strong>{m.rule_name || '—'}</Text>
+            {!!m.rule_id && <Text type="secondary" style={{ fontSize: 12 }}>ID {m.rule_id}</Text>}
+            {onOpenRule && (
+              <a onClick={onOpenRule} style={{ fontSize: 12 }}>
+                <BookOutlined style={{ marginRight: 4 }} />{t('qa.tt.openRule')}
+              </a>
+            )}
+          </div>
+          {!!m.match_details && (
+            <div style={{ fontSize: 12, marginBottom: 4, wordBreak: 'break-all' }}>
+              <Text type="secondary">{t('qa.tt.ruleMatch')}</Text>
+              <span style={{ fontFamily: 'monospace' }}>{m.match_details}</span>
+            </div>
+          )}
+          <KvRows rows={ruleKv} isDark={isDark} isMobile={isMobile} labelWidth={150} />
+          {!!m.condition && (
+            <Collapse
+              ghost
+              size="small"
+              items={[{
+                key: 'cond',
+                label: <Text type="secondary" style={{ fontSize: 12 }}>{t('qa.tt.ruleCondition')}</Text>,
+                children: (
+                  <div style={{ fontFamily: 'monospace', fontSize: 12, lineHeight: 1.8, wordBreak: 'break-all' }}>
+                    {m.condition}
+                  </div>
+                ),
+              }]}
+            />
+          )}
+        </>
+      ) : (
+        !!ev.error && <Alert type="info" showIcon style={{ marginTop: 4 }} message={ev.error} />
+      )}
+
+      {(xlsx.name || rf.report?.name) && (
+        <div style={{ marginTop: 6, fontSize: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Text type="secondary">{t('qa.tt.ruleFile')}</Text>
+          {!!xlsx.name && (
+            <a href={xlsx.download_url} download={xlsx.name} title={xlsx.rel_path}>
+              <FileExcelOutlined style={{ marginRight: 4, color: '#1d6f42' }} />{xlsx.name}
+            </a>
+          )}
+          {!!rf.report?.name && (
+            <a href={rf.report.download_url} download={rf.report.name} title={rf.report.rel_path}>
+              <FileTextOutlined style={{ marginRight: 4 }} />{rf.report.name}
+            </a>
+          )}
+          <Text type="secondary">
+            {rf.rules_count != null ? t('qa.tt.ruleCount', { n: rf.rules_count }) : ''}
+            {rf.rules_updated_at ? ` · ${t('qa.tt.ruleUpdatedAt')} ${rf.rules_updated_at}` : ''}
+            {rf.collected_at ? ` · ${t('qa.tt.ruleCollectedAt')} ${rf.collected_at}` : ''}
+          </Text>
+        </div>
+      )}
+
+      {!!handlerText && (
+        <div style={{ marginTop: 4, fontSize: 12 }}>
+          <Text type="secondary">{t('qa.tt.handler')}</Text>
+          <span>{handlerText}</span>
+        </div>
+      )}
+
+      {/* 推单规则：谁推单、推给谁、谁自动处理（与级别规则相互独立） */}
+      {(pr.available || pr.error) && (
+        <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${border}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+            <Text strong style={{ fontSize: 13 }}>{t('qa.tt.pushRule')}</Text>
+            {prHit.length
+              ? <Tag color="blue">{t('qa.tt.pushRuleHit', { n: prHit.length })}</Tag>
+              : <Tag>{t('qa.tt.pushRuleNone')}</Tag>}
+          </div>
+          {prHit.slice(0, 3).map((r: any, i: number) => (
+            <div key={`${r.rule_id}-${i}`} style={{ marginBottom: 6 }}>
+              <KvRows rows={pushKv(r)} isDark={isDark} isMobile={isMobile} labelWidth={150} />
+              {!!r.match_details && (
+                <div style={{ fontSize: 12, wordBreak: 'break-all' }}>
+                  <Text type="secondary">{t('qa.tt.ruleMatch')}</Text>
+                  <span style={{ fontFamily: 'monospace' }}>{r.match_details}</span>
+                </div>
+              )}
+            </div>
+          ))}
+          <div style={{ marginTop: 2, fontSize: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            {!!prFile.name && (
+              <a href={prFile.download_url} download={prFile.name} title={prFile.rel_path}>
+                <FileExcelOutlined style={{ marginRight: 4, color: '#1d6f42' }} />{prFile.name}
+              </a>
+            )}
+            <Text type="secondary">
+              {t('qa.tt.pushRuleHint')}
+              {prFile.rules_count != null ? ` · ${t('qa.tt.ruleCount', { n: prFile.rules_count })}` : ''}
+              {prFile.mtime_text ? ` · ${t('qa.tt.ruleUpdatedAt')} ${prFile.mtime_text}` : ''}
+            </Text>
+          </div>
+          {!!pr.other_steps_count && (
+            <div style={{ marginTop: 2, fontSize: 12 }}>
+              <Text type="secondary">{t('qa.tt.pushRuleOtherSteps', { n: pr.other_steps_count })}</Text>
+            </div>
+          )}
+          {!!pr.undecidable && (
+            <div style={{ marginTop: 2, fontSize: 12 }}>
+              <Text type="warning">{t('qa.tt.pushRuleUndecidable', { n: pr.undecidable })}</Text>
+            </div>
+          )}
+          {!pr.available && !!pr.error && (
+            <Alert type="info" showIcon style={{ marginTop: 4 }} message={pr.error} />
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 /* ---------- TT 批量核查：清单解析 ----------
@@ -701,6 +898,9 @@ export default function EflowQa() {
   const [umeLoading, setUmeLoading] = useState(false)
   const [umeData, setUmeData] = useState<any>(null)
   const [umeError, setUmeError] = useState('')
+
+  // ===== TT 复盘报告（程序化版，新增于 2026-09-23）=====
+  const [postmortemOpen, setPostmortemOpen] = useState(false)
   // 与 TT 快速分析同款：请求序号，旧请求的迟到结果不回写
   const umeSeqRef = useRef(0)
 
@@ -1098,6 +1298,20 @@ export default function EflowQa() {
           </Button>
         </Tooltip>
       </div>
+
+      <div style={{ borderTop: isDark ? '1px solid rgba(0, 217, 255,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <FileSearchOutlined style={{ color: '#eb2f96' }} />
+        <Text strong style={{ fontSize: 13 }}>TT 复盘报告生成</Text>
+      </div>
+      <Button
+        block
+        icon={<FileSearchOutlined />}
+        onClick={() => setPostmortemOpen(true)}
+      >
+        生成完整复盘报告（程序化版）
+      </Button>
+      <TtPostmortemPanel open={postmortemOpen} onClose={() => setPostmortemOpen(false)} />
       <div id="ran-ume-alarm-analysis" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <ThunderboltOutlined style={{ color: '#13c2c2' }} />
         <Text strong style={{ fontSize: 13 }}>{t('qa.ume.label')}</Text>
@@ -1294,6 +1508,26 @@ export default function EflowQa() {
                   {!ttAiLoading && ttAi && !ttAi.ok && (
                     <div style={cardStyle}>
                       <Alert type="error" showIcon message={`${t('qa.tt.aiFailed')}${ttAi.error}`} />
+                      {/* 模型全档失败 → 后端用本地规则引擎程序化出的结论（无模型参与） */}
+                      {ttAi.fallback_conclusion ? (
+                        <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '10px 0 6px' }}>
+                            <Tag color="orange">{t('qa.tt.fallbackTag')}</Tag>
+                            <Text type="secondary" style={{ fontSize: 12 }}>{t('qa.tt.fallbackHint')}</Text>
+                          </div>
+                          <div className="eflowqa-md" style={{ fontSize: 13, lineHeight: 1.7 }}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{ttAi.fallback_conclusion}</ReactMarkdown>
+                          </div>
+                        </>
+                      ) : null}
+                      {/* 规则命中证据（本地规则引擎，确定性；与 eFlow TT Rules Check 页签同源） */}
+                      <TtRuleEvidence ev={ttAi.rules} t={t} isDark={isDark} isMobile={isMobile}
+                        border={border} onOpenRule={ruleDoc ? () => loadDoc(ruleDoc.path) : undefined} />
+                      {ttAi.elapsed_total_sec != null && (
+                        <div style={{ marginTop: 8, fontSize: 12, color: isDark ? '#aebbd4' : '#64748b' }}>
+                          {t('qa.tt.aiElapsed')}: {ttAi.elapsed_total_sec}s
+                        </div>
+                      )}
                     </div>
                   )}
                   {!ttAiLoading && ttAi?.ok && (
@@ -1305,6 +1539,9 @@ export default function EflowQa() {
                       <div className="eflowqa-md" style={{ fontSize: 13, lineHeight: 1.7 }}>
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{ttAi.conclusion}</ReactMarkdown>
                       </div>
+                      {/* 规则命中证据（本地规则引擎，确定性；与 eFlow TT Rules Check 页签同源） */}
+                      <TtRuleEvidence ev={ttAi.rules} t={t} isDark={isDark} isMobile={isMobile}
+                        border={border} onOpenRule={ruleDoc ? () => loadDoc(ruleDoc.path) : undefined} />
                       <div style={{ marginTop: 8, fontSize: 12, color: isDark ? '#aebbd4' : '#64748b' }}>
                         {ttAi.skill_title && <Tag color="blue" style={{ marginRight: 6 }}>{ttAi.skill_title}</Tag>}
                         {ttAi.model && <Tag style={{ marginRight: 6 }}>{ttAi.model}</Tag>}

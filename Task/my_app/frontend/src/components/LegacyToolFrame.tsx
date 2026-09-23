@@ -84,6 +84,8 @@ export default function LegacyToolFrame({ file, title }: Props) {
         position: 'relative',
         width: '100%',
         height: FILL_PARENT,
+        minHeight: 0,
+        flex: '1 1 auto',
         borderRadius: 'var(--wh-radius-md)',
         overflow: 'hidden',
         background: 'var(--wh-page-bg)',

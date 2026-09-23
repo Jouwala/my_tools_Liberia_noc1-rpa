@@ -56,8 +56,18 @@
 取回三类产物并下载：**邮件附件**、**FineBI 报表**、**eFlow TT 规则检查结果**。
 
 - 三页签切换（`EmailReports.tsx:331`）；可设「保留最近 N 份」（:348）。
-- 各页独立刷新按钮（:350 / :377 / :407）；行内下载（:231 / :277 / :472）。
-- eFlow 规则页有**「立即执行」**（:404 → `POST /api/tasks/eflow_tt_rules_check/run`），点击后 3 秒做一次刷新（:157，**不是轮询**，任务慢时得手动再点刷新）。
+- 各页独立刷新按钮（:350 / :377 / :407）；行内下载（:231 / :277 / 表格内「下载」列）。
+- eFlow 规则页有**三个手动触发按钮**（:463/:471/:479），点击后 3 秒做一次刷新（:157，**不是轮询**，任务慢时得手动再点刷新）：
+  | 按钮 | 触发任务 | 端点 |
+  | --- | --- | --- |
+  | 立即检查 | `eflow_tt_rules_check`（拉 TT 规则 + 匹配矫正） | `POST /api/tasks/eflow_tt_rules_check/run` |
+  | 收集告警规则 | `eflow_alarm_rules_collect` | `POST /api/tasks/eflow_alarm_rules_collect/run` |
+  | 收集推单规则 | `eflow_push_rules_collect` | `POST /api/tasks/eflow_push_rules_collect/run` |
+
+  后两个任务原本只在**每 3 天 23:59** 跑，页面上等不到最新规则，故补手动入口（三个按钮各自独立 loading，由 `eflowRunningTask` 记录当前触发的 task_id）。
+- **eFlow 规则页底部列出「从 eFlow 获取的全部规则表」**（2026-09-23 新增）：TT 级别矫正规则 `eflow_TT_rules.xlsx`、告警关联规则 `eflow_alarm_rules*.xlsx`、推单/配置规则 `eflow_push_rules*.xlsx`，外加本次检查产物（级别矫正表 / 匹配报告）。此前只暴露 TT 规则表，另外两份规则收集任务的产物在界面上**无处可下**。
+  - 文件清单由 `backend/routers/email_reports.py` 的 `_EFLOW_FILE_SPECS` 定义（`kind=rule|report` + 中英展示名），排序为「规则表在前（TT → 告警 → 推单）、检查产物在后」。
+  - ⚠ `_EFLOW_FILE_SPECS` 的 pattern 必须与 `_SOURCES` 中 `eflow_tt_rules_check` 源的 `patterns` 一致 —— 下载接口 `_resolve_download_file` 按 `patterns` 做白名单校验，只改一处会出现「列得出来、点下载 403」。
 - 接口：`GET /api/email-reports/latest`、`GET /api/finebi-reports/latest`、`GET /api/email-reports/eflow_tt_rules_check`、下载 `GET /api/.../download/{source}/{file}`。
 
 ## 3. 实时告警看板（`?page=alarm`）
@@ -166,8 +176,621 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 - 接口：`GET /api/battery-dashboard/all`、`/trend?days=`（:161-162）、单站下钻 `/api/battery-dashboard/site/{site}`（:315）。
 - 数据由 `battery_kpi_sync` 每小时 :05 写入 `data/battery/battery_kpi.sqlite3`。
 
-## 15. IP 链路探测（`?page=ip_trace`）— iframe
+## 14b. NOC 操作人分析（`?page=noc_analyst`）—— 四层全量下钻
 
+> 2026-09-23 重做：此前只有一张排名表和 3 条不可点的样本，**做不到"能下钻尽下钻"**；
+> 本次补齐到「人 → 单 → 站点 → 告警链路」四层，页面上每个数字都可点。
+
+基于 `eflow_tt.last_processer` 量化每位 NOC 的根因错位率、平均处理时长、夜班单占比与 SLA 通过率。
+页面 `frontend/src/pages/NocAnalyst.tsx`，后端服务 `backend/services/tt_postmortem/__init__.py`，
+路由 `backend/routers/eflow_qa.py`（`_tt_postmortem_noc*` 与 `_tt_postmortem_tt_detail`）。
+
+### 口径（两层必须一致，否则表格数字与下钻行数对不上）
+
+- **月份归属用 `alarm_occur_time`（告警发生时间）**，不是 `last_modified_time`。
+  否则"上月发生、本月才闭环"的单会被算进本月（实测 2026-08 两种口径分别是 3459 / 5296 单）。
+- **夜班** = `fo_accept_detail` 的 Accept 操作时间落在 `22:00–06:00`。
+- **错位判定**以 `history_alarm.reason_type` 为权威，与 NOC 填报的 `root_cause` 比对；
+  典型错位是 `POWER<-TRM`（NOC 填供电、系统指向传输）。概览与单 TT 详情**共用
+  `_mismatch_of()`**，不存在两套结论。
+- 错位率分母是**已填报根因的单数**（`with_root_cause`），不是总单数。
+
+### 四层下钻
+
+| 层 | 入口 | 接口 |
+| --- | --- | --- |
+| 1 | 概览数字卡 / Top3·Bottom3 卡片 / ECharts 柱状图 / 排名表每列 / 红旗人名 | 进弹窗 |
+| 2 | 弹窗内 5 种切片：全部 / 根因错位 / 夜班 / SLA Fail / 慢单（≥12h） | `GET /api/eflow-qa/_tt_postmortem_noc_tt?noc=&month=&slice=` |
+| 3 | 「异常站点」页签按站点聚合，点站点看该站全部 TT | `GET /api/eflow-qa/_tt_postmortem_noc_sites?noc=&month=&only_abnormal=` |
+| 4 | 点 TT 单号 → 工单信息 / 阶段时长 / NOC 填报层 vs 系统判定层 / 告警链路明细 | `GET /api/eflow-qa/_tt_postmortem_tt_detail?tt_no=` |
+
+### 为什么下钻是"重查"而不是"前端过滤"
+
+`build_noc_tt_drilldown` / `build_noc_site_drilldown` 与概览端点的 WHERE 条件**完全一致**
+（同一 `alarm_occur_time` 区间 + 同一 `last_processer` 精确匹配），切片在 Python 侧过滤
+——因为错位/夜班依赖文本解析（`fo_accept_detail` 的 Operation Time），无法下推到 SQL。
+这样保证「表格里的 1978 单 == 下钻 all 的 1978 行」。
+
+### 三个已修正的坑
+
+1. **`limit` 曾静默截断**：站点聚合原默认 `limit=1000`，而单人月峰值实测 1978 单，
+   导致站点 `total` 求和只有 1000、与概览对不上。现三个端点默认 20000，超限时
+   `meta.truncated` 为 true 且前端弹黄色告警条。
+2. **路由 `limit` 上限过小**：`_tt_postmortem_noc` 原是 `le=10000`，前端按 10000 请求属边界
+   侥幸通过；现放宽到 `le=50000`。
+3. **动态拼 i18n key 会被守卫拦下**：`t('noc.slice.' + s)` 让 `scripts/check-i18n.mjs`
+   误报「字典缺失 `noc.slice.`」。改成 `sliceLabelKey()` / `linkageLabelKey()` 显式 switch。
+
+### 界面约定
+
+- 卡片走 `components/cards` 的 `CardBase` / `StatCard`；下钻弹窗走 `DraggableClickModal`；
+  导出走 `utils/excelReport` 的 `exportAoaReport`（导出的是**当前切片 + 当前搜索结果**）。
+- ECharts 用 `useTheme()` 的 `palette.sev.*` 实值——`palette` 上没有 `ok`/`danger`，
+  那是 `WH` 令牌，canvas 解析不了 CSS 变量。
+
+### 14b-1. 时间归因区「时间都花哪了」（2026-09-23 新增）
+
+> 目标是回答**"时间都浪费到哪里"**：把整月工单逐单按「TT 复盘报告」的口径解析一遍，
+> 再聚合。页面上多出一块「时间归因与流程偏离」，位置在红旗告警之下、Top3 卡片之上。
+
+**数据来源**：`GET /api/eflow-qa/_tt_postmortem_noc_timeline?month=&limit=&noc=&refresh=`，
+实现在 `backend/services/tt_postmortem/__init__.py` 的 `build_noc_timeline_agg()`
+（与单张 TT 的 `build_tt_timeline()` **同源同口径**，不另立一套结论）。
+
+**展示内容**（每个数字都可点）：
+
+| 区块 | 回答什么问题 |
+| --- | --- |
+| 6 张数字卡（复盘单量 / 平均总历时 / 最大瓶颈环节 / 应派未派 WO / 偏离总数 / 缺失必需动作） | 总量与最刺眼的三个数；点卡片进「逐单清单」 |
+| 饼图「各环节占时比例」+ 偏离类型分布柱状图 | 时间总量压在哪个环节、偏离主要是哪一类 |
+| 分段表「时间都花哪了」 | 全流程切成互不重叠的区间，含合计/平均/P90/最长/超阈值单数 |
+| 里程碑表「里程碑耗时分布」 | 9 个契约里程碑各自的 P50/P90/最长与时限；P50 就超时限的用红色标出 |
+| **「应派未派 WO 明细」** | **高等级断站却没派现场工单**，按总历时降序，点 TT 号进单 TT 复盘 |
+| 「偏离清单（应做 vs 实做）」 | 7 类偏离按严重度排序，每条给 **15 条**样本单可点（原为 5 条） |
+| 「缺失的必需动作」 | 契约要求但无确凿时间戳的动作及样本单 |
+| 「按 NOC 归因」 | 谁的瓶颈最长、谁的偏离/未派 WO 最多；人名可点回第 2 层下钻 |
+
+**第 4 层扩展为完整复盘视图**：点「应派未派 WO 明细」的 TT 号或逐单清单里的单号，
+打开的不再只是"告警链路"，而是按复盘报告章节顺序的 5 个页签——
+`时间归因 / 里程碑时间轴 / 应做·实做 / 偏离清单 / 告警链路`，
+数据来自 `GET /api/eflow-qa/_tt_postmortem_timeline/{tt_no}`。
+
+**性能**：首次计算要逐单解析全月约 2300 张单，实测冷算 **≈150s**；结果按
+`data/tt_timeline_cache/noc_timeline_<month>_v<版本>.json` 落盘缓存，之后读取 **≈0.01s**
+（`meta.cache_hit=true`）。改了聚合口径必须**同时递增 `_TIMELINE_CACHE_VERSION`**，
+否则会读到结构过时的旧缓存。该目录已被 `.gitignore` 覆盖。
+带 `noc=` 过滤时**不写缓存**（避免把局部结果当成全月结果复用）。
+
+**口径要点（与单 TT 报告一致）**：
+
+- **NOC 归属不用 `eflow_tt.last_processer`** —— 那是最后处理人（通常是关单的 FE，
+  实测 2016/2295 单落在 `FE Robot(fe_robot)`）。改为取里程碑里第一个
+  `fo_accept` / `fo_process` 节点的 `operator`，回退到 `people.fo_acceptor` / `fo_processer`。
+- **WO 号在 `dispatch_path.wo_no`**，不在 `wo` 块（`build_tt_timeline` 的 `wo` 恒为 `null`）。
+- `wo_stats.should_dispatch` 与 `missing_dispatch` 由**同一条判定**（偏离 4
+  `no_wo_for_critical_outage`）构造，二者恒等，所以"未派占比"恒为 100%，**不要展示**；
+  对外只用 `dispatch_rate_pct`（派单覆盖率 = dispatched / 全月单量，实测 39.7%）。
+
+**手写 TS 类型必须与真实响应核对**：前端类型是手写的，字段名写错 `tsc` **不会报错**。
+本页开发中已连踩三次（`wo.wo_no`、`expected_actions.reason`、时间轴节点的
+`operator`/`gap_from_prev_s`/`wo_steps` 均不存在）。新增字段时用真实响应逐个比对，
+里程碑的"距上一跳"要前端按上一个有时间戳的节点现算（节点上**没有** gap 字段）。
+
+### 14b-2. 现场处置及时性（WO 生命周期）与 NOC 人工动作（2026-09-23 新增）
+
+> 承接 14b-1 的诉求：原来「FO 接单 → 提交关单」只是一段总时长，
+> **回答不了"NOC/现场人员及不及时"**。本次把 WO 的生命周期拆开，补上"工单建好后
+> 压了多久才有人接"这类关键指标。
+
+**新增两个区块**（都在「时间归因与流程偏离」内）：
+
+| 区块 | 数据字段 | 回答什么问题 |
+| --- | --- | --- |
+| 阶段归并「时间压在谁手里」 | `phase_stats` | 把事件驱动的细分段按**阶段**合并（建单时延/接单等待/现场响应等待/现场作业/告警清除/提交关单/关单确认），比较 NOC / 现场 / 系统 各占多久 |
+| 全月 WO 各跳耗时分布 | `wo_gap_stats` | 工单建单→FE 接单、接单→出发、在途、现场作业、关单各跳的 平均/中位/P90/最长 |
+| NOC / 人工动作及时性 | `human_action_stats` | 每个**人工动作**等了多久、是否超过契约时限、超时限占比 |
+
+**单 TT 弹窗（第 4 层）新增**：
+
+- 「时间归因」页签的分段表新增**阶段**列（`phase`），一眼看出该单时间压在哪一类；
+- 同页签底部新增「现场处置时间轴（WO 生命周期）」：WO 的
+  建单 → FE 接单 → 出发 → 到场 → 处理完成 → 关单 → 离场 逐跳，含操作人与距上一跳时长。
+- 无 WO 的单显式提示「本单无 WO（未派现场工单）」，**不再是一片空白**。
+
+> **⚠ 分段模型已于同日改为事件驱动（本节的子段方案已废弃）**：
+> `_build_time_spent()` 不再使用固定的 4 段 `_TIME_SEGMENTS`（detect/assign/handle/close），
+> 改为**相邻真实事件的间隔**（锚点来自 `timeline` 里所有 `time_present` 的节点 + WO 现场步骤）。
+> 原因见源码注释：固定分段会把现场等待挤进"提交→确认关单"，且窗口终点取
+> `last_modified_time` 时会让整段等待**落在窗口之外**，页面显示"总历时 18 分钟"而时间轴横跨 16 小时。
+> 因此 `segments[]` 现在带 `phase` / `phase_label`，且**不再有 `sub_segments`**
+> （曾经实现的"handle 段细分"随固定分段一起作废，前端对应 UI 已移除）。
+> 回归校验见 `TMP/_wo_inv.py`（四条不变量）与 `TMP/_contract2.py`（手写类型 vs 真实响应）。
+
+**关键实现口径**：
+
+- 时间口径：`eflow_wo.created_time` 与 `eflow_tt.created_time` **同时区**（同一单相差约 2 秒），
+  可直接与 WO 的 `*_detail` / epoch 明细相减。`start_trip/arrive_site/leave_site` 是 JSON 数组，
+  `operationtime` 为 **epoch 毫秒**；`accept/process/confirm` 是
+  `Operation Time:YYYY-M-D HH:MM:SS` 文本。空数组 `[]` 表示该步未发生，**不能当成耗时 0**。
+- `_WO_STAGE_SPECS` 定义 7 跳；`build_wo_timeline()` 产出 `stages` / `gaps` / `summary`。
+- `onsite`（现场作业）**不能**复用 `fo_accept → fo_process`（那与 `process` 完全同值，
+  实测两条都是 8.88h/2325 条，纯重复）；必须按 WO 的 `到场 → 处理完成` 算，无 WO 则不产出该条。
+- **后端返回的 `label` / `phase_label` 都是中文硬编码**，直接渲染会让英文界面出现中文。
+  前端按稳定的 `key` / `phase` 经 `switch` 映射到 i18n 键
+  （`woGapLabelKey()` / `humanActLabelKey()` / `phaseLabelKey()`），查不到才回落后端值。
+  **不可用 `t('noc.woGw.' + key)` 动态拼键**，会被 `check:i18n` 拦下。
+- 阶段归并必须满足 **阶段之和 == 分段之和**（已做成不变量回归项）。
+- **偏离清单样本数 = 15**（源码 `backend/services/tt_postmortem/__init__.py` 里
+  `if len(e["sample_tts"]) < 15`）。原为 5 条，用户反馈"太少了"——
+  高发偏离（根因错位 1361 单）取 5 条时几乎全是同一批人/同一站点，
+  看不出分布，会被误读成"样本就这么多"。
+  注意「缺失的必需动作」是**另一处**（同为 `sample_tts` 但独立累加，
+  且界面上是行内平铺而非表格列），**仍保持 5 条** ——
+  那里 15 条会变成一堵链接墙。改计数时别把两处一起改。
+
+**性能**：本次口径变更**递增了 `_TIMELINE_CACHE_VERSION`（1 → 2 → 3 → 4 → 5）**，
+旧缓存因版本号与必需键校验（`wo_gap_stats` / `human_action_stats` / `phase_stats`）双重把关而自动失效重算，
+冷算约 **150–180s**。改聚合口径时务必同步递增版本号。
+
+实测（2026-09，2325 单）阶段归并：提交关单 34.0% / 关单确认 22.5% /
+**现场响应等待 15.2%（中位数 6.43h）** / 告警清除 14.7% / 建单时延 6.5% /
+接单等待 6.2% / 现场作业 0.8%。
+WO 侧更直白：**WO 建单 → FE 接单 中位数 11.0h、P90 41.9h、最长 192.4h**，
+而接单之后（出发/在途/现场作业）中位数都只要几分钟。
+即**现场动作本身很快，慢的是"没人接单"这一段**——
+这正是本次要暴露的结论，也是原来看不出来的。
+
+## 14c. TT 复盘报告 · 里程碑时间轴与偏离检测（2026-09-23 增强）
+
+入口：`EflowQa` 页 →「TT 复盘报告生成」抽屉（`components/TtPostmortemPanel.tsx`），
+输入单号 → `GET /api/eflow-qa/_tt_postmortem/{tt_no}`；Markdown 导出走
+`POST /api/eflow-qa/_tt_postmortem_export_md/{tt_no}`。
+实现：`backend/services/tt_postmortem/__init__.py` 的 `build_tt_timeline()`，
+由 `build_tt_postmortem()` 以子视图方式并入返回体（构建失败不拖垮主报告）。
+
+### 返回体新增字段
+
+| 字段 | 含义 |
+| --- | --- |
+| `timeline` | 9 跳里程碑，每跳含 `time / time_present / actor(system\|human) / operator / detail / source / raw / gap_from_prev_s` |
+| `expected_actions` | 契约逐项对照：`required`（必需/条件）× `done`（应做/实做） |
+| `missing_actions` | 必需动作但库里取不到时间戳的清单 |
+| `deviations` | 偏离清单，按 `severity` 排序（critical → major → minor） |
+| `site_history` | 同站历史告警指纹（判定「反复同源故障」的佐证） |
+| `timeline_meta` | 窗口、总历时、跳数统计、阈值、口径说明 |
+| `time_spent` | **时间都花哪了**：`segments[]`（分段耗时/占比/责任方/是否超阈值）+ `bottleneck_note` + `unaccounted_s` |
+| `sla` | SLA 关键信息：`status / is_breached / total_text / deadline / over_seconds / over_source / cause` |
+| `people` | **责任人**：建单人（含 `creator_kind` 人工/系统自动）/ FO 接单人 / FO 填报人 / 关单人 / WO 建单人 / WO 当前处理人 / `wo_people[]`（现场动作责任人） |
+| `dispatch_analysis` | **为什么走人工派单**：按 TT Push Order Rule 逐条比对，见下方 14d 节 |
+| `assignment` | **这单指派给谁了**：建单 `Assign To` / `Assignee Group` / `current_handler` / 群组池规则，见下方 14f 节 |
+
+> 界面顺序（`TtPostmortemPanel.tsx`）：**SLA 告警条 → TT 单信息（含责任人） → ⏱ 时间都花哪了
+> → ① 里程碑时间轴 → ② 该做的动作 → ③ 偏离清单 → ④ 根因对比 → ⑤ WO 派单机制 → ⑥ 阶段时长 → ⑦ 改进建议**。
+> Markdown 导出把「时间都花哪了」编为 **0 节**（复盘重点前置），其后 1~7 节编号不变。
+
+### 时间归因（`time_spent`）的分段口径
+
+**分段由真实事件链生成，不是写死的 4 个文档流程段。** 做法：把时间轴上所有
+有确凿时间戳的跳 + WO 现场步骤（出发/到场/离场）按时间排序，相邻两事件之间的
+间隔就是一段。同一秒的多个事件合并成一个锚点（代表事件取契约位置最靠前的那个）。
+
+| `phase` | 阶段名 | 含义 |
+| --- | --- | --- |
+| `detect` | 建单时延 | 告警发生 → TT 建单 |
+| `assign` | 接单等待 | TT 建单 → FO 接单 |
+| `dispatch` | 派单 | FO 接单 → WO 派单 |
+| `onsite_wait` | **现场响应等待** | 派单/上一事件 → 现场出发（**最容易出大数的一段**） |
+| `onsite_work` | 现场作业 | 出发 → 到场 → 处理 |
+| `clear` | 告警清除 | → 告警清除/自愈 |
+| `handle` | 提交关单 | → FO 提交关单 |
+| `close` | 关单确认 | → 确认关单 |
+
+- **统计窗口的终点取"所有已知活动的最晚时间"**（`confirm_detail` / `last_modified_time` /
+  `alarm_clear_time` / 最后一个事件取最大），不再只用 `last_modified_time`。原因见下方坑 10。
+- 四段**互不重叠**且**按构造必然覆盖全窗口**，因此 200 单回归 `unaccounted_s` 全为 0。
+- `bottleneck_note` 一句话点明瓶颈**阶段名**、占比、责任方、超额量。
+- **单未走完流程时末段标签会说实话**：没有 Confirm 就显示「… → 至今（未见关单）」。
+
+### 「责任人」的取数口径
+
+| 角色 | 取自 | 备注 |
+| --- | --- | --- |
+| 建单人 | `create_by` 或 `creator` | `assign_rule` / `fe_robot` / `auto_robot` / `system` 判为「系统自动」 |
+| FO 接单人 / 填报人 | `fo_accept_detail` / `fo_process_detail` 的 `Operator:` | 文本 `Operation Time:` 格式；**可能是机器人**，见下方坑 8 |
+| 关单人 | `confirm_detail` | `auto_robot` 出现在此处属正常（自动关单） |
+| WO 现场动作人 | `eflow_wo.start_trip_detail` 等 | **JSON 数组**，见下方坑 5 |
+| WO 建单人 | `eflow_wo.creator` | 额外给 `wo_creator_kind`（系统自动 / 人工），见下方坑 8 |
+
+### 「执行方」与「实际动作」都是三态，不是两态（2026-09-23 修正）
+
+| 字段 | 取值 | 含义 |
+| --- | --- | --- |
+| `actor` | `system` / `human` / **`unknown`** | `unknown` = **未证实**：取不到证据，也不能断定没做 |
+| `status` | `done` / **`unproven`** / `missing` | 已执行 / **未证实** / 未执行（必需动作确实缺失） |
+
+- 界面：未证实用**金色问号**，缺失用**红色叉**，两者视觉上必须能区分。
+- Markdown §2 对 `unproven` 单独加一段说明，**不写成"未执行"**——把"查不到"说成"没做"是误导。
+- 三态的出现原因见下方坑 8：`eflow_tt` 没有独立到场字段，`eflow_wo` 的现场明细又常常为空，
+  此时**既不能证明有人到过现场，也不能证明没人去过**。
+
+### 里程碑契约（`STAGE_CONTRACT`，顺序即期望顺序）
+
+```
+告警发生 → TT 自动建单 → 派单路由决定 → FO Accept 接单 → WO 派单(*)
+        → 现场处置(*) → 告警清除/自愈 → FO Process 填报 → Confirm 关单
+```
+
+带 `(*)` 的是**条件动作**（`expected=False`），缺失不计入 `missing_actions`，
+但会由偏离规则单独判定——例如"高等级断站未派 WO"。
+
+### 偏离的 4 类（`kind`）与判定阈值
+
+| kind | 含义 | 判定 |
+| --- | --- | --- |
+| `missing` | 应有动作缺失 | 必需跳无时间戳；或断站码 + P1/P2/VIP/Hub 却无 WO |
+| `late` | 做了但超时 | `STAGE_THRESHOLDS`：建单/接单 30min、Accept→Process 8h、清除→关单 2h |
+| `out_of_order` | 动作越序 | **仅对契约上有先后约束的相邻对**判（见下方坑 3） |
+| `data_conflict` | 字段冲突 | **仅** `POWER<-TRM` 一类（见下方坑 2） |
+
+### 十一个已修正的坑（都会静默出错，务必留意）
+
+1. **`_parse_dt` 会算错不补零的时间**——eFlow 的 `*_detail` 里是 `2026-9-21 23:25:35`
+   （月/日不补零）。原实现只试补零格式，失败后回落到 `datetime.fromisoformat`，
+   而它会把 `2026-9-2` 读成 9 月 2 日再把 `1 23:25:35` 当别的字段，**不抛异常**：
+   实测 `23:25:35` 被静默解析成 `23:25:03`。修复：先正则规范化月/日补零，
+   且**不再无条件回落 `fromisoformat` 去猜**（猜错比失败更危险）。
+   该 bug 会让**所有阶段时长集体偏差**，不只影响本页。
+2. **`_qcol` 在 PG 下会折叠大小写**——`ocrule_details` 的列是 camelCase
+   （`ruleName` / `ruleType`…），PG 把未加引号的标识符折成小写后报「字段 rulename 不存在」，
+   导致 `_load_push_rules` 整条查询失败并**静默返回空**：页面上「断站类码 ACTIVE 覆盖」
+   永远显示「（无）」、`active_rule_count` 恒为 0，而派单分类却仍给结论（两处证据自相矛盾）。
+   修复：`_qcol` **一律加双引号**（sqlite 同样合法），且 `ORDER BY` 改用原始列名。
+3. **越序只对契约相邻对判定**——曾经对时间轴上所有相邻跳判倒挂，结果
+   「告警清除 → FO Process」被判越序，实测 120 单里 86 单如此。但**告警自愈本就
+   早于文书流程，这是常态不是异常**，误判会淹没真问题。现只保留
+   `_ORDER_PAIRS` 里的 4 对。
+4. **根因错位不能全量入偏离**——NOC 的 `root_cause`（POWER/RAN/Fiber/Planned work…）
+   与系统 `alarm_reason_type`（实测本库 99% 是 TRM）是**两套不同粒度的分类法**，
+   直接比对会让几乎 100% 的单子"错位"、报告失去区分度。现偏离只收
+   **语义确凿冲突的 `POWER<-TRM`**（复盘报告 §4 已用 2,529 张单验证过的系统性误填）；
+   其余组合仍在正文「根因对比」表里并列展示，只是不判偏离。
+   > 注：**概览/下钻页的「错位率」口径不变**（`_mismatch_of` 仍返回 `其它` 类），
+   > 那里是人工逐条复核的列表场景，宽口径更合适。两者用途不同，勿强行统一。
+5. **WO 的现场步骤是 JSON 数组，不是 `Operation Time:` 文本**——`start_trip_detail`
+   / `arrive_site_detail` / `leave_site_detail` 存的是
+   `[{"opname":"Start Trip","operator":"FE_FE_133","operationtime":1790149109856,...}]`，
+   只有 `accept_detail` / `process_detail` / `confirm_detail` 才是文本格式。
+   原实现统一套文本解析器，实测 **9,950 条** `start_trip_detail` 全部解析为空，
+   「现场处置」这一跳永远显示缺失。修复：新增 `_parse_wo_json_step()`，
+   两条路径都走；`operationtime` 是 **epoch 毫秒**，用 `_norm_wo_time()` 转换；
+   展示名优先取 `candidateoperator[0].name`（否则报告上只有 `FE_FE_133` 这种工号，无法点名）。
+6. **时间轴必须按真实发生顺序排，不能按契约顺序硬排**——WO 派单、现场到场、告警清除
+   三者在真实世界里会交错。实测 `TT202609230005`：WO 在 `00:27` 派、现场 `07:38` 到场、
+   告警 `07:27` 清除；若按契约顺序把「现场处置」排在「告警清除」之前再算相邻跳间隔，
+   就会出现 `-7.00 小时`的**负间隔**，读者会以为数据错了。修复：构建完成后按时间升序
+   重排（无时间戳的缺失跳沉底），并**重算** `gap_from_prev_s`（沿用排序前的间隔同样会错）。
+7. **时间归因必须覆盖全窗口，缺口要显式暴露**——末段终点若写死 `confirm`，遇到
+   「未走完流程（无 Confirm）」的单子，分段之和会远小于总历时，出现说不清去向的黑洞
+   （实测 `TT202609220068` 差 4.6h）。修复：末段终点缺失时回落到全流程终点，并返回
+   `unaccounted_s` / `unaccounted_note`；跑 200 单回归，仅 4 单有缺口（最大一单
+   `TT202609220123` 缺 `fo_accept`，缺口 8.84h，note 已如实说明）。
+   同时 `time_spent.total_seconds` 与 `timeline_meta.total_seconds` 统一为**同一口径**，
+   避免页面「总历时」与「合计」两个数字打架。
+8. **「存在 WO」不等于「现场有人」——不要把 WO 创建时间当现场处置时间**——
+   旧实现把 `eflow_wo.created_time` 当作现场处置的时间戳、`actor` 写死 `human`、
+   `ok = has_wo`，于是报告里出现「现场处置 ｜ 人工 ｜ 2026-09-22 16:53:51」这种
+   **无依据的结论**。实测该单（`WO202609220068`）的 WO 由 **`fe_robot` 自动创建**，
+   真正的现场动作在**次日 08:44**（`Stanley Biney(FE_FE_101)` 出发/到场），
+   比 WO 创建晚了 16 小时——原写法连时间都是错的。
+   根因：`eflow_tt` **没有独立到场字段**，`eflow_wo` 的出发/到场/离场明细又常为空。
+   修复：以 `start_trip_detail` / `arrive_site_detail` / `leave_site_detail` **明细**为唯一证据；
+   取不到时 `actor=unknown`、不给时间、`status=unproven`，并在说明里点明
+   「WO 由 `fe_robot`（系统自动）创建，**不能据此推定现场有人**」。
+   200 单回归实测：**86 张有 WO 的单里只有 18 张有真实现场明细**，另 68 张从
+   "现场处置 人工"改判为"未证实"——这是本次修正影响面最大的一处。
+   > 顺带修正：告警清除的说明不能笼统写「有现场动作明细」。上例告警在 `16:55` 就清了，
+   > 现场动作却在次日 `08:44`，两者相隔 16 小时。现按先后关系分别输出
+   > 「告警先清除，现场动作在其后」/「现场动作早于告警清除」。
+9. **机器人操作人不能被记成「人工」**——`fo_accept_detail` 的 `Operator:` 可能是
+   `FE Robot(fe_robot)`（机器人自动接单），但旧实现把 `fo_accept` / `fo_process` 的
+   `actor` 写死 `human`，报告里就出现「FO Accept 接单 ｜ 人工 ｜ `FE Robot(fe_robot)`」
+   这种自相矛盾的结论。修复：新增 `_is_robot_operator()` / `_actor_of()`，
+   命中 `fe_robot` / `auto_robot` / `assign_rule` / `system` / `robot` / `auto_` 即判为 `system`，
+   并在说明里补「（机器人自动接单）」。
+   200 单回归实测：`fo_accept` **165/200 是机器人**，`fo_process` **163/200 是机器人**。
+   注意 `_is_robot_operator` 是**子串**匹配（要能认出 `FE Robot(fe_robot)` 这种展示名），
+   所以不要拿它去判站点名之类的业务文本。
+
+10. **写死的分段端点会把最大的一块时间藏起来**——旧实现固定 4 段
+    （detect/assign/handle/close，端点全是文档流程节点），遇到"机器人秒填文书、
+    人在第二天才到现场"的单子就全错。实测 `TT202609220139`：
+    WO 派单 `2026-09-22 16:53:51`、现场到场 `2026-09-23 08:44:25`，
+    中间**等现场响应 15.81 小时**；但 `fo_process` 被机器人秒填在同一秒，
+    这段等待全挤进"提交 → 确认关单"，而窗口终点又取 `last_modified_time`
+    （停在 `16:56`，早于现场动作）→ **整段落在窗口之外**，
+    页面显示"总历时 18 分钟"，与时间轴上横跨 16 小时的记录直接矛盾。
+    修复：① 窗口终点取所有已知活动的最晚时间；② 分段改由真实事件链生成。
+    修正后该单总历时 `16.10h`，瓶颈如实显示为「现场响应等待 15.81h（98.2%）」。
+11. **`create_detail` 的字段之间用句点分隔，模糊匹配会把句点当值**——
+    `Assign To:. Assignee Group:.` 用"值到下一个大写词"的正则去取，
+    得到的是 `'.'` 而不是空，于是报告写成"建单即指派到人：."。
+    修复：用**字段名联合前瞻** `(A|B|C):(.*?)(?=(?:A|B|C):|$)` 逐字段取值，
+    再 `strip(".")` 并把空串归一为 `None`。
+    > 这个 bug 的危险在于"看起来有值"，会把**未指派**误报成**已指派**——
+    > 而"未指派到人"恰恰是长时间无人响应的关键线索。
+
+### 每条结论都可回溯
+
+`timeline` 每跳都带 `source`（取自库中哪个字段）与 `raw`（原始 `*_detail` 文本），
+前端悬停「[原文]」可看。这是本节的设计底线：报告给出判断，但人要能自己核对到原始记录。
+
+### SLA 超期时长的两个口径（别混）
+
+| 值 | 口径 | 示例（TT202609210140） |
+| --- | --- | --- |
+| `over_seconds` | 关单时间 − SLA 期限 | 3.83h（优先用 `sla_remain_time` 的负值） |
+| 阶段 `over_by_s` | 该阶段耗时 − **阶段阈值**（`STAGE_THRESHOLDS`） | 3.86h（8h 阈值） |
+
+两者**基准不同**（一个对 SLA 期限、一个对阶段阈值），数值接近但不是同一个数，
+报告里不要互相套用。`over_source` 字段说明本次超期时长是怎么算出来的。
+> `_parse_sla_duration('0d8h0m')` 曾经返回 `None`（正则分组位置错位），
+> 导致 `sla.total_s` 恒为空。现按 d/h/m 分段可选匹配并逐单位取值。
+
+## 14d. 为什么走人工派单 —— TT Push Order Rule 逐条比对（2026-09-23 新增）
+
+回答「这单为什么需要人工派单、为什么没自动建 WO」。返回体字段 `dispatch_analysis`，
+报告 Markdown 落在 **§5b**，界面是 **⑤b 卡片**。
+实现：`backend/services/tt_postmortem/__init__.py` 的 `_analyze_dispatch_reason()`
+（规则目录 `_load_rule_catalog()`、特征归一 `_ticket_signature()`、目标判定 `_rule_target()`）。
+
+### 判定链路（eFlow 三段式）
+
+```
+1. ttDispatchRule（triggerStep=autoDispatch）决定 TT 落 BO 还是 FO 通道
+2. ttPushOrderRule（triggerStep=FOAccept）决定 FO 接单时**是否自动建 WO**
+3. 第 2 步无 ACTIVE 规则命中 → 不建 WO → FO 人工接单，现场出人无系统保证
+```
+
+### `overall` 的 8 种取值
+
+| overall | 含义 |
+| --- | --- |
+| `auto_dispatched` | 已产生 WO，规则生效 |
+| `manual_by_design` | 唯一适用规则的名字里写着「手动」（如 `Regular断站故障手动到FO`）→ 人工是设计意图 |
+| `no_wo_by_design_multi` | 多条规则同时适用，但**没有一条会建 WO** → 无 WO 的结果确定 |
+| `routed_to_other_system` | 命中的 ACTIVE 规则目标是别的系统（如 IPT），不建 WO 属预期 |
+| `rule_should_have_fired` | **异常**：有 ACTIVE 且适用的建 WO 规则，却没建 WO |
+| `no_active_rule_matched` | 唯一适用规则已停用，其余均不适用 |
+| `rule_vacuum` | 没有任何适用规则，无规则可依 |
+| `ambiguous` | 多条目标不同的规则竞争且其中有建 WO 的，需人工按优先级确认 |
+
+### 四个必须整词/按目标判定的坑
+
+1. **`cell` 必须整词匹配**——站点名 `Qcell LMTI (Marshall)` 含 `cell` 子串，
+   用 `"cell" in text` 会把「Partial site down (PSD)」这类**站点级**断站误判成
+   **小区级**故障，错误套用「小区故障派ZTE WO」，在 200 单回归里造出 **7 个**
+   "应建 WO 却没建"的假异常。修复：`_has_word()` 加字母边界（`qcell` 因 `q` 紧邻而不命中），
+   且**不把 `title` 纳入比对文本**（title 嵌了站点名，专有名词可能含特征词）。
+   同理规则描述里的 `operation` 会因含 `era` 被误判为「针对 ERA 站点」。
+2. **必须区分规则的「派发目标」**——`Regular电源故障推送TT到IPT` 是 ACTIVE 且常命中
+   （200 单里 81 单），但它的目标是 **IPT 而不是建 WO**。若把它当成"应建 WO 却未建"，
+   会把正常行为误报成 89 单规则失效（真实为 0）。修复：`_rule_target()` 分
+   WO / IPT / BO / MANUAL / UNKNOWN，只有 `WO` 目标才算"应建 WO"。
+3. **「手动」类规则不算故障**——`Regular断站故障手动到FO` 的设计意图本就是人工处理
+   （描述 `Normal+COOL站点`），所以 REGULAR 站断站不建 WO 是**设计如此**。
+   这个区分决定复盘结论的方向：是"要改规则"还是"要改流程预期"。
+4. **`dispatch_analysis` 只能算一次**——`build_tt_postmortem` 曾自己另算一份，
+   但它的 `SELECT` 没有 `alarm_description` → 特征识别不到「断站」→ 规则匹配静默变 0 命中，
+   导致「改进建议」与报告 §5b 自相矛盾。修复：把 `build_tt_timeline` 提到
+   `suggested_actions` **之前**构建，两者共用同一份结果。
+
+> **口径边界**：规则适用范围由规则名/描述关键词**反推**（看不到 eFlow 规则表达式），
+> 输出里始终带 `caveat` 并把规则原文并列展示，供人工复核。不要把它当成引擎的权威判定。
+
+## 14e. eFlow 知识库 · TT 快速分析的「规则命中证据」（2026-09-23 新增）
+
+页面 `?page=eflow_qa`（门户 `MsPortal/viewer.html?gid=Knowledge Q&A&no=47` 内嵌的就是它）。
+输入 TT 单号后，「AI 分析结论（TT单分析技能）」卡片在 AI 正文之下多出一块
+**规则命中证据（本地规则引擎）**，回答「这条结论依据哪条规则、规则在哪个文件、
+谁维护、工单谁在处理」。
+
+### 两块内容的分工（关键）
+
+| 块 | 性质 | 来源 |
+| --- | --- | --- |
+| AI 正文（Markdown） | **模型推断**，可读性好、可解释 | 本地 WorkBuddy 代理主用 → Open WebUI 备用（`backend/services/openwebui_client.py`） |
+| 规则命中证据 | **确定性事实**，与矫正表逐字一致 | `backend/services/eflow_rules/tt_rule_evidence.py` |
+
+两者**不是同一套判定**，页面并列展示正是为了让 AI 结论可以直接被核对；
+证据块不会因为模型不可用而消失（`ai.ok=false` 时照样渲染）。
+
+### 数据链路
+
+```
+GET /api/eflow-qa/tt-ai?tt=<单号>&lang=zh|en      （backend/routers/eflow_qa.py）
+  ├─ _tt_context()                        本地库/ eFlow 实时兜底拿工单 + 告警 → report
+  ├─ tt_rule_evidence.build_rule_evidence()   本地规则引擎判定（权威）
+  │    └─ tt_batch_severity.check_batch()   ← 与每天 04:20 的 eflow_tt_rules_check 同源
+  │    └─ eflow_TT_rules.xlsx               ← 规则明细（类型/触发步骤/维护人/条件原文）
+  │    └─ eflow_tt_rules_check_latest.json  ← 规则条数与最近一次收集+匹配时间
+  ├─ render_evidence_text()                → 证据文本块，随 user 消息下发
+  └─ openwebui_client.analyze_tt(..., evidence_text=...)
+返回 ai.rules（结构化，页面明细块） + ai.evidence（下发的证据原文，排查用）
+```
+
+证据块展示的内容：命中规则名称 + ID、优先级、目标级别、逐条条件匹配
+（`assetType=COOL = COOL ✓` 这种，来自 `eflow_rules_matcher._fmt_detail`）、
+规则条件原文（折叠）、规则来源文件 `eflow_TT_rules.xlsx` 与 `MATCHING_REPORT.md`
+（**可下载**，走 Email Reports 的白名单下载接口）、ACTIVE 规则条数、规则表更新时间、
+最近一次收集+匹配时间、规则维护人（创建人/更新人）、工单处理人
+（`last_processer` / `last_processer_group`，取自 `inspect_tt` 报告的「派单」段，不额外查库）。
+
+### 三个必须知道的坑
+
+1. **规则引擎判定只在本地 `eflow_tt` 有该单时有效**：工单只存在于 eFlow 实时接口时
+   `found=false` → `available=false`，证据块显示「规则引擎未判定」并给出原因，
+   AI 走原有纯文本判定路径。不要把这个当成报错。
+2. **证据文本必须与规则表同时给出**：`analyze_tt` 的 system 消息里已经内嵌了全部 ACTIVE
+   规则（外部模型不走 Open WebUI 的 RAG），证据块是**补充权威判定**，
+   不是替代规则文本 —— 少了规则文本，模型无法解释未命中原因。
+3. **下载地址受白名单约束**：`/api/email-reports/download/eflow_tt_rules_check/<文件名>`
+   只放行 `backend/routers/email_reports.py` 中 `_SOURCES`/`_EFLOW_FILE_SPECS` 里登记过的
+   文件名。新增产物文件必须两处同步登记，否则「能列出却下载 403」。
+
+### 14e-1. 模型全档失败时的「程序化结论」（2026-09-23 新增）
+
+原先模型不可用时页面只有一行
+`AI analysis failed: RuntimeError: 所有候选模型均失败 ['workbuddy:…','openwebui:…']`，
+用户拿不到任何判定。现在 `tt_ai` 会在 `ai.ok=false` 时再调
+`tt_rule_evidence.render_local_conclusion()`，**由本地规则引擎程序化生成一份 Markdown 结论**：
+
+```
+ai.ok                    false（语义不变：这次不是模型给的）
+ai.error                 真实失败原因（原样保留，便于排障）
+ai.fallback              true
+ai.fallback_conclusion   程序化结论 Markdown（工单字段表 → 判定结论 → 规则来源与责任人 → 处置建议 → 失败原因）
+ai.rules                 结构化证据（页面「规则命中证据」块，正常/失败两种情况都用）
+```
+
+页面（`EflowQa.tsx`）在 `!ai.ok` 时渲染顺序为：错误 Alert → 「程序化判定（本地规则引擎）」
+标签 + 结论 Markdown → 规则命中证据块 → 耗时。**不要把 `ai.ok` 改成 true** ——
+那会让「模型给的结论」和「引擎给的结论」再也分不开。
+
+四段内容全部可程序化推出，无模型参与：字段表取 `inspect_tt` 报告的列值（数值列去掉 `.0` 尾巴），
+判定取 `level_status`（`ok`/`adjust`/`unknown` 三分支各有一套处置建议），
+规则来源/维护人取规则表列，处理人取「派单」段。
+
+> **两个口径别混**：规则引擎按 `eflow_tt` 列判定（「逐条匹配」里的就是实际取值），
+> 而技能 prompt 的部分字段（如 `downSiteCount`）取自告警行，实测同一单可能一个是 1、
+> 一个是 6。程序化结论里已显式标注「以逐条匹配为准」，改这里时别把两者当成同源。
+
+### 14e-2. 推单规则证据：这单会不会自动推 WO、推给谁（2026-09-23 新增）
+
+「规则来源与责任人」原先只有**级别规则**（`ttLevelRule`，回答「该是什么级别」），
+缺了**推单规则**（`ttPushOrderRule`，回答「会不会自动推 WO、推给谁、谁自动处理」）。
+现在两套都给：页面「规则命中证据」块下面多一个推单规则子块，程序化结论的
+「### 3. 规则来源与责任人」里也多一段 `#### 推单规则（TT Push Order Rule，触发步骤 FOAccept）`：
+
+```
+- Rule Name: ERA断站推单到ZTE WO（ID 203，优先级 2）
+- Rule Type: TT Push Order Rule
+- Rule Trigger Step: FO Accept
+- Push Order Path: FOAccept > FOProcess > FOProcess
+- *Auto Operator: FE Robot (fe_robot)
+- Target Handler: ZTE_NOC_FO [ZTE_NOC_FO]
+```
+
+数据源是 `eflow_push_rules.xlsx` 的 `Push_Rules` 工作表（`eflow_Push_Rule_Collector`
+落盘，就是 Email Reports → eFlow TT Rules Check 页签里可下载的那份），
+字段名沿用 eFlow 规则页签的英文写法。返回字段 `ai.rules.push_rules`：
+
+| 字段 | 含义 |
+| --- | --- |
+| `matched[]` | `triggerStep=FOAccept` 命中的推单规则（决定自动建 WO 的那一步） |
+| `other_steps[]` | 其他步骤（如 `Confirm`）命中的规则，单列，避免把兜底规则混进「责任人」 |
+| `evaluated` / `undecidable` | 参与判定的规则数 / 条件字段本地取不到、判不了的规则数 |
+| `rules_file` | `eflow_push_rules.xlsx` 的路径、条数、更新时间、下载地址 |
+
+**三个必须知道的坑**（实测踩过，详见 `backend/services/eflow_rules/tt_rule_evidence.md`）：
+
+1. **两份表的 `条件` 列格式不同**：级别规则是 `AND | eflow_...alarmCode in '…' (string)`
+   （连接词后有 `|`），推单规则是 `AND eflow_...alarmCode in '…' (string)`（**没有 `|`**）。
+   直接喂 `parse_conditions` 会得到空列表，表现为「所有推单规则都不命中」。
+   `_parse_push_conditions()` 先补分隔符再复用同一解析器。
+2. **本地只有 5 个字段可评估**：`alarmCode / vipSite / siteSubType / netWorkType / downSiteCount`。
+   引用 `alarmName`（如 `TT自动推单给BO-MW组`）等字段的规则本地判不了，
+   计入 `undecidable` 并在界面注明 —— **不能算「未命中」**。
+3. **`Confirm` 步骤的规则是兜底**：`TT_push_confirm_to_close`（ID 119）几乎命中所有 TT，
+   但它不决定推 WO；只有 `FOAccept` 的规则才是推单决策（与
+   `tt_postmortem._analyze_dispatch_reason` 的 `target_step` 同口径）。
+
+> 实测：`TT202609220128`（ERA 站，alarmCode 99933）命中 #203 `ERA断站推单到ZTE WO`，
+> 自动处理人是 `fe_robot`、目标处理人是 `ZTE_NOC_FO`；
+> `TT202609230017`（COOL 站）在 FOAccept **无**推单规则命中 → 不会自动推 WO。
+> 注意 `siteSubType` 取 `eflow_tt.site_type`，为空才回退 `site_information`
+> （见 `eflow_rules_matcher.build_value_frame`）—— 该单 `site_type=COOL`、`site_information=REGULAR`，
+> 所以按 `COOL` 判，`Regular断站故障手动到FO`（要求 `REGULAR`）不命中。
+
+## 14f. 这单指派给谁了 —— 指派归因（2026-09-23 新增）
+
+返回体字段 `assignment`，报告 Markdown 落在 **§5c**，界面是 **⑤c 卡片**。
+实现：`backend/services/tt_postmortem/__init__.py` 的 `_resolve_assignment()`
+（建单明细解析 `_parse_create_detail()`）。
+
+### 为什么必须单独做一节
+
+eFlow 的"指派"不是一条规则说了算，**分三层**，只看一层会得出错误结论：
+
+| 层 | 规则类型 / 字段 | 实际职责 |
+| --- | --- | --- |
+| ① 通道 | `ttDispatchRule`（`triggerStep=autoDispatch`） | **只决定走 BO 还是 FO 通道**。实测其 `targetHandlerName` / `targetHandlerId` **全为 `None`**，根本不承担"派给谁" |
+| ② 建单群组池 | `ttGroupDefaultRule`（`GroupDefault_Create`） | 决定单子落进哪个**群组池**（如 `default_FO_creat rule` → `NOC_FO_101~120`） |
+| ③ 环节群组 | `ttGroupConfigRule`（`GroupConfig_FOAccept` / `_FOProcess` / `_Confirm`） | 决定各环节的**候选人范围**，同样不指定个人 |
+
+**真正落到某个人**要看 `create_detail` 的 `Assign To` / `Assignee Group`，以及
+`eflow_tt.current_handler`。
+
+### 实测结论：200/200 全部「未指派到人」
+
+```
+unassigned 分布: {True: 200}
+create_assign_to 非空: {False: 200}
+```
+
+2026-09-15 之后 200 张单**全部** `Assign To` 与 `Assignee Group` 为空，
+`current_handler` 形如 `G:ZTE_NOC_FO` —— **`G:` 前缀表示群组而非个人**。
+也就是说单子建好后只是躺在一个 20 人的群组池里、没有具体负责人。
+
+这是"长时间无人响应"的**结构性原因**，比单看某一段耗时更有解释力：
+`TT202609220139` 现场响应等待 15.81 小时，正是因为**没有任何人被指派**。
+
+### `current_handler` 的 `G:` 前缀
+
+| 值 | 含义 |
+| --- | --- |
+| `G:ZTE_NOC_FO` | **群组**（`current_handler_is_group = true`），非个人 |
+| `Kaifa Toure(NOC_FO_101)` | 具体人 |
+
+报告里必须把这个区别显示出来，否则"当前处理人 = ZTE_NOC_FO"会被误读成某个人。
+
+### 改进建议已改为「跟着瓶颈走」
+
+`suggested_actions` 现在除了派单规则，还从**两个新来源**产出：
+
+1. **时间瓶颈**：`time_spent.bottleneck` 超过 2 小时时，按 `phase` 给出对应建议
+   （`onsite_wait` → 建"到场时限 + 超时升级/改派"；`detect` → 查告警采集/建单时延；…）。
+2. **指派**：`assignment.unassigned` 为真时，指出"未指派到人"是结构性原因。
+
+> 修正前 `TT202609220139`（瓶颈 15.81 小时）**一条建议都没有** ——
+> 因为建议只跟着派单规则走，而这单的派单没问题、问题全在现场响应等待上。
+> 复盘的价值就在于"最大的那块时间"能对应到一个可执行动作。
+
+## 14g. eFlow 全流程查询（`?page=eflow_flow`）
+
+输入**告警**（告警 ID / 告警码）或 **TT 单号**，画出该单在 eFlow 里的全流程图 ——
+规则驱动的完整状态机 + 该单**实际走过**的路径高亮。与 `14e eFlow 知识库`（规则证据）、
+`14f 指派归因`同属 eFlow 数据链路，规则口径三处共用一份。
+
+- **两种图叠在一张画布上**：底图是 `ocrule_details` 的规则骨架（节点下方的"生效/总数"
+  是该步骤绑定的规则条数），叠加层是该单的实际路径 —— 绿色=已走过、黄色=当前步骤
+  （取 `eflow_tt.operation_type`）、粗青线=实际连线。一眼看出"走到哪一步、卡在哪"。
+- **状态机主干**（`backend/services/eflow_flow.py` 的 `_FLOW_NODES`）：
+  告警发生 → TT 建单 → 自动派单 → FO/BO 接单 → FO/BO 处理 → 第三方接单/处理 → 确认 → 关单，
+  外加 TT 派生的 **WO 现场子流程**独立一条流水线（`wo_create`→`wo_accept`→`wo_process`→`wo_confirm`→`wo_closed`）。
+- **告警 → TT 的定位**：① 告警表 `tt_id` 直连（realtime/history）；② TT 自己的 `alarm_id`
+  与告警表 `id`/`aid` **归一后**比对。⚠ 后者必须归一 —— `eflow_tt.alarm_id` 存的是浮点文本
+  `'1764213625912.0'`，直接与整数 `id` 比较**永远 0 行**。
+- ⚠ **realtime_alarm(149 列) 与 history_alarm(173 列) 列集不同**：`alarmclearedtime` 只在
+  history、`clearstatename` 只在 realtime。给两表写同一条 SELECT 会抛 `UndefinedColumn`，
+  被 `except` 吞掉后表现为"关联告警永远是 0 条"。故只选两表**交集列**（同处已注明）。
+- **规则挂载按工单类型分区**：TT 节点只挂 `eflow-tt` 规则、WO 节点只挂 `eflow-wo` 规则。
+  两者都有 `Confirm` 这一 `triggerStep`，不区分会把 `TT_confirm` 挂到 `wo_confirm` 上。
+- 接口：`GET /api/eflow-flow/query?q=&lang=`（主查询，q 支持 TT 单号/告警 ID/告警码）、
+  `/graph`（仅规则骨架）、`/rules`（规则清单，可按 `wo_type`/`rule_type` 过滤，`:eflow_flow.py`）。
+- 规则表由 `eflow_push_rules_collect` / `eflow_alarm_rules_collect` 每 3 天 23:59 采集，
+  规则变更后流程图自动反映（每次请求按 mtime 热加载）。
+
+## 15. IP 链路探测（`?page=ip_trace`）— iframe
 `IpTrace.tsx:16` → `public/ip-trace.html`（`<title>` 为 **IP Trace & Node Detection Dashboard**），接口由内页自调：`/api/ip-trace/trace`、`/status`、`/stop`、`/analyze`。用于从服务器侧探测到目标站点的链路连通性与路径；`/stop` 说明探测是**可中断的长任务**，卡住时可以手动停。
 
 ## 16. 事件总览（`?page=incident_overview`）— iframe

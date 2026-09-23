@@ -1,14 +1,14 @@
-﻿// Battery Dashboard - ç”µæ± çœ‹æ¿
-// æ•°æ®æº: battery_kpi.sqlite3ï¼ˆUME r32.uedm.batt å®žæ—¶æ•°æ®ï¼Œbattery_kpi_sync æ¯å°æ—¶åŒæ­¥ï¼‰
+// Battery Dashboard - 电池看板
+// 数据源: battery_kpi.sqlite3（UME r32.uedm.batt 实时数据，battery_kpi_sync 每小时同步）
 //
-// è®¾è®¡è¦ç‚¹ï¼ˆä¾æ®çœŸå®žæ•°æ®è°ƒæ•´ï¼Œè€Œéžé€šç”¨æ¨¡æ¿ï¼‰ï¼š
-// 1. ã€Œæ•°æ®æ–°é²œåº¦ã€æ˜¯ç¬¬ä¸€ç»´åº¦ï¼šå®žæµ‹çº¦ä¸€åŠç”µæ± è¯»æ•°è¶…è¿‡ 7 å¤©ï¼ˆæœ€è€åˆ° 2024 å¹´ï¼‰ã€‚
-//    æ‰€æœ‰å‡å€¼/çŠ¶æ€/ä½Žç”µé‡æŒ‡æ ‡é»˜è®¤åªç»Ÿè®¡æ–°é²œï¼ˆâ‰¤24hï¼‰å­é›†ï¼Œå¦åˆ™å¹³å‡å€¼ä¼šè¢«åŽ†å²è¯»æ•°æ±¡æŸ“
-//    ï¼ˆä¾‹ï¼šä¸è¿‡æ»¤æ—¶ã€Œæ”¾ç”µä¸­ã€338 å—ï¼Œè¿‡æ»¤åŽçœŸå®žå€¼ä»… 24 å—ï¼‰ã€‚
-// 2. å¥åº·åº¦å‡ ä¹Žæ— æ–¹å·®ï¼ˆ98~100 å  99%ï¼‰ï¼Œç›´æ–¹å›¾ä¿¡æ¯é‡ä½Ž â†’ ä¸»è§†å›¾ç”¨ã€Œå¥åº·åº¦åˆ†çº§ + æ— æ•°æ®å æ¯”ã€ï¼Œ
-//    ç»†ç²’åº¦ç›´æ–¹å›¾ä½œä¸ºæ¬¡è¦ Tab ä¿ç•™ã€‚
-// 3. ã€Œæ”¾ç”µä¸­ã€= ç«™ç‚¹å¸‚ç”µä¸­æ–­çš„ä»£ç†æŒ‡æ ‡ï¼Œå•åˆ—ä¸ºä¸€çº§ KPI ä¸Žå‘Šè­¦ã€‚
-// 4. æ–°å¢žç«™ç‚¹ç±»åˆ«ï¼ˆSatelite / Microwave / Pilotï¼‰ç»´åº¦ä¸Žè¶‹åŠ¿å›¾ï¼ˆæ¯å°æ—¶å¿«ç…§ç´¯ç§¯ï¼‰ã€‚
+// 设计要点（依据真实数据调整，而非通用模板）：
+// 1. 「数据新鲜度」是第一维度：实测约一半电池读数超过 7 天（最老到 2024 年）。
+//    所有均值/状态/低电量指标默认只统计新鲜（≤24h）子集，否则平均值会被历史读数污染
+//    （例：不过滤时「放电中」338 块，过滤后真实值仅 24 块）。
+// 2. 健康度几乎无方差（98~100 占 99%），直方图信息量低 → 主视图用「健康度分级 + 无数据占比」，
+//    细粒度直方图作为次要 Tab 保留。
+// 3. 「放电中」= 站点市电中断的代理指标，单列为一级 KPI 与告警。
+// 4. 新增站点类别（Satelite / Microwave / Pilot）维度与趋势图（每小时快照累积）。
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import {
   Card, Row, Col, Tag, Spin, Alert, Empty, Table, Input, Button, Switch,
@@ -119,17 +119,20 @@ interface Battery {
   last_update: string | null; age_hours: number | null; freshness: string
 }
 
-// å·²è¿ç»Ÿä¸€æ ¼å¼ UNIFIED_EXCEL_V1ï¼šæ ·å¼ä¸Žé‚®ä»¶æŠ¥è¡¨åŒæºï¼Œè§ docs/EXCEL_EXPORT_STANDARD.md
-// åŽŸç”¨ XLSX.utils.json_to_sheetï¼ˆåˆ—å¤´å–å¯¹è±¡é”®ï¼‰ï¼Œæ­¤å¤„æ˜¾å¼å–é”®å¹¶æ˜ å°„ä¸ºè¡Œï¼Œä¿æŒåˆ—å¤´ä¸Žåˆ—åºä¸å˜ã€‚
 const exportXlsx = (rows: any[], name: string) => {
   if (!rows.length) return
+  // 原用 XLSX.utils.json_to_sheet（列头取对象键），此处显式取键并映射为行，保持列头与列序不变。
+  // 统一走 excelReport 以获得标题行、表头填充、冻结窗格、列宽与自适应筛选。
   const keys = Object.keys(rows[0])
+  const header = keys.map(k => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))
+  const body = rows.map(r => keys.map(k => (r[k] == null ? '' : String(r[k]))))
   void exportAoaReport({
     filename: `${name}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
     sheetName: name,
     title: name,
-    header: keys,
-    rows: rows.map(r => keys.map(k => (r[k] == null ? '' : r[k]))),
+    header,
+    rows: body,
+    numericCols: [],
   })
 }
 
@@ -142,7 +145,7 @@ export default function BatteryDashboard() {
   const [trend, setTrend] = useState<any>({ source: '', points: [] })
   const [trendDays, setTrendDays] = useState(7)
 
-  // ===== ä¾§è¾¹æ ç­›é€‰ =====
+  // ===== 侧边栏筛选 =====
   const [search, setSearch] = useState('')
   const [cats, setCats] = useState<string[]>([])
   const [statuses, setStatuses] = useState<string[]>([])
@@ -151,12 +154,12 @@ export default function BatteryDashboard() {
   const [socRange, setSocRange] = useState<[number, number]>([0, 100])
   const [includeNullMetric, setIncludeNullMetric] = useState(true)
 
-  // å¥åº·åº¦å›¾è¡¨æ¨¡å¼
+  // 健康度图表模式
   const [healthMode, setHealthMode] = useState<'bucket' | 'hist'>('bucket')
-  // å‘Šè­¦è¡¨ç­›é€‰
+  // 告警表筛选
   const [alarmSev, setAlarmSev] = useState<string>('all')
   const [alarmSearch, setAlarmSearch] = useState('')
-  // ç«™ç‚¹ä¸‹é’»
+  // 站点下钻
   const [drillSite, setDrillSite] = useState<string | null>(null)
   const [drillData, setDrillData] = useState<any>(null)
   const [drillLoading, setDrillLoading] = useState(false)
@@ -185,7 +188,7 @@ export default function BatteryDashboard() {
     () => Array.from(new Set(batteries.map(b => b.category))).map(c => ({ label: c, value: c })),
     [batteries])
 
-  // é™¤ã€Œä»…æ–°é²œã€å¤–çš„å…¨éƒ¨ç­›é€‰ï¼ˆæ•°æ®æ—¶æ•ˆå›¾éœ€è¦çœ‹åˆ°è¿‡æœŸé¡¹ï¼Œæ•…å•ç‹¬ä¿ç•™ï¼‰
+  // 除「仅新鲜」外的全部筛选（数据时效图需要看到过期项，故单独保留）
   const baseFiltered = useMemo(() => {
     const kw = search.trim().toLowerCase()
     return batteries.filter(b => {
@@ -212,7 +215,7 @@ export default function BatteryDashboard() {
     || healthRange[0] !== 0 || healthRange[1] !== 100
     || socRange[0] !== 0 || socRange[1] !== 100 || !includeNullMetric
 
-  // ===== å®¢æˆ·ç«¯é‡ç®—çš„ KPI / åˆ†å¸ƒï¼ˆéšç­›é€‰å³æ—¶å˜åŒ–ï¼‰ =====
+  // ===== 客户端重算的 KPI / 分布（随筛选即时变化） =====
   const view = useMemo(() => {
     const socCrit = thresholds.soc_critical ?? 20
     const hDeg = thresholds.health_degraded ?? 90
@@ -243,7 +246,7 @@ export default function BatteryDashboard() {
       hist[k] = (hist[k] || 0) + 1
     })
 
-    // ç±»åˆ«ç»´åº¦
+    // 类别维度
     const catMap: Record<string, Battery[]> = {}
     baseFiltered.forEach(b => { (catMap[b.category] ||= []).push(b) })
     const byCategory = Object.entries(catMap).map(([category, items]) => {
@@ -288,7 +291,7 @@ export default function BatteryDashboard() {
     }
   }, [filtered, baseFiltered, thresholds])
 
-  // å‘Šè­¦ / ç«™ç‚¹ï¼šæŒ‰å½“å‰ç­›é€‰å‡ºçš„ç”µæ± é›†åˆè¿‡æ»¤
+  // 告警 / 站点：按当前筛选出的电池集合过滤
   const posSet = useMemo(() => new Set(baseFiltered.map(b => b.position)), [baseFiltered])
   const siteSet = useMemo(() => new Set(baseFiltered.map(b => b.site)), [baseFiltered])
 
@@ -331,8 +334,8 @@ export default function BatteryDashboard() {
     setIncludeNullMetric(true); setFreshOnly(true)
   }
 
-  // ===== å›¾è¡¨ option =====
-  // ä¸»é¢˜æ„ŸçŸ¥çš„å›¾è¡¨è‰²æ¿ï¼ˆcanvas æ— æ³•è§£æž CSS å˜é‡ï¼Œå–å…·ä½“è‰²å€¼ï¼‰
+  // ===== 图表 option =====
+  // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
   const cText = isDark ? '#f5f7ff' : '#16233b'
   const cTextMuted = isDark ? '#aebbd4' : '#3f5468'
   const cTextDim = isDark ? '#6f8cb4' : '#5b7288'
@@ -429,7 +432,7 @@ export default function BatteryDashboard() {
     }
   }, [trend, t, isDark])
 
-  // ===== è¡¨æ ¼åˆ— =====
+  // ===== 表格列 =====
   const alarmColumns = [
     {
       title: t('batt.severity'), dataIndex: 'severity', minWidth: 96, fixed: 'left' as const,
@@ -552,7 +555,7 @@ export default function BatteryDashboard() {
 
   return (
     <div style={pageWrap}>
-      {/* ===== é¡¶éƒ¨ä¿¡æ¯æ¡ ===== */}
+      {/* ===== 顶部信息条 ===== */}
       <Card size="small" style={{ ...cardStyle, marginBottom: '0.75rem' }} styles={{ body: { padding: 'var(--wh-space-sm) var(--wh-space-md)' } }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-md)', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '0.9375rem', fontWeight: 700, color: WH.text }}>
@@ -563,7 +566,7 @@ export default function BatteryDashboard() {
             <ClockCircleOutlined /> {t('batt.lastSync')}: {formatDateTime(data.meta.last_sync_ts, { fallback: '--' })}
           </Tag>
           <Tag style={{ border: 'none', background: 'rgba(0, 217, 255,0.1)', color: WH.textMuted }}>
-            {`${t('batt.freshDef')}: â‰¤${thresholds.fresh_hours}${t('batt.unitH')} Â· ${t('batt.staleDef')}: >${thresholds.stale_days}${t('batt.unitD')}`}
+            {`${t('batt.freshDef')}: ≤${thresholds.fresh_hours}${t('batt.unitH')} · ${t('batt.staleDef')}: >${thresholds.stale_days}${t('batt.unitD')}`}
           </Tag>
           {Object.entries(alarmCounts).map(([sev, n]) => (
             <Tag key={sev} color={SEV_COLORS[sev]} style={{ border: 'none', fontWeight: 600 }}>{sev}: {n as number}</Tag>
@@ -577,7 +580,7 @@ export default function BatteryDashboard() {
       </Card>
 
       <Row gutter={12}>
-        {/* ===== ä¾§è¾¹æ ç­›é€‰ ===== */}
+        {/* ===== 侧边栏筛选 ===== */}
         <Col xs={24} lg={5} xl={4}>
           <Card size="small" style={{ ...cardStyle, marginBottom: '0.75rem', position: 'sticky', top: 'var(--wh-space-sm)' }}
             title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}><FilterOutlined style={{ color: WH.teal, marginRight: '0.375rem' }} />{t('batt.filters')}</span>}
@@ -631,9 +634,9 @@ export default function BatteryDashboard() {
           </Card>
         </Col>
 
-        {/* ===== ä¸»åŒº ===== */}
+        {/* ===== 主区 ===== */}
         <Col xs={24} lg={19} xl={20}>
-          {/* KPI å¡ç‰‡ */}
+          {/* KPI 卡片 */}
           <Row gutter={[12, 12]}>
             <Col xs={12} sm={8} lg={6} xxl={3}>
               <KpiCard value={view.total} label={t('batt.kpiBatteries')} color={WH.teal}
@@ -677,7 +680,7 @@ export default function BatteryDashboard() {
             </Col>
           </Row>
 
-          {/* åˆ†å¸ƒå›¾ */}
+          {/* 分布图 */}
           <SectionTitle icon={<DashboardOutlined />} title={t('batt.distribution')} sub={t('batt.distributionSub')} />
           <Row gutter={[12, 12]}>
             <Col xs={24} md={12} xl={8}>
@@ -720,7 +723,7 @@ export default function BatteryDashboard() {
             </Col>
           </Row>
 
-          {/* è¶‹åŠ¿ */}
+          {/* 趋势 */}
           <SectionTitle icon={<LineChartOutlined />} title={t('batt.trend')}
             sub={trend.source === 'poll' ? t('batt.trendPoll') : t('batt.trendReading')} />
           <Card size="small" style={cardStyle}
@@ -736,7 +739,7 @@ export default function BatteryDashboard() {
               : <ReactECharts option={trendOption} style={{ height: 300 }} notMerge />}
           </Card>
 
-          {/* å‘Šè­¦è¡¨ */}
+          {/* 告警表 */}
           <SectionTitle icon={<WarningOutlined />} title={t('batt.alarms')} sub={`${alarms.length} ${t('batt.records')}`} />
           <Card size="small" style={cardStyle}>
             <div style={{ display: 'flex', gap: 'var(--wh-space-sm)', marginBottom: '0.625rem', flexWrap: 'wrap' }}>
@@ -763,7 +766,7 @@ export default function BatteryDashboard() {
             </div>
           </Card>
 
-          {/* ç«™ç‚¹æ±‡æ€» */}
+          {/* 站点汇总 */}
           <SectionTitle icon={<EnvironmentOutlined />} title={t('batt.siteSummary')} sub={`${sites.length} ${t('batt.sitesUnit')}`} />
           <Card size="small" style={cardStyle}>
             <div style={{ display: 'flex', marginBottom: '0.625rem', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>
@@ -783,7 +786,7 @@ export default function BatteryDashboard() {
         </Col>
       </Row>
 
-      {/* ç«™ç‚¹ä¸‹é’» */}
+      {/* 站点下钻 */}
       <Modal open={!!drillSite} onCancel={() => setDrillSite(null)} footer={null} width={'min(95vw, 61.25rem)' as any}
         title={<span><EnvironmentOutlined style={{ color: WH.teal, marginRight: 'var(--wh-space-sm)' }} />{drillSite}</span>}>
         {drillLoading ? <div style={{ textAlign: 'center', padding: '2.5rem' }}><Spin /></div> : (

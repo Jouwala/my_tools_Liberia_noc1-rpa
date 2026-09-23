@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-20。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-23。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（62 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（65 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -78,7 +78,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（62 个）
+### 3.3 全量任务清单（65 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -96,6 +96,7 @@
 | RAN 小区可用性 1-Day 同步 | `cell_availability_sync` | `30 4 * * *` | u | `services/ran_cell_availability_sync.py → run_cell_availability_sync` |
 | RAN Cells KPI 同步 | `cells_kpi_sync` | `50 4 * * *` | u | `services/ran_cells_kpi_sync.py → run_cells_kpi_sync` |
 | RAN Network KPI 同步 | `network_kpi_sync` | `0 5 * * *` | u | `services/ran_ume_network_kpi.py → run_network_kpi_sync` |
+| 可用率核对宽表重建 | `avail_recon_sync` | `10 6 * * *` | u | `services/avail_recon_sync.py → run_avail_recon_sync` |
 | CNN UME KPI 同步 | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | SP 备件数据同步 | `sp_data_sync` | `10 * * * *` | n | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI 同步 | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
@@ -122,6 +123,8 @@
 | Incident Overview 数据同步 | `incident_overview_sync` | `0 * * * *` | m | `services/incident_overview_sync.py → run_incident_overview_sync` |
 | FineBI 报表文件同步 | `finebi_report_sync` | `10 * * * *` | m | `services/finebi_report_sync.py → run_finebi_report_sync` |
 | 数据库数据新鲜度巡检 | `db_freshness_check` | `15 * * * *` | m | `services/db_freshness_check.py → run_db_freshness_check` |
+| MTTR/TT 宽表重建 | `mttr_tt_sync` | `40 7 * * *` | m | `services/mttr_tt_sync.py → run_mttr_tt_sync` |
+| Progress 宽表重建 | `progress_sync` | `50 7 * * *` | m | `services/progress_sync.py → run_progress_sync` |
 | 失败任务自动重试 | `auto_retry_failed` | `*/10 * * * *` | m | `services/auto_retry.py → run_auto_retry_task` |
 | RAN CM 小区数据同步 | `cm_data_sync` | `30 8 * * *` | u | `services/cm_data/cm_data_export.py → run_cm_data_sync` |
 | PG→SQLite 数据快照 | `pg_to_sqlite_sync` | `45 * * * *` | m | `backend/scripts/sync_pg_to_sqlite.py → main` |
@@ -388,6 +391,25 @@
 **维护要点**:
 
 - 查询模板在 services/network_kpi_config.json
+
+#### 可用率核对宽表重建（`avail_recon_sync`）
+
+- 默认 cron: `10 6 * * *`　|　worker 组: **u**
+- 工作流脚本: `services/avail_recon_sync.py → run_avail_recon_sync`
+
+**功能**: 重建 avail_recon 可用率核对宽表（远端 Site_Daily × Master_Site_Database Region 近似聚合），写本机 data/avail_recon.sqlite3，供 Daily Availability KPI / Availability(TT) 看板
+
+**工作流与数据流**:
+
+1. 读远端 olbr_ms_master_database 的站点主数据（Site_Name → Region）
+1. 按 Region 把站点名单内联进 SQL，在远端聚合 2G/3G/4G_Main_Kpi_Site_Daily 的 AVG(可用率)
+1. 原子替换本机 data/avail_recon.sqlite3（表 availability_daily）
+
+**维护要点**:
+
+- 口径在 services/avail_recon_sync.py 顶部：Cell_Availability=AVG(rate)，不是「达标站点占比」（v1 曾算错，值域 40~100%）
+- 看板侧经 dashboard_service.DB_ALIASES 把 avail_recon.sqlite3 解析到本机库；新增派生库照此登记
+- 本任务 2026-09-21 上线前，该表由已退役的 my-finebi 手工 ETL 维护，无人调度导致冻结在 2026-09-13、看板静默停更
 
 #### CNN UME KPI 同步（`cnn_kpi_sync`）
 
@@ -833,6 +855,44 @@
 **维护要点**:
 
 - 怀疑「某类数据停更」时先看它的执行历史，按给出的调用链排查，比翻任务列表快
+
+#### MTTR/TT 宽表重建（`mttr_tt_sync`）
+
+- 默认 cron: `40 7 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/mttr_tt_sync.py → run_mttr_tt_sync`
+
+**功能**: 重建 mttr_tt 宽表（Eflow_TT_FB + OLR_CELLS/Site_Maintainer_Category 参考库），写本机 data/mttr_tt.sqlite3，供 MTTR Monthly&Weekly 看板
+
+**工作流与数据流**:
+
+1. 读本机参考库 data/excel_ds.sqlite3（Site ID→Site Category、Site Name→各制式小区数）
+1. 经只读 API 读远端 Eflow_TT_FB 全量
+1. 推导 Vender/MTTR1/MTTR2/MTTR_RANG_2H/Month/WK/Outage_Mins 后原子替换 data/mttr_tt.sqlite3
+
+**维护要点**:
+
+- 口径解析自 FineDB 数据集 4bc5a679，定义在 services/mttr_tt_sync.py 顶部；MTTR2 只在 0<MTTR1<48h 时非空
+- 参考库 excel_ds.sqlite3 是从 my-finebi 固化的静态文件（114KB，2026-08-31 后未变）；FineBI 侧 Excel 数据集若更新需重新导出覆盖
+- 2026-09-21 上线前该表由已退役 my-finebi 的手工 ETL 维护，无调度 → 冻结在 2026-08-31
+
+#### Progress 宽表重建（`progress_sync`）
+
+- 默认 cron: `50 7 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/progress_sync.py → run_progress_sync`
+
+**功能**: 重建 progress 宽表（Eflow_TT_FB LEFT JOIN Eflow_WO_FB，复刻 FineBI Progress 计算列），写本机 data/progress.sqlite3，供 Progress / Progress V3 看板
+
+**工作流与数据流**:
+
+1. 经只读 API 读远端 Eflow_TT_FB 与 Eflow_WO_FB（按 WO No. 1:1 关联）
+1. 逐行复刻 FineDB 数据集 4bc5a679 的 Progress 计算列（各环节 ORG/STATUS、FB_* 级联、ORG_Handler、Month、MTTR1/2、clear_null）
+1. 原子替换 data/progress.sqlite3
+
+**维护要点**:
+
+- Duration(Hours)/SLA(%) 依赖「当前时间」，刻意不落库，组件 SQL 用 julianday('now','localtime') 实时算
+- 口径在 services/progress_sync.py 的 _derive()；SWITCH 级联逐字移植，改动前先对照原脚本 TMP/etl_progress.py
+- 2026-09-21 上线前该表由已退役 my-finebi 的手工 ETL 维护，无调度 → 冻结在 2026-08-31
 
 #### 失败任务自动重试（`auto_retry_failed`）
 
@@ -1280,10 +1340,11 @@
 
 #### 任务报告文件（`email_reports`）
 
-汇总三类任务产物并供下载：邮件发送的最新报告附件、FineBI FTP 报表、eFlow TT 规则检查结果（规则表/矫正表/报告）。
+汇总三类任务产物并供下载：邮件发送的最新报告附件、FineBI FTP 报表、eFlow 规则检查结果。eFlow 页签底部列出**从 eFlow 获取的全部规则表**（TT 级别矫正规则 / 告警关联规则 / 推单·配置规则）与本次检查产物（级别矫正表 / 匹配报告）。
 
 - 顶部页签切换类别，点文件名或「下载」保存；可设每类保留最近 N 份
-- eFlow 规则页签可「立即执行」手动触发一次检查（3 秒后自动刷新一次，任务慢时需手动再刷）
+- eFlow 页签三个「立即…」按钮分别手动触发对应任务：立即检查（TT 规则 + 匹配矫正）、收集告警规则、收集推单规则；触发后 3 秒自动刷新一次，任务慢时需手动再刷
+- eFlow 页签底部表格：蓝色标签为规则表（TT 规则随每日 04:20 检查刷新；告警/推单规则原本每 3 天 23:59 刷新，可用上面的「收集…」按钮随时刷新），灰色为本次检查产物
 
 #### 数据上传（`upload`）
 
@@ -1378,6 +1439,46 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（日粒度）。
 - 每天 01:00 site_outage_screenshot 自动对本页截图，03:00 whatsapp_send 发送到 WhatsApp 群
 - 注意：改动此页面 DOM 会连带影响自动截图任务，改前先确认截图选择器仍有效
 
+#### fme_ranking（`fme_ranking`）
+
+FME 排名看板：按 FME 统计站点可用率、工单量与 SLA 达成率，并排名。
+
+- Top3 / Bottom3 卡片与排名表可点击下钻该 FME 的站点级可用率与 WO 明细
+- 下钻弹窗内可切换到站点维度，查看每个站点的可用率与告警
+
+#### site_avail（`site_avail`）
+
+站点可用率看板：站点级可用率排名与达标情况。
+
+- 点站点名下钻该站的可用率明细
+- 可用率按站点统计口径计算，与 FME 排名页同源
+
+#### noc_analyst（`noc_analyst`）
+
+NOC 操作人分析：基于 eflow_tt.last_processer 量化每位 NOC 的根因错位率、平均处理时长、夜班单占比与 SLA 通过率，并给出红旗告警。页面按「能下钻尽下钻」设计——从人一路下钻到 TT，再下钻到告警链路。
+
+- 口径：按告警发生时间（alarm_occur_time）归属月份，而非最后修改时间；夜班 = Accept 操作时间落在 22:00–06:00
+- 错位率 = 错位单数 / 已填报根因单数；错位判定以 history_alarm.reason_type 为权威，与 NOC 填报的 root_cause 比对（典型为 POWER←TRM，即 NOC 填供电、系统指向传输）
+- 第 1 层下钻：概览数字卡、Top3/Bottom3 卡片、ECharts 柱状图、排名表每一列与红旗告警里的人名，全部可点
+- 第 2 层下钻：弹窗内按「全部 / 根因错位 / 夜班单 / SLA Fail / 慢单（≥12h）」五种切片切换，行数与该 NOC 的对应指标严格一致
+- 第 3 层下钻：切到「异常站点」页签按站点聚合（错位 / SLA Fail / 慢单 / 夜班），点站点名再看该站的全部 TT
+- 第 4 层下钻：点任意 TT 单号打开单 TT 复盘报告——按「时间归因 / 里程碑时间轴 / 应做·实做 / 偏离清单 / 告警链路」五个页签展开，与 EflowQa 页的程序化复盘报告同源同口径
+- 时间归因区「时间都花哪了」：把整月工单逐单解析后聚合，回答时间浪费在哪个环节。含 6 张可点数字卡、各环节占时比例饼图、偏离类型分布、分段表（合计/平均/P90/最长/超阈值单数）、里程碑耗时分布表
+- 「应派未派 WO 明细」：高等级断站（P1/P2、VIP、Hub）却没派现场工单的单子，按总历时降序，点 TT 号直接进该单的复盘报告「偏离清单」页签
+- 现场处置及时性「全月 WO 各跳耗时分布」：把现场工单的生命周期拆成 工单建单→FE 接单→出发→到场→处理完成→关单 各跳，看哪一跳最卡。实测最慢的是「工单建单 → FE 接单」（中位数约 11 小时），而接单之后的动作都只要几分钟
+- 「NOC / 人工动作及时性」：每个该由人完成的动作（FO Accept 接单、FO Process 填报、现场作业）等了多久、是否超过契约时限、超时限占比是多少
+- 单 TT 复盘「时间归因」页签里，分段表带「阶段」列可直接看出该单时间压在哪一类；下方还有该单的「现场处置时间轴（WO 生命周期）」逐跳明细（含操作人）；未派 WO 的单会明确提示"本单无 WO"，不会空白
+- 「阶段归并：时间压在谁手里」：把细分段按阶段合并（建单时延/接单等待/现场响应等待/现场作业/告警清除/提交关单/关单确认），便于比较 NOC、现场、系统各占多久。实测全月现场响应等待占 15.2%（中位数 6.4 小时）
+- 时间归因首次计算要逐单复盘全月工单（实测约 150 秒），结果按月份落盘缓存，之后打开是毫秒级；需要强制重算时点右上角「重新计算」
+- 弹窗内每个表格都可全字段搜索、列筛选与排序，并可导出 Excel（导出的是当前切片、当前搜索结果）
+
+#### repeat_site_down（`repeat_site_down`）
+
+重复宕站看板：识别在统计窗口内反复宕站的站点，用于定位「修不好的站」。
+
+- 按日粒度统计站点宕站次数，点数字下钻该日宕站明细
+- 数据来自 eflow_tt 与 eflow_site，与告警看板口径互补
+
 #### 丢包看板（`packet_loss`）
 
 LTE 丢包看板（RAN UME SDR / IPRAN IPPD）：最近 7 个完整自然日、小时粒度，当天没过完不展示。
@@ -1449,8 +1550,25 @@ eFlow TT 判定规则知识库：规则/案例文档全文检索，并内置 TT 
 
 - 空格分隔多关键词检索，或从左侧目录选择文章
 - 输入 TT 单号一键分析：派单归属、时间差、根因分布与结论要点
+- AI 分析结论下方附「规则命中证据」（本地规则引擎，与 Email Reports → eFlow TT Rules Check 页签同源）：命中规则名称与 ID、逐条条件匹配详情、规则来源文件 eflow_TT_rules.xlsx（可下载）、规则维护人与工单处理人
+- 模型不可用（本地代理未启动且 Open WebUI 不可达）时不再只报错：页面会给出一份「程序化判定」结论 —— 级别判定、命中规则、规则来源与处置建议全部由本地规则引擎算出
+- 「规则来源与责任人」另给推单规则（TT Push Order Rule，触发步骤 FO Accept）：Rule Name / Rule Type / Rule Trigger Step / Push Order Path / *Auto Operator / Target Handler，说明这单会不会自动推 WO、推给谁、谁自动处理（来源 eflow_push_rules.xlsx，可下载）
 - TT 批量核查：上传 xlsx/csv/txt 单号清单或直接粘贴，逐单判定工单级别是否正常（正常/需调整/无法判定），可导出 Excel
 - TT 批量核查支持「下载模板 → 填写 → 上传核查」闭环：点「下载模板」得到带表头的 xlsx，填好单号后把同一个文件传回来即可
+
+#### eflow_flow（`eflow_flow`）
+
+eFlow 全流程查询：输入告警（告警 ID / 告警码）或 TT 单号，画出该单在 eFlow 里的全流程图 —— 规则驱动的完整状态机 + 该单实际走过的路径高亮。
+
+- 输入框支持三种输入：TT 单号（TT202609230060）、告警 ID（告警表的 id/aid）、告警码（如 99933）；按告警码查询会列出该码最近的 TT 供切换
+- 底图是规则驱动的状态机：告警发生 → TT 建单 → 自动派单 → FO/BO 接单 → FO/BO 处理 → 第三方接单/处理 → 确认 → 关单，节点下方的「生效/总数」是该步骤绑定的规则条数
+- 绿色节点 = 该单实际走过的步骤，黄色节点 = 当前所处步骤（来自 operation_type 字段），灰色 = 未涉及；粗青色连线 = 实际路径
+- 点击图中任意节点，下方「规则明细」表即切到该步骤绑定的规则（规则名 / 类型 / 触发步骤 / 状态 / 优先级 / 目标处理人 / 推送路径），再点「显示全部」可看全量规则
+- 「实际流程路径」表按时间列出该单真实走过的里程碑、操作人与说明；「TT 工单信息」表给出级别、当前处理人、SLA、根因等字段
+- TT 若已派生现场工单，另有「WO 现场子流程」区块：WO 的 接单 → 处理 → 确认 → 关单 独立一条流水线，并列出各环节处理明细（来自 eflow_wo 的 *Detail 字段）
+- 「关联告警」表列出触发该 TT 的告警（realtime_alarm / history_alarm 的 tt_id 或 alarm_id 关联），含告警码、站点、网元、级别与发生时间
+- 判定口径与「NOC 操作人分析」「单 TT 复盘报告」同源：规则统一读 ocrule_details，因此不会出现「流程图说 A、复盘说 B」
+- 规则表由 eflow_push_rules_collect / eflow_alarm_rules_collect 定时采集（每 3 天 23:59），规则更新后流程图自动反映
 
 #### 分析仪表盘（`dashboard`）
 

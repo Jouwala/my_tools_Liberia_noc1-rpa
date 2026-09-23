@@ -45,6 +45,21 @@ Core Network / IP Bearer」原来写死在前端常量 BO_SUBS + i18n 文案里�
   键**存在但数组为空** = 显式「该分组没有子分组」—— 两者语义不同，
   所以这里对空数组照样落盘，绝不因为「空」就把键删掉（删掉会悄悄变回出厂值）。
 
+页签/标题文案（2026-09-23 加）：拓扑地图那一栏的 4 个页签名，以及该栏的标题与副标题，
+原来看死在前端 i18n 字典里（MsPortal 的 'map.tab.gis'/'topo.title'…、
+olbrportal 的 'map.gis'/'map.title'…），只能改代码。现在改为随目录落盘：
+- `tabLabels` = 页签 page 值 → {zh, en}，**键不存在 = 用内置文案**（出厂值），
+  与 groups/subGroups/order 的"键不存在即出厂"完全同构；
+- 保留伪页签 `__head` 存这一栏的标题与副标题（它不对应任何地图）。
+  ⚠️ 两个门户对这两个键的**上下顺序是反的**：MsPortal 标题在上用英文、
+  副标题在下用中文；olbrportal 标题在上用中文、副标题在下用英文。
+  后端只存"中文/英文"两个值，不定义谁在上——由各前端自己映射（见两边前端注释）。
+  所以这里**不能**按门户分叉去存，否则两个门户就没法共用一份数据了；
+- 两个值都为空 = 这一项没配，整条丢弃（前端会回落内置文案）——
+  于是"清空两个输入框"就是可用的还原动作，不需要额外的删除接口；
+- 不认识/已下线的 page 键直接丢弃（同 groups 不做枚举校验的理由：
+  前端加了新页签、后端没重启时，不该因为一个多余的键让整份目录保存失败）。
+
 鉴权：本接口**刻意不进** main.py 的 `_PUBLIC_API` 白名单 —— 未登录访客连目录
       都读不到（与 MsPortal 的整页门禁口径一致）。本机回环由中间件放行，
       服务器本机运维/开发不受影响；局域网登录用户持 myapp_session 也能读。
@@ -105,7 +120,19 @@ DEFAULT_ICON = "dashboard"
 # 这是「能改名的页签」白名单——认不出的 key 直接丢弃而不是 400：
 # 前端将来加了新页签而后端还没重启时，不该因为一个多余的键让整份目录保存失败
 # （与 groups 的 style 不做枚举校验同一个理由）。
-TAB_PAGES = {"gis", "mwRealTime", "realtime_alarm", "packet_loss"}
+#
+# `__head` 是**保留伪页签**，不对应任何地图，用来存这一栏的标题与副标题
+# （MsPortal 的 topo.title/topo.sub、olbrportal 的 map.title/map.sub，2026-09-23 加）。
+# 为什么复用同一个 map：两门户对这两个键的用法**不一致**——MsPortal 是
+# title=英文/topo.sub=中文，olbrportal 是 title=中文/map.sub=英文，而且 olbrportal
+# 还拿 map.title 当 iframe 的 title 属性（无障碍）。与其再发明一个字段、再定义一遍
+# zh/en 归谁，不如就用 {zh,en} 存"标题的中文/英文"，由各前端自己决定谁显示在上、
+# 谁显示在下。这样两门户共用一份数据，改一处两边一致。
+TAB_PAGES = {"gis", "mwRealTime", "realtime_alarm", "packet_loss", "__head"}
+# 标题/副标题比页签名长（MsPortal 现在是 "Central Liberia Regional Topology" 31 字符），
+# 单独放宽上限；页签名仍用 MAX_TAB_LABEL_LEN（页签栏窄，长了会撑破版式）。
+MAX_HEAD_LABEL_LEN = 64
+HEAD_PAGE = "__head"
 
 # 看板对象允许落盘的字段白名单。**必须白名单**：请求体来自浏览器，
 # 不做过滤的话任何字段都会被原样存下来，再被前端 `esc()` 之外的地方读到。
@@ -372,8 +399,8 @@ def _normalize_tab_labels(raw: Any) -> dict:
             raise HTTPException(
                 status_code=400, detail=f"catalog.tabLabels[{page}] 必须是对象"
             )
-        zh = _clip(val.get("zh"), MAX_TAB_LABEL_LEN)
-        en = _clip(val.get("en"), MAX_TAB_LABEL_LEN)
+        zh = _clip(val.get("zh"), MAX_HEAD_LABEL_LEN if page == HEAD_PAGE else MAX_TAB_LABEL_LEN)
+        en = _clip(val.get("en"), MAX_HEAD_LABEL_LEN if page == HEAD_PAGE else MAX_TAB_LABEL_LEN)
         if not zh and not en:
             continue                      # 全空 = 没配，别落空壳（见 docstring）
         out[page] = {"zh": zh, "en": en}

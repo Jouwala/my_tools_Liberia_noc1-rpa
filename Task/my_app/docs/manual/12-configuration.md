@@ -12,7 +12,7 @@
 | 收件人 | 收件人存储 + `email_reports/` 下的名单文件 | 否 |
 | 远程主机 | `backend/data/settings.json` 的 `remote_host` | 否 |
 | 排程（cron） | 主库 `task_schedule_config` 表 | 否 |
-| 任务参数 | 任务配置文件（`services/task_configs_registry.py:1-30`） | 视任务，一般否 |
+| 任务参数 | 任务配置文件（`services/task_configs_registry.py` 注册 36 张卡片） | 否（保存后自动重启 worker 组，见 3.1） |
 
 ## 二、`.env` / 环境变量（改这些要重启）
 
@@ -66,6 +66,20 @@
 | `services/eflow_rules/eflow_TT_rules.xlsx` | **正式**的 TT 规则表（`eflow_rules_matcher.py:29` 读它） | — |
 
 > 仓库根的 `eflow_TT_rules.xlsx` 与 `eflow_TT_Rule_Collector - Copy.py` 是**副本/草稿**，正式生效的是 `backend/services/eflow_rules/` 下那份。改规则请改 `eflow_rules/` 里的，否则改了不生效。
+
+### 3.1 任务配置卡片（Settings →「任务配置」）
+
+36 张卡片由 `backend/services/task_configs_registry.py` 注册。规则：
+
+- **页面显示的默认值不是抄写的**：每张卡的 `defaults_factory` 从服务模块常量现读（例如 `_main_kpi_defaults`、`_sp_defaults`），所以页面上的默认值就是代码在用的值，不会与代码漂移。
+- **优先级**：环境变量 > 配置文件（页面编辑） > 代码默认。覆盖都发生在**模块导入期**，因此由 HOST/PORT 拼出来的派生常量（`PM_REFERER`、`HISTORY_REFERER`、`LOGIN_URL`/`DASHBOARD_URL`、`ALARM_REFERER`）必须写在覆盖块**之后**，否则页面上改主机没用。
+- **保存链路**：`PUT /api/task-configs/{id}`（`backend/routers/task_configs.py:72-80`）→ schema 校验（`task_config_files.py:204-249`）→ 合并（`:272`）→ 原子写 → `_restart_config_workers()`（`routers/task_configs.py:33-57`）杀掉 `backend/worker_{u,n,v,m,c}.pid`，看门狗秒级重拉 → 下次任务运行即用新值。**不碰 `worker_watchdog.pid`**（误杀它=改完配置任务再也不跑）。
+- **table 类型是整表替换**（`task_config_files.py:272-288`）：保存时页面必须把所有行带回；在页面上删掉一行就是真删。行里非 schema 的键（`keep_columns`、`payload` 等内部字段）会原样保留。
+- **逗号整数字段**（`itemsposition`/`itemsposition1`/`itempositionbusiness`）在 schema 里标了 `int_list:true`，填字母会在保存时被挡下（`task_config_files.py:223-228`）。原因：服务在导入期用 `int()` 解析它们，一个字母会让**整个模块 import 失败**——现象是任务直接不起，而不是"这项没生效"。
+- **回到纯代码默认**：删掉对应的 `*_config.json` 即可，卡片下次打开时由 factory 从代码取真值。反过来，**文件一旦存在就以文件为准**：代码里改了默认值而磁盘上还有同名旧文件，页面和服务仍用文件值——这是"改了不生效"最常见的原因。
+- **改注册表/校验代码本身**（不是改配置值）时，要重启后端 API 进程：它在启动时 import 一次注册表，uvicorn 没有开 `--reload`。只改配置值不需要重启 API（保存即重启 worker）。
+- **凭据不进配置文件**：密码/Token 由「凭据管理」页签（`credentials` 表）管理，卡片上只有主机、端口、路径、模板、天这类非敏感项。
+- **守卫**：`python tests/test_task_config_live_effect.py`（必须用后端实际运行的那个 python，本机是系统 Python 3.12）。它对每张卡走真实写入口写哨兵、再在全新解释器里读服务真正会用的值，覆盖"死字段 / 派生量算早了 / 坏值没挡住 / 字段被静默丢弃"四类问题，跑完自动还原配置文件。改卡片时请跟着跑一次。
 
 ## 四、前端与构建
 

@@ -27,13 +27,21 @@
 
 所有上游系统账号集中在一个注册表里，前端"系统设置 → 凭据"统一维护：
 
-- **12 个分组 key**：`zte_ume`、`vmax_cxo`、`ipran_ume`、`ccn_ume`、`eflow`、`fms_portal`、`fw_kpi`、`mw_ume`、`sftp_sp`、`mail_126`、`owa_mail`、`weixin`（`backend/services/credential_store.py:38-251`）。
-- 每组元数据字段：`key`、`name`、`usage`、`user_label`、`secret_label`、`env_user`、`env_secret`、`testable`。字段名可写进文档，**值不可以**。
-- 读取优先级：**环境变量 > 数据库 > 空**（`env_user`/`env_secret` 指定对应变量名，:328-329）；内存缓存 TTL 默认 30 秒（`CREDENTIAL_CACHE_TTL`，:30）。
-- 列表接口返回**掩码**（:397），"显示明文"走 `GET /api/credentials/{key}/reveal`，"测试连接"走 `POST /api/credentials/test`。
+- **17 个分组 key**：`zte_ume`、`vmax_cxo`、`vmax_gbase`、`ipran_ume`、`ccn_ume`、`eflow`、`rais`、`fms_portal`、`fw_kpi`、`mw_ume`、`ume_in`、`battery_ume`、`cm_data`、`sftp_sp`、`mail_126`、`owa_mail`、`weixin`（`backend/services/credential_store.py:38-372`）。
+- 每组元数据字段：`key`、`name`、`name_en`、`usage`、`usage_en`、`username_label`、`secret_label`、`env_user`、`env_secret`、`testable`、`test_host`、`test_port`。字段名可写进文档，**值不可以**。
+- 读取优先级：**环境变量 > 数据库 > 代码默认值**（`env_user`/`env_secret` 指定对应变量名）；内存缓存 TTL 默认 30 秒（`CREDENTIAL_CACHE_TTL`）。
+- 列表接口返回**掩码**，"显示明文"走 `GET /api/credentials/{key}/reveal`，"测试连接"走 `POST /api/credentials/test`（仅 `testable: true` 的组走真实登录）。
 
-> 🔴 **已验证风险 3：凭据明文存储。** `set_credential`（:348-366）把用户名口令**明文**写入 `db/app.db` 的 `credentials` 表，无加密、无哈希。
-> 🔴 **已验证风险 4：凭据不随主库走。** `credential_store._get_conn`（:263-266）用 `sqlite3` 直连本地 `app.db`，绕过 `MY_APP_DB_MODE`。当前 PG 模式下，业务数据在远程 PG、凭据在本机 `app.db`。备份/迁移只搬一边必然丢东西。
+> ⚠️ **2026-09-23 修正：注册表曾漏掉两组，导致页面无法配置。**
+> `battery_ume`（Battery UME 电池网管）与 `cm_data`（RAN CM 小区数据同步）此前**不在注册表内**：
+> - `battary_kpi_fetch_socket.py` 把账号密码硬编码在 `DEFAULT_USERNAME`/`DEFAULT_PASSWORD`，
+>   `load_credentials()` 的优先级链是 `命令行 > BATT_* 环境变量 > url.txt > 内置默认值`，**整条链没有 credential_store**；
+> - `cm_data_export.py` 同样硬编码 `USERNAME`/`PASSWORD`，而 `task_configs_registry.py` 的文案却写着"凭据在凭据管理 → cm_data"，**页面实际没有该分组**，文案与实现对不上。
+>
+> 两组现已补入注册表，调用方各自新增 `_runtime_credentials()` 走本模块（约定见 `credential_store.md`）。
+
+> 🔴 **已验证风险 3：凭据明文存储。** `set_credential` 把用户名口令**明文**写入 `db/app.db` 的 `credentials` 表，无加密、无哈希。
+> 🔴 **已验证风险 4：凭据不随主库走。** `credential_store._get_conn` 用 `sqlite3` 直连本地 `app.db`，绕过 `MY_APP_DB_MODE`。当前 PG 模式下，业务数据在远程 PG、凭据在本机 `app.db`。备份/迁移只搬一边必然丢东西。
 
 ## 上游站点会话
 
@@ -69,7 +77,7 @@
 
 - `DATABASE_URL` 连接串（含用户/口令/IP）
 - 各凭据分组 `user`/`secret` 的值，以及 `default_user` 之类带默认值的字段
-- 环境变量对应值：`RAN_UME_USER/PASS`、`EFLOW_USER/PASS`、`MW_UME_USER/PASSWORD`、`FMS_PORTAL_USER/PASS`、`VMAX_CXO_USER/PASS`、`FTP_USER/FTP_PASS`、`EMS_USER/EMS_PASS`、`BATT_HOST/USERNAME/PASSWORD`、SMTP 授权码、`TWILIO_ACCOUNT_SID/AUTH_TOKEN/PHONE_NUMBER`、`GEMINI_API_KEY`、`MY_APP_API_TOKEN`、`PHONE/SMS_SERVICE_PROVIDER`
+- 环境变量对应值：`RAN_UME_USER/PASS`、`EFLOW_USER/PASS`、`MW_UME_USER/PASSWORD`、`UME_IN_USER/PASSWORD`、`BATT_USERNAME/PASSWORD`、`CM_USERNAME/PASSWORD`、`FMS_PORTAL_USER/PASS`、`VMAX_CXO_USER/PASS`、`VMAX_GBASE_USER/PASS`、`RAIS_USER/PASS`、`FTP_USER/FTP_PASS`、`EMS_USER/EMS_PASS`、SMTP 授权码、`TWILIO_ACCOUNT_SID/AUTH_TOKEN/PHONE_NUMBER`、`GEMINI_API_KEY`、`MY_APP_API_TOKEN`、`PHONE/SMS_SERVICE_PROVIDER`
 - 内网 IP/主机名与端口组合、邮箱服务域名、微信 session key 与 OpenClaw 会话标识
 - `backend/services/cn_ems/ems_config.json` 的 `username`/`password`
 

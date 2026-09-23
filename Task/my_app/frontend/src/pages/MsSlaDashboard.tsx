@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   Card, Table, Segmented, Button, Space, Spin, Alert, Tag, Typography, Input, DatePicker,
 } from 'antd'
@@ -15,7 +15,7 @@ import DraggableClickModal from '../components/DraggableClickModal'
 const { Text } = Typography
 const { RangePicker } = DatePicker
 
-// ---------- ä¸‹é’»è¡¨æ ¼é€šç”¨å·¥å…·ï¼ˆé¡¹ç›®ç»Ÿä¸€ä¸‹é’»è§„èŒƒï¼Œä¸Ž NurDashboard ä¸€è‡´ï¼‰ ----------
+// ---------- 下钻表格通用工具（项目统一下钻规范，与 NurDashboard 一致） ----------
 const strSorter = (a: any, b: any, key: string) => {
   const va = a[key] ?? '', vb = b[key] ?? ''
   return String(va).localeCompare(String(vb))
@@ -29,9 +29,9 @@ const getUniqueFilters = (data: any[], key: string) => {
 
 type Gran = 'daily' | 'monthly'
 
-// æ ‡é‡æŒ‡æ ‡è¡Œï¼ˆmetric Ã— period é€è§†ï¼Œä¸ŽåŽç«¯ _pivot ç»“æž„å¯¹é½ï¼‰
+// 标量指标行（metric × period 透视，与后端 _pivot 结构对齐）
 interface ScalarRow { metric: string; [period: string]: number | string | null }
-// WO SLA æ˜Žç»†è¡Œ
+// WO SLA 明细行
 interface WoRow {
   period: string; metric: string;
   total: number | null; within_sla: number | null; achieve: number | null
@@ -45,27 +45,27 @@ interface OverviewResp {
   wo: Record<Gran, WoRow[]>
 }
 
-// NUR å±•ç¤ºå£å¾„ï¼šåŽŸå§‹å€¼ Ã— 100000ï¼ˆä¸Ž NurDashboard ä¸€è‡´ï¼‰
+// NUR 展示口径：原始值 × 100000（与 NurDashboard 一致）
 const NUR_SCALE = 100000
-// WO Achieve ç›®æ ‡å€¼ï¼ˆå‚è€ƒ Excel æ¡ä»¶æ ¼å¼è¯­ä¹‰ï¼šâ‰¥95% è¾¾æ ‡ï¼‰
+// WO Achieve 目标值（参考 Excel 条件格式语义：≥95% 达标）
 const WO_ACHIEVE_TARGET = 0.95
 
-// NUR æŒ‡æ ‡æ˜¾ç¤ºåï¼ˆKPI List è¯­ä¹‰ï¼šNUR_NETWORK = Globalï¼‰
+// NUR 指标显示名（KPI List 语义：NUR_NETWORK = Global）
 const NUR_NAMES: Record<string, string> = {
   NUR_NETWORK: 'Global', NUR_2G: '2G', NUR_3G: '3G', NUR_4G: '4G',
 }
 const NUR_COLORS: Record<string, string> = {
   Global: '#258cff', '2G': '#7c8ff0', '3G': '#a99cff', '4G': '#51cf66',
 }
-// NUR æŒ‡æ ‡å â†’ ä¸‹é’» tech å‚æ•°ï¼ˆNUR_NETWORK = Globalï¼‰
+// NUR 指标名 → 下钻 tech 参数（NUR_NETWORK = Global）
 const NUR_TECH: Record<string, string> = {
   NUR_NETWORK: 'Global', NUR_2G: '2G', NUR_3G: '3G', NUR_4G: '4G',
 }
-// SLA æŒ‡æ ‡åï¼ˆKPI List è¯­ä¹‰ TTR/TTR_P1..P4ï¼‰â†’ ä¸‹é’» severity å‚æ•°
+// SLA 指标名（KPI List 语义 TTR/TTR_P1..P4）→ 下钻 severity 参数
 const SLA_SEV: Record<string, string> = {
   TTR: 'Total', TTR_P1: 'P1', TTR_P2: 'P2', TTR_P3: 'P3', TTR_P4: 'P4',
 }
-// Per-Site çš„ NUR è¡Œ â†’ ä¸‹é’» techï¼ˆå…¶ä½™ PS_* æŒ‡æ ‡ä¸æ”¯æŒä¸‹é’»ï¼‰
+// Per-Site 的 NUR 行 → 下钻 tech（其余 PS_* 指标不支持下钻）
 const PERSITE_NUR_TECH: Record<string, string> = { PS_NUR_2G: '2G', PS_NUR_3G: '3G' }
 
 function fmtNur(v: number | null | undefined): string {
@@ -80,7 +80,7 @@ function fmtNum(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '-'
   return Number(v).toFixed(2)
 }
-// NUR æ•°å€¼æ–‡å­—ç€è‰²ï¼ˆä¸Ž NurDashboard å®Œå…¨ä¸€è‡´ï¼‰ï¼š0â†’ä¸»é¢˜æ¬¡è¦è‰²ï¼Œè¶Šå¤§è¶Šåæš–çº¢ï¼ˆæ— èƒŒæ™¯å—ï¼Œä¿è¯æ·±è‰²ä¸»é¢˜å¯è¯»æ€§ï¼‰
+// NUR 数值文字着色（与 NurDashboard 完全一致）：0→主题次要色，越大越偏暖红（无背景块，保证深色主题可读性）
 function nurTextColor(v: number, max: number): string {
   if (v <= 0 || max <= 0) return 'var(--wh-text-muted)'
   const t = Math.min(1, v / max)
@@ -97,9 +97,9 @@ const headStyle: React.CSSProperties = {
 }
 const TABLE_H = 240
 
-// ---------- é€šç”¨æ ‡é‡è¡¨ï¼šè¡Œ=æŒ‡æ ‡ï¼ˆå¯æ˜ å°„æ˜¾ç¤ºåï¼‰ï¼Œåˆ—=æœŸé—´ï¼ˆé™åºï¼Œæœ€æ–°åœ¨å·¦ï¼‰ ----------
-// colorBy: 'nur' ç”¨æŒ‰å€¼å¤§å°æ¸å˜ï¼ˆè“â†’é»„â†’çº¢ï¼Œä¸Ž NurDashboard ä¸€è‡´ï¼‰ï¼›'percent' ç”¨è¾¾æˆçŽ‡é˜ˆå€¼ï¼ˆâ‰¥ç›®æ ‡ç»¿/å¦åˆ™çº¢ï¼‰ï¼›ç¼ºçœ WH.text
-// onDrill å­˜åœ¨æ—¶æ•°å€¼å•å…ƒæ ¼å¯ç‚¹å‡» â†’ ä¸‹é’» TT æ˜Žç»†ï¼ˆä»… NUR/SLA/Per-Site NUR è¡Œä½¿ç”¨ï¼‰
+// ---------- 通用标量表：行=指标（可映射显示名），列=期间（降序，最新在左） ----------
+// colorBy: 'nur' 用按值大小渐变（蓝→黄→红，与 NurDashboard 一致）；'percent' 用达成率阈值（≥目标绿/否则红）；缺省 WH.text
+// onDrill 存在时数值单元格可点击 → 下钻 TT 明细（仅 NUR/SLA/Per-Site NUR 行使用）
 function ScalarTable({ rows, fmt, nameMap, colorBy, onDrill }: {
   rows: ScalarRow[]; fmt: (v: number | null) => string; nameMap?: Record<string, string>
   colorBy?: 'nur' | 'percent'
@@ -142,7 +142,7 @@ function ScalarTable({ rows, fmt, nameMap, colorBy, onDrill }: {
         if (!onDrill) {
           return <span style={{ color: cellColor(v) }}>{fmt(v)}</span>
         }
-        // ç‚¹å‡»å•å…ƒæ ¼ â†’ ä¸‹é’»æž„æˆè¯¥æ•°å€¼çš„ TT æ˜Žç»†
+        // 点击单元格 → 下钻构成该数值的 TT 明细
         return (
           <span
             title={t('nur.clickDrill')}
@@ -166,7 +166,7 @@ function ScalarTable({ rows, fmt, nameMap, colorBy, onDrill }: {
   )
 }
 
-// ---------- é€šç”¨è¶‹åŠ¿å›¾ï¼ˆæ·±è‰²åº• + åœ†ç‚¹è™šçº¿ï¼Œå‚è€ƒ NurDashboard é£Žæ ¼ï¼‰ ----------
+// ---------- 通用趋势图（深色底 + 圆点虚线，参考 NurDashboard 风格） ----------
 function trendOption(opts: {
   title: string
   periods: string[]
@@ -181,7 +181,7 @@ function trendOption(opts: {
     title: {
       text: title, left: 'center', top: 0,
       textStyle: { color: isDark ? '#f5f7ff' : '#16233b', fontSize: '0.8125rem', fontWeight: 600 },
-      // æç¤ºï¼šæ•°æ®ç‚¹å¯ç‚¹å‡»ä¸‹é’»æ˜Žç»†
+      // 提示：数据点可点击下钻明细
       subtext: clickHint,
       subtextStyle: { color: isDark ? '#6f8cb4' : '#94a3b8', fontSize: '0.625rem', lineHeight: 14 },
       itemGap: 2,
@@ -192,7 +192,7 @@ function trendOption(opts: {
         ? '-' : `${Number(v).toFixed(2)}${percent ? '%' : ''}`),
     },
     legend: { bottom: 0, textStyle: { color: isDark ? '#aebbd4' : '#3f5468', fontSize: '0.625rem' }, itemWidth: 14, itemHeight: 8 },
-    // bottom é¢„ç•™ 84pxï¼š45Â° æ—‹è½¬çš„æ—¥æœŸæ ‡ç­¾çº¦å  48pxï¼Œé¿å…ä¸Žåº•éƒ¨å›¾ä¾‹é‡å 
+    // bottom 预留 84px：45° 旋转的日期标签约占 48px，避免与底部图例重叠
     grid: { left: 52, right: 16, top: 46, bottom: 84 },
     xAxis: {
       type: 'category' as const, data: periods, boundaryGap: false,
@@ -207,7 +207,7 @@ function trendOption(opts: {
       lineStyle: { type: 'dashed' as const, width: 1.2, color: s.color },
       itemStyle: { color: s.color },
       symbol: 'circle' as const, symbolSize: 6, showSymbol: true,
-      // æ•°æ®ç‚¹å¯ç‚¹å‡»ï¼ˆä¸‹é’»æ˜Žç»†ï¼‰
+      // 数据点可点击（下钻明细）
       cursor: clickHint ? ('pointer' as const) : undefined,
       emphasis: { focus: 'series' as const },
     })),
@@ -248,7 +248,7 @@ function ScalarTrendChart({ title, rows, percent, scale, nameMap, colors, onDril
     })
   }, [title, rows, percent, scale, nameMap, colors, isDark, onDrill, t])
 
-  // ç‚¹å‡»æ•°æ®ç‚¹ â†’ ä¸‹é’»ï¼šseriesName ä¸ºæ˜¾ç¤ºåï¼ˆçˆ¶ç»„ä»¶åè§£ metric/severityï¼‰ï¼Œx è½´ç±»ç›®ä¸ºæœŸé—´
+  // 点击数据点 → 下钻：seriesName 为显示名（父组件反解 metric/severity），x 轴类目为期间
   const onChartClick = useCallback((params: any, ev: any) => {
     if (!params || params.componentType !== 'series' || params.seriesType !== 'line') return
     const period = params.name
@@ -257,13 +257,13 @@ function ScalarTrendChart({ title, rows, percent, scale, nameMap, colors, onDril
   }, [onDrill])
 
   if (!rows?.length) return <div style={{ height: TABLE_H + 32 }} />
-  // æ³¨æ„ï¼šä¸èƒ½ä¼  lazyUpdateâ€”â€”å½“å‰ echarts ç‰ˆæœ¬ä¸‹ lazy åˆ·æ–°ä¸ä¼šè§¦å‘ç»˜åˆ¶ï¼Œå›¾ä¼šç©ºç™½
+  // 注意：不能传 lazyUpdate——当前 echarts 版本下 lazy 刷新不会触发绘制，图会空白
   return <ReactECharts option={option} style={{ height: TABLE_H + 32, width: '100%' }} notMerge
     onEvents={onDrill ? { click: onChartClick } : undefined} />
 }
 
-// ---------- WO SLA è¡¨ï¼šè¡Œ=TTR/TTR_P1..P4ï¼Œåˆ—=æœŸé—´ Ã—ï¼ˆTotal/Within SLA/Achieveï¼‰ ----------
-// æ•°å€¼å¯ç‚¹å‡»ä¸‹é’»ï¼šseverityï¼ˆTTRâ†’Totalï¼‰+ itemï¼ˆtotal/pass/achieveï¼‰+ period ä¼ ç»™ /nur/detail
+// ---------- WO SLA 表：行=TTR/TTR_P1..P4，列=期间 ×（Total/Within SLA/Achieve） ----------
+// 数值可点击下钻：severity（TTR→Total）+ item（total/pass/achieve）+ period 传给 /nur/detail
 function WoTable({ rows, t, onDrill }: {
   rows: WoRow[]; t: (k: string) => string
   onDrill?: (e: React.MouseEvent, severity: string, item: string, period: string) => void
@@ -329,7 +329,7 @@ function WoTable({ rows, t, onDrill }: {
         },
         {
           title: t('msSla.achieve'), dataIndex: `${p}__achieve`, key: `${p}__achieve`, minWidth: 88, align: 'right' as const,
-          // Achieve ä½ŽäºŽç›®æ ‡å€¼æ ‡çº¢ï¼ˆå‚è€ƒ Excel æ¡ä»¶æ ¼å¼è¯­ä¹‰ï¼‰
+          // Achieve 低于目标值标红（参考 Excel 条件格式语义）
           render: (v: number | null, r: any) => (
             <span
               title={onDrill ? t('nur.clickDrill') : undefined}
@@ -358,7 +358,7 @@ function WoTable({ rows, t, onDrill }: {
   )
 }
 
-// ---------- WO Achieve è¶‹åŠ¿ï¼šTTR/TTR_P1..P4 è¾¾æˆçŽ‡ï¼ˆ%ï¼‰ ----------
+// ---------- WO Achieve 趋势：TTR/TTR_P1..P4 达成率（%） ----------
 function WoAchieveTrendChart({ rows }: { rows: WoRow[] }) {
   const { isDark } = useTheme()
   const option = useMemo(() => {
@@ -390,24 +390,24 @@ function WoAchieveTrendChart({ rows }: { rows: WoRow[] }) {
 }
 
 /**
- * MS Operation KPI çœ‹æ¿ä¸»ä½“ï¼ˆpage=ms_slaï¼šNUR / SLA / Network / Per-Site / WO SLAï¼‰ã€‚
+ * MS Operation KPI 看板主体（page=ms_sla：NUR / SLA / Network / Per-Site / WO SLA）。
  *
- * only ç”¨äºŽæ´¾ç”Ÿã€Œåªä¿ç•™ SLAã€çš„ç›´é“¾é¡µé¢ï¼ˆåŒä¸€ä»½å®žçŽ°åˆ‡ç‰‡ï¼Œé¿å…å¤åˆ¶ç²˜è´´èµ°æ ·ï¼‰ï¼š
- *   - only='sla' â†’ åªæ¸²æŸ“ KPI List SLAï¼ˆè¾¾æˆçŽ‡è¡¨ + è¶‹åŠ¿ï¼‰ä¸Ž WOs SLA åŒºï¼Œ
- *                  Network / Per-Site / NUR ä¸€å¾‹ä¸å‡ºï¼Œä¾› page=ms_sla_only ä½¿ç”¨ï¼›
- *   - only='nur' â†’ åªæ¸²æŸ“ KPI List NUR åŒºï¼ˆä¿ç•™ç»™åŒç±»åˆ‡ç‰‡å¤ç”¨ï¼‰ï¼›
- *   - ç¼ºçœ       â†’ å…¨é‡ï¼Œpage=ms_sla è¡Œä¸ºä¸Žæ”¹é€ å‰å®Œå…¨ä¸€è‡´ã€‚
+ * only 用于派生「只保留 SLA」的直链页面（同一份实现切片，避免复制粘贴走样）：
+ *   - only='sla' → 只渲染 KPI List SLA（达成率表 + 趋势）与 WOs SLA 区，
+ *                  Network / Per-Site / NUR 一律不出，供 page=ms_sla_only 使用；
+ *   - only='nur' → 只渲染 KPI List NUR 区（保留给同类切片复用）；
+ *   - 缺省       → 全量，page=ms_sla 行为与改造前完全一致。
  */
 export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
   const { t } = useI18n()
   const isMobile = useIsMobile()
   const showNur = only !== 'sla'
   const showSla = only !== 'nur'
-  // Network / Per-Site æ—¢éž NUR ä¹Ÿéž SLAï¼šåªåœ¨å…¨é‡æ¨¡å¼ä¸‹å‡ºçŽ°
+  // Network / Per-Site 既非 NUR 也非 SLA：只在全量模式下出现
   const showOthers = only == null
   const [gran, setGran] = useState<Gran>('daily')
-  // é»˜è®¤æœ€è¿‘ 6 ä¸ªæœˆï¼ˆå«ä»Šå¤©ï¼‰ï¼Œä¸Ž NUR çœ‹æ¿ä¸€è‡´ï¼›ä»…è¿‡æ»¤å®žæ—¶è®¡ç®—éƒ¨åˆ†
-  //ï¼ˆnur/sla/wo/Per-Site ç«™ç‚¹å æ¯”ï¼‰ï¼ŒNetwork/Per-Site å¿«ç…§ä¸å—å½±å“
+  // 默认最近 6 个月（含今天），与 NUR 看板一致；仅过滤实时计算部分
+  //（nur/sla/wo/Per-Site 站点占比），Network/Per-Site 快照不受影响
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>([
     dayjs().subtract(6, 'month'), dayjs(),
   ])
@@ -440,7 +440,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
     daily: t('nur.daily'), monthly: t('nur.monthly'),
   }
 
-  // ---------- ä¸‹é’»ï¼ˆå•å…ƒæ ¼ â†’ TT æ˜Žç»†å¼¹çª—ï¼Œé¡¹ç›®ç»Ÿä¸€ä¸‹é’»è§„èŒƒï¼‰ ----------
+  // ---------- 下钻（单元格 → TT 明细弹窗，项目统一下钻规范） ----------
   const [drillVisible, setDrillVisible] = useState(false)
   const [drillAnchor, setDrillAnchor] = useState<{ x: number; y: number } | null>(null)
   const [drillLoading, setDrillLoading] = useState(false)
@@ -449,7 +449,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
   const [drillTitle, setDrillTitle] = useState('')
   const [drillKey, setDrillKey] = useState('')
 
-  // MS SLA çœ‹æ¿æ—  vendor/project/exclude ç­›é€‰ï¼Œperiod å·²åœ¨ params ä¸­ç²¾ç¡®å®šä½
+  // MS SLA 看板无 vendor/project/exclude 筛选，period 已在 params 中精确定位
   const openDrill = useCallback((e: { clientX: number; clientY: number }, params: Record<string, string>, title: string, key: string) => {
     setDrillAnchor({ x: e.clientX, y: e.clientY })
     setDrillVisible(true)
@@ -466,24 +466,24 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
 
   const handleNurDrill = (e: React.MouseEvent, g: Gran, tech: string, period: string) => {
     openDrill(e, { metric: 'nur', gran: g, period, tech },
-      `${t('nur.drillNur')}: ${tech} Â· ${period} (${granTitle[g]})`,
+      `${t('nur.drillNur')}: ${tech} · ${period} (${granTitle[g]})`,
       `${tech}_${period}_${g}`)
   }
 
   const handleSlaDrill = (e: React.MouseEvent, g: Gran, sev: string, item: string, period: string) => {
     openDrill(e, { metric: 'sla', gran: g, period, severity: sev, item },
-      `${t('nur.drillSla')}: ${sev} Â· ${item} Â· ${period} (${granTitle[g]})`,
+      `${t('nur.drillSla')}: ${sev} · ${item} · ${period} (${granTitle[g]})`,
       `${sev}_${item}_${period}_${g}`)
   }
 
-  // Per-Site ä»… PS_NUR_2G/PS_NUR_3G è¡Œæ”¯æŒ NUR ä¸‹é’»ï¼ˆå…¶ä½™ PS_* ä¸º KPIï¼Œä¸ä¸‹é’»ï¼‰
+  // Per-Site 仅 PS_NUR_2G/PS_NUR_3G 行支持 NUR 下钻（其余 PS_* 为 KPI，不下钻）
   const handlePersiteDrill = (e: React.MouseEvent, g: Gran, metric: string, period: string) => {
     const tech = PERSITE_NUR_TECH[metric]
     if (!tech) return
     handleNurDrill(e, g, tech, period)
   }
 
-  // ä¸‹é’»å¼¹çª—å†…æ¨¡ç³Šæœç´¢
+  // 下钻弹窗内模糊搜索
   const filteredDrillData = useMemo(() => {
     if (!drillSearch.trim()) return drillData
     const lower = drillSearch.toLowerCase()
@@ -492,25 +492,25 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
     )
   }, [drillData, drillSearch])
 
-  // ä¸‹é’»å¯¼å‡º Excel
-  // å·²è¿ç»Ÿä¸€æ ¼å¼ UNIFIED_EXCEL_V1ï¼šæ ·å¼ä¸Žé‚®ä»¶æŠ¥è¡¨åŒæºï¼Œè§ docs/EXCEL_EXPORT_STANDARD.md
+  // 下钻导出 Excel
   const exportToExcel = useCallback(() => {
     if (!filteredDrillData.length) return
     const keys = Object.keys(filteredDrillData[0])
     const header = keys.map(k => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))
     const rows = filteredDrillData.map(row => keys.map(k => row[k] == null ? '' : String(row[k])))
     const fname = `MS_SLA_${drillKey}_${dayjs().format('YYYYMMDD_HHmmss')}`
+    // 统一走 excelReport；sheet 名由模块做非法字符清洗与去重
     void exportAoaReport({
       filename: `${fname}.xlsx`,
-      sheetName: `MS SLA ${drillKey}`,
-      title: `MS SLA ${drillKey}`,
+      sheetName: `MS_SLA_${drillKey}`,
+      title: 'MS SLA Drill-down',
       header,
       rows,
-      columnWidths: keys.map(() => 18),
+      numericCols: [],
     })
   }, [filteredDrillData, drillKey])
 
-  // ä¸‹é’»è¡¨æ ¼åˆ—ï¼ˆåŠ¨æ€ç”Ÿæˆï¼Œalarm_occur_time é»˜è®¤é™åºï¼‰
+  // 下钻表格列（动态生成，alarm_occur_time 默认降序）
   const drillColumns = useMemo(() => {
     if (!drillData.length) return []
     const keys = Object.keys(drillData[0])
@@ -525,7 +525,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
         onFilter: (v: any, r: any) => String(r[k]) === v,
         defaultSortOrder: k === 'alarm_occur_time' ? 'descend' as const : undefined,
       }
-      // MTTR ä¿ç•™ 2 ä½å°æ•°ï¼ˆåŽç«¯è¿”å›žåŽŸå§‹ç²¾åº¦ï¼‰
+      // MTTR 保留 2 位小数（后端返回原始精度）
       if (k === 'mttr_min') {
         col.render = (v: any) => (v === null || v === undefined ? '-' : Number(v).toFixed(2))
       }
@@ -535,7 +535,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
 
   return (
     <div style={{ padding: 'var(--wh-space-md)' }}>
-      {/* ---------- é¡¶éƒ¨ï¼šæ•°æ®æ–°é²œåº¦ + æ—¥/æœˆåˆ‡æ¢ + åˆ·æ–° ---------- */}
+      {/* ---------- 顶部：数据新鲜度 + 日/月切换 + 刷新 ---------- */}
       <Card size="small" style={{ ...cardStyle, marginBottom: 'var(--wh-space-md)' }} styles={{ body: { padding: 'var(--wh-space-sm) var(--wh-space-md)' } }}>
         <Space wrap style={{ gap: 'var(--wh-space-md)' }}>
           <Text style={{ color: WH.textMuted }}>{t('msSla.lastSync')}</Text>
@@ -577,11 +577,11 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
 
       <Spin spinning={loading}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
-          {/* ---------- Contract KPIs åŒº ---------- */}
+          {/* ---------- Contract KPIs 区 ---------- */}
           <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-md)' } }}
-            title={`${t('msSla.contractKpis')} Â· ${granLabel}`}>
+            title={`${t('msSla.contractKpis')} · ${granLabel}`}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
-              {/* NURï¼šè¡¨æ ¼ï¼ˆÃ—100000ï¼‰+ è¶‹åŠ¿ï¼ˆonly='sla' æ—¶ä¸æ¸²æŸ“ï¼‰ */}
+              {/* NUR：表格（×100000）+ 趋势（only='sla' 时不渲染） */}
               {showNur && (
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
                 <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
@@ -597,7 +597,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
                 </Card>
               </div>
               )}
-              {/* SLAï¼šè¾¾æˆçŽ‡è¡¨æ ¼ + è¶‹åŠ¿ï¼ˆonly='nur' æ—¶ä¸æ¸²æŸ“ï¼‰ */}
+              {/* SLA：达成率表格 + 趋势（only='nur' 时不渲染） */}
               {showSla && (
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
                 <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
@@ -612,7 +612,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
                 </Card>
               </div>
               )}
-              {/* Network KPIsï¼šè¡¨æ ¼ + è¶‹åŠ¿ï¼ˆæ—¢éž NUR ä¹Ÿéž SLAï¼Œåªåœ¨å…¨é‡æ¨¡å¼ä¸‹æ¸²æŸ“ï¼‰ */}
+              {/* Network KPIs：表格 + 趋势（既非 NUR 也非 SLA，只在全量模式下渲染） */}
               {showOthers && (
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
                 <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
@@ -625,7 +625,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
                 </Card>
               </div>
               )}
-              {/* Per-Site å æ¯”ï¼šè¡¨æ ¼ + è¶‹åŠ¿ï¼ˆæ—¢éž NUR ä¹Ÿéž SLAï¼Œåªåœ¨å…¨é‡æ¨¡å¼ä¸‹æ¸²æŸ“ï¼‰ */}
+              {/* Per-Site 占比：表格 + 趋势（既非 NUR 也非 SLA，只在全量模式下渲染） */}
               {showOthers && (
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
                 <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
@@ -642,10 +642,10 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
             </div>
           </Card>
 
-          {/* ---------- WOs SLA åŒºï¼ˆå·¥å• SLA è¾¾æˆï¼Œå±ž SLA å†…å®¹ï¼šonly='sla' ä¿ç•™ã€only='nur' ä¸æ¸²æŸ“ï¼‰ ---------- */}
+          {/* ---------- WOs SLA 区（工单 SLA 达成，属 SLA 内容：only='sla' 保留、only='nur' 不渲染） ---------- */}
           {showSla && (
           <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-md)' } }}
-            title={`${t('msSla.woSla')} Â· ${granLabel}`}>
+            title={`${t('msSla.woSla')} · ${granLabel}`}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
               <div>
                 <WoTable rows={data?.wo?.[gran] || []} t={t}
@@ -663,7 +663,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
         </div>
       </Spin>
 
-      {/* ---------- ä¸‹é’»å¼¹çª—ï¼ˆç‚¹å‡»å•å…ƒæ ¼ â†’ TT æ˜Žç»†ï¼‰ ---------- */}
+      {/* ---------- 下钻弹窗（点击单元格 → TT 明细） ---------- */}
       <DraggableClickModal
         open={drillVisible}
         anchor={drillAnchor}

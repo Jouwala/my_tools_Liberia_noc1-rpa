@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   Card, Table, Segmented, Button, Space, Alert, Tag, Typography, Input,
   Select, InputNumber, Checkbox, Statistic, Tooltip, Collapse, Empty,
@@ -17,7 +17,7 @@ import DraggableClickModal from '../components/DraggableClickModal'
 
 const { Text } = Typography
 
-// ==================== ç±»åž‹ï¼ˆä¸ŽåŽç«¯ site_availability_service å¯¹é½ï¼‰ ====================
+// ==================== 类型（与后端 site_availability_service 对齐） ====================
 interface TechStat {
   month_avg: number | null
   min: number | null
@@ -69,17 +69,17 @@ interface TicketRow {
 const TECHS = ['G', 'U', 'L', 'Tdd'] as const
 type Tech = typeof TECHS[number]
 const TECH_LABEL: Record<string, string> = { G: '2G', U: '3G', L: '4G', Tdd: 'TDD' }
-const DEFAULT_THRESHOLD = 0.9965 // 99.65%ï¼Œä¸ŽåŽç«¯å£å¾„ä¸€è‡´
+const DEFAULT_THRESHOLD = 0.9965 // 99.65%，与后端口径一致
 
 const strSorter = (a: SiteRow, b: SiteRow, key: keyof SiteRow) =>
   String(a[key] ?? '').localeCompare(String(b[key] ?? ''))
 
-// ==================== é¡µé¢ ====================
+// ==================== 页面 ====================
 export default function SiteAvailability() {
   const { t } = useI18n()
   const { isDark, palette } = useTheme()
 
-  // ---- ç­›é€‰å™¨ ----
+  // ---- 筛选器 ----
   const [filters, setFilters] = useState<FiltersResp | null>(null)
   const [month, setMonth] = useState<string>(() => {
     const d = new Date()
@@ -93,12 +93,12 @@ export default function SiteAvailability() {
   const [onlyWithData, setOnlyWithData] = useState(false)
   const [search, setSearch] = useState('')
 
-  // ---- æ•°æ® ----
+  // ---- 数据 ----
   const [overview, setOverview] = useState<OverviewResp | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  // ---- å·¥å•æ˜Žç»†å¼¹çª—ï¼ˆå¯æ‹–åŠ¨ + å¯å¯¼å‡ºï¼‰ ----
+  // ---- 工单明细弹窗（可拖动 + 可导出） ----
   const [ticketSite, setTicketSite] = useState<SiteRow | null>(null)
   const [ticketRows, setTicketRows] = useState<TicketRow[]>([])
   const [ticketLoading, setTicketLoading] = useState(false)
@@ -110,7 +110,7 @@ export default function SiteAvailability() {
     getSiteAvailabilityFilters().then(r => {
       setFilters(r.data)
       if (r.data?.months?.length && !r.data.months.includes(month)) setMonth(r.data.months[r.data.months.length - 1])
-    }).catch(() => { /* ç­›é€‰å™¨å¤±è´¥ä¸é˜»å¡žï¼Œoverview è‡ªå¸¦é”™è¯¯å…œåº• */ })
+    }).catch(() => { /* 筛选器失败不阻塞，overview 自带错误兜底 */ })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -142,7 +142,7 @@ export default function SiteAvailability() {
     } catch { setTicketRows([]) } finally { setTicketLoading(false) }
   }, [month])
 
-  // å·¥å•æ˜Žç»†å¯¼å‡º Excelï¼ˆè¡¨å¤´éšç•Œé¢è¯­è¨€ï¼‰
+  // 工单明细导出 Excel（表头随界面语言）
   const exportTickets = useCallback(() => {
     if (!ticketSite || !ticketRows.length) return
     const cols: Array<{ h: string; get: (r: TicketRow) => any }> = [
@@ -168,17 +168,18 @@ export default function SiteAvailability() {
     }))
     const safeName = String(ticketSite.site_name || 'site').replace(/[\\/:*?"<>|]/g, '_')
     const fname = `TT_${safeName}_${month}_${dayjs().format('YYYYMMDD_HHmmss')}`
+    // 统一走 excelReport；站点名可能含非法字符，sheet 名由模块统一清洗
     void exportAoaReport({
       filename: `${fname}.xlsx`,
-      sheetName: `TT ${safeName}`,
-      title: `TT Tickets Â· ${ticketSite.site_name || 'site'} Â· ${month}`,
+      sheetName: `TT_${safeName}`,
+      title: 'Site Availability Tickets',
       header,
       rows,
-      columnWidths: cols.map((_, i) => (i === 1 ? 40 : 18)),
+      numericCols: [],
     })
   }, [ticketSite, ticketRows, month, t])
 
-  // ---- å‰ç«¯æœç´¢è¿‡æ»¤ï¼ˆç«™ç‚¹å / ç«™ç‚¹ ID / Supervisor / FMEï¼‰ ----
+  // ---- 前端搜索过滤（站点名 / 站点 ID / Supervisor / FME） ----
   const sites = useMemo(() => {
     const all = overview?.sites || []
     if (!search.trim()) return all
@@ -193,7 +194,7 @@ export default function SiteAvailability() {
   const thresholdCmp = useCallback((v: number | null | undefined) =>
     v != null && v < threshold, [threshold])
 
-  // å‰ç«¯æŒ‰å½“å‰åˆ¶å¼é‡ç®—æœªè¾¾æ ‡ç«™ç‚¹æ•°ï¼ˆé˜ˆå€¼å¯è°ƒï¼Œä¸å¿…ç­‰åŽç«¯ï¼‰
+  // 前端按当前制式重算未达标站点数（阈值可调，不必等后端）
   const belowSites = useMemo(() =>
     sites.filter(s => thresholdCmp(s.techs?.[tech]?.month_avg)).length,
     [sites, tech, thresholdCmp])
@@ -204,11 +205,11 @@ export default function SiteAvailability() {
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
   }, [sites, tech])
 
-  // ---- æ ¼å¼åŒ– ----
+  // ---- 格式化 ----
   const fmtPct = (v: number | null | undefined, digits = 3) =>
     v == null || Number.isNaN(v) ? '-' : `${(v * 100).toFixed(digits)}%`
 
-  // å•å…ƒæ ¼é€šç”¨æ ·å¼ï¼šä½ŽäºŽé˜ˆå€¼çº¢ã€è¾¾æ ‡ç»¿
+  // 单元格通用样式：低于阈值红、达标绿
   const valCell = (v: number | null | undefined, digits = 3) => {
     if (v == null || Number.isNaN(v)) return <Text type="secondary">-</Text>
     const bad = v < threshold
@@ -223,14 +224,14 @@ export default function SiteAvailability() {
     )
   }
 
-  // ---- å±•å¼€è¡Œï¼šæ‰€é€‰åˆ¶å¼æ—¥å€¼è¶‹åŠ¿å›¾ ----
+  // ---- 展开行：所选制式日值趋势图 ----
   const trendOption = useCallback((s: SiteRow) => {
     const st = s.techs?.[tech]
     if (!st || !Object.keys(st.daily).length) return null
     const days = Object.keys(st.daily).sort()
     const vals = days.map(d => +(st.daily[d] * 100).toFixed(3))
     const weeks = overview?.meta.weeks || []
-    // å‘¨åˆ†éš”èƒŒæ™¯ï¼ˆäº¤æ›¿æµ…è‰²å¸¦ï¼‰
+    // 周分隔背景（交替浅色带）
     const areas: any[] = []
     weeks.forEach((w, i) => {
       if (i % 2 === 1) {
@@ -274,7 +275,7 @@ export default function SiteAvailability() {
     }
   }, [tech, overview, threshold, thresholdPct, isDark, palette, t])
 
-  // ---- è¡¨æ ¼åˆ— ----
+  // ---- 表格列 ----
   const columns = useMemo(() => {
     const cols: any[] = [
       {
@@ -298,7 +299,7 @@ export default function SiteAvailability() {
       { title: t('siteAvail.region'), dataIndex: 'region', width: 90, sorter: strSorter as any,
         render: (v: string) => v || '-' },
     ]
-    // å››åˆ¶å¼æœˆå‡ï¼ˆå§‹ç»ˆå±•ç¤ºï¼Œä¾¿äºŽæ¨ªå‘å¯¹æ¯”ï¼‰
+    // 四制式月均（始终展示，便于横向对比）
     for (const tk of TECHS) {
       cols.push({
         title: <Tooltip title={t('siteAvail.monthAvgTip', { v: TECH_LABEL[tk] })}>{t('siteAvail.monthAvg', { v: TECH_LABEL[tk] })}</Tooltip>,
@@ -307,7 +308,7 @@ export default function SiteAvailability() {
         render: (_: any, s: SiteRow) => valCell(s.techs?.[tk]?.month_avg),
       })
     }
-    // å½“å‰åˆ¶å¼ï¼šæœ€ä½Žå€¼ / æœªè¾¾æ ‡å¤©
+    // 当前制式：最低值 / 未达标天
     cols.push({
       title: <Tooltip title={t('siteAvail.minTip', { v: TECH_LABEL[tech] })}>{t('siteAvail.min', { v: TECH_LABEL[tech] })}</Tooltip>,
       key: 'min', width: 100, align: 'right' as const,
@@ -324,12 +325,12 @@ export default function SiteAvailability() {
       render: (_: any, s: SiteRow) => {
         const st = s.techs?.[tech]
         if (!st || !st.days_with_data) return <Text type="secondary">-</Text>
-        // é˜ˆå€¼å‰ç«¯å¯è°ƒï¼šå‰ç«¯é‡ç®—
+        // 阈值前端可调：前端重算
         const n = Object.values(st.daily).filter(v => v < threshold).length
         return <Tag color={n > 0 ? 'red' : 'green'} style={{ marginInlineEnd: 0 }}>{n} / {st.days_with_data}{t('siteAvail.dayUnit')}</Tag>
       },
     })
-    // æ—¶é—´ç»´åº¦åŠ¨æ€åˆ—ï¼šæŒ‰å‘¨ï¼ˆè‡ªç„¶å‘¨ï¼Œé¦–å°¾å‘¨è£å‰ªåˆ°æœ¬æœˆï¼‰/ æŒ‰å¤©
+    // 时间维度动态列：按周（自然周，首尾周裁剪到本月）/ 按天
     if (viewMode === 'week') {
       for (const w of (overview?.meta.weeks || [])) {
         cols.push({
@@ -341,14 +342,14 @@ export default function SiteAvailability() {
     } else {
       for (const d of (overview?.meta.days || [])) {
         cols.push({
-          title: d.slice(8), // åªæ˜¾ç¤ºâ€œæ—¥â€
+          title: d.slice(8), // 只显示“日”
           key: `d_${d}`, width: 84, align: 'right' as const,
           onHeaderCell: () => ({ title: d }),
           render: (_: any, s: SiteRow) => valCell(s.techs?.[tech]?.daily?.[d]),
         })
       }
     }
-    // å·¥å•
+    // 工单
     cols.push({
       title: t('siteAvail.ticketsCol'), key: 'tickets', fixed: 'right' as const, width: 130, align: 'center' as const,
       defaultSortOrder: 'descend' as const,
@@ -377,7 +378,7 @@ export default function SiteAvailability() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* ==================== ç­›é€‰æ  ==================== */}
+      {/* ==================== 筛选栏 ==================== */}
       <Card size="small" styles={{ body: { padding: '10px 14px' } }}>
         <Space size={10} wrap align="center">
           <Select
@@ -432,7 +433,7 @@ export default function SiteAvailability() {
         </Space>
       </Card>
 
-      {/* ==================== æ±‡æ€»å¡ç‰‡ ==================== */}
+      {/* ==================== 汇总卡片 ==================== */}
       <Card size="small" styles={{ body: { padding: '10px 14px' } }}>
         <Space size={36} wrap>
           <Statistic title={t('siteAvail.sites')} value={sites.length} suffix={`/ ${overview?.summary?.site_count ?? 0}`} />
@@ -453,10 +454,10 @@ export default function SiteAvailability() {
       {error && <Alert type="error" showIcon message={`${t('siteAvail.loadFailed')}${error}`} />}
       {(overview?.meta?.warnings || []).length > 0 && (
         <Alert type="warning" showIcon icon={<InfoCircleOutlined />}
-          message={overview!.meta.warnings.join('ï¼›')} />
+          message={overview!.meta.warnings.join('；')} />
       )}
 
-      {/* ==================== ç«™ç‚¹ä¸»è¡¨ ==================== */}
+      {/* ==================== 站点主表 ==================== */}
       <Card size="small" styles={{ body: { padding: 0 } }}>
         <Table<SiteRow>
           size="small"
@@ -482,7 +483,7 @@ export default function SiteAvailability() {
         />
       </Card>
 
-      {/* ==================== æ•°æ®è¯´æ˜Žï¼ˆå£å¾„/å­—æ®µ/æŸ¥è¯¢æ¡ä»¶/æ—¶é—´èŒƒå›´ï¼‰ ==================== */}
+      {/* ==================== 数据说明（口径/字段/查询条件/时间范围） ==================== */}
       <Collapse
         size="small"
         items={[{
@@ -500,7 +501,7 @@ export default function SiteAvailability() {
         }]}
       />
 
-      {/* ==================== å·¥å•æ˜Žç»†å¼¹çª—ï¼ˆå¯æ‹–åŠ¨ + å¯å¯¼å‡ºï¼‰ ==================== */}
+      {/* ==================== 工单明细弹窗（可拖动 + 可导出） ==================== */}
       <DraggableClickModal
         open={!!ticketSite}
         anchor={ticketAnchor}
@@ -522,7 +523,7 @@ export default function SiteAvailability() {
               <Space size={12} wrap>
                 <Tag color="orange">{t('siteAvail.open')} {ticketSite.tickets.open}</Tag>
                 <Tag color="green">{t('siteAvail.closed')} {ticketSite.tickets.closed}</Tag>
-                <Text type="secondary">Supervisor: {ticketSite.supervisor || '-'}ã€€FME: {ticketSite.fme_name || '-'}</Text>
+                <Text type="secondary">Supervisor: {ticketSite.supervisor || '-'}　FME: {ticketSite.fme_name || '-'}</Text>
               </Space>
               <Button size="small" icon={<DownloadOutlined />}
                 disabled={!ticketRows.length} onClick={exportTickets}>

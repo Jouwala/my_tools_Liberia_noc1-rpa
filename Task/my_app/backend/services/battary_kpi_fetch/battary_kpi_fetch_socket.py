@@ -9,7 +9,19 @@ Battery KPI UME API Fetcher (Socket + RSA 方式)
 与 battary_kpi_fetch.py（Playwright + requests）的区别：
   - 本脚本：纯接口方式，无浏览器，依赖轻（cryptography + pandas + openpyxl）
   - 适用场景：192.168.170.2 未弹验证码时，可全程自动化；弹验证码时回退到
-    auth_info.json（由 battary_kpi_login.py 浏览器登录产生的鉴权文件）
+    auth_info.json（浏览器登录产生的鉴权文件，见 ensure_auth_info 说明）
+
+凭据来源（优先级从高到低）：
+  命令行参数 > 环境变量(BATT_HOST/BATT_PORT/BATT_USERNAME/BATT_PASSWORD)
+  > credential_store(battery_ume，即「设置 → 凭据管理」页面) > url.txt > 内置默认值
+
+auth_info.json 回退说明（2026-09-23）：
+  该 UME 启用图形验证码时 RSA 纯接口登录会失败，此时回退读取同目录的
+  auth_info.json。该文件原本由 battary_kpi_login.py（Playwright）生成，但
+  生成脚本与 playwright 依赖均已不在本仓库，导致回退链实际是空的、任务必然
+  报「RSA 登录未成功且无可用 auth_info.json」。现已内置
+  ``ensure_auth_info(force=False)`` 兜底：用 credential_store 的账号密码调
+  同一套 RSA 接口，成功后写出兼容格式的 auth_info.json，使回退链真正可用。
 
 登录流程（参考 ran_network_kpi_zs.py）：
   1. GET /api/oauth2/v1/authorize  → 获取初始 Cookie + loginParameters
@@ -132,10 +144,27 @@ def parse_url_txt(url_file: Path) -> dict:
     }
 
 
-def load_credentials(args=None) -> dict:
-    """加载凭据，优先级：命令行参数 > 环境变量 > url.txt > 内置默认值。
+def _runtime_credentials():
+    """运行时凭据：环境变量 > credential_store > 内置默认值。
 
-    脚本无需 url.txt 即可独立运行；url.txt 存在时作为第三优先级自动读取。
+    凭据由「设置 → 凭据管理」的 battery_ume 分组维护（页面改密后最迟 30 秒生效，
+    无需重启服务、无需改代码）。credential_store 不可用时回退内置默认值，
+    保持本脚本「可直接独立运行」的特性。
+    """
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        try:
+            from credential_store import get_credential
+        except ImportError:
+            return DEFAULT_USERNAME, DEFAULT_PASSWORD
+    return get_credential("battery_ume", DEFAULT_USERNAME, DEFAULT_PASSWORD)
+
+
+def load_credentials(args=None) -> dict:
+    """加载凭据，优先级：命令行参数 > 环境变量 > credential_store > url.txt > 内置默认值。
+
+    脚本无需 url.txt 即可独立运行；url.txt 存在时作为第四优先级自动读取。
     """
     import os
 
@@ -161,6 +190,18 @@ def load_credentials(args=None) -> dict:
     port = int(os.environ.get("BATT_PORT", port))
     username = os.environ.get("BATT_USERNAME", username)
     password = os.environ.get("BATT_PASSWORD", password)
+
+    # 3.5 credential_store（「设置 → 凭据管理」的 battery_ume 分组）
+    #     只覆盖账号密码，不覆盖 host/port（主机端口由 BATT_HOST/BATT_PORT/url.txt 决定）。
+    #     环境变量已经显式设置了账号/密码时不覆盖，保持「环境变量 > 数据库」的项目约定。
+    try:
+        cred_user, cred_pwd = _runtime_credentials()
+        if cred_user and not os.environ.get("BATT_USERNAME"):
+            username = cred_user
+        if cred_pwd and not os.environ.get("BATT_PASSWORD"):
+            password = cred_pwd
+    except Exception as e:  # credential_store 不可用不应阻断脚本独立运行
+        print(f"[CRED] credential_store 读取失败，沿用上级优先级值: {e}")
 
     # 4. 命令行参数（最高优先级）
     if args is not None:
@@ -190,7 +231,7 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "凭据优先级: 命令行参数 > 环境变量(BATT_HOST/BATT_PORT/BATT_USERNAME/BATT_PASSWORD) "
-            "> url.txt > 内置默认值\n"
+            "> credential_store(battery_ume) > url.txt > 内置默认值\n"
             "示例:\n"
             "  python battary_kpi_fetch_socket.py                          # 用内置默认值\n"
             "  python battary_kpi_fetch_socket.py --host 10.100.28.27 --port 28001\n"
@@ -553,6 +594,80 @@ def load_auth_info_fallback() -> dict | None:
     except Exception as e:
         log(f"[AUTH] 加载 auth_info.json 失败: {e}")
         return None
+
+
+def auth_info_is_fresh(max_age_hours: float = 8.0) -> bool:
+    """判断 auth_info.json 是否存在且未过期。
+
+    UME 会话通常几小时就失效，过期文件继续用只会拿到 401；此处按文件内
+    ``login_time``（缺失时回退文件 mtime）判断，默认 8 小时内视为可用。
+    """
+    if not AUTH_INFO_FILE.exists():
+        return False
+    try:
+        data = json.loads(AUTH_INFO_FILE.read_text(encoding='utf-8'))
+        stamp = data.get("login_time") or ""
+        try:
+            logged_at = datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError):
+            logged_at = datetime.fromtimestamp(AUTH_INFO_FILE.stat().st_mtime)
+        age_h = (datetime.now() - logged_at).total_seconds() / 3600.0
+        if age_h > max_age_hours:
+            log(f"[AUTH] auth_info.json 已过期（{age_h:.1f}h > {max_age_hours}h）")
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def ensure_auth_info(force: bool = False, max_age_hours: float = 8.0) -> bool:
+    """确保 auth_info.json 可用（浏览器登录脚本已不在仓库，此处用 RSA 接口兜底生成）。
+
+    背景：RSA 纯接口登录失败时会回退读 auth_info.json，但该文件原本由
+    ``battary_kpi_login.py``（Playwright）生成，而生成脚本与 playwright 依赖
+    都已不在本仓库 —— 回退链实际是空的，任务必然报
+    「RSA 登录未成功且无可用 auth_info.json」。
+
+    这里用 credential_store 的账号密码（battery_ume 分组）调同一套 RSA 接口，
+    成功后写出与浏览器脚本兼容的 auth_info.json，让回退链真正可用。
+
+    Returns:
+        True 表示存在可用的 auth_info.json（含本次新生成）。
+    """
+    if not force and auth_info_is_fresh(max_age_hours):
+        return True
+
+    credentials = load_credentials(None)
+    log(f"[AUTH] 尝试经 RSA 接口生成 auth_info.json（{credentials['host']}:{credentials['port']}）")
+    auth = login_rsa(credentials)
+    if not auth or not auth.get("cookie"):
+        log("[AUTH] RSA 接口登录失败，无法生成 auth_info.json"
+            "（该 UME 可能已启用图形验证码，需人工介入）")
+        return False
+
+    payload = {
+        "cookie": auth["cookie"],
+        "forgery_token": auth.get("forgery_token", ""),
+        "host": auth.get("host") or credentials["host"],
+        "port": auth.get("port") or credentials["port"],
+        "username": credentials["username"],
+        "login_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "source": "ensure_auth_info (RSA interface)",
+    }
+    tmp = AUTH_INFO_FILE.with_name(AUTH_INFO_FILE.name + f".{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        os.replace(str(tmp), str(AUTH_INFO_FILE))
+        log(f"[AUTH] auth_info.json 已生成 → {AUTH_INFO_FILE}")
+        return True
+    except OSError as e:
+        log(f"[AUTH] 写入 auth_info.json 失败: {e}")
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -1002,7 +1117,7 @@ def main(args=None) -> int:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     log(f"输出目录: {OUTPUT_DIR}")
 
-    # 1. 加载凭据（命令行参数 > 环境变量 > url.txt > 内置默认值，无需 url.txt）
+    # 1. 加载凭据（命令行参数 > 环境变量 > credential_store > url.txt > 内置默认值）
     credentials = load_credentials(args)
     _HOST = credentials["host"]
     _PORT = credentials["port"]
@@ -1019,8 +1134,8 @@ def main(args=None) -> int:
         auth = load_auth_info_fallback()
         if auth is None:
             print("[MAIN] 鉴权失败：RSA 登录未成功且无可用 auth_info.json。")
-            print("       请先运行 battary_kpi_login.py 浏览器登录生成 auth_info.json，"
-                  "再运行本脚本。")
+            print("       可先执行 ensure_auth_info(force=True) 生成鉴权文件，"
+                  "或在「设置 → 凭据管理 → Battery UME」核对账号密码后重试。")
             return 1
         log("[AUTH] 使用 auth_info.json 中的鉴权信息继续")
     # 回退场景下 host/port 可能缺失，用 url.txt 补全

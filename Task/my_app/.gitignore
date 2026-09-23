@@ -31,6 +31,11 @@
 **/auth_cache/
 *.local.json
 
+# 电池 UME 的鉴权快照（含有效会话 cookie，与 auth_cache 同等对待）。
+# 由 battary_kpi_fetch_socket.ensure_auth_info() 自动生成/更新，严禁入库。
+**/battary_kpi_fetch/auth_info.json
+**/battary_kpi_fetch/auth_info.json.*.tmp
+
 # PM 性能数据下载缓存（zip+xml 成对，19 万量级，每次运行可重建）
 /backend/services/cn_ems/_pmcache/
 

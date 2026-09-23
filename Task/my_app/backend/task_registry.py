@@ -496,10 +496,12 @@ TASK_SPECS = [
          default_cron="15 7 * * *", category="fw_kpi"),
 
     # 26. 电池 KPI 实时同步（每小时第 5 分钟）
+    #     凭据：「设置 → 凭据管理 → Battery UME」(credential_store key=battery_ume)，
+    #     该 UME 与 RAN UME(10.100.28.27) 不是同一台设备，账号不通用。
     dict(task_id="battery_kpi_sync", name="电池 KPI 同步", name_en="Battery KPI Sync",
          loader=("backend.services.battary_kpi_fetch.battery_kpi_service", "run_battery_kpi_sync"),
-         description="从 UME(192.168.170.2) 拉取电池实时 KPI（健康度/SOC/充放电状态），全程内存不落盘，写入 battery_kpi.sqlite3 供电池看板使用",
-         description_en="Fetch battery realtime KPI (health/SOC/charge status) from UME(192.168.170.2), in-memory only, write to battery_kpi.sqlite3 for Battery Dashboard",
+         description="从 UME(192.168.170.2) 拉取电池实时 KPI（健康度/SOC/充放电状态），全程内存不落盘，写入 battery_kpi.sqlite3 供电池看板使用；凭据见「凭据管理 → Battery UME」",
+         description_en="Fetch battery realtime KPI (health/SOC/charge status) from UME(192.168.170.2), in-memory only, write to battery_kpi.sqlite3 for Battery Dashboard; credentials under Credential Settings > Battery UME",
          default_cron="5 * * * *", category="battery"),
     # 28. 电池 KPI 邮件（每天 07:10 与 19:10）
     #     时序约束：读 battery_kpi.sqlite3，由 battery_kpi_sync（每小时 :05）写入。

@@ -68,6 +68,51 @@ export function getFmeRankingSiteDrilldown(params?: Record<string, string | numb
   return api.get('/fme-ranking/site-drilldown', { params })
 }
 
+// ========== TT 复盘报告（NOC 操作人分析 / 派单机制真相 / 单 TT 复盘 / MD 导出）==========
+// 新增于 2026-09-23；对应后端 routers/eflow_qa.py 中 _tt_postmortem_* 端点
+export function getTtPostmortem(ttNo: string) {
+  return api.get(`/eflow-qa/_tt_postmortem/${encodeURIComponent(ttNo)}`)
+}
+
+export function getNocAnalystReport(params?: Record<string, string | number>) {
+  return api.get('/eflow-qa/_tt_postmortem_noc', { params })
+}
+
+// NOC 操作人分析 · 三层下钻（2026-09-23 新增，均为只读）
+// ① NOC → TT 明细，slice: all / mismatch / night / sla_fail / slow
+export function getNocTtDrilldown(params: { noc: string; month?: string; slice?: string; limit?: number }) {
+  return api.get('/eflow-qa/_tt_postmortem_noc_tt', { params })
+}
+
+// ② NOC → 异常站点聚合
+export function getNocSiteDrilldown(params: { noc: string; month?: string; only_abnormal?: boolean }) {
+  return api.get('/eflow-qa/_tt_postmortem_noc_sites', { params })
+}
+
+// ③ 单 TT → 告警链路 + 根因一致性审计（最底层）
+export function getNocTtDetail(params: { tt_no: string; noc?: string }) {
+  return api.get('/eflow-qa/_tt_postmortem_tt_detail', { params })
+}
+
+// ④ 单 TT → 里程碑时间轴 + 应做/实做 + 偏离清单 + 时间归因（复盘报告原生结构）
+//    与 getNocTtDetail 的分工：本接口给「时间都花哪了」，那个给「根因对不对」。
+export function getTtTimeline(ttNo: string) {
+  return api.get(`/eflow-qa/_tt_postmortem_timeline/${encodeURIComponent(ttNo)}`)
+}
+
+// ⑤ 本月里程碑时间轴批量聚合（时间归因 / 动作偏离 / 未派 WO），
+//    逐单复用复盘报告口径；按 month 落磁盘缓存，首次约 150s、之后毫秒级。
+//    refresh=true 强制重算（月份数据仍在增长时用）。
+export function getNocTimelineAgg(params?: {
+  month?: string; limit?: number; noc?: string; refresh?: boolean
+}) {
+  return api.get('/eflow-qa/_tt_postmortem_noc_timeline', { params, timeout: 600000 })
+}
+
+export function exportTtPostmortemMd(ttNo: string) {
+  return api.post(`/eflow-qa/_tt_postmortem_export_md/${encodeURIComponent(ttNo)}`)
+}
+
 // Daily site-down occurrence dashboard: eflow_tt + eflow_site.
 export function getRepeatSiteDownFilters() {
   return api.get('/repeat-site-down/filters')

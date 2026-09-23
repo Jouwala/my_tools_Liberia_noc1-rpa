@@ -104,11 +104,26 @@ def normalize_query_configs(query_configs: list) -> dict:
         def _split(s, cast=str):
             return [cast(x.strip()) for x in str(s or "").split(",") if x.strip()]
 
+        def _split_ints(s):
+            """逗号整数串 → [int]；非数字项跳过并告警。
+
+            这些值是在**模块导入期**解析的，一个字母就会让整个服务 import 失败（任务直接
+            不起，而不是"这个字段没生效"）。页面侧 schema 已用 int_list 挡住，这里兜住手工
+            改文件的场景，行为与 apply_config_overrides 的"转换失败保留默认"一致。
+            """
+            out = []
+            for x in _split(s):
+                try:
+                    out.append(int(x))
+                except ValueError:
+                    print(f"[CONFIG] 逗号整数项 {x!r} 无法解析，已跳过")
+            return out
+
         if isinstance(d.get("items"), str):
             d["items"] = _split(d["items"])
         for f in ("itemsposition", "itemsposition1", "itempositionbusiness"):
             if isinstance(d.get(f), str) and d[f].strip():
-                d[f] = _split(d[f], int)
+                d[f] = _split_ints(d[f])
         out[key] = d
     return out
 

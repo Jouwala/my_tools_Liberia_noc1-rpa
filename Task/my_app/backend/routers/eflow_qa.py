@@ -18,7 +18,7 @@ import threading
 import time
 from datetime import timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -540,15 +540,48 @@ def inspect_tt(tt: str = Query(..., min_length=2, max_length=64, description="TT
     return {"report": report}
 
 
+# 工单「派单」段里与处理人相关的字段（inspect_tt 的 FIELDS 里 section=派单）
+_HANDLER_KEYS = ("last_processer", "last_processer_group", "last_process_time",
+                 "organization_id", "vendor")
+
+
+def _tt_handler_from_report(report: Dict[str, Any]) -> Dict[str, str]:
+    """从 inspect_tt 报告的字段段里取出处理人信息（不额外查库，与页面展示同源）。
+
+    值里可能带换行/制表符（如 `last_processer_group` 实测为 `G:3rd_Power;\\n `），
+    这里统一压成单行空白，避免在证据文本与页面上撑出多余空行。
+    """
+    out: Dict[str, str] = {}
+    for sec in (report or {}).get("fields") or []:
+        for it in sec.get("items") or []:
+            k = it.get("key")
+            v = " ".join(str(it.get("value") or "").split())
+            if k in _HANDLER_KEYS and v:
+                out[k] = v
+    return out
+
+
 @router.get("/tt-ai")
 def tt_ai(
     tt: str = Query(..., min_length=2, max_length=64, description="TT 单号"),
     lang: str = Query("zh", pattern="^(zh|en)$", description="AI 结论语言：zh 或 en"),
 ):
-    """TT 单 AI 分析：查库拿告警主信息 → 拼技能入参 → 调 Open WebUI「TT单分析」技能。
+    """TT 单 AI 分析：查库拿告警主信息 → 拼技能入参 → 调「TT单分析」技能。
 
-    返回 report（同 /inspect-tt）与 ai（结论 / 模型 / 耗时 / 入参）。
+    返回 report（同 /inspect-tt）与 ai（结论 / 模型 / 耗时 / 入参 / **规则命中证据**）。
     AI 结论遵循 lang；省略 lang 时保持原有中文行为。
+
+    2026-09-23 增强：除 AI 结论外，额外用本地规则引擎（与每天 04:20 的
+    eflow_tt_rules_check 定时任务、Email Reports → eFlow TT Rules Check 页签同源）
+    算一次**确定性**的命中规则，作为 `ai.rules` 返回，并渲染成
+    `ai.evidence` 文本随入参下发给模型，要求结论写明规则名称/规则文件/处理人。
+    规则引擎不可用时（本地无该单、规则表缺失）不影响 AI 结论，只是 `available=false`。
+
+    2026-09-23 再增强（程序化兜底）：所有候选模型档都失败时（如本地代理未启动 +
+    Open WebUI 处于不可达短路窗口），不再只回一句 `AI analysis failed: ...`，
+    而是由本地规则引擎**程序化**生成一份 Markdown 结论挂在 `ai.fallback_conclusion`
+    （`ai.fallback=true`），页面照常渲染结论 + 规则命中证据；`ai.ok` 仍为 false、
+    `ai.error` 保留真实失败原因，便于排障并区分「模型给的」与「引擎给的」。
     """
     tt_clean = tt.strip().upper()
     if not re.fullmatch(r"[A-Z0-9_\-]+", tt_clean):
@@ -558,11 +591,34 @@ def tt_ai(
         return {"report": report, "ai": None}
 
     from backend.services import openwebui_client
+    from backend.services.eflow_rules import tt_rule_evidence
+
     t0 = time.time()
-    ai = openwebui_client.analyze_tt(report.get("skill_prompt") or "", lang=lang)
+    # 本地规则引擎预判定（确定性证据）：先算证据，再连同证据一起问模型
+    evidence = tt_rule_evidence.build_rule_evidence(
+        tt_clean, handler=_tt_handler_from_report(report))
+    evidence_text = tt_rule_evidence.render_evidence_text(evidence, lang=lang)
+
+    ai = openwebui_client.analyze_tt(
+        report.get("skill_prompt") or "", lang=lang, evidence_text=evidence_text)
     ai["prompt"] = report.get("skill_prompt", "")
     ai["alarm_source"] = (report.get("alarm") or {}).get("source", "")
     ai["alarm_mode"] = (info or {}).get("mode", "")
+    ai["rules"] = evidence          # 结构化证据：页面「命中规则」明细块
+    ai["evidence"] = evidence_text  # 下发给模型的证据原文（排查用）
+
+    # 模型全档失败 → 用本地规则引擎程序化出结论（不含任何模型推断）
+    ai["fallback"] = False
+    ai["fallback_conclusion"] = ""
+    if not ai.get("ok"):
+        try:
+            ai["fallback_conclusion"] = tt_rule_evidence.render_local_conclusion(
+                evidence, report=report, lang=lang, reason=str(ai.get("error") or ""))
+            ai["fallback"] = bool(ai["fallback_conclusion"])
+        except Exception:  # noqa: BLE001
+            # 兜底失败不能盖住原始错误：ok=false / error 原样返回
+            logger.exception("TT 程序化兜底结论生成失败")
+
     ai["elapsed_total_sec"] = round(time.time() - t0, 2)
     return {"report": report, "ai": ai}
 
@@ -600,3 +656,490 @@ def tt_batch_check(payload: TtBatchIn):
         res["summary"]["level_adjust"], res["elapsed_sec"],
     )
     return res
+
+
+# ========== TT 复盘报告（新增于 2026-09-23）==========
+# 背景：复盘报告 §6.4「最小可行版本」之外，沉淀一份**可程序化产出**的复盘报告接口，
+# 供 eFlow 知识库页面一键生成；与原人工 markdown 报告口径一致，但加入了
+# 系统自动判定（与 NOC 填报对比）、派单机制真相、阶段时长等机器可读字段。
+# 设计原则：不修改任何已有路由；新端点全部以 `_tt_postmortem_*` 命名，
+# 避免误碰 /eflow-qa/inspect-tt、/tt-batch-check 等既有行为。
+@router.get("/_tt_postmortem/{tt_no}")
+def tt_postmortem(tt_no: str):
+    """单张 TT 的程序化复盘报告（用于 eFlow 知识库页面一键生成）。"""
+    from backend.services.tt_postmortem import build_tt_postmortem
+    return build_tt_postmortem(tt_no)
+
+
+@router.get("/_tt_postmortem_noc")
+def tt_postmortem_noc(
+    month: Optional[str] = Query(None, description="YYYY-MM，默认当月"),
+    limit: int = Query(20000, ge=1, le=50000, description="单人最大样本数"),
+    noc: Optional[str] = Query(None, description="NOC 操作人模糊过滤"),
+):
+    """NOC 操作人分析报告（参考 FME Ranking 页面结构）。
+
+    limit 是该人本月的取样上限，必须显著大于单人月单量（实测单人月峰值约 2000 单）。
+    前端拉到 10000 正是为了让 `LIMIT` 不生效，否则表格的「处理总数」会被静默截断，
+    且与下钻行数对不上。上限放宽到 50000 以覆盖整月全量。
+    """
+    from backend.services.tt_postmortem import build_noc_analyst_report
+    return build_noc_analyst_report(month=month, limit=limit, noc_filter=noc)
+
+
+# ========== NOC 操作人分析 · 三层下钻 ==========
+# 背景（2026-09-23）：原页面只有一张排名表，明细仅 3 条样本且不可点，
+# 做不到"能下钻尽下钻"。补齐三层：
+#   ① /_tt_postmortem_noc_tt      NOC → TT 明细（按 全部/错位/夜班/SLA Fail/慢单 切片）
+#   ② /_tt_postmortem_noc_sites   NOC → 异常站点聚合
+#   ③ /_tt_postmortem_tt_detail   单 TT → 告警链路 + 根因一致性审计（最底层）
+# 三个端点均为**只读**，不修改任何既有路由；下钻的 WHERE 条件与概览端点完全一致
+# （同一 alarm_occur_time 口径 + 同一 last_processer 匹配），保证「表格数字 = 下钻行数」。
+@router.get("/_tt_postmortem_noc_tt")
+def tt_postmortem_noc_tt(
+    noc: str = Query(..., description="NOC 操作人（精确匹配，来自概览行的 noc_name）"),
+    month: Optional[str] = Query(None, description="YYYY-MM，默认当月"),
+    slice: str = Query("all", description="切片：all / mismatch / night / sla_fail / slow"),
+    limit: int = Query(20000, ge=1, le=50000, description="取样上限"),
+):
+    """某位 NOC 的 TT 明细下钻（含错位类型、夜班标记、处理时长）。"""
+    from backend.services.tt_postmortem import build_noc_tt_drilldown
+    return build_noc_tt_drilldown(noc=noc, month=month, slice_=slice, limit=limit)
+
+
+@router.get("/_tt_postmortem_noc_sites")
+def tt_postmortem_noc_sites(
+    noc: str = Query(..., description="NOC 操作人（精确匹配）"),
+    month: Optional[str] = Query(None, description="YYYY-MM，默认当月"),
+    only_abnormal: bool = Query(True, description="仅返回存在异常的站点"),
+    limit: int = Query(20000, ge=1, le=50000, description="取样上限"),
+):
+    """某位 NOC 名下按站点聚合的异常视图（错位 / SLA Fail / 慢单）。"""
+    from backend.services.tt_postmortem import build_noc_site_drilldown
+    return build_noc_site_drilldown(noc=noc, month=month, only_abnormal=only_abnormal, limit=limit)
+
+
+@router.get("/_tt_postmortem_tt_detail")
+def tt_postmortem_tt_detail(
+    tt_no: str = Query(..., description="TT 单号"),
+    noc: Optional[str] = Query(None, description="发起下钻的 NOC（仅用于回显）"),
+):
+    """单张 TT 的下钻明细：告警链路 + 系统判定根因 vs NOC 填报根因。"""
+    from backend.services.tt_postmortem import build_noc_tt_detail
+    res = build_noc_tt_detail(tt_no=tt_no, noc=noc)
+    if not res.get("found"):
+        raise HTTPException(status_code=404, detail=res.get("message") or "未找到该工单")
+    return res
+
+
+# ========== 里程碑时间轴批量聚合（2026-09-23 新增）==========
+# 内容参考「TT 复盘报告生成（程序化版）」：把本月全部 TT 的时间轴合起来看，
+# 回答「时间都浪费到哪个环节」「该做的动作没做哪些」「哪些高等级断站该派 WO 却没派」。
+# 逐单复用 build_tt_timeline，与单张 TT 复盘报告**同源同口径**，不产生第二套结论。
+#
+# 性能：本月约 2300 单，逐单解析 *_detail 文本约 150s，故按 month 落磁盘缓存
+# （backend/data/tt_timeline_cache/），首次计算慢、之后毫秒级。口径变更时须
+# 提升 services/tt_postmortem 里的 _TIMELINE_CACHE_VERSION 使旧缓存失效。
+@router.get("/_tt_postmortem_timeline/{tt_no}")
+def tt_postmortem_timeline(tt_no: str):
+    """单张 TT 的「里程碑时间轴 + 应做/实做 + 偏离清单 + 时间归因」。
+
+    与 /_tt_postmortem/{tt_no} 的区别：本端点直接给出 build_tt_timeline 的原生结构
+    （含 time_spent 时间归因分段），供页面「单 TT 复盘」视图使用。
+    """
+    from backend.services.tt_postmortem import build_tt_timeline
+    res = build_tt_timeline(tt_no)
+    if not res.get("found"):
+        raise HTTPException(status_code=404, detail=res.get("message") or "未找到该工单")
+    return res
+
+
+@router.get("/_tt_postmortem_noc_timeline")
+def tt_postmortem_noc_timeline(
+    month: Optional[str] = Query(None, description="YYYY-MM，默认当月"),
+    limit: int = Query(20000, ge=1, le=50000, description="取样上限"),
+    noc: Optional[str] = Query(None, description="仅看某位 NOC（精确匹配，命中该人不走缓存）"),
+    refresh: bool = Query(False, description="强制重算（跳过磁盘缓存）"),
+):
+    """本月里程碑时间轴批量聚合 —— 时间归因 + 动作偏离 + 未派 WO 清单。
+
+    - WHERE 与 /_tt_postmortem_noc 完全一致（同一 alarm_occur_time 月窗口、
+      同一 last_processer 非空），保证「概览数字 = 聚合单量」。
+    - refresh=true 时强制重算（约 150s），用于月份数据仍在增长时刷新。
+    """
+    from backend.services.tt_postmortem import build_noc_timeline_agg
+    return build_noc_timeline_agg(
+        month=month, limit=limit, noc_filter=noc, use_cache=not refresh,
+    )
+
+
+@router.post("/_tt_postmortem_export_md/{tt_no}")
+def tt_postmortem_export_md(tt_no: str):
+    """单张 TT 复盘报告 → Markdown 文档（供下载 / 知识库归档）。
+
+    与 outputs/eflow_TT_复盘报告_*.md 同口径，但由后端实时生成，
+    模板内置于代码中，确保任何人随时可复现，不依赖磁盘文件。
+    """
+    from backend.services.tt_postmortem import build_tt_postmortem
+
+    rep = build_tt_postmortem(tt_no)
+    if not rep.get("found"):
+        raise HTTPException(status_code=404, detail=rep.get("message") or "未找到该工单")
+
+    md = _render_postmortem_md(rep)
+    return {
+        "tt_no": tt_no,
+        "filename": f"eflow_TT_复盘报告_{tt_no}.md",
+        "content": md,
+        "size": len(md),
+    }
+
+
+def _fmt_gap(sec) -> str:
+    """秒 → 人读时长（用于复盘报告正文，缺失时返回 '-' 而不是 0）。"""
+    if sec is None:
+        return "-"
+    try:
+        sec = int(sec)
+    except Exception:
+        return "-"
+    if sec < 0:
+        return f"-{_fmt_gap(-sec)}"
+    if sec < 60:
+        return f"{sec} 秒"
+    if sec < 3600:
+        return f"{sec / 60:.0f} 分钟"
+    if sec < 86400:
+        return f"{sec / 3600:.2f} 小时"
+    return f"{sec / 86400:.2f} 天"
+
+
+# 偏离类型 → 中文（与 services/tt_postmortem/build_tt_timeline 的 kind 取值一一对应）
+_KIND_ZH = {
+    "missing": "应有动作缺失",
+    "late": "动作超时",
+    "out_of_order": "动作越序",
+    "data_conflict": "字段冲突",
+}
+
+
+def _render_postmortem_md(rep: Dict[str, Any]) -> str:
+    """复盘报告 Markdown 渲染器（与 outputs/eflow_TT_复盘报告_*.md 风格一致）。"""
+    t = rep["ticket"]
+    site = rep["site"]
+    sj = rep["system_judged"] or {}
+    nf = rep["noc_filled"]
+    op = rep["operators"]
+    dp = rep["dispatch_path"]
+    rs = rep["rules_snapshot"]
+    d = rep["durations"]
+    lines: List[str] = []
+
+    lines.append(f"# eFlow 工单 复盘报告 — {rep['tt_no']}")
+    lines.append("")
+    # ---------- 单头（含 SLA 是否超期）----------
+    sla = rep.get("sla") or {}
+    lines.append(f"**工单号**：{rep['tt_no']}"
+                 + (f"　|　**标题**：{str(t.get('title') or '').strip()}" if t.get("title") else ""))
+    lines.append(f"**站点**：{site.get('site_name')}（site_id={site.get('site_id')}，"
+                 f"siteSubType={site.get('site_subtype')}）")
+    lines.append(f"**告警码**：{t.get('alarm_code')}（codename={sj.get('codename') or '-'}，"
+                 f"reason_type={sj.get('reason_type') or '-'}）")
+    lines.append(f"**级别 / 状态**：{t.get('ticket_severity')} / {t.get('status')}")
+    # SLA 行——关键复盘信息，放在最显眼处
+    if sla:
+        _sla_flag = "🔴 **超期**" if sla.get("is_breached") else "✅ 未超期"
+        lines.append(f"**SLA**：{sla.get('status') or '-'}　{_sla_flag}"
+                     + (f"　时长 {sla.get('total_text')}" if sla.get("total_text") else "")
+                     + (f"　期限 {sla.get('deadline')}" if sla.get("deadline") else "")
+                     + (f"　超期 {_fmt_gap(sla.get('over_seconds'))}" if sla.get("over_seconds") else ""))
+        if sla.get("cause"):
+            lines.append(f"> {sla['cause']}")
+    lines.append("")
+
+    # ---------- 责任人（谁干的）----------
+    pe = rep.get("people") or {}
+    if pe:
+        lines.append("| 角色 | 责任人 |")
+        lines.append("|---|---|")
+        for _label, _val in (
+            ("建单人", f"{pe.get('creator') or '-'}（{pe.get('creator_kind') or '-'}）"),
+            ("FO 接单人", pe.get("fo_acceptor")),
+            ("FO 填报人", pe.get("fo_processer")),
+            ("关单人", pe.get("confirmer")),
+            ("最后处理人", pe.get("last_processer")),
+            ("处理组", pe.get("last_processer_group")),
+            ("WO 建单人", (f"{pe.get('wo_creator')}（{pe.get('wo_creator_kind')}）"
+                          if pe.get("wo_creator") else None)),
+            ("WO 当前处理人", pe.get("wo_current_handler")),
+        ):
+            lines.append(f"| {_label} | `{_val or '-'}` |")
+        lines.append("")
+
+    # ---------- 时间都花哪了（复盘重点）----------
+    tsc = rep.get("time_spent") or {}
+    if tsc.get("segments"):
+        lines.append("---")
+        lines.append("")
+        lines.append("## 0. 时间都花哪了（按耗时排序）")
+        lines.append("")
+        lines.append("| 阶段 | 耗时 | 占比 | 责任方 | 是否超阈值 |")
+        lines.append("|---|---|---|---|---|")
+        for s in tsc["segments"]:
+            flag = (f"🔴 超 {_fmt_gap(s.get('over_by_s'))}" if s.get("over_threshold")
+                    else ("✅ 正常" if s.get("threshold_s") else "—"))
+            # 阶段名（现场响应等待/建单时延…）比单纯的"A → B"更能一眼看出钱花在哪
+            ph = s.get("phase_label")
+            label = f"**{ph}**：{s.get('label')}" if ph else s.get("label")
+            lines.append(f"| {label} | **{_fmt_gap(s.get('seconds'))}** | "
+                         f"{s.get('pct')}% | `{s.get('owner') or '-'}` | {flag} |")
+        lines.append(f"| **合计** | **{_fmt_gap(tsc.get('segments_sum_s'))}** | "
+                     f"{round(100.0*(tsc.get('segments_sum_s') or 0)/(tsc.get('total_seconds') or 1),1)}% | — | — |")
+        lines.append("")
+        _win = tsc.get("window") or {}
+        if _win.get("start"):
+            lines.append(f"> 统计窗口：{_win.get('start')} → {_win.get('end')}"
+                         f"（终点取**所有已知活动的最晚时间**，含现场动作，"
+                         f"不会因为工单字段没更新而把现场等待切掉）")
+            lines.append("")
+        if tsc.get("bottleneck_note"):
+            lines.append(f"> **瓶颈：** {tsc['bottleneck_note']}")
+            lines.append("")
+        if tsc.get("unaccounted_note"):
+            lines.append(f"> ⚠ {tsc['unaccounted_note']}")
+            lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("## 1. 里程碑时间轴（每个节点谁做的、取自哪个字段）")
+    lines.append("")
+    tl = rep.get("timeline") or []
+    if tl:
+        lines.append("| # | 时间 | 里程碑 | 执行方 | 操作人 | 说明 | 数据来源 |")
+        lines.append("|---|---|---|---|---|---|---|")
+        for i, n in enumerate(tl, 1):
+            ts = n.get("time") or "**（缺失）**"
+            # actor 三态：system / human / unknown（未证实——如"有 WO 但无现场动作明细"）
+            _actor = n.get("actor")
+            actor = {"system": "系统", "human": "人工"}.get(_actor, "**未证实**")
+            gap = n.get("gap_from_prev_s")
+            gap_txt = f"（距上一跳 {_fmt_gap(gap)}）" if gap is not None else ""
+            lines.append(
+                f"| {i} | {ts} | {n.get('label')} | {actor} | "
+                f"`{n.get('operator') or '-'}` | {n.get('detail') or '-'}{gap_txt} | "
+                f"`{n.get('source') or '-'}` |"
+            )
+        lines.append("")
+        tm = rep.get("timeline_meta") or {}
+        lines.append(f"> 窗口 {tm.get('window', {}).get('start')} → {tm.get('window', {}).get('end')}，"
+                     f"总历时 {_fmt_gap(tm.get('total_seconds'))}；"
+                     f"里程碑 {tm.get('done_count')}/{tm.get('stage_count')} 跳有确凿时间戳。")
+        lines.append("")
+        # 现场处置的 WO 步骤明细（有 WO 才有）
+        for n in tl:
+            if n.get("key") == "onsite_action" and n.get("wo_steps"):
+                lines.append("**现场处置明细（来自 eflow_wo）**：")
+                lines.append("")
+                lines.append("| 步骤 | 时间 | 操作人 | 数据来源 |")
+                lines.append("|---|---|---|---|")
+                for s in n["wo_steps"]:
+                    lines.append(f"| {s.get('label')} | {s.get('time') or '-'} | "
+                                 f"`{s.get('operator') or '-'}` | `{s.get('source')}` |")
+                lines.append("")
+
+    lines.append("---")
+    lines.append("")
+    lines.append("## 2. 该做的动作 · 实际做的动作")
+    lines.append("")
+    lines.append("| 里程碑 | 契约 | 应做 | 实际 | 时间 | 操作人 |")
+    lines.append("|---|---|---|---|---|---|")
+    # 三态渲染：已执行 / 未证实（查不到证据，不能断定没做）/ 未执行（必需动作确实缺失）
+    _ST_ZH = {"done": "✅ 已执行", "unproven": "❓ **未证实**", "missing": "❌ **未执行**"}
+    for a in rep.get("expected_actions") or []:
+        req = "**必需**" if a.get("required") else "条件"
+        st = a.get("status") or ("done" if a.get("done") else "missing")
+        lines.append(
+            f"| {a.get('label')} | {req} | ✅ 应执行 | "
+            f"{_ST_ZH.get(st, st)} | "
+            f"{a.get('time') or '-'} | `{a.get('operator') or '-'}` |"
+        )
+    lines.append("")
+    _unproven = [a for a in (rep.get("expected_actions") or []) if a.get("status") == "unproven"]
+    if _unproven:
+        lines.append("> ❓ **未证实**：库中取不到该动作的证据，但**也不能据此断定没做**。")
+        lines.append("> 原因见各行「说明」；典型如「有 WO 却无出发/到场明细」——"
+                     "eflow_tt 本就没有到场字段，而 WO 又可能是 `fe_robot` 自动创建的，"
+                     "**不能作为现场有人的证据**。")
+        lines.append("")
+    missing = rep.get("missing_actions") or []
+    if missing:
+        lines.append("**缺失动作明细**：")
+        lines.append("")
+        for m in missing:
+            lines.append(f"- ❌ **{m.get('label')}**（{m.get('actor')}）：{m.get('reason')}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("")
+    lines.append("## 3. 偏离清单（应做 vs 实做）")
+    lines.append("")
+    devs = rep.get("deviations") or []
+    if devs:
+        _SEV_ZH = {"critical": "🔴 严重", "major": "🟠 中等", "minor": "🟡 轻微"}
+        lines.append("| 严重度 | 类型 | 偏离 | 应有 | 实际 | 影响 |")
+        lines.append("|---|---|---|---|---|---|")
+        for dev in devs:
+            lines.append(
+                f"| {_SEV_ZH.get(dev.get('severity'), dev.get('severity'))} | "
+                f"`{_KIND_ZH.get(dev.get('kind'), dev.get('kind'))}` | **{dev.get('label')}** | "
+                f"{dev.get('expected')} | {dev.get('actual')} | {dev.get('impact')} |"
+            )
+        lines.append("")
+        crit = sum(1 for d in devs if d.get("severity") == "critical")
+        lines.append(f"> 共 {len(devs)} 处偏离，其中严重 {crit} 处。")
+    else:
+        lines.append("未检出偏离：契约要求的动作全部按时执行，且未发现字段间冲突。")
+    lines.append("")
+
+    lines.append("---")
+    lines.append("")
+    lines.append("## 4. 系统判定根因 vs NOC 填写根因")
+    lines.append("")
+    lines.append("| 维度 | NOC 填报 | 系统判定 | 一致性 |")
+    lines.append("|---|---|---|---|")
+    lines.append(f"| root_cause | `{nf.get('root_cause')}` | `{sj.get('fault_domain')}` | {'❌ 不一致（' + rep['mismatch_type'] + '）' if rep['consistency'] is False else '✅ 一致' if rep['consistency'] is True else '⚠ 待人工复核'} |")
+    lines.append(f"| sub_root_cause | `{nf.get('sub_root_cause')}` | `{sj.get('codename')}` | — |")
+    lines.append(f"| 填报人 / 时间 | {nf.get('filed_by')} / {nf.get('filed_at')} | 置信度 {rep['confidence']}（linkage={sj.get('linkage')}）| — |")
+    lines.append("")
+    lines.append(f"> {rep['note']}")
+    lines.append("")
+    if sj:
+        lines.append(f"**系统判定依据**：{sj.get('basis')}；指纹匹配 {sj.get('alarm_count')} 条告警"
+                     + (f"，告警码 {sj.get('distinct_codes')}" if sj.get('distinct_codes') else ""))
+        lines.append("")
+    sh = rep.get("site_history") or []
+    if sh:
+        lines.append("**该站历史告警指纹**（同站历史是判定「反复同源故障」的关键佐证）：")
+        lines.append("")
+        lines.append("| TT | 告警码 | codename | reason_type | 发生 | 清除 |")
+        lines.append("|---|---|---|---|---|---|")
+        for h in sh[:10]:
+            mark = " ⬅ 本单" if h.get("is_self") else ""
+            lines.append(f"| {h.get('tt_no')}{mark} | {h.get('alarmcode')} | {h.get('codename')} | "
+                         f"{h.get('reason_type')} | {h.get('raised')} | {h.get('cleared')} |")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("")
+    lines.append("## 5. WO 派单机制真相")
+    lines.append("")
+    lines.append(f"- **WO 编号**：`{dp.get('wo_no') or '(无)'}`" + (f"，由 `{dp.get('wo_creator')}` 建单" if dp.get("wo_creator") else ""))
+    lines.append(f"- **派单分类**：`{dp.get('category')}`")
+    lines.append(f"- **说明**：{dp.get('explanation')}")
+    if dp.get("fo_assign_to"):
+        lines.append(f"- **FO Accept Assign To**：`{dp.get('fo_assign_to')}`")
+    lines.append("")
+    lines.append(f"**当前规则覆盖**：断站类码 ACTIVE 覆盖 `{', '.join(rs['down_alarm_codes_active']) or '无'}`；STOP 覆盖 `{', '.join(rs['down_alarm_codes_stopped']) or '无'}`。"
+                 f"（活动规则 {rs['active_rule_count']} 条 / 停用规则 {rs['stopped_rule_count']} 条）")
+    lines.append("")
+
+    # ---------- 5b. 为什么走人工派单（依据 TT Push Order Rule）----------
+    da = rep.get("dispatch_analysis") or {}
+    if da and da.get("rules_at_step"):
+        lines.append("### 5b. 为什么走人工派单 —— TT Push Order Rule 逐条比对")
+        lines.append("")
+        lines.append(f"**判定阶段**：`{da.get('trigger_step')}` —— {da.get('step_meaning')}")
+        lines.append("")
+        _sig = da.get("signature") or {}
+        lines.append(f"**本单特征**：siteSubtype=`{da.get('site_subtype') or '-'}`，"
+                     f"告警=`{da.get('alarm_name') or '-'}`（码 {da.get('alarm_code') or '-'}）"
+                     f"，已建 WO=`{da.get('has_wo')}`；命中特征 "
+                     + "、".join(f"`{k}`" for k, v in _sig.items() if v) + "。")
+        lines.append("")
+        lines.append("| 规则名 | 状态 | 目标 | 规则要求 | 本单是否适用 | 判定依据 |")
+        lines.append("|---|---|---|---|---|---|")
+        _vmark = {"matched": "✅ 命中", "blocked_by_status": "⛔ 本应命中但已停用",
+                  "not_applicable": "➖ 不适用", "unknown_scope": "❓ 范围未知"}
+        for e in da["rules_at_step"]:
+            lines.append(
+                f"| {e.get('rule_name')} | {e.get('status')} | {e.get('target')} | "
+                f"{'/'.join(e.get('wants_keys') or []) or '-'} | "
+                f"{_vmark.get(e.get('verdict'), e.get('verdict'))} | {e.get('why')} |")
+        lines.append("")
+        if da.get("blocked_rules"):
+            lines.append("**⚠ 本应命中但已停用的规则**：")
+            lines.append("")
+            for b in da["blocked_rules"]:
+                lines.append(f"- `{b.get('rule_name')}`（{b.get('status')}，优先级 {b.get('priority')}，"
+                             f"描述：{b.get('description') or '无'}，最后更新 {b.get('update_time') or '-'}）")
+            lines.append("")
+        if da.get("fallback_rules"):
+            lines.append("**兜底派单规则（ttDispatchRule）**：")
+            lines.append("")
+            for f in da["fallback_rules"]:
+                lines.append(f"- `{f.get('rule_name')}`（优先级 {f.get('priority')}，{f.get('status')}）"
+                             f"：{f.get('description') or '无描述'}")
+            lines.append("")
+        lines.append(f"**结论**：{da.get('conclusion')}")
+        lines.append("")
+        if da.get("caveat"):
+            lines.append(f"> {da['caveat']}")
+            lines.append("")
+    # ---------- 5c. 指派给谁 ----------
+    asg = rep.get("assignment") or {}
+    if asg:
+        lines.append("---")
+        lines.append("")
+        lines.append("## 5c. 这单指派给谁了")
+        lines.append("")
+        lines.append(f"**结论**：{asg.get('conclusion')}")
+        lines.append("")
+        lines.append("| 项目 | 值 |")
+        lines.append("|---|---|")
+        lines.append(f"| 通道 | `{asg.get('channel') or '-'}` |")
+        lines.append(f"| 建单指派到人（`Assign To`） | `{asg.get('create_assign_to') or '（空）'}` |")
+        lines.append(f"| 建单指派到群组（`Assignee Group`） | `{asg.get('create_assignee_group') or '（空）'}` |")
+        lines.append(f"| 建单后状态 | `{asg.get('next_status') or '-'}` |")
+        lines.append(f"| 当前处理人（`current_handler`） | `{asg.get('current_handler') or '（空）'}`"
+                     + ("（群组，非个人）" if asg.get("current_handler_is_group") else "") + " |")
+        lines.append("")
+        lines.append(f"> {asg.get('channel_note')}")
+        lines.append("")
+        pools = asg.get("group_pools") or []
+        if pools:
+            lines.append("**群组池规则（决定候选人范围，不指定个人）**：")
+            lines.append("")
+            lines.append("| 环节 | 规则名 | 优先级 | 候选处理人（节选） |")
+            lines.append("|---|---|---|---|")
+            for p in pools:
+                hn = (p.get("handler_name") or "")
+                hn = (hn[:78] + "…") if len(hn) > 78 else (hn or "-")
+                lines.append(f"| {p.get('stage')} | `{p.get('rule_name')}` | "
+                             f"{p.get('priority')} | {hn} |")
+            lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("## 6. 阶段时长")
+    lines.append("")
+    lines.append("| 阶段 | 时长 |")
+    lines.append("|---|---|")
+    if d.get("create_to_accept_seconds") is not None:
+        lines.append(f"| 建单 → FO Accept | {d['create_to_accept_seconds']/60:.1f} 分钟 |")
+    if d.get("accept_to_process_seconds") is not None:
+        lines.append(f"| FO Accept → FO Process | {d['accept_to_process_seconds']/3600:.2f} 小时 |")
+    if d.get("process_to_confirm_seconds") is not None:
+        lines.append(f"| FO Process → Confirm | {d['process_to_confirm_seconds']/3600:.2f} 小时 |")
+    if d.get("total_seconds") is not None:
+        lines.append(f"| 全流程 | {d['total_seconds']/3600:.2f} 小时 |")
+    lines.append("")
+    if rep.get("suggested_actions"):
+        lines.append("---")
+        lines.append("")
+        lines.append("## 7. 改进建议")
+        lines.append("")
+        for i, sa in enumerate(rep["suggested_actions"], 1):
+            lines.append(f"{i}. {sa}")
+        lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("*本报告由 my_app /api/eflow-qa/_tt_postmortem/{tt_no} 自动生成；模板与 TT202609160106/TT202609210140 双单复盘报告一致。*")
+    return "\n".join(lines)

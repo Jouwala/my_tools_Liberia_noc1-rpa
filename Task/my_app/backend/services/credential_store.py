@@ -245,6 +245,50 @@ CREDENTIAL_GROUPS = [
         "env_secret": "UME_IN_PASSWORD",
     },
     {
+        "key": "battery_ume",
+        "name": "Battery UME 电池网管 (192.168.170.2:443)",
+        "name_en": "Battery UME NMS (192.168.170.2:443)",
+        "usage": "电池 KPI 同步任务（battery_kpi_sync）与电池 KPI 邮件任务使用此账号登录 UME "
+                 "拉取 r32.uedm.batt 实时数据（健康度 / SOC / 充放电状态）。"
+                 "该 UME 与 RAN UME 不是同一台设备，账号不通用。",
+        "usage_en": "Used by the Battery KPI sync task (battery_kpi_sync) and the Battery KPI Email task "
+                    "to log into the UME and pull r32.uedm.batt realtime data (health / SOC / charge-discharge status). "
+                    "This is a different UME from the RAN UME; the accounts are not interchangeable.",
+        "default_user": "zeeshan mazhar",
+        "default_secret": "Zte_ZM2028",
+        "username_label": "用户名",
+        "username_label_en": "Username",
+        "secret_label": "密码",
+        "secret_label_en": "Password",
+        "has_username": True,
+        "testable": True,
+        "test_host": "192.168.170.2",
+        "test_port": 443,
+        "env_user": "BATT_USERNAME",
+        "env_secret": "BATT_PASSWORD",
+    },
+    {
+        "key": "cm_data",
+        "name": "RAN CM 小区数据同步 (10.100.28.27:28001)",
+        "name_en": "RAN CM Cell Data Sync (10.100.28.27:28001)",
+        "usage": "RAN CM 小区主数据同步任务（cm_data_sync）使用此账号登录 RAN UME 网管，"
+                 "经 moquery / exportmultivermofile 导出小区级配置数据。",
+        "usage_en": "Used by the RAN CM cell-master sync task (cm_data_sync) to log into the RAN UME NMS "
+                    "and export cell-level configuration data via moquery / exportmultivermofile.",
+        "default_user": "NOC",
+        "default_secret": "Zte@2025!",
+        "username_label": "用户名",
+        "username_label_en": "Username",
+        "secret_label": "密码",
+        "secret_label_en": "Password",
+        "has_username": True,
+        "testable": True,
+        "test_host": "10.100.28.27",
+        "test_port": 28001,
+        "env_user": "CM_USERNAME",
+        "env_secret": "CM_PASSWORD",
+    },
+    {
         "key": "sftp_sp",
         "name": "SFTP 备件报表服务器 (10.100.20.11)",
         "name_en": "SFTP Spare-parts Report Server (10.100.20.11)",

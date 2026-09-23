@@ -707,11 +707,13 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
         style={{ background: WH.cardBg, border: WH.cardBorder, marginBottom: 12 }}
       >
         <Spin spinning={summaryLoading}>
-          <Row gutter={[12, 12]}>
+          {/* 分表数量随报表变化（当前 5 张），按列数限宽总会在一行放不下后折行；
+              改成等分弹性列 + 不换行，保证所有分表卡片始终并排一行、高度齐平。 */}
+          <Row gutter={[12, 12]} wrap={false} align="stretch">
             {sheets.map(s => {
               const active = s.key === activeSheet
               return (
-                <Col key={s.key} xs={24} sm={12} xl={6}>
+                <Col key={s.key} flex="1 1 0" style={{ minWidth: 0 }}>
                   <div
                     onClick={() => setActiveSheet(s.key)}
                     role="button" tabIndex={0}

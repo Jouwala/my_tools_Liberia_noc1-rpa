@@ -393,11 +393,33 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
     return base64.b64encode(encrypted).decode('ascii')
 
 
+def _runtime_credentials():
+    """运行时凭据：环境变量 > credential_store > 模块默认值。
+
+    凭据由「设置 → 凭据管理」的 cm_data 分组维护（页面改密后最迟 30 秒生效）。
+    环境变量 CM_USERNAME / CM_PASSWORD 仍可作为最高优先级覆盖。
+    """
+    user = os.environ.get("CM_USERNAME") or None
+    pwd = os.environ.get("CM_PASSWORD") or None
+    if user and pwd:
+        return user, pwd
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        try:
+            from credential_store import get_credential  # type: ignore
+        except ImportError:
+            return user or USERNAME, pwd or PASSWORD
+    cred_user, cred_pwd = get_credential("cm_data", USERNAME, PASSWORD)
+    return user or cred_user, pwd or cred_pwd
+
+
 # ============================================================
 # 登录
 # ============================================================
 def login():
     print("[LOGIN] 开始鉴权...")
+    _login_user, _login_pwd = _runtime_credentials()
     session_cookie = ""
     forgery_token = ""
     try:
@@ -432,11 +454,11 @@ def login():
             public_key_b64 = pk_data.get("rsaPublicKey", "")
 
         print("[LOGIN] Step 3: RSA 加密密码...")
-        encrypted_pwd = _rsa_encrypt_pem(PASSWORD, public_key_b64)
+        encrypted_pwd = _rsa_encrypt_pem(_login_pwd, public_key_b64)
 
         print("[LOGIN] Step 4: 提交登录...")
         login_payload = json.dumps({
-            "username": USERNAME, "password": encrypted_pwd, "parameters": login_parameters,
+            "username": _login_user, "password": encrypted_pwd, "parameters": login_parameters,
         })
         login_headers = (
             f"Content-Type: application/json\r\n"

@@ -679,6 +679,25 @@ const RAW_DASHBOARDS: DashboardItem[] = [
     },
 
     {
+      id: 'custom-noc-analyst',
+      title: 'NOC Operator Analysis (NOC 操作人分析)',
+      description: '按每位 NOC 操作人（基于 eFlow TT 末次处理人）量化根因错位率、平均处理时长、夜班单占比与 SLA 通过率，给出红旗告警；支持月份 / NOC 筛选与明细下钻。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}noc_analyst`,
+      category: 'MS 运维管理',
+      tags: ['NOC', '操作人分析', '根因错位', 'SLA'],
+      iconName: 'Users',
+      updateFrequency: '每日0点',
+      department: 'FO 运维分析组',
+      owner: '运维分析师',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'teal',
+      status: 'online'
+    },
+
+    {
       id: 'finebi-ms-contract-operation-kpis',
       title: 'Contract Operation KPIs (合同运营关键绩效指标)',
       description: '【MS 目录】电信运营服务合同考核指标、SLA 达标情况及月度客户 KPI 交付达成率分析。',
@@ -696,6 +715,42 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       lastVisited: '2026-08-14 10:20',
       themeColor: 'indigo',
       status: 'beta'
+    },
+        {
+      id: 'custom-ms-nur-only',
+      title: 'MS NUR Only (MS 网络不可用率专页)',
+      description: '基于 RAN UME 数据聚焦 MS 制式（2G/3G/4G/TDD）的 Network Unavailability Rate 分析，剥离非 MS 维度，按站点与区域给出停机损失时长与时长排名，与 MS SLA 看板口径对齐。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}ms_nur_only`,
+      category: 'MS 运维管理',
+      tags: ['NUR', 'MS', 'Unavailability Rate', 'SLA'],
+      iconName: 'BarChart3',
+      updateFrequency: '每日0点',
+      department: 'MS 运维部',
+      owner: 'MS 项目总监',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'indigo',
+      status: 'online'
+    },
+        {
+      id: 'custom-ms-sla-only',
+      title: 'MS SLA Only (MS SLA 专页)',
+      description: '基于 MS Operation KPI 看板（page=ms_sla）的 SLA 部分独立直链页：聚焦 MS 制式（2G/3G/4G/TDD）的 SLA 达成、WO SLA 与合同 KPI，剥离 NUR/Network/Per-Site 维度，可收藏、可上大屏。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}ms_sla_only`,
+      category: 'MS 运维管理',
+      tags: ['SLA', 'MS', 'WO SLA', 'Contract KPI'],
+      iconName: 'BarChart3',
+      updateFrequency: '每日0点',
+      department: 'MS 运维部',
+      owner: 'MS 项目总监',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'indigo',
+      status: 'online'
     },
     {
       id: 'finebi-ms-mttr-monthly-weekly',

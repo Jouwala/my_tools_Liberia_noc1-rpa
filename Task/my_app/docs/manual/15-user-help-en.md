@@ -1,16 +1,16 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-20.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-23.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
 ---
 
-## 目录
+## Contents
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (62 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (65 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -78,7 +78,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (62 tasks)
+### 3.3 Full task catalog (65 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -96,6 +96,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | RAN Cell Availability 1-Day Sync | `cell_availability_sync` | `30 4 * * *` | u | `services/ran_cell_availability_sync.py → run_cell_availability_sync` |
 | RAN Cells KPI Sync | `cells_kpi_sync` | `50 4 * * *` | u | `services/ran_cells_kpi_sync.py → run_cells_kpi_sync` |
 | RAN Network KPI Sync | `network_kpi_sync` | `0 5 * * *` | u | `services/ran_ume_network_kpi.py → run_network_kpi_sync` |
+| Availability Recon Rebuild | `avail_recon_sync` | `10 6 * * *` | u | `services/avail_recon_sync.py → run_avail_recon_sync` |
 | CNN UME KPI Sync | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | SP Spare Data Sync | `sp_data_sync` | `10 * * * *` | n | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI Sync | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
@@ -122,6 +123,8 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Incident Overview Data Sync | `incident_overview_sync` | `0 * * * *` | m | `services/incident_overview_sync.py → run_incident_overview_sync` |
 | FineBI Report Files Sync | `finebi_report_sync` | `10 * * * *` | m | `services/finebi_report_sync.py → run_finebi_report_sync` |
 | DB Data Freshness Check | `db_freshness_check` | `15 * * * *` | m | `services/db_freshness_check.py → run_db_freshness_check` |
+| MTTR/TT Wide Table Rebuild | `mttr_tt_sync` | `40 7 * * *` | m | `services/mttr_tt_sync.py → run_mttr_tt_sync` |
+| Progress Wide Table Rebuild | `progress_sync` | `50 7 * * *` | m | `services/progress_sync.py → run_progress_sync` |
 | Failed Task Auto Retry | `auto_retry_failed` | `*/10 * * * *` | m | `services/auto_retry.py → run_auto_retry_task` |
 | RAN CM Cell Data Sync | `cm_data_sync` | `30 8 * * *` | u | `services/cm_data/cm_data_export.py → run_cm_data_sync` |
 | PG→SQLite Data Snapshot | `pg_to_sqlite_sync` | `45 * * * *` | m | `backend/scripts/sync_pg_to_sqlite.py → main` |
@@ -388,6 +391,25 @@ Workflow & maintenance notes per task:
 **Maintenance**:
 
 - Query templates in services/network_kpi_config.json
+
+#### Availability Recon Rebuild（`avail_recon_sync`）
+
+- Default cron: `10 6 * * *`　|　worker group: **u**
+- Workflow script: `services/avail_recon_sync.py → run_avail_recon_sync`
+
+**What it does**: Rebuild the avail_recon availability reconciliation table (approx. aggregate of remote Site_Daily x Master_Site_Database region) into local data/avail_recon.sqlite3 for the Daily Availability KPI / Availability(TT) boards
+
+**Workflow & data flow**:
+
+1. Read site master data from remote olbr_ms_master_database (Site_Name -> Region)
+1. Inline each region's site list into SQL and aggregate AVG(availability) of 2G/3G/4G_Main_Kpi_Site_Daily remotely
+1. Atomically replace local data/avail_recon.sqlite3 (table availability_daily)
+
+**Maintenance**:
+
+- Definitions live at the top of services/avail_recon_sync.py: Cell_Availability=AVG(rate), NOT the share of sites meeting the target (v1 got this wrong, range 40-100%)
+- The board resolves avail_recon.sqlite3 to the local file via dashboard_service.DB_ALIASES; register new derived DBs the same way
+- Before 2026-09-21 this table was maintained by a manual ETL in the retired my-finebi project; with no scheduler it froze at 2026-09-13 and the board went silently stale
 
 #### CNN UME KPI Sync（`cnn_kpi_sync`）
 
@@ -833,6 +855,44 @@ Workflow & maintenance notes per task:
 **Maintenance**:
 
 - Suspect stalled data? Check this task's history first and follow its call chain — faster than browsing the task list
+
+#### MTTR/TT Wide Table Rebuild（`mttr_tt_sync`）
+
+- Default cron: `40 7 * * *`　|　worker group: **m**
+- Workflow script: `services/mttr_tt_sync.py → run_mttr_tt_sync`
+
+**What it does**: Rebuild the mttr_tt wide table (Eflow_TT_FB + OLR_CELLS/Site_Maintainer_Category reference) into local data/mttr_tt.sqlite3 for the MTTR Monthly&Weekly board
+
+**Workflow & data flow**:
+
+1. Read local reference DB data/excel_ds.sqlite3 (Site ID->Site Category, Site Name->per-RAT cell counts)
+1. Read the full remote Eflow_TT_FB via the read-only API
+1. Derive Vender/MTTR1/MTTR2/MTTR_RANG_2H/Month/WK/Outage_Mins then atomically replace data/mttr_tt.sqlite3
+
+**Maintenance**:
+
+- Definitions parsed from FineDB dataset 4bc5a679, documented at the top of services/mttr_tt_sync.py; MTTR2 is non-null only when 0<MTTR1<48h
+- excel_ds.sqlite3 is a static 114KB reference frozen from my-finebi (unchanged since 2026-08-31); re-export it if the FineBI Excel datasets ever change
+- Before 2026-09-21 a manual ETL in the retired my-finebi project maintained this table; with no scheduler it froze at 2026-08-31
+
+#### Progress Wide Table Rebuild（`progress_sync`）
+
+- Default cron: `50 7 * * *`　|　worker group: **m**
+- Workflow script: `services/progress_sync.py → run_progress_sync`
+
+**What it does**: Rebuild the progress wide table (Eflow_TT_FB LEFT JOIN Eflow_WO_FB, replicating FineBI Progress computed columns) into local data/progress.sqlite3 for the Progress / Progress V3 boards
+
+**Workflow & data flow**:
+
+1. Read remote Eflow_TT_FB and Eflow_WO_FB via the read-only API (1:1 join on WO No.)
+1. Replicate FineDB dataset 4bc5a679 Progress columns per row (per-stage ORG/STATUS, FB_* cascade, ORG_Handler, Month, MTTR1/2, clear_null)
+1. Atomically replace data/progress.sqlite3
+
+**Maintenance**:
+
+- Duration(Hours)/SLA(%) depend on the current time and are deliberately NOT stored; widget SQL computes them live via julianday('now','localtime')
+- Definitions live in _derive() of services/progress_sync.py; the SWITCH cascades are a verbatim port — compare with the original TMP/etl_progress.py before changing
+- Before 2026-09-21 a manual ETL in the retired my-finebi project maintained this table; with no scheduler it froze at 2026-08-31
 
 #### Failed Task Auto Retry（`auto_retry_failed`）
 
@@ -1280,10 +1340,11 @@ Central control room for all scheduled sync/collection tasks: view status & sche
 
 #### Task Report Files（`email_reports`）
 
-Collects three kinds of task artifacts for download: latest email report attachments, FineBI FTP reports, and eFlow TT rule check results (rules / corrections / report).
+Collects three kinds of task artifacts for download: latest email report attachments, FineBI FTP reports, and eFlow rule check results. The bottom of the eFlow tab lists **every rule sheet collected from eFlow** (TT severity rules / alarm correlation rules / push & config rules) plus this run's outputs (severity correction sheet / matching report).
 
 - Switch categories via tabs; click a file name or "Download" to save; set how many recent files to keep per category
-- The eFlow rule tab supports "Run Now" to trigger a check manually (auto-refreshes once after 3s; refresh manually if the task is slow)
+- The three "Run Now / Collect" buttons on the eFlow tab trigger the matching task manually: TT check + severity correction, alarm rule collection, push rule collection; each auto-refreshes once after 3s (refresh manually if the task is slow)
+- Table at the bottom of the eFlow tab: blue tag = rule sheet (TT rules refresh with the daily 04:20 check; alarm/push rules normally refresh every 3 days at 23:59 — use the "Collect" buttons to refresh them on demand), grey = this run's outputs
 
 #### Data Upload（`upload`）
 
@@ -1378,6 +1439,46 @@ Site Outage Monitor board: watches whether sites are down, with ERA / Regular / 
 - Auto-screenshotted daily at 01:00 by site_outage_screenshot and sent to WhatsApp at 03:00 by whatsapp_send
 - Caution: DOM changes on this page affect the screenshot task — verify the screenshot selectors still work first
 
+#### fme_ranking（`fme_ranking`）
+
+FME ranking board: site availability, work-order volume and SLA achievement per FME, ranked.
+
+- Top3 / Bottom3 cards and the ranking table drill into that FME's site-level availability and WO details
+- The drilldown modal can switch to the site dimension for per-site availability and alarms
+
+#### site_avail（`site_avail`）
+
+Site availability board: per-site availability ranking and target compliance.
+
+- Click a site name to drill into its availability details
+- Availability uses the same per-site calculation as the FME ranking page
+
+#### noc_analyst（`noc_analyst`）
+
+NOC operator analysis: quantifies each NOC operator's root-cause mismatch rate, average handling time, night-ticket share and SLA pass rate from eflow_tt.last_processer, and raises red flags. Built around "drill down wherever possible" — from the person to the ticket, then to the alarm chain.
+
+- Scope: tickets are attributed to a month by alarm occurrence time (alarm_occur_time), not last-modified time; night = Accept operation time between 22:00 and 06:00
+- Mismatch rate = mismatched tickets / tickets with a filed root cause. history_alarm.reason_type is authoritative and is compared against the NOC-filed root_cause (typically POWER←TRM: NOC filed power, the system says transmission)
+- Layer 1: summary stat cards, Top3/Bottom3 cards, the ECharts bar chart, every column in the ranking table, and each operator named in the red-flag banner are all clickable
+- Layer 2: the modal switches between five slices — All / Root-cause mismatch / Night / SLA failed / Slow (≥12h); row counts match that operator's metric exactly
+- Layer 3: the "Abnormal sites" tab aggregates by site (mismatch / SLA fail / slow / night); click a site name to see all of its TTs
+- Layer 4: click any TT number for the single-ticket postmortem — five tabs: time attribution / milestone timeline / should-do vs did / deviations / alarm chain, sharing the same source and definitions as the programmatic postmortem report on the EflowQa page
+- Time attribution section ("where the time went"): every ticket of the month is parsed and aggregated to show where time is wasted. Six clickable stat cards, a stage-share pie chart, a deviation-type distribution, a segment table (total/average/P90/longest/over-threshold counts) and a milestone duration table
+- "WO expected but not dispatched": high-severity site-down (P1/P2, VIP, Hub) tickets with no field work order, longest first. Click a TT number to open that ticket's postmortem on the "Deviations" tab
+- Field-response timeliness — "Monthly WO hop durations": the work-order lifecycle split into created → FE accepted → start trip → arrive → work done → closed, so you can see which hop is stuck. In practice the slowest is "WO created → FE accepted" (median about 11 hours), while everything after acceptance takes only minutes
+- "NOC / human action timeliness": how long each human-performed action (FO Accept, FO Process, field work) waited, whether it breached its contract deadline, and the over-deadline share
+- In the single-ticket postmortem, the "Time attribution" tab's segment table carries a Phase column showing at a glance which kind of time dominates; below it sits the ticket's own "Field response timeline (WO lifecycle)" hop-by-hop detail with operators. Tickets with no WO say so explicitly instead of showing a blank area
+- "Phases: who is holding the time": event-driven segments merged by phase (creation delay / accept wait / field response wait / field work / alarm cleared / submit close / confirm close), so NOC, field and system shares are comparable. In practice field response wait is 15.2% of the month with a 6.4-hour median
+- The first computation parses every ticket of the month (about 150 s in practice); results are cached per month on disk, so later opens are millisecond-fast. Click "Recompute" at the top right to force a refresh
+- Every table in the modal supports full-field search, column filters and sorting, and exports the current slice and search result to Excel
+
+#### repeat_site_down（`repeat_site_down`）
+
+Repeat site-down board: identifies sites that go down repeatedly within the window — for finding "sites that never get fixed".
+
+- Counts site-downs per day; click a number to drill into that day's down sites
+- Data comes from eflow_tt and eflow_site, complementing the alarm board
+
 #### Packet Loss（`packet_loss`）
 
 LTE packet loss board (RAN UME SDR / IPRAN IPPD): last 7 complete calendar days at hourly granularity; the ongoing day is hidden.
@@ -1449,6 +1550,25 @@ eFlow TT rule knowledge base: full-text search over rule/case documents, with bu
 
 - Search with space-separated keywords or pick an article from the catalog on the left
 - Enter a TT number for one-click analysis: assignment, time gap, root-cause distribution and key conclusions
+- Below the AI conclusion a "Rule match evidence" block (local rule engine, same source as Email Reports → eFlow TT Rules Check) lists the matched rule name/ID, per-condition match details, the rule source file eflow_TT_rules.xlsx (downloadable), the rule owner and the ticket handler
+- When no model is reachable (local proxy down and Open WebUI unreachable) the page no longer just shows an error: it renders a "programmatic verdict" — severity verdict, matched rule, rule source and recommended actions all computed by the local rule engine
+- Rule source & owners also lists the push order rule (TT Push Order Rule, triggerStep=FO Accept): Rule Name / Rule Type / Rule Trigger Step / Push Order Path / *Auto Operator / Target Handler — i.e. whether the TT is auto-pushed to a WO, to whom, and which operator acts automatically (source: eflow_push_rules.xlsx, downloadable)
+- TT batch check: upload an xlsx/csv/txt list of TT numbers or paste them to judge each ticket severity (OK / needs adjustment / undetermined) and export to Excel
+- The batch check supports a "download template → fill in → upload" loop: download the templated xlsx, fill in the numbers and upload the same file back
+
+#### eflow_flow（`eflow_flow`）
+
+eFlow process flow: enter an alarm (alarm ID / alarm code) or a TT number to draw the ticket's full eFlow process — the rule-driven state machine plus the path actually traversed, highlighted.
+
+- Three input types: TT number (TT202609230060), alarm ID (the alarm table id/aid), or alarm code (e.g. 99933); querying by alarm code lists the most recent TTs carrying it so you can switch
+- The base diagram is the rule-driven state machine: Alarm Raised → TT Created → Auto Dispatch → FO/BO Accept → FO/BO Process → 3rd Party Accept/Process → Confirm → Closed; the active/total count under each node is how many rules bind to that step
+- Green node = a step the ticket actually traversed, amber node = the current step (taken from the operation_type field), grey = not involved; thick cyan edges = the actual path
+- Click any node to switch the "Rule details" table below to the rules bound to that step (rule name / type / trigger step / status / priority / target handler / push path); "Show all" reveals every rule
+- The "Actual path" table lists the milestones the ticket really went through, with operator and note; "TT ticket information" gives severity, current handler, SLA and root cause
+- If the TT spawned a field work order, a "WO field sub-process" block shows the WO's own Accept → Process → Confirm → Closed pipeline plus per-step handling detail (from the eflow_wo *Detail columns)
+- The "Related alarms" table lists the alarms that raised this TT (linked via realtime_alarm / history_alarm tt_id or alarm_id), with alarm code, site, network element, severity and raised time
+- Verdicts share one source with "NOC analyst" and the single-TT postmortem report: rules are all read from ocrule_details, so the flow diagram and the postmortem can never disagree
+- The rule tables are collected by the eflow_push_rules_collect / eflow_alarm_rules_collect jobs (every 3 days at 23:59); the diagram reflects rule updates automatically
 
 #### Dashboard（`dashboard`）
 

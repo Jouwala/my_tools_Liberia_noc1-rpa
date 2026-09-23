@@ -287,6 +287,9 @@
          写的是服务端共享目录，不写清楚会被当成只改本机。 */
       'map.renameZh': '页签中文名（清空则恢复默认）：',
       'map.renameEn': '页签英文名（清空则恢复默认）：',
+      'map.renameHeadZh': '下方副标题（中文，清空则恢复默认）：',
+      'map.renameHeadEn': '上方标题（英文，清空则恢复默认）：',
+      'map.renameHeadTip': '改名这一栏的标题与副标题',
       'map.renamed': '页签名已保存',
       'map.labelBackendOld': '但服务器未重启，页签名只在服务器本机生效（tabLabels 键被丢弃）',
       'map.loading': '正在加载地图…',
@@ -683,6 +686,9 @@
          server-side shared catalog, and omitting that reads as "only my computer". */
       'map.renameZh': 'Tab name in Chinese (clear to restore default):',
       'map.renameEn': 'Tab name in English (clear to restore default):',
+      'map.renameHeadZh': 'Subtitle below (Chinese; clear to restore default):',
+      'map.renameHeadEn': 'Title above (English; clear to restore default):',
+      'map.renameHeadTip': 'Rename this section’s title and subtitle',
       'map.renamed': 'Tab labels saved',
       'map.labelBackendOld': 'but the server was not restarted, so the tab labels only apply on the server host (the "tabLabels" key was dropped)',
       'map.loading': 'Loading map…',
@@ -1241,6 +1247,35 @@
     chipHtml();
     renderSections();
     syncCatalogBtns();
+    /* 拓扑栏的标题在编辑态才变成可点按钮（见 topoSection），而 renderSections()
+       刻意不碰 #secTopo（重建它会让 4 个地图 iframe 全部重载）。
+       于是「?edit=1 深链」或「catalogEditable 从服务端回来」这两条路径上，
+       改名入口永远不会出现 —— 与上面注释里踩过的「卡片按钮不出现」是同一类坑。
+       这里只重写 #secTopo 的 innerHTML（不是重建节点），并同步页签；
+       代价是 4 个 iframe 重新加载，但只在进出编辑模式/权限变化时发生一次。 */
+    syncTopoHead();
+  }
+
+  /** 只重画拓扑栏的头部与页签（编辑态相关），不触碰其他区块。
+      没有 #secTopo（例如查看器页复用本文件）时静默跳过。
+
+      ⚠️ 为什么必须比对「上次画的时候是什么权限/编辑态」再决定要不要重画：
+      renderCatalog() 会被 saveCatalog()（改一张看板的标题就算一次）和
+      loadCatalog() 调用，而重建 #secTopo 会让 4 个地图 iframe 全部重新加载。
+      每保存一次看板就重载 4 张地图几十秒，是明显的回归。
+      只有「编辑态或写权限变了」才需要重画——那两样决定标题是不是可点按钮。
+      用模块级变量记住上次画的值，而不是 state 里的字段：它纯粹是渲染缓存，
+      不参与任何业务判断，放 state 里会被误当成状态来读。 */
+  var topoHeadDrawn = null;
+  function syncTopoHead() {
+    var host = document.getElementById('secTopo');
+    if (!host) return;
+    var sig = (state.editing ? '1' : '0') + (state.catalogEditable ? '1' : '0');
+    if (topoHeadDrawn === sig) return;
+    topoHeadDrawn = sig;
+    host.innerHTML = topoSection();
+    renderMapTabs();
+    ensureMap();
   }
 
   /** 拉取服务端全局目录。首屏先用内置目录渲染（不白屏），回来后再覆盖一次。
@@ -1570,13 +1605,16 @@
   function normTabLabels(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
     var out = {};
-    MAP_TABS.forEach(function (m) {
-      var v = raw[m.page];
+    /* 页签的合法 key + 保留伪页签 __head（本栏标题/副标题，见 MAP_TABS 注释）。
+       后端 TAB_PAGES 是同一份白名单；这里再筛一次是为了兼容「后端已升级、
+       本页还是旧缓存」的错位，不至于把不认识的键画出来。 */
+    RENAME_KEYS.forEach(function (page) {
+      var v = raw[page];
       if (!v || typeof v !== 'object') return;
       var zh = typeof v.zh === 'string' ? v.zh.trim() : '';
       var en = typeof v.en === 'string' ? v.en.trim() : '';
       if (!zh && !en) return;           // 全空 = 没配（后端也会丢弃空壳）
-      out[m.page] = { zh: zh, en: en };
+      out[page] = { zh: zh, en: en };
     });
     return out;
   }
@@ -1589,6 +1627,25 @@
       if (s) return s;                  // 只认当前语言的值，缺就回落内置，见 normTabLabels
     }
     return t(key);
+  }
+
+  /** 本栏标题 / 副标题（2026-09-23 纳入可改名）。
+      ⚠️ MsPortal 的用法与 olbrportal **相反**：这里是 title=英文、sub=中文
+      （'topo.title' 的英文值就是 "Central Liberia Regional Topology"，中文值同串；
+      'topo.sub' 才是「利比里亚网络拓扑全景」）。所以：
+        · 上方标题 ← 英文名（en）
+        · 下方副标题 ← 中文名（zh）
+      刻意不在后端统一顺序：两个门户各自的版式就是反的，后端只存"中/英"两个值，
+      由各前端决定谁显示在上。改这里之前先确认没把两个门户的上下顺序搞混。 */
+  function headTitleText() {
+    var v = state.tabLabels && state.tabLabels[RENAME_HEAD];
+    if (v && v.en) return v.en;
+    return t('topo.title');
+  }
+  function headSubText() {
+    var v = state.tabLabels && state.tabLabels[RENAME_HEAD];
+    if (v && v.zh) return v.zh;
+    return t('topo.sub');
   }
 
   /** 某分组当前生效的顺序表；两层都没有则返回 null = 按初始排序权重。 */
@@ -3357,6 +3414,13 @@
     { page: 'realtime_alarm', key: 'map.tab.alarm', icon: 'bell' },
     { page: 'packet_loss',    key: 'map.tab.loss',  icon: 'link' }
   ];
+  /* 保留伪页签 key：这一栏的标题/副标题不是地图页签，但和页签共用同一份
+     catalog.tabLabels 存储与改名入口（2026-09-23 加）。用 __ 前缀避免与真实 page 撞名
+     （my_app 的 page 值都是 gis / mwRealTime 这种，不会以双下划线开头）。
+     后端 TAB_PAGES 里有同名白名单，两处必须一起改。 */
+  var RENAME_HEAD = '__head';
+  /** 所有可从界面上改名的项：4 个页签 + 本栏标题/副标题。 */
+  var RENAME_KEYS = MAP_TABS.map(function (m) { return m.page; }).concat([RENAME_HEAD]);
 
   /* 只保留含地图的那一块，其余顶层区块整块隐藏；地图卡片去壳后铺满。
      —— 对 gis / realtime_alarm / packet_loss（React SPA）纯 CSS 即可。
@@ -3677,15 +3741,22 @@
   }
 
   function topoSection() {
+    /* 编辑模式下标题整块可点改名（2026-09-23 加）。非编辑态渲染成普通 div，
+       避免多出一个没有作用的按钮——与 groupHref() 在编辑态返回空串同一个思路。 */
+    var canRename = !!state.editing && !!state.catalogEditable;
+    var headInner =
+      '<span class="p-1.5 rounded bg-teal-600 text-white shrink-0">' + ico('map-pin', 'text-[20px]') + '</span>' +
+      '<div class="min-w-0 text-left">' +
+        '<h3 class="text-[17px] font-bold text-slate-800 truncate">' + esc(headTitleText()) + '</h3>' +
+        '<span class="text-[13px] text-slate-400 truncate block">' + esc(headSubText()) + '</span>' +
+      '</div>';
     var head =
       '<div class="flex flex-wrap items-center justify-between pb-2.5 mb-3 border-b border-slate-100 gap-2">' +
-        '<div class="flex items-center gap-2 min-w-0">' +
-          '<span class="p-1.5 rounded bg-teal-600 text-white shrink-0">' + ico('map-pin', 'text-[20px]') + '</span>' +
-          '<div class="min-w-0">' +
-            '<h3 class="text-[17px] font-bold text-slate-800 truncate">' + esc(t('topo.title')) + '</h3>' +
-            '<span class="text-[13px] text-slate-400 truncate block">' + esc(t('topo.sub')) + '</span>' +
-          '</div>' +
-        '</div>' +
+        (canRename
+          ? '<button type="button" id="topoHeadEdit" title="' + esc(t('map.renameHeadTip')) + '" ' +
+            'class="flex items-center gap-2 min-w-0 rounded-lg px-1.5 py-1 -ml-1.5 border border-dashed border-teal-500/50 hover:bg-teal-50/60 transition">' +
+            headInner + '<span class="map-tab-edit shrink-0">' + ico('edit', 'text-[13px]') + '</span></button>'
+          : '<div class="flex items-center gap-2 min-w-0">' + headInner + '</div>') +
         /* 2026-09-18 加 flex-wrap + justify-end：这组按钮（4 个页签 + 刷新 + 新窗口打开）
            最小内容宽约 410px，而窄屏下本行可用宽度只有 356px（#secTopo 388 − p-4 两侧）。
            原来是 nowrap，子元素又都缩不到内容宽以下 → 整组撑到 443px，**横向溢出视口 23px**
@@ -4931,12 +5002,18 @@
      写入的是**全局共享**目录（/api/portal-catalog），所有人刷新都能看到 ——
      所以确认框里必须把这件事说出来，不能让人以为是只改自己那台。 */
   function promptTabRename(page) {
-    var m = mapItems().filter(function (x) { return x.page === page; })[0];
-    if (!m) return;
+    var isHead = page === RENAME_HEAD;
+    var m = isHead ? null : mapItems().filter(function (x) { return x.page === page; })[0];
+    if (!isHead && !m) return;
     var cur = (state.tabLabels && state.tabLabels[page]) || {};
-    var zh = window.prompt(t('map.renameZh'), cur.zh || tabLabelOf(page, m.key));
+    /* 当前值：没配过就用内置文案（不要让输入框空着 —— 空框会让人以为"本来就没名字"，
+       而实际是有内置名的）。标题与副标题的取值口径见 headTitleText/headSubText：
+       MsPortal 是 en 在上、zh 在下，所以默认值也照这个顺序给。 */
+    var defZh = isHead ? headSubText() : tabLabelOf(page, m.key);
+    var defEn = isHead ? headTitleText() : tabLabelOf(page, m.key);
+    var zh = window.prompt(t(isHead ? 'map.renameHeadZh' : 'map.renameZh'), cur.zh || defZh);
     if (zh === null) return;                       // 取消
-    var en = window.prompt(t('map.renameEn'), cur.en || cur.zh || tabLabelOf(page, m.key));
+    var en = window.prompt(t(isHead ? 'map.renameHeadEn' : 'map.renameEn'), cur.en || cur.zh || defEn);
     if (en === null) return;
     zh = String(zh).trim();
     en = String(en).trim();
@@ -4947,7 +5024,14 @@
     if (!zh && !en) delete next[page];
     else next[page] = { zh: zh, en: en };
     state.tabLabels = Object.keys(next).length ? next : null;
-    renderMapTabs();
+    /* 标题改了要重建整个 #secTopo（标题在 topoSection 里，不在 #mapTabs 里）。
+       ⚠️ 这会让 4 个地图 iframe 重新加载 —— 但这是改标题的必然代价，
+       且只在用户主动改名时发生一次（不是每次 render 都碰 secTopo，见 renderMapTabs
+       与 render() 的分工注释）。改完立刻 renderMapTabs 保证页签也跟着变。 */
+    if (isHead) {
+      var host = document.getElementById('secTopo');
+      if (host) host.innerHTML = topoSection();
+    }    renderMapTabs();
     saveCatalog(state.catalog, t('map.renamed'));
   }
 
@@ -4958,9 +5042,6 @@
         var b = e.target.closest('[data-page]');
         if (!b) return;
         var page = b.getAttribute('data-page');
-        /* 编辑模式：点页签 = 改名。非编辑模式：照旧切地图。
-           两者必须分开——同时生效会让「想看看微波实时」变成误开改名框。 */
-        if (state.editing && state.catalogEditable) { promptTabRename(page); return; }
         state.mapTab = page;
         writeLS(LS.mapTab, state.mapTab);
         renderMapTabs();
@@ -5537,6 +5618,9 @@
        如果先建拓扑再跑 renderSections，虽然后者不碰 secTopo、看起来也一样，
        但一旦以后有人给 renderSections 加了 secTopo 就会互相覆盖 —— 明确分开职责。 */
     document.getElementById('secTopo').innerHTML = topoSection();
+    /* 记下这次是按什么编辑态/权限画的，否则后面 renderCatalog() 里的
+       syncTopoHead() 会以为「没变过」而漏掉一次必要的重画（见那边的注释）。 */
+    topoHeadDrawn = (state.editing ? '1' : '0') + (state.catalogEditable ? '1' : '0');
     renderMapTabs();
     ensureMap();
     /* 升级机制表格：与地图同理只在 render() 里建一次（不放进 renderSections()）。
@@ -6022,6 +6106,11 @@
     document.getElementById('themeBtn').addEventListener('click', function () {
       state.theme = state.theme === 'dark' ? 'light' : 'dark';
       writeLS(LS.theme, state.theme);
+      /* 2026-09-23：viewer.html 是两个门户共用的查看器，它要在
+         'msportal.theme.v1' 与 'olbr.theme' 之间判断**哪个是用户最后的选择**
+         （两个键都可能存在且冲突），依据就是这个写入时间戳。
+         从 /olbrportal/ 点进来的深色主题也靠它对上。详见 viewer.js 的 portalTheme()。 */
+      writeLS(LS.theme + '.t', String(Date.now()));
       render();
     });
 
@@ -6637,10 +6726,22 @@
 
       var mt = e.target.closest('#mapTabs [data-page]');
       if (mt) {
-        state.mapTab = mt.getAttribute('data-page');
+        var mtPage = mt.getAttribute('data-page');
+        /* 编辑模式：点页签 = 改名；非编辑模式：照旧切地图（2026-09-23 加）。
+           两者必须分开 —— 同时生效会让「想看看微波实时」变成误开改名框。 */
+        if (state.editing && state.catalogEditable) { promptTabRename(mtPage); return; }
+        state.mapTab = mtPage;
         writeLS(LS.mapTab, state.mapTab);
         renderMapTabs();
         ensureMap();
+        return;
+      }
+
+      /* 拓扑栏标题/副标题改名（2026-09-23 加）：按钮由 topoSection 在编辑态渲染，
+         而 #secTopo 会被 render 重建，所以走文档级委托而不是绑按钮本身。 */
+      if (e.target.closest('#topoHeadEdit')) {
+        e.preventDefault();
+        promptTabRename(RENAME_HEAD);
         return;
       }
 
@@ -6729,7 +6830,10 @@
     var l = qp('lang');
     if (l === 'en' || l === 'zh') { state.lang = l; writeLS(LS.lang, l); }
     var th = qp('theme');
-    if (th === 'dark' || th === 'light') { state.theme = th; writeLS(LS.theme, th); }
+    if (th === 'dark' || th === 'light') {
+      state.theme = th; writeLS(LS.theme, th);
+      writeLS(LS.theme + '.t', String(Date.now()));  // 同 themeBtn：给 viewer.js 的跨门户主题判定用
+    }
     if (qp('edit') === '1' || qp('edit') === 'true') state.editing = true;
     var fl = qp('filter');
     if (fl) state.filter = fl;

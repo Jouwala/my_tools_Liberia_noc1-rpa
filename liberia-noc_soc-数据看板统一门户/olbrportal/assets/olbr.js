@@ -545,6 +545,13 @@
     { page: 'realtime_alarm', key: 'map.alarm', icon: 'bell' },
     { page: 'packet_loss', key: 'map.loss', icon: 'link' }
   ];
+  /* 保留伪页签 key：本栏标题/副标题不是地图页签，但与页签共用同一份
+     catalog.tabLabels 存储和改名浮层（2026-09-23 加）。__ 前缀与上面的 OTHER 同一约定，
+     且 my_app 的 page 值（gis/mwRealTime/…）不会以双下划线开头，不会撞名。
+     后端 TAB_PAGES 里有同名白名单，两处必须一起改。 */
+  var RENAME_HEAD = '__head';
+  /** 所有可从界面上改名的项：4 个页签 + 本栏标题/副标题。 */
+  var RENAME_KEYS = MAP_TABS.map(function (m) { return m.page; }).concat([RENAME_HEAD]);
   /* 页签条最右边的「报告文件」：内嵌 my_app 的任务报告文件中心（MsPortal 右列同名卡）。
      EMAIL_TAB 不是分组 id —— 它没有 gid，不进目录、不参与筛选与计数，所以往下任何
      一处拿到它都不能拼 viewer 链接（vlink / groupHref 只认看板的 no / 真分组）。 */
@@ -1130,6 +1137,29 @@
       '</div><div class="qc-grid">' + cards + '</div>';
   }
 
+  /* 地图栏的面板头 + 页签 + 工具按钮（2026-09-23 抽出）。
+     抽出来的原因：快速路径（renderL0(true)）只重画左栏，改名后必须就地刷新这块，
+     否则「改完标题还是旧的」会被当成没保存成功。整份 HTML 由 renderL0 与快速路径共用，
+     避免两处走样（页签里含 tabLabelOf 的结果，必须跟着 tabLabels 变）。 */
+  function mapHeadHtml(maps) {
+    var ed = canEdit();
+    return '<div class="p-head"><span class="p-hd">' +
+      (ed
+        ? '<button type="button" class="p-t p-t-edit" data-act="map-head" title="' + esc(t('edit.maptabTip')) + '">' +
+          esc(headTitleText()) + '<i class="ph ph-pencil-simple maptab-pen" aria-hidden="true"></i></button>'
+        : '<span class="p-t">' + esc(headTitleText()) + '</span>') +
+      '<span class="p-s">' + esc(headSubText()) + '</span></span>' +
+      '<div class="map-tabs"><div class="tabs' + (ed ? ' is-renaming' : '') + '" role="tablist">' + maps.map(function (m) {
+        return '<button type="button" class="tab" role="tab" data-map="' + esc(m.page) + '" aria-selected="' +
+          (m.page === state.mapTab ? 'true' : 'false') + '" title="' +
+          esc(ed ? t('edit.maptabTip') : m.title) + '">' + ic(m.icon) + esc(tabLabelOf(m.page, m.key)) +
+          (ed ? '<i class="ph ph-pencil-simple maptab-pen" aria-hidden="true"></i>' : '') + '</button>';
+      }).join('') + '</div>' +
+      '<button type="button" class="gb gb--t" data-act="map-reload" title="' + esc(t('map.reload')) + '"><i class="ph ph-arrow-clockwise"></i><span>' + esc(t('map.reload')) + '</span></button>' +
+      '<a class="gb gb--t" id="mapOpen" href="' + esc(curMap().src) + '" target="_blank" rel="noopener noreferrer" title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out"></i><span>' + esc(t('map.open')) + '</span></a>' +
+      '</div></div>';
+  }
+
   function renderL0(keepMap) {
     var box = $('#l0');
     var maps = mapItems();
@@ -1157,6 +1187,12 @@
       var col = document.getElementById('l0Col'), mp = document.getElementById('l0Map');
       if (col && mp && maps.length) {
         col.innerHTML = side;
+        /* 标题/页签那块要就地刷新（2026-09-23 加）：改名走的是 renderCatalog →
+           renderL0(true)，走快速路径时只换左栏，不重画 p-head 的话
+           「改完标题没变」会被当成没保存成功。这里只写 p-head 的 innerHTML，
+           不碰 iframe —— 不会触发那个几十秒的拓扑重载。 */
+        var phead = mp.querySelector('.p-head');
+        if (phead) phead.innerHTML = mapHeadHtml(maps);
         box.classList.toggle('no-side', !side);
         return;
       }
@@ -1165,18 +1201,8 @@
     box.classList.toggle('no-side', !side);
     if (maps.length) {
       html += '<section class="panel map" id="l0Map" data-tier="0" aria-label="Topology">' +
-        '<div class="p-head"><span class="p-hd"><span class="p-t">' + esc(t('map.title')) + '</span>' +
-        '<span class="p-s">' + esc(t('map.sub')) + '</span></span>' +
-        '<div class="map-tabs"><div class="tabs' + (canEdit() ? ' is-renaming' : '') + '" role="tablist">' + maps.map(function (m) {
-          return '<button type="button" class="tab" role="tab" data-map="' + esc(m.page) + '" aria-selected="' +
-            (m.page === state.mapTab ? 'true' : 'false') + '" title="' +
-            esc(canEdit() ? t('edit.maptabTip') : m.title) + '">' + ic(m.icon) + esc(tabLabelOf(m.page, m.key)) +
-            (canEdit() ? '<i class="ph ph-pencil-simple maptab-pen" aria-hidden="true"></i>' : '') + '</button>';
-        }).join('') + '</div>' +
-        '<button type="button" class="gb gb--t" data-act="map-reload" title="' + esc(t('map.reload')) + '"><i class="ph ph-arrow-clockwise"></i><span>' + esc(t('map.reload')) + '</span></button>' +
-        '<a class="gb gb--t" id="mapOpen" href="' + esc(curMap().src) + '" target="_blank" rel="noopener noreferrer" title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out"></i><span>' + esc(t('map.open')) + '</span></a>' +
-        '</div></div>' +
-        '<div class="canvas"><iframe id="mapFrame" title="' + esc(t('map.title')) + '" src="' + esc(curMap().src) + '"></iframe>' +
+        mapHeadHtml(maps) +
+        '<div class="canvas"><iframe id="mapFrame" title="' + esc(headTitleText()) + '" src="' + esc(curMap().src) + '"></iframe>' +
         '<div class="canvas-note"><span>' + esc(curMap().title) + '</span>' +
         '<span>/myapp/?page=' + esc(curMap().page) + '</span></div></div></section>';
     }
@@ -1307,13 +1333,13 @@
   function normTabLabels(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
     var out = {};
-    MAP_TABS.forEach(function (m) {
-      var v = raw[m.page];
+    RENAME_KEYS.forEach(function (page) {
+      var v = raw[page];
       if (!v || typeof v !== 'object') return;
       var zh = typeof v.zh === 'string' ? v.zh.trim() : '';
       var en = typeof v.en === 'string' ? v.en.trim() : '';
       if (!zh && !en) return;               /* 全空 = 没配（后端也会丢弃空壳） */
-      out[m.page] = { zh: zh, en: en };
+      out[page] = { zh: zh, en: en };
     });
     return out;
   }
@@ -1325,6 +1351,23 @@
       if (s) return s;                      /* 只认当前语言的值，缺就回落内置 */
     }
     return t(key);
+  }
+  /* 本栏标题 / 副标题（2026-09-23 纳入可改名）。
+     ⚠️ olbrportal 的用法与 MsPortal **相反**：这里是 title=中文、sub=英文
+     （'map.title' 中文值「利比里亚网络拓扑全景」、英文值 "Central Liberia Regional
+     Topology"；'map.sub' 是 "Network panorama"）。所以：
+       · 上方标题 ← 中文名（zh）
+       · 下方副标题 ← 英文名（en）
+     后端只存"中/英"两个值，由各前端决定谁显示在上 —— 改这里之前先确认没把上下搞反。 */
+  function headTitleText() {
+    var v = state.tabLabels && state.tabLabels[RENAME_HEAD];
+    if (v && v.zh) return v.zh;
+    return t('map.title');
+  }
+  function headSubText() {
+    var v = state.tabLabels && state.tabLabels[RENAME_HEAD];
+    if (v && v.en) return v.en;
+    return t('map.sub');
   }
   function putCatalog(cat) {    return fetch('/api/portal-catalog', {
       method: 'PUT', credentials: 'same-origin',
@@ -1524,7 +1567,7 @@
   /* 拓扑地图页签改名（2026-09-23 加）。写的是服务端共享目录 catalog.tabLabels，
      所有人刷新都能看到 —— 与分组改名同一个语义层级。 */
   function renameTab(page, zh, en) {
-    if (!MAP_TABS.some(function (m) { return m.page === page; })) return;
+    if (RENAME_KEYS.indexOf(page) === -1) return;
     zh = String(zh || '').trim(); en = String(en || '').trim();
     var next = {};
     Object.keys(state.tabLabels || {}).forEach(function (k) { next[k] = state.tabLabels[k]; });
@@ -1690,7 +1733,14 @@
     });
     document.addEventListener('mousedown', function (e) {
       if (!e.target.closest) return;
-      if (state.popForm && !e.target.closest('#editPop') && !e.target.closest('[data-act="grp-edit"],[data-act="grp-add"],[data-act="title"]')) closeForm();
+      /* ⚠️ 这份"点它不算点外面"的名单必须列全所有会 openForm 的触发点，
+         否则 mousedown 先 closeForm()、紧接着 click 又 openForm()：
+         同一个元素上先关后开，表现为浮层闪一下，且第二次点变成"切换关闭"。
+         2026-09-23 加页签/标题改名时漏了后两个选择器（.tab 与 [data-act=map-head]），
+         症状是点标题浮层一闪、点同一个页签第二次不弹。 */
+      if (state.popForm && !e.target.closest('#editPop') &&
+          !e.target.closest('[data-act="grp-edit"],[data-act="grp-add"],[data-act="title"],' +
+                            '[data-act="map-head"],#l0Map .tab')) closeForm();
       if (state.grpFor !== null && !e.target.closest('#grpPop') && !e.target.closest('[data-act="grp"]')) closeGrp();
     });
   }
@@ -1815,11 +1865,17 @@
     }
     else if (kind === 'maptab') {
       /* 当前值：配过就是配置里的，没配过用内置文案（不要让输入框空着 ——
-         空框会让人以为「本来就没名字」，而实际是有内置名的）。 */
-      var mt = mapItems().filter(function (x) { return x.page === id; })[0];
-      if (!mt) return;
+         空框会让人以为「本来就没名字」，而实际是有内置名的）。
+         __head 的 zh/en 与页签同口径（zh=中文、en=英文），本门户标题在上用的是 zh，
+         取值时直接照 headTitleText/headSubText 的映射来。 */
       var cv = (state.tabLabels && state.tabLabels[id]) || {};
-      vals = { zh: cv.zh || tabLabelOf(id, mt.key), en: cv.en || tabLabelOf(id, mt.key) };
+      if (id === RENAME_HEAD) {
+        vals = { zh: cv.zh || headTitleText(), en: cv.en || headSubText() };
+      } else {
+        var mt = mapItems().filter(function (x) { return x.page === id; })[0];
+        if (!mt) return;
+        vals = { zh: cv.zh || tabLabelOf(id, mt.key), en: cv.en || tabLabelOf(id, mt.key) };
+      }
     }
     var hd = kind === 'grp' ? gName(id) : kind === 'title' ? ('#' + id + ' ' + (vals.zh || vals.en))
       : kind === 'maptab' ? (t('map.title') + ' · ' + (vals.zh || vals.en)) : t('edit.grpAdd');
@@ -3568,6 +3624,12 @@
   }
   function setTheme(v) {
     state.theme = v; root.classList.toggle('dark', v === 'dark'); ss('olbr.theme', v);
+    /* 2026-09-23：本页的深色主题要能带到 /MsPortal/viewer.html（「打开看板」整个交给它）。
+       那个查看器是两个门户共用的，它要判断「msportal.theme.v1 与 olbr.theme 谁更新」，
+       所以这里显式记一个写入时间戳当依据。放在值之后写：查看器只认 '*.t' 这个键，
+       顺序不影响它，但先值后戳更像一份完整的「这次设置」记录。
+       ⚠️ 改这里请对照 MsPortal/assets/viewer.js 的 portalTheme()/lastWriteAt()。 */
+    ss('olbr.theme.t', String(Date.now()));
     applyI18n();
     var f = $('#mapFrame'); if (f) { f.src = curMap().src; }
     /* 报告文件那块不看 URL 参数也不收 postMessage（my_app 只在启动时读 myapp-theme），
@@ -3668,6 +3730,13 @@
            两者必须分开 —— 同时生效会让「想看看微波实时」变成误开改名框。 */
         if (canEdit()) { openForm('maptab', pg, tb); return; }
         state.mapTab = pg; ss('olbr.maptab', state.mapTab); renderL0(); return;
+      }
+      /* 标题改名（2026-09-23 加）：按钮在 #l0Map 的 p-head 里，那块会被 renderL0 重建，
+         所以走这里的事件委托而不是绑按钮本身。 */
+      if (e.target.closest('[data-act="map-head"]')) {
+        e.preventDefault();
+        openForm('maptab', RENAME_HEAD, e.target.closest('[data-act="map-head"]'));
+        return;
       }
       if (e.target.closest('[data-act="map-reload"]')) { var f = $('#mapFrame'); if (f) f.src = curMap().src; }
     });

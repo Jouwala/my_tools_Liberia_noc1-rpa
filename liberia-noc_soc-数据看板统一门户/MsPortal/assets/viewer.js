@@ -200,9 +200,36 @@
    * ⚠️ 这是**跨应用**副作用：写过之后直接打开 /myapp/ 也会是同一主题。
    *    不想要的话，删掉本段和它的 3 处调用即可。 */
   var EMBED_THEME_KEY = 'myapp-theme';
+  /* ---- 谁是「当前主题」（2026-09-23 加：支持 olbrportal 入口） ----
+   * 本页有两个门户入口，主题键不同：
+   *   · /MsPortal/   → 'msportal.theme.v1'
+   *   · /olbrportal/ → 'olbr.theme'（该页刻意不复用 msportal.* 那几个键，
+   *                    见 olbr.js 顶部「绝不写 msportal.*」那条约定）
+   * 两边的「打开看板」都指到本页，所以本页必须认得两个键，
+   * 否则从 olbrportal 深色主题点进来，外壳仍是浅色（用户反馈的现象）。
+   *
+   * 两个键都可能有值且冲突（用户先在某边切深、又在另一边切浅），
+   * 所以不能「非空即认」，要看**最后被设置的那个** —— 依据是各页写入的价值同时
+   * 记一个时间戳（'<key>.t'，毫秒 epoch）。这个时间戳由两个门户的 setTheme /
+   * 切换动作负责写；缺失时按 0 处理，等价于「比不过另一边的任何一次显式设置」。
+   * ⚠️ viewer.html 首屏那段防闪烁脚本用的是**同一套判据**，必须一起改，
+   *    否则首帧与挂载后会闪一下另一种主题。 */
+  var THEME_KEY_MS = 'msportal.theme.v1';
+  var THEME_KEY_OLBR = 'olbr.theme';
+  function lastWriteAt(key) {
+    try { return parseInt(localStorage.getItem(key + '.t') || '0', 10) || 0; }
+    catch (e) { return 0; }
+  }
+  function themeOf(key) {
+    try {
+      var v = localStorage.getItem(key);
+      return (v === 'dark' || v === 'light') ? v : null;
+    } catch (e) { return null; }
+  }
   function portalTheme() {
-    try { return localStorage.getItem('msportal.theme.v1') === 'dark' ? 'dark' : 'light'; }
-    catch (e) { return 'light'; }
+    var m = themeOf(THEME_KEY_MS), o = themeOf(THEME_KEY_OLBR);
+    if (m && o) return lastWriteAt(THEME_KEY_OLBR) >= lastWriteAt(THEME_KEY_MS) ? o : m;
+    return o || m || 'light';
   }
   function syncEmbedTheme() {
     var want = portalTheme();
@@ -452,9 +479,12 @@
   });
 
   /* 门户在**另一个标签页**切了主题 → 本页外壳和内嵌看板一起跟着切。
-     （storage 事件只在「别的文档」改动 localStorage 时触发，所以不会自激。） */
+     （storage 事件只在「别的文档」改动 localStorage 时触发，所以不会自激。）
+     2026-09-23：两个入口的主题键都要听 —— 从 /olbrportal/ 切主题时写的是
+     'olbr.theme'，只听 'msportal.theme.v1' 会漏掉它。时间戳键（'*.t'）
+     由门户紧接着写入，本页只关心值键，所以不必额外处理。 */
   window.addEventListener('storage', function (e) {
-    if (e.key !== 'msportal.theme.v1') return;
+    if (e.key !== THEME_KEY_MS && e.key !== THEME_KEY_OLBR) return;
     var want = syncEmbedTheme();
     document.documentElement.classList.toggle('dark', want === 'dark');
     if (!current || !isEmbeddable(current)) return;

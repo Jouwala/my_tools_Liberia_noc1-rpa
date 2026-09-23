@@ -524,12 +524,15 @@ export default function NativeBoard({ slug }: { slug: string }) {
   return (
     <div style={{ padding: 4 }}>
       <Card size="small" style={{ ...cardStyle, marginBottom: 12 }} styles={{ body: { padding: '8px 12px' } }}>
+        {/* 看板标题独占一行并居中（页头第二行才是 KPI / 徽标与右侧操作区） */}
+        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+          <Title level={4} style={{ margin: 0, color: isDark ? '#64ffda' : '#0d9488' }}>
+            ❯❯❯ {titleWidget?.title_text || data?.title || slug} ❮❮❮
+          </Title>
+        </div>
         <Row align="middle" justify="space-between" gutter={[12, 8]}>
           <Col flex="auto">
             <Space size={10} wrap>
-              <Title level={4} style={{ margin: 0, color: isDark ? '#64ffda' : '#0d9488' }}>
-                ❯❯❯ {titleWidget?.title_text || data?.title || slug} ❮❮❮
-              </Title>
               {/* 单值 KPI（Time 之类）跟着标题排在同一行右侧 */}
               {headerKpis.map((w) => <HeaderKpi key={w.id} w={w} />)}
               {data?.meta && (

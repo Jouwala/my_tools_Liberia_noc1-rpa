@@ -1,0 +1,1 @@
+import{n as e}from"./rolldown-runtime-DaJ6WEGw.js";import{H as t}from"./react-vendor-Da0saO8s.js";import{C as n,x as r}from"./index-F__hYB20.js";import{n as i,t as a}from"./LegacyToolFrame-DpvmLIly.js";function o(){let{t:e}=n();return(0,s.jsx)(a,{file:`ip-trace.html`,title:e(`shell.ipTrace`)})}var s;e((()=>{i(),r(),s=t()}))();export{o as default};

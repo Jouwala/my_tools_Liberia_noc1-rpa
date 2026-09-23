@@ -1,10 +1,13 @@
 /* global chrome */
 
-// 这两个 origin 是扩展权限和服务端计划的双重白名单。不要把网页传来的 URL
+// 这些 origin 是扩展权限和服务端计划的双重白名单。不要把网页传来的 URL
 // 直接用于 fetch / tabs.create，否则桥接脚本会变成任意站点的 Cookie 写入器。
+// ⚠️ 新增直连门户时，这里与 manifest.json 的 host_permissions 必须同步加，
+//    否则前端会走到扩展但被 validRequest/validPlan 判为白名单外而失败。
 const TARGETS = Object.freeze({
   eflow: 'https://10.100.20.8:28001',
   rais: 'https://10.100.20.9:8766',
+  battery_ume: 'https://192.168.170.2:443',
 })
 const MYAPP_ORIGINS = new Set([
   'http://192.168.100.20',

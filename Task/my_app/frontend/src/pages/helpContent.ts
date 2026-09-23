@@ -12,6 +12,7 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'alarm' },
   { key: 'ttwo' },
   { key: 'eflow_qa' },
+  { key: 'eflow_flow' },
   { key: 'nur' },
   { key: 'ms_nur_only' },
   { key: 'ms_sla' },
@@ -22,6 +23,10 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'gis' },
   { key: 'realtime_alarm' },
   { key: 'alarmManagement', iframe: true },
+  { key: 'fme_ranking' },
+  { key: 'site_avail' },
+  { key: 'noc_analyst' },
+  { key: 'repeat_site_down' },
   { key: 'packet_loss' },
   { key: 'battery' },
   { key: 'ume_in_kpi' },
@@ -45,6 +50,7 @@ export const NAV_KEY_MAP: Record<string, string> = {
   alarm: 'nav.alarm',
   ttwo: 'nav.ttwo',
   eflow_qa: 'nav.eflowQa',
+  eflow_flow: 'nav.eflowFlow',
   nur: 'nav.nur',
   ms_nur_only: 'nav.msNurOnly',
   ms_sla: 'nav.msSla',
@@ -55,6 +61,10 @@ export const NAV_KEY_MAP: Record<string, string> = {
   gis: 'nav.gis',
   realtime_alarm: 'nav.realtimeAlarm',
   alarmManagement: 'nav.alarmManagement',
+  fme_ranking: 'nav.fmeRanking',
+  site_avail: 'nav.siteAvail',
+  noc_analyst: 'noc.navLabel',
+  repeat_site_down: 'nav.repeatSiteDown',
   packet_loss: 'nav.packetLoss',
   battery: 'nav.battery',
   ume_in_kpi: 'nav.umeInKpi',
@@ -76,9 +86,9 @@ export const CATEGORIES: { id: string; pages: string[] }[] = [
   { id: 'tasks', pages: ['sync', 'email_reports', 'upload', 'tables', 'overview'] },
   {
     id: 'boards',
-    pages: ['alarm', 'ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'packet_loss', 'battery', 'ume_in_kpi', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse'],
+    pages: ['alarm', 'ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'noc_analyst', 'repeat_site_down', 'packet_loss', 'battery', 'ume_in_kpi', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse'],
   },
-  { id: 'analysis', pages: ['eflow_qa', 'dashboard', 'archive', 'ip_trace'] },
+  { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace'] },
   { id: 'system', pages: ['settings', 'portalLogin'] },
 ]
 
@@ -93,8 +103,12 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: ['数据没更新时第一个打开这里：点统计卡即筛选，用「失败聚合」排查昨天夜里哪些任务挂了', '单任务「排程」弹窗修改 cron（写入 task_schedule_config，持久化，重启不丢）', '「全局历史」跨任务检索执行记录；任务完成后语音播报可在本页开关'],
     },
     email_reports: {
-      desc: '汇总三类任务产物并供下载：邮件发送的最新报告附件、FineBI FTP 报表、eFlow TT 规则检查结果（规则表/矫正表/报告）。',
-      usage: ['顶部页签切换类别，点文件名或「下载」保存；可设每类保留最近 N 份', 'eFlow 规则页签可「立即执行」手动触发一次检查（3 秒后自动刷新一次，任务慢时需手动再刷）'],
+      desc: '汇总三类任务产物并供下载：邮件发送的最新报告附件、FineBI FTP 报表、eFlow 规则检查结果。eFlow 页签底部列出**从 eFlow 获取的全部规则表**（TT 级别矫正规则 / 告警关联规则 / 推单·配置规则）与本次检查产物（级别矫正表 / 匹配报告）。',
+      usage: [
+        '顶部页签切换类别，点文件名或「下载」保存；可设每类保留最近 N 份',
+        'eFlow 页签三个「立即…」按钮分别手动触发对应任务：立即检查（TT 规则 + 匹配矫正）、收集告警规则、收集推单规则；触发后 3 秒自动刷新一次，任务慢时需手动再刷',
+        'eFlow 页签底部表格：蓝色标签为规则表（TT 规则随每日 04:20 检查刷新；告警/推单规则原本每 3 天 23:59 刷新，可用上面的「收集…」按钮随时刷新），灰色为本次检查产物',
+      ],
     },
     alarm: {
       desc: '全网当前活跃告警的综合视图：总量、级别、站点等多维统计与趋势。',
@@ -109,8 +123,25 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: [
         '空格分隔多关键词检索，或从左侧目录选择文章',
         '输入 TT 单号一键分析：派单归属、时间差、根因分布与结论要点',
+        'AI 分析结论下方附「规则命中证据」（本地规则引擎，与 Email Reports → eFlow TT Rules Check 页签同源）：命中规则名称与 ID、逐条条件匹配详情、规则来源文件 eflow_TT_rules.xlsx（可下载）、规则维护人与工单处理人',
+        '模型不可用（本地代理未启动且 Open WebUI 不可达）时不再只报错：页面会给出一份「程序化判定」结论 —— 级别判定、命中规则、规则来源与处置建议全部由本地规则引擎算出',
+        '「规则来源与责任人」另给推单规则（TT Push Order Rule，触发步骤 FO Accept）：Rule Name / Rule Type / Rule Trigger Step / Push Order Path / *Auto Operator / Target Handler，说明这单会不会自动推 WO、推给谁、谁自动处理（来源 eflow_push_rules.xlsx，可下载）',
         'TT 批量核查：上传 xlsx/csv/txt 单号清单或直接粘贴，逐单判定工单级别是否正常（正常/需调整/无法判定），可导出 Excel',
         'TT 批量核查支持「下载模板 → 填写 → 上传核查」闭环：点「下载模板」得到带表头的 xlsx，填好单号后把同一个文件传回来即可',
+      ],
+    },
+    eflow_flow: {
+      desc: 'eFlow 全流程查询：输入告警（告警 ID / 告警码）或 TT 单号，画出该单在 eFlow 里的全流程图 —— 规则驱动的完整状态机 + 该单实际走过的路径高亮。',
+      usage: [
+        '输入框支持三种输入：TT 单号（TT202609230060）、告警 ID（告警表的 id/aid）、告警码（如 99933）；按告警码查询会列出该码最近的 TT 供切换',
+        '底图是规则驱动的状态机：告警发生 → TT 建单 → 自动派单 → FO/BO 接单 → FO/BO 处理 → 第三方接单/处理 → 确认 → 关单，节点下方的「生效/总数」是该步骤绑定的规则条数',
+        '绿色节点 = 该单实际走过的步骤，黄色节点 = 当前所处步骤（来自 operation_type 字段），灰色 = 未涉及；粗青色连线 = 实际路径',
+        '点击图中任意节点，下方「规则明细」表即切到该步骤绑定的规则（规则名 / 类型 / 触发步骤 / 状态 / 优先级 / 目标处理人 / 推送路径），再点「显示全部」可看全量规则',
+        '「实际流程路径」表按时间列出该单真实走过的里程碑、操作人与说明；「TT 工单信息」表给出级别、当前处理人、SLA、根因等字段',
+        'TT 若已派生现场工单，另有「WO 现场子流程」区块：WO 的 接单 → 处理 → 确认 → 关单 独立一条流水线，并列出各环节处理明细（来自 eflow_wo 的 *Detail 字段）',
+        '「关联告警」表列出触发该 TT 的告警（realtime_alarm / history_alarm 的 tt_id 或 alarm_id 关联），含告警码、站点、网元、级别与发生时间',
+        '判定口径与「NOC 操作人分析」「单 TT 复盘报告」同源：规则统一读 ocrule_details，因此不会出现「流程图说 A、复盘说 B」',
+        '规则表由 eflow_push_rules_collect / eflow_alarm_rules_collect 定时采集（每 3 天 23:59），规则更新后流程图自动反映',
       ],
     },
     nur: {
@@ -191,6 +222,37 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: 'OLR 事件（Incident）总览看板：卡片、矩阵、SLA 图表、分页明细与地图。',
       usage: ['数据每小时整点由 incident_overview_sync 从 FineBI FTP 取最新 incident_overview.xlsx（版本化落盘，上游文件被占用也不会取数失败）'],
     },
+    noc_analyst: {
+      desc: 'NOC 操作人分析：基于 eflow_tt.last_processer 量化每位 NOC 的根因错位率、平均处理时长、夜班单占比与 SLA 通过率，并给出红旗告警。页面按「能下钻尽下钻」设计——从人一路下钻到 TT，再下钻到告警链路。',
+      usage: [
+        '口径：按告警发生时间（alarm_occur_time）归属月份，而非最后修改时间；夜班 = Accept 操作时间落在 22:00–06:00',
+        '错位率 = 错位单数 / 已填报根因单数；错位判定以 history_alarm.reason_type 为权威，与 NOC 填报的 root_cause 比对（典型为 POWER←TRM，即 NOC 填供电、系统指向传输）',
+        '第 1 层下钻：概览数字卡、Top3/Bottom3 卡片、ECharts 柱状图、排名表每一列与红旗告警里的人名，全部可点',
+        '第 2 层下钻：弹窗内按「全部 / 根因错位 / 夜班单 / SLA Fail / 慢单（≥12h）」五种切片切换，行数与该 NOC 的对应指标严格一致',
+        '第 3 层下钻：切到「异常站点」页签按站点聚合（错位 / SLA Fail / 慢单 / 夜班），点站点名再看该站的全部 TT',
+        '第 4 层下钻：点任意 TT 单号打开单 TT 复盘报告——按「时间归因 / 里程碑时间轴 / 应做·实做 / 偏离清单 / 告警链路」五个页签展开，与 EflowQa 页的程序化复盘报告同源同口径',
+        '时间归因区「时间都花哪了」：把整月工单逐单解析后聚合，回答时间浪费在哪个环节。含 6 张可点数字卡、各环节占时比例饼图、偏离类型分布、分段表（合计/平均/P90/最长/超阈值单数）、里程碑耗时分布表',
+        '「应派未派 WO 明细」：高等级断站（P1/P2、VIP、Hub）却没派现场工单的单子，按总历时降序，点 TT 号直接进该单的复盘报告「偏离清单」页签',
+        '现场处置及时性「全月 WO 各跳耗时分布」：把现场工单的生命周期拆成 工单建单→FE 接单→出发→到场→处理完成→关单 各跳，看哪一跳最卡。实测最慢的是「工单建单 → FE 接单」（中位数约 11 小时），而接单之后的动作都只要几分钟',
+        '「NOC / 人工动作及时性」：每个该由人完成的动作（FO Accept 接单、FO Process 填报、现场作业）等了多久、是否超过契约时限、超时限占比是多少',
+        '单 TT 复盘「时间归因」页签里，分段表带「阶段」列可直接看出该单时间压在哪一类；下方还有该单的「现场处置时间轴（WO 生命周期）」逐跳明细（含操作人）；未派 WO 的单会明确提示"本单无 WO"，不会空白',
+        '「阶段归并：时间压在谁手里」：把细分段按阶段合并（建单时延/接单等待/现场响应等待/现场作业/告警清除/提交关单/关单确认），便于比较 NOC、现场、系统各占多久。实测全月现场响应等待占 15.2%（中位数 6.4 小时）',
+        '时间归因首次计算要逐单复盘全月工单（实测约 150 秒），结果按月份落盘缓存，之后打开是毫秒级；需要强制重算时点右上角「重新计算」',
+        '弹窗内每个表格都可全字段搜索、列筛选与排序，并可导出 Excel（导出的是当前切片、当前搜索结果）',
+      ],
+    },
+    fme_ranking: {
+      desc: 'FME 排名看板：按 FME 统计站点可用率、工单量与 SLA 达成率，并排名。',
+      usage: ['Top3 / Bottom3 卡片与排名表可点击下钻该 FME 的站点级可用率与 WO 明细', '下钻弹窗内可切换到站点维度，查看每个站点的可用率与告警'],
+    },
+    site_avail: {
+      desc: '站点可用率看板：站点级可用率排名与达标情况。',
+      usage: ['点站点名下钻该站的可用率明细', '可用率按站点统计口径计算，与 FME 排名页同源'],
+    },
+    repeat_site_down: {
+      desc: '重复宕站看板：识别在统计窗口内反复宕站的站点，用于定位「修不好的站」。',
+      usage: ['按日粒度统计站点宕站次数，点数字下钻该日宕站明细', '数据来自 eflow_tt 与 eflow_site，与告警看板口径互补'],
+    },
     warehouse: {
       desc: '备件/耗材库存看板（Spare Management），与原工具看板完全一致。',
       usage: ['数据来自 sp_data_sync（每天 07:00 从 SFTP 拉取的 5 份备件报表）', '按仓库/备件类型查看库存与明细'],
@@ -230,8 +292,12 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: ['First stop when data looks stale: click a stat card to filter, use the failure summary to see which tasks failed overnight', 'Edit cron in the "Schedule" dialog (persisted in task_schedule_config, survives restarts)', '"Global History" searches runs across tasks; voice announcement on completion toggles here'],
     },
     email_reports: {
-      desc: 'Collects three kinds of task artifacts for download: latest email report attachments, FineBI FTP reports, and eFlow TT rule check results (rules / corrections / report).',
-      usage: ['Switch categories via tabs; click a file name or "Download" to save; set how many recent files to keep per category', 'The eFlow rule tab supports "Run Now" to trigger a check manually (auto-refreshes once after 3s; refresh manually if the task is slow)'],
+      desc: 'Collects three kinds of task artifacts for download: latest email report attachments, FineBI FTP reports, and eFlow rule check results. The bottom of the eFlow tab lists **every rule sheet collected from eFlow** (TT severity rules / alarm correlation rules / push & config rules) plus this run\'s outputs (severity correction sheet / matching report).',
+      usage: [
+        'Switch categories via tabs; click a file name or "Download" to save; set how many recent files to keep per category',
+        'The three "Run Now / Collect" buttons on the eFlow tab trigger the matching task manually: TT check + severity correction, alarm rule collection, push rule collection; each auto-refreshes once after 3s (refresh manually if the task is slow)',
+        'Table at the bottom of the eFlow tab: blue tag = rule sheet (TT rules refresh with the daily 04:20 check; alarm/push rules normally refresh every 3 days at 23:59 — use the "Collect" buttons to refresh them on demand), grey = this run\'s outputs',
+      ],
     },
     alarm: {
       desc: 'Combined view of all current active network alarms: totals, severity, site-level multi-dimension statistics and trends.',
@@ -243,7 +309,29 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     eflow_qa: {
       desc: 'eFlow TT rule knowledge base: full-text search over rule/case documents, with built-in TT quick analysis.',
-      usage: ['Search with space-separated keywords or pick an article from the catalog on the left', 'Enter a TT number for one-click analysis: assignment, time gap, root-cause distribution and key conclusions'],
+      usage: [
+        'Search with space-separated keywords or pick an article from the catalog on the left',
+        'Enter a TT number for one-click analysis: assignment, time gap, root-cause distribution and key conclusions',
+        'Below the AI conclusion a "Rule match evidence" block (local rule engine, same source as Email Reports → eFlow TT Rules Check) lists the matched rule name/ID, per-condition match details, the rule source file eflow_TT_rules.xlsx (downloadable), the rule owner and the ticket handler',
+        'When no model is reachable (local proxy down and Open WebUI unreachable) the page no longer just shows an error: it renders a "programmatic verdict" — severity verdict, matched rule, rule source and recommended actions all computed by the local rule engine',
+        'Rule source & owners also lists the push order rule (TT Push Order Rule, triggerStep=FO Accept): Rule Name / Rule Type / Rule Trigger Step / Push Order Path / *Auto Operator / Target Handler — i.e. whether the TT is auto-pushed to a WO, to whom, and which operator acts automatically (source: eflow_push_rules.xlsx, downloadable)',
+        'TT batch check: upload an xlsx/csv/txt list of TT numbers or paste them to judge each ticket severity (OK / needs adjustment / undetermined) and export to Excel',
+        'The batch check supports a "download template → fill in → upload" loop: download the templated xlsx, fill in the numbers and upload the same file back',
+      ],
+    },
+    eflow_flow: {
+      desc: 'eFlow process flow: enter an alarm (alarm ID / alarm code) or a TT number to draw the ticket\'s full eFlow process — the rule-driven state machine plus the path actually traversed, highlighted.',
+      usage: [
+        'Three input types: TT number (TT202609230060), alarm ID (the alarm table id/aid), or alarm code (e.g. 99933); querying by alarm code lists the most recent TTs carrying it so you can switch',
+        'The base diagram is the rule-driven state machine: Alarm Raised → TT Created → Auto Dispatch → FO/BO Accept → FO/BO Process → 3rd Party Accept/Process → Confirm → Closed; the active/total count under each node is how many rules bind to that step',
+        'Green node = a step the ticket actually traversed, amber node = the current step (taken from the operation_type field), grey = not involved; thick cyan edges = the actual path',
+        'Click any node to switch the "Rule details" table below to the rules bound to that step (rule name / type / trigger step / status / priority / target handler / push path); "Show all" reveals every rule',
+        'The "Actual path" table lists the milestones the ticket really went through, with operator and note; "TT ticket information" gives severity, current handler, SLA and root cause',
+        'If the TT spawned a field work order, a "WO field sub-process" block shows the WO\'s own Accept → Process → Confirm → Closed pipeline plus per-step handling detail (from the eflow_wo *Detail columns)',
+        'The "Related alarms" table lists the alarms that raised this TT (linked via realtime_alarm / history_alarm tt_id or alarm_id), with alarm code, site, network element, severity and raised time',
+        'Verdicts share one source with "NOC analyst" and the single-TT postmortem report: rules are all read from ocrule_details, so the flow diagram and the postmortem can never disagree',
+        'The rule tables are collected by the eflow_push_rules_collect / eflow_alarm_rules_collect jobs (every 3 days at 23:59); the diagram reflects rule updates automatically',
+      ],
     },
     nur: {
       desc: 'Network Unavailability Rate (NUR) daily/weekly/monthly trends, multi-dimension analysis and site compliance.',
@@ -322,6 +410,37 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     incident_overview: {
       desc: 'OLR incident overview board: cards, matrix, SLA charts, paginated details and a map.',
       usage: ['Data is fetched hourly by incident_overview_sync from the latest incident_overview.xlsx on the FineBI FTP (versioned files, resilient to the upstream file being locked)'],
+    },
+    noc_analyst: {
+      desc: 'NOC operator analysis: quantifies each NOC operator\'s root-cause mismatch rate, average handling time, night-ticket share and SLA pass rate from eflow_tt.last_processer, and raises red flags. Built around "drill down wherever possible" — from the person to the ticket, then to the alarm chain.',
+      usage: [
+        'Scope: tickets are attributed to a month by alarm occurrence time (alarm_occur_time), not last-modified time; night = Accept operation time between 22:00 and 06:00',
+        'Mismatch rate = mismatched tickets / tickets with a filed root cause. history_alarm.reason_type is authoritative and is compared against the NOC-filed root_cause (typically POWER←TRM: NOC filed power, the system says transmission)',
+        'Layer 1: summary stat cards, Top3/Bottom3 cards, the ECharts bar chart, every column in the ranking table, and each operator named in the red-flag banner are all clickable',
+        'Layer 2: the modal switches between five slices — All / Root-cause mismatch / Night / SLA failed / Slow (≥12h); row counts match that operator\'s metric exactly',
+        'Layer 3: the "Abnormal sites" tab aggregates by site (mismatch / SLA fail / slow / night); click a site name to see all of its TTs',
+        'Layer 4: click any TT number for the single-ticket postmortem — five tabs: time attribution / milestone timeline / should-do vs did / deviations / alarm chain, sharing the same source and definitions as the programmatic postmortem report on the EflowQa page',
+        'Time attribution section ("where the time went"): every ticket of the month is parsed and aggregated to show where time is wasted. Six clickable stat cards, a stage-share pie chart, a deviation-type distribution, a segment table (total/average/P90/longest/over-threshold counts) and a milestone duration table',
+        '"WO expected but not dispatched": high-severity site-down (P1/P2, VIP, Hub) tickets with no field work order, longest first. Click a TT number to open that ticket\'s postmortem on the "Deviations" tab',
+        'Field-response timeliness — "Monthly WO hop durations": the work-order lifecycle split into created → FE accepted → start trip → arrive → work done → closed, so you can see which hop is stuck. In practice the slowest is "WO created → FE accepted" (median about 11 hours), while everything after acceptance takes only minutes',
+        '"NOC / human action timeliness": how long each human-performed action (FO Accept, FO Process, field work) waited, whether it breached its contract deadline, and the over-deadline share',
+        'In the single-ticket postmortem, the "Time attribution" tab\'s segment table carries a Phase column showing at a glance which kind of time dominates; below it sits the ticket\'s own "Field response timeline (WO lifecycle)" hop-by-hop detail with operators. Tickets with no WO say so explicitly instead of showing a blank area',
+        '"Phases: who is holding the time": event-driven segments merged by phase (creation delay / accept wait / field response wait / field work / alarm cleared / submit close / confirm close), so NOC, field and system shares are comparable. In practice field response wait is 15.2% of the month with a 6.4-hour median',
+        'The first computation parses every ticket of the month (about 150 s in practice); results are cached per month on disk, so later opens are millisecond-fast. Click "Recompute" at the top right to force a refresh',
+        'Every table in the modal supports full-field search, column filters and sorting, and exports the current slice and search result to Excel',
+      ],
+    },
+    fme_ranking: {
+      desc: 'FME ranking board: site availability, work-order volume and SLA achievement per FME, ranked.',
+      usage: ['Top3 / Bottom3 cards and the ranking table drill into that FME\'s site-level availability and WO details', 'The drilldown modal can switch to the site dimension for per-site availability and alarms'],
+    },
+    site_avail: {
+      desc: 'Site availability board: per-site availability ranking and target compliance.',
+      usage: ['Click a site name to drill into its availability details', 'Availability uses the same per-site calculation as the FME ranking page'],
+    },
+    repeat_site_down: {
+      desc: 'Repeat site-down board: identifies sites that go down repeatedly within the window — for finding "sites that never get fixed".',
+      usage: ['Counts site-downs per day; click a number to drill into that day\'s down sites', 'Data comes from eflow_tt and eflow_site, complementing the alarm board'],
     },
     warehouse: {
       desc: 'Spare-parts / consumables inventory board (Spare Management), identical to the original tool.',

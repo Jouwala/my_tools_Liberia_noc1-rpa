@@ -292,7 +292,15 @@ def _nw_split_strs(s) -> list:
 
 
 def _nw_split_ints(s) -> list:
-    return [int(x) for x in str(s or "").split(",") if x.strip()]
+    # 非数字项跳过并告警：这里在模块导入期执行，一个字母会让整个服务 import 失败
+    # （页面 schema 已用 int_list 校验挡住，此处的兜底针对手工编辑的 json）。
+    out = []
+    for x in _nw_split_strs(s):
+        try:
+            out.append(int(x))
+        except ValueError:
+            print(f"[NW_KPI] 逗号整数项 {x!r} 无法解析，已跳过")
+    return out
 
 
 if _NW_CFG:

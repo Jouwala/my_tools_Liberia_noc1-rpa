@@ -11,6 +11,7 @@ import {
   HistoryOutlined,
   TableOutlined,
   BarChartOutlined,
+  TeamOutlined,
   TranslationOutlined,
   SyncOutlined,
   AlertOutlined,
@@ -107,8 +108,10 @@ const MwUmeDashboard = lazy(() => import('./pages/MwUmeDashboard'))
 const MwRealTimeDashboard = lazy(() => import('./pages/MwRealTimeDashboard'))
 const PortalLogin = lazy(() => import('./pages/PortalLogin'))
 const EflowQa = lazy(() => import('./pages/EflowQa'))
+const EflowFlow = lazy(() => import('./pages/EflowFlow'))
 const SiteAvailability = lazy(() => import('./pages/SiteAvailability'))
 const FmeRanking = lazy(() => import('./pages/FmeRanking'))
+const NocAnalyst = lazy(() => import('./pages/NocAnalyst'))
 const RepeatSiteDown = lazy(() => import('./pages/RepeatSiteDown'))
 const RanCellsKpi = lazy(() => import('./pages/RanCellsKpi'))
 const CnKpi = lazy(() => import('./pages/CnKpi'))
@@ -148,9 +151,9 @@ const FINEBI_PAGE_TO_SLUG: Record<string, string> = Object.fromEntries(
   FINEBI_BOARDS.map((b) => [`finebi_${b.slug}`, b.slug]),
 )
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'site_avail' | 'fme_ranking' | 'repeat_site_down' | 'ran_cells_kpi' | 'cn_kpi' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'ran_cells_kpi' | 'cn_kpi' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'site_avail', 'fme_ranking', 'repeat_site_down', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -339,6 +342,7 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   sync: { icon: <SyncOutlined />, labelKey: 'nav.sync' },
   email_reports: { icon: <MailOutlined />, labelKey: 'nav.emailReports' },
   eflow_qa: { icon: <BookOutlined />, labelKey: 'nav.eflowQa' },
+  eflow_flow: { icon: <ApartmentOutlined />, labelKey: 'nav.eflowFlow' },
   alarm: { icon: <AlertOutlined />, labelKey: 'nav.alarm' },
   ttwo: { icon: <BarChartOutlined />, labelKey: 'nav.ttwo' },
   nur: { icon: <LineChartOutlined />, labelKey: 'nav.nur' },
@@ -348,6 +352,7 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   ms_sla_only: { icon: <FundOutlined />, labelKey: 'nav.msSlaOnly' },
   site_avail: { icon: <SafetyOutlined />, labelKey: 'nav.siteAvail' },
   fme_ranking: { icon: <BarChartOutlined />, labelKey: 'nav.fmeRanking' },
+  noc_analyst: { icon: <TeamOutlined />, labelKey: 'noc.navLabel' },
   repeat_site_down: { icon: <DisconnectOutlined />, labelKey: 'nav.repeatSiteDown' },
   ran_cells_kpi: { icon: <AreaChartOutlined />, labelKey: 'nav.ranCellsKpi' },
   cn_kpi: { icon: <FundProjectionScreenOutlined />, labelKey: 'nav.cnKpi' },
@@ -391,11 +396,11 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
 
 /** 默认目录结构（key 稳定，用于旧布局兼容与默认名称回退） */
 const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
-  { key: 'grp_sync', labelKey: 'nav.grp.sync', items: ['sync', 'email_reports', 'eflow_qa'] },
+  { key: 'grp_sync', labelKey: 'nav.grp.sync', items: ['sync', 'email_reports', 'eflow_qa', 'eflow_flow'] },
   {
     key: 'grp_monitor',
     labelKey: 'nav.grp.monitor',
-    items: ['alarm', 'ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'site_avail', 'fme_ranking', 'repeat_site_down', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview'],
+    items: ['alarm', 'ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'site_avail', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview'],
   },
   {
     key: 'grp_network',
@@ -1210,6 +1215,8 @@ function AppContent() {
         return <TTWODashboard />
       case 'eflow_qa':
         return <EflowQa />
+      case 'eflow_flow':
+        return <EflowFlow />
       case 'nur':
         return <NurDashboard />
       case 'ms_sla':
@@ -1222,6 +1229,8 @@ function AppContent() {
         return <SiteAvailability />
       case 'fme_ranking':
         return <FmeRanking />
+      case 'noc_analyst':
+        return <NocAnalyst />
       case 'repeat_site_down':
         return <RepeatSiteDown />
       case 'ran_cells_kpi':
@@ -1816,6 +1825,8 @@ function AppContent() {
             borderRadius: shellHidden ? 0 : 'var(--wh-radius-md)',
             display: 'flex',
             flexDirection: 'column',
+            flex: shellHidden ? '1 1 auto' : undefined,
+            height: shellHidden ? '100%' : undefined,
             minHeight: 0,
           }}>
             <Suspense fallback={

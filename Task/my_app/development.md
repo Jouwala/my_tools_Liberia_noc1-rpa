@@ -66,6 +66,10 @@ MY_APP_WORKER_GROUPS=u,n,m,c,v
 ### 其他
 
 ```powershell
+# 国际化一致性检查（漏键 / t(key,{defaultValue}) 错签名 / 残留 tpl.*）
+# 已内置进 npm run build：不通过会直接中断构建
+cd frontend && npm run check:i18n
+
 # 帮助文档生成（改了 helpContent.ts / helpTaskDocs.ts 之后）
 cd frontend && node scripts\generate-help-doc.mjs
 
@@ -96,7 +100,8 @@ python restart_workers.py
 - [ ] **`tests\test_worker_group_coverage.py` 通过** —— 这条专门校验 worker 分组覆盖，**新增任务后必跑**（未归组的任务会 pending 卡死）
 - [ ] 涉及任务时：`tests\test_task_runner.py` 通过
 - [ ] 涉及告警健康时：`tests\test_task_health_alert.py` / `test_task_health_detect.py` 通过
-- [ ] 前端改动：类型检查 / `npm run build` 通过
+- [ ] 前端改动：类型检查 / `npm run build` 通过（**`build` 已内置 `check:i18n`**）
+- [ ] **`npm run check:i18n` 通过** —— 拦截漏键、`t(key,{defaultValue})` 错签名、残留 `tpl.*` 三类问题（详见 `docs\manual\16-new-page-guide.md` 3.6）
 
 ### B. 进程与任务
 
@@ -141,17 +146,80 @@ python restart_workers.py
 | 新任务没归 worker 分组 | **pending 卡死** | 三处同步分组映射；跑 `test_worker_group_coverage.py` |
 | 前端产物目录改名 | 后端找不到静态文件，白屏 | 保持 `_fe_dist` |
 | 帮助改了 TS 没重新生成 | 站内帮助与 MD 不一致 | 跑 `generate-help-doc.mjs` |
+| **`t('key', { defaultValue: '兜底' })`** | **`t()` 第二参数是插值参数不是 options；键不存在时原样返回 key，界面直接显示 `xxx.yyy`** | **把键加进 zh/en，写 `t('xxx.yyy')`** |
+| **键只加进 `zh` 没加 `en`** | **中文正常，切英文露出 key 原文** | **两处都加；`npm run check:i18n` 会自动拦下** |
 | ECharts 配置用 `WH.xxx` | 图表拿到 `var(--wh-teal)` 字符串，渲染异常 | Canvas 层用 `DARK`/`LIGHT` 实值 |
 | 只验一套主题 | 漏测一半 | 深浅两套都看 |
 | 新增裸 `sqlite3.connect` | 绕过统一层，迁移/改造静默坏图 | 用 `get_raw_connection()` |
 | 误用 `backend\app.db` | 那是**空占位**，读到空的但不报错 | 真库是 `db\app.db` |
 | 误用本地 `db_ps_cs_cn.sqlite3` | 0 字节占位，得到空结果而非报错 | 真数据在远端（HTTP 8765） |
 | 用 `pyvenv.cfg` 的 3.13 或 `.venv-test` | 不是运行时的解释器 | 用系统 Python 3.12 |
+| **用 `Set-Content`/`Out-File` 批量改含中文的源文件** | **编码被破坏：中文注释变成 `åŽŸç”¨` 之类的乱码，且 git 视为「无改动」，`git checkout` 救不回来** | **一律用编辑器工具改；禁用 PowerShell 重定向写源文件**（详见 §七） |
 | 改 `.env` 后不重启 | 配置不生效 | `.env` 改动需重启；界面能改的才免重启 |
 | 直接改 `15-user-help.md` | 下次生成被覆盖 | 改 TS 源再生成 |
 | 把现状写回 `PROJECT_DOCS.md` | 制造第二个真相源 | 现状进手册，历史留在归档 |
 
-## 六、相关文档
+## 六、源码编码纪律（真实事故复盘）
+
+> **背景**：2026-09 一次 Excel 导出迁移中，用 PowerShell 批量改写 6 个页面文件，
+> 导致这些文件里的**中文注释全部损坏**，并已被提交（`051b77b`）。
+
+### 6.1 现象
+
+文件里的中文从 `原用 XLSX.utils.json_to_sheet` 变成 `åŽŸç”¨ XLSX.utils.json_to_sheet`——
+即 UTF-8 字节被按 Latin-1 解读后又存成 UTF-8，术语叫 **mojibake（乱码）**。
+
+### 6.2 为什么危险（三层）
+
+1. **编译不报错**。乱码在注释里，`tsc` 与 `vite build` 全部通过，**CI 发现不了**。
+2. **git 视为无改动**。因为工作区和 HEAD 都是「已损坏」的同一份内容，
+   `git status` 显示 clean，`git checkout` 会把损坏版本再写回来 —— **常规手段救不回来**。
+3. **需要考古**。必须逐提交比对乱码字符数，找到**引入损坏前**的最后一个干净提交。
+
+```powershell
+# 逐提交检查某文件的乱码情况，找最后一个干净版本
+foreach ($c in @('051b77b','e448816','3b77bb0')) {
+  $t = git show "${c}:Task/my_app/frontend/src/pages/BatteryDashboard.tsx" | Out-String
+  "{0}  乱码={1,-5} 汉字={2}" -f $c,
+    ([regex]::Matches($t,'[åæçè]')).Count, ([regex]::Matches($t,'[\u4e00-\u9fff]')).Count
+}
+```
+
+### 6.3 根因
+
+PowerShell 的 `Set-Content` / `Out-File` / `>` 重定向在**读写源文件时不保证 UTF-8**，
+会按当前代码页（中文 Windows 常为 GBK/936）解读字节。用它改写含中文的 `.ts`/`.tsx`/`.md` 即触发。
+
+### 6.4 纪律
+
+1. **禁止**用 `Set-Content`、`Out-File`、`>`、`-replace` 回写的方式批量修改**源文件**（`.ts/.tsx/.css/.md/.py`）。
+   改文件一律用编辑器工具（本项目的 `edit` / `write` 工具）。
+2. **只读**用 PowerShell 没问题（`Select-String`、`Get-Content` 查看）。
+3. 脚本类批量改写若不可避免，显式指定编码并**改完立即验证**：
+   ```powershell
+   $enc = New-Object System.Text.UTF8Encoding($false)   # 本项目源文件为 UTF-8 无 BOM
+   [System.IO.File]::WriteAllText($path, $text, $enc)
+   ```
+4. **改完必检**：对含中文的文件，扫描乱码字符，正常汉字数应远大于 0。
+   ```powershell
+   $t = [System.IO.File]::ReadAllText($f, [System.Text.Encoding]::UTF8)
+   "乱码={0} 汉字={1}" -f ([regex]::Matches($t,'[åæçèéêëìíîïòóôõùúûüýÿœž]')).Count,
+                        ([regex]::Matches($t,'[\u4e00-\u9fff]')).Count
+   ```
+   **判读**：出现 `å/æ/ç/è` 这类字符且「汉字」为 0 → 已损坏。
+5. **还原时要字节精确**：本项目源文件是 **UTF-8 无 BOM + LF**。
+   用 `git show <commit>:<path>` 经 cmd 重定向取原始字节再 `WriteAllBytes`，
+   不要用 `Out-File`（会加 BOM、可能丢换行）。
+   ```powershell
+   cmd /c "git show e448816:$f > `"$tmp`" 2>nul"
+   [System.IO.File]::WriteAllBytes($dest, [System.IO.File]::ReadAllBytes($tmp))
+   git hash-object -- $f          # 与 git rev-parse e448816:$f 比对，一致才算还原
+   ```
+
+> **教训**：注释里的乱码不影响运行，所以**没有任何自动化信号会告诉你出了事**。
+> 只有人打开文件才会发现。因此这一步必须靠纪律，不能靠检查。
+
+## 七、相关文档
 
 | 内容 | 去哪里 |
 | --- | --- |

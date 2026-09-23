@@ -80,11 +80,18 @@ def login_portal(body: PortalLoginRequest):
 
 @router.post("/client-login/ticket")
 def create_client_login_ticket(body: PortalClientTicketRequest):
-    """签发 eFlow/RAIS 客户端扩展的一次性登录票据。
+    """为直连门户签发客户端扩展的一次性登录票据。
 
     正常 API 鉴权中间件会保护本接口；扩展只可拿这张随机票据换取一次会话计划。
+
+    ⚠️ 判定依据必须是「该门户是否 direct」（即前端会走扩展种 Cookie 的那条路），
+    不能写死 `("eflow", "rais")` —— 后端 PORTALS 新增直连门户时（如 battery_ume），
+    写死的白名单会让前端拿到 400「该门户不支持客户端会话登录」。
     """
-    if body.system not in ("eflow", "rais"):
+    spec = svc.PORTALS.get(body.system)
+    if spec is None:
+        raise HTTPException(status_code=400, detail=f"未知门户: {body.system}")
+    if not spec.get("direct"):
         raise HTTPException(status_code=400, detail="该门户不支持客户端会话登录")
     now = time.monotonic()
     ticket = secrets.token_urlsafe(32)

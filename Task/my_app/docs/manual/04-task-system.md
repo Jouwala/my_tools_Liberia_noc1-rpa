@@ -136,6 +136,45 @@ APScheduler 到点 (backend 进程内)
 | `cxo_dashboard_cache_sync` | CXO看板数据缓存同步 | `*/10 * * * *` | v |
 | `vmax_cxo_daily_sync` | VMAX CXO天粒度日值归档 | `15 * * * *` | v |
 
+## 任务凭据分组对应表
+
+任务失败若报"鉴权失败 / 登录失败 / 未获取到 Cookie"，先到**「设置 → 凭据管理」**
+核对下表中对应分组的账号密码（改完最迟 30 秒生效，无需重启）。
+
+| 任务 | 凭据分组 key | 上游系统 |
+| --- | --- | --- |
+| `ran_ume_daily`、`main_kpi_sync`、`network_kpi_sync`、`ms_sla_sync`、`cells_kpi_sync` | `zte_ume` | RAN UME 网管 |
+| `battery_kpi_sync`、`battery_email` | **`battery_ume`** | Battery UME 电池网管 |
+| `cm_data_sync` | **`cm_data`** | RAN UME 网管（CM 取数） |
+| `ipran_kpi_sync` | `ipran_ume` | iPRAN UME 网管 |
+| `ccn_kpi`、`ccn_free_rating_chart_email` | `ccn_ume` | CCN UME 网管 |
+| `eflow_sync`、`site_outage_screenshot` 等 eFlow 系 | `eflow` | eFlow 告警系统 |
+| `fw_kpi_sync` | `fw_kpi` | FW UMC |
+| `mw_ume_kpi_sync`、`mw_ume_kpi_sync_rt` | `mw_ume` | MW UME 微波网管 |
+| `ume_in_kpi_sync`、`ume_in_osg_report` | `ume_in` | UME em-portal |
+| `vmax_multi_data_sync`、`cxo_dashboard_cache_sync`、`vmax_cxo_daily_sync` | `vmax_cxo` | VMAX CXO 门户 |
+| `olib_soc_vmax_report` | `vmax_gbase` | VMAX 数仓 GBase 8a |
+| `sp_data_sync`、`sp_report_generate` 等备件系 | `sftp_sp` | SFTP 备件服务器 |
+| `liberia_email_*`、`kpi_*` 等邮件类 | `mail_126` / `owa_mail` | 126 邮箱 / Exchange OWA |
+
+> ⚠️ **`battery_ume` 与 `zte_ume` 不是同一台设备**（Battery UME 是 `192.168.170.2:443`，
+> RAN UME 是 `10.100.28.27:28001`），账号**不通用**，不要拿 RAN UME 的账号去配 Battery UME。
+> 该 UME **未进「一键门户登录」的 direct 反代**，若启用图形验证码需人工登录一次（见下）。
+
+### Battery UME 鉴权失败排查
+
+任务报 `Battery UME 鉴权失败：RSA 登录未成功且无可用 auth_info.json` 时，按序检查：
+
+1. **凭据**：「设置 → 凭据管理 → Battery UME」点"测试连接"，失败则更新账号密码；
+2. **图形验证码**：该 UME 若启用了验证码，RSA 纯接口登录必然失败 ——
+   到「门户登录」页选 **Battery UME** 人工登录一次；
+3. **回退文件**：`backend/services/battary_kpi_fetch/auth_info.json` 由
+   `ensure_auth_info()` 用上述凭据调 RSA 接口自动生成（原生成脚本
+   `battary_kpi_login.py` 与 playwright 依赖均已不在仓库，故内置此兜底）；
+   超过 8 小时视为过期会被忽略并重新生成；
+4. **环境变量覆盖**：若设了 `BATT_USERNAME`/`BATT_PASSWORD`，它们**优先于**页面配置，
+   页面改了不生效时先查这里。
+
 ## 超时、僵尸与自动重试
 
 | 机制 | 参数 | 出处 |

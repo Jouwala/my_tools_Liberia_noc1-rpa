@@ -192,3 +192,21 @@ tests/
         ├── FE-D-03.png  # 移动端响应式截图
         └── FE-D-04.png  # 异步加载截图
 ```
+
+## 独立守卫（不生成报告，只看退出码）
+
+这类文件不用 pytest 框架（本机 venv 没装 pytest，跑不起来的守卫等于没有），纯计数 + `sys.exit`，
+`python tests/test_xxx.py` 与 pytest 两种方式都能跑。**必须用后端实际运行的那个 python**
+（本机是系统 Python 3.12）：`Scripts/python.exe` 的 site-packages 没进 `sys.path`，缺
+pandas/sqlalchemy/apscheduler，会表现为一片"读不到"的假失败。
+
+| 守卫 | 查什么 | 跑法 |
+| --- | --- | --- |
+| `test_worker_group_coverage.py` | 任务 ↔ 分组 ↔ 启动脚本 ↔ 前端帮助 四处清单一致（漏登记会让队列 pending 永久滞留） | `python tests/test_worker_group_coverage.py` |
+| `test_task_config_live_effect.py` | Settings「任务配置」36 张卡片：页面改的值服务真用得上（死字段 / 派生量算早了 / 坏值没挡住 / 字段被静默丢弃） | `python tests/test_task_config_live_effect.py [task_id …]` |
+
+`test_task_config_live_effect.py` 配一个子进程探针 `task_config_child_probe.py`：卡片保存后另起
+全新解释器导入服务模块（配置覆盖只发生在导入期），读 `defaults_factory()` 的真实输出逐点比对。
+它只调 service 层写入口，不经 HTTP，所以不会触发 `routers/task_configs.py` 里的 worker 重启；
+运行期间会瞬时改写真实配置（每张卡 <1s 后按原始字节还原），别卡在任务正要启动的窗口跑。
+改卡片 schema / factory 时请跟着跑一次，说明与背景见 `docs/manual/12-configuration.md` 的 3.1。

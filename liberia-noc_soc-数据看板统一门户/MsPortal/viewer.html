@@ -15,17 +15,47 @@
 <link rel="stylesheet" href="assets/icons/phosphor.css">
 <script>
 /* 主题/语言首屏防闪烁：与门户 index.html 同源，读同一份 localStorage。
-   没有用户选择时按浏览器语言定默认，口径必须与 viewer.js 的 LANG 判定一致。 */
+   没有用户选择时按浏览器语言定默认，口径必须与 viewer.js 的 LANG 判定一致。
+
+   2026-09-23：本页有两个入口，主题键不止一个 ——
+     · /MsPortal/       → localStorage['msportal.theme.v1']
+     · /olbrportal/     → localStorage['olbr.theme']（该页刻意不复用 msportal.* 那几个键）
+   olbrportal 的「打开看板」动作整个交给本页（olbr.js 里 href="/MsPortal/viewer.html?no=…"），
+   所以本页必须认得它那个键，否则从 olbrportal 深色主题点进来会看到浅色外壳。
+   判定顺序与 viewer.js 的 portalTheme() 必须**完全一致**，否则首帧与挂载后会闪一下。
+   ⚠️ 改这里要同步改 viewer.js 的 portalTheme()，反之亦然。 */
 (function () {
   function guessLang() {
     var v = null;
     try { v = localStorage.getItem('msportal.lang.v1'); } catch (e) { /* ignore */ }
     if (v === 'en' || v === 'zh') return v;
+    try {
+      v = localStorage.getItem('olbr.lang');
+      if (v === 'en' || v === 'zh') return v;
+    } catch (e) { /* ignore */ }
     var nav = (navigator.language || navigator.userLanguage || 'zh') + '';
     return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
   }
+  /* 谁是「当前主题」：本页不记录来源站点，所以只能看两个键里最后一个被设置的那个。
+     只用「非空即认」会出错：用户在 MsPortal 切过深色(msportal=dark)、
+     又在 olbrportal 切回浅色(olbr=light) 时，两个键同时存在且冲突。
+     viewer.js 的 portalTheme() 用同一套判据，两边必须一起改。 */
+  function themeOf() {
+    var m = null, o = null, mt = 0, ot = 0;
+    try {
+      m = localStorage.getItem('msportal.theme.v1');
+      o = localStorage.getItem('olbr.theme');
+      mt = parseInt(localStorage.getItem('msportal.theme.v1.t') || '0', 10) || 0;
+      ot = parseInt(localStorage.getItem('olbr.theme.t') || '0', 10) || 0;
+    } catch (e) { /* ignore */ }
+    var mSet = (m === 'dark' || m === 'light'), oSet = (o === 'dark' || o === 'light');
+    if (mSet && oSet) return (ot >= mt ? o : m);
+    if (oSet) return o;
+    if (mSet) return m;
+    return 'light';
+  }
   try {
-    if (localStorage.getItem('msportal.theme.v1') === 'dark') document.documentElement.classList.add('dark');
+    if (themeOf() === 'dark') document.documentElement.classList.add('dark');
   } catch (e) { /* ignore */ }
   document.documentElement.setAttribute('lang', guessLang() === 'en' ? 'en' : 'zh-CN');
 })();

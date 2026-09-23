@@ -26,7 +26,8 @@ type Portal = {
 //        → "当前系统异常，稍后重试"、当前告警列与默认模板查询失败。
 // RAIS：前端把 API 根地址写死为 https://10.100.20.9:8766/，登录响应要往该域种 cookie，
 //        经反代打开时 fetch 不带 credentials，SSO cookie 种不下来。
-const DIRECT_PORTALS = new Set(['eflow', 'rais'])
+// Battery UME：与 eFlow 同为 ZTE UAC 系门户，前端同样写死上游绝对地址。
+const DIRECT_PORTALS = new Set(['eflow', 'rais', 'battery_ume'])
 
 const isDirect = (p: Portal) => p.direct === true || DIRECT_PORTALS.has(p.key)
 // 客户端模式下能否在访问者本机打开：要么配了 nginx 反代（同源 + 注入填表），要么直连上游

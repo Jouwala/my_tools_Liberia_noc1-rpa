@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   Card, Table, Select, DatePicker, Button, Space, Spin, Alert, Tag, Tooltip, Typography, Input,
 } from 'antd'
@@ -14,7 +14,7 @@ import DraggableClickModal from '../components/DraggableClickModal'
 const { RangePicker } = DatePicker
 const { Text } = Typography
 
-// ---------- ä¸‹é’»è¡¨æ ¼é€šç”¨å·¥å…·ï¼ˆé¡¹ç›®ç»Ÿä¸€ä¸‹é’»è§„èŒƒï¼Œä¸Ž TT&WO Dashboard ä¸€è‡´ï¼‰ ----------
+// ---------- 下钻表格通用工具（项目统一下钻规范，与 TT&WO Dashboard 一致） ----------
 const strSorter = (a: any, b: any, key: string) => {
   const va = a[key] ?? '', vb = b[key] ?? ''
   return String(va).localeCompare(String(vb))
@@ -30,10 +30,10 @@ type Gran = 'daily' | 'weekly' | 'monthly'
 const GRANS: Gran[] = ['daily', 'weekly', 'monthly']
 const TECHS = ['2G', '3G', '4G', '5G']
 
-// NUR å±•ç¤ºå£å¾„ï¼šåŽŸå§‹å€¼ Ã— 100000ï¼ˆåŽç«¯ä¿æŒåŽŸå§‹æ•°å€¼ï¼Œä»…å‰ç«¯å±•ç¤ºç¼©æ”¾ï¼‰
+// NUR 展示口径：原始值 × 100000（后端保持原始数值，仅前端展示缩放）
 const NUR_SCALE = 100000
 
-// è¶‹åŠ¿å›¾ç³»åˆ—é…è‰²ï¼ˆæµ…è‰²ä¸»é¢˜ç”¨æ·±è‰²ç³»ä¿è¯å¯¹æ¯”åº¦ï¼‰
+// 趋势图系列配色（浅色主题用深色系保证对比度）
 const NUR_SERIES_COLORS: Record<string, Record<'dark' | 'light', string>> = {
   Global_NUR: { dark: '#258cff', light: '#0284c7' },
   '2G_NUR': { dark: '#7c8ff0', light: '#4f46e5' },
@@ -83,7 +83,7 @@ function fmtPct(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '-'
   return `${(v * 100).toFixed(2)}%`
 }
-// NUR æ•°å€¼æ–‡å­—ç€è‰²ï¼š0â†’ä¸»é¢˜æ­£æ–‡è‰²ï¼Œè¶Šå¤§è¶Šåæš–çº¢ï¼ˆæ— èƒŒæ™¯å—ï¼Œä¿è¯æ·±è‰²ä¸»é¢˜å¯è¯»æ€§ï¼‰
+// NUR 数值文字着色：0→主题正文色，越大越偏暖红（无背景块，保证深色主题可读性）
 function nurTextColor(v: number, max: number): string {
   if (v <= 0 || max <= 0) return WH.textMuted
   const t = Math.min(1, v / max)
@@ -98,10 +98,10 @@ const cardStyle: React.CSSProperties = {
 const headStyle: React.CSSProperties = {
   borderBottom: '1px solid rgba(0, 217, 255,0.12)', color: WH.teal, fontSize: '0.8125rem', fontWeight: 600,
 }
-// è¡¨æ ¼/å›¾è¡¨ç­‰é«˜ï¼Œä¿è¯"è¶‹åŠ¿å›¾å¤§å°è·Ÿè¡¨æ ¼ä¸€æ ·"
+// 表格/图表等高，保证"趋势图大小跟表格一样"
 const TABLE_H = 240
 
-// ---------- NUR è¡¨ï¼šè¡Œ=æŒ‡æ ‡ï¼Œåˆ—=æœŸé—´ï¼ˆå‡åºï¼Œå·¦â†’å³ä¸Žè¶‹åŠ¿å›¾ X è½´ä¸€è‡´ï¼‰ï¼›æ•°å€¼å¯ç‚¹å‡»ä¸‹é’» ----------
+// ---------- NUR 表：行=指标，列=期间（升序，左→右与趋势图 X 轴一致）；数值可点击下钻 ----------
 function NurTable({ rows, onDrill }: {
   rows: NurRow[]
   onDrill?: (e: React.MouseEvent, tech: string, period: string) => void
@@ -131,7 +131,7 @@ function NurTable({ rows, onDrill }: {
         if (typeof v !== 'number') {
           return <span style={{ color: WH.textDim }}>-</span>
         }
-        // ç‚¹å‡»å•å…ƒæ ¼ â†’ ä¸‹é’»æž„æˆè¯¥æ•°å€¼çš„ TT æ˜Žç»†
+        // 点击单元格 → 下钻构成该数值的 TT 明细
         return (
           <span
             title={t('nur.clickDrill')}
@@ -158,8 +158,8 @@ function NurTable({ rows, onDrill }: {
   )
 }
 
-// ---------- SLA è¡¨ï¼šè¡Œ=P1..P4/Total Ã—ï¼ˆTotal/Within SLA/Achieveï¼‰ï¼Œåˆ—=æœŸé—´ï¼ˆé™åºï¼Œæœ€æ–°åœ¨å·¦ï¼‰ ----------
-// æ•°å€¼å¯ç‚¹å‡»ä¸‹é’»ï¼šseverity + itemï¼ˆtotal/pass/achieveï¼‰+ period ä¼ ç»™ /nur/detail
+// ---------- SLA 表：行=P1..P4/Total ×（Total/Within SLA/Achieve），列=期间（降序，最新在左） ----------
+// 数值可点击下钻：severity + item（total/pass/achieve）+ period 传给 /nur/detail
 function SlaTable({ rows, onDrill }: {
   rows: SlaRow[]
   onDrill?: (e: React.MouseEvent, severity: string, item: string, period: string) => void
@@ -244,7 +244,7 @@ function SlaTable({ rows, onDrill }: {
   )
 }
 
-// ---------- è¶‹åŠ¿å›¾ï¼ˆæ·±è‰²åº• + åœ†ç‚¹ + è™šçº¿è¿žæŽ¥ï¼Œé£Žæ ¼å‚è€ƒ FineBI æˆªå›¾ï¼‰ ----------
+// ---------- 趋势图（深色底 + 圆点 + 虚线连接，风格参考 FineBI 截图） ----------
 function trendOption(opts: {
   title: string
   periods: string[]
@@ -260,7 +260,7 @@ function trendOption(opts: {
     title: {
       text: title, left: 'center', top: 0,
       textStyle: { color: isDark ? '#f5f7ff' : '#16233b', fontSize: '0.8125rem', fontWeight: 600 },
-      // æç¤ºï¼šæ•°æ®ç‚¹å¯ç‚¹å‡»ä¸‹é’»æ˜Žç»†
+      // 提示：数据点可点击下钻明细
       subtext: clickHint,
       subtextStyle: { color: isDark ? '#6f8cb4' : '#94a3b8', fontSize: '0.625rem', lineHeight: 14 },
       itemGap: 2,
@@ -271,7 +271,7 @@ function trendOption(opts: {
         ? '-' : `${percent ? `${Number(v).toFixed(2)}%` : Number(v).toFixed(2)}${tooltipSuffix}`),
     },
     legend: { bottom: 0, textStyle: { color: isDark ? '#aebbd4' : '#3f5468', fontSize: '0.625rem' }, itemWidth: 14, itemHeight: 8 },
-    // bottom é¢„ç•™ 84pxï¼š45Â° æ—‹è½¬çš„æ—¥æœŸæ ‡ç­¾çº¦å  48pxï¼Œé¿å…ä¸Žåº•éƒ¨å›¾ä¾‹é‡å 
+    // bottom 预留 84px：45° 旋转的日期标签约占 48px，避免与底部图例重叠
     grid: { left: 52, right: 16, top: 46, bottom: 84 },
     xAxis: {
       type: 'category' as const, data: periods, boundaryGap: false,
@@ -286,14 +286,14 @@ function trendOption(opts: {
       lineStyle: { type: 'dashed' as const, width: 1.2, color: s.color },
       itemStyle: { color: s.color },
       symbol: 'circle' as const, symbolSize: 6, showSymbol: true,
-      // æ•°æ®ç‚¹å¯ç‚¹å‡»ï¼ˆä¸‹é’»æ˜Žç»†ï¼‰
+      // 数据点可点击（下钻明细）
       cursor: 'pointer' as const,
       emphasis: { focus: 'series' as const },
     })),
   }
 }
 
-// NUR è¶‹åŠ¿ï¼šGlobal/2G/3G/4G/5Gï¼ˆå±•ç¤ºå€¼ Ã—100000ï¼‰ï¼›ç‚¹å‡»æ•°æ®ç‚¹ â†’ ä¸‹é’»æ˜Žç»†
+// NUR 趋势：Global/2G/3G/4G/5G（展示值 ×100000）；点击数据点 → 下钻明细
 function NurTrendChart({ rows, gran, onDrill }: {
   rows: NurRow[]; gran: Gran
   onDrill?: (e: any, tech: string, period: string) => void
@@ -320,7 +320,7 @@ function NurTrendChart({ rows, gran, onDrill }: {
     })
   }, [rows, gran, isDark, t, cap])
 
-  // ç‚¹å‡»æ•°æ®ç‚¹ â†’ ä¸‹é’»ï¼šç³»åˆ—å Global_NUR_Daily â†’ tech=Globalï¼›x è½´ç±»ç›®ä¸ºæœŸé—´
+  // 点击数据点 → 下钻：系列名 Global_NUR_Daily → tech=Global；x 轴类目为期间
   const onChartClick = useCallback((params: any, ev: any) => {
     if (!params || params.componentType !== 'series' || params.seriesType !== 'line') return
     const period = params.name
@@ -330,14 +330,14 @@ function NurTrendChart({ rows, gran, onDrill }: {
   }, [cap, onDrill])
 
   if (!rows?.length) return <div style={{ height: TABLE_H + 32 }} />
-  // æ³¨æ„ï¼šä¸èƒ½ä¼  lazyUpdateâ€”â€”å½“å‰ echarts ç‰ˆæœ¬ä¸‹ lazy åˆ·æ–°ä¸ä¼šè§¦å‘ç»˜åˆ¶ï¼Œå›¾ä¼šç©ºç™½
+  // 注意：不能传 lazyUpdate——当前 echarts 版本下 lazy 刷新不会触发绘制，图会空白
   return (
     <ReactECharts option={option} style={{ height: TABLE_H + 32, width: '100%' }} notMerge
       onEvents={{ click: onChartClick }} />
   )
 }
 
-// SLA è¶‹åŠ¿ï¼šP1~P4 + Total è¾¾æˆçŽ‡ï¼ˆ%ï¼‰ï¼›ç‚¹å‡»æ•°æ®ç‚¹ â†’ ä¸‹é’»æ˜Žç»†
+// SLA 趋势：P1~P4 + Total 达成率（%）；点击数据点 → 下钻明细
 function SlaTrendChart({ rows, gran, onDrill }: {
   rows: SlaRow[]; gran: Gran
   onDrill?: (e: any, severity: string, item: string, period: string) => void
@@ -366,7 +366,7 @@ function SlaTrendChart({ rows, gran, onDrill }: {
     })
   }, [rows, gran, periods, isDark, t, cap])
 
-  // ç‚¹å‡»æ•°æ®ç‚¹ â†’ ä¸‹é’»ï¼šç³»åˆ—å P1_Daily â†’ severity=P1ï¼›è¾¾æˆçŽ‡å¯¹åº”å…¨éƒ¨ TTï¼ˆitem=achieveï¼‰
+  // 点击数据点 → 下钻：系列名 P1_Daily → severity=P1；达成率对应全部 TT（item=achieve）
   const onChartClick = useCallback((params: any, ev: any) => {
     if (!params || params.componentType !== 'series' || params.seriesType !== 'line') return
     const period = params.name
@@ -383,13 +383,13 @@ function SlaTrendChart({ rows, gran, onDrill }: {
 }
 
 /**
- * NUR çœ‹æ¿ä¸»ä½“ï¼ˆpage=nurï¼šNUR ä¸‰æ¡£ + SLA ä¸‰æ¡£ï¼‰ã€‚
+ * NUR 看板主体（page=nur：NUR 三档 + SLA 三档）。
  *
- * only ç”¨äºŽæ´¾ç”Ÿä¸¤ä¸ªã€Œåªä¿ç•™ä¸€åŠã€çš„ç›´é“¾é¡µé¢ï¼ˆåŒä¸€ä»½å®žçŽ°åˆ‡ç‰‡ï¼Œé¿å…å¤åˆ¶ç²˜è´´èµ°æ ·ï¼‰ï¼š
- *   - only='nur' â†’ åªæ¸²æŸ“ NUR æ—¥/å‘¨/æœˆï¼Œä¾› page=ms_nur_only ä½¿ç”¨ï¼›
- *   - only='sla' â†’ åªæ¸²æŸ“ SLA æ—¥/å‘¨/æœˆï¼Œä¾› page=ms_sla_only ä½¿ç”¨ï¼›
- *   - ç¼ºçœ     â†’ NUR + SLA å…¨é‡ï¼Œpage=nur è¡Œä¸ºä¸Žæ”¹é€ å‰å®Œå…¨ä¸€è‡´ã€‚
- * ç­›é€‰æ¡ï¼ˆVendor/Project/Exclude/æ—¶é—´èŒƒå›´ï¼‰ã€TT ä¸‹é’»ä¸Žå¯¼å‡ºä¸¤æ¡ç›´é“¾åŒæ ·å…·å¤‡ã€‚
+ * only 用于派生两个「只保留一半」的直链页面（同一份实现切片，避免复制粘贴走样）：
+ *   - only='nur' → 只渲染 NUR 日/周/月，供 page=ms_nur_only 使用；
+ *   - only='sla' → 只渲染 SLA 日/周/月，供 page=ms_sla_only 使用；
+ *   - 缺省     → NUR + SLA 全量，page=nur 行为与改造前完全一致。
+ * 筛选条（Vendor/Project/Exclude/时间范围）、TT 下钻与导出两条直链同样具备。
  */
 export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
   const { t } = useI18n()
@@ -404,7 +404,7 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
   const [vendor, setVendor] = useState('')
   const [project, setProject] = useState('')
   const [exclude, setExclude] = useState('')
-  // é»˜è®¤å±•ç¤ºæœ€è¿‘ 6 ä¸ªæœˆï¼ˆå«ä»Šå¤©ï¼‰
+  // 默认展示最近 6 个月（含今天）
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>([
     dayjs().subtract(6, 'month'), dayjs(),
   ])
@@ -434,7 +434,7 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
 
   useEffect(() => { fetchOverview() }, [fetchOverview])
 
-  // ---------- ä¸‹é’»ï¼ˆå•å…ƒæ ¼ â†’ TT æ˜Žç»†å¼¹çª—ï¼Œé¡¹ç›®ç»Ÿä¸€ä¸‹é’»è§„èŒƒï¼‰ ----------
+  // ---------- 下钻（单元格 → TT 明细弹窗，项目统一下钻规范） ----------
   const [drillVisible, setDrillVisible] = useState(false)
   const [drillAnchor, setDrillAnchor] = useState<{ x: number; y: number } | null>(null)
   const [drillLoading, setDrillLoading] = useState(false)
@@ -451,7 +451,7 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
     setDrillSearch('')
     setDrillTitle(title)
     setDrillKey(key)
-    // ç»§æ‰¿çœ‹æ¿å½“å‰ç­›é€‰ï¼ˆvendor/project/excludeï¼‰ï¼Œperiod å·²åœ¨ params ä¸­ç²¾ç¡®å®šä½
+    // 继承看板当前筛选（vendor/project/exclude），period 已在 params 中精确定位
     const p: Record<string, string> = { ...params }
     if (vendor) p.vendor = vendor
     if (project) p.project = project
@@ -464,17 +464,17 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
 
   const handleNurDrill = (e: React.MouseEvent, g: Gran, tech: string, period: string) => {
     openDrill(e, { metric: 'nur', gran: g, period, tech },
-      `${t('nur.drillNur')}: ${tech} Â· ${period} (${granTitle[g]})`,
+      `${t('nur.drillNur')}: ${tech} · ${period} (${granTitle[g]})`,
       `${tech}_${period}_${g}`)
   }
 
   const handleSlaDrill = (e: React.MouseEvent, g: Gran, sev: string, item: string, period: string) => {
     openDrill(e, { metric: 'sla', gran: g, period, severity: sev, item },
-      `${t('nur.drillSla')}: ${sev} Â· ${item} Â· ${period} (${granTitle[g]})`,
+      `${t('nur.drillSla')}: ${sev} · ${item} · ${period} (${granTitle[g]})`,
       `${sev}_${item}_${period}_${g}`)
   }
 
-  // ä¸‹é’»å¼¹çª—å†…æ¨¡ç³Šæœç´¢
+  // 下钻弹窗内模糊搜索
   const filteredDrillData = useMemo(() => {
     if (!drillSearch.trim()) return drillData
     const lower = drillSearch.toLowerCase()
@@ -483,25 +483,25 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
     )
   }, [drillData, drillSearch])
 
-  // ä¸‹é’»å¯¼å‡º Excel
-  // å·²è¿ç»Ÿä¸€æ ¼å¼ UNIFIED_EXCEL_V1ï¼šæ ·å¼ä¸Žé‚®ä»¶æŠ¥è¡¨åŒæºï¼Œè§ docs/EXCEL_EXPORT_STANDARD.md
+  // 下钻导出 Excel
   const exportToExcel = useCallback(() => {
     if (!filteredDrillData.length) return
     const keys = Object.keys(filteredDrillData[0])
     const header = keys.map(k => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))
     const rows = filteredDrillData.map(row => keys.map(k => row[k] == null ? '' : String(row[k])))
     const fname = `NUR_${drillKey}_${dayjs().format('YYYYMMDD_HHmmss')}`
+    // 统一走 excelReport；sheet 名由模块做非法字符清洗与去重
     void exportAoaReport({
       filename: `${fname}.xlsx`,
-      sheetName: `NUR ${drillKey}`,
-      title: `NUR ${drillKey}`,
+      sheetName: `NUR_${drillKey}`,
+      title: 'NUR Drill-down',
       header,
       rows,
-      columnWidths: keys.map(() => 18),
+      numericCols: [],
     })
   }, [filteredDrillData, drillKey])
 
-  // ä¸‹é’»è¡¨æ ¼åˆ—ï¼ˆåŠ¨æ€ç”Ÿæˆï¼Œalarm_occur_time é»˜è®¤é™åºï¼‰
+  // 下钻表格列（动态生成，alarm_occur_time 默认降序）
   const drillColumns = useMemo(() => {
     if (!drillData.length) return []
     const keys = Object.keys(drillData[0])
@@ -516,7 +516,7 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
         onFilter: (v: any, r: any) => String(r[k]) === v,
         defaultSortOrder: k === 'alarm_occur_time' ? 'descend' as const : undefined,
       }
-      // MTTR ä¿ç•™ 2 ä½å°æ•°ï¼ˆåŽç«¯è¿”å›žåŽŸå§‹ç²¾åº¦ï¼‰
+      // MTTR 保留 2 位小数（后端返回原始精度）
       if (k === 'mttr_min') {
         col.render = (v: any) => (v === null || v === undefined ? '-' : Number(v).toFixed(2))
       }
@@ -535,7 +535,7 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
 
   return (
     <div style={{ padding: 'var(--wh-space-md)' }}>
-      {/* ---------- ç­›é€‰æ¡ ---------- */}
+      {/* ---------- 筛选条 ---------- */}
       <Card size="small" style={{ ...cardStyle, marginBottom: 'var(--wh-space-md)' }} styles={{ body: { padding: 'var(--wh-space-sm) var(--wh-space-md)' } }}>
         <Space wrap style={{ gap: 'var(--wh-space-md)' }}>
           <Space wrap style={{ gap: 'var(--wh-space-xs)' }}>
@@ -589,9 +589,9 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
       )}
 
       <Spin spinning={loading}>
-        {/* ---------- æ¯ä¸ªç²’åº¦ä¸€è¡Œï¼šå·¦è¡¨æ ¼ + å³è¶‹åŠ¿å›¾ï¼ˆNUR ä¸‰è¡Œ + SLA ä¸‰è¡Œï¼›only åˆ‡ç‰‡æ—¶åªå‡ºå…¶ä¸€ï¼‰ ---------- */}
+        {/* ---------- 每个粒度一行：左表格 + 右趋势图（NUR 三行 + SLA 三行；only 切片时只出其一） ---------- */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
-          {/* minmax(0,1fr)ï¼šé˜²æ­¢å®½è¡¨æ ¼æ’‘ç ´ç½‘æ ¼åˆ—ï¼Œè¡¨æ ¼åœ¨å¡ç‰‡å†…æ¨ªå‘æ»šåŠ¨ï¼Œè¶‹åŠ¿å›¾ä¿æŒç­‰å®½ */}
+          {/* minmax(0,1fr)：防止宽表格撑破网格列，表格在卡片内横向滚动，趋势图保持等宽 */}
           {showNur && GRANS.map(g => (
             <div key={`nur_${g}`} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)', gap: 'var(--wh-space-md)' }}>
               <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
@@ -629,7 +629,7 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
         </div>
       </Spin>
 
-      {/* ---------- ä¸‹é’»å¼¹çª—ï¼ˆç‚¹å‡»å•å…ƒæ ¼ â†’ TT æ˜Žç»†ï¼‰ ---------- */}
+      {/* ---------- 下钻弹窗（点击单元格 → TT 明细） ---------- */}
       <DraggableClickModal
         open={drillVisible}
         anchor={drillAnchor}

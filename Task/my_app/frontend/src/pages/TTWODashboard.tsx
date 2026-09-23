@@ -1,4 +1,4 @@
-﻿// TT&WO Dashboard å‰ç«¯é¡µé¢ - Warehouse æš—è‰²ç§‘æŠ€é£Ž
+// TT&WO Dashboard 前端页面 - Warehouse 暗色科技风
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { cachedGet } from '../cache'
 import { Card, Row, Col, Select, Segmented, DatePicker, Space, Tag, Tooltip, Statistic, Empty, Spin, Alert, Table, Input, Button } from 'antd'
@@ -20,8 +20,8 @@ import { WH, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine
 
 const { RangePicker } = DatePicker
 
-// ç»Ÿä¸€ tooltip æ ·å¼ï¼ˆç»„ä»¶å†…æŒ‰ä¸»é¢˜ç”Ÿæˆï¼‰
-// ä¸¥é‡ç­‰çº§è¯­ä¹‰è‰²ï¼ˆé€‚é…æš—åº•ï¼‰
+// 统一 tooltip 样式（组件内按主题生成）
+// 严重等级语义色（适配暗底）
 const SEVERITY_COLORS = {
   critical: '#ff6b6b',
   major: '#ff922b',
@@ -37,10 +37,10 @@ const SEVERITY_COLORS_LIGHT = {
   info: '#0284c7',
 }
 
-// å¡ç‰‡æ ‡é¢˜æ ·å¼
+// 卡片标题样式
 const cardTitleStyle = { fontSize: '0.875rem', fontWeight: 600, color: WH.text } as const
 
-// åˆ†åŒºæ ‡é¢˜æ ·å¼
+// 分区标题样式
 const SectionTitle = ({ icon, title, explain }: { icon: React.ReactNode; title: string; explain?: string }) => (
   <div style={{
     display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
@@ -58,13 +58,13 @@ const SectionTitle = ({ icon, title, explain }: { icon: React.ReactNode; title: 
   </div>
 )
 
-// é€šç”¨æŽ’åºå™¨
+// 通用排序器
 const strSorter = (a: any, b: any, key: string) => {
   const va = a[key] ?? '', vb = b[key] ?? ''
   return String(va).localeCompare(String(vb))
 }
 
-// ç”Ÿæˆåˆ—filter
+// 生成列filter
 const getUniqueFilters = (data: any[], key: string) => {
   const vals = new Set<string>()
   data.forEach(r => { if (r[key] != null && r[key] !== '') vals.add(String(r[key])) })
@@ -82,7 +82,7 @@ export default function TTWODashboard() {
   const [customRange, setCustomRange] = useState<any>(null)
   const [selectedRegion, setSelectedRegion] = useState<string | undefined>(undefined)
 
-  // ä¸‹é’»çŠ¶æ€
+  // 下钻状态
   const [drillVisible, setDrillVisible] = useState(false)
   const [drillLoading, setDrillLoading] = useState(false)
   const [drillData, setDrillData] = useState<any[]>([])
@@ -92,7 +92,7 @@ export default function TTWODashboard() {
   const [drillValue, setDrillValue] = useState('')
   const [drillAnchor, setDrillAnchor] = useState<{ x: number; y: number } | null>(null)
 
-  // æ—¶é—´èŒƒå›´è®¡ç®—
+  // 时间范围计算
   const timeRange = useMemo(() => {
     if (timePreset === 'all') return null
     if (timePreset === 'custom' && customRange) {
@@ -111,7 +111,7 @@ export default function TTWODashboard() {
     }
   }, [timePreset, customRange])
 
-  // åŠ è½½æ•°æ®
+  // 加载数据
   useEffect(() => {
     setLoading(true)
     setError(null)
@@ -136,7 +136,7 @@ export default function TTWODashboard() {
 
   const fmt = (n: number) => n?.toLocaleString(numLocale(locale)) || '0'
 
-  // ä¸‹é’»åŠŸèƒ½
+  // 下钻功能
   const openDrilldown = useCallback((e?: React.MouseEvent | null, dimension?: string, value?: string) => {
     if (e && typeof e.clientX === 'number') setDrillAnchor({ x: e.clientX, y: e.clientY })
     else setDrillAnchor(null)
@@ -164,7 +164,7 @@ export default function TTWODashboard() {
       .finally(() => setDrillLoading(false))
   }, [timeRange, selectedRegion])
 
-  // æ¨¡ç³Šæœç´¢
+  // 模糊搜索
   const filteredDrillData = useMemo(() => {
     if (!drillSearch.trim()) return drillData
     const lower = drillSearch.toLowerCase()
@@ -173,25 +173,25 @@ export default function TTWODashboard() {
     )
   }, [drillData, drillSearch])
 
-  // å¯¼å‡ºExcel
-  // å·²è¿ç»Ÿä¸€æ ¼å¼ UNIFIED_EXCEL_V1ï¼šæ ·å¼ä¸Žé‚®ä»¶æŠ¥è¡¨åŒæºï¼Œè§ docs/EXCEL_EXPORT_STANDARD.md
+  // 导出Excel
   const exportToExcel = useCallback(() => {
     if (!filteredDrillData.length) return
     const keys = Object.keys(filteredDrillData[0])
     const header = keys.map(k => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))
     const rows = filteredDrillData.map(row => keys.map(k => row[k] == null ? '' : String(row[k])))
     const fname = `TTWO_${drillDimension}_${drillValue || 'all'}_${dayjs().format('YYYYMMDD_HHmmss')}`
+    // 统一走 excelReport；sheet 名由模块做非法字符清洗与去重，这里不再自行截断
     void exportAoaReport({
       filename: `${fname}.xlsx`,
-      sheetName: `TTWO ${drillDimension}`,
-      title: `TT/WO ${drillDimension} ${drillValue || 'all'}`,
+      sheetName: 'TTWO',
+      title: 'TTWO Drill-down',
       header,
       rows,
-      columnWidths: keys.map(() => 18),
+      numericCols: [],
     })
   }, [filteredDrillData, drillDimension, drillValue])
 
-  // ä¸‹é’»è¡¨æ ¼åˆ—å®šä¹‰
+  // 下钻表格列定义
   const drillColumns = useMemo(() => {
     if (!drillData.length) return []
     const keys = Object.keys(drillData[0])
@@ -208,10 +208,10 @@ export default function TTWODashboard() {
     }))
   }, [drillData])
 
-  // å›¾è¡¨é…ç½®
+  // 图表配置
   const CHART_HEIGHT = 264
 
-  // ä¸»é¢˜æ„ŸçŸ¥çš„å›¾è¡¨è‰²æ¿ï¼ˆcanvas æ— æ³•è§£æž CSS å˜é‡ï¼Œå–å…·ä½“è‰²å€¼ï¼‰
+  // 主题感知的图表色板（canvas 无法解析 CSS 变量，取具体色值）
   const tooltipStyle = darkTooltip(isDark)
   const cText = isDark ? '#f5f7ff' : '#16233b'
   const cTextMuted = isDark ? '#aebbd4' : '#3f5468'
@@ -219,7 +219,7 @@ export default function TTWODashboard() {
   const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
   const sevColors = isDark ? SEVERITY_COLORS : SEVERITY_COLORS_LIGHT
 
-  // MTTRå‘¨è¶‹åŠ¿
+  // MTTR周趋势
   const mttrOption = useMemo(() => {
     if (!data?.mttr_weekly?.length) return {}
     const weeks = data.mttr_weekly.map((w: any) => w.week)
@@ -248,7 +248,7 @@ export default function TTWODashboard() {
     }
   }, [data?.mttr_weekly, t, isDark, tooltipStyle, cTextMuted, cTeal])
 
-  // Domainåˆ†å¸ƒ
+  // Domain分布
   const domainOption = useMemo(() => {
     if (!data?.domain_stats) return {}
     const entries = Object.entries(data.domain_stats).sort((a: any, b: any) => a[1] - b[1])
@@ -271,7 +271,7 @@ export default function TTWODashboard() {
     }
   }, [data?.domain_stats, isDark, tooltipStyle, cText, cTextMuted, cPalette, locale])
 
-  // é€šç”¨é¥¼å›¾é…ç½®
+  // 通用饼图配置
   const makePieOption = useCallback((entries: [string, any][], hasLegend = true) => ({
     tooltip: { ...tooltipStyle, trigger: 'item' as const, formatter: '{b}: {c} ({d}%)' },
     legend: hasLegend ? { orient: 'vertical' as const, right: 0, top: 'center', textStyle: { fontSize: 10, color: cTextMuted }, itemWidth: 10, itemHeight: 10 } : undefined,
@@ -295,7 +295,7 @@ export default function TTWODashboard() {
     return makePieOption(entries)
   }, [data?.root_cause?.sub, makePieOption])
 
-  // WO Source æŸ±çŠ¶å›¾
+  // WO Source 柱状图
   const woSourceOption = useMemo(() => {
     if (!data?.wo_stats?.source) return {}
     const entries = Object.entries(data.wo_stats.source).sort((a: any, b: any) => b[1] - a[1])
@@ -315,7 +315,7 @@ export default function TTWODashboard() {
     }
   }, [data?.wo_stats?.source, isDark, tooltipStyle, cText, cTextMuted, locale])
 
-  // WO Status æŸ±çŠ¶å›¾
+  // WO Status 柱状图
   const woStatusOption = useMemo(() => {
     if (!data?.wo_stats?.status) return {}
     const entries = Object.entries(data.wo_stats.status).sort((a: any, b: any) => b[1] - a[1])
@@ -347,7 +347,7 @@ export default function TTWODashboard() {
     }
   }, [data?.wo_stats?.status, isDark, tooltipStyle, cText, cTextMuted, locale])
 
-  // Power Sources é¥¼å›¾
+  // Power Sources 饼图
   const powerSourceOption = useMemo(() => {
     if (!data?.site_stats?.power_sources) return {}
     const entries = Object.entries(data.site_stats.power_sources).sort((a: any, b: any) => b[1] - a[1]).slice(0, 10)
@@ -363,7 +363,7 @@ export default function TTWODashboard() {
     }
   }, [data?.site_stats?.power_sources, isDark, tooltipStyle, cText, cTextMuted, cPalette])
 
-  // Maintenance Team æŸ±çŠ¶å›¾
+  // Maintenance Team 柱状图
   const fmeOption = useMemo(() => {
     if (!data?.site_stats?.maintenance_team) return {}
     const entries = Object.entries(data.site_stats.maintenance_team).sort((a: any, b: any) => b[1] - a[1]).slice(0, 10)
@@ -383,7 +383,7 @@ export default function TTWODashboard() {
     }
   }, [data?.site_stats?.maintenance_team, isDark, tooltipStyle, cText, cTextMuted])
 
-  // Power Vendor é¥¼å›¾
+  // Power Vendor 饼图
   const powerVendorOption = useMemo(() => {
     if (!data?.site_stats?.power_vendor) return {}
     const entries = Object.entries(data.site_stats.power_vendor)
@@ -398,7 +398,7 @@ export default function TTWODashboard() {
     }
   }, [data?.site_stats?.power_vendor, isDark, tooltipStyle, cText, cPalette])
 
-  // ç»Ÿè®¡å¡ç‰‡é¢œè‰²æ˜ å°„
+  // 统计卡片颜色映射
   const sevColor: Record<string, string> = {
     Critical: sevColors.critical, Major: sevColors.major, Medium: sevColors.medium, Minor: sevColors.minor,
     'Proactive Fault': sevColors.info, 'Incident Fault': sevColors.major, 'Custom Complain': isDark ? '#eb2f96' : '#be185d',
@@ -422,7 +422,7 @@ export default function TTWODashboard() {
     return autoColorCache[key]
   }
 
-  // å¯ç‚¹å‡»çš„ç»Ÿè®¡æ ‡ç­¾ï¼ˆèƒŒæ™¯ä¸Žæ–‡å­—éšä¸»é¢˜é€‚é…ï¼šæ·±è‰²ä¸»é¢˜ç”¨æš—è‰²çŽ»ç’ƒåº•ï¼Œæµ…è‰²ä¸»é¢˜ç”¨è¯­ä¹‰è‰²æ·¡åº•ï¼‰
+  // 可点击的统计标签（背景与文字随主题适配：深色主题用暗色玻璃底，浅色主题用语义色淡底）
   const renderStatTags = (stats: Record<string, number>, colorMap: Record<string, string>, dimension: string) => (
     <Space wrap size={[8, 8]}>
       {Object.entries(stats).map(([k, v], idx) => {
@@ -440,7 +440,7 @@ export default function TTWODashboard() {
     </Space>
   )
 
-  // Status é¢œè‰²ç¼–ç ï¼ˆéšä¸»é¢˜é€‚é…ï¼šæ·±è‰²ä¸»é¢˜ç”¨äº®è‰²ï¼Œæµ…è‰²ä¸»é¢˜ç”¨é¥±å’Œæš—è‰²ä¿è¯å¯¹æ¯”åº¦ï¼‰
+  // Status 颜色编码（随主题适配：深色主题用亮色，浅色主题用饱和暗色保证对比度）
   const getStatusColor = (key: string): string => {
     const lower = key.toLowerCase()
     if (lower.includes('closed') || lower.includes('complete')) return isDark ? '#0bc78c' : '#15803d'
@@ -482,7 +482,7 @@ export default function TTWODashboard() {
     )
   }
 
-  // å›¾è¡¨ç‚¹å‡»äº‹ä»¶
+  // 图表点击事件
   const onChartClick = (dimension: string) => ({
     click: (params: any) => {
       const name = params.name || params.data?.name
@@ -511,7 +511,7 @@ export default function TTWODashboard() {
   const sevDimension = (s.alarm_severity && Object.keys(s.alarm_severity).length > 0) ? 'alarm_severity' : 'category'
   const sevLabel = sevDimension === 'alarm_severity' ? t('ttwo.alarmSeverity') : t('ttwo.category')
 
-  // æš—è‰²æ±‡æ€»å¡ç‰‡ç”Ÿæˆå™¨
+  // 暗色汇总卡片生成器
   const SummaryCard = ({ color, icon, value, label, onClick, explain }: { color: string; icon: React.ReactNode; value: number; label: string; onClick?: (e: React.MouseEvent) => void; explain?: string }) => (
     <Card size="small" hoverable className="wh-card-interactive" style={{ ...cardStyle, position: 'relative', cursor: onClick ? 'pointer' : 'default', borderLeft: `4px solid ${color}` }}
       onClick={onClick}>
@@ -529,7 +529,7 @@ export default function TTWODashboard() {
 
   return (
     <div style={{ ...pageWrap, display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-sm)' }}>
-      {/* ç­›é€‰æ  */}
+      {/* 筛选栏 */}
       <Card size="small" style={{ ...controlCardStyle, background: WH.cardBg }}>
         <Space wrap align="center" size="middle">
           <Segmented
@@ -566,7 +566,7 @@ export default function TTWODashboard() {
         </Space>
       </Card>
 
-      {/* æ±‡æ€»å¡ç‰‡ */}
+      {/* 汇总卡片 */}
       <Row gutter={12}>
         <Col xs={24} sm={12} md={data.summary.wo_total > 0 ? 8 : 24}>
           <SummaryCard color="#258cff" icon={<ThunderboltOutlined />} value={data.summary.tt_total} label={t('ttwo.ttTotal')} explain={t('ttwo.explain.ttTotal')} onClick={(e) => openDrilldown(e, 'all_tt')} />
@@ -579,7 +579,7 @@ export default function TTWODashboard() {
         </Col>}
       </Row>
 
-      {/* TT ç»Ÿè®¡æ ‡ç­¾ */}
+      {/* TT 统计标签 */}
       <SectionTitle icon={<AlertOutlined />} title={t('ttwo.ttStatistics')} />
       <Row gutter={[12, 12]}>
         <Col xs={24} sm={12} md={8}>
@@ -602,7 +602,7 @@ export default function TTWODashboard() {
         {renderStatusTags(s.status || {})}
       </Card>
 
-      {/* MTTR å‘¨è¶‹åŠ¿ */}
+      {/* MTTR 周趋势 */}
       <SectionTitle icon={<BarChartOutlined />} title={t('ttwo.mttrTrend')} explain={t('ttwo.explain.mttr')} />
       <Card size="small" style={cardStyle}>
         <div role="img" aria-label="MTTR Weekly Trend chart">
@@ -663,7 +663,7 @@ export default function TTWODashboard() {
         </Row>
       </>}
 
-      {/* ç«™ç‚¹ä¿¡æ¯ */}
+      {/* 站点信息 */}
       <SectionTitle icon={<EnvironmentOutlined />} title={t('ttwo.siteInfo')} />
       <Row gutter={[12, 12]}>
         {Object.entries(data.site_stats || {}).filter(([, v]) => v && Object.keys(v as any).length > 0).map(([key, stats]) => (
@@ -681,7 +681,7 @@ export default function TTWODashboard() {
         ))}
       </Row>
 
-      {/* ä¸‹é’» Modal */}
+      {/* 下钻 Modal */}
       <DraggableClickModal
         open={drillVisible}
         anchor={drillAnchor}

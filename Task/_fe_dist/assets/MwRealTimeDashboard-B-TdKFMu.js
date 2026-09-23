@@ -1,0 +1,1 @@
+import{n as e}from"./rolldown-runtime-DaJ6WEGw.js";import{H as t}from"./react-vendor-jwsFlhdB.js";import{C as n,x as r}from"./index-Cu1UQPpw.js";import{n as i,t as a}from"./LegacyToolFrame-DH2uhTQp.js";function o(){let{t:e}=n();return(0,s.jsx)(a,{file:`mw_real_time.html`,title:e(`nav.mwRealTime`)})}var s;e((()=>{i(),r(),s=t()}))();export{o as default};

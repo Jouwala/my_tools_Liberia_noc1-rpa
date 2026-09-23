@@ -1259,7 +1259,16 @@ const zhDashboard: Record<string, string> = {
   'tag.排名': 'Ranking',
 
 
-  // 标签
+  'dash.custom-noc-analyst.title': 'NOC Operator Analysis (NOC 操作人分析)',
+  'dash.custom-noc-analyst.desc': '按每位 NOC 操作人（基于 eFlow TT 末次处理人）量化根因错位率、平均处理时长、夜班单占比与 SLA 通过率，给出红旗告警；支持月份 / NOC 筛选与明细下钻。',
+  'tag.操作人分析': 'Operator Analysis',
+  'tag.根因错位': 'Root-cause Mismatch',
+
+        'dash.custom-ms-nur-only.title': 'MS NUR Only (MS 网络不可用率专页)',
+      'dash.custom-ms-nur-only.desc': '基于 RAN UME 数据聚焦 MS 制式（2G/3G/4G/TDD）的 Network Unavailability Rate 分析，剥离非 MS 维度，按站点与区域给出停机损失时长与时长排名，与 MS SLA 看板口径对齐。',
+      'dash.custom-ms-sla-only.title': 'MS SLA Only (MS SLA 专页)',
+      'dash.custom-ms-sla-only.desc': '基于 MS Operation KPI 看板（page=ms_sla）的 SLA 部分独立直链页：聚焦 MS 制式（2G/3G/4G/TDD）的 SLA 达成、WO SLA 与合同 KPI，剥离 NUR/Network/Per-Site 维度，可收藏、可上大屏。',
+// 标签
   'tag.FineBI': 'FineBI',
   'tag.主目录': 'Main Directory',
   'tag.全景': 'Panorama',
@@ -1707,7 +1716,16 @@ const enDashboard: Record<string, string> = {
   'tag.排名': 'Ranking',
 
 
-  // Tags
+  'dash.custom-noc-analyst.title': 'NOC Operator Analysis',
+  'dash.custom-noc-analyst.desc': 'Quantifies each NOC operator (based on eFlow TT last processor) by root-cause mismatch rate, average handling time, night-shift ticket share and SLA pass rate, with red-flag alerts; supports month / NOC filters and detail drill-down.',
+  'tag.操作人分析': 'Operator Analysis',
+  'tag.根因错位': 'Root-cause Mismatch',
+
+        'dash.custom-ms-nur-only.title': 'MS NUR Only',
+      'dash.custom-ms-nur-only.desc': 'Focused MS-technology (2G/3G/4G/TDD) Network Unavailability Rate analysis based on RAN UME data, isolating the MS dimension to rank downtime loss duration by site and region, aligned with MS SLA dashboard caliber.',
+      'dash.custom-ms-sla-only.title': 'MS SLA Only',
+      'dash.custom-ms-sla-only.desc': 'Standalone direct-link view of the SLA portion of the MS Operation KPI dashboard (page=ms_sla): focuses on MS-technology (2G/3G/4G/TDD) SLA achievement, WO SLA and contract KPIs, with NUR/Network/Per-Site dimensions stripped out; bookmarkable and big-screen ready.',
+// Tags
   'tag.FineBI': 'FineBI',
   'tag.主目录': 'Main Directory',
   'tag.全景': 'Panorama',

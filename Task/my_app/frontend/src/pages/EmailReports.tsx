@@ -47,6 +47,9 @@ interface EflowFile {
   name: string
   size: number
   mtime: number
+  // kind=rule：从 eFlow 收集的规则表；kind=report：本次检查的产物（矫正表/报告）
+  kind?: 'rule' | 'report'
+  label?: string
 }
 interface EflowBreakdownRow {
   priority: number | null
@@ -90,7 +93,8 @@ export default function EmailReports() {
   const [eflowSummary, setEflowSummary] = useState<EflowSummary | null>(null)
   const [eflowFiles, setEflowFiles] = useState<EflowFile[]>([])
   const [eflowLoading, setEflowLoading] = useState(false)
-  const [eflowRunning, setEflowRunning] = useState(false)
+  // 正在触发的任务 id（tt 检查 / 告警规则收集 / 推单规则收集），用于各自按钮的 loading
+  const [eflowRunningTask, setEflowRunningTask] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -149,19 +153,19 @@ export default function EmailReports() {
     }
   }, [t])
 
-  const runEflowNow = useCallback(async () => {
-    setEflowRunning(true)
+  const runTaskNow = useCallback(async (taskId: string, okMsg: string, failMsg: string) => {
+    setEflowRunningTask(taskId)
     try {
-      await api.post('/tasks/eflow_tt_rules_check/run')
-      message.success(t('emailReports.eflowRunOk'))
+      await api.post(`/tasks/${taskId}/run`)
+      message.success(okMsg)
       // 任务在后台线程/队列执行，3 秒后刷新一次（再由用户手动刷新补全）
       setTimeout(loadEflowCheck, 3000)
     } catch (e) {
-      message.error(t('emailReports.eflowRunFail'))
+      message.error(failMsg)
     } finally {
-      setEflowRunning(false)
+      setEflowRunningTask(null)
     }
-  }, [t, loadEflowCheck])
+  }, [loadEflowCheck])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { loadFinebi() }, [loadFinebi])
@@ -327,6 +331,56 @@ export default function EmailReports() {
     },
   ]
 
+  const eflowFileColumns = [
+    {
+      title: t('emailReports.colType'),
+      dataIndex: 'label',
+      key: 'label',
+      minWidth: 200,
+      render: (v: string, row: EflowFile) => (
+        <Tag color={row.kind === 'rule' ? 'blue' : 'default'}>{v || row.name}</Tag>
+      ),
+    },
+    {
+      title: t('emailReports.colFile'),
+      dataIndex: 'name',
+      key: 'name',
+      render: (v: string, row: EflowFile) => (
+        <a href={eflowDownloadUrl(row)} download={row.name}>
+          {v.toLowerCase().endsWith('.xlsx')
+            ? <FileExcelOutlined style={{ marginRight: '0.375rem', color: '#1d6f42' }} />
+            : <FileTextOutlined style={{ marginRight: '0.375rem' }} />}
+          {v}
+        </a>
+      ),
+    },
+    {
+      title: t('emailReports.colSize'),
+      dataIndex: 'size',
+      key: 'size',
+      minWidth: 110,
+      align: 'right' as const,
+      render: (v: number) => formatSize(v),
+    },
+    {
+      title: t('emailReports.colTime'),
+      dataIndex: 'mtime',
+      key: 'mtime',
+      minWidth: 180,
+      render: (v: number) => formatDateTime(v),
+    },
+    {
+      title: t('emailReports.colAction'),
+      key: 'action',
+      minWidth: 110,
+      render: (_: unknown, row: EflowFile) => (
+        <Button size="small" icon={<DownloadOutlined />} href={eflowDownloadUrl(row)} download={row.name}>
+          {t('emailReports.download')}
+        </Button>
+      ),
+    },
+  ]
+
   return (
     <div style={pageWrap}>
       <Card style={cardStyle} title={t('emailReports.title')}>
@@ -401,9 +455,30 @@ export default function EmailReports() {
                 <>
                   <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
                     <Text type="secondary" style={{ maxWidth: '60rem' }}>{t('emailReports.eflowHint')}</Text>
-                    <Space>
-                      <Button size="small" icon={<ThunderboltOutlined />} onClick={runEflowNow} loading={eflowRunning}>
+                    <Space wrap>
+                      <Button
+                        size="small"
+                        icon={<ThunderboltOutlined />}
+                        onClick={() => runTaskNow('eflow_tt_rules_check', t('emailReports.eflowRunOk'), t('emailReports.eflowRunFail'))}
+                        loading={eflowRunningTask === 'eflow_tt_rules_check'}
+                      >
                         {t('emailReports.eflowRunNow')}
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<ThunderboltOutlined />}
+                        onClick={() => runTaskNow('eflow_alarm_rules_collect', t('emailReports.eflowRunOk'), t('emailReports.eflowRunFail'))}
+                        loading={eflowRunningTask === 'eflow_alarm_rules_collect'}
+                      >
+                        {t('emailReports.eflowRunAlarm')}
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<ThunderboltOutlined />}
+                        onClick={() => runTaskNow('eflow_push_rules_collect', t('emailReports.eflowRunOk'), t('emailReports.eflowRunFail'))}
+                        loading={eflowRunningTask === 'eflow_push_rules_collect'}
+                      >
+                        {t('emailReports.eflowRunPush')}
                       </Button>
                       <Button size="small" icon={<ReloadOutlined />} onClick={loadEflowCheck} loading={eflowLoading}>
                         {t('emailReports.refresh')}
@@ -467,14 +542,17 @@ export default function EmailReports() {
                   )}
                   {eflowFiles.length > 0 && (
                     <div style={{ marginTop: '0.75rem' }}>
-                      <Space wrap>
-                        <Text type="secondary">{t('emailReports.downloadLabel')}</Text>
-                        {eflowFiles.map(f => (
-                          <Button key={f.name} size="small" icon={<DownloadOutlined />} href={eflowDownloadUrl(f)} download={f.name}>
-                            {t('emailReports.fileSize', { name: f.name, size: formatSize(f.size) })}
-                          </Button>
-                        ))}
-                      </Space>
+                      <Text type="secondary">{t('emailReports.eflowFilesLabel')}</Text>
+                      <div className="wh-table-responsive" style={{ marginTop: '0.375rem' }}>
+                        <Table
+                          size="small"
+                          rowKey="name"
+                          columns={eflowFileColumns as any}
+                          dataSource={eflowFiles}
+                          pagination={false}
+                          scroll={{ x: 'max-content' }}
+                        />
+                      </div>
                     </div>
                   )}
                 </>

@@ -168,6 +168,22 @@ PORTALS = {
         # 登录成功即落到 /em-portal/（该页再 meta refresh 到 framework/default.html）
         "success_regex": r"https://[^/]+/em-portal",
     },
+    # Battery UME（192.168.170.2:443）——「电池 KPI」同步/邮件任务用的同一套账号
+    # （credential_store key=battery_ume）。加进注册表后「门户登录」页出现一键登录入口，
+    # 便于在图形验证码弹出时人工登录一次并核对账号密码是否有效。
+    "battery_ume": {
+        "name": "Battery UME 电池网管 (192.168.170.2:443)",
+        "name_en": "Battery UME NMS (192.168.170.2:443)",
+        "cred_key": "battery_ume",
+        "kind": "oauth2",
+        "host_env": "BATT_HOST", "port_env": "BATT_PORT",
+        "default_host": "192.168.170.2", "default_port": 443,
+        "redirect": "/uportal/framework/default.html",
+        "success_regex": r"https://[^/]+/uportal/framework/default\.html",
+        # 该 UME 前端把根地址写死为 https://192.168.170.2/，反代到别的 host 会
+        # 让会话 Cookie 种不下 → 客户端模式直连上游（与 eflow / rais 同理）。
+        "direct": True,
+    },
 }
 
 
@@ -955,8 +971,10 @@ def launch_and_login(system_key: str, browser: str | None = None, job_id: str | 
 # 后端无法跨域种 cookie，此时应回退到 client 模式（本机直连 eFlow 填表）。
 
 def _eflow_direct_auth(spec: dict):
-    """直接鉴权 eFlow：调用 auth_manager 复刻 RSA+OAuth2 登录，返回会话 cookie 串。
+    """直接鉴权走 ZTE OAuth2 RSA 登录的门户，返回会话 cookie 串。
 
+    适用所有 ``kind == "oauth2"`` 的直连门户（eflow / battery_ume 等）：
+    调用 auth_manager 复刻 RSA+OAuth2 登录流程。
     返回 (cookie_str, forgery_token)；失败抛异常。
     """
     from backend.services.auth_manager import get_auth
@@ -964,6 +982,10 @@ def _eflow_direct_auth(spec: dict):
     user, pwd = _creds(spec["cred_key"])
     auth = get_auth(host, port, user, pwd)
     return auth["cookie"], auth["forgery_token"]
+
+
+# 语义化别名：新代码按「OAuth2 直连鉴权」而非「eFlow 专用」来读更清楚。
+_oauth2_direct_auth = _eflow_direct_auth
 
 
 def _split_cookies(cookie_str: str) -> list[dict]:
@@ -1010,10 +1032,11 @@ async def _cdp_set_eflow_cookies(port: int, host: str, cookie_str: str,
     返回 (成功种入的 cookie 数, csrftoken 是否写入)。只启用 Network/Runtime 域
     （不启用 Debugger 域，避免触发 eFlow 的 anti-debugger 冻结页面）。
 
-    ⚠️ 必须同时补写 localStorage.csrftoken：门户的跨站防护要求前端 JS 把
-    `forgerydefense` 响应头的值存进 localStorage.csrftoken，后续请求据此带
-    forgery 头。直接种 cookie 没有"真实登录响应"，这一步没人做 →
-    页面所有接口 403 "This request is prohibited for cross-site access"、
+    ⚠️ 必须同时补写 localStorage 的 csrftoken（JSON 串）与 forgerydefense（裸值）：门户的
+    跨站防护要求前端把 `forgerydefense` 响应头的值带进后续请求，但不同消费方读的键与格式
+    不同。只写 csrftoken 时纯 REST 的工单页正常，「当前告警」页（读 forgerydefense）却是
+    整页空白。历史上还出现过完全没写 → 页面所有接口 403
+    "This request is prohibited for cross-site access"、
     "Your session is error. Please login again."（2026-09-12 实测确诊）。
 
     ⚠️⚠️ 写 localStorage 前【必须等启动页真正落到 eFlow 源】（2026-09-13 实测确诊）：
@@ -1123,26 +1146,34 @@ async def _cdp_set_eflow_cookies(port: int, host: str, cookie_str: str,
         if set_count == 0:
             raise RuntimeError("会话 cookie 一个都没种进去（CDP setCookie 全失败）")
 
-        # 补写 CSRF token（门户前端从 forgerydefense 响应头取值后 JSON 序列化存盘）
+        # 补写防伪令牌（门户前端从 forgerydefense 响应头取值后 JSON 序列化存盘）
+        # ⚠️ 两个键都要写且格式不同：csrftoken = JSON 串（框架 store()/angularFm CometD 会
+        # JSON.parse），forgerydefense = 裸值（uportal 告警语音 WebSocket 与 getCsrfValue 的
+        # SM 场景直接当请求头用）。只写 csrftoken 时「当前告警」页拿到 null → 整页空白。
         # 写后回读校验；失败重试（页面可能正在重定向，源被换掉）
         csrf_ok = False
         if csrf_token:
-            # 门户前端把 forgerydefense 响应头的值 JSON 序列化后存进 localStorage.csrftoken，
-            # 后续请求再把它当作 forgery 头带上。这里复刻同一写法（带引号的 JSON 串）。
-            want = _json.dumps(csrf_token)
-            expr = ("(() => { try { localStorage.setItem('csrftoken', %s);"
-                    " return localStorage.getItem('csrftoken'); }"
-                    " catch (e) { return 'ERR:' + e; } })()" % want)
+            expr = ("(() => { try {"
+                    " localStorage.setItem('csrftoken', %s);"
+                    " localStorage.setItem('forgerydefense', %s);"
+                    " return JSON.stringify([localStorage.getItem('csrftoken'),"
+                    " localStorage.getItem('forgerydefense')]); }"
+                    " catch (e) { return 'ERR:' + e; } })()"
+                    % (_json.dumps(_json.dumps(csrf_token)), _json.dumps(csrf_token)))
             for _ in range(3):
                 try:
                     val = await eval_js(expr)
                 except Exception as e:
                     val = f"ERR:{e}"
-                # 容错：门户自己也会写这个键（可能是裸 token，不带引号）——两种都算成功
-                if str(val).strip('"') == csrf_token:
+                try:
+                    got = _json.loads(str(val))
+                except Exception:
+                    got = []
+                if (isinstance(got, list) and len(got) == 2
+                        and str(got[0]).strip('"') == csrf_token and got[1] == csrf_token):
                     csrf_ok = True
                     break
-                _job_update(job_id, log=[f"csrftoken 写入未生效（{str(val)[:80]}），重试"])
+                _job_update(job_id, log=[f"csrftoken/forgerydefense 写入未生效（{str(val)[:80]}），重试"])
                 await asyncio.sleep(0.8)
     return set_count, csrf_ok
 
@@ -1440,14 +1471,14 @@ def _rais_direct_auth(spec: dict):
 def build_client_login_plan(system_key: str) -> dict:
     """构造供受管 Chrome 扩展执行的、一次性的本机登录计划。
 
-    这个函数刻意不返回门户账号或密码。eFlow / RAIS 的密码学登录仍只在
+    这个函数刻意不返回门户账号或密码。eFlow / RAIS / UME 系的密码学登录仍只在
     my_app 服务端完成；扩展只拿到必须写入其**本机 Chrome**的短期会话材料。
     调用方必须以短时、单次消费的票据保护返回值，见 routers/portals.py。
     """
-    if system_key not in ("eflow", "rais"):
+    spec = PORTALS.get(system_key)
+    if spec is None or not spec.get("direct"):
         raise ValueError(f"门户 {system_key} 不支持客户端会话登录")
 
-    spec = PORTALS[system_key]
     host, port = resolve_endpoint(spec)
     origin = f"https://{host}:{port}"
 
@@ -1468,6 +1499,27 @@ def build_client_login_plan(system_key: str) -> dict:
             "system": system_key,
             "origin": origin,
             "target_url": origin + spec["redirect"],
+            "cookies": cookies,
+            "eflow_csrf_token": forgery_token,
+        }
+
+    if system_key != "rais":
+        # 通用分支：标准 ZTE OAuth2 RSA 登录的直连门户（如 battery_ume）。
+        # 走 auth_manager 的 _do_login，与「服务器模式」和「测试连接」同一套实现，
+        # 拿到会话 cookie + forgery_token 后交给扩展写进访问者本机 Chrome。
+        cookie_str, forgery_token = _oauth2_direct_auth(spec)
+        cookies = [
+            {"name": item["name"], "value": item["value"], "httpOnly": True}
+            for item in _split_cookies(cookie_str)
+        ]
+        if not cookies:
+            raise RuntimeError(f"{system_key} 鉴权未返回会话 cookie")
+        # 落地页优先取 login_uri（登录入口，已登录时会自行跳转），否则取 redirect。
+        target = spec.get("login_uri") or spec["redirect"]
+        return {
+            "system": system_key,
+            "origin": origin,
+            "target_url": origin + target,
             "cookies": cookies,
             "eflow_csrf_token": forgery_token,
         }

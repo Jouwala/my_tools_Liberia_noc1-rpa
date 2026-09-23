@@ -395,12 +395,14 @@ export default function CnKpi() {
     <div style={{ padding: 4 }}>
       {/* 标题栏（原版 CCN_Daily_KPI 文本组件；已去掉指向 FineBI 的外链） */}
       <Card size="small" style={{ ...cardStyle, marginBottom: 12 }} styles={{ body: { padding: '8px 12px' } }}>
+        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+          <Title level={4} style={{ margin: 0, color: isDark ? '#64ffda' : '#0d9488' }}>
+            ❯❯❯ {data?.title || 'CCN_Daily_KPI'} ❮❮❮
+          </Title>
+        </div>
         <Row align="middle" justify="space-between" gutter={[12, 8]}>
           <Col>
             <Space size={10} wrap>
-              <Title level={4} style={{ margin: 0, color: isDark ? '#64ffda' : '#0d9488' }}>
-                ❯❯❯ {data?.title || 'CCN_Daily_KPI'} ❮❮❮
-              </Title>
               {/* 数据最新日期跟着标题排在同一行右侧 */}
               {headerKpis.map((w) => <HeaderKpi key={w.id} w={w} />)}
               {data?.meta && (
