@@ -67,6 +67,32 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 | 反复被重启 | `backend_watchdog.log` 连崩计数 | 连崩 10 次会放弃并告警（`backend_watchdog.py:38-44`），必须看崩溃原因，重启不解决问题 |
 | 界面英文环境出现中文 | 该文案是否 zh/en 两处都加（`i18n.tsx`） | 补 en 侧同名 key。历史上出现过两次同类缺陷 |
 | 启动报"已有实例" | `db/instance.lock` 是否残留（上次异常退出） | 确认无 backend 进程后删除该锁文件再启 |
+| 某看板**单个指标**从某天起没了（其它指标正常） | `daily_kpi` 里那天的 `blocks_ok` 是否小于块总数 | 见下条「KPI 残缺日」 |
+| VMAX 90 天看板某指标断档 / 页面 Build 时间不动 | `data/olib_soc_report/olib_soc_report.sqlite3` 的 `daily_kpi` 表 | 见下方专节 |
+
+### KPI 残缺日的识别与修复（2026-09-24 事故）
+
+现象：`?page=vmaxCxoDashboard_90Days` 的「Active Users」停在某天之前，之后全是空，
+但流量/视频等其它指标正常。**页面上的 `Build MM-DD HH:MM` 是页面文件自身的修改时间，
+不是数据时间**，所以它不动是正常的 —— 数据时间看左侧「数据截至」与状态栏。
+
+根因：单日取数时某个块临时失败，那一行仍被写入（其余块有值），只是该块对应的列为 NULL。
+这种「行在但格子空」的天既不算任务失败、也不算缺天，于是**永久残留**。
+
+```sql
+-- 一行定位：blocks_ok 小于 7 的日期就是残缺日（看板共 7 个块）
+SELECT day, blocks_ok, traffic_tb, active_user, video_tb
+FROM daily_kpi ORDER BY day DESC LIMIT 15;
+```
+
+修复（幂等，重取即自愈；2026-09-24 起每日任务已自动覆盖这类天）：
+
+```bash
+python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi --days-back 30
+```
+
+> 判定逻辑在 `olib_soc_kpi_store.incomplete_days()`（列白名单 `REQUIRED_COLUMNS`），
+> 与 `gap_days()` 一起决定每天要补哪些天。改库前先备份该 sqlite 文件。
 
 ## 备份与恢复
 

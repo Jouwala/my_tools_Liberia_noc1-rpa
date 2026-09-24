@@ -153,3 +153,29 @@ Task/my_app/TMP/novel_dl_portable_*.zip
 Task/my_app/TMP/novel_dl/_smoke*
 Task/my_app/TMP/novel_dl/bench_*.py
 Task/my_app/TMP/novel_dl/profile_*.py
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 前端构建产物整目录（2026-09-24 新增）
+#
+# vite 的 build.outDir 是 D:/01_RPA/Task/_fe_dist（在 my_app 之上），所以
+# Task/my_app/.gitignore 里的 /frontend/dist*/ 匹配不到它；根规则的 dist/
+# 也匹配不到 _fe_dist/。结果 9047 个产物文件被跟踪，每次 npm run build
+# 都产生几百条 diff。
+#
+# 已实测这些目录 100% 可由 frontend/ 源码重建：public/ 下有 lib/、legacy-*.css、
+# *.geojson、各手写 HTML 的母本，index.html 是 vite 根模板。
+# nginx.conf:150/160 用 alias 直接发 Task/_fe_dist/，它是**运行时服务目录**，
+# 忽略跟踪 ≠ 删除，磁盘上必须留着。
+# ─────────────────────────────────────────────────────────────────────────────
+Task/_fe_dist/
+Task/_fe_dist_tmp/
+Task/_fe_dist_bak_*/
+Task/_fe_dist_cloud/
+
+# 一次性隔离区（同盘移动产物，保留原相对路径，确认无碍后再处置）
+/_quarantine_*/
+
+# Office 崩溃恢复残留 / TS 增量缓存
+*.rpltmp
+*.tsbuildinfo
+*.log.err

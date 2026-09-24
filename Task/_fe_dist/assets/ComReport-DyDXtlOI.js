@@ -1,1 +1,0 @@
-import{n as e}from"./rolldown-runtime-DaJ6WEGw.js";import{H as t}from"./react-vendor-DJS8GeoD.js";import{n,t as r}from"./SpReportBase-D0AkgVg6.js";function i(){return(0,a.jsx)(r,{kind:`consumables`})}var a;e((()=>{n(),a=t()}))();export{i as default};

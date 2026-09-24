@@ -137,8 +137,22 @@ INVENTORY_COLS = ['Serial No.', 'Material No.', 'Material Name', 'Material Statu
 REPLENISH_EXCLUDE_ORDERS = ('SPOB202608160004', 'SPOB202609120014')
 # 历史消耗中剔除的出库类型：Repair Outbound（报修出库）不算真实消耗
 REPLENISH_EXCLUDE_OUTBOUND_TYPE = 'Repair Outbound'
-# 历史消耗窗口（月）：现有出库数据覆盖 9.5 个月
-REPLENISH_HISTORY_MONTHS = 9.5
+# 历史消耗窗口（月）：不再写死，改用「起算月 → 当前月」的自然月个数（2026-09-24 起）。
+#
+# 为什么改：原值 9.5 是「出库数据当前覆盖 9.5 个月」的**一次性快照**，会随时间失效 ——
+# 每过一个月数据就多覆盖一个月，分母却不变，月均消耗被系统性高估。
+#
+# 口径（与用户确认）：
+#   分母 = 当前年月的月份序号 − 起算月的月份序号 + 1，即「含首尾的自然月个数」。
+#   例：2026-09 跑 → 9 - 1 + 1 = 9；2026-10 跑 → 10。
+#   已过天数不折算（不用 8.77 这种小数），这样同一个自然月内分母恒定，
+#   月度内跨天对账不会因小数位漂移而"数字每天都在变"。
+#
+# 为什么固定 2026-01 而不是滚动 9 个月：出库明细最早数据即 2026-01-07，
+# 历史不会回补，固定起算点让分母只增不减、口径可追溯。
+REPLENISH_HISTORY_START = (2026, 1)
+# 兜底值：仅当起算月晚于当前月（时钟异常/被改配置）时使用，避免出现 0 或负分母
+REPLENISH_HISTORY_MONTHS_FALLBACK = 1
 # 安全库存 = 6 个月历史平均消耗后向上取整（2026-09-19 起 Avg 保留小数，Safety 取整）
 REPLENISH_SAFETY_MONTHS = 6
 # 补库建议的列（全英文，避免报表出现中文）；Remark 紧跟在 Safety Stock 之后
@@ -157,22 +171,34 @@ REMARK_ACTUAL_CONSUMPTION = 'Actual Consumption'
 # Safety Stock = ceil(6 x Avg)，与 Replenishment Qty 同为向上取整的整数列
 REPLENISH_DEC_COLS = ('Avg Monthly Consumption',)
 REPLENISH_INT_COLS = ('Safety Stock', 'Replenishment Qty')
-# 报表上方的口径说明（Excel 表头上方、PNG 标题下方）：拆成多行，否则超过合并区的显示宽度会被裁掉
-REPLENISH_NOTES = (
-    'Replenishment basis:  Excluded orders ' + ' / '.join(REPLENISH_EXCLUDE_ORDERS)
-    + f'  |  Excluded outbound type {REPLENISH_EXCLUDE_OUTBOUND_TYPE}'
-    + f'  |  History {REPLENISH_HISTORY_MONTHS} months'
-    + f'  |  Safety Stock = ceil({REPLENISH_SAFETY_MONTHS} x Avg Monthly Consumption)',
-    f'Zero-consumption materials (Remark = {REMARK_FAILURE_RATE}): '
-    + f'Safety Stock = ceil({int(REPLENISH_ZERO_CONSUMPTION_SAFETY_PCT * 100)}%'
-    + ' x max(Inbound Qty, net Outbound Qty, Inventory Qty))',
-    'Replenishment Qty = Safety Stock - Inventory Qty (<= 0 left blank, rounded up)'
-    + '  |  Alert Level = Inventory Qty / Safety Stock'
-    + '  |  Note: the Outbound Qty column still includes the 2 excluded orders'
-    + f' and {REPLENISH_EXCLUDE_OUTBOUND_TYPE}',
-    f'Remark: {REMARK_FAILURE_RATE} = Avg Monthly Consumption is 0'
-    + f'  |  {REMARK_ACTUAL_CONSUMPTION} = Avg Monthly Consumption > 0',
-)
+# 报表上方的口径说明（Excel 表头上方、PNG 标题下方）：拆成多行，否则超过合并区的显示宽度会被裁掉。
+#
+# ⚠️ 必须以**函数**形式提供，不能是模块级常量元组：历史月数已改为动态（见 history_months），
+#    常量在 import 时就求值，跨月跑的长驻进程会一直印着第一次的月数。
+# ⚠️ 返回的行数 = Summary-Current 表头之前的说明行数，改动行数必须同步
+#    backend/services/sp_report_service.py 的 SHEET_CONFIG["Summary-Current"]["header_row"]（现为 7）。
+def replenish_notes(as_of=None):
+    """报表口径说明行（4 行）。行数变动必须同步 SHEET_CONFIG 的 header_row。"""
+    months = history_months(as_of)
+    start_month = f'{REPLENISH_HISTORY_START[0]}-{REPLENISH_HISTORY_START[1]:02d}'
+    return (
+        'Replenishment basis:  Excluded orders ' + ' / '.join(REPLENISH_EXCLUDE_ORDERS)
+        + f'  |  Excluded outbound type {REPLENISH_EXCLUDE_OUTBOUND_TYPE}'
+        + f'  |  History {months} months ({start_month} to current month, inclusive)'
+        + f'  |  Safety Stock = ceil({REPLENISH_SAFETY_MONTHS} x Avg Monthly Consumption)',
+        f'Zero-consumption materials (Remark = {REMARK_FAILURE_RATE}): '
+        + f'Safety Stock = ceil({int(REPLENISH_ZERO_CONSUMPTION_SAFETY_PCT * 100)}%'
+        + ' x max(Inbound Qty, net Outbound Qty, Inventory Qty))',
+        'Outbound split:  Outbound Repair Qty = Repair Outbound type only'
+        + '  |  Outbound Site Qty = Outbound Qty - Outbound Repair Qty'
+        + '  (they always sum to Outbound Qty)'
+        + '  |  Replenishment Qty = Safety Stock - Inventory Qty (<= 0 left blank, rounded up)'
+        + '  |  Alert Level = Inventory Qty / Safety Stock'
+        + '  |  Note: the Outbound Qty column still includes the 2 excluded orders'
+        + f' and {REPLENISH_EXCLUDE_OUTBOUND_TYPE}',
+        f'Remark: {REMARK_FAILURE_RATE} = Avg Monthly Consumption is 0'
+        + f'  |  {REMARK_ACTUAL_CONSUMPTION} = Avg Monthly Consumption > 0',
+    )
 ALERT_URGENT = 'Urgent Replenish'
 ALERT_REPLENISH = 'Replenish'
 ALERT_EXCESS = 'Excess'
@@ -1135,10 +1161,29 @@ def build_summary(inb_df, outb_df, inv_df):
     Domain 取自数据库表 sp_material（materialName→domain，2026-09-19 起），
     库里取不到的物料回退 Inventory 明细的 Domain；同一物料多行时取第一个非空值。
     Balance 列 2026-09-19 删除；Difference 口径不变 = Inventory Qty - (Inbound Qty - Outbound Qty)。
+
+    Outbound 拆分（2026-09-24 新增，紧跟 Outbound Qty 右侧）：
+      - Outbound Repair Qty = 出库明细中 Outbound Type == REPLENISH_EXCLUDE_OUTBOUND_TYPE
+        （'Repair Outbound'，报修出库）的 Outbound Qty 合计；
+      - Outbound Site Qty   = Outbound Qty - Outbound Repair Qty（**用减法而非再筛一类**）。
+    两者之和恒等于 Outbound Qty：上游日后新增 Outbound Type、或出现空白值，
+    都会自动落到 Outbound Site Qty 里，恒等式不会被新类型打破。
+    注意本拆分与「补库消耗」不同：补库消耗还额外剔除了 REPLENISH_EXCLUDE_ORDERS 两张
+    异常单据（见 build_replenishment），本表的 Outbound Qty 仍是**未剔除**的原值。
     """
     inb_sum = inb_df.groupby('Material Name', sort=True)['Inbound Qty'].sum()
     outb_sum = outb_df.groupby('Material Name', sort=True)['Outbound Qty'].sum()
     inv_sum = inv_df.groupby('Material Name', sort=True)['Stock Qty'].sum()
+
+    # 报修出库（Repair Outbound）单列统计；其余出库一律算「站点出库」。
+    if outb_df is not None and len(outb_df) > 0 and 'Outbound Type' in outb_df.columns:
+        repair_mask = outb_df['Outbound Type'].astype(str).str.strip().eq(
+            REPLENISH_EXCLUDE_OUTBOUND_TYPE)
+        repair_sum = pd.to_numeric(
+            outb_df.loc[repair_mask].groupby('Material Name')['Outbound Qty'].sum(),
+            errors='coerce').fillna(0)
+    else:
+        repair_sum = pd.Series(dtype='float64')
 
     merged = pd.DataFrame({
         'Inbound Qty': inb_sum, 'Outbound Qty': outb_sum, 'Inventory Qty': inv_sum,
@@ -1146,6 +1191,11 @@ def build_summary(inb_df, outb_df, inv_df):
 
     for c in ['Inbound Qty', 'Outbound Qty', 'Inventory Qty']:
         merged[c] = merged[c].fillna(0)
+
+    # 按 Material Name 对齐报修量（主表没有报修记录的物料记 0）
+    merged['Outbound Repair Qty'] = pd.to_numeric(
+        merged['Material Name'].map(repair_sum), errors='coerce').fillna(0)
+    merged['Outbound Site Qty'] = merged['Outbound Qty'] - merged['Outbound Repair Qty']
 
     # Domain：优先取数据库表 sp_material（按 materialName），取不到回退 Inventory 明细
     inv_domain = {}
@@ -1161,6 +1211,7 @@ def build_summary(inb_df, outb_df, inv_df):
 
     merged['Difference'] = merged['Inventory Qty'] - (merged['Inbound Qty'] - merged['Outbound Qty'])
     merged = merged[['Material Name', 'Domain', 'Inbound Qty', 'Outbound Qty',
+                     'Outbound Site Qty', 'Outbound Repair Qty',
                      'Inventory Qty', 'Difference']]
 
     total = pd.DataFrame({
@@ -1168,6 +1219,8 @@ def build_summary(inb_df, outb_df, inv_df):
         'Domain': [''],                       # Total 行不显示 Domain
         'Inbound Qty': [merged['Inbound Qty'].sum()],
         'Outbound Qty': [merged['Outbound Qty'].sum()],
+        'Outbound Site Qty': [merged['Outbound Site Qty'].sum()],
+        'Outbound Repair Qty': [merged['Outbound Repair Qty'].sum()],
         'Inventory Qty': [merged['Inventory Qty'].sum()],
         'Difference': [merged['Difference'].sum()],
     })
@@ -1177,11 +1230,28 @@ def build_summary(inb_df, outb_df, inv_df):
 # ==============================================================================
 # build_replenishment - 补库建议（历史月均消耗 / 安全库存 / 需补库数量 / 预警级别）
 # ==============================================================================
-def build_replenishment(outb_df, inv_df, base_index=None, summary_qty=None):
+def history_months(as_of=None):
+    """历史消耗窗口的月数 = 起算月到 as_of 所在自然月的**含首尾月个数**。
+
+    例（起算月 2026-01）：2026-01 → 1；2026-02 → 2；2026-09 → 9；2027-01 → 13。
+
+    已过天数**不折算**：同一自然月内分母恒定，报表数字不会逐日漂移。
+    as_of 缺省取当前时间；起算月晚于 as_of 时退回兜底值 1（防 0/负分母）。
+    """
+    now = as_of if as_of is not None else datetime.now()
+    sy, sm = REPLENISH_HISTORY_START
+    n = (now.year - sy) * 12 + (now.month - sm) + 1
+    return n if n > 0 else REPLENISH_HISTORY_MONTHS_FALLBACK
+
+
+def build_replenishment(outb_df, inv_df, base_index=None, summary_qty=None, as_of=None):
     """按 Material Name 统计补库建议，直接并到 Summary-Current 主表右侧。
 
     - Avg Monthly Consumption = 出库数量合计（先剔除 REPLENISH_EXCLUDE_ORDERS 两张异常单据，
-      再剔除 Outbound Type = 'Repair Outbound' 的报修出库）/ 9.5，保留 2 位小数，不再向上取整（2026-09-19 起）
+      再剔除 Outbound Type = 'Repair Outbound' 的报修出库）÷「历史月数」，保留 2 位小数，
+      不再向上取整（2026-09-19 起）。
+      历史月数由 ``history_months(as_of)`` 动态计算（2026-09-24 起替代写死的 9.5）：
+      起算月 REPLENISH_HISTORY_START（2026-01）到当前自然月的含首尾月个数，2026-09 跑 = 9。
     - Safety Stock = ceil(6 * Avg Monthly Consumption)（整数，月均按 2 位小数验算：
       Safety = 向上取整(6 x Avg)）；
       月均消耗为 0 的物料按「故障率」备件处理：Safety Stock =
@@ -1195,6 +1265,7 @@ def build_replenishment(outb_df, inv_df, base_index=None, summary_qty=None):
     按 0 消耗计算，保证与主表行数、顺序一一对应）；不给则只输出有出库消耗的物料。
     summary_qty：主表的 Material Name + Inbound/Outbound/Inventory Qty 列（月均=0 的物料
     算安全库存用），缺省时退化为全 0（旧行为保底 1 已删，不会触发）。
+    as_of：计算历史月数用的时间基准，缺省当前时间；显式传入便于测试与回算历史报表。
     """
     consumed = pd.Series(dtype='float64')
     df = outb_df if outb_df is not None else pd.DataFrame()
@@ -1236,8 +1307,10 @@ def build_replenishment(outb_df, inv_df, base_index=None, summary_qty=None):
         max_qty = np.zeros(len(base), dtype='float64')
 
     result = pd.DataFrame({'Material Name': base})
-    # Avg 保留 2 位小数（2026-09-19 起不再向上取整）；Safety = ceil(6 x Avg)，仍为整数
-    avg = np.round(consumed_qty / REPLENISH_HISTORY_MONTHS, 2)
+    # 历史月数按「起算月 → 当前自然月」动态算（2026-09-24 起，替代写死的 9.5）。
+    # 保留 2 位小数（2026-09-19 起不再向上取整）；Safety = ceil(6 x Avg)，仍为整数
+    months = history_months(as_of)
+    avg = np.round(consumed_qty / months, 2)
     result['Avg Monthly Consumption'] = avg
     # 月均消耗为 0 → 按「故障率」备件处理：安全库存 = max(三列数量) x 20% 向上取整
     # 先 round(x, 6) 再 ceil：防浮点误差误进位（如 15 * 0.2 = 3.0000000000000004 → ceil 会变 4）
@@ -1532,12 +1605,15 @@ def _style_replenish_columns(ws, header_row, data_end):
         ws.column_dimensions[letter].width = max(ws.column_dimensions[letter].width or 0, min(need, 42))
 
 
-def _style_replenish_note(ws, first_row, n_cols, notes=REPLENISH_NOTES):
+def _style_replenish_note(ws, first_row, n_cols, notes=None):
     """【已停用，保留供回退】补库口径说明写在表身下方的老版式。
 
-    说明行现已改到表头之上（由 `_insert_title(..., extra_notes=REPLENISH_NOTES)` 写入），
+    说明行现已改到表头之上（由 `_insert_title(..., extra_notes=replenish_notes())` 写入），
     本函数不再被调用。若日后要退回「表身下方」版式，改回 `generate_report` 里的调用即可。
+    注：`notes` 缺省改为 None 后按 `replenish_notes()` 现算（历史月数是动态的，不能用常量默认值）。
     """
+    if notes is None:
+        notes = replenish_notes()
     if n_cols < 1:
         return
     for i, text in enumerate(notes):
@@ -2163,7 +2239,7 @@ def generate_report(material_type, out_path, inb_src, outb_src, inv_src, timesta
         style_excel(cur, 'Summary-Current', has_total_row=True,
                     title=f'{title_prefix} Inbound & Outbound & Inventory Summary{warehouse_suffix}',
                     filter_note=note_sum, table_rows=cur_len,
-                    extra_notes=REPLENISH_NOTES)
+                    extra_notes=replenish_notes())
         style_summary_changed(writer.sheets['Summary-Changed'], 'Summary-Changed', warehouses,
                               title=f'{title_prefix} Daily Statistics{warehouse_suffix}',
                               filter_note=note_sum)
@@ -2187,7 +2263,7 @@ def generate_report(material_type, out_path, inb_src, outb_src, inv_src, timesta
         img_path = _resolve_output_path(str(img_path))
         _render_summary_image(summary, img_path,
                               title=f'{title_prefix} Summary{warehouse_suffix}  |  {timestamp_str}',
-                              notes=REPLENISH_NOTES)
+                              notes=replenish_notes())
 
         # Summary-Changed image: filter by date, keep rows up to yesterday
         if len(summary_changed) > 0:

@@ -31,6 +31,7 @@ import {
   Empty,
   Input,
   Row,
+  Segmented,
   Select,
   Space,
   Spin,
@@ -42,6 +43,7 @@ import {
 } from 'antd'
 import {
   ReloadOutlined,
+  InfoCircleOutlined,
   SearchOutlined,
   WarningOutlined,
   FireOutlined,
@@ -50,6 +52,7 @@ import {
   TrophyOutlined,
   DownloadOutlined,
   RightOutlined,
+  DownOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   QuestionCircleOutlined,
@@ -201,12 +204,18 @@ type NoWoRow = {
   site_name?: string
   site_id?: string
   alarm_code?: string
+  /** 告警码对应的官方告警名（悬浮显示，避免只看到一串 ID） */
+  alarm_name?: string
   ticket_severity?: string
   alarm_occur_time?: string
   alarm_clear_time?: string
   total_seconds?: number
   filed_root_cause?: string
   dispatch_category?: string
+  /** 派单分类的成因说明（为什么没建 WO） */
+  dispatch_explanation?: string
+  /** 命中的推单规则（规则名 + 状态 + 派发目标） */
+  related_rules?: { rule_name?: string; status?: string; target?: string; priority?: number }[]
   bottleneck?: string
   bottleneck_seconds?: number
 }
@@ -239,6 +248,8 @@ type TicketAggRow = {
   max_severity?: string | null
   has_wo: boolean
   should_wo: boolean
+  /** 承接方：IPT（第三方）/ ZTE（自派） */
+  dispatch_owner?: string
   bottleneck?: string
   bottleneck_seconds?: number
   bottleneck_owner?: string
@@ -284,6 +295,10 @@ type TimelineAgg = {
   human_action_stats?: HumanActionStat[]
   /** 阶段归并（NOC 手里 / 现场 / 系统） */
   phase_stats?: PhaseStat[]
+  /** 生效的承接方筛选：IPT / ZTE / null(全部) */
+  owner_filter?: string | null
+  /** 各承接方单量（不受当前筛选影响，用于显示对比） */
+  owner_counts?: { IPT?: number; ZTE?: number }
 }
 
 /** 单 TT 的里程碑节点（build_tt_timeline.timeline）
@@ -422,6 +437,8 @@ type TtDrillRow = {
   site_name?: string
   ticket_severity?: string
   alarm_code?: string
+  /** 告警码对应的官方告警名（悬浮显示，避免只看到一串 ID） */
+  alarm_name?: string | null
   alarm_occur_time?: string
   maintain_duration_h: number | null
   root_cause?: string
@@ -432,6 +449,9 @@ type TtDrillRow = {
   is_night: boolean
   sla_status?: string | null
   status?: string
+  /** 承接方：IPT（第三方，按设计不建 WO）/ ZTE（自维） */
+  dispatch_owner?: string
+  has_wo?: boolean
 }
 
 type SiteDrillRow = {
@@ -457,6 +477,8 @@ type TtDetail = {
     ticket_severity?: string
     alarm_severity?: string
     alarm_code?: string
+    /** 告警码对应的官方告警名（悬浮显示） */
+    alarm_name?: string
     status?: string
     sla_status?: string
     alarm_occur_time?: string
@@ -654,6 +676,8 @@ export default function NocAnalyst() {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<Report | null>(null)
   const [error, setError] = useState<string>('')
+  // 红旗告警：默认收起，点击标题栏展开（2026-09-23）
+  const [redFlagOpen, setRedFlagOpen] = useState(false)
 
   // ========== 下钻状态 ==========
   const [drillOpen, setDrillOpen] = useState(false)
@@ -719,11 +743,22 @@ export default function NocAnalyst() {
    * 独立于概览：首次可能较慢（后端要逐单复盘全月工单），失败也不应拖垮整页，
    * 因此单独 try/catch 并把错误放在自己的告警条里。
    */
+  /**
+   * 承接方筛选：IPT（第三方，不建 WO 属设计如此） / ZTE（自派）。
+   * 默认 ZTE —— 打开页面即聚焦"我们自己的单"，第三方单不参与"应派未派"判断。
+   * 这个状态同时作用于**所有**带 owner 参数的聚合请求，保证口径一致。
+   */
+  const [ownerFilter, setOwnerFilter] = useState<'ZTE' | 'IPT' | 'ALL'>('ZTE')
+
   const loadAgg = useCallback(async (refresh = false) => {
     setAggLoading(true)
     setAggError('')
     try {
-      const r = await getNocTimelineAgg({ month, limit: 20000, refresh })
+      const r = await getNocTimelineAgg({
+        month, limit: 20000, refresh,
+        // ALL 时不传 owner，让后端返回全部（避免传空串被当成非法值）
+        ...(ownerFilter === 'ALL' ? {} : { owner: ownerFilter }),
+      })
       const d = r.data as TimelineAgg
       if (!d || !Array.isArray(d.tickets)) {
         throw new Error(t('noc.drillBadPayload', { what: t('noc.aggTitle') }))
@@ -735,7 +770,7 @@ export default function NocAnalyst() {
     } finally {
       setAggLoading(false)
     }
-  }, [month, t])
+  }, [month, t, ownerFilter])
 
   useEffect(() => { loadAgg() }, [loadAgg])
 
@@ -772,7 +807,12 @@ export default function NocAnalyst() {
     setDrillLoading(true)
 
     Promise.all([
-      getNocTtDrilldown({ noc: row.noc_name, month, slice }),
+      // 承接方要跟着顶部筛选走：否则「表格里的数字」按 ZTE 统计、
+      // 「下钻的行数」却是全部承接方，两者对不上，用户会当成 bug。
+      getNocTtDrilldown({
+        noc: row.noc_name, month, slice,
+        ...(ownerFilter === 'ALL' ? {} : { owner: ownerFilter }),
+      }),
       getNocSiteDrilldown({ noc: row.noc_name, month, only_abnormal: true }),
     ]).then(([ttRes, siteRes]) => {
       assertDrillPayload<TtDrillRow>(ttRes.data, t('noc.drillTabTt'), t)
@@ -787,7 +827,7 @@ export default function NocAnalyst() {
       console.error('NOC drilldown error:', err)
       setDrillError(err?.response?.data?.detail || err?.message || t('noc.drillLoadFailed'))
     }).finally(() => setDrillLoading(false))
-  }, [month, t])
+  }, [month, t, ownerFilter])
 
   /** 切换切片时只重查 TT 明细，站点数据不动 */
   const changeSlice = useCallback((slice: Slice) => {
@@ -795,7 +835,10 @@ export default function NocAnalyst() {
     setSiteDrill(null)
     setDrillLoading(true)
     setDrillError('')
-    getNocTtDrilldown({ noc: drillNoc, month, slice })
+    getNocTtDrilldown({
+      noc: drillNoc, month, slice,
+      ...(ownerFilter === 'ALL' ? {} : { owner: ownerFilter }),
+    })
       .then(res => {
         assertDrillPayload<TtDrillRow>(res.data, t('noc.drillTabTt'), t)
         const tm = res.data?.meta || {}
@@ -804,7 +847,7 @@ export default function NocAnalyst() {
       })
       .catch(err => setDrillError(err?.response?.data?.detail || err?.message || t('noc.drillLoadFailed')))
       .finally(() => setDrillLoading(false))
-  }, [drillNoc, month, t])
+  }, [drillNoc, month, t, ownerFilter])
 
   /** 站点显示范围切换（仅异常 / 全部） */
   const toggleSiteScope = useCallback((all: boolean) => {
@@ -826,7 +869,10 @@ export default function NocAnalyst() {
   const openSiteTts = useCallback((site: SiteDrillRow) => {
     // 拉该 NOC 的全量 TT 后在本地按站点过滤，避免新增一个接口
     setDrillLoading(true)
-    getNocTtDrilldown({ noc: drillNoc, month, slice: 'all' })
+    getNocTtDrilldown({
+      noc: drillNoc, month, slice: 'all',
+      ...(ownerFilter === 'ALL' ? {} : { owner: ownerFilter }),
+    })
       .then(res => {
         assertDrillPayload<TtDrillRow>(res.data, t('noc.drillTabTt'), t)
         const sid = String(site.site_id ?? '').trim()
@@ -838,7 +884,7 @@ export default function NocAnalyst() {
       })
       .catch(err => setDrillError(err?.response?.data?.detail || err?.message || t('noc.drillLoadFailed')))
       .finally(() => setDrillLoading(false))
-  }, [drillNoc, month, t])
+  }, [drillNoc, month, t, ownerFilter])
 
   // ========== 第 4 层：单 TT 详情 ==========
   const openTtDetail = useCallback((ttNo: string) => {
@@ -1124,6 +1170,18 @@ export default function NocAnalyst() {
       render: (v: string) => (v ? <Tag color={v === 'P1' ? 'red' : 'orange'}>{v}</Tag> : '-'),
     },
     {
+      // 告警码只显示 ID 看不出是什么告警，悬浮显示官方告警名
+      title: t('noc.woAlarmCode'), dataIndex: 'alarm_code', key: 'alarm_code', width: 170,
+      render: (v: string, r: NoWoRow) => {
+        if (!v) return '-'
+        return (
+          <Tooltip title={r.alarm_name || t('noc.alarmNameUnknown')}>
+            <span style={{ cursor: 'help', borderBottom: `1px dashed ${WH.textDim}` }}>{v}</span>
+          </Tooltip>
+        )
+      },
+    },
+    {
       title: t('noc.woOccur'), dataIndex: 'alarm_occur_time', key: 'alarm_occur_time', width: 165,
       render: (v: string) => v || '-',
     },
@@ -1139,8 +1197,32 @@ export default function NocAnalyst() {
       render: (v: string) => v || '-',
     },
     {
+      // 派单分类是个枚举码，悬浮显示命中的规则名与停用状态，
+      // 才能回答"为什么这单没建 WO"
       title: t('noc.woCategory'), dataIndex: 'dispatch_category', key: 'dispatch_category',
-      render: (v: string) => (v ? <Tag>{v}</Tag> : '-'),
+      render: (v: string, r: NoWoRow) => {
+        if (!v) return '-'
+        const rules = r.related_rules || []
+        const tip = (
+          <div style={{ maxWidth: 420 }}>
+            {r.dispatch_explanation && <div>{r.dispatch_explanation}</div>}
+            {rules.length > 0 && (
+              <>
+                <div style={{ marginTop: 6, fontWeight: 600 }}>{t('noc.ruleHitTitle')}</div>
+                {rules.map((x, i) => (
+                  <div key={`${x.rule_name}-${i}`}>
+                    {x.rule_name}
+                    {x.status ? `（${x.status}）` : ''}
+                    {x.target ? ` · ${x.target}` : ''}
+                  </div>
+                ))}
+              </>
+            )}
+            {!r.dispatch_explanation && rules.length === 0 && t('noc.ruleNone')}
+          </div>
+        )
+        return <Tooltip title={tip}><Tag style={{ cursor: 'help' }}>{v}</Tag></Tooltip>
+      },
     },
   ], [t, openNoWoDetail])
 
@@ -1895,6 +1977,50 @@ export default function NocAnalyst() {
       render: (v: string) => v || '-',
     },
     {
+      // 告警码只显示 ID 看不出是什么告警，悬浮显示官方告警名
+      title: t('noc.woAlarmCode'),
+      dataIndex: 'alarm_code',
+      key: 'alarm_code',
+      width: 130,
+      filters: Array.from(new Set(ttRows.map(r => r.alarm_code).filter(Boolean) as string[]))
+        .slice(0, 20).map(v => ({ text: String(v), value: String(v) })),
+      onFilter: (v: any, r: TtDrillRow) => String(r.alarm_code ?? '') === String(v),
+      render: (v: string, r: TtDrillRow) => {
+        if (!v) return <Text type="secondary">-</Text>
+        return (
+          <Tooltip title={r.alarm_name || t('noc.alarmNameUnknown')}>
+            <span style={{ cursor: 'help', borderBottom: `1px dashed ${WH.textDim}` }}>{v}</span>
+          </Tooltip>
+        )
+      },
+    },
+    {
+      // 承接方：IPT 的单按设计不建 WO，不能和 ZTE 自维单混看
+      title: t('noc.tt.owner'),
+      dataIndex: 'dispatch_owner',
+      key: 'dispatch_owner',
+      width: 110,
+      filters: [
+        { text: t('noc.ownerZte'), value: 'ZTE' },
+        { text: t('noc.ownerIpt'), value: 'IPT' },
+      ],
+      onFilter: (v: any, r: TtDrillRow) => (r.dispatch_owner ?? 'ZTE') === v,
+      render: (v: string | undefined, r: TtDrillRow) => (
+        <Space size={4}>
+          <Tag color={v === 'IPT' ? 'purple' : 'blue'} style={{ margin: 0 }}>
+            {v === 'IPT' ? t('noc.ownerIpt') : t('noc.ownerZte')}
+          </Tag>
+          {r.has_wo === false && v !== 'IPT' && (
+            <Tooltip title={t('noc.tt.noWoZteHint')}>
+              <Tag color="red" style={{ margin: 0, fontSize: 10, padding: '0 4px' }}>
+                {t('noc.tt.noWo')}
+              </Tag>
+            </Tooltip>
+          )}
+        </Space>
+      ),
+    },
+    {
       title: t('noc.tt.severity'),
       dataIndex: 'ticket_severity',
       key: 'ticket_severity',
@@ -2229,6 +2355,17 @@ export default function NocAnalyst() {
                 style={{ width: 120 }}
                 aria-label={t('noc.month')}
               />
+              {/* 承接方切换：IPT（第三方）单本就不建 WO，与自派单混看会把
+                  「应派未派 WO」抬高 3 倍多。默认 ZTE，聚焦自派单。 */}
+              <Segmented
+                value={ownerFilter}
+                onChange={v => setOwnerFilter(v as 'ZTE' | 'IPT' | 'ALL')}
+                options={[
+                  { value: 'ZTE', label: t('noc.ownerZte') },
+                  { value: 'IPT', label: t('noc.ownerIpt') },
+                  { value: 'ALL', label: t('noc.ownerAll') },
+                ]}
+              />
               <Input
                 placeholder={t('noc.searchPh')}
                 allowClear
@@ -2243,6 +2380,23 @@ export default function NocAnalyst() {
                 {t('common.exportExcel')}
               </Button>
             </Space>
+          </div>
+          {/* 承接方口径说明：让用户知道当前看的/被排除的是什么 */}
+          <div style={{ marginTop: 6 }}>
+            <Text type="secondary" style={{ fontSize: '0.6875rem' }}>
+              <InfoCircleOutlined style={{ marginRight: 4 }} />
+              {ownerFilter === 'ZTE' ? t('noc.ownerNoteZte')
+                : ownerFilter === 'IPT' ? t('noc.ownerNoteIpt')
+                  : t('noc.ownerNoteAll')}
+            </Text>
+            {agg && (
+              <Text type="secondary" style={{ fontSize: '0.6875rem', marginLeft: 8 }}>
+                {t('noc.ownerCounts', {
+                  zte: agg.owner_counts?.ZTE ?? 0,
+                  ipt: agg.owner_counts?.IPT ?? 0,
+                })}
+              </Text>
+            )}
           </div>
           <div style={{ marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <Text type="secondary" style={{ fontSize: '0.6875rem' }}>{t('noc.timeFieldNote')}</Text>
@@ -2312,32 +2466,42 @@ export default function NocAnalyst() {
                   type="error"
                   showIcon
                   message={
-                    <Space>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={redFlagOpen}
+                      onClick={() => setRedFlagOpen(v => !v)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setRedFlagOpen(v => !v) } }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none', outline: 'none' }}
+                    >
+                      {redFlagOpen ? <DownOutlined /> : <RightOutlined />}
                       <FireOutlined />
                       <Text strong>{t('noc.redFlag')} ({data.red_flags.length})</Text>
-                      <Text type="secondary">{t('noc.redFlagHint')}</Text>
-                    </Space>
+                      <Text type="secondary">{redFlagOpen ? t('noc.redFlagHint') : t('noc.redFlagExpandHint')}</Text>
+                    </div>
                   }
                   description={
-                    <Space direction="vertical" size={4} style={{ marginTop: 4 }}>
-                      {data.red_flags.map(rf => {
-                        const row = data.rows.find(r => r.noc_name === rf.noc_name)
-                        return (
-                          <div key={rf.noc_name}>
-                            <Tooltip title={t('noc.drillHint')}>
-                              <a
-                                style={{ fontWeight: 700, color: WH.danger }}
-                                onClick={e => row && openNocDrill(e, row, 'mismatch')}
-                              >{rf.noc_name}</a>
-                            </Tooltip>
-                            <Text type="secondary"> · {rf.total} · {t('noc.th.mismatchPct')} {fmtPct(rf.mismatch_pct)}</Text>
-                            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                              {rf.reasons.map((rs, i) => <li key={i}>{rs}</li>)}
-                            </ul>
-                          </div>
-                        )
-                      })}
-                    </Space>
+                    redFlagOpen ? (
+                      <Space direction="vertical" size={4} style={{ marginTop: 4 }}>
+                        {data.red_flags.map(rf => {
+                          const row = data.rows.find(r => r.noc_name === rf.noc_name)
+                          return (
+                            <div key={rf.noc_name}>
+                              <Tooltip title={t('noc.drillHint')}>
+                                <a
+                                  style={{ fontWeight: 700, color: WH.danger }}
+                                  onClick={e => row && openNocDrill(e, row, 'mismatch')}
+                                >{rf.noc_name}</a>
+                              </Tooltip>
+                              <Text type="secondary"> · {rf.total} · {t('noc.th.mismatchPct')} {fmtPct(rf.mismatch_pct)}</Text>
+                              <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                                {rf.reasons.map((rs, i) => <li key={i}>{rs}</li>)}
+                              </ul>
+                            </div>
+                          )
+                        })}
+                      </Space>
+                    ) : undefined
                   }
                 />
               )}
@@ -2950,7 +3114,15 @@ export default function NocAnalyst() {
                     ? <Tag color={ttDetail.ticket.sla_status === 'Pass' ? 'green' : 'red'}>{ttDetail.ticket.sla_status}</Tag>
                     : '-'}
                 </Descriptions.Item>
-                <Descriptions.Item label={t('noc.ttDetail.chainCol.code')}>{ttDetail.ticket.alarm_code || '-'}</Descriptions.Item>
+                <Descriptions.Item label={t('noc.ttDetail.chainCol.code')}>
+                  {ttDetail.ticket.alarm_code ? (
+                    <Tooltip title={ttDetail.ticket.alarm_name || t('noc.alarmNameUnknown')}>
+                      <span style={{ cursor: 'help', borderBottom: `1px dashed ${WH.textDim}` }}>
+                        {ttDetail.ticket.alarm_code}
+                      </span>
+                    </Tooltip>
+                  ) : '-'}
+                </Descriptions.Item>
                 <Descriptions.Item label={t('noc.ttDetail.linkage')}>
                   <Tag color="cyan">{t(linkageLabelKey(ttDetail.system_judged?.linkage))}</Tag>
                 </Descriptions.Item>

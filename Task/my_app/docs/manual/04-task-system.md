@@ -136,6 +136,24 @@ APScheduler 到点 (backend 进程内)
 | `cxo_dashboard_cache_sync` | CXO看板数据缓存同步 | `*/10 * * * *` | v |
 | `vmax_cxo_daily_sync` | VMAX CXO天粒度日值归档 | `15 * * * *` | v |
 
+### `olib_soc_kpi_daily_sync` 的两类自愈（2026-09-24 加固）
+
+该任务给 VMAX 90 天经营看板（`?page=vmaxCxoDashboard_90Days`）供数，每天 06:20 只补
+`daily_kpi` 里缺的天。它的「缺口」判定有**两类**，缺一不可：
+
+| 类型 | 判定函数 | 背景 |
+| --- | --- | --- |
+| 整天没有行 | `olib_soc_kpi_store.gap_days()` | 任务被跳过 / 数仓分区晚到 |
+| **有行但关键指标为 NULL** | `olib_soc_kpi_store.incomplete_days()` | 单个块临时取数失败，仍写入一行，只是该块那列为 NULL |
+
+第二类是 2026-09-24 的线上事故：`blocks_ok` 从 7 掉到 6 却**不报错**，
+`gap_days` 也不认为缺天，于是 `active_user` 在 2026-09-18~23 **连丢 6 天**且永久残留
+（看板「Active Users」停在 17 号）。判定列见 `olib_soc_kpi_store.REQUIRED_COLUMNS`
+（`traffic_tb` / `active_user` / `video_tb`）；取数幂等，重取一次即自愈。
+
+> 排查同类问题的第一步：`SELECT day, blocks_ok FROM daily_kpi ORDER BY day DESC`，
+> **`blocks_ok` 小于块总数（看板为 7）的那天就是残缺日**。
+
 ## 任务凭据分组对应表
 
 任务失败若报"鉴权失败 / 登录失败 / 未获取到 Cookie"，先到**「设置 → 凭据管理」**

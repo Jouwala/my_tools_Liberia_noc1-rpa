@@ -1,1 +1,0 @@
-import{S as e}from"./react-vendor-CYpmbbga.js";import{t}from"./SpReportBase-e8gLHvdt.js";var n=e();function r(){return(0,n.jsx)(t,{kind:`consumables`})}export{r as default};

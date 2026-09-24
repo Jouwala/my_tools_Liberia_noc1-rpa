@@ -1,1 +1,0 @@
-import{S as e}from"./react-vendor-CYpmbbga.js";import{t}from"./SpReportBase-HbG85i2S.js";var n=e();function r(){return(0,n.jsx)(t,{kind:`spareparts`})}export{r as default};

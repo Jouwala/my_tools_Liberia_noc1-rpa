@@ -1302,14 +1302,14 @@ export default function EflowQa() {
       <div style={{ borderTop: isDark ? '1px solid rgba(0, 217, 255,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <FileSearchOutlined style={{ color: '#eb2f96' }} />
-        <Text strong style={{ fontSize: 13 }}>TT 复盘报告生成</Text>
+        <Text strong style={{ fontSize: 13 }}>{t('ttPm.section')}</Text>
       </div>
       <Button
         block
         icon={<FileSearchOutlined />}
         onClick={() => setPostmortemOpen(true)}
       >
-        生成完整复盘报告（程序化版）
+        {t('ttPm.openBtn')}
       </Button>
       <TtPostmortemPanel open={postmortemOpen} onClose={() => setPostmortemOpen(false)} />
       <div id="ran-ume-alarm-analysis" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1822,12 +1822,39 @@ export default function EflowQa() {
                     : '—'),
                 },
                 { title: t('qa.ttBatch.col.site'), dataIndex: 'site_name', width: 140, ellipsis: true },
-                { title: t('qa.ttBatch.col.alarm'), dataIndex: 'alarm_code', width: 100 },
+                {
+                  // 只显示告警 ID 看不出是什么告警，悬浮显示官方告警名
+                  title: t('qa.ttBatch.col.alarm'), dataIndex: 'alarm_code', width: 110,
+                  render: (v: string, r: any) => {
+                    if (!v) return '—'
+                    const name = r.alarm_name
+                    if (!name) return <span>{v}</span>
+                    return (
+                      <Tooltip title={name}>
+                        <span style={{
+                          cursor: 'help',
+                          borderBottom: `1px dashed ${isDark ? '#4b5563' : '#cbd5e1'}`,
+                        }}>{v}</span>
+                      </Tooltip>
+                    )
+                  },
+                },
                 { title: t('qa.ttBatch.col.vip'), dataIndex: 'vip_site', width: 70 },
                 { title: t('qa.ttBatch.col.status'), dataIndex: 'status', width: 110, ellipsis: true },
                 {
+                  // 以**规则名**为主（人看得懂），规则 ID 放进悬浮提示
                   title: t('qa.ttBatch.col.rule'), dataIndex: 'matched_rule_name', ellipsis: true, width: 220,
-                  render: (v: string, r: any) => (v ? <span>{r.matched_rule_id} {v}</span> : '—'),
+                  render: (v: string, r: any) => {
+                    if (!v && !r.matched_rule_id) return '—'
+                    if (!v) return <span>{r.matched_rule_id}</span>
+                    const tip = [
+                      r.matched_rule_id ? `ID ${r.matched_rule_id}` : '',
+                      r.matched_priority ? `${t('qa.ttBatch.rulePriority')} ${r.matched_priority}` : '',
+                    ].filter(Boolean).join(' · ')
+                    return tip
+                      ? <Tooltip title={tip}><span style={{ cursor: 'help' }}>{v}</span></Tooltip>
+                      : <span>{v}</span>
+                  },
                 },
                 {
                   title: t('qa.ttBatch.col.detail'), dataIndex: 'match_details', ellipsis: true,

@@ -21,6 +21,7 @@ import {
   Button,
   Card,
   Descriptions,
+  Divider,
   Drawer,
   Empty,
   Input,
@@ -253,23 +254,45 @@ type Report = {
     fo_assign_to?: string
   }
   dispatch_analysis?: DispatchAnalysis
+  /** 承接方：IPT（第三方，按设计不建 WO）/ ZTE（自维） */
+  dispatch_owner?: string
+  /** 归属判定的依据（悬浮说明"为什么判成 IPT/ZTE"） */
+  owner_detail?: {
+    owner?: string
+    owner_label?: string
+    is_third_party?: boolean
+    evidence?: string[]
+  }
+  /** 告警码 + 告警名（告警 ID 看不出是什么告警，悬浮/并列显示名字） */
+  alarm_code?: string | null
+  alarm_name?: string | null
   assignment?: {
     channel?: string | null
     channel_rules?: { rule_name: string | null; priority: number | null }[]
     channel_note?: string
-    create_assign_to?: string | null
-    create_assignee_group?: string | null
-    create_operator_group?: string | null
-    next_status?: string | null
-    current_handler?: string | null
-    current_handler_is_group?: boolean
-    current_handler_person?: string | null
+    // 建单环节（TT 层）
+    tt_create_assign_to?: string | null
+    tt_create_assignee_group?: string | null
+    tt_create_operator_group?: string | null
+    tt_next_status?: string | null
+    tt_current_handler?: string | null
+    create_unassigned?: boolean
+    create_note?: string | null
+    // 工单层（WO）—— 真正落到人的地方
+    wo_no?: string | null
+    wo_current_handler?: string | null
+    wo_create_assign_to?: string | null
+    wo_assignee_group?: string | null
+    // 结论
+    assigned_persons?: string[]
+    assigned_groups?: string[]
+    effective_scope?: 'person' | 'group' | 'none'
+    conclusion?: string
+    unassigned?: boolean
     group_pools?: {
       stage: string; rule_name: string | null; priority: number | null
       handler_name: string | null; handler_id: string | null; description: string | null
     }[]
-    conclusion?: string
-    unassigned?: boolean
   }
   rules_snapshot?: {
     down_alarm_codes_active: string[]
@@ -293,11 +316,17 @@ const CATEGORY_COLOR: Record<string, string> = {
   no_rule_or_p4: 'default',
 }
 
-const CATEGORY_LABEL: Record<string, string> = {
-  auto_dispatched: '系统自动派单',
-  rule_stopped: '规则已停用',
-  rule_vacuum: '规则真空',
-  no_rule_or_p4: '无需现场/P4 自愈',
+/** 派单分类 → 文案键。显式列出而非用前缀拼键：动态拼键会被
+ *  check:i18n 读成截断的键名，且键不存在时 t() 原样返回、界面露出键名。
+    返回空串表示这个词后端没枚举过，调用方回落原始值。 */
+const categoryLabelKey = (v?: string): string => {
+  switch (v) {
+    case 'auto_dispatched': return 'ttPm.cat.auto_dispatched'
+    case 'rule_stopped': return 'ttPm.cat.rule_stopped'
+    case 'rule_vacuum': return 'ttPm.cat.rule_vacuum'
+    case 'no_rule_or_p4': return 'ttPm.cat.no_rule_or_p4'
+    default: return ''
+  }
 }
 
 // 派单归因结论（dispatch_analysis.overall）→ 颜色 / 文案
@@ -312,15 +341,18 @@ const DISPATCH_OVERALL_COLOR: Record<string, string> = {
   ambiguous: 'gold',
 }
 
-const DISPATCH_OVERALL_LABEL: Record<string, string> = {
-  auto_dispatched: '已自动派单',
-  manual_by_design: '人工派单·设计如此',
-  no_wo_by_design_multi: '无 WO·规则设计如此',
-  routed_to_other_system: '规则推往其它系统',
-  rule_should_have_fired: '⚠ 规则应生效却未建 WO',
-  no_active_rule_matched: '无 ACTIVE 规则命中',
-  rule_vacuum: '规则真空',
-  ambiguous: '需人工确认',
+const dispatchOverallLabelKey = (v?: string): string => {
+  switch (v) {
+    case 'auto_dispatched': return 'ttPm.overall.auto_dispatched'
+    case 'manual_by_design': return 'ttPm.overall.manual_by_design'
+    case 'no_wo_by_design_multi': return 'ttPm.overall.no_wo_by_design_multi'
+    case 'routed_to_other_system': return 'ttPm.overall.routed_to_other_system'
+    case 'rule_should_have_fired': return 'ttPm.overall.rule_should_have_fired'
+    case 'no_active_rule_matched': return 'ttPm.overall.no_active_rule_matched'
+    case 'rule_vacuum': return 'ttPm.overall.rule_vacuum'
+    case 'ambiguous': return 'ttPm.overall.ambiguous'
+    default: return ''
+  }
 }
 
 // 单条规则的适用性判定 → 颜色 / 文案
@@ -331,11 +363,14 @@ const VERDICT_COLOR: Record<string, string> = {
   unknown_scope: 'gold',
 }
 
-const VERDICT_LABEL: Record<string, string> = {
-  matched: '✅ 命中',
-  blocked_by_status: '⛔ 本应命中但已停用',
-  not_applicable: '➖ 不适用',
-  unknown_scope: '❓ 范围未知',
+const verdictLabelKey = (v?: string): string => {
+  switch (v) {
+    case 'matched': return 'ttPm.verdict.matched'
+    case 'blocked_by_status': return 'ttPm.verdict.blocked_by_status'
+    case 'not_applicable': return 'ttPm.verdict.not_applicable'
+    case 'unknown_scope': return 'ttPm.verdict.unknown_scope'
+    default: return ''
+  }
 }
 
 // 偏离严重度 → antd Tag 颜色（critical 红 / major 橙 / minor 金）
@@ -345,25 +380,159 @@ const SEVERITY_COLOR: Record<string, string> = {
   minor: 'gold',
 }
 
-// 偏离类型 → 文案 + 图标色调
-const KIND_LABEL: Record<string, string> = {
-  missing: '应有动作缺失',
-  late: '动作超时',
-  out_of_order: '动作越序',
-  data_conflict: '字段冲突',
+const kindLabelKey = (v?: string): string => {
+  switch (v) {
+    case 'missing': return 'ttPm.kind.missing'
+    case 'late': return 'ttPm.kind.late'
+    case 'out_of_order': return 'ttPm.kind.out_of_order'
+    case 'data_conflict': return 'ttPm.kind.data_conflict'
+    default: return ''
+  }
 }
 
-/** 秒 → 人读时长；缺失返回 '-'（不要用 0 冒充"瞬时"） */
-function fmtGap(sec?: number | null): string {
+/** 置信度枚举（后端只发 high / medium / low 三值） */
+const confLabelKey = (v?: string): string => {
+  switch (v) {
+    case 'high': return 'ttPm.conf.high'
+    case 'medium': return 'ttPm.conf.medium'
+    case 'low': return 'ttPm.conf.low'
+    default: return ''
+  }
+}
+
+/* 告警链路关联方式与 NOC 看板同一套后端取值，直接复用 noc.linkage.* 词条，
+   不再造一份键，免得两处译名日后走偏。 */
+const linkageLabelKey = (v?: string): string => {
+  switch (v) {
+    case 'exact': return 'noc.linkage.exact'
+    case 'site_fallback': return 'noc.linkage.site_fallback'
+    case 'site_reason_fallback': return 'noc.linkage.site_reason_fallback'
+    case 'site_fallback_unrelated': return 'noc.linkage.site_fallback_unrelated'
+    default: return ''
+  }
+}
+
+/** 秒 → 人读时长；缺失返回 '-'（不要用 0 冒充"瞬时"）。
+    单位走 i18n，所以 t 由调用方注入；组件内用同名 fmtGap 包装，调用点不用改。 */
+type TFn = (key: string, params?: Record<string, string | number>) => string
+function fmtGapT(t: TFn, sec?: number | null): string {
   if (sec == null) return '-'
-  if (sec < 60) return `${sec} 秒`
-  if (sec < 3600) return `${Math.round(sec / 60)} 分钟`
-  if (sec < 86400) return `${(sec / 3600).toFixed(2)} 小时`
-  return `${(sec / 86400).toFixed(2)} 天`
+  if (sec < 60) return t('ttPm.durSec', { n: sec })
+  if (sec < 3600) return t('ttPm.durMin', { n: Math.round(sec / 60) })
+  if (sec < 86400) return t('ttPm.durHour', { n: (sec / 3600).toFixed(2) })
+  return t('ttPm.durDay', { n: (sec / 86400).toFixed(2) })
+}
+
+/** 阶段（_PHASE_LABEL 的 9 个 key）→ 文案键 */
+const phaseLabelKey = (v?: string): string => {
+  switch (v) {
+    case 'detect': return 'ttPm.phase.detect'
+    case 'assign': return 'ttPm.phase.assign'
+    case 'dispatch': return 'ttPm.phase.dispatch'
+    case 'onsite_wait': return 'ttPm.phase.onsite_wait'
+    case 'onsite_work': return 'ttPm.phase.onsite_work'
+    case 'clear': return 'ttPm.phase.clear'
+    case 'handle': return 'ttPm.phase.handle'
+    case 'close': return 'ttPm.phase.close'
+    case 'other': return 'ttPm.phase.other'
+    default: return ''
+  }
+}
+
+/** 里程碑全名（时间轴 / 应做实做表）→ 文案键 */
+const nodeLabelKey = (v?: string): string => {
+  switch (v) {
+    case 'alarm_occur': return 'ttPm.node.alarmOccur'
+    case 'tt_create': return 'ttPm.node.ttCreate'
+    case 'dispatch_route': return 'ttPm.node.dispatchRoute'
+    case 'fo_accept': return 'ttPm.node.foAccept'
+    case 'wo_dispatch': return 'ttPm.node.woDispatch'
+    case 'onsite_action': return 'ttPm.node.onsiteAction'
+    case 'wo_step': return 'ttPm.node.woStep'
+    case 'alarm_clear': return 'ttPm.node.alarmClear'
+    case 'fo_process': return 'ttPm.node.foProcess'
+    case 'confirm': return 'ttPm.node.confirm'
+    default: return ''
+  }
+}
+
+/** 分段时间「A → B」端点用的短名（后端 _SEG_META 第二列，与全名不同词） */
+const shortLabelKey = (v?: string): string => {
+  switch (v) {
+    case 'alarm_occur': return 'ttPm.short.alarm_occur'
+    case 'tt_create': return 'ttPm.short.tt_create'
+    case 'dispatch_route': return 'ttPm.short.dispatch_route'
+    case 'fo_accept': return 'ttPm.short.fo_accept'
+    case 'wo_dispatch': return 'ttPm.short.wo_dispatch'
+    case 'onsite_action': return 'ttPm.short.onsite_action'
+    case 'wo_step': return 'ttPm.short.wo_step'
+    case 'alarm_clear': return 'ttPm.short.alarm_clear'
+    case 'fo_process': return 'ttPm.short.fo_process'
+    case 'confirm': return 'ttPm.short.confirm'
+    default: return ''
+  }
+}
+
+/** 后端 _STAGES 里的 9 个标准里程碑中文名。只有原文正好是这几个才替换成当前语言，
+    「现场·出发」这类带子类型的标签保持原样，免得中文模式被改坏。 */
+const ZH_NODE_LABELS = new Set([
+  '告警发生', 'TT 自动建单', '派单路由决定', 'FO Accept 接单', 'WO 派单',
+  '现场处置', '告警清除/自愈', 'FO Process 填报', 'Confirm 关单',
+])
+
+/** 责任方：后端只在「归系统」时给固定词，归人时给的是真实姓名（属数据，不翻译） */
+const ownerLabelOf = (t: TFn, v?: string | null): string => {
+  switch (v) {
+    case '系统/流程': return t('ttPm.owner.sysFlow')
+    case '系统/自愈': return t('ttPm.owner.sysSelfHeal')
+    case '（未记录操作人）': return t('ttPm.owner.noOperator')
+    default: return v || '-'
+  }
 }
 
 export default function TtPostmortemPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useI18n()
+  const fmtGap = (sec?: number | null) => fmtGapT(t, sec)
+  /** 里程碑名：后端同时给 key 与中文 label。key 认得、且原文确实是标准里程碑名才替换，
+      否则原样显示（如「现场·出发」带子类型，替换会丢信息）。 */
+  const nodeLabel = (key?: string, raw?: string | null) => {
+    const k = nodeLabelKey(key)
+    return k && raw && ZH_NODE_LABELS.has(raw) ? t(k) : raw || ''
+  }
+  const phaseLabel = (phase?: string | null, raw?: string | null) => {
+    const k = phaseLabelKey(phase || undefined)
+    return k ? t(k) : raw || ''
+  }
+  const ownerLabel = (v?: string | null) => ownerLabelOf(t, v)
+  const confLabel = (v?: string | null) => {
+    const k = confLabelKey(v || undefined)
+    return k ? t(k) : v || '-'
+  }
+  const lnkLabel = (v?: string | null) => {
+    const k = linkageLabelKey(v || undefined)
+    return k ? t(k) : v || '-'
+  }
+  /** 分段名按 key 用当前语言重建。后端 key 形如 "{phase}:{目标事件}"，
+   *  起点 = 时间上紧邻的前一段的目标事件（首段起点固定为告警发生）。
+   *  注意：表格里段是按耗时排序展示的，数组相邻 ≠ 时间相邻，必须按 from 重排。 */
+  const segLabel = (r: TimeSegment) => {
+    const segs = report?.time_spent?.segments ?? []
+    const chrono = [...segs].sort((a, b) => String(a.from || '').localeCompare(String(b.from || '')))
+    const idx = chrono.findIndex(s => s.key === r.key && s.from === r.from)
+    const parts = r.key.split(':')
+    const toKey = parts[1] || ''
+    const fromKey = idx <= 0 ? 'alarm_occur' : (chrono[idx - 1]?.key.split(':')[1] || '')
+    /* 任何一端认不出来就返回空串，让调用方回落到后端给的原文标签，
+       免得拼出「A → 」这种半截文案。 */
+    if (idx < 0 || !toKey || !fromKey) return ''
+    if (toKey !== 'tail' && !shortLabelKey(toKey)) return ''
+    if (!shortLabelKey(fromKey)) return ''
+    const shortOf = (k: string) => {
+      const kk = shortLabelKey(k)
+      return kk ? t(kk) : k
+    }
+    return `${shortOf(fromKey)} → ${toKey === 'tail' ? t('ttPm.short.tail') : shortOf(toKey)}`
+  }
   const [ttNo, setTtNo] = useState('')
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -379,7 +548,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
       const r = await getTtPostmortem(clean)
       setReport(r.data as Report)
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e?.message || '查询失败')
+      setError(e?.response?.data?.detail || e?.message || t('ttPm.queryFailed'))
       setReport(null)
     } finally {
       setLoading(false)
@@ -398,19 +567,21 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
       a.download = r.data.filename
       a.click()
       URL.revokeObjectURL(url)
-      message.success(`已下载 ${r.data.filename}`)
+      message.success(t('ttPm.downloaded', { f: r.data.filename }))
     } catch (e: any) {
-      message.error(`下载失败: ${e?.response?.data?.detail || e?.message}`)
+      message.error(t('ttPm.downloadFailed', { msg: e?.response?.data?.detail || e?.message }))
     } finally {
       setExporting(false)
     }
-  }, [report])
+  }, [report, t])
 
+  /* ⑥ 阶段时长用的格式化与 fmtGap 差一处：分钟保留 1 位小数。
+     保持原样输出，避免借 i18n 之名悄悄改了中文模式的数字。 */
   const fmtSec = (s?: number | null) => {
     if (s == null) return '-'
-    if (s < 60) return `${s} 秒`
-    if (s < 3600) return `${(s / 60).toFixed(1)} 分钟`
-    return `${(s / 3600).toFixed(2)} 小时`
+    if (s < 60) return t('ttPm.durSec', { n: s })
+    if (s < 3600) return t('ttPm.durMin', { n: (s / 60).toFixed(1) })
+    return t('ttPm.durHour', { n: (s / 3600).toFixed(2) })
   }
 
   return (
@@ -420,7 +591,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
       title={
         <Space>
           <ThunderboltOutlined style={{ color: '#722ed1' }} />
-          <span>TT 复盘报告生成（程序化版）</span>
+          <span>{t('ttPm.title')}</span>
         </Space>
       }
       width={Math.min(960, typeof window !== 'undefined' ? window.innerWidth - 40 : 960)}
@@ -431,7 +602,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
     >
       <Space.Compact style={{ width: '100%' }}>
         <Input
-          placeholder="输入 TT 单号（例 TT202609210140）"
+          placeholder={t('ttPm.placeholder')}
           value={ttNo}
           onChange={e => setTtNo(e.target.value)}
           onPressEnter={run}
@@ -439,7 +610,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
           size="large"
         />
         <Button type="primary" size="large" icon={<ThunderboltOutlined />} loading={loading} onClick={run}>
-          生成复盘报告
+          {t('ttPm.generate')}
         </Button>
       </Space.Compact>
 
@@ -447,7 +618,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
 
       <Spin spinning={loading} style={{ marginTop: 12 }}>
         {report && !report.found && (
-          <Empty description={report.message || '未找到该工单'} />
+          <Empty description={report.message || t('ttPm.notFound')} />
         )}
 
         {report && report.found && (
@@ -462,11 +633,11 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                   <Space size={8} wrap>
                     <Text strong>SLA {report.sla.status || '-'}</Text>
                     {report.sla.is_breached
-                      ? <Tag color="red">已超期 {fmtGap(report.sla.over_seconds)}</Tag>
-                      : <Tag color="green">未超期</Tag>}
-                    {report.sla.total_text && <Tag>SLA 时长 {report.sla.total_text}</Tag>}
-                    {report.sla.deadline && <Tag>期限 {report.sla.deadline}</Tag>}
-                    {report.sla.over_text && <Text type="secondary">系统结余 {report.sla.over_text}</Text>}
+                      ? <Tag color="red">{t('ttPm.slaBreached', { d: fmtGap(report.sla.over_seconds) })}</Tag>
+                      : <Tag color="green">{t('ttPm.slaOnTime')}</Tag>}
+                    {report.sla.total_text && <Tag>{t('ttPm.slaDuration')} {report.sla.total_text}</Tag>}
+                    {report.sla.deadline && <Tag>{t('ttPm.slaDeadline')} {report.sla.deadline}</Tag>}
+                    {report.sla.over_text && <Text type="secondary">{t('ttPm.slaMargin')} {report.sla.over_text}</Text>}
                   </Space>
                 }
                 description={report.sla.cause}
@@ -487,48 +658,78 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
             }
               extra={
                 <Button icon={<DownloadOutlined />} onClick={exportMd} loading={exporting} size="small">
-                  下载 Markdown
+                  {t('ttPm.downloadMd')}
                 </Button>
               }
             >
               {report.ticket?.title && (
                 <div style={{ marginBottom: 8 }}>
-                  <Text type="secondary">标题：</Text><Text strong>{report.ticket.title.trim()}</Text>
+                  <Text type="secondary">{t('ttPm.fieldTitle')}</Text><Text strong>{report.ticket.title.trim()}</Text>
                 </div>
               )}
               <Descriptions size="small" column={3} bordered>
-                <Descriptions.Item label="告警码">{report.ticket?.alarm_code} {report.ticket?.alarm_name ? `(${report.ticket.alarm_name})` : ''}</Descriptions.Item>
-                <Descriptions.Item label="告警级别">{report.ticket?.alarm_severity || '-'}</Descriptions.Item>
-                <Descriptions.Item label="故障域 reason_type">{report.system_judged?.reason_type || '-'}</Descriptions.Item>
-                <Descriptions.Item label="告警发生">{report.ticket?.alarm_occur_time || '-'}</Descriptions.Item>
-                <Descriptions.Item label="告警清除">{report.ticket?.alarm_clear_time || '-'}</Descriptions.Item>
-                <Descriptions.Item label="故障持续">{report.ticket?.fault_duration_time || '-'}</Descriptions.Item>
-                <Descriptions.Item label="TT 建单">{report.ticket?.created_time || '-'}</Descriptions.Item>
-                <Descriptions.Item label="末次修改">{report.ticket?.last_modified_time || '-'}</Descriptions.Item>
-                <Descriptions.Item label="影响业务">{report.ticket?.impacted_service || '-'}</Descriptions.Item>
-                <Descriptions.Item label="站点等级">{report.site?.site_class || '-'}</Descriptions.Item>
-                <Descriptions.Item label="区域">{report.site?.region || '-'}</Descriptions.Item>
-                <Descriptions.Item label="WO 编号">{report.ticket?.wo_no || <Text type="danger">无</Text>}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fAlarmCode')}>{report.ticket?.alarm_code} {report.ticket?.alarm_name ? `(${report.ticket.alarm_name})` : ''}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fAlarmSeverity')}>{report.ticket?.alarm_severity || '-'}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fReasonType')}>{report.system_judged?.reason_type || '-'}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fAlarmOccur')}>{report.ticket?.alarm_occur_time || '-'}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fAlarmClear')}>{report.ticket?.alarm_clear_time || '-'}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fFaultDuration')}>{report.ticket?.fault_duration_time || '-'}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fCreated')}>{report.ticket?.created_time || '-'}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fLastModified')}>{report.ticket?.last_modified_time || '-'}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fImpactedService')}>{report.ticket?.impacted_service || '-'}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fSiteClass')}>{report.site?.site_class || '-'}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fRegion')}>{report.site?.region || '-'}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fWoNo')}>{report.ticket?.wo_no || <Text type="danger">{t('ttPm.none')}</Text>}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.fOwner')} span={2}>
+                  <Space size={6} wrap>
+                    <Tag color={report.dispatch_owner === 'IPT' ? 'purple' : 'blue'}>
+                      {report.dispatch_owner === 'IPT' ? t('ttPm.ownerIpt') : t('ttPm.ownerZte')}
+                    </Tag>
+                    {/* IPT 单按设计不建 WO，说明清楚，避免被误读成"漏派单" */}
+                    {report.dispatch_owner === 'IPT' && !report.ticket?.wo_no && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>{t('ttPm.ownerIptNoWo')}</Text>
+                    )}
+                    {report.dispatch_owner !== 'IPT' && !report.ticket?.wo_no && (
+                      <Text type="danger" style={{ fontSize: 12 }}>{t('ttPm.ownerZteNoWo')}</Text>
+                    )}
+                    {(report.owner_detail?.evidence?.length ?? 0) > 0 && (
+                      <Tooltip title={
+                        <div>
+                          {t('ttPm.ownerWhy')}
+                          <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                            {report.owner_detail!.evidence!.map((e, i) => <li key={i}>{e}</li>)}
+                          </ul>
+                        </div>
+                      }>
+                        <QuestionCircleOutlined style={{ cursor: 'help', opacity: 0.65 }} />
+                      </Tooltip>
+                    )}
+                  </Space>
+                </Descriptions.Item>
               </Descriptions>
 
               {/* 责任人：谁建的 / 谁接的 / 谁处理的 / 谁关的 */}
               {report.people && (
                 <div style={{ marginTop: 10 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>责任人</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{t('ttPm.owners')}</Text>
                   <Descriptions size="small" column={3} bordered style={{ marginTop: 4 }}>
-                    <Descriptions.Item label="建单人">
+                    <Descriptions.Item label={t('ttPm.pCreator')}>
                       {report.people.creator || '-'}
                       <Tag style={{ marginLeft: 4 }} color={report.people.creator_kind === '系统自动' ? 'default' : 'blue'}>
-                        {report.people.creator_kind}
+                        {report.people.creator_kind === '系统自动'
+                          ? t('ttPm.auto')
+                          : report.people.creator_kind === '人工'
+                            ? t('ttPm.actor.human')
+                            : report.people.creator_kind}
                       </Tag>
                     </Descriptions.Item>
-                    <Descriptions.Item label="FO 接单人">{report.people.fo_acceptor || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="FO 填报人">{report.people.fo_processer || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="关单人">{report.people.confirmer || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="最后处理人">{report.people.last_processer || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="处理组">{report.people.last_processer_group || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="WO 建单人">{report.people.wo_creator || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="WO 当前处理人">{report.people.wo_current_handler || '-'}</Descriptions.Item>
+                    <Descriptions.Item label={t('ttPm.pFoAcceptor')}>{report.people.fo_acceptor || '-'}</Descriptions.Item>
+                    <Descriptions.Item label={t('ttPm.pFoProcesser')}>{report.people.fo_processer || '-'}</Descriptions.Item>
+                    <Descriptions.Item label={t('ttPm.pConfirmer')}>{report.people.confirmer || '-'}</Descriptions.Item>
+                    <Descriptions.Item label={t('ttPm.pLastHandler')}>{report.people.last_processer || '-'}</Descriptions.Item>
+                    <Descriptions.Item label={t('ttPm.pHandlerGroup')}>{report.people.last_processer_group || '-'}</Descriptions.Item>
+                    <Descriptions.Item label={t('ttPm.pWoCreator')}>{report.people.wo_creator || '-'}</Descriptions.Item>
+                    <Descriptions.Item label={t('ttPm.pWoHandler')}>{report.people.wo_current_handler || '-'}</Descriptions.Item>
                   </Descriptions>
                 </div>
               )}
@@ -536,7 +737,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
               {/* WO 现场动作责任人（有 WO 才有） */}
               {report.people?.wo_people && report.people.wo_people.length > 0 && (
                 <div style={{ marginTop: 10 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>现场动作责任人（来自 eflow_wo）</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{t('ttPm.pOnsiteOwners')}</Text>
                   <Table
                     size="small"
                     rowKey={(r) => `${r.step}-${r.time}-${r.operator}`}
@@ -544,10 +745,10 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                     pagination={false}
                     dataSource={report.people.wo_people}
                     columns={[
-                      { title: '步骤', dataIndex: 'step', width: 110 },
-                      { title: '时间', dataIndex: 'time', width: 175, render: (v: string | null) => v || '-' },
-                      { title: '操作人', dataIndex: 'operator', render: (v: string | null) => v || '-' },
-                      { title: '来源', dataIndex: 'source', width: 200, render: (v: string) => <Text type="secondary" style={{ fontSize: 11 }}>{v}</Text> },
+                      { title: t('ttPm.colStep'), dataIndex: 'step', width: 110 },
+                      { title: t('ttPm.colTime'), dataIndex: 'time', width: 175, render: (v: string | null) => v || '-' },
+                      { title: t('ttPm.colOperator'), dataIndex: 'operator', render: (v: string | null) => v || '-' },
+                      { title: t('ttPm.colSource'), dataIndex: 'source', width: 200, render: (v: string) => <Text type="secondary" style={{ fontSize: 11 }}>{v}</Text> },
                     ]}
                   />
                 </div>
@@ -558,10 +759,10 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
             {report.time_spent?.segments && report.time_spent.segments.length > 0 && (
               <Card size="small" title={
                 <Space>
-                  <Text strong>⏱ 时间都花哪了</Text>
-                  <Tag color="blue">总历时 {fmtGap(report.time_spent.total_seconds)}</Tag>
+                  <Text strong>{t('ttPm.segTitle')}</Text>
+                  <Tag color="blue">{t('ttPm.totalElapsed')} {fmtGap(report.time_spent.total_seconds)}</Tag>
                   {(report.time_spent.over_threshold_count ?? 0) > 0 && (
-                    <Tag color="red">{report.time_spent.over_threshold_count} 个阶段超阈值</Tag>
+                    <Tag color="red">{t('ttPm.overThrCount', { n: report.time_spent.over_threshold_count ?? 0 })}</Tag>
                   )}
                 </Space>
               }>
@@ -572,23 +773,23 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                   dataSource={report.time_spent.segments}
                   columns={[
                     {
-                      title: '阶段', dataIndex: 'label',
+                      title: t('ttPm.colPhase'), dataIndex: 'label',
                       render: (v: string, r: TimeSegment) => (
                         <Space size={4} wrap>
-                          {r.key === report.time_spent?.bottleneck?.key && <Tag color="red">瓶颈</Tag>}
-                          {r.phase_label && <Tag color="geekblue">{r.phase_label}</Tag>}
-                          <Text strong={r.key === report.time_spent?.bottleneck?.key}>{v}</Text>
+                          {r.key === report.time_spent?.bottleneck?.key && <Tag color="red">{t('ttPm.bottleneck')}</Tag>}
+                          {r.phase_label && <Tag color="geekblue">{phaseLabel(r.phase, r.phase_label)}</Tag>}
+                          <Text strong={r.key === report.time_spent?.bottleneck?.key}>{segLabel(r) || v}</Text>
                         </Space>
                       ),
                     },
                     {
-                      title: '耗时', dataIndex: 'seconds', width: 120,
+                      title: t('ttPm.colElapsed'), dataIndex: 'seconds', width: 120,
                       defaultSortOrder: 'descend',
                       sorter: (a: TimeSegment, b: TimeSegment) => a.seconds - b.seconds,
                       render: (v: number) => <Text strong>{fmtGap(v)}</Text>,
                     },
                     {
-                      title: '占比', dataIndex: 'pct', width: 150,
+                      title: t('ttPm.colPct'), dataIndex: 'pct', width: 150,
                       render: (v: number | null) => (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <div style={{
@@ -600,23 +801,22 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                       ),
                     },
                     {
-                      title: '责任方', dataIndex: 'owner', width: 200,
-                      render: (v: string) => v ? <Tag color={v === '系统/流程' ? 'default' : 'blue'}>{v}</Tag> : '-',
+                      title: t('ttPm.colOwner'), dataIndex: 'owner', width: 200,
+                      render: (v: string) => v ? <Tag color={v === '系统/流程' ? 'default' : 'blue'}>{ownerLabel(v)}</Tag> : '-',
                     },
                     {
-                      title: '是否超阈值', dataIndex: 'over_threshold', width: 150,
+                      title: t('ttPm.colOverThr'), dataIndex: 'over_threshold', width: 150,
                       render: (v: boolean, r: TimeSegment) => (
                         v
-                          ? <Tag color="red">超 {fmtGap(r.over_by_s)}</Tag>
-                          : (r.threshold_s ? <Tag color="green">正常</Tag> : <Text type="secondary">—</Text>)
+                          ? <Tag color="red">{t('ttPm.overBy', { d: fmtGap(r.over_by_s) })}</Tag>
+                          : (r.threshold_s ? <Tag color="green">{t('ttPm.normal')}</Tag> : <Text type="secondary">—</Text>)
                       ),
                     },
                   ]}
                 />
                 {report.time_spent.window?.start && (
                   <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                    统计窗口：{report.time_spent.window.start} → {report.time_spent.window.end}
-                    （终点取所有已知活动的最晚时间，含现场动作）
+                    {t('ttPm.statWindow', { a: report.time_spent.window?.start || '-', b: report.time_spent.window?.end || '-' })}
                   </Text>
                 )}
                 {report.time_spent.bottleneck_note && (
@@ -624,7 +824,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                     style={{ marginTop: 8 }}
                     type="warning"
                     showIcon
-                    message="瓶颈定位"
+                    message={t('ttPm.bottleneckNote')}
                     description={report.time_spent.bottleneck_note}
                   />
                 )}
@@ -641,7 +841,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
 
             {/* 里程碑时间轴 */}
             {report.timeline && report.timeline.length > 0 && (
-              <Card size="small" title={`① 里程碑时间轴（${report.timeline_meta?.done_count ?? 0}/${report.timeline_meta?.stage_count ?? 0} 跳有确凿时间戳）`}>
+              <Card size="small" title={t('ttPm.tlTitle', { d: report.timeline_meta?.done_count ?? 0, s: report.timeline_meta?.stage_count ?? 0 })}>
                 <Timeline
                   items={report.timeline.map(m => {
                     const missing = !m.time_present
@@ -655,14 +855,14 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                       children: (
                         <div style={{ opacity: missing ? 0.85 : 1 }}>
                           <Space size={6} wrap>
-                            <Text strong={!missing} delete={missing}>{m.label}</Text>
+                            <Text strong={!missing} delete={missing}>{nodeLabel(m.key, m.label)}</Text>
                             <Tag color={m.actor === 'human' ? 'blue' : unproven ? 'gold' : 'green'}>
-                              {m.actor === 'human' ? '人工' : unproven ? '未证实' : '系统'}
+                              {m.actor === 'human' ? t('ttPm.actor.human') : unproven ? t('ttPm.actor.unknown') : t('ttPm.actor.system')}
                             </Tag>
-                            <Text code style={{ fontSize: 12 }}>{m.time || '（缺失）'}</Text>
+                            <Text code style={{ fontSize: 12 }}>{m.time || t('ttPm.missingParen')}</Text>
                             {m.gap_from_prev_s != null && (
                               <Text type="secondary" style={{ fontSize: 12 }}>
-                                距上一跳 {fmtGap(m.gap_from_prev_s)}
+                                {t('ttPm.gapFromPrev', { d: fmtGap(m.gap_from_prev_s) })}
                               </Text>
                             )}
                             {m.operator && <Tag>{m.operator}</Tag>}
@@ -674,11 +874,11 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                           )}
                           {!missing && (
                             <div style={{ fontSize: 11, color: 'var(--wh-text-3, #999)' }}>
-                              来源：{m.source}
+                              {t('ttPm.sourceOf')}{m.source}
                               {m.raw && (
                                 <Tooltip title={<pre style={{ margin: 0, whiteSpace: 'pre-wrap', maxWidth: 520 }}>{m.raw}</pre>}>
                                   <Text type="secondary" style={{ fontSize: 11, marginLeft: 6, cursor: 'help' }}>
-                                    [原文]
+                                    {t('ttPm.raw')}
                                   </Text>
                                 </Tooltip>
                               )}
@@ -690,47 +890,46 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                   })}
                 />
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  窗口 {report.timeline_meta?.window?.start} → {report.timeline_meta?.window?.end}，
-                  总历时 {fmtGap(report.timeline_meta?.total_seconds)}
+                  {t('ttPm.tlWindow', { a: report.timeline_meta?.window?.start || '-', b: report.timeline_meta?.window?.end || '-', c: fmtGap(report.timeline_meta?.total_seconds) })}
                 </Text>
               </Card>
             )}
 
             {/* 应做 vs 实做 */}
             {report.expected_actions && report.expected_actions.length > 0 && (
-              <Card size="small" title="② 该做的动作 · 实际做的动作">
+              <Card size="small" title={t('ttPm.actTitle')}>
                 <Table
                   size="small"
                   rowKey="key"
                   pagination={false}
                   dataSource={report.expected_actions}
                   columns={[
-                    { title: '里程碑', dataIndex: 'label', width: 130 },
+                    { title: t('ttPm.colMilestone'), dataIndex: 'label', width: 130, render: (v: string, r: ExpectedAction) => nodeLabel(r.key, v) || v },
                     {
-                      title: '契约', dataIndex: 'required', width: 70,
-                      render: (v: boolean) => <Tag color={v ? 'purple' : 'default'}>{v ? '必需' : '条件'}</Tag>,
+                      title: t('ttPm.colContract'), dataIndex: 'required', width: 70,
+                      render: (v: boolean) => <Tag color={v ? 'purple' : 'default'}>{v ? t('ttPm.required') : t('ttPm.conditional')}</Tag>,
                     },
                     {
-                      title: '应做', dataIndex: 'key', width: 80,
-                      render: () => <Tag color="blue">应执行</Tag>,
+                      title: t('ttPm.colShould'), dataIndex: 'key', width: 80,
+                      render: () => <Tag color="blue">{t('ttPm.shouldRun')}</Tag>,
                     },
                     {
-                      title: '实际', dataIndex: 'status', width: 104,
+                      title: t('ttPm.colActual'), dataIndex: 'status', width: 104,
                       render: (v: ExpectedAction['status'], r: ExpectedAction) => {
                         const st = v || (r.done ? 'done' : 'missing')
-                        if (st === 'done') return <Tag color="green" icon={<CheckCircleOutlined />}>已执行</Tag>
+                        if (st === 'done') return <Tag color="green" icon={<CheckCircleOutlined />}>{t('ttPm.done')}</Tag>
                         if (st === 'unproven') {
                           return (
-                            <Tooltip title="库中取不到该动作的证据，但也不能据此断定没做（如「有 WO 却无出发/到场明细」，WO 还可能是 fe_robot 自动建的）">
-                              <Tag color="gold" icon={<QuestionCircleOutlined />}>未证实</Tag>
+                            <Tooltip title={t('ttPm.unprovenTip')}>
+                              <Tag color="gold" icon={<QuestionCircleOutlined />}>{t('ttPm.unproven')}</Tag>
                             </Tooltip>
                           )
                         }
-                        return <Tag color="red" icon={<CloseCircleOutlined />}>未执行</Tag>
+                        return <Tag color="red" icon={<CloseCircleOutlined />}>{t('ttPm.notDone')}</Tag>
                       },
                     },
-                    { title: '时间', dataIndex: 'time', width: 165, render: (v: string | null) => v || <Text type="danger">-</Text> },
-                    { title: '操作人', dataIndex: 'operator', width: 170, render: (v: string | null) => v || '-' },
+                    { title: t('ttPm.colTime'), dataIndex: 'time', width: 165, render: (v: string | null) => v || <Text type="danger">-</Text> },
+                    { title: t('ttPm.colOperator'), dataIndex: 'operator', width: 170, render: (v: string | null) => v || '-' },
                   ]}
                 />
                 {report.expected_actions?.some(a => (a.status || (a.done ? 'done' : 'missing')) === 'unproven') && (
@@ -738,12 +937,11 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                     style={{ marginTop: 8 }}
                     type="warning"
                     showIcon
-                    message="存在「未证实」的动作"
+                    message={t('ttPm.unprovenAlert')}
                     description={
                       <Text style={{ fontSize: 12 }}>
-                        库中取不到这些动作的证据，但**也不能据此断定没做**。典型是「有 WO 却无出发/到场/离场明细」——
-                        eflow_tt 本就没有独立到场字段，而 WO 的创建者若为 <Text code>fe_robot</Text>
-                        （系统自动），只能说明系统自动生成了工单，<Text strong>不能作为现场有人的证据</Text>。
+                        {t('ttPm.unprovenDesc')} <Text code>fe_robot</Text>
+                        {t('ttPm.unprovenDesc2')}<Text strong>{t('ttPm.unprovenDesc3')}</Text>。
                       </Text>
                     }
                   />
@@ -753,11 +951,11 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                     style={{ marginTop: 8 }}
                     type="error"
                     showIcon
-                    message={`存在 ${report.missing_actions.length} 个缺失动作`}
+                    message={t('ttPm.missingCount', { n: report.missing_actions.length })}
                     description={
                       <ul style={{ margin: 0, paddingLeft: 18 }}>
                         {report.missing_actions.map(m => (
-                          <li key={m.key}><Text strong>{m.label}</Text>：{m.reason}</li>
+                          <li key={m.key}><Text strong>{nodeLabel(m.key, m.label) || m.label}</Text>：{m.reason}</li>
                         ))}
                       </ul>
                     }
@@ -769,9 +967,9 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
             {/* 偏离清单 */}
             <Card size="small" title={
               <Space>
-                <Text strong>③ 偏离清单（应做 vs 实做）</Text>
+                <Text strong>{t('ttPm.devTitle')}</Text>
                 {report.deviations && report.deviations.length > 0 && (
-                  <Tag color="red">{report.deviations.length} 处</Tag>
+                  <Tag color="red">{t('ttPm.devItems', { n: report.deviations.length })}</Tag>
                 )}
               </Space>
             }>
@@ -784,49 +982,50 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                     }}>
                       <Space size={6} wrap>
                         <Tag color={SEVERITY_COLOR[d.severity]}>{d.severity.toUpperCase()}</Tag>
-                        <Tag>{KIND_LABEL[d.kind] || d.kind}</Tag>
+                        <Tag>{kindLabelKey(d.kind) ? t(kindLabelKey(d.kind)) : d.kind}</Tag>
                         <Text strong>{d.label}</Text>
                       </Space>
                       <div style={{ fontSize: 12, marginTop: 2 }}>
-                        <Text type="secondary">应有：</Text>{d.expected}
+                        <Text type="secondary">{t('ttPm.devExpected')}</Text>{d.expected}
                       </div>
                       <div style={{ fontSize: 12 }}>
-                        <Text type="secondary">实际：</Text><Text type="danger">{d.actual}</Text>
+                        <Text type="secondary">{t('ttPm.devActual')}</Text><Text type="danger">{d.actual}</Text>
                       </div>
                       <div style={{ fontSize: 12 }}>
-                        <Text type="secondary">影响：</Text>{d.impact}
+                        <Text type="secondary">{t('ttPm.devImpact')}</Text>{d.impact}
                       </div>
                     </div>
                   ))}
                 </Space>
               ) : (
-                <Alert type="success" showIcon message="未检出偏离：契约要求的动作全部按时执行，且未发现字段间冲突。" />
+                <Alert type="success" showIcon message={t('ttPm.devNone')} />
               )}
             </Card>
 
             {/* 一致性判定 */}
             <Card size="small" title={
               <Space>
-                <Text strong>④ 系统判定根因 vs NOC 填写根因</Text>
+                <Text strong>{t('ttPm.consTitle')}</Text>
                 {report.consistency === false && (
                   <Tooltip title={report.note}>
                     <Tag color="red" icon={<ExclamationCircleOutlined />}>{report.mismatch_type}</Tag>
                   </Tooltip>
                 )}
                 {report.consistency === true && (
-                  <Tag color="green" icon={<CheckCircleOutlined />}>一致</Tag>
+                  <Tag color="green" icon={<CheckCircleOutlined />}>{t('ttPm.consistent')}</Tag>
                 )}
-                {report.consistency == null && <Tag color="default">待人工复核</Tag>}
-                <Tag>置信度: {report.confidence}</Tag>
+                {report.consistency == null && <Tag color="default">{t('ttPm.needReview')}</Tag>}
+                <Tag>{t('ttPm.confidence', { c: confLabel(report.confidence) })}</Tag>
               </Space>
             }>
               <Descriptions size="small" column={1} bordered>
-                <Descriptions.Item label="NOC 填写">{report.noc_filled?.root_cause} / {report.noc_filled?.sub_root_cause}</Descriptions.Item>
-                <Descriptions.Item label="系统判定（{report.system_judged?.linkage}）">
-                  {report.system_judged?.fault_domain} （依据：{report.system_judged?.basis}）
+                <Descriptions.Item label={t('ttPm.nocFilled')}>{report.noc_filled?.root_cause} / {report.noc_filled?.sub_root_cause}</Descriptions.Item>
+                {/* 旧写法把插值放在字符串属性里，花括号不展开、界面会显示字面量；改为 JSX 表达式。 */}
+                <Descriptions.Item label={t('ttPm.sysJudged', { linkage: lnkLabel(report.system_judged?.linkage) })}>
+                  {report.system_judged?.fault_domain}{t('ttPm.sysBasis', { b: report.system_judged?.basis || '-' })}
                 </Descriptions.Item>
                 {report.history_match && (
-                  <Descriptions.Item label="历史匹配">{report.history_match}</Descriptions.Item>
+                  <Descriptions.Item label={t('ttPm.historyMatch')}>{report.history_match}</Descriptions.Item>
                 )}
               </Descriptions>
 
@@ -834,7 +1033,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
               {report.site_history && report.site_history.length > 0 && (
                 <div style={{ marginTop: 10 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    该站历史告警指纹（同站历史是判定「反复同源故障」的关键佐证）
+                    {t('ttPm.siteHistTitle')}
                   </Text>
                   <Table
                     size="small"
@@ -848,18 +1047,18 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                         render: (v: string, r: SiteHistoryRow) => (
                           <Space size={4}>
                             <Text code style={{ fontSize: 12 }}>{v}</Text>
-                            {r.is_self && <Tag color="blue">本单</Tag>}
+                            {r.is_self && <Tag color="blue">{t('ttPm.thisTicket')}</Tag>}
                           </Space>
                         ),
                       },
-                      { title: '告警码', dataIndex: 'alarmcode', width: 80 },
+                      { title: t('ttPm.fAlarmCode'), dataIndex: 'alarmcode', width: 80 },
                       { title: 'codename', dataIndex: 'codename', width: 150 },
                       {
                         title: 'reason_type', dataIndex: 'reason_type', width: 100,
                         render: (v: string) => <Tag color={v === 'TRM' ? 'orange' : 'default'}>{v}</Tag>,
                       },
-                      { title: '发生', dataIndex: 'raised', width: 165 },
-                      { title: '清除', dataIndex: 'cleared', width: 165 },
+                      { title: t('ttPm.colRaised'), dataIndex: 'raised', width: 165 },
+                      { title: t('ttPm.colCleared'), dataIndex: 'cleared', width: 165 },
                     ]}
                   />
                 </div>
@@ -867,12 +1066,12 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
             </Card>
 
             {/* 派单机制真相 */}
-            <Card size="small" title="⑤ WO 派单机制真相">
+            <Card size="small" title={t('ttPm.dispatchTitle')}>
               <Space direction="vertical" style={{ width: '100%' }} size={6}>
                 <Space>
-                  <Text>分类：</Text>
+                  <Text>{t('ttPm.category')}</Text>
                   <Tag color={CATEGORY_COLOR[report.dispatch_path?.category || 'default']}>
-                    {CATEGORY_LABEL[report.dispatch_path?.category || ''] || report.dispatch_path?.category}
+                    {(() => { const k = categoryLabelKey(report.dispatch_path?.category); return k ? t(k) : report.dispatch_path?.category })()}
                   </Tag>
                   {report.dispatch_path?.wo_no && (
                     <Text type="secondary">WO: <Text code>{report.dispatch_path.wo_no}</Text></Text>
@@ -886,8 +1085,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                 </Space>
                 <Alert type="info" showIcon message={report.dispatch_path?.explanation} />
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  断站类告警码 ACTIVE 规则覆盖：{report.rules_snapshot?.down_alarm_codes_active?.join(', ') || '（无）'}；
-                  STOP 覆盖：{report.rules_snapshot?.down_alarm_codes_stopped?.join(', ') || '（无）'}
+                  {t('ttPm.ruleCoverage', { a: report.rules_snapshot?.down_alarm_codes_active?.join(', ') || t('ttPm.emptyParen'), b: report.rules_snapshot?.down_alarm_codes_stopped?.join(', ') || t('ttPm.emptyParen') })}
                 </Text>
               </Space>
             </Card>
@@ -896,19 +1094,19 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
             {report.dispatch_analysis?.rules_at_step && report.dispatch_analysis.rules_at_step.length > 0 && (
               <Card size="small" title={
                 <Space>
-                  <Text strong>⑤b 为什么走人工派单 · TT Push Order Rule 逐条比对</Text>
+                  <Text strong>{t('ttPm.whyManualTitle')}</Text>
                   <Tag color={DISPATCH_OVERALL_COLOR[report.dispatch_analysis.overall] || 'default'}>
-                    {DISPATCH_OVERALL_LABEL[report.dispatch_analysis.overall] || report.dispatch_analysis.overall}
+                    {(() => { const k = dispatchOverallLabelKey(report.dispatch_analysis.overall); return k ? t(k) : report.dispatch_analysis.overall })()}
                   </Tag>
                 </Space>
               }>
                 <Space direction="vertical" style={{ width: '100%' }} size={8}>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    判定阶段 <Text code>{report.dispatch_analysis.trigger_step}</Text>
+                    {t('ttPm.triggerStep')} <Text code>{report.dispatch_analysis.trigger_step}</Text>
                     （{report.dispatch_analysis.step_meaning}）
                   </Text>
                   <Space size={6} wrap>
-                    <Text type="secondary" style={{ fontSize: 12 }}>本单特征：</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>{t('ttPm.ticketSig')}</Text>
                     <Tag color="blue">siteSubType={report.dispatch_analysis.site_subtype || '-'}</Tag>
                     <Tag>{report.dispatch_analysis.alarm_name || '-'}</Tag>
                     {Object.entries(report.dispatch_analysis.signature || {})
@@ -922,33 +1120,34 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                     pagination={false}
                     dataSource={report.dispatch_analysis.rules_at_step}
                     columns={[
-                      { title: '规则名', dataIndex: 'rule_name', width: 190 },
+                      { title: t('ttPm.colRuleName'), dataIndex: 'rule_name', width: 190 },
                       {
-                        title: '状态', dataIndex: 'status', width: 80,
+                        title: t('ttPm.colStatus'), dataIndex: 'status', width: 80,
                         render: (v: string | null) => (
                           <Tag color={v === 'ACTIVE' ? 'green' : 'default'}>{v || '-'}</Tag>
                         ),
                       },
                       {
-                        title: '目标', dataIndex: 'target', width: 80,
+                        title: t('ttPm.colTarget'), dataIndex: 'target', width: 80,
                         render: (v: string) => (
                           <Tag color={v === 'WO' ? 'purple' : v === 'MANUAL' ? 'orange' : 'default'}>{v}</Tag>
                         ),
                       },
                       {
-                        title: '规则要求', dataIndex: 'wants_keys', width: 150,
+                        title: t('ttPm.colWants'), dataIndex: 'wants_keys', width: 150,
                         render: (v: string[]) => v?.length
                           ? v.map(k => <Tag key={k} style={{ marginBottom: 2 }}>{k}</Tag>)
                           : <Text type="secondary">-</Text>,
                       },
                       {
-                        title: '本单是否适用', dataIndex: 'verdict', width: 150,
-                        render: (v: DispatchRuleEval['verdict']) => (
-                          <Tag color={VERDICT_COLOR[v]}>{VERDICT_LABEL[v] || v}</Tag>
-                        ),
+                        title: t('ttPm.colVerdict'), dataIndex: 'verdict', width: 150,
+                        render: (v: DispatchRuleEval['verdict']) => {
+                          const k = verdictLabelKey(v)
+                          return <Tag color={VERDICT_COLOR[v]}>{k ? t(k) : v}</Tag>
+                        },
                       },
                       {
-                        title: '判定依据', dataIndex: 'why',
+                        title: t('ttPm.colWhy'), dataIndex: 'why',
                         render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text>,
                       },
                     ]}
@@ -958,7 +1157,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                     <Alert
                       type="warning"
                       showIcon
-                      message="本应命中但已停用的规则"
+                      message={t('ttPm.blockedTitle')}
                       description={
                         <ul style={{ margin: 0, paddingLeft: 18 }}>
                           {report.dispatch_analysis.blocked_rules.map((b, i) => (
@@ -966,7 +1165,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                               <Text strong>{b.rule_name}</Text>
                               <Tag style={{ marginLeft: 6 }}>{b.status}</Tag>
                               <Text type="secondary">
-                                优先级 {b.priority}，描述：{b.description || '无'}，最后更新 {b.update_time || '-'}
+                                {t('ttPm.blockedItem', { p: b.priority ?? '-', d: b.description || t('ttPm.none'), u: b.update_time || '-' })}
                               </Text>
                             </li>
                           ))}
@@ -977,12 +1176,12 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
 
                   {report.dispatch_analysis.fallback_rules?.length > 0 && (
                     <div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>兜底派单规则（ttDispatchRule）</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>{t('ttPm.fallbackTitle')}</Text>
                       <ul style={{ margin: '4px 0 0', paddingLeft: 20 }}>
                         {report.dispatch_analysis.fallback_rules.map((f, i) => (
                           <li key={i}>
                             <Text code>{f.rule_name}</Text>
-                            <Tag style={{ marginLeft: 6 }}>优先级 {f.priority}</Tag>
+                            <Tag style={{ marginLeft: 6 }}>{t('ttPm.priorityN', { p: f.priority ?? '-' })}</Tag>
                             <Tag color={f.status === 'ACTIVE' ? 'green' : 'default'}>{f.status}</Tag>
                             <Text type="secondary">{f.description || ''}</Text>
                           </li>
@@ -994,7 +1193,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                   <Alert
                     type={report.dispatch_analysis.overall === 'rule_should_have_fired' ? 'error' : 'info'}
                     showIcon
-                    message="结论"
+                    message={t('ttPm.conclusion')}
                     description={<Text>{report.dispatch_analysis.conclusion}</Text>}
                   />
                   {report.dispatch_analysis.caveat && (
@@ -1008,38 +1207,82 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
             {report.assignment && (
               <Card size="small" title={
                 <Space>
-                  <Text strong>⑤c 这单指派给谁了</Text>
-                  {report.assignment.unassigned && <Tag color="orange">未指派到人</Tag>}
+                  <Text strong>{t('ttPm.assignTitle')}</Text>
+                  {report.assignment.effective_scope === 'person' && <Tag color="green">{t('ttPm.scopePerson')}</Tag>}
+                  {report.assignment.effective_scope === 'group' && <Tag color="orange">{t('ttPm.scopeGroup')}</Tag>}
+                  {report.assignment.effective_scope === 'none' && <Tag color="red">{t('ttPm.scopeNone')}</Tag>}
                 </Space>
               }>
                 <Space direction="vertical" style={{ width: '100%' }} size={8}>
                   <Alert
-                    type={report.assignment.unassigned ? 'warning' : 'info'}
+                    type={report.assignment.effective_scope === 'none' ? 'error'
+                      : report.assignment.effective_scope === 'group' ? 'warning' : 'success'}
                     showIcon
                     message={report.assignment.conclusion}
                   />
                   <Descriptions size="small" column={2} bordered>
-                    <Descriptions.Item label="通道">{report.assignment.channel || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="建单后状态">{report.assignment.next_status || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="指派到人（Assign To）">
-                      {report.assignment.create_assign_to
-                        ? <Text code>{report.assignment.create_assign_to}</Text>
-                        : <Text type="warning">（空 · 未指派到人）</Text>}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="指派到群组（Assignee Group）">
-                      {report.assignment.create_assignee_group
-                        ? <Text code>{report.assignment.create_assignee_group}</Text>
-                        : <Text type="warning">（空）</Text>}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="当前处理人" span={2}>
-                      {report.assignment.current_handler
-                        ? <Space size={6}>
-                            <Text code>{report.assignment.current_handler}</Text>
-                            {report.assignment.current_handler_is_group && <Tag>群组，非个人</Tag>}
+                    <Descriptions.Item label={t('ttPm.channel')}>{report.assignment.channel || '-'}</Descriptions.Item>
+                    <Descriptions.Item label={t('ttPm.assignedPersons')}>
+                      {report.assignment.assigned_persons && report.assignment.assigned_persons.length > 0
+                        ? <Space size={4} wrap>
+                            {report.assignment.assigned_persons.map(p => <Tag key={p} color="blue">{p}</Tag>)}
                           </Space>
-                        : <Text type="warning">（空）</Text>}
+                        : <Text type="warning">{t('ttPm.emptyParen')}</Text>}
                     </Descriptions.Item>
                   </Descriptions>
+
+                  <Divider style={{ margin: '2px 0' }} plain>
+                    <Text type="secondary" style={{ fontSize: 12 }}>{t('ttPm.ttLayer')}</Text>
+                  </Divider>
+                  <Descriptions size="small" column={2} bordered>
+                    <Descriptions.Item label={t('ttPm.ttAssignTo')}>
+                      {report.assignment.tt_create_assign_to
+                        ? <Text code>{report.assignment.tt_create_assign_to}</Text>
+                        : <Text type="warning">{t('ttPm.emptyVal')}</Text>}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t('ttPm.ttAssigneeGroup')}>
+                      {report.assignment.tt_create_assignee_group
+                        ? <Text code>{report.assignment.tt_create_assignee_group}</Text>
+                        : <Text type="warning">{t('ttPm.emptyVal')}</Text>}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t('ttPm.ttNextStatus')}>{report.assignment.tt_next_status || '-'}</Descriptions.Item>
+                    <Descriptions.Item label={t('ttPm.ttCurrentHandler')}>
+                      {report.assignment.tt_current_handler
+                        ? <Text code>{report.assignment.tt_current_handler}</Text>
+                        : <Text type="warning">{t('ttPm.emptyVal')}</Text>}
+                    </Descriptions.Item>
+                  </Descriptions>
+
+                  {report.assignment.wo_no && (
+                    <>
+                      <Divider style={{ margin: '2px 0' }} plain>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {t('ttPm.woLayer', { no: report.assignment.wo_no })}
+                        </Text>
+                      </Divider>
+                      <Descriptions size="small" column={2} bordered>
+                        <Descriptions.Item label={t('ttPm.woAssignTo')}>
+                          {report.assignment.wo_create_assign_to
+                            ? <Text code>{report.assignment.wo_create_assign_to}</Text>
+                            : <Text type="warning">{t('ttPm.emptyVal')}</Text>}
+                        </Descriptions.Item>
+                        <Descriptions.Item label={t('ttPm.pWoHandler')}>
+                          {report.assignment.wo_current_handler
+                            ? <Text code>{report.assignment.wo_current_handler}</Text>
+                            : <Text type="warning">{t('ttPm.emptyVal')}</Text>}
+                        </Descriptions.Item>
+                      </Descriptions>
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        {t('ttPm.pfxIntro')}<Text code>P:</Text>{t('ttPm.pfxPerson')}<Text code>G:</Text>{t('ttPm.pfxGroup')}
+                        {t('ttPm.pfxNote')}<b>{t('ttPm.pfxBold')}</b>{t('ttPm.pfxEnd')}
+                      </Text>
+                    </>
+                  )}
+
+                  {report.assignment.create_note && (
+                    <Alert type="info" showIcon message={t('ttPm.createNote')}
+                           description={<Text style={{ fontSize: 12 }}>{report.assignment.create_note}</Text>} />
+                  )}
 
                   {report.assignment.channel_note && (
                     <Text type="secondary" style={{ fontSize: 12 }}>ℹ {report.assignment.channel_note}</Text>
@@ -1048,7 +1291,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                   {report.assignment.group_pools && report.assignment.group_pools.length > 0 && (
                     <div>
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        群组池规则（决定候选人范围，不指定个人）
+                        {t('ttPm.groupPoolTitle')}
                       </Text>
                       <Table
                         size="small"
@@ -1057,11 +1300,11 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                         pagination={false}
                         dataSource={report.assignment.group_pools}
                         columns={[
-                          { title: '环节', dataIndex: 'stage', width: 130 },
-                          { title: '规则名', dataIndex: 'rule_name', width: 220 },
-                          { title: '优先级', dataIndex: 'priority', width: 70 },
+                          { title: t('ttPm.colStage'), dataIndex: 'stage', width: 130 },
+                          { title: t('ttPm.colRuleName'), dataIndex: 'rule_name', width: 220 },
+                          { title: t('ttPm.colPriority'), dataIndex: 'priority', width: 70 },
                           {
-                            title: '候选处理人（节选）', dataIndex: 'handler_name',
+                            title: t('ttPm.colCandidates'), dataIndex: 'handler_name',
                             render: (v: string | null) => (
                               <Tooltip title={v || ''}>
                                 <Text style={{ fontSize: 12 }}>{v ? v.slice(0, 70) + (v.length > 70 ? '…' : '') : '-'}</Text>
@@ -1077,18 +1320,18 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
             )}
 
             {/* 阶段时长 */}
-            <Card size="small" title="⑥ 阶段时长">
+            <Card size="small" title={t('ttPm.durTitle')}>
               <Descriptions size="small" column={2} bordered>
-                <Descriptions.Item label="建单 → FO Accept">{fmtSec(report.durations?.create_to_accept_seconds)}</Descriptions.Item>
-                <Descriptions.Item label="FO Accept → FO Process">{fmtSec(report.durations?.accept_to_process_seconds)}</Descriptions.Item>
-                <Descriptions.Item label="FO Process → Confirm">{fmtSec(report.durations?.process_to_confirm_seconds)}</Descriptions.Item>
-                <Descriptions.Item label="全流程">{fmtSec(report.durations?.total_seconds)}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.dCreateAccept')}>{fmtSec(report.durations?.create_to_accept_seconds)}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.dAcceptProcess')}>{fmtSec(report.durations?.accept_to_process_seconds)}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.dProcessConfirm')}>{fmtSec(report.durations?.process_to_confirm_seconds)}</Descriptions.Item>
+                <Descriptions.Item label={t('ttPm.dTotal')}>{fmtSec(report.durations?.total_seconds)}</Descriptions.Item>
               </Descriptions>
             </Card>
 
             {/* 建议 */}
             {report.suggested_actions && report.suggested_actions.length > 0 && (
-              <Card size="small" title="⑦ 改进建议">
+              <Card size="small" title={t('ttPm.suggTitle')}>
                 <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
                   {report.suggested_actions.map((s, i) => <li key={i}>{s}</li>)}
                 </ul>
@@ -1096,7 +1339,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
             )}
 
             <Space>
-              <Button icon={<ReloadOutlined />} onClick={run}>重新生成</Button>
+              <Button icon={<ReloadOutlined />} onClick={run}>{t('ttPm.regenerate')}</Button>
             </Space>
           </div>
         )}

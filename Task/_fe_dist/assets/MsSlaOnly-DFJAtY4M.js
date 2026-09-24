@@ -1,1 +1,0 @@
-import{n as e}from"./rolldown-runtime-DaJ6WEGw.js";import{H as t}from"./react-vendor-Da0saO8s.js";import n,{t as r}from"./MsSlaDashboard-Cuk4ZLUS.js";function i(){return(0,a.jsx)(n,{only:`sla`})}var a;e((()=>{r(),a=t()}))();export{i as default};

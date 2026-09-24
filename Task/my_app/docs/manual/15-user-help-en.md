@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-23.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-24.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -1465,6 +1465,8 @@ NOC operator analysis: quantifies each NOC operator's root-cause mismatch rate, 
 - Layer 4: click any TT number for the single-ticket postmortem — five tabs: time attribution / milestone timeline / should-do vs did / deviations / alarm chain, sharing the same source and definitions as the programmatic postmortem report on the EflowQa page
 - Time attribution section ("where the time went"): every ticket of the month is parsed and aggregated to show where time is wasted. Six clickable stat cards, a stage-share pie chart, a deviation-type distribution, a segment table (total/average/P90/longest/over-threshold counts) and a milestone duration table
 - "WO expected but not dispatched": high-severity site-down (P1/P2, VIP, Hub) tickets with no field work order, longest first. Click a TT number to open that ticket's postmortem on the "Deviations" tab
+- Hover to see names: hover an alarm code (e.g. 99933) to see its official name (SITE DOWN DUE TO POWER OFF); hover a "Dispatch category" tag (e.g. rule_stopped) to see the reason plus the matched dispatch rule names and their status (ACTIVE/STOP), so it is obvious why no WO was raised
+- Top-of-page "Handled by" switch (ZTE in-house / IPT 3rd party / All, defaults to ZTE): tickets routed to a third party (IPT) never get a WO by design, so mixing them with in-house tickets inflates "WO expected but not dispatched" by nearly 4x (1140 before the fix, 296 after). Switch to "IPT (3rd party)" to review third-party fulfilment on its own — that bucket legitimately shows 0 for "WO expected but not dispatched"
 - Field-response timeliness — "Monthly WO hop durations": the work-order lifecycle split into created → FE accepted → start trip → arrive → work done → closed, so you can see which hop is stuck. In practice the slowest is "WO created → FE accepted" (median about 11 hours), while everything after acceptance takes only minutes
 - "NOC / human action timeliness": how long each human-performed action (FO Accept, FO Process, field work) waited, whether it breached its contract deadline, and the over-deadline share
 - In the single-ticket postmortem, the "Time attribution" tab's segment table carries a Phase column showing at a glance which kind of time dominates; below it sits the ticket's own "Field response timeline (WO lifecycle)" hop-by-hop detail with operators. Tickets with no WO say so explicitly instead of showing a blank area

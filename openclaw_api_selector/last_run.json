@@ -1,12 +1,12 @@
 {
-  "run_at": "2026-09-23T03:00:24",
+  "run_at": "2026-09-24T03:00:24",
   "threshold_ms": 5000,
   "results": [
     {
       "key": "zhipu",
       "name": "ZhiPu GLM 智谱",
       "available": true,
-      "latency_ms": 1341,
+      "latency_ms": 1058,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -16,7 +16,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1341,
+          "latency_ms": 1058,
           "status": "ok",
           "error": null
         }
@@ -74,7 +74,7 @@
       "key": "openrouter",
       "name": "OpenRouter",
       "available": true,
-      "latency_ms": 2862,
+      "latency_ms": 9808,
       "model": "openrouter/free",
       "error": null,
       "status": "ok",
@@ -84,7 +84,7 @@
         {
           "model": "openrouter/free",
           "ok": true,
-          "latency_ms": 2862,
+          "latency_ms": 9808,
           "status": "ok",
           "error": null
         }
@@ -142,7 +142,7 @@
       "key": "zhipu5",
       "name": "ZhiPu GLM-5 智谱",
       "available": true,
-      "latency_ms": 1173,
+      "latency_ms": 1526,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -152,7 +152,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1173,
+          "latency_ms": 1526,
           "status": "ok",
           "error": null
         }
@@ -356,12 +356,11 @@
       "tried_models": []
     }
   ],
-  "primary": "zhipu5/glm-4-flash",
+  "primary": "zhipu/glm-4-flash",
   "fallbacks": [
     "ollama/qwen3:8b",
     "ollama/qwen3:4b",
-    "zhipu/glm-4-flash",
-    "openrouter/openrouter/free",
+    "zhipu5/glm-4-flash",
     "ollama-cloud/gemma3:27b"
   ]
 }

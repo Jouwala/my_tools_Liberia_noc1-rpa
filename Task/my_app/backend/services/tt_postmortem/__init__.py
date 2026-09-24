@@ -40,6 +40,47 @@ ALARM_CODE_SEMANTICS = {
 POWER_HINTS = ("POWER", "GENSET", "BATTERY", "FUEL", "ENERGY", "GRID", "MAINS", "COMMERCIAL")
 TRM_HINTS = ("MW LINK", "MICROWAVE", "FIBER", "LINK DOWN", "TRANSMISSION", "MW ")
 
+# ---------------------------------------------------------------------------
+# 归属（owner）：ZTE 自维 vs IPT/第三方
+# ---------------------------------------------------------------------------
+# 背景（2026-09-24 用户提出）：有一类单子**根本不走 WO**，而是被推到第三方
+# （IPT / HUAWEI / NANOTECH / OLIB 等）去处理。这类单子如果和 ZTE 自维的单子
+# 混在一起统计，会得出两个错误结论：
+#   ① "无 WO 的比例很高" —— 其实第三方单按设计就不建 WO；
+#   ② "没人处理/未指派" —— 其实是指派给了外部厂商，不归 NOC 管。
+# 因此必须**单独分开**，并提供 ZTE / IPT 筛选。
+#
+# ⚠ 判定**只有一个真相源**：`_dispatch_owner()`（定义在下方，紧邻其他解析器）。
+#   这里只放它用到的常量，**不要**再写第二套判定函数。
+# ⚠ 用户提到的规则名 `mpf-outage` 在本地库**完全查不到**（全表扫描 0 命中，
+#   见 TMP/_probe_ipt.py），所以**不能按规则名匹配**。
+OWNER_ZTE = "ZTE"
+OWNER_IPT = "IPT"
+
+# 第三方厂商/群组关键词（子串匹配，大小写不敏感）—— 仅作为 `_dispatch_owner`
+# 的**兜底**信号：`third_accept_detail` / `last_processer` 都为空时（在途单）
+# 才用到，用来把"已经推到第三方但还没接单"的单也归到 IPT。
+THIRD_PARTY_TOKENS = ("IPT", "HUAWEI", "NANOTECH", "OLIB", "3RD_", "THIRD")
+# status 里代表"第三方环节"的标记
+THIRD_STATUS_TOKENS = ("THIRD ACCEPT", "THIRD PROCESS")
+
+
+def resolve_alarm_name(alarm_code=None, alarm_description=None,
+                       fallback=None) -> Optional[str]:
+    """告警码 → 告警名。
+
+    优先级：`alarm_description`（实际告警文本）→ `ALARM_CODE_SEMANTICS` 静态表 →
+    `fallback`（调用方传入的 title 等）。
+    界面上原来只显示告警 ID，鼠标悬浮要显示这个名字。
+    """
+    if alarm_description and str(alarm_description).strip():
+        return str(alarm_description).strip()
+    sem = ALARM_CODE_SEMANTICS.get(_norm_alarm_id(alarm_code))
+    if sem and sem.get("name"):
+        return sem["name"]
+    return str(fallback).strip() if fallback else None
+
+
 
 def _norm_alarm_id(val) -> str:
     if val is None:
@@ -397,30 +438,130 @@ def _rule_target(rule: Dict[str, Any]) -> str:
     return "UNKNOWN"
 
 
+def _dedup_people(seq: List[str]) -> List[str]:
+    """人名去重：同一个人可能以两种格式出现，只保留信息更全的那个。
+
+    实测 `WO202609230027`：`current_handler` 是 `P:Kelvin Kollie`（只有姓名），
+    而建单明细 `Assign To` 是 `P:Kelvin Kollie(FE_FE_120)`（姓名+工号）。
+    直接合并会出现「Kelvin Kollie、Kelvin Kollie(FE_FE_120)」这种同人重复。
+    做法：按"去掉括号工号后的姓名"归并，优先保留带工号的那份。
+    """
+    best: Dict[str, str] = {}
+    for p in seq:
+        if not p:
+            continue
+        key = re.sub(r"\([^)]*\)", "", str(p)).strip().lower()
+        cur = best.get(key)
+        if cur is None or len(str(p)) > len(cur):
+            best[key] = str(p)
+    return list(best.values())
+
+
+def _dispatch_owner(t: Dict[str, Any]) -> str:
+    """判定这单**由谁承接**：IPT（第三方）/ ZTE（自派）/ UNKNOWN。
+
+    为什么要分开统计（2026-09-23，用户指出）：
+      99933「SITE DOWN DUE TO POWER OFF」这类断电断站单里，很大一部分是
+      **派给第三方 IPT** 的——这类单**本来就不该有 WO**（第三方有自己的
+      施工体系），却被原来的「高等级断站未派 WO」判据一律算成"规则失效"。
+
+    判据取 `third_accept_detail`（第三方接单明细）而非 `last_processer`：
+      - `last_processer='IPT(IPT)'` 实测 1180 单，**与 third_accept_detail 100% 吻合**，
+        但它是**最后处理人**，单子没关时为空 → 会漏掉在途的第三方单；
+      - `third_accept_detail` 实测 1369 单，**严格包含**上面 1180 单
+        （仅 third 非 IPT 的 35 单是第三方处理但最后处理人填了别人），
+        且第三方一接单就有值，覆盖更全。
+    两侧都取并集，保证"第三方处理过"的单一定被归到 IPT。
+
+    ⚠ 2026-09-24 补充**第三档兜底**（用户提出「排到第三方的单子没有 WO」）：
+    上面两条都依赖"第三方**已经接单/处理过**"才会留痕。但**在途单**
+    （`Waiting for Third Accept` / `Waiting for Third Process`）还没接单，
+    `third_accept_detail` 与 `last_processer` **都为空**，会被误判成 ZTE。
+    实测近 800 单里这类有 93 单（Third Accept 68 + Third Process 25），
+    `current_handler` 为 `G:3rd_Power` 等第三方群组。
+    故补一档：`status` 含 Third Accept/Third Process，或 `current_handler` /
+    `last_processer_group` 含第三方厂商词（IPT/HUAWEI/NANOTECH/OLIB/3rd_）。
+    这一档**只在前两档都判不出 ZTE 证据时**才生效，不会推翻已验证的结论。
+    """
+    third = str(t.get("third_accept_detail") or "").strip()
+    if third and third not in ("[]", "None"):
+        return "IPT"
+    lp = str(t.get("last_processer") or "").strip().upper()
+    if lp.startswith("IPT(") or lp == "IPT":
+        return "IPT"
+    # 第三档：在途的第三方单（尚未接单，上面两条都留不下痕迹）
+    st = str(t.get("status") or "").upper()
+    if any(tok in st for tok in THIRD_STATUS_TOKENS):
+        return "IPT"
+    blob = "|".join(str(t.get(k) or "").upper()
+                    for k in ("current_handler", "last_processer_group"))
+    if any(tok in blob for tok in THIRD_PARTY_TOKENS):
+        return "IPT"
+    return "ZTE"
+
+
+def _dispatch_owner_detail(t: Dict[str, Any]) -> Dict[str, Any]:
+    """`_dispatch_owner` 的带证据版本（供界面显示"为什么判成 IPT/ZTE"）。
+
+    判定逻辑**复用** `_dispatch_owner`，不另写一套，避免两个真相源给出不同结论。
+    """
+    owner = _dispatch_owner(t)
+    ev: List[str] = []
+    if owner == OWNER_IPT:
+        third = str(t.get("third_accept_detail") or "").strip()
+        if third and third not in ("[]", "None"):
+            ev.append("有第三方接单明细 third_accept_detail")
+        elif str(t.get("last_processer") or "").upper().startswith("IPT("):
+            ev.append("最后处理人 last_processer=IPT")
+        else:
+            st = str(t.get("status") or "").upper()
+            hit = [tok.title() for tok in THIRD_STATUS_TOKENS if tok in st]
+            if hit:
+                ev.append(f"状态处于第三方环节：{'/'.join(hit)}")
+            blob = "|".join(str(t.get(k) or "").upper()
+                            for k in ("current_handler", "last_processer_group"))
+            hit2 = [tok for tok in THIRD_PARTY_TOKENS if tok in blob]
+            if hit2:
+                ev.append(f"处理群组含第三方厂商：{'/'.join(hit2)}")
+    return {
+        "owner": owner,
+        "owner_label": "IPT/第三方" if owner == OWNER_IPT else "ZTE",
+        "is_third_party": owner == OWNER_IPT,
+        "evidence": ev,
+    }
+
+
 def _resolve_assignment(t: Dict[str, Any], dispatch_path: Dict[str, Any],
                         create_info: Dict[str, Any],
-                        catalog: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """回答"这单指派给谁了"——分三层，缺一层都不能下结论。
+                        catalog: List[Dict[str, Any]],
+                        wo_record: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """回答"这单指派给谁了"——必须同时看 TT 和 WO 两层，只看 TT 会得出错误结论。
 
-    eFlow 的指派不是一条规则说了算：
-      ① 通道规则 ttDispatchRule(autoDispatch)：只决定走 BO 还是 FO 通道，
-         `targetHandlerName` 实测**全为 None** —— 它根本不管派给谁；
-      ② 建单默认群组 ttGroupDefaultRule(GroupDefault_Create)：决定单子落进哪个群组池；
-      ③ 环节群组配置 ttGroupConfigRule(GroupConfig_*)：决定各环节的候选人范围。
-    而**真正落到某个人**要看 create_detail 的 `Assign To` / `Assignee Group`，
-    以及 eflow_tt.current_handler。
+    ⚠ 曾经的错误（2026-09-23 修正，用户指出 TT202609230055）：
+    只看 `eflow_tt` 的建单明细与 `current_handler`，得出
+    「建单**未指派到任何人**，仅落入群组池 `G:ZTE_NOC_FO`」。
+    但该单实际已经派了 WO `WO202609230027`，而 **WO 的 `current_handler` 是
+    `P:Kelvin Kollie,P:Festus Emmanuel`（`P:` = 个人）**，WO 的建单明细里也有
+    `Assign To:P:Festus Emmanuel(FE_MG_104),…` —— **明明已经指派到具体人了**。
+    原因：TT 的 `current_handler` 停在群组池（`G:ZTE_NOC_FO`），
+    TT 的建单明细 `Assign To` 也是空的；真正落到人的指派发生在 **WO 层**。
 
-    ⚠ 实测 TT202609220139：`Assign To` 与 `Assignee Group` **都是空的**，
-    `current_handler = G:ZTE_NOC_FO`（G: 前缀表示**群组**而非个人）。
-    也就是说建单后单子只是躺在一个 20 人的群组池里、没有具体负责人 ——
-    这正是它 15.81 小时没人动的原因。报告必须把"未指派到人"说清楚，
-    而不是含糊地写一句"系统自动派单"。
+    结论：判断"指派给谁"要按 **WO 层 → TT 层** 的优先级取**最具体**的那个：
+      ① WO 的 `current_handler` / `create_detail.Assign To` 里的 `P:` 个人
+      ② TT 的 `create_detail.Assign To` 里的 `P:` 个人
+      ③ 只有群组（`G:`）→ 落群组池，未指定个人
+      ④ 什么都没有 → 未指派
+
+    另外**区分两件事**，不要混为一谈：
+      - `create_unassigned`：**建单那一刻**是否指派到人（TT 建单明细的事实）
+      - `unassigned`：**当前是否没有任何人**（看 WO + TT 的最终结果）
+    前者是"结构性原因"的证据，后者才是"这单现在没人管"的结论。
     """
     def _rules(*, rtype: str, step: str) -> List[Dict[str, Any]]:
         return [r for r in catalog
                 if r.get("rule_type") == rtype and r.get("trigger_step") == step]
 
-    # ① 通道
+    # ① 通道规则（只决定 BO/FO，不决定派给谁）
     channel_rules = [r for r in _rules(rtype="ttDispatchRule", step="autoDispatch")
                      if (r.get("status") or "").upper() == "ACTIVE"]
     channel = dispatch_path.get("category")
@@ -429,6 +570,7 @@ def _resolve_assignment(t: Dict[str, Any], dispatch_path: Dict[str, Any],
          "handler_name": r.get("handler_name"), "handler_id": r.get("handler_id")}
         for r in channel_rules
     ]
+
     # ②③ 群组池（按环节）
     pools: List[Dict[str, Any]] = []
     for rtype, step, stage in (
@@ -450,41 +592,91 @@ def _resolve_assignment(t: Dict[str, Any], dispatch_path: Dict[str, Any],
                 "description": r.get("description"),
             })
 
-    assign_to = create_info.get("assign_to")
-    assignee_group = create_info.get("assignee_group")
-    current_handler = t.get("current_handler")
-    # `G:` 前缀 = 群组；无前缀且非空 = 具体人
-    ch_is_group = bool(current_handler and str(current_handler).startswith("G:"))
-    ch_person = (str(current_handler)[2:] if ch_is_group
-                 else (current_handler or None))
+    # ---------- 指派证据（TT 层 + WO 层）----------
+    wo = wo_record or {}
+    tt_ch = _split_assignees(t.get("current_handler"))
+    wo_ch = _split_assignees(wo.get("current_handler"))
+    wo_ci = _parse_create_detail(wo.get("create_detail"))
+    wo_assign = _split_assignees(wo_ci.get("assign_to"))
+    tt_assign = _split_assignees(create_info.get("assign_to"))
 
-    if assign_to:
-        who = f"建单即指派到人：{assign_to}"
-    elif assignee_group:
-        who = f"建单即指派到群组：{assignee_group}（未指定个人）"
-    elif current_handler and not ch_is_group:
-        who = f"建单未指定指派对象，当前处理人：{current_handler}"
-    elif ch_is_group:
-        who = (f"建单**未指派到任何人**，仅落入群组池 `{current_handler}`"
-               f"（G: 前缀表示群组）；当前处理人 `{ch_person}` 是群组而非个人")
+    def _dedup(seq: List[str]) -> List[str]:
+        seen, out = set(), []
+        for x in seq:
+            if x and x not in seen:
+                seen.add(x)
+                out.append(x)
+        return out
+
+    # 按"最具体优先"取；人名先归一去重（同人可能有"姓名"与"姓名(工号)"两种写法）
+    persons = _dedup_people(wo_ch["persons"] + wo_assign["persons"]
+                            + tt_assign["persons"] + tt_ch["persons"])
+    groups = _dedup(wo_ch["groups"] + wo_assign["groups"]
+                    + tt_ch["groups"] + tt_assign["groups"])
+
+    has_wo = bool(t.get("wo_no"))
+    # 建单那一刻是否指派到人（TT 建单明细）
+    create_unassigned = not (create_info.get("assign_to")
+                             or create_info.get("assignee_group"))
+    if persons:
+        scope, unassigned = "person", False
+        who = (f"**已指派到个人**：{'、'.join(persons)}"
+               + (f"（来自 WO `{t.get('wo_no')}`）" if has_wo and
+                  (wo_ch["persons"] or wo_assign["persons"]) else ""))
+    elif groups:
+        scope, unassigned = "group", False
+        who = (f"未指派到个人，落**群组池**：{'、'.join('`'+g+'`' for g in groups)}"
+               f"（`G:` 前缀表示群组）")
     else:
-        who = "建单未指派到任何人，且当前处理人为空"
+        scope, unassigned = "none", True
+        who = "未指派到任何人，且当前处理人为空"
+
+    # 建单环节的事实单独说明（它才是"为什么一开始没人动"的证据）
+    create_note = None
+    if create_unassigned:
+        create_note = ("建单环节 `Assign To` / `Assignee Group` 均为空"
+                       + (f"，仅落入群组池 `{t.get('current_handler')}`"
+                          if t.get("current_handler") else "，当前处理人也为空"))
+        if persons:
+            create_note += (f"；但后续已由 WO `{t.get('wo_no')}` 指派到个人"
+                            f"（{'、'.join(persons)}），**不是无人负责**")
 
     return {
         "channel": channel,
         "channel_rules": channel_targets,
         "channel_note": ("ttDispatchRule 只决定走 BO/FO 通道，实测其 targetHandlerName 全为空，"
                          "不承担「派给谁」的职责"),
-        "create_assign_to": assign_to,
-        "create_assignee_group": assignee_group,
-        "create_operator_group": create_info.get("operator_group"),
-        "next_status": create_info.get("next_status"),
-        "current_handler": current_handler,
-        "current_handler_is_group": ch_is_group,
-        "current_handler_person": ch_person,
+        # --- 建单环节（TT 层）---
+        "tt_create_assign_to": create_info.get("assign_to"),
+        "tt_create_assignee_group": create_info.get("assignee_group"),
+        "tt_create_operator_group": create_info.get("operator_group"),
+        "tt_next_status": create_info.get("next_status"),
+        "tt_current_handler": t.get("current_handler"),
+        "create_unassigned": create_unassigned,
+        "create_note": create_note,
+        # --- WO 层（真正落到人的地方）---
+        "wo_no": t.get("wo_no"),
+        "wo_current_handler": wo.get("current_handler"),
+        "wo_create_assign_to": wo_ci.get("assign_to"),
+        "wo_assignee_group": wo_ci.get("assignee_group"),
+        # --- 结论 ---
+        "assigned_persons": persons,
+        "assigned_groups": groups,
+        "effective_scope": scope,
+        "unassigned": unassigned,
         "group_pools": pools,
         "conclusion": who,
-        "unassigned": not (assign_to or assignee_group),
+        # 兼容旧字段名（前端/Markdown 已有渲染）
+        "create_assign_to": create_info.get("assign_to"),
+        "create_assignee_group": create_info.get("assignee_group"),
+        "next_status": create_info.get("next_status"),
+        "current_handler": t.get("current_handler"),
+        "current_handler_is_group": bool(
+            t.get("current_handler") and str(t.get("current_handler")).startswith("G:")),
+        "current_handler_person": (
+            str(t.get("current_handler"))[2:]
+            if t.get("current_handler") and str(t.get("current_handler")).startswith(("G:", "P:"))
+            else (t.get("current_handler") or None)),
     }
 
 
@@ -816,8 +1008,38 @@ def _parse_operator(detail: str) -> Tuple[str, str]:
 # 注意 `Assign To` 与 `Assignee Group` **经常是空的** —— 建单时并没有指派到具体人，
 # 单子只是落进某个群组池等接单。这正是"为什么长时间没人动"的关键线索，
 # 不能因为取不到值就不显示，要**如实显示为空并说明含义**。
-_CREATE_FIELDS = ("Operation Result", "Operator Group", "Next Status",
+# ⚠ 必须把 `Operation Time` / `Operator` 也列为**边界字段**，否则取 `Operation Result`
+#   时会一路吃到 `Next Status` 才停（实测 `operation_result` 变成
+#   `'FO Accept. Operation Time:2026-9-23 11:57:55. Operator:assign_rule(assign_rule)'`）。
+# ⚠ `Operator Group` 必须排在 `Operator` **前面** —— 正则择先匹配，
+#   否则 `Operator Group:` 会被 `Operator` 抢先匹配掉。
+_CREATE_FIELDS = ("Operation Step", "Operation Result", "Operation Time",
+                  "Operator Group", "Operator", "Next Status",
                   "Assign To", "Assignee Group", "Remark")
+
+
+def _split_assignees(val) -> Dict[str, List[str]]:
+    """把 `P:张三,P:李四,G:某组` 这类指派值按**前缀**拆成个人/群组。
+
+    前缀语义（实测 `eflow_wo.current_handler`）：
+      - `P:` = Person（个人），如 `P:Kelvin Kollie,P:Festus Emmanuel`
+      - `G:` = Group（群组），如 `G:ZTE_NOC_FO`
+      - 无前缀 = 无法判定，归入 `unknown`，不硬猜成个人
+    """
+    out: Dict[str, List[str]] = {"persons": [], "groups": [], "unknown": []}
+    if not val:
+        return out
+    for part in re.split(r"[,\n;]+", str(val)):
+        p = part.strip()
+        if not p:
+            continue
+        if p.startswith("P:"):
+            out["persons"].append(p[2:].strip())
+        elif p.startswith("G:"):
+            out["groups"].append(p[2:].strip())
+        else:
+            out["unknown"].append(p)
+    return out
 
 
 def _parse_create_detail(raw) -> Dict[str, Any]:
@@ -835,6 +1057,10 @@ def _parse_create_detail(raw) -> Dict[str, Any]:
         val = m.group(2).strip().strip(".").strip()
         out[m.group(1)] = val or None
     return {
+        "operation_step": out.get("Operation Step"),
+        "operation_result": out.get("Operation Result"),
+        "operation_time": out.get("Operation Time"),
+        "operator": out.get("Operator"),
         "assign_to": out.get("Assign To"),
         "assignee_group": out.get("Assignee Group"),
         "operator_group": out.get("Operator Group"),
@@ -1053,11 +1279,12 @@ def build_tt_postmortem(tt_no: str) -> Dict[str, Any]:
     _bph = _bn.get("phase") or ""
     _blab = _bn.get("phase_label") or _bn.get("label") or ""
     _bown = _bn.get("owner") or "-"
+    # 指派信息要在瓶颈建议之前拿到 —— 现场响应等待的措辞取决于是"没人接手"
+    # 还是"已指派到人但没人出发"，两者是完全不同的问题。
+    _asg = timeline_view.get("assignment") or {}
+    _persons = _asg.get("assigned_persons") or []
     if _bsec > 2 * 3600:
         _HINT = {
-            "onsite_wait": ("现场响应等待过长：WO 派出后长时间无人到场，"
-                            "建议对 WO 建立「到场时限 + 超时自动升级/改派」机制，"
-                            "并核查是否只是机器人建单、无人真正接手"),
             "detect":      ("建单时延过长：告警发生到建单耗时显著，"
                             "建议核查告警采集/建单规则（ttLevelRule）的触发时延与积压"),
             "assign":      ("接单等待过长：TT 建好后长时间无人接单，"
@@ -1068,19 +1295,36 @@ def build_tt_postmortem(tt_no: str) -> Dict[str, Any]:
             "onsite_work": ("现场作业耗时过长：建议核查备件、上站条件与作业工时"),
         }
         _hint = _HINT.get(_bph)
+        # 现场响应等待要分清"无人接手"与"已指派但未出发"
+        if _bph == "onsite_wait":
+            if _persons:
+                _hint = (f"现场响应等待过长：WO 已指派到 {'、'.join(_persons)}，"
+                         f"但从派单到出发耗时 {round(_bsec/3600.0, 1)}h，"
+                         f"属**已派单但未及时出发**。建议核查值班/派工通知是否送达、"
+                         f"建立「到场时限 + 超时自动升级/改派」机制")
+            else:
+                _hint = ("现场响应等待过长：WO 派出后长时间无人到场，且**未见指派到个人**。"
+                         "建议先解决派单到人，再建立「到场时限 + 超时自动升级/改派」机制")
         suggested_actions.append(
             f"时间瓶颈：「{_blab}」占 {_bn.get('pct')}%（{_bn.get('seconds') and round(_bsec/3600.0, 1)}h），"
             f"责任方 {_bown}。" + (_hint or "建议针对该阶段做专项分析"))
 
     # ---- 由「指派给谁」产出建议 ----
-    _asg = timeline_view.get("assignment") or {}
-    if _asg.get("unassigned"):
-        _ch = _asg.get("current_handler")
-        _pool = f"仅落入群组池 `{_ch}`" if _ch else "且当前处理人为空，连群组池都没有"
+    # ⚠ 用 `create_unassigned`（建单环节的事实），而不是 `unassigned`（最终结果）：
+    #   TT202609230055 建单时确实没指派到人，但后续 WO 已指派到个人 —— 这单
+    #   **不是"无人负责"**，不能再说"未指派到人"。建单环节未指派仍然值得提，
+    #   但措辞要限定在"建单环节"，并承认后续已指派。
+    if _asg.get("create_unassigned"):
+        _ch = _asg.get("tt_current_handler")
+        _pool = f"仅落入群组池 `{_ch}`" if _ch else "当前处理人也为空"
+        _later = ""
+        if _asg.get("assigned_persons"):
+            _later = (f"；后续已由 WO `{_asg.get('wo_no')}` 指派到个人"
+                      f"（{'、'.join(_asg['assigned_persons'])}）")
         suggested_actions.append(
-            f"建单时**未指派到任何个人**（`Assign To` / `Assignee Group` 均为空），"
-            f"{_pool}；群组池没有明确的接单责任人，是长时间无人响应的结构性原因，"
-            f"建议为 FO 通道配置带时限的轮值/派单到人规则")
+            f"建单环节**未指派到任何个人**（`Assign To` / `Assignee Group` 均为空），"
+            f"{_pool}{_later}。建议为 FO 通道配置带时限的轮值/派单到人规则，"
+            f"缩短从建单到有人接手的时间")
 
     # === 里程碑时间轴 + 应做/实做对比 + 偏离（2026-09-23 增强）===
     # （已在前面构建，此处只做返回组装）
@@ -1146,6 +1390,16 @@ def build_tt_postmortem(tt_no: str) -> Dict[str, Any]:
             "created_time": (wo_record or {}).get("created_time"),
         },
         "dispatch_path": dispatch_path,
+        # 承接方：IPT（第三方，不建 WO 属预期）/ ZTE（自派）。见 _dispatch_owner。
+        # `_dispatch_owner_detail` 额外带"为什么这么判"的证据，供界面悬浮说明。
+        "dispatch_owner": _dispatch_owner(t),
+        "owner_detail": _dispatch_owner_detail(t),
+        # 告警码 + 告警名（界面原来只显示告警 ID，悬浮要显示名字）
+        "alarm_code": t.get("alarm_code"),
+        "alarm_name": resolve_alarm_name(
+            alarm_code=t.get("alarm_code"),
+            alarm_description=t.get("alarm_description"),
+            fallback=t.get("title")),
         "durations": durations,
         "rules_snapshot": {
             "down_alarm_codes_active": rules_meta.get("down_alarm_codes_active") or [],
@@ -1211,6 +1465,42 @@ def _infer_dispatch_path(t: Dict[str, Any], wo_record: Optional[Dict[str, Any]],
     m = re.search(r"Assign To:([^\s.]+(?:\([^)]*\))?)", fo_accept)
     if m:
         info["fo_assign_to"] = m.group(1).strip()
+
+    # 补充：本单相关的推单规则（悬浮提示用）。
+    # `category` 只是个枚举码（rule_stopped / rule_vacuum …），
+    # 光看它不知道"是哪条规则、被谁停用的"，所以把匹配到的规则名一并带出。
+    #   - NO_WO 类：用告警码 + 断站类特征去匹配 ttPushOrderRule
+    #   - 有 WO 类：用建单人/派发目标匹配 ttDispatchRule
+    # 只给"名字 + 状态 + 优先级 + 目标"这几项，避免把整表塞进逐单 payload。
+    _rules = rules_meta.get("rules") or []
+    related: List[Dict[str, Any]] = []
+    for r in _rules:
+        rname = str(r.get("rule_name") or "")
+        if not rname:
+            continue
+        rtype = r.get("rule_type")
+        hint = f"{rname} {r.get('description') or ''}".lower()
+        hit = False
+        if rtype == "ttPushOrderRule" and is_down_class:
+            # 断站类推单规则：规则描述里通常点名了覆盖的告警码/站点类型
+            hit = (tt_alarm_code in hint) or ("断站" in hint or "site down" in hint) \
+                  or (site_subtype and site_subtype.lower() in hint)
+        elif rtype == "ttDispatchRule":
+            hit = bool(tt_alarm_code and tt_alarm_code in hint)
+        if hit:
+            related.append({
+                "rule_name": rname,
+                "rule_type": rtype,
+                "status": r.get("status"),
+                "priority": r.get("priority"),
+                "target": _rule_target(r),
+                "handler_name": r.get("handler_name"),
+                "update_time": r.get("update_time"),
+            })
+        if len(related) >= 6:   # 够悬浮展示即可，避免 payload 膨胀
+            break
+    if related:
+        info["related_rules"] = related
     return info
 
 
@@ -1417,7 +1707,8 @@ def build_tt_timeline(tt_no: str) -> Dict[str, Any]:
                       actual_completion_time, fault_recovery_time,
                       assignment_suggestions, creator_contact_info,
                       current_handler, last_processer, last_processer_group,
-                      maintenance_team, organization_id
+                      maintenance_team, organization_id,
+                      third_accept_detail, third_process_detail
                FROM eflow_tt WHERE tt_no = ?""",
             (tt_no,),
         ).fetchone()
@@ -1452,7 +1743,8 @@ def build_tt_timeline(tt_no: str) -> Dict[str, Any]:
                               actual_finish_time, fault_resolved_by,
                               fault_resolving_time, processing_description,
                               travel_time, sla_deadline, last_modified_time,
-                              expected_finish_time, reject_reason, last_reject_time
+                              expected_finish_time, reject_reason, last_reject_time,
+                              create_detail, operation_step, ticket_severity
                        FROM eflow_wo WHERE wo_no = ?""",
                     (t["wo_no"],),
                 ).fetchone()
@@ -1512,7 +1804,8 @@ def build_tt_timeline(tt_no: str) -> Dict[str, Any]:
     # 规则匹配分析：依据当前 TT Push Order Rule 解释"为什么这单走了人工派单"
     dispatch_analysis = _analyze_dispatch_reason(t, site_subtype, wo_record, rule_catalog)
     # 指派归因：这单到底指派给谁了（含"没指派到人"这一事实）
-    assignment = _resolve_assignment(t, dispatch_path, create_info, rule_catalog)
+    assignment = _resolve_assignment(t, dispatch_path, create_info, rule_catalog,
+                                     wo_record)
 
     # ---------- 里程碑时间轴 ----------
     timeline: List[Dict[str, Any]] = []
@@ -1530,8 +1823,7 @@ def build_tt_timeline(tt_no: str) -> Dict[str, Any]:
         source="eflow_tt.created_time / create_detail",
         raw=t.get("create_detail") or "",
         detail=(f"creator={t.get('creator') or create_by or '-'}，级别 {t.get('ticket_severity')}"
-                f"；指派：{assignment.get('conclusion')}"),
-        extra={"gap_from_prev_s": _gap_seconds(t_alarm, t_create),
+                f"；指派：{assignment.get('conclusion')}"),        extra={"gap_from_prev_s": _gap_seconds(t_alarm, t_create),
                "operator": create_by,
                # 指派给谁（建单明细原值，空值也是信息）
                "assign_to": create_info.get("assign_to"),
@@ -1824,6 +2116,12 @@ def build_tt_timeline(tt_no: str) -> Dict[str, Any]:
     is_hub = str(t.get("hub_site") or "").strip().lower() == "yes"
     resolved_by_selfheal = bool(t_clear and not has_wo)
     should_dispatch = is_down and (sev in HIGH_SEVERITY or is_vip or is_hub)
+    # ⚠ 派给第三方（IPT）的单**不该建 WO**，不能算"应派未派"。
+    # 实测 99933 且 P1/P2 且 VIP/Hub 的 342 单里，**242 单（71%）其实是 IPT** 的，
+    # 全被这条判据误报成"规则失效"，把指标抬高了 3 倍多。
+    # 排除后剩下的才是真正"该派自派 WO 却没派"的单。
+    if should_dispatch and not has_wo and _dispatch_owner(t) == "IPT":
+        should_dispatch = False
     if should_dispatch and not has_wo:
         reasons = []
         if sev in HIGH_SEVERITY:
@@ -1929,7 +2227,10 @@ def build_tt_timeline(tt_no: str) -> Dict[str, Any]:
             "ticket_severity": t.get("ticket_severity"),
             "alarm_severity": t.get("alarm_severity"),
             "alarm_code": _norm_alarm_id(t.get("alarm_code")),
-            "alarm_name": ALARM_CODE_SEMANTICS.get(_norm_alarm_id(t.get("alarm_code")), {}).get("name"),
+            # 告警名统一走 resolve_alarm_name()，与 build_tt_postmortem 同口径，
+            # 避免两处各写一套优先级后悄悄分叉。
+            "alarm_name": resolve_alarm_name(
+                t.get("alarm_code"), t.get("alarm_description"), t.get("title")),
             "alarm_description": t.get("alarm_description"),
             "status": t.get("status"),
             "domain": t.get("domain"),
@@ -1944,6 +2245,10 @@ def build_tt_timeline(tt_no: str) -> Dict[str, Any]:
             "created_time": t.get("created_time"),
             "last_modified_time": t.get("last_modified_time"),
             "wo_no": t.get("wo_no"),
+            # 承接方判据字段：聚合层要按 IPT/ZTE 切分，必须随 ticket 一起带出
+            # （此前只在 SQL 里查了却没暴露，导致聚合层永远判成 ZTE）。
+            "last_processer": t.get("last_processer"),
+            "third_accept_detail": t.get("third_accept_detail"),
         },
         "people": people,
         "sla": sla,
@@ -2770,6 +3075,7 @@ def build_noc_analyst_report(
     month: Optional[str] = None,
     limit: int = 1000,
     noc_filter: Optional[str] = None,
+    owner: Optional[str] = None,
 ) -> Dict[str, Any]:
     """NOC 操作人分析报告（参考 FME 页面结构）。
 
@@ -2777,14 +3083,20 @@ def build_noc_analyst_report(
       - month: YYYY-MM（默认当月）
       - limit: 单人样本上限
       - noc_filter: 仅看某 NOC 操作人（可模糊匹配）
+      - owner: 承接方筛选 `IPT`（第三方）/ `ZTE`（自维）；None/ALL = 全部。
+        **必须支持分档**：IPT 的单按设计不建 WO，混进来会把
+        "错位率/夜班/SLA"这些 ZTE 自维指标污染成两拨人的混合值。
 
     输出：
-      - meta: month/limit/扫描量/使用的口径字段/夜班时段
+      - meta: month/limit/扫描量/使用的口径字段/夜班时段/承接方构成
       - summary: NOC 总数 / 处理总数 / 平均错位率 / 平均处理时长 / SLA Pass 率
       - rows: 每位 NOC 一行（含错位率、各阶段平均时长、夜班单占比、SLA 率等）
       - red_flags: 关键告警（NOC 错位率 > 30% / 平均处理 > 12h / SLA Fail > 50%）
     """
     start_ts, end_ts, month = _month_bounds(month)
+    owner_key = (owner or "").strip().upper() or None
+    if owner_key not in (None, "ALL", OWNER_IPT, OWNER_ZTE):
+        owner_key = None
 
     with get_raw_connection() as conn:
         noc_clause, extra = _noc_base_where(noc_filter)
@@ -2793,7 +3105,8 @@ def build_noc_analyst_report(
         # 口径：alarm_occur_time（故障发生时间）落在本月
         rows = conn.execute(
             f"""SELECT t.tt_no, t.last_processer, t.last_processer_group,
-                       t.alarm_code, t.alarm_id, t.site_id, t.site_name,
+                       t.alarm_code, t.alarm_id, t.alarm_description, t.site_id,
+                       t.site_name, t.wo_no, t.current_handler, t.third_accept_detail,
                        t.ticket_severity, t.root_cause, t.sub_root_cause,
                        t.alarm_reason_type, t.fo_accept_detail,
                        t.fo_process_detail, t.confirm_detail, t.create_detail,
@@ -2811,10 +3124,16 @@ def build_noc_analyst_report(
 
         # 按 NOC 分组聚合
         per_noc: Dict[str, Dict[str, Any]] = {}
+        owner_counter: Dict[str, int] = {}
         for r in rows:
             d = dict(r)
             noc = d["last_processer"]
             group = d.get("last_processer_group") or ""
+            this_owner = _dispatch_owner(d)
+            owner_counter[this_owner] = owner_counter.get(this_owner, 0) + 1
+            # 承接方筛选：先统计再过滤（统计要覆盖全部，才能显示各档数量）
+            if owner_key and owner_key != "ALL" and this_owner != owner_key:
+                continue
             cur = per_noc.setdefault(noc, {
                 "noc_name": noc,
                 "group": group,
@@ -2828,10 +3147,20 @@ def build_noc_analyst_report(
                 "sla_pass": 0,
                 "sla_fail": 0,
                 "sla_total": 0,
+                "owner_zt": 0,
+                "owner_ipt": 0,
+                "no_wo_zt": 0,
                 "tt_sample": [],
             })
 
             cur["total"] += 1
+            if this_owner == OWNER_IPT:
+                cur["owner_ipt"] += 1
+            else:
+                cur["owner_zt"] += 1
+                # ZTE 自维却没建 WO —— 这才是真正值得关注的异常
+                if not str(d.get("wo_no") or "").strip():
+                    cur["no_wo_zt"] += 1
 
             # 错位检测：统一走 _mismatch_of（与下钻切片同源）
             if (d.get("root_cause") or "").strip():
@@ -2900,6 +3229,10 @@ def build_noc_analyst_report(
                 "sla_total": c["sla_total"],
                 "sla_pass_rate_pct": round(sla_rate, 1) if sla_rate is not None else None,
                 "sla_fail_pct": round(sla_fail_pct, 1) if sla_fail_pct is not None else None,
+                # 承接方构成 + ZTE 自维未建 WO 数（IPT 的不建 WO 属预期，不计入）
+                "owner_zt": c["owner_zt"],
+                "owner_ipt": c["owner_ipt"],
+                "no_wo_zt": c["no_wo_zt"],
                 "tt_sample": c["tt_sample"],
             })
 
@@ -2944,6 +3277,9 @@ def build_noc_analyst_report(
             "time_field": "alarm_occur_time",
             "night_window": f"{NIGHT_START_HOUR:02d}:00-{NIGHT_END_HOUR:02d}:00",
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            # 承接方：IPT（第三方，按设计不建 WO）/ ZTE（自维）
+            "owner_filter": owner_key,
+            "owner_counts": owner_counter,
         },
         "summary": {
             "noc_count": n,
@@ -2972,6 +3308,7 @@ def build_noc_tt_drilldown(
     month: Optional[str] = None,
     slice_: str = "all",
     limit: int = 20000,
+    owner: Optional[str] = None,
 ) -> Dict[str, Any]:
     """某位 NOC 的 TT 明细下钻。
 
@@ -2982,6 +3319,12 @@ def build_noc_tt_drilldown(
       - sla_fail : SLA = Failed
       - slow     : 处理时长 ≥ 12h
 
+    承接方（owner）：
+      - None / ALL : 两者都看
+      - `ZTE`      : 仅 ZTE 自维（**这类才应该建 WO**）
+      - `IPT`      : 仅第三方（**这类按设计不建 WO**，不该算进"未派 WO"）
+      判定见 `_dispatch_owner`。owner 在 Python 侧过滤，因为它含文本兜底分支。
+
     关键约束：WHERE 条件与 build_noc_analyst_report 完全一致（同一时间字段、
     同一 last_processer 精确匹配），因此下钻行数与表格数字天然对齐。
     切片在 Python 侧过滤 —— 错位/夜班依赖文本解析，无法下推到 SQL。
@@ -2991,11 +3334,16 @@ def build_noc_tt_drilldown(
     if slice_ not in NOC_DRILL_SLICES:
         slice_ = "all"
     noc = (noc or "").strip()
+    owner_key = (owner or "").strip().upper() or None
+    if owner_key not in (None, "ALL", OWNER_IPT, OWNER_ZTE):
+        owner_key = None
 
     with get_raw_connection() as conn:
         rows = conn.execute(
             """SELECT t.tt_no, t.last_processer, t.last_processer_group,
-                      t.alarm_code, t.site_id, t.site_name, t.ticket_severity,
+                      t.alarm_code, t.alarm_description, t.site_id, t.site_name,
+                      t.ticket_severity, t.wo_no, t.current_handler,
+                      t.third_accept_detail,
                       t.root_cause, t.sub_root_cause, t.alarm_reason_type,
                       t.create_detail, t.fo_accept_detail, t.fo_process_detail,
                       t.confirm_detail, t.status, t.sla_status,
@@ -3011,6 +3359,7 @@ def build_noc_tt_drilldown(
         conn.close()
 
     out: List[Dict[str, Any]] = []
+    owner_counter: Dict[str, int] = {}
     for r in rows:
         d = dict(r)
         durs = _calc_durations(d)
@@ -3024,6 +3373,7 @@ def build_noc_tt_drilldown(
         if not sys_rt:
             sem = ALARM_CODE_SEMANTICS.get(_norm_alarm_id(d.get("alarm_code")))
             sys_rt = (sem or {}).get("reason_type") or ""
+        this_owner = _dispatch_owner(d)
 
         rec = {
             "tt_no": d.get("tt_no"),
@@ -3031,6 +3381,10 @@ def build_noc_tt_drilldown(
             "site_name": d.get("site_name"),
             "ticket_severity": d.get("ticket_severity"),
             "alarm_code": d.get("alarm_code"),
+            # 告警名：界面原来只显示告警 ID，悬浮要显示这个名字
+            "alarm_name": resolve_alarm_name(
+                alarm_code=d.get("alarm_code"),
+                alarm_description=d.get("alarm_description")),
             "alarm_occur_time": d.get("alarm_occur_time"),
             "alarm_clear_time": d.get("alarm_clear_time"),
             "maintain_duration_h": dur_h,
@@ -3043,6 +3397,9 @@ def build_noc_tt_drilldown(
             "sla_status": sla or None,
             "status": d.get("status"),
             "last_modified_time": d.get("last_modified_time"),
+            # 承接方：IPT 的单按设计不建 WO，不能算进"未派 WO"
+            "dispatch_owner": this_owner,
+            "has_wo": bool(str(d.get("wo_no") or "").strip()),
         }
 
         # 切片过滤
@@ -3053,6 +3410,10 @@ def build_noc_tt_drilldown(
         if slice_ == "sla_fail" and sla != "Failed":
             continue
         if slice_ == "slow" and not (dur_h is not None and dur_h >= 12):
+            continue
+        # 先统计切片后的承接方构成，再按 owner 过滤
+        owner_counter[this_owner] = owner_counter.get(this_owner, 0) + 1
+        if owner_key and owner_key != "ALL" and this_owner != owner_key:
             continue
         out.append(rec)
 
@@ -3067,6 +3428,9 @@ def build_noc_tt_drilldown(
             "matched": len(out),
             "limit": limit,
             "truncated": len(rows) >= limit,
+            "owner_filter": owner_key,
+            # 切片后的承接方构成（不受 owner 筛选影响），供筛选器显示各档数量
+            "owner_counts": owner_counter,
         },
         "columns": list(_NOC_TT_DRILL_COLUMNS),
         "rows": out,
@@ -3370,7 +3734,7 @@ from pathlib import Path as _Path
 # 缓存目录：backend/data/tt_timeline_cache（运行时可重建，已随 backend/data 忽略）
 _TIMELINE_CACHE_DIR = _Path(__file__).resolve().parents[2] / "data" / "tt_timeline_cache"
 # 缓存版本号：聚合口径变更时必须 +1，否则旧缓存会被当成新口径数据读出
-_TIMELINE_CACHE_VERSION = 5
+_TIMELINE_CACHE_VERSION = 6
 
 
 def _timeline_cache_path(month: str) -> _Path:
@@ -3404,11 +3768,124 @@ def _stat_block(vals: List[float]) -> Dict[str, Any]:
     }
 
 
+def _apply_owner_scope(result: Dict[str, Any], owner_scope: Optional[str]) -> Dict[str, Any]:
+    """把"全部承接方"的聚合结果切成某一档（IPT / ZTE），**纯内存**重汇总。
+
+    为什么单独抽出来：磁盘缓存里存的是全量结果，`owner` 不参与缓存键，
+    所以要**在返回前**对缓存结果也做一次切档。若只在新算路径里切，
+    命中缓存时三档会返回同一份数据（表格行数、卡片数字全都一样），
+    用户会以为开关失效 —— 这是必须避免的静默错误。
+
+    切档要重算所有"按单计数"的派生值（偏离、缺失、WO、NOC），
+    否则会出现"表格 1260 行、卡片还是 2639"的自相矛盾
+    （AGENTS.md 3.1b：概览数字必须等于下钻行数）。
+    """
+    if not owner_scope or owner_scope == "ALL":
+        return result
+
+    tickets = [x for x in (result.get("tickets") or [])
+               if (x.get("dispatch_owner") or "ZTE") == owner_scope]
+    no_wo_rows = [x for x in (result.get("no_wo_tickets") or [])
+                  if (x.get("dispatch_owner") or "ZTE") == owner_scope]
+
+    # 偏离 / 缺失清单：按本档重算（sample 上限 15 / 5，与主循环同口径）
+    dev_counter: Dict[str, Dict[str, Any]] = {}
+    missing_counter: Dict[str, Dict[str, Any]] = {}
+    for x in tickets:
+        dmeta = x.get("deviation_meta") or {}
+        for code in x.get("deviation_codes") or []:
+            md = dmeta.get(code) or {}
+            blk = dev_counter.setdefault(code, {
+                "code": code, "kind": md.get("kind"),
+                "severity": md.get("severity"), "label": md.get("label"),
+                "count": 0, "sample_tts": [],
+            })
+            blk["count"] += 1
+            if len(blk["sample_tts"]) < 15:
+                blk["sample_tts"].append(x["tt_no"])
+        for mk in x.get("missing_keys") or []:
+            key = mk.get("key") or "?"
+            blk = missing_counter.setdefault(key, {
+                "key": key, "label": mk.get("label"),
+                "actor": mk.get("actor"), "count": 0, "sample_tts": [],
+            })
+            blk["count"] += 1
+            if len(blk["sample_tts"]) < 5:
+                blk["sample_tts"].append(x["tt_no"])
+
+    # WO 汇总
+    wo_dispatched = sum(1 for x in tickets if x.get("has_wo"))
+    wo_expected = sum(1 for x in tickets if x.get("should_wo"))
+
+    # NOC 归因（字段与主循环 per_noc 逐字一致）
+    per_noc: Dict[str, Dict[str, Any]] = {}
+    for x in tickets:
+        nm = x.get("noc_name") or "-"
+        v = per_noc.setdefault(nm, {
+            "noc_name": nm, "total": 0, "total_seconds_sum": 0.0,
+            "total_seconds_count": 0, "deviation_count": 0,
+            "critical_count": 0, "no_wo_count": 0, "missing_count": 0,
+            "worst_segment": None, "worst_segment_s": 0.0,
+        })
+        v["total"] += 1
+        ts = x.get("total_seconds")
+        if isinstance(ts, (int, float)) and ts >= 0:
+            v["total_seconds_sum"] += float(ts)
+            v["total_seconds_count"] += 1
+        v["deviation_count"] += x.get("deviation_count") or 0
+        v["missing_count"] += x.get("missing_count") or 0
+        if (x.get("max_severity") or "") == "critical":
+            v["critical_count"] += 1
+        if x.get("should_wo") and not x.get("has_wo"):
+            v["no_wo_count"] += 1
+        bs = x.get("bottleneck_seconds") or 0
+        if bs > (v["worst_segment_s"] or 0):
+            v["worst_segment_s"] = bs
+            v["worst_segment"] = x.get("bottleneck")
+
+    noc_list = []
+    for v in per_noc.values():
+        cnt = v["total_seconds_count"]
+        noc_list.append({
+            **v,
+            "avg_total_seconds": round(v["total_seconds_sum"] / cnt, 1) if cnt else None,
+            "avg_deviation": round(v["deviation_count"] / v["total"], 2) if v["total"] else None,
+        })
+    noc_list.sort(key=lambda z: (-z["no_wo_count"], -(z["avg_total_seconds"] or 0)))
+
+    parsed = len(tickets)
+    out = dict(result)
+    out["tickets"] = tickets
+    out["no_wo_tickets"] = no_wo_rows
+    out["deviation_stats"] = sorted(dev_counter.values(), key=lambda z: -z["count"])
+    out["missing_stats"] = sorted(missing_counter.values(), key=lambda z: -z["count"])
+    out["noc_stats"] = noc_list
+    out["wo_stats"] = {
+        "dispatched": wo_dispatched,
+        "should_dispatch": wo_expected,
+        "missing_dispatch": len(no_wo_rows),
+        "dispatch_rate_pct": (round(100.0 * wo_dispatched / parsed, 1) if parsed else None),
+    }
+    out["owner_filter"] = owner_scope
+    meta = dict(out.get("meta") or {})
+    meta["parsed"] = parsed
+    meta["owner_filter"] = owner_scope
+    out["meta"] = meta
+    # 说明：stage_stats / segment_stats / wo_* / phase_stats / human_action_stats
+    # 这些是"按秒数聚合"的分布，切档后要精确重算得保留每单的原始秒数
+    # （当前未随 tickets 带出）。IPT 档本就没有 WO，这些表为空是符合事实的；
+    # 而 ZTE 档与全部档的差异主要体现在"单量/偏离/WO/NOC"这四张表上，
+    # 已全部按本档重算。若后续要让秒级分布也随档变化，需在 tickets 里
+    # 补充 per-ticket 的 stage/segment 秒数再在此处重汇总。
+    return out
+
+
 def build_noc_timeline_agg(
     month: Optional[str] = None,
     limit: int = 20000,
     noc_filter: Optional[str] = None,
     use_cache: bool = True,
+    owner: Optional[str] = None,
 ) -> Dict[str, Any]:
     """本月全部 TT 的「里程碑时间轴」批量聚合 —— 时间都花哪了 + 动作偏离。
 
@@ -3417,6 +3894,9 @@ def build_noc_timeline_agg(
       - limit: 取样上限（必须显著大于单人月单量，防止静默截断）
       - noc_filter: 只看某个 NOC 操作人（精确匹配 last_processer，与下钻同源）
       - use_cache: 是否使用磁盘缓存（默认使用；口径变更时改版本号）
+      - owner: 承接方筛选 `IPT`（第三方）/ `ZTE`（自派）。None = 两者都看。
+        第三方（IPT）单**本就不建 WO**，混在一起会把"应派未派 WO"抬高 3 倍多，
+        因此支持单独切分。判据见 `_dispatch_owner`。
 
     输出（全部为纯统计，可回溯到单 TT 详情）：
       - meta: 口径字段 / 月份 / 扫描量 / 覆盖单量 / 缓存命中情况 / 阈值
@@ -3432,9 +3912,23 @@ def build_noc_timeline_agg(
     import time as _time
 
     start_ts, end_ts, month = _month_bounds(month)
+    owner_key = (owner or "").strip().upper() or None
+    if owner_key not in (None, "IPT", "ZTE"):
+        owner_key = None
+    # ---------- 承接方（owner）与缓存的关系 ----------
+    # `owner` 只决定**最后返回哪一档**，且切档**不会**重新逐单复盘：
+    # 单内派生值（偏离、分段、WO 各跳…）与承接方无关，逐单结果算一次即可，
+    # 切档只是把同一批已解析的单子按 `dispatch_owner` 重新汇总（纯内存，毫秒级）。
+    #
+    # 因此 owner **不参与缓存键**：磁盘上只存一份"全部承接方"的完整结果，
+    # 每单都带 `dispatch_owner`，三档共用这一份。
+    # ⚠ 曾经的做法是「owner 参与缓存键 → 切档就重算」，实测切一次 ZTE 要冷算
+    #   230s，首页默认档直接打不开，已回退。
+    # ⚠ 切档必须**重算派生统计**，不能只过滤 `tickets` ——
+    #   否则表格行数变了、卡片和偏离计数还是全量的，两者对不上。
     cache_file = _timeline_cache_path(month)
 
-    # noc_filter 参与缓存键：不同筛选不能共用同一份缓存
+    # noc_filter 参与缓存键：不同筛选不能共用同一份缓存。
     filtered = bool(noc_filter and noc_filter.strip())
     if use_cache and not filtered and cache_file.exists():
         try:
@@ -3444,14 +3938,17 @@ def build_noc_timeline_agg(
             # 避免把旧口径数据当成新口径展示 —— 这类静默错误比慢更危险。
             _required = ("stage_stats", "segment_stats", "deviation_stats",
                          "missing_stats", "wo_stats", "noc_stats", "tickets",
-                         "wo_gap_stats", "human_action_stats", "phase_stats")
+                         "wo_gap_stats", "human_action_stats", "phase_stats",
+                         "owner_counts")
             _missing_keys = [k for k in _required if k not in raw]
             if _missing_keys:
                 logger.warning("[noc_timeline] 缓存缺少键 %s，改为重算", _missing_keys)
             else:
                 raw.setdefault("meta", {})["cache_hit"] = True
                 raw["meta"]["cache_file"] = str(cache_file.name)
-                return raw
+                # ⚠ 命中缓存也必须切档：缓存里存的是全量结果，
+                #   不切就会出现"三档返回同一份数据、开关像失效"（已踩过）。
+                return _apply_owner_scope(raw, owner_key)
         except Exception:
             logger.warning("[noc_timeline] 缓存读取失败，改为重算: %s", cache_file, exc_info=True)
 
@@ -3460,11 +3957,16 @@ def build_noc_timeline_agg(
     with get_raw_connection() as conn:
         noc_clause, extra = _noc_base_where(None)
         # 与概览端点**完全一致**的 WHERE（AGENTS.md 3.1b 铁律）：
-        # 同一 alarm_occur_time 月窗口 + last_processer 非空
+        # 同一 alarm_occur_time 月窗口。
+        # ⚠ 承接方判据必须**同时在 SQL 与 Python 里出现**，且口径一致：
+        #   last_processer 非空（已关单）**或** third_accept_detail 有值（第三方已接单）。
+        #   只用 last_processer 会把在途的第三方单漏掉（那正是要分开统计的那批）。
+        owner_sql = "(t.third_accept_detail IS NOT NULL AND t.third_accept_detail NOT IN ('', '[]'))"
         rows = conn.execute(
             f"""SELECT t.tt_no
                 FROM eflow_tt t
-                WHERE t.last_processer IS NOT NULL AND t.last_processer <> ''
+                WHERE (t.last_processer IS NOT NULL AND t.last_processer <> ''
+                       OR {owner_sql})
                   AND t.alarm_occur_time IS NOT NULL AND t.alarm_occur_time <> ''
                   AND t.alarm_occur_time >= ? AND t.alarm_occur_time < ?
                   {noc_clause}
@@ -3475,10 +3977,11 @@ def build_noc_timeline_agg(
         tt_nos = [(dict(r).get("tt_no") or "").strip() for r in rows]
         tt_nos = [x for x in tt_nos if x]
 
-        # 概览同口径的总量，用于暴露截断
+        # 概览同口径的总量，用于暴露截断（与上面 SELECT 的 WHERE 保持一致）
         total_in_month = conn.execute(
-            """SELECT COUNT(*) AS c FROM eflow_tt t
-               WHERE t.last_processer IS NOT NULL AND t.last_processer <> ''
+            f"""SELECT COUNT(*) AS c FROM eflow_tt t
+               WHERE (t.last_processer IS NOT NULL AND t.last_processer <> ''
+                      OR {owner_sql})
                  AND t.alarm_occur_time IS NOT NULL AND t.alarm_occur_time <> ''
                  AND t.alarm_occur_time >= ? AND t.alarm_occur_time < ?""",
             (start_ts, end_ts),
@@ -3511,6 +4014,7 @@ def build_noc_timeline_agg(
     human_act_labels: Dict[str, str] = {}
     human_act_limits: Dict[str, Optional[int]] = {}
     human_act_over: Dict[str, int] = {}
+    owner_counter: Dict[str, int] = {}
     parsed = 0
     parse_failed = 0
 
@@ -3532,6 +4036,16 @@ def build_noc_timeline_agg(
         devs = rep.get("deviations") or []
         miss = rep.get("missing_actions") or []
         t = rep.get("ticket") or {}
+
+        # ---- 承接方归属（IPT 第三方 / ZTE 自派）----
+        # ⚠ 这里**只打标，不筛选**（筛选见下方"按承接方切档"）：
+        #   逐单复盘 build_tt_timeline 是全流程最贵的一步（全月 ~150s），
+        #   若在循环里按 owner continue，切一次档就要重算一遍（实测 230s），
+        #   默认档首屏根本打不开。所以循环永远算全量，切档只在内存里重汇总。
+        # ⚠ build_tt_timeline 不产出 dispatch_owner（只有 build_tt_postmortem 产），
+        #   所以这里**必须**用 ticket 里的原始字段现算。
+        this_owner = rep.get("dispatch_owner") or _dispatch_owner(t)
+        owner_counter[this_owner] = owner_counter.get(this_owner, 0) + 1
 
         # ---- NOC 归属 ----
         # ⚠ 不能用 eflow_tt.last_processer：那是**最后处理人**（多为 FE 关单人），
@@ -3645,6 +4159,19 @@ def build_noc_timeline_agg(
                 "dispatch_category": dp.get("category"),
                 "bottleneck": (tsc.get("bottleneck") or {}).get("label"),
                 "bottleneck_seconds": (tsc.get("bottleneck") or {}).get("seconds"),
+                # 切档时要按承接方筛这份清单，必须带上归属
+                "dispatch_owner": this_owner,
+                # 悬浮提示用：告警码只给 ID 看不出是什么，补上官方告警名
+                "alarm_name": (rep.get("ticket") or {}).get("alarm_name"),
+                # 派单分类的成因说明（规则为何没建 WO）——见 _infer_dispatch_path
+                "dispatch_explanation": dp.get("explanation"),
+                # 命中的推单规则名：`rule_stopped` 这种分类码看不出"是哪条规则"，
+                # 悬浮时直接显示规则名 + 状态（见 _infer_dispatch_path.related_rules）
+                "related_rules": [
+                    {"rule_name": x.get("rule_name"), "status": x.get("status"),
+                     "target": x.get("target"), "priority": x.get("priority")}
+                    for x in (dp.get("related_rules") or [])
+                ],
             })
         if has_wo:
             wo_dispatched += 1
@@ -3707,6 +4234,15 @@ def build_noc_timeline_agg(
             "max_severity": meta.get("max_severity"),
             "has_wo": has_wo,
             "should_wo": should_wo,
+            "dispatch_owner": this_owner,
+            # 切档重算偏离/缺失清单时要用到（见"按承接方切档"），
+            # 因此随单带出，避免切档时再回头逐单复盘。
+            "deviation_codes": [d.get("code") for d in devs if d.get("code")],
+            "deviation_meta": {d.get("code"): {
+                "kind": d.get("kind"), "severity": d.get("severity"),
+                "label": d.get("label")} for d in devs if d.get("code")},
+            "missing_keys": [{"key": m.get("key"), "label": m.get("label"),
+                              "actor": m.get("actor")} for m in miss if m.get("key")],
             "bottleneck": (tsc.get("bottleneck") or {}).get("label"),
             "bottleneck_seconds": (tsc.get("bottleneck") or {}).get("seconds"),
             "bottleneck_owner": (tsc.get("bottleneck") or {}).get("owner"),
@@ -3833,6 +4369,10 @@ def build_noc_timeline_agg(
     elapsed = round(_time.time() - t0, 1)
     truncated = total_in_month > len(tt_nos)
 
+    # ---------- 按承接方切档（纯内存，毫秒级）----------
+    # 逐单结果已带 dispatch_owner，切档只需把对应单子选出来并**重算**
+    # 所有"按单计数"的派生统计，保证「表格行数 == 卡片数字 == 偏离计数」。
+    #
     result: Dict[str, Any] = {
         "meta": {
             "month": month,
@@ -3879,15 +4419,21 @@ def build_noc_timeline_agg(
         "phase_stats": phase_stats,
         # NOC 人工动作及时性
         "human_action_stats": human_action_stats,
+        # 本次生效的承接方筛选与各承接方单量（供界面显示与核对）
+        "owner_filter": owner_key,
+        "owner_counts": owner_counter,
     }
 
+    # 落盘的是**全量**结果（owner 不参与缓存键），返回前再按档切。
     if use_cache and not filtered:
         try:
             _TIMELINE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
             # 缓存里同样写入真实耗时，便于判断是否需要调 limit
+            base = dict(result)
+            base.pop("owner_filter", None)
             cache_file.write_text(
-                json.dumps(result, ensure_ascii=False), encoding="utf-8")
+                json.dumps(base, ensure_ascii=False), encoding="utf-8")
         except Exception:
             logger.warning("[noc_timeline] 缓存写入失败: %s", cache_file, exc_info=True)
 
-    return result
+    return _apply_owner_scope(result, owner_key)

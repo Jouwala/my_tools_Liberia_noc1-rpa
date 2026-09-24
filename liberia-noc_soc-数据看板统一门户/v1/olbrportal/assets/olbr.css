@@ -1,0 +1,1496 @@
+/* ============================================================================
+   olbr.css — OLR MS 门户「只读展示版」样式系统
+   ----------------------------------------------------------------------------
+   与 /MsPortal/ 的关系：只读引用它的 data.js / access.js / 图标 / Logo / 接口，
+   不复用它的 portal.js 与 Tailwind 产物，也不写它的任何文件。
+   刻意不用 Tailwind：上一版「不高级」的根因就是令牌层是品牌青 #0e7490，
+   组件层却散落着 text-blue-600 / hover:border-blue-400 / from-blue-700 等硬编码
+   蓝，再加按分组上色的 6 个色相图标砖 —— 一屏三种强调色互相打架。
+   这里只有两个色相：品牌青（一切可交互）+ OLR 橙（只标 L0 决策层）。
+
+   层级只有三级，靠减法区分而不是加装饰：
+     L0 焦点  有底色、有内阴影、标题大、唯一允许用橙色
+     L1 主视图 白卡 + 1px 边
+     L2 辅助  无卡、无边、无阴影，只有一行标题 + 条目
+   容器只有三种：焦点卡 .fcard（L0）、条目卡 .card（卡片流）、辅助行 .lrow（无卡）。
+   ========================================================================== */
+
+/* --------------------------------------------------------------- tokens --
+   色值一律照抄项目口径，不在这里另发明一套：
+     唯一来源 = MsPortal/assets/portal.css 的 --mp-* 令牌块
+              （它自己又抄自 my_app public/vmax_cxo_dashboard_90days.html），
+              顶栏/OLR 橙/ZTE 蓝另见 MsPortal/assets/masthead.css。
+   对位关系：--surface=--mp-surface-flat，--line=--mp-border-soft（分隔线），
+   --line-2=--mp-border（卡框/按钮/输入框），--b=--mp-brand，--b-ink=--mp-brand-text，
+   --b-on=--mp-on-accent，--ok/--warn/--crit=--mp-ok/--mp-warn/--mp-sev-critical。
+   改色先去改上面那两个文件，再同步到这里；本页面不 link portal.css
+   （它重定义了 .gb/.chip/.btn/.toast/.tabs/.panel，会和这套类名打架）。      */
+:root {
+  color-scheme: light;
+
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
+
+  --bg: #eaf7fb;
+  --bg-deco: radial-gradient(circle at 15% 5%, rgba(103, 232, 249, .36), transparent 28rem),
+             linear-gradient(145deg, #eefbff 0%, #e7f1fa 56%, #f7fcff 100%);
+  --surface: #ffffff;
+  --surface-2: #f2fbfd;
+  --surface-3: #e7f1fa;
+  /* 粘表格头必须是**不透明**底：深色侧的 --surface-2 是 60% 半透明（项目的
+     --mp-surface-2），跟着行滚过去会在表头下透出重影。这里给一个把
+     surface-2 压在 surface 上合成后的实色档，只用于需要遮住下层的元素。 */
+  --surface-2-solid: #f2fbfd;
+  /* 毛玻璃浮层（吸顶工具条、地图角标）：项目的 --mp-glass-panel 浅色档 */
+  --glass: rgba(255, 255, 255, .86);
+  --line: rgba(14, 116, 144, .10);
+  --line-2: rgba(14, 116, 144, .18);
+
+  --t1: #163047;
+  --t2: #526b7d;
+  /* #5b7288 落在最深的浅色面 #e7f1fa 上只有 4.36:1，项目统一压深到 #596f85 */
+  --t3: #596f85;
+
+  --b: #0e7490;            /* 品牌青：链接 / hover / 选中 / 焦点 */
+  --b-ink: #075063;        /* 需要 AA 的文字档 */
+  --b-line: rgba(14, 116, 144, .55);
+  --b-tint: rgba(14, 116, 144, .08);
+  --b-tint2: rgba(14, 116, 144, .12);
+  --b-on: #ffffff;
+  --grad: linear-gradient(135deg, #0e7490, #0891b2);   /* 卡片左侧竖条 */
+  --hover: rgba(14, 165, 233, .08);
+
+  --hi: #a55a09;           /* OLR 橙（浅色下压深到 AA）：只给 L0 */
+  --hi-line: rgba(180, 105, 20, .40);
+  --hi-tint: rgba(196, 120, 24, .10);
+  --olr: #ff9d1c;          /* 顶栏深底上的 OLR 原色（--mp-olr） */
+
+  --ok: #0a6a52;  --ok-tint: rgba(10, 106, 82, .09);
+  --warn: #7c5e07; --warn-tint: rgba(124, 94, 7, .09);
+  --crit: #a2202f; --crit-tint: rgba(162, 32, 47, .08);
+
+  --sh-1: 0 14px 30px rgba(38, 83, 104, .10), inset 0 1px 0 rgba(255, 255, 255, .90);
+  --sh-2: 0 16px 34px rgba(38, 83, 104, .12), inset 0 1px 0 rgba(255, 255, 255, .90);
+  --sh-3: 0 24px 52px rgba(38, 83, 104, .18), inset 0 1px 0 rgba(255, 255, 255, .90);
+
+  --scrim: rgba(22, 48, 71, .24);
+  --toast-bg: #0e7490;
+  --toast-fg: #ffffff;
+
+  --r1: 6px; --r2: 10px; --r3: 14px; --r4: 20px;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 28px; --s7: 40px;
+  --ring: 0 0 0 3px rgba(14, 116, 144, .18);
+
+  /* 2026-09-24：原先这里还有 --mast-h: 66px 与顶栏深门面的
+     --mast-1/--mast-2/--mast-3/--mast-glow 一组令牌。顶栏换成 MsPortal 结构后，
+     门面底色与高度都由 assets/masthead.css 的 --mp-* 令牌负责，这几个已无人引用，
+     故一并删除（引用点随顶栏规则一起删掉了）。深色档里对应的同名令牌同样已删。 */
+}
+
+html.dark {
+  color-scheme: dark;
+
+  --bg: #02050c;
+  --bg-deco: radial-gradient(circle at 50% 8%, rgba(0, 127, 255, .14), transparent 32rem),
+             linear-gradient(180deg, #02050c 0%, #04091a 52%, #02050c 100%);
+  --surface: #071027;
+  --surface-2: rgba(9, 34, 74, .60);
+  --surface-3: rgba(13, 46, 94, .55);
+  --surface-2-solid: #081b3c;   /* = surface-2 压在 #071027 上的合成色 */
+  --glass: rgba(5, 13, 34, .88);  /* = --mp-glass-panel */
+  --line: #173158;
+  --line-2: #153db0;
+
+  --t1: #f5f7ff;
+  --t2: #aebbd4;
+  --t3: #6f8cb4;
+
+  --b: #00d9ff;
+  --b-ink: #7fd2ee;
+  --b-line: rgba(0, 217, 255, .50);
+  --b-tint: rgba(0, 217, 255, .10);
+  --b-tint2: rgba(0, 217, 255, .16);
+  /* 亮青当底色时字必须压深：白字压 #00d9ff 只有 1.6:1 */
+  --b-on: #04122b;
+  --grad: linear-gradient(135deg, #1da7ff, #00d9ff);
+  --hover: rgba(37, 140, 255, .10);
+
+  --hi: #ff9d1c;
+  --hi-line: rgba(255, 157, 28, .45);
+  --hi-tint: rgba(255, 157, 28, .13);
+
+  --ok: #0bc78c;  --ok-tint: rgba(11, 199, 140, .13);
+  --warn: #f6cf00; --warn-tint: rgba(246, 207, 0, .13);
+  --crit: #ff5c6c; --crit-tint: rgba(255, 92, 108, .13);
+
+  /* 内辉光 inset 0 7px 17px rgba(58,118,255,.48) 是该看板卡片的招牌，一并继承；
+     浮层（抽屉 / 轻提示）只留外阴影，否则会在小胶囊上晕成一条亮边。 */
+  --sh-1: 0 4px 14px rgba(0, 0, 0, .32), inset 0 7px 17px rgba(58, 118, 255, .48);
+  --sh-2: 0 20px 52px rgba(0, 0, 0, .45), inset 0 7px 17px rgba(58, 118, 255, .48);
+  --sh-3: 0 26px 70px rgba(0, 0, 0, .55);
+
+  --scrim: rgba(2, 5, 12, .72);
+  --toast-bg: #092348;
+  --toast-fg: #8cecff;
+
+  --ring: 0 0 0 3px rgba(0, 217, 255, .20);
+}
+
+/* ---------------------------------------------------------------- base -- */
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; background-color: var(--bg); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  font: 400 15px/1.5 var(--sans);
+  color: var(--t1);
+  background-color: var(--bg);
+  background-image: var(--bg-deco);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+input { font: inherit; color: inherit; }
+h1, h2, h3, p { margin: 0; }
+table { border-collapse: collapse; width: 100%; }
+svg { display: block; }
+
+/* 整宽，不限 max-width 也不居中：2560 屏上 1780 的上限会让两侧各留 390px 空白，
+   MsPortal 顶栏 2026-09-18 就因为同样的抱怨去掉了居中约束（见 masthead.css .mp-mast-inner）。
+   左右留白跟着视口走，超宽屏上文字不至于贴边。 */
+.wrap { width: 100%; padding-inline: clamp(var(--s5), 1.6vw, 44px); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.skip {
+  position: absolute; left: -9999px; top: 0; z-index: 99;
+  padding: 10px 16px; background: var(--b); color: var(--b-on); border-radius: 0 0 var(--r2) 0;
+}
+.skip:focus { left: 0; }
+:where(a, button, input, [tabindex]):focus-visible { outline: 2px solid var(--b); outline-offset: 2px; box-shadow: var(--ring); border-radius: var(--r1); }
+
+/* ------------------------------------------------------------ masthead --
+   2026-09-24：本页顶栏整块换成了 MsPortal 的同款结构，样式全部搬到
+   assets/masthead.css（那份文件的顶栏副本），这里原先约 60 行 `.mast` /
+   `.mast-bg` / `.globe` / `.mast-in` / `.brand` / `.mark` / `.word-zte` /
+   `.brand-sep` / `.title` / `.t-olr` / `.t-ms` / `.t-tail` / `.tagline` /
+   `.tools` / `.env` / `.env-dot` / `.clock` / `.tools-sep` / `.who` 规则已全部删除。
+   删除理由（逐条核过是否别处在用，结论都是「只有顶栏在用」）：
+     · 这些类名在 index.html 里只出现在顶栏那一块，olbr.js 也没有任何选择器依赖
+       （`.title` / `.tools` / `.tagline` 在 JS 里的命中全是 i18n 键名，不是选择器）；
+     · 顶栏高度改由 masthead.css 的 `--mp-mast-h` 驱动，本文件旧的 `--mast-h`
+       与 `--mast-1/2/3`、`--mast-glow` 随之失去用处（已从 :root 里清掉）。
+   ⚠️ 唯一**必须保留**的顶栏相关约定是 header 上的 `mast` 类本身 ——
+   olbr.js 用 `$$('.mast .seg-b[data-lang]')` 选语言按钮，所以要的是那个类名
+   留在 <header> 上，而不是这里的规则。
+   ⚠️ 另两处「同名但不同命」的规则已分别处理，不要连坐删掉：
+     · `.gb` / `.ib` —— 编辑条、用户管理弹窗等顶栏之外的地方仍在用，保留；
+     · `.rail .seg` / `.rail .seg-b` —— #railIn 里的状态筛选在用，保留（已收窄到 .rail）。 */
+/* 2026-09-24：原先这里有 5 条 `.mast .gb/.ib/.seg/.seg-b` —— 给旧顶栏的
+   「深色门面上把浅色控件提亮」的覆盖。顶栏已整块换成 MsPortal 那套结构
+   （见 index.html 的 masthead 段 + assets/masthead.css），这些规则全部作废：
+     · .mast 规则（0,2,0）会被 masthead.css 的 `html body > header.mp-mast …`
+       （0,2,3）压过，留着也是死代码；
+     · 其中 `.mast .seg-b[aria-pressed="true"]` 尤其危险 —— 它画的是**浅色**底
+       （var(--surface)），而新顶栏是深色门面，一旦它生效就是深底上一块浅色。
+       现在选中态由 masthead.css 的 `.seg-btn.is-active`（#0d6fe0）负责，
+       olbr.js 也同步写 is-active 类，两个钩子已对齐。
+   最后一条 .mast 规则已随 L185 的 `.mast {}` 一并删除，这里不再有任何 .mast 选择器。 */
+
+/* 通用小按钮：浅色下描边，深色由各主题块自己的规则负责 */
+.gb {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  height: 30px; padding: 0 10px; border-radius: var(--r1);
+  border: 1px solid var(--line-2); background: transparent; color: var(--t2);
+  font-size: 12.5px; font-weight: 600;
+  transition: border-color .14s, color .14s, background .14s;
+}
+.gb:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+.gb i { font-size: 15px; }
+.gb:disabled { opacity: .45; cursor: not-allowed; }
+.ib {
+  display: inline-grid; place-items: center; width: 30px; height: 30px; flex: none;
+  border: 1px solid var(--line-2); border-radius: var(--r1); color: var(--t2);
+  transition: border-color .14s, color .14s, background .14s;
+}
+.ib:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+.ib i { font-size: 15px; }
+
+/* 分段控件（.seg + .seg-b）：**只服务「筛选栏 #railIn 里那排状态筛选」**。
+   2026-09-24 起顶栏的语言切换改用 MsPortal 的 .seg / .seg-btn（见 masthead.css），
+   但顶栏按钮**仍带着 .seg-b** —— 那是 olbr.js 选语言按钮用的钩子
+   （`$$('.mast .seg-b[data-lang]')`），不能摘。
+   所以这里把整套规则收窄到 `.rail` 里，避免两条样式同时作用于顶栏按钮：
+   历史上 .seg-b 的 `height:26px` 会漏进顶栏（.seg-btn 不设 height），
+   把按钮压得比 MsPortal 原版矮 1px，收窄后这个泄漏也一并消除。 */
+.rail .seg { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface-3); }
+.rail .seg-b {
+  height: 26px; padding: 0 9px; border-radius: 4px; font-size: 12px; font-weight: 600;
+  color: var(--t2); transition: background .14s, color .14s;
+}
+.rail .seg-b:hover { color: var(--b-ink); }
+.rail .seg-b[aria-pressed="true"] { background: var(--surface); color: var(--b-ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .10); }
+html.dark .rail .seg-b[aria-pressed="true"] { background: var(--b-tint2); color: var(--b-ink); }
+
+/* ---------------------------------------------------------------- rail -- */
+.rail {
+  /* 2026-09-24：顶栏换成 MsPortal 结构后它变成了 position:sticky（z-index 50，高 66px）。
+     本栏也是 sticky，若仍旧写 top:0，吸顶后会**整条钻到顶栏底下**（实测重叠 66px，
+     搜索框和状态筛选全被盖住，点不到）。所以改为让开顶栏的真实高度。
+     MsPortal 那边是同一条思路：`html body .control-bar { top: var(--mp-mast-h); }`。
+     这里用 max() 兜一层：--mp-mast-h 万一没解析出来（比如 masthead.css 没加载），
+     至少回落到 0，本栏仍然可用，不会跳到一个莫名其妙的负值。 */
+  position: sticky; top: max(0px, var(--mp-mast-h, 0px)); z-index: 40;
+  background: var(--glass);
+  backdrop-filter: saturate(1.4) blur(10px);
+  border-bottom: 1px solid var(--line-2);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .5);
+}
+html.dark .rail { box-shadow: none; }
+/* 工具条用 grid 而不是 flex-wrap：flex 下 chips 的 flex-basis:100% 会让它自己占一行，
+   顺带把 .rail-end 挤到第三行（实测工具条长到 135px）。grid 能把「第一行搜索+状态/计数、
+   第二行整条分组筛选」写死，高度可预期：9 + 36 + 8 + 32 + 9 ≈ 94px。 */
+.rail-in {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  column-gap: var(--s3); row-gap: 8px; padding-block: 9px;
+}
+.rail-in > .q { grid-area: 1 / 1; }
+.rail-in > .rail-end { grid-area: 1 / 2; }
+.rail-in > .chips { grid-area: 2 / 1 / 3 / 3; }
+.rail.is-filtered { border-bottom-color: var(--b-line); box-shadow: inset 0 2px 0 var(--b); }
+
+/* 检索轨收起时的那一条（2026-09-22）：一颗带文字的按钮 + 一行状态，整条约 44px。
+   展开后这一行不消失，变成展开区的标题行 —— 开关只有一个落点，用户不用找第二处。
+   状态文本是收起态唯一的「为什么卡变少了」的解释，所以它跟清除按钮同生同灭。 */
+.rail-bar { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; padding-block: 7px; }
+.rail.is-open .rail-bar { border-bottom: 1px solid var(--line); }
+.rail-t {
+  flex: none; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px;
+  border: 1px solid var(--line-2); border-radius: 999px; background: var(--surface);
+  font-size: 12.5px; font-weight: 600; color: var(--t2); white-space: nowrap;
+  transition: border-color .14s, background .14s, color .14s;
+}
+.rail-t:hover { border-color: var(--b-line); background: var(--b-tint); color: var(--b-ink); }
+.rail-t > i:first-child { font-size: 15px; }
+.rail-cv { font-size: 13px; opacity: .65; transition: transform .16s; }
+.rail.is-open .rail-t { border-color: var(--b-line); background: var(--b-tint2); color: var(--b-ink); }
+.rail.is-open .rail-cv { transform: rotate(180deg); }
+.rail-sum { min-width: 0; font: 500 12px/1.4 var(--mono); color: var(--t2); font-variant-numeric: tabular-nums; }
+.rail-sum b { color: var(--t1); font-weight: 700; }
+.rail-sum em { font-style: normal; color: var(--b-ink); }
+.rail-sum .dot { font-style: normal; opacity: .45; }
+
+.q {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  height: 36px; padding: 0 10px;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r2);
+  transition: border-color .14s, box-shadow .14s;
+}
+.q:focus-within { border-color: var(--b); box-shadow: var(--ring); }
+.q > i { color: var(--t3); font-size: 16px; }
+.q input { flex: 1; min-width: 0; border: 0; background: none; font-size: 14px; }
+.q input:focus { outline: none; }
+.q input::placeholder { color: var(--t3); }
+.kbd {
+  font: 600 10.5px/1 var(--mono); color: var(--t3);
+  border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; background: var(--surface-2);
+}
+/* 分组筛选条：宁可换行也不要横向滚动。
+   上一版是 overflow-x:auto，1151 宽度下 10 个 chip 有 990px 内容、只露 420px，
+   等于把一半分组藏进看不见的滚动区里（筛选入口本身变得不可发现）。
+   现在靠 wrap：整宽页面里一行放得下 → 工具条还是 61px；
+   只有窄屏才折成两行，工具条长高，代价只落在真正需要它的屏幕上。 */
+.chips { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; padding-block: 2px; }
+.chip {
+  flex: none; height: 28px; padding: 0 10px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: var(--surface);
+  font-size: 12.5px; font-weight: 600; color: var(--t2); white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .14s, background .14s, color .14s;
+}
+.chip:hover { border-color: var(--b-line); color: var(--b-ink); }
+.chip[aria-pressed="true"] { background: var(--b); border-color: var(--b); color: var(--b-on); }
+.chip small { font: 500 11px/1 var(--mono); opacity: .8; font-variant-numeric: tabular-nums; }
+.rail-end { display: flex; align-items: center; gap: var(--s2); justify-self: end; flex-wrap: wrap; }
+.count { font: 500 12px/1.4 var(--mono); color: var(--t2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.count b { color: var(--t1); font-weight: 700; }
+
+/* --------------------------------------------------------------- main -- */
+main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-direction: column; gap: var(--s4); }
+
+/* ============================================================================
+   v1 · 精简指标卡（质量核心指标 + CXO 每日经营指标）
+   ----------------------------------------------------------------------------
+   v1 与 /olbrportal/ 原版的差别，全部收在这一段：改回去只要删这一段、
+   并在 olbr.js 的 qcCardHtml 里恢复 .qc-lvchip 的渲染。
+
+   为什么摘掉等级徽章：
+     原版每张卡有「正常 / 关注 / 严重 / 不可用」徽章 + 四档阈值配色，
+     六张并排时第一眼落在颜色上，要先分档再读数字 —— 而这一版要的是「一眼看数」。
+     所以：
+       · 卡片不再套 .qc-lv-ok/-warn/-crit/-na 四个配色档，统一品牌青；
+       · 徽章元素**整个不渲染**（不是 display:none —— 隐藏会留出空白占位）。
+     颜色只保留一个用途：数字取不到时压成灰（.is-na）。这是「绝不显示 0」
+     那条硬约束在视觉上的落点，不能连它一起摘掉。
+
+   为什么不直接复用 .qc-card 原样：原版的字号是围绕「徽章 + 大数字」两层排的，
+   摘掉徽章后 21/26px 的大数字在六卡一行里偏大，重新定一档 24px 更平衡。
+   这一档 24px 现在写在 **.qc-num 的基础规则**里（见下方 .qc-num 那段的注释），
+   告警行与 CXO 行共用同一份字号，不再各写一遍。 */
+.kpi .qc-name { font-size: 12px; font-weight: 600; color: var(--t2); line-height: 1.35; white-space: normal; }
+.kpi .qc-numrow { margin-top: 6px; }
+/* v1：这里原来写的是 `.kpi .qc-num { font-size: 24px; }`，2026-09-24 已上移成
+   .qc-num 的**基础**字号。当时只写在这一行，导致告警行 #band 漏掉了这一档、
+   数字只有 15px。现在两行都由 .qc-num 统一给 24px，不再各写一遍。 */
+.kpi .qc-unit { font-size: 11.5px; font-weight: 600; color: var(--t3); letter-spacing: 0; }
+/* 口径文字允许换行：CXO 那三张的口径（哪个看板、哪一天）比 QC 的长，
+   单行省略会把「这数是哪天的」正好切掉 —— 那是最要紧的半句。 */
+.kpi .qc-sub { white-space: normal; }
+
+/* ============================================================================
+   v1 · 六个视图入口卡（CXO / SP / MS / FLM / FO / BO）
+   ----------------------------------------------------------------------------
+   一张卡 = 一个视图：标题行 → 一句说明 → 报告清单。
+   清单是主体 —— 用户是冲着**具体报告名**来的，不是来看视图缩写的。
+   卡片高度随报告条数走，不强行等高：把 3 条的报告撑到和 5 条一样高，
+   只会多出一片空白，反而更难扫。
+
+   报告条目本身是 <a>，点击 = 打开对应看板（与查看器同一条链接口径，
+   vlink + target=_blank）。整张卡刻意**不**做成可点：一张卡里有多个不同去向时，
+   「整卡可点」会让用户以为点哪里都一样。 */
+.v6-grid { display: grid; gap: var(--s2); grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1400px) { .v6-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 820px)  { .v6-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.v6 {
+  display: flex; flex-direction: column; min-width: 0;
+  border: 1px solid var(--line-2); border-radius: var(--r2);
+  background: var(--surface-2); overflow: hidden;
+  transition: border-color .14s, box-shadow .14s;
+}
+.v6:hover { border-color: var(--b-line); box-shadow: var(--sh-1); }
+.v6-h { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 9px 11px; border-bottom: 1px solid var(--line); }
+.v6-ico {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: var(--r1);
+  color: var(--b); background: var(--b-tint); font-size: 14px;
+}
+.v6-t { min-width: 0; font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+.v6-t small { display: block; font-size: 11px; font-weight: 500; color: var(--t3); letter-spacing: 0; }
+.v6-n {
+  margin-left: auto; flex: none; padding: 4px 7px; border-radius: 999px; background: var(--surface-3);
+  font: 600 11px/1 var(--mono); color: var(--t2); font-variant-numeric: tabular-nums;
+}
+.v6-list { display: flex; flex-direction: column; padding: 5px; }
+.v6-row {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  padding: 6px 7px; border-radius: var(--r1); font-size: 12.5px; color: var(--t1);
+  transition: background .14s, color .14s;
+}
+.v6-row:hover { background: var(--b-tint); color: var(--b-ink); }
+.v6-row i.ph { flex: none; font-size: 13px; color: var(--t3); }
+.v6-row:hover i.ph { color: var(--b-ink); }
+.v6-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v6-row .go { margin-left: auto; flex: none; font-size: 12px; opacity: 0; transition: opacity .14s; }
+.v6-row:hover .go { opacity: .8; }
+.v6-row em {
+  flex: none; font: 600 10px/1 var(--sans); font-style: normal; letter-spacing: .04em;
+  color: var(--t3); border: 1px solid var(--line-2); border-radius: 4px; padding: 2px 4px;
+}
+/* 清单默认收 4 条：六张卡全部摊开会把地图顶到第三屏。
+   多出来的走同一个「展开其余 N 项」，与 L2 辅助区分组手感一致。 */
+.v6-more {
+  display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
+  margin: 3px 6px 7px; padding: 3px 7px; border-radius: 6px;
+  font-size: 11.5px; font-weight: 600; color: var(--b-ink);
+}
+.v6-more:hover { background: var(--b-tint); }
+.v6-empty { padding: 8px 11px 11px; font-size: 12px; color: var(--t3); }
+
+/* 地图高度：不再在这里单独定，改成由 .maprow 上的 --maprow-h 统一给
+   （地图与报告文件必须等高，高度只能有一个真相源）。详见下方 .maprow 那一段。 */
+
+/* 地图那格为空时（权限被收窄到看不到任何地图页）不要让它白占一半 ——
+   改成整宽单列，报告文件自己占满一行。
+   :has() 在本项目已经在用（见 .meta > .dot:has(+ .ow)），不引入新的兼容风险。
+   特异性 (0,3,0) 高于 .maprow 本身与窄屏那条 @media 里的 (0,1,0)，
+   所以写在文件靠前的位置也能压住它们，不必关心声明顺序。 */
+.maprow:has(.map-slot:empty) { grid-template-columns: minmax(0, 1fr); }
+
+/* L0 决策带：QC 指标面板（2026-09-22 与 MsPortal 的 Quality Control 对齐）
+   语义与 MsPortal 同一套：颜色只由阈值分档（.qc-lv-ok/-warn/-crit/-na），
+   描边 + 内发光 + 数字色 + 文字徽章四个通道同时传意（色盲与黑白打印也能分档），
+   卡片是「小标题 → 等级徽章 → 大数字 → 趋势线 → 口径 → 数据时间戳」的居中堆叠，
+   刷新分两档（告警 5 分钟 / 其余每小时）并在标题行显示心跳与下次刷新倒计时。
+   色值不新造：--qc-accent* 全部由本页令牌（照抄 --mp-*）合成。 */
+.band {
+  display: flex; flex-direction: column; gap: var(--s4);
+  padding: var(--s5);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r3);
+  box-shadow: var(--sh-1);
+}
+.band-h { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; min-width: 0; }
+.ring {
+  --qc-accent: var(--hi);
+  --v: 0; position: relative; flex: none; width: 78px; height: 78px; border-radius: 50%;
+  background: conic-gradient(var(--qc-accent) calc(var(--v) * 1%), var(--surface-3) 0);
+  transition: background .5s;
+}
+.ring::after {
+  content: ""; position: absolute; inset: 8px; border-radius: 50%;
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--line);
+}
+.ring b {
+  position: absolute; inset: 0; z-index: 2; display: grid; place-content: center;
+  font: 700 19px/1 var(--mono); color: var(--qc-accent); font-variant-numeric: tabular-nums;
+}
+.band-txt { min-width: 0; flex: 1 1 200px; }
+.band-k { font: 700 18px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--hi); }
+.band-n { margin-top: 6px; font-size: 16px; color: var(--t2); }
+.band-n em { font: 700 15px/1 var(--mono); font-style: normal; color: var(--t1); font-variant-numeric: tabular-nums; }
+.band-when { margin-top: 8px; font: 500 11px/1.5 var(--mono); color: var(--t3); }
+
+/* 心跳：绿色脉冲 = 这块面板确实在自动刷新。取不到数据时变红且不脉冲。
+   秒必须精确到秒 —— 只到分钟时，轮询叠上后端 60s 缓存会出现「一分钟没变」的错觉。 */
+.qc-live { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--mono); color: var(--t2); font-variant-numeric: tabular-nums; }
+.qc-live .qc-sep { color: var(--t3); }
+.qc-dot {
+  display: block;
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--ok); box-shadow: 0 0 0 0 var(--ok-tint);
+  animation: qcPulse 2.2s ease-out infinite;
+}
+.qc-dot-bad { background: var(--crit); animation: none; }
+@keyframes qcPulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent); }
+  70%  { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.qc-grid {
+  display: grid; gap: var(--s2); align-items: stretch;
+  /* 六张一行（**告警带 #band 用这一档**）。
+     minmax(0,1fr) 而不是 1fr：1fr 的最小尺寸是 auto，
+     长卡名 / 长副行会把列撑破、把整行挤出容器。 */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+/* 断点跟视口走，不写死在渲染逻辑里 */
+@media (max-width: 1200px) { .qc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px)  { .qc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* CXO 指标带单独一档：4 列。**不能直接改上面的 .qc-grid** ——
+   告警带 #band 与它共用这个类（olbr.js 的 renderBand 也输出 .qc-grid），
+   改基类会把告警那一排从 6 列一起改成 4 列。
+   2026-09-24 加 Video Traffic 后本带是 7 张卡，按 4 + 3 折成两排：
+   上排四张富卡片、下排三张可用率，两排共用同一条列轨道所以卡边对齐。 */
+.qc-grid--kpi { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1240px) { .qc-grid--kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px)  { .qc-grid--kpi { grid-template-columns: repeat(1, minmax(0, 1fr)); } }
+
+.qc-card {
+  --qc-accent: var(--b);
+  --qc-accent-soft: var(--b-tint);
+  --qc-accent-line: var(--b-line);
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  width: 100%; min-width: 0; text-align: center; cursor: pointer; overflow: hidden;
+  padding: 10px 10px 11px;
+  border: 1px solid var(--qc-accent-line); border-radius: var(--r2);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 14px color-mix(in srgb, var(--qc-accent) 12%, transparent);
+  transition: box-shadow .16s ease-out, transform .16s ease-out, border-color .16s ease-out;
+}
+.qc-card:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 0 18px color-mix(in srgb, var(--qc-accent) 20%, transparent),
+              0 8px 18px color-mix(in srgb, var(--qc-accent) 16%, transparent);
+}
+.qc-card:active { transform: translateY(0); }
+
+/* 等级 → 描边 / 内发光 / 数字 / 徽章共用同一组色（放在 .qc-card 之后才能盖掉默认档） */
+/* ⚠️ v1：下面这四档配色（.qc-lv-ok/-warn/-crit/-na）与 .qc-lvchip 徽章样式
+   **在当前版本没有任何元素会用到** —— v1 按要求摘掉了等级徽章，
+   qcCardHtml 不再输出 .qc-lv-* 类名，SLA 环也不再吃分档色。
+   保留（而不是删）是为了与 /olbrportal/ 那份保持同一套类名：
+   两个门户的 CSS 是各自独立的一份，但类名语义一致才好对照；
+   以后若要恢复徽章，接回 qcCardHtml 即可，样式这边一行都不用动。
+   读代码的人请注意：屏幕上不会有这四个颜色。 */
+.qc-lv-ok   { --qc-accent: var(--ok);   --qc-accent-soft: var(--ok-tint);   --qc-accent-line: color-mix(in srgb, var(--ok) 32%, transparent); }
+.qc-lv-warn { --qc-accent: var(--warn); --qc-accent-soft: var(--warn-tint); --qc-accent-line: color-mix(in srgb, var(--warn) 32%, transparent); }
+.qc-lv-crit { --qc-accent: var(--crit); --qc-accent-soft: var(--crit-tint); --qc-accent-line: color-mix(in srgb, var(--crit) 38%, transparent); }
+.qc-lv-na   { --qc-accent: var(--t3);   --qc-accent-soft: transparent;      --qc-accent-line: var(--line-2); }
+
+.qc-hd { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-width: 0; }
+.qc-ico {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: var(--r1);
+  color: var(--qc-accent); background: var(--qc-accent-soft); font-size: 12px;
+}
+.qc-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-weight: 600; color: var(--t2);
+}
+/* 等级徽章独立成行：六卡并排单卡只有 ~240px，挤进标题行会把卡名截断。
+   颜色之外再给一枚文字徽章 —— 只靠颜色传意对色盲和黑白打印都不可读。 */
+.qc-lvchip {
+  margin-top: 5px; padding: 3px 7px; border-radius: 999px;
+  font-size: 10px; font-weight: 600; line-height: 1;
+  color: var(--qc-accent); background: var(--qc-accent-soft);
+  border: 1px solid var(--qc-accent-line);
+}
+.qc-numrow { display: flex; align-items: baseline; justify-content: center; gap: 6px; margin-top: 8px; }
+/* ⚠️ 2026-09-24 修：这里原先是 `font: 600 1em/1`，那个 `1em` 是**继承父级字号**，
+   不是一个确定的数。原版之所以看不出问题，是因为它的 qcCardHtml 一定会额外输出
+   `qc-card--lg`(26px) / `qc-card--sm`(21px) 把字号顶掉；v1 摘掉等级徽章时
+   把这两个尺寸类一起删了，于是字号一路继承到 .qc-card 的 15px ——
+   告警行 #band 的数字实测只有 15px，而同宽(396px)的 CXO 行是 24px，两行差一大截。
+   写成明确像素后，任何 .qc-card 不论放在哪一行都是这个字号，不再依赖继承。
+   24px 与 CXO 行一致（用户要求告警行数字「大并且醒目」，参照 Total Traffic 那几张卡）。 */
+.qc-num {
+  font: 600 36px/1 var(--mono); color: var(--qc-accent); font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+.qc-num.is-na { color: var(--t3); }
+/* ⚠️ 下面两档 v1 **没有任何元素会命中**：qcCardHtml 已不再输出 qc-card--lg/--sm
+   （就是上面那条 15px 问题的成因）。保留是为了和 /olbrportal/ 共用同一套类名，
+   方便两边对照；注意它们的选择器比 .qc-num 更具体，**哪天恢复输出这两个类就会盖掉
+   上面的 24px**，届时要一并重新决定字号。 */
+/* 主/次分层只靠字号这一个通道（分组标题已经去掉） */
+.qc-card--lg .qc-num { font-size: 26px; }
+.qc-card--sm .qc-num { font-size: 21px; }
+
+/* 趋势线：内联 SVG，零依赖（门户要求零 CDN、断网可用）。
+   preserveAspectRatio=none 会横向拉伸，故不画端点圆点。 */
+.qc-spark { display: block; margin-top: 8px; height: 26px; }
+.qc-spark svg { display: block; width: 100%; height: 26px; overflow: visible; }
+.qc-spark .sp-area { fill: var(--qc-accent-soft); }
+.qc-spark .sp-line { fill: none; stroke: var(--qc-accent); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+/* 线画的是**新增量**，大数字是**存量**，量级不同不能互相印证 ——
+   所以说明文字（窗口 + 每格时长）是必需的，否则会把线的起伏当成大数字的起伏。 */
+.qc-spark-wrap { display: block; margin-top: 8px; }
+.qc-spark-wrap .qc-spark { margin-top: 0; }
+.qc-spark-cap {
+  display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 500 10.5px/1.2 var(--mono); color: var(--t3); font-variant-numeric: tabular-nums;
+}
+.qc-spark-empty {
+  margin-top: 8px; height: 26px; display: flex; align-items: center;
+  font-size: 11px; color: var(--t3);
+}
+.qc-sub {
+  display: block;   /* 卡内是 <span>：<button> 只允许短语内容，故靠 display 布局 */
+  width: 100%; margin-top: 7px;
+  font-size: 11px; line-height: 1.35; color: var(--t2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.qc-card.is-failed .qc-sub { color: var(--crit); white-space: normal; }
+/* 每张卡自带数据时间戳：面板上有两档刷新节奏，只给一个全局「更新于」
+   会让每小时那五项看起来也是 5 分钟前刚取的。 */
+.qc-age {
+  display: block; width: 100%; margin-top: 5px;
+  font: 500 10px/1.3 var(--mono); color: var(--t3); font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ============================================================================
+   富卡片（CXO 四张：总流量 / 活跃用户 / 视频下载速率 / 视频流量）
+   ----------------------------------------------------------------------------
+   结构与 my_app `?page=vmaxCxoDashboard_90Days` 的卡片一致：
+     标题 + 右上角单位 → 大数字 + 单位 → Latest/As of → WoW/MoM 徽章
+     → 迷你走势 → Max / Avg / Min 页脚
+   标记仍用 `.qc-card`（沿用底/边/hover/内发光/--qc-accent 一整组既有规则），
+   只加一个 `--rich` 修饰类把「居中单列」改成「左对齐多段」。
+
+   ⚠️ 刻意**不抄源页那张卡的整卡渐变**（源页是
+      `background:linear-gradient(180deg,#08122c,#050d22)`）。
+     本仓库 DESIGN.md 第 39~42 行明令：整张数据卡不许加渐变
+     会给数据带"贴纸感"、降低可信度，QC 卡改版就是这么改的。
+     所以底色仍用 .qc-card 的 var(--surface-2) 纯色，靠边框 + 内发光分层。
+     渐变只保留在「迷你走势的面积」上 —— 那是图表元素，不是卡片底。 */
+.qc-card--rich { align-items: stretch; text-align: left; padding-bottom: 9px; }
+
+/* 标题行：左标题、右单位（单位在源页是右上角的浅色小字） */
+.qc-ttl {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
+  width: 100%; min-width: 0;
+}
+.qc-ttl b {
+  font-size: 12.5px; font-weight: 700; color: var(--t1);
+  letter-spacing: .2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.qc-ttl i { font-style: normal; flex: none; font-size: 10px; color: var(--t3); }
+
+/* 大数字：字号跟 QC 卡那档一致（24px），不要另开一档 ——
+   同一屏上两组卡片数字不一样大，会让人以为量级不同。 */
+.qc-val { display: flex; align-items: baseline; gap: 6px; margin-top: 6px; width: 100%; min-width: 0; }
+.qc-val span {
+  font: 600 24px/1.05 var(--mono); color: var(--t1);
+  font-variant-numeric: tabular-nums;
+}
+.qc-val em { font-style: normal; font-size: 11px; font-weight: 600; color: var(--t3); }
+.qc-card--rich.is-na .qc-val span { color: var(--t3); }
+
+/* 口径行：「最新 · 2026-09-23（数据截至 2026-09-23）」。
+   这一行是**必须**的：四个数字都不是当天的，而本页其它看板多为实时/当日。 */
+.qc-asof {
+  display: block; width: 100%; margin-top: 2px;
+  font-size: 10px; line-height: 1.35; color: var(--t3);
+}
+
+/* WoW / MoM 徽章。涨跌配色取「业务语义」而非红涨绿跌的股市习惯：
+   指标 better=up，故涨=正面(绿)、跌=负面(红)；接口给了 better 就跟着走。 */
+.qc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.qc-chip {
+  font-size: 10px; line-height: 1.5; border-radius: 11px; padding: 1px 8px;
+  border: 1px solid var(--line-2); background: transparent; color: var(--t2);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.qc-chip.up   { border-color: color-mix(in srgb, var(--ok) 55%, transparent);
+                color: var(--ok);   background: var(--ok-tint); }
+.qc-chip.down { border-color: color-mix(in srgb, var(--crit) 55%, transparent);
+                color: var(--crit); background: var(--crit-tint); }
+.qc-chip.neu  { border-color: var(--b-line); color: var(--t2); background: var(--b-tint); }
+
+/* Max / Avg / Min 页脚：三段等分，中间那段是 90 天均值。
+   上边框把「极值」与上面的走势分开（源页同款处理）。 */
+.qc-ext {
+  display: flex; justify-content: space-between; gap: 4px;
+  margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--line-2);
+  width: 100%;
+}
+.qc-ext > div {
+  flex: 1; min-width: 0; text-align: center;
+  font-size: 10px; line-height: 1.35; color: var(--t3);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.qc-ext > div b {
+  font: 600 11.5px/1.3 var(--mono); color: var(--t1);
+  font-variant-numeric: tabular-nums;
+}
+.qc-ext > div > span:last-child {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 最高绿、最低红 —— 与走势线同色系，扫一眼就知道哪端是好的一端 */
+.qc-ext > div.hi b { color: var(--ok); }
+.qc-ext > div.lo b { color: var(--crit); }
+
+/* ============================================================================
+   地图 + 报告文件（Central Liberia Regional Topology | Task Report Files）
+   ----------------------------------------------------------------------------
+   一行两块、等宽各占一半（2026-09-24 用户要求，原来是 1.8fr : 1fr）。
+   两块都是 .panel（.p-head + .canvas），栅格项默认 align-items: stretch，
+   所以等高天然成立 —— 谁内容高都不会让另一块矮一截。
+
+   ⚠️ 高度只有一个真相源：--maprow-h。
+   用户要求「高度以适合展示利比里亚全国为准，且报告文件与该地图等高」。
+   地图那一侧不是 fitBounds 自适应，而是写死 zoom=8 的 Leaflet
+   （Task\my_app\frontend\src\pages\GISMap.tsx:605、:615），
+   中心点取站点经纬度的平均值（同文件 :212，回退 [6.4, -9.4]）。
+   zoom 写死意味着**能看见多大范围只由容器的像素尺寸决定**，与宽度无关，于是高度可以算出来：
+
+     Web Mercator 每像素米数 = 156543.03392 × cos(纬度) / 2^zoom
+     纬度 6.45°N、zoom 8 → 156543.03392 × 0.99367 / 256 ≈ 607.6 m/px
+
+     利比里亚南北跨 4°21′N ~ 8°33′N ≈ 4.20° ≈ 467.5 km → 467500 / 607.6 ≈ 769 px
+     东西跨 7°22′W ~ 11°29′W ≈ 4.12° ≈ 455.4 km → 455400 / 607.6 ≈ 749 px
+
+   即：**地图那一侧要 ≥ 770px 才装得下全国**。
+
+   关键前提（踩过一次坑，记下来）：内嵌时地图高度 == iframe 高度，中间**没有**扣减。
+   GISMap.tsx:607 写的是 style height: calc(100vh - 290px)，但那句只在**直接打开**
+   /myapp/?page=gis 时生效；一旦被门户 iframe 嵌住，运行时会把它改写成
+   `height: 100% !important`，同时 my_app 的外壳（页头/侧栏）在 iframe 里根本不渲染 ——
+   实测 iframe 内 body.scrollHeight == innerHeight == .leaflet-container 高度，卡片 top 也是 0。
+   （证据：TMP\v1_mapframe_result.json，2026-09-24 Playwright 实测。）
+
+   所以在本页里：**--maprow-h 就是地图的像素高度**，可以直接按 770px 这个门槛取。
+
+   ⚠️ 下面这组是 2026-09-24 在真实 v1 页面上实测的（探针 TMP\probe_sweep.py，
+   结果 TMP\sweep_result.json，截图 TMP\sweep_h*.png）。zoom 8 → 607.6 m/px，
+   利比里亚南北需 467.5km：
+     --maprow-h  700 → 可见南北 424km → 差 9.3%，国土上下被切
+     --maprow-h  780 → 473km → 只余 1.1%，贴边，没有呼吸空间
+     --maprow-h  860 → 521km → 余 11.5% ✅ 取这个
+     --maprow-h  960 → 582km → 余 24.5%，上下大片空瓦片，反而显得图小
+   860px 与 MsPortal 的 .map-canvas（正好也是 860px）一致，等于沿用了兄弟门户已验证的档位。
+
+   ⚠️ 这个数与 GISMap 的 zoom=8 绑定。哪天 my_app 改了这个 zoom，
+   必须按上面的式子重算并重跑 TMP\probe_sweep.py 复核。 */
+.maprow {
+  display: grid; gap: var(--s4);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  --maprow-h: 860px;
+}
+/* 两块内部的 .canvas 共用同一个下限，等高由此保证（不是靠两边都写一遍数字） */
+.maprow > section { display: flex; flex-direction: column; min-width: 0; }
+.maprow .canvas { flex: 1 1 auto; min-height: var(--maprow-h); }
+/* 窄屏：并排两块内嵌页都太窄，改成上下排。
+   高度只在手机上收一档 —— 手机那块屏幕本来也放不下一个全国地图，
+   取舍是「先保证能滚」。
+   ⚠️ 只改 --maprow-h 一个变量，两块仍然等高（若在这里单独改某一侧的
+   min-height，等高就破了）。 */
+@media (max-width: 1200px) { .maprow { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) { .maprow { --maprow-h: 420px; } }
+
+/* 地图槽位：.map-slot 本身只是个占位容器，视觉全部交给里面的 .panel.map；
+   它为空（mapItems() 一个都没匹配上，比如权限被收窄到看不到任何地图页）时整块收起，
+   不留一段空白把下面的升级带顶下去。 */
+.map-slot:empty { display: none; }
+/* 报告文件槽位：容器自己就是 .panel（见 index.html 的注释 —— 内容里没有 .panel）。
+   做成纵向 flex，让 .canvas 吃掉标题栏之外的全部高度，与左边的地图齐平。
+   没权限 / 未登录时 ensureEmail() 会在 .canvas 里画一句提示，
+   所以容器永远不是空的，不做 :empty 收起，交给那句提示说话。 */
+.email-slot { display: flex; flex-direction: column; min-width: 0; }
+
+/* 舞台：v1 已拆掉。
+   ⚠️ 这里原本是 .stage { display:grid } —— 装「升级带 + L0 焦点区 + L1 页签」三块，
+   宽屏时排成「焦点区 | 页签」两栏、升级带整宽压在上一行。
+   L0 焦点区与 L1 页签面板本次都按要求去掉了，.stage 里只剩升级带一块，
+   栅格没有存在意义，于是 index.html 里这一层也一并拆掉、#esc 直接挂在 main 下。
+   所以下面 .stage / .vcol / .l0 / .l0-col 四组规则**当前都没有元素会命中**：
+   保留是为了与 /olbrportal/ 那份保持可对照（类名语义一致），
+   以后若要恢复焦点区 / 页签，样式这边不用重写。读代码的人请注意屏幕上没有它们。 */
+.stage { display: grid; gap: var(--s4); grid-template-columns: minmax(0, 1fr); }
+
+/* L0 焦点区：原为「CXO 焦点卡在上、SP View 行式清单在下」，v1 整块去掉。 */
+.l0 { display: grid; gap: var(--s4); grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+.l0-col { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.l0-col:empty { display: none; }
+
+.panel {
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3);
+  padding: var(--s4); box-shadow: var(--sh-1); min-width: 0;
+}
+.p-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; padding-bottom: 10px; margin-bottom: var(--s3); border-bottom: 1px solid var(--line); }
+.p-hd { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 auto; }
+.p-hd::before { content: ""; flex: none; width: 3px; height: 15px; border-radius: 2px; background: var(--grad); transform: translateY(1px); }
+.panel[data-tier="0"] .p-hd::before { background: var(--hi); }
+.p-t { font-size: 15px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-s { font-size: 12px; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-x { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--b-ink); flex: none; }
+.p-x:hover { text-decoration: underline; }
+.p-x i { font-size: 13px; }
+.cnt { flex: none; font: 600 11px/1 var(--mono); color: var(--t2); background: var(--surface-3); border-radius: 999px; padding: 4px 7px; font-variant-numeric: tabular-nums; }
+
+/* 焦点卡（L0 专用：CXO 看板） */
+.fcard {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) 18px; gap: var(--s3);
+  align-items: start; padding: var(--s4);
+  border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--surface-2);
+  transition: border-color .16s, background .16s, box-shadow .16s;
+}
+.fcard:hover { border-color: var(--b-line); background: var(--b-tint); box-shadow: var(--sh-1); }
+.fcard .ttl { display: block; font-size: 16px; font-weight: 700; letter-spacing: -.012em; line-height: 1.3; }
+.fcard:hover .ttl { color: var(--b-ink); }
+.fcard .dsc { margin-top: 5px; font-size: 13px; line-height: 1.55; color: var(--t2);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.fcard .meta { margin-top: var(--s3); }
+/* 焦点卡的箭头平时收起、悬停再滑出来（条目行的箭头是常显的） */
+.fcard .ic-go { opacity: 0; transform: translateX(-3px); }
+.fcard:hover .ic-go { opacity: 1; transform: none; color: var(--b-ink); }
+
+/* 图标砖与卡体内层：焦点卡 .fcard 用 .ic-ico/.ic-bd，条目行用 .r-ico */
+.ic-ico {
+  display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px;
+  background: var(--b-tint2); color: var(--b-ink); font-size: 17px; flex: none;
+}
+.ic-bd { min-width: 0; }
+.meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font: 500 11px/1.4 var(--mono); color: var(--t3); letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.meta .dot { opacity: .45; }
+.ic-go { color: var(--t3); font-size: 14px; transition: opacity .16s, transform .16s, color .16s; }
+
+/* 条目卡：卡片流 —— 一行放得下几张就排几张，排满自动折到下一行。
+   auto-fill 而不是 auto-fit：fit 会把空轨合并掉，MS View 只有 3 条时被拉成 3 张 800px
+   宽的大板；fill 保住同一套列宽，四个面板上下对得齐。
+   min(312px, 100%) 是窄栏兜底：auto-fill 的轨不会缩到下限以下，左栏 ~308px 里
+   直接写 312px 会顶出横向滚动。 */
+.cards { display: grid; gap: var(--s3); grid-template-columns: repeat(auto-fill, minmax(min(312px, 100%), 1fr)); }
+.card {
+  display: grid; grid-template-columns: 32px minmax(0, 1fr) 16px; gap: 0 var(--s2);
+  align-items: start; min-width: 0; padding: 12px 13px;
+  border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--surface-2);
+  transition: border-color .16s, background .16s, box-shadow .16s;
+}
+.card:hover { border-color: var(--b-line); background: var(--b-tint); box-shadow: var(--sh-1); }
+.c-ico {
+  display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px;
+  background: var(--b-tint2); color: var(--b-ink); font-size: 16px;
+}
+.c-bd { min-width: 0; }
+.c-t { display: block; font-size: 14px; font-weight: 600; line-height: 1.35; color: var(--t1); }
+.card:hover .c-t { color: var(--b-ink); }
+.c-d {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  margin-top: 3px; font-size: 12.5px; line-height: 1.5; color: var(--t3);
+}
+.card:hover .c-d { color: var(--t2); }
+.card .meta { margin-top: 8px; }
+.card .ic-go { opacity: .4; }
+.card:hover .ic-go { opacity: 1; color: var(--b-ink); }
+/* 两栏布局下左栏只有一条窄轨：负责人会把 meta 挤成两行，连它前面那个分隔点一起藏 */
+@media (min-width: 1001px) {
+  .l0-col .card .meta .ow { display: none; }
+  .l0-col .card .meta > .dot:has(+ .ow) { display: none; }
+}
+
+.st { font: 700 9.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 3px 6px; border-radius: 4px; }
+.st-online { color: var(--ok); background: var(--ok-tint); }
+.st-beta { color: var(--warn); background: var(--warn-tint); }
+.pf { color: var(--t2); }
+.hit { background: var(--hi-tint); color: var(--hi); border-radius: 3px; box-shadow: 0 0 0 1px var(--hi-line); }
+
+/* 地图 */
+.map { display: flex; flex-direction: column; }
+.map-tabs { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.tabs { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface-3); }
+.tab { height: 26px; padding: 0 10px; border-radius: 4px; font-size: 12.5px; font-weight: 600; color: var(--t2); display: inline-flex; align-items: center; gap: 6px; }
+.tab i { font-size: 14px; }
+.tab:hover { color: var(--b-ink); }
+.tab[aria-selected="true"] { background: var(--surface); color: var(--b-ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
+/* 编辑模式下点地图页签是「改名」而不是「切地图」，必须给出可见暗示，
+   否则用户会以为页签坏了（点了不切地图）。虚线描边 + 铅笔图标即为该暗示。 */
+.tabs.is-renaming .tab { outline: 1px dashed var(--b-line, rgba(13, 148, 136, .45)); outline-offset: -1px; }
+.tabs.is-renaming .tab:hover { color: var(--b-ink); }
+.maptab-pen { opacity: .65; font-size: 12px !important; }
+/* 面板标题在编辑态变成可点按钮（改的是这一栏的标题/副标题，与页签改名同一入口） */
+.p-t-edit {
+  font: inherit; color: inherit; background: none; border: 0; padding: 0 4px; margin: 0 -4px;
+  border-radius: 4px; display: inline-flex; align-items: center; gap: 5px; cursor: text;
+  outline: 1px dashed var(--b-line, rgba(13, 148, 136, .45)); outline-offset: 0;
+}
+.p-t-edit:hover { color: var(--b-ink); }
+.canvas {
+  position: relative; flex: 1; min-height: 460px; margin-top: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r2); overflow: hidden;
+  background: var(--surface-2);
+}
+.canvas iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.canvas-note {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between;
+  gap: var(--s3); padding: 5px 10px; font: 500 11px/1.4 var(--mono); color: var(--t3);
+  background: var(--glass); border-top: 1px solid var(--line);
+}
+/* 内嵌 iframe 的加载遮罩 / 门禁提示（报告文件页签用）：盖在画布上，加载完成就摘掉，
+   所以底色跟 .canvas 一致，不会在切换瞬间露出一块白。 */
+.embed-boot {
+  position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center;
+  gap: 8px; padding: 0 var(--s4); text-align: center; font-size: 12.5px; color: var(--t3);
+  background: var(--surface-2);
+}
+.embed-boot > i.ph { font-size: 18px; }
+.embed-ring { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--b); animation: olbr-spin .8s linear infinite; }
+@keyframes olbr-spin { to { transform: rotate(360deg); } }
+
+/* 升级机制：折叠值班带 */
+.esc { background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-1); overflow: hidden; }
+.esc-bar { display: flex; align-items: center; gap: var(--s3); padding: 11px var(--s4); flex-wrap: wrap; }
+.esc-bar::before { content: ""; width: 3px; height: 15px; border-radius: 2px; background: var(--grad); flex: none; }
+.esc-t { font-size: 14px; font-weight: 700; }
+.esc-s { font-size: 12px; color: var(--t3); }
+.esc-lv { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.lvchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-2); font: 600 11.5px/1 var(--mono); color: var(--t2); }
+.lvchip b { color: var(--t1); }
+.lvchip[data-now="1"] { border-color: var(--b-line); background: var(--b-tint); color: var(--b-ink); }
+.esc-body { padding: 0 var(--s4) var(--s4); border-top: 1px solid var(--line); }
+.esc-scroll { max-height: 62vh; overflow: auto; margin-top: var(--s3); border: 1px solid var(--line); border-radius: var(--r2); }
+
+table.grid { font-size: 12.5px; }
+table.grid th, table.grid td { padding: 7px 10px; text-align: left; white-space: nowrap; }
+table.grid thead th {
+  position: sticky; top: 0; z-index: 2; background: var(--surface-2-solid);
+  font: 700 11px/1 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--t2);
+  border-bottom: 1px solid var(--line-2);
+}
+table.grid td { border-bottom: 1px solid var(--line); }
+table.grid tbody tr:last-child td { border-bottom: 0; }
+table.grid tbody tr:hover { background: var(--hover); }
+table.grid td.lv { font: 700 11px/1 var(--mono); color: var(--b-ink); letter-spacing: .04em; }
+table.grid td.num, table.grid th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+table.grid a { color: var(--b-ink); }
+table.grid a:hover { text-decoration: underline; }
+.esc-note { margin-top: var(--s2); font: 500 11px/1.5 var(--mono); color: var(--t3); }
+/* v1：默认只显示前 4 行时的那句「还有 N 条」。用 --hi（OLR 橙）而不是灰：
+   它是一句**行动提示**（告诉用户去哪看剩下的），不是数据来源脚注。
+   与下面的 .esc-note 挤在一起时，靠颜色和图标把两者分开。 */
+.esc-note--more {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: var(--s3); padding: 7px 10px; border-radius: var(--r1);
+  background: var(--hi-tint); color: var(--hi);
+  font-family: var(--sans); font-size: 11.5px;
+}
+.esc-note--more i { flex: none; font-size: 13px; }
+
+/* L1 主视图：一组一个页签，一次只展开一个面板，面板内是卡片流。
+   页签外观照抄上面筛选 chip 的胶囊（用户要的就是这个形状），但语义是 tab：
+   选中态用 aria-selected，容器带 role=tablist。
+
+   ⚠️ v1：下面 .view-1 / .tabs-v / .tabv 三组**当前都没有元素会命中** ——
+   L1 页签面板整块去掉了（上面六张视图入口卡已经覆盖那六个视图）。
+   随它一起失去作用的还有：#vGroup 面板、二级子页签 .subs-v / .subv、
+   以及卡片流 .cards / .card（原先只有 .l0 与 #views 会渲染它们）。
+   保留的理由与 .stage / .l0 那段相同：类名与 /olbrportal/ 保持一致，
+   以后要恢复页签时不用重写样式。读代码的人请注意屏幕上没有这些元素。 */
+.view-1 { display: grid; gap: 12px; }
+.tabs-v { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.tabv {
+  flex: none; height: 28px; padding: 0 11px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: var(--surface);
+  font-size: 12.5px; font-weight: 600; color: var(--t2); white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .14s, background .14s, color .14s;
+}
+.tabv:hover { border-color: var(--b-line); color: var(--b-ink); }
+.tabv[aria-selected="true"] { background: var(--b); border-color: var(--b); color: var(--b-on); }
+.tabv small { font: 500 11px/1 var(--mono); opacity: .8; font-variant-numeric: tabular-nums; }
+
+/* 二级子页签（BO View 的无线 / 核心网 / IP 承载…）：比一级页签轻一档 ——
+   实心 = 一级、浅色描边 = 二级，靠填充深浅读层级，不再发明第三种形状。 */
+.subs-v { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: var(--s3); }
+.subv {
+  flex: none; height: 24px; padding: 0 9px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid var(--line-2); background: var(--surface);
+  font-size: 12px; font-weight: 600; color: var(--t2);
+  display: inline-flex; align-items: center; gap: 5px;
+  transition: border-color .14s, background .14s, color .14s;
+}
+.subv:hover { border-color: var(--b-line); color: var(--b-ink); }
+.subv[aria-pressed="true"] { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
+.subv small { font: 500 10.5px/1 var(--mono); opacity: .8; font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------- 编辑态 -- */
+/* 顶栏那颗开关 + 一条提示带。改动写的是**全站共享**目录（/api/portal-catalog），
+   MsPortal 的用户刷新就看得见，所以编辑态必须一眼可辨、且随时能退出。
+   用 warn 而不用 accent：accent 是这个页面「正常交互色」，借它标危险态会稀释。 */
+.gb.on { border-color: var(--warn); color: var(--warn); background: var(--warn-tint); }
+.editbar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+  margin-bottom: var(--s3); padding: 7px 10px;
+  border: 1px solid var(--warn); border-radius: var(--r2); background: var(--warn-tint);
+  font-size: 12px; color: var(--t2);
+}
+.editbar .eb-k {
+  display: inline-flex; align-items: center; flex: none;
+  font: 700 10.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 4px 6px;
+}
+.editbar .eb-t { color: var(--t1); font-weight: 600; }
+.editbar .eb-h { color: var(--t3); }
+.editbar .eb-x { margin-left: auto; flex: none; }
+
+/* 卡片：编辑态才给抓取指针与工具行；拖动的那张压暗，落点用主轴方向的粗线指示
+   （网格一行有好几张卡，只按上下判定会把「插到左边那张之前」判成插到后面） */
+.card.is-ed { cursor: grab; }
+.card.is-ed:active { cursor: grabbing; }
+.card.is-drag { opacity: .45; }
+.cards .card.is-in-A { box-shadow: inset 4px 0 0 0 var(--b); }
+.cards .card.is-in-B { box-shadow: inset -4px 0 0 0 var(--b); }
+.c-ed { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.ct {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  height: 22px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 6px;
+  background: var(--surface); color: var(--t2); font-size: 11.5px; font-weight: 600;
+  transition: border-color .14s, color .14s, background .14s;
+}
+.ct:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+.ct i { font-size: 12px; }
+.ct--rst { margin-left: var(--s3); }
+
+/* 子分组管理条：胶囊本身是拖拽落点（is-drop），里面拆成「选择」+「改名」「删除」
+   三颗控件；is-hot 是拖进来时的反馈。输入框刻意做矮（22px），不抢正文的视觉重量。 */
+.subv.is-drop { padding: 0 3px 0 0; gap: 2px; cursor: default; }
+.subv.is-drop.is-hot { border-color: var(--b); background: var(--b-tint); color: var(--b-ink); }
+.sub-t { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 4px;
+  background: none; border: 0; font: inherit; color: inherit; cursor: pointer; border-radius: 999px; }
+.subv.is-drop.is-on { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
+.sub-x { display: inline-grid; place-items: center; width: 18px; height: 18px; flex: none;
+  border: 0; border-radius: 5px; background: none; color: var(--t3); font-size: 11px; cursor: pointer; }
+.sub-x:hover { background: var(--surface-3); color: var(--b-ink); }
+.sub-x[data-act="sub-del"]:hover { color: var(--crit); background: var(--crit-tint); }
+.subv.is-ren { padding: 3px 4px; gap: 4px; height: auto; }
+.sub-add { display: inline-flex; align-items: center; gap: 4px; }
+.sub-i {
+  width: 108px; height: 22px; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px;
+  background: var(--surface-2); color: var(--t1); font-size: 11.5px; font-family: inherit;
+}
+.sub-i:focus { outline: none; border-color: var(--b-line); box-shadow: 0 0 0 2px var(--b-tint2); }
+
+/* 分组归属浮层：fixed 贴在卡片旁边，不用遮罩 —— 改归属时还要看得见卡片本身 */
+.gp {
+  position: fixed; z-index: 90; min-width: 230px; max-width: 320px; max-height: 320px; overflow: auto;
+  padding: 10px; border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--surface); box-shadow: var(--sh-2); scrollbar-width: thin;
+}
+.gp-hd { display: grid; gap: 2px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-2); }
+.gp-hd b { font-size: 13px; color: var(--t1); }
+.gp-hd span { font-size: 11.5px; color: var(--t3); }
+.gp-list { display: grid; gap: 1px; }
+.gp-i { display: flex; align-items: center; gap: 8px; padding: 4px 5px; border-radius: 6px; font-size: 12.5px; color: var(--t2); cursor: pointer; }
+.gp-i:hover { background: var(--b-tint); color: var(--t1); }
+.gp-i input { accent-color: var(--b); width: 14px; height: 14px; flex: none; margin: 0; }
+
+/* 改名浮层（一级分组改名 / 新增分组 / 看板改标题）：标签在上、输入框在下 ——
+   230px 宽的浮栏里并排放不下「中文名」这种三字标签 + 中文名输入框。 */
+.gp--form { width: 286px; }
+.gp--form .gf { display: grid; gap: 3px; margin-bottom: 7px; }
+.gp--form .gf > span { font: 500 11px/1.2 var(--mono); color: var(--t3); }
+.gf-i {
+  min-width: 0; height: 26px; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px;
+  background: var(--surface-2); color: var(--t1); font: inherit; font-size: 12.5px;
+}
+.gf-i:focus { outline: none; border-color: var(--b-line); box-shadow: 0 0 0 2px var(--b-tint); }
+.gf-b { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.gf-ok { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+.gf-del { margin-left: auto; }
+.gf-del:hover { border-color: var(--crit); color: var(--crit); background: var(--crit-tint); }
+
+/* L2 辅助：去卡片化，默认只露 2 行，其余靠标题右侧「展开 / 收起」。
+   收缩靠隐藏第 3 条起的 li，不用 max-height —— 后者会把半行裁在中间。 */
+.aux { display: grid; gap: var(--s5) var(--s6); grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); padding-top: var(--s4); border-top: 1px solid var(--line); }
+.aux-g { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-content: start; min-width: 0; }
+/* 必须显式写 minmax(0,1fr)：默认那条隐式 auto 轨会被 .lrow 里 nowrap 文本的 min-content
+   撑到 357px（列宽只有 253），整页就跟着出横向滚动条。 */
+.aux-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--t3); padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.aux-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aux-h .cnt { margin-left: auto; }
+.aux-x { display: inline-flex; align-items: center; gap: 4px; flex: none; font: 600 11px/1 var(--sans); letter-spacing: .02em; color: var(--b-ink); padding: 4px 7px; border-radius: 999px; background: var(--b-tint); transition: background .14s; }
+.aux-x:hover { background: var(--b-tint2); }
+.aux-x i { font-size: 12px; }
+.aux-g:not([data-open="1"]) ul > li:nth-child(n+3) { display: none; }
+.aux ul { list-style: none; margin: 0; padding: 0; }
+.aux li + li { margin-top: 1px; }
+.lrow { display: flex; align-items: center; gap: 9px; padding: 7px 0; font-size: 13.5px; border-bottom: 1px dotted var(--line); }
+.lrow i { color: var(--t3); font-size: 15px; flex: none; }
+.lrow:hover { color: var(--b-ink); }
+.lrow:hover i { color: var(--b-ink); }
+.lrow > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lrow .go { margin-left: auto; flex: none; font-size: 12px; opacity: .55; }
+.lrow em { font: 500 10.5px/1 var(--mono); font-style: normal; color: var(--warn); background: var(--warn-tint); padding: 3px 5px; border-radius: 4px; flex: none; }
+
+/* 空态与骨架 */
+.empty { padding: 10px 2px; font-size: 12.5px; color: var(--t3); }
+.empty b { color: var(--t2); font-weight: 600; }
+.sk { display: block; height: 12px; border-radius: 4px; background: linear-gradient(90deg, var(--surface-3) 25%, var(--surface-2) 37%, var(--surface-3) 63%); background-size: 400% 100%; animation: sh 1.3s ease-in-out infinite; }
+.sk.v { height: 28px; width: 62%; margin: 6px 0; }
+.sk.s { width: 40%; margin-top: 7px; }
+@keyframes sh { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+/* 门禁 / 登录 */
+.gate { display: grid; place-items: center; padding: var(--s7) 0; }
+.gate-c { width: min(420px, 100%); background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-2); padding: var(--s6); }
+.gate-c h2 { font-size: 18px; font-weight: 700; }
+.gate-c p { margin-top: 6px; font-size: 13px; color: var(--t2); line-height: 1.6; }
+.fld { display: block; margin-top: var(--s4); }
+.fld span { display: block; font-size: 12px; font-weight: 600; color: var(--t2); margin-bottom: 5px; }
+.fld input { width: 100%; height: 38px; padding: 0 11px; border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--surface-2); }
+.fld input:focus { outline: none; border-color: var(--b); box-shadow: var(--ring); }
+.gate-err { margin-top: var(--s3); font-size: 12.5px; color: var(--crit); background: var(--crit-tint); border: 1px solid var(--crit); border-radius: var(--r1); padding: 8px 10px; }
+.gate-ft { margin-top: var(--s5); display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; padding: 0 16px; border-radius: var(--r2); font-size: 13.5px; font-weight: 600; border: 1px solid var(--line-2); color: var(--t2); transition: background .14s, border-color .14s, color .14s; }
+.btn:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+.btn.primary { background: var(--b); border-color: var(--b); color: var(--b-on); }
+.btn.primary:hover { background: var(--b-ink); border-color: var(--b-ink); color: #fff; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* QC 下钻 —— 样式已移到共用的 /MsPortal/assets/qcDrill.css（2026-09-23）
+   ----------------------------------------------------------------------------
+   原来是右侧滑入抽屉：.scrim + .drawer(+.dr-head/.dr-body/.dr-foot/table.grid)。
+   现在改成与 /MsPortal/ 逐类一致的居中弹窗 .qc-mask/.qc-modal/…，样式源自
+   两边共引的 /MsPortal/assets/qcDrill.css —— 一份文件、一套类名，
+   两个门户的下钻弹窗因此结构/间距/字号/交互完全相同。
+
+   ⚠️ 下面这段是**故意留下的**：本文件里 .drawer/.dr-* 已无任何引用点
+      （index.html 的抽屉骨架已换成 .qc-*），删掉也不影响显示。保留是因为
+      「改版前长什么样」是排查「用户说下钻弹窗变了」时的第一手依据，
+      且 .pager 一条仍被别处复用，单独摘容易漏。
+      新代码不要再往 .drawer / .dr-* 上挂东西。 */
+.scrim { position: fixed; inset: 0; z-index: 50; background: var(--scrim); backdrop-filter: blur(2px); }
+.drawer {
+  position: fixed; z-index: 51; top: 0; right: 0; bottom: 0; width: min(880px, 94vw);
+  display: flex; flex-direction: column; background: var(--surface);
+  border-left: 1px solid var(--line-2); box-shadow: var(--sh-3);
+  transform: translateX(101%); transition: transform .22s cubic-bezier(.2, .8, .2, 1);
+}
+.drawer.open { transform: none; }
+.dr-head { display: flex; align-items: flex-start; gap: var(--s4); padding: var(--s4) var(--s5); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.dr-t { flex: 1 1 240px; min-width: 0; }
+.dr-t h3 { font-size: 16px; font-weight: 700; }
+.dr-sub { margin-top: 3px; font: 500 11.5px/1.5 var(--mono); color: var(--t3); }
+.dr-tools { display: flex; align-items: center; gap: var(--s2); }
+.dr-tools input { height: 30px; width: min(260px, 46vw); padding: 0 10px; border: 1px solid var(--line-2); border-radius: var(--r1); background: var(--surface-2); font-size: 13px; }
+.dr-tools input:focus { outline: none; border-color: var(--b); box-shadow: var(--ring); }
+.dr-body { flex: 1; overflow: auto; padding: var(--s4) var(--s5); }
+.dr-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s3) var(--s5); border-top: 1px solid var(--line); font: 500 12px/1 var(--mono); color: var(--t2); }
+.pager { display: inline-flex; align-items: center; gap: var(--s2); }
+.dr-empty { padding: var(--s6); text-align: center; color: var(--t3); font-size: 13px; }
+
+/* 轻提示（复制升级表等动作用）：fixed 居中偏下，不抢焦点、2s 后由 JS 收起。
+   z-index 压在所有浮层之上（.qc-mask 200 / .um-mask 210）：用户管理弹窗里
+   「按看板候选项锁住」这类提示就是从弹窗内部 toast 出来的，被遮罩盖住等于没说。 */
+.toast {
+  position: fixed; z-index: 260; left: 50%; bottom: 26px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px 15px; border-radius: 999px;
+  background: var(--toast-bg); color: var(--toast-fg); box-shadow: var(--sh-3);
+  font-size: 13px; font-weight: 600;
+  animation: toast-in .18s cubic-bezier(.2, .8, .2, 1);
+}
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* ---------------------------------------------------------------- foot -- */
+.foot { border-top: 1px solid var(--line); background: var(--surface); margin-top: var(--s6); }
+.foot-in { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); flex-wrap: wrap; padding-block: 12px; font-size: 12px; color: var(--t3); }
+.foot-r { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.foot-r .ok { color: var(--ok); display: inline-flex; align-items: center; gap: 5px; }
+.foot-r .ver { font-family: var(--mono); }
+
+/* ------------------------------------------------------------ responsive -- */
+/* ⚠️ v1：这里原本有一整段 @media (min-width: 1600px)，作用是让 .stage 在宽屏下变成
+   「升级带整宽 / 焦点区 | 页签」两行两栏，并用绝对定位做「右栏高度 = 左栏高度」的
+   等高契约（#views { position:absolute } 让右栏不参与行高计算）。
+   L0 焦点区与 L1 页签面板本次都去掉了、.stage 这一层也已拆掉，
+   这些选择器（.stage / #l0 / .vcol / #views / .view-1）**当前一个都不会命中**，
+   整段因此删掉 —— 留着它只会让人以为 1600px 还有一套并排布局。
+   宽屏下现在的实际版式：单列，地图 + 报告文件那一行按 .maprow 的**等宽 1:1** 分
+   （2026-09-24 用户要求各占一半；原先是 1.8fr : 1fr）。
+   恢复焦点区 / 页签时，这段需要从 /olbrportal/assets/olbr.css 抄回来。 */
+@media (max-width: 1240px) {
+  .canvas { min-height: 420px; }
+}
+@media (max-width: 1000px) {
+  /* v1：地图已经不在 #l0 里，这里不再需要为「左栏 + 地图」两栏收窄 ——
+     #l0 现在只装 .l0-col 一块，任何宽度下都是整宽。
+     2026-09-24：原先这里还有一条 `.tagline { display: none; }` 给顶栏副标题用，
+     顶栏换 MsPortal 结构后，副标题的窄屏收起已由 masthead.css 的
+     @media (max-width: 1339px) 接管（`.mp-tagline`），故本条一并删除。 */
+}
+@media (max-width: 820px) {
+  /* 2026-09-24：原先这里有三条顶栏规则 —— `:root{--mast-h:58px}`、`.globe{display:none}`、
+     `.clock{display:none}`、`.title .t-tail{display:none}`。顶栏换 MsPortal 结构后，
+     高度改由 --mp-mast-h 驱动，地球/时钟/标题尾词的窄屏处理全部在 masthead.css 的
+     767px / 1339px 断点里，这里的同名规则已无对应 DOM，全部删除。 */
+  .qc-live { display: none; }      /* 窄屏放不下「更新于 / 下次」这一整串，卡上的时间戳还在 */
+  main { gap: var(--s3); }
+  .canvas { min-height: 340px; }
+  .rail-in { grid-template-columns: minmax(0, 1fr); row-gap: 6px; }
+  .rail-in > .q { grid-area: 1 / 1; }
+  .rail-in > .rail-end { grid-area: 2 / 1; justify-self: start; }
+  .rail-in > .chips { grid-area: 3 / 1 / 4 / 2; }
+  /* 窄屏：卡片流本身就会掉到一列，这里只把内边距收一档 */
+  .card { padding: 10px 11px; }
+  .gb--t > span { display: none; }   /* 地图工具条的「刷新 / 新窗口」退回纯图标 */
+  .gb--t { padding-inline: 8px; }
+}
+@media (max-width: 640px) {
+  .band { padding: var(--s4); }
+  /* v1：地图高度的窄屏档已上移到 .maprow 那条 @media（改 --maprow-h）。
+     原来这里写的是 .map-slot .canvas { min-height: 300px } —— 只改地图那一侧、
+     不改报告文件，会把两块拉成不等高，正好破坏用户"高度保持一致"的要求，故删除。 */
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+@media print {
+  .rail, .esc-body, .drawer, .scrim { display: none !important; }
+  .qc-mask { display: none !important; }   /* 下钻弹窗同样不进纸质稿 */
+  .um-mask { display: none !important; }
+}
+
+/* ============================================================================
+   QC 下钻弹窗 —— 本页的主题映射（2026-09-23 加）
+   ----------------------------------------------------------------------------
+   /MsPortal/assets/qcDrill.css 是**两边共用**的下钻弹窗外壳，它内部只用一套自有的
+   --qc-* 变量，不认任何一方的私有名。本区块负责把本页的 --surface/--line/--t1…
+   灌进那套变量。于是：
+
+     · 结构 / 间距 / 字号 / 交互 —— 由同一个 qcDrill.css 决定 → 与 MsPortal 完全一致
+     · 配色 / 深浅色          —— 由这里决定                → 各随各的主题
+
+   为什么不直接把本页变量塞进 qcDrill.css：MsPortal 引它时 --surface/--line 全是
+   未定义，弹窗会变成一堆透明框。分开写、谁引用谁映射，缺映射也只是退回
+   qcDrill.css 里的兜底默认色，不会崩。
+
+   映射对位（照抄本文件顶部 tokens 注释的口径）：
+     --surface=--mp-surface-flat  --line=--mp-border-soft  --line-2=--mp-border
+     --b=--mp-brand  --b-ink=--mp-brand-text  --crit=--mp-sev-critical
+   深浅色不用在这里各写一遍 —— 下面全是 var() 引用，html.dark 一翻，弹窗跟着翻。
+   只有「表头 / 首列吸附」两处需要额外压深，故单独补 html.dark 三条。
+
+   ⚠️ 维护约定：qcDrill.css 里新增任何 --qc-* 变量，这里与
+      /MsPortal/assets/qcDrill.theme.css 都要补对应映射行。
+   ========================================================================== */
+:root {
+  --qc-scrim: var(--scrim);
+  --qc-surface: var(--surface);
+  --qc-surface-2: var(--surface-2);
+  --qc-surface-3: var(--surface-3);
+  --qc-border: var(--line-2);
+  --qc-border-soft: var(--line);
+  --qc-text: var(--t1);
+  --qc-text-2: var(--t2);
+  --qc-text-3: var(--t3);
+  --qc-heading: var(--t1);       /* 本页没有独立的标题色，用主文字色 */
+  --qc-brand: var(--b);
+  --qc-danger: var(--crit);
+  --qc-hover-row: var(--hover);
+  --qc-shadow: var(--sh-3);
+  --qc-focus-ring: var(--ring);
+}
+
+/* 表头与首列吸附需要比正文再深一档，不能靠变量翻档解决 */
+html.dark .qc-table th { background: var(--surface-3); }
+html.dark .qc-table th.qc-sticky-col { background: var(--surface-3); }
+html.dark .qc-table td.qc-sticky-col { background: var(--surface); }
+html.dark .qc-table tbody tr:hover td.qc-sticky-col { background: var(--surface-3); }
+
+/* ---------------------------------------------------------------------------
+   ⚠️ 深色必须**再映射一遍**，不能只靠上面那块 :root 自动跟着翻 —— 这是实测踩到的坑。
+
+   自定义属性在**声明它的那个元素**上完成替换。上面 :root 里的
+   `--qc-surface: var(--surface)` 是在 :root 上求值的；而深色档
+   `html.dark { --surface: #071027 }` 声明在 html 元素上，特异性（0,1,1）高于
+   :root（0,1,0），于是 html 上的 --surface 翻成了深色，但 :root 上那条
+   --qc-surface 早已按浅色 #ffffff 定死 —— 结果 html.dark 下弹窗是
+   **白底 + 浅色字**（内容几乎看不见）。实测确认过：修之前 olbrportal 深色下
+   .qc-modal 的 background-color 是 rgb(255,255,255)。
+
+   修法就是在 html.dark 里把 --qc-* 重新指一次，让它在 html 这一层上、
+   对着已经翻过档的 --surface/--t1… 重新求值。下面这些行看着冗余，
+   删掉就会复现上面的白底 bug。 */
+html.dark {
+  --qc-scrim: var(--scrim);
+  --qc-surface: var(--surface);
+  --qc-surface-2: var(--surface-2);
+  --qc-surface-3: var(--surface-3);
+  --qc-border: var(--line-2);
+  --qc-border-soft: var(--line);
+  --qc-text: var(--t1);
+  --qc-text-2: var(--t2);
+  --qc-text-3: var(--t3);
+  --qc-heading: var(--t1);
+  --qc-brand: var(--b);
+  --qc-danger: var(--crit);
+  --qc-hover-row: var(--hover);
+  --qc-shadow: var(--sh-3);
+  --qc-focus-ring: var(--ring);
+}
+
+/* ============================================================================
+   用户管理弹窗（2026-09-22 加）
+   ----------------------------------------------------------------------------
+   骨架在 index.html 的 #umMask，表体 / 表单 / 页面配置面板由 olbr.js 的
+   renderUserMgmt() 整块重画，所以这里只有内容样式，没有依赖 JS 的类。
+
+   与 /MsPortal/ 那份的关系：照搬它的 .um-* 规则结构，但把 --mp-* 换成本页令牌
+   （--surface / --line / --t1… / --b / --crit / --warn），因为本页从不引 portal.css。
+   两处因此省掉了，不是漏写：
+     · 每个组件的 [hidden] 补丁 —— 文件顶部已有全局 [hidden]{display:none!important}
+     · html.dark 的重复规则      —— 深浅色只改令牌值，组件不感知
+   按钮刻意复用本页的 .gb 外壳 + .um-primary / .um-danger 两个修饰，
+   不另起一套按钮体系（延续「卡片只有两种、强调色只有两个色相」那条口径）。
+   ========================================================================== */
+.um-mask {
+  position: fixed; inset: 0; z-index: 210;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: var(--scrim);
+}
+.um-modal {
+  width: 100%; max-width: min(1120px, 96vw); max-height: 88vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--line-2);
+  border-radius: var(--r3); box-shadow: var(--sh-3);
+}
+.um-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line-2); flex: 0 0 auto;
+}
+.um-head-txt { min-width: 0; }
+.um-head h3 { margin: 0; font-size: 16px; font-weight: 800; color: var(--t1); }
+.um-sub { margin: 2px 0 0; font-size: 12.5px; color: var(--t3); }
+.um-head-actions { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.um-head-actions a.gb { text-decoration: none; }
+
+.um-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3) 16px;
+}
+/* 底栏固定在滚动区之外：表体很长时「保存页面配置」不能跟着滚出视野 */
+.um-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px; border-top: 1px solid var(--line-2);
+  background: var(--surface-2); flex: 0 0 auto;
+}
+.um-foot-who { font-size: 13px; font-weight: 700; color: var(--t1); }
+.um-foot-actions { display: inline-flex; align-items: center; gap: 8px; }
+
+/* ---- 按钮的两个强调档（外壳仍是 .gb）---- */
+.gb.um-primary { border-color: var(--b); background: var(--b); color: var(--b-on); }
+.gb.um-primary:hover { border-color: var(--b); background: var(--b); filter: brightness(.93); color: var(--b-on); }
+.gb.um-primary:disabled { filter: none; }
+.gb.um-danger:hover { border-color: var(--crit); background: var(--crit-tint); color: var(--crit); }
+
+/* ---- 提示条 ---- */
+.um-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: var(--r2); font-size: 13px;
+  border: 1px solid var(--line-2);
+}
+.um-banner.is-ok { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
+.um-banner.is-err { background: var(--crit-tint); border-color: var(--crit); color: var(--crit); }
+
+/* ---- 存储位置条（后端类型 / 备份数 / 最后写入 / 落盘路径）---- */
+.um-storage {
+  display: flex; gap: 8px; padding: 9px 12px; border-radius: var(--r2);
+  border: 1px solid var(--line); background: var(--surface-2);
+  font-size: 12px; color: var(--t3);
+}
+.um-storage > i { font-size: 15px; color: var(--b-ink); margin-top: 2px; }
+.um-storage-txt { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.um-storage-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.um-storage-row b { color: var(--t2); }
+.um-tag {
+  padding: 1px 6px; border-radius: 5px; font-weight: 600;
+  background: var(--b-tint); color: var(--b-ink);
+}
+.um-warn { color: var(--warn); display: inline-flex; align-items: center; gap: 5px; }
+
+/* ---- 卡片式分区（待审批 / 新增用户 / 用户表）---- */
+.um-box {
+  border: 1px solid var(--line-2); border-radius: var(--r3);
+  background: var(--surface); overflow: hidden;
+}
+.um-box-warn { border-color: var(--warn); }
+.um-box-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; font-size: 13px; font-weight: 700;
+  background: var(--surface-2); border-bottom: 1px solid var(--line);
+  color: var(--t1);
+}
+.um-box-warn .um-box-head { background: var(--warn-tint); color: var(--warn); }
+.um-pill {
+  margin-left: auto; padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; background: var(--warn); color: var(--surface);
+}
+
+/* ---- 表格 ---- */
+.um-scroll { overflow-x: auto; }
+.um-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.um-table th {
+  text-align: left; white-space: nowrap; padding: 7px 10px;
+  font-size: 12.5px; font-weight: 600; color: var(--t2);
+  /* 粘不住也不重叠，但半透明档在深色下会透出滚动内容，所以用实色档 */
+  background: var(--surface-2-solid); border-bottom: 1px solid var(--line-2);
+}
+.um-table td {
+  padding: 7px 10px; vertical-align: middle; color: var(--t2);
+  border-bottom: 1px solid var(--line);
+}
+.um-table tbody tr:hover > td { background: var(--hover); }
+.um-table tbody tr.is-open > td { background: var(--b-tint); }
+.um-table .um-right { text-align: right; }
+.um-table select {
+  padding: 4px 6px; font-size: 12.5px; font-family: inherit;
+  border: 1px solid var(--line-2); border-radius: 7px;
+  background: var(--surface); color: var(--t1);
+}
+.um-strong { font-weight: 600; color: var(--t1); }
+.um-dim { color: var(--t3); }
+.um-mono { font-family: var(--mono); }
+.um-ellipsis { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.um-empty { padding: 18px 10px; text-align: center; color: var(--t3); }
+
+.um-self {
+  margin-left: 6px; padding: 1px 6px; font-size: 11px; border-radius: 999px;
+  background: var(--b-tint); color: var(--b-ink); border: 1px solid var(--b-line);
+}
+.um-role {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; font-size: 12px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: var(--surface-2); color: var(--t2);
+}
+.um-role.is-admin {
+  border-color: var(--b-line); background: var(--b-tint);
+  color: var(--b-ink); font-weight: 600;
+}
+
+/* ---- 行内操作按钮 ---- */
+.um-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.um-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; font-size: 15px; cursor: pointer;
+  border: 1px solid var(--line-2); border-radius: var(--r1);
+  background: var(--surface); color: var(--t2);
+}
+.um-icon-btn:hover, .um-icon-btn.is-on {
+  border-color: var(--b-line); background: var(--b-tint); color: var(--b-ink);
+}
+.um-icon-btn.is-danger:hover { border-color: var(--crit); background: var(--crit-tint); color: var(--crit); }
+.um-icon-btn:disabled { opacity: .42; cursor: not-allowed; }
+.um-icon-btn:disabled:hover { border-color: var(--line-2); background: var(--surface); color: var(--t2); }
+
+/* ---- 表单控件的焦点态（三处输入共用一条，避免各写一份）---- */
+.um-add-row input, .um-add-row select, .um-inline input, .um-field select {
+  min-width: 0; font-family: inherit;
+  border: 1px solid var(--line-2); border-radius: var(--r2);
+  background: var(--surface); color: var(--t1);
+}
+.um-add-row input:focus, .um-add-row select:focus,
+.um-inline input:focus, .um-field select:focus {
+  outline: none; border-color: var(--b-line); box-shadow: var(--ring);
+}
+
+/* ---- 新增用户 ---- */
+.um-add-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+.um-add-row input, .um-add-row select { padding: 7px 10px; font-size: 13.5px; }
+.um-add-row input { flex: 1 1 200px; }
+
+/* ---- 行内重置密码 ---- */
+.um-inline-row > td { background: var(--surface-2); }
+.um-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.um-inline input { flex: 1 1 220px; padding: 6px 9px; font-size: 13.5px; }
+
+/* ---- 页面配置面板（落地 + 可见范围）---- */
+.um-profile-row > td { padding: 0; background: var(--surface-2); }
+.um-profile { display: flex; flex-direction: column; gap: 10px; padding: var(--s3); }
+.um-profile-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--t1); }
+.um-profile-head b { font-size: 14px; }
+.um-field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.um-field-col { align-items: flex-start; }
+.um-field select { max-width: 100%; padding: 6px 9px; font-size: 13px; }
+.um-label { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--t2); }
+.um-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--t2); cursor: pointer; }
+.um-check input { margin: 0; accent-color: var(--b); }
+
+.um-groups { display: flex; flex-direction: column; gap: 10px; }
+.um-group-block { display: flex; flex-direction: column; gap: 6px; }
+.um-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.um-chip {
+  padding: 3px 10px; font-size: 12.5px; cursor: pointer;
+  border: 1px solid var(--line-2); border-radius: 999px;
+  background: var(--surface); color: var(--t2);
+}
+.um-chip:hover { border-color: var(--b-line); color: var(--b-ink); }
+/* 全局目录读不到时「按看板」候选项被锁住（见 olbr.js umCardsAreShared）：
+   明确画成不可点，别让人以为只是没生效。 */
+.um-chip[disabled] { opacity: .45; cursor: not-allowed; }
+.um-chip[disabled]:hover { border-color: var(--line-2); color: var(--t2); }
+.um-chip.is-on {
+  border-color: var(--b-line); background: var(--b-tint);
+  color: var(--b-ink); font-weight: 600;
+}
+.um-hint { margin: 0; font-size: 12px; line-height: 1.55; }
+
+/* 窄屏：副标题与跳转按钮让位给表格本身，别把弹窗顶宽 */
+@media (max-width: 767px) {
+  .um-mask { padding: 10px; }
+  .um-sub { display: none; }
+  .um-head-actions a.gb { display: none; }
+}
+

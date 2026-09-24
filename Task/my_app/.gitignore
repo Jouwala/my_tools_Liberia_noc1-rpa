@@ -39,6 +39,10 @@
 # PM 性能数据下载缓存（zip+xml 成对，19 万量级，每次运行可重建）
 /backend/services/cn_ems/_pmcache/
 
+# TT 分析技能正文的本地缓存：openwebui_client.get_tt_skill_cached() 每次连上内网就重写，
+# 缺文件时回退到代码里的内置提示词，所以它不是源码，也不该随仓库分发。
+/backend/services/eflow_rules/tt_proivity_skill.json
+
 # SQLite 边车文件（根规则的 *.wal 匹配不到 "xxx.sqlite3-wal" 这种连字符命名）
 *-wal
 *-shm
@@ -75,3 +79,17 @@ _probe_file.txt
 
 # 根目录一次性探针脚本禁止入库（2026-09-18 清理：98 个误随 2177afa 入库的 _tmp_* 已归档到 _myapp_trash_20260918/）
 /_tmp_*
+
+# 根目录一次性探针与转储（2026-09-24 扩到全部 _ 前缀：_p.py / _s.py / _slice1.txt
+# 都是这一类）。写探针请落到 /TMP/，不要留在 my_app 根目录。
+/_*
+
+# ⚠ 刻意**没有**写成 **/_* ：本仓库带下划线的子目录文件里有真源码，
+# 用全局 _ 规则会把它们静默忽略掉：
+#   backend/services/_playwright_utils.py   —— site_outage_service.py:22  import 它
+#   backend/services/_gen_native_catalog.py —— native_catalog.py 的生成器
+#   frontend/src/pages/_TemplatePage.tsx    —— AGENTS.md 三.2 规定的功能页模板
+# 这三个（及同类）必须保持在版本库里。
+
+# Office 崩溃恢复残留（历史上混进过 _fe_dist）
+*.rpltmp

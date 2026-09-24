@@ -31,6 +31,10 @@ PNG 截图，都不属于本页数据源 —— 汇总工作簿的文件名是�
 --------
 - Summary-Current：表头下第 1 行是 ``Total`` 行（口径由生成端保证），
   卡片上的入/出/库存/差异/补库量直接取它；物料种类 = Total 行之外的行数。
+  ``Outbound Qty`` 右侧另有生成端拆出的 ``Outbound Site Qty``（站点出库）与
+  ``Outbound Repair Qty``（报修出库，Outbound Type = Repair Outbound），
+  二者之和恒等于 ``Outbound Qty``；本服务按表头名动态读列，无需为它们写专门的代码
+  （生成端口径见 ``sp_report_gen/gernarate_sp_report.build_summary``）。
 - 告警分布：``Alert Level`` ∈ {Urgent Replenish, Replenish, Excess}；
   ``Remark`` ∈ {Failure Rate, Actual Consumption}。
 - 明细 sheet 的数量合计：Inbound=Inbound Qty、Outbound=Outbound Qty、

@@ -226,7 +226,7 @@ Excel（openpyxl 回读 sheet 名与表头、`_数据质量` 表）与 sqlite �
 | 时机 | 任务 | 行为 |
 |---|---|---|
 | 每月 1 日 | `olib_soc_vmax_report` | 月报跑完顺带把整月日 KPI 入库（`persist.write_kpi=true`） |
-| 每天 06:20 | `olib_soc_kpi_daily_sync` | 只跑看板需要的 7 个块，**只补库里缺的日期 + 重取最新 1 天**（默认回看 7 天），不出 Excel |
+| 每天 06:20 | `olib_soc_kpi_daily_sync` | 只跑看板需要的 7 个块，**只补库里缺的日期 + 关键指标为 NULL 的残缺日 + 重取最新 1 天**（默认回看 7 天），不出 Excel |
 
 > 为什么是 06:20（服务器 UTC）而不是 00:20：数仓「前一天」的分区不一定在零点后立刻完成
 > （实测当天分区在日内持续累积），取到未完成的一天会把偏低的日值永久写进库。放在早班
@@ -236,6 +236,18 @@ Excel（openpyxl 回读 sheet 名与表头、`_数据质量` 表）与 sqlite �
 
 每日任务是**幂等自愈**的：某天数仓分区晚到/同步失败，第二天会自动补上；库里不缺就零查询直接返回
 （实测 `refresh_last_days=0` 时第二次调用 `up_to_date`、0 次 SQL）。手动命令：
+
+「缺口」有**两类**，只看第一类会漏事故（2026-09-24 加固）：
+
+| 类型 | 判定 | 说明 |
+|---|---|---|
+| 整天没有行 | `gap_days()` | 任务被跳过 / 数仓分区晚到 |
+| 有行但关键指标为 NULL | `incomplete_days()` | 单个块临时取数失败仍写入一行，那列为 NULL |
+
+第二类的真实事故：2026-09-18~23 的 `active_user` 连丢 6 天，看板「Active Users」停在 17 号；
+当时 `blocks_ok` 已从 7 掉到 6 但**不报错**，`gap_days` 也认为这天不缺口，故 NULL 永久残留。
+判定列见 `REQUIRED_COLUMNS`（`traffic_tb` / `active_user` / `video_tb`）。
+**排查手法：`SELECT day, blocks_ok FROM daily_kpi ORDER BY day DESC`，`blocks_ok` 小于 7 的那天就是残缺日。**
 
 ```bash
 python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi              # 补最近 7 天缺口

@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import {
   ReloadOutlined, DownloadOutlined, SearchOutlined, InfoCircleOutlined, CloseCircleOutlined,
-  WarningOutlined, RiseOutlined, FallOutlined,
+  WarningOutlined, RiseOutlined, FallOutlined, SettingOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import {
@@ -14,6 +14,7 @@ import {
 import { useI18n, numLocale } from '../i18n'
 import { useTheme, WH } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
+import ColumnPicker from '../components/ColumnPicker'
 import { exportReport, safeFileName, type CellValue } from '../utils/excelReport'
 
 const { Text } = Typography
@@ -127,8 +128,10 @@ interface FilterField {
 // 按 sheet 声明「优先展示」的列名，实际存在的才会显示（两种报表列集略有差异）。
 const DISPLAY_COLUMNS: Record<string, string[]> = {
   'Summary-Current': [
-    'Material Name', 'Domain', 'Inbound Qty', 'Outbound Qty', 'Inventory Qty',
-    'Difference', 'Avg Monthly Consumption', 'Safety Stock', 'Remark',
+    'Material Name', 'Domain', 'Inbound Qty', 'Outbound Qty',
+    // Outbound 拆分（2026-09-24 起由生成端产出，见 gernarate_sp_report.build_summary）
+    'Outbound Site Qty', 'Outbound Repair Qty',
+    'Inventory Qty', 'Difference', 'Avg Monthly Consumption', 'Safety Stock', 'Remark',
     'Replenishment Qty', 'Alert Level',
   ],
   Inbound: [
@@ -177,6 +180,40 @@ const ALERT_COLOR: Record<string, string> = {
 
 const EXPORT_MAX_ROWS = 5000
 const SEARCH_DEBOUNCE_MS = 350
+/** 明细表默认每页行数（用户可在分页器上改） */
+const DEFAULT_PAGE_SIZE = 20
+
+// ==================== 列显示偏好持久化 ====================
+// 用户勾选的可见列按「kind + sheet」分别存在 localStorage：备件与耗材列集不同、
+// 5 张 sheet 列集也不同，共用一个 key 会互相覆盖。
+// 只存列名数组；读回时按当前真实列集过滤 —— 报表列一旦随上游变更，
+// 过期列名会被静默丢弃，不会把表格渲染成空白（此时退回默认列）。
+const COLS_STORAGE_PREFIX = 'myapp_sp_report_cols_v1'
+
+function storageKey(kind: SpReportKind, sheet: string): string {
+  return `${COLS_STORAGE_PREFIX}:${kind}:${sheet}`
+}
+
+function loadVisibleCols(kind: SpReportKind, sheet: string, available: string[]): string[] | null {
+  try {
+    const raw = localStorage.getItem(storageKey(kind, sheet))
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    const kept = parsed.filter((c): c is string => typeof c === 'string' && available.includes(c))
+    // 全部列名都已失效（上游改了列名）时视为「未设置」，退回默认列
+    return kept.length ? kept : null
+  } catch {
+    return null
+  }
+}
+
+function saveVisibleCols(kind: SpReportKind, sheet: string, cols: string[] | null): void {
+  try {
+    if (cols === null) localStorage.removeItem(storageKey(kind, sheet))
+    else localStorage.setItem(storageKey(kind, sheet), JSON.stringify(cols))
+  } catch { /* 隐私模式下 localStorage 不可写，忽略即可，不影响本次会话 */ }
+}
 
 const num = (v: unknown): number => {
   const n = typeof v === 'number' ? v : Number(v)
@@ -248,8 +285,12 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
   const [sort, setSort] = useState('')
   const [order, setOrder] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(50)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [reloadTick, setReloadTick] = useState(0)
+
+  // 用户自定义的可见列（null = 用页面默认的「优先展示列」）
+  const [visibleCols, setVisibleCols] = useState<string[] | null>(null)
+  const [colPickerOpen, setColPickerOpen] = useState(false)
 
   const [drill, setDrill] = useState<{ row: Row; x: number; y: number } | null>(null)
   const [exporting, setExporting] = useState(false)
@@ -362,13 +403,53 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
 
   // ---------- 表格列 ----------
   const numericSet = useMemo(() => new Set(rowsResp?.numeric_columns ?? []), [rowsResp])
-  const displayColumns = useMemo(() => {
+  // 依赖用「列名拼成的字符串」而不是数组引用：rowsResp 每次请求都会换新对象，
+  // 直接用数组做依赖会让下面的同步 effect 每轮渲染都重跑，把用户的选择冲掉。
+  const availableKey = useMemo(() => (rowsResp?.columns ?? []).join('\u0001'), [rowsResp])
+  const availableColumns = useMemo(
+    () => (availableKey ? availableKey.split('\u0001') : []),
+    [availableKey],
+  )
+
+  // 页面默认列：按 sheet 声明的「优先展示列」，实际存在的才显示；
+  // 一个都没命中（例如上游列名变了）时退回全列，避免表格空白。
+  const defaultColumns = useMemo(() => {
     const preferred = DISPLAY_COLUMNS[activeSheet] ?? []
-    const available = rowsResp?.columns ?? []
-    const kept = preferred.filter(c => available.includes(c))
-    // 偏好列一个都没命中（例如列名变了）时退回全列，避免表格空白
-    return kept.length ? kept : available
-  }, [activeSheet, rowsResp])
+    const kept = preferred.filter(c => availableColumns.includes(c))
+    return kept.length ? kept : availableColumns
+  }, [activeSheet, availableColumns])
+
+  const displayColumns = useMemo(() => {
+    if (!visibleCols) return defaultColumns
+    // 兜底：偏好列在当前 sheet 全部失效时回到默认列（避免空表）
+    const kept = visibleCols.filter(c => availableColumns.includes(c))
+    return kept.length ? kept : defaultColumns
+  }, [visibleCols, defaultColumns, availableColumns])
+
+  // 切 sheet / 切 kind / 首次拿到列集：从 localStorage 读回该表上次的列选择
+  useEffect(() => {
+    if (!activeSheet || !availableColumns.length) {
+      setVisibleCols(null)
+      return
+    }
+    setVisibleCols(loadVisibleCols(kind, activeSheet, availableColumns))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在「表或列集」变化时重读，
+    //   availableColumns 由 availableKey 派生，二者等价
+  }, [kind, activeSheet, availableKey])
+
+  const applyCols = useCallback((cols: string[]) => {
+    // 全选等价于「未自定义」，清掉存储，报表增列时可自动带上新列
+    const next = cols.length >= availableColumns.length ? null : cols
+    setVisibleCols(next)
+    saveVisibleCols(kind, activeSheet, next)
+    setColPickerOpen(false)
+  }, [availableColumns, kind, activeSheet])
+
+  const resetCols = useCallback(() => {
+    setVisibleCols(null)
+    saveVisibleCols(kind, activeSheet, null)
+    setColPickerOpen(false)
+  }, [kind, activeSheet])
 
   const columns = useMemo<ColumnsType<Row>>(() => displayColumns.map(name => ({
     title: name,
@@ -822,6 +903,20 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
                   {t('spRep.reset')}
                 </Button>
               )}
+              <Tooltip title={t('spRep.cols.tip')}>
+                <Button
+                  icon={<SettingOutlined />}
+                  disabled={!availableColumns.length}
+                  onClick={() => setColPickerOpen(true)}
+                >
+                  {t('spRep.cols.button')}
+                </Button>
+              </Tooltip>
+              {visibleCols && (
+                <Tag color="orange">
+                  {t('table.visibleColsTag', { n: displayColumns.length, m: availableColumns.length })}
+                </Tag>
+              )}
               {activeStat?.qty_column && (
                 <Tooltip title={t('spRep.qtyTip')}>
                   <Tag color="cyan" style={{ marginInlineStart: 0 }}>
@@ -896,6 +991,19 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
           </div>
         )}
       </Card>
+
+      {/* ==================== 列显示控制（用户自定义显示哪些列） ==================== */}
+      {/* key 绑定 kind+sheet：切表时强制重挂载，保证草稿以新表的列为准 */}
+      <ColumnPicker
+        key={`${kind}:${activeSheet}`}
+        open={colPickerOpen}
+        columns={availableColumns}
+        value={displayColumns}
+        title={`${t('spRep.cols.button')} - ${t(SHEET_LABEL_KEY[activeSheet] || activeSheet)}`}
+        onApply={applyCols}
+        onCancel={() => setColPickerOpen(false)}
+        onResetDefault={resetCols}
+      />
 
       {/* ==================== 行详情 ==================== */}
       <DraggableClickModal

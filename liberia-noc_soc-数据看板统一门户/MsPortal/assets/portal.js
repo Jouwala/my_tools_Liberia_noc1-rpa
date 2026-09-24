@@ -4487,6 +4487,16 @@
 
   /* ---------------------------------------------------------- 渲染 -- */
 
+  /* 后端给的 storage location 是服务器绝对路径（形如 D:\...\auth-data\portal-auth.db），
+     原来整条直接上屏还挂进 title：一是把部署目录结构暴露给所有能打开该面板的人，
+     二是路径里的中文目录名会在英文模式下漏出中文。只保留文件名 —— 够判断「存在哪个库」，
+     不够反推机器上的目录。 */
+  function storageNameOf(loc) {
+    var s = String(loc || '');
+    var i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+    return i >= 0 ? s.slice(i + 1) : s;
+  }
+
   function umStorageHtml() {
     var st = state.um.storage;
     if (!st) return '';
@@ -4502,7 +4512,7 @@
     return '<div class="um-storage" data-um="storage">' + ico('table', 'um-storage-ico') +
       '<div class="um-storage-txt">' +
         '<div class="um-storage-row"><b>' + esc(t('um.storage')) + '</b>' + bits.join('') + '</div>' +
-        '<div class="um-mono" title="' + esc(st.location) + '">' + esc(st.location) + '</div>' +
+        '<div class="um-mono" title="' + esc(storageNameOf(st.location)) + '">' + esc(storageNameOf(st.location)) + '</div>' +
       '</div></div>';
   }
 

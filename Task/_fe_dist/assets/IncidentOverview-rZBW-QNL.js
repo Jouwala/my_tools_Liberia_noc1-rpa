@@ -1,1 +1,0 @@
-import{r as e}from"./i18n-Bbg7i3GJ.js";import{S as t}from"./react-vendor-Dxcxxxhu.js";import{t as n}from"./LegacyToolFrame-BSJtAtlt.js";var r=t();function i(){let{t}=e();return(0,r.jsx)(n,{file:`incident-overview.html`,title:t(`shell.incidentOverview`)})}export{i as default};

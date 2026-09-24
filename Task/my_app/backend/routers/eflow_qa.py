@@ -676,15 +676,21 @@ def tt_postmortem_noc(
     month: Optional[str] = Query(None, description="YYYY-MM，默认当月"),
     limit: int = Query(20000, ge=1, le=50000, description="单人最大样本数"),
     noc: Optional[str] = Query(None, description="NOC 操作人模糊过滤"),
+    owner: Optional[str] = Query(
+        None, description="承接方：IPT（第三方，按设计不建 WO）/ ZTE（自维）；不传 = 全部"),
 ):
     """NOC 操作人分析报告（参考 FME Ranking 页面结构）。
 
     limit 是该人本月的取样上限，必须显著大于单人月单量（实测单人月峰值约 2000 单）。
     前端拉到 10000 正是为了让 `LIMIT` 不生效，否则表格的「处理总数」会被静默截断，
     且与下钻行数对不上。上限放宽到 50000 以覆盖整月全量。
+
+    owner 用于把「推到第三方（IPT）」的单与「ZTE 自维」的单分开统计 ——
+    第三方单按设计不建 WO，混在一起会污染错位率/夜班/SLA 这些自维指标。
     """
     from backend.services.tt_postmortem import build_noc_analyst_report
-    return build_noc_analyst_report(month=month, limit=limit, noc_filter=noc)
+    return build_noc_analyst_report(month=month, limit=limit, noc_filter=noc,
+                                    owner=owner)
 
 
 # ========== NOC 操作人分析 · 三层下钻 ==========
@@ -700,11 +706,14 @@ def tt_postmortem_noc_tt(
     noc: str = Query(..., description="NOC 操作人（精确匹配，来自概览行的 noc_name）"),
     month: Optional[str] = Query(None, description="YYYY-MM，默认当月"),
     slice: str = Query("all", description="切片：all / mismatch / night / sla_fail / slow"),
+    owner: Optional[str] = Query(
+        None, description="承接方：IPT（第三方，按设计不建 WO）/ ZTE（自维）；不传 = 全部"),
     limit: int = Query(20000, ge=1, le=50000, description="取样上限"),
 ):
-    """某位 NOC 的 TT 明细下钻（含错位类型、夜班标记、处理时长）。"""
+    """某位 NOC 的 TT 明细下钻（含错位类型、夜班标记、处理时长、承接方）。"""
     from backend.services.tt_postmortem import build_noc_tt_drilldown
-    return build_noc_tt_drilldown(noc=noc, month=month, slice_=slice, limit=limit)
+    return build_noc_tt_drilldown(noc=noc, month=month, slice_=slice, limit=limit,
+                                  owner=owner)
 
 
 @router.get("/_tt_postmortem_noc_sites")
@@ -759,17 +768,22 @@ def tt_postmortem_noc_timeline(
     month: Optional[str] = Query(None, description="YYYY-MM，默认当月"),
     limit: int = Query(20000, ge=1, le=50000, description="取样上限"),
     noc: Optional[str] = Query(None, description="仅看某位 NOC（精确匹配，命中该人不走缓存）"),
+    owner: Optional[str] = Query(
+        None, description="承接方：IPT（第三方）/ ZTE（自派）；不传 = 全部"),
     refresh: bool = Query(False, description="强制重算（跳过磁盘缓存）"),
 ):
     """本月里程碑时间轴批量聚合 —— 时间归因 + 动作偏离 + 未派 WO 清单。
 
-    - WHERE 与 /_tt_postmortem_noc 完全一致（同一 alarm_occur_time 月窗口、
-      同一 last_processer 非空），保证「概览数字 = 聚合单量」。
+    - WHERE 与 /_tt_postmortem_noc 完全一致（同一 alarm_occur_time 月窗口），
+      保证「概览数字 = 聚合单量」。
+    - owner 用于把**派给第三方（IPT）**的单与自派（ZTE）分开：第三方单本就
+      不建 WO，混在一起会把「应派未派 WO」抬高 3 倍多，属误报。
     - refresh=true 时强制重算（约 150s），用于月份数据仍在增长时刷新。
     """
     from backend.services.tt_postmortem import build_noc_timeline_agg
     return build_noc_timeline_agg(
         month=month, limit=limit, noc_filter=noc, use_cache=not refresh,
+        owner=owner,
     )
 
 
@@ -1096,12 +1110,43 @@ def _render_postmortem_md(rep: Dict[str, Any]) -> str:
         lines.append("| 项目 | 值 |")
         lines.append("|---|---|")
         lines.append(f"| 通道 | `{asg.get('channel') or '-'}` |")
-        lines.append(f"| 建单指派到人（`Assign To`） | `{asg.get('create_assign_to') or '（空）'}` |")
-        lines.append(f"| 建单指派到群组（`Assignee Group`） | `{asg.get('create_assignee_group') or '（空）'}` |")
-        lines.append(f"| 建单后状态 | `{asg.get('next_status') or '-'}` |")
-        lines.append(f"| 当前处理人（`current_handler`） | `{asg.get('current_handler') or '（空）'}`"
-                     + ("（群组，非个人）" if asg.get("current_handler_is_group") else "") + " |")
+        lines.append("| 最终指派到个人 | "
+                     + (f"**{'、'.join(asg['assigned_persons'])}**"
+                        if asg.get("assigned_persons") else "（无）") + " |")
+        lines.append("| 涉及的群组 | "
+                     + (f"`{'、'.join(asg['assigned_groups'])}`"
+                        if asg.get("assigned_groups") else "（无）") + " |")
         lines.append("")
+        lines.append("**建单环节（TT 层）**")
+        lines.append("")
+        lines.append("| 项目 | 值 |")
+        lines.append("|---|---|")
+        lines.append(f"| 建单指派到人（`Assign To`） | "
+                     f"`{asg.get('tt_create_assign_to') or '（空）'}` |")
+        lines.append(f"| 建单指派到群组（`Assignee Group`） | "
+                     f"`{asg.get('tt_create_assignee_group') or '（空）'}` |")
+        lines.append(f"| 建单后状态 | `{asg.get('tt_next_status') or '-'}` |")
+        lines.append(f"| 建单时处理人（`current_handler`） | "
+                     f"`{asg.get('tt_current_handler') or '（空）'}` |")
+        lines.append("")
+        if asg.get("wo_no"):
+            lines.append(f"**工单层（WO `{asg.get('wo_no')}` —— 真正落到人的地方）**")
+            lines.append("")
+            lines.append("| 项目 | 值 |")
+            lines.append("|---|---|")
+            lines.append(f"| WO 指派到人（`Assign To`） | "
+                         f"`{asg.get('wo_create_assign_to') or '（空）'}` |")
+            lines.append(f"| WO 指派到群组 | `{asg.get('wo_assignee_group') or '（空）'}` |")
+            lines.append(f"| WO 当前处理人（`current_handler`） | "
+                         f"`{asg.get('wo_current_handler') or '（空）'}` |")
+            lines.append("")
+            lines.append("> 前缀语义：`P:` = 个人，`G:` = 群组。"
+                         "TT 的 `current_handler` 可能一直停在群组池，"
+                         "**真正指派到人要去看 WO 层**。")
+            lines.append("")
+        if asg.get("create_note"):
+            lines.append(f"> **建单环节说明**：{asg['create_note']}")
+            lines.append("")
         lines.append(f"> {asg.get('channel_note')}")
         lines.append("")
         pools = asg.get("group_pools") or []

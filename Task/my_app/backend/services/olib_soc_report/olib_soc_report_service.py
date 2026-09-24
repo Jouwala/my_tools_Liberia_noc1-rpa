@@ -1067,6 +1067,13 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
     }
     if only_missing:
         gaps = kpi_store.gap_days(window, path=kpi_db_path(), today=base)
+        # 除了「整天没有行」的天，还要补「有行但关键指标为 NULL」的天：某次运行若单个块
+        # 临时取数失败，仍会写入一行（其余块有值），只是该块那列是 NULL。这类天不算
+        # gap_days 的缺口，不特意捞出来就会**永久残留**（2026-09-18~23 的 active_user
+        # 连丢 6 天即此因）。取数本身是幂等的，重取一次即可自愈。
+        for day in kpi_store.incomplete_days(window, path=kpi_db_path(), today=base):
+            if day not in gaps:
+                gaps.append(day)
         # 再把窗口里**最新的 N 天重取一遍**（默认 1）：数仓当天的分区常常晚到
         # （实测次日仍在累积），若某次同步恰好取到未完成的一天，或某天任务因重启/
         # 停机被跳过，下一次运行会自动把它纠正过来 —— 否则 only_missing 会让

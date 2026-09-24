@@ -1,1 +1,0 @@
-import{n as e}from"./rolldown-runtime-DaJ6WEGw.js";import{H as t}from"./react-vendor-jwsFlhdB.js";import{C as n,x as r}from"./index-BWSsAVmz.js";import{n as i,t as a}from"./LegacyToolFrame-CP98Ex1W.js";function o(){let{t:e}=n();return(0,s.jsx)(a,{file:`incident-overview.html`,title:e(`shell.incidentOverview`)})}var s;e((()=>{i(),r(),s=t()}))();export{o as default};

@@ -233,7 +233,7 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 > 目标是回答**"时间都浪费到哪里"**：把整月工单逐单按「TT 复盘报告」的口径解析一遍，
 > 再聚合。页面上多出一块「时间归因与流程偏离」，位置在红旗告警之下、Top3 卡片之上。
 
-**数据来源**：`GET /api/eflow-qa/_tt_postmortem_noc_timeline?month=&limit=&noc=&refresh=`，
+**数据来源**：`GET /api/eflow-qa/_tt_postmortem_noc_timeline?month=&limit=&noc=&owner=&refresh=`，
 实现在 `backend/services/tt_postmortem/__init__.py` 的 `build_noc_timeline_agg()`
 （与单张 TT 的 `build_tt_timeline()` **同源同口径**，不另立一套结论）。
 
@@ -241,25 +241,71 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 
 | 区块 | 回答什么问题 |
 | --- | --- |
+| **顶部「承接方」三档切换（ZTE 自派 / IPT 第三方 / 全部）** | 把**派给第三方的单**与自派单分开看。默认 ZTE |
 | 6 张数字卡（复盘单量 / 平均总历时 / 最大瓶颈环节 / 应派未派 WO / 偏离总数 / 缺失必需动作） | 总量与最刺眼的三个数；点卡片进「逐单清单」 |
 | 饼图「各环节占时比例」+ 偏离类型分布柱状图 | 时间总量压在哪个环节、偏离主要是哪一类 |
 | 分段表「时间都花哪了」 | 全流程切成互不重叠的区间，含合计/平均/P90/最长/超阈值单数 |
 | 里程碑表「里程碑耗时分布」 | 9 个契约里程碑各自的 P50/P90/最长与时限；P50 就超时限的用红色标出 |
-| **「应派未派 WO 明细」** | **高等级断站却没派现场工单**，按总历时降序，点 TT 号进单 TT 复盘 |
-| 「偏离清单（应做 vs 实做）」 | 7 类偏离按严重度排序，每条给 **15 条**样本单可点（原为 5 条） |
+| **「应派未派 WO 明细」** | **高等级断站却没派现场工单**，按总历时降序，点 TT 号进单 TT 复盘。告警码与派单分类**悬浮可看名字与规则** |
+| 「偏离清单（应做 vs 实做）」 | 8 类偏离按严重度排序，每条给 **15 条**样本单可点（原为 5 条） |
 | 「缺失的必需动作」 | 契约要求但无确凿时间戳的动作及样本单 |
 | 「按 NOC 归因」 | 谁的瓶颈最长、谁的偏离/未派 WO 最多；人名可点回第 2 层下钻 |
+
+**承接方（IPT / ZTE）为什么要分开 —— 这是口径问题，不是展示问题。**
+
+排给第三方（IPT）的单**本来就不建 WO**（第三方有自己的施工体系），但
+「高等级断站未派 WO」原本只看"是否断站类 + 高等级/VIP/Hub + 无 WO"三个条件，
+于是**把所有 IPT 单都算成了"规则失效"**。实测 2026-09：该判据共命中 1140 单，
+其中 **844 单其实是派给 IPT 的**，属误报；修正后 ZTE 档只剩 **296 单**，
+这才是真正"该派自派 WO 却没派"的量（差 3.8 倍）。
+
+- **判据**：`_dispatch_owner(t)` —— 以 `eflow_tt.third_accept_detail` 有值为主，
+  `last_processer = 'IPT(IPT)'` 为辅（两者取并集）。
+  实测本月 `third_accept_detail` 有值 1369 单、`last_processer='IPT(IPT)'` 1180 单，
+  后者被前者**严格包含**（第三方一接单就有值，`last_processer` 要等关单才写）。
+  不要改用 `last_processer` 单独判断，会漏掉在途的第三方单。
+- **切档三档合计自洽**：ZTE 1260 + IPT 1379 = 全部 2639（2026-09 实测）。
+- **性能要点**：`owner` **不参与缓存键**。磁盘上只存一份"全部承接方"的完整结果
+  （每单都带 `dispatch_owner`），三档共用这一份，切档是**纯内存重汇总**（≈2s）。
+  若让 owner 参与缓存键，切一次档就要重新逐单复盘全月（冷算 ≈230s），
+  默认档首屏直接打不开 —— 这是已踩过的坑。
+- **切档必须重算派生统计**，不能只过滤 `tickets`：卡片/偏离清单读的是
+  `deviation_stats`、`wo_stats` 等聚合值，只切 tickets 会出现
+  "表格 1260 行、卡片还是 2639"的自相矛盾（AGENTS.md §3.1b）。
+
+**悬浮看名字：告警码与规则分类都不再是"光秃秃的 ID"。**
+
+界面上原本只有 `99933`、`rule_stopped` 这类码值，看的人得自己去查。现在鼠标悬浮即出名字
+（带虚线底边的元素都可悬浮）：
+
+| 悬浮对象 | 显示内容 | 来源 |
+| --- | --- | --- |
+| 告警码（`99933`） | 官方告警名（`SITE DOWN DUE TO POWER OFF`） | `eflow_tt.alarm_description` |
+| 派单分类（`rule_stopped`） | 成因说明 + 命中的推单规则名与状态 | `_infer_dispatch_path().explanation` / `.related_rules` |
+
+- **告警名统一走 `resolve_alarm_name()`**（`backend/services/tt_postmortem/__init__.py:100`），
+  优先级 `alarm_description` → `ALARM_CODE_SEMANTICS` 静态表 → `title`。
+  **不要只查静态表** —— 它只收录 11 个码，而本月实际出现 25 个不同告警码；
+  实测 3374 单里仅 7 单缺 `alarm_description`，兜底链足以覆盖。
+  `build_tt_timeline` 原先只查静态表，未收录的码会得到 `None`，界面上就只剩 ID。
+- **规则名为什么必须带出来**：`rule_stopped` 这个分类码只说明"规则停了"，
+  看不出**是哪条规则、谁停的**。悬浮提示补上规则名与 `ACTIVE`/`STOP` 状态后，
+  一眼就能确认 `Regular断站故障手动到FO（STOP）` 才是本单无 WO 的原因，
+  而 `ERA断站推单到ZTE WO（ACTIVE）` 是另一条本该生效的规则。
+- 说明文字是**后端生成的中文散文**，前端原样渲染 —— 与既有「偏离清单」的
+  `label` 字段（如 `缺少「Confirm 关单」`）同一做法，未做二次翻译。
 
 **第 4 层扩展为完整复盘视图**：点「应派未派 WO 明细」的 TT 号或逐单清单里的单号，
 打开的不再只是"告警链路"，而是按复盘报告章节顺序的 5 个页签——
 `时间归因 / 里程碑时间轴 / 应做·实做 / 偏离清单 / 告警链路`，
 数据来自 `GET /api/eflow-qa/_tt_postmortem_timeline/{tt_no}`。
 
-**性能**：首次计算要逐单解析全月约 2300 张单，实测冷算 **≈150s**；结果按
-`data/tt_timeline_cache/noc_timeline_<month>_v<版本>.json` 落盘缓存，之后读取 **≈0.01s**
+**性能**：首次计算要逐单解析全月约 2600 张单，实测冷算 **≈150–230s**；结果按
+`data/tt_timeline_cache/noc_timeline_<month>_v<版本>.json` 落盘缓存，之后读取 **≈2s**
 （`meta.cache_hit=true`）。改了聚合口径必须**同时递增 `_TIMELINE_CACHE_VERSION`**，
 否则会读到结构过时的旧缓存。该目录已被 `.gitignore` 覆盖。
-带 `noc=` 过滤时**不写缓存**（避免把局部结果当成全月结果复用）。
+带 `noc=` 过滤时**不写缓存**（避免把局部结果当成全月结果复用）；
+带 `owner=` 切档时**照常写缓存**（缓存里存的是全量结果，切档在返回前完成）。
 
 **口径要点（与单 TT 报告一致）**：
 
@@ -432,7 +478,7 @@ WO 侧更直白：**WO 建单 → FE 接单 中位数 11.0h、P90 41.9h、最长
 | `out_of_order` | 动作越序 | **仅对契约上有先后约束的相邻对**判（见下方坑 3） |
 | `data_conflict` | 字段冲突 | **仅** `POWER<-TRM` 一类（见下方坑 2） |
 
-### 十一个已修正的坑（都会静默出错，务必留意）
+### 十三个已修正的坑（都会静默出错，务必留意）
 
 1. **`_parse_dt` 会算错不补零的时间**——eFlow 的 `*_detail` 里是 `2026-9-21 23:25:35`
    （月/日不补零）。原实现只试补零格式，失败后回落到 `datetime.fromisoformat`，
@@ -518,6 +564,18 @@ WO 侧更直白：**WO 建单 → FE 接单 中位数 11.0h、P90 41.9h、最长
     再 `strip(".")` 并把空串归一为 `None`。
     > 这个 bug 的危险在于"看起来有值"，会把**未指派**误报成**已指派**——
     > 而"未指派到人"恰恰是长时间无人响应的关键线索。
+
+12. **取字段值的正则必须把所有字段都列为边界，且长名在前**——
+    `Operation Result` 的取值原本只以 `Next Status` 为界，于是
+    `operation_result` 变成 `'FO Accept. Operation Time:2026-9-23 11:57:55. Operator:assign_rule(assign_rule)'`。
+    修法：把 `Operation Time` / `Operator` 也列进 `_CREATE_FIELDS`。
+    **`Operator Group` 必须排在 `Operator` 前面**（正则择先匹配），
+    否则 `Operator Group:` 会被 `Operator` 抢先吃掉。
+13. **"未指派到人"的结论不能只看 TT**——见 14f 节。曾经据此断言
+    `TT202609220139`/`TT202609230055` "没有任何人被指派"，实际两者都已在 **WO 层**
+    指派到具体个人（`P:` 前缀）。真正的分布是
+    `create_unassigned 199/200` 但 `scope=person 89`——
+    **建单环节未指派 ≠ 这单没人负责**，两句话混用就是错误结论。
 
 ### 每条结论都可回溯
 
@@ -730,28 +788,53 @@ eFlow 的"指派"不是一条规则说了算，**分三层**，只看一层会�
 **真正落到某个人**要看 `create_detail` 的 `Assign To` / `Assignee Group`，以及
 `eflow_tt.current_handler`。
 
-### 实测结论：200/200 全部「未指派到人」
+### 判定要同时看 TT 层和 WO 层（2026-09-23 修正）
 
-```
-unassigned 分布: {True: 200}
-create_assign_to 非空: {False: 200}
-```
+**只看 `eflow_tt` 会得出错误结论。** 曾经据此写下
+「建单**未指派到任何人**，仅落入群组池 `G:ZTE_NOC_FO`」，用户指出 `TT202609230055` 不对：
 
-2026-09-15 之后 200 张单**全部** `Assign To` 与 `Assignee Group` 为空，
-`current_handler` 形如 `G:ZTE_NOC_FO` —— **`G:` 前缀表示群组而非个人**。
-也就是说单子建好后只是躺在一个 20 人的群组池里、没有具体负责人。
+| 层 | 字段 | TT202609230055 实测值 |
+| --- | --- | --- |
+| TT 建单明细 | `Assign To` / `Assignee Group` | **都是空** |
+| TT | `current_handler` | `G:ZTE_NOC_FO`（群组） |
+| **WO 建单明细** | `Assign To` | **`P:Festus Emmanuel(FE_MG_104),P:Kelvin Kollie(FE_FE_120)`** |
+| **WO** | `current_handler` | **`P:Kelvin Kollie,P:Festus Emmanuel`** |
 
-这是"长时间无人响应"的**结构性原因**，比单看某一段耗时更有解释力：
-`TT202609220139` 现场响应等待 15.81 小时，正是因为**没有任何人被指派**。
+这单**明明已经指派到两个具体的人**，只是指派发生在 **WO 层**，
+而 TT 的 `current_handler` 一直停在群组池没更新。
 
-### `current_handler` 的 `G:` 前缀
+**取数优先级（越靠前越具体）**：
+① WO 的 `current_handler` / `Assign To` 里的 `P:` → ② TT 的 `Assign To` 里的 `P:` → ③ 只有 `G:` 群组 → ④ 全空。
 
-| 值 | 含义 |
+**前缀语义（实测）**：`P:` = Person（个人），`G:` = Group（群组）。
+
+**必须区分两个字段**，混用会把"建单慢"误报成"没人管"：
+
+| 字段 | 含义 |
 | --- | --- |
-| `G:ZTE_NOC_FO` | **群组**（`current_handler_is_group = true`），非个人 |
-| `Kaifa Toure(NOC_FO_101)` | 具体人 |
+| `create_unassigned` | **建单那一刻**是否指派到人（TT 建单明细的事实）—— 是"为什么一开始没人动"的证据 |
+| `unassigned` | **最终**是否没有任何人（WO + TT 合并结果）—— 才是"这单没人管"的结论 |
 
-报告里必须把这个区别显示出来，否则"当前处理人 = ZTE_NOC_FO"会被误读成某个人。
+200 单实测分布（**与旧结论差异巨大**）：
+
+```
+create_unassigned: True 199 / False 1     ← 建单环节几乎从不指派到人
+effective_scope:   person 89 / group 19 / none 92
+```
+
+即：**建单时 199/200 未指派到人，但其中 89 单后续由 WO 指派到了具体个人**。
+所以"未指派到人"这句话只能限定在**建单环节**说，不能说成"这单没人负责"。
+
+> 连带影响：`TT202609220139` 的现场响应等待 15.81h **不是"无人接手"**，
+> 而是"已指派到 Stanley Biney 但未及时出发"——两者是完全不同的问题，
+> 瓶颈建议的措辞已按 `assigned_persons` 是否为空分别给出。
+
+### 人名去重：同一个人有两种写法
+
+WO 的 `current_handler` 是 `P:Kelvin Kollie`（只有姓名），
+建单明细 `Assign To` 是 `P:Kelvin Kollie(FE_FE_120)`（姓名+工号）。
+直接合并会出现「Kelvin Kollie、Kelvin Kollie(FE_FE_120)」同人重复。
+`_dedup_people()` 按"去掉括号工号后的姓名"归并，保留信息更全的那份。
 
 ### 改进建议已改为「跟着瓶颈走」
 
@@ -789,6 +872,87 @@ create_assign_to 非空: {False: 200}
   `/graph`（仅规则骨架）、`/rules`（规则清单，可按 `wo_type`/`rule_type` 过滤，`:eflow_flow.py`）。
 - 规则表由 `eflow_push_rules_collect` / `eflow_alarm_rules_collect` 每 3 天 23:59 采集，
   规则变更后流程图自动反映（每次请求按 mtime 热加载）。
+
+## 14h. 承接方归属：ZTE 自维 vs IPT 第三方（2026-09-24 新增）
+
+**要解决的问题**：有一类单子**根本不走 WO**，而是被推到第三方
+（IPT / HUAWEI / NANOTECH / OLIB）去处理。如果和 ZTE 自维的单子混在一起看，
+会得出两个错误结论：
+
+1. **「无 WO 的比例很高」** —— 其实第三方单按设计就不建 WO；
+2. **「没人处理 / 未指派」** —— 其实是派给了外部厂商，不归 NOC 管。
+
+用户原话：「排到第三方的单子没有 WO，涉及的规则为 `mpf-outage`、
+Root Alarm Code `SITE DOWN DUE TO POWER OFF(99933)`，这类要单独分开」。
+
+### 判定：`_dispatch_owner()`（唯一真相源）
+
+`backend/services/tt_postmortem/__init__.py`，三档递进，**越靠前越权威**：
+
+| 档 | 判据 | 说明 |
+| --- | --- | --- |
+| ① | `third_accept_detail` 非空 | 第三方接单明细，实测 1369 单，**第三方一接单就有值** |
+| ② | `last_processer` 以 `IPT(` 开头 | 实测 1180 单，与①100% 吻合，但**单子没关时为空** |
+| ③ | `status` 含 `Third Accept`/`Third Process`，或 `current_handler`/`last_processer_group` 含厂商词 | **在途单兜底**：还没接单，①②都留不下痕迹 |
+
+> 第③档是 2026-09-24 新加的。实测近 800 单里有 **93 单**属于
+> 「已推到第三方但还没接单」（Third Accept 68 + Third Process 25），
+> `current_handler` 为 `G:3rd_Power`，只靠①②会被误判成 ZTE。
+>
+> ⚠ 本判定**只有一个真相源**，不要再写第二套 `classify_owner()` ——
+> 两个函数对同一张单给出不同归属，比没有归属更糟。
+
+### ⚠ 不能按规则名匹配
+
+用户提到的 `mpf-outage` 在**本地库完全查不到**（全表扫描 0 命中，
+见 `TMP/_probe_ipt.py`）——它是 eFlow 侧的规则名，本地 `ocrule_details` 没有同步。
+所以只能按上面的**分支/厂商特征**判定，不要试图按规则名匹配。
+
+### 实测分布（2026-09 全月，2478 单）
+
+```
+ZTE 1260 单 / IPT 1218 单        （owner=None 与 ALL 一致）
+ZTE + IPT == 全部  ✅  （2478 == 2478）
+```
+
+**IPT 单 100% 无 WO**（近 800 单抽样：`('IPT','无WO'): 388`，无一例外），
+与用户描述完全吻合。真正的异常是 **ZTE 自维却没有 WO 的 93 单**——
+这才是值得关注的「应派未派」，而不是笼统的 288 单「无 WO」。
+
+用户举的两个 99933 例子正好一分为二，可直接回归：
+
+| TT | 99933 | WO | owner | 依据 |
+| --- | --- | --- | --- | --- |
+| `TT202609240041` | ✓ | 无 | **IPT** | `last_processer=IPT` |
+| `TT202609240044` | ✓ | `WO202609240018` | **ZTE** | — |
+
+### 三条使用铁律
+
+1. **下钻的 owner 必须跟概览一致**。`build_noc_tt_drilldown(owner=...)` 与
+   `build_noc_analyst_report(owner=...)` 同参同口径，否则「表格里的数字」按 ZTE 统计、
+   「下钻的行数」却是全部，用户会当成 bug（同 14b 节的下钻铁律）。
+2. **筛选后必须校验分档可加**：`ZTE + IPT == 全部`。已加进端到端回归。
+3. **界面要说明口径**：IPT 单不建 WO 是设计如此，不能显示成红色告警；
+   `no_wo_zt`（ZTE 自维未建 WO）才用红色。界面文案见 `noc.ownerNote*`。
+
+### 界面落点
+
+| 位置 | 内容 |
+| --- | --- |
+| NOC 操作人分析 顶部 | `Segmented`：ZTE 自派 / IPT 第三方 / 全部（默认 ZTE），并显示各档单量 |
+| NOC 操作人分析 第 2 层 TT 明细 | 新增「承接方」列（可筛选）+「未派 WO」红标（**仅 ZTE 行**显示） |
+| NOC 时间轴聚合 未派 WO 清单 | 告警码列悬浮显示告警名 |
+| TT 复盘抽屉 | TT 信息区新增「承接方」，带悬浮显示判定依据 |
+| eFlow Q&A 批量分析 | 告警码列悬浮显示告警名；命中规则列**以规则名为主**，ID/优先级进悬浮 |
+
+### 告警名解析：`resolve_alarm_name()`
+
+优先级：`alarm_description`（实际告警文本）→ `ALARM_CODE_SEMANTICS` 静态表 →
+`fallback`（`title`）。界面原来只显示告警 ID（如 `9995.0`），
+悬浮才看得出是 `MW LINK DOWN`。
+
+> 批量分析（`tt_batch_severity._row_from_match`）里用的是**延迟导入**
+> `resolve_alarm_name` —— 该模块是 `tt_postmortem` 的下游，模块级导入会成环。
 
 ## 15. IP 链路探测（`?page=ip_trace`）— iframe
 `IpTrace.tsx:16` → `public/ip-trace.html`（`<title>` 为 **IP Trace & Node Detection Dashboard**），接口由内页自调：`/api/ip-trace/trace`、`/status`、`/stop`、`/analyze`。用于从服务器侧探测到目标站点的链路连通性与路径；`/stop` 说明探测是**可中断的长任务**，卡住时可以手动停。
@@ -960,4 +1124,75 @@ postMessage 的唯一用途。自愈循环上限 4 次（`MAX_AUTO_RELOGIN`）�
   同主机的 `ccn_ume`（10.121.1.2:28808，反代 8082）与 `ume_in`（172.17.208.1:28808，反代 8088）
   Cookie 名**相同**，两个门户不要在同一浏览器里同时登录。
 - 离线测试：`python tests/test_imonitor_screen.py`（不连门户、不起浏览器）。
+
+## 26. SP 备件 / 耗材汇总报表（`?page=sp_report` / `?page=com_report`）
+
+同一条代码路径服务两个页面，只是 `kind` 不同（`spareparts` / `consumables`）：
+页面包装 `SpReport.tsx` / `ComReport.tsx` → 共用 `SpReportBase.tsx`，
+后端 `backend/routers/sp_report.py` → `backend/services/sp_report_service.py`。
+
+数据源是任务 `sp_report_generate`（每天 05:15）产出的汇总工作簿
+`data/sp_email/<前缀> <时间戳>.xlsx`，与邮件/WhatsApp 发出去的是**同一份文件**，
+页面不做二次加工（口径说明由接口 `notes` 原样透传，见
+`backend/services/sp_report_service.py` 顶部 docstring）。
+
+工作簿五张 sheet：`Summary-Current`（汇总）/ `Summary-Changed`（每日矩阵）/
+`Inbound` / `Outbound` / `Inventory`。前两张走 `/summary`，其余三张走
+`/rows`（分页 + 筛选 + 排序）。
+
+### Summary 表的 Outbound 拆分（2026-09-24 新增）
+
+`Summary-Current` 在 `Outbound Qty` 右侧新增两列（由**生成端**产出，不是页面算的，
+口径见 `backend/services/sp_report_gen/README.md` 与 `gernarate_sp_report.build_summary`）：
+
+| 列 | 口径 |
+| --- | --- |
+| `Outbound Repair Qty` | 出库明细中 `Outbound Type = 'Repair Outbound'`（报修出库）的 `Outbound Qty` 合计 |
+| `Outbound Site Qty` | `Outbound Qty` − `Outbound Repair Qty` |
+
+**`Outbound Site Qty` + `Outbound Repair Qty` ≡ `Outbound Qty` 恒成立**：
+Site 列用减法而非再筛一类，所以上游日后新增 Outbound Type（当前有 Install / Borrow /
+Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落到 Site 列。
+
+> ⚠️ 与补库消耗口径**不同**，别混：`Avg Monthly Consumption` 还额外剔除了两张异常单据
+> （`REPLENISH_EXCLUDE_ORDERS`）与 Repair Outbound，而 `Outbound Qty` 及本次拆出的
+> 两列都是**未剔除的原值**。
+
+⚠️ 这两列只在**重新生成报表后**才出现（`sp_report_generate` 每天 05:15）。
+页面侧按表头名动态读列，**无需改代码**；`SpReportBase.tsx` 的
+`DISPLAY_COLUMNS['Summary-Current']` 已把两列列入默认显示列。
+
+### 界面的三段结构
+
+统计卡片（汇总 KPI + 补库告警，**点告警卡即筛选**）→ 分表卡片（点即切表）→
+明细数据卡片（Segmented 切 5 张表）。`Summary-Changed` 渲染成「天 × 仓库」矩阵，
+不走 `/rows`，也就没有分页与列控制（`SpReportBase.tsx:784` 的分支）。
+
+### 显示列可自定义（每个分表各记一套）
+
+「明细数据」卡片筛选条上的**显示列**按钮打开 `components/ColumnPicker.tsx`：
+
+- 列的可选集是**后端真实返回的 `columns`**，不是页面写死的清单 —— 上游报表增删列会自动跟上；
+- 页面默认列见 `SpReportBase.tsx` 的 `DISPLAY_COLUMNS`（按 sheet 声明"优先展示"，
+  实际存在的才显示；全都对不上时退回全列，避免空表）；
+- 选择按 **kind + sheet** 存 `localStorage`（key 前缀 `myapp_sp_report_cols_v1`），
+  刷新和重开都还在；读回时会按当前真实列集过滤，上游改了列名不会渲染成空表；
+- **勾满全部列 = 未自定义**，会清掉存储，这样报表以后新增列能自动带上；
+- 「恢复默认」按钮回到 `DISPLAY_COLUMNS`；行详情弹窗始终显示全部列，不受此处影响。
+
+> 列偏好只在浏览器本地，不落库 —— 换机器/换浏览器不跟随，这是有意的：
+> 它是个人的视图偏好，不是业务配置，不该走 `/api` 与数据库。
+
+### 分页
+
+明细表默认**每页 20 行**（`DEFAULT_PAGE_SIZE`，`SpReportBase.tsx` 顶部常量），
+分页器可切 20 / 50 / 100 / 200 —— 用户切页大小会同步改后端 `page_size` 请求参数。
+导出不受分页影响：`exportCurrent` 另取一次 `page_size = min(total, 5000)` 拉全量。
+
+### 排障
+
+- 页面整体 404 → 工作簿不存在，按提示先跑 `sp_report_generate`；
+- 有表头无数据 / 部分 sheet 空 → 看接口返回的 `warnings`（页面顶部橙色告警条原样显示）；
+- 页面与 Excel 数字对不上，先看 `notes` 里的口径说明，再查
+  `backend/services/sp_report_service.py`，**不要**在页面层改口径。
 

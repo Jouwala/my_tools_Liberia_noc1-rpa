@@ -56,6 +56,15 @@ interface UserManagementModalProps {
   labelOf: (name: string) => string;
 }
 
+/** 与 MsPortal/assets/portal.js、olbrportal/assets/olbr.js 同名函数同一口径：
+    后端 storage.location 是服务器绝对路径，整条上屏既泄露部署目录，
+    路径里的中文目录名在英文界面下又是漏翻。只留文件名——够判断存在哪个库。 */
+function storageNameOf(loc: string) {
+  const s = String(loc || '');
+  const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+  return i >= 0 ? s.slice(i + 1) : s;
+}
+
 export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   isOpen,
   onClose,
@@ -473,8 +482,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                     </span>
                   )}
                 </div>
-                <div className="font-mono break-all" title={storage.location}>
-                  {storage.location}
+                <div className="font-mono break-all" title={storageNameOf(storage.location)}>
+                  {storageNameOf(storage.location)}
                 </div>
               </div>
             </div>

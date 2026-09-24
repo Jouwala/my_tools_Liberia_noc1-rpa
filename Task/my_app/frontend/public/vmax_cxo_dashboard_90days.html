@@ -225,6 +225,7 @@ var I18N = {
     noWoW:'周同比 —', noMoM:'月同比 —', ok:'正常', suspect:'上游缺数',
     asof:'数据截至', loading:'加载中…', loaded:'已更新', failed:'加载失败',
   arOn:'自动刷新', arOff:'自动刷新 已关闭', ver:'页面版本',
+  verTip:'页面文件本身的上次修改时间（不是数据时间）。数据截至日期见左侧「数据截至」与状态栏。',
   refreshTip:'重新拉取数据（数据每日 06:20 增量... 当天未完成不纳入）',
     empty:'KPI 库还没有数据：先跑一次「OLIB SOC 看板 KPI 增量」或「OLIB SOC VMAX 例行报表」任务',
     n1:'数据源：VMAX 数仓 GBase（10.123.255.12:5258, 库 zxvmax）直连取数，由任务 olib_soc_kpi_daily_sync 每日增量、olib_soc_vmax_report 每月全量入库',
@@ -249,7 +250,8 @@ var I18N = {
     max:'Max', avg:'Avg', min:'Min', latest:'Latest', wow:'WoW', mom:'MoM',
     noWoW:'WoW —', noMoM:'MoM —', ok:'OK', suspect:'upstream gap',
     asof:'As of', loading:'loading…', loaded:'updated', failed:'load failed',
-  arOn:'Auto-refresh', arOff:'Auto-refresh off', ver:'Build',
+  arOn:'Auto-refresh', arOff:'Auto-refresh off', ver:'Page ver.',
+  verTip:'Last modified time of this page file (not the data date). See "As of" on the left and the status bar for the data date.',
   refreshTip:'Re-fetch data (warehouse is topped up daily at 06:20; today is excluded until complete)',
     empty:'No KPI data yet — run the "OLIB SOC Dashboard KPI Sync" or "OLIB SOC VMAX Report" task first',
     n1:'Source: VMAX data warehouse GBase (10.123.255.12:5258, db zxvmax) queried directly; filled daily by olib_soc_kpi_daily_sync and monthly by olib_soc_vmax_report',
@@ -300,6 +302,7 @@ var payload=null, charts={}, lastLoadedAt=0;
    排查「刷新没变化」时先看这个：它变新说明浏览器已经拿到新页面，没变就是缓存/没刷到。 */
 function stampVersion(){
   var el=document.getElementById('verLabel'); if(!el)return;
+  el.title=t('verTip');            // 说明这个时间是「页面文件时间」，不是「数据时间」
   try{
     fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){
       var lm=r.headers.get('Last-Modified'); if(!lm)return;

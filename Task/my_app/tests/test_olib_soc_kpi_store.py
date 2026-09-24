@@ -265,6 +265,26 @@ check("as_of = 最新完整日", b6["as_of"] == "2026-09-15", str(b6.get("as_of"
 check("gap_days 只给缺的日期", kpi.gap_days(5, path=db6, today=date(2026, 9, 16)) ==
       ["2026-09-11", "2026-09-12", "2026-09-13"])
 check("齐全时 gap_days 为空", kpi.gap_days(2, path=db6, today=date(2026, 9, 16)) == [])
+# 事故回归（2026-09-24）：行在但关键指标为 NULL 的天，gap_days 看不见，必须靠
+# incomplete_days 捞出来，否则 NULL 会永久残留（当时 active_user 连丢 6 天）。
+db6c = _tmp_db()
+kpi.upsert_days([_row("2026-09-12", active_user=None), _row("2026-09-14"),
+                 _row("2026-09-15", active_user=None)], path=db6c)
+check("残缺失格的天不算 gap_days 的缺口（这就是旧逻辑漏掉的原因）",
+      kpi.gap_days(2, path=db6c, today=date(2026, 9, 16)) == [])
+check("incomplete_days 能抓出关键指标为 NULL 的天",
+      kpi.incomplete_days(2, path=db6c, today=date(2026, 9, 16)) == ["2026-09-15"],
+      str(kpi.incomplete_days(2, path=db6c, today=date(2026, 9, 16))))
+check("数据齐全时 incomplete_days 为空",
+      kpi.incomplete_days(2, path=db6c, today=date(2026, 9, 15)) == [])
+check("流量为 NULL 同样算残缺", kpi.incomplete_days(
+    2, path=(lambda p: (kpi.upsert_days([_row("2026-09-15", traffic_tb=None)], path=p), p)[1])(
+        _tmp_db()), today=date(2026, 9, 16)) == ["2026-09-15"])
+# 09-12 那天也残缺，但 days_back=2 的窗口只覆盖 09-14~09-15，不该把它带出来
+check("窗口外的残缺日不返回（09-12 在窗口外）",
+      kpi.incomplete_days(2, path=db6c, today=date(2026, 9, 16)) == ["2026-09-15"]
+      and "2026-09-12" in kpi.incomplete_days(6, path=db6c, today=date(2026, 9, 16)),
+      str(kpi.incomplete_days(6, path=db6c, today=date(2026, 9, 16))))
 check("days 上限 400", kpi.build_overview(
     days=9999, path=db6, today=date(2026, 9, 16))["window_days"] == 400)
 check("days 下限 7", kpi.build_overview(

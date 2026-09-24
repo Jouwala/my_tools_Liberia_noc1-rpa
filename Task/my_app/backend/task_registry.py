@@ -704,10 +704,13 @@ TASK_SPECS = [
     # 43. OLIB SOC 看板 KPI 每日增量（06:20，2026-09-16 新增）：给 VMAX 90 天经营看板
     #     （?page=vmaxCxoDashboard_90Days）供数。只跑看板需要的 7 个块、只补 daily_kpi 里
     #     缺的日期（默认回看 7 天，幂等自愈），正常情况下每天 1 天数据、几秒钟，不出 Excel。
+    #     2026-09-24 加固：除「整天没有行」的天，还补「有行但关键指标为 NULL」的天 ——
+    #     某次运行单个块临时取数失败会写入一行但该列留 NULL，旧逻辑不认为是缺口，
+    #     导致 2026-09-18~23 的 active_user 连丢 6 天（见 kpi_store.incomplete_days）。
     dict(task_id="olib_soc_kpi_daily_sync", name="OLIB SOC 看板 KPI 增量", name_en="OLIB SOC Dashboard KPI Sync",
          loader=("backend.services.olib_soc_report.olib_soc_report_service", "run_olib_soc_kpi_sync"),
-         description="每日增量补齐 VMAX 90 天经营看板的 KPI 库（daily_kpi 表）：只跑流量/活跃用户/缓存/视频/游戏/TCP/TOP业务 7 个块，只取缺的日期 + 重取最新 1 天（默认回看 7 天，幂等自愈），不出 Excel",
-         description_en="Daily incremental fill of the 90-day CXO dashboard KPI store (daily_kpi): 7 dashboard blocks, missing days plus the newest day re-read (7-day lookback, idempotent), no Excel output",
+         description="每日增量补齐 VMAX 90 天经营看板的 KPI 库（daily_kpi 表）：只跑流量/活跃用户/缓存/视频/游戏/TCP/TOP业务 7 个块，只取缺的日期 + 关键指标为 NULL 的残缺日 + 重取最新 1 天（默认回看 7 天，幂等自愈），不出 Excel",
+         description_en="Daily incremental fill of the 90-day CXO dashboard KPI store (daily_kpi): 7 dashboard blocks, missing days plus days whose key metrics are NULL plus the newest day re-read (7-day lookback, idempotent), no Excel output",
          # 06:20（服务器 UTC）：数仓「前一天」分区不一定在零点后立刻完成，
          # 与 ems_kpi_daily(05:20) 同一批早班；配合 refresh_last_days 双保险。
          default_cron="20 6 * * *", category="olib_soc"),

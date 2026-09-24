@@ -2073,7 +2073,11 @@ setInterval(function(){
 window.addEventListener('error', function(ev){
   try{ setStatus('err', T('脚本错误: ','Script error: ')+String(ev.message||ev.error||'').slice(0,60)); }catch(e){}
 });
-applyLocale(false);
+/* 开机必须用 APP_LOCALE（:711 已按 localStorage['app-locale'] → navigator 语言算好）。
+   这里原先传 false，被 applyLocale 的入参归一化当成非法值强制成 'zh'，
+   等于把上面整套检测作废：英文模式下整页仍是中文，且 <html lang> 钉死 zh-CN。
+   与 mw_real_time.html:844 / mw_ume_topology.html:881 / vmax_cxo_dashboard_daily.html:544 同一写法。 */
+applyLocale(APP_LOCALE);
 </script>
 </body>
 </html>

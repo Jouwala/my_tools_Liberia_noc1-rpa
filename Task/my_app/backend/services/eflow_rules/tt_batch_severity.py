@@ -220,6 +220,17 @@ def _row_from_match(req_tt: str, src: dict, matched: dict | None) -> dict:
     if alarm_code.endswith(".0"):
         alarm_code = alarm_code[:-2]
 
+    # 告警码 → 告警名：界面上原来只显示一串告警 ID，悬浮要看得出是什么告警。
+    # 延迟导入：tt_postmortem 是本模块的下游消费者，模块级导入会形成环。
+    try:
+        from backend.services.tt_postmortem import resolve_alarm_name
+        alarm_name = resolve_alarm_name(
+            alarm_code=alarm_code,
+            alarm_description=src.get("alarm_description"),
+            fallback=src.get("title"))
+    except Exception:  # noqa: BLE001
+        alarm_name = None
+
     return {
         "tt_no": _s(src.get("tt_no")) or req_tt,
         "req_tt": req_tt,
@@ -234,6 +245,7 @@ def _row_from_match(req_tt: str, src: dict, matched: dict | None) -> dict:
         "match_details": _s((matched or {}).get("Match_Details")),
         "site_name": _s(src.get("site_name")),
         "alarm_code": alarm_code,
+        "alarm_name": alarm_name or "",
         "alarm_severity": _s(src.get("alarm_severity")),
         "vip_site": _s(src.get("vip_site")),
         "site_type": _s(src.get("site_type")),
@@ -257,7 +269,8 @@ def _missing_row(req_tt: str) -> dict:
     row = {k: "" for k in (
         "tt_no", "req_tt", "level_status", "level_text", "ticket_severity", "expected_severity",
         "matched_rule_id", "matched_rule_name", "matched_priority", "match_details",
-        "site_name", "alarm_code", "alarm_severity", "vip_site", "site_type", "down_site_count",
+        "site_name", "alarm_code", "alarm_name", "alarm_severity", "vip_site", "site_type",
+        "down_site_count",
         "domain", "project_name", "ticket_type", "status", "title", "wo_no", "ticket_no",
         "root_cause", "sub_root_cause", "alarm_occur_time", "created_time", "last_modified_time",
     )}

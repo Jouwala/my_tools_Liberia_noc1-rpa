@@ -1,1 +1,0 @@
-external-rag-knowledge-qa | RAG Knowledge Q&A (本地知识问答 / Open WebUI) | 其他 | http://192.168.100.27:3000/

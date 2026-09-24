@@ -334,6 +334,9 @@
       'edit.tipOn': 'Edit groups / sub-groups and order — saved to the shared server catalog (visible to everyone)',
       'edit.tipOff': 'Leave editing',
       'edit.banner': 'Editing · changes go straight into the shared server catalog, visible in MsPortal and here for everyone',
+      /* bannerK 是横幅左侧的短标签，与 banner 成对出现；之前只登记了 zh，
+         t() 未命中时回落 zh，导致英文模式这里漏出「编辑模式」。 */
+      'edit.bannerK': 'Editing',
       'edit.hint': 'Drag a card = reorder · drag onto a sub-group chip = assign · “Groups” = change membership',
       'edit.reset': 'Reset order', 'edit.resetTip': 'Drop the custom order for this group and sort by usage again',
       'edit.subAdd': 'Add sub-group', 'edit.subZhPh': 'Name (zh)', 'edit.subEnPh': 'Name (en)',
@@ -2603,6 +2606,14 @@
 
   /* ------------------------------------------------------ 用户管理：渲染 -- */
 
+  /* 与 MsPortal/assets/portal.js 同名函数同一口径：后端给的是服务器绝对路径，
+     整条上屏会暴露部署目录，且路径里的中文目录名在英文模式下是漏翻。只留文件名。 */
+  function storageNameOf(loc) {
+    var s = String(loc || '');
+    var i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+    return i >= 0 ? s.slice(i + 1) : s;
+  }
+
   function umStorageHtml() {
     var st = state.um.storage;
     if (!st) return '';
@@ -2618,7 +2629,7 @@
     return '<div class="um-storage">' + ic('table') +
       '<div class="um-storage-txt">' +
         '<div class="um-storage-row"><b>' + esc(t('um.storage')) + '</b>' + bits.join('') + '</div>' +
-        '<div class="um-mono" title="' + esc(st.location) + '">' + esc(st.location) + '</div>' +
+        '<div class="um-mono" title="' + esc(storageNameOf(st.location)) + '">' + esc(storageNameOf(st.location)) + '</div>' +
       '</div></div>';
   }
 

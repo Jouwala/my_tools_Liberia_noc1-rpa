@@ -76,6 +76,26 @@ git log --oneline -20      # 看最近在做什么
 - [ ] 没有提交任何敏感值（口令、Token、账号、IP 之外的内网主机名）
 - [ ] 改动涉及的文档已同步（见第三节第 6/7/8 条）
 
+**版本库整洁自检**（`AGENTS.md` 第四节第 4/7 条的落地命令，2026-09-24 加）：
+
+```powershell
+# ① 本次改动里有没有夹带探针/产物（?? 行应当全是要提交的真文件）
+git status --porcelain | Select-String '^\?\?'
+# ② 某个文件为什么没被跟踪（会打印命中的规则与 .gitignore 行号）
+git check-ignore -v Task\_fe_dist\assets\index-xxxx.js
+# ③ 有没有「已被跟踪、但按规则本该忽略」的漂移（输出非空就要处理）
+git ls-files -i -c --exclude-standard
+# ④ 门户专用：改忽略规则时，.gitignore 与 vite.config.ts 的 server.watch.ignored
+#    是同一套判断的两个副本，必须一起改
+```
+
+可复用的诊断脚本（**不删**，按第四节第 7 条记录用途；都在 `TMP\` 下，不入库）：
+
+| 脚本 | 用途 |
+| --- | --- |
+| `Task\my_app\TMP\_audit_fe_dist.mjs` | 只读审计前端构建产物：从 HTML 入口做传递可达性，算出「在用的 chunk」与「历次构建遗留的不可达 chunk」，按 mtime 月龄分桶。判据经交叉验证：最新一次构建产出的文件数与可达集大小一致。**不写不删不移**。用法：`node Task\my_app\TMP\_audit_fe_dist.mjs [别的dist路径]` |
+| `TMP\_mk_untrack_list.mjs` | 从「已跟踪但被忽略规则命中」的集合里按**白名单**挑出可安全脱离跟踪的文件，硬排除真源码（`Task\data_base\`、门户 `src\data\` 会被历史规则 `data_base/`、`*/data/` 误命中）。输出 NUL 清单 `TMP\_tountrack.nul` 供 `git rm --cached --pathspec-file-nul` 使用 |
+
 ### B. 门户（`liberia-noc_soc-数据看板统一门户\`）
 
 - [ ] `npm run lint`（`tsc --noEmit`）通过

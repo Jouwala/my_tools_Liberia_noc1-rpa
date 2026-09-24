@@ -499,3 +499,34 @@ def gap_days(days_back: int = 7, path: Optional[Path] = None,
     return [(begin + timedelta(days=i)).isoformat()
             for i in range((end - begin).days + 1)
             if (begin + timedelta(days=i)).isoformat() not in have]
+
+
+# 判断「这天是否残缺」的核心指标：活跃用户/流量是看板主卡，缺一不可。
+# 只用 RAW 数值列里必有的两列，避免把 top_service（TEXT）之类可选列也算进来。
+REQUIRED_COLUMNS: Tuple[str, ...] = ("traffic_tb", "active_user", "video_tb")
+
+
+def incomplete_days(days_back: int = 7, path: Optional[Path] = None,
+                    today: Optional[date] = None) -> List[str]:
+    """窗口内**行已存在但关键指标为 NULL** 的天（用于每日增量同步的幂等自愈）。
+
+    背景（2026-09-24 事故）：`gap_days` 只看「这天有没有行」，而某次运行若单个块
+    临时取数失败，仍会写入一行（其余块有值），只是该块对应的列是 NULL。
+    这种「行在但格子空」的天不会被 `gap_days` 认为是缺口，于是 NULL 永久残留 ——
+    2026-09-18~23 的 `active_user` 就是这么丢了 6 天。
+
+    因此除了补「没有的天」，还要补「有行但不完整的天」。
+    """
+    today = today or date.today()
+    end = today - timedelta(days=1)
+    begin = end - timedelta(days=max(1, int(days_back)) - 1)
+    where = " OR ".join("%s IS NULL" % c for c in REQUIRED_COLUMNS)
+    try:
+        with closing(connect(path, readonly=True)) as conn:
+            rows = conn.execute(
+                "SELECT day FROM %s WHERE day >= ? AND day <= ? AND (%s) ORDER BY day"
+                % (DAILY_TABLE, where), (begin.isoformat(), end.isoformat())).fetchall()
+    except Exception as exc:                                             # noqa: BLE001
+        logger.warning("[olib-kpi] 残缺日检查失败: %s", exc)
+        return []
+    return [iso_day(r[0]) for r in rows]

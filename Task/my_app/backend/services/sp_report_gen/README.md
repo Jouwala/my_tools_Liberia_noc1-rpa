@@ -135,10 +135,11 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 逐条套用过滤条件并与报表各 sheet 实际行数比对，输出 PASS/FAIL。
 （注意：报表 sheet 前 3 行是标题 / Generated / 表头，数据行 = 总行数 − 3。）
 
-### Summary-Current 的列结构（2026-09-17 起，2026-09-19 更新）
+### Summary-Current 的列结构（2026-09-17 起，2026-09-24 更新）
 
-`Summary-Current` 共 **11 列（A:K）**，前 6 列是主表原有列（其中 `Domain` 是 2026-09-18 新增、
-固定在第 2 列；`Balance` 列 2026-09-19 删除），后 5 列是补库建议列（早期版本写成表身下方的独立区块，已废弃）：
+`Summary-Current` 共 **13 列（A:M）**，前 8 列是主表原有列（其中 `Domain` 是 2026-09-18 新增、
+固定在第 2 列；`Balance` 列 2026-09-19 删除；`Outbound Site Qty` / `Outbound Repair Qty`
+2026-09-24 新增、紧跟 `Outbound Qty` 右侧），后 5 列是补库建议列（早期版本写成表身下方的独立区块，已废弃）：
 
 | # | 列 | 口径 |
 |---|----|------|
@@ -146,14 +147,38 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 | 2 | **Domain** | **取自数据库表 `sp_material` 的 `domain` 列（按 materialName 映射，2026-09-19 起）**；库里取不到回退 Inventory 明细的 `Domain`；同一物料多行时取第一个非空；`Total` 行留空 |
 | 3 | Inbound Qty | 入库数量合计 |
 | 4 | Outbound Qty | 出库数量合计 |
-| 5 | Inventory Qty | 库存数量合计 |
-| 6 | Difference | Inventory Qty − (Inbound Qty − Outbound Qty)（原 Balance 列已删，口径不变） |
-| 7 | Avg Monthly Consumption | 出库量合计（**先剔除 `SPOB202608160004` / `SPOB202609120014` 两张异常单据**）÷ 9.5，**保留 2 位小数，不取整**（2026-09-19 起） |
-| 8 | Safety Stock | 月均消耗 > 0 → `ceil(6 × Avg Monthly Consumption)`（整数，按 2 位小数月均验算）；**月均消耗 = 0 → `ceil(20% × max(Inbound Qty, Outbound Qty, Inventory Qty))`**（整数） |
-| 9 | **Remark** | 月均消耗 > 0 → `Actual Consumption`；**月均消耗 = 0 → `Failure Rate`**（`Total` 行留空） |
-| 10 | Replenishment Qty | Safety Stock − Inventory Qty，**向上取整**；**≤ 0 留空**（不显示 0/负数，便于直接求和） |
-| 11 | Alert Level | Inventory Qty / Safety Stock：< 50% `Urgent Replenish`；50%~100% `Replenish`；> 100% `Excess`（红/黄/绿三色；`Total` 行留空） |
+| 5 | **Outbound Site Qty** | **`Outbound Qty` − `Outbound Repair Qty`**（2026-09-24 新增） |
+| 6 | **Outbound Repair Qty** | **出库明细中 `Outbound Type = 'Repair Outbound'`（报修出库）的 `Outbound Qty` 合计**（2026-09-24 新增） |
+| 7 | Inventory Qty | 库存数量合计 |
+| 8 | Difference | Inventory Qty − (Inbound Qty − Outbound Qty)（原 Balance 列已删，口径不变） |
+| 9 | Avg Monthly Consumption | 出库量合计（**先剔除 `SPOB202608160004` / `SPOB202609120014` 两张异常单据**）÷ 9.5，**保留 2 位小数，不取整**（2026-09-19 起） |
+| 10 | Safety Stock | 月均消耗 > 0 → `ceil(6 × Avg Monthly Consumption)`（整数，按 2 位小数月均验算）；**月均消耗 = 0 → `ceil(20% × max(Inbound Qty, Outbound Qty, Inventory Qty))`**（整数） |
+| 11 | **Remark** | 月均消耗 > 0 → `Actual Consumption`；**月均消耗 = 0 → `Failure Rate`**（`Total` 行留空） |
+| 12 | Replenishment Qty | Safety Stock − Inventory Qty，**向上取整**；**≤ 0 留空**（不显示 0/负数，便于直接求和） |
+| 13 | Alert Level | Inventory Qty / Safety Stock：< 50% `Urgent Replenish`；50%~100% `Replenish`；> 100% `Excess`（红/黄/绿三色；`Total` 行留空） |
 
+- **Outbound 拆分（2026-09-24 新增）**：`Outbound Repair Qty` 只统计 `Outbound Type = 'Repair Outbound'`，
+  `Outbound Site Qty` 由 **`Outbound Qty` 减去**（而不是再筛一次类型）得到，
+  因此 **`Outbound Site Qty` + `Outbound Repair Qty` ≡ `Outbound Qty` 恒成立**——
+  上游日后新增 Outbound Type 或出现空白值都会自动落到 Site 列，恒等式不会被打破。
+  复用常量 `REPLENISH_EXCLUDE_OUTBOUND_TYPE`，不另写字面量。
+  ⚠️ 与补库口径的区别：补库消耗（`Avg Monthly Consumption`）**还额外剔除**了
+  `REPLENISH_EXCLUDE_ORDERS` 两张异常单据，而 `Outbound Qty` 及本次拆出的两列**都是未剔除的原值**。
+- ⚠️ **说明行数不能随便加**：`Summary-Current` 表头之前固定 4 行说明
+  （由 `replenish_notes()` **函数**返回，不是常量元组），
+  表头因此在第 8 行；后端 `sp_report_service.py` 的 `SHEET_CONFIG["Summary-Current"]["header_row"] = 7`
+  是**硬编码**的。要增减说明行数，必须同步改那里，否则整张表会串行。
+  （2026-09-24 的 Outbound 拆分说明就是**并入原有第 3 行**、没有新增行，正是为了不动这个行号。）
+
+- **历史月数是动态算的**（2026-09-24 起，替代写死的 `9.5`）：
+  分母 = 起算月 `REPLENISH_HISTORY_START`（**2026-01**）到**当前自然月**的含首尾月个数，
+  见 `history_months(as_of=None)`。2026-09 跑 → **9**，2026-10 跑 → 10，2027-01 → 13，只增不减。
+  已过天数**不折算**（不用 8.77 这类小数），所以**同一自然月内分母恒定**，
+  月度内跨天对账不会因小数位漂移而数字天天变。
+  为什么改：旧值 9.5 是「数据当时覆盖 9.5 个月」的一次性快照，每过一个月数据多覆盖一个月而分母不变，
+  月均消耗被**系统性低估**；固定起算点是因出库明细最早数据即 2026-01-07、历史不会回补。
+  ⚠️ 分母变小（9.5→9）会让 `Avg Monthly Consumption` 与 `Safety Stock` **整体上浮约 5.6%**，
+  这是预期内的修正，不是 bug。
 - **Avg Monthly Consumption 保留 2 位小数**（2026-09-19 起，Excel 数字格式 `#,##0.00`）；
   **Safety Stock 保持向上取整**：`Safety = ceil(6 × Avg)`（整数，如月均 2.11 → 6×2.11=12.66 → 13）；
   `Replenishment Qty` 同样 `ceil`（如安全库存 13、库存 3.5 → 补库 10）。
@@ -165,16 +190,18 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 - `Total` 行：Avg 列为**各行 2 位小数值的合计**（仍为 2 位小数），Safety / Replenishment Qty 为各行取整后的合计（整数），
   `Domain` / `Remark` / `Alert Level` 留空。
 - 口径说明写在**文件上方**（2026-09-17 起，改前在表身下方）：Summary-Current 的第 4/5/6/7 行是**四行**英文说明
-  （`Replenishment basis: ...` / `Zero-consumption materials ...` / `Replenishment Qty = ... / Alert Level = ...` /
+  （`Replenishment basis: ...` / `Zero-consumption materials ...` / `Outbound split: ...` /
   `Remark: Failure Rate = ... | Actual Consumption = ...`），
-  由 `_insert_title(..., extra_notes=REPLENISH_NOTES)` 写入；PNG 侧对应 `_render_summary_image(..., notes=...)`，
+  由 `_insert_title(..., extra_notes=replenish_notes())` 写入（**每次调用现算**，
+  因为历史月数会随月份变）；PNG 侧对应 `_render_summary_image(..., notes=replenish_notes())`，
   画在标题正下方。**Summary-Current 的表头因此落在第 8 行**（title / Generated / Filters / 说明 ×4 / 表头），
   数据从第 9 行开始。
 - **文案一律英文，报表内不出现中文**（2026-09-17 起：Inbound / Outbound 说明行原先引用的中文 sheet 名
   `3_剔除单据Serial明细` 也改写成 `[sheet 3: excluded order serial details]`；
   `EXCLUDE_SHEET` 常量本身仍是中文，那是读剔除名单用的真实 sheet 名，**不能改**）。
 - ⚠️ 口径差异：SpareParts 的 `Outbound Qty` **仍含**那两张单据（保持原有输出），
-  因此同一行 `Outbound Qty ≠ Avg Monthly Consumption × 9.5`；Consumables 明细里没有这两单，无此差异。
+  因此同一行 `Outbound Qty ≠ Avg Monthly Consumption × 历史月数`（历史月数见上，2026-09 为 9）；
+  Consumables 明细里没有这两单，无此差异。
 - 实现：常量 `REPLENISH_*` / `ALERT_*` / `REMARK_*`；
   `build_summary()` 负责前 6 列（Domain 优先取 `sp_material` 的 materialName→domain 映射），
   `build_replenishment(outb_df, inv_df, base_index=, summary_qty=)`

@@ -1011,7 +1011,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'WITH agg AS (SELECT substr("End Time",1,10) AS t, COUNT(*) AS 记录数, SUM(CASE WHEN "306004:TCH in service rate(%)" IS NOT NULL THEN 1 ELSE 0 END) AS "NOTNULL", SUM(CASE WHEN "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_total, SUM(CASE WHEN "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "306004:TCH in service rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_total, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_ERA_ERA\' THEN 1 ELSE 0 END) AS cnt_ERA, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_ERA_ERA\' AND "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_ERA, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_ERA_ERA\' AND "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_ERA_ERA\' AND "306004:TCH in service rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_ERA, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_COOLI\' THEN 1 ELSE 0 END) AS cnt_COOLI, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_COOLI\' AND "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_COOLI, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_COOLI\' AND "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_COOLI\' AND "306004:TCH in service rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_COOLI, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_Normal\' THEN 1 ELSE 0 END) AS cnt_NORM, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_Normal\' AND "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_NORM, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_Normal\' AND "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_Normal\' AND "306004:TCH in service rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_NORM FROM "2G_Main_Kpi_Site_Daily" GROUP BY t) SELECT t AS "End Time", \'记录数\' AS 指标名称, 记录数 AS value FROM agg UNION ALL SELECT t,\'NOTNULL\',"NOTNULL" FROM agg UNION ALL SELECT t,\'Site Availability Achievment\',ach_total FROM agg UNION ALL SELECT t,\'2G Achievment\',ROUND(pct_total,2) FROM agg UNION ALL SELECT t,\'ERA Achievement% count\',cnt_ERA FROM agg UNION ALL SELECT t,\'ERA Achievement% achieved\',ach_ERA FROM agg UNION ALL SELECT t,\'ERA Achievement%\',ROUND(pct_ERA,2) FROM agg UNION ALL SELECT t,\'COOLI_Achievement% count\',cnt_COOLI FROM agg UNION ALL SELECT t,\'COOLI_Achievement% achieved\',ach_COOLI FROM agg UNION ALL SELECT t,\'COOLI_Achievement%\',ROUND(pct_COOLI,2) FROM agg UNION ALL SELECT t,\'Normal_Achievement% count\',cnt_NORM FROM agg UNION ALL SELECT t,\'Normal_Achievement% achieved\',ach_NORM FROM agg UNION ALL SELECT t,\'Normal_Achievement%\',ROUND(pct_NORM,2) FROM agg ORDER BY 1,2',
+                'sql': 'WITH agg AS (SELECT substr("End Time",1,10) AS t, COUNT(*) AS "Records", SUM(CASE WHEN "306004:TCH in service rate(%)" IS NOT NULL THEN 1 ELSE 0 END) AS "NOTNULL", SUM(CASE WHEN "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_total, SUM(CASE WHEN "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "306004:TCH in service rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_total, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_ERA_ERA\' THEN 1 ELSE 0 END) AS cnt_ERA, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_ERA_ERA\' AND "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_ERA, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_ERA_ERA\' AND "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_ERA_ERA\' AND "306004:TCH in service rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_ERA, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_COOLI\' THEN 1 ELSE 0 END) AS cnt_COOLI, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_COOLI\' AND "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_COOLI, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_COOLI\' AND "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_COOLI\' AND "306004:TCH in service rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_COOLI, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_Normal\' THEN 1 ELSE 0 END) AS cnt_NORM, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_Normal\' AND "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_NORM, SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_Normal\' AND "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'GSM_Dispatch_Rules_Regular_Normal\' AND "306004:TCH in service rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_NORM FROM "2G_Main_Kpi_Site_Daily" GROUP BY t) SELECT t AS "End Time", \'Records\' AS "Indicator Name", "Records" AS value FROM agg UNION ALL SELECT t,\'NOTNULL\',"NOTNULL" FROM agg UNION ALL SELECT t,\'Site Availability Achievment\',ach_total FROM agg UNION ALL SELECT t,\'2G Achievment\',ROUND(pct_total,2) FROM agg UNION ALL SELECT t,\'ERA Achievement% count\',cnt_ERA FROM agg UNION ALL SELECT t,\'ERA Achievement% achieved\',ach_ERA FROM agg UNION ALL SELECT t,\'ERA Achievement%\',ROUND(pct_ERA,2) FROM agg UNION ALL SELECT t,\'COOLI_Achievement% count\',cnt_COOLI FROM agg UNION ALL SELECT t,\'COOLI_Achievement% achieved\',ach_COOLI FROM agg UNION ALL SELECT t,\'COOLI_Achievement%\',ROUND(pct_COOLI,2) FROM agg UNION ALL SELECT t,\'Normal_Achievement% count\',cnt_NORM FROM agg UNION ALL SELECT t,\'Normal_Achievement% achieved\',ach_NORM FROM agg UNION ALL SELECT t,\'Normal_Achievement%\',ROUND(pct_NORM,2) FROM agg ORDER BY 1,2',
                 'limit': None,
             },
             {
@@ -1021,7 +1021,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'WITH agg AS (SELECT substr("End Time",1,10) AS t, COUNT(*) AS 记录数, SUM(CASE WHEN "300857:Cell Validity Rate(%)" IS NOT NULL THEN 1 ELSE 0 END) AS "NOTNULL", SUM(CASE WHEN "300857:Cell Validity Rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_total, SUM(CASE WHEN "300857:Cell Validity Rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "300857:Cell Validity Rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_total, SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_COOLI\' THEN 1 ELSE 0 END) AS cnt_COOLI, SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_COOLI\' AND "300857:Cell Validity Rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_COOLI, SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_COOLI\' AND "300857:Cell Validity Rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_COOLI\' AND "300857:Cell Validity Rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_COOLI, SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_Normal\' THEN 1 ELSE 0 END) AS cnt_NORM, SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_Normal\' AND "300857:Cell Validity Rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_NORM, SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_Normal\' AND "300857:Cell Validity Rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_Normal\' AND "300857:Cell Validity Rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_NORM FROM "3G_Main_Kpi_Site_Daily" GROUP BY t) SELECT t AS "End Time", \'记录数\' AS 指标名称, 记录数 AS value FROM agg UNION ALL SELECT t,\'NOTNULL\',"NOTNULL" FROM agg UNION ALL SELECT t,\'Site Availability Achievment\',ach_total FROM agg UNION ALL SELECT t,\'Site Availability Achievment\',ROUND(pct_total,2) FROM agg UNION ALL SELECT t,\'COOLI_Achievement% count\',cnt_COOLI FROM agg UNION ALL SELECT t,\'COOLI_Achievement% achieved\',ach_COOLI FROM agg UNION ALL SELECT t,\'COOLI_Achievement%\',ROUND(pct_COOLI,2) FROM agg UNION ALL SELECT t,\'Normal_Achievement% count\',cnt_NORM FROM agg UNION ALL SELECT t,\'Normal_Achievement% achieved\',ach_NORM FROM agg UNION ALL SELECT t,\'Normal_Achievement%\',ROUND(pct_NORM,2) FROM agg ORDER BY 1,2',
+                'sql': 'WITH agg AS (SELECT substr("End Time",1,10) AS t, COUNT(*) AS "Records", SUM(CASE WHEN "300857:Cell Validity Rate(%)" IS NOT NULL THEN 1 ELSE 0 END) AS "NOTNULL", SUM(CASE WHEN "300857:Cell Validity Rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_total, SUM(CASE WHEN "300857:Cell Validity Rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "300857:Cell Validity Rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_total, SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_COOLI\' THEN 1 ELSE 0 END) AS cnt_COOLI, SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_COOLI\' AND "300857:Cell Validity Rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_COOLI, SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_COOLI\' AND "300857:Cell Validity Rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_COOLI\' AND "300857:Cell Validity Rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_COOLI, SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_Normal\' THEN 1 ELSE 0 END) AS cnt_NORM, SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_Normal\' AND "300857:Cell Validity Rate(%)">=0.985 THEN 1 ELSE 0 END) AS ach_NORM, SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_Normal\' AND "300857:Cell Validity Rate(%)">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'UMTS_Dispatch_Rules_Regular_Normal\' AND "300857:Cell Validity Rate(%)" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_NORM FROM "3G_Main_Kpi_Site_Daily" GROUP BY t) SELECT t AS "End Time", \'Records\' AS "Indicator Name", "Records" AS value FROM agg UNION ALL SELECT t,\'NOTNULL\',"NOTNULL" FROM agg UNION ALL SELECT t,\'Site Availability Achievment\',ach_total FROM agg UNION ALL SELECT t,\'Site Availability Achievment\',ROUND(pct_total,2) FROM agg UNION ALL SELECT t,\'COOLI_Achievement% count\',cnt_COOLI FROM agg UNION ALL SELECT t,\'COOLI_Achievement% achieved\',ach_COOLI FROM agg UNION ALL SELECT t,\'COOLI_Achievement%\',ROUND(pct_COOLI,2) FROM agg UNION ALL SELECT t,\'Normal_Achievement% count\',cnt_NORM FROM agg UNION ALL SELECT t,\'Normal_Achievement% achieved\',ach_NORM FROM agg UNION ALL SELECT t,\'Normal_Achievement%\',ROUND(pct_NORM,2) FROM agg ORDER BY 1,2',
                 'limit': None,
             },
             {
@@ -1031,7 +1031,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'WITH agg AS (SELECT substr("End Time",1,10) AS t, COUNT(*) AS 记录数, SUM(CASE WHEN "1638004469345:[FDD]Cell Availability[SDR_ITBBU]" IS NOT NULL THEN 1 ELSE 0 END) AS "NOTNULL", SUM(CASE WHEN "1638004469345:[FDD]Cell Availability[SDR_ITBBU]">=0.985 THEN 1 ELSE 0 END) AS ach_total, SUM(CASE WHEN "1638004469345:[FDD]Cell Availability[SDR_ITBBU]">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "1638004469345:[FDD]Cell Availability[SDR_ITBBU]" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_total, SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_ERA_ERA\' THEN 1 ELSE 0 END) AS cnt_ERA, SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_ERA_ERA\' AND "1638004469345:[FDD]Cell Availability[SDR_ITBBU]">=0.985 THEN 1 ELSE 0 END) AS ach_ERA, SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_ERA_ERA\' AND "1638004469345:[FDD]Cell Availability[SDR_ITBBU]">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_ERA_ERA\' AND "1638004469345:[FDD]Cell Availability[SDR_ITBBU]" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_ERA, SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_Regular_Normal\' THEN 1 ELSE 0 END) AS cnt_NORM, SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_Regular_Normal\' AND "1638004469345:[FDD]Cell Availability[SDR_ITBBU]">=0.985 THEN 1 ELSE 0 END) AS ach_NORM, SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_Regular_Normal\' AND "1638004469345:[FDD]Cell Availability[SDR_ITBBU]">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_Regular_Normal\' AND "1638004469345:[FDD]Cell Availability[SDR_ITBBU]" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_NORM FROM "4G_Main_Kpi_Site_Daily" GROUP BY t) SELECT t AS "End Time", \'记录数\' AS 指标名称, 记录数 AS value FROM agg UNION ALL SELECT t,\'NOTNULL\',"NOTNULL" FROM agg UNION ALL SELECT t,\'Site Availability Achievment\',ach_total FROM agg UNION ALL SELECT t,\'Site Availability Achievment\',ROUND(pct_total,2) FROM agg UNION ALL SELECT t,\'ERA Achievement% count\',cnt_ERA FROM agg UNION ALL SELECT t,\'ERA Achievement% achieved\',ach_ERA FROM agg UNION ALL SELECT t,\'ERA Achievement%\',ROUND(pct_ERA,2) FROM agg UNION ALL SELECT t,\'Normal_Achievement% count\',cnt_NORM FROM agg UNION ALL SELECT t,\'Normal_Achievement% achieved\',ach_NORM FROM agg UNION ALL SELECT t,\'Normal_Achievement%\',ROUND(pct_NORM,2) FROM agg ORDER BY 1,2',
+                'sql': 'WITH agg AS (SELECT substr("End Time",1,10) AS t, COUNT(*) AS "Records", SUM(CASE WHEN "1638004469345:[FDD]Cell Availability[SDR_ITBBU]" IS NOT NULL THEN 1 ELSE 0 END) AS "NOTNULL", SUM(CASE WHEN "1638004469345:[FDD]Cell Availability[SDR_ITBBU]">=0.985 THEN 1 ELSE 0 END) AS ach_total, SUM(CASE WHEN "1638004469345:[FDD]Cell Availability[SDR_ITBBU]">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "1638004469345:[FDD]Cell Availability[SDR_ITBBU]" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_total, SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_ERA_ERA\' THEN 1 ELSE 0 END) AS cnt_ERA, SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_ERA_ERA\' AND "1638004469345:[FDD]Cell Availability[SDR_ITBBU]">=0.985 THEN 1 ELSE 0 END) AS ach_ERA, SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_ERA_ERA\' AND "1638004469345:[FDD]Cell Availability[SDR_ITBBU]">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_ERA_ERA\' AND "1638004469345:[FDD]Cell Availability[SDR_ITBBU]" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_ERA, SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_Regular_Normal\' THEN 1 ELSE 0 END) AS cnt_NORM, SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_Regular_Normal\' AND "1638004469345:[FDD]Cell Availability[SDR_ITBBU]">=0.985 THEN 1 ELSE 0 END) AS ach_NORM, SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_Regular_Normal\' AND "1638004469345:[FDD]Cell Availability[SDR_ITBBU]">=0.985 THEN 1 ELSE 0 END)*100.0/NULLIF(SUM(CASE WHEN "Group"=\'LTE_Dispatch_Rules_Regular_Normal\' AND "1638004469345:[FDD]Cell Availability[SDR_ITBBU]" IS NOT NULL THEN 1 ELSE 0 END),0) AS pct_NORM FROM "4G_Main_Kpi_Site_Daily" GROUP BY t) SELECT t AS "End Time", \'Records\' AS "Indicator Name", "Records" AS value FROM agg UNION ALL SELECT t,\'NOTNULL\',"NOTNULL" FROM agg UNION ALL SELECT t,\'Site Availability Achievment\',ach_total FROM agg UNION ALL SELECT t,\'Site Availability Achievment\',ROUND(pct_total,2) FROM agg UNION ALL SELECT t,\'ERA Achievement% count\',cnt_ERA FROM agg UNION ALL SELECT t,\'ERA Achievement% achieved\',ach_ERA FROM agg UNION ALL SELECT t,\'ERA Achievement%\',ROUND(pct_ERA,2) FROM agg UNION ALL SELECT t,\'Normal_Achievement% count\',cnt_NORM FROM agg UNION ALL SELECT t,\'Normal_Achievement% achieved\',ach_NORM FROM agg UNION ALL SELECT t,\'Normal_Achievement%\',ROUND(pct_NORM,2) FROM agg ORDER BY 1,2',
                 'limit': None,
             },
             {
@@ -1497,7 +1497,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'WITH agg AS (SELECT substr("End Time",1,10) AS t, COUNT(*) AS cnt, SUM(CASE WHEN "306004:TCH in service rate(%)" IS NOT NULL THEN 1 ELSE 0 END) AS nn, SUM(CASE WHEN "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END) AS saa, SUM(CASE WHEN "306004:TCH in service rate(%)">0.995 AND "Group"=\'GSM_ERA\' THEN 1 ELSE 0 END) AS gea, SUM(CASE WHEN "Group"=\'GSM_ERA\' THEN 1 ELSE 0 END) AS ge FROM "2G_Main_Kpi_Site_Daily" GROUP BY 1) SELECT t AS "End Time", \'记录数\' AS "Indicator Name", cnt AS value FROM agg UNION ALL SELECT t,\'NOTNULL\',nn FROM agg UNION ALL SELECT t,\'Site Availability Achievment\',saa FROM agg UNION ALL SELECT t,\'Achievment\',ROUND(saa*100.0/NULLIF(nn,0),2) FROM agg UNION ALL SELECT t,\'GSM_ERA_Achievment\',gea FROM agg UNION ALL SELECT t,\'GSM_ERA\',ge FROM agg UNION ALL SELECT t,\'ERA Achievment\',ROUND(gea*100.0/NULLIF(ge,0),2) FROM agg ORDER BY 1,2',
+                'sql': 'WITH agg AS (SELECT substr("End Time",1,10) AS t, COUNT(*) AS cnt, SUM(CASE WHEN "306004:TCH in service rate(%)" IS NOT NULL THEN 1 ELSE 0 END) AS nn, SUM(CASE WHEN "306004:TCH in service rate(%)">=0.985 THEN 1 ELSE 0 END) AS saa, SUM(CASE WHEN "306004:TCH in service rate(%)">0.995 AND "Group"=\'GSM_ERA\' THEN 1 ELSE 0 END) AS gea, SUM(CASE WHEN "Group"=\'GSM_ERA\' THEN 1 ELSE 0 END) AS ge FROM "2G_Main_Kpi_Site_Daily" GROUP BY 1) SELECT t AS "End Time", \'Records\' AS "Indicator Name", cnt AS value FROM agg UNION ALL SELECT t,\'NOTNULL\',nn FROM agg UNION ALL SELECT t,\'Site Availability Achievment\',saa FROM agg UNION ALL SELECT t,\'Achievment\',ROUND(saa*100.0/NULLIF(nn,0),2) FROM agg UNION ALL SELECT t,\'GSM_ERA_Achievment\',gea FROM agg UNION ALL SELECT t,\'GSM_ERA\',ge FROM agg UNION ALL SELECT t,\'ERA Achievment\',ROUND(gea*100.0/NULLIF(ge,0),2) FROM agg ORDER BY 1,2',
                 'limit': None,
             },
             {
@@ -1551,7 +1551,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'mttr_tt.sqlite3',
-                'sql': 'SELECT "Month" AS d, COUNT(*) AS "记录数", ROUND(MAX("MTTR2"),2) AS "MTTR2" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 GROUP BY 1 ORDER BY 1',
+                'sql': 'SELECT "Month" AS d, COUNT(*) AS "Records", ROUND(MAX("MTTR2"),2) AS "MTTR2" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 GROUP BY 1 ORDER BY 1',
                 'limit': None,
             },
             {
@@ -1561,7 +1561,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'mttr_tt.sqlite3',
-                'sql': 'SELECT "Month" AS d, COUNT(*) AS "记录数", ROUND(MAX("MTTR2"),2) AS "MTTR2" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 AND "Ticket Severity"=\'P1\' GROUP BY 1 ORDER BY 1',
+                'sql': 'SELECT "Month" AS d, COUNT(*) AS "Records", ROUND(MAX("MTTR2"),2) AS "MTTR2" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 AND "Ticket Severity"=\'P1\' GROUP BY 1 ORDER BY 1',
                 'limit': None,
             },
             {
@@ -1571,7 +1571,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'mttr_tt.sqlite3',
-                'sql': 'SELECT "Month" AS d, COUNT(*) AS "记录数", ROUND(MAX("MTTR2"),2) AS "MTTR2" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 AND "Ticket Severity"=\'P2\' GROUP BY 1 ORDER BY 1',
+                'sql': 'SELECT "Month" AS d, COUNT(*) AS "Records", ROUND(MAX("MTTR2"),2) AS "MTTR2" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 AND "Ticket Severity"=\'P2\' GROUP BY 1 ORDER BY 1',
                 'limit': None,
             },
             {
@@ -1581,7 +1581,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'mttr_tt.sqlite3',
-                'sql': 'SELECT "Month" AS d, COUNT(*) AS "记录数", ROUND(MAX("MTTR2"),2) AS "MTTR2" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 AND "Ticket Severity"=\'P3\' GROUP BY 1 ORDER BY 1',
+                'sql': 'SELECT "Month" AS d, COUNT(*) AS "Records", ROUND(MAX("MTTR2"),2) AS "MTTR2" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 AND "Ticket Severity"=\'P3\' GROUP BY 1 ORDER BY 1',
                 'limit': None,
             },
             {
@@ -1591,7 +1591,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'mttr_tt.sqlite3',
-                'sql': 'SELECT "Month" AS d, COUNT(*) AS "记录数", ROUND(MAX("MTTR2"),2) AS "MTTR2" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 AND "Ticket Severity"=\'P4\' GROUP BY 1 ORDER BY 1',
+                'sql': 'SELECT "Month" AS d, COUNT(*) AS "Records", ROUND(MAX("MTTR2"),2) AS "MTTR2" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 AND "Ticket Severity"=\'P4\' GROUP BY 1 ORDER BY 1',
                 'limit': None,
             },
             {
@@ -1601,7 +1601,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'mttr_tt.sqlite3',
-                'sql': 'SELECT "WK" AS d, COUNT(*) AS "记录数", ROUND(MAX("MTTR2"),2) AS "MTTR2" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 GROUP BY 1 ORDER BY 1',
+                'sql': 'SELECT "WK" AS d, COUNT(*) AS "Records", ROUND(MAX("MTTR2"),2) AS "MTTR2" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 GROUP BY 1 ORDER BY 1',
                 'limit': None,
             },
             {
@@ -1611,7 +1611,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'mttr_tt.sqlite3',
-                'sql': 'SELECT "MTTR_RANG_2H" AS d, COUNT(*) AS "记录数" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 GROUP BY 1 ORDER BY 1',
+                'sql': 'SELECT "MTTR_RANG_2H" AS d, COUNT(*) AS "Records" FROM tt_full WHERE "Ticket Severity" IN (\'P1\',\'P2\',\'P3\',\'P4\') AND "Month" IS NOT NULL AND "Month" NOT IN (\'NaT\',\'nan\') AND "Site ID" != \'VMAX-DC\' AND "MTTR2" >= 0.25 GROUP BY 1 ORDER BY 1',
                 'limit': None,
             },
             {
@@ -1685,7 +1685,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'WITH agg AS (SELECT substr("Alarm Occur Time",1,10) AS d, COUNT(*) AS cnt, SUM(CASE WHEN "Status"=\'Closed\' THEN 1 ELSE 0 END) AS closed FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') GROUP BY 1) SELECT d AS "Alarm Occur Time", \'WO Quality\' AS "指标名称", cnt AS value FROM agg UNION ALL SELECT d,\'Closed\',closed FROM agg UNION ALL SELECT d,\'Ongoing\',cnt-closed FROM agg ORDER BY 1,2',
+                'sql': 'WITH agg AS (SELECT substr("Alarm Occur Time",1,10) AS d, COUNT(*) AS cnt, SUM(CASE WHEN "Status"=\'Closed\' THEN 1 ELSE 0 END) AS closed FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') GROUP BY 1) SELECT d AS "Alarm Occur Time", \'WO Quality\' AS "Indicator Name", cnt AS value FROM agg UNION ALL SELECT d,\'Closed\',closed FROM agg UNION ALL SELECT d,\'Ongoing\',cnt-closed FROM agg ORDER BY 1,2',
                 'limit': None,
             },
             {
@@ -1695,7 +1695,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'WITH agg AS (SELECT "Region Id" AS d, COUNT(*) AS cnt, SUM(CASE WHEN "Status"=\'Closed\' THEN 1 ELSE 0 END) AS closed FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') GROUP BY 1) SELECT d AS "Region Id", \'WO Quality\' AS "指标名称", cnt AS value FROM agg UNION ALL SELECT d,\'Closed\',closed FROM agg UNION ALL SELECT d,\'Ongoing\',cnt-closed FROM agg ORDER BY 1,2',
+                'sql': 'WITH agg AS (SELECT "Region Id" AS d, COUNT(*) AS cnt, SUM(CASE WHEN "Status"=\'Closed\' THEN 1 ELSE 0 END) AS closed FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') GROUP BY 1) SELECT d AS "Region Id", \'WO Quality\' AS "Indicator Name", cnt AS value FROM agg UNION ALL SELECT d,\'Closed\',closed FROM agg UNION ALL SELECT d,\'Ongoing\',cnt-closed FROM agg ORDER BY 1,2',
                 'limit': None,
             },
             {
@@ -1705,7 +1705,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'WITH agg AS (SELECT "Current Handler" AS d, COUNT(*) AS cnt, SUM(CASE WHEN "Status"=\'Closed\' THEN 1 ELSE 0 END) AS closed FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') GROUP BY 1) SELECT d AS "Current Handler", \'WO Quality\' AS "指标名称", cnt AS value FROM agg UNION ALL SELECT d,\'Closed\',closed FROM agg UNION ALL SELECT d,\'Ongoing\',cnt-closed FROM agg ORDER BY 1,2',
+                'sql': 'WITH agg AS (SELECT "Current Handler" AS d, COUNT(*) AS cnt, SUM(CASE WHEN "Status"=\'Closed\' THEN 1 ELSE 0 END) AS closed FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') GROUP BY 1) SELECT d AS "Current Handler", \'WO Quality\' AS "Indicator Name", cnt AS value FROM agg UNION ALL SELECT d,\'Closed\',closed FROM agg UNION ALL SELECT d,\'Ongoing\',cnt-closed FROM agg ORDER BY 1,2',
                 'limit': None,
             },
             {
@@ -1715,7 +1715,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'SELECT "Current Handler", COUNT(*) AS "记录数" FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') AND "Operation Step"=\'Accept\' GROUP BY 1 ORDER BY 2 DESC',
+                'sql': 'SELECT "Current Handler", COUNT(*) AS "Records" FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') AND "Operation Step"=\'Accept\' GROUP BY 1 ORDER BY 2 DESC',
                 'limit': None,
             },
             {
@@ -1725,7 +1725,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'SELECT "Current Handler", COUNT(*) AS "记录数" FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') AND "Operation Step"=\'Start Trip\' GROUP BY 1 ORDER BY 2 DESC',
+                'sql': 'SELECT "Current Handler", COUNT(*) AS "Records" FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') AND "Operation Step"=\'Start Trip\' GROUP BY 1 ORDER BY 2 DESC',
                 'limit': None,
             },
             {
@@ -1735,7 +1735,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'SELECT "Current Handler", COUNT(*) AS "记录数" FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') AND "Operation Step"=\'Arrive Site\' GROUP BY 1 ORDER BY 2 DESC',
+                'sql': 'SELECT "Current Handler", COUNT(*) AS "Records" FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') AND "Operation Step"=\'Arrive Site\' GROUP BY 1 ORDER BY 2 DESC',
                 'limit': None,
             },
             {
@@ -1745,7 +1745,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'SELECT "Current Handler", COUNT(*) AS "记录数" FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') AND "Operation Step"=\'Process\' GROUP BY 1 ORDER BY 2 DESC',
+                'sql': 'SELECT "Current Handler", COUNT(*) AS "Records" FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') AND "Operation Step"=\'Process\' GROUP BY 1 ORDER BY 2 DESC',
                 'limit': None,
             },
             {
@@ -1755,7 +1755,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'SELECT "Current Handler", COUNT(*) AS "记录数" FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') AND "Operation Step"=\'BONPOProcess\' GROUP BY 1 ORDER BY 2 DESC',
+                'sql': 'SELECT "Current Handler", COUNT(*) AS "Records" FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') AND "Operation Step"=\'BONPOProcess\' GROUP BY 1 ORDER BY 2 DESC',
                 'limit': None,
             },
             {
@@ -1765,7 +1765,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db.sqlite3',
-                'sql': 'SELECT "Current Handler", COUNT(*) AS "记录数" FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') AND "Operation Step"=\'Confirm\' GROUP BY 1 ORDER BY 2 DESC',
+                'sql': 'SELECT "Current Handler", COUNT(*) AS "Records" FROM "Eflow_WO_FB" WHERE "TT No." IS NOT NULL AND TRIM("TT No.") NOT IN (\'\',\'nan\',\'NaT\') AND "Operation Step"=\'Confirm\' GROUP BY 1 ORDER BY 2 DESC',
                 'limit': None,
             },
             {
