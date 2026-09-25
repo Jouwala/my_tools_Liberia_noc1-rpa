@@ -25,6 +25,21 @@ npm run clean      # 删除 dist / server.js
 - 本地 dev 已配置 `/api` 代理到 `http://192.168.100.19`，任务调度部件可直连生产后端。
 - 部署到子路径需在 `vite.config.ts` 设 `base` **后重新构建**。
 
+### 仓库整洁度（2026-09-25 起有机器守卫）
+
+背景：AGENTS.md 第四节第 7 条「探针落 `TMP\` 并自清」失效过三次，2026-09-24 审计发现门户 506 个跟踪文件里 347 个是探针/转储/快照。现在由三件东西兜底：
+
+| 机制 | 命令 | 作用 |
+| --- | --- | --- |
+| 提交前拦截 | `.git\hooks\pre-commit`（工作区根，随 git 生效） | 提交时自动跑 audit，探针/快照/日志入库就拦下 |
+| 手工体检 | `npm run check:clean` | 随时自查版本库有没有混入噪声文件 |
+| TMP 清理 | `npm run tmp:clean` / `npm run tmp:clean:apply` | 报告 / 真删 `TMP\` 里早于 7 天的积压（脚本加 `--days=N` 可调） |
+
+判断逻辑全在 `scripts\check-cleanliness.mjs`，钩子与手工命令是同一份代码，不会分叉。它管**已跟踪文件**（不该入库却入了库的），`.gitignore` 管**未跟踪文件**（防止新增入库），两者互补。
+
+- 被钩子拦下但确实要提交：`git commit --no-verify`（先确认文件真的是源码）。
+- `_*` 前缀的真源码（如 `src\`、`server\` 下的下划线文件）在脚本里有豁免清单，新增类似文件时记得同步该清单。
+
 ## 三、代码结构约定
 
 ### 状态中枢只有一个
@@ -111,6 +126,7 @@ var seq = ++qcDrillSeq;
 - [ ] `npm run build` 通过
 - [ ] `npm run dev` 后刷新页面，改动**实际可见**
 - [ ] `git status --porcelain` 复查：没有 `dist/`、`node_modules/`、`auth-data/`、`portal-default.json`、`*.log`、探针文件混入
+- [ ] `npm run check:clean` 通过（探针/快照/日志没被 git 跟踪；pre-commit 钩子也会自动拦）
 
 ### 文案 / i18n
 

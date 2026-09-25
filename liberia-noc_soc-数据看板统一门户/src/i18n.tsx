@@ -399,6 +399,14 @@ const zh: Record<string, string> = {
   'auth.locked': '连续失败次数过多，请 1 分钟后再试',
   'auth.networkError': '无法连接鉴权服务，请检查网络后重试',
   'auth.footer': '内部系统 · 仅限授权人员使用',
+  'auth.noPermission': '无权访问此页面',
+  'auth.noPermissionHint': '当前账号权限不足，请联系管理员开通。',
+
+  // 新页面模板（src/pages/_TemplatePage.tsx）演示用的通用文案
+  'tpl.title': '示例页面',
+  'tpl.refresh': '刷新',
+  'tpl.retry': '重试',
+  'tpl.empty': '暂无数据',
 
   'nav.userTip': '当前登录账号与操作',
   'nav.userManagement': '用户管理',
@@ -931,6 +939,14 @@ const en: Record<string, string> = {
   'auth.locked': 'Too many failed attempts, please try again in a minute',
   'auth.networkError': 'Cannot reach the auth service, check the network and retry',
   'auth.footer': 'Internal system · Authorized personnel only',
+  'auth.noPermission': 'No access to this page',
+  'auth.noPermissionHint': 'Your account lacks the required permission. Contact an administrator.',
+
+  // Strings used by the new-page template (src/pages/_TemplatePage.tsx)
+  'tpl.title': 'Example page',
+  'tpl.refresh': 'Refresh',
+  'tpl.retry': 'Retry',
+  'tpl.empty': 'No data',
 
   'nav.userTip': 'Signed-in account & actions',
   'nav.userManagement': 'User Management',

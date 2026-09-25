@@ -725,6 +725,10 @@ export default function App() {
   const translatedGroups = useMemo(() => groups.map(labelOf), [groups, labelOf]);
 
   // —— 鉴权门：未登录只能看到登录页 ——
+  // 说明：这里**刻意不改用** <RequireAuth>。本组件在守卫之后仍大量依赖已就绪的
+  // user（见下方 landing/白名单/权限过滤），而 RequireAuth 只是「包住子树」，
+  // 无法把 user 收窄为非空供后续逻辑使用，改了反而要再加断言。
+  // <RequireAuth> 的用途是**新页面**接入（见 src/pages/_TemplatePage.tsx）。
   if (status === 'loading') {
     return (
       <div className="min-h-screen bg-slate-100/60 dark:bg-navy-950 text-slate-500 dark:text-slate-400 flex flex-col items-center justify-center gap-3 font-sans">

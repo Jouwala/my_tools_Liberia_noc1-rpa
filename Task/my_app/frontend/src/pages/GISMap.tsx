@@ -2,7 +2,9 @@ import { useEffect, useState, useMemo } from 'react'
 import { cachedGet } from '../cache'
 import { Card, Row, Col, Select, Spin, Tag, Space, Badge, DatePicker, Segmented, Tooltip, Switch, Button } from 'antd'
 import { FilterOutlined } from '@ant-design/icons'
-import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Polygon, Pane } from 'react-leaflet'
+// Tooltip 与 antd 的 Tooltip 重名：antd 那个用于悬浮提示（顶部同步时间等），
+// react-leaflet 这个用于地图内的常驻标注（县名）。别名区分，避免误用。
+import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Polygon, Pane, Tooltip as MapTooltip } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import dayjs, { Dayjs } from 'dayjs'
 import api from '../api'
@@ -13,7 +15,41 @@ import { useDataTimestamps } from '../useDataTimestamps'
 import { WH, WH_COLORS, cardStyle, controlCardStyle, pageWrap, useTheme } from '../theme'
 import { MapController } from './gismap/MapController'
 import { SiteDrilldownDrawer } from './gismap/SiteDrilldownDrawer'
-import type { Site, DrilldownData, DrilldownAnalytics, TopologyLink, LegendKey, LayerKey, TimePreset } from './gismap/types'
+import type { Site, DrilldownData, DrilldownAnalytics, TopologyLink, LegendKey, LayerKey, TimePreset, BoundaryMode, CountyBoundary } from './gismap/types'
+import { SITE_COLORS, KML_LINK_COLORS } from './gismap/types'
+
+/* 默认取景：**完整居中显示利比里亚全境**（2026-09-25 改，按用户需求）。
+   需求原话：「打开默认为当前点一下减号的效果，注意要保持利比里亚居中」——
+   即打开就要看全整个国家，而不是放大到只看得见中间一块。
+
+   为什么不能继续用写死的 zoom=8（原实现）：
+     门户中列的地图画布是窄竖条（实测 570×856），各档在该画布下的可视范围：
+       zoom 7 → 约 9.34°纬 × 6.26°经   ✅ 装得下国土（4.85°纬 × 4.40°经）
+       zoom 8 → 约 4.67°纬 × 3.13°经   ❌ 装不下（纬差 0.18，经差 1.27）
+       zoom 9 → 约 2.33°纬 × 1.56°经   ❌ 完全装不下
+     也就是说 zoom 8 无论怎么调中心都会裁掉国土东西边缘，与「保持利比里亚居中（看全）」
+     直接冲突。改画布尺寸也救不回来：中列宽度是门户版式定的，不是本页能决定的。
+     故本页默认改用 zoom=LB_FIT_ZOOM（=7），并把中心对齐国土 bbox 中心。
+
+   ⚠️ 为什么中心用「国土 bbox 中心」而不是「站点重心」：
+     站点重心（827 站实测 6.5461N / 9.8475E）受站点分布不均影响，会往西南偏；
+     而用户要的是「利比里亚居中」，指的是**国土**在画面正中。
+     用 bbox 中心（6.325N / 9.5W）才与这句话的字面意思一致，也能保证东西南北留白均匀。
+     bbox 取值与 mw_real_time.html 的 LB_BOUNDS 保持一致（单一真相源在那边，
+     这里只是同一组数字的第二处副本 —— 若哪天国土范围变了，两处要一起改）。 */
+const LB_BOUNDS = { south: 3.9, west: -11.7, north: 8.75, east: -7.3 }
+const LB_CENTER: [number, number] = [
+  (LB_BOUNDS.south + LB_BOUNDS.north) / 2,
+  (LB_BOUNDS.west + LB_BOUNDS.east) / 2,
+]
+/* zoom 7 = 在门户中列画布下刚好装下全境的最低档（见上方实测表）。
+   不写成 6：zoom 6 会多出一圈无意义的空白海域，站点被挤在中间一小块。 */
+const LB_FIT_ZOOM = 7
+
+/* 站点分类配色 SITE_COLORS 与 MW 链路线色 KML_LINK_COLORS 已移入
+   ./gismap/types.ts —— 下钻抽屉也要用同一组色，定义在这里会造成循环依赖。
+   详见 types.ts 内的撞色说明。 */
+
 
 export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) {
   const [sites, setSites] = useState<Site[]>([])
@@ -34,7 +70,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const [showTopology, setShowTopology] = useState(false)
   const [topologyLinks, setTopologyLinks] = useState<TopologyLink[]>([])
   const [regionBoundaries, setRegionBoundaries] = useState<{ region: string; polygon: [number, number][]; color: string; site_count: number }[]>([])
-  const [showRegions, setShowRegions] = useState(true)
+  /* 边界蒙层三选一（2026-09-25 新增 county，并按用户要求把默认值定为 county）：
+       none   —— 不显示任何蒙层
+       region —— 由站点坐标 Voronoi 推算的 3 个大区（旧默认）
+       county —— 用户提供的 15 个县**真实**行政边界（现默认，2026-09-25 用户要求）
+     取代了原先的 showRegions 布尔开关：两个蒙层若同时开启会互相遮盖，
+     且语义不同（推算 vs 真实），用互斥的三选一表达更准确。 */
+  const [boundaryMode, setBoundaryMode] = useState<BoundaryMode>('county')
+  const [counties, setCounties] = useState<CountyBoundary[]>([])
   const [ossStats, setOssStats] = useState<{ oss_specific_problem: string; count: number; sites: number }[]>([])
 
   const [activeLayers, setActiveLayers] = useState<Set<LayerKey>>(
@@ -108,6 +151,27 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       .then(res => setRegionBoundaries(res.data.regions || []))
       .catch(() => {})
   }, [])
+
+  // 县界是静态 GeoJSON（后端 1 小时缓存），只在首次切到 county 模式时拉取，
+  // 避免每次进页面都多传约 400KB。
+  useEffect(() => {
+    if (boundaryMode !== 'county' || counties.length > 0) return
+    cachedGet('gis:county-boundaries', () => api.get('/gis/county-boundaries'))
+      .then(res => setCounties(res.data.counties || []))
+      .catch(err => {
+        // 不吞异常：边界拉不到时明确报错，界面回落为「无蒙层」而不是静默空白
+        console.error('[GISMap] county boundaries failed:', err?.response?.status, err?.response?.data || err)
+        setCounties([])
+      })
+  }, [boundaryMode, counties.length])
+
+  /* 点击县界 → 复用既有的 province_county 高级筛选形成下钻闭环。
+     用 db_name（与站点表 province_county 对齐的值）：附件里叫 "Rivercess"，
+     而库里是 "River Cess"，直接拿 name 去筛会得到 0 个站点。 */
+  const handleCountyClick = (c: CountyBoundary) => {
+    setSelectedFilters(prev => ({ ...prev, province_county: c.db_name }))
+    setShowFilters(true)
+  }
 
   const handleSiteClick = (site: Site) => {
     setSelectedSite(site.site_id)
@@ -210,7 +274,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
 
   // 记忆化：避免每次渲染都生成新数组导致 MapController 反复 setView（会重置用户的平移/缩放）
   const center = useMemo<[number, number]>(() => {
-    if (sites.length === 0) return [6.4, -9.4]
+    if (sites.length === 0) return LB_CENTER
     return [
       sites.reduce((s, p) => s + p.lat, 0) / sites.length,
       sites.reduce((s, p) => s + p.lng, 0) / sites.length,
@@ -220,14 +284,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const getMarkerColor = (site: Site) => {
     const cat = getSiteCategory(site)
     switch (cat) {
-      case 'rt_alarm': return '#ff6b6b'
-      case 'rt_alarm_overdue': return '#ff1e1e'
-      case 'rt_alarm_ontime': return '#ffd400'
-      case 'his_alarm': return '#ffa94d'
-      case 'tt': return '#258cff'
-      case 'wo': return '#51cf66'
-      case 'vip': return '#a99cff'
-      default: return '#94a3b8'
+      case 'rt_alarm': return SITE_COLORS.rt_alarm
+      case 'rt_alarm_overdue': return SITE_COLORS.rt_alarm_overdue
+      case 'rt_alarm_ontime': return SITE_COLORS.rt_alarm_ontime
+      case 'his_alarm': return SITE_COLORS.his_alarm
+      case 'tt': return SITE_COLORS.tt
+      case 'wo': return SITE_COLORS.wo
+      case 'vip': return SITE_COLORS.vip
+      default: return SITE_COLORS.normal
     }
   }
 
@@ -326,19 +390,28 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     }
   }, [sites, mode])
 
+  /* 图例可见性（2026-09-25 修正「假 0」）：
+     rt_alarm_overdue / rt_alarm_ontime 是**实时模式专属**——categoryCounts 只在
+     mode==='realtime' 时给它们计数，在 ?page=gis（mode='all'）下恒为 0。
+     而原实现只在 realtime 模式过滤 rt_alarm/his_alarm，这两个键在 all 模式
+     没被过滤掉，于是页面上就出现「Realtime Alarm (Overdue) (0)」这种
+     看起来像故障、实则是空指标的图例（用户 2026-09-25 反馈）。
+     修法：按模式对称过滤——all 模式隐藏实时专属项，realtime 模式隐藏历史专属项。 */
   const legendItems: { key: LegendKey; color: string; label: string; count: number }[] = [
-    { key: 'rt_alarm_overdue', color: '#ff1e1e', label: t('gis.legend.rtAlarmOverdue'), count: categoryCounts.rt_alarm_overdue },
-    { key: 'rt_alarm_ontime', color: '#ffd400', label: t('gis.legend.rtAlarmOnTime'), count: categoryCounts.rt_alarm_ontime },
-    { key: 'rt_alarm', color: '#ff6b6b', label: t('gis.legend.rtAlarm'), count: categoryCounts.rt_alarm },
-    { key: 'his_alarm', color: '#ffa94d', label: t('gis.legend.hisAlarm'), count: categoryCounts.his_alarm },
-    { key: 'tt', color: '#258cff', label: t('gis.legend.tt'), count: ticketTotals.tt },
-    { key: 'wo', color: '#51cf66', label: t('gis.legend.wo'), count: ticketTotals.wo },
-    { key: 'vip', color: '#a99cff', label: t('gis.legend.vip'), count: categoryCounts.vip },
-    { key: 'normal', color: '#94a3b8', label: t('gis.legend.normal'), count: categoryCounts.normal },
+    { key: 'rt_alarm_overdue', color: SITE_COLORS.rt_alarm_overdue, label: t('gis.legend.rtAlarmOverdue'), count: categoryCounts.rt_alarm_overdue },
+    { key: 'rt_alarm_ontime', color: SITE_COLORS.rt_alarm_ontime, label: t('gis.legend.rtAlarmOnTime'), count: categoryCounts.rt_alarm_ontime },
+    { key: 'rt_alarm', color: SITE_COLORS.rt_alarm, label: t('gis.legend.rtAlarm'), count: categoryCounts.rt_alarm },
+    { key: 'his_alarm', color: SITE_COLORS.his_alarm, label: t('gis.legend.hisAlarm'), count: categoryCounts.his_alarm },
+    { key: 'tt', color: SITE_COLORS.tt, label: t('gis.legend.tt'), count: ticketTotals.tt },
+    { key: 'wo', color: SITE_COLORS.wo, label: t('gis.legend.wo'), count: ticketTotals.wo },
+    { key: 'vip', color: SITE_COLORS.vip, label: t('gis.legend.vip'), count: categoryCounts.vip },
+    { key: 'normal', color: SITE_COLORS.normal, label: t('gis.legend.normal'), count: categoryCounts.normal },
   ].filter(item =>
     mode === 'realtime'
+      // 实时模式：无历史告警；rt_alarm 由 overdue/ontime 两档细分取代
       ? (item.key !== 'rt_alarm' && item.key !== 'his_alarm')
-      : true
+      // 全量模式：无实时告警状态，Overdue/OnTime 两档无意义
+      : (item.key !== 'rt_alarm_overdue' && item.key !== 'rt_alarm_ontime')
   ) as { key: LegendKey; color: string; label: string; count: number }[]
 
   const toggleLayer = (key: LayerKey) => {
@@ -351,8 +424,8 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   }
 
   const layerOptions: { key: LayerKey; label: string; color: string }[] = [
-    { key: 'rt_alarm', label: t('gis.layer.rtAlarm'), color: '#ff6b6b' },
-    { key: 'his_alarm', label: t('gis.layer.hisAlarm'), color: '#ffa94d' },
+    { key: 'rt_alarm', label: t('gis.layer.rtAlarm'), color: SITE_COLORS.rt_alarm },
+    { key: 'his_alarm', label: t('gis.layer.hisAlarm'), color: SITE_COLORS.his_alarm },
     { key: 'tt', label: t('gis.layer.tt'), color: '#258cff' },
     { key: 'wo', label: t('gis.layer.wo'), color: '#51cf66' },
   ].filter(lo => mode === 'realtime' ? lo.key !== 'his_alarm' : true) as { key: LayerKey; label: string; color: string }[]
@@ -403,8 +476,18 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 <span style={{ fontSize: '0.8125rem', color: WH.text }}>{t('gis.topologyToggle')}</span>
               </Space>
               <Space style={{ gap: 'var(--wh-space-xs)' }}>
-                <Switch size="small" checked={showRegions} onChange={setShowRegions} />
-                <span style={{ fontSize: '0.8125rem', color: WH.text }}>{t('gis.regionOverlay')}</span>
+                <span style={{ fontSize: '0.8125rem', color: WH.text }}>{t('gis.boundaryMode')}</span>
+                <Segmented
+                  size="small"
+                  value={boundaryMode}
+                  onChange={(v) => setBoundaryMode(v as BoundaryMode)}
+                  style={{ background: 'var(--wh-seg-bg)' }}
+                  options={[
+                    { value: 'none', label: t('gis.boundaryNone') },
+                    { value: 'region', label: t('gis.boundaryRegion') },
+                    { value: 'county', label: t('gis.boundaryCounty') },
+                  ]}
+                />
               </Space>
               <ExplainIcon text={t('gis.explain.note')} size={14} />
             </Space>
@@ -504,15 +587,21 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
             )
           })}
           {showTopology && (
+            /* 图例改为按 kml_mw_links 的真实线色分组（2026-09-25 换数据源后）：
+               旧 topology 表有 a_is_hub/b_is_hub，故用「Hub/普通」两档；
+               kml_mw_links 没有 hub 标记，但每条线自带 color（红/黄/蓝/绿），
+               按真实颜色分组比原来的二分更贴合数据本身。 */
             <>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--wh-space-xs)', fontSize: '0.75rem', marginRight: 'var(--wh-space-md)', color: WH.text }}>
-                <span style={{ display: 'inline-block', width: 20, height: 3, backgroundColor: '#ff6b6b', borderRadius: 2 }} />
-                {t('gis.topologyHubLink')} ({topologyLinks.filter(l => l.is_hub_link).length})
-              </span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--wh-space-xs)', fontSize: '0.75rem', marginRight: 'var(--wh-space-md)', color: WH.text }}>
-                <span style={{ display: 'inline-block', width: 20, height: 2, backgroundColor: '#258cff', borderRadius: 1 }} />
-                {t('gis.topologyNormalLink')} ({topologyLinks.filter(l => !l.is_hub_link).length})
-              </span>
+              {KML_LINK_COLORS.map(lc => {
+                const n = topologyLinks.filter(l => (l.color || '').toLowerCase() === lc.color).length
+                if (n === 0) return null
+                return (
+                  <span key={lc.color} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--wh-space-xs)', fontSize: '0.75rem', marginRight: 'var(--wh-space-md)', color: WH.text }}>
+                    <span style={{ display: 'inline-block', width: 20, height: 3, backgroundColor: lc.color, borderRadius: 2 }} />
+                    {t(lc.labelKey)} ({n})
+                  </span>
+                )
+              })}
             </>
           )}
         </div>
@@ -602,7 +691,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         ) : (
           <MapContainer
             center={center}
-            zoom={8}
+            zoom={LB_FIT_ZOOM}
             className={mapClassName}
             style={{ height: 'calc(100vh - 290px)', width: '100%', background: 'var(--wh-page-bg)' }}
             scrollWheelZoom={!isEmbeddedInPortal()}
@@ -612,7 +701,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            <MapController center={center} zoom={8} />
+            <MapController center={center} zoom={LB_FIT_ZOOM} />
             <Pane name="sitePane" style={{ zIndex: 650 }} />
             {filteredSites.map(site => (
               <CircleMarker
@@ -636,19 +725,19 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                       <span style={{ fontWeight: 600 }}>
                         ⚠ {t('gis.popup.rtAlarm')}: {site.rt_alarm_count}
                         {(site.rt_alarm_overdue || 0) > 0 && (
-                          <span style={{ color: '#ff1e1e' }}> ({t('gis.popup.overdue')}: {site.rt_alarm_overdue})</span>
+                          <span style={{ color: SITE_COLORS.rt_alarm_overdue }}> ({t('gis.popup.overdue')}: {site.rt_alarm_overdue})</span>
                         )}
                         {(site.rt_alarm_ontime || 0) > 0 && (
-                          <span style={{ color: '#ffd400' }}> ({t('gis.popup.ontime')}: {site.rt_alarm_ontime})</span>
+                          <span style={{ color: SITE_COLORS.rt_alarm_ontime }}> ({t('gis.popup.ontime')}: {site.rt_alarm_ontime})</span>
                         )}
                         <br />
                       </span>
                     )}
                     {mode === 'all' && activeLayers.has('rt_alarm') && site.rt_alarm_count > 0 && (
-                      <span style={{ color: '#ff6b6b', fontWeight: 600 }}>⚠ {t('gis.popup.rtAlarm')}: {site.rt_alarm_count}<br /></span>
+                      <span style={{ color: SITE_COLORS.rt_alarm, fontWeight: 600 }}>⚠ {t('gis.popup.rtAlarm')}: {site.rt_alarm_count}<br /></span>
                     )}
                     {mode === 'all' && activeLayers.has('his_alarm') && site.his_alarm_count > 0 && (
-                      <span style={{ color: '#ffa94d' }}>{t('gis.popup.hisAlarm')}: {site.his_alarm_count}<br /></span>
+                      <span style={{ color: SITE_COLORS.his_alarm }}>{t('gis.popup.hisAlarm')}: {site.his_alarm_count}<br /></span>
                     )}
                     {(() => {
                       const ttVal = mode === 'realtime' ? (site.rt_tt_count || 0) : site.tt_count
@@ -665,7 +754,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 </Popup>
               </CircleMarker>
             ))}
-            {showRegions && regionBoundaries.map((rb, idx) => (
+            {boundaryMode === 'region' && regionBoundaries.map((rb, idx) => (
               <Polygon
                 key={`region-${idx}`}
                 positions={rb.polygon}
@@ -678,14 +767,41 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 }}
               />
             ))}
+            {boundaryMode === 'county' && counties.map(c => (
+              <Polygon
+                key={`county-${c.name}`}
+                positions={c.polygons as any}
+                eventHandlers={{ click: () => handleCountyClick(c) }}
+                pathOptions={{
+                  color: c.color,
+                  fillColor: c.color,
+                  // 用户 2026-09-25 选定「描边 + 淡色底块」：底块要淡到不干扰站点辨色，
+                  // 故深色主题比浅色主题再低一档（深底上同透明度会显脏）。
+                  fillOpacity: isDark ? 0.10 : 0.14,
+                  weight: 1.5,
+                  opacity: 0.85,
+                  dashArray: '4 3',
+                }}
+              >
+                {/* 县名常驻显示在县的中心（Leaflet permanent tooltip 自动定位到
+                    Polygon 的质心），带站点数，方便与高级筛选的计数对照 */}
+                <MapTooltip permanent direction="center" className="gis-county-label">
+                  <span style={{ fontSize: '0.6875rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    {c.name} ({c.site_count})
+                  </span>
+                </MapTooltip>
+              </Polygon>
+            ))}
             {showTopology && topologyLinks.map((link, idx) => (
               <Polyline
                 key={`topo-${idx}`}
                 positions={[[link.lat_a, link.lng_a], [link.lat_b, link.lng_b]]}
                 pathOptions={{
-                  color: link.is_hub_link ? '#ff6b6b' : '#258cff',
-                  weight: link.is_hub_link ? 3 : 1.5,
-                  opacity: 0.6,
+                  // 数据源换成 kml_mw_links 后每条线自带 color，直接采用其真实线色
+                  // （红/黄/蓝/绿，与 KML 原作者标注一致）；缺色时回退蓝色。
+                  color: link.color || '#0a84ff',
+                  weight: 1.5,
+                  opacity: 0.65,
                 }}
               />
             ))}

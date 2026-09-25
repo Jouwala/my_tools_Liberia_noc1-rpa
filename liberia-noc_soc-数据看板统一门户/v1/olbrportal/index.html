@@ -3,8 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OLR MS 门户 · Liberia NOC/SOC 统一入口 (ZTE OLR MS Portal)</title>
-<meta name="description" content="ZTE OLR MS 门户看板 —— 利比里亚 NOC/SOC 自动化工具平台入口（只读展示版）。">
+<!-- 2026-09-25 改名：门户整体品牌统一为「ZTE OLR MS O&M Tools Platform」。
+     这里写的是**首帧文案**（olbr.js:3635 的 applyI18n 挂载后会按 doc.title 覆写），
+     所以必须与 olbr-data.js 的两份 'doc.title' 保持一致，否则会闪一下旧标题。 -->
+<title>ZTE OLR MS O&amp;M Tools Platform</title>
+<meta name="description" content="ZTE OLR MS O&amp;M Tools Platform —— 利比里亚 NOC/SOC 自动化工具平台入口（只读展示版）。">
 <link rel="icon" type="image/png" sizes="32x32" href="/MsPortal/assets/favicon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/MsPortal/assets/favicon-180.png">
 <!-- 零 CDN：图标与看板目录都从 /MsPortal/ 只读引用，本页面不写它的任何文件 -->
@@ -163,7 +166,13 @@
       <span class="mp-zte-word">ZTE</span>
       <span class="mp-brand-sep" aria-hidden="true"></span>
       <div class="mp-brand-text">
-        <h1 class="mp-title"><span class="mp-title-olr">OLR</span> MS<span class="mp-title-tail"> Management Platform</span></h1>
+        <!-- 2026-09-25 改名：原「OLR MS Management Platform」→「ZTE OLR MS O&M Tools Platform」。
+             结构刻意不动：.mp-title-olr 仍是「OLR」的品牌高亮片段，.mp-title-tail 仍是被
+             窄屏断点（masthead.css:516）隐藏的尾部 —— 把新名字整串写进 tail 会让手机端
+             只剩「ZTE OLR MS」，与页签标题对不上。
+             「O&M」的 & 必须写成 &amp;：这里是 HTML，裸 & 虽然浏览器能容错，
+             但 lint 会报，且 copy 出去的内容会变成乱码。 -->
+        <h1 class="mp-title"><span class="mp-title-olr">OLR</span> MS<span class="mp-title-tail"> O&amp;M Tools Platform</span></h1>
         <p class="mp-tagline" data-i18n="tagline">Smarter Operations · Higher Efficiency · Better Network</p>
       </div>
     </div>
@@ -459,6 +468,10 @@
      文件，行为逐条对齐 /myapp/ 的 DraggableClickModal：以点击位置为中心弹出、
      按住标题栏可拖、点遮罩不关闭。 -->
 <script src="/MsPortal/assets/qcDrill.drag.js"></script>
+<!-- 纯数据母本（i18n 字典 / 图标 / layout 常量 / QC 阈值 / KPI 规格），
+     2026-09-25 从 olbr.js 拆出。必须排在 olbr.js **之前**：主文件 boot 时
+     直接读 window.OLBR_DATA，顺序反了会拿到空对象、整页文案变裸 key。 -->
+<script src="assets/olbr-data.js"></script>
 <script src="assets/olbr.js"></script>
 </body>
 </html>

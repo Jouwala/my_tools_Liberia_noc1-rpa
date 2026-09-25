@@ -238,6 +238,24 @@
                     + '最后一格是「尚未走完的当前小时」，值会随分钟继续增长。\n'
                     + '注意这是「新告警速度」，不是卡片上那个「存量」，两者不能互相印证。',
       'qc.trend.starving': '趋势数据不足',
+      /* ---- 存量趋势（2026-09-25 加，供 cr / pmt 与达标率使用）----
+         与上面的「新增量」是两种口径，措辞必须能区分开：
+           新增量（qc.trend.*）→ 「最近来单/告警是变多还是变少」
+           存量  （qc.stock.*）→ 「积压是在堆积还是在消化」 */
+      'qc.stock.cap': '近 {n} 小时存量',
+      'qc.stock.tip': '每小时的存量快照（那一刻还开着多少条），共 {n} 小时。\n'
+                    + '与卡片大数字是同一口径 —— 这条线就是那个数字自己的历史。\n'
+                    + '断点处是那一小时没有采到快照（门户未被打开），不补 0。',
+      'qc.stock.capPmt': '近 {n} 小时超期数',
+      'qc.stock.tipPmt': '每小时快照里的「超期」条数（那一刻还超期多少条），共 {n} 小时。\n'
+                       + '刻意画超期数而不是 PMT 总数：总数常年在千条量级、变化平缓，\n'
+                       + '超期数才是要催的那部分，涨跌更说明问题。\n'
+                       + '断点处是那一小时没有采到快照（门户未被打开），不补 0。',
+      'qc.stock.capSla': '近 {n} 小时达标率',
+      'qc.stock.tipSla': '近 {n} 小时的达标率快照，与徽章上的数字同口径（近 30 天 TT 的 SLA Pass 占比）。\n'
+                       + '按小时采样，故一天内的波动比日度口径更细。\n'
+                       + '断点处是那一小时没有采到快照（门户未被打开），不补 0。',
+      'qc.stock.starving': '趋势积累中',
       'qc.inbound': '入库',
       'qc.outbound': '出库',
       'qc.grp.primary': '需要处理',
@@ -642,6 +660,22 @@
                     + 'The last bucket is the current, still-running hour.\n'
                     + 'Note: this is the incoming alarm rate, not the backlog shown above.',
       'qc.trend.starving': 'Not enough trend data',
+      /* Stock trend (added 2026-09-25; used by cr / pmt and the compliance badge).
+         Deliberately worded to be distinct from the qc.trend.* "inflow" keys. */
+      'qc.stock.cap': 'Stock, last {n} h',
+      'qc.stock.tip': 'Hourly stock snapshots (how many were still open at that moment), {n} hours total.\n'
+                    + 'Same measure as the big card number - this line is that number\'s own history.\n'
+                    + 'Gaps are hours with no snapshot captured (portal not open); they are not filled with 0.',
+      'qc.stock.capPmt': 'Overdue, last {n} h',
+      'qc.stock.tipPmt': 'Hourly "overdue" count snapshots (how many were still overdue at that moment), {n} hours total.\n'
+                       + 'Plots the overdue count rather than the PMT total on purpose: the total sits in the\n'
+                       + 'thousands and barely moves, whereas overdue is the part to chase.\n'
+                       + 'Gaps are hours with no snapshot captured (portal not open); they are not filled with 0.',
+      'qc.stock.capSla': 'Compliance, last {n} h',
+      'qc.stock.tipSla': 'Hourly compliance snapshots, same measure as the badge (share of TTs created in the\n'
+                       + 'last 30 days rated Pass on SLA). Sampled hourly, so intra-day movement is finer than daily.\n'
+                       + 'Gaps are hours with no snapshot captured (portal not open); they are not filled with 0.',
+      'qc.stock.starving': 'Building trend',
       'qc.inbound': 'Inbound',
       'qc.outbound': 'Outbound',
       'qc.grp.primary': 'Action needed',
@@ -1023,11 +1057,23 @@
     /* 新增量趋势（2026-09-22 加，走 GET /api/portal-qc/trend）。
        形状：{ alarm: {grain:'hour', days:30, points:[{t:'YYYY-MM-DD HH:00', v:16}, …]}, … }
        points 是**稀疏**的（后端只回有数据的桶），前端 qcTrendSeries() 再补齐成
-       连续时间轴。cr / pmt 后端明确回 no_trend（它们近 7 天新增都是 0，
-       按时间列画会得到一条长期贴 0 的直线，信息量为负），故这里不会有它们。
-       旧版这里是 qcHistory（每小时积压快照，走 /history）—— 后端那张
-       portal_qc_snapshot 表本次保留但前端已不再读写，留作以后做「存量趋势」用。 */
+       连续时间轴。用于 alarm / tt / wo / spms 四张卡。
+       cr / pmt 的新增量在源表里就是「一条贴 0 的直线」（实测近 30 天 cr 仅 8 个
+       非空桶、pmt 新增为 0），故它们不走这条口径，改用下面的 qcHistory 存量趋势。 */
     qcTrend: null,
+    /* 存量趋势（2026-09-25 启用，走 GET /api/portal-qc/history）。
+       形状：{ alarm: [{h:'YYYY-MM-DD HH:00', v:52}, …], tt: […], … }
+       数据来自后端每小时写入的 portal_qc_snapshot 表（**存量**：那一刻还开着多少条），
+       正是「积压是在堆积还是在消化」这一问的答案 —— 与 qcTrend 的「新增量」互补。
+
+       为什么 cr / pmt 必须用它：它们的源表时间列画不出趋势（见上），
+       而存量在快照表里本来就有历史。实测 2026-09-25：89 个整点、无缺口，
+       cr 常年 86、pmt 超期 490→472，确实读得出「在消化」。
+
+       ⚠️ 快照是**懒写入**（门户被打开过的小时才有数据），所以序列可能有空洞。
+       前端对空洞**不补 0**（那样会画出「积压突然清零」的假谷底），
+       缺口就是断点 —— 见 qcHistorySeries()。 */
+    qcHistory: null,
     /* 下钻明细弹窗状态。metric=null 表示弹窗关闭。
        2026-09-22 加 sort/dir：表头可点排序。排序在**服务端**做（不是只排当前页）——
        只排当前页会让「按 Raised Time 排序」在翻页后失效，是错的。 */
@@ -1151,45 +1197,45 @@
      置 false 即回到「只重测尺寸、不重新取景」的原行为。 */
   var MAP_REFIT_ON_STRIP = true;
 
-  /* 地图默认取景「比全国再放大一级」（2026-09-21 加，按用户需求）。
-     需求原话：默认显示的 MW RealTime 地图，「比下钻再放大一点，跟点一次加号一样的效果」，
-     并且要「以利比里亚国土或者站点分布居中」。
+  /* 地图默认取景：**完整居中显示利比里亚全境**（2026-09-25 改，按用户需求）。
 
-     现状（实测 TMP/probe_map_fit_zoom8.cjs，1920×1200 视口，画布 570×856）：
-       · 内层页 fitAllSites() 对 LB_BOUNDS(south 3.9 / west -11.7 / north 8.75 / east -7.3)
-         做 fitBounds → 停在 **zoom 7**；
-       · 用户点一次加号 → **zoom 8**，中心不变。
-     所以本开关就是把默认落点从「fitBounds 的结果」再往上提一级。
+     需求演化（同一位用户，两次相反的取舍，两次都记录在案）：
+       · 2026-09-21：要「比下钻再放大一点，跟点一次加号一样的效果」→ 默认落在 zoom 8。
+       · 2026-09-25：明确「打开不能是点一下减号的效果，并且要保持利比里亚居中」
+                    → 选回「完整居中」这一档，即 zoom 7。
+     本开关就是这次回退的落点：**关掉「放大一级」，让默认回到 fitAllSites() 的全国取景**。
+     置 true 可恢复到 2026-09-21 的「放大一级 + 居中站点重心」行为 —— zoomInInnerMap()
+     整段代码原样保留，随时可切回。
 
-     ⚠️ 为什么是「放大一级 + 中心微调」而不是纯 zoomIn：
-       实测 zoom 8 在该画布下的可视范围只有 4.70°纬 × 3.13°经，
-       而利比里亚国土要 4.85°纬 × 4.40°经 —— **zoom 8 装不下整个国家**
-       （北边 8.75 > 8.66、东西两边也各差一截）。
-       用户已知悉并选定「放大一级优先，允许裁掉国土边缘，同时把中心微调到站点重心」。
-       改画布尺寸救不回来：纬向要 ≥883px 高才装得下，而中列是窄竖条，
-       实测 800×856 / 1000×700 / 1100×856 等 15 组候选全部 coversLbAt8=false
-       （见 TMP/probe_map_centroid_canvas.cjs）。
+     ⚠️ 为什么「跟点一次加号一样」与「利比里亚完整居中」无法同时满足（2026-09-25 实测复核）：
+       中列画布只有 570×856，各档可视范围与国土 / 站点实际跨度对比：
 
-     中心微调目标 = **站点实际分布重心**（按 649 个站点经纬度求平均，实测 6.4173N / 9.3062E），
-     与国土 bbox 中心（6.325N / 9.5W）只差 +0.09°纬 / +0.19°经 —— 是很轻的修正，
-     比死守 bbox 中心更能把站点留在画面里。站点点位取不到时退回 fitAllSites 的中心。
+         zoom | 可视            | 装下国土(4.85°纬×4.40°经) | 装下站点(4.09°纬×3.78°经)
+         7    | 9.34°纬×6.26°经 | ✅ 是                     | ✅ 是
+         8    | 4.67°纬×3.13°经 | ❌ 否（纬差 0.18，经差 1.27）| ❌ 否（经差 0.65）
+         9    | 2.33°纬×1.56°经 | ❌ 否                     | ❌ 否
 
-     ✅ 为什么选「放大一级」正好合适（2026-09-21 实测，见 TMP/probe_map_label_level.cjs）：
-       内层页按缩放分级显示站点 —— geoLabelLevel(z){ return z < 8 ? 0 : (z < 11 ? 1 : 2); }
-         · z ≤ 7（level 0）：按 48px 屏幕网格**聚合**相邻站点，649 个站只剩 32 个簇；
-         · z ≥ 8（level 1）：**逐站显示**，649 个站全部单独出点。
-       也就是说 zoom 8 恰好是「聚合点 → 真实站点」的分界。
-       放大一级不只是"看着近一点"，而是让 MW 实时页从 32 个簇变成全量站点明细，
-       对 NOC 值班是有实际信息增益的默认值。
+       数据来源：可视范围取自 TMP/probe_map_tabs_view.cjs 的实测 bounds（zoom 8/9）并按
+       每级减半推 zoom 7；国土跨度见 my_app 的 LB_BOUNDS（south 3.9 / west -11.7 /
+       north 8.75 / east -7.3）；站点跨度按 /api/gis/sites 的 827 个站实测重算
+       （不是本注释旧版里的 649 个 —— 站点数已增长，旧数字已失效）。
+       结论：zoom 8 无论怎么调中心，都必然裁掉国土东西边缘。用户 2026-09-25 选了
+       「完整居中」，故本开关置 false。
+
+     ℹ️ 已知代价（用户已知悉并接受）：zoom 7 时内层页按
+        geoLabelLevel(z){ return z < 8 ? 0 : (z < 11 ? 1 : 2); }
+        走 level 0 —— 站点会按 48px 屏幕网格**聚合成簇**，而不是逐站显示。
+        这是「看得全」换来的：要逐站明细，用户仍可点一次加号（zoom 8）。
+        若哪天内层页改了分级阈值，这条注释需要跟着复核。
 
      风险兜底：内层页 leafMap 是页面作用域变量、不在 window 上，
      门户侧只能靠「注入 <script> 到同源内层 document 执行」才拿得到（实测可行，
      见 TMP/probe_map_reach_leafmap.cjs）。若哪天内层页改名/换实现，
-     下面的注入会整段静默失败 → 自动退回 fitAllSites 的原取景，**不会白屏**。
-     置 false 即回到「全国 fitBounds」的原行为。 */
-  var MAP_DEFAULT_ZOOM_IN = true;
+     下面的注入会整段静默失败 → 自动退回 fitAllSites 的原取景，**不会白屏**。 */
+  var MAP_DEFAULT_ZOOM_IN = false;
 
-  /* 站点重心（纬度, 经度）：按 649 个站点实测均值，见上面注释。取不到点位时用这个兜底。 */
+  /* 站点重心（纬度, 经度）：zoomInInnerMap 在 MAP_DEFAULT_ZOOM_IN=true 时用作居中目标。
+     当前开关是 false，这个常量不参与默认取景，仅保留给上面那条「可切回」的路径。 */
   var MAP_SITE_CENTER = [6.4173, -9.3062];
 
   function t(key) {
@@ -1239,7 +1285,7 @@
 
   /** 只重绘「看板目录相关」的部分：筛选栏计数 + 各看板区块 + 工具栏按钮。
       ⚠️ **绝不能换成 render()**：render() 里有一行 `#secTopo.innerHTML = topoSection()`，
-      那等于把 4 个地图 iframe 全部重建、地图重新加载几十秒。目录的增删改与地图毫无关系。
+      那等于把 2 个地图 iframe 全部重建、地图重新加载几十秒。目录的增删改与地图毫无关系。
       （2026-09-17 实测：一开始图省事调了 render()，首屏地图被多加载一次，
        `verify_map_breakpoints` 从 18/18 掉到 11/18、`verify_map_auth` 掉到 13/14，
       症状是「no leaflet」——地图还没加载完脚本就断言了。） */
@@ -1248,11 +1294,11 @@
     renderSections();
     syncCatalogBtns();
     /* 拓扑栏的标题在编辑态才变成可点按钮（见 topoSection），而 renderSections()
-       刻意不碰 #secTopo（重建它会让 4 个地图 iframe 全部重载）。
+       刻意不碰 #secTopo（重建它会让 2 个地图 iframe 全部重载）。
        于是「?edit=1 深链」或「catalogEditable 从服务端回来」这两条路径上，
        改名入口永远不会出现 —— 与上面注释里踩过的「卡片按钮不出现」是同一类坑。
        这里只重写 #secTopo 的 innerHTML（不是重建节点），并同步页签；
-       代价是 4 个 iframe 重新加载，但只在进出编辑模式/权限变化时发生一次。 */
+       代价是 2 个 iframe 重新加载，但只在进出编辑模式/权限变化时发生一次。 */
     syncTopoHead();
   }
 
@@ -1261,8 +1307,8 @@
 
       ⚠️ 为什么必须比对「上次画的时候是什么权限/编辑态」再决定要不要重画：
       renderCatalog() 会被 saveCatalog()（改一张看板的标题就算一次）和
-      loadCatalog() 调用，而重建 #secTopo 会让 4 个地图 iframe 全部重新加载。
-      每保存一次看板就重载 4 张地图几十秒，是明显的回归。
+      loadCatalog() 调用，而重建 #secTopo 会让 2 个地图 iframe 全部重新加载。
+      每保存一次看板就重载 2 张地图几十秒，是明显的回归。
       只有「编辑态或写权限变了」才需要重画——那两样决定标题是不是可点按钮。
       用模块级变量记住上次画的值，而不是 state 里的字段：它纯粹是渲染缓存，
       不参与任何业务判断，放 state 里会被误当成状态来读。 */
@@ -2559,7 +2605,10 @@
   var QC_SECONDARY_ORDER = ['cr', 'pmt', 'spms'];
 
   /* 提供「新增量趋势」的指标（走 GET /api/portal-qc/trend）。
-     其余（cr / pmt）后端明确回 no_trend，故不发请求、也不画线。
+     其余（cr / pmt）改用**存量趋势**（GET /api/portal-qc/history）：
+    它们的新增量在源表里画不出趋势（近 30 天 cr 仅 8 个非空桶、pmt 新增为 0），
+    而存量在每小时快照里本来就有历史。2026-09-25 起 qcTrendSlot() 是卡片取趋势的
+    唯一入口，由它按这个清单决定口径，卡片自己不再判断。
      声明必须放在 qcSection() 之前 —— 虽然 var 会提升、运行时也不会出错，
      但把常量放在使用点之后读起来像是笔误。 */
   var QC_TREND_METRICS = ['alarm', 'tt', 'wo', 'spms'];
@@ -2700,29 +2749,167 @@
 
   /** 迷你趋势线（内联 SVG，零第三方依赖 —— 门户要求零 CDN、断网可用）。
       点 < 2 时返回 ''，由调用方决定怎么占位。 */
-  function qcSpark(id) {
-    var s = qcTrendSeries(id);
-    if (!s || s.vals.length < 2) return '';
-    var vals = s.vals;
-    var W = 300, H = 26, PAD = 4;
-    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
-    var span = (max - min) || 1;
-    var step = W / (vals.length - 1);
-    var pts = vals.map(function (n, i) {
-      return [i * step, PAD + (H - PAD * 2) * (1 - (n - min) / span)];
+  /* ------------------------------------------------------ 存量趋势（快照） --
+     2026-09-25 启用。数据源是后端每小时写入的 portal_qc_snapshot 表，
+     经 GET /api/portal-qc/history 下发（**存量** = 那一刻还开着多少条）。
+
+     与上面的「新增量趋势」是两种口径，回答不同问题：
+       新增量（qcTrendSeries）→ 最近来单/告警是变多了还是变少了
+       存量  （qcStockSeries）→ 积压是在堆积还是在消化
+     cr / pmt 只能用后者：它们的源表时间列画不出趋势（实测 cr 近 30 天仅 8 个
+     非空桶、pmt 新增为 0），而存量在快照里本来就有历史。
+
+     ⚠️ 与新增量最关键的区别：**空洞绝不补 0**。
+     新增量的窗口内「缺桶 = 那个时段确实没有新增」，所以补 0 是事实；
+     而存量快照是**懒写入**的（门户被打开过的小时才有那一行），
+     「断档」意味着「那一小时没采到数」，补 0 会画出「积压突然清零」的假谷底 ——
+     那是在撒谎，比不画线更糟。所以这里用 null 表示断点，
+     由 qcSparkSvg 把折线在断点处**断开**（M 重新起笔），不做直线跨越。 */
+
+  /** 存量序列：把快照按时间轴对齐，缺的小时补 **null**（不是 0）。
+      返回 null 表示该 metric 没有可取的历史。 */
+  function qcStockSeries(id) {
+    var map0 = state.qcHistory && state.qcHistory[id];
+    if (!map0 || !map0.length) return null;
+
+    var map = {};
+    map0.forEach(function (p) {
+      /* ⚠️ 必须先挡 null / '' 再 Number()：Number(null) === 0 是**有限数**，
+         会被当成「那一刻积压是 0」收进来，在线上画出一个「积压突然清零」的
+         假谷底 —— 而后端对接口失败的小时给的正是 v: null（见 portal_qc.py 的
+         series 构造：只放真数字，失败项留 NULL）。这跟 _record_snapshot 里
+         「失败不落 0」是同一条原则，前端这一侧也要守住。 */
+      if (p.v == null || p.v === '') return;
+      var v = Number(p.v);
+      if (isFinite(v)) map[p.h] = v;
     });
-    var line = pts.map(function (p, i) {
-      return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1);
-    }).join(' ');
-    var area = line + ' L' + W + ' ' + H + ' L0 ' + H + ' Z';
+    var keys = Object.keys(map).sort();
+    if (keys.length < 2) return null;
+
+    /* 用 Date 逐格推进（不是按点数等距排开）—— 等距排开会把「中间断了 8 小时」
+       画成和「连续 8 小时」一样的间距，等于在横轴上撒谎。 */
+    var first = keys[0], last = keys[keys.length - 1];
+    function parseKey(k) {
+      var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2})/.exec(k);
+      return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], 0, 0) : null;
+    }
+    function fmtKey(d) {
+      var p = function (n) { return (n < 10 ? '0' : '') + n; };
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+        ' ' + p(d.getHours()) + ':00';
+    }
+    var start = parseKey(first), end = parseKey(last);
+    if (!start || !end) return null;
+
+    /* 上限 400 格（约 16 天小时轴）：超过就**从尾部收窄窗口**，
+       保证横轴始终连续，绝不退化成「只用有数据的点、按点数等距排开」。 */
+    var MAX_SLOTS = 400;
+    var slots = Math.round((end - start) / 3600000) + 1;
+    if (slots > MAX_SLOTS) start = new Date(end.getTime() - (MAX_SLOTS - 1) * 3600000);
+
+    var vals = [], labels = [], gaps = 0;
+    for (var t = start.getTime(); t <= end.getTime(); t += 3600000) {
+      var k = fmtKey(new Date(t));
+      if (Object.prototype.hasOwnProperty.call(map, k)) {
+        vals.push(map[k]);
+      } else {
+        vals.push(null);                  // 断档：不补 0（见上面的说明）
+        gaps++;
+      }
+      labels.push(k);
+    }
+
+    var real = vals.filter(function (v) { return v != null; });
+    return {
+      vals: vals, labels: labels,
+      filled: real.length, gaps: gaps,
+      hours: vals.length,
+      last: real.length ? real[real.length - 1] : null,
+      first: real.length ? real[0] : null,
+    };
+  }
+
+  /** 卡片趋势位的**唯一入口**（2026-09-25 加）。
+      口径按指标定，卡片与调用方都不需要知道细节：
+        · QC_TREND_METRICS（alarm/tt/wo/spms）→ 新增量，拿不到再退存量
+        · 其余（cr/pmt）                      → 存量
+      「先试新增量、再退存量」的兜底是有意义的：某个指标的 trend 接口临时挂掉时，
+      只要快照还在，卡片仍有一条真实的线，而不是空一块。 */
+  function qcTrendSlot(id) {
+    if (QC_TREND_METRICS.indexOf(id) !== -1) {
+      var inc = qcSparkSlot(id);
+      if (inc) return inc;
+    }
+    return qcStockSlot(id);
+  }
+
+  /** 存量趋势位 + 说明文字。三种状态要分清（同 qcSparkSlot）：
+        · 有数据且点够  → 画线 + 说明
+        · 有序列但点不够 → 不画线（一个点画线 = 假装有趋势）
+        · 完全没有      → 不占位（快照表刚建起来时就是这样） */
+  function qcStockSlot(id, windowHours) {
+    var s = qcStockSeries(id);
+    if (!s || s.filled < 2) return '';
+    var spark = qcSparkSvg(s.vals);
+    if (!spark) return '';
+    var vars = { n: s.hours };
+    var isPmt = id === 'pmt';
+    var isSla = id === 'sla';
+    var cap = tf(t(isPmt ? 'qc.stock.capPmt' : (isSla ? 'qc.stock.capSla' : 'qc.stock.cap')), vars);
+    var tip = tf(t(isPmt ? 'qc.stock.tipPmt' : (isSla ? 'qc.stock.tipSla' : 'qc.stock.tip')), vars);
+    return '<span class="qc-spark-wrap" title="' + esc(tip) + '">' + spark +
+      '<span class="qc-spark-cap">' + esc(cap) + '</span></span>';
+  }
+
+  /** 迷你趋势线（内联 SVG，零第三方依赖 —— 门户要求零 CDN、断网可用）。
+      **vals 里允许有 null**：null 表示断点，折线在此**断开**（重新 M 起笔），
+      不做跨越。存量快照的断档必须如实呈现，不能连成一条看上去连续的线。
+      点 < 2 时返回 ''，由调用方决定怎么占位。 */
+  function qcSparkSvg(vals) {
+    var real = vals.filter(function (v) { return v != null; });
+    if (real.length < 2) return '';
+    var W = 300, H = 26, PAD = 4;
+    var min = Math.min.apply(null, real), max = Math.max.apply(null, real);
+    var span = (max - min) || 1;
+    var step = vals.length > 1 ? W / (vals.length - 1) : 0;
+    var y = function (n) { return PAD + (H - PAD * 2) * (1 - (n - min) / span); };
+
+    /* 逐点走，遇到 null 就断开。area 同理分段（跨断点连起来会得到一个
+       把缺口也填满的色块，比不画还误导）。 */
+    var line = '', area = '', run = [];
+    var flush = function () {
+      if (run.length >= 2) {
+        var d = run.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' ');
+        line += d + ' ';
+        area += d + ' L' + run[run.length - 1][0].toFixed(1) + ' ' + H +
+          ' L' + run[0][0].toFixed(1) + ' ' + H + ' Z ';
+      } else if (run.length === 1) {
+        line += 'M' + run[0][0].toFixed(1) + ' ' + run[0][1].toFixed(1) + ' ';
+      }
+      run = [];
+    };
+    vals.forEach(function (n, i) {
+      if (n == null) { flush(); return; }
+      run.push([i * step, y(n)]);
+    });
+    flush();
+    if (!line) return '';
+
     /* preserveAspectRatio="none" 让折线随卡片宽度拉伸；stroke 上加
        vector-effect="non-scaling-stroke" 保证 1.6px 不被拉粗或拉细。
        刻意不画端点圆点：非等比缩放下圆会变成椭圆，看着像渲染 bug。 */
     return '<span class="qc-spark" aria-hidden="true"><svg viewBox="0 0 ' + W + ' ' + H +
       '" preserveAspectRatio="none">' +
-      '<path class="sp-area" d="' + area + '"/>' +
-      '<path class="sp-line" d="' + line + '" vector-effect="non-scaling-stroke"/>' +
+      '<path class="sp-area" d="' + area.trim() + '"/>' +
+      '<path class="sp-line" d="' + line.trim() + '" vector-effect="non-scaling-stroke"/>' +
       '</svg></span>';
+  }
+
+  /** 新增量趋势的迷你线（沿用原有行为：窗口内缺桶补 0，故无断点）。 */
+  function qcSpark(id) {
+    var s = qcTrendSeries(id);
+    if (!s || s.vals.length < 2) return '';
+    return qcSparkSvg(s.vals);
   }
 
   /** 主卡趋势位 + 说明文字。
@@ -2862,10 +3049,13 @@
           '<span class="qc-numrow">' +
             '<span class="qc-num' + (v == null ? ' is-na' : '') + '">' + esc(num) + '</span>' +
           '</span>' +
-          /* 趋势线：主卡必给，次卡只在**确实有趋势数据**时给（目前只有 spms）。
-             不给 cr/pmt 的原因是它们的时间列近 30 天没有数据 —— 那画出来不是趋势，
-             是一条贴 0 的直线（详见后端 _TREND_SPEC 的实测记录）。 */
-          (big || QC_TREND_METRICS.indexOf(q.id) !== -1 ? qcSparkSlot(q.id) : '') +
+          /* 趋势线（2026-09-25 起**六张卡都有**，但口径分两种，由 qcTrendSlot 决定）：
+               alarm/tt/wo/spms → 新增量（源表时间列分桶，立即有数据）
+               cr/pmt           → 存量（每小时快照）
+             为什么不给 cr/pmt 画新增量：实测近 30 天 cr 只有 8 个非空桶、
+             pmt 新增为 0（批量生成型），画出来是一条贴 0 的直线加偶尔尖刺，
+             信息量为负（详见后端 portal_qc.py 的 _TREND_SPEC 实测记录）。 */
+          qcTrendSlot(q.id) +
           '<span class="qc-sub" title="' + esc(sub) + '">' + esc(sub) + '</span>' +
           (atTxt ? '<span class="qc-age">' + esc(tf('qc.dataAt', { t: atTxt, ago: agoTxt })) + '</span>' : '') +
         '</button>';
@@ -2906,13 +3096,27 @@
     var slaTg = QC_TARGETS.sla;
     slaTip += '\n' + tf('qc.targetTip.down', { warn: fmt(slaTg.warn), crit: fmt(slaTg.crit) });
 
+    /* 达标率的趋势线（2026-09-25 加）。
+       它是标题栏里的一个徽章，不是六张卡之一，所以单独拼一段 —— 复用同一套
+       qcStockSlot（同口径：每小时快照、断档不补 0）。
+
+       ⚠️ sla_x10 列是 2026-09-25 才加的，之前的小时**没有这个数**，
+       所以这条线头几天会很短（qcStockSlot 在点数 < 2 时返回空字符串，
+       此时整块不渲染 —— 不留「趋势积累中」的空占位，免得看着像报错）。
+       线的量级与阈值（90/95）不同维度：线只是**历史走势**，
+       判级仍以当前值为准（徽章颜色），两者不冲突。 */
+    var slaSpark = qcStockSlot('sla');
+
     return headHtml({
       kind: 'square-rose', title: t('sec.qc.title'), sub: t('sec.qc.sub'), subInline: true,
       tools: cadence +
         '<button type="button" class="btn-soft" data-act="qc-reload" title="' + esc(t('qc.reload')) + '">' +
           ico('refresh') + esc(t('qc.reload')) + '</button>' +
-        '<span class="qc-sla qc-lv-' + slaLv + '" title="' + esc(slaTip) + '">' +
-          ico('shield') + esc(t('sec.qc.sla.label')) + ' <strong>' + esc(slaVal) + '</strong></span>'
+        '<span class="qc-sla-box qc-lv-' + slaLv + '">' +
+          '<span class="qc-sla qc-lv-' + slaLv + '" title="' + esc(slaTip) + '">' +
+            ico('shield') + esc(t('sec.qc.sla.label')) + ' <strong>' + esc(slaVal) + '</strong></span>' +
+          slaSpark +
+        '</span>'
     }) + cards;
   }
   /* ================================================ QC 统计 / 明细下钻 ==
@@ -2988,9 +3192,12 @@
         state.qcErr = '';
         paintQc();
         renderQcDrill();          // 弹窗开着时同步刷新（分页/搜索不变）
-        /* 顺带拉一次新增量趋势（趋势线用）。放在这里而不是单独的定时器：
-           趋势的粒度是小时/天，跟全量刷新同节奏就够了。 */
+        /* 顺带拉一次两类趋势（趋势线用）。放在这里而不是单独的定时器：
+           趋势的粒度是小时/天，跟全量刷新同节奏就够了。
+           ⚠️ 必须在 fetchQcStats 成功之后拉：存量的最新一点就是这次统计写下的，
+           反过来的话（先拉历史再统计）首屏那条线的末端会缺当前这一小时。 */
         fetchQcTrend();
+        fetchQcHistory();
       })
       .catch(function (e) {
         qcStatsBusy = false;
@@ -3029,9 +3236,9 @@
       });
   }
 
-  /** 拉新增量趋势（2026-09-22 加），供主卡的趋势线使用。
-      只请求**有趋势的四个**：alarm / tt / wo / spms。
-      cr / pmt 后端明确回 no_trend，不必发请求浪费一个来回。
+  /** 拉新增量趋势（2026-09-22 加），供 alarm/tt/wo/spms 四张卡的趋势线使用。
+      只请求**用得上新增量的四个**：alarm / tt / wo / spms。
+      cr / pmt 改走存量快照（见 fetchQcHistory），这里不发请求，省一个来回。
 
       **粒度和窗口由后端按指标定**（见 portal_qc.py 的 _TREND_SPEC），前端不猜：
         alarm     → 今天 + 按小时（实时指标，看当班节奏）
@@ -3055,6 +3262,26 @@
         })
         .catch(function () { /* 见上：静默降级 */ });
     });
+  }
+
+  /** 拉存量趋势（2026-09-25 启用），供 cr / pmt 两张卡与达标率徽章使用。
+      **一次请求拿全部六个指标 + sla**（后端按 metric 分组一次返回），
+      不像 /trend 那样一个指标一个来回 —— 它们本就来自同一张快照表的同一批行。
+
+      窗口固定 168 小时（7 天）：再多也只是把一天内的波动压扁；少于此则
+      「这周比上周好还是坏」看不出来。后端上限是 30 天。
+
+      与 fetchQcStats 同一节奏。失败**不清空** state.qcHistory（同 fetchQcTrend）：
+      已经画出来的历史不该因为一次网络抖动变成空白。 */
+  function fetchQcHistory() {
+    if (REQUIRE_LOGIN_FOR_CATALOG && state.authOk !== true) return;
+    qcApi('/api/portal-qc/history?hours=168')
+      .then(function (data) {
+        if (!data || !data.series) return;
+        state.qcHistory = data.series;
+        paintQc();
+      })
+      .catch(function () { /* 静默降级：拿不到就只是没有线，不是错误状态 */ });
   }
 
   /* ------------------------------------------------------------ 明细下钻 -- */
@@ -3404,26 +3631,31 @@
   }
 
   /* -------------------------------------------- 拓扑地图页签（内嵌 iframe） */
-  /* 这 4 个看板由 nginx /myapp/ 同源反代，服务端未设置 X-Frame-Options，可直接内嵌。
+  /* 这 2 个看板由 nginx /myapp/ 同源反代，服务端未设置 X-Frame-Options，可直接内嵌。
      用相对路径而不是数据里的绝对 IP，门户无论从 localhost 还是 LAN IP 访问都能用。
      —— 用户只想要「地图组件」本身：iframe 加载后注入 CSS，把该页面上与地图无关的
-     组件（顶部筛选工具栏 / 统计卡 / 分析图表 / 侧栏）整块隐藏，只留 Leaflet 画布。 */
+     组件（顶部筛选工具栏 / 统计卡 / 分析图表 / 侧栏）整块隐藏，只留 Leaflet 画布。
+
+     2026-09-25 按需求删掉 realtime_alarm 与 packet_loss 两个页签 —— 这一栏只保留
+     「GIS 地图」与「微波实时」。后端 TAB_PAGES 白名单里这两个 page 值**刻意保留**：
+     ① 服务端已存过的 tabLabels 改名记录不会因为白名单收窄而被丢弃（前端不再画它们，
+        但键还在，将来若要恢复页签不用重新改名）；
+     ② 白名单是「认不出的键丢弃」的容错设计，收窄它会牵连 olbrportal——
+        那边 olbr.js 的 MAP_TABS 仍是 4 个页签，两边共用同一份 TAB_PAGES。 */
   var MAP_TABS = [
     { page: 'gis',            key: 'map.tab.gis',   icon: 'map' },
-    { page: 'mwRealTime',     key: 'map.tab.mw',    icon: 'broadcast' },
-    { page: 'realtime_alarm', key: 'map.tab.alarm', icon: 'bell' },
-    { page: 'packet_loss',    key: 'map.tab.loss',  icon: 'link' }
+    { page: 'mwRealTime',     key: 'map.tab.mw',    icon: 'broadcast' }
   ];
   /* 保留伪页签 key：这一栏的标题/副标题不是地图页签，但和页签共用同一份
      catalog.tabLabels 存储与改名入口（2026-09-23 加）。用 __ 前缀避免与真实 page 撞名
      （my_app 的 page 值都是 gis / mwRealTime 这种，不会以双下划线开头）。
      后端 TAB_PAGES 里有同名白名单，两处必须一起改。 */
   var RENAME_HEAD = '__head';
-  /** 所有可从界面上改名的项：4 个页签 + 本栏标题/副标题。 */
+  /** 所有可从界面上改名的项：2 个页签 + 本栏标题/副标题。 */
   var RENAME_KEYS = MAP_TABS.map(function (m) { return m.page; }).concat([RENAME_HEAD]);
 
   /* 只保留含地图的那一块，其余顶层区块整块隐藏；地图卡片去壳后铺满。
-     —— 对 gis / realtime_alarm / packet_loss（React SPA）纯 CSS 即可。
+     —— 对 gis（React SPA）纯 CSS 即可。
      —— 对 mwRealTime：它外层不含 Leaflet，地图藏在同源内层 iframe
         (/myapp/mw_real_time.html) 里，所以这里额外放行 iframe，再由 JS 递归剥离。 */
   var MAP_STRIP_CSS = [
@@ -3987,7 +4219,7 @@
   }
 
   /** 地图数据在 my_app 侧要登录。未登录时不加载 iframe，只给一句提示 + 登录入口，
-      避免 4 个 iframe 各自去渲染 my_app 自带的「Sign in required」英文报错页。 */
+      避免 2 个 iframe 各自去渲染 my_app 自带的「Sign in required」英文报错页。 */
   function renderMapAuth() {
     var host = document.getElementById('mapHost');
     if (!host) return;
@@ -5035,7 +5267,7 @@
     else next[page] = { zh: zh, en: en };
     state.tabLabels = Object.keys(next).length ? next : null;
     /* 标题改了要重建整个 #secTopo（标题在 topoSection 里，不在 #mapTabs 里）。
-       ⚠️ 这会让 4 个地图 iframe 重新加载 —— 但这是改标题的必然代价，
+       ⚠️ 这会让 2 个地图 iframe 重新加载 —— 但这是改标题的必然代价，
        且只在用户主动改名时发生一次（不是每次 render 都碰 secTopo，见 renderMapTabs
        与 render() 的分工注释）。改完立刻 renderMapTabs 保证页签也跟着变。 */
     if (isHead) {
@@ -5624,7 +5856,7 @@
       loadCatalog();
     }
     /* 拓扑区只在 render() 里建，且**必须在 renderSections() 之后**：
-       topoSection() 会重置 #mapHost 的内容（4 个 iframe 的家），
+       topoSection() 会重置 #mapHost 的内容（2 个 iframe 的家），
        如果先建拓扑再跑 renderSections，虽然后者不碰 secTopo、看起来也一样，
        但一旦以后有人给 renderSections 加了 secTopo 就会互相覆盖 —— 明确分开职责。 */
     document.getElementById('secTopo').innerHTML = topoSection();
@@ -5648,10 +5880,10 @@
   /** 只重画看板区块（不动地图）。区块内搜索每次输入都走这里 ——
       render() 会顺带跑 ensureMap()，而 ensureMap 对当前页签 iframe 会再 stripFrame
       一遍，连续打字就等于连续打扰地图（见 bind() 里区块搜索的注释）。
-      刻意**不重画拓扑区**：它是 4 个 iframe 的宿主，重建 = 地图重新加载几十秒。 */
+      刻意**不重画拓扑区**：它是 2 个 iframe 的宿主，重建 = 地图重新加载几十秒。 */
   function renderSections() {
     // 特殊区块：CXO / Quality Control / 拓扑地图（拓扑区只在 render() 里建一次，
-    // 这里必须跳过 —— 重建 #secTopo 会让 4 个地图 iframe 全部重新加载）
+    // 这里必须跳过 —— 重建 #secTopo 会让 2 个地图 iframe 全部重新加载）
     document.getElementById('secCxo').innerHTML = cxoSection();
     document.getElementById('secQc').innerHTML = qcSection();
 
@@ -6707,7 +6939,7 @@
       }
 
       /* 区块「展开全部 / 收起」：只重画区块，**不碰拓扑区** ——
-         render() 会顺带跑 ensureMap()，重建 #secTopo 等于 4 个地图 iframe 重新加载。 */
+         render() 会顺带跑 ensureMap()，重建 #secTopo 等于 2 个地图 iframe 重新加载。 */
       var st = e.target.closest('[data-act="sec-toggle"]');
       if (st) {
         e.preventDefault();

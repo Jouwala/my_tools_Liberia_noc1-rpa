@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Query, HTTPException
 from backend.database import get_raw_connection, DB_PATH, DB_MODE
 from backend.dialect_helpers import list_table_names, table_columns
-from backend.routers.gis_geometry import compute_region_boundaries
+from backend.routers.gis_geometry import compute_region_boundaries, load_county_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -1548,33 +1548,58 @@ def get_region_summary():
 
 @router.get("/topology")
 def get_topology():
-    """获取站点拓扑连线数据（含经纬度，自适应数据库结构）"""
-    S = _detect_gis_schema()
-    if not S["has_topology"] or not S["site_table"]:
-        return {"links": [], "total": 0}
+    """获取 MW 微波链路连线数据（含经纬度）。
+
+    ⚠ 数据源变更（2026-09-25，用户要求）：
+      原实现读 `topology` 表（515 行，经 master_site_db 两次 JOIN 后剩 507 条），
+      该表的 site_a_id/site_b_id 是**站点编号**，JOIN 不上就丢线。
+      现改读 `kml_mw_links`（kind='link' 共 844 条），端点自带两端经纬度
+      （lon/lat、lon2/lat2），**无需 JOIN**，因此覆盖更全、也不会因主数据缺行而静默丢线。
+
+    兼容性：**响应结构保持不变**（仍返回 site_a_*/site_b_*/lat_a/lat_b/is_hub_link），
+      便于前端平滑切换；仅新增 color 字段（kml 自带的 4 色）供前端按真实线色渲染。
+      kml_mw_links 无 hop_count / hub 标记，故 hop_count 置 0、is_hub_link 置 False，
+      前端图例随之改为按 color 分组（见 GISMap.tsx）。
+    """
     with get_raw_connection() as conn:
-        st = S["site_table"]
-        rows = conn.execute(f"""
-            SELECT t.site_a_id, t.site_a_name, t.site_b_id, t.site_b_name,
-                   t.hop_count, t.a_is_hub, t.b_is_hub,
-                   a.latitude as lat_a, a.longitude as lng_a,
-                   b.latitude as lat_b, b.longitude as lng_b
-            FROM topology t
-            LEFT JOIN {st} a ON CAST(t.site_a_id AS TEXT) = CAST(a.site_id AS TEXT)
-            LEFT JOIN {st} b ON CAST(t.site_b_id AS TEXT) = CAST(b.site_id AS TEXT)
-            WHERE a.latitude IS NOT NULL AND b.latitude IS NOT NULL
-        """).fetchall()
+        tables = set(list_table_names(conn))
+        if "kml_mw_links" not in tables:
+            logger.warning("[gis] kml_mw_links 不存在，拓扑返回空")
+            return {"links": [], "total": 0}
+        try:
+            rows = conn.execute("""
+                SELECT name, a, b, lon, lat, lon2, lat2, color
+                FROM kml_mw_links
+                WHERE kind = 'link'
+                  AND lon IS NOT NULL AND lat IS NOT NULL
+                  AND lon2 IS NOT NULL AND lat2 IS NOT NULL
+            """).fetchall()
+        except Exception:
+            logger.warning("[SILENT-EXCEPT] get_topology kml_mw_links: exception swallowed", exc_info=True)
+            return {"links": [], "total": 0}
         conn.close()
-        links = []
-        for r in rows:
-            links.append({
-                "site_a_id": r[0], "site_a_name": r[1],
-                "site_b_id": r[2], "site_b_name": r[3],
-                "hop_count": r[4], "is_hub_link": bool(r[5] and r[6]),
-                "lat_a": r[7], "lng_a": r[8],
-                "lat_b": r[9], "lng_b": r[10],
-            })
-        return {"links": links, "total": len(links)}
+
+    links = []
+    for name, a, b, lon, lat, lon2, lat2, color in rows:
+        try:
+            lat_a, lng_a, lat_b, lng_b = float(lat), float(lon), float(lat2), float(lon2)
+        except (TypeError, ValueError):
+            continue
+        # 坐标合法性校验（与 mw_links_store.build_geojson 同一套规则）
+        if not (-90 <= lat_a <= 90 and -180 <= lng_a <= 180
+                and -90 <= lat_b <= 90 and -180 <= lng_b <= 180):
+            continue
+        links.append({
+            "site_a_id": a or "", "site_a_name": a or "",
+            "site_b_id": b or "", "site_b_name": b or "",
+            "hop_count": 0,            # kml_mw_links 无此字段
+            "is_hub_link": False,      # kml 无 hub 标记，改由 color 区分（见前端图例）
+            "lat_a": lat_a, "lng_a": lng_a,
+            "lat_b": lat_b, "lng_b": lng_b,
+            "name": name or "",
+            "color": color or "#0a84ff",
+        })
+    return {"links": links, "total": len(links)}
 
 
 _boundaries_cache: dict = {}   # {"ts": epoch, "data": {...}}
@@ -1609,4 +1634,59 @@ def get_region_boundaries():
     payload = compute_region_boundaries(sites)
     if payload["regions"]:
         _boundaries_cache.update({"ts": _time.time(), "data": payload})
+    return payload
+
+
+# ========== 真实县（County）行政边界（2026-09-25 新增） ==========
+# 与上面的 /region-boundaries 并存，二者语义不同，不要互相替代：
+#   /region-boundaries   由 827 个站点坐标 Voronoi **推算**出的 3 个大区蒙层
+#   /county-boundaries   用户提供的**真实** 15 个县行政边界（GeoJSON 静态资源）
+# 前端用三选一开关（none / region / county）切换，见 GISMap.tsx。
+_county_cache: dict = {}      # {"ts": epoch, "data": {...}}
+_COUNTY_TTL = 3600            # 县界几何是静态文件，站点计数变化慢，缓存 1 小时
+
+
+@router.get("/county-boundaries")
+def get_county_boundaries():
+    """获取利比里亚 15 个县的真实行政边界（含站点计数）。
+
+    site_count 的口径与 /gis/sites 保持一致（同样只统计经纬度有效的站点），
+    否则界面上的县名旁数字与点击后的地图站点数会对不上（AGENTS.md 三-1b）。
+    边界文件缺失时不抛 500 —— 边界属增强显示，不应让整个地图挂掉。
+    """
+    if _county_cache and (_time.time() - _county_cache.get("ts", 0)) < _COUNTY_TTL:
+        return _county_cache["data"]
+
+    counties = load_county_boundaries()
+
+    # 站点计数：与 /gis/sites 完全相同的 WHERE 口径
+    counts: dict = {}
+    S = _detect_gis_schema()
+    if counties and S["site_table"]:
+        try:
+            with get_raw_connection() as conn:
+                rows = conn.execute(f"""
+                    SELECT province_county, COUNT(*)
+                    FROM {S["site_table"]}
+                    WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+                      AND CAST(latitude AS REAL) != 0
+                      AND CAST(longitude AS REAL) != 0
+                      AND province_county IS NOT NULL AND province_county != ''
+                    GROUP BY province_county
+                """).fetchall()
+                conn.close()
+            # 归一化 key：库里同时存在 'River Cess' / 'River cess' 两种写法
+            for name, cnt in rows:
+                key = re.sub(r"\s+", " ", str(name or "").strip()).lower()
+                counts[key] = counts.get(key, 0) + int(cnt or 0)
+        except Exception:
+            logger.warning("[SILENT-EXCEPT] get_county_boundaries site_count: exception swallowed", exc_info=True)
+
+    for c in counties:
+        key = re.sub(r"\s+", " ", c["db_name"]).lower()
+        c["site_count"] = counts.get(key, 0)
+
+    payload = {"counties": counties}
+    if counties:
+        _county_cache.update({"ts": _time.time(), "data": payload})
     return payload

@@ -16,7 +16,7 @@ import path from 'node:path';
 // 即使配了关闭也会被强制回「开启鉴权」并打印醒目告警，且**拒绝写入关闭状态**。
 //
 // 热生效：结论带 TTL 缓存（RELOAD_TTL_MS），页面上点开关后无需重启进程，
-// 两侧都会在数秒内自动跟上。setAuthEnabled() 由门户接口调用（见 server/auth.ts）。
+// 两侧都会在数秒内自动跟上。setAuthEnabled() 由门户接口调用（见 server/auth/routes.ts）。
 //
 // 与 my_app 侧 backend/auth_switch.py 保持**完全一致的语义**，改一处请同步另一处。
 //

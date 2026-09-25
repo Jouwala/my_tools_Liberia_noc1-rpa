@@ -74,6 +74,37 @@ _probe_file.txt
 # 见 backend/services/dashboard_service.py 的 CACHE_DIR
 /backend/data/native_board_cache/
 
+# ⚠ 例外：GIS 县界/国界是**源码级的静态数据**，必须入库（2026-09-25 新增）。
+# 根 .gitignore:85-86 有全局 `data/` 与 `*/data/`，会把 backend/data/gis/*.geojson
+# 静默忽略掉 —— 表现为「本机跑得好好的，换台机器/新克隆就 404、地图上没有县界」。
+# 这两个文件由用户提供的《利比里亚地图文件_国家边界含州名.txt》离线转换而来，
+# 是几何真相源，无法在运行时重建，故显式取反。
+!backend/data/
+!backend/data/gis/
+!backend/data/gis/*.geojson
+#
+# ⚠ 上面 `!backend/data/` 的副作用必须在这里补回来（2026-09-25）：gitignore 无法
+# 「只豁免一个子目录」—— 被忽略目录里的东西要入库，就得先把整条路径逐级取反。
+# 取反之后 backend/data/ 的**直接子文件**就不再被根规则的 `data/` 挡住了，于是
+# 下面这几份服务端运行时状态又冒出来变成待提交新文件。它们都是页面写入的本机
+# 状态（读不到时代码各自回落默认值/内置提示词），入库只会让每台机器互相覆盖：
+#   - settings.json        → backend/config/remote_host.py，缺文件用默认主机
+#   - portal_catalog.json  → backend/routers/portal_catalog.py，缺文件前端回落内置 data.js
+#   - ui_menu_layout.json  → backend/routers/ui_config.py，缺文件前端回落默认结构
+#   - tt_timeline_cache/   → backend/services/tt_postmortem/__init__.py:_TIMELINE_CACHE_DIR
+/backend/data/settings.json
+/backend/data/portal_catalog.json
+/backend/data/ui_menu_layout.json
+/backend/data/tt_timeline_cache/
+
+# outputs/ 整体是**产物目录**（`ume_in_screen_render.py:97` 的默认输出就落在这里）。
+# 里面的 `ume_screen_caps/`、`ume_screen_platform/` 两份是被人为入库当样例，维持现状不动；
+# 其余产物里 xlsx/png/jpg 已被根 .gitignore 的扩展名规则挡住，唯独 Markdown 漏网 ——
+# 于是「TT 复盘报告」导出件（eflow_qa.py:806 的下载文件名）会冒出来被当成新文件，
+# 而后端每次都能实时生成同一份内容，仓库里不需要副本。2026-09-25 起显式拦住。
+/outputs/*.md
+/outputs/*.md
+
 # Chrome 临时 profile（portal_login_service 正常退出时会自清，异常退出会残留）
 /data/portal_profiles/_tmp_*/
 

@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n'
 import { WH, cardStyle, useTheme } from '../../theme'
 import { SearchableExportTable } from '../../components/SearchableExportTable'
 import type { DrilldownData, DrilldownAnalytics } from './types'
+import { SITE_COLORS } from './types'
 import { filterBySearch, exportToExcel, buildAlarmColumns, buildTTColumns, buildWOColumns } from './helpers'
 import { ChartBlock } from './ChartBlock'
 import { RatKpiTab } from './RatKpiTab'
@@ -260,7 +261,7 @@ export function SiteDrilldownDrawer({
               <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.totalWO')}</span>} value={wo?.total ?? drilldown.wo_count} valueStyle={{ color: WH.blue, fontWeight: 700 }} /></Card>
             </Col>
             <Col xs={12} sm={6}>
-              <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.rtAlarm')}</span>} value={drilldown.rt_alarm_count} valueStyle={{ color: drilldown.rt_alarm_count > 0 ? '#ff6b6b' : WH.text, fontWeight: 700 }} /></Card>
+              <Card size="small" style={cardStyle}><Statistic title={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.rtAlarm')}</span>} value={drilldown.rt_alarm_count} valueStyle={{ color: drilldown.rt_alarm_count > 0 ? SITE_COLORS.rt_alarm : WH.text, fontWeight: 700 }} /></Card>
             </Col>
             <Col xs={12} sm={6}>
               <Card size="small" style={cardStyle}>
@@ -402,7 +403,7 @@ export function SiteDrilldownDrawer({
               },
               ...(mode === 'all' ? [{
                 key: 'his_alarm',
-                label: <span style={{ color: WH.text }}><AlertOutlined style={{ color: '#ffa94d' }} /> {t('gis.drilldown.hisAlarmTab')} ({his?.total ?? drilldown.his_alarm_count})</span>,
+                label: <span style={{ color: WH.text }}><AlertOutlined style={{ color: SITE_COLORS.his_alarm }} /> {t('gis.drilldown.hisAlarmTab')} ({his?.total ?? drilldown.his_alarm_count})</span>,
                 children: (
                   <>
                     <ChartBlock title={t('gis.chart.dailyHis')} option={hisDailyOption} height={240} fullScope />
@@ -420,7 +421,7 @@ export function SiteDrilldownDrawer({
               }] : []),
               {
                 key: 'rt_alarm',
-                label: <span style={{ color: WH.text }}><ThunderboltOutlined style={{ color: '#ff6b6b' }} /> {t('gis.drilldown.rtAlarmTab')} ({drilldown.rt_alarm_count})</span>,
+                label: <span style={{ color: WH.text }}><ThunderboltOutlined style={{ color: SITE_COLORS.rt_alarm }} /> {t('gis.drilldown.rtAlarmTab')} ({drilldown.rt_alarm_count})</span>,
                 children: (
                   <>
                     {/* 实时告警是当前快照、单站点通常 0~2 行，数据量不足以出图 —— 明确说明而非画空图 */}

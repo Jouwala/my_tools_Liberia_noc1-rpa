@@ -743,9 +743,14 @@ def _network_availability():
     """读取 Daily_Aailability_KPI.xlsx 的 Availability-NW 页，按 Cell Group 统计
     最新一天 Cell Availability 与本月（最新数据所在月）平均值。
 
-    返回 {"rows":[{cell_group,latest_date,latest,month_avg}], "threshold_pct","latest_month"}
-    带 60s TTL 缓存（避免每次刷新重读 xlsx）。
-    """
+    返回 {"rows":[{cell_group,latest_date,latest,month_avg,series}], "threshold_pct",
+          "latest_month"}
+    其中 series = [{"d": "YYYY-MM-DD", "v": 0.97375}, …]，最近 30 天的逐日值
+    （2026-09-25 加，供前端画可用率趋势线）。
+    ⚠️ 不返回「窗口天数」这个字段：路由 (alarm_overview) 是**逐字段挑着拼**响应的，
+    多一个键要在两处同步；而前端本来就能从 series 的长度算出窗口，
+    那个数还永远不会与数据本身脱节。少一处能对不上的地方。
+    带 60s TTL 缓存（避免每次刷新重读 xlsx）。"""
     cached = _cache_get("network_availability")
     if cached is not None:
         return cached
@@ -811,6 +816,25 @@ def _network_availability():
                 "month_avg": month_avg,
             })
         out_rows.sort(key=lambda x: x["cell_group"])
+
+        # ---- 逐日序列（2026-09-25 加，供前端的可用率趋势线用）----
+        # 上面那一步把 items_sorted 压成了「最新值 + 本月均值」两个标量，
+        # 而**逐日数据本来就在手上**（items_sorted 就是 (日期, 可用率) 的列表），
+        # 只是被丢掉了。前端要画「2G/3G/4G 可用率走势」就得把它带上 ——
+        # 单独再开一个接口重读一次 xlsx 是白费：同一个文件、同一份缓存。
+        #
+        # 窗口取**最近 N 天**而不是全部 425 天：
+        #   ① 前端只画得下 30 天（再多横轴就挤成一片，看不出起伏）；
+        #   ② 425 个点 × 4 组会让这个响应的体积翻好几倍，而其中 90% 的画不出来。
+        # 按天取尾部的 N 天，与前端「每格 1 天」的说明文字对得上。
+        #
+        # ⚠️ 不做任何补点：源文件里这 4 组各自连续、无缺口（实测 425 天全齐），
+        # 但万一将来缺一天，前端会按「断线」渲染 —— 补 0 会画出一个
+        # 「可用率跌到 0」的假谷底，那是比缺口更严重的撒谎。
+        series_days = 30
+        for row in out_rows:
+            items_sorted = sorted(by_group[row["cell_group"]], key=lambda x: x[0])
+            row["series"] = [{"d": bt, "v": round(av, 5)} for bt, av in items_sorted[-series_days:]]
         result = {
             "rows": out_rows,
             "threshold_pct": NETWORK_THRESHOLD_PCT,

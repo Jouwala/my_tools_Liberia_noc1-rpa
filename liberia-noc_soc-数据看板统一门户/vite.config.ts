@@ -4,8 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import {defineConfig, type Plugin} from 'vite';
 import type {IncomingMessage, ServerResponse} from 'node:http';
-import {extractBearerToken, getAuthStore, portalAuthPlugin} from './server/auth';
-import {isAuthBypass} from './server/authSwitch';
+import {getAuthStore, portalAuthPlugin, resolveCaller, sendJson as sendJsonShared} from './server/auth';
 
 // ============================================================================
 // 门户默认目录（portal-default.json）服务端持久化
@@ -84,11 +83,8 @@ function portalDefaultStorePlugin(): Plugin {
     name: 'portal-default-store',
     configureServer(server) {
       const handler = (req: IncomingMessage, res: ServerResponse) => {
-        const sendJson = (status: number, payload: unknown) => {
-          res.statusCode = status;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify(payload));
-        };
+        // 复用鉴权模块的 sendJson，不再本地重定义（消除第二份实现）
+        const sendJson = (status: number, payload: unknown) => sendJsonShared(res, status, payload);
 
         if (req.method === 'GET') {
           try {
@@ -108,14 +104,16 @@ function portalDefaultStorePlugin(): Plugin {
           // 鉴权门：必须携带有效管理员会话（前端 apiFetch 自动注入 Bearer token）
           // 日常开发免登录模式下（见 server/authSwitch.ts）无 token 也按开发管理员放行，
           // 「只有本机可保存」的约束仍然保留，不随鉴权开关放宽。
-          const token = extractBearerToken(req);
-          const bypass = isAuthBypass();
-          const caller = (token ? authStore.getUserByToken(token) : null) ?? (bypass ? {role: 'admin'} : null);
-          if (!caller) {
+          //
+          // 调用者解析统一走 server/auth 的 resolveCaller —— 此前这里有一份与
+          // server/auth 路由内联判断重复的副本（且免登录旁路写法不一致），
+          // 2026-09-25 收口，见 docs/auth-module-design.md 第三节问题 2。
+          const auth = resolveCaller(req, authStore);
+          if (!auth) {
             sendJson(401, {detail: '请先登录后再保存默认目录'});
             return;
           }
-          if (caller.role !== 'admin') {
+          if (auth.caller.role !== 'admin') {
             sendJson(403, {detail: '仅管理员可保存默认目录'});
             return;
           }
@@ -233,8 +231,14 @@ export default defineConfig(() => {
       //  · *.bak*  *.xlsx  备份件与数据导出（vite.config.ts_bak_*、portal-default.json.bak_*、
       //                看板清单 xlsx …）。
       //  · _*  .tmp_*  tmp_*.txt  temp_*.txt  seg*.txt  listing.txt  out.txt
-      //                仓库根目录与各处的临时件（已确认 src/ server/ assets/ 下没有任何
-      //                以 _ 开头的文件，全部集中在 MsPortal/ 里）。
+      //                仓库根目录与各处的临时件（除下方豁免的模板文件外，其余集中
+      //                在 MsPortal/ 里）。
+      //  · 豁免：src/_* 与 server/_* 是**真源码**（如 src/pages/_TemplatePage.tsx
+      //                新增页面模板），必须参与 HMR，否则改模板看不到效果。
+      //                与 .gitignore 的 `!src/_*` / `!server/_*` 是一对，改一个必须改另一个。
+      //                注意 vite 的 `ignored` 是 glob 匹配、**不支持 `!` 反选**，
+      //                所以这里不能照抄 .gitignore 的写法，只能在 `**/_*` 的位置
+      //                直接不写那么宽的规则 —— 故改成逐前缀列举，把源码目录排除在外。
       watch:
         process.env.DISABLE_HMR === 'true'
           ? null
@@ -254,9 +258,22 @@ export default defineConfig(() => {
                 '**/*.bak',
                 '**/*.bak_*',
                 '**/*_bak_*',
+                // 快照命名的另外三种写法（`.bak-qc` / `.bak.qc` / `.qcbak`）实测都存在，
+                // 漏在这里的后果不是入库而是**每次 QC 改 portal.js 就整页刷新一次**。
+                // 与 .gitignore 的同名规则是一对，改一个必须改另一个。
+                '**/*.bak-*',
+                '**/*.bak.*',
+                '**/*bak',
                 '**/*.xlsx',
-                '**/_*',
-                '**/.tmp_*',
+                // 下划线前缀的一次性件：只忽略它们**实际所在**的目录，
+                // 不用 `**/_*` —— 那会连同 src/pages/_TemplatePage.tsx 一起忽略掉
+                // （vite 的 ignored 不支持 `!` 反选，宽规则没法再捞回来）。
+                // 与 .gitignore 的 `_*` + `!src/_*` + `!server/_*` 语义对齐。
+                '_*',
+                'MsPortal/_*',
+                'MsPortal/**/_*',
+                'TMP/_*',
+                '.tmp_*',
                 '**/tmp_*.txt',
                 '**/temp_*.txt',
                 '**/seg*.txt',

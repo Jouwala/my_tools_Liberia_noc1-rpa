@@ -36,6 +36,9 @@
      3  升级机制默认收成一条值班带（52px），展开才出全表（原来常驻 583px）。
      4  卡片只有两种、强调色只有两个色相，图标砖不再按分组上实色。
    ========================================================================== */
+// @ts-check —— 显式开启类型守卫（npm run lint:shells → v1/olbrportal/tsconfig.json）。
+// 双重保险 + 文档意图：即使 tsconfig 的 checkJs 被关，这一行也能单文件开启检查；
+// 读文件的人一眼知道这文件被 lint:shells 覆盖，改它请顺手跑一遍。
 (function () {
   'use strict';
 
@@ -45,531 +48,11 @@
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
 
-  /* --------------------------------------------------------------- i18n -- */
-  var S = {
-    zh: {
-      'tagline': '更智能的运维 · 更高的效率 · 更好的网络',
-      'mast.admin': '管理门户', 'mast.uni': '统一门户', 'mast.logout': '退出',
-      'skip': '跳到主内容',
-      'search.ph': '搜索看板名称、描述、责任人、标签…',
-      'rail.all': '全部', 'rail.clear': '清除筛选',
-      /* 检索轨默认收起成一条（2026-09-22）：入口要图标 + 文字，光一个放大镜图标不够直白 */
-      'rail.btn': '搜索与筛选', 'rail.tip': '展开搜索框与分组 / 状态筛选（Ctrl K）',
-      'count.all': '{n} 个看板 · {g} 个分组',
-      'count.hit': '{n} / {t} 个看板命中',
-      'qc.title': 'Quality Control 质量监控核心指标',
-      'qc.sub': '未清除告警 / 工单 / 变更 / 维护 / 备件 · 30 天达标口径',
-      'qc.sla': '30 天达标率',
-      'qc.slaTip': '近 {d} 天创建的 TT 中 SLA 判定为 Pass 的占比（分母只含已判定 Pass/Failed 的单，'
-        + '在途未判定的不计入）：{pass} / {total}',
-      'qc.err': '数据库统计不可用', 'qc.retry': '重试',
-      'qc.drill': '点击查看明细',
-      /* QC 指标卡与 MsPortal 的 Quality Control 对齐（2026-09-22）。
-         阈值、趋势口径、两档刷新节奏都照抄 portal.js，文案也沿用同一套说法 ——
-         同一个数字在两个门户上被读成两件事，比样式不一致更糟。 */
-      'qc.updated': '更新于', 'qc.next': '下次 {t}', 'qc.reload': '刷新', 'qc.loading': '加载中…',
-      'qc.na': '不可用',
-      'qc.lv.ok': '正常', 'qc.lv.warn': '关注', 'qc.lv.crit': '严重', 'qc.lv.na': '不可用',
-      'qc.dataAt': '数据 {t}（{ago}）',
-      'qc.ago.now': '刚刚', 'qc.ago.min': '{n} 分钟前', 'qc.ago.hour': '{n} 小时前', 'qc.ago.day': '{n} 天前',
-      'qc.sites': '断站站点', 'qc.overdue': '超期', 'qc.inbound': '入库', 'qc.outbound': '出库',
-      'qc.sub.alarm': '未清除的断站告警', 'qc.sub.tt': '告警未清除的故障工单 (TT)',
-      'qc.sub.wo': '告警未清除的任务工单 (WO)', 'qc.sub.cr': '未关闭变更单 (CR)',
-      'qc.sub.pmt': '未完成的预防性维护 (PMT)',
-      'qc.sub.spms': '未关闭出入库单 (SPMS，不含 WaitingForUpdate)',
-      'qc.targetTip.up': '分级阈值：关注 ≥ {warn} · 严重 ≥ {crit}（数值越大越差）',
-      'qc.targetTip.down': '分级阈值：关注 < {crit} · 严重 < {warn}（数值越大越好）',
-      'qc.trend.cap': '近 {n} 天新增 {total} 次（每格 {unit}）',
-      'qc.trend.capToday': '今天 {total} 次（每格 {unit}）',
-      'qc.trend.hours': '1 小时', 'qc.trend.days': '1 天',
-      'qc.trend.tip': '按源表时间列分桶的「新增量」（近 {n} 天，每格 {unit}）。\n'
-                    + '空档补 0：那段时间确实没有新增。\n'
-                    + '注意这是「来单速度」，不是卡片上那个「存量」，两者量级不同、不能互相印证。',
-      'qc.trend.tipToday': '按源表时间列分桶的「新增量」（今天 00:00 至 23:00，每格 {unit}）。\n'
-                    + '空档补 0：那个小时确实没有新告警。\n'
-                    + '最后一格是「尚未走完的当前小时」，值会随分钟继续增长。\n'
-                    + '注意这是「新告警速度」，不是卡片上那个「存量」，两者不能互相印证。',
-      'qc.trend.starving': '趋势数据不足',
-      'qc.cadenceTip': '本面板分两档刷新：断站告警每 5 分钟（源 eflow_active_alarm 每 5 分钟同步，最近 {a}）；'
-                     + 'TT/WO/CR/PMT/SPMS 与达标率每小时 :06（源 eflow_sync 每小时 :00 起跑、实测约 :06 跑完，'
-                     + 'SP 备件明细 sp_data_sync 每小时 :10，最近 {f}）。切回本页或点「刷新」会立刻重拉全量。',
-      'cxo.title': 'CXO View 决策战略层', 'cxo.sub': '统一总控与运营视窗',
-      'map.title': '利比里亚网络拓扑全景', 'map.sub': 'Central Liberia Regional Topology',
-      'map.gis': '全球地图', 'map.mw': '微波实时', 'map.alarm': '实时告警', 'map.loss': '传输丢包',
-      'map.open': '新窗口打开', 'map.reload': '重新加载', 'map.load': '加载中…',
-      /* 报告文件页签（2026-09-22 加）：内嵌 my_app 的任务报告文件中心，
-         标题说法与 MsPortal 那张 Task Report Files 卡一致，同一内容在两个门户不该有两名。 */
-      'email.tab': '报告文件',
-      'email.title': 'Task Report Files', 'email.sub': '任务报告文件中心（Email Reports）',
-      'email.needLogin': '登录后显示报告文件',
-      'email.noAccess': '当前账号没有「Task Report Files」这块看板的权限',
-      'esc.title': '升级机制 Escalation Matrix',
-      'esc.sub': '值班升级联系人 · Orange / LONESTAR 双网号码',
-      'esc.expand': '展开全部 {n} 条', 'esc.collapse': '收起',
-      /* 「展开全部」之后那颗按钮的文案。刻意不叫「收起」：
-         收起是"整张表收成一条值班带"（escOpen），而这里只是把多出来的行折回去，
-         表还在屏幕上 —— 混用会让用户以为点下去表会消失。 */
-      'esc.lessRows': '只看前 4 行',
-      'esc.now': '当前值班', 'esc.copy': '复制本级号码', 'esc.copied': '已复制',
-      'esc.lv': '职级', 'esc.pos': '岗位', 'esc.name': '姓名', 'esc.mail': '邮箱',
-      'esc.count': '{n} 条 · {lv} 级', 'esc.src': '数据源：升级机制.xlsx',
-      /* v1：默认只显示前 4 行，必须明说还有多少条没显示 —— 否则会被当成表就这么多行 */
-      'esc.moreRows': '仅显示前 4 行，另有 {n} 条 · 点右上「展开全部」查看',
-      'v.open': '查看全部', 'v.empty': '该分组暂无看板',
-      'v.subOther': '未归类',
-      'mast.edit': '编辑分组', 'mast.editOn': '退出编辑',
-      'edit.tipOn': '进入编辑：改分组 / 子分组与排序，保存到服务端全局目录（所有人可见）',
-      'edit.tipOff': '退出编辑',
-      'edit.banner': '编辑模式 · 改动立即写入服务端全局目录，MsPortal 和本页的所有人都会看到',
-      'edit.bannerK': '编辑模式',
-      'edit.hint': '拖动卡片＝组内排序 · 拖到子分组＝归类 · 点「分组」＝改归属',
-      'edit.reset': '重置顺序', 'edit.resetTip': '清掉本分组的自定义顺序，回到按访问量排序',
-      'edit.subAdd': '添加子分组', 'edit.subZhPh': '中文名', 'edit.subEnPh': '英文名',
-      'edit.subDel': '删除', 'edit.subDelTip': '删除该子分组（里面的看板落到「未归类」，不会丢看板）',
-      'edit.subRename': '改名', 'edit.subOk': '重命名', 'edit.subCancel': '取消',
-      'edit.delConfirm': '删除子分组「{n}」？里面的看板会落到「未归类」，看板本身不会丢。',
-      'edit.dupName': '这个子分组已经存在了', 'edit.needName': '先填一个名字',
-      'edit.groups': '分组', 'edit.groupsTip': '勾选这张看板要出现在哪些分组里',
-      'edit.saved': '已保存到服务端 · 所有人可见', 'edit.err': '保存失败：{e}',
-      'edit.readonly': '当前身份只能读目录（需在服务器本机或带 X-API-Token 才能改）',
-      'edit.busy': '上一条还在保存，请先等它完成',
-      'edit.noServer': '还没读到服务端目录，暂时不能编辑',
-      'edit.dropSub': '拖到这里＝归入该子分组',
-      'edit.orderOk': '顺序已更新', 'edit.orderReset': '已恢复默认排序',
-      'edit.subAdded': '子分组已添加', 'edit.subRenamed': '子分组已改名',
-      'edit.subDeleted': '子分组已删除', 'edit.subMoved': '子分组归属已更新',
-      'edit.grpOk': '分组归属已更新',
-      'edit.kSub': '子分组', 'edit.kOrder': '自定义顺序',
-      'edit.needGroup': '至少要属于一个分组',
-      'edit.lost': '服务端没有保存 {k}（后端可能是旧版，需要重启 my_app）',
-      'edit.saving': '保存中…',
-      /* 一级分组改名 / 新增 / 删除 + 看板标题（2026-09-22 加，全部写服务端全局目录） */
-      'edit.grpEdit': '改分组名', 'edit.grpEditTip': '改这个分组的显示名与说明（分组 id 不变，归属/排序/子分组都不会被打断）',
-      'edit.grpAdd': '新增分组', 'edit.grpAddTip': '新建一个一级分组，会出现在页签条最右边',
-      'edit.grpDel': '删除该分组',
-      'edit.grpRenamed': '分组已改名', 'edit.grpAdded': '分组已新增', 'edit.grpDeleted': '分组已删除',
-      'edit.grpNeedName': '先填一个分组名', 'edit.grpDup': '这个分组名已经存在了',
-      'edit.grpBuiltin': '内置分组只能改名，不能删除',
-      'edit.grpDelConfirm': '删除分组「{n}」？其中的看板只是从这个分组移出（仍留在别的分组里），此操作对所有人生效。',
-      'edit.grpHomeless': '有 {n} 张看板只属于这个分组，先给它们勾上别的分组再删',
-      'edit.title': '改名字', 'edit.titleTip': '改这张看板的中文名 / 英文名（存服务端，所有人可见）',
-      'edit.titleOk': '看板名字已更新', 'edit.needTitle': '中英文名不能同时为空',
-      'edit.formSave': '保存', 'edit.formAdd': '添加',
-      'edit.f.zh': '中文名', 'edit.f.en': '英文名', 'edit.f.subZh': '中文说明', 'edit.f.subEn': '英文说明',
-      'edit.fph.zh': '显示给中文用户', 'edit.fph.en': 'Shown to English users',
-      'edit.fph.subZh': '一句话说明这一组是什么', 'edit.fph.subEn': 'Optional one-line description',
-      'edit.kGroups': '一级分组', 'edit.kLabels': '地图页签名',
-      'edit.maptabTip': '改这个地图页签的中文名 / 英文名（存服务端，所有人可见；两项都清空则恢复默认）',
-      'edit.maptabRenamed': '地图页签名已更新',
-      'v.emptyFilter': '当前筛选下没有看板', 'v.adjust': '调整关键词或清除筛选',
-      /* ---- v1 新增：CXO Daily Dashboard 指标带（renderKpi）----
-         上排四张富卡片的数值全部来自 /api/olib-soc-dashboard/overview?days=90
-         （= my_app `?page=vmaxCxoDashboard_90Days` 那个 90 天经营看板），
-         口径是**昨日完整值**，不是当日进行中；下排三张是 2/3/4G 当月可用率
-         （/api/alarm-dashboard/alarm-overview 的 network_availability）。 */
-      'kpi.title': 'CXO Daily Dashboard',
-      'kpi.sub': '昨日完整值 · 90 天区间 · 2G / 3G / 4G 当月可用率',
-      'kpi.updated': '数据 {t}',
-      'kpi.err': '指标读取失败',
-      'kpi.retry': '重试',
-      'kpi.month': '{m} 月均值',
-      /* 可用率三张卡的卡名。⚠️ 不能复用 'qc.sla'（=「30 天达标率」）：
-         那是 Quality Control 带的 SLA 结单达标率，与网络可用率是**两个完全不同的指标**，
-         并排放在同一屏上极易被读成同一件事。这里给一个独立的措辞。 */
-      'kpi.avail': '可用率',
-      'kpi.noMonth': '当月数据未生成',
-      /* ---- 富卡片专用文案（kpiRichHtml）---- */
-      'kpi.latest': '最新',
-      'kpi.asof': '数据截至',
-      'kpi.wow': '周同比',
-      'kpi.mom': '月同比',
-      'kpi.max': '最高',
-      'kpi.avg': '平均',
-      'kpi.min': '最低',
-      'kpi.base': '对比日',
-      'kpi.days': '近 {n} 天',
-      /* 富卡片的 tooltip 第一句：口径必须写明，否则四个数字都不是当天的，
-         而页面上其它看板大多是当日/实时，很容易被当成"今天的数"。 */
-      'kpi.tipRich': '来源：CXO 90 天经营看板（昨日完整值，当天仍在累积不计入）',
-      'kpi.tipAvail': '来源：Daily Availability KPI（Availability-NW 页）按 Cell Group 汇总，口径与 {board} 一致',
-      /* ---- v1 新增：六个视图入口卡（renderViews6）----
-         每张卡列出的报告名就是目录里真实存在的看板标题，点击即打开。
-         数量由 V6_LIMIT 控制（默认 2 条），多出来的走「展开其余 N 项」。 */
-      'v6.title': 'Views',
-      'v6.sub': '点击报告名直接打开对应看板',
-      'v6.more': '展开其余 {n} 项',
-      'v6.less': '收起',
-      'v6.empty': '该视图下暂无可打开的看板',
-      'aux.qa': '知识库与技术支持', 'aux.friends': '生态协作入口', 'aux.admin': '系统与运维配置',
-      'aux.reports': '任务报告文件', 'aux.tools': '本页相关',
-      'aux.ms': '在 MsPortal 维护分组 / 看板 / 账号', 'aux.uni': '统一门户看板门户',
-      'aux.more': '展开其余 {n} 项', 'aux.less': '收起',
-      'foot.branch': '利比里亚办事处网络运营中心 (OLR MS)', 'foot.ok': '安全合规模式运行',
-      'foot.src': '目录：{n} 个看板 · 生成于 {d}',
-      'st.online': '在线', 'st.beta': '试用',
-      'pf.myapp': '自研 my_app', 'pf.finebi': 'FineBI', 'pf.external': '外部系统',
-      'gate.title': '登录统一门户', 'gate.sub': '与 /uniplam/、/MsPortal/ 共用同一套账号与权限。',
-      'gate.user': '用户名', 'gate.pass': '密码', 'gate.go': '登录', 'gate.busy': '登录中…',
-      'gate.bad': '用户名或密码错误', 'gate.locked': '尝试次数过多，稍后再试',
-      'gate.net': '无法连接认证服务', 'gate.cancel': '取消',
-      'dr.title': '明细', 'dr.rows': '{n} 条', 'dr.page': '{p} / {q}',
-      'dr.load': '正在读取明细…', 'dr.empty': '没有匹配的记录', 'dr.err': '明细读取失败：{e}',
-      'dr.none': '暂无数据', 'dr.qPh': '过滤明细…',
-      /* 2026-09-23 统一下钻弹窗：补齐与 MsPortal 同名同义的文案键。
-         MsPortal 侧对应 qc.reload / qc.export / qc.openBoard / qc.filterHint /
-         qc.loading / qc.page / qc.total / qc.drillSuffix / qc.exportErr。 */
-      'dr.reload': '刷新', 'dr.export': '导出 Excel', 'dr.openBoard': '打开完整看板',
-      'dr.filterHint': '提示：按维度筛选看板列表请用筛选条，这个弹窗只下钻明细。',
-      'dr.drillSuffix': ' · 明细', 'dr.total': '共 {n} 条', 'dr.exportErr': '导出失败',
-      'dr.noData': '没有可导出的数据',
-      'env.local': '本机', 'env.lr': '利比里亚',
-      'foot.ver': 'Ver 1.0-OLBR · 展示版',
-      'doc.title': 'OLR MS 门户 · Liberia NOC/SOC 统一入口 (ZTE OLR MS Portal)',
-      'doc.desc': 'ZTE OLR MS 门户看板 —— 利比里亚 NOC/SOC 自动化工具平台入口（展示版）。',
-      'attr.theme': '深色 / 浅色',
-      'attr.adminTitle': '看板维护仍在 MsPortal 完成（本页改分组、子分组、排序与用户权限）',
-      'attr.searchAria': '搜索看板', 'attr.chipsAria': '分组筛选', 'attr.statusAria': '状态筛选',
-      'attr.drQAria': '过滤明细',
-      /* ---- 用户管理（2026-09-22 加）----
-         文案与 /uniplam/ 的 UserManagementModal、/MsPortal/ 的移植版同一口径，
-         因为三者操作的是**同一份用户数据库**（auth-data/portal-auth.db）：
-         本页只调 /uniplam/api/auth/*，不复制用户表，改完另一边刷新即可见。
-         只有提到「本页」的两处把 MsPortal 换成了 olbrportal —— 分组体系按本页算。 */
-      'um.entry': '用户管理',
-      'um.entryTip': '管理统一门户账号（与 /uniplam/ 共用同一份用户数据库）',
-      'um.title': '用户管理',
-      'um.subtitle': '统一门户账号的增删与权限设置（仅管理员可见，与 /uniplam/ 同库同步）',
-      'um.reload': '刷新',
-      'um.openPortal': '在统一门户打开',
-      'um.addTitle': '新增用户',
-      'um.usernamePh': '用户名（2-32 位小写字母/数字/_.-）',
-      'um.passwordPh': '初始密码（至少 8 位）',
-      'um.roleAdmin': '管理员',
-      'um.roleViewer': '普通用户',
-      'um.add': '添加',
-      'um.added': '用户已创建，其首次登录将被强制修改密码',
-      'um.duplicate': '用户名已存在',
-      'um.invalidInput': '用户名或密码格式不符合要求',
-      'um.pwdTooShort': '密码至少需要 8 个字符',
-      'um.colUser': '用户',
-      'um.colRole': '角色',
-      'um.colCreated': '创建时间',
-      'um.colActions': '操作',
-      'um.loading': '加载中…',
-      'um.empty': '暂无账号',
-      'um.self': '我',
-      'um.reset': '重置密码',
-      'um.resetHint': '为 {name} 设置新密码',
-      'um.resetConfirm': '确认重置',
-      'um.resetOk': '已重置 {name} 的密码，其下次登录需修改密码',
-      'um.delete': '删除用户',
-      'um.confirmDelete': '确定要删除用户 {name} 吗？该操作不可恢复。',
-      'um.selfDelete': '不能删除当前登录的自己',
-      'um.lastAdmin': '不能删除最后一个管理员',
-      'um.pages': '页面配置',
-      'um.pagesTitle': '页面配置 · {name}',
-      'um.pagesSubtitle': '指定登录后打开哪个看板、以及可见的看板范围（与 /uniplam/ 同一条记录）',
-      'um.landing': '登录后落地',
-      'um.landingNone': '不干预（停在全部看板）',
-      'um.landingNoCard': '不指定看板',
-      'um.viewGrid': '卡片网格（统一门户）',
-      'um.viewList': '列表（统一门户）',
-      'um.viewMatrix': '分组矩阵（统一门户）',
-      'um.viewTasks': '任务视图（统一门户）',
-      'um.allowed': '可见范围',
-      'um.allowedAll': '不限制（可见全部分组与看板）',
-      'um.allowedCustom': '自定义白名单',
-      'um.groupsMsportal': '按分组 · 本页（/olbrportal/）',
-      'um.groupsPortal': '按分组 · 统一门户（/uniplam/）',
-      'um.groupsPortalNone': '统一门户未保存全局目录，暂不能按业务分组授权',
-      'um.allowedCards': '按看板（两边通用）',
-      'um.cardsLocalOnly': '读不到统一门户的全局目录，候选项暂时锁住：这里的看板 id 是按 URL 推导的，与 /uniplam/ 实际使用的那套不一致，勾选后保存会让对方认不出来。请刷新重试。',
-      'um.allowedHint': '「按看板」用的是两套门户共用的看板 id，勾选后在 /olbrportal/ 与 /uniplam/ 同时生效；两组「按分组」各自只在本侧生效，可都勾。',
-      'um.allowedEmpty': '白名单为空：该账号登录后将看不到任何看板。',
-      'um.navVisibilityOnly': '仅影响门户的导航可见性，不是访问控制；被隐藏的看板仍可通过直链打开。',
-      'um.pagesSaved': '已保存 {name} 的页面配置',
-      'um.pagesSave': '保存页面配置',
-      'um.pagesCancel': '收起',
-      'um.storage': '存储位置',
-      'um.storageSqlite': 'SQLite 数据库',
-      'um.storageJson': 'JSON 文件',
-      'um.backups': '自动备份 {n} 份',
-      'um.lastWrite': '最后写入',
-      'um.migrated': '已从旧 JSON 迁移',
-      'um.requestFail': '用户数据加载失败：{msg}',
-      'um.needAdmin': '仅管理员可管理用户',
-      /* 本机回环访问时 my_app 会把请求当成管理员（占位身份，没有门户 id），
-         那种身份调不动门户的用户接口，所以这里明确引导去登录门户账号。 */
-      'um.needPortalLogin': '用户管理需要统一门户账号登录，请先在本页登录',
-      'um.pendingTitle': '待审批申请',
-      'um.pendingEmpty': '暂无待审批申请',
-      'um.colApplicant': '申请人',
-      'um.colNote': '申请说明',
-      'um.colTime': '申请时间',
-      'um.colIp': '来源 IP',
-      'um.approve': '批准',
-      'um.reject': '驳回',
-      'um.approveConfirm': '确定批准 {name} 的账号申请吗？',
-      'um.rejectConfirm': '确定驳回 {name} 的账号申请吗？',
-      'um.approved': '已批准 {name}：申请时设置的密码即刻生效，其首次登录需修改密码',
-      'um.rejected': '已驳回 {name} 的账号申请',
-      'um.notFound': '申请不存在或已被处理'
-    },
-    en: {
-      'tagline': 'Smarter Operations · Higher Efficiency · Better Network',
-      'mast.admin': 'Admin portal', 'mast.uni': 'Unified portal', 'mast.logout': 'Sign out',
-      'skip': 'Skip to main content',
-      'search.ph': 'Search dashboards, owners, tags…',
-      'rail.all': 'All', 'rail.clear': 'Clear filters',
-      'rail.btn': 'Search & filters', 'rail.tip': 'Open the search box and the group / status filters (Ctrl K)',
-      'count.all': '{n} dashboards · {g} groups',
-      'count.hit': '{n} / {t} dashboards match',
-      'qc.title': 'Quality Control — key indicators',
-      'qc.sub': 'Active alarms / tickets / changes / PMT / spares · 30-day compliance',
-      'qc.sla': '30-day compliance',
-      'qc.slaTip': 'Share of TTs created in the last {d} days rated Pass on SLA (the denominator counts '
-        + 'only tickets already judged Pass/Failed; in-flight ones are excluded): {pass} / {total}',
-      'qc.err': 'Database stats unavailable', 'qc.retry': 'Retry',
-      'qc.drill': 'Click for details',
-      'qc.updated': 'Updated', 'qc.next': 'next {t}', 'qc.reload': 'Refresh', 'qc.loading': 'Loading…',
-      'qc.na': 'n/a',
-      'qc.lv.ok': 'OK', 'qc.lv.warn': 'Watch', 'qc.lv.crit': 'Critical', 'qc.lv.na': 'N/A',
-      'qc.dataAt': 'data {t} ({ago})',
-      'qc.ago.now': 'just now', 'qc.ago.min': '{n}m ago', 'qc.ago.hour': '{n}h ago', 'qc.ago.day': '{n}d ago',
-      'qc.sites': 'sites down', 'qc.overdue': 'overdue', 'qc.inbound': 'Inbound', 'qc.outbound': 'Outbound',
-      'qc.sub.alarm': 'Uncleared site-outage alarms', 'qc.sub.tt': 'Trouble tickets with uncleared alarm',
-      'qc.sub.wo': 'Work orders with uncleared alarm', 'qc.sub.cr': 'Unclosed change requests',
-      'qc.sub.pmt': 'Pending preventive maintenance',
-      'qc.sub.spms': 'Unclosed inbound/outbound orders (excl. WaitingForUpdate)',
-      'qc.targetTip.up': 'Thresholds: watch ≥ {warn} · critical ≥ {crit} (higher is worse)',
-      'qc.targetTip.down': 'Thresholds: watch < {crit} · critical < {warn} (higher is better)',
-      'qc.trend.cap': 'New in last {n}d: {total} (per {unit})',
-      'qc.trend.capToday': 'Today: {total} (per {unit})',
-      'qc.trend.hours': '1h', 'qc.trend.days': '1 day',
-      'qc.trend.tip': 'New items bucketed by the source time column (last {n} days, per {unit}).\n'
-                    + 'Empty buckets are filled with 0 (nothing was raised then).\n'
-                    + 'Note: this is incoming rate, not the backlog shown above.',
-      'qc.trend.tipToday': 'New items bucketed by the source time column (today 00:00-23:00, per {unit}).\n'
-                    + 'Empty buckets are filled with 0 (no new alarm in that hour).\n'
-                    + 'The last bucket is the current, still-running hour.\n'
-                    + 'Note: this is the incoming alarm rate, not the backlog shown above.',
-      'qc.trend.starving': 'Not enough trend data',
-      'qc.cadenceTip': 'Two refresh cadences: site-outage alarms every 5 min (source eflow_active_alarm syncs every '
-                     + '5 min, latest {a}); TT/WO/CR/PMT/SPMS and the SLA rate hourly at :06 (eflow_sync starts at '
-                     + ':00 and takes ~6 min, the SP spare-part details sync sp_data_sync runs hourly at :10, '
-                     + 'latest {f}). Coming back to this tab or clicking Refresh re-pulls the full set immediately.',
-      'cxo.title': 'CXO View', 'cxo.sub': 'Executive strategy & operation window',
-      'map.title': 'Central Liberia Regional Topology', 'map.sub': 'Network panorama',
-      'map.gis': 'Global Map', 'map.mw': 'MW real-time', 'map.alarm': 'Live alarms', 'map.loss': 'Packet loss',
-      'map.open': 'Open in new tab', 'map.reload': 'Reload', 'map.load': 'Loading…',
-      'email.tab': 'Report files',
-      'email.title': 'Task Report Files', 'email.sub': 'Task report file center (Email Reports)',
-      'email.needLogin': 'Sign in to view the report files',
-      'email.noAccess': 'This account has no access to the "Task Report Files" dashboard',
-      'esc.title': 'Escalation Matrix',
-      'esc.sub': 'Duty contacts · Orange / LONESTAR numbers',
-      'esc.expand': 'Expand all {n} rows', 'esc.collapse': 'Collapse',
-      /* Label after "Expand all". Deliberately not "Collapse": collapsing means
-         hiding the whole table (escOpen), whereas this folds back only the
-         extra rows — the table stays on screen. */
-      'esc.lessRows': 'Show first 4 rows only',
-      'esc.now': 'On duty', 'esc.copy': 'Copy this level', 'esc.copied': 'Copied',
-      'esc.lv': 'Level', 'esc.pos': 'Position', 'esc.name': 'Name', 'esc.mail': 'E-mail',
-      'esc.count': '{n} rows · {lv} levels', 'esc.src': 'Source: escalation matrix',
-      /* v1: only the first 4 rows are shown by default; say so explicitly */
-      'esc.moreRows': 'Showing the first 4 rows only — {n} more. Use “Expand all” (top right) to see them.',
-      'v.open': 'Full list', 'v.empty': 'No dashboard in this group',
-      'v.subOther': 'Unassigned',
-      'mast.edit': 'Edit groups', 'mast.editOn': 'Done',
-      'edit.tipOn': 'Edit groups / sub-groups and order — saved to the shared server catalog (visible to everyone)',
-      'edit.tipOff': 'Leave editing',
-      'edit.banner': 'Editing · changes go straight into the shared server catalog, visible in MsPortal and here for everyone',
-      /* bannerK 是横幅左侧的短标签，与 banner 成对出现；之前只登记了 zh，
-         t() 未命中时回落 zh，导致英文模式这里漏出「编辑模式」。 */
-      'edit.bannerK': 'Editing',
-      'edit.hint': 'Drag a card = reorder · drag onto a sub-group chip = assign · “Groups” = change membership',
-      'edit.reset': 'Reset order', 'edit.resetTip': 'Drop the custom order for this group and sort by usage again',
-      'edit.subAdd': 'Add sub-group', 'edit.subZhPh': 'Name (zh)', 'edit.subEnPh': 'Name (en)',
-      'edit.subDel': 'Delete', 'edit.subDelTip': 'Delete this sub-group (its dashboards fall into “Unassigned”, none is lost)',
-      'edit.subRename': 'Rename', 'edit.subOk': 'OK', 'edit.subCancel': 'Cancel',
-      'edit.delConfirm': 'Delete the sub-group “{n}”? Its dashboards move to “Unassigned”; no dashboard is lost.',
-      'edit.dupName': 'That sub-group already exists', 'edit.needName': 'Type a name first',
-      'edit.groups': 'Groups', 'edit.groupsTip': 'Tick the groups this dashboard should appear in',
-      'edit.saved': 'Saved to the server · visible to everyone', 'edit.err': 'Save failed: {e}',
-      'edit.readonly': 'This session can only read the catalog (run on the server host, or send X-API-Token, to edit)',
-      'edit.busy': 'The previous change is still saving — wait for it',
-      'edit.noServer': 'Server catalog not loaded yet — editing is unavailable',
-      'edit.dropSub': 'Drop here to assign this sub-group',
-      'edit.orderOk': 'Order updated', 'edit.orderReset': 'Back to usage order',
-      'edit.subAdded': 'Sub-group added', 'edit.subRenamed': 'Sub-group renamed',
-      'edit.subDeleted': 'Sub-group deleted', 'edit.subMoved': 'Sub-group assignment updated',
-      'edit.grpOk': 'Group membership updated',
-      'edit.kSub': 'sub-groups', 'edit.kOrder': 'custom order',
-      'edit.needGroup': 'A dashboard must stay in at least one group',
-      'edit.lost': 'the server did not store {k} (an older backend may need a my_app restart)',
-      'edit.saving': 'Saving…',
-      'edit.grpEdit': 'Rename group', 'edit.grpEditTip': 'Edit this group label and description (the group id never changes, so membership / order / sub-groups all survive)',
-      'edit.grpAdd': 'New group', 'edit.grpAddTip': 'Create a first-level group; it appears at the right end of the tab strip',
-      'edit.grpDel': 'Delete this group',
-      'edit.grpRenamed': 'Group renamed', 'edit.grpAdded': 'Group added', 'edit.grpDeleted': 'Group deleted',
-      'edit.grpNeedName': 'Type a group name first', 'edit.grpDup': 'That group name already exists',
-      'edit.grpBuiltin': 'Built-in groups can be renamed but not deleted',
-      'edit.grpDelConfirm': 'Delete group “{n}”? Dashboards are only removed from this group (they stay in their other groups). Applies to everyone.',
-      'edit.grpHomeless': '{n} dashboard(s) belong to this group only — give them another group before deleting',
-      'edit.title': 'Rename', 'edit.titleTip': 'Edit this dashboard’s Chinese / English title (stored on the server, visible to everyone)',
-      'edit.titleOk': 'Dashboard title updated', 'edit.needTitle': 'The two titles cannot both be empty',
-      'edit.formSave': 'Save', 'edit.formAdd': 'Add',
-      'edit.f.zh': 'Chinese name', 'edit.f.en': 'English name', 'edit.f.subZh': 'Chinese note', 'edit.f.subEn': 'English note',
-      'edit.fph.zh': 'Shown to Chinese users', 'edit.fph.en': 'Shown to English users',
-      'edit.fph.subZh': 'One-line description of this group', 'edit.fph.subEn': 'Optional one-line description',
-      'edit.kGroups': 'first-level groups', 'edit.kLabels': 'map tab labels',
-      'edit.maptabTip': 'Edit this map tab’s Chinese / English name (stored on the server, visible to everyone; clear both to restore the default)',
-      'edit.maptabRenamed': 'Map tab label updated',
-      'v.emptyFilter': 'Nothing matches the current filters', 'v.adjust': 'Adjust keywords or clear filters',
-      /* ---- v1 additions: CXO daily KPI band (renderKpi) ---- */
-      'kpi.title': 'CXO Daily Dashboard',
-      /* ⚠️ 口径必须与中文一致：卡上四个数字都是「昨日完整值」，
-         写成 "Today's …" 会让人以为这是实时数（本页其它看板多为实时，
-         更容易误读）。2026-09-24 改口径时只改了中文、漏了这里，
-         是用户 09-25 的截图里发现的。改口径时**两份字典一起改**。 */
-      'kpi.sub': 'Last complete day · 90-day window · 2G / 3G / 4G month-to-date availability',
-      'kpi.updated': 'Data {t}',
-      'kpi.err': 'Metrics unavailable',
-      'kpi.retry': 'Retry',
-      'kpi.month': '{m} month-to-date avg',
-      /* Availability card title. ⚠️ Deliberately NOT reusing 'qc.sla'
-         ("30-day compliance"), which is a different metric entirely. */
-      'kpi.avail': 'Availability',
-      'kpi.noMonth': 'No month-to-date value yet',
-      /* ---- Rich-card strings (kpiRichHtml) ---- */
-      'kpi.latest': 'Latest',
-      'kpi.asof': 'As of',
-      'kpi.wow': 'WoW',
-      'kpi.mom': 'MoM',
-      'kpi.max': 'Max',
-      'kpi.avg': 'Avg',
-      'kpi.min': 'Min',
-      'kpi.base': 'vs',
-      'kpi.days': '{n} days',
-      /* First line of the rich-card tooltip. The definition must be stated:
-         none of these four numbers is for today, while most boards on this
-         page are live/today — easy to misread. */
-      'kpi.tipRich': 'Source: CXO 90-day business board (last complete day; today is still accumulating and excluded)',
-      'kpi.tipAvail': 'Source: Daily Availability KPI (Availability-NW sheet) aggregated by Cell Group, same definition as {board}',
-      /* ---- v1 additions: six view-entry cards (renderViews6) ---- */
-      'v6.title': 'Views',
-      'v6.sub': 'Click a report name to open that dashboard',
-      'v6.more': 'Show {n} more',
-      'v6.less': 'Show less',
-      'v6.empty': 'No dashboard available under this view',
-      'aux.qa': 'Knowledge & support', 'aux.friends': 'Ecosystem entries', 'aux.admin': 'System & O&M',
-      'aux.reports': 'Task report files', 'aux.tools': 'About this page',
-      'aux.ms': 'Manage groups / dashboards / accounts in MsPortal', 'aux.uni': 'Unified dashboard portal',
-      'aux.more': 'Show {n} more', 'aux.less': 'Show less',
-      'foot.branch': 'Liberia Office · Network Operation Center (OLR MS)', 'foot.ok': 'Compliance mode',
-      'foot.src': 'Catalog: {n} dashboards · built {d}',
-      'st.online': 'online', 'st.beta': 'beta',
-      'pf.myapp': 'my_app', 'pf.finebi': 'FineBI', 'pf.external': 'external',
-      'gate.title': 'Sign in to the unified portal',
-      'gate.sub': 'Same account and permissions as /uniplam/ and /MsPortal/.',
-      'gate.user': 'Username', 'gate.pass': 'Password', 'gate.go': 'Sign in', 'gate.busy': 'Signing in…',
-      'gate.bad': 'Wrong username or password', 'gate.locked': 'Too many attempts, try later',
-      'gate.net': 'Cannot reach the auth service', 'gate.cancel': 'Cancel',
-      'dr.title': 'Details', 'dr.rows': '{n} rows', 'dr.page': '{p} / {q}',
-      'dr.load': 'Loading details…', 'dr.empty': 'No matching record', 'dr.err': 'Detail failed: {e}',
-      'dr.none': 'No data', 'dr.qPh': 'Filter rows…',
-      'dr.reload': 'Refresh', 'dr.export': 'Export Excel', 'dr.openBoard': 'Open full dashboard',
-      'dr.filterHint': 'Note: filtering the catalogue by dimension lives on the filter bar chips; this dialog only drills into details.',
-      'dr.drillSuffix': ' · Details', 'dr.total': '{n} rows in total', 'dr.exportErr': 'Export failed',
-      'dr.noData': 'Nothing to export',
-      'env.local': 'Local host', 'env.lr': 'Liberia',
-      'foot.ver': 'Ver 1.0-OLBR · showcase edition',
-      'doc.title': 'OLR MS Portal · Liberia NOC/SOC unified entry',
-      'doc.desc': 'ZTE OLR MS portal — entry to the Liberia NOC/SOC automation tool platform (showcase edition).',
-      'attr.theme': 'Dark / Light',
-      'attr.adminTitle': 'Dashboard maintenance stays in MsPortal (this page edits groups, sub-groups, order and user access)',
-      'attr.searchAria': 'Search dashboards', 'attr.chipsAria': 'Group filter', 'attr.statusAria': 'Status filter',
-      'attr.drQAria': 'Filter rows',
-      /* ---- User management (added 2026-09-22) ---- mirrors the zh um.* set 1:1 */
-      'um.entry': 'User Management',
-      'um.entryTip': 'Manage unified-portal accounts (shares the same user database as /uniplam/)',
-      'um.title': 'User Management',
-      'um.subtitle': 'Add, remove and configure unified-portal accounts (admin only, same DB as /uniplam/)',
-      'um.reload': 'Refresh',
-      'um.openPortal': 'Open in unified portal',
-      'um.addTitle': 'Add User',
-      'um.usernamePh': 'username (2-32 chars a-z 0-9 _.-)',
-      'um.passwordPh': 'initial password (min 8 chars)',
-      'um.roleAdmin': 'Admin',
-      'um.roleViewer': 'Viewer',
-      'um.add': 'Add',
-      'um.added': 'User created; password change required at first login',
-      'um.duplicate': 'Username already exists',
-      'um.invalidInput': 'Invalid username or password format',
-      'um.pwdTooShort': 'Password must be at least 8 characters',
-      'um.colUser': 'User',
-      'um.colRole': 'Role',
-      'um.colCreated': 'Created',
-      'um.colActions': 'Actions',
-      'um.loading': 'Loading…',
-      'um.empty': 'No accounts yet',
-      'um.self': 'You',
-      'um.reset': 'Reset password',
-      'um.resetHint': 'Set a new password for {name}',
-      'um.resetConfirm': 'Reset',
-      'um.resetOk': 'Password reset for {name}; change required at next login',
-      'um.delete': 'Delete user',
-      'um.confirmDelete': 'Delete user {name}? This cannot be undone.',
-      'um.selfDelete': 'You cannot delete yourself',
-      'um.lastAdmin': 'Cannot delete the last admin',
-      'um.pages': 'Page access',
-      'um.pagesTitle': 'Page access · {name}',
-      'um.pagesSubtitle': 'Set the landing dashboard after login and which dashboards are visible (same record as /uniplam/)',
-      'um.landing': 'Landing',
-      'um.landingNone': 'No redirect (stay on all dashboards)',
-      'um.landingNoCard': 'No specific dashboard',
-      'um.viewGrid': 'Card grid (unified portal)',
-      'um.viewList': 'List (unified portal)',
-      'um.viewMatrix': 'Group matrix (unified portal)',
-      'um.viewTasks': 'Task view (unified portal)',
-      'um.allowed': 'Visible range',
-      'um.allowedAll': 'Unrestricted (all groups and dashboards)',
-      'um.allowedCustom': 'Custom allowlist',
-      'um.groupsMsportal': 'By group · this page (/olbrportal/)',
-      'um.groupsPortal': 'By group · unified portal (/uniplam/)',
-      'um.groupsPortalNone': 'The unified portal has no saved global catalog, so business groups cannot be granted yet',
-      'um.allowedCards': 'By dashboard (shared by both)',
-      'um.cardsLocalOnly': 'The unified-portal global catalogue could not be read, so these options are locked: the dashboard ids here are derived from URLs and do not match the set /uniplam/ actually uses — saving them would leave values it cannot recognise. Please refresh and retry.',
-      'um.allowedHint': 'The dashboard allowlist uses ids shared by both portals, so it applies to /olbrportal/ and /uniplam/ at once; each group list only affects its own side, and both may be used together.',
-      'um.allowedEmpty': 'Allowlist is empty: this account will see no dashboard at all.',
-      'um.navVisibilityOnly': 'Affects portal navigation visibility only, not access control; hidden dashboards are still reachable by direct URL.',
-      'um.pagesSaved': 'Page access saved for {name}',
-      'um.pagesSave': 'Save page access',
-      'um.pagesCancel': 'Collapse',
-      'um.storage': 'Storage',
-      'um.storageSqlite': 'SQLite database',
-      'um.storageJson': 'JSON file',
-      'um.backups': '{n} auto backup(s)',
-      'um.lastWrite': 'Last write',
-      'um.migrated': 'migrated from legacy JSON',
-      'um.requestFail': 'Failed to load user data: {msg}',
-      'um.needAdmin': 'Admin role required to manage users',
-      'um.needPortalLogin': 'User management needs a unified-portal sign-in — please sign in on this page first',
-      'um.pendingTitle': 'Pending requests',
-      'um.pendingEmpty': 'No pending requests',
-      'um.colApplicant': 'Applicant',
-      'um.colNote': 'Note',
-      'um.colTime': 'Requested',
-      'um.colIp': 'Source IP',
-      'um.approve': 'Approve',
-      'um.reject': 'Reject',
-      'um.approveConfirm': 'Approve the account request from {name}?',
-      'um.rejectConfirm': 'Reject the account request from {name}?',
-      'um.approved': 'Approved {name}: the password they chose is now active, change required at first login',
-      'um.rejected': 'Rejected the account request from {name}',
-      'um.notFound': 'Request not found or already handled'
-    }
-  };
+  /* 纯数据（i18n 字典 / 图标 / layout 常量 / QC 阈值 / KPI 规格）已外移到
+     assets/olbr-data.js，挂 window.OLBR_DATA，本文件只读不写。改文案改阈值
+     不用碰这里。加载顺序：index.html 里 olbr-data.js 必须在本文件之前。 */
+  var DATA = window.OLBR_DATA || {};
+  var S = DATA.S || {};
 
   function t(k) { var a = S[state.lang] || S.zh; return a[k] != null ? a[k] : (S.zh[k] != null ? S.zh[k] : k); }
   function tf(k, m) { return String(t(k)).replace(/\{(\w+)\}/g, function (_, x) { return m && m[x] != null ? m[x] : ''; }); }
@@ -582,8 +65,9 @@
   }
   function ls(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }
   function ss(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
+  /** @param {number} ms 毫秒时间戳 */
   function fmtTime(ms) {
-    var d = new Date(ms); if (isNaN(d)) return '';
+    var d = new Date(ms); if (isNaN(d.getTime())) return '';
     var p = function (n) { return (n < 10 ? '0' : '') + n; };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
       ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
@@ -599,70 +83,8 @@
   function enOf(en, kind, zh) {
     return typeof window.msPortalEnOf === 'function' ? window.msPortalEnOf(en, kind, zh) : (en || term(kind, zh));
   }
-  var PH = {
-    'chart-polar': 'ph-chart-polar', gauge: 'ph-gauge', bell: 'ph-bell', map: 'ph-map-trifold',
-    ticket: 'ph-ticket', siren: 'ph-siren', clock: 'ph-clock', 'chart-line': 'ph-chart-line',
-    link: 'ph-link', cpu: 'ph-cpu', broadcast: 'ph-broadcast', battery: 'ph-battery-charging',
-    package: 'ph-package', wrench: 'ph-wrench', upload: 'ph-cloud-arrow-up', table: 'ph-table',
-    archive: 'ph-archive', chat: 'ph-chat-circle-dots', book: 'ph-book-open-text', gear: 'ph-gear',
-    dashboard: 'ph-squares-four', key: 'ph-lock-key', warning: 'ph-warning', briefcase: 'ph-briefcase',
-    git: 'ph-git-pull-request', user: 'ph-user', flame: 'ph-fire', folder: 'ph-folder-open',
-    'arrow-up-right': 'ph-arrow-up-right', 'shield': 'ph-shield-check', 'globe': 'ph-globe-hemisphere-west',
-    refresh: 'ph-arrows-clockwise',
-    /* 用户管理弹窗用的几个（MsPortal 那边是内联 svg，本页统一走 phosphor 字体图标） */
-    plus: 'ph-plus', check: 'ph-check', 'check-circle': 'ph-check-circle', trash: 'ph-trash',
-    'user-plus': 'ph-user-plus', 'user-check': 'ph-user-check', 'user-x': 'ph-user-x'
-  };
-  function ic(name) { return '<i class="ph ' + (PH[name] || PH.dashboard) + '" aria-hidden="true"></i>'; }
+  function ic(name) { return '<i class="ph ' + (DATA.PH[name] || DATA.PH.dashboard) + '" aria-hidden="true"></i>'; }
 
-  /* ------------------------------------------------------------- layout -- */
-  /* 三级层级的归属写在这里（数据里没有 tier 字段）。
-     T0 = 左栏焦点区（CXO 用大卡、SP 用行式，两块叠在地图左边）；
-     T1 = 主视图：一组一个页签，一次只展开一个面板，面板内是卡片流；
-     T2 = 辅助：默认只显示 2 行。 */
-  var T0 = ['CXO View', 'SP View'];
-  var T1 = ['MS View', 'FLM View', 'FO View', 'BO View'];
-  var T2 = ['Knowledge Q&A', 'Friends Link', 'System Admin'];
-  var AUX_ROWS = 2;           /* 辅助分组默认露出的行数 */
-  var OTHER = '__other';      /* 不属于任何已知分组的看板，在页签里单列一项 */
-  var AUX_TITLES = {
-    'Knowledge Q&A': 'aux.qa', 'Friends Link': 'aux.friends', 'System Admin': 'aux.admin'
-  };
-  var MAP_TABS = [
-    { page: 'gis', key: 'map.gis', icon: 'map' },
-    { page: 'mwRealTime', key: 'map.mw', icon: 'broadcast' },
-    { page: 'realtime_alarm', key: 'map.alarm', icon: 'bell' },
-    { page: 'packet_loss', key: 'map.loss', icon: 'link' }
-  ];
-  /* 保留伪页签 key：本栏标题/副标题不是地图页签，但与页签共用同一份
-     catalog.tabLabels 存储和改名浮层（2026-09-23 加）。__ 前缀与上面的 OTHER 同一约定，
-     且 my_app 的 page 值（gis/mwRealTime/…）不会以双下划线开头，不会撞名。
-     后端 TAB_PAGES 里有同名白名单，两处必须一起改。 */
-  var RENAME_HEAD = '__head';
-  /** 所有可从界面上改名的项：4 个页签 + 本栏标题/副标题。 */
-  var RENAME_KEYS = MAP_TABS.map(function (m) { return m.page; }).concat([RENAME_HEAD]);
-  /* 页签条最右边的「报告文件」：内嵌 my_app 的任务报告文件中心（MsPortal 右列同名卡）。
-     EMAIL_TAB 不是分组 id —— 它没有 gid，不进目录、不参与筛选与计数，所以往下任何
-     一处拿到它都不能拼 viewer 链接（vlink / groupHref 只认看板的 no / 真分组）。 */
-  var EMAIL_PAGE = 'email_reports';
-  var EMAIL_TAB = '__email';
-  /* 与 MsPortal 同一份剥离样式：让同源 iframe 只留 Leaflet 画布，
-     否则地图外面会套着该页面自己的筛选栏 / KPI 卡 / 侧栏。 */
-  var MAP_STRIP_CSS = [
-    'html,body{margin:0!important;padding:0!important;height:100%!important;overflow:hidden!important;background:transparent!important}',
-    '#root,.ant-layout,.ant-layout-content{height:100%!important;min-height:0!important;margin:0!important;padding:0!important;background:transparent!important}',
-    'main#main-content{height:100%!important;padding:0!important;margin:0!important;overflow:hidden!important}',
-    'main#main-content > div{height:100%!important;padding:0!important;margin:0!important;display:block!important}',
-    'main#main-content > div > *:not(:has(.leaflet-container)):not(:has(iframe)):not(iframe){display:none!important}',
-    'main#main-content > div > iframe,main#main-content > div > *:has(iframe){width:100%!important;height:100%!important;border:0!important;display:block!important;margin:0!important;padding:0!important}',
-    'main#main-content *:has(.leaflet-container){height:100%!important;min-height:0!important;max-height:none!important}',
-    'main#main-content .ant-card:has(.leaflet-container){height:100%!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important}',
-    'main#main-content .ant-card:has(.leaflet-container) > .ant-card-head{display:none!important}',
-    'main#main-content .ant-card:has(.leaflet-container) > .ant-card-body{height:100%!important;padding:0!important}',
-    'main#main-content .ant-card-body:has(.leaflet-container){position:relative!important}',
-    'main#main-content .ant-card-body:has(.leaflet-container) > *:not(.leaflet-container):not(:has(.leaflet-container)){position:absolute!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.88)!important;margin:0!important;padding:2px 8px!important}',
-    '.leaflet-container{height:100%!important;min-height:0!important;max-height:none!important;width:100%!important;border-radius:0!important}'
-  ].join('');
 
   /* -------------------------------------------------------------- state -- */
   /* 默认语言跟随浏览器（与 index.html 首帧脚本的 guessLang 同一口径，
@@ -670,7 +92,8 @@
   function detectLang() {
     var v = ls('olbr.lang', '');
     if (v === 'en' || v === 'zh') return v;
-    var nav = (navigator.language || navigator.userLanguage || 'zh') + '';
+    var nav = (navigator.language || // @ts-expect-error navigator.userLanguage 是 IE 遗留，标准 lib 未声明，运行时降级到 'zh'
+      navigator.userLanguage || 'zh') + '';
     return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
   }
   var state = {
@@ -678,11 +101,25 @@
     theme: root.classList.contains('dark') ? 'dark' : 'light',
     q: '', group: 'all', status: 'all',
     user: null, authOk: false, booted: false,
+    /* 登录闸门的两态（2026-09-25 加）：
+       · gateMode —— 'login' 登录 / 'request' 自助注册申请，与 /uniplam/ 的
+         LoginView 同一套两态切换；
+       · gateOpen —— 「本页已是免登录身份，但用户主动要进门户」时强制唤起闸门。
+       为什么需要它：/api/auth/me 在本机回环下回的是 my_app 的占位身份
+       （username:'local'、role:'admin'、**没有 id**），于是 state.authOk 为真、
+       闸门被藏起来 —— 后果是顶栏「用户管理」按钮不显示，页面上也再没有任何
+       入口能登录门户账号，形成一个走不出去的闭环。 */
+    gateMode: 'login', gateOpen: false, umAfterLogin: false,
     items: (D.items || []).slice(), groups: (D.groups || []).slice(), order: {},
     qc: { loading: true, err: '', at: 0, m: {} },
     /* 断站告警单独一档（每 5 分钟），其余五项 + 达标率一小时一档：
        六项里只有告警的源表高频变化，用全量轮询追它等于每小时白跑十一次。 */
     qcAlarm: null, qcFullAt: '', qcAlarmAt: '', qcTrend: {},
+    /* 存量趋势（2026-09-25 加）：{ cr: [{h,v}…], pmt: […], sla: […] }。
+       与 qcTrend（新增量）**分开存**：两种口径来自不同接口、量纲也不同，
+       混在一个对象里迟早会被某个渲染分支当成同一种东西用。
+       ⚠️ 拿不到时保留旧值、绝不补 0 —— 断档是真实信息（见 qcStockSeries）。 */
+    qcHistory: null,
     /* ---- v1 新增：CXO 每日经营指标 + 月可用率（见 renderKpi）----
        kpi 与 qc 两套数据**分开存**：它们来自不同接口、刷新节奏也不同
        （kpi 是日粒度，上游一天才动一次），混在一份 state 里会让任一边的
@@ -696,7 +133,7 @@
        上面的 L2 辅助区与这里的入口卡是两处独立的 UI，
        共用一份状态会让「在入口卡展开 BO View」把下面的辅助区也一起展开。 */
     v6Open: {},
-    escOpen: true, escLv: '',
+    escOpen: true,
     /* 「展开全部」是否已把 21 行全放出来。
        ⚠️ 必须与 escOpen 分开，两个是正交的维度：
          · escOpen = 这张表整体是摊开还是收成一条值班带；
@@ -786,7 +223,7 @@
   function filtering() { return !!tokens().length || state.group !== 'all' || state.status !== 'all'; }
   function knownGids() {
     var seen = {}; state.groups.forEach(function (g) { seen[g.id] = 1; });
-    T0.concat(T1, T2).forEach(function (g) { seen[g] = 1; });
+    DATA.T0.concat(DATA.T1, DATA.T2).forEach(function (g) { seen[g] = 1; });
     return Object.keys(seen);
   }
   function groupsOf(it) { return it.groups || []; }
@@ -794,13 +231,13 @@
      新增分组没有专门的 tier 字段，一律落到 L1 页签：它是「用户自己造的一级分组」，
      出现在最显眼的那一排最不容易让人找不到。 */
   function tabGids() {
-    var out = T1.slice(), seen = {};
-    T0.concat(T1, T2).forEach(function (g) { seen[g] = 1; });
+    var out = DATA.T1.slice(), seen = {};
+    DATA.T0.concat(DATA.T1, DATA.T2).forEach(function (g) { seen[g] = 1; });
     state.groups.forEach(function (g) { if (g && g.id && !seen[g.id]) { seen[g.id] = 1; out.push(g.id); } });
     return out;
   }
   /* 已经被版面安置的分组：左栏 + 页签 + 辅助区。用于「其他看板」兜底与主分组判定。 */
-  function placedGids() { return T0.concat(tabGids(), T2); }
+  function placedGids() { return DATA.T0.concat(tabGids(), DATA.T2); }
   function primaryGroup(it) {
     var g = groupsOf(it); if (!g.length) return '';
     var all = placedGids();
@@ -912,7 +349,7 @@
         '" title="' + esc(t('edit.resetTip')) + '"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>' +
         esc(t('edit.reset')) + '</button>' : '';
     var gt = '';
-    if (canEdit() && gid && gid !== OTHER) {
+    if (canEdit() && gid && gid !== DATA.OTHER) {
       /* 分组改名/新增的入口挂在面板头上，而不是页签上：页签里再塞一颗按钮就是
          button 套 button（非法 HTML），而且一次只有一页是展开的，页签上改不到别的组。 */
       gt = '<button type="button" class="ct" data-act="grp-edit" data-gid="' + esc(gid) +
@@ -982,43 +419,14 @@
   /* =============== QC 指标卡（与 MsPortal 的 Quality Control 同一套口径）===============
      阈值 / 趋势分桶 / 两档刷新节奏照抄 MsPortal/assets/portal.js 的 2026-09-22 改版实现，
      连文案都沿用同一份 —— 同一个数字在两个门户上给出不同的红黄判定，比样式不一致更糟。
-     ⚠️ QC_TARGETS 是**首版默认值**（依据只有实测量级 + NOC 常识），不是业务方给的目标值；
-        正式目标到位后只改这一处，并且记得同步 MsPortal 那份。 */
-  var QC_TARGETS = {
-    alarm: { dir: 'up', warn: 10, crit: 30 },
-    tt: { dir: 'up', warn: 30, crit: 80 },
-    wo: { dir: 'up', warn: 50, crit: 150 },
-    cr: { dir: 'up', warn: 100, crit: 250 },
-    pmt: { dir: 'up', warn: 1000, crit: 2000 },
-    spms: { dir: 'up', warn: 150, crit: 400 },
-    sla: { dir: 'down', warn: 90, crit: 95 }
-  };
-  /* 主卡 = 当班要立刻有人动的；次卡 = 周期性消化的积压。
-     六张等宽同排后「主/次」靠字号表达，不再各占一行分组小标题。 */
-  var QC_PRIMARY_ORDER = ['alarm', 'tt', 'wo'];
-  var QC_SECONDARY_ORDER = ['cr', 'pmt', 'spms'];
-  /* 只有这四项后端提供「新增量」趋势（cr / pmt 明确回 no_trend）：不发请求、也不画线。 */
-  var QC_TREND_METRICS = ['alarm', 'tt', 'wo', 'spms'];
-  var QC_SUB_KEY = { alarm: 'qc.sub.alarm', tt: 'qc.sub.tt', wo: 'qc.sub.wo',
-    cr: 'qc.sub.cr', pmt: 'qc.sub.pmt', spms: 'qc.sub.spms' };
-  /* v1：等级徽章整块不再渲染，这个键表和下面的 qcLevel() 因此**在当前版本没有调用点**。
-     刻意保留而不是删掉，理由：
-       · 它们是「分档」这件事的唯一实现，与 MsPortal 那份逐字对应；
-         以后若要恢复徽章（或在 tooltip 里重新给阈值），直接接回去即可，
-         不用从 MsPortal 再抄一遍 —— 抄一遍就有抄歪的风险。
-       · 删掉 QC_TARGETS 的阈值定义会连带删掉 qc.targetTip.* 两处文案，
-         而 v1 只是"不显示"，并不是"不认可这套阈值"。
-     ⚠️ 但它们**确实不再被渲染**，读代码的人不要以为屏幕上还有分档。 */
-  var QC_LV_KEY = { ok: 'qc.lv.ok', warn: 'qc.lv.warn', crit: 'qc.lv.crit', na: 'qc.lv.na' };
-  /* 全量每小时 :06:30（紧跟 eflow_sync 跑完），告警每 5 分钟 :00:30（紧跟整表 replace）。 */
-  var QC_FULL_MIN = 60, QC_FULL_OFFSET = 390, QC_ALARM_MIN = 5, QC_ALARM_OFFSET = 30;
-
+     ⚠️ DATA.QC_TARGETS 是**首版默认值**（依据只有实测量级 + NOC 常识），不是业务方给的目标值；
+        正式目标到位后只改 assets/olbr-data.js 的 DATA.QC_TARGETS，并且记得同步 MsPortal 那份。 */
   function fmt(n) { return n == null || isNaN(Number(n)) ? '—' : Number(n).toLocaleString('en-US'); }
   /* 分级只看数值：无值 / 非数字 / 没配阈值一律 'na'，绝不当成 0、也绝不当成正常。
      达标率必须走 dir='down'，否则 95% 这种好值会被判进最严重一档 —— 分级一旦出现
      这种反向误报，运维就会整体忽略它。 */
   function qcLevel(id, v) {
-    var tg = QC_TARGETS[id];
+    var tg = DATA.QC_TARGETS[id];
     if (!tg || v == null || isNaN(Number(v))) return 'na';
     var n = Number(v);
     if (tg.dir === 'down') return n < tg.warn ? 'crit' : (n < tg.crit ? 'warn' : 'ok');
@@ -1070,8 +478,8 @@
   }
   function qcCountdown() {
     var left = Math.max(0, Math.round(Math.min(
-      qcNextDelay(QC_FULL_MIN, QC_FULL_OFFSET),
-      qcNextDelay(QC_ALARM_MIN, QC_ALARM_OFFSET)) / 1000));
+      qcNextDelay(DATA.QC_FULL_MIN, DATA.QC_FULL_OFFSET),
+      qcNextDelay(DATA.QC_ALARM_MIN, DATA.QC_ALARM_OFFSET)) / 1000));
     function p(v) { return String(v).padStart(2, '0'); }
     return p(Math.floor(left / 60)) + ':' + p(left % 60);
   }
@@ -1102,7 +510,7 @@
        「连续 8 小时」，等于在横轴上撒谎。格子数超上限时从尾部收窄窗口，
        始终保证连续（近 30 天按小时是 720 格，上一版在这里静默降级过）。 */
     var stepMs = grain === 'day' ? 86400000 : 3600000, MAX_SLOTS = 200;
-    if (Math.round((end - start) / stepMs) + 1 > MAX_SLOTS) {
+    if (Math.round((end.getTime() - start.getTime()) / stepMs) + 1 > MAX_SLOTS) {
       start = new Date(end.getTime() - (MAX_SLOTS - 1) * stepMs);
     }
     if (grain === 'hour' && tr.window === 'today') {
@@ -1125,23 +533,139 @@
       days: tr.days || null, total: vals.reduce(function (a, b) { return a + b; }, 0) };
   }
   /* 迷你趋势线：内联 SVG，零依赖（门户要求零 CDN、断网可用）。点 < 2 返回 ''。
-     preserveAspectRatio=none 让它随卡宽拉伸，所以刻意不画端点圆点（会被拉成椭圆）。 */
+     preserveAspectRatio=none 让它随卡宽拉伸，所以刻意不画端点圆点（会被拉成椭圆）。
+
+     ⚠️ 2026-09-25：本函数由「新增量专用」改为**两条口径共用**，方法体抽到
+     qcSparkSvg(vals)。区别只有一处，但很关键：**接受 null 并在此处断开折线**。
+     新增量的空档是真 0（那段时间确实没有新增），存量的空档是「没采到」
+     （快照只在门户开着的小时写入）—— 后者若也补 0，就会画出一个
+     「积压突然清零」的假谷底。所以补 0 的决定权留在各自的 *Series 里，
+     这里只负责「遇到 null 就断」。 */
+  function qcSparkSvg(vals) {
+    if (!vals || vals.length < 2) return '';
+    var W = 300, H = 26, PAD = 4;
+    /* min/max 只在**真实点**上取：把 null 当 0 参与极值计算会把整条线压扁。 */
+    var real = vals.filter(function (n) { return n != null; });
+    if (real.length < 2) return '';
+    var min = Math.min.apply(null, real), max = Math.max.apply(null, real);
+    var span = (max - min) || 1, step = W / (vals.length - 1);
+    var seq = [], curArea = [], segs = [];
+    vals.forEach(function (n, i) {
+      if (n == null) {
+        /* 断档：收掉当前段，下一点用 M 重新起笔（而不是 L 连过去）。
+           视觉上是一条断开的线 —— 如实表达「这段时间没有样本」。 */
+        if (curArea.length > 1) segs.push({ line: curArea.slice(), area: curArea.slice() });
+        curArea = [];
+        return;
+      }
+      var p = [i * step, PAD + (H - PAD * 2) * (1 - (n - min) / span)];
+      curArea.push(p);
+    });
+    if (curArea.length > 1) segs.push({ line: curArea.slice(), area: curArea.slice() });
+    if (!segs.length) return '';
+    var d2 = function (pts) {
+      return pts.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' ');
+    };
+    /* 面积逐段闭合：整条线共用一个面积路径时，断档两侧会被一条横跨缺口的
+       底线连起来，看起来像"那段有数据且为最小值"。 */
+    var line = segs.map(function (s) { return d2(s.line); }).join(' ');
+    var area = segs.map(function (s) {
+      var first = s.area[0], last = s.area[s.area.length - 1];
+      return d2(s.area) + ' L' + last[0].toFixed(1) + ' ' + H + ' L' + first[0].toFixed(1) + ' ' + H + ' Z';
+    }).join(' ');
+    return '<span class="qc-spark" aria-hidden="true"><svg viewBox="0 0 ' + W + ' ' + H +
+      '" preserveAspectRatio="none"><path class="sp-area" d="' + area + '"/><path class="sp-line" d="' + line +
+      '" vector-effect="non-scaling-stroke"/></svg></span>';
+  }
   function qcSpark(id) {
     var s = qcTrendSeries(id);
     if (!s || s.vals.length < 2) return '';
-    var vals = s.vals, W = 300, H = 26, PAD = 4;
-    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
-    var span = (max - min) || 1, step = W / (vals.length - 1);
-    var pts = vals.map(function (n, i) {
-      return [i * step, PAD + (H - PAD * 2) * (1 - (n - min) / span)];
-    });
-    var line = pts.map(function (p, i) {
-      return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1);
-    }).join(' ');
-    return '<span class="qc-spark" aria-hidden="true"><svg viewBox="0 0 ' + W + ' ' + H +
-      '" preserveAspectRatio="none"><path class="sp-area" d="' + line + ' L' + W + ' ' + H +
-      ' L0 ' + H + ' Z"/><path class="sp-line" d="' + line +
-      '" vector-effect="non-scaling-stroke"/></svg></span>';
+    return qcSparkSvg(s.vals);
+  }
+
+  /* 存量序列（2026-09-25 加）：把每小时快照对齐到**连续小时轴**上。
+     与 qcTrendSeries 的关键差异：缺格推 null 而不是 0，并统计 gaps。
+     为什么必须连续轴：按点数等距排开，会把「中间断了 20 小时」画成
+     「连续 20 小时」—— 等于在横轴上撒谎（本文件 qcTrendSeries 已有同样教训）。 */
+  function qcStockSeries(id) {
+    var all = state.qcHistory && state.qcHistory[id];
+    if (!all || !all.length) return null;
+    var pts = all.filter(function (p) {
+      /* ⚠️ 必须先挡 null / '' 再 Number()：Number(null) === 0 是**有限数**，
+         会被当成「那一刻积压是 0」收进来，画出假的清零谷底。
+         后端对接口失败的小时给的就是 v: null（见 portal_qc.py 的 series 构造）。 */
+      return p && p.h && p.v != null && p.v !== '' && isFinite(Number(p.v));
+    }).map(function (p) { return { h: p.h, v: Number(p.v) }; })
+      .sort(function (a, b) { return a.h < b.h ? -1 : (a.h > b.h ? 1 : 0); });
+    if (pts.length < 2) return null;
+    var map = {};
+    pts.forEach(function (p) { map[p.h] = p.v; });
+    function parseKey(k) {
+      var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2})/.exec(k);
+      return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], 0, 0) : null;
+    }
+    function fmtKey(d) {
+      var p = function (n) { return (n < 10 ? '0' : '') + n; };
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+        ' ' + p(d.getHours()) + ':00';
+    }
+    var start = parseKey(pts[0].h), end = parseKey(pts[pts.length - 1].h);
+    if (!start || !end) return null;
+    var MAX_SLOTS = 400;   // 约 16 天小时轴；超了从尾部收窄，保证轴始终连续
+    /* 相减用 .getTime() 而**不是** (end - start)：两个 Date 相减在运行时靠
+       valueOf 能算出毫秒数，但 tsc --noEmit 会报 TS2362/TS2363
+       （左/右操作数不是 number）。本文件被 tsconfig 收录，所以这里必须写全。 */
+    if (Math.round((end.getTime() - start.getTime()) / 3600000) + 1 > MAX_SLOTS) {
+      start = new Date(end.getTime() - (MAX_SLOTS - 1) * 3600000);
+    }
+    var vals = [], labels = [], gaps = 0;
+    for (var t = start.getTime(); t <= end.getTime(); t += 3600000) {
+      var k = fmtKey(new Date(t));
+      if (Object.prototype.hasOwnProperty.call(map, k)) vals.push(map[k]);
+      else { vals.push(null); gaps++; }   // 断档：不补 0
+      labels.push(k);
+    }
+    var filled = vals.filter(function (v) { return v != null; }).length;
+    return { vals: vals, labels: labels, filled: filled, gaps: gaps,
+      hours: labels.length, last: pts[pts.length - 1].v, first: pts[0].v };
+  }
+
+  /* 存量趋势插槽。三种状态分清（同 qcSparkSlot）：
+       点够 → 画线 + 说明；接口通但点不够 → 只给说明；完全没有 → 不占位。
+     < 2 点时返回空串，卡片会挂上 is-nospark 垂直居中（沿用既有降级）。 */
+  function qcStockSlot(id) {
+    var s = qcStockSeries(id);
+    /* 说明文字按指标取不同措辞：PMT 画的是「超期数」而不是总存量，
+       用同一句「存量」会让人以为它等于卡片上那个大数字。 */
+    var kCap = id === 'pmt' ? 'qc.stock.capPmt' : 'qc.stock.cap';
+    var kTip = id === 'pmt' ? 'qc.stock.tipPmt' : 'qc.stock.tip';
+    if (!s) {
+      /* 有数据但点不够：给一句说明，别让卡片空着像坏了；
+         完全没有数据：不占位（此时卡片本来就没有这一行，挂说明反而是噪音）。 */
+      var raw = state.qcHistory && state.qcHistory[id];
+      if (raw && raw.length) {
+        return '<span class="qc-spark-empty">' + esc(t('qc.stock.starving')) + '</span>';
+      }
+      return '';
+    }
+    var spark = qcSparkSvg(s.vals);
+    if (!spark) return '<span class="qc-spark-empty">' + esc(t('qc.stock.starving')) + '</span>';
+    var v = { n: s.hours };
+    return '<span class="qc-spark-wrap" title="' + esc(tf(kTip, v)) + '">' + spark +
+      '<span class="qc-spark-cap">' + esc(tf(kCap, v)) + '</span></span>';
+  }
+
+  /* 卡片趋势位的**唯一入口**（2026-09-25 加）：口径按指标定，卡片不判断。
+       QC_TREND_METRICS（alarm/tt/wo/spms）→ 新增量；拿不到则退存量
+       其余（cr/pmt）                       → 存量
+     「先试新增量、再退存量」的兜底有意义：某指标 trend 接口临时挂掉时，
+     只要快照还在，卡片仍有一条**真实的**线，而不是空一块。 */
+  function qcTrendSlot(id) {
+    if (DATA.QC_TREND_METRICS.indexOf(id) !== -1) {
+      var inc = qcSparkSlot(id);
+      if (inc) return inc;
+    }
+    return qcStockSlot(id);
   }
   /* 三种状态要分清，否则首屏三行「趋势积累中」看着像报错：
        有趋势且点够 → 画线 + 说明；接口通了但点不够 → 只给说明；无趋势 → 不占位。
@@ -1165,8 +689,10 @@
     var failed = !!(m && m.error) || (!!state.qc.err && !state.qc.at);
     var errMsg = (m && m.error) || state.qc.err || '';
     var v = m && m.value != null ? m.value : null;
-    var big = QC_PRIMARY_ORDER.indexOf(d.id) !== -1;
-    var def = t(QC_SUB_KEY[d.id]) || (state.lang === 'en' ? d.subEn : d.subZh);
+    /* 2026-09-25 删：原来是 `var big = QC_PRIMARY_ORDER.indexOf(d.id) !== -1`，
+       只用来决定「这张卡给不给走势位」（主卡必给，次卡要判断）。改成统一走
+       qcTrendSlot 后就没有调用点了 —— 直接删掉，不留一个无用的变量。 */
+    var def = t(DATA.QC_SUB_KEY[d.id]) || (state.lang === 'en' ? d.subEn : d.subZh);
     var sub;
     if (failed) sub = t('qc.err') + (errMsg ? ': ' + errMsg : '');
     else if (d.id === 'alarm' && m && m.sites != null) sub = fmt(m.sites) + ' ' + t('qc.sites');
@@ -1182,18 +708,33 @@
     var tips = [def];
     if (!failed) tips.push(t('qc.drill'));
     var at = qcMetricAt(d.id);
+    /* 走势插槽**先生成再判断**：qcTrendSlot 对一个"本该有走势"的指标也可能
+       返回空串（趋势接口没数据），所以不能只看 d.id 在不在 DATA.QC_TREND_METRICS 里。
+       真正空的时候才挂 is-nospark，让 CSS 把内容垂直居中 ——
+       否则这张卡会比同排带走势的卡矮 50px 上下，差额全堆在底部。
+
+       2026-09-25 改：由 `(big || 在 QC_TREND_METRICS)` 改为统一走 qcTrendSlot()。
+       改版前 CRs / PMT 直接不生成插槽 —— 它们的新增量画不出趋势（源表时间列
+       近 30 天无数据）。现在它们走**存量快照**，六张卡就都有走势了。
+       口径判断收进 qcTrendSlot 一处，卡片这边不再自己算。 */
+    var spark = qcTrendSlot(d.id);
     /* 数字没取到一律 —，绝不显示 0：统计里的 0 是「真的一个都没有」，
        与「没取到」必须能分辨，否则会被误读成「已清空」。 */
     return '<button type="button" class="qc-card' + (failed ? ' is-failed' : '') +
+      (spark ? '' : ' is-nospark') +
       '" data-qc="' + esc(d.id) + '" title="' + esc(tips.join('\n')) + '">' +
-      '<span class="qc-hd"><span class="qc-ico" aria-hidden="true">' + ic(d.icon) + '</span>' +
+      /* 2026-09-25 改：卡名前的图标（.qc-ico）去掉。它只是装饰，卡名本身已经说明
+         这张卡是什么，而图标占掉的 26px 让六张卡并排时卡名更容易被省略号截断。
+         注意**只去掉告警带这六张卡的**：下面的 CXO 富卡片（.qc-ttl 那一行）仍保留图标，
+         两处不是同一条规则，别顺手一起改。 */
+      '<span class="qc-hd">' +
         '<span class="qc-name">' + esc(state.lang === 'en' ? d.en : d.zh) + '</span></span>' +
       /* v1 改：这里原来是等级徽章 .qc-lvchip（正常 / 关注 / 严重 / 不可用）。
          按要求去掉「Critical 等信息」，整块不再渲染 —— 不用 display:none 隐藏，
          隐藏会留出一行空白占位。伴随的 .qc-lv-* 配色类也一并去掉，卡片退回单一品牌色。 */
       '<span class="qc-numrow"><span class="qc-num' + (v == null ? ' is-na' : '') + '">' +
         esc(v == null ? '—' : fmt(v)) + '</span></span>' +
-      (big || QC_TREND_METRICS.indexOf(d.id) !== -1 ? qcSparkSlot(d.id) : '') +
+      spark +
       '<span class="qc-sub" title="' + esc(sub) + '">' + esc(sub) + '</span>' +
       (at ? '<span class="qc-age">' + esc(tf('qc.dataAt', { t: qcClock(at), ago: qcAgo(at) })) + '</span>' : '') +
       '</button>';
@@ -1222,17 +763,22 @@
     }
     var byId = {};
     (D.qc || []).forEach(function (d) { byId[d.id] = d; });
-    var cards = QC_PRIMARY_ORDER.concat(QC_SECONDARY_ORDER).map(function (id) {
+    var cards = DATA.QC_PRIMARY_ORDER.concat(DATA.QC_SECONDARY_ORDER).map(function (id) {
       return byId[id] ? qcCardHtml(byId[id]) : '';
     }).join('');
-    var sla = qcMetric('sla') || {}, pct = sla.value == null ? 0 : Math.max(0, Math.min(100, Number(sla.value)));
-    /* 环上的百分比必须自带分母口径：不写清「近 30 天已判定 Pass 的占比」，
-       88.5% 会被读成「工单完成率」—— 而这两件事在 NOC 语境下完全不同。 */
-    /* v1 改：环不再吃 .qc-lv-* 分档色（那会让整个环随达标率变红/变黄），
-       改为恒定的品牌强调色 --hi（OLR 橙）—— 它是 L0 决策层唯一允许的强调色。
-       达标率的「好/坏」由数字本身和 tooltip 里的口径表达，不再用颜色报警。 */
-    var slaTip = (sla.total ? tf('qc.slaTip', { d: sla.days || 30, pass: fmt(sla.pass), total: fmt(sla.total) })
-      : (sla.error ? t('qc.err') + ': ' + sla.error : t('qc.loading')));
+    /* 2026-09-25 改：标题行**整块**去掉「30 天达标率」—— 圆环 + 标题 + 「通过 / 分母」
+       连同它派生的 sla 口径全部删除（用户要求：去掉 30-day compliance 和圆环图）。
+       同时删掉的还有三处只为它存在的东西，避免留下点不动的死入口：
+         · qc.slaTip / qc.slaDrillTip / qc.slaPending 三条文案（已从 olbr-data.js 移除）
+         · .ring / .ring-btn / .band-pend 样式（已从 olbr.css 移除）
+         · 环上那条 <button data-qc="sla"> 下钻入口
+       后端 /api/portal-qc/detail?metric=sla 与 qcMetric('sla') 读到的数据**没有删** ——
+       接口是两门户共用的契约，本页只是不再渲染它（要恢复见
+       assets/olbr.js.bak_20260925_去30天达标率与ALARM图标前）。
+
+       留下的标题行现在只剩「心跳 + 下次刷新」与「刷新」两件东西。
+       它们原来靠 .band-txt 的 flex:1 1 200px 顶到右侧，那块一走就没有东西撑开间距了，
+       所以这里补一个 .band-sp（flex:1）占位，否则心跳会贴着刷新按钮挤成一团。 */
     var stamp = qcLatestStamp();
     /* 心跳点：取不到数据时变红且不脉冲 —— 绿色脉冲 = 这块面板确实在自动刷新。
        秒必须精确到秒：只到分钟时，轮询 + 后端 60s 缓存叠起来会出现「一分钟没变」的错觉。 */
@@ -1242,13 +788,11 @@
       '<span class="' + (q.err && !has ? 'qc-dot qc-dot-bad' : 'qc-dot') + '" aria-hidden="true"></span>' +
       '<span class="qc-when">' + esc(stamp ? t('qc.updated') + ' ' + qcClock(stamp) : t('qc.loading')) + '</span>' +
       '<span class="qc-sep">·</span><span id="qcNextIn">' + esc(tf('qc.next', { t: qcCountdown() })) + '</span></span>';
+    /* 环（.ring / .ring-btn）已随「30 天达标率」一起删除，见上面那段说明。 */
     box.innerHTML =
       '<div class="band-h">' +
-        '<div class="ring" style="--v:' + pct + '" title="' + esc(slaTip) + '"><b>' +
-          (sla.value == null ? '—' : pct.toFixed(1) + '%') + '</b></div>' +
-        '<div class="band-txt"><div class="band-k">' + esc(t('qc.sla')) + '</div>' +
-          '<p class="band-n">' + esc(t('qc.title')) + ' · <em>' + (sla.pass || 0) + '</em> / <em>' +
-          (sla.total || 0) + '</em></p></div>' +
+        '<div class="band-k">' + esc(t('qc.title')) + '</div>' +
+        '<span class="band-sp" aria-hidden="true"></span>' +
         live +
         '<button type="button" class="gb" data-act="qc-reload" title="' + esc(t('qc.reload')) + '">' +
           ic('refresh') + esc(t('qc.reload')) + '</button>' +
@@ -1293,33 +837,6 @@
        · traffic_gb    源给 GB，用户要求按 TB 显示 → ÷1024（1 TB = 1024 GB，存储口径）
        · video_thr_kbps 源给 kbps（实测 14391），按 Mbps 显示 → ÷1000，读起来不至于挤
      另两个（K / TB）照抄接口。div 只影响显示，不影响 tooltip 里的口径说明。 */
-  var KPI_RICH = [
-    /* id 必须与 olib 接口 cards[].id 完全一致，写错会静默变成一张「—」卡。
-       zh/en 是本页自带的名字，**只在接口那张卡缺失时兜底**（例如 KPI 库还没跑）。
-       接口在时一律用接口的名字（它才是指标字典这份唯一真相源），
-       否则会出现「改了字典，卡片标题还是旧的」。
-       这张表**没有 icon 字段**：富卡片的排版里不放图标（源看板那张卡也没有），
-       kpiRichHtml 从不读它 —— 曾经写过三个 icon 值，是纯死数据，已删。 */
-    { id: 'traffic_gb',     unit: 'TB',   digits: 2, div: 1024,
-      zh: '总流量',           en: 'Total Traffic' },
-    { id: 'active_user_k',  unit: 'K',    digits: 1, div: 1,
-      zh: '活跃用户',         en: 'Active Users' },
-    { id: 'video_thr_kbps', unit: 'Mbps', digits: 2, div: 1000,
-      zh: '视频下载速率',     en: 'Valid Throughput of Video Download' }
-    /* 2026-09-24：曾加过第四张 video_tb（视频流量，与源看板截图一致），
-       用户随后要求去掉、恢复六张卡一行 —— 故此处只有三张。
-       要恢复只需把 { id: 'video_tb', unit: 'TB', digits: 1, div: 1,
-       zh: '视频流量', en: 'Video Traffic' } 加回来，
-       并把 .qc-grid 的列数从 6 改回 4。 */
-  ];
-  /* 2G / 3G / 4G 分别对应 xlsx 里的哪个 Cell Group。写成显式映射而不是
-     startsWith('2G') 去猜：源表以后加了 "2G ERA" 之类的档位时，
-     前缀匹配会悄悄命中错的那一行，而这张卡上一个错的可用率没人能一眼看出来。 */
-  var KPI_AVAIL_ROWS = [
-    { key: '2G', group: '2G ALL' },
-    { key: '3G', group: '3G ALL' },
-    { key: '4G', group: 'FDD ALL' }
-  ];
   function olibCard(id) {
     var cs = (state.kpi.olib && state.kpi.olib.cards) || [];
     for (var i = 0; i < cs.length; i++) if (cs[i].id === id) return cs[i];
@@ -1362,7 +879,7 @@
     }
     return '<span class="qc-chip ' + cls + '">' + esc(label) + ' ' + esc(txt) + '</span>';
   }
-  /* 四张富卡片之一。c = olib cards[] 里的那张，spec = KPI_RICH 里的展示口径。
+  /* 四张富卡片之一。c = olib cards[] 里的那张，spec = DATA.KPI_RICH 里的展示口径。
      缺数据时**整张卡仍然画出来**（页脚/走势留空、数字显示 —），
      而不是把卡片抽掉 —— 抽掉会让上面那一排从 4 张变 3 张，
      看起来像"这个指标被下架了"，而实际只是今天没取到数。 */
@@ -1382,23 +899,24 @@
       : (state.lang === 'en' ? spec.en : spec.zh);
     var better = (c && c.better) || 'up';
     /* tooltip 说清三件事：这个指标是什么、大数字是哪天的、同比各自对比哪一天。
-       只写"来源：某某看板"在这里不够用 —— 同屏三个数字都不是当天的。 */
-    var tip = name + '（' + spec.unit + '）';
+       只写"来源：某某看板"在这里不够用 —— 同屏三个数字都不是当天的。
+       所有带标点的句子都走 tf()：标点必须跟着语言走（见字典里的说明）。 */
+    var tip = tf('kpi.tipName', { n: name, u: spec.unit });
     if (c && c.note) tip += '\n' + (state.lang === 'en' ? (c.note_en || c.note) : c.note);
     tip += '\n' + t('kpi.tipRich');
-    if (latest) tip += '\n' + t('kpi.latest') + '：' + latest.date;
-    if (c && c.wow_base) tip += '\n' + t('kpi.wow') + ' ' + t('kpi.base') + '：' +
-      c.wow_base.date + '（' + val(c.wow_base.value, true) + ' ' + spec.unit + '）';
-    if (c && c.mom_base) tip += '\n' + t('kpi.mom') + ' ' + t('kpi.base') + '：' +
-      c.mom_base.date + '（' + val(c.mom_base.value, true) + ' ' + spec.unit + '）';
-    if (c && c.n != null) tip += '\n' + t('kpi.avg') + '：' + t('kpi.days').replace('{n}', String(c.n));
+    if (latest) tip += '\n' + tf('kpi.tipLatest', { d: latest.date });
+    /* WoW / MoM 各自写明"跟哪一天比、那天的值是多少" ——
+       只给一个百分比，读的人无法判断是不是跟一个异常日比出来的。 */
+    if (c && c.wow_base) tip += '\n' + tf('kpi.tipBase', {
+      k: t('kpi.wow'), d: c.wow_base.date, v: val(c.wow_base.value, true), u: spec.unit });
+    if (c && c.mom_base) tip += '\n' + tf('kpi.tipBase', {
+      k: t('kpi.mom'), d: c.mom_base.date, v: val(c.mom_base.value, true), u: spec.unit });
     var na = !latest || latest.value == null || isNaN(Number(latest.value));
     return '<div class="qc-card qc-card--rich' + (na ? ' is-na' : '') + '" title="' + esc(tip) + '">' +
       '<div class="qc-ttl"><b>' + esc(name) + '</b><i>' + esc(spec.unit) + '</i></div>' +
       '<div class="qc-val"><span>' + esc(val(latest && latest.value, true)) + '</span>' +
         '<em>' + esc(spec.unit) + '</em></div>' +
-      '<div class="qc-asof">' + esc(t('kpi.latest')) + ' · ' + esc(dateOf(latest)) +
-        '（' + esc(t('kpi.asof')) + ' ' + esc(asOf || '—') + '）</div>' +
+      '<div class="qc-asof">' + esc(tf('kpi.asofFmt', { d: dateOf(latest), a: asOf || '—' })) + '</div>' +
       '<div class="qc-chips">' +
         kpiChip(t('kpi.wow'), c && c.wow_pct, better) +
         kpiChip(t('kpi.mom'), c && c.mom_pct, better) +
@@ -1423,20 +941,63 @@
     return n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
   }
   function kpiCardHtml(o) {
-    /* o = { name, unit, value:'<已格式化或 —>', na:bool, sub, tip } */
-    return '<div class="qc-card" title="' + esc(o.tip || '') + '">' +
+    /* o = { name, unit, value:'<已格式化或 —>', na:bool, sub, tip, icon, age,
+             foot:[{label, num, foot, cls}] }
+       foot 是本卡底部的三段页脚，与富卡片的 .qc-ext 共用同一套样式与结构，
+       这样同一排 6 张卡的页脚在同一水平线上、字号字重也一致。
+       只有"内容天然比邻居矮"的卡才需要它（可用率卡）；没有 foot 的卡
+       不会渲染 .qc-ext，也不会带上 has-foot（避免多一个空盒子）。 */
+    var foot = '';
+    if (o.foot && o.foot.length) {
+      foot = '<div class="qc-ext">' + o.foot.map(function (s) {
+        return '<div' + (s.cls ? ' class="' + esc(s.cls) + '"' : '') + '>' +
+          '<span>' + esc(s.label) + '</span><b>' + esc(s.num) + '</b>' +
+          '<span>' + esc(s.foot == null ? '' : s.foot) + '</span></div>';
+      }).join('') + '</div>';
+    }
+    return '<div class="qc-card' + (foot ? ' has-foot' : '') + '" title="' + esc(o.tip || '') + '">' +
       '<span class="qc-hd"><span class="qc-ico" aria-hidden="true">' + ic(o.icon) + '</span>' +
         '<span class="qc-name">' + esc(o.name) + '</span></span>' +
       '<span class="qc-numrow"><span class="qc-num' + (o.na ? ' is-na' : '') + '">' +
         esc(o.value) + (o.unit ? '<span class="qc-unit"> ' + esc(o.unit) + '</span>' : '') + '</span></span>' +
+      /* 趋势位（2026-09-25 加）：可用率卡此前没有走势，比同排富卡片矮 70+px。
+         插在数字与副行之间，与富卡片的迷你走势位置一致。 */
+      (o.spark || '') +
       '<span class="qc-sub">' + esc(o.sub) + '</span>' +
-      '<span class="qc-age">' + esc(o.age || '') + '</span>' +
+      (o.age ? '<span class="qc-age">' + esc(o.age) + '</span>' : '') +
+      foot +
       '</div>';
   }
   function availRow(group) {
     var rows = (state.kpi.avail && state.kpi.avail.rows) || [];
     for (var i = 0; i < rows.length; i++) if (rows[i].cell_group === group) return rows[i];
     return null;
+  }
+  /* 可用率的迷你走势（2026-09-25 加）。
+     数据来自 /api/alarm-dashboard/alarm-overview 的 network_availability[].series
+     （后端 2026-09-25 起返回最近 30 天的逐日值 {d,v}），单位是 0~1 的小数 —— 与
+     卡片大数字走同一次响应，所以线上的末端点必然与「昨日」那一格对得上。
+
+     ⚠️ 这里**不补点**：源文件实测 4 组各 425 天连续无缺口，但万一将来缺一天，
+     折线会断开（qcSparkSvg 对 null 的处理）—— 补 0 会画出「可用率跌到 0」的
+     假谷底，那比一段缺口严重得多。 */
+  function availSpark(row) {
+    var s = row && row.series;
+    if (!s || !s.length) return '';
+    var pts = s.map(function (p) {
+      /* 同 qcStockSeries：先挡 null/'' 再 Number()，Number(null) === 0 是有限数，
+         会被当成「那天可用率 0%」。 */
+      if (!p || p.v == null || p.v === '') return null;
+      var n = Number(p.v) * 100;    // 0~1 → 百分数，与卡片上 97.38% 同量纲
+      return isFinite(n) ? n : null;
+    });
+    if (pts.filter(function (n) { return n != null; }).length < 2) return '';
+    var svg = qcSparkSvg(pts);
+    if (!svg) return '';
+    var days = pts.length;
+    var tip = tf('kpi.availTrendTip', { n: days });
+    return '<span class="qc-spark-wrap" title="' + esc(tip) + '">' + svg +
+      '<span class="qc-spark-cap">' + esc(tf('kpi.availTrendCap', { n: days })) + '</span></span>';
   }
   function renderKpi() {
     var box = $('#kpi');
@@ -1447,15 +1008,22 @@
     if (k.loading && !hasR && !hasA) {
       /* 骨架屏也照两排摆：上排 4 个高的（富卡片），下排 3 个矮的。
          摆成 6 个等高的话，数据一到位整块高度会跳一下。 */
-      box.innerHTML = '<div class="band-h"><div class="band-txt"><div class="band-k">' +
-        esc(t('kpi.title')) + '</div><p class="band-n">' + esc(t('kpi.sub')) + '</p></div></div>' +
+      /* 口径说明（kpi.sub）不直接占一行，改挂到标题的 title 上，hover 才出。
+         理由两条：① 用户要求（2026-09-25）——这一行是「解读说明」，不是数据，
+         常驻会把整块标题区撑高、也让六个卡片的视线起点下移；
+         ② DESIGN.md:76「长文本用 truncate，并把完整内容放 title 属性，
+         不要靠换行撑高卡片」，本来就是这么规定的。
+         骨架屏阶段也要挂同样的 title，否则数据到位那一刻标题的悬浮提示会"突然出现"。
+         cursor:help 由 .band-k[title] 给（见 olbr.css），不在这里写死。 */
+      box.innerHTML = '<div class="band-h"><div class="band-txt"><div class="band-k" title="' +
+        esc(t('kpi.sub')) + '">' + esc(t('kpi.title')) + '</div></div></div>' +
         '<div class="qc-grid">' +
-          KPI_RICH.map(function () {
+          DATA.KPI_RICH.map(function () {
             return '<div class="qc-card qc-card--rich"><span class="sk" style="width:56%"></span>' +
               '<span class="sk v"></span><span class="sk s"></span><span class="sk"></span>' +
               '<span class="sk s"></span></div>';
           }).join('') +
-          KPI_AVAIL_ROWS.map(function () {
+          DATA.KPI_AVAIL_ROWS.map(function () {
             return '<div class="qc-card"><span class="sk" style="width:56%"></span>' +
               '<span class="sk v"></span><span class="sk s"></span></div>';
           }).join('') +
@@ -1463,21 +1031,51 @@
       return;
     }
     /* ---- ① 四张富卡片（olib 90 天经营看板，昨日完整值）---- */
-    var rich = KPI_RICH.map(function (spec) { return kpiRichHtml(spec, olibCard(spec.id)); }).join('');
-    /* ---- ② 三张 2G/3G/4G 当月可用率（沿用简卡片，用户明确说这三张不动）---- */
-    var avail = KPI_AVAIL_ROWS.map(function (spec) {
+    var rich = DATA.KPI_RICH.map(function (spec) { return kpiRichHtml(spec, olibCard(spec.id)); }).join('');
+    /* ---- ② 三张 2G/3G/4G 当月可用率（沿用简卡片）----
+       2026-09-25 补了三段页脚：这三张没有迷你走势，内容比同排富卡片矮 70+px，
+       六张一行时底部会空出一大块。页脚用的是**接口已经返回**的数
+       （latest / network_threshold_pct），不是为填空白编出来的装饰。 */
+    var avail = DATA.KPI_AVAIL_ROWS.map(function (spec) {
       var row = availRow(spec.group);
       /* xlsx 里的 Cell Availability 是 0~1 的小数（0.97935 = 97.935%），
          乘 100 后才与"可用率"的日常说法一致。这一步只在渲染层做，
          不改后端返回 —— 后端那个 0~1 与 FineBI 原页一致，改了会串到别处。 */
-      var v = row && row.month_avg != null ? Number(row.month_avg) * 100 : null;
+      var pct = function (x) {
+        return (x == null || isNaN(Number(x))) ? null : Number(x) * 100;
+      };
+      var v = pct(row && row.month_avg);
       var na = v == null || isNaN(v);
       var lm = (state.kpi.avail && state.kpi.avail.latest_month) || '';
+      /* ⚠️ 阈值是**已经乘过 100 的百分数**（99.65），与上面 0~1 的 latest /
+         month_avg 不是同一量纲，所以这里绝不走 pct()，否则会得到 9965%。 */
+      var thr = (state.kpi.avail && state.kpi.avail.threshold_pct != null)
+        ? Number(state.kpi.avail.threshold_pct) : null;
+      if (thr != null && isNaN(thr)) thr = null;
+      var last = pct(row && row.latest);
+      var gap = (last != null && thr != null) ? last - thr : null;
+      /* 距阈值为负 = 没达标（红），非负 = 达标（绿）；复用富卡片页脚那套配色。 */
+      var gapCls = gap == null ? '' : (gap < 0 ? 'lo' : 'hi');
       return kpiCardHtml({
         name: spec.key + ' ' + t('kpi.avail'), unit: '%', value: na ? '—' : kpiNum(v, 2), na: na,
         sub: na ? t('kpi.noMonth') : t('kpi.month').replace('{m}', lm || '—'),
-        tip: t('kpi.tipAvail').replace('{board}', 'Daily_Availability_KPI'),
-        icon: 'gauge', age: row && row.latest_date ? t('kpi.updated').replace('{t}', row.latest_date) : ''
+        tip: t('kpi.tipAvail').replace('{board}', 'Daily_Availability_KPI') +
+          '\n' + t('kpi.tipAvailFoot'),
+        icon: 'gauge',
+        /* 趋势位（2026-09-25 加）：这三张卡此前没有走势，比同排富卡片矮一大截。
+           现在用后端返回的逐日可用率画一条 30 天的线。 */
+        spark: availSpark(row),
+        /* 不再传 age：它显示的 latest_date 现在就在页脚「昨日」那一格里，
+           留着等于同一张卡两处写同一天。 */
+        foot: [
+          { label: t('kpi.yday'), num: last == null ? '—' : kpiNum(last, 2),
+            foot: (row && row.latest_date) || '—' },
+          { label: t('kpi.thr'), num: thr == null ? '—' : kpiNum(thr, 2),
+            foot: t('kpi.thrLine') },
+          { label: t('kpi.gapThr'),
+            num: gap == null ? '—' : (gap > 0 ? '+' : '') + gap.toFixed(2),
+            foot: t('kpi.pp'), cls: gapCls }
+        ]
       });
     }).join('');
     /* 顶栏时间戳取 olib 的写入时间（富卡片的主数据源）。
@@ -1486,8 +1084,11 @@
     var err = k.err ? '<p class="band-n" style="color:var(--crit)">' + esc(t('kpi.err') + ': ' + k.err) + '</p>' : '';
     box.innerHTML =
       '<div class="band-h">' +
-        '<div class="band-txt"><div class="band-k">' + esc(t('kpi.title')) + '</div>' +
-          '<p class="band-n">' + esc(t('kpi.sub')) + '</p>' + err + '</div>' +
+        /* kpi.sub 挂 title，不占行 —— 理由见上面骨架屏那一处。
+           ⚠️ err（接口报错）**保持可见**，绝不能一起收进 title：
+           隐藏说明是取舍，隐藏错误是让人以为数据正常。 */
+        '<div class="band-txt"><div class="band-k" title="' + esc(t('kpi.sub')) + '">' +
+          esc(t('kpi.title')) + '</div>' + err + '</div>' +
         (stamp ? '<span class="qc-live"><i class="ph ph-clock" aria-hidden="true"></i>' +
           '<span class="qc-when">' + esc(t('kpi.updated').replace('{t}', stamp)) + '</span></span>' : '') +
         '<button type="button" class="gb" data-act="kpi-reload" title="' + esc(t('kpi.retry')) + '">' +
@@ -1512,7 +1113,7 @@
      而目录本身是可以在本页编辑的，两边一定会漂移。
      权限过滤也一定要走 allowed()：把用户看不到的看板名摆出来，
      点进去是 403，比不显示更糟。 */
-  /* 六个入口卡的图标。键必须取 PH 表里真实存在的键 ——
+  /* 六个入口卡的图标。键必须取 DATA.PH 表里真实存在的键 ——
      表里没有的会静默退回 dashboard（方块图标），不报错但六张卡长得一样。 */
   var V6_ICONS = {
     'CXO View': 'chart-line', 'SP View': 'package', 'MS View': 'gauge',
@@ -1626,7 +1227,7 @@
 
   function mapItems() {
     var all = allowed();
-    return MAP_TABS.map(function (m) {
+    return DATA.MAP_TABS.map(function (m) {
       var it = all.filter(function (x) { return String(x.url || '').indexOf('page=' + m.page) !== -1; })[0];
       return {
         page: m.page, key: m.key, icon: m.icon, item: it,
@@ -1747,7 +1348,7 @@
   function normTabLabels(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
     var out = {};
-    RENAME_KEYS.forEach(function (page) {
+    DATA.RENAME_KEYS.forEach(function (page) {
       var v = raw[page];
       if (!v || typeof v !== 'object') return;
       var zh = typeof v.zh === 'string' ? v.zh.trim() : '';
@@ -1774,12 +1375,12 @@
        · 下方副标题 ← 英文名（en）
      后端只存"中/英"两个值，由各前端决定谁显示在上 —— 改这里之前先确认没把上下搞反。 */
   function headTitleText() {
-    var v = state.tabLabels && state.tabLabels[RENAME_HEAD];
+    var v = state.tabLabels && state.tabLabels[DATA.RENAME_HEAD];
     if (v && v.zh) return v.zh;
     return t('map.title');
   }
   function headSubText() {
-    var v = state.tabLabels && state.tabLabels[RENAME_HEAD];
+    var v = state.tabLabels && state.tabLabels[DATA.RENAME_HEAD];
     if (v && v.en) return v.en;
     return t('map.sub');
   }
@@ -1929,7 +1530,7 @@
   function setGroups(no, gids) {
     commit(function () {
       applyItems(patchItem(no, function (it) {
-        var c = {}, before = groupsOf(it), gone = [];
+        var c = /** @type {Record<string, any>} */ ({}), before = groupsOf(it), gone = [];
         Object.keys(it).forEach(function (k) { c[k] = it[k]; });
         c.groups = gids;
         before.forEach(function (g) { if (gids.indexOf(g) === -1) gone.push(g); });
@@ -1981,7 +1582,7 @@
   /* 拓扑地图页签改名（2026-09-23 加）。写的是服务端共享目录 catalog.tabLabels，
      所有人刷新都能看到 —— 与分组改名同一个语义层级。 */
   function renameTab(page, zh, en) {
-    if (RENAME_KEYS.indexOf(page) === -1) return;
+    if (DATA.RENAME_KEYS.indexOf(page) === -1) return;
     zh = String(zh || '').trim(); en = String(en || '').trim();
     var next = {};
     Object.keys(state.tabLabels || {}).forEach(function (k) { next[k] = state.tabLabels[k]; });
@@ -2122,7 +1723,7 @@
     });
     document.addEventListener('dragend', dragReset);
     /* 拖完那一下浏览器一般不会补 click，但 Firefox 系会 —— 不拦就会顺手开一个查看器标签。 */
-    document.addEventListener('click', function (e) {
+    document.addEventListener('click', /** @param {Event & {target: Element}} e */ function (e) {
       if (Date.now() - noClickAt > 250) return;
       var c = e.target.closest && e.target.closest('a.card');
       if (c) { e.preventDefault(); e.stopPropagation(); }
@@ -2130,7 +1731,7 @@
 
     /* 编辑模式开关（只有 editable 的会话才看得到这颗按钮） */
     $('#editBtn').addEventListener('click', function () { setEditing(!state.editing); });
-    $('#editBar').addEventListener('click', function (e) {
+    $('#editBar').addEventListener('click', /** @param {Event & {target: Element}} e */ function (e) {
       if (e.target.closest('[data-act="edit-leave"]')) setEditing(false);
     });
     /* v1：#views 与 #l0 的 onEditClick / keydown 两处委托随那两块容器一起去掉了
@@ -2142,7 +1743,7 @@
       if (state.popForm) closeForm();
       else if (state.grpFor !== null) closeGrp();
     });
-    document.addEventListener('mousedown', function (e) {
+    document.addEventListener('mousedown', /** @param {Event & {target: Element}} e */ function (e) {
       if (!e.target.closest) return;
       /* ⚠️ 这份"点它不算点外面"的名单必须列全所有会 openForm 的触发点，
          否则 mousedown 先 closeForm()、紧接着 click 又 openForm()：
@@ -2155,14 +1756,14 @@
       if (state.grpFor !== null && !e.target.closest('#grpPop') && !e.target.closest('[data-act="grp"]')) closeGrp();
     });
   }
-  function onEditClick(e) {
+  function onEditClick(/** @type {Event & {target: Element}} */ e) {
     var b = e.target.closest ? e.target.closest('[data-act]') : null;
     if (!b) return;
     var act = b.getAttribute('data-act'), gid = b.getAttribute('data-gid') || '';
     var sid = b.getAttribute('data-subx') || '';
     if (act === 'grp') { e.preventDefault(); e.stopPropagation(); openGrp(b); return; }
     if (!canEdit()) return;
-    var row, zh, en;
+    /** @type {any} */ var row, zh, en;
     if (act === 'grp-edit') { openForm('grp', gid, b); }
     else if (act === 'grp-add') { openForm('grpadd', '', b); }
     else if (act === 'title') { e.preventDefault(); e.stopPropagation(); openForm('title', b.getAttribute('data-no'), b); }
@@ -2191,7 +1792,7 @@
   /* 分组归属浮层：勾一次存一次（没有「保存」按钮 —— 与其余编辑保持同一口径）。
      用 fixed 定位贴在卡片旁边而不是 modal：改归属时还得看见卡片本身，遮罩会把上下文全挡住。 */
   function grpGids() {
-    var out = T0.concat(T1, T2), seen = {};
+    var out = DATA.T0.concat(DATA.T1, DATA.T2), seen = {};
     out.forEach(function (g) { seen[g] = 1; });
     itemsAll().forEach(function (it) {
       groupsOf(it).forEach(function (g) { if (!seen[g]) { seen[g] = 1; out.push(g); } });
@@ -2283,7 +1884,7 @@
          __head 的 zh/en 与页签同口径（zh=中文、en=英文），本门户标题在上用的是 zh，
          取值时直接照 headTitleText/headSubText 的映射来。 */
       var cv = (state.tabLabels && state.tabLabels[id]) || {};
-      if (id === RENAME_HEAD) {
+      if (id === DATA.RENAME_HEAD) {
         vals = { zh: cv.zh || headTitleText(), en: cv.en || headSubText() };
       } else {
         var mt = mapItems().filter(function (x) { return x.page === id; })[0];
@@ -2506,12 +2107,12 @@
      这一页签本来就是本页固定功能，不是目录条目渲染出来的。 */
   function emailItem() {
     var pool = ITEMS.concat(D.items || []);
-    return pool.filter(function (x) { return String(x.url || '').indexOf('page=' + EMAIL_PAGE) !== -1; })[0] || null;
+    return pool.filter(function (x) { return String(x.url || '').indexOf('page=' + DATA.EMAIL_PAGE) !== -1; })[0] || null;
   }
   function emailAllowed() { var it = emailItem(); return !!it && canSee(it); }
   /* 相对路径：门户从 localhost 还是局域网 IP 打开都自适应（与地图同一考虑）。
-     深链自身就是 bare 模式（自己的侧栏 / Header 都隐藏），不用地图那套 MAP_STRIP_CSS。 */
-  function emailSrc() { return '/myapp/?page=' + EMAIL_PAGE; }
+     深链自身就是 bare 模式（自己的侧栏 / Header 都隐藏），不用地图那套 DATA.MAP_STRIP_CSS。 */
+  function emailSrc() { return '/myapp/?page=' + DATA.EMAIL_PAGE; }
 
   function emailSectionHtml() {
     return '<div class="p-head"><span class="p-hd"><span class="p-t">' + esc(t('email.title')) + '</span>' +
@@ -2592,14 +2193,14 @@
      这层页签骨架，现在没有页签，骨架也就没有意义。
      报告文件的骨架由 renderEmailSection() 直接写进 #emailSlot。 */
 
-  /* 辅助区分组标题：默认只露 AUX_ROWS 行，多出来的靠「展开 / 收起」按钮。
+  /* 辅助区分组标题：默认只露 DATA.AUX_ROWS 行，多出来的靠「展开 / 收起」按钮。
      收缩用 CSS 隐藏第 3 条起的 li（而不是 max-height），避免半行被裁一半。 */
   function auxHead(key, label, n) {
-    var open = !!state.auxOpen[key], cut = n > AUX_ROWS;
+    var open = !!state.auxOpen[key], cut = n > DATA.AUX_ROWS;
     return '<h3 class="aux-h"><span class="aux-n">' + esc(label) + '</span><span class="cnt">' + n + '</span>' +
       (cut ? '<button type="button" class="aux-x" data-act="aux-toggle" data-key="' + esc(key) +
         '" aria-expanded="' + (open ? 'true' : 'false') + '"><i class="ph ph-' + (open ? 'caret-up' : 'caret-down') +
-        '" aria-hidden="true"></i><span>' + esc(open ? t('aux.less') : tf('aux.more', { n: n - AUX_ROWS })) +
+        '" aria-hidden="true"></i><span>' + esc(open ? t('aux.less') : tf('aux.more', { n: n - DATA.AUX_ROWS })) +
         '</span></button>' : '') + '</h3>';
   }
   function auxRow(it, gid) {
@@ -2610,11 +2211,11 @@
   }
   function renderAux() {
     var box = $('#aux'), html = '';
-    T2.forEach(function (gid) {
+    DATA.T2.forEach(function (gid) {
       var list = filtered(gid);
       if (!list.length && filtering()) return;
       html += '<div class="aux-g" data-key="' + esc(gid) + '" data-open="' + (state.auxOpen[gid] ? '1' : '0') + '">' +
-        auxHead(gid, t(AUX_TITLES[gid] || gid), list.length) + '<ul>' +
+        auxHead(gid, t(DATA.AUX_TITLES[gid] || gid), list.length) + '<ul>' +
         (list.length ? list.map(function (it) { return auxRow(it, gid); }).join('')
           : '<li><span class="lrow">' + esc(t('v.empty')) + '</span></li>') + '</ul></div>';
     });
@@ -2643,41 +2244,45 @@
         所以这里直接对整表切前 4 行 —— 语义就是"表最上面那 4 行"，
         与用户看到表格时的直觉一致，不引入额外的分组概念。
 
-     ③ 顶部那排 LEVEL1~LEVEL4 档位按钮**不再参与默认行过滤**（原版点了会把表切成
-        某一档，与"默认显示前 4 行"直接打架）。现在它们退化成可反选的细看入口。
+     ③ 顶部那排 LEVEL1~LEVEL4 档位按钮**整排去掉**（2026-09-25 按要求）。
+        原版点了会把表切成某一档；v1 早先把它退化成可反选的细看入口，现在
+        连入口一起删除 —— 见下面「为什么去掉」一段。
 
      ---------------------------------------------------------------------------
-     行数由**两个正交开关**共同决定（曾经只用一个 escOpen，导致「展开全部」失效）：
+     为什么去掉档位按钮（而不是只去掉它的点击）：
+       需求原话是「把 L1/L2/L3/L4 的点击按钮去掉」。若只摘掉 click 监听而留着
+       按钮，用户点下去毫无反应 —— 比"按钮不存在"更像坏了。所以整排 DOM 一起删。
+       被一并移除的能力只有"按档过滤"一项，而它是**冗余**的：表本身已按档分块排序，
+       每行首列也印着 L1~L4 档位，21 行一屏可读；「展开全部」仍能把整表摊开。
+       随之失去的隐藏功能是"按档筛选时显示该档的说明文字"（原来吊在脚注上），
+       该说明随按钮一起消失，脚注只留数据来源。
 
-       escLv 非空      → 只看该档（点档位按钮，再点一次取消）
+     ---------------------------------------------------------------------------
+     行数由**单一开关** escAll 决定（曾经有 escLv/escAll 两个正交开关）：
+
        escAll = true   → 全部 21 行（点「展开全部」）
-       两者都为空      → 前 4 行（默认）
+       escAll = false  → 前 4 行（默认）
 
-     escLv 与 escAll 互斥：点档位时清 escAll，点展开全部时清 escLv。
-     这样按钮上的数字永远等于屏幕上真的多了几行，不会出现"写着 21、只多 4 行"。 */
+     ⚠️ state.escLv 已随之删除，不要再加回来：它是档位按钮的专属状态，
+     留着只会是一个永远为空、却让人以为"还有按档筛选"的悬空字段。 */
   var ESC_DEFAULT_ROWS = 4;
   function renderEsc() {
     var box = $('#esc'), E = D.escalation || {}, rows = E.rows || [], lv = E.levels || [];
     if (!rows.length) { box.hidden = true; return; }
-    var cnt = {}; rows.forEach(function (r) { cnt[r.level] = (cnt[r.level] || 0) + 1; });
-    /* 三态优先级：按档筛选 > 展开全部 > 默认前 4 行。 */
-    var filtered;
-    if (state.escLv) filtered = rows.filter(function (r) { return r.level === state.escLv; });
-    else if (state.escAll) filtered = rows;
-    else filtered = rows.slice(0, ESC_DEFAULT_ROWS);
-    /* 还藏着多少条。按档筛选时"藏"的是其他档，不在这里提示（档位按钮已表达）。 */
-    var hidden = state.escLv ? 0 : Math.max(0, rows.length - filtered.length);
+    /* 两态：展开全部 > 默认前 4 行。档位筛选那一支已随按钮删除。 */
+    var filtered = state.escAll ? rows : rows.slice(0, ESC_DEFAULT_ROWS);
+    /* 还藏着多少条。展开全部时为 0（全部都在屏幕上，不提示）。 */
+    var hidden = Math.max(0, rows.length - filtered.length);
     /* 按钮文案：默认态说"展开全部 (21)"，展开态说"只看前 4 行"。
        注意不能写成「收起」——那是 escOpen 的语义（整表收成一条带），
        而这里要收起的是"多出来的 17 行"，两者混用会让用户以为点下去表会消失。 */
     var btn = state.escAll ? t('esc.lessRows') : tf('esc.expand', { n: rows.length });
     var html = '<div class="esc-bar"><span class="esc-t">' + esc(t('esc.title')) + '</span>' +
       '<span class="esc-s">' + esc(tf('esc.count', { n: rows.length, lv: lv.length })) + ' · ' + esc(t('esc.sub')) + '</span>' +
-      '<span class="esc-lv">' + lv.map(function (l) {
-        /* data-now：该档是否是当前筛选档。未选档时全部为 0（没有高亮）。 */
-        return '<button type="button" class="lvchip" data-lv="' + esc(l.id) + '" data-now="' + (l.id === state.escLv ? '1' : '0') + '">' +
-          esc(l.id.replace('LEVEL', 'L')) + ' <b>' + (cnt[l.id] || 0) + '</b></button>';
-      }).join('') +
+      /* 这里原是 LEVEL1~LEVEL4 那排档位按钮（.lvchip），2026-09-25 按要求整排删除。
+         上方的 esc.count 仍用 lv.length 报档位数「4 levels」—— 那是**描述这张表
+         有几档**，不是可点的筛选器，所以数字保留，只是不再对应任何按钮。 */
+      '<span class="esc-lv">' +
       /* 收起态下面这颗按钮的语义是"把整张表摊开"，展开态才是"4 行 / 全部"的切换。 */
       (state.escOpen
         ? '<button type="button" class="gb" data-act="esc-toggle"><i class="ph ph-' + (state.escAll ? 'caret-up' : 'caret-down') + '"></i>' + esc(btn) + '</button>'
@@ -2698,9 +2303,10 @@
            提示语里点名"展开全部"这颗按钮，用户才知道该点哪里（就是他这次反馈的那点）。 */
         (hidden ? '<p class="esc-note esc-note--more"><i class="ph ph-info" aria-hidden="true"></i>' +
           esc(tf('esc.moreRows', { n: hidden })) + '</p>' : '') +
+        /* 脚注原来还跟着「当前档位的说明文字」（按档筛选时才非空）。
+           档位按钮删掉后它恒为空，留着就是一句永远拼不出来的尾巴，故整段去掉。 */
         '<p class="esc-note">' + esc(t('esc.src')) + ' · ' +
-        esc((lv.filter(function (l) { return l.id === state.escLv; })[0] || [])[state.lang === 'en' ? 'en' : 'zh'] || '') +
-        ' <button type="button" class="gb" data-act="esc-copy" style="margin-left:8px"><i class="ph ph-copy"></i>' + esc(t('esc.copy')) + '</button></p></div>';
+        '<button type="button" class="gb" data-act="esc-copy" style="margin-left:8px"><i class="ph ph-copy"></i>' + esc(t('esc.copy')) + '</button></p></div>';
     }
     box.innerHTML = html;
   }
@@ -2750,24 +2356,73 @@
     var n = u && (u.username || u.id || u.name);
     if (b) { b.hidden = !n; b.textContent = n || ''; }
     if (o) o.hidden = !state.authOk;
-    /* 用户管理入口只对「真门户管理员」开：role 判定照 uniplam/MsPortal 两处，
-       还要有 id —— 本机回环下 my_app 给的占位身份也是 admin，但调不动门户接口，
-       与其点了弹一句「请先登录」，不如干脆不显示。 */
+    /* 用户管理入口对管理员**一律可见**（2026-09-25 改）。
+       原判定是 `role === 'admin' && u.id`，把本机回环的占位身份排除在外 ——
+       占位身份（/api/auth/me 给的 {username:'local', role:'admin'}）确实是 admin
+       但调不动门户接口，当年的处理是「与其点了弹提示，不如干脆不显示」。
+       副作用是一个走不出去的闭环：按钮没了 → 没有任何提示说明为什么 → 页面上也
+       没有别的登录入口（顶栏两个门户外链 2026-09-24 已按要求删掉，登录框又被
+       authOk 藏起来）→ 用户永远拿不到能让按钮出现的会话。
+       改为照常显示，点下去由 openUserMgmt 分流：没有门户账号就唤起登录/注册闸门。
+       这里只判 role，不再判 id —— 真正的权限边界在后端 /uniplam/api/auth/* 上，
+       前端只负责别把入口藏成一个谜。 */
     var m = $('#umBtn');
-    if (m) m.hidden = !(u && u.role === 'admin' && u.id);
+    if (m) m.hidden = !(u && u.role === 'admin');
   }
+  /* 登录闸门。两种形态，与 /uniplam/ 的 src/components/LoginView.tsx 对齐：
+       login   —— 用户名 + 密码，打 POST /uniplam/api/auth/login；
+       request —— 自助注册申请，打 POST /uniplam/api/auth/register-request，
+                  提交后由管理员在「用户管理 → 待审批申请」里批准。
+     标题两个形态共用 gate.title，只换副标题 —— LoginView 也是这个做法
+     （标题恒为 app.title，副标题在 auth.subtitle / ar.subtitle 之间切）。
+     可见性：真未登录时必现；已经以占位身份登着（authOk 为真）时，只有用户主动
+     要进门户（state.gateOpen，例如点了当前身份管不了的「用户管理」）才唤起，
+     并给一个「取消」退回原来的只读界面 —— 加了登录不能把原来能看的页面变成登录墙。 */
   function renderGate() {
     var box = $('#gate');
-    if (state.authOk) { box.hidden = true; box.innerHTML = ''; return; }
+    var forced = state.gateOpen;
+    if (state.authOk && !forced) { box.hidden = true; box.innerHTML = ''; return; }
+    var isReq = state.gateMode === 'request';
+    var h = '<div class="gate"><div class="gate-c"><h2>' + esc(t('gate.title')) + '</h2>' +
+      '<p>' + esc(isReq ? t('ar.subtitle') : t('gate.sub')) + '</p>' +
+      (forced ? '<div class="gate-hint">' + esc(t('gate.hintNoPortal')) + '</div>' : '');
+    if (isReq) {
+      h += '<form id="rf">' +
+        '<label class="fld"><span>' + esc(t('ar.usernamePh')) + '</span><input id="ru" autocomplete="username" required></label>' +
+        '<label class="fld"><span>' + esc(t('ar.passwordPh')) + '</span><input id="rp" type="password" autocomplete="new-password" required></label>' +
+        '<label class="fld"><span>' + esc(t('ar.confirmPh')) + '</span><input id="rp2" type="password" autocomplete="new-password" required></label>' +
+        '<label class="fld"><span>' + esc(t('ar.notePh')) + '</span><input id="rn"></label>' +
+        '<div class="gate-err" id="re" hidden></div><div class="gate-ok" id="ro" hidden></div>' +
+        '<div class="gate-ft"><button class="btn" type="button" id="gback">' + esc(t('ar.backToLogin')) + '</button>' +
+        '<button class="btn primary" type="submit" id="rgo">' + esc(t('ar.submit')) + '</button></div></form>';
+    } else {
+      h += '<form id="lf">' +
+        '<label class="fld"><span>' + esc(t('gate.user')) + '</span><input id="lu" autocomplete="username" required></label>' +
+        '<label class="fld"><span>' + esc(t('gate.pass')) + '</span><input id="lp" type="password" autocomplete="current-password" required></label>' +
+        '<div class="gate-err" id="le" hidden></div>' +
+        '<div class="gate-ft">' +
+        /* 主动唤起时左位放「取消」（退回只读界面），而不是门户外链 ——
+           这一档的用户本来就登着本页，最需要的是「我不想登录了，让我回去看数据」。
+           真未登录时左位保持原有的「管理门户」外链。 */
+        (forced
+          ? '<button class="btn" type="button" id="gclose">' + esc(t('gate.cancel')) + '</button>'
+          : '<a class="btn" href="/MsPortal/">' + esc(t('mast.admin')) + '</a>') +
+        '<button class="btn primary" type="submit" id="lgo">' + esc(t('gate.go')) + '</button></div>' +
+        '<div class="gate-alt"><button type="button" class="gate-link" id="gmreq">' +
+        esc(t('ar.requestLink')) + '</button></div></form>';
+    }
+    h += '</div></div>';
     box.hidden = false;
-    box.innerHTML = '<div class="gate"><div class="gate-c"><h2>' + esc(t('gate.title')) + '</h2>' +
-      '<p>' + esc(t('gate.sub')) + '</p><form id="lf">' +
-      '<label class="fld"><span>' + esc(t('gate.user')) + '</span><input id="lu" autocomplete="username" required></label>' +
-      '<label class="fld"><span>' + esc(t('gate.pass')) + '</span><input id="lp" type="password" autocomplete="current-password" required></label>' +
-      '<div class="gate-err" id="le" hidden></div>' +
-      '<div class="gate-ft"><a class="btn" href="/MsPortal/">' + esc(t('mast.admin')) + '</a>' +
-      '<button class="btn primary" type="submit" id="lgo">' + esc(t('gate.go')) + '</button></div></form></div></div>';
+    box.innerHTML = h;
     mainLocked(true);
+  }
+  /* 关掉闸门、退回只读界面。只有「主动唤起」那一档用得到 ——
+     真未登录时关掉会让页面停在没有任何出口的状态，所以那一档不给关闭按钮。 */
+  function closeGate() {
+    state.gateOpen = false;
+    state.gateMode = 'login';
+    renderGate();
+    mainLocked(false);
   }
   /* 未登录时把主内容整块藏掉（#gate 盖在上面）。
      ⚠️ v1 修：这份清单原来只列了原版的五块，v1 新增的 #kpi / #views6 / #l0Map
@@ -2789,12 +2444,39 @@
         if (!r.ok || !d.token || !d.user) { var e = new Error(d.detail || 'login failed'); e.code = r.status === 429 ? 'locked' : r.status === 401 ? 'bad' : 'net'; throw e; }
         ss(TOKEN_KEY, d.token);
         state.user = d.user; state.authOk = true;
+        /* 登录成功把闸门收回 —— 它可能是被「用户管理」主动唤起的，
+           不收的话 renderGate 会因为 gateOpen 仍然为真而继续显示。 */
+        state.gateOpen = false; state.gateMode = 'login';
         return fetch('/api/auth/portal-login', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify({ token: d.token })
         }).catch(function () {});
       });
+    });
+  }
+  /* 自助注册申请（2026-09-25 加）。与 /uniplam/ 的 LoginView.handleRequest 同一套：
+     公开接口、不需要 token，提交后进「待审批申请」队列，等管理员批准。
+     错误码是后端约定的 detail 字符串（server/auth.ts 的 POST /register-request 那一支），
+     照 LoginView 的映射逐条翻，不要自己另立一套口径 —— 同一件事在两页必须说一样的话。 */
+  function register(u, p, note) {
+    return fetch('/uniplam/api/auth/register-request', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ username: u, password: p, note: note })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (r.ok) return true;
+        var detail = String((d && d.detail) || '');
+        var e = new Error(detail || ('HTTP ' + r.status));
+        e.code = detail === 'username_taken' ? 'duplicate'
+          : detail === 'request_pending' ? 'pendingDup'
+            : detail === 'too_many_requests' ? 'tooMany'
+              : 'net';
+        throw e;
+      });
+    }, function () {
+      var e = new Error('network'); e.code = 'net'; throw e;
     });
   }
   function logout() {
@@ -2828,7 +2510,7 @@
     var headers = { Accept: 'application/json' };
     var token = tok();
     if (token) headers.Authorization = 'Bearer ' + token;
-    var opts = { method: (init && init.method) || 'GET', credentials: 'same-origin', headers: headers };
+    var opts = /** @type {RequestInit} */ ({ method: (init && init.method) || 'GET', credentials: 'same-origin', headers: headers });
     if (init && init.body !== undefined) {
       headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(init.body);
@@ -2875,7 +2557,9 @@
     var patch = { success: kind === 'ok' ? msg : '', error: kind === 'err' ? msg : '' };
     umSet(patch);
     if (kind === 'ok') {
+      // @ts-expect-error 函数对象上挂 setTimeout 句柄用于防重入清除
       clearTimeout(umFlash._t);
+      // @ts-expect-error 同上：umFlash._t 是 timeout 句柄，非函数自身属性
       umFlash._t = setTimeout(function () {
         if (state.um.success === msg) umSet({ success: '' });
       }, 3000);
@@ -2974,8 +2658,17 @@
     var user = state.user;
     if (!user || user.role !== 'admin') { toast(t('um.needAdmin')); return; }
     /* 没有 id = 这是 my_app 的占位身份（本机 local / 免登录 dev-admin），不是门户账号；
-       门户的用户接口只认门户会话，先去登录再回来。 */
-    if (!user.id) { toast(t('um.needPortalLogin')); return; }
+       门户的用户接口只认门户会话。原来这里只弹一句「请先登录」就返回 ——
+       而当时页面上并没有任何登录入口（见 renderWho 的注释），等于把人指向一个
+       不存在的地方。现在直接把登录/注册闸门唤起来（「主动唤起」那一档，带取消，
+       随时能退回只读界面），并记下意图：登录成功后自动把用户管理面板打开。 */
+    if (!user.id) {
+      state.gateMode = 'login'; state.gateOpen = true; state.umAfterLogin = true;
+      renderGate();
+      window.scrollTo(0, 0);
+      toast(t('um.needPortalLogin'));
+      return;
+    }
     state.um.open = true;
     /* 每次打开都清掉上一轮的草稿与提示，避免「上次没保存的勾选」被当成现状 */
     state.um.error = ''; state.um.success = '';
@@ -3496,6 +3189,10 @@
       if (state.qcFullAt) state.qcAlarmAt = state.qcFullAt;
       renderBand();
       fetchQcTrend();          /* 趋势粒度是小时/天，跟全量同节奏就够 */
+      /* 紧跟在 fetchQcTrend 之后，且必须在 stats 已写入 state 之后调用：
+         快照的采集点在统计更新之后，先拉 history 会少掉最新那个点，
+         CRs / PMT 的线就会比卡片上的大数字「旧一格」。 */
+      fetchQcHistory();
     }).catch(function (e) {
       qcFullBusy = false;
       state.qc = { loading: false, err: (e && e.message) || String(e), at: 0, m: {} };
@@ -3569,6 +3266,10 @@
       state.kpi.avail = {
         rows: (d && d.network_availability) || [],
         latest_month: (d && d.network_latest_month) || '',
+        /* 达标阈值（百分数，如 99.65）。随接口一起取回来，卡片页脚要用它算
+           「距阈值」——不要在渲染时另发一个请求，否则同一张卡的数字
+           可能来自两次不同时刻的响应（一个已经刷新、一个还没）。 */
+        threshold_pct: (d && d.network_threshold_pct != null) ? Number(d.network_threshold_pct) : null,
         updated_at: (d && d.generated_at) || ''
       };
       done();
@@ -3578,7 +3279,7 @@
   /* 只请求后端确实有趋势的四个（cr / pmt 回 no_trend，不必白跑一个来回）。
      失败不清空已有趋势：拿不到线只是不画，不是错误状态。 */
   function fetchQcTrend() {
-    QC_TREND_METRICS.forEach(function (id) {
+    DATA.QC_TREND_METRICS.forEach(function (id) {
       api('/api/portal-qc/trend?metric=' + id + '&days=30').then(function (d) {
         if (!d || !d.points) return;
         state.qcTrend = state.qcTrend || {};
@@ -3586,6 +3287,23 @@
         renderBand();
       }).catch(function () {});
     });
+  }
+  /* 存量趋势（2026-09-25 加，给 CRs / PMT 用）。
+     与 fetchQcTrend 是**两种口径**，不是同一件事的两次取数：
+       /trend   按源表时间列分桶的「新增量」——cr/pmt 回 no_trend，画不出
+       /history 每小时快照的「存量」        ——正好补上这两张卡
+     后端把 cr/cpmt 的存量放在同一个 series 对象里（cr / pmt / sla 各一条），
+     一次请求全拿到，不必按指标发多次。
+
+     ⚠️ 必须在 fetchQcStats **之后**调用：快照的采集点在统计更新之后，
+     先拉 history 会少掉最新那个点，卡片上的线就会比大数字「旧一格」。
+     失败时**不清空** qcHistory：接口抖一下就抹掉整条线，比留着上一次的线更糟。 */
+  function fetchQcHistory() {
+    api('/api/portal-qc/history?hours=168').then(function (d) {
+      if (!d || !d.series) return;
+      state.qcHistory = d.series;
+      renderBand();
+    }).catch(function () {});
   }
   /* ======================================================== QC 下钻弹窗 --
      2026-09-23 统一：本段由「右侧抽屉」改写为与 /MsPortal/ **同构**的实现。
@@ -3615,10 +3333,22 @@
     spms: 'sp_material'
   };
 
+  /* metric id → 界面上显示的名字。**唯一定义处**（弹窗标题与导出 Sheet 名都用它），
+     所以不存在「标题与导出文件名两处不一致」的问题。
+     D.qc 只有面板上那六张卡（定义在 /MsPortal/assets/data.js）。
+     2026-09-25：达标率环（metric=sla）已从标题行删除，本页不再有任何地方能点出
+     metric='sla' 的弹窗；但**保留这条回落**——弹窗是共用实现，MsPortal 那边仍会把
+     sla 传进来，删掉它会让那边的标题退化成英文小写 id 'sla · 明细'。
+     找不到名字时也不能直接回落 id，那正是上面要避免的。 */
+  function qcMetricLabel(id) {
+    var q = (D.qc || []).filter(function (x) { return x.id === id; })[0];
+    if (q) return state.lang === 'en' ? q.en : q.zh;
+    return id === 'sla' ? t('qc.sla') : id;
+  }
+
   function applyDrillTitle() {
     var id = state.drill.metric;
-    var q = (D.qc || []).filter(function (x) { return x.id === id; })[0];
-    $('#qcTitle').textContent = (q ? (state.lang === 'en' ? q.en : q.zh) : id) + t('dr.drillSuffix');
+    $('#qcTitle').textContent = qcMetricLabel(id) + t('dr.drillSuffix');
 
     var link = $('#qcOpenBoard');
     if (link) {
@@ -3640,8 +3370,13 @@
      所以要把坐标从事件里带进来；键盘触发（无坐标）时传 null = 居中于屏幕。
      与 MsPortal/portal.js 的 openQcDrill(id, anchor) 同签名。 */
   function openDrill(id, anchor) {
-    var def = (D.qc || []).filter(function (x) { return x.id === id; })[0];
-    if (!def) return;
+    /* 这里原先用 `if (!def) return;` 把关 ——「D.qc 里没有这个 id 就不给开」。
+       2026-09-25 起不能再这么判：sla **本来就不在 D.qc 里**（见 qcMetricLabel），
+       照旧判会让点 88.7% 变成一个完全没反应的死按钮，且不报任何错。
+       改成只拦「参数是空的」这种真无效调用；至于 id 认不认识，
+       后端 `/api/portal-qc/detail` 才是权威（它不认识会回 400，
+       弹窗里会显示错误，比静默 return 好排查得多）。 */
+    if (!id) return;
     /* sort/dir 必须一起重置：换一张卡还沿用上一张的排序列，后端会因为该列不在
        本 metric 的列白名单里而忽略它，看上去像「排序点了没反应」。 */
     state.drill = { metric: id, q: '', page: 1, size: 50, sort: '', dir: 'desc',
@@ -3801,10 +3536,7 @@
 
     var metric = d.metric;
     var keyword = d.q || '';
-    var label = (function () {
-      var q = (D.qc || []).filter(function (x) { return x.id === metric; })[0];
-      return q ? (state.lang === 'en' ? q.en : q.zh) : metric;
-    })();
+    var label = qcMetricLabel(metric);
 
     var columns = d.columns.slice();
     var rows = [];
@@ -3979,11 +3711,28 @@
     }
     return false;
   }
+  /* 默认取景：**完整居中显示利比里亚全境**（2026-09-25 改，按用户需求）。
+     需求演化：
+       · 2026-09-22：「跟手动点一次加号一个效果」→ 默认在前一级基础上再放大一级。
+       · 2026-09-25：明确「打开不能是点一下减号的效果，并且要保持利比里亚居中」
+                    → 回到内层页自己的全国 fitBounds 取景（不再加一级）。
+     本开关就是这次回退的落点：置 false 时 zoomOnce / refitLeaflet 都不再放大。
+     置 true 可恢复到 2026-09-22 的行为（两条放大路径的代码都原样保留）。
+
+     ⚠️ 为什么这两件事无法同时满足（与 MsPortal 侧同一次实测结论）：
+       门户中列画布约 572×858，各档可视范围 vs 国土跨度（4.85°纬 × 4.40°经）：
+         zoom 7 → 约 9.36°纬 × 6.28°经   ✅ 装下全境
+         zoom 8 → 约 4.68°纬 × 3.14°经   ❌ 裁掉东西边缘（纬向也差约 30px）
+       内置站点（mwRealTime）的 fitAllSites() 本身就落在 zoom 7，
+       所以「不加一级」= 完整居中，正是本次要求的结果。 */
+  var MAP_DEFAULT_ZOOM_IN = true;   /* 2026-09-25：用户要求默认 zoom=8（fit+1） */
+
   /* 默认比内层页自己的取景再近一级（2026-09-22 用户：「跟手动点一次加号一个效果」）。
      只在本页面这一侧做：/myapp/ 是两个门户共用的预编译产物，改它的默认 zoom 等于
      把展示版的偏好推给 MsPortal，而且要连带重新发布一批与本次无关的源码。
      先点内层页自己的 + 控件（走它自己的行为链，maxZoom 和它自己的 zoomend 都由它管），
-     控件不存在（有的内层页关了 zoomControl）才退到直接改地图实例。 */
+     控件不存在（有的内层页关了 zoomControl）才退到直接改地图实例。
+     ⚠️ 2026-09-25 起只在 MAP_DEFAULT_ZOOM_IN=true 时才调用，见上方开关。 */
   function zoomInLeaflet(d) {
     var btn = d.querySelector('.leaflet-control-zoom-in');
     if (btn) { try { btn.click(); return true; } catch (e) { /* 落到实例 */ } }
@@ -4004,6 +3753,7 @@
     /* 会自己重新取景的内层页（暴露 fitAllSites）不在这里加：它每次 fit 都会把视野
        拉回「刚好包住所有站点」，加一级得跟在每次 fit 之后做，见 refitLeaflet。 */
     if (!w || typeof w.fitAllSites === 'function') return;
+    if (!MAP_DEFAULT_ZOOM_IN) return;      // 2026-09-25：默认回到全国取景，不再放大
     if (d.__olbrZoomed) return;
     window.setTimeout(function () {
       if (d.__olbrZoomed || !d.querySelector('.leaflet-container')) return;
@@ -4026,8 +3776,11 @@
       if (h <= 0 || h !== st.lastH) return;
       try { w.fitAllSites(); } catch (e) { /* 内层页自己会兜底 */ }
       /* fit 之后才加一级（fit 会重置视野）；再晚一点：fit 带动画时立刻 setZoom 会被忽略。
-         这里不去重是刻意的 —— 每轮都是「重新 fit + 一级」，反复收敛到 fit+1，不会累加。 */
-      window.setTimeout(function () { zoomInLeaflet(d); }, 700);
+         这里不去重是刻意的 —— 每轮都是「重新 fit + 一级」，反复收敛到 fit+1，不会累加。
+         2026-09-25：MAP_DEFAULT_ZOOM_IN=false 时整段跳过，只保留 fitAllSites 的全国取景。 */
+      if (MAP_DEFAULT_ZOOM_IN) {
+        window.setTimeout(function () { zoomInLeaflet(d); }, 700);
+      }
     };
     (function tick() {
       var lc = d.querySelector('.leaflet-container');
@@ -4050,7 +3803,7 @@
       if (!d || !d.head) return;
       var s = d.getElementById('olbrStrip');
       if (!s) { s = d.createElement('style'); s.id = 'olbrStrip'; d.head.appendChild(s); }
-      if (s.textContent !== MAP_STRIP_CSS) s.textContent = MAP_STRIP_CSS;
+      if (s.textContent !== DATA.MAP_STRIP_CSS) s.textContent = DATA.MAP_STRIP_CSS;
 
       if (d.querySelector('.leaflet-container')) {
         if (depth > 0) keepOnlyMap(d);
@@ -4194,7 +3947,7 @@
       state.group = c.getAttribute('data-gid');
       /* 点分组 chip 时把主视图页签一起切过去：不然筛选条件变了、下面展示的却还是上一个分组，
          看起来像是筛选没生效。'all' 和辅助分组不动页签。 */
-      if (T1.indexOf(state.group) !== -1) state.viewTab = state.group;
+      if (DATA.T1.indexOf(state.group) !== -1) state.viewTab = state.group;
       render();
     });
     /* 直接绑在按钮上：index.html 里带 data-status 的是 .seg-b，容器 .seg 没有这个属性，
@@ -4219,7 +3972,11 @@
       /* 把点击坐标带给 openDrill —— 弹窗以点击位置为中心弹出。
          键盘触发（Enter/Space）时 clientX/clientY 都是 0，那种情况交给
          qcDrill 判空并回落到「居中于屏幕」（myapp 同样是 anchor 为空即居中）。 */
-      var m = e.target.closest('.qc-card');
+      /* 2026-09-25：认定条件由 .qc-card 放宽到 [data-qc]，当下 #band 里带 data-qc 的
+         只有六张指标卡（达标率的环连同它的 data-qc="sla" 已删除）。
+         保留这个宽条件而不是缩回 .qc-card：弹窗触发与「卡片」这个概念本就不必绑定，
+         复用同一条委托，是为了让「点这个数字会发生什么」只有一处实现。 */
+      var m = e.target.closest('[data-qc]');
       if (m && m.getAttribute('data-qc')) {
         var anchor = (e.clientX || e.clientY) ? { x: e.clientX, y: e.clientY } : null;
         openDrill(m.getAttribute('data-qc'), anchor);
@@ -4259,7 +4016,7 @@
          所以走这里的事件委托而不是绑按钮本身。 */
       if (e.target.closest('[data-act="map-head"]')) {
         e.preventDefault();
-        openForm('maptab', RENAME_HEAD, e.target.closest('[data-act="map-head"]'));
+        openForm('maptab', DATA.RENAME_HEAD, e.target.closest('[data-act="map-head"]'));
         return;
       }
       if (e.target.closest('[data-act="map-reload"]')) { var f = $('#mapFrame'); if (f) f.src = curMap().src; }
@@ -4277,25 +4034,12 @@
       }
     });
     $('#esc').addEventListener('click', function (e) {
-      /* v1：档位按钮改成**可反选**。原来点一下就锁定该档且没有退路 ——
-         而 v1 的默认视图是"前 4 行"，用户点了 LEVEL2 想回到默认的 4 行视图
-         就没法回去了（只能刷新页面）。再点同一个档 = 取消筛选，回到前 4 行。 */
-      var lv = e.target.closest('[data-lv]');
-      if (lv) {
-        var id = lv.getAttribute('data-lv');
-        state.escLv = (state.escLv === id) ? '' : id;
-        /* 看某一档时退出"展开全部"态：两者是互斥的视图口径。
-           否则先点展开全部（21 行）再点 LEVEL2，取消 LEVEL2 后会退回 21 行，
-           与用户"再点一次回到默认 4 行"的预期不符。 */
-        state.escAll = false;
-        if (!state.escOpen) state.escOpen = true;
-        renderEsc(); return;
-      }
+      /* v1：档位按钮（data-lv）的点击分支已删除 —— 那排按钮 2026-09-25 整排去掉了。
+         留在这里的分支永远匹配不到任何元素，是死代码，且会让人以为还有按档筛选。
+         现在本区只剩两颗按钮：展开/收起（esc-toggle）与复制（esc-copy）。 */
       if (e.target.closest('[data-act="esc-toggle"]')) {
         /* 收起态 → 先摊开整张表（保留当前 4 行/全部的口径）；
-           展开态 → 在「前 4 行」与「全部 21 行」之间切换。
-           ⚠️ 这里**不能**再动 escLv —— 展开全部时若带着档位筛选清掉，
-           用户按档细看后点一下展开就会莫名其妙丢掉筛选。 */
+           展开态 → 在「前 4 行」与「全部 21 行」之间切换。 */
         if (!state.escOpen) state.escOpen = true;
         else state.escAll = !state.escAll;
         renderEsc(); return;
@@ -4351,18 +4095,54 @@
       dd = window.setTimeout(function () { state.drill.q = dq.value || ''; state.drill.page = 1; fetchDrill(); }, 300);
     });
     $('#gate').addEventListener('submit', function (e) {
-      if (e.target.id !== 'lf') return;
       e.preventDefault();
-      var err = $('#le'), go = $('#lgo'); go.disabled = true; go.textContent = t('gate.busy'); err.hidden = true;
-      login($('#lu').value.trim(), $('#lp').value).then(function () {
-        /* renderWho 必须一起调：login() 只把 state.user / authOk 写好，
-           徽标、退出按钮、用户管理入口三处的可见性全在 renderWho 里判。
-           少了这一行，在本页登录完顶栏仍是「没人登录」的样子，要刷新才恢复。 */
-        renderGate(); renderWho(); mainLocked(false); start();
-      }).catch(function (x) {
-        err.textContent = t('gate.' + (x.code || 'net')); err.hidden = false;
-        go.disabled = false; go.textContent = t('gate.go');
-      });
+      if (e.target.id === 'lf') {
+        var err = $('#le'), go = $('#lgo'); go.disabled = true; go.textContent = t('gate.busy'); err.hidden = true;
+        login($('#lu').value.trim(), $('#lp').value).then(function () {
+          /* renderWho 必须一起调：login() 只把 state.user / authOk 写好，
+             徽标、退出按钮、用户管理入口三处的可见性全在 renderWho 里判。
+             少了这一行，在本页登录完顶栏仍是「没人登录」的样子，要刷新才恢复。 */
+          renderGate(); renderWho(); mainLocked(false); start();
+          /* 用户是点「用户管理」被带到这里的，登录完直接把面板打开，
+             别让他再回头找一次入口。 */
+          if (state.umAfterLogin) { state.umAfterLogin = false; openUserMgmt(); }
+        }).catch(function (x) {
+          err.textContent = t('gate.' + (x.code || 'net')); err.hidden = false;
+          go.disabled = false; go.textContent = t('gate.go');
+        });
+        return;
+      }
+      if (e.target.id === 'rf') {
+        var re = $('#re'), ro = $('#ro'), rgo = $('#rgo');
+        var rp = $('#rp').value, rp2 = $('#rp2').value;
+        re.hidden = true; ro.hidden = true;
+        /* 本地先拦两道，口径照 LoginView.handleRequest：长度 8 → 两次一致。
+           后端也会拦，但先拦能省一次往返，提示也更准（不用等网络）。 */
+        if (rp.length < 8) { re.textContent = t('ar.pwdTooShort'); re.hidden = false; return; }
+        if (rp !== rp2) { re.textContent = t('ar.pwdMismatch'); re.hidden = false; return; }
+        rgo.disabled = true; rgo.textContent = t('ar.submitting');
+        register($('#ru').value.trim(), rp, $('#rn').value).then(function () {
+          ro.textContent = t('ar.ok'); ro.hidden = false;
+          $('#ru').value = ''; $('#rp').value = ''; $('#rp2').value = ''; $('#rn').value = '';
+        }).catch(function (x) {
+          /* register() 给的 code 里 'net' 要翻成 ar.networkError，其余（duplicate /
+             pendingDup / tooMany）与键名同名，直接拼。别漏了这一支，
+             否则网络故障会显示成裸 key「ar.net」。 */
+          re.textContent = t(x.code === 'net' ? 'ar.networkError' : 'ar.' + x.code);
+          re.hidden = false;
+        }).then(function () {
+          rgo.disabled = false; rgo.textContent = t('ar.submit');
+        });
+        return;
+      }
+    });
+    /* 闸门里的按钮每次 renderGate 都被重建，所以照样用事件委托挂在 #gate 上
+       （#gate 是 index.html 里的固定节点，innerHTML 换掉不影响它自身的监听）。 */
+    $('#gate').addEventListener('click', function (e) {
+      var id = e.target && e.target.id;
+      if (id === 'gmreq') { state.gateMode = 'request'; renderGate(); }
+      else if (id === 'gback') { state.gateMode = 'login'; renderGate(); }
+      else if (id === 'gclose') { closeGate(); }
     });
     bindEdit();
     bindGrpPop();
@@ -4370,15 +4150,12 @@
   }
   function copyEsc() {
     var rows = (D.escalation || {}).rows || [];
-    /* v1：复制的内容必须**与屏幕上看到的一致**。
-       原版是 rows.filter(r => r.level === state.escLv) —— 而 v1 里默认
-       escLv 是空串（未选档，屏幕上是前 4 行），照原样会把 21 行全复制出去，
-       用户以为复制的是眼前那 4 行。这里与 renderEsc 用**同一套三态取行逻辑**，
-       漏掉 escAll 那一支的话，点开"展开全部"再复制会只得到 4 行。 */
-    var show;
-    if (state.escLv) show = rows.filter(function (r) { return r.level === state.escLv; });
-    else if (state.escAll) show = rows;
-    else show = rows.slice(0, ESC_DEFAULT_ROWS);
+    /* 复制的内容必须**与屏幕上看到的一致**，所以这里与 renderEsc 用同一套
+       两态取行逻辑（展开全部 → 21 行；否则 → 前 4 行）。
+       ⚠️ 原来还有一支 rows.filter(r => r.level === state.escLv)，已随档位按钮删除；
+       若要恢复按档筛选，必须同时在 renderEsc 里恢复同样的分支，否则
+       「看到的」与「复制到的」会再次对不上。 */
+    var show = state.escAll ? rows : rows.slice(0, ESC_DEFAULT_ROWS);
     var txt = show
       .map(function (r) { return [r.position, r.name, r.orange, r.lonestar, r.email].filter(Boolean).join('\t'); }).join('\n');
     var done = function () { toast(t('esc.copied')); };
@@ -4397,7 +4174,7 @@
       /* v1：CXO 指标带搭这一档的便车（同一小时刻度）。它是日粒度数据，
          一小时刷一次已经远快于上游变化，不值得为它单开一个定时器。 */
       window.setTimeout(function () { loadQc(); loadKpi(); qcLoopFull(); },
-        qcNextDelay(QC_FULL_MIN, QC_FULL_OFFSET));
+        qcNextDelay(DATA.QC_FULL_MIN, DATA.QC_FULL_OFFSET));
     })();
     (function qcLoopAlarm() {
       /* 开页时先补一发 ?only=alarm：首屏那三个告警数字是从全量借来的、时间戳走全量
@@ -4405,7 +4182,7 @@
          可能是一小时前的旧时间，要等下一个 5 分钟刻度才被刷新。 */
       window.setTimeout(loadQcAlarm, 0);
       window.setTimeout(function () { loadQcAlarm(); qcLoopAlarm(); },
-        qcNextDelay(QC_ALARM_MIN, QC_ALARM_OFFSET));
+        qcNextDelay(DATA.QC_ALARM_MIN, DATA.QC_ALARM_OFFSET));
     })();
     /* 切回前台补一发全量：后台标签页的定时器会被降频甚至冻结，不补的话回到页面看到的
        可能是几小时前的数字 —— 比「延迟刷新」更容易被误读成故障。 */
@@ -4417,7 +4194,7 @@
     loadQc();
     /* v1：CXO 指标带与 QC 并行发，不串在 loadQc 后面 ——
        两个上游互不相干，串起来只会让下面那三张卡晚一拍上屏。
-       它自己跟着全量 QC 那一档（每小时）刷新，见 QC_FULL_MIN。 */
+       它自己跟着全量 QC 那一档（每小时）刷新，见 DATA.QC_FULL_MIN。 */
     loadKpi();
     startQcLoops();
     loadCatalog();

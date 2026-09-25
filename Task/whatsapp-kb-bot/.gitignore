@@ -1,0 +1,25 @@
+# 依赖与产物
+node_modules/
+
+# 索引（由 npm run ingest 生成，可重建，不入库）
+# 2026-09-25 放宽为整个 data/*.json：除 index.json 外还有 TT 通道索引
+# tt-index.json（1.2M，scripts/tt-analyze.py 的「单号→rowid」本地映射，
+# 缺失或超过 TT_INDEX_TTL 时自动重建），逐文件列举已经漏了一次。
+# 工作区根 .gitignore 的 `data/` 目前也挡住了整个目录，这里写全是为了
+# 这个子系统单独打包/根规则变更时不把 10M 级缓存和会话凭据带出去。
+data/*.json
+data/logs/
+data/auth/
+
+# 进程锁（autostart.ps1 每次启动重写，属本机运行时状态；
+# 与 Task/my_app/AGENTS.md 第四节「*.pid 不入库」同一条约定）
+*.pid
+
+# 本地覆盖
+.env
+.env.local
+*.log
+
+# 系统
+.DS_Store
+Thumbs.db

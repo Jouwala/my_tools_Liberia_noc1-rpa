@@ -55,6 +55,13 @@ LIBERIA_BOUNDARY_COORDS = [
 # Region 配色（循环使用）
 REGION_COLORS = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7', '#dda0dd']
 
+# 县（County）边界静态资源目录（2026-09-25 新增）
+# 数据来源：用户提供的「利比里亚地图文件_国家边界含州名.txt」，
+# 由一次性脚本 TMP/_gen_county_geojson.py 转为 GeoJSON 后入库。
+GEOJSON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "gis")
+COUNTIES_FILE = "liberia_counties.geojson"
+COUNTRY_FILE = "liberia_country.geojson"
+
 
 # ========== 基础几何工具 ==========
 
@@ -314,3 +321,75 @@ def compute_region_boundaries(sites: list) -> dict:
     region_cells = group_region_cells(vor, valid_sites, clip_box, clip_boundary)
     region_polygons = merge_region_polygons(region_cells, clip_boundary)
     return {"regions": build_region_payload(region_polygons, valid_sites)}
+
+
+# ========== 真实县（County）行政边界（2026-09-25 新增） ==========
+
+def _merge_multipolygon_payload(geojson_path: str) -> list:
+    """读取 GeoJSON → [{name, db_name, polygons: [[[lat,lng],...], ...]}]
+
+    容错：文件不存在 / 解析失败 / 无 features 时返回 []，由调用方降级为空结果。
+    GeoJSON 存的是 [lng, lat]，此处**不**再交换 —— 生成脚本已按 Leaflet 约定
+    写成 [lat, lng]，重复交换会把地图画到南极洲。
+    """
+    if not os.path.exists(geojson_path):
+        logger.warning("[gis_geometry] 县界文件不存在: %s", geojson_path)
+        return []
+    try:
+        with open(geojson_path, "r", encoding="utf-8") as f:
+            gj = json.load(f)
+    except (OSError, ValueError):
+        logger.warning("[gis_geometry] 县界文件解析失败: %s", geojson_path, exc_info=True)
+        return []
+
+    out = []
+    for idx, ft in enumerate(gj.get("features") or []):
+        geom = ft.get("geometry") or {}
+        if geom.get("type") not in ("Polygon", "MultiPolygon"):
+            continue
+        coords = geom.get("coordinates") or []
+        polygons = []
+        # Polygon: [[[lng,lat],...]] -> 单多边形；MultiPolygon: 多多边形
+        raw_polys = [coords] if geom["type"] == "Polygon" else coords
+        for poly in raw_polys:
+            if not poly:
+                continue
+            ring = poly[0]
+            if ring and len(ring) >= 3:
+                polygons.append([[round(float(p[0]), 6), round(float(p[1]), 6)] for p in ring])
+        if not polygons:
+            continue
+        props = ft.get("properties") or {}
+        # name 允许为空：国界文件（liberia_country.geojson）的 feature 无任何属性，
+        # 只有县界文件才要求带 name。是否必须有 name 由各 load_* 自行决定。
+        name = str(props.get("name") or "").strip()
+        out.append({
+            "name": name,
+            "db_name": str(props.get("db_name") or name).strip(),
+            "polygons": polygons,
+        })
+    return out
+
+
+def load_county_boundaries() -> list:
+    """加载 15 个县的真实行政边界。
+
+    Returns:
+        [{name, db_name, color, polygons, site_count}]；文件缺失时返回 []。
+        site_count 由调用方（gis.py）按与 /gis/sites 相同的口径回填。
+    """
+    # 县界必须带 name（前端要显示县名、并与 province_county 对齐），无名的丢弃
+    counties = [c for c in _merge_multipolygon_payload(
+        os.path.join(GEOJSON_DIR, COUNTIES_FILE)) if c["name"]]
+    for idx, c in enumerate(sorted(counties, key=lambda x: x["name"])):
+        c["color"] = REGION_COLORS[idx % len(REGION_COLORS)]
+        c["site_count"] = 0
+    return sorted(counties, key=lambda x: x["name"])
+
+
+def load_country_boundary() -> list:
+    """加载国界（16 个 MultiPolygon，feature 无属性），返回 [[ [lat,lng], ... ], ...]。"""
+    rings = []
+    for ft in _merge_multipolygon_payload(os.path.join(GEOJSON_DIR, COUNTRY_FILE)):
+        rings.extend(ft["polygons"])
+    return rings

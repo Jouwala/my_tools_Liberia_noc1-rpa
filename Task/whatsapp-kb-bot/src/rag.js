@@ -1,0 +1,385 @@
+/**
+ * 检索增强（RAG）核心。
+ *
+ * 命中判定采用「相对基线差值」而非绝对阈值：
+ *   baseline = 该查询与全库相似度的中位数（代表"这个查询对这批语料的泛化水位"）
+ *   gap      = top1 - baseline
+ *   命中 ⟺ top1 >= minAbs AND gap >= minGap
+ *
+ * 原因：稠密嵌入对中文的余弦相似度被压缩在窄高位区间，
+ * 完全无关的查询 top1 也有 0.33~0.40。绝对阈值必然"永远命中"。
+ * gap 是逐查询自适应归一化的量，实测命中/未命中相差约 4 倍，稳定得多。
+ */
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { CONFIG } from './config.js';
+import { pickText } from './lang.js';
+import { embedOne } from './ollama.js';
+import { chat } from './llm.js';
+
+/* ---------------------------------- 向量 ---------------------------------- */
+
+export function cosine(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  const den = Math.sqrt(na) * Math.sqrt(nb);
+  return den === 0 ? 0 : dot / den;
+}
+
+/* -------------------------------- 字面重合 -------------------------------- */
+
+/** 字符 + 字符 bigram 集合。中文无需分词器，实现简单且有效。 */
+export function bigrams(text) {
+  const s = String(text).toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
+  const out = new Set();
+  for (let i = 0; i < s.length; i++) {
+    out.add(s[i]);
+    if (i + 1 < s.length) out.add(s.slice(i, i + 2));
+  }
+  return out;
+}
+
+/** 集合相似度：交集 / sqrt(|A|·|B|) */
+export function bigramSim(a, b) {
+  const A = bigrams(a);
+  const B = bigrams(b);
+  if (!A.size || !B.size) return 0;
+  let inter = 0;
+  for (const x of A) if (B.has(x)) inter++;
+  return inter / Math.sqrt(A.size * B.size);
+}
+
+/* ---------------------------------- 分块 ---------------------------------- */
+
+/**
+ * 硬切：把任意长度的文本切成不超过 size 的片段。
+ * 断点优先落在空白或标点处，找不到就从 size 处直接截断。
+ * 这是最后一道兜底——保证「块长度 ≤ size」这个不变量在任何输入下都成立。
+ */
+function hardSplit(s, size) {
+  const BREAK = /[\s，,、；;：:）)】」』\]\}]/;
+  const MIN_RATIO = 0.6; // 最多回退 40% 找断点，避免切出过短的碎块
+  const out = [];
+  let rest = s;
+  while (rest.length > size) {
+    let cut = size;
+    for (let i = size; i > Math.floor(size * MIN_RATIO); i--) {
+      if (BREAK.test(rest[i - 1])) {
+        cut = i;
+        break;
+      }
+    }
+    out.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) out.push(rest);
+  return out;
+}
+
+/**
+ * 结构感知分块：先按空行切段 → 超长段落按句切 → 硬切兜底 → 再合并并保留重叠。
+ *
+ * 不变量：返回的每一块长度都 ≤ size。
+ * （没有硬切兜底时，无句末标点的长文本会原样成块，实测 5000 字会变成一块。）
+ * @returns {string[]}
+ */
+export function chunkText(text, { size = CONFIG.chunkSize, overlap = CONFIG.chunkOverlap } = {}) {
+  const clean = String(text).replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').trim();
+  if (!clean) return [];
+
+  const paras = clean.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+
+  // 一次切分：过长的段落按句末标点拆开
+  const units = [];
+  for (const p of paras) {
+    if (p.length <= size) {
+      units.push(p);
+      continue;
+    }
+    const sents = p.split(/(?<=[。！？；.!?;])\s*/).filter(Boolean);
+    let buf = '';
+    for (const s of sents) {
+      if (buf && (buf + s).length > size) {
+        units.push(buf.trim());
+        buf = s;
+      } else {
+        buf += s;
+      }
+    }
+    if (buf.trim()) units.push(buf.trim());
+  }
+
+  // 二次兜底：仍超长的单元（无标点长文本、代码块、长列表）硬切
+  const bounded = [];
+  for (const u of units) {
+    if (u.length <= size) bounded.push(u);
+    else bounded.push(...hardSplit(u, size));
+  }
+
+  // 合并过短单元，并保留 overlap 字符的上下文重叠。
+  // 不变量在此处直接保证：cur 永远 ≤ size，不需要事后补救式二次切分。
+  const chunks = [];
+  let cur = '';
+  for (const u of bounded) {
+    // Markdown 标题处强制断块。
+    // 不加这条时，「## 标题 + 说明文字 + 第一条记录」会被合并进同一块，语义被稀释 ——
+    // 实测「198094422 会被压缩成什么」检索时，真正含答案的那块（规则速览）
+    // 反而竞争不过其他块，模型因此回答「资料里没有」。
+    // 结构化文档（规则表、字典、FAQ）都受益于这条。
+    const isHeading = /^#{1,6}\s/.test(u);
+    if (cur && (isHeading || (cur + '\n' + u).length > size)) {
+      chunks.push(cur.trim());
+      // 注意：slice(-0) 等价于 slice(0)，会返回整个字符串。
+      // 必须显式判断 overlap > 0，否则 overlap=0 时重叠量会变成 100%。
+      const tail = overlap > 0 ? cur.slice(-overlap) : '';
+      cur = tail + '\n' + u;
+      // 单元本身接近 size 时（无标点长文本硬切而来）放不下重叠，丢弃重叠以守住不变量
+      if (cur.length > size) cur = u;
+    } else {
+      cur = cur ? `${cur}\n${u}` : u;
+    }
+  }
+  if (cur.trim()) chunks.push(cur.trim());
+
+  return chunks;
+}
+
+/* --------------------------------- 索引 IO -------------------------------- */
+
+export function saveIndex(index, path = CONFIG.indexPathAbs) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(index), 'utf8');
+}
+
+export function loadIndex(path = CONFIG.indexPathAbs) {
+  if (!existsSync(path)) {
+    throw new Error(`索引不存在：${path}\n请先运行：npm run ingest`);
+  }
+  const index = JSON.parse(readFileSync(path, 'utf8'));
+  if (!Array.isArray(index.chunks) || !Array.isArray(index.vectors)) {
+    throw new Error(`索引文件损坏：${path}`);
+  }
+  if (index.chunks.length !== index.vectors.length) {
+    throw new Error(`索引不一致：chunks=${index.chunks.length} vectors=${index.vectors.length}，请重跑 npm run ingest`);
+  }
+  return index;
+}
+
+/* ---------------------------------- 检索 ---------------------------------- */
+
+/**
+ * @returns {{
+ *   hit: boolean, gap: number, baseline: number, topBase: number, useGap: boolean,
+ *   hits: Array<{text,source,title,sem,lex,base,confident}>, total: number
+ * }}
+ */
+export function retrieve({ queryVec, queryText, index, cfg = CONFIG }) {
+  const n = index.chunks.length;
+  const sw = cfg.semanticWeight ?? 0.78;
+  const lw = cfg.lexicalWeight ?? 0.22;
+
+  const rows = new Array(n);
+  // 查询里出现的长数字（告警码、单号、编号）做精确命中加权。
+  //
+  // 为什么必须加：纯语义检索对「精确 ID」天然无力。实测查「siteAlarmCode 198094422
+  // 会被压缩成什么」时，取回的 6 个块全是别的告警码 —— 因为所有
+  // 「告警码 X → 父告警码 Y」的块结构高度同质，向量几乎重合，
+  // 而字面匹配权重只有 0.22，压不过语义噪声。真正含目标 ID 的那块反而被淹没。
+  const queryIds = String(queryText || '').match(/\d{4,}/g) || [];
+  const idBonus = Number(cfg.idBonus ?? 0.15);
+
+  for (let i = 0; i < n; i++) {
+    const text = index.chunks[i].text;
+    const sem = cosine(queryVec, index.vectors[i]);
+    const lex = bigramSim(queryText, text);
+    // base 用于命中判定；sem/lex 保留供排序诊断
+    let base = sem * sw + lex * lw;
+    if (queryIds.length && queryIds.some((id) => text.includes(id))) {
+      base += idBonus;
+    }
+    rows[i] = { idx: i, sem, lex, base, ...index.chunks[i] };
+  }
+  rows.sort((a, b) => b.base - a.base);
+
+  // 基线 = 全库 base 的中位数
+  const sorted = rows.map((r) => r.base).sort((a, b) => b - a);
+  const baseline = n ? sorted[Math.floor(n / 2)] : 0;
+  // 条目过少时中位数不可靠（gap→0，什么都判不中），退化为纯绝对阈值
+  const useGap = n >= 4;
+
+  const top = rows[0] ?? null;
+  const gap = top ? top.base - baseline : 0;
+  const hit = top
+    ? useGap
+      ? top.base >= cfg.minAbs && gap >= cfg.minGap
+      : top.base >= cfg.minAbs
+    : false;
+
+  const hits = rows.slice(0, cfg.topK).map((r) => ({
+    ...r,
+    // 逐条传递命中标记，调用方据此决定能否作为依据喂给模型
+    confident: useGap ? r.base >= cfg.minAbs && r.base - baseline >= cfg.minGap : r.base >= cfg.minAbs,
+  }));
+
+  return { hit, gap, baseline, topBase: top?.base ?? 0, useGap, hits, total: n };
+}
+
+/* --------------------------------- 生成回答 -------------------------------- */
+
+/**
+ * 追加在 systemPrompt 末尾的语言要求。
+ *
+ * 为什么不只靠 systemPrompt 里那句「用与提问相同的语言回答」：
+ * systemPrompt 本身是**中文写的**，模型容易被它带偏成中文输出。
+ * 把「本次请用英文」放到消息序列**最后**（离生成最近）最不容易被忽略 ——
+ * 这是两道保险，不是重复。
+ */
+const LANG_HINT = {
+  zh: '\n\n本次提问是中文，请用中文回答。',
+  en: '\n\nThis question is in English — reply in English, keeping the same concise style.',
+};
+
+/** 组装喂给模型的消息；只使用 confident 的条目作为依据 */
+export function buildMessages(question, hits, lang = 'zh') {
+  const usable = hits.filter((h) => h.confident);
+  const context = usable
+    .map((h, i) => `【${i + 1}】${h.text}`)
+    .join('\n\n');
+  return [
+    { role: 'system', content: CONFIG.systemPrompt + (LANG_HINT[lang] || LANG_HINT.zh) },
+    { role: 'user', content: `资料：\n${context}\n\n问题：${question}` },
+  ];
+}
+
+/**
+ * 二跳检索：LLM 改写查询 → 重新嵌入检索 → 命中则直接生成回答。
+ *
+ * 改写目标不是「优化问题」，而是**换掉问法的皮**：用户问「how is a TT created
+ * from an alarm」，文档里写的是「告警驱动创建 Trouble Ticket（autoCreateTT）」——
+ * 原句向量召回的是告警码字典，改写后的句子才对得上链路文档。
+ * 中英各生成一条，两条都查，取命中的最高分；都不中就放弃（宁可承认不知道）。
+ *
+ * 任何一步失败都返回 null，由调用方走原有兜底 —— 二跳是增强，不是依赖。
+ */
+const REWRITE_PROMPT =
+  '你是一个检索查询改写器。把用户的提问改写成知识库文档中「可能会出现的表述」。\n' +
+  '要求：陈述式、带领域术语、不要口语；给出中文和英文各一条；只输出两行，格式：\n' +
+  'ZH: <中文表述>\nEN: <English paraphrase>';
+
+async function retryWithRewrite(question, index, cfg, lang, onDebug) {
+  try {
+    const { content } = await chat(
+      [
+        { role: 'system', content: REWRITE_PROMPT },
+        { role: 'user', content: String(question || '').slice(0, 500) },
+      ],
+      { maxTokens: 128, temperature: 0 }
+    );
+    const queries = String(content || '')
+      .split('\n')
+      .map((l) => l.replace(/^(ZH|EN)\s*[:：]\s*/i, '').trim())
+      .filter((l) => l && l.length >= 4)
+      .slice(0, 2);
+    if (!queries.length) return null;
+
+    let best = null;
+    for (const q of queries) {
+      const vec = await embedOne(q);
+      const r = retrieve({ queryVec: vec, queryText: q, index, cfg });
+      onDebug?.({ stage: 'rewrite-retry', rewritten: q, hit: r.hit, topBase: +r.topBase.toFixed(4) });
+      if (r.hit && (!best || r.topBase > best.retrieval.topBase)) {
+        best = { query: q, retrieval: r };
+      }
+    }
+    if (!best) return null;
+
+    const { content: answerText, stats } = await chat(
+      buildMessages(best.query, best.retrieval.hits, lang)
+    );
+    return {
+      answered: true,
+      text: answerText,
+      retrieval: best.retrieval,
+      stats: { ...stats, rewritten: best.query, totalMs: undefined },
+    };
+  } catch {
+    // 改写/检索/生成的任何失败都不致命 —— 回到固定兜底文案
+    return null;
+  }
+}
+
+/**
+ * 完整问答链路：嵌入 → 检索 → 命中判定 → 生成。
+ * @returns {Promise<{answered:boolean,text:string,retrieval:object,stats?:object}>}
+ */
+export async function answer(question, index, { cfg = CONFIG, onDebug, lang = 'zh' } = {}) {
+  const t0 = Date.now();
+  const queryVec = await embedOne(question);
+  const tEmbed = Date.now() - t0;
+
+  const retrieval = retrieve({ queryVec, queryText: question, index, cfg });
+  onDebug?.({
+    stage: 'retrieve',
+    embedMs: tEmbed,
+    topBase: +retrieval.topBase.toFixed(4),
+    baseline: +retrieval.baseline.toFixed(4),
+    gap: +retrieval.gap.toFixed(4),
+    useGap: retrieval.useGap,
+    hit: retrieval.hit,
+    candidates: retrieval.hits.map((h) => ({
+      base: +h.base.toFixed(4),
+      sem: +h.sem.toFixed(4),
+      lex: +h.lex.toFixed(4),
+      source: h.source,
+    })),
+  });
+
+  if (!retrieval.hit) {
+    // ── 二跳：未命中时让模型改写提问再检索一次 ──
+    // 用户口语（尤其英文问法、复合句）与文档标题差异大时，向量会偏到别的块。
+    // 标准补救：把「用户怎么问」改写成「文档里怎么写」再查。只重试一次，
+    // 改写失败或仍不命中 → 维持固定兜底文案（不经模型的回复按语言取）。
+    if (cfg.rewriteRetry !== false) {
+      const retried = await retryWithRewrite(question, index, cfg, lang, onDebug);
+      if (retried) return retried;
+    }
+    return {
+      answered: false,
+      text: pickText(lang, cfg.notFoundText, cfg.notFoundTextEn),
+      retrieval,
+      stats: { totalMs: Date.now() - t0 },
+    };
+  }
+
+  const { content, stats } = await chat(buildMessages(question, retrieval.hits, lang));
+
+  // ── 生成后检测 ──
+  // 模型守着「只依据资料」的规矩：召回的块答不了问题时，它会明说「资料里没有」。
+  // 这类回答说明检索器判了命中但召回错了块 —— 同样给一次改写二跳的机会。
+  // 误杀代价很低：二跳不中就原回答照发，多花的只是一次改写调用。
+  if (cfg.rewriteRetry !== false && looksLikeMiss(content)) {
+    const retried = await retryWithRewrite(question, index, cfg, lang, onDebug);
+    if (retried) return retried;
+  }
+
+  return {
+    answered: true,
+    text: content,
+    retrieval,
+    stats: { ...stats, embedMs: tEmbed, totalMs: Date.now() - t0 },
+  };
+}
+
+/** 生成回答里的「资料没覆盖」特征（中英双语）。限长度防误杀长回答。 */
+const MISS_RE =
+  /(没有找到|没找到|没有依据|未提及|未涵盖|没有提及|无法回答|无法确定|资料[^。；]{0,8}(没有|未)|(does|do|did)\s+n[o']?t\s+(explain|cover|mention|contain|address|include)|n[o']t\s+(covered|explained|mentioned|addressed)|not (explained|covered|mentioned)|no (information|details) (about|on)|couldn'?t find|not available in)/i;
+
+function looksLikeMiss(text) {
+  const s = String(text || '');
+  return s.length > 0 && s.length < 400 && MISS_RE.test(s);
+}

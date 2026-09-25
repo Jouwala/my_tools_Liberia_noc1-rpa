@@ -43,7 +43,7 @@ export type AuthStatus = 'loading' | 'anon' | 'authed';
 
 const TOKEN_KEY = 'liberia_noc_auth_v1';
 
-/** 免登录模式下的占位身份 id（与 server/auth.ts 的 DEV_ADMIN 对齐） */
+/** 免登录模式下的占位身份 id（与 server/auth/guard.ts 的 DEV_ADMIN 对齐） */
 const DEV_USER_ID = 'dev-admin';
 
 /** 鉴权模式轮询间隔：管理员在页面上切换开关后，其他标签页最多这么久跟上 */

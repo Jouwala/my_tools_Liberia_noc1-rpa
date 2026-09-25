@@ -145,11 +145,67 @@ export interface TopologyLink {
   lng_a: number
   lat_b: number
   lng_b: number
+  /** 链路名（kml_mw_links.name，如 "Baypolu-Weala"）；旧 topology 表无此字段 */
+  name?: string
+  /** 线色，来自 kml_mw_links.color（4 色：红/黄/蓝/绿）。2026-09-25 起数据源换为 kml_mw_links */
+  color?: string
 }
 
 export type LegendKey = 'tt' | 'wo' | 'vip' | 'normal' | 'rt_alarm' | 'rt_alarm_overdue' | 'rt_alarm_ontime' | 'his_alarm'
 export type LayerKey = 'rt_alarm' | 'his_alarm' | 'tt' | 'wo'
 export type TimePreset = 'all' | '7d' | '30d' | '90d' | '180d' | 'custom'
 
+/** 边界蒙层模式：不显示 / Voronoi 大区 / 真实县界（三选一，见 GISMap.tsx） */
+export type BoundaryMode = 'none' | 'region' | 'county'
+
+/**
+ * 县（County）真实行政边界，来自 /gis/county-boundaries。
+ * - name    附件 GeoJSON 里的原始县名（如 "Rivercess"）
+ * - db_name 与站点表 province_county 对齐后的值（如 "River Cess"），点击下钻时用它筛选
+ * - polygons 已是 [lat, lng]（后端生成时已交换），可直接交给 Leaflet
+ */
+export interface CountyBoundary {
+  name: string
+  db_name: string
+  color: string
+  site_count: number
+  polygons: [number, number][][]
+}
+
 // i18n 翻译函数类型
 export type TFn = (key: string, params?: Record<string, string | number>) => string
+
+/* 站点分类配色 —— GIS 页与下钻抽屉的**唯一**颜色真相源。
+   放在 types.ts 的原因：GISMap.tsx 与 SiteDrilldownDrawer.tsx 都要用，
+   若定义在 GISMap.tsx 里再由抽屉 import，会形成 GISMap → 抽屉 → GISMap 的循环依赖。
+
+   ⚠ 值必须是**十六进制实值**，不能用 WH.xxx：这些颜色最终喂给 Leaflet 的
+   SVG/Canvas 渲染（CircleMarker 的 fillColor），canvas 解析不了 CSS 变量。
+   与 AGENTS.md 三.3「ECharts 用 DARK/LIGHT 实值」是同一条约束的同类场景。
+
+   撞色修正（2026-09-25，用户反馈）：
+     原 his_alarm=#ffa94d（橙）与 rt_alarm_ontime=#ffd400（黄）在深色底图上
+     肉眼几乎分不出，且二者分属「历史/实时」两个互斥通道，同色会误导判断。
+     现把 his_alarm 改为**灰色系 #8b95a5**：灰色天然表达「历史/已归档」的语义，
+     与所有高饱和的实时色（红/黄）在明度与饱和度两个维度上都拉开距离。
+     注意**不要**改用 #94a3b8 —— 那是 normal 的灰，会和「无告警站点」混淆。 */
+export const SITE_COLORS = {
+  rt_alarm: '#ff6b6b',          // 实时告警（全量模式下的一档）
+  rt_alarm_overdue: '#ff1e1e',  // 实时告警·已超时（大红）
+  rt_alarm_ontime: '#ffd400',   // 实时告警·未超时（黄）
+  his_alarm: '#8b95a5',         // 历史告警（灰 —— 见上方撞色说明）
+  tt: '#258cff',
+  wo: '#51cf66',
+  vip: '#a99cff',
+  normal: '#94a3b8',
+} as const
+
+/* MW 链路线色图例 —— 与 backend/services/mw_ume/mw_links_store.py 的
+   STYLE_COLORS 一一对应（KML 样式名 → 色值），是那 4 个颜色的前端副本。
+   改 KML 样式色时两处要一起改（后端 `STYLE_COLORS` 已声明同源约束）。 */
+export const KML_LINK_COLORS = [
+  { color: '#ff3b30', labelKey: 'gis.topologyColorRed' },
+  { color: '#ffcc00', labelKey: 'gis.topologyColorYellow' },
+  { color: '#0a84ff', labelKey: 'gis.topologyColorBlue' },
+  { color: '#34c759', labelKey: 'gis.topologyColorGreen' },
+] as const

@@ -24,7 +24,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import type { RegistrationRequest, StoredUser } from './auth';
+// 直接指向 auth/types，不经 auth 的 barrel（index.ts）：
+// store.ts → authDb.ts → auth/index.ts → store.ts 会构成循环依赖，
+// 故持久化层只依赖纯类型文件（2026-09-25 鉴权模块拆分时修正）。
+import type { RegistrationRequest, StoredUser } from './auth/types';
 
 const require_ = createRequire(import.meta.url);
 

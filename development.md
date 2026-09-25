@@ -87,6 +87,24 @@ git check-ignore -v Task\_fe_dist\assets\index-xxxx.js
 git ls-files -i -c --exclude-standard
 # ④ 门户专用：改忽略规则时，.gitignore 与 vite.config.ts 的 server.watch.ignored
 #    是同一套判断的两个副本，必须一起改
+# ⑤ 快照有没有混进库（应输出空；规则见根 .gitignore 的「备份文件 / 手工快照」段）
+git ls-files -- ':(glob)**/*_bak_*' ':(glob)**/*.bak' ':(glob)**/*.bak.*' ':(glob)**/*.bak_*' ':(glob)**/*.bak-*'
+#    ⚠️ 陷阱：git check-ignore 对**已被跟踪**的文件一律返回「未忽略」(exit 1)，
+#    因为忽略规则本来就不作用于已入库的文件。所以「规则到底写对没有」必须这样问，
+#    否则会把写对的规则误判成写错（2026-09-25 实测踩到）：
+git check-ignore -v --no-index -- Task\my_app\backend\main.py_bak_20260913_authswitch
+# ⑥ 磁盘侧的探针残留（**git 完全看不见它们** —— 规则已生效，所以 ①③⑤ 都是空的，
+#    但 `dir` 照样一屏乱码。只能直接数文件）：
+Get-ChildItem -LiteralPath 'liberia-noc_soc-数据看板统一门户' -Recurse -File |
+  Where-Object { $_.Name -match '^_|^\.?tmp_|^temp_|^seg\d.*\.txt$|^(listing|out)\.txt$' } |
+  Where-Object { $_.FullName -notmatch '\\(node_modules|dist|TMP|\.git)\\' -and
+                 $_.FullName -notmatch '\\(src|server)\\' } | Measure-Object
+#    2026-09-25 归档后基线 = **0**（220 个已整体挪到 `_quarantine_20260925\portal_probes\`，
+#    逐文件明细见该目录下 `_MANIFEST.tsv`）。非 0 就是本次会话又落了新探针，按第四节第 7 条清掉。
+#    ⚠️ 上面这段粘进交互控制台可以直接跑；**存成 .ps1 就不行** —— 路径里有中文，
+#    本机 PowerShell 5.1 把无 BOM 的 UTF-8 脚本按 ANSI 读，中文路径会碎成乱码并报
+#    Cannot find path（2026-09-25 实测）。存脚本时先 ASCII 通配定位目录：
+#      Get-ChildItem -LiteralPath 'D:\01_RPA' -Directory | ? { $_.Name -like 'liberia-noc_soc*' }
 ```
 
 可复用的诊断脚本（**不删**，按第四节第 7 条记录用途；都在 `TMP\` 下，不入库）：
@@ -95,6 +113,13 @@ git ls-files -i -c --exclude-standard
 | --- | --- |
 | `Task\my_app\TMP\_audit_fe_dist.mjs` | 只读审计前端构建产物：从 HTML 入口做传递可达性，算出「在用的 chunk」与「历次构建遗留的不可达 chunk」，按 mtime 月龄分桶。判据经交叉验证：最新一次构建产出的文件数与可达集大小一致。**不写不删不移**。用法：`node Task\my_app\TMP\_audit_fe_dist.mjs [别的dist路径]` |
 | `TMP\_mk_untrack_list.mjs` | 从「已跟踪但被忽略规则命中」的集合里按**白名单**挑出可安全脱离跟踪的文件，硬排除真源码（`Task\data_base\`、门户 `src\data\` 会被历史规则 `data_base/`、`*/data/` 误命中）。输出 NUL 清单 `TMP\_tountrack.nul` 供 `git rm --cached --pathspec-file-nul` 使用 |
+| 门户 `TMP\_plan_snapshot_archive.mjs` | **手工快照配额执行器**（`AGENTS.md` 第四节第 7 条「同母本只留最近 3 份」的机器版）。按 `bak` 命名变体收磁盘快照，用**文件名里的日期**（不是 mtime，它会被复制/移动改写）归组排序，超出 3 份的用同盘 `rename` 挪进隔离区。默认 dry-run，`--apply` 才动；动之前逐条比对 `git ls-files` 并报出**仍被跟踪**的那几个（必须先 `git rm --cached`，否则冒出工作区删除），并把「`bak` 前无分隔符」的不规则命名（如 `portal.js.qcbak`）单独告警而不是静默放行。**不碰 `src\`、`server\`、`TMP\`、`node_modules\`、`dist\`** |
+| 门户 `TMP\v1_render_test.cjs` | `/v1/olbrportal/` 的**渲染回归**：用 DOM 桩跑真实 `olbr.js`，断言两排卡片数（QC 6 张 / CXO 6 张 = 3 富 + 3 可用率）、富卡片结构、走势点数、可用率页脚三格、`is-nospark` 2/4 拆分、`>视频流量<` 不得回归、以及**不再请求** `/api/vmax-cxo-daily/grid`。夹具 `TMP\{alarm_overview,catalog,olib_overview}.json`。结果写 `TMP\v1_out.txt`，失败 exit 1。用法：`node TMP\v1_render_test.cjs` |
+| 门户 `TMP\v1_interact_test.cjs` | `/v1/olbrportal/` 的**交互回归**：KPI 重试按钮、六个视图卡展开、Escalation Matrix 展开与取消选中。结果写 `TMP\v1_interact_out.txt`，失败 exit 1 |
+| 门户 `TMP\probe_rich_cards.py` | 浏览器实测：把 CXO 富卡片渲染出的大数字/徽章/极值**逐个与 `/api/olib-soc-dashboard/overview` 的返回核对**，并记录亮暗两主题的列数与卡片宽度。写 `TMP\_rich_cards.json`。需要 Playwright（`Python312`） |
+| 门户 `TMP\probe_shot.py` | 给任意区块截图（亮/暗各一张）做人工目视比对。用法：`python TMP\probe_shot.py [选择器] [文件名前缀] [--click s1,s2] [--lang zh\|en]`，默认 `#kpi` → `TMP\_shot_<theme>.png`。例：`python TMP\probe_shot.py "#band" _band`；截登录闸门要先点开：`python TMP\probe_shot.py "#gate" _gate --click "#umBtn,#gmreq"`。脚本会先清掉门户 token，否则已登录状态下截不到闸门 |
+| 门户 `TMP\v1_auth_test.py` | `/v1/olbrportal/` 的**鉴权链路回归**：入口可达（`local` 占位身份下 `#umBtn` 必须可见）→ 点击唤起闸门 → 取消退回 → 登录/注册两态切换 → 本地校验（不足 8 位 / 两次不一致，且**不得发请求**）→ 注册成功（校验 `{username,password,note}` 载荷与 `ar.ok` 文案）→ 四种错误码文案映射（`username_taken`/`request_pending`/`too_many_requests`/断网）→ 登录成功（token 落共享键、闸门收起、用户管理面板自动打开）。结果写 `TMP\_auth_out.json`，失败 exit 1。**关键：全程用 Playwright 路由拦截替掉后端** —— 真发一次注册申请会往 `auth-data\portal-auth.db` 写一行真实待审批记录，只有管理员能删，所以这个测试刻意不碰真库。用法：`python TMP\v1_auth_test.py` |
+| 门户 `TMP\probe_sweep.py` | 地图/报告文件那一行的列宽与 Leaflet 像素高度核对（`--maprow-h` 与 `GISMap.tsx` 的 `zoom=8` 绑定，改 zoom 要重跑） |
 
 ### B. 门户（`liberia-noc_soc-数据看板统一门户\`）
 
@@ -138,6 +163,8 @@ git ls-files -i -c --exclude-standard
 | 数字取不到时显示 0 | 运维误判为"已清空" | 显示 `—` |
 | 用 interval 累加做定时刷新 | 进页面时机不对要等一整个周期 | 用墙上时钟对齐网格（见 `architecture.md` 流 2） |
 | 探针脚本写在仓库根 | 误入库（已有 98 个的历史教训） | 放 `TMP\` |
+| 探针写在门户 `TMP\` 里且带语法错 | **`npm run lint` 直接挂**：根 `tsconfig.json` 没有 `include` 且 `allowJs: true`，tsc 默认收整个项目目录，`exclude` 原本只有 `node_modules/dist/scripts` —— `TMP\` 因此在类型检查范围内（实测 `TMP/probe_color_inventory.cjs` 自 9 月 17 日起就打挂了 lint） | 已在 `exclude` 补 `TMP`/`log`/`auth-data`（2026-09-25）。跑 lint 报错时先确认报错文件属不属于自己这次的改动范围，别顺手改别人的在途代码 |
+| 快照用 `_bak_` 以外的写法命名 | **悄悄入库**。`.gitignore` 原本只有 `*.bak` / `*.bak_*` / `*_bak_*`，实测门户 134 个快照有 5 种写法（`_bak_` 99 / `.bak_` 31 / `.bak-` 2 / `.bak.` 1 / 裸后缀 `qcbak` 1），最后那种连第 ⑤ 条自检的 glob 也一起漏掉，`portal.js.qcbak` 315KB 在 HEAD 里躺到 2026-09-25 | 新快照一律 `_bak_<日期>_<说明>`；命名规则变了要**同时**改 `.gitignore` 和 `vite.config.ts` 的 `server.watch.ignored` |
 | 把 db/log 加进版本库 | 956M / 152M 进 git | 已被 `.gitignore` 忽略，别绕开 |
 
 ## 六、相关文档

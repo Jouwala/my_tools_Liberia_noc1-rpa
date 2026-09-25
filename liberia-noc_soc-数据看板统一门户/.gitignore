@@ -29,7 +29,16 @@ auth-data/
 _*
 # 反向豁免：`_*` 是任意层级匹配的，不豁免的话将来有人在源码目录里建
 # `_shared.ts` 会被 git 静默忽略掉 —— 那是比噪声更糟的失败模式。
+#
+# 2026-09-25 修正：原来只写了 `!src/_*` / `!server/_*`，但 gitignore 的 `_*`
+# 是**递归**匹配、而 `!src/_*` 只豁免 `src/` 的**直接子项** —— 两者不对称，
+# 于是嵌套路径照样被忽略。实测 `src/pages/_TemplatePage.tsx` 命中 L29 的
+# `_*` 而被忽略（git check-ignore 可复现），正是下面想防的那个失败模式，
+# 只是没防住嵌套层级。改用 `**` 递归豁免。
+# 与 vite.config.ts 的 server.watch.ignored 是一对，改一个必须改另一个。
+!src/**/_*
 !src/_*
+!server/**/_*
 !server/_*
 .tmp_*
 tmp_*
@@ -45,6 +54,13 @@ out.txt
 *.bak
 *.bak_*
 *_bak_*
+# 2026-09-25 补：快照命名实测有 5 种分隔写法，上面三条只盖住了两种。
+# 磁盘 134 个快照里 `_bak_` 99 / `.bak_` 31 / `.bak-` 2 / `.bak.` 1 / 裸后缀 1，
+# 漏掉的那 4 个里 `MsPortal/assets/portal.js.qcbak` 真的因此入了库
+# （HEAD 里躺到 2026-09-25 才发现，已 git rm --cached）。
+*.bak-*
+*.bak.*
+*bak
 
 # 运行日志与构建缓存
 log/

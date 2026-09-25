@@ -1,0 +1,210 @@
+#!/usr/bin/env node
+/**
+ * 入口：加载索引 → 启动 WhatsApp → 群内 @提及 触发知识库问答。
+ *
+ *   npm start
+ *   npm start -- --debug      打印每次检索的诊断信息
+ */
+import { CONFIG, describeConfig } from './config.js';
+import { loadIndex } from './rag.js';
+import { routeAnswer } from './answer.js';
+import { healthCheck, warmup, loadedModels } from './ollama.js';
+import { validateProvider, providerInfo, pingProvider } from './llm.js';
+import { startWhatsApp, stopWhatsApp } from './whatsapp.js';
+import { ttAvailable } from './tt.js';
+import { LOADED_MTIME, PROCESS_STARTED_AT, fmtTime, isStale, uptimeText } from './buildinfo.js';
+
+const DEBUG = process.argv.includes('--debug') || process.env.DEBUG_RAG === '1';
+
+/* ---------------------------- 优雅退出与兜底 ---------------------------- */
+
+// 必须优雅关闭：直接 Ctrl+C 会让 Baileys 的凭据写入中断，可能导致下次要重新扫码
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, async () => {
+    await stopWhatsApp(`收到 ${sig}`);
+    process.exit(0);
+  });
+}
+
+// 不让单个未捕获的 Promise 异常掀翻整个进程
+process.on('unhandledRejection', (err) => {
+  console.error(`[未处理的 Promise 异常] ${err?.stack || err}`);
+});
+process.on('uncaughtException', (err) => {
+  console.error(`[未捕获异常] ${err?.stack || err}`);
+});
+
+async function main() {
+  console.log('=== WhatsApp 知识库助手 ===\n');
+  for (const [k, v] of Object.entries(describeConfig())) {
+    console.log(`  ${k.padEnd(10, '　')}: ${v}`);
+  }
+  console.log();
+
+  // 1. provider 配置自检（缺 key 就在这里失败，不要等到第一条消息）
+  const v = validateProvider();
+  if (!v.ok) {
+    console.error(`✗ ${v.message}\n`);
+    process.exit(1);
+  }
+  const info = providerInfo();
+  if (info.provider === 'openai') {
+    console.log(`✓ 对话 provider：openai 兼容接口（密钥来源：${info.keySource || '未知'}）`);
+    const p = await pingProvider();
+    if (p.ok && !p.warning) {
+      console.log(`  ✓ 连通性正常：${p.message}`);
+    } else if (p.ok && p.warning) {
+      console.log('  ! 连通性正常但模型输出异常：');
+      for (const line of String(p.message).split('\n')) console.log(`    ${line}`);
+    } else {
+      // 刻意不终止启动。
+      // ping 只是"最好能过"的探测，不是硬门槛：它用的 token 预算比真实问答小，
+      // 失败不代表问答一定失败。而且群里先用 ping/help 就能验证传输层，
+      // 没必要因为一次探测把用户完全卡死 —— 那会让人连排查入口都进不去。
+      console.log('  ! 连通性探测未通过 —— 继续启动，但云端问答可能失败');
+      for (const line of String(p.message).split('\n')) console.log(`    ${line}`);
+      console.log('    排查：npm run diag   （打印云端返回的完整响应结构）');
+    }
+  } else {
+    console.log('✓ 对话 provider：本地 Ollama');
+  }
+
+  // 2. 本地 Ollama 自检（嵌入始终在本地）
+  try {
+    const h = await healthCheck();
+    if (!h.embedModelPresent || !h.chatModelPresent) {
+      console.error('✗ Ollama 缺少所需模型：');
+      if (!h.embedModelPresent) console.error(`   ollama pull ${CONFIG.embedModel}`);
+      if (!h.chatModelPresent) console.error(`   ollama pull ${CONFIG.chatModel}`);
+      process.exit(1);
+    }
+    console.log(`✓ Ollama 就绪（嵌入模型 ${CONFIG.embedModel}）`);
+  } catch (err) {
+    console.error(`✗ ${err.message}`);
+    process.exit(1);
+  }
+
+  // 3. 预热本地模型，并检查常驻情况（直接决定每次回答的延迟）
+  try {
+    const w = await warmup();
+    const gb = (b) => (b / 1024 ** 3).toFixed(2);
+    if (w.bothResident) {
+      console.log(
+        w.chatLocal
+          ? `✓ 本地两个模型均已常驻（合计 ${gb(w.residentBytes)} GB），问答无需重载`
+          : `✓ 对话走云端，本地仅需嵌入模型（${gb(w.residentBytes)} GB），无模型互挤问题`
+      );
+    } else {
+      console.log('! 本地两个模型无法同时常驻 —— 每次提问都要重载模型，实测每次多花 3~5 秒');
+      console.log(`  已常驻：${w.loaded.map((m) => m.name).join(', ') || '（无）'}`);
+      console.log('  修复：给 Ollama 服务设置环境变量 OLLAMA_MAX_LOADED_MODELS=2 后重启 Ollama');
+    }
+  } catch (err) {
+    console.log(`! 预热失败（不影响运行）：${err.message}`);
+  }
+  console.log();
+
+  // 4. 索引
+  const index = loadIndex();
+  console.log(
+    `✓ 索引就绪：${index.meta.chunks} 块 / ${index.meta.files} 个文件` +
+      `（${index.meta.embedModel}, ${index.meta.dim}维, 构建于 ${index.meta.builtAt}）`
+  );
+
+  // TT 单分析：实时查 my_app 工单库，与知识库是两条独立通道
+  if (ttAvailable()) {
+    console.log('✓ TT 单分析就绪：消息里带 TT 单号（如 TT202609150073）会实时查工单库\n');
+  } else {
+    console.log('! TT 单分析不可用（缺 scripts/tt-analyze.py 或 Python 解释器），TT 类问题将走知识库\n');
+  }
+
+  // 回复语言：按**提问语言**自动切换（见 src/lang.js）。
+  // 打出来是为了排障 —— 「英文提问收到中文回复」要么是这里没生效，
+  // 要么是进程在跑旧代码（见下面的代码指纹）。
+  console.log('✓ 回复语言：中 / 英自动适配（按提问语言判定）');
+  // 代码指纹：磁盘上源文件的最大修改时间。
+  // 下次怀疑「改了没效果」时，@机器人发 ping，对比那里的指纹即可 ——
+  // 若那里的指纹比这个进程的启动时间新，说明改完没重启。
+  console.log(`  代码指纹：${fmtTime(LOADED_MTIME)}（本进程启动于 ${fmtTime(PROCESS_STARTED_AT)}）\n`);
+
+  // 5. 启动
+  // 内置命令：不查知识库，用于确认「@到了 + 能回消息」这条链路是通的。
+  // 排查顺序永远是先 ping 后提问：ping 有回应说明传输层没问题，故障必在检索侧。
+  const builtins = {
+    ping: async () => {
+      const w = await loadedModels().catch(() => null);
+      const lines = [
+        'pong ✅ 机器人在线',
+        `知识库：${index.meta.chunks} 块 / ${index.meta.files} 个文件`,
+        `对话模型：[${info.provider}] ${info.model}`,
+        `嵌入模型：${CONFIG.embedModel}（本地）`,
+        '回复语言：中 / 英自动适配',
+      ];
+      if (info.provider === 'openai') {
+        lines.push('对话走云端，本地无模型互挤，响应通常 1–3 秒');
+      } else if (w) {
+        lines.push(
+          w.bothResident ? '本地模型常驻：两个都在内存，响应约 1 秒' : '本地模型常驻：仅 1 个，响应约 8–12 秒'
+        );
+      }
+      // 运行时长 + 代码新鲜度。
+      // 「改了代码没生效」是这里最容易踩的坑（改文件 + 重启才生效，忘了重启
+      // 不报任何错，只是回复内容是旧的）。所以把判断直接放到 ping 里 ——
+      // 群里 @ 一下就知道，不用登机器翻日志。
+      lines.push(`已运行：${uptimeText()}（启动于 ${fmtTime(PROCESS_STARTED_AT)}）`);
+      if (isStale()) {
+        lines.push('⚠️ 磁盘上的代码比本进程新 —— 现在跑的是旧代码，重启后新改动才生效');
+      } else {
+        lines.push('代码版本：最新（与磁盘一致）');
+      }
+      return lines.join('\n');
+    },
+    help: async () =>
+      [
+        '直接 @我 + 问题就行，我会在你的知识库里找答案。',
+        '找得到就直接答；找不到我会明说没有依据，不会编。',
+        '',
+        '两类问题走的是不同通道：',
+        '  · 带 TT 单号（如 TT202609150073）→ 实时查工单库，给出级别判定与命中规则',
+        '  · 其他（告警压缩、级别规则、告警码含义）→ 查知识库',
+        '内置命令：ping（测在线）、help（看这段）',
+      ].join('\n'),
+  };
+
+  await startWhatsApp({
+    builtins,
+    onQuestion: async (question, { lang } = {}) => {
+      const t0 = Date.now();
+      const result = await routeAnswer(question, index, {
+        // 语言由接入层按提问原文判定后传下来（见 whatsapp.js / lang.js），
+        // 这里只负责转发 —— 避免两处各判一次、口径还可能不一致。
+        lang,
+        onRoute: ({ channel, ttNo, ms, ok }) => {
+          if (channel === 'tt') {
+            console.log(`[TT分析] ${ttNo}｜${ms}ms｜${ok ? '成功' : '失败'}`);
+          }
+        },
+        onDebug: DEBUG
+          ? (d) => {
+              console.log(`\n--- 检索诊断 ---`);
+              console.log(`  嵌入耗时 : ${d.embedMs}ms`);
+              console.log(`  top1     : ${d.topBase}`);
+              console.log(`  基线(中位): ${d.baseline}`);
+              console.log(`  gap      : ${d.gap}  (阈值 ${CONFIG.minGap}, 使用gap=${d.useGap})`);
+              console.log(`  判定     : ${d.hit ? '命中' : '未命中'}`);
+              for (const c of d.candidates) {
+                console.log(`    · base=${c.base} sem=${c.sem} lex=${c.lex}  ${c.source}`);
+              }
+            }
+          : undefined,
+      });
+      if (DEBUG) console.log(`  总耗时   : ${Date.now() - t0}ms\n`);
+      return result;
+    },
+  });
+}
+
+main().catch((err) => {
+  console.error(`\n启动失败：${err.message}`);
+  process.exit(1);
+});

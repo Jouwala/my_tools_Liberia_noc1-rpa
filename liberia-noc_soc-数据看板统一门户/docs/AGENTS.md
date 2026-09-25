@@ -36,6 +36,11 @@
 
 另有 `.tmp_*.txt` / `_*.txt` / `_qc*.txt` / `tmp_*.txt` 大量过程产物散落在根与 `MsPortal\`——**不要**新增这类文件到仓库，探针请放 `TMP\`。
 
+**整洁度有机器守卫（2026-09-25 起）**：工作区根 `.git\hooks\pre-commit` 会在提交时自动跑
+`scripts\check-cleanliness.mjs audit`，探针/快照/日志被 git 跟踪就拦下提交。手工命令是
+`npm run check:clean`（体检版本库）与 `npm run tmp:clean` / `tmp:clean:apply`（清理 TMP 积压）。
+详见 `development.md` 第二节「仓库整洁度」。
+
 ## 四、关键文件地图
 
 | 文件 | 作用 |
@@ -46,7 +51,11 @@
 | `src\components\Navbar.tsx` | 顶栏，所有功能入口（桌面 + 移动两套） |
 | `src\components\DynamicIcon.tsx` | 按名字符串渲染 lucide 图标（找不到回退 `LayoutGrid`） |
 | `src\data\initialDashboards.ts`（44KB） | 初始看板数据 |
-| `server\` | 门户后端：`auth.ts`、`authDb.ts`、`authSwitch.ts` |
+| `server\auth\` | **门户鉴权模块**（2026-09-25 由单文件 `auth.ts` 928 行拆分）：`types.ts` 类型与纯函数、`password.ts` scrypt、`store.ts` AuthStore、`guard.ts` **鉴权决策唯一入口**、`routes.ts` HTTP 分发、`index.ts` 对外出口 |
+| `server\authDb.ts` | 鉴权持久化（SQLite/JSON 双模），只依赖 `auth/types`（避免循环依赖） |
+| `server\authSwitch.ts` | 鉴权总开关（与 my_app 共享 `auth-switch.json`） |
+| `src\components\RequireAuth.tsx` | **新页面鉴权门**：`<RequireAuth>` / `<RequireAuth admin>` |
+| `src\pages\_TemplatePage.tsx` | **新页面接入模板**（照抄即可）；下划线前缀文件是真源码，**不得被忽略规则吞掉** |
 | `MsPortal\index.html`（48KB） | 早期复刻版单页（QC 面板等大量内联实现） |
 | `vite.config.ts` | 构建配置（含 `base`、代理、门户后端挂载） |
 

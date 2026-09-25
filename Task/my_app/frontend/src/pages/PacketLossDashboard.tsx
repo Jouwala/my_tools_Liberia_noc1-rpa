@@ -470,7 +470,11 @@ export default function PacketLossDashboard() {
       edges.push({
         positions: [[l.lat_a, l.lng_a], [l.lat_b, l.lng_b]],
         color: gwColor(gw),
-        isHub: !!l.is_hub_link,
+        /* 2026-09-25 数据源换成 kml_mw_links 后，后端不再提供 a_is_hub/b_is_hub，
+           is_hub_link 恒为 false —— 若继续用它做线宽加粗，所有链路会一起变细。
+           改用 KML 原作者的线色语义：红/黄是重点链路（少量、需强调），
+           蓝/绿是常规链路（量大）。这样既保留加粗效果，又与 GIS 页的线色语义一致。 */
+        isHub: l.color === '#ff3b30' || l.color === '#ffcc00',
       })
     }
     return { edges, gateways: [...gwSeen] }

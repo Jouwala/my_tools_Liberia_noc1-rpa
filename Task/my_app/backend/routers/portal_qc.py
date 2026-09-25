@@ -19,6 +19,10 @@ $portal_ref 的 eflow 规则，故不会被误转给门户上游）。
 - spms：inband_details / outband_details 的未关闭单，closed 词表与
   get_sp_table._status_breakdown 一致；此外剔除 Status = WaitingForUpdate
   （尚未生效的出库单，见 SP_IGNORED_WORDS）—— 大数字与下钻明细共用同一份谓词。
+- sla（2026-09-25 加下钻）：近 30 天创建的 TT 中已判定 Pass/Failed 的单，
+  即达标率环上 `pass / total` 的分母。谓词是模块级 _SLA_WINDOW + _SLA_JUDGED，
+  与 _collect_summary.sla() 共用同一份 —— 环上的数字与点开的明细必须能对上。
+  注意 sla **只在 METRICS_DRILLABLE 里，不在 METRICS 里**，原因见该常量的注释。
 
 下钻明细列（_COLUMNS 的 tt / wo 两项）必须与 my_app 的 TT&WO 看板
 （frontend/src/pages/TTWODashboard.tsx，页面 http://<host>/myapp/?page=ttwo）
@@ -48,6 +52,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["portal-qc"])
 
 METRICS = ("alarm", "tt", "wo", "cr", "pmt", "spms")
+
+# 「有明细可下钻」的 metric 集合。与 METRICS 刻意分成两个常量（2026-09-25）——
+# 它们的含义本来就不是一回事，早先共用一个常量只是恰好相等：
+#   METRICS     = 面板上**有卡片/有统计**的指标。sla 从 2026-09-17 起就在这个面板上
+#                 （_collect_summary 的 guard("sla", sla)），只是当时没有下钻实现。
+#   DRILL_METRICS = 用户点开某个数字后，`/api/portal-qc/detail` **能给出明细**的指标。
+# 把 sla 加进 DRILL_METRICS 是 2026-09-25 按需求「30 天达标率的数字要能点击下钻」做的。
+# ⚠️ 不要让 sla 进 METRICS：/trend 里有这么一处判定
+#     「reason = 'no_trend' if metric in METRICS else 'unknown_metric'」
+#    —— METRICS 的语义是「这是一个已知指标」，sla 作为**比率**本来就没有
+#    「每天新增多少」这种趋势口径（_TREND_SPEC 里没有它，也确实不该有）。
+#    它现在落进 else 分支回 'unknown_metric'，前端会当成「趋势接口不认识这个指标」
+#    而静默不画线（不至于报错），但那个说法是错的：指标是认识的，只是它没有趋势。
+METRICS_DRILLABLE = METRICS + ("sla",)
 
 _SUMMARY_TTL_SEC = 60
 _summary_lock = threading.Lock()
@@ -88,6 +106,30 @@ _MAX_PAGE_SIZE = 200
 
 # 标题栏「达标率」的统计窗口（天）。按 eflow_tt.created_time 过滤。
 _SLA_WINDOW_DAYS = 30
+
+# 达标率下钻（2026-09-25 加）用的两个片段。
+# ⚠️ 必须与 _collect_summary 里的 sla() 是**同一套口径**，否则会出现
+#    「环上写 88.7%，点开明细只有 3888 条，加起来却不是 4384」这种自相矛盾。
+#    两处改动要一起改（sla() 里是内联 SQL，因为它还要在同一句里算 SUM/COUNT）。
+#
+# _SLA_JUDGED：分母口径 —— 只含已有明确判定的单。
+#   eFlow 的 sla_status 实测有四种取值：
+#     Pass 32518 / Failed 3407 / NULL 50 / 'Within SLA' 22（2026-09-25 全表实测）
+#   'Within SLA' 是**在途、尚未超期**，NULL 是还没判。把它们算进分母等于
+#   把在途单当成未达标，会系统性低估达标率 —— 这是 sla() 的原话，照搬。
+#   用 IN ('Pass','Failed') 而不是 `<> ''`：后者会把 'Within SLA' 也放进来。
+_SLA_JUDGED = "sla_status IN ('Pass','Failed')"
+
+# _SLA_WINDOW：下钻明细的时间窗 —— 与 sla() 的 `created_time >= ?` 完全一致。
+#   created_time 是 'YYYY-MM-DD HH:MM:SS' 文本，字典序即时间序，故可直接比大小
+#   （PG/SQLite 双模一致）。与 _TT_UNCLEARED 那类**谓词常量**不同，这里带一个 `?`，
+#   所以 is_sla 的分支要单独处理参数（见 _detail_source）。
+_SLA_WINDOW = "created_time >= ?"
+
+
+def _sla_since() -> str:
+    """达标率窗口的起始时刻（文本，与 eflow_tt.created_time 同格式）。"""
+    return (datetime.now() - timedelta(days=_SLA_WINDOW_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _rows_as_dicts(cursor):
@@ -131,16 +173,33 @@ def _snapshot_hour(now=None) -> str:
 
 
 def _ensure_snapshot_table(conn) -> None:
-    """幂等建表。放在这里而不是 alembic：这张表是**纯附加**的展示辅助数据，
+    """幂等建表 + 补列。放在这里而不是 alembic：这张表是**纯附加**的展示辅助数据，
     丢了只是趋势线断一段，不影响任何业务读数；用 alembic 迁移会把
-    「加一条趋势线」变成一次需要协调的 schema 变更，不成比例。"""
+    「加一条趋势线」变成一次需要协调的 schema 变更，不成比例。
+
+    ⚠️ `sla_x10` 是 2026-09-25 追加的列（达标率趋势用）。CREATE TABLE IF NOT
+    EXISTS **不会**给已存在的表补列，所以下面显式 ALTER 一次 —— 否则老库上
+    读 `sla_x10` 会直接报「字段不存在」，整个趋势接口跟着废掉。
+
+    为什么存 `sla_x10`（百分数 ×10 的整数）而不是 REAL：
+      · 表是 sqlite / PG 双模，两家对浮点的亲和类型不完全一致，整数最省心；
+      · 达标率只需 0.1% 的精度（徽章本身也只显示一位小数），×10 足够且无舍入歧义；
+      · 空值语义与其它列一致（未采到 = NULL，绝不是 0 —— 0% 是「全都不达标」，
+        与「没采到」必须能分开，否则趋势线上会出现假的归零谷底）。"""
     conn.execute(
         "CREATE TABLE IF NOT EXISTS " + _SNAPSHOT_TABLE + " ("
         " hour_key TEXT PRIMARY KEY,"
         " alarm INTEGER, tt INTEGER, wo INTEGER, cr INTEGER,"
         " pmt INTEGER, pmt_overdue INTEGER, spms INTEGER,"
+        " sla_x10 INTEGER,"
         " captured_at TEXT)"
     )
+    # 已存在的库补列。PG 支持 ADD COLUMN IF NOT EXISTS，SQLite 不支持 ——
+    # 靠 try/except 兜底（重复添加时报的错就是「已存在」，可以安全忽略）。
+    try:
+        conn.execute("ALTER TABLE " + _SNAPSHOT_TABLE + " ADD COLUMN sla_x10 INTEGER")
+    except Exception:  # noqa: BLE001
+        pass
     conn.commit()
 
 
@@ -157,6 +216,10 @@ def _record_snapshot(metrics: dict) -> None:
             # 那会在趋势线上画出一个「积压突然清零」的假谷底。
             return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
+        # 达标率单独处理：它是百分数（88.2），不是条数，且要 ×10 存成整数
+        # （理由见 _ensure_snapshot_table 的注释）。同样只在**真数字**时才写，
+        # 否则留 NULL —— 「没采到」与「0% 全不达标」绝不能混。
+        sla_v = num("sla")
         row = {
             "hour_key": _snapshot_hour(now),
             "alarm": num("alarm"),
@@ -166,6 +229,7 @@ def _record_snapshot(metrics: dict) -> None:
             "pmt": num("pmt"),
             "pmt_overdue": num("pmt", "overdue"),
             "spms": num("spms"),
+            "sla_x10": None if sla_v is None else int(round(sla_v * 10)),
             "captured_at": now.isoformat(timespec="seconds"),
         }
         with get_raw_connection() as conn:
@@ -334,13 +398,27 @@ def _collect_summary() -> dict:
             'Within SLA'（在途、尚未超期）与空值，把它们算进分母等于把在途单
             当成未达标，会系统性低估达标率。created_time 是 'YYYY-MM-DD HH:MM:SS'
             文本，字典序即时间序，故可直接用 >= 比较（PG/SQLite 双模一致）。
+
+            谓词用模块级的 _SLA_WINDOW / _SLA_JUDGED —— 下钻明细走的是同一份，
+            两边永远同一个口径（2026-09-25 起；此前是本函数内联的字面量，
+            下钻另抄一份必然会漂移）。注意 _SLA_WINDOW 自带一个 `?` 占位符。
+
+            window 是**同一时间窗内的单总量**（含未判定），只为给前端算出
+            「未判定 N 条不计入」那一行 —— 不参与 value 的计算。
+            一次查询同时取三个数，避免为了一行说明再打一趟表（eflow_tt 有 3.6 万行，
+            这条 COUNT 本来就已经在跑全窗口扫描了）。
             """
             table_ok("eflow_tt")
-            since = (datetime.now() - timedelta(days=_SLA_WINDOW_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+            since = _sla_since()
+            # 三个数一次算完（passed / pending / 已判定 total）。
+            # pending 内联进 CASE（而不是再写一个 _SLA_JUDGED 的 `?`）——
+            # 这样整条 SQL 只有 _SLA_WINDOW 那一个占位符，params 就是 [since]，
+            # 与下钻 _detail_source 的写法保持同构。
             row = conn.execute(
                 "SELECT SUM(CASE WHEN sla_status = 'Pass' THEN 1 ELSE 0 END) AS passed, "
-                "COUNT(*) AS total FROM eflow_tt "
-                "WHERE created_time >= ? AND sla_status IN ('Pass','Failed')",
+                f"SUM(CASE WHEN {_SLA_JUDGED} THEN 1 ELSE 0 END) AS judged, "
+                f"SUM(CASE WHEN {_SLA_JUDGED} THEN 0 ELSE 1 END) AS pending "
+                f"FROM eflow_tt WHERE {_SLA_WINDOW}",
                 [since],
             ).fetchone()
             passed, total = int(row[0] or 0), int(row[1] or 0)
@@ -348,6 +426,7 @@ def _collect_summary() -> dict:
                 "value": round(passed / total * 100, 1) if total else None,
                 "pass": passed,
                 "total": total,
+                "pending": int(row[2] or 0),
                 "days": _SLA_WINDOW_DAYS,
             }
 
@@ -449,6 +528,8 @@ def portal_qc_history(hours: int = Query(_HISTORY_DEFAULT_HOURS, ge=2, le=_HISTO
 
     返回按 metric 分组的 series：{"alarm": [{"h": "2026-09-21 14:00", "v": 56}, …], …}
     —— 前端 state.qcHistory 直接就是这个形状，不用再做一次转置。
+    另含 "sla"：达标率（百分数，88.2 这种，非条数），2026-09-25 加的列，
+    **从该列上线那一刻起才会有点** —— 更早的小时没有这个数，前端不补 0。
 
     **只返回「已走完的整点」，不含当前这一小时。** 原因：快照是懒写入的，
     当前小时那一行随时会被下一次统计覆盖。把它一起返回，前端算环比就会拿
@@ -466,7 +547,7 @@ def portal_qc_history(hours: int = Query(_HISTORY_DEFAULT_HOURS, ge=2, le=_HISTO
         with get_raw_connection() as conn:
             if _SNAPSHOT_TABLE in set(list_table_names(conn)):
                 rows = _rows_as_dicts(conn.execute(
-                    "SELECT hour_key, alarm, tt, wo, cr, pmt, pmt_overdue, spms "
+                    "SELECT hour_key, alarm, tt, wo, cr, pmt, pmt_overdue, spms, sla_x10 "
                     "FROM " + _SNAPSHOT_TABLE + " "
                     "WHERE hour_key < ? AND hour_key >= ? ORDER BY hour_key",
                     [cur_hour, since],
@@ -490,6 +571,15 @@ def portal_qc_history(hours: int = Query(_HISTORY_DEFAULT_HOURS, ge=2, le=_HISTO
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 pts.append({"h": r["hour_key"], "v": int(v)})
         series[metric] = pts
+
+    # 达标率（2026-09-25 加）：单独一段，因为存的不是条数而是「百分数 ×10」，
+    # 要 ÷10 还原成 88.2 这种前端直接能用的值。同样只放真数字，NULL 跳过。
+    sla_pts = []
+    for r in rows:
+        v = r.get("sla_x10")
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            sla_pts.append({"h": r["hour_key"], "v": round(float(v) / 10.0, 1)})
+    series["sla"] = sla_pts
 
     return {
         "generated_at": datetime.now(_SNAPSHOT_TZ).isoformat(timespec="seconds"),
@@ -731,6 +821,21 @@ _WO_DRILL_FIELDS = (
     "rc_main_category", "rc_sub_category", "ticket_severity", "alarm_severity",
 )
 
+# sla（达标率）下钻的列，2026-09-25 加。
+# ⚠️ 刻意**不复用 _TT_DRILL_FIELDS**：那张表是给「告警未清除的 TT」用的
+#    （tt 卡的口径），它带着 alarm_occur_time / root_cause 等排障字段，
+#    而达标率看的是**判定结果**。两个问题不一样：「这张单告警消了没」
+#    vs「这张单 SLA 判过了没」——共用一套列会让人以为点进来的是同一批单。
+#    实际两者也确实不同：tt 卡 79 条，本卡 4384 条。
+# 字段顺序 = 先定位（单号/标题/站点）→ 再判定（SLA 状态/时限/剩余）→ 再归属。
+# 全部是 eflow_tt 的真实列名，已按 PRAGMA table_info(eflow_tt) 核对。
+_SLA_DRILL_FIELDS = (
+    "tt_no", "title", "site_id", "site_name", "status", "sla_status",
+    "sla_time", "sla_deadline", "sla_remain_time",
+    "ticket_severity", "alarm_severity", "vendor", "region_level1", "region_level2",
+    "creator", "current_handler", "created_time", "actual_completion_time",
+)
+
 _COLUMNS = {
     "alarm": [
         ("tt_id", "tt_id", "TT No."),
@@ -782,6 +887,11 @@ _COLUMNS = {
         ("create_time", "create_time", "Create Time"),
         ("closed_time", "closed_time", "Closed Time"),
     ],
+    # sla 的表头同样走 _auto_label（与 tt/wo 一致），保证「字段名 → 表头」
+    # 这件事全模块只有一条规则。sla_status → 'Sla Status' 而非 'SLA Status'：
+    # 这是 _auto_label 的既有行为（它只做大写首字母），
+    # 也是 my_app TT&WO 看板上该列现在的显示 —— 换来换去反而不一致。
+    "sla": [(f, f, _auto_label(f)) for f in _SLA_DRILL_FIELDS],
 }
 
 _ORDER = {
@@ -793,6 +903,9 @@ _ORDER = {
     "cr": "request_registration_time DESC",
     "pmt": "created_time DESC",
     "spms": "create_time DESC",
+    # 达标率按判定时间倒序无意义（没有「判定时间」这一列），按创建时间倒序
+    # 与 sla() 的窗口过滤列一致：最近进窗口的单排在最前。
+    "sla": "created_time DESC",
 }
 
 _SP_UNION = (
@@ -817,7 +930,12 @@ def _sp_open_expr(conn, table: str) -> str:
 
 
 def _detail_source(conn, metric: str):
-    """返回 (from_sql, where_sql, params) —— where_sql 已含未关闭/断站口径。"""
+    """返回 (from_sql, where_sql, params) —— where_sql 已含未关闭/断站/达标口径。
+
+    params 是与 where_sql 里的 `?` 配对的参数列表（sla 之外都是空表）。
+    ⚠️ 调用方必须把 params 透传给每一次 COUNT/SELECT —— 漏传会让 `?` 悬空，
+    在 sqlite 上直接报 "Incorrect number of bindings"。见 portal_qc_detail。
+    """
     if metric == "alarm":
         return "realtime_alarm", "TRIM(CAST(clearstate AS TEXT)) = '0' AND " + _ALARM_WHERE, list(_ALARM_PARAMS)
     if metric == "tt":
@@ -828,6 +946,12 @@ def _detail_source(conn, metric: str):
         return "eflow_cr", _CR_OPEN, []
     if metric == "pmt":
         return "eflow_pm", _PM_OPEN, []
+    if metric == "sla":
+        # 达标率的明细 = 「近 30 天创建、且已判定 Pass/Failed」的那批单，
+        # 正是环上 3888 / 4384 的分母。Pass 与 Failed 都在里面 —— 用户要看的
+        # 是「谁判过了、判成什么」，只给 Failed 会变成一个「失败清单」，
+        # 那就不是达标率的下钻了。要看 Pass 率自己在弹窗里按 Sla Status 排序/搜索。
+        return "eflow_tt", f"{_SLA_WINDOW} AND {_SLA_JUDGED}", [_sla_since()]
     if metric == "spms":
         return (
             "(" + _SP_UNION.format(
@@ -842,7 +966,7 @@ def _detail_source(conn, metric: str):
 
 @router.get("/api/portal-qc/detail")
 def portal_qc_detail(
-    metric: str = Query(..., description="alarm/tt/wo/cr/pmt/spms"),
+    metric: str = Query(..., description="alarm/tt/wo/cr/pmt/spms/sla"),
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE),
     q: str = Query("", description="跨列模糊搜索"),
@@ -859,7 +983,7 @@ def portal_qc_detail(
     dir 也只映射到 ASC / DESC 两个字面量。
     """
     metric = (metric or "").strip().lower()
-    if metric not in METRICS:
+    if metric not in METRICS_DRILLABLE:
         raise HTTPException(status_code=400, detail=f"未知 metric: {metric}")
 
     spec = _COLUMNS[metric]

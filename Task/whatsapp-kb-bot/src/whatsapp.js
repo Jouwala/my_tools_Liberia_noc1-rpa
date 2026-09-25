@@ -1,0 +1,366 @@
+/**
+ * WhatsApp 接入层（Baileys）。
+ *
+ * 职责：登录 / 重连 / 群内 @提及识别 / 文本抽取 / 发送回复。
+ * 不包含任何 RAG 逻辑 —— 通过 onQuestion 回调把问题交给上层。
+ */
+import makeWASocket, {
+  useMultiFileAuthState,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  isJidGroup,
+  Browsers,
+} from 'baileys';
+import P from 'pino';
+import qrcode from 'qrcode-terminal';
+import { existsSync, mkdirSync, appendFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { CONFIG } from './config.js';
+import { detectLang, pickText } from './lang.js';
+import { selfIdentifiers, extractText, detectTrigger, stripMentions, isAllowedChat } from './mentions.js';
+
+const logger = P({ level: 'silent' });
+
+/* --------------------------------- 日志 --------------------------------- */
+
+let logFile = null;
+function log(line) {
+  const ts = new Date().toISOString();
+  const msg = `[${ts}] ${line}`;
+  console.log(msg);
+  try {
+    if (!logFile) {
+      mkdirSync(CONFIG.logDirAbs, { recursive: true });
+      logFile = join(CONFIG.logDirAbs, `bot-${new Date().toISOString().slice(0, 10)}.log`);
+    }
+    appendFileSync(logFile, msg + '\n', 'utf8');
+  } catch {
+    /* 日志失败不影响主流程 */
+  }
+}
+
+/**
+ * 重连退避：2s → 4s → 8s → 16s → 32s → 60s（封顶）。
+ * 抽成纯函数以便单测 —— 之前的实现在函数内声明计数变量，
+ * 每次重连都从 0 开始，退避永远停在 2 秒，等于没有退避。
+ * @param {number} attempt 第几次重连（从 1 开始）
+ */
+export function reconnectDelay(attempt) {
+  return Math.min(60000, 2000 * 2 ** Math.min(Math.max(attempt, 1) - 1, 5));
+}
+
+/* --------------------------------- 主体 --------------------------------- */
+
+// 模块级状态：必须活过单次 startWhatsApp 调用，否则重连时会被重置。
+// （曾把 reconnectAttempts 放在函数内，导致每次重连都从 0 开始，
+//   指数退避永远停在第一步 —— 断网时会以 2 秒间隔无限重试。）
+let activeSock = null;
+let reconnectAttempts = 0;
+let shuttingDown = false;
+
+/**
+ * 有上限的 id 集合。用于记录机器人自己发出的消息 id。
+ * 直接用 Set 会随运行时间无限增长（内存泄漏），这里做 FIFO 淘汰。
+ * 导出以便单测。
+ */
+export function createBoundedIdSet(limit = 500) {
+  const set = new Set();
+  const order = [];
+  return {
+    add(id) {
+      if (!id || set.has(id)) return;
+      set.add(id);
+      order.push(id);
+      if (order.length > limit) set.delete(order.shift());
+    },
+    has(id) {
+      return set.has(id);
+    },
+    get size() {
+      return set.size;
+    },
+  };
+}
+
+/** 优雅关闭：让 Baileys 正常结束会话，避免凭据写坏 */
+export async function stopWhatsApp(reason = '收到停止信号') {
+  shuttingDown = true;
+  log(`正在关闭（${reason}）…`);
+  try {
+    await activeSock?.end(undefined);
+  } catch {
+    /* 已断开则忽略 */
+  }
+  try {
+    activeSock?.ws?.close();
+  } catch {
+    /* 忽略 */
+  }
+  log('已关闭。');
+}
+
+export async function startWhatsApp({ onQuestion, builtins = null }) {
+  if (!existsSync(CONFIG.authDirAbs)) mkdirSync(CONFIG.authDirAbs, { recursive: true });
+
+  const { state, saveCreds } = await useMultiFileAuthState(CONFIG.authDirAbs);
+  let { version } = await fetchLatestBaileysVersion().catch(() => ({ version: undefined }));
+
+  let selfIds = new Set();
+  // 记录机器人自己发出的消息 id，用于识别"引用回复机器人"
+  const botMessageIds = createBoundedIdSet(500);
+  const lastReplyAt = new Map(); // chatJid -> timestamp
+  let chain = Promise.resolve(); // 串行队列，避免并发打爆本地模型
+  let queued = 0; // 当前排队中的提问数
+
+  const sock = makeWASocket({
+    version,
+    auth: state,
+    logger,
+    browser: Browsers.appropriate('Chrome'),
+    syncFullHistory: false,
+    markOnlineOnConnect: false,
+    generateHighQualityLinkPreview: false,
+  });
+  activeSock = sock;
+
+  /* ------------------------------ 事件绑定 ------------------------------ */
+
+  sock.ev.on('creds.update', saveCreds);
+
+  sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+    if (qr) {
+      console.log('\n=== 请用 WhatsApp 扫码登录 ===');
+      console.log('手机 WhatsApp → 设置 → 已关联的设备 → 关联设备\n');
+      qrcode.generate(qr, { small: true });
+      console.log('\n（首次登录后凭据会保存在 data/auth/，之后免扫码）\n');
+    }
+
+    if (connection === 'open') {
+      reconnectAttempts = 0;
+      selfIds = selfIdentifiers(sock, state.creds?.me);
+      log(`✓ 已连接。机器人标识：${[...selfIds].join(' / ')}`);
+      log(`  回复模式：${CONFIG.replyMode}｜群白名单：${CONFIG.allowGroups.join(', ')}`);
+    }
+
+    if (connection === 'close') {
+      if (shuttingDown) return;
+
+      const code = lastDisconnect?.error?.output?.statusCode;
+      const loggedOut = code === DisconnectReason.loggedOut;
+      if (loggedOut) {
+        log('✗ 已被登出（可能手机端移除了设备）。删除 data/auth/ 后重新运行以再次扫码。');
+        process.exit(1);
+      }
+
+      // 清理旧 socket，否则其事件监听器会一直挂在内存里
+      try {
+        sock.ev.removeAllListeners('messages.upsert');
+        sock.ev.removeAllListeners('connection.update');
+        sock.ev.removeAllListeners('creds.update');
+        sock.ws?.close();
+      } catch {
+        /* 忽略 */
+      }
+
+      reconnectAttempts++;
+      const delay = reconnectDelay(reconnectAttempts);
+      log(`! 连接断开（code=${code}），${(delay / 1000).toFixed(0)}s 后第 ${reconnectAttempts} 次重连…`);
+      setTimeout(() => {
+        if (shuttingDown) return;
+        startWhatsApp({ onQuestion, builtins }).catch((e) => log(`重连失败：${e.message}`));
+      }, delay);
+    }
+  });
+
+  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (type !== 'notify') return;
+
+    for (const msg of messages) {
+      try {
+        await handleMessage(msg);
+      } catch (err) {
+        log(`处理消息出错：${err.stack || err.message}`);
+      }
+    }
+  });
+
+  async function handleMessage(msg) {
+    const chatJid = msg.key?.remoteJid;
+    if (!chatJid || chatJid === 'status@broadcast') return;
+
+    // 记录自己发出的消息 id
+    if (msg.key.fromMe) {
+      if (msg.key.id) botMessageIds.add(msg.key.id);
+      return;
+    }
+
+    const isGroup = isJidGroup(chatJid);
+    if (!isAllowedChat({ chatJid, isGroup, allowGroups: CONFIG.allowGroups, replyMode: CONFIG.replyMode })) {
+      return;
+    }
+
+    const text = extractText(msg.message);
+    if (!text) return;
+
+    // 实时计算自身标识，不用连接时缓存的快照。
+    // 原因有二：
+    //   1. LID 往往在连接之后才由服务端下发，缓存会永久漏掉它；
+    //   2. sock.user 上的字段不总是可靠 —— 实测换号后 sock.user.lid 为空，
+    //      但 state.creds.me.lid 有值。两个来源都传进去，代价可忽略。
+    const ids = selfIdentifiers(sock, state.creds?.me);
+    if (ids.size !== selfIds.size) {
+      selfIds = ids;
+      log(`↻ 机器人标识已更新：${[...ids].join(' / ')}`);
+    }
+
+    const { triggered, via } = detectTrigger(msg.message, ids, botMessageIds);
+    if (!triggered) {
+      // 诊断：群里有人 @了某人，但没匹配到机器人。
+      // 这是最隐蔽的故障形态——机器人静默不响应，日志里什么都看不到。
+      const mentioned =
+        msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ||
+        msg.message?.imageMessage?.contextInfo?.mentionedJid ||
+        [];
+      if (mentioned.length) {
+        log(`[未匹配] 群 ${chatJid} 中有人 @了 ${mentioned.join(', ')}`);
+        log(`         机器人标识：${[...ids].join(' / ')}`);
+        log(`         若这条本该是 @机器人，说明提及 JID 形态没被识别。`);
+      }
+      return;
+    }
+
+    const question = stripMentions(text);
+    const sender = msg.key.participant || chatJid;
+    const who = String(sender).split('@')[0];
+    // 提问语言：后面所有**不经过模型**的固定回复都按它取文案
+    //（未命中 / 排队已满 / 故障兜底）。
+    const lang = detectLang(question);
+
+    if (!question) {
+      await send(
+        chatJid,
+        pickText(
+          lang,
+          '在的～直接把你想问的写在 @我 后面就行。',
+          "Here — just put your question after the @mention and I'll take a look."
+        ),
+        msg
+      );
+      return;
+    }
+
+    // 内置命令：不查知识库。用于确认「@到了机器人 + 能回消息」这条链路是通的。
+    // 排查时先测 ping —— 如果 ping 有回应而提问没回应，问题一定在检索侧。
+    const cmd = question.toLowerCase();
+    if (builtins && Object.hasOwn(builtins, cmd)) {
+      try {
+        const reply = await builtins[cmd]({ chatJid, sender });
+        if (reply) await send(chatJid, reply, CONFIG.replyQuote ? msg : undefined);
+        log(`[内置命令] ${who}：${cmd}`);
+      } catch (err) {
+        log(`[内置命令出错] ${err.message}`);
+      }
+      return;
+    }
+
+    // 冷却：同一会话内的提问间隔
+    const now = Date.now();
+    const last = lastReplyAt.get(chatJid) || 0;
+    if (now - last < CONFIG.cooldownMs) {
+      log(`[跳过] ${chatJid} 处于冷却期（${Math.ceil((CONFIG.cooldownMs - (now - last)) / 1000)}s）`);
+      return;
+    }
+    lastReplyAt.set(chatJid, now);
+    // 会话数很多时避免这个 Map 无限增长
+    if (lastReplyAt.size > 1000) {
+      const oldest = lastReplyAt.keys().next().value;
+      lastReplyAt.delete(oldest);
+    }
+
+    // 队列保护：串行处理意味着排队等待时间会累加。
+    // 单次回答约 1~10 秒，队列过长时后面的人要等几分钟，不如直接告知稍后再试。
+    const MAX_QUEUE = CONFIG.maxQueue ?? 3;
+    if (queued >= MAX_QUEUE) {
+      log(`[跳过] 队列已满（${queued}/${MAX_QUEUE}），丢弃 ${who} 的提问`);
+      await send(
+        chatJid,
+        pickText(lang, CONFIG.busyText, CONFIG.busyTextEn),
+        CONFIG.replyQuote ? msg : undefined
+      ).catch(() => {});
+      return;
+    }
+
+    log(`[提问] ${who} @ ${isGroup ? chatJid : '私聊'}（${via}）：${question}`);
+
+    // 串行处理，避免并发把本地模型压垮
+    queued++;
+    chain = chain.then(async () => {
+      const t0 = Date.now();
+
+      // 慢查询垫话：超过 pendingAfterMs 还没答出，先发一句「正在查」。
+      // TT 通道首次查询要重建单号索引，实测最坏 100 秒 —— 干等像机器人掉线了。
+      // 回复一发出就取消定时器；3 秒内答完则用户只会看到一条回复。
+      const waitMs = Math.max(0, Number(CONFIG.pendingAfterMs ?? 0));
+      let pendingTimer = null;
+      if (waitMs > 0 && CONFIG.pendingText) {
+        pendingTimer = setTimeout(() => {
+          pendingTimer = null;
+          send(
+            chatJid,
+            pickText(lang, CONFIG.pendingText, CONFIG.pendingTextEn),
+            CONFIG.replyQuote ? msg : undefined
+          ).catch(() => {});
+        }, waitMs);
+      }
+
+      try {
+        await sock.sendPresenceUpdate('composing', chatJid).catch(() => {});
+        const result = await onQuestion(question, { chatJid, sender, lang });
+        const text2 = truncate(result.text, CONFIG.maxReplyChars);
+        if (pendingTimer) {
+          clearTimeout(pendingTimer);
+          pendingTimer = null;
+        }
+        await send(chatJid, text2, CONFIG.replyQuote ? msg : undefined);
+        log(
+          `[回复] ${Date.now() - t0}ms｜命中=${result.answered}` +
+            // 记录回复语言：语言类问题（英文提问收到中文回答）必须能事后审计，
+            // 否则只能靠群里截图定位 —— 这次排查就卡在这里。
+            `｜lang=${lang}` +
+            (result.retrieval
+              ? `｜gap=${result.retrieval.gap.toFixed(3)} top=${result.retrieval.topBase.toFixed(3)} base=${result.retrieval.baseline.toFixed(3)}`
+              : '')
+        );
+      } catch (err) {
+        if (pendingTimer) {
+          clearTimeout(pendingTimer);
+          pendingTimer = null;
+        }
+        log(`[错误] ${err.stack || err.message}`);
+        await send(
+          chatJid,
+          pickText(lang, CONFIG.errorText, CONFIG.errorTextEn),
+          CONFIG.replyQuote ? msg : undefined
+        ).catch(() => {});
+      } finally {
+        await sock.sendPresenceUpdate('paused', chatJid).catch(() => {});
+        queued--;
+      }
+    });
+  }
+
+  async function send(jid, text, quotedMsg) {
+    if (!text) return;
+    const sent = await sock.sendMessage(jid, { text }, quotedMsg ? { quoted: quotedMsg } : undefined);
+    if (sent?.key?.id) botMessageIds.add(sent.key.id);
+    return sent;
+  }
+
+  return sock;
+}
+
+function truncate(text, max) {
+  const t = String(text || '').trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max - 1).trimEnd() + '…';
+}

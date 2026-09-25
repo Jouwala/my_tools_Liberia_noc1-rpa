@@ -1194,6 +1194,22 @@ html.dark .auth-error { background: var(--mp-danger-soft); border-color: var(--m
 }
 .qc-sla strong { font-family: ui-monospace, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
 
+/* 徽章 + 它自己的趋势线（2026-09-25 加）。
+   徽章在标题栏的 flex 工具条里，所以要包一层纵向容器：徽章在上、线在下。
+   宽度固定 132px 而不是跟随内容 —— 线是按 viewBox 100% 拉伸画的，
+   不固定宽度时它会随坐标轴格数变化把徽章宽度也带着一起抖。
+
+   ⚠️ 等级类（qc-lv-*）同时挂在**容器**上，不只是徽章上：
+   --qc-accent 一族变量定义在 .qc-card / .qc-lv-* 上，而这条线是容器的孩子、
+   不属于任何一张卡。只把 qc-lv-* 挂在徽章上的话，线继承不到 --qc-accent，
+   `stroke: var(--qc-accent)` 会退化成 `none` —— 线画出来了但**完全看不见**。 */
+.qc-sla-box { display: inline-flex; flex-direction: column; gap: 3px; width: 132px; }
+/* 工具条里的线要比卡片里的更矮更静：它是标题栏的附属信息，不该抢注意力 */
+.qc-sla-box .qc-spark-wrap { margin-top: 0; }
+.qc-sla-box .qc-spark,
+.qc-sla-box .qc-spark svg { height: 16px; }
+.qc-sla-box .qc-spark-cap { font-size: 9.5px; text-align: center; }
+
 /* ------------------------------------------- 下钻弹窗：列体验（已移出） --
    2026-09-23：原先这里的 ① 首列固定 ② 表头可点排序 ③ 空值渲染「—」
    全部移到 assets/qcDrill.css（.qc-table th.qc-sortable / .qc-sticky-col /

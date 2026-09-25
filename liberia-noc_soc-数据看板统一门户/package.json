@@ -10,7 +10,11 @@
     "prepreview": "node scripts/start-wa-service.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "lint:shells": "tsc -p v1/olbrportal/tsconfig.json",
+    "check:clean": "node scripts/check-cleanliness.mjs audit",
+    "tmp:clean": "node scripts/check-cleanliness.mjs clean",
+    "tmp:clean:apply": "node scripts/check-cleanliness.mjs clean --apply"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

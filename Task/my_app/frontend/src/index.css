@@ -714,6 +714,27 @@ html {
   color: #aebbd4 !important;
 }
 
+/* ---------- GIS 县（County）边界名称标注（2026-09-25 新增） ----------
+   Leaflet permanent tooltip 的默认样式是白底深字 + 三角箭头，压在淡色县界底块上
+   会显得突兀、且箭头指向不准（tooltip 落在质心而非边界线上）。
+   这里把箭头去掉、底色改为半透明浅色药丸，保证在深/浅两套主题和卫星底图上都可读。 */
+.gis-county-label.leaflet-tooltip {
+  background: rgba(255, 255, 255, 0.78);
+  border: none;
+  border-radius: 999px;
+  padding: 1px 6px;
+  box-shadow: none;
+  color: #0f2744;
+  pointer-events: none;
+}
+.gis-county-label.leaflet-tooltip::before {
+  display: none; /* 去掉箭头 */
+}
+:root[data-theme='dark'] .gis-county-label.leaflet-tooltip {
+  background: rgba(8, 18, 44, 0.72);
+  color: #f5f7ff;
+}
+
 /* ---------- 响应式工具类（与 antd 共存，不覆盖其组件核心样式） ---------- */
 
 /* 表格横向滚动：在小屏/列多时自动出现横向滚动条，避免挤压错位 */

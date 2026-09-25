@@ -140,12 +140,58 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 
 同一个组件 `<GISMap/>` 的两种模式（`App.tsx:286-289`），实时模式传 `mode="realtime"`。站点在地图上的告警/工单分布与下钻。
 
-- **区域**下拉（:329）、**图层 Tag** 点击开关（:370）、**图例点击隐藏**该类图层（:426）、拓扑线与区域面 `Switch`（:357,:361）、时间 `Segmented` + 自定义区间（:397）、高级筛选与清除（:481,:491）。
-- **点站点 → 右侧抽屉**（:647，组件 `pages/gismap/SiteDrilldownDrawer.tsx`）四个页签，可搜索、可导 Excel。
-- 接口：`/api/gis/sites` 与 `/api/gis/realtime/sites`（:73 按模式二选一）、`/api/gis/topology`（:94）、`/api/gis/region-boundaries`（:101）、`/api/gis/drilldown/{site_id}` 与 `/api/gis/realtime/drilldown/{site_id}`（:111）。均走 `cache.ts` 缓存。
+- **区域**下拉（`GISMap.tsx:431`）、**边界三选一** `Segmented`（不显示 / 大区 / 县界，**默认县界**；:467）、**图层 Tag** 点击开关、**图例点击隐藏**该类图层、MW 链路 `Switch`（:460）、时间 `Segmented` + 自定义区间、高级筛选与清除。
+- **点站点 → 右侧抽屉**（组件 `pages/gismap/SiteDrilldownDrawer.tsx`）四个页签，可搜索、可导 Excel。
+- 接口：`/api/gis/sites` 与 `/api/gis/realtime/sites`（按模式二选一）、`/api/gis/topology`（**读 `kml_mw_links`**，见 10c）、`/api/gis/region-boundaries`、**`/api/gis/county-boundaries`**、`/api/gis/drilldown/{site_id}` 与 `/api/gis/realtime/drilldown/{site_id}`。均走 `cache.ts` 缓存。
 - 地图控件在 `pages/gismap/MapController.tsx`。
-- **区分两页的口径**：实时告警地图带红色"实时"Tag（`GISMap.tsx:421`），数据来自 `eflow_active_alarm`（每 30 分钟）；普通 GIS 页走历史/工单口径。
-- 页头同样消费 `useDataTimestamps`（:11,43）显示同步状态。
+- **区分两页的口径**：实时告警地图带红色"实时"Tag，数据来自 `eflow_active_alarm`（每 30 分钟）；普通 GIS 页走历史/工单口径。
+- 页头同样消费 `useDataTimestamps` 显示同步状态。
+
+### 10b. 边界蒙层：大区（Voronoi）与县界（真实行政边界）
+
+「边界」`Segmented` 提供**互斥的三选一**（`BoundaryMode = 'none' | 'region' | 'county'`）。两个蒙层语义不同，不可互相替代，同时开启会互相遮盖，故做成三选一而非两个开关：
+
+| 模式 | 数据来源 | 性质 |
+| --- | --- | --- |
+| 不显示 | — | 只留站点，背景最干净 |
+| **大区** | `GET /api/gis/region-boundaries`（`gis.py:1584`） | 由 827 个站点坐标 **Voronoi 推算**的 3 个大区（Montserrado / North East / South West） |
+| **县界** | `GET /api/gis/county-boundaries`（`gis.py:1624`） | 利比里亚 **15 个县的真实行政边界**（GeoJSON 静态资源） |
+
+**县界实现要点（2026-09-25 新增）：**
+
+- **数据源**：`backend/data/gis/liberia_counties.geojson`（15 个 feature，含 `properties.name` / `db_name`）与 `liberia_country.geojson`（国界，16 个 MultiPolygon）。由用户提供的「利比里亚地图文件_国家边界含州名.txt」离线转换而来，**几何是静态数据**，故后端缓存 1 小时（`_COUNTY_TTL`）。
+- **加载器**：`gis_geometry.py` 的 `load_county_boundaries()` / `load_country_boundary()` / `_merge_multipolygon_payload()`。文件缺失或解析失败返回 `[]` 并记日志，**不抛 500**——边界属增强显示，不该让整张地图挂掉。
+- **坐标约定**：GeoJSON 标准是 `[lng, lat]`，本项目的 `polygons` 已按 **Leaflet 约定写成 `[lat, lng]`**（转换脚本完成交换）。`load_county_boundaries` **不再二次交换**，否则地图会画到南极洲。
+- **⚠️ 县名映射（唯一一处命名差异）**：GeoJSON 里叫 `Rivercess`，而站点表 `province_county` 的值是 `River Cess`（库里还存在脏值 `River cess`，共 9 站）。因此 feature 上同时存 `name`（展示用）与 `db_name`（与 DB 对齐，下钻筛选用）。**点击县界用的是 `db_name`**（`GISMap.tsx` 的 `handleCountyClick`）；`site_count` 计算时也对 DB 值做 `\s+`→单空格归一化后累加，保证两种写法都计入。
+- **口径一致性（AGENTS.md 三-1b）**：`/county-boundaries` 的站点计数与 `/gis/sites` 使用**完全相同的 WHERE**（同样要求经纬度非空且非 0）。实测 15 县合计 **827 站**，与 `/gis/sites` 的 `total` 一致，逐县核对全部相等。
+- **交互**：县界用「描边 + 淡色底块」（浅色主题 `fillOpacity 0.14` / 深色 `0.10`，深底同透明度会显脏），虚线描边以区分于大区实线；县名 + 站点数用 Leaflet `Tooltip(permanent)` 常驻在县域质心（样式见 `index.css` 的 `.gis-county-label`）。**点击县界 → 复用既有的 `province_county` 高级筛选**形成下钻闭环。
+- **性能**：县界 GeoJSON 约 384KB，前端**只在首次切到「县界」模式时拉取**（`GISMap.tsx` 的 effect 带 `boundaryMode !== 'county'` 守卫），不影响默认打开速度。
+
+### 10c. MW 链路数据源与配色（2026-09-25 换源 + 修撞色）
+
+**换源（`gis.py` 的 `get_topology`）：`topology` 表 → `kml_mw_links` 表。**
+
+| | 旧（`topology` 表） | 新（`kml_mw_links` 表） |
+| --- | --- | --- |
+| 行数 | 515 行，两次 JOIN `master_site_db` 后仅剩 **507** | **844** 条 link，端点自带坐标、**不 JOIN** |
+| 丢线原因 | `site_a_id/site_b_id` 是站点编号，主数据缺行即被 `WHERE a.latitude IS NOT NULL` 静默过滤 | 无此问题 |
+| 线色 | 无，前端按 `is_hub_link` 二分（红/蓝） | 自带 KML 4 色：红 27 / 黄 12 / 蓝 573 / 绿 232 |
+| hub 标记 | 有 `a_is_hub`/`b_is_hub` | **无** |
+
+- **响应结构保持兼容**：仍返回 `site_a_name`/`lat_a`/`lng_a`/`is_hub_link` 等旧字段，仅新增 `name` 与 `color`。`hop_count` 恒 `0`、`is_hub_link` 恒 `false`（kml 无此语义）。
+- **⚠️ 连带影响（已同步修复）**：`PacketLossDashboard.tsx` 也复用 `/api/gis/topology`，它原用 `is_hub_link` 决定线宽加粗（`PacketLossDashboard.tsx:599,603`）。`is_hub_link` 恒 false 会让所有链路一起变细，故改为**按 KML 线色判定重点链路**（红/黄 = 重点，蓝/绿 = 常规）。
+- **前端图例**：GIS 页图例由「Hub/普通」改为**按真实线色 4 档**（`KML_LINK_COLORS`，键 `gis.topologyColorRed/Yellow/Blue/Green`）；旧的 `gis.topologyHubLink`/`gis.topologyNormalLink` 已删除（无引用，遵循 AGENTS.md 三.10 删除优于兼容）。
+- **颜色同源约束**：前端 `KML_LINK_COLORS` 与后端 `mw_links_store.py` 的 `STYLE_COLORS` 是同一组 4 色，**改一处必须改另一处**。
+- 链路本身由 `?page=mwUmeTopology` 的页面上传 KML 维护（写 `kml_mw_links`，见 `mw_links_store.py` 与第 8 节）。
+
+**配色修正：History Alarm 由橙 `#ffa94d` 改灰 `#8b95a5`。**
+
+- **问题**：`his_alarm`(#ffa94d 橙) 与 `rt_alarm_ontime`(#ffd400 黄) 在深色底图上几乎无法区分，而二者分属「历史/实时」互斥通道，同色会误导判断。
+- **改法**：改为灰色 `#8b95a5` —— 灰色天然表达「历史/已归档」语义，且与高饱和实时色在明度、饱和度两个维度都拉开距离。
+- **⚠️ 不要改用 `#94a3b8`**：那是 `normal`（无告警站点）的灰，会与「历史告警站点」混淆。
+- **配色单一真相源**：`GISMap.tsx` 顶部新增 `SITE_COLORS` 常量，图例 / 标记 / 图层 Tag / 弹窗文案四处共用。此前四处各写一遍，改一处漏三处，正是本次撞色的成因。**值必须是十六进制实值**（Leaflet canvas 解析不了 `WH.xxx` CSS 变量）。
+
+**图例假 0 修正（`?page=gis`）。** `rt_alarm_overdue` / `rt_alarm_ontime` 是**实时模式专属**（`categoryCounts` 只在 `mode==='realtime'` 计数），但原 `legendItems` 的 filter 只在 realtime 模式过滤 `rt_alarm`/`his_alarm`，未在 all 模式过滤这两个键，于是 `?page=gis` 上出现「Realtime Alarm (Overdue) (0)」这种看着像故障的空指标。现按模式**对称过滤**：all 模式隐藏实时专属项，realtime 模式隐藏历史专属项。
 
 ## 12. 告警管理看板（`?page=alarmManagement`）— iframe
 
@@ -163,7 +209,7 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时粒度**，当天没过完不展示（`PacketLossDashboard.tsx:2-5`）。
 
 - 口径与 Excel 报告 `Packet_Loss_Status_Output Automation` **完全一致**：`STATUS` 是 0~23 的标志块，最近 3 天同整点丢包均 >0.5% 记 1，全 0 为 OK；`FINAL_STATUS` 在 OK 时强制 `No Packet loss[<0.1]`，否则按 Last 1 day Max PL 五级分类（:3-5）。
-- 操作：`Switch` 控制是否包含 OK 站点（`include_ok`，:249）、Popover 显示口径说明、下钻 `GET /api/packet-loss-dashboard/drilldown?status=&limit=800`（:273）、拓扑叠加复用 `GET /api/gis/topology`（:222）。
+- 操作：`Switch` 控制是否包含 OK 站点（`include_ok`，:249）、Popover 显示口径说明、下钻 `GET /api/packet-loss-dashboard/drilldown?status=&limit=800`（:273）、拓扑叠加复用 `GET /api/gis/topology`（:224，该端点 2026-09-25 起读 `kml_mw_links`；本页线宽加粗按 KML 线色判定，见 10c）。
 - 接口：`/api/packet-loss-dashboard/overview`、`/map-sites`、`/drilldown`。
 - 数据由 `packet_loss_sync`（06:30）写入 `lte_pl.sqlite3`。
 

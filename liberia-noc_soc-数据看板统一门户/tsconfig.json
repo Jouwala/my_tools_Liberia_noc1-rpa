@@ -23,5 +23,9 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "exclude": ["node_modules", "dist", "scripts"]
+  // TMP/ 是一次性探针的去处（AGENTS.md 第四节第 7 条），log/ 与 auth-data/ 是运行时
+  // 产物，三者都不在前端模块图里。本文件没有 include，所以 tsc 默认收整个项目目录，
+  // 不显式排除的话 TMP 里一个语法错的旧探针就能把 `npm run lint` 打挂
+  // （2026-09-25 实测：TMP/probe_color_inventory.cjs:54 TS1005，该文件 9 月 17 日就在了）。
+  "exclude": ["node_modules", "dist", "scripts", "TMP", "log", "auth-data"]
 }
