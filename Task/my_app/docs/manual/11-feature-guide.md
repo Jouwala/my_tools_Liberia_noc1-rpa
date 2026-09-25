@@ -1159,8 +1159,16 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 > 两列都是**未剔除的原值**。
 
 ⚠️ 这两列只在**重新生成报表后**才出现（`sp_report_generate` 每天 05:15）。
-页面侧按表头名动态读列，**无需改代码**；`SpReportBase.tsx` 的
-`DISPLAY_COLUMNS['Summary-Current']` 已把两列列入默认显示列。
+页面侧按表头名动态读列，**无需改代码**。
+
+> **Summary 表默认只显示 8 列**（2026-09-24 起，用户要求精简）：
+> `Material Name` / `Domain` / `Inbound Qty` / `Outbound Site Qty` / `Inventory Qty` /
+> `Safety Stock` / `Replenishment Qty` / `Alert Level`。
+> 默认**隐藏**这 5 列：`Outbound Qty`、`Outbound Repair Qty`、`Difference`、
+> `Avg Monthly Consumption`、`Remark` —— 它们在「显示列」里仍可勾回来，
+> 行详情弹窗也始终显示全列。
+> 注意 `Outbound Qty` 与 `Outbound Repair Qty` 是一对（Site + Repair = Outbound），
+> 默认一并隐藏；`Outbound Site Qty` 保留显示。
 
 ### 界面的三段结构
 
@@ -1174,11 +1182,18 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 
 - 列的可选集是**后端真实返回的 `columns`**，不是页面写死的清单 —— 上游报表增删列会自动跟上；
 - 页面默认列见 `SpReportBase.tsx` 的 `DISPLAY_COLUMNS`（按 sheet 声明"优先展示"，
-  实际存在的才显示；全都对不上时退回全列，避免空表）；
+  实际存在的才显示；全都对不上时退回全列，避免空表）。
+  **Summary 表的默认列表 2026-09-24 起精简为 8 列**，`Outbound Qty` /
+  `Outbound Repair Qty` / `Difference` / `Avg Monthly Consumption` / `Remark` 默认隐藏
+  （原因见上一节）；
 - 选择按 **kind + sheet** 存 `localStorage`（key 前缀 `myapp_sp_report_cols_v1`），
   刷新和重开都还在；读回时会按当前真实列集过滤，上游改了列名不会渲染成空表；
 - **勾满全部列 = 未自定义**，会清掉存储，这样报表以后新增列能自动带上；
 - 「恢复默认」按钮回到 `DISPLAY_COLUMNS`；行详情弹窗始终显示全部列，不受此处影响。
+- ⚠️ **改默认列不会影响已自定义过的用户**：存储 key 前缀是 `myapp_sp_report_cols_v1`，
+  没动版本号（2026-09-24 调整 Summary 默认列时刻意不升 `v2`）——
+  之前手动改过列的人维持自己的选择，从没改过的人（大多数）自动采用新默认。
+  想统一到新默认，点一次「恢复默认」即可。
 
 > 列偏好只在浏览器本地，不落库 —— 换机器/换浏览器不跟随，这是有意的：
 > 它是个人的视图偏好，不是业务配置，不该走 `/api` 与数据库。

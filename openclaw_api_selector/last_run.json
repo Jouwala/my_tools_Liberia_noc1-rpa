@@ -1,12 +1,12 @@
 {
-  "run_at": "2026-09-24T03:00:24",
+  "run_at": "2026-09-25T03:00:26",
   "threshold_ms": 5000,
   "results": [
     {
       "key": "zhipu",
       "name": "ZhiPu GLM 智谱",
       "available": true,
-      "latency_ms": 1058,
+      "latency_ms": 953,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -16,7 +16,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1058,
+          "latency_ms": 953,
           "status": "ok",
           "error": null
         }
@@ -74,7 +74,7 @@
       "key": "openrouter",
       "name": "OpenRouter",
       "available": true,
-      "latency_ms": 9808,
+      "latency_ms": 10220,
       "model": "openrouter/free",
       "error": null,
       "status": "ok",
@@ -84,7 +84,7 @@
         {
           "model": "openrouter/free",
           "ok": true,
-          "latency_ms": 9808,
+          "latency_ms": 10220,
           "status": "ok",
           "error": null
         }
@@ -142,7 +142,7 @@
       "key": "zhipu5",
       "name": "ZhiPu GLM-5 智谱",
       "available": true,
-      "latency_ms": 1526,
+      "latency_ms": 1673,
       "model": "glm-4-flash",
       "error": null,
       "status": "ok",
@@ -152,7 +152,7 @@
         {
           "model": "glm-4-flash",
           "ok": true,
-          "latency_ms": 1526,
+          "latency_ms": 1673,
           "status": "ok",
           "error": null
         }

@@ -78,11 +78,56 @@ def test_unknown_cron_still_reported():
     assert got == ["weird_task"], got
 
 
+def test_never_run_lowfreq_task_exempt_until_due():
+    """2026-09-25 误报回归：从未执行分支也要按 cron 到期判定。
+
+    olib_soc_vmax_report（`30 7 1 * *` 每月一次）在 09-18~09-30 被每小时误报
+    「24h 无执行记录」共 7 天——旧逻辑的低频豁免只覆盖「有历史记录」分支。
+    到期日（10-01）之后仍无记录则必须报（真漏分组不漏）。"""
+    cron_map = {"monthly_task": "30 7 1 * *"}
+    # 场景 1：09-18 巡检（到期前）→ 不得报
+    now = datetime(2026, 9, 18, 10, 0)
+    cutoff = (now - timedelta(hours=24)).isoformat()
+    got = _silent_task_candidates(["monthly_task"], {}, set(), cutoff, cron_map, {}, 24)
+    assert got == [], f"月任务在到期日前不得报 silent: {got}"
+    # 场景 2：10-01 09:00 巡检（窗口 [09-30 09:00, 10-01 09:00] 含 07:30 到期时刻，
+    # 应跑没跑）→ 必须报。小时级巡检窗口平铺覆盖时间轴，任何到期时刻必落入
+    # 某轮窗口；错过窗口的后续轮次由 stuck/auto_retry 补写记录后的其他维度接管。
+    now2 = datetime(2026, 10, 1, 9, 0)
+    cutoff2 = (now2 - timedelta(hours=24)).isoformat()
+    got2 = _silent_task_candidates(["monthly_task"], {}, set(), cutoff2, cron_map, {}, 24)
+    assert got2 == ["monthly_task"], f"到期后仍无记录必须报（漏分组症状）: {got2}"
+    # 场景 3：每日任务从未执行 → 窗口内必到期 → 照常报（不扩大豁免）
+    got3 = _silent_task_candidates(["daily_task"], {}, set(), cutoff,
+                                   {"daily_task": "20 6 * * *"}, {}, 24)
+    assert got3 == ["daily_task"], f"每日任务从未执行必须报: {got3}"
+
+
+def test_inflight_task_exempt_from_silent():
+    """2026-09-25 误报回归：exec_log 完成时才写入，队列有 pending/running 在途行的
+    任务不得报「24h 无执行记录」（ms_sla_full 05:15 案例）；无在途行的任务照常报。"""
+    now = datetime(2026, 9, 25, 5, 15)
+    cutoff = (now - timedelta(hours=24)).isoformat()
+    yesterday = (now - timedelta(hours=24, minutes=9)).isoformat()   # 恰好越过 24h 线
+    registry = ["ms_sla_full", "hourly_task"]
+    exec_latest = {"ms_sla_full": yesterday, "hourly_task": yesterday}
+    cron_map = {"ms_sla_full": "0 5 * * *", "hourly_task": "*/5 * * * *"}
+    got = _silent_task_candidates(registry, exec_latest, set(), cutoff,
+                                  cron_map, {}, 24, inflight_ids={"ms_sla_full"})
+    assert "ms_sla_full" not in got, f"队列有在途行仍报 silent = 误报复发: {got}"
+    assert "hourly_task" in got, "无在途行的任务必须照常报（豁免不得扩大化）"
+    # 不传 inflight（旧调用方/None）→ 行为与旧判据一致
+    got2 = _silent_task_candidates(registry, exec_latest, set(), cutoff, cron_map, {}, 24)
+    assert "ms_sla_full" in got2, "缺省不豁免，保持向后兼容"
+
+
 CHECKS = [
     test_cron_interval_actually_computed,
     test_bad_cron_returns_none_without_raising,
     test_low_frequency_task_not_reported_as_silent,
     test_unknown_cron_still_reported,
+    test_never_run_lowfreq_task_exempt_until_due,
+    test_inflight_task_exempt_from_silent,
 ]
 
 

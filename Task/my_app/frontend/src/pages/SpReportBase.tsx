@@ -128,11 +128,12 @@ interface FilterField {
 // 按 sheet 声明「优先展示」的列名，实际存在的才会显示（两种报表列集略有差异）。
 const DISPLAY_COLUMNS: Record<string, string[]> = {
   'Summary-Current': [
-    'Material Name', 'Domain', 'Inbound Qty', 'Outbound Qty',
-    // Outbound 拆分（2026-09-24 起由生成端产出，见 gernarate_sp_report.build_summary）
-    'Outbound Site Qty', 'Outbound Repair Qty',
-    'Inventory Qty', 'Difference', 'Avg Monthly Consumption', 'Safety Stock', 'Remark',
-    'Replenishment Qty', 'Alert Level',
+    // 2026-09-24 起默认**不显示**以下 5 列（用户要求，仍可在「显示列」里勾回来）：
+    //   Outbound Qty / Outbound Repair Qty / Difference / Avg Monthly Consumption / Remark
+    // 注意：Outbound Qty 与 Outbound Repair Qty 是一对（Site + Repair = Outbound），
+    //      单独留 Repair 没有意义，故两列一并默认隐藏；Outbound Site Qty / Safety Stock 仍显示。
+    'Material Name', 'Domain', 'Inbound Qty', 'Outbound Site Qty',
+    'Inventory Qty', 'Safety Stock', 'Replenishment Qty', 'Alert Level',
   ],
   Inbound: [
     'Inbound No.', 'Status', 'Inbound Type', 'Warehouse Name', 'Material No.', 'Serial No.',

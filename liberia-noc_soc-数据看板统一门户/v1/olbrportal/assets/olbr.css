@@ -476,23 +476,20 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 
 .qc-grid {
   display: grid; gap: var(--s2); align-items: stretch;
-  /* 六张一行（**告警带 #band 用这一档**）。
+  /* 六张一行。告警带 #band 与 CXO 指标带 #kpi 都用这一档（两处都输出 .qc-grid）：
+     前者是 6 张 Quality Control 卡，后者是 3 张富卡片 + 3 张可用率卡。
+     两个带想要的列数一致，所以没有必要再分出一个修饰类 ——
+     2026-09-24 一度加过 .qc-grid--kpi（CXO 加第四张卡时改成 4 列），
+     用户要求去掉 Video Traffic、恢复六张一行后已删除。
      minmax(0,1fr) 而不是 1fr：1fr 的最小尺寸是 auto，
      长卡名 / 长副行会把列撑破、把整行挤出容器。 */
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
-/* 断点跟视口走，不写死在渲染逻辑里 */
+/* 断点跟视口走，不写死在渲染逻辑里。
+   6 → 3 → 2：富卡片里有一行「Max/Avg/Min」三段加一个 30 点走势，
+   比简卡片宽，所以 1200px 这一档收到 3 列（每张约 380px）刚好。 */
 @media (max-width: 1200px) { .qc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px)  { .qc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-
-/* CXO 指标带单独一档：4 列。**不能直接改上面的 .qc-grid** ——
-   告警带 #band 与它共用这个类（olbr.js 的 renderBand 也输出 .qc-grid），
-   改基类会把告警那一排从 6 列一起改成 4 列。
-   2026-09-24 加 Video Traffic 后本带是 7 张卡，按 4 + 3 折成两排：
-   上排四张富卡片、下排三张可用率，两排共用同一条列轨道所以卡边对齐。 */
-.qc-grid--kpi { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-@media (max-width: 1240px) { .qc-grid--kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 760px)  { .qc-grid--kpi { grid-template-columns: repeat(1, minmax(0, 1fr)); } }
 
 .qc-card {
   --qc-accent: var(--b);

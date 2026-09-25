@@ -428,7 +428,11 @@
       'v.emptyFilter': 'Nothing matches the current filters', 'v.adjust': 'Adjust keywords or clear filters',
       /* ---- v1 additions: CXO daily KPI band (renderKpi) ---- */
       'kpi.title': 'CXO Daily Dashboard',
-      'kpi.sub': 'Today’s key business metrics · 2G / 3G / 4G month-to-date availability',
+      /* ⚠️ 口径必须与中文一致：卡上四个数字都是「昨日完整值」，
+         写成 "Today's …" 会让人以为这是实时数（本页其它看板多为实时，
+         更容易误读）。2026-09-24 改口径时只改了中文、漏了这里，
+         是用户 09-25 的截图里发现的。改口径时**两份字典一起改**。 */
+      'kpi.sub': 'Last complete day · 90-day window · 2G / 3G / 4G month-to-date availability',
       'kpi.updated': 'Data {t}',
       'kpi.err': 'Metrics unavailable',
       'kpi.retry': 'Retry',
@@ -1254,13 +1258,15 @@
   /* ==================================================================== v1 ==
      CXO Daily Dashboard 指标带（2026-09-24 加，同日改成富卡片）
      ----------------------------------------------------------------------------
-     当前形态（按用户 2026-09-24 给的截图与选定范围）：**两排七格**
-       上排 4 张「富卡片」：Total Traffic / Active Users / Valid Throughput of
-                            Video Download / Video Traffic
-                            —— 大数字 + 单位、Latest/As of 行、WoW/MoM 徽章、
-                               30 点迷你走势、Max/Avg/Min 页脚
-       下排 3 张「简卡片」：2G / 3G / 4G 当月可用率（沿用 .qc-card 原样，
-                            用户明确说这三张不动）
+     当前形态（按用户 2026-09-24 的要求）：**六张卡一行**
+       前三张「富卡片」：Total Traffic / Active Users /
+                         Valid Throughput of Video Download
+                         —— 大数字 + 单位、Latest/As of 行、WoW/MoM 徽章、
+                            30 点迷你走势、Max/Avg/Min 页脚
+       后三张「简卡片」：2G / 3G / 4G 当月可用率（沿用 .qc-card 原样，
+                          用户明确说这三张不动）
+     六张一行，所以 4 张富卡片的版本（含 video_tb 视频流量）已被用户否掉；
+     本带因此用**基类 .qc-grid**（6 列），不再需要单独的列数覆盖。
 
      ── 数据源：/api/olib-soc-dashboard/overview?days=90 ──────────────────────
      富卡片全部走这一路。它是 my_app `?page=vmaxCxoDashboard_90Days` 那个 90 天
@@ -1292,15 +1298,19 @@
        zh/en 是本页自带的名字，**只在接口那张卡缺失时兜底**（例如 KPI 库还没跑）。
        接口在时一律用接口的名字（它才是指标字典这份唯一真相源），
        否则会出现「改了字典，卡片标题还是旧的」。
-       icon 取 PH 表里真实存在的键，写错的会静默退回方块图标。 */
-    { id: 'traffic_gb',     unit: 'TB',   digits: 2, div: 1024, icon: 'chart-line',
+       这张表**没有 icon 字段**：富卡片的排版里不放图标（源看板那张卡也没有），
+       kpiRichHtml 从不读它 —— 曾经写过三个 icon 值，是纯死数据，已删。 */
+    { id: 'traffic_gb',     unit: 'TB',   digits: 2, div: 1024,
       zh: '总流量',           en: 'Total Traffic' },
-    { id: 'active_user_k',  unit: 'K',    digits: 1, div: 1,    icon: 'user',
+    { id: 'active_user_k',  unit: 'K',    digits: 1, div: 1,
       zh: '活跃用户',         en: 'Active Users' },
-    { id: 'video_thr_kbps', unit: 'Mbps', digits: 2, div: 1000, icon: 'broadcast',
-      zh: '视频下载速率',     en: 'Valid Throughput of Video Download' },
-    { id: 'video_tb',       unit: 'TB',   digits: 1, div: 1,    icon: 'film-strip',
-      zh: '视频流量',         en: 'Video Traffic' }
+    { id: 'video_thr_kbps', unit: 'Mbps', digits: 2, div: 1000,
+      zh: '视频下载速率',     en: 'Valid Throughput of Video Download' }
+    /* 2026-09-24：曾加过第四张 video_tb（视频流量，与源看板截图一致），
+       用户随后要求去掉、恢复六张卡一行 —— 故此处只有三张。
+       要恢复只需把 { id: 'video_tb', unit: 'TB', digits: 1, div: 1,
+       zh: '视频流量', en: 'Video Traffic' } 加回来，
+       并把 .qc-grid 的列数从 6 改回 4。 */
   ];
   /* 2G / 3G / 4G 分别对应 xlsx 里的哪个 Cell Group。写成显式映射而不是
      startsWith('2G') 去猜：源表以后加了 "2G ERA" 之类的档位时，
@@ -1482,7 +1492,7 @@
           '<span class="qc-when">' + esc(t('kpi.updated').replace('{t}', stamp)) + '</span></span>' : '') +
         '<button type="button" class="gb" data-act="kpi-reload" title="' + esc(t('kpi.retry')) + '">' +
           ic('refresh') + esc(t('kpi.retry')) + '</button>' +
-      '</div><div class="qc-grid qc-grid--kpi">' + rich + avail + '</div>';
+      '</div><div class="qc-grid">' + rich + avail + '</div>';
   }
 
   /* ==================================================================== v1 ==

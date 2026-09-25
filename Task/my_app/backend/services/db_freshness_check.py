@@ -375,13 +375,16 @@ def _ensure_my_app_importable():
 
 def _task_health_db_query():
     """连接本机历史库（pg/sqlite 双模），一次查询返回：
-    (exec_latest, success_latest, fail_latest, disabled_ids, cron_map, stuck, error)
+    (exec_latest, success_latest, fail_latest, disabled_ids, cron_map, stuck, inflight_ids, error)
     - exec_latest: {task_id: 最近 started_at}（GROUP BY 一次取全，避免 N+1）
     - success_latest: {task_id: 最近一次成功的 started_at}（成功逾期检查用）
     - fail_latest: {task_id: (最近一次失败的 error, started_at)}（区分依赖故障/真停摆）
     - disabled_ids: 已禁用任务集合（task_schedule_config enabled=0）
     - cron_map: {task_id: cron}（调度配置持久化表）
     - stuck: 滞留队列记录 [dict(id, task_id, status, since)]
+    - inflight_ids: 队列中有 pending/running 在途行的任务集合（silent 判定用：
+      exec_log 在**完成时**才写入，长任务执行期间必然“无当期记录”，2026-09-25
+      误报 ms_sla_full「24h 无执行记录」的根因）
     表不存在（sqlite 开发模式未建表）视为“无可检查”而非检查手段故障。"""
     try:
         _ensure_my_app_importable()
@@ -392,7 +395,7 @@ def _task_health_db_query():
         # "not enough values to unpack (expected 7, got 6)"，
         # 把「backend.database 导入失败」这个真实原因整个盖掉
         # （2026-09-21 在缺 sqlalchemy 的 .venv 下复现）。
-        return None, None, None, None, None, None, f"导入 backend.database 失败: {e}"
+        return None, None, None, None, None, None, None, f"导入 backend.database 失败: {e}"
     try:
         with get_raw_connection(str(_APP_DB), timeout=30) as conn:
             exec_latest = {r[0]: r[1] for r in conn.execute(
@@ -428,12 +431,15 @@ def _task_health_db_query():
             stuck += [dict(id=q[0], task_id=q[1], status="running", since=q[2]) for q in conn.execute(
                 "SELECT id, task_id, started_at FROM task_queue "
                 "WHERE status = 'running' AND started_at < ?", (r_cut,)).fetchall()]
-        return exec_latest, success_latest, fail_latest, disabled_ids, cron_map, stuck, None
+            inflight_ids = {q[0] for q in conn.execute(
+                "SELECT DISTINCT task_id FROM task_queue "
+                "WHERE status IN ('pending','running')").fetchall()}
+        return exec_latest, success_latest, fail_latest, disabled_ids, cron_map, stuck, inflight_ids, None
     except Exception as e:
         msg = str(e)
         if "no such table" in msg or "42P01" in msg or "does not exist" in msg:
-            return {}, {}, {}, set(), {}, [], None
-        return None, None, None, None, None, None, f"历史库查询失败: {msg}"
+            return {}, {}, {}, set(), {}, [], set(), None
+        return None, None, None, None, None, None, None, f"历史库查询失败: {msg}"
 
 
 def _task_group_coverage():
@@ -484,7 +490,8 @@ def _cron_next_and_interval(cron: str, after: datetime):
 
 
 def _silent_task_candidates(registry, exec_latest: dict, disabled_ids, cutoff: str,
-                            cron_map: dict, specs: dict, lookback_hours: float) -> list:
+                            cron_map: dict, specs: dict, lookback_hours: float,
+                            inflight_ids=None) -> list:
     """“静默停摆”候选：超出回看窗口无执行记录的任务。
 
     2026-09-18 收紧（接入健康告警后不再能靠“没人看”容忍误报）：
@@ -493,18 +500,44 @@ def _silent_task_candidates(registry, exec_latest: dict, disabled_ids, cutoff: s
         一律报出来就是误报 → 按 cron 周期判定后跳过；
       * 仍保留“仍无执行记录 = 从未跑过”的报告（这正是漏分组/漏注册的典型症状）；
       * cron 解析不出间隔时仍按原规则报（宁可多报不可漏报）。
+
+    2026-09-25 在途豁免（消除每日 05:00-05:16 的结构性误报）：队列里有
+    pending/running 在途行的任务跳过本判定。根因：exec_log 在任务**完成时**才
+    写入，n 组串行队列头部 05:00 排入 ms_sla_full（约 10 分钟）后，其后所有任务
+    在巡检时刻都没有“当期记录”；日级任务恰好越过 24h 线就误报（实锤：05:15
+    巡检报 ms_sla_full 无记录，05:16:11 它就 success=1 完成）。误报的代价不只是
+    刷屏——翻转去重会把真故障的第一次告警也吞进“持续期间静默”。
+    “pending 后无人认领”的真停摆仍由 group_missing 与 stuck 两个维度兜住，
+    不会因本豁免漏报。
     """
+    inflight = inflight_ids or set()
+    try:
+        cutoff_dt = datetime.fromisoformat(str(cutoff))
+    except Exception:  # noqa: BLE001
+        cutoff_dt = datetime.now() - timedelta(hours=lookback_hours)
+    window_end = cutoff_dt + timedelta(hours=lookback_hours)   # ≈ 巡检时刻 now
     out = []
     for t in registry:
         if t in disabled_ids:
             continue
+        if t in inflight:
+            continue             # 队列有在途行：正在排队/执行，见上方说明
+        cron = cron_map.get(t) or (specs.get(t) or {}).get("default_cron") or ""
         last = exec_latest.get(t)
         if not last:
-            out.append(t)                 # 从未执行：漏分组/漏注册的典型症状
+            # 从未执行：漏分组/漏注册的高危症状，但 2026-09-25 实锤第二个误报
+            # 变体——低频任务同样适用「未到下一期不算异常」：olib_soc_vmax_report
+            # （cron `30 7 1 * *` 每月一次，09-16 注册、09-18 补分组）在首个调度日
+            # 10-01 到来之前，旧逻辑每小时报一次「无执行记录」，已连续误报 7 天、
+            # 通知 7 次。旧版低频豁免只写在「有历史记录」分支，从未执行分支漏了。
+            # 收紧为：回看窗口内 cron 已到期过至少一次仍无记录才报（真漏分组/
+            # 漏注册的任务到期次日即被抓到，不会漏）；cron 解析不出维持宁可多报。
+            nxt, _ = _cron_next_and_interval(cron, cutoff_dt)
+            if nxt is None or nxt <= window_end:
+                out.append(t)    # 窗口内应跑过却没跑：漏分组/漏注册的典型症状
             continue
         if str(last) >= cutoff:
             continue
-        cron = cron_map.get(t) or (specs.get(t) or {}).get("default_cron") or ""
         try:
             last_dt = datetime.fromisoformat(str(last))
         except Exception:  # noqa: BLE001
@@ -560,7 +593,8 @@ def _check_task_execution_health(now: datetime, results: list, stale_items: list
                 "3. 查 task_queue 是否有滞留 pending 记录（新 worker 会自动认领执行）",
             ]))
 
-    exec_latest, success_latest, fail_latest, disabled_ids, cron_map, stuck, err = _task_health_db_query()
+    (exec_latest, success_latest, fail_latest, disabled_ids, cron_map, stuck,
+     inflight_ids, err) = _task_health_db_query()
     if err:
         stale_items.append(dict(db="task_health", table="task_execution_log/task_queue",
                                 reason=err,
@@ -570,7 +604,8 @@ def _check_task_execution_health(now: datetime, results: list, stale_items: list
     # 2) 注册任务超出回看窗口无执行记录（排除已禁用任务）
     cutoff = (now - timedelta(hours=TASK_HEALTH_LOOKBACK_HOURS)).isoformat()
     silent = _silent_task_candidates(registry, exec_latest, disabled_ids, cutoff,
-                                     cron_map, specs, TASK_HEALTH_LOOKBACK_HOURS)
+                                     cron_map, specs, TASK_HEALTH_LOOKBACK_HOURS,
+                                     inflight_ids)
     findings["silent"] = list(silent)
     if silent:
         issues += 1
