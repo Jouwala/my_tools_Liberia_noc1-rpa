@@ -120,6 +120,7 @@ Get-ChildItem -LiteralPath 'liberia-noc_soc-数据看板统一门户' -Recurse -
 | 门户 `TMP\probe_shot.py` | 给任意区块截图（亮/暗各一张）做人工目视比对。用法：`python TMP\probe_shot.py [选择器] [文件名前缀] [--click s1,s2] [--lang zh\|en]`，默认 `#kpi` → `TMP\_shot_<theme>.png`。例：`python TMP\probe_shot.py "#band" _band`；截登录闸门要先点开：`python TMP\probe_shot.py "#gate" _gate --click "#umBtn,#gmreq"`。脚本会先清掉门户 token，否则已登录状态下截不到闸门 |
 | 门户 `TMP\v1_auth_test.py` | `/v1/olbrportal/` 的**鉴权链路回归**：入口可达（`local` 占位身份下 `#umBtn` 必须可见）→ 点击唤起闸门 → 取消退回 → 登录/注册两态切换 → 本地校验（不足 8 位 / 两次不一致，且**不得发请求**）→ 注册成功（校验 `{username,password,note}` 载荷与 `ar.ok` 文案）→ 四种错误码文案映射（`username_taken`/`request_pending`/`too_many_requests`/断网）→ 登录成功（token 落共享键、闸门收起、用户管理面板自动打开）。结果写 `TMP\_auth_out.json`，失败 exit 1。**关键：全程用 Playwright 路由拦截替掉后端** —— 真发一次注册申请会往 `auth-data\portal-auth.db` 写一行真实待审批记录，只有管理员能删，所以这个测试刻意不碰真库。用法：`python TMP\v1_auth_test.py` |
 | 门户 `TMP\probe_sweep.py` | 地图/报告文件那一行的列宽与 Leaflet 像素高度核对（`--maprow-h` 与 `GISMap.tsx` 的 `zoom=8` 绑定，改 zoom 要重跑） |
+| `Task\my_app\TMP\_pull_readiness_check.py` | **提交并推送之后的「别人 pull 能不能跑」总自检**（2026-09-27 加，当天就靠它抓到 `db/uploads` 那个让后端起不来的缺陷）。做法是**从 GitHub 做 depth=1 真克隆**再验，不是本地 copy：① 克隆里 `import backend.main` 数注册接口；② 门户 `server\`+`src\`、kb-bot `src\`、my_app `frontend\src\` 的相对 import 是否都落到文件（跳过注释行，否则 `components/cards/index.ts` 里的示例代码会误报）；③ kb-bot 逐文件 `node --check`；④ 四份静态壳的资源引用 —— 绝对路径按 nginx 路由前缀放行，否则会误报 15 条；⑤ 21 项关键运行文件（requirements / alembic.ini / 两个 watchdog / 两份 geojson / nginx.conf / 门户 config 等）。用法：`git clone --depth 1 <远端> Task\my_app\TMP\_clone` 然后 `python Task\my_app\TMP\_pull_readiness_check.py Task\my_app\TMP\_clone`。**只读**，退出码 0 = 全通过。⚠️ 正常少 1 个接口：SPA 兜底路由 `/{full_path}` 只在 `Task\_fe_dist` 存在时挂载，产物按约定不入库 |
 
 ### B. 门户（`liberia-noc_soc-数据看板统一门户\`）
 
@@ -166,6 +167,7 @@ Get-ChildItem -LiteralPath 'liberia-noc_soc-数据看板统一门户' -Recurse -
 | 探针写在门户 `TMP\` 里且带语法错 | **`npm run lint` 直接挂**：根 `tsconfig.json` 没有 `include` 且 `allowJs: true`，tsc 默认收整个项目目录，`exclude` 原本只有 `node_modules/dist/scripts` —— `TMP\` 因此在类型检查范围内（实测 `TMP/probe_color_inventory.cjs` 自 9 月 17 日起就打挂了 lint） | 已在 `exclude` 补 `TMP`/`log`/`auth-data`（2026-09-25）。跑 lint 报错时先确认报错文件属不属于自己这次的改动范围，别顺手改别人的在途代码 |
 | 快照用 `_bak_` 以外的写法命名 | **悄悄入库**。`.gitignore` 原本只有 `*.bak` / `*.bak_*` / `*_bak_*`，实测门户 134 个快照有 5 种写法（`_bak_` 99 / `.bak_` 31 / `.bak-` 2 / `.bak.` 1 / 裸后缀 `qcbak` 1），最后那种连第 ⑤ 条自检的 glob 也一起漏掉，`portal.js.qcbak` 315KB 在 HEAD 里躺到 2026-09-25 | 新快照一律 `_bak_<日期>_<说明>`；命名规则变了要**同时**改 `.gitignore` 和 `vite.config.ts` 的 `server.watch.ignored` |
 | 把 db/log 加进版本库 | 956M / 152M 进 git | 已被 `.gitignore` 忽略，别绕开 |
+| 模块级 `Path(...).mkdir(exist_ok=True)` 建在 `db\`、`data\` 这类被忽略目录下 | **别人 pull 完后端直接起不来**：全新克隆里没有 `db\`，`import backend.routers.upload` 在 `:20` 抛 `FileNotFoundError`，连 `init_db` 都跑不到（2026-09-27 实测，`routers/mw_links.py:27` 同病） | 一律 `mkdir(parents=True, exist_ok=True)`（Node 侧 `{recursive:true}`）；推送后跑 `Task\my_app\TMP\_pull_readiness_check.py` 验一遍 |
 
 ## 六、相关文档
 
