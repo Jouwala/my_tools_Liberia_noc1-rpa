@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert, Button, Card, Col, DatePicker, Empty, Row, Space, Spin, Statistic,
-  Table, Tag, Tooltip, Typography,
+  Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd'
 import {
   DownloadOutlined, InfoCircleOutlined, ReloadOutlined,
@@ -95,6 +95,22 @@ interface BoardLayout {
   headerKpi?: string[]
   order?: string[]
   fullWidth?: string[]
+  /**
+   * 页签分组：把标题相同的组件按粒度拆成「日 / 周 / 月」多个页签。
+   * 组件 id 用「<前缀>_<粒度>」命名（如 mttr_p1_day / mttr_p1_week / mttr_p1_month），
+   * 前端按粒度归组；组内组件默认每行 2 个。
+   */
+  tabs?: {
+    /** 组件 id 的后缀 → 页签，顺序即页签展示顺序 */
+    grains: { key: string; labelKey: string }[]
+    /** 每行几列（默认 2） */
+    cols?: number
+  }
+}
+
+/** 页签粒度：id 以 `_<key>` 结尾即归属该页签 */
+function grainOf(w: NBWidget, t: NonNullable<BoardLayout['tabs']>): string {
+  return t.grains.find((g) => w.id.endsWith(`_${g.key}`))?.key ?? ''
 }
 
 /**
@@ -111,6 +127,19 @@ const BOARD_LAYOUT: Record<string, BoardLayout> = {
   availability_tt: { order: ['nw_daily', 'nw_week', 'nw_month'] },
   // 原版有两个重复的 Time 组件（Time + TIme）：只留一个
   kpi_4g: { hide: ['time2', 'TIme'] },
+  /* MTTR 看板（2026-09-27 改造）：原先 MTTR / MTTR Weekly 等组件平铺，
+     现改为「日 / 周 / 月」三个页签，每档 P1-P4 四张分级图，每行 2 图。
+     粒度由组件 id 后缀区分（mttr_p1_day/_week/_month），定义在 native_catalog。 */
+  mttr: {
+    tabs: {
+      grains: [
+        { key: 'day', labelKey: 'nb.granDay' },
+        { key: 'week', labelKey: 'nb.granWeek' },
+        { key: 'month', labelKey: 'nb.granMonth' },
+      ],
+      cols: 2,
+    },
+  },
 }
 
 const EMPTY_LAYOUT: BoardLayout = {}
@@ -438,6 +467,8 @@ export default function NativeBoard({ slug }: { slug: string }) {
   const [exporting, setExporting] = useState(false)
   // 时间窗口：null = 全量（沿用各组件原口径）
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null)
+  // 页签粒度（仅 layout.tabs 的看板用；默认取第一个页签）
+  const [tab, setTab] = useState('')
   // 切看板时重置状态（同一路由复用组件）
   const [lastSlug, setLastSlug] = useState(slug)
 
@@ -517,9 +548,24 @@ export default function NativeBoard({ slug }: { slug: string }) {
   const chartHeight = 320
   const tableHeight = 420
 
+  /* 页签分组（layout.tabs）：按 id 后缀把图表拆到各粒度页签。
+     非页签看板走原路径（tabs 为空 → tabChartWidgets 即 chartWidgets）。 */
+  const tabs = layout.tabs
+  // 当前页签：未选或选中项已失效时回落到第一个页签
+  const activeTab = tabs?.grains.some((g) => g.key === tab) ? tab : (tabs?.grains[0]?.key ?? '')
+  const tabChartWidgets = tabs
+    ? chartWidgets.filter((w) => grainOf(w, tabs) === activeTab)
+    : chartWidgets
+
   // 宽表（列数多）的图表给整行，避免挤在 1/3 宽里看不清
   const isWide = (w: NBWidget) =>
     hits(w, layout.fullWidth) || w.columns.length > 4 || w.rows.length > 1500
+
+  /** 每行栅格宽度：页签看板用 layout.tabs.cols（默认 2），否则沿用原 1/3 规则 */
+  const colSpan = (w: NBWidget) => {
+    if (tabs) return Math.floor(24 / (tabs.cols || 2))
+    return isWide(w) ? 24 : 8
+  }
 
   return (
     <div style={{ padding: 4 }}>
@@ -617,17 +663,40 @@ export default function NativeBoard({ slug }: { slug: string }) {
         <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
       ) : (
         <>
-          {chartWidgets.length > 0 && (
-            <Row gutter={[12, 12]}>
-              {chartWidgets.map((w) => (
-                <Col key={w.id} xs={24} md={isWide(w) ? 24 : 12} xl={isWide(w) ? 24 : 8}>
-                  <WidgetCard w={w} height={chartHeight} colors={colors} />
-                </Col>
-              ))}
-            </Row>
+          {tabs && chartWidgets.length > 0 ? (
+            <Tabs
+              size="small"
+              activeKey={activeTab}
+              onChange={setTab}
+              items={tabs.grains.map((g) => ({
+                key: g.key,
+                label: t(g.labelKey),
+                children: (
+                  <Row gutter={[12, 12]}>
+                    {chartWidgets
+                      .filter((w) => grainOf(w, tabs) === g.key)
+                      .map((w) => (
+                        <Col key={w.id} xs={24} md={12} xl={colSpan(w)}>
+                          <WidgetCard w={w} height={chartHeight} colors={colors} />
+                        </Col>
+                      ))}
+                  </Row>
+                ),
+              }))}
+            />
+          ) : (
+            chartWidgets.length > 0 && (
+              <Row gutter={[12, 12]}>
+                {chartWidgets.map((w) => (
+                  <Col key={w.id} xs={24} md={isWide(w) ? 24 : 12} xl={isWide(w) ? 24 : 8}>
+                    <WidgetCard w={w} height={chartHeight} colors={colors} />
+                  </Col>
+                ))}
+              </Row>
+            )
           )}
           {tableWidgets.length > 0 && (
-            <Row gutter={[12, 12]} style={{ marginTop: chartWidgets.length ? 12 : 0 }}>
+            <Row gutter={[12, 12]} style={{ marginTop: tabChartWidgets.length ? 12 : 0 }}>
               {tableWidgets.map((w) => (
                 <Col key={w.id} xs={24} xl={isWide(w) ? 24 : 12}>
                   <TableCard w={w} height={tableHeight} />

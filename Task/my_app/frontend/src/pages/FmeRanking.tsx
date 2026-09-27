@@ -6,7 +6,7 @@ import {
   SafetyOutlined, ClockCircleOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { exportAoaReport } from '../utils/excelReport'
+import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import ReactECharts from 'echarts-for-react'
 import {
   getFmeRankingFilters, getFmeRankingOverview,
@@ -14,10 +14,11 @@ import {
 } from '../api'
 import { useI18n, numLocale } from '../i18n'
 import DraggableClickModal from '../components/DraggableClickModal'
+import { CardBase } from '../components/cards'
 import { ExplainCorner } from '../components/MetricExplain'
-import { useTheme, WH, WH_COLORS, LIGHT_COLORS, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, pageWrap } from '../theme'
+import { useTheme, WH, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, pageWrap } from '../theme'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 
 type FmeRow = {
   fme_name: string
@@ -386,15 +387,250 @@ export default function FmeRanking() {
     })
   }, [rows, month, t, fmtSla])
 
-  const chart = useMemo(() => {
-    const chartRows = rows.slice(0, 15)
+  // ========== 页面级导出（导出页面上显示的全部汇总与排名明细） ==========
+  // 与 exportRows / exportDrill 的区别：
+  //   - exportRows 只导出「按当前搜索框过滤后」的排名表，且不带任何筛选条件文字；
+  //   - exportDrill 导出的是下钻弹窗里的明细行。
+  // 本次补的是**页面级**入口：把工具栏筛选条件（月份/制式/主管/FME）、
+  // 概览统计卡、三组（可用率 / WO / SLA）前 3 与后 3 榜单、以及排名主表一次导出。
+  // 只收录有值的统计项 —— 后端未返回的块不写空行（SLA 字段老响应里可能整体缺失）。
+  const exportOverview = useCallback(() => {
+    if (!data) return
+    // 筛选条件文本：写进每个 sheet 的副标题，方便拿到文件后对账口径
+    const conds = [
+      `${t('fme.month')}: ${month}`,
+      `${t('fme.tech')}: ${tech === 'ALL' ? t('fme.techAll') : t(`fme.tech.${tech}`)}`,
+      supervisor ? `${t('fme.supervisor')}: ${supervisor}` : `${t('fme.supervisor')}: ${t('fme.filterAll')}`,
+      fme ? `${t('fme.fme')}: ${fme}` : `${t('fme.fme')}: ${t('fme.filterAll')}`,
+    ]
+    if (search.trim()) conds.push(`${t('fme.search')}: ${search.trim()}`)
+    const subtitle = conds.join('    |    ')
+    const sheets: ReportSheetSpec[] = []
+
+    // ---------- Sheet 1：概览统计（页面上那排 Statistic 卡） ----------
+    // 每一项都带判空：后端没返回的指标直接跳过，不用 0 冒充「确实是 0」
+    const s = data.summary
+    const summaryRows: (string | number)[][] = []
+    for (const [label, value] of [
+      [t('fme.stat.fme'), s.fme_count],
+      [t('fme.stat.sites'), s.site_count],
+      [t('fme.stat.wo'), s.wo_total],
+      [t('fme.stat.open'), s.wo_open],
+    ] as [string, number | undefined][]) {
+      if (value != null) summaryRows.push([label, value])
+    }
+    // SLA 达成率：页面卡片显示成百分比，这里同样写成数值 + %
+    if (s.sla_rate != null) summaryRows.push([t('fme.stat.sla'), `${(s.sla_rate * 100).toFixed(1)}%`])
+    if (s.sla_total) summaryRows.push([t('fme.col.slaPass'), `${s.sla_pass}/${s.sla_total}`])
+    if (s.sla_fail != null) summaryRows.push([t('fme.stat.slaFail'), s.sla_fail])
+    // 统计口径元信息：阈值 / 站点有可用率数据的两项（页面顶部告警与卡片解释里用到）
+    summaryRows.push([t('fme.threshold'), `${((data.meta.threshold ?? 0) * 100).toFixed(2)}%`])
+    if (s.sites_with_availability != null) {
+      summaryRows.push([`${t('fme.stat.sites')} · ${t('fme.withData')}`, s.sites_with_availability])
+    }
+    if (data.meta.generated_at) summaryRows.push([t('fme.generated', { v: '' }).trim(), data.meta.generated_at])
+    if (data.meta.wo) {
+      summaryRows.push([t('fme.export.woSource'), data.meta.wo.source_rows])
+      summaryRows.push([t('fme.export.woMatched'), data.meta.wo.matched_rows])
+      summaryRows.push([t('fme.export.woUnmatched'), data.meta.wo.unmatched_rows])
+      if (data.meta.wo.time_field) summaryRows.push([t('fme.export.woTimeField'), data.meta.wo.time_field])
+    }
+    sheets.push({
+      name: 'Summary',
+      title: t('fme.exportOverviewTitle'),
+      subtitle,
+      tabColor: 'FF2F5496',
+      header: [t('fme.export.metric'), t('fme.export.value')],
+      rows: summaryRows,
+      columnWidths: [34, 26],
+    })
+
+    // ---------- Sheet 2：榜单（页面上三组 Top3 / Bottom3 卡片，按页面顺序） ----------
+    const boardRows: (string | number)[][] = []
+    // 卡片上只显示 5 个指标，这里保持同一口径与同一顺序
+    const pushBoard = (
+      group: string, row: FmeRow, rank: number,
+      hint: string, kpi: (string | number)[][],
+    ) => {
+      for (const [k, v] of kpi) boardRows.push([group, rank, row.fme_name, row.supervisors.join(', '), k, v, hint])
+    }
+    topAvail.forEach((row, i) => pushBoard(t('fme.topAvail'), row, i + 1, t('fme.topAvailSub'), [
+      [t('fme.col.availability'), fmtPct(row.availability)],
+      [t('fme.col.slaRate'), fmtSla(row)],
+      [t('fme.stat.sites'), row.site_count],
+      [t('fme.col.below'), row.sites_below_threshold],
+      [t('fme.col.wo'), row.wo_total],
+    ]))
+    bottomAvail.forEach((row, i) => pushBoard(t('fme.bottomAvail'), row, availRanked.length - i, t('fme.bottomAvailSub'), [
+      [t('fme.col.availability'), fmtPct(row.availability)],
+      [t('fme.col.slaRate'), fmtSla(row)],
+      [t('fme.stat.sites'), row.site_count],
+      [t('fme.col.below'), row.sites_below_threshold],
+      [t('fme.col.wo'), row.wo_total],
+    ]))
+    topWo.forEach((row, i) => pushBoard(t('fme.topWo'), row, i + 1, t('fme.topWoSub'), [
+      [t('fme.col.wo'), row.wo_total],
+      [t('fme.col.open'), row.wo_open],
+      [t('fme.col.slaRate'), fmtSla(row)],
+      [t('fme.col.availability'), fmtPct(row.availability)],
+      [t('fme.stat.sites'), row.site_count],
+    ]))
+    bottomWo.forEach((row, i) => pushBoard(t('fme.bottomWo'), row, woRanked.length - i, t('fme.bottomWoSub'), [
+      [t('fme.col.wo'), row.wo_total],
+      [t('fme.col.open'), row.wo_open],
+      [t('fme.col.slaRate'), fmtSla(row)],
+      [t('fme.col.availability'), fmtPct(row.availability)],
+      [t('fme.stat.sites'), row.site_count],
+    ]))
+    // SLA 榜单：样本量不足的 FME 后端已排除（slaRanked），与页面卡片同一批数据
+    topSla.forEach((row, i) => pushBoard(t('fme.topSla'), row, i + 1, t('fme.topSlaSub'), [
+      [t('fme.col.slaRate'), fmtSla(row)],
+      [t('fme.col.slaPass'), `${row.sla_pass}/${row.sla_total}`],
+      [t('fme.col.availability'), fmtPct(row.availability)],
+      [t('fme.col.wo'), row.wo_total],
+      [t('fme.stat.sites'), row.site_count],
+    ]))
+    bottomSla.forEach((row, i) => pushBoard(t('fme.bottomSla'), row, slaRanked.length - i, t('fme.bottomSlaSub'), [
+      [t('fme.col.slaRate'), fmtSla(row)],
+      [t('fme.col.slaPass'), `${row.sla_pass}/${row.sla_total}`],
+      [t('fme.col.availability'), fmtPct(row.availability)],
+      [t('fme.col.wo'), row.wo_total],
+      [t('fme.stat.sites'), row.site_count],
+    ]))
+    if (boardRows.length) {
+      sheets.push({
+        name: t('fme.export.sheetBoard'),
+        title: `${t('fme.export.sheetBoard')} · ${month}`,
+        subtitle,
+        tabColor: 'FFBF8F00',
+        header: [
+          t('fme.export.group'), t('fme.export.rank'), t('fme.col.fme'), t('fme.col.supervisor'),
+          t('fme.export.metric'), t('fme.export.value'), t('fme.export.note'),
+        ],
+        rows: boardRows,
+        columnWidths: [22, 8, 24, 22, 22, 16, 34],
+      })
+    }
+
+    // ---------- Sheet 3：排名主表（页面上「FME 排名明细」表格） ----------
+    // 表格只有搜索框一个客户端过滤，rows 就是所见数据；但导出取 data.rows 全量（未截断），
+    // 并用 subtitle 里已写明的搜索词标出口径。
+    const tableHeader = [t('fme.col.rank'), t('fme.col.fme'), t('fme.col.supervisor'), t('fme.col.sites'),
+      t('fme.col.availability'), t('fme.col.below'), t('fme.col.slaRate'), t('fme.col.slaPass'),
+      t('fme.col.slaFail'), t('fme.col.slaRank'), t('fme.col.wo'), t('fme.col.open'),
+      t('fme.col.closed'), t('fme.col.woRank')]
+    sheets.push({
+      name: t('fme.export.sheetRanking'),
+      title: `${t('fme.export.sheetRanking')} · ${month} · ${tech === 'ALL' ? t('fme.techAll') : t(`fme.tech.${tech}`)}`,
+      subtitle,
+      tabColor: 'FF548235',
+      header: tableHeader,
+      rows: (data.rows || []).map(row => [
+        row.availability_rank, row.fme_name, row.supervisors.join(', '), row.site_count,
+        fmtPct(row.availability), row.sites_below_threshold, fmtSla(row),
+        `${row.sla_pass}/${row.sla_total}`, row.sla_fail, row.sla_rank ?? '',
+        row.wo_total, row.wo_open, row.wo_closed, row.wo_rank,
+      ]),
+      columnWidths: tableHeader.map((_, i) => (i === 1 ? 24 : 16)),
+    })
+
+    void exportReport(sheets, `FME_Ranking_${month}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`)
+  }, [data, month, tech, supervisor, fme, search, availRanked, woRanked, slaRanked,
+    topAvail, bottomAvail, topWo, bottomWo, topSla, bottomSla, t, fmtSla])
+
+  // ========== 条形图（两组共用同一套构造逻辑） ==========
+  // 横向条形图（yAxis=category, xAxis=value）：FME 姓名长度差异很大（实测最长 39 字符），
+  // 竖向柱状图的类目轴标签必须旋转 35° 才放得下，名字依旧会被截断；横条把姓名放到左侧
+  // 全宽排布，一格一名，可读性显著更好。
+  //
+  // 每张图各自独立坐标系：可用率用真实值域（而非写死的 95~100），否则当该组所有 FME
+  // 都落在 99% 以上时，柱子会长得一样长 —— 组内差异被压平，图就没有信息量了。
+  // 同理，WO / SLA 只在组内确实有差异时才画对应系列，避免一条贴地直线占满图例。
+  const buildBarOption = useCallback((chartRows: FmeRow[], tone: 'top' | 'bottom') => {
+    if (!chartRows.length) return {}
     const cTextMuted = isDark ? '#aebbd4' : '#3f5468'
+    const availVals = chartRows.map(r => r.availability == null ? null : r.availability * 100)
+    const known = availVals.filter((v): v is number => v != null)
+    // 纵向条形图从上往下绘制，倒序后第 1 名落在顶部
+    const ordered = tone === 'top' ? [...chartRows].reverse() : chartRows
+    const availOrdered = ordered.map(r => r.availability == null ? null : +(r.availability * 100).toFixed(3))
+    const woOrdered = ordered.map(r => r.wo_total)
+    const slaOrdered = ordered.map(r => r.sla_rate == null ? null : +(r.sla_rate * 100).toFixed(2))
+    // 组内真实差异判定：WO 全相同或 SLA 全为 null/全相同就不画线
+    const woVaries = new Set(woOrdered).size > 1
+    const slaKnown = slaOrdered.filter((v): v is number => v != null)
+    const slaVaries = slaKnown.length > 0 && new Set(slaKnown).size > 1
+
+    // 可用率轴域：两端各留 0.5 个百分点的余量，且不小于 0.5 个百分点的跨度，
+    // 避免全组同值时 ECharts 出现 min==max 的退化刻度。
+    const lo = known.length ? Math.min(...known) : 0
+    const hi = known.length ? Math.max(...known) : 100
+    const span = Math.max(hi - lo, 0.5)
+    const pad = span * 0.35
+    const availMin = Math.max(0, Math.floor((lo - pad) * 100) / 100)
+    const availMax = Math.min(100, Math.ceil((hi + pad) * 100) / 100)
+
+    const accent = tone === 'top' ? palette.teal : palette.sev.Critical
+    // ⚠️ 横向条形图（y=category, x=value）里的「多轴」是**多个 xAxis**，
+    // 且 ECharts 要求 xAxis/yAxis 要么都是对象、要么都是数组；系列靠 `xAxisIndex`
+    // 指向所用的值轴（不是 yAxisIndex —— 那会指到唯一的 category 轴上，
+    // 触发 cartesian2d 内部 "reading 'get'" 报错、整图不渲染）。
+    // 值轴顺序固定为 [可用率, WO, SLA]，隐藏的轴用 show:false 占位，
+    // 这样某张图少了 WO/SLA 时索引不会错位。
+    const xAxes: any[] = [
+      {
+        type: 'value', name: t('fme.axis.availability'),
+        min: availMin, max: availMax,
+        axisLabel: { ...axisLabel(isDark), formatter: '{value}%' },
+        splitLine: splitLine(isDark),
+      },
+      {
+        type: 'value', name: t('fme.axis.wo'), show: woVaries,
+        splitLine: { show: false }, axisLabel: axisLabel(isDark),
+      },
+      {
+        type: 'value', name: t('fme.axis.sla'), min: 0, max: 100, show: slaVaries,
+        splitLine: { show: false },
+        axisLabel: { ...axisLabel(isDark), formatter: '{value}%' },
+      },
+    ]
+    const series: any[] = [
+      {
+        name: t('fme.availability'), type: 'bar', xAxisIndex: 0,
+        data: availOrdered,
+        barMaxWidth: 22,
+        itemStyle: { color: accent, borderRadius: [0, 4, 4, 0] },
+        cursor: 'pointer',
+        // 条端直接标数值，省去逐条 tooltip 才能读到数字的操作
+        label: {
+          show: true, position: 'right', fontSize: 11,
+          color: cTextMuted, formatter: (p: any) => p.value == null ? '-' : `${Number(p.value).toFixed(3)}%`,
+        },
+      },
+    ]
+    if (woVaries) {
+      series.push({
+        name: t('fme.wo'), type: 'line', xAxisIndex: 1, data: woOrdered,
+        smooth: true, symbol: 'circle', itemStyle: { color: palette.blue },
+        lineStyle: { width: 2 }, cursor: 'pointer',
+      })
+    }
+    if (slaVaries) {
+      series.push({
+        name: t('fme.slaRate'), type: 'line', xAxisIndex: 2, data: slaOrdered,
+        smooth: true, symbol: 'circle', symbolSize: 7, connectNulls: false,
+        itemStyle: { color: palette.sev.Major },
+        lineStyle: { width: 2, type: 'dashed' },
+        cursor: 'pointer',
+      })
+    }
+
     return {
       tooltip: {
         ...darkTooltip(isDark), trigger: 'axis', axisPointer: { type: 'shadow' },
         formatter: (ps: any[]) => {
           const idx = ps[0]?.dataIndex ?? 0
-          const row = chartRows[idx]
+          const row = ordered[idx]
           if (!row) return ''
           const head = `<div style="font-weight:600;margin-bottom:4px">${row.fme_name}</div>`
           const lines = ps.map((p: any) => {
@@ -403,38 +639,39 @@ export default function FmeRanking() {
             const isPct = p.seriesName !== t('fme.wo')
             return `${p.marker} ${p.seriesName}: <strong>${isPct ? Number(v).toFixed(3) + '%' : v}</strong>`
           })
-          // SLA 明细（pass/total）作为补充信息
+          // 名次 / 站点数 / SLA 明细作为补充信息
+          const meta = `<div style="margin-top:3px;opacity:.8">${t('fme.col.rank')}: ${row.availability_rank} · ${t('fme.stat.sites')}: ${row.site_count}</div>`
           const slaLine = row.sla_total
-            ? `<div style="margin-top:3px;opacity:.8">${t('fme.col.slaPass')}: ${row.sla_pass} / ${row.sla_total}</div>`
+            ? `<div style="margin-top:2px;opacity:.8">${t('fme.col.slaPass')}: ${row.sla_pass} / ${row.sla_total}</div>`
             : ''
-          return head + lines.join('<br/>') + slaLine
+          return head + lines.join('<br/>') + meta + slaLine
         },
       },
       legend: { bottom: 0, textStyle: { color: cTextMuted } },
-      grid: { left: 54, right: 58, top: 26, bottom: 58 },
-      xAxis: { type: 'category', data: chartRows.map(row => row.fme_name), axisLabel: { ...axisLabel(isDark), rotate: 35, interval: 0 }, axisLine: axisLine(isDark) },
+      grid: { left: 8, right: 72, top: 16, bottom: series.length > 1 ? 46 : 22, containLabel: true },
+      xAxis: xAxes,
       yAxis: [
-        // 左轴：可用率（95~100，放大差异）
-        { type: 'value', name: t('fme.axis.availability'), min: 95, max: 100, axisLabel: { ...axisLabel(isDark), formatter: '{value}%' }, splitLine: splitLine(isDark) },
-        // 右轴：WO 数量
-        { type: 'value', name: t('fme.axis.wo'), axisLabel: axisLabel(isDark), splitLine: { show: false } },
-        // 第三轴（右侧内缩）：SLA 达成率，独立 0~100% 刻度，避免与可用率的 95~100 混淆
-        { type: 'value', name: t('fme.axis.sla'), min: 0, max: 100, position: 'right', offset: 44, axisLabel: { ...axisLabel(isDark), formatter: '{value}%' }, splitLine: { show: false } },
-      ],
-      series: [
-        { name: t('fme.availability'), type: 'bar', data: chartRows.map(row => row.availability == null ? null : +(row.availability * 100).toFixed(3)), itemStyle: { color: palette.teal, borderRadius: [4, 4, 0, 0] }, cursor: 'pointer' },
-        { name: t('fme.wo'), type: 'line', yAxisIndex: 1, data: chartRows.map(row => row.wo_total), smooth: true, symbol: 'circle', itemStyle: { color: palette.blue }, lineStyle: { width: 2 }, cursor: 'pointer' },
         {
-          name: t('fme.slaRate'), type: 'line', yAxisIndex: 2,
-          data: chartRows.map(row => row.sla_rate == null ? null : +(row.sla_rate * 100).toFixed(2)),
-          smooth: true, symbol: 'circle', symbolSize: 7, connectNulls: false,
-          itemStyle: { color: palette.sev.Major },
-          lineStyle: { width: 2, type: 'dashed' },
-          cursor: 'pointer',
+          type: 'category', data: ordered.map(r => r.fme_name),
+          axisLabel: {
+            ...axisLabel(isDark),
+            width: 130, overflow: 'truncate',
+            // 姓名过长时截断，完整名走 tooltip
+          },
+          axisLine: axisLine(isDark),
         },
       ],
+      series,
     }
-  }, [rows, isDark, palette, t])
+  }, [isDark, palette, t])
+
+  // 图 1：可用率 Top5
+  const topChartRows = useMemo(() => availRanked.slice(0, 5), [availRanked])
+  // 图 2：可用率尾部 5 个（不排除与 Top5 重叠：站点总量少于 10 个时重叠是事实，
+  // 与其擅自隐藏不如如实呈现）
+  const bottomChartRows = useMemo(() => availRanked.slice(-5).reverse(), [availRanked])
+  const topChart = useMemo(() => buildBarOption(topChartRows, 'top'), [buildBarOption, topChartRows])
+  const bottomChart = useMemo(() => buildBarOption(bottomChartRows, 'bottom'), [buildBarOption, bottomChartRows])
 
   // 卡片渲染辅助
   // span: 大屏下每张卡占的列数（一行 6 张 = 4）；divider: 在该卡左侧画一条分隔线，
@@ -515,7 +752,10 @@ export default function FmeRanking() {
           <Select allowClear showSearch value={fme || undefined} onChange={v => setFme(v || '')} options={(filters.fmes || []).map(v => ({ value: v, label: v }))} placeholder={t('fme.fme')} style={{ width: 170 }} />
           <Input allowClear prefix={<SearchOutlined />} value={search} onChange={e => setSearch(e.target.value)} placeholder={t('fme.search')} style={{ width: 190 }} />
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>{t('fme.refresh')}</Button>
-          <Button icon={<DownloadOutlined />} onClick={exportRows} disabled={!rows.length}>{t('fme.export')}</Button>
+          {/* 页面级导出：概览统计 + 榜单 + 排名主表，详见 exportOverview */}
+          <Button icon={<DownloadOutlined />} onClick={exportOverview} disabled={!data}>
+            {t('common.exportExcel')}
+          </Button>
         </Space>
       </Card>
       {error && <Alert type="error" showIcon message={error} />}
@@ -596,18 +836,44 @@ export default function FmeRanking() {
         <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={t('fme.stat.slaFail')} value={data?.summary.sla_fail || 0} valueStyle={{ color: data?.summary.sla_fail ? WH.danger : WH.ok }} /></Card></Col>
       </Row>
 
-      <Card title={<Title level={5} style={{ margin: 0, color: WH.text }}>{t('fme.chartTitle')}</Title>} extra={<Text type="secondary" style={{ fontSize: '0.6875rem' }}>{t('fme.chartHint')}</Text>} style={cardStyle}>
-        {rows.length
-          ? <ReactECharts
-              option={chart}
-              style={{ height: 330 }}
-              notMerge
-              onEvents={{
-                click: (p: any) => { if (p?.name) openFmeDrilldown(p, String(p.name), 'sites') },
-              }}
-            />
-          : <Empty description={t('fme.noData')} />}
-      </Card>
+      {/* ====== 可用率条形图：Top5 与尾部 5 个 ======
+          2026-09-26 改版：原为单张「前 15 名」混合图（柱=可用率 + 两条折线=WO/SLA）。
+          折线在类目轴上跨越无关的 FME，容易被读成趋势；改成两张条形图各看一端，
+          可用率用组内真实值域放大差异，WO/SLA 仅在组内确有差异时才叠加。 */}
+      <Row gutter={[12, 12]}>
+        <Col xs={24} xl={12}>
+          <CardBase
+            title={t('fme.chartTopTitle')}
+            extra={<Text type="secondary" style={{ fontSize: '0.6875rem' }}>{t('fme.chartHint')}</Text>}
+          >
+            <Text type="secondary" style={{ fontSize: '0.6875rem', display: 'block', marginBottom: 'var(--wh-space-xs)' }}>{t('fme.chartTopSub')}</Text>
+            {topChartRows.length
+              ? <ReactECharts
+                  option={topChart}
+                  style={{ height: 320 }}
+                  notMerge
+                  onEvents={{ click: (p: any) => { if (p?.name) openFmeDrilldown(p, String(p.name), 'sites') } }}
+                />
+              : <Empty description={t('fme.noData')} />}
+          </CardBase>
+        </Col>
+        <Col xs={24} xl={12}>
+          <CardBase
+            title={t('fme.chartBottomTitle')}
+            extra={<Text type="secondary" style={{ fontSize: '0.6875rem' }}>{t('fme.chartHint')}</Text>}
+          >
+            <Text type="secondary" style={{ fontSize: '0.6875rem', display: 'block', marginBottom: 'var(--wh-space-xs)' }}>{t('fme.chartBottomSub')}</Text>
+            {bottomChartRows.length
+              ? <ReactECharts
+                  option={bottomChart}
+                  style={{ height: 320 }}
+                  notMerge
+                  onEvents={{ click: (p: any) => { if (p?.name) openFmeDrilldown(p, String(p.name), 'sites') } }}
+                />
+              : <Empty description={t('fme.noData')} />}
+          </CardBase>
+        </Col>
+      </Row>
 
       <Card title={t('fme.tableTitle')} extra={<Text type="secondary">{t('fme.generated', { v: data?.meta.generated_at || '-' })}</Text>} style={cardStyle}>
         <Table rowKey="fme_name" loading={loading} dataSource={rows} columns={columns} pagination={{ pageSize: 20, showSizeChanger: true }} scroll={{ x: 1180 }} size="small" />

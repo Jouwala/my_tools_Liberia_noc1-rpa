@@ -4,7 +4,7 @@ import {
 } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import { ReloadOutlined, SearchOutlined, DownloadOutlined } from '@ant-design/icons'
-import { exportAoaReport } from '../utils/excelReport'
+import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import dayjs, { Dayjs } from 'dayjs'
 import api from '../api'
 import { useI18n } from '../i18n'
@@ -90,6 +90,48 @@ function nurTextColor(v: number, max: number): string {
   if (t < 0.35) return '#7ecbff'
   if (t < 0.7) return '#ffd43b'
   return '#ff6b6b'
+}
+
+// ---------- 页面级导出：表格数据转 Excel 单元格（口径与页面 fmt* 一致，明细保精度） ----------
+// 页面用 '-' 表示「无数据」；导出文件里用 '—'，避免与真实的 0 混淆（项目硬性要求）
+// 表格数值保持原始精度（不带单位），与页面表格展示的裸数值一致，便于二次计算
+function xlRaw(v: number | null | undefined): number | string {
+  return v === null || v === undefined || Number.isNaN(v) ? '—' : Number(v)
+}
+// NUR 展示口径：× 100000，2 位小数（与页面 fmtNur 一致）
+function xlNur(v: number | null | undefined): number | string {
+  return v === null || v === undefined || Number.isNaN(v) ? '—' : Number((v * NUR_SCALE).toFixed(2))
+}
+// SLA 达成率口径：0~1 → 百分点，2 位小数（与页面 fmtPct 一致）
+function xlPct(v: number | null | undefined): number | string {
+  return v === null || v === undefined || Number.isNaN(v) ? '—' : Number((v * 100).toFixed(2))
+}
+// NUR 表的期间列：与页面 NurTable 一样降序、最新在左
+function nurPeriods(rows: NurRow[]): string[] {
+  if (!rows || rows.length === 0) return []
+  return Object.keys(rows[0]).filter(k => k !== 'metric').sort().reverse()
+}
+// SLA 表的期间列：页面 SlaTable 从 `<period>__total` 反解期间名，同样降序
+function slaPeriods(rows: SlaRow[]): string[] {
+  if (!rows || rows.length === 0) return []
+  return Object.keys(rows[0]).filter(k => k.endsWith('__total'))
+    .map(k => k.replace('__total', '')).sort().reverse()
+}
+// NUR 表体：行=Global/2G/3G/4G/5G，列=期间（与页面同布局）
+function nurSheetBody(rows: NurRow[]): (number | string)[][] {
+  const periods = nurPeriods(rows)
+  return (rows || []).map(r => [r.metric, ...periods.map(p => xlNur(r[p] as number | null | undefined))])
+}
+// SLA 表体：行=严重级别 ×（Total / Within SLA / Achieve），列=期间（与页面同布局）
+// Total / Within SLA 是工单条数（整数口径），Achieve 是 0~1 达成率 → 百分点
+// 三个 item 名复用 msSla.* 键 —— 页面 SlaTable 里它们是英文字面量，导出走 t() 保持可翻译
+function slaSheetBody(rows: SlaRow[], t: (k: string) => string): (number | string)[][] {
+  const periods = slaPeriods(rows)
+  return (rows || []).flatMap(r => [
+    [r.metric, t('msSla.total'), ...periods.map(p => xlRaw(r[`${p}__total`] as number | null | undefined))],
+    [r.metric, t('msSla.withinSla'), ...periods.map(p => xlRaw(r[`${p}__pass`] as number | null | undefined))],
+    [r.metric, t('msSla.achieve'), ...periods.map(p => xlPct(r[`${p}__achieve`] as number | null | undefined))],
+  ])
 }
 
 const cardStyle: React.CSSProperties = {
@@ -533,6 +575,85 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
     ? dayjs.unix(exStatus.loaded_at).format('MM-DD HH:mm')
     : '-'
 
+  // ---------- 页面级导出：导出「当前页面显示的全部汇总数据」 ----------
+  // 与下钻导出的区别：下钻导出的是弹窗里那批 TT 明细行；
+  // 这里导出的是页面上的汇总卡（TT 总量 / 分母小区数 / 排除名单）+ NUR 三档表 + SLA 三档表，
+  // 全部是当前 Vendor/Project/Exclude/时间范围筛选后的结果，多 sheet 一份文件。
+  // 三档粒度一次全出（daily/weekly/monthly），因为它们在页面上是同时可见的；
+  // only 切片时只导出该切片渲染的块（ms_nur_only 只出 NUR、NurDashboard 的 only='sla' 只出 SLA）。
+  const exportPageExcel = useCallback(() => {
+    if (!data) return
+    // 筛选条件写进每个 sheet 的副标题，便于对账「这份文件是哪个口径下导出的」
+    const filterText = [
+      `${t('nur.exportVendor')}: ${vendor || t('nur.all')}`,
+      `${t('nur.exportProject')}: ${project || t('nur.all')}`,
+      `${t('nur.exportExclude')}: ${exclude || t('nur.all')}`,
+      `${t('nur.exportRange')}: ${range && range[0] && range[1]
+        ? `${range[0].format('YYYY-MM-DD')} ${t('nur.exportTo')} ${range[1].format('YYYY-MM-DD')}`
+        : t('nur.exportRangeAll')}`,
+    ].join('    |    ')
+    const sheets: ReportSheetSpec[] = []
+    // ---------- Sheet1：汇总（页面上那排标签：TT 总量 / 分母小区数 / 排除名单） ----------
+    const denom = data.denominator_cells || {}
+    // 后端 build_cell_pivot 恒返回 2G/3G/4G/5G 四键（无该制式小区时为 0），
+    // 只有整块缺失才显示 '—'，不把「缺失」误写成 0
+    const kv = (k: string) => (denom[k] == null ? '—' : Number(denom[k]))
+    sheets.push({
+      name: t('nur.exportSummary'),
+      title: t('nur.exportTitle'),
+      subtitle: filterText,
+      tabColor: 'FF2F5496',
+      header: [t('nur.exportMetaItem'), t('nur.exportMetaValue')],
+      rows: [
+        [t('nur.exportTtTotal'), data.tt_total == null ? '—' : Number(data.tt_total)],
+        [t('nur.denom'), `2G=${kv('2G')}  3G=${kv('3G')}  4G=${kv('4G')}  5G=${kv('5G')}`],
+        [t('nur.exportInclude5g'), denom['5G'] ? t('nur.exportYes') : t('nur.exportNo')],
+        [t('nur.exportInclude3g'), denom['3G'] ? t('nur.exportYes') : t('nur.exportNo')],
+        [t('nur.exportExcludeCount'), exStatus?.count == null ? '—' : Number(exStatus.count)],
+        [t('nur.excludeCol'), exStatus?.column || '—'],
+        [t('nur.excludeSrc'), exStatus?.source || '—'],
+        [t('nur.exportExcludeLoaded'), exLoaded],
+      ],
+      columnWidths: [24, 46],
+    })
+    // ---------- NUR 三档：每档一张（行=Global/2G/3G/4G/5G，列=期间，与页面同布局） ----------
+    if (showNur) {
+      for (const g of GRANS) {
+        const rows = data.nur?.[g] || []
+        // 空块自动跳过，不生成空 sheet
+        if (!rows.length) continue
+        sheets.push({
+          name: `${t('nur.exportKpiNur')} ${granTitle[g]}`,
+          title: `${t('nur.exportKpiNur')} ${granTitle[g]}`,
+          subtitle: `${filterText}    |    ${t('nur.exportGran')}: ${granTitle[g]}    |    ${t('nur.unit')}`,
+          header: [t('nur.exportMetric'), ...nurPeriods(rows)],
+          rows: nurSheetBody(rows),
+          columnWidths: [20, ...nurPeriods(rows).map(() => 14)],
+        })
+      }
+    }
+    // ---------- SLA 三档：每档一张（行=严重级别 × Total/Within SLA/Achieve） ----------
+    if (showSla) {
+      for (const g of GRANS) {
+        const rows = data.sla?.[g] || []
+        if (!rows.length) continue
+        sheets.push({
+          name: `${t('nur.exportKpiSla')} ${granTitle[g]}`,
+          title: `${t('nur.exportKpiSla')} ${granTitle[g]}`,
+          subtitle: `${filterText}    |    ${t('nur.exportGran')}: ${granTitle[g]}`,
+          header: [
+            t('nur.exportSeverity'), t('nur.exportMetaItem'),
+            ...slaPeriods(rows),
+          ],
+          rows: slaSheetBody(rows, t),
+          columnWidths: [14, 16, ...slaPeriods(rows).map(() => 14)],
+        })
+      }
+    }
+    const fname = `NUR_Dashboard_${dayjs().format('YYYYMMDD_HHmmss')}`
+    void exportReport(sheets, `${fname}.xlsx`)
+  }, [data, vendor, project, exclude, range, exStatus, exLoaded, granTitle, showNur, showSla, t])
+
   return (
     <div style={{ padding: 'var(--wh-space-md)' }}>
       {/* ---------- 筛选条 ---------- */}
@@ -576,6 +697,10 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
               </Tag>
             </Tooltip>
           )}
+          {/* 页面级导出：当前筛选下的汇总卡 + NUR/SLA 各粒度表（多 sheet） */}
+          <Button icon={<DownloadOutlined />} onClick={exportPageExcel} disabled={!data}>
+            {t('common.exportExcel')}
+          </Button>
         </Space>
       </Card>
 

@@ -95,20 +95,46 @@ await exportAoaReport({
 > **状态：前端导出已全部迁移完成（2026-09-24）。** 全仓已无裸 `xlsx` 写文件调用，
 > 校验命令：`Select-String -Path frontend\src\pages\*.tsx -Pattern "XLSX\.utils\.(aoa|json)_to_sheet|XLSX\.writeFile"`
 > 应返回空（`utils\excelReport.ts` 内部的注释除外）。
+>
+> ⚠ **本表的「已迁移」只表示"已改用 `utils/excelReport`、不再裸用 `xlsx`"，不表示"页面上有导出入口"。**
+> 下表有多页原先**只有下钻弹窗内的导出按钮**，页面级入口是缺的；2026-09-27 起按下节补。判据要分开看。
+
+### 4.1 页面级导出入口（2026-09-27 补充）
+
+**判据：用户打开该页，不点任何数字/不看弹窗，能否直接在工具栏看到导出按钮。**
+
+此前用「全文是否出现 `common.exportExcel`」做判据是错的 —— 弹窗内的按钮也会命中，
+于是 `ttwo`（含 `v1_ttwo`）、`alarm`、`site_avail`、`fme_ranking`、`ran_cells_kpi`、
+`ms_sla`、`nur`、`ume_in_kpi` 八页被误判为"已有导出"，实际页面上都没有入口。
+
+| 文件 | 仅弹窗导出 → 页面级入口 |
+| --- | --- |
+| `pages/TTWODashboard.tsx` | ✅ 2026-09-27 补（`exportOverview`，同时惠及 `v1_ttwo` 切片页） |
+| `pages/AlarmDashboard.tsx` | ✅ 2026-09-27 补 |
+| `pages/SiteAvailability.tsx` | ✅ 2026-09-27 补（多 sheet：汇总指标 + 站点明细） |
+| `pages/FmeRanking.tsx` | ✅ 2026-09-27 补 |
+| `pages/RanCellsKpi.tsx` | ✅ 2026-09-27 补 |
+| `pages/MsSlaDashboard.tsx` | ✅ 2026-09-27 补 |
+| `pages/NurDashboard.tsx` | ✅ 2026-09-27 补 |
+| `pages/UmeInKpi.tsx` | ✅ 2026-09-27 补 |
+
+**导出内容一律为"当前页显示的全部汇总数据"**（沿用各页既有 `useMemo` 结果，不在导出里另起一套计算），
+筛选条件写进 `subtitle`。空块自动跳过；取不到数据输出 `—` 而非 `0`。
 
 | 文件 | 状态 |
 | --- | --- |
 | `pages/SpMaterialSummary.tsx` | ✅ 已迁移（汇总 + 下钻明细） |
-| `pages/SiteAvailability.tsx` | ✅ 已迁移 |
-| `pages/RanCellsKpi.tsx` | ✅ 已迁移（多 sheet） |
+| `pages/SiteAvailability.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27） |
+| `pages/RanCellsKpi.tsx` | ✅ 已迁移（多 sheet）+ 页面级入口（2026-09-27） |
 | `pages/PacketLossDashboard.tsx` | ✅ 已迁移 |
-| `pages/AlarmDashboard.tsx` | ✅ 已迁移 |
+| `pages/AlarmDashboard.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27） |
 | `pages/BatteryDashboard.tsx` | ✅ 已迁移（原 `json_to_sheet`） |
-| `pages/MsSlaDashboard.tsx` | ✅ 已迁移 |
-| `pages/NurDashboard.tsx` | ✅ 已迁移 |
-| `pages/TTWODashboard.tsx` | ✅ 已迁移 |
+| `pages/MsSlaDashboard.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27） |
+| `pages/NurDashboard.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27） |
+| `pages/TTWODashboard.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27，含 `v1_ttwo`） |
 | `pages/gismap/helpers.tsx` | ✅ 已迁移 |
-| `pages/FmeRanking.tsx` | ✅ 已迁移 |
+| `pages/FmeRanking.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27） |
+| `pages/UmeInKpi.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27） |
 | `pages/CnKpi.tsx` | ✅ 已迁移（多 sheet，元信息行保留在数据区） |
 | `pages/RepeatSiteDown.tsx` | ✅ 已迁移（原 `json_to_sheet`） |
 | `pages/EflowQa.tsx` | ✅ 导出已迁移。**仍 import `xlsx`**：用于上传清单文件的**解析**（`XLSX.read`），非导出用途，应保留 |

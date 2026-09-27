@@ -48,9 +48,14 @@ import { CardBase, StatCard } from '../components/cards'
 > **卡片皮肤的三层结构**：令牌层（`index.css` 的 `:root`）→ 类规则层（`index.css` 的「卡片层」区块）→ 组件层（`CardBase` 只挂 className，不写样式值）。
 > **改卡片外观去令牌层改，不要在组件或页面里写死颜色。**
 >
-> **两个已踩过的坑**：
+> **三个已踩过的坑**：
 > ① `theme.ts` 的 `cardStyle` 是**行内样式**，优先级高于所有 CSS 类 —— 里面只允许放 `var(--wh-*)`，写死具体值会永久锁死该属性（历史 bug：`boxShadow` 写死导致全局卡片皮肤改不动）。
 > ② CSS 自定义属性在**声明它的元素**上求值 —— 在卡片上改 `--wh-card-accent` 不会让 `:root` 的 `--wh-card-glow` 重算，故 `.wh-card-lv-*` 里必须重算依赖 accent 的合成值。
+> ③ **页面根是 `pageWrap` + `flexDirection:'column'` 时，第一行卡片会被 flex 压成 2px**（表现为「筛选条整条看不见、怎么滚都没有」）。根因：`pageWrap` 是纵向 flex 容器，子项默认 `flex-shrink:1` 且 `min-height:auto`，而筛选条是 `display:block` 的普通 `Card`、**没有内在最小高度**；整页内容（TT&WO 页光 Tabs 就 720px）超出容器高度时，flex 收缩的绝大部分由它承担，被压到只剩上下边框（实测 1591×2px），而 `Card` 自带 `overflow:hidden` 把内容全部裁掉。下方 `.ant-row` 栅格卡片因为有列撑着一并没那么容易塌，所以症状看起来是"只有最上面那行没了"。
+>
+> **修法**：给这类"不该被压缩"的行加 `flex-shrink: 0`。已在 `theme.ts` 的 `controlCardStyle` 统一加上（覆盖 `TTWODashboard` / `GISMap` / `Dashboard` / `DataSync` / `TableBrowser` 五处调用），`AlarmDashboard.tsx` 的头部横幅用的是内联 `cardStyle` 故单独加。
+>
+> **自查**：任何 `{...pageWrap, display:'flex', flexDirection:'column'}` 的页面，其第一个 flex 子项若是不设高度的卡片，都要检查这一条。当前仅 `TTWODashboard.tsx` 与 `AlarmDashboard.tsx` 两处属此写法，均已修（2026-09-27）。
 >
 > **卡片 CSS 契约**（以 `frontend\src\index.css` 为准）：`.wh-card`（官方入口类）、`.wh-card-interactive`、`.wh-card-lv-ok|warn|crit`、`.wh-card-glow`、`.wh-card-head`；令牌 `--wh-card-shadow`（阴影总成）/ `--wh-card-accent` / `-soft` / `-line`。
 >

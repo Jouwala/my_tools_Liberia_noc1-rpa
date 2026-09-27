@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { cachedGet } from '../cache'
 import { Card, Row, Col, Select, Spin, Tag, Space, Badge, DatePicker, Segmented, Tooltip, Switch, Button } from 'antd'
-import { FilterOutlined } from '@ant-design/icons'
+import { DownloadOutlined, FilterOutlined } from '@ant-design/icons'
 // Tooltip 与 antd 的 Tooltip 重名：antd 那个用于悬浮提示（顶部同步时间等），
 // react-leaflet 这个用于地图内的常驻标注（县名）。别名区分，避免误用。
 import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Polygon, Pane, Tooltip as MapTooltip } from 'react-leaflet'
@@ -17,6 +17,7 @@ import { MapController } from './gismap/MapController'
 import { SiteDrilldownDrawer } from './gismap/SiteDrilldownDrawer'
 import type { Site, DrilldownData, DrilldownAnalytics, TopologyLink, LegendKey, LayerKey, TimePreset, BoundaryMode, CountyBoundary } from './gismap/types'
 import { SITE_COLORS, KML_LINK_COLORS } from './gismap/types'
+import { exportAoaReport } from '../utils/excelReport'
 
 /* 默认取景：**完整居中显示利比里亚全境**（2026-09-25 改，按用户需求）。
    需求原话：「打开默认为当前点一下减号的效果，注意要保持利比里亚居中」——
@@ -64,10 +65,22 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   // 下钻统计/明细窗口天数（默认 60 天）
   const [drillRangeDays, setDrillRangeDays] = useState(60)
-  const [hiddenLegends, setHiddenLegends] = useState<Set<LegendKey>>(new Set())
+  /* 默认隐藏的图例类别（2026-09-25 用户要求）：
+       'normal' —— 「无任何告警/工单」的站点，数量最多（实测 739/827），
+                   默认铺满地图会把真正需要关注的告警站淹没。
+       注意**只隐 normal**：VIP 站点（实测 50 个）按用户要求保留显示 —— 它们是
+       重要站点，即使当前无告警也需要保持可见；其余类别由 activeLayers 控制。
+
+     hiddenLegends 语义是「被点击隐藏的类别」，与图例的删除线状态同源，
+     所以这里给初值即可让图例正确显示为「已隐藏」，用户点一下就能恢复。 */
+  const [hiddenLegends, setHiddenLegends] = useState<Set<LegendKey>>(
+    new Set<LegendKey>(['normal'])
+  )
   const [timePreset, setTimePreset] = useState<TimePreset>(mode === 'realtime' ? 'all' : '7d')
   const [customRange, setCustomRange] = useState<[Dayjs, Dayjs] | null>(null)
-  const [showTopology, setShowTopology] = useState(false)
+  /* MW 链路开关：**默认开启**（2026-09-25 用户要求）。
+     与 activeLayers 的实时告警一起构成全量模式的默认视图：只看「实时告警 + MW 链路」。 */
+  const [showTopology, setShowTopology] = useState(true)
   const [topologyLinks, setTopologyLinks] = useState<TopologyLink[]>([])
   const [regionBoundaries, setRegionBoundaries] = useState<{ region: string; polygon: [number, number][]; color: string; site_count: number }[]>([])
   /* 边界蒙层三选一（2026-09-25 新增 county，并按用户要求把默认值定为 county）：
@@ -80,8 +93,18 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const [counties, setCounties] = useState<CountyBoundary[]>([])
   const [ossStats, setOssStats] = useState<{ oss_specific_problem: string; count: number; sites: number }[]>([])
 
+  /* 默认图层（2026-09-25 用户要求调整为「默认只显示实时告警 + MW 链路」）：
+       all      —— 只开 rt_alarm（＋上方 showTopology 的 MW 链路）。
+                   注意本开关**不只是配色**：getSiteCategory + filteredSites 会据此
+                   把该类别站点从地图上过滤掉（:265-267），所以关掉 his_alarm/tt/wo
+                   后，无实时告警的站点不再绘制 —— 这正是「只显示实时告警」的效果。
+       realtime —— 实时告警页保留原有的 rt_alarm + tt + wo（tt/wo 由告警的 tt_id 派生，
+                   是告警关联工单的直观体现，不属于「用户额外打开的图层」）。
+
+     其余图层（历史告警 / TT / WO）用户点击图层 Tag 即可打开，状态存在本组件
+     activeLayers 里，刷新页面回到此默认值（本页不做持久化，与既有行为一致）。 */
   const [activeLayers, setActiveLayers] = useState<Set<LayerKey>>(
-    new Set(mode === 'realtime' ? ['rt_alarm', 'tt', 'wo'] : ['rt_alarm', 'his_alarm', 'tt', 'wo'])
+    new Set(mode === 'realtime' ? ['rt_alarm', 'tt', 'wo'] : ['rt_alarm'])
   )
 
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
@@ -272,9 +295,45 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     })
   }, [sites, hiddenLegends, selectedFilters, activeLayers, mode])
 
+  // ========== 导出 ==========
+  /* 导出**当前地图上可见的站点**（filteredSites）：与用户在图例/图层/高级筛选里
+     看到的那批点在口径上完全一致，而不是后端返回的全量 sites。
+     副标题写明 可见数/总数 与当前模式，避免误读为全量。 */
+  const exportSites = () => {
+    if (!filteredSites.length) return
+    const header = [
+      t('gis.drilldown.colSiteId'), t('gis.drilldown.colSiteName'),
+      t('gis.regionLabel'), t('gis.countyLabel'),
+      t('gis.networkTypeLabel'), t('gis.drilldown.colSiteType'),
+      t('gis.latitudeLabel'), t('gis.longitudeLabel'),
+      t('gis.ttTotalLabel'), t('gis.openTtLabel'), t('gis.closedTtLabel'), t('gis.woTotalLabel'),
+      t('gis.rtAlarmLabel'), t('gis.hisAlarmLabel'),
+      t('gis.drilldown.colVipSite'), t('gis.drilldown.colHubSite'),
+      t('gis.trmTypeLabel'), t('gis.fmeNameLabel'),
+    ]
+    const rows = filteredSites.map(s => [
+      s.site_id, s.site_name, s.region, s.province_county,
+      s.network_type, s.site_type, s.lat, s.lng,
+      s.tt_count, s.open_tt, s.closed_tt, s.wo_count,
+      s.rt_alarm_count, s.his_alarm_count, s.vip_site, s.hub_site,
+      s.trm_type || '', s.fme_name || '',
+    ])
+    const modeLabel = mode === 'realtime' ? t('gis.modeRealtime') : t('gis.modeAll')
+    void exportAoaReport({
+      filename: `gis_sites_${mode}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
+      sheetName: 'GIS Sites',
+      title: `${t('nav.gis')} · ${modeLabel}`,
+      subtitle: `${t('gis.totalSites')}: ${filteredSites.length}/${sites.length}`
+        + `    |    ${t('gis.advancedFilter')}: ${activeFilterCount}`,
+      header,
+      rows,
+      numericCols: [6, 7, 8, 9, 10, 11, 12, 13],
+      tabColor: '#2F5496',
+    })
+  }
+
   // 记忆化：避免每次渲染都生成新数组导致 MapController 反复 setView（会重置用户的平移/缩放）
-  const center = useMemo<[number, number]>(() => {
-    if (sites.length === 0) return LB_CENTER
+  const center = useMemo<[number, number]>(() => {    if (sites.length === 0) return LB_CENTER
     return [
       sites.reduce((s, p) => s + p.lat, 0) / sites.length,
       sites.reduce((s, p) => s + p.lng, 0) / sites.length,
@@ -629,6 +688,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
             {activeFilterCount > 0 && (
               <Tag color="cyan">{t('gis.totalSites')}: {filteredSites.length}/{sites.length}</Tag>
             )}
+            <Button
+              size="small"
+              icon={<DownloadOutlined />}
+              onClick={exportSites}
+              disabled={!filteredSites.length}
+            >
+              {t('common.exportExcel')}
+            </Button>
           </Space>
           {showFilters && (
             <Row gutter={[8, 8]} style={{ marginTop: 'var(--wh-space-sm)' }}>
@@ -784,10 +851,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 }}
               >
                 {/* 县名常驻显示在县的中心（Leaflet permanent tooltip 自动定位到
-                    Polygon 的质心），带站点数，方便与高级筛选的计数对照 */}
+                    Polygon 的质心）。数字口径（2026-09-25 用户要求改为告警数）：
+                      显示的是该县**有实时告警的站点数**，不再是站点总数。
+                      带上「告警」小字标明口径 —— 单看一个数字无法区分是站数还是告警数，
+                      而两者在本页默认视图（只看实时告警）下容易混淆。
+                    想看站点总数时，点该县会打开高级筛选，抽屉与图例都给得出总数。 */}
                 <MapTooltip permanent direction="center" className="gis-county-label">
                   <span style={{ fontSize: '0.6875rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                    {c.name} ({c.site_count})
+                    {c.name} ({c.alarm_site_count ?? 0} {t('gis.countyAlarmUnit')})
                   </span>
                 </MapTooltip>
               </Polygon>

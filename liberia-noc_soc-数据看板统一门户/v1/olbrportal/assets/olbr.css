@@ -382,8 +382,15 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    只会多出一片空白，反而更难扫。
 
    报告条目本身是 <a>，点击 = 打开对应看板（与查看器同一条链接口径，
-   vlink + target=_blank）。整张卡刻意**不**做成可点：一张卡里有多个不同去向时，
-   「整卡可点」会让用户以为点哪里都一样。
+   vlink + target=_blank）。
+
+   2026-09-26（用户要求「卡片的标题也要能点击打开下级页面」）：
+   卡头标题现在也是链接，指向**本组排序后的第一条看板** —— 与列内第一行同目的地，
+   等于「进入这个视图」。整张卡仍然刻意**不**做成可点，理由未变：
+   一张卡里有多个不同去向时，「整卡可点」会让用户以为点哪里都一样；
+   现在可点的恰好是两处语义明确的入口（卡头=进入本视图，行条目=打开那一张）。
+   计数徽章与编辑按钮务必留在链接**外** —— 否则「想看看有几张」会变成误跳转。
+   样式与边界条件的实现说明见下方 .v6-t-link 那一段。
 
    ----------------------------------------------------------------------------
    2026-09-25：整组卡按 1.5 倍放大（用户要求「卡片高度修改为现在的 1.5 倍，
@@ -453,6 +460,39 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 }
 .v6-t { min-width: 0; font-size: calc(14px * var(--v6-k)); font-weight: 700; letter-spacing: -.01em; }
 .v6-t small { display: block; font-size: calc(11px * var(--v6-k)); font-weight: 500; color: var(--t3); letter-spacing: 0; }
+/* 列头标题链接（2026-09-26 加）。原来 .v6-t 是个 <span>，现在是 <a>：
+   必须把这四件事显式写回来，否则会「看起来对、实际坏」：
+   1. 颜色 —— 链接默认走浏览器/全局 a 的蓝色，会盖掉卡头该有的正文色；
+   2. 下划线 —— 默认 a 有 text-decoration，卡头挂一条下划线很难看，
+      悬停时才给（与 .v6-row 的 hover 反馈同一手感）；
+   3. flex 收缩 —— 标题要在窄列里被挤窄（配合 .v6-n 的 margin-left:auto），
+      不写 min-width:0 / flex:1 会把右侧计数徽章顶出卡片；
+   4. 点击区域 —— 只让「图标 + 标题 + 说明」这块可点，
+      右侧计数徽章与编辑按钮留在链接外（结构上已分开），否则点徽章也会跳走。
+
+   ⚠️ 箭头图标默认 opacity:0，只在 hover / focus-visible 时出现：
+   常显会让六个卡头都多出一个箭头，与行条目的 .go 重复；但键盘 Tab 到它时
+   必须显形，否则"当前焦点在哪个链接上"完全看不出来（可访问性）。 */
+.v6-t-link {
+  display: flex; flex-direction: column; flex: 1 1 auto;
+  color: inherit; text-decoration: none; border-radius: var(--r1);
+}
+.v6-t-link:hover { color: var(--b-ink); text-decoration: underline; text-underline-offset: 3px; }
+.v6-t-link:focus-visible { outline: 2px solid var(--b); outline-offset: 2px; }
+/* 标题那一行（文字 + 箭头）横排，说明 <small> 是列方向上的第二行。
+   文本省略写在文字那一颗上（.v6-t-top > span），不是写在链接上 ——
+   写在链接上会把箭头一起裁掉，剩不下可点的提示。
+   ⚠️ min-width:0 与 overflow:hidden 缺一不可：flex 子项默认 min-width:auto，
+   只给 overflow 不解除 min-width，长标题仍会把 .v6-n 计数徽章顶出卡片
+   （与 .v6-h / .v6-row 上那两处是同一条注意事项）。 */
+.v6-t-top { display: flex; align-items: center; min-width: 0; overflow: hidden; }
+.v6-t-top > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v6-t-go {
+  flex: none; margin-left: calc(5px * var(--v6-k));
+  font-size: calc(12px * var(--v6-k)); color: var(--t3);
+  opacity: 0; transition: opacity .14s;
+}
+.v6-t-link:hover .v6-t-go, .v6-t-link:focus-visible .v6-t-go { opacity: .8; }
 .v6-n {
   margin-left: auto; flex: none;
   padding: calc(4px * var(--v6-k)) calc(7px * var(--v6-k));
@@ -491,6 +531,37 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   font-size: calc(12px * var(--v6-k)); color: var(--t3);
 }
 
+/* ---------- 编辑态的六个入口卡（2026-09-26 恢复编辑能力时加）----------
+   本页没有 L1 分组页签面板，可编辑的卡片就是这六列里的行条目，
+   所以编辑态给行条目加上 a.card.is-ed —— 这样 bindEdit() 里那套
+   只认 `a.card.is-ed` 的拖拽三件套才会对它生效。
+
+   ⚠️ 三处必须覆盖，否则只是"看起来能编辑"：
+   1. .v6-row 是单行 flex（图标 + 标题 + 角标 + 箭头），
+      塞进 .c-ed 那排按钮后单行放不下 —— 编辑态改成竖排、允许折行；
+   2. .card 自身带 padding / border / 背景（见 :941），
+      与 .v6-row 的紧凑内边距叠加会变得很胖，这里把它压回行条目的量级；
+   3. `.v6-row span` 上的 ellipsis 会连按钮里的 <span> 一起截断，
+      编辑态要放开（只让标题那一颗继续裁）。
+   用 .v6-row.is-ed 提升优先级，不去动只读态的既有规则。 */
+.v6-row.is-ed {
+  display: block; padding: calc(6px * var(--v6-k)) calc(7px * var(--v6-k));
+  border: 1px solid transparent; background: transparent;
+}
+.v6-row.is-ed:hover { border-color: var(--b-line); background: var(--b-tint); }
+.v6-row.is-ed > i.ph { float: left; margin: calc(2px * var(--v6-k)) calc(6px * var(--v6-k)) 0 0; }
+.v6-row.is-ed > span { display: block; overflow: visible; text-overflow: clip; white-space: normal; }
+/* 只让标题那一颗继续单行省略；按钮里的 span 不参与省略。 */
+.v6-row.is-ed > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v6-row.is-ed .c-ed { margin-top: calc(6px * var(--v6-k)); }
+.v6-row.is-ed .c-ed .ct { font-size: calc(11px * var(--v6-k)); }
+/* 编辑态的列头多两颗分组工具，标题要能被挤窄而不是把按钮顶出去 */
+.v6-h { flex-wrap: wrap; }
+.v6-h .ct { flex: none; font-size: calc(11px * var(--v6-k)); }
+/* 拖拽落点高亮：.cards 下的规则（:1119-1120）选不到 .v6-list，这里补一份。 */
+.v6-list .v6-row.is-in-A { box-shadow: inset 3px 0 0 0 var(--b); }
+.v6-list .v6-row.is-in-B { box-shadow: inset -3px 0 0 0 var(--b); }
+
 /* 地图高度：不再在这里单独定，改成由 .maprow 上的 --maprow-h 统一给
    （地图与报告文件必须等高，高度只能有一个真相源）。详见下方 .maprow 那一段。 */
 
@@ -527,7 +598,14 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    「去掉 30-day compliance 和圆环图」）。要恢复请看
    assets/olbr.css.bak_20260925_去30天达标率与ALARM图标前。
    .band-txt / .band-k 仍被 CXO 指标带与六个入口卡的标题行使用，故保留。 */
-.band-k { font: 700 18px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--title); }
+/* 2026-09-25 用户要求：标题不再是全大写，改为「首字母大写、其余小写」的书写形式。
+   做法是**去掉** text-transform: uppercase，而不是换成 capitalize ——
+   数据源本来就是规范写法（'Daily Operation Overview' / 'System Management' /
+   'Level' / 'online'），直接按原样显示即为所求；反之 capitalize 会把
+   'EFLOW/VMAX/UME' 这类专有缩写压成 'Eflow/Vmax/Ume'，把品牌名改错。
+   letter-spacing 同时从 .12em 收到 .02em：宽字距是为「全大写」配的（大写字母
+   彼此更难分辨），改回混合大小写后留着会显得松散、也拉长标题占位。 */
+.band-k { font: 700 18px/1 var(--sans); letter-spacing: .02em; color: var(--title); }
 /* 标题上挂了 title 的（目前只有 CXO Daily Dashboard 的口径说明 kpi.sub）
    给一个「可以悬浮看看」的指针形状。用属性选择器而不是另加类名：
    挂没挂提示是**结构事实**，让样式跟着它走，将来谁加/撤 title 都自动对齐，
@@ -879,6 +957,20 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .panel[data-tier="0"] .p-hd::before { background: var(--hi); }
 .p-t { font-size: 15px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .p-s { font-size: 12px; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ----------------------------------------------------------------------------
+   入口标题橙（2026-09-25 用户要求）
+   ----------------------------------------------------------------------------
+   要改的是**六处入口标题**：GIS Map、Auto Report Files、Escalation Matrix、
+   Q&A、EFLOW/VMAX/UME entries、System Management。
+   为什么用修饰类而不是直接把 .p-t / .esc-t / .aux-n 改成 --title：
+   这三个类都是**共用**的 ——
+     · .p-t  同时给侧边栏视图分组标题（CXO View / MS View …，olbr.js:361）
+     · .esc-t 只有升级机制用（可改），但 .aux-n 的父级 .aux-h 是所有辅助分组共用
+   用户只点名了六处，侧边栏「CXO View」这类分组标题**不在**名单内，
+   把共用类整体染色会连它们一起改掉，属超范围改动。故新增 .t-orange 逐个挂。
+   ⚠️ 以后这六处若新增同类标题，记得一并挂上 .t-orange，否则颜色会不一致。 */
+.t-orange { color: var(--title); }
 .p-x { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--b-ink); flex: none; }
 .p-x:hover { text-decoration: underline; }
 .p-x i { font-size: 13px; }
@@ -945,7 +1037,7 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   .l0-col .card .meta > .dot:has(+ .ow) { display: none; }
 }
 
-.st { font: 700 9.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 3px 6px; border-radius: 4px; }
+.st { font: 700 9.5px/1 var(--mono); letter-spacing: .02em; padding: 3px 6px; border-radius: 4px; }
 .st-online { color: var(--ok); background: var(--ok-tint); }
 .st-beta { color: var(--warn); background: var(--warn-tint); }
 .pf { color: var(--t2); }
@@ -1011,7 +1103,7 @@ table.grid { font-size: 12.5px; }
 table.grid th, table.grid td { padding: 7px 10px; text-align: left; white-space: nowrap; }
 table.grid thead th {
   position: sticky; top: 0; z-index: 2; background: var(--surface-2-solid);
-  font: 700 11px/1 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--t2);
+  font: 700 11px/1 var(--sans); letter-spacing: .02em; color: var(--t2);
   border-bottom: 1px solid var(--line-2);
 }
 table.grid td { border-bottom: 1px solid var(--line); }
@@ -1039,10 +1131,14 @@ table.grid a:hover { text-decoration: underline; }
 
    ⚠️ v1：下面 .view-1 / .tabs-v / .tabv 三组**当前都没有元素会命中** ——
    L1 页签面板整块去掉了（上面六张视图入口卡已经覆盖那六个视图）。
-   随它一起失去作用的还有：#vGroup 面板、二级子页签 .subs-v / .subv、
-   以及卡片流 .cards / .card（原先只有 .l0 与 #views 会渲染它们）。
+   随它一起失去作用的还有：#vGroup 面板、二级子页签 .subs-v / .subv。
    保留的理由与 .stage / .l0 那段相同：类名与 /olbrportal/ 保持一致，
-   以后要恢复页签时不用重写样式。读代码的人请注意屏幕上没有这些元素。 */
+   以后要恢复页签时不用重写样式。读代码的人请注意屏幕上没有这些元素。
+
+   ⚠️ 但 **.cards / .card 不在"没人命中"之列**（2026-09-26 起）：
+   v1 的编辑对象是六个入口卡里的行条目，编辑态它们就渲染成 a.card.is-ed，
+   并复用 .c-ed（卡片底部按钮排）等规则。下面的 .card 一组照旧生效，
+   另外 .v6-row.is-ed 补了必要的覆盖（见前面「编辑态的六个入口卡」那段）。 */
 .view-1 { display: grid; gap: 12px; }
 .tabs-v { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .tabv {
@@ -1083,7 +1179,7 @@ table.grid a:hover { text-decoration: underline; }
 }
 .editbar .eb-k {
   display: inline-flex; align-items: center; flex: none;
-  font: 700 10.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+  font: 700 10.5px/1 var(--mono); letter-spacing: .02em;
   color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 4px 6px;
 }
 .editbar .eb-t { color: var(--t1); font-weight: 600; }
@@ -1091,7 +1187,11 @@ table.grid a:hover { text-decoration: underline; }
 .editbar .eb-x { margin-left: auto; flex: none; }
 
 /* 卡片：编辑态才给抓取指针与工具行；拖动的那张压暗，落点用主轴方向的粗线指示
-   （网格一行有好几张卡，只按上下判定会把「插到左边那张之前」判成插到后面） */
+   （网格一行有好几张卡，只按上下判定会把「插到左边那张之前」判成插到后面）。
+
+   ⚠️ 落点高亮那两条选择器限定在 `.cards` 下，而 v1 的编辑行住在 `.v6-list` 里，
+   所以 `.v6-list .v6-row.is-in-A / is-in-B` 另补了一份（见前面那一段）。
+   `.card.is-ed` / `.is-drag` / `.c-ed` 三条是通用的，v1 直接复用。 */
 .card.is-ed { cursor: grab; }
 .card.is-ed:active { cursor: grabbing; }
 .card.is-drag { opacity: .45; }
@@ -1107,6 +1207,12 @@ table.grid a:hover { text-decoration: underline; }
 .ct:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
 .ct i { font-size: 12px; }
 .ct--rst { margin-left: var(--s3); }
+/* 「删除看板」是这条编辑带上唯一不可逆的动作，必须一眼能认出来。
+   只染 hover + 图标，不做常驻红底：一排里六张卡各一颗红按钮会很吵。
+   位置也有讲究：`.ct:hover` 与本条都设了 border-color/color/background，
+   且 `.ct--del:hover`（0,2,0）比 `.ct:hover`（0,2,0）**同权重** ——
+   同权重时后者胜出，所以这条必须排在 `.ct:hover` 之后，否则红色被灰蓝盖掉。 */
+.ct--del:hover { border-color: var(--crit); color: var(--crit); background: var(--crit-tint); }
 
 /* 子分组管理条：胶囊本身是拖拽落点（is-drop），里面拆成「选择」+「改名」「删除」
    三颗控件；is-hot 是拖进来时的反馈。输入框刻意做矮（22px），不抢正文的视觉重量。 */
@@ -1140,10 +1246,41 @@ table.grid a:hover { text-decoration: underline; }
 .gp-i { display: flex; align-items: center; gap: 8px; padding: 4px 5px; border-radius: 6px; font-size: 12.5px; color: var(--t2); cursor: pointer; }
 .gp-i:hover { background: var(--b-tint); color: var(--t1); }
 .gp-i input { accent-color: var(--b); width: 14px; height: 14px; flex: none; margin: 0; }
+/* 「新增看板」第一步：选模板。列表比分组勾选长得多（55 条），所以限定高度滚动 +
+   一行一条（模板名可能很长，两列会把名字压成省略号）。搜索框常驻在顶部。 */
+.gp-search { margin-bottom: 6px; }
+.gp-search input {
+  width: 100%; height: 26px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 6px;
+  background: var(--surface-2); color: var(--t1); font: inherit; font-size: 12.5px;
+}
+.gp-search input:focus { outline: none; border-color: var(--b-line); box-shadow: 0 0 0 2px var(--b-tint); }
+.gp-list--tpl { max-height: 220px; overflow: auto; scrollbar-width: thin; gap: 1px; }
+.gp-tpl {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 6px;
+  border: 0; border-radius: 6px; background: none; color: var(--t2);
+  font: inherit; font-size: 12.5px; text-align: left; cursor: pointer;
+  /* ⚠️ `min-width: 0` 不能省。`.gp-list` 是 grid，而 grid/flex 子项默认
+     `min-width: auto` —— 它会按内容的**最小内容宽度**撑开，`width: 100%` 管不住。
+     模板名最长的那些（如 "TT&WO Dashboard (故障与运维工单流转看板)"）会把整行
+     顶到 439px，而父级 `.gp-list` 只有 298px，按钮于是横向溢出浮层。
+     给按钮和里面的名字都允许收缩（名字那颗再配 ellipsis），才能真正压住。 */
+  min-width: 0;
+  box-sizing: border-box;
+}
+.gp-tpl:hover { background: var(--b-tint); color: var(--t1); }
+.gp-tpl i { flex: none; font-size: 13px; color: var(--t3); }
+.gp-tpl:hover i { color: var(--b-ink); }
+.gp-tpl-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-tpl-n { flex: none; font: 500 10.5px/1 var(--mono); color: var(--t3); }
+.gp-none { padding: 10px 6px; font-size: 12.5px; color: var(--t3); }
 
 /* 改名浮层（一级分组改名 / 新增分组 / 看板改标题）：标签在上、输入框在下 ——
    230px 宽的浮栏里并排放不下「中文名」这种三字标签 + 中文名输入框。 */
 .gp--form { width: 286px; }
+/* 新增看板那颗表单里有一条 URL（带 token 的 myapp 链接能到 80+ 字符），
+   286px 下只能看见开头一小截，改起来得全程盲打。单独给它一档宽度。
+   只加宽度不加字段逻辑 —— 靠 :has() 命中，老浏览器不认时退回 286px，仍然可用。 */
+.gp--form:has([data-f="itemUrl"]) { width: 400px; max-width: calc(100vw - 24px); }
 .gp--form .gf { display: grid; gap: 3px; margin-bottom: 7px; }
 .gp--form .gf > span { font: 500 11px/1.2 var(--mono); color: var(--t3); }
 .gf-i {
@@ -1155,6 +1292,13 @@ table.grid a:hover { text-decoration: underline; }
 .gf-ok { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
 .gf-del { margin-left: auto; }
 .gf-del:hover { border-color: var(--crit); color: var(--crit); background: var(--crit-tint); }
+/* 「换一个模板」跟在「添加」后面，不加 margin-left:auto —— 那会把保存键顶到最左，
+   与上面「删除该分组」靠右的语义相反。这里就该是紧挨着主按钮的次要动作。 */
+.gf-back { color: var(--t3); }
+.gf-back:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+/* 表单底部那行「模板：#1 NUR Dashboard」：只是让人确认继承的是哪一张，
+   不是交互元素，所以刻意压低对比度，别和输入框抢注意力。 */
+.gf-note { margin-top: 7px; font: 500 10.5px/1.3 var(--mono); color: var(--t3); }
 
 /* L2 辅助：去卡片化，默认只露 2 行，其余靠标题右侧「展开 / 收起」。
    收缩靠隐藏第 3 条起的 li，不用 max-height —— 后者会把半行裁在中间。 */
@@ -1162,7 +1306,7 @@ table.grid a:hover { text-decoration: underline; }
 .aux-g { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-content: start; min-width: 0; }
 /* 必须显式写 minmax(0,1fr)：默认那条隐式 auto 轨会被 .lrow 里 nowrap 文本的 min-content
    撑到 357px（列宽只有 253），整页就跟着出横向滚动条。 */
-.aux-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--t3); padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.aux-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; letter-spacing: .02em; color: var(--t3); padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .aux-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .aux-h .cnt { margin-left: auto; }
 .aux-x { display: inline-flex; align-items: center; gap: 4px; flex: none; font: 600 11px/1 var(--sans); letter-spacing: .02em; color: var(--b-ink); padding: 4px 7px; border-radius: 999px; background: var(--b-tint); transition: background .14s; }

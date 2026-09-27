@@ -3288,13 +3288,21 @@
   /* 「在完整看板中打开」的目标（2026-09-22 加）。
      只给**目录里确实存在对应看板**的维度配链接 —— 配一个错的链接比不给链接更糟。
      页面 key 取自 assets/data.js 里已经在用的 my_app 页面（realtime_alarm /
-     ttwo / sp_material），不是新造路由。cr / pmt 在 my_app 侧没有对应看板，
-     故不配，弹窗里就不出现这个按钮。 */
+     ttwo / sp_report），不是新造路由。cr / pmt 在 my_app 侧没有对应看板，
+     故不配，弹窗里就不出现这个按钮。
+
+     2026-09-26：spms 由 sp_material 改为 **sp_report**（用户指定）。
+     两者都是 my_app 的合法 page key，区别在数据视角：sp_material 是「此刻
+     库存/消耗汇总」，sp_report 是「备件入出库汇总报表」（任务 sp_report_generate
+     每天 05:15 产出）。spms 这张卡的明细表正是 inband_details / outband_details
+     —— 出入库单，所以 sp_report 才与下钻内容对得上：用户在明细里看到的
+     「未关闭出入库单」，点过去就该落在同一批单子的报表上，而不是库存快照。
+     改动同步在 olbrportal/assets/olbr.js 的 QC_BOARD_PAGE —— 两边要一起改。 */
   var QC_BOARD_PAGE = {
     alarm: 'realtime_alarm',
     tt: 'ttwo',
     wo: 'ttwo',
-    spms: 'sp_material'
+    spms: 'sp_report'
   };
 
   /** 弹窗标题 = 卡片名 + 「· 明细」。切语言时要重算，故单独抽出来。

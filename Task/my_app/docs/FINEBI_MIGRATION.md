@@ -42,7 +42,7 @@ URL 形如 `http://localhost/myapp/?page=finebi_<slug>`，侧栏新增分组「*
 | `kpi_4g` | 4G KPI | 无线KPI | 12 | db.sqlite3 |
 | `kpi_3g` | 3G KPI | 无线KPI | 11 | db.sqlite3 |
 | `kpi_2g` | 2G_Daily_KPI | 无线KPI | 11 | db.sqlite3 |
-| `mttr` | MTTR Monthly & Weekly | 运维工单 | 11 | mttr_tt.sqlite3 |
+| `mttr` | MTTR 看板（日/周/月） | 运维工单 | 15 | mttr_tt.sqlite3 |
 | `cm_dashboard` | Corrective Maintenance | 运维工单 | 13 | db.sqlite3 |
 | `spare` | Spare Management | 备件 | 13 | **本机 app.db**（见 §4） |
 | `progress` | Progress | 运维工单 | 7 | progress.sqlite3 |

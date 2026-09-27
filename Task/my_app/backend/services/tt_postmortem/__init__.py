@@ -1326,6 +1326,10 @@ def build_tt_postmortem(tt_no: str) -> Dict[str, Any]:
             f"{_pool}{_later}。建议为 FO 通道配置带时限的轮值/派单到人规则，"
             f"缩短从建单到有人接手的时间")
 
+    # WO 号：同一事实只在这里取一次（eflow_wo 实查结果优先，回退 eflow_tt.wo_no）。
+    # `ticket.wo_no` 与 `wo.wo_no` 都从这里取，避免两处各写一套表达式后分叉。
+    wo_no = (wo_record or {}).get("wo_no") or t.get("wo_no")
+
     # === 里程碑时间轴 + 应做/实做对比 + 偏离（2026-09-23 增强）===
     # （已在前面构建，此处只做返回组装）
     return {
@@ -1356,10 +1360,22 @@ def build_tt_postmortem(tt_no: str) -> Dict[str, Any]:
             "alarm_code": t.get("alarm_code"),
             "status": t.get("status"),
             "domain": t.get("domain"),
+            "title": t.get("title"),
             "alarm_occur_time": t.get("alarm_occur_time"),
             "alarm_clear_time": t.get("alarm_clear_time"),
-            "create_time": t.get("create_time"),
+            # ⚠ 列名是 eflow_tt 的 `created_time`（"Created Time"）。这里原来写的是
+            #   `create_time` —— **eflow_tt 没有这一列**，取到的永远是 None，而前端
+            #   「TT created」读的是 `created_time`，于是该格永远显示 '-'（2026-09-27 修正）。
+            "created_time": t.get("created_time"),
             "last_modified_time": t.get("last_modified_time"),
+            "fault_duration_time": t.get("fault_duration_time"),
+            "impacted_service": t.get("impacted_service"),
+            # ⚠ 前端「WO No.」与「Handled by」判据都读 `ticket.wo_no`。本块原来**没有**
+            #   这个键 → `!report.ticket.wo_no` 恒为真 → **已经有 WO 的单子也被显示成
+            #   「ZTE in-house 且无 WO —— 需要关注」**（2026-09-27 用户报 TT202609270029：
+            #   实际有 WO202609270012，创建者 NOC_FO_104，处理人 P:Melvin Gono,P:Festus
+            #   Emmanuel）。真正的无 WO 才是异常单，所以这个键缺失会把正常单误报成异常。
+            "wo_no": wo_no,
         },
         "operators": {
             "create": {"operator": create_by, "time": create_at},
@@ -1383,7 +1399,7 @@ def build_tt_postmortem(tt_no: str) -> Dict[str, Any]:
         "note": note,
         "history_match": history_match,
         "wo": {
-            "wo_no": (wo_record or {}).get("wo_no") or t.get("wo_no"),
+            "wo_no": wo_no,
             "status": (wo_record or {}).get("status"),
             "creator": (wo_record or {}).get("creator"),
             "source": (wo_record or {}).get("source"),

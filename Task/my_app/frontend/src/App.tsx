@@ -52,6 +52,7 @@ import {
   DesktopOutlined,
   FileDoneOutlined,
   SolutionOutlined,
+  ScheduleOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -86,6 +87,8 @@ const MsWoSLReport = lazy(() => import('./pages/MsWoSLReport'))
 const MsContractKpiReport = lazy(() => import('./pages/MsContractKpiReport'))
 const Overview = lazy(() => import('./pages/Overview'))
 const TTWODashboard = lazy(() => import('./pages/TTWODashboard'))
+// 只保留上半部分的直链页（TTWODashboard 的切片，见 pages/V1TTWODashboard.tsx）
+const V1TTWODashboard = lazy(() => import('./pages/V1TTWODashboard'))
 const AlarmDashboard = lazy(() => import('./pages/AlarmDashboard'))
 const PacketLossDashboard = lazy(() => import('./pages/PacketLossDashboard'))
 const BatteryDashboard = lazy(() => import('./pages/BatteryDashboard'))
@@ -113,6 +116,10 @@ const SiteAvailability = lazy(() => import('./pages/SiteAvailability'))
 const FmeRanking = lazy(() => import('./pages/FmeRanking'))
 const NocAnalyst = lazy(() => import('./pages/NocAnalyst'))
 const RepeatSiteDown = lazy(() => import('./pages/RepeatSiteDown'))
+// CR 变更分析：按 change_category 看变更计划的排期与执行情况（数据源 eflow_cr）
+const CrChangeAnalysis = lazy(() => import('./pages/CrChangeAnalysis'))
+// PM 执行分析：按 PM 计划 (pmp_no) 看预防性维护工单的完成与超期（数据源 eflow_pm）
+const PmExecutionAnalysis = lazy(() => import('./pages/PmExecutionAnalysis'))
 const RanCellsKpi = lazy(() => import('./pages/RanCellsKpi'))
 const CnKpi = lazy(() => import('./pages/CnKpi'))
 const NativeBoard = lazy(() => import('./pages/NativeBoard'))
@@ -151,9 +158,9 @@ const FINEBI_PAGE_TO_SLUG: Record<string, string> = Object.fromEntries(
   FINEBI_BOARDS.map((b) => [`finebi_${b.slug}`, b.slug]),
 )
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'ran_cells_kpi' | 'cn_kpi' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'cn_kpi' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -345,6 +352,8 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   eflow_flow: { icon: <ApartmentOutlined />, labelKey: 'nav.eflowFlow' },
   alarm: { icon: <AlertOutlined />, labelKey: 'nav.alarm' },
   ttwo: { icon: <BarChartOutlined />, labelKey: 'nav.ttwo' },
+  // 只保留上半部分的直链页：图标沿用其数据源看板，便于在侧栏一眼认出父子关系
+  v1_ttwo: { icon: <BarChartOutlined />, labelKey: 'nav.v1Ttwo' },
   nur: { icon: <LineChartOutlined />, labelKey: 'nav.nur' },
   ms_sla: { icon: <FundOutlined />, labelKey: 'nav.msSla' },
   // 只保留一半内容的直链页：图标沿用其数据源看板，便于在侧栏一眼认出父子关系
@@ -354,6 +363,8 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   fme_ranking: { icon: <BarChartOutlined />, labelKey: 'nav.fmeRanking' },
   noc_analyst: { icon: <TeamOutlined />, labelKey: 'noc.navLabel' },
   repeat_site_down: { icon: <DisconnectOutlined />, labelKey: 'nav.repeatSiteDown' },
+  cr_analysis: { icon: <FileDoneOutlined />, labelKey: 'nav.crAnalysis' },
+  pm_analysis: { icon: <ScheduleOutlined />, labelKey: 'nav.pmAnalysis' },
   ran_cells_kpi: { icon: <AreaChartOutlined />, labelKey: 'nav.ranCellsKpi' },
   cn_kpi: { icon: <FundProjectionScreenOutlined />, labelKey: 'nav.cnKpi' },
   ume_in_kpi: { icon: <DotChartOutlined />, labelKey: 'nav.umeInKpi' },
@@ -400,7 +411,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_monitor',
     labelKey: 'nav.grp.monitor',
-    items: ['alarm', 'ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'site_avail', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview'],
+    items: ['alarm', 'ttwo', 'v1_ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'site_avail', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview'],
   },
   {
     key: 'grp_network',
@@ -1213,6 +1224,8 @@ function AppContent() {
         return <AlarmDashboard />
       case 'ttwo':
         return <TTWODashboard />
+      case 'v1_ttwo':
+        return <V1TTWODashboard />
       case 'eflow_qa':
         return <EflowQa />
       case 'eflow_flow':
@@ -1233,6 +1246,10 @@ function AppContent() {
         return <NocAnalyst />
       case 'repeat_site_down':
         return <RepeatSiteDown />
+      case 'cr_analysis':
+        return <CrChangeAnalysis />
+      case 'pm_analysis':
+        return <PmExecutionAnalysis />
       case 'ran_cells_kpi':
         return <RanCellsKpi />
       case 'cn_kpi':

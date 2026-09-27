@@ -47,6 +47,7 @@ import {
 
 import { exportTtPostmortemMd, getTtPostmortem } from '../api'
 import { useI18n } from '../i18n'
+import { evText, nodeTextFromZh, ownerTextFromZh, devTextFromZh } from '../utils/ttVocab'
 
 const { Text, Title } = Typography
 
@@ -439,71 +440,20 @@ const phaseLabelKey = (v?: string): string => {
   }
 }
 
-/** 里程碑全名（时间轴 / 应做实做表）→ 文案键 */
-const nodeLabelKey = (v?: string): string => {
-  switch (v) {
-    case 'alarm_occur': return 'ttPm.node.alarmOccur'
-    case 'tt_create': return 'ttPm.node.ttCreate'
-    case 'dispatch_route': return 'ttPm.node.dispatchRoute'
-    case 'fo_accept': return 'ttPm.node.foAccept'
-    case 'wo_dispatch': return 'ttPm.node.woDispatch'
-    case 'onsite_action': return 'ttPm.node.onsiteAction'
-    case 'wo_step': return 'ttPm.node.woStep'
-    case 'alarm_clear': return 'ttPm.node.alarmClear'
-    case 'fo_process': return 'ttPm.node.foProcess'
-    case 'confirm': return 'ttPm.node.confirm'
-    default: return ''
-  }
-}
-
-/** 分段时间「A → B」端点用的短名（后端 _SEG_META 第二列，与全名不同词） */
-const shortLabelKey = (v?: string): string => {
-  switch (v) {
-    case 'alarm_occur': return 'ttPm.short.alarm_occur'
-    case 'tt_create': return 'ttPm.short.tt_create'
-    case 'dispatch_route': return 'ttPm.short.dispatch_route'
-    case 'fo_accept': return 'ttPm.short.fo_accept'
-    case 'wo_dispatch': return 'ttPm.short.wo_dispatch'
-    case 'onsite_action': return 'ttPm.short.onsite_action'
-    case 'wo_step': return 'ttPm.short.wo_step'
-    case 'alarm_clear': return 'ttPm.short.alarm_clear'
-    case 'fo_process': return 'ttPm.short.fo_process'
-    case 'confirm': return 'ttPm.short.confirm'
-    default: return ''
-  }
-}
-
-/** 后端 _STAGES 里的 9 个标准里程碑中文名。只有原文正好是这几个才替换成当前语言，
-    「现场·出发」这类带子类型的标签保持原样，免得中文模式被改坏。 */
-const ZH_NODE_LABELS = new Set([
-  '告警发生', 'TT 自动建单', '派单路由决定', 'FO Accept 接单', 'WO 派单',
-  '现场处置', '告警清除/自愈', 'FO Process 填报', 'Confirm 关单',
-])
-
-/** 责任方：后端只在「归系统」时给固定词，归人时给的是真实姓名（属数据，不翻译） */
-const ownerLabelOf = (t: TFn, v?: string | null): string => {
-  switch (v) {
-    case '系统/流程': return t('ttPm.owner.sysFlow')
-    case '系统/自愈': return t('ttPm.owner.sysSelfHeal')
-    case '（未记录操作人）': return t('ttPm.owner.noOperator')
-    default: return v || '-'
-  }
-}
+/* 里程碑全名 / 分段短名 / 责任方的中文词表已抽到 utils/ttVocab.ts ——
+   noc_analyst 的概览与下钻显示的是同一批后端中文，两边各写一份必然漂移。 */
 
 export default function TtPostmortemPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useI18n()
   const fmtGap = (sec?: number | null) => fmtGapT(t, sec)
-  /** 里程碑名：后端同时给 key 与中文 label。key 认得、且原文确实是标准里程碑名才替换，
-      否则原样显示（如「现场·出发」带子类型，替换会丢信息）。 */
-  const nodeLabel = (key?: string, raw?: string | null) => {
-    const k = nodeLabelKey(key)
-    return k && raw && ZH_NODE_LABELS.has(raw) ? t(k) : raw || ''
-  }
+  /** 里程碑名：后端给的是中文硬编码。只有原文正好是标准里程碑名才替换成当前语言，
+      「现场·出发」这类带子类型的标签保持原样（替换会丢信息）。 */
+  const nodeLabel = (raw?: string | null) => nodeTextFromZh(t, raw)
   const phaseLabel = (phase?: string | null, raw?: string | null) => {
     const k = phaseLabelKey(phase || undefined)
     return k ? t(k) : raw || ''
   }
-  const ownerLabel = (v?: string | null) => ownerLabelOf(t, v)
+  const ownerLabel = (v?: string | null) => ownerTextFromZh(t, v)
   const confLabel = (v?: string | null) => {
     const k = confLabelKey(v || undefined)
     return k ? t(k) : v || '-'
@@ -525,13 +475,10 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
     /* 任何一端认不出来就返回空串，让调用方回落到后端给的原文标签，
        免得拼出「A → 」这种半截文案。 */
     if (idx < 0 || !toKey || !fromKey) return ''
-    if (toKey !== 'tail' && !shortLabelKey(toKey)) return ''
-    if (!shortLabelKey(fromKey)) return ''
-    const shortOf = (k: string) => {
-      const kk = shortLabelKey(k)
-      return kk ? t(kk) : k
-    }
-    return `${shortOf(fromKey)} → ${toKey === 'tail' ? t('ttPm.short.tail') : shortOf(toKey)}`
+    const fromText = evText(t, fromKey, 'short')
+    const toText = toKey === 'tail' ? t('ttPm.short.tail') : evText(t, toKey, 'short')
+    if (!fromText || !toText) return ''
+    return `${fromText} → ${toText}`
   }
   const [ttNo, setTtNo] = useState('')
   const [loading, setLoading] = useState(false)
@@ -583,6 +530,16 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
     if (s < 3600) return t('ttPm.durMin', { n: (s / 60).toFixed(1) })
     return t('ttPm.durHour', { n: (s / 3600).toFixed(2) })
   }
+
+  /* 「Handled by」这一格要同时回答两件事：承接方分类（ZTE 自维 / IPT 第三方）
+     与工单实际落到了谁手里。只有分类标签时，有 WO 的单看起来像"没人接"。
+     两个值都只读后端已解析好的字段，前端不另做归属判断：
+       - wo_no   → `ticket.wo_no`（build_tt_postmortem 的 ticket 块）
+       - 处理人  → WO 层解析出的 `assignment.assigned_persons`（已去重、带工号）；
+                   时间轴子视图构建失败时退回 `eflow_wo.current_handler` 原文 */
+  const woNo = report?.ticket?.wo_no || null
+  const woWho = (report?.assignment?.assigned_persons || []).join(', ')
+    || report?.people?.wo_current_handler || ''
 
   return (
     <Drawer
@@ -685,11 +642,17 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                     <Tag color={report.dispatch_owner === 'IPT' ? 'purple' : 'blue'}>
                       {report.dispatch_owner === 'IPT' ? t('ttPm.ownerIpt') : t('ttPm.ownerZte')}
                     </Tag>
-                    {/* IPT 单按设计不建 WO，说明清楚，避免被误读成"漏派单" */}
-                    {report.dispatch_owner === 'IPT' && !report.ticket?.wo_no && (
+                    {/* 有 WO：直接说清落到谁手里（这一格叫 Handled by，光有分类看不出有人在做） */}
+                    {woNo ? (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {woWho
+                          ? t('ttPm.ownerWoDispatched', { no: woNo, who: woWho })
+                          : t('ttPm.ownerWoUnassigned', { no: woNo })}
+                      </Text>
+                    ) : report.dispatch_owner === 'IPT' ? (
+                      /* IPT 单按设计不建 WO，说明清楚，避免被误读成"漏派单" */
                       <Text type="secondary" style={{ fontSize: 12 }}>{t('ttPm.ownerIptNoWo')}</Text>
-                    )}
-                    {report.dispatch_owner !== 'IPT' && !report.ticket?.wo_no && (
+                    ) : (
                       <Text type="danger" style={{ fontSize: 12 }}>{t('ttPm.ownerZteNoWo')}</Text>
                     )}
                     {(report.owner_detail?.evidence?.length ?? 0) > 0 && (
@@ -855,7 +818,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                       children: (
                         <div style={{ opacity: missing ? 0.85 : 1 }}>
                           <Space size={6} wrap>
-                            <Text strong={!missing} delete={missing}>{nodeLabel(m.key, m.label)}</Text>
+                            <Text strong={!missing} delete={missing}>{nodeLabel(m.label)}</Text>
                             <Tag color={m.actor === 'human' ? 'blue' : unproven ? 'gold' : 'green'}>
                               {m.actor === 'human' ? t('ttPm.actor.human') : unproven ? t('ttPm.actor.unknown') : t('ttPm.actor.system')}
                             </Tag>
@@ -904,7 +867,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                   pagination={false}
                   dataSource={report.expected_actions}
                   columns={[
-                    { title: t('ttPm.colMilestone'), dataIndex: 'label', width: 130, render: (v: string, r: ExpectedAction) => nodeLabel(r.key, v) || v },
+                    { title: t('ttPm.colMilestone'), dataIndex: 'label', width: 130, render: (v: string) => nodeLabel(v) },
                     {
                       title: t('ttPm.colContract'), dataIndex: 'required', width: 70,
                       render: (v: boolean) => <Tag color={v ? 'purple' : 'default'}>{v ? t('ttPm.required') : t('ttPm.conditional')}</Tag>,
@@ -955,7 +918,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                     description={
                       <ul style={{ margin: 0, paddingLeft: 18 }}>
                         {report.missing_actions.map(m => (
-                          <li key={m.key}><Text strong>{nodeLabel(m.key, m.label) || m.label}</Text>：{m.reason}</li>
+                          <li key={m.key}><Text strong>{nodeLabel(m.label)}</Text>：{m.reason}</li>
                         ))}
                       </ul>
                     }
@@ -983,7 +946,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                       <Space size={6} wrap>
                         <Tag color={SEVERITY_COLOR[d.severity]}>{d.severity.toUpperCase()}</Tag>
                         <Tag>{kindLabelKey(d.kind) ? t(kindLabelKey(d.kind)) : d.kind}</Tag>
-                        <Text strong>{d.label}</Text>
+                        <Text strong>{devTextFromZh(t, d.label)}</Text>
                       </Space>
                       <div style={{ fontSize: 12, marginTop: 2 }}>
                         <Text type="secondary">{t('ttPm.devExpected')}</Text>{d.expected}

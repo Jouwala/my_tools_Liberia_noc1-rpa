@@ -382,9 +382,11 @@
         <!-- 导出：与 MsPortal 同一套 UNIFIED_EXCEL_V1（/MsPortal/assets/excelReport.js）。
              只读版原本没有导出，是这次统一补齐的能力之一。 -->
         <button type="button" class="qc-btn" id="qcExport" data-i18n="dr.export">导出 Excel</button>
-        <!-- 跳到 my_app 里对应的完整看板继续处理。只给目录里确实存在对应看板的
-             维度（alarm/tt/wo/spms）；cr/pmt 在 my_app 侧没有页面 ——
-             配一个错的链接比不给链接更糟。href 与显隐由 olbr.js 设置。 -->
+        <!-- 跳到 my_app 里对应的完整看板继续处理。只给确实存在对应看板的维度：
+             alarm/tt/wo/spms 加 2026-09-26 补上的 cr/pmt 共六项，正好与面板上
+             六张卡一一对应（映射见 olbr.js 的 QC_BOARD_PAGE）。
+             href 与显隐由 olbr.js 的 applyDrillTitle 设置 ——
+             这里不写死 href，换 my_app 路径时不用改 HTML。 -->
         <a class="qc-btn" id="qcOpenBoard" hidden target="_blank" rel="noopener"
            data-i18n="dr.openBoard">打开完整看板</a>
       </div>

@@ -162,8 +162,8 @@ window.OLBR_DATA = (function () {
       'edit.grpBuiltin': '内置分组只能改名，不能删除',
       'edit.grpDelConfirm': '删除分组「{n}」？其中的看板只是从这个分组移出（仍留在别的分组里），此操作对所有人生效。',
       'edit.grpHomeless': '有 {n} 张看板只属于这个分组，先给它们勾上别的分组再删',
-      'edit.title': '改名字', 'edit.titleTip': '改这张看板的中文名 / 英文名（存服务端，所有人可见）',
-      'edit.titleOk': '看板名字已更新', 'edit.needTitle': '中英文名不能同时为空',
+      'edit.title': '编辑', 'edit.titleTip': '改这张看板的中文名 / 英文名与链接（存服务端，所有人可见）',
+      'edit.titleOk': '看板已更新', 'edit.needTitle': '中英文名不能同时为空',
       'edit.formSave': '保存', 'edit.formAdd': '添加',
       'edit.f.zh': '中文名', 'edit.f.en': '英文名', 'edit.f.subZh': '中文说明', 'edit.f.subEn': '英文说明',
       'edit.fph.zh': '显示给中文用户', 'edit.fph.en': 'Shown to English users',
@@ -171,6 +171,28 @@ window.OLBR_DATA = (function () {
       'edit.kGroups': '一级分组', 'edit.kLabels': '地图页签名',
       'edit.maptabTip': '改这个地图页签的中文名 / 英文名（存服务端，所有人可见；两项都清空则恢复默认）',
       'edit.maptabRenamed': '地图页签名已更新',
+      /* 看板条目本身的增删（2026-09-26 加）。
+         ⚠️ 「移出本列」与「删除看板」是两件不同的事，文案必须让人一眼分清：
+         前者只摘掉一个分组归属（可逆），后者把条目从共享目录里拿走（不可逆）。
+         命名上刻意避开 'edit.del*'（那是子分组的），免得上下一读就混。 */
+      'edit.itemDrop': '移出本列', 'edit.itemDropTip': '只是把这张看板从当前分组移出，看板本身还在（可再用「分组」勾回来）',
+      'edit.itemDel': '删除看板', 'edit.itemDelTip': '从共享目录里彻底删除这张看板，所有人刷新后都不再看到，无法撤销',
+      'edit.itemDropped': '已从本分组移出', 'edit.itemDeleted': '看板已删除',
+      'edit.itemLastGrp': '这是它唯一的分组，移出后就没地方放了 —— 真要移除请用「删除看板」',
+      'edit.itemDelConfirm': '彻底删除看板「{n}」？\n\n它会从共享目录里移除，/olbrportal/ 与 MsPortal 也不再显示，所有人刷新后都会少这一条。\n此操作无法撤销。',
+      /* 新增看板：先选一个现有看板当模板，再改名字与链接。
+         模板值继承图标 / 平台 / 描述 / 负责人等，避免每次从零填十几个字段。 */
+      'edit.itemAdd': '新增看板', 'edit.itemAddTip': '照着一个已有看板新建一张（图标 / 平台 / 描述等沿用模板，只改名字与链接）',
+      'edit.itemAddPick': '先选一个已有看板当模板（可搜索）',
+      'edit.itemAddSearch': '搜索看板名…',
+      'edit.itemAddBack': '换一个模板',
+      'edit.itemAdded': '看板已新增',
+      'edit.itemNeedUrl': '先填链接（http:// 或 https:// 开头）',
+      'edit.itemBadUrl': '链接要以 http:// 或 https:// 开头',
+      'edit.f.itemZh': '看板名（中文）', 'edit.f.itemEn': '看板名（英文）', 'edit.f.itemUrl': '链接',
+      'edit.fph.itemZh': '例如 NUR Dashboard', 'edit.fph.itemEn': 'Shown to English users',
+      'edit.fph.itemUrl': 'http://192.168.100.20/myapp/?page=xxx',
+      'edit.itemTplFrom': '模板：{n}',
       'v.emptyFilter': '当前筛选下没有看板', 'v.adjust': '调整关键词或清除筛选',
       /* ---- v1 新增：CXO Daily Dashboard 指标带（renderKpi）----
          上排四张富卡片的数值全部来自 /api/olib-soc-dashboard/overview?days=90
@@ -230,10 +252,16 @@ window.OLBR_DATA = (function () {
          数量由 V6_LIMIT 控制（默认 2 条），多出来的走「展开其余 N 项」。 */
       'v6.title': 'Team Dashboard Overview',
       'v6.sub': '点击报告名直接打开对应看板',
+      /* 列头标题现在是链接（2026-09-26 加）：点它打开该视图下的第一条看板。
+         tooltip 写成「进入本视图：<实际要去的那张看板>」——
+         只写「进入 SP View」的话，点下去开出来的是某个**具体看板**，用户会以为点错了；
+         把要打开的那张看板名一起写出来，点之前就知道会去哪儿。
+         标点跟着语言走（中文全角冒号、英文半角），别把「：」硬写进 JS 模板。 */
+      'v6.headTip': '进入本视图：{n}',
       'v6.more': '展开其余 {n} 项',
       'v6.less': '收起',
       'v6.empty': '该视图下暂无可打开的看板',
-      'aux.qa': 'Q&A', 'aux.friends': 'EFLOW/VMAX/UME entries', 'aux.admin': 'System Management',
+      'aux.qa': 'Knowledge Q&A', 'aux.friends': 'OSS Portal Login', 'aux.admin': 'System Management',
       'aux.reports': 'Task report files', 'aux.tools': '本页相关',
       'aux.ms': '在 MsPortal 维护分组 / 看板 / 账号', 'aux.uni': '统一门户看板门户',
       'aux.more': '展开其余 {n} 项', 'aux.less': '收起',
@@ -489,8 +517,8 @@ window.OLBR_DATA = (function () {
       'edit.grpBuiltin': 'Built-in groups can be renamed but not deleted',
       'edit.grpDelConfirm': 'Delete group “{n}”? Dashboards are only removed from this group (they stay in their other groups). Applies to everyone.',
       'edit.grpHomeless': '{n} dashboard(s) belong to this group only — give them another group before deleting',
-      'edit.title': 'Rename', 'edit.titleTip': 'Edit this dashboard’s Chinese / English title (stored on the server, visible to everyone)',
-      'edit.titleOk': 'Dashboard title updated', 'edit.needTitle': 'The two titles cannot both be empty',
+      'edit.title': 'Edit', 'edit.titleTip': 'Edit this dashboard’s Chinese / English title and link (stored on the server, visible to everyone)',
+      'edit.titleOk': 'Dashboard updated', 'edit.needTitle': 'The two titles cannot both be empty',
       'edit.formSave': 'Save', 'edit.formAdd': 'Add',
       'edit.f.zh': 'Chinese name', 'edit.f.en': 'English name', 'edit.f.subZh': 'Chinese note', 'edit.f.subEn': 'English note',
       'edit.fph.zh': 'Shown to Chinese users', 'edit.fph.en': 'Shown to English users',
@@ -498,6 +526,26 @@ window.OLBR_DATA = (function () {
       'edit.kGroups': 'first-level groups', 'edit.kLabels': 'map tab labels',
       'edit.maptabTip': 'Edit this map tab’s Chinese / English name (stored on the server, visible to everyone; clear both to restore the default)',
       'edit.maptabRenamed': 'Map tab label updated',
+      /* Dashboard entry add / delete (added 2026-09-26). Mirror of the zh block:
+         "移出本列" = drop one group membership (reversible),
+         "删除看板" = remove the entry from the shared catalog (irreversible).
+         Keep the two clearly distinct in wording — this is the whole point. */
+      'edit.itemDrop': 'Remove from column', 'edit.itemDropTip': 'Only takes this dashboard out of the current group; the dashboard itself stays (re-tick it under "Groups")',
+      'edit.itemDel': 'Delete dashboard', 'edit.itemDelTip': 'Removes this dashboard from the shared catalog for everyone; cannot be undone',
+      'edit.itemDropped': 'Removed from this group', 'edit.itemDeleted': 'Dashboard deleted',
+      'edit.itemLastGrp': 'This is its only group, so removing it would leave the dashboard nowhere to live — use "Delete dashboard" if you really want it gone',
+      'edit.itemDelConfirm': 'Permanently delete the dashboard “{n}”?\n\nIt will be removed from the shared catalog, so /olbrportal/ and MsPortal will stop showing it and everyone loses this entry on refresh.\nThis cannot be undone.',
+      'edit.itemAdd': 'New dashboard', 'edit.itemAddTip': 'Create a dashboard from an existing one (icon / platform / description are inherited; you only set the name and link)',
+      'edit.itemAddPick': 'Pick an existing dashboard as the template (searchable)',
+      'edit.itemAddSearch': 'Search dashboard names…',
+      'edit.itemAddBack': 'Change template',
+      'edit.itemAdded': 'Dashboard added',
+      'edit.itemNeedUrl': 'Enter a link first',
+      'edit.itemBadUrl': 'The link must start with http:// or https://',
+      'edit.f.itemZh': 'Dashboard name (Chinese)', 'edit.f.itemEn': 'Dashboard name (English)', 'edit.f.itemUrl': 'Link',
+      'edit.fph.itemZh': 'e.g. NUR Dashboard', 'edit.fph.itemEn': 'Shown to English users',
+      'edit.fph.itemUrl': 'http://192.168.100.20/myapp/?page=xxx',
+      'edit.itemTplFrom': 'Template: {n}',
       'v.emptyFilter': 'Nothing matches the current filters', 'v.adjust': 'Adjust keywords or clear filters',
       /* ---- v1 additions: CXO daily KPI band (renderKpi) ---- */
       'kpi.title': 'Network Status Overview',
@@ -552,10 +600,11 @@ window.OLBR_DATA = (function () {
       /* ---- v1 additions: six view-entry cards (renderViews6) ---- */
       'v6.title': 'Team Dashboard Overview',
       'v6.sub': 'Click a report name to open that dashboard',
+      'v6.headTip': 'Enter this view: {n}',
       'v6.more': 'Show {n} more',
       'v6.less': 'Show less',
       'v6.empty': 'No dashboard available under this view',
-      'aux.qa': 'Q&A', 'aux.friends': 'EFLOW/VMAX/UME entries', 'aux.admin': 'System Management',
+      'aux.qa': 'Knowledge Q&A', 'aux.friends': 'OSS Portal Login', 'aux.admin': 'System Management',
       'aux.reports': 'Task report files', 'aux.tools': 'About this page',
       'aux.ms': 'Manage groups / dashboards / accounts in MsPortal', 'aux.uni': 'Unified dashboard portal',
       'aux.more': 'Show {n} more', 'aux.less': 'Show less',

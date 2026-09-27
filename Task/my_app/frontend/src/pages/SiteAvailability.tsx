@@ -7,7 +7,7 @@ import {
   ReloadOutlined, SearchOutlined, ProfileOutlined, InfoCircleOutlined,
   DownloadOutlined,
 } from '@ant-design/icons'
-import { exportAoaReport } from '../utils/excelReport'
+import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import dayjs from 'dayjs'
 import ReactECharts from 'echarts-for-react'
 import { getSiteAvailabilityFilters, getSiteAvailabilityOverview, getSiteAvailabilityTickets } from '../api'
@@ -205,9 +205,26 @@ export default function SiteAvailability() {
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
   }, [sites, tech])
 
+  // 当前制式本月汇总工单（与站点表「工单(TT)」列同源，跟随前端搜索）
+  const ticketStats = useMemo(() => sites.reduce(
+    (acc, s) => ({
+      total: acc.total + (s.tickets?.total ?? 0),
+      open: acc.open + (s.tickets?.open ?? 0),
+      closed: acc.closed + (s.tickets?.closed ?? 0),
+    }),
+    { total: 0, open: 0, closed: 0 },
+  ), [sites])
+
   // ---- 格式化 ----
   const fmtPct = (v: number | null | undefined, digits = 3) =>
     v == null || Number.isNaN(v) ? '-' : `${(v * 100).toFixed(digits)}%`
+
+  /** 导出单元格取值：**取不到一律给 `—`，不得显示成 0**（规范第 6 条） */
+  const display = (v: unknown): string | number => {
+    if (v == null) return '—'
+    const s = String(v).trim()
+    return s === '' ? '—' : s
+  }
 
   // 单元格通用样式：低于阈值红、达标绿
   const valCell = (v: number | null | undefined, digits = 3) => {
@@ -274,6 +291,125 @@ export default function SiteAvailability() {
       }],
     }
   }, [tech, overview, threshold, thresholdPct, isDark, palette, t])
+
+  // ==================== 页面级导出（导出「当前所见」） ====================
+  /**
+   * 导出「页面当前显示的全部汇总数据」：
+   *   ① 后端查询条件：month / supervisor / fme / onlyWithData
+   *   ② 前端展示条件：制式 tech、视图 viewMode、阈值 thresholdPct、搜索 search
+   * 因此导出用的 sites / belowSites / withDataSites / avgOfTech **全部取页面既有的
+   * useMemo 结果**（它们已经含搜索过滤与四舍五入口径），保证与用户看到的数字一致；
+   * 不在这里重算，否则「导出结果」与「界面」会各算一套而对不上账。
+   */
+  const exportAll = useCallback(() => {
+    if (!sites.length) return
+
+    const techLabel = TECH_LABEL[tech]               // 例如 4G
+    const none = t('siteAvail.noneFilter')           // 「全部」占位
+    const viewLabel = viewMode === 'week' ? t('siteAvail.week') : t('siteAvail.day')
+
+    // ---- 副标题：把当前筛选条件写全，便于对账 ----
+    const filtersText = [
+      `${t('siteAvail.month')}: ${month}`,
+      `Supervisor: ${supervisor || none}`,
+      `FME: ${fme || none}`,
+      `${t('siteAvail.techCol')}: ${techLabel}`,
+      `${t('siteAvail.viewCol')}: ${viewLabel}`,
+      `${t('siteAvail.threshold')}: ${thresholdPct.toFixed(2)}%`,
+      `${t('siteAvail.onlyData')}: ${onlyWithData ? t('common.yes') : t('common.no')}`,
+      `${t('siteAvail.search')}: ${search.trim() || none}`,
+    ].join('    |    ')
+    const subtitle = `${filtersText}    |    ${t('siteAvail.generatedAt')}: ${display(overview?.meta?.generated_at)}`
+
+    const sheets: ReportSheetSpec[] = []
+
+    // ---- Sheet 1：汇总指标（与页面顶部 Statistic 卡片逐项对应） ----
+    const sumHeader = [t('siteAvail.metricCol'), t('siteAvail.valueCol')]
+    const sumRows: Array<Array<string | number>> = [
+      [t('siteAvail.sites'), sites.length],
+      [t('siteAvail.totalSites', { v: overview?.summary?.site_count ?? 0 }), overview?.summary?.site_count ?? 0],
+      [t('siteAvail.monthAvg', { v: techLabel }), avgOfTech == null ? '—' : `${(avgOfTech * 100).toFixed(3)}%`],
+      [t('siteAvail.withData', { v: techLabel }), withDataSites],
+      [t('siteAvail.below', { v: techLabel }), belowSites],
+      [t('siteAvail.monthTickets'), ticketStats.total],
+      [`${t('siteAvail.monthTickets')} · ${t('siteAvail.open')}`, ticketStats.open],
+      [`${t('siteAvail.monthTickets')} · ${t('siteAvail.closed')}`, ticketStats.closed],
+      [t('siteAvail.techCol'), techLabel],
+      [t('siteAvail.viewCol'), viewLabel],
+      [t('siteAvail.threshold'), `${thresholdPct.toFixed(2)}%`],
+      [t('siteAvail.onlyData'), onlyWithData ? t('common.yes') : t('common.no')],
+      [t('siteAvail.search'), search.trim() || none],
+      [t('siteAvail.generatedAt'), display(overview?.meta?.generated_at)],
+    ]
+    // 四制式月均（后端口径，不随阈值调整）——取不到就写 `—`
+    for (const tk of TECHS) {
+      const bt = overview?.summary?.by_tech?.[tk]
+      sumRows.push([
+        t('siteAvail.monthAvg', { v: TECH_LABEL[tk] }),
+        bt?.avg == null ? '—' : `${(bt.avg * 100).toFixed(3)}%`,
+      ])
+    }
+    sheets.push({
+      name: t('siteAvail.sheetSummary'),
+      title: `${t('siteAvail.summaryTitle', { v: techLabel })}`,
+      subtitle,
+      tabColor: '#2F5496',
+      header: sumHeader,
+      rows: sumRows,
+      columnWidths: [42, 28],
+      autoFilter: false,   // 指标表不需要筛选器
+    })
+
+    // ---- Sheet 2：站点明细（列与页面主表一致，含搜索过滤后的行） ----
+    const dyn: Array<{ h: string; key: string }> = viewMode === 'week'
+      ? (overview?.meta?.weeks || []).map(w => ({ h: `${w.label} ${w.range}`, key: w.key }))
+      : (overview?.meta?.days || []).map(d => ({ h: d, key: d }))
+    const detailHeader = [
+      t('siteAvail.siteId'), t('siteAvail.site'), t('siteAvail.vipCol'),
+      'Supervisor', 'FME', t('siteAvail.region'), t('siteAvail.provinceCol'),
+      t('siteAvail.networkCol'), t('siteAvail.siteTypeCol'),
+      ...TECHS.map(tk => t('siteAvail.monthAvg', { v: TECH_LABEL[tk] })),
+      t('siteAvail.min', { v: techLabel }),
+      `${t('siteAvail.daysBelow')} / ${t('siteAvail.withData', { v: techLabel })}`,
+      ...dyn.map(d => d.h),
+      t('siteAvail.ticketsCol'), t('siteAvail.open'), t('siteAvail.closed'),
+    ]
+    const vipFlag = (v: SiteRow['vip_site']) => {
+      if (v == null) return t('common.no')
+      return (v === 1 || v === true || String(v).toLowerCase() === 'yes') ? t('common.yes') : t('common.no')
+    }
+    const detailRows = sites.map(s => {
+      const st = s.techs?.[tech]
+      const daysWithData = st?.days_with_data ?? 0
+      // 与表格列渲染同口径：阈值前端可调，所以未达标天数在前端按 daily 重算
+      const daysBelow = st ? Object.values(st.daily).filter(v => v < threshold).length : null
+      return [
+        display(s.site_id), display(s.site_name), vipFlag(s.vip_site),
+        display(s.supervisor), display(s.fme_name), display(s.region), display(s.province_county),
+        display(s.network_type), display(s.site_type),
+        ...TECHS.map(tk => fmtPct(s.techs?.[tk]?.month_avg)),
+        st?.min == null ? '—' : fmtPct(st.min),
+        daysWithData ? `${daysBelow} / ${daysWithData}` : '—',
+        ...dyn.map(d => viewMode === 'week'
+          ? fmtPct(s.techs?.[tech]?.weekly?.[d.key])
+          : fmtPct(s.techs?.[tech]?.daily?.[d.key])),
+        s.tickets?.total ?? 0, s.tickets?.open ?? 0, s.tickets?.closed ?? 0,
+      ]
+    })
+    sheets.push({
+      name: t('siteAvail.sheetDetail'),
+      title: t('siteAvail.detailTitle', { v: sites.length }),
+      subtitle,
+      tabColor: '#548235',
+      header: detailHeader,
+      rows: detailRows,
+    })
+
+    void exportReport(sheets, `SiteAvailability_${month}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`)
+  }, [
+    sites, month, supervisor, fme, tech, viewMode, thresholdPct, threshold, onlyWithData,
+    search, overview, avgOfTech, withDataSites, belowSites, ticketStats, t,
+  ])
 
   // ---- 表格列 ----
   const columns = useMemo(() => {
@@ -430,6 +566,9 @@ export default function SiteAvailability() {
             onChange={(e) => setSearch(e.target.value)} style={{ width: 180 }} />
           <Button size="small" icon={<ReloadOutlined />} onClick={loadOverview}
             loading={loading}>{t('msSla.refresh')}</Button>
+          {/* 页面级导出：导出当前筛选后看到的汇总指标 + 站点明细 */}
+          <Button size="small" icon={<DownloadOutlined />} onClick={exportAll}
+            disabled={!sites.length}>{t('common.exportExcel')}</Button>
         </Space>
       </Card>
 

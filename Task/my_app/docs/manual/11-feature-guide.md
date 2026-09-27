@@ -13,6 +13,7 @@
 | 2 | 任务报告文件 / Task Report Files | `email_reports` | React |
 | 3 | 实时告警看板 / Alarm Dashboard | `alarm` | React |
 | 4 | TT&WO 看板 | `ttwo` | React |
+| 4b | TT&WO 看板（v1·仅上半部分） | `v1_ttwo` | React（同组件切片） |
 | 5 | NUR 看板 | `nur` | React |
 | 6 | MS Operation KPI 看板 | `ms_sla` | React |
 | 7 | CXO 经营看板 | `cxoDashboard` | **iframe** |
@@ -69,6 +70,12 @@
   - 文件清单由 `backend/routers/email_reports.py` 的 `_EFLOW_FILE_SPECS` 定义（`kind=rule|report` + 中英展示名），排序为「规则表在前（TT → 告警 → 推单）、检查产物在后」。
   - ⚠ `_EFLOW_FILE_SPECS` 的 pattern 必须与 `_SOURCES` 中 `eflow_tt_rules_check` 源的 `patterns` 一致 —— 下载接口 `_resolve_download_file` 按 `patterns` 做白名单校验，只改一处会出现「列得出来、点下载 403」。
 - 接口：`GET /api/email-reports/latest`、`GET /api/finebi-reports/latest`、`GET /api/email-reports/eflow_tt_rules_check`、下载 `GET /api/.../download/{source}/{file}`。
+- **导出 Excel**（2026-09-27 新增）：**每个页签各一个导出按钮**，导的是该页签表格当前的全量行
+  （这些表 `pagination={false}`，无分页截断）——
+  - 邮件报表 `exportEmail` → `EmailReports_*.xlsx`（任务/类型/文件/大小/时间，不含「下载」操作列）；
+  - FineBI 报表 `exportFinebi` → `finebi_reports_*.xlsx`（文件夹/文件/大小/时间）；
+  - eFlow 规则检查 `exportEflowCheck` → `eflow_tt_rules_check_*.xlsx`，多 sheet：`Summary`（统计卡 + 变更方向）、
+    `Rules`（规则明细，变更列走数值着色）、`Files`（可下载产物清单）。
 
 ## 3. 实时告警看板（`?page=alarm`）
 
@@ -76,16 +83,59 @@
 
 - 概览指标 `GET /api/alarm-dashboard/overview`（经 `cache.ts` 缓存，:133）。
 - **点任意数字弹出下钻表**（`DraggableClickModal`），历史口径走 `/history-drilldown?metric=&limit=500`，实时口径走 `/realtime-drilldown?dimension=&value=&limit=500`（:158-163）。下钻表可搜索。
+- **页面级导出 Excel**（2026-09-27 新增）：导出当前页显示的全部汇总维度。此前本页唯一的导出按钮在下钻弹窗内（导下钻明细行），页面上没有导出入口。
 - 与其他看板不同：这里的"实时"来自 `eflow_active_alarm`（每 30 分钟）写入的数据，**不是秒级推送**。
 
 ## 4. TT&WO 看板（`?page=ttwo`）
 
 故障工单（TT）与工作单（WO）的处理量、时效、积压趋势。
 
-- 筛选：下拉 + `Segmented` + 日期区间（`TTWODashboard.tsx` 引入 Select/Segmented/DatePicker）。
-- 接口：`GET /api/tt-wo-dashboard/overview`（缓存，:125）、`GET /api/tt-wo-dashboard/drilldown`（:156）。
+- 筛选：下拉 + `Segmented` + 日期区间（`TTWODashboard.tsx` 引入 Select/Segmented/DatePicker）。**默认时间窗是「近 30 天」**（`timePreset` 初值 `last30`）：7 天对周/月粒度只剩 1~2 个桶，看不出趋势，30 天在日/周/月三档分别约 30 / 5 / 2 个点。
+- **归属过滤 ZTE / 3rd**（2026-09-26 新增）：`owner=zte` → `wo_no` 非空；`owner=3rd` → `wo_no` 为空。口径由后端 `_owner_where()` 单点定义，overview 与 drilldown 共用（`tt_wo_dashboard.py`），因此筛出来的数字与下钻行数严格相等。
+- **高级过滤**（2026-09-26 新增，参照 `GISMap` 的「高级筛选」）：`adv` 参数传 JSON 对象 `{站点列名: 精确值}`，作用于站点表 JOIN 上的**精确匹配**（不用 LIKE）。可选列由后端按**真实表结构**白名单给出（`_detect_schema()` 的 `site_filter_fields`），候选值经 `filters.filter_options` 下发，前端不硬编码列名 —— 换库（my_app / MTN_Comsal）时下拉自动跟着变。非白名单列一律丢弃（列名不来自请求输入，值走占位符），无注入面。
+- 接口：`GET /api/tt-wo-dashboard/overview`（缓存，:125）、`GET /api/tt-wo-dashboard/drilldown`（:156）。两个端点都接受 `time_start/time_end/region/owner/adv`，**过滤口径必须逐条一致**。
 - 页头显示"最近同步/是否已同步"（`useDataTimestamps`，:16,77）。
 - 数据来自 `eflow_sync`（每小时 :22）与每日全量兜底 `eflow_sync_full`（01:00）。
+- **TT 统计不含 Alarm Severity**（2026-09-26 按业务要求移除）：该维度与 Ticket Severity 高度重复。`tt_stats.alarm_severity` / `category` 后端仍返回（其他页面与下钻维度在用），只是本页不再渲染。
+- **TT 统计三个维度（工单严重度 / SLA 状态 / 工单状态）全部用数字卡片**（2026-09-27 改）：每取值一张卡（左色条 + 名称 + 大数字 + 占比），点卡下钻。三者共用同一个渲染器 `renderStatCards()`，只是换色表与下钻维度；卡片走项目统一组件 `CardBase`（AGENTS.md 第三节第 3 条），宽度按取值个数自适应（`span = max(4, 24/取值数)`，4~5 个取值一行铺满）。分组用「维度小标题 + 卡片网格」(`StatDimTitle`)，**不是**大卡套小卡 —— 嵌套卡片层级会糊、两层边框压掉内边距。改卡片前的 Tag 胶囊块在高密度取值下会换行成一团、数字不突出。
+  - 占比分母是该维度**自身**的合计（看单维度内部构成），不是 TT 总数。
+  - 取不到值显示 `—` 而非 `0`（`fmt()` 本身对 null 返回 `'0'`，卡片里显式挡掉）。
+- **MTTR 趋势：柱 = TT 数量 + 线 = MTTR，左右双轴**（2026-09-27 改），并按 Ticket Severity 拆成 4 张图（P1/P2/P3/P4），**用页签切 日 / 周 / 月 三档粒度**。数据来自 `mttr_series[粒度][级别]`，每项三个字段语义必须分清：
+  - `total` = 该桶该级别的**全部 TT 单数**（柱状图画的就是它），只要能定位到桶就计，**不论能否算出 MTTR**。所以柱子等于「那个时段那个级别有多少单」，与下钻行数对得上（实测 15 个抽样桶 × 3 粒度全部相等）。
+  - `count` = 其中**真正计入 MTTR 均值**的单数（`0<dur<43200`）。`total - count` 的差额就是缺关单时间或时长越界的单；`total ≠ count` 时 tooltip 用 `ttwo.mttrSampleNote` 把差额说明白（实测全库差额仅 3 条：P3×2、P4×1，且这 3 条的 `alarm_occur_time` 为 NULL —— 落不到任何时间轴，属固有不可归属，非丢数）。
+  - `mttr` = `count` 这批单的时长均值；`count=0` 时为 `None`（柱在、线断），**不是 0**。
+  - 桶取 `total` 与 `count` 的**并集**：只有单数、没有有效时长的桶也出点，柱照画、线断开 —— 否则会凭空丢掉「有单但算不出时长」的时段。
+  - **三档一次请求全拿到**（overview 一次返回），切页签是纯前端切换、不重新请求。
+  - 口径与整页 `mttr_weekly` 完全一致（同一时间字段、同一 `0<dur<43200` 剔除），只是额外按 `级别 × 粒度` 分桶；三档都走后端 `_period_label()` 同一个解析入口，所以**周上的 total = 该周 7 个日点的 total 之和**（实测 178 个「周×级别」组合，0 处不一致）。
+  - **某桶该级别没有单时不画柱也不画点（`connectNulls:false` 断线），不补 0** —— 「没有单」与「MTTR 为 0」是两回事，补零会把曲线压到地上误导值班判断。`ticket_severity` 为空的单不进任何级别序列。
+  - 四图共用一条 x 轴（该粒度下各级别的桶并集），并加入同一个 echarts group（`MTTR_CHART_GROUP`），**tooltip 与 dataZoom 联动**。
+  - 柱用中性色（成交量是中性的量，级别身份交给 MTTR 折线表达），深浅主题各一套实值 —— ECharts canvas 解析不了 `WH.*` 这类 CSS 变量。
+  - 日粒度在「全部时间」下近 300 个点（实测 298 桶），超过 60 点时自动开启缩放（滚轮 + 底部滑杆）与标签抽稀（`hideOverlap`），并隐藏点上 symbol。
+  - **点图上任意点可下钻**：维度即当前页签的粒度（`day` / `week` / `month`），drilldown 的 `dimension` 判定已同步支持这三种（`tt_wo_dashboard.py` 的 `_MTTR_GRANULARITIES`），与 overview 同源同桶。
+  - **兼容是追加式的**：`mttr_weekly` / `mttr_weekly_by_severity` 原样保留（后者由 `mttr_series["week"]` 改名派生、连 `total` 一起带，不会分叉），老前端仍可用。前端若遇到未返回 `mttr_series` 的旧后端，日/月页签会明确提示「该粒度数据暂不可用」而**不是**假的「无工单」空态；老后端无 `total` 时柱退回用 `count` 画。
+
+
+### 4b. TT&WO 看板 v1（`?page=v1_ttwo`）—— 只保留上半部分
+
+`TTWODashboard.tsx` 的**切片直链页**，壳是 `pages/V1TTWODashboard.tsx`（`<TTWODashboard only="summary" />`）。
+
+- **出什么**：汇总卡（TT 总数 / WO 总数 / WO 编号唯一）→ TT 统计（工单严重度 / SLA 状态 / 工单状态，**三者都是数字卡片网格**）→ **MTTR 趋势（含 `SectionTitle` 标题、日/周/月页签，每个粒度下四张「柱=TT 数量 + 线=MTTR」双轴分级图）**。默认时间窗近 30 天。
+- **不出什么**：「MTTR 趋势」标题之下的三个区块整体不渲染 —— 领域与根因分析（按领域统计 TT / 根因主 / 根因子）、工单分析（按来源统计 WO / 按状态统计 WO）、站点信息（Power Sources / Power Vendor / Maintenance Team / Site Class）。切片开关见 `TTWODashboard.tsx` 的 `summaryOnly`，包裹位置在「Domain + Root Cause」`SectionTitle` 之前。
+- **与 `page=ttwo` 的关系**：**不是复制实现，是同一份实现的切片**（先例：`MsNurOnly.tsx` / `MsSlaOnly.tsx` 之于 `NurDashboard.tsx`）。筛选条、下钻弹窗、Excel 导出、主题取色、卡片渲染器、MTTR 三档粒度与双轴图全部共用，且两页调同一个 `GET /api/tt-wo-dashboard/overview`，所以**数字必然一致**，上游改口径时两页同步生效。
+- 下钻端点 `GET /api/tt-wo-dashboard/drilldown` 与 `page=ttwo` 完全相同；MTTR 图上的点仍可点击下钻，维度随当前页签（`onChartClick(gran)`）。
+- **页面级导出 Excel**（`exportOverview`，2026-09-27 新增）：筛选条上「高级过滤」右侧的导出按钮。
+  ⚠ **此前两页在页面上都看不到导出按钮** —— `TTWODashboard.tsx` 唯一的导出按钮在**下钻弹窗内部**（导的是下钻明细行），并非页面级入口；`only="summary"` 的切片开关只管区块渲染，不生成任何按钮。本节曾把它记作"Excel 导出全部共用"，是**误记**，2026-09-27 已纠正。
+  导出内容为**当前筛选条件下的全部汇总数据**（同一次 `/overview` 响应，不另发请求），按 `summaryOnly` 决定 sheet 范围，保证「导出内容 = 页面所见」：
+  | sheet | 内容 | v1_ttwo |
+  | --- | --- | --- |
+  | `Summary` | TT 总数 / WO 总数 / WO 编号唯一 | ✅ |
+  | `TT Stats` | 严重度 / 工单严重度 / SLA 状态 / 状态 四维摊平 | ✅ |
+  | `MTTR` | 日/周/月三档 × P1~P4，列：粒度·级别 / 时段 / 单量 / MTTR | ✅ |
+  | `WO Stats` | 按来源、按状态 | ❌（切片不渲染该区块） |
+  | `Domain-RootCause` | 按领域 / 根因主 / 根因子 | ❌ |
+  | `Site Stats` | Power Sources / Power Vendor / Maintenance Team 等 | ❌ |
+  空块自动跳过；MTTR 某桶无单时导出空单元格而非 `0`，与页面「断点 ≠ MTTR=0」口径一致。副标题写明时间窗、区域、归属与高级过滤条件数。
+- **筛选条常驻**：直链（`?page=` 进入的 bare 模式，无侧栏/Header）下，筛选条卡片一度只剩 2px —— 页面根 `pageWrap` 是纵向 flex 容器，筛选条作为第一个子项被 flex 压缩到边框最小值，`Card` 的 `overflow:hidden` 把内容全裁掉，表现为"最上面那行整个不见了，怎么滚都没有"。修法是在 `theme.ts` 的 `controlCardStyle` 加 `flex-shrink:0`（`ttwo` / `v1_ttwo` 及 `GISMap` / `Dashboard` / `DataSync` / `TableBrowser` 共用），`AlarmDashboard.tsx` 的同类横幅单独加。成因、自查条件与已验证结论见 `component-api.md` 第二节「三个已踩过的坑」③。
 
 ## 5. NUR 看板（`?page=nur`）
 
@@ -93,7 +143,13 @@
 
 - 粒度切换 `daily|weekly|monthly`（`NurDashboard.tsx:29-30`）、日期区间、多维下拉（`GET /api/nur/options`，:421）。
 - 主数据 `GET /api/nur/overview`（:411）；点数字下钻明细表 `GET /api/nur/detail`（:448），下钻表带列内筛选与排序（`strSorter`/`getUniqueFilters`，:17-27）。
-- **导出**：`DownloadOutlined` + `xlsx` 直接在前端导出当前明细。
+- **导出**：分两级，别混淆 ——
+  - **下钻弹窗内**：导出当前下钻明细行（`exportToExcel`）；
+  - **页面级**（2026-09-27 新增）：导出当前筛选下的全部汇总数据。
+  > 本节曾把弹窗内那个按钮记作本页的「导出」，读起来像是页面上有导出入口，**实为误记**（同 `page=ttwo` 的问题），2026-09-27 已纠正。
+  - **页面级**（2026-09-27 新增）：筛选条末尾的导出按钮，多 sheet（`汇总` + `KPI List NUR/SLA` 日/周/月各一档）。
+    导出当前 Vendor / Project / Exclude / 时间范围筛选后的汇总卡与三档 NUR+SLA；四项筛选条件写进每个 sheet 的 `subtitle`（含各档粒度与 NUR 量纲说明）。
+    **派生页 `?page=ms_nur_only`（`MsNurOnly.tsx`）自动获得该按钮**（同上，参数化复用 + 顶部工具栏）。
 - 表格与趋势图复用同一套"项目统一下钻规范"，与 TT&WO / MS SLA 三页保持一致。
 
 ## 6. MS Operation KPI 看板（`?page=ms_sla`）
@@ -103,6 +159,11 @@ MS 合同 KPI（Contract KPIs）与工单 SLA（WOs SLA）达成情况。
 - 一次请求拿全部：`getMsSlaOverview()` → `GET /api/ms-sla-dashboard/overview`（`frontend/src/api.ts:17-18`），返回 NUR / SLA / Network KPI / Per-Site / WO SLA + 数据新鲜度 meta（`backend/routers/ms_sla_dashboard.py:7-8`）。
 - 粒度只有 `daily|monthly`（`MsSlaDashboard.tsx:29`）；返回结构是"**指标为行、期间为列**"，与 NUR 页的表格对齐（`ms_sla_dashboard.py:10-11`）。
 - 下钻复用 `GET /api/nur/detail`（:447）。
+- **页面级导出 Excel**（2026-09-27 新增）：筛选条刷新按钮右侧，多 sheet（`Overview` 粒度/同步时间、
+  `Value Scale` 各表量纲、`KPI List NUR`/`KPI List SLA`/`Network KPIs`/`Per-Site KPIs`、`WOs SLA` 多层合并表头）。
+  导出当前粒度与时间范围下的全期值，筛选条件写进每个 sheet 的 `subtitle`；空块自动跳过。
+  **派生页 `?page=ms_sla_only`（`MsSlaOnly.tsx`）自动获得该按钮** —— 它是 `<MsSlaDashboard only="sla" />` 的参数化复用，
+  按钮在顶部工具栏 Card 内（不受 `showNur`/`showSla` 条件包裹），导出内容则按切片用 `showSla` 守卫收敛。
 - **口径提示**：2026-08 起 NUR/SLA/WO 以 `nur_calc` 实时计算为准（`ms_sla_dashboard.py:13-14`），所以本页数字与 `data/ms_sla/ms_sla_dashboard.sqlite3` 里的快照**可能对不上**，以本页为准。
 
 ## 7. CXO 经营看板（`?page=cxoDashboard`）— iframe
@@ -140,8 +201,28 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 
 同一个组件 `<GISMap/>` 的两种模式（`App.tsx:286-289`），实时模式传 `mode="realtime"`。站点在地图上的告警/工单分布与下钻。
 
-- **区域**下拉（`GISMap.tsx:431`）、**边界三选一** `Segmented`（不显示 / 大区 / 县界，**默认县界**；:467）、**图层 Tag** 点击开关、**图例点击隐藏**该类图层、MW 链路 `Switch`（:460）、时间 `Segmented` + 自定义区间、高级筛选与清除。
+- **区域**下拉（`GISMap.tsx:431`）、**边界三选一** `Segmented`（不显示 / 大区 / 县界，**默认县界**；:467）、**图层 Tag** 点击开关、**图例点击隐藏**该类图层、MW 链路 `Switch`（:460，**默认开**）、时间 `Segmented` + 自定义区间、高级筛选与清除。
+
+**默认视图（2026-09-25 起）：`?page=gis` 打开时只显示「实时告警 + MW 链路」。**
+
+| | 默认状态 | 说明 |
+| --- | --- | --- |
+| 实时告警 `rt_alarm` | **开** | 唯一默认开启的站点图层（实测 38 站） |
+| MW 链路 `showTopology` | **开** | 默认拉取并绘制 844 条 `kml_mw_links` 链路 |
+| 普通站点 `normal` | **隐藏** | 「无任何告警/工单」的站点（实测 739 站），数量最多，默认铺满会把告警站淹没 |
+| VIP `vip` | 显示 | 50 站。**刻意保留**：VIP 是重要站点，即使当前无告警也需可见 |
+| 历史告警 / TT / WO | 关 | 用户点击图层 Tag 自行打开 |
+| 边界蒙层 | 县界 | 沿用上一版默认 |
+
+- **默认实际绘制 88 站**（38 实时告警 + 50 VIP）＋ 844 条链路，而非全量 827 站。
+- 两套控制机制并存，别混淆：**图层 Tag** 控 `activeLayers`（历史告警/TT/WO），**图例点击**控 `hiddenLegends`（normal/VIP）。`normal` 走的是后者，初值 `new Set(['normal'])`（`GISMap.tsx:75`），所以图例上它以删除线+「已隐藏」呈现，用户**点一下即可恢复**——这是刻意的，比完全移除该项更好发现。
+- **⚠️ 图层开关不只是配色**：`getSiteCategory` + `filteredSites`（`GISMap.tsx:264-268,288`）会据 `activeLayers` 与 `hiddenLegends` 把该类别站点从地图上**过滤掉**。地图站点变少是「只显示实时告警」的预期效果，不是漏画。
+- 实时告警地图（`?page=realtime_alarm`）**未改动**，仍是 `rt_alarm + tt + wo`：那里的 TT/WO 由告警的 `tt_id` 派生，属于告警的关联信息，不算「用户额外打开的图层」。`normal` 的隐藏初值也**不影响它** —— 该页的 `filteredSites` 分支只认 `rt_alarm_overdue`/`rt_alarm_ontime`/`tt`/`wo`/`vip`，不含 `normal`。
+- 图层开关状态不做持久化（存在组件 `activeLayers` / `hiddenLegends` 里），刷新页面即回到上述默认值。
 - **点站点 → 右侧抽屉**（组件 `pages/gismap/SiteDrilldownDrawer.tsx`）四个页签，可搜索、可导 Excel。
+- **导出站点清单**（`exportSites`，2026-09-27 新增）：图例下方的导出按钮，导的是**地图上当前可见的站点**
+  （`filteredSites`）—— 与图例开关、图层、高级筛选后的那批点**口径完全一致**，而不是后端返回的全量 `sites`。
+  列含站点/区域/县/制式/经纬度/TT·WO·告警数/VIP·Hub/TRM/FME，副标题写明「可见数/总数」与筛选条件数。
 - 接口：`/api/gis/sites` 与 `/api/gis/realtime/sites`（按模式二选一）、`/api/gis/topology`（**读 `kml_mw_links`**，见 10c）、`/api/gis/region-boundaries`、**`/api/gis/county-boundaries`**、`/api/gis/drilldown/{site_id}` 与 `/api/gis/realtime/drilldown/{site_id}`。均走 `cache.ts` 缓存。
 - 地图控件在 `pages/gismap/MapController.tsx`。
 - **区分两页的口径**：实时告警地图带红色"实时"Tag，数据来自 `eflow_active_alarm`（每 30 分钟）；普通 GIS 页走历史/工单口径。
@@ -164,7 +245,16 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 - **坐标约定**：GeoJSON 标准是 `[lng, lat]`，本项目的 `polygons` 已按 **Leaflet 约定写成 `[lat, lng]`**（转换脚本完成交换）。`load_county_boundaries` **不再二次交换**，否则地图会画到南极洲。
 - **⚠️ 县名映射（唯一一处命名差异）**：GeoJSON 里叫 `Rivercess`，而站点表 `province_county` 的值是 `River Cess`（库里还存在脏值 `River cess`，共 9 站）。因此 feature 上同时存 `name`（展示用）与 `db_name`（与 DB 对齐，下钻筛选用）。**点击县界用的是 `db_name`**（`GISMap.tsx` 的 `handleCountyClick`）；`site_count` 计算时也对 DB 值做 `\s+`→单空格归一化后累加，保证两种写法都计入。
 - **口径一致性（AGENTS.md 三-1b）**：`/county-boundaries` 的站点计数与 `/gis/sites` 使用**完全相同的 WHERE**（同样要求经纬度非空且非 0）。实测 15 县合计 **827 站**，与 `/gis/sites` 的 `total` 一致，逐县核对全部相等。
-- **交互**：县界用「描边 + 淡色底块」（浅色主题 `fillOpacity 0.14` / 深色 `0.10`，深底同透明度会显脏），虚线描边以区分于大区实线；县名 + 站点数用 Leaflet `Tooltip(permanent)` 常驻在县域质心（样式见 `index.css` 的 `.gis-county-label`）。**点击县界 → 复用既有的 `province_county` 高级筛选**形成下钻闭环。
+- **标签数字口径（2026-09-25 用户要求改为告警数）**：端点同时返回两个计数，**地图标签显示 `alarm_site_count` 而非 `site_count`**：
+
+  | 字段 | 含义 | 口径来源 | 实测合计 |
+  | --- | --- | --- | --- |
+  | `site_count` | 该县站点**总数** | 同 `/gis/sites` | 827 |
+  | `alarm_site_count` | 该县**有实时告警的站点数**（`COUNT(DISTINCT site_id)`，非告警条数） | 同 `/gis/realtime/sites`（`realtime_alarm` JOIN 站点表 + 经纬度有效） | **38** |
+
+  - 合计 **38 = `/gis/realtime/sites` 的站点数**，两处口径严格对齐。主表 JOIN 不上的告警（实测 4 站）**不计入任何县**，与实时页一致。
+  - 标签写成 `Bong (7 告警)` 形式 —— 单个裸数字无法区分「站数」还是「告警数」，故带单位小字。用户要看站点总数时，点县界会打开高级筛选，抽屉与图例都给得出。
+- **交互**：县界用「描边 + 淡色底块」（浅色主题 `fillOpacity 0.14` / 深色 `0.10`，深底同透明度会显脏），虚线描边以区分于大区实线；县名 + 告警站点数用 Leaflet `Tooltip(permanent)` 常驻在县域质心（样式见 `index.css` 的 `.gis-county-label`）。**点击县界 → 复用既有的 `province_county` 高级筛选**形成下钻闭环。
 - **性能**：县界 GeoJSON 约 384KB，前端**只在首次切到「县界」模式时拉取**（`GISMap.tsx` 的 effect 带 `boundaryMode !== 'county'` 守卫），不影响默认打开速度。
 
 ### 10c. MW 链路数据源与配色（2026-09-25 换源 + 修撞色）
@@ -192,6 +282,15 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 - **配色单一真相源**：`GISMap.tsx` 顶部新增 `SITE_COLORS` 常量，图例 / 标记 / 图层 Tag / 弹窗文案四处共用。此前四处各写一遍，改一处漏三处，正是本次撞色的成因。**值必须是十六进制实值**（Leaflet canvas 解析不了 `WH.xxx` CSS 变量）。
 
 **图例假 0 修正（`?page=gis`）。** `rt_alarm_overdue` / `rt_alarm_ontime` 是**实时模式专属**（`categoryCounts` 只在 `mode==='realtime'` 计数），但原 `legendItems` 的 filter 只在 realtime 模式过滤 `rt_alarm`/`his_alarm`，未在 all 模式过滤这两个键，于是 `?page=gis` 上出现「Realtime Alarm (Overdue) (0)」这种看着像故障的空指标。现按模式**对称过滤**：all 模式隐藏实时专属项，realtime 模式隐藏历史专属项。
+
+**图例与图层是两套控制（易混淆，2026-09-25 明确）。** 同一行图例上并存两种交互，作用于不同 state：
+
+| 交互 | 作用 state | 控制的类别 | 图例上的呈现 |
+| --- | --- | --- | --- |
+| **图层 Tag**（`layerOptions`，`GISMap.tsx:448`） | `activeLayers` | 实时告警 / 历史告警 / TT / WO | 独立一行 Tag，不勾选即关闭 |
+| **图例点击**（`legendItems`，`GISMap.tsx:581`） | `hiddenLegends` | 全部 8 类，含 `normal` / `vip` | 该行加删除线＋「已隐藏」 |
+
+两者的类别来源都是 `getSiteCategory`，最终在 `filteredSites`（`GISMap.tsx:271-295`）里合并生效。`normal` 的默认隐藏走的是 `hiddenLegends` 初值，因此它**仍在图例里可见**（带删除线），用户点一下就能恢复 —— 这是刻意选择：直接删掉图例项会让用户不知道还能显示普通站点。
 
 ## 12. 告警管理看板（`?page=alarmManagement`）— iframe
 
@@ -221,6 +320,58 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 - 健康度几乎无方差（98~100 占 99%），所以主视图用"健康度分级 + 无数据占比"而不是直方图（:8）。
 - 接口：`GET /api/battery-dashboard/all`、`/trend?days=`（:161-162）、单站下钻 `/api/battery-dashboard/site/{site}`（:315）。
 - 数据由 `battery_kpi_sync` 每小时 :05 写入 `data/battery/battery_kpi.sqlite3`。
+
+## 14i. 站点可用率（`?page=site_avail`）
+
+按站点看四个制式（2G/3G/4G/TDD）的月度可用率与未达标天数。
+
+- 两段式请求：`GET /api/site-availability/overview`（站点级月度值）+ 选项接口拿 Supervisor / FME / 省份等下拉（`SiteAvailability.tsx:411` 附近）。
+- **未达标天数在前端按 `daily` 明细重算**，口径由页面上的阈值输入框（默认 99.65%）与视图（按周/按天）共同决定 —— 改阈值会实时改变"未达标"结果，不是固定后端值。
+- **搜索框会过滤导出行**：`sites` 这个 `useMemo` 已含 search 过滤，导出直接复用它。
+- **页面级导出**（2026-09-27 新增，筛选条刷新按钮右侧）：多 sheet —— `汇总指标`（站点数、各制式月均、未达标站点数、本月工单 TT 及其闭环情况、当前阈值/视图/搜索词/生成时间）+ `站点明细`（站点属性 + 四制式月均 + 当前制式最低值 + 未达标天/有数据天 + 按视图展开的时间维度动态列 + 工单三列）。
+  导出**完全复用页面既有 `useMemo`**（`sites`/`belowSites`/`withDataSites`/`avgOfTech`），不在导出里另算一套。
+  subtitle 写全 8 项筛选：月份 / Supervisor / FME / 制式 / 视图 / 阈值 / 仅看有数据 / 搜索词 + 生成时间。
+
+## 14j. FME 排名（`?page=fme_ranking`）
+
+按 FME（现场维护工程师）看可用率 / 工单量 / SLA 三类排名与前后三名榜单。
+
+- 时间维度只有月度（`FmeRanking.tsx` 的 month 选择器）；维度下拉有 制式 / Supervisor / FME，另有搜索框。
+- 三组榜单（可用率、WO、SLA）各取**前 3 与后 3**，名次由 `availRanked.length - i` 得到，导出里的名次与卡片上印的 `#号` 一致。
+- **页面级导出**（2026-09-27 重写，位置未变，仍是工具栏刷新按钮之后）：3 个 sheet ——
+  `Summary`（6 张概览统计卡 + 阈值 + 生成时间 + WO 源数据/已匹配/未匹配/时间字段等口径元信息）、
+  `榜单（前/后三名）`（6 组榜单摊平成长表）、`FME 排名明细`（可用率/SLA/WO 三类排名与站点数、未达标站点、工单闭环数）。
+  排名表取 `data.rows` **全量**，不受搜索框分页影响。
+- **此前该按钮只导排名主表，且用的是已被搜索框过滤的 `rows`**，6 张统计卡与三组榜单卡全都没进文件 —— 现在补齐。
+- 后端未返回的指标**整行跳过**，不用 `0` 冒充"确实是 0"；`availability`/`sla_rate` 为 `null` 时输出 `-`。
+
+## 14k. RAN 小区 KPI（`?page=ran_cells_kpi`）
+
+按制式（2G/3G/4G）看小区的逐日可用率矩阵与月度达标情况。
+
+- 逐日矩阵是「**指标为行、日期为列**」的布局，页面只展示有数据的日期列（`activeDays`）。
+- 制式筛选决定渲染哪几张表（`shownTechs`），阈值决定达标/未达标的判定。
+- **页面级导出**（2026-09-27 重写，位置未变）：`Summary`（每制式一行，即页面上那排 StatCard 展开：月均可用率 / 小区名册 / 有数据天数 / 小区总数 / 达标数 / 未达标数 / 两向占比）
+  + 每制式一张 `<制式>_Cells_KPI` 逐日矩阵（7 个指标行 × 有数据的日期列，列头 `D-MMM-YYYY`，与页面明细表同布局同口径）。
+- **此前该按钮只导逐日矩阵，月度汇总 StatCard 完全没进去** —— 现在补齐。
+- Sheet1 刻意命名为 `Summary` 而**不是** `{制式}_Cells_KPI`：否则若某制式 label 恰好也叫 `Summary`，会被 `excelReport.uniqueSheetName()` 改写成 `Summary_2`（`utils/excelReport.ts:229-240`），用户会看到两张像"汇总"的表。
+- 百分比以**数值**写出（如 `99.65`）而非字符串 `99.65%`，Excel 里可直接计算。
+- 下钻弹窗内另有导出按钮（导下钻明细），与页面级入口是两回事。
+
+## 14l. UME 客户 KPI（`?page=ume_in_kpi`）
+
+UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 / 用户侧）、资源利用率与阈值告警。
+
+- 顶部「立即同步」手动触发一次抓取（约 10~60 秒）；日常由 `ume_in_kpi_sync` 任务每天 05:45 自动同步。
+- **天数筛选**决定统计窗口；页面按天聚合，数据窗口以 `latest_day` 为准。
+- **页面级导出**（2026-09-27 新增，头部 Card 右侧工具栏）：5 个 sheet ——
+  `Overview`（7 项数量统计 + 状态分布 + 4 项元信息，恒存在）、
+  `KPI Summary`（KPI / 业务量 / 成功 / 失败 / 成功率 / 系统侧失败及其占比 / 用户侧失败 / 状态）、
+  `Resource`（KPI / SERVICE / 日均 / 峰值 / 已用内存 / 状态）、
+  `Alerts`（仅非 info 级 `hardAlerts`）、`Analysis Notes`（仅 info 级 `infoAlerts`）。
+  后 4 个 sheet 按 `length` 判空跳过。
+- subtitle 为 `数据日期 | 统计天数 | 数据窗口`，把天数筛选写进文件便于对账；取不到数据显示 `—`。
+- 页面上另有一个原有的「全量导出」按钮；下钻明细不在本次页面级导出范围内（弹窗内已有）。
 
 ## 14b. NOC 操作人分析（`?page=noc_analyst`）—— 四层全量下钻
 
@@ -455,6 +606,7 @@ WO 侧更直白：**WO 建单 → FE 接单 中位数 11.0h、P90 41.9h、最长
 | `people` | **责任人**：建单人（含 `creator_kind` 人工/系统自动）/ FO 接单人 / FO 填报人 / 关单人 / WO 建单人 / WO 当前处理人 / `wo_people[]`（现场动作责任人） |
 | `dispatch_analysis` | **为什么走人工派单**：按 TT Push Order Rule 逐条比对，见下方 14d 节 |
 | `assignment` | **这单指派给谁了**：建单 `Assign To` / `Assignee Group` / `current_handler` / 群组池规则，见下方 14f 节 |
+| `ticket` | TT 单信息（面板顶部卡片读的字段）：`ticket_severity / alarm_severity / alarm_code / status / domain / title / alarm_occur_time / alarm_clear_time / created_time / last_modified_time / fault_duration_time / impacted_service / wo_no`。**`wo_no` 是「Handled by」旁边那句红字（in-house 单无 WO = 异常）的唯一判据**，见 14h 节末尾 |
 
 > 界面顺序（`TtPostmortemPanel.tsx`）：**SLA 告警条 → TT 单信息（含责任人） → ⏱ 时间都花哪了
 > → ① 里程碑时间轴 → ② 该做的动作 → ③ 偏离清单 → ④ 根因对比 → ⑤ WO 派单机制 → ⑥ 阶段时长 → ⑦ 改进建议**。
@@ -918,6 +1070,11 @@ WO 的 `current_handler` 是 `P:Kelvin Kollie`（只有姓名），
   `/graph`（仅规则骨架）、`/rules`（规则清单，可按 `wo_type`/`rule_type` 过滤，`:eflow_flow.py`）。
 - 规则表由 `eflow_push_rules_collect` / `eflow_alarm_rules_collect` 每 3 天 23:59 采集，
   规则变更后流程图自动反映（每次请求按 mtime 热加载）。
+- **导出 Excel**（`EflowFlow.tsx` 的 `exportFlow`，2026-09-27 新增）：查询命中后工具条出现导出按钮，
+  一个工作簿最多四个 sheet —— `Nodes`（全流程节点：规则数/生效规则数/是否走过）、
+  `Rules`（规则明细：未选中节点时退化为全部节点并加一列节点名）、
+  `Reached`（实际经过步骤时间轴）、`Alarms`（关联告警）。空块自动跳过（如无告警则不生成 `Alarms`）。
+  走 `utils/excelReport` 的 `exportReport`（多 sheet），与 `noc_analyst` 的导出同构。
 
 ## 14h. 承接方归属：ZTE 自维 vs IPT 第三方（2026-09-24 新增）
 
@@ -981,6 +1138,49 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 3. **界面要说明口径**：IPT 单不建 WO 是设计如此，不能显示成红色告警；
    `no_wo_zt`（ZTE 自维未建 WO）才用红色。界面文案见 `noc.ownerNote*`。
 
+### 复盘抽屉的「Handled by」红字判据（2026-09-27 修正）
+
+TT 复盘抽屉（`TtPostmortemPanel.tsx:693-710`）的红字
+「A ZTE in-house ticket with no WO — needs attention」判据是
+`report.dispatch_owner !== 'IPT' && !report.ticket?.wo_no`，
+而 `ticket.wo_no` 要由 `build_tt_postmortem()` 的 `ticket` 块提供
+（`backend/services/tt_postmortem/__init__.py:1357-1379`）。
+
+**当时的缺陷**：`ticket` 块**根本没有 `wo_no` 这个键** → `!report.ticket.wo_no`
+恒为真 → **已经有 WO 的正常单也被打成红色「需要关注」**。
+用户报的单：`TT202609270029` 实际有 `WO202609270012`
+（创建者 `NOC_FO_104`，处理人 `P:Melvin Gono,P:Festus Emmanuel`）。
+
+同一块还有两处字段名对不上（一并修正）：
+
+| 键 | 原来 | 问题 |
+| --- | --- | --- |
+| `wo_no` | 缺失 | 有 WO 的单被误报成「in-house 且无 WO —— 需要关注」（本次用户报的问题） |
+| `created_time` | 写成 `create_time` | `eflow_tt` 没有 `create_time` 列（真列名 `created_time`/"Created Time"），取到永远为 None，界面「TT created」永远显示 `-` |
+| `title` / `fault_duration_time` / `impacted_service` | 缺失 | 这三格在界面上永远是 `-`（列在 `eflow_tt` 里都有） |
+
+> ⚠ **回归口径**：`ticket.wo_no` 与 `wo.wo_no` 同源，都在
+> `build_tt_postmortem()` 里由 `wo_no = (wo_record or {}).get("wo_no") or t.get("wo_no")`
+> 取一次（`:1329-1331`）。判「这单有没有 WO」只看这一处，
+> 不要在前端另接 `dispatch_path.wo_no` 之类做兜底 —— 那会掩盖本类字段错配。
+> 验证用例：`TT202609270029`（有 WO → 不出红字）；`TT202609270025` /
+> `TT202609270013`（真无 WO 的 ZTE 单 → 红字仍在）。
+
+### 「Handled by」这一格最终显示什么（2026-09-27 改）
+
+只有分类标签答不出「到底有没有人在做」，所以按**有没有 WO** 分四种显示
+（`TtPostmortemPanel.tsx`，文案键 `ttPm.owner*`）：
+
+| 情形 | 显示 | 文案键 |
+| --- | --- | --- |
+| 有 WO（无论归属） | `ZTE (in-house)` / `IPT (3rd party)` + **`WO {号} 已派给 {处理人}`** | `ttPm.ownerWoDispatched` |
+| 有 WO 但未指派到人 | 标签 + `WO {号} 已建单但未指派到人` | `ttPm.ownerWoUnassigned` |
+| 无 WO + IPT | 标签 + 蓝字「第三方单按设计不建 WO」 | `ttPm.ownerIptNoWo` |
+| 无 WO + ZTE | 标签 + **红字**「ZTE 自维单却没有 WO —— 需关注」 | `ttPm.ownerZteNoWo` |
+
+处理人取 `assignment.assigned_persons`（WO 层解析结果，已去重且带工号）；
+时间轴子视图构建失败时退回 `eflow_wo.current_handler` 原文。
+
 ### 界面落点
 
 | 位置 | 内容 |
@@ -988,7 +1188,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 | NOC 操作人分析 顶部 | `Segmented`：ZTE 自派 / IPT 第三方 / 全部（默认 ZTE），并显示各档单量 |
 | NOC 操作人分析 第 2 层 TT 明细 | 新增「承接方」列（可筛选）+「未派 WO」红标（**仅 ZTE 行**显示） |
 | NOC 时间轴聚合 未派 WO 清单 | 告警码列悬浮显示告警名 |
-| TT 复盘抽屉 | TT 信息区新增「承接方」，带悬浮显示判定依据 |
+| TT 复盘抽屉 | TT 信息区新增「承接方」，带悬浮显示判定依据；有 WO 时并列显示「WO 号 + 派给谁」 |
 | eFlow Q&A 批量分析 | 告警码列悬浮显示告警名；命中规则列**以规则名为主**，ID/优先级进悬浮 |
 
 ### 告警名解析：`resolve_alarm_name()`
@@ -1014,6 +1214,10 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 ## 18. 数据总览（`?page=overview`）
 
 库里有多少表、每张表多少行的**体检页**。`GET /api/db/info`（`Overview.tsx:24`），Top10 规模排名，「行数」列可排序（:151）。**没有其它按钮**——它只回答"数据在不在、大不大"。
+
+- **导出 Excel**（`exportTables`，2026-09-27 新增）：表格卡右上角导出按钮，导的是**全部核心表**
+  （过滤掉 `_` 前缀的内部表，按行数倒序），不是页面上只显示 Top10 的那两张图。
+  副标题写明表数/总行数与库名，便于对账。
 
 ## 19. 表浏览器（`?page=tables`）
 
@@ -1041,6 +1245,9 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 - 搜索（:187）、刷新（:193）、分页（:206 → `GET /api/analysis?search=&page=&page_size=20`）。
 - 查看详情（:119 → `GET /api/analysis/{id}`）：含结论文字 + **图表快照**（:234,:246）。
 - 删除需确认（:122 → `DELETE /api/analysis/{id}`）。
+- **导出 Excel**（`exportList`，2026-09-27 新增）：工具条导出按钮。
+  ⚠ 列表是**服务端分页**（每页 20 条），导出的是**当前页**这 20 条，
+  副标题写明「第 x-y 条 / 共 N 条」与当前搜索词 —— 不要把它当成全量归档导出。
 
 ## 22. 分析仪表盘（`?page=dashboard`）
 
@@ -1256,4 +1463,258 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 - 有表头无数据 / 部分 sheet 空 → 看接口返回的 `warnings`（页面顶部橙色告警条原样显示）；
 - 页面与 Excel 数字对不上，先看 `notes` 里的口径说明，再查
   `backend/services/sp_report_service.py`，**不要**在页面层改口径。
+
+## 27. CR 变更分析（`?page=cr_analysis`）—— 按 change_category 看计划与完成（2026-09-25 新增）
+
+数据源 `eflow_cr`（eFlow 同步的动态建表），回答一个问题：**各类变更计划排了多少、
+实际执行了多少、其中多少按时**。
+
+- 后端路由：`backend/routers/cr_analysis.py`（3 个只读端点）
+- **口径层（唯一真相源）**：`backend/services/cr_caliber.py` —— 表名、时间字段、
+  终态词表、按时/延期判定、窗口规整、`bucket_expr()`、`base_where()` 全在这里
+- 服务层：`backend/services/cr_analysis_service.py`（拼聚合与下钻 SQL）
+- 前端页面：`frontend/src/pages/CrChangeAnalysis.tsx`
+- 前端配套：`frontend/src/pages/crAnalysis/` 下 `crTypes.ts`（类型/常量/纯函数）、
+  `crCharts.ts`（ECharts option）、`crColumns.tsx`（表格列定义）、
+  `CrDrillModal.tsx`（明细弹窗）
+
+> 📁 **模块划分说明**：本页初版把后端口径与取数、前端页面与图表都写在单文件里，
+> 分别达到 535 / 897 行，超过 `AGENTS.md` 第三节 2 的「单文件不超过 500 行」。
+> 2026-09-25 按单一职责拆成上述模块：**后端把「口径」与「取数」分开**
+> （口径是最需要单独审视、也最容易被改坏的部分），**前端把「编排取数」与
+> 「图表/列/弹窗」分开**。拆分后各文件 87~468 行，行为与拆分前逐位一致
+> （63 对 category 下钻、33 对 sub_category、9 对 month 全部复测通过）。
+
+### 口径（改口径只改 `cr_caliber.py` 一处）
+
+时间字段用 **`request_registration_time`**（CR 登记时间），不是 `planned_start_time` ——
+计划时间会被改期，拿它做窗口会让同一个 CR 在不同月份重复出现。
+实测 247 行该字段 100% 非空且长度全为 19，字典序即时间序，可直接做字符串比较
+（PG / SQLite 双模一致）。
+
+四个核心计数（`cr_caliber.py` 的 `bucket_expr()`，概览与下钻**共用这一份**）：
+
+| 计数 | 判定 |
+| --- | --- |
+| 已排期 `planned` | `planned_start_time` 非空 |
+| 已执行 `executed` | `actual_start_time` 非空 |
+| 未执行 `unexecuted` | 排了期但实际开始为空 |
+| 按时 `on_time` / 延期 `delayed` | 实际开始 `<=` / `>` 计划开始 |
+
+三个比率：
+
+- **计划达成率** = `executed ÷ planned`（用 planned 做分母：没排期的谈不上"达成"）
+- **按时执行率** = `on_time ÷ executed`（⚠️ 分母是**已执行**，不是全部 CR。
+  分母为 0 时后端返回 `null`，界面渲染 `—` —— 不是 `0`）
+- **关闭率** = `closed ÷ total`
+
+终态：`Closed`。CR 另有 `Canceled` 也是终态（与 `routers/portal_qc.py:102` 的
+`_CR_OPEN` 约定一致），实测本表当前没有 Canceled，仍单列一类以避免上游将来出现时口径漂移。
+
+### 全量下钻（AGENTS.md 第三节 1b 的硬要求）
+
+页面上**每个数字都可点**：8 个 KPI 卡、类别表格的每一格、子类别表格、堆叠柱状图的柱子、
+按时率环、月度趋势柱 —— 全部落到明细弹窗。
+
+保证"卡片数字 == 明细行数"的三个机制：
+
+1. `build_overview` 与 `build_drilldown` **共用** `cr_caliber.base_where()` 与
+   `cr_caliber.bucket_expr()`（前者用于 `SUM(CASE ...)`，后者直接当 `WHERE` 谓词）；
+2. 类别用 `=` 精确匹配，不用 `LIKE`；
+3. 取样上限 `MAX_DETAIL_ROWS = 5000` 显著大于单页最大 200 行，截断时
+   返回 `truncated=True` + `meta.warnings`，界面显示黄色告警条。
+
+> **已验证**：每个类别 × 9 个 metric（共 63 对）+ 汇总级 9 对，
+> 卡片数字与下钻行数全部一致；子类别 33 对、月份 9 对同样全部一致；
+> 且 `sum(rows)` 与 `summary` 逐字段相等。（2026-09-25 实测）
+
+### 一个真实踩坑：SQL 别名与 Python 字段名不一致
+
+首版把 `SUM(CASE ...) AS open_cnt` 写进 SQL，但 Python 侧的字段累加元组写的是 `"open"`，
+于是概览里 `open` 恒为 0，而下钻（走 `WHERE` 谓词、不经过别名）返回 38 ——
+**下钻把概览的 bug 暴露了出来**。这正是"概览与下钻口径必须一致"这条规则的价值：
+两者不一致时，先怀疑口径，不要先怀疑用户。
+
+### 已知数据特征（影响观感，不是 bug）
+
+- 默认窗口取**全表实际范围**（`get_filters()` 的 `min_time`），不是"今天往前 30 天" ——
+  实测全表仅 247 行、跨度 2026-01-02 ~ 2026-09-09，30 天窗口会几乎空白；
+- `planned_start_time` 100% 非空，故「已排期」恒等于「变更总量」，这是数据特征而非口径错误；
+- 按时执行率整体很低（3.2%），因为多数 CR 的实际开始时间晚于计划开始时刻（常见于
+  计划填 `00:00:00`、实际当天上午执行）。**这是真实业务现象**，页面照实呈现。
+
+
+## 28. PM 执行分析（`?page=pm_analysis`）—— 按 PM 计划看完成与超期（2026-09-25 新增）
+
+数据源 `eflow_pm`（eFlow 同步的动态建表），回答一个问题：**各 PM 计划（预防性维护
+工单 PMT）执行到哪一步、多少超期、卡在谁那里**。
+
+- 后端路由：`backend/routers/pm_analysis.py`（3 个只读端点）
+- **口径层（唯一真相源）**：`backend/services/pm_caliber.py` —— 表名、时间字段、
+  终态、超期判定、真实流程顺序、窗口规整、`bucket_expr()`、`base_where()` 全在这里
+- 服务层：`backend/services/pm_analysis_service.py`（拼聚合与下钻 SQL）
+- 前端页面：`frontend/src/pages/PmExecutionAnalysis.tsx`
+- 前端配套：`frontend/src/pages/pmAnalysis/` 下 `pmTypes.ts`、`pmCharts.ts`、
+  `pmColumns.tsx`、`PmDrillModal.tsx`
+
+> 📁 **模块划分**：与第 27 节的 CR 页**同构**（口径层 / 取数层 / 页面 / 四件套），
+> 照搬已经过验证的结构，不另起一套。各文件 87~470 行，均在 500 行以内。
+
+### ⚠️ 字段名有误导性（本节最重要的一条）
+
+`eflow_pm` 的流程时间字段**按名字猜顺序会全错**。实测 694 条含完整链条的记录，
+真实时序 100% 是：
+
+```
+created_time → last_create_time → last_schedule_time → last_accept_time
+  → last_pm_manager_approve_time → last_process_time → last_flm_leader_approve_time → Closed
+```
+
+关键反直觉点（`pm_caliber.py` 的模块 docstring 已记录）：
+
+- `last_accept_time` **早于** `last_process_time`（1233/1233 成立）——
+  "Accept" 是受理/签收，不是"验收"；
+- `last_flm_leader_approve_time` **最晚**（707/707 晚于 `last_process_time`）——
+  FLM 领导审批是**收尾**环节，不是流程起点；
+- `last_process_time` 与 `last_pm_manager_approve_time` 实测同时刻。
+
+所以页面的「流程推进情况」漏斗按**上述真实时序**渲染
+（`pmTypes.ts` 的 `STEP_KEYS` 数组顺序即真实时序），**不要**改成字段名字母序。
+
+### 口径（改口径只改 `pm_caliber.py` 一处）
+
+时间字段用 **`created_time`**（工单生成时间），不是任务窗口
+`current_task_start_time` —— 任务窗口会被改期，拿它做窗口会让同一工单
+在窗口移动时反复进出统计。实测 `created_time` 100% 非空、长度全为 19，
+字典序即时间序，PG / SQLite 双模可直接字符串比较。
+
+核心计数（`bucket_expr()`，概览与下钻**共用这一份**）：
+
+| 计数 | 判定 |
+| --- | --- |
+| 已完成 `closed` | `status = 'Closed'` |
+| 未完成 `open` | `status <> 'Closed'`（含 5 种等待态） |
+| 已超期 `overdue` | 源表 `pmt_overdue = 'Yes'` |
+| 未超期 `on_time` | 源表 `pmt_overdue <> 'Yes'` |
+| 未开始 `not_started` | `CAST(completed_items AS INTEGER) = 0` |
+| 完成但超期 `closed_overdue` | `closed AND overdue` |
+| 未完成且超期 `open_overdue` | `open AND overdue` **← 真正压着的，优先看** |
+
+三个比率：
+
+- **工单关闭率** = `closed ÷ total`
+- **超期率** = `overdue ÷ total`（递增为差，界面用 `rateColorDesc()` 反向染色）
+- **已启动率** = `(total - not_started) ÷ total`
+
+分母为 0 时后端返回 `null`，界面渲染 `—` —— 不是 `0`。
+
+**超期为什么直接用源表标记而不自己按日期算**：实测两种定义并不等价 ——
+`pmt_overdue='Yes'` 有 701 条，而"任务窗口已过且未 Closed"有 855 条。
+上游的标记还含时区与工作日历修正，自己按 `current_task_end_time` 比会与上游口径漂移。
+语义上它表示"**未在任务窗口内完成**"：已完成却标 Yes 的 229 条，其
+`last_accept_time` 都远晚于 `current_task_end_time`（属事后补录/迟交）。
+
+### 全量下钻（AGENTS.md 第三节 1b 的硬要求）
+
+页面上**每个数字都可点**：8 个 KPI 卡、3 个比率卡、计划堆叠柱、超期环、状态饼、
+月度趋势柱、流程漏斗（无下钻，仅展示）、超期站点条形图、计划表格每一格、站点表格每一格。
+
+保证"卡片数字 == 明细行数"的三个机制（与 CR 页同款）：
+
+1. `build_overview` 与 `build_drilldown` **共用** `pm_caliber.base_where()` 与
+   `bucket_expr()`（前者用于 `SUM(CASE ...)`，后者直接当 `WHERE` 谓词）；
+2. 维度用 `=` 精确匹配，不用 `LIKE`；月份用 `>= / <` 前缀范围而不是 `LIKE`
+   （`LIKE` 必须把通配符放进参数值，而 PG 包装层会转义 `%`）；
+3. 取样上限 `MAX_DETAIL_ROWS = 5000` 显著大于单页最大 200 行，截断时
+   返回 `truncated=True` + `meta.warnings`，界面显示黄色告警条。
+
+> **已验证**（2026-09-25 实测）：27 个 PM 计划 × 9 个 metric（共 243 对）+
+> 6 个状态 × 2、6 个月 × 3、20 个站点 × 3 全部一致；`sum(rows)` 与 `summary`
+> 逐字段相等；三条口径恒等式（`overdue == closed_overdue + open_overdue`、
+> `total == closed + open`、`open == open_overdue + open_on_time`）均成立。
+
+### 计划号筛选（2026-09-25 修订）
+
+「PM 计划执行明细」卡片右上角提供 **PM Plan No. 多选筛选**（可搜索、可清空）。
+选中的计划号经 `rows` 的 `useMemo` 过滤后，**同时驱动表格、小计行与「各 PM 计划的
+完成情况」堆叠柱**（三者共用 `rows`），所以筛选后三者口径始终一致。
+
+三条设计约束（改这块前先读）：
+
+- **选项来源是后端 `filters.pmp_nos`**（`get_filters()` 从全表取，按工单量倒序），
+  不是只列前 8 个 —— 27 个计划号都要能筛到。**不在前端重排**：顺序即业务优先级。
+- **筛选是前端过滤，不下推给 `/overview`**。因此「工单状态分布」「月度趋势」
+  「流程漏斗」「超期站点」四块仍显示**全量**（`pm.chart.status.hint` 已写明
+  "全量，不随计划筛选变化"）；若要一致，需要给后端加 `pmp_no` 参数并让
+  `build_overview` 的每个聚合都带上，属于口径变更而非展示调整。
+- **上限 `MAX_ACTIVE_PLANS = 30`**，超限保留前 30 个并弹黄色告警条
+  （`pm.filter.planNoMax`）——**不静默丢弃**。空态另分两句话术：窗口内无数据
+  （`pm.empty`）vs 有数据但被筛没（`pm.empty.filtered`），避免用户误去放宽时间范围。
+
+> 原实现是 `Tag.CheckableTag` 平铺前 8 个计划号，计划号有 27 个时其余筛不到，
+> 且标签占满标题行；2026-09-25 换为上述下拉控件。
+
+### 计划号归一后二次合并
+
+`''` 与 `NULL` 在 `GROUP BY` 里是两类（PG 中 NULL 自成一类），归一到兜底名
+`(无计划号)` 后可能出现两行同名。不合并会让同一计划出现两行，且比率各用各自分母算，
+与下钻（按归一后名字精确匹配）对不上。故 `_shape_plan_rows()` 归一后**再合并一次**
+再算比率，`sites` 取最大值而不是相加（避免站点数虚高）。
+
+### 已知数据特征（影响观感，不是 bug）
+
+- 默认窗口取**全表实际范围**（`get_filters()` 的 `min_time`）——
+  实测全表 1632 行、跨度 2025-11-29 ~ 2026-07-28（`created_time`），
+  比"今天往前 300 天"更早，故 `get_filters()` 会把窗口撑到实际起点；
+- `service_classification` 与 `source` 全表只有一个值（`AC` / `Created by System`），
+  **不可作为维度**，页面未使用；
+- 模板分布高度集中：1495/1632 是同一个模板（`Solar, RAN, EHS, Vsat, Microwave, IPRAN, DWAR`），
+  故未把 `template` 做成主维度；`site_name` 有 775 个，站点下拉取超期最多的前 60 个；
+- 条目完成度合计 172496 / 215607 = 80.0%，但分布两极：134/134（1176 条）与
+  0/134（288 条），故「未开始」是比"平均完成度"更有信息量的口径；
+- 超期率按状态差异极大：Wait Process 96.7%、Wait Accept 90.2%、Closed 31.2%、
+  Wait FLM Leader Approve 26.4% —— **等待中的工单比已完成的超期率更高**，
+  说明卡点在审批环节，这正是「流程推进情况」漏斗存在的意义。
+
+
+## 29. FineBI 原生看板（`?page=finebi_<slug>`，共 17 个）
+
+由通用引擎 `frontend/src/pages/NativeBoard.tsx` 渲染，看板定义（含每条 SQL）来自
+`backend/services/native_catalog.py` 的 `BY_SLUG`，数据经 `GET /api/native-boards/{slug}`
+取本机派生库或远端只读 SQL API。迁移背景见 `docs/FINEBI_MIGRATION.md`。
+
+### 29a. MTTR 看板（`?page=finebi_mttr`）—— 日/周/月 页签（2026-09-27 改造）
+
+**改了什么**：
+- **删除** 4 个组件：`MTTR`（月总量）、`MTTR Weekly`（周总量）、`MTTR_Range`、`MTTR Distribution Month`；
+- **新增** 12 个组件：P1~P4 × 日/周/月，**同一指标按粒度分页签**，每行 2 图；
+- 保留 `update`（页头最新数据时间）与 `TT Details` 明细表。
+
+**页签怎么来的**：组件 id 用 `<前缀>_<粒度>` 命名（`mttr_p1_day` / `_week` / `_month`），
+`NativeBoard.tsx` 的 `BOARD_LAYOUT.mttr.tabs` 按后缀归组。非页签看板走原平铺路径，
+`tabs` 为空即行为不变 —— 改造只影响 `mttr` 一个看板。
+
+**粒度口径**（三档同源，`native_catalog.py` 的 mttr 段）：
+
+| 页签 | 分组列 | 实测桶数 |
+| --- | --- | --- |
+| 日 | `substr("Alarm Occur Time",1,10)` | 228~272 |
+| 周 | `WK`（`YEAR-Www`，周一起） | 40 |
+| 月 | `Month`（= `LEFT("Alarm Occur Time",7)`） | 10 |
+
+**⚠ 口径变更（重要）**：MTTR 由 `MAX("MTTR2")` 改为 **`AVG("MTTR2")`**。
+原 SQL 取的是「当期最长的那一单」，与 MTTR（平均修复时长）的字面定义不符；
+2026-09-27 按业务确认改为均值。**因此本页数字与 FineBI 原版及历史截图不再一致**，
+对账时以本页为准。
+
+**筛选口径**（12 张图完全一致，只有粒度与级别不同）：
+`Ticket Severity IN (P1,P2,P3,P4)` AND `Month` 非空且非 `NaT`/`nan`
+AND `Site ID != 'VMAX-DC'` AND `MTTR2 >= 0.25`。每张图两列：
+`Records`（该桶该级别计入均值的单量）+ `MTTR2`（均值，单位小时）。
+
+**已验证**：日/周/月三档在时间窗口下均可过滤（`mttr_*_day` 的 `date_field` 自动识别为 `d`）；
+窗口 2026-08 下日粒度返回 22~31 桶。改完**需重启后端**才生效 ——
+目录在导入期加载，uvicorn 未开 `--reload`（见 `13-operations.md`）。
+
+
 

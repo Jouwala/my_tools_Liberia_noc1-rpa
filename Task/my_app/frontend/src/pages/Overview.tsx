@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Card, Row, Col, Table, Spin, Tag } from 'antd'
-import { DatabaseOutlined, TableOutlined, FieldNumberOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { Card, Row, Col, Table, Spin, Tag, Button, Space } from 'antd'
+import { DatabaseOutlined, TableOutlined, FieldNumberOutlined, CheckCircleOutlined, DownloadOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { ExplainIcon } from '../components/MetricExplain'
 import StatCard from '../components/StatCard'
 import { useTheme, WH, WH_COLORS, LIGHT_COLORS, cardStyle, pageWrap } from '../theme'
+import { exportAoaReport } from '../utils/excelReport'
 
 interface DbInfo {
   database: string
@@ -51,6 +52,31 @@ export default function Overview() {
     backgroundColor: isDark ? 'rgba(8, 18, 44,0.95)' : 'rgba(255,255,255,0.97)',
     borderColor: isDark ? '#00d9ff' : '#0d9488',
     textStyle: { color: isDark ? '#f5f7ff' : '#16233b' },
+  }
+
+  // ========== 导出 ==========
+  /* 表格 dataSource 已过滤掉 `_` 前缀的内部表，导出与之保持一致；
+     与页面表格不同，这里导出**全部**表（不是 Top 10），口径见下方副标题。 */
+  const coreTables = info.tables
+    .filter(t => !t.name.startsWith('_'))
+    .slice()
+    .sort((a, b) => b.rows - a.rows)
+
+  const exportTables = () => {
+    if (!coreTables.length) return
+    void exportAoaReport({
+      filename: `db_overview_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      sheetName: 'DB Overview',
+      title: t('overview.allTables'),
+      subtitle: `${t('overview.totalTables')}: ${info.total_tables}`
+        + `    |    ${t('overview.totalRows')}: ${info.total_rows}`
+        + `    |    DB: ${info.database}`,
+      header: [t('overview.tableName'), t('overview.rowCount')],
+      rows: coreTables.map(tb => [tb.name, tb.rows]),
+      numericCols: [1],
+      columnWidths: [42, 16],
+      tabColor: '#2F5496',
+    })
   }
 
   const barOption = {
@@ -135,7 +161,17 @@ export default function Overview() {
 
       <Row gutter={[16, 16]} style={{ marginTop: 'var(--wh-space-md)' }}>
         <Col span={24}>
-          <Card title={<span style={{ color: WH.text, fontWeight: 600 }}>{t('overview.allTables')}</span>} style={cardStyle}>
+          <Card
+            title={<span style={{ color: WH.text, fontWeight: 600 }}>{t('overview.allTables')}</span>}
+            style={cardStyle}
+            extra={
+              <Space>
+                <Button size="small" icon={<DownloadOutlined />} onClick={exportTables} disabled={!coreTables.length}>
+                  {t('common.exportExcel')}
+                </Button>
+              </Space>
+            }
+          >
             <div className="wh-table-responsive">
               <Table
                 dataSource={info.tables.filter(t => !t.name.startsWith('_'))}

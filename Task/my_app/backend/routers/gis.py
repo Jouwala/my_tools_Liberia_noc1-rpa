@@ -1648,10 +1648,17 @@ _COUNTY_TTL = 3600            # 县界几何是静态文件，站点计数变化
 
 @router.get("/county-boundaries")
 def get_county_boundaries():
-    """获取利比里亚 15 个县的真实行政边界（含站点计数）。
+    """获取利比里亚 15 个县的真实行政边界（含站点数与实时告警站点数）。
 
     site_count 的口径与 /gis/sites 保持一致（同样只统计经纬度有效的站点），
     否则界面上的县名旁数字与点击后的地图站点数会对不上（AGENTS.md 三-1b）。
+
+    alarm_site_count（2026-09-25 新增，用户要求标签改显示告警数）：
+      = 该县**有实时告警的站点个数**（COUNT(DISTINCT site_id)，不是告警条数）。
+      口径同 /gis/realtime/sites：realtime_alarm JOIN master_site_db 且经纬度有效。
+      站点表 JOIN 不上的告警（实测 4 个站，site_id 不在主表）不计入任何县 ——
+      与实时告警页的站数口径一致，避免两处对不上。
+
     边界文件缺失时不抛 500 —— 边界属增强显示，不应让整个地图挂掉。
     """
     if _county_cache and (_time.time() - _county_cache.get("ts", 0)) < _COUNTY_TTL:
@@ -1661,6 +1668,8 @@ def get_county_boundaries():
 
     # 站点计数：与 /gis/sites 完全相同的 WHERE 口径
     counts: dict = {}
+    # 告警站点计数：与 /gis/realtime/sites 相同的 JOIN 口径（COUNT DISTINCT 站点）
+    alarm_counts: dict = {}
     S = _detect_gis_schema()
     if counties and S["site_table"]:
         try:
@@ -1674,17 +1683,36 @@ def get_county_boundaries():
                       AND province_county IS NOT NULL AND province_county != ''
                     GROUP BY province_county
                 """).fetchall()
+                # 归一化 key：库里同时存在 'River Cess' / 'River cess' 两种写法
+                for name, cnt in rows:
+                    key = re.sub(r"\s+", " ", str(name or "").strip()).lower()
+                    counts[key] = counts.get(key, 0) + int(cnt or 0)
+
+                if S["has_realtime_alarm"]:
+                    arows = conn.execute(f"""
+                        SELECT s.province_county,
+                               COUNT(DISTINCT CAST(a.site_id AS TEXT))
+                        FROM realtime_alarm a
+                        JOIN {S["site_table"]} s
+                          ON CAST(a.site_id AS TEXT) = CAST(s.site_id AS TEXT)
+                        WHERE s.latitude IS NOT NULL AND s.longitude IS NOT NULL
+                          AND CAST(s.latitude AS REAL) != 0
+                          AND CAST(s.longitude AS REAL) != 0
+                          AND s.province_county IS NOT NULL
+                          AND s.province_county != ''
+                        GROUP BY s.province_county
+                    """).fetchall()
+                    for name, cnt in arows:
+                        key = re.sub(r"\s+", " ", str(name or "").strip()).lower()
+                        alarm_counts[key] = alarm_counts.get(key, 0) + int(cnt or 0)
                 conn.close()
-            # 归一化 key：库里同时存在 'River Cess' / 'River cess' 两种写法
-            for name, cnt in rows:
-                key = re.sub(r"\s+", " ", str(name or "").strip()).lower()
-                counts[key] = counts.get(key, 0) + int(cnt or 0)
         except Exception:
             logger.warning("[SILENT-EXCEPT] get_county_boundaries site_count: exception swallowed", exc_info=True)
 
     for c in counties:
         key = re.sub(r"\s+", " ", c["db_name"]).lower()
         c["site_count"] = counts.get(key, 0)
+        c["alarm_site_count"] = alarm_counts.get(key, 0)
 
     payload = {"counties": counties}
     if counties:

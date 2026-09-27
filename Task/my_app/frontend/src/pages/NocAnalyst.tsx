@@ -72,6 +72,10 @@ import { useI18n, numLocale } from '../i18n'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { CardBase, StatCard } from '../components/cards'
 import { exportAoaReport } from '../utils/excelReport'
+import {
+  segTextFromZh, nodeTextFromZh, devTextFromZh, ownerTextFromZh,
+  evText, woStageLabelKey,
+} from '../utils/ttVocab'
 import { useTheme, WH, darkTooltip, axisLabel, axisLine, splitLine, pageWrap } from '../theme'
 
 const { Text, Title } = Typography
@@ -1000,7 +1004,8 @@ export default function NocAnalyst() {
         avoidLabelOverlap: true,
         label: { show: false },
         emphasis: { label: { show: true, fontSize: 13, fontWeight: 'bold' } },
-        data: segs.map(s => ({ name: s.label, value: s.sum_s })),
+        // 后端 label 是中文硬编码（_SEG_META 短名拼的「A → B」），按词表重建
+        data: segs.map(s => ({ name: segTextFromZh(t, s.label), value: s.sum_s })),
       }],
     }
   }, [agg, isDark, t])
@@ -1041,7 +1046,7 @@ export default function NocAnalyst() {
       title: t('noc.segName'), dataIndex: 'label', key: 'label',
       render: (v: string, r: SegmentStat) => (
         <Space size={6}>
-          <span style={{ color: WH.text }}>{v}</span>
+          <span style={{ color: WH.text }}>{segTextFromZh(t, v)}</span>
           {r.pct != null && <Tag color="blue">{r.pct}%</Tag>}
         </Space>
       ),
@@ -1085,7 +1090,8 @@ export default function NocAnalyst() {
       title: t('noc.stageLabel'), dataIndex: 'label', key: 'label',
       render: (v: string, r: StageStat) => (
         <Space size={6}>
-          <span style={{ color: WH.text }}>{v}</span>
+          {/* key 稳定，优先按 key 取；key 不在词表（后端加了新里程碑）时回落原文 */}
+          <span style={{ color: WH.text }}>{evText(t, r.key, 'node') || nodeTextFromZh(t, v)}</span>
           <Tag color={r.expected ? 'geekblue' : 'default'}>
             {r.expected ? t('noc.stageRequired') : t('noc.stageConditional')}
           </Tag>
@@ -1136,7 +1142,7 @@ export default function NocAnalyst() {
       title: t('noc.devKind'), dataIndex: 'kind', key: 'kind', width: 100,
       render: (v: string) => <Text type="secondary">{t(devKindKey(v))}</Text>,
     },
-    { title: t('noc.devLabel'), dataIndex: 'label', key: 'label', render: (v: string) => v },
+    { title: t('noc.devLabel'), dataIndex: 'label', key: 'label', render: (v: string) => devTextFromZh(t, v) },
     {
       title: t('noc.devCount'), dataIndex: 'count', key: 'count', align: 'right' as const, width: 90,
       sorter: (a: DeviationStat, b: DeviationStat) => a.count - b.count,
@@ -1194,7 +1200,7 @@ export default function NocAnalyst() {
     },
     {
       title: t('noc.woBottleneck'), dataIndex: 'bottleneck', key: 'bottleneck',
-      render: (v: string) => v || '-',
+      render: (v: string) => (v ? segTextFromZh(t, v) : '-'),
     },
     {
       // 派单分类是个枚举码，悬浮显示命中的规则名与停用状态，
@@ -1268,7 +1274,7 @@ export default function NocAnalyst() {
     {
       title: t('noc.aggNocWorst'), dataIndex: 'worst_segment', key: 'worst_segment',
       render: (v: string | null, r: NocAggRow) =>
-        v ? <Space size={4}><span>{v}</span><Text type="secondary">{fmtSec(r.worst_segment_s)}</Text></Space> : '-',
+        v ? <Space size={4}><span>{segTextFromZh(t, v)}</span><Text type="secondary">{fmtSec(r.worst_segment_s)}</Text></Space> : '-',
     },
   ], [t, data, openNocDrill])
 
@@ -1477,7 +1483,7 @@ export default function NocAnalyst() {
     {
       title: t('noc.woBottleneck'), dataIndex: 'bottleneck', key: 'bottleneck',
       render: (v: string, r: TicketAggRow) =>
-        v ? <Space size={4}><span>{v}</span><Text type="secondary">{fmtSec(r.bottleneck_seconds)}</Text></Space> : '-',
+        v ? <Space size={4}><span>{segTextFromZh(t, v)}</span><Text type="secondary">{fmtSec(r.bottleneck_seconds)}</Text></Space> : '-',
     },
     {
       title: t('noc.tlTabMilestone'), dataIndex: 'done_count', key: 'done_count',
@@ -1567,7 +1573,10 @@ export default function NocAnalyst() {
   const tlWoStageColumns = useMemo(() => [
     {
       title: t('noc.woLifeStage'), dataIndex: 'label', key: 'label',
-      render: (v: string) => <span style={{ color: WH.text }}>{v}</span>,
+      render: (v: string, r: WoStage) => {
+        const k = woStageLabelKey(r.key)
+        return <span style={{ color: WH.text }}>{k ? t(k) : v}</span>
+      },
     },
     {
       title: t('noc.woLifeTime'), dataIndex: 'time', key: 'time', width: 170,
@@ -1605,14 +1614,14 @@ export default function NocAnalyst() {
       title: t('noc.tlStep'), dataIndex: 'label', key: 'label',
       render: (v: string, r: TtSegment) => (
         <Space size={6}>
-          <span style={{ color: WH.text }}>{v}</span>
+          <span style={{ color: WH.text }}>{segTextFromZh(t, v)}</span>
           {r.over_threshold && <Tag color="red">{t('noc.sevCritical')}</Tag>}
         </Space>
       ),
     },
     {
       title: t('noc.tlOwner'), dataIndex: 'owner', key: 'owner',
-      render: (v: string) => v || '-',
+      render: (v: string) => ownerTextFromZh(t, v),
     },
     {
       title: t('noc.segSum'), dataIndex: 'seconds', key: 'seconds', align: 'right' as const,
@@ -1659,7 +1668,8 @@ export default function NocAnalyst() {
       title: t('noc.tlMilestone'), dataIndex: 'label', key: 'label',
       render: (v: string, r: TimelineNode) => (
         <Space size={6}>
-          <span style={{ color: WH.text }}>{v}</span>
+          {/* 「现场·出发」这类带子类型的标签不在词表里，nodeTextFromZh 会原样放行 */}
+          <span style={{ color: WH.text }}>{nodeTextFromZh(t, v)}</span>
           <Tag color={r.actor === 'system' ? 'default' : 'geekblue'}>
             {r.actor === 'system' ? t('noc.stageActorSystem') : t('noc.stageActorHuman')}
           </Tag>
@@ -1690,7 +1700,7 @@ export default function NocAnalyst() {
       title: t('noc.tlMilestone'), dataIndex: 'label', key: 'label',
       render: (v: string, r: TtTimelineReport['expected_actions'][number]) => (
         <Space size={6}>
-          <span style={{ color: WH.text }}>{v}</span>
+          <span style={{ color: WH.text }}>{nodeTextFromZh(t, v)}</span>
           <Tag color={r.actor === 'system' ? 'default' : 'geekblue'}>
             {r.actor === 'system' ? t('noc.stageActorSystem') : t('noc.stageActorHuman')}
           </Tag>
@@ -1860,11 +1870,11 @@ export default function NocAnalyst() {
               </Tooltip>
             )}
             {r.mismatch_other > 0 && (
-              <Tooltip title={`${t('noc.slice.mismatch')} · 其它`}>
+              <Tooltip title={`${t('noc.slice.mismatch')} · ${t('noc.other')}`}>
                 <Tag
                   style={{ margin: 0, cursor: 'pointer' }}
                   onClick={e => { e.stopPropagation(); openNocDrill(e as any, r, 'mismatch') }}
-                >其它: {r.mismatch_other}</Tag>
+                >{t('noc.other')}: {r.mismatch_other}</Tag>
               </Tooltip>
             )}
             {r.mismatch_count === 0 && <Text type="secondary">—</Text>}
@@ -2591,7 +2601,7 @@ export default function NocAnalyst() {
                           <CardBase interactive onClick={() => setAggDetailOpen(true)}>
                             <Text type="secondary" style={{ fontSize: '0.6875rem' }}>{t('noc.aggCardBottleneck')}</Text>
                             <div style={{ font: '700 0.9375rem/1.4 var(--wh-font-mono, monospace)', color: WH.sev.Major, marginTop: 6 }}>
-                              {aggTopSegment?.label || '-'}
+                              {aggTopSegment ? segTextFromZh(t, aggTopSegment.label) : '-'}
                             </div>
                             <Text type="secondary" style={{ fontSize: '0.6875rem' }}>
                               {aggTopSegment?.pct != null ? `${aggTopSegment.pct}%` : ''}
@@ -2805,7 +2815,7 @@ export default function NocAnalyst() {
                           {agg.missing_stats.map(m => (
                             <Space key={m.key} size={8} wrap>
                               <Tag color="red">{m.count}</Tag>
-                              <Text strong style={{ color: WH.text }}>{m.label || m.key}</Text>
+                              <Text strong style={{ color: WH.text }}>{nodeTextFromZh(t, m.label) || m.key}</Text>
                               <Space size={4} wrap>
                                 {(m.sample_tts || []).map(tt => (
                                   <a key={tt} onClick={() => openTtTimeline(tt, 'actions')}>{tt}</a>
@@ -3452,7 +3462,7 @@ export default function NocAnalyst() {
                           <Space wrap size={8} style={{ marginBottom: 4 }}>
                             <Tag color={sevColor(d.severity)}>{t(sevKey(d.severity))}</Tag>
                             <Text type="secondary">{t(devKindKey(d.kind))}</Text>
-                            <Text strong style={{ color: WH.text }}>{d.label}</Text>
+                            <Text strong style={{ color: WH.text }}>{devTextFromZh(t, d.label)}</Text>
                           </Space>
                           <Descriptions size="small" column={1} bordered style={{ marginTop: 4 }}>
                             {d.expected && (

@@ -11,6 +11,7 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'email_reports' },
   { key: 'alarm' },
   { key: 'ttwo' },
+  { key: 'v1_ttwo' },
   { key: 'eflow_qa' },
   { key: 'eflow_flow' },
   { key: 'nur' },
@@ -27,6 +28,8 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'site_avail' },
   { key: 'noc_analyst' },
   { key: 'repeat_site_down' },
+  { key: 'cr_analysis' },
+  { key: 'pm_analysis' },
   { key: 'packet_loss' },
   { key: 'battery' },
   { key: 'ume_in_kpi' },
@@ -49,6 +52,7 @@ export const NAV_KEY_MAP: Record<string, string> = {
   email_reports: 'nav.emailReports',
   alarm: 'nav.alarm',
   ttwo: 'nav.ttwo',
+  v1_ttwo: 'nav.v1Ttwo',
   eflow_qa: 'nav.eflowQa',
   eflow_flow: 'nav.eflowFlow',
   nur: 'nav.nur',
@@ -65,6 +69,8 @@ export const NAV_KEY_MAP: Record<string, string> = {
   site_avail: 'nav.siteAvail',
   noc_analyst: 'noc.navLabel',
   repeat_site_down: 'nav.repeatSiteDown',
+  cr_analysis: 'nav.crAnalysis',
+  pm_analysis: 'nav.pmAnalysis',
   packet_loss: 'nav.packetLoss',
   battery: 'nav.battery',
   ume_in_kpi: 'nav.umeInKpi',
@@ -86,7 +92,7 @@ export const CATEGORIES: { id: string; pages: string[] }[] = [
   { id: 'tasks', pages: ['sync', 'email_reports', 'upload', 'tables', 'overview'] },
   {
     id: 'boards',
-    pages: ['alarm', 'ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'noc_analyst', 'repeat_site_down', 'packet_loss', 'battery', 'ume_in_kpi', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse'],
+    pages: ['alarm', 'ttwo', 'v1_ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'packet_loss', 'battery', 'ume_in_kpi', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse'],
   },
   { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace'] },
   { id: 'system', pages: ['settings', 'portalLogin'] },
@@ -115,8 +121,26 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: ['点任意数字弹出可搜索的下钻明细表', '「实时」数据来自 eFlow 活动告警（eflow_active_alarm 每 30 分钟同步），并非秒级推送'],
     },
     ttwo: {
-      desc: '故障工单（TT）与工作单（WO）的处理量、时效、积压趋势分析。',
-      usage: ['下拉 + 分段控件 + 日期区间组合筛选，点数字下钻明细', '页头显示数据最近同步时间；数据来自 eFlow 每小时同步（eflow_sync）与每日全量兜底（eflow_sync_full）'],
+      desc: '故障工单（TT）与工作单（WO）的处理量、时效、积压趋势分析。TT 统计的三个维度（工单严重度 / SLA 状态 / 工单状态）都用数字卡片，点卡片下钻；MTTR 趋势按 Ticket Severity（P1/P2/P3/P4）拆成 4 张图，每张图是「柱 = TT 数量 + 线 = MTTR」双轴，并用页签切 日 / 周 / 月 三档粒度。默认时间窗近 30 天。',
+      usage: [
+        '下拉 + 分段控件 + 日期区间组合筛选，点卡片或图上的点下钻明细；默认时间窗为近 30 天（周/月粒度在 7 天里只剩一两个桶，看不出趋势）',
+        '「全部归属」可切 ZTE / 3rd：WO 编号非空 = ZTE（我方派单），为空 = 3rd（第三方处理）',
+        '「高级过滤」按钮展开站点维度筛选（区域/省县/网络制式/站点类型/VIP/TRM/主管/FME/供电方式/供电厂商/站点等级），选项来自站点表',
+        'TT 统计卡片上的占比，分母是**该维度自身**的合计（看这一个维度内部的构成），不是 TT 总数',
+        'MTTR 趋势上方页签切 日/周/月：三档一次加载，切换即时；周上的 TT 数量就是该周 7 个日点的合并，可互相印证',
+        '每张 MTTR 图是双轴：柱子是「该时段该级别的 TT 单数」（左轴），折线是「MTTR 分钟均值」（右轴）。某时段该级别没有单时柱和线都不画，不是 0（「没有单」与「MTTR 为 0」是两回事）',
+        '柱高与线高不是同一量纲：柱子看「量」，折线看「快慢」。线的样本量少时均值会跳，悬停提示里会补一句「其中 N 单计入 MTTR」说明实际参与计算的有多少单',
+        '四张图的悬停提示与缩放（滚轮/底部滑杆）联动，拖任一张另外三张同步；日粒度点数多时会自动出现缩放条',
+        '点图上任意点可下钻该时段的工单明细',
+        '页头显示数据最近同步时间；数据来自 eFlow 每小时同步（eflow_sync）与每日全量兜底（eflow_sync_full）',
+      ],
+    },
+    v1_ttwo: {
+      desc: 'TT&WO 看板的「只保留上半部分」版：渲染到「MTTR 趋势」（含标题、日/周/月页签，每档四张「柱=TT 数量 + 线=MTTR」双轴分级图）为止，即 汇总卡（TT 总数 / WO 总数 / WO 编号唯一）+ TT 统计（工单严重度 / SLA 状态 / 工单状态，均为数字卡片）+ MTTR 趋势（P1/P2/P3/P4 × 日/周/月）；其下的领域与根因分析、工单分析、站点信息三个区块整体不出。默认时间窗近 30 天。',
+      usage: [
+        '筛选条（含全部归属 ZTE/3rd 与高级过滤）、MTTR 日/周/月页签与双轴图、卡片下钻明细与导出与 TT&WO 看板完全同源（共用 /tt-wo-dashboard/overview 端点），用法一致、数字必然相同',
+        '直链 http://<host>/myapp/?page=v1_ttwo；完整版见 page=ttwo',
+      ],
     },
     eflow_qa: {
       desc: 'eFlow TT 判定规则知识库：规则/案例文档全文检索，并内置 TT 快速分析与 TT 批量核查。',
@@ -245,7 +269,12 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     fme_ranking: {
       desc: 'FME 排名看板：按 FME 统计站点可用率、工单量与 SLA 达成率，并排名。',
-      usage: ['Top3 / Bottom3 卡片与排名表可点击下钻该 FME 的站点级可用率与 WO 明细', '下钻弹窗内可切换到站点维度，查看每个站点的可用率与告警'],
+      usage: [
+        'Top3 / Bottom3 卡片与排名表可点击下钻该 FME 的站点级可用率与 WO 明细',
+        '两张条形图分别看可用率「Top5」与「尾部 5 个」：横向条形按名次自上而下排列，条端直接标出可用率数值；柱子用组内真实值域（而非固定 0~100），否则同一组都在 99% 以上时柱子会一样长、看不出差异',
+        '条形图里的 WO 数量（蓝线）与 SLA 达成率（橙虚线）只在**该组内确实存在差异**时才出现；若全组数值相同则不画，避免一条贴地直线占满图例被误读成趋势',
+        '点条形图的任一条可下钻到该 FME 的站点明细；下钻弹窗内还可切换到 WO 维度',
+      ],
     },
     site_avail: {
       desc: '站点可用率看板：站点级可用率排名与达标情况。',
@@ -254,6 +283,28 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     repeat_site_down: {
       desc: '重复宕站看板：识别在统计窗口内反复宕站的站点，用于定位「修不好的站」。',
       usage: ['按日粒度统计站点宕站次数，点数字下钻该日宕站明细', '数据来自 eflow_tt 与 eflow_site，与告警看板口径互补'],
+    },
+    cr_analysis: {
+      desc: 'CR 变更分析：按变更类别（change_category）看变更计划的排期与执行情况，回答「计划了多少、执行了多少、其中多少按时」。',
+      usage: [
+        '数据来自 eflow_cr（eFlow 同步），默认区间取全表实际时间范围',
+        '四个核心计数：「已排期」= 有计划开始时间；「已执行」= 有实际开始时间；「未执行」= 排了期但没动；「按时/延期」= 实际开始早于 / 晚于计划开始',
+        '两个核心比率的分母写在数字下方：计划达成率 = 已执行 ÷ 已排期，按时执行率 = 按时 ÷ 已执行。分母为 0 时显示「—」而不是 0',
+        '页面上每个数字都可点：类别表格、图表柱子、月度趋势、子类别表格都能下钻到明细，明细行数与卡片数字严格一致',
+        '下钻明细被截断时会显示黄色告警条，提示缩小时间范围——不要忽略它',
+      ],
+    },
+    pm_analysis: {
+      desc: 'PM 执行分析：按 PM 计划号（pmp_no）看预防性维护工单（PMT）的完成与超期情况，回答「计划执行到哪一步、多少超期、卡在谁那里」。',
+      usage: [
+        '数据来自 eflow_pm（eFlow 同步），默认区间取全表实际时间范围',
+        '四个核心计数：「已完成」= 状态为 Closed；「未完成」= 尚未 Closed；「已超期」= 源表 pmt_overdue 为 Yes（直接用上游判定，不自己按日期算）；「未开始」= 已完成条目数为 0',
+        '两个细分口径：「完成但超期」= 事后补录/迟交；「未完成且超期」= 真正压着没做完的，优先看这个',
+        '三个比率的分母写在数字下方：工单关闭率 = 已完成 ÷ 工单总量，超期率 = 已超期 ÷ 工单总量（越低越好），已启动率 = 条目完成数 > 0 的占比。分母为 0 时显示「—」而不是 0',
+        '「流程推进情况」按真实时序排列：创建 → 排期 → 受理 → PM 经理审批 → 执行 → FLM 领导审批。注意源表字段名有误导性——last_accept_time 实际早于 last_process_time，不要按字段名猜顺序',
+        '页面上每个数字都可点：KPI 卡、比率卡、图表柱子、月度趋势、站点条形图、计划表格都能下钻到明细，明细行数与卡片数字严格一致',
+        '下钻明细被截断时会显示黄色告警条，提示缩小时间范围——不要忽略它',
+      ],
     },
     warehouse: {
       desc: '备件/耗材库存看板（Spare Management），与原工具看板完全一致。',
@@ -306,8 +357,26 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: ['Click any number to open a searchable drill-down table', '"Realtime" data comes from eFlow active alarms (eflow_active_alarm every 30 min) — not second-level push'],
     },
     ttwo: {
-      desc: 'Processing volume, timeliness and backlog trends of trouble tickets (TT) and work orders (WO).',
-      usage: ['Filter with selects + segmented control + date range; click numbers to drill down', 'The header shows the latest sync time; data comes from hourly eflow_sync plus the nightly eflow_sync_full backfill'],
+      desc: 'Processing volume, timeliness and backlog trends of trouble tickets (TT) and work orders (WO). All three TT statistics dimensions (ticket severity / SLA status / ticket status) are number cards you can click to drill down; the MTTR trend is split into 4 charts by ticket severity (P1/P2/P3/P4), each a dual-axis chart with bars = TT count and line = MTTR, with tabs switching day / week / month granularity. The default window is the last 30 days.',
+      usage: [
+        'Filter with selects + segmented control + date range; click a card or a chart point to drill down. The default window is the last 30 days (over a 7-day window the weekly/monthly views have only one or two buckets, which shows no trend)',
+        '"All owners" switches ZTE / 3rd: a non-empty WO number means ZTE (dispatched by us), empty means 3rd (handled by a third party)',
+        'The "Advanced filters" button reveals site-level filters (region / province-county / network type / site type / VIP / TRM / supervisor / FME / power source / power vendor / site category), fed from the site table',
+        'The percentage on a TT statistics card uses that dimension\'s own total as denominator (its internal composition), not the overall TT total',
+        'The tabs above the MTTR trend switch day/week/month: all three load at once, so switching is instant; the weekly TT count is exactly the merge of that week\'s seven daily points, so the two views cross-check each other',
+        'Each MTTR chart has two axes: bars are the TT count of that severity in the period (left axis), the line is the mean MTTR in minutes (right axis). A period with no ticket of that severity draws neither — it is not 0 ("no ticket" and "MTTR is 0" are different things)',
+        'Bar height and line height are different units: bars show volume, the line shows speed. A line based on few tickets jumps around, so the hover tooltip adds "(N in MTTR avg)" to say how many tickets actually went into the average',
+        'The four charts share hover tooltips and zoom (wheel / bottom slider) — dragging one moves the other three; the zoom bar appears automatically for the daily view, which has many points',
+        'Click any point on a chart to drill into that period\'s tickets',
+        'The header shows the latest sync time; data comes from hourly eflow_sync plus the nightly eflow_sync_full backfill',
+      ],
+    },
+    v1_ttwo: {
+      desc: 'The "upper half only" cut of the TT&WO Dashboard: renders up to the MTTR Trend (title, day/week/month tabs and four dual-axis "bars = TT count, line = MTTR" per-severity charts per tab included) — summary cards (TT Total / WO Total / WO No. Unique) + TT statistics (ticket severity / SLA status / ticket status, all number cards) + MTTR trend (P1/P2/P3/P4 × day/week/month); the three blocks below it (Domain & Root Cause, Work Order Analytics, Site Information) are omitted. The default window is the last 30 days.',
+      usage: [
+        'Filters (including the ZTE/3rd owner switch and advanced filters), the MTTR day/week/month tabs and dual-axis charts, card drill-down and Excel export are shared with the TT&WO Dashboard (same /tt-wo-dashboard/overview endpoint), so usage is identical and the numbers necessarily match',
+        'Direct link http://<host>/myapp/?page=v1_ttwo; the full version is page=ttwo',
+      ],
     },
     eflow_qa: {
       desc: 'eFlow TT rule knowledge base: full-text search over rule/case documents, with built-in TT quick analysis.',
@@ -436,7 +505,12 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     fme_ranking: {
       desc: 'FME ranking board: site availability, work-order volume and SLA achievement per FME, ranked.',
-      usage: ['Top3 / Bottom3 cards and the ranking table drill into that FME\'s site-level availability and WO details', 'The drilldown modal can switch to the site dimension for per-site availability and alarms'],
+      usage: [
+        'Top3 / Bottom3 cards and the ranking table drill into that FME\'s site-level availability and WO details',
+        'Two bar charts show availability for the "Top 5" and the "Bottom 5": horizontal bars are ordered by rank from top to bottom and print the availability value at the end of each bar. Each chart scales to its own real value range instead of a fixed 0–100, otherwise bars would all look the same length when the whole group sits above 99%',
+        'The WO count (blue line) and SLA achievement (orange dashed line) appear only when values actually differ inside that group; when the whole group is identical the series is omitted rather than drawn as a flat line that reads like a trend',
+        'Click any bar to drill into that FME\'s site details; the drill-down modal can also switch to the WO dimension',
+      ],
     },
     site_avail: {
       desc: 'Site availability board: per-site availability ranking and target compliance.',
@@ -445,6 +519,28 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     repeat_site_down: {
       desc: 'Repeat site-down board: identifies sites that go down repeatedly within the window — for finding "sites that never get fixed".',
       usage: ['Counts site-downs per day; click a number to drill into that day\'s down sites', 'Data comes from eflow_tt and eflow_site, complementing the alarm board'],
+    },
+    cr_analysis: {
+      desc: 'CR Change Analysis: shows change-plan scheduling and execution by change category, answering "how many were planned, how many executed, and how many of those were on time".',
+      usage: [
+        'Data comes from eflow_cr (synced from eFlow); the default range covers the full data span',
+        'Four core counts: "Planned" = has a planned start time; "Executed" = has an actual start time; "Not Executed" = planned but never started; "On Time / Delayed" = actual start before / after planned start',
+        'Each rate shows its denominator: Plan Completion Rate = executed ÷ planned, On-Time Rate = on time ÷ executed. Shows "—" instead of 0 when the denominator is zero',
+        'Every number is clickable: the category table, chart bars, monthly trend and sub-category table all drill into details, and the detail row count matches the card figure exactly',
+        'A yellow banner appears when drill-down results are truncated — narrow the date range and retry rather than ignoring it',
+      ],
+    },
+    pm_analysis: {
+      desc: 'PM Execution Analysis: shows preventive-maintenance work orders (PMT) by PM plan number (pmp_no), answering "how far has each plan progressed, how many are overdue, and where are they stuck".',
+      usage: [
+        'Data comes from eflow_pm (synced from eFlow); the default range covers the full data span',
+        'Four core counts: "Closed" = status is Closed; "Open" = not yet Closed; "Overdue" = the source column pmt_overdue is Yes (the upstream verdict is used as-is, never recomputed from dates); "Not Started" = completed item count is 0',
+        'Two finer breakdowns: "Closed & Overdue" = back-filled / late delivery; "Open & Overdue" = genuinely still unfinished — look at this one first',
+        'Each rate shows its denominator: Closure Rate = closed ÷ total, Overdue Rate = overdue ÷ total (lower is better), Started Rate = share of work orders with at least one item completed. Shows "—" instead of 0 when the denominator is zero',
+        'The "Workflow Progress" funnel follows the REAL chronological order: Created → Scheduled → Accepted → PM Manager Approved → Processed → FLM Leader Approved. Beware: the source column names are misleading — last_accept_time actually precedes last_process_time, so never infer the order from the column names',
+        'Every number is clickable: KPI cards, rate cards, chart bars, the monthly trend, the site bar chart and the plan table all drill into details, and the detail row count matches the card figure exactly',
+        'A yellow banner appears when drill-down results are truncated — narrow the date range and retry rather than ignoring it',
+      ],
     },
     warehouse: {
       desc: 'Spare-parts / consumables inventory board (Spare Management), identical to the original tool.',

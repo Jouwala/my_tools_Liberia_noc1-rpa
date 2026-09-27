@@ -726,13 +726,13 @@ export const TASK_DOCS: TaskDoc[] = [
     script: 'services/mttr_tt_sync.py → run_mttr_tt_sync',
     zh: {
       name: 'MTTR/TT 宽表重建',
-      desc: '重建 mttr_tt 宽表（Eflow_TT_FB + OLR_CELLS/Site_Maintainer_Category 参考库），写本机 data/mttr_tt.sqlite3，供 MTTR Monthly&Weekly 看板',
+      desc: '重建 mttr_tt 宽表（Eflow_TT_FB + OLR_CELLS/Site_Maintainer_Category 参考库），写本机 data/mttr_tt.sqlite3，供 MTTR 看板（日/周/月）',
       flow: ['读本机参考库 data/excel_ds.sqlite3（Site ID→Site Category、Site Name→各制式小区数）', '经只读 API 读远端 Eflow_TT_FB 全量', '推导 Vender/MTTR1/MTTR2/MTTR_RANG_2H/Month/WK/Outage_Mins 后原子替换 data/mttr_tt.sqlite3'],
       maintain: ['口径解析自 FineDB 数据集 4bc5a679，定义在 services/mttr_tt_sync.py 顶部；MTTR2 只在 0<MTTR1<48h 时非空', '参考库 excel_ds.sqlite3 是从 my-finebi 固化的静态文件（114KB，2026-08-31 后未变）；FineBI 侧 Excel 数据集若更新需重新导出覆盖', '2026-09-21 上线前该表由已退役 my-finebi 的手工 ETL 维护，无调度 → 冻结在 2026-08-31'],
     },
     en: {
       name: 'MTTR/TT Wide Table Rebuild',
-      desc: 'Rebuild the mttr_tt wide table (Eflow_TT_FB + OLR_CELLS/Site_Maintainer_Category reference) into local data/mttr_tt.sqlite3 for the MTTR Monthly&Weekly board',
+      desc: 'Rebuild the mttr_tt wide table (Eflow_TT_FB + OLR_CELLS/Site_Maintainer_Category reference) into local data/mttr_tt.sqlite3 for the MTTR board (daily/weekly/monthly)',
       flow: ['Read local reference DB data/excel_ds.sqlite3 (Site ID->Site Category, Site Name->per-RAT cell counts)', 'Read the full remote Eflow_TT_FB via the read-only API', 'Derive Vender/MTTR1/MTTR2/MTTR_RANG_2H/Month/WK/Outage_Mins then atomically replace data/mttr_tt.sqlite3'],
       maintain: ['Definitions parsed from FineDB dataset 4bc5a679, documented at the top of services/mttr_tt_sync.py; MTTR2 is non-null only when 0<MTTR1<48h', 'excel_ds.sqlite3 is a static 114KB reference frozen from my-finebi (unchanged since 2026-08-31); re-export it if the FineBI Excel datasets ever change', 'Before 2026-09-21 a manual ETL in the retired my-finebi project maintained this table; with no scheduler it froze at 2026-08-31'],
     },

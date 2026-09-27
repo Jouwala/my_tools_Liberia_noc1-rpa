@@ -4,7 +4,7 @@ import {
 } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import { ReloadOutlined, SearchOutlined, DownloadOutlined } from '@ant-design/icons'
-import { exportAoaReport } from '../utils/excelReport'
+import { exportAoaReport, exportReport, type ReportSheetSpec, type HeaderCell } from '../utils/excelReport'
 import dayjs, { Dayjs } from 'dayjs'
 import api, { getMsSlaOverview } from '../api'
 import { useI18n } from '../i18n'
@@ -87,6 +87,69 @@ function nurTextColor(v: number, max: number): string {
   if (t < 0.35) return 'var(--wh-blue)'
   if (t < 0.7) return 'var(--wh-sev-warning)'
   return 'var(--wh-sev-critical)'
+}
+
+// ---------- 页面级导出：结果转 Excel 单元格（口径与页面上 fmt* 完全一致，明细保精度） ----------
+// 页面用 '-' 表示「无数据」；导出文件里用 '—'，避免与真实的 0 混淆（项目硬性要求）
+// 表格数值保持原始精度（不带单位），与页面 ScalarTable 展示的裸数值一致，便于二次计算
+function xlRaw(v: number | null | undefined): number | string {
+  return v === null || v === undefined || Number.isNaN(v) ? '—' : Number(v)
+}
+// NUR 展示口径：× 100000，2 位小数（与页面 fmtNur 一致）
+function xlNur(v: number | null | undefined): number | string {
+  return v === null || v === undefined || Number.isNaN(v) ? '—' : Number((v * NUR_SCALE).toFixed(2))
+}
+// 百分比口径：0~1 → 百分点，2 位小数（与页面 fmtPct 一致）
+function xlPct(v: number | null | undefined): number | string {
+  return v === null || v === undefined || Number.isNaN(v) ? '—' : Number((v * 100).toFixed(2))
+}
+// 期间列：与页面一样降序、最新在左（ScalarTable / WoTable 都用 .reverse()）
+function periodsOf(rows: ScalarRow[] | undefined): string[] {
+  if (!rows || rows.length === 0) return []
+  return Object.keys(rows[0]).filter(k => k !== 'metric').sort().reverse()
+}
+// 指标显示名 + 期间列 → 二维数组（行=指标，列=期间）
+function scalarSheetBody(
+  rows: ScalarRow[], nameMap: Record<string, string> | undefined,
+  cell: (v: any) => number | string,
+): (number | string)[][] {
+  const periods = periodsOf(rows)
+  return rows.map(r => [nameMap?.[r.metric] || r.metric, ...periods.map(p => cell(r[p]))])
+}
+// WO 表的期间列表（降序，最新在左；表体与表头共用，保证列对齐）
+function woPeriods(rows: WoRow[]): string[] {
+  return Array.from(new Set((rows || []).map(r => r.period))).sort().reverse()
+}
+// WO SLA 表体：行=TTR/TTR_P1..P4 ×（Total / Within SLA / Achieve），列=期间（降序）
+function woSheetBody(rows: WoRow[]): (number | string)[][] {
+  const metrics = ['TTR', 'TTR_P1', 'TTR_P2', 'TTR_P3', 'TTR_P4']
+  const byPeriod: Record<string, Record<string, WoRow>> = {}
+  for (const r of rows || []) {
+    if (!byPeriod[r.period]) byPeriod[r.period] = {}
+    byPeriod[r.period][r.metric] = r
+  }
+  const periods = woPeriods(rows)
+  return metrics.flatMap(m => (['total', 'within_sla', 'achieve'] as const).map(item => {
+    // 值单元格统一走 xlRaw／xlPct，避免「取不到数据」被写成 0
+    const cell = item === 'achieve' ? xlPct : xlRaw
+    return [
+      m, item,
+      ...periods.map(p => cell(byPeriod[p]?.[m]?.[item] as number | null | undefined)),
+    ]
+  }))
+}
+// WO 表头：多层合并，期间横跨 Total / Within SLA / Achieve 三列
+function woSheetHeader(t: (k: string) => string, rows: WoRow[]): HeaderCell[][] {
+  const periods = woPeriods(rows)
+  return [[
+    { text: t('msSla.exportMetric'), rowSpan: 2 },
+    { text: t('msSla.exportMetaItem'), rowSpan: 2 },
+    ...periods.map(p => ({ text: p, colSpan: 3 })),
+  ], [
+    ...periods.flatMap(() => [
+      { text: t('msSla.total') }, { text: t('msSla.withinSla') }, { text: t('msSla.achieve') },
+    ]),
+  ]]
 }
 
 const cardStyle: React.CSSProperties = {
@@ -510,6 +573,82 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
     })
   }, [filteredDrillData, drillKey])
 
+  // ---------- 页面级导出：导出「当前页面显示的全部汇总数据」 ----------
+  // 与下钻导出的区别：下钻导出的是弹窗里那批 TT 明细行；
+  // 这里导出的是页面上四张标量表（NUR / SLA / Network / Per-Site）+ WO SLA 表的当期值
+  // （即当前 daily|monthly 粒度下、当前时间范围筛选后的结果），多 sheet 一份文件。
+  // only 切片时只导出该切片渲染的块（ms_sla_only 只出 SLA + WO）。
+  const exportPageExcel = useCallback(() => {
+    if (!data) return
+    const sheetSubtitle = [
+      `${t('msSla.exportGran')}: ${granLabel}`,
+      `${t('msSla.exportRange')}: ${range && range[0] && range[1]
+        ? `${range[0].format('YYYY-MM-DD')} ${t('msSla.exportTo')} ${range[1].format('YYYY-MM-DD')}`
+        : t('msSla.exportRangeAll')}`,
+      `${t('msSla.lastSync')}: ${lastSync}`,
+    ].join('    |    ')
+    const sheets: ReportSheetSpec[] = []
+    // ---------- Sheet1：数据口径（页面顶部那排新鲜度标签 + 当前粒度） ----------
+    sheets.push({
+      name: 'Overview',
+      title: t('msSla.exportTitle'),
+      subtitle: sheetSubtitle,
+      tabColor: 'FF2F5496',
+      header: [t('msSla.exportMetaItem'), t('msSla.exportMetaValue')],
+      rows: [
+        [t('msSla.exportGran'), granLabel],
+        [t('msSla.lastSync'), lastSync],
+        [t('msSla.kpiListMtime'), meta.kpi_list_mtime || '—'],
+      ],
+      columnWidths: [24, 44],
+    })
+    // ---------- 各 KPI 标量表：行=指标，列=期间（降序，最新在左，与页面同布局） ----------
+    // 「取值」sheet 记录该表的口径（NUR 乘 100000 / 其余为百分比），否则拿到文件无法判读量纲
+    const scalarBlocks: { key: string; name: string; rows: ScalarRow[]; cell: (v: any) => number | string; note: string }[] = [
+      { key: 'nur', name: t('msSla.exportKpiNur'), rows: data.nur?.[gran] || [], cell: xlNur, note: t('msSla.unit') },
+      { key: 'sla', name: t('msSla.exportKpiSla'), rows: data.sla?.[gran] || [], cell: xlPct, note: '%' },
+      { key: 'network', name: t('msSla.exportNetwork'), rows: data.network?.[gran] || [], cell: xlPct, note: '%' },
+      { key: 'persite', name: t('msSla.exportPersite'), rows: data.persite?.[gran] || [], cell: xlPct, note: '%' },
+    ]
+    if (showNur || showSla) {
+      sheets.push({
+        name: 'Value Scale',
+        title: t('msSla.exportMeta'),
+        subtitle: sheetSubtitle,
+        header: [t('msSla.exportMetaItem'), t('msSla.exportMetaValue')],
+        rows: scalarBlocks.map(b => [b.name, b.note]),
+        columnWidths: [30, 20],
+      })
+    }
+    for (const b of scalarBlocks) {
+      // 空块自动跳过（该粒度下无数据的表不出空 sheet）
+      if (!b.rows.length) continue
+      const nameMap = b.key === 'nur' ? NUR_NAMES : undefined
+      sheets.push({
+        name: b.name,
+        title: b.name,
+        subtitle: sheetSubtitle,
+        header: [t('msSla.exportMetric'), ...periodsOf(b.rows)],
+        rows: scalarSheetBody(b.rows, nameMap, b.cell),
+        columnWidths: [24, ...periodsOf(b.rows).map(() => 16)],
+      })
+    }
+    // ---------- WOs SLA：Total / Within SLA / Achieve 三列一组，按期间分组 ----------
+    const woRows = data.wo?.[gran] || []
+    if (woRows.length) {
+      sheets.push({
+        name: t('msSla.exportWo'),
+        title: `${t('msSla.exportWo')} (${granLabel})`,
+        subtitle: sheetSubtitle,
+        header: woSheetHeader(t, woRows),
+        rows: woSheetBody(woRows),
+        columnWidths: [14, 16, ...woPeriods(woRows).flatMap(() => [14, 14, 14])],
+      })
+    }
+    const fname = `MS_Operation_KPI_${gran}_${dayjs().format('YYYYMMDD_HHmmss')}`
+    void exportReport(sheets, `${fname}.xlsx`)
+  }, [data, gran, granLabel, range, lastSync, meta.kpi_list_mtime, showNur, showSla, t])
+
   // 下钻表格列（动态生成，alarm_occur_time 默认降序）
   const drillColumns = useMemo(() => {
     if (!drillData.length) return []
@@ -566,6 +705,10 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
           </Space>
           <Button type="primary" size="small" icon={<ReloadOutlined />} onClick={() => fetchData()}>
             {t('msSla.refresh')}
+          </Button>
+          {/* 页面级导出：当前粒度 + 当前时间范围下的全部汇总表（多 sheet） */}
+          <Button size="small" icon={<DownloadOutlined />} onClick={exportPageExcel} disabled={!data}>
+            {t('common.exportExcel')}
           </Button>
         </Space>
       </Card>

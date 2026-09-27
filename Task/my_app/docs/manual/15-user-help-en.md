@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-24.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-27.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -861,7 +861,7 @@ Workflow & maintenance notes per task:
 - Default cron: `40 7 * * *`　|　worker group: **m**
 - Workflow script: `services/mttr_tt_sync.py → run_mttr_tt_sync`
 
-**What it does**: Rebuild the mttr_tt wide table (Eflow_TT_FB + OLR_CELLS/Site_Maintainer_Category reference) into local data/mttr_tt.sqlite3 for the MTTR Monthly&Weekly board
+**What it does**: Rebuild the mttr_tt wide table (Eflow_TT_FB + OLR_CELLS/Site_Maintainer_Category reference) into local data/mttr_tt.sqlite3 for the MTTR board (daily/weekly/monthly)
 
 **Workflow & data flow**:
 
@@ -1378,10 +1378,25 @@ Combined view of all current active network alarms: totals, severity, site-level
 
 #### TT&WO Dashboard（`ttwo`）
 
-Processing volume, timeliness and backlog trends of trouble tickets (TT) and work orders (WO).
+Processing volume, timeliness and backlog trends of trouble tickets (TT) and work orders (WO). All three TT statistics dimensions (ticket severity / SLA status / ticket status) are number cards you can click to drill down; the MTTR trend is split into 4 charts by ticket severity (P1/P2/P3/P4), each a dual-axis chart with bars = TT count and line = MTTR, with tabs switching day / week / month granularity. The default window is the last 30 days.
 
-- Filter with selects + segmented control + date range; click numbers to drill down
+- Filter with selects + segmented control + date range; click a card or a chart point to drill down. The default window is the last 30 days (over a 7-day window the weekly/monthly views have only one or two buckets, which shows no trend)
+- "All owners" switches ZTE / 3rd: a non-empty WO number means ZTE (dispatched by us), empty means 3rd (handled by a third party)
+- The "Advanced filters" button reveals site-level filters (region / province-county / network type / site type / VIP / TRM / supervisor / FME / power source / power vendor / site category), fed from the site table
+- The percentage on a TT statistics card uses that dimension's own total as denominator (its internal composition), not the overall TT total
+- The tabs above the MTTR trend switch day/week/month: all three load at once, so switching is instant; the weekly TT count is exactly the merge of that week's seven daily points, so the two views cross-check each other
+- Each MTTR chart has two axes: bars are the TT count of that severity in the period (left axis), the line is the mean MTTR in minutes (right axis). A period with no ticket of that severity draws neither — it is not 0 ("no ticket" and "MTTR is 0" are different things)
+- Bar height and line height are different units: bars show volume, the line shows speed. A line based on few tickets jumps around, so the hover tooltip adds "(N in MTTR avg)" to say how many tickets actually went into the average
+- The four charts share hover tooltips and zoom (wheel / bottom slider) — dragging one moves the other three; the zoom bar appears automatically for the daily view, which has many points
+- Click any point on a chart to drill into that period's tickets
 - The header shows the latest sync time; data comes from hourly eflow_sync plus the nightly eflow_sync_full backfill
+
+#### TT&WO Dashboard (v1, upper half only)（`v1_ttwo`）
+
+The "upper half only" cut of the TT&WO Dashboard: renders up to the MTTR Trend (title, day/week/month tabs and four dual-axis "bars = TT count, line = MTTR" per-severity charts per tab included) — summary cards (TT Total / WO Total / WO No. Unique) + TT statistics (ticket severity / SLA status / ticket status, all number cards) + MTTR trend (P1/P2/P3/P4 × day/week/month); the three blocks below it (Domain & Root Cause, Work Order Analytics, Site Information) are omitted. The default window is the last 30 days.
+
+- Filters (including the ZTE/3rd owner switch and advanced filters), the MTTR day/week/month tabs and dual-axis charts, card drill-down and Excel export are shared with the TT&WO Dashboard (same /tt-wo-dashboard/overview endpoint), so usage is identical and the numbers necessarily match
+- Direct link http://<host>/myapp/?page=v1_ttwo; the full version is page=ttwo
 
 #### NUR Dashboard（`nur`）
 
@@ -1390,7 +1405,7 @@ Network Unavailability Rate (NUR) daily/weekly/monthly trends, multi-dimension a
 - Switch granularity and date range, filter by dimensions
 - Click numbers to drill into a detail table (in-column filters & sorting); export to Excel
 
-#### ms_nur_only（`ms_nur_only`）
+#### NUR Dashboard (NUR only)（`ms_nur_only`）
 
 The "NUR only" cut of the NUR Dashboard: identical to the NUR half of page=nur (NUR daily/weekly/monthly tables + trends), with the three SLA blocks removed — handy for a NUR-only desk or wall screen.
 
@@ -1404,7 +1419,7 @@ MS contract KPIs and WO SLA attainment: NUR / SLA / Network KPI / Per-Site / WO 
 - Granularity is daily/monthly only; drill-down reuses the NUR detail table
 - Numbers come from the live nur_calc calculation (driven by ms_sla_full every 6h) and may differ from historical snapshot files — trust this page
 
-#### ms_sla_only（`ms_sla_only`）
+#### MS KPI Dashboard (SLA only)（`ms_sla_only`）
 
 The "SLA only" cut of the MS Operation KPI Dashboard: KPI List SLA daily/monthly attainment (TTR / TTR_P1~P4) plus the WOs SLA block (Total / Within SLA / Achieve + trend), without NUR, Network or Per-Site.
 
@@ -1444,7 +1459,9 @@ Site Outage Monitor board: watches whether sites are down, with ERA / Regular / 
 FME ranking board: site availability, work-order volume and SLA achievement per FME, ranked.
 
 - Top3 / Bottom3 cards and the ranking table drill into that FME's site-level availability and WO details
-- The drilldown modal can switch to the site dimension for per-site availability and alarms
+- Two bar charts show availability for the "Top 5" and the "Bottom 5": horizontal bars are ordered by rank from top to bottom and print the availability value at the end of each bar. Each chart scales to its own real value range instead of a fixed 0–100, otherwise bars would all look the same length when the whole group sits above 99%
+- The WO count (blue line) and SLA achievement (orange dashed line) appear only when values actually differ inside that group; when the whole group is identical the series is omitted rather than drawn as a flat line that reads like a trend
+- Click any bar to drill into that FME's site details; the drill-down modal can also switch to the WO dimension
 
 #### site_avail（`site_avail`）
 
@@ -1480,6 +1497,28 @@ Repeat site-down board: identifies sites that go down repeatedly within the wind
 
 - Counts site-downs per day; click a number to drill into that day's down sites
 - Data comes from eflow_tt and eflow_site, complementing the alarm board
+
+#### cr_analysis（`cr_analysis`）
+
+CR Change Analysis: shows change-plan scheduling and execution by change category, answering "how many were planned, how many executed, and how many of those were on time".
+
+- Data comes from eflow_cr (synced from eFlow); the default range covers the full data span
+- Four core counts: "Planned" = has a planned start time; "Executed" = has an actual start time; "Not Executed" = planned but never started; "On Time / Delayed" = actual start before / after planned start
+- Each rate shows its denominator: Plan Completion Rate = executed ÷ planned, On-Time Rate = on time ÷ executed. Shows "—" instead of 0 when the denominator is zero
+- Every number is clickable: the category table, chart bars, monthly trend and sub-category table all drill into details, and the detail row count matches the card figure exactly
+- A yellow banner appears when drill-down results are truncated — narrow the date range and retry rather than ignoring it
+
+#### pm_analysis（`pm_analysis`）
+
+PM Execution Analysis: shows preventive-maintenance work orders (PMT) by PM plan number (pmp_no), answering "how far has each plan progressed, how many are overdue, and where are they stuck".
+
+- Data comes from eflow_pm (synced from eFlow); the default range covers the full data span
+- Four core counts: "Closed" = status is Closed; "Open" = not yet Closed; "Overdue" = the source column pmt_overdue is Yes (the upstream verdict is used as-is, never recomputed from dates); "Not Started" = completed item count is 0
+- Two finer breakdowns: "Closed & Overdue" = back-filled / late delivery; "Open & Overdue" = genuinely still unfinished — look at this one first
+- Each rate shows its denominator: Closure Rate = closed ÷ total, Overdue Rate = overdue ÷ total (lower is better), Started Rate = share of work orders with at least one item completed. Shows "—" instead of 0 when the denominator is zero
+- The "Workflow Progress" funnel follows the REAL chronological order: Created → Scheduled → Accepted → PM Manager Approved → Processed → FLM Leader Approved. Beware: the source column names are misleading — last_accept_time actually precedes last_process_time, so never infer the order from the column names
+- Every number is clickable: KPI cards, rate cards, chart bars, the monthly trend, the site bar chart and the plan table all drill into details, and the detail row count matches the card figure exactly
+- A yellow banner appears when drill-down results are truncated — narrow the date range and retry rather than ignoring it
 
 #### Packet Loss（`packet_loss`）
 

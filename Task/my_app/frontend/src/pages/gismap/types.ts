@@ -168,7 +168,11 @@ export interface CountyBoundary {
   name: string
   db_name: string
   color: string
+  /** 该县站点总数（口径同 /gis/sites） */
   site_count: number
+  /** 该县**有实时告警的站点数**（COUNT DISTINCT，口径同 /gis/realtime/sites）。
+   *  2026-09-25 新增：地图标签按用户要求改为显示此值而非 site_count。 */
+  alarm_site_count: number
   polygons: [number, number][][]
 }
 

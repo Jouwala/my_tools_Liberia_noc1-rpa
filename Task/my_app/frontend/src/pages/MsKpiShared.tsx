@@ -6,8 +6,8 @@
  * 页面读的是任务产出的工作簿本体（多层合并表头 + 目标行 + Month 行），
  * 所有数字原样来自 Excel，不做二次加工；达标判定用「月值 vs 目标值 + 方向」。
  * ========================================================================== */
-import { useMemo } from 'react'
-import { Empty, Space, Tag, Typography } from 'antd'
+import { useMemo, useState } from 'react'
+import { Empty, Segmented, Space, Tag, Typography } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import { useTheme, WH, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
@@ -217,73 +217,204 @@ export function StatCard(props: {
 }
 
 // ==================== 指标卡片（一行一个 KPI） ====================
-export function MetricCards(props: {
+/** PerSite 分类名（与生成端一致：值是「达标站点占比」，目标 90%） */
+const PERSITE_CATEGORY = 'PerSite KPIs'
+
+/**
+ * 按 KPIs Category（Operation / Network / PerSite）把指标分组。
+ * 只在这里分组，不动后端结构 —— category 本来就随每个 Metric 返回。
+ * 组顺序沿用矩阵里的出现顺序（与工作簿列序一致），组内也保持原序。
+ */
+export interface MetricGroup {
+  category: string
+  metrics: Metric[]
+  met: number
+  below: number
+  unknown: number
+  /** 分组是否为 PerSite 口径（值是「达标站点占比」，目标 90%） */
+  persite: boolean
+}
+
+export function groupMetricsByCategory(metrics: Metric[]): MetricGroup[] {
+  const order: string[] = []
+  const bucket = new Map<string, Metric[]>()
+  metrics.forEach(m => {
+    const cat = m.category || '-'
+    if (!bucket.has(cat)) { bucket.set(cat, []); order.push(cat) }
+    bucket.get(cat)!.push(m)
+  })
+  return order.map(cat => {
+    const list = bucket.get(cat)!
+    return {
+      category: cat,
+      metrics: list,
+      met: list.filter(m => m.met === true).length,
+      below: list.filter(m => m.met === false).length,
+      unknown: list.filter(m => m.met === null || m.met === undefined).length,
+      persite: cat === PERSITE_CATEGORY,
+    }
+  })
+}
+
+/** 指标卡单卡（分组页签里的卡） */
+function MetricCard(props: {
+  m: Metric
   matrix: Matrix
   loc: string
   t: (k: string) => string
   onPick?: (m: Metric) => void
   compact?: boolean
 }) {
-  const { matrix, loc, t, onPick, compact } = props
+  const { m, matrix, loc, t, onPick, compact } = props
+  const color = metColor(m.met)
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-      {matrix.metrics.map(m => {
-        const color = metColor(m.met)
-        return (
-          <div
-            key={`${m.category}|${m.group}|${m.key}`}
-            onClick={onPick ? () => onPick(m) : undefined}
-            role={onPick ? 'button' : undefined}
-            tabIndex={onPick ? 0 : undefined}
-            onKeyDown={onPick
-              ? (e) => { if (e.key === 'Enter') (e.target as HTMLElement).click() }
-              : undefined}
-            style={{
-              background: WH.cardBg,
-              border: m.met === false ? `1px solid ${WH.danger}` : WH.cardBorder,
-              borderRadius: 8,
-              padding: compact ? '8px 10px' : '10px 12px',
-              cursor: onPick ? 'pointer' : undefined,
-              boxSizing: 'border-box',
-              flex: `1 1 ${compact ? 168 : 208}px`,
-              maxWidth: compact ? 300 : 380,
-              minWidth: compact ? 148 : 186,
-            }}
-            title={m.label_full}
-          >
-            <div style={{
-              color: WH.textMuted, fontSize: 11, marginBottom: 6, lineHeight: 1.4,
-              minHeight: compact ? 16 : 30, overflow: 'hidden', textOverflow: 'ellipsis',
-              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-            }}>
-              {m.label}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
-              <span style={{ color, fontSize: compact ? 18 : 22, fontWeight: 700, lineHeight: 1.1 }}>
-                {fmtValue(m.month_value, m.format, loc)}
-              </span>
-              <span style={{ color: WH.textDim, fontSize: 11 }}>
-                {`/ ${fmtValue(m.target, m.format, loc)}`}
-              </span>
-            </div>
-            <Space size={4} wrap>
-              <Tag color={m.met === true ? 'green' : m.met === false ? 'red' : 'default'}
-                style={{ marginInlineEnd: 0 }}>
-                {metLabel(m.met, t)}
-              </Tag>
-              <Tag style={{ marginInlineEnd: 0 }}>
-                {`${m.met_days}/${matrix.rows.length}${t('msKpi.daysMetSuffix')}`}
-              </Tag>
-            </Space>
-            {m.month_total !== null && m.month_total !== undefined && (
-              <div style={{ color: WH.textDim, fontSize: 11, marginTop: 6 }}>
-                {`${num(m.month_within).toLocaleString(loc)} / ${num(m.month_total).toLocaleString(loc)}`}
-              </div>
-            )}
-          </div>
-        )
-      })}
+    <div
+      onClick={onPick ? () => onPick(m) : undefined}
+      role={onPick ? 'button' : undefined}
+      tabIndex={onPick ? 0 : undefined}
+      onKeyDown={onPick
+        ? (e) => { if (e.key === 'Enter') (e.target as HTMLElement).click() }
+        : undefined}
+      style={{
+        background: WH.cardBg,
+        border: m.met === false ? `1px solid ${WH.danger}` : WH.cardBorder,
+        borderRadius: 8,
+        padding: compact ? '8px 10px' : '10px 12px',
+        cursor: onPick ? 'pointer' : undefined,
+        boxSizing: 'border-box',
+        flex: `1 1 ${compact ? 168 : 208}px`,
+        maxWidth: compact ? 300 : 380,
+        minWidth: compact ? 148 : 186,
+      }}
+      title={m.label_full}
+    >
+      <div style={{
+        color: WH.textMuted, fontSize: 11, marginBottom: 6, lineHeight: 1.4,
+        minHeight: compact ? 16 : 30, overflow: 'hidden', textOverflow: 'ellipsis',
+        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+      }}>
+        {m.label}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
+        <span style={{ color, fontSize: compact ? 18 : 22, fontWeight: 700, lineHeight: 1.1 }}>
+          {fmtValue(m.month_value, m.format, loc)}
+        </span>
+        <span style={{ color: WH.textDim, fontSize: 11 }}>
+          {`/ ${fmtValue(m.target, m.format, loc)}`}
+        </span>
+      </div>
+      <Space size={4} wrap>
+        <Tag color={m.met === true ? 'green' : m.met === false ? 'red' : 'default'}
+          style={{ marginInlineEnd: 0 }}>
+          {metLabel(m.met, t)}
+        </Tag>
+        <Tag style={{ marginInlineEnd: 0 }}>
+          {`${m.met_days}/${matrix.rows.length}${t('msKpi.daysMetSuffix')}`}
+        </Tag>
+      </Space>
+      {m.month_total !== null && m.month_total !== undefined && (
+        <div style={{ color: WH.textDim, fontSize: 11, marginTop: 6 }}>
+          {`${num(m.month_within).toLocaleString(loc)} / ${num(m.month_total).toLocaleString(loc)}`}
+        </div>
+      )}
     </div>
+  )
+}
+
+/** 一组卡片（含组标题行） */
+function MetricCardGroup(props: {
+  group: MetricGroup
+  matrix: Matrix
+  loc: string
+  t: (k: string) => string
+  onPick?: (m: Metric) => void
+  compact?: boolean
+}) {
+  const { group, matrix, loc, t, onPick, compact } = props
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <Space size={6} wrap style={{ marginBottom: 8 }}>
+        <Text style={{ color: WH.text, fontSize: 13, fontWeight: 600 }}>{group.category}</Text>
+        <Tag color="green" style={{ marginInlineEnd: 0 }}>{`${t('msKpi.met')}: ${group.met}`}</Tag>
+        {group.below > 0 && (
+          <Tag color="red" style={{ marginInlineEnd: 0 }}>{`${t('msKpi.below')}: ${group.below}`}</Tag>
+        )}
+        {group.unknown > 0 && (
+          <Tag style={{ marginInlineEnd: 0 }}>{`${t('msKpi.noData')}: ${group.unknown}`}</Tag>
+        )}
+        <Text style={{ color: WH.textDim, fontSize: 11 }}>
+          {`${group.metrics.length} ${t('msKpi.kpiCount')}`}
+        </Text>
+        {group.persite && (
+          <Text style={{ color: WH.textDim, fontSize: 11 }}>{t('msKpi.persiteTarget')}</Text>
+        )}
+      </Space>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+        {group.metrics.map(m => (
+          <MetricCard key={`${m.category}|${m.group}|${m.key}`} m={m} matrix={matrix}
+            loc={loc} t={t} onPick={onPick} compact={compact} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 合同 KPI 卡组。
+ * - 不分组（默认）：平铺，WOs SLA 页面沿用这个行为；
+ * - `groupByCategory`：按 Operation / Network / PerSite 三个页签分类展示，
+ *   页签标签由调用方通过 `categoryLabels` 注入，避免动态拼 i18n key。
+ */
+export function MetricCards(props: {
+  matrix: Matrix
+  loc: string
+  t: (k: string) => string
+  onPick?: (m: Metric) => void
+  compact?: boolean
+  groupByCategory?: boolean
+  categoryLabels?: Record<string, string>
+}) {
+  const { matrix, loc, t, onPick, compact, groupByCategory, categoryLabels } = props
+  const groups = useMemo(
+    () => (groupByCategory ? groupMetricsByCategory(matrix.metrics) : []),
+    [matrix, groupByCategory],
+  )
+  const [activeCat, setActiveCat] = useState('')
+  // 数据刷新后分类可能变化，取不到就回落到第一组
+  const current = groups.find(g => g.category === activeCat) ?? groups[0]
+
+  if (!groupByCategory) {
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+        {matrix.metrics.map(m => (
+          <MetricCard key={`${m.category}|${m.group}|${m.key}`} m={m} matrix={matrix}
+            loc={loc} t={t} onPick={onPick} compact={compact} />
+        ))}
+      </div>
+    )
+  }
+
+  if (!current) return <Empty description={t('msKpi.empty')} />
+
+  return (
+    <>
+      <Space wrap style={{ marginBottom: 14 }}>
+        <Segmented
+          value={current.category}
+          onChange={(v) => setActiveCat(String(v))}
+          options={groups.map(g => {
+            const label = categoryLabels?.[g.category] ?? g.category
+            const below = g.below > 0 ? ` · ${g.below} ${t('msKpi.below')}` : ''
+            return {
+              value: g.category,
+              label: `${label} (${g.met}/${g.metrics.length}${below})`,
+            }
+          })}
+        />
+      </Space>
+      <MetricCardGroup group={current} matrix={matrix} loc={loc} t={t}
+        onPick={onPick} compact={compact} />
+    </>
   )
 }
 

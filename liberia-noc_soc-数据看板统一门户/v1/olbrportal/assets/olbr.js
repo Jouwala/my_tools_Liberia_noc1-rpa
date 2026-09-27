@@ -162,7 +162,13 @@
     catalogEditable: false, editing: false, saving: false,
     subEdit: '',                          /* 正在改名的子分组 id（同时只开一个） */
     grpFor: null,                         /* 分组归属浮层当前挂在看板编号上 */
-    popForm: null,                        /* 改名类浮层：{kind:'grp'|'grpadd'|'title'|'maptab', id} */
+    popForm: null,                        /* 改名类浮层：{kind:'grp'|'grpadd'|'title'|'maptab'|'itemadd', id} */
+    /* 新增看板的「选模板」两步态（2026-09-26 加）：
+       tplPick 非空 = 第一步浮层正开着；tplBtn 是触发那颗按钮（浮层要贴着它定位）；
+       tplCarry 是「换一个模板」带回第一步的已填值，避免重选一次就白填一遍；
+       addGid 是这次新增要落到哪一列 —— 必须独立于 tplPick 存，
+       因为 openForm 里的 closeGrp() 会把 tplPick 清掉。 */
+    tplPick: null, tplBtn: null, tplCarry: null, addGid: '',
     dragKind: '', dragNo: null, dragGid: '', dragEl: null, dragBefore: false,
     /* ---- 用户管理弹窗（2026-09-22 加）----
        只放界面态，账号数据一律现取现用（state.um.users 是 /uniplam/api/auth/users
@@ -300,7 +306,13 @@
     return '<span class="meta">' + bits.join('<span class="dot">·</span>') + '</span>';
   }
   /* 编辑态卡片底部那排小按钮。分组归属只对「在某个真分组里看这张卡」时有意义，
-     所以 L0 的 CXO 焦点卡只给改标题；页签/SP 清单两张都给。 */
+     所以 L0 的 CXO 焦点卡只给改标题；页签/SP 清单两张都给。
+
+     2026-09-26 起末尾再加两颗（只在有 gid 时给，即「在某列里看这张卡」）：
+       · 移出本列 —— 摘掉一个分组归属，可逆
+       · 删除看板 —— 从共享目录移除，不可逆
+     两者视觉上要能分开：删除那颗用 .ct--del 上危险色（见 olbr.css），
+     不然一排同款灰按钮里点错代价很大。 */
   function edBtns(it, gid, withGrp) {
     var b = '';
     if (withGrp && gid) {
@@ -311,6 +323,14 @@
     b += '<button type="button" class="ct" data-act="title" data-no="' + esc(it.no) +
       '" title="' + esc(t('edit.titleTip')) + '"><i class="ph ph-text-format" aria-hidden="true"></i>' +
       esc(t('edit.title')) + '</button>';
+    if (withGrp && gid) {
+      b += '<button type="button" class="ct" data-act="item-drop" data-no="' + esc(it.no) +
+        '" data-gid="' + esc(gid) + '" title="' + esc(t('edit.itemDropTip')) + '">' +
+        '<i class="ph ph-minus-circle" aria-hidden="true"></i>' + esc(t('edit.itemDrop')) + '</button>' +
+        '<button type="button" class="ct ct--del" data-act="item-del" data-no="' + esc(it.no) +
+        '" title="' + esc(t('edit.itemDelTip')) + '">' +
+        '<i class="ph ph-trash" aria-hidden="true"></i>' + esc(t('edit.itemDel')) + '</button>';
+    }
     return '<span class="c-ed">' + b + '</span>';
   }
   /* 条目卡：卡片流 —— 一行放得下几张就几张，排满自动折到下一行。
@@ -1120,42 +1140,120 @@
     'FLM View': 'wrench', 'FO View': 'bell', 'BO View': 'cpu'
   };
   var V6_LIMIT = 2;
+  /* 列头标题的跳转目标（2026-09-26 加，用户要求「卡片的标题也要能点击打开下级页面」）。
+     实测口径：点「SP View」应进入 viewer.html?no=34&gid=SP%20View ——
+     即该分组**按当前排序的第一条**看板，与列内第一行是同一个目的地。
+     为什么取"第一条"而不是另配一份"分组代表看板"：
+       · 列里已经按 sorter(gid) 排好，第一行就是用户在本卡里最先看到、最近点过的那个；
+         再定一份代表看板等于给同一个问题两个答案，目录一改就会对不上（第二真相源）；
+       · 该分组为空时（或全部被权限过滤掉时）**不渲染链接**，退回原来的纯文本标题 ——
+         宁可点不动，也不要链到一个不存在的看板。
+     ⚠️ gid 必须跟着链接走：viewer 靠 gid 决定面包屑与"同组其余看板"的上下文，
+     漏掉它会退化成"从全部看板里点进来的"，与本卡表达的"进入这个视图"不符。 */
+  function v6HeadLink(gid, list) {
+    var it = list && list[0];
+    if (!it) return '';
+    return '<a class="v6-t v6-t-link" href="' + esc(vlink(it, gid)) + '" target="_blank" ' +
+      'rel="noopener noreferrer" title="' + esc(tf('v6.headTip', { n: titleOf(it) })) + '">';
+  }
+  /* 六个入口卡显示哪六列。这是**固定的一份名单**，不是「目录里所有分组」——
+     用户明确要求本页只显示这六张卡，不要因为目录里多了一个分组就多长出一列
+     （新增分组是给 /olbrportal/ 与 MsPortal 用的；本页新建的分组不会多出一列，
+     但会立刻出现在目录里，那两处能看到，本页也可通过卡片的「分组」按钮把看板挂进去）。 */
+  var V6_GROUPS = ['CXO View', 'SP View', 'MS View', 'FLM View', 'FO View', 'BO View'];
+  /* 六个视图入口卡（CXO / SP / MS / FLM / FO / BO）。
+     每一列 = 一个分组，列内是该分组的看板行。
+
+     ⚠️ 这一块**就是本页的编辑对象**（2026-09-26 恢复编辑能力时定的）：
+     本页没有 /olbrportal/ 那种 L1 分组页签面板，可编辑的卡片只有这里，
+     所以编辑态把行条目从「纯链接」升级成「卡片」：
+       · 加 a.card.is-ed 类 + draggable + data-gid/data-no
+         —— bindEdit() 里的拖拽三件套（dragstart/dragover/drop）只认
+            `a.card.is-ed`，不改这里拖拽就完全没反应；
+       · 行尾补上改名 / 分组两颗按钮（edBtns）；
+       · 列头补上分组改名 / 新增分组两颗按钮（v6HeadTools）。
+     只读态保持原样：纯链接、无按钮、无 draggable（见下面的 else 分支）。 */
   function renderViews6() {
     var box = $('#views6');
     if (!box) return;
     var items = allowed();
+    var ed = canEdit();
     var html = '';
-    ['CXO View', 'SP View', 'MS View', 'FLM View', 'FO View', 'BO View'].forEach(function (gid) {
+    V6_GROUPS.forEach(function (gid) {
       var list = items.filter(function (it) { return inGroup(it, gid); });
       /* 先把条目按「本组的目录顺序」排好（与 L1 页签用同一个 sorter），
-         否则这里列出来的前几条会与页签里看到的头几张卡对不上。 */
+         否则这里列出来的前几条会与页签里看到的头几张卡对不上。
+         编辑态有新拖出来的顺序就按它排 —— 否则拖完顺序不回显，看起来像没保存。 */
       list = list.slice().sort(sorter(gid));
       var open = !!state.v6Open[gid];
-      var show = open ? list : list.slice(0, V6_LIMIT);
+      var show = open || ed ? list : list.slice(0, V6_LIMIT);
       var body = list.length
         ? show.map(function (it) {
-            return '<a class="v6-row" href="' + esc(vlink(it, gid)) + '" target="_blank" rel="noopener noreferrer" ' +
-              'title="' + esc(descOf(it) || titleOf(it)) + '">' + ic(it.icon) +
-              '<span>' + esc(titleOf(it)) + '</span>' +
-              (it.status === 'beta' ? '<em>' + esc(stOf(it)) + '</em>' : '') +
+            var txt = ic(it.icon) + '<span>' + esc(titleOf(it)) + '</span>' +
+              (it.status === 'beta' ? '<em>' + esc(stOf(it)) + '</em>' : '');
+            /* 只读态：纯链接，交给浏览器默认行为（target=_blank），不拦截。 */
+            if (!ed) {
+              return '<a class="v6-row" href="' + esc(vlink(it, gid)) + '" target="_blank" rel="noopener noreferrer" ' +
+                'title="' + esc(descOf(it) || titleOf(it)) + '">' + txt +
+                '<i class="ph ph-arrow-up-right go" aria-hidden="true"></i></a>';
+            }
+            /* 编辑态：与 itemCard 同构 —— 外层是 <a>，所以「分组」按钮必须 preventDefault，
+               否则会顺手把查看器开一个新标签（onEditClick 里已拦）。 */
+            return '<a class="card v6-row is-ed" href="' + esc(vlink(it, gid)) + '" target="_blank" ' +
+              'rel="noopener noreferrer" title="' + esc(descOf(it) || titleOf(it)) + '"' +
+              ' data-no="' + esc(it.no) + '" draggable="true" data-gid="' + esc(gid) + '">' + txt +
+              edBtns(it, gid, true) +
               '<i class="ph ph-arrow-up-right go" aria-hidden="true"></i></a>';
           }).join('')
         : '<div class="v6-empty">' + esc(t('v6.empty')) + '</div>';
-      if (list.length > V6_LIMIT) {
+      /* 编辑态一律列出全部：折起来的话「拖到看不见的那几张之间」根本做不到。 */
+      if (!ed && list.length > V6_LIMIT) {
         body += '<button type="button" class="v6-more" data-act="v6-toggle" data-gid="' + esc(gid) +
           '" aria-expanded="' + (open ? 'true' : 'false') + '">' +
           '<i class="ph ph-' + (open ? 'caret-up' : 'caret-down') + '" aria-hidden="true"></i>' +
           '<span>' + esc(open ? t('v6.less') : tf('v6.more', { n: list.length - V6_LIMIT })) + '</span></button>';
       }
+      /* 编辑态列头给四颗工具：改本列分组名 / 重置本列顺序 / 新增看板 / 新建分组。
+         「重置顺序」沿用 panelHead 的口径 —— 只在该列真有自定义顺序时才出现，
+         没有顺序还给按钮就是噪声。本页没有 L1 面板，这颗按钮原先只存在于
+         panelHead 里，不在这里补一颗的话：一旦拖过就再也回不到默认排序。
+         「新增看板」每列都有（要往哪一列加就得在那一列上点），而「新增分组」
+         仍然只出现在最后一列 —— 分组是全页共用的一个列表，每列都摆一颗是纯噪声。 */
+      var hasOrd = canEdit() && (state.order[gid] || []).length;
+      var tools = !ed ? '' :
+        (hasOrd
+          ? '<button type="button" class="ct ct--rst" data-act="rst-order" data-gid="' + esc(gid) +
+            '" title="' + esc(t('edit.resetTip')) + '"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>' +
+            esc(t('edit.reset')) + '</button>'
+          : '') +
+        '<button type="button" class="ct" data-act="item-add" data-gid="' + esc(gid) +
+          '" title="' + esc(t('edit.itemAddTip')) + '"><i class="ph ph-plus-circle" aria-hidden="true"></i>' +
+          esc(t('edit.itemAdd')) + '</button>' +
+        '<button type="button" class="ct" data-act="grp-edit" data-gid="' + esc(gid) +
+          '" title="' + esc(t('edit.grpEditTip')) + '"><i class="ph ph-tag" aria-hidden="true"></i>' +
+          esc(t('edit.grpEdit')) + '</button>' +
+        (gid === V6_GROUPS[V6_GROUPS.length - 1]
+          ? '<button type="button" class="ct" data-act="grp-add" title="' + esc(t('edit.grpAddTip')) +
+            '"><i class="ph ph-folder-plus" aria-hidden="true"></i>' + esc(t('edit.grpAdd')) + '</button>'
+          : '');
       html += '<div class="v6" data-gid="' + esc(gid) + '">' +
         '<div class="v6-h"><span class="v6-ico" aria-hidden="true">' + ic(V6_ICONS[gid]) + '</span>' +
           /* 名称与说明都取目录（gName / gSub），不另建一份 i18n 文案：
              目录里的分组名本来就是可以在本页编辑、且 MsPortal 共用的一份，
              再写一套 sec.* 字典会出现「改了分组名，这里还是旧的」。
-             gSub 没配置时留空，不留一个空 <small> 撑高标题行。 */
-          '<span class="v6-t">' + esc(gName(gid) || gid) +
-            (gSub(gid) ? '<small>' + esc(gSub(gid)) + '</small>' : '') + '</span>' +
-          '<span class="v6-n">' + list.length + '</span></div>' +
+             gSub 没配置时留空，不留一个空 <small> 撑高标题行。
+             2026-09-26：标题本身成了链接（v6HeadLink），点它 = 打开本组第一条看板；
+             说明 gSub 与右侧计数/工具仍留在链接外 —— 它们不是"进入某个视图"的一部分，
+             把整行做成链接会让「点计数徽章也跳走」，与行内按钮抢点击。 */
+          v6HeadLink(gid, list) +
+            /* 标题文字与箭头各占一层：文字那一颗负责单行省略（CSS 的
+               .v6-t-top > span），箭头必须留在它外面 —— 一起裁掉的话，
+               长标题在窄列里就完全看不出「这里可以点」。 */
+            '<span class="v6-t-top"><span>' + esc(gName(gid) || gid) + '</span>' +
+              '<i class="ph ph-arrow-up-right v6-t-go" aria-hidden="true"></i></span>' +
+            (gSub(gid) ? '<small>' + esc(gSub(gid)) + '</small>' : '') +
+          (list.length ? '</a>' : '') +
+          '<span class="v6-n">' + list.length + '</span>' + tools + '</div>' +
         '<div class="v6-list">' + body + '</div></div>';
     });
     box.innerHTML =
@@ -1172,9 +1270,9 @@
     var ed = canEdit();
     return '<div class="p-head"><span class="p-hd">' +
       (ed
-        ? '<button type="button" class="p-t p-t-edit" data-act="map-head" title="' + esc(t('edit.maptabTip')) + '">' +
+        ? '<button type="button" class="p-t p-t-edit t-orange" data-act="map-head" title="' + esc(t('edit.maptabTip')) + '">' +
           esc(headTitleText()) + '<i class="ph ph-pencil-simple maptab-pen" aria-hidden="true"></i></button>'
-        : '<span class="p-t">' + esc(headTitleText()) + '</span>') +
+        : '<span class="p-t t-orange">' + esc(headTitleText()) + '</span>') +
       '<span class="p-s">' + esc(headSubText()) + '</span></span>' +
       '<div class="map-tabs"><div class="tabs' + (ed ? ' is-renaming' : '') + '" role="tablist">' + maps.map(function (m) {
         return '<button type="button" class="tab" role="tab" data-map="' + esc(m.page) + '" aria-selected="' +
@@ -1599,9 +1697,10 @@
     if (!id) { toast(t('edit.grpNeedName')); return; }
     if (state.groups.some(function (g) { return g.id === id; })) { toast(t('edit.grpDup')); return; }
     var next = state.groups.concat([{ id: id, zh: zh || id, en: en || id, subZh: '', subEn: '', style: 'card' }]);
-    /* 直接切到新分组：新建的分组是空的，留在当前页签就等于「没反应」，
-       切过去才能立刻看到那颗空面板和它头上的改名/删除入口。 */
-    commit(function () { state.groups = next; state.viewTab = id; state.viewSub = ''; }, t('edit.grpAdded'));
+    /* 不切 state.viewTab：那是 L1 页签面板的选中态，本页没有面板。
+       新分组只进目录（六张入口卡是固定名单，不会因此多一列），
+       要把它挂到某个已有列里，用卡片的「分组」按钮勾选即可。 */
+    commit(function () { state.groups = next; state.viewSub = ''; }, t('edit.grpAdded'));
   }
   /* 删除一级分组比看起来危险：分组名只是标签，看板才是内容 —— 所以先把该分组从每张
      卡片的 groups 里摘掉，并且**先检查有没有人会因此无家可归**。任何一张卡会因为这次删除
@@ -1632,16 +1731,96 @@
   }
 
   /* ---- 看板标题：items.titleZh/titleEn 本来就是服务端字段，只是以前没有入口 ---- */
-  function renameItem(no, zh, en) {
-    zh = String(zh || '').trim(); en = String(en || '').trim();
+  /* 只收 http(s)。目录里的 url 最终会进 viewer 的 iframe src 与「新标签打开」的 <a href>，
+     放行 javascript:/data: 等于给自己开一个 XSS 口子 —— 而这条目录是所有门户共用的。
+     新增与改名**共用这一条判定**，不各写一份正则（两处规则分叉是这类校验最典型的腐烂方式）。 */
+  function isHttpUrl(u) { return /^https?:\/\//i.test(String(u || '').trim()); }
+  /* 改看板：名字与链接一起改（2026-09-26 起把 url 并进来）。
+     原先链接**没有任何编辑入口** —— 想换一张看板打开什么，只能手改服务端 JSON。
+     而卡片点下去的地址栏显示的是 /MsPortal/viewer.html?no=…&gid=…（vlink 硬编码的），
+     真正的地址由 viewer 读本字段决定，所以「替换看板的链接」就是改这里。
+
+     校验顺序：名字 → 非空 → http(s)。链接一律要求合法，不留「只改名不动链接」的后门 ——
+     实测目录 54 条全部是 http(s)，放宽只会让非法值有路可走。 */
+  function renameItem(no, zh, en, url) {
+    zh = String(zh || '').trim(); en = String(en || '').trim(); url = String(url || '').trim();
     if (!zh && !en) { toast(t('edit.needTitle')); return; }
+    if (!url) { toast(t('edit.itemNeedUrl')); return; }
+    if (!isHttpUrl(url)) { toast(t('edit.itemBadUrl')); return; }
     commit(function () {
       applyItems(patchItem(no, function (it) {
         var c = {}; Object.keys(it).forEach(function (k) { c[k] = it[k]; });
-        c.titleZh = zh; c.titleEn = en;
+        c.titleZh = zh; c.titleEn = en; c.url = url;
         return c;
       }));
     }, t('edit.titleOk'));
+  }
+
+  /* -------------------------------------- 看板条目本身的增删（2026-09-26） -- */
+  /* 与上面「分组」三件事的区别：这里动的是 **条目本身**，不是它挂在哪个分组。
+
+     ⚠️ 「移出本列」为什么必须防一手：本项目**没有「不属于任何分组」的看板**这种状态 ——
+     空 groups 的条目在页签视图里是看不见的（delGroup 里那段无家可归保护讲的就是这个）。
+     NUR Dashboard(no=1) 就只属于 ["MS View"] 一个分组，无脑移出等于把它弄丢了。
+     所以只剩一个分组时直接拒绝，并指路到真正能删它的那颗按钮。 */
+  function dropItemFromGroup(no, gid) {
+    var it = itemsAll().filter(function (x) { return String(x.no) === String(no); })[0];
+    if (!it || !gid) return;
+    if (!inGroup(it, gid)) return;
+    if (groupsOf(it).length <= 1) { toast(t('edit.itemLastGrp')); return; }
+    commit(function () {
+      applyItems(patchItem(no, function (x) {
+        var c = {}; Object.keys(x).forEach(function (k) { c[k] = x[k]; });
+        c.groups = groupsOf(x).filter(function (g) { return g !== gid; });
+        /* 子分组归属也要一起摘掉：留着会在「该分组 → 子分组」的映射里
+           留下一个指向已不属于该组的条目的悬挂 key（与 delGroup 同一处理）。 */
+        return withSubOf(c, gid, '');
+      }));
+    }, t('edit.itemDropped'));
+  }
+  /* 彻底删除条目。⚠️ 这是本页唯一不可逆的操作，且改的是所有人共享的目录
+     （/olbrportal/ 与 MsPortal 都读同一份），所以：
+       · 二次确认里写清看板名 + 「所有人可见、无法撤销」；
+       · 顺手把 no 从**所有** order[gid] 里摘掉 —— 否则会留下一个指向不存在看板的
+         悬挂编号，下次 sorter() 按它排位时那张卡的位置就成了空洞；
+       · 不回收 no（不复用已删编号）：历史链接与别人的 order 数组都可能还记着它，
+         复用会让旧编号指向一张**别的**看板。新编号一律取 max(no)+1。 */
+  function deleteItem(no) {
+    var it = itemsAll().filter(function (x) { return String(x.no) === String(no); })[0];
+    if (!it) return;
+    if (!window.confirm(tf('edit.itemDelConfirm', { n: titleOf(it) }))) return;
+    var nextOrder = {};
+    Object.keys(state.order || {}).forEach(function (g) {
+      nextOrder[g] = (state.order[g] || []).filter(function (n) { return String(n) !== String(no); });
+    });
+    commit(function () {
+      applyItems(itemsAll().filter(function (x) { return String(x.no) !== String(no); }));
+      state.order = nextOrder;
+    }, t('edit.itemDeleted'));
+  }
+  /* 新增看板：照一个已有看板当模板（用户选定的口径）。
+     模板值继承 icon / platform / descZh / descEn / owner / dept / tags / status / freq，
+     用户只填名字与链接 —— 从零填十几个字段没人愿意填，而这些字段又都有合理默认。 */
+  function addItemFromTemplate(tplNo, gid, zh, en, url) {
+    zh = String(zh || '').trim(); en = String(en || '').trim(); url = String(url || '').trim();
+    if (!zh && !en) { toast(t('edit.needTitle')); return; }
+    if (!url) { toast(t('edit.itemNeedUrl')); return; }
+    if (!isHttpUrl(url)) { toast(t('edit.itemBadUrl')); return; }
+    var tpl = itemsAll().filter(function (x) { return String(x.no) === String(tplNo); })[0];
+    if (!tpl) return;
+    var maxNo = itemsAll().reduce(function (m, x) { return Math.max(m, parseInt(x.no, 10) || 0); }, 0);
+    var c = {}; Object.keys(tpl).forEach(function (k) { c[k] = tpl[k]; });
+    /* 从模板复制来的字段里，这几个必须重写 —— 照抄会让新卡片顶着模板的身份：
+       no 要唯一、clicks 归零（它渲染成热度）、groups 只进本列、
+       subOf/qc 是模板在别的分组里的归属与下钻配置，与本列无关。
+       custom 同理：那是「用户自建」标记，新条目算自建，但保留模板的值没有意义。 */
+    c.no = maxNo + 1;
+    c.titleZh = zh || en; c.titleEn = en || zh;
+    c.url = url;
+    c.groups = [gid];
+    c.clicks = 0;
+    delete c.subOf; delete c.boSub; delete c.qc; delete c.custom;
+    commit(function () { applyItems(itemsAll().concat([c])); }, t('edit.itemAdded'));
   }
 
 
@@ -1768,6 +1947,19 @@
     else if (act === 'grp-add') { openForm('grpadd', '', b); }
     else if (act === 'title') { e.preventDefault(); e.stopPropagation(); openForm('title', b.getAttribute('data-no'), b); }
     else if (act === 'rst-order') { resetOrder(gid); }
+    /* 看板条目本身的增删（2026-09-26）。
+       这两颗也在 <a> 里面，同样要拦默认行为，否则点「删除」会顺手开一个新标签。 */
+    else if (act === 'item-drop') {
+      e.preventDefault(); e.stopPropagation();
+      dropItemFromGroup(b.getAttribute('data-no'), gid);
+    }
+    else if (act === 'item-del') {
+      e.preventDefault(); e.stopPropagation();
+      deleteItem(b.getAttribute('data-no'));
+    }
+    /* 新增看板：先开「选模板」浮层（不是直接开表单）—— 模板决定了表单里
+       要继承哪些字段，没有模板就没法填表。 */
+    else if (act === 'item-add') { e.preventDefault(); e.stopPropagation(); openTplPick(gid, b); }
     /* v1：这两支原本调 renderViews()（重画 L1 面板里的子分组行），函数已随面板删除。
        改调 renderCatalog() —— 它做的是「目录变了，把看得懂目录的几块重画一遍」，
        语义正确且不碰地图 iframe；万一以后恢复编辑模式，这里也是对的落点。 */
@@ -1828,6 +2020,9 @@
   }
   function closeGrp() {
     state.grpFor = null;
+    /* tplPick 与 grpFor 共用这颗浮层，收起时两个状态都要清 ——
+       只清一个的话，下次点「新增看板」会走到「浮层没开但状态还在」的岔路上。 */
+    state.tplPick = null;
     var pop = $('#grpPop'); if (pop) { pop.hidden = true; pop.innerHTML = ''; }
   }
   function bindGrpPop() {
@@ -1855,16 +2050,110 @@
   }
   function btnFor(no) { return document.querySelector('[data-act="grp"][data-no="' + no + '"]'); }
 
+  /* ---- 新增看板的第一步：选模板 ------------------------------------------
+     用 #grpPop 这颗浮层（同一种「贴按钮的 fixed 小面板」），不另开容器。
+     目录里 55 条要能搜 —— 让它滚动找是不现实的。
+     选定后 state.tplPick 记下模板 no，交给 openForm('itemadd') 填表；
+     表单里那颗「换一个模板」再把状态倒回这一步。 */
+  function openTplPick(gid, btn) {
+    var pop = $('#grpPop'); if (!pop) return;
+    closeForm();
+    /* 先把可能开着的「分组归属」浮层收掉，再设 tplPick ——
+       顺序不能反：closeGrp() 现在会顺手清掉 tplPick。 */
+    closeGrp();
+    state.tplPick = { gid: gid, tpl: null, q: '' };
+    state.tplBtn = btn;
+    paintTplPick();
+  }
+  function paintTplPick() {
+    var pop = $('#grpPop'), st = state.tplPick;
+    if (!pop || !st) return;
+    var q = String(st.q || '').toLowerCase();
+    var list = itemsAll().filter(function (it) {
+      if (!q) return true;
+      var hay = [it.titleZh, it.titleEn, '#' + it.no, it.url].join(' ').toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+    pop.hidden = false;
+    pop.innerHTML = '<div class="gp-hd"><b>' + esc(t('edit.itemAdd')) + '</b><span>' + esc(t('edit.itemAddPick')) + '</span></div>' +
+      '<div class="gp-search"><input type="search" id="tplQ" autocomplete="off" placeholder="' +
+        esc(t('edit.itemAddSearch')) + '" value="' + esc(st.q || '') + '"></div>' +
+      '<div class="gp-list gp-list--tpl">' + (list.length
+        ? list.map(function (it) {
+            return '<button type="button" class="gp-tpl" data-act="tpl-pick" data-no="' + esc(it.no) + '">' +
+              '<i class="ph ph-' + esc(it.icon || 'app-window') + '" aria-hidden="true"></i>' +
+              '<span class="gp-tpl-t">' + esc(titleOf(it)) + '</span>' +
+              '<span class="gp-tpl-n">#' + esc(it.no) + '</span></button>';
+          }).join('')
+        : '<div class="gp-none">' + esc(t('v.emptyFilter')) + '</div>') + '</div>';
+    if (state.tplBtn) placePop(pop, state.tplBtn);
+    var inp = pop.querySelector('#tplQ');
+    if (inp) {
+      inp.focus();
+      /* 光标放到末尾：重画后默认全选，下一键就把搜索词替掉，很难继续输入 */
+      var n = inp.value.length;
+      try { inp.setSelectionRange(n, n); } catch (err) { /* search 输入框在老浏览器上可能不支持，忽略 */ }
+    }
+  }
+  /* 搜索框 input 事件（不是 click）单独绑一次：inp.value 边打边重画会把
+     输入法组合状态打断，所以这里只改 state 再重画，重画时把光标放回末尾。 */
+  function bindTplPick() {
+    var pop = $('#grpPop'); if (!pop) return;
+    /* 点一条模板 → 开 fill-in 表单。
+       这条委托与 bindGrpPop 的 change 委托共存：那个只在勾选 input[data-g] 时动作，
+       两者选择器不重叠，不会互相抢。 */
+    pop.addEventListener('click', function (e) {
+      if (!state.tplPick) return;
+      var b = e.target.closest ? e.target.closest('[data-act="tpl-pick"]') : null;
+      if (!b) return;
+      e.preventDefault();
+      var gid = state.tplPick.gid, no = b.getAttribute('data-no');
+      /* 换模板时把上一轮已填的名字/链接带过去（backToTplPick 存的），
+         没带过就用空 → openForm 里会按模板重新预填。 */
+      state.tplPick = null;
+      var btn = state.tplBtn;
+      /* ⚠️ 目标分组必须在这一步就存下来：openForm 里会调 closeGrp()，
+         而 closeGrp() 现在会连带清掉 tplPick —— 等到 submitForm 再回头读
+         state.tplPick.gid 只会拿到 null，新增的看板就悄悄落到了第一列。 */
+      state.addGid = gid;
+      openForm('itemadd', no, btn);
+      var carry = state.tplCarry; state.tplCarry = null;
+      if (carry) {
+        [['itemZh', carry.zh], ['itemEn', carry.en], ['itemUrl', carry.url]].forEach(function (p) {
+          var el = $('#editPop').querySelector('[data-f="' + p[0] + '"]');
+          if (el && p[1]) el.value = p[1];
+        });
+      }
+    });
+    pop.addEventListener('input', function (e) {
+      if (!state.tplPick) return;
+      var i = e.target.closest ? e.target.closest('#tplQ') : null;
+      if (!i) return;
+      state.tplPick.q = i.value;
+      var sel = i.selectionStart;
+      paintTplPick();
+      var again = $('#grpPop').querySelector('#tplQ');
+      if (again) { again.focus(); try { again.setSelectionRange(sel, sel); } catch (err) { /* 同上 */ } }
+    });
+  }
+
   /* ---- 第二颗浮层：改名类表单（一级分组改名 / 新增分组 / 看板改标题）----
      三者都是「两三个输入框 + 保存」，共用一套渲染与定位，省掉三套近似代码。
      仍然不是 modal：改的时候要看见被改的东西长什么样，遮罩会把上下文全挡住。 */
   var FORMS = {
     grp: { fields: ['zh', 'en', 'subZh', 'subEn'], tip: 'edit.grpEditTip', ok: 'edit.formSave' },
     grpadd: { fields: ['zh', 'en'], tip: 'edit.grpAddTip', ok: 'edit.formAdd' },
-    title: { fields: ['zh', 'en'], tip: 'edit.titleTip', ok: 'edit.formSave' },
+    /* title = 改看板（名字 + 链接）。字段沿用 itemUrl 而不是另起一个 url：
+       submitForm 已经在收集 vi.itemUrl，i18n 的 edit.f.itemUrl / edit.fph.itemUrl 也已存在，
+       两处共用一份字段名与一份文案，少一套重复定义。 */
+    title: { fields: ['zh', 'en', 'itemUrl'], tip: 'edit.titleTip', ok: 'edit.formSave' },
     /* 拓扑地图页签名（2026-09-23 加）：字段与 title 相同，独立的 kind 只为让提示语
        说清「改的是地图页签」并走 renameTab 这条路（写的是 catalog.tabLabels）。 */
-    maptab: { fields: ['zh', 'en'], tip: 'edit.maptabTip', ok: 'edit.formSave' }
+    maptab: { fields: ['zh', 'en'], tip: 'edit.maptabTip', ok: 'edit.formSave' },
+    /* 新增看板（2026-09-26 加）：字段名带 item 前缀，与 title 的 zh/en 区分开 ——
+       两者都是「中英文名」，复用 zh/en 会让 submitForm 分不清该走 renameItem
+       还是 addItemFromTemplate，多一个前缀比多一层 if 清楚。 */
+    itemadd: { fields: ['itemZh', 'itemEn', 'itemUrl'], tip: 'edit.itemAddTip', ok: 'edit.formAdd' }
   };
   function openForm(kind, id, btn) {
     var f = FORMS[kind], pop = $('#editPop');
@@ -1876,7 +2165,23 @@
     else if (kind === 'title') {
       var it = itemsAll().filter(function (x) { return String(x.no) === String(id); })[0];
       if (!it) return;
-      vals = { zh: it.titleZh || '', en: it.titleEn || '' };
+      /* 链接预填当前值：改链接时通常只想动其中一段（如 page=ttwo → page=v1_ttwo），
+         空着会让人以为「链接本来就没有」，也容易被顺手覆盖掉带 token 的查询串。 */
+      vals = { zh: it.titleZh || '', en: it.titleEn || '', itemUrl: it.url || '' };
+    }
+    /* 新增看板：预填模板的名字（加「副本」后缀，免得新卡片与模板同名到分不出来），
+       链接**留空** —— 照抄模板链接会造出一张指向同一个页面的重复看板，
+       这正是最该避免的误操作；留空强制用户自己填。 */
+    else if (kind === 'itemadd') {
+      var tpl = itemsAll().filter(function (x) { return String(x.no) === String(id); })[0];
+      if (!tpl) return;
+      vals = {
+        itemZh: (tpl.titleZh || tpl.titleEn || '') + ' 副本',
+        itemEn: (tpl.titleEn || tpl.titleZh || '') + ' Copy',
+        itemUrl: '',
+        /* 只用于表单底部那行「模板：#1 NUR Dashboard」，让人确认继承的是哪一张 */
+        __tplFrom: '#' + tpl.no + ' ' + titleOf(tpl)
+      };
     }
     else if (kind === 'maptab') {
       /* 当前值：配过就是配置里的，没配过用内置文案（不要让输入框空着 ——
@@ -1893,18 +2198,27 @@
       }
     }
     var hd = kind === 'grp' ? gName(id) : kind === 'title' ? ('#' + id + ' ' + (vals.zh || vals.en))
-      : kind === 'maptab' ? (t('map.title') + ' · ' + (vals.zh || vals.en)) : t('edit.grpAdd');
+      : kind === 'maptab' ? (t('map.title') + ' · ' + (vals.zh || vals.en))
+      : kind === 'itemadd' ? t('edit.itemAdd') : t('edit.grpAdd');
     pop.hidden = false;
     pop.innerHTML = '<div class="gp-hd"><b>' + esc(hd) + '</b><span>' + esc(t(f.tip)) + '</span></div>' +
       f.fields.map(function (k) {
+        /* URL 是长串，64 太短会截断带 token 的 myapp 链接；其余沿用 64。
+           子分组说明 200（原有口径）。 */
+        var ml = /Url$/.test(k) ? 512 : (/^sub/.test(k) ? 200 : 64);
         return '<label class="gf"><span>' + esc(t('edit.f.' + k)) + '</span>' +
-          '<input type="text" class="gf-i" data-f="' + k + '" maxlength="' + (/^sub/.test(k) ? 200 : 64) +
+          '<input type="text" class="gf-i" data-f="' + k + '" maxlength="' + ml +
           '" value="' + esc(vals[k] || '') + '" placeholder="' + esc(t('edit.fph.' + k)) + '"></label>';
       }).join('') +
       '<div class="gf-b"><button type="button" class="gb gf-ok" data-act="form-ok"><i class="ph ph-check" aria-hidden="true"></i>' + esc(t(f.ok)) + '</button>' +
       (kind === 'grp' && !isBuiltinGroup(id)
         ? '<button type="button" class="gb gf-del" data-act="form-del"><i class="ph ph-trash" aria-hidden="true"></i>' + esc(t('edit.grpDel')) + '</button>' : '') +
-      '</div>';
+      /* 选错了模板不用关掉重来 —— 退回第一步重选，已填的名字/链接不丢（见 backToTplPick）。 */
+      (kind === 'itemadd'
+        ? '<button type="button" class="gb gf-back" data-act="form-tpl"><i class="ph ph-swap" aria-hidden="true"></i>' + esc(t('edit.itemAddBack')) + '</button>' : '') +
+      '</div>' +
+      (kind === 'itemadd' && vals.__tplFrom
+        ? '<div class="gf-note">' + esc(tf('edit.itemTplFrom', { n: vals.__tplFrom })) + '</div>' : '');
     placePop(pop, btn);
     state.popForm = { kind: kind, id: id };
     var first = pop.querySelector('input'); if (first) { first.focus(); first.select(); }
@@ -1923,11 +2237,28 @@
     /* 取值必须在 closeForm 之前：closeForm 会清空 innerHTML，
        先关后取只会读到空串，表现为「点了保存、名字被清空」。 */
     var v = { zh: formVal('zh'), en: formVal('en'), subZh: formVal('subZh'), subEn: formVal('subEn') };
+    var vi = { itemZh: formVal('itemZh'), itemEn: formVal('itemEn'), itemUrl: formVal('itemUrl') };
     closeForm();                                    /* 先收浮层再提交：commit 会重绘，留着会看见「保存完了框还在」 */
     if (kind === 'grp') renameGroup(id, v);
     else if (kind === 'grpadd') addGroup(v.zh, v.en);
     else if (kind === 'maptab') renameTab(id, v.zh, v.en);
-    else renameItem(id, v.zh, v.en);
+    else if (kind === 'itemadd') {
+      /* 目标分组在选模板那一步就存进 state.addGid 了（不能在提交时读 tplPick：
+         openForm 里的 closeGrp() 会把它清掉）。取不到才退回第一列，不静默丢弃。 */
+      addItemFromTemplate(id, state.addGid || V6_GROUPS[0], vi.itemZh, vi.itemEn, vi.itemUrl);
+    }
+    else renameItem(id, v.zh, v.en, vi.itemUrl);
+  }
+  /* 表单里「换一个模板」：退回第一步重选，并把已填的名字/链接带过去。
+     没填过就还原本来的预填值，不会把输入框清空。 */
+  function backToTplPick() {
+    var pf = state.popForm; if (!pf || pf.kind !== 'itemadd') return;
+    var keep = { zh: formVal('itemZh'), en: formVal('itemEn'), url: formVal('itemUrl') };
+    var gid = state.addGid || V6_GROUPS[0];
+    closeForm();
+    state.tplPick = { gid: gid, tpl: null, q: '' };
+    state.tplCarry = keep;
+    paintTplPick();
   }
   function bindFormPop() {
     var pop = $('#editPop'); if (!pop) return;
@@ -1936,6 +2267,7 @@
       if (!b) return;
       var act = b.getAttribute('data-act');
       if (act === 'form-ok') { submitForm(); return; }
+      if (act === 'form-tpl') { backToTplPick(); return; }
       if (act === 'form-del') { var id = state.popForm && state.popForm.id; closeForm(); if (id) delGroup(id); return; }
     });
     pop.addEventListener('keydown', function (e) {
@@ -1948,25 +2280,26 @@
      这是一支会改**全站共享目录**的笔，不该在用户打开页面时就已经握着。
      `?edit=1` 深链可以自动进入（与 MsPortal 同一入口），但同样要 editable 为真。
 
-     ⚠️ v1：编辑模式整块停用，`?edit=1` 深链也一起挡住。
-     原因：编辑模式的**所有内联入口**（卡片上的改名 / 删除 / 新增看板 /
-     分子分组按钮）都是通过 onEditClick 的事件委托挂在 #views 与 #l0 上的，
-     这两块本次已按要求整块去掉 —— 现在开起来只剩一条「编辑模式」横幅，
-     底下没有任何可编辑对象，比看不见这颗开关更让人困惑。
-     目录是全站共享的一份，改目录请走 /olbrportal/ 或 MsPortal。
-     恢复办法：把 state.editing 这一行改回 `!!on && !!state.catalogEditable`，
-     并把 onEditClick 重新挂到某个渲染卡片的容器上。 */
+     ⚠️ v1（2026-09-26 修正，此前整块停用）：
+     早前把编辑模式整块关掉，理由是「onEditClick 的委托挂在 #views 与 #l0 上，
+     这两块已按要求删掉，开起来只剩一条横幅、没有可编辑对象」——
+     那个判断漏了一点：**本页真正的卡片容器是 #views6**（六个视图入口卡），
+     它一直都在渲染，只是行条目当时不参与编辑。
+     于是恢复的做法不是把 #views 整块搬回来（那正是用户不要的：
+     六个入口卡已经覆盖 CXO/SP/MS/FLM/FO/BO，再铺一层页签是同一批内容的第二份入口），
+     而是**让 #views6 的行条目自己成为编辑对象** —— 见 renderViews6()。
+     目录是全站共享的一份，改目录请走本页、/olbrportal/ 或 MsPortal。 */
   function setEditing(on) {
-    state.editing = false;
+    state.editing = !!on && !!state.catalogEditable;
     state.subEdit = ''; closeGrp(); closeForm();
     root.classList.toggle('is-edit', state.editing);
     syncEditBtn(); renderCatalog();
   }
   function syncEditBtn() {
     var b = $('#editBtn'); if (!b) return;
-    /* v1：恒隐藏（理由见 setEditing 上方那段注释）。
-       标签 / 图标那几行保留不动 —— 万一以后恢复编辑模式，接回去即可。 */
-    b.hidden = true;
+    /* 只有「目录可写」的会话才看得到这颗开关：目录是全局共享的，
+       局域网访客看到纯只读页是**有意**的，不是加载失败。 */
+    b.hidden = !state.catalogEditable;
     b.classList.toggle('on', !!state.editing);
     b.setAttribute('aria-pressed', state.editing ? 'true' : 'false');
     var ico = b.querySelector('i'), lab = b.querySelector('span');
@@ -2115,7 +2448,7 @@
   function emailSrc() { return '/myapp/?page=' + DATA.EMAIL_PAGE; }
 
   function emailSectionHtml() {
-    return '<div class="p-head"><span class="p-hd"><span class="p-t">' + esc(t('email.title')) + '</span>' +
+    return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' + esc(t('email.title')) + '</span>' +
       '<span class="p-s">' + esc(t('email.sub')) + '</span></span>' +
       '<button type="button" class="gb gb--t" data-act="email-reload" title="' + esc(t('map.reload')) + '">' +
       '<i class="ph ph-arrow-clockwise" aria-hidden="true"></i><span>' + esc(t('map.reload')) + '</span></button>' +
@@ -2197,7 +2530,7 @@
      收缩用 CSS 隐藏第 3 条起的 li（而不是 max-height），避免半行被裁一半。 */
   function auxHead(key, label, n) {
     var open = !!state.auxOpen[key], cut = n > DATA.AUX_ROWS;
-    return '<h3 class="aux-h"><span class="aux-n">' + esc(label) + '</span><span class="cnt">' + n + '</span>' +
+    return '<h3 class="aux-h"><span class="aux-n t-orange">' + esc(label) + '</span><span class="cnt">' + n + '</span>' +
       (cut ? '<button type="button" class="aux-x" data-act="aux-toggle" data-key="' + esc(key) +
         '" aria-expanded="' + (open ? 'true' : 'false') + '"><i class="ph ph-' + (open ? 'caret-up' : 'caret-down') +
         '" aria-hidden="true"></i><span>' + esc(open ? t('aux.less') : tf('aux.more', { n: n - DATA.AUX_ROWS })) +
@@ -2277,7 +2610,7 @@
        注意不能写成「收起」——那是 escOpen 的语义（整表收成一条带），
        而这里要收起的是"多出来的 17 行"，两者混用会让用户以为点下去表会消失。 */
     var btn = state.escAll ? t('esc.lessRows') : tf('esc.expand', { n: rows.length });
-    var html = '<div class="esc-bar"><span class="esc-t">' + esc(t('esc.title')) + '</span>' +
+    var html = '<div class="esc-bar"><span class="esc-t t-orange">' + esc(t('esc.title')) + '</span>' +
       '<span class="esc-s">' + esc(tf('esc.count', { n: rows.length, lv: lv.length })) + ' · ' + esc(t('esc.sub')) + '</span>' +
       /* 这里原是 LEVEL1~LEVEL4 那排档位按钮（.lvchip），2026-09-25 按要求整排删除。
          上方的 esc.count 仍用 lv.length 报档位数「4 levels」—— 那是**描述这张表
@@ -3324,13 +3657,29 @@
 
   /* 弹窗标题 = 卡片名 + 「· 明细」，并顺带维护「打开完整看板」按钮。
      映射只给**目录里确实存在对应看板**的维度（源码见 MsPortal/portal.js 的
-     QC_BOARD_PAGE）：cr / pmt 在 my_app 侧没有对应页面 ——
-     配一个错的链接比不给链接更糟，故不配、按钮不出现。 */
+     QC_BOARD_PAGE）：配一个错的链接比不给链接更糟，故不存在的维度一律不配、
+     按钮不出现（否则用户点开一个 404 页面，比按钮干脆不出现更难排查）。
+
+     2026-09-26：spms 由 sp_material 改为 **sp_report**，与 MsPortal 同步
+     （理由见 MsPortal/assets/portal.js 的 QC_BOARD_PAGE 注释：
+     spms 明细是出入库单，sp_report 才是同一批单子的报表）。
+
+     2026-09-26（v1 独有，MsPortal 那两个文件**刻意不改**）：补上 cr / pmt。
+     改版前这两项不在这里，理由是「my_app 侧没有对应页面」；现在 my_app 已经有了
+     与它们同口径的分析页，这个理由不再成立，于是把按钮接上：
+       cr  → cr_analysis   （变更单分析，CrChangeAnalysis）
+       pmt → pm_analysis   （预防性维护执行分析，PmExecutionAnalysis）
+     ⚠️ 这里必须用 my_app `App.tsx` 的 **PageKey**（`cr_analysis` / `pm_analysis`），
+     不是卡片 id（`cr` / `pmt`）也不是接口用的 metric 名 —— `?page=` 走的是
+     my_app 的 VALID_PAGES 白名单，写错会被静默回落到概览页，
+     表现为「点了按钮跳过去了，但打开的是别的页」。 */
   var QC_BOARD_PAGE = {
     alarm: 'realtime_alarm',
     tt: 'ttwo',
     wo: 'ttwo',
-    spms: 'sp_material'
+    spms: 'sp_report',
+    cr: 'cr_analysis',
+    pmt: 'pm_analysis'
   };
 
   /* metric id → 界面上显示的名字。**唯一定义处**（弹窗标题与导出 Sheet 名都用它），
@@ -3988,15 +4337,21 @@
     $('#kpi').addEventListener('click', function (e) {
       if (e.target.closest('[data-act="kpi-reload"]')) loadKpi();
     });
-    /* v1：六个入口卡的「展开其余 N 项 / 收起」。
-       报告条目本身是 <a href>，交给浏览器默认行为（target=_blank），不拦截。 */
+    /* v1：六个入口卡。这里同时是**本页唯一的编辑入口**（2026-09-26 起）——
+       编辑态的行条目带改名 / 分组按钮、列头带分组改名 / 新建分组按钮，
+       统一交给 onEditClick 处理；「展开其余 N 项」是另一条支线。
+       两条必须分开判：onEditClick 是先 `closest('[data-act]')` 再看 canEdit()，
+       把 v6-toggle 也丢进去会走进它的空分支什么也不做，展开就失灵了。 */
     $('#views6').addEventListener('click', function (e) {
-      var b = e.target.closest('[data-act="v6-toggle"]');
-      if (!b) return;
-      var gid = b.getAttribute('data-gid');
-      /* 直接翻转布尔值，与 aux-toggle 同一口径：没有"全开/全关"的中间态。 */
-      state.v6Open[gid] = !state.v6Open[gid];
-      renderViews6();
+      if (e.target.closest && e.target.closest('[data-act="v6-toggle"]')) {
+        var b = e.target.closest('[data-act="v6-toggle"]');
+        var gid = b.getAttribute('data-gid');
+        /* 直接翻转布尔值，与 aux-toggle 同一口径：没有"全开/全关"的中间态。 */
+        state.v6Open[gid] = !state.v6Open[gid];
+        renderViews6();
+        return;
+      }
+      onEditClick(e);
     });
     /* v1：地图的页签 / 标题改名 / 刷新三颗按钮挂在 #l0Map 上。
        原先这里还往 #l0 也挂一份（防御性，怕地图被挪回去）—— #l0 本次整块去掉，
@@ -4146,6 +4501,7 @@
     });
     bindEdit();
     bindGrpPop();
+    bindTplPick();
     bindFormPop();
   }
   function copyEsc() {

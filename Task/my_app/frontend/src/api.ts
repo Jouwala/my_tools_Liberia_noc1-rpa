@@ -68,6 +68,49 @@ export function getFmeRankingSiteDrilldown(params?: Record<string, string | numb
   return api.get('/fme-ranking/site-drilldown', { params })
 }
 
+// ========== CR 变更分析（按 change_category 看计划 / 完成情况）==========
+// 数据源：eflow_cr（eFlow 同步）。后端 backend/routers/cr_analysis.py，
+// 口径（终态词表、按时/延期判定、概览与下钻共用一份 WHERE）见
+// backend/services/cr_analysis_service.py 的模块 docstring。
+export function getCrAnalysisFilters() {
+  return api.get('/cr-analysis/filters')
+}
+
+export function getCrAnalysisOverview(params?: { start?: string; end?: string }) {
+  return api.get('/cr-analysis/overview', { params })
+}
+
+// 下钻：metric 决定批次，category / sub_category / month 是叠加的维度过滤，
+// 必须与点击来源的卡片维度完全一致，否则明细行数与卡片数字对不上。
+export function getCrAnalysisDrilldown(params: {
+  start?: string; end?: string; metric: string
+  category?: string; sub_category?: string; month?: string; limit?: number
+}) {
+  return api.get('/cr-analysis/drilldown', { params })
+}
+
+// ========== PM 执行分析（按 PM 计划看预防性维护工单的完成 / 超期）==========
+// 数据源：eflow_pm（eFlow 同步）。后端 backend/routers/pm_analysis.py，
+// 口径（字段名陷阱、真实流程顺序、pmt_overdue 语义、概览与下钻共用一份 WHERE）
+// 见 backend/services/pm_caliber.py 的模块 docstring。
+export function getPmAnalysisFilters() {
+  return api.get('/pm-analysis/filters')
+}
+
+export function getPmAnalysisOverview(params?: { start?: string; end?: string }) {
+  return api.get('/pm-analysis/overview', { params })
+}
+
+// 下钻：metric 决定批次，pmp_no / status / site_name / handler / month 是叠加的
+// 维度过滤，必须与点击来源的卡片维度完全一致，否则明细行数与卡片数字对不上。
+export function getPmAnalysisDrilldown(params: {
+  start?: string; end?: string; metric: string
+  pmp_no?: string; status?: string; site_name?: string
+  handler?: string; month?: string; limit?: number
+}) {
+  return api.get('/pm-analysis/drilldown', { params })
+}
+
 // ========== TT 复盘报告（NOC 操作人分析 / 派单机制真相 / 单 TT 复盘 / MD 导出）==========
 // 新增于 2026-09-23；对应后端 routers/eflow_qa.py 中 _tt_postmortem_* 端点
 export function getTtPostmortem(ttNo: string) {

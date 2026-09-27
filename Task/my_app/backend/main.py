@@ -77,6 +77,8 @@ from backend.routers import (
     native_boards,
     repeat_site_down,
     fme_ranking,
+    cr_analysis,
+    pm_analysis,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -219,6 +221,14 @@ app.include_router(native_boards.router)
 app.include_router(repeat_site_down.router)
 # FME 工程师 WO / 站点可用率排名（master_site_db + eflow_wo + 站点可用率服务）
 app.include_router(fme_ranking.router)
+# CR 变更分析：按 change_category 看变更计划的排期与执行情况（数据源 eflow_cr）。
+# 口径（终态词表、按时/延期判定、概览与下钻如何共用同一份 WHERE）见
+# services/cr_analysis_service.py 的模块 docstring。
+app.include_router(cr_analysis.router)
+# PM 执行分析：按 PM 计划 (pmp_no) 看预防性维护工单的完成与超期情况（数据源 eflow_pm）。
+# 口径（字段名陷阱、真实流程顺序、pmt_overdue 语义、概览与下钻如何共用同一份 WHERE）
+# 见 services/pm_caliber.py 的模块 docstring。
+app.include_router(pm_analysis.router)
 
 
 # ========== 统一门户鉴权中间件 ==========

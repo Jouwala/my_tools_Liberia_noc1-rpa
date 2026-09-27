@@ -28,7 +28,7 @@ import {
 } from 'antd'
 import {
   ApartmentOutlined, CheckCircleFilled, ClockCircleOutlined,
-  ReloadOutlined, SearchOutlined,
+  DownloadOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 
@@ -37,6 +37,7 @@ import { WH, useTheme, darkTooltip } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
 import api from '../api'
 import { formatDateTime as fmtDateTime } from '../datetime'
+import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
 
 const { Text, Link } = Typography
 
@@ -408,6 +409,115 @@ export default function EflowFlow() {
   const t6 = data?.tt || {}
   const isAlarmQuery = data?.query_type === 'alarm' || data?.query_type === 'alarm_code'
 
+  // ========== 导出 ==========
+  /* 口径与页面完全一致：导出当前查询结果的**全部**节点规则 + 实际经过步骤 + 关联告警，
+     不做前端分页取样（表格是 dataSource 全量渲染，没有分页截断）。
+     与 noc_analyst 的导出同构：一个工作簿，每块一个 sheet。 */
+  const exportFlow = useCallback(async () => {
+    if (!data?.found) return
+    const nodeName = (id: string) => t(nodeLabelKey(id))
+    const sheets: ReportSheetSpec[] = []
+
+    // ① 全流程节点（含规则数），便于对账「哪些环节有规则/哪些没走」
+    const nodes = data.graph?.nodes || []
+    if (nodes.length) {
+      sheets.push({
+        name: 'Nodes',
+        title: `${t('eflowFlow.title')} · ${data.query}`,
+        header: [
+          t('eflowFlow.col.step'),
+          t('eflowFlow.col.rules'),
+          t('eflowFlow.col.activeRules'),
+          t('eflowFlow.col.reached'),
+        ],
+        rows: nodes.map(n => [
+          nodeName(n.id),
+          n.rule_count ?? 0,
+          n.active_rule_count ?? 0,
+          reachedIds.has(n.id) ? t('eflowFlow.yes') : t('eflowFlow.no'),
+        ]),
+        numericCols: [1, 2],
+        tabColor: '#2F5496',
+      })
+    }
+
+    // ② 规则明细（当前选中节点的规则；未选中时退化为全部节点的规则并加一列节点名）
+    const selectedRules = activeNode
+      ? (nodes.find(n => n.id === activeNode)?.rules || [])
+      : []
+    const ruleRows = selectedRules.length
+      ? selectedRules.map(r => [
+          r.name, r.rule_type, isZh ? r.role_zh : r.role_en, r.wo_type,
+          r.trigger_step, r.status, r.priority, r.handler, r.push_path, r.update_time,
+        ])
+      : nodes.flatMap(n => (n.rules || []).map(r => [
+          nodeName(n.id), r.name, r.rule_type, isZh ? r.role_zh : r.role_en, r.wo_type,
+          r.trigger_step, r.status, r.priority, r.handler, r.push_path, r.update_time,
+        ]))
+    if (ruleRows.length) {
+      const withNode = selectedRules.length === 0
+      sheets.push({
+        name: 'Rules',
+        title: `${t('eflowFlow.rulesTitle')}${selectedRules.length ? ` · ${nodeName(activeNode)}` : ''}`,
+        header: withNode
+          ? [t('eflowFlow.col.step'), t('eflowFlow.col.ruleName'), t('eflowFlow.col.ruleType'),
+             t('eflowFlow.col.role'), t('eflowFlow.col.woType'), t('eflowFlow.col.triggerStep'),
+             t('eflowFlow.col.status'), t('eflowFlow.col.priority'), t('eflowFlow.col.handler'),
+             t('eflowFlow.col.pushPath'), t('eflowFlow.col.updateTime')]
+          : [t('eflowFlow.col.ruleName'), t('eflowFlow.col.ruleType'), t('eflowFlow.col.role'),
+             t('eflowFlow.col.woType'), t('eflowFlow.col.triggerStep'), t('eflowFlow.col.status'),
+             t('eflowFlow.col.priority'), t('eflowFlow.col.handler'), t('eflowFlow.col.pushPath'),
+             t('eflowFlow.col.updateTime')],
+        rows: ruleRows,
+        tabColor: '#548235',
+      })
+    }
+
+    // ③ 实际经过的步骤（时间轴）
+    const reached = data.reached || []
+    if (reached.length) {
+      sheets.push({
+        name: 'Reached',
+        title: `${t('eflowFlow.timelineTitle')} · ${data.query}`,
+        header: [
+          t('eflowFlow.col.step'), t('eflowFlow.col.time'),
+          t('eflowFlow.col.handler'), t('eflowFlow.col.note'),
+        ],
+        rows: reached.map(s => [
+          nodeName(s.id),
+          s.ts ? fmtDateTime(s.ts) : '',
+          s.by,
+          isZh ? s.note_zh : s.note_en,
+        ]),
+        tabColor: '#BF8F00',
+      })
+    }
+
+    // ④ 关联告警
+    const alarms = data.alarms || []
+    if (alarms.length) {
+      sheets.push({
+        name: 'Alarms',
+        title: `${t('eflowFlow.alarms.title')} · ${data.query}`,
+        header: [
+          t('eflowFlow.col.alarmId'), t('eflowFlow.col.alarmCode'), t('eflowFlow.col.site'),
+          t('eflowFlow.col.neName'), t('eflowFlow.col.severity'), t('eflowFlow.col.raised'),
+          t('eflowFlow.col.title'),
+        ],
+        rows: alarms.map(a => [
+          a.id, a.alarm_code, a.site_name, a.ne_name, a.severity,
+          /^\d+$/.test(String(a.raised)) ? fmtDateTime(Number(a.raised)) : a.raised,
+          a.title,
+        ]),
+        tabColor: '#843C0C',
+      })
+    }
+
+    if (!sheets.length) return
+    const stamp = fmtDateTime(new Date()).replace(/[: ]/g, '-')
+    await exportReport(sheets, `eflow_flow_${String(data.query).replace(/[^\w]+/g, '_')}_${stamp}.xlsx`)
+  }, [data, activeNode, reachedIds, isZh, t])
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
 
@@ -447,6 +557,14 @@ export default function EflowFlow() {
                 disabled={!keyword.trim()}
               >
                 {t('eflowFlow.refresh')}
+              </Button>
+              <Button
+                size="large"
+                icon={<DownloadOutlined />}
+                onClick={() => void exportFlow()}
+                disabled={!data?.found}
+              >
+                {t('common.exportExcel')}
               </Button>
             </Space>
           </Form.Item>

@@ -5,12 +5,13 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  BugOutlined, CheckCircleOutlined, DeleteOutlined, EditOutlined,
+  BugOutlined, CheckCircleOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
   MessageOutlined, PlusOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { WH, cardStyle } from '../theme'
+import { exportAoaReport } from '../utils/excelReport'
 
 // 与后端 routers/feedback.py 的枚举白名单保持一致
 type Category = 'bug' | 'data' | 'feature' | 'other'
@@ -212,6 +213,41 @@ export default function IssueFeedback() {
     ),
   }), [t])
 
+  // ========== 导出 ==========
+  /* 列表是服务端分页，导出**当前页**这 pageSize 条，并把页码范围与当前筛选条件
+     写进副标题。展开行里的描述/联系方式/处理结论一并带入（界面上要点开才看得到）。 */
+  const exportList = useCallback(() => {
+    if (!items.length) return
+    const header = [
+      '#', t('fb.col.title'), t('fb.col.category'), t('fb.col.priority'), t('fb.col.status'),
+      t('fb.col.reporter'), t('fb.col.handler'), t('fb.col.created'),
+      t('fb.col.description'), t('fb.col.contact'), t('fb.col.page'),
+      t('fb.col.resolution'), t('fb.col.updated'),
+    ]
+    const rows = items.map(r => [
+      r.id, r.title, catLabel(r.category), priLabel(r.priority), stLabel(r.status),
+      r.reporter, r.handler || '', r.created_at,
+      r.description, r.contact || '', r.page || '', r.resolution || '', r.updated_at,
+    ])
+    const pageFrom = (page - 1) * pageSize + 1
+    const filters = [
+      `${t('fb.filter.status')}: ${fStatus ? stLabel(fStatus) : '-'}`,
+      `${t('fb.filter.category')}: ${fCategory ? catLabel(fCategory) : '-'}`,
+      `${t('fb.filter.keyword')}: ${fKeyword || '-'}`,
+    ].join('    |    ')
+    void exportAoaReport({
+      filename: `issue_feedback_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      sheetName: 'Issue Feedback',
+      title: t('fb.title'),
+      subtitle: `${t('archive.exportRange', { from: pageFrom, to: pageFrom + items.length - 1, total })}    |    ${filters}`,
+      header,
+      rows,
+      numericCols: [0],
+      columnWidths: [6, 30, 12, 11, 12, 14, 12, 20, 46, 18, 16, 40, 20],
+      tabColor: '#2F5496',
+    })
+  }, [items, page, pageSize, total, fStatus, fCategory, fKeyword, catLabel, priLabel, stLabel, t])
+
   return (
     <div style={{ padding: 'var(--wh-space-sm) var(--wh-space-xs)' }}>
       {/* 标题栏 */}
@@ -229,6 +265,9 @@ export default function IssueFeedback() {
           </div>
         </div>
         <Space>
+          <Button icon={<DownloadOutlined />} onClick={exportList} disabled={!items.length}>
+            {t('common.exportExcel')}
+          </Button>
           <Button icon={<ReloadOutlined />} onClick={refresh}>{t('fb.refresh')}</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setSubmitOpen(true)}>
             {t('fb.newIssue')}

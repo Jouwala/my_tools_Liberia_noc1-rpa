@@ -129,6 +129,13 @@ export const cardStyle: React.CSSProperties = {
 export const controlCardStyle: React.CSSProperties = {
   ...cardStyle,
   marginBottom: 'var(--wh-space-md)',
+  // 页面根节点是 display:flex/column（见 pageWrap），筛选条是它的第一个 flex 子项。
+  // 子项默认 flex-shrink:1 且 min-height:auto，而筛选条是 display:block 的普通
+  // Card、没有内在最小高度，于是当整页内容高于容器时，flex 收缩的绝大部分由它承担，
+  // 被压成只剩上下边框（实测 1591×2px，overflow:hidden 把内容全裁掉）——
+  // 表现为「直链打开时最上面那行筛选条整条消失」，而下方 .ant-row 卡片因为有栅格
+  // 撑着没塌。加 flexShrink:0 让它保持内容高度（实测恢复 58px）。
+  flexShrink: 0,
 }
 
 // 页面包装器

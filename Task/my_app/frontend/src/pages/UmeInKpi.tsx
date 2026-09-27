@@ -1597,6 +1597,124 @@ export default function UmeInKpi() {
   const hardAlerts = alerts.filter(a => a.level !== 'info')
   const infoAlerts = alerts.filter(a => a.level === 'info')
 
+  /* ---------- 页面级导出：与页面「当前所见」一致，每个表格块一个 sheet ----------
+   * 与上面的 onExport 的区别：上面是「全量数据导出」，这里是「页面级导出」——
+   * 逐块对齐页面上真实渲染的表格（概览卡 / 业务 KPI 表 / 资源利用率表 / 告警表 /
+   * 分析提示），空块自动跳过；筛选条件（天数窗口、数据日期、生成时间）写进每张
+   * sheet 的 subtitle 便于对账。下钻弹窗内的明细不在这里导出（弹窗自带导出按钮）。
+   * ⚠️ 本回调依赖 hardAlerts / infoAlerts，必须定义在它们之后（否则 TDZ 报错）。 */
+  const exportAll = useCallback(async () => {
+    if (!data) return
+    const specs: ReportSheetSpec[] = []
+    /** 各 sheet 统一的副标题：把「页面当前筛选条件」写清楚，便于与界面逐格对账 */
+    const winText = `${data.meta.days[0] ?? '—'} ~ ${data.meta.latest_day ?? '—'}`
+    const sub = `${t('uk.latestDay')}: ${data.meta.latest_day ?? '—'}    |    `
+      + `${t('uk.exportDays')}: ${days}    |    ${t('uk.exportWindow')}: ${winText}`
+
+    // 块 1：概览统计卡（页面上 7 张卡，每张都可下钻）—— 取不到数据显示「—」而不是 0
+    specs.push({
+      name: 'Overview',
+      title: t('uk.export.overviewTitle'),
+      subtitle: sub,
+      header: [t('uk.export.cat'), t('uk.export.metric'), t('uk.export.value')],
+      rows: [
+        [t('uk.export.catCount'), t('uk.sum.kpi'), data.summary.kpi_count],
+        [t('uk.export.catCount'), t('uk.sum.service'), data.summary.service_count],
+        [t('uk.export.catCount'), t('uk.sum.attempts'), data.summary.total_attempts],
+        [t('uk.export.catCount'), t('uk.sum.failed'), data.summary.total_failed],
+        [t('uk.export.catCount'), t('uk.sum.systemFailed'), data.summary.total_system_failed],
+        [t('uk.export.catCount'), t('uk.sum.userFailed'), data.summary.total_user_failed],
+        [t('uk.export.catCount'), t('uk.sum.alerts'), hardAlerts.length],
+        [t('uk.export.catStatus'), `${t('uk.status.critical')} / ${t('uk.status.warning')} / ${t('uk.status.good')} / ${t('uk.status.info')}`,
+          `${data.summary.critical} / ${data.summary.warning} / ${data.summary.healthy} / ${data.summary.info}`],
+        [t('uk.export.catMeta'), t('uk.latestDay'), data.meta.latest_day ?? '—'],
+        [t('uk.export.catMeta'), t('uk.exportWindow'), winText],
+        [t('uk.export.catMeta'), t('uk.generatedAt'), data.meta.generated_at],
+        [t('uk.export.catMeta'), t('uk.source'), data.meta.source],
+      ],
+    })
+
+    // 块 2：业务 KPI 汇总表（页面上主表，行可展开看 SERVICE，此处导出汇总层级）
+    if (successKpis.length) {
+      specs.push({
+        name: 'KPI Summary',
+        title: t('uk.table.title'),
+        subtitle: sub,
+        header: [t('uk.col.kpi'), t('uk.col.attempts'), t('uk.col.success'), t('uk.col.failed'),
+          t('uk.col.rate'), t('uk.col.systemFailed'), t('uk.col.sysFailRate'),
+          t('uk.col.userFailed'), t('uk.col.status')],
+        rows: successKpis.map(k => [
+          `${kpiTitleOf(k, en)} (${k.key})`, k.attempts, k.success, k.failed,
+          k.success_rate === null ? '' : Number((k.success_rate * 100).toFixed(4)),
+          k.system_failed,
+          k.system_fail_rate === null ? '' : Number((k.system_fail_rate * 100).toFixed(6)),
+          k.user_failed, statusLabel(k.status),
+        ]),
+        numericCols: [1, 2, 3, 4, 5, 6, 7],
+      })
+    }
+
+    // 块 3：资源利用率表（页面上每个资源 KPI 一张表，含已用内存）
+    const resRows = resourceKpis.flatMap(k => k.services.map(s => [
+      `${kpiTitleOf(k, en)} (${k.key})`, s.service ?? '',
+      s.avg === null || s.avg === undefined ? '' : s.avg,
+      s.top === null || s.top === undefined ? '' : s.top,
+      s.used_kb === null || s.used_kb === undefined ? '' : Number((s.used_kb / 1024 / 1024).toFixed(1)),
+      statusLabel(s.status),
+    ]))
+    if (resRows.length) {
+      specs.push({
+        name: 'Resource',
+        title: t('uk.res.title'),
+        subtitle: sub,
+        header: [t('uk.col.kpi'), t('uk.col.service'), t('uk.res.avg'), t('uk.res.top'),
+          t('uk.col.usedMem'), t('uk.col.status')],
+        rows: resRows,
+        numericCols: [2, 3, 4],
+      })
+    }
+
+    // 块 4：告警表（页面上「告警」折叠卡，只含非 info 级）
+    if (hardAlerts.length) {
+      specs.push({
+        name: 'Alerts',
+        title: t('uk.alerts.title'),
+        subtitle: sub,
+        header: [t('uk.col.level'), t('uk.col.kpi'), t('uk.col.service'), t('uk.col.metric'),
+          t('uk.col.value'), t('uk.col.threshold'), t('uk.alerts.message')],
+        rows: hardAlerts.map(a => [
+          statusLabel(a.level as Status), alertKpiLabel(a, en), a.service ?? '',
+          alertTexts(a, en, t).metric,
+          a.unit === 'ratio'
+            ? (a.value === null || a.value === undefined ? '' : Number((a.value * 100).toFixed(4)))
+            : (a.value ?? ''),
+          a.unit === 'ratio' ? Number((a.threshold * 100).toFixed(4)) : a.threshold,
+          alertTexts(a, en, t).message,
+        ]),
+        numericCols: [4, 5],
+      })
+    }
+
+    // 块 5：分析提示（页面上「分析提示」卡，只含 info 级）—— 页面用 bullet 列表展示，此处一行一条
+    if (infoAlerts.length) {
+      specs.push({
+        name: 'Analysis Notes',
+        title: t('uk.info.title'),
+        subtitle: sub,
+        header: [t('uk.col.kpi'), t('uk.col.service'), t('uk.col.metric'), t('uk.col.value'), t('uk.alerts.message')],
+        rows: infoAlerts.map(a => [
+          alertKpiLabel(a, en), a.service ?? '', alertTexts(a, en, t).metric,
+          a.unit === 'ratio'
+            ? (a.value === null || a.value === undefined ? '' : Number((a.value * 100).toFixed(4)))
+            : (a.value ?? ''),
+          alertTexts(a, en, t).message,
+        ]),
+        numericCols: [3],
+      })
+    }
+    await exportReport(specs, `Customer_KPI_Page_${data.meta.latest_day ?? 'export'}`)
+  }, [data, days, hardAlerts, infoAlerts, successKpis, resourceKpis, statusLabel, en, t])
+
   /* ---------- 概览统计卡（每张都可下钻） ---------- */
   const summaryCards = useMemo(() => {
     if (!data) return []
@@ -1658,6 +1776,12 @@ export default function UmeInKpi() {
             <Tooltip title={t('uk.exportHint')}>
               <Button icon={<DownloadOutlined />} disabled={!successKpis.length} onClick={onExport}>
                 {t('uk.export')}
+              </Button>
+            </Tooltip>
+            {/* 页面级导出：导出页面当前所见的所有汇总块（每个表格一个 sheet，空块自动跳过） */}
+            <Tooltip title={t('uk.exportAllHint')}>
+              <Button size="small" icon={<DownloadOutlined />} onClick={exportAll} disabled={!data}>
+                {t('common.exportExcel')}
               </Button>
             </Tooltip>
             <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>

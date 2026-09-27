@@ -10,7 +10,7 @@ import {
   DownloadOutlined, SearchOutlined, RightOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
-import { exportAoaReport } from '../utils/excelReport'
+import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import dayjs from 'dayjs'
 import api from '../api'
 import { cachedGet } from '../cache'
@@ -199,6 +199,222 @@ export default function AlarmDashboard() {
       columnWidths: keys.map(() => 18),
     })
   }, [filteredDrillData])
+
+  // ========== 页面级导出：把页面上渲染出来的每一块汇总数据导成多 sheet ==========
+  // 与下钻弹窗里的 exportToExcel 是两件事：
+  //   - exportToExcel（弹窗内）导出的是**下钻明细行**；
+  //   - exportAll（本函数）导出的是**当前页面显示的汇总口径**，不查任何明细接口。
+  // 每个 sheet 的数据源与页面上的渲染源严格一一对应，空块直接跳过（不生成空 sheet）。
+  // 时间范围/区域等筛选条件写进 sheet 的 subtitle，便于对账。
+  const exportAll = useCallback(() => {
+    if (!data) return
+
+    const hist = data.history || {}
+    const sevStats: Record<string, number> = data.severity_stats || {}
+    const logicalTotal: Record<string, any> = data.logical_total || {}
+    const durationBuckets: Record<string, number> = data.duration_buckets || {}
+    const mainsBuckets: Record<string, number> = data.mains_duration_buckets || {}
+    const bucketOrder: string[] = data.duration_bucket_order || []
+    const regionAlarm: Record<string, number> = data.region_alarm_count || {}
+    const regionMains: Record<string, number> = data.region_mains_count || {}
+    const regionSites: Record<string, number> = data.region_sites_count || {}
+    const alarmTypeTop: Record<string, number> = data.alarm_type_top || {}
+    const regionAlarmType: Record<string, any> = data.region_alarm_type || {}
+    // 数值缺失一律 ''（Excel 里留空），**不写 0** —— 页面上取不到数就显示 —，
+    // 导出里写成 0 会把「没有这个数据」伪装成「真的是 0」，对账时会冤枉业务。
+    const nz = (v: any): number | '' => (v === null || v === undefined || v === '' ? '' : Number(v))
+
+    // 数据口径：本页所有汇总都来自 realtime_alarm（历史块来自 history_alarm）的全量快照，
+    // 没有任何时间范围/区域筛选控件。把这件事写进 subtitle，避免看报表的人以为被筛过。
+    const sub = t('alarm.exportSubtitle', { at: data.generated_at || 'N/A' })
+    const subtitleOf = (block: string) => `${t(block)}    |    ${sub}`
+
+    const sheets: ReportSheetSpec[] = []
+
+    // ---- Sheet 1：核心汇总（页面上第 2 节的 4 张核心卡 + 顶部横幅的门禁数字）----
+    sheets.push({
+      name: t('alarm.xlsx.summary'),
+      title: t('alarm.xlsx.titleSummary'),
+      subtitle: subtitleOf('alarm.xlsx.summary'),
+      header: [t('alarm.xlsx.colMetric'), t('alarm.xlsx.colValue'), t('alarm.xlsx.colNote')],
+      rows: [
+        [t('alarm.totalActive'), nz(data.total_alarms), t('alarm.explain.totalAlarms')],
+        [t('alarm.affectedSites'), nz(data.affected_sites), t('alarm.explain.affectedSites')],
+        [t('alarm.totalHours'), nz(data.total_alarm_hours), t('alarm.explain.totalHours')],
+        // Critical 单独取：后端 severity_stats 里没有 Critical 键时说明该等级无告警，
+        // 但为与页面卡片（fmt(sevStats.Critical || 0) 显示 0）保持同口径，这里显式取 0
+        // 之外的键；键缺失时留空而不是 0，避免把「该等级不存在」记成「确实是 0」。
+        [t('alarm.criticalAlerts'), nz(sevStats.Critical), t('alarm.explain.critical')],
+      ],
+      numericCols: [1],
+      valueColors: [1],
+      columnWidths: [26, 16, 60],
+    })
+
+    // ---- Sheet 2：严重等级分布（页面右下「严重等级标签」卡 + 严重等级饼图）----
+    const sevEntries = Object.entries(sevStats)
+    if (sevEntries.length) {
+      const sevTotal = sevEntries.reduce((s, [, v]) => s + Number(v || 0), 0)
+      sheets.push({
+        name: t('alarm.xlsx.severity'),
+        title: t('alarm.xlsx.titleSeverity'),
+        subtitle: subtitleOf('alarm.sevDist'),
+        header: [t('alarm.xlsx.colSeverity'), t('alarm.xlsx.colCount'), t('alarm.xlsx.colShare')],
+        rows: [
+          // 标签卡底部那条「合计」行，页面上有就一起导
+          ...sevEntries.map(([k, v]) => [
+            k,
+            nz(v),
+            sevTotal ? `${((Number(v || 0) / sevTotal) * 100).toFixed(1)}%` : '—',
+          ]),
+          [t('alarm.totalTag'), nz(data.total_alarms), sevTotal ? '100.0%' : '—'],
+        ],
+        numericCols: [1],
+        valueColors: [1],
+        columnWidths: [22, 14, 12],
+      })
+    }
+
+    // ---- Sheet 3：技术制式分布（技术制式饼图 + 技术制式详细卡片：站点数/小区数）----
+    const techEntries = Object.entries(logicalTotal).filter(([tech]) => tech !== 'OTHER')
+    if (techEntries.length) {
+      sheets.push({
+        name: t('alarm.xlsx.tech'),
+        title: t('alarm.xlsx.titleTech'),
+        subtitle: subtitleOf('alarm.techDist'),
+        header: [t('alarm.xlsx.colTech'), t('alarm.sites'), t('alarm.cells')],
+        // 站点/小区数为 0 是**有意义的真实值**（该制式无告警），所以 0 照写；
+        // 只有整块缺失（val 为 undefined）才留空。
+        rows: techEntries.map(([tech, val]: any) => [
+          tech, val ? nz(val.site ?? 0) : '', val ? nz(val.cell ?? 0) : '',
+        ]),
+        numericCols: [1, 2],
+        valueColors: [1, 2],
+        columnWidths: [18, 14, 14],
+      })
+    }
+
+    // ---- Sheet 4：持续时长分布（页面「告警持续时长分布」双柱：全部 / 市电中断 MW）----
+    if (bucketOrder.length) {
+      sheets.push({
+        name: t('alarm.xlsx.duration'),
+        title: t('alarm.xlsx.titleDuration'),
+        subtitle: subtitleOf('alarm.durationDist'),
+        header: [t('alarm.xlsx.colBucket'), t('alarm.seriesAll'), t('alarm.seriesMains')],
+        rows: bucketOrder.map(b => [b, nz(durationBuckets[b] || 0), nz(mainsBuckets[b] || 0)]),
+        numericCols: [1, 2],
+        valueColors: [1, 2],
+        columnWidths: [16, 16, 18],
+      })
+    }
+
+    // ---- Sheet 5：各区域告警数（区域柱状图的告警数/受影响站点数/市电中断）----
+    const regionEntries = Object.entries(regionAlarm).filter(([, v]) => Number(v) > 0)
+    if (regionEntries.length) {
+      sheets.push({
+        name: t('alarm.xlsx.region'),
+        title: t('alarm.xlsx.titleRegion'),
+        subtitle: subtitleOf('alarm.byRegion'),
+        header: [
+          t('alarm.xlsx.colRegion'), t('alarm.tipAlarms'),
+          t('alarm.affectedSites'), t('alarm.tipMainsFail'),
+        ],
+        rows: regionEntries.map(([rc, v]) => [
+          rc, nz(v), nz(regionSites[rc] || 0), nz(regionMains[rc] || 0),
+        ]),
+        numericCols: [1, 2, 3],
+        valueColors: [1, 2, 3],
+        columnWidths: [16, 14, 16, 14],
+      })
+    }
+
+    // ---- Sheet 6：告警类型 Top（横向柱状图，后端截断 Top10；页面只画前 8 条）----
+    const typeEntries = Object.entries(alarmTypeTop).sort((a: any, b: any) => b[1] - a[1])
+    if (typeEntries.length) {
+      sheets.push({
+        name: t('alarm.xlsx.alarmType'),
+        title: t('alarm.xlsx.titleAlarmType'),
+        subtitle: subtitleOf('alarm.topTypes'),
+        header: [t('alarm.xlsx.colRank'), t('alarm.xlsx.colAlarmType'), t('alarm.xlsx.colCount')],
+        rows: typeEntries.map(([name, v], i) => [i + 1, name, nz(v)]),
+        numericCols: [0, 2],
+        columnWidths: [8, 60, 14],
+      })
+    }
+
+    // ---- Sheet 7：站点属性 / 网络类型分布（两个饼图，同属「构成」维度，合并一页）----
+    const siteAttr: Record<string, number> = data.site_attribute || {}
+    const nettype: Record<string, number> = data.networktype || {}
+    const breakdownRows: (string | number)[][] = [
+      ...Object.entries(siteAttr).map(([k, v]) => [t('alarm.siteAttr'), k, nz(v)]),
+      ...Object.entries(nettype).map(([k, v]) => [t('alarm.netType'), k, nz(v)]),
+    ]
+    if (breakdownRows.length) {
+      sheets.push({
+        name: t('alarm.xlsx.siteNet'),
+        title: t('alarm.xlsx.titleSiteNet'),
+        subtitle: subtitleOf('alarm.breakdown'),
+        header: [t('alarm.xlsx.colDimension'), t('alarm.xlsx.colValue2'), t('alarm.xlsx.colCount')],
+        rows: breakdownRows,
+        numericCols: [2],
+        valueColors: [2],
+        columnWidths: [20, 30, 14],
+      })
+    }
+
+    // ---- Sheet 8：历史告警派单时效（页面上第 2.5 节的 4 张历史卡）----
+    if (data.history) {
+      sheets.push({
+        name: t('alarm.xlsx.history'),
+        title: t('alarm.xlsx.titleHistory'),
+        // 历史块的数据时点与实时块不同（history.generated_at），单独标注
+        subtitle: `${t('alarm.historySection')}    |    ${t('alarm.historySectionSub', { at: hist.generated_at || 'N/A' })}`,
+        header: [t('alarm.xlsx.colMetric'), t('alarm.xlsx.colValue'), t('alarm.xlsx.colNote')],
+        rows: [
+          [
+            t('alarm.totalHistory'), nz(hist.total || 0),
+            t('alarm.dispatchedWithTT', { n: String(hist.with_tt ?? 0) }),
+          ],
+          [t('alarm.dispatchDelay'), nz(hist.dispatch_delay_eflow || 0), t('alarm.explain.dispatchDelay')],
+          [t('alarm.fetchDelay'), nz(hist.alarm_fetch_delay || 0), t('alarm.explain.fetchDelay')],
+          [t('alarm.dispatchOverdue'), nz(hist.dispatch_overdue_total || 0), t('alarm.explain.dispatchOverdue')],
+        ],
+        numericCols: [1],
+        valueColors: [1],
+        columnWidths: [26, 16, 60],
+      })
+    }
+
+    // ---- Sheet 9：区域告警画像（页面第 7 节「各区域 Top 告警类型」，区域 → 类型明细）----
+    const regionProfileRows: (string | number)[][] = []
+    Object.entries(regionAlarmType)
+      .filter(([, v]: any) => v && Object.keys(v).length > 0)
+      .forEach(([region, types]: any) => {
+        Object.entries(types).forEach(([type, count]) => {
+          regionProfileRows.push([region, type, nz(count), nz(regionAlarm[region] || 0)])
+        })
+      })
+    if (regionProfileRows.length) {
+      sheets.push({
+        name: t('alarm.xlsx.regionProfile'),
+        title: t('alarm.xlsx.titleRegionProfile'),
+        subtitle: subtitleOf('alarm.regionProfile'),
+        header: [
+          t('alarm.xlsx.colRegion'), t('alarm.xlsx.colAlarmType'),
+          t('alarm.xlsx.colCount'), t('alarm.xlsx.colRegionTotal'),
+        ],
+        rows: regionProfileRows,
+        numericCols: [2, 3],
+        valueColors: [2, 3],
+        columnWidths: [16, 60, 14, 16],
+      })
+    }
+
+    // 极端情况：后端返回了 data 但所有块都空 —— 不留空文件给用户
+    if (!sheets.length) return
+
+    void exportReport(sheets, `Alarm_Dashboard_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`)
+  }, [data, t])
 
   // 下钻表格列定义
   const drillColumns = useMemo(() => {
@@ -420,11 +636,17 @@ export default function AlarmDashboard() {
   return (
     <div style={{ ...pageWrap, display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-xs)' }}>
       {/* ====== 1. 头部警报横幅 ====== */}
+      {/* flexShrink:0：页面根是 display:flex/column（pageWrap），本卡片是第一个 flex 子项。
+          子项默认 flex-shrink:1 且 min-height:auto，而这是 display:block 的普通 Card、
+          没有内在最小高度，整页内容超出容器时收缩几乎全由它承担，被压成上下边框
+          （实测 1592×2px，overflow:hidden 把内容裁光）→ 表现为「直链打开时整条横幅消失」。
+          与 theme.ts 的 controlCardStyle 同一处理，理由见那里。 */}
       <Card size="small" style={{
         ...cardStyle,
         background: isDark ? 'linear-gradient(135deg, #1a0f14 0%, #050d22 100%)' : 'linear-gradient(135deg, #fdf0f0 0%, #fbe4e4 100%)',
         borderLeft: `4px solid ${WH.sev.Critical}`,
         marginBottom: 'var(--wh-space-xs)',
+        flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
@@ -440,6 +662,11 @@ export default function AlarmDashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-md)', fontSize: '0.75rem', color: WH.textDim }}>
             <ClockCircleOutlined />
             <span>{t('alarm.updated')} {data.generated_at}</span>
+            {/* 页面级导出：导出本页全部汇总块（多 sheet）。
+                与下钻弹窗里的导出按钮是两回事 —— 那个导的是明细行。 */}
+            <Button size="small" icon={<DownloadOutlined />} onClick={exportAll} disabled={!data}>
+              {t('common.exportExcel')}
+            </Button>
           </div>
         </div>
       </Card>

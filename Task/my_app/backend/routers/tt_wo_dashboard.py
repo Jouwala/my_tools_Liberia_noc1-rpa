@@ -64,6 +64,14 @@ def _detect_schema() -> dict:
         if "site_class" in site_cols:
             site_stat_fields["site_class"] = "site_class"
 
+        # 高级过滤候选列（参照 GISMap 的 FILTER_CONFIG）：只在库中真实存在时才暴露给
+        # 前端，避免换库（my_app / MTN_Comsal）后下拉框里出现永远为空的筛选项。
+        site_filter_fields = [c for c in (
+            "region", "province_county", "network_type", "site_type", "vip_site",
+            "trm_type", "supervisor", "fme_name", "power_sources", "power_vendor",
+            "site_caregory",
+        ) if c in site_cols]
+
         conn.close()
 
         _schema_cache = {
@@ -74,6 +82,7 @@ def _detect_schema() -> dict:
             "creator_field": creator_field,
             "has_wo": has_wo,
             "site_stat_fields": site_stat_fields,
+            "site_filter_fields": site_filter_fields,
             "tt_cols": tt_cols,
             "site_cols": site_cols,
         }
@@ -100,14 +109,145 @@ def _safe_str(val, default: str = "Unknown") -> str:
     return str(val)
 
 
-def _week_label(ts: str) -> str:
+# ========== ZTE / 3rd 归属过滤 ==========
+# 口径（业务确认）：wo_no 非空 = ZTE 自派单，wo_no 为空 = 3rd 第三方单。
+# overview 与 drilldown 必须共用本函数，否则「看板上的数字」与「下钻的行数」
+# 会对不上，用户会当成 bug（见 Task/my_app/AGENTS.md 第三节第 1b 条）。
+OWNER_ZTE = "zte"
+OWNER_THIRD = "3rd"
+
+# TRIM 兼顾 NULL 与纯空格两种空值写法（实测库里两种都存在）
+_OWNER_SQL = {
+    OWNER_ZTE: "(t.wo_no IS NOT NULL AND TRIM(t.wo_no) <> '')",
+    OWNER_THIRD: "(t.wo_no IS NULL OR TRIM(t.wo_no) = '')",
+}
+
+
+def _owner_where(owner: str | None, alias: str = "t") -> str:
+    """ZTE / 3rd 归属过滤条件片段（不含 AND 前缀）；owner 为空时返回空串。"""
+    cond = _OWNER_SQL.get((owner or "").strip().lower())
+    if not cond:
+        return ""
+    return cond if alias == "t" else cond.replace("t.wo_no", f"{alias}.wo_no")
+
+
+def _parse_adv(adv: str | None) -> dict:
+    """解析高级过滤参数（JSON 对象字符串）。
+
+    用 JSON 传是为了让「可选列集合」保持开放：新增一个站点维度过滤不需要改
+    后端签名。解析失败按「无过滤」处理并记警告，不抛 500 —— 一个坏 URL 不该
+    把整个看板打成错误页。
+    """
+    if not adv:
+        return {}
+    try:
+        import json
+        obj = json.loads(adv)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "[tt-wo-dashboard] adv 参数解析失败，已按无过滤处理", exc_info=True
+        )
+    return {}
+
+
+def _advanced_site_filters(filters: dict | None, schema: dict) -> tuple[str, list]:
+    """把 {站点列名: 精确值} 转成站点 JOIN 上的 AND 片段 + 参数。
+
+    安全：列名**必须**命中 schema 白名单（白名单来自真实的表结构，不接受请求
+    输入），值一律走 `?` 占位符精确匹配 —— 因此不存在拼接注入面。类型统一用
+    `=`（与 region 过滤同构），不用 LIKE，保证概览与下钻的行数严格一致。
+
+    返回 (" AND ms.col = ?", [v])；无有效条件时返回 ("", [])。
+    """
+    if not filters:
+        return "", []
+    allowed = set(schema.get("site_filter_fields") or [])
+    parts, params = [], []
+    for col, val in filters.items():
+        if col not in allowed:
+            continue
+        if val is None or str(val).strip() == "":
+            continue
+        parts.append(f"ms.{col} = ?")
+        params.append(str(val))
+    if not parts:
+        return "", []
+    return " AND " + " AND ".join(parts), params
+
+
+# MTTR 趋势支持的三种时间粒度（对应前端三个页签：日 / 周 / 月）。
+# 顺序即前端页签顺序；overview 的聚合与 drilldown 的维度判定共用这一份常量，
+# 避免「图上有日粒度、下钻不认识 day」这类两处不同步。
+_MTTR_GRANULARITIES = ("day", "week", "month")
+
+
+def _period_label(ts: str, gran: str) -> str:
+    """按粒度给出时间桶标签。
+
+    day   → ``YYYY-MM-DD``
+    week  → ``YYYY-Www``（ISO 8601 周）
+    month → ``YYYY-MM``
+
+    三种粒度走同一个解析入口，保证「同一张单在不同粒度下落在同一个日期锚点上」——
+    这是日/周/月三个页签能互相对照（周图上的点确实等于该周 7 个日点的并集）的前提。
+    无法解析时返回空串，由调用方跳过该行（不猜一个桶塞进去）。
+    """
     try:
         dt = datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
-        iso = dt.isocalendar()
-        return f"{iso[0]}-W{iso[1]:02d}"
     except Exception:
-        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _week_label: exception swallowed", exc_info=True)
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _period_label: exception swallowed", exc_info=True)
         return ""
+    if gran == "day":
+        return dt.strftime("%Y-%m-%d")
+    if gran == "month":
+        return dt.strftime("%Y-%m")
+    iso = dt.isocalendar()
+    return f"{iso[0]}-W{iso[1]:02d}"
+
+
+def _week_label(ts: str) -> str:
+    """ISO 周标签。保留旧函数名（下钻 week 维度与既有多处调用在用），实现委托给
+    :func:`_period_label`，避免周口径出现第二套算法。"""
+    return _period_label(ts, "week")
+
+
+def _mttr_series(bucket: dict, total_bucket: dict | None = None) -> dict:
+    """把 ``{级别: {桶标签: [时长...]}}`` 转成前端要的
+    ``{级别: [{period, mttr, count, total}]}``。
+
+    三项的语义必须分清，否则前端柱/线会给出互相矛盾的故事：
+
+    - ``total``：该桶该级别的**全部 TT 单数**（只要能定位到桶就计，不论能否算出
+      MTTR）。这是前端柱状图画的量，等于「那个时段那个级别有多少单」。
+    - ``count``：其中**真正计入 MTTR 均值**的单数（时长 0<dur<43200 的有效单）。
+      与 ``total`` 的差额 = 缺关单时间或时长越界的单。
+    - ``mttr``：``count`` 这批单的时长均值；``count`` 为 0 时是 ``None``（断线），
+      **不是 0** —— 「算不出 MTTR」与「MTTR 为 0」是两回事。
+
+    桶取两者的并集：只有总单数、没有有效时长的桶也要出点，这样柱状图不会
+    凭空丢掉一个「有单但算不出时长」的时段（曲线在该点断开，量仍然可见）。
+
+    某级别在某桶完全没有单才不出现该点；前端按 period 对齐后自然断线
+    （connectNulls:false）。
+    """
+    total_bucket = total_bucket or {}
+    out = {}
+    for sv, by_period in bucket.items():
+        tot_by_period = total_bucket.get(sv) or {}
+        items = []
+        for p in sorted(set(by_period.keys()) | set(tot_by_period.keys())):
+            vals = by_period.get(p) or []
+            items.append({
+                "period": p,
+                "mttr": round(sum(vals) / len(vals), 1) if vals else None,
+                "count": len(vals),
+                # 极端情况兜底：有效单存在但总单表缺该桶时，至少不小于样本数
+                "total": max(tot_by_period.get(p, 0), len(vals)),
+            })
+        out[sv] = items
+    return out
 
 
 @router.get("/overview")
@@ -115,33 +255,53 @@ def tt_wo_dashboard_overview(
     time_start: str = Query(None),
     time_end: str = Query(None),
     region: str = Query(None),
+    owner: str = Query(None, description="ZTE / 3rd；wo_no 非空=ZTE，否则=3rd"),
+    adv: str = Query(None, description="高级过滤，JSON 对象 {站点列名: 精确值}"),
 ):
     """TT&WO Dashboard 综合数据（自适应数据库结构）"""
     S = _detect_schema()
+    adv_filters = _parse_adv(adv)
     with get_raw_connection() as conn:
 
         tt_tf, tt_tp = _time_filter("t", time_start, time_end)
         wo_tf, wo_tp = _time_filter("w", time_start, time_end)
 
         # 区域过滤 JOIN（自适应站点表和关联字段）
+        # 高级过滤复用同一个站点 JOIN（别名 ms），与 region 条件叠加。
+        # 注意：只要 region 或 adv 任一非空就要 JOIN，否则高级过滤无处挂载。
         region_join = region_where = ""
         region_params = []
-        if region and S["site_table"]:
+        if S["site_table"] and (region or adv_filters):
             sjf = S["site_join_field"]
             region_join = f"JOIN {S['site_table']} ms ON t.{sjf} = CAST(ms.{sjf} AS TEXT)"
-            region_where = " AND ms.region = ?"
-            region_params = [region]
+            if region:
+                region_where += " AND ms.region = ?"
+                region_params.append(region)
+            adv_where, adv_params = _advanced_site_filters(adv_filters, S)
+            region_where += adv_where
+            region_params += adv_params
 
         region_join_wo = region_where_wo = ""
-        if region and S["has_wo"] and S["site_table"]:
+        wo_adv_params: list = []
+        if S["has_wo"] and S["site_table"] and (region or adv_filters):
             sjf = S["site_join_field"]
             region_join_wo = f"JOIN {S['site_table']} ms ON w.{sjf} = CAST(ms.{sjf} AS TEXT)"
-            region_where_wo = " AND ms.region = ?"
+            if region:
+                region_where_wo += " AND ms.region = ?"
+            adv_where_wo, wo_adv_params = _advanced_site_filters(adv_filters, S)
+            region_where_wo += adv_where_wo
 
-        tt_where = f"WHERE {tt_tf}{region_where}" if tt_tf else f"WHERE 1=1{region_where}"
+        # WO 侧参数顺序必须与 region_where_wo 的拼接顺序一致：区域在前、高级过滤在后
+        wo_region_params = ([region] if region else []) + wo_adv_params
+
+        # ZTE / 3rd 归属过滤（只作用于 TT，WO 表本身没有这个归属概念）
+        owner_tt = _owner_where(owner, "t")
+        owner_tt_sql = f" AND {owner_tt}" if owner_tt else ""
+
+        tt_where = f"WHERE {tt_tf}{region_where}{owner_tt_sql}" if tt_tf else f"WHERE 1=1{region_where}{owner_tt_sql}"
         tt_params = tt_tp + region_params
         wo_where = f"WHERE {wo_tf}{region_where_wo}" if wo_tf else f"WHERE 1=1{region_where_wo}"
-        wo_params = wo_tp + (region_params if region else [])
+        wo_params = wo_tp + wo_region_params
 
         # ========== 1. TT 统计 ==========
         # 动态构建 SELECT 字段（自适应 sev_field 和 site_join_field）
@@ -160,6 +320,19 @@ def tt_wo_dashboard_overview(
         status_stats = {}
         domain_stats = {}
         week_data = {}
+        # 按 ticket_severity 分级的 MTTR 序列，三种粒度各一份：
+        # {粒度: {级别: {桶标签: [时长...]}}}。
+        # 口径与 week_data 完全一致（同一时间字段、同一 0<dur<43200 剔除），
+        # 只是额外按 级别 × 粒度 分桶 —— 因此同一粒度下各条序列的人次之和
+        # 等于该粒度全量的人次（级别为空的单除外）。
+        period_data_by_sev: dict[str, dict[str, dict[str, list]]] = {
+            g: {} for g in _MTTR_GRANULARITIES
+        }
+        # 各粒度的「级别 × 桶 → 总单数」，与能否算出 MTTR 无关（前端柱状图画的就是它）。
+        # {粒度: {级别: {桶标签: 单数}}}
+        total_by_sev: dict[str, dict[str, dict[str, int]]] = {
+            g: {} for g in _MTTR_GRANULARITIES
+        }
         site_id_set = set()
 
         for r in tt_rows:
@@ -174,18 +347,45 @@ def tt_wo_dashboard_overview(
             domain_stats[_safe_str(r[4])] = domain_stats.get(_safe_str(r[4]), 0) + 1
             if r[5]:
                 wo_no_set.add(r[5])
-            if r[6] and r[7] and r[7] > r[6]:
-                try:
-                    t1 = datetime.strptime(str(r[6])[:19], "%Y-%m-%d %H:%M:%S")
-                    t2 = datetime.strptime(str(r[7])[:19], "%Y-%m-%d %H:%M:%S")
-                    dur_min = (t2 - t1).total_seconds() / 60
-                    if 0 < dur_min < 43200:
-                        wk = _week_label(str(r[6]))
-                        if wk:
-                            week_data.setdefault(wk, []).append(dur_min)
-                except Exception:
-                    logging.getLogger(__name__).warning("[SILENT-EXCEPT] tt_wo_dashboard_overview: exception swallowed", exc_info=True)
-                    pass
+            if r[6]:
+                # 只要发生时间可解析，就先归属到 日/周/月 三个桶并计入「该级别总单数」，
+                # **不论这单能否算出 MTTR**（缺关单时间、时长越界都算）。
+                # 这样柱状图的「TT 单数」才等于该时段该级别的真实单量，
+                # 不会漏掉「有单但算不出时长」的时段。
+                ts_occ = str(r[6])
+                # ticket_severity 为空/None 的单不进任何级别序列
+                # （没有级别可归，硬塞进 P4 会伪造数据）
+                sv = ""
+                if r[1] is not None and str(r[1]).strip() not in ("", "None"):
+                    sv = str(r[1]).strip()
+                # 三种粒度的桶标签一次算好、本行复用，避免对同一行重复 strptime
+                buckets = {}
+                for gran in _MTTR_GRANULARITIES:
+                    lbl = _period_label(ts_occ, gran)
+                    if lbl:
+                        buckets[gran] = lbl
+                if buckets:
+                    if sv:
+                        for gran, lbl in buckets.items():
+                            by_lbl = total_by_sev[gran].setdefault(sv, {})
+                            by_lbl[lbl] = by_lbl.get(lbl, 0) + 1
+                    # MTTR 均值只吃时长有效的单：0 < dur < 43200 分钟
+                    if r[7]:
+                        try:
+                            t1 = datetime.strptime(ts_occ[:19], "%Y-%m-%d %H:%M:%S")
+                            t2 = datetime.strptime(str(r[7])[:19], "%Y-%m-%d %H:%M:%S")
+                            dur_min = (t2 - t1).total_seconds() / 60
+                        except Exception:
+                            logging.getLogger(__name__).warning("[SILENT-EXCEPT] tt_wo_dashboard_overview: exception swallowed", exc_info=True)
+                            dur_min = None
+                        if dur_min is not None and 0 < dur_min < 43200:
+                            # 一次遍历同时落 日/周/月 三个桶（顺带维护 week_data 的全量口径），
+                            # 不再对同一批行扫三遍
+                            for gran, lbl in buckets.items():
+                                if sv:
+                                    period_data_by_sev[gran].setdefault(sv, {}).setdefault(lbl, []).append(dur_min)
+                                if gran == "week":
+                                    week_data.setdefault(lbl, []).append(dur_min)
             if r[8]:
                 site_id_set.add(r[8])
 
@@ -195,6 +395,19 @@ def tt_wo_dashboard_overview(
             {"week": w, "mttr": round(sum(week_data[w]) / len(week_data[w]), 1), "count": len(week_data[w])}
             for w in sorted(week_data.keys())
         ]
+        # 日/周/月三份分级序列（前端页签各读一份）。
+        # 每项含 total（该桶该级别总单数，柱状图）/ count（计入 MTTR 的样本数）/ mttr。
+        mttr_series = {
+            g: _mttr_series(period_data_by_sev[g], total_by_sev[g]) for g in _MTTR_GRANULARITIES
+        }
+        # 兼容字段：由同一个 week 桶改名派生，保证不会与 mttr_series["week"] 分叉
+        mttr_weekly_by_severity = {
+            sv: [
+                {"week": it["period"], "mttr": it["mttr"], "count": it["count"], "total": it["total"]}
+                for it in items
+            ]
+            for sv, items in mttr_series["week"].items()
+        }
 
         # ========== 2. WO 统计（表不存在时返回空）==========
         wo_total = 0
@@ -260,6 +473,25 @@ def tt_wo_dashboard_overview(
                 f"SELECT DISTINCT region FROM {S['site_table']} WHERE region IS NOT NULL AND region != '' ORDER BY region"
             ).fetchall()]
 
+        # 高级过滤的可选值（与 GISMap 的 filter_options 同思路）：只对白名单列做
+        # DISTINCT，每列最多 200 个候选。列名来自 schema 白名单而非请求输入。
+        filter_options: dict[str, list] = {}
+        if S["site_table"]:
+            for col in S["site_filter_fields"]:
+                try:
+                    rows = conn.execute(
+                        f"""SELECT DISTINCT {col} FROM {S['site_table']}
+                            WHERE {col} IS NOT NULL AND {col} != '' AND {col} != 'None'
+                            ORDER BY {col} LIMIT 200"""
+                    ).fetchall()
+                    vals = [str(r[0]) for r in rows]
+                    if vals:
+                        filter_options[col] = vals
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "[tt-wo-dashboard] 高级过滤候选列 %s 查询失败，已跳过", col, exc_info=True
+                    )
+
         conn.close()
 
         # 返回统一的 tt_stats 结构（同时包含 alarm_severity 和 category）
@@ -272,10 +504,25 @@ def tt_wo_dashboard_overview(
         }
 
         return {
-            "filters": {"regions": regions, "time_start": time_start, "time_end": time_end, "region": region},
+            "filters": {
+                "regions": regions,
+                "time_start": time_start,
+                "time_end": time_end,
+                "region": region,
+                "owner": owner,
+                "adv": adv_filters,
+                # 高级过滤：filter_fields 的顺序即前端下拉的展示顺序
+                "filter_fields": S["site_filter_fields"],
+                "filter_options": filter_options,
+            },
             "summary": {"tt_total": tt_total, "wo_total": wo_total, "wo_no_count": len(wo_no_set)},
             "tt_stats": tt_stats,
             "mttr_weekly": mttr_weekly,
+            "mttr_weekly_by_severity": mttr_weekly_by_severity,
+            # 日/周/月三份分级 MTTR 序列（前端三个页签各读一份）。
+            # 与 mttr_weekly_by_severity 同源（后者是本字段 week 的改名视图）。
+            "mttr_series": mttr_series,
+            "mttr_granularities": list(_MTTR_GRANULARITIES),
             "domain_stats": domain_stats,
             "root_cause": {"main": rc_main, "sub": rc_sub},
             "wo_stats": {"source": wo_source_stats, "status": wo_status_stats},
@@ -339,11 +586,18 @@ def tt_wo_drilldown(
     time_start: str = Query(None),
     time_end: str = Query(None),
     region: str = Query(None),
+    owner: str = Query(None, description="ZTE / 3rd；与 overview 同一口径"),
+    adv: str = Query(None, description="高级过滤，JSON 对象 {站点列名: 精确值}；与 overview 同一口径"),
     dimension: str = Query("all_tt"),
     value: str = Query(None),
 ):
-    """TT/WO 明细下钻查询（自适应数据库结构）"""
+    """TT/WO 明细下钻查询（自适应数据库结构）
+
+    过滤口径必须与 /overview 逐条一致（同一时间字段、同一站点 JOIN、同一 owner
+    判定、同一高级过滤），否则下钻行数会与看板上的数字对不上。
+    """
     S = _detect_schema()
+    adv_filters = _parse_adv(adv)
     DIMENSION_MAP = _get_dimension_map()
     with get_raw_connection() as conn:
 
@@ -353,17 +607,29 @@ def tt_wo_drilldown(
         sjf = S["site_join_field"]
         region_join_tt = region_where_tt = ""
         region_params_tt: list = []
-        if region and S["site_table"]:
+        if S["site_table"] and (region or adv_filters):
             region_join_tt = f"JOIN {S['site_table']} ms ON t.{sjf} = CAST(ms.{sjf} AS TEXT)"
-            region_where_tt = " AND ms.region = ?"
-            region_params_tt = [region]
+            if region:
+                region_where_tt += " AND ms.region = ?"
+                region_params_tt.append(region)
+            adv_where_tt, adv_params_tt = _advanced_site_filters(adv_filters, S)
+            region_where_tt += adv_where_tt
+            region_params_tt += adv_params_tt
 
         region_join_wo = region_where_wo = ""
         region_params_wo: list = []
-        if region and S["has_wo"] and S["site_table"]:
+        if S["has_wo"] and S["site_table"] and (region or adv_filters):
             region_join_wo = f"JOIN {S['site_table']} ms ON w.{sjf} = CAST(ms.{sjf} AS TEXT)"
-            region_where_wo = " AND ms.region = ?"
-            region_params_wo = [region]
+            if region:
+                region_where_wo += " AND ms.region = ?"
+                region_params_wo.append(region)
+            adv_where_wo, adv_params_wo = _advanced_site_filters(adv_filters, S)
+            region_where_wo += adv_where_wo
+            region_params_wo += adv_params_wo
+
+        # ZTE / 3rd 归属过滤：与 overview 共用同一函数，保证口径一致
+        owner_tt = _owner_where(owner, "t")
+        tt_where_owner = f" AND {owner_tt}" if owner_tt else ""
 
         dim_info = DIMENSION_MAP.get(dimension, ("tt", None, None))
         dim_type = dim_info[0]
@@ -375,8 +641,11 @@ def tt_wo_drilldown(
         TT_FIELDS = _build_tt_fields()
 
         # week 维度
-        if dimension == "week" and value:
-            tt_where = f"WHERE {tt_tf}{region_where_tt}" if tt_tf else f"WHERE 1=1{region_where_tt}"
+        # 时间粒度维度（day / week / month）：与 MTTR 趋势的三个页签一一对应。
+        # 必须与 overview 的桶口径同源（都走 _period_label），否则点日图上的点
+        # 会下钻出与该点对不上的行数——这是「下钻 WHERE 必须与概览一致」的硬要求。
+        if dimension in _MTTR_GRANULARITIES and value:
+            tt_where = f"WHERE {tt_tf}{region_where_tt}{tt_where_owner}" if tt_tf else f"WHERE 1=1{region_where_tt}{tt_where_owner}"
             tt_params = tt_tp + region_params_tt
             rows = conn.execute(f"""
                 SELECT {TT_FIELDS} FROM eflow_tt t {region_join_tt}
@@ -384,9 +653,12 @@ def tt_wo_drilldown(
                 ORDER BY t.alarm_occur_time DESC
             """, tt_params).fetchall()
             cols = [c.strip().split('.')[-1] for c in TT_FIELDS.split(",")]
-            data = [dict(zip(cols, row)) for row in rows if _week_label(str(dict(zip(cols, row)).get("alarm_occur_time") or "")) == value]
+            data = [
+                dict(zip(cols, row)) for row in rows
+                if _period_label(str(dict(zip(cols, row)).get("alarm_occur_time") or ""), dimension) == value
+            ]
             conn.close()
-            return {"title": f"TT - Week: {value}", "count": len(data), "data": data}
+            return {"title": f"TT - {dimension.title()}: {value}", "count": len(data), "data": data}
 
         # 站点维度
         if dim_type == "site" and value:
@@ -401,7 +673,7 @@ def tt_wo_drilldown(
                     conn.close()
                     return {"title": f"TT - {dimension}: {value}", "count": 0, "data": []}
                 placeholders = ",".join("?" * len(id_list))
-                tt_where = f"WHERE {tt_tf}{region_where_tt}" if tt_tf else f"WHERE 1=1{region_where_tt}"
+                tt_where = f"WHERE {tt_tf}{region_where_tt}{tt_where_owner}" if tt_tf else f"WHERE 1=1{region_where_tt}{tt_where_owner}"
                 rows = conn.execute(f"""
                     SELECT {TT_FIELDS} FROM eflow_tt t {region_join_tt}
                     {tt_where} AND t.{sjf} IN ({placeholders})
@@ -414,7 +686,7 @@ def tt_wo_drilldown(
 
         # 通用 TT 维度
         if dim_type == "tt":
-            tt_where = f"WHERE {tt_tf}{region_where_tt}" if tt_tf else f"WHERE 1=1{region_where_tt}"
+            tt_where = f"WHERE {tt_tf}{region_where_tt}{tt_where_owner}" if tt_tf else f"WHERE 1=1{region_where_tt}{tt_where_owner}"
             tt_params = tt_tp + region_params_tt
             dim_cond = dim_info[1]
             extra_params: list = []

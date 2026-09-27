@@ -5,6 +5,7 @@ import api from '../api'
 import { useI18n } from '../i18n'
 import { formatDateTime } from '../datetime'
 import { cardStyle, pageWrap } from '../theme'
+import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
 
 const { Text } = Typography
 
@@ -79,6 +80,11 @@ function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${bytes} B`
+}
+
+/** 导出文件名时间戳（去掉日期里的分隔符，避免文件名出现空格/冒号） */
+function stamp(): string {
+  return new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')
 }
 
 export default function EmailReports() {
@@ -381,6 +387,104 @@ export default function EmailReports() {
     },
   ]
 
+  // ========== 导出 ==========
+  /* 三个页签各导一份「当前页签表格的全量行」——与界面显示的列一一对应，
+     不含操作列（下载按钮在 Excel 里没有意义）。
+     行的范围与 dataSource 一致（这些表 pagination={false}，无分页截断）。 */
+  const exportEmail = useCallback(async () => {
+    if (!rows.length) return
+    await exportReport([{
+      name: 'Email Reports',
+      title: t('emailReports.title'),
+      header: [
+        t('emailReports.colTask'), t('emailReports.colType'), t('emailReports.colFile'),
+        t('emailReports.colSize'), t('emailReports.colTime'),
+      ],
+      rows: rows.map(r => [
+        r.task_name, r.label, r.name, formatSize(r.size), formatDateTime(r.mtime),
+      ]),
+      numericCols: [],
+      columnWidths: [26, 24, 40, 12, 20],
+      tabColor: '#2F5496',
+    }], `email_reports_${stamp()}.xlsx`)
+  }, [rows, t])
+
+  const exportFinebi = useCallback(async () => {
+    if (!finebiRows.length) return
+    await exportReport([{
+      name: 'FineBI Reports',
+      title: t('emailReports.tabFinebi'),
+      header: [
+        t('emailReports.finebiColFolder'), t('emailReports.colFile'),
+        t('emailReports.colSize'), t('emailReports.colTime'),
+      ],
+      rows: finebiRows.map(r => [r.folder, r.name, formatSize(r.size), formatDateTime(r.mtime)]),
+      columnWidths: [34, 44, 12, 20],
+      tabColor: '#548235',
+    }], `finebi_reports_${stamp()}.xlsx`)
+  }, [finebiRows, t])
+
+  const exportEflowCheck = useCallback(async () => {
+    const breakdown = eflowSummary?.rule_breakdown || []
+    if (!breakdown.length && !eflowFiles.length) return
+    const sheets: ReportSheetSpec[] = []
+    // ① 摘要（统计卡 + 变更方向）：与页面顶部 Statistic/变更标签同一口径
+    if (eflowSummary) {
+      const rowsSummary: (string | number)[][] = [
+        [t('emailReports.eflowStatTotal'), eflowSummary.total],
+        [t('emailReports.eflowStatMatched'), eflowSummary.matched],
+        [t('emailReports.eflowStatChanged'), eflowSummary.changed],
+        [t('emailReports.eflowStatRunAt'), eflowSummary.generated_at],
+      ]
+      if (eflowSummary.rules_count != null) {
+        rowsSummary.push([t('emailReports.rulesCollected'), eflowSummary.rules_count])
+      }
+      ;(eflowSummary.change_matrix || []).forEach(c => {
+        rowsSummary.push([`${c.from} → ${c.to}`, c.count])
+      })
+      sheets.push({
+        name: 'Summary',
+        title: `${t('emailReports.tabEflowCheck')} · ${t('emailReports.eflowColRule')}`,
+        header: [t('emailReports.eflowColRule'), t('emailReports.eflowColMatched')],
+        rows: rowsSummary,
+        numericCols: [1],
+        columnWidths: [34, 18],
+        tabColor: '#2F5496',
+      })
+    }
+    // ② 规则明细（界面主表）
+    if (breakdown.length) {
+      sheets.push({
+        name: 'Rules',
+        title: t('emailReports.eflowColRule'),
+        header: [
+          t('emailReports.eflowColPri'), t('emailReports.eflowColRule'),
+          t('emailReports.eflowColSeverity'), t('emailReports.eflowColMatched'),
+          t('emailReports.eflowColChanged'),
+        ],
+        rows: breakdown.map(r => [
+          r.priority ?? '', r.rule_name, r.severity, r.matched, r.changed,
+        ]),
+        numericCols: [0, 3, 4],
+        valueColors: [4],
+        columnWidths: [10, 40, 14, 12, 12],
+        tabColor: '#BF8F00',
+      })
+    }
+    // ③ 可下载产物清单
+    if (eflowFiles.length) {
+      sheets.push({
+        name: 'Files',
+        title: t('emailReports.eflowFilesLabel'),
+        header: [t('emailReports.colType'), t('emailReports.colFile'), t('emailReports.colSize'), t('emailReports.colTime')],
+        rows: eflowFiles.map(f => [f.label || f.name, f.name, formatSize(f.size), formatDateTime(f.mtime)]),
+        columnWidths: [30, 44, 12, 20],
+        tabColor: '#843C0C',
+      })
+    }
+    await exportReport(sheets, `eflow_tt_rules_check_${stamp()}.xlsx`)
+  }, [eflowSummary, eflowFiles, t])
+
   return (
     <div style={pageWrap}>
       <Card style={cardStyle} title={t('emailReports.title')}>
@@ -404,6 +508,9 @@ export default function EmailReports() {
                       />
                       <Button size="small" icon={<ReloadOutlined />} onClick={load} loading={loading}>
                         {t('emailReports.refresh')}
+                      </Button>
+                      <Button size="small" icon={<DownloadOutlined />} onClick={() => void exportEmail()} disabled={!rows.length}>
+                        {t('common.exportExcel')}
                       </Button>
                     </Space>
                   </div>
@@ -431,6 +538,9 @@ export default function EmailReports() {
                     <Text type="secondary">{t('emailReports.finebiHint')}</Text>
                     <Button size="small" icon={<ReloadOutlined />} onClick={loadFinebi} loading={finebiLoading}>
                       {t('emailReports.refresh')}
+                    </Button>
+                    <Button size="small" icon={<DownloadOutlined />} onClick={() => void exportFinebi()} disabled={!finebiRows.length}>
+                      {t('common.exportExcel')}
                     </Button>
                   </div>
                   <div className="wh-table-responsive">
@@ -482,6 +592,14 @@ export default function EmailReports() {
                       </Button>
                       <Button size="small" icon={<ReloadOutlined />} onClick={loadEflowCheck} loading={eflowLoading}>
                         {t('emailReports.refresh')}
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<DownloadOutlined />}
+                        onClick={() => void exportEflowCheck()}
+                        disabled={!(eflowSummary?.rule_breakdown?.length || eflowFiles.length)}
+                      >
+                        {t('common.exportExcel')}
                       </Button>
                     </Space>
                   </div>

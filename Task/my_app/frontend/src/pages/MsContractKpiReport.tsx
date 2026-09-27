@@ -10,7 +10,8 @@
  *   利比里亚自动化报表              自动化报表清单（优先级/频率/团队/推动方式）
  * 解析口径见 backend/services/ms_kpi_report_service.py 顶部 docstring。
  *
- * 页面结构：总览卡片 → 分类达标 → 27 个 KPI 卡（点击看日趋势）→ 4 个页签
+ * 页面结构：总览卡片 → 分类达标 → 27 个 KPI 卡（按 Operation / Network / PerSite 三个
+ * 页签分类，点击看日趋势）→ 4 个页签
  * （KPI 矩阵 / WO SLA 矩阵 / FineBI 规划 / 自动化报表清单，后两个支持搜索+筛选+分页）。
  * ========================================================================== */
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -72,6 +73,18 @@ const FILTER_LABEL_KEY: Record<string, string> = {
   type: 'msKpi.f.type',
   autoType: 'msKpi.f.autoType',
   pushMode: 'msKpi.f.pushMode',
+}
+
+/**
+ * KPIs Category -> 页签文案。
+ * 必须写成**字面量映射**：`t('msKpi.cat.' + category)` 这种动态拼 key 会被
+ * `npm run check:i18n` 读成键名 `msKpi.cat.` 而报字典缺失（见 AGENTS.md 第三节第 1b 条）。
+ * key 是工作簿里的原始分类名，保持原样不翻译。
+ */
+const CATEGORY_LABELS: Record<string, string> = {
+  'Operation KPIs': 'Operation KPIs',
+  'Network KPIs': 'Network KPIs',
+  'PerSite KPIs': 'PerSite KPIs',
 }
 
 // ============================================================================
@@ -559,7 +572,7 @@ export default function MsContractKpiReport() {
         </Spin>
       </Card>
 
-      {/* ==================== 27 个 KPI 卡（点击看日趋势） ==================== */}
+      {/* ==================== 27 个 KPI 卡（按 Operation / Network / PerSite 页签分类，点击看日趋势） ==================== */}
       <Card
         title={t('msKpi.kpiCardsTitle')}
         style={{ background: WH.cardBg, border: WH.cardBorder, marginBottom: 12 }}
@@ -573,6 +586,8 @@ export default function MsContractKpiReport() {
                 loc={loc}
                 t={t}
                 compact
+                groupByCategory
+                categoryLabels={CATEGORY_LABELS}
                 onPick={(m) => setPick({
                   metric: m, matrix: contract,
                   x: window.innerWidth / 2, y: window.innerHeight / 3,

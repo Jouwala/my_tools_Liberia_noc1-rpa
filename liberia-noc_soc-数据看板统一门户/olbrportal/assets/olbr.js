@@ -3132,12 +3132,16 @@
   /* 弹窗标题 = 卡片名 + 「· 明细」，并顺带维护「打开完整看板」按钮。
      映射只给**目录里确实存在对应看板**的维度（源码见 MsPortal/portal.js 的
      QC_BOARD_PAGE）：cr / pmt 在 my_app 侧没有对应页面 ——
-     配一个错的链接比不给链接更糟，故不配、按钮不出现。 */
+     配一个错的链接比不给链接更糟，故不配、按钮不出现。
+
+     2026-09-26：spms 由 sp_material 改为 **sp_report**，与 MsPortal 同步
+     （理由见 MsPortal/assets/portal.js 的 QC_BOARD_PAGE 注释：
+     spms 明细是出入库单，sp_report 才是同一批单子的报表）。 */
   var QC_BOARD_PAGE = {
     alarm: 'realtime_alarm',
     tt: 'ttwo',
     wo: 'ttwo',
-    spms: 'sp_material'
+    spms: 'sp_report'
   };
 
   function applyDrillTitle() {

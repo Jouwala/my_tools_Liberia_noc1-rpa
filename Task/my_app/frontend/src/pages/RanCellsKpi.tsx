@@ -288,29 +288,69 @@ export default function RanCellsKpi() {
     [data, tech],
   )
 
-  // 导出 Excel：每个制式一张表，布局与页面一致
-  // 已迁统一格式：多 sheet 走 exportReport，sheet 名超 31 字符由模块内统一截断处理
-  const exportExcel = useCallback(() => {
-    if (!data) return
-    const sheets: ReportSheetSpec[] = shownTechs.map(tb => {
-      const rows: (string | number)[][] = METRICS.map(m => [
-        t(m.labelKey),
-        ...activeDays.map(d => {
-          const v = tb.days?.[d]?.[m.key] as number | null | undefined
-          return v == null ? '-' : (m.fmt === 'int' ? Number(v) : Number((v * 100).toFixed(2)))
-        }),
-      ])
-      return {
+  // 当前筛选条件文本（导出副标题用，便于对账「这份文件是哪个口径下导出的」）
+  // 月份 / 达标值 / 制式三者都是页面工具栏上的筛选条件，必须写进 subtitle
+  const filterText = useMemo(() => [
+    `${t('rck.month')}: ${month.format('YYYY-MM')}`,
+    `${t('rck.threshold')}: ${thresholdPct.toFixed(2)}%`,
+    `${t('rck.tech')}: ${tech === 'all' ? t('rck.all') : tech}`,
+  ].join('    |    '), [month, thresholdPct, tech, t])
+
+  // 页面级导出：把「当前筛选后」的汇总卡片 + 逐日 KPI 主表整份导出。
+  // 与旧的 exportExcel 的区别：
+  //   - 旧的在 Sheet1 只写逐日矩阵，月度汇总卡片（月均可用率 / 小区名册 / 有数据天数）完全没进去；
+  //   - 旧的文件名与副标题里没有达标值 / 制式筛选，拿到文件后无法判断是什么口径。
+  // 这里改为多 sheet：Sheet1 = 汇总、其后每制式一张，两块都带上完整筛选条件。
+  // Sheet1 不复用 exportExcel 的 `{tech}_Cells_KPI` 命名，避免与逐日 sheet 撞名后
+  // 被 excelReport 的 uniqueSheetName() 改写成 `..._2`（见 utils/excelReport.ts）。
+  const exportSummary = useCallback(() => {
+    if (!data || !shownTechs.length) return
+    const sheets: ReportSheetSpec[] = []
+    // ---------- Sheet1：月度汇总（页面上那排 StatCard + 名册口径） ----------
+    sheets.push({
+      name: 'Summary',
+      title: t('rck.exportSummaryTitle'),
+      subtitle: filterText,
+      tabColor: 'FF2F5496',
+      header: [
+        t('rck.tech'), t('rck.export.thAvailability'), t('rck.roster'),
+        t('rck.daysWithData'), t('rck.m.total'), t('rck.m.meeting'), t('rck.m.below'),
+        t('rck.m.pctMeeting'), t('rck.m.pctBelow'),
+      ],
+      rows: shownTechs.map(tb => [
+        // 取不到数据显示 ——，不能显示成 0（未达标数 / 占比为 0 是真实值，照常显示）
+        tb.label,
+        tb.month.availability == null ? '—' : Number((tb.month.availability * 100).toFixed(2)),
+        tb.roster_cells,
+        tb.month.days_with_data,
+        tb.month.total,
+        tb.month.meeting,
+        tb.month.below,
+        tb.month.pct_meeting == null ? '—' : Number((tb.month.pct_meeting * 100).toFixed(2)),
+        tb.month.pct_below == null ? '—' : Number((tb.month.pct_below * 100).toFixed(2)),
+      ]),
+      columnWidths: [34, 16, 14, 14, 14, 14, 16, 14, 16],
+    })
+    // ---------- 其后每个制式一张：逐日 KPI 矩阵（指标为行、日期为列，与页面明细表同布局） ----------
+    for (const tb of shownTechs) {
+      sheets.push({
         name: `${tb.tech}_Cells_KPI`,
         title: tb.label,
-        header: ['', ...activeDays.map(fmtDay)],
-        rows,
+        subtitle: filterText,
+        header: [t('rck.metric'), ...activeDays.map(fmtDay)],
+        rows: METRICS.map(m => [
+          t(m.labelKey),
+          ...activeDays.map(d => {
+            const v = tb.days?.[d]?.[m.key] as number | null | undefined
+            return v == null ? '—' : (m.fmt === 'int' ? Number(v) : Number((v * 100).toFixed(2)))
+          }),
+        ]),
         columnWidths: [30, ...activeDays.map(() => 12)],
-      }
-    })
+      })
+    }
     const fname = `RAN_Cells_KPI_${data.meta.month}_${dayjs().format('YYYYMMDD_HHmmss')}`
     void exportReport(sheets, `${fname}.xlsx`)
-  }, [data, shownTechs, activeDays, t])
+  }, [data, shownTechs, activeDays, filterText, t])
 
   // ---------- 主题相关样式（深浅自适应） ----------
   const border = `1px solid color-mix(in srgb, ${WH.teal} 16%, transparent)`
@@ -398,8 +438,8 @@ export default function RanCellsKpi() {
             <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
               {t('rck.refresh')}
             </Button>
-            <Button icon={<DownloadOutlined />} onClick={exportExcel} disabled={!data}>
-              {t('rck.export')}
+            <Button icon={<DownloadOutlined />} onClick={exportSummary} disabled={!data || !shownTechs.length}>
+              {t('common.exportExcel')}
             </Button>
           </Space>
         </div>

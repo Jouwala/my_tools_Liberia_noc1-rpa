@@ -1,20 +1,24 @@
 // TT&WO Dashboard 前端页面 - Warehouse 暗色科技风
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { cachedGet } from '../cache'
-import { Card, Row, Col, Select, Segmented, DatePicker, Space, Tag, Tooltip, Statistic, Empty, Spin, Alert, Table, Input, Button } from 'antd'
+import { Card, Row, Col, Select, Segmented, DatePicker, Space, Tag, Tooltip, Statistic, Empty, Spin, Alert, Table, Input, Button, Badge, Tabs } from 'antd'
 import {
   ThunderboltOutlined, FileTextOutlined, NumberOutlined, ClockCircleOutlined,
   AlertOutlined, TagsOutlined, BarChartOutlined,
   PieChartOutlined, EnvironmentOutlined, TeamOutlined,
-  DownloadOutlined, SearchOutlined
+  DownloadOutlined, SearchOutlined, FilterOutlined
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
-import { exportAoaReport } from '../utils/excelReport'
+import * as echarts from 'echarts'
+import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import dayjs from 'dayjs'
 import api from '../api'
 import { useI18n, numLocale } from '../i18n'
 import { useDataTimestamps } from '../useDataTimestamps'
 import DraggableClickModal from '../components/DraggableClickModal'
+// 统计数字卡片走项目统一卡片组件（AGENTS.md 第三节第 3 条：卡片必须用 components/cards，
+// 不要在页面里自造卡片样式）
+import { CardBase } from '../components/cards'
 import { ExplainIcon } from '../components/MetricExplain'
 import { WH, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
 
@@ -39,6 +43,26 @@ const SEVERITY_COLORS_LIGHT = {
 
 // 卡片标题样式
 const cardTitleStyle = { fontSize: '0.875rem', fontWeight: 600, color: WH.text } as const
+
+/* ---------- MTTR 趋势的时间粒度（页签：日 / 周 / 月）----------
+ * 顺序即页签展示顺序；与后端 _MTTR_GRANULARITIES 一一对应。
+ * 三档一次请求全拿到（后端 mttr_series），切页签不重新请求。 */
+const MTTR_GRANULARITIES = ['day', 'week', 'month'] as const
+type MttrGran = typeof MTTR_GRANULARITIES[number]
+
+/** 粒度的 i18n 键。显式 switch 返回字面量键 —— 动态拼 `t('ttwo.gran.'+g)`
+ *  会被 check:i18n 读成键名 `ttwo.gran.` 而报「字典缺失」。 */
+const mttrGranLabelKey = (g: MttrGran): string => {
+  switch (g) {
+    case 'day': return 'ttwo.gran.day'
+    case 'week': return 'ttwo.gran.week'
+    case 'month': return 'ttwo.gran.month'
+  }
+}
+
+/** 四张 MTTR 图的 echarts group 名：同组图表 tooltip 与 dataZoom 联动，
+ *  拖任一张图缩放，另外三张一起动（日粒度 300 个点时尤其需要）。 */
+const MTTR_CHART_GROUP = 'ttwo-mttr-trend'
 
 // 分区标题样式
 const SectionTitle = ({ icon, title, explain }: { icon: React.ReactNode; title: string; explain?: string }) => (
@@ -71,16 +95,66 @@ const getUniqueFilters = (data: any[], key: string) => {
   return Array.from(vals).map(v => ({ text: v, value: v }))
 }
 
-export default function TTWODashboard() {
+/**
+ * 高级过滤列的 i18n 键映射。
+ *
+ * 必须是显式 switch 返回字面量键 —— 动态拼 `t('ttwo.adv.' + col)` 会被
+ * `npm run check:i18n` 读成键名 `ttwo.adv.` 而报「字典缺失」（见 AGENTS.md
+ * 第三节第 1b 条）。未知列回落到后端列名本身，至少不会显示成 i18n key。
+ */
+const advFilterLabelKey = (col: string): string => {
+  switch (col) {
+    case 'region': return 'ttwo.adv.region'
+    case 'province_county': return 'ttwo.adv.provinceCounty'
+    case 'network_type': return 'ttwo.adv.networkType'
+    case 'site_type': return 'ttwo.adv.siteType'
+    case 'vip_site': return 'ttwo.adv.vipSite'
+    case 'trm_type': return 'ttwo.adv.trmType'
+    case 'supervisor': return 'ttwo.adv.supervisor'
+    case 'fme_name': return 'ttwo.adv.fmeName'
+    case 'power_sources': return 'ttwo.adv.powerSources'
+    case 'power_vendor': return 'ttwo.adv.powerVendor'
+    case 'site_caregory': return 'ttwo.adv.siteCategory'
+    default: return col
+  }
+}
+
+/**
+ * TT&WO 看板主体（page=ttwo：汇总卡 + TT 统计 + MTTR 周趋势 + 领域/根因 + WO + 站点信息）。
+ *
+ * only 用于派生「只保留上半部分」的直链页面（同一份实现切片，避免复制粘贴走样）：
+ *   - only='summary' → 只渲染到 MTTR Weekly Trend 为止（汇总卡、TT 统计、MTTR 周趋势），
+ *     即「MTTR Weekly Trend」标题与图表仍出，其下的领域/根因、WO 分析、站点信息全部不出；
+ *     供 page=v1_ttwo 使用（见 pages/V1TTWODashboard.tsx）；
+ *   - 缺省           → 全量，page=ttwo 行为与改造前完全一致。
+ *
+ * 筛选条（时间档位/自定义区间/区域）、下钻弹窗与 Excel 导出在两条直链上同样具备，
+ * 且共用同一个 /tt-wo-dashboard/overview 端点，因此两个页面的数字必然一致。
+ */
+export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
   const { t, locale } = useI18n()
   const { isDark } = useTheme()
+  // 切片开关：true = 只出到 MTTR 周趋势，其下区块整体不渲染
+  const summaryOnly = only === 'summary'
   const { lastSync, isSynced } = useDataTimestamps()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
-  const [timePreset, setTimePreset] = useState<string>('last7')
+  // 默认时间窗「近 30 天」：7 天对周/月粒度只有 1~2 个桶，看不出趋势；
+  // 30 天在日粒度约 30 个点、周粒度 5 个点、月粒度 2 个点，三档都够看
+  const [timePreset, setTimePreset] = useState<string>('last30')
   const [customRange, setCustomRange] = useState<any>(null)
   const [selectedRegion, setSelectedRegion] = useState<string | undefined>(undefined)
+  // ZTE / 3rd 归属过滤：wo_no 非空 = ZTE 自派单，为空 = 3rd 第三方单（后端同口径）
+  const [selectedOwner, setSelectedOwner] = useState<string | undefined>(undefined)
+  // 高级过滤（参照 GISMap 的 FILTER_CONFIG）：{站点列名: 精确值}。
+  // 列名白名单与候选值都由后端 filters.filter_fields / filter_options 给出，
+  // 前端不硬编码列名 —— 换库（my_app / MTN_Comsal）时自动跟着变。
+  const [advFilters, setAdvFilters] = useState<Record<string, string | undefined>>({})
+  const [showAdvFilters, setShowAdvFilters] = useState(false)
+  // MTTR 趋势当前页签粒度。默认「周」保持改造前（MTTR Weekly Trend）的呈现，
+  // 日/月是新增的另两档视角。
+  const [mttrGran, setMttrGran] = useState<MttrGran>('week')
 
   // 下钻状态
   const [drillVisible, setDrillVisible] = useState(false)
@@ -111,6 +185,17 @@ export default function TTWODashboard() {
     }
   }, [timePreset, customRange])
 
+  // 高级过滤的有效项（去掉空值），序列化成后端要的 JSON 字符串
+  const activeAdv = useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(advFilters)) {
+      if (v != null && String(v).trim() !== '') out[k] = String(v)
+    }
+    return out
+  }, [advFilters])
+  const advParam = useMemo(() => (Object.keys(activeAdv).length ? JSON.stringify(activeAdv) : ''), [activeAdv])
+  const activeFilterCount = Object.keys(activeAdv).length
+
   // 加载数据
   useEffect(() => {
     setLoading(true)
@@ -121,7 +206,9 @@ export default function TTWODashboard() {
       params.time_end = timeRange.end
     }
     if (selectedRegion) params.region = selectedRegion
-    const cacheKey = `ttwo:overview:${timeRange?.start || ''}:${timeRange?.end || ''}:${selectedRegion || ''}`
+    if (selectedOwner) params.owner = selectedOwner
+    if (advParam) params.adv = advParam
+    const cacheKey = `ttwo:overview:${timeRange?.start || ''}:${timeRange?.end || ''}:${selectedRegion || ''}:${selectedOwner || ''}:${advParam}`
     cachedGet(cacheKey, () => api.get('/tt-wo-dashboard/overview', { params }))
       .then(res => {
         setData(res.data)
@@ -132,7 +219,7 @@ export default function TTWODashboard() {
         setError(err.message || 'API request failed')
       })
       .finally(() => setLoading(false))
-  }, [timeRange, selectedRegion])
+  }, [timeRange, selectedRegion, selectedOwner, advParam])
 
   const fmt = (n: number) => n?.toLocaleString(numLocale(locale)) || '0'
 
@@ -153,6 +240,9 @@ export default function TTWODashboard() {
       params.time_end = timeRange.end
     }
     if (selectedRegion) params.region = selectedRegion
+    // 下钻必须带上与概览**完全相同**的过滤条件，否则表格里的数字与下钻行数对不上
+    if (selectedOwner) params.owner = selectedOwner
+    if (advParam) params.adv = advParam
     api.get('/tt-wo-dashboard/drilldown', { params })
       .then(res => {
         setDrillData(res.data.data || [])
@@ -162,7 +252,7 @@ export default function TTWODashboard() {
         setDrillTitle('Failed to load data')
       })
       .finally(() => setDrillLoading(false))
-  }, [timeRange, selectedRegion])
+  }, [timeRange, selectedRegion, selectedOwner, advParam])
 
   // 模糊搜索
   const filteredDrillData = useMemo(() => {
@@ -219,34 +309,311 @@ export default function TTWODashboard() {
   const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
   const sevColors = isDark ? SEVERITY_COLORS : SEVERITY_COLORS_LIGHT
 
-  // MTTR周趋势
-  const mttrOption = useMemo(() => {
-    if (!data?.mttr_weekly?.length) return {}
-    const weeks = data.mttr_weekly.map((w: any) => w.week)
-    const mttrs = data.mttr_weekly.map((w: any) => w.mttr)
-    const counts = data.mttr_weekly.map((w: any) => w.count)
+  // MTTR 趋势 —— 按 Ticket Severity 拆成 4 个独立图（P1/P2/P3/P4），
+  // 每张图再支持 日 / 周 / 月 三档粒度（用页签切换）。
+  // 数据来自后端 mttr_series[粒度][级别]；某级别在某桶没有单就不画那个点
+  // （connectNulls 关闭），因此曲线是断点而非掉到 0 —— 「没有单」≠「MTTR=0」。
+  const MTTR_SEVERITIES = ['P1', 'P2', 'P3', 'P4']
+
+  // 后端是否提供了新的多粒度字段。前端与后端同仓但**各自独立部署**（静态产物
+  // 落 _fe_dist，后端是常驻进程），因此存在「前端已新、后端未重启」的窗口期。
+  // 这段窗口里日/月页签没数据，必须与「真的没有工单」区分开，否则会误导值班。
+  const mttrHasSeriesApi = !!data?.mttr_series
+
+  // 三档粒度一次请求全拿到，切页签**不重新请求**（纯前端切换，瞬时响应）
+  const mttrSeriesByGran = useMemo<Record<MttrGran, Record<string, any[]>>>(() => {
+    const out = {} as Record<MttrGran, Record<string, any[]>>
+    for (const g of MTTR_GRANULARITIES) {
+      const fromApi = data?.mttr_series?.[g]
+      if (fromApi) { out[g] = fromApi; continue }
+      // 旧后端兜底：只有周序列（键名为 week），其余粒度落到空
+      out[g] = g === 'week' ? (data?.mttr_weekly_by_severity || {}) : {}
+    }
+    return out
+  }, [data])
+
+  /* ---------- 页面级导出（2026-09-27 新增）----------
+   * 此前本组件唯一的导出按钮在**下钻弹窗**里（导的是下钻明细行），
+   * 页面上没有任何导出入口 —— `?page=ttwo` 与 `?page=v1_ttwo` 都因此看不到按钮。
+   * 这里补的是**页面级**导出：导当前筛选条件下的全部汇总数据，
+   * 与页面上显示的数字一一对应（同一次 /overview 响应，不另发请求）。
+   *
+   * 多 sheet 结构，空块自动跳过：Summary / TT Stats / WO Stats / MTTR / Domain / Root Cause / Site。
+   * only='summary'（v1_ttwo）时下游区块本就不渲染，其数据也不导出（见 summaryOnly 判断），
+   * 保证「导出内容 = 页面所见」。 */
+  const exportOverview = useCallback(() => {
+    if (!data) return
+    const sheets: ReportSheetSpec[] = []
+    const filterNote = [
+      timePreset === 'all' ? t('ttwo.allTime') : `${timeRange?.start || ''} ~ ${timeRange?.end || ''}`,
+      selectedRegion ? `${t('gis.regionLabel')}: ${selectedRegion}` : '',
+      selectedOwner ? `Owner: ${selectedOwner}` : '',
+      activeFilterCount ? `${t('ttwo.advancedFilter')}: ${activeFilterCount}` : '',
+    ].filter(Boolean).join('    |    ')
+
+    // ① 汇总卡
+    // wo_total / wo_no_count 两张卡在页面上是**有条件下发**的（仅 wo_total > 0 时渲染，
+    // 见下方汇总卡片 Row），所以导出也要跟着隐藏 —— 否则会出现「页面没这两张卡、
+    // 导出里却有」的错位。tt_total 无条件渲染。
+    const sum = data.summary || {}
+    const summaryRows: (string | number)[][] = [
+      [t('ttwo.ttStatistics'), t('ttwo.ttTotal'), sum.tt_total ?? ''],
+    ]
+    if ((sum.wo_total ?? 0) > 0) {
+      summaryRows.push([t('ttwo.ttStatistics'), t('ttwo.woTotal'), sum.wo_total ?? ''])
+      summaryRows.push([t('ttwo.ttStatistics'), t('ttwo.woNoUnique'), sum.wo_no_count ?? ''])
+    }
+    sheets.push({
+      name: 'Summary',
+      title: t('ttwo.ttStatistics'),
+      subtitle: filterNote,
+      tabColor: '#2F5496',
+      header: [t('ttwo.dimension'), t('ttwo.value'), t('common.total')],
+      rows: summaryRows,
+      numericCols: [2],
+    })
+
+    // ② TT 各维度统计（严重度 / 工单严重度 / SLA / 状态）
+    const ttDims: Array<[string, Record<string, number>]> = [
+      [t('ttwo.alarmSeverity'), data.tt_stats?.severity || {}],
+      [t('ttwo.ticketSeverity'), data.tt_stats?.ticket_severity || {}],
+      [t('ttwo.slaStatus'), data.tt_stats?.sla_status || {}],
+      [t('ttwo.status'), data.tt_stats?.status || {}],
+    ]
+    const ttRows: (string | number)[][] = []
+    for (const [dim, stats] of ttDims) {
+      for (const [k, v] of Object.entries(stats || {})) ttRows.push([dim, k, v])
+    }
+    if (ttRows.length) {
+      sheets.push({
+        name: 'TT Stats',
+        title: t('ttwo.ttStatistics'),
+        subtitle: filterNote,
+        tabColor: '#0d9488',
+        header: [t('ttwo.dimension'), t('ttwo.value'), t('common.count')],
+        rows: ttRows,
+        numericCols: [2],
+      })
+    }
+
+    // ③ WO 各维度统计（来源 / 状态）—— 仅完整页（v1_ttwo 不渲染该区块）
+    if (!summaryOnly) {
+      const woRows: (string | number)[][] = []
+      for (const [k, v] of Object.entries(data.wo_stats?.source || {})) woRows.push([t('ttwo.woBySource'), k, v as number])
+      for (const [k, v] of Object.entries(data.wo_stats?.status || {})) woRows.push([t('ttwo.woByStatus'), k, v as number])
+      if (woRows.length) {
+        sheets.push({
+          name: 'WO Stats',
+          title: t('ttwo.woAnalytics'),
+          subtitle: filterNote,
+          tabColor: '#7c3aed',
+          header: [t('ttwo.dimension'), t('ttwo.value'), t('common.count')],
+          rows: woRows,
+          numericCols: [2],
+        })
+      }
+    }
+
+    // ④ MTTR 趋势：三档粒度一次请求全拿到，每档按 P1~P4 摊平
+    const mttrRows: (string | number)[][] = []
+    for (const g of MTTR_GRANULARITIES) {
+      const bySev = mttrSeriesByGran[g] || {}
+      for (const sv of MTTR_SEVERITIES) {
+        for (const it of (bySev[sv] || [])) {
+          // 某桶没有单时 mttr 为 null —— 导出成空串而不是 0，与页面「断点≠0」口径一致
+          mttrRows.push([`${t(mttrGranLabelKey(g))} · ${sv}`, it?.period ?? it?.week ?? '', it?.count ?? '', it?.mttr ?? ''])
+        }
+      }
+    }
+    if (mttrRows.length) {
+      sheets.push({
+        name: 'MTTR',
+        title: t('ttwo.mttrTrend'),
+        subtitle: filterNote,
+        tabColor: '#ea580c',
+        header: [t('ttwo.granSev'), t('ttwo.period'), t('common.count'), t('ttwo.seriesMTTR')],
+        rows: mttrRows,
+        numericCols: [2, 3],
+      })
+    }
+
+    // ⑤ 领域与根因、⑥ 站点信息 —— 同属 v1_ttwo 不渲染的下半部分
+    if (!summaryOnly) {
+      const domRows: (string | number)[][] = [
+        ...Object.entries(data.domain_stats || {}).map(e => [t('ttwo.ttByDomain'), e[0], e[1] as number]),
+        ...Object.entries(data.root_cause?.main || {}).map(e => [t('ttwo.rootCauseMain'), e[0], e[1] as number]),
+        ...Object.entries(data.root_cause?.sub || {}).map(e => [t('ttwo.rootCauseSub'), e[0], e[1] as number]),
+      ] as (string | number)[][]
+      if (domRows.length) {
+        sheets.push({
+          name: 'Domain-RootCause',
+          title: t('ttwo.domainRootCause'),
+          subtitle: filterNote,
+          tabColor: '#0284c7',
+          header: [t('ttwo.dimension'), t('ttwo.value'), t('common.count')],
+          rows: domRows,
+          numericCols: [2],
+        })
+      }
+
+      // 分组名与页面卡标题同款处理（下划线转空格 + 首字母大写），保证导出与界面一致
+      const prettyGroup = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+      const siteRows: (string | number)[][] = []
+      for (const [k, v] of Object.entries(data.site_stats?.power_sources || {})) siteRows.push([prettyGroup('power_sources'), k, v as number])
+      for (const [k, v] of Object.entries(data.site_stats?.power_vendor || {})) siteRows.push([prettyGroup('power_vendor'), k, v as number])
+      for (const [k, v] of Object.entries(data.site_stats?.maintenance_team || {})) siteRows.push([prettyGroup('maintenance_team'), k, v as number])
+      for (const [grp, stats] of Object.entries(data.site_stats || {})) {
+        // power_sources / power_vendor / maintenance_team 已在上方摊平，避免重复
+        if (['power_sources', 'power_vendor', 'maintenance_team'].includes(grp)) continue
+        if (!stats || typeof stats !== 'object') continue
+        for (const [k, v] of Object.entries(stats as Record<string, number>)) siteRows.push([prettyGroup(grp), k, v])
+      }
+      if (siteRows.length) {
+        sheets.push({
+          name: 'Site Stats',
+          title: t('ttwo.siteInfo'),
+          subtitle: filterNote,
+          tabColor: '#15803d',
+          header: [t('ttwo.dimension'), t('ttwo.value'), t('common.count')],
+          rows: siteRows,
+          numericCols: [2],
+        })
+      }
+    }
+
+    if (!sheets.length) return
+    const scope = summaryOnly ? 'v1' : 'full'
+    void exportReport(sheets, `TTWO_${scope}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`)
+  }, [data, timePreset, timeRange, selectedRegion, selectedOwner, activeFilterCount,
+      summaryOnly, mttrSeriesByGran, t])
+
+
+  /**
+   * 某粒度下、四个级别共用的 x 轴。
+   * 取所有级别出现过的桶并集，保证四张图横轴严格对齐，可以直接上下对比同一时段。
+   * 兼容两种键名：新字段用 period，旧兜底字段用 week。
+   */
+  const mttrPeriodsFor = useCallback((gran: MttrGran): string[] => {
+    const bySev = mttrSeriesByGran[gran] || {}
+    const set = new Set<string>()
+    for (const sv of MTTR_SEVERITIES) {
+      for (const it of (bySev[sv] || [])) {
+        const p = it?.period ?? it?.week
+        if (p) set.add(p)
+      }
+    }
+    // 后端增量返回/老后端：mttr_weekly 仍是全量周口径，用作周页签的兜底
+    if (set.size === 0 && gran === 'week') {
+      for (const it of (data?.mttr_weekly || [])) if (it?.week) set.add(it.week)
+    }
+    return Array.from(set).sort()
+  }, [mttrSeriesByGran, data?.mttr_weekly])
+
+  const makeMttrSevOption = useCallback((sev: string, gran: MttrGran) => {
+    const periods = mttrPeriodsFor(gran)
+    if (!periods.length) return {}
+    const items = mttrSeriesByGran[gran]?.[sev] || []
+    const byPeriod = new Map<string, any>(
+      items.map((it: any) => [it.period ?? it.week, it])
+    )
+    // 缺桶填 null：ECharts 遇 null 断线，不会误画成 0
+    const mttrs = periods.map(p => (byPeriod.has(p) ? byPeriod.get(p)!.mttr : null))
+    // 柱 = 该桶该级别的总 TT 单数（total）。老后端没有 total 时退回 count（样本数），
+    // 保证兼容窗口里柱状图仍有值可画。
+    const totals = periods.map(p => {
+      const it = byPeriod.get(p)
+      if (!it) return null
+      return it.total ?? it.count ?? null
+    })
+    // 计入 MTTR 均值的样本数，仅在与总量不等时于 tooltip 里补一句，说明差额来源
+    const counts = periods.map(p => (byPeriod.has(p) ? byPeriod.get(p)!.count : null))
+    // sevColors 的键是小写字面量（critical/major/...），这里显式窄化后再索引；
+    // 直接 sevColors[sev.toLowerCase()] 会因索引类型过宽而报 TS7053。
+    const sevKey = sev.toLowerCase() as keyof typeof sevColors
+    const color = sevColors[sevKey] || cTeal
+    // 柱状图用中性色（成交量是「中性的量」，级别身份交给 MTTR 折线表达），
+    // 深浅色主题各一套，避免在画布上用 CSS 变量（ECharts 解析不了）
+    const barColor = isDark
+      ? { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(125,175,255,0.55)' }, { offset: 1, color: 'rgba(125,175,255,0.10)' }] }
+      : { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(2,132,199,0.45)' }, { offset: 1, color: 'rgba(2,132,199,0.08)' }] }
+    // 日粒度在「全部时间」下有近 300 个点，横轴会糊成一片：
+    // 点数多时开启缩放（滚轮 + 底部滑杆）。四张图同属一个 echarts group，
+    // 缩放与 tooltip 联动，因此拖任一张图四张一起动。
+    const needZoom = periods.length > 60
+    const nameCount = t('ttwo.seriesTTCount')
+    const nameMttr = t('ttwo.seriesMTTR')
     return {
-      tooltip: { ...tooltipStyle, trigger: 'axis', axisPointer: { type: 'cross', crossStyle: { color: '#999' } } },
-      legend: { data: [t('ttwo.seriesTTCount'), t('ttwo.seriesMTTR')], bottom: 5, textStyle: { fontSize: 11, color: cTextMuted } },
-      grid: { left: 60, right: 60, top: 30, bottom: 55 },
-      xAxis: { type: 'category', data: weeks, axisLabel: { ...axisLabel(isDark), rotate: 45 }, axisLine: axisLine(isDark) },
+      // 双轴：左轴 = 单数（柱），右轴 = 分钟（线）。图例把两个量显式说清，
+      // 否则双轴图很容易被误读成「同一量纲的两种画法」
+      legend: { data: [nameCount, nameMttr], top: 0, right: 0, itemWidth: 12, itemHeight: 8, textStyle: { fontSize: 10, color: cTextMuted } },
+      tooltip: {
+        ...tooltipStyle, trigger: 'axis',
+        // 悬停时同时给出该时段该级别的单量与 MTTR：只有时长没有样本量会让人
+        // 把一个「只算了 1 单」的均值当成趋势
+        formatter: (ps: any[]) => {
+          const p = ps?.[0]
+          if (!p) return ''
+          const i = p.dataIndex
+          const tot = i != null ? totals[i] : null
+          const n = i != null ? counts[i] : null
+          const m = i != null ? mttrs[i] : null
+          const head = `<strong>${p.axisValue}</strong>`
+          if ((tot == null || tot === 0) && m == null) return `${head}<br/>${t('ttwo.noTicketsThisPeriod')}`
+          const lines = [head]
+          if (tot != null) lines.push(`${nameCount}: <strong>${tot}</strong>`)
+          if (m != null) {
+            // total 与 count 不等时把差额说清：差额是「有时段没关单时间/时长越界」的单
+            const extra = (n != null && tot != null && n !== tot) ? ` ${t('ttwo.mttrSampleNote', { n })}` : ''
+            // nameMttr 自带单位（'MTTR (分钟)' / 'MTTR (min)'），这里不再补 ' min'，免得读成两个单位
+            lines.push(`${nameMttr}: <strong>${m}</strong>${extra}`)
+          } else {
+            lines.push(t('ttwo.mttrNoSample'))
+          }
+          return lines.join('<br/>')
+        },
+      },
+      grid: { left: 48, right: 46, top: 36, bottom: needZoom ? 62 : 44 },
+      dataZoom: needZoom
+        ? [
+            { type: 'inside', throttle: 60 },
+            { type: 'slider', height: 16, bottom: 8, borderColor: 'transparent', textStyle: { fontSize: 10, color: cTextMuted } },
+          ]
+        : undefined,
+      xAxis: {
+        type: 'category', data: periods,
+        // 点多时标签抽稀，否则 300 个日期会叠成黑块
+        axisLabel: { ...axisLabel(isDark), rotate: 45, fontSize: 10, hideOverlap: true, interval: needZoom ? 'auto' : 0 },
+        axisLine: axisLine(isDark),
+      },
       yAxis: [
-        { type: 'value', name: t('ttwo.seriesTTCount'), position: 'left', nameTextStyle: { color: cTeal, fontSize: 11 }, axisLabel: { color: cTeal }, splitLine: splitLine(isDark) },
-        { type: 'value', name: t('ttwo.seriesMTTR'), position: 'right', nameTextStyle: { color: isDark ? '#ff5c6c' : '#dc2626', fontSize: 11 }, axisLabel: { color: isDark ? '#ff5c6c' : '#dc2626' }, splitLine: { show: false } },
+        // 左轴：TT 单数（整数）
+        {
+          type: 'value', position: 'left', minInterval: 1,
+          axisLabel: { color: cTextMuted, fontSize: 10 },
+          splitLine: splitLine(isDark),
+        },
+        // 右轴：MTTR 分钟。不画网格线，避免与左轴网格重叠成一团
+        {
+          type: 'value', position: 'right', name: 'min',
+          nameTextStyle: { color: cTextMuted, fontSize: 10 },
+          axisLabel: { color: cTextMuted, fontSize: 10 },
+          splitLine: { show: false },
+        },
       ],
       series: [
         {
-          name: t('ttwo.seriesTTCount'), type: 'bar', data: counts, yAxisIndex: 0, barMaxWidth: 28,
-          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? '#00d9ff' : '#0d9488' }, { offset: 1, color: isDark ? '#258cff' : '#0284c7' }] }, borderRadius: [4, 4, 0, 0] },
+          name: nameCount, type: 'bar', yAxisIndex: 0, data: totals,
+          barMaxWidth: 16, itemStyle: { color: barColor, borderRadius: [3, 3, 0, 0] },
         },
         {
-          name: t('ttwo.seriesMTTR'), type: 'line', data: mttrs, yAxisIndex: 1, smooth: true,
-          itemStyle: { color: isDark ? '#ff5c6c' : '#dc2626' }, lineStyle: { width: 2.5 }, symbol: 'circle', symbolSize: 6,
-          areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: isDark ? 'rgba(255,107,107,0.25)' : 'rgba(220,38,38,0.18)' }, { offset: 1, color: 'rgba(255,107,107,0.02)' }] } },
+          name: nameMttr, type: 'line', yAxisIndex: 1, data: mttrs, smooth: true, connectNulls: false,
+          itemStyle: { color }, lineStyle: { width: 2.5 },
+          symbol: periods.length > 60 ? 'none' : 'circle', symbolSize: 6,
+          z: 3,
         },
       ],
     }
-  }, [data?.mttr_weekly, t, isDark, tooltipStyle, cTextMuted, cTeal])
+  }, [mttrPeriodsFor, mttrSeriesByGran, sevColors, cTeal, cTextMuted, isDark, tooltipStyle, t])
 
   // Domain分布
   const domainOption = useMemo(() => {
@@ -399,11 +766,8 @@ export default function TTWODashboard() {
   }, [data?.site_stats?.power_vendor, isDark, tooltipStyle, cText, cPalette])
 
   // 统计卡片颜色映射
-  const sevColor: Record<string, string> = {
-    Critical: sevColors.critical, Major: sevColors.major, Medium: sevColors.medium, Minor: sevColors.minor,
-    'Proactive Fault': sevColors.info, 'Incident Fault': sevColors.major, 'Custom Complain': isDark ? '#eb2f96' : '#be185d',
-    Unknown: isDark ? '#adb5bd' : '#64748b'
-  }
+  // 注：Alarm Severity 维度已于 2026-09-26 按业务要求从 TT 统计中移除，
+  // 其色表（sevColor）随之删除；sevColors 仍被 MTTR 四图与 Ticket Severity 复用。
   const ticketColor: Record<string, string> = {
     P1: sevColors.critical, P2: sevColors.major, P3: sevColors.info, P4: sevColors.minor,
     'Critical(4H)': sevColors.critical, 'Major(24H)': sevColors.major, 'Warning': sevColors.medium, 'Minor(72H)': sevColors.minor,
@@ -422,23 +786,70 @@ export default function TTWODashboard() {
     return autoColorCache[key]
   }
 
-  // 可点击的统计标签（背景与文字随主题适配：深色主题用暗色玻璃底，浅色主题用语义色淡底）
-  const renderStatTags = (stats: Record<string, number>, colorMap: Record<string, string>, dimension: string) => (
-    <Space wrap size={[8, 8]}>
-      {Object.entries(stats).map(([k, v], idx) => {
-        const tagColor = colorMap[k] || getAutoColor(k, idx)
-        const tagBg = isDark ? 'rgba(8, 18, 44,0.6)' : `${tagColor}1f`
-        return (
-          <Tag key={k}
-            style={{ borderRadius: 'var(--wh-radius-lg)', padding: 'var(--wh-space-xs) 0.875rem', fontSize: '0.8125rem', lineHeight: '1.5rem', cursor: 'pointer', transition: 'all 0.2s', fontWeight: 500, background: tagBg, borderColor: tagColor, color: tagColor }}
-            onClick={(e) => openDrilldown(e, dimension, k)}
-          >
-            {k}: <strong style={{ fontSize: '0.875rem' }}>{fmt(v)}</strong>
-          </Tag>
-        )
-      })}
-    </Space>
+  /**
+   * 统计维度的小标题（卡片网格之上）。替代原来「外加大卡、标题写在卡头」的做法：
+   * 大卡套小卡会让层级变糊、两层边框压掉内边距，且同一行放不下两个维度的卡片网格。
+   */
+  const StatDimTitle = ({ label, explain }: { label: string; explain?: string }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 'var(--wh-space-sm) 0 0.375rem', fontSize: '0.8125rem', fontWeight: 600, color: WH.textMuted }}>
+      {label}
+      {explain && <ExplainIcon text={explain} />}
+    </div>
   )
+
+  /**
+   * 通用统计数字卡片：每个取值一张卡（左色条 + 名称 + 大数字 + 占比），点卡下钻该取值明细。
+   *
+   * 三个维度（工单严重度 Ticket Severity / SLA 状态 / 工单状态）共用同一个渲染器，
+   * 只是换色表与下钻维度。原先是 Tag 胶囊块：取值一多就换行成一团、数字也不突出；
+   * 卡片在值班大屏上更易扫读，且数字层级更清楚。
+   *
+   * 卡片用项目统一组件 CardBase（AGENTS.md 第三节第 3 条）。
+   * 占比的分母是该维度自身的合计（只看这一个维度内部的构成），不是 TT 总数。
+   * 取不到值显示 —，不显示成 0（第三节原则 6）。
+   */
+  const renderStatCards = (
+    stats: Record<string, number>,
+    colorOf: (k: string, idx: number) => string,
+    dimension: string,
+    labelOf: (k: string) => string = (k) => k,
+  ) => {
+    const sorted = Object.entries(stats || {}).sort((a, b) => (b[1] as number) - (a[1] as number))
+    if (!sorted.length) {
+      return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('common.noData')} />
+    }
+    const total = sorted.reduce((acc, [, n]) => acc + (n as number), 0)
+    // 卡片宽度按取值个数自适应：4~5 个取值时一行正好铺满，比固定 6 列匀称
+    const span = Math.max(4, Math.floor(24 / sorted.length))
+    return (
+      <Row gutter={[12, 12]}>
+        {sorted.map(([k, v], idx) => {
+          const color = colorOf(k, idx)
+          const pct = total > 0 ? ((v as number) / total) * 100 : 0
+          return (
+            <Col xs={12} sm={8} md={6} lg={span} key={k}>
+              <CardBase
+                interactive
+                style={{ borderLeft: `4px solid ${color}` }}
+                bodyStyle={{ padding: 'var(--wh-space-sm)' }}
+                onClick={(e) => openDrilldown(e, dimension, k)}
+              >
+                <Tooltip title={k}>
+                  <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {labelOf(k)}
+                  </div>
+                </Tooltip>
+                <div style={{ fontSize: '1.5rem', fontWeight: 800, color, lineHeight: 1.2 }}>
+                  {v == null ? '—' : fmt(v as number)}
+                </div>
+                <div style={{ fontSize: '0.6875rem', color: WH.textMuted, marginTop: 2 }}>{pct.toFixed(1)}%</div>
+              </CardBase>
+            </Col>
+          )
+        })}
+      </Row>
+    )
+  }
 
   // Status 颜色编码（随主题适配：深色主题用亮色，浅色主题用饱和暗色保证对比度）
   const getStatusColor = (key: string): string => {
@@ -461,24 +872,60 @@ export default function TTWODashboard() {
     return map[key] || key
   }
 
-  const renderStatusTags = (stats: Record<string, number>) => {
-    const sorted = Object.entries(stats).sort((a, b) => (b[1] as number) - (a[1] as number))
+  /**
+   * 某个粒度下的四张 MTTR 图（P1/P2/P3/P4）。
+   *
+   * 空态按「该级别在该粒度下有没有数据」逐图判定，而不是整页有没有数据：
+   * 例如 P4 本季度无单时，只让 P4 那张显示空态，其余三张照常出图。
+   */
+  const renderMttrCharts = (gran: MttrGran) => {
+    const bySev = mttrSeriesByGran[gran] || {}
+    const hasAny = MTTR_SEVERITIES.some(sv => (bySev[sv]?.length ?? 0) > 0)
+    if (!hasAny) {
+      // 区分「后端版本旧、没返回该粒度」与「确实没有工单」：
+      // 前者要在界面上说清楚，否则值班会以为数据真的空了
+      const unavailable = !mttrHasSeriesApi && gran !== 'week'
+      return (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={unavailable ? t('ttwo.mttrGranUnavailable') : t('ttwo.noTicketsInRangeAll')}
+          style={{ padding: 'var(--wh-space-lg) 0' }}
+        />
+      )
+    }
     return (
-      <div style={{ background: 'var(--wh-subtle-bg)', borderRadius: 'var(--wh-radius-md)', padding: 'var(--wh-space-md)', border: '1px solid var(--wh-subtle-border)' }}>
-        <Space wrap size={[10, 10]}>
-          {sorted.map(([k, v]) => (
-            <Tooltip key={k} title={`Click to drill down: ${k}`}>
-              <Tag
-                style={{ borderRadius: 'var(--wh-radius-lg)', padding: '0.3125rem 0.875rem', fontSize: '0.8125rem', lineHeight: '1.5rem', margin: 0, cursor: 'pointer', transition: 'all 0.2s', border: 'none', background: `${getStatusColor(k)}20`, color: getStatusColor(k), fontWeight: 500 }}
-                onClick={(e) => openDrilldown(e, 'status', k)}
+      <Row gutter={[12, 12]}>
+        {MTTR_SEVERITIES.map(sev => {
+          const has = (bySev[sev]?.length ?? 0) > 0
+          return (
+            <Col xs={24} lg={12} key={sev}>
+              <Card
+                size="small"
+                title={<span style={cardTitleStyle}>{t('ttwo.mttrBySeverity', { sev })} <ExplainIcon text={t('ttwo.explain.mttrBySeverity')} /></span>}
+                style={cardStyle}
               >
-                <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: getStatusColor(k), marginRight: 6 }} />
-                {shortenLabel(k)}: <strong style={{ fontSize: '0.875rem' }}>{fmt(v as number)}</strong>
-              </Tag>
-            </Tooltip>
-          ))}
-        </Space>
-      </div>
+                {has ? (
+                  <div role="img" aria-label={`MTTR ${gran} ${sev} chart`}>
+                    <ReactECharts
+                      option={makeMttrSevOption(sev, gran)}
+                      style={{ height: CHART_HEIGHT }}
+                      // notMerge：切页签时彻底换掉 series/xAxis，避免上一档的
+                      // dataZoom 窗口与点位残留造成「日图看着像周图」
+                      notMerge
+                      onChartReady={onMttrChartReady}
+                      onEvents={onChartClick(gran)}
+                    />
+                  </div>
+                ) : (
+                  <div style={{ height: CHART_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', color: WH.textMuted, fontSize: '0.8125rem' }}>
+                    {t('ttwo.noTicketsInRange', { sev })}
+                  </div>
+                )}
+              </Card>
+            </Col>
+          )
+        })}
+      </Row>
     )
   }
 
@@ -489,6 +936,18 @@ export default function TTWODashboard() {
       if (name) openDrilldown(null, dimension, name)
     }
   })
+
+  /**
+   * 四张 MTTR 图加入同一个 echarts group，使 tooltip 与 dataZoom 联动：
+   * 悬停/缩放任意一张，另外三张同步 —— 日粒度下近 300 个点时，
+   * 四个级别要看的是「同一时间窗」，各自为政的缩放会让人对不齐。
+   * echarts.connect 对已连接的 group 重复调用是幂等的。
+   */
+  const onMttrChartReady = useCallback((inst: any) => {
+    if (!inst) return
+    inst.group = MTTR_CHART_GROUP
+    echarts.connect(MTTR_CHART_GROUP)
+  }, [])
 
   if (loading) return (
     <div style={{ ...pageWrap, textAlign: 'center', padding: '6.25rem' }}>
@@ -507,9 +966,9 @@ export default function TTWODashboard() {
 
   const regions = data.filters?.regions || []
   const s = data.tt_stats || {}
-  const sevStats = (s.alarm_severity && Object.keys(s.alarm_severity).length > 0) ? s.alarm_severity : (s.category || {})
-  const sevDimension = (s.alarm_severity && Object.keys(s.alarm_severity).length > 0) ? 'alarm_severity' : 'category'
-  const sevLabel = sevDimension === 'alarm_severity' ? t('ttwo.alarmSeverity') : t('ttwo.category')
+  // 高级过滤：列名白名单与候选值都由后端给（见 filters.filter_fields / filter_options）
+  const filterFields: string[] = data.filters?.filter_fields || []
+  const filterOptions: Record<string, string[]> = data.filters?.filter_options || {}
 
   // 暗色汇总卡片生成器
   const SummaryCard = ({ color, icon, value, label, onClick, explain }: { color: string; icon: React.ReactNode; value: number; label: string; onClick?: (e: React.MouseEvent) => void; explain?: string }) => (
@@ -556,6 +1015,41 @@ export default function TTWODashboard() {
             placeholder={t('ttwo.allRegions')}
             options={regions.map((r: string) => ({ value: r, label: r }))}
           />
+          {/* ZTE / 3rd 归属：wo_no 非空 = ZTE 自派单，为空 = 3rd 第三方单 */}
+          <Select
+            value={selectedOwner}
+            onChange={setSelectedOwner}
+            style={{ width: 'min(100%, 9.375rem)' }}
+            allowClear
+            placeholder={t('ttwo.allOwners')}
+            options={[
+              { value: 'zte', label: t('ttwo.ownerZte') },
+              { value: '3rd', label: t('ttwo.ownerThird') },
+            ]}
+          />
+          {/* 高级过滤开关（参照 GISMap 的「高级筛选」） */}
+          <Button
+            size="small"
+            type={showAdvFilters ? 'primary' : 'default'}
+            icon={<FilterOutlined />}
+            onClick={() => setShowAdvFilters(v => !v)}
+          >
+            {t('ttwo.advancedFilter')}
+            {activeFilterCount > 0 && <Badge count={activeFilterCount} size="small" style={{ marginLeft: 'var(--wh-space-xs)' }} />}
+          </Button>
+          {activeFilterCount > 0 && (
+            <Button size="small" type="link" onClick={() => setAdvFilters({})} style={{ color: WH.teal }}>
+              {t('ttwo.clearFilters')}
+            </Button>
+          )}
+          {/* 页面级导出：导当前筛选条件下的全部汇总数据（下钻弹窗内另有明细导出） */}
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            onClick={exportOverview}
+          >
+            {t('common.exportExcel')}
+          </Button>
           <Tag
             icon={<ClockCircleOutlined />}
             color={isSynced ? 'green' : 'red'}
@@ -564,6 +1058,33 @@ export default function TTWODashboard() {
             {isSynced ? t('ttwo.synced', { time: lastSync ?? '' }) : t('ttwo.notSynced')}
           </Tag>
         </Space>
+        {/* 高级过滤：站点维度的精确匹配下拉。列名与候选值都来自后端，
+            所以换库（my_app / MTN_Comsal）时这里自动跟着变，不需要改前端。 */}
+        {showAdvFilters && (
+          <Row gutter={[8, 8]} style={{ marginTop: 'var(--wh-space-sm)' }}>
+            {filterFields.map(col => {
+              const opts = filterOptions[col] || []
+              if (opts.length === 0) return null
+              return (
+                <Col key={col}>
+                  <Select
+                    size="small"
+                    style={{ width: 'min(100%, 11.25rem)' }}
+                    allowClear
+                    showSearch
+                    placeholder={t(advFilterLabelKey(col))}
+                    value={advFilters[col]}
+                    onChange={(v) => setAdvFilters(prev => ({ ...prev, [col]: v }))}
+                    options={opts.map(v => ({ value: v, label: v }))}
+                    filterOption={(input, option) =>
+                      String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                  />
+                </Col>
+              )
+            })}
+          </Row>
+        )}
       </Card>
 
       {/* 汇总卡片 */}
@@ -579,39 +1100,43 @@ export default function TTWODashboard() {
         </Col>}
       </Row>
 
-      {/* TT 统计标签 */}
+      {/* TT 统计（不含 Alarm Severity：该维度与 Ticket Severity 重复且噪声大，2026-09-26 按业务要求移除）
+          维度都改为数字卡片：原来的 Tag 胶囊块取值一多就换行成一团、数字不突出。
+          这里用「维度小标题 + 卡片网格」的分组方式，而不是「大卡里套小卡」——
+          嵌套卡片会让层级变糊，两个边框叠在一起也压布局。
+          工单严重度与 SLA 状态取值都少（各 4~5 个），左右各占半行并排；
+          工单状态取值多且名字长（Waiting for FO Process(...)），仍单独占整行。 */}
       <SectionTitle icon={<AlertOutlined />} title={t('ttwo.ttStatistics')} />
-      <Row gutter={[12, 12]}>
-        <Col xs={24} sm={12} md={8}>
-          <Card size="small" title={<span style={cardTitleStyle}>{sevLabel} <ExplainIcon text={t('ttwo.explain.severity')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
-            {renderStatTags(sevStats, sevColor, sevDimension)}
-          </Card>
+      <Row gutter={[16, 4]}>
+        <Col xs={24} lg={12}>
+          <StatDimTitle label={t('ttwo.ticketSeverity')} explain={t('ttwo.explain.ticketSeverity')} />
+          {renderStatCards(s.ticket_severity || {}, (k, i) => ticketColor[k] || getAutoColor(k, i), 'ticket_severity')}
         </Col>
-        <Col xs={24} sm={12} md={8}>
-          <Card size="small" title={<span style={cardTitleStyle}>{t('ttwo.ticketSeverity')} <ExplainIcon text={t('ttwo.explain.ticketSeverity')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
-            {renderStatTags(s.ticket_severity, ticketColor, 'ticket_severity')}
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={8}>
-          <Card size="small" title={<span style={cardTitleStyle}>{t('ttwo.slaStatus')} <ExplainIcon text={t('ttwo.explain.sla')} /></span>} style={cardStyle} styles={{ body: { minHeight: 60 } }}>
-            {renderStatTags(s.sla_status, slaColor, 'sla_status')}
-          </Card>
+        <Col xs={24} lg={12}>
+          <StatDimTitle label={t('ttwo.slaStatus')} explain={t('ttwo.explain.sla')} />
+          {renderStatCards(s.sla_status || {}, (k, i) => slaColor[k] || getAutoColor(k, i), 'sla_status')}
         </Col>
       </Row>
-      <Card size="small" title={<span style={cardTitleStyle}>{t('ttwo.status')}</span>} style={cardStyle}>
-        {renderStatusTags(s.status || {})}
-      </Card>
+      <StatDimTitle label={t('ttwo.status')} explain={t('ttwo.explain.status')} />
+      {renderStatCards(s.status || {}, (k) => getStatusColor(k), 'status', shortenLabel)}
 
-      {/* MTTR 周趋势 */}
+      {/* MTTR 趋势 —— 页签切 日/周/月，每个粒度下按 Ticket Severity 分 P1/P2/P3/P4 四张图 */}
       <SectionTitle icon={<BarChartOutlined />} title={t('ttwo.mttrTrend')} explain={t('ttwo.explain.mttr')} />
-      <Card size="small" style={cardStyle}>
-        <div role="img" aria-label="MTTR Weekly Trend chart">
-          <ReactECharts option={mttrOption} style={{ height: CHART_HEIGHT }}
-            onEvents={onChartClick('week')} />
-        </div>
-      </Card>
+      <Tabs
+        size="small"
+        activeKey={mttrGran}
+        onChange={(k) => setMttrGran(k as MttrGran)}
+        // 每个页签的内容 = 该粒度下的四张图。用 renderMttrCharts(g) 显式按页签自身
+        // 的粒度取数，不依赖 mttrGran 状态，避免「切页签瞬间四张图仍读上一档」的错位。
+        items={MTTR_GRANULARITIES.map(g => ({
+          key: g,
+          label: t(mttrGranLabelKey(g)),
+          children: renderMttrCharts(g),
+        }))}
+      />
 
-      {/* Domain + Root Cause */}
+      {/* Domain + Root Cause：only='summary'（page=v1_ttwo）时不渲染，含其下全部区块 */}
+      {!summaryOnly && <>
       <SectionTitle icon={<PieChartOutlined />} title={t('ttwo.domainRootCause')} />
       <Row gutter={[12, 12]}>
         <Col xs={24} lg={10}>
@@ -680,6 +1205,7 @@ export default function TTWODashboard() {
           </Col>
         ))}
       </Row>
+      </>}
 
       {/* 下钻 Modal */}
       <DraggableClickModal

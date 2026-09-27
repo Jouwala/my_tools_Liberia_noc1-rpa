@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Card, Table, Input, Button, Tag, Modal, Descriptions, Space, Popconfirm, message, List, Collapse } from 'antd'
-import { SearchOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons'
+import { SearchOutlined, EyeOutlined, DeleteOutlined, DownloadOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
 import { formatDateTime } from '../datetime'
 import { useI18n } from '../i18n'
+import { exportAoaReport } from '../utils/excelReport'
 
 interface Analysis {
   id: number
@@ -180,6 +181,33 @@ export default function ArchiveList() {
     })
   }
 
+  // ========== 导出 ==========
+  /* 列表是服务端分页（每页 20 条），所以导出的是**当前页**这 20 条，
+     并把「当前页 / 总数」写进副标题，避免用户误以为拿到的是全部归档。
+     想导全部请先缩小搜索范围或用分页逐页导出。 */
+  const exportList = () => {
+    if (!analyses.length) return
+    const header = [
+      t('archive.colId'), t('archive.colName'), t('archive.colTable'),
+      t('archive.colDesc'), t('archive.colCreated'),
+    ]
+    const body = analyses.map(a => [
+      a.id, a.name, a.table_name, a.description || '', formatDateTime(a.created_at),
+    ])
+    const pageFrom = (page - 1) * 20 + 1
+    void exportAoaReport({
+      filename: `analysis_archive_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      sheetName: 'Analysis Archive',
+      title: t('archive.title'),
+      subtitle: `${t('archive.exportRange', { from: pageFrom, to: pageFrom + analyses.length - 1, total })}`
+        + `    |    ${t('archive.searchPlaceholder')}: ${search || '-'}`,
+      header,
+      rows: body,
+      numericCols: [0],
+      columnWidths: [8, 30, 24, 46, 20],
+    })
+  }
+
   return (
     <div>
       <Card style={{ marginBottom: 'var(--wh-space-md)' }}>
@@ -191,6 +219,9 @@ export default function ArchiveList() {
             allowClear
           />
           <Button onClick={loadList}>{t('common.refresh')}</Button>
+          <Button icon={<DownloadOutlined />} onClick={exportList} disabled={!analyses.length}>
+            {t('common.exportExcel')}
+          </Button>
           <Tag>{t('archive.totalRecords', { n: total })}</Tag>
         </Space>
       </Card>
