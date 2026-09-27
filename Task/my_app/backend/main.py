@@ -35,11 +35,17 @@ if sys.platform == "win32" and not sys.stdout.isatty():
 # 确保可以import backend模块
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import uuid
+
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from backend.database import Base, engine, DB_PATH, DB_MODE
 from backend.models.analysis import AnalysisArchive, UploadedFile
@@ -266,8 +272,60 @@ async def require_session_middleware(request: Request, call_next):
     # 其余一律要求有效会话
     if portal_auth.current_user(request) is not None:
         return await call_next(request)
-    from starlette.responses import JSONResponse
     return JSONResponse(status_code=401, content={"detail": "未登录：请通过统一门户登录"})
+
+
+# ========== 全局异常处理器 ==========
+# 此前本文件 0 个 exception_handler，未捕获异常只有 Starlette 默认输出：
+# 响应体不含 traceback，排查线上问题时只能靠日志时间戳对齐，成本高。
+# 这里补三个处理器，统一 JSON 形状 + 保留诊断上下文：
+#   1) 未捕获异常 → 500，返回 request_id 供日志检索（不泄露堆栈给客户端）
+#   2) 请求校验失败 → 422，返回 FastAPI 原始 errors 结构（兼容既有前端解析）
+#   3) HTTPException → 沿用其 status/detail，但统一补 request_id
+# 注意：Starlette 按异常类型精确匹配，注册顺序不影响结果；处理器只要在
+# app 创建之后定义即可，无需早于 router 注册。
+
+def _new_request_id() -> str:
+    """生成短请求 ID，用于把客户端报错与服务端日志串起来。"""
+    return uuid.uuid4().hex[:12]
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exception_handler(request: Request, exc: RequestValidationError):
+    """请求参数校验失败：保持 FastAPI 默认 422 + errors 结构（前端已依赖）。"""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "request_id": _new_request_id()},
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """业务主动抛出的 HTTPException：保留原 status/detail，仅补 request_id。"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "request_id": _new_request_id()},
+        headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    """兜底：未捕获异常返回 500。
+
+    诊断上下文（异常类型、路径、方法、request_id）进日志；响应体只给
+    request_id 与一句中文提示，**不回传堆栈**，避免泄露内网路径与库结构。
+    """
+    rid = _new_request_id()
+    logger.error(
+        "[unhandled] rid=%s %s %s -> %s: %s",
+        rid, request.method, request.url.path, type(exc).__name__, exc,
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "服务器内部错误，请稍后重试", "request_id": rid},
+    )
 
 
 # ========== 通用任务调度系统 ==========

@@ -941,8 +941,11 @@ def _load_site_kpis(site_id: str, site_detail: dict, days: int = 60) -> dict:
                 if not pl_path.exists():
                     result["warnings"].append("丢包数据源不存在")
                 else:
-                    conn = sqlite3.connect(str(pl_path))
-                    conn.row_factory = sqlite3.Row
+                    # 一律走 get_raw_connection（勿改回裸 sqlite3.connect）：
+                    # 裸连接绕过占位符 ? → %s 翻译与 _ClosingConnection 语义，
+                    # 一旦 MY_APP_DB_MODE=pg 就必然失败。此路径仅在 sqlite 模式可达，
+                    # 但保持单一数据访问入口，避免将来放宽分支时静默坏图。
+                    # 参照 packet_loss_service.py:411 的同库读法。
                     sql = (
                         'SELECT substr("Begin Time",1,10) AS day, '
                         'MAX("Packet Loss Rate(%)") AS max_packet_loss, '
@@ -952,8 +955,8 @@ def _load_site_kpis(site_id: str, site_detail: dict, days: int = 60) -> dict:
                         'AND substr("Begin Time",1,10) < ? '
                         'GROUP BY substr("Begin Time",1,10) ORDER BY day DESC LIMIT 31'
                     )
-                    rows = [dict(r) for r in conn.execute(sql, params + [today_str]).fetchall()]
-                    conn.close()
+                    with get_raw_connection(str(pl_path), timeout=60) as conn:
+                        rows = [dict(r) for r in conn.execute(sql, tuple(params) + (today_str,)).fetchall()]
         result["packet_loss"] = list(reversed(rows))
         # 数值化，避免驱动差异导致前端拿到字符串
         for it in result["packet_loss"]:

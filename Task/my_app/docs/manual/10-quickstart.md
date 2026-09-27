@@ -49,6 +49,12 @@ MY_APP_WORKER_GROUPS=u,n,m,c,v
 
 `MY_APP_DB_MODE=sqlite` 可脱离 PG 单机试跑（会退回本地 `db/app.db`）。
 
+⚠️ **全新克隆里 `db/` 目录是不存在的**（被 `.gitignore` 排除），所以任何建目录的语句都必须带
+`parents=True` / `recursive:true`。2026-09-27 就是漏了这一条导致 `import backend.main` 在
+`routers/upload.py:20`、`routers/mw_links.py:27` 抛 `FileNotFoundError`，别人 pull 完连后端都起不来。
+现在这两处会自动把 `db/uploads/` 连父目录建出来，`db/` 也随之存在；SQLite 建库仍由
+`python backend/scripts/init_db.py` 负责（`scripts/init_db.py:168` 同样带 `parents=True`）。
+
 ## 启动
 
 | 场景 | 命令 | 行为 |

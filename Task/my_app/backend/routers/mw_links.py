@@ -24,7 +24,9 @@ logger = logging.getLogger("mw_links_router")
 router = APIRouter(prefix="/api/mw-links", tags=["mw-links"])
 
 UPLOAD_DIR = DB_PATH.parent / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+# 同 routers/upload.py:20：db/ 不在版本库里，全新克隆必须靠 parents=True 把它建出来，
+# 否则 import 期就 FileNotFoundError，整个后端起不来。
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @router.get("/status")

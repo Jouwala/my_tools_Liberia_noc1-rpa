@@ -17,7 +17,10 @@ from backend.security import require_protected
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
 UPLOAD_DIR = DB_PATH.parent / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+# parents=True 不能省：db/ 整个目录被 .gitignore 排除，全新克隆里它不存在，
+# 缺省参数会让 import backend.routers.upload 直接抛 FileNotFoundError，
+# 连带整个后端起不来（还没机会跑到 init_db 那一步）。
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def clean_column_name(col: str) -> str:
