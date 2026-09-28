@@ -907,18 +907,18 @@
        取不到区间时**整行不渲染**（不显示 "— ~ —"）：这行是"补充说明"，
        没有数据支撑时留白比给一个空壳更诚实，与卡片数字缺值显示 — 是两回事。
 
-       ⚠️ 2026-09-28 同日再改（用户要求「要隐藏起来，当用户鼠标点击/hover 的时候展示」）：
-       这行默认**不可见**，悬停或键盘聚焦标题时才展开。
-       做法是纯 CSS（见 olbr.css 的 .band-range 与 .band-k:hover ~ …），
-       不挂 JS：· hover 用 CSS 会随鼠标立刻响应，走 JS 要监听 mouseenter/leave
-       并在重绘时反复解绑重绑；· 纯 CSS 天然覆盖「键盘 Tab 聚焦」这一路
-       （.band-txt:focus-within），JS 版本通常只顾鼠标、把键盘用户漏掉。
-       代价：它不参与布局占位（position:absolute），所以展开时会浮在
-       标题行上方 —— 这是刻意的，见 CSS 里的说明（否则整块卡片会上下跳一下）。
-       无障碍：内容仍在 DOM 里、仍是可读文本，只是视觉上收起；
-       不用 display:none 是因为那会让屏幕阅读器也读不到。 */
+       ⚠️ 2026-09-28 同日三改（用户要求「改成点击切换」）：
+       触发方式由「悬停 / 聚焦自动展开」改为**点击标题切换** ——
+       悬停在触屏上没有真正的 hover（点一下会"粘住"），且鼠标扫过时一闪而过，
+       用户还没来得及读就消失了。点击是显式的：要么开着，要么关着。
+       展开状态记在 .band-txt 的 .is-open 类上（不是全局 state）：
+       它是**这一块**标题行的局部 UI 状态，与语言/主题那种全局状态不同源。
+       重绘时由 renderBand 重新渲染，展开态自然复位为收起 —— 与
+       v6 的 subOpen 不同（那个要跨重绘保留，因为它是筛选条件）。
+       无障碍：标题渲染成 <button aria-expanded>，键盘 Enter/Space 切换、
+       Esc 收起、点空白处收起，见 wireRangeToggle。 */
     var range = qcDataRange();
-    var rangeEl = range ? '<p class="band-range">' +
+    var rangeEl = range ? '<p class="band-range" id="qcRangePop">' +
       '<i class="ph ph-chart-bar" aria-hidden="true"></i>' +
       '<span>' + esc(tf('qc.range', { a: range[0], b: range[1] })) + '</span></p>' : '';
     /* 环（.ring / .ring-btn）已随「30 天达标率」一起删除，见上面那段说明。 */
@@ -928,12 +928,60 @@
            若把 rangeEl 直接放在 .band-h 下，它会被 flex 排到标题**右边**，
            在宽屏上与心跳挤在一起（两点之间隔着 900px 空白，读起来像两块无关信息）。
            套一层 .band-txt（CXO 那边同款容器）让它与标题成为同一个文本块。 */
-        '<div class="band-txt"><div class="band-k">' + esc(t('qc.title')) + '</div>' + rangeEl + '</div>' +
+        '<div class="band-txt">' +
+          /* 有区间时才把标题做成按钮（没区间就没有可切换的东西，
+             做成按钮会让用户点了没反应 —— 比不给按钮更糟）。
+             aria-controls 指向气泡 id，读屏会念出两者关系。 */
+          (range
+            ? '<button type="button" class="band-k band-range-btn" ' +
+              'aria-expanded="false" aria-controls="qcRangePop" ' +
+              'title="' + esc(t('qc.rangeHint')) + '">' + esc(t('qc.title')) + '</button>'
+            : '<div class="band-k">' + esc(t('qc.title')) + '</div>') +
+          rangeEl +
+        '</div>' +
         '<span class="band-sp" aria-hidden="true"></span>' +
         live +
         '<button type="button" class="gb" data-act="qc-reload" title="' + esc(t('qc.reload')) + '">' +
           ic('refresh') + esc(t('qc.reload')) + '</button>' +
       '</div><div class="qc-grid">' + cards + '</div>';
+    wireRangeToggle(box);
+  }
+  /* 数据区间气泡的点击切换（2026-09-28 加，用户要求「改成点击切换」）。
+     为什么不用事件委托挂在 document 上：这块面板每次 renderBand 都会整体重绘，
+     委托虽然能活下来，但"点外面收起"需要知道当前展开了哪一个，
+     还得额外维护一份全局状态；直接绑在当前这棵 DOM 上，重绘时旧的自动回收，
+     状态天然跟着节点走（节点没了，状态也就没了），不会泄漏。
+     收起的三条路径都给了：再点一次标题、按 Esc、点气泡外的任意位置。
+     最后一条对"点击切换"是必需的 —— 只给"再点一次"会让用户以为关不掉。 */
+  function wireRangeToggle(box) {
+    var wrap = box.querySelector('.band-txt');
+    if (!wrap) return;
+    var btn = wrap.querySelector('.band-range-btn');
+    if (!btn) return;   /* 没有区间数据时标题不是按钮，无需接线 */
+    function setOpen(on) {
+      wrap.classList.toggle('is-open', on);
+      btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    }
+    btn.addEventListener('click', function () {
+      setOpen(!wrap.classList.contains('is-open'));
+    });
+    /* Esc 收起并把焦点还给按钮：键盘用户按 Esc 后如果焦点留在空气里，
+       下一次 Tab 会从文档开头重来，等于把用户弹回页首。 */
+    wrap.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && wrap.classList.contains('is-open')) {
+        setOpen(false);
+        btn.focus();
+      }
+    });
+    /* 点别处收起。用 pointerdown 而不是 click：click 要等鼠标抬起，
+       用户在别处按下、拖动、再抬起时 click 可能落在别的元素上而收不起来。
+       用捕获阶段，保证在别的处理器 stopPropagation 之前就执行到。 */
+    document.addEventListener('pointerdown', function onDoc(e) {
+      /* 节点已被下次重绘换掉 -> 自己摘掉监听，避免越积越多。
+         这是替代"重绘前解绑"的低成本写法：不需要记住解绑时机。 */
+      if (!document.contains(wrap)) { document.removeEventListener('pointerdown', onDoc, true); return; }
+      if (!wrap.contains(e.target)) setOpen(false);
+    }, true);
   }
   /* 统计数据覆盖的真实时间区间（2026-09-28 加）。
      从**已经取回来的**趋势序列里读，不额外发请求：

@@ -63,6 +63,10 @@ window.OLBR_DATA = (function () {
       /* 数据区间（2026-09-28 加）：显示统计数字实际覆盖的起止时间。
          用 {a} ~ {b} 而不是硬编码前后缀 —— 两端的顺序与连接符要跟着语言走。 */
       'qc.range': '数据范围 {a} ~ {b}',
+      /* 2026-09-28：点击切换的按钮提示（title / 读屏）。
+         写「查看」而不是「切换」：用户视角里他是要"看这段数据覆盖哪段时间"，
+         "切换"描述的是控件内部状态，对用户没有意义。 */
+      'qc.rangeHint': '点击查看数据范围',
       'qc.na': '不可用',
       'qc.lv.ok': '正常', 'qc.lv.warn': '关注', 'qc.lv.crit': '严重', 'qc.lv.na': '不可用',
       'qc.dataAt': '数据 {t}（{ago}）',
@@ -451,6 +455,8 @@ window.OLBR_DATA = (function () {
       'qc.updated': 'Updated', 'qc.next': 'next {t}', 'qc.reload': 'Refresh', 'qc.loading': 'Loading…',
       /* 数据区间（2026-09-28 加）。与中文那份同一条约定：连接符必须跟着语言走。 */
       'qc.range': 'Data range {a} ~ {b}',
+      /* 2026-09-28：见 zh 处说明。 */
+      'qc.rangeHint': 'Click to view data range',
       'qc.na': 'n/a',
       'qc.lv.ok': 'OK', 'qc.lv.warn': 'Watch', 'qc.lv.crit': 'Critical', 'qc.lv.na': 'N/A',
       'qc.dataAt': 'data {t} ({ago})',

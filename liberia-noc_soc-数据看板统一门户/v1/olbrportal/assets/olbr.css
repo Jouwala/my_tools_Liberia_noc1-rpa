@@ -758,19 +758,47 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    nowrap + ellipsis：区间串本身不长，但窄屏下两端的完整时间戳会超宽，
    截断比换行好 —— 换行会把整个标题行顶高，把六张卡往下推。
 
-   ⚠️ 2026-09-28 同日再改（用户要求「要隐藏起来，当用户鼠标点击/hover 的时候展示」）：
-   默认收起，悬停 / 聚焦标题行时展开。三点设计说明：
-     ① **不占布局**（position:absolute）是刻意的。若让它参与文档流、
-        用 width 或 max-height 做收起展开，展开那一刻 .band-h 会变高，
-        整块 Daily Operation Overview 连同下面六张卡会**往下跳**一下。
-        绝对值定位后展开是"浮"在标题上方，卡片一个像素都不动。
-     ② 收起用 opacity + visibility，**不用 display:none**：
-        display:none 会让屏幕阅读器也读不到这句话，而它对"这批数字覆盖哪段时间"
-        是有意义的信息。visibility 也参与无障碍树之外的视觉隐藏，配合
-        opacity 得到无布局位移的淡入淡出。
-     ③ 触发条件同时覆盖鼠标与键盘：:hover 给鼠标，:focus-within 给 Tab 聚焦。
-        只写 :hover 会让键盘用户永远看不到这一行。 */
+   ⚠️ 2026-09-28 同日三改（用户要求「改成点击切换」）：触发方式由
+   「悬停 / 聚焦自动展开」改为「**点击标题切换**」。
+   展开与否由 .band-txt 上的 .is-open 类决定（JS 在 olbr.js 里切），
+   不再用 :hover / :focus-within 自动展开 —— 那两种方式在触屏上不可用
+   （触屏没有真正的 hover，点一下会"粘住"），且鼠标扫过标题时一闪而过，
+   用户还没来得及读就没了。点击是显式的：要么开着，要么关着。
+   保留的三条旧设计仍然成立：① 不占布局（position:absolute）不会让卡片跳动；
+   ② 用 opacity/visibility 而非 display:none，屏幕阅读器仍能读到；
+   ③ 内容始终在 DOM 里。
+   无障碍：标题本身渲染成 <button class="band-range-btn">，有 aria-expanded，
+   键盘 Enter/Space 可切换、Esc 收起（见 olbr.js 的 wireRangeToggle）。 */
 .band-txt { position: relative; min-width: 0; }
+/* 点击切换的触发行：把标题包成按钮，但**长得和原来一模一样** ——
+   直接给 <button> 抹掉浏览器默认的边框/底色/字体/内边距，
+   否则标题会突然多出一个灰底方框。
+   ⚠️ 字体这里写 `font: inherit` 是**不够**的：本按钮同时带 .band-k 类，
+   而 .band-k（L747，18px/700）在本规则**之前**，同特异性下后者覆盖前者，
+   结果标题会被这条的 inherit 打回 16px 默认字号 —— 与旁边 CXO/v6 的
+   标题大小不一致。所以显式重复 .band-k 的字体，不依赖两条规则的先后顺序。 */
+.band-range-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin: 0; padding: 0; border: 0; background: none;
+  font: 700 18px/1 var(--sans); letter-spacing: .02em; color: var(--title);
+  text-align: left;
+  cursor: pointer;
+}
+/* 「可点」的视觉暗示：一个很小的 ▾，随展开状态翻转。
+   用 CSS 旋转而不是换图标，省一次图标重绘、也避免切换时闪一下。
+   默认给 .45 透明度：它是提示不是内容，不该和标题抢视线，
+   但也不能太淡（实测 0.35 在浅色主题下几乎看不见）。 */
+.band-range-btn::after {
+  content: ''; flex: none; width: 0; height: 0;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 4.5px solid currentColor;
+  opacity: .45; transform: translateY(1px);
+  transition: transform .14s ease, opacity .14s ease;
+}
+.band-range-btn:hover::after,
+.band-range-btn:focus-visible::after { opacity: .8; }
+.band-txt.is-open > .band-range-btn::after { transform: translateY(1px) rotate(180deg); }
+/* 展开态才显示的气泡。注意选择器用 .is-open 而不是 :hover。 */
 .band-range {
   position: absolute; left: 0; bottom: calc(100% + 2px); z-index: 3;
   display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%;
@@ -788,11 +816,9 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   opacity: 0; visibility: hidden;
   transition: opacity .14s ease, visibility .14s ease;
 }
-/* 展开：悬停整块标题区，或内部任一元素被键盘聚焦。
-   用 :hover 挂在 .band-txt（标题所在的容器）而不是 .band-k：
-   鼠标从标题划到下方卡片区的路上会短暂离开 .band-k，挂 .band-k 会闪一下。 */
-.band-txt:hover > .band-range,
-.band-txt:focus-within > .band-range { opacity: 1; visibility: visible; }
+/* 展开：由 JS 切 .is-open。刻意**不**保留 :hover / :focus-within，
+   否则鼠标扫过仍会自动弹一下，又变回"悬停显示"了。 */
+.band-txt.is-open > .band-range { opacity: 1; visibility: visible; }
 .band-range > i { flex: none; font-size: 13px; opacity: .8; }
 .band-range > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 「未判定 N 条不计入」.band-pend 已随「30 天达标率」删除（它只出现在那一段里）。 */
