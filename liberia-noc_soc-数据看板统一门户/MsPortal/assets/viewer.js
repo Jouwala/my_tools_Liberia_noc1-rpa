@@ -66,9 +66,17 @@
     } catch (e) { return null; }
   }
   /* 服务端目录与 data.js 的 items 字段并非逐字相同（服务端会补 platform/status 默认值、
-     截断长文本），这里只挑渲染真正用到的键做浅合并，避免 undefined 把内置值覆盖掉。 */
-  var CATALOG_KEYS = ['no', 'groups', 'titleZh', 'titleEn', 'descZh', 'descEn', 'platform', 'url', 'icon', 'clicks'];
-  function applyCatalog(items) {
+     截断长文本），这里只挑渲染真正用到的键做浅合并，避免 undefined 把内置值覆盖掉。
+     ⚠️ 2026-09-28：加入 'subOf' 与 'boSub'（用户要求「左边的目录也要按照 BO View
+     卡片的页签进行分类」）。这两个键是**子分组归属**，正是左侧分组的依据；
+     原来不在这里，于是服务端目录灌进来时归属被丢掉、左侧永远只能平铺
+     （下面 refreshSubGroups 的注释里有完整说明）。 */
+  var CATALOG_KEYS = ['no', 'groups', 'titleZh', 'titleEn', 'descZh', 'descEn', 'platform', 'url', 'icon', 'clicks',
+    'subOf', 'boSub'];
+  /* subGroupsOf() 需要 gid 参数，但 applyCatalog 拿到的 items 是数组、
+     这里只关心"服务端有没有给过子分组元数据"，所以按调用方传进来的第二参收。
+     调用点见 loadCatalog()（它读的是 data.catalog.subGroups）。 */
+  function applyCatalog(items, subGroups) {
     if (!items || !items.length) return false;
     DATA = {
       items: items.map(function (src) {
@@ -78,12 +86,81 @@
         }
         return out;
       }),
-      groups: DATA.groups || []
+      groups: DATA.groups || [],
+      /* 服务端子分组元数据（可空）。⚠️ 只在它**真有值**时覆盖：
+         本机兜底目录这条路径不带 subGroups，若在这里无条件写 undefined，
+         会把上一次从服务端拿到的好数据清掉（先服务端、后兜底的顺序下
+         反而是兜底把服务端顶掉）。所以用"有值才换"的写法。 */
+      subGroups: (subGroups && Object.keys(subGroups).length) ? subGroups : DATA.subGroups
     };
-    // ⚠️ 必须重算 LIST：它是一次性算好的数组，换了目录不重算的话
-    // renderList() 画的还是旧目录（实测：接口请求成功、界面纹丝不动）。
+    /* ⚠️ 必须重算 LIST：它是一次性算好的数组，换了目录不重算的话
+       renderList() 画的还是旧目录（实测：接口请求成功、界面纹丝不动）。 */
     recomputeList();
     return true;
+  }
+  /* ---- 子分组（BO View 的 RAN/IP/MW/CN/OCS 页签）----
+     为什么单独抽一个变量、而不是直接从 DATA 上读：
+     applyCatalog() 是**整体替换 DATA** 的，而服务端目录只带 items + subGroups，
+     不带 groups 元数据（沿用文件头那套"分组名仍用内置"的口径）。子分组名同理 ——
+     服务端的 subGroups 里有 zh/en，是有值的，所以这里优先用服务端那份，
+     拿不到时回落到内置 SUB_BUILTIN。**不能**直接读 DATA.subGroups：
+     本机兜底目录（localStorage）与内置目录都没有这个字段，
+     直接读会让"服务端没保存过子分组"的机器上左侧又变回平铺。 */
+  var SUB_BUILTIN = {
+    'BO View': [
+      { id: 'ran', zh: 'RAN 无线接入网', en: 'RAN · Radio Access Network' },
+      { id: 'ip', zh: 'IP 承载网', en: 'IP · Bearer Network' },
+      { id: 'mw', zh: 'MW 微波传输', en: 'MW · Microwave Transmission' },
+      { id: 'cn', zh: 'CN 核心网', en: 'CN · Core Network' },
+      { id: 'ocs', zh: 'OCS 在线计费', en: 'OCS · Online Charging System' }
+    ]
+  };
+  /* 与 olbrportal 的 SUB_KEEP_REMAP 同一份口径：旧子分组 id → 新专业域 id。
+     两边必须一致，否则同一张卡在门户首页归到「CN」、在查看器左侧归到别处。
+     （20/21/22 wireless→ran、24/25 core→cn、29~32 ip→ip 属于桶名直译，
+      不需要列在这里；名单越短越不容易漂移。） */
+  var SUB_KEEP_REMAP = { '23': 'cn', '26': 'ip', '27': 'mw', '28': 'mw', '36': 'ran', '51': 'ocs', '66': 'ocs' };
+
+  function subGroupsOf(gid) {
+    var m = DATA.subGroups;
+    if (m && Object.prototype.hasOwnProperty.call(m, gid)) {
+      var arr = Array.isArray(m[gid]) ? m[gid] : [];
+      var out = arr.filter(function (s) { return s && s.id; });
+      if (out.length) return out;
+    }
+    return SUB_BUILTIN[gid] || [];
+  }
+  function subName(s) { return LANG === 'en' ? (s.en || s.zh || s.id) : (s.zh || s.en || s.id); }
+  /* 页签上的短标签：只取专业域缩写（RAN / IP / MW / CN / OCS），全称留给 title。
+     口径与 olbrportal 的 subChipLabel 一致 —— 取名字里第一段全大写/数字字母（2-4 位）；
+     取不到（子分组被改名成纯中文）就退回整名，宁可长一点也不截成看不懂的碎片。 */
+  function subChipLabel(s) {
+    var full = subName(s);
+    var m = /^\s*([A-Z][A-Z0-9]{1,3})(?=[\s·\-–—]|$)/.exec(full);
+    return m ? m[1] : full;
+  }
+  /* 这张卡在 gid 下属于哪个子分组。返回 '' 表示没归属。
+     ⚠️ 必须按分组取值：一个看板可以同挂多个分组（实测 no=11/12/13/18/36 同时在
+     FO + FLM），拿单个 boSub 直接套用会把 A 分组的归属串到 B 分组。
+     口径与 olbrportal 的 subOfItem 逐条对齐，只保留 BO View 这一处迁移
+     （查看器只对 BO View 建页签，别的分组没有子分组概念）。 */
+  function subOfItem(it, gid) {
+    var m = it && it.subOf, has = m && typeof m === 'object' && !Array.isArray(m);
+    if (has) {
+      var sid = String(m[gid] || '');
+      if (!sid) return '';
+      return gid === 'BO View' ? migrateBoSubOf(sid, String(it.no)) : sid;
+    }
+    var legacy = it && it.boSub ? String(it.boSub) : '';
+    if (!legacy) return '';
+    var cand = gid === 'BO View' ? migrateBoSubOf(legacy, String(it.no)) : legacy;
+    return subGroupsOf(gid).some(function (s) { return s.id === cand; }) ? cand : '';
+  }
+  /* 旧 id → 新专业域 id。只做映射，**不校验合法性** ——
+     校验交给调用方（subOfItem 用 subGroupsOf 对结果做一次存在性检查），
+     这样"服务端自定义了第 6 个子分组"这类情况不会被这里静默丢掉。 */
+  function migrateBoSubOf(sid, no) {
+    return SUB_KEEP_REMAP[String(no)] || sid;
   }
   function reloadCatalog() {
     if (!LIST.length) { elGrpCnt.textContent = '0 ' + TXT.cnt; return; }
@@ -127,7 +204,9 @@
       .then(function (data) {
         var items = data && data.catalog && data.catalog.items;
         if (items && items.length) {
-          if (applyCatalog(items)) reloadCatalog();
+          /* 2026-09-28：一并把 catalog.subGroups 传下去（BO View 的页签分组）。
+             它和 items 同在一次响应里，不需要额外请求。 */
+          if (applyCatalog(items, data.catalog.subGroups)) reloadCatalog();
           try { localStorage.removeItem(LS_CATALOG); } catch (e) { /* ignore */ }
           return;
         }
@@ -366,17 +445,62 @@
     document.title = (LANG === 'en' ? (m.en || m.id) : (m.zh || m.id)) + (LANG === 'en' ? ' · MS Portal' : ' · 看板查看器');
   }
 
+  /* ⚠️ 2026-09-28 改（用户要求「http://192.168.100.20/MsPortal/viewer.html?no=22&gid=BO%20View
+     左边的目录也要按照 BO View 卡片的页签进行分类」）：
+     原来这里是把 LIST 平铺成一串 .sb-item。现在若当前分组有子分组
+     （目前只有 BO View 有 RAN/IP/MW/CN/OCS），就按子分组分段渲染，
+     每段一个可折叠的小标题；没有子分组的分组（MS View / FO View 等）
+     **完全走原来的平铺路径**，外观与行为一个像素都不变 —— 这是刻意的：
+     给所有分组都套一层"分组头"会让本来就不长的清单平白多出几行噪声。
+
+     为什么保留"未归类"段而不是把漏网的卡丢掉：
+     服务端历史数据里可能还有归属为空 / 指向已删子分组的看板（子分组是可编辑的）。
+     丢掉它们等于"门户里有、查看器里没有"，用户会以为权限出问题。
+     只在真有这种卡时才渲染这一段（见 SUB_NONE 分支），没有就不显示空标题。
+
+     折叠状态存在 state.subOpen 里、**不进 localStorage**：
+     它是"我这次翻到哪了"的临时视图状态，下次打开应当回到全展开，
+     否则用户会碰上"点进来看不到任何条目，因为上次把域都折起来了"。 */
+  var state = { subOpen: {} };
+  function subSectionHtml(sid, label, full, items, curNo) {
+    var open = state.subOpen[sid] !== false;   // 默认展开
+    var head = '<button type="button" class="sb-sub' + (open ? '' : ' closed') + '" data-sub="' + esc(sid) + '"' +
+      ' aria-expanded="' + (open ? 'true' : 'false') + '" title="' + esc(full || label) + '">' +
+      '<i class="ph ph-caret-down" aria-hidden="true"></i>' +
+      '<span class="sb-sub-t">' + esc(label) + '</span>' +
+      '<span class="sb-sub-n">' + items.length + '</span></button>';
+    return head + (open ? items.map(function (it) { return itemHtml(it, curNo); }).join('') : '');
+  }
+  function itemHtml(it, curNo) {
+    var active = String(it.no) === curNo;
+    var ext = isEmbeddable(it) ? '' : '<span class="ext">' + ico('arrow-up-right') + '</span>';
+    return '<a class="sb-item' + (active ? ' active' : '') + '" data-no="' + esc(it.no) + '" href="#" title="' + esc(titleOf(it)) + '">' +
+      '<span class="ic">' + ico(it.icon) + '</span>' +
+      '<span class="tx"><span class="tt">' + esc(titleOf(it)) + '</span>' +
+      '<span class="pl">' + esc(PLAT_LABEL[it.platform] || it.platform || '') + '</span></span>' +
+      ext + '</a>';
+  }
   function renderList() {
     var curNo = current ? String(current.no) : '';
-    elList.innerHTML = LIST.map(function (it) {
-      var active = String(it.no) === curNo;
-      var ext = isEmbeddable(it) ? '' : '<span class="ext">' + ico('arrow-up-right') + '</span>';
-      return '<a class="sb-item' + (active ? ' active' : '') + '" data-no="' + esc(it.no) + '" href="#" title="' + esc(titleOf(it)) + '">' +
-        '<span class="ic">' + ico(it.icon) + '</span>' +
-        '<span class="tx"><span class="tt">' + esc(titleOf(it)) + '</span>' +
-        '<span class="pl">' + esc(PLAT_LABEL[it.platform] || it.platform || '') + '</span></span>' +
-        ext + '</a>';
-    }).join('');
+    var subs = subGroupsOf(GID);
+    /* 没有子分组概念的分组：保持原样平铺。 */
+    if (!subs.length) { elList.innerHTML = LIST.map(function (it) { return itemHtml(it, curNo); }).join(''); return; }
+    var buckets = subs.map(function (s) {
+      return {
+        id: s.id, label: subChipLabel(s), full: subName(s),
+        items: LIST.filter(function (it) { return subOfItem(it, GID) === s.id; })
+      };
+    });
+    /* 未归类兜底：归属为空、或指向已删子分组（subGroups 被改过）的看板。 */
+    var rest = LIST.filter(function (it) {
+      return !subs.some(function (s) { return s.id === subOfItem(it, GID); });
+    });
+    var html = buckets.map(function (b) { return subSectionHtml(b.id, b.label, b.full, b.items, curNo); }).join('');
+    if (rest.length) {
+      html += subSectionHtml('__none', LANG === 'en' ? 'Unassigned' : '未归类',
+        LANG === 'en' ? 'Dashboards with no technology domain assigned' : '未指定专业域的看板', rest, curNo);
+    }
+    elList.innerHTML = html;
   }
 
   function showEmbed(it) {
@@ -445,6 +569,18 @@
 
   // ---- 事件 ----
   elList.addEventListener('click', function (e) {
+    /* 子分组标题（BO View 的 RAN/IP/MW/CN/OCS）：只翻转折叠状态，不切换看板。
+       必须**先**判它、且在判 .sb-item 之前 return：
+       标题是 <button>、条目是 <a>，两者不嵌套，理论上不会同时命中，
+       但顺序写死能防住将来有人把标题改回 <a> 时"点标题顺手也打开一个看板"。 */
+    var sb = e.target.closest('.sb-sub');
+    if (sb) {
+      e.preventDefault();
+      var sid = sb.getAttribute('data-sub');
+      state.subOpen[sid] = state.subOpen[sid] === false;   // 与 subSectionHtml 的 !== false 互为反义
+      renderList();
+      return;
+    }
     var a = e.target.closest('.sb-item');
     if (!a) return;
     e.preventDefault();

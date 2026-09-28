@@ -134,6 +134,32 @@
   .sb-item .tt { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sb-item .pl { font-size: 10.5px; color: var(--text-3); }
   .sb-item .ext { font-size: 13px; color: var(--text-3); flex: 0 0 auto; }
+  /* ---- 子分组小标题（2026-09-28 加，BO View 的 RAN/IP/MW/CN/OCS）----
+     只有"当前分组确实有子分组"时才渲染，别的分组（MS View / FO View…）
+     仍是原来的平铺清单，这层样式不会出现在它们身上。
+     全部用**已有的主题变量**（--text-3 / --border / --panel-2），
+     不写死颜色：viewer 跟随深浅两种主题（见文件顶部的 :root / html.dark 两份变量），
+     写死一套颜色到另一个主题下就会糊掉。 */
+  .sb-sub {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    margin: 10px 0 3px; padding: 4px 8px;
+    background: none; border: 0; border-radius: 7px;
+    color: var(--text-3); font: 700 10.5px/1.4 inherit; letter-spacing: .06em;
+    text-transform: uppercase; cursor: pointer; text-align: left;
+  }
+  .sb-sub:hover { background: var(--panel-2); color: var(--text-2); }
+  /* 第一段不要上边距：清单顶部本来就贴着一圈 8px 的 padding，
+     再叠一层 10px 会让第一个标题看起来"没对齐"。 */
+  .sb-sub:first-child { margin-top: 2px; }
+  .sb-sub i { font-size: 11px; flex: 0 0 auto; transition: transform .14s; }
+  .sb-sub.closed i { transform: rotate(-90deg); }
+  /* 名称单行省略：子分组名可被改名，改长了不能把计数徽章挤出去。 */
+  .sb-sub-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sb-sub-n {
+    flex: 0 0 auto; font-variant-numeric: tabular-nums;
+    padding: 1px 5px; border-radius: 20px; background: var(--panel-2);
+    font-size: 10px; letter-spacing: 0;
+  }
   .sb-foot { padding: 8px; border-top: 1px solid var(--border); }
   .sb-foot a {
     display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px;
