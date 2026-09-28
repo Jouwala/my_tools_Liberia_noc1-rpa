@@ -28,7 +28,12 @@ window.OLBR_DATA = (function () {
   // 带标点的整句一律走 {占位符} 模板，标点跟着语言走（中文全角、英文半角）。
   var S = {
     zh: {
-      'tagline': '更智能的运维 · 更高的效率 · 更好的网络',
+      /* 2026-09-28（用户要求）：原「更智能的运维 · 更高的效率 · 更好的网络」，
+         换成用户点名的「Ultimate Services · Leading Ecosystem」。
+         ⚠️ 两份字典写**同一串英文**：用户给的是英文口号，它不是"待翻译的文案"，
+         而是品牌标语本身 —— 与 qc.sub.* / map.open 那几次同一条约定
+         （用户点名的写法不翻译）。所以中文环境下也照显英文，不要改成中文。 */
+      'tagline': 'Ultimate Services · Leading Ecosystem',
       'mast.admin': '管理门户', 'mast.uni': '统一门户', 'mast.logout': '退出',
       'skip': '跳到主内容',
       'search.ph': '搜索看板名称、描述、责任人、标签…',
@@ -420,7 +425,8 @@ window.OLBR_DATA = (function () {
       'um.notFound': '申请不存在或已被处理'
     },
     en: {
-      'tagline': 'Smarter Operations · Higher Efficiency · Better Network',
+      /* 2026-09-28：与 zh 同值 —— 品牌标语不翻译，见 zh 处的说明。 */
+      'tagline': 'Ultimate Services · Leading Ecosystem',
       'mast.admin': 'Admin portal', 'mast.uni': 'Unified portal', 'mast.logout': 'Sign out',
       'skip': 'Skip to main content',
       'search.ph': 'Search dashboards, owners, tags…',

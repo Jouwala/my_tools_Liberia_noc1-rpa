@@ -74,93 +74,31 @@
 <header class="mp-mast mast" id="mast">
   <!-- 背景层：纯装饰，pointer-events:none -->
   <div class="mp-mast-bg" aria-hidden="true">
-    <!-- 地球：比例是把参考图的球缘像素逐行取最亮点后做最小二乘圆拟合量出来的：
-         球心在水平 ≈52.5%、半径 ≈ 2.1×顶栏高、球顶在顶栏上沿往下约 3%
-         （参考图里球被顶栏上沿切掉一点），底边可见弦宽 ≈3.5×顶栏高。
-         球面压得很暗，靠「球缘青光 + 点阵大陆」出效果 —— 别改成亮球顶。
-         注意：这里的 SVG defs id 带 mp 前缀（mpGlobeBody 等），与本页别处
-         不冲突；MsPortal 那边同名，属于两份独立文档、互不干扰。 -->
-    <div class="mp-globe">
-      <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" focusable="false">
-        <defs>
-          <radialGradient id="mpGlobeBody" cx="74%" cy="8%" r="96%">
-            <stop offset="0%" stop-color="#2b7fdd"></stop>
-            <stop offset="10%" stop-color="#17579f"></stop>
-            <stop offset="26%" stop-color="#0d3672"></stop>
-            <stop offset="48%" stop-color="#082450"></stop>
-            <stop offset="76%" stop-color="#05152f"></stop>
-            <stop offset="100%" stop-color="#03101f"></stop>
-          </radialGradient>
-          <radialGradient id="mpGlobeBody2" cx="62%" cy="4%" r="92%">
-            <stop offset="0%" stop-color="#0d2f63"></stop>
-            <stop offset="46%" stop-color="#061c3d"></stop>
-            <stop offset="100%" stop-color="#03101f"></stop>
-          </radialGradient>
-          <!-- 球缘亮边：最亮处在球顶偏右约 29°（参考图逐行采样：y=115 时 #D5FFFF），
-               往左上渐隐、往右下退成中蓝 -->
-          <linearGradient id="mpGlobeRim" x1="0" y1="0.72" x2="1" y2="0.04">
-            <stop offset="0%" stop-color="#3f9dff" stop-opacity="0"></stop>
-            <stop offset="16%" stop-color="#63c8ff" stop-opacity=".22"></stop>
-            <stop offset="42%" stop-color="#a8f0ff" stop-opacity=".58"></stop>
-            <stop offset="68%" stop-color="#f2ffff" stop-opacity="1"></stop>
-            <stop offset="82%" stop-color="#9fe6ff" stop-opacity=".8"></stop>
-            <stop offset="100%" stop-color="#3f92f0" stop-opacity=".25"></stop>
-          </linearGradient>
-          <!-- 点阵：海洋稀疏，陆地密而亮 -->
-          <pattern id="mpGlobeDots" width="1.35" height="1.35" patternUnits="userSpaceOnUse">
-            <circle cx=".67" cy=".67" r=".28" fill="#8fd8ff" fill-opacity=".20"></circle>
-          </pattern>
-          <pattern id="mpGlobeLand" width="1.35" height="1.35" patternUnits="userSpaceOnUse">
-            <circle cx=".67" cy=".67" r=".36" fill="#cdf4ff" fill-opacity=".72"></circle>
-          </pattern>
-          <clipPath id="mpGlobeClip"><circle cx="100" cy="100" r="98"></circle></clipPath>
-          <filter id="mpGlobeBloom" x="-12%" y="-12%" width="124%" height="124%">
-            <feGaussianBlur stdDeviation="2.4"></feGaussianBlur>
-          </filter>
-        </defs>
-        <!-- 后面那颗暗球：只留一道很淡的弧（截图左下角那道），填实心会变成一块死暗斑 -->
-        <circle cx="8" cy="120" r="106" fill="none" stroke="#2f6fbf" stroke-opacity=".3" stroke-width="1.2"></circle>
-        <!-- 大气层外圈（比球缘再外一点的那道淡弧） -->
-        <circle cx="100" cy="100" r="101.5" fill="none" stroke="#5aa8f0" stroke-opacity=".16" stroke-width="1"></circle>
-        <!-- 主球 -->
-        <circle cx="100" cy="100" r="98" fill="url(#mpGlobeBody)"></circle>
-        <g clip-path="url(#mpGlobeClip)">
-          <circle cx="100" cy="100" r="98" fill="url(#mpGlobeDots)"></circle>
-          <!-- 陆地：可见球顶那一片，用点阵更密更亮的几块示意（棱角多一点才像大陆，
-               圆滚滚的椭圆会看成一团云）。纵向位置按「可见带 y 0..46」放。 -->
-          <g fill="url(#mpGlobeLand)">
-            <path d="M56 32 L64 20 L80 14 L98 18 L107 26 L100 35 L86 40 L68 41 Z"></path>
-            <path d="M118 26 L127 15 L146 12 L163 18 L168 28 L156 36 L136 39 L123 34 Z"></path>
-            <path d="M28 38 L38 29 L50 32 L54 41 L42 45 L32 44 Z"></path>
-            <path d="M84 8 L98 6 L103 12 L88 15 Z"></path>
-            <path d="M109 40 L116 34 L122 39 L114 44 Z"></path>
-          </g>
-          <!-- 经纬线（很淡，避免球面成一块死色） -->
-          <g fill="none" stroke="#8fd8ff" stroke-opacity=".09" stroke-width=".55">
-            <ellipse cx="100" cy="100" rx="30" ry="98"></ellipse>
-            <ellipse cx="100" cy="100" rx="60" ry="98"></ellipse>
-            <ellipse cx="100" cy="100" rx="88" ry="98"></ellipse>
-            <ellipse cx="100" cy="100" rx="98" ry="26"></ellipse>
-            <ellipse cx="100" cy="100" rx="98" ry="60"></ellipse>
-          </g>
-        </g>
-        <!-- 球缘：先一层「贴边内辉光」（参考图里球缘内侧有一条很宽的蓝光带，
-             光靠球体径向渐变做不出来，得再描一圈模糊的亮边），再压一条细亮线 -->
-        <circle cx="100" cy="100" r="92" fill="none" stroke="url(#mpGlobeRim)" stroke-width="12" opacity=".38" filter="url(#mpGlobeBloom)"></circle>
-        <circle cx="100" cy="100" r="97.4" fill="none" stroke="url(#mpGlobeRim)" stroke-width="6" opacity=".7" filter="url(#mpGlobeBloom)"></circle>
-        <circle cx="100" cy="100" r="97.6" fill="none" stroke="url(#mpGlobeRim)" stroke-width="2.6"></circle>
-      </svg>
-    </div>
+    <!-- ⚠️ 2026-09-28（用户要求「去掉中间的地球」）：这里原本是一颗装饰性大地球
+         （.mp-globe，球缘青光 + 点阵大陆，比例是把参考图球缘像素逐行取最亮点后
+         做最小二乘圆拟合量出来的）。整块已删除，连同上面对应的 SVG defs。
+         保留下来的 .mp-mast-bg 还要继续承载本区其它背景层（渐变/网格等），
+         所以**不要**顺手把 .mp-mast-bg 也删掉 —— 它没了会让顶栏整体变平。
+         代码没有进版本库之外的地方：原 SVG 在 git 历史里，需要时 git show 可取回。
+         注：MsPortal 那边有一份同名同款的 .mp-globe，用户只要求改本门户，故未动；
+         两处是各自独立的文档，互不影响。 -->
   </div>
 
   <div class="mp-mast-inner">
     <!-- 品牌区 -->
     <div class="mp-brand">
       <span class="mp-zte-mark">
-        <!-- 「Z」标：直接引用 MsPortal 的官方品牌资产（本页对 /MsPortal/ 是只读引用，
-             与 favicon、phosphor 图标同一套做法）。尺寸由 .mp-zte-mark 控制。 -->
-        <img src="/MsPortal/assets/logo-zte-z-116.png"
-             srcset="/MsPortal/assets/logo-zte-z-116.png 2x, /MsPortal/assets/logo-zte-z-174.png 3x"
+        <!-- ⚠️ 2026-09-28（用户要求「Header 中 ZTE 左边的图标换成 logo.png 的样子」）：
+             原来是 MsPortal 的官方「蓝底 Z 标」（/MsPortal/assets/logo-zte-z-116.png），
+             现在换成用户提供的那张图 —— 蓝橙双色的 OLR MS 徽标。
+             资产放在**本目录自己的 assets 下**，不再跨目录引用 /MsPortal/：
+             那张图是用户给本门户的，跟在别人目录里、由别人决定去留是错的依赖。
+             源图 3101x2909 / 571KB，直接引用会让每次打开都白下半个 MB，
+             已按顶栏实际渲染尺寸（--mp-brand-h ≈ 40px）降采样成 2x/3x 两档，
+             文件名沿用 MsPortal 既有资产的后缀习惯（-116 / -174）便于对照。
+             原图格式为 RGBA 方图，与 .mp-zte-mark 的 1:1 尺寸正好吻合，无需改版式。 -->
+        <img src="assets/logo-olr-ms-116.png"
+             srcset="assets/logo-olr-ms-116.png 2x, assets/logo-olr-ms-174.png 3x"
              alt="ZTE" decoding="async">
       </span>
       <span class="mp-zte-word">ZTE</span>
@@ -173,7 +111,11 @@
              「O&M」的 & 必须写成 &amp;：这里是 HTML，裸 & 虽然浏览器能容错，
              但 lint 会报，且 copy 出去的内容会变成乱码。 -->
         <h1 class="mp-title"><span class="mp-title-olr">OLR</span> MS<span class="mp-title-tail"> O&amp;M Tools Platform</span></h1>
-        <p class="mp-tagline" data-i18n="tagline">Smarter Operations · Higher Efficiency · Better Network</p>
+        <!-- 2026-09-28（用户要求）：副标题由「Smarter Operations · Higher Efficiency ·
+             Better Network」改为「Ultimate Services · Leading Ecosystem」。
+             文案在 olbr-data.js 的 tagline 键，zh/en 两份字典都已同步 ——
+             这里保留原文只是为了在 JS 未加载时仍有一份可读的兜底文字。 -->
+        <p class="mp-tagline" data-i18n="tagline">Ultimate Services · Leading Ecosystem</p>
       </div>
     </div>
 

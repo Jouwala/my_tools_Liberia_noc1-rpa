@@ -241,23 +241,21 @@ html body > header.mp-mast {
    所以只露出球的最上一小片。尺寸随 --mp-mast-h 联动，超出顶栏的部分由 .mp-mast-bg 裁掉。
    第一版把球做得太亮太大（像个亮球顶），对着 TMP/header_ref/globe_zoom.png 重做过：
    球面本身是深海军蓝、只靠球缘那圈青光 + 点阵大陆出效果。 */
-/* 地球：比例是把参考图的球缘像素逐行取最亮点后做最小二乘圆拟合量出来的
-   （脚本见 TMP/ 里的采样记录）：R ≈ 2.1×顶栏高、球心在水平 ≈52.5%、
-   球顶在顶栏上沿往下约 3%（参考图里球是被顶栏上沿切掉一点的）。
-   于是底边可见弦宽 ≈3.5×顶栏高。第一版做成了亮球顶、第二版又做小了，
-   以 TMP/masthead_shots/_compare_light.png 的合成对比为准。 */
-.mp-globe {
-  position: absolute;
-  left: 52.5%;
-  top: calc(var(--mp-mast-h) * 0.03);
-  width: calc(var(--mp-mast-h) * 4.2);
-  height: calc(var(--mp-mast-h) * 4.2);
-  transform: translateX(-50%);
-}
-.mp-globe svg { display: block; width: 100%; height: 100%; }
+/* ⚠️ 2026-09-28（用户要求「去掉中间的地球」）：装饰地球的 CSS 已随 HTML 一起删除，
+   这里只留一段说明，免得后人看到 TMP/ 里的采样记录与截图以为漏了样式。
+   被删掉的规则（原 L244-257）是：
+     .mp-globe { position:absolute; left:52.5%; top:calc(var(--mp-mast-h)*0.03);
+                 width/height:calc(var(--mp-mast-h)*4.2); transform:translateX(-50%); }
+     .mp-globe svg { display:block; width:100%; height:100%; }
+     html.dark .mp-globe { opacity:.78; }        ← 见下方深色主题块，一并删除
+   比例是把参考图的球缘像素逐行取最亮点后做最小二乘圆拟合量出来的
+   （R ≈ 2.1×顶栏高、球心在水平 ≈52.5%、球顶在顶栏上沿往下约 3%）。
+   注意 --mp-mast-h 仍被本文件别处使用，**不是**只为地球存在的，别顺手删。
+   需要回滚时从 git 历史取：这两处都是独立提交，可单独 revert。 */
 
 /* 深色主题：门面再压深一档（与 portal.css 里 vmax 深色 .mast 同源），
-   地球与蓝光相应减弱，免得在 #02050c 页底上亮得发飘 */
+   蓝光相应减弱，免得在 #02050c 页底上亮得发飘
+   （原文案提"地球"，地球删了，背景渐变本身没动） */
 html.dark .mp-mast-bg {
   background-image:
     linear-gradient(90deg,
@@ -267,7 +265,6 @@ html.dark .mp-mast-bg {
       rgba(53, 69, 180, .55) 100%),
     linear-gradient(180deg, #080f43 0%, #070d31 58%, #02050c 100%);
 }
-html.dark .mp-globe { opacity: .78; }
 
 /* ---------------------------------------------------------- 内容骨架 -- */
 /* 2026-09-18 按需求「标题靠最左、右边文字靠最右」：
