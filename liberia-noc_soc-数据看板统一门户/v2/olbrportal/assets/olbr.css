@@ -533,13 +533,28 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    原来的 flex-direction: column 已经没有"第二行"可排，去掉。
    display:flex 保留 —— 它让 .v6-t-top 撑满可用宽度。
 
-   ⚠️ flex 由 `1 1 auto` 改成 `0 1 auto`（可缩不可长）：
-   子页签搬进 .v6-h 后，若标题仍会"吃掉所有剩余宽度"，
-   它右侧就不剩空间，页签被整条挤到第二行（实测五个视口全部如此）。
-   改成不主动伸展后，标题只占内容宽，页签紧跟着它排在同一行；
-   空间不够时标题照旧收缩 + 省略号（min-width:0 还在），行为不丢。 */
+   ⚠️ 2026-09-28 第二次改（用户把第 7 项**又提了一次**，说明第一次没做到位）。
+   第一次只把 <a> 从"包住标题文字"上移到"包住标题+箭头"，看着像修好了，
+   实测仍然只有 120px / 487px 可点（探针在行的垂直中点每 4px 采样一次，
+   命中链接的只有标题自己那一段）—— 因为 flex 是 `0 1 auto`：<a> 只占内容宽，
+   标题右边那大片空白仍是死区。用户说的"整行"是这一行，不是这两个字。
+
+   现在改成 `1 1 0`（可缩可长、基准 0），让它吃满 .v6-h 里图标与页签之间的
+   全部剩余空间：
+     · 标题左边紧贴 .v6-ico，右边一直延伸到"子页签/计数徽章"之前；
+     · 点这片空白里任何一处都跳转，与点标题文字等效。
+   ⚠️ 为什么是 `1 1 0` 而不是 `flex:1`：`flex:1` 展开是 `1 1 0%`，
+   语义相同但基准写 0% 更明确 —— 真正的理由是**必须同时保留 min-width:0**，
+   否则 flex 子项默认 min-width:auto 会让长标题撑破行、把 .v6-n 顶出卡片
+   （与 .v6-h / .v6-t-top 上那两处是同一条注意事项，见下方注释）。
+
+   ⚠️ 右侧的计数徽章 .v6-n 与子页签**故意留在链接外**：
+   它们不是"进入某个视图"的一部分。包进来会出现"点计数也跳走"，
+   而且 .v6-n 带 margin-left:auto 是这一行的右对齐锚点，
+   把它卷进 .v6-t-link 会让"标题吃掉剩余宽度"重新发生（就是 09-27 那次
+   页签被挤到第二行的成因）。现在 <a> 与它们并列，各占自己的宽度。 */
 .v6-t-link {
-  display: flex; flex: 0 1 auto; min-width: 0;
+  display: flex; flex: 1 1 0; min-width: 0;
   color: inherit; text-decoration: none; border-radius: var(--r1);
 }
 .v6-t-link:hover { color: var(--b-ink); text-decoration: underline; text-underline-offset: 3px; }

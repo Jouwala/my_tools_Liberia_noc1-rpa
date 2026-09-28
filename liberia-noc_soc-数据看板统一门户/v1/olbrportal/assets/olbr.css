@@ -83,6 +83,23 @@
   --warn: #7c5e07; --warn-tint: rgba(124, 94, 7, .09);
   --crit: #a2202f; --crit-tint: rgba(162, 32, 47, .08);
 
+  /* ---- Escalation Matrix 四级配色（2026-09-28 加）----
+     用户要求「表格按照 Level 显示不同的颜色，注意深浅两种主题背景」。
+     每级一对值，沿用本文件既有的 **ink + tint** 约定（同 --ok/--ok-tint）：
+       · --lv{n}      ：文字/左侧色条的颜色，必须在**对应主题底色**上过 AA
+       · --lv{n}-tint ：整行底色，同色系的极淡水洗（浅色）或极淡辉光（深色）
+     色相顺序刻意走「冷→暖」：L1 青蓝（最低、最常打交道）→ L4 品红（最高、最少动用）。
+     这样一眼看过去，"越往下越紧急"这件事本身就有颜色方向，
+     不用去读 L1/L2 那几个字符。**不**用红黄绿：那套在本页已被
+     --ok/--warn/--crit 占用（表示"达标/关注/严重"），再拿去表示职级会串味 ——
+     同一个绿色在别处是"一切正常"，在这里变成"L3 工程师"。
+     浅色档文字压暗、深色档提亮，是因为同一支色相在白底上要变暗才够对比、
+     在深底上要变亮才够对比，两档不能共用一组值。 */
+  --lv1: #0b6f8a; --lv1-tint: rgba(11, 111, 138, .07);
+  --lv2: #3f4fa8; --lv2-tint: rgba(63, 79, 168, .07);
+  --lv3: #8a4a86; --lv3-tint: rgba(138, 74, 134, .07);
+  --lv4: #a32d5e; --lv4-tint: rgba(163, 45, 94, .07);
+
   --sh-1: 0 14px 30px rgba(38, 83, 104, .10), inset 0 1px 0 rgba(255, 255, 255, .90);
   --sh-2: 0 16px 34px rgba(38, 83, 104, .12), inset 0 1px 0 rgba(255, 255, 255, .90);
   --sh-3: 0 24px 52px rgba(38, 83, 104, .18), inset 0 1px 0 rgba(255, 255, 255, .90);
@@ -139,6 +156,15 @@ html.dark {
   --ok: #0bc78c;  --ok-tint: rgba(11, 199, 140, .13);
   --warn: #f6cf00; --warn-tint: rgba(246, 207, 0, .13);
   --crit: #ff5c6c; --crit-tint: rgba(255, 92, 108, .13);
+
+  /* ---- Escalation Matrix 四级配色 · 深色档（2026-09-28 加）----
+     与浅色档**同一组色相、不同的明度**（见浅色档处的完整说明）：
+     深底上必须提亮才够对比，把浅色那组直接搬过来会糊成一片。
+     tint 的透明度比浅色档略高（.13 上下）：深底上的淡水洗本来就比白底上难分辨。 */
+  --lv1: #4fd2ea; --lv1-tint: rgba(79, 210, 234, .12);
+  --lv2: #8fa2ff; --lv2-tint: rgba(143, 162, 255, .12);
+  --lv3: #d79ad2; --lv3-tint: rgba(215, 154, 210, .12);
+  --lv4: #ff8fb4; --lv4-tint: rgba(255, 143, 180, .12);
 
   /* 内辉光 inset 0 7px 17px rgba(58,118,255,.48) 是该看板卡片的招牌，一并继承；
      浮层（抽屉 / 轻提示）只留外阴影，否则会在小胶囊上晕成一条亮边。 */
@@ -284,6 +310,14 @@ html.dark .rail { box-shadow: none; }
    展开后这一行不消失，变成展开区的标题行 —— 开关只有一个落点，用户不用找第二处。
    状态文本是收起态唯一的「为什么卡变少了」的解释，所以它跟清除按钮同生同灭。 */
 .rail-bar { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; padding-block: 7px; }
+/* 收起态控制区的右推占位（2026-09-28 加，用户要求「按钮和信息放到最右边」）。
+   与 .band-sp 是同一个套路（flex:1 1 0 吃掉剩余空间），但**不复用那个类**：
+   .band-sp 是「卡片标题行」的排版构件，将来它若改成 min-width 或加间距，
+   这一条的收起态也会跟着变 —— 两处只是碰巧同形，不是同一件事。
+   flex-wrap:wrap 之下的行为：宽度够时占位吃满、右侧三件东西贴右边；
+   窄屏折行时占位宽度归 0，右侧三件东西退回**左对齐**（而不是掉到右边孤零零一行），
+   这正是窄屏想要的降级。 */
+.rail-sp { flex: 1 1 0; min-width: 0; }
 .rail.is-open .rail-bar { border-bottom: 1px solid var(--line); }
 .rail-t {
   flex: none; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px;
@@ -447,9 +481,20 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   transition: border-color .14s, box-shadow .14s;
 }
 .v6:hover { border-color: var(--b-line); box-shadow: var(--sh-1); }
+/* 列头：[图标] [标题链接] [子页签] [计数] [工具] 的单行 flex。
+   ⚠️ 2026-09-27 起允许 flex-wrap：子页签搬进这一行后，窄列下
+   六个页签放不开，需要能折到第二行而不是把标题挤成竖排或被裁掉。
+   折行时 align-items:center 让两行各自垂直居中，观感仍整齐。
+
+   gap 用固定 6px（不乘 --v6-k）：这一行现在塞了五样东西，
+   实测总需求 658.4px，而 3 列网格的列头可用宽只有 459-562px。
+   k=1.5 会把 6px 放大成 9px，四道缝就多花 12px —— 在没有余量的行里，
+   这点差值足以决定"折不折行"。卡头横向空间是硬约束，不随屏幕放大。 */
 .v6-h {
-  display: flex; align-items: center; gap: calc(8px * var(--v6-k)); min-width: 0;
-  padding: calc(9px * var(--v6-k)) calc(11px * var(--v6-k));
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0;
+  /* 横向 padding 从 11px 收到 9px（不乘 k）：一行里挤出 2×1.5=3px 的余量，
+     与 gap 一样是"没有余量的行"里能省则省的地方。纵向仍按 k 走。 */
+  padding: calc(9px * var(--v6-k)) 9px;
   border-bottom: 1px solid var(--line);
 }
 .v6-ico {
@@ -459,7 +504,18 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   color: var(--b); background: var(--b-tint); font-size: calc(14px * var(--v6-k));
 }
 .v6-t { min-width: 0; font-size: calc(14px * var(--v6-k)); font-weight: 700; letter-spacing: -.01em; }
-.v6-t small { display: block; font-size: calc(11px * var(--v6-k)); font-weight: 500; color: var(--t3); letter-spacing: 0; }
+/* ⚠️ 2026-09-27：分组说明（gSub，如 "Back Office Expert Support"）在 v1 列头
+   **已不再渲染**，所以这里不再有 .v6-t small / .v6-t-top > small 的规则。
+   演进过程记一笔，免得后人以为漏写了：
+     ① 最初 display:block，说明独占标题下方一行；
+     ② 改成与标题并排（用户要求「不要单独一行」）；
+     ③ 再把子页签也挪进同一行后，实测这一行需要 649px
+        （图标36 + 标题与说明316 + 六颗页签239 + 计数40 + 缝），
+        而三列网格每列只有 474-577px —— 差 70-175px，页签必然折行。
+        用户选择"去掉说明腾地方给页签"，于是 ③ 这一步直接把 <small> 从
+        HTML 里移除了（见 olbr.js renderViews6）。
+   gSub 数据本身仍在服务端目录里、MsPortal 与编辑面板照旧使用，
+   只是本页列头不显示 —— 这是显示层取舍，不是删数据。 */
 /* 列头标题链接（2026-09-26 加）。原来 .v6-t 是个 <span>，现在是 <a>：
    必须把这四件事显式写回来，否则会「看起来对、实际坏」：
    1. 颜色 —— 链接默认走浏览器/全局 a 的蓝色，会盖掉卡头该有的正文色；
@@ -467,25 +523,53 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
       悬停时才给（与 .v6-row 的 hover 反馈同一手感）；
    3. flex 收缩 —— 标题要在窄列里被挤窄（配合 .v6-n 的 margin-left:auto），
       不写 min-width:0 / flex:1 会把右侧计数徽章顶出卡片；
-   4. 点击区域 —— 只让「图标 + 标题 + 说明」这块可点，
+   4. 点击区域 —— 只让「图标 + 标题」这块可点，
       右侧计数徽章与编辑按钮留在链接外（结构上已分开），否则点徽章也会跳走。
 
    ⚠️ 箭头图标默认 opacity:0，只在 hover / focus-visible 时出现：
    常显会让六个卡头都多出一个箭头，与行条目的 .go 重复；但键盘 Tab 到它时
    必须显形，否则"当前焦点在哪个链接上"完全看不出来（可访问性）。 */
+/* 2026-09-27：分组说明并入标题行后，这个链接里只剩 .v6-t-top 一个子元素，
+   原来的 flex-direction: column 已经没有"第二行"可排，去掉。
+   display:flex 保留 —— 它让 .v6-t-top 撑满可用宽度。
+
+   ⚠️ 2026-09-28 第二次改（用户把第 7 项**又提了一次**，说明第一次没做到位）。
+   第一次只把 <a> 从"包住标题文字"上移到"包住标题+箭头"，看着像修好了，
+   实测仍然只有 120px / 487px 可点（探针在行的垂直中点每 4px 采样一次，
+   命中链接的只有标题自己那一段）—— 因为 flex 是 `0 1 auto`：<a> 只占内容宽，
+   标题右边那大片空白仍是死区。用户说的"整行"是这一行，不是这两个字。
+
+   现在改成 `1 1 0`（可缩可长、基准 0），让它吃满 .v6-h 里图标与页签之间的
+   全部剩余空间：
+     · 标题左边紧贴 .v6-ico，右边一直延伸到"子页签/计数徽章"之前；
+     · 点这片空白里任何一处都跳转，与点标题文字等效。
+   ⚠️ 为什么是 `1 1 0` 而不是 `flex:1`：`flex:1` 展开是 `1 1 0%`，
+   语义相同但基准写 0% 更明确 —— 真正的理由是**必须同时保留 min-width:0**，
+   否则 flex 子项默认 min-width:auto 会让长标题撑破行、把 .v6-n 顶出卡片
+   （与 .v6-h / .v6-t-top 上那两处是同一条注意事项，见下方注释）。
+
+   ⚠️ 右侧的计数徽章 .v6-n 与子页签**故意留在链接外**：
+   它们不是"进入某个视图"的一部分。包进来会出现"点计数也跳走"，
+   而且 .v6-n 带 margin-left:auto 是这一行的右对齐锚点，
+   把它卷进 .v6-t-link 会让"标题吃掉剩余宽度"重新发生（就是 09-27 那次
+   页签被挤到第二行的成因）。现在 <a> 与它们并列，各占自己的宽度。 */
 .v6-t-link {
-  display: flex; flex-direction: column; flex: 1 1 auto;
+  display: flex; flex: 1 1 0; min-width: 0;
   color: inherit; text-decoration: none; border-radius: var(--r1);
 }
 .v6-t-link:hover { color: var(--b-ink); text-decoration: underline; text-underline-offset: 3px; }
 .v6-t-link:focus-visible { outline: 2px solid var(--b); outline-offset: 2px; }
-/* 标题那一行（文字 + 箭头）横排，说明 <small> 是列方向上的第二行。
+/* 标题那一行：名字 + 箭头横排（说明已于 2026-09-27 移除，见上方说明）。
    文本省略写在文字那一颗上（.v6-t-top > span），不是写在链接上 ——
    写在链接上会把箭头一起裁掉，剩不下可点的提示。
    ⚠️ min-width:0 与 overflow:hidden 缺一不可：flex 子项默认 min-width:auto，
    只给 overflow 不解除 min-width，长标题仍会把 .v6-n 计数徽章顶出卡片
    （与 .v6-h / .v6-row 上那两处是同一条注意事项）。 */
 .v6-t-top { display: flex; align-items: center; min-width: 0; overflow: hidden; }
+/* 名字：允许被压缩，放不下时省略号（窄列下必须让位给页签与计数）。
+   ⚠️ align-items 从 baseline 改回 center：baseline 是当年为了跟 11px 的
+   说明对齐才用的；说明没了，这一行只剩 14px 的名字与图标，
+   center 才是对的（baseline 在单元素居中上没有意义）。 */
 .v6-t-top > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .v6-t-go {
   flex: none; margin-left: calc(5px * var(--v6-k));
@@ -500,6 +584,61 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   font: 600 calc(11px * var(--v6-k))/1 var(--mono); color: var(--t2); font-variant-numeric: tabular-nums;
 }
 .v6-list { display: flex; flex-direction: column; padding: calc(5px * var(--v6-k)); }
+/* 列内二级子分组页签（2026-09-27 加，BO View 的 RAN/IP/MW/CN/OCS）。
+   ⚠️ 位置变过两次，两次都是用户要求的，别改回去：
+     ① 最初夹在 .v6-h 与 .v6-list 之间、**自己占一整行**（带下描边与底色）；
+     ② 现在住进 .v6-h 内、标题之后计数之前，与标题同一行
+        （用户："也放到同一行，可以适当小一点"）。
+   所以这里不再需要上下描边和底色 —— 它们是"独立一行"时代的产物，
+   留着会在卡头中间多出一条横线。分隔改用左边框 + 左间距（见下）。
+
+   为什么允许换行（flex-wrap）：列宽只有网格的 1/3（实测约 490px），
+   六个页签跟标题、说明、计数挤一行，窄屏下确实放不下。
+   放不下时折成第二行，比横向滚动强 —— 卡头里的滚动条既难点，
+   又会把行高顶起来（见 olbr.js 里同一处注释）。 */
+.v6-subs {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 3px;
+  /* 左边框当与标题的分隔：一条 1px 竖线比"空一段"更能说明
+     「这些是筛选项，不是标题的一部分」。padding-left 让竖线不贴着标题。
+     ⚠️ 用固定 px 不乘 --v6-k：这一行的横向空间已经不够（见 .v6-sub 注释），
+     k=1.5 会把 9px 放大成 13.5px，纯属浪费。 */
+  margin-left: 7px;
+  padding-left: 7px;
+  border-left: 1px solid var(--line);
+}
+/* 页签尺寸：比独立一行时整体收小一档。
+   为什么敢小：它们现在是**列头的一部分**，与 11px 的说明同级，
+   不再是需要"一眼抓住"的独立控件；而且必须让出横向空间给标题与计数。
+
+   ⚠️ 这里全部用**固定 px**、不再乘 --v6-k。实测（1600px 视口、BO View 卡）：
+   列头内容宽只有 459.3px，而标题链接（"BO View" + 说明
+   "Back Office Expert Support"）本身就要 320px；六颗页签按 k=1.5 算是 282.5px，
+   320+9+282.5=611.5px 远超可用宽度，于是页签被整条挤到第二行。
+   乘 k 的写法在这块**不可能**成立 —— 卡头横向空间是硬约束，不随屏幕放大。
+   收小后页签条约 190px，与标题、计数合计 ≈ 560px…… 仍高于 459px，
+   所以窄列下**保留折行**（见 .v6-h 的 flex-wrap），
+   但宽列（3 列网格在大屏下每列 597px）已经足够排成一行。 */
+.v6-sub {
+  flex: none; height: 17px; padding: 0 4px;
+  border-radius: 999px; white-space: nowrap;
+  border: 1px solid var(--line-2); background: var(--surface);
+  font-size: 10px; font-weight: 600; color: var(--t2);
+  display: inline-flex; align-items: center; gap: 2.5px;
+  transition: border-color .14s, background .14s, color .14s;
+}
+.v6-sub:hover { border-color: var(--b-line); color: var(--b-ink); }
+.v6-sub[aria-pressed="true"] { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
+.v6-sub:focus-visible { outline: 2px solid var(--b); outline-offset: 2px; }
+.v6-sub small {
+  font: 500 10px/1 var(--mono);
+  opacity: .8; font-variant-numeric: tabular-nums;
+}
+/* 空桶（该专业域下暂时没有看板）：**保留可见但压暗**，不做成隐形。
+   隐藏它等于告诉用户「BO View 没有 OCS 这一域」，而事实是这一域暂时没挂卡；
+   压暗 + not-allowed 光标把「点不动」写在脸上，比点开一片空白诚实。 */
+.v6-sub[disabled] { opacity: .45; cursor: not-allowed; }
+.v6-sub[disabled]:hover { border-color: var(--line-2); color: var(--t2); }
 .v6-row {
   display: flex; align-items: center; gap: calc(7px * var(--v6-k)); min-width: 0;
   padding: calc(6px * var(--v6-k)) calc(7px * var(--v6-k));
@@ -613,6 +752,49 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .band-k[title] { cursor: help; }
 .band-n { margin-top: 6px; font-size: 16px; color: var(--t2); }
 .band-n em { font: 700 15px/1 var(--mono); font-style: normal; color: var(--t1); font-variant-numeric: tabular-nums; }
+/* 数据区间行（2026-09-28 加）：标题下方一句「Data range 08-30 ~ 09-28」。
+   字号比 .band-n（16px，用于 CXO 的口径说明）小得多，因为它只是**注释**、
+   不是数据；也不与标题抢视线。用 --t3（三级文字色）同理。
+   nowrap + ellipsis：区间串本身不长，但窄屏下两端的完整时间戳会超宽，
+   截断比换行好 —— 换行会把整个标题行顶高，把六张卡往下推。
+
+   ⚠️ 2026-09-28 同日再改（用户要求「要隐藏起来，当用户鼠标点击/hover 的时候展示」）：
+   默认收起，悬停 / 聚焦标题行时展开。三点设计说明：
+     ① **不占布局**（position:absolute）是刻意的。若让它参与文档流、
+        用 width 或 max-height 做收起展开，展开那一刻 .band-h 会变高，
+        整块 Daily Operation Overview 连同下面六张卡会**往下跳**一下。
+        绝对值定位后展开是"浮"在标题上方，卡片一个像素都不动。
+     ② 收起用 opacity + visibility，**不用 display:none**：
+        display:none 会让屏幕阅读器也读不到这句话，而它对"这批数字覆盖哪段时间"
+        是有意义的信息。visibility 也参与无障碍树之外的视觉隐藏，配合
+        opacity 得到无布局位移的淡入淡出。
+     ③ 触发条件同时覆盖鼠标与键盘：:hover 给鼠标，:focus-within 给 Tab 聚焦。
+        只写 :hover 会让键盘用户永远看不到这一行。 */
+.band-txt { position: relative; min-width: 0; }
+.band-range {
+  position: absolute; left: 0; bottom: calc(100% + 2px); z-index: 3;
+  display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%;
+  padding: 4px 9px; border-radius: var(--r2);
+  /* 底板必须是**不透明的 surface**：它是压在下层内容上的浮层，
+     用 --surface-2（半透明）会让底下的卡片/表格透出来、字读不清。
+     --surface-2-solid 就是为这种场合准备的（两份主题各自给了
+     "把 surface-2 压在本主题底色上的合成色"，见变量定义处）。
+     阴影用 --sh-1 而不是 --sh-3：这是一条 11.5px 的注释条，
+     用卡片级的大阴影会显得比它承载的内容还重。 */
+  background: var(--surface-2-solid); border: 1px solid var(--line);
+  box-shadow: var(--sh-1);
+  font: 500 11.5px/1.3 var(--mono); color: var(--t2); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0; visibility: hidden;
+  transition: opacity .14s ease, visibility .14s ease;
+}
+/* 展开：悬停整块标题区，或内部任一元素被键盘聚焦。
+   用 :hover 挂在 .band-txt（标题所在的容器）而不是 .band-k：
+   鼠标从标题划到下方卡片区的路上会短暂离开 .band-k，挂 .band-k 会闪一下。 */
+.band-txt:hover > .band-range,
+.band-txt:focus-within > .band-range { opacity: 1; visibility: visible; }
+.band-range > i { flex: none; font-size: 13px; opacity: .8; }
+.band-range > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 「未判定 N 条不计入」.band-pend 已随「30 天达标率」删除（它只出现在那一段里）。 */
 .band-when { margin-top: 8px; font: 500 11px/1.5 var(--mono); color: var(--t3); }
 
@@ -692,9 +874,13 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .qc-card.is-nospark { justify-content: center; }
 
 .qc-hd { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-width: 0; }
-/* 2026-09-25：告警带那六张卡的图标已去掉（qcCardHtml 不再输出 .qc-ico），
-   所以下面这条**只剩 CXO 富卡片的标题行（.qc-ttl .qc-ico）在用** ——
-   那里是另一套卡片，用户没有要求改，保留。 */
+/* ⚠️ 2026-09-28：这条 .qc-ico **已经没有任何元素会命中**。
+   告警带那六张卡的图标是 2026-09-25 去掉的（qcCardHtml 不再输出 .qc-ico），
+   CXO 那三张可用率卡是 2026-09-28 去掉的（kpiCardHtml 同款处理，用户要求
+   「跟其他卡片保持一致」）—— 于是全页再没有 .qc-ico。
+   刻意保留而不是删：本文件与 /olbrportal/ 那份是各自独立的两份 CSS，
+   但类名语义保持一致才好对照；将来若要给某排卡恢复图标，接回 JS 即可。
+   读代码的人请注意：屏幕上不会有这个图标盒。 */
 .qc-ico {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; border-radius: var(--r1);
@@ -744,6 +930,14 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .qc-spark svg { display: block; width: 100%; height: 26px; overflow: visible; }
 .qc-spark .sp-area { fill: var(--qc-accent-soft); }
 .qc-spark .sp-line { fill: none; stroke: var(--qc-accent); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+/* 柱状图的柱子（2026-09-28 加，用户要求「当前的曲线换成柱状，数字不变」）。
+   整根柱子是一个闭合路径（见 qcBarsSvg 的说明），所以 fill 与 stroke 都作用在
+   同一个元素上：fill 给柱体、stroke 给柱体描边。
+   ⚠️ stroke-width 必须很小：svg 挂着 preserveAspectRatio="none"，
+   描边在横向会被拉伸，宽度偏大就会让柱子看起来"糊成一团"。
+   取 0.4 而不是 0：完全不给描边时，在深色主题下柱体与卡底色的对比会偏弱；
+   vector-effect="non-scaling-stroke"（由 JS 写在路径上）保证它不被拉粗。 */
+.qc-spark .sp-bar { fill: var(--qc-accent); stroke: var(--qc-accent); stroke-width: .4; }
 /* 线画的是**新增量**，大数字是**存量**，量级不同不能互相印证 ——
    所以说明文字（窗口 + 每格时长）是必需的，否则会把线的起伏当成大数字的起伏。 */
 .qc-spark-wrap { display: block; margin-top: 8px; }
@@ -1110,6 +1304,44 @@ table.grid td { border-bottom: 1px solid var(--line); }
 table.grid tbody tr:last-child td { border-bottom: 0; }
 table.grid tbody tr:hover { background: var(--hover); }
 table.grid td.lv { font: 700 11px/1 var(--mono); color: var(--b-ink); letter-spacing: .04em; }
+/* ---- Escalation Matrix：按 Level 上色（2026-09-28 加）----
+   用户要求「表格按照 Level 显示不同的颜色，注意深浅两种主题背景」。
+   数据侧由 renderEsc() 在 <tr> 上写 data-lv="1..4"，配色全部在这里，
+   四种色相的含义与两档明度差异见上面 --lv* 变量的定义处。
+
+   为什么**整行**铺 tint 而不是只给 Level 那一格上色：
+     这张表一行 6 列，一行是一条完整的"该找谁"的信息。只染第一格的话，
+     视线扫到电话/邮箱时已经脱离那一格的颜色，得回头去对；整行水洗之后
+     "这一行是 L3"在眼睛移动的任何时刻都成立。tint 刻意很淡（.07/.12），
+     压不住 12.5px 的正文 —— 它是分组底色，不是高亮。
+   为什么左侧再压一条 3px 色条：tint 淡到接近白/深底时，色相本身很难分辨
+     （尤其是打印或低色域屏）。色条用同一个 --lv{n}、饱和度不打折，
+     给眼睛一个稳定的锚点。用 border-left 而非伪元素：它不参与
+     border-collapse 的复杂性，也不会在 sticky 表头下错位。 */
+table.grid tbody tr[data-lv] { background: var(--lvt); border-left: 3px solid var(--lvv); }
+table.grid tbody tr[data-lv="1"] { --lvv: var(--lv1); --lvt: var(--lv1-tint); }
+table.grid tbody tr[data-lv="2"] { --lvv: var(--lv2); --lvt: var(--lv2-tint); }
+table.grid tbody tr[data-lv="3"] { --lvv: var(--lv3); --lvt: var(--lv3-tint); }
+table.grid tbody tr[data-lv="4"] { --lvv: var(--lv4); --lvt: var(--lv4-tint); }
+/* 第一格的文字（L1/L2…）本身也用本级色，让"这一行属于哪级"有个高对比锚点 ——
+   整行 tint 太淡，光靠它认级别在深色主题下尤其吃力。
+   ⚠️ 这几条必须写全 [data-lv="n"]，不能图省事写成 tr[data-lv] td.lv { color: var(--lvv) }：
+   --lvv 是在**同一个元素**(tr)上定义的，但 td.lv 是它的**子元素**，
+   子元素继承自定义属性没问题 —— 问题在于上面那条通用规则
+   `table.grid td.lv { color: var(--b-ink) }` 与 `tr[data-lv] td.lv` 权重相同
+   （都是 0,1,1 vs 0,2,1，实际后者更高），写全 n 只是为了让"哪级什么色"
+   在这一屏里一眼可读，不必回头去查 tr 上挂的 --lvv 是什么。 */
+table.grid tbody tr[data-lv="1"] td.lv { color: var(--lv1); }
+table.grid tbody tr[data-lv="2"] td.lv { color: var(--lv2); }
+table.grid tbody tr[data-lv="3"] td.lv { color: var(--lv3); }
+table.grid tbody tr[data-lv="4"] td.lv { color: var(--lv4); }
+/* hover 与"按级上色"会打架：通用规则 table.grid tbody tr:hover 用的是 --hover，
+   它是中性灰、按源码顺序又排在上色规则**之前**，同级优先级下会被这里的
+   tr[data-lv] 背景压掉（属性选择器权重更高）—— 结果就是"悬停不再变色"。
+   所以在这里补一条**更高权重**的 hover：把颜色往本色相推深一点，
+   既保住悬停反馈，又不丢掉级别信息。 */
+table.grid tbody tr[data-lv]:hover { background: var(--lvt); filter: brightness(.97); }
+html.dark table.grid tbody tr[data-lv]:hover { filter: brightness(1.35); }
 table.grid td.num, table.grid th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 table.grid a { color: var(--b-ink); }
 table.grid a:hover { text-decoration: underline; }
