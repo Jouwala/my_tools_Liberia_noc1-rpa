@@ -133,6 +133,12 @@
        上面的 L2 辅助区与这里的入口卡是两处独立的 UI，
        共用一份状态会让「在入口卡展开 BO View」把下面的辅助区也一起展开。 */
     v6Open: {},
+    /* 六个视图入口卡里「子分组页签」的选中态（2026-09-27 加），键 = 分组 id。
+       与 v6Open / auxOpen 同一套「按分组分开存」的理由：共用一份状态会让
+       「在 BO View 选了 MW」顺带把 SP View 也筛成 MW。
+       刻意**不持久化**：与搜索/筛选同一口径，每次进来都是完整的一列，
+       否则用户会看到一个被上次会话筛掉一半、又找不到原因的列表。 */
+    v6Sub: {},
     escOpen: true,
     /* 「展开全部」是否已把 21 行全放出来。
        ⚠️ 必须与 escOpen 分开，两个是正交的维度：
@@ -597,6 +603,69 @@
       '" preserveAspectRatio="none"><path class="sp-area" d="' + area + '"/><path class="sp-line" d="' + line +
       '" vector-effect="non-scaling-stroke"/></svg></span>';
   }
+  /* 迷你柱状图：与 qcSparkSvg **同一份输入、同一套尺寸**，只换画法
+     （2026-09-28 用户要求「当前的曲线换成柱状，数字不变」）。
+
+     为什么用 <path> 逐根画柱子、而不是 N 个 <rect>：
+       svg 上挂着 preserveAspectRatio="none"（随卡宽横向拉伸，这样才能填满
+       240px 左右的卡宽而不留边），矩形一旦被横向拉伸，**描边会被拉成
+       不成比例的粗边**、圆角也会被拉成椭圆。整根柱子写成一个闭合路径、
+       再把描边一起交给同一个 transform，与折线用的是同一条既有约定
+       （qcSparkSvg 也正是为此不画端点圆点）。所以这里同样只输出路径。
+
+     为什么保留 preserveAspectRatio="none"：卡片宽度是网格给的（约 242px），
+     若改成等比，SVG 会按 300×26 的比例算高、横向留一圈空白。
+     柱子被横向拉伸在视觉上只是「变宽」，不像折线那样会改变斜率含义。
+
+     空档（null）**不画柱子**，也不补 0 —— 与折线同一条口径：
+     补 0 会画出一根「积压清零」的假柱子，那比缺一根严重得多。
+     柱子基线固定在 H（底部），高度按**0 到 max** 归零，
+     而不是像折线那样按 min~max 拉伸：折线的 min/max 归一只是为了看清起伏，
+     但柱子的高度是「量」，从 0 起算才对得上「谁比谁多」。 */
+  function qcBarsSvg(vals) {
+    if (!vals || vals.length < 2) return '';
+    var W = 300, H = 26;
+    var real = vals.filter(function (n) { return n != null; });
+    if (real.length < 2) return '';
+    var max = Math.max.apply(null, real);
+    /* 全 0（例如某指标这些天确实一次新增都没有）：画一条贴底的细线，
+       而不是返回空串 —— 空串会让卡片挂上 is-nospark 并把内容垂直居中，
+       看起来像「这个指标没有趋势」，而事实是「趋势就是恒为 0」。 */
+    if (!(max > 0)) max = 1;
+    var n = vals.length;
+    /* 每根柱占一格，柱与柱之间留 2px 视觉缝（按槽宽比例给，随卡宽等比缩放）。
+       槽宽低于 2px 时不再留缝（否则柱子会被缝隙吃光），此时 svg 已经很密，
+       间距本来也分辨不出来。 */
+    var slot = W / n;
+    var gap = slot > 2 ? Math.min(slot * 0.34, 1.6) : 0;
+    var bw = Math.max(slot - gap, slot * 0.34);
+    var paths = [];
+    vals.forEach(function (v, i) {
+      if (v == null) return;                 // 空档：不画，也不补 0
+      var h = (H - 1) * (Number(v) / max);
+      if (!(h > 0)) h = 0.6;                 // 真 0 也给一丝可见的高度，否则那格看着像空档
+      var x = i * slot + (slot - bw) / 2;
+      paths.push('M' + x.toFixed(2) + ' ' + H +
+        ' L' + x.toFixed(2) + ' ' + (H - h).toFixed(2) +
+        ' L' + (x + bw).toFixed(2) + ' ' + (H - h).toFixed(2) +
+        ' L' + (x + bw).toFixed(2) + ' ' + H + ' Z');
+    });
+    if (!paths.length) return '';
+    return '<span class="qc-spark" aria-hidden="true"><svg viewBox="0 0 ' + W + ' ' + H +
+      '" preserveAspectRatio="none"><path class="sp-bar" d="' + paths.join(' ') +
+      '" vector-effect="non-scaling-stroke"/></svg></span>';
+  }
+  function qcBars(id) {
+    var s = qcTrendSeries(id);
+    if (!s || s.vals.length < 2) return '';
+    return qcBarsSvg(s.vals);
+  }
+  /* ⚠️ 2026-09-28：折线版 qcSpark() 目前**没有调用点**
+     （告警带两个插槽都改走 qcBars / qcBarsSvg，可用率卡直接调 qcSparkSvg）。
+     刻意保留而不是删：它与 qcBars 是同一组口径的两种画法，
+     将来若要切回折线，接回 qcSparkSlot / qcStockSlot 即可。
+     ⚠️ 别据此以为"全页都是柱子"—— KPI 那三张可用率卡画的**就是折线**
+     （见 availSpark），那是本函数之外独立的一处。 */
   function qcSpark(id) {
     var s = qcTrendSeries(id);
     if (!s || s.vals.length < 2) return '';
@@ -656,8 +725,9 @@
   function qcStockSlot(id) {
     var s = qcStockSeries(id);
     /* 说明文字按指标取不同措辞：PMT 画的是「超期数」而不是总存量，
-       用同一句「存量」会让人以为它等于卡片上那个大数字。 */
-    var kCap = id === 'pmt' ? 'qc.stock.capPmt' : 'qc.stock.cap';
+       用同一句「存量」会让人以为它等于卡片上那个大数字。
+       ⚠️ 2026-09-28：kCap 已随图下方的说明行一起去掉（用户「其他备注都不要」），
+       只剩 kTip 挂在 title 上 —— 所以这里不再取 kCap，不留无用的键。 */
     var kTip = id === 'pmt' ? 'qc.stock.tipPmt' : 'qc.stock.tip';
     if (!s) {
       /* 有数据但点不够：给一句说明，别让卡片空着像坏了；
@@ -668,18 +738,20 @@
       }
       return '';
     }
-    var spark = qcSparkSvg(s.vals);
-    if (!spark) return '<span class="qc-spark-empty">' + esc(t('qc.stock.starving')) + '</span>';
+    /* ⚠️ 2026-09-28：与 qcSparkSlot 同步改为柱状（用户要求「曲线换成柱状」）。
+       存量序列里的 null（没采到的那一小时）qcBarsSvg 同样不画柱子，
+       于是断档处是一段**空缺**，与折线版的"断开"表达同一件事。 */
+    var bars = qcBarsSvg(s.vals);
+    if (!bars) return '<span class="qc-spark-empty">' + esc(t('qc.stock.starving')) + '</span>';
     var v = { n: s.hours };
-    return '<span class="qc-spark-wrap" title="' + esc(tf(kTip, v)) + '">' + spark +
-      '<span class="qc-spark-cap">' + esc(tf(kCap, v)) + '</span></span>';
+    return '<span class="qc-spark-wrap" title="' + esc(tf(kTip, v)) + '">' + bars + '</span>';
   }
 
   /* 卡片趋势位的**唯一入口**（2026-09-25 加）：口径按指标定，卡片不判断。
        QC_TREND_METRICS（alarm/tt/wo/spms）→ 新增量；拿不到则退存量
        其余（cr/pmt）                       → 存量
      「先试新增量、再退存量」的兜底有意义：某指标 trend 接口临时挂掉时，
-     只要快照还在，卡片仍有一条**真实的**线，而不是空一块。 */
+     只要快照还在，卡片仍有一张**真实的**图，而不是空一块。 */
   function qcTrendSlot(id) {
     if (DATA.QC_TREND_METRICS.indexOf(id) !== -1) {
       var inc = qcSparkSlot(id);
@@ -688,18 +760,27 @@
     return qcStockSlot(id);
   }
   /* 三种状态要分清，否则首屏三行「趋势积累中」看着像报错：
-       有趋势且点够 → 画线 + 说明；接口通了但点不够 → 只给说明；无趋势 → 不占位。
-     说明文字带「窗口 + 每格时长」：折线是流量（新增量）、大数字是存量（积压），
-     不说清单位就没法把两者对上。 */
+       有趋势且点够 → 画图 + 说明；接口通了但点不够 → 只给说明；无趋势 → 不占位。
+     说明文字带「窗口 + 每格时长」：图是流量（新增量）、大数字是存量（积压），
+     不说清单位就没法把两者对上。
+
+     ⚠️ 2026-09-28：用户要求「当前的曲线换成柱状，数字不变」——
+     所以这里把 qcSpark（折线）换成 qcBars（柱状）。**只换画法**，
+     数据窗口、分桶、说明文字、三种状态的判定全部原样保留。 */
   function qcSparkSlot(id) {
-    var s = qcTrendSeries(id), spark = qcSpark(id);
-    if (!spark) return s ? '<span class="qc-spark-empty">' + esc(t('qc.trend.starving')) + '</span>' : '';
+    var s = qcTrendSeries(id), bars = qcBars(id);
+    if (!bars) return s ? '<span class="qc-spark-empty">' + esc(t('qc.trend.starving')) + '</span>' : '';
     var v = { total: fmt(s.total), unit: t(s.grain === 'day' ? 'qc.trend.days' : 'qc.trend.hours'),
       n: s.days || s.labels.length };
-    var c = s.window === 'today' ? { k: 'qc.trend.capToday', tip: 'qc.trend.tipToday' }
-                                 : { k: 'qc.trend.cap', tip: 'qc.trend.tip' };
-    return '<span class="qc-spark-wrap" title="' + esc(tf(c.tip, v)) + '">' + spark +
-      '<span class="qc-spark-cap">' + esc(tf(c.k, v)) + '</span></span>';
+    /* 只剩 tip 这一个键要取：说明行已去掉（见下），上面 v 里的 total/unit/n
+       仍然有用 —— 它们填进 title 里那句完整口径。 */
+    var tipKey = s.window === 'today' ? 'qc.trend.tipToday' : 'qc.trend.tip';
+    /* ⚠️ 2026-09-28：图下方那行 .qc-spark-cap（「近 30 天新增 47 次（每格 1 天）」）
+       已按要求去掉 —— 用户说「图表下面只保留」那六行文案、「其他备注都不要」。
+       口径说明没有丢：它仍挂在**外层 .qc-spark-wrap 的 title 上**，
+       hover 就能看到，与 kpi.sub 收进 .band-k 的 title 是同一套做法
+       （界面上少一行，信息不消失）。 */
+    return '<span class="qc-spark-wrap" title="' + esc(tf(tipKey, v)) + '">' + bars + '</span>';
   }
 
   function qcCardHtml(d) {
@@ -713,21 +794,26 @@
        只用来决定「这张卡给不给走势位」（主卡必给，次卡要判断）。改成统一走
        qcTrendSlot 后就没有调用点了 —— 直接删掉，不留一个无用的变量。 */
     var def = t(DATA.QC_SUB_KEY[d.id]) || (state.lang === 'en' ? d.subEn : d.subZh);
+    /* ⚠️ 2026-09-28（用户要求「图表下面只保留：alarm → 75 Cells/ Sites Outage，
+       其余五项各自改成 Ongoing TTs / Ongoing WOs / Unclosed CRs / Unclosed PMTs /
+       Unclosed SPMS，其他备注都不要」）：
+       这里原来对 pmt / spms 两项做了**动态改写**（pmt 写「超期 472」、
+       spms 写「入库 32 · 出库 62」），本次一并去掉 —— 用户点名只要那六行文案，
+       动态备注属于"其他备注"。六张卡现在都直接取 DATA.QC_SUB_KEY 的字典值。
+       ⚠️ alarm 是唯一的例外：它前面还要拼上断站站点数（qc.sites 本身已改成
+       'Cells/ Sites Outage' 纯文案，数字由这里给），否则「75 Cells/ Sites Outage」
+       这个用户点名的形态就少了数字。msg.overdue / msg.tables 仍在接口里返回，
+       只是本页不再渲染（要恢复见 olbr.js.bak_20260928_柱状图与顶栏调整前）。 */
     var sub;
     if (failed) sub = t('qc.err') + (errMsg ? ': ' + errMsg : '');
-    else if (d.id === 'alarm' && m && m.sites != null) sub = fmt(m.sites) + ' ' + t('qc.sites');
-    else if (d.id === 'pmt' && m && m.overdue != null) sub = t('qc.overdue') + ' ' + fmt(m.overdue);
-    else if (d.id === 'spms' && m && m.tables) {
-      sub = t('qc.inbound') + ' ' + fmt(m.tables.inband_details || 0) +
-            ' · ' + t('qc.outbound') + ' ' + fmt(m.tables.outband_details || 0);
-    } else sub = def;
+    else if (d.id === 'alarm' && m && m.sites != null) sub = fmt(m.sites) + ' ' + def;
+    else sub = def;
     /* tooltip 只留口径与点击提示。
        v1 改：阈值那两行**去掉了** —— 等级分档整个不显示了，再把
        「关注 ≥ 30 / 严重 ≥ 80」挂在悬浮里，等于让用户按一个屏幕上不存在的规则去读数字。
        要看阈值请回 /olbrportal/（那边卡片带分档徽章，两者配套）。 */
     var tips = [def];
     if (!failed) tips.push(t('qc.drill'));
-    var at = qcMetricAt(d.id);
     /* 走势插槽**先生成再判断**：qcTrendSlot 对一个"本该有走势"的指标也可能
        返回空串（趋势接口没数据），所以不能只看 d.id 在不在 DATA.QC_TREND_METRICS 里。
        真正空的时候才挂 is-nospark，让 CSS 把内容垂直居中 ——
@@ -756,7 +842,13 @@
         esc(v == null ? '—' : fmt(v)) + '</span></span>' +
       spark +
       '<span class="qc-sub" title="' + esc(sub) + '">' + esc(sub) + '</span>' +
-      (at ? '<span class="qc-age">' + esc(tf('qc.dataAt', { t: qcClock(at), ago: qcAgo(at) })) + '</span>' : '') +
+      /* ⚠️ 2026-09-28 删（用户要求「图表下面只保留」那六行文案，「其他备注都不要」）：
+         这里原本还有一行 .qc-age「数据 08:39:34（刚刚）」。
+         它属于"其他备注"，与趋势图下方的「近 30 天新增 …」说明一起被去掉。
+         at 变量（qcMetricAt）随之失去唯一调用点，一并删掉；
+         ⚠️ 但**不能**为此删 qcMetricAt / qcClock / qcAgo ——
+         它们仍被标题行的 qc.live 心跳（renderBand）与下钻弹窗使用。
+         要恢复这一行见 olbr.js.bak_20260928_柱状图与顶栏调整前。 */
       '</button>';
   }
 
@@ -808,15 +900,71 @@
       '<span class="' + (q.err && !has ? 'qc-dot qc-dot-bad' : 'qc-dot') + '" aria-hidden="true"></span>' +
       '<span class="qc-when">' + esc(stamp ? t('qc.updated') + ' ' + qcClock(stamp) : t('qc.loading')) + '</span>' +
       '<span class="qc-sep">·</span><span id="qcNextIn">' + esc(tf('qc.next', { t: qcCountdown() })) + '</span></span>';
+    /* 2026-09-28（用户要求「时间范围根据统计数字的数据所包含的时间范围显示」）：
+       标题下方补一行数据区间，取**真实数据**的首末格（qcDataRange），不是"近 30 天"这种
+       按请求参数写的固定话术 —— 实测 alarm 是当天 00:00→16:00 的 14 格小时轴、
+       tt 是 08-30→09-28 的 16 格天轴，两者区间完全不同，写死"近 30 天"至少对 alarm 是错的。
+       取不到区间时**整行不渲染**（不显示 "— ~ —"）：这行是"补充说明"，
+       没有数据支撑时留白比给一个空壳更诚实，与卡片数字缺值显示 — 是两回事。
+
+       ⚠️ 2026-09-28 同日再改（用户要求「要隐藏起来，当用户鼠标点击/hover 的时候展示」）：
+       这行默认**不可见**，悬停或键盘聚焦标题时才展开。
+       做法是纯 CSS（见 olbr.css 的 .band-range 与 .band-k:hover ~ …），
+       不挂 JS：· hover 用 CSS 会随鼠标立刻响应，走 JS 要监听 mouseenter/leave
+       并在重绘时反复解绑重绑；· 纯 CSS 天然覆盖「键盘 Tab 聚焦」这一路
+       （.band-txt:focus-within），JS 版本通常只顾鼠标、把键盘用户漏掉。
+       代价：它不参与布局占位（position:absolute），所以展开时会浮在
+       标题行上方 —— 这是刻意的，见 CSS 里的说明（否则整块卡片会上下跳一下）。
+       无障碍：内容仍在 DOM 里、仍是可读文本，只是视觉上收起；
+       不用 display:none 是因为那会让屏幕阅读器也读不到。 */
+    var range = qcDataRange();
+    var rangeEl = range ? '<p class="band-range">' +
+      '<i class="ph ph-chart-bar" aria-hidden="true"></i>' +
+      '<span>' + esc(tf('qc.range', { a: range[0], b: range[1] })) + '</span></p>' : '';
     /* 环（.ring / .ring-btn）已随「30 天达标率」一起删除，见上面那段说明。 */
     box.innerHTML =
       '<div class="band-h">' +
-        '<div class="band-k">' + esc(t('qc.title')) + '</div>' +
+        /* 标题与区间竖着叠成一块，再与右侧的心跳/刷新同处一行 ——
+           若把 rangeEl 直接放在 .band-h 下，它会被 flex 排到标题**右边**，
+           在宽屏上与心跳挤在一起（两点之间隔着 900px 空白，读起来像两块无关信息）。
+           套一层 .band-txt（CXO 那边同款容器）让它与标题成为同一个文本块。 */
+        '<div class="band-txt"><div class="band-k">' + esc(t('qc.title')) + '</div>' + rangeEl + '</div>' +
         '<span class="band-sp" aria-hidden="true"></span>' +
         live +
         '<button type="button" class="gb" data-act="qc-reload" title="' + esc(t('qc.reload')) + '">' +
           ic('refresh') + esc(t('qc.reload')) + '</button>' +
       '</div><div class="qc-grid">' + cards + '</div>';
+  }
+  /* 统计数据覆盖的真实时间区间（2026-09-28 加）。
+     从**已经取回来的**趋势序列里读，不额外发请求：
+     每一格的价值都来自 state，另发一次接口可能出现「标题说 A 区间、柱子画 B 区间」。
+     为什么用趋势序列而不是 summary 的 generated_at：
+       generated_at 是"这次跑统计的时刻"（今天 16:38 这种单点），
+       而用户要的是"统计数字所包含的时间范围"——那是**一段**区间。
+     口径：取所有指标的 labels（已由 qcTrendSeries / qcStockSeries 对齐到连续轴）
+     里最早与最晚的一格；小时轴显示到 "HH:00"，天轴只显示到日期。
+     返回 null 表示还没有任何序列可读，调用方据此不渲染这一行。 */
+  function qcDataRange() {
+    var first = null, last = null;
+    function eat(labels) {
+      if (!labels || !labels.length) return;
+      var a = labels[0], b = labels[labels.length - 1];
+      if (!first || a < first) first = a;
+      if (!last || b > last) last = b;
+    }
+    (DATA.QC_TREND_METRICS || []).forEach(function (id) {
+      var t = qcTrendSeries(id);
+      if (t) eat(t.labels);
+    });
+    ['cr', 'pmt'].forEach(function (id) {
+      var s = qcStockSeries(id);
+      if (s) eat(s.labels);
+    });
+    if (!first || !last) return null;
+    /* 小时格子 "2026-09-28 16:00" 原样；天格子 "2026-09-28" 原样。
+       两端直接用源格式，不做二次格式化 —— 格式化只会在两端之间引入不一致
+       （比如把天轴补成 00:00，看起来像"精确到小时"）。 */
+    return [first, last];
   }
 
   /* ==================================================================== v1 ==
@@ -961,8 +1109,14 @@
     return n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
   }
   function kpiCardHtml(o) {
-    /* o = { name, unit, value:'<已格式化或 —>', na:bool, sub, tip, icon, age,
+    /* o = { name, unit, value:'<已格式化或 —>', na:bool, sub, tip, age,
              foot:[{label, num, foot, cls}] }
+       ⚠️ 2026-09-28：**没有 icon 字段了**（用户要求「2G/3G/4G Availability 卡片前面的
+       图标删除，不要图标，跟其他卡片保持一致」）。同一排的富卡片（kpiRichHtml）
+       标题行本来就只有一个名字、没有图标，只有这三张可用率卡带图标 ——
+       六张并排时那三张的卡名被图标挤右 26px，与左邻的标题起点对不齐。
+       所以连同 .qc-ico 的渲染一起去掉，而不是给富卡片也补图标
+       （那会改到用户没有要求的部分）。
        foot 是本卡底部的三段页脚，与富卡片的 .qc-ext 共用同一套样式与结构，
        这样同一排 6 张卡的页脚在同一水平线上、字号字重也一致。
        只有"内容天然比邻居矮"的卡才需要它（可用率卡）；没有 foot 的卡
@@ -976,7 +1130,11 @@
       }).join('') + '</div>';
     }
     return '<div class="qc-card' + (foot ? ' has-foot' : '') + '" title="' + esc(o.tip || '') + '">' +
-      '<span class="qc-hd"><span class="qc-ico" aria-hidden="true">' + ic(o.icon) + '</span>' +
+      /* 2026-09-28：这一行原本是「.qc-ico 图标 + .qc-name」，图标已按要求去掉，
+         结构退回与告警带六张卡同款的「只有卡名」（qcCardHtml 那边同样只输出 .qc-name）。
+         .qc-hd 这层仍然保留：它是卡内唯一撑满整宽的行，
+         .qc-name 的单行省略依赖它给的 min-width:0。 */
+      '<span class="qc-hd">' +
         '<span class="qc-name">' + esc(o.name) + '</span></span>' +
       '<span class="qc-numrow"><span class="qc-num' + (o.na ? ' is-na' : '') + '">' +
         esc(o.value) + (o.unit ? '<span class="qc-unit"> ' + esc(o.unit) + '</span>' : '') + '</span></span>' +
@@ -1012,12 +1170,25 @@
       return isFinite(n) ? n : null;
     });
     if (pts.filter(function (n) { return n != null; }).length < 2) return '';
+    /* 2026-09-28（用户确认）：这三张可用率卡**保持折线**，不改柱状。
+       用户的「曲线换成柱状」是针对 Daily Operation Overview 那六张告警卡说的；
+       我当时按「同屏一半折线一半柱状会像没改完」自作主张把这里也换了，
+       用户随即明确要求还原 —— 记在这里，避免下次又"顺手统一"。
+       保持折线的另一个实质理由：可用率是**百分比且极差极小**（97~99%），
+       qcBarsSvg 按 0 起算会让三根柱子几乎等高、看不出任何起伏；
+       折线按 min~max 拉伸，恰好能把这点差异显出来。图种要服务于"看得出变化"，
+       不是服务于"同屏统一"。 */
     var svg = qcSparkSvg(pts);
     if (!svg) return '';
     var days = pts.length;
     var tip = tf('kpi.availTrendTip', { n: days });
-    return '<span class="qc-spark-wrap" title="' + esc(tip) + '">' + svg +
-      '<span class="qc-spark-cap">' + esc(tf('kpi.availTrendCap', { n: days })) + '</span></span>';
+    /* ⚠️ 2026-09-28（用户要求「卡片里面类似 Last 30 days … 的备注删除」）：
+       折线下方的 .qc-spark-cap（"Last 30 days"）不再输出。
+       它只是"这条线覆盖多少天"，而线本身已经画在那了；
+       真正需要这句话的场景是"点数与预期不符"，那属于排查、不属于日常读数，
+       所以整句挪进 title（hover 可见，仍然带 n 这个真实天数）。
+       要恢复就把 '<span class="qc-spark-cap">…</span>' 加回来。 */
+    return '<span class="qc-spark-wrap" title="' + esc(tip) + '">' + svg + '</span>';
   }
   function renderKpi() {
     var box = $('#kpi');
@@ -1066,7 +1237,10 @@
       };
       var v = pct(row && row.month_avg);
       var na = v == null || isNaN(v);
-      var lm = (state.kpi.avail && state.kpi.avail.latest_month) || '';
+      /* 2026-09-28 删：这里原本取 `latest_month`（"2026-09"）拼成 sub 的
+         「2026-09 month-to-date avg」。sub 已改为空串不再渲染，
+         这个变量就没有调用点了 —— 直接删掉，不留一个无用的局部变量
+         （字段本身仍在接口响应里，本页只是不读它）。 */
       /* ⚠️ 阈值是**已经乘过 100 的百分数**（99.65），与上面 0~1 的 latest /
          month_avg 不是同一量纲，所以这里绝不走 pct()，否则会得到 9965%。 */
       var thr = (state.kpi.avail && state.kpi.avail.threshold_pct != null)
@@ -1078,10 +1252,20 @@
       var gapCls = gap == null ? '' : (gap < 0 ? 'lo' : 'hi');
       return kpiCardHtml({
         name: spec.key + ' ' + t('kpi.avail'), unit: '%', value: na ? '—' : kpiNum(v, 2), na: na,
-        sub: na ? t('kpi.noMonth') : t('kpi.month').replace('{m}', lm || '—'),
+        /* ⚠️ 2026-09-28（用户要求「卡片里面类似 Last 30 days 2026-09 month-to-date avg
+           的备注删除」）：这一行「2026-09 month-to-date avg」不再渲染 —— 传空串而非
+           删掉 sub 字段，因为 kpiCardHtml 对空串与 undefined 的处理不同：
+           空串仍会输出空的 .qc-sub 占位（保持三张卡与富卡片同一行高），
+           undefined 则整行不渲染、卡片变矮、与同排富卡片错位。
+           ⚠️ 口径没有丢：它仍挂在 tip（kpi.tipAvailFoot）里，hover 看得到
+           「大数字是当月均值」这句；页脚三格（昨日/阈值/距阈值）也都还在，
+           真正判断达标看的是那三格，不是这行说明。
+           要恢复就把 sub 那行写回来（键 kpi.month 仍留在字典里）。 */
+        sub: '',
         tip: t('kpi.tipAvail').replace('{board}', 'Daily_Availability_KPI') +
           '\n' + t('kpi.tipAvailFoot'),
-        icon: 'gauge',
+        /* 2026-09-28 删：这里原先是 `icon: 'gauge'`，卡名前的仪表图标已按要求去掉
+           （kpiCardHtml 不再读 icon），传了也没人用 —— 直接删掉，不留死参数。 */
         /* 趋势位（2026-09-25 加）：这三张卡此前没有走势，比同排富卡片矮一大截。
            现在用后端返回的逐日可用率画一条 30 天的线。 */
         spark: availSpark(row),
@@ -1109,6 +1293,14 @@
            隐藏说明是取舍，隐藏错误是让人以为数据正常。 */
         '<div class="band-txt"><div class="band-k" title="' + esc(t('kpi.sub')) + '">' +
           esc(t('kpi.title')) + '</div>' + err + '</div>' +
+        /* 2026-09-28：时间戳与「重试」按钮原来紧跟标题（实测 x=286/489），
+           与上面 Daily Operation Overview 的排布不一致 —— 那边两者贴在卡片右缘
+           （x=1221/1452）。这里补一个与那边同款的 .band-sp 弹性占位把它们顶到右边，
+           两个组件的标题行于是都是「左标题 / 右状态与操作」。
+           用同一个 .band-sp 类而不是新写一条 margin-left:auto：
+           占位的宽度语义（flex:1 1 0 + min-width:0）在两处必须一致，
+           否则窄屏折行时的行为会分叉。 */
+        '<span class="band-sp" aria-hidden="true"></span>' +
         (stamp ? '<span class="qc-live"><i class="ph ph-clock" aria-hidden="true"></i>' +
           '<span class="qc-when">' + esc(t('kpi.updated').replace('{t}', stamp)) + '</span></span>' : '') +
         '<button type="button" class="gb" data-act="kpi-reload" title="' + esc(t('kpi.retry')) + '">' +
@@ -1150,6 +1342,16 @@
          宁可点不动，也不要链到一个不存在的看板。
      ⚠️ gid 必须跟着链接走：viewer 靠 gid 决定面包屑与"同组其余看板"的上下文，
      漏掉它会退化成"从全部看板里点进来的"，与本卡表达的"进入这个视图"不符。 */
+  /* 列头链接：点「标题」进本组第一条看板。
+     ⚠️ 2026-09-28（用户要求「改成点击标题所在的行就开始跳转」）：
+     链接**不再只包住标题文字**，而是包住整个 .v6-t-top 那一行（标题 + 右上箭头）。
+     做法是把返回的 <a> 移出 v6-t-top 之外、改成包住它 —— 见 renderViews6 里的调用处。
+     这里仍返回同一个 <a> 开标签，语义与样式钩子（.v6-t-link）不变。
+     为什么不是"给整行加 click 事件"：<a href target=_blank> 的默认行为
+     自带中键新标签、右键"在新标签打开"、悬停显示 URL、键盘 Tab 聚焦 ——
+     换成 JS 监听要逐条补回来，且失去 href 的可访问性语义。
+     行内其余部分（计数徽章、编辑工具按钮）仍在链接**外**：
+     它们不是"进入某个视图"的一部分，包进来会出现「点计数也跳走」。 */
   function v6HeadLink(gid, list) {
     var it = list && list[0];
     if (!it) return '';
@@ -1185,6 +1387,13 @@
          否则这里列出来的前几条会与页签里看到的头几张卡对不上。
          编辑态有新拖出来的顺序就按它排 —— 否则拖完顺序不回显，看起来像没保存。 */
       list = list.slice().sort(sorter(gid));
+      /* 二级子分组页签（BO View 的 RAN/IP/MW/CN/OCS）：
+         必须在分页 slice 之前筛 —— 它的作用是「把本列换成这一桶的看板」，
+         放在 slice 之后就只能筛到已经露出来的那两条，点 MW 会显示空。
+         ⚠️ 编辑态**不筛**：拖拽要在整列范围内重新排序，筛掉一部分会让
+         「把卡拖到另一个子分组旁边」做不到（与 v6Open 编辑态一律全列同理）。 */
+      var sub = ed ? { html: '', list: list } : v6SubBar(gid, list, list);
+      list = sub.list;
       var open = !!state.v6Open[gid];
       var show = open || ed ? list : list.slice(0, V6_LIMIT);
       var body = list.length
@@ -1238,28 +1447,135 @@
           : '');
       html += '<div class="v6" data-gid="' + esc(gid) + '">' +
         '<div class="v6-h"><span class="v6-ico" aria-hidden="true">' + ic(V6_ICONS[gid]) + '</span>' +
-          /* 名称与说明都取目录（gName / gSub），不另建一份 i18n 文案：
+          /* 名称取目录（gName），不另建一份 i18n 文案：
              目录里的分组名本来就是可以在本页编辑、且 MsPortal 共用的一份，
              再写一套 sec.* 字典会出现「改了分组名，这里还是旧的」。
-             gSub 没配置时留空，不留一个空 <small> 撑高标题行。
-             2026-09-26：标题本身成了链接（v6HeadLink），点它 = 打开本组第一条看板；
-             说明 gSub 与右侧计数/工具仍留在链接外 —— 它们不是"进入某个视图"的一部分，
-             把整行做成链接会让「点计数徽章也跳走」，与行内按钮抢点击。 */
+             ⚠️ 2026-09-28（用户要求「点击标题所在的行就开始跳转」）改：
+             原先 v6HeadLink 返回的 <a> 只包住标题文字，箭头 .v6-t-go 在 <a> 外面，
+             于是「点标题跳、点箭头不跳」—— 箭头本身就是最像可点目标的那一颗。
+             现在把 <a> **上移到包住整个 .v6-t-top 行**（标题 + 箭头都在里面），
+             于是这一行的任意位置都能点开。
+             右侧计数/子分组页签/编辑工具仍在链接**外**：它们不是"进入某个视图"
+             的一部分，包进来会出现「点计数也跳走」，与行内按钮抢点击。
+             结构上 .v6-t-link 仍挂在 <a> 上（样式钩子不变），只是它现在
+             是 .v6-h 的直接子元素，而 .v6-t-top 变成它的子元素
+             —— CSS 里 .v6-t-top > span 的单行省略规则不受影响。 */
           v6HeadLink(gid, list) +
             /* 标题文字与箭头各占一层：文字那一颗负责单行省略（CSS 的
                .v6-t-top > span），箭头必须留在它外面 —— 一起裁掉的话，
-               长标题在窄列里就完全看不出「这里可以点」。 */
+               长标题在窄列里就完全看不出「这里可以点」。
+
+               ⚠️ 2026-09-27：分组说明 gSub（如 BO View 的
+               "Back Office Expert Support"）**已从这一行移除**，不再渲染。
+               它先是从"标题下方独占一行"改成与标题并排（用户要求），
+               但并排后实测列头一行需要 649px
+               （图标36 + 标题与说明316 + 六颗页签239 + 计数40 + 缝），
+               而三列网格每列只有 474-577px —— 差 70-175px，
+               六个页签在常见屏幕上**必然**被挤到第二行。
+               用户选择"去掉说明，腾地方给页签"，故此处不再输出 <small>。
+               gSub 本身仍留在目录里（MsPortal 与编辑面板还在用），
+               只是本页列头不显示 —— 不是删数据。 */
             '<span class="v6-t-top"><span>' + esc(gName(gid) || gid) + '</span>' +
               '<i class="ph ph-arrow-up-right v6-t-go" aria-hidden="true"></i></span>' +
-            (gSub(gid) ? '<small>' + esc(gSub(gid)) + '</small>' : '') +
           (list.length ? '</a>' : '') +
+          /* 子分组页签（BO View 的 RAN/IP/MW/CN/OCS）。
+             ⚠️ 2026-09-27 改：原来夹在 .v6-h 与 .v6-list 之间、自己占一整行；
+             用户要求跟标题那行放一起（"也放到同一行，可以适当小一点"），
+             所以挪进 .v6-h，位置在「标题链接之后、计数徽章之前」。
+
+             为什么放在 .v6-n **前面**：.v6-n 带 margin-left:auto，
+             它是这一行的"右对齐锚点"。页签插在它后面就等于把自己也推到最右，
+             跟计数徽章挤在一起；插在它前面，页签贴着标题向右延伸，
+             计数徽章仍钉在卡片右边缘（与改动前一致，不算破格）。
+
+             去掉说明后这一行的账（1600px 视口、可用 474px）：
+             图标36 + 标题82 + 页签239 + 计数40 + 3道缝18 = 415px，放得下。
+
+             为什么不做成可滚动容器：列宽只有网格的 1/3（实测约 490px），
+             六个页签要跟标题、说明、计数挤在一行。放不下时**应该**换行
+             （见 CSS 的 flex-wrap），而不是横向滚动 —— 滚动条在这么窄的
+             卡头里既难操作、又会把行高顶起来，还不如老老实实折成两行。 */
+          (sub.html || '') +
           '<span class="v6-n">' + list.length + '</span>' + tools + '</div>' +
+        /* ⚠️ 页签已挪进 .v6-h（见上），这里不再重复输出 sub.html。
+            仍然不放进 .v6-list：它会跟着列表一起被滚动/裁剪，
+            页签要始终贴在卡片顶部（它是这一列的控制器，不是内容）。 */
         '<div class="v6-list">' + body + '</div></div>';
     });
     box.innerHTML =
-      '<div class="band-h"><div class="band-txt"><div class="band-k">' + esc(t('v6.title')) + '</div>' +
-        '<p class="band-n">' + esc(t('v6.sub')) + '</p></div></div>' +
+      /* ⚠️ 2026-09-28（用户要求「不要 Click a report name to open that dashboard」）：
+         标题下方那行 <p class="band-n"> 已整段去掉，不再渲染。
+         这行是"怎么用"的说明文字，而卡片本身已经把可点这件事表达清楚了
+         （每行尾巴带 ↗ 箭头、悬停有 title、光标是手型），常驻一句使用说明
+         只是在标题区占高。文案键 v6.sub 仍留在字典里（MsPortal 侧可能还用，
+         本页不渲染 ≠ 删文案）；要恢复就把这一行加回来。
+         去掉后 .band-txt 里只剩 .band-k 一行 —— 容器本身保留，
+         它同时是 .band-h 的 flex 左侧项（右侧无内容，故不再需要占位）。 */
+      '<div class="band-h"><div class="band-txt"><div class="band-k">' + esc(t('v6.title')) + '</div></div></div>' +
       '<div class="v6-grid">' + html + '</div>';
+  }
+
+  /* 列内二级子分组页签条（2026-09-27 加）。
+     按需求「BO View 要建立 sub group 页签，RAN/IP/MW/CN/OCS」实现。
+
+     只给**配了子分组的分组**渲染（当前只有 BO View）：subGroupsOf() 返回空数组时
+     整条不出现，所以另外五张卡的外形一个像素都不变。返回空串而不是空容器 ——
+     留一个 <div class="v6-subs"> 会在卡片里撑出一段没有内容的间距。
+
+     与只读态两个口径的取舍：
+       · 「全部」页签的计数用 all.length（该列全部看板），各子桶计数用桶内条数，
+         两者都是**过滤后**的集合（allowed ∩ 搜索/筛选）—— 与列头 .v6-n 同源。
+         在这里显示全量计数会与列头数字打架，用户会以为页签漏了卡。
+       · 空桶**不隐藏**：页签是「这个视图按专业域的完整切分」，把 OCS 藏起来
+         等于告诉用户「BO View 没有 OCS 这一域」，而事实是暂时没挂看板。
+         但空桶点进去会是空列表，所以给它 disabled —— 点不动比点开一片空白诚实。
+
+     选中态存 state.v6Sub[gid]（按分组分开记），不跨分组串：
+     在 BO 选了 MW 再去看 SP，不该让 SP 也被筛成 MW。 */
+  function v6SubBar(gid, all, list) {
+    var subs = subGroupsOf(gid);
+    if (!subs.length) return { html: '', list: list };
+    var sid = state.v6Sub[gid] || '';
+    /* 先算各桶：用 all（本列过滤后的全量）而不是 list（可能已被上次选中筛过），
+       否则切换页签时别的桶计数会跟着变小 —— 那是「桶里没卡」的假象。 */
+    var buckets = subs.map(function (s) {
+      return {
+        id: s.id, label: subChipLabel(s), full: subName(s),
+        list: all.filter(function (it) { return subOfItem(it, gid) === s.id; })
+      };
+    });
+    /* 归属为空 / 指向已删子分组的看板：兜底桶。**只在真有这种卡时**才出现 ——
+       没有漏网之鱼时摆一个「未归类 0」是纯噪声。 */
+    var rest = all.filter(function (it) {
+      return !subs.some(function (s) { return s.id === subOfItem(it, gid); });
+    });
+    if (rest.length) buckets.push({ id: SUB_NONE, label: t('v.subOther'), full: t('v.subOther'), list: rest });
+    /* 选中的桶若已不存在（子分组被删 / 权限变化后空了），退回「全部」——
+       否则下面会筛出一个永远空、且页签上找不到对应选中态的列表。 */
+    if (sid && !buckets.some(function (b) { return b.id === sid && b.list.length; })) sid = '';
+    var picked = sid ? buckets.filter(function (b) { return b.id === sid; })[0] : null;
+    var btn = function (id, label, full, n) {
+      var on = id === sid;
+      /* title 用**全称**、可见文字用短缩写：列宽只有网格的 1/3（约 500px），
+         五个域的全称（"RAN · Radio Access Network"）会把页签条撑成 5 行 217px，
+         把卡片内容整个挤下去。缩写 + 悬停给全称，是这块唯一能兼顾
+         「一眼看清有哪几个域」与「不占掉半张卡」的做法。 */
+      var tip = n ? (full || label) : t('v6.subEmptyTip');
+      return '<button type="button" class="v6-sub" data-sub="' + esc(id) + '"' +
+        ' data-gid="' + esc(gid) + '" aria-pressed="' + (on ? 'true' : 'false') + '"' +
+        (n ? '' : ' disabled') + ' title="' + esc(tip) + '"' +
+        /* aria-label 给全称：读屏用的人听到的应该是「RAN 无线接入网」而不是「RAN」，
+           可见文字为了排版被压缩了，这里要把语义补回来。 */
+        ' aria-label="' + esc((full || label) + ' ' + n) + '">' +
+        esc(label) + '<small>' + n + '</small></button>';
+    };
+    return {
+      html: '<div class="v6-subs" role="group" aria-label="' + esc(t('v6.subAria')) + '">' +
+        btn('', t('rail.all'), t('rail.all'), all.length) +
+        buckets.map(function (b) { return btn(b.id, b.label, b.full, b.list.length); }).join('') +
+        '</div>',
+      list: picked ? picked.list : list
+    };
   }
 
   /* 地图栏的面板头 + 页签 + 工具按钮（2026-09-23 抽出）。
@@ -1273,7 +1589,14 @@
         ? '<button type="button" class="p-t p-t-edit t-orange" data-act="map-head" title="' + esc(t('edit.maptabTip')) + '">' +
           esc(headTitleText()) + '<i class="ph ph-pencil-simple maptab-pen" aria-hidden="true"></i></button>'
         : '<span class="p-t t-orange">' + esc(headTitleText()) + '</span>') +
-      '<span class="p-s">' + esc(headSubText()) + '</span></span>' +
+      /* ⚠️ 2026-09-28（用户要求「GIS Map 组件。不要右边的 GIS Map」）：
+         标题右侧那颗副标题 .p-s（内容来自 headSubText()，当前渲染成 "GIS Map"）
+         已整段不再输出 —— 它和左边的主标题是同一个词，等于把标题写了两遍。
+         注意**不像 v6.sub 那样删掉整个变量**：headSubText() 仍被编辑态
+         「改本栏名称」的对话框读着（那里要同时编辑中/英两个值），
+         删掉函数会让改名入口少一半数据。所以只是这一处不渲染它。
+         将来若把主标题改回中文（如「利比里亚网络拓扑全景」），
+         这个空位可以再放回英文副标题 —— 恢复方式就是把这行 <span> 加回来。 */
       '<div class="map-tabs"><div class="tabs' + (ed ? ' is-renaming' : '') + '" role="tablist">' + maps.map(function (m) {
         return '<button type="button" class="tab" role="tab" data-map="' + esc(m.page) + '" aria-selected="' +
           (m.page === state.mapTab ? 'true' : 'false') + '" title="' +
@@ -1344,13 +1667,59 @@
      且要用「该分组下确实有这个子分组」校验过才认 —— 一个看板可以同挂多个分组
      （实测 no=11/12/13/18/36 同时在 FO + FLM），拿 boSub 直接套用会把 A 分组的
      归属串到 B 分组。内置三份是 data.js 打底用的，文案抄 portal.js 的 I18N 原值。 */
+  /* ⚠️ 2026-09-27 改：BO View 的子分组由「wireless / core / ip」三个
+     改为按**专业域**切分的 RAN / IP / MW / CN / OCS 五个（用户要求
+     「BO View 要建立 sub group 页签，RAN/IP/MW/CN/OCS」）。
+
+     为什么必须换掉旧的三个 id，而不是往上加两个：
+     旧口径是按「职责笼统归堆」切的（wireless 一桶里混了微波 MW 与 IP 丢包，
+     core 一桶里混了防火墙 FW 与基站动力），16 张卡里没有一张能被
+     「RAN / MW / CN / OCS」正确选中；留着旧 id 只会让归属分成两套互不相干的名字。
+
+     ⚠️ 这份 SUB_BUILTIN **只是打底默认**，不是生效的来源：
+     线上服务端目录 /api/portal-catalog 里已经有一份 BO View 子分组
+     （catalog.subGroups），subGroupsOf 的规则是「服务端有这个键就用服务端的」。
+     真正让人看到五个页签的，是**服务端目录被改成新口径**；
+     改这里是为了让「服务端目录读不到时」（fetch 失败 / 换机器还没同步）
+     页面仍然长成 RAN/IP/MW/CN/OCS，而不是退回旧的三个 id。
+
+     id 用专业域缩写（ran/ip/mw/cn/ocs）而不是 title 那串中文：
+       · id 是存在看板归属里、且**建好就不再改**的东西（改 id 等于让已有归属
+         指向不存在的子分组），中文名将来要润色时不该牵连数据；
+       · 缩写在目录导出、URL 与 MsPortal 侧都更好认。 */
   var SUB_BUILTIN = {
     'BO View': [
-      { id: 'wireless', zh: '无线射频、动力与外场排班', en: 'Radio, Power & Field Dispatch' },
-      { id: 'core', zh: '核心网 (CS/PS) 及运营月报', en: 'Core Network (CS/PS) & Monthly Report' },
-      { id: 'ip', zh: 'IP 承载网与工程专家支持', en: 'IP Bearer & Engineering Expert Support' }
+      { id: 'ran', zh: 'RAN 无线接入网', en: 'RAN · Radio Access Network' },
+      { id: 'ip', zh: 'IP 承载网', en: 'IP · Bearer Network' },
+      { id: 'mw', zh: 'MW 微波传输', en: 'MW · Microwave Transmission' },
+      { id: 'cn', zh: 'CN 核心网', en: 'CN · Core Network' },
+      { id: 'ocs', zh: 'OCS 在线计费', en: 'OCS · Online Charging System' }
     ]
   };
+  /* 旧 BO 子分组 id → 新专业域 id 的迁移映射。
+     ⚠️ 线上服务端目录（/api/portal-catalog）**已经有一份** BO View 子分组，
+     且它优先于下面这份 SUB_BUILTIN（subGroupsOf 里键存在就用服务端的）。
+     所以这张表不是「主方案」，而是**兜底**：服务端还没迁到新口径时
+     （换机器、目录回滚、MsPortal 侧存了旧值），读到的旧 id 在这里被翻成新域，
+     界面不会因为「页签换了名字」而把看板丢掉。
+
+     旧口径的三个 id（wireless / core / ip）与新五域不是一对一：
+     wireless 那桶里混着微波、IP 丢包与基站动力，所以**逐条判定**见 SUB_KEEP_REMAP，
+     这里只兜「按桶名能对上」的部分。 */
+  var SUB_MIGRATE = { wireless: 'ran', core: 'cn', ip: 'ip', MW: 'mw', OCS: 'ocs' };
+  /* 旧归属的**逐条覆盖表**：no → 新子分组 id。优先级高于 SUB_MIGRATE。
+     为什么需要它：旧口径本身分错了（微波 MW 与 IP 丢包都躺在 wireless 桶里），
+     按桶名映射只会把错误继续带下去。这几条按看板号直接给结论。
+
+     归属依据（2026-09-27 与用户逐条确认，看板号取自**线上目录**）：
+       26 Packet Loss  → IP（IP RAN 回传链路丢包，传输与 IP 网管部）
+       27/28 MW        → MW
+       36 Battery      → RAN（蓄电池属基站动力配套，站点侧随无线）
+       23 FW_Daily     → CN（防火墙/安全设备归核心网域）
+       51/66 OCS       → OCS（客户业务 KPI + OCS iMonitor）
+     其余按桶名映射即可（wireless→ran 的 20/21/22、core→cn 的 24/25、
+     ip→ip 的 29/30/31/32），所以不在这里重复列出 —— 名单越短越不容易漂移。 */
+  var SUB_KEEP_REMAP = { '23': 'cn', '26': 'ip', '27': 'mw', '28': 'mw', '36': 'ran', '51': 'ocs', '66': 'ocs' };
   var SUB_NONE = '__none';    /* 该分组下没写归属的看板：兜底桶，宁可单列也不丢条目 */
   function normalizeSubMap(v) {
     if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
@@ -1370,12 +1739,38 @@
   }
   function subOfItem(it, gid) {
     var m = it && it.subOf, has = m && typeof m === 'object' && !Array.isArray(m);
-    if (has) return String(m[gid] || '');
+    if (has) {
+      var sid = String(m[gid] || '');
+      /* BO View 走口径迁移：读的时候就把旧 id 翻成新域，屏幕上不会再出现
+         「页签找不到这张卡」的情况。别的分组按原值返回（见 migrateBoSubOf 注释）。 */
+      if (!sid) return '';
+      return gid === 'BO View' ? boSubValid(migrateBoSubOf(sid, it.no)) : sid;
+    }
+    /* 迁移前的旧数据：boSub 只有一个值，要拿「该分组下确实有这个子分组」校验过才认 ——
+       一个看板可以同挂多个分组（实测 no=11/12/13/18/36 同时在 FO + FLM），
+       拿 boSub 直接套用会把 A 分组的归属串到 B 分组。 */
     var legacy = it && it.boSub ? String(it.boSub) : '';
     if (!legacy) return '';
-    return subGroupsOf(gid).some(function (s) { return s.id === legacy; }) ? legacy : '';
+    var cand = gid === 'BO View' ? migrateBoSubOf(legacy, it.no) : legacy;
+    return subGroupsOf(gid).some(function (s) { return s.id === cand; }) ? cand : '';
   }
   function subName(s) { return state.lang === 'en' ? (s.en || s.zh || s.id) : (s.zh || s.en || s.id); }
+  /* 页签上的**短标签**：只取专业域缩写（RAN / IP / MW / CN / OCS），
+     全称留给 title 与 aria-label（见 v6SubBar）。
+
+     为什么不直接用 subName()：列宽只有网格的 1/3（实测约 500px），
+     英文全称 "RAN · Radio Access Network" 把页签条撑成 5 行、高 217px，
+     卡片内容被整个挤下去 —— 而这五个域的名字本来就已经带缩写前缀
+     （「RAN 无线接入网」/「RAN · Radio Access Network」），缩写是天然可读的。
+
+     取值口径：名字里第一段**全大写/数字的字母**（长度 2-4）就是域缩写；
+     取不到（用户把子分组改名成了纯中文，例如「核心网」）就退回整名 ——
+     宁可显示长一点，也不要为了排版把名字截成看不懂的碎片。 */
+  function subChipLabel(s) {
+    var full = subName(s);
+    var m = /^\s*([A-Z][A-Z0-9]{1,3})(?=[\s·\-–—]|$)/.exec(full);
+    return m ? m[1] : full;
+  }
 
   /* -------------------------------------------------- 目录写入（编辑态） -- */
   /* 三个入口（拖拽排序 / 子分组 / 分组归属）最后都走 save() 这同一条路：
@@ -1399,6 +1794,11 @@
     if (it.subOf && typeof it.subOf === 'object' && !Array.isArray(it.subOf)) {
       Object.keys(it.subOf).forEach(function (k) { m[k] = it.subOf[k]; });
     }
+    /* ⚠️ BO View 这一维必须先归一：目录里可能还躺着旧 id（wireless/core）。
+       不归一就直接写别的分组时，旧的坏值会被原样复制进新对象 ——
+       一次「改 FO 归属」的保存会把 BO 那维的旧 id 一起固化下来，
+       于是迁移永远做不干净（读的时候虽然能翻，但存回去的仍是旧值）。 */
+    if (gid === 'BO View' && m[gid]) m[gid] = migrateBoSubOf(String(m[gid]), it.no);
     if (sid) m[gid] = sid; else delete m[gid];
     if (Object.keys(m).length) c.subOf = m; else delete c.subOf;
     var mirror = '';
@@ -1424,6 +1824,33 @@
       c.subOf = m;
       return c;
     });
+  }
+  /* ---- BO 子分组口径迁移（2026-09-27 加）----
+     把历史归属里的旧 BO 子分组 id（wireless / core / ip）改写为新的
+     专业域 id（ran / ip / mw / cn / ocs）。三层判定，顺序不能反：
+
+       ① SUB_KEEP_REMAP 点名 —— 优先级最高。旧口径本身分错了（微波 MW 与
+          IP 丢包都躺在 wireless 桶里），按桶名映射只会把错误继续带下去，
+          所以这几条按看板号直接给定论；
+       ② SUB_MIGRATE 按桶名映射 —— 剩下的条目里，旧桶名与新域是同义的
+          （wireless→ran、core→cn、ip→ip）；
+       ③ 新 id 原样保留 —— 目录里已经是新口径的（用过编辑态改过归属的），
+          不做任何加工，这是幂等的关键：本函数会被反复调用。
+
+     ⚠️ 只在 BO View 这一维上迁移：别的分组将来也可能有自己的子分组，
+     它们的 id 不该被这张 BO 专用表改写。 */
+  function migrateBoSubOf(sid, no) {
+    var keep = SUB_KEEP_REMAP[String(no)];
+    if (keep) return keep;
+    var subs = subGroupsOf('BO View');
+    if (subs.some(function (s) { return s.id === sid; })) return sid;   /* ③ 已是新 id */
+    return SUB_MIGRATE[sid] || sid;                                     /* ② 旧桶名映射 */
+  }
+  /* 迁移后仍指向不存在的子分组 = 这条归属是坏的（比如旧目录里写了个
+     早已删掉的子分组）：返回空串让它落进「未归类」兜底桶 ——
+     宁可单列也不丢条目，且不会在页签上凭空多出一个点不开的桶。 */
+  function boSubValid(sid) {
+    return subGroupsOf('BO View').some(function (s) { return s.id === sid; }) ? sid : '';
   }
   function normOrderMap(v) {
     if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
@@ -1727,6 +2154,10 @@
       state.groups = nextGroups; applyItems(nextItems);
       state.order = nextOrder; state.subGroups = nextSubs;
       if (state.viewTab === gid) { state.viewTab = ''; state.viewSub = ''; }
+      /* 入口卡那一列也跟着清：分组都没了，v6Sub 里留着的选中 id 会一直
+         假装「BO View 选了 MW」—— 分组重建后同名 id 可能已经不存在，
+         而 v6SubBar 只在渲染时兜底，state 里的脏值会一直躺着。 */
+      delete state.v6Sub[gid];
     }, t('edit.grpDeleted'));
   }
 
@@ -2448,8 +2879,12 @@
   function emailSrc() { return '/myapp/?page=' + DATA.EMAIL_PAGE; }
 
   function emailSectionHtml() {
-    return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' + esc(t('email.title')) + '</span>' +
-      '<span class="p-s">' + esc(t('email.sub')) + '</span></span>' +
+    return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' + esc(t('email.title')) + '</span></span>' +
+      /* ⚠️ 2026-09-28（用户要求「Auto Report Files 组件。不要
+         Task report file center (Email Reports)」）：标题右侧那颗副标题
+         .p-s（email.sub）已整段不再输出。它是本组件的**实现说明**
+         （点名了 Email Reports 这套后端），对看数据的人没有信息量。
+         文案键 email.sub 仍留在字典里（本页不渲染 ≠ 删文案），要恢复就加回这行。 */
       '<button type="button" class="gb gb--t" data-act="email-reload" title="' + esc(t('map.reload')) + '">' +
       '<i class="ph ph-arrow-clockwise" aria-hidden="true"></i><span>' + esc(t('map.reload')) + '</span></button>' +
       '<a class="gb gb--t" id="emailOpen" href="' + esc(emailSrc()) + '" target="_blank" rel="noopener noreferrer"' +
@@ -2627,7 +3062,17 @@
         '<th>' + esc(t('esc.lv')) + '</th><th>' + esc(t('esc.pos')) + '</th><th>' + esc(t('esc.name')) + '</th>' +
         '<th class="num">Orange</th><th class="num">LONESTAR</th><th>' + esc(t('esc.mail')) + '</th></tr></thead><tbody>' +
         filtered.map(function (r) {
-          return '<tr><td class="lv">' + esc(String(r.level || '').replace('LEVEL', 'L')) + '</td>' +
+          /* ⚠️ 2026-09-28（用户要求「表格按照 Level 显示不同的颜色，注意深浅两种主题背景」）：
+             <tr> 上补一个 data-lv="1..4"，配色交给 CSS 的 [data-lv="n"] 规则。
+             为什么用属性而不是在这里拼 class/style：
+               · 颜色必须**按主题给两套值**，内联 style 只能写死一套，
+                 深色主题下要么对比不足、要么刺眼；
+               · 属性选择器让"哪一级是什么颜色"集中在样式表里，改配色不用动 JS。
+             data-lv 取 "L1" 尾部的数字；取不到（后端冒出第 5 级或空值）时**不写该属性**，
+             此时 CSS 的默认样式（原来的品牌色）兜底，不会出现"没配色的白板行"。 */
+          var lvn = /^LEVEL(\d+)$/.exec(String(r.level || ''));
+          return '<tr' + (lvn ? ' data-lv="' + lvn[1] + '"' : '') + '>' +
+            '<td class="lv">' + esc(String(r.level || '').replace('LEVEL', 'L')) + '</td>' +
             '<td>' + esc(r.position || '—') + '</td><td>' + esc(r.name || '—') + '</td>' +
             '<td class="num">' + esc(r.orange || '—') + '</td><td class="num">' + esc(r.lonestar || '—') + '</td>' +
             '<td>' + (r.email ? '<a href="mailto:' + esc(r.email) + '">' + esc(r.email) + '</a>' : '—') + '</td></tr>';
@@ -4208,8 +4653,20 @@
       b.classList.toggle('is-active', on);
     });
     $('#themeBtn').innerHTML = '<i class="ph ph-' + (state.theme === 'dark' ? 'sun' : 'moon') + '" aria-hidden="true"></i>';
-    var local = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-    $('#envLabel').textContent = local ? t('env.local') : t('env.lr');
+    /* ⚠️ 2026-09-28（用户要求「Header 里面的 Local host，不要显示，只显示图标」）：
+       环境徽标只留那颗探活状态圆点，文字（Local host / Liberia）不再上屏。
+       为什么写成**空字符串**而不是删掉整个 #envBadge：
+         · 那颗圆点是本页**唯一**的后端探活出口（envBadge() 靠它变红，
+           见下方 setEnvDown），删掉徽标等于把「后端挂了」这件事在顶栏抹掉；
+         · 空文本的 span 不占宽（.mp-env 是 inline-flex + gap，
+           没有子文本节点就不产生额外间距），所以视觉上就只剩一个圆点。
+       仍然是「赋值」而不是 remove：language 切换时这里会再写一次，
+       保持这个出口对所有动态顶栏文案统一，不给 envLabel 开特例。
+       环境区分能力没有丢：圆点本身只有绿/红两态，而"这是本机还是利比里亚"
+       属于部署事实、不是运行状态 —— 需要时看 URL 即可。 */
+    $('#envLabel').textContent = '';
+    /* ⚠️ local 变量随这次改动失去唯一调用点，一并删掉。
+       要恢复「显示环境名」见 olbr.js.bak_20260928_柱状图与顶栏调整前。 */
     var src = D.meta || {};
     $('#footSrc').textContent = tf('foot.src', { n: (D.stats && D.stats.total) || ITEMS.length, d: src.generated || '' });
     /* 编辑按钮的文案 / 提示是动态写的（语言一换要跟着换），所以也归这里出口 */
@@ -4343,6 +4800,29 @@
        两条必须分开判：onEditClick 是先 `closest('[data-act]')` 再看 canEdit()，
        把 v6-toggle 也丢进去会走进它的空分支什么也不做，展开就失灵了。 */
     $('#views6').addEventListener('click', function (e) {
+      /* 子分组页签（BO View 的 RAN/IP/MW/CN/OCS，2026-09-27 加）必须排在
+         onEditClick 之前：后者是先 closest('[data-act]') 再看 canEdit()，
+         我们的按钮没有 data-act，走进去只会落到它的空分支什么也不做。
+         用 closest 而不是直接判 target —— 按钮里包着 <small> 计数，
+         点数字上时 target 是那个 <small>，直接判 target 会整个失灵。 */
+      var sb = e.target.closest && e.target.closest('.v6-sub');
+      if (sb) {
+        /* disabled 的桶（空桶）浏览器本就不会派发 click，
+           这里再判一次是为了兜住「按钮在按下与松开之间变成了空桶」的边界。 */
+        if (sb.disabled) return;
+        var sg = sb.getAttribute('data-gid');
+        var sv = sb.getAttribute('data-sub') || '';
+        /* 点已选中的那颗 = 取消选择回到全部：页签条上「全部」那一颗
+           与「再点一次当前桶」应该得到同一个结果，否则用户在 OCS 上
+           点两下会以为坏了（第一下没反应是因为本来就是当前态）。 */
+        var cur = state.v6Sub[sg] || '';
+        state.v6Sub[sg] = (sv && sv !== cur) ? sv : '';
+        /* 切桶后把这一列的展开态收回去：展开着的「其余 N 项」在新桶里
+           没有意义（那个 N 是按旧桶算的），留着会显示成一张拉长的卡。 */
+        state.v6Open[sg] = false;
+        renderViews6();
+        return;
+      }
       if (e.target.closest && e.target.closest('[data-act="v6-toggle"]')) {
         var b = e.target.closest('[data-act="v6-toggle"]');
         var gid = b.getAttribute('data-gid');

@@ -55,15 +55,24 @@ window.OLBR_DATA = (function () {
          阈值、趋势口径、两档刷新节奏都照抄 portal.js，文案也沿用同一套说法 ——
          同一个数字在两个门户上被读成两件事，比样式不一致更糟。 */
       'qc.updated': '更新于', 'qc.next': '下次 {t}', 'qc.reload': '刷新', 'qc.loading': '加载中…',
+      /* 数据区间（2026-09-28 加）：显示统计数字实际覆盖的起止时间。
+         用 {a} ~ {b} 而不是硬编码前后缀 —— 两端的顺序与连接符要跟着语言走。 */
+      'qc.range': '数据范围 {a} ~ {b}',
       'qc.na': '不可用',
       'qc.lv.ok': '正常', 'qc.lv.warn': '关注', 'qc.lv.crit': '严重', 'qc.lv.na': '不可用',
       'qc.dataAt': '数据 {t}（{ago}）',
       'qc.ago.now': '刚刚', 'qc.ago.min': '{n} 分钟前', 'qc.ago.hour': '{n} 小时前', 'qc.ago.day': '{n} 天前',
-      'qc.sites': '断站站点', 'qc.overdue': '超期', 'qc.inbound': '入库', 'qc.outbound': '出库',
-      'qc.sub.alarm': '未清除的断站告警', 'qc.sub.tt': '告警未清除的故障工单 (TT)',
-      'qc.sub.wo': '告警未清除的任务工单 (WO)', 'qc.sub.cr': '未关闭变更单 (CR)',
-      'qc.sub.pmt': '未完成的预防性维护 (PMT)',
-      'qc.sub.spms': '未关闭出入库单 (SPMS，不含 WaitingForUpdate)',
+      'qc.sites': 'Cells/ Sites Outage', 'qc.overdue': '超期', 'qc.inbound': '入库', 'qc.outbound': '出库',
+      /* 2026-09-28 按用户逐条指定的文案改名（原值见
+         olbr-data.js.bak_20260928_柱状图与顶栏调整前）。用户给的是**中英同值**的
+         英文写法，中文这份也照写 —— 与 qc.title 那次改名同一个处理
+         （用户明确要这个名字，不要"顺手补中文"）。
+         ⚠️ 只有 alarm 那一条带数字前缀（`75 Cells/ Sites Outage`），
+         所以上面 qc.sites 保持为纯文案，数字仍由 qcCardHtml 拼在前面。 */
+      'qc.sub.alarm': 'Cells/ Sites Outage', 'qc.sub.tt': 'Ongoing TTs',
+      'qc.sub.wo': 'Ongoing WOs', 'qc.sub.cr': 'Unclosed CRs',
+      'qc.sub.pmt': 'Unclosed PMTs',
+      'qc.sub.spms': 'Unclosed SPMS',
       'qc.targetTip.up': '分级阈值：关注 ≥ {warn} · 严重 ≥ {crit}（数值越大越差）',
       'qc.targetTip.down': '分级阈值：关注 < {crit} · 严重 < {warn}（数值越大越好）',
       'qc.trend.cap': '近 {n} 天新增 {total} 次（每格 {unit}）',
@@ -106,7 +115,12 @@ window.OLBR_DATA = (function () {
          但不要动 map.title 的中文名 —— 它是用户点名要的新标题。 */
       'map.title': 'GIS Map', 'map.sub': 'GIS Map',
       'map.gis': '全球地图', 'map.mw': '微波实时', 'map.alarm': '实时告警', 'map.loss': '传输丢包',
-      'map.open': '新窗口打开', 'map.reload': '重新加载', 'map.load': '加载中…',
+      /* 2026-09-28 按用户要求把按钮文案改成 "Open Link"（原来中英分别是
+         「新窗口打开」/ "Open in new tab"）。用户给的是英文串，
+         两份字典都照写（与 qc.sub.* 那次改名同一条约定：用户点名的写法不翻译）。
+         这个键同时被 GIS Map 与 Auto Report Files 两处按钮使用（items 12/13），
+         所以改这一处两处一起生效 —— 不要在调用点各写一遍字符串。 */
+      'map.open': 'Open Link', 'map.reload': '重新加载', 'map.load': '加载中…',
       /* 报告文件页签（2026-09-22 加）：内嵌 my_app 的任务报告文件中心，
          标题说法与 MsPortal 那张 Task Report Files 卡一致，同一内容在两个门户不该有两名。 */
       'email.tab': '报告文件',
@@ -261,6 +275,12 @@ window.OLBR_DATA = (function () {
       'v6.more': '展开其余 {n} 项',
       'v6.less': '收起',
       'v6.empty': '该视图下暂无可打开的看板',
+      /* 二级子分组页签（2026-09-27 加，BO View 的 RAN/IP/MW/CN/OCS）。
+         子分组**名字**不在这里 —— 它跟着目录（SUB_BUILTIN / catalog.subGroups）
+         走，因为那是可以在编辑态改、且 MsPortal 共用的一份。
+         这里只放页签条自己的两条固定文案。 */
+      'v6.subAria': '按专业域筛选本视图',
+      'v6.subEmptyTip': '该专业域下暂无看板',
       'aux.qa': 'Knowledge Q&A', 'aux.friends': 'OSS Portal Login', 'aux.admin': 'System Management',
       'aux.reports': 'Task report files', 'aux.tools': '本页相关',
       'aux.ms': '在 MsPortal 维护分组 / 看板 / 账号', 'aux.uni': '统一门户看板门户',
@@ -420,15 +440,20 @@ window.OLBR_DATA = (function () {
       'qc.err': 'Database stats unavailable', 'qc.retry': 'Retry',
       'qc.drill': 'Click for details',
       'qc.updated': 'Updated', 'qc.next': 'next {t}', 'qc.reload': 'Refresh', 'qc.loading': 'Loading…',
+      /* 数据区间（2026-09-28 加）。与中文那份同一条约定：连接符必须跟着语言走。 */
+      'qc.range': 'Data range {a} ~ {b}',
       'qc.na': 'n/a',
       'qc.lv.ok': 'OK', 'qc.lv.warn': 'Watch', 'qc.lv.crit': 'Critical', 'qc.lv.na': 'N/A',
       'qc.dataAt': 'data {t} ({ago})',
       'qc.ago.now': 'just now', 'qc.ago.min': '{n}m ago', 'qc.ago.hour': '{n}h ago', 'qc.ago.day': '{n}d ago',
-      'qc.sites': 'sites down', 'qc.overdue': 'overdue', 'qc.inbound': 'Inbound', 'qc.outbound': 'Outbound',
-      'qc.sub.alarm': 'Uncleared site-outage alarms', 'qc.sub.tt': 'Trouble tickets with uncleared alarm',
-      'qc.sub.wo': 'Work orders with uncleared alarm', 'qc.sub.cr': 'Unclosed change requests',
-      'qc.sub.pmt': 'Pending preventive maintenance',
-      'qc.sub.spms': 'Unclosed inbound/outbound orders (excl. WaitingForUpdate)',
+      'qc.sites': 'Cells/ Sites Outage', 'qc.overdue': 'overdue', 'qc.inbound': 'Inbound', 'qc.outbound': 'Outbound',
+      /* 2026-09-28 按用户逐条指定的文案改名。中英两份**同值** ——
+         用户给的就是这一串英文，中文那份也照写，不要"顺手翻译回去"。
+         （与 qc.title 的中英同值是同一条约定。） */
+      'qc.sub.alarm': 'Cells/ Sites Outage', 'qc.sub.tt': 'Ongoing TTs',
+      'qc.sub.wo': 'Ongoing WOs', 'qc.sub.cr': 'Unclosed CRs',
+      'qc.sub.pmt': 'Unclosed PMTs',
+      'qc.sub.spms': 'Unclosed SPMS',
       'qc.targetTip.up': 'Thresholds: watch ≥ {warn} · critical ≥ {crit} (higher is worse)',
       'qc.targetTip.down': 'Thresholds: watch < {crit} · critical < {warn} (higher is better)',
       'qc.trend.cap': 'New in last {n}d: {total} (per {unit})',
@@ -462,7 +487,9 @@ window.OLBR_DATA = (function () {
       'cxo.title': 'CXO View', 'cxo.sub': 'Executive strategy & operation window',
       'map.title': 'GIS Map', 'map.sub': 'GIS Map',
       'map.gis': 'Global Map', 'map.mw': 'MW real-time', 'map.alarm': 'Live alarms', 'map.loss': 'Packet loss',
-      'map.open': 'Open in new tab', 'map.reload': 'Reload', 'map.load': 'Loading…',
+      /* 2026-09-28：改为用户点名的 "Open Link"（原为 "Open in new tab"）。
+         中文那份同值 —— 用户要的就是这一串英文。 */
+      'map.open': 'Open Link', 'map.reload': 'Reload', 'map.load': 'Loading…',
       'email.tab': 'Report files',
       'email.title': 'Auto Report Files', 'email.sub': 'Task report file center (Email Reports)',
       'email.needLogin': 'Sign in to view the report files',
@@ -604,6 +631,8 @@ window.OLBR_DATA = (function () {
       'v6.more': 'Show {n} more',
       'v6.less': 'Show less',
       'v6.empty': 'No dashboard available under this view',
+      'v6.subAria': 'Filter this view by technology domain',
+      'v6.subEmptyTip': 'No dashboard under this domain yet',
       'aux.qa': 'Knowledge Q&A', 'aux.friends': 'OSS Portal Login', 'aux.admin': 'System Management',
       'aux.reports': 'Task report files', 'aux.tools': 'About this page',
       'aux.ms': 'Manage groups / dashboards / accounts in MsPortal', 'aux.uni': 'Unified dashboard portal',

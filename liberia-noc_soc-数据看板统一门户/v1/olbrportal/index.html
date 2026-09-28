@@ -239,7 +239,15 @@
      否则下面的卡少了几张会被当成系统问题。展开状态不持久化：每次进来都是收起。
      清除按钮只有这一颗（从 .rail-end 移到了条上），展开态也在同一行，不重复绑事件。 -->
 <div class="rail" id="rail">
+  <!-- 2026-09-28（用户要求「查找和过滤组件的按钮和信息放到最右边」）：
+       这一行原来是「按钮 + 命中数 + 清除筛选」三件东西从左往右紧挨着排。
+       现在补一个 .rail-sp 弹性占位把它们整体推到右缘，与下面展开区里
+       .rail-end（状态筛选 + 计数）本来就靠右（grid-area 1/2 + justify-self:end）
+       的排布对齐 —— 收起态与展开态的控制区于是都贴在同一条右边线上。
+       ⚠️ 占位必须放在**最前面**：flex 下它是唯一会吃掉剩余空间的元素，
+       放在中间会把后面的元素也一起推走，看起来像"分成了两组"。 -->
   <div class="rail-bar wrap">
+    <span class="rail-sp" aria-hidden="true"></span>
     <button type="button" class="rail-t" id="railBtn" aria-expanded="false" aria-controls="railIn"
             data-i18n-attr="title:rail.tip">
       <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
