@@ -286,7 +286,18 @@
 
 <footer class="foot">
   <div class="wrap foot-in">
-    <span>© 2026 ZTE Corporation · <span data-i18n="foot.branch">利比里亚办事处网络运营中心 (OLR MS)</span></span>
+    <!-- ⚠️ 2026-09-28（用户要求）：版权行由
+           原「© 2026 ZTE Corporation · Liberia Office · Network Operation Center (OLR MS)」
+           改为「© 2026 ZTE Corporation ·ZTE LIBERIA· INC」。
+         用户给的写法里 `·ZTE LIBERIA·` 两侧没有空格（`·ZTE`、`LIBERIA·`），
+         保留原样不改 —— 这是法律实体名，排版习惯不该由前端擅自"修正好看"。
+         原来后半段走 i18n 的 foot.branch（zh 是「利比里亚办事处网络运营中心 (OLR MS)」），
+         现在改成公司法律实体名，中英两种语言下都是同一串（不需要翻译），
+         所以这里直接写死在 HTML，并把 foot.branch 从两份字典里一并删除 ——
+         留着没人消费的键，下次翻译时会被误当成"漏翻的文案"再翻一遍。
+         注：separator 用 `·` 时左右各留一个半角空格是原实现的视觉习惯，
+         但用户点名要的字符串优先，故此处以用户给的写法为准。 -->
+    <span>© 2026 ZTE Corporation ·ZTE LIBERIA· INC</span>
     <span class="foot-r">
       <span class="ok"><i class="ph ph-shield-check" aria-hidden="true"></i> <span data-i18n="foot.ok">安全合规模式运行</span></span>
       <span id="footSrc">—</span>

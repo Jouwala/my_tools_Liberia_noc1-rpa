@@ -290,7 +290,10 @@ window.OLBR_DATA = (function () {
       'aux.reports': 'Task report files', 'aux.tools': '本页相关',
       'aux.ms': '在 MsPortal 维护分组 / 看板 / 账号', 'aux.uni': '统一门户看板门户',
       'aux.more': '展开其余 {n} 项', 'aux.less': '收起',
-      'foot.branch': '利比里亚办事处网络运营中心 (OLR MS)', 'foot.ok': '安全合规模式运行',
+      /* 2026-09-28：foot.branch 已删除 —— 版权行的后半段改成公司法律实体名
+         「ZTE LIBERIA· INC」，中英同形、不需要翻译，已直接写死在 index.html。
+         原值：'利比里亚办事处网络运营中心 (OLR MS)'。 */
+      'foot.ok': '安全合规模式运行',
       'foot.src': '目录：{n} 个看板 · 生成于 {d}',
       'st.online': '在线', 'st.beta': '试用',
       'pf.myapp': '自研 my_app', 'pf.finebi': 'FineBI', 'pf.external': '外部系统',
@@ -643,7 +646,9 @@ window.OLBR_DATA = (function () {
       'aux.reports': 'Task report files', 'aux.tools': 'About this page',
       'aux.ms': 'Manage groups / dashboards / accounts in MsPortal', 'aux.uni': 'Unified dashboard portal',
       'aux.more': 'Show {n} more', 'aux.less': 'Show less',
-      'foot.branch': 'Liberia Office · Network Operation Center (OLR MS)', 'foot.ok': 'Compliance mode',
+      /* 2026-09-28：foot.branch 已删除，见 zh 处的说明。
+         原值：'Liberia Office · Network Operation Center (OLR MS)'。 */
+      'foot.ok': 'Compliance mode',
       'foot.src': 'Catalog: {n} dashboards · built {d}',
       'st.online': 'online', 'st.beta': 'beta',
       'pf.myapp': 'my_app', 'pf.finebi': 'FineBI', 'pf.external': 'external',
