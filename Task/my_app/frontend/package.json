@@ -18,10 +18,6 @@
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
-    "@turf/bezier-spline": "^7.3.5",
-    "@turf/buffer": "^7.3.5",
-    "@turf/helpers": "^7.3.5",
-    "@turf/intersect": "^7.3.5",
     "@types/leaflet": "^1.9.21",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
@@ -35,10 +31,10 @@
     "leaflet": "^1.9.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-leaflet": "^5.0.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "tslib": "^2.8.1",
+    "//xlsx": "Apache-2.0，仅供 EflowQa.tsx / TableBrowser.tsx 解析用户上传的 xlsx/xls。勿改成 npm 上的 `xlsx`——registry 版停留在 0.18.5 且带已知 CVE；SheetJS 新版只从自家 CDN 分发。升级前须人工核验 tarball 完整性，并同步更新 docs/THIRD-PARTY-NOTICES.md。注意 exceljs 读不了旧版 .xls（BIFF8），故不能简单替换。",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

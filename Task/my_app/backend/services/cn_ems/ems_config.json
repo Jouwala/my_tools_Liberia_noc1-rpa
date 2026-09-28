@@ -1,2 +1,46 @@
-{"client_exe": "D:\\ems1\\ems1\\ums-client\\client.exe", "run_bat": "D:\\ems1\\ems1\\ums-client\\procs\\bsf\\core\\bin\\run.bat", "user": "oss", "password": "Tool123", "login_title_re": "Login - NetNumen U31", "main_title_re": "NetNumen U31 Unified Management System - Client", "launch_wait": 3, "login_timeout": 20, "main_timeout": 20, "post_login_wait": 10, "menu_path": ["Performance", "Query Template Management"], "backend": "uia", "coords": {"username": [0.35, 0.42], "password": [0.35, 0.55], "btn_ok": [0.70, 0.88], "btn_cancel": [0.88, 0.88]},
-"menu_coords": {"top_menu_pct": [0.30, 0.035], "submenu_offset_px": [5, 103]}, "submenu_down_count": 3}
+{
+  "client_exe": "D:\\ems1\\ems1\\ums-client\\client.exe",
+  "run_bat": "D:\\ems1\\ems1\\ums-client\\procs\\bsf\\core\\bin\\run.bat",
+  "user": "oss",
+  "password": "",
+  "login_title_re": "Login - NetNumen U31",
+  "main_title_re": "NetNumen U31 Unified Management System - Client",
+  "launch_wait": 3,
+  "login_timeout": 20,
+  "main_timeout": 20,
+  "post_login_wait": 10,
+  "menu_path": [
+    "Performance",
+    "Query Template Management"
+  ],
+  "backend": "uia",
+  "coords": {
+    "username": [
+      0.35,
+      0.42
+    ],
+    "password": [
+      0.35,
+      0.55
+    ],
+    "btn_ok": [
+      0.7,
+      0.88
+    ],
+    "btn_cancel": [
+      0.88,
+      0.88
+    ]
+  },
+  "menu_coords": {
+    "top_menu_pct": [
+      0.3,
+      0.035
+    ],
+    "submenu_offset_px": [
+      5,
+      103
+    ]
+  },
+  "submenu_down_count": 3
+}

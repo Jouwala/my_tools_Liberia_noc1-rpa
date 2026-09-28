@@ -13,13 +13,13 @@ def test():
     
     result = send_via_ews(
         to="dong.xinmin@zte.com.cn",
-        subject="[PASS] EWS Password Test - Using Postcode@202608",
+        subject="[PASS] EWS Password Test",
         body="""Hello,
 
 This is an automated test email via **EWS API**.
 
 **Sent at**: 2026-08-25
-**Password used**: Postcode@202608 (CORRECT)
+**Password source**: credential_store (owa_mail)
 **Auth method**: NTLM on exchmail.orange-cit.ci
 
 If you received this email, it means:

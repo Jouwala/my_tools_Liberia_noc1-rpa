@@ -56,8 +56,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 # ============================================================
 HOST = "10.100.2.99"
 PORT = 28001
-USERNAME = "noc1"
-PASSWORD = "Zte@lbr202607"
 LOGIN_PORTAL = "/portal-athena/framework/default.html"
 
 
@@ -67,7 +65,7 @@ def _runtime_credentials():
         from backend.services.credential_store import get_credential
     except ImportError:
         from credential_store import get_credential
-    return get_credential("ipran_ume", USERNAME, PASSWORD)
+    return get_credential("ipran_ume")
 
 # 数据目录
 IPRAN_DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\ipran_ume")

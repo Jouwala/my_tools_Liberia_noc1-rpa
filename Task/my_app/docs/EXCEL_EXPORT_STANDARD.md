@@ -109,7 +109,7 @@ await exportAoaReport({
 
 | 文件 | 仅弹窗导出 → 页面级入口 |
 | --- | --- |
-| `pages/TTWODashboard.tsx` | ✅ 2026-09-27 补（`exportOverview`，同时惠及 `v1_ttwo` 切片页） |
+| `pages/TTWODashboard.tsx` | ✅ 2026-09-27 补（`exportOverview`，同时惠及 `v1_ttwo` / `tt` / `wo` 三个切片页；sheet 范围随切片变，见 `11-feature-guide.md` 4b/4c/4d） |
 | `pages/AlarmDashboard.tsx` | ✅ 2026-09-27 补 |
 | `pages/SiteAvailability.tsx` | ✅ 2026-09-27 补（多 sheet：汇总指标 + 站点明细） |
 | `pages/FmeRanking.tsx` | ✅ 2026-09-27 补 |
@@ -131,7 +131,7 @@ await exportAoaReport({
 | `pages/BatteryDashboard.tsx` | ✅ 已迁移（原 `json_to_sheet`） |
 | `pages/MsSlaDashboard.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27） |
 | `pages/NurDashboard.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27） |
-| `pages/TTWODashboard.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27，含 `v1_ttwo`） |
+| `pages/TTWODashboard.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27，含 `v1_ttwo` / `tt` / `wo` 三个切片页） |
 | `pages/gismap/helpers.tsx` | ✅ 已迁移 |
 | `pages/FmeRanking.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27） |
 | `pages/UmeInKpi.tsx` | ✅ 已迁移 + 页面级入口（2026-09-27） |

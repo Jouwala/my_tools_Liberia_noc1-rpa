@@ -266,6 +266,7 @@ function localeName(locale: Locale, key: string): string {
   const ZH: Record<string, string> = {
     sync: '任务管理', email_reports: '任务报告文件', alarm: '实时告警看板', ttwo: 'TT&WO 看板',
     v1_ttwo: 'TT&WO 看板（v1·仅上半部分）',
+    tt: 'TT 看板', wo: 'WO 看板',
     ms_nur_only: 'NUR 看板（仅 NUR）', ms_sla_only: 'MS KPI 看板（仅 SLA）',
     eflow_qa: 'eFlow 知识库', nur: 'NUR 看板', ms_sla: 'MS Operation KPI 看板', cxoDashboard: 'CXO 经营看板',
     mwUmeTopology: 'MW 微波拓扑', mwRealTime: 'MW 微波实时', gis: 'GIS地图', realtime_alarm: '实时告警地图',
@@ -277,6 +278,7 @@ function localeName(locale: Locale, key: string): string {
   const EN: Record<string, string> = {
     sync: 'Task Manager', email_reports: 'Task Report Files', alarm: 'Alarm Dashboard', ttwo: 'TT&WO Dashboard',
     v1_ttwo: 'TT&WO Dashboard (v1, upper half only)',
+    tt: 'TT Dashboard', wo: 'WO Dashboard',
     ms_nur_only: 'NUR Dashboard (NUR only)', ms_sla_only: 'MS KPI Dashboard (SLA only)',
     eflow_qa: 'eFlow Knowledge Base', nur: 'NUR Dashboard', ms_sla: 'MS Operation KPI Dashboard', cxoDashboard: 'CXO Dashboard',
     mwUmeTopology: 'MW UME Topology', mwRealTime: 'MW Realtime', gis: 'GIS Map', realtime_alarm: 'Realtime Alarm Map',

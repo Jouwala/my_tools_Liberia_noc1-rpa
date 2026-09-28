@@ -13,7 +13,7 @@ MW UME KPI 数据获取脚本（Microwave - ZXMW 系列微波设备性能指标�
 鉴权信息来源：c:\\Temp_C\\Tools\\mw_ume\\mw_ume.txt
   - 主页：https://192.168.169.247:28001/uportal/framework/default.html#/home
   - 用户名：NOC_MW
-  - 密码：Zte@202608
+  - 密码：由 credential_store 的 mw_ume 组提供（不写在文档里）
 
 数据下载来源：c:\\Temp_C\\Tools\\mw_ume\\url.txt
   - POST /api/pm-analysis/v2/history        创建查询任务
@@ -61,12 +61,11 @@ except Exception:
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 # ============================================================
-# 配置（鉴权信息来自 mw_ume.txt）
+# 配置（口令由 credential_store 的 `mw_ume` 组提供，见 _runtime_credentials）
 # ============================================================
 HOST = "192.168.169.247"
 PORT = 28001
 USERNAME = "NOC_MW"
-PASSWORD = "Zte@202608"
 LOGIN_PORTAL = "/uportal/framework/default.html"
 
 # 脚本目录与输出目录
@@ -338,6 +337,20 @@ def _http_request_with_retry(method, path, headers_extra=None, body=None,
 # ============================================================
 # 登录
 # ============================================================
+def _runtime_credentials():
+    """运行时获取凭据（环境变量 > 数据库 > credential_store 默认值）。
+
+    2026-09-27 新增：本模块原先直接用模块级 PASSWORD 字面量登录，既让硬编码口令
+    入库，也导致「设置页改密后本模块仍用旧口令」（与 owa_credentials.py 记录的
+    那次 65 小时邮件故障同一类）。改为统一走 credential_store 的 `mw_ume` 组。
+    """
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        from credential_store import get_credential
+    return get_credential("mw_ume")
+
+
 def login():
     """执行 MW UME 登录流程，返回包含 cookie 和 forgery_token 的字典。
 
@@ -347,6 +360,7 @@ def login():
     3. RSA 加密密码
     4. POST /api/oauth2/v1/login_rsa 提交登录
     """
+    _login_user, _login_pass = _runtime_credentials()
     print("[LOGIN] Starting authentication...")
     session_cookie = ""
     forgery_token = ""
@@ -397,12 +411,12 @@ def login():
             raise Exception("无法获取 RSA 公钥，登录中止")
 
         print("[LOGIN] Step 3: Encrypting password with RSA...")
-        encrypted_pwd = _rsa_encrypt_pem(PASSWORD, public_key_b64)
+        encrypted_pwd = _rsa_encrypt_pem(_login_pass, public_key_b64)
         print(f"[LOGIN] Encrypted ({len(encrypted_pwd)} chars)")
 
         print("[LOGIN] Step 4: Submitting login...")
         login_payload = json.dumps({
-            "username": USERNAME,
+            "username": _login_user,
             "password": encrypted_pwd,
             "parameters": login_parameters,
         })

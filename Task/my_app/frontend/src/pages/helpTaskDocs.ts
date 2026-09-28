@@ -17,7 +17,9 @@ export interface TaskDocText {
 
 export interface TaskDoc {
   id: string
-  group: 'u' | 'n' | 'v' | 'm' | 'c'
+  // 分组键；2026-09-27 由 n 组拆出 s（SP 备件 SFTP）/ w（MW UME），与后端
+  // worker_watchdog.GROUP_TASK_MAP 的键一一对应（守卫 tests/test_worker_group_coverage.py 校验）
+  group: 'u' | 'n' | 's' | 'w' | 'v' | 'm' | 'c'
   cron: string
   /** 工作流脚本（backend/services/ 下的模块） */
   script: string
@@ -143,6 +145,42 @@ export const TASK_DOCS: TaskDoc[] = [
       desc: 'Extension-based WhatsApp sending: dispatches a send job; a browser extension sends it in the logged-in WhatsApp Web (coexists with the Playwright version)',
       flow: ['Dispatch a send job to the queue', 'The browser extension (whatsapp_sender_extension) actually sends it in the logged-in WhatsApp Web tab'],
       maintain: ['Missed its worker-group registration on 2026-08-31 and stuck pending; now in group m — always register new tasks in GROUP_TASK_MAP'],
+    },
+  },
+  {
+    id: 'tt_alarm_whatsapp_alert', group: 'm', cron: '*/15 * * * *',
+    script: 'services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert',
+    zh: {
+      name: 'eFlow P1 告警 WhatsApp 推送',
+      desc: '每 15 分钟取近 3 小时内「告警未清除 + alarm_code≠99933 + P1」的 TT 单，渲染成文本推送到 WhatsApp，发送状态落库',
+      flow: [
+        '从 eflow_tt 取近 3 小时、alarm_clear_time 为空、ticket_severity=P1 的单（99933 免推）',
+        '按 tt_no 与 eflow_tt_whatsapp_alert_log 比对，筛出满 20 分钟未重推的单',
+        '渲染成 6 行文本，投递作业到 data/tt_alert_job.json 供浏览器扩展认领发送',
+        '扩展回报确认后把该单 send_status 置 Y（未确认则保持 N 并记 last_error）',
+      ],
+      maintain: [
+        '群组由环境变量 TT_ALERT_WHATSAPP_GROUPS 配置；未配置则拒发（绝不发默认测试群）',
+        '99933 的排除必须在 Python 侧做——库里 \'99933\' 与 \'99933.0\' 并存，写进 SQL 会漏',
+        '依赖扩展的纯文本发送能力，扩展未就绪时状态保持 N（不伪造 Y）',
+        '⚠️ 实测「未清除+P1」多为历史遗留老单，正常情况下每轮常发出 0 条，属数据分布正常结果',
+      ],
+    },
+    en: {
+      name: 'eFlow P1 Alarm WhatsApp Push',
+      desc: 'Every 15 min, pick P1 TTs from the last 3h that are still uncleared and not alarm_code 99933, render them as WhatsApp text, and record send status',
+      flow: [
+        'Query eflow_tt for the last 3h with empty alarm_clear_time and ticket_severity=P1 (99933 excluded)',
+        'Compare against eflow_tt_whatsapp_alert_log and keep rows past the 20-minute re-push throttle',
+        'Render 6 lines of text and dispatch a job to data/tt_alert_job.json for the browser extension',
+        'On the extension\'s confirmation, set the row send_status to Y (otherwise stays N with last_error)',
+      ],
+      maintain: [
+        'Groups come from the TT_ALERT_WHATSAPP_GROUPS env var; refuses to send when unset (never falls back to a test group)',
+        'The 99933 exclusion must stay in Python — the DB holds both \'99933\' and \'99933.0\', so a SQL predicate misses rows',
+        'Depends on the extension\'s text-sending capability; status stays N until confirmed (never fakes Y)',
+        '⚠️ Measured: uncleared P1 rows are mostly legacy, so 0 messages per run is the normal case',
+      ],
     },
   },
   {
@@ -306,7 +344,7 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'sp_data_sync', group: 'n', cron: '10 * * * *',
+    id: 'sp_data_sync', group: 's', cron: '10 * * * *',
     script: 'services/get_sp_table.py → run_sp_data_sync',
     zh: {
       name: 'SP 备件数据同步',
@@ -802,7 +840,7 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'mw_ume_kpi_sync', group: 'n', cron: '15 5 * * *',
+    id: 'mw_ume_kpi_sync', group: 'w', cron: '15 5 * * *',
     script: 'services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync',
     zh: {
       name: 'MW UME KPI 同步',
@@ -818,7 +856,7 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'mw_ume_kpi_sync_rt', group: 'n', cron: '*/15 * * * *',
+    id: 'mw_ume_kpi_sync_rt', group: 'w', cron: '*/15 * * * *',
     script: 'services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync_rt',
     zh: {
       name: 'MW UME KPI 实时同步',

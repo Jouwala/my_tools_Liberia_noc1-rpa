@@ -67,8 +67,11 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 | 反复被重启 | `backend_watchdog.log` 连崩计数 | 连崩 10 次会放弃并告警（`backend_watchdog.py:38-44`），必须看崩溃原因，重启不解决问题 |
 | 界面英文环境出现中文 | 该文案是否 zh/en 两处都加（`i18n.tsx`） | 补 en 侧同名 key。历史上出现过两次同类缺陷 |
 | 启动报"已有实例" | `db/instance.lock` 是否残留（上次异常退出） | 确认无 backend 进程后删除该锁文件再启 |
+| 中文注释变成乱码（`?`/`\ufffd`） | 是否用过 PowerShell `Get-Content -Raw \| Set-Content` 往返改写源文件 | **这是已知会毁 UTF-8 中文的操作，禁止用它改本仓源码**（`write`/`edit` 工具或 Python 均可）。自检：`python TMP\_check_encoding_clean.py`，会列出含替换字符与可疑 `??` 的行；恢复手段是 `git checkout -- <文件>` 取回干净版本后重施改动 |
 | 某看板**单个指标**从某天起没了（其它指标正常） | `daily_kpi` 里那天的 `blocks_ok` 是否小于块总数 | 见下条「KPI 残缺日」 |
 | VMAX 90 天看板某指标断档 / 页面 Build 时间不动 | `data/olib_soc_report/olib_soc_report.sqlite3` 的 `daily_kpi` 表 | 见下方专节 |
+| 门户点开看板看到「需要登录：请先通过统一门户登录后再访问看板数据」 | 该浏览器的门户登录态是否有效（`localStorage` 的 `liberia_noc_auth_v1`） | **不一定是看板坏了**。my_app 认可三种身份来源：URL 深链 `?t=`、门户登录态、myapp 自身会话。目录里那串 `&t=` 是**门户会话 token**，而门户会话是**纯内存 + 12h 滑动过期、服务重启即清空**（门户 `server/auth/store.ts:32`），所以它**会过期**，目录里 21 条共用同一串、过期后一起失效 —— 这是常态而非本次改动引入。本机自测常看不出来，因为门户后端对 `localhost`/`127.0.0.1` 自动放行（`api.ts:474-485` 的换会话逻辑）。判据：让该用户重新登录门户再点。端到端回归：`python TMP\_verify_portal_card_click.py` |
+| 门户里少了 / 多了某张看板卡 | `backend\data\portal_catalog.json`（服务端全局目录，**53~54 条**） | 门户的看板清单**不在静态 assets 里**，而在服务端目录：`GET/PUT /api/portal-catalog`（`backend\routers\portal_catalog.py`，落盘 `backend\data\portal_catalog.json`，整体原子替换写）。改它请走接口而不是手改 JSON —— `_normalize_item`（`:205-257`）会校验 `titleZh/titleEn` 至少一个非空、`url` 必须以 `http(s)://` 开头，手改漏字段会让整份目录被丢掉。`no` 是分组成员覆盖与卡片锚点的键，**取当前最大号 +1，不复用已删编号**。回归：`python TMP\_verify_portal_ttwo_split.py` |
 
 ### KPI 残缺日的识别与修复（2026-09-24 事故）
 

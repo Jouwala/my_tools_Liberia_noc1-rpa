@@ -31,6 +31,11 @@ data_base/
 # Excel / CSV / 文档（非代码）
 *.xlsx
 *.xls
+# 带宏的 Excel（2026-09-28 补）：`Task\my_app\Contract KPI&SLA Report Template.xlsm`
+# 是手工放的对照模板，全仓 0 处代码引用（只有 .venv 里 pandas 自己的字符串命中 *.xlsm），
+# 而 *.xls 只匹配旧格式、*.xlsx 匹配不到 xlsm，于是它一直挂成待提交的 ?? 噪音。
+# 忽略跟踪 ≠ 删除，文件留在本机对照用。
+*.xlsm
 *.csv
 *.pptx
 

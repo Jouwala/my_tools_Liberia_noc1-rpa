@@ -21,12 +21,46 @@ from backend.services import task_runner as tr  # noqa: E402
 
 @pytest.fixture
 def tmp_db(monkeypatch):
-    """用临时 DB 替换线上 app.db，并屏蔽真实微信通知。"""
+    """用临时 DB 替换线上 app.db，并屏蔽真实微信通知。
+
+    ⚠️ 2026-09-27 修复：必须**强制 sqlite 模式**，否则本 fixture 是假的。
+
+    原因：`task_runner` 已改用 `get_raw_connection(str(DB_PATH))`，而
+    `database.py:159` 在 `DB_MODE == "pg"` 时**直接返回 PG 连接**，传入的
+    db_path 只用于推断 schema、**根本不连这个文件**。本机 `backend/.env`
+    现为 `MY_APP_DB_MODE=pg`，于是：
+      - monkeypatch 掉的临时 DB 从未被写入；
+      - 测试却仍然去读自己的空临时文件 → `no such table: task_execution_log`。
+    即整组用例此前在 pg 模式下**必然失败**，与人无关，是环境耦合缺陷。
+
+    置 `MY_APP_DB_MODE=sqlite` 后，`get_raw_connection` 才会真的连这个临时文件。
+    注意 `DB_MODE` 是 `database.py` 的**导入期常量**，所以必须同时 patch 模块属性，
+    只设环境变量不够（本文件已 import 过 database）。
+    """
     p = Path(tempfile.mktemp(suffix=".db"))
+    monkeypatch.setenv("MY_APP_DB_MODE", "sqlite")
+    import backend.database as _db
+    from backend.services import task_stats as _ts
+    monkeypatch.setattr(_db, "DB_MODE", "sqlite", raising=False)
     monkeypatch.setattr(tr, "DB_PATH", p)
+
+    # ⚠️ 必须把**所有**持有 DB_PATH 副本的模块一起改掉。
+    # `task_stats.py:14` 写的是 `from backend.database import DB_PATH` —— 导入即
+    # 绑定，它拿到的是**独立的一份引用**，改 task_runner.DB_PATH 对它无效。
+    # 只补 tr 的后果实测过：`get_task_history_by_task` / `get_task_stats` 会去查
+    # **真的 db/app.db**，于是读到历史遗留行（断言 len==2 实测得到 6/7），
+    # 而且**测试会污染生产库**。凡新增 `from backend.database import DB_PATH`
+    # 的模块，都要在这里补一行。
+    monkeypatch.setattr(_ts, "DB_PATH", p)
+    monkeypatch.setattr(_db, "DB_PATH", p)
+
     monkeypatch.setattr(tr, "notify_task_failure", lambda *a, **k: None)
     # 默认保留 3 天，避免清理逻辑把刚写入的记录删掉
     monkeypatch.setenv("TASK_LOG_RETENTION_DAYS", "3")
+    # 建表：_ensure_task_log_table 平时由 worker/启动流程调用，单测需自行准备，
+    # 否则第一次 run_task 就会因缺表失败。
+    with _db.get_raw_connection(str(p), timeout=30) as conn:
+        tr._ensure_task_log_table(conn)
     yield p
     try:
         p.unlink()
@@ -157,15 +191,24 @@ def test_call_chain_node_has_file_and_line(tmp_db):
 
 
 def test_chain_from_file_locates_without_import(tmp_db):
-    """#7：纯静态解析源文件即可定位 file:line，不需要导入目标模块。"""
-    chain = tr._chain_from_file("backend.services.task_runner", "run_task", 1)
+    """#7：纯静态解析源文件即可定位 file:line，不需要导入目标模块。
+
+    2026-09-27：`_chain_from_file` 已随 "Phase 4 拆分" 迁至
+    `backend.services.task_introspect`，`task_runner` 只再导出了
+    `_auto_call_chain` / `_annotate_call_chain`（见 task_runner.py:31-37），
+    所以这里改为直接从新模块取，而不是断言它还在 task_runner 上。
+    """
+    from backend.services import task_introspect as ti
+    chain = ti._chain_from_file("backend.services.task_runner", "run_task", 1)
     assert chain, "run_task 应能解析出下游调用"
     assert any(".py:" in n for n in chain), chain
 
 
 def test_module_file_returns_none_for_missing(tmp_db):
-    assert tr._module_file("no.such.module.__xyz__") is None
-    assert tr._module_file("") is None
+    """同名迁移：`_module_file` 现在位于 task_introspect（同名同语义）。"""
+    from backend.services import task_introspect as ti
+    assert ti._module_file("no.such.module.__xyz__") is None
+    assert ti._module_file("") is None
 
 
 def test_get_task_stats_and_failures(tmp_db):

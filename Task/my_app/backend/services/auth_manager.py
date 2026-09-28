@@ -9,9 +9,11 @@ auth_manager.py - 多任务共享鉴权管理模块
 
 用法:
     from auth_manager import get_auth
+    from backend.services.credential_store import get_credential
 
+    _user, _pass = get_credential("zte_ume")   # 口令不写在代码/文档里
     auth = get_auth(host="10.100.28.27", port=28001,
-                    username="NOC", password="Zte@2025!")
+                    username=_user, password=_pass)
     cookie = auth["cookie"]
     forgery_token = auth["forgery_token"]
 """
@@ -470,9 +472,11 @@ if __name__ == "__main__":
         except ImportError:
             get_credential = None
     if get_credential:
-        _def_user, _def_pass = get_credential("zte_ume", "NOC", "Zte@2025!")
+        _def_user, _def_pass = get_credential("zte_ume")
     else:
-        _def_user, _def_pass = "NOC", "Zte@2025!"
+        # credential_store 不可用时只回退用户名，口令留空由 --pass 显式传入。
+        # 2026-09-27：原先这里回退硬编码口令字面量（已入库），已删除。
+        _def_user, _def_pass = "NOC", ""
     parser.add_argument("--user", default=_def_user)
     parser.add_argument("--pass", dest="password", default=_def_pass)
     parser.add_argument("--force", action="store_true", help="强制重新登录")

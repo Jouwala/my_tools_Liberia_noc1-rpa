@@ -3,7 +3,7 @@
 _mml_ssh_probe.py — SSH 登录 EMS 服务器, 探测 MML 命令执行环境
 
 目的:
-  1. SSH 登录 10.100.2.240:22 (oss/Tool123)
+  1. SSH 登录 10.100.2.240:22（用户 oss，口令从环境变量 MML_SSH_PASS 读取）
   2. 查看 shell 类型、可用命令
   3. 寻找 MML 客户端工具 (如 zte_mml, mmlclient, cmdclient 等)
   4. 尝试直接执行 MML 命令
@@ -28,7 +28,9 @@ except ImportError:
 HOST = "10.100.2.240"
 PORT = 22
 USER = "oss"
-PASSWD = "Tool123"
+# 2026-09-27：原先此处硬编码 PASSWD = "Tool123"（明文口令已入库）。
+# 本文件是入库跟踪的一次性探测脚本，改为从环境变量读取。
+PASSWD = os.environ.get("MML_SSH_PASS", "")
 TIMEOUT = 15
 
 

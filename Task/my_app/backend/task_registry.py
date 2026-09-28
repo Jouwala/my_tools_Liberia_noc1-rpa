@@ -206,6 +206,20 @@ TASK_SPECS = [
          description_en="Dispatch a send job; a browser extension sends Site Outage screenshots in the logged-in WhatsApp Web",
          default_cron="0 3 * * *", category="whatsapp"),
 
+    # 5c. eFlow P1 未清除 TT 告警 → WhatsApp（每 15 分钟）。
+    #     口径：近 3 小时内、告警未清除（alarm_clear_time 为空）、alarm_code≠99933、
+    #     ticket_severity=P1 的单；落库 eflow_tt_whatsapp_alert_log，发送状态置 Y。
+    #     同一单距上次发送满 20 分钟（TT_ALERT_RESEND_MINUTES）后继续推。
+    #     ⚠️ 依赖浏览器扩展的**纯文本**发送能力（现有扩展只发图片），扩展未就绪时
+    #     作业会被投递但无人认领 → 状态保持 'N' 并记 last_error，不会伪造 Y。
+    #     群组由 TT_ALERT_WHATSAPP_GROUPS 配置，未配置则拒发（不发默认测试群）。
+    dict(task_id="tt_alarm_whatsapp_alert", name="eFlow P1 告警 WhatsApp 推送",
+         name_en="eFlow P1 Alarm WhatsApp Push",
+         loader=("backend.services.tt_alarm_whatsapp_service", "run_tt_alarm_whatsapp_alert"),
+         description="每 15 分钟取近 3 小时内「告警未清除 + alarm_code≠99933 + P1」的 TT 单，渲染成文本推送到 WhatsApp，发送状态落 eflow_tt_whatsapp_alert_log（同一单 20 分钟后未更新则继续推）",
+         description_en="Every 15 min: pick P1 TTs from the last 3h that are still uncleared and not alarm_code 99933, push as WhatsApp text, and record send status in eflow_tt_whatsapp_alert_log (re-push after 20 min if unchanged)",
+         default_cron="*/15 * * * *", category="whatsapp"),
+
     # 6. MS SLA 完整同步（每天 05:00）
     #    时序约束（2026-09-18 修复）：必须在 kpi_ms_contract(05:30) / kpi_ms_wo_sla(05:35)
     #    之前完成——两封邮件只读本任务产出的 data/ms_sla/*.xlsx，早于本任务就只能发前一版。

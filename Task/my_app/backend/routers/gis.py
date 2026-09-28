@@ -169,22 +169,106 @@ def _ensure_perf_indexes(conn):
     _indexes_ensured = True
 
 
+def _norm_site_category(value) -> str:
+    """站点等级（site_caregory）归一化 → ERA / COOL / NORMAL / 其它原值。
+
+    为什么要归一化：库里该列存在书写不一致的脏值 —— 实测 `master_site_db` 里
+    `REGULAR（NORMAL)` / `REGULAR(COOL.I）` 这类带全角括号与制式后缀的写法
+    与 `NORMAL` / `COOL` 混用。不归一化就会出现「NORMAL 与 REGULAR（NORMAL) 各算一档」，
+    统计数字看着像少算，其实是同一档被劈成两半。
+
+    ⚠️ 归一化口径必须与 `backend/services/eflow_rules/eflow_rules_matcher.py:135-152`
+    的 `_SITE_TYPE_MAP` / `_norm_site_type` **保持一致**（去空格 + 去括号内制式后缀 + 大写）。
+    那里是 TT 派单规则的站点类型真相源，两处口径不一致会导致「GIS 统计的 NORMAL 站数」
+    与「TT 规则命中的 NORMAL 站数」对不上。改一处必须改另一处。
+    """
+    if value is None:
+        return ""
+    s = str(value).strip()
+    if s == "":
+        return ""
+    # 去掉括号**内容**，但保留括号本身（如 "REGULAR(COOL.I)" → "REGULAR()"）。
+    # ⚠️ 刻意不用 `\(.*?\)`：它要求左右括号同型配对，遇到库里实际存在的**混用**写法
+    #    "REGULAR(COOL.I）"（半角左 + 全角右）会匹配失败或跨越边界误删 ——
+    #    实测 `\(.*?[)）]` 把 "REGULAR(COOL.I）)" 吃成 "REGULAR)"，
+    #    而 `[（(].*?[)）]` 又把 "REGULAR（COOL.I）" 整段吃掉导致后缀丢失。
+    # 去掉内容后括号成对，下一步连括号一起去掉，兼容任意左右混用。
+    s = re.sub(r"[（(][^（()）]*[)）]", "()", s)
+    s = s.replace("(", "").replace(")", "").replace("（", "").replace("）", "")
+    key = s.upper().replace(" ", "").replace("_", "")
+    if key in ("REGULAR", "NORMAL"):
+        return "NORMAL"
+    if key == "COOL":
+        return "COOL"
+    if key == "ERA":
+        return "ERA"
+    return key
+
+
+def _site_type_stats(conn, st, site_cols) -> list:
+    """站点等级（ERA / COOL / NORMAL）站点数统计，供页面「Total Sites」旁显示。
+
+    口径：**全量站点表**，不加任何 WHERE —— 与 `{t('gis.totalSites')}`（= `/gis/sites`
+    的 `sites.length`，827）同源。刻意**不**复用 `/gis/sites` 的「经纬度非空且非 0」条件：
+    两者若混用，三个分类之和与站点总数对不上，看起来就像统计算错了。
+    实测 `master_site_db` 的 827 站经纬度全部有效，故当前两种口径结果相同。
+    """
+    col = "site_caregory" if "site_caregory" in site_cols else None
+    if not col:
+        return []
+    counts: dict = {}
+    for (raw,) in conn.execute(
+        f"SELECT {col} FROM {st} WHERE {col} IS NOT NULL AND {col} != ''"
+    ).fetchall():
+        k = _norm_site_category(raw)
+        if k:
+            counts[k] = counts.get(k, 0) + 1
+    # ERA / COOL / NORMAL 固定顺序在前（用户要求的三个口径），其余脏值按数量追加，
+    # 保证「新出现一个没见过的等级」时页面能自动暴露出来，而不是被静默吞掉。
+    order = ["ERA", "COOL", "NORMAL"]
+    stats = [{"name": k, "count": counts[k]} for k in order if k in counts]
+    stats += [
+        {"name": k, "count": v}
+        for k, v in sorted(counts.items(), key=lambda x: -x[1]) if k not in order
+    ]
+    return stats
+
+
 def _get_site_meta(conn, st, site_cols):
-    """获取 regions + filter_options（带 TTL 缓存，避免每次请求跑 9 条 DISTINCT）"""
+    """获取 regions + filter_options + site_type_stats（带 TTL 缓存，避免每次请求跑 10 条 DISTINCT）"""
     now = _time.time()
     if _meta_cache and (now - _meta_cache.get("ts", 0)) < _META_TTL:
-        return _meta_cache["regions"], _meta_cache["filter_options"]
+        return _meta_cache["regions"], _meta_cache["filter_options"], _meta_cache["site_type_stats"]
     regions = [r[0] for r in conn.execute(
         f"SELECT DISTINCT region FROM {st} WHERE region IS NOT NULL AND region != '' ORDER BY region"
     ).fetchall()]
     filter_options = {}
     for param_name, db_col, _ in _GIS_FILTER_COLS:
         if db_col in site_cols:
-            filter_options[param_name] = [r[0] for r in conn.execute(
+            vals = [r[0] for r in conn.execute(
                 f"SELECT DISTINCT {db_col} FROM {st} WHERE {db_col} IS NOT NULL AND {db_col} != '' ORDER BY {db_col}"
             ).fetchall()]
-    _meta_cache.update({"ts": now, "regions": regions, "filter_options": filter_options})
-    return regions, filter_options
+            # ⚠️ site_caregory 必须**归一化**后再当候选值（2026-09-28）。
+            # 前端高级筛选走的是**客户端精确匹配**（`site[key] !== val`，见 GISMap.tsx
+            # 的 filteredSites），所以候选值必须与站点上那个值逐字符相等才能筛出来。
+            # 库里该列已知有 `REGULAR（NORMAL)` / `REGULAR(COOL.I）` 这类脏写法
+            # （全角括号 + 制式后缀），若不归一化，用户会看到一串看着像重复的选项，
+            # 且选了 `NORMAL` 筛不到写作 `REGULAR（NORMAL)` 的站 —— 数字对不上。
+            # 归一化口径见 _norm_site_category，与 _site_type_stats 同源。
+            # 顺带：归一化后只留 ERA/COOL/NORMAL 三档（用户要的就是这三个），
+            # 排序也按这个固定顺序，而不是字母序 COOL/ERA/NORMAL。
+            if param_name == "site_caregory":
+                norm = {_norm_site_category(v) for v in vals}
+                norm.discard("")
+                order = ["ERA", "COOL", "NORMAL"]
+                vals = [k for k in order if k in norm] + sorted(norm - set(order))
+            filter_options[param_name] = vals
+    site_type_stats = _site_type_stats(conn, st, site_cols)
+    _meta_cache.update({
+        "ts": now, "regions": regions,
+        "filter_options": filter_options, "site_type_stats": site_type_stats,
+    })
+    return regions, filter_options, site_type_stats
 
 
 # ========== SQL 构建 / 统计采集 / 行组装助手（P2#8 拆分） ==========
@@ -405,7 +489,15 @@ def _base_site_dict(row):
 def _attach_filter_cols(site_dict, row, filter_col_indices):
     """将动态筛选列值附加到站点字典"""
     for param_name, idx in filter_col_indices.items():
-        site_dict[param_name] = str(row[idx] or '') if idx < len(row) else ''
+        val = str(row[idx] or '') if idx < len(row) else ''
+        # site_caregory 归一化后再下发（2026-09-28）。理由见 _get_site_meta 里
+        # filter_options 的注释：前端是**精确匹配**，候选值与站点值必须同一口径，
+        # 否则库里写作 `REGULAR（NORMAL)` 的站选 NORMAL 时筛不出来，而它明明
+        # 已经被算进 site_type_stats 的 NORMAL 里 —— 统计数与筛出的站数对不上。
+        # 这里归一化后，站点值与候选值都出自 _norm_site_category，必然一致。
+        if param_name == "site_caregory":
+            val = _norm_site_category(val)
+        site_dict[param_name] = val
 
 
 def _scan_realtime_alarms(conn):
@@ -639,8 +731,8 @@ def get_sites(
         """
         rows = conn.execute(sql, params).fetchall()
 
-        # region 列表 + 筛选列唯一值（带 TTL 缓存）
-        regions, filter_options = _get_site_meta(conn, st, S["site_cols"])
+        # region 列表 + 筛选列唯一值 + 站点等级统计（带 TTL 缓存）
+        regions, filter_options, site_type_stats = _get_site_meta(conn, st, S["site_cols"])
 
         tt_stats = _collect_tt_stats(conn, S, tt_time_where)
         wo_stats = _collect_wo_stats(conn, S, wo_time_where)
@@ -673,6 +765,7 @@ def get_sites(
             "total": len(site_list),
             "regions": regions,
             "filter_options": filter_options,
+            "site_type_stats": site_type_stats,
         }
 
 
@@ -1386,10 +1479,11 @@ def get_realtime_sites(
         )
 
         if not rt_alarm_stats:
-            regions, filter_options = _get_site_meta(conn, st, S["site_cols"])
+            regions, filter_options, site_type_stats = _get_site_meta(conn, st, S["site_cols"])
             conn.close()
             return {
                 "sites": [], "total": 0, "regions": regions, "filter_options": filter_options,
+                "site_type_stats": site_type_stats,
                 "realtime_alarm_summary": {"oss_problem_stats": [], "overdue_sites": 0, "ontime_sites": 0},
             }
 
@@ -1424,7 +1518,7 @@ def get_realtime_sites(
             FROM {st} WHERE {where_clause}
         """, params).fetchall()
 
-        regions, filter_options = _get_site_meta(conn, st, S["site_cols"])
+        regions, filter_options, site_type_stats = _get_site_meta(conn, st, S["site_cols"])
         conn.close()
 
         # ===== 4) 组装（纯内存，无 SQL） =====
@@ -1459,6 +1553,7 @@ def get_realtime_sites(
             "total": len(site_list),
             "regions": regions,
             "filter_options": filter_options,
+            "site_type_stats": site_type_stats,
             "realtime_alarm_summary": {
                 "oss_problem_stats": oss_problem_stats,
                 "overdue_sites": overdue_sites,
@@ -1550,7 +1645,7 @@ def get_region_summary():
 
 
 @router.get("/topology")
-def get_topology():
+def get_topology(with_util: int = Query(0, description="1=叠加 mwRealTime 最新 15 分钟粒度链路利用率")):
     """获取 MW 微波链路连线数据（含经纬度）。
 
     ⚠ 数据源变更（2026-09-25，用户要求）：
@@ -1563,6 +1658,16 @@ def get_topology():
       便于前端平滑切换；仅新增 color 字段（kml 自带的 4 色）供前端按真实线色渲染。
       kml_mw_links 无 hop_count / hub 标记，故 hop_count 置 0、is_hub_link 置 False，
       前端图例随之改为按 color 分组（见 GISMap.tsx）。
+
+    ⚠ 利用率叠加（2026-09-28 新增，with_util=1）：
+      把 `?page=mwRealTime` 的最新 15 分钟粒度利用率贴到这些线上，让 GIS 页不必切页
+      就能看出哪条微波链路吃紧。两套数据主键不同（KML 用站名、KPI 用 IP）且链路集合
+      不重合，**实测只有约一半的线能匹配上**，故：
+        - 匹配策略与「宁可少标绝不猜标」的理由见 services/gis_mw_overlay.py 模块头注释；
+        - 匹配不上的线 util=None / level='no_kpi'，**保留原 KML 线色**，
+          前端据此显示为「无 KPI 数据」而不是绿色（无数据 ≠ 正常）；
+        - 额外返回 util_meta 统计，让「为什么只有一半线有颜色」在界面上可解释。
+      默认 with_util=0 时行为与改动前**逐字节一致**，便于回滚与灰度。
     """
     with get_raw_connection() as conn:
         tables = set(list_table_names(conn))
@@ -1602,7 +1707,23 @@ def get_topology():
             "name": name or "",
             "color": color or "#0a84ff",
         })
-    return {"links": links, "total": len(links)}
+
+    # 利用率叠加（可选）：匹配不上的线上 util=None / level='no_kpi'，前端保留原线色。
+    util_meta = None
+    if with_util:
+        try:
+            from backend.services.mw_ume.mw_ume_topology import get_realtime_topology
+            from backend.services.gis_mw_overlay import match_links
+            rt = get_realtime_topology(top_n=10)
+            links, util_meta = match_links(links, rt.get("nodes") or [], rt.get("edges") or [])
+            util_meta["slot"] = (rt.get("meta") or {}).get("selected_date")
+            util_meta["granularity"] = (rt.get("meta") or {}).get("granularity")
+        except Exception:
+            # 不吞异常：叠加失败必须留痕，但**不影响**地图出线（线路本身仍可用）
+            logger.warning("[SILENT-EXCEPT] get_topology with_util: exception swallowed",
+                           exc_info=True)
+
+    return {"links": links, "total": len(links), "util_meta": util_meta}
 
 
 _boundaries_cache: dict = {}   # {"ts": epoch, "data": {...}}

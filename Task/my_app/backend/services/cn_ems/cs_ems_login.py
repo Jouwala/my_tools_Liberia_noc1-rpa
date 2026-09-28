@@ -12,7 +12,7 @@ cs_ems_login.py — ZTE NetNumen U31 EMS 桌面客户端 通用登录脚本（�
       3) 清空用 Ctrl+A + Backspace×N（Java Swing 对 Home/Shift+End 响应不可靠，
          暴力退格 100% 清空，无论是否真的选中）
       4) 文本走剪贴板粘贴（pyperclip.copy + Ctrl+V），不逐字符打字，
-         彻底消除中文 IME 把 "Tool123" 转成 "欧式sTool23" 之类乱码
+         彻底消除中文 IME 把口令字符转成乱码（如把字母打成全角）
   * 密码框点击一次 Java 事件队列可能吞掉，故点两次 + 长等待确保焦点转移。
   * 提供 --calibrate（截图标注坐标点自检）与 --fill-only（只填不点 OK，肉眼确认后手动点），
     在不浪费登录尝试次数的前提下验证落点。
@@ -43,10 +43,12 @@ import pyautogui
 from pywinauto import Desktop
 
 # ---------- 默认配置（可被 ems_config.json / 环境变量覆盖） ----------
+# 2026-09-27：原先此处硬编码 "password": "Tool123"（明文，已入库）。
+# 口令改为只用环境变量 EMS_PASS（或 ems_config.json 的 password 键，该文件同批已清空）。
 DEFAULT_CONFIG = {
     "client_exe": r"D:\ems1\ems1\ums-client\client.exe",
     "user": "oss",
-    "password": "Tool123",
+    "password": "",
     "login_title_re": "Login - NetNumen U31",
     "main_title_re": "NetNumen U31 Unified Management System - Client",
     "launch_wait": 3,            # 启动后等待秒数（仅作为初次兜底，真正等窗口靠 login_timeout 轮询）

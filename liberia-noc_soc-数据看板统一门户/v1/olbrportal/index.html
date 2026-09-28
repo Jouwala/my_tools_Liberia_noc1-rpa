@@ -101,7 +101,39 @@
              srcset="assets/logo-olr-ms-116.png 2x, assets/logo-olr-ms-174.png 3x"
              alt="ZTE" decoding="async">
       </span>
-      <span class="mp-zte-word">ZTE</span>
+      <!-- ⚠️ 2026-09-28（用户要求「用这张图里的 ZTE 替换 Header 里的 ZTE」）：
+           原来是文字 <span class="mp-zte-word">ZTE</span>（1.75rem/800，靠系统字体渲染），
+           现在换成用户提供的那张 ZTE 字标图抠出来的位图。
+           资产放在**本目录自己的 assets 下**（与 logo-olr-ms-116/174 同一处），
+           不跨目录引用 /MsPortal/：这张图是给本门户的，挂在别人目录里等于由别人决定去留。
+           按顶栏实际字面高（1.75rem × 0.72 ≈ 20px）出 2x/3x（40/60px）两档。
+           源图与处理脚本都在 TMP/_zte_logo/，将来换尺寸/换色/换图改那一个脚本重跑即可。
+
+           ── 关于源图的两次更换（2026-09-28，用户先后给了两张图）──
+           第一张是**实景照片**（331x194，斜拍弧面手写字）。那张图不是平面平行投影：
+           六条横笔斜率从 +4.45° 跨到 +13.44°，且同一字母内部就不平行（Z 两条差 5.84°、
+           E 三条差 3.58°）。仿射保持平行性所以无解；投影变换虽能消锥度，却会把字母宽高比
+           改掉（实测 Z −41%、T +12%、E +14%）。最终只能逐字母按自己最长那条横笔摆平，
+           残余集中在短笔画上取不掉。那段推理与脚本存档在 TMP/_zte_logo/_build_photo_legacy.py。
+           第二张（**当前产物**）是 logo.png：干净的**数字字标**（326x188，纯白底，前景纯色
+           #3589D0）。实测三个字母精确同高（都占 y20..165）、左右列 y 范围一致、横笔斜率
+           ≤0.92° —— **图本来就是正的，不需要任何几何校正**，硬套上面那套摆正逻辑反而会引入误差。
+           所以现用脚本 TMP/_zte_logo/_build_word.py 只做「去白底 + 按倍数降采样」两件事。
+
+           ── 去白底为什么不会留白边 ──
+           实测边缘像素到「主色 → 白」直线的距离 95 分位仅 1.03，说明图像就是
+           「纯色前景 + 抗锯齿」的线性混合，于是可解 P = α·C + (1−α)·白 反推每个像素的 α
+           （重建误差仅 2/255）。这样边缘像素保留的 RGB 就是纯主色，只有透明度不同。
+           验收：半透明像素 RGB 与主色偏差均值 1.77；叠到顶栏最暗端 #051C42 后，
+           没有任何像素亮过主色本身 → 无光晕。对照试验：若改用「离白距离 > 阈值」硬抠，
+           会有 96 个像素亮于主色 —— 那正是白边光晕的来源，本脚本避免了它。
+           span 上的 .mp-zte-word 类**保留**：它是排版钩子（与 Logo 居中对齐 + 三档断点缩放），
+           olbr.js 从未引用过这个类，改名或删掉只会白白多一处 diff。 -->
+      <span class="mp-zte-word">
+        <img src="assets/logo-zte-word-40.png"
+             srcset="assets/logo-zte-word-40.png 2x, assets/logo-zte-word-60.png 3x"
+             alt="ZTE" decoding="async">
+      </span>
       <span class="mp-brand-sep" aria-hidden="true"></span>
       <div class="mp-brand-text">
         <!-- 2026-09-25 改名：原「OLR MS Management Platform」→「ZTE OLR MS O&M Tools Platform」。
@@ -282,6 +314,17 @@
        页脚还写着版本与安全合规状态，留在这里只是重复。
        现在 .aux 只渲染 T2 那三个分组（知识库 / 生态 / 系统运维）。 -->
   <section class="aux" id="aux" aria-label="Auxiliary"></section>
+
+  <!-- L2 · 归档区（2026-09-28 加）。
+       与上面 .aux 分开一个容器，理由有二：
+         ① 归档的语义与 T2「辅助入口」不同 —— 这些看板是**从各视图里移出来的**，
+            放在同一块里会被读成"多了一个叫归档的业务分区"；
+         ② T2 那块固定渲染三个分组、无条件存在，而归档**有内容才渲染**
+            （renderArchive 里 list 为空时整块 hidden），独立容器才好整体开关。
+       样式复用 .aux-g / .aux-h / .lrow（同一套行链接与折叠交互），
+       只有 .arch-hint 一行说明是新加的 —— 它负责说清"这些看板没被删掉、怎么勾回来"，
+       否则这个区块看起来像回收站。 -->
+  <section class="aux arch" id="arch" aria-label="Archived" hidden></section>
 </main>
 
 <footer class="foot">

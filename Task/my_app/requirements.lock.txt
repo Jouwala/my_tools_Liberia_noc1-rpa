@@ -1,59 +1,94 @@
 # Pinned lockfile — generated 2026-08-03 from system Python 3.12
 # Reproducible installs: pip install -r requirements.lock.txt
 # (requirements.txt keeps >= ranges; this locks exact resolved versions)
+# 2026-09-27: 补入 pytest / ruff 及其依赖（iniconfig、pluggy）——此前二者
+#   完全缺席，导致 tests/ 下的 pytest 用例在任何环境都跑不起来。
+#   colorama / packaging / Pygments 先前已存在，pytest 复用它们，无需重复登记。
+# 2026-09-27（许可核查）：补入 8 个「requirements.txt 已声明、lock 却缺失」的
+#   运行时依赖——alembic / requests / playwright / geoip2 / shapely /
+#   psycopg2-binary / pymysql / exchangelib 及其传递依赖。此前 lock 只覆盖了
+#   一部分包，`pip install -r requirements.lock.txt` 装出来的环境跑不起生产：
+#   缺 alembic 则无法迁移、缺 psycopg2-binary 则 MY_APP_DB_MODE=pg 直接失败、
+#   缺 playwright 则 site_outage / whatsapp / kpi_email_report 三条截图链路全断。
+#   版本取自当前实际可用环境（Python 3.12），8 个包均已实测 import 通过。
 
+alembic==1.19.0
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.14.1
 APScheduler==3.11.3
 bcrypt==5.0.0
+cached-property==2.0.1
 certifi==2026.6.17
 cffi==2.0.0
+charset-normalizer==3.4.9
 click==8.4.1
 colorama==0.4.6
 contourpy==1.3.3
 cryptography==49.0.0
 cycler==0.12.1
 defusedxml==0.7.1
+dnspython==2.8.0
 et_xmlfile==2.0.0
+exchangelib==5.6.0
 fastapi==0.139.0
 fonttools==4.63.0
+geoip2==5.3.0
 greenlet==3.5.3
 h11==0.16.0
 httpcore==1.0.9
 httptools==0.8.0
 httpx==0.28.1
 idna==3.18
+iniconfig==2.3.0
+isodate==0.7.2
 itsdangerous==2.2.0
 Jinja2==3.1.6
 kiwisolver==1.5.0
 lxml==6.1.1
+Mako==1.4.1
 MarkupSafe==3.0.3
 matplotlib==3.11.0
+maxminddb==3.1.1
 numpy==2.4.6
+oauthlib==3.3.1
 openpyxl==3.1.5
 packaging==26.2
 pandas==3.0.3
 pillow==12.3.0
+playwright==1.61.0
+pluggy==1.6.0
 protobuf==7.35.1
+psycopg2-binary==2.9.12
 pycparser==3.0
 pydantic==2.13.4
 pydantic_core==2.46.4
+pyee==13.0.1
 Pygments==2.20.0
+pymysql==1.2.0
 pyparsing==3.3.2
+pyspnego==0.12.1
+pytest==9.1.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 python-multipart==0.0.32
 PyYAML==6.0.3
+requests==2.34.2
+requests-oauthlib==2.0.0
+requests_ntlm==1.3.0
+ruff==0.16.9
 scipy==1.18.0
+shapely==2.1.2
 six==1.17.0
 SQLAlchemy==2.0.51
+sspilib==0.5.0
 starlette==1.3.1
+tqdm==4.68.4
 typing_extensions==4.16.0
 typing-inspection==0.4.2
-typing_extensions==4.16.0
 tzdata==2026.2
 tzlocal==5.4.4
+urllib3==2.7.0
 uvicorn==0.51.0
 watchfiles==1.2.0
 websockets==16.1

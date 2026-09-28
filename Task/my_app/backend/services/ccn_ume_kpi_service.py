@@ -53,8 +53,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 # ============================================================
 HOST = "10.121.1.2"
 PORT = 28808
-USERNAME = "oss"
-PASSWORD = "Mwebazeaaron@25"
 LOGIN_PORTAL = "/em-portal"
 
 
@@ -64,7 +62,7 @@ def _runtime_credentials():
         from backend.services.credential_store import get_credential
     except ImportError:
         from credential_store import get_credential
-    return get_credential("ccn_ume", USERNAME, PASSWORD)
+    return get_credential("ccn_ume")
 
 # 数据目录（my_app 自包含）
 CNN_UME_DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\cnn_ume")

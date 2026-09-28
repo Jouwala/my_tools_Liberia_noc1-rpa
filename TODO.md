@@ -34,6 +34,12 @@
 - [ ] **本 8 份文档体系的落地与首轮校验。** 根目录、门户 `docs\`、`Task\my_app\` 三处已建立；待办：确认三处文件名一致、互链可达，并把索引页接进门户导航。
 - [ ] **门户移动端体验复查。** 二维码扫码要求同网段 WiFi，需确认现场网络条件下可用。
 - [ ] **根目录过程产物清理。** 根目录残留大量 `tmp_qc*.txt`（76 个）、`_*` 探针与切片文件，属一次性产物。历史教训见 `7b1d33b`（98 个探针脚本误入库）。**清理前先确认无脚本引用。**
+- [ ] **开源许可合规收尾（2026-09-28 核查后的剩余项）。** 已完成：`react-leaflet`（Hippocratic-2.1，非 OSI）连同 `@react-leaflet/core` 一并移除，改为 `Task\my_app\frontend\src\components\LeafletMap.tsx` 的原生 leaflet 封装；`@google/genai`（未使用）与 `@turf/*`（无依赖方）清理；`requirements.lock.txt` 补齐 8 个声明却缺失的运行时依赖。剩余：
+  1. `Task\my_app\docs\THIRD-PARTY-NOTICES.md` 需补全 Apache-2.0 / MIT 的署名与许可全文义务，并核对 `xlsx`（SheetJS CDN 版）、`psycopg2-binary`（LGPL，动态链接）两项的表述；
+  2. 把许可检查接进 lint / CI，避免再次引入非 OSI 许可（本次即为人工核查才发现）；
+  3. **团队约定待写入手册**：`pymupdf`（AGPL-3.0/商业双许可）虽当前零引用，仍应明令 my_app 禁止 `import fitz`，改用 `pypdf`（BSD）；
+  4. `GeoLite2-City.mmdb` 尚未落盘，将来下载时需接受 MaxMind EULA（见 `backend/services/ip_trace_service.py:55`）。
+  > 本次修复的两个真实缺陷值得留档：`TileLayer`/`CircleMarker`/`Popup`/`Tooltip` 若把 `pane: undefined` 直接塞进 options，会覆盖 Leaflet 的类默认 pane，导致 `getPane()` 返回 `undefined` 并在 `appendChild` 处崩溃（**tsc 与 vite build 均无法发现，只有真实浏览器渲染才暴露**）。冒烟校验应包含「地图页能出瓦片 + 点站点能弹 Popup」。
 
 ### 待定 —— 需要决策后才能排期
 

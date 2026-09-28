@@ -36,6 +36,18 @@ if hasattr(sys.stdout, 'reconfigure'):
 _SCRIPT_DIR = Path(__file__).resolve().parent
 # my_app 数据根：backend/services/sp_report_gen -> my_app
 _APP_ROOT = _SCRIPT_DIR.parent.parent.parent
+
+# 本脚本会被 kpi_email_report 以 `python gernarate_sp_report.py` 独立子进程方式
+# 启动。子进程模式下 sys.path[0] 是脚本自身目录 backend/services/sp_report_gen，
+# 项目根不在搜索路径上，导致 _runtime_credentials() 里的 `import backend...` 抛
+# ModuleNotFoundError；其 ImportError 回退 `import credential_store` 同样失败
+# （2026-09-28 修复，生产报错 "No module named 'backend'"）。这里显式把「项目根」
+# 与「backend/services」加入 sys.path，使 backend.services.credential_store 及
+# 历史回退 credential_store 均可导入（两种启动方式下都成立）。
+for _sys_path_entry in (str(_APP_ROOT), str(_APP_ROOT / 'backend' / 'services')):
+    if _sys_path_entry not in sys.path:
+        sys.path.insert(0, _sys_path_entry)
+
 # 报表数据统一存放 my_app/data/sp_email（原始下载数据在 data/ 子目录）
 DATA_DIR = str(_APP_ROOT / 'data' / 'sp_email' / 'data')
 OUT_DIR = str(_APP_ROOT / 'data' / 'sp_email')
@@ -63,10 +75,25 @@ def raw_source_path(detail_path):
 
 
 # SFTP config
+# 口令由 credential_store 的 `sftp_sp` 组提供（见 _runtime_credentials）。
+# 2026-09-27 删除硬编码 SFTP_PASS —— 重复副本且已入库。
 SFTP_HOST = "10.100.20.11"
 SFTP_PORT = 22
-SFTP_USER = "ubuntu"
-SFTP_PASS = "UbuntU1!2@3#4$"
+
+
+def _runtime_credentials():
+    """运行时获取 SFTP 凭据（环境变量 > 数据库 > credential_store 默认值）。
+
+    2026-09-27 新增：本模块原先直接用模块级 SFTP_USER/SFTP_PASS 字面量连接，
+    与 get_sp_table.py 是同一个 SFTP 服务器、同一套账号，却各存一份口令
+    （重复真相源，且两处都明文入库）。统一改走 credential_store 的 `sftp_sp` 组。
+    """
+    try:
+        from backend.services.credential_store import get_credential
+    except ImportError:
+        from credential_store import get_credential
+    return get_credential("sftp_sp")
+
 
 # /home/ubuntu/sp 下每个数据集一个目录，结构为
 #   sp/<目录名>/<yyyymmdd>/<yyyymmddHHMMSSfff>/<文件名>.xlsx
@@ -452,7 +479,8 @@ def sftp_download():
     _sock = _socket.create_connection((SFTP_HOST, SFTP_PORT), timeout=30)
     client = paramiko.Transport(_sock)
     client.set_keepalive(30)
-    client.connect(username=SFTP_USER, password=SFTP_PASS)
+    _sftp_user, _sftp_pass = _runtime_credentials()
+    client.connect(username=_sftp_user, password=_sftp_pass)
     sftp = paramiko.SFTPClient.from_transport(client)
     try:
         _chan = sftp.get_channel()

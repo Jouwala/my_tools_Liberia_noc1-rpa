@@ -24,6 +24,19 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
 
 ## 二、P0 —— 影响正确性或可用性
 
+- [ ] **FineBI 仓库看板镜像库停更的远端侧改造。** `sp_data_sync` 写
+      `\\DESKTOP-D4GF62\...\WareHouseDashBoard\inventory.db` 自 **2026-09-24** 起 100% 失败
+      （`database is locked`），根因是**该库为 WAL 模式且被远端活进程持有，而 WAL 的共享内存
+      字节锁在 SMB 上无法建立** —— 属架构限制，调 `timeout`/`busy_timeout` 无效
+      （实测 30s / 30000ms 均失败，逐项排除过程见 `docs\manual\04-task-system.md` 的「`sp_data_sync`
+      的两个已知缺陷」缺陷一）。
+      **动作**：远端侧改为「本地库 + 接口/定时快照导出」，或由写库进程自己在本地落库后导出
+      `inventory.db`；本仓库无法单方面解决。
+      **验收**：`result_json.mirror_success=true`，且不再出现 `[降级] 镜像写入 FineBI inventory.db 失败` 通知。
+      > 代码侧能做的已做完（2026-09-27 降级告警 + 结构诊断；2026-09-28 修掉诊断字符串
+      > 引发的 `'str' object has no attribute 'get'` 回归 —— 它曾把镜像失败谎报成 SFTP 故障，
+      > 并把单轮耗时从 534s 推到 1576s）。
+
 - [ ] **worker 分组覆盖巡检常态化。** 未归组的任务会 **pending 卡死**且不报错。
       **验收**：`tests\test_worker_group_coverage.py` 通过；新增任务时同步 `GROUP_TASK_MAP` + `start_hidden.ps1` + `restart_workers.py` 三处。
 
@@ -77,6 +90,10 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
 
 - [ ] **`credentials` 表明文存储是否改造。** 现状凭据在 `db/app.db` 的 `credentials` 表**以明文存储**（已知风险，见 `docs\manual\05-security-and-credentials.md`）。是否需要加密或接入密钥管理需决策。
 
+- [ ] **`pyjab`（GPLv2）的分发边界认定。** `backend\services\cn_ems\cs_ems_jab.py:27` 依赖 GPLv2 的 `pyjab`，属**强传染**许可。前置条件：确认 `cn_ems\`（U31 EMS 桌面客户端 GUI 自动化）**是否随产品交付客户**——仅内网自用则 GPL「分发」未触发、风险可控；随产品交付则该脚本须 GPL 开源，与闭源定位冲突，需替换或隔离。该目录当前**无 router / `task_registry.py` 入口 import**，传染面有限。核查记录见 `docs\THIRD-PARTY-NOTICES.md` 第二节。
+
+- [ ] **两个未登记依赖的处置。** ① `python-calamine`：`ipran_ume_kpi_service.py:686` 用 `engine='calamine'` 且**无兜底**，缺失即抛错——需确认该任务是否在目标环境启用，是则补装并登记进 `requirements.lock.txt`。② `twilio`：`incident_overview_service.py:667/709` 走 `try/except` **静默降级**，虚拟助手电话/短信实际不可用——决定是补依赖还是移除该分支。核查记录见 `docs\THIRD-PARTY-NOTICES.md` 第四节。
+
 ## 六、维护本文的约定
 
 1. **只留在办项**，做完移走或删掉。
@@ -92,6 +109,7 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
 | my_app 历史规划与复盘 | `PROJECT_DOCS.md`（§2 迁移计划、§3 架构评估、§5 i18n 审计、§10 失败复盘） |
 | 待清理残留清单 | `docs\manual\90-appendix.md` |
 | 安全现状与已知风险 | `docs\manual\05-security-and-credentials.md` |
+| 第三方许可与归属声明 | `docs\THIRD-PARTY-NOTICES.md` |
 | 数据层与迁移前提 | `docs\manual\03-data-layer.md` |
 | 任务系统 | `docs\manual\04-task-system.md` |
 | FineBI 迁移专项 | `docs\FINEBI_MIGRATION.md` |

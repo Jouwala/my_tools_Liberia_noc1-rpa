@@ -124,3 +124,23 @@ _probe_file.txt
 
 # Office 崩溃恢复残留（历史上混进过 _fe_dist）
 *.rpltmp
+
+# pytest / ruff 的本地缓存（2026-09-27 补）
+#
+# 背景：这两个工具此前**都不在 requirements 里**，仓库里从来没人跑过它们，
+# 所以这两个目录也从未出现过，.gitignore 自然没有对应规则。2026-09-27 把
+# pytest + ruff 补进依赖后，`pytest tests/` 与 `ruff check backend` 每次执行
+# 都会在项目根新建这两个目录 —— 实测 `git check-ignore` 判定**不被忽略**，
+# 也就是第一次跑测试就会冒出一批待提交的缓存文件（正是 AGENTS.md 四.4 说的
+# "运行时产物混入版本库"）。
+# 它们纯属本机派生数据（含上一次失败的用例列表、文件指纹），随仓库分发只会
+# 让每台机器互相干扰，必须拦住。
+/.pytest_cache/
+/.ruff_cache/
+# 子目录下也可能生成（例如 frontend/ 里单独跑 ruff 时）
+**/.pytest_cache/
+**/.ruff_cache/
+# coverage.py 若将来接入，同样属于派生数据
+/.coverage
+/coverage.xml
+/htmlcov/

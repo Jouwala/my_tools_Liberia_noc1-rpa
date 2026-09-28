@@ -33,10 +33,10 @@ def _make_cid(path: Path) -> str:
     return f"{safe}_{uuid.uuid4().hex}"
 
 
-# 与 owa_mail_1hour_TT_Report.py / dotnet_ews_send.py 保持一致的代码默认值。
-# 仅作最后回退，正常运行时应由 credential_store（设置页）提供真实凭据。
-_DEFAULT_USER = "ZTENOC_OLR"
-_DEFAULT_PASSWORD = "Postcode@202608"
+# 凭据一律经 owa_credentials.resolve_owa_credentials 解析（见下方 _resolve_credentials）。
+# 2026-09-27 删除这里的 _DEFAULT_USER / _DEFAULT_PASSWORD 两个字面量：
+# 它们是**完全未被引用**的死代码（模块内无任何读取点），只把口令明文留在了版本库里；
+# 真正的回退值集中在 owa_credentials.py（该处是刻意的最后兜底，保留）。
 
 
 def _resolve_credentials(username: Optional[str], password: Optional[str]) -> tuple:

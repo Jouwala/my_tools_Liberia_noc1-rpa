@@ -73,6 +73,21 @@ def _restart_workers_all_groups() -> set:
     return set(mod.ALL_GROUPS)
 
 
+def _start_bat_groups() -> set:
+    """解析 start.bat 里 `if exist ...worker_<g>.pid` 健康检查覆盖的组集合。
+
+    2026-09-27 拆 n→n/s/w 时新增本守卫。当时该文件里写死 5 个 `if exist` 与
+    `WCOUNT / 5`，拆组后 s、w 两组即使死掉也仍然报「7 / 7」式的全绿
+    （实际是 5/5 全绿）—— 与它自己 :63 注释记录的「v 曾被漏掉，死组仍报全绿」
+    是同一个坑的第二次。这里把它纳入自动校验，防止第三次。
+    """
+    text = (ROOT / "start.bat").read_text(encoding="utf-8", errors="replace")
+    # worker_watchdog.pid 是看门狗自身，不是组；组名限定为单字母键
+    found = set(re.findall(r"worker_([A-Za-z0-9_]+)\.pid", text))
+    found.discard("watchdog")
+    return found
+
+
 def test_all_registered_tasks_have_worker_group():
     """每个注册任务都必须登记进 GROUP_TASK_MAP（否则队列 pending 永久滞留）。
 
@@ -125,6 +140,12 @@ def test_group_sets_in_sync_with_launchers():
     assert gtm_keys == rw, (
         f"worker 组集合不一致：GROUP_TASK_MAP={sorted(gtm_keys)} 但 "
         f"restart_workers.py ALL_GROUPS={sorted(rw)}"
+    )
+    bat = _start_bat_groups()
+    assert gtm_keys == bat, (
+        f"worker 组集合不一致：GROUP_TASK_MAP={sorted(gtm_keys)} 但 "
+        f"start.bat 健康检查覆盖={sorted(bat)}；"
+        f"缺的组即使 worker 死掉也仍报全绿（start.bat 里 v 曾漏过一次）"
     )
 
 

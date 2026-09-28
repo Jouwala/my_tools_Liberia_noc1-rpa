@@ -45,20 +45,24 @@ class EmailSender:
     """126邮箱发送配置"""
     SMTP_SERVER = "smtp.126.com"
     SMTP_PORT = 465
-    USERNAME = "xin83min@126.com"
-    PASSWORD = "LQcTaMMuWmhvAfRB"
+    # 账号与授权码由 credential_store 的 `mail_126` 组提供（见 _runtime_credentials）。
+    # 2026-09-27 删除硬编码 PASSWORD —— 重复副本且把授权码带进了版本库。
     SENDER = "xin83min@126.com"
 
     @classmethod
     def _runtime_credentials(cls):
-        """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+        """运行时获取凭据（环境变量 > 数据库 > credential_store 默认值）。
+
+        不传默认值：`mail_126` 凭据组已带默认用户名/授权码（credential_store.py）。
+        2026-09-27 前这里传 cls.USERNAME/cls.PASSWORD 字面量，属重复真相源。
+        """
         try:
             from backend.services.credential_store import get_credential
         except ImportError:
             import sys as _sys
             _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             from credential_store import get_credential
-        return get_credential("mail_126", cls.USERNAME, cls.PASSWORD)
+        return get_credential("mail_126")
     TO_RECEIVERS = pd.read_csv("to_receiver.txt")
     TO_RECEIVERS = TO_RECEIVERS.columns.to_list()
     TO_RECEIVERS = [x for x in TO_RECEIVERS if not str(x).startswith('Unnamed:')]

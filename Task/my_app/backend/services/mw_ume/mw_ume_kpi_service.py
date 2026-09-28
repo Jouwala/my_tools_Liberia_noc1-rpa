@@ -14,7 +14,7 @@ MW UME KPI 数据同步服务（集成 my_app 版本，零落盘直写主库）
 定时任务：每天 05:15（task_registry.py TASK_SPECS -> default_cron="15 5 * * *"）。
 
 鉴权信息来源：
-- 默认：192.168.169.247:28001, NOC_MW / Zte@202608（与原脚本一致）
+- 默认：192.168.169.247:28001, 用户 NOC_MW，口令由 credential_store 的 mw_ume 组提供
 - 优先：credential_store（key="mw_ume"，Settings 页面可改密，免重启生效）
 - 环境变量覆盖：MW_UME_HOST / MW_UME_PORT / MW_UME_USER / MW_UME_PASSWORD
 """
@@ -57,7 +57,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 HOST = os.environ.get("MW_UME_HOST", "192.168.169.247")
 PORT = int(os.environ.get("MW_UME_PORT", "28001"))
 USERNAME = os.environ.get("MW_UME_USER", "NOC_MW")
-PASSWORD = os.environ.get("MW_UME_PASSWORD", "Zte@202608")
+# 2026-09-27：原默认值为硬编码明文口令（已入库），改为空串；真实口令走 credential_store 的 mw_ume 组。
+PASSWORD = os.environ.get("MW_UME_PASSWORD", "")
 LOGIN_PORTAL = "/uportal/framework/default.html"
 
 # 查询时间范围：默认最近 1 天（昨天 00:00:00 到今天 00:00:00 UTC）

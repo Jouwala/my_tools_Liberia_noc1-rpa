@@ -65,10 +65,13 @@ DB_PATH = SERVICE_DIR.parent.parent / 'db' / 'app.db'
 SP_DATA_DIR = BACKEND_DIR / 'data' / 'sp'
 
 # ====== SFTP 连接配置 ======
+# 只保留非敏感项；用户名/口令**不得**写在这里（会随 git 入库）。
+# 凭据统一由 credential_store 的 `sftp_sp` 组提供，见下方 _runtime_credentials()。
+# 2026-09-27：删除原先硬编码在此的 SFTP_USER / SFTP_PASS 两个字面量 —— 它们是
+# credential_store 里 `sftp_sp` 组 default_user/default_secret 的**重复副本**，
+# 属于「第二个真相源」，且把口令明文写进了版本库（已验证 git 历史中存在）。
 SFTP_HOST = "10.100.20.11"
 SFTP_PORT = 22
-SFTP_USER = "ubuntu"
-SFTP_PASS = "UbuntU1!2@3#4$"
 
 # ========== 外部化配置（Settings 页面可编辑的 sp_sftp_config.json） ==========
 # 主机/目录可页面调整；凭据走 credential_store（_runtime_credentials）。
@@ -94,12 +97,16 @@ if _SP_CONF:
 
 
 def _runtime_credentials():
-    """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+    """运行时获取凭据（环境变量 > 数据库 > credential_store 默认值）。
+
+    不传 default_user/default_secret：`sftp_sp` 凭据组（credential_store.py）
+    已带默认值，在这里再写一份就是重复真相源。支持页面改密后免重启生效。
+    """
     try:
         from backend.services.credential_store import get_credential
     except ImportError:
         from credential_store import get_credential
-    return get_credential("sftp_sp", SFTP_USER, SFTP_PASS)
+    return get_credential("sftp_sp")
 
 # 5 份报表的下载定义
 # ⚠️ 2026-09-16：上游把数据源迁到 /home/ubuntu/sp 下的新目录 + 固定文件名
@@ -532,7 +539,15 @@ def _mirror_runtime_config():
 
 
 def _connect_mirror(db_path: str):
-    """连接远端 SQLite（SMB UNC 路径）：短超时 + busy_timeout 扛看板读锁。"""
+    """连接远端 SQLite（SMB UNC 路径）。
+
+    ⚠ 2026-09-27 实测结论（见下方 _diagnose_mirror_failure）：
+    timeout / busy_timeout **都无法**解决这里的失败。远端 inventory.db 处于 WAL 模式，
+    且被远端主机上的一个活进程长期持有；其 `-shm` 文件在 SMB 上连**打开**都会失败
+    （OSError WinError 33），于是 SQLite 一律报 "database is locked" —— 这是
+    SQLite-WAL-over-SMB 的架构限制，不是锁竞争，调大超时没有意义。
+    真正修复需要在远端侧改（见 docs/manual/04-task-system.md 的 sp_data_sync 小节）。
+    """
     con = sqlite3.connect(str(db_path), timeout=MIRROR_CONNECT_TIMEOUT)
     con.execute(f"PRAGMA busy_timeout = {MIRROR_BUSY_TIMEOUT_MS}")
     return con
@@ -639,6 +654,60 @@ def _mirror_coerce_values(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _diagnose_mirror_failure(db_path: str, exc: BaseException) -> str:
+    """把镜像连接失败翻译成可执行的诊断结论（2026-09-27 新增）。
+
+    背景：远端 inventory.db 是 WAL 模式，其 `-shm` 索引文件需要在共享内存上做
+    mmap + 字节范围锁，而 SMB 不支持这套语义。当远端有活进程持续持有该库时，
+    `-shm` 在 SMB 上连 open 都失败，SQLite 于是统一报 "database is locked"。
+    这个报错会把人引向"锁竞争 → 调大 timeout"，而真正的原因是架构不兼容，
+    调超时永远无效（实测 timeout=30 / busy_timeout=30000 均失败）。
+
+    这里主动探测 `-shm` 可开性并给出结论，避免下一次又有人在超时参数上打转。
+    """
+    base = str(db_path)
+    shm = base + "-shm"
+    wal = base + "-wal"
+    hints = []
+    try:
+        with open(shm, "rb"):
+            pass
+        shm_state = "可打开"
+    except FileNotFoundError:
+        shm_state = "不存在"
+    except OSError as e:
+        shm_state = f"无法打开（{type(e).__name__}: {e}）"
+    except Exception as e:  # noqa: BLE001
+        shm_state = f"探测异常（{type(e).__name__}: {e}）"
+    try:
+        readable = os.access(base, os.R_OK)
+    except Exception:  # noqa: BLE001
+        readable = False
+    if os.path.exists(wal):
+        hints.append("远端库处于 WAL 模式（存在 -wal/-shm 边车文件）")
+    if shm_state.startswith("无法打开"):
+        hints.append(
+            f"-shm {shm_state} —— 远端有活进程长期持有该库，"
+            "SMB 不支持 WAL 所需的共享内存锁"
+        )
+    else:
+        # 2026-09-27 实测：-shm 有时**能**被打开，但连接照样报 locked。
+        # 说明失败点不只在 -shm 的可开性，还在其上的字节范围锁语义；
+        # 两种表现都指向同一个结论，这里如实描述，不夸大单次探测的意义。
+        hints.append(
+            f"-shm {shm_state}，但连接仍被拒 —— 即使 -shm 可读，"
+            "WAL 所需的共享内存字节锁在 SMB 上也无法建立"
+        )
+    hints.append(
+        "结论：SQLite-WAL over SMB 的架构限制，调大 timeout/busy_timeout 无效"
+        "（实测 timeout=30 / busy_timeout=30000 均失败）。"
+        "需远端侧改为「本地库 + 接口/定时快照导出」，或让远端写库进程本身导出 inventory.db"
+    )
+    if not readable:
+        hints.append("注意：当前账号对主库文件也无读权限")
+    return f"{type(exc).__name__}: {exc}；诊断：" + "；".join(hints)
+
+
 def _mirror_write_all(tables_data: dict) -> dict:
     """把本轮各表 DataFrame 写入远端镜像库，返回 {table: {rows, status, detail?}}。
 
@@ -734,6 +803,15 @@ def _mirror_write_all(tables_data: dict) -> dict:
                     attempt_res[t] = {"rows": 0, "status": "error",
                                       "detail": f"连接/写入中断: {e}"}
             attempt_res["_meta"] = {"status": "error", "detail": str(e), "attempt": attempt}
+            # 2026-09-27：首次失败就做一次结构诊断（探测 -shm 可开性），把
+            # "database is locked" 翻译成"这是 WAL-over-SMB 架构限制，调超时无效"。
+            # 只做一次，避免每次重试都打一遍 SMB。
+            if "_diagnosis" not in attempt_res:
+                try:
+                    attempt_res["_diagnosis"] = _diagnose_mirror_failure(db_path, e)
+                    print(f"[镜像][诊断] {attempt_res['_diagnosis']}")
+                except Exception as _de:  # noqa: BLE001
+                    attempt_res["_diagnosis"] = f"诊断失败: {_de}"
             if attempt < MIRROR_RETRIES:
                 time.sleep(MIRROR_RETRY_WAIT * attempt)
         finally:
@@ -814,6 +892,9 @@ def run_sp_data_sync() -> dict:
         client = None
         sftp = None
         try:
+            # 2026-09-27：分段计时（SFTP 阶段）。与下面的 [耗时] 镜像写入 配对，
+            # 用于把整轮耗时归因到"下载+入库"还是"镜像"。
+            _t_sftp_start = time.time()
             client, sftp = _connect_sftp()
             conn = get_raw_connection(str(DB_PATH))
             _ensure_log_table(conn)
@@ -884,21 +965,51 @@ def run_sp_data_sync() -> dict:
                 result["retention"] = retention_info
 
             conn.close()
+            _sftp_secs = time.time() - _t_sftp_start
+            result["sftp_seconds"] = round(_sftp_secs, 1)
+            print(f"[耗时] SFTP下载+入库 {_sftp_secs:.1f}s")
             # ====== 镜像写入 FineBI inventory.db（app.db 全部落库后执行） ======
+            # 2026-09-27：加分段计时。此前只知道整轮约 534s（占满 n 组一个周期），
+            # 但"SFTP 下载 vs 镜像写入"各占多少无法区分——日志里 [完成] 先于会话关闭打印，
+            # 用会话起止粗算会把两者混在一起。有了这两行才能定位真正的耗时源。
+            _t_mirror_start = time.time()
             if mirror_enabled and mirror_data:
                 mirror_res = _mirror_write_all(mirror_data)
                 result["mirror"] = {k: v for k, v in mirror_res.items()}
                 _meta = mirror_res.get("_meta") or {}
+                # 只统计「表」条目：返回值里还混着 _meta/_retention（dict）与
+                # _diagnosis（**字符串**），对后者取 .get 会抛 AttributeError，
+                # 而那个异常落在外层 try 里会被误报成「SFTP 连接/同步失败」。
                 mirror_errs = [t for t, v in mirror_res.items()
-                               if t != "_meta" and v.get("status") == "error"]
+                               if not t.startswith("_")
+                               and isinstance(v, dict) and v.get("status") == "error"]
                 result["mirror_errors"] = mirror_errs
                 if _meta.get("status") != "ok" or mirror_errs:
                     # 镜像失败不影响 app.db 主结果，但要在任务报告里显式暴露
                     result["mirror_success"] = False
                     print(f"[镜像][警告] 镜像未完全成功，失败表: {mirror_errs or _meta.get('detail')}")
+                    # 2026-09-27 修复：镜像失败原先只写进 result/message，而任务告警
+                    # （task_runner.py:524 的微信 / 126 邮件）**只在 success=False 时触发**，
+                    # 所以「FineBI inventory.db 长期写不进去」这件事在监控上完全不可见
+                    # —— 实测 2026-09-24 起 14 天内 76 次执行、75 次镜像失败，无任何告警，
+                    # 看板数据实际已停更。此处把它升级为 warnings，
+                    # 由 task_runner/notify 侧感知为"降级告警"（见 task_runner.py 的 warnings 分支）。
+                    _detail = _meta.get("detail") or ""
+                    # 优先用结构诊断（比 "database is locked" 可执行得多）
+                    _diag = mirror_res.get("_diagnosis")
+                    _tables_txt = ", ".join(mirror_errs) if mirror_errs else "连接失败"
+                    result.setdefault("warnings", []).append(
+                        f"镜像写入 FineBI inventory.db 失败（{_tables_txt}）"
+                        + (f": {_detail}" if _detail else "")
+                        + (f"。{_diag}" if _diag else "")
+                        + "；app.db 数据已正常落库，但 FineBI 看板不更新"
+                    )
                 else:
                     result["mirror_success"] = True
                     print("[镜像] FineBI inventory.db 写入完成")
+                _secs = time.time() - _t_mirror_start
+                result["mirror_seconds"] = round(_secs, 1)
+                print(f"[耗时] 镜像写入 {_secs:.1f}s")
             ok = sum(1 for v in result["tables"].values() if v.get("status") == "ok")
             result["message"] = f"SP 数据同步完成：{ok}/{len(SP_TABLES)} 个表成功（第{attempt}次尝试）"
             _pruned = sum(int(v.get("deleted") or 0)

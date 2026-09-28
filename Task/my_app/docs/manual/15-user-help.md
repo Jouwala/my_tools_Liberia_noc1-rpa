@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-27。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-28。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（65 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（66 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -78,7 +78,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（65 个）
+### 3.3 全量任务清单（66 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -88,6 +88,7 @@
 | Site Outage 截图 | `site_outage_screenshot` | `0 1 * * *` | m | `services/site_outage_service.py → run_site_outage_screenshot` |
 | WhatsApp 消息发送 | `whatsapp_send` | `0 3 * * *` | m | `services/whatsapp_service.py → run_whatsapp_send` |
 | WhatsApp 消息发送（扩展） | `whatsapp_send_ext` | `0 3 * * *` | m | `services/whatsapp_ext_service.py → run_whatsapp_send_ext` |
+| eFlow P1 告警 WhatsApp 推送 | `tt_alarm_whatsapp_alert` | `*/15 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA 完整同步 | `ms_sla_full` | `0 */6 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
 | eFlow 实时告警同步 | `eflow_active_alarm` | `*/30 * * * *` | n | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow 历史告警同步 | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
@@ -98,7 +99,7 @@
 | RAN Network KPI 同步 | `network_kpi_sync` | `0 5 * * *` | u | `services/ran_ume_network_kpi.py → run_network_kpi_sync` |
 | 可用率核对宽表重建 | `avail_recon_sync` | `10 6 * * *` | u | `services/avail_recon_sync.py → run_avail_recon_sync` |
 | CNN UME KPI 同步 | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
-| SP 备件数据同步 | `sp_data_sync` | `10 * * * *` | n | `services/get_sp_table.py → run_sp_data_sync` |
+| SP 备件数据同步 | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI 同步 | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
 | Liberia 宕站 1小时报告邮件 | `liberia_email_1h` | `5 * * * *` | m | `services/liberia_email_report.py → run_1h_report` |
 | Liberia 宕站 8小时报告邮件 | `liberia_email_8h` | `10 */8 * * *` | m | `services/liberia_email_report.py → run_8h_report` |
@@ -128,8 +129,8 @@
 | 失败任务自动重试 | `auto_retry_failed` | `*/10 * * * *` | m | `services/auto_retry.py → run_auto_retry_task` |
 | RAN CM 小区数据同步 | `cm_data_sync` | `30 8 * * *` | u | `services/cm_data/cm_data_export.py → run_cm_data_sync` |
 | PG→SQLite 数据快照 | `pg_to_sqlite_sync` | `45 * * * *` | m | `backend/scripts/sync_pg_to_sqlite.py → main` |
-| MW UME KPI 同步 | `mw_ume_kpi_sync` | `15 5 * * *` | n | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync` |
-| MW UME KPI 实时同步 | `mw_ume_kpi_sync_rt` | `*/15 * * * *` | n | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync_rt` |
+| MW UME KPI 同步 | `mw_ume_kpi_sync` | `15 5 * * *` | w | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync` |
+| MW UME KPI 实时同步 | `mw_ume_kpi_sync_rt` | `*/15 * * * *` | w | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync_rt` |
 | CN EMS KPI 缓存同步 | `ems_kpi_cache_sync` | `*/15 * * * *` | c | `services/cn_ems/ems_kpi_service.py → run_ems_kpi_cache_sync` |
 | CN EMS KPI 日粒度CSV | `ems_kpi_daily` | `20 0 * * *` | c | `services/cn_ems/ems_kpi_service.py → run_ems_kpi_daily` |
 | CXO 看板数据缓存同步 | `cxo_dashboard_cache_sync` | `*/10 * * * *` | v | `services/cxo_dashboard_cache.py → run_cxo_dashboard_cache_sync` |
@@ -253,6 +254,27 @@
 **维护要点**:
 
 - 2026-08-31 上线时曾漏登记 worker 分组导致 pending 卡死，后补入 m 组——新增任务务必同步登记 GROUP_TASK_MAP
+
+#### eFlow P1 告警 WhatsApp 推送（`tt_alarm_whatsapp_alert`）
+
+- 默认 cron: `*/15 * * * *`　|　worker 组: **m**
+- 工作流脚本: `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert`
+
+**功能**: 每 15 分钟取近 3 小时内「告警未清除 + alarm_code≠99933 + P1」的 TT 单，渲染成文本推送到 WhatsApp，发送状态落库
+
+**工作流与数据流**:
+
+1. 从 eflow_tt 取近 3 小时、alarm_clear_time 为空、ticket_severity=P1 的单（99933 免推）
+1. 按 tt_no 与 eflow_tt_whatsapp_alert_log 比对，筛出满 20 分钟未重推的单
+1. 渲染成 6 行文本，投递作业到 data/tt_alert_job.json 供浏览器扩展认领发送
+1. 扩展回报确认后把该单 send_status 置 Y（未确认则保持 N 并记 last_error）
+
+**维护要点**:
+
+- 群组由环境变量 TT_ALERT_WHATSAPP_GROUPS 配置；未配置则拒发（绝不发默认测试群）
+- 99933 的排除必须在 Python 侧做——库里 '99933' 与 '99933.0' 并存，写进 SQL 会漏
+- 依赖扩展的纯文本发送能力，扩展未就绪时状态保持 N（不伪造 Y）
+- ⚠️ 实测「未清除+P1」多为历史遗留老单，正常情况下每轮常发出 0 条，属数据分布正常结果
 
 #### MS SLA 完整同步（`ms_sla_full`）
 
@@ -429,7 +451,7 @@
 
 #### SP 备件数据同步（`sp_data_sync`）
 
-- 默认 cron: `10 * * * *`　|　worker 组: **n**
+- 默认 cron: `10 * * * *`　|　worker 组: **s**
 - 工作流脚本: `services/get_sp_table.py → run_sp_data_sync`
 
 **功能**: 从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI WareHouseDashBoard inventory.db
@@ -946,7 +968,7 @@
 
 #### MW UME KPI 同步（`mw_ume_kpi_sync`）
 
-- 默认 cron: `15 5 * * *`　|　worker 组: **n**
+- 默认 cron: `15 5 * * *`　|　worker 组: **w**
 - 工作流脚本: `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync`
 
 **功能**: MW UME（ZXMW 微波）KPI 历史指标同步（FINBI 模板 1 天粒度），内存导出不落盘，直接写入 app.db 表 mw_ume_bw_ultilazation
@@ -962,7 +984,7 @@
 
 #### MW UME KPI 实时同步（`mw_ume_kpi_sync_rt`）
 
-- 默认 cron: `*/15 * * * *`　|　worker 组: **n**
+- 默认 cron: `*/15 * * * *`　|　worker 组: **w**
 - 工作流脚本: `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync_rt`
 
 **功能**: MW UME KPI 实时同步（FINBI 模板 15 分钟粒度），每 15 分钟取最近 2 小时数据，直写 app.db 表 mw_ume_bw_ultilazation_rt
@@ -1306,7 +1328,7 @@
 
 **手动执行 / 停止** 任务管理页「执行」立即投递一次、「停止」中断长任务。验证新排程/新脚本后应先手动跑一次看执行历史。
 
-**新增一个任务** ① task_registry.py 的 TASK_SPECS 追加声明（task_id/name/cron/loader）；② worker_watchdog.py 的 GROUP_TASK_MAP 登记分组（漏了永远 pending，已四次踩坑；tests/test_worker_group_coverage.py 交叉校验 task_id 覆盖与三处组集合一致）；新建组则必须同步 GROUP_TASK_MAP 键、start_hidden.ps1 的 MY_APP_WORKER_GROUPS、restart_workers.py 的 ALL_GROUPS 三处；③ 业务函数放 backend/services/ 且抛异常不吞；④ stop.bat → start.bat 重启加载注册表（只改分组清单则 python restart_workers.py --mode watchdog --force，**要管理员权限**）；⑤ 手动执行验证并更新文档（04-task-system.md 清单与本帮助数据 helpTaskDocs.ts，改完跑 npm run docs）。
+**新增一个任务** ① task_registry.py 的 TASK_SPECS 追加声明（task_id/name/cron/loader）；② worker_watchdog.py 的 GROUP_TASK_MAP 登记分组（漏了永远 pending，已四次踩坑；tests/test_worker_group_coverage.py 交叉校验 task_id 覆盖与两处组集合一致）；新建组则必须同步 GROUP_TASK_MAP 键与 start_hidden.ps1 的 MY_APP_WORKER_GROUPS、$groups 两处（restart_workers.py 的 ALL_GROUPS 自动取自 GROUP_TASK_MAP）；③ 业务函数放 backend/services/ 且抛异常不吞；④ stop.bat → start.bat 重启加载注册表（只改分组清单则 python restart_workers.py --mode watchdog --force，**要管理员权限**）；⑤ 手动执行验证并更新文档（04-task-system.md 清单与本帮助数据 helpTaskDocs.ts，改完跑 npm run docs）。
 
 **改工作流脚本** 脚本都在 backend/services/ 下（任务清单有对应路径）。改动时注意：① 别改历史拼写名（packet_lost、battary_kpi_fetch、ultilazation 等，多处按字符串引用）；② 动态采集表不进 Alembic；③ 同步更新 task_registry.md / WORKER.md / 本帮助数据（frontend/src/pages/helpTaskDocs.ts）。
 
@@ -1398,6 +1420,27 @@ TT&WO 看板的「只保留上半部分」版：渲染到「MTTR 趋势」（含
 - 筛选条（含全部归属 ZTE/3rd 与高级过滤）、MTTR 日/周/月页签与双轴图、卡片下钻明细与导出与 TT&WO 看板完全同源（共用 /tt-wo-dashboard/overview 端点），用法一致、数字必然相同
 - 直链 http://<host>/myapp/?page=v1_ttwo；完整版见 page=ttwo
 
+#### TT 看板（`tt`）
+
+TT&WO 看板的「只看 TT」版（数据源 eflow_tt）：汇总卡只留「TT 总数」→ 统计（严重度 / SLA 状态 / 状态，均为数字卡片，点卡下钻）→ MTTR 趋势（P1/P2/P3/P4 × 日/周/月，每张图为「柱=TT 数量 + 线=MTTR」双轴）。MTTR 趋势之下的下半部分整体不出：领域与根因分析、工单分析（按来源统计 WO / 按状态统计 WO）、站点信息；WO 总数 / WO 编号(唯一) 两张汇总卡也不出。默认时间窗近 30 天。
+
+- 分区标题为「统计」，严重度维度标题为「严重度」（完整版 TT&WO 看板上仍叫「TT 统计」「工单严重度」）
+- MTTR 趋势每张图是双轴：柱子（中兴蓝 #0072BC）是「该时段该级别的 TT 单数」，折线（橙色）是「MTTR 分钟均值」。四张图的柱/线颜色固定不变 —— 级别由图本身（P1/P2/P3/P4 四张图）区分，颜色只用来分「量」与「时长」这两个量纲。某时段该级别没有单时柱和线都不画，不是 0
+- 筛选条（含全部归属 ZTE/3rd 与高级过滤）、卡片下钻明细、页面级 Excel 导出与 TT&WO 看板完全同源（共用 /tt-wo-dashboard/overview 端点），数字必然相同；导出文件名前缀为 TTWO_tt_
+- 直链 http://<host>/myapp/?page=tt；完整版见 page=ttwo，只看 WO 见 page=wo（版式与本页相同，数据源换成 eflow_wo）
+
+#### WO 看板（`wo`）
+
+TT 看板的「WO 数据源」版：版式与 page=tt 逐块一致，只是数据来自 eflow_wo。汇总卡只留「WO 总数」→ 统计（严重度 / SLA 状态 / 状态）→ MTTR 趋势（P1/P2/P3/P4 × 日/周/月双轴图）。MTTR 趋势之下的下半部分（领域与根因分析、工单分析、站点信息）与 page=tt 一样不出。默认时间窗近 30 天。
+
+- 点统计卡片或 MTTR 图上的点，弹出可搜索的 WO 明细下钻表
+- SLA 状态取自关联的 TT（eflow_wo 没有该列，SLA 属 TT 侧概念）：按 wo.tt_no = tt.tt_no 关联，关联不上的计入 Unknown，所以各卡片之和 = WO 总数
+- MTTR 用的是 WO 自己的 alarm_occur_time / alarm_clear_time，所以本页的 MTTR 是「WO 的周转时效」，与 page=tt 的 TT 时效是两个数
+- 汇总卡只留「WO 总数」一张：本页每行本身就是一个 WO，「WO 编号(唯一)」会与它一模一样；「TT 总数」算的是另一张表的行数，放在本页没有意义
+- ZTE/3rd 归属下拉在本页不显示：该归属定义在「TT 的 wo_no」上，WO 表本身没有这个概念
+- 筛选条（区域 / 高级过滤）、下钻明细与页面级 Excel 导出与 TT&WO 看板同源，只是数据端点用 /wo-dashboard/overview；导出文件名前缀为 TTWO_wo_
+- 直链 http://<host>/myapp/?page=wo；完整版见 page=ttwo，只看 TT 见 page=tt
+
 #### NUR 看板（`nur`）
 
 网络不可用率（NUR）的日/周/月趋势、多维分析与站点达标情况。
@@ -1414,17 +1457,20 @@ NUR 看板的「只保留 NUR」版：内容与 page=nur 的 NUR 部分完全一
 
 #### MS Operation KPI 看板（`ms_sla`）
 
-MS 合同 KPI 与工单 SLA 达成情况：NUR / SLA / Network KPI / Per-Site / WO SLA（指标为行、期间为列）。
+MS 合同 KPI 与工单 SLA 达成情况：NUR / Network KPI / Per-Site / WO SLA（指标为行、期间为列）。
 
-- 粒度只有日/月两档；下钻明细与 NUR 页一致
-- 数字以 nur_calc 实时计算为准（ms_sla_full 每 6 小时驱动），可能与历史快照文件不一致——以本页为准
+- 粒度三档「天 / 周 / 月」；Network KPIs 与 Per-Site KPIs 只有天/月两档（来自快照库），切到周档位时这两块不显示并给出提示
+- 切换天/周/月会重置时间范围为该档默认窗口（天=当月至今，周=最近 12 周，月=最近 9 个自然月），横幅上会写明当前区间
+- SLA 达成率（TTR / TTR_P1~P4）统一由 WOs SLA 区以「表格 + 趋势」呈现，不再另设 KPI List SLA 卡片
+- 下钻明细与 NUR 页一致；数字以 nur_calc 实时计算为准（ms_sla_full 每 6 小时驱动），可能与历史快照文件不一致——以本页为准
 
 #### MS KPI 看板（仅 SLA）（`ms_sla_only`）
 
-MS Operation KPI 看板的「只保留 SLA」版：KPI List SLA 日/月达成率（TTR / TTR_P1~P4）与 WOs SLA 区（Total / Within SLA / Achieve + 趋势），不渲染 NUR、Network、Per-Site。
+MS Operation KPI 看板的「只保留 SLA」版：WOs SLA 区的工单 SLA 达成率（TTR / TTR_P1~P4 的 Total / Within SLA / Achieve + 趋势），不渲染 NUR、Network、Per-Site。
 
 - 达成率 ≥95% 显示绿色、低于目标标红，与 page=ms_sla 同一口径
-- 单元格与数据点可点击下钻 TT 明细，并可导出 Excel；粒度只有日/月两档
+- 粒度三档「天 / 周 / 月」：天默认当月至今、周默认最近 12 周、月默认 2026-01 至今；切档会重置时间范围（横幅上有说明）
+- 单元格与数据点可点击下钻 TT 明细，并可导出 Excel
 
 #### CXO 经营看板（`cxoDashboard`，iframe 页）
 
@@ -1469,6 +1515,19 @@ FME 排名看板：按 FME 统计站点可用率、工单量与 SLA 达成率，
 
 - 点站点名下钻该站的可用率明细
 - 可用率按站点统计口径计算，与 FME 排名页同源
+
+#### avail_ms（`avail_ms`）
+
+可用率多维矩阵：把全网可用率按「区域 / 制式 / 站点类型」三个维度呈现，日 / 周 / 月用页签切换粒度。数据来自本机派生库 avail_recon.sqlite3（任务 avail_recon_sync 每天 06:10 重建，口径为站点级加权可用率 SUM(分子)/SUM(分母)）。
+
+- 每张矩阵上方有该维度的趋势曲线（日 30 期 / 周 12 期 / 月 12 期，随页签变化）：一条线一个维度取值，所有点都按 SUM(分子)/SUM(分母) 加权，与表格数字严格一致
+- 曲线上的点也能点开下钻，打开的是**那个点自己的周期**（例如月档停在 2026-09 时点 2026-08 的点，弹窗就是 2026-08 的明细）
+- 区域那张曲线不含「未匹配主数据」（量级太低会把纵轴压扁），图下有一行说明，它的数据在表格末行
+- 点任意可用率数字下钻：弹窗内含近 30 期趋势、按日明细与「按调度组」的构成分解，第二个页签可看该组合相关的 TT 工单
+- 阈值输入框（默认 99.65%）决定「未达标」判定：低于阈值显示为红色，会实时重算，不改变数字本身
+- 区域维度的 ALL 行含「未匹配主数据」的站点，因此 ALL 不等于三个区域相加；末行单列该桶，点它只能看可用率明细、不能下钻 TT（派生库里没有那批站点的名单）
+- 4G 的 NERA 属未映射调度组：计入制式 4G 总量，在站点类型维度单列「其它」，只出现在 2025-12 ~ 2026-01 的月份；此时页面会出现黄色口径提示条
+- 取不到数据显示「—」而不是 0；页面顶部显示「数据截至」，派生库停更时能一眼看出来
 
 #### noc_analyst（`noc_analyst`）
 
@@ -1562,6 +1621,9 @@ UME iMonitor 大屏（guard-imonitor-iui，screen_id=1）：把 UME 门户（172
 
 - 区域下拉 + 图层 Tag 开关筛选；图例点击可隐藏该类图层；时间支持分段切换与自定义区间
 - 点站点打开右侧抽屉，四个页签明细可搜索、可导出 Excel
+- 「链路利用率」开关（默认开）：把 MW 微波实时页同一 15 分钟槽位的链路利用率叠加到地图链路线上，按 6 级着色（>90% 紧急 / ≥80% 重要 / ≥70% 中等 / ≥60% 次要 / ≥50% 轻微 / <50% 正常），线越粗表示利用率越高
+- 点链路线可看该链路的最高/发送/接收利用率与匹配到的 MW 站点；显示「无 KPI 数据」的链路表示未匹配到实时指标（保持 KML 原线色），不是 0%
+- 叠加口径见图例下方说明：844 条 KML 链路中约 360 条能匹配到实时指标，其余仍在 MW 微波实时页查看
 
 #### 实时告警地图（`realtime_alarm`）
 

@@ -11,13 +11,12 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "lint:shells": "tsc -p v1/olbrportal/tsconfig.json",
+    "lint:shells": "tsc -p v1/olbrportal/tsconfig.json && tsc -p v2/olbrportal/tsconfig.json",
     "check:clean": "node scripts/check-cleanliness.mjs audit",
     "tmp:clean": "node scripts/check-cleanliness.mjs clean",
     "tmp:clean:apply": "node scripts/check-cleanliness.mjs clean --apply"
   },
   "dependencies": {
-    "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "lucide-react": "^0.546.0",

@@ -183,14 +183,17 @@ echo [OK] Port %PORT% is listening again.
 ping -n 4 127.0.0.1 >nul
 
 REM ---- 5) verify the new routes are live ----
-REM  NOTE: FastAPI serves openapi.json as ONE single line, so counting
-REM  matching LINES (find /c) always yields 1 even when both routes are
-REM  present. Count OCCURRENCES instead.
-REM  Also check the code-revision marker that backend/routers/ran_cells_kpi.py
-REM  puts in the /cells description: it proves the RUNNING process has the
-REM  current code, not just that the routes were registered at some point.
+REM  NOTE: probes the REAL endpoints instead of /openapi.json.
+REM  /openapi.json is now disabled by default (see main.py:108-117: it leaked
+REM  a 223-path attack-surface map to unauthenticated callers), so this check
+REM  no longer depends on it. Hit the routers directly and confirm they answer
+REM  with JSON rather than the SPA index.html fallback - that is the real
+REM  question anyway ("is the new code serving?"), and it answers it the same
+REM  way whether or not docs are enabled.
+REM  A 401/403 still proves the route exists (auth layer reached the router);
+REM  only a 404 or an HTML body means the route is genuinely missing.
 >>"%REPORT%" echo ----- 5) verifying the new routes -----
-powershell -NoProfile -Command "try { $p = (Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:%PORT%/openapi.json?cb=%RANDOM%' -TimeoutSec 20).Content; $n = ([regex]::Matches($p, 'ran-cells-kpi')).Count; $m = ([regex]::Matches($p, 'RCK_META_V2')).Count; Write-Output ('ran-cells-kpi occurrences: ' + $n + '  (expected 2)'); Write-Output ('code revision marker RCK_META_V2: ' + $m + '  (expected 1 or more)'); if ($n -ge 2 -and $m -ge 1) { Write-Output 'ROUTE_CHECK: PASS - routes and current code revision are live' } elseif ($n -ge 2) { Write-Output 'ROUTE_CHECK: WARN - routes exist but an OLDER revision is serving; the restart did not reload the module' } else { Write-Output 'ROUTE_CHECK: FAIL - old code is still serving port %PORT%' } } catch { Write-Output ('ROUTE_CHECK: FAIL - cannot reach openapi.json: ' + $_.Exception.Message) }" > "%BASE%log\_fix_routecheck.txt" 2>&1
+powershell -NoProfile -Command "$ok=0; $tot=0; foreach ($r in @('/api/ran-cells-kpi/overview','/api/ran-cells-kpi/cells')) { $tot++; try { $resp = Invoke-WebRequest -UseBasicParsing -Uri ('http://127.0.0.1:%PORT%' + $r + '?cb=' + (Get-Random)) -TimeoutSec 20; $ct = $resp.Headers['Content-Type']; $isHtml = ($ct -like '*text/html*'); if ($resp.StatusCode -eq 200 -and -not $isHtml) { Write-Output ($r + ' -> 200 JSON  [route live]'); $ok++ } elseif ($isHtml) { Write-Output ($r + ' -> 200 HTML  [SPA fallback: route MISSING]') } else { Write-Output ($r + ' -> ' + $resp.StatusCode + '  [route live, auth-gated]'); $ok++ } } catch { $sc = $_.Exception.Response.StatusCode.value__; if ($sc -eq 401 -or $sc -eq 403) { Write-Output ($r + ' -> ' + $sc + '  [route live, auth-gated]'); $ok++ } else { Write-Output ($r + ' -> FAILED: ' + $_.Exception.Message) } } }; Write-Output ('routes answered: ' + $ok + '/' + $tot); if ($ok -eq $tot) { Write-Output 'ROUTE_CHECK: PASS - routes are live' } elseif ($ok -gt 0) { Write-Output 'ROUTE_CHECK: WARN - only some routes answered; the running process may be an older revision' } else { Write-Output 'ROUTE_CHECK: FAIL - old code is still serving port %PORT%' }" > "%BASE%log\_fix_routecheck.txt" 2>&1
 type "%BASE%log\_fix_routecheck.txt" >> "%REPORT%"
 
 echo.

@@ -26,18 +26,25 @@ interface SiteDrilldownDrawerProps {
   /** 图表用全量聚合统计（不受明细 LIMIT 截断） */
   analytics?: DrilldownAnalytics | null
   analyticsLoading?: boolean
-  /** 统计窗口天数 */
+  /** 统计窗口天数。抽屉**自带的独立选择器**，默认 7 天（与地图初始时间窗口一致），
+      用户可改成 30/60/90/180。它不跟随地图时间窗口 —— 见 GISMap.tsx 的 drillRangeDays */
   rangeDays?: number
   onRangeDaysChange?: (days: number) => void
 }
 
-const RANGE_OPTIONS = [30, 60, 90, 180]
+/* 可选档位。**7 天是有意加上的**：地图初始时间窗口就是「近7天」，
+   抽屉默认值要与之一致，若这里没有 7 档，Segmented 会一个都不高亮，
+   用户看不出「当前就是 7 天」这个事实（改造前只有 30/60/90/180 就踩过这个坑）。
+   后端 days 参数接受任意正整数（gis.py::_resolve_window 只做 max(1,int(days)) 保护），
+   加 7 档不需要动后端 —— 已实测 days=7 返回的区间恰好 7 天。 */
+const RANGE_OPTIONS = [7, 30, 60, 90, 180]
+const DEFAULT_RANGE_DAYS = 7
 const DEFAULT_THRESHOLD = 0.9965 // 与 SiteAvailability 页面 / 后端一致
 
 // 站点下钻抽屉：基本信息 + 统计卡片 + 各 Tab「上图表 / 下表格」
 export function SiteDrilldownDrawer({
   open, onClose, loading, drilldown, selectedSite, mode,
-  analytics, analyticsLoading, rangeDays = 60, onRangeDaysChange,
+  analytics, analyticsLoading, rangeDays = DEFAULT_RANGE_DAYS, onRangeDaysChange,
 }: SiteDrilldownDrawerProps) {
   const { t } = useI18n()
   const { isDark } = useTheme()
@@ -212,27 +219,35 @@ export function SiteDrilldownDrawer({
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.networkType')}</span>}>
                 <span style={{ color: WH.text }}>{drilldown.site_info.network_type}</span>
               </Descriptions.Item>
+              {/* Site Type 取 site_caregory 列（ERA / COOL / NORMAL 站点等级），
+                  不是 site_type 列 —— 后者是 Outdoor/Indoor 这类机房形态。
+                  site_caregory 已由后端 _attach_filter_cols 归一化，这里不再处理。 */}
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteType')}</span>}>
-                <span style={{ color: WH.text }}>{drilldown.site_info.site_type}</span>
+                <span style={{ color: WH.text }}>{drilldown.site_info.site_caregory}</span>
               </Descriptions.Item>
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.vipSite')}</span>}>
                 {drilldown.site_info.vip_site === 'Yes'
                   ? <Tag color="purple">{t('common.yes')}</Tag>
                   : <Tag>{t('common.no')}</Tag>}
               </Descriptions.Item>
+              {/* Site Category 取 victims_list 列（受影响站点/居民点清单）。
+                  注意它不是站点等级 —— 等级在 Site Type 那一格的 site_caregory。 */}
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteCategory')}</span>}>
-                <span style={{ color: WH.text }}>{drilldown.site_info.site_class || '-'}</span>
+                <span style={{ color: WH.text }}>{drilldown.site_info.victims_list || '-'}</span>
               </Descriptions.Item>
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.coords')}</span>}>
                 <span style={{ color: WH.text }}>{drilldown.site_info.latitude?.toFixed(4)}, {drilldown.site_info.longitude?.toFixed(4)}</span>
               </Descriptions.Item>
+              {/* Power Source 取 fme_name 列（现场维护工程师姓名，本次按业务口径调整）。 */}
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.powerSource')}</span>}>
-                <span style={{ color: WH.text }}>{drilldown.site_info.power_sources}</span>
+                <span style={{ color: WH.text }}>{drilldown.site_info.fme_name}</span>
               </Descriptions.Item>
             </Descriptions>
           </Card>
 
-          {/* 统计范围：同时作用于图表聚合与明细列表 */}
+          {/* 统计范围：抽屉自带的独立选择器，默认 7 天。默认值与地图初始时间窗口
+              （近7天）一致，所以刚打开时两边口径相同；但二者**互相独立**：
+              改地图时间窗口不动这里，改这里也不动地图。 */}
           <Card size="small" style={{ ...cardStyle, marginBottom: 'var(--wh-space-md)' }}>
             <Row align="middle" justify="space-between" gutter={[8, 8]}>
               <Col>

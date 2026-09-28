@@ -2,12 +2,17 @@
 import ftplib
 import os
 import re
+import sys
 import time
 import shutil
 import logging
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
+# 2026-09-27 修复：`subprocess` 与 `sys` 此前漏导入，本行在**模块导入期**即抛
+# NameError，令 `import backend.services.ftp_sync` 直接失败（由 ruff F821 发现）。
+# 该模块此前从未被成功导入过，所以问题一直没暴露。
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 logger = logging.getLogger("ftp_sync")

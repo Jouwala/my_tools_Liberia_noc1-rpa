@@ -152,6 +152,9 @@
     /* 检索轨（搜索 + 分组 / 状态筛选）默认收起。刻意不写 localStorage：
        用户的预期就是「每次进来都是干净的一条」，跟筛选条件一样不跨会话。 */
     railOpen: false,
+    /* ⚠️ 2026-09-29 起 mapTab 已无消费方：地图栏改成纯外链卡，没有页签可切。
+       保留这个字段**只为了让旧会话里已写入的 localStorage['olbr.maptab'] 不报错**，
+       也方便将来若要恢复页签时有个现成的键位。删掉它不会有功能影响。 */
     mapTab: ls('olbr.maptab', 'gis'),
     /* 默认落在 BO View：16 张卡、五个子分组，是这块最能说明「门户里到底有什么」的一组 */
     viewTab: ls('olbr.viewtab', 'BO View'),
@@ -239,6 +242,44 @@
     return Object.keys(seen);
   }
   function groupsOf(it) { return it.groups || []; }
+  /* ============================================================================
+     归档分组（2026-09-28 加）
+     ----------------------------------------------------------------------------
+     解决的问题：「移出本列」原先在只剩一个分组时直接拒绝（edit.itemLastGrp），
+     理由是目录里不存在"零归属看板"这种状态 —— 零归属的条目在页签、入口卡、
+     MsPortal 的区块里全都渲染不出来，移出等于弄丢。想"收起来"就只能用
+     不可逆的「删除看板」，代价太大。
+
+     归档把它变成一个有家可归、且**可逆**的动作：条目只是换到一个真实分组里。
+     为此必须同时满足三件事，缺一个就会退化成"换个地方弄丢"：
+
+       ① 归档必须是一个**真实分组**（进 state.groups、随目录落盘），
+          否则 commit() 的 PUT 里 groups 不含它，下次加载 sanitize 时条目归属
+          会指向一个不存在的分组 —— 又回到"看不见"的老问题；
+       ② 归档区必须**真的渲染出来**（renderAux，默认折叠），
+          否则用户点完「移出本列」看到的是"卡没了"；
+       ③ 必须给一条**回去的路**（归档行的「取消归档」+ 保留「分组」浮层）。
+
+     ⚠️ 为什么归档不进 T1/T2、也不单独占一列：
+     它是"收起来"的去处，不是常驻版面。作为自定义分组它会自动出现在 L1 页签条
+     （tabGids 会把 state.groups 里 T0/T1/T2 之外的分组追加进去），
+     这是刻意的：页签是可排序的，管理员可以把它拖到任意位置，
+     而不是被代码钉死在某一列。
+     ============================================================================ */
+  function isArchiveGid(gid) { return gid === DATA.ARCHIVE; }
+  /* 归档分组的显示名：目录里没有定义时回落 i18n 的 arch.title，
+     这样"还没建过归档组"的目录也能正确显示名字（gName 对未知 id 是原样返回 id）。 */
+  function archiveName() { return gName(DATA.ARCHIVE) === DATA.ARCHIVE ? t('arch.title') : gName(DATA.ARCHIVE); }
+  /* 按需创建归档分组。只在真的归档了第一张看板时调用 ——
+     不在 boot 时预建：绝大多数会话不会用到它，凭空多一个分组定义会让
+     "分组"浮层和页签条上多出一项没人要的东西。 */
+  function ensureArchiveGroup() {
+    if (state.groups.some(function (g) { return g.id === DATA.ARCHIVE; })) return;
+    state.groups = state.groups.concat([{
+      id: DATA.ARCHIVE, zh: t('arch.title'), en: 'Archived',
+      subZh: '', subEn: '', style: 'card'
+    }]);
+  }
   /* 页签条上的分组 = 固定四个 + 服务端新增的分组（按 groups 数组顺序排在后面）。
      新增分组没有专门的 tier 字段，一律落到 L1 页签：它是「用户自己造的一级分组」，
      出现在最显眼的那一排最不容易让人找不到。 */
@@ -1128,7 +1169,36 @@
     if (c && c.mom_base) tip += '\n' + tf('kpi.tipBase', {
       k: t('kpi.mom'), d: c.mom_base.date, v: val(c.mom_base.value, true), u: spec.unit });
     var na = !latest || latest.value == null || isNaN(Number(latest.value));
-    return '<div class="qc-card qc-card--rich' + (na ? ' is-na' : '') + '" title="' + esc(tip) + '">' +
+    /* ---- 整卡可点跳转（2026-09-29 加，用户要求）--------------------------------
+       点这张卡打开它**真正的那份完整看板**。目标页来自 spec.page
+       （见 olbr-data.js 的 KPI_RICH），不是写在这里的常量 —— 同 QC_BOARD_PAGE
+       那条约束：页面归属属于数据，不属于渲染。
+
+       为什么用 <a> 包住整张卡，而不是给 <div> 挂 click 监听：
+         · <a href> 天然带「中键新标签页 / 右键复制链接 / 悬停看状态栏地址 / 键盘
+           Enter 打开」这一整套行为，用 div + onclick 这些全要自己补一遍，
+           补不全就是「键盘用户点不动」；
+         · 语义正确：读屏会念成链接，明确告诉用户"这里能跳走"。
+       卡内**没有其它可交互元素**（「重试」按钮在带标题行 .band-h 里，不在卡内），
+       所以不存在 a 套 button 的非法嵌套。
+
+       为什么加 target="_blank"：本页是**门户**，跳走等于把用户的目录弄丢了；
+       且 my_app 那份看板是 90 天的大盘，用户看完多半还要回门户点别的。
+       配 rel="noopener"（防 tabnabbing，与 #qcOpenBoard 既有写法一致）。
+
+       ⚠️ 相对路径 /myapp/ 而**不是** http://localhost/myapp/：
+       门户与 my_app 经同一个 nginx，同源相对路径在换 IP / 换域名时不用改代码；
+       写死 localhost 的话，用户用 IP 访问门户时这个链接会指向**访问者自己那台机器**。
+       与 olbr.js 里 mapItems()/applyDrillTitle 的既有约定一致。
+       ------------------------------------------------------------------------ */
+    var open = spec.page
+      ? '<a class="qc-card qc-card--rich qc-card--open' + (na ? ' is-na' : '') + '" href="' +
+        esc('/myapp/?page=' + encodeURIComponent(spec.page)) + '" target="_blank" ' +
+        'rel="noopener nofollow" title="' +
+        esc(tf('kpi.openTip', { n: name, b: t('kpi.boardRich') }) + '\n\n' + tip) + '">'
+      : '<div class="qc-card qc-card--rich' + (na ? ' is-na' : '') + '" title="' + esc(tip) + '">';
+    var close = spec.page ? '</a>' : '</div>';
+    return open +
       '<div class="qc-ttl"><b>' + esc(name) + '</b><i>' + esc(spec.unit) + '</i></div>' +
       '<div class="qc-val"><span>' + esc(val(latest && latest.value, true)) + '</span>' +
         '<em>' + esc(spec.unit) + '</em></div>' +
@@ -1146,7 +1216,7 @@
           esc(t('kpi.days').replace('{n}', String((c && c.n) != null ? c.n : '—'))) + '</span></div>' +
         '<div class="lo"><span>' + esc(t('kpi.min')) + '</span><b>' +
           esc(val(min && min.value, true)) + '</b><span>' + esc(dateOf(min)) + '</span></div>' +
-      '</div></div>';
+      '</div>' + close;
   }
   /* 按接口自己给的 digits 格式化，绝不 toFixed(2) 一把抓：
      Active User 是 (K) 两位小数、可用率是百分数两位小数，混用会让
@@ -1157,7 +1227,7 @@
     return n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
   }
   function kpiCardHtml(o) {
-    /* o = { name, unit, value:'<已格式化或 —>', na:bool, sub, tip, age,
+    /* o = { name, unit, value:'<已格式化或 —>', na:bool, sub, tip, age, href,
              foot:[{label, num, foot, cls}] }
        ⚠️ 2026-09-28：**没有 icon 字段了**（用户要求「2G/3G/4G Availability 卡片前面的
        图标删除，不要图标，跟其他卡片保持一致」）。同一排的富卡片（kpiRichHtml）
@@ -1168,7 +1238,17 @@
        foot 是本卡底部的三段页脚，与富卡片的 .qc-ext 共用同一套样式与结构，
        这样同一排 6 张卡的页脚在同一水平线上、字号字重也一致。
        只有"内容天然比邻居矮"的卡才需要它（可用率卡）；没有 foot 的卡
-       不会渲染 .qc-ext，也不会带上 has-foot（避免多一个空盒子）。 */
+       不会渲染 .qc-ext，也不会带上 has-foot（避免多一个空盒子）。
+
+       ⚠️ 2026-09-29 加 href（整卡可点，用户要求「2G/3G/4G Availability 卡片
+       点击跳转到 /myapp/?page=avail_ms」）。
+       这里是**可选参数**而不是写死跳转，因为本函数是共用实现：
+       将来任何不带 href 的卡（例如别处复用它做一张纯展示卡）
+       都会照旧渲染成不可点的 <div>，不会莫名其妙变成链接。
+       有 href 时整张卡渲染成 <a>，理由与 kpiRichHtml 那处完全一致
+       （中键新标签 / 右键复制链接 / 键盘 Enter / 读屏念成链接，
+       这些用 div + onclick 都要自己补，补不全就是键盘用户点不动）。
+       卡内**没有其它可交互元素**，不存在 a 套 button 的非法嵌套。 */
     var foot = '';
     if (o.foot && o.foot.length) {
       foot = '<div class="qc-ext">' + o.foot.map(function (s) {
@@ -1177,7 +1257,18 @@
           '<span>' + esc(s.foot == null ? '' : s.foot) + '</span></div>';
       }).join('') + '</div>';
     }
-    return '<div class="qc-card' + (foot ? ' has-foot' : '') + '" title="' + esc(o.tip || '') + '">' +
+    /* 可点时把「去哪儿」写进 title 的第一句，与富卡片同一套写法：
+       原来那句 o.tip（口径说明）整段接在后面，不丢任何一行。 */
+    var tip = o.tip || '';
+    if (o.href) {
+      tip = tf('kpi.openTip', { n: o.name, b: t('kpi.boardAvail') }) + '\n\n' + tip;
+    }
+    var open = o.href
+      ? '<a class="qc-card qc-card--open' + (foot ? ' has-foot' : '') +
+        '" href="' + esc(o.href) + '" target="_blank" rel="noopener nofollow" ' +
+        'title="' + esc(tip) + '">'
+      : '<div class="qc-card' + (foot ? ' has-foot' : '') + '" title="' + esc(tip) + '">';
+    return open +
       /* 2026-09-28：这一行原本是「.qc-ico 图标 + .qc-name」，图标已按要求去掉，
          结构退回与告警带六张卡同款的「只有卡名」（qcCardHtml 那边同样只输出 .qc-name）。
          .qc-hd 这层仍然保留：它是卡内唯一撑满整宽的行，
@@ -1192,7 +1283,7 @@
       '<span class="qc-sub">' + esc(o.sub) + '</span>' +
       (o.age ? '<span class="qc-age">' + esc(o.age) + '</span>' : '') +
       foot +
-      '</div>';
+      (o.href ? '</a>' : '</div>');
   }
   function availRow(group) {
     var rows = (state.kpi.avail && state.kpi.avail.rows) || [];
@@ -1300,6 +1391,11 @@
       var gapCls = gap == null ? '' : (gap < 0 ? 'lo' : 'hi');
       return kpiCardHtml({
         name: spec.key + ' ' + t('kpi.avail'), unit: '%', value: na ? '—' : kpiNum(v, 2), na: na,
+        /* 整卡可点（2026-09-29 加，用户要求）：目标页来自 spec.page
+           （KPI_AVAIL_ROWS），与富卡片同一条「页面归属属于数据、不属于渲染」。
+           相对路径的理由见 kpiRichHtml 里那段注释（写死 localhost 会在用户
+           用 IP 访问门户时指向访问者本机）。 */
+        href: spec.page ? '/myapp/?page=' + encodeURIComponent(spec.page) : '',
         /* ⚠️ 2026-09-28（用户要求「卡片里面类似 Last 30 days 2026-09 month-to-date avg
            的备注删除」）：这一行「2026-09 month-to-date avg」不再渲染 —— 传空串而非
            删掉 sub 字段，因为 kpiCardHtml 对空串与 undefined 的处理不同：
@@ -1626,88 +1722,77 @@
     };
   }
 
-  /* 地图栏的面板头 + 页签 + 工具按钮（2026-09-23 抽出）。
+  /* ⚠️ 2026-09-29（用户要求「GIS Map 里面要显示 http://localhost/myapp/?page=gis
+     的地图组件」）：
+     本栏**内嵌** my_app 的 GIS 地图页（iframe），不再是一张外链卡。
+
+     与改动前的区别 —— 原先是「全球地图 / 微波实时」两个页签，现在整栏固定为
+     page=gis 一页，页签条整条去掉（只剩标题 + 刷新 + 新窗口打开）。
+     为什么不留一个单页签的"假页签条"：一个页签的 tablist 是纯装饰，
+     点它没有任何状态可切，反而让人以为还有别的地图可看。
+
+     src 为什么带上 mwembed=1：
+     my_app 的 MapWheelZoomOnClick.tsx:25 认这个参数判定「处于门户内嵌上下文」，
+     没有它滚轮缩放等内嵌行为不会生效。**这页不接受 msportal-embed / msportal-theme
+     消息**（GISMap.tsx 里没有 postMessage 监听），所以主题只能靠 URL 的 theme= 带一次，
+     这也是下面 src 拼 theme 参数的原因（与「报告文件」那块同一条理由）。
+
+     ⚠️ 关于取景：原来的 mwRealTime 页会往 window 上挂 fitAllSites()，
+     本页**没有**这个全局（实测 GISMap.tsx / gismap/MapController.tsx 都没有）。
+     stripFrame 里的 refitLeaflet / zoomOnce 对它是无害的空转 ——
+     两处都以 typeof w.fitAllSites !== 'function' 提前返回，不需要为本页改逻辑；
+     将来若给它加上 fitAllSites，取景逻辑会自动接上。 */
+  var GIS_PAGE = 'gis';
+
+  /* 内嵌地址：与改动前 mapItems() 拼 src 的口径一致（相对路径 + mwembed + 主题）。
+     用相对路径 /myapp/… 而不是写死 http://localhost/myapp/…：
+     门户换机房/换域名时（见 src/config.ts 的单一真相源约定）这边不用跟着改，
+     而 iframe 的跨域剥离逻辑（stripFrame 读 contentDocument）**要求同源**，
+     写死 localhost 会在用 IP 访问门户时变成跨域、剥离与取景全部静默失效。 */
+  function mapSrc() {
+    return '/myapp/?page=' + GIS_PAGE + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '');
+  }
+
+  /* 地图栏的面板头 + 工具按钮（2026-09-23 抽出，2026-09-29 去掉页签）。
      抽出来的原因：快速路径（renderL0(true)）只重画左栏，改名后必须就地刷新这块，
-     否则「改完标题还是旧的」会被当成没保存成功。整份 HTML 由 renderL0 与快速路径共用，
-     避免两处走样（页签里含 tabLabelOf 的结果，必须跟着 tabLabels 变）。 */
-  function mapHeadHtml(maps) {
+     否则「改完标题还是旧的」会被当成没保存成功。 */
+  function mapHeadHtml() {
     var ed = canEdit();
     return '<div class="p-head"><span class="p-hd">' +
       (ed
         ? '<button type="button" class="p-t p-t-edit t-orange" data-act="map-head" title="' + esc(t('edit.maptabTip')) + '">' +
           esc(headTitleText()) + '<i class="ph ph-pencil-simple maptab-pen" aria-hidden="true"></i></button>'
         : '<span class="p-t t-orange">' + esc(headTitleText()) + '</span>') +
-      /* ⚠️ 2026-09-28（用户要求「GIS Map 组件。不要右边的 GIS Map」）：
-         标题右侧那颗副标题 .p-s（内容来自 headSubText()，当前渲染成 "GIS Map"）
-         已整段不再输出 —— 它和左边的主标题是同一个词，等于把标题写了两遍。
-         注意**不像 v6.sub 那样删掉整个变量**：headSubText() 仍被编辑态
-         「改本栏名称」的对话框读着（那里要同时编辑中/英两个值），
-         删掉函数会让改名入口少一半数据。所以只是这一处不渲染它。
-         将来若把主标题改回中文（如「利比里亚网络拓扑全景」），
-         这个空位可以再放回英文副标题 —— 恢复方式就是把这行 <span> 加回来。 */
-      '<div class="map-tabs"><div class="tabs' + (ed ? ' is-renaming' : '') + '" role="tablist">' + maps.map(function (m) {
-        return '<button type="button" class="tab" role="tab" data-map="' + esc(m.page) + '" aria-selected="' +
-          (m.page === state.mapTab ? 'true' : 'false') + '" title="' +
-          esc(ed ? t('edit.maptabTip') : m.title) + '">' + ic(m.icon) + esc(tabLabelOf(m.page, m.key)) +
-          (ed ? '<i class="ph ph-pencil-simple maptab-pen" aria-hidden="true"></i>' : '') + '</button>';
-      }).join('') + '</div>' +
+      /* 标题右侧的副标题 .p-s 仍不输出：它与主标题同为 "GIS Map"，写两遍是冗余
+         （2026-09-28 用户要求）。headSubText() 保留给改名浮层读，
+         恢复方式就是在这里加回一颗 <span>。 */
+      '<div class="map-tabs">' +
       '<button type="button" class="gb gb--t" data-act="map-reload" title="' + esc(t('map.reload')) + '"><i class="ph ph-arrow-clockwise"></i><span>' + esc(t('map.reload')) + '</span></button>' +
-      '<a class="gb gb--t" id="mapOpen" href="' + esc(curMap().src) + '" target="_blank" rel="noopener noreferrer" title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out"></i><span>' + esc(t('map.open')) + '</span></a>' +
+      '<a class="gb gb--t" id="mapOpen" href="' + esc(mapSrc()) + '" target="_blank" rel="noopener noreferrer" title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out"></i><span>' + esc(t('map.open')) + '</span></a>' +
       '</div></div>';
   }
 
-  /* v1 改：地图与 CXO/SP 焦点区分属两个平级容器（#l0Map 在上、#l0 在下，
-     中间隔着六个视图入口卡）。所以本函数现在写两块：
-       · #l0    —— CXO 焦点卡 + SP 行式清单
-       · #l0Map —— 拓扑地图那一整块
-     快速路径（keepMap）的 iframe 保活逻辑与原来完全一致：只重写左栏与 p-head，
-     绝不重建 iframe。 */
-  /* 地图容器渲染。
-     ⚠️ v1 改：本函数**不再负责 CXO/SP 焦点区** —— 那块按要求整块去掉了
-     （上面六张视图入口卡已经覆盖 CXO / SP / MS / FLM / FO / BO 六个视图，
-     焦点卡是重复的第二份）。函数名沿用 renderL0 是为了不动
-     render() / renderCatalog() / 主题切换 / 地图页签那几处调用点。
-     现在它只做一件事：把地图写进 #l0Map。 */
+  /* 地图容器渲染：把内嵌面板写进 #l0Map。
+     函数名沿用 renderL0 是为了不动 render() / renderCatalog() / 主题切换那几处调用点。 */
   function renderL0(keepMap) {
     var mapBox = $('#l0Map');
     if (!mapBox) return;
-    var maps = mapItems();
-    /* 快速路径：地图那一栏里的 iframe 一旦离开文档，Chrome 就直接丢弃它的内容文档 ——
+    /* 快速路径：iframe 一旦离开文档，Chrome 就直接丢弃它的内容文档 ——
        「先抓节点再搬回来」救不回来（实测 sameNode:true / sameWindow:false），
        代价是改一个字拓扑图重载几十秒。所以只要地图还在，就整块不动。
        但 p-head 要就地刷新：改名走的是 renderCatalog → renderL0(true)，
        不重画标题的话「改完标题没变」会被当成没保存成功。 */
-    if (keepMap && maps.length && mapBox.querySelector('.map')) {
+    if (keepMap && mapBox.querySelector('.map')) {
       var phead = mapBox.querySelector('.p-head');
-      if (phead) phead.innerHTML = mapHeadHtml(maps);
+      if (phead) phead.innerHTML = mapHeadHtml();
       return;
     }
-    if (maps.length) {
-      mapBox.innerHTML = '<section class="panel map" data-tier="0" aria-label="Topology">' +
-        mapHeadHtml(maps) +
-        '<div class="canvas"><iframe id="mapFrame" title="' + esc(headTitleText()) + '" src="' + esc(curMap().src) + '"></iframe>' +
-        '<div class="canvas-note"><span>' + esc(curMap().title) + '</span>' +
-        '<span>/myapp/?page=' + esc(curMap().page) + '</span></div></div></section>';
-    } else {
-      mapBox.innerHTML = '';
-    }
+    mapBox.innerHTML = '<section class="panel map" data-tier="0" aria-label="GIS Map">' +
+      mapHeadHtml() +
+      '<div class="canvas"><iframe id="mapFrame" title="' + esc(headTitleText()) + '" src="' + esc(mapSrc()) + '"></iframe>' +
+      '<div class="canvas-note"><span>' + esc(t('map.title')) + '</span>' +
+      '<span>/myapp/?page=' + esc(GIS_PAGE) + '</span></div></div></section>';
     wireMap();
-  }
-
-  function mapItems() {
-    var all = allowed();
-    return DATA.MAP_TABS.map(function (m) {
-      var it = all.filter(function (x) { return String(x.url || '').indexOf('page=' + m.page) !== -1; })[0];
-      return {
-        page: m.page, key: m.key, icon: m.icon, item: it,
-        title: it ? (state.lang === 'en' ? (it.titleEn || it.titleZh) : (it.titleZh || it.titleEn)) : m.page,
-        src: '/myapp/?page=' + m.page + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '')
-      };
-    }).filter(function (m) { return !!m.item; });
-  }
-  function curMap() {
-    var ms = mapItems();
-    return ms.filter(function (m) { return m.page === state.mapTab; })[0] || ms[0] || { page: '', src: 'about:blank', title: '' };
   }
 
   /* 二级子分组：与 MsPortal 同一份口径，定义随服务端目录落盘（catalog.subGroups）。
@@ -1931,15 +2016,8 @@
     });
     return out;
   }
-  /** 页签显示名：目录里配过就用它，否则回落 i18n 字典的内置文案（t(key)）。 */
-  function tabLabelOf(page, key) {
-    var v = state.tabLabels && state.tabLabels[page];
-    if (v) {
-      var s = state.lang === 'en' ? (v.en || '') : (v.zh || '');
-      if (s) return s;                      /* 只认当前语言的值，缺就回落内置 */
-    }
-    return t(key);
-  }
+  /* tabLabelOf（页签显示名）2026-09-29 删除：地图栏的页签与它们的显示名一起没了，
+     本页再无第二个调用点。标题仍走 headTitleText / headSubText。 */
   /* 本栏标题 / 副标题（2026-09-23 纳入可改名）。
      ⚠️ olbrportal 的用法与 MsPortal **相反**：这里是 title=中文、sub=英文
      （'map.title' 中文值「利比里亚网络拓扑全景」、英文值 "Central Liberia Regional
@@ -2178,21 +2256,32 @@
     commit(function () { state.groups = next; state.viewSub = ''; }, t('edit.grpAdded'));
   }
   /* 删除一级分组比看起来危险：分组名只是标签，看板才是内容 —— 所以先把该分组从每张
-     卡片的 groups 里摘掉，并且**先检查有没有人会因此无家可归**。任何一张卡会因为这次删除
-     而属于零个分组，就直接拒绝并说明数量：门户里没有「不属于任何分组的看板」这种状态，
-     那些卡在页签视图里是看不见的，删完才发现就等于把看板弄丢了。 */
+     卡片的 groups 里摘掉，并且**先检查有没有人会因此无家可归**。
+
+     ⚠️ 2026-09-28 改：原来只要有任何一张卡会因为这次删除变成零归属，就整批拒绝
+     （edit.grpHomeless）。现在有了归档这条兜底路，改判据为"能不能立刻兜住"：
+       · 卡片**还有别的分组** → 直接摘掉本组即可，与以前一致；
+       · 卡片**只有本组**       → 摘掉的同时补上归档，不再拒绝。
+     于是"删一个分组"不再可能把看板弄丢：要么它本来就有别处可去，要么进归档。
+     归档分区自己（DATA.ARCHIVE）不允许删除（见下），否则既没有兜底、又回到老问题。 */
   function delGroup(gid) {
     if (!gid || isBuiltinGroup(gid)) { toast(t('edit.grpBuiltin')); return; }
+    /* 归档是兜底分区：删掉它会让下面的补归档逻辑写进一个不存在的分组。
+       与内置分组同样处理（报"只能改名不能删除"），而不是另外编一句文案。 */
+    if (isArchiveGid(gid)) { toast(t('edit.grpBuiltin')); return; }
+    /* 有没有卡片会因此掉进归档 —— 用来在确认框里说清后果，不是用来拦。 */
     var homeless = itemsAll().filter(function (it) {
       return groupsOf(it).length === 1 && inGroup(it, gid);
     });
-    if (homeless.length) { toast(tf('edit.grpHomeless', { n: homeless.length })); return; }
-    if (!window.confirm(tf('edit.grpDelConfirm', { n: gid }))) return;
+    if (homeless.length) { toast(tf('edit.grpHomeless', { n: homeless.length })); }
+    if (!window.confirm(tf('edit.grpDelConfirm', { n: gid }) + (homeless.length ? '\n\n' + tf('edit.archived', {}) : ''))) return;
     var nextGroups = state.groups.filter(function (g) { return g.id !== gid; });
+    if (homeless.length) ensureArchiveGroup();
     var nextItems = itemsAll().map(function (it) {
       if (!inGroup(it, gid)) return it;
       var c = {}; Object.keys(it).forEach(function (k) { c[k] = it[k]; });
       c.groups = groupsOf(it).filter(function (g) { return g !== gid; });
+      if (!c.groups.length) c.groups = [DATA.ARCHIVE];
       return withSubOf(c, gid, '');
     });
     var nextOrder = shallow(state.order); delete nextOrder[gid];
@@ -2238,24 +2327,51 @@
   /* -------------------------------------- 看板条目本身的增删（2026-09-26） -- */
   /* 与上面「分组」三件事的区别：这里动的是 **条目本身**，不是它挂在哪个分组。
 
-     ⚠️ 「移出本列」为什么必须防一手：本项目**没有「不属于任何分组」的看板**这种状态 ——
-     空 groups 的条目在页签视图里是看不见的（delGroup 里那段无家可归保护讲的就是这个）。
-     NUR Dashboard(no=1) 就只属于 ["MS View"] 一个分组，无脑移出等于把它弄丢了。
-     所以只剩一个分组时直接拒绝，并指路到真正能删它的那颗按钮。 */
+     ⚠️ 2026-09-28 改：原先只剩一个分组时直接拒绝并提示 edit.itemLastGrp
+     （"这是它唯一的分组，移出后就没地方放了 —— 真要移除请用「删除看板」"）。
+     用户读到的正是这句话。问题不在于拦得对不对，而在于**它没有给出路**：
+     想"别让它出现在这个视图里"是合理诉求，而被指向的是不可逆的「删除看板」。
+
+     现在改成：摘掉当前分组后若一个分组都不剩，就自动移入归档（Archived），
+     并且仍然只做**一次** commit —— 摘归属与补归档必须在同一份 items 上完成。
+     分成两次 commit 会在中间态产生"零归属条目"，而那个状态正是本项目
+     一直要避免的（渲染不出来）。 */
   function dropItemFromGroup(no, gid) {
     var it = itemsAll().filter(function (x) { return String(x.no) === String(no); })[0];
     if (!it || !gid) return;
     if (!inGroup(it, gid)) return;
-    if (groupsOf(it).length <= 1) { toast(t('edit.itemLastGrp')); return; }
+    /* 移出的是归档本身（在归档区点「移出本列」）没有任何去处，
+       直接指路到归档行上的「取消归档」—— 那把按钮才有明确的落点。 */
+    if (isArchiveGid(gid)) { toast(t('arch.unarchiveTip')); return; }
+    var last = groupsOf(it).length <= 1;
     commit(function () {
+      if (last) ensureArchiveGroup();
       applyItems(patchItem(no, function (x) {
         var c = {}; Object.keys(x).forEach(function (k) { c[k] = x[k]; });
         c.groups = groupsOf(x).filter(function (g) { return g !== gid; });
+        /* 一个都不剩 = 刚从唯一分组移出：补上归档，绝不留下零归属条目。 */
+        if (!c.groups.length) c.groups = [DATA.ARCHIVE];
         /* 子分组归属也要一起摘掉：留着会在「该分组 → 子分组」的映射里
            留下一个指向已不属于该组的条目的悬挂 key（与 delGroup 同一处理）。 */
         return withSubOf(c, gid, '');
       }));
-    }, t('edit.itemDropped'));
+    }, last ? t('edit.archived') : t('edit.itemDropped'));
+  }
+  /* 取消归档：把归档项放回一个**用户选定**的视图。
+     刻意不自动挑一个分组（比如"第一个非归档组"）：那等于替用户决定它属于哪个业务视图，
+     而归档项之所以被移出，往往就是因为哪个视图都不合适。落点必须由人来定。 */
+  function unarchiveItem(no, gid) {
+    var it = itemsAll().filter(function (x) { return String(x.no) === String(no); })[0];
+    if (!it || !gid || isArchiveGid(gid)) return;
+    commit(function () {
+      applyItems(patchItem(no, function (x) {
+        var c = {}; Object.keys(x).forEach(function (k) { c[k] = x[k]; });
+        var next = groupsOf(x).filter(function (g) { return !isArchiveGid(g); });
+        if (next.indexOf(gid) === -1) next.push(gid);
+        c.groups = next;
+        return c;
+      }));
+    }, t('edit.grpOk'));
   }
   /* 彻底删除条目。⚠️ 这是本页唯一不可逆的操作，且改的是所有人共享的目录
      （/olbrportal/ 与 MsPortal 都读同一份），所以：
@@ -2407,10 +2523,13 @@
          否则 mousedown 先 closeForm()、紧接着 click 又 openForm()：
          同一个元素上先关后开，表现为浮层闪一下，且第二次点变成"切换关闭"。
          2026-09-23 加页签/标题改名时漏了后两个选择器（.tab 与 [data-act=map-head]），
-         症状是点标题浮层一闪、点同一个页签第二次不弹。 */
+         症状是点标题浮层一闪、点同一个页签第二次不弹。
+         ⚠️ 2026-09-29：页签条（.tab）已随「本栏固定内嵌 page=gis」去掉，所以那个
+         选择器删了；但 **[data-act="map-head"] 必须留着** —— 地图标题改名的铅笔按钮
+         仍在 mapHeadHtml 里渲染，漏掉它就会退回上面那个"浮层一闪"的老毛病。 */
       if (state.popForm && !e.target.closest('#editPop') &&
           !e.target.closest('[data-act="grp-edit"],[data-act="grp-add"],[data-act="title"],' +
-                            '[data-act="map-head"],#l0Map .tab')) closeForm();
+                            '[data-act="map-head"]')) closeForm();
       if (state.grpFor !== null && !e.target.closest('#grpPop') && !e.target.closest('[data-act="grp"]')) closeGrp();
     });
   }
@@ -2516,7 +2635,10 @@
       var i = next.indexOf(g);
       if (cb.checked && i === -1) next.push(g);
       if (!cb.checked && i !== -1) next.splice(i, 1);
-      if (!next.length) { toast(t('edit.needGroup')); renderGroupsPop(); return; }   /* 一张都不勾 = 看板从所有分组消失 */
+      /* 一张都不勾 = 看板从所有分组消失。2026-09-28 起不再直接拒绝，而是补上归档 ——
+         与「移出本列」同一个落点，两条路径的兜底行为必须一致，否则
+         "取消勾选最后一个"和"移出本列"会给出两种不同的结果，用户没法预期。 */
+      if (!next.length) { next = [DATA.ARCHIVE]; ensureArchiveGroup(); }
       setGroups(state.grpFor, next);
       renderGroupsPop();
     });
@@ -2663,18 +2785,17 @@
       };
     }
     else if (kind === 'maptab') {
-      /* 当前值：配过就是配置里的，没配过用内置文案（不要让输入框空着 ——
+      /* ⚠️ 2026-09-29：本栏固定内嵌 page=gis 一页，页签条整条去掉，
+         所以本函数只剩「改本栏名称」一项（per-page 的 tabLabelOf 分支已随之删除）。
+         后端 TAB_PAGES 白名单里 gis / mwRealTime 两个 page 值**刻意保留**：
+         服务端已存过的 tabLabels 改名记录不会因为前端不再渲染页签而被丢弃。
+         当前值：配过就是配置里的，没配过用内置文案（不要让输入框空着 ——
          空框会让人以为「本来就没名字」，而实际是有内置名的）。
          __head 的 zh/en 与页签同口径（zh=中文、en=英文），本门户标题在上用的是 zh，
          取值时直接照 headTitleText/headSubText 的映射来。 */
       var cv = (state.tabLabels && state.tabLabels[id]) || {};
-      if (id === DATA.RENAME_HEAD) {
-        vals = { zh: cv.zh || headTitleText(), en: cv.en || headSubText() };
-      } else {
-        var mt = mapItems().filter(function (x) { return x.page === id; })[0];
-        if (!mt) return;
-        vals = { zh: cv.zh || tabLabelOf(id, mt.key), en: cv.en || tabLabelOf(id, mt.key) };
-      }
+      if (id !== DATA.RENAME_HEAD) return;
+      vals = { zh: cv.zh || headTitleText(), en: cv.en || headSubText() };
     }
     var hd = kind === 'grp' ? gName(id) : kind === 'title' ? ('#' + id + ' ' + (vals.zh || vals.en))
       : kind === 'maptab' ? (t('map.title') + ' · ' + (vals.zh || vals.en))
@@ -3025,6 +3146,59 @@
       (it.status === 'beta' ? '<em>' + esc(stOf(it)) + '</em>' : '') +
       '<i class="ph ph-arrow-right go" aria-hidden="true"></i></a></li>';
   }
+  /* 归档区（2026-09-28 加）。
+     ----------------------------------------------------------------------------
+     为什么必须有这一块：「移出本列」把看板送进归档后，如果归档不渲染，
+     用户看到的就是"卡凭空消失"—— 那和直接删掉没有区别，兜底也就白做了。
+
+     为什么默认折叠（只露 AUX_ROWS 行）：归档是"收起来"的地方，不是要天天看的清单。
+     但**不能完全隐藏**：管理员需要能确认"它还在"，所以给一行标题 + 计数 + 展开按钮，
+     与其余辅助区同一套交互（data-act="aux-toggle"），不新造控件。
+
+     为什么只显示"只属于归档"的条目：一张卡可以同时挂在正常视图和归档里
+     （用「分组」浮层就能勾成这样）。那种条目在正常视图里已经看得见，
+     再在归档区列一遍会让人以为有两份。所以归档区**只列"除此之外没有别处"的条目**，
+     语义是"这些是只在这里的东西"。
+     —— 注意与 delGroup/dropItemFromGroup 的补归档口径一致：补进去的必然是唯一归属。 */
+  function archivedItems() {
+    return allowed().filter(function (it) {
+      var g = groupsOf(it);
+      return g.length === 1 && isArchiveGid(g[0]);
+    });
+  }
+  function renderArchive() {
+    var box = $('#arch');
+    if (!box) return;
+    var list = archivedItems();
+    /* 没有归档项就整块不渲染（不是渲染一个空框）：绝大多数会话用不到它，
+       常驻一个"归档为空的框"只是噪声。 */
+    if (!list.length) { box.innerHTML = ''; box.hidden = true; return; }
+    box.hidden = false;
+    list = list.slice().sort(sorter(DATA.ARCHIVE));
+    var open = !!state.auxOpen[DATA.ARCHIVE], cut = list.length > DATA.AUX_ROWS;
+    var show = open || !cut ? list : list.slice(0, DATA.AUX_ROWS);
+    box.innerHTML =
+      '<div class="aux-g arch-g" data-key="' + esc(DATA.ARCHIVE) + '" data-open="' + (open ? '1' : '0') + '">' +
+        '<h3 class="aux-h"><span class="aux-n t-orange">' + esc(archiveName()) + '</span>' +
+        '<span class="cnt">' + list.length + '</span>' +
+        (cut ? '<button type="button" class="aux-x" data-act="aux-toggle" data-key="' + esc(DATA.ARCHIVE) +
+          '" aria-expanded="' + (open ? 'true' : 'false') + '"><i class="ph ph-' + (open ? 'caret-up' : 'caret-down') +
+          '" aria-hidden="true"></i><span>' + esc(open ? t('aux.less') : tf('aux.more', { n: list.length - DATA.AUX_ROWS })) +
+          '</span></button>' : '') + '</h3>' +
+        '<p class="arch-hint">' + esc(t('arch.hint')) + '</p>' +
+        '<ul>' + show.map(function (it) {
+          return '<li><a class="lrow" href="' + esc(vlink(it, DATA.ARCHIVE)) + '" target="_blank" rel="noopener noreferrer">' +
+            ic(it.icon) + '<span>' + hl(titleOf(it)) + '</span>' +
+            (it.status === 'beta' ? '<em>' + esc(stOf(it)) + '</em>' : '') +
+            '<i class="ph ph-arrow-right go" aria-hidden="true"></i></a>' +
+            /* 回去的路：没有它，"可逆"就只是注释里的一句话。
+               只在编辑态给（与其余编辑按钮同一口径）。 */
+            (canEdit() ? '<button type="button" class="ct" data-act="unarchive" data-no="' + esc(it.no) +
+              '" title="' + esc(t('arch.unarchiveTip')) + '"><i class="ph ph-arrow-u-up-left" aria-hidden="true"></i>' +
+              esc(t('arch.unarchive')) + '</button>' : '') +
+            '</li>';
+        }).join('') + '</ul></div>';
+  }
   function renderAux() {
     var box = $('#aux'), html = '';
     DATA.T2.forEach(function (gid) {
@@ -3137,18 +3311,19 @@
     box.innerHTML = html;
   }
 
-  function render() { renderRail(); renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderAux(); applyI18n(); }
+  function render() { renderRail(); renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderAux(); renderArchive(); applyI18n(); }
 
   /* 目录保存后的重绘：只画「看得懂目录改动」的那几块，且**不重新加载地图**。
      ⚠️ 不能图省事调 render()：MsPortal 当年就是这么把 4 个地图 iframe 全重建了一遍，
      地图重新加载几十秒，验证脚本从 18/18 掉到 11/18（症状是「no leaflet」）。
-     本页面只有一个地图，但同样的坑：改一次排序就闪一下拓扑图，谁都会以为保存把页面弄坏了。
+     本页面只有一个地图，但同样的坑：改一次排序就闪一下地图，谁都会以为保存把页面弄坏了。
+     所以 renderL0 传 true 走 iframe 保活快速路径（只就地重画 p-head）。
      v1 加入 renderViews6()：它列的报告名直接来自目录，改了标题 / 归属必须跟着变；
      而它不碰任何 iframe，放进这条快速路径是安全的。
      v1：原先这里还调 renderViews()（L1 页签面板），面板已去掉，改成
      renderEmailSection() —— 报告文件挂在目录条目上（emailItem 查 url 里的 page=），
      所以目录一改它也要跟着重判一次权限与文案。 */
-  function renderCatalog() { renderViews6(); renderL0(true); renderEmailSection(); renderRail(); renderAux(); }
+  function renderCatalog() { renderViews6(); renderL0(true); renderEmailSection(); renderRail(); renderAux(); renderArchive(); }
 
   /* --------------------------------------------------------------- auth -- */
   /* 与 MsPortal 共用 PORTAL_TOKEN_KEY：新页面登录不会把 MsPortal 顶掉（同一份会话），
@@ -4143,7 +4318,7 @@
      样式共用 /MsPortal/assets/qcDrill.css。改这里时请对照
      MsPortal/assets/portal.js 的 openQcDrill / closeQcDrill / fetchQcDrill /
      renderQcDrill / exportQcExcel —— 两边要一起改，别只改一边
-     （与文件顶部 wireMap 那段「两份若要改动，请同时改」是同一条约定）。
+     （与下面 map embed 那段「两份若要改动，请同时改」是同一条约定）。
 
      仍然保持只读版的三条红线：不写 msportal.* 键、不 PUT 目录、不改权限判定。
      下面只发 GET /api/portal-qc/* 与本地导出，不触碰任何写接口。 */
@@ -4166,10 +4341,26 @@
      不是卡片 id（`cr` / `pmt`）也不是接口用的 metric 名 —— `?page=` 走的是
      my_app 的 VALID_PAGES 白名单，写错会被静默回落到概览页，
      表现为「点了按钮跳过去了，但打开的是别的页」。 */
+  /* 2026-09-29（用户要求）：tt / wo 不再双双合流到 `ttwo`。
+     此前这两张卡都指向 `?page=ttwo`（TT/WO **合并**页），可它们的明细本来就是
+     分开取的（metric=tt 是故障工单生命周期，metric=wo 是派单闭环），点过去却落在
+     同一个合并页，用户还得在里面自己再切一次页签 —— 按钮上写的是「打开完整看板」，
+     落到的却不是这张卡的完整版。现在各指 my_app 的独立页：
+       tt → tt（TTs 故障工单，TTDashboard）
+       wo → wo（WOs 任务工单，WODashboard）
+     注意 'tt' / 'wo' / 'ttwo' / 'v1_ttwo' 是 my_app 里**四个不同的页面**，
+     四个 key 都在 VALID_PAGES 白名单内，写错哪一个都会被静默回落成概览页。
+
+     本次**只改 v1 这一份**，另外三处同名映射仍是 ttwo：
+       olbrportal/assets/olbr.js、v2/olbrportal/assets/olbr.js、
+       MsPortal/assets/portal.js
+     理由：用户实际在看的只有 /v1/olbrportal/（见 docs/user-guide.md 第六之二节），
+     且上面 cr / pmt 已有「v1 独有、别处刻意不改」的先例；一并漫改会让用户没要求的
+     /olbrportal/ 与 MsPortal 跟着变行为。将来要拉齐就改上面这三处。 */
   var QC_BOARD_PAGE = {
     alarm: 'realtime_alarm',
-    tt: 'ttwo',
-    wo: 'ttwo',
+    tt: 'tt',
+    wo: 'wo',
     spms: 'sp_report',
     cr: 'cr_analysis',
     pmt: 'pm_analysis'
@@ -4448,6 +4639,9 @@
      不改成 import 共用是因为：那是 portal.js 的私有函数、没有导出，
      而 portal.js 一加载就会把整个 MsPortal 首页跑起来 —— 只读版不能引它。
      两份若要改动，请同时改，别只改一边。 */
+  /* ⚠️ 2026-09-29：本函数在「改外链卡」那版里被删过一次，现在随内嵌地图一起恢复，
+     但**只服务地图这一个 iframe**（报告文件有它自己的 ensureEmail 时序，
+     不共用这里的三次重试节奏）。 */
   function wireMap() {
     var f = $('#mapFrame'); if (!f) return;
     var go = function () { tellEmbed(f, 0); stripFrame(f, 0); };
@@ -4731,7 +4925,9 @@
        ⚠️ 改这里请对照 MsPortal/assets/viewer.js 的 portalTheme()/lastWriteAt()。 */
     ss('olbr.theme.t', String(Date.now()));
     applyI18n();
-    var f = $('#mapFrame'); if (f) { f.src = curMap().src; }
+    /* 地图是内嵌 iframe：my_app 只在启动时读一次主题（且这页不收 postMessage），
+       所以换主题必须重设 src 才能让地图跟着变深浅色。 */
+    var f = $('#mapFrame'); if (f) { f.src = mapSrc(); }
     /* 报告文件那块不看 URL 参数也不收 postMessage（my_app 只在启动时读 myapp-theme），
        只能靠 ensureEmail 里的「上次主题 ≠ 本次」判据重设 src。
        v1：报告文件常驻（不再是"切到那个页签才渲染"），所以这里无条件调一次。 */
@@ -4836,9 +5032,20 @@
         openDrill(m.getAttribute('data-qc'), anchor);
       }
     });
-    /* v1：CXO 指标带只需处理「重试」一颗按钮。
-       卡片本身不可点 —— 这里的数字是"派生值"，点开没有对应明细接口，
-       配一个点不动的卡片比不给点击暗示更诚实（要看细节请走六个入口卡里的 CXO 看板）。 */
+    /* v1：CXO 指标带这里只处理「重试」一颗按钮。
+       ⚠️ 2026-09-29 改：原先这里写着「卡片本身不可点 —— 这里的数字是派生值，
+       点开没有对应明细接口」，据此不给点击。用户随后要求「三张卡点击后跳转到
+       http://localhost/myapp/?page=vmaxCxoDashboard_90Days」，这条判断被推翻。
+       推翻它是对的，理由有两条：
+         ① 三张卡的数**本来就全部来自那一页的接口**
+            （/api/olib-soc-dashboard/overview?days=90），
+            所以「点开没有对应明细」这个前提不成立 —— 有对应页面，只是不是明细弹窗；
+         ② .qc-card 从上线起就带 cursor:pointer + hover 抬升，
+            视觉一直在暗示可点。此前是「看起来能点、点了没反应」，
+            比不给点击暗示更糟。
+       跳转**不由这里的事件委托实现**：kpiRichHtml 直接把整张卡渲染成 <a href>，
+       浏览器原生负责跳转与中键/键盘行为，比挂 click 监听更稳。
+       下面这条只保留「重试」—— 卡片点击不会冒泡到这里被误当成重试。 */
     $('#kpi').addEventListener('click', function (e) {
       if (e.target.closest('[data-act="kpi-reload"]')) loadKpi();
     });
@@ -4881,28 +5088,18 @@
       }
       onEditClick(e);
     });
-    /* v1：地图的页签 / 标题改名 / 刷新三颗按钮挂在 #l0Map 上。
-       原先这里还往 #l0 也挂一份（防御性，怕地图被挪回去）—— #l0 本次整块去掉，
-       那一次绑定会直接抛 "Cannot read properties of null"，所以删掉。 */
+    /* v1：地图的标题改名 / 刷新两颗按钮挂在 #l0Map 上。
+       ⚠️ 2026-09-29：页签那一支已在「固定为 page=gis 单页」时去掉 ——
+       本栏不再有 [data-map] 元素，留着分支永远匹配不到。
+       标题改名按钮在 p-head 里，而 p-head 会被 renderL0 重建，
+       所以走事件委托而不是绑按钮本身。 */
     var mapClick = function (e) {
-      var tb = e.target.closest('[data-map]');
-      if (tb) {
-        var pg = tb.getAttribute('data-map');
-        /* 编辑模式：点页签 = 改名浮层；非编辑模式：照旧切地图。
-           两者必须分开 —— 同时生效会让「想看看微波实时」变成误开改名框。
-           v1 起 canEdit() 恒为 false（编辑模式已停用），这里的分支实际上只会走
-           切地图那条；保留判断是为了恢复编辑模式时不用再改这一处。 */
-        if (canEdit()) { openForm('maptab', pg, tb); return; }
-        state.mapTab = pg; ss('olbr.maptab', state.mapTab); renderL0(); return;
-      }
-      /* 标题改名（2026-09-23 加）：按钮在 p-head 里，那块会被 renderL0 重建，
-         所以走这里的事件委托而不是绑按钮本身。 */
       if (e.target.closest('[data-act="map-head"]')) {
         e.preventDefault();
         openForm('maptab', DATA.RENAME_HEAD, e.target.closest('[data-act="map-head"]'));
         return;
       }
-      if (e.target.closest('[data-act="map-reload"]')) { var f = $('#mapFrame'); if (f) f.src = curMap().src; }
+      if (e.target.closest('[data-act="map-reload"]')) { var f = $('#mapFrame'); if (f) f.src = mapSrc(); }
     };
     $('#l0Map').addEventListener('click', mapClick);
     /* v1：报告文件的「刷新」委托从 #views 搬到 #emailSlot。
@@ -4930,9 +5127,30 @@
       if (e.target.closest('[data-act="esc-copy"]')) { copyEsc(); return; }
     });
     $('#aux').addEventListener('click', function (e) {
+      /* 归档行的「取消归档」：先把条目放回一个**用户选定**的视图，再刷新。
+         ⚠️ 这里必须用 prompt 之外的确定来源：归档项没有"当前面板"这种东西，
+         所以落点只能由用户当场指定。可选项取 tabGids()（真正渲染得出来的分组），
+         而不是 grpGids()（含只被引用过、却不在版面里的 id）—— 选到一个渲染不出来的
+         分组等于换个地方弄丢，与本次改动要解决的问题正好相反。 */
+      var u = e.target.closest('[data-act="unarchive"]');
+      if (u) {
+        var no = u.getAttribute('data-no');
+        var opts = tabGids().filter(function (g) { return !isArchiveGid(g); });
+        if (!opts.length) { toast(t('edit.needGroup')); return; }
+        var pick = window.prompt(t('arch.unarchiveTip') + '\n\n' +
+          opts.map(function (g, i) { return (i + 1) + '. ' + gName(g); }).join('\n'), '1');
+        if (pick === null) return;
+        var idx = parseInt(pick, 10) - 1;
+        if (!(idx >= 0 && idx < opts.length)) { toast(t('edit.needGroup')); return; }
+        unarchiveItem(no, opts[idx]);
+        return;
+      }
       var b = e.target.closest('[data-act="aux-toggle"]'); if (!b) return;
       var k = b.getAttribute('data-key');
-      state.auxOpen[k] = !state.auxOpen[k]; renderAux();
+      state.auxOpen[k] = !state.auxOpen[k];
+      /* 归档区与 T2 辅助区是两块独立的 DOM（#arch / #aux），
+         只调 renderAux() 的话点归档的展开按钮会毫无反应。 */
+      if (isArchiveGid(k)) renderArchive(); else renderAux();
     });
     /* ---- QC 下钻弹窗（骨架见 index.html 的「QC 下钻弹窗」块）----
        2026-09-23：元素 id 换成与 MsPortal 的 QcDrillModal 同名的一套

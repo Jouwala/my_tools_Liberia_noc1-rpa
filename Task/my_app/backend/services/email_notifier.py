@@ -35,12 +35,16 @@ _last_notify: dict[str, float] = {}
 
 
 def _runtime_credentials():
-    """运行时获取 126 凭据（环境变量 > DB > 代码默认），支持页面改密后免重启生效。"""
+    """运行时获取 126 凭据（环境变量 > DB > credential_store 默认值）。
+
+    不传默认值：`mail_126` 凭据组已带默认用户名/授权码（credential_store.py）。
+    2026-09-27 前这里传了硬编码授权码字面量，属重复真相源且已入库。
+    """
     try:
         from backend.services.credential_store import get_credential
     except ImportError:
         from credential_store import get_credential
-    return get_credential("mail_126", SENDER, "LQcTaMMuWmhvAfRB")
+    return get_credential("mail_126")
 
 
 def _build_html(task_id: str, task_name: str, error: str,

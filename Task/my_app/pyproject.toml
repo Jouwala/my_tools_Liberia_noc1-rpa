@@ -1,0 +1,65 @@
+# ============================================================================
+# my_app / Data Insight MVP —— Python 静态检查配置
+#
+# 定位：把 AGENTS.md 第四节的"硬性约束"变成**机器可验证**的守卫，而不是
+# 再立一套新的风格标准。所以规则集刻意很窄，只开"真错误 + 已有硬约束"。
+#
+# 2026-09-27 引入时的实测基线（backend/，供后续对比是否恶化）：
+#   E9  = 0        （真正的语法/运行时错误，零容忍，已保持全绿）
+#   F821= 10 → 0   （未定义名 = 必然 NameError。**已全部修完**，见下）
+#   F401= 201      （未使用导入，纯整洁问题，设为 warning 不阻断）
+#   F841= 33       （未使用变量，同上）
+#   F541= 42       （空 f-string，同上）
+#   S110= 173      （裸 except 后 pass，见下方说明为何不阻断）
+#   T20 = 1319     （print，worker 与脚本场景本就该用，不阻断）
+#
+# 用法：
+#   python -m ruff check backend            # 看全部
+#   python -m ruff check backend --select E9,F821   # 只看必须为零的
+# ============================================================================
+
+[tool.ruff]
+line-length = 120
+# 与 .gitignore / vite.config.ts 的判断保持一致：这些不是源码
+exclude = [
+    ".venv", "Lib", "Scripts", "TMP", "log", "db",
+    "_myapp_trash_*", "node_modules", "__pycache__",
+]
+
+[tool.ruff.lint]
+select = [
+    "E9",   # 语法/运行时错误（真错误）
+    "F",    # pyflakes：未定义名、未使用导入等
+    "S110", # try-except-pass（对应 AGENTS.md 第四节第 2 条"吞异常"）
+    "T20",  # print（库代码里应走 logger）
+]
+
+# ---------------------------------------------------------------------------
+# 分级策略：把"必须为零"和"存量债务"分开，避免守卫一上线就被噪声淹没。
+# ruff 的 fixable 提示说明大部分是可自动修的，但**自动修 201 处导入有回归风险**
+# （删除的导入可能被 `# noqa`/字符串/副作用依赖），因此不批量 --fix。
+# ---------------------------------------------------------------------------
+ignore = [
+    # 裸 except 后 pass：本项目面对 UME/eFlow/爬虫等不稳定上游，
+    # AGENTS.md 原则 5 明确要求处理"上游返回半截数据"，这类吞异常**多数是刻意的**。
+    # 真正的问题是"吞了没上下文"，不是"吞了"。故不阻断，改为在
+    # backend/services/silent_except.py 提供带上下文的统一入口逐步收敛。
+    # 详见 docs/manual 相关小节与 tests/README_tests.md 的债务登记。
+    "S110",
+    # print：worker 进程 / 一次性脚本 / migrate 工具本来就靠 stdout，
+    # 一刀切禁止会把正常用法变成告警。库代码（services/routers）应走 logger，
+    # 但存量 1319 处不构成风险，不阻断。
+    "T20",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试与脚本：允许未使用导入（pytest fixture 常需"导入即注册"）与 print
+"tests/**" = ["F401", "F841", "T20"]
+"backend/scripts/**" = ["F401", "F841", "T20"]
+"backend/migrations/**" = ["F401", "F841", "T20"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# conftest.py 的 collect_ignore 负责排除"手动运行脚本"（含模块级 sys.exit 的），
+# 这里只加最小选项，避免与既有 collect_ignore 语义冲突。
+addopts = "-q"

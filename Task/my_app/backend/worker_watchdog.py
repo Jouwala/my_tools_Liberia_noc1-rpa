@@ -105,9 +105,19 @@ GROUP_TASK_MAP = {
         # 也避免与写入方并发。此前该表由已退役的 my-finebi 手工 ETL 维护，
         # 无人调度 → 冻结在 2026-09-13，看板静默停更（本次事故）。
         "avail_recon_sync"),
-    "n": (  # 网管 / eFlow API / 远程系统：各自独立但保守同组（VMAX 门户任务已拆至 v 组）
+    "n": (  # eFlow API / config-center 同源会话组（2026-09-27 收窄：s/w 两组已拆出）
+        # 【2026-09-27 拆组背景】本组原先 17 项，实测近 24h 单 worker 串行占用：
+        #   sp_data_sync 347min + eflow_sync 236min + eflow_active_alarm 103min = 686min/天，
+        #   即该 worker 约 48% 时间在忙，且全部挤在同一条串行道上；队列实测等待达
+        #   mw_ume_kpi_sync_rt 964s / eflow_active_alarm 688s（本机 28 逻辑核基本闲置）。
+        # 更严重的是**故障域**：worker.py:83-93 记载 sp_data_sync 的 SFTP channel 读挂死
+        # 5.5h，因同组串行把整个 n 组（含 MW 实时看板、实时告警）一起拖停摆。
+        # 拆组依据为「上游会话/写库是否真的互斥」，不是「任务像不像」：
+        #   sp_data_sync → 远端 SFTP 10.100.20.11（独占 channel）+ UNC 镜像库；与 eFlow 无共享 → 拆到 s
+        #   mw_ume_*     → MW UME 网管（credential_store key=mw_ume）独立会话 → 拆到 w
+        # 保留在本组的都是 eFlow API / config-center 同源或保守依赖，必须继续串行。
         "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,eflow_tt_rules_check,"
-        "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,sp_data_sync,mw_ume_kpi_sync,mw_ume_kpi_sync_rt,"
+        "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,"
         # sp_online_sync 2026-09-02 补录：SP 在线工单走 eFlow API 同源会话，归入 eFlow 组
         "sp_online_sync,"
         # sp_material_sync 2026-09-09 补录：SP 物料主数据同样走 eFlow API 同源会话，
@@ -124,6 +134,25 @@ GROUP_TASK_MAP = {
         # 第 1 步就调用 ume_in_kpi_service.run_ume_in_kpi_sync()，与 ume_in_kpi_sync 共用
         # 同一 UME Dong 门户会话，必须同组串行（且第 3 步走 EWS 发信，组内串行不影响时效）。
         "ume_in_osg_report"),
+    "s": (  # SP 备件 SFTP 组（2026-09-27 从 n 组拆出）：上游是**独立 SFTP 服务器**
+        # （get_sp_table.py:68 SFTP_HOST，独占 channel），成功后另做 UNC 网络路径镜像
+        # 写 FineBI 的 WareHouseDashBoard/inventory.db（get_sp_table.py:86-88）。
+        # 拆出理由有二：
+        #   ① 它是 n 组最大的单体负载：实测 39 次/天 × 平均 534s ≈ 347min/天，串行时
+        #      每个小时级 eFlow 采集都要排在它后面；
+        #   ② 它是 n 组已知的**挂死源**：worker.py:83-93 记载其 SFTP channel 读挂死
+        #      5.5h，同组串行导致整组（含实时告警）停摆。独立成组后，即使再次挂死
+        #      （仍由 WORKER_TASK_MAX_SECONDS=4h 兜底强杀重拉）也**只影响 s 组自身**。
+        # 与 eFlow/config-center/UME 无任何会话或写库交集，串行约束仅为自己内部
+        # （多次投递需按序写同一批 SP 表），故单独成组。
+        "sp_data_sync"),
+    "w": (  # MW UME 微波网管组（2026-09-27 从 n 组拆出）：独立于 eFlow 的网管会话
+        # （credential_store key=mw_ume，mw_ume_kpi_service.py:98-107 运行时取凭据）。
+        # 两个任务写同一张库/同族表（mw_ume_bw_ultilazation 与 _rt），必须彼此串行，
+        # 但与非 MW 任务无共享，故整组平移到 w，不与 n 组抢同一条串行道。
+        # 其中 mw_ume_kpi_sync_rt 是 */15 高频任务，实测 153 次/天，此前每次都要排在
+        # sp_data_sync（>8min/次）后面，队列等待实测达 964s（全场最久）→ 实时看板滞后。
+        "mw_ume_kpi_sync,mw_ume_kpi_sync_rt"),
     "v": (  # VMAX 门户（本机 8790 单会话代理）：三个任务共用同一个 VMAX 会话，必须彼此串行。
         # 2026-09-18 从 n 组拆出独立成组：它们与 eFlow/网管任务本就无会话冲突，混在 n 组只会
         # 让每小时 :15/:45 的 VMAX 采集排在 sp_data_sync（实测 1.5~2h）、ms_sla_full 等长任务
@@ -185,7 +214,14 @@ GROUP_TASK_MAP = {
         # （task_execution_log 0 条记录），队列 id=39422（created 2026-09-17T02:20）一直
         # pending + 单飞保护挡掉后续调度 → 90 天经营看板（?page=vmaxCxoDashboard_90Days）
         # 停在 2026-09-16（那天的数据还是手工 CLI 补进去的）。
-        "olib_soc_kpi_daily_sync,olib_soc_vmax_report"),
+        "olib_soc_kpi_daily_sync,olib_soc_vmax_report,"
+        # tt_alarm_whatsapp_alert 2026-09-28 注册：eFlow P1 未清除 TT 告警 WhatsApp 推送
+        # （*/15 高频）。归 m 组理由：与 whatsapp_send_ext 同属 WhatsApp 通道（共用
+        # data/ 作业文件与扩展认领链路）；只**只读** eflow_tt、不占任何上游业务会话；
+        # 自身只写 eflow_tt_whatsapp_alert_log（本任务独占表，与同组任务无写冲突）。
+        # 该组已有 */15 的 mw_ume_kpi_sync_rt 先例，可承载高频任务。
+        # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
+        "tt_alarm_whatsapp_alert"),
     "c": (  # CN EMS (10.100.2.240) 独立会话：缓存同步与日聚合共享 _pmcache/daily_raw.json，
         # 同组串行保证互斥（ems_kpi_cache_sync 每15分钟 + ems_kpi_daily 每天00:20）
         "ems_kpi_cache_sync,ems_kpi_daily"),

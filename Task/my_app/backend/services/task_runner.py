@@ -542,6 +542,28 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[{task_id}] 邮箱失败通知异常: {e}")
 
+    # 2026-09-27 新增：**降级告警**——任务本身 success=True，但任务函数在 result 里
+    # 报告了 warnings（典型场景：sp_data_sync 的 app.db 落库成功、镜像写 FineBI
+    # inventory.db 失败）。这类"主链路成功、旁路失败"原先完全静默：
+    # 告警只在 success=False 时触发（上面两个分支），于是 FineBI 看板停更了半个月
+    # 而监控全绿。这里把 warnings 汇总成一条通知，复用失败通知通道（不新增依赖）。
+    #
+    # 只报一次、只报首个任务级 warnings（不带明细堆栈），避免高频任务刷屏。
+    if result["success"]:
+        _warns = (result.get("result") or {}).get("warnings") if isinstance(result.get("result"), dict) else None
+        if _warns:
+            _warn_txt = "; ".join(str(w) for w in _warns if w)
+            logger.warning("任务降级完成（有 warnings）",
+                           extra={"task_id": task_id, "event": "task_degraded", "warnings": _warn_txt})
+            try:
+                notify_task_failure(
+                    task_id, task["name"],
+                    f"[降级] {_warn_txt}",
+                    None,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[{task_id}] 降级微信通知异常: {e}")
+
     logger.info("任务执行完成", extra={"task_id": task_id, "event": "task_done", "success": result["success"], "elapsed": round(elapsed, 2)})
     return result
 

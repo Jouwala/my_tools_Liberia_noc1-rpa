@@ -58,8 +58,6 @@ except Exception:
 # ============================================================
 HOST = "10.100.2.101"
 PORT = 443
-USERNAME = "admin"
-PASSWORD = "Zte@orange123!"
 
 
 def _runtime_credentials():
@@ -69,7 +67,7 @@ def _runtime_credentials():
     except ImportError:
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from credential_store import get_credential
-    return get_credential("fw_kpi", USERNAME, PASSWORD)
+    return get_credential("fw_kpi")
 
 # 脚本目录（相对路径基准）
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

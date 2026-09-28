@@ -52,23 +52,26 @@ if %errorlevel%==0 (
 )
 
 if exist "%~dp0backend\worker_watchdog.pid" (
-    echo [OK] Task worker watchdog is running (auto-restart enabled, groups=u,n,m,c,v)
+    echo [OK] Task worker watchdog is running (auto-restart enabled, groups=u,n,s,w,m,c,v)
 ) else (
     echo [WARN] Worker watchdog PID file not found! Check log\worker_watchdog_console.log
 )
 
 :: Worker group check. The group list MUST match
-::   start_hidden.ps1:135 MY_APP_WORKER_GROUPS, worker_watchdog.GROUP_TASK_MAP,
-::   restart_workers.ALL_GROUPS.
+::   start_hidden.ps1 MY_APP_WORKER_GROUPS, worker_watchdog.GROUP_TASK_MAP
+::   (restart_workers.ALL_GROUPS derives from GROUP_TASK_MAP).
 :: Previously v was omitted here, so a dead v-group still reported "4 / 4" all-green.
+:: 2026-09-27: n 拆为 n/s/w 后同步补 s、w 两项，否则 s/w 组死了仍报 all-green。
 set /a WCOUNT=0
 if exist "%~dp0backend\worker_u.pid" set /a WCOUNT+=1
 if exist "%~dp0backend\worker_n.pid" set /a WCOUNT+=1
+if exist "%~dp0backend\worker_s.pid" set /a WCOUNT+=1
+if exist "%~dp0backend\worker_w.pid" set /a WCOUNT+=1
 if exist "%~dp0backend\worker_m.pid" set /a WCOUNT+=1
 if exist "%~dp0backend\worker_c.pid" set /a WCOUNT+=1
 if exist "%~dp0backend\worker_v.pid" set /a WCOUNT+=1
-echo [*] Worker groups up: %WCOUNT% / 5
-if %WCOUNT% LSS 5 (
+echo [*] Worker groups up: %WCOUNT% / 7
+if %WCOUNT% LSS 7 (
     echo [WARN] Task queue has no full consumer set! Tasks will pile up as pending.
     echo        Check log\worker_runtime*.log (one per group) and log\worker_watchdog.log
 )

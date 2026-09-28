@@ -27,7 +27,16 @@ import os
 import sys
 from pathlib import Path
 
-# 代码默认值：仅作最后兜底，正常运行时应由 credential_store（设置页）提供真实凭据
+# 代码默认值：仅作最后兜底。正常运行时应由 credential_store（设置页）提供真实凭据。
+#
+# ⚠ 2026-09-27 说明：全仓库硬编码口令清理后，这里是**唯一**保留明文默认口令的地方，
+#   属刻意设计，不是漏网：
+#     1) 它是"三级优先级的最后一跳"（env > credential_store > 这里），删掉会让
+#        credential_store 不可用时直接认证失败，反而更难诊断；
+#     2) _LEGACY_DEFAULTS 依赖它的**值**来识别"调用方传了历史硬编码旧口令"，
+#        从而把这种传值当作"没传"。改这个值会同时改变那套识别逻辑。
+#   真要彻底消除明文，正确做法是让 credential_store 成为唯一来源并删掉第 3 级，
+#   而不是单独改这一行。
 DEFAULT_USERNAME = "ZTENOC_OLR"
 DEFAULT_PASSWORD = "Postcode@202608"
 

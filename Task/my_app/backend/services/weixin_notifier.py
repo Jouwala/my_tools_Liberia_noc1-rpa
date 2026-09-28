@@ -34,11 +34,10 @@ SESSION_KEY = "agent:main:openclaw-weixin:direct:o9cq800ivtut3q2rfe2faywl9fzw@im
 # 企业微信群机器人 webhook（MODE="wecom" 时填）
 WECOM_WEBHOOK_URL = ""
 
-# Server酱 SendKey（MODE="serverchan" 时填, 形如 SCTxxxxxxxxxxxx）
-SERVERCHAN_SENDKEY = "SCT389311TrwFJS9k0ZxfX5Plb9g0gozix"
-
-# 推送加 Token（MODE="pushplus" 时填）
-PUSHPLUS_TOKEN = "f9cf7778112f486ab618d153456e2553"
+# Server酱 SendKey（MODE="serverchan" 时用）与推送加 Token（MODE="pushplus" 时用）
+# 均由 credential_store 的 `weixin` 组提供（见 _runtime_weixin_credentials）。
+# 2026-09-27 删除硬编码 SendKey / Token —— 它们是 credential_store 默认值的重复副本，
+# 且把凭据明文带进了版本库。
 
 # 发送后端: openclaw | wecom | serverchan | pushplus
 MODE = "pushplus"
@@ -47,13 +46,14 @@ MODE = "pushplus"
 def _runtime_weixin_credentials():
     """运行时获取通知凭据，返回 (ServerChan SendKey, PushPlus Token)。
 
-    优先级：数据库(credentials 表) > 模块默认值，支持页面修改后免重启生效。
+    优先级：环境变量 > 数据库(credentials 表) > credential_store 默认值，
+    支持页面修改后免重启生效。不传默认值：`weixin` 组已带默认值。
     """
     try:
         from backend.services.credential_store import get_credential
     except ImportError:
         from credential_store import get_credential
-    return get_credential("weixin", SERVERCHAN_SENDKEY, PUSHPLUS_TOKEN)
+    return get_credential("weixin")
 
 # 超时（秒）
 OPENCLAW_AGENT_TIMEOUT = 280

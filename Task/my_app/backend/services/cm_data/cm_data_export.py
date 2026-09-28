@@ -74,8 +74,10 @@ pd.set_option("future.no_silent_downcasting", True)
 # ============================================================
 HOST = "10.100.28.27"
 PORT = 28001
+# 只留用户名（非敏感）；口令由 credential_store 的 `cm_data` 组提供。
+# 2026-09-27 删除硬编码 PASSWORD —— 它是 credential_store 默认值的重复副本，
+# 且把口令明文带进了版本库。
 USERNAME = "NOC"
-PASSWORD = "Zte@2025!"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # my_app 根目录（backend/services/cm_data -> my_app）；数据统一存放于 data/cm_data/（服务隔离）
@@ -409,8 +411,11 @@ def _runtime_credentials():
         try:
             from credential_store import get_credential  # type: ignore
         except ImportError:
-            return user or USERNAME, pwd or PASSWORD
-    cred_user, cred_pwd = get_credential("cm_data", USERNAME, PASSWORD)
+            # credential_store 都导入不了：只能返回环境变量或空口令。
+            # 原先这里回退到 PASSWORD 字面量，2026-09-27 已删除该硬编码口令；
+            # 空口令会让登录明确失败（而不是"用旧密码静默登录成功"），更安全。
+            return user or USERNAME, pwd or ""
+    cred_user, cred_pwd = get_credential("cm_data")
     return user or cred_user, pwd or cred_pwd
 
 

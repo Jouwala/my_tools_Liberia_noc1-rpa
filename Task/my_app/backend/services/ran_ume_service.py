@@ -82,7 +82,9 @@ except Exception:
 HOST = os.environ.get("RAN_UME_HOST", "10.100.28.27")
 PORT = int(os.environ.get("RAN_UME_PORT", "28001"))
 USERNAME = os.environ.get("RAN_UME_USER", "NOC")
-PASSWORD = os.environ.get("RAN_UME_PASS", "Zte@2025!")
+# 2026-09-27：原默认值为硬编码明文口令（已入库）。改为默认空串 —— 真实口令由
+# credential_store 的 `zte_ume` 组提供；env/配置都取不到时留空让认证明确失败。
+PASSWORD = os.environ.get("RAN_UME_PASS", "")
 
 # ========== 外部化配置（Settings 页面可编辑的 ran_ume_config.json） ==========
 # 优先级：环境变量 > 配置文件 > 内置默认。凭据走 credential_store。

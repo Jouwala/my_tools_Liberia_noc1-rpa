@@ -63,8 +63,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 # ============================================================
 HOST = "10.100.28.27"
 PORT = 28001
-USERNAME = "NOC"
-PASSWORD = "Zte@2025!"
 
 
 def _runtime_credentials():
@@ -73,7 +71,7 @@ def _runtime_credentials():
         from backend.services.credential_store import get_credential
     except ImportError:
         from credential_store import get_credential
-    return get_credential("zte_ume", USERNAME, PASSWORD)
+    return get_credential("zte_ume")
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "Downloads")

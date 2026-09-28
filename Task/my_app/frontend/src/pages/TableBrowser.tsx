@@ -6,6 +6,9 @@ import * as XLSX from 'xlsx'
 import api from '../api'
 import { useI18n, numLocale } from '../i18n'
 import { cardStyle, controlCardStyle } from '../theme'
+// Data Agent 只读 NL2SQL 入口（探索性副驾，不参与定时报表/看板产出）。
+// 定位、护栏与风险清单见 docs/DATA_AGENT_EVALUATION.md。
+import DataAgentBar from '../components/DataAgentBar'
 
 interface TableInfo {
   name: string
@@ -761,6 +764,11 @@ export default function TableBrowser() {
                 </div>
               </Card>
             ),
+          },
+          {
+            key: 'data-agent',
+            label: t('dataAgent.tab'),
+            children: <DataAgentBar />,
           },
         ]}
       />

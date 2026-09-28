@@ -35,6 +35,11 @@ OUTPUT_REPORT = SCRIPT_DIR / "MATCHING_REPORT.md"
 # ------------------------------------------------------------------ #
 
 def get_eflow_tt_data(limit: int = 1000) -> pd.DataFrame:
+    # ⚠️ 故意用裸 sqlite3.connect：本模块是**独立可运行的 eFlow 规则匹配工具**
+    # （脚本形态，见 SCRIPT_DIR / OUTPUT_XLSX），不在 FastAPI 进程内、不经过
+    # database.py 的 DB_MODE 熔断，只读本地 db/app.db 做离线核对。
+    # 因此这里与 routers/ 的约束不同：它本来就不参与 PG 模式。
+    # 注意 APP_DB_PATH 指向的是**真库** db/app.db（不是 backend/app.db 那个空占位）。
     conn = sqlite3.connect(str(APP_DB_PATH))
     query = """
         SELECT

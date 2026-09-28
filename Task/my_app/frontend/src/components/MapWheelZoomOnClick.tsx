@@ -16,7 +16,7 @@
  *   也是 iframe 内嵌，同样不希望地图抢走外层页面的滚动。
  */
 import { useEffect } from 'react'
-import { useMap } from 'react-leaflet'
+import { useMap } from './LeafletMap'
 
 /** 是否处于内嵌上下文：门户 iframe 的 src 带 mwembed=1；兜底看是否被 iframe 套住。
  *  跨域取 window.top 会抛异常 —— 抛异常说明确实在被别人嵌，按内嵌处理。 */

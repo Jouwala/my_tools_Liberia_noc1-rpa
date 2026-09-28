@@ -224,7 +224,8 @@ def run_ems_kpi_direct(strategy="hybrid", start_day=None, end_day=None):
     if end_day is None:
         end_day = now.strftime("%Y/%m/%d")
 
-    args = [JAVA, "-cp", CP, "EmsKpiQueryDirect", HOST, "oss", "Tool123",
+    # 2026-09-27：口令原先硬编码为明文（已入库），改为读环境变量 EMS_PASS。
+    args = [JAVA, "-cp", CP, "EmsKpiQueryDirect", HOST, "oss", os.environ.get("EMS_PASS", ""),
             start_day, end_day, strategy]
     p = subprocess.run(args, cwd=HERE, capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=PROC_TIMEOUT,

@@ -1065,7 +1065,6 @@ def _parse_create_detail(raw) -> Dict[str, Any]:
         "assignee_group": out.get("Assignee Group"),
         "operator_group": out.get("Operator Group"),
         "next_status": out.get("Next Status"),
-        "operation_result": out.get("Operation Result"),
         "remark": out.get("Remark"),
     }
 

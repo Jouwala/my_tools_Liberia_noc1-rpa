@@ -110,7 +110,9 @@ def try_mml_interaction(host, port):
             initial = ""
 
         # 尝试发送 HELP 命令 (MML 通用)
-        for cmd in ["HELP\r\n", "LST PMCURRENT::;\r\n", "LOGIN::USER=oss,PWD=Tool123;\r\n"]:
+        # 2026-09-27：LOGIN 命令里的口令原先硬编码为明文（已入库），改为从环境变量取。
+        _mml_pwd = os.environ.get("MML_SSH_PASS", "")
+        for cmd in ["HELP\r\n", "LST PMCURRENT::;\r\n", f"LOGIN::USER=oss,PWD={_mml_pwd};\r\n"]:
             try:
                 s.sendall(cmd.encode())
                 s.settimeout(5)

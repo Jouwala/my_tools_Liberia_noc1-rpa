@@ -365,7 +365,20 @@ _GROUP_INDEX = {g["key"]: g for g in CREDENTIAL_GROUPS}
 # 数据库访问（独立 sqlite3，避免与 SQLAlchemy 会话互相干扰）
 # ============================================================
 def _get_conn() -> sqlite3.Connection:
-    """获取连接并确保 credentials 表存在。"""
+    """获取连接并确保 credentials 表存在。
+
+    ⚠️ 这里**故意**用裸 sqlite3.connect 而非 backend.database.get_raw_connection，
+    请勿"顺手统一"成 get_raw_connection —— 会把凭据库推到 PG 上。
+
+    背景（2026-09-27 核实）：`database.py:39-45` 的 R8 机制
+    （`_HARD_EXCLUDED_DB_PATHS` + `register_hard_excluded`）**当前是空转的** ——
+    `register_hard_excluded()` 在全仓库**从未被调用过**，实测该集合恒为 `set()`。
+    也就是说："凭据库永不走 PG" 这条保证，**目前完全依赖本函数用裸 sqlite3**，
+    而不是依赖 R8。一旦这里改成 get_raw_connection，在 MY_APP_DB_MODE=pg 下
+    凭据会被写进 PG 的 app schema（违反 R8 的原始意图，且与 SQLite 中的既有
+    凭据分叉）。如需真正启用 R8，应先在此模块导入期调用
+    `register_hard_excluded(DB_PATH)`，再把访问统一到 get_raw_connection。
+    """
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=30)
     conn.row_factory = sqlite3.Row
@@ -443,6 +456,17 @@ def get_credential(key: str, default_user: str = "", default_secret: str = "",
             _cache[key] = (now, db_val)
 
     db_user, db_secret = db_val if db_val else (None, None)
+
+    # 调用方未给默认值时，回退到凭据组自身登记的 default_user / default_secret。
+    # 2026-09-27 修：此前这里只用参数默认值，不看 group 里的默认值，导致
+    # 「不传默认值 → 拿到空串」；各调用方因此被迫把口令字面量再写一遍
+    # （ran_ume_main_kpi.py:67、get_sp_table.py:71 等 16 处），既造成重复真相源，
+    # 也把口令明文带进了版本库。补上这一层回退后，调用方只需 get_credential("key")。
+    if group:
+        if not default_user:
+            default_user = group.get("default_user") or ""
+        if not default_secret:
+            default_secret = group.get("default_secret") or ""
 
     username = user_env or db_user or default_user
     secret = secret_env or db_secret or default_secret

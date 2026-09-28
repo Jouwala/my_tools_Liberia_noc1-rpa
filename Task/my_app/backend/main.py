@@ -51,10 +51,13 @@ from backend.database import Base, engine, DB_PATH, DB_MODE
 from backend.models.analysis import AnalysisArchive, UploadedFile
 from backend.routers import (
     tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard,
+    wo_dashboard,
     packet_loss_dashboard, battery_dashboard, credentials,
     tasks, sp_dashboard, sp_material_summary, sp_details, sp_report, system,
     incident_overview, ip_trace, nur_dashboard, ms_sla_dashboard, ms_kpi_report,
     site_availability,
+    avail_ms,
+    avail_flm,
     ran_cells_kpi,
     ume_in_kpi,
     ume_in_screen,
@@ -69,11 +72,13 @@ from backend.routers import (
     mw_links,
     portals,
     whatsapp_outbox,
+    tt_alert_whatsapp,
     eflow_qa,
     eflow_flow,
     cxo_dashboard,
     vmax_cxo_dashboard,
     vmax_cxo_daily,
+    data_agent,
     olib_soc_dashboard,
     feedback,
     ui_config,
@@ -99,10 +104,22 @@ start_time = time.time()
 # 避免后台定时任务在验证期间被触发（任务仍会注册，/api/tasks 可正常返回）。
 DISABLE_SCHEDULER = os.environ.get("MY_APP_DISABLE_SCHEDULER", "0") == "1"
 
+# 交互式 API 文档（Swagger UI / ReDoc / OpenAPI schema）默认关闭。
+# 原因：FastAPI 这三条路径（/docs、/redoc、/openapi.json）是**框架内建**的，
+# 不经过 /api/ 前缀，因此 require_session_middleware 的
+# `if not path.startswith("/api/")` 分支会直接放行 —— 加 _PUBLIC_API 白名单
+# 也管不到它们。实测 /openapi.json 会公开返回 189KB、223 条 API 路径的完整
+# 攻击面地图（含 /api/tables/{table_name}/data 等），对未登录访问者可见。
+# 需要内网调试时显式置 MY_APP_ENABLE_DOCS=1 打开，生产保持默认关闭。
+_ENABLE_DOCS = os.environ.get("MY_APP_ENABLE_DOCS", "0") == "1"
+
 app = FastAPI(
     title="数据洞察 SaaS MVP",
     description="上传工作簿、自动识别字段与质量问题、生成多维图表和结论，GIS展示与下钻，分析归档检索",
     version="1.0.0",
+    docs_url="/docs" if _ENABLE_DOCS else None,
+    redoc_url="/redoc" if _ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if _ENABLE_DOCS else None,
 )
 
 # CORS配置 - 仅允许明确来源（避免 allow_origins="*" + 凭据的跨域风险）
@@ -134,6 +151,7 @@ app.include_router(upload.router)
 app.include_router(analysis.router)
 app.include_router(gis.router)
 app.include_router(tt_wo_dashboard.router)
+app.include_router(wo_dashboard.router)
 app.include_router(alarm_dashboard.router)
 app.include_router(packet_loss_dashboard.router)
 app.include_router(battery_dashboard.router)
@@ -164,6 +182,12 @@ app.include_router(ms_sla_dashboard.router)
 app.include_router(ms_kpi_report.router)
 # FME 站点可用率与工单看板（master_site_db + 远端站点级可用性 + eflow_tt）
 app.include_router(site_availability.router)
+# 可用率多维矩阵（page=avail_ms；读本机派生库 data/avail_recon.sqlite3，
+# 区域/制式/站点类型 × 日/周/月三档，口径见 services/avail_ms_service.py）
+app.include_router(avail_ms.router)
+# FLM 可用率（page=avail_flm；同一派生库，改成「区域为行」的两张表 + 页面级 TT 列表，
+# 口径见 services/avail_flm_service.py 顶部说明）
+app.include_router(avail_flm.router)
 # RAN 2G/3G/4G Cells KPI 看板（小区级可用率，达标值 99.65%）
 app.include_router(ran_cells_kpi.router)
 app.include_router(ume_in_kpi.router)
@@ -187,6 +211,8 @@ app.include_router(mw_links.router)
 app.include_router(portals.router)
 # WhatsApp 出图接口（供「WhatsApp 定时发图」Chrome 扩展拉取图片与配置）
 app.include_router(whatsapp_outbox.router)
+# TT 告警文本作业接口（eFlow P1 未清除单 → WhatsApp，供扩展认领/回报）
+app.include_router(tt_alert_whatsapp.router)
 # eFlow 知识库（Task/eflow_Q&A 只读：文档树 / 读取 / 检索）
 app.include_router(eflow_qa.router)
 # eFlow 全流程查询（输入告警/TT → 规则驱动的流程图 + 该单实际路径高亮，只读）
@@ -235,6 +261,11 @@ app.include_router(cr_analysis.router)
 # 口径（字段名陷阱、真实流程顺序、pmt_overdue 语义、概览与下钻如何共用同一份 WHERE）
 # 见 services/pm_caliber.py 的模块 docstring。
 app.include_router(pm_analysis.router)
+
+# Data Agent（只读 NL2SQL + 告警归因）：探索性副驾，不参与任何定时报表/看板数字的产出。
+# 定位、护栏与风险清单见 docs/DATA_AGENT_EVALUATION.md。
+# 所有 SQL 经 services/sql_guard.py 白名单校验；本路由不含任何写接口。
+app.include_router(data_agent.router)
 
 
 # ========== 统一门户鉴权中间件 ==========

@@ -40,7 +40,7 @@ npm run build
 ```ini
 MY_APP_DB_MODE=pg
 DATABASE_URL=postgresql+psycopg://<user>:<pass>@<host>:5432/<db>
-MY_APP_WORKER_GROUPS=u,n,m,c,v
+MY_APP_WORKER_GROUPS=u,n,s,w,m,c,v
 # 可选：对外暴露接口时启用
 # MY_APP_API_TOKEN=<随机长串>
 # 可选：覆盖 CORS 白名单
@@ -72,8 +72,31 @@ MY_APP_WORKER_GROUPS=u,n,m,c,v
 | --- | --- |
 | `http://localhost:7090/myapp/` | 前端主入口（生产经 nginx 则是 `http://<主机>/myapp/`） |
 | `http://localhost:7090/myapp/?page=battery` | 直接定位到某个页面（`?page=` 见 `02-architecture.md`） |
-| `http://localhost:7038/docs` | FastAPI 交互式接口文档（Swagger）。标题仍是 `"数据洞察 SaaS MVP"`（`main.py:73`），那是项目最初定位的历史命名，不代表现在的功能范围 |
+| `http://localhost:7038/api/health` | 后端健康检查（返回 `db_mode` / `database`，确认当前跑在 SQLite 还是 PG） |
+| `http://localhost:7038/docs` | FastAPI 交互式接口文档（Swagger）。需 `MY_APP_ENABLE_DOCS=1`，见下 |
 | `http://<本机IP>:7090` | 局域网访问，后端与 preview 都绑 `0.0.0.0` |
+
+> **`/docs` 是显式开关，代码默认关闭（2026-09-27 起）。**
+>
+> 背景：FastAPI 内建的 `/docs`、`/redoc`、`/openapi.json` **不带 `/api/` 前缀**，
+> 因此绕过会话鉴权中间件（`main.py:251` 只拦 `/api/`），实测 `/openapi.json`
+> 会**匿名**返回 189KB、**223 条 API 路径**的完整清单（含
+> `/api/tables/{table_name}/data` 这类数据端点），等于把攻击面地图公开。
+>
+> 因此改为**显式 opt-in**：不配置时这三条路由根本不注册。
+> 本机 `backend\.env` **已置 `MY_APP_ENABLE_DOCS=1`**（内网调试需要 Swagger），
+> 所以本机访问 `/docs` 正常；换新机器/新部署时若不配这个键，
+> 访问 `/docs` 会落到前端 SPA 的兜底路由（返回 `index.html` 而**不是 404**，
+> 这是预期的）—— 判断"是否真的关掉了"要看内容是 SPA 而不是 Swagger UI。
+>
+> ```ini
+> # backend\.env
+> MY_APP_ENABLE_DOCS=1
+> ```
+>
+> ⚠️ 打开后 `/openapi.json` 会公开接口清单，**不要对公网放行**。
+> 守卫见 `tests\test_engineering_guards.py:test_docs_are_opt_in_not_opt_out`
+> ——它钉的是**代码里的默认值必须为 `"0"`**，不会因为你本机显式打开而误报。
 
 局域网完整配置（PG 放行 5432、防火墙规则）见 `13-operations.md` 的"局域网访问"一节。
 

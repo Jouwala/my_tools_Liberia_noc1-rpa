@@ -40,7 +40,35 @@ const WO_SHEET = 'WOs SLA achievement Report'
 const FINEBI_SHEET = 'FineBI Dashboard Planing'
 const AUTOMATION_SHEET = '利比里亚自动化报表'
 
-const FLAT_SHEETS = [FINEBI_SHEET, AUTOMATION_SHEET]
+/**
+ * 页签白名单：工作簿里有 4 张 sheet，但只有前两张在页面上暴露成页签。
+ *
+ * 2026-09-27 变更（用户要求，门户 ?no=65&gid=MS View 报表明细）：
+ *   「FineBI 看板规划 (22)」与「自动化报表清单 (34)」两个页签不再显示。
+ * 它们的 sheet 名（FineBI Dashboard Planing / 利比里亚自动化报表）是同一工作簿的
+ * 内部建设规划与报表排期清单，属于**编制过程台账**而非运行指标，不适合对外展示。
+ *
+ * 影响面刻意压到最小：只过滤 tabOptions 这一处渲染入口。
+ *   · 后端 ms_kpi_report_service 仍照常解析这 4 张 sheet（REPORT_KINDS.sheets 未动），
+ *     行数据/筛选/分页接口保留 —— 只是页面上不再有入口；
+ *   · overview.flat_counts 与 notes（报表口径）里的标题也维持原样，
+ *     它们是诊断上下文，删掉会让「上报失败时无从对账」。
+ * FlatSheetPanel 一并保留：一旦需要恢复展示，把 sheet 名加回 TAB_SHEETS 即可，
+ * 无需重写组件（见下面 FLAT_SHEETS 的派生说明）。
+ */
+const FLAT_SHEET_NAMES: readonly string[] = [FINEBI_SHEET, AUTOMATION_SHEET]
+/** 页签展示顺序，同时也是「哪些 sheet 会渲染成页签」的**唯一**判定依据。 */
+const TAB_SHEETS: readonly string[] = [CONTRACT_SHEET, WO_SHEET]
+
+/**
+ * 扁平表面板的渲染分支判定 —— 由「工作簿里的 flat sheet」与 TAB_SHEETS 求交集得出，
+ * 不另立第三份清单（`FLAT_SHEET_NAMES` 是事实来源，TAB_SHEETS 是展示决策）。
+ * 当前两个 flat sheet 都不在 TAB_SHEETS 里，所以该数组为空，
+ * 下面 `FLAT_SHEETS.includes(tab)` 的两个分支都不会命中；
+ * 恢复展示时只需把 sheet 名加回 TAB_SHEETS，这里与 tabOptions 会同时恢复。
+ */
+const FLAT_SHEETS: readonly string[] =
+  FLAT_SHEET_NAMES.filter(s => TAB_SHEETS.includes(s))
 const EXPORT_MAX_ROWS = 5000
 const SEARCH_DEBOUNCE_MS = 350
 
@@ -461,13 +489,20 @@ export default function MsContractKpiReport() {
   }, [summary, t])
 
   const tabOptions = useMemo(() => {
-    const opts = (summary?.sheets ?? []).map(s => {
-      const label = s.key === FINEBI_SHEET ? t('msKpi.sheet.finebi')
-        : s.key === AUTOMATION_SHEET ? t('msKpi.sheet.automation')
-          : s.key === WO_SHEET ? t('msKpi.sheet.woSla')
-            : t('msKpi.sheet.contract')
-      return { value: s.key, label: `${label} (${s.records.toLocaleString(loc)})` }
-    })
+    // 只保留 TAB_SHEETS 里的 sheet：隐藏项直接从页签列表消失（数据仍由后端返回，
+    // 见顶部 FLAT_SHEET_NAMES / TAB_SHEETS 的说明）。这里同时把顺序钉在 TAB_SHEETS 上，
+    // 不再依赖 summary.sheets 的返回顺序。
+    const byKey = new Map((summary?.sheets ?? []).map(s => [s.key, s]))
+    const opts = TAB_SHEETS
+      .map(key => byKey.get(key))
+      .filter((s): s is NonNullable<typeof s> => !!s)
+      .map(s => {
+        const label = s.key === FINEBI_SHEET ? t('msKpi.sheet.finebi')
+          : s.key === AUTOMATION_SHEET ? t('msKpi.sheet.automation')
+            : s.key === WO_SHEET ? t('msKpi.sheet.woSla')
+              : t('msKpi.sheet.contract')
+        return { value: s.key, label: `${label} (${s.records.toLocaleString(loc)})` }
+      })
     return opts.length ? opts : [{ value: CONTRACT_SHEET, label: CONTRACT_SHEET }]
   }, [summary, t, loc])
 

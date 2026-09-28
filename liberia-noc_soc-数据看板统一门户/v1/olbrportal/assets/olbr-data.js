@@ -198,11 +198,22 @@ window.OLBR_DATA = (function () {
          ⚠️ 「移出本列」与「删除看板」是两件不同的事，文案必须让人一眼分清：
          前者只摘掉一个分组归属（可逆），后者把条目从共享目录里拿走（不可逆）。
          命名上刻意避开 'edit.del*'（那是子分组的），免得上下一读就混。 */
-      'edit.itemDrop': '移出本列', 'edit.itemDropTip': '只是把这张看板从当前分组移出，看板本身还在（可再用「分组」勾回来）',
+      'edit.itemDrop': '移出本列', 'edit.itemDropTip': '把这张看板移出当前分组；只要它没有别的分组，就自动移入「归档」—— 看板本身还在，随时能勾回来',
       'edit.itemDel': '删除看板', 'edit.itemDelTip': '从共享目录里彻底删除这张看板，所有人刷新后都不再看到，无法撤销',
       'edit.itemDropped': '已从本分组移出', 'edit.itemDeleted': '看板已删除',
+      /* 2026-09-28：原先只剩一个分组时会拒绝移出并提示 edit.itemLastGrp。
+         现在改成自动移入归档 —— 「想收起来」不该被迫用不可逆的「删除看板」。
+         本条文案保留（英文同步保留，见 en 字典），但已无代码引用：
+         将来若有人要恢复"唯一分组不许移出"的老口径，按 git 历史取回调用即可。 */
       'edit.itemLastGrp': '这是它唯一的分组，移出后就没地方放了 —— 真要移除请用「删除看板」',
       'edit.itemDelConfirm': '彻底删除看板「{n}」？\n\n它会从共享目录里移除，/olbrportal/ 与 MsPortal 也不再显示，所有人刷新后都会少这一条。\n此操作无法撤销。',
+      /* ---- 归档分组（2026-09-28 加）----
+         「移出本列」的落点：一个真实的兜底分组，让"收起来"变成可逆的动作。
+         文案要把三件事说清：① 看板没丢；② 去哪找它；③ 怎么勾回来。 */
+      'edit.archived': '没有别的分组，已移入「归档」', 'edit.archivedTip': '它还在目录里，展开下方「归档」区即可看到，也可用「分组」勾回任一视图',
+      'arch.title': '归档', 'arch.hint': '这里的看板已从各视图移出，仍保留在目录中 · 用「分组」可随时勾回',
+      'arch.empty': '归档区是空的',
+      'arch.unarchive': '取消归档', 'arch.unarchiveTip': '把这唯一的分组改回你选定的视图',
       /* 新增看板：先选一个现有看板当模板，再改名字与链接。
          模板值继承图标 / 平台 / 描述 / 负责人等，避免每次从零填十几个字段。 */
       'edit.itemAdd': '新增看板', 'edit.itemAddTip': '照着一个已有看板新建一张（图标 / 平台 / 描述等沿用模板，只改名字与链接）',
@@ -260,6 +271,20 @@ window.OLBR_DATA = (function () {
       /* 富卡片的 tooltip 第一句：口径必须写明，否则四个数字都不是当天的，
          而页面上其它看板大多是当日/实时，很容易被当成"今天的数"。 */
       'kpi.tipRich': '来源：CXO 90 天经营看板（昨日完整值，当天仍在累积不计入）',
+      /* 整卡可点的提示（2026-09-29 加）。
+         六张卡从上线起就带 cursor:pointer + hover 抬升（.qc-card 的既有样式），
+         却一直没有点击行为 —— 视觉在暗示可点、点下去没反应，是既有的一处言行不一。
+         现在补上跳转，hover 文案要说清「点哪儿、去哪儿」：
+         只写「点击查看」的话，用户不知道会离开本页、也不知道开到哪个看板。
+         {n} = 卡名（「Total Traffic」「2G 可用率」），{b} = 目标看板的业务名。
+         ⚠️ 目标看板名必须由调用方传入（富卡片传「CXO 90 天经营看板」、
+         可用率卡传「Daily Availability KPI」）—— 两排卡去的是**两个不同的页面**，
+         写死一个名字会让另一排的提示直接说错。
+         与 v6.headTip 同一条约定：把要去的地方写出来，点之前就知道会去哪儿。
+         标点跟着语言走：中文全角（）与「」，英文半角 () 与引号。 */
+      'kpi.openTip': '打开「{n}」的完整看板（{b}）',
+      'kpi.boardRich': 'CXO 90 天经营看板',
+      'kpi.boardAvail': 'Daily Availability KPI',
       'kpi.tipAvail': '来源：Daily Availability KPI（Availability-NW 页）按 Cell Group 汇总，口径与 {board} 一致',
       'kpi.tipAvailFoot': '大数字是当月均值；页脚三格依次为昨日实际值、达标阈值、昨日与阈值的差（pp = 百分点，负值表示昨日未达标）。',
       /* 可用率迷你走势（2026-09-25 加）。窗口按返回的点数算，不写死 30 ——
@@ -572,11 +597,18 @@ window.OLBR_DATA = (function () {
          "移出本列" = drop one group membership (reversible),
          "删除看板" = remove the entry from the shared catalog (irreversible).
          Keep the two clearly distinct in wording — this is the whole point. */
-      'edit.itemDrop': 'Remove from column', 'edit.itemDropTip': 'Only takes this dashboard out of the current group; the dashboard itself stays (re-tick it under "Groups")',
+      'edit.itemDrop': 'Remove from column', 'edit.itemDropTip': 'Takes this dashboard out of the current group; if it has no other group it moves to "Archived" — the dashboard itself stays and can be ticked back at any time',
       'edit.itemDel': 'Delete dashboard', 'edit.itemDelTip': 'Removes this dashboard from the shared catalog for everyone; cannot be undone',
       'edit.itemDropped': 'Removed from this group', 'edit.itemDeleted': 'Dashboard deleted',
+      /* Kept for parity with the zh dictionary; no longer referenced after the archive
+         change (2026-09-28) — see the zh block for why it is kept rather than deleted. */
       'edit.itemLastGrp': 'This is its only group, so removing it would leave the dashboard nowhere to live — use "Delete dashboard" if you really want it gone',
       'edit.itemDelConfirm': 'Permanently delete the dashboard “{n}”?\n\nIt will be removed from the shared catalog, so /olbrportal/ and MsPortal will stop showing it and everyone loses this entry on refresh.\nThis cannot be undone.',
+      /* Archive group (added 2026-09-28): the reversible landing spot for "Remove from column". */
+      'edit.archived': 'No other group, so it moved to "Archived"', 'edit.archivedTip': 'Still in the catalog — expand the "Archived" section below, or tick it back into any view under "Groups"',
+      'arch.title': 'Archived', 'arch.hint': 'These dashboards are out of every view but still in the catalog · tick them back under "Groups"',
+      'arch.empty': 'Nothing archived',
+      'arch.unarchive': 'Unarchive', 'arch.unarchiveTip': 'Put this only group back to a view you pick',
       'edit.itemAdd': 'New dashboard', 'edit.itemAddTip': 'Create a dashboard from an existing one (icon / platform / description are inherited; you only set the name and link)',
       'edit.itemAddPick': 'Pick an existing dashboard as the template (searchable)',
       'edit.itemAddSearch': 'Search dashboard names…',
@@ -631,6 +663,9 @@ window.OLBR_DATA = (function () {
          none of these four numbers is for today, while most boards on this
          page are live/today — easy to misread. */
       'kpi.tipRich': 'Source: CXO 90-day business board (last complete day; today is still accumulating and excluded)',
+      'kpi.openTip': 'Open the full dashboard for "{n}" ({b})',
+      'kpi.boardRich': 'CXO 90-day business board',
+      'kpi.boardAvail': 'Daily Availability KPI',
       'kpi.tipAvail': 'Source: Daily Availability KPI (Availability-NW sheet) aggregated by Cell Group, same definition as {board}',
       'kpi.tipAvailFoot': 'The big number is the month-to-date average; the footer shows yesterday, the target threshold, and yesterday minus the target (pp = percentage points; negative means yesterday was below target).',
       'kpi.availTrendCap': 'Last {n} days',
@@ -803,6 +838,25 @@ window.OLBR_DATA = (function () {
   var T2 = ['Knowledge Q&A', 'Friends Link', 'System Admin'];
   var AUX_ROWS = 2;           /* 辅助分组默认露出的行数 */
   var OTHER = '__other';      /* 不属于任何已知分组的看板，在页签里单列一项 */
+  /* 归档分组（2026-09-28 加）：看板真正的"收起来"去处。
+     ----------------------------------------------------------------------------
+     背景：「移出本列」原先只剩一个分组时直接拒绝（edit.itemLastGrp / itemDel 提示），
+     因为本项目**没有"不属于任何分组的看板"这种状态** —— 零归属的条目在页签、
+     入口卡、MsPortal 的区块里全都渲染不出来，移出等于弄丢。
+
+     归档把这件事变成**可逆**的：条目只是换到一个真实的兜底分组里，仍留在共享目录、
+     仍能在归档区看到、也能被「分组」浮层一键勾回去。于是：
+       · 「移出本列」不再需要"这是唯一分组"的拦截；
+       · 想"收起来"不必动用不可逆的「删除看板」。
+
+     ⚠️ id 不叫 __archive：带 __ 前缀的是**伪分组**（OTHER = 不属于任何已知分组、
+     RENAME_HEAD = 页签改名的伪 key，见 DATA.OTHER / DATA.RENAME_HEAD）。
+     归档是一个真实分组（有 zh/en、会进 groups 定义、要随目录落盘），
+     用普通 id，免得与那套"伪"约定混在一起。
+
+     ⚠️ 刻意不进 T1/T2：它不是常驻版面的一部分。作为**自定义分组**出现在 L1 页签条，
+     由 ensureArchiveGroup() 在首次真的归档时创建，只在有内容时才渲染（见 renderAux）。 */
+  var ARCHIVE = 'Archived';
   var AUX_TITLES = {
     'Knowledge Q&A': 'aux.qa', 'Friends Link': 'aux.friends', 'System Admin': 'aux.admin'
   };
@@ -881,12 +935,24 @@ window.OLBR_DATA = (function () {
   // zh/en 是本页自带的名字，**只在接口那张卡缺失时兜底**（例如 KPI 库还没跑）。
   // 接口在时一律用接口的名字（它才是指标字典这份唯一真相源）。
   // 这张表**没有 icon 字段**：富卡片的排版里不放图标，kpiRichHtml 从不读它。
+  // page：点这张卡要打开的 my_app 页面（2026-09-29 加）。
+  //   三张卡同源 —— 数值全部取自 /api/olib-soc-dashboard/overview?days=90，
+  //   那就是 my_app `?page=vmaxCxoDashboard_90Days` 的只读接口，所以三张卡
+  //   指向**同一个页面**，这里逐条写而不是在渲染函数里写一个共用常量：
+  //   将来若三张卡拆到不同页面（比如流量看 90 天、用户看当期），
+  //   改动就只发生在这个数据表里，渲染函数一行都不用动。
+  //   ⚠️ 值必须是 my_app `App.tsx` 的 PageKey（见 VALID_PAGES 白名单），
+  //   写错会被静默回落到概览页，表现为「点了却打开别的页」——
+  //   与 QC_BOARD_PAGE（olbr.js）同一条约束。
   var KPI_RICH = [
     { id: 'traffic_gb',     unit: 'TB',   digits: 2, div: 1024,
+      page: 'vmaxCxoDashboard_90Days',
       zh: '总流量',           en: 'Total Traffic' },
     { id: 'active_user_k',  unit: 'K',    digits: 1, div: 1,
+      page: 'vmaxCxoDashboard_90Days',
       zh: '活跃用户',         en: 'Active Users' },
     { id: 'video_thr_kbps', unit: 'Mbps', digits: 2, div: 1000,
+      page: 'vmaxCxoDashboard_90Days',
       zh: '视频下载速率',     en: 'Valid Throughput of Video Download' }
     /* 2026-09-24：曾加过第四张 video_tb（视频流量，与源看板截图一致），
        用户随后要求去掉、恢复六张卡一行 —— 故此处只有三张。
@@ -896,16 +962,26 @@ window.OLBR_DATA = (function () {
   ];
   /* 2G / 3G / 4G 分别对应 xlsx 里的哪个 Cell Group。写成显式映射而不是
      startsWith('2G') 去猜：源表以后加了 "2G ERA" 之类的档位时，
-     前缀匹配会悄悄命中错的那一行，而这张卡上一个错的可用率没人能一眼看出来。 */
+     前缀匹配会悄悄命中错的那一行，而这张卡上一个错的可用率没人能一眼看出来。
+
+     page：点这张卡要打开的 my_app 页面（2026-09-29 加，用户要求）。
+     三张卡都指向可用率页 —— 它们的大数字（当月均值）与页脚的昨日/阈值/距阈值
+     就来自那一页同口径的汇总，所以"点卡看完整看板"是成立的，
+     不是随便配一个链接凑数。
+     ⚠️ 与 KPI_RICH.page 同一条约束：值必须是 my_app App.tsx 的 PageKey
+     （见 VALID_PAGES 白名单），写错会被静默回落到概览页，
+     表现为「点了却打开别的页」。
+     逐条写而不是在渲染函数里写一个共用常量，理由同 KPI_RICH：
+     将来若三张卡拆到不同页面，改动只发生在这张表里。 */
   var KPI_AVAIL_ROWS = [
-    { key: '2G', group: '2G ALL' },
-    { key: '3G', group: '3G ALL' },
-    { key: '4G', group: 'FDD ALL' }
+    { key: '2G', group: '2G ALL', page: 'avail_ms' },
+    { key: '3G', group: '3G ALL', page: 'avail_ms' },
+    { key: '4G', group: 'FDD ALL', page: 'avail_ms' }
   ];
 
   return {
     S: S, PH: PH,
-    T0: T0, T1: T1, T2: T2, AUX_ROWS: AUX_ROWS, OTHER: OTHER, AUX_TITLES: AUX_TITLES,
+    T0: T0, T1: T1, T2: T2, AUX_ROWS: AUX_ROWS, OTHER: OTHER, ARCHIVE: ARCHIVE, AUX_TITLES: AUX_TITLES,
     MAP_TABS: MAP_TABS, RENAME_HEAD: RENAME_HEAD, RENAME_KEYS: RENAME_KEYS,
     EMAIL_PAGE: EMAIL_PAGE, EMAIL_TAB: EMAIL_TAB, MAP_STRIP_CSS: MAP_STRIP_CSS,
     QC_TARGETS: QC_TARGETS, QC_PRIMARY_ORDER: QC_PRIMARY_ORDER, QC_SECONDARY_ORDER: QC_SECONDARY_ORDER,

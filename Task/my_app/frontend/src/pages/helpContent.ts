@@ -12,6 +12,8 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'alarm' },
   { key: 'ttwo' },
   { key: 'v1_ttwo' },
+  { key: 'tt' },
+  { key: 'wo' },
   { key: 'eflow_qa' },
   { key: 'eflow_flow' },
   { key: 'nur' },
@@ -26,6 +28,7 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'alarmManagement', iframe: true },
   { key: 'fme_ranking' },
   { key: 'site_avail' },
+  { key: 'avail_ms' },
   { key: 'noc_analyst' },
   { key: 'repeat_site_down' },
   { key: 'cr_analysis' },
@@ -53,6 +56,8 @@ export const NAV_KEY_MAP: Record<string, string> = {
   alarm: 'nav.alarm',
   ttwo: 'nav.ttwo',
   v1_ttwo: 'nav.v1Ttwo',
+  tt: 'nav.tt',
+  wo: 'nav.wo',
   eflow_qa: 'nav.eflowQa',
   eflow_flow: 'nav.eflowFlow',
   nur: 'nav.nur',
@@ -67,6 +72,7 @@ export const NAV_KEY_MAP: Record<string, string> = {
   alarmManagement: 'nav.alarmManagement',
   fme_ranking: 'nav.fmeRanking',
   site_avail: 'nav.siteAvail',
+  avail_ms: 'nav.availMs',
   noc_analyst: 'noc.navLabel',
   repeat_site_down: 'nav.repeatSiteDown',
   cr_analysis: 'nav.crAnalysis',
@@ -92,7 +98,7 @@ export const CATEGORIES: { id: string; pages: string[] }[] = [
   { id: 'tasks', pages: ['sync', 'email_reports', 'upload', 'tables', 'overview'] },
   {
     id: 'boards',
-    pages: ['alarm', 'ttwo', 'v1_ttwo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'packet_loss', 'battery', 'ume_in_kpi', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse'],
+    pages: ['alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'avail_ms', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'packet_loss', 'battery', 'ume_in_kpi', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse'],
   },
   { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace'] },
   { id: 'system', pages: ['settings', 'portalLogin'] },
@@ -142,6 +148,27 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '直链 http://<host>/myapp/?page=v1_ttwo；完整版见 page=ttwo',
       ],
     },
+    tt: {
+      desc: 'TT&WO 看板的「只看 TT」版（数据源 eflow_tt）：汇总卡只留「TT 总数」→ 统计（严重度 / SLA 状态 / 状态，均为数字卡片，点卡下钻）→ MTTR 趋势（P1/P2/P3/P4 × 日/周/月，每张图为「柱=TT 数量 + 线=MTTR」双轴）。MTTR 趋势之下的下半部分整体不出：领域与根因分析、工单分析（按来源统计 WO / 按状态统计 WO）、站点信息；WO 总数 / WO 编号(唯一) 两张汇总卡也不出。默认时间窗近 30 天。',
+      usage: [
+        '分区标题为「统计」，严重度维度标题为「严重度」（完整版 TT&WO 看板上仍叫「TT 统计」「工单严重度」）',
+        'MTTR 趋势每张图是双轴：柱子（中兴蓝 #0072BC）是「该时段该级别的 TT 单数」，折线（橙色）是「MTTR 分钟均值」。四张图的柱/线颜色固定不变 —— 级别由图本身（P1/P2/P3/P4 四张图）区分，颜色只用来分「量」与「时长」这两个量纲。某时段该级别没有单时柱和线都不画，不是 0',
+        '筛选条（含全部归属 ZTE/3rd 与高级过滤）、卡片下钻明细、页面级 Excel 导出与 TT&WO 看板完全同源（共用 /tt-wo-dashboard/overview 端点），数字必然相同；导出文件名前缀为 TTWO_tt_',
+        '直链 http://<host>/myapp/?page=tt；完整版见 page=ttwo，只看 WO 见 page=wo（版式与本页相同，数据源换成 eflow_wo）',
+      ],
+    },
+    wo: {
+      desc: 'TT 看板的「WO 数据源」版：版式与 page=tt 逐块一致，只是数据来自 eflow_wo。汇总卡只留「WO 总数」→ 统计（严重度 / SLA 状态 / 状态）→ MTTR 趋势（P1/P2/P3/P4 × 日/周/月双轴图）。MTTR 趋势之下的下半部分（领域与根因分析、工单分析、站点信息）与 page=tt 一样不出。默认时间窗近 30 天。',
+      usage: [
+        '点统计卡片或 MTTR 图上的点，弹出可搜索的 WO 明细下钻表',
+        'SLA 状态取自关联的 TT（eflow_wo 没有该列，SLA 属 TT 侧概念）：按 wo.tt_no = tt.tt_no 关联，关联不上的计入 Unknown，所以各卡片之和 = WO 总数',
+        'MTTR 用的是 WO 自己的 alarm_occur_time / alarm_clear_time，所以本页的 MTTR 是「WO 的周转时效」，与 page=tt 的 TT 时效是两个数',
+        '汇总卡只留「WO 总数」一张：本页每行本身就是一个 WO，「WO 编号(唯一)」会与它一模一样；「TT 总数」算的是另一张表的行数，放在本页没有意义',
+        'ZTE/3rd 归属下拉在本页不显示：该归属定义在「TT 的 wo_no」上，WO 表本身没有这个概念',
+        '筛选条（区域 / 高级过滤）、下钻明细与页面级 Excel 导出与 TT&WO 看板同源，只是数据端点用 /wo-dashboard/overview；导出文件名前缀为 TTWO_wo_',
+        '直链 http://<host>/myapp/?page=wo；完整版见 page=ttwo，只看 TT 见 page=tt',
+      ],
+    },
     eflow_qa: {
       desc: 'eFlow TT 判定规则知识库：规则/案例文档全文检索，并内置 TT 快速分析与 TT 批量核查。',
       usage: [
@@ -177,12 +204,12 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: ['筛选条、下钻明细与导出与 NUR 看板同源，用法一致', '直链 http://<host>/myapp/?page=ms_nur_only；另一半内容见 page=ms_sla_only（SLA 口径，来自 MS Operation KPI 看板）'],
     },
     ms_sla: {
-      desc: 'MS 合同 KPI 与工单 SLA 达成情况：NUR / SLA / Network KPI / Per-Site / WO SLA（指标为行、期间为列）。',
-      usage: ['粒度只有日/月两档；下钻明细与 NUR 页一致', '数字以 nur_calc 实时计算为准（ms_sla_full 每 6 小时驱动），可能与历史快照文件不一致——以本页为准'],
+      desc: 'MS 合同 KPI 与工单 SLA 达成情况：NUR / Network KPI / Per-Site / WO SLA（指标为行、期间为列）。',
+      usage: ['粒度三档「天 / 周 / 月」；Network KPIs 与 Per-Site KPIs 只有天/月两档（来自快照库），切到周档位时这两块不显示并给出提示', '切换天/周/月会重置时间范围为该档默认窗口（天=当月至今，周=最近 12 周，月=最近 9 个自然月），横幅上会写明当前区间', 'SLA 达成率（TTR / TTR_P1~P4）统一由 WOs SLA 区以「表格 + 趋势」呈现，不再另设 KPI List SLA 卡片', '下钻明细与 NUR 页一致；数字以 nur_calc 实时计算为准（ms_sla_full 每 6 小时驱动），可能与历史快照文件不一致——以本页为准'],
     },
     ms_sla_only: {
-      desc: 'MS Operation KPI 看板的「只保留 SLA」版：KPI List SLA 日/月达成率（TTR / TTR_P1~P4）与 WOs SLA 区（Total / Within SLA / Achieve + 趋势），不渲染 NUR、Network、Per-Site。',
-      usage: ['达成率 ≥95% 显示绿色、低于目标标红，与 page=ms_sla 同一口径', '单元格与数据点可点击下钻 TT 明细，并可导出 Excel；粒度只有日/月两档'],
+      desc: 'MS Operation KPI 看板的「只保留 SLA」版：WOs SLA 区的工单 SLA 达成率（TTR / TTR_P1~P4 的 Total / Within SLA / Achieve + 趋势），不渲染 NUR、Network、Per-Site。',
+      usage: ['达成率 ≥95% 显示绿色、低于目标标红，与 page=ms_sla 同一口径', '粒度三档「天 / 周 / 月」：天默认当月至今、周默认最近 12 周、月默认 2026-01 至今；切档会重置时间范围（横幅上有说明）', '单元格与数据点可点击下钻 TT 明细，并可导出 Excel'],
     },
     cxoDashboard: {
       desc: 'Service / Network / Summary 三层经营看板（源自 VMAX 实时保障看板）。',
@@ -198,7 +225,13 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     gis: {
       desc: '站点地图：告警/工单在地图上的分布、拓扑线、区域面与多维筛选（历史/工单口径）。',
-      usage: ['区域下拉 + 图层 Tag 开关筛选；图例点击可隐藏该类图层；时间支持分段切换与自定义区间', '点站点打开右侧抽屉，四个页签明细可搜索、可导出 Excel'],
+      usage: [
+        '区域下拉 + 图层 Tag 开关筛选；图例点击可隐藏该类图层；时间支持分段切换与自定义区间',
+        '点站点打开右侧抽屉，四个页签明细可搜索、可导出 Excel',
+        '「链路利用率」开关（默认开）：把 MW 微波实时页同一 15 分钟槽位的链路利用率叠加到地图链路线上，按 6 级着色（>90% 紧急 / ≥80% 重要 / ≥70% 中等 / ≥60% 次要 / ≥50% 轻微 / <50% 正常），线越粗表示利用率越高',
+        '点链路线可看该链路的最高/发送/接收利用率与匹配到的 MW 站点；显示「无 KPI 数据」的链路表示未匹配到实时指标（保持 KML 原线色），不是 0%',
+        '叠加口径见图例下方说明：844 条 KML 链路中约 360 条能匹配到实时指标，其余仍在 MW 微波实时页查看',
+      ],
     },
     realtime_alarm: {
       desc: 'GIS 地图的实时模式：当前活跃告警站点的地图分布（带红色「实时」标识）。',
@@ -279,6 +312,19 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     site_avail: {
       desc: '站点可用率看板：站点级可用率排名与达标情况。',
       usage: ['点站点名下钻该站的可用率明细', '可用率按站点统计口径计算，与 FME 排名页同源'],
+    },
+    avail_ms: {
+      desc: '可用率多维矩阵：把全网可用率按「区域 / 制式 / 站点类型」三个维度呈现，日 / 周 / 月用页签切换粒度。数据来自本机派生库 avail_recon.sqlite3（任务 avail_recon_sync 每天 06:10 重建，口径为站点级加权可用率 SUM(分子)/SUM(分母)）。',
+      usage: [
+        '每张矩阵上方有该维度的趋势曲线（日 30 期 / 周 12 期 / 月 12 期，随页签变化）：一条线一个维度取值，所有点都按 SUM(分子)/SUM(分母) 加权，与表格数字严格一致',
+        '曲线上的点也能点开下钻，打开的是**那个点自己的周期**（例如月档停在 2026-09 时点 2026-08 的点，弹窗就是 2026-08 的明细）',
+        '区域那张曲线不含「未匹配主数据」（量级太低会把纵轴压扁），图下有一行说明，它的数据在表格末行',
+        '点任意可用率数字下钻：弹窗内含近 30 期趋势、按日明细与「按调度组」的构成分解，第二个页签可看该组合相关的 TT 工单',
+        '阈值输入框（默认 99.65%）决定「未达标」判定：低于阈值显示为红色，会实时重算，不改变数字本身',
+        '区域维度的 ALL 行含「未匹配主数据」的站点，因此 ALL 不等于三个区域相加；末行单列该桶，点它只能看可用率明细、不能下钻 TT（派生库里没有那批站点的名单）',
+        '4G 的 NERA 属未映射调度组：计入制式 4G 总量，在站点类型维度单列「其它」，只出现在 2025-12 ~ 2026-01 的月份；此时页面会出现黄色口径提示条',
+        '取不到数据显示「—」而不是 0；页面顶部显示「数据截至」，派生库停更时能一眼看出来',
+      ],
     },
     repeat_site_down: {
       desc: '重复宕站看板：识别在统计窗口内反复宕站的站点，用于定位「修不好的站」。',
@@ -378,6 +424,27 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Direct link http://<host>/myapp/?page=v1_ttwo; the full version is page=ttwo',
       ],
     },
+    tt: {
+      desc: 'The "TT only" cut of the TT&WO Dashboard (source table eflow_tt): summary card (TT Total only) → Statistics (severity / SLA status / status, all number cards that drill down on click) → MTTR trend (P1/P2/P3/P4 × day/week/month, each a dual-axis "bars = TT count, line = MTTR" chart). Everything below the MTTR trend is omitted: Domain & Root Cause, Work Order Analytics (WO by source / WO by status) and Site Information; the WO Total / WO No. (Unique) cards are gone too. The default window is the last 30 days.',
+      usage: [
+        'The section title reads "Statistics" and the severity dimension "Severity" (the full TT&WO Dashboard still uses "TT Statistics" and "Ticket Severity")',
+        'Each MTTR chart is dual-axis: bars (ZTE blue #0072BC) are the TT count of that severity in the period, the line (orange) is the mean MTTR in minutes. The bar/line colours are fixed across all four charts — the severity is identified by the chart itself (four separate P1/P2/P3/P4 charts), while the colours only distinguish the two measures (volume vs duration). A period with no ticket of that severity draws neither a bar nor a point — it is not 0',
+        'Filters (including the ZTE/3rd owner switch and advanced filters), card drill-down and the page-level Excel export are shared with the TT&WO Dashboard (same /tt-wo-dashboard/overview endpoint), so the numbers necessarily match; the export filename is prefixed TTWO_tt_',
+        'Direct link http://<host>/myapp/?page=tt; the full version is page=ttwo, WO only is page=wo (same layout, sourced from eflow_wo)',
+      ],
+    },
+    wo: {
+      desc: 'The eflow_wo-sourced twin of the TT Dashboard: the layout matches page=tt block for block, only the data comes from eflow_wo. Summary card (WO Total only) → Statistics (severity / SLA status / status) → MTTR trend (P1/P2/P3/P4 × day/week/month dual-axis charts). Everything below the MTTR trend (Domain & Root Cause, Work Order Analytics, Site Information) is omitted, exactly as on page=tt. The default window is the last 30 days.',
+      usage: [
+        'Click a statistics card or a point on an MTTR chart to open a searchable WO drill-down table',
+        'SLA status comes from the linked TT (eflow_wo has no such column — SLA is a TT-side concept): joined on wo.tt_no = tt.tt_no, and unmatched rows count as Unknown, so the cards still sum to the WO total',
+        'MTTR uses the WO\'s own alarm_occur_time / alarm_clear_time, so this page shows the WO turnaround time — a different number from the TT figure on page=tt',
+        'Only the "WO Total" summary card remains: every row on this page is itself a WO, so "WO No. (Unique)" would print the same number twice, and "TT Total" counts rows of a different table and is meaningless here',
+        'The ZTE/3rd owner switch is hidden on this page: that ownership is defined on the TT\'s wo_no, a concept the WO table does not have',
+        'Filters (region / advanced filters), drill-down and the page-level Excel export are shared with the TT&WO Dashboard, but the data endpoint is /wo-dashboard/overview; the export filename is prefixed TTWO_wo_',
+        'Direct link http://<host>/myapp/?page=wo; the full version is page=ttwo, TT only is page=tt',
+      ],
+    },
     eflow_qa: {
       desc: 'eFlow TT rule knowledge base: full-text search over rule/case documents, with built-in TT quick analysis.',
       usage: [
@@ -413,12 +480,12 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: ['Filters, drill-down and Excel export are shared with the NUR Dashboard, so usage is identical', 'Direct link http://<host>/myapp/?page=ms_nur_only; the other half is page=ms_sla_only (SLA scope, from the MS Operation KPI Dashboard)'],
     },
     ms_sla: {
-      desc: 'MS contract KPIs and WO SLA attainment: NUR / SLA / Network KPI / Per-Site / WO SLA (metrics as rows, periods as columns).',
-      usage: ['Granularity is daily/monthly only; drill-down reuses the NUR detail table', 'Numbers come from the live nur_calc calculation (driven by ms_sla_full every 6h) and may differ from historical snapshot files — trust this page'],
+      desc: 'MS contract KPIs and WO SLA attainment: NUR / Network KPI / Per-Site / WO SLA (metrics as rows, periods as columns).',
+      usage: ['Three granularity tabs: day / week / month; Network KPIs and Per-Site KPIs only exist at day/month (they come from the snapshot DB), so they are hidden at week granularity with an explanatory banner', 'Switching day/week/month resets the time range to that tab default (day = current month to date, week = last 12 weeks, month = last 9 calendar months); the banner states the active range', 'SLA attainment (TTR / TTR_P1~P4) is presented once, by the WOs SLA block as table + trend; there is no separate KPI List SLA card', 'Drill-down reuses the NUR detail table; numbers come from the live nur_calc calculation (driven by ms_sla_full every 6h) and may differ from historical snapshot files — trust this page'],
     },
     ms_sla_only: {
-      desc: 'The "SLA only" cut of the MS Operation KPI Dashboard: KPI List SLA daily/monthly attainment (TTR / TTR_P1~P4) plus the WOs SLA block (Total / Within SLA / Achieve + trend), without NUR, Network or Per-Site.',
-      usage: ['Attainment ≥95% is green, below target is red — same scope as page=ms_sla', 'Click cells and data points to drill into TT details and export to Excel; granularity is daily/monthly only'],
+      desc: 'The "SLA only" cut of the MS Operation KPI Dashboard: the WOs SLA block with WO SLA attainment (TTR / TTR_P1~P4 Total / Within SLA / Achieve + trend), without NUR, Network or Per-Site.',
+      usage: ['Attainment ≥95% is green, below target is red — same scope as page=ms_sla', 'Three granularity tabs: day (default = current month to date), week (default = last 12 weeks) and month (default = January 2026 to date); switching a tab resets the time range (explained by the banner)', 'Click cells and data points to drill into TT details and export to Excel'],
     },
     cxoDashboard: {
       desc: 'Service / Network / Summary three-tier executive dashboard (from the VMAX assurance board).',
@@ -434,7 +501,13 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     gis: {
       desc: 'Site map: alarm/ticket distribution, topology lines, region polygons and multi-dimension filters (history/ticket view).',
-      usage: ['Region dropdown + layer tags to filter; click a legend item to hide that layer; time supports segments and custom range', 'Click a site to open the right drawer: four tabs, searchable, exportable to Excel'],
+      usage: [
+        'Region dropdown + layer tags to filter; click a legend item to hide that layer; time supports segments and custom range',
+        'Click a site to open the right drawer: four tabs, searchable, exportable to Excel',
+        'The "Link Utilization" switch (on by default) overlays MW microwave link utilization from the same 15-min slot as the MW Realtime page, colored on a 6-level scale (>90% critical / ≥80% major / ≥70% moderate / ≥60% minor / ≥50% negligible / <50% healthy); thicker lines mean higher utilization',
+        'Click a link to see its max/Tx/Rx utilization and the matched MW sites; a link showing "No KPI data" means it could not be matched to realtime metrics (it keeps its original KML color) — that is not 0%',
+        'The overlay scope is explained below the legend: about 360 of the 844 KML links match realtime metrics; the rest are still viewable on the MW Realtime page',
+      ],
     },
     realtime_alarm: {
       desc: 'Realtime mode of the GIS map: current active-alarm sites on the map (red "realtime" badge).',
@@ -515,6 +588,19 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     site_avail: {
       desc: 'Site availability board: per-site availability ranking and target compliance.',
       usage: ['Click a site name to drill into its availability details', 'Availability uses the same per-site calculation as the FME ranking page'],
+    },
+    avail_ms: {
+      desc: 'Availability matrix: network availability presented across three dimensions — region / technology / site type — with day, week and month granularity on tabs. Data comes from the local derived database avail_recon.sqlite3 (rebuilt daily at 06:10 by the avail_recon_sync task; the measure is site-weighted availability, SUM(numerator)/SUM(denominator)).',
+      usage: [
+        'Each matrix has a trend chart above it (30 periods for day, 12 for week, 12 for month, following the active tab): one line per dimension value, every point weighted as SUM(numerator)/SUM(denominator) and therefore identical to the table figures',
+        'Chart points are clickable too, and they open **that point\'s own period** (e.g. when the month tab sits on 2026-09, clicking the 2026-08 point opens 2026-08 detail)',
+        'The region chart omits the "unmatched master data" line (its magnitude would flatten the y-axis); a note under the chart points to the last table row, where it is shown',
+        'Click any availability figure to drill down: the dialog holds a 30-period trend, the daily detail and a breakdown by dispatch group; the second tab lists the related TT tickets for that combination',
+        'The threshold input (default 99.65%) drives the "below target" flag: values under it turn red and re-evaluate instantly — the figures themselves do not change',
+        'The ALL row under Region includes sites not matched to master data, so ALL is not the sum of the three regions; that bucket gets its own last row — it can show availability detail but not TT tickets (the derived DB holds no site list for it)',
+        '4G NERA is an unmapped dispatch group: counted in the 4G technology total, shown separately as "Other" under site type, and only present in the 2025-12 ~ 2026-01 months; a yellow note appears on the page then',
+        'Missing data renders as "—" (never 0); the "Data through" label at the top makes a stalled derived database obvious',
+      ],
     },
     repeat_site_down: {
       desc: 'Repeat site-down board: identifies sites that go down repeatedly within the window — for finding "sites that never get fixed".',
@@ -748,7 +834,7 @@ const OPS_ZH: OpsText = {
     { title: '改上游账号口令', body: '「系统设置 → 凭据」选分组更新，点「测试连接」验证（凭据明文存于 db/app.db 的 credentials 表，缓存 30s）。' },
     { title: '改收件人', body: '「系统设置 → 邮件收件人」分组编辑，可重置默认；改完对所有 kpi_* / *_email 任务生效。' },
     { title: '手动执行 / 停止', body: '任务管理页「执行」立即投递一次、「停止」中断长任务。验证新排程/新脚本后应先手动跑一次看执行历史。' },
-    { title: '新增一个任务', body: '① task_registry.py 的 TASK_SPECS 追加声明（task_id/name/cron/loader）；② worker_watchdog.py 的 GROUP_TASK_MAP 登记分组（漏了永远 pending，已四次踩坑；tests/test_worker_group_coverage.py 交叉校验 task_id 覆盖与三处组集合一致）；新建组则必须同步 GROUP_TASK_MAP 键、start_hidden.ps1 的 MY_APP_WORKER_GROUPS、restart_workers.py 的 ALL_GROUPS 三处；③ 业务函数放 backend/services/ 且抛异常不吞；④ stop.bat → start.bat 重启加载注册表（只改分组清单则 python restart_workers.py --mode watchdog --force，**要管理员权限**）；⑤ 手动执行验证并更新文档（04-task-system.md 清单与本帮助数据 helpTaskDocs.ts，改完跑 npm run docs）。' },
+    { title: '新增一个任务', body: '① task_registry.py 的 TASK_SPECS 追加声明（task_id/name/cron/loader）；② worker_watchdog.py 的 GROUP_TASK_MAP 登记分组（漏了永远 pending，已四次踩坑；tests/test_worker_group_coverage.py 交叉校验 task_id 覆盖与两处组集合一致）；新建组则必须同步 GROUP_TASK_MAP 键与 start_hidden.ps1 的 MY_APP_WORKER_GROUPS、$groups 两处（restart_workers.py 的 ALL_GROUPS 自动取自 GROUP_TASK_MAP）；③ 业务函数放 backend/services/ 且抛异常不吞；④ stop.bat → start.bat 重启加载注册表（只改分组清单则 python restart_workers.py --mode watchdog --force，**要管理员权限**）；⑤ 手动执行验证并更新文档（04-task-system.md 清单与本帮助数据 helpTaskDocs.ts，改完跑 npm run docs）。' },
     { title: '改工作流脚本', body: '脚本都在 backend/services/ 下（任务清单有对应路径）。改动时注意：① 别改历史拼写名（packet_lost、battary_kpi_fetch、ultilazation 等，多处按字符串引用）；② 动态采集表不进 Alembic；③ 同步更新 task_registry.md / WORKER.md / 本帮助数据（frontend/src/pages/helpTaskDocs.ts）。' },
     { title: '任务卡 pending / failed 排查顺序', body: '① pending 不动 → 查是否漏分组；② failed → log/worker_runtime*.log（每组 worker 一个文件）找 task_id 堆栈 → 凭据「测试连接」；③ 数据停更 → db_freshness_check 的执行历史有调用链。' },
   ],

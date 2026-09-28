@@ -148,7 +148,13 @@ html {
        面的背景像素，字形本体逐像素不变（量过：字形核心开/关辉光都是 #0078D4，
        差值为 0）。要提亮必须改字形自身的颜色。
        #1E90E8 = #0078D4 同色相（206°）提亮档，实测对比度 ≈4.9:1。
-       品牌原色 #0078D4 保留在本变量里，浅色底/文档/印刷仍用它。 */
+       品牌原色 #0078D4 保留在本变量里，浅色底/文档/印刷仍用它。
+
+       ⚠️ 2026-09-28 起：顶栏这三个字已换成**图片字标**（assets/logo-zte-word-*.png，
+       见 .mp-zte-word），颜色取自用户给的照片（逐行取色 ≈#43A4F9），不再由
+       --mp-zte-blue-dark 着色。上面这两个变量于是暂时没有消费方 —— 刻意**不删**：
+       它们是品牌色令牌，文档/浅色底/印刷稿仍按这套值取色，
+       删掉会逼着下一个人重查一遍品牌色。 */
   /* 2026-09-25 用户要求：标题里的「OLR」改用门户标准橙 #FF7900（原 #ff9d1c 橙金）。
      只换这一个变量 —— .mp-title-olr 是 OLR 的唯一着色点（masthead.css:350），
      改了它顶栏「OLR」三字母即变，后面的「MS」「O&M Tools Platform」仍走 --mp-ink 纯白。
@@ -306,22 +312,25 @@ html.dark .mp-mast-bg {
 .mp-zte-mark svg,
 .mp-zte-mark img { display: block; width: 100%; height: 100%; }
 .mp-zte-word {
-  /* 2026-09-21：原来是 align-self: flex-end —— 品牌区高度 = 标题行 + 副标题行，
-     而 Logo 占满整个品牌区，所以字标被顶到「副标题那一行」的高度上，看着比 Logo 低一截。
-     量参考图：Logo 瓦片 y 14..80（中心 47）、ZTE 字形 y 36..62（中心 49），
-     两者是垂直居中的。这里改成 center 对齐 Logo 中心。
-     注意 .mp-brand 是 align-items: flex-start，靠 align-self 单独覆盖这一项。 */
+  /* ⚠️ 2026-09-28：由文字改成图片字标（见 index.html 顶栏品牌区的说明）。
+     本块原来管的是「字体排版」——font-size / font-weight / letter-spacing / color /
+     text-shadow，全部删掉：字形与颜色现在由 assets/logo-zte-word-*.png 自带
+     （浅蓝渐变 ≈#43A4F9、上下微差，逐行取色自照片；抠成透明底，深底顶栏上直接可用）。
+     留下的只有两条与图片无关的排版约束：
+       · align-self: center —— 品牌区是 align-items: flex-start，而本项要与 Logo 瓦片
+         垂直居中（量参考图：瓦片 y 14..80 中心 47、字标 y 36..62 中心 49）。 */
   align-self: center;
-  font-size: 1.75rem;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: .01em;
-  color: var(--mp-zte-blue-dark);
+  /* 字面高按原字号折算：原 1.75rem/800 的「ZTE」实测字面高 ≈ 字号 × 0.72，
+     所以这里写 calc(1.75rem * .72) ≈ 20px。改字号口径时就改这一个算式，
+     三个断点各自沿用原来那档字号（见文件末尾的响应式块）。 */
+  height: calc(1.75rem * .72);
   flex: 0 0 auto;
-  /* 2026-09-21：颜色已经用深底提亮档 #1E90E8（见 --mp-zte-blue-dark 注释），
-     字形本体亮度够了，这里只留一层很淡的辉光柔化边缘、顺带把字从深底上「托」起来。
-     上一版把 alpha 开到 .60 想靠辉光解决「沉」是走错了路 —— 辉光改不了字形颜色。 */
-  text-shadow: 0 0 10px rgba(30, 144, 232, .35);
+}
+/* 高度定死、宽度 auto —— 保持 PNG 自身宽高比，不拉伸 */
+.mp-zte-word img {
+  display: block;
+  height: 100%;
+  width: auto;
 }
 /* 品牌区与标题区之间的细青蓝竖线。
    2026-09-21 按新稿对齐：色值 #47ADEF（参考图实测），高度收到品牌区的 85%
@@ -530,7 +539,8 @@ html body > header.mp-mast .auth-user-badge {
   .mp-clock,
   .mp-tools-sep { display: none; }
   .mp-title { font-size: 1.375rem; }
-  .mp-zte-word { font-size: 1.5rem; }
+  /* 字标是图片，缩放改的是高度（原 font-size，比例与上面默认档一致：字号 × .72） */
+  .mp-zte-word { height: calc(1.5rem * .72); }
   /* 副标题收起来后品牌区只剩标题一行，顶栏高度自动跟着降 */
   html { --mp-brand-h: calc(1.375rem * 1.15); }
   .mp-brand { gap: 13px; }
@@ -542,7 +552,7 @@ html body > header.mp-mast .auth-user-badge {
   .mp-brand { gap: 11px; }
   html body > header.mp-mast .auth-user-badge { display: none; }
   .mp-title { font-size: 1.25rem; }
-  .mp-zte-word { font-size: 1.375rem; }
+  .mp-zte-word { height: calc(1.375rem * .72); }
   html { --mp-brand-h: calc(1.25rem * 1.15); }
 }
 

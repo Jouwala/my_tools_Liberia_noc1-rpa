@@ -195,15 +195,76 @@ tests/
 
 ## 独立守卫（不生成报告，只看退出码）
 
-这类文件不用 pytest 框架（本机 venv 没装 pytest，跑不起来的守卫等于没有），纯计数 + `sys.exit`，
+这类文件不用 pytest 框架（**2026-09-27 更正**：pytest 此前确实没装 —— 它既不在
+`requirements.txt` 也不在 `requirements.lock.txt`，导致本节描述的回归流程实际是断的；
+现已把 `pytest>=8.0.0` 补进 `requirements.txt`。这些守卫仍保持"纯计数 + `sys.exit`"形态，
+因为它们的价值在于**能被人单独 `python tests/xxx.py` 跑**，且天然不依赖 pytest 版本）。
 `python tests/test_xxx.py` 与 pytest 两种方式都能跑。**必须用后端实际运行的那个 python**
 （本机是系统 Python 3.12）：`Scripts/python.exe` 的 site-packages 没进 `sys.path`，缺
 pandas/sqlalchemy/apscheduler，会表现为一片"读不到"的假失败。
+
+> ⚠️ **这些守卫已登记进 `conftest.py:collect_ignore`。** 它们在**模块级**调用 `sys.exit()`，
+> 若被 pytest 收集会直接把整个 session 打成 `INTERNALERROR`（不是普通用例失败，是
+> 连其他文件的用例都跑不了）。2026-09-27 实测确认过这一点，所以必须排除 ——
+> 这是"跑不起来"而非"跑不过"，修法只有两个：排除，或把 `sys.exit` 挪进
+> `if __name__ == "__main__":`。选了前者（改动最小、不碰守卫自身逻辑）。
 
 | 守卫 | 查什么 | 跑法 |
 | --- | --- | --- |
 | `test_worker_group_coverage.py` | 任务 ↔ 分组 ↔ 启动脚本 ↔ 前端帮助 四处清单一致（漏登记会让队列 pending 永久滞留） | `python tests/test_worker_group_coverage.py` |
 | `test_task_config_live_effect.py` | Settings「任务配置」36 张卡片：页面改的值服务真用得上（死字段 / 派生量算早了 / 坏值没挡住 / 字段被静默丢弃） | `python tests/test_task_config_live_effect.py [task_id …]` |
+
+### `test_task_runner.py` —— 已修复（2026-09-27，11/11 全绿）
+
+2026-09-27 装上 pytest 后首次能真正跑全量，该文件曾暴露 **8 例失败**。
+**当日已全部修好**，全过程记录在此，因为它暴露的是一个**比"测试过期"更危险的问题**。
+
+**失败清单（修复前）**：
+
+```
+FAILED test_exception_captures_error_and_traceback
+FAILED test_business_failure_dict_writes_error
+FAILED test_success_writes_no_error          # no such table: task_execution_log
+FAILED test_retention_cleanup
+FAILED test_chain_from_file_locates_without_import
+FAILED test_module_file_returns_none_for_missing
+FAILED test_get_task_stats_and_failures
+FAILED test_get_task_history_by_task
+```
+
+**根因有三层，逐层剥出来的：**
+
+1. **fixture 在 PG 模式下是假的（最严重）。**
+   `task_runner` 已改用 `get_raw_connection(str(DB_PATH))`，而
+   `database.py:159` 在 `DB_MODE == "pg"` 时**直接返回 PG 连接**，传入的
+   `db_path` 只用于推断 schema、**根本不连那个文件**。本机 `backend/.env`
+   现为 `MY_APP_DB_MODE=pg` → monkeypatch 出来的临时 DB 从未被写入，
+   测试却仍去读自己的空文件 → `no such table: task_execution_log`。
+   修法：fixture 内强制 `MY_APP_DB_MODE=sqlite` **并**同时 patch
+   `backend.database.DB_MODE`（它是导入期常量，只设环境变量不够），
+   再显式调用 `_ensure_task_log_table(conn)` 建表。
+
+2. **`DB_PATH` 有多份绑定，测试查到了生产库。**
+   `task_stats.py:14` 写的是 `from backend.database import DB_PATH` ——
+   **导入即绑定**，拿到独立引用，只 patch `task_runner.DB_PATH` 对它无效。
+   后果实测：`get_task_history_by_task` / `get_task_stats` 去查**真的
+   `db/app.db`**，断言 `len(rows)==2` 得到 **6 / 7**（历史遗留行），
+   **且测试会持续往生产库写脏数据**。
+   > 修复时从生产库清出 **71 行** `__t_*` / `__h_*` 测试残留
+   > （备份：`TMP\_test_pollution_backup.json`）。清理后
+   > `task_execution_log` 剩 3962 行 / 63 个真实任务，未动业务数据。
+   >
+   > **凡新增 `from backend.database import DB_PATH` 的模块，都要在 fixture
+   > 里补一行 monkeypatch** —— 否则测试又会静默指向生产库。
+
+3. **两个内部函数被 Phase 4 拆分搬走了。**
+   `_chain_from_file` / `_module_file` 已随拆分迁至
+   `backend\services\task_introspect.py:154` 与 `:63`；`task_runner.py:31-37`
+   只再导出了 `_auto_call_chain` / `_annotate_call_chain`。
+   测试改为从 `task_introspect` 直接取（功能未变，只是位置变了）。
+
+**处置**：全部修好，**没有删用例、没有加 skip** —— 那会把唯一的
+`run_task` 结果落库回归覆盖丢掉。现在 `pytest tests/` **80/80 全绿**。
 
 `test_task_config_live_effect.py` 配一个子进程探针 `task_config_child_probe.py`：卡片保存后另起
 全新解释器导入服务模块（配置覆盖只发生在导入期），读 `defaults_factory()` 的真实输出逐点比对。

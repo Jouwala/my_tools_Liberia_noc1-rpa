@@ -992,13 +992,21 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 }
 
 /* ============================================================================
-   富卡片（CXO 四张：总流量 / 活跃用户 / 视频下载速率 / 视频流量）
+   富卡片（CXO 三张：总流量 / 活跃用户 / 视频下载速率）
    ----------------------------------------------------------------------------
    结构与 my_app `?page=vmaxCxoDashboard_90Days` 的卡片一致：
      标题 + 右上角单位 → 大数字 + 单位 → Latest/As of → WoW/MoM 徽章
      → 迷你走势 → Max / Avg / Min 页脚
    标记仍用 `.qc-card`（沿用底/边/hover/内发光/--qc-accent 一整组既有规则），
    只加一个 `--rich` 修饰类把「居中单列」改成「左对齐多段」。
+
+   ⚠️ 2026-09-29 更正：上面原写「四张 … 总流量 / 活跃用户 / 视频下载速率 /
+      视频流量」。第四张 video_tb 早在 2026-09-24 就按要求去掉了
+      （KPI_RICH 里只剩三条），这行标题一直没跟着改，属于陈旧注释。
+      实际是**三张**，与 olbr-data.js 的 KPI_RICH 条数一致。
+
+   2026-09-29：这三张卡改为**整卡可点**（点开对应 my_app 看板），
+   卡片本体由 <a href> 渲染，配套样式见下面 .qc-card--open。
 
    ⚠️ 刻意**不抄源页那张卡的整卡渐变**（源页是
       `background:linear-gradient(180deg,#08122c,#050d22)`）。
@@ -1007,6 +1015,37 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
      所以底色仍用 .qc-card 的 var(--surface-2) 纯色，靠边框 + 内发光分层。
      渐变只保留在「迷你走势的面积」上 —— 那是图表元素，不是卡片底。 */
 .qc-card--rich { align-items: stretch; text-align: left; padding-bottom: 9px; }
+
+/* 整卡可点的卡片（2026-09-29 加）。
+   两处会用到这个类，都是"整张卡渲染成 <a href>"：
+     · kpiRichHtml —— 三张富卡片（总流量 / 活跃用户 / 视频下载速率）；
+     · kpiCardHtml —— 三张可用率卡（2G / 3G / 4G），走它可选的 o.href 参数。
+   六张卡同一排，所以样式必须共用一套：任何一边单独写，两排的
+   链接色 / 下划线 / 焦点环立刻分叉。
+
+   卡片本体是 <a>，于是必须把浏览器给链接的默认样式逐项摁掉，
+   否则这六张卡会突然变成「蓝字 + 下划线」，与页面上其它卡片分家：
+     · color: inherit  —— 不加的话卡内所有文字继承 <a> 的链接色（蓝色）；
+     · text-decoration: none —— 下划线会穿到每个子元素上，包括大数字；
+     · cursor: pointer 本就从 .qc-card 继承，这里不用重复写。
+   卡内各元素（.qc-ttl b / .qc-val span / .qc-name / .qc-num 等）自己都写了 color，
+   本来不会被链接色影响；但 .qc-ext > div 这类没写 color 的会继承 ——
+   逐项去补不如在链接上兜住，这也是「一处兜底」比「多处补丁」更不容易漏的写法。
+
+   焦点环（键盘 Tab 到这张卡时）：
+   卡片有 overflow:hidden，outline 画在卡外会被裁掉一半，
+   所以用 box-shadow 内侧画环 —— 与 .qc-card 既有的 inset 内发光同一套画法，
+   不会因为裁切而看不见。⚠️ 只在 :focus-visible 时给，鼠标点击不出环
+   （:focus 会让"刚点完还停在卡上"也亮一圈，看起来像没点成功）。 */
+.qc-card--open {
+  color: inherit; text-decoration: none;
+}
+.qc-card--open:focus-visible {
+  outline: none;
+  border-color: var(--qc-accent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--qc-accent) 60%, transparent),
+              inset 0 0 18px color-mix(in srgb, var(--qc-accent) 20%, transparent);
+}
 
 /* 标题行：左标题、右单位（单位在源页是右上角的浅色小字） */
 .qc-ttl {
@@ -1580,6 +1619,18 @@ table.grid a:hover { text-decoration: underline; }
 .lrow > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lrow .go { margin-left: auto; flex: none; font-size: 12px; opacity: .55; }
 .lrow em { font: 500 10.5px/1 var(--mono); font-style: normal; color: var(--warn); background: var(--warn-tint); padding: 3px 5px; border-radius: 4px; flex: none; }
+
+/* 归档区（2026-09-28 加）。结构复用 .aux-g / .aux-h / .lrow，只有这两条是新的：
+   · .arch-hint —— 一行说明。没有它，这一块看起来像"回收站"，而它其实是可逆的暂存；
+   · .arch-g 的折叠规则 —— 上面那条 .aux-g:not([data-open="1"]) 只对 .aux 下的 ul 生效，
+     归档区在 .aux 之外（#arch），所以必须自己再写一条，否则"收起"时仍然全列出来。 */
+.arch-hint { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--t3); }
+#arch .arch-g:not([data-open="1"]) ul > li:nth-child(n+3) { display: none; }
+/* 归档行尾的「取消归档」：与 .lrow 的 .go 箭头抢右侧位置，所以用 margin-left:auto
+   把它推到最右（箭头在它右边时靠 .go 自己的 margin-left:auto 会失效 —— 两者都
+   声明 auto 时右边距由靠后出现的元素拿走，这里靠 DOM 顺序保证按钮在箭头之前）。 */
+#arch .lrow + .ct, #arch .ct { margin-left: auto; flex: none; font-size: 11px; padding: 3px 8px; }
+#arch .lrow .go { margin-left: 6px; }
 
 /* 空态与骨架 */
 .empty { padding: 10px 2px; font-size: 12.5px; color: var(--t3); }

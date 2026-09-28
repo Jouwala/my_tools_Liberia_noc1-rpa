@@ -195,6 +195,31 @@ export function getSiteAvailabilityTickets(params?: Record<string, string>) {
   return api.get('/site-availability/tickets', { params })
 }
 
+// 可用率多维矩阵（page=avail_ms）：区域/制式/站点类型 × 日/周/月
+// 数据源：本机派生库 data/avail_recon.sqlite3（任务 avail_recon_sync 每天 06:10 重建），
+// 口径 = SUM(Numerator)/SUM(Denominator)，见 backend/services/avail_ms_service.py
+export function getAvailMsOptions() {
+  return api.get('/avail-ms/options')
+}
+
+// params: period=day|week|month / value=周期值（空=库里最新一期） / threshold=未达标比率
+export function getAvailMsMatrix(params: { period: string; value?: string; threshold?: number }) {
+  return api.get('/avail-ms/matrix', { params })
+}
+
+// 页面曲线图：三个维度各自的多序列趋势，与矩阵/下钻同口径
+// params: period / value=窗口右端周期（空=最新） / points=窗口期数（0=按档位默认） / threshold
+export function getAvailMsTrend(params: {
+  period: string; value?: string; points?: number; threshold?: number
+}) {
+  return api.get('/avail-ms/trend', { params })
+}
+
+// params: level=period|tt / period / value / region(ALL|区域名|UNMATCHED) / tech / site_type / threshold
+export function getAvailMsDrilldown(params: Record<string, string | number>) {
+  return api.get('/avail-ms/drilldown', { params })
+}
+
 // CN KPI 看板（原 my-finebi「CN KPI」看板原生重建）
 // 数据源：db_ps_cs_cn.sqlite3，经远端只读 SQL API（backend/config/remote_host.py）；
 // **不依赖 my-finebi 进程**。18 个组件的 SQL 与图表类型对齐 FineBI 原看板。

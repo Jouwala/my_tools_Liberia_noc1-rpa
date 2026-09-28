@@ -43,6 +43,37 @@
 > 🔴 **已验证风险 3：凭据明文存储。** `set_credential` 把用户名口令**明文**写入 `db/app.db` 的 `credentials` 表，无加密、无哈希。
 > 🔴 **已验证风险 4：凭据不随主库走。** `credential_store._get_conn` 用 `sqlite3` 直连本地 `app.db`，绕过 `MY_APP_DB_MODE`。当前 PG 模式下，业务数据在远程 PG、凭据在本机 `app.db`。备份/迁移只搬一边必然丢东西。
 
+### 2026-09-27：硬编码口令清理与根因修复
+
+**背景**：同一个口令在 30+ 个文件里各存一份副本（`PASSWORD = "..."`、`SFTP_PASS = "..."` 等），
+既是**重复真相源**，也让口令明文进了版本库。多个文件还完全没接 `credential_store`。
+
+**根因（值得记住）**：`get_credential(key, default_user, default_secret)` 此前**只认传进来的参数**，
+从不回退到凭据组自己的 `default_user`/`default_secret`。于是每个调用方都被迫再写一遍字面量兜底 ——
+"注册表里的默认值"和"代码里的默认值"成了两份必须同步的副本。
+
+**修复**：`credential_store.get_credential` 现在会在调用方未传默认值时，自动回退到本组默认值
+（`credential_store.py` 内 `if group:` 分支）。此后全仓 `get_credential("some_key", USER, PASS)`
+一律简化为 `get_credential("some_key")`。
+
+**清理范围**：30+ 个源码文件的口令/Token/授权码字面量已移除，涉及 `zte_ume`、`mw_ume`、`ccn_ume`、
+`ipran_ume`、`fw_kpi`、`battery_ume`、`cm_data`、`sftp_sp`、`mail_126`、`owa_mail`、`weixin` 等分组。
+三个原本**完全没接凭据系统**的模块（`mw_ume_kpi.py`、`gernarate_sp_report.py`、`ms_sla_service.py`）
+已补上 `_runtime_credentials()`。
+
+**两处刻意的例外**（不是漏网，勿"顺手清理"）：
+
+| 文件 | 为何保留 |
+| --- | --- |
+| `backend/services/credential_store.py` | 中央凭据库，`CREDENTIAL_GROUPS` 里的默认值**就是**唯一真相源 |
+| `email_reports/owa_credentials.py` | 刻意的最后兜底（`env > credential_store > 此处`）；且 `_LEGACY_DEFAULTS` 依赖该字面量的**值**来识别"调用方传了历史旧口令"，改值会同时改变那套识别逻辑。其 docstring 记录了 2026-09-18 的 65 小时邮件全故障 |
+
+**守卫**：`tests/test_engineering_guards.py::test_no_hardcoded_secrets_in_source`
+以"历史口令字面量黑名单"钉住，命中即失败；豁免必须连同理由写进 `_SECRET_LITERAL_EXEMPT`。
+
+> ⚠️ **删源码 ≠ 消除泄露。这些口令已经进入 git 历史，必须轮换才能真正失效。**
+> 本清理只解决了"不再继续留在工作树里"，**不能替代轮换**。
+
 ## 上游站点会话
 
 `backend/services/auth_manager.py:81` 把登录后的站点会话 cookie 缓存在 `backend/services/auth_cache/`（RSA 加密登录流程 + `forgery_token`，带 TTL）。

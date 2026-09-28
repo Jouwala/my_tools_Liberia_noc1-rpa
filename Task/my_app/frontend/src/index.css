@@ -6,6 +6,10 @@
   --wh-card-border-hover: 1px solid #258cff;
   --wh-teal: #00d9ff;
   --wh-blue: #258cff;
+  /* MTTR 双轴图固定语义色：柱 = 中兴蓝 #0072BC（渐变起点提亮），线 = 橙（深色主题） */
+  --wh-zte-blue: #0072BC;
+  --wh-zte-blue-light: #3d9be9;
+  --wh-zte-orange: #ff922b;
   --wh-indigo: #7c8ff0;
   --wh-text: #f5f7ff;
   --wh-text-muted: #aebbd4;
@@ -150,6 +154,10 @@
   --wh-card-border-hover: 1px solid rgba(13, 148, 136, 0.65);
   --wh-teal: #0d9488;
   --wh-blue: #0e7490;
+  /* MTTR 双轴图固定语义色（浅色主题）：品牌蓝 #0072BC，渐变起点提亮以适配白底 */
+  --wh-zte-blue: #0072BC;
+  --wh-zte-blue-light: #2b8fd6;
+  --wh-zte-orange: #ea580c;
   --wh-indigo: #6366f1;
   --wh-text: #16233b;
   --wh-text-muted: #3f5468;

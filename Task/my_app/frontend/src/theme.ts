@@ -18,6 +18,16 @@ export const DARK = {
   teal: '#00d9ff',
   blue: '#258cff',
   indigo: '#7c8ff0',
+  /* MTTR 双轴图的固定语义色：柱 = 中兴蓝 #0072BC（ZTE 品牌蓝），线 = 橙。
+     刻意不随严重级别变化 —— 级别身份由「图」本身（P1~P4 四张独立图）表达，
+     再让颜色随级别变会让「柱是量、线是时长」这个更重要的对照关系被冲淡。
+     dark/light 各一套实值（canvas 解析不了 CSS 变量）；深色主题把渐变起点
+     提亮到 #3d9be9 以免品牌蓝在深底上发闷，浅色用 #2b8fd6。
+     见 11-feature-guide.md 第 4 节「MTTR 趋势」最后一条。 */
+  zteBlue: '#0072BC',
+  zteBlueLight: '#3d9be9',
+  zteBlueLightTheme: '#2b8fd6',
+  zteOrange: '#ff922b',
   text: '#f5f7ff',
   textMuted: '#aebbd4',
   textDim: '#6f8cb4',
@@ -33,6 +43,13 @@ export const LIGHT = {
   teal: '#0d9488',
   blue: '#0e7490',
   indigo: '#6366f1',
+  /* 浅色主题下的中兴蓝/橙：品牌蓝 #0072BC 在白底上偏暗、对比度偏弱，
+     渐变起点用 #2b8fd6 提亮，落点仍是品牌蓝；橙取 #ea580c
+     （与深色主题 #ff922b 同色相，但足够在白底上读清）。 */
+  zteBlue: '#0072BC',
+  zteBlueLight: '#2b8fd6',
+  zteBlueLightTheme: '#2b8fd6',
+  zteOrange: '#ea580c',
   text: '#16233b',
   textMuted: '#3f5468',
   textDim: '#5b7288',

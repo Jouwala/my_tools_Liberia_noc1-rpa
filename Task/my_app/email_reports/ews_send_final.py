@@ -2,7 +2,7 @@
 """EWS 邮件发送 - 最终修正版
 
 已知问题修复：
-- ✅ 密码更新为正确值：Postcode@202608
+- ✅ 密码由 credential_store 的 owa_mail 组提供（2026-09-27 起不再写明文）
 - ✅ 附件上传语法修正
 - ✅ Rate Limit 处理改进
 """
@@ -145,7 +145,7 @@ def send_via_ews(
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("EWS 邮件发送测试 - 密码已更新为：Postcode@202608")
+    print("EWS 邮件发送测试 - 密码取自 credential_store")
     print("=" * 60)
     
     result = send_via_ews(
@@ -153,7 +153,7 @@ if __name__ == "__main__":
         subject="[测试] EWS 密码验证 - 第 1 次",
         body="""您好，
 
-这是使用新密码 Postcode@202608 的测试邮件。
+这是 EWS 凭据自检邮件的正文。
 
 如果收到此邮件，说明：
 ✅ 密码正确

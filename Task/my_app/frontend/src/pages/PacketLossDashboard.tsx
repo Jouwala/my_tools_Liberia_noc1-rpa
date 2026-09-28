@@ -13,8 +13,9 @@ import {
   CopyOutlined, InfoCircleOutlined, ApartmentOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
-import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Tooltip } from 'react-leaflet'
-import 'leaflet/dist/leaflet.css'
+// 用自研的 LeafletMap（原生 leaflet）取代 react-leaflet —— 后者是 Hippocratic-2.1
+// 许可（非 OSI，含人权条款/仲裁/赔偿），见 components/LeafletMap.tsx 头部说明。
+import { MapContainer, TileLayer, CircleMarker, Popup, Polyline } from '../components/LeafletMap'
 import { exportAoaReport } from '../utils/excelReport'
 import dayjs from 'dayjs'
 import api from '../api'

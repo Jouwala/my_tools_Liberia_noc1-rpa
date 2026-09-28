@@ -109,8 +109,8 @@ def probe_sftp_shell():
     """通过 SFTP 端口 21128 尝试获取 shell"""
     print("\n=== Path A: SFTP port 21128 (uepcommon) ===")
 
-    # 方式1: 直接 SSH
-    for pwd in [None, "", "uepcommon", "Tool123", "zte"]:
+    # 方式1: 直接 SSH（真实口令从 EMS_PASS 注入，见 2026-09-27 注释）
+    for pwd in [None, "", "uepcommon", os.environ.get("EMS_PASS", ""), "zte"]:
         client = try_ssh(21128, "uepcommon", password=pwd)
         if client:
             exec_cmd(client, "whoami")
@@ -152,12 +152,15 @@ def probe_ssh_standard():
     print("\n=== Path B: SSH port 22 ===")
 
     # 尝试常见密码组合
+    # 2026-09-27：原先这里的候选口令含**真实口令明文**（已入库）。
+    # 改为从环境变量 EMS_PASS 注入真实口令，其余保留纯占位弱口令用于探测。
+    _real = os.environ.get("EMS_PASS", "")
     combos = [
-        ("oss", "Tool123"), ("oss", "oss"), ("oss", "123456"),
+        ("oss", _real), ("oss", "oss"), ("oss", "123456"),
         ("root", "root"), ("root", "toor"), ("root", "zte"),
-        ("root", "Tool123"), ("root", "Zte@1234"),
-        ("admin", "admin"), ("admin", "Tool123"),
-        ("zte", "zte"), ("zte", "Tool123"),
+        ("root", "Zte@1234"),
+        ("admin", "admin"),
+        ("zte", "zte"),
     ]
     for user, pwd in combos:
         client = try_ssh(22, user, password=pwd)

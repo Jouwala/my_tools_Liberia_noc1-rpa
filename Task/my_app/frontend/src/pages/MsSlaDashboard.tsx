@@ -27,7 +27,33 @@ const getUniqueFilters = (data: any[], key: string) => {
   return Array.from(vals).map(v => ({ text: v, value: v }))
 }
 
-type Gran = 'daily' | 'monthly'
+// 粒度三档：天 / 周 / 月（周口径为 ISO 周 "YYYY-Wnn"，与 nur_calc / NurDashboard 一致）。
+// 三张映射表的键名必须是字面量：check-i18n 守卫拒绝动态拼 key，会把
+// `'msSla.tab' + g` 读成不存在的键而中断构建。页签用长名（天/周/月），
+// 卡片标题与下钻提示用短名（Daily/Weekly/Monthly）。
+type Gran = 'daily' | 'weekly' | 'monthly'
+const GRANS: Gran[] = ['daily', 'weekly', 'monthly']
+const GRAN_TAB_KEY: Record<Gran, string> = {
+  daily: 'msSla.tabDay', weekly: 'msSla.tabWeek', monthly: 'msSla.tabMonth',
+}
+const GRAN_LABEL_KEY: Record<Gran, string> = {
+  daily: 'msSla.daily', weekly: 'msSla.weekly', monthly: 'msSla.monthly',
+}
+const GRAN_TITLE_KEY: Record<Gran, string> = {
+  daily: 'nur.daily', weekly: 'nur.weekly', monthly: 'nur.monthly',
+}
+
+/**
+ * 各档粒度的默认查询区间（2026-09-28 需求）：天 = 当月 1 日→今天；周 = 最近 12 周；
+ * 月 = 最近 9 个自然月（≈2026-01，eflow_tt 有效数据自 2026-01 起）。
+ * 切档会重置为该档默认值，这是刻意的：三档窗口量级差 9 倍，沿用上一档区间会出现
+ * 「周档位显示几百列」；页面上用 msSla.tabHint 横幅写明当前粒度与区间。
+ */
+function defaultRange(g: Gran): [Dayjs, Dayjs] {
+  if (g === 'weekly') return [dayjs().subtract(11, 'week'), dayjs()]
+  if (g === 'monthly') return [dayjs().startOf('month').subtract(8, 'month'), dayjs()]
+  return [dayjs().startOf('month'), dayjs()]
+}
 
 // 标量指标行（metric × period 透视，与后端 _pivot 结构对齐）
 interface ScalarRow { metric: string; [period: string]: number | string | null }
@@ -159,6 +185,13 @@ const headStyle: React.CSSProperties = {
   borderBottom: '1px solid rgba(0, 217, 255,0.12)', color: WH.teal, fontSize: '0.8125rem', fontWeight: 600,
 }
 const TABLE_H = 240
+
+// WO 达成率分面图：4 张（P1~P4）按 2 列排布，撑满整页宽度。
+// 图高 320：分面从半宽受限的卡中卡里解放出来后，需要足够纵向空间让 45° 期间标签
+// 与图例不打架；两行合计约 640px，与上方表格（TABLE_H=240 + 表头）合计刚好一屏有余。
+const WO_TREND_H = 320
+// 分面配色按严重度递增从蓝到红（P1 最轻 → P4 最重），与表格里 percent 着色语义一致
+const WO_TREND_COLORS = ['#258cff', '#51cf66', '#ffd43b', '#ff6b6b']
 
 // ---------- 通用标量表：行=指标（可映射显示名），列=期间（降序，最新在左） ----------
 // colorBy: 'nur' 用按值大小渐变（蓝→黄→红，与 NurDashboard 一致）；'percent' 用达成率阈值（≥目标绿/否则红）；缺省 WH.text
@@ -421,45 +454,58 @@ function WoTable({ rows, t, onDrill }: {
   )
 }
 
-// ---------- WO Achieve 趋势：TTR/TTR_P1..P4 达成率（%） ----------
-function WoAchieveTrendChart({ rows }: { rows: WoRow[] }) {
+// ---------- WO Achieve 趋势：按严重度拆成 4 张图（P1/P2/P3/P4），每图一条达成率曲线 ----------
+// 原先把 TTR + TTR_P1~P4 五条线画在一张图里，P1/P4 常年贴 100%、P2/P3 在 60~95% 波动，
+// 同轴下小波动被压平看不出趋势，故拆成分面。TTR（不分严重度的总达成率）不再单独成图 ——
+// 它是下面 4 个分级的汇总，已经在 WOs SLA 表格的 TTR 行里可见。
+const WO_SEVERITIES = ['TTR_P1', 'TTR_P2', 'TTR_P3', 'TTR_P4'] as const
+
+function WoAchieveTrendChart({ rows, metric, t }: {
+  rows: WoRow[]; metric: string; t: (k: string) => string
+}) {
   const { isDark } = useTheme()
   const option = useMemo(() => {
-    const metrics = ['TTR', 'TTR_P1', 'TTR_P2', 'TTR_P3', 'TTR_P4'].filter(
-      m => (rows || []).some(r => r.metric === m))
-    const byPeriod: Record<string, Record<string, WoRow>> = {}
+    const byPeriod: Record<string, WoRow> = {}
     for (const r of rows || []) {
-      if (!byPeriod[r.period]) byPeriod[r.period] = {}
-      byPeriod[r.period][r.metric] = r
+      if (r.metric === metric) byPeriod[r.period] = r
     }
     const periods = Object.keys(byPeriod).sort()
+    const sev = SLA_SEV[metric] || metric
     return trendOption({
-      title: 'WO SLA Achieve Trend',
+      title: sev,
       periods,
       percent: true,
       isDark,
-      series: metrics.map((m, i) => ({
-        name: m,
-        color: WH_COLORS[i % WH_COLORS.length],
+      // 达成率阈值线由 trendOption 之外的 yAxis 处理；这里单序列，颜色取项目统一色板首色
+      series: [{
+        name: t('msSla.achieve'),
+        color: WO_TREND_COLORS[WO_SEVERITIES.indexOf(metric as any) % WO_TREND_COLORS.length],
         data: periods.map(p => {
-          const v = byPeriod[p]?.[m]?.achieve
+          const v = byPeriod[p]?.achieve
           return typeof v === 'number' ? +(v * 100).toFixed(2) : null
         }),
-      })),
+      }],
     })
-  }, [rows, isDark])
-  if (!rows?.length) return <div style={{ height: TABLE_H + 32 }} />
-  return <ReactECharts option={option} style={{ height: TABLE_H + 32, width: '100%' }} notMerge />
+  }, [rows, metric, isDark, t])
+  // 该严重度无数据时占位，保持 2×2 网格的行高一致（不塌陷）
+  if (!(rows || []).some(r => r.metric === metric)) {
+    return <div style={{ height: WO_TREND_H }} />
+  }
+  return <ReactECharts option={option} style={{ height: WO_TREND_H, width: '100%' }} notMerge />
 }
 
 /**
- * MS Operation KPI 看板主体（page=ms_sla：NUR / SLA / Network / Per-Site / WO SLA）。
+ * MS Operation KPI 看板主体（page=ms_sla：NUR / Network / Per-Site / WO SLA）。
+ *
+ * SLA 达成率不再单独成卡（2026-09-28 按需求去掉 KPI List SLA 与 SLA Achieve Trend）：
+ * 它与下方 WOs SLA 区的数据完全同源（都来自 nur_calc，指标/期间/百分比口径一致），
+ * 由 WOs SLA 区以「表格 + 趋势」统一呈现，避免同一组达成率在页面上出现两遍。
  *
  * only 用于派生「只保留 SLA」的直链页面（同一份实现切片，避免复制粘贴走样）：
- *   - only='sla' → 只渲染 KPI List SLA（达成率表 + 趋势）与 WOs SLA 区，
+ *   - only='sla' → 只渲染 WOs SLA 区（SLA 达成率的表格 + 趋势 + 下钻），
  *                  Network / Per-Site / NUR 一律不出，供 page=ms_sla_only 使用；
  *   - only='nur' → 只渲染 KPI List NUR 区（保留给同类切片复用）；
- *   - 缺省       → 全量，page=ms_sla 行为与改造前完全一致。
+ *   - 缺省       → 全量（NUR + Network + Per-Site + WOs SLA）。
  */
 export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
   const { t } = useI18n()
@@ -469,11 +515,11 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
   // Network / Per-Site 既非 NUR 也非 SLA：只在全量模式下出现
   const showOthers = only == null
   const [gran, setGran] = useState<Gran>('daily')
-  // 默认最近 6 个月（含今天），与 NUR 看板一致；仅过滤实时计算部分
-  //（nur/sla/wo/Per-Site 站点占比），Network/Per-Site 快照不受影响
-  const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>([
-    dayjs().subtract(6, 'month'), dayjs(),
-  ])
+  // Network / Per-Site 来自看板快照库（ms_sla_kpi），只有 daily/monthly 两级 dataset，
+  // 周档位下后端返回空表 —— 前端直接不渲染这两块，避免出现空表与空图。
+  const isWeekly = gran === 'weekly'
+  // 默认区间由粒度档位决定；仅过滤实时计算部分（nur/sla/wo），Network/Per-Site 快照不受影响
+  const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(defaultRange('daily'))
   const [data, setData] = useState<OverviewResp | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -498,10 +544,18 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
 
   const meta = data?.meta || {}
   const lastSync = meta.last_sync_time ? formatDateTime(meta.last_sync_time) : '-'
-  const granLabel = t(gran === 'daily' ? 'msSla.daily' : 'msSla.monthly')
-  const granTitle: Record<Gran, string> = {
-    daily: t('nur.daily'), monthly: t('nur.monthly'),
-  }
+  // 卡片标题用短名（Daily / Weekly / Monthly），页签与提示用长名（天 / 周 / 月）
+  const granLabel = t(GRAN_LABEL_KEY[gran])
+  const granLong = t(GRAN_TAB_KEY[gran])
+  const granTitle = useMemo(
+    () => Object.fromEntries(GRANS.map(g => [g, t(GRAN_TITLE_KEY[g])])) as Record<Gran, string>,
+    [t],
+  )
+  // 切换 天/周/月 页签：同时把时间范围重置为该档默认窗口（见 defaultRange 注释）
+  const changeGran = useCallback((v: Gran) => {
+    setGran(v)
+    setRange(defaultRange(v))
+  }, [])
 
   // ---------- 下钻（单元格 → TT 明细弹窗，项目统一下钻规范） ----------
   const [drillVisible, setDrillVisible] = useState(false)
@@ -576,7 +630,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
   // ---------- 页面级导出：导出「当前页面显示的全部汇总数据」 ----------
   // 与下钻导出的区别：下钻导出的是弹窗里那批 TT 明细行；
   // 这里导出的是页面上四张标量表（NUR / SLA / Network / Per-Site）+ WO SLA 表的当期值
-  // （即当前 daily|monthly 粒度下、当前时间范围筛选后的结果），多 sheet 一份文件。
+  // （即当前 天|周|月 粒度下、当前时间范围筛选后的结果），多 sheet 一份文件。
   // only 切片时只导出该切片渲染的块（ms_sla_only 只出 SLA + WO）。
   const exportPageExcel = useCallback(() => {
     if (!data) return
@@ -604,13 +658,14 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
     })
     // ---------- 各 KPI 标量表：行=指标，列=期间（降序，最新在左，与页面同布局） ----------
     // 「取值」sheet 记录该表的口径（NUR 乘 100000 / 其余为百分比），否则拿到文件无法判读量纲
+    // sla 块与下方 WOs SLA sheet 同源（都来自 nur_calc 的同一组达成率），故与页面一致地不重复导出。
     const scalarBlocks: { key: string; name: string; rows: ScalarRow[]; cell: (v: any) => number | string; note: string }[] = [
       { key: 'nur', name: t('msSla.exportKpiNur'), rows: data.nur?.[gran] || [], cell: xlNur, note: t('msSla.unit') },
-      { key: 'sla', name: t('msSla.exportKpiSla'), rows: data.sla?.[gran] || [], cell: xlPct, note: '%' },
       { key: 'network', name: t('msSla.exportNetwork'), rows: data.network?.[gran] || [], cell: xlPct, note: '%' },
       { key: 'persite', name: t('msSla.exportPersite'), rows: data.persite?.[gran] || [], cell: xlPct, note: '%' },
     ]
-    if (showNur || showSla) {
+    // 「取值」表始终出（page=ms_sla_only 也有 NUR 之外的百分比口径说明；纯 nur 切片下亦为一份说明）
+    if (scalarBlocks.some(b => b.rows.length)) {
       sheets.push({
         name: 'Value Scale',
         title: t('msSla.exportMeta'),
@@ -647,7 +702,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
     }
     const fname = `MS_Operation_KPI_${gran}_${dayjs().format('YYYYMMDD_HHmmss')}`
     void exportReport(sheets, `${fname}.xlsx`)
-  }, [data, gran, granLabel, range, lastSync, meta.kpi_list_mtime, showNur, showSla, t])
+  }, [data, gran, granLabel, range, lastSync, meta.kpi_list_mtime, t])
 
   // 下钻表格列（动态生成，alarm_occur_time 默认降序）
   const drillColumns = useMemo(() => {
@@ -674,7 +729,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
 
   return (
     <div style={{ padding: 'var(--wh-space-md)' }}>
-      {/* ---------- 顶部：数据新鲜度 + 日/月切换 + 刷新 ---------- */}
+      {/* ---------- 顶部：数据新鲜度 + 天/周/月页签 + 时间范围 + 刷新/导出 ---------- */}
       <Card size="small" style={{ ...cardStyle, marginBottom: 'var(--wh-space-md)' }} styles={{ body: { padding: 'var(--wh-space-sm) var(--wh-space-md)' } }}>
         <Space wrap style={{ gap: 'var(--wh-space-md)' }}>
           <Text style={{ color: WH.textMuted }}>{t('msSla.lastSync')}</Text>
@@ -687,11 +742,8 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
           )}
           <Segmented
             value={gran}
-            onChange={v => setGran(v as Gran)}
-            options={[
-              { value: 'daily', label: t('msSla.daily') },
-              { value: 'monthly', label: t('msSla.monthly') },
-            ]}
+            onChange={v => changeGran(v as Gran)}
+            options={GRANS.map(g => ({ value: g, label: t(GRAN_TAB_KEY[g]) }))}
           />
           <Space wrap style={{ gap: 'var(--wh-space-xs)' }}>
             <Text style={{ color: WH.textMuted }}>{t('nur.timeRange')}</Text>
@@ -713,6 +765,18 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
         </Space>
       </Card>
 
+      {/* 当前档位的时间范围说明（切档会重置区间，这里讲清楚默认窗口，避免误解为丢数据） */}
+      <Alert
+        type="info" showIcon banner
+        message={t('msSla.tabHint', {
+          tab: granLong,
+          range: range && range[0] && range[1]
+            ? `${range[0].format('YYYY-MM-DD')} ~ ${range[1].format('YYYY-MM-DD')}`
+            : t('msSla.exportRangeAll'),
+        })}
+        style={{ marginBottom: 'var(--wh-space-md)' }}
+      />
+
       {error && <Alert type="error" showIcon message={`${t('msSla.loadFailed')}: ${error}`} style={{ marginBottom: 'var(--wh-space-md)' }} />}
       {data && !lastSync && (
         <Alert type="warning" showIcon message={t('msSla.noData')} style={{ marginBottom: 'var(--wh-space-md)' }} />
@@ -720,86 +784,80 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
 
       <Spin spinning={loading}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
-          {/* ---------- Contract KPIs 区 ---------- */}
-          <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-md)' } }}
-            title={`${t('msSla.contractKpis')} · ${granLabel}`}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
-              {/* NUR：表格（×100000）+ 趋势（only='sla' 时不渲染） */}
-              {showNur && (
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
-                <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
-                  title={`KPI List NUR ${granLabel}`} extra={<Tag color="cyan" style={{ marginRight: 0 }}>{t('msSla.unit')}</Tag>}>
-                  <ScalarTable rows={data?.nur?.[gran] || []} fmt={fmtNur} nameMap={NUR_NAMES} colorBy="nur"
-                    onDrill={(e, m, p) => handleNurDrill(e, gran, NUR_TECH[m] || m, p)} />
-                </Card>
-                <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-xs)' } }}
-                  title={`NUR Trend ${granLabel}`}>
-                  <ScalarTrendChart title={`NUR Trend ${granLabel}`} rows={data?.nur?.[gran] || []}
-                    scale={NUR_SCALE} nameMap={NUR_NAMES} colors={NUR_COLORS}
-                    onDrill={(e, name, p) => handleNurDrill(e, gran, name, p)} />
-                </Card>
-              </div>
-              )}
-              {/* SLA：达成率表格 + 趋势（only='nur' 时不渲染） */}
-              {showSla && (
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
-                <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
-                  title={`KPI List SLA ${granLabel}`}>
-                  <ScalarTable rows={data?.sla?.[gran] || []} fmt={fmtPct} colorBy="percent"
-                    onDrill={(e, m, p) => handleSlaDrill(e, gran, SLA_SEV[m] || m, 'achieve', p)} />
-                </Card>
-                <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-xs)' } }}
-                  title={`SLA Achieve Trend ${granLabel}`}>
-                  <ScalarTrendChart title={`SLA Achieve Trend ${granLabel}`} rows={data?.sla?.[gran] || []} percent
-                    onDrill={(e, name, p) => handleSlaDrill(e, gran, SLA_SEV[name] || name, 'achieve', p)} />
-                </Card>
-              </div>
-              )}
-              {/* Network KPIs：表格 + 趋势（既非 NUR 也非 SLA，只在全量模式下渲染） */}
-              {showOthers && (
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
-                <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
-                  title={`Network KPIs ${granLabel}`}>
-                  <ScalarTable rows={data?.network?.[gran] || []} fmt={fmtPct} colorBy="percent" />
-                </Card>
-                <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-xs)' } }}
-                  title={`Network KPIs Trend ${granLabel}`}>
-                  <ScalarTrendChart title={`Network KPIs Trend ${granLabel}`} rows={data?.network?.[gran] || []} percent />
-                </Card>
-              </div>
-              )}
-              {/* Per-Site 占比：表格 + 趋势（既非 NUR 也非 SLA，只在全量模式下渲染） */}
-              {showOthers && (
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
-                <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
-                  title={`Per-Site KPIs ${granLabel}`}>
-                  <ScalarTable rows={data?.persite?.[gran] || []} fmt={fmtPct} colorBy="percent"
-                    onDrill={(e, m, p) => handlePersiteDrill(e, gran, m, p)} />
-                </Card>
-                <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-xs)' } }}
-                  title={`Per-Site KPIs Trend ${granLabel}`}>
-                  <ScalarTrendChart title={`Per-Site KPIs Trend ${granLabel}`} rows={data?.persite?.[gran] || []} percent />
-                </Card>
-              </div>
-              )}
-            </div>
-          </Card>
-
-          {/* ---------- WOs SLA 区（工单 SLA 达成，属 SLA 内容：only='sla' 保留、only='nur' 不渲染） ---------- */}
+          {/* ---------- KPI List 区（NUR / SLA / Network / Per-Site 各一组表+趋势） ----------
+              原「Contract KPIs」外层卡片已按需求去掉：外层与内层卡片两层描边叠在一起
+              （2026-09-28 直链页 ms_sla_only 反馈），去掉后语义完全不变，仅少一层容器。 */}
+          {showNur && (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
+            <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
+              title={`KPI List NUR ${granLabel}`} extra={<Tag color="cyan" style={{ marginRight: 0 }}>{t('msSla.unit')}</Tag>}>
+              <ScalarTable rows={data?.nur?.[gran] || []} fmt={fmtNur} nameMap={NUR_NAMES} colorBy="nur"
+                onDrill={(e, m, p) => handleNurDrill(e, gran, NUR_TECH[m] || m, p)} />
+            </Card>
+            <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-xs)' } }}
+              title={`NUR Trend ${granLabel}`}>
+              <ScalarTrendChart title={`NUR Trend ${granLabel}`} rows={data?.nur?.[gran] || []}
+                scale={NUR_SCALE} nameMap={NUR_NAMES} colors={NUR_COLORS}
+                onDrill={(e, name, p) => handleNurDrill(e, gran, name, p)} />
+            </Card>
+          </div>
+          )}
+          {/* SLA 达成率趋势（KPI List SLA / SLA Achieve Trend）已按需求去掉（2026-09-28）：
+              它与下方「WOs SLA」区的 WO SLA Achieve Trend 是**同一份数据** —— 两者都来自
+              nur_calc 的实时计算，指标（TTR + TTR_P1~P4）、期间、百分比口径完全一致
+              （实测 2026-09：TTR 0.8865 / TTR_P1 0.7143 / TTR_P2 0.936 两侧数值相同），
+              一并保留会让页面出现两遍同样的达成率。SLA 达成率现在只在下方的 WOs SLA 区
+              以「表格 + 趋势」呈现，下钻入口也在那里。 */}
+          {/* Network KPIs：表格 + 趋势（既非 NUR 也非 SLA，只在全量模式下渲染；快照库无周粒度） */}
+          {showOthers && !isWeekly && (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
+            <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
+              title={`Network KPIs ${granLabel}`}>
+              <ScalarTable rows={data?.network?.[gran] || []} fmt={fmtPct} colorBy="percent" />
+            </Card>
+            <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-xs)' } }}
+              title={`Network KPIs Trend ${granLabel}`}>
+              <ScalarTrendChart title={`Network KPIs Trend ${granLabel}`} rows={data?.network?.[gran] || []} percent />
+            </Card>
+          </div>
+          )}
+          {/* Per-Site 占比：表格 + 趋势（同上，快照库无周粒度） */}
+          {showOthers && !isWeekly && (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
+            <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
+              title={`Per-Site KPIs ${granLabel}`}>
+              <ScalarTable rows={data?.persite?.[gran] || []} fmt={fmtPct} colorBy="percent"
+                onDrill={(e, m, p) => handlePersiteDrill(e, gran, m, p)} />
+            </Card>
+            <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-xs)' } }}
+              title={`Per-Site KPIs Trend ${granLabel}`}>
+              <ScalarTrendChart title={`Per-Site KPIs Trend ${granLabel}`} rows={data?.persite?.[gran] || []} percent />
+            </Card>
+          </div>
+          )}
+          {/* 全量页在周档位下，快照类 KPI 无数据 —— 明说原因，避免被当成加载失败 */}
+          {showOthers && isWeekly && (
+            <Alert type="warning" showIcon message={t('msSla.weeklyNoSnapshot')} />
+          )}
+          {/* ---------- WOs SLA 区（工单 SLA 达成，属 SLA 内容：only='sla' 保留、only='nur' 不渲染） ----------
+              两块是**并列的独立卡片**（2026-09-28 调整）：趋势此前嵌在 WOs SLA 大卡内部，
+              形成「卡中卡」的双层描边，且内层高度受限、4 张分面图挤在半宽里。现在与表格同级，
+              趋势图得以撑满整页宽度。 */}
           {showSla && (
           <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-md)' } }}
             title={`${t('msSla.woSla')} · ${granLabel}`}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
-              <div>
-                <WoTable rows={data?.wo?.[gran] || []} t={t}
-                  onDrill={(e, sev, item, p) => handleSlaDrill(e, gran, sev, item, p)} />
-              </div>
-              <div>
-                <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-xs)' } }}
-                  title={`WO SLA Achieve Trend ${granLabel}`}>
-                  <WoAchieveTrendChart rows={data?.wo?.[gran] || []} />
-                </Card>
-              </div>
+            <WoTable rows={data?.wo?.[gran] || []} t={t}
+              onDrill={(e, sev, item, p) => handleSlaDrill(e, gran, sev, item, p)} />
+          </Card>
+          )}
+          {/* 按严重度分面：P1/P2 一行、P3/P4 一行（每行 2 图），横向撑满页面 */}
+          {showSla && (
+          <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
+            title={`${t('msSla.woAchieveTrend')} ${granLabel}`}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)', width: '100%' }}>
+              {WO_SEVERITIES.map(sev => (
+                <WoAchieveTrendChart key={sev} rows={data?.wo?.[gran] || []} metric={sev} t={t} />
+              ))}
             </div>
           </Card>
           )}

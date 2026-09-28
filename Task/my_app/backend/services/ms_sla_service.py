@@ -111,8 +111,9 @@ BATCH_SIZE = 2000
 # ============================================================
 UME_HOST = "10.100.28.27"
 UME_PORT = 28001
+# 只留用户名（非敏感）；口令不得写在这里，由 credential_store 的 `zte_ume` 组提供
+# （取值点见 ms_sla_sync._runtime_credentials）。2026-09-27 删除硬编码 UME_PASSWORD。
 UME_USERNAME = "NOC"
-UME_PASSWORD = "Zte@2025!"
 
 
 # ============================================================

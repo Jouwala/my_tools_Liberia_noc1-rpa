@@ -1198,3 +1198,45 @@ register_config(ConfigResource(
                                          "granularity": m.load_config().get("granularity"),
                                          "workers": m.load_config().get("workers")})),
 ))
+
+# ========== eFlow P1 告警 WhatsApp 推送（tt_alarm_whatsapp_alert） ==========
+def _tt_alert_defaults():
+    """默认值取服务当前生效值（含 env），页面所见 = 任务所用。
+
+    ⚠️ 时间窗/级别/告警码/群组在服务里都是**模块导入期**算好的常量，
+    这里直接读模块属性，不重复写一份默认值（避免设置页与代码两份模板分叉）。
+    群组为空时服务已回退到 DEFAULT_GROUPS，故页面首次打开会显示 test123 ——
+    这是**如实展示当前生效值**，用户填自己的群组名覆盖即可。
+    """
+    from backend.services import tt_alarm_whatsapp_service as s
+    return {
+        "window_minutes": int(s.WINDOW_MINUTES),
+        "resend_minutes": int(s.RESEND_MINUTES),
+        "severities": ",".join(sorted(s.SEVERITIES)),
+        "alarm_codes": ",".join(sorted(s.ALARM_CODES)),
+        "groups": ",".join(s.GROUPS),
+    }
+
+
+register_config(ConfigResource(
+    task_id="tt_alarm_whatsapp_alert", path=_cfg("tt_alert_whatsapp_config.json"),
+    defaults={
+        "window_minutes": 180, "resend_minutes": 20,
+        "severities": "P1", "alarm_codes": "", "groups": "test123",
+    },
+    schema={
+        "window_minutes": _num("时间窗（分钟）—— 按告警发生时间 alarm_occur_time 取近 N 分钟", 5, 43200),
+        "resend_minutes": _num("重推间隔（分钟）—— 距上次成功发送超过该值且告警仍未清除则继续推", 1, 1440),
+        "severities": _txt("推送级别（逗号分隔，如 P1 或 P1,P2；留空=所有级别）"),
+        "alarm_codes": _txt("推送告警码白名单（逗号分隔，如 9920,9995；**留空=推送所有告警码**）"
+                            "—— 99933 是「免推单」码，需显式填入才会推送"),
+        "groups": _txt("WhatsApp 群组名（逗号分隔；留空=回退测试群 test123 并告警）"),
+    },
+    defaults_factory=_tt_alert_defaults,
+    description="eFlow P1 告警 WhatsApp 推送：时间窗、重推间隔、推送级别、告警码白名单、目标群组。"
+                "消息内容为未清除告警单的头部摘要（单号/站点/标题/告警/告警对象/影响面/级别）；"
+                "发送经浏览器扩展，发送成功（扩展确认）才把 send_status 置 Y。",
+    description_en="eFlow P1 alarm WhatsApp push: time window, resend interval, severities, "
+                   "alarm-code whitelist, target groups. Messages are sent via the browser "
+                   "extension; send_status is set to Y only after the extension confirms delivery.",
+))

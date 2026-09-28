@@ -50,7 +50,6 @@ from backend.services.ms_sla_service import (  # Phase 4 拆分：共享常量/�
     FTP_UP_USER,
     SLA_OUTPUT_DIR,
     UME_HOST,
-    UME_PASSWORD,
     UME_PORT,
     UME_USERNAME,
     _SUBPROCESS_FLAGS,
@@ -60,12 +59,16 @@ from backend.services.ms_sla_service import (  # Phase 4 拆分：共享常量/�
 
 
 def _runtime_credentials():
-    """运行时获取凭据（环境变量 > 数据库 > 模块默认值），支持页面改密后免重启生效。"""
+    """运行时获取凭据（环境变量 > 数据库 > credential_store 默认值）。
+
+    不传默认值：`zte_ume` 凭据组已带默认用户名/口令（credential_store.py）。
+    2026-09-27 前这里传 UME_USERNAME/UME_PASSWORD 字面量，属重复真相源。
+    """
     try:
         from backend.services.credential_store import get_credential
     except ImportError:
         from credential_store import get_credential
-    return get_credential("zte_ume", UME_USERNAME, UME_PASSWORD)
+    return get_credential("zte_ume")
 
 # 并行查询线程数
 MAX_PARALLEL_WORKERS = int(os.environ.get("SLA_PARALLEL_WORKERS", "4"))

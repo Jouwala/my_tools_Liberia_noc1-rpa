@@ -14,6 +14,8 @@
 | 3 | 实时告警看板 / Alarm Dashboard | `alarm` | React |
 | 4 | TT&WO 看板 | `ttwo` | React |
 | 4b | TT&WO 看板（v1·仅上半部分） | `v1_ttwo` | React（同组件切片） |
+| 4c | TT 看板 | `tt` | React（同组件切片，数据源 `eflow_tt`） |
+| 4d | WO 看板 | `wo` | React（同组件换数据源 `eflow_wo`） |
 | 5 | NUR 看板 | `nur` | React |
 | 6 | MS Operation KPI 看板 | `ms_sla` | React |
 | 7 | CXO 经营看板 | `cxoDashboard` | **iframe** |
@@ -97,7 +99,8 @@
 - 页头显示"最近同步/是否已同步"（`useDataTimestamps`，:16,77）。
 - 数据来自 `eflow_sync`（每小时 :22）与每日全量兜底 `eflow_sync_full`（01:00）。
 - **TT 统计不含 Alarm Severity**（2026-09-26 按业务要求移除）：该维度与 Ticket Severity 高度重复。`tt_stats.alarm_severity` / `category` 后端仍返回（其他页面与下钻维度在用），只是本页不再渲染。
-- **TT 统计三个维度（工单严重度 / SLA 状态 / 工单状态）全部用数字卡片**（2026-09-27 改）：每取值一张卡（左色条 + 名称 + 大数字 + 占比），点卡下钻。三者共用同一个渲染器 `renderStatCards()`，只是换色表与下钻维度；卡片走项目统一组件 `CardBase`（AGENTS.md 第三节第 3 条），宽度按取值个数自适应（`span = max(4, 24/取值数)`，4~5 个取值一行铺满）。分组用「维度小标题 + 卡片网格」(`StatDimTitle`)，**不是**大卡套小卡 —— 嵌套卡片层级会糊、两层边框压掉内边距。改卡片前的 Tag 胶囊块在高密度取值下会换行成一团、数字不突出。
+- **TT 统计三个维度（严重度 / SLA 状态 / 工单状态）全部用数字卡片**（2026-09-27 改）：每取值一张卡（左色条 + 名称 + 大数字 + 占比），点卡下钻。三者共用同一个渲染器 `renderStatCards()`，只是换色表与下钻维度；卡片走项目统一组件 `CardBase`（AGENTS.md 第三节第 3 条），宽度按取值个数自适应（`span = max(4, 24/取值数)`，4~5 个取值一行铺满）。分组用「维度小标题 + 卡片网格」(`StatDimTitle`)，**不是**大卡套小卡 —— 嵌套卡片层级会糊、两层边框压掉内边距。改卡片前的 Tag 胶囊块在高密度取值下会换行成一团、数字不突出。
+  > **文案短名（2026-09-27 按业务要求）**：分区标题「TT 统计」→「统计」，维度标题「工单严重度」→「严重度」。界面上用新键 `ttwo.statistics` / `ttwo.severity`；旧键 `ttwo.ttStatistics` / `ttwo.ticketSeverity` 保留给 **Excel 导出**（导出的维度名与 sheet 标题仍写全名，脱离界面也能读懂）。渲染路径全站共用，所以 `ttwo` / `v1_ttwo` / `tt` / `wo` 四个页面同步改名。
   - 占比分母是该维度**自身**的合计（看单维度内部构成），不是 TT 总数。
   - 取不到值显示 `—` 而非 `0`（`fmt()` 本身对 null 返回 `'0'`，卡片里显式挡掉）。
 - **MTTR 趋势：柱 = TT 数量 + 线 = MTTR，左右双轴**（2026-09-27 改），并按 Ticket Severity 拆成 4 张图（P1/P2/P3/P4），**用页签切 日 / 周 / 月 三档粒度**。数据来自 `mttr_series[粒度][级别]`，每项三个字段语义必须分清：
@@ -109,7 +112,8 @@
   - 口径与整页 `mttr_weekly` 完全一致（同一时间字段、同一 `0<dur<43200` 剔除），只是额外按 `级别 × 粒度` 分桶；三档都走后端 `_period_label()` 同一个解析入口，所以**周上的 total = 该周 7 个日点的 total 之和**（实测 178 个「周×级别」组合，0 处不一致）。
   - **某桶该级别没有单时不画柱也不画点（`connectNulls:false` 断线），不补 0** —— 「没有单」与「MTTR 为 0」是两回事，补零会把曲线压到地上误导值班判断。`ticket_severity` 为空的单不进任何级别序列。
   - 四图共用一条 x 轴（该粒度下各级别的桶并集），并加入同一个 echarts group（`MTTR_CHART_GROUP`），**tooltip 与 dataZoom 联动**。
-  - 柱用中性色（成交量是中性的量，级别身份交给 MTTR 折线表达），深浅主题各一套实值 —— ECharts canvas 解析不了 `WH.*` 这类 CSS 变量。
+  - **柱用「中兴蓝」、线用橙色**（业务要求，2026-09-28 复核修正）。四张图**固定**两种色来区分两个量纲：柱 = 中兴蓝 `#0072BC`（`barColor`，自上而下 `#3d9be9→#0072BC`；浅色主题起点 `#2b8fd6`），线 = 橙 `#ff922b`（深色）/ `#ea580c`（浅色），同时作用于 `itemStyle` 与 `lineStyle`，点是橙底 + 本色描边以便压在蓝柱上仍看得清。深浅各一套实值，定义在 `theme.ts` 的 `DARK.zteBlue` / `LIGHT.zteBlue`（`zteBlueLight` / `zteOrange` 同处），`index.css` 另有 `--wh-zte-blue` 等同名变量供 DOM 层使用 —— ECharts canvas 解析不了 `WH.*` 这类 CSS 变量。改动点见 `TTWODashboard.tsx` 的 `makeMttrSevOption()`（`barColor` / `cZteBlue` / `cZteOrange`）。
+    > **不要改成「线随级别变色」**。曾经是这样（线与柱都取 `sevColors`），四张图看着几乎一样，反倒分不清同一张图里哪根柱配哪条线。级别身份已经由图自身（P1/P2/P3/P4 四张独立图）表达，颜色再随级别变纯属噪声。回归验证：`python TMP\_verify_chart_colors.py`（取 canvas 像素判定「柱是蓝、线是橙，且蓝确为 #0072BC」；四张图 × 深浅两主题各验一遍）。
   - 日粒度在「全部时间」下近 300 个点（实测 298 桶），超过 60 点时自动开启缩放（滚轮 + 底部滑杆）与标签抽稀（`hideOverlap`），并隐藏点上 symbol。
   - **点图上任意点可下钻**：维度即当前页签的粒度（`day` / `week` / `month`），drilldown 的 `dimension` 判定已同步支持这三种（`tt_wo_dashboard.py` 的 `_MTTR_GRANULARITIES`），与 overview 同源同桶。
   - **兼容是追加式的**：`mttr_weekly` / `mttr_weekly_by_severity` 原样保留（后者由 `mttr_series["week"]` 改名派生、连 `total` 一起带，不会分叉），老前端仍可用。前端若遇到未返回 `mttr_series` 的旧后端，日/月页签会明确提示「该粒度数据暂不可用」而**不是**假的「无工单」空态；老后端无 `total` 时柱退回用 `count` 画。
@@ -119,7 +123,7 @@
 
 `TTWODashboard.tsx` 的**切片直链页**，壳是 `pages/V1TTWODashboard.tsx`（`<TTWODashboard only="summary" />`）。
 
-- **出什么**：汇总卡（TT 总数 / WO 总数 / WO 编号唯一）→ TT 统计（工单严重度 / SLA 状态 / 工单状态，**三者都是数字卡片网格**）→ **MTTR 趋势（含 `SectionTitle` 标题、日/周/月页签，每个粒度下四张「柱=TT 数量 + 线=MTTR」双轴分级图）**。默认时间窗近 30 天。
+- **出什么**：汇总卡（TT 总数 / WO 总数 / WO 编号唯一）→ 统计（严重度 / SLA 状态 / 工单状态，**三者都是数字卡片网格**）→ **MTTR 趋势（含 `SectionTitle` 标题、日/周/月页签，每个粒度下四张「柱=TT 数量 + 线=MTTR」双轴分级图）**。默认时间窗近 30 天。
 - **不出什么**：「MTTR 趋势」标题之下的三个区块整体不渲染 —— 领域与根因分析（按领域统计 TT / 根因主 / 根因子）、工单分析（按来源统计 WO / 按状态统计 WO）、站点信息（Power Sources / Power Vendor / Maintenance Team / Site Class）。切片开关见 `TTWODashboard.tsx` 的 `summaryOnly`，包裹位置在「Domain + Root Cause」`SectionTitle` 之前。
 - **与 `page=ttwo` 的关系**：**不是复制实现，是同一份实现的切片**（先例：`MsNurOnly.tsx` / `MsSlaOnly.tsx` 之于 `NurDashboard.tsx`）。筛选条、下钻弹窗、Excel 导出、主题取色、卡片渲染器、MTTR 三档粒度与双轴图全部共用，且两页调同一个 `GET /api/tt-wo-dashboard/overview`，所以**数字必然一致**，上游改口径时两页同步生效。
 - 下钻端点 `GET /api/tt-wo-dashboard/drilldown` 与 `page=ttwo` 完全相同；MTTR 图上的点仍可点击下钻，维度随当前页签（`onChartClick(gran)`）。
@@ -135,7 +139,39 @@
   | `Domain-RootCause` | 按领域 / 根因主 / 根因子 | ❌ |
   | `Site Stats` | Power Sources / Power Vendor / Maintenance Team 等 | ❌ |
   空块自动跳过；MTTR 某桶无单时导出空单元格而非 `0`，与页面「断点 ≠ MTTR=0」口径一致。副标题写明时间窗、区域、归属与高级过滤条件数。
-- **筛选条常驻**：直链（`?page=` 进入的 bare 模式，无侧栏/Header）下，筛选条卡片一度只剩 2px —— 页面根 `pageWrap` 是纵向 flex 容器，筛选条作为第一个子项被 flex 压缩到边框最小值，`Card` 的 `overflow:hidden` 把内容全裁掉，表现为"最上面那行整个不见了，怎么滚都没有"。修法是在 `theme.ts` 的 `controlCardStyle` 加 `flex-shrink:0`（`ttwo` / `v1_ttwo` 及 `GISMap` / `Dashboard` / `DataSync` / `TableBrowser` 共用），`AlarmDashboard.tsx` 的同类横幅单独加。成因、自查条件与已验证结论见 `component-api.md` 第二节「三个已踩过的坑」③。
+- **筛选条常驻**：直链（`?page=` 进入的 bare 模式，无侧栏/Header）下，筛选条卡片一度只剩 2px —— 页面根 `pageWrap` 是纵向 flex 容器，筛选条作为第一个子项被 flex 压缩到边框最小值，`Card` 的 `overflow:hidden` 把内容全裁掉，表现为"最上面那行整个不见了，怎么滚都没有"。修法是在 `theme.ts` 的 `controlCardStyle` 加 `flex-shrink:0`（`ttwo` / `v1_ttwo` / `tt` / `wo` 及 `GISMap` / `Dashboard` / `DataSync` / `TableBrowser` 共用），`AlarmDashboard.tsx` 的同类横幅单独加。成因、自查条件与已验证结论见 `component-api.md` 第二节「三个已踩过的坑」③。
+
+### 4c. TT 看板（`?page=tt`）—— 只看 TT 侧内容
+
+`TTWODashboard.tsx` 的**切片直链页**，壳是 `pages/TTDashboard.tsx`（`<TTWODashboard only="tt" />`）。2026-09-27 新增。
+
+- **出什么**：汇总卡（**只留「TT 总数」一张**）→ 统计（严重度 / SLA 状态 / 状态，数字卡片网格，点卡下钻）→ MTTR 趋势（P1/P2/P3/P4 × 日/周/月 双轴图）。默认时间窗近 30 天。数据源 `eflow_tt`。
+- **不出什么**：MTTR 趋势之下的**下半部分整体不渲染** —— 领域与根因分析、工单分析（按来源统计 WO / 按状态统计 WO）、站点信息，以及 WO 总数 / WO 编号(唯一) 两张汇总卡。切片开关见 `TTWODashboard.tsx` 的 `isSlicePage` 与 `showTtTotalCard` / `showWoSummaryCards`。
+- **文案短名**（2026-09-27 按业务要求）：本页分区标题为「统计」（key `ttwo.statistics`）、严重度维度标题为「严重度」（key `ttwo.severity`）。旧键 `ttwo.ttStatistics` / `ttwo.ticketSeverity` 保留给 **Excel 导出**使用（导出的维度名与 sheet 标题仍写全名「TT 统计」「工单严重度」，便于脱离界面阅读）。**改名的实际作用域是全站 TT&WO 系列页面**（`ttwo` / `v1_ttwo` / `tt` / `wo` 同一个渲染路径），不是只有 `page=tt`。
+- **与 `page=ttwo` 的关系**：**不是复制实现，是同一份实现的切片**（先例：`V1TTWODashboard.tsx` / `MsNurOnly.tsx` / `MsSlaOnly.tsx`）。筛选条、下钻弹窗、Excel 导出、主题取色、卡片渲染器、MTTR 三档粒度与双轴图全部共用，且调同一个 `GET /api/tt-wo-dashboard/overview`，所以**数字必然一致**。
+- 下钻端点与 `page=ttwo` 完全相同（`GET /api/tt-wo-dashboard/drilldown`，含 `owner` / `adv` 同口径过滤）；卡片与 MTTR 图上的点均可下钻。
+- **页面级导出 Excel**：sheet 范围为 `Summary`（仅 TT 总数一行）+ `TT Stats` + `MTTR`；`WO Stats` / `Domain-RootCause` / `Site Stats` 不导出（页面不渲染）。文件名前缀 `TTWO_tt_`。
+- **门户入口（2026-09-28 改）**：统一门户 `/v1/olbrportal/` 的 **FO View** 分组里本页与 `page=wo` 各占一张卡（目录 `no=74` / `no=75`，标题 `TT Dashboard` / `WO Dashboard`），**替换掉原 `no=13`「TT&WO Dashboard」（`?page=v1_ttwo`）**。门户的看板清单**不在静态 assets 里**，而在服务端全局目录 `backend\data\portal_catalog.json`（接口 `GET/PUT /api/portal-catalog`）；改动请走接口而非手改 JSON，理由与回归脚本见 `13-operations.md` 的「门户里少了 / 多了某张看板卡」一行。
+
+### 4d. WO 看板（`?page=wo`）—— TT 页的版式，`eflow_wo` 的数据
+
+`TTWODashboard.tsx` 的**数据源直链页**，壳是 `pages/WODashboard.tsx`（`<TTWODashboard only="wo" source="wo" />`）。2026-09-27 新增，同日改版为「镜像 TT 页」。
+
+**定位（业务原话）**：「`?page=wo` 页面要跟 `?page=tt` 一样，只不过是用的 `eflow_wo` 的数据源」。所以它**不是**「WO 侧内容拼盘」，而是把 TT 页的每个区块用 WO 数据渲染一遍：
+
+- **出什么**（与 `page=tt` 逐块对应）：汇总卡（**只留「WO 总数」一张**，此时它就是本页的工单总数）→ 统计（严重度 / SLA 状态 / 状态）→ MTTR 趋势（P1~P4 × 日/周/月双轴图）。默认时间窗近 30 天。**数据源 `eflow_wo`**。
+- **不出什么**：与 `page=tt` 相同 —— MTTR 趋势之下的下半部分（领域与根因分析、工单分析、站点信息）只属完整页 `page=ttwo`。见 `TTWODashboard.tsx` 的 `isSlicePage`。
+- **与 `page=tt` 的三处必要差异**（都是 WO 表语义决定的，不是偷懒）：
+  1. **SLA 状态取关联 `eflow_tt` 的 `sla_status`** —— `eflow_wo` 没有该列，SLA 是 TT 侧概念。关联键 `wo.tt_no = tt.tt_no`（实测覆盖率 99.99%，全表 14,111 行中 13,571 行可关联）；关联不上的行进 `Unknown` 而不是丢弃，**保证各卡片之和 = WO 总数**。
+  2. **不出「TT 总数」卡**：它算的是 `eflow_tt` 的行数，放在 WO 页没有意义。也**不出「WO 编号(唯一)」卡**：本页每行本身就是一个 WO，与「WO 总数」语义重叠，同屏出现两个一模一样的数字会被当成 bug。
+  3. **MTTR 用 WO 自己的 `alarm_occur_time` / `alarm_clear_time`**（同一公式、同一 `0 < dur < 43200` 秒剔除规则）。所以本页 MTTR 是**WO 的周转时效**，与 `page=tt` 的 TT 时效是两个数（实测 2026-W37 周 P3：WO 943.2 分钟 / TT 910.3 分钟）。**不**用 `created_time → last_modified_time`。
+- **后端**：独立端点 `GET /api/wo-dashboard/overview` 与 `GET /api/wo-dashboard/drilldown`（`backend/services/wo_dashboard_service.py` + `backend/routers/wo_dashboard.py`），**不复用** `/api/tt-wo-dashboard/*` —— 后者在同一次请求里同时算 TT 与 WO 两侧（且计算全程以 `eflow_tt` 为主表），为 `page=wo` 加数据源分支会让那个 1100+ 行的文件继续膨胀。新服务**复用口径函数**（`_time_filter` / `_safe_str` / `_period_label` / `_advanced_site_filters`）而不是抄公式，保证「同一口径、两个数据源」。
+- **无 ZTE/3rd 归属过滤**：该归属的定义是「TT 的 `wo_no` 是否非空」，WO 表每行本身就是一个 WO，没有对应概念 —— 本页**不显示该下拉**、也不发 `owner` 参数（`isWoSource` 分支）。
+- **缓存键带数据源**：`ttwo:${source}:overview:...`。不带会让先开 TT 页再开 WO 页命中同一份缓存，页面显示另一张表的数据。
+- **页面级导出 Excel**：sheet 范围为 `Summary`（仅 WO 总数一行）+ `WO Stats`（本页的严重度 / SLA / 状态，sheet 名与标题随数据源走）+ `MTTR`。文件名前缀 `TTWO_wo_`。
+  > **切片边界与导出范围必须成对维护**：`exportOverview` 里凡页面不渲染的区块，导出也必须不出（`isSlicePage` 统一判定）。**不用子判断表达式**（`xxxOnly` 拼 `&&`）—— 2026-09-27 实现时就是这样各自为政，导致站点信息那处漏了数据源判断，`page=wo` 多出两个区块（探针脚本查出后改为单一开关 `isSlicePage`）。
+- **门户入口（2026-09-28 改）**：统一门户 `/v1/olbrportal/` 的 **FO View** 分组里本页占一张卡（目录 `no=75`，标题 `WO Dashboard`），与 `page=tt` 的 `no=74`（`TT Dashboard`）并列，**替换掉原 `no=13`「TT&WO Dashboard」（`?page=v1_ttwo`）**。做法与维护要点见 4c 节末尾一条（同一处改动）。
+
 
 ## 5. NUR 看板（`?page=nur`）
 
@@ -156,14 +192,23 @@
 
 MS 合同 KPI（Contract KPIs）与工单 SLA（WOs SLA）达成情况。
 
-- 一次请求拿全部：`getMsSlaOverview()` → `GET /api/ms-sla-dashboard/overview`（`frontend/src/api.ts:17-18`），返回 NUR / SLA / Network KPI / Per-Site / WO SLA + 数据新鲜度 meta（`backend/routers/ms_sla_dashboard.py:7-8`）。
-- 粒度只有 `daily|monthly`（`MsSlaDashboard.tsx:29`）；返回结构是"**指标为行、期间为列**"，与 NUR 页的表格对齐（`ms_sla_dashboard.py:10-11`）。
-- 下钻复用 `GET /api/nur/detail`（:447）。
+- 一次请求拿全部：`getMsSlaOverview()` → `GET /api/ms-sla-dashboard/overview`（`frontend/src/api.ts:42-44`），返回 NUR / SLA / Network KPI / Per-Site / WO SLA + 数据新鲜度 meta（`backend/routers/ms_sla_dashboard.py:7-8`）。
+- **粒度三档 `daily|weekly|monthly`**（2026-09-28 起，页签文案「天 / 周 / 月」）。NUR/SLA/WO 三档齐全（来自 `nur_calc` 实时计算，周口径为 ISO 周 `YYYY-Wnn`，与 `NurDashboard` 完全一致）；**Network / Per-Site 只有日/月两级** —— 它们来自看板快照库 `ms_sla_kpi`（只有 `*_daily`/`*_monthly` dataset），周档位后端返回空表，前端直接不渲染这两块并给出 `msSla.weeklyNoSnapshot` 提示（`MsSlaDashboard.tsx` 的 `isWeekly` 守卫）。
+- 返回结构是"**指标为行、期间为列**"，与 NUR 页的表格对齐（`ms_sla_dashboard.py:10-11`）。
+- **切档会重置时间范围**为该档默认窗口（`defaultRange()`，`MsSlaDashboard.tsx`）：天 = 当月 1 日 → 今天；周 = 最近 12 周；月 = 最近 9 个自然月（≈2026-01，`eflow_tt` 有效数据自 2026-01 起）。三档窗口量级差 9 倍，沿用上一档区间会出现「周档位显示几百列」，故刻意重置；页面上用 `msSla.tabHint` 横幅写明当前粒度与区间。
+- 下钻复用 `GET /api/nur/detail`（周档位同样支持，`gran=weekly` + `period=2026-W12`）。
+- **SLA 达成率只出现一次**（2026-09-28 按需求去掉 `KPI List SLA` 与 `SLA Achieve Trend` 两张卡）：`sla[gran]` 与 `wo[gran].achieve` 是**同一份数据**（都出自 `nur_calc` 的实时计算，指标 TTR + TTR_P1~P4、期间、百分比口径完全一致 —— 实测 2026-09 两侧均为 TTR 0.8865 / TTR_P1 0.7143 / TTR_P2 0.936），一并渲染会让页面出现两遍同样的达成率。现在统一由 `WOs SLA` 表格（`WoTable`：period | Total | Within SLA | Achieve）与其**并列的** `WO SLA Achieve Trend` 趋势卡呈现，下钻入口在表格里。
+  > 判断口径：`data.sla[gran]` 仍是后端返回值（导出与潜在复用需要），但页面与导出都**不再单独出 SLA 表**；`msSla.exportKpiSla` 键已随之删除，`DataAgent`/`NurDashboard` 用的是各自的 `nur.exportKpiSla`，不要混淆。
+- **达成率趋势按严重度分面**（2026-09-28）：`WO_SEVERITIES = ['TTR_P1'..'TTR_P4']` 各出一张图，`gridTemplateColumns: 1fr 1fr` 使**两图一行**（P1|P2 / P3|P4），移动端退化为单列；单图高度 `WO_TREND_H = 320`。
+  > 拆分原因：原先 TTR + TTR_P1~P4 五条线挤在一张图里，P1/P4 常年贴 100%、P2/P3 在 60~95% 波动，同轴下小波动被压平，看不出趋势。`TTR`（不分严重度的总达成率）**不再单独成图** —— 它是 4 个分级的汇总，已在 `WoTable` 的 TTR 行可见。分面配色 `WO_TREND_COLORS` 按严重度递增（蓝→绿→黄→红）。
+  > 该严重度整段无数据时渲染等高占位 `<div>`（不塌陷），保持两行网格对齐。
+- **`WOs SLA` 与 `WO SLA Achieve Trend` 是两张并列的独立卡片**（2026-09-28 调整）：趋势此前嵌在 `WOs SLA` 大卡内部，形成「卡中卡」双层描边，且内层可用宽度受限、4 张分面图挤在半宽里。现在两者同级（各自受 `showSla` 守卫），趋势卡撑满内容区 —— 实测 4 图总跨度 1624px / 卡片 1644px（99%）。
 - **页面级导出 Excel**（2026-09-27 新增）：筛选条刷新按钮右侧，多 sheet（`Overview` 粒度/同步时间、
-  `Value Scale` 各表量纲、`KPI List NUR`/`KPI List SLA`/`Network KPIs`/`Per-Site KPIs`、`WOs SLA` 多层合并表头）。
+  `Value Scale` 各表量纲、`KPI List NUR`/`Network KPIs`/`Per-Site KPIs`、`WOs SLA` 多层合并表头）。
   导出当前粒度与时间范围下的全期值，筛选条件写进每个 sheet 的 `subtitle`；空块自动跳过。
   **派生页 `?page=ms_sla_only`（`MsSlaOnly.tsx`）自动获得该按钮** —— 它是 `<MsSlaDashboard only="sla" />` 的参数化复用，
-  按钮在顶部工具栏 Card 内（不受 `showNur`/`showSla` 条件包裹），导出内容则按切片用 `showSla` 守卫收敛。
+  按钮在顶部工具栏 Card 内（不受 `showNur`/`showSla` 条件包裹），导出内容则按切片收敛（只出 `WOs SLA` 与 `Value Scale`）。
+- **KPI 区不再有外层「Contract KPIs」卡片**（2026-09-28 按需求去掉）：原先外层大卡 + 内层小卡两层描边叠加，去掉外层后语义不变、仅少一层容器。注意 `msSla.contractKpis` 这个 i18n 键**在 MS SLA 看板上已不再被引用**（`ms_contract_kpi` 报表页 `MsContractKpiReport.tsx` 是另一处独立引用，不要误删）。
 - **口径提示**：2026-08 起 NUR/SLA/WO 以 `nur_calc` 实时计算为准（`ms_sla_dashboard.py:13-14`），所以本页数字与 `data/ms_sla/ms_sla_dashboard.sqlite3` 里的快照**可能对不上**，以本页为准。
 
 ## 7. CXO 经营看板（`?page=cxoDashboard`）— iframe
@@ -201,32 +246,109 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 
 同一个组件 `<GISMap/>` 的两种模式（`App.tsx:286-289`），实时模式传 `mode="realtime"`。站点在地图上的告警/工单分布与下钻。
 
-- **区域**下拉（`GISMap.tsx:431`）、**边界三选一** `Segmented`（不显示 / 大区 / 县界，**默认县界**；:467）、**图层 Tag** 点击开关、**图例点击隐藏**该类图层、MW 链路 `Switch`（:460，**默认开**）、时间 `Segmented` + 自定义区间、高级筛选与清除。
+- **工具栏（2026-09-28 精简后）**只剩三样：**站点总数 Tag**、**ERA/COOL/NORMAL 分档 Tag**、**时间 `Segmented` + 自定义区间**，**第一行最右边**放高级筛选/清除/导出（2026-09-28 移入，见下）。**图层 Tag** 点击开关仍在；**图例已迁到地图上**（见 10a）。
+  - **按钮移入第一行最右（2026-09-28 用户要求「高级筛选和导出 Excel 放到第一行最右边，不要单独占一行」）**：原先这三样自占一行，白白吃掉卡片的一行高度。用一个 `flex="auto"` 的空 `Col` 把它们推到第一行最右（实测导出按钮距视口右边 23px，与高级筛选 `top` 同为 27px）。`wrap` 生效时这一组会自然落到下一行，窄屏（门户内嵌）不会挤爆。高级筛选的**展开面板**仍留在 `Row` 下方独立一块。
+  - 本次移除了五样（用户要求）：① 独立的「区域筛选」下拉 → **并入高级筛选**（`region` 作为第一项，走独立 `selectedRegion` state，最终映射为顶层 `?region=` 参数；`activeFilterCount` 与「清除筛选」都把它算进去）；② `Synced` / `Latest Data Time` 两个同步时间 Tag —— 属数据源健康信息，看 Overview 页即可（`useDataTimestamps` 已从本页移除）；③ 「显示 MW 链路」「链路利用率」两个 `Switch` —— **恒为开启**（`showTopology`/`showUtil` 保留为 state，但不提供 UI 关闭）；④ 「边界」三选一 `Segmented` —— **恒为县界**（`boundaryMode` 固定 `'county'`）；⑤ 卡片内的横排图例 → **移入地图左下角浮层**。
+  - **站点等级分档 Tag**：`Total Sites: 827` 旁并列 `ERA: 204` / `COOL: 64` / `NORMAL: 559`（三档之和 **恒等于**总数，这是刻意保留的可校验性）。数据来自两个 `/gis/*/sites` 新返回的 `site_type_stats` 字段（`gis.py` 的 `_site_type_stats()`，随 `_get_site_meta` 的 5 分钟 TTL 缓存一起下发，不额外发请求）。口径是**全量站点表**，刻意不套用地图那套「经纬度非空且非 0」条件，否则两个数字对不上会被当成 bug。
+  - **⚠️ 归一化口径与 TT 规则共用一套**：`gis.py::_norm_site_category()` 与 `services/eflow_rules/eflow_rules_matcher.py:135-152` 的 `_SITE_TYPE_MAP`/`_norm_site_type` **必须保持一致**（去空格、去括号内制式后缀、大写），因为后者是 TT 派单规则的站点类型真相源 —— 两处不一致会导致「GIS 统计的 NORMAL 站数」与「TT 规则命中的 NORMAL 站数」对不上。改一处必须改另一处。
+  - **高级筛选里的「站点等级」= ERA/COOL/NORMAL（2026-09-28 用户要求：「过滤的站点类型要对应 RRA/COOL/NORMAL，而不是 INDOOR/OUTDOOR」）**。这里要分清**两个本来不同的列**，改造前它们被混为一谈：
+    | 概念 | 库列 | 取值 | 用户看到的位置 |
+    | --- | --- | --- | --- |
+    | **站点等级**（资产等级） | `site_caregory` | `ERA` / `COOL` / `NORMAL` | ① `Total Sites` 旁的分档 Tag；② 高级筛选（**本次提到 TRM 类型之后**，即原先「站点类型」的位置） |
+    | **站型**（物理形态） | `site_type` | `Indoor` / `Outdoor` | 高级筛选（保留，排在站点等级之后）；站点弹窗的「类型」一行 |
+    - **两个下拉都改名了**，避免继续混：`gis.filter.siteType` =「站型（室内/室外）」，`gis.filter.siteCategory` =「站点等级（ERA/COOL/NORMAL）」。原先两者都叫「站点类型」，用户在筛选里看到 Indoor/Outdoor、却在页面别处看到 ERA/COOL/NORMAL 统计，会以为统计坏了。
+    - **后端 `filter_options.site_caregory` 现在下发归一化后的值**（`gis.py::_get_site_meta()`，`ERA/COOL/NORMAL` 固定顺序，不再按字母序 `COOL/ERA/NORMAL`）。原因：前端高级筛选是**客户端精确匹配**（`filteredSites` 里的 `site[key] !== val`），候选值与站点值必须逐字符相等；而库里该列已知有 `REGULAR（NORMAL)` / `REGULAR(COOL.I）` 这类脏写法。**同一处归一化也加在了 `_attach_filter_cols()`**（站点对象上的 `site_caregory`），两边都走 `_norm_site_category()`，所以口径必然一致 —— 否则会出现「统计 Tag 把某站算进 NORMAL，但筛 NORMAL 筛不出它」。
+    - **实测**：三档候选恰为 `['ERA','COOL','NORMAL']`；本站库无脏值，204 + 64 + 559 = 827，与分档 Tag 完全一致。
+    - **⚠️ 验收时别拿「筛出的可见站数」直接对 `site_type_stats`**：`Total Sites: x/827` 里的 `x` 是**筛选 ∩ 图例可见**的交集。图例默认隐藏「正常 (723)」那一档，所以刚进页面时全量也只渲染 104 个 marker 而不是 827。筛 ERA 得到 20、COOL 14、NORMAL 70 —— 三档互不相同即证明筛选在按档位生效（本次验收就是这么断言的），但**不等于** 204/64/559。
+  - **改这个下拉时的两个 DOM 坑**（写验收脚本会撞上）：① 这个 antd 版本里**没有** `.ant-select-selector` 内层元素，点它必然超时，直接点 `.ant-select`；② label 文字是 `.ant-select` 的**兄弟**节点，Playwright 的 `has_text`（只匹配元素自身文本）找不到它，得按 `.ant-select` 的下标定位。
+
+- **地图自适应铺满页面（2026-09-28 用户要求：「地图组件不能自适应铺满页面吗，现在下面有大量空白」）**。原先地图高度写死 `calc(100vh - 290px)`，留白从 160px 到 198px 不等。
+  - **写死高度必然错，因为要减掉的那部分高度是变化的**：工具栏高度随窗口宽度变（窄屏时第一行按钮/Tag 换行，多出一整行）。实测地图顶边在 `1600×950` 下是 `93px`、在 `1366×768` 下是 `129px`，而代码对两者都减 `290`：
+    | 分辨率 | 地图顶 | 旧：290 给出 | 应给 | 旧留白 |
+    | --- | --- | --- | --- | --- |
+    | 1600×950 | 93px | 660px | 857px | **198px** |
+    | 1366×768 | 129px | 478px | 639px | **162px** |
+    | 1920×1080 | 93px | 790px | 987px | **198px** |
+    **任何固定数字都无法同时对上这三种情况** —— 这就是「自适应」的正解不是调参而是改布局的原因。
+  - **改法（三处，缺一不可）**，全部在 `GISMap.tsx`：
+    1. **根节点 `rootStyle`**：`...pageWrap` + `display:flex` / `flexDirection:column` + **`flex:1`** + `minHeight:0`。
+    2. **地图卡片**：`flex:1` + `minHeight:0` + `display:flex` / `flexDirection:column`，且 `styles.body` 加 `height:'100%'`（否则卡片 body 不会跟着长，地图仍停在旧高度）。
+    3. **地图本身**：`height: '100%'`。
+  - **⚠️ `rootStyle` 里的 `flex:1` 是最容易漏掉的一条**，漏了会表现为「地图确实变高了，但底部仍恒留 114px（且**所有分辨率都一样**）」。原因：根节点的父级 `<main class="ant-layout-content dashboard-layout-shell">` 是 **flex 列容器**，根节点作为其子项默认 `flex-grow:0`，于是只按自己的 `minHeight`（`--wh-page-min-height` = `842px` @950 视口，见 `index.css:122`）占高而非撑满。**「留白是个恒定值」基本就是这个信号** —— 差的是「视口高 − 令牌算出的最小高」那部分没人认领的空间。
+  - **`minHeight:0` 也不能省**：flex 子项默认 `min-height:auto`，会按内容撑开、既压不下去也撑不满。
+  - **上面的兄弟卡片要 `flexShrink:0`**，否则会被 flex 压扁（`theme.ts:132-138` 记录了同类故障：筛选条曾被压成 1591×2px）。工具栏卡片用的 `controlCardStyle` 已自带；OSS 统计卡（仅实时模式）是单独加的。
+  - **实测**（覆盖 5 种分辨率×模式）：底部间隙 **198px → 6px**，且各分辨率**恒为 6px**（就是页面内边距 `--wh-space-xs`）。地图占视口比 75%~91%，无纵向滚动条、无 pageerror。
+
+- **图层合并（2026-09-28，用户要求）**：`?page=gis` 全量模式的 Layers 由 `RT Alarm / His Alarm / TT / WO` 四项**改为 RealTime / History 两项**。
+  - **History 一档涵盖 历史告警 + TT工单 + WO工单**：判定 `hisAnyHit()`（`GISMap.tsx`）＝ `his_alarm_count > 0 || open_tt > 0 || wo_count > 0`，**任一命中即算 History**。着色优先级 `RT > History`（同一站点两者都有时红色压过灰色——实时才是当前要处置的）。
+  - 图例同步收敛：全量模式隐藏 `tt` / `wo` 两个图例项（它们已被并入 History，留着会让同一批站点被数两遍），`gis.legend.hisAlarm` 文案直接是 **`History`**（中英同值，与 `RealTime` 配对）。
+  - **实时页（`?page=realtime_alarm`）刻意保持 `RealTime / TT / WO` 三项不变**：那里的 TT/WO 是「当前告警所带工单」（由告警 `tt_id` 派生），是告警关联关系的直观体现，不属于「历史记录」，合并进 History 会丢语义。**即：图层键 `tt`/`wo` 在两种模式下语义不同**，改这片逻辑前先分清模式。
+  - **下钻抽屉刻意不合并**：`SiteDrilldownDrawer.tsx` 仍按「历史告警 / TT / WO」分页签、导出文件名仍是 `His_Alarm_*`。明细视图里这三个**要分开看**（告警条数与工单数是不同口径，合并后无法核对），与地图图层「一眼看哪些站点出过事」的诉求不同。
+  - **图例计数随时间窗口变化**：默认窗口是「近7天」，故 History 图例在默认视图下只有 200+ —— 切到「全部时间」后才是全量口径（实测 **History 758 + RT 38 = 796**，与后端任意命中数一致）。**验收时务必先切「全部时间」再对数**，否则会以为合并口径算错了（本次排查踩过）。另外 `site_type_stats`（ERA/COOL/NORMAL）是**窗口无关**的资产属性统计，两个数字天然对不上，这是预期。
+  - 站点配色随之简化为「现在有告警(RT) / 历史上出过事(History) / VIP / 普通」。
 
 **默认视图（2026-09-25 起）：`?page=gis` 打开时只显示「实时告警 + MW 链路」。**
 
 | | 默认状态 | 说明 |
 | --- | --- | --- |
 | 实时告警 `rt_alarm` | **开** | 唯一默认开启的站点图层（实测 38 站） |
-| MW 链路 `showTopology` | **开** | 默认拉取并绘制 844 条 `kml_mw_links` 链路 |
+| MW 链路 `showTopology` | **恒开** | 默认拉取并绘制 844 条 `kml_mw_links` 链路。2026-09-28 起**取消开关**，无 UI 可关 |
+| 链路利用率 `showUtil` | **恒开** | 2026-09-28 起**取消开关**，恒传 `?with_util=1`（见 10d） |
 | 普通站点 `normal` | **隐藏** | 「无任何告警/工单」的站点（实测 739 站），数量最多，默认铺满会把告警站淹没 |
 | VIP `vip` | 显示 | 50 站。**刻意保留**：VIP 是重要站点，即使当前无告警也需可见 |
-| 历史告警 / TT / WO | 关 | 用户点击图层 Tag 自行打开 |
-| 边界蒙层 | 县界 | 沿用上一版默认 |
+| History（历史告警 / TT / WO 三合一） | 关 | 用户点击 History 图层 Tag 自行打开（2026-09-28 合并，见上） |
+| 边界蒙层 | 县界 | 2026-09-28 起**取消三选一**，恒为县界 |
 
 - **默认实际绘制 88 站**（38 实时告警 + 50 VIP）＋ 844 条链路，而非全量 827 站。
-- 两套控制机制并存，别混淆：**图层 Tag** 控 `activeLayers`（历史告警/TT/WO），**图例点击**控 `hiddenLegends`（normal/VIP）。`normal` 走的是后者，初值 `new Set(['normal'])`（`GISMap.tsx:75`），所以图例上它以删除线+「已隐藏」呈现，用户**点一下即可恢复**——这是刻意的，比完全移除该项更好发现。
-- **⚠️ 图层开关不只是配色**：`getSiteCategory` + `filteredSites`（`GISMap.tsx:264-268,288`）会据 `activeLayers` 与 `hiddenLegends` 把该类别站点从地图上**过滤掉**。地图站点变少是「只显示实时告警」的预期效果，不是漏画。
-- 实时告警地图（`?page=realtime_alarm`）**未改动**，仍是 `rt_alarm + tt + wo`：那里的 TT/WO 由告警的 `tt_id` 派生，属于告警的关联信息，不算「用户额外打开的图层」。`normal` 的隐藏初值也**不影响它** —— 该页的 `filteredSites` 分支只认 `rt_alarm_overdue`/`rt_alarm_ontime`/`tt`/`wo`/`vip`，不含 `normal`。
+- 两套控制机制并存，别混淆：**图层 Tag** 控 `activeLayers`（全量模式：RealTime / History；实时模式：RealTime / TT / WO），**图例点击**控 `hiddenLegends`（normal/VIP）。`normal` 走的是后者，初值 `new Set(['normal'])`，所以图例上它以删除线+「已隐藏」呈现，用户**点一下即可恢复**——这是刻意的，比完全移除该项更好发现。图例已移入地图左下角浮层（见 10a），但这个能力没变。
+- **⚠️ 图层开关不只是配色**：`getSiteCategory` + `filteredSites` 会据 `activeLayers` 与 `hiddenLegends` 把该类别站点从地图上**过滤掉**。地图站点变少是「只显示实时告警」的预期效果，不是漏画。
+- 实时告警地图（`?page=realtime_alarm`）仍是 `rt_alarm + tt + wo`（**2026-09-28 的图层合并不适用于它**，原因见上方「图层合并」小节）：那里的 TT/WO 由告警的 `tt_id` 派生，属于告警的关联信息，不算「用户额外打开的图层」。`normal` 的隐藏初值也**不影响它** —— 该页的 `filteredSites` 分支只认 `rt_alarm_overdue`/`rt_alarm_ontime`/`tt`/`wo`/`vip`，不含 `normal`。
 - 图层开关状态不做持久化（存在组件 `activeLayers` / `hiddenLegends` 里），刷新页面即回到上述默认值。
 - **点站点 → 右侧抽屉**（组件 `pages/gismap/SiteDrilldownDrawer.tsx`）四个页签，可搜索、可导 Excel。
-- **导出站点清单**（`exportSites`，2026-09-27 新增）：图例下方的导出按钮，导的是**地图上当前可见的站点**
+- **导出站点清单**（`exportSites`，2026-09-27 新增）：卡片里的导出按钮（**图例已迁到地图上，按钮仍在卡片**），导的是**地图上当前可见的站点**
   （`filteredSites`）—— 与图例开关、图层、高级筛选后的那批点**口径完全一致**，而不是后端返回的全量 `sites`。
   列含站点/区域/县/制式/经纬度/TT·WO·告警数/VIP·Hub/TRM/FME，副标题写明「可见数/总数」与筛选条件数。
-- 接口：`/api/gis/sites` 与 `/api/gis/realtime/sites`（按模式二选一）、`/api/gis/topology`（**读 `kml_mw_links`**，见 10c）、`/api/gis/region-boundaries`、**`/api/gis/county-boundaries`**、`/api/gis/drilldown/{site_id}` 与 `/api/gis/realtime/drilldown/{site_id}`。均走 `cache.ts` 缓存。
+- 接口：`/api/gis/sites` 与 `/api/gis/realtime/sites`（按模式二选一；**两者都返回 `site_type_stats`**，见上）、`/api/gis/topology`（**读 `kml_mw_links`**，见 10c；**加 `?with_util=1` 叠加实时利用率**，见 10d）、`/api/gis/region-boundaries`、**`/api/gis/county-boundaries`**、`/api/gis/drilldown/{site_id}` 与 `/api/gis/realtime/drilldown/{site_id}`。均走 `cache.ts` 缓存（**唯 `topology` 例外**：叠加数据每 15 分钟换槽位，缓存住会显示过期槽位）。
 - 地图控件在 `pages/gismap/MapController.tsx`。
 - **区分两页的口径**：实时告警地图带红色"实时"Tag，数据来自 `eflow_active_alarm`（每 30 分钟）；普通 GIS 页走历史/工单口径。
-- 页头同样消费 `useDataTimestamps` 显示同步状态。
+- 页头**不再**消费 `useDataTimestamps`（2026-09-28 移除同步时间 Tag）。
+
+### 10a. 图例浮层（2026-09-28 新增，`?page=gis` / `?page=realtime_alarm`）
+
+**需求原话：「图例直接在地图上显示，竖排，在地图的最右边」。⇒ 位置随后改为左下（见下）。**
+
+组件 `pages/gismap/MapLegendOverlay.tsx`（纯展示组件，**不引 i18n**，文案由 `GISMap.tsx` `t()` 好再传 —— 这样漏键守卫仍能在 GISMap 里看见字面量键）。
+
+- **挂载方式**：地图 `Card` 的 `body` 加 `position: relative`（`GISMap.tsx`），浮层作为 `MapContainer` 的**兄弟节点**绝对定位。**不加包裹 div** 是为了避免把地图那 200 多行整体缩进两格造成的纯噪声 diff。
+- **`z-index: 1000` 的依据**：Leaflet pane 层级 tile 200 < overlay 400 < shadow 500 < marker 600 < tooltip 650 < popup 700 < control 1000。取 1000 才盖得住站点圆点(600)与常驻县名标注(650)；与 Leaflet 控件同层，而浮层在 DOM 中位于地图容器**之后**，同层靠后者胜，故仍在控件之上。**已知代价：站点弹窗(700)会被浮层压住** —— 刻意接受，Leaflet 会自动把弹窗平移进视野。**挪到左下后这个代价变小**：浮层只占左下角（234×340），站点集中在国土范围内，左下角被压住的概率比原先的右上更低。
+- **竖排两段**：上段「图例」= 站点类别（可点击）；下段「MW 链路利用率」= 6 级色阶 + 「无 KPI 数据」虚线档（不可点击，它不参与显隐控制）。两段都只列**实际出现**的项。
+- **点击隐藏能力必须保留**：`role="switch"` + `aria-checked`，点一下置灰加删除线并把该类站点从地图上过滤掉，再点恢复。这是迁移前就有的能力，换位置不能丢。迁移时顺带补了 Enter/Space 键盘操作与 `tabIndex`（迁移前没有）。
+- **「History」补 hover 说明**：`History` 这个名字看不出覆盖范围，故该行挂原生 `title`（`gis.legend.hisAlarmHint`）说明「历史告警 / TT工单 / WO工单 任一有数据的站点」。
+- **位置：左下角（2026-09-28 用户追加要求「图例能放到左下吗」）**。初始按原话「最右边」做成右上，同日改到左下。
+  - **左下角选得开**：Leaflet 的默认控件是 zoom（**左上**）与 attribution（**右下**），本页也没有别的左下覆盖物，实测浮层与两者都不重叠（断言在 `TMP/_verify_gis_toolbar.py`）。
+  - **用 `bottom` 而不是 `top` 锚定**：浮层高度随图例条数变化（实测 3~12 行），贴底能让它**向上生长**，无论多少条都稳定贴着同一条边；贴顶则要先知道高度才能判断底部会不会出界。
+  - 实测：左留白 9.0px、底留白 9.0px（与改前右上的 9.0px 一致，同一个 `--wh-space-sm`），右留白 1346px —— 确认在左侧而非横向铺满。
+  - 顺带把 ⓘ 气泡的 `placement` 从 `left` 改成 `right`：浮层已贴左边缘，向左弹会出界。
+- **口径备注收进 ⓘ 气泡（2026-09-28 用户要求「这些备注能隐藏吗」）**：原先两段常驻小字 ——「利用率来自 MW 微波实时页同一 15 分钟槽位……844 条链路中 360 条匹配到实时指标」与「图例数字为站点数（有该数据的站点）；告警记录总数见 Alarm Dashboard」。它们只在**第一次看不懂时**有用，常驻却要占 4~5 行；浮层压在瓦片上，每多一行就多挡一块地图。现改用项目统一的 `components/MetricExplain.tsx::ExplainIcon`（与各看板指标卡同一个 ⓘ 组件、同一种交互），挂在**两个分组标题**右侧（`placement="right"`），悬停看全文，并顺带获得「复制说明」。**实测浮层高度 459px → 340px**。
+  - 取舍：没有做「展开/收起」按钮 —— 那要在浮层里再加一个控件，而 ⓘ 是本项目既有约定（`gis.explain.note` 等 20 余处同款），一致性优先。
+- **⚠️ 浅色/深色都要看**：浮层直接压在瓦片上，是最容易出「浅底浅字」的位置。它用 `WH.cardBg`（浅色档是 rgba 白渐变）+ `backdrop-filter: blur(8px)`，文字用 `WH.text`。`TMP/_verify_gis_toolbar.py` 里有浅色档断言（底色须为渐变、文字 RGB 和 < 400）。
+
+### 10a-1. 站点下钻的「统计范围」：独立选择器、默认 7 天（2026-09-28，含一轮口径返工）
+
+**需求演进（两轮，最终口径以下面「结论」为准）**：
+1. 原话「站点下钻显示的时间范围要默认和时间窗口显示的一样」→ 当时实现成**跟随地图窗口**（地图切窗口就重拉抽屉、并传 `time_start/time_end` 精确区间）。
+2. 用户追补澄清：「统计范围要**初始显示默认的**，用户**可以选择**其范围」→ 即抽屉要有**自己可见、可改、有默认值**的档位，而不是一个被地图暗中决定的隐式值。**据此改回独立选择器**，并把默认值定为「近7天」（与地图初始窗口一致，所以刚打开时两边口径仍然相同）。
+
+**结论（当前实现）**：抽屉自带独立的 `7/30/60/90/180` 天 `Segmented`，**默认 7 天**，与地图时间窗口**互相独立**。
+
+- **默认值与地图初始窗口对齐，但不跟随**：地图初始预设是「近7天」（`GISMap.tsx` 的 `useState<TimePreset>(mode === 'realtime' ? 'all' : '7d')`），抽屉默认也是 7 天 —— 所以刚打开时看到的数字与地图口径相同。但之后改地图预设不会动抽屉，改抽屉也不会动地图。
+- **为什么最终没采用「跟随」**：除了用户明确要「初始显示默认的」之外，跟随式本身有个固有怪处 —— 地图是「近7天」而抽屉档位是 `30/60/90/180` 时**无档可高亮**，用户看不出当前到底是几天。把 7 加进档位就解决了这个问题。
+- **`7` 这一档是新加的**：后端 `days` 参数接受任意正整数（`gis.py::_resolve_window()` 只做 `max(1, int(days))` 保护），加档**不需要动后端**；已实测 `days=7` 返回的区间恰好 7 天（`2026-09-22 ~ 2026-09-28`）。
+- **只在 `days` 这一条参数上走**：不再传 `time_start/time_end`。`days` 的语义就是「最近 N 天」，正是这个下拉要表达的。
+- **重新点开站点会回到默认 7 天**：上一个站点改过的档位不该带到下一个（`handleSiteClick` 里 `setDrillRangeDays(7)`）。
+- **实测（同一站点 `3675`）**：`days=7` → `TT=0 WO=0 His=0`；`days=30` → `TT=2 WO=0 His=0`；`days=60` → `TT=22 WO=1 His=7`。
+- **⚠️ 别拿「站点总数」验证窗口是否生效**：`站点总数` 是**站点表行数**（827），刻意与时间窗口无关 —— 窗口只影响每个站点的告警/工单计数，不影响站点本身在不在表里。要看生效与否请看下钻数据或图例计数。
+- **⚠️ 页面上有两个 `Segmented`，写验收脚本时必须区分**：地图的时间窗口（`全部时间/近7天/近30天/近3个月/近半年/自定义范围`）与抽屉的统计范围（`近7天/近30天/近60天/近90天/近180天`）。档位集合不同，但「近7天」「近30天」**重名**，只按文本取会取错。要限定在抽屉内（`.ant-drawer`）取。
 
 ### 10b. 边界蒙层：大区（Voronoi）与县界（真实行政边界）
 
@@ -270,9 +392,81 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 
 - **响应结构保持兼容**：仍返回 `site_a_name`/`lat_a`/`lng_a`/`is_hub_link` 等旧字段，仅新增 `name` 与 `color`。`hop_count` 恒 `0`、`is_hub_link` 恒 `false`（kml 无此语义）。
 - **⚠️ 连带影响（已同步修复）**：`PacketLossDashboard.tsx` 也复用 `/api/gis/topology`，它原用 `is_hub_link` 决定线宽加粗（`PacketLossDashboard.tsx:599,603`）。`is_hub_link` 恒 false 会让所有链路一起变细，故改为**按 KML 线色判定重点链路**（红/黄 = 重点，蓝/绿 = 常规）。
-- **前端图例**：GIS 页图例由「Hub/普通」改为**按真实线色 4 档**（`KML_LINK_COLORS`，键 `gis.topologyColorRed/Yellow/Blue/Green`）；旧的 `gis.topologyHubLink`/`gis.topologyNormalLink` 已删除（无引用，遵循 AGENTS.md 三.10 删除优于兼容）。
+- **前端图例（2026-09-28 已删）**：曾把 GIS 页图例由「Hub/普通」改为**按真实线色 4 档**（`KML_LINK_COLORS`，键 `gis.topologyColorRed/Yellow/Blue/Green`）。但「链路利用率」开关在同日被取消（`showUtil` 恒真），该 4 色图例遂成**不可达分支**，随图例迁移到地图浮层时一并删除。`KML_LINK_COLORS` 常量仍留在 `gismap/types.ts`（链路数据自带 `color`，那里的注释是它的说明处），`GISMap.tsx` 已不再引用。旧的 `gis.topologyHubLink`/`gis.topologyNormalLink` 更早删除（无引用，遵循 AGENTS.md 三.10 删除优于兼容）。
 - **颜色同源约束**：前端 `KML_LINK_COLORS` 与后端 `mw_links_store.py` 的 `STYLE_COLORS` 是同一组 4 色，**改一处必须改另一处**。
 - 链路本身由 `?page=mwUmeTopology` 的页面上传 KML 维护（写 `kml_mw_links`，见 `mw_links_store.py` 与第 8 节）。
+
+### 10e. ⚠️ `?page=gis` 整页白屏事故与修复（2026-09-28）
+
+**现象**：打开 GIS 页一闪就没有，`#root` 被清空（innerHTML 长度 **0**），浏览器抛 16 个
+`Cannot read properties of undefined (reading 'appendChild')`，堆栈是
+`_initContainer → onAdd → addLayer → addTo`（`leaflet.js`），触发点在 `MapWheelZoomOnClick` chunk。
+
+**根因**：`components/LeafletMap.tsx` 的 `MapContainer` 在卸载 cleanup 里
+先 `m.remove()`、再 `setMap(null)`。`setMap(null)` 触发一次重渲染，React 仍用**持有旧 map 的 context**
+重跑子图层 effect，`TileLayer` 的 `L.tileLayer(...).addTo(map)` 便落到一个 `_container`/`_panes`
+已被摘除的 map 上 → `appendChild(undefined)`。因为异常抛在卸载过程中，React 连带把整棵树卸载，
+**所以表现是整页白屏而不是只有地图坏掉**。
+
+**为什么难发现**：`tsc` 与 `npm run build` **都查不出来**（类型完全正确，是运行时时序问题）；
+只有在真实浏览器里跑才暴露。本次是用 Playwright 实测抓到的（`#root` 长度 0 + 堆栈）。
+
+**修复**：cleanup 里**删掉 `setMap(null)`** —— 只销毁 Leaflet 实例，不再改动 state；子树卸载交给
+React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remove，此时 map 仍存活，是安全的）。
+另给所有图层挂载点加 `isMapAlive()` 闸（判 `_container` 与 `_panes` 是否还在），
+使「地图已销毁」时**不再 addTo**，从机制上杜绝同类崩溃复发。
+
+**同类已知坑（同文件、同样只有跑起来才暴露）**：Leaflet 的 `setOptions` 是**直接覆盖** ——
+往 `L.tileLayer/L.popup/L.tooltip` 传 `pane: undefined` 会把类默认的 `tilePane`/`popupPane`/`tooltipPane`
+抹成 undefined，`getPane()` 返回 undefined 后同样 `appendChild` 抛异常。故这些地方一律用
+**条件展开** `...(pane ? { pane } : {})`，不要写 `pane`（详见 `LeafletMap.tsx` 的 TileLayer 与 makeContentLayer 注释）。
+
+**排查提示**：以后再遇到「GIS/丢包看板（同样用 LeafletMap）白屏」，先跑一次浏览器实测看
+`#root` 长度与 pageerror 堆栈，不要只看构建是否通过 —— 构建通过不代表不白屏。
+
+### 10d. MW 链路利用率叠加（2026-09-28 新增，`?page=gis`）
+
+**需求**：把 `?page=mwRealTime` 的最新 15 分钟粒度链路利用率直接显示到 GIS 页，不必切页就能看出哪条微波链路吃紧。
+
+**实现**：`GET /api/gis/topology?with_util=1` 在原有 844 条链路上叠加 `mw_ume_bw_ultilazation_rt` 的实时 KPI；匹配逻辑独立成 `backend/services/gis_mw_overlay.py`（不塞进已 1700+ 行的 `gis.py`）。
+
+**⚠️ 核心难点：两套数据没有现成的 JOIN 键。**
+
+| | `kml_mw_links`（GIS 画线用） | `mw_ume_bw_ultilazation_rt`（利用率） |
+| --- | --- | --- |
+| 主键 | **站名**（`Baypolu-Weala`） | **IP**（`192.168.171.117 -> …118`） |
+| 链路数 | 844 | 373 |
+| 端点 | 自带经纬度 | 需经 `zte_mw_links` 映射到站点 |
+
+因此匹配分两级（用户 2026-09-28 确认「坐标优先、站名兜底」）：
+
+1. **坐标优先**：KML 线端点与 MW 节点坐标落在同一容差格（`COORD_TOL=0.001`≈111m）即视为同一站点。坐标是两套数据里唯一语义中立的字段。
+2. **站名兜底**：坐标未命中时退回规范化站名精确匹配（复用 `mw_ume_topology._norm`）。
+3. 都不中 → `util=None` / `level='no_kpi'`，**保留 KML 原线色**。
+
+**实测覆盖（2026-09-28，槽位 `2026-09-28 08:30:00`）：844 条中匹配 360 条**（坐标 340 / 站名 20），484 条无 KPI 数据。`mwRealTime` 当期 7 条 critical+major 链路**全部**能上色（含最严重的 `Chocolate City-LPRC` 98.93%）。
+
+**⚠️ 迭代踩坑（值得记住，因为它把「最该标红的线」藏了起来）**：初版节点索引「每个坐标格只保留第一个 NE」，实测只能匹配 146 条，且 7 条严重链路里有 3 条查不到。原因是**一个物理站点在 UME 里有多台 NE**——实测 414 个坐标格中 105 格有多个 NE，平均 1.57 个/站，`Banjor` 有 9 个、`Kebbah` 有 13 个，而 KPI 链路是按 **IP 对**给的，落在哪台 NE 上不确定。索引只留第一个 IP 时，`Chocolate City` 被记成 `192.168.171.99`，于是 `192.168.171.117 -> …118`（LPRC→Chocolate City，全网最严重）**查不到、被静默当成「无 KPI 数据」**。现改为**保留站点全部 NE 并对两端做笛卡尔积试查**（`_find_edge`），匹配数与严重链路覆盖同时修正。
+
+**⚠️ 刻意不做模糊匹配**：`mw_ume_topology` 的站点匹配里有 difflib(>=0.82) 兜底，但那是为了**补坐标**（错配代价是地图上一个小点偏一点）。此处若用模糊匹配，错配代价是**把 90% 的严重告警画成正常链路**，风险等级完全不同。故只做「精确坐标格 + 精确站名」两级。
+
+**前端表现（`GISMap.tsx`）**：
+
+| 项 | 规则 |
+| --- | --- |
+| 线色 | 有 KPI → 复用 `mwRealTime` 的 **6 级色阶**（`UTIL_LEVEL_COLORS`，与 `mw_real_time.html:855-863` 深色档逐值一致）；无 KPI → KML 原色 |
+| 线宽 | 随分级递增（critical 3.4 → healthy 1.5），保证全境缩放下高利用率线仍可见 |
+| 悬浮 | `Popup` 显示 链路名 / 最高利用率 / 分级 / **Tx** / **Rx** / 匹配到的 MW 站名（供人工核对是否错配） |
+| 开关 | **链路利用率** `Switch`（默认开，`gis.utilToggle`）；关掉即回到 2026-09-25 行为 |
+| 图例 | 按 6 级色阶 + 「无 KPI 数据」虚线档，展示在地图左下角浮层的下半段（见 10a）。2026-09-28 起叠加恒开，故**不再有**「关叠加时显示 KML 4 色档」的分支 |
+| 口径说明 | 浮层内一行小字写明「{total} 条中 {matched} 条匹配到实时指标」+ 数据槽位，让「为什么只有一部分线有颜色」可自解释，不被当成 bug |
+
+**两条硬约束（改这段代码前务必遵守）**：
+
+1. **没有利用率数据的线绝不显示成绿色**。无数据显示绿色会被读成「这条线正常」，而实际含义是「不知道」——运维据此漏判比不显示更危险。故 `no_kpi` 与 `healthy` 严格区分，`level='no_kpi'` 时 `util` 必须是 `None` 而**不是 `0`**（AGENTS.md 三.6）。
+2. **分级名用显式 `switch` 返回字面量键，不要写 `t('gis.utilLevel.' + lv)`**。漏键守卫（`scripts/check-i18n.mjs:130`）只匹配 `t('单引号字面量')`，**动态拼的键它看不见** —— 拼错时会「检查通过但界面显示 `gis.utilLevel.xxx`」。这与 AGENTS.md 三.1b 记载的 `noc.slice.` 踩坑同类，故沿用其显式 `switch` 写法（`GISMap.tsx` 的 `levelLabel()`）。
+
+**向后兼容**：`with_util` 默认 `0`，此时响应**不新增任何字段**、也不返回 `util_meta`，与改动前逐字节一致；前端默认传 `with_util=1`，需要回滚时改 `GISMap.tsx` 的 `showUtil` 初值即可。
 
 **配色修正：History Alarm 由橙 `#ffa94d` 改灰 `#8b95a5`。**
 
@@ -283,14 +477,14 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 
 **图例假 0 修正（`?page=gis`）。** `rt_alarm_overdue` / `rt_alarm_ontime` 是**实时模式专属**（`categoryCounts` 只在 `mode==='realtime'` 计数），但原 `legendItems` 的 filter 只在 realtime 模式过滤 `rt_alarm`/`his_alarm`，未在 all 模式过滤这两个键，于是 `?page=gis` 上出现「Realtime Alarm (Overdue) (0)」这种看着像故障的空指标。现按模式**对称过滤**：all 模式隐藏实时专属项，realtime 模式隐藏历史专属项。
 
-**图例与图层是两套控制（易混淆，2026-09-25 明确）。** 同一行图例上并存两种交互，作用于不同 state：
+**图例与图层是两套控制（易混淆，2026-09-25 明确；2026-09-28 图例迁到地图浮层，机制不变）。** 两处并存两种交互，作用于不同 state：
 
-| 交互 | 作用 state | 控制的类别 | 图例上的呈现 |
+| 交互 | 作用 state | 控制的类别 | 呈现 |
 | --- | --- | --- | --- |
-| **图层 Tag**（`layerOptions`，`GISMap.tsx:448`） | `activeLayers` | 实时告警 / 历史告警 / TT / WO | 独立一行 Tag，不勾选即关闭 |
-| **图例点击**（`legendItems`，`GISMap.tsx:581`） | `hiddenLegends` | 全部 8 类，含 `normal` / `vip` | 该行加删除线＋「已隐藏」 |
+| **图层 Tag**（`layerOptions`，`GISMap.tsx`） | `activeLayers` | 全量：RealTime / History；实时：RealTime / TT / WO | 卡片内一行 Tag，不勾选即关闭 |
+| **图例点击**（`siteLegendRows` → `MapLegendOverlay`，`GISMap.tsx`） | `hiddenLegends` | 图例上的站点类别，含 `normal` / `vip` | 该行加删除线＋「已隐藏」 |
 
-两者的类别来源都是 `getSiteCategory`，最终在 `filteredSites`（`GISMap.tsx:271-295`）里合并生效。`normal` 的默认隐藏走的是 `hiddenLegends` 初值，因此它**仍在图例里可见**（带删除线），用户点一下就能恢复 —— 这是刻意选择：直接删掉图例项会让用户不知道还能显示普通站点。
+两者的类别来源都是 `getSiteCategory`，最终在 `filteredSites`（`GISMap.tsx`）里合并生效。`normal` 的默认隐藏走的是 `hiddenLegends` 初值，因此它**仍在图例里可见**（带删除线），用户点一下就能恢复 —— 这是刻意选择：直接删掉图例项会让用户不知道还能显示普通站点。
 
 ## 12. 告警管理看板（`?page=alarmManagement`）— iframe
 
@@ -372,6 +566,63 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   后 4 个 sheet 按 `length` 判空跳过。
 - subtitle 为 `数据日期 | 统计天数 | 数据窗口`，把天数筛选写进文件便于对账；取不到数据显示 `—`。
 - 页面上另有一个原有的「全量导出」按钮；下钻明细不在本次页面级导出范围内（弹窗内已有）。
+
+## 14m. 可用率多维矩阵（`?page=avail_ms`）
+
+把全网可用率按「区域 / 制式 / 站点类型」三个维度铺开，日 / 周 / 月用页签切换粒度。
+需求来源是一张「呈现内容 × 呈现形式」的矩阵表（区域 ALL × 2G/3G/4G、制式 × Regular/Cool.i/ERA、
+站点类型 × 2G/3G/4G），三个维度其实是**同一张 (制式 × 站点类型) 表的三种切法**。
+
+- **数据源**：本机派生库 `data/avail_recon.sqlite3` 的 `availability_daily`
+  （`backend/services/avail_ms_service.py` 只读整表读入 + 300s 缓存，不发远端、不写主库）。
+  该表由任务 `avail_recon_sync` 每天 06:10 重建（`backend/task_registry.py` 的 `TASK_SPECS`），
+  页面顶部显示 `MAX(Begin_Time)` 作为「数据截至」—— 2026-09-21 发生过派生表静默停更两周的事故，
+  这一行就是给那次事故留的观测口。
+- **口径**：可用率 = `SUM(Numerator)/SUM(Denominator)`（站点级加权的近似口径）。
+  **不要**改成 `AVG(Cell_Availability)` —— 那会把大区与小区权重拉平，`avail_recon_sync.py`
+  顶部记录了 v1 因口径错误返工的经过。日/周/月三档直接复用表里重建任务算好的
+  `Begin_Time` / `WK` / `Month` 列，页面与后端**都不自己推周号**。
+- **接口**：`GET /api/avail-ms/options`（可选周期 + 数据截止）、`/matrix`（三张矩阵 + 环比）、
+  `/trend`（三个维度各自的多序列趋势，页面曲线图）、
+  `/drilldown`（`level=period` 时间明细/构成分解/近 30 期趋势；`level=tt` 工单明细），
+  见 `backend/routers/avail_ms.py`。
+  ⚠️ 性能坑（已修）：`avail_ms_service.get_drilldown()` 过滤上一期时，必须先把
+  `_prev_value(period, value)` **算进变量**再写列表推导 —— 直接写进推导条件会被 Python 按行
+  重新求值，每行都触发一次全表 distinct，实测单请求 8~13 秒、6600 万次函数调用；提出后 0.2 秒
+  （`backend/services/avail_ms_service.py:519` 有注释）。
+- **曲线图**：三张矩阵上方各配一张多序列趋势图（`frontend/src/pages/AvailMsTrend.tsx`），
+  每张图 = 该维度各取值在窗口内的加权可用率，窗口按档位取默认期数
+  （日 30 / 周 12 / 月 12，见 `avail_ms_service.TREND_POINTS`），右端对齐当前选中期。
+  三个维度**共用一段窗口与同一遍扫表**，所以 `/trend` 一次返回三个维度，不拆成三个端点。
+  - 图上的**点也能下钻**，且带的是**该点自己的周期**（例如月档停在 2026-09 时点 2026-08 的点，
+    弹窗就是 `month 2026-08`）—— 因此 `openDrill` 的第三个参数是周期值，
+    弹窗内所有文案读 `drillValue` 而不是当前选中期。
+  - 折线已设 `triggerLineEvent: true`：点线就能命中，不必正好点在 6px 的圆点上。
+  - 区域那张**不画 `UNMATCHED`**（它的量级在 78%，会把 88%~100% 的纵轴压扁），
+    图下留一行字说明并指向表格末行 —— 图与表口径仍然一致，只是不画它。
+  - 缺失期（如 `Other` 在 2025-12、2026-01 之外）**断线**，不用 0 补（AGENTS.md 第三节原则 6）。
+  布局上注意两点，都是实测踩出来的：**图例必须放顶部**（日档 30 个日期要转 35° 才排得下，
+  图例放底部会与日期标签叠在一起）；阈值虚线的标签要 `position: 'insideEndTop'`，
+  否则默认画在线的右端外侧、被 `grid.right` 裁掉。
+- **能下钻尽下钻**（AGENTS.md 第三节 1b）：矩阵里每个可用率数字、以及顶部 2G/3G/4G 汇总卡都可点，
+  弹窗内含 ① 近 30 期趋势（含阈值虚线）② 按日明细 ③ 按调度组的构成分解 ④「相关 TT 工单」页签。
+- **三条必须显示的口径事实**（后端以警告码返回，页面映射成黄色提示条，键见 `i18n.tsx` 的 `availMs.warn.*`）：
+  1. **区域 ALL ≠ 三区域相加**：未匹配 `Master_Site_Database` 的站点落在 `FME_Region IS NULL`
+     （实测约占总分母 2.3%），已计入 ALL，末行单列 `UNMATCHED` 便于对账。该桶**不能下钻 TT**
+     —— 派生库里没有那批站点的名单。
+  2. **`4G FDD NERA` 是脏值**（仅 2025-12-24 ~ 2026-01-27 有 140 行）：计入制式 4G 总量，
+     在站点类型维度单列 `Other`，因此该时间窗内 4G 行 ≠ Regular+ERA。
+  3. **两套站点类型不同源**：可用率侧来自 KPI 调度组（`avail_recon_sync.site_type()`），
+     TT 侧来自站点主数据 `site_caregory` 归一化（`avail_ms_service.norm_site_category()`，
+     口径与 `routers/gis.py:_norm_site_category` 一致）；TT 表没有制式字段，故工单明细
+     **不按制式过滤**，只列出各制式断站数。
+- **同口径对照**：`?page=site_avail`（14i）是**站点级**月度视图、读远端站点级日表；
+  本页是**维度级**（区域/制式/站点类型）视图、读本机派生库，两者数据源与口径不同，
+  数字不可直接互相对账。
+- **页面级导出**（多 sheet，走 `utils/excelReport` 的 `exportReport`）：
+  `Summary`（当期/上期/数据截止/三制式全网值/未匹配占比/命中的口径警告）+ 三个维度各一张表
+  + 三个维度各一张趋势表（周期为行、维度取值为列，与图同源）；
+  百分比写成数值便于在 Excel 里再算。下钻弹窗内另有导出（时间明细 + 构成分解 / TT 明细）。
 
 ## 14b. NOC 操作人分析（`?page=noc_analyst`）—— 四层全量下钻
 

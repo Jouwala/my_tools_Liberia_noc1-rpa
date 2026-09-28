@@ -9,6 +9,28 @@ import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
 
 const { Text } = Typography
 
+/**
+ * 本页是否正被「无外壳」地嵌入（门户 iframe / 大屏深链）。
+ *
+ * 为什么要判这个：门户（/v2/olbrportal/、MsPortal）是用
+ * `/myapp/?page=email_reports` 内嵌本页的，而它自己在同一块面板顶部已经渲染了
+ * 一行橙色标题「Auto Report Files」。若本页再顶上自己的 Card 标题
+ * 「Task Report Files / 任务报告文件」，两块标题就会**上下叠在一起**，
+ * 用户看到的就是「同一个标题出现两次」（2026-09-28 用户反馈）。
+ *
+ * 判据与 App.tsx 的 shellHidden 保持一致，即 ?page= 直链 bare 或 ?embed=1：
+ *   · ?page=xxx —— 门户 iframe 的 src 就是这种形态（本页实际的嵌入方式）；
+ *   · ?embed=1 / ?embed=true / ?layout=bare —— 大屏与其它嵌入方走这条。
+ * 独立打开 /myapp/ 再从侧栏进本页时两者都不成立，Card 标题照常显示 ——
+ * 那种场景下没有外层标题，去掉就成了「这一页没有名字」。
+ */
+function isShellLessEmbed(): boolean {
+  try {
+    const sp = new URLSearchParams(window.location.search)
+    return sp.get('page') != null || sp.get('embed') === '1' || sp.get('embed') === 'true' || sp.get('layout') === 'bare'
+  } catch { return false }
+}
+
 // 后端 /api/email-reports/latest 的返回结构（只含文档类报告，无图片）
 interface ReportFile {
   name: string
@@ -89,6 +111,9 @@ function stamp(): string {
 
 export default function EmailReports() {
   const { t } = useI18n()
+  // 每次挂载求值一次即可：嵌入方式由 URL 决定，本页挂载后不会再变。
+  // 用 state 而不是每次渲染现算，是为了让「是否渲染标题」在这次挂载内稳定。
+  const [embed] = useState(isShellLessEmbed)
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(false)
   // 每个报告类型保留最近几份（默认 1 = 只要最新一份）
@@ -487,7 +512,11 @@ export default function EmailReports() {
 
   return (
     <div style={pageWrap}>
-      <Card style={cardStyle} title={t('emailReports.title')}>
+      {/* 标题在「被门户无外壳嵌入」时不渲染：外层（门户那行 Auto Report Files）已经
+          写了同一块功能的名字，这里再写一遍就是叠罗汉。独立打开时照常带标题。
+          ⚠️ 只是不渲染标题，i18n 键 emailReports.title 必须保留 ——
+          下面 exportEmail() 的 exportReport 还用它当 Excel 工作表名（搜 emailReports.title）。 */}
+      <Card style={cardStyle} title={embed ? undefined : t('emailReports.title')}>
         <Tabs
           defaultActiveKey="email"
           items={[

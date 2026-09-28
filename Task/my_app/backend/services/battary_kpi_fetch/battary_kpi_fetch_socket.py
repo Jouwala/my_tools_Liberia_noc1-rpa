@@ -44,6 +44,7 @@ import gzip
 import importlib.util
 import json
 import math
+import os
 import re
 import socket
 import ssl
@@ -157,8 +158,10 @@ def _runtime_credentials():
         try:
             from credential_store import get_credential
         except ImportError:
-            return DEFAULT_USERNAME, DEFAULT_PASSWORD
-    return get_credential("battery_ume", DEFAULT_USERNAME, DEFAULT_PASSWORD)
+            # credential_store 都导入不了：只回退用户名，口令留空让登录明确失败。
+            # 原此处回退 DEFAULT_PASSWORD 字面量，2026-09-27 已删除该硬编码口令。
+            return DEFAULT_USERNAME, ""
+    return get_credential("battery_ume")
 
 
 def load_credentials(args=None) -> dict:
@@ -168,11 +171,11 @@ def load_credentials(args=None) -> dict:
     """
     import os
 
-    # 1. 内置默认值
+    # 1. 内置默认值（口令不在代码里，留空；由下面第 3.5 步 credential_store 填充）
     host = DEFAULT_HOST
     port = DEFAULT_PORT
     username = DEFAULT_USERNAME
-    password = DEFAULT_PASSWORD
+    password = ""
 
     # 2. url.txt（若存在则覆盖默认值，向后兼容）
     if URL_FILE.exists():
@@ -267,8 +270,9 @@ REQUEST_MAX_RETRIES = 2        # 单次请求重试次数
 # ---------------------------------------------------------------------------
 DEFAULT_HOST = "192.168.170.2"
 DEFAULT_PORT = 443
+# 口令由 credential_store 的 `battery_ume` 组提供（见 _runtime_credentials）。
+# 2026-09-27 删除硬编码 DEFAULT_PASSWORD —— 重复副本且已入库。
 DEFAULT_USERNAME = "zeeshan mazhar"
-DEFAULT_PASSWORD = "Zte_ZM2028"
 
 # 全局主机/端口（登录后由 credentials 填充）
 _HOST = ""

@@ -12,7 +12,8 @@
 | `/api/upload` | 数据上传 |
 | `/api/analysis` | 分析仪表盘 + 分析归档 |
 | `/api/gis` | GIS 地图 / 实时告警地图（含 `/gis/realtime/*`） |
-| `/api/tt-wo-dashboard` | TT&WO 看板 |
+| `/api/tt-wo-dashboard` | TT&WO 看板（`page=ttwo` / `v1_ttwo` / `tt`，以 `eflow_tt` 为主表） |
+| `/api/wo-dashboard` | WO 看板（`page=wo`，以 `eflow_wo` 为数据源；SLA 取自关联 `eflow_tt`） |
 | `/api/alarm-dashboard` | 实时告警看板（含 history/realtime 两种下钻） |
 | `/api/packet-loss-dashboard` | 丢包看板 |
 | `/api/battery-dashboard` | 电池看板 |
@@ -63,8 +64,9 @@
 | 任务报告文件 | `GET /api/email-reports/latest`、`/finebi-reports/latest`、`/email-reports/eflow_tt_rules_check`、`POST /api/tasks/eflow_tt_rules_check/run` |
 | 实时告警看板 | `/api/alarm-dashboard/overview`、`/history-drilldown`、`/realtime-drilldown` |
 | TT&WO | `/api/tt-wo-dashboard/overview`、`/drilldown` |
+| WO（`page=wo`） | `/api/wo-dashboard/overview`、`/drilldown`（数据源 `eflow_wo`，口径函数与 TT&WO 共用；不接 `owner` 参数） |
 | NUR | `/api/nur/overview`、`/options`、`/detail` |
-| MS SLA | `/api/ms-sla-dashboard/overview`、下钻复用 `/api/nur/detail` |
+| MS SLA | `/api/ms-sla-dashboard/overview`（返回 daily/weekly/monthly 三档；weekly 下 network/persite 为空表）、下钻复用 `/api/nur/detail`（`gran=weekly` + `period=2026-W12`） |
 | GIS / 实时告警地图 | `/api/gis/sites`\|`/gis/realtime/sites`、`/gis/topology`、`/gis/region-boundaries`、`/gis/drilldown/{id}` |
 | 丢包 | `/api/packet-loss-dashboard/overview`、`/map-sites`、`/drilldown`、复用 `/api/gis/topology` |
 | 电池 | `/api/battery-dashboard/all`、`/trend`、`/site/{site}` |

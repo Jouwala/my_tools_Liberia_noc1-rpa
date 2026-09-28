@@ -20,7 +20,7 @@ import DraggableClickModal from '../components/DraggableClickModal'
 // 不要在页面里自造卡片样式）
 import { CardBase } from '../components/cards'
 import { ExplainIcon } from '../components/MetricExplain'
-import { WH, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
+import { WH, WH_COLORS, LIGHT_COLORS, DARK, LIGHT, useTheme, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
 
 const { RangePicker } = DatePicker
 
@@ -119,23 +119,66 @@ const advFilterLabelKey = (col: string): string => {
   }
 }
 
+/** 本组件支持的切片档位（决定**出哪些区块**，与数据源正交）：
+ *  - 'summary' 只到 MTTR 趋势为止，供 page=v1_ttwo；
+ *  - 'tt'      只出 TT 侧，供 page=tt；
+ *  - 'wo'      只出 WO 侧，供 page=wo（配合 source='wo' 读 eflow_wo）。
+ */
+export type TTWOOnly = 'summary' | 'tt' | 'wo'
+
 /**
- * TT&WO 看板主体（page=ttwo：汇总卡 + TT 统计 + MTTR 周趋势 + 领域/根因 + WO + 站点信息）。
+ * 数据源开关（决定**数据取自哪张表**，与切片正交）：
+ *  - `'tt'` = `eflow_tt`（默认）：page=ttwo / v1_ttwo / tt，读 /tt-wo-dashboard/overview；
+ *  - `'wo'` = `eflow_wo`：page=wo，读 /wo-dashboard/overview。
  *
- * only 用于派生「只保留上半部分」的直链页面（同一份实现切片，避免复制粘贴走样）：
- *   - only='summary' → 只渲染到 MTTR Weekly Trend 为止（汇总卡、TT 统计、MTTR 周趋势），
- *     即「MTTR Weekly Trend」标题与图表仍出，其下的领域/根因、WO 分析、站点信息全部不出；
- *     供 page=v1_ttwo 使用（见 pages/V1TTWODashboard.tsx）；
+ * WO 页要求版式与 TT 页一样，只是数据源换成 eflow_wo，所以走同一套渲染路径，
+ * 靠这个开关切换端点与字段名 —— 不复制一份页面（复制必然分叉）。
+ */
+export type TTWOSource = 'tt' | 'wo'
+
+/**
+ * TT&WO 看板主体（page=ttwo：汇总卡 + 统计 + MTTR 趋势 + 领域/根因 + WO + 站点信息）。
+ *
+ * `only` / `source` 两个开关正交，用于派生直链页面（同一份实现切片，避免复制走样）：
+ *   - only='summary' → 只渲染到 MTTR 趋势为止，即 page=v1_ttwo；
+ *   - only='tt'      → 只出 TT 侧，汇总卡只留 TT 总数，对应 page=tt；
+ *   - only='wo'      → 只出 WO 侧，配合 source='wo' 对应 page=wo；
  *   - 缺省           → 全量，page=ttwo 行为与改造前完全一致。
  *
- * 筛选条（时间档位/自定义区间/区域）、下钻弹窗与 Excel 导出在两条直链上同样具备，
- * 且共用同一个 /tt-wo-dashboard/overview 端点，因此两个页面的数字必然一致。
+ * 三档切片 page=v1_ttwo / tt / wo 的**版式相同：都只到 MTTR 趋势为止**；
+ * 其下的下半部分（领域与根因分析、工单分析、站点信息）只属完整页 page=ttwo。
+ * 需求（2026-09-27）明确「page=wo 要跟 page=tt 一样」，故三档用同一个 isSlicePage 开关。
+ *
+ * 筛选条（时间档位/自定义区间/区域/高级过滤）、下钻弹窗与 Excel 导出在各直链上同样具备，
+ * 且共用同一套端点口径，因此同源页面的数字必然一致。
  */
-export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
+export default function TTWODashboard({ only, source }: { only?: TTWOOnly; source?: TTWOSource } = {}) {
   const { t, locale } = useI18n()
   const { isDark } = useTheme()
-  // 切片开关：true = 只出到 MTTR 周趋势，其下区块整体不渲染
-  const summaryOnly = only === 'summary'
+  /* ---------- 本组件的两套开关（正交，别混在一起想）----------
+   * `only`   —— 决定**出哪些区块**（切片）。缺省 = 完整页 page=ttwo。
+   * `source` —— 决定**数据取自哪张表**。缺省 'tt' = eflow_tt。
+   */
+  const summaryOnly = only === 'summary'  // page=v1_ttwo：上半部分切片
+  const ttOnly = only === 'tt'            // page=tt：数据源 eflow_tt
+  const woOnly = only === 'wo'            // page=wo：数据源 eflow_wo
+  // 三档切片的版式相同（都只到 MTTR 趋势为止），用一个开关统一表达，
+  // 避免各区块各写一串条件、彼此对不齐 —— 此前站点信息那处漏了数据源判断，
+  // 才让 page=wo 多出两个区块。
+  const isSlicePage = summaryOnly || ttOnly || woOnly
+  // 数据源：'tt' = eflow_tt（TT&WO 看板 / TT 看板 / v1 切片），
+  // 'wo' = eflow_wo（WO 看板）。见 pages/WODashboard.tsx 的说明。
+  const isWoSource = source === 'wo'
+  // 统计与 MTTR 趋势渲染的就是「本页数据源」的口径：page=wo 上是 eflow_wo 的
+  // 严重度/SLA/状态与 WO 时长，所以三档切片都出，此开关只为可读性保留。
+  const showTtSections = true
+  // 汇总卡：TT 总数算的是 eflow_tt 的行数，WO 数据源页放它没有意义（page=tt 保留）。
+  const showTtTotalCard = !woOnly && !isWoSource
+  // WO 侧汇总卡（WO 总数 / WO 编号(唯一)）：page=tt 不出。
+  const showWoSummaryCards = !ttOnly
+  // 「WO 编号(唯一)」在 WO 数据源页与「WO 总数」语义重叠（本页每行本身就是一个
+  // WO），只留总数一张，避免同屏出现两个一模一样的数字。
+  const showWoNoCard = !ttOnly && !isWoSource
   const { lastSync, isSynced } = useDataTimestamps()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
@@ -206,10 +249,16 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
       params.time_end = timeRange.end
     }
     if (selectedRegion) params.region = selectedRegion
-    if (selectedOwner) params.owner = selectedOwner
+    // ZTE/3rd 归属的定义是「TT 的 wo_no 是否非空」，WO 数据源页（每行本身就是一个
+    // WO）没有这个概念，既不发该参数也不显示该下拉 —— 发了会被后端忽略，
+    // 但留着控件会让用户以为筛选生效了。
+    if (selectedOwner && !isWoSource) params.owner = selectedOwner
     if (advParam) params.adv = advParam
-    const cacheKey = `ttwo:overview:${timeRange?.start || ''}:${timeRange?.end || ''}:${selectedRegion || ''}:${selectedOwner || ''}:${advParam}`
-    cachedGet(cacheKey, () => api.get('/tt-wo-dashboard/overview', { params }))
+    // 两个数据源的缓存键必须分开：键里带 source，否则先开 TT 页再开 WO 页会命中
+    // 同一份缓存，页面显示另一张表的数据。
+    const cacheKey = `ttwo:${source || 'tt'}:overview:${timeRange?.start || ''}:${timeRange?.end || ''}:${selectedRegion || ''}:${isWoSource ? '' : selectedOwner || ''}:${advParam}`
+    const endpoint = isWoSource ? '/wo-dashboard/overview' : '/tt-wo-dashboard/overview'
+    cachedGet(cacheKey, () => api.get(endpoint, { params }))
       .then(res => {
         setData(res.data)
         setError(null)
@@ -219,7 +268,7 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
         setError(err.message || 'API request failed')
       })
       .finally(() => setLoading(false))
-  }, [timeRange, selectedRegion, selectedOwner, advParam])
+  }, [timeRange, selectedRegion, selectedOwner, advParam, source, isWoSource])
 
   const fmt = (n: number) => n?.toLocaleString(numLocale(locale)) || '0'
 
@@ -240,10 +289,13 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
       params.time_end = timeRange.end
     }
     if (selectedRegion) params.region = selectedRegion
-    // 下钻必须带上与概览**完全相同**的过滤条件，否则表格里的数字与下钻行数对不上
-    if (selectedOwner) params.owner = selectedOwner
+    // 下钻必须带上与概览**完全相同**的过滤条件，否则表格里的数字与下钻行数对不上。
+    // owner 与概览一致地跳过（WO 数据源页没有该概念）。
+    if (selectedOwner && !isWoSource) params.owner = selectedOwner
     if (advParam) params.adv = advParam
-    api.get('/tt-wo-dashboard/drilldown', { params })
+    // 端点随数据源切换；/wo-dashboard/drilldown 的维度名与 TT 侧一一对应
+    // （ticket_severity / sla_status / status / domain / rc_main / rc_sub / all_wo / day|week|month / 站点列）
+    api.get(isWoSource ? '/wo-dashboard/drilldown' : '/tt-wo-dashboard/drilldown', { params })
       .then(res => {
         setDrillData(res.data.data || [])
         setDrillTitle(res.data.title || 'Drilldown')
@@ -252,7 +304,7 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
         setDrillTitle('Failed to load data')
       })
       .finally(() => setDrillLoading(false))
-  }, [timeRange, selectedRegion, selectedOwner, advParam])
+  }, [timeRange, selectedRegion, selectedOwner, advParam, isWoSource])
 
   // 模糊搜索
   const filteredDrillData = useMemo(() => {
@@ -305,9 +357,15 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
   const tooltipStyle = darkTooltip(isDark)
   const cText = isDark ? '#f5f7ff' : '#16233b'
   const cTextMuted = isDark ? '#aebbd4' : '#3f5468'
-  const cTeal = isDark ? '#00d9ff' : '#0d9488'
   const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
   const sevColors = isDark ? SEVERITY_COLORS : SEVERITY_COLORS_LIGHT
+  // MTTR 双轴图的固定语义色（canvas 解析不了 CSS 变量，必须取实值）。
+  // 柱 = 中兴蓝 #0072BC、线 = 橙，是业务明确要求的配色，**不随严重级别变化**：
+  // P1~P4 已经拆成四张独立的图，级别身份由图承担；再让颜色随级别变，
+  // 会把「柱是量、线是时长」这个更关键的对照关系冲淡。
+  const cZteBlue = (isDark ? DARK : LIGHT).zteBlue
+  const cZteBlueLight = (isDark ? DARK : LIGHT).zteBlueLight
+  const cZteOrange = (isDark ? DARK : LIGHT).zteOrange
 
   // MTTR 趋势 —— 按 Ticket Severity 拆成 4 个独立图（P1/P2/P3/P4），
   // 每张图再支持 日 / 周 / 月 三档粒度（用页签切换）。
@@ -332,6 +390,14 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
     return out
   }, [data])
 
+  // 统计三维（严重度 / SLA 状态 / 状态）。两个数据源返回的键名一致
+  // （tt_stats 与 wo_stats_dims 同构），所以卡片渲染器与导出都不需要分支。
+  // 声明在 exportOverview 之前：导出要用同一份对象，避免两处各取一次走样。
+  const sStats = useMemo(
+    () => (isWoSource ? (data?.wo_stats_dims || {}) : (data?.tt_stats || {})),
+    [isWoSource, data],
+  )
+
   /* ---------- 页面级导出（2026-09-27 新增）----------
    * 此前本组件唯一的导出按钮在**下钻弹窗**里（导的是下钻明细行），
    * 页面上没有任何导出入口 —— `?page=ttwo` 与 `?page=v1_ttwo` 都因此看不到按钮。
@@ -352,42 +418,46 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
     ].filter(Boolean).join('    |    ')
 
     // ① 汇总卡
-    // wo_total / wo_no_count 两张卡在页面上是**有条件下发**的（仅 wo_total > 0 时渲染，
-    // 见下方汇总卡片 Row），所以导出也要跟着隐藏 —— 否则会出现「页面没这两张卡、
-    // 导出里却有」的错位。tt_total 无条件渲染。
+    // 各卡在页面上是**有条件下发**的（见上方汇总卡片 Row），所以导出也要跟着隐藏
+    // —— 否则会出现「页面没这张卡、导出里却有」的错位。
     const sum = data.summary || {}
-    const summaryRows: (string | number)[][] = [
-      [t('ttwo.ttStatistics'), t('ttwo.ttTotal'), sum.tt_total ?? ''],
-    ]
-    if ((sum.wo_total ?? 0) > 0) {
-      summaryRows.push([t('ttwo.ttStatistics'), t('ttwo.woTotal'), sum.wo_total ?? ''])
-      summaryRows.push([t('ttwo.ttStatistics'), t('ttwo.woNoUnique'), sum.wo_no_count ?? ''])
+    const sumTitle = isWoSource ? t('nav.wo') : t('ttwo.ttStatistics')
+    const summaryRows: (string | number)[][] = []
+    if (showTtTotalCard) summaryRows.push([sumTitle, t('ttwo.ttTotal'), sum.tt_total ?? ''])
+    if (showWoSummaryCards && (sum.wo_total ?? 0) > 0) {
+      summaryRows.push([sumTitle, t('ttwo.woTotal'), sum.wo_total ?? ''])
+      // 「WO 编号(唯一)」卡在 WO 数据源页不渲染（与 WO 总数语义重叠），导出同步隐藏
+      if (showWoNoCard) summaryRows.push([sumTitle, t('ttwo.woNoUnique'), sum.wo_no_count ?? ''])
     }
-    sheets.push({
-      name: 'Summary',
-      title: t('ttwo.ttStatistics'),
-      subtitle: filterNote,
-      tabColor: '#2F5496',
-      header: [t('ttwo.dimension'), t('ttwo.value'), t('common.total')],
-      rows: summaryRows,
-      numericCols: [2],
-    })
+    if (summaryRows.length) {
+      sheets.push({
+        name: 'Summary',
+        title: sumTitle,
+        subtitle: filterNote,
+        tabColor: '#2F5496',
+        header: [t('ttwo.dimension'), t('ttwo.value'), t('common.total')],
+        rows: summaryRows,
+        numericCols: [2],
+      })
+    }
 
-    // ② TT 各维度统计（严重度 / 工单严重度 / SLA / 状态）
-    const ttDims: Array<[string, Record<string, number>]> = [
-      [t('ttwo.alarmSeverity'), data.tt_stats?.severity || {}],
-      [t('ttwo.ticketSeverity'), data.tt_stats?.ticket_severity || {}],
-      [t('ttwo.slaStatus'), data.tt_stats?.sla_status || {}],
-      [t('ttwo.status'), data.tt_stats?.status || {}],
-    ]
+    // ② 各维度统计（严重度 / 工单严重度 / SLA / 状态）。
+    // WO 数据源页写的是 eflow_wo 的同一批维度（SLA 取自关联 TT），
+    // sheet 名跟着数据源走，避免下载下来分不清是哪张表的数。
+    const ttDims: Array<[string, Record<string, number>]> = showTtSections ? [
+      [t('ttwo.alarmSeverity'), sStats?.severity || {}],
+      [t('ttwo.ticketSeverity'), sStats?.ticket_severity || {}],
+      [t('ttwo.slaStatus'), sStats?.sla_status || {}],
+      [t('ttwo.status'), sStats?.status || {}],
+    ] : []
     const ttRows: (string | number)[][] = []
     for (const [dim, stats] of ttDims) {
       for (const [k, v] of Object.entries(stats || {})) ttRows.push([dim, k, v])
     }
     if (ttRows.length) {
       sheets.push({
-        name: 'TT Stats',
-        title: t('ttwo.ttStatistics'),
+        name: isWoSource ? 'WO Stats' : 'TT Stats',
+        title: isWoSource ? t('nav.wo') : t('ttwo.ttStatistics'),
         subtitle: filterNote,
         tabColor: '#0d9488',
         header: [t('ttwo.dimension'), t('ttwo.value'), t('common.count')],
@@ -396,8 +466,9 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
       })
     }
 
-    // ③ WO 各维度统计（来源 / 状态）—— 仅完整页（v1_ttwo 不渲染该区块）
-    if (!summaryOnly) {
+    // ③ WO 各维度统计（来源 / 状态）—— 只属完整页。WO 数据源页不出（该页统计卡片
+    // 就是 eflow_wo 口径，该区块本身不渲染），导出必须跟着不出。
+    if (!isSlicePage && !isWoSource) {
       const woRows: (string | number)[][] = []
       for (const [k, v] of Object.entries(data.wo_stats?.source || {})) woRows.push([t('ttwo.woBySource'), k, v as number])
       for (const [k, v] of Object.entries(data.wo_stats?.status || {})) woRows.push([t('ttwo.woByStatus'), k, v as number])
@@ -437,8 +508,10 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
       })
     }
 
-    // ⑤ 领域与根因、⑥ 站点信息 —— 同属 v1_ttwo 不渲染的下半部分
-    if (!summaryOnly) {
+    // ⑤ 领域与根因、⑥ 站点信息 —— 同属 MTTR 趋势之下的下半部分，只属完整页。
+    // 三档切片（v1_ttwo / tt / wo）页面都不渲染，导出必须跟着不出，
+    // 否则会出现「页面没有、导出却有这个 sheet」的错位。
+    if (!isSlicePage) {
       const domRows: (string | number)[][] = [
         ...Object.entries(data.domain_stats || {}).map(e => [t('ttwo.ttByDomain'), e[0], e[1] as number]),
         ...Object.entries(data.root_cause?.main || {}).map(e => [t('ttwo.rootCauseMain'), e[0], e[1] as number]),
@@ -482,10 +555,12 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
     }
 
     if (!sheets.length) return
-    const scope = summaryOnly ? 'v1' : 'full'
+    // 文件名前缀按切片/数据源走，几档导出的文件一眼能分辨（tt / wo / v1 / full）
+    const scope = ttOnly ? 'tt' : (woOnly || isWoSource) ? 'wo' : summaryOnly ? 'v1' : 'full'
     void exportReport(sheets, `TTWO_${scope}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`)
   }, [data, timePreset, timeRange, selectedRegion, selectedOwner, activeFilterCount,
-      summaryOnly, mttrSeriesByGran, t])
+      summaryOnly, ttOnly, woOnly, isSlicePage, isWoSource, showTtTotalCard,
+      showWoSummaryCards, showWoNoCard, showTtSections, sStats, mttrSeriesByGran, t])
 
 
   /**
@@ -527,15 +602,19 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
     })
     // 计入 MTTR 均值的样本数，仅在与总量不等时于 tooltip 里补一句，说明差额来源
     const counts = periods.map(p => (byPeriod.has(p) ? byPeriod.get(p)!.count : null))
-    // sevColors 的键是小写字面量（critical/major/...），这里显式窄化后再索引；
-    // 直接 sevColors[sev.toLowerCase()] 会因索引类型过宽而报 TS7053。
-    const sevKey = sev.toLowerCase() as keyof typeof sevColors
-    const color = sevColors[sevKey] || cTeal
-    // 柱状图用中性色（成交量是「中性的量」，级别身份交给 MTTR 折线表达），
-    // 深浅色主题各一套，避免在画布上用 CSS 变量（ECharts 解析不了）
-    const barColor = isDark
-      ? { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(125,175,255,0.55)' }, { offset: 1, color: 'rgba(125,175,255,0.10)' }] }
-      : { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(2,132,199,0.45)' }, { offset: 1, color: 'rgba(2,132,199,0.08)' }] }
+    // 柱 = 中兴蓝 #0072BC、线 = 橙（业务明确要求，见 11-feature-guide.md 第 4 节），
+    // 四张图一致，**与严重级别无关**。
+    // 此前是反的：柱用淡蓝半透明渐变、线取严重度色（P1 红 / P2 橙 / P3 蓝 / P4 绿），
+    // 结果是「同一个量在四张图上颜色不同，而真正该区分的柱/线反而同色」——
+    // 与要求的配色正好相反，2026-09-28 按需求改正。
+    // 柱子自上而下由提亮蓝渐变到品牌蓝，保留体积感，色相锁定中兴蓝。
+    const barColor = {
+      type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+      colorStops: [
+        { offset: 0, color: cZteBlueLight },
+        { offset: 1, color: cZteBlue },
+      ],
+    }
     // 日粒度在「全部时间」下有近 300 个点，横轴会糊成一片：
     // 点数多时开启缩放（滚轮 + 底部滑杆）。四张图同属一个 echarts group，
     // 缩放与 tooltip 联动，因此拖任一张图四张一起动。
@@ -602,18 +681,22 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
       ],
       series: [
         {
+          // 柱 = 单量，中兴蓝
           name: nameCount, type: 'bar', yAxisIndex: 0, data: totals,
           barMaxWidth: 16, itemStyle: { color: barColor, borderRadius: [3, 3, 0, 0] },
         },
         {
+          // 线 = MTTR 均值，橙色。connectNulls: false 保证「没有单」时断线而不是掉到 0
           name: nameMttr, type: 'line', yAxisIndex: 1, data: mttrs, smooth: true, connectNulls: false,
-          itemStyle: { color }, lineStyle: { width: 2.5 },
+          itemStyle: { color: cZteOrange }, lineStyle: { width: 2.5, color: cZteOrange },
           symbol: periods.length > 60 ? 'none' : 'circle', symbolSize: 6,
+          // 数据点描一圈本色底：橙点压在蓝柱上时边界会糊，描边能把点从柱子里摘出来
+          symbolBorderColor: isDark ? '#050d22' : '#ffffff', symbolBorderWidth: 1.5,
           z: 3,
         },
       ],
     }
-  }, [mttrPeriodsFor, mttrSeriesByGran, sevColors, cTeal, cTextMuted, isDark, tooltipStyle, t])
+  }, [mttrPeriodsFor, mttrSeriesByGran, cZteBlue, cZteBlueLight, cZteOrange, cTextMuted, isDark, tooltipStyle, t])
 
   // Domain分布
   const domainOption = useMemo(() => {
@@ -767,7 +850,8 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
 
   // 统计卡片颜色映射
   // 注：Alarm Severity 维度已于 2026-09-26 按业务要求从 TT 统计中移除，
-  // 其色表（sevColor）随之删除；sevColors 仍被 MTTR 四图与 Ticket Severity 复用。
+  // 其色表（sevColor）随之删除；sevColors 现由 Ticket Severity 卡片与 WO 来源图复用
+  // （MTTR 四图自 2026-09-28 起改用固定的中兴蓝柱 / 橙线，不再按级别取色）。
   const ticketColor: Record<string, string> = {
     P1: sevColors.critical, P2: sevColors.major, P3: sevColors.info, P4: sevColors.minor,
     'Critical(4H)': sevColors.critical, 'Major(24H)': sevColors.major, 'Warning': sevColors.medium, 'Minor(72H)': sevColors.minor,
@@ -965,7 +1049,8 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
   if (!data) return <Empty description={t('ttwo.noData')} />
 
   const regions = data.filters?.regions || []
-  const s = data.tt_stats || {}
+  // 统计三维与页面级导出共用同一份（见上面的 sStats），此处只做别名，避免两处取数走样
+  const s = sStats
   // 高级过滤：列名白名单与候选值都由后端给（见 filters.filter_fields / filter_options）
   const filterFields: string[] = data.filters?.filter_fields || []
   const filterOptions: Record<string, string[]> = data.filters?.filter_options || {}
@@ -1015,8 +1100,10 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
             placeholder={t('ttwo.allRegions')}
             options={regions.map((r: string) => ({ value: r, label: r }))}
           />
-          {/* ZTE / 3rd 归属：wo_no 非空 = ZTE 自派单，为空 = 3rd 第三方单 */}
-          <Select
+          {/* ZTE / 3rd 归属：wo_no 非空 = ZTE 自派单，为空 = 3rd 第三方单。
+              WO 数据源页不显示 —— 该归属的定义建立在「TT 的 wo_no」上，
+              WO 表每行本身就是一个 WO，没有对应概念（后端也不接收该参数）。 */}
+          {!isWoSource && <Select
             value={selectedOwner}
             onChange={setSelectedOwner}
             style={{ width: 'min(100%, 9.375rem)' }}
@@ -1026,7 +1113,7 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
               { value: 'zte', label: t('ttwo.ownerZte') },
               { value: '3rd', label: t('ttwo.ownerThird') },
             ]}
-          />
+          />}
           {/* 高级过滤开关（参照 GISMap 的「高级筛选」） */}
           <Button
             size="small"
@@ -1087,25 +1174,36 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
         )}
       </Card>
 
-      {/* 汇总卡片 */}
+      {/* 汇总卡片
+          按切片/数据源下发：page=tt 不出两张 WO 卡；WO 数据源页只留「WO 总数」一张
+          （本页每行就是一个 WO，TT 总数算的是 eflow_tt 的行数，放这里没有意义；
+          「WO 编号(唯一)」与「WO 总数」在 WO 表上语义重叠，同屏出现两个一模一样的
+          数字只会让人以为是 bug）。
+          WO 卡仍保留原有的 wo_total > 0 条件 —— 没有 WO 表/没有 WO 数据时
+          显示「WO 编号(唯一) 0」比显示 0 更容易被误读成「真的一个都没有」。 */}
+      {((showTtTotalCard ? 1 : 0) + (showWoSummaryCards && data.summary.wo_total > 0 ? 1 : 0)) > 0 && (
       <Row gutter={12}>
-        <Col xs={24} sm={12} md={data.summary.wo_total > 0 ? 8 : 24}>
+        {showTtTotalCard && <Col xs={24} sm={12} md={(showWoSummaryCards && data.summary.wo_total > 0) ? (showWoNoCard ? 8 : 12) : 24}>
           <SummaryCard color="#258cff" icon={<ThunderboltOutlined />} value={data.summary.tt_total} label={t('ttwo.ttTotal')} explain={t('ttwo.explain.ttTotal')} onClick={(e) => openDrilldown(e, 'all_tt')} />
-        </Col>
-        {data.summary.wo_total > 0 && <Col xs={24} sm={12} md={8}>
+        </Col>}
+        {showWoSummaryCards && data.summary.wo_total > 0 && <Col xs={24} sm={12} md={showTtTotalCard ? (showWoNoCard ? 8 : 12) : (showWoNoCard ? 12 : 24)}>
           <SummaryCard color="#51cf66" icon={<FileTextOutlined />} value={data.summary.wo_total} label={t('ttwo.woTotal')} explain={t('ttwo.explain.woTotal')} onClick={(e) => openDrilldown(e, 'all_wo')} />
         </Col>}
-        {data.summary.wo_total > 0 && <Col xs={24} sm={12} md={8}>
+        {showWoNoCard && data.summary.wo_total > 0 && <Col xs={24} sm={12} md={8}>
           <SummaryCard color="#a99cff" icon={<NumberOutlined />} value={data.summary.wo_no_count} label={t('ttwo.woNoUnique')} explain={t('ttwo.explain.woNo')} onClick={(e) => openDrilldown(e, 'all_wo')} />
         </Col>}
       </Row>
+      )}
 
       {/* TT 统计（不含 Alarm Severity：该维度与 Ticket Severity 重复且噪声大，2026-09-26 按业务要求移除）
           维度都改为数字卡片：原来的 Tag 胶囊块取值一多就换行成一团、数字不突出。
           这里用「维度小标题 + 卡片网格」的分组方式，而不是「大卡里套小卡」——
           嵌套卡片会让层级变糊，两个边框叠在一起也压布局。
           工单严重度与 SLA 状态取值都少（各 4~5 个），左右各占半行并排；
-          工单状态取值多且名字长（Waiting for FO Process(...)），仍单独占整行。 */}
+          工单状态取值多且名字长（Waiting for FO Process(...)），仍单独占整行。
+          本块属「上半部分」：三档切片都出，渲染的就是本页数据源（page=wo 时是
+          eflow_wo 的严重度 / 关联 TT 的 SLA / WO 状态）。 */}
+      {showTtSections && <>
       <SectionTitle icon={<AlertOutlined />} title={t('ttwo.ttStatistics')} />
       <Row gutter={[16, 4]}>
         <Col xs={24} lg={12}>
@@ -1134,9 +1232,12 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
           children: renderMttrCharts(g),
         }))}
       />
+      </>}
 
-      {/* Domain + Root Cause：only='summary'（page=v1_ttwo）时不渲染，含其下全部区块 */}
-      {!summaryOnly && <>
+      {/* Domain + Root Cause：**只属完整页**（page=ttwo）—— 它既不是纯 TT 统计也不是
+          WO 分析，v1_ttwo / tt / wo 三档切片都不出（需求：WO 页与 TT 页版式逐块一致，
+          即都只到 MTTR 趋势为止）。 */}
+      {!isSlicePage && <>
       <SectionTitle icon={<PieChartOutlined />} title={t('ttwo.domainRootCause')} />
       <Row gutter={[12, 12]}>
         <Col xs={24} lg={10}>
@@ -1164,9 +1265,13 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
           </Card>
         </Col>
       </Row>
+      </>}
 
-      {/* WO Source + Status */}
-      {data.summary.wo_total > 0 && <>
+      {/* WO Source + Status —— 属完整页（page=ttwo）的区块：那里它是「WO 侧画像」，
+          与上面的 TT 统计并列。**三档切片都不出** —— page=wo 上统计卡片已经就是
+          eflow_wo 口径，再放两张同含义的图会让人以为是两个指标。
+          wo_total > 0 的条件保留：没有 WO 数据时画两张空图不如不出。 */}
+      {!isSlicePage && data.summary.wo_total > 0 && <>
         <SectionTitle icon={<TagsOutlined />} title={t('ttwo.woAnalytics')} />
         <Row gutter={[12, 12]}>
           <Col xs={24} md={12}>
@@ -1188,7 +1293,10 @@ export default function TTWODashboard({ only }: { only?: 'summary' } = {}) {
         </Row>
       </>}
 
-      {/* 站点信息 */}
+      {/* 站点信息 —— **只属完整页**（page=ttwo）：与「领域与根因分析」同属 MTTR 趋势
+          之下的下半部分，v1_ttwo / tt / wo 三档切片都不出。
+          需求（2026-09-27）：WO 页与 TT 页版式逐块一致，都只到 MTTR 趋势为止。 */}
+      {!isSlicePage && <>
       <SectionTitle icon={<EnvironmentOutlined />} title={t('ttwo.siteInfo')} />
       <Row gutter={[12, 12]}>
         {Object.entries(data.site_stats || {}).filter(([, v]) => v && Object.keys(v as any).length > 0).map(([key, stats]) => (

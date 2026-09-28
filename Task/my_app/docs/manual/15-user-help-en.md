@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-27.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-28.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (65 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (66 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -78,7 +78,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (65 tasks)
+### 3.3 Full task catalog (66 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -88,6 +88,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Site Outage Screenshot | `site_outage_screenshot` | `0 1 * * *` | m | `services/site_outage_service.py → run_site_outage_screenshot` |
 | WhatsApp Message Send | `whatsapp_send` | `0 3 * * *` | m | `services/whatsapp_service.py → run_whatsapp_send` |
 | WhatsApp Message Send (Extension) | `whatsapp_send_ext` | `0 3 * * *` | m | `services/whatsapp_ext_service.py → run_whatsapp_send_ext` |
+| eFlow P1 Alarm WhatsApp Push | `tt_alarm_whatsapp_alert` | `*/15 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA Full Sync | `ms_sla_full` | `0 */6 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
 | eFlow Realtime Alarm Sync | `eflow_active_alarm` | `*/30 * * * *` | n | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow History Alarm Sync | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
@@ -98,7 +99,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | RAN Network KPI Sync | `network_kpi_sync` | `0 5 * * *` | u | `services/ran_ume_network_kpi.py → run_network_kpi_sync` |
 | Availability Recon Rebuild | `avail_recon_sync` | `10 6 * * *` | u | `services/avail_recon_sync.py → run_avail_recon_sync` |
 | CNN UME KPI Sync | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
-| SP Spare Data Sync | `sp_data_sync` | `10 * * * *` | n | `services/get_sp_table.py → run_sp_data_sync` |
+| SP Spare Data Sync | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI Sync | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
 | Liberia Site-Down 1H Report Email | `liberia_email_1h` | `5 * * * *` | m | `services/liberia_email_report.py → run_1h_report` |
 | Liberia Site-Down 8H Report Email | `liberia_email_8h` | `10 */8 * * *` | m | `services/liberia_email_report.py → run_8h_report` |
@@ -128,8 +129,8 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Failed Task Auto Retry | `auto_retry_failed` | `*/10 * * * *` | m | `services/auto_retry.py → run_auto_retry_task` |
 | RAN CM Cell Data Sync | `cm_data_sync` | `30 8 * * *` | u | `services/cm_data/cm_data_export.py → run_cm_data_sync` |
 | PG→SQLite Data Snapshot | `pg_to_sqlite_sync` | `45 * * * *` | m | `backend/scripts/sync_pg_to_sqlite.py → main` |
-| MW UME KPI Sync | `mw_ume_kpi_sync` | `15 5 * * *` | n | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync` |
-| MW UME KPI Realtime Sync | `mw_ume_kpi_sync_rt` | `*/15 * * * *` | n | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync_rt` |
+| MW UME KPI Sync | `mw_ume_kpi_sync` | `15 5 * * *` | w | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync` |
+| MW UME KPI Realtime Sync | `mw_ume_kpi_sync_rt` | `*/15 * * * *` | w | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync_rt` |
 | CN EMS KPI Cache Sync | `ems_kpi_cache_sync` | `*/15 * * * *` | c | `services/cn_ems/ems_kpi_service.py → run_ems_kpi_cache_sync` |
 | CN EMS KPI Daily CSV | `ems_kpi_daily` | `20 0 * * *` | c | `services/cn_ems/ems_kpi_service.py → run_ems_kpi_daily` |
 | CXO Dashboard Cache Sync | `cxo_dashboard_cache_sync` | `*/10 * * * *` | v | `services/cxo_dashboard_cache.py → run_cxo_dashboard_cache_sync` |
@@ -253,6 +254,27 @@ Workflow & maintenance notes per task:
 **Maintenance**:
 
 - Missed its worker-group registration on 2026-08-31 and stuck pending; now in group m — always register new tasks in GROUP_TASK_MAP
+
+#### eFlow P1 Alarm WhatsApp Push（`tt_alarm_whatsapp_alert`）
+
+- Default cron: `*/15 * * * *`　|　worker group: **m**
+- Workflow script: `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert`
+
+**What it does**: Every 15 min, pick P1 TTs from the last 3h that are still uncleared and not alarm_code 99933, render them as WhatsApp text, and record send status
+
+**Workflow & data flow**:
+
+1. Query eflow_tt for the last 3h with empty alarm_clear_time and ticket_severity=P1 (99933 excluded)
+1. Compare against eflow_tt_whatsapp_alert_log and keep rows past the 20-minute re-push throttle
+1. Render 6 lines of text and dispatch a job to data/tt_alert_job.json for the browser extension
+1. On the extension's confirmation, set the row send_status to Y (otherwise stays N with last_error)
+
+**Maintenance**:
+
+- Groups come from the TT_ALERT_WHATSAPP_GROUPS env var; refuses to send when unset (never falls back to a test group)
+- The 99933 exclusion must stay in Python — the DB holds both '99933' and '99933.0', so a SQL predicate misses rows
+- Depends on the extension's text-sending capability; status stays N until confirmed (never fakes Y)
+- ⚠️ Measured: uncleared P1 rows are mostly legacy, so 0 messages per run is the normal case
 
 #### MS SLA Full Sync（`ms_sla_full`）
 
@@ -429,7 +451,7 @@ Workflow & maintenance notes per task:
 
 #### SP Spare Data Sync（`sp_data_sync`）
 
-- Default cron: `10 * * * *`　|　worker group: **n**
+- Default cron: `10 * * * *`　|　worker group: **s**
 - Workflow script: `services/get_sp_table.py → run_sp_data_sync`
 
 **What it does**: Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db, then mirror into FineBI WareHouseDashBoard inventory.db
@@ -946,7 +968,7 @@ Workflow & maintenance notes per task:
 
 #### MW UME KPI Sync（`mw_ume_kpi_sync`）
 
-- Default cron: `15 5 * * *`　|　worker group: **n**
+- Default cron: `15 5 * * *`　|　worker group: **w**
 - Workflow script: `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync`
 
 **What it does**: MW UME (ZXMW microwave) KPI history sync (FINBI 1-day template), in-memory export without disk, direct write to app.db table mw_ume_bw_ultilazation
@@ -962,7 +984,7 @@ Workflow & maintenance notes per task:
 
 #### MW UME KPI Realtime Sync（`mw_ume_kpi_sync_rt`）
 
-- Default cron: `*/15 * * * *`　|　worker group: **n**
+- Default cron: `*/15 * * * *`　|　worker group: **w**
 - Workflow script: `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync_rt`
 
 **What it does**: MW UME realtime KPI sync (FINBI 15-min template): every 15 min fetch the last 2 hours, direct write to app.db table mw_ume_bw_ultilazation_rt
@@ -1398,6 +1420,27 @@ The "upper half only" cut of the TT&WO Dashboard: renders up to the MTTR Trend (
 - Filters (including the ZTE/3rd owner switch and advanced filters), the MTTR day/week/month tabs and dual-axis charts, card drill-down and Excel export are shared with the TT&WO Dashboard (same /tt-wo-dashboard/overview endpoint), so usage is identical and the numbers necessarily match
 - Direct link http://<host>/myapp/?page=v1_ttwo; the full version is page=ttwo
 
+#### TT Dashboard（`tt`）
+
+The "TT only" cut of the TT&WO Dashboard (source table eflow_tt): summary card (TT Total only) → Statistics (severity / SLA status / status, all number cards that drill down on click) → MTTR trend (P1/P2/P3/P4 × day/week/month, each a dual-axis "bars = TT count, line = MTTR" chart). Everything below the MTTR trend is omitted: Domain & Root Cause, Work Order Analytics (WO by source / WO by status) and Site Information; the WO Total / WO No. (Unique) cards are gone too. The default window is the last 30 days.
+
+- The section title reads "Statistics" and the severity dimension "Severity" (the full TT&WO Dashboard still uses "TT Statistics" and "Ticket Severity")
+- Each MTTR chart is dual-axis: bars (ZTE blue #0072BC) are the TT count of that severity in the period, the line (orange) is the mean MTTR in minutes. The bar/line colours are fixed across all four charts — the severity is identified by the chart itself (four separate P1/P2/P3/P4 charts), while the colours only distinguish the two measures (volume vs duration). A period with no ticket of that severity draws neither a bar nor a point — it is not 0
+- Filters (including the ZTE/3rd owner switch and advanced filters), card drill-down and the page-level Excel export are shared with the TT&WO Dashboard (same /tt-wo-dashboard/overview endpoint), so the numbers necessarily match; the export filename is prefixed TTWO_tt_
+- Direct link http://<host>/myapp/?page=tt; the full version is page=ttwo, WO only is page=wo (same layout, sourced from eflow_wo)
+
+#### WO Dashboard（`wo`）
+
+The eflow_wo-sourced twin of the TT Dashboard: the layout matches page=tt block for block, only the data comes from eflow_wo. Summary card (WO Total only) → Statistics (severity / SLA status / status) → MTTR trend (P1/P2/P3/P4 × day/week/month dual-axis charts). Everything below the MTTR trend (Domain & Root Cause, Work Order Analytics, Site Information) is omitted, exactly as on page=tt. The default window is the last 30 days.
+
+- Click a statistics card or a point on an MTTR chart to open a searchable WO drill-down table
+- SLA status comes from the linked TT (eflow_wo has no such column — SLA is a TT-side concept): joined on wo.tt_no = tt.tt_no, and unmatched rows count as Unknown, so the cards still sum to the WO total
+- MTTR uses the WO's own alarm_occur_time / alarm_clear_time, so this page shows the WO turnaround time — a different number from the TT figure on page=tt
+- Only the "WO Total" summary card remains: every row on this page is itself a WO, so "WO No. (Unique)" would print the same number twice, and "TT Total" counts rows of a different table and is meaningless here
+- The ZTE/3rd owner switch is hidden on this page: that ownership is defined on the TT's wo_no, a concept the WO table does not have
+- Filters (region / advanced filters), drill-down and the page-level Excel export are shared with the TT&WO Dashboard, but the data endpoint is /wo-dashboard/overview; the export filename is prefixed TTWO_wo_
+- Direct link http://<host>/myapp/?page=wo; the full version is page=ttwo, TT only is page=tt
+
 #### NUR Dashboard（`nur`）
 
 Network Unavailability Rate (NUR) daily/weekly/monthly trends, multi-dimension analysis and site compliance.
@@ -1414,17 +1457,20 @@ The "NUR only" cut of the NUR Dashboard: identical to the NUR half of page=nur (
 
 #### MS Operation KPI Dashboard（`ms_sla`）
 
-MS contract KPIs and WO SLA attainment: NUR / SLA / Network KPI / Per-Site / WO SLA (metrics as rows, periods as columns).
+MS contract KPIs and WO SLA attainment: NUR / Network KPI / Per-Site / WO SLA (metrics as rows, periods as columns).
 
-- Granularity is daily/monthly only; drill-down reuses the NUR detail table
-- Numbers come from the live nur_calc calculation (driven by ms_sla_full every 6h) and may differ from historical snapshot files — trust this page
+- Three granularity tabs: day / week / month; Network KPIs and Per-Site KPIs only exist at day/month (they come from the snapshot DB), so they are hidden at week granularity with an explanatory banner
+- Switching day/week/month resets the time range to that tab default (day = current month to date, week = last 12 weeks, month = last 9 calendar months); the banner states the active range
+- SLA attainment (TTR / TTR_P1~P4) is presented once, by the WOs SLA block as table + trend; there is no separate KPI List SLA card
+- Drill-down reuses the NUR detail table; numbers come from the live nur_calc calculation (driven by ms_sla_full every 6h) and may differ from historical snapshot files — trust this page
 
 #### MS KPI Dashboard (SLA only)（`ms_sla_only`）
 
-The "SLA only" cut of the MS Operation KPI Dashboard: KPI List SLA daily/monthly attainment (TTR / TTR_P1~P4) plus the WOs SLA block (Total / Within SLA / Achieve + trend), without NUR, Network or Per-Site.
+The "SLA only" cut of the MS Operation KPI Dashboard: the WOs SLA block with WO SLA attainment (TTR / TTR_P1~P4 Total / Within SLA / Achieve + trend), without NUR, Network or Per-Site.
 
 - Attainment ≥95% is green, below target is red — same scope as page=ms_sla
-- Click cells and data points to drill into TT details and export to Excel; granularity is daily/monthly only
+- Three granularity tabs: day (default = current month to date), week (default = last 12 weeks) and month (default = January 2026 to date); switching a tab resets the time range (explained by the banner)
+- Click cells and data points to drill into TT details and export to Excel
 
 #### CXO Dashboard（`cxoDashboard`, iframe page）
 
@@ -1469,6 +1515,19 @@ Site availability board: per-site availability ranking and target compliance.
 
 - Click a site name to drill into its availability details
 - Availability uses the same per-site calculation as the FME ranking page
+
+#### avail_ms（`avail_ms`）
+
+Availability matrix: network availability presented across three dimensions — region / technology / site type — with day, week and month granularity on tabs. Data comes from the local derived database avail_recon.sqlite3 (rebuilt daily at 06:10 by the avail_recon_sync task; the measure is site-weighted availability, SUM(numerator)/SUM(denominator)).
+
+- Each matrix has a trend chart above it (30 periods for day, 12 for week, 12 for month, following the active tab): one line per dimension value, every point weighted as SUM(numerator)/SUM(denominator) and therefore identical to the table figures
+- Chart points are clickable too, and they open **that point's own period** (e.g. when the month tab sits on 2026-09, clicking the 2026-08 point opens 2026-08 detail)
+- The region chart omits the "unmatched master data" line (its magnitude would flatten the y-axis); a note under the chart points to the last table row, where it is shown
+- Click any availability figure to drill down: the dialog holds a 30-period trend, the daily detail and a breakdown by dispatch group; the second tab lists the related TT tickets for that combination
+- The threshold input (default 99.65%) drives the "below target" flag: values under it turn red and re-evaluate instantly — the figures themselves do not change
+- The ALL row under Region includes sites not matched to master data, so ALL is not the sum of the three regions; that bucket gets its own last row — it can show availability detail but not TT tickets (the derived DB holds no site list for it)
+- 4G NERA is an unmapped dispatch group: counted in the 4G technology total, shown separately as "Other" under site type, and only present in the 2025-12 ~ 2026-01 months; a yellow note appears on the page then
+- Missing data renders as "—" (never 0); the "Data through" label at the top makes a stalled derived database obvious
 
 #### noc_analyst（`noc_analyst`）
 
@@ -1562,6 +1621,9 @@ Site map: alarm/ticket distribution, topology lines, region polygons and multi-d
 
 - Region dropdown + layer tags to filter; click a legend item to hide that layer; time supports segments and custom range
 - Click a site to open the right drawer: four tabs, searchable, exportable to Excel
+- The "Link Utilization" switch (on by default) overlays MW microwave link utilization from the same 15-min slot as the MW Realtime page, colored on a 6-level scale (>90% critical / ≥80% major / ≥70% moderate / ≥60% minor / ≥50% negligible / <50% healthy); thicker lines mean higher utilization
+- Click a link to see its max/Tx/Rx utilization and the matched MW sites; a link showing "No KPI data" means it could not be matched to realtime metrics (it keeps its original KML color) — that is not 0%
+- The overlay scope is explained below the legend: about 360 of the 844 KML links match realtime metrics; the rest are still viewable on the MW Realtime page
 
 #### Realtime Alarm Map（`realtime_alarm`）
 

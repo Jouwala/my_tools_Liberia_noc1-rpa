@@ -6,6 +6,14 @@ import time
 import sqlite3
 import pandas as pd
 from pathlib import Path
+
+# 本脚本由 ftp_sync.run_init_db() 以 `python init_db.py` 独立子进程方式启动，
+# 子进程 sys.path[0] 是本文件目录 backend/scripts，项目根不在搜索路径上，会导致
+# 下方 `from backend....` 抛 ModuleNotFoundError: No module named 'backend'
+# （2026-09-28 修复，与 sp_report_gen/gernarate_sp_report.py 同类问题）。
+# 显式把项目根加入 sys.path，使 backend.* 可导入。
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
 from backend.database import get_raw_connection
 from backend.dialect_helpers import (
     list_table_names, table_columns, safe_pragma, write_df, ensure_table_indexes,

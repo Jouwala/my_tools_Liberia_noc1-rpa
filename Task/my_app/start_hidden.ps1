@@ -1,4 +1,4 @@
-﻿# start_hidden.ps1 - Hidden startup of my_app (backend / worker / frontend) with result feedback
+# start_hidden.ps1 - Hidden startup of my_app (backend / worker / frontend) with result feedback
 # Usage:
 #   Run directly (double-click / right-click Run with PowerShell):
 #     Starts missing components, writes log\start_hidden_result.txt, shows popup for each [OK]/[WARN]/[FAIL].
@@ -128,11 +128,13 @@ if (-not $py) {
 $env:CODEBUDDY_SESSION_ID = ''
 $env:CLAUDE_SESSION_ID = ''
 $env:CODEBUDDY_SAFE_DELETE_SANDBOX = ''
-# Worker groups: u=UME session group, n=NetMgr/eFlow group, m=light admin tasks group, c=CN EMS group,
+# Worker groups: u=UME session group, n=eFlow API/config-center group, s=SP spare-parts SFTP group,
+# w=MW UME microwave group, m=light admin tasks group, c=CN EMS group,
 # v=VMAX portal (8790 single-session proxy) group. MUST stay in sync with backend/worker_watchdog.py
-# GROUP_TASK_MAP keys and restart_workers.py ALL_GROUPS
+# GROUP_TASK_MAP keys (restart_workers.py ALL_GROUPS derives from that map automatically)
 # (guarded by tests/test_worker_group_coverage.py -- run: python tests\test_worker_group_coverage.py).
-$env:MY_APP_WORKER_GROUPS = 'u,n,m,c,v'
+# 2026-09-27: n 组拆为 n/s/w 三组，理由见 worker_watchdog.py 的 GROUP_TASK_MAP 注释。
+$env:MY_APP_WORKER_GROUPS = 'u,n,s,w,m,c,v'
 
 # ======================================================================
 # Startup report header
@@ -245,7 +247,7 @@ function Ensure-WorkerWatchdog {
     }
     Start-Hidden $py @('-m', 'backend.worker_watchdog') 'worker_watchdog_console.log'
     # Wait for each group's worker pid files to be ready (up to 20s)
-    $groups = @('u', 'n', 'm', 'c')
+    $groups = @('u', 'n', 's', 'w', 'm', 'c', 'v')
     $deadline = (Get-Date).AddSeconds(20)
     while ((Get-Date) -lt $deadline) {
         $ready = 0

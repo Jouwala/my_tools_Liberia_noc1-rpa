@@ -83,6 +83,13 @@ _AUTO_EXCLUDE_RE = re.compile(r"image|video|embed|bge|whisper|tts", re.IGNORECAS
 _VER_RE = re.compile(r"(\d+(?:\.\d+)*)")
 _FALLBACK_PATTERN = "agnes-*-flash"  # 固定 ID 失败时按此 pattern 生成降级候选
 
+# auto 模式下 /api/models 取不到列表时的兜底模型（第 310 行使用）。
+# 2026-09-27 修复：该名字此前**从未被定义过**（git log --all -S 查无定义），
+# 一旦走到那条 return 就是 NameError —— 而它恰好是"Open WebUI 连不上"的降级
+# 路径，属于故障叠加时才会命中，所以一直没暴露（由 ruff F821 发现）。
+# 取值沿用同文件既有的"agnes flash 系列"默认口径，与 MODEL / _AUTO_DEFAULT_PATTERN 一致。
+_BACKUP_MODEL = os.environ.get("OPENWEBUI_BACKUP_MODEL", "agnes-2.5-flash").strip()
+
 MODELS_TTL = 300  # /api/models 缓存 5 分钟；模型 404/下线时缓存立即失效重查
 _MODELS_CACHE: Dict[str, Any] = {"ids": None, "ts": 0.0, "attempts": {}}
 _MODELS_LOCK = threading.Lock()

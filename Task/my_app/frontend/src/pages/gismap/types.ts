@@ -149,6 +149,49 @@ export interface TopologyLink {
   name?: string
   /** 线色，来自 kml_mw_links.color（4 色：红/黄/蓝/绿）。2026-09-25 起数据源换为 kml_mw_links */
   color?: string
+
+  /* ===== MW 利用率叠加（?with_util=1，2026-09-28 新增）=====
+     把 mwRealTime 的最新 15 分钟粒度利用率贴到 KML 线上。
+     后端只对「能确认是同一条物理链路」的线返回数值，其余一律 util=null /
+     level='no_kpi'，前端据此保留 KML 原线色 —— 详见
+     backend/services/gis_mw_overlay.py 模块头注释（宁可少标绝不猜标）。 */
+
+  /** max(tx_util, rx_util)；null = 未匹配到 KPI 数据（**不是** 0） */
+  util?: number | null
+  tx_util?: number | null
+  rx_util?: number | null
+  /** 利用率分级；'no_kpi' 专指「无数据」，与 'healthy'（有数据且正常）严格区分 */
+  level?: UtilLevel
+  /** 命中方式：coord=坐标匹配（语义中立，优先）/ name=站名兜底 / null=未命中 */
+  matched_by?: 'coord' | 'name' | null
+  /** 匹配到的 MW 端点站名（供悬浮提示核对，便于人工发现错配） */
+  source?: string
+  target?: string
+}
+
+/** 利用率分级（与后端 mw_ume_topology.level_of 口径一致）+ 'no_kpi' 无数据 */
+export type UtilLevel =
+  | 'critical' | 'major' | 'moderate' | 'minor' | 'negligible' | 'healthy' | 'no_kpi'
+
+/** /api/gis/topology?with_util=1 返回的叠加统计，用于向用户解释「为什么只有一半线有颜色」 */
+export interface UtilMeta {
+  total: number
+  matched: number
+  matched_by_coord: number
+  matched_by_name: number
+  no_kpi: number
+  endpoint_hit: number
+  endpoint_miss: number
+  /** 数据槽位（如 "2026-09-28 08:30:00"），与 mwRealTime 页当前槽位一致 */
+  slot?: string | null
+  granularity?: string | null
+}
+
+/** 站点等级统计一档（/gis/sites 与 /gis/realtime/sites 的 `site_type_stats`）。
+ *  后端按 `site_caregory` 归一化后给出，顺序固定为 ERA / COOL / NORMAL，其余脏值按数量追加。 */
+export interface SiteTypeStat {
+  name: string
+  count: number
 }
 
 export type LegendKey = 'tt' | 'wo' | 'vip' | 'normal' | 'rt_alarm' | 'rt_alarm_overdue' | 'rt_alarm_ontime' | 'his_alarm'
@@ -213,3 +256,48 @@ export const KML_LINK_COLORS = [
   { color: '#0a84ff', labelKey: 'gis.topologyColorBlue' },
   { color: '#34c759', labelKey: 'gis.topologyColorGreen' },
 ] as const
+
+/* MW 链路利用率分级配色 —— 与 `?page=mwRealTime` 的 6 级色阶**逐值一致**。
+   色值取自 mw_real_time.html 的 --vmax-lvl-* **深色档**（:855-863 readLvlColors）：
+     healthy #0bc78c | negligible #6ef0b4 | minor #f6cf00
+     moderate #ff922b | major #ff7a45 | critical #ff5c6c
+   两页显示同一个指标，配色不一致会让人以为是两套口径，故此处刻意复刻。
+
+   ⚠️ 与 KML_LINK_COLORS 的关系（重要，避免误以为二者冲突）：
+     KML 4 色（红/黄/蓝/绿）是 KML 原作者的**人工标注**，语义未知；
+     这里的 6 级色是**利用率数据本身**的分级。
+     叠加开启后，**只有能匹配到 KPI 的线**改用 6 级色，匹配不到的仍用 KML 原色 ——
+     两种语义在图上并存，故图例必须**同时**展示两组并说明差别（见 GISMap.tsx 图例区）。
+
+   同 KML_LINK_COLORS：值必须是十六进制实值，不能用 WH.xxx
+   （Leaflet 走 SVG/Canvas，解析不了 CSS 变量）。 */
+export const UTIL_LEVEL_COLORS: Record<UtilLevel, string> = {
+  critical: '#ff5c6c',
+  major: '#ff7a45',
+  moderate: '#ff922b',
+  minor: '#f6cf00',
+  negligible: '#6ef0b4',
+  healthy: '#0bc78c',
+  no_kpi: '', // 空串 = 不上色，回退 KML 原色；由 _linkColor 统一处理
+}
+
+/* 图例/提示里的分级展示顺序：由重到轻，与 mwRealTime 的分级顺序一致 */
+export const UTIL_LEVEL_ORDER: UtilLevel[] = [
+  'critical', 'major', 'moderate', 'minor', 'negligible', 'healthy',
+]
+
+/* 利用率 -> 分级。**前端独立实现**而非依赖后端 level 字段兜底：
+   后端理论上总会给 level，但接口降级/字段缺失时不能让告警线悄悄变绿。
+   口径与后端 mw_ume_topology.level_of 严格一致：
+   >90 critical | >=80 major | >=70 moderate | >=60 minor | >=50 negligible | <50 healthy
+   （临界值：critical 为严格大于 90，与页面 "> 90%" 的写法一致） */
+export function utilLevelOf(u: number | null | undefined): UtilLevel {
+  if (u == null || !isFinite(Number(u))) return 'no_kpi'
+  const v = Number(u)
+  if (v > 90) return 'critical'
+  if (v >= 80) return 'major'
+  if (v >= 70) return 'moderate'
+  if (v >= 60) return 'minor'
+  if (v >= 50) return 'negligible'
+  return 'healthy'
+}

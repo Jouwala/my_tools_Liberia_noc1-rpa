@@ -5,7 +5,7 @@
 在 ms_sla_full 报表流程中全量写入；NUR/SLA/WO 已改为 nur_calc 实时计算，见下）。
 
 GET /api/ms-sla-dashboard/overview : 一次返回 NUR / SLA / Network KPI / Per-Site /
-                                     WO SLA（日/月两级）+ 数据新鲜度 meta。
+                                     WO SLA（日/周/月三级）+ 数据新鲜度 meta。
 
 NUR/SLA/Network KPI/Per-Site 返回「指标为行、期间为列」的表结构（与 NurDashboard 的
 NurRow[] 对齐，便于前端表格与趋势图复用）；WO 返回明细行数组。
@@ -15,7 +15,11 @@ NurRow[] 对齐，便于前端表格与趋势图复用）；WO 返回明细行�
   GET /api/nur/detail，与 NUR Dashboard 完全一致），不再读取旧 Excel 快照；
 - Per-Site 的 PS_NUR_2G/PS_NUR_3G 行替换为 nur_calc 实时计算的
   「站点 NUR(<350/100000) 达标占比」，其余 PS_* 与 Network KPI 仍为快照库数值；
-- start/end 查询参数可限制实时计算的期间范围（前端 Time Range 默认 6 个月）。
+- start/end 查询参数可限制实时计算的期间范围（前端 Time Range 默认随粒度档位变化）。
+- 粒度：`daily` / `weekly` / `monthly`（2026-09-28 起 weekly 加入；周口径为 ISO 周
+  「YYYY-Wnn」，与 nur_calc.GRANULARITIES / NurDashboard 完全一致，因此两页同粒度
+  数字必然相同）。Network / Per-Site 来自看板快照库，快照只有日/月两级，weekly
+  返回空表（前端只有「全量 page=ms_sla」会渲染这两块，直链页 ms_sla_only 不渲染）。
 设计参考 alarm_dashboard.py / packet_loss_dashboard.py：TTL 内存缓存 + 双模读取。
 """
 import time
@@ -31,6 +35,10 @@ logger = logging.getLogger("ms_sla_dashboard")
 router = APIRouter(prefix="/api/ms-sla-dashboard", tags=["ms-sla-dashboard"])
 
 DASH_DB_PATH = Path(r"d:\01_RPA\Task\my_app\data\ms_sla\ms_sla_dashboard.sqlite3")
+
+# 看板支持的粒度（顺序即前端页签顺序）。NUR/SLA/WO 由 nur_calc 实时计算，三级齐全；
+# Network / Per-Site 来自快照库 ms_sla_kpi，只有 daily/monthly 两个 dataset，weekly 留空。
+GRANULARITIES = ("daily", "weekly", "monthly")
 
 # 标量指标 dataset -> 返回字段名（metric 行 × period 列的透视表）。
 # 注意：NUR/SLA 不再走 ms_sla_kpi 快照（nur_daily/nur_monthly/sla_daily/sla_monthly），
@@ -117,6 +125,15 @@ def _pivot(rows):
     ]
 
 
+def _empty_by_gran():
+    """各粒度一份空表：{daily: [], weekly: [], monthly: []}。
+
+    统一走这个构造函数，新增粒度时不会漏掉某个数据集（历史上 daily/monthly 是
+    手写三遍的字典字面量，加 weekly 时极易漏改其中一处）。
+    """
+    return {gran: [] for gran in GRANULARITIES}
+
+
 def _load_live_nur_sla(start: str = "", end: str = ""):
     """NUR/SLA/WO/Per-Site 站点占比以 nur_calc 实时计算为准，返回 {nur, sla, wo, persite_nur}。
 
@@ -133,14 +150,14 @@ def _load_live_nur_sla(start: str = "", end: str = ""):
     except ImportError:  # 兼容以 backend 为根的导入方式
         from services import nur_calc  # type: ignore
     out: dict = {
-        "nur": {"daily": [], "monthly": []},
-        "sla": {"daily": [], "monthly": []},
-        "wo": {"daily": [], "monthly": []},
-        "persite_nur": {"daily": {}, "monthly": {}},
+        "nur": _empty_by_gran(),
+        "sla": _empty_by_gran(),
+        "wo": _empty_by_gran(),
+        "persite_nur": {gran: {} for gran in GRANULARITIES},
     }
     try:
         ov = nur_calc.compute_overview(start=start, end=end)
-        for gran in ("daily", "monthly"):
+        for gran in GRANULARITIES:
             # NUR：metric 名映射为 KPI List 语义名
             for r in ov.get("nur", {}).get(gran, []):
                 mapped = NUR_METRIC_MAP.get(r["metric"])
@@ -166,7 +183,7 @@ def _load_live_nur_sla(start: str = "", end: str = ""):
     except Exception as e:  # noqa: BLE001 - 实时计算失败不阻断整个看板
         logger.warning(f"[MS-SLA-DASH] nur_calc 实时计算失败，NUR/SLA/WO 返回空: {e}")
     # 站点级 NUR 达标占比（PS_NUR_2G/3G 数据源；早退分支无该键时降级空）
-    for gran in ("daily", "monthly"):
+    for gran in GRANULARITIES:
         out["persite_nur"][gran] = ov.get("persite_nur", {}).get(gran, {})
     return out
 
@@ -177,7 +194,7 @@ def _apply_live_nur_to_persite(persite: dict, persite_nur: dict) -> dict:
     列（期间）以快照行为准，实时占比缺该期间时置空；persite_nur 为空（实时计算
     失败）时保留快照值降级。其余 PS_* KPI 行不受影响。
     """
-    for gran in ("daily", "monthly"):
+    for gran in GRANULARITIES:
         tech_map = persite_nur.get(gran, {})
         rows = []
         for r in persite.get(gran, []):
@@ -201,11 +218,11 @@ def _load_overview(start: str = "", end: str = ""):
 
     out = {
         "meta": {},
-        "nur": {"daily": [], "monthly": []},
-        "sla": {"daily": [], "monthly": []},
-        "network": {"daily": [], "monthly": []},
-        "persite": {"daily": [], "monthly": []},
-        "wo": {"daily": [], "monthly": []},
+        "nur": _empty_by_gran(),
+        "sla": _empty_by_gran(),
+        "network": _empty_by_gran(),
+        "persite": _empty_by_gran(),
+        "wo": _empty_by_gran(),
     }
 
     # NUR/SLA/WO/Per-Site 站点占比以 nur_calc 实时计算为准（不依赖看板快照库；本地
@@ -235,6 +252,8 @@ def _load_overview(start: str = "", end: str = ""):
                     # NUR/SLA 已由 _load_live_nur_sla() 实时提供，跳过旧快照
                     continue
                 gran = "monthly" if ds.endswith("monthly") else "daily"
+                if gran not in out[target_key]:
+                    continue
                 out[target_key][gran] = _pivot(data)
         if "ms_sla_meta" in tables:
             out["meta"] = {r["key"]: r["value"] for r in _rows_as_dicts(
@@ -249,7 +268,10 @@ def _load_overview(start: str = "", end: str = ""):
 
 @router.get("/overview")
 def ms_sla_overview(start: str = "", end: str = ""):
-    """MS SLA 看板总览：NUR / SLA / Network KPI / Per-Site / WO（日/月）+ meta。
+    """MS SLA 看板总览：NUR / SLA / Network KPI / Per-Site / WO（日/周/月）+ meta。
+
+    粒度键固定为 daily / weekly / monthly。NUR/SLA/WO 三级齐全（nur_calc 实时计算）；
+    Network / Per-Site 来自快照库，weekly 恒为空表。
 
     start/end（YYYY-MM-DD，可选）：限制 nur/sla/wo/Per-Site 站点占比的实时计算区间。
     """

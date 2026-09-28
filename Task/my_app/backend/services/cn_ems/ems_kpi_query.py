@@ -153,7 +153,8 @@ def main():
     ap.add_argument("--mode", choices=["daily", "protocol", "direct"], default="daily")
     ap.add_argument("--host", default="10.100.2.240")
     ap.add_argument("--user", default="oss")
-    ap.add_argument("--pwd", default="Tool123")
+    # 2026-09-27：原先默认口令硬编码为明文（已入库），改为读环境变量 EMS_PASS。
+    ap.add_argument("--pwd", default=os.environ.get("EMS_PASS", ""))
     ap.add_argument("--start", default=None, help="yyyy/MM/dd GMT inclusive")
     ap.add_argument("--end", default=None, help="yyyy/MM/dd GMT exclusive")
     ap.add_argument("--counters", default=None, help="raw counter substrings '|' separated")

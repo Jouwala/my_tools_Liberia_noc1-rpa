@@ -26,3 +26,14 @@ pymysql>=1.1.0
 exchangelib>=5.6.0
 Pillow>=10.0.0
 python-dotenv>=1.0
+
+# ---- 开发/测试与静态检查 ----
+# 此前 pytest 未登记，导致 tests/ 下 20+ 个 test_*.py 在任何环境都跑不起来
+# （系统 Python 与 .venv 均无此模块），tests/README_tests.md 的回归流程实际是断的。
+# conftest.py:12 的 collect_ignore 已排除会真连 UME/浏览器的手动脚本，
+# 因此 `pytest tests/` 可安全执行。
+pytest>=8.0.0
+# ruff 只开启 E9/F/S110/T20（见 pyproject.toml）：E9/F 是真错误，
+# S110 对应"裸 except 后 pass"（AGENTS.md 第四节第 2 条的机器化），
+# T20 禁止 print 残留在库代码里。存量告警走 per-file-ignores 白名单。
+ruff>=0.6.0
