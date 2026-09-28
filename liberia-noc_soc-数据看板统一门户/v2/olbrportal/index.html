@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 2026-09-25 改名：门户整体品牌统一为「ZTE OLR MS O&M Tools Platform」。
+     这里写的是**首帧文案**（olbr.js:3635 的 applyI18n 挂载后会按 doc.title 覆写），
+     所以必须与 olbr-data.js 的两份 'doc.title' 保持一致，否则会闪一下旧标题。 -->
+<title>ZTE OLR MS O&amp;M Tools Platform</title>
+<meta name="description" content="ZTE OLR MS O&amp;M Tools Platform —— 利比里亚 NOC/SOC 自动化工具平台入口（只读展示版）。">
+<link rel="icon" type="image/png" sizes="32x32" href="/MsPortal/assets/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/MsPortal/assets/favicon-180.png">
+<!-- 零 CDN：图标与看板目录都从 /MsPortal/ 只读引用，本页面不写它的任何文件 -->
+<link rel="stylesheet" href="/MsPortal/assets/icons/phosphor.css">
+<link rel="stylesheet" href="assets/olbr.css">
+<!-- QC 下钻弹窗的统一外壳（2026-09-23 加）。与 /MsPortal/ 引的是**同一个文件** ——
+     这是「两个门户的下钻弹窗长相与交互一致」的实现方式：一份 qcDrill.css，
+     两边同名同类。文件内部只用 --qc-* 变量，本页由下面 assets/olbr.css 末尾的
+     映射块灌入本页主题色，所以弹窗结构与 MsPortal 逐条一致，而深浅色仍随本页。
+     排在 olbr.css 之后：万一有同特异性的旧规则，以本文件为准。 -->
+<link rel="stylesheet" href="/MsPortal/assets/qcDrill.css">
+<!-- 顶栏样式（2026-09-24 加）：让本页顶栏与 /MsPortal/ 长得一模一样。
+     这是 MsPortal/assets/masthead.css **顶栏部分的副本**（见该文件头部说明），
+     不是引用 —— 两边各自独立演进，将来 MsPortal 重做顶栏需手工同步。
+     刻意排在 olbr.css **之后**：顶栏的 .seg / .seg-btn / .icon-btn / .btn-ghost
+     与 olbr.css 的同名/近名规则同特异性，靠加载顺序定胜负，本文件要赢。
+     注意：**没有**引 masthead.js —— 时钟、环境徽标、主题、语言这四件事
+     olbr.js 已经全部接管，再引一份会出现两套实现抢同一个 DOM。 -->
+<link rel="stylesheet" href="assets/masthead.css">
+<!-- 主题/语言在首帧前落到 <html>，避免闪白。
+   键名刻意用 olbr.* 而不是复用 msportal.* —— 两个页面各自记忆各自的选择，
+   并且本页面**不持久化搜索与筛选**（MsPortal 那版会把上一次的筛选带进下次
+   会话，7 个面板看起来像坏了，这是本次改版要修掉的一类问题）。
+   没有用户选择时按浏览器语言定默认（与 my_app 的 detectLocale 同一口径）——
+   之前硬默认中文，利比里亚用户第一次打开满屏中文、必须先找到语言开关。
+   这段和 title/meta 的覆写与 assets/olbr.js 的 detectLang() 必须保持一致，
+   两边不一致会让首帧和挂载后的语言不同，表现为闪一下另一种语言。 -->
+<script>
+(function () {
+  function guessLang() {
+    var v = null;
+    try { v = localStorage.getItem('olbr.lang'); } catch (e) { /* ignore */ }
+    if (v === 'en' || v === 'zh') return v;
+    var nav = (navigator.language || navigator.userLanguage || 'zh') + '';
+    return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+  }
+  try {
+    if (localStorage.getItem('olbr.theme') === 'dark') document.documentElement.classList.add('dark');
+  } catch (e) { /* ignore */ }
+  document.documentElement.setAttribute('lang', guessLang() === 'en' ? 'en' : 'zh-CN');
+})();
+</script>
+</head>
+<body>
+<a class="skip" href="#main" data-i18n="skip">跳到主内容</a>
+
+<!-- ===================== masthead =====================
+     2026-09-24：整块换成 MsPortal 顶栏的**同款结构**（用户要求「和 /MsPortal/ 一样」）。
+     样式来自 assets/masthead.css（MsPortal 那份的顶栏副本），本块只负责结构。
+
+     ⚠️ 换结构时**刻意保留**的几处，都是为了不破坏 olbr.js 的绑定契约：
+       · <header> 上的 `mast` 类：olbr.js 用 `$$('.mast .seg-b[data-lang]')`
+         选语言按钮（olbr.js:4007 / 4103），**要求祖先有 .mast**。ms 那边叫 mp-mast，
+         所以这里两个类都挂上。
+       · 语言按钮同时挂 `seg-btn`（ms 的样式钩子）与 `seg-b`（olbr.js 的选中态钩子）。
+       · id 一个都不能少：envBadge / envLabel / clock / themeBtn / editBtn /
+         umBtn / whoBadge / logoutBtn —— 每个都有 JS 在绑（见 olbr.js:2667、2674、
+         3323、4010、4012、4042、4052、4102、4106）。
+       · #themeBtn 里**没有**放 ms 那对 .ic-moon/.ic-sun 内联 SVG：
+         olbr.js:4010 每次切主题都会 `innerHTML =` 整个覆盖成 Phosphor 图标，
+         放进去也会被冲掉，不如不放（原先就是 .ph 图标）。
+       · #editBtn / #umBtn / #whoBadge / #logoutBtn 的 <i>+<span> 结构保留：
+         olbr.js:2289-2291 会 querySelector('i') 与 ('span') 去改图标和文案。 -->
+<header class="mp-mast mast" id="mast">
+  <!-- 背景层：纯装饰，pointer-events:none -->
+  <div class="mp-mast-bg" aria-hidden="true">
+    <!-- 地球：比例是把参考图的球缘像素逐行取最亮点后做最小二乘圆拟合量出来的：
+         球心在水平 ≈52.5%、半径 ≈ 2.1×顶栏高、球顶在顶栏上沿往下约 3%
+         （参考图里球被顶栏上沿切掉一点），底边可见弦宽 ≈3.5×顶栏高。
+         球面压得很暗，靠「球缘青光 + 点阵大陆」出效果 —— 别改成亮球顶。
+         注意：这里的 SVG defs id 带 mp 前缀（mpGlobeBody 等），与本页别处
+         不冲突；MsPortal 那边同名，属于两份独立文档、互不干扰。 -->
+    <div class="mp-globe">
+      <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" focusable="false">
+        <defs>
+          <radialGradient id="mpGlobeBody" cx="74%" cy="8%" r="96%">
+            <stop offset="0%" stop-color="#2b7fdd"></stop>
+            <stop offset="10%" stop-color="#17579f"></stop>
+            <stop offset="26%" stop-color="#0d3672"></stop>
+            <stop offset="48%" stop-color="#082450"></stop>
+            <stop offset="76%" stop-color="#05152f"></stop>
+            <stop offset="100%" stop-color="#03101f"></stop>
+          </radialGradient>
+          <radialGradient id="mpGlobeBody2" cx="62%" cy="4%" r="92%">
+            <stop offset="0%" stop-color="#0d2f63"></stop>
+            <stop offset="46%" stop-color="#061c3d"></stop>
+            <stop offset="100%" stop-color="#03101f"></stop>
+          </radialGradient>
+          <!-- 球缘亮边：最亮处在球顶偏右约 29°（参考图逐行采样：y=115 时 #D5FFFF），
+               往左上渐隐、往右下退成中蓝 -->
+          <linearGradient id="mpGlobeRim" x1="0" y1="0.72" x2="1" y2="0.04">
+            <stop offset="0%" stop-color="#3f9dff" stop-opacity="0"></stop>
+            <stop offset="16%" stop-color="#63c8ff" stop-opacity=".22"></stop>
+            <stop offset="42%" stop-color="#a8f0ff" stop-opacity=".58"></stop>
+            <stop offset="68%" stop-color="#f2ffff" stop-opacity="1"></stop>
+            <stop offset="82%" stop-color="#9fe6ff" stop-opacity=".8"></stop>
+            <stop offset="100%" stop-color="#3f92f0" stop-opacity=".25"></stop>
+          </linearGradient>
+          <!-- 点阵：海洋稀疏，陆地密而亮 -->
+          <pattern id="mpGlobeDots" width="1.35" height="1.35" patternUnits="userSpaceOnUse">
+            <circle cx=".67" cy=".67" r=".28" fill="#8fd8ff" fill-opacity=".20"></circle>
+          </pattern>
+          <pattern id="mpGlobeLand" width="1.35" height="1.35" patternUnits="userSpaceOnUse">
+            <circle cx=".67" cy=".67" r=".36" fill="#cdf4ff" fill-opacity=".72"></circle>
+          </pattern>
+          <clipPath id="mpGlobeClip"><circle cx="100" cy="100" r="98"></circle></clipPath>
+          <filter id="mpGlobeBloom" x="-12%" y="-12%" width="124%" height="124%">
+            <feGaussianBlur stdDeviation="2.4"></feGaussianBlur>
+          </filter>
+        </defs>
+        <!-- 后面那颗暗球：只留一道很淡的弧（截图左下角那道），填实心会变成一块死暗斑 -->
+        <circle cx="8" cy="120" r="106" fill="none" stroke="#2f6fbf" stroke-opacity=".3" stroke-width="1.2"></circle>
+        <!-- 大气层外圈（比球缘再外一点的那道淡弧） -->
+        <circle cx="100" cy="100" r="101.5" fill="none" stroke="#5aa8f0" stroke-opacity=".16" stroke-width="1"></circle>
+        <!-- 主球 -->
+        <circle cx="100" cy="100" r="98" fill="url(#mpGlobeBody)"></circle>
+        <g clip-path="url(#mpGlobeClip)">
+          <circle cx="100" cy="100" r="98" fill="url(#mpGlobeDots)"></circle>
+          <!-- 陆地：可见球顶那一片，用点阵更密更亮的几块示意（棱角多一点才像大陆，
+               圆滚滚的椭圆会看成一团云）。纵向位置按「可见带 y 0..46」放。 -->
+          <g fill="url(#mpGlobeLand)">
+            <path d="M56 32 L64 20 L80 14 L98 18 L107 26 L100 35 L86 40 L68 41 Z"></path>
+            <path d="M118 26 L127 15 L146 12 L163 18 L168 28 L156 36 L136 39 L123 34 Z"></path>
+            <path d="M28 38 L38 29 L50 32 L54 41 L42 45 L32 44 Z"></path>
+            <path d="M84 8 L98 6 L103 12 L88 15 Z"></path>
+            <path d="M109 40 L116 34 L122 39 L114 44 Z"></path>
+          </g>
+          <!-- 经纬线（很淡，避免球面成一块死色） -->
+          <g fill="none" stroke="#8fd8ff" stroke-opacity=".09" stroke-width=".55">
+            <ellipse cx="100" cy="100" rx="30" ry="98"></ellipse>
+            <ellipse cx="100" cy="100" rx="60" ry="98"></ellipse>
+            <ellipse cx="100" cy="100" rx="88" ry="98"></ellipse>
+            <ellipse cx="100" cy="100" rx="98" ry="26"></ellipse>
+            <ellipse cx="100" cy="100" rx="98" ry="60"></ellipse>
+          </g>
+        </g>
+        <!-- 球缘：先一层「贴边内辉光」（参考图里球缘内侧有一条很宽的蓝光带，
+             光靠球体径向渐变做不出来，得再描一圈模糊的亮边），再压一条细亮线 -->
+        <circle cx="100" cy="100" r="92" fill="none" stroke="url(#mpGlobeRim)" stroke-width="12" opacity=".38" filter="url(#mpGlobeBloom)"></circle>
+        <circle cx="100" cy="100" r="97.4" fill="none" stroke="url(#mpGlobeRim)" stroke-width="6" opacity=".7" filter="url(#mpGlobeBloom)"></circle>
+        <circle cx="100" cy="100" r="97.6" fill="none" stroke="url(#mpGlobeRim)" stroke-width="2.6"></circle>
+      </svg>
+    </div>
+  </div>
+
+  <div class="mp-mast-inner">
+    <!-- 品牌区 -->
+    <div class="mp-brand">
+      <span class="mp-zte-mark">
+        <!-- 「Z」标：直接引用 MsPortal 的官方品牌资产（本页对 /MsPortal/ 是只读引用，
+             与 favicon、phosphor 图标同一套做法）。尺寸由 .mp-zte-mark 控制。 -->
+        <img src="/MsPortal/assets/logo-zte-z-116.png"
+             srcset="/MsPortal/assets/logo-zte-z-116.png 2x, /MsPortal/assets/logo-zte-z-174.png 3x"
+             alt="ZTE" decoding="async">
+      </span>
+      <span class="mp-zte-word">ZTE</span>
+      <span class="mp-brand-sep" aria-hidden="true"></span>
+      <div class="mp-brand-text">
+        <!-- 2026-09-25 改名：原「OLR MS Management Platform」→「ZTE OLR MS O&M Tools Platform」。
+             结构刻意不动：.mp-title-olr 仍是「OLR」的品牌高亮片段，.mp-title-tail 仍是被
+             窄屏断点（masthead.css:516）隐藏的尾部 —— 把新名字整串写进 tail 会让手机端
+             只剩「ZTE OLR MS」，与页签标题对不上。
+             「O&M」的 & 必须写成 &amp;：这里是 HTML，裸 & 虽然浏览器能容错，
+             但 lint 会报，且 copy 出去的内容会变成乱码。 -->
+        <h1 class="mp-title"><span class="mp-title-olr">OLR</span> MS<span class="mp-title-tail"> O&amp;M Tools Platform</span></h1>
+        <p class="mp-tagline" data-i18n="tagline">Smarter Operations · Higher Efficiency · Better Network</p>
+      </div>
+    </div>
+
+    <!-- 右侧工具区 -->
+    <div class="mp-mast-tools">
+      <span class="mp-env" id="envBadge">
+        <span class="mp-env-dot" aria-hidden="true"></span>
+        <span id="envLabel">—</span>
+      </span>
+      <span class="mp-tools-sep" aria-hidden="true"></span>
+      <span class="mp-clock" id="clock">--:--:--</span>
+
+      <div class="seg" role="group" aria-label="Language">
+        <button type="button" class="seg-btn seg-b" data-lang="zh">中文</button>
+        <button type="button" class="seg-btn seg-b" data-lang="en">EN</button>
+      </div>
+      <!-- 主题按钮：内容由 olbr.js:4010 每次切换时整块重写为 Phosphor 图标，
+           所以这里只放初始图标，不引 ms 那对内联 SVG。 -->
+      <button type="button" class="icon-btn" id="themeBtn" aria-label="Toggle theme"
+              data-i18n-attr="title:attr.theme">
+        <i class="ph ph-moon" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="btn-ghost" id="editBtn" hidden aria-pressed="false"
+              data-i18n-attr="title:edit.tipOn">
+        <i class="ph ph-pencil-simple" aria-hidden="true"></i><span>编辑分组</span>
+      </button>
+      <!-- 用户管理：只对「真门户管理员」显示（olbr.js renderWho 里判 role + id）。
+           账号数据不在本页，走的还是 /uniplam/api/auth/* 那套接口。 -->
+      <button type="button" class="btn-ghost" id="umBtn" hidden data-i18n-attr="title:um.entryTip">
+        <i class="ph ph-shield-check" aria-hidden="true"></i><span data-i18n="um.entry">用户管理</span>
+      </button>
+      <!-- v1 已去掉顶栏的「管理门户」(/MsPortal/) 与「统一门户」(/uniplam/) 两个外链按钮
+           （2026-09-24 用户要求：没必要）。
+           去掉的原因：这一版是按 CXO/管理层只看数据的场景精简的，顶栏留着两个
+           「跳去别的系统」的出口反而分散注意力；需要去那两个系统时直接输地址即可。
+           注意只删了顶栏这两个 <a>，**没有**删 i18n 里的 mast.admin / mast.uni 键 ——
+           登录页底部（renderGate，olbr.js:2686）仍然用 t('mast.admin') 渲染
+           「管理门户」链接，删键会让那里显示成裸 key。
+           「退出」按钮（logoutBtn）保留：它是本页自身的登录态操作，不属于外链。
+           同理**不引** ms 的站点入口（.mp-pin → /uniplam/）：它也是外链，用户已明确不要。 -->
+      <span class="auth-user-badge" id="whoBadge" hidden></span>
+      <button type="button" class="btn-ghost" id="logoutBtn" hidden>
+        <i class="ph ph-sign-out" aria-hidden="true"></i><span data-i18n="mast.logout">退出</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== 编辑模式提示条 =====================
+     只有点了顶栏「编辑分组」才出现。它不是装饰：这一页的编辑改动写进的是
+     /api/portal-catalog 的**全局共享**目录，MsPortal 的用户刷新就能看到，
+     所以第一眼必须说清楚「你现在动的是公共数据」，以及三种落点各是什么。 -->
+<div class="editbar wrap" id="editBar" hidden>
+  <span class="eb-k" data-i18n="edit.bannerK">编辑模式</span>
+  <span class="eb-t" data-i18n="edit.banner"></span>
+  <span class="eb-h edit-hint"></span>
+  <button type="button" class="gb eb-x edit-leave" data-act="edit-leave">退出编辑</button>
+</div>
+
+<!-- ===================== 检索轨：默认收起成一条，点「搜索与筛选」才展开 =====================
+     2026-09-22 改：原先整条常驻展开（≈94px），首页一进来先被它吃掉两行。收起态照样把
+     「有没有在筛选」讲清楚 —— 条上写命中数和筛选条件，并留一颗「清除筛选」，
+     否则下面的卡少了几张会被当成系统问题。展开状态不持久化：每次进来都是收起。
+     清除按钮只有这一颗（从 .rail-end 移到了条上），展开态也在同一行，不重复绑事件。 -->
+<div class="rail" id="rail">
+  <!-- 2026-09-28（用户要求「查找和过滤组件的按钮和信息放到最右边」）：
+       这一行原来是「按钮 + 命中数 + 清除筛选」三件东西从左往右紧挨着排。
+       现在补一个 .rail-sp 弹性占位把它们整体推到右缘，与下面展开区里
+       .rail-end（状态筛选 + 计数）本来就靠右（grid-area 1/2 + justify-self:end）
+       的排布对齐 —— 收起态与展开态的控制区于是都贴在同一条右边线上。
+       ⚠️ 占位必须放在**最前面**：flex 下它是唯一会吃掉剩余空间的元素，
+       放在中间会把后面的元素也一起推走，看起来像"分成了两组"。 -->
+  <div class="rail-bar wrap">
+    <span class="rail-sp" aria-hidden="true"></span>
+    <button type="button" class="rail-t" id="railBtn" aria-expanded="false" aria-controls="railIn"
+            data-i18n-attr="title:rail.tip">
+      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <span data-i18n="rail.btn">搜索与筛选</span>
+      <i class="ph ph-caret-down rail-cv" aria-hidden="true"></i>
+    </button>
+    <span class="rail-sum" id="railSum"></span>
+    <button type="button" class="gb" id="clearBtn" hidden>
+      <i class="ph ph-x" aria-hidden="true"></i><span data-i18n="rail.clear">清除筛选</span>
+    </button>
+  </div>
+  <div class="rail-in wrap" id="railIn" hidden>
+    <label class="q">
+      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <input type="search" id="q" autocomplete="off" spellcheck="false"
+             aria-label="搜索看板"
+             data-i18n-attr="placeholder:search.ph,aria-label:attr.searchAria">
+      <kbd class="kbd">Ctrl K</kbd>
+    </label>
+    <div class="chips" id="chips" role="group" aria-label="分组筛选" data-i18n-attr="aria-label:attr.chipsAria"></div>
+    <div class="rail-end">
+      <span class="seg" role="group" aria-label="状态筛选" data-i18n-attr="aria-label:attr.statusAria">
+        <button type="button" class="seg-b" data-status="all" data-i18n="rail.all">全部</button>
+        <button type="button" class="seg-b" data-status="online">Online</button>
+        <button type="button" class="seg-b" data-status="beta">Beta</button>
+      </span>
+      <span class="count" id="count">—</span>
+    </div>
+  </div>
+</div>
+
+<main id="main" class="wrap">
+  <section id="gate" hidden></section>
+
+  <!-- ===================== L0 · 质量监控核心指标（v1 精简版） =====================
+       v1 改：卡片只保留「名称 + 大数字 + 口径」，**不再显示等级徽章与严重度文字**。
+       原版每张卡有「正常 / 关注 / 严重 / 不可用」四档徽章 + 阈值分档配色，
+       一屏六张卡下来颜色通道互相打架，读的人要先分档再读数字。v1 取「尽量简要」，
+       把等级那一路的信息整个摘掉，只留数字本身；颜色退回单一品牌色。
+       数据口径、下钻、两档刷新节奏都没动 —— 改的只是呈现。 -->
+  <section class="band" id="band" aria-label="Quality Control"></section>
+
+  <!-- ===================== L0.5 · CXO 每日经营指标（v1 新增） =====================
+       「CXO Daily Dashboard」里最常被追问的三个值，从那张看板里提出来平铺：
+         · Total Traffic / Active Users / Valid Throughput of Video Download
+       再加 2G / 3G / 4G 的**当月**可用率三张，凑成同样的一行六卡。
+       一行六卡（与上面 QC 带同宽同节奏），窄屏按同一套断点折行。 -->
+  <section class="band kpi" id="kpi" aria-label="CXO Daily Dashboard"></section>
+
+  <!-- ===================== L0.6 · 六个视图入口（v1 新增） =====================
+       CXO / SP / MS / FLM / FO / BO 六个视图各成一张卡，卡里列出该视图下
+       几个代表性报告名，点报告名直接开对应看板（另一标签页）。
+       这张卡是「目录的第二个入口」而不是替代品：下面原有的 L1 页签 / L2 辅助入口
+       全部保留，所以随便用哪种方式都能到同一个看板。 -->
+  <section class="band views6" id="views6" aria-label="View entries"></section>
+
+  <!-- ===================== 地图 + 报告文件（v1 位置调整） =====================
+       v1 改：地图与「报告文件」并排一行 —— 地图在左占大头，报告文件在右。
+
+       ⚠️ 为什么报告文件会跑到这里：
+       它原来是 L1 页签面板里的一个页签（与 MS/FLM/FO/BO 同一排）。
+       本次按要求把整块 L1 页签面板去掉（上面六张入口卡已经覆盖那六个视图），
+       但报告文件（内嵌 my_app 的 /myapp/?page=…）在上面六张卡里**没有对应入口**，
+       跟着一起删就是功能丢失。所以把它单独摘出来，就近放到地图右边 ——
+       两块都是「内嵌页」，并排一行在观感上也归为一类。
+
+       ⚠️ 地图为什么单独一个 #l0Map 容器：
+       它一度和 CXO/SP 焦点卡并排（.l0 的两栏），后来焦点卡整块去掉，
+       地图就成了这一行里唯一的常驻块。renderL0 只写这个容器；
+       报告文件由 renderEmailSection 写 #emailSlot，两者互不干涉。 -->
+  <div class="maprow">
+    <section class="map-slot" id="l0Map"></section>
+    <!-- ⚠️ .panel 必须挂在这个容器**自己**身上，不能在它内部再套一层：
+         renderEmailSection 是把 emailSectionHtml() 的结果（.p-head + .canvas 两段）
+         直接写进 #emailSlot 的，内部没有 .panel 元素。
+         原来它叫 #vEmail 时，.panel 是 viewsShell 搭骨架时写在 <section> 上的。 -->
+    <section class="panel email-slot" id="emailSlot"></section>
+  </div>
+
+  <!-- 升级机制：v1 默认就展开，且只显示前 4 行（见 olbr.js 的 ESC_DEFAULT_ROWS）。
+       v1 改：原来它被包在 .stage 里，与 CXO/SP 焦点区、L1 页签共用一个栅格
+       （宽屏时「焦点区 | 页签」两栏、升级带整宽压在上一行）。
+       那两块按要求去掉后 .stage 里只剩它一个，栅格没有存在的意义，
+       于是拆掉 .stage 这一层，直接挂在 main 下 —— 少一层无谓嵌套。 -->
+  <section class="esc" id="esc" aria-label="Escalation Matrix"></section>
+
+  <!-- L2 · 辅助入口：去卡片化，无边框无色块，只留标题与行链接。
+       v1 改：这里原来还有一张「本页相关 / About this page」的卡（两张行链接），
+       按要求整块去掉 —— 那两条在顶栏已经各有一颗按钮（管理门户 / 统一门户），
+       页脚还写着版本与安全合规状态，留在这里只是重复。
+       现在 .aux 只渲染 T2 那三个分组（知识库 / 生态 / 系统运维）。 -->
+  <section class="aux" id="aux" aria-label="Auxiliary"></section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span>© 2026 ZTE Corporation · <span data-i18n="foot.branch">利比里亚办事处网络运营中心 (OLR MS)</span></span>
+    <span class="foot-r">
+      <span class="ok"><i class="ph ph-shield-check" aria-hidden="true"></i> <span data-i18n="foot.ok">安全合规模式运行</span></span>
+      <span id="footSrc">—</span>
+      <span class="ver" data-i18n="foot.ver">Ver 1.0-OLBR · 只读展示版</span>
+    </span>
+  </div>
+</footer>
+
+<!-- ===================== QC 下钻弹窗（统一下钻弹窗前 = 右侧抽屉） =============
+     2026-09-23 改版：由「右侧滑入抽屉 .drawer + table.grid」换成与
+     /MsPortal/ **逐类一致**的居中弹窗（.qc-mask / .qc-modal / …），
+     样式来自两边共引的 /MsPortal/assets/qcDrill.css。
+
+     为什么统一：两个门户的 QC 卡取自同一个接口（/api/portal-qc/detail，
+     同样的 total/rows/columns），此前却是两种长相、两种能力 ——
+     MsPortal 能排序 / 能导出 / 能跳完整看板，只读版都不能，
+     同一个数字点开像是两个系统。
+
+     为什么类名用 .qc-* 而不是复用本页的 .gp/.toast：
+     那套是本页私有的浮层样式，.qc-* 是 qcDrill.css 的独立命名空间，
+     两边同名同类，改一处两边同时生效。
+
+     id 与 MsPortal 的 QcDrillModal **完全同名**：qcMask / qcTitle / qcSearch /
+     qcReload / qcExport / qcOpenBoard / qcThead / qcTbody / qcCount / qcPage /
+     qcPrev / qcNext / qcClose —— 两份 index.html 可以直接对着 diff。
+     ======================================================================== -->
+<div class="qc-mask" id="qcMask" hidden>
+  <div class="qc-modal" role="dialog" aria-modal="true" aria-labelledby="qcTitle">
+    <div class="qc-head">
+      <!-- 拖动抓手：标题栏整体可拖（cursor:move），这条纹理让「能拖」一眼可见。
+           仅装饰，不参与任何事件逻辑，故 aria-hidden。与 MsPortal 同款。 -->
+      <span class="qc-grip" aria-hidden="true"></span>
+      <h3 id="qcTitle">Quality Control</h3>
+      <button type="button" class="qc-x" id="qcClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <div class="qc-body">
+      <div class="qc-tools">
+        <input type="search" id="qcSearch" autocomplete="off"
+               data-i18n-attr="aria-label:attr.drQAria,placeholder:dr.qPh">
+        <button type="button" class="qc-btn" id="qcReload" data-i18n="dr.reload">刷新</button>
+        <!-- 导出：与 MsPortal 同一套 UNIFIED_EXCEL_V1（/MsPortal/assets/excelReport.js）。
+             只读版原本没有导出，是这次统一补齐的能力之一。 -->
+        <button type="button" class="qc-btn" id="qcExport" data-i18n="dr.export">导出 Excel</button>
+        <!-- 跳到 my_app 里对应的完整看板继续处理。只给确实存在对应看板的维度：
+             alarm/tt/wo/spms 加 2026-09-26 补上的 cr/pmt 共六项，正好与面板上
+             六张卡一一对应（映射见 olbr.js 的 QC_BOARD_PAGE）。
+             href 与显隐由 olbr.js 的 applyDrillTitle 设置 ——
+             这里不写死 href，换 my_app 路径时不用改 HTML。 -->
+        <a class="qc-btn" id="qcOpenBoard" hidden target="_blank" rel="noopener"
+           data-i18n="dr.openBoard">打开完整看板</a>
+      </div>
+      <div class="qc-scroll" id="qcScroll">
+        <table class="qc-table">
+          <thead id="qcThead"></thead>
+          <tbody id="qcTbody"></tbody>
+        </table>
+      </div>
+      <div class="qc-hint" data-i18n="dr.filterHint"></div>
+    </div>
+    <div class="qc-foot">
+      <div class="qc-foot-in">
+        <span class="qc-note" id="qcCount"></span>
+        <span class="qc-pager">
+          <button type="button" class="qc-btn" id="qcPrev">‹</button>
+          <span class="qc-page" id="qcPage"></span>
+          <button type="button" class="qc-btn" id="qcNext">›</button>
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑态的「分组归属」浮层：内容随点开的卡片生成（fixed 定位贴在卡片旁边，
+     不用 modal —— 改归属时还得看见卡片本身，遮罩会把上下文全挡住） -->
+<div class="gp" id="grpPop" hidden></div>
+
+<!-- 编辑态的「改名」浮层：一级分组改名 / 新增分组 / 看板改标题共用这一颗（同一时刻只开一个） -->
+<div class="gp gp--form" id="editPop" hidden></div>
+
+<!-- ===================== 用户管理弹窗（2026-09-22 加） =====================
+     与 http://localhost/uniplam/ 的 UserManagementModal、/MsPortal/ 的移植版是
+     **同一个用户库的第三个操作界面**：骨架只放静态壳子与固定按钮，表体 / 表单 /
+     页面配置面板全部由 olbr.js 的 renderUserMgmt() 按 state.um 整块重画
+     （输入到一半的值先落 state 再画，否则重绘会清掉用户正在敲的内容）。
+     样式在 olbr.css 的 .um-* 段，走本页令牌，不引 MsPortal 的 portal.css。 -->
+<div class="um-mask" id="umMask" hidden>
+  <div class="um-modal" role="dialog" aria-modal="true" aria-labelledby="umTitle">
+    <div class="um-head">
+      <div class="um-head-txt">
+        <h3 id="umTitle" data-i18n="um.title">用户管理</h3>
+        <p class="um-sub" data-i18n="um.subtitle">统一门户账号的增删与权限设置（仅管理员可见，与 /uniplam/ 同库同步）</p>
+      </div>
+      <span class="um-head-actions">
+        <button type="button" class="gb" id="umReload" data-i18n="um.reload">刷新</button>
+        <a class="gb" id="umOpenPortal" href="/uniplam/" target="_blank" rel="noopener noreferrer"
+           data-i18n="um.openPortal">在统一门户打开</a>
+        <button type="button" class="ib" id="umClose" aria-label="Close">
+          <i class="ph ph-x" aria-hidden="true"></i>
+        </button>
+      </span>
+    </div>
+    <div class="um-body" id="umBody"></div>
+    <!-- 底部固定操作栏：放在滚动区之外，页面配置面板展开时「保存」常驻可见 -->
+    <div class="um-foot" id="umFoot" hidden>
+      <span class="um-foot-who" id="umFootWho"></span>
+      <span class="um-foot-actions">
+        <button type="button" class="gb" id="umCancelBtn" data-i18n="um.pagesCancel">收起</button>
+        <button type="button" class="gb um-primary" id="umSaveBtn" data-i18n="um.pagesSave">保存页面配置</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/MsPortal/assets/data.js"></script>
+<script src="/MsPortal/assets/terms.js"></script>
+<script src="/MsPortal/assets/access.js"></script>
+<!-- 下钻弹窗的「导出 Excel」（2026-09-23 加）。与 MsPortal 用的是同一个文件、
+     同一套格式 UNIFIED_EXCEL_V1 → 两个门户导出的表头 / 底纹 / 冻结行完全同款。
+
+     刻意**不**在这里引 vendor/exceljs.min.js（约 0.9MB）：excelReport.js 内部会按
+     自身脚本地址推出 assets/ 基址，点「导出」时才 loadExcelJS() 注入同目录的
+     vendor/exceljs.min.js —— 本页以 /MsPortal/assets/excelReport.js 的绝对路径加载，
+     所以那个相对推导结果是 /MsPortal/assets/vendor/… 命中同一个文件。
+     多引一行只会让只读版首屏白白多下 0.9MB。 -->
+<script src="/MsPortal/assets/excelReport.js"></script>
+<!-- QC 下钻弹窗的拖动 / 点击位置定位（2026-09-23 加）。与 /MsPortal/ 共用同一个
+     文件，行为逐条对齐 /myapp/ 的 DraggableClickModal：以点击位置为中心弹出、
+     按住标题栏可拖、点遮罩不关闭。 -->
+<script src="/MsPortal/assets/qcDrill.drag.js"></script>
+<!-- 纯数据母本（i18n 字典 / 图标 / layout 常量 / QC 阈值 / KPI 规格），
+     2026-09-25 从 olbr.js 拆出。必须排在 olbr.js **之前**：主文件 boot 时
+     直接读 window.OLBR_DATA，顺序反了会拿到空对象、整页文案变裸 key。 -->
+<script src="assets/olbr-data.js"></script>
+<script src="assets/olbr.js"></script>
+</body>
+</html>
