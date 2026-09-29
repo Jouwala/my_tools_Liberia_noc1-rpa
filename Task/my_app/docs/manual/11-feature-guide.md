@@ -311,6 +311,7 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 - 接口：`/api/gis/sites` 与 `/api/gis/realtime/sites`（按模式二选一；**两者都返回 `site_type_stats`**，见上）、`/api/gis/topology`（**读 `kml_mw_links`**，见 10c；**加 `?with_util=1` 叠加实时利用率**，见 10d）、`/api/gis/region-boundaries`、**`/api/gis/county-boundaries`**、`/api/gis/drilldown/{site_id}` 与 `/api/gis/realtime/drilldown/{site_id}`。均走 `cache.ts` 缓存（**唯 `topology` 例外**：叠加数据每 15 分钟换槽位，缓存住会显示过期槽位）。
 - 地图控件在 `pages/gismap/MapController.tsx`。
 - **区分两页的口径**：实时告警地图带红色"实时"Tag，数据来自 `eflow_active_alarm`（每 30 分钟）；普通 GIS 页走历史/工单口径。
+- **四张统计表的读取端降级（2026-09-29）**：`get_sites` 一次性串起 `eflow_tt` / `eflow_wo` / `realtime_alarm` / `history_alarm` 四张表的统计，而这四张都会被定时任务整表重建（实时告警每 30 分钟、历史告警每 3 小时）。现在任一表瞬时不可用时**只让对应计数为 0，不再整页 500**（统一走 `_run_stats_query()`，带 WARNING 日志）。因此**看到某项计数突然为 0，先去 `backend_runtime_<日期>.log` 搜 `[gis/sites]` 确认是否命中降级**，再判断是不是数据真没了。写端空窗的根因与修法见 `13-operations.md` 的「GIS 500：整表重建空窗」。
 - 页头**不再**消费 `useDataTimestamps`（2026-09-28 移除同步时间 Tag）。
 
 ### 10a. 图例浮层（2026-09-28 新增，`?page=gis` / `?page=realtime_alarm`）
@@ -321,7 +322,7 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 
 - **挂载方式**：地图 `Card` 的 `body` 加 `position: relative`（`GISMap.tsx`），浮层作为 `MapContainer` 的**兄弟节点**绝对定位。**不加包裹 div** 是为了避免把地图那 200 多行整体缩进两格造成的纯噪声 diff。
 - **`z-index: 1000` 的依据**：Leaflet pane 层级 tile 200 < overlay 400 < shadow 500 < marker 600 < tooltip 650 < popup 700 < control 1000。取 1000 才盖得住站点圆点(600)与常驻县名标注(650)；与 Leaflet 控件同层，而浮层在 DOM 中位于地图容器**之后**，同层靠后者胜，故仍在控件之上。**已知代价：站点弹窗(700)会被浮层压住** —— 刻意接受，Leaflet 会自动把弹窗平移进视野。**挪到左下后这个代价变小**：浮层只占左下角（234×340），站点集中在国土范围内，左下角被压住的概率比原先的右上更低。
-- **竖排两段**：上段「图例」= 站点类别（可点击）；下段「MW 链路利用率」= 6 级色阶 + 「无 KPI 数据」虚线档（不可点击，它不参与显隐控制）。两段都只列**实际出现**的项。
+- **竖排两段**：上段「图例」= 站点类别（可点击）；下段「MW 链路利用率」= 4 级色阶 + 「无 KPI 数据」虚线档（不可点击，它不参与显隐控制）。两段都只列**实际出现**的项。
 - **点击隐藏能力必须保留**：`role="switch"` + `aria-checked`，点一下置灰加删除线并把该类站点从地图上过滤掉，再点恢复。这是迁移前就有的能力，换位置不能丢。迁移时顺带补了 Enter/Space 键盘操作与 `tabIndex`（迁移前没有）。
 - **「History」补 hover 说明**：`History` 这个名字看不出覆盖范围，故该行挂原生 `title`（`gis.legend.hisAlarmHint`）说明「历史告警 / TT工单 / WO工单 任一有数据的站点」。
 - **位置：左下角（2026-09-28 用户追加要求「图例能放到左下吗」）**。初始按原话「最右边」做成右上，同日改到左下。
@@ -331,7 +332,28 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
   - 顺带把 ⓘ 气泡的 `placement` 从 `left` 改成 `right`：浮层已贴左边缘，向左弹会出界。
 - **口径备注收进 ⓘ 气泡（2026-09-28 用户要求「这些备注能隐藏吗」）**：原先两段常驻小字 ——「利用率来自 MW 微波实时页同一 15 分钟槽位……844 条链路中 360 条匹配到实时指标」与「图例数字为站点数（有该数据的站点）；告警记录总数见 Alarm Dashboard」。它们只在**第一次看不懂时**有用，常驻却要占 4~5 行；浮层压在瓦片上，每多一行就多挡一块地图。现改用项目统一的 `components/MetricExplain.tsx::ExplainIcon`（与各看板指标卡同一个 ⓘ 组件、同一种交互），挂在**两个分组标题**右侧（`placement="right"`），悬停看全文，并顺带获得「复制说明」。**实测浮层高度 459px → 340px**。
   - 取舍：没有做「展开/收起」按钮 —— 那要在浮层里再加一个控件，而 ⓘ 是本项目既有约定（`gis.explain.note` 等 20 余处同款），一致性优先。
-- **⚠️ 浅色/深色都要看**：浮层直接压在瓦片上，是最容易出「浅底浅字」的位置。它用 `WH.cardBg`（浅色档是 rgba 白渐变）+ `backdrop-filter: blur(8px)`，文字用 `WH.text`。`TMP/_verify_gis_toolbar.py` 里有浅色档断言（底色须为渐变、文字 RGB 和 < 400）。
+- **⚠️ 浅色/深色都要看**：浮层直接压在瓦片上，是最容易出「浅底浅字」的位置。
+  - ⚠️ 本条曾写作「用 `WH.cardBg`（浅色档是 rgba 白渐变）+ `backdrop-filter: blur(8px)`」—— **已过时**。2026-10-14 用户连续三轮要求提高透明度，最终两主题的 `background` 都是 `transparent`（面板背景完全不可见，只剩文字 + 描边 + 阴影），模糊提到 `blur(34px) saturate(160%)`。完整推导、被否决的 `text-shadow` 描边方案、以及「深色下瓦片被 invert、白字可能压不住亮块」这个**已知代价**，都写在 `frontend/src/index.css` 的 `.gis-legend-overlay` 段与 `MapLegendOverlay.tsx` 头部注释里 —— **调数值前先读那两处**。
+  - 判据的落点是 `frontend/src/pages/gismap/MapLegendOverlay.tsx` 的第 7 条注释：深色主题下 OSM 瓦片被 invert 反相（`index.css` 的 `:root[data-theme='dark'] .gis-dark-map .leaflet-tile-pane`），深色公路/注记会变成**亮白**，全透明面板的白字压上去会看不见。**这是用户明确选择后的取舍，不要当成 bug 自动加回背景色**；彻底解法在底图（深色主题改用真正的暗色瓦片源）。
+
+#### 10a-2. ⚠️ 门户内嵌与直开的主题一致性（2026-10-14 修，两条根因）
+
+**现象**：`http://localhost/v1/olbrportal/` 的 GIS Map 栏（内嵌 `/myapp/?page=gis&mwembed=1`）在深色门户下，图例观感与直开 `/myapp/?page=gis` 不一致 —— 前者是一块不透明白底 + 深字，后者是透明底 + 白字。
+
+**实测确认的两条根因（都已在代码层修掉，勿只修一条）**：
+
+1. **门户只用 URL 的 `?theme=dark` 传达深色，而 my_app 原先不读这个参数。**
+   门户的 `mapItems()`（`v1/olbrportal/assets/olbr.js:1808`，v2/MsPortal 同款）把主题拼进 iframe 的 src，但 `theme.ts` 的 `detectMode()` 原先只认 `localStorage['myapp-theme']` + 系统偏好 —— 于是门户切深色时内嵌页仍按**浅色**渲染（实测 `data-theme` 停在 `light`、瓦片 invert 滤镜不生效）。
+   **修法**：`theme.ts` 新增导出 `themeFromUrl()`，优先级改为 **URL 参数 → localStorage → 系统偏好**；`ThemeProvider` 的系统偏好监听在「URL 钉住主题」时**必须退出**（否则系统主题一变就把内嵌页翻色）。`frontend/index.html` 的首帧防闪烁内联脚本按**同一优先级**改写 —— 两边不一致会先画浅色再被 React 翻成深色，正好把补丁抵消成一次可见闪烁。
+   **⚠️ 参数只影响本次渲染，刻意不写回 `localStorage`**：门户与 my_app 同源、共用 `myapp-theme` 这一个键，而门户侧已有主动写它的逻辑（`v1/olbrportal/assets/olbr.js:3274` 的报告文件卡 `ss('myapp-theme', want)`、`MsPortal/assets/portal.js:5442` 的 `syncEmailTheme`）。若这里也写回，一次带参访问就会改掉用户的**全局偏好**，之后直开 `/myapp/` 会莫名跟着变。参数是「这一页怎么画」，偏好是「这个人怎么看」，不互相污染。
+   **取值口径**：只认字面量 `dark` / `light`，其余（缺省、拼错、任意串）一律回落 localStorage → 系统偏好。
+
+2. **门户注入的 `MAP_STRIP_CSS` 有一条 `!important` 白底规则误命中图例浮层。**
+   该规则原意是给地图卡片里「与地图同级的小块」做贴底浮层，注释里点名的对象是 `Critical/Major/Minor/Warning/OK` 那块**卡片内**图例 —— 它早已不存在（GIS 图例 2026-09-28 起移到地图上，成了自带定位的绝对定位浮层）。而这条选择器**恰好命中它**：浮层是 `.ant-card-body` 里唯一「不是 `.leaflet-container`」的直接子元素，于是被刷上 `rgba(255,255,255,.88)` 的 `!important` 白底，**盖掉** `index.css` 里 `:root[data-theme]` 的 `transparent`（实测命中两条 background 规则，注入的这条胜出）。
+   **修法**：四处**全部**加 `:not(.gis-legend-overlay)` —— `v1/olbrportal/assets/olbr-data.js`、`v2/olbrportal/assets/olbr-data.js`、`olbrportal/assets/olbr.js`、`MsPortal/assets/portal.js`。**规则本身保留**：将来若有别的小块与地图同级，仍需「贴底浮层」这个待遇，整条删掉会静默退回「被地图撑满后挤出卡片裁掉」。
+   **⚠️ 这四个门户共享同一份剥离样式的思路，但代码是四份副本**：改一处必须改其余三处，否则四个入口立刻重新分叉（与 `.gitignore` / `vite.config.ts` watch 清单那对副本同一个道理）。
+
+**验收**：`TMP/_probe_gis_theme_parity.cjs`（12 条断言，**可复用，勿删**）。覆盖参数优先级（含「不写回 localStorage」「非法值回落」「参数盖过 localStorage」）、门户外壳切深色后内嵌页确实转深、瓦片 invert 与图例背景/文字色与直开一致、以及注入规则文本确实带 `:not(...)`。实测全绿。
 
 ### 10a-1. 站点下钻的「统计范围」：独立选择器、默认 7 天（2026-09-28，含一轮口径返工）
 
@@ -454,11 +476,11 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 
 | 项 | 规则 |
 | --- | --- |
-| 线色 | 有 KPI → 复用 `mwRealTime` 的 **6 级色阶**（`UTIL_LEVEL_COLORS`，与 `mw_real_time.html:855-863` 深色档逐值一致）；无 KPI → KML 原色 |
+| 线色 | 有 KPI → 复用 `mwRealTime` 的 **4 级色阶**（`UTIL_LEVEL_COLORS`，与 `mw_real_time.html` 的 `readLvlColors()` 深色档逐值一致）；无 KPI → KML 原色 |
 | 线宽 | 随分级递增（critical 3.4 → healthy 1.5），保证全境缩放下高利用率线仍可见 |
 | 悬浮 | `Popup` 显示 链路名 / 最高利用率 / 分级 / **Tx** / **Rx** / 匹配到的 MW 站名（供人工核对是否错配） |
 | 开关 | **链路利用率** `Switch`（默认开，`gis.utilToggle`）；关掉即回到 2026-09-25 行为 |
-| 图例 | 按 6 级色阶 + 「无 KPI 数据」虚线档，展示在地图左下角浮层的下半段（见 10a）。2026-09-28 起叠加恒开，故**不再有**「关叠加时显示 KML 4 色档」的分支 |
+| 图例 | 按 4 级色阶 + 「无 KPI 数据」虚线档，展示在地图左下角浮层的下半段（见 10a）。2026-09-28 起叠加恒开，故**不再有**「关叠加时显示 KML 4 色档」的分支 |
 | 口径说明 | 浮层内一行小字写明「{total} 条中 {matched} 条匹配到实时指标」+ 数据槽位，让「为什么只有一部分线有颜色」可自解释，不被当成 bug |
 
 **两条硬约束（改这段代码前务必遵守）**：
@@ -567,7 +589,12 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
 - subtitle 为 `数据日期 | 统计天数 | 数据窗口`，把天数筛选写进文件便于对账；取不到数据显示 `—`。
 - 页面上另有一个原有的「全量导出」按钮；下钻明细不在本次页面级导出范围内（弹窗内已有）。
 
-## 14m. 可用率多维矩阵（`?page=avail_ms`）
+## 14m. MS Availability（可用率多维矩阵，`?page=avail_ms`）
+
+> 页面标题 2026-09-28 按用户要求定为 **MS Availability**（`i18n.tsx` 的 `nav.availMs`，
+> 同时用作浏览器标签标题与侧栏名称）：中英两份字典写**同一串英文** —— 与门户那边的
+> `Daily Operation Overview` 同一条约定（用户点名的看板名不翻译），不要"顺手补齐"成中文。
+> 本节标题保留中文名只为便于检索。
 
 把全网可用率按「区域 / 制式 / 站点类型」三个维度铺开，日 / 周 / 月用页签切换粒度。
 需求来源是一张「呈现内容 × 呈现形式」的矩阵表（区域 ALL × 2G/3G/4G、制式 × Regular/Cool.i/ERA、
@@ -590,7 +617,8 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   `_prev_value(period, value)` **算进变量**再写列表推导 —— 直接写进推导条件会被 Python 按行
   重新求值，每行都触发一次全表 distinct，实测单请求 8~13 秒、6600 万次函数调用；提出后 0.2 秒
   （`backend/services/avail_ms_service.py:519` 有注释）。
-- **曲线图**：三张矩阵上方各配一张多序列趋势图（`frontend/src/pages/AvailMsTrend.tsx`），
+- **曲线图**：三张矩阵上方各配一张多序列趋势图（`frontend/src/pages/AvailTrend.tsx`，
+  2026-09-28 由 `AvailMsTrend.tsx` 改名提上来，现在与 14n 的 FLM 页共用），
   每张图 = 该维度各取值在窗口内的加权可用率，窗口按档位取默认期数
   （日 30 / 周 12 / 月 12，见 `avail_ms_service.TREND_POINTS`），右端对齐当前选中期。
   三个维度**共用一段窗口与同一遍扫表**，所以 `/trend` 一次返回三个维度，不拆成三个端点。
@@ -603,7 +631,8 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   - 缺失期（如 `Other` 在 2025-12、2026-01 之外）**断线**，不用 0 补（AGENTS.md 第三节原则 6）。
   布局上注意两点，都是实测踩出来的：**图例必须放顶部**（日档 30 个日期要转 35° 才排得下，
   图例放底部会与日期标签叠在一起）；阈值虚线的标签要 `position: 'insideEndTop'`，
-  否则默认画在线的右端外侧、被 `grid.right` 裁掉。
+  否则默认画在线的右端外侧、被 `grid.right` 裁掉（页面主图与下钻弹窗里的小图**都有**这行标签，
+  两处都要设 —— 2026-09-28 截图发现弹窗那张被裁成了"99…"）。
 - **能下钻尽下钻**（AGENTS.md 第三节 1b）：矩阵里每个可用率数字、以及顶部 2G/3G/4G 汇总卡都可点，
   弹窗内含 ① 近 30 期趋势（含阈值虚线）② 按日明细 ③ 按调度组的构成分解 ④「相关 TT 工单」页签。
 - **三条必须显示的口径事实**（后端以警告码返回，页面映射成黄色提示条，键见 `i18n.tsx` 的 `availMs.warn.*`）：
@@ -623,6 +652,96 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   `Summary`（当期/上期/数据截止/三制式全网值/未匹配占比/命中的口径警告）+ 三个维度各一张表
   + 三个维度各一张趋势表（周期为行、维度取值为列，与图同源）；
   百分比写成数值便于在 Excel 里再算。下钻弹窗内另有导出（时间明细 + 构成分解 / TT 明细）。
+
+## 14n. FLM 可用率（`?page=avail_flm`）
+
+同一张需求表的另一组视图：**行是三个 FLM 区域（Montserrado / North East / South West），
+列分别是制式与站点类型**，另加一张**页面级「影响可用率的 TT 列表」**（需求表 SN4）。
+日 / 周 / 月用页签切粒度，与 14m 一致。
+
+- **数据源与口径**：与 14m **同源同实现** —— 同一个派生库 `data/avail_recon.sqlite3`、
+  同一套 `SUM(分子)/SUM(分母)` 加权口径。后端 `backend/services/avail_flm_service.py`
+  **不重写任何聚合**，改为调用 `avail_ms_service` 文件末尾新增的**公开门面**
+  （`fetch_all` / `cell` / `warnings_for` / `period_of` …）：直接 import 下划线私有函数也能跑，
+  但那让"口径的实现者"与"调用者"之间没有契约，第二个人接手时不知道哪些能改。
+  门面只有一层转发，14m 已验证的 `build_matrix` 一行未改（回归范围因此可控，
+  对账断言见 `TMP/_probe_flm_service.py`：9 个区域×制式单元格与 `avail_ms` 逐位相同）。
+  接口 `/api/avail-flm/options|matrix|trend|tt|drilldown`（`backend/routers/avail_flm.py`）。
+- **两条与需求表不同的口径，均为 2026-09-28 与用户逐条确认**（要改回去之前先读这两条）：
+  1. **站点类型不做范围限制**。需求表写「North East 只有 Regular/Cool.i」「South West 只有
+     Regular/ERA」，但两个数据源都不支持这个"不存在"：站点主数据 `master_site_db` 里
+     NE 有 123 个 ERA 站点（SW 有 22 个 Cool.i），派生库里 NE 的 ERA 分母 6.5 万、
+     SW 的 Cool.i 分母 1.2 万，与 Regular 同一量级。那是**业务适用范围**（FLM 只盯这几类站），
+     不是缺数据 —— 硬留空会让用户在 NE 行看不到 ERA，而同一批数据在 14m 里明明显示 91%。
+     故三个区域都显示三列，单元格为 `—` 只代表"本期确实没数据"。
+  2. **TT 列表列本期全部工单，不做"是否影响业务"判定**。`eflow_tt` 的
+     `whether_impacted_service` 与 `site_outage` 在本期数据上**完全一致**
+     （Yes 3502 / 空 78 / No 62，全量 3642），取任一列当"影响可用率"的判据，
+     都会让一个含糊的定义看起来精确。故口径与 14m 的 TT 页签保持一致（按站点主数据归属
+     区域与站点类型、不按制式过滤，返回 `tt_no_tech_filter` 说明码）。
+- **列名用数据原值 `Cooli`**（需求表写作 `Cool.i`）：站点类型来自 KPI 调度组映射
+  （`avail_ms_service.CELL_GROUP_MAP`），14m 显示的就是 `Cooli`；两页写法一致比照抄需求表重要。
+- **两张表配两条曲线**：`区域 × 制式`（表上方配**区域**走势图，一个区域一条线）与
+  `区域 × 站点类型`（配**站点类型**走势图）。曲线复用 14m 的组件
+  `frontend/src/pages/AvailTrend.tsx`。两张表都是"区域行"，若上下都画区域线就是同一张图
+  看两遍，所以第二张改画站点类型线。`/trend` 在**后端先按本页的行列收窄**
+  （区域只剩三个 FLM 区域、站点类型不含 `Other`），收窄规则与建表的行列同源，图和表不会各说各话。
+- **末行 `UNMATCHED` 与 14m 的差别**：本页没有 `ALL` 行，故 14m 那条
+  "ALL ≠ 三区域相加"的说明码在这里**由后端剔除**，换成 `flm_unmatched_last_row`
+  （未匹配桶不在三个区域之内、也不画进曲线，单列出来只为对账；它同样不能下钻 TT）。
+- **页面级 TT 列表**：`/api/avail-flm/tt` 复用 14m 的 `level=tt` 实现，支持区域筛选。
+  实测条数与体积：日 113 条（66KB / 374ms）、周 852 条（491KB）、月 3635 条
+  （返回上限 2000，触发 `tt_truncated`；`tt_fetch_capped` 是读库安全上限）。月档上兆的 JSON
+  **不做预取**：只在**当前激活页签**按 key 取一次并缓存（key = 档位|周期|区域），
+  换页签或换区域才是另一个 key。每行给 2G/3G/4G 断站数与 MTTR，由使用者自己判断相关性；
+  点工单号反向下钻到该工单所属的「区域 × 站点类型」。
+- **能下钻尽下钻**（AGENTS.md 第三节 1b）：三张区域 KPI 卡（各区域全部制式合计）、
+  两张表的每个数字、两条曲线上的每个点、TT 列表的工单号都可点，
+  弹窗与 14m 同形（近 30 期趋势 / 按日明细 / 按调度组的构成分解 / 相关 TT 工单）。
+- **与 14m 的关系**：两页是同一份数据的两种摆法，数字必须逐位一致。要改聚合口径时，
+  正确做法是改 `avail_ms_service` 的公开门面（两页一起受益），不要在 `avail_flm_service`
+  里另写一遍 `SUM(num)/SUM(den)`。
+- **写 DOM 探针的坑**：antd 表格 `tbody` 里有一行
+  `<tr class="ant-table-measure-row">`（量列宽用，单元格里放的是隐藏的表头文字），
+  探针必须用 `tr.ant-table-row` 过滤，否则会数出"行数 +1"并让所有单元格错位一列 ——
+  2026-09-28 的验证脚本第一次就是这么误报的。
+- **自检脚本**（都留在 `TMP\` 里，可复用，别删）：
+  `TMP/_probe_flm_service.py` 是**服务层口径自检**（9 个区域×制式单元格与 `avail_ms` 逐位对账、
+  两张表形状、趋势收窄、TT 条数与区域筛选、边界值）；`TMP/_probe_flm_ui.py` 是**浏览器端回归**
+  （真实请求 + 两张表每个单元格与 API 对账 + 下钻/切档/TT 区域筛选/导出 6 sheet 全流程，
+  并落三张截图）。两个脚本都直接跑 `python TMP/_probe_flm_*.py`，需后端与前端在跑。
+
+- **统一门户入口（2026-09-29 加）**：本页已挂进 Liberia NOC/SOC 统一门户
+  `/v1/olbrportal/`（v1 首页）的 **SP View** 分组，目录 `no=78`、标题 `仓库汇总报表` /
+  `Warehouse Summary`，`url` 指向 `?page=warehouse_summary`；并已置入
+  `order['SP View']` 的**第 1 位**。
+  **为什么必须进 `order`**：SP View 是 v1 首页的六个入口卡之一，而每列只露出
+  `V6_LIMIT = 2` 条（`v1/olbrportal/assets/olbr.js:1488`、`:1552`），其余折在
+  「展开其余 N 项」后面；`sorter()`（`:216-225`）先读 `order[gid]`，条目不在该数组里时
+  才回落 `clicks -> no` —— 新条目 `no` 最大（78），不进 `order` 就会**排在末位被折叠**，
+  首屏看不到（本次第一版就踩了这个：条目加成功但默认态不显示）。
+  顺序取舍：本页是 `Spare Parts Report`(no=53) / `Consumables Report`(no=54) 的**合并汇总版**，
+  故排在前两者之前。
+  加条目与排序的通用做法、以及**写入前必须连读两次比对 `savedAt`** 的并发守卫
+  （`PUT` 是整体替换，门户界面同时在写这个文件），见上文 14a 节末尾一段 —— 同一套接口与约束。
+
+- **统一门户入口（FLM 侧）**：这两页（`avail_ms` / `avail_flm`）都已挂进 Liberia NOC/SOC 统一门户 ——
+  门户的看板列表**不是写死的**，来自服务端全局目录 `backend/data/portal_catalog.json`
+  （`GET/PUT /api/portal-catalog`，门户上「编辑看板配置」走的就是它；该文件是运行时状态，不入库）。
+  加一条的做法是往 `items` 里追加一个
+  `{no, groups:['<分组>'], titleZh/En, descZh/En, platform:'myapp', url, tags, owner/dept, freq, icon}`
+  并把它追加进 `order['<分组>']`；v1 门户每列默认只列前 2 条，其余折在「展开其余 N 项」后面。
+  **分组归谁、卡片叫什么由门户界面随时可改**（2026-09-29 实测：`avail_ms` 那张卡被从
+  FLM View 挪到了 MS View，两张卡的名字也被人改成了 `Availability For MS` / `Availability For FLM`），
+  所以查"某页挂在哪个分组"要看目录，不要照抄本节。
+  ⚠️ **PUT 是整体替换、且门户界面同时在写这个文件**，脚本改它之前必须：
+  连读两次比对顶层 `savedAt`，两次不一致就说明有人正在编辑 → 放弃本次写入，
+  否则会用旧快照静默覆盖掉对方的改动（手工在界面上改的卡名/分组会"自己变回去"）。
+  可复用脚本在 `Task\my_app\TMP\`：`_add_flm_portal_cards.py`（按同一接口追加，含令牌从既有条目原样复用的写法，
+  已带上述双读守卫）、`_add_warehouse_summary_to_spview.py`（追加 / 更新条目**并维护 `order[gid]`**，
+  幂等 —— 按 url 判重，重复跑不会长出新卡）、`_verify_portal_myapp_deeplink.py`（浏览器端验证：
+  按目录现状找到该卡、点开后在查看器 iframe 里真的渲染出我方的 `?page=`）、
+  `_verify_avail_ms_title.py`（标题三处暴露面回归）。
 
 ## 14b. NOC 操作人分析（`?page=noc_analyst`）—— 四层全量下钻
 
@@ -1715,6 +1834,96 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 - 页面与 Excel 数字对不上，先看 `notes` 里的口径说明，再查
   `backend/services/sp_report_service.py`，**不要**在页面层改口径。
 
+## 26b. 仓库汇总报表（`?page=warehouse_summary`）—— 页签 = Excel 的两个 sheet（2026-09-29 新增）
+
+版式对齐 `Task/WarehouseSummaryReport.xlsx`：**页签即该文件的两个 sheet**
+（`Spars Parts` / `Consumables`），每个页签内两段表。
+
+- 页面 `frontend/src/pages/WarehouseSummary.tsx`；
+- **数据源与第 26 节完全相同**（`sp_report_generate` 每天 05:15 产出的汇总工作簿），
+  **不新增采集、不做二次加工**，两个页面看的是同一份文件；
+- 复用接口 `/api/sp-report/summary`，只是多读两个键（见下）；
+- 页签**加粗并居中**（对齐 Excel sheet 标签的视觉权重，样式类 `.wh-sum-tabs`
+  只作用于本页，见 `frontend/src/index.css`）；
+- 页面**不再显示**数据来源 / 报表生成时间 / 查询时间三行元信息（2026-09-29 按用户要求移除）——
+  这些信息仍保留在「导出 Excel」的表头里，需要溯源时导出即可。
+
+### 页签与 kind 的对应
+
+| 页签（= Excel sheet） | `kind` | 数据源文件前缀 |
+| --- | --- | --- |
+| `Spars Parts` | `spareparts` | `SpareParts Inbound&Outbound&Inventory <时间戳>.xlsx` |
+| `Consumables` | `consumables` | `Comsumables Inbound&Outbound&Inventory <时间戳>.xlsx` |
+
+> ⚠️ 页签名是**报表业务原值**，刻意不翻译（含 Excel 原有的 `Spars` 拼写，同理见
+> `sp_report_service.py` 对 `Comsumables` 的处理）。与既有菜单项「备件入出库库存报表」
+> 用中文标题不同：那两个页面是自研看板，本页是**照着交付报表 1:1 复刻**的版本。
+
+### 两段表与后端字段
+
+`get_summary()` 在原返回体**新增两个键**（既有键一个不动，所以第 26 节的两个页面不受影响）：
+
+| 返回键 | 页面段落 | 内容 |
+| --- | --- | --- |
+| `warehouse_summary` | ① WH/DOP 汇总 | `WH/DOP \| Current Inventory \| Total Consumption \| This month Consumption \| This week Consumption`，含 `Total` 行 |
+| `frequent_materials` | ② 高频消耗物料 | `Domain \| Material Name \| Consumption Qty \| Inventory Qty \| Alert Level`，**全量**物料（页面每 10 行分页）+ 全量 `Total` 行 |
+
+口径（实现在 `sp_report_service.py` 的 `_warehouse_summary` / `_frequent_materials`）：
+
+- `current_inventory` 来自 `Inventory` sheet 按 `Warehouse Name` 的 `Stock Qty` 合计；
+- 三个消耗列来自 `Outbound` sheet 按 `Warehouse Name` 的 `Outbound Qty` 合计，
+  `month/week` 按**请求时刻**的时间窗（本月 1 日 / 本周一 00:00）过滤 ——
+  与 Excel 一样是"打开时报"的运行时口径，不是工作簿生成时口径；
+- 时间取 `Outbound Time`，为空回落 `Create Time`；两者都空的行不计入期间合计
+  （不猜时间），因此 **`month/week ≤ total` 恒成立**；
+- 仓库集合取 `Outbound` 与 `Inventory` 的**并集**，只在一边出现的仓库也出行、
+  缺失侧计 0 —— 直接丢弃会让 `Total` 与各仓之和对不上；
+- `Total` 行**由后端算**，不交给前端二次求和；
+- `Consumption Qty` 映射到 **`Outbound Site Qty`**（站点出库），**不是 `Outbound Qty`**：
+  后者含报修出库与两张异常单据，与补库口径不一致。上游缺该列（旧工作簿）时回落
+  `Outbound Qty`，不静默变成 0；当前口径在页面右上角以 `消耗口径` 标签显式展示；
+- 段② 的 `rows` 是**全量**物料（按 `Consumption Qty` 降序），页面**每 10 行分页**显示全部；
+  `top_n`（= `FREQUENT_TOP_N = 10`）只是"排在最前的若干条"的**展示提示**，
+  **不用于截断** `rows` —— 否则分页翻不到后面的物料（2026-09-29 修正）；
+- 段② 的 `Total` 行也是**全量**合计，与 `rows` 同为全量口径，因此两者天然自洽
+  （已验证：spareparts 858 = 各行之和，consumables 7745 = 各行之和），且**翻页时不随之变化**。
+
+### 下钻（每个数字都可点）
+
+| 点击位置 | 落到 | 筛选 |
+| --- | --- | --- |
+| 段① 仓库名 / Current Inventory | `Inventory` 明细 | `Warehouse Name = <该仓>` |
+| 段① 三个消耗列 | `Outbound` 明细 | `Warehouse Name = <该仓>` |
+| 段② 物料名 | `Summary-Current` 明细 | `Material Name = <该物料>` |
+
+> ⚠️ **消耗列的下钻是"该仓全部出库"，不按本月/本周再筛**：后端 `filters` 只支持精确匹配、
+> 没有时间区间算子。这里宁可在标题里写明范围，也不能筛出与表格数字不一致的行
+> （下钻口径铁律，见 `AGENTS.md` 第三节 1b）。`Total Consumption` 列与下钻合计
+> **精确相等**（已用探针逐仓核对）；`month/week` 列因为无法二次筛时间，下钻行数会多于该列数字。
+
+### 与第 26 节两个页面的关系
+
+三个页面**并存、各有用途**，不是新旧替代：
+
+- `?page=sp_report` / `?page=com_report`：五张 sheet 全量明细（筛选 / 排序 / 分页 / 列自定义）；
+- `?page=warehouse_summary`：把交付报表 `WarehouseSummaryReport.xlsx` 的两页在线上复刻，
+  仓库维度一眼可见、高频物料可按每页 10 行翻完全部，每个数字可下钻。
+
+### 统一门户入口
+
+已挂进 `/v1/olbrportal/` 的 **SP View** 分组：目录 `no=78`、标题 `仓库汇总报表` /
+`Warehouse Summary`，并置入 `order['SP View']` **第 1 位**（SP View 首屏只露 2 条，
+不排前面会被「展开其余 N 项」折叠掉）。做法与并发守卫见 14a 节末尾一段的通用说明。
+
+### 排障
+
+- 报错提示找不到工作簿 → 先跑 `sp_report_generate`（页面上有对应提示）；
+- 段① / 段② 空表但接口有数据 → 确认后端已重启（新增的 `warehouse_summary` /
+  `frequent_materials` 键需要新代码；旧进程返回旧结构，页面会显示空表）；
+- 本月 / 本周列为 0 → 属正常：该时间窗内确实没有出库，不是取数失败；
+- 段② 只显示 10 行翻不动页 → 后端 `frequent_materials.rows` 应为**全量**（不是 Top N）；
+  若只见 10 行说明跑到旧代码，重启后端即可（2026-09-29 已改为全量返回）。
+
 ## 27. CR 变更分析（`?page=cr_analysis`）—— 按 change_category 看计划与完成（2026-09-25 新增）
 
 数据源 `eflow_cr`（eFlow 同步的动态建表），回答一个问题：**各类变更计划排了多少、
@@ -1926,6 +2135,191 @@ created_time → last_create_time → last_schedule_time → last_accept_time
 - 超期率按状态差异极大：Wait Process 96.7%、Wait Accept 90.2%、Closed 31.2%、
   Wait FLM Leader Approve 26.4% —— **等待中的工单比已完成的超期率更高**，
   说明卡点在审批环节，这正是「流程推进情况」漏斗存在的意义。
+
+
+## 30. BP 劣化小区报告（`?page=bp_report`）—— umlaut 口径的 Bad Performance（2026-09-29 新增）
+
+把 umlaut 的 BP 报告搬进平台，并从 RAN_UME 增量更新。**本页最大的特点是「口径本身不完整」**，
+这不是缺陷而是事实，页面必须常驻告警把它讲清楚。
+
+### 口径（唯一真相源：`backend/services/bp_caliber.py`）
+
+```
+Daily:   Average DL Active User Number > 2.5
+         AND [FDD]DL IP Throughput(Mbps)[SDR_ITBBU] < 3
+         AND [FDD]DL PRB Utilization Rate[SDR_ITBBU] > 80%
+Weekly:  一周内 4/7 天为 BP
+Monthly: 一个月内 3/4 个完整周为 BP
+```
+
+阈值常量集中在 `bp_caliber.py:26-40`（`THR_ACTIVE_USER` / `THR_DL_THROUGHPUT_MBPS` /
+`THR_DL_PRB_RATIO` / `WEEK_BP_DAYS` / `MONTH_BP_WEEKS`），**改口径只改这一处**。
+
+### ⚠️ 三个必须知道的口径事实（都已在代码注释里）
+
+1. **`Average DL Active User Number` 在 RAN_UME 侧没有采集。**
+   `4G_Main_Kpi_Cell_Daily` 只有 26 列，最接近的是
+   `C373200029:Maximum Number of RRC Connection User` —— 那是**峰值**、不是平均值，
+   不等价。因此重算**只覆盖 PRB 与吞吐两个条件**，缺第三个条件的小区记为
+   **「不可判定」**（`is_bp=NULL`），不计入 BP。后果：**重算 BP 数必然低于 Excel 值**
+   （如 2026-09-26 重算 0 vs Excel 486）。`bp_report_sync._reconcile()` 会把这段
+   口径说明作为 `caliber_note` 回传，页面顶部常驻 `<Alert type="warning">`。
+   一旦拿到真实 item code，**只改 `bp_caliber.ACTIVE_USER_ITEM` 一处**即可启用第三条件。
+2. **PRB 是小数不是百分数。** 实测 min 0.0196 / max 0.9751 / avg 0.2723，
+   故阈值是 `0.80`；`is_bp_day()` 对 >1.0 的值做 `/100` 兜底
+   （防上游换单位），但正常路径不会走到。
+3. **远端列名里有不换行空格（U+00A0）。** 真实列名是
+   `'E-UTRAN\xa0FDD\xa0Cell Name'`，`bp_caliber.py:44` 用 `_NBSP` 常量拼。
+   写成普通空格时 SQLite **不报错**，而是把列名字符串当数据返回，
+   导致 5803 行塌缩成 1 个假小区。`assert_no_literal_fallback()` 就是拦这个的，
+   取数后必须调用。
+
+### 数据来源与两条链路
+
+| 链路 | 说明 |
+| --- | --- |
+| **一次性导入** | `bp_report_import.py` 把 `data/umlaut_data/BP Report.xlsx` 灌进 `data/bp_report.sqlite3`（独立派生库，不进主库、不走 Alembic）。共 460,660 行，约 28s |
+| **每日增量** | `bp_report_sync` 任务（`TASK_SPECS`，cron `20 6 * * *`，worker 分组 `u`）从 RAN_UME 拉最近 2 天并重算 |
+
+**为什么 Cluster 必须来自 Excel**：RAN_UME / `master_site_db` 里**完全没有**
+`Cluster1`~`Cluster6`/`Rural`/`ERA` 这套分区维度（全工作区搜索零命中），
+站点名 join 也只匹配上 572/669。所以 `bp_cell_dict`（4269 个小区）是**权威字典**，
+字典未命中的小区归 `Unknown` 并在 `/meta` 暴露计数。
+
+### 两个必须区分的「分母」（AGENTS.md 第三节 1b 的下钻一致性）
+
+| 字段 | 含义 | 能否下钻 |
+| --- | --- | --- |
+| `bp_cells` | BP 小区数（分子） | ✅ 可点，行数 = `trend[].detail_cells` |
+| `total_cells` | Excel 的**全网**小区数（≈6114） | ❌ **不可**下钻 |
+
+`total_cells` 不可下钻的原因：Excel 未提供全网小区名单，`bp_cell_daily` 只含
+**曾经出现在 `BP Cells List`** 的 4269 个小区。硬比会得到看似 bug 的差异。
+后端在 `/overview` 的 `drilldown.total_cells.comparable=false` 里显式声明，
+前端据此**不把该列做成下钻入口**（`BpReport.tsx` 用 `<Tooltip>` 提示原因）。
+
+### 上游 Excel 自身不一致（已实测，双向，不要试图"修"）
+
+`BP Report.xlsx` 的四张 sheet 互相矛盾，实测：
+
+| 区间 | `Overall - Daily` | `Regional - Daily` 合计 | `BP Cells List` 明细 |
+| --- | --- | --- | --- |
+| 2025 | 122,489 | 124,752 | 124,869 |
+| 2026 | 143,507 | 145,622 | 145,622 |
+| 2024 | 166,769 | 166,989 | **153,436** |
+| 2023 | 19,478 | 19,478 | **0（整年缺失）** |
+
+- **2025/2026**：`Overall` 恒**低于**另外两张（2026 差 2115）—— 汇总查询口径更窄；
+- **2023/2024**：`BP Cells List` **少于**汇总 —— 明细 sheet 导出不全，
+  2023 整年没有明细，2024 缺 13,553 行（1/15、1/21、1/22、1/29… 整天缺失）。
+
+因此设计决策是：**展示值一律取 `Overall - Daily`**（连续、权威），
+明细表**只用于下钻**，逐期差异走 `trend[].detail_diff`，可下钻性走
+`trend[].drillable`。全 1058 期中 96 期 `drillable=false`（2023 全部 + 2024 缺天），
+前端对这些期**置灰下钻入口**（点开只会是空弹窗，比不给点更糟）。
+**绝不能用明细值覆盖展示值** —— 那会让 2023/2024 显示成 0，比原问题严重得多。
+
+### 脏值处理
+
+Excel `BP Cells List` 的 `Cluster`/`Layer` 列有脏值（如数字 ID `'4593'`）：
+实测 210 行的 Cluster 非法、210 行的 Layer 非法，另有 7 行的列错位缺陷
+（**无法安全自动修复**，故不做猜测性修复）。处理方式统一是**归 `Unknown` 并在
+`/meta` 暴露计数**，不静默丢弃、不猜值。
+
+另：`Sheet1`/`Sheet3` 是透视表残留（与主 sheet 重复），`Regional - 1 Weekly`/
+`Regional - Monthly` 的 N~Q 列还有一块无关数据 —— **均刻意不导入**。
+
+`L1800 10M`（5,078 行）是独立的第 5 个频层，采集侧没有对应物，
+**保持独立、不要并进 `L1800 15M`**。
+
+### 已知实现坑（都已修复，改代码时别踩回去）
+
+1. **SQLite 的 `strftime('%Y-W%W')` 不是 ISO 周**。实测 `2026-09-26` →
+   `2026-W38`（Python ISO 是 `2026-W39`）、`2026-01-01` → `2026-W00`。
+   故 `_recompute_week()` **在 Python 里用 `cal.iso_week_key()` 分组**，
+   再 `WHERE day IN (...)` 回查，**不依赖 SQLite 的周函数**。
+2. **周/月重算绝不覆盖 Excel 行**（2026-09-29 实测损坏后确立）。
+   演变过程值得记下来，因为前两版都自认为是对的：
+   - **第一版**：用 `substr(day,1,7)=month` 聚合整月 → 把 Excel 的 2026-09 覆盖成 14776；
+   - **第二版**改成语义：「只聚合本次同步的 days」以免动历史。**结果更糟** ——
+     增量任务每天只带 1~2 天，分母因此变成 1 天（`total_days=1`）、`bp_days=0`，
+     再经 `ON CONFLICT DO UPDATE` 覆盖，`2026-W39`（真值 462）、`2026-W40`、
+     `2026-09`（真值 448）三行被写成 `bp_cells=0, is_bp=NULL`。
+     即**保护历史的意图反而造成了静默损坏**（见 `bp_report_sync.py:_recompute_week`）。
+   - **第三版**（现行）：分母改为「该周期在库里的全部天」（幂等），
+     但**写入策略改成纯 `INSERT`**：先查该周/月是否已存在，存在就 `continue`。
+     **只写 Excel 尚未覆盖的新周期，已存在的 Excel 行一律不动。**
+
+   之所以必须这样，是因为**两套 population 的单位根本不同，无法相加**：
+
+   | 来源 | 明细每天的行 | 语义 |
+   | --- | --- | --- |
+   | Excel `BP Cells List` | 约 400~500 行 | **只列被判为 BP 的小区** |
+   | RAN_UME 同步 | 约 5,865 行 | **列出全部被评估小区**（`is_bp` 可能全 0） |
+
+   实测 Excel 的月值 `Sep, 2026 → BP cells=448 / Total cells=6117`
+   （藏在 `Overall - Monthly` 的 E/F 列，**表头为空、按位置取**），
+   与**同月的周值**同量级（W39 = 462/6117）—— 二者都是「小区个数」。
+   把两套明细混算求 `SUM`/`COUNT`，得到的数在两种量级之间跳，
+   既不是 Excel 的 "BP cells"，也不是可靠的任何东西。这不是调聚合函数能修好的。
+3. **周期标签不能当日期用**（2026-09-29）。周/月表的 `week`/`month` 列存的是
+   `2023-W48` / `2023-04` 这类**标签**；日明细表 `bp_cell_daily.day` 存的是**真日期**。
+   `_effective_range()` 原本把标签直接当边界返回，于是
+   `_range_sql("day", "2023-04", "2026-09")` 生成
+   `day >= '2023-04' AND day <= '2026-09'` —— 字符串比较下
+   `'2026-09-26' <= '2026-09'` **不成立**，整个区间被排除，
+   `trend[].detail_cells` 全成 0、`drillable` 全成 `False`。
+   而 `/cells` 用真日期查询却能返回 15,270 行 —— 验收里表现为
+   **「声明不可下钻、实际有数据」**（假声明），这类不一致最难被发现。
+   现在 `load_overview()` 同时维护两套边界：`label_start/label_end`（查 trend）
+   与 `d_start/d_end`（查明细），由 `cal.period_to_day_range()` 转换。
+4. **Excel 导入的残留行会造成假匹配**。首轮同步后 `source='excel'` 的 53 行
+   与 5792 行 UME 数据并存，按 cluster 聚合后**巧合**等于 Excel 值。
+   `_reconcile()` 现在按天删除无 UME 对应的 excel 行（`stale_cleared`）。
+5. **同步 UPDATE 会把指标列写成 NULL**（Excel 行没有 `prb_dl`）——
+   清库重导 + 上面的残留清理已解决。
+
+### 下钻契约（2026-09-29 加固）
+
+`/cells` 与 `/overview` 必须始终自洽，四条已验证的不变量：
+
+1. **`scope=bp` 的行数 == `trend[].detail_cells`**（1132 期逐一严格比对，0 例外）；
+2. **`drillable !== true` ⇒ `/cells` 返回 0 行**（不允许"声明不可下钻却有数据"）；
+3. **`limit` 必须显著大于单期最大数据量** —— 实测单期最大
+   `bp_cells=1139` / `detail_cells=1141`，上限 20000，余量 18,861；
+4. **非法周期参数不得退化成全表**。`_day()` 以前把 `2023-W48`、`garbage`
+   一律**静默强转成 `""`**，空区间让 `_range_sql_day` 退化成 `1=1`，
+   结果返回 20,000 行、横跨 34 天 —— 用户以为看的是某一周的数据。
+   现在 `_day()` 接受 `YYYY-MM-DD` / `YYYY-Www` / `YYYY-MM` 三种形态，
+   其它一律 `raise ValueError`，路由捕获后返回 **HTTP 200 + 0 行 + 显式 warning**
+   （不返回 4xx/5xx，避免页面白屏）。
+
+> `_day()` 的 docstring 里记了这次事故，改参数校验前先读它。
+> `/overview`、`/regional`、`/layer` **不经过** `_day()`，它们天生接受周期标签。
+
+### 全量下钻
+
+- `bp_cells`（数字卡 + 表格每期）→ `/api/bp-report/cells?scope=bp`；
+- 频层分布每行的数字 → `/api/bp-report/cells?layer=X&scope=bp`；
+- `total_cells` 列**刻意不可点**（原因见上，用 Tooltip 说明）；
+- 下钻弹窗同时显示「共 N 行 / 其中 BP M 个 / Excel 汇总记 K 个」，
+  把上游差异摆在用户面前而不是藏起来。
+
+### 相关文件
+
+| 文件 | 作用 |
+| --- | --- |
+| `backend/services/bp_caliber.py` | **口径唯一真相源**（阈值、列名、判定函数） |
+| `backend/services/bp_report_store.py` | 物化库建表与读写（8 张表） |
+| `backend/services/bp_report_import.py` | Excel 一次性导入 |
+| `backend/services/bp_report_sync.py` | RAN_UME 增量更新 + 周月重算 + 对账 |
+| `backend/services/bp_report_service.py` | 查询层（概览/分区/频层/明细/元信息） |
+| `backend/routers/bp_report.py` | 5 个端点 |
+| `frontend/src/pages/BpReport.tsx` | 页面 |
+| `data/bp_report.sqlite3` | 派生库（**不入库**，可整库重建） |
+
+**回滚**：删 `data/bp_report.sqlite3` + 回滚前端产物 + 移除 `TASK_SPECS` 与
+`GROUP_TASK_MAP` 里的 `bp_report_sync` 即可，**无需 alembic downgrade**（独立库）。
 
 
 ## 29. FineBI 原生看板（`?page=finebi_<slug>`，共 17 个）

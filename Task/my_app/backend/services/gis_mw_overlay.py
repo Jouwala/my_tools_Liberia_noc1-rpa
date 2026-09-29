@@ -186,7 +186,8 @@ def match_links(gis_links, mw_nodes, mw_edges):
       util       : float | None  —— max(tx_util, rx_util)，None = 未匹配到 KPI
       tx_util    : float | None
       rx_util    : float | None
-      level      : str  —— 6 级分级；未匹配时为 'no_kpi'（**不是** 'healthy'，
+      level      : str  —— 4 级分级（healthy/minor/major/critical，见 level_of）；
+                          未匹配时为 'no_kpi'（**不是** 'healthy'，
                           前端据此区分「正常」与「没数据」，避免把无数据画成绿色）
       matched_by : 'coord' | 'name' | None
       source/target: 匹配到的 MW 端点站名（供悬浮提示显示，便于人工核对是否错配）

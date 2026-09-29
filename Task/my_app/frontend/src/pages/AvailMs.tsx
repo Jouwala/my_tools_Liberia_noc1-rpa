@@ -1,5 +1,5 @@
 /* ============================================================================
- * 可用率多维矩阵（?page=avail_ms）
+ * MS Availability · 可用率多维矩阵（?page=avail_ms）
  * ----------------------------------------------------------------------------
  * 需求（见 11-feature-guide.md 新增小节）：把可用率按「区域 / 制式 / 站点类型」
  * 三个维度呈现，并支持 日 / 周 / 月 三档周期页签切换。
@@ -27,9 +27,10 @@ import { useI18n } from '../i18n'
 import { WH, useTheme, axisLabel, axisLine, darkTooltip, splitLine } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
 import DraggableClickModal from '../components/DraggableClickModal'
-// 三个维度的曲线图（多序列折线，点可下钻）；与下钻弹窗里的单序列小图是两个组件，原因见其文件头
-import AvailMsTrend from './AvailMsTrend'
-import type { TrendSeries } from './AvailMsTrend'
+// 三个维度的曲线图（多序列折线，点可下钻）；与 avail_flm 页共用同一个组件，
+// 与下钻弹窗里的单序列小图刻意不合并，原因见 AvailTrend.tsx 文件头
+import AvailTrend from './AvailTrend'
+import type { TrendSeries } from './AvailTrend'
 import { exportReport } from '../utils/excelReport'
 import type { ReportSheetSpec } from '../utils/excelReport'
 import { getAvailMsDrilldown, getAvailMsMatrix, getAvailMsOptions, getAvailMsTrend } from '../api'
@@ -393,12 +394,14 @@ export default function AvailMs() {
                       n: tr!.meta.points, start: tr!.meta.start, end: tr!.meta.end,
                     })}
                   </Text>
-                  <AvailMsTrend
+                  <AvailTrend
                     categories={tr!.categories}
                     series={series}
                     thresholdPct={thresholdPct}
                     labelOf={rowLabel}
                     onPoint={(k, v) => openDrill(pointTarget(grp.dim, k), undefined, v)}
+                    emptyText={t('availMs.empty')}
+                    ariaText={t('availMs.trendAria')}
                   />
                   {grp.dim === 'region' && unmatched != null && (
                     <Text type="secondary" style={{ fontSize: 12 }}>
@@ -495,7 +498,7 @@ export default function AvailMs() {
           name: `${t(DIM_TITLE_KEY[grp.dim])}${t('availMs.sheetTrend')}`,
           title: `${t(DIM_TITLE_KEY[grp.dim])} · ${t('availMs.historyChart')}`,
           subtitle: `${trend.meta.start} ~ ${trend.meta.end}（${trend.meta.points} ${t('availMs.periodLabel')}）`
-            + ` | ${t('availMs.trendFracHint')}`,
+            + ` | ${t('common.trendFracHint')}`,
           header: [t('availMs.periodLabel'), ...series.map(s => rowLabel(s.key))],
           rows: trend.categories.map((cat, i) => [
             cat,
@@ -581,7 +584,11 @@ export default function AvailMs() {
           silent: true, symbol: 'none',
           data: [{ yAxis: thresholdPct, name: t('availMs.threshold') }],
           lineStyle: { color: palette.sev.Major, type: 'dashed' },
-          label: { color: palette.sev.Major, formatter: `${thresholdPct}%` },
+          // 默认标签画在线的右端外侧，会被 grid.right 裁成"99…"（2026-09-28 截图发现）；挪到线内侧上方
+          label: {
+            position: 'insideEndTop', color: palette.sev.Major,
+            formatter: `${thresholdPct}%`, fontSize: 10,
+          },
         },
       }],
     }

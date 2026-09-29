@@ -574,7 +574,12 @@
     'main#main-content .ant-card:has(.leaflet-container) > .ant-card-head{display:none!important}',
     'main#main-content .ant-card:has(.leaflet-container) > .ant-card-body{height:100%!important;padding:0!important}',
     'main#main-content .ant-card-body:has(.leaflet-container){position:relative!important}',
-    'main#main-content .ant-card-body:has(.leaflet-container) > *:not(.leaflet-container):not(:has(.leaflet-container)){position:absolute!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.88)!important;margin:0!important;padding:2px 8px!important}',
+    /* 2026-10-14：加 `:not(.gis-legend-overlay)` —— 该选择器会命中 GIS 地图上的
+       图例浮层（.ant-card-body 里唯一「不是 .leaflet-container」的直接子元素），
+       给它刷 !important 白底、盖掉 index.css 的 transparent，使门户内嵌与
+       直开 /myapp/?page=gis 的图例观感不一致。完整推导见
+       v1/olbrportal/assets/olbr-data.js 同一行。 */
+    'main#main-content .ant-card-body:has(.leaflet-container) > *:not(.leaflet-container):not(:has(.leaflet-container)):not(.gis-legend-overlay){position:absolute!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.88)!important;margin:0!important;padding:2px 8px!important}',
     '.leaflet-container{height:100%!important;min-height:0!important;max-height:none!important;width:100%!important;border-radius:0!important}'
   ].join('');
 

@@ -28,7 +28,7 @@ APScheduler 到点 (backend 进程内)
 
 | 组 | 任务数 | 约束原因 | 成员 task_id |
 | --- | --- | --- | --- |
-| `u` | 11 | RAN UME 单账号会话，必须串行（并发会被踢会话） | `ran_ume_daily`, `main_kpi_sync`, `cell_availability_sync`, `network_kpi_sync`, `packet_loss_sync`, `packet_loss_email`, `battery_kpi_sync`, `ipran_kpi_sync`, `cm_data_sync`, `cells_kpi_sync`, `avail_recon_sync` |
+| `u` | 12 | RAN UME 单账号会话，必须串行（并发会被踢会话）。`bp_report_sync` 也读 RAN UME，且必须排在 `main_kpi_sync` 之后（否则读到昨天的 KPI） | `ran_ume_daily`, `main_kpi_sync`, `cell_availability_sync`, `network_kpi_sync`, `packet_loss_sync`, `packet_loss_email`, `battery_kpi_sync`, `ipran_kpi_sync`, `cm_data_sync`, `cells_kpi_sync`, `avail_recon_sync`, `bp_report_sync` |
 | `n` | 14 | eFlow API / config-center 同源会话（2026-09-27 由 17 项收窄，VMAX→`v`、SFTP→`s`、MW UME→`w` 已分头拆出） | `eflow_sync`, `eflow_sync_full`, `eflow_active_alarm`, `eflow_history_alarm`, `eflow_tt_rules_check`, `ms_sla_full`, `cnn_kpi_sync`, `fw_kpi_sync`, `sp_online_sync`, `sp_material_sync`, `eflow_alarm_rules_collect`, `eflow_push_rules_collect`, `ume_in_kpi_sync`, `ume_in_osg_report` |
 | `s` | 1 | SP 备件 SFTP（独立 SFTP 服务器 + UNC 镜像库）。2026-09-27 从 `n` 拆出：它是 `n` 组最大单体负载（实测 347min/天）且是已知挂死源（SFTP channel 读挂死 5.5h 曾拖停整组） | `sp_data_sync` |
 | `w` | 2 | MW UME 微波网管（凭证分组 `mw_ume`），独立会话。2026-09-27 从 `n` 拆出：`mw_ume_kpi_sync_rt` 为 `*/15` 高频任务，此前每次排在 `sp_data_sync` 后，实测队列等待 964s（全场最久） | `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
@@ -144,6 +144,7 @@ APScheduler 到点 (backend 进程内)
 | `cxo_dashboard_cache_sync` | CXO看板数据缓存同步 | `*/10 * * * *` | v |
 | `vmax_cxo_daily_sync` | VMAX CXO天粒度日值归档 | `15 * * * *` | v |
 | `avail_recon_sync` | 可用率核对宽表重建 | `10 6 * * *` | u |
+| `bp_report_sync` | BP 劣化小区报告更新（RAN_UME 增量 + 周月重算） | `20 6 * * *` | u |
 | `tmp_cleanup` | TMP 目录清理 | `47 3 * * *` | m |
 | `mttr_tt_sync` | MTTR/TT 宽表重建 | `40 7 * * *` | m |
 | `progress_sync` | Progress 宽表重建 | `50 7 * * *` | m |
@@ -245,6 +246,51 @@ APScheduler 到点 (backend 进程内)
 每 15 分钟把「近 3 小时内 + 告警未清除 + 告警码在白名单内 + `ticket_severity` 命中级别」
 的 TT 单渲染成文本推送到 WhatsApp，发送状态落 `eflow_tt_whatsapp_alert_log`。
 
+**消息内容 = `whatsapp-kb-bot` 的完整 TT 分析**（2026-09-29 按用户要求改）：
+
+| 段落 | 内容 |
+| --- | --- |
+| 头部 8 行 | 单号·站点｜标题 / 告警 / 告警对象 / 影响 / 级别 / 命中规则 / 判定依据 |
+| `[Milestone timeline]` | 9 个里程碑（告警发生→建单→接单→派单→填报→…），带耗时与经办人 |
+| `[Assignment basis]` | 创建/派单命中了哪条规则、路由到哪个组、命中条件 |
+| `[Timeliness]` | SLA 达成情况、目标时长、截止与剩余、故障持续时长 |
+
+> **不在本任务里自己拼这套格式**，而是子进程调
+> `Task/whatsapp-kb-bot/scripts/tt-analyze.py`（2175 行，纯标准库 + openpyxl）：
+> 那是**群里机器人回答问题时用的同一个引擎**，两份分析逻辑并存必然分叉，
+> 而「群里的分析」与「告警推送里的分析」不一致是最难排查的那类问题。
+> 封装见 `backend/services/tt_alarm_render.py`。
+>
+> **引擎读的是 SQLite 副本 `db/app.db`，不是生产的 PG**（`tt-analyze.py:57`），
+> 而该副本由 `pg_to_sqlite_sync` **每小时第 45 分**才刷新一次 —— 本任务却每 15 分钟跑一次。
+> 2026-09-29 实测到最坏情况：副本落后 **84 分钟**（SQLite 最新 `alarm_occur_time` 16:17
+> vs PG 17:41；17 点这一小时 PG 有 5 单、SQLite **0 单**）。
+>
+> 后果：**副本落后期间每一条新告警都会降级成 6 行模板** —— 这不是偶发异常，
+> 而是这个任务的常态，也正是用户报「发的信息不是我想要的」的真正原因。
+>
+> 修法是渲染前用 `tt_alarm_render._snapshot_tt()` 把**这一单**从 PG 抄进临时 SQLite，
+> 用 `MY_APP_DB` 指给引擎（只抄一单，开销与单量无关，实测每次 <50ms）。
+> 拿不到快照时退回镜像库 —— 宁可降级，也不能因快照失败就漏发整条告警。
+> 不去改引擎本身：它是 `whatsapp-kb-bot` 的共享组件（群机器人也在用），
+> 且它依赖 `immutable=1` 打开 SQLite，改成 PG 会牵动全文。
+>
+> **降级会在任务结果里显式暴露**（`degraded` 计数 + `errors` 里逐单原因），
+> 因为降级**不报错、照样发得出去**，只是内容从 ~30 行缩成 6 行 ——
+> 没有这个字段，运维只能靠群里的人问「这次信息怎么这么少」才发现。
+> 看到 `degraded > 0`，第一件事是查快照是否失败（`[TTAlert] 取 PG 单行失败`）。
+>
+> ⚠️ **超时是踩过的坑（2026-09-29）**：引擎单独跑只要 **0.3~0.5 秒**，
+> 但与 `pytest` 全量**并发**时曾超过 60 秒被判超时（读 1.5G 的 `app.db` + 两张 xlsx，
+> 抢磁盘所致，机器有 28 核并不慢）。故默认超时放宽到 **120 秒**
+> （`TT_ALERT_ANALYZE_TIMEOUT`）—— 这个引擎的耗时**对磁盘 IO 竞争极其敏感**，
+> 正常值是秒级，一旦排队就是几十秒，余量给足远好过把完整消息降级成残篇。
+>
+> 语言由 `TT_ALERT_LANG` 控制（默认 `en`）；超时 `TT_ALERT_ANALYZE_TIMEOUT`（默认 120s）；
+> 引擎路径可用 `TT_ALERT_ANALYZE_SCRIPT` 覆盖。引擎不存在时同样降级。
+> 契约由 `tests/test_tt_alarm_render.py` 锁定，其中真实层用真实单号逐字回放，
+> 新鲜度链路（快照建/删/传参/失败退回）另有 5 条单测 + 1 条突变验证防回归。
+
 **这张单的四个口径都可在页面上配置** —— 「设置 → 任务配置 → `eFlow P1 Alarm WhatsApp Push`」
 （配置文件 `backend/services/tt_alert_whatsapp_config.json`，注册在
 `backend/services/task_configs_registry.py`，读写实现见 `backend/services/task_config_files.py`）：
@@ -300,13 +346,22 @@ APScheduler 到点 (backend 进程内)
 > 近 7 天只有 2 张 P1 单且都已清除。要扩大推送面，在**页面上**把级别改成 `P1,P2`
 > 或放宽时间窗即可，**不需要改代码**。
 
-> **发送通道与当前边界**：后端只投递作业（`data/tt_alert_job.json`），由 Chrome 扩展在
-> 已登录的 WhatsApp Web 里发送并回报。**扩展侧的纯文本发送能力尚未实现**（现有扩展
-> 只发图片）；在此之前作业会被投递但无人认领，`send_status` 停在 `'N'` 并记 `last_error`
-> —— 这是刻意设计：**宁可状态如实为未发送，也不写假 `'Y'`**。
+> **发送通道**：后端只投递作业（`data/tt_alert_job.json`），由 Chrome 扩展在
+> 已登录的 WhatsApp Web 里发送并回报。**2026-09-29 起扩展已支持纯文本发送**
+> （`simpleSendTextViaDebugger`，剪贴板粘贴 + 可信回车），故作业会被真正认领并发出。
+> 在此之前扩展只发图片，作业投递后无人认领、`send_status` 停在 `'N'`。
+> 无论何时，**只有扩展回报的 `sent` 列表里的 `tt_no` 才会被置 `'Y'`** —— 超时或未确认
+> 一律写 `'N'` + `last_error`，**绝不写假 `'Y'`**。
+>
 > 群组在页面上配置，留空回退测试群 `test123` 并显式告警（见上文）。
-> 对接端点：`GET /api/whatsapp/tt-alert/job`（认领）、`POST /api/whatsapp/tt-alert/job/result`（回报）、
-> `GET /api/whatsapp/tt-alert/log`（核对发送状态）。
+>
+> **对接端点**：扩展实际走**统一认领口** `GET /api/whatsapp/ext/job`
+> （发图与文本两个作业源由 `backend/services/whatsapp_job_claim.py` 收敛，按 `kind` 分发）；
+> `GET/POST /api/whatsapp/tt-alert/job[/result]` 是文本作业的**独立自测通道**
+> （认领同一个作业文件，不会双发），`GET /api/whatsapp/tt-alert/log` 用于核对发送状态。
+> 改动这条交界时注意三个易错点：回报必须带 `kind`、作业体必须带 `pending: true`
+> （扩展据此判定有无作业）、文本回 `sent` 而发图回 `groups_sent`。
+> 契约由 `tests/test_whatsapp_job_claim.py` 锁定。
 
 **模块拆分**（单文件 500 行上限，故按职责拆开；改哪块去哪个文件）：
 
@@ -314,9 +369,11 @@ APScheduler 到点 (backend 进程内)
 | --- | --- |
 | `backend/services/tt_alarm_whatsapp_service.py` | 取数、节流、编排（任务入口 `run_tt_alarm_whatsapp_alert`） |
 | `backend/services/tt_alarm_config.py` | 配置读取、归一化、「留空」语义 |
-| `backend/services/tt_alarm_message.py` | 消息渲染（纯函数） |
+| `backend/services/tt_alarm_message.py` | 消息渲染（纯函数，**降级模板**：只出头部 6 行） |
+| `backend/services/tt_alarm_render.py` | **主渲染路径**：子进程调 kb-bot 分析引擎出完整消息 |
 | `backend/services/tt_alarm_job.py` | 投递作业状态机（`pending → running → done/failed`） |
 | `backend/services/tt_alarm_store.py` | 日志表建表与读写 |
+| `backend/services/whatsapp_job_claim.py` | **扩展作业统一认领口**（发图 + 文本两个源的收敛与回报分发） |
 
 ## 任务凭据分组对应表
 

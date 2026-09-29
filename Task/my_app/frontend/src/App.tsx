@@ -25,6 +25,7 @@ import {
   AreaChartOutlined,
   FundProjectionScreenOutlined,
   FundOutlined,
+  ContainerOutlined,
   DotChartOutlined,
   SafetyOutlined,
   PieChartOutlined,
@@ -84,6 +85,7 @@ const SpMaterialSummary = lazy(() => import('./pages/SpMaterialSummary'))
 const SpDetailsReport = lazy(() => import('./pages/SpDetailsReport'))
 const SpReport = lazy(() => import('./pages/SpReport'))
 const ComReport = lazy(() => import('./pages/ComReport'))
+const WarehouseSummary = lazy(() => import('./pages/WarehouseSummary'))
 const MsWoSLReport = lazy(() => import('./pages/MsWoSLReport'))
 const MsContractKpiReport = lazy(() => import('./pages/MsContractKpiReport'))
 const Overview = lazy(() => import('./pages/Overview'))
@@ -127,6 +129,8 @@ const CrChangeAnalysis = lazy(() => import('./pages/CrChangeAnalysis'))
 // PM 执行分析：按 PM 计划 (pmp_no) 看预防性维护工单的完成与超期（数据源 eflow_pm）
 const PmExecutionAnalysis = lazy(() => import('./pages/PmExecutionAnalysis'))
 const RanCellsKpi = lazy(() => import('./pages/RanCellsKpi'))
+// BP Report 劣化小区报告（umlaut 口径：日均三条件 / 周 4/7 天 / 月 3/4 个完整周）
+const BpReport = lazy(() => import('./pages/BpReport'))
 const CnKpi = lazy(() => import('./pages/CnKpi'))
 const NativeBoard = lazy(() => import('./pages/NativeBoard'))
 const UmeInKpi = lazy(() => import('./pages/UmeInKpi'))
@@ -164,9 +168,9 @@ const FINEBI_PAGE_TO_SLUG: Record<string, string> = Object.fromEntries(
   FINEBI_BOARDS.map((b) => [`finebi_${b.slug}`, b.slug]),
 )
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'tt' | 'wo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'avail_ms' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'cn_kpi' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'tt' | 'wo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'warehouse_summary' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'avail_ms' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'bp_report' | 'cn_kpi' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'avail_ms', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'cn_kpi', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'avail_ms', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'bp_report', 'cn_kpi', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -376,6 +380,8 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   cr_analysis: { icon: <FileDoneOutlined />, labelKey: 'nav.crAnalysis' },
   pm_analysis: { icon: <ScheduleOutlined />, labelKey: 'nav.pmAnalysis' },
   ran_cells_kpi: { icon: <AreaChartOutlined />, labelKey: 'nav.ranCellsKpi' },
+  // BP 劣化小区报告：用告警类图标，与「劣化」语义一致
+  bp_report: { icon: <AlertOutlined />, labelKey: 'nav.bpReport' },
   cn_kpi: { icon: <FundProjectionScreenOutlined />, labelKey: 'nav.cnKpi' },
   ume_in_kpi: { icon: <DotChartOutlined />, labelKey: 'nav.umeInKpi' },
   cxoDashboard: { icon: <PieChartOutlined />, labelKey: 'nav.cxoDashboard' },
@@ -402,6 +408,7 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   sp_details: { icon: <FileSearchOutlined />, labelKey: 'nav.spDetails' },
   sp_report: { icon: <BarChartOutlined />, labelKey: 'nav.spReport' },
   com_report: { icon: <FundOutlined />, labelKey: 'nav.comReport' },
+  warehouse_summary: { icon: <ContainerOutlined />, labelKey: 'nav.warehouseSummary' },
   ms_wo_sla: { icon: <FileDoneOutlined />, labelKey: 'nav.msWoSl' },
   ms_contract_kpi: { icon: <SolutionOutlined />, labelKey: 'nav.msContractKpi' },
   settings: { icon: <SettingOutlined />, labelKey: 'nav.settings' },
@@ -431,7 +438,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_analysis',
     labelKey: 'nav.grp.analysis',
-    items: ['overview', 'tables', 'upload', 'archive', 'dashboard', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report'],
+    items: ['overview', 'tables', 'upload', 'archive', 'dashboard', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary', 'bp_report'],
   },
   // 原生看板（原 my-finebi 看板逐个迁移而来，不依赖 my-finebi 进程）
   {
@@ -1268,6 +1275,8 @@ function AppContent() {
         return <PmExecutionAnalysis />
       case 'ran_cells_kpi':
         return <RanCellsKpi />
+      case 'bp_report':
+        return <BpReport />
       case 'cn_kpi':
         return <CnKpi />
       case 'ume_in_kpi':
@@ -1312,6 +1321,8 @@ function AppContent() {
         return <SpReport />
       case 'com_report':
         return <ComReport />
+      case 'warehouse_summary':
+        return <WarehouseSummary />
       case 'ms_wo_sla':
         return <MsWoSLReport />
       case 'ms_contract_kpi':

@@ -301,6 +301,33 @@ TASK_SPECS = [
          description_en="Rebuild the avail_recon availability reconciliation table (approx. aggregate of remote Site_Daily x Master_Site_Database region) into local data/avail_recon.sqlite3 for the Daily Availability KPI / Availability(TT) boards",
          default_cron="10 6 * * *", category="availability"),
 
+    # 10b-2. BP Report 劣化小区报告更新（每天 06:20，紧跟 avail_recon_sync）
+    #      为什么需要：BP Report 是 umlaut 口径的「劣化小区（Bad Performance）」清单
+    #      （Daily: 活跃用户>2.5 且 DL 吞吐<3Mbps 且 DL PRB>80%；Weekly 4/7 天；
+    #      Monthly 3/4 个完整周）。原始数据由 umlaut 以 Excel 交付，需要持续更新。
+    #      两条数据来路，分工明确：
+    #        ① Excel（data/umlaut_data/BP Report.xlsx）是一次性导入 —— 它提供
+    #           `BP Cells List` 的 **cell → Cluster/Layer 字典**，因为 RAN_UME 侧
+    #           完全没有 Cluster1~6/Rural 这套分区维度，无法从任何其它表推导。
+    #           导入脚本 backend/services/bp_report_import.py（手工执行，不在调度内）。
+    #        ② 本任务负责**指标更新**：从 RAN_UME 读 4G_Main_Kpi_Cell_Daily 的
+    #           PRB/吞吐/流量，重算 is_bp 并重算日/周/月汇总，写本机
+    #           data/bp_report.sqlite3，最后与 Excel 真值对账并写入 bp_sync_meta。
+    #      为什么排 06:20 且归 u 组：源表由同组的 main_kpi_sync(04:00) 写入，
+    #      同组串行 + 排队先后即可保证「先写后读」，也避免与写入方并发（与
+    #      avail_recon_sync 同一条理由）。实测单日约 1.2s、3 天约 3.5s。
+    #      ⚠️ 本任务**不新建 UME PM 模板** —— templateid 必须服务端已存在，
+    #      不可臆造；只复用已物化的那张表。
+    #      ⚠️ 口径不完整：Average DL Active User Number 在 RAN_UME 侧未采集
+    #      （最接近的 C373200029:Maximum Number of RRC Connection User 是峰值，
+    #      不等价），因此每日判定实际只覆盖两个条件、结果必然低于 Excel 真值。
+    #      该缺口已写入 bp_sync_meta 并由页面常驻告警，详见 services/bp_caliber.py。
+    dict(task_id="bp_report_sync", name="BP 劣化小区报告更新", name_en="BP Report Sync",
+         loader=("backend.services.bp_report_sync", "run_bp_report_sync"),
+         description="从 RAN_UME 读取 4G 小区级 PRB/吞吐/流量，按 umlaut 口径重算 BP 劣化小区（日/周/月），更新本机 data/bp_report.sqlite3 并与 Excel 真值对账",
+         description_en="Read per-cell 4G PRB/throughput/traffic from RAN_UME, recompute Bad Performance cells by the umlaut caliber (daily/weekly/monthly), refresh local data/bp_report.sqlite3 and reconcile against the Excel ground truth",
+         default_cron="20 6 * * *", category="availability"),
+
     # 10c. MTTR/TT 宽表重建（每天 07:40，紧跟 eflow_sync 的 07:22 那一轮）
     #      为什么需要：看板 mttr(id=15) 读 mttr_tt.sqlite3.tt_full，那是 Eflow_TT_FB 的
     #      宽表（Vender / MTTR1 / MTTR2 / MTTR_RANG_2H / Month / WK / Outage_Mins /

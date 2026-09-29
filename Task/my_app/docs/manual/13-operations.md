@@ -72,6 +72,60 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 | VMAX 90 天看板某指标断档 / 页面 Build 时间不动 | `data/olib_soc_report/olib_soc_report.sqlite3` 的 `daily_kpi` 表 | 见下方专节 |
 | 门户点开看板看到「需要登录：请先通过统一门户登录后再访问看板数据」 | 该浏览器的门户登录态是否有效（`localStorage` 的 `liberia_noc_auth_v1`） | **不一定是看板坏了**。my_app 认可三种身份来源：URL 深链 `?t=`、门户登录态、myapp 自身会话。目录里那串 `&t=` 是**门户会话 token**，而门户会话是**纯内存 + 12h 滑动过期、服务重启即清空**（门户 `server/auth/store.ts:32`），所以它**会过期**，目录里 21 条共用同一串、过期后一起失效 —— 这是常态而非本次改动引入。本机自测常看不出来，因为门户后端对 `localhost`/`127.0.0.1` 自动放行（`api.ts:474-485` 的换会话逻辑）。判据：让该用户重新登录门户再点。端到端回归：`python TMP\_verify_portal_card_click.py` |
 | 门户里少了 / 多了某张看板卡 | `backend\data\portal_catalog.json`（服务端全局目录，**53~54 条**） | 门户的看板清单**不在静态 assets 里**，而在服务端目录：`GET/PUT /api/portal-catalog`（`backend\routers\portal_catalog.py`，落盘 `backend\data\portal_catalog.json`，整体原子替换写）。改它请走接口而不是手改 JSON —— `_normalize_item`（`:205-257`）会校验 `titleZh/titleEn` 至少一个非空、`url` 必须以 `http(s)://` 开头，手改漏字段会让整份目录被丢掉。`no` 是分组成员覆盖与卡片锚点的键，**取当前最大号 +1，不复用已删编号**。回归：`python TMP\_verify_portal_ttwo_split.py` |
+| `/api/gis/sites` 间歇 500（`服务器内部错误，请稍后重试` + `request_id`） | 拿 `request_id` 去 `backend_runtime_<日期>.log` 搜 `[unhandled] rid=<id>`（**必须用当天那个日志文件**，后端每次重启会换文件，见 `backend_watchdog.py:47`） | 见下方专节「GIS 500：整表重建空窗」 |
+
+### GIS 500：整表重建空窗（2026-09-29 修复）
+
+**现象**：`?page=gis` 偶发 `GET /api/gis/sites?time_start=…&time_end=… 500`，刷新多半又好了；
+同一天里同一 URL 可能先 200、再 500。`request_id` 是唯一能定位的线索。
+
+**定位手法**（本次就是这么找到的）：
+
+```powershell
+# 拿前端报错里的 request_id 去当天日志里搜，会带出完整堆栈与真正的那一行
+Select-String -Path log\backend_runtime_20260929.log -Pattern 'rid=<你的 request_id>'
+```
+
+实测堆栈顶部落在 `gis.py` 的 `_collect_rt_alarm_stats` → `UndefinedTable: 关系 "realtime_alarm" 不存在`。
+
+**根因**：写端把整表**先删后建**，中间有一个「表不存在」的真实窗口，恰好落进去的读请求就 500。
+历史上两处都有这个问题：
+
+- `eflow_alarm_service.py` 的 `write_alarm_sqlite` / `write_history_alarm_sqlite`：显式 `DROP TABLE` + `CREATE TABLE`；
+- `_write_alarm_to_appdb`：对 `realtime_alarm` 走 `write_df(..., if_exists="replace")` ——
+  pandas 的 `replace` 同样是 `drop_table()` 后再建表并逐行插入（见 `pandas.io.sql.SQLTable.create`），
+  **这才是 `app.realtime_alarm` 消失的真正来源**（`gis.py` 读的正是这张表）。
+
+触发者是定时任务：`eflow_active_alarm` **每 30 分钟**（`task_registry.py:240`）、
+`eflow_history_alarm` **每 3 小时**（`:247`）各重建一次，所以故障是周期性的、且极易被当成"偶发抖动"。
+
+**修复**（两条一起才够）：
+
+1. **写端消除空窗**：改为「影子表灌满数据 → 原子顶替」。
+   ⚠️ **关键点：顶替必须是单条语句**。`_PsycopgRaw` 是 `autocommit=True`（`database.py:324`），
+   若拆成 `DROP` + `RENAME` 两次 `execute`，两次独立提交之间**仍有空窗** ——
+   实测并发读方仍能观测到 78~91 次 `UndefinedTable`，等于没修。
+   把两条 DDL 放进一个 `DO $$ … $$` 块后 PG 按单事务执行，实测 missing = 0。
+   SQLite 无 DO 块，但同连接内两条 DDL 处于同一隐式事务，不会中途提交。
+2. **读端降级**：`_collect_tt_stats` / `_collect_wo_stats` / `_collect_rt_alarm_stats` /
+   `_collect_his_alarm_stats` 统一走 `_run_stats_query()`，表瞬时不可用时**降级为空（计数显示 0）
+   而不是整页 500** —— GIS 地图是站点底图，不该因一张统计表抖动而打不开。
+   降级会打 `[gis/sites] <表名> 统计不可用，降级为 0` 的 WARNING，可据此判断是否又撞上了。
+
+**顺带修掉的隐患**：`_detect_gis_schema()` 原为**进程级永久缓存**，表一旦被判定存在就永不复核，
+`has_realtime_alarm` 恒为 `True`，兜底判断形同虚设；现改为 `_SCHEMA_TTL=300s` 的 TTL 缓存。
+
+**回归验证**（改这片前先跑）：
+
+```powershell
+# 端点正常性
+(Invoke-WebRequest 'http://127.0.0.1:7038/api/gis/sites?time_start=2026-09-22&time_end=2026-09-29' -UseBasicParsing).StatusCode
+# 全套后端测试（本次改动后 174 passed）
+python -m pytest tests\ --ignore=tests\test_frontend_deep.py --ignore=tests\test_frontend_e2e.py -q
+```
+
+> **改完必须重启后端才生效**（`pythonw.exe` 常驻，不会热加载）。
+> 排障时留意：**日志文件按天命名且随重启更换**，翻错文件会误判成"没报错"。
 
 ### KPI 残缺日的识别与修复（2026-09-24 事故）
 

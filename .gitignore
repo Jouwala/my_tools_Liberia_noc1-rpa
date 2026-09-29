@@ -225,6 +225,10 @@ Task/_fe_cloud/
 # 该目录此前仅靠 *.db 等扩展名规则"碰巧"没冒出来，这里补显式规则。
 /_myapp_trash_*/
 
+# nginx 巡检的运行态文件（计划任务 Nginx_EnsureRunning 每 5 分钟重写一次，不是源码）。
+# 同目录的 nginx_monitor.log 已被 *.log 覆盖；.state 没有扩展名规则能命中，补显式条目。
+Task/nginx_monitor.state
+
 # Office 崩溃恢复残留 / TS 增量缓存
 *.rpltmp
 *.tsbuildinfo

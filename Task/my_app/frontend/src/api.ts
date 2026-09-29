@@ -195,7 +195,7 @@ export function getSiteAvailabilityTickets(params?: Record<string, string>) {
   return api.get('/site-availability/tickets', { params })
 }
 
-// 可用率多维矩阵（page=avail_ms）：区域/制式/站点类型 × 日/周/月
+// MS Availability（page=avail_ms，可用率多维矩阵）：区域/制式/站点类型 × 日/周/月
 // 数据源：本机派生库 data/avail_recon.sqlite3（任务 avail_recon_sync 每天 06:10 重建），
 // 口径 = SUM(Numerator)/SUM(Denominator)，见 backend/services/avail_ms_service.py
 export function getAvailMsOptions() {
@@ -218,6 +218,38 @@ export function getAvailMsTrend(params: {
 // params: level=period|tt / period / value / region(ALL|区域名|UNMATCHED) / tech / site_type / threshold
 export function getAvailMsDrilldown(params: Record<string, string | number>) {
   return api.get('/avail-ms/drilldown', { params })
+}
+
+// FLM 可用率（page=avail_flm）：区域为行、制式/站点类型为列 + 页面级 TT 列表
+// 与 avail_ms 同库同口径（后端复用同一套聚合），差别只在行列摆法与那张 TT 列表，
+// 两条已确认的口径（站点类型不做范围限制、TT 不做影响判定）见 backend/services/avail_flm_service.py
+export function getAvailFlmOptions() {
+  return api.get('/avail-flm/options')
+}
+
+// params: period=day|week|month / value=周期值（空=库里最新一期） / threshold=未达标比率
+export function getAvailFlmMatrix(params: { period: string; value?: string; threshold?: number }) {
+  return api.get('/avail-flm/matrix', { params })
+}
+
+// 本页两组曲线：区域趋势 + 站点类型趋势（后端已按本页的行列收窄，不再含 ALL / Other）
+export function getAvailFlmTrend(params: {
+  period: string; value?: string; points?: number; threshold?: number
+}) {
+  return api.get('/avail-flm/trend', { params })
+}
+
+// 本期全部 TT 工单（页面级列表与下钻「相关 TT 工单」页签共用）
+// params: period / value / region（空或 ALL=全部区域） / site_type（空=全部）
+export function getAvailFlmTt(params: {
+  period: string; value?: string; region?: string; site_type?: string
+}) {
+  return api.get('/avail-flm/tt', { params })
+}
+
+// params: level=period|tt / period / value / region / tech / site_type / threshold（与 avail-ms 同形）
+export function getAvailFlmDrilldown(params: Record<string, string | number>) {
+  return api.get('/avail-flm/drilldown', { params })
 }
 
 // CN KPI 看板（原 my-finebi「CN KPI」看板原生重建）
@@ -315,8 +347,40 @@ export function getRanCellsKpiCells(params?: Record<string, string | number>) {
   return api.get('/ran-cells-kpi/cells', { params })
 }
 
+// BP Report 劣化小区报告（umlaut 口径：日均三条件 / 周 4/7 天 / 月 3/4 个完整周）
+// 数据源：本机派生库 data/bp_report.sqlite3（Excel 一次性导入 + bp_report_sync 每日更新）
+// ⚠️ 口径不完整：Average DL Active User Number 在 RAN_UME 侧未采集，
+//    返回体 meta.active_user.available=false，页面须常驻告警，不要隐藏。
+// params: start=YYYY-MM-DD / end=YYYY-MM-DD / granularity=day|week|month
+export function getBpReportOverview(params?: Record<string, string | number>) {
+  return api.get('/bp-report/overview', { params })
+}
+
+// BP Report 分区维度（Cluster1~6 / Rural / ERA / Unknown），对应 Excel 的 Regional - Daily
+// params: start / end / region
+export function getBpReportRegional(params?: Record<string, string | number>) {
+  return api.get('/bp-report/regional', { params })
+}
+
+// BP Report 频层维度（L800 / L1800 20M / L1800 15M / L1800 10M / L2600 / Unknown）
+// params: start / end / region / layer
+export function getBpReportLayer(params?: Record<string, string | number>) {
+  return api.get('/bp-report/layer', { params })
+}
+
+// BP Report 小区明细（**下钻**）：scope=bp 的行数 == 概览的 summary.bp_cells
+// params: day=YYYY-MM-DD 或 start/end / region / layer
+//         / scope=bp|nonbp|undecidable|all / limit
+export function getBpReportCells(params?: Record<string, string | number>) {
+  return api.get('/bp-report/cells', { params })
+}
+
+// BP Report 口径说明、脏值统计、同步状态与对账差异
+export function getBpReportMeta() {
+  return api.get('/bp-report/meta')
+}
+
 // 客户业务 KPI（UME Dong customer 周度指标：IVR / P4M / VC / USSD / PPS / CPU / Memory）
-// 数据源：主库表 ume_in_customer_kpi，由 ume_in_kpi_sync 任务（每日 05:45）写入。
 // params: days=7|14|30（回看天数，按已有数据的最后 N 天）
 export function getUmeInOverview(params?: Record<string, string | number>) {
   return api.get('/ume-in/overview', { params })
@@ -375,6 +439,9 @@ export function getSpDetailsFilters(sheet: string) {
 export type SpReportKind = 'spareparts' | 'consumables'
 
 // 统计卡片 + 各 sheet 元信息 + 每日矩阵 + 报表自带口径说明
+// 另含「仓库汇总报表」页（page=warehouse_summary）用的两块：
+//   warehouse_summary    WH/DOP × 库存·全量消耗·本月·本周（含 Total 行）
+//   frequent_materials   高频消耗物料 Top N + 全量 Total 行
 export function getSpReportSummary(kind: SpReportKind) {
   return api.get('/sp-report/summary', { params: { kind } })
 }

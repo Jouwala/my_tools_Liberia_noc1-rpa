@@ -1,13 +1,19 @@
 /* ============================================================================
- * AvailMsTrend.tsx —— 可用率多维矩阵页的三个维度曲线图（多序列折线）
+ * AvailTrend.tsx —— 可用率趋势曲线图（多序列折线 + 阈值虚线 + 点可下钻）
  * ----------------------------------------------------------------------------
- * 与矩阵表同源同口径：每个点 = 该维度取值在那一期的 SUM(分子)/SUM(分母)，
- * 所以曲线上的点也能直接下钻到明细（点 -> openDrill + 该点所在周期值）。
+ * 每个点 = 该维度取值在那一期的 SUM(分子)/SUM(分母)，与矩阵表同源同口径，
+ * 所以曲线上的点也能直接下钻到明细（点 -> onPoint(维度取值, 该点所在周期)）。
  *
- * 为什么不与下钻弹窗里那张趋势图合并成一个组件：那张是「单个单元格」的单序列小图，
- * 这张是「整个维度」的多序列图，还要图例、缺失点断线、阈值虚线只画一条、点取下钻，
- * props 与交互都不同。按 AGENTS.md 第三节原则 7，抽象要等第二个**同形**用例出现，
- * 现在这两个只是长得像，硬合并会做出一个两边都别扭的组件。
+ * 这是 `avail_ms` 与 `avail_flm` 两页共用的组件（放 pages/ 下而非 components/，
+ * 同 `MsKpiShared.tsx` 的做法：它是"可用率"这一族页面的共享件，不是通用 UI）。
+ * 2026-09-28 从 AvailMsTrend.tsx 改名提上来 —— avail_flm 页是第二个**同形**用例
+ * （多序列 + 图例 + 缺失断线 + 阈值线 + 点取下钻，props 完全一致），
+ * 按 AGENTS.md 第三节原则 1「抽象延迟到第二个真实用例出现」正是该抽的时候。
+ *
+ * 注意它**仍然不与下钻弹窗里的那张趋势图合并**：那张是单个单元格的单序列小图，
+ * 没有图例、没有点取下钻需求，合并只会做出两边都别扭的组件。
+ *
+ * 文案用 `common.*` 而不是某一页的键：同一个组件被两页复用，挂在哪一页的命名空间下都会误导。
  * ========================================================================== */
 import { useMemo } from 'react'
 import { Empty } from 'antd'
@@ -35,10 +41,14 @@ interface Props {
   /** 点某个数据点：回调维度取值 + 该点所在周期值 */
   onPoint?: (key: string, value: string) => void
   height?: number
+  /** 无数据时的空态文案（各页自己传，避免共用组件里出现某页专有的键） */
+  emptyText: string
+  /** 图下口语义：电话里说的"这条线是什么" */
+  ariaText: string
 }
 
-export default function AvailMsTrend({
-  categories, series, thresholdPct, labelOf, onPoint, height = 230,
+export default function AvailTrend({
+  categories, series, thresholdPct, labelOf, onPoint, height = 230, emptyText, ariaText,
 }: Props) {
   const { t } = useI18n()
   const { isDark, palette, colors } = useTheme()
@@ -65,7 +75,7 @@ export default function AvailMsTrend({
             return `<div style="display:flex;gap:8px;align-items:center">${p.marker}`
               + `<span style="flex:1">${p.seriesName}</span><b>${txt}</b></div>`
           }).join('')
-          const foot = `<div style="opacity:.65;font-size:11px;margin-top:4px">${t('availMs.trendFracHint')}</div>`
+          const foot = `<div style="opacity:.65;font-size:11px;margin-top:4px">${t('common.trendFracHint')}</div>`
           return head + rows + foot
         },
       },
@@ -123,10 +133,10 @@ export default function AvailMsTrend({
     }
   }, [categories, series, thresholdPct, labelOf, isDark, palette, colors, t])
 
-  if (!series.length || !categories.length) return <Empty description={t('availMs.empty')} />
+  if (!series.length || !categories.length) return <Empty description={emptyText} />
 
   return (
-    <div role="img" aria-label={t('availMs.trendAria')}>
+    <div role="img" aria-label={ariaText}>
       <ReactECharts
         option={option}
         style={{ height }}

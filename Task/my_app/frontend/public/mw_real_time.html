@@ -22,10 +22,9 @@
     --surface-bg:var(--panel); --surface-shadow:none;
     --line-soft:rgba(22,35,59,.12);
     /* 健康度色阶在浅底上要更深才可读：取值与改动前 `.lvl-*` 与 `.dot-*` 的浅色观感一致
-       （原文件里 healthy/minor/moderate/critical/unknown 走的是浅色变量，
-       negligible/major 是两档共用的硬编码值）。 */
-    --vmax-lvl-healthy:#0f9d6b; --vmax-lvl-negligible:#94d82d; --vmax-lvl-minor:#b45309;
-    --vmax-lvl-moderate:#c2410c; --vmax-lvl-major:#ff7a45; --vmax-lvl-critical:#d92d20;
+       （2026-09-29 由 6 级合并为 4 级，negligible/moderate 两个令牌已随之下线）。 */
+    --vmax-lvl-healthy:#0f9d6b; --vmax-lvl-minor:#b45309;
+    --vmax-lvl-major:#c2410c; --vmax-lvl-critical:#d92d20;
     --vmax-lvl-unknown:#94a3b8;
     --vmax-green-soft:#94d82d;
     /* 提示徽标 .kpi .k-why 的底原本是**与主题无关**的 rgba(255,255,255,.08)
@@ -85,8 +84,16 @@
   input[type="search"]{width:150px}
   .lbl{color:var(--muted); font-size:0.75rem; white-space:nowrap}
   /* ---------- KPI row ---------- */
+  /* 用 auto-fit 自适应列数，不再写死列数。
+     踩坑记录：这里原先是 `repeat(10,1fr)`，与当时的 10 张卡片一一对应；
+     2026-09-29 分级由 6 级合并为 4 级时卡片减到 8 张，但列数忘了同步改，
+     于是最后 2 条轨道空着 —— 表现为「第一行没有铺满到右边」。
+     改成 auto-fit + minmax 后，卡片增减都不会再出现这种错配：
+     列宽不小于 7.5rem，能塞几列就塞几列，多余轨道自动合并。
+     （不用 auto-fill：它会把空轨道也画出来，同样铺不满。） */
   #kpis{
-    display:grid; grid-template-columns:repeat(10,1fr); gap:0.625rem; padding:0.625rem 0.875rem; flex:0 0 auto;
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(7.5rem, 1fr));
+    gap:0.625rem; padding:0.625rem 0.875rem; flex:0 0 auto;
   }
   .kpi{background:var(--surface-bg); border:1px solid var(--line); border-radius:10px; padding:0.5rem 0.6rem; min-width:0;
     box-shadow:var(--surface-shadow)}
@@ -95,11 +102,18 @@
   .kpi .k-sub{font-size:0.688rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .kpi.green .k-val{color:var(--green)} .kpi.yellow .k-val{color:var(--yellow)}
   .kpi.orange .k-val{color:var(--orange)} .kpi.red .k-val{color:var(--red)}
-  .kpi.lime .k-val{color:var(--vmax-green-soft)} .kpi.tomato .k-val{color:var(--vmax-lvl-major)}
   .kpi.blue .k-val{color:var(--accent)}
   /* ---------- main body ---------- */
   #main{flex:1; display:flex; gap:0.625rem; padding:0 0.875rem 0.625rem; min-height:0}
-  #left{flex:1; display:flex; flex-direction:column; gap:0.625rem; min-width:0; min-height:0}
+  /* 左右分栏口径（2026-09-29 用户要求「地图宽度减为当前的 75%，剩下的宽度给右边 3 个组件」）：
+     原先 #left 是 flex:1（吃掉全部剩余宽度）、#right 固定 360px。现改为按比例分：
+     用百分比 flex-basis 而不是 width：#main 是 flex 行容器，flex-basis 才是参与分配的依据，
+     且 #left 若写 width 会被其他规则里的 flex 简写覆盖。
+     两侧 shrink 的取舍：#left 用 flex:0 0 75%（不收缩），#right 用 flex:1 1 25%。
+     于是 #main 的 10px gap 全部由可收缩的 #right 让出，地图稳定拿到 75%（不含 gap）。
+     若两者都可收缩，gap 会按比例摊到两边，地图实际宽度会略小于 75%。
+     min-width:0 两侧都保留：地图与右栏内部都有 overflow/省略号，缺了会把容器撑破。 */
+  #left{flex:0 0 75%; display:flex; flex-direction:column; gap:0.625rem; min-width:0; min-height:0}
   #topo-wrap{flex:1; background:var(--surface-bg); border:1px solid var(--line); border-radius:10px;
     box-shadow:var(--surface-shadow);
     display:flex; flex-direction:column; min-height:0; position:relative}
@@ -107,8 +121,14 @@
   #topo-head h3{font-size:0.812rem; font-weight:600}
   #topo{flex:1; min-height:0}
   #topo-hint{position:absolute; right:10px; bottom:8px; font-size:0.688rem; color:var(--muted); pointer-events:none}
-  #right{width:320px; flex:0 0 auto; display:flex; flex-direction:column; gap:0.625rem; min-height:0}
-  #risks{flex:1; background:var(--surface-bg); border:1px solid var(--line); border-radius:10px;
+  /* 右栏吃下地图让出的 25%（见上方 #left 的注释）。原先固定 360px 是「地图优先」的写法，
+     改成 flex:1 后右栏宽度随视口自适应，宽屏下三张卡片（Top Risk / Trend / Distribution）
+     的可读性都随之变好。
+     min-width 取 260px 只作「防压扁」兜底，不参与日常比例：按 25% 算，只有视口窄于
+     ~1030px 时这条才会生效（此时右栏已小于 260px，三张卡的表头与数值会开始互相挤压）。
+     大于该宽度时严格是 75 : 25。 */
+  #right{flex:1 1 25%; min-width:260px; display:flex; flex-direction:column; gap:0.625rem; min-height:0}
+  #risks{flex:1 1 auto; background:var(--surface-bg); border:1px solid var(--line); border-radius:10px;
     box-shadow:var(--surface-shadow);
     display:flex; flex-direction:column; min-height:0}
   #risks h3{font-size:0.812rem; font-weight:600; padding:0.5rem 0.75rem; border-bottom:1px solid var(--line-soft)}
@@ -125,8 +145,12 @@
   .risk-item .r-sub{font-size:0.688rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .risk-item .r-pct{font-size:0.938rem; font-weight:700; font-variant-numeric:tabular-nums; flex:0 0 auto}
   .risk-item .r-txrx{font-size:0.625rem; color:var(--muted); flex:0 0 auto; text-align:right; line-height:1.3}
-  /* ---------- bottom ---------- */
-  #bottom{flex:0 0 auto; display:flex; gap:0.625rem; padding:0 0.875rem 0.625rem}
+  /* ---------- bottom（已并入 #right 右栏；保留容器以兼容既有脚本/样式钩子） ---------- */
+  #bottom{display:none}
+  /* 右栏下半部分两张图表卡：固定高度、随右栏宽度自适应，地图拿到剩余全部高度 */
+  #right .card{flex:0 0 auto; display:flex; flex-direction:column; padding:0.5rem 0.75rem}
+  #trend-card .chart{height:132px}
+  #dist-card .chart{height:132px}
   .card{background:var(--surface-bg); border:1px solid var(--line); border-radius:10px; padding:0.5rem 0.75rem; flex:1;
     box-shadow:var(--surface-shadow)}
   .card h3{font-size:0.812rem; font-weight:600; margin-bottom:0.375rem}
@@ -182,7 +206,7 @@
   .d-tr-val{font-size:1.375rem; font-weight:700; line-height:1.1; margin-top:0.25rem; font-variant-numeric:tabular-nums}
   .d-tr-sub{font-size:0.625rem; color:var(--muted); margin-top:0.125rem}
   .d-tr-u{font-size:0.875rem; font-weight:700; margin-top:0.375rem; font-variant-numeric:tabular-nums}
-  .d-tr.u-crit{color:var(--vmax-lvl-critical)} .d-tr.u-major{color:var(--vmax-lvl-major)} .d-tr.u-mod{color:var(--vmax-lvl-moderate)} .d-tr.u-minor{color:var(--vmax-lvl-minor)} .d-tr.u-neg{color:var(--vmax-lvl-negligible)} .d-tr.u-ok{color:var(--vmax-lvl-healthy)}
+  .d-tr.u-crit{color:var(--vmax-lvl-critical)} .d-tr.u-major{color:var(--vmax-lvl-major)} .d-tr.u-minor{color:var(--vmax-lvl-minor)} .d-tr.u-ok{color:var(--vmax-lvl-healthy)}
   /* trend */
   .d-trend-card{
     border:1px solid var(--line-soft); border-radius:10px; padding:0.625rem 0.75rem; margin-bottom:0.875rem;
@@ -197,10 +221,10 @@
   .d-cps-hint{font-size:0.625rem; color:var(--muted); margin-top:0.375rem}
   .d-cps{margin-top:0.375rem}
   .badge{font-size:0.625rem; padding:0.062rem 0.375rem; border-radius:8px; margin-left:0.375rem; vertical-align:middle}
-  .lvl-healthy{color:var(--vmax-lvl-healthy)} .lvl-negligible{color:var(--vmax-lvl-negligible)} .lvl-minor{color:var(--vmax-lvl-minor)}
-  .lvl-moderate{color:var(--vmax-lvl-moderate)} .lvl-major{color:var(--vmax-lvl-major)} .lvl-critical{color:var(--vmax-lvl-critical)} .lvl-unknown{color:var(--vmax-lvl-unknown)}
-  .dot-healthy{background:var(--vmax-lvl-healthy)} .dot-negligible{background:var(--vmax-lvl-negligible)} .dot-minor{background:var(--vmax-lvl-minor)}
-  .dot-moderate{background:var(--vmax-lvl-moderate)} .dot-major{background:var(--vmax-lvl-major)} .dot-critical{background:var(--vmax-lvl-critical)} .dot-unknown{background:var(--vmax-lvl-unknown)}
+  .lvl-healthy{color:var(--vmax-lvl-healthy)} .lvl-minor{color:var(--vmax-lvl-minor)}
+  .lvl-major{color:var(--vmax-lvl-major)} .lvl-critical{color:var(--vmax-lvl-critical)} .lvl-unknown{color:var(--vmax-lvl-unknown)}
+  .dot-healthy{background:var(--vmax-lvl-healthy)} .dot-minor{background:var(--vmax-lvl-minor)}
+  .dot-major{background:var(--vmax-lvl-major)} .dot-critical{background:var(--vmax-lvl-critical)} .dot-unknown{background:var(--vmax-lvl-unknown)}
   .empty{color:var(--muted); text-align:center; padding:1.875rem 0.625rem; font-size:0.75rem}
   /* scrollbar */
   ::-webkit-scrollbar{width:8px; height:8px}
@@ -331,11 +355,13 @@ img, svg, canvas, iframe { max-width: 100%; }
   header input[type="search"] { flex: 1; width: 100%; min-width: 120px; max-width: 100%; }
   #kpis { grid-template-columns: repeat(2, 1fr); flex: 0 0 auto; }
   #main { flex: 0 0 auto; display: block; padding: 0 .75rem .5rem; min-height: auto; }
-  #right { width: 100%; display: none; }
+  /* 窄屏回到上下堆叠：必须把桌面端的 75%/25% 分栏显式复位成整宽，
+     否则 #left 的 flex-basis:75% 会在块级父容器里继续生效、把地图压成 3/4 宽。 */
+  #right { width: 100%; flex: 0 0 auto; min-width: 0; display: none; }
   #right.mobile-show { display: flex; max-height: 42vh; }
-  #left { display: block; }
+  #left { display: block; flex: 0 0 auto; }
   #topo-wrap { min-height: 280px; height: 320px; }
-  #bottom { flex: 0 0 auto; display: block; padding: 0 .75rem .5rem; }
+  #bottom { display: none; }
   #bottom .card { min-height: 180px; margin-bottom: .5rem; }
   #drawer { width: 100%; right: -100%; }
   #topo-wrap.max { inset: .5rem; }
@@ -375,12 +401,10 @@ img, svg, canvas, iframe { max-width: 100%; }
       <button type="button" class="btn" id="btn-level"><span data-i18n="topo.level">级别</span> ▾</button>
       <div class="msel-menu" id="level-menu">
         <label class="chk"><input type="checkbox" id="lv-all" checked> <span data-i18n="topo.lvlAll">全部</span></label>
-        <label class="chk"><input type="checkbox" id="lv-critical" value="critical"> <span data-i18n="topo.lvlCrit">Critical &gt;90%</span></label>
-        <label class="chk"><input type="checkbox" id="lv-major" value="major"> <span data-i18n="topo.lvlMajor">Major 80-90%</span></label>
-        <label class="chk"><input type="checkbox" id="lv-moderate" value="moderate"> <span data-i18n="topo.lvlModerate">Moderate 70-80%</span></label>
+        <label class="chk"><input type="checkbox" id="lv-critical" value="critical"> <span data-i18n="topo.lvlCrit">Critical &gt;80%</span></label>
+        <label class="chk"><input type="checkbox" id="lv-major" value="major"> <span data-i18n="topo.lvlMajor">Major 70-80%</span></label>
         <label class="chk"><input type="checkbox" id="lv-minor" value="minor"> <span data-i18n="topo.lvlMinor">Minor 60-70%</span></label>
-        <label class="chk"><input type="checkbox" id="lv-negligible" value="negligible"> <span data-i18n="topo.lvlNegligible">Negligible 50-60%</span></label>
-        <label class="chk"><input type="checkbox" id="lv-healthy" value="healthy"> <span data-i18n="topo.lvlOk">Healthy &lt;50%</span></label>
+        <label class="chk"><input type="checkbox" id="lv-healthy" value="healthy"> <span data-i18n="topo.lvlOk">Healthy &lt;60%</span></label>
         <label class="chk"><input type="checkbox" id="lv-unknown" value="unknown"> <span data-i18n="topo.lvlUnknown">Unknown (no KPI)</span></label>
       </div>
     </div>
@@ -398,12 +422,10 @@ img, svg, canvas, iframe { max-width: 100%; }
   <div id="kpis">
     <div class="kpi blue" data-kpi="nodes" data-why="nodes"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.nodes">Network Nodes</div><div class="k-val" id="k-nodes">—</div><div class="k-sub" id="k-nodes-sub" data-i18n="kpi.nodesSub">全网网元</div><div class="kpi-tooltip" data-i18n="why.nodes">链路上的网元(站 + 端口)数量</div></div>
     <div class="kpi blue" data-kpi="links" data-why="links"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.links">Links</div><div class="k-val" id="k-links">—</div><div class="k-sub" id="k-links-sub" data-i18n="kpi.linksSub">链路</div><div class="kpi-tooltip" data-i18n="why.links">物理链路中已获取 KPI 数据的链路数</div></div>
-    <div class="kpi green" data-kpi="healthy" data-why="healthy"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.healthy">Healthy</div><div class="k-val" id="k-healthy">—</div><div class="k-sub" data-i18n="kpi.lt50">&lt; 50%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对(PM Checkpoint)的 max(TX%,RX%)，&lt;50% 计 1 条</div></div>
-    <div class="kpi lime" data-kpi="negligible" data-why="negligible"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.negligible">Negligible</div><div class="k-val" id="k-negligible">—</div><div class="k-sub" data-i18n="kpi.r5060">50 – 60%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，50–60% 计 1 条</div></div>
-    <div class="kpi yellow" data-kpi="minor" data-why="minor"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.minor">Minor</div><div class="k-val" id="k-minor">—</div><div class="k-sub" data-i18n="kpi.r6070">60 – 70%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，60–70% 计 1 条</div></div>
-    <div class="kpi orange" data-kpi="moderate" data-why="moderate"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.moderate">Moderate</div><div class="k-val" id="k-moderate">—</div><div class="k-sub" data-i18n="kpi.r7080">70 – 80%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，70–80% 计 1 条</div></div>
-    <div class="kpi tomato" data-kpi="major" data-why="major"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.major">Major</div><div class="k-val" id="k-major">—</div><div class="k-sub" data-i18n="kpi.r8090">80 – 90%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，80–90% 计 1 条</div></div>
-    <div class="kpi red" data-kpi="critical" data-why="critical"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.critical">Critical</div><div class="k-val" id="k-critical">—</div><div class="k-sub" data-i18n="kpi.gt90">&gt; 90%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，&gt;90% 计 1 条</div></div>
+    <div class="kpi green" data-kpi="healthy" data-why="healthy"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.healthy">Healthy</div><div class="k-val" id="k-healthy">—</div><div class="k-sub" data-i18n="kpi.lt60">&lt; 60%</div><div class="kpi-tooltip" data-i18n="why.healthy">链路级：聚合所有端口对的 max(TX%,RX%)，&lt;60% 计 1 条（含原 50–60% 档）</div></div>
+    <div class="kpi yellow" data-kpi="minor" data-why="minor"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.minor">Minor</div><div class="k-val" id="k-minor">—</div><div class="k-sub" data-i18n="kpi.r6070">60 – 70%</div><div class="kpi-tooltip" data-i18n="why.minor">链路级：聚合所有端口对的 max(TX%,RX%)，60–70% 计 1 条</div></div>
+    <div class="kpi orange" data-kpi="major" data-why="major"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.major">Major</div><div class="k-val" id="k-major">—</div><div class="k-sub" data-i18n="kpi.r7080">70 – 80%</div><div class="kpi-tooltip" data-i18n="why.major">链路级：聚合所有端口对的 max(TX%,RX%)，70–80% 计 1 条</div></div>
+    <div class="kpi red" data-kpi="critical" data-why="critical"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.critical">Critical</div><div class="k-val" id="k-critical">—</div><div class="k-sub" data-i18n="kpi.gt80">&gt; 80%</div><div class="kpi-tooltip" data-i18n="why.critical">链路级：聚合所有端口对的 max(TX%,RX%)，&gt;80% 计 1 条（含原 80–90% 档）</div></div>
     <div class="kpi" style="background:var(--panel);border-color:var(--line);color:var(--muted)" data-kpi="unknown" data-why="unknown"><div class="k-label" data-i18n="kpi.unknown">Unknown</div><div class="k-val" id="k-unknown">—</div><div class="k-sub" data-i18n="kpi.noKpi">no KPI</div><div class="kpi-tooltip" data-i18n="why.unknown">物理链路中尚无 KPI 数据的链路数</div></div>
     <div class="kpi red" data-kpi="max" data-why="max"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.max">Max Utilization</div><div class="k-val" id="k-max">—</div><div class="k-sub" id="k-max-sub">—</div><div class="kpi-tooltip" data-i18n="why.max">全网利用率最高的单条链路</div></div>
   </div>
@@ -429,19 +451,18 @@ img, svg, canvas, iframe { max-width: 100%; }
         <input type="search" id="risk-search" data-i18n-ph="risks.search" placeholder="过滤 Critical 站点…">
         <div id="risk-list"><div class="empty" data-i18n="risks.empty">加载中…</div></div>
       </div>
+      <div class="card" id="trend-card">
+        <h3><span data-i18n="trend.title">Network Utilization Trend</span> <span style="color:var(--muted);font-weight:400;font-size:0.688rem" id="trend-note" data-i18n="trend.note">（每日 05:15 自动累积）</span> <span class="k-why" title="?" data-i18n-title="why.trend" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.08);color:var(--muted);font-size:0.625rem;font-weight:700;line-height:14px;text-align:center;cursor:help;vertical-align:middle">?</span></h3>
+        <div id="trend" class="chart"></div>
+      </div>
+      <div class="card" id="dist-card">
+        <h3 data-i18n="dist.title">链路健康度分布</h3>
+        <div id="dist" class="chart"></div>
+      </div>
     </div>
   </div>
 
-  <div id="bottom">
-    <div class="card" style="flex:1.4">
-      <h3><span data-i18n="trend.title">Network Utilization Trend</span> <span style="color:var(--muted);font-weight:400;font-size:0.688rem" id="trend-note" data-i18n="trend.note">（每日 05:15 自动累积）</span> <span class="k-why" title="?" data-i18n-title="why.trend" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.08);color:var(--muted);font-size:0.625rem;font-weight:700;line-height:14px;text-align:center;cursor:help;vertical-align:middle">?</span></h3>
-      <div id="trend" class="chart" style="height:150px"></div>
-    </div>
-    <div class="card" style="flex:1">
-      <h3 data-i18n="dist.title">链路健康度分布</h3>
-      <div id="dist" class="chart" style="height:150px"></div>
-    </div>
-  </div>
+  <div id="bottom"></div>
 
 <div id="drawer-mask"></div>
 <div id="drawer">
@@ -512,9 +533,9 @@ const I18N = {
   zh: {
     'app.subtitle':'微波网络实时', 'app.gran':'15 分钟',
     'topo.layout':'布局', 'topo.force':'逻辑拓扑', 'topo.geo':'地理拓扑',
-    'topo.level':'级别', 'topo.lvlAll':'全部', 'topo.lvlCrit':'Critical >90%',
-    'topo.lvlMajor':'Major 80-90%', 'topo.lvlModerate':'Moderate 70-80%', 'topo.lvlMinor':'Minor 60-70%',
-    'topo.lvlNegligible':'Negligible 50-60%', 'topo.lvlOk':'Healthy <50%',
+    'topo.level':'级别', 'topo.lvlAll':'全部', 'topo.lvlCrit':'Critical >80%',
+    'topo.lvlMajor':'Major 70-80%', 'topo.lvlMinor':'Minor 60-70%',
+    'topo.lvlOk':'Healthy <60%',
     'topo.lvlUnknown':'Unknown (no KPI)',
     'topo.label':'TX/RX 标签', 'topo.search':'搜索站点 / IP…', 'topo.refresh':'刷新',
     'topo.title':'网络拓扑', 'topo.hint':'滚轮缩放 · 拖拽平移 · 悬停查看 · 点击链路看详情',
@@ -528,8 +549,8 @@ const I18N = {
     'trend.title':'Network Utilization Trend', 'trend.note':'（每 15 分钟自动更新）',
     'trend.avg':'平均利用率', 'trend.max':'最高利用率', 'trend.crit':'紧急链路',
     'dist.title':'链路健康度分布',
-    'dist.health':'Healthy <50%', 'dist.negligible':'Negligible 50-60%', 'dist.minor':'Minor 60-70%',
-    'dist.moderate':'Moderate 70-80%', 'dist.major':'Major 80-90%', 'dist.crit':'Critical >90%',
+    'dist.health':'Healthy <60%', 'dist.minor':'Minor 60-70%',
+    'dist.major':'Major 70-80%', 'dist.crit':'Critical >80%',
     'dist.unknown':'Unknown',
     'drawer.title':'链路详情', 'drawer.capacity':'总链路容量',
     'drawer.nodeIp':'Node IP', 'drawer.interface':'接口 (PM)',
@@ -537,15 +558,18 @@ const I18N = {
     'drawer.trend':'Historical Trend (24H)', 'drawer.note':'当前数据粒度: 15 分钟（每 15 分钟自动同步，仅展示最新槽位值）。',
     'drawer.cps':'端口级明细', 'drawer.noCp':'无端口级明细', 'drawer.locate':'定位到拓扑', 'drawer.close':'关闭',
     'kpi.nodes':'网络节点', 'kpi.nodesSub':'全网网元', 'kpi.links':'链路', 'kpi.linksSub':'分级链路',
-    'kpi.healthy':'正常', 'kpi.negligible':'轻微', 'kpi.minor':'次要', 'kpi.moderate':'中等', 'kpi.major':'重要', 'kpi.critical':'紧急', 'kpi.max':'最高利用率',
-    'kpi.lt50':'< 50%', 'kpi.r5060':'50 – 60%', 'kpi.r6070':'60 – 70%', 'kpi.r7080':'70 – 80%', 'kpi.r8090':'80 – 90%', 'kpi.gt90':'> 90%',
+    'kpi.healthy':'正常', 'kpi.minor':'次要', 'kpi.major':'重要', 'kpi.critical':'紧急', 'kpi.max':'最高利用率',
+    'kpi.lt60':'< 60%', 'kpi.r6070':'60 – 70%', 'kpi.r7080':'70 – 80%', 'kpi.gt80':'> 80%',
     'kpi.unknown':'未知', 'kpi.noKpi':'无KPI',
     'st.refreshing':'刷新中…', 'st.live':'已更新', 'st.partial':'部分更新', 'st.offline':'离线',
     'why.nodes':'链路上的网元(站 + 端口)数量',
     'why.links':'ME↔Neighbor ME 唯一链路对数（每条链路 1 个）',
-    'why.linkLevel':'链路级：聚合所有端口对(PM Checkpoint)的 max(TX%,RX%)，≥阈值计 1 条',
+    'why.healthy':'链路级：聚合所有端口对的 max(TX%,RX%)，<60% 计 1 条（含原 50–60% 档）',
+    'why.minor':'链路级：聚合所有端口对的 max(TX%,RX%)，60–70% 计 1 条',
+    'why.major':'链路级：聚合所有端口对的 max(TX%,RX%)，70–80% 计 1 条',
+    'why.critical':'链路级：聚合所有端口对的 max(TX%,RX%)，>80% 计 1 条（含原 80–90% 档）',
     'why.max':'全网利用率最高的单条链路',
-    'why.trend':'行级（端口对）：按 15 分钟槽位统计原始 PM 行里 max(TX%,RX%)≥90% 的行数；与 KPI 的链路口径不同',
+    'why.trend':'行级（端口对）：按 15 分钟槽位统计原始 PM 行里 max(TX%,RX%)>80% 的行数；与 KPI 的链路口径不同',
     'why.unknown':'物理链路中尚无 KPI 数据的链路数',
     'kpiModal.metaCount':'— 行',
     'kpiModal.colNum':'#', 'kpiModal.colSite':'站点', 'kpiModal.colIP':'IP', 'kpiModal.colPeer':'对端', 'kpiModal.colPeerIP':'对端 IP',
@@ -565,9 +589,9 @@ const I18N = {
   en: {
     'app.subtitle':'Microwave Real-Time', 'app.gran':'15 Min',
     'topo.layout':'Layout', 'topo.force':'Logical', 'topo.geo':'Geographic',
-    'topo.level':'Level', 'topo.lvlAll':'All', 'topo.lvlCrit':'Critical >90%',
-    'topo.lvlMajor':'Major 80-90%', 'topo.lvlModerate':'Moderate 70-80%', 'topo.lvlMinor':'Minor 60-70%',
-    'topo.lvlNegligible':'Negligible 50-60%', 'topo.lvlOk':'Healthy <50%',
+    'topo.level':'Level', 'topo.lvlAll':'All', 'topo.lvlCrit':'Critical >80%',
+    'topo.lvlMajor':'Major 70-80%', 'topo.lvlMinor':'Minor 60-70%',
+    'topo.lvlOk':'Healthy <60%',
     'topo.lvlUnknown':'Unknown (no KPI)',
     'topo.label':'TX/RX Label', 'topo.search':'Search site / IP…', 'topo.refresh':'Refresh',
     'topo.title':'Network Topology', 'topo.hint':'Scroll to zoom · Drag to pan · Hover to inspect · Click a link for details',
@@ -581,8 +605,8 @@ const I18N = {
     'trend.title':'Network Utilization Trend', 'trend.note':'(auto-updated every 15 min)',
     'trend.avg':'Avg Utilization', 'trend.max':'Max Utilization', 'trend.crit':'Critical',
     'dist.title':'Link Health Distribution',
-    'dist.health':'Healthy <50%', 'dist.negligible':'Negligible 50-60%', 'dist.minor':'Minor 60-70%',
-    'dist.moderate':'Moderate 70-80%', 'dist.major':'Major 80-90%', 'dist.crit':'Critical >90%',
+    'dist.health':'Healthy <60%', 'dist.minor':'Minor 60-70%',
+    'dist.major':'Major 70-80%', 'dist.crit':'Critical >80%',
     'dist.unknown':'Unknown',
     'drawer.title':'LINK DETAILS', 'drawer.capacity':'Total Link Capacity',
     'drawer.nodeIp':'Node IP', 'drawer.interface':'Interface (PM)',
@@ -590,15 +614,18 @@ const I18N = {
     'drawer.trend':'Historical Trend (24H)', 'drawer.note':'Data granularity: 15 min (synced every 15 minutes; only the latest slot is shown).',
     'drawer.cps':'Interface details', 'drawer.noCp':'No interface details', 'drawer.locate':'Locate on topology', 'drawer.close':'Close',
     'kpi.nodes':'Network Nodes', 'kpi.nodesSub':'nodes', 'kpi.links':'Links', 'kpi.linksSub':'rated links',
-    'kpi.healthy':'Healthy', 'kpi.negligible':'Negligible', 'kpi.minor':'Minor', 'kpi.moderate':'Moderate', 'kpi.major':'Major', 'kpi.critical':'Critical', 'kpi.max':'Max Utilization',
-    'kpi.lt50':'< 50%', 'kpi.r5060':'50 – 60%', 'kpi.r6070':'60 – 70%', 'kpi.r7080':'70 – 80%', 'kpi.r8090':'80 – 90%', 'kpi.gt90':'> 90%',
+    'kpi.healthy':'Healthy', 'kpi.minor':'Minor', 'kpi.major':'Major', 'kpi.critical':'Critical', 'kpi.max':'Max Utilization',
+    'kpi.lt60':'< 60%', 'kpi.r6070':'60 – 70%', 'kpi.r7080':'70 – 80%', 'kpi.gt80':'> 80%',
     'kpi.unknown':'Unknown', 'kpi.noKpi':'no KPI',
     'st.refreshing':'refreshing…', 'st.live':'live updated', 'st.partial':'partial', 'st.offline':'offline',
     'why.nodes':'Number of nodes (sites + endpoints) on links',
     'why.links':'Unique ME↔Neighbor ME link pairs (1 per link)',
-    'why.linkLevel':'Link-level: aggregate max(TX%,RX%) over all PM checkpoints per link; ≥ threshold counts as 1',
+    'why.healthy':'Link-level: aggregate max(TX%,RX%) over all port pairs per link; <60% counts as 1 (includes the former 50–60% band)',
+    'why.minor':'Link-level: aggregate max(TX%,RX%) over all port pairs per link; 60–70% counts as 1',
+    'why.major':'Link-level: aggregate max(TX%,RX%) over all port pairs per link; 70–80% counts as 1',
+    'why.critical':'Link-level: aggregate max(TX%,RX%) over all port pairs per link; >80% counts as 1 (includes the former 80–90% band)',
     'why.max':'The single link with the highest utilization across the network',
-    'why.trend':'Row-level (per port): counts rows per 15-min slot where max(TX%,RX%)≥90%; KPI is link-level — different measurement basis',
+    'why.trend':'Row-level (per port): counts rows per 15-min slot where max(TX%,RX%)>80%; KPI is link-level — different measurement basis',
     'why.unknown':'Links on the physical topology that have no KPI data yet',
     'kpiModal.metaCount':'— rows',
     'kpiModal.colNum':'#', 'kpiModal.colSite':'Site', 'kpiModal.colIP':'IP', 'kpiModal.colPeer':'Peer', 'kpiModal.colPeerIP':'Peer IP',
@@ -786,7 +813,7 @@ function layoutOverviewRadial(nodes, links){
     const t = (n._tier && byTier[n._tier]) ? n._tier : 'ACCESS_AGG';
     byTier[t].push(n);
   });
-  const sev = { healthy:0, negligible:1, minor:2, moderate:3, major:4, critical:5, unknown:0 };
+  const sev = { healthy:0, minor:1, major:2, critical:3, unknown:0 };
   // 画布仅用于确定椭圆宽高比
   let vw = 1200, vh = 520;
   try { if(chart && chart.getWidth){ vw = chart.getWidth() || vw; vh = chart.getHeight() || vh; } } catch(e){}
@@ -847,16 +874,14 @@ window.addEventListener('message', function(e){
 });
 
 /* ============ level colors ============ */
-/* 健康度 7 级色阶取自 CSS 令牌 --vmax-lvl-*（唯一真相源，见 legacy-vmax-theme.css）：
-   其中 4 档是 vmax 语义色的原值，moderate/major 是为保持 7 级可区分性保留的
-   暖色中间步进，unknown 用 vmax 的次级文字色。
+/* 健康度 4 级色阶取自 CSS 令牌 --vmax-lvl-*（唯一真相源，见 legacy-vmax-theme.css）：
+   unknown 用 vmax 的次级文字色。2026-09-29 由 7 级精简为 4 级 ——
+   原 negligible 令牌并入 healthy、原 moderate 位置改名为 major，两个旧令牌已下线。
    浅色档在页内 light 变量块里覆盖成更深的一档（见文件头 html[data-theme=light]）。 */
 function readLvlColors(){
   return {
     healthy:    cssVar('--vmax-lvl-healthy',    '#0bc78c'),
-    negligible: cssVar('--vmax-lvl-negligible', '#6ef0b4'),
     minor:      cssVar('--vmax-lvl-minor',      '#f6cf00'),
-    moderate:   cssVar('--vmax-lvl-moderate',   '#ff922b'),
     major:      cssVar('--vmax-lvl-major',      '#ff7a45'),
     critical:   cssVar('--vmax-lvl-critical',   '#ff5c6c'),
     unknown:    cssVar('--vmax-lvl-unknown',    '#6f8cb4'),
@@ -866,16 +891,14 @@ const LVL_COLOR = readLvlColors();
 /* 主题切换后重取（深浅两档的健康度色阶不同）。函数声明会提升，
    由 refreshPalette() 以 typeof 探测后调用，见上方 theme 段。 */
 function refreshLvlColors(){ Object.assign(LVL_COLOR, readLvlColors()); }
-const LVL_TEXT = { healthy:'Healthy', negligible:'Negligible', minor:'Minor', moderate:'Moderate', major:'Major', critical:'Critical', unknown:'Unknown' };
-/* 利用率 -> 分级 key（与后端 level_of 口径一致：>90 critical，>=80 major，>=70 moderate，>=60 minor，>=50 negligible，<50 healthy） */
+const LVL_TEXT = { healthy:'Healthy', minor:'Minor', major:'Major', critical:'Critical', unknown:'Unknown' };
+/* 利用率 -> 分级 key（与后端 level_of 口径一致：>80 critical，>=70 major，>=60 minor，<60 healthy） */
 function lvlOfUtil(u){
   if(u == null || !isFinite(+u)) return 'healthy';
   u = +u;
-  if(u > 90) return 'critical';
-  if(u >= 80) return 'major';
-  if(u >= 70) return 'moderate';
+  if(u > 80) return 'critical';
+  if(u >= 70) return 'major';
   if(u >= 60) return 'minor';
-  if(u >= 50) return 'negligible';
   return 'healthy';
 }
 
@@ -1038,9 +1061,7 @@ function renderAll(){
   el('k-links').textContent = k.links;
   el('k-links-sub').textContent = (k.physical_links || k.links) + ' phys · ' + k.unknown + ' ' + t('kpi.noKpi');
   el('k-healthy').textContent = k.healthy;
-  el('k-negligible').textContent = k.negligible;
   el('k-minor').textContent = k.minor;
-  el('k-moderate').textContent = k.moderate;
   el('k-major').textContent = k.major;
   el('k-critical').textContent = k.critical;
   el('k-unknown').textContent = k.unknown != null ? k.unknown : '—';
@@ -1064,10 +1085,8 @@ function edgeWidth(e){
   let w = 2;
   switch(e.status){
     case 'critical': w = 3.4; break;
-    case 'major':    w = 3.0; break;
-    case 'moderate': w = 2.6; break;
-    case 'minor':    w = 2.2; break;
-    case 'negligible': w = 1.9; break;
+    case 'major':    w = 2.7; break;
+    case 'minor':    w = 2.1; break;
     case 'healthy':  w = 1.6; break;
     case 'unknown':  w = 1.2; break;
     default:         w = 2;
@@ -1081,7 +1100,7 @@ function edgeWidth(e){
   return w;
 }
 
-const SEVERITY = { healthy:0, negligible:1, minor:2, moderate:3, major:4, critical:5, unknown:0 };
+const SEVERITY = { healthy:0, minor:1, major:2, critical:3, unknown:0 };
 function worseStatus(a,b){ return (SEVERITY[a||'unknown']||0) >= (SEVERITY[b||'unknown']||0) ? (a||'unknown') : (b||'unknown'); }
 
 // 概览模式：把 ACCESS 层节点按 site 聚合成超级节点。
@@ -1227,7 +1246,7 @@ function buildGraphData(){
       // 站点：中性底色 + 状态外圈 Halo（颜色不再绑定链路颜色）
       itemStyle: { color: neutralFill(), borderColor: LVL_COLOR[n.status]||LVL_COLOR.unknown, borderWidth:2,
                    shadowColor: LVL_COLOR[n.status]||LVL_COLOR.unknown,
-                   shadowBlur: n.status==='critical' ? 16 : n.status==='major' ? 10 : n.status==='moderate' ? 6 : n.status==='minor' ? 3 : 0 },
+                   shadowBlur: n.status==='critical' ? 16 : n.status==='major' ? 10 : n.status==='minor' ? 3 : 0 },
       label: label,
       _site: n.site, _ip: n.ip, _deg: n.degree, _status: n.status, _tier: lp.tier,
       _lat: n.lat, _lon: n.lon,
@@ -1251,7 +1270,7 @@ function buildGraphData(){
         symbolSize: size,
         itemStyle: { color: neutralFill(), borderColor: LVL_COLOR[c.status]||LVL_COLOR.unknown, borderWidth:3,
                      shadowColor: LVL_COLOR[c.status]||LVL_COLOR.unknown,
-                     shadowBlur: c.status==='critical' ? 20 : c.status==='major' ? 12 : c.status==='moderate' ? 6 : c.status==='minor' ? 3 : 0 },
+                     shadowBlur: c.status==='critical' ? 20 : c.status==='major' ? 12 : c.status==='minor' ? 3 : 0 },
         label: { show: showLab, position:'bottom', distance:5,
                  formatter: c.name, fontSize: hit||isSel ? 12 : 10,
                  color: curP().text, backgroundColor:'transparent', fontWeight: hit||isSel ? 'bold' : 'normal' },
@@ -1280,7 +1299,7 @@ function buildGraphData(){
                           backgroundColor: curP().panel, padding:[2,5], borderRadius:3,
                           formatter: 'TX '+(e.tx_util==null?'—':(+e.tx_util).toFixed(0)+'%') + ' / RX ' + (e.rx_util==null?'—':(+e.rx_util).toFixed(0)+'%') }
                         : { show:false };
-    const width = nodeToAgg ? (e.status==='critical'?4.2 : e.status==='major'?3.6 : e.status==='moderate'?3.0 : e.status==='minor'?2.4 : 1.8) : edgeWidth(e);
+    const width = nodeToAgg ? (e.status==='critical'?4.2 : e.status==='major'?3.6 : e.status==='minor'?2.4 : 1.8) : edgeWidth(e);
     const srcSite = nodeToAgg && aggClusters[e.source] ? aggClusters[e.source].site : (nodeToAgg ? (DATA.nodes.find(n=>n.id===e.source)||{}).site : '');
     const tgtSite = nodeToAgg && aggClusters[e.target] ? aggClusters[e.target].site : (nodeToAgg ? (DATA.nodes.find(n=>n.id===e.target)||{}).site : '');
     return {
@@ -1382,35 +1401,28 @@ function ensureLeafletMap(){
   applyMapTheme();
   leafMap.on('zoomend', onGeoViewChange);
   leafMap.on('moveend', onGeoViewChange);
-  applyEmbedWheelMode();
+  /* 这里原来调 applyEmbedWheelMode()（内嵌时关掉滚轮缩放）。
+     2026-09-29 起改为"直接滚轮缩放"，Leaflet 默认就是开的，
+     所以不再需要任何调用 —— 详见下方那段说明。 */
 }
-/* 门户内嵌时：滚轮缩放必须先点击地图（2026-09-18 加）。
-   为什么：门户 #secTopo 里本页被撑满整个区块，鼠标落在区块上滚轮就被 Leaflet
-   吃掉去缩放地图，用户想滚门户页面却把地图放大了。
-   做法：内嵌（html.mw-embed）时关掉 scrollWheelZoom，点击地图打开、指针移出
-   地图或地图失焦立刻收回；关闭状态下 Leaflet 不消费 wheel，滚动会按浏览器默认
-   链式传给门户页面。
-   独立打开 / 大屏（无 mw-embed）完全不介入，行为与改动前一致。
-   ⚠️ 嵌入信号（?mwembed=1 / 顶层 postMessage）可能早于或晚于地图创建到达，
-      所以 applyEmbed 与 ensureLeafletMap 两处都要调一次本函数。 */
-function onMapWheelActivate(){ try{ leafMap.scrollWheelZoom.enable(); }catch(e){} }
-function onMapWheelDeactivate(){ try{ leafMap.scrollWheelZoom.disable(); }catch(e){} }
-function applyEmbedWheelMode(){
-  if(!leafMap) return;
-  if(!document.documentElement.classList.contains('mw-embed')) return;
-  onMapWheelDeactivate();
-  try{
-    leafMap.off('click', onMapWheelActivate);
-    leafMap.off('blur', onMapWheelDeactivate);
-    leafMap.on('click', onMapWheelActivate);
-    leafMap.on('blur', onMapWheelDeactivate);
-    var c = leafMap.getContainer();
-    if(c && !c.__mwWheelBound){
-      c.__mwWheelBound = true;
-      c.addEventListener('mouseleave', onMapWheelDeactivate);
-    }
-  }catch(e){}
-}
+/* 滚轮直接缩放（2026-09-29 用户要求「鼠标在地图上滑轮滑动，地图能放大和缩小」）。
+   ⚠️ 这是**推翻** 2026-09-18 那条设计，不是修 bug，改前已与用户确认。
+   旧行为：内嵌时先 disable scrollWheelZoom，点击地图才 enable、
+           鼠标移出或失焦立刻收回。
+   旧行为想解决的问题：门户里本页曾被撑满整个区块，用户想在门户页面上滚动，
+           滚轮却被 Leaflet 吃掉去缩放地图。
+   为什么现在可以去掉：门户的 GIS Map 栏已改成固定高度面板（.maprow 的
+           --maprow-h，见门户 olbr.css），地图不再撑满整页，栏外才是页面滚动区；
+           用户明确要求"在地图上滚轮就是缩放地图"。
+   新行为：三种场景（门户内嵌 / 独立打开 / 大屏）一律直接滚轮缩放，
+           不再有点击激活、不再有 mouseleave 收回。
+   实现：什么都不用做 —— Leaflet 的 scrollWheelZoom 默认就是开的。
+           旧代码是**主动把它关掉**，所以这里只需要删除关闭逻辑，
+           不需要新增任何 enable 调用。
+   ⚠️ 因此 onMapWheelActivate / onMapWheelDeactivate / applyEmbedWheelMode
+      三个函数一并删除（原则 10：删除优于兼容），确保函数名不会残留。
+      下方 applyEmbed() 里对 applyEmbedWheelMode() 的调用也同步删掉 ——
+      留意将来若有人重新需要"点击激活"，应从 git 历史里取回，而不是凭空重写。 */
 /* 利比里亚全境边界（2026-09-17 加）：默认取景不再按「站点包围盒」，
    而是按国土范围 —— 站点只覆盖西北→东南一条带，按站点 fit 会偏上、右侧露出
    几内亚/科特迪瓦大片空白，利比里亚并不居中。
@@ -1835,7 +1847,7 @@ function selectEdge(edge, openDrawer){
 }
 
 /* ============ drawer ============ */
-const UCLASS_BY_LVL = { critical:'u-crit', major:'u-major', moderate:'u-mod', minor:'u-minor', negligible:'u-neg', healthy:'u-ok' };
+const UCLASS_BY_LVL = { critical:'u-crit', major:'u-major', minor:'u-minor', healthy:'u-ok' };
 let drawerTrend = null;
 function utilClass(u){
   return UCLASS_BY_LVL[lvlOfUtil(u)] || 'u-ok';
@@ -2323,9 +2335,7 @@ function renderDist(){
   const k = DATA ? DATA.kpis : null;
   const items = [
     { name: t('dist.health'), value: k?k.healthy:0, c:LVL_COLOR.healthy },
-    { name: t('dist.negligible'), value: k?k.negligible:0, c:LVL_COLOR.negligible },
     { name: t('dist.minor'), value: k?k.minor:0, c:LVL_COLOR.minor },
-    { name: t('dist.moderate'), value: k?k.moderate:0, c:LVL_COLOR.moderate },
     { name: t('dist.major'), value: k?k.major:0, c:LVL_COLOR.major },
     { name: t('dist.crit'), value: k?k.critical:0, c:LVL_COLOR.critical },
     { name: t('dist.unknown'), value: k?k.unknown:0, c:LVL_COLOR.unknown },
@@ -2347,7 +2357,7 @@ function renderDist(){
 function refreshLevelFilterUI(){
   const sel = levelFilter || [];
   const all = el('lv-all'); if(all) all.checked = (sel.length === 0);
-  ['critical','major','moderate','minor','negligible','healthy','unknown'].forEach(v => { const c = el('lv-'+v); if(c) c.checked = sel.indexOf(v) >= 0; });
+  ['critical','major','minor','healthy','unknown'].forEach(v => { const c = el('lv-'+v); if(c) c.checked = sel.indexOf(v) >= 0; });
   const btn = el('btn-level');
   if(btn) btn.textContent = (sel.length === 0 ? t('topo.lvlAll') : sel.map(s => LVL_TEXT[s]||s).join(' · ')) + ' ▾';
 }
@@ -2434,11 +2444,11 @@ el('btn-ip10').onclick = function(){
   el('btn-ip10').classList.toggle('active', ip10Filter);
   loadData(false);
 };
-['lv-all','lv-critical','lv-major','lv-moderate','lv-minor','lv-negligible','lv-healthy','lv-unknown'].forEach(function(id){
+['lv-all','lv-critical','lv-major','lv-minor','lv-healthy','lv-unknown'].forEach(function(id){
   el(id).onchange = function(){
-    if(id === 'lv-all'){ ['lv-critical','lv-major','lv-moderate','lv-minor','lv-negligible','lv-healthy','lv-unknown'].forEach(x => el(x).checked = false); }
+    if(id === 'lv-all'){ ['lv-critical','lv-major','lv-minor','lv-healthy','lv-unknown'].forEach(x => el(x).checked = false); }
     else { el('lv-all').checked = false; }
-    levelFilter = ['critical','major','moderate','minor','negligible','healthy','unknown'].filter(v => el('lv-'+v).checked);
+    levelFilter = ['critical','major','minor','healthy','unknown'].filter(v => el('lv-'+v).checked);
     refreshLevelFilterUI();
     renderTopo();
   };
@@ -2605,8 +2615,9 @@ syncRightToggle();
 function applyEmbed(opts){
   opts = opts || {};
   try{ document.documentElement.classList.add('mw-embed'); }catch(e){}
-  /* 地图可能已经建好了 —— 内嵌态下把滚轮缩放改成「点击后才生效」 */
-  applyEmbedWheelMode();
+  /* 这里原来调 applyEmbedWheelMode()，把内嵌态的滚轮缩放改成「点击后才生效」。
+     2026-09-29 起滚轮缩放不再区分内嵌/独立（三种场景一律直接滚轮缩放），
+     故删除该调用 —— 详见 ensureLeafletMap 下方那段说明。 */
   var th = opts.theme;
   if(th === 'dark' || th === 'light'){
     /* 与 applyTheme 的区别：applyTheme 会 renderTopo/renderTrend/renderDist，

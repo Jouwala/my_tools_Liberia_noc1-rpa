@@ -12,6 +12,7 @@ Summary-Changed / Inbound / Outbound / Inventory 五张 sheet）—— 与邮件
 
 端点（``kind`` 缺省 = spareparts）：
 - GET /api/sp-report/summary   统计卡片 + 各 sheet 元信息 + 每日矩阵 + 口径说明
+                              + 仓库消耗汇总 + 高频消耗物料（后两块供仓库汇总报表页）
 - GET /api/sp-report/rows      某 sheet 的分页数据（筛选 / 排序 / 分页）
 - GET /api/sp-report/filters   某 sheet 的筛选下拉候选值
 - GET /api/sp-report/sources   数据源清单（排障用）
@@ -39,6 +40,12 @@ def sp_report_summary(kind: str = Query(svc.DEFAULT_KIND, description=_KIND_DESC
     ``overview`` 取 Summary-Current 的 Total 行（入/出/库存/差异/补库量）与
     Alert Level / Remark 分布；``matrix`` 是 Summary-Changed 的「天 × 仓库」矩阵；
     ``notes`` 是报表自带的口径说明（原样透传，保证页面与 Excel 口径一致）。
+
+    另外两块服务于「仓库汇总报表」页面（``?page=warehouse_summary``），
+    结构对齐 ``WarehouseSummaryReport.xlsx`` 的两段表：
+    ``warehouse_summary``（WH/DOP × 库存·全量消耗·本月·本周，含 Total 行）与
+    ``frequent_materials``（高频消耗物料 Top N + 全量 Total 行）。
+    口径见 ``backend/services/sp_report_service.py`` 顶部 docstring。
     """
     try:
         return svc.get_summary(kind)

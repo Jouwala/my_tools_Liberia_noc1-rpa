@@ -104,7 +104,13 @@ GROUP_TASK_MAP = {
         # 正是同组 main_kpi_sync(04:00) 写的，同组串行 + 排队先后即可保证「先写后读」，
         # 也避免与写入方并发。此前该表由已退役的 my-finebi 手工 ETL 维护，
         # 无人调度 → 冻结在 2026-09-13，看板静默停更（本次事故）。
-        "avail_recon_sync"),
+        "avail_recon_sync,"
+        # bp_report_sync 2026-09-29 注册：从 RAN_UME 更新 BP 劣化小区报告
+        # （读远端 4G_Main_Kpi_Cell_Daily，写本机 data/bp_report.sqlite3）。
+        # 归 u 组的理由同 avail_recon_sync：源表正是同组 main_kpi_sync(04:00) 写的，
+        # 同组串行 + 排队先后即可保证「先写后读」。本任务不新建 UME PM 模板
+        # （templateid 必须服务端已存在，不可臆造），只复用已物化的那张表。
+        "bp_report_sync"),
     "n": (  # eFlow API / config-center 同源会话组（2026-09-27 收窄：s/w 两组已拆出）
         # 【2026-09-27 拆组背景】本组原先 17 项，实测近 24h 单 worker 串行占用：
         #   sp_data_sync 347min + eflow_sync 236min + eflow_active_alarm 103min = 686min/天，

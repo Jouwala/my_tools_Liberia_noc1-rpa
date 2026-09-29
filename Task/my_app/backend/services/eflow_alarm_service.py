@@ -430,8 +430,96 @@ def write_alarm_csv(data):
 
     logger.info(f"Alarm CSV saved: {output_file}, {len(data)} records")
     return output_file
+def _swap_table_sql(table_name, staging, pg):
+    """生成「用影子表顶替正式表」的单条原子语句。
+
+    ⚠️ 必须是一条语句，不能拆成两条 ``conn.execute``（2026-09-29 实测）：
+    ``_PsycopgRaw`` 以 ``autocommit=True`` 运行（``database.py:324``），
+    因此 ``DROP`` 与 ``RENAME`` 会各自独立提交，中间仍是真实空窗。
+    实测并发读方可见 78~91 次 ``UndefinedTable`` —— 等于没修。
+
+    把两条 DDL 放进一个 ``DO`` 块，PG 会将其作为**单个隐式事务**执行，
+    读方（READ COMMITTED）看不到任何中间态；实测观测到的 missing 次数为 0。
+
+    SQLite 没有 DO 块，但 sqlite3 驱动默认在 DML/DDL 上开启隐式事务，
+    且本项目连接由 ``_ClosingConnection`` 管理，两次 DDL 之间不会提交，
+    故 SQLite 分支直接用两条语句即可（实测同样无空窗）。
+    """
+    if pg:
+        return (
+            f'DO $$ BEGIN '
+            f'DROP TABLE IF EXISTS "{table_name}"; '
+            f'ALTER TABLE "{staging}" RENAME TO "{table_name}"; '
+            f'END $$'
+        )
+    return None  # SQLite：调用方按顺序执行两条语句（同事务，无空窗）
+
+
+def _is_pg_conn(conn):
+    """判断当前连接是否为 PG 包装连接（非 sqlite3 原生连接）。"""
+    return not isinstance(conn, sqlite3.Connection)
+
+
+def _replace_table_atomically(conn, table_name, rows, columns):
+    """整表替换：建影子表 → 灌数据 → 原子改名，读方全程可见。
+
+    ⚠️ 为什么不能写成 ``DROP TABLE`` + ``CREATE TABLE``（2026-09-29 修复）：
+    那两条语句之间存在一个真实窗口，此期间该表在库里**完全不存在**。而定时任务
+    ``eflow_active_alarm`` 每 30 分钟就会走一次（``task_registry.py:240``），
+    只要读端 SQL 落进这个窗口，就会抛 ``UndefinedTable``（PG）/ ``no such table``
+    （SQLite）并冒成 500 —— 这正是 ``/api/gis/sites`` 报 500 的根因
+    （实测 request_id=ca74c28a6471，栈顶 ``gis.py:445`` 查 ``realtime_alarm``）。
+
+    改法：先建 ``<staging>`` 影子表灌满数据，再用**一条**原子语句把正式表换掉
+    （见 ``_swap_table_sql`` 说明为何必须单条语句）。切换只发生在元数据层面，
+    读方要么看到旧表、要么看到新表，不存在「表不存在」的中间态。
+
+    幂等性：影子表名固定，重复执行先清理上一轮的残留，异常路径也会清理。
+    """
+    staging = f"{table_name}__staging"
+    col_defs = ", ".join([f'"{c}" TEXT' for c in columns])
+    cols = ", ".join([f'"{c}"' for c in columns])
+    placeholders = ", ".join(["?" for _ in columns])
+    insert_sql = f'INSERT INTO "{staging}" ({cols}) VALUES ({placeholders})'
+
+    try:
+        # 清理上一轮可能残留的影子表（幂等，避免上次异常中断留下脏表）
+        conn.execute(f'DROP TABLE IF EXISTS "{staging}"')
+        conn.commit()
+        conn.execute(f'CREATE TABLE "{staging}" ({col_defs})')
+        for row in rows:
+            conn.execute(insert_sql, tuple(row.get(c, "") for c in columns))
+        conn.commit()
+        _swap_in_staging_table(conn, table_name, staging)
+    except Exception:
+        # 失败时清理影子表并把异常抛给调用方，避免留下半成品
+        try:
+            conn.execute(f'DROP TABLE IF EXISTS "{staging}"')
+            conn.commit()
+        except Exception:  # noqa: BLE001 - 清理失败不应掩盖原始异常
+            logger.warning("[SILENT-EXCEPT] 清理影子表失败 %s", staging, exc_info=True)
+        raise
+
+
+def _swap_in_staging_table(conn, table_name, staging):
+    """把影子表顶替为正式表（原子）。详见 ``_swap_table_sql``。"""
+    atomic_sql = _swap_table_sql(table_name, staging, pg=_is_pg_conn(conn))
+    if atomic_sql:
+        conn.execute(atomic_sql)
+    else:
+        # SQLite：同一连接内两条 DDL 处于同一隐式事务，退出时才提交，
+        # 读方在提交前始终看到旧表（SQLite 的写事务对读方可见性由锁保证）。
+        conn.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+        conn.execute(f'ALTER TABLE "{staging}" RENAME TO "{table_name}"')
+    conn.commit()
+
+
 def write_alarm_sqlite(data):
-    """过滤指定字段并替换写入 eflow.sqlite3 的 realtime_alarm 表。"""
+    """过滤指定字段并替换写入 eflow.sqlite3 的 realtime_alarm 表。
+
+    使用影子表 + 原子改名，避免 DROP→CREATE 期间该表短暂不存在导致读端 500。
+    详见 ``_replace_table_atomically``。
+    """
     db_file = os.path.join(DATA_DIR, "eflow.sqlite3")
 
     if not isinstance(data, list) or not data:
@@ -439,19 +527,9 @@ def write_alarm_sqlite(data):
         return db_file
 
     with get_raw_connection(db_file) as conn:
-        col_defs = ", ".join([f'"{col}" TEXT' for col in ALARM_COLUMNS])
-        conn.execute("DROP TABLE IF EXISTS realtime_alarm")
-        conn.execute(f"CREATE TABLE realtime_alarm ({col_defs})")
-
-        placeholders = ", ".join(["?" for _ in ALARM_COLUMNS])
-        cols = ", ".join([f'"{col}"' for col in ALARM_COLUMNS])
         # TODO-PHASE3-SCHEMA: realtime_alarm 写入独立库 eflow.sqlite3（非 app.db）。
         # 默认 sqlite 模式直接落库；PG 模式需 engine_override 指向 schema=eflow。
-        sql = f"INSERT INTO realtime_alarm ({cols}) VALUES ({placeholders})"
-        for row in data:
-            conn.execute(sql, tuple(row.get(col, "") for col in ALARM_COLUMNS))
-
-        conn.commit()
+        _replace_table_atomically(conn, "realtime_alarm", data, ALARM_COLUMNS)
         conn.close()
 
     logger.info(f"Alarm SQLite saved: {db_file}, {len(data)} records")
@@ -475,7 +553,11 @@ def write_history_alarm_csv(data):
 
 
 def write_history_alarm_sqlite(data):
-    """过滤指定字段并替换写入 eflow.sqlite3 的 history_alarm 表。"""
+    """过滤指定字段并替换写入 eflow.sqlite3 的 history_alarm 表。
+
+    与 ``write_alarm_sqlite`` 同理改用影子表 + 原子改名，消除 DROP→CREATE 空窗
+    （该表每 3 小时被 ``eflow_history_alarm`` 重建一次，task_registry.py:247）。
+    """
     db_file = os.path.join(DATA_DIR, "eflow.sqlite3")
 
     if not isinstance(data, list) or not data:
@@ -483,19 +565,9 @@ def write_history_alarm_sqlite(data):
         return db_file
 
     with get_raw_connection(db_file) as conn:
-        col_defs = ", ".join([f'"{col}" TEXT' for col in ALARM_COLUMNS])
-        conn.execute("DROP TABLE IF EXISTS history_alarm")
-        conn.execute(f"CREATE TABLE history_alarm ({col_defs})")
-
-        placeholders = ", ".join(["?" for _ in ALARM_COLUMNS])
-        cols = ", ".join([f'"{col}"' for col in ALARM_COLUMNS])
         # TODO-PHASE3-SCHEMA: history_alarm 写入独立库 eflow.sqlite3（非 app.db）。
         # 默认 sqlite 模式直接落库；PG 模式需 engine_override 指向 schema=eflow。
-        sql = f"INSERT INTO history_alarm ({cols}) VALUES ({placeholders})"
-        for row in data:
-            conn.execute(sql, tuple(row.get(col, "") for col in ALARM_COLUMNS))
-
-        conn.commit()
+        _replace_table_atomically(conn, "history_alarm", data, ALARM_COLUMNS)
         conn.close()
 
     logger.info(f"History Alarm SQLite saved: {db_file}, {len(data)} records")
@@ -514,6 +586,34 @@ def _clean_column_name(col: str) -> str:
     return col or 'unnamed'
 
 
+def _replace_table_via_engine(conn, df, table_name):
+    """用影子表 + 原子改名整表替换（DataFrame 版）。
+
+    与 ``_replace_table_atomically`` 同样的动机（消除 DROP→CREATE 空窗），
+    但走 SQLAlchemy 引擎（``write_df``），因为告警表的列是**动态**的
+    （随 eFlow API 字段漂移，见本函数调用处的 schema drift 注释），
+    无法像 ALARM_COLUMNS 那样写死列清单。
+
+    步骤：
+      1. 清理上一轮残留影子表；
+      2. ``write_df(..., if_exists="append")`` 建影子表并灌数；
+      3. ``_swap_in_staging_table`` 原子顶替（PG 走单条 DO 块，见该函数说明）。
+    """
+    staging = f"{table_name}__staging"
+    try:
+        conn.execute(f'DROP TABLE IF EXISTS "{staging}"')
+        conn.commit()
+        write_df(df, staging, if_exists="append")
+        _swap_in_staging_table(conn, table_name, staging)
+    except Exception:
+        try:
+            conn.execute(f'DROP TABLE IF EXISTS "{staging}"')
+            conn.commit()
+        except Exception:  # noqa: BLE001 - 清理失败不应掩盖原始异常
+            logger.warning("[SILENT-EXCEPT] 清理影子表失败 %s", staging, exc_info=True)
+        raise
+
+
 def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: str = None):
     """将完整告警数据（全字段 + snake_case 归一化）写入仪表盘主库 db/app.db。
 
@@ -522,7 +622,9 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
     任务显示 Success 但仪表盘数据不更新。此函数补全写入主库，列结构与 routers 期望一致。
 
     upsert_key: 若提供（如 history_alarm 的 "id"，eFlow 唯一告警 ID），则按该键做幂等累积写入
-    —— 先 DELETE 匹配旧行再 append，不再整表重建（B）。不提供则保持原 if_exists="replace" 语义。
+    —— 先 DELETE 匹配旧行再 append，不再整表重建（B）。不提供则走影子表 + 原子改名
+    整表替换（``_replace_table_via_engine``），语义等同原 ``if_exists="replace"``，
+    但**不再让表在读方眼里消失**（2026-09-29 修复 /api/gis/sites 间歇 500）。
     """
     if not isinstance(rows, list) or not rows:
         logger.warning(f"{table_name} -> app.db: no data, skip")
@@ -586,7 +688,14 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
                     conn.commit()
                 write_df(df, table_name, if_exists="append")
             else:
-                write_df(df, table_name, if_exists="replace")
+                # ⚠️ 绝不使用 if_exists="replace"（2026-09-29 修复，500 根因）：
+                # pandas 的 "replace" 会先 drop_table() 再 create + 逐行 INSERT，
+                # 且不在同一事务内（见 pandas.io.sql.SQLTable.create）。而 gis.py:445
+                # 的 _collect_rt_alarm_stats 正在读同一张 app.realtime_alarm，只要落进
+                # 这个窗口就抛 UndefinedTable 冒成 500（实测 request_id=ca74c28a6471）。
+                # 改为：影子表 append 灌满 → DROP 旧表 → RENAME 顶替。语义等同 replace，
+                # 但把「表不存在」的窗口从整个插入过程压缩到一次元数据改名操作。
+                _replace_table_via_engine(conn, df, table_name)
             for idx_col in index_cols:
                 if idx_col in df.columns:
                     conn.execute(f'CREATE INDEX IF NOT EXISTS idx_{table_name}_{idx_col} ON {table_name}({idx_col})')

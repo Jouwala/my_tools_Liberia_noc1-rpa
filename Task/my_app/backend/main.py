@@ -59,6 +59,7 @@ from backend.routers import (
     avail_ms,
     avail_flm,
     ran_cells_kpi,
+    bp_report,
     ume_in_kpi,
     ume_in_screen,
     email_recipients,
@@ -190,6 +191,9 @@ app.include_router(avail_ms.router)
 app.include_router(avail_flm.router)
 # RAN 2G/3G/4G Cells KPI 看板（小区级可用率，达标值 99.65%）
 app.include_router(ran_cells_kpi.router)
+# BP Report 劣化小区报告（page=bp_report；读本机派生库 data/bp_report.sqlite3，
+# Cluster 来自 Excel 的 BP Cells List、指标由 RAN_UME 更新，口径见 services/bp_caliber.py）
+app.include_router(bp_report.router)
 app.include_router(ume_in_kpi.router)
 # UME 割接大屏「实时还原」：后端代理 UME 大屏鉴权+取数，页面任意时刻打开都是当前值
 app.include_router(ume_in_screen.router)

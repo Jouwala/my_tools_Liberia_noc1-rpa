@@ -185,7 +185,7 @@ html {
   top: 0;
   z-index: 50;
   min-height: var(--mp-mast-h);
-  overflow: hidden;
+  overflow: visible;
   isolation: isolate;
   color: var(--mp-ink);
 }
@@ -468,9 +468,9 @@ html body > header.mp-mast .seg-btn.is-active {
   box-shadow: 0 1px 3px rgba(0, 0, 0, .28);
 }
 
-/* 图标按钮 / 幽灵按钮（主题切换、站点入口、退出登录） */
+/* 图标按钮 / 幽灵按钮：编辑、用户管理、退出现在位于用户菜单内。 */
 html body > header.mp-mast .icon-btn,
-html body > header.mp-mast .btn-ghost {
+html body > header.mp-mast .mp-user-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -493,13 +493,13 @@ html body > header.mp-mast .icon-btn {
   padding: 0;
 }
 html body > header.mp-mast .icon-btn:hover,
-html body > header.mp-mast .btn-ghost:hover {
+html body > header.mp-mast .mp-user-action:hover {
   background: var(--mp-fill-hi);
   border-color: var(--mp-line-hi);
   color: #fff;
 }
 html body > header.mp-mast .icon-btn svg { width: 18px; height: 18px; }
-html body > header.mp-mast .btn-ghost svg { width: 15px; height: 15px; }
+html body > header.mp-mast .mp-user-action svg { width: 15px; height: 15px; }
 html body > header.mp-mast .icon-btn .ic-sun { display: none; }
 html.dark body > header.mp-mast .icon-btn .ic-sun { display: block; }
 html.dark body > header.mp-mast .icon-btn .ic-moon { display: none; }
@@ -507,14 +507,109 @@ html.dark body > header.mp-mast .icon-btn .ic-moon { display: none; }
 /* 站点入口（图钉）：图钉单独给金色，其余按幽灵按钮 */
 .mp-pin .mp-pin-ico { color: var(--mp-pin); }
 
-html body > header.mp-mast .auth-user-badge {
-  max-width: 9rem;
+/* 用户菜单：默认只在顶栏占一个紧凑触发器，管理操作展开后再显示。 */
+.mp-user-menu { position: relative; flex: 0 0 auto; }
+.mp-user-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 2.25rem;
+  max-width: 15rem;
+  padding: 0 10px;
+  border: 1px solid var(--mp-line);
+  border-radius: 10px;
+  background: var(--mp-fill);
+  color: #d7e0ea;
+  font-size: .8125rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.mp-user-trigger:hover,
+.mp-user-trigger:focus-visible {
+  background: var(--mp-fill-hi);
+  border-color: var(--mp-line-hi);
+  color: #fff;
+  outline: none;
+}
+.mp-user-trigger > .ph-user-circle { flex: 0 0 auto; font-size: 17px; }
+.mp-user-name {
+  max-width: 8rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: .75rem;
+}
+.mp-user-role {
+  padding: 3px 6px;
+  border: 1px solid rgba(125, 211, 252, .30);
+  border-radius: 999px;
   color: #cfe6ff;
+  font-size: .65rem;
+  white-space: nowrap;
+}
+.mp-user-editing {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(255, 210, 74, .18);
+  color: var(--mp-pin);
+  font-size: .65rem;
+  white-space: nowrap;
+}
+.mp-user-caret { flex: 0 0 auto; font-size: 13px; transition: transform .15s ease; }
+.mp-user-menu.is-open .mp-user-caret { transform: rotate(180deg); }
+.mp-user-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 14rem;
+  padding: 8px;
+  border: 1px solid rgba(125, 211, 252, .22);
+  border-radius: 12px;
+  background: rgba(4, 20, 48, .98);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .35);
+}
+.mp-user-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px 8px;
+  color: #d7e0ea;
+  font-size: .75rem;
+  font-weight: 700;
+}
+.mp-user-panel-head .ph { color: #8fd4ff; font-size: 16px; }
+html body > header.mp-mast .mp-user-panel .mp-user-action {
+  width: 100%;
+  justify-content: flex-start;
+  height: 2.1rem;
+  padding: 0 9px;
+  border-color: transparent;
+  background: transparent;
+  font-size: .75rem;
+}
+html body > header.mp-mast .mp-user-panel .mp-user-action:hover,
+html body > header.mp-mast .mp-user-panel .mp-user-action:focus-visible {
+  background: var(--mp-fill-hi);
+}
+.mp-user-divider { height: 1px; margin: 3px 2px; background: var(--mp-line); }
+html body > header.mp-mast .mp-user-panel .mp-user-logout { color: #ffaaa5; }
+html body > header.mp-mast .mp-user-panel .mp-user-logout:hover { color: #fff; background: rgba(255, 107, 107, .18); }
+@media (max-width: 1023px) {
+  .mp-user-name { max-width: 6rem; }
+}
+@media (max-width: 767px) {
+  .mp-user-trigger { height: 2rem; width: 2rem; padding: 0; justify-content: center; }
+  .mp-user-name, .mp-user-role, .mp-user-editing { display: none; }
+  .mp-user-panel { right: -2px; width: 13.5rem; }
 }
 
 /* ==========================================================================
@@ -568,7 +663,7 @@ html body > header.mp-mast .auth-user-badge {
   .mp-env { display: none; }
   .mp-mast-tools { gap: 6px; flex: 0 0 auto; }
   html body > header.mp-mast .icon-btn,
-  html body > header.mp-mast .btn-ghost { height: 2rem; padding: 0 9px; }
+  html body > header.mp-mast .mp-user-trigger { height: 2rem; padding: 0 9px; }
   html body > header.mp-mast .icon-btn { width: 2rem; padding: 0; }
   html body > header.mp-mast .mp-pin { width: 2rem; padding: 0; }
   html body > header.mp-mast .mp-pin span { display: none; }

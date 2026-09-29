@@ -40,6 +40,7 @@ from backend.routers.tt_wo_dashboard import (
     _parse_adv,
     _period_label,
     _safe_str,
+    _ticket_severity_key,
     _time_filter,
 )
 
@@ -107,8 +108,9 @@ def wo_overview(
         site_id_set = set()
 
         for r in rows:
-            sev = _safe_str(r[0])
-            severity[sev] = severity.get(sev, 0) + 1
+            sev = _ticket_severity_key(r[0])
+            if sev is not None:
+                severity[sev] = severity.get(sev, 0) + 1
             # SLA 取自关联 TT；JOIN 不上或 TT 未算 SLA 的记 Unknown，
             # 这样「Pass + Failed + ... = WO 总数」，卡片占比分母自洽
             sla_stats[_safe_str(r[1])] = sla_stats.get(_safe_str(r[1]), 0) + 1
@@ -126,9 +128,7 @@ def wo_overview(
             if r[5]:
                 ts_occ = str(r[5])
                 # 与 TT 侧同规则：ticket_severity 为空的行不进任何级别序列
-                sv = ""
-                if r[0] is not None and str(r[0]).strip() not in ("", "None"):
-                    sv = str(r[0]).strip()
+                sv = _ticket_severity_key(r[0]) or ""
                 buckets = {}
                 for gran in _MTTR_GRANULARITIES:
                     lbl = _period_label(ts_occ, gran)

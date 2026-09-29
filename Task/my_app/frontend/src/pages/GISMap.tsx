@@ -11,7 +11,6 @@ import dayjs, { Dayjs } from 'dayjs'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { ExplainIcon } from '../components/MetricExplain'
-import MapWheelZoomOnClick, { isEmbeddedInPortal } from '../components/MapWheelZoomOnClick'
 import { WH, cardStyle, controlCardStyle, pageWrap, useTheme } from '../theme'
 import { MapController } from './gismap/MapController'
 import { SiteDrilldownDrawer } from './gismap/SiteDrilldownDrawer'
@@ -343,7 +342,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      2. 线宽也随分级递增（critical 最粗），让高利用率线在缩小的全国视图上仍能被一眼看到 ——
         只靠颜色时，1.5px 的红线在全境视图下几乎看不见。 */
 
-  /** 链路渲染色：有 KPI 按 6 级色，无 KPI 回退 KML 原色（缺色再回退蓝色） */
+  /** 链路渲染色：有 KPI 按 4 级色，无 KPI 回退 KML 原色（缺色再回退蓝色） */
   const linkColor = (l: TopologyLink): string => {
     if (showUtil) {
       const lv = l.level && l.level !== 'no_kpi' ? l.level : utilLevelOf(l.util)
@@ -359,9 +358,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     switch (l.level) {
       case 'critical': return 3.4
       case 'major': return 2.8
-      case 'moderate': return 2.3
       case 'minor': return 1.9
-      case 'negligible': return 1.6
       case 'healthy': return 1.5
       default: return 1.5
     }
@@ -380,9 +377,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     switch (lv) {
       case 'critical': return t('gis.utilLevel.critical')
       case 'major': return t('gis.utilLevel.major')
-      case 'moderate': return t('gis.utilLevel.moderate')
       case 'minor': return t('gis.utilLevel.minor')
-      case 'negligible': return t('gis.utilLevel.negligible')
       case 'healthy': return t('gis.utilLevel.healthy')
       default: return t('gis.utilLevel.healthy')
     }
@@ -921,8 +916,16 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         </Card>
       )}
 
-      {/* 门户内嵌时地图铺满整个区块：滚轮缩放先关掉，点击地图后才生效
-          （避免门户页面滚动被地图吃掉，见 components/MapWheelZoomOnClick） */}
+      {/* 2026-09-29 起：滚轮即缩放，门户内嵌时也一样（用户要求「鼠标在地图上滑轮
+          滑动，地图能放大和缩小」）。
+          改动前的写法是：scrollWheelZoom={!isEmbeddedInPortal()} + <MapWheelZoomOnClick />，
+          即「内嵌时先关掉滚轮缩放，点击地图后才打开，鼠标移出又收回」。
+          那是 2026-09-18 为「别把门户页面的滚动吃掉」特意做的（Leaflet 官方
+          click-to-activate 模式），现已按用户要求整体撤销。
+          现在两处都删掉：Leaflet 的 scrollWheelZoom 默认就是 true，无需显式传；
+          辅助组件 components/MapWheelZoomOnClick.tsx 也已一并删除（原则 10：
+          删除优于兼容 —— 不留 deprecated shim）。将来若要恢复该行为，
+          从 git 历史取回该文件即可，不要凭空重写。 */}
       {/* body 加 position: relative —— 它是下方图例浮层的定位锚点。
           这样就不必再套一层 div 包裹地图（套了得把地图那一大段整体缩进两格，是纯噪声 diff）。 */}
       {/* flex:1 + minHeight:0 —— 见上方 rootStyle 的说明：本卡片负责吃掉
@@ -940,9 +943,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
             zoom={LB_FIT_ZOOM}
             className={mapClassName}
             style={{ height: '100%', width: '100%', background: 'var(--wh-page-bg)' }}
-            scrollWheelZoom={!isEmbeddedInPortal()}
           >
-            <MapWheelZoomOnClick />
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -1047,7 +1048,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 key={`topo-${idx}`}
                 positions={[[link.lat_a, link.lng_a], [link.lat_b, link.lng_b]]}
                 pathOptions={{
-                  /* 有 KPI → 6 级利用率色；无 KPI → KML 原色（红/黄/蓝/绿）。
+                  /* 有 KPI → 4 级利用率色；无 KPI → KML 原色（红/黄/蓝/绿）。
                      两种语义并存，图例已分别说明（见上方图例区）。 */
                   color: linkColor(link),
                   weight: linkWeight(link),

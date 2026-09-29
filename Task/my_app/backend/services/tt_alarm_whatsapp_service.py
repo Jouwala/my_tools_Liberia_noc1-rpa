@@ -64,6 +64,7 @@ Settings →「任务配置」→ `eFlow P1 Alarm WhatsApp Push`
 """
 import json
 import logging
+import os
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional
@@ -88,6 +89,12 @@ from backend.services.tt_alarm_message import (
     norm_alarm_code,
     s as _s,
 )
+from backend.services.tt_alarm_render import (
+    engine_available,
+    render_message_ex,
+    render_tt_analysis,
+    render_with_reason,
+)
 
 logger = logging.getLogger("tt_alarm_whatsapp")
 
@@ -104,6 +111,9 @@ GROUPS = _CFG["groups"]                    # 目标群组；留空时已回退�
 GROUPS_FALLBACK = _CFG["groups_fallback"]  # True = 正发往测试群，调用方须显式告警
 DEFAULT_GROUPS = config_mod.DEFAULT_GROUPS
 SAMPLE_LIMIT = 3                           # 结果里附带的消息样例上限
+# 分析引擎的输出语言。告警消息发给利比里亚现场团队，历史上群里用的是英文，
+# 故默认 en（引擎支持 zh/en，见 whatsapp-kb-bot/scripts/tt-analyze.py:77）。
+ANALYZE_LANG = os.environ.get("TT_ALERT_LANG", "en")
 # 各项最终来源（env / file / default），供排障解释"为何页面值与实际不符"
 CONFIG_SOURCES = {k: v for k, v in _CFG.items() if k.endswith("_from")}
 
@@ -308,6 +318,7 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
         "success": False, "candidates": 0, "due": 0, "dispatched": 0,
         "groups": list(GROUPS), "group_fallback": GROUPS_FALLBACK,
         "job_id": None, "samples": [], "errors": [], "elapsed_seconds": 0,
+        "degraded": 0,
     }
 
     def _finish() -> Dict[str, Any]:
@@ -354,9 +365,23 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
             out["message"] = (f"候选 {len(rows)} 单，均在 {RESEND_MINUTES} 分钟重推节流内，本轮不发")
             return _finish()
 
-        messages = [{"tt_no": _s(r.get("tt_no")), "text": build_tt_message(r)} for r in due]
+        messages = []
+        degraded: List[str] = []
+        for r in due:
+            text, reason = render_message_ex(r, lang=ANALYZE_LANG)
+            messages.append({"tt_no": _s(r.get("tt_no")), "text": text})
+            if reason:
+                degraded.append(f"{_s(r.get('tt_no'))}（{reason}）")
         out["samples"] = [{"tt_no": m["tt_no"], "text": m["text"]}
                           for m in messages[:SAMPLE_LIMIT]]
+        out["degraded"] = len(degraded)
+        if degraded:
+            # 降级会让消息从 ~30 行缩成 6 行，且**不报错**（照样发得出去）。
+            # 群里的人只会觉得「这次信息怎么这么少」，故必须在任务结果里显式暴露。
+            out["errors"].append(
+                f"以下 {len(degraded)} 单已降级为头部摘要（分析引擎不可用）："
+                + "; ".join(degraded[:5])
+                + ("…" if len(degraded) > 5 else ""))
 
         disp = dispatch(messages, GROUPS)
         out["job_id"] = disp.get("job_id")
@@ -424,8 +449,12 @@ __all__ = [
     "LOG_TABLE", "JOB_FILE", "UNCLEARED_SQL", "SAMPLE_LIMIT", "CONFIG_FILE",
     "ensure_log_table", "fetch_candidate_tts", "is_due", "select_due_tts", "load_records",
     "record_result", "run_tt_alarm_whatsapp_alert", "norm_alarm_code",
-    "build_tt_message", "claim_pending_job", "complete_job", "read_job", "dispatch",
-    "wait_for_job_result", "_s", "_dash", "_parse_ts",
+    "claim_pending_job", "complete_job", "read_job", "dispatch",
+    "wait_for_job_result", "_s", "_dash", "_parse_ts", "ANALYZE_LANG",
+    # 渲染入口转发（实现在 tt_alarm_render；调用方常只 import 本模块）
+    "render_message_ex", "render_tt_analysis", "render_with_reason",
+    # 降级模板（实现在 tt_alarm_message；对外保留别名，既有测试与调用方依赖它）
+    "build_tt_message",
 ]
 
 # 配置文件路径的对外别名（配置模块拥有它；这里转发便于调用方只 import 本模块）

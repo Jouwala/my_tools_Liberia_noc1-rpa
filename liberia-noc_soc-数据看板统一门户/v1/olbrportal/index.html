@@ -170,13 +170,28 @@
               data-i18n-attr="title:attr.theme">
         <i class="ph ph-moon" aria-hidden="true"></i>
       </button>
-      <button type="button" class="btn-ghost" id="editBtn" hidden aria-pressed="false"
-              data-i18n-attr="title:edit.tipOn">
-        <i class="ph ph-pencil-simple" aria-hidden="true"></i><span>编辑分组</span>
-      </button>
+      <div class="mp-user-menu" id="userMenu" hidden>
+        <button type="button" class="mp-user-trigger" id="userMenuBtn"
+                aria-expanded="false" aria-controls="userMenuPanel"
+                data-i18n-attr="title:mast.userMenuTip">
+          <i class="ph ph-user-circle" aria-hidden="true"></i>
+          <span class="mp-user-name" id="whoBadge"></span>
+          <span class="mp-user-role" id="userMenuRole"></span>
+          <span class="mp-user-editing" id="userMenuEditing" hidden data-i18n="mast.editing">编辑中</span>
+          <i class="ph ph-caret-down mp-user-caret" aria-hidden="true"></i>
+        </button>
+        <div class="mp-user-panel" id="userMenuPanel" hidden role="menu">
+          <div class="mp-user-panel-head">
+            <i class="ph ph-user-circle" aria-hidden="true"></i>
+            <span id="userMenuAccount"></span>
+          </div>
+          <button type="button" class="btn-ghost mp-user-action" id="editBtn" hidden aria-pressed="false"
+                  data-i18n-attr="title:edit.tipOn" role="menuitem">
+            <i class="ph ph-pencil-simple" aria-hidden="true"></i><span>编辑分组</span>
+          </button>
       <!-- 用户管理：只对「真门户管理员」显示（olbr.js renderWho 里判 role + id）。
            账号数据不在本页，走的还是 /uniplam/api/auth/* 那套接口。 -->
-      <button type="button" class="btn-ghost" id="umBtn" hidden data-i18n-attr="title:um.entryTip">
+      <button type="button" class="btn-ghost mp-user-action" id="umBtn" hidden data-i18n-attr="title:um.entryTip" role="menuitem">
         <i class="ph ph-shield-check" aria-hidden="true"></i><span data-i18n="um.entry">用户管理</span>
       </button>
       <!-- v1 已去掉顶栏的「管理门户」(/MsPortal/) 与「统一门户」(/uniplam/) 两个外链按钮
@@ -188,13 +203,15 @@
            「管理门户」链接，删键会让那里显示成裸 key。
            「退出」按钮（logoutBtn）保留：它是本页自身的登录态操作，不属于外链。
            同理**不引** ms 的站点入口（.mp-pin → /uniplam/）：它也是外链，用户已明确不要。 -->
-      <span class="auth-user-badge" id="whoBadge" hidden></span>
-      <button type="button" class="btn-ghost" id="logoutBtn" hidden>
-        <i class="ph ph-sign-out" aria-hidden="true"></i><span data-i18n="mast.logout">退出</span>
-      </button>
-    </div>
+      <span class="mp-user-divider" aria-hidden="true"></span>
+           <button type="button" class="btn-ghost mp-user-action mp-user-logout" id="logoutBtn" hidden role="menuitem">
+             <i class="ph ph-sign-out" aria-hidden="true"></i><span data-i18n="mast.logout">退出</span>
+           </button>
+       </div>
+     </div>
   </div>
-</header>
+  </div>
+ </header>
 
 <!-- ===================== 编辑模式提示条 =====================
      只有点了顶栏「编辑分组」才出现。它不是装饰：这一页的编辑改动写进的是
@@ -315,12 +332,13 @@
        现在 .aux 只渲染 T2 那三个分组（知识库 / 生态 / 系统运维）。 -->
   <section class="aux" id="aux" aria-label="Auxiliary"></section>
 
-  <!-- L2 · 归档区（2026-09-28 加）。
+  <!-- L2 · 归档区（2026-09-28 加；2026-09-29 起**默认隐藏**）。
        与上面 .aux 分开一个容器，理由有二：
          ① 归档的语义与 T2「辅助入口」不同 —— 这些看板是**从各视图里移出来的**，
             放在同一块里会被读成"多了一个叫归档的业务分区"；
-         ② T2 那块固定渲染三个分组、无条件存在，而归档**有内容才渲染**
-            （renderArchive 里 list 为空时整块 hidden），独立容器才好整体开关。
+         ② T2 那块固定渲染三个分组、无条件存在，而归档**是例外状态**：
+            9/29 起按用户要求默认整块 hidden，只有本会话真的归档过东西才露出来
+            （开关是 olbr.js 的 state.sawArchive，理由与替代回执都在 renderArchive 里）。
        样式复用 .aux-g / .aux-h / .lrow（同一套行链接与折叠交互），
        只有 .arch-hint 一行说明是新加的 —— 它负责说清"这些看板没被删掉、怎么勾回来"，
        否则这个区块看起来像回收站。 -->

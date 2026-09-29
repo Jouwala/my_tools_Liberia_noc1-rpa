@@ -39,6 +39,30 @@ PNG 截图，都不属于本页数据源 —— 汇总工作簿的文件名是�
   ``Remark`` ∈ {Failure Rate, Actual Consumption}。
 - 明细 sheet 的数量合计：Inbound=Inbound Qty、Outbound=Outbound Qty、
   Inventory=Stock Qty；未关闭单 = ``Status`` 不含 "closed"（大小写不敏感）。
+
+仓库消耗汇总（``get_summary`` 的 ``warehouse_summary`` / ``frequent_materials``）
+--------------------------------------------------------------------------
+这两块服务于「仓库汇总报表」页面（``?page=warehouse_summary``），结构对齐
+``WarehouseSummaryReport.xlsx`` 的两段表。**数据源仍是同一份工作簿**，不做二次采集。
+
+- ``warehouse_summary``：「WH/DOP × 库存/消耗」表。每行一个仓库/ DOP：
+  ``current_inventory`` 取 ``Inventory`` sheet 按 ``Warehouse Name`` 的 ``Stock Qty`` 合计；
+  ``total_consumption`` / ``month_consumption`` / ``week_consumption`` 取 ``Outbound`` sheet
+  按 ``Warehouse Name`` 的 ``Outbound Qty`` 合计，后两者按**请求时刻**的时间窗过滤。
+  ⚠️ 时间窗是**运行时**口径（今天所在的本周/本月），不是工作簿的生成时口径 ——
+  Excel 的 "This month / This week" 同样是打开报表时算的，两者语义一致。
+  时间取 ``Outbound Time``，为空回落 ``Create Time``（``OUTBOUND_TIME_COLUMNS``）；
+  两者都为空的行**不计入**任何期间合计（不猜时间），但会进入 ``total_consumption``，
+  因此 ``month/week <= total`` 恒成立。末尾附加一行 ``Total``，由后端算，
+  **不交给前端二次求和**（否则页面与接口口径容易漂移）。
+- ``frequent_materials``：「高频消耗物料」表。取 ``Summary-Current`` 的行，
+  按 ``Consumption Qty`` 降序**全量返回**（页面每 10 行分页显示所有物料）。
+  ``top_n``（= ``FREQUENT_TOP_N``）只作为"排在最前的若干条"的展示提示，
+  **不用于截断** ``rows`` —— 否则分页翻不到后面的物料。
+  ⚠️ ``Consumption Qty`` 映射到 **``Outbound Site Qty``**（站点出库），不是 ``Outbound Qty``：
+  后者含报修出库与两张异常单据，与补库口径不一致；``Outbound Site Qty``
+  才是"真正发到站点的消耗"。上游若缺该列（旧工作簿）则回落到 ``Outbound Qty``，
+  不静默变成 0。``Total`` 行是**全量**合计，与 ``rows`` 同为全量口径，两者天然自洽。
 """
 from __future__ import annotations
 
@@ -47,7 +71,7 @@ import logging
 import re
 import threading
 from collections import Counter
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -151,6 +175,12 @@ FILTER_COLUMNS: Dict[str, Tuple[Tuple[str, str], ...]] = {
 STATUS_COLUMN = "Status"
 CLOSED_KEYWORD = "closed"
 TOP_N = 12
+
+#: 出库业务时间列的取值优先级（第一个有值的列生效）
+OUTBOUND_TIME_COLUMNS: Tuple[str, ...] = ("Outbound Time", "Create Time")
+
+#: 「仓库汇总报表」页面的高频消耗物料条数（Total 行不受此截断影响）
+FREQUENT_TOP_N = 10
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 5000
@@ -551,6 +581,170 @@ def _summary_current_stats(sd: SheetData) -> Dict[str, Any]:
     }
 
 
+# =============================================================================
+# 仓库消耗汇总 / 高频消耗物料（「仓库汇总报表」页面 = WarehouseSummaryReport.xlsx）
+# =============================================================================
+def _parse_time(raw: Any) -> Optional[datetime]:
+    """把单元格里的时间解析成 datetime；解析不了返回 None。
+
+    工作簿里这些列是**日期时间类型**（openpyxl 读出来就是 datetime），
+    但也见过被上游导成字符串的情况，所以字符串走一次 ``fromisoformat`` 兜底。
+    """
+    if isinstance(raw, datetime):
+        return raw
+    if isinstance(raw, date):
+        return datetime(raw.year, raw.month, raw.day)
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(s)
+        except ValueError:
+            return None
+    return None
+
+
+def _period_starts(now: Optional[datetime] = None) -> Dict[str, datetime]:
+    """本周 / 本月的起点（周一为周首，与 Excel 的 "This week" 语义一致）。"""
+    now = now or datetime.now()
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = day_start - timedelta(days=day_start.weekday())
+    month_start = day_start.replace(day=1)
+    return {"week": week_start, "month": month_start}
+
+
+def _outbound_time(row: List[Any], idx: Dict[str, int]) -> Optional[datetime]:
+    """按 OUTBOUND_TIME_COLUMNS 的优先级取该行的出库时间。"""
+    for column in OUTBOUND_TIME_COLUMNS:
+        i = idx.get(column)
+        if i is None:
+            continue
+        t = _parse_time(row[i] if i < len(row) else None)
+        if t is not None:
+            return t
+    return None
+
+
+def _warehouse_summary(data: _Data, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """「WH/DOP × 库存/消耗」表（含末尾 Total 行）。
+
+    仓库集合取 ``Outbound`` 与 ``Inventory`` 的**并集**：只在一边出现的仓库也出行，
+    缺失侧计 0 —— 直接丢弃会让「Total」与各仓之和对不上，用户会当成 bug。
+    """
+    starts = _period_starts(now)
+    outbound = data.sheets.get("Outbound")
+    inventory = data.sheets.get("Inventory")
+
+    #: 仓库名 -> 各列累计
+    acc: Dict[str, Dict[str, float]] = {}
+
+    def bucket(name: str) -> Dict[str, float]:
+        return acc.setdefault(name, {
+            "current_inventory": 0.0, "total_consumption": 0.0,
+            "month_consumption": 0.0, "week_consumption": 0.0,
+        })
+
+    if outbound is not None:
+        idx = {c: i for i, c in enumerate(outbound.columns)}
+        wi = idx.get("Warehouse Name")
+        qi = idx.get("Outbound Qty")
+        if wi is not None and qi is not None:
+            for r in outbound.rows:
+                name = _to_text(r[wi] if wi < len(r) else None)
+                if not name:
+                    continue
+                qty = _to_num(r[qi] if qi < len(r) else None) or 0.0
+                b = bucket(name)
+                b["total_consumption"] += qty
+                t = _outbound_time(r, idx)
+                if t is not None:
+                    if t >= starts["month"]:
+                        b["month_consumption"] += qty
+                    if t >= starts["week"]:
+                        b["week_consumption"] += qty
+
+    if inventory is not None:
+        idx = {c: i for i, c in enumerate(inventory.columns)}
+        wi = idx.get("Warehouse Name")
+        si = idx.get("Stock Qty")
+        if wi is not None and si is not None:
+            for r in inventory.rows:
+                name = _to_text(r[wi] if wi < len(r) else None)
+                if not name:
+                    continue
+                bucket(name)["current_inventory"] += _to_num(r[si] if si < len(r) else None) or 0.0
+
+    rows: List[Dict[str, Any]] = [
+        {
+            "warehouse": name,
+            "current_inventory": round(v["current_inventory"], 2),
+            "total_consumption": round(v["total_consumption"], 2),
+            "month_consumption": round(v["month_consumption"], 2),
+            "week_consumption": round(v["week_consumption"], 2),
+        }
+        # 库存多的排前面：一眼看到主仓；同库存按名称稳定排序，避免每次请求顺序漂移
+        for name, v in sorted(acc.items(), key=lambda kv: (-kv[1]["current_inventory"], kv[0]))
+    ]
+
+    total = {
+        "warehouse": "Total",
+        "current_inventory": round(sum(r["current_inventory"] for r in rows), 2),
+        "total_consumption": round(sum(r["total_consumption"] for r in rows), 2),
+        "month_consumption": round(sum(r["month_consumption"] for r in rows), 2),
+        "week_consumption": round(sum(r["week_consumption"] for r in rows), 2),
+    }
+    return [total] + rows
+
+
+def _frequent_materials(current: Optional[SheetData], top_n: int = FREQUENT_TOP_N) -> Dict[str, Any]:
+    """「高频消耗物料」表（Top N + 全量 Total 行）。"""
+    if current is None:
+        return {"rows": [], "total": None, "top_n": top_n, "consumption_column": ""}
+
+    # Consumption Qty 的口径见模块 docstring：优先 Outbound Site Qty（站点出库）
+    consumption_column = ("Outbound Site Qty"
+                          if "Outbound Site Qty" in current.columns else "Outbound Qty")
+    ci = current.index_of(consumption_column)
+    ii = current.index_of("Inventory Qty")
+    domain_i = current.index_of("Domain")
+    name_i = current.index_of("Material Name")
+    alert_i = current.index_of("Alert Level")
+
+    def cell(r: List[Any], i: Optional[int]) -> Any:
+        return r[i] if i is not None and i < len(r) else None
+
+    items: List[Dict[str, Any]] = []
+    for r in current.rows:
+        qty = _to_num(cell(r, ci)) or 0.0
+        items.append({
+            "domain": _to_text(cell(r, domain_i)),
+            "material_name": _to_text(cell(r, name_i)),
+            "consumption_qty": round(qty, 2),
+            "inventory_qty": round(_to_num(cell(r, ii)) or 0.0, 2),
+            "alert_level": _to_text(cell(r, alert_i)),
+        })
+
+    # Total 行按**全量**算，再截 Top N —— 否则 Total 会等于前 10 行之和，与报表对不上
+    total = {
+        "material_name": "Total",
+        "consumption_qty": round(sum(i["consumption_qty"] for i in items), 2),
+        "inventory_qty": round(sum(i["inventory_qty"] for i in items), 2),
+    }
+    # 消耗量降序；并列时按物料名排序，保证分页/刷新顺序稳定
+    items.sort(key=lambda i: (-i["consumption_qty"], i["material_name"]))
+    # rows 返回**全量**（不是 Top N）：页面要分页显示所有物料。
+    # top_n 仅作为「页面上按消耗量排在最前的若干条」的展示提示保留，
+    # 不能再用它截断 rows —— 否则分页只能翻到前 N 条。
+    return {
+        "rows": items,
+        "total": total,
+        "top_n": top_n,
+        "consumption_column": consumption_column,
+        "material_count": len(items),
+    }
+
+
 def get_summary(kind: str = DEFAULT_KIND) -> Dict[str, Any]:
     """页面统计卡片 + 各 sheet 元信息 + 每日矩阵 + 报表自带口径说明。"""
     data = _load(kind)
@@ -573,6 +767,10 @@ def get_summary(kind: str = DEFAULT_KIND) -> Dict[str, Any]:
         "overview": overview,
         "sheets": sheets,
         "matrix": data.matrix,
+        # 「仓库汇总报表」页面（?page=warehouse_summary）专用：结构对齐
+        # WarehouseSummaryReport.xlsx 的两段表；既有键一个不动，保证 SpReportBase 不受影响
+        "warehouse_summary": _warehouse_summary(data),
+        "frequent_materials": _frequent_materials(current),
         "notes": current.notes if current is not None else [],
         "warnings": data.warnings,
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

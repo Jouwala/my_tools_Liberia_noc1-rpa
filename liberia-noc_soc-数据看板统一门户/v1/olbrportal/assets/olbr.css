@@ -1304,7 +1304,54 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 
 /* 地图 */
 .map { display: flex; flex-direction: column; }
-.map-tabs { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+/* ═══ 地图栏标题条：三段式布局（2026-09-29）═══════════════════════════════════
+   用户当天先要求「reload 和 openlink 放到最右边」，随后又要求「两个页签居中显示」。
+   两条合起来 = 标题条必须分成**三段**，各段独立定位：
+
+     ┌──────────────┬──────────────────────┬────────────────────┐
+     │ .p-hd 标题   │ .map-tabs 页签（居中）│ .map-tools 按钮（贴右）│
+     └──────────────┴──────────────────────┴────────────────────┘
+         flex:1 1 0        flex:none           flex:1 1 0 + justify-end
+
+   居中的做法：左右两段都设 flex:1 1 0（等宽、可压缩）并加 min-width:0，
+   页签段 flex:none 固定成内容宽 —— 两侧弹簧等长，页签自然落在正中。
+   ⚠️ 用 flex 弹簧而不是绝对定位（position:absolute; left:50%; transform:translateX(-50%)）：
+      绝对定位会让页签脱离文档流，长标题时标题会**压到页签下面**（页签盖住文字）。
+      弹簧方案里三段互相避让，标题超长时自己省略（.p-t 带 ellipsis），互不重叠。
+
+   ⚠️ 历史坑（别改回去）：曾经靠 `.map-tabs { margin-left:auto }` 让「页签+按钮」
+      整块贴右。居中和它是**互斥**的 —— 两者同时存在，页签会停在中偏右。
+      现在 .map-tabs 上**没有** margin-left:auto，贴右由 .map-tools 自己的
+      margin-left:auto + justify-content:flex-end 负责（双保险：前者管块的位置，
+      后者管块内两颗按钮的顺序）。
+
+   ⚠️ 换行必须关掉（nowrap），这是居中能否成立的**前提**，不是可选项。
+      全局 .p-head 是 flex-wrap: wrap（olbr.css:1213）。三段各自带 gap（12px），
+      实测三段"自然内容宽 + 2 条 gap" = 772px，而容器正好 771px —— **差 1px**
+      就触发 wrap，于是三段各占一行（实测不同 top 数 = 3），弹簧彻底失效。
+      注意这里"1px 之差"不是巧合必然：wrap 的判定发生在**收缩之前**，
+      所以只要内容总宽 ≥ 容器宽就一定换行，永远不会走到"靠 flex-shrink 让
+      1fr 弹簧吸收差额"那条路。改成 nowrap 后，两个 1fr 弹簧才会真正去分
+      "容器宽 − 页签宽"，页签也就落在正中。
+      ⚠️ 别用"给 .p-head 加宽"或"减 gap"来绕：那只是把 1px 之争挪到别的宽度
+      档位上，换个视口宽度又会翻。nowrap 才是从机制上消除这个判定。
+
+   ⚠️ 窄屏退让：nowrap 之后三段永不换行，极窄视口下靠 .p-hd 的 min-width:0
+      让标题先被压到 0（省略号），再把余量给按钮 —— 按钮**始终可见**，
+      这是刻意的取舍（按钮是操作入口，标题被压缩可接受）。 */
+/* ⚠️ 只改地图栏（#l0Map），不动全局 .p-head（olbr.css:1213）：
+   全局那条被报告文件栏等**没有页签**的面板共用，那些面板"标题吃余量 +
+   按钮自然贴右"就够了，不需要三段式，给它们加 nowrap 只会让窄屏更挤。
+   这里用 #l0Map 前缀把作用域钉死在地图栏。
+   ⚠️ .p-hd 也只改地图栏这一条：全局 .p-hd（olbr.css:1214）是 flex:1 1 auto，
+   若无差别改成 1 1 0，其他面板的标题会被压成 0 宽（1fr 弹簧没人与它配对时会一直缩）。 */
+#l0Map .p-head { flex-wrap: nowrap; }
+#l0Map .p-head > .p-hd { flex: 1 1 0; }
+.map-tabs { display: flex; align-items: center; justify-content: center; gap: var(--s2); flex: none; }
+/* 工具按钮段：吃掉剩余空间并把自己的内容推到右端。
+   margin-left:auto 在这里是**必要的** —— 页签只有两个时 .p-hd 的 1fr 弹簧
+   已经把它推到中间，若本段不带 auto，两颗按钮会紧贴在页签右侧而不是卡片右缘。 */
+.map-tools { display: flex; align-items: center; justify-content: flex-end; gap: var(--s2); flex: 1 1 0; min-width: 0; margin-left: auto; }
 .tabs { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface-3); }
 .tab { height: 26px; padding: 0 10px; border-radius: 4px; font-size: 12.5px; font-weight: 600; color: var(--t2); display: inline-flex; align-items: center; gap: 6px; }
 .tab i { font-size: 14px; }
@@ -1543,6 +1590,17 @@ table.grid a:hover { text-decoration: underline; }
 .gp-i { display: flex; align-items: center; gap: 8px; padding: 4px 5px; border-radius: 6px; font-size: 12.5px; color: var(--t2); cursor: pointer; }
 .gp-i:hover { background: var(--b-tint); color: var(--t1); }
 .gp-i input { accent-color: var(--b); width: 14px; height: 14px; flex: none; margin: 0; }
+/* 归档那一项的计数（2026-09-29 加）。结构上是 .gp-i 里的第三个孩子，
+   所以「名字占满、计数贴右」只需给名字那一段 auto：
+   ⚠️ 不能写成 `.gp-i span:first-of-type` —— 名称永远不需要让位，
+   让位的是「名字后面那个东西」，按位置写将来插元素就会错位。 */
+.gp-i > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-n { flex: none; font: 500 10.5px/1 var(--mono); font-style: normal; color: var(--warn); background: var(--warn-tint); padding: 3px 5px; border-radius: 4px; }
+/* ⚠️ 空计数不显示。为什么用 :empty 而不是在拼串处决定「要不要输出这个节点」：
+   那样"0 不显示"就有两个判据（拼串 + 样式），改一处漏一处；
+   这里拼串只负责"有几张"，显示与否只有这一条规则。
+   —— 实测线上 Arch 恒为 3，0 只在有人清空归档后出现。 */
+.gp-n:empty { display: none; }
 /* 「新增看板」第一步：选模板。列表比分组勾选长得多（55 条），所以限定高度滚动 +
    一行一条（模板名可能很长，两列会把名字压成省略号）。搜索框常驻在顶部。 */
 .gp-search { margin-bottom: 6px; }

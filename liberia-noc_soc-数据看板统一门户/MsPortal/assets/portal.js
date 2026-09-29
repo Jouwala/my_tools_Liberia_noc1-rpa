@@ -3681,8 +3681,14 @@
     'main#main-content .ant-card:has(.leaflet-container) > .ant-card-body{height:100%!important;padding:0!important}',
     // 地图卡片里与地图同级的小块（实测是「Critical/Major/Minor/Warning/OK」图例）
     // 若让它参与普通流，地图撑满后它会被挤出卡片裁掉 —— 改成贴底浮层，两者都留
+    // ⚠️ 2026-10-14：块内那套图例早已不在（GIS 图例 2026-09-28 起移到地图上，
+    // 成了 .gis-legend-overlay 这个自带定位的绝对定位浮层），而这条选择器**恰好
+    // 会命中它** —— 它是 .ant-card-body 里唯一「不是 .leaflet-container」的直接
+    // 子元素，于是被刷上 !important 的白底，盖掉 index.css 的 transparent。
+    // 故加 :not(.gis-legend-overlay) 排除。规则本身保留：将来若有别的小块与地图
+    // 同级，仍需「贴底浮层」这个待遇。完整推导见 v1/olbrportal 同款样式处。
     'main#main-content .ant-card-body:has(.leaflet-container){position:relative!important}',
-    'main#main-content .ant-card-body:has(.leaflet-container) > *:not(.leaflet-container):not(:has(.leaflet-container)){position:absolute!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.88)!important;margin:0!important;padding:2px 8px!important}',
+    'main#main-content .ant-card-body:has(.leaflet-container) > *:not(.leaflet-container):not(:has(.leaflet-container)):not(.gis-legend-overlay){position:absolute!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.88)!important;margin:0!important;padding:2px 8px!important}',
     '.leaflet-container{height:100%!important;min-height:0!important;max-height:none!important;width:100%!important;border-radius:0!important}'
   ].join('');
 

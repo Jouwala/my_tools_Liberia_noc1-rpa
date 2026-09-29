@@ -10,8 +10,12 @@
 - POST /api/whatsapp/tt-alert/job/result   → 扩展回报发送结果
 - GET  /api/whatsapp/tt-alert/log          → 查看发送日志表（运维排查用）
 
-> 说明：扩展侧的**纯文本发送**能力尚未实现（现有扩展只发图片）。这些端点是
-> 为补齐该能力预留的对接面，扩展实现后即可直接认领 job.kind == "text" 的作业。
+> **扩展实际走的是统一认领口 `/api/whatsapp/ext/job`**（见
+> `backend/services/whatsapp_job_claim.py`），不是本文件的 `/job` 端点 ——
+> 因为扩展只轮询一个端点。本文件保留 `/job` 与 `/job/result` 是为了：
+>   1. 让文本作业有一条**可独立自测/手工排查**的通道（不必模拟扩展的完整往返）；
+>   2. 便于将来扩展升级为并行轮询两个端点。
+> **两条通道认领的是同一个作业文件**，故不会双发。
 """
 import logging
 

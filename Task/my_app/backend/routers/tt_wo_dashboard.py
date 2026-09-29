@@ -109,6 +109,27 @@ def _safe_str(val, default: str = "Unknown") -> str:
     return str(val)
 
 
+# Ticket Severity 中这些值表示「没有可用级别」，不能作为一个真实级别参与统计。
+# 同时兼容数据库里已经存在的正确拼写与历史误拼写 ``unkonw``。
+#
+# 背景（2026-09-29 业务要求）：page=tt 的 Ticket Severity 卡不得统计与显示 Unknown。
+# 注意与邻近的 ``_safe_str`` 区分 —— ``_safe_str`` 把 NULL/空串/'None' 归并为字面量
+# 'Unknown'，因此「空值」与「真的写着 unknown」在本函数里被统一拦截；
+# **SLA 状态 / 状态 / 告警严重度的 Unknown 不受影响**，那不是同一维度。
+_EXCLUDED_TICKET_SEVERITIES = frozenset({"unknown", "unkonw"})
+
+
+def _is_excluded_ticket_severity(value) -> bool:
+    """判断 Ticket Severity 是否为不可统计/展示的 Unknown 标记。"""
+    return str(value or "").strip().casefold() in _EXCLUDED_TICKET_SEVERITIES
+
+
+def _ticket_severity_key(value) -> str | None:
+    """返回可用于 Ticket Severity 统计的键；Unknown 标记返回 None。"""
+    severity = _safe_str(value).strip()
+    return None if _is_excluded_ticket_severity(severity) else severity
+
+
 # ========== ZTE / 3rd 归属过滤 ==========
 # 口径（业务确认）：wo_no 非空 = ZTE 自派单，wo_no 为空 = 3rd 第三方单。
 # overview 与 drilldown 必须共用本函数，否则「看板上的数字」与「下钻的行数」
@@ -338,8 +359,9 @@ def tt_wo_dashboard_overview(
         for r in tt_rows:
             sev_val = _safe_str(r[0])
             sev_stats[sev_val] = sev_stats.get(sev_val, 0) + 1
-            ticket_sev_val = _safe_str(r[1])
-            ticket_sev[ticket_sev_val] = ticket_sev.get(ticket_sev_val, 0) + 1
+            ticket_sev_val = _ticket_severity_key(r[1])
+            if ticket_sev_val is not None:
+                ticket_sev[ticket_sev_val] = ticket_sev.get(ticket_sev_val, 0) + 1
             sla_stats[_safe_str(r[2])] = sla_stats.get(_safe_str(r[2]), 0) + 1
             status_val = _safe_str(r[3], "")
             if status_val:
@@ -355,9 +377,7 @@ def tt_wo_dashboard_overview(
                 ts_occ = str(r[6])
                 # ticket_severity 为空/None 的单不进任何级别序列
                 # （没有级别可归，硬塞进 P4 会伪造数据）
-                sv = ""
-                if r[1] is not None and str(r[1]).strip() not in ("", "None"):
-                    sv = str(r[1]).strip()
+                sv = _ticket_severity_key(r[1]) or ""
                 # 三种粒度的桶标签一次算好、本行复用，避免对同一行重复 strptime
                 buckets = {}
                 for gran in _MTTR_GRANULARITIES:

@@ -213,8 +213,36 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType>({ isDark: true, toggle: () => {} })
 
-/** 跟随系统偏好（无用户显式选择时） */
+/* 主题优先级（2026-10-14 起）：URL 参数 → localStorage → 系统偏好。
+ *
+ * 为什么把 URL 参数放到**最前**（门户内嵌场景的根因修复）：
+ *   /v1/olbrportal/ 与 /v2/olbrportal/ 的地图栏只有一个同源 iframe，门户的深浅色
+ *   过去**只**通过 `?theme=dark` 传达（见 olbrportal/assets/olbr.js 的 mapItems），
+ *   而这里原先只读 localStorage + 系统偏好 —— 于是门户切深色时，内嵌的
+ *   GIS Map 仍然按浅色渲染（实测 data-theme 停在 light、瓦片 invert 滤镜不生效），
+ *   观感与直开 /myapp/?page=gis 完全两样。参数是门户能给出的**唯一**声明，
+ *   不认它就等于同一份 UI 在内嵌与直开两种入口下走两套主题。
+ *
+ * ⚠️ 参数**只影响本次渲染，不写回 localStorage**。
+ *   理由：门户与 my_app 同源、共用 myapp-theme 这一个键，而门户的工具条（如
+ *   报告文件卡的 syncEmailTheme）会主动写它。若这里也写回，一次带 theme= 的
+ *   访问就会把用户的**全局偏好**改掉，之后直开 /myapp/ 会莫名其妙跟着变 ——
+ *   这正是 MsPortal/portal.js 注释里自陈的「同一跨应用副作用」，不该再扩大。
+ *   参数是「这一页怎么画」，偏好是「这个人怎么看」，两者不能互相污染。
+ *
+ * 取值口径与门户地图 src 的拼法一一对应：只认字面量 dark / light，
+ * 其余（缺省、拼错、light 之外的任意串）一律回落到 localStorage → 系统偏好。 */
+export function themeFromUrl(search?: string): ThemeMode | null {
+  try {
+    const v = new URLSearchParams(search ?? window.location.search).get('theme')
+    return v === 'dark' || v === 'light' ? v : null
+  } catch { return null }
+}
+
+/** URL 参数 → localStorage（用户显式选择）→ 系统偏好 */
 function detectMode(): ThemeMode {
+  const fromUrl = themeFromUrl()
+  if (fromUrl) return fromUrl
   const saved = localStorage.getItem(THEME_STORAGE_KEY)
   if (saved === 'dark' || saved === 'light') return saved
   return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
@@ -224,8 +252,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<ThemeMode>(detectMode)
   const isDark = mode === 'dark'
 
-  // 无用户显式选择时，跟随系统主题变化
+  // 无用户显式选择时，跟随系统主题变化。
+  // ⚠️ URL 钉住主题时**必须退出**：门户明确要求「这一页用深色」，
+  //    再让系统偏好把它翻成浅色，内嵌页就会和外面的门户对不上（本文件上方已说明）。
   useEffect(() => {
+    if (themeFromUrl()) return
     if (localStorage.getItem(THEME_STORAGE_KEY)) return
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const onChange = (e: MediaQueryListEvent) => setMode(e.matches ? 'dark' : 'light')

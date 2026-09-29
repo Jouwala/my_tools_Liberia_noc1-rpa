@@ -38,20 +38,39 @@
 - 仅放行 `.png/.jpg/.jpeg`，其余 404。
 
 ### GET `/api/whatsapp/ext/job`
-扩展轮询认领待发作业。有待发作业时返回（并把状态置为 `running`）：
+**扩展作业的统一认领口**。扩展只轮询这一个端点，但它下面有**两个**作业源：
+定时发图（`whatsapp_ext_service`）与 TT 告警文本（`tt_alarm_job`），
+由 `backend/services/whatsapp_job_claim.py` 收敛，**同一时刻最多认领一个作业**，
+发图优先。返回体一律带 `pending: true` 与 `kind`：
+
+发图作业（`kind = "image"`，源自带 `items`）：
 ```json
-{ "pending": true, "job_id": "…", "groups": ["test123"], "items": [ /* 同 outbox.items */ ] }
+{ "pending": true, "kind": "image", "job_id": "…", "groups": ["test123"],
+  "items": [ /* 同 outbox.items */ ] }
 ```
+
+TT 告警文本作业（`kind = "text"`，载荷是 `messages`）：
+```json
+{ "pending": true, "kind": "text", "job_id": "…", "groups": ["值班群A"],
+  "messages": [ { "tt_no": "TT202609270103", "text": "TT202609270103 · …" } ] }
+```
+
 无待发作业时返回 `{ "pending": false }`。
 
+> 认领会把作业置为 `running`（防多个扩展实例重复发送）。某个作业源抛异常时
+> 该源按「无作业」跳过，不影响另一个源 —— 一个源坏掉不该让另一个源也发不出去。
+
 ### POST `/api/whatsapp/ext/job/result`
-扩展回报发送结果。请求体：
+扩展回报发送结果。**必须带 `kind`**，后端据此把结果转交给对应的作业源
+（发图 → `groups_sent`；文本 → `sent`，即真正发出的 `tt_no` 列表）：
 ```json
-{ "job_id": "…", "ok": true, "groups_sent": ["test123"], "errors": [], "elapsed_seconds": 42 }
+{ "job_id": "…", "kind": "image", "ok": true, "groups_sent": ["test123"], "errors": [], "elapsed_seconds": 42 }
+{ "job_id": "…", "kind": "text",  "ok": true, "sent": ["TT202609270103"], "errors": [] }
 ```
-- `job_id` 与当前作业不匹配时返回 `409`。
-- 成功后把作业标记为 `completed`（`ok=false` 时为 `failed`）并落盘结果，
-  供正在等待的任务 `whatsapp_send_ext` 读取。
+- `job_id` 与当前作业不匹配、或 `kind` 未知时返回 `409`（回错源会把「已发送」
+  记成别人的结果，故未知 `kind` 必须拒绝而非默认按发图处理）。
+- 成功后把作业标记为终态（发图 `completed/failed`、文本 `done/failed`）并落盘结果，
+  供正在等待的任务读取。
 
 ## 与任务的关系
 - 原任务 `whatsapp_send`（Playwright）**保持不变**。

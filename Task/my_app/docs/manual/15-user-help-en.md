@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-28.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-29.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (66 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (67 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -78,7 +78,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (66 tasks)
+### 3.3 Full task catalog (67 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -98,6 +98,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | RAN Cells KPI Sync | `cells_kpi_sync` | `50 4 * * *` | u | `services/ran_cells_kpi_sync.py → run_cells_kpi_sync` |
 | RAN Network KPI Sync | `network_kpi_sync` | `0 5 * * *` | u | `services/ran_ume_network_kpi.py → run_network_kpi_sync` |
 | Availability Recon Rebuild | `avail_recon_sync` | `10 6 * * *` | u | `services/avail_recon_sync.py → run_avail_recon_sync` |
+| BP Report Sync | `bp_report_sync` | `20 6 * * *` | u | `services/bp_report_sync.py → run_bp_report_sync` |
 | CNN UME KPI Sync | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | SP Spare Data Sync | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI Sync | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
@@ -432,6 +433,29 @@ Workflow & maintenance notes per task:
 - Definitions live at the top of services/avail_recon_sync.py: Cell_Availability=AVG(rate), NOT the share of sites meeting the target (v1 got this wrong, range 40-100%)
 - The board resolves avail_recon.sqlite3 to the local file via dashboard_service.DB_ALIASES; register new derived DBs the same way
 - Before 2026-09-21 this table was maintained by a manual ETL in the retired my-finebi project; with no scheduler it froze at 2026-09-13 and the board went silently stale
+
+#### BP Report Sync（`bp_report_sync`）
+
+- Default cron: `20 6 * * *`　|　worker group: **u**
+- Workflow script: `services/bp_report_sync.py → run_bp_report_sync`
+
+**What it does**: Read per-cell 4G PRB/throughput/traffic from RAN_UME, recompute Bad Performance cells by the umlaut caliber (daily/weekly/monthly), refresh local data/bp_report.sqlite3 and reconcile against the Excel ground truth
+
+**Workflow & data flow**:
+
+1. Read PRB utilization / DL IP throughput / DL+UL traffic from remote 4G_Main_Kpi_Cell_Daily one day per SQL (avoids hitting the remote 50k row cap and being silently truncated)
+1. Join bp_cell_dict to attach Cluster/Layer (RAN_UME has no such dimension; the dictionary comes from the Excel BP Cells List sheet)
+1. Recompute per-cell daily is_bp and the daily/weekly/monthly rollups (weekly 4/7 days, monthly 3/4 full weeks)
+1. Reconcile day by day against the Excel bp_cells_excel values; store differences and caliber gaps in bp_sync_meta
+
+**Maintenance**:
+
+- The single source of truth for the caliber is services/bp_caliber.py: three daily conditions, weekly 4/7, monthly 3/4
+- WARNING: Average DL Active User Number is not collected on the RAN_UME side (the closest column, C373200029:Maximum Number of RRC Connection User, is a PEAK and not equivalent), so the daily rule effectively covers only two conditions and results are necessarily lower than the Excel ground truth; the gap is surfaced as a persistent page banner and must not be hidden
+- WARNING: PRB utilization is a FRACTION in the source table (0-1, observed max 0.9751), so the threshold is 0.80, not 80; using 80 makes the condition never fire and raises no error
+- WARNING: the source column name "E-UTRAN\xa0FDD\xa0Cell Name" uses NO-BREAK SPACEs; with plain spaces SQLite does not error but treats the double-quoted identifier as a string literal, turning the whole column into its own name text (bp_caliber.assert_columns_exist / assert_no_literal_fallback guard exactly this)
+- The Excel BP Cells List sheet holds only 53 rows for its final day (2026-09-26) versus a true 486, i.e. an incomplete export; do not treat that day's difference as an implementation defect
+- The incremental run carries only 2-3 days, so weekly/monthly recomputation must be restricted to exactly those days; recomputing a whole month overwrites the Excel historical ground truth
 
 #### CNN UME KPI Sync（`cnn_kpi_sync`）
 
@@ -1518,7 +1542,7 @@ Site availability board: per-site availability ranking and target compliance.
 
 #### avail_ms（`avail_ms`）
 
-Availability matrix: network availability presented across three dimensions — region / technology / site type — with day, week and month granularity on tabs. Data comes from the local derived database avail_recon.sqlite3 (rebuilt daily at 06:10 by the avail_recon_sync task; the measure is site-weighted availability, SUM(numerator)/SUM(denominator)).
+MS Availability (availability matrix): network availability presented across three dimensions — region / technology / site type — with day, week and month granularity on tabs. Data comes from the local derived database avail_recon.sqlite3 (rebuilt daily at 06:10 by the avail_recon_sync task; the measure is site-weighted availability, SUM(numerator)/SUM(denominator)).
 
 - Each matrix has a trend chart above it (30 periods for day, 12 for week, 12 for month, following the active tab): one line per dimension value, every point weighted as SUM(numerator)/SUM(denominator) and therefore identical to the table figures
 - Chart points are clickable too, and they open **that point's own period** (e.g. when the month tab sits on 2026-09, clicking the 2026-08 point opens 2026-08 detail)
@@ -1527,6 +1551,22 @@ Availability matrix: network availability presented across three dimensions — 
 - The threshold input (default 99.65%) drives the "below target" flag: values under it turn red and re-evaluate instantly — the figures themselves do not change
 - The ALL row under Region includes sites not matched to master data, so ALL is not the sum of the three regions; that bucket gets its own last row — it can show availability detail but not TT tickets (the derived DB holds no site list for it)
 - 4G NERA is an unmapped dispatch group: counted in the 4G technology total, shown separately as "Other" under site type, and only present in the 2025-12 ~ 2026-01 months; a yellow note appears on the page then
+- Missing data renders as "—" (never 0); the "Data through" label at the top makes a stalled derived database obvious
+
+#### avail_flm（`avail_flm`）
+
+FLM availability: covers only the three FLM regions (Montserrado / North East / South West), with regions as rows and technology (2G/3G/4G) and site type (Regular / Cooli / ERA; the column keeps the raw data value, the requirement writes Cool.i) as columns; day / week / month granularity on tabs. The data is the same source as the Availability Matrix (local derived database avail_recon.sqlite3, measure SUM(numerator)/SUM(denominator)), and the "TTs affecting availability" list is shown right on the page.
+
+- Each table has a trend chart above it: the upper one tracks the three regions (one line per region), the lower one the three site types; 30 periods for day, 12 for week, 12 for month, following the active tab
+- Chart points are clickable and open **that point's own period**; the dashed threshold line (default 99.65%) is the same value that turns table figures red
+- Click any availability figure to drill down: the dialog holds a 30-period trend, the daily detail and a breakdown by dispatch group; the second tab lists every TT ticket of that slice
+- Each region also has a KPI card (all technologies combined) that can be clicked to drill down
+- Site type is not scope-restricted: all three regions show the three columns Regular / Cooli / ERA (raw data value). The "NE has only Regular/Cool.i" note in the requirement contradicts both data sources (NE has 123 ERA sites and an ERA denominator of 65k in the derived database), and leaving cells blank would wrongly suggest NE has no ERA sites
+- The last row "unmatched master data" is the part whose remote site names failed to match: it is outside the three regions and is not plotted (its magnitude would flatten the y-axis); it is listed for reconciliation only and can show availability detail but not TT tickets
+- The page-level "TTs affecting availability" list shows **every TT of the period** with no "impacted service" judgement (that field and site_outage agree on every row of this period, so using either would make the definition look more precise than it is); each row carries the 2G/3G/4G down-site counts and MTTR so you can judge relevance yourself
+- The TT list can be filtered by region (all / the three regions); a month can hold 3600+ tickets, and a yellow note appears when the display limit is hit — only the detail row count is affected, never the availability figures
+- Click a ticket number to look up the availability of its region × site type together with all tickets of that slice
+- 4G NERA is an unmapped dispatch group: counted in the 4G technology total, but this page lists only the three site types, so the 4G row will exceed the sum of the three columns and a yellow note appears
 - Missing data renders as "—" (never 0); the "Data through" label at the top makes a stalled derived database obvious
 
 #### noc_analyst（`noc_analyst`）
@@ -1579,6 +1619,19 @@ PM Execution Analysis: shows preventive-maintenance work orders (PMT) by PM plan
 - Every number is clickable: KPI cards, rate cards, chart bars, the monthly trend, the site bar chart and the plan table all drill into details, and the detail row count matches the card figure exactly
 - A yellow banner appears when drill-down results are truncated — narrow the date range and retry rather than ignoring it
 
+#### bp_report（`bp_report`）
+
+Bad Performance Report: umlaut-caliber BP cell statistics, viewable by day/week/month and drillable down to cell detail.
+
+- Caliber: daily = avg active users > 2.5 AND DL throughput < 3 Mbps AND DL PRB utilization > 80%; weekly = BP on 4 of 7 days; monthly = BP in 3 of 4 full weeks
+- ⚠️ Incomplete caliber (a permanent yellow banner sits at the top): RAN_UME does not collect "average active users", so recomputation covers only the PRB and throughput conditions. Cells missing the third condition are marked "Undecidable" and are not counted as BP
+- Recomputed BP counts are therefore lower than the Excel figures — that is the caliber gap, not an implementation defect; the historical Excel data remains complete and both coexist
+- The "BP cells" column drills into cell detail, and the row count matches the figure exactly; the "Total cells" column cannot drill down (Excel provides no whole-network cell roster)
+- The "Detail rows" column shows how many rows the Excel BP Cells List actually holds for that period, with the difference from the displayed value in brackets — the upstream Excel sheets disagree with each other and the gap is shown as-is
+- Periods with no detail in the Excel BP Cells List (all of 2023, plus some 2024 dates) have their drill-down entry greyed out
+- Regions (Cluster1~6 / Rural / ERA) can only be maintained in Excel; RAN_UME has no such dimension, and new cells missing from the dictionary fall back to Unknown
+- Data is incrementally refreshed from RAN_UME by the bp_report_sync task daily at 06:20
+
 #### Packet Loss（`packet_loss`）
 
 LTE packet loss board (RAN UME SDR / IPRAN IPPD): last 7 complete calendar days at hourly granularity; the ongoing day is hidden.
@@ -1621,7 +1674,7 @@ Site map: alarm/ticket distribution, topology lines, region polygons and multi-d
 
 - Region dropdown + layer tags to filter; click a legend item to hide that layer; time supports segments and custom range
 - Click a site to open the right drawer: four tabs, searchable, exportable to Excel
-- The "Link Utilization" switch (on by default) overlays MW microwave link utilization from the same 15-min slot as the MW Realtime page, colored on a 6-level scale (>90% critical / ≥80% major / ≥70% moderate / ≥60% minor / ≥50% negligible / <50% healthy); thicker lines mean higher utilization
+- The "Link Utilization" switch (on by default) overlays MW microwave link utilization from the same 15-min slot as the MW Realtime page, colored on a 4-level scale (>80% critical / ≥70% major / ≥60% minor / <60% healthy); thicker lines mean higher utilization
 - Click a link to see its max/Tx/Rx utilization and the matched MW sites; a link showing "No KPI data" means it could not be matched to realtime metrics (it keeps its original KML color) — that is not 0%
 - The overlay scope is explained below the legend: about 360 of the 844 KML links match realtime metrics; the rest are still viewable on the MW Realtime page
 
@@ -1644,6 +1697,44 @@ Spare-parts / consumables inventory board (Spare Management), identical to the o
 
 - Data comes from sp_data_sync (5 spare-part reports pulled from SFTP daily at 07:00)
 - Browse inventory and details by warehouse / spare type
+
+#### sp_material（`sp_material`）
+
+Spare-parts material summary: inbound, outbound and inventory rolled up by domain / material.
+
+- Data comes from the spare-part reports pulled by sp_data_sync
+- Click any summary figure to drill into the matching material details
+
+#### sp_details（`sp_details`）
+
+SP Details Report: the same merged workbook that the email task sends, with Inventory / Inbound / Outbound / Transfer sheets.
+
+- Paginate, filter and sort; "open" means Status does not contain Closed
+- Only common columns are shown — click any row for all columns of that sheet
+- Export covers the current filter (up to 5000 rows)
+
+#### sp_report（`sp_report`）
+
+Spare Parts Inbound & Outbound & Inventory summary: the same workbook emailed / sent over WhatsApp (produced daily at 05:15 by sp_report_generate), with Summary-Current / Summary-Changed / Inbound / Outbound / Inventory sheets.
+
+- Stat cards show totals and replenishment alerts; clicking an alert card filters
+- Summary-Changed renders as a day × warehouse matrix
+- "Columns" is configurable per sheet and remembered locally; the row-detail modal always shows every column
+
+#### com_report（`com_report`）
+
+Consumables Inbound & Outbound & Inventory summary: same layout as the spare-parts page, reading the consumables workbook instead.
+
+- Identical basis to the spare-parts page — see "Report basis" at the bottom
+- When the page and Excel disagree, read the basis notes first; never change the basis in the page layer
+
+#### warehouse_summary（`warehouse_summary`）
+
+Warehouse Summary Report: mirrors WarehouseSummaryReport.xlsx — the tabs are its two sheets, Spars Parts / Consumables. Each tab has two sections: WH/DOP inventory & consumption (current inventory / total / this month / this week), and frequently used materials (10 rows per page, all materials reachable by paging).
+
+- Switch tabs for spare parts vs consumables; every figure in both sections drills down
+- Frequently used materials are paged by consumption descending, showing all of them; the Total row is the full-scope total and does not change when you page
+- Consumption basis is Outbound Site Qty (site outbound), shown as a tag next to the second section title
 
 ### 4.3 Analysis & Tools
 

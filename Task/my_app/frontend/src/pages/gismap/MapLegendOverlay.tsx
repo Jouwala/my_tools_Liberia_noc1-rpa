@@ -15,7 +15,28 @@
  *     已知代价：站点弹窗(popup, 700)也会被本浮层压住。这是刻意接受的 ——
  *     Leaflet 会自动把弹窗平移进视野，且「图例被弹窗挡住」比这更难用。
  *  4. 配色一律走 WH / --wh-* 令牌，深浅色自动跟随，不写死十六进制（AGENTS.md 三.3）。
+ *     例外：面板背景（见第 6 条）按主题各写一条 rgba，落在 index.css 的
+ *     .gis-legend-overlay 里 —— 它是「模糊 + 低不透明度」的组合拳，色值必须和
+ *     backdrop-filter 写在同一个类里才能一起被 @supports 降级段接管。
  *  5. 背景加 backdrop-filter：地图瓦片纹理很杂，纯半透明底会让小字读不清。
+ *  6. 2026-10-14 用户要求「图例背景改为透明」，同日又要求「继续增加透明度」：
+ *     面板背景由 WH.cardBg（近乎不透明）换成极低的 0.18（深）/ 0.30（浅）
+ *     不透明度 + 34px 模糊的玻璃底，地图明显从底下透出来。取舍、对比度估算
+ *     与「已经到可读性下限」的提醒都写在 index.css 的 .gis-legend-overlay 段。
+ *  7. **2026-10-14 第三轮（重要，推翻了第 6 条的结论）**：用户反馈「深色主题下
+ *     出现白色背景白色字体」。实测根因不是「不够透明」，而是深色主题下瓦片被
+ *     invert 反相后，OSM 的深色公路/注记变成**亮白**，0.18 的暗面板压不住它 ——
+ *     于是白底白字。**继续降不透明度只会恶化**：透明度与可读性在「底不可控」时
+ *     是互相冲突的。
+ *     期间试过给文字加 text-shadow 描边，**已被用户否决并移除**（0.75rem 小字套
+ *     一圈同色晕读起来是脏污/重影，不美观）—— 勿再重复该方案。
+ *     用户随后连续要求提高透明度：「背景透明度 80%」→ alpha 0.2，
+ *     再「100% 透明」→ alpha **0**（当前值，两主题同）。即背景完全不可见，
+ *     只剩文字 + 描边 + 阴影浮在瓦片上。index.css 里的 @supports 降级段
+ *     已一并删除（它会在不支持 backdrop-filter 的浏览器上偷偷把底加回来）。
+ *     这是用户连续三轮要求后的明确取舍：**深色主题下白字压在反相后的亮色
+ *     瓦片上可能看不见**，不要再自动加回背景色。彻底解法在底图（:690 不再 invert）。
+ *     完整推导见 index.css 的 .gis-legend-overlay 段（勿只看本文件就调数值）。
  *
  * ⚠️ 本组件刻意**不引用 i18n**：所有文案（标题、行标签、口径说明）都由 GISMap 先
  *    `t()` 好再传进来。这样 `check:i18n` 的漏键守卫仍能在 GISMap.tsx 里看见字面量键；
@@ -74,10 +95,12 @@ const panelStyle: CSSProperties = {
   padding: 'var(--wh-space-sm) var(--wh-space-md)',
   borderRadius: 'var(--wh-radius-lg)',
   border: `1px solid ${WH.cardBorder}`,
-  background: WH.cardBg,
+  /* 背景**不在这里写**：它和 backdrop-filter 是一组，一并放在 index.css 的
+     .gis-legend-overlay —— 那里能按主题各给一档。
+     2026-10-14 第五轮起用户要求「100% 透明」，该处背景已是 transparent；
+     描边与阴影**刻意保留**：底没了之后，它们是图例「作为一个整体」的唯一视觉边界，
+     去掉会让文字与瓦片注记混在一起、分不清哪些是图例。 */
   boxShadow: 'var(--wh-shadow-3)',
-  backdropFilter: 'blur(8px)',
-  WebkitBackdropFilter: 'blur(8px)',
   fontSize: '0.75rem',
   lineHeight: 1.5,
   color: WH.text,
@@ -163,7 +186,7 @@ export default function MapLegendOverlay({ title, rows, utilTitle, utilRows, uti
      改用项目统一的 ExplainIcon（与各看板指标卡的 ⓘ 同一个组件、同一种交互），
      需要时悬停即可看全文，还顺带获得「一键复制说明」。 */
   return (
-    <div style={panelStyle} role="region" aria-label={title}>
+    <div className="gis-legend-overlay" style={panelStyle} role="region" aria-label={title}>
       <div style={groupTitleStyle}>
         {title}
         {note && <ExplainIcon text={note} size={12} placement="right" />}

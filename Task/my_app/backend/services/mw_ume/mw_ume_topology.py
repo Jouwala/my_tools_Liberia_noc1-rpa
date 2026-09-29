@@ -12,13 +12,16 @@ MW UME 微波网络拓扑数据服务（Topology NOC Dashboard 数据源）
 - KPI   = 全网汇总（节点/链路/分级计数/最高利用率）
 - TopRisk = 按链路最大利用率降序（前端点击定位拓扑）
 
-分级阈值（告警，6 级）：
-  <  50%  healthy     🟢
-  50-60%  negligible  🟢 (浅)
+分级阈值（告警，4 级）—— 2026-09-29 由 6 级合并而来：
+  <  60%  healthy     🟢   （原 healthy <50 与 negligible 50-60 合并）
   60-70%  minor       🟡
-  70-80%  moderate    🟠 (浅)
-  80-90%  major       🟠
-  >  90%  critical    🔴
+  70-80%  major       🟠   （原 moderate 70-80 改名为 major）
+  >  80%  critical    🔴   （原 major 80-90 与 critical >90 合并）
+合并口径为「字面合并」：只保留 4 个名字，区间按下界重新划分，
+因此原 80-90% 不再有独立档位，直接落入 critical。
+本次改动同时改了 `mw_ume_topology.level_of`、`gis_mw_overlay` 着色与
+`frontend/src/pages/gismap/types.ts`、`frontend/public/mw_real_time.html`
+四处 —— 它们必须保持逐值一致，见下方 THRESHOLDS 注释。
 链路取 max(Tx, Rx? 不) — 取 max(Tx, Rx) 利用率定级；Tx/Rx 均按 zte_mw_links 锚定的
 a->b 单向展示（底层 KPI 虽为双向指标，页面仅呈现 a->b 单方向吞吐与利用率，
 b->a 方向数据排除、不再合并累加）。
@@ -47,8 +50,12 @@ RT_TABLE_NAME = "mw_ume_bw_ultilazation_rt"
 # 实时模式：链路历史/全网趋势/可选槽位列表最多保留最近 96 个 15 分钟点（24h）
 RT_HISTORY_POINTS = 96
 
-# 利用率分级阈值（6 级；键为分级名，值为该级下界：u >= 键值 即进入该级，critical 需 u > 90）
-THRESHOLDS = {"negligible": 50.0, "minor": 60.0, "moderate": 70.0, "major": 80.0, "critical": 90.0}
+# 利用率分级阈值（4 级；键为分级名，值为该级下界：u >= 键值 即进入该级，critical 需 u > 80）
+# ⚠️ 与以下三处必须逐值同步，任何一处单独改动都会让同一条链路在两页显示不同等级：
+#   - backend/services/gis_mw_overlay.py（GIS 叠加着色，复用本文件的 level_of）
+#   - frontend/src/pages/gismap/types.ts（UTIL_LEVEL_COLORS / utilLevelOf）
+#   - frontend/public/mw_real_time.html（LVL_COLOR / LVL_TEXT / lvlOfUtil）
+THRESHOLDS = {"minor": 60.0, "major": 70.0, "critical": 80.0}
 
 # 链路聚合列（MW 微波以太口）
 COL_CAP = "Max Ethernet Tx Capacity(Mbps)"
@@ -71,10 +78,13 @@ _site_id_cache = None  # {site_name_norm: site_id}
 
 
 def level_of(u):
-    """利用率 -> 分级字符串（6 级）。u 为 None 时返回 'unknown'。
+    """利用率 -> 分级字符串（4 级）。u 为 None 时返回 'unknown'。
 
-    healthy <50 | negligible 50-60 | minor 60-70 | moderate 70-80 | major 80-90 | critical >90
-    （临界值口径：非 critical 各级取 >= 下界；critical 为严格大于 90，与页面展示 "> 90%" 一致）
+    healthy <60 | minor 60-70 | major 70-80 | critical >80
+    （临界值口径：非 critical 各级取 >= 下界；critical 为严格大于 80，与页面展示 "> 80%" 一致）
+
+    2026-09-29 由 6 级合并：原 healthy(<50)/negligible(50-60) -> healthy(<60)，
+    原 moderate(70-80) -> major(70-80)，原 major(80-90)/critical(>90) -> critical(>80)。
     """
     if u is None:
         return "unknown"
@@ -83,12 +93,8 @@ def level_of(u):
         return "critical"
     if u >= THRESHOLDS["major"]:
         return "major"
-    if u >= THRESHOLDS["moderate"]:
-        return "moderate"
     if u >= THRESHOLDS["minor"]:
         return "minor"
-    if u >= THRESHOLDS["negligible"]:
-        return "negligible"
     return "healthy"
 
 
@@ -718,9 +724,7 @@ def build_topology(top_n: int = 10, date: str = None, rows_all: list = None,
         "physical_links": len(edges),
         "physical_nodes": len(node_info),
         "healthy": lvl.get("healthy", 0),
-        "negligible": lvl.get("negligible", 0),
         "minor": lvl.get("minor", 0),
-        "moderate": lvl.get("moderate", 0),
         "major": lvl.get("major", 0),
         "critical": lvl.get("critical", 0),
         "unknown": len(edges) - len(kpi_edges),

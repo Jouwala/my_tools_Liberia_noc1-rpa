@@ -8,8 +8,13 @@ backend/services/whatsapp_ext_service.py；本文件只做 HTTP 薄封装。
 端点（均走 require_protected；扩展与后端同机，回环地址自动放行，无需 token）：
 - GET  /api/whatsapp/outbox            → { groups, items, generated_at }（图片清单）
 - GET  /api/whatsapp/outbox/image      → FileResponse（带路径穿越防护）
-- GET  /api/whatsapp/ext/job           → 认领一个待发作业（含图片清单），无则 {pending:false}
+- GET  /api/whatsapp/ext/job           → 认领一个待发作业（发图或 TT 告警文本），无则 {pending:false}
 - POST /api/whatsapp/ext/job/result    → 扩展回报发送结果
+
+> **`/api/whatsapp/ext/job` 是「统一认领口」**：系统里有两个作业源（定时发图、
+> TT 告警文本），但扩展只轮询这一个端点。合并逻辑在
+> `backend/services/whatsapp_job_claim.py`，返回体带 `kind`（`image` / `text`）
+> 供扩展分发到两条发送路径。
 """
 import logging
 from typing import Optional
@@ -20,6 +25,7 @@ from pydantic import BaseModel
 
 from backend.security import require_protected
 from backend.services import whatsapp_ext_service as ext
+from backend.services import whatsapp_job_claim as claim
 
 logger = logging.getLogger("whatsapp_outbox")
 
@@ -54,15 +60,22 @@ def get_outbox_image(name: str = Query(..., description="图片文件名（仅 b
 class JobResultBody(BaseModel):
     job_id: str
     ok: bool = False
+    # 发图回 groups_sent；TT 告警文本回 sent（tt_no 列表）。两者都给默认值，
+    # 故同一个 schema 能承接两种回报 —— 由 kind 决定后端取哪个字段。
+    kind: str = "image"
     groups_sent: list[str] = []
+    sent: list[str] = []
     errors: list[str] = []
     elapsed_seconds: Optional[float] = None
 
 
 @router.get("/api/whatsapp/ext/job", dependencies=[Depends(require_protected)])
 def poll_job():
-    """扩展轮询：认领一个待发作业（附带最新图片清单）；无待发作业则返回 {pending:false}。"""
-    claimed = ext.claim_pending_job()
+    """扩展轮询：认领一个待发作业；无待发作业则返回 {pending:false}。
+
+    作业可能来自两个源（发图 / TT 告警文本），返回体统一带 `kind` 供扩展分发。
+    """
+    claimed = claim.claim_next_job()
     if claimed is None:
         return {"pending": False}
     return claimed
@@ -70,12 +83,14 @@ def poll_job():
 
 @router.post("/api/whatsapp/ext/job/result", dependencies=[Depends(require_protected)])
 def post_job_result(body: JobResultBody):
-    """扩展回报发送结果。"""
-    accepted = ext.complete_job(
+    """扩展回报发送结果，按 `kind` 转交给对应的作业源。"""
+    accepted = claim.report_result(
+        body.kind,
         body.job_id,
         {
             "ok": body.ok,
             "groups_sent": body.groups_sent,
+            "sent": body.sent,
             "errors": body.errors,
             "elapsed_seconds": body.elapsed_seconds,
         },

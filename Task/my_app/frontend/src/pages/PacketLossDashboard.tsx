@@ -21,7 +21,6 @@ import dayjs from 'dayjs'
 import api from '../api'
 import { cachedGet } from '../cache'
 import DraggableClickModal from '../components/DraggableClickModal'
-import MapWheelZoomOnClick, { isEmbeddedInPortal } from '../components/MapWheelZoomOnClick'
 import { useI18n, numLocale } from '../i18n'
 import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, useIsMobile, darkTooltip, axisLabel, axisLine, splitLine, pageWrap, cardStyle } from '../theme'
 
@@ -594,8 +593,12 @@ export default function PacketLossDashboard() {
             </span>
           </div>
         }>
-          <MapContainer center={[6.4, -9.4]} zoom={8} className={isDark ? 'gis-dark-map' : ''} style={{ height: isMobile ? '55vh' : 'calc(100vh - 180px)', minHeight: isMobile ? '18.75rem' : '26.25rem', width: '100%', background: 'var(--wh-page-bg)', borderRadius: 'var(--wh-radius-md)' }} scrollWheelZoom={!isEmbeddedInPortal()}>
-            <MapWheelZoomOnClick />
+          {/* 2026-09-29：滚轮即缩放，不再区分是否内嵌（与 GISMap.tsx 同步改动）。
+              原来这里传 scrollWheelZoom={!isEmbeddedInPortal()} 并挂
+              <MapWheelZoomOnClick /> —— 内嵌门户时"点击后才允许滚轮缩放"，
+              该设计已按用户要求撤销，辅助组件也已删除。
+              Leaflet 默认 scrollWheelZoom=true，故不再显式传参。 */}
+          <MapContainer center={[6.4, -9.4]} zoom={8} className={isDark ? 'gis-dark-map' : ''} style={{ height: isMobile ? '55vh' : 'calc(100vh - 180px)', minHeight: isMobile ? '18.75rem' : '26.25rem', width: '100%', background: 'var(--wh-page-bg)', borderRadius: 'var(--wh-radius-md)' }}>
             <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             {/* 拓扑连线：复用 GIS Map 真实链路，按传输类型着色（MW / IPRAN 等）。
                 先白色描边(casing)增强对比，再画彩色线；hub 链路更粗。 */}

@@ -55,6 +55,16 @@
   var S = DATA.S || {};
 
   function t(k) { var a = S[state.lang] || S.zh; return a[k] != null ? a[k] : (S.zh[k] != null ? S.zh[k] : k); }
+  /* 取**指定语言**的文案，与当前 state.lang 无关。
+     ⚠️ 改名浮层必须用它，不能用 t()：浮层同时给出 zh / en 两个输入框，
+     用 t() 取回落值会把**当前语言**的值同时填进两个框 —— 中文界面下
+     英文框里填的是中文，用户一点保存就把英文名覆盖成中文（实测到过：
+     两个框都是「全球地图」）。t() 只适合"按当前语言显示一处文案"的场景。 */
+  function tIn(lang, k) {
+    var a = S[lang] || S.zh;
+    if (a[k] != null) return a[k];
+    return S.zh[k] != null ? S.zh[k] : k;
+  }
   function tf(k, m) { return String(t(k)).replace(/\{(\w+)\}/g, function (_, x) { return m && m[x] != null ? m[x] : ''; }); }
 
   /* ------------------------------------------------------------- helpers -- */
@@ -100,7 +110,7 @@
     lang: detectLang(),
     theme: root.classList.contains('dark') ? 'dark' : 'light',
     q: '', group: 'all', status: 'all',
-    user: null, authOk: false, booted: false,
+    user: null, authOk: false, booted: false, userMenuOpen: false,
     /* 登录闸门的两态（2026-09-25 加）：
        · gateMode —— 'login' 登录 / 'request' 自助注册申请，与 /uniplam/ 的
          LoginView 同一套两态切换；
@@ -149,12 +159,16 @@
        用户看到的正是"点了没实现显示全部，而是缩回去了"。 */
     escAll: false,
     auxOpen: {},
+    /* 2026-09-29（用户要求）：归档区**默认隐藏** —— 开关就是 state.recall。
+       它只由"用户当场做了归档这个动作"打开（dropItemFromGroup 与分组浮层的 setGroups），
+       刷新即丢。为什么不能用"本会话渲染过归档区"当判据，见 renderArchive() 的注释。 */
+    recall: false,
     /* 检索轨（搜索 + 分组 / 状态筛选）默认收起。刻意不写 localStorage：
        用户的预期就是「每次进来都是干净的一条」，跟筛选条件一样不跨会话。 */
     railOpen: false,
-    /* ⚠️ 2026-09-29 起 mapTab 已无消费方：地图栏改成纯外链卡，没有页签可切。
-       保留这个字段**只为了让旧会话里已写入的 localStorage['olbr.maptab'] 不报错**，
-       也方便将来若要恢复页签时有个现成的键位。删掉它不会有功能影响。 */
+    /* 当前选中的地图页签（gis / mwRealTime）。跨会话记住上次看的那一页。
+       2026-09-29：本栏恢复成两个页签后它重新有了消费方（curMap / mapHeadHtml /
+       mapClick）。默认 'gis' 与 DATA.MAP_TABS 的第一项一致。 */
     mapTab: ls('olbr.maptab', 'gis'),
     /* 默认落在 BO View：16 张卡、五个子分组，是这块最能说明「门户里到底有什么」的一组 */
     viewTab: ls('olbr.viewtab', 'BO View'),
@@ -441,6 +455,16 @@
     };
     var html = mk('all', t('rail.all'), all.filter(function (it) { return match(it, tk) && (state.status === 'all' || it.status === state.status); }).length, state.group === 'all');
     state.groups.forEach(function (g) {
+      /* ⚠️ 2026-09-29（用户要求）：归档**默认隐藏**，这一条 chip 必须跟着一起藏 ——
+         只藏 #arch 那一块、却让归档在这里留一颗可点的 chip，等于没藏：
+         用户照样会在筛选条上看见「Archived 3」并顺着点进去（实测确实如此）。
+         口径与 renderArchive() 完全一致（同一个 state.recall）：用户当场归档过才露出来。
+         归档动作走的是 dropItemFromGroup() / setGroups()，两者都在动作里置 recall=true
+         并紧接着 render*()，所以这颗 chip 在同一次渲染里就出现了 ——
+         不存在"归档了却找不到入口"的窗口。
+         ⚠️ state.groups 里的归档定义本身**不能删**：它要随目录落盘，
+         且「分组」浮层与取消归档都按它判定。这里只过滤渲染。 */
+      if (isArchiveGid(g.id) && !state.recall) return;
       var n = filtered(g.id).length;
       if (!n && filtering()) return;                       /* 筛选中且不命中的分组直接从 chips 里退场 */
       html += mk(g.id, gName(g.id), n, state.group === g.id);
@@ -1722,42 +1746,96 @@
     };
   }
 
-  /* ⚠️ 2026-09-29（用户要求「GIS Map 里面要显示 http://localhost/myapp/?page=gis
-     的地图组件」）：
-     本栏**内嵌** my_app 的 GIS 地图页（iframe），不再是一张外链卡。
+  /* ⚠️ 2026-09-29（用户要求「GIS Map 添加并只显示 /myapp/?page=mwRealTime 的地图组件，
+     reload 和 openlink 放到最右边」，随后澄清「GIS Map 和 mwRealTime 都要显示」）：
+     本栏**内嵌** my_app 的地图页（iframe），共**两个页签**：
+       · gis         —— 「GIS 地图」
+       · mwRealTime  —— 「微波实时」
+     概念上分两层，读代码时别搞混：
+       · 屏幕上方那行标题叫 **GIS Map** —— 那是**栏标题**，来自 map.title
+         （headTitleText()，可改名，也可被 catalog.tabLabels.__head 覆盖）；
+       · 标题下面那条页签决定**这一栏里显示哪一页**，取自 DATA.MAP_TABS。
+     当天中途我曾把本栏误改成"只用 mwRealTime 顶掉 gis"——那是我把
+     「添加并只显示 …mwRealTime 的地图组件」读成了"替换"，实际是"新增"。
+     现已恢复成两个页签，页签条也在（有两个页签就必须有地方切换）。
 
-     与改动前的区别 —— 原先是「全球地图 / 微波实时」两个页签，现在整栏固定为
-     page=gis 一页，页签条整条去掉（只剩标题 + 刷新 + 新窗口打开）。
-     为什么不留一个单页签的"假页签条"：一个页签的 tablist 是纯装饰，
-     点它没有任何状态可切，反而让人以为还有别的地图可看。
+     页签与地图的关系：mapItems() 把 DATA.MAP_TABS 展开成页签，
+     state.mapTab 记住当前选中项，curMap() 取出它。
+     ⚠️ 页签**不按目录过滤** —— 详见 mapItems() 上方那段（曾因此在线上少一个页签）。
 
-     src 为什么带上 mwembed=1：
-     my_app 的 MapWheelZoomOnClick.tsx:25 认这个参数判定「处于门户内嵌上下文」，
-     没有它滚轮缩放等内嵌行为不会生效。**这页不接受 msportal-embed / msportal-theme
-     消息**（GISMap.tsx 里没有 postMessage 监听），所以主题只能靠 URL 的 theme= 带一次，
-     这也是下面 src 拼 theme 参数的原因（与「报告文件」那块同一条理由）。
+     src 为什么带 mwembed=1：
+     my_app 侧认这个参数判定「处于门户内嵌上下文」（2026-09-29 起主要用于
+     隐藏 my_app 自己那套工具栏/KPI，见 mw_real_time.html 的 html.mw-embed 规则）。
+     ⚠️ 它**不再**影响滚轮缩放：原先 MapWheelZoomOnClick.tsx 靠它决定
+     「点击后才允许滚轮缩放」，该组件已于 2026-09-29 按用户要求删除，
+     现在三种场景一律直接滚轮缩放。参数本身仍必须带 —— 去掉会让内嵌页
+     把自己的 header/KPI 一起显示出来。
+     **这两页都不接受 msportal-embed / msportal-theme 消息**，
+     所以主题只能靠 URL 的 theme= 带一次。
 
-     ⚠️ 关于取景：原来的 mwRealTime 页会往 window 上挂 fitAllSites()，
-     本页**没有**这个全局（实测 GISMap.tsx / gismap/MapController.tsx 都没有）。
-     stripFrame 里的 refitLeaflet / zoomOnce 对它是无害的空转 ——
-     两处都以 typeof w.fitAllSites !== 'function' 提前返回，不需要为本页改逻辑；
-     将来若给它加上 fitAllSites，取景逻辑会自动接上。 */
-  var GIS_PAGE = 'gis';
+     ⚠️ 两页的**嵌套深度不同**，取景相关的结论别互相照抄：
+       · gis        —— 单层：Leaflet 直接在门户 iframe 里；不暴露任何全局，
+                       refitLeaflet 对它无效。但它自己就落在 zoom 7（实测）。
+       · mwRealTime —— 双层：外层 React 壳 + 内层 mw_real_time.html；
+                       会往 window 上挂 fitAllSites()，refitLeaflet 生效。
+     两页**都落在 zoom 7**（实测，见 MAP_DEFAULT_ZOOM_IN 处），
+     所以那个全局开关取 false 对两页同时成立，不需要按 page 分档。 */
+  /* 兜底页：mapItems() 展开后为空时（理论上不会，MAP_TABS 非空）用它兜底，
+     否则 curMap() 取不到对象、下面各处读 .src/.page 会抛错。 */
+  var MAP_FALLBACK = { page: '', src: 'about:blank', title: '' };
 
-  /* 内嵌地址：与改动前 mapItems() 拼 src 的口径一致（相对路径 + mwembed + 主题）。
-     用相对路径 /myapp/… 而不是写死 http://localhost/myapp/…：
+  /* 把 DATA.MAP_TABS 展开成页签数组。
+     ⚠️ 2026-09-29 修：**不再按"目录里有对应看板"过滤**。
+     原实现抄自 MsPortal（`... .filter(m => !!m.item)`），但那是错的：
+     MAP_TABS 是这份壳自己声明的**固定地图页清单**，而目录是用户可增删的业务数据 ——
+     线上目录里 `page=gis` 的看板早被删掉了（出厂默认 portal-default.json 里
+     有 custom-gis-map，线上 /api/portal-catalog 的 56 条里没有），
+     于是 gis 页签被这层过滤静默滤掉，本栏只剩一个页签、页签条整条不渲染，
+     表现就是用户报的「GIS Map 没有了」。
+     ✔ 正确口径：页签由 MAP_TABS 决定（写死的两页就该有两个页签）；
+       目录只用来取**显示标题**（取不到就回落 i18n 文案键），不影响页签是否存在。
+     MsPortal 那边仍带 item 过滤（它还有 tellEmbed/权限等其它依赖），
+     两边在这里**故意不一致**，改之前先确认那边是否也已修。 */
+  function mapItems() {
+    var all = allowed();
+    return DATA.MAP_TABS.map(function (m) {
+      var it = all.filter(function (x) { return String(x.url || '').indexOf('page=' + m.page) !== -1; })[0];
+      return {
+        page: m.page, key: m.key, icon: m.icon, item: it,
+        /* 标题优先级：目录里的看板名 → i18n 文案键（map.gis / map.mw）。
+           只认当前语言，缺值回落另一个语言是 MsPortal 的老口径，这里沿用。 */
+        title: it ? (state.lang === 'en' ? (it.titleEn || it.titleZh) : (it.titleZh || it.titleEn)) : t(m.key),
+        src: '/myapp/?page=' + m.page + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '')
+      };
+    });
+  }
+  /* 当前选中的地图页。state.mapTab 若指向已不在 MAP_TABS 里的页（旧会话残留），
+     回落到第一项。MAP_TABS 非空是硬约束，故正常路径取不到才会用到 MAP_FALLBACK。 */
+  function curMap() {
+    var ms = mapItems();
+    return ms.filter(function (m) { return m.page === state.mapTab; })[0] || ms[0] || MAP_FALLBACK;
+  }
+
+  /* 内嵌地址：用相对路径 /myapp/… 而不是写死 http://localhost/myapp/…：
      门户换机房/换域名时（见 src/config.ts 的单一真相源约定）这边不用跟着改，
      而 iframe 的跨域剥离逻辑（stripFrame 读 contentDocument）**要求同源**，
      写死 localhost 会在用 IP 访问门户时变成跨域、剥离与取景全部静默失效。 */
   function mapSrc() {
-    return '/myapp/?page=' + GIS_PAGE + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '');
+    return curMap().src;
   }
 
-  /* 地图栏的面板头 + 工具按钮（2026-09-23 抽出，2026-09-29 去掉页签）。
+  /* 地图栏的面板头 + 页签 + 工具按钮（2026-09-23 抽出）。
      抽出来的原因：快速路径（renderL0(true)）只重画左栏，改名后必须就地刷新这块，
-     否则「改完标题还是旧的」会被当成没保存成功。 */
+     否则「改完标题还是旧的」会被当成没保存成功。整份 HTML 由 renderL0 与快速路径共用，
+     避免两处走样（页签里含 tabLabelOf 的结果，必须跟着 tabLabels 变）。
+     2026-09-29：页签条随「本栏恢复 gis + mwRealTime 两页」加回来。 */
   function mapHeadHtml() {
     var ed = canEdit();
+    var maps = mapItems();
+    /* ⚠️ 结构要点：.p-head 的**直接子元素必须是三个**（.p-hd / .map-tabs / .map-tools），
+       页签才能靠左右两条等宽弹簧居中。写成 .p-hd 包住后两者是错的 ——
+       那样 .p-head 只有一颗子元素，弹簧无从谈起（实测页签偏左 236px）。
+       所以标题那颗 <span class="p-hd"> 在这里**单独闭合**，不要跨到页签。 */
     return '<div class="p-head"><span class="p-hd">' +
       (ed
         ? '<button type="button" class="p-t p-t-edit t-orange" data-act="map-head" title="' + esc(t('edit.maptabTip')) + '">' +
@@ -1766,7 +1844,34 @@
       /* 标题右侧的副标题 .p-s 仍不输出：它与主标题同为 "GIS Map"，写两遍是冗余
          （2026-09-28 用户要求）。headSubText() 保留给改名浮层读，
          恢复方式就是在这里加回一颗 <span>。 */
+      '</span>' +
+      /* 2026-09-29 用户要求「两个页签居中显示」。原来的结构是：
+           标题 ──── .map-tabs（页签+按钮，margin-left:auto 整体贴右）
+         页签因此在**按钮旁边**、跟着一起贴右，看着偏右而不是居中。
+         现在拆成**三段**（左标题 / 中页签 / 右按钮），各用一条 flex 规则定位：
+           · .p-hd       flex:1 1 0 + min-width:0 —— 弹簧①，标题超长自己省略
+           · .map-tabs   flex:none —— 内容宽，被两侧弹簧顶到正中
+           · .map-tools  flex:1 1 0 + margin-left:auto —— 弹簧②，内容自己贴右
+         居中原理见 olbr.css 的 .map-tabs 段：左右两条弹簧等长，页签自然落正中。
+         这样不用绝对定位，页签也不会盖住标题或按钮（长标题时标题自己省略）。
+         ⚠️ 之前那种「margin-left:auto 让整块贴右」的写法与居中互斥，已去掉；
+         贴右改由 .map-tools 自己的 margin-left:auto 负责（实测最后一颗按钮右缘
+         仍等于标题条右缘）。 */
       '<div class="map-tabs">' +
+      /* 页签条：只在真的有 2 个以上页签时输出 —— 只剩一页时它是纯装饰，
+         点它没有任何状态可切，反而让人以为还有别的地图可看。 */
+      (maps.length > 1
+        ? '<div class="tabs' + (ed ? ' is-renaming' : '') + '" role="tablist">' + maps.map(function (m) {
+            return '<button type="button" class="tab" role="tab" data-map="' + esc(m.page) + '" aria-selected="' +
+              (m.page === curMap().page ? 'true' : 'false') + '" title="' +
+              esc(ed ? t('edit.maptabTip') : m.title) + '">' + ic(m.icon) + esc(tabLabelOf(m.page, m.key)) +
+              (ed ? '<i class="ph ph-pencil-simple maptab-pen" aria-hidden="true"></i>' : '') + '</button>';
+          }).join('') + '</div>'
+        : '') +
+      '</div>' +
+      /* 工具按钮独立成 .map-tools：与页签分开，才能让页签真正居中而按钮仍贴右。
+         2026-09-29 用户要求「reload 和 openlink 放到最右边」——这条继续成立。 */
+      '<div class="map-tools">' +
       '<button type="button" class="gb gb--t" data-act="map-reload" title="' + esc(t('map.reload')) + '"><i class="ph ph-arrow-clockwise"></i><span>' + esc(t('map.reload')) + '</span></button>' +
       '<a class="gb gb--t" id="mapOpen" href="' + esc(mapSrc()) + '" target="_blank" rel="noopener noreferrer" title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out"></i><span>' + esc(t('map.open')) + '</span></a>' +
       '</div></div>';
@@ -1791,7 +1896,7 @@
       mapHeadHtml() +
       '<div class="canvas"><iframe id="mapFrame" title="' + esc(headTitleText()) + '" src="' + esc(mapSrc()) + '"></iframe>' +
       '<div class="canvas-note"><span>' + esc(t('map.title')) + '</span>' +
-      '<span>/myapp/?page=' + esc(GIS_PAGE) + '</span></div></div></section>';
+      '<span>/myapp/?page=' + esc(curMap().page) + '</span></div></div></section>';
     wireMap();
   }
 
@@ -2016,24 +2121,38 @@
     });
     return out;
   }
-  /* tabLabelOf（页签显示名）2026-09-29 删除：地图栏的页签与它们的显示名一起没了，
-     本页再无第二个调用点。标题仍走 headTitleText / headSubText。 */
+  /** 页签显示名：目录里配过就用它，否则回落 i18n 字典的内置文案（t(key)）。
+      2026-09-29：本栏恢复成 gis + mwRealTime 两个页签后重新启用
+      （当天中途曾随"单页化"删掉过一次）。 */
+  function tabLabelOf(page, key) {
+    var v = state.tabLabels && state.tabLabels[page];
+    if (v) {
+      var s = state.lang === 'en' ? (v.en || '') : (v.zh || '');
+      if (s) return s;                      /* 只认当前语言的值，缺就回落内置 */
+    }
+    return t(key);
+  }
   /* 本栏标题 / 副标题（2026-09-23 纳入可改名）。
      ⚠️ olbrportal 的用法与 MsPortal **相反**：这里是 title=中文、sub=英文
      （'map.title' 中文值「利比里亚网络拓扑全景」、英文值 "Central Liberia Regional
      Topology"；'map.sub' 是 "Network panorama"）。所以：
        · 上方标题 ← 中文名（zh）
        · 下方副标题 ← 英文名（en）
-     后端只存"中/英"两个值，由各前端决定谁显示在上 —— 改这里之前先确认没把上下搞反。 */
+     后端只存"中/英"两个值，由各前端决定谁显示在上 —— 改这里之前先确认没把上下搞反。
+     ⚠️ 回落用 tIn 而不是 t：t 按**界面当前语言**取值，而改名浮层是同时给出
+     zh / en 两个框的 —— 用 t 会把当前语言的值同时填进两个框（中文界面下英文框
+     也是中文），用户一点保存就把英文名覆盖成中文。tIn 按"这份数据属于哪个语言"取。
+     当前 map.title / map.sub 在中英两栏里值相同（都是 'GIS Map'，见 olbr-data.js:125/528），
+     所以这个缺陷眼下看不出来；但两栏文案一旦不同就会显形，故提前修掉。 */
   function headTitleText() {
     var v = state.tabLabels && state.tabLabels[DATA.RENAME_HEAD];
     if (v && v.zh) return v.zh;
-    return t('map.title');
+    return tIn('zh', 'map.title');
   }
   function headSubText() {
     var v = state.tabLabels && state.tabLabels[DATA.RENAME_HEAD];
     if (v && v.en) return v.en;
-    return t('map.sub');
+    return tIn('en', 'map.sub');
   }
   function putCatalog(cat) {    return fetch('/api/portal-catalog', {
       method: 'PUT', credentials: 'same-origin',
@@ -2344,6 +2463,10 @@
        直接指路到归档行上的「取消归档」—— 那把按钮才有明确的落点。 */
     if (isArchiveGid(gid)) { toast(t('arch.unarchiveTip')); return; }
     var last = groupsOf(it).length <= 1;
+    /* 归档区默认隐藏（见 renderArchive），所以"这次归档了"要在这里显式开闸：
+       否则用户点完「移出本列」只看到卡消失，落点要等下次刷新才可能想起来找。
+       只在 last 时开 —— 只有这一条路径真的会补进归档。 */
+    if (last) state.recall = true;
     commit(function () {
       if (last) ensureArchiveGroup();
       applyItems(patchItem(no, function (x) {
@@ -2524,12 +2647,15 @@
          同一个元素上先关后开，表现为浮层闪一下，且第二次点变成"切换关闭"。
          2026-09-23 加页签/标题改名时漏了后两个选择器（.tab 与 [data-act=map-head]），
          症状是点标题浮层一闪、点同一个页签第二次不弹。
-         ⚠️ 2026-09-29：页签条（.tab）已随「本栏固定内嵌 page=gis」去掉，所以那个
-         选择器删了；但 **[data-act="map-head"] 必须留着** —— 地图标题改名的铅笔按钮
-         仍在 mapHeadHtml 里渲染，漏掉它就会退回上面那个"浮层一闪"的老毛病。 */
+         ⚠️ 2026-09-29：页签条（.tab）当天中途曾随「本栏只内嵌一页地图」删掉、
+         同日恢复两页时加回，所以 **[data-map] 选择器也必须一起回来** ——
+         编辑态下点页签是"改这个页签的名字"，它同样会 openForm，漏掉它就会
+         退回上面那个"点同一个页签第二次不弹 / 浮层一闪"的老毛病。
+         **[data-act="map-head"] 也必须留着** —— 地图标题改名的铅笔按钮
+         仍在 mapHeadHtml 里渲染，漏掉它同样会一闪。 */
       if (state.popForm && !e.target.closest('#editPop') &&
           !e.target.closest('[data-act="grp-edit"],[data-act="grp-add"],[data-act="title"],' +
-                            '[data-act="map-head"]')) closeForm();
+                            '[data-act="map-head"],[data-map]')) closeForm();
       if (state.grpFor !== null && !e.target.closest('#grpPop') && !e.target.closest('[data-act="grp"]')) closeGrp();
     });
   }
@@ -2599,8 +2725,38 @@
     pop.hidden = false;
     pop.innerHTML = '<div class="gp-hd"><b>' + esc(titleOf(it)) + '</b><span>' + esc(t('edit.groupsTip')) + '</span></div>' +
       '<div class="gp-list">' + grpGids().map(function (g) {
+        /* ⚠️ 2026-09-29（用户要求）：归档那一项加计数标记。
+           起因：归档区改成默认隐藏之后，「事后回头翻归档」在 v1 上就没有直接入口了
+           （唯一显式的「取消归档」按钮在归档区里）—— 于是这里必须补上一个
+           "看得见里面有几张" 的读数，否则用户根本不知道归档里有没有东西。
+
+           为什么是计数而不是一句 "这里有东西"：
+           Arch 是用户自己造的普通分组，下面这些也是 —— 在浮层里只给 Arch 单独发一条
+           文字提示，等于把"它是特殊的"这件事泄露到 UI 上，而这个浮层的语义是
+           "这张卡属于哪些分组"，不是"哪一组更特别"。计数不带立场：0 就是没有。
+
+           ⚠️ 计数**不能跟着 state.recall 走**（第一版就是这么写错的，实测恒为空）。
+           recall 的含义是"本次会话归档过"，而这里的用途恰恰相反：
+           它要回答的是"**打开页面时**归档里有没有东西"—— 那必然发生在 recall 还是
+           false 的时候。两处闸门的方向是反的，所以这里不做任何 recall 判断。
+           —— 这正是"归档区默认隐藏"留下的那个洞的补丁：归档区自己藏起来了，
+           这个计数是页面上唯一一处**在什么都不做的情况下**就能看见归档里有几张的地方。
+
+           ⚠️ Arch 为空时**不渲染这个 0**：一个恒亮的 0 每天占着位置，
+           反而让人以为那里有东西。CSS 用的是 :empty 而不是条件拼接 ——
+           这样"0 不显示"这条规则只有一个真相源（拼串处只负责"有几张"）。
+           实测线上目录：Arch 3 是常态，0 只在有人清空归档后出现。
+
+           ⚠️ 刻意**不加**"Archived"这几个字的任何说明性文案：这个浮层是全站最容易
+           漂移的一处 UI（MsPortal / olbrportal / v1 / v2 四份实现），并且 v1 与 v2
+           是"并列共存的两份副本、改哪版只动哪版"。让文案保持中性，词典就不用跟着涨。 */
+        /* ⚠️ 只有 Arch 这一项带计数（isArchiveGid(g) 不能省 —— 第一版漏了它，
+           实测 10 个分组每个都顶着个 3）。其余分组的分量在侧栏 chips 与各入口卡上
+           已经写过一遍，这里再补一份只会让浮层变吵。 */
+        var n = isArchiveGid(g) ? archivedItems().length : 0;
         return '<label class="gp-i"><input type="checkbox" data-g="' + esc(g) + '"' +
-          (cur.indexOf(g) !== -1 ? ' checked' : '') + '><span>' + esc(gName(g)) + '</span></label>';
+          (cur.indexOf(g) !== -1 ? ' checked' : '') + '><span>' + esc(gName(g)) + '</span>' +
+          '<em class="gp-n" title="' + esc(tf('edit.archCount', { n: n })) + '">' + (n ? n : '') + '</em></label>';
       }).join('') + '</div>';
     placePop(pop, btn);
     state.grpFor = no;
@@ -2638,7 +2794,7 @@
       /* 一张都不勾 = 看板从所有分组消失。2026-09-28 起不再直接拒绝，而是补上归档 ——
          与「移出本列」同一个落点，两条路径的兜底行为必须一致，否则
          "取消勾选最后一个"和"移出本列"会给出两种不同的结果，用户没法预期。 */
-      if (!next.length) { next = [DATA.ARCHIVE]; ensureArchiveGroup(); }
+      if (!next.length) { next = [DATA.ARCHIVE]; ensureArchiveGroup(); state.recall = true; }
       setGroups(state.grpFor, next);
       renderGroupsPop();
     });
@@ -2785,17 +2941,26 @@
       };
     }
     else if (kind === 'maptab') {
-      /* ⚠️ 2026-09-29：本栏固定内嵌 page=gis 一页，页签条整条去掉，
-         所以本函数只剩「改本栏名称」一项（per-page 的 tabLabelOf 分支已随之删除）。
-         后端 TAB_PAGES 白名单里 gis / mwRealTime 两个 page 值**刻意保留**：
-         服务端已存过的 tabLabels 改名记录不会因为前端不再渲染页签而被丢弃。
-         当前值：配过就是配置里的，没配过用内置文案（不要让输入框空着 ——
-         空框会让人以为「本来就没名字」，而实际是有内置名的）。
-         __head 的 zh/en 与页签同口径（zh=中文、en=英文），本门户标题在上用的是 zh，
-         取值时直接照 headTitleText/headSubText 的映射来。 */
+      /* 两个入口共用这一支：
+        · id === '__head'（DATA.RENAME_HEAD）→ 改**本栏标题**，
+          取值回落 headTitleText / headSubText；
+        · 否则 id 是页签名（gis / mwRealTime）→ 改**该页签的显示名**，
+          取值回落 DATA.MAP_TABS 里配的 i18n 文案键（map.gis / map.mw）。
+       当前值一律「配过就是配置里的，没配过用内置文案」—— 不要让输入框空着，
+       空框会让人以为「本来就没名字」，而实际是有内置名的。
+       __head 的 zh/en 与页签同口径（zh=中文、en=英文），本门户标题在上用的是 zh，
+       取值时直接照 headTitleText/headSubText 的映射来。
+       renameTab(id, zh, en) 写的是同一份 catalog.tabLabels，前后端按 page 组合键。 */
       var cv = (state.tabLabels && state.tabLabels[id]) || {};
-      if (id !== DATA.RENAME_HEAD) return;
-      vals = { zh: cv.zh || headTitleText(), en: cv.en || headSubText() };
+      if (id === DATA.RENAME_HEAD) {
+        vals = { zh: cv.zh || headTitleText(), en: cv.en || headSubText() };
+      } else {
+        var mt = DATA.MAP_TABS.filter(function (m) { return m.page === id; })[0];
+        if (!mt) return;               /* 未知页签名：不开框，免得存下孤儿记录 */
+        /* ⚠️ 两个框各取各的语言（tIn），不能用 t(mt.key) —— 后者只按当前语言取值，
+           会把同一个值填进两个框（中文界面下英文框也是中文），保存即写坏英文名。 */
+        vals = { zh: cv.zh || tIn('zh', mt.key), en: cv.en || tIn('en', mt.key) };
+      }
     }
     var hd = kind === 'grp' ? gName(id) : kind === 'title' ? ('#' + id + ' ' + (vals.zh || vals.en))
       : kind === 'maptab' ? (t('map.title') + ' · ' + (vals.zh || vals.en))
@@ -2895,6 +3060,15 @@
     root.classList.toggle('is-edit', state.editing);
     syncEditBtn(); renderCatalog();
   }
+  function syncUserMenu() {
+    var menu = $('#userMenu'), panel = $('#userMenuPanel'), trigger = $('#userMenuBtn');
+    if (!menu || !panel || !trigger) return;
+    panel.hidden = !state.userMenuOpen;
+    trigger.setAttribute('aria-expanded', state.userMenuOpen ? 'true' : 'false');
+    menu.classList.toggle('is-open', state.userMenuOpen);
+  }
+  function closeUserMenu() { state.userMenuOpen = false; syncUserMenu(); }
+  function toggleUserMenu() { state.userMenuOpen = !state.userMenuOpen; syncUserMenu(); }
   function syncEditBtn() {
     var b = $('#editBtn'); if (!b) return;
     /* 只有「目录可写」的会话才看得到这颗开关：目录是全局共享的，
@@ -2905,6 +3079,7 @@
     var ico = b.querySelector('i'), lab = b.querySelector('span');
     if (ico) ico.className = 'ph ' + (state.editing ? 'ph-x-circle' : 'ph-pencil-simple');
     if (lab) lab.textContent = t(state.editing ? 'mast.editOn' : 'mast.edit');
+    var editing = $('#userMenuEditing'); if (editing) editing.hidden = !state.editing;
     b.title = t(state.editing ? 'edit.tipOff' : 'edit.tipOn');
     var bar = $('#editBar');
     if (bar) {
@@ -3152,8 +3327,10 @@
      用户看到的就是"卡凭空消失"—— 那和直接删掉没有区别，兜底也就白做了。
 
      为什么默认折叠（只露 AUX_ROWS 行）：归档是"收起来"的地方，不是要天天看的清单。
-     但**不能完全隐藏**：管理员需要能确认"它还在"，所以给一行标题 + 计数 + 展开按钮，
-     与其余辅助区同一套交互（data-act="aux-toggle"），不新造控件。
+
+     ⚠️ 2026-09-29 更正：下面这句「**不能完全隐藏**：管理员需要能确认"它还在"」
+     已被用户需求推翻 —— 现在是**默认整块隐藏**，只有本会话真的归档过东西才露出来。
+     新的理由、以及"那怎么确认它还在"的替代回执，都写在 renderArchive() 里。
 
      为什么只显示"只属于归档"的条目：一张卡可以同时挂在正常视图和归档里
      （用「分组」浮层就能勾成这样）。那种条目在正常视图里已经看得见，
@@ -3173,6 +3350,34 @@
     /* 没有归档项就整块不渲染（不是渲染一个空框）：绝大多数会话用不到它，
        常驻一个"归档为空的框"只是噪声。 */
     if (!list.length) { box.innerHTML = ''; box.hidden = true; return; }
+    /* ⚠️ 2026-09-29（用户要求）：归档区**默认隐藏**。
+       ============================================================================
+       上面 auxRow 前面那段 9/28 的注释写着「**不能完全隐藏**：管理员需要能确认它还在」，
+       那句已被这条需求推翻 —— 现行为是：**正常的浏览会话里，归档区一个像素都不露**。
+
+       为什么"留一行标题 + 计数"也被否掉：归档是**例外状态**，不是版面。
+       常驻一行等于每次开会都在主屏上留一个"有东西被收起来了"的暗示，
+       而它绝大多数时候是 0/空；那行存在的唯一意义是证明"没弄丢"，
+       不足以占住 L2 辅助区的一格。
+
+       ⚠️ 为什么判据是 `state.recall`，而不是"本会话渲染过归档区"（第一版就错在这）：
+       第一版写成"renderArchive 渲染到有内容的归档区就置 sawArchive=true"，
+       实测**反而永远看得见** —— 因为 `boot()` 在探测登录态**之前**先裸调了一次
+       `render()`（见文件末尾 `boot`），那一次就把闸门置成了 true，
+       随后 `start()` → renderCatalog() 再渲染时它早已失效。
+       所以判据必须是"**用户当场做了归档这个动作**"：recall 只由 dropItemFromGroup()
+       与分组浮层的 setGroups() 显式打开，刷新即丢（session 级、不落盘）。
+       这样既不占版面、又不依赖 render 的调用时序。
+
+       ⚠️ 那"点「移出本列」后卡凭空消失"怎么办（这正是 9/28 加这块的理由）：
+       隐藏的是**渲染**，不是**回执**。三条回执一条没少，且都在归档**之外**：
+         ① toast 照旧弹「已移入归档」（edit.archived）；
+         ② 「分组」浮层里归档照旧是可勾选的真分组 —— 归档项在那里看得见、勾得回来；
+         ③ 归档动作发生时就置 recall=true，归档区立刻露出来给用户一个落点。
+
+       ⚠️ 归档分组成为侧栏 chip / L1 页签那一路，由 renderRail 的同一个闸门一并盖住 ——
+       否则"归档区藏了、chip 还在"等于没藏（实测 chips 里原本就挂着一颗「Archived 3」）。 */
+    if (!state.recall) { box.innerHTML = ''; box.hidden = true; return; }
     box.hidden = false;
     list = list.slice().sort(sorter(DATA.ARCHIVE));
     var open = !!state.auxOpen[DATA.ARCHIVE], cut = list.length > DATA.AUX_ROWS;
@@ -3353,9 +3558,13 @@
     });
   }
   function renderWho() {
-    var b = $('#whoBadge'), o = $('#logoutBtn'), u = state.user;
+    var menu = $('#userMenu'), b = $('#whoBadge'), o = $('#logoutBtn'), u = state.user;
     var n = u && (u.username || u.id || u.name);
-    if (b) { b.hidden = !n; b.textContent = n || ''; }
+    var role = u && u.role === 'admin' ? t('um.roleAdmin') : t('um.roleViewer');
+    if (menu) menu.hidden = !state.authOk;
+    if (b) { b.textContent = n || ''; }
+    var acct = $('#userMenuAccount'); if (acct) acct.textContent = n || '';
+    var roleEl = $('#userMenuRole'); if (roleEl) { roleEl.hidden = !n; roleEl.textContent = n ? role : ''; }
     if (o) o.hidden = !state.authOk;
     /* 用户管理入口对管理员**一律可见**（2026-09-25 改）。
        原判定是 `role === 'admin' && u.id`，把本机回环的占位身份排除在外 ——
@@ -3369,6 +3578,8 @@
        前端只负责别把入口藏成一个谜。 */
     var m = $('#umBtn');
     if (m) m.hidden = !(u && u.role === 'admin');
+    var editing = $('#userMenuEditing'); if (editing) editing.hidden = !state.editing;
+    syncUserMenu();
   }
   /* 登录闸门。两种形态，与 /uniplam/ 的 src/components/LoginView.tsx 对齐：
        login   —— 用户名 + 密码，打 POST /uniplam/api/auth/login；
@@ -4686,6 +4897,21 @@
       el.style.setProperty('max-height', 'none', 'important');
       el.style.setProperty('margin', '0', 'important');
       el.style.setProperty('padding', '0', 'important');
+      /* ⚠️ 2026-09-29 修「MW 页地图右边一块空白、不自适应填满」：
+         光设 width:100% 不够 —— 祖先若处在**弹性行**里，真正决定它宽度的是
+         flex-basis，而 flex-basis 的优先级高于 width。mwRealTime 页的内层版式
+         正是这样：#main{display:flex} 里 #left{flex:0 0 75%}、#right{flex:1 1 25%}
+         （左地图 / 右 Top Risk 栏）。上面那段循环已经把 #right 设成 display:none，
+         于是左边成了**唯一**的弹性项，但它的 basis 仍是 75% ——
+         结果地图只占 75%，右边 25%（实测 194px）空着。
+         这里把 basis/增长/收缩一并放开，让留下的那一项自己吃满整行。
+         实测（TMP/_diag_mwflex.cjs）：放开后 .leaflet-container 由 575px → 767px
+         （body 769px），瓦片随之铺满；不放开则恒定 575px。
+         ⚠️ 顺序有意义：这一步必须在上面「藏兄弟」之后跑，否则 basis 会被算进
+         两侧的比例分配里，反而分不到全宽。 */
+      el.style.setProperty('flex-basis', 'auto', 'important');
+      el.style.setProperty('flex-grow', '1', 'important');
+      el.style.setProperty('flex-shrink', '1', 'important');
     });
     lc.style.setProperty('height', '100%', 'important');
     lc.style.setProperty('min-height', '0', 'important');
@@ -4756,12 +4982,33 @@
      置 true 可恢复到 2026-09-22 的行为（两条放大路径的代码都原样保留）。
 
      ⚠️ 为什么这两件事无法同时满足（与 MsPortal 侧同一次实测结论）：
-       门户中列画布约 572×858，各档可视范围 vs 国土跨度（4.85°纬 × 4.40°经）：
-         zoom 7 → 约 9.36°纬 × 6.28°经   ✅ 装下全境
-         zoom 8 → 约 4.68°纬 × 3.14°经   ❌ 裁掉东西边缘（纬向也差约 30px）
+       各档可视范围 vs 国土跨度（LB_BOUNDS 4.85°纬 × 4.40°经）：
+         zoom 7 → 装得下全境（本次实测：约 9.66°纬 × 8.87°经）
+         zoom 8 → 只剩约一半（由本次实测反推：约 4.83°纬 × 4.43°经）
+                  ❌ 纬向 4.83° < 国土的 4.85°，已经把南北边缘裁掉
        内置站点（mwRealTime）的 fitAllSites() 本身就落在 zoom 7，
-       所以「不加一级」= 完整居中，正是本次要求的结果。 */
-  var MAP_DEFAULT_ZOOM_IN = true;   /* 2026-09-25：用户要求默认 zoom=8（fit+1） */
+       所以「不加一级」= 完整居中，正是本次要求的结果。
+       （早先按 572×858 画布估算出的 9.36°/6.28° 与 4.68°/3.14° 已由实测取代，
+        差异来自实际画布是 767×856 且 fitBounds 带 padding。）
+
+     ⚠️ 2026-09-29：本开关是**全局**的，而本栏有两个页签（gis / mwRealTime）。
+     ✅ 实测两页**都落在 zoom 7**（见下面的实测记录），所以 false 对两页都成立，
+     不需要按 page 分档。早先"gis 没有 fitAllSites 所以会偏低、需要单独补一级"
+     的推断是**错的** —— gis 页自己就会落到 zoom 7（它内层是 React 外壳，
+     不是靠 window 上的函数，所以在门户侧看不到它的取景入口，但结果一样是 zoom 7）。
+     将来若真的出现两页档位不一致，正确做法是**按 page 分档**
+     （在 curMap().page === 'gis' 时才走 zoomOnce），而不是把这里改成 true ——
+     改 true 会让两级放大叠在已经正确的 zoom 7 上，直接裁边。
+     实测数据见下。
+
+     ✅ 2026-09-29 实测（TMP/_probe_v1_mwfit.cjs，切到 mwRealTime 页签后测）：
+        内层 mw_real_time.html 的瓦片取自 7 级（网络层证据），
+        画面视野约 9.66°纬 × 8.87°经，649 个站点全在画面内、无裁边；
+        视野中心在利比里亚附近。
+        反向校验（TMP/_probe_v1_mwfit_neg.cjs）：把视野按 zoom+1 腰斩后只剩
+        4.83°纬 × 4.43°经，纬向已小于国土的 4.85°，B4c 判据会失败 ——
+        说明上面那个「通过」不是永真断言，确实分辨得出多放大一级。 */
+  var MAP_DEFAULT_ZOOM_IN = false;  /* 2026-09-29：内嵌页回到 mwRealTime，取全国取景 */
 
   /* 默认比内层页自己的取景再近一级（2026-09-22 用户：「跟手动点一次加号一个效果」）。
      只在本页面这一侧做：/myapp/ 是两个门户共用的预编译产物，改它的默认 zoom 等于
@@ -4975,6 +5222,15 @@
       window.clearTimeout(deb);
       deb = window.setTimeout(function () { state.q = qEl.value || ''; render(); }, 120);
     });
+    var userMenuBtn = $('#userMenuBtn');
+    if (userMenuBtn) userMenuBtn.addEventListener('click', function () { toggleUserMenu(); });
+    var userMenu = $('#userMenu');
+    if (userMenu) userMenu.addEventListener('click', function (e) {
+      if (e.target.closest('#editBtn,#umBtn,#logoutBtn')) closeUserMenu();
+    });
+    document.addEventListener('mousedown', function (e) {
+      if (state.userMenuOpen && userMenu && !userMenu.contains(e.target)) closeUserMenu();
+    });
     document.addEventListener('keydown', function (e) {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
@@ -4982,6 +5238,7 @@
         setRailOpen(true); qEl.focus(); qEl.select();
       }
       if (e.key === 'Escape') {
+        if (state.userMenuOpen) { closeUserMenu(); return; }
         /* 弹窗优先吃掉 Esc：用户管理里有未保存的白名单草稿，让它先于下钻 / 检索轨关闭 */
         if (state.um.open) closeUserMgmt();
         else if (state.drill.metric) closeDrill();
@@ -5088,12 +5345,26 @@
       }
       onEditClick(e);
     });
-    /* v1：地图的标题改名 / 刷新两颗按钮挂在 #l0Map 上。
-       ⚠️ 2026-09-29：页签那一支已在「固定为 page=gis 单页」时去掉 ——
-       本栏不再有 [data-map] 元素，留着分支永远匹配不到。
-       标题改名按钮在 p-head 里，而 p-head 会被 renderL0 重建，
+    /* v1：地图的页签 / 标题改名 / 刷新三颗按钮挂在 #l0Map 上。
+       页签那一支 2026-09-29 曾随「本栏只内嵌一页地图」删掉，同日恢复两页时加回。
+       这些按钮都在 p-head 里，而 p-head 会被 renderL0 重建，
        所以走事件委托而不是绑按钮本身。 */
     var mapClick = function (e) {
+      /* 页签：编辑态下点是「改这个页签的名字」，非编辑态才是切换地图。
+         与 MsPortal 侧同一套语义（改名的入口藏在页签自身上，不另开设置页）。 */
+      var tb = e.target.closest('[data-map]');
+      if (tb) {
+        e.preventDefault();
+        var pg = tb.getAttribute('data-map');
+        if (canEdit()) { openForm('maptab', pg, tb); return; }
+        if (pg === state.mapTab) return;                 /* 点当前页签：什么都不做，不白刷一次地图 */
+        state.mapTab = pg;
+        ss('olbr.maptab', state.mapTab);
+        /* 切换必须整块重建（renderL0 不给 keepMap）：不同 page 是不同的内层页，
+           iframe 留着只会显示旧图。 */
+        renderL0();
+        return;
+      }
       if (e.target.closest('[data-act="map-head"]')) {
         e.preventDefault();
         openForm('maptab', DATA.RENAME_HEAD, e.target.closest('[data-act="map-head"]'));
@@ -5126,12 +5397,17 @@
       }
       if (e.target.closest('[data-act="esc-copy"]')) { copyEsc(); return; }
     });
-    $('#aux').addEventListener('click', function (e) {
+    /* ⚠️ 归档区（#arch）与 T2 辅助区（#aux）是**两块独立的 DOM**，
+       所以这段逻辑不能只挂在 #aux 上 —— 实测过：只挂 #aux 时归档行的
+       「取消归档」和「展开其余 N 项」点了完全没反应（事件根本冒泡不到那里）。
+       这里把监听挂到一个共同的祖先（.aux 与 #arch 都在 <main> 里），
+       而不是给 #arch 再复制一份同样的处理器 —— 同一套动作写两遍必然漂移。 */
+    $('main').addEventListener('click', function (e) {
       /* 归档行的「取消归档」：先把条目放回一个**用户选定**的视图，再刷新。
-         ⚠️ 这里必须用 prompt 之外的确定来源：归档项没有"当前面板"这种东西，
-         所以落点只能由用户当场指定。可选项取 tabGids()（真正渲染得出来的分组），
-         而不是 grpGids()（含只被引用过、却不在版面里的 id）—— 选到一个渲染不出来的
-         分组等于换个地方弄丢，与本次改动要解决的问题正好相反。 */
+         落点只能由用户当场指定：归档项没有"当前面板"，代码无从知道它该回哪个视图。
+         可选项取 tabGids()（真正渲染得出来的分组），而不是 grpGids()（含只被引用过、
+         却不在版面里的 id）—— 选到一个渲染不出来的分组等于换个地方弄丢，
+         与本次改动要解决的问题正好相反。 */
       var u = e.target.closest('[data-act="unarchive"]');
       if (u) {
         var no = u.getAttribute('data-no');

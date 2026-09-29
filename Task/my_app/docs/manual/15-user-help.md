@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-28。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-29。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（66 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（67 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -78,7 +78,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（66 个）
+### 3.3 全量任务清单（67 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -98,6 +98,7 @@
 | RAN Cells KPI 同步 | `cells_kpi_sync` | `50 4 * * *` | u | `services/ran_cells_kpi_sync.py → run_cells_kpi_sync` |
 | RAN Network KPI 同步 | `network_kpi_sync` | `0 5 * * *` | u | `services/ran_ume_network_kpi.py → run_network_kpi_sync` |
 | 可用率核对宽表重建 | `avail_recon_sync` | `10 6 * * *` | u | `services/avail_recon_sync.py → run_avail_recon_sync` |
+| BP 劣化小区报告更新 | `bp_report_sync` | `20 6 * * *` | u | `services/bp_report_sync.py → run_bp_report_sync` |
 | CNN UME KPI 同步 | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | SP 备件数据同步 | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI 同步 | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
@@ -432,6 +433,29 @@
 - 口径在 services/avail_recon_sync.py 顶部：Cell_Availability=AVG(rate)，不是「达标站点占比」（v1 曾算错，值域 40~100%）
 - 看板侧经 dashboard_service.DB_ALIASES 把 avail_recon.sqlite3 解析到本机库；新增派生库照此登记
 - 本任务 2026-09-21 上线前，该表由已退役的 my-finebi 手工 ETL 维护，无人调度导致冻结在 2026-09-13、看板静默停更
+
+#### BP 劣化小区报告更新（`bp_report_sync`）
+
+- 默认 cron: `20 6 * * *`　|　worker 组: **u**
+- 工作流脚本: `services/bp_report_sync.py → run_bp_report_sync`
+
+**功能**: 从 RAN_UME 读取 4G 小区级 PRB/吞吐/流量，按 umlaut 口径重算 BP 劣化小区（日/周/月），更新本机 data/bp_report.sqlite3 并与 Excel 真值对账
+
+**工作流与数据流**:
+
+1. 按天从远端读 4G_Main_Kpi_Cell_Daily 的 PRB 利用率 / DL IP 吞吐 / DL+UL 流量（逐日一条 SQL，避免撞远端 5 万行上限被静默截断）
+1. 关联 bp_cell_dict 补上 Cluster/Layer（RAN_UME 无此维度，字典来自 Excel 的 BP Cells List）
+1. 按口径重算每小区每日 is_bp，并重算日/周/月汇总（周 4/7 天、月 3/4 个完整周）
+1. 与 Excel 的 bp_cells_excel 逐日对账，差异与口径缺口一并写入 bp_sync_meta
+
+**维护要点**:
+
+- 口径唯一真相源在 services/bp_caliber.py：日判定三条件、周 4/7、月 3/4
+- ⚠️ Average DL Active User Number 在 RAN_UME 侧未采集（最接近的 C373200029:Maximum Number of RRC Connection User 是峰值、不等价），故日判定实际只覆盖两个条件、结果必然低于 Excel 真值；缺口由页面常驻告警，不要隐藏
+- ⚠️ PRB 利用率在源表里是**小数**（0~1，实测 max 0.9751），阈值是 0.80 不是 80；写成 80 会让条件永不成立且不报错
+- ⚠️ 源表列名 "E-UTRAN\xa0FDD\xa0Cell Name" 里的分隔符是**不换行空格**；写成普通空格时 SQLite 不报错，而是把双引号标识符当字符串字面量返回，整列变成列名文本（bp_caliber.assert_columns_exist / assert_no_literal_fallback 就是为此加的守卫）
+- Excel 的 BP Cells List 最后一天（2026-09-26）只有 53 行、远少于当日真值 486，属导出未完成；对账时不要把该日差异当实现缺陷
+- 增量任务只带 2~3 天，周/月重算范围必须严格限定在这几天内，按整月重算会把 Excel 历史真值覆盖掉
 
 #### CNN UME KPI 同步（`cnn_kpi_sync`）
 
@@ -1518,7 +1542,7 @@ FME 排名看板：按 FME 统计站点可用率、工单量与 SLA 达成率，
 
 #### avail_ms（`avail_ms`）
 
-可用率多维矩阵：把全网可用率按「区域 / 制式 / 站点类型」三个维度呈现，日 / 周 / 月用页签切换粒度。数据来自本机派生库 avail_recon.sqlite3（任务 avail_recon_sync 每天 06:10 重建，口径为站点级加权可用率 SUM(分子)/SUM(分母)）。
+MS Availability（可用率多维矩阵）：把全网可用率按「区域 / 制式 / 站点类型」三个维度呈现，日 / 周 / 月用页签切换粒度。数据来自本机派生库 avail_recon.sqlite3（任务 avail_recon_sync 每天 06:10 重建，口径为站点级加权可用率 SUM(分子)/SUM(分母)）。
 
 - 每张矩阵上方有该维度的趋势曲线（日 30 期 / 周 12 期 / 月 12 期，随页签变化）：一条线一个维度取值，所有点都按 SUM(分子)/SUM(分母) 加权，与表格数字严格一致
 - 曲线上的点也能点开下钻，打开的是**那个点自己的周期**（例如月档停在 2026-09 时点 2026-08 的点，弹窗就是 2026-08 的明细）
@@ -1527,6 +1551,22 @@ FME 排名看板：按 FME 统计站点可用率、工单量与 SLA 达成率，
 - 阈值输入框（默认 99.65%）决定「未达标」判定：低于阈值显示为红色，会实时重算，不改变数字本身
 - 区域维度的 ALL 行含「未匹配主数据」的站点，因此 ALL 不等于三个区域相加；末行单列该桶，点它只能看可用率明细、不能下钻 TT（派生库里没有那批站点的名单）
 - 4G 的 NERA 属未映射调度组：计入制式 4G 总量，在站点类型维度单列「其它」，只出现在 2025-12 ~ 2026-01 的月份；此时页面会出现黄色口径提示条
+- 取不到数据显示「—」而不是 0；页面顶部显示「数据截至」，派生库停更时能一眼看出来
+
+#### avail_flm（`avail_flm`）
+
+FLM 可用率：只看三个 FLM 区域（Montserrado / North East / South West）的可用率，行是区域、列分别是制式（2G/3G/4G）与站点类型（Regular / Cooli / ERA，列名用数据原值，需求表写作 Cool.i）；日 / 周 / 月用页签切换粒度。数据与「可用率多维矩阵」同源（本机派生库 avail_recon.sqlite3，口径 SUM(分子)/SUM(分母)），另外把「影响可用率的 TT 列表」直接列在页面上。
+
+- 两张表上方各有一条曲线：上面那条是三个区域的可用率走势（一个区域一条线），下面那条是三种站点类型的走势；日 30 期 / 周 12 期 / 月 12 期，随页签变化
+- 曲线上的点也能点开下钻，打开的是**那个点自己的周期**；阈值虚线（默认 99.65%）与表格的红色判定同一个值
+- 点任意可用率数字下钻：弹窗内含近 30 期趋势、按日明细与「按调度组」的构成分解，第二个页签是该切片的全部 TT 工单
+- 三个区域各有一张 KPI 卡（该区域全部制式合计），点卡片同样能下钻
+- 站点类型不做范围限制：三个区域都会显示 Regular / Cooli / ERA 三列（列名用数据原值）。需求里写的「NE 只有 Regular/Cool.i」与两个数据源都不符（NE 有 123 个 ERA 站点、派生库里 NE 的 ERA 分母 6.5 万），硬留空反而会让人以为 NE 没有 ERA 站点
+- 末行「未匹配主数据」是远端站点名匹配失败的部分：它不在三个区域之内，也不画进曲线（量级大会压扁纵轴），单列出来只为对账，点它只能看可用率明细、不能下钻 TT
+- 页面级「影响可用率的 TT 列表」列出**本期全部工单**，不做「是否影响业务」的判定（判定字段与 site_outage 在本期数据上完全一致，取其一都会让口径看起来比实际精确）；每行给出 2G/3G/4G 断站数与 MTTR，由使用者自己判断相关性
+- TT 列表可按区域筛选（全部 / 三个区域）；月档工单数可达 3600+ 条，超过展示上限时页面会显示黄色提示，只有明细条数受影响、可用率数字不受影响
+- 点工单号可反查该工单所属「区域 × 站点类型」的可用率与同期全部工单
+- 4G 的 NERA 属未映射调度组：计入制式 4G 总量，但本页站点类型列只有三种，此时 4G 行会大于三列相加，页面会出现黄色口径提示条
 - 取不到数据显示「—」而不是 0；页面顶部显示「数据截至」，派生库停更时能一眼看出来
 
 #### noc_analyst（`noc_analyst`）
@@ -1579,6 +1619,19 @@ PM 执行分析：按 PM 计划号（pmp_no）看预防性维护工单（PMT）�
 - 页面上每个数字都可点：KPI 卡、比率卡、图表柱子、月度趋势、站点条形图、计划表格都能下钻到明细，明细行数与卡片数字严格一致
 - 下钻明细被截断时会显示黄色告警条，提示缩小时间范围——不要忽略它
 
+#### bp_report（`bp_report`）
+
+BP 劣化小区报告：umlaut 口径的 Bad Performance 小区统计，支持按日/周/月查看并下钻到小区明细。
+
+- 口径：日 = 平均活跃用户数 > 2.5 且 DL 吞吐 < 3 Mbps 且 DL PRB 利用率 > 80%；周 = 4/7 天为 BP；月 = 3/4 个完整周为 BP
+- ⚠️ 口径不完整（页面顶部常驻黄色告警）：RAN_UME 侧没有采集「平均活跃用户数」，重算只覆盖 PRB 与吞吐两个条件，缺第三个条件的小区记为「不可判定」，不计入 BP
+- 因此本页从 RAN_UME 重算出的 BP 数会低于 Excel 原值，这是口径缺口、不是实现缺陷；但 Excel 已有的历史数据是完整的，两者并存
+- 「BP 小区数」列可点击下钻到小区明细，行数与数字严格一致；「全网小区数」列不可下钻（Excel 未提供全网小区名单）
+- 「明细行数」列显示 Excel BP Cells List 里该期实际有多少行，括号内是与展示值的差额——上游 Excel 各 sheet 本身就不一致，差异如实展示
+- 2023 年与 2024 年部分日期在 Excel 的 BP Cells List 里没有明细，这些期的下钻入口会置灰
+- 分区（Cluster1~6 / Rural / ERA）只能在 Excel 里维护，RAN_UME 没有这套维度；新增小区若不在字典内会归为 Unknown
+- 数据由 bp_report_sync 任务每天 06:20 从 RAN_UME 增量更新
+
 #### 丢包看板（`packet_loss`）
 
 LTE 丢包看板（RAN UME SDR / IPRAN IPPD）：最近 7 个完整自然日、小时粒度，当天没过完不展示。
@@ -1621,7 +1674,7 @@ UME iMonitor 大屏（guard-imonitor-iui，screen_id=1）：把 UME 门户（172
 
 - 区域下拉 + 图层 Tag 开关筛选；图例点击可隐藏该类图层；时间支持分段切换与自定义区间
 - 点站点打开右侧抽屉，四个页签明细可搜索、可导出 Excel
-- 「链路利用率」开关（默认开）：把 MW 微波实时页同一 15 分钟槽位的链路利用率叠加到地图链路线上，按 6 级着色（>90% 紧急 / ≥80% 重要 / ≥70% 中等 / ≥60% 次要 / ≥50% 轻微 / <50% 正常），线越粗表示利用率越高
+- 「链路利用率」开关（默认开）：把 MW 微波实时页同一 15 分钟槽位的链路利用率叠加到地图链路线上，按 4 级着色（>80% 紧急 / ≥70% 重要 / ≥60% 次要 / <60% 正常），线越粗表示利用率越高
 - 点链路线可看该链路的最高/发送/接收利用率与匹配到的 MW 站点；显示「无 KPI 数据」的链路表示未匹配到实时指标（保持 KML 原线色），不是 0%
 - 叠加口径见图例下方说明：844 条 KML 链路中约 360 条能匹配到实时指标，其余仍在 MW 微波实时页查看
 
@@ -1644,6 +1697,44 @@ OLR 事件（Incident）总览看板：卡片、矩阵、SLA 图表、分页明�
 
 - 数据来自 sp_data_sync（每天 07:00 从 SFTP 拉取的 5 份备件报表）
 - 按仓库/备件类型查看库存与明细
+
+#### sp_material（`sp_material`）
+
+备件物料统计汇总：按专业域/物料看入库、出库与库存的汇总分布。
+
+- 数据来自 sp_data_sync 拉取的备件报表
+- 点任意汇总数字可下钻到对应物料明细
+
+#### sp_details（`sp_details`）
+
+SP 备件明细报表：与邮件任务发出的合并工作簿是同一份文件，含 Inventory / Inbound / Outbound / Transfer 四张表。
+
+- 分页 + 筛选 + 排序；「未关闭」= Status 不含 Closed 的行
+- 表格只展示常用列，点任意一行查看该表全部列
+- 导出为当前筛选结果（最多 5000 行）
+
+#### sp_report（`sp_report`）
+
+备件 Inbound & Outbound & Inventory 汇总报表：与邮件/WhatsApp 发出去的是同一份工作簿（每天 05:15 由 sp_report_generate 产出），含 Summary-Current / Summary-Changed / Inbound / Outbound / Inventory 五张表。
+
+- 统计卡片看总量与补库告警，点告警卡即筛选
+- Summary-Changed 渲染成「天 × 仓库」矩阵
+- 「显示列」可按分表自定义并本地记住；行详情弹窗始终显示全列
+
+#### com_report（`com_report`）
+
+耗材 Inbound & Outbound & Inventory 汇总报表：与备件页版式一致，只是数据源换成耗材工作簿。
+
+- 口径与备件页完全相同，见页面底部「报表口径说明」
+- 页面与 Excel 数字不一致时先看口径说明，不要在页面层改口径
+
+#### warehouse_summary（`warehouse_summary`）
+
+仓库汇总报表：按仓库汇总报表（WarehouseSummaryReport.xlsx）复刻，页签对应该文件的两个 sheet——Spars Parts / Consumables。每个页签含两段：WH/DOP 库存与消耗汇总（当前库存 / 累计 / 本月 / 本周消耗），以及高频消耗物料（每页 10 行，可翻完全部物料）。
+
+- 页签切换备件/耗材；两段表的每个数字都可点击下钻到明细
+- 高频物料按消耗量降序分页显示全部，Total 行是全量合计且不随翻页变化
+- 消耗口径是 Outbound Site Qty（站点出库），段②标题右侧有标签提示
 
 ### 4.3 分析与工具
 

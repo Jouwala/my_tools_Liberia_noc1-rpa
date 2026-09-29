@@ -90,6 +90,23 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
 
 - [ ] **`credentials` 表明文存储是否改造。** 现状凭据在 `db/app.db` 的 `credentials` 表**以明文存储**（已知风险，见 `docs\manual\05-security-and-credentials.md`）。是否需要加密或接入密钥管理需决策。
 
+- [ ] **BP 报告模块 4 个文件超 500 行上限（AGENTS.md 第三节原则 2）。**
+      2026-09-29 新增该模块时实测：`bp_caliber.py` 625 行、`bp_report_sync.py` 594 行、
+      `bp_report_service.py` 585 行、`frontend\src\pages\BpReport.tsx` 619 行。
+      注释只占 58~85 行，**不是注释导致的膨胀**，是模块本身职责较重
+      （口径常量 + 判定 + Excel 周期标签解析 / 增量同步 + 三方重算 + 对账 /
+      概览 + 三粒度聚合 + 下钻 / 页面 + 5 个图表 + 3 个弹窗）。
+      **动作（择机，不要在下钻验收刚通过时动）**：
+      ① `bp_caliber.py` 拆出 `bp_caliber_labels.py`（周期标签解析与换算：
+         `parse_excel_week` / `resolve_excel_weeks` / `parse_excel_month` /
+         `excel_period_to_iso` / `period_to_day_range` / `week_days_in_month`）；
+      ② `bp_report_service.py` 拆出 `bp_report_drill.py`（`load_cells` 与下钻相关）；
+      ③ `BpReport.tsx` 把三个弹窗（明细 / 区域 / 频层）拆成同目录子组件。
+      **验收**：`python TMP\_verify_drill.py` 与 `npm run check:i18n` 均通过，
+      且 `/api/bp-report/*` 的 5 个端点响应逐字段不变。
+      > 拆分前先建 `_bak_<日期>_bp_split` 快照；该模块的下钻契约（见
+      > `docs\manual\11-feature-guide.md` §30「下钻契约」）是拆分的回归基线。
+
 - [ ] **`pyjab`（GPLv2）的分发边界认定。** `backend\services\cn_ems\cs_ems_jab.py:27` 依赖 GPLv2 的 `pyjab`，属**强传染**许可。前置条件：确认 `cn_ems\`（U31 EMS 桌面客户端 GUI 自动化）**是否随产品交付客户**——仅内网自用则 GPL「分发」未触发、风险可控；随产品交付则该脚本须 GPL 开源，与闭源定位冲突，需替换或隔离。该目录当前**无 router / `task_registry.py` 入口 import**，传染面有限。核查记录见 `docs\THIRD-PARTY-NOTICES.md` 第二节。
 
 - [ ] **两个未登记依赖的处置。** ① `python-calamine`：`ipran_ume_kpi_service.py:686` 用 `engine='calamine'` 且**无兜底**，缺失即抛错——需确认该任务是否在目标环境启用，是则补装并登记进 `requirements.lock.txt`。② `twilio`：`incident_overview_service.py:667/709` 走 `try/except` **静默降级**，虚拟助手电话/短信实际不可用——决定是补依赖还是移除该分支。核查记录见 `docs\THIRD-PARTY-NOTICES.md` 第四节。

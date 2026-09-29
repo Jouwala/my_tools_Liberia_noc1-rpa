@@ -95,6 +95,15 @@ const getUniqueFilters = (data: any[], key: string) => {
   return Array.from(vals).map(v => ({ text: v, value: v }))
 }
 
+// Ticket Severity 的 Unknown/历史误拼写 unkonw 均表示无有效级别，不应出现在统计卡或导出中。
+const isExcludedTicketSeverity = (value: unknown): boolean => {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  return normalized === 'unknown' || normalized === 'unkonw'
+}
+
+const visibleTicketSeverityStats = (stats: Record<string, number> | undefined): Record<string, number> =>
+  Object.fromEntries(Object.entries(stats || {}).filter(([key]) => !isExcludedTicketSeverity(key)))
+
 /**
  * 高级过滤列的 i18n 键映射。
  *
@@ -446,7 +455,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     // sheet 名跟着数据源走，避免下载下来分不清是哪张表的数。
     const ttDims: Array<[string, Record<string, number>]> = showTtSections ? [
       [t('ttwo.alarmSeverity'), sStats?.severity || {}],
-      [t('ttwo.ticketSeverity'), sStats?.ticket_severity || {}],
+      [t('ttwo.ticketSeverity'), visibleTicketSeverityStats(sStats?.ticket_severity)],
       [t('ttwo.slaStatus'), sStats?.sla_status || {}],
       [t('ttwo.status'), sStats?.status || {}],
     ] : []
@@ -1208,7 +1217,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
       <Row gutter={[16, 4]}>
         <Col xs={24} lg={12}>
           <StatDimTitle label={t('ttwo.ticketSeverity')} explain={t('ttwo.explain.ticketSeverity')} />
-          {renderStatCards(s.ticket_severity || {}, (k, i) => ticketColor[k] || getAutoColor(k, i), 'ticket_severity')}
+          {renderStatCards(visibleTicketSeverityStats(s.ticket_severity), (k, i) => ticketColor[k] || getAutoColor(k, i), 'ticket_severity')}
         </Col>
         <Col xs={24} lg={12}>
           <StatDimTitle label={t('ttwo.slaStatus')} explain={t('ttwo.explain.sla')} />

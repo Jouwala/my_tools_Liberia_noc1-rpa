@@ -1,9 +1,15 @@
-# WhatsApp Image Sender（Chrome 扩展）
+# WhatsApp Sender（Chrome 扩展）
 
-my_app 的第二种 WhatsApp 发图通道：直接运行在**用户已登录的 WhatsApp Web 标签页**里，
+my_app 的第二种 WhatsApp 发送通道：直接运行在**用户已登录的 WhatsApp Web 标签页**里，
 定时把 `site_outage` 截图发送到配置好的群组。与后端任务 **WhatsApp Message Send**
 （`backend/services/whatsapp_service.py`，Playwright 自启浏览器）**并行存在**，
 共用同一份图片目录与群组/备注配置。
+
+> **2026-09-29 起同时支持纯文本发送**，用于 **eFlow P1 告警 WhatsApp 推送**
+> （任务 `tt_alarm_whatsapp_alert`）：把 TT 告警单的头部摘要（单号/站点/级别/告警码等）
+> 发到值班群。两类作业统一从 `GET /api/whatsapp/ext/job` 认领，按 `kind` 分发，
+> 详见下文「两类作业：`kind` 字段」。此前扩展只发图片，文本作业投递后无人认领，
+> `send_status` 会一直停在 `'N'`。
 
 > 0.1.1（2026-09-01 晚间）代码审查修复：
 > 1. **认领顺序**：`claimAndRunJob` 现在先查「发送进行中」再认领后端作业。
@@ -127,10 +133,67 @@ my_app 的第二种 WhatsApp 发图通道：直接运行在**用户已登录的 
 
 - `GET /api/whatsapp/outbox` — 群组 + 图片清单
 - `GET /api/whatsapp/outbox/image?name=<文件名>` — 图片字节（带路径穿越防护）
-- `GET /api/whatsapp/ext/job` — 认领待发作业
+- `GET /api/whatsapp/ext/job` — **统一认领口**：认领待发作业（发图或文本）
 - `POST /api/whatsapp/ext/job/result` — 回报发送结果
 
 详见 `backend/routers/whatsapp_outbox.md`。
+
+### 两类作业：`kind` 字段
+
+扩展同时承担**两条**发送通道，都由 `GET /api/whatsapp/ext/job` 一个端点下发，
+靠返回体的 `kind` 分发：
+
+| `kind` | 载荷 | 来源 | 发送路径 |
+| --- | --- | --- | --- |
+| `image` | `items`（图片清单 + 备注） | 定时发图任务 `whatsapp_send_ext` | `performSend` → 剪贴板粘图 |
+| `text` | `messages`（`[{tt_no, text}]`） | TT 告警推送任务 `tt_alarm_whatsapp_alert` | `simpleSendTextViaDebugger` |
+
+两条路径**共用同一套 CDP 可信事件与进群定序**（`simpleOpenChat`），差别只在载荷：
+发图是「粘图 → 备注」，发文本是「粘文本」。
+
+> **文本作业与发图作业是两个独立的作业文件**（`data/tt_alert_job.json` /
+> `data/whatsapp_ext_job.json`），由 `backend/services/whatsapp_job_claim.py`
+> 收敛成一个认领口。**同一时刻最多认领一个作业**，发图优先 —— 扩展的发送是
+> 串行且带 `running` 锁的，把并发问题推给浏览器端会很难排查。
+>
+> **回报必须带上 `kind`**（`background.js` 的 `reportJobResult`），后端据此把结果
+> 转交给对应的作业源。发图回 `groups_sent`、文本回 `sent`（真正发出的 `tt_no` 列表）；
+> 回错源会把「已发送」记成别人的结果。
+
+### 文本发送的成功判据
+
+文本作业的 `sent` 是**后端把该单 `send_status` 置 `'Y'` 的唯一依据**
+（`tt_alarm_whatsapp_service.run_tt_alarm_whatsapp_alert` 里 `ok=True` 只对
+`sent` 中的 `tt_no` 生效）。因此 `simpleSendTextOne` 逐条校验，任一环节不确定
+就抛错并**放弃发送**，绝不谎报成功：
+
+1. 聚焦聊天输入框（`focus()` + `activeElement` 校验，零鼠标事件）；
+2. **清空输入框**并校验已清空（`clearChat()`，返回空串才算通过）；
+3. 记下发送前出站气泡数（`outgoingCount`，`div[data-id^="true_"]`）；
+4. 文本入系统剪贴板 → 可信 Ctrl+V 粘贴；
+5. **轮询读回输入框文本，与待发内容比对**（最多 3s）—— 不一致就报错，
+   宁可漏发也不误发（避免把 A 单内容发进群还记成发送成功）；
+6. 回车前再次确认焦点未丢；
+7. 回车后**两个信号任一成立**即算发出：① 出站气泡数 +1；② 最后一条出站气泡
+   的文本就是刚发的这条。8 秒未确认时：文本仍在输入框 → 补按一次回车再判；
+   输入框已空 → **视为成功**（气泡只是还没渲染）。
+
+> 不用 `Input.insertText`：WhatsApp Web 是 React 应用，insertText 有概率落在
+> 已被卸载的旧节点上（`simpleTypeGroupName` 的注释记录过同类问题）。剪贴板粘贴
+> 走浏览器原生 paste 事件，React 能正确收到 —— 与发图备注框用的是同一套机制。
+
+#### 2026-09-29 修掉的三个坑（都是「发不出去」或「判错」）
+
+| 现象 | 根因 | 修法 |
+| --- | --- | --- |
+| `NotAllowedError: writeText ... Write permission denied` | `navigator.clipboard.writeText` **要求页面有焦点**，后台标签页必失败 | 加不依赖焦点的兜底：隐藏 textarea + CDP 原生 Ctrl+A / Ctrl+C |
+| `期望 377 字，实测 901 字` | 上一单文本**残留在输入框**里，叠加后长度不等。实测 `901 - 377 = 524 ≈ 上一单的 523 字` | 粘贴前先 `clearChat()`（走 `execCommand('delete')`，React 能同步 state） |
+| `回车后未确认文本发送` | 虚拟列表导致 `outgoingCount()` 读到旧值 → 把**已发出**的记成失败 → 20 分钟后**重发**，群里重复 | 补「最后一条出站气泡文本」信号；输入框已空则判成功 |
+
+> **还有一个会整条卡死的坑**：WhatsApp 标签开着 **DevTools（F12）** 时，
+> `chrome.debugger.attach` 既不成功也不回调，原实现无超时 → 作业永远停在
+> `running`，界面看不出原因。现已给 `dbgAttach` / `dbgCommand` 加超时，
+> 并把 Chromium 原文翻成「请关闭 DevTools 后重试」。**发之前请关掉 F12。**
 
 ## 配置来源
 
@@ -139,6 +202,11 @@ my_app 的第二种 WhatsApp 发图通道：直接运行在**用户已登录的 
 - 图片目录：`backend/services/data/site_outage/`（排除名字含 `debug` 的文件）。
 
 以上与原任务完全一致，见 `backend/services/whatsapp_service.py`。
+
+> **TT 告警文本**的群组/时间窗/级别/告警码**不走上面这组环境变量**，
+> 见 `backend/services/tt_alarm_config.py` 与
+> `docs/manual/04-task-system.md` 的 `tt_alarm_whatsapp_alert` 小节；
+> 群组名可在「设置 → 任务配置 → eFlow P1 Alarm WhatsApp Push」里改。
 
 ## 已知限制
 

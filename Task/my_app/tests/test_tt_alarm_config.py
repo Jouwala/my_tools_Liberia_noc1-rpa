@@ -174,12 +174,34 @@ def test_parse_config_ignores_invalid_numbers():
 # ---------------- 群组回退的可发现性 ----------------
 
 def test_group_fallback_defaults_to_test_group():
-    """群组为空时回退到 DEFAULT_GROUPS 并标记 fallback。"""
+    """群组为空时回退到 DEFAULT_GROUPS 并标记 fallback。
+
+    **不要断言模块级常量 `S.GROUPS_FALLBACK is True`** —— 它取决于运行时是否存在
+    `backend/services/tt_alert_whatsapp_config.json`。该文件由用户在「任务配置」页保存时
+    创建，是**正常的生产状态**：用户一旦显式存了群组（哪怕存的就是 `test123`），
+    fallback 就该是 False。
+
+    这个断言曾这样写并在 2026-09-29 15:32 用户保存配置后误报：
+        `assert False is True` —— 代码没错，是测试读了环境状态。
+    故改为直接测 `parse_config`（纯函数、不受环境影响的唯一真相源）。
+    """
     assert C.DEFAULT_GROUPS == ["test123"]
-    assert isinstance(S.GROUPS_FALLBACK, bool)
-    if not os.environ.get("TT_ALERT_WHATSAPP_GROUPS"):
-        assert S.GROUPS == S.DEFAULT_GROUPS
-        assert S.GROUPS_FALLBACK is True
+
+    # 空 → 回退 + 标记
+    blank = _p({"groups": ""})
+    assert blank["groups"] == C.DEFAULT_GROUPS
+    assert blank["groups_fallback"] is True
+
+    # 显式存了值（哪怕等于默认测试群）→ 不算回退，不该误报「正发往测试群」
+    explicit = _p({"groups": "test123"})
+    assert explicit["groups"] == ["test123"]
+    assert explicit["groups_fallback"] is False, \
+        "用户显式选择 test123 ≠ 配置缺失回退，两者必须可区分"
+
+    # 完全没有配置来源 → 走内置默认，同样标记回退
+    none = _p({})
+    assert none["groups"] == C.DEFAULT_GROUPS
+    assert none["groups_fallback"] is True
 
 
 def test_group_fallback_is_flagged_in_task_result():

@@ -169,9 +169,11 @@ export interface TopologyLink {
   target?: string
 }
 
-/** 利用率分级（与后端 mw_ume_topology.level_of 口径一致）+ 'no_kpi' 无数据 */
+/** 利用率分级（与后端 mw_ume_topology.level_of 口径一致）+ 'no_kpi' 无数据。
+ *  2026-09-29 由 6 级合并为 4 级：healthy(原 healthy+negligible) / minor /
+ *  major(原 moderate) / critical(原 major+critical)。 */
 export type UtilLevel =
-  | 'critical' | 'major' | 'moderate' | 'minor' | 'negligible' | 'healthy' | 'no_kpi'
+  | 'critical' | 'major' | 'minor' | 'healthy' | 'no_kpi'
 
 /** /api/gis/topology?with_util=1 返回的叠加统计，用于向用户解释「为什么只有一半线有颜色」 */
 export interface UtilMeta {
@@ -257,16 +259,15 @@ export const KML_LINK_COLORS = [
   { color: '#34c759', labelKey: 'gis.topologyColorGreen' },
 ] as const
 
-/* MW 链路利用率分级配色 —— 与 `?page=mwRealTime` 的 6 级色阶**逐值一致**。
-   色值取自 mw_real_time.html 的 --vmax-lvl-* **深色档**（:855-863 readLvlColors）：
-     healthy #0bc78c | negligible #6ef0b4 | minor #f6cf00
-     moderate #ff922b | major #ff7a45 | critical #ff5c6c
+/* MW 链路利用率分级配色 —— 与 `?page=mwRealTime` 的 4 级色阶**逐值一致**。
+   色值取自 mw_real_time.html 的 --vmax-lvl-* **深色档**（readLvlColors）：
+     healthy #0bc78c | minor #f6cf00 | major #ff7a45 | critical #ff5c6c
    两页显示同一个指标，配色不一致会让人以为是两套口径，故此处刻意复刻。
 
    ⚠️ 与 KML_LINK_COLORS 的关系（重要，避免误以为二者冲突）：
      KML 4 色（红/黄/蓝/绿）是 KML 原作者的**人工标注**，语义未知；
-     这里的 6 级色是**利用率数据本身**的分级。
-     叠加开启后，**只有能匹配到 KPI 的线**改用 6 级色，匹配不到的仍用 KML 原色 ——
+     这里的 4 级色是**利用率数据本身**的分级。
+     叠加开启后，**只有能匹配到 KPI 的线**改用 4 级色，匹配不到的仍用 KML 原色 ——
      两种语义在图上并存，故图例必须**同时**展示两组并说明差别（见 GISMap.tsx 图例区）。
 
    同 KML_LINK_COLORS：值必须是十六进制实值，不能用 WH.xxx
@@ -274,30 +275,26 @@ export const KML_LINK_COLORS = [
 export const UTIL_LEVEL_COLORS: Record<UtilLevel, string> = {
   critical: '#ff5c6c',
   major: '#ff7a45',
-  moderate: '#ff922b',
   minor: '#f6cf00',
-  negligible: '#6ef0b4',
   healthy: '#0bc78c',
   no_kpi: '', // 空串 = 不上色，回退 KML 原色；由 _linkColor 统一处理
 }
 
 /* 图例/提示里的分级展示顺序：由重到轻，与 mwRealTime 的分级顺序一致 */
 export const UTIL_LEVEL_ORDER: UtilLevel[] = [
-  'critical', 'major', 'moderate', 'minor', 'negligible', 'healthy',
+  'critical', 'major', 'minor', 'healthy',
 ]
 
 /* 利用率 -> 分级。**前端独立实现**而非依赖后端 level 字段兜底：
    后端理论上总会给 level，但接口降级/字段缺失时不能让告警线悄悄变绿。
    口径与后端 mw_ume_topology.level_of 严格一致：
-   >90 critical | >=80 major | >=70 moderate | >=60 minor | >=50 negligible | <50 healthy
-   （临界值：critical 为严格大于 90，与页面 "> 90%" 的写法一致） */
+   >80 critical | >=70 major | >=60 minor | <60 healthy
+   （临界值：critical 为严格大于 80，与页面 "> 80%" 的写法一致） */
 export function utilLevelOf(u: number | null | undefined): UtilLevel {
   if (u == null || !isFinite(Number(u))) return 'no_kpi'
   const v = Number(u)
-  if (v > 90) return 'critical'
-  if (v >= 80) return 'major'
-  if (v >= 70) return 'moderate'
+  if (v > 80) return 'critical'
+  if (v >= 70) return 'major'
   if (v >= 60) return 'minor'
-  if (v >= 50) return 'negligible'
   return 'healthy'
 }

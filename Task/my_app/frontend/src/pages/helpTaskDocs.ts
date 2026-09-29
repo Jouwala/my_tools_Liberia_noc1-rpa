@@ -328,6 +328,22 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
+    id: 'bp_report_sync', group: 'u', cron: '20 6 * * *',
+    script: 'services/bp_report_sync.py → run_bp_report_sync',
+    zh: {
+      name: 'BP 劣化小区报告更新',
+      desc: '从 RAN_UME 读取 4G 小区级 PRB/吞吐/流量，按 umlaut 口径重算 BP 劣化小区（日/周/月），更新本机 data/bp_report.sqlite3 并与 Excel 真值对账',
+      flow: ['按天从远端读 4G_Main_Kpi_Cell_Daily 的 PRB 利用率 / DL IP 吞吐 / DL+UL 流量（逐日一条 SQL，避免撞远端 5 万行上限被静默截断）', '关联 bp_cell_dict 补上 Cluster/Layer（RAN_UME 无此维度，字典来自 Excel 的 BP Cells List）', '按口径重算每小区每日 is_bp，并重算日/周/月汇总（周 4/7 天、月 3/4 个完整周）', '与 Excel 的 bp_cells_excel 逐日对账，差异与口径缺口一并写入 bp_sync_meta'],
+      maintain: ['口径唯一真相源在 services/bp_caliber.py：日判定三条件、周 4/7、月 3/4', '⚠️ Average DL Active User Number 在 RAN_UME 侧未采集（最接近的 C373200029:Maximum Number of RRC Connection User 是峰值、不等价），故日判定实际只覆盖两个条件、结果必然低于 Excel 真值；缺口由页面常驻告警，不要隐藏', '⚠️ PRB 利用率在源表里是**小数**（0~1，实测 max 0.9751），阈值是 0.80 不是 80；写成 80 会让条件永不成立且不报错', '⚠️ 源表列名 "E-UTRAN\\xa0FDD\\xa0Cell Name" 里的分隔符是**不换行空格**；写成普通空格时 SQLite 不报错，而是把双引号标识符当字符串字面量返回，整列变成列名文本（bp_caliber.assert_columns_exist / assert_no_literal_fallback 就是为此加的守卫）', 'Excel 的 BP Cells List 最后一天（2026-09-26）只有 53 行、远少于当日真值 486，属导出未完成；对账时不要把该日差异当实现缺陷', '增量任务只带 2~3 天，周/月重算范围必须严格限定在这几天内，按整月重算会把 Excel 历史真值覆盖掉'],
+    },
+    en: {
+      name: 'BP Report Sync',
+      desc: 'Read per-cell 4G PRB/throughput/traffic from RAN_UME, recompute Bad Performance cells by the umlaut caliber (daily/weekly/monthly), refresh local data/bp_report.sqlite3 and reconcile against the Excel ground truth',
+      flow: ['Read PRB utilization / DL IP throughput / DL+UL traffic from remote 4G_Main_Kpi_Cell_Daily one day per SQL (avoids hitting the remote 50k row cap and being silently truncated)', 'Join bp_cell_dict to attach Cluster/Layer (RAN_UME has no such dimension; the dictionary comes from the Excel BP Cells List sheet)', 'Recompute per-cell daily is_bp and the daily/weekly/monthly rollups (weekly 4/7 days, monthly 3/4 full weeks)', 'Reconcile day by day against the Excel bp_cells_excel values; store differences and caliber gaps in bp_sync_meta'],
+      maintain: ['The single source of truth for the caliber is services/bp_caliber.py: three daily conditions, weekly 4/7, monthly 3/4', 'WARNING: Average DL Active User Number is not collected on the RAN_UME side (the closest column, C373200029:Maximum Number of RRC Connection User, is a PEAK and not equivalent), so the daily rule effectively covers only two conditions and results are necessarily lower than the Excel ground truth; the gap is surfaced as a persistent page banner and must not be hidden', 'WARNING: PRB utilization is a FRACTION in the source table (0-1, observed max 0.9751), so the threshold is 0.80, not 80; using 80 makes the condition never fire and raises no error', 'WARNING: the source column name "E-UTRAN\\xa0FDD\\xa0Cell Name" uses NO-BREAK SPACEs; with plain spaces SQLite does not error but treats the double-quoted identifier as a string literal, turning the whole column into its own name text (bp_caliber.assert_columns_exist / assert_no_literal_fallback guard exactly this)', 'The Excel BP Cells List sheet holds only 53 rows for its final day (2026-09-26) versus a true 486, i.e. an incomplete export; do not treat that day\'s difference as an implementation defect', 'The incremental run carries only 2-3 days, so weekly/monthly recomputation must be restricted to exactly those days; recomputing a whole month overwrites the Excel historical ground truth'],
+    },
+  },
+  {
     id: 'cnn_kpi_sync', group: 'n', cron: '0 6 * * *',
     script: 'services/ccn_ume_kpi_service.py → run_cnn_kpi_sync',
     zh: {

@@ -22,10 +22,9 @@
     --surface-bg:var(--panel); --surface-shadow:none;
     --line-soft:rgba(22,35,59,.12);
     /* 健康度色阶在浅底上要更深才可读：取值与改动前 `.lvl-*` 与 `.dot-*` 的浅色观感一致
-       （原文件里 healthy/minor/moderate/critical/unknown 走的是浅色变量，
-       negligible/major 是两档共用的硬编码值）。 */
-    --vmax-lvl-healthy:#0f9d6b; --vmax-lvl-negligible:#94d82d; --vmax-lvl-minor:#b45309;
-    --vmax-lvl-moderate:#c2410c; --vmax-lvl-major:#ff7a45; --vmax-lvl-critical:#d92d20;
+       （2026-09-29 由 6 级合并为 4 级，negligible/moderate 两个令牌已随之下线）。 */
+    --vmax-lvl-healthy:#0f9d6b; --vmax-lvl-minor:#b45309;
+    --vmax-lvl-major:#c2410c; --vmax-lvl-critical:#d92d20;
     --vmax-lvl-unknown:#94a3b8;
     --vmax-green-soft:#94d82d;
     /* 提示徽标 .kpi .k-why 的底原本是**与主题无关**的 rgba(255,255,255,.08)
@@ -112,7 +111,6 @@
   .kpi .k-sub{font-size:0.688rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .kpi.green .k-val{color:var(--green)} .kpi.yellow .k-val{color:var(--yellow)}
   .kpi.orange .k-val{color:var(--orange)} .kpi.red .k-val{color:var(--red)}
-  .kpi.lime .k-val{color:var(--vmax-green-soft)} .kpi.tomato .k-val{color:var(--vmax-lvl-major)}
   .kpi.blue .k-val{color:var(--accent)}
   /* ---------- main body ---------- */
   #main{flex:1; display:flex; gap:0.625rem; padding:0 0.875rem 0.625rem; min-height:0}
@@ -199,7 +197,7 @@
   .d-tr-val{font-size:1.375rem; font-weight:700; line-height:1.1; margin-top:0.25rem; font-variant-numeric:tabular-nums}
   .d-tr-sub{font-size:0.625rem; color:var(--muted); margin-top:0.125rem}
   .d-tr-u{font-size:0.875rem; font-weight:700; margin-top:0.375rem; font-variant-numeric:tabular-nums}
-  .d-tr.u-crit{color:var(--vmax-lvl-critical)} .d-tr.u-major{color:var(--vmax-lvl-major)} .d-tr.u-mod{color:var(--vmax-lvl-moderate)} .d-tr.u-minor{color:var(--vmax-lvl-minor)} .d-tr.u-neg{color:var(--vmax-lvl-negligible)} .d-tr.u-ok{color:var(--vmax-lvl-healthy)}
+  .d-tr.u-crit{color:var(--vmax-lvl-critical)} .d-tr.u-major{color:var(--vmax-lvl-major)} .d-tr.u-minor{color:var(--vmax-lvl-minor)} .d-tr.u-ok{color:var(--vmax-lvl-healthy)}
   /* trend */
   .d-trend-card{
     border:1px solid var(--line-soft); border-radius:10px; padding:0.625rem 0.75rem; margin-bottom:0.875rem;
@@ -214,10 +212,10 @@
   .d-cps-hint{font-size:0.625rem; color:var(--muted); margin-top:0.375rem}
   .d-cps{margin-top:0.375rem}
   .badge{font-size:0.625rem; padding:0.062rem 0.375rem; border-radius:8px; margin-left:0.375rem; vertical-align:middle}
-  .lvl-healthy{color:var(--vmax-lvl-healthy)} .lvl-negligible{color:var(--vmax-lvl-negligible)} .lvl-minor{color:var(--vmax-lvl-minor)}
-  .lvl-moderate{color:var(--vmax-lvl-moderate)} .lvl-major{color:var(--vmax-lvl-major)} .lvl-critical{color:var(--vmax-lvl-critical)} .lvl-unknown{color:var(--vmax-lvl-unknown)}
-  .dot-healthy{background:var(--vmax-lvl-healthy)} .dot-negligible{background:var(--vmax-lvl-negligible)} .dot-minor{background:var(--vmax-lvl-minor)}
-  .dot-moderate{background:var(--vmax-lvl-moderate)} .dot-major{background:var(--vmax-lvl-major)} .dot-critical{background:var(--vmax-lvl-critical)} .dot-unknown{background:var(--vmax-lvl-unknown)}
+  .lvl-healthy{color:var(--vmax-lvl-healthy)} .lvl-minor{color:var(--vmax-lvl-minor)}
+  .lvl-major{color:var(--vmax-lvl-major)} .lvl-critical{color:var(--vmax-lvl-critical)} .lvl-unknown{color:var(--vmax-lvl-unknown)}
+  .dot-healthy{background:var(--vmax-lvl-healthy)} .dot-minor{background:var(--vmax-lvl-minor)}
+  .dot-major{background:var(--vmax-lvl-major)} .dot-critical{background:var(--vmax-lvl-critical)} .dot-unknown{background:var(--vmax-lvl-unknown)}
   .empty{color:var(--muted); text-align:center; padding:1.875rem 0.625rem; font-size:0.75rem}
   /* PDF 导出：浏览器打印 SVG 时保留矢量路径，链路可无限放大 */
   #pdf-print-sheet{display:none}
@@ -397,12 +395,10 @@ img, svg, canvas, iframe { max-width: 100%; }
       <button type="button" class="btn" id="btn-level"><span data-i18n="topo.level">级别</span> ▾</button>
       <div class="msel-menu" id="level-menu">
         <label class="chk"><input type="checkbox" id="lv-all" checked> <span data-i18n="topo.lvlAll">全部</span></label>
-        <label class="chk"><input type="checkbox" id="lv-critical" value="critical"> <span data-i18n="topo.lvlCrit">Critical &gt;90%</span></label>
-        <label class="chk"><input type="checkbox" id="lv-major" value="major"> <span data-i18n="topo.lvlMajor">Major 80-90%</span></label>
-        <label class="chk"><input type="checkbox" id="lv-moderate" value="moderate"> <span data-i18n="topo.lvlModerate">Moderate 70-80%</span></label>
+        <label class="chk"><input type="checkbox" id="lv-critical" value="critical"> <span data-i18n="topo.lvlCrit">Critical &gt;80%</span></label>
+        <label class="chk"><input type="checkbox" id="lv-major" value="major"> <span data-i18n="topo.lvlMajor">Major 70-80%</span></label>
         <label class="chk"><input type="checkbox" id="lv-minor" value="minor"> <span data-i18n="topo.lvlMinor">Minor 60-70%</span></label>
-        <label class="chk"><input type="checkbox" id="lv-negligible" value="negligible"> <span data-i18n="topo.lvlNegligible">Negligible 50-60%</span></label>
-        <label class="chk"><input type="checkbox" id="lv-healthy" value="healthy"> <span data-i18n="topo.lvlOk">Healthy &lt;50%</span></label>
+        <label class="chk"><input type="checkbox" id="lv-healthy" value="healthy"> <span data-i18n="topo.lvlOk">Healthy &lt;60%</span></label>
         <label class="chk"><input type="checkbox" id="lv-unknown" value="unknown"> <span data-i18n="topo.lvlUnknown">Unknown (no KPI)</span></label>
       </div>
     </div>
@@ -432,12 +428,10 @@ img, svg, canvas, iframe { max-width: 100%; }
   <div id="kpis">
     <div class="kpi blue" data-kpi="nodes" data-why="nodes"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.nodes">Network Nodes</div><div class="k-val" id="k-nodes">—</div><div class="k-sub" id="k-nodes-sub" data-i18n="kpi.nodesSub">全网网元</div><div class="kpi-tooltip" data-i18n="why.nodes">链路上的网元(站 + 端口)数量</div></div>
     <div class="kpi blue" data-kpi="links" data-why="links"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.links">Links</div><div class="k-val" id="k-links">—</div><div class="k-sub" id="k-links-sub" data-i18n="kpi.linksSub">链路</div><div class="kpi-tooltip" data-i18n="why.links">物理链路中已获取 KPI 数据的链路数</div></div>
-    <div class="kpi green" data-kpi="healthy" data-why="healthy"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.healthy">Healthy</div><div class="k-val" id="k-healthy">—</div><div class="k-sub" data-i18n="kpi.lt50">&lt; 50%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对(PM Checkpoint)的 max(TX%,RX%)，&lt;50% 计 1 条</div></div>
-    <div class="kpi lime" data-kpi="negligible" data-why="negligible"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.negligible">Negligible</div><div class="k-val" id="k-negligible">—</div><div class="k-sub" data-i18n="kpi.r5060">50 – 60%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，50–60% 计 1 条</div></div>
-    <div class="kpi yellow" data-kpi="minor" data-why="minor"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.minor">Minor</div><div class="k-val" id="k-minor">—</div><div class="k-sub" data-i18n="kpi.r6070">60 – 70%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，60–70% 计 1 条</div></div>
-    <div class="kpi orange" data-kpi="moderate" data-why="moderate"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.moderate">Moderate</div><div class="k-val" id="k-moderate">—</div><div class="k-sub" data-i18n="kpi.r7080">70 – 80%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，70–80% 计 1 条</div></div>
-    <div class="kpi tomato" data-kpi="major" data-why="major"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.major">Major</div><div class="k-val" id="k-major">—</div><div class="k-sub" data-i18n="kpi.r8090">80 – 90%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，80–90% 计 1 条</div></div>
-    <div class="kpi red" data-kpi="critical" data-why="critical"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.critical">Critical</div><div class="k-val" id="k-critical">—</div><div class="k-sub" data-i18n="kpi.gt90">&gt; 90%</div><div class="kpi-tooltip" data-i18n="why.linkLevel">链路级：聚合所有端口对的 max(TX%,RX%)，&gt;90% 计 1 条</div></div>
+    <div class="kpi green" data-kpi="healthy" data-why="healthy"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.healthy">Healthy</div><div class="k-val" id="k-healthy">—</div><div class="k-sub" data-i18n="kpi.lt60">&lt; 60%</div><div class="kpi-tooltip" data-i18n="why.healthy">链路级：聚合所有端口对的 max(TX%,RX%)，&lt;60% 计 1 条（含原 50–60% 档）</div></div>
+    <div class="kpi yellow" data-kpi="minor" data-why="minor"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.minor">Minor</div><div class="k-val" id="k-minor">—</div><div class="k-sub" data-i18n="kpi.r6070">60 – 70%</div><div class="kpi-tooltip" data-i18n="why.minor">链路级：聚合所有端口对的 max(TX%,RX%)，60–70% 计 1 条</div></div>
+    <div class="kpi orange" data-kpi="major" data-why="major"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.major">Major</div><div class="k-val" id="k-major">—</div><div class="k-sub" data-i18n="kpi.r7080">70 – 80%</div><div class="kpi-tooltip" data-i18n="why.major">链路级：聚合所有端口对的 max(TX%,RX%)，70–80% 计 1 条</div></div>
+    <div class="kpi red" data-kpi="critical" data-why="critical"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.critical">Critical</div><div class="k-val" id="k-critical">—</div><div class="k-sub" data-i18n="kpi.gt80">&gt; 80%</div><div class="kpi-tooltip" data-i18n="why.critical">链路级：聚合所有端口对的 max(TX%,RX%)，&gt;80% 计 1 条（含原 80–90% 档）</div></div>
     <div class="kpi" style="background:var(--panel);border-color:var(--line);color:var(--muted)" data-kpi="unknown" data-why="unknown"><div class="k-label" data-i18n="kpi.unknown">Unknown</div><div class="k-val" id="k-unknown">—</div><div class="k-sub" data-i18n="kpi.noKpi">no KPI</div><div class="kpi-tooltip">物理链路中尚无 KPI 数据的链路数</div></div>
     <div class="kpi red" data-kpi="max" data-why="max"><span class="k-why" title="?">?</span><div class="k-label" data-i18n="kpi.max">Max Utilization</div><div class="k-val" id="k-max">—</div><div class="k-sub" id="k-max-sub">—</div><div class="kpi-tooltip" data-i18n="why.max">全网利用率最高的单条链路</div></div>
   </div>
@@ -551,9 +545,9 @@ const I18N = {
   zh: {
     'app.subtitle':'微波网络拓扑', 'app.gran':'1 天',
     'topo.layout':'布局', 'topo.force':'逻辑拓扑', 'topo.geo':'地理拓扑',
-    'topo.level':'级别', 'topo.lvlAll':'全部', 'topo.lvlCrit':'Critical >90%',
-    'topo.lvlMajor':'Major 80-90%', 'topo.lvlModerate':'Moderate 70-80%', 'topo.lvlMinor':'Minor 60-70%',
-    'topo.lvlNegligible':'Negligible 50-60%', 'topo.lvlOk':'Healthy <50%',
+    'topo.level':'级别', 'topo.lvlAll':'全部', 'topo.lvlCrit':'Critical >80%',
+    'topo.lvlMajor':'Major 70-80%', 'topo.lvlMinor':'Minor 60-70%',
+    'topo.lvlOk':'Healthy <60%',
     'topo.lvlUnknown':'Unknown (no KPI)',
     'topo.label':'TX/RX 标签', 'topo.search':'搜索站点 / IP…', 'topo.refresh':'刷新',
     'topo.title':'网络拓扑', 'topo.hint':'滚轮缩放 · 拖拽平移 · 悬停查看 · 点击链路看详情',
@@ -566,8 +560,8 @@ const I18N = {
     'trend.title':'Network Utilization Trend', 'trend.note':'（每日 05:15 自动累积）',
     'trend.avg':'平均利用率', 'trend.max':'最高利用率', 'trend.crit':'紧急链路',
     'dist.title':'链路健康度分布',
-    'dist.health':'Healthy <50%', 'dist.negligible':'Negligible 50-60%', 'dist.minor':'Minor 60-70%',
-    'dist.moderate':'Moderate 70-80%', 'dist.major':'Major 80-90%', 'dist.crit':'Critical >90%',
+    'dist.health':'Healthy <60%', 'dist.minor':'Minor 60-70%',
+    'dist.major':'Major 70-80%', 'dist.crit':'Critical >80%',
     'dist.unknown':'Unknown',
     'drawer.title':'链路详情', 'drawer.capacity':'总链路容量',
     'drawer.nodeIp':'Node IP', 'drawer.interface':'接口 (PM)',
@@ -575,15 +569,18 @@ const I18N = {
     'drawer.trend':'Historical Trend (24H)', 'drawer.note':'当前数据粒度: 1 天（每日 05:15 自动累积）。单点为最新一次同步。',
     'drawer.cps':'端口级明细', 'drawer.noCp':'无端口级明细', 'drawer.locate':'定位到拓扑', 'drawer.close':'关闭',
     'kpi.nodes':'网络节点', 'kpi.nodesSub':'全网网元', 'kpi.links':'链路', 'kpi.linksSub':'分级链路',
-    'kpi.healthy':'正常', 'kpi.negligible':'轻微', 'kpi.minor':'次要', 'kpi.moderate':'中等', 'kpi.major':'重要', 'kpi.critical':'紧急', 'kpi.max':'最高利用率',
-    'kpi.lt50':'< 50%', 'kpi.r5060':'50 – 60%', 'kpi.r6070':'60 – 70%', 'kpi.r7080':'70 – 80%', 'kpi.r8090':'80 – 90%', 'kpi.gt90':'> 90%',
+    'kpi.healthy':'正常', 'kpi.minor':'次要', 'kpi.major':'重要', 'kpi.critical':'紧急', 'kpi.max':'最高利用率',
+    'kpi.lt60':'< 60%', 'kpi.r6070':'60 – 70%', 'kpi.r7080':'70 – 80%', 'kpi.gt80':'> 80%',
     'kpi.unknown':'未知', 'kpi.noKpi':'无KPI',
     'st.refreshing':'刷新中…', 'st.live':'已更新', 'st.partial':'部分更新', 'st.offline':'离线',
     'why.nodes':'链路上的网元(站 + 端口)数量',
     'why.links':'ME↔Neighbor ME 唯一链路对数（每条链路 1 个）',
-    'why.linkLevel':'链路级：聚合所有端口对(PM Checkpoint)的 max(TX%,RX%)，≥阈值计 1 条',
+    'why.healthy':'链路级：聚合所有端口对的 max(TX%,RX%)，<60% 计 1 条（含原 50–60% 档）',
+    'why.minor':'链路级：聚合所有端口对的 max(TX%,RX%)，60–70% 计 1 条',
+    'why.major':'链路级：聚合所有端口对的 max(TX%,RX%)，70–80% 计 1 条',
+    'why.critical':'链路级：聚合所有端口对的 max(TX%,RX%)，>80% 计 1 条（含原 80–90% 档）',
     'why.max':'全网利用率最高的单条链路',
-    'why.trend':'行级（端口对）：按天统计当天原始 PM 行里 max(TX%,RX%)≥90% 的行数；与 KPI 的链路口径不同',
+    'why.trend':'行级（端口对）：按天统计当天原始 PM 行里 max(TX%,RX%)>80% 的行数；与 KPI 的链路口径不同',
     'kpiModal.metaCount':'— 行',
     'kpiModal.colNum':'#', 'kpiModal.colSite':'站点', 'kpiModal.colIP':'IP', 'kpiModal.colPeer':'对端', 'kpiModal.colPeerIP':'对端 IP',
     'kpiModal.colTX':'TX%', 'kpiModal.colRX':'RX%', 'kpiModal.colMax':'Max%', 'kpiModal.colStatus':'级别',
@@ -602,9 +599,9 @@ const I18N = {
   en: {
     'app.subtitle':'Microwave Topology', 'app.gran':'1 Day',
     'topo.layout':'Layout', 'topo.force':'Logical', 'topo.geo':'Geographic',
-    'topo.level':'Level', 'topo.lvlAll':'All', 'topo.lvlCrit':'Critical >90%',
-    'topo.lvlMajor':'Major 80-90%', 'topo.lvlModerate':'Moderate 70-80%', 'topo.lvlMinor':'Minor 60-70%',
-    'topo.lvlNegligible':'Negligible 50-60%', 'topo.lvlOk':'Healthy <50%',
+    'topo.level':'Level', 'topo.lvlAll':'All', 'topo.lvlCrit':'Critical >80%',
+    'topo.lvlMajor':'Major 70-80%', 'topo.lvlMinor':'Minor 60-70%',
+    'topo.lvlOk':'Healthy <60%',
     'topo.lvlUnknown':'Unknown (no KPI)',
     'topo.label':'TX/RX Label', 'topo.search':'Search site / IP…', 'topo.refresh':'Refresh',
     'topo.title':'Network Topology', 'topo.hint':'Scroll to zoom · Drag to pan · Hover to inspect · Click a link for details',
@@ -617,8 +614,8 @@ const I18N = {
     'trend.title':'Network Utilization Trend', 'trend.note':'(auto-accumulated daily at 05:15)',
     'trend.avg':'Avg Utilization', 'trend.max':'Max Utilization', 'trend.crit':'Critical',
     'dist.title':'Link Health Distribution',
-    'dist.health':'Healthy <50%', 'dist.negligible':'Negligible 50-60%', 'dist.minor':'Minor 60-70%',
-    'dist.moderate':'Moderate 70-80%', 'dist.major':'Major 80-90%', 'dist.crit':'Critical >90%',
+    'dist.health':'Healthy <60%', 'dist.minor':'Minor 60-70%',
+    'dist.major':'Major 70-80%', 'dist.crit':'Critical >80%',
     'dist.unknown':'Unknown',
     'drawer.title':'LINK DETAILS', 'drawer.capacity':'Total Link Capacity',
     'drawer.nodeIp':'Node IP', 'drawer.interface':'Interface (PM)',
@@ -626,15 +623,18 @@ const I18N = {
     'drawer.trend':'Historical Trend (24H)', 'drawer.note':'Data granularity: 1 day (auto-accumulated daily at 05:15). Single point = latest sync.',
     'drawer.cps':'Interface details', 'drawer.noCp':'No interface details', 'drawer.locate':'Locate on topology', 'drawer.close':'Close',
     'kpi.nodes':'Network Nodes', 'kpi.nodesSub':'nodes', 'kpi.links':'Links', 'kpi.linksSub':'rated links',
-    'kpi.healthy':'Healthy', 'kpi.negligible':'Negligible', 'kpi.minor':'Minor', 'kpi.moderate':'Moderate', 'kpi.major':'Major', 'kpi.critical':'Critical', 'kpi.max':'Max Utilization',
-    'kpi.lt50':'< 50%', 'kpi.r5060':'50 – 60%', 'kpi.r6070':'60 – 70%', 'kpi.r7080':'70 – 80%', 'kpi.r8090':'80 – 90%', 'kpi.gt90':'> 90%',
+    'kpi.healthy':'Healthy', 'kpi.minor':'Minor', 'kpi.major':'Major', 'kpi.critical':'Critical', 'kpi.max':'Max Utilization',
+    'kpi.lt60':'< 60%', 'kpi.r6070':'60 – 70%', 'kpi.r7080':'70 – 80%', 'kpi.gt80':'> 80%',
     'kpi.unknown':'Unknown', 'kpi.noKpi':'no KPI',
     'st.refreshing':'refreshing…', 'st.live':'live updated', 'st.partial':'partial', 'st.offline':'offline',
     'why.nodes':'Number of nodes (sites + endpoints) on links',
     'why.links':'Unique ME↔Neighbor ME link pairs (1 per link)',
-    'why.linkLevel':'Link-level: aggregate max(TX%,RX%) over all PM checkpoints per link; ≥ threshold counts as 1',
+    'why.healthy':'Link-level: aggregate max(TX%,RX%) over all port pairs per link; <60% counts as 1 (includes the former 50–60% band)',
+    'why.minor':'Link-level: aggregate max(TX%,RX%) over all port pairs per link; 60–70% counts as 1',
+    'why.major':'Link-level: aggregate max(TX%,RX%) over all port pairs per link; 70–80% counts as 1',
+    'why.critical':'Link-level: aggregate max(TX%,RX%) over all port pairs per link; >80% counts as 1 (includes the former 80–90% band)',
     'why.max':'The single link with the highest utilization across the network',
-    'why.trend':'Row-level (per port): counts rows per day where max(TX%,RX%)≥90%; KPI is link-level — different measurement basis',
+    'why.trend':'Row-level (per port): counts rows per day where max(TX%,RX%)>80%; KPI is link-level — different measurement basis',
     'kpiModal.metaCount':'— rows',
     'kpiModal.colNum':'#', 'kpiModal.colSite':'Site', 'kpiModal.colIP':'IP', 'kpiModal.colPeer':'Peer', 'kpiModal.colPeerIP':'Peer IP',
     'kpiModal.colTX':'TX%', 'kpiModal.colRX':'RX%', 'kpiModal.colMax':'Max%', 'kpiModal.colStatus':'Status',
@@ -823,7 +823,7 @@ function layoutOverviewRadial(nodes, links){
     const t = (n._tier && byTier[n._tier]) ? n._tier : 'ACCESS_AGG';
     byTier[t].push(n);
   });
-  const sev = { healthy:0, negligible:1, minor:2, moderate:3, major:4, critical:5, unknown:0 };
+  const sev = { healthy:0, minor:1, major:2, critical:3, unknown:0 };
   // 画布仅用于确定椭圆宽高比
   let vw = 1200, vh = 520;
   try { if(chart && chart.getWidth){ vw = chart.getWidth() || vw; vh = chart.getHeight() || vh; } } catch(e){}
@@ -884,16 +884,14 @@ window.addEventListener('message', function(e){
 });
 
 /* ============ level colors ============ */
-/* 健康度 7 级色阶取自 CSS 令牌 --vmax-lvl-*（唯一真相源，见 legacy-vmax-theme.css）：
-   其中 4 档是 vmax 语义色的原值，moderate/major 是为保持 7 级可区分性保留的
-   暖色中间步进，unknown 用 vmax 的次级文字色。
+/* 健康度 4 级色阶取自 CSS 令牌 --vmax-lvl-*（唯一真相源，见 legacy-vmax-theme.css）：
+   unknown 用 vmax 的次级文字色。2026-09-29 由 7 级精简为 4 级 ——
+   原 negligible 令牌并入 healthy、原 moderate 位置改名为 major，两个旧令牌已下线。
    浅色档在页内 light 变量块里覆盖成更深的一档（见文件头 html[data-theme=light]）。 */
 function readLvlColors(){
   return {
     healthy:    cssVar('--vmax-lvl-healthy',    '#0bc78c'),
-    negligible: cssVar('--vmax-lvl-negligible', '#6ef0b4'),
     minor:      cssVar('--vmax-lvl-minor',      '#f6cf00'),
-    moderate:   cssVar('--vmax-lvl-moderate',   '#ff922b'),
     major:      cssVar('--vmax-lvl-major',      '#ff7a45'),
     critical:   cssVar('--vmax-lvl-critical',   '#ff5c6c'),
     unknown:    cssVar('--vmax-lvl-unknown',    '#6f8cb4'),
@@ -903,16 +901,14 @@ const LVL_COLOR = readLvlColors();
 /* 主题切换后重取（深浅两档的健康度色阶不同）。函数声明会提升，
    由 refreshPalette() 以 typeof 探测后调用，见上方 theme 段。 */
 function refreshLvlColors(){ Object.assign(LVL_COLOR, readLvlColors()); }
-const LVL_TEXT = { healthy:'Healthy', negligible:'Negligible', minor:'Minor', moderate:'Moderate', major:'Major', critical:'Critical', unknown:'Unknown' };
-/* 利用率 -> 分级 key（与后端 level_of 口径一致：>90 critical，>=80 major，>=70 moderate，>=60 minor，>=50 negligible，<50 healthy） */
+const LVL_TEXT = { healthy:'Healthy', minor:'Minor', major:'Major', critical:'Critical', unknown:'Unknown' };
+/* 利用率 -> 分级 key（与后端 level_of 口径一致：>80 critical，>=70 major，>=60 minor，<60 healthy） */
 function lvlOfUtil(u){
   if(u == null || !isFinite(+u)) return 'healthy';
   u = +u;
-  if(u > 90) return 'critical';
-  if(u >= 80) return 'major';
-  if(u >= 70) return 'moderate';
+  if(u > 80) return 'critical';
+  if(u >= 70) return 'major';
   if(u >= 60) return 'minor';
-  if(u >= 50) return 'negligible';
   return 'healthy';
 }
 
@@ -1073,9 +1069,7 @@ function renderAll(){
   el('k-links').textContent = k.links;
   el('k-links-sub').textContent = (k.physical_links || k.links) + ' phys · ' + k.unknown + ' ' + t('kpi.noKpi');
   el('k-healthy').textContent = k.healthy;
-  el('k-negligible').textContent = k.negligible;
   el('k-minor').textContent = k.minor;
-  el('k-moderate').textContent = k.moderate;
   el('k-major').textContent = k.major;
   el('k-critical').textContent = k.critical;
   el('k-unknown').textContent = k.unknown != null ? k.unknown : '—';
@@ -1099,10 +1093,8 @@ function edgeWidth(e){
   let w = 2;
   switch(e.status){
     case 'critical': w = 3.4; break;
-    case 'major':    w = 3.0; break;
-    case 'moderate': w = 2.6; break;
-    case 'minor':    w = 2.2; break;
-    case 'negligible': w = 1.9; break;
+    case 'major':    w = 2.7; break;
+    case 'minor':    w = 2.1; break;
     case 'healthy':  w = 1.6; break;
     case 'unknown':  w = 1.2; break;
     default:         w = 2;
@@ -1116,7 +1108,7 @@ function edgeWidth(e){
   return w;
 }
 
-const SEVERITY = { healthy:0, negligible:1, minor:2, moderate:3, major:4, critical:5, unknown:0 };
+const SEVERITY = { healthy:0, minor:1, major:2, critical:3, unknown:0 };
 function worseStatus(a,b){ return (SEVERITY[a||'unknown']||0) >= (SEVERITY[b||'unknown']||0) ? (a||'unknown') : (b||'unknown'); }
 
 // 概览模式：把 ACCESS 层节点按 site 聚合成超级节点。
@@ -1262,7 +1254,7 @@ function buildGraphData(){
       // 站点：中性底色 + 状态外圈 Halo（颜色不再绑定链路颜色）
       itemStyle: { color: neutralFill(), borderColor: LVL_COLOR[n.status]||LVL_COLOR.unknown, borderWidth:2,
                    shadowColor: LVL_COLOR[n.status]||LVL_COLOR.unknown,
-                   shadowBlur: n.status==='critical' ? 16 : n.status==='major' ? 10 : n.status==='moderate' ? 6 : n.status==='minor' ? 3 : 0 },
+                   shadowBlur: n.status==='critical' ? 16 : n.status==='major' ? 10 : n.status==='minor' ? 3 : 0 },
       label: label,
       _site: n.site, _ip: n.ip, _deg: n.degree, _status: n.status, _tier: lp.tier,
       _lat: n.lat, _lon: n.lon,
@@ -1286,7 +1278,7 @@ function buildGraphData(){
         symbolSize: size,
         itemStyle: { color: neutralFill(), borderColor: LVL_COLOR[c.status]||LVL_COLOR.unknown, borderWidth:3,
                      shadowColor: LVL_COLOR[c.status]||LVL_COLOR.unknown,
-                     shadowBlur: c.status==='critical' ? 20 : c.status==='major' ? 12 : c.status==='moderate' ? 6 : c.status==='minor' ? 3 : 0 },
+                     shadowBlur: c.status==='critical' ? 20 : c.status==='major' ? 12 : c.status==='minor' ? 3 : 0 },
         label: { show: showLab, position:'bottom', distance:5,
                  formatter: c.name, fontSize: hit||isSel ? 12 : 10,
                  color: curP().text, backgroundColor:'transparent', fontWeight: hit||isSel ? 'bold' : 'normal' },
@@ -1315,7 +1307,7 @@ function buildGraphData(){
                           backgroundColor: curP().panel, padding:[2,5], borderRadius:3,
                           formatter: 'TX '+(e.tx_util==null?'—':(+e.tx_util).toFixed(0)+'%') + ' / RX ' + (e.rx_util==null?'—':(+e.rx_util).toFixed(0)+'%') }
                         : { show:false };
-    const width = nodeToAgg ? (e.status==='critical'?4.2 : e.status==='major'?3.6 : e.status==='moderate'?3.0 : e.status==='minor'?2.4 : 1.8) : edgeWidth(e);
+    const width = nodeToAgg ? (e.status==='critical'?4.2 : e.status==='major'?3.6 : e.status==='minor'?2.4 : 1.8) : edgeWidth(e);
     const srcSite = nodeToAgg && aggClusters[e.source] ? aggClusters[e.source].site : (nodeToAgg ? (DATA.nodes.find(n=>n.id===e.source)||{}).site : '');
     const tgtSite = nodeToAgg && aggClusters[e.target] ? aggClusters[e.target].site : (nodeToAgg ? (DATA.nodes.find(n=>n.id===e.target)||{}).site : '');
     return {
@@ -1814,7 +1806,7 @@ function selectEdge(edge, openDrawer){
 }
 
 /* ============ drawer ============ */
-const UCLASS_BY_LVL = { critical:'u-crit', major:'u-major', moderate:'u-mod', minor:'u-minor', negligible:'u-neg', healthy:'u-ok' };
+const UCLASS_BY_LVL = { critical:'u-crit', major:'u-major', minor:'u-minor', healthy:'u-ok' };
 let drawerTrend = null;
 function utilClass(u){
   return UCLASS_BY_LVL[lvlOfUtil(u)] || 'u-ok';
@@ -2302,9 +2294,7 @@ function renderDist(){
   const k = DATA ? DATA.kpis : null;
   const items = [
     { name: t('dist.health'), value: k?k.healthy:0, c:LVL_COLOR.healthy },
-    { name: t('dist.negligible'), value: k?k.negligible:0, c:LVL_COLOR.negligible },
     { name: t('dist.minor'), value: k?k.minor:0, c:LVL_COLOR.minor },
-    { name: t('dist.moderate'), value: k?k.moderate:0, c:LVL_COLOR.moderate },
     { name: t('dist.major'), value: k?k.major:0, c:LVL_COLOR.major },
     { name: t('dist.crit'), value: k?k.critical:0, c:LVL_COLOR.critical },
     { name: t('dist.unknown'), value: k?k.unknown:0, c:LVL_COLOR.unknown },
@@ -2326,7 +2316,7 @@ function renderDist(){
 function refreshLevelFilterUI(){
   const sel = levelFilter || [];
   const all = el('lv-all'); if(all) all.checked = (sel.length === 0);
-  ['critical','major','moderate','minor','negligible','healthy','unknown'].forEach(v => { const c = el('lv-'+v); if(c) c.checked = sel.indexOf(v) >= 0; });
+  ['critical','major','minor','healthy','unknown'].forEach(v => { const c = el('lv-'+v); if(c) c.checked = sel.indexOf(v) >= 0; });
   const btn = el('btn-level');
   if(btn) btn.textContent = (sel.length === 0 ? t('topo.lvlAll') : sel.map(s => LVL_TEXT[s]||s).join(' · ')) + ' ▾';
 }
@@ -2416,11 +2406,11 @@ el('btn-ip10').onclick = function(){
   el('btn-ip10').classList.toggle('active', ip10Filter);
   loadData(false);
 };
-['lv-all','lv-critical','lv-major','lv-moderate','lv-minor','lv-negligible','lv-healthy','lv-unknown'].forEach(function(id){
+['lv-all','lv-critical','lv-major','lv-minor','lv-healthy','lv-unknown'].forEach(function(id){
   el(id).onchange = function(){
-    if(id === 'lv-all'){ ['lv-critical','lv-major','lv-moderate','lv-minor','lv-negligible','lv-healthy','lv-unknown'].forEach(x => el(x).checked = false); }
+    if(id === 'lv-all'){ ['lv-critical','lv-major','lv-minor','lv-healthy','lv-unknown'].forEach(x => el(x).checked = false); }
     else { el('lv-all').checked = false; }
-    levelFilter = ['critical','major','moderate','minor','negligible','healthy','unknown'].filter(v => el('lv-'+v).checked);
+    levelFilter = ['critical','major','minor','healthy','unknown'].filter(v => el('lv-'+v).checked);
     refreshLevelFilterUI();
     renderTopo();
   };
@@ -2566,7 +2556,7 @@ function topologySvg(options){
   out.push(`<rect width="${W}" height="${H}" fill="#ffffff"/><rect x="28" y="28" width="${W-56}" height="${H-56}" fill="none" stroke="#d7e0e8" stroke-width="2"/>`);
   out.push(`<text x="70" y="88" font-family="Microsoft YaHei,Segoe UI,sans-serif" font-size="34" font-weight="700" fill="#16233b">MW UME ${g.kind==='geo'?'地理':'逻辑'}拓扑</text>`);
   // 先画主链路：密集区域节点连接右侧展开框中的同名节点；其余保持真实屏幕位置。
-  g.links.forEach(e=>{const a=by[e.source],b=by[e.target];if(!a||!b)return;const pa=pos(a),pb=pos(b),x1=pa.x,y1=pa.y,x2=pb.x,y2=pb.y,mx=(x1+x2)/2,my=(y1+y2)/2,dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1,key=[e.source,e.target].sort().join('|'),pi=pairSeen[key]||0;pairSeen[key]=pi+1;const bend=((pi%7)-3)*0.06*len,cx=mx-dy/len*bend,cy=my+dx/len*bend,sw=e.status==='critical'?2.8:e.status==='major'?2.4:e.status==='moderate'?2.0:e.status==='minor'?1.7:1.3,d=`M ${x1.toFixed(1)} ${y1.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;out.push(`<path d="${d}" fill="none" stroke="${color(e)}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${e.status==='unknown'?'10 8':'none'}" opacity="${e.status==='unknown'?.62:'.9'}"/>`);const lx=cx,ly=cy;out.push(`<g class="link-label"><rect x="${(lx-20).toFixed(1)}" y="${(ly-13).toFixed(1)}" width="40" height="24" rx="6" fill="#ffffff" stroke="${color(e)}" stroke-width="1.5"/><text x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" font-weight="700" fill="#16233b">L${e.id}</text></g>`);});
+  g.links.forEach(e=>{const a=by[e.source],b=by[e.target];if(!a||!b)return;const pa=pos(a),pb=pos(b),x1=pa.x,y1=pa.y,x2=pb.x,y2=pb.y,mx=(x1+x2)/2,my=(y1+y2)/2,dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1,key=[e.source,e.target].sort().join('|'),pi=pairSeen[key]||0;pairSeen[key]=pi+1;const bend=((pi%7)-3)*0.06*len,cx=mx-dy/len*bend,cy=my+dx/len*bend,sw=e.status==='critical'?2.8:e.status==='major'?2.4:e.status==='minor'?1.7:1.3,d=`M ${x1.toFixed(1)} ${y1.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;out.push(`<path d="${d}" fill="none" stroke="${color(e)}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${e.status==='unknown'?'10 8':'none'}" opacity="${e.status==='unknown'?.62:'.9'}"/>`);const lx=cx,ly=cy;out.push(`<g class="link-label"><rect x="${(lx-20).toFixed(1)}" y="${(ly-13).toFixed(1)}" width="40" height="24" rx="6" fill="#ffffff" stroke="${color(e)}" stroke-width="1.5"/><text x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" font-weight="700" fill="#16233b">L${e.id}</text></g>`);});
   // KML(Orange)：保持真实地理屏幕坐标，矢量绘制。
   (g.kml||[]).forEach(k=>{ if(!k.points || k.points.length<2) return; const d=k.points.map((p,i)=>(i?'L':'M')+' '+px(p.x).toFixed(1)+' '+py(p.y).toFixed(1)).join(' '); const a=k.points[0],b=k.points[k.points.length-1],lx=(px(a.x)+px(b.x))/2,ly=(py(a.y)+py(b.y))/2; out.push(`<path d="${d}" fill="none" stroke="${k.color}" stroke-width="1.6" stroke-linecap="round" opacity=".9"/>`); out.push(`<g class="kml-link-label"><rect x="${(lx-24).toFixed(1)}" y="${(ly-13).toFixed(1)}" width="48" height="24" rx="6" fill="#fff7ed" stroke="${k.color}" stroke-width="1.5"/><text x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" font-weight="700" fill="#7c2d12">K${k.id}</text></g>`); });
   // 密集城市总览锚点与连接线；展开后的节点在右侧框中逐一可见。
@@ -2736,7 +2726,7 @@ function geoVectorSvg(g, prj, meta){
   }
   out.push('<g id="pdf-vector-layer">');
   /* ---- 主链路（矢量 path，宽度固定 mm，放大只变长不变糊） ---- */
-  const LVL_W_MM = { critical:0.5, major:0.42, moderate:0.34, minor:0.28, negligible:0.24, healthy:0.22 };
+  const LVL_W_MM = { critical:0.5, major:0.38, minor:0.28, healthy:0.22 };
   g.links.forEach(e=>{
     let d=geoLinkPathMm(e,prj); if(!d) return;
     const sw=LVL_W_MM[e.status]||0.22, col=LVL_COLOR[e.status]||LVL_COLOR.unknown;
@@ -2779,7 +2769,7 @@ function geoVectorSvg(g, prj, meta){
   out.push('<text x="'+PDF_MAP.x+'" y="18.5" font-family="'+FAM+'" font-size="3.6" fill="#3d5670">'+svgEsc(T(meta.subtitle))+'</text>');
   out.push('<rect x="'+PDF_MAP.x+'" y="'+(PDF_PAGE_H-28)+'" width="'+PDF_MAP.w+'" height="20" fill="#ffffff" fill-opacity="0.8" stroke="#b9c8d6" stroke-width="0.3"/>');
   let lx=PDF_MAP.x+6, ly=PDF_PAGE_H-18;
-  ['healthy','negligible','minor','moderate','major','critical','unknown'].forEach(k=>{
+  ['healthy','minor','major','critical','unknown'].forEach(k=>{
     const t=LVL_TEXT[k]||k;
     out.push('<line x1="'+lx+'" y1="'+ly+'" x2="'+(lx+7)+'" y2="'+ly+'" stroke="'+LVL_COLOR[k]+'" stroke-width="0.5" stroke-linecap="round"/>');
     out.push('<text x="'+(lx+9)+'" y="'+(ly+1.1)+'" font-family="'+FAM+'" font-size="3.4" fill="#10233a">'+t+'</text>');
@@ -2972,7 +2962,7 @@ async function exportGeoSvg(){
 /* ---- KML：Google Earth Pro 直接打开，按告警等级分样式，属性表可筛选/搜索 ---- */
 function kmlStyleBlock(){
   return Object.keys(LVL_COLOR).map(k=>{
-    const c = LVL_COLOR[k], w = {critical:4, major:3.4, moderate:2.8, minor:2.2, negligible:1.9, healthy:1.6, unknown:1.6}[k] || 1.8;
+    const c = LVL_COLOR[k], w = {critical:4, major:3.4, minor:2.2, healthy:1.6, unknown:1.6}[k] || 1.8;
     // KML 颜色为 aabbggrr
     const rgb = c.replace('#','');
     return '<Style id="lvl-'+k+'"><LineStyle><color>cc'+rgb.slice(4,6)+rgb.slice(2,4)+rgb.slice(0,2)+'</color><width>'+w+'</width></LineStyle><IconStyle><scale>0.7</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/diamondblank.png</href></Icon><color>cc'+rgb.slice(4,6)+rgb.slice(2,4)+rgb.slice(0,2)+'</color></IconStyle><LabelStyle><scale>0.7</scale></LabelStyle></Style>';
@@ -3036,7 +3026,7 @@ function exportGeoJson(){
 }
 /* ---- DXF（AutoCAD R12 ASCII）：按等级分图层，EPSG:3857 米制坐标，Y 轴朝上天然不倒置 ---- */
 function dxfLayer(k){ return 'MW_'+String(k||'unknown').toUpperCase(); }
-function dxfColor(k){ return {critical:1, major:30, moderate:210, minor:2, negligible:90, healthy:5, unknown:8}[k] || 7; }
+function dxfColor(k){ return {critical:1, major:30, minor:2, healthy:5, unknown:8}[k] || 7; }
 function dxfNum(v){ const n=+v; return (isFinite(n)?n:0).toFixed(3); }
 function exportGeoDxf(){
   const g = exportTopologyGraph();

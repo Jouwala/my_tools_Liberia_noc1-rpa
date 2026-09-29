@@ -74,13 +74,13 @@
   --vmax-red: #ff5c6c;
   --vmax-red-soft: #ffb3bc;
 
-  /* 链路健康度 7 级色阶（拓扑类页面专用）
-     只有 4 档能直接取自 vmax 语义色，其余 3 档是为保持 7 级可区分性保留的
-     中间步进（moderate/major 就是 vmax 的 orange 与其暖色邻档）。 */
+  /* 链路健康度 4 级色阶（拓扑类页面专用）
+     2026-09-29 由 7 级精简为 4 级：原 negligible 并入 healthy、原 moderate 的
+     位置改名为 major，故 negligible/moderate 两个令牌已删除。
+     与 backend mw_ume_topology.level_of、gismap/types.ts 的 UTIL_LEVEL_COLORS
+     必须逐值一致 —— 三处不同步会让同一条链路在两页显示不同等级。 */
   --vmax-lvl-healthy: #0bc78c;
-  --vmax-lvl-negligible: #6ef0b4;
   --vmax-lvl-minor: #f6cf00;
-  --vmax-lvl-moderate: #ff922b;
   --vmax-lvl-major: #ff7a45;
   --vmax-lvl-critical: #ff5c6c;
   --vmax-lvl-unknown: #6f8cb4;

@@ -271,7 +271,7 @@ allowedPages?: string[] | null;   // 页面级白名单
 | 远端 SSO 实现 | `Task\my_app\backend\services\portal_auth.py` |
 | **静态壳侧的鉴权实现** | `MsPortal\assets\portal.js`（`:4115` 登录 / `:4157` `/me` / `:4278` `UM_API`）、`olbrportal\assets\olbr.js`（`:2311-2330` / `:2581` / `:2948`）、`v1\olbrportal\assets\olbr.js`（`:2903-2914` / `:3007`）、`MsPortal\assets\access.js`（`:114-121`） |
 | **门户其他端点的守卫副本** | `vite.config.ts:85-180`（`portal-default`：GET 无校验、POST 有完整守卫） |
-| 静态壳的实际发布方式 | `nginx-1.28.0\nginx-1.28.0\conf\nginx.conf:84-113`（`/olbrportal/`、`/v1/olbrportal/`）、`:360-366`（`/uniplam/` 反代与 `X-Real-IP` / `X-Forwarded-For`） |
+| 静态壳的实际发布方式 | **生效配置**：`Y:\01_RPA\nginx-1.28.0\conf\nginx.conf`（`/olbrportal/`、`/v1/olbrportal/`、`/v2/olbrportal/` 三段静态 alias；`/uniplam/` 反代与 `X-Real-IP` / `X-Forwarded-For`）。**注意：nginx 跑在网络映射盘 Y:（`\\192.168.100.19\e`）上，不是 `D:\01_RPA\` 下的同名目录** —— D 盘那份是已隔离的重复副本，改它不生效，详见 `D:\01_RPA\_quarantine_20260929_nginx_dup\README.md` 与 `AGENTS.md` 第四节第 6b 条 |
 | 本次修订前的原文 | `auth-module-design.md_bak_20260925_评审修订前`（同目录，`*_bak_*` 已在 `.gitignore:47` 忽略，不入库，**仅本机回滚手段**） |
 
 ## 十、本次修订记录（2026-09-25）

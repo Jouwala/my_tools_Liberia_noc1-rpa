@@ -123,7 +123,16 @@ window.OLBR_DATA = (function () {
          想恢复"上中文下英文"的观感，就把 map.sub 改成别的副标题，
          但不要动 map.title 的中文名 —— 它是用户点名要的新标题。 */
       'map.title': 'GIS Map', 'map.sub': 'GIS Map',
-      'map.gis': '全球地图', 'map.mw': '微波实时', 'map.alarm': '实时告警', 'map.loss': '传输丢包',
+      /* 2026-09-29 按用户要求把两个地图页签改名成 **Alarm / MW**
+         （原来中英分别是「全球地图」/ "Global Map" 与「微波实时」/ "MW real-time"）。
+         用户给的是英文短名，两份字典**照写同一串** —— 与 map.reload/map.open 那次
+         改成 "Open Link" 同一条约定：用户点名的写法不翻译。
+         键名保留 map.gis / map.mw 没动：键是**内部标识**（MAP_TABS.key 指过来），
+         显示名与键名本来就不必一致 —— 页签的 page 值也一样，仍是 gis / mwRealTime。
+         不动键名与 page，历史上存过的 catalog.tabLabels 记录就不会失配。
+         map.alarm / map.loss 是**已下线**页签（2026-09-25 删）留下的键，
+         保留是为了将来恢复时不用重写文案，与后端 TAB_PAGES 白名单同口径。 */
+      'map.gis': 'Alarm', 'map.mw': 'MW', 'map.alarm': '实时告警', 'map.loss': '传输丢包',
       /* 2026-09-28 按用户要求把按钮文案改成 "Open Link"（原来中英分别是
          「新窗口打开」/ "Open in new tab"）。用户给的是英文串，
          两份字典都照写（与 qc.sub.* 那次改名同一条约定：用户点名的写法不翻译）。
@@ -150,7 +159,7 @@ window.OLBR_DATA = (function () {
       'esc.moreRows': '仅显示前 4 行，另有 {n} 条 · 点右上「展开全部」查看',
       'v.open': '查看全部', 'v.empty': '该分组暂无看板',
       'v.subOther': '未归类',
-      'mast.edit': '编辑分组', 'mast.editOn': '退出编辑',
+      'mast.edit': '编辑分组', 'mast.editOn': '退出编辑', 'mast.editing': '编辑中', 'mast.userMenuTip': '打开用户菜单',
       'edit.tipOn': '进入编辑：改分组 / 子分组与排序，保存到服务端全局目录（所有人可见）',
       'edit.tipOff': '退出编辑',
       'edit.banner': '编辑模式 · 改动立即写入服务端全局目录，MsPortal 和本页的所有人都会看到',
@@ -223,6 +232,11 @@ window.OLBR_DATA = (function () {
       'edit.itemAdded': '看板已新增',
       'edit.itemNeedUrl': '先填链接（http:// 或 https:// 开头）',
       'edit.itemBadUrl': '链接要以 http:// 或 https:// 开头',
+      /* 归档项在「分组」浮层里的计数提示（2026-09-29 加）。
+         ⚠️ 计数徽章本身是**数字**，不是文案；这条只给 title 悬停说明用。
+         为什么中英都要一条：{n} 是数字，中文说「张」、英文说 "dashboards"，
+         不能靠拼 "N + 单位"。 */
+      'edit.archCount': '归档里有 {n} 张看板',
       'edit.f.itemZh': '看板名（中文）', 'edit.f.itemEn': '看板名（英文）', 'edit.f.itemUrl': '链接',
       'edit.fph.itemZh': '例如 NUR Dashboard', 'edit.fph.itemEn': 'Shown to English users',
       'edit.fph.itemUrl': 'http://192.168.100.20/myapp/?page=xxx',
@@ -526,7 +540,7 @@ window.OLBR_DATA = (function () {
                      + 'latest {f}). Coming back to this tab or clicking Refresh re-pulls the full set immediately.',
       'cxo.title': 'CXO View', 'cxo.sub': 'Executive strategy & operation window',
       'map.title': 'GIS Map', 'map.sub': 'GIS Map',
-      'map.gis': 'Global Map', 'map.mw': 'MW real-time', 'map.alarm': 'Live alarms', 'map.loss': 'Packet loss',
+      'map.gis': 'Alarm', 'map.mw': 'MW', 'map.alarm': 'Live alarms', 'map.loss': 'Packet loss',
       /* 2026-09-28：改为用户点名的 "Open Link"（原为 "Open in new tab"）。
          中文那份同值 —— 用户要的就是这一串英文。 */
       'map.open': 'Open Link', 'map.reload': 'Reload', 'map.load': 'Loading…',
@@ -548,7 +562,7 @@ window.OLBR_DATA = (function () {
       'esc.moreRows': 'Showing the first 4 rows only — {n} more. Use “Expand all” (top right) to see them.',
       'v.open': 'Full list', 'v.empty': 'No dashboard in this group',
       'v.subOther': 'Unassigned',
-      'mast.edit': 'Edit groups', 'mast.editOn': 'Done',
+      'mast.edit': 'Edit groups', 'mast.editOn': 'Done', 'mast.editing': 'Editing', 'mast.userMenuTip': 'Open user menu',
       'edit.tipOn': 'Edit groups / sub-groups and order — saved to the shared server catalog (visible to everyone)',
       'edit.tipOff': 'Leave editing',
       'edit.banner': 'Editing · changes go straight into the shared server catalog, visible in MsPortal and here for everyone',
@@ -616,6 +630,7 @@ window.OLBR_DATA = (function () {
       'edit.itemAdded': 'Dashboard added',
       'edit.itemNeedUrl': 'Enter a link first',
       'edit.itemBadUrl': 'The link must start with http:// or https://',
+      'edit.archCount': '{n} dashboard(s) in Archived',
       'edit.f.itemZh': 'Dashboard name (Chinese)', 'edit.f.itemEn': 'Dashboard name (English)', 'edit.f.itemUrl': 'Link',
       'edit.fph.itemZh': 'e.g. NUR Dashboard', 'edit.fph.itemEn': 'Shown to English users',
       'edit.fph.itemUrl': 'http://192.168.100.20/myapp/?page=xxx',
@@ -862,8 +877,22 @@ window.OLBR_DATA = (function () {
   };
   /* 2026-09-25 按需求删掉 realtime_alarm 与 packet_loss 两个页签 —— 本栏只保留
      「GIS 地图」与「微波实时」，与 MsPortal 侧保持一致（那边同日同样删了两个）。
-     后端 TAB_PAGES 白名单里这两个 page 值**刻意保留**：服务端已存过的 tabLabels
-     改名记录不会因为白名单收窄而被丢弃，将来若要恢复页签不用重新改名。 */
+     后端 TAB_PAGES 白名单里这四个 page 值**刻意保留**：服务端已存过的 tabLabels
+     改名记录不会因为白名单收窄而被丢弃，将来若要恢复页签不用重新改名。
+
+     ⚠️ 2026-09-29 更正：本栏是**两个页签**，gis（GIS 地图）与 mwRealTime（微波实时）
+     都要显示。当天更早的一次改动曾把数组收窄成只剩 mwRealTime，那是我把用户的
+     「添加并只显示 page=mwRealTime 的地图组件」误读成了"用 mwRealTime 顶掉 gis"；
+     用户随后澄清「GIS Map 和 mwRealTime 都要显示」，故恢复成两条。
+     页签条保留（有两个页签就必须有地方切换）。
+
+     ⚠️ 这份数组是页签的**唯一真相源**：olbr.js 的 mapItems() 直接把这两条展开成页签，
+     **不再**按"目录里有没有对应看板"过滤（原实现抄了 MsPortal 的 .filter(m => !!m.item)，
+     而线上目录里 page=gis 的看板早被删了 —— 出厂默认 portal-default.json 里有
+     custom-gis-map，线上 /api/portal-catalog 的 56 条里没有 —— 于是 gis 页签被
+     静默滤掉、页签条整条不渲染，表现就是「GIS Map 没有了」）。
+     目录只用来取显示标题，取不到就回落这里的 key（map.gis / map.mw）。
+     要改页签数量/顺序就改这里，不要再去动目录。 */
   var MAP_TABS = [
     { page: 'gis', key: 'map.gis', icon: 'map' },
     { page: 'mwRealTime', key: 'map.mw', icon: 'broadcast' }
@@ -894,7 +923,19 @@ window.OLBR_DATA = (function () {
     'main#main-content .ant-card:has(.leaflet-container) > .ant-card-head{display:none!important}',
     'main#main-content .ant-card:has(.leaflet-container) > .ant-card-body{height:100%!important;padding:0!important}',
     'main#main-content .ant-card-body:has(.leaflet-container){position:relative!important}',
-    'main#main-content .ant-card-body:has(.leaflet-container) > *:not(.leaflet-container):not(:has(.leaflet-container)){position:absolute!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.88)!important;margin:0!important;padding:2px 8px!important}',
+    /* 地图卡片里与地图同级的小块贴底浮层。
+       ⚠️ 2026-10-14：原注释说这里针对的是「Critical/Major/Minor/Warning/OK」那块
+       **卡片内**图例 —— 它早已不存在（GIS 图例 2026-09-28 起移到地图上，成了
+       .gis-legend-overlay 这个绝对定位浮层，自带 bottom/left/z-index，不需要这条规则
+       把它摆到底部）。而这条选择器**恰好会命中它**：浮层是 .ant-card-body 里
+       唯一「不是 .leaflet-container」的直接子元素，于是被刷上 rgba(255,255,255,.88)
+       的 !important 白底，盖掉 index.css 里 :root[data-theme] 的 transparent
+       （实测命中两条 background 规则，注入的这条胜出）。
+       表现：门户内嵌时图例永远是一块不透明白底，直开 /myapp/?page=gis 才是透明浮字 ——
+       同一份 CSS 在两种入口下观感不同。
+       故把浮层排除在外。**保留**这条规则本身：将来若有别的小块与地图同级，
+       仍需「贴底浮层」这个待遇，删掉它会静默退回「被地图挤出裁掉」。 */
+    'main#main-content .ant-card-body:has(.leaflet-container) > *:not(.leaflet-container):not(:has(.leaflet-container)):not(.gis-legend-overlay){position:absolute!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.88)!important;margin:0!important;padding:2px 8px!important}',
     '.leaflet-container{height:100%!important;min-height:0!important;max-height:none!important;width:100%!important;border-radius:0!important}'
   ].join('');
 

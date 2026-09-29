@@ -22,12 +22,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/gis", tags=["gis"])
 
 # ========== 自适应GIS数据库结构检测 ==========
+# 结构探测带 TTL（2026-09-29 修复）：原实现是进程级永久缓存，
+# 一旦在表存在时建立，之后 has_realtime_alarm 恒为 True —— 即使该表被
+# 定时任务整表重建（eflow_active_alarm 每 30 分钟一次）短暂消失，
+# 缓存也不会更新，兜底判断失效。加 TTL 后结构变化最多在 _SCHEMA_TTL 秒内可见。
 _gis_schema_cache = None
+_gis_schema_cache_ts = 0.0
+_SCHEMA_TTL = 300  # 秒；与同文件 _META_TTL 同量级，避免每次请求都探测
 
-def _detect_gis_schema() -> dict:
-    """检测数据库结构，兼容 my_app 和 MTN_Comsal"""
-    global _gis_schema_cache
-    if _gis_schema_cache:
+
+def _detect_gis_schema(force: bool = False) -> dict:
+    """检测数据库结构，兼容 my_app 和 MTN_Comsal（带 TTL 缓存）。
+
+    force=True 时跳过缓存强制重新探测（供需要最新结构的调用方使用）。
+    """
+    global _gis_schema_cache, _gis_schema_cache_ts
+    now = _time.time()
+    if (not force) and _gis_schema_cache and (now - _gis_schema_cache_ts) < _SCHEMA_TTL:
         return _gis_schema_cache
 
     with get_raw_connection() as conn:
@@ -68,6 +79,7 @@ def _detect_gis_schema() -> dict:
             "tt_cols": tt_cols,
             "has_realtime_alarm": has_realtime_alarm, "has_history_alarm": has_history_alarm,
         }
+        _gis_schema_cache_ts = now
         return _gis_schema_cache
 
 
@@ -412,6 +424,26 @@ def _time_window_clauses(time_start, time_end):
     return tt_where, wo_where, his_where
 
 
+def _run_stats_query(conn, sql, label):
+    """执行一条统计查询，失败时降级为空列表并告警（不冒泡成 500）。
+
+    2026-09-29 新增：/gis/sites 会把 tt / wo / 实时告警 / 历史告警四张表的
+    统计串在一次请求里（get_sites），其中任一表被定时任务整表重建时短暂不可用，
+    都会让整个地图页 500。GIS 地图是站点底图，缺一张统计表应当只让对应计数
+    显示不全，而不是整页失败 —— 与同文件 _fetch_alarm_list（:615-623）
+    「表不存在或查询失败时返回 []」保持一致的口径。
+
+    返回 [] 时页面上的对应计数为 0/缺省，属已知降级行为（有 WARNING 日志可查）。
+    """
+    try:
+        return conn.execute(sql).fetchall()
+    except Exception:
+        logger.warning(
+            "[gis/sites] %s 统计不可用，降级为 0（站点地图照常返回）", label, exc_info=True
+        )
+        return []
+
+
 def _collect_tt_stats(conn, S, tt_time_where):
     """预计算 TT 统计（自适应关联字段）→ {site_key: (total, open, closed)}"""
     tt_stats = {}
@@ -423,7 +455,7 @@ def _collect_tt_stats(conn, S, tt_time_where):
             FROM eflow_tt WHERE 1=1 {tt_time_where}
             GROUP BY {S['tt_site_key']}
         """
-        for sid, cnt, open_cnt, closed_cnt in conn.execute(tt_sql).fetchall():
+        for sid, cnt, open_cnt, closed_cnt in _run_stats_query(conn, tt_sql, "eflow_tt"):
             tt_stats[str(sid)] = (cnt or 0, open_cnt or 0, closed_cnt or 0)
     return tt_stats
 
@@ -433,29 +465,44 @@ def _collect_wo_stats(conn, S, wo_time_where):
     wo_stats = {}
     if S["has_wo"] and S["tt_site_key"]:
         wo_sql = f"SELECT {S['tt_site_key']}, COUNT(*) FROM eflow_wo WHERE 1=1 {wo_time_where} GROUP BY {S['tt_site_key']}"
-        for sid, cnt in conn.execute(wo_sql).fetchall():
+        for sid, cnt in _run_stats_query(conn, wo_sql, "eflow_wo"):
             wo_stats[str(sid)] = cnt or 0
     return wo_stats
 
 
 def _collect_rt_alarm_stats(conn, S):
-    """实时告警统计（按site_id分组）→ {site_id: count}"""
+    """实时告警统计（按site_id分组）→ {site_id: count}
+
+    表缺失时降级为空字典，**不冒泡成 500**（2026-09-29 修复）。
+    背景：realtime_alarm 由 eflow_active_alarm 任务每 30 分钟整表重建
+    （task_registry.py:240）。历史实现是 DROP→CREATE + if_exists="replace"，
+    存在「表不存在」的窗口，恰好落进去的 /gis/sites 请求就整体 500
+    （实测 request_id=ca74c28a6471，栈顶本函数）。
+    写端已改为影子表 + 原子改名消除空窗；此处再加一层读取端容错：
+    GIS 地图是站点底图，不该因为告警表瞬时不可用而整页失败 ——
+    与同文件 _fetch_alarm_list（:615-623）「表不存在或查询失败返回 []」一致。
+    """
     rt_alarm_stats = {}
     if S["has_realtime_alarm"]:
-        for sid, cnt in conn.execute(
-            "SELECT site_id, COUNT(*) FROM realtime_alarm WHERE site_id IS NOT NULL GROUP BY site_id"
-        ).fetchall():
+        sql = ("SELECT site_id, COUNT(*) FROM realtime_alarm "
+               "WHERE site_id IS NOT NULL GROUP BY site_id")
+        for sid, cnt in _run_stats_query(conn, sql, "realtime_alarm"):
             rt_alarm_stats[str(sid)] = cnt or 0
     return rt_alarm_stats
 
 
 def _collect_his_alarm_stats(conn, S, his_time_where):
-    """历史告警统计（按site_id分组，受时间窗口限制）→ {site_id: count}"""
+    """历史告警统计（按site_id分组，受时间窗口限制）→ {site_id: count}
+
+    与 _collect_rt_alarm_stats 同款读取端容错：表缺失时降级为空字典而非 500。
+    history_alarm 由 eflow_history_alarm 任务每 3 小时整表重建
+    （task_registry.py:247），同属会被重建的表。
+    """
     his_alarm_stats = {}
     if S["has_history_alarm"]:
-        for sid, cnt in conn.execute(
-            f"SELECT site_id, COUNT(*) FROM history_alarm WHERE site_id IS NOT NULL{his_time_where} GROUP BY site_id"
-        ).fetchall():
+        sql = (f"SELECT site_id, COUNT(*) FROM history_alarm "
+               f"WHERE site_id IS NOT NULL{his_time_where} GROUP BY site_id")
+        for sid, cnt in _run_stats_query(conn, sql, "history_alarm"):
             his_alarm_stats[str(sid)] = cnt or 0
     return his_alarm_stats
 

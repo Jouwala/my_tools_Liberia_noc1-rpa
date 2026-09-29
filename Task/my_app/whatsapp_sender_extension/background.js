@@ -364,24 +364,54 @@ async function finish(out, startedAt) {
 //   1) 临时文件下载 + DOM.setFileInputFiles 直接注入该 input（= Playwright set_input_files）
 //   2) 兜底：图片写入系统剪贴板 + 可信 Ctrl+V
 //   3) 粘贴备注、仅在预览备注框上发送可信 Enter
+// ⚠️ 以下三个 CDP 包装都必须带**超时**，否则一旦 Chrome 不回调就会永久挂起。
+//
+// 2026-09-29 实测踩到：WhatsApp 那个标签开着 DevTools（F12）时，`chrome.debugger.attach`
+// 既不成功也不回调 —— 这是 Chrome 的硬限制（一个标签同时只能有一个调试客户端）。
+// 因为原实现没有超时，整个发送流程**永久卡住**：作业被认领后状态停在 `running`，
+// 既不发送也不回报，后端要等 600 秒超时才判失败，而且界面上完全看不出为什么。
+// 加超时后：快速失败 → 回报明确的错误原因 → 人一眼知道「关掉 DevTools 重试」。
+const DBG_ATTACH_TIMEOUT = 15000;
+const DBG_CMD_TIMEOUT = 30000;
+
+function withTimeout(promise, ms, what) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(
+      () => reject(new Error(`${what} 超时（${ms}ms）`)), ms)),
+  ]);
+}
+
 // 预览是否弹出用「可编辑框注入前后差异」判定，不再猜 aria 文案。
 // debugger 不可用时（DevTools 占用 / 策略限制）直接报错，不执行旧 content 路径。
 function dbgCommand(tabId, method, params) {
-  return new Promise((resolve, reject) => {
+  const p = new Promise((resolve, reject) => {
     chrome.debugger.sendCommand({ tabId }, method, params || {}, (result) => {
       const err = chrome.runtime.lastError;
       if (err) reject(new Error(err.message)); else resolve(result || {});
     });
   });
+  // 不设超时的话，某些 CDP 调用在页面卡住时会永不回调（见上方注释）
+  return withTimeout(p, DBG_CMD_TIMEOUT, `CDP ${method}`);
 }
 
 function dbgAttach(tabId) {
-  return new Promise((resolve, reject) => {
+  const p = new Promise((resolve, reject) => {
     chrome.debugger.attach({ tabId }, "1.3", () => {
       const err = chrome.runtime.lastError;
-      if (err) reject(new Error(err.message)); else resolve();
+      if (err) {
+        const msg = err.message || String(err);
+        // 把 Chromium 的原文翻成人能直接照做的动作
+        if (/another debugger|already attached|DevTools/i.test(msg)) {
+          reject(new Error("该标签页已被其它调试器占用（通常是开着 DevTools/F12）"
+            + "，请关闭 DevTools 后重试。原始错误：" + msg));
+          return;
+        }
+        reject(new Error(msg));
+      } else resolve();
     });
   });
+  return withTimeout(p, DBG_ATTACH_TIMEOUT, "chrome.debugger.attach");
 }
 
 function dbgDetach(tabId) {
@@ -695,13 +725,65 @@ async function cdpClipboardImage(tabId, img) {
   return dbgEval(tabId, expr, true);
 }
 
-// 文本 → 系统剪贴板（粘贴备注用，等效人工 Ctrl+C/Ctrl+V）
+// 文本 → 系统剪贴板（粘贴备注 / 粘贴告警文本用，等效人工 Ctrl+C/Ctrl+V）
+//
+// ⚠️ `navigator.clipboard.writeText` **要求文档有焦点**（Chrome 的 Clipboard API
+// 规范如此），后台标签页调用会直接抛：
+//     NotAllowedError: Failed to execute 'writeText' on 'Clipboard': Write permission denied.
+// 2026-09-29 实测踩到：定时告警在后台标签页发送，3 单全因这个报错失败。
+//
+// 故这里加一条**不依赖焦点**的兜底：用 CDP 的 Input.insertText 把文本塞进一个
+// 隐藏的 textarea，再用 CDP 的 Input.dispatchKeyEvent 发 Ctrl+A / Ctrl+C ——
+// 这条路径走的是浏览器输入管线，与页面焦点无关。
+// 先试 Clipboard API（快），失败再走兜底；两条都失败才抛错。
 async function cdpClipboardText(tabId, text) {
   const expr = `(async () => {
-    await navigator.clipboard.writeText(${JSON.stringify(text)});
-    return true;
+    try {
+      await navigator.clipboard.writeText(${JSON.stringify(text)});
+      return 'ok';
+    } catch (e) {
+      return 'fail:' + (e && e.name ? e.name : String(e));
+    }
   })()`;
-  return dbgEval(tabId, expr, true);
+  const r = await dbgEval(tabId, expr, true);
+  if (r === "ok") return true;
+
+  // 兜底：隐藏 textarea + CDP 原生按键（不依赖焦点）
+  const setup = `(() => {
+    let ta = document.getElementById('__waClipFallback');
+    if (!ta) {
+      ta = document.createElement('textarea');
+      ta.id = '__waClipFallback';
+      // 必须可见且可聚焦才能被 Ctrl+A/C 选中；用 fixed 定位挪到视口外而非 display:none
+      ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+      document.body.appendChild(ta);
+    }
+    ta.value = ${JSON.stringify(text)};
+    ta.focus();
+    ta.setSelectionRange(0, ta.value.length);
+    return document.activeElement === ta;
+  })()`;
+  const focused = await dbgEval(tabId, setup, true);
+  if (!focused) throw new Error(`剪贴板写入失败且兜底未聚焦（${r}）`);
+  await dbgCommand(tabId, "Input.dispatchKeyEvent", {
+    type: "keyDown", modifiers: 2, key: "a", code: "KeyA",
+    windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65,
+  });
+  await dbgCommand(tabId, "Input.dispatchKeyEvent", {
+    type: "keyUp", modifiers: 2, key: "a", code: "KeyA",
+    windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65,
+  });
+  await dbgCommand(tabId, "Input.dispatchKeyEvent", {
+    type: "keyDown", modifiers: 2, key: "c", code: "KeyC",
+    windowsVirtualKeyCode: 67, nativeVirtualKeyCode: 67,
+  });
+  await dbgCommand(tabId, "Input.dispatchKeyEvent", {
+    type: "keyUp", modifiers: 2, key: "c", code: "KeyC",
+    windowsVirtualKeyCode: 67, nativeVirtualKeyCode: 67,
+  });
+  await dbgEval(tabId, "(() => { const t = document.getElementById('__waClipFallback'); if (t) t.remove(); return true; })()", true)
+    .catch(() => {});
+  return true;
 }
 
 // base64 → 下载到本地临时目录，返回绝对路径（供 DOM.setFileInputFiles 使用）
@@ -968,6 +1050,31 @@ const SIMPLE_HELPERS = `(() => {
       return !!(main && input && (main.innerText || main.textContent || '').includes(name));
     },
     focusChat() { const el = chatInput(); if (!el) return false; el.focus(); return document.activeElement === el; },
+    // 读回聊天输入框当前文本（纯文本发送后校验粘贴是否真的进去了）
+    chatText() { const el = chatInput(); return el ? text(el) : ''; },
+    // 清空聊天输入框并返回清空后的文本（空串 = 清干净了）。
+    //
+    // ⚠️ 为什么必须清：2026-09-29 实测踩到 —— 发送多条告警时，上一单的文本**残留**
+    // 在输入框里（发送后 React 未立即卸载该节点），下一条再粘贴就变成两单内容叠加，
+    // 校验立刻不等而放弃发送。实测证据：TT050 期望 377 字、实测 901 字，
+    // 而 901 - 377 = 524 ≈ TT051 的 523 字。
+    //
+    // 实现走 execCommand('delete')：它是 DOM 级的原生删除，会触发 React 的
+    // beforeinput/input 事件，React 能同步自己的 state；直接改 el.textContent
+    // 会被 React 在下一次渲染时覆盖回去（同一个坑 simpleTypeGroupName 已记录）。
+    clearChat() {
+      const el = chatInput();
+      if (!el) return '__no_input__';
+      el.focus();
+      if (document.activeElement !== el) return '__no_focus__';
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      document.execCommand('delete', false, null);
+      return text(el);
+    },
     // 诊断用：点击后没进群时，把「实际进了哪个会话 / 输入框是否就绪」带回错误信息
     chatTitle() {
       const el = document.querySelector('#main header span[title], #main header span[data-testid="conversation-info-header-chat-title"], #main header div[role="heading"]');
@@ -979,7 +1086,19 @@ const SIMPLE_HELPERS = `(() => {
     previewFound(base) { return !!previewInput(base); },
     focusPreview(base) { const el = previewInput(base); if (!el) return false; el.focus(); return document.activeElement === el; },
     previewText(base) { const el = previewInput(base); return text(el); },
-    outgoingCount() { const m = document.querySelector('#main'); return m ? m.querySelectorAll('div[data-id^="true_"]').length : 0; }
+    outgoingCount() { const m = document.querySelector('#main'); return m ? m.querySelectorAll('div[data-id^="true_"]').length : 0; },
+    // 最后一条出站气泡的文本（判定「刚发的那条到底出去没有」用）。
+    //
+    // 为什么不只数气泡：outgoingCount() 数的是**当前 DOM 里渲染着的**出站气泡，
+    // 而 WhatsApp 的消息列表是虚拟列表 —— 发送后新气泡可能几秒内不出现，
+    // 也可能因为滚动/回收而数量变少，光看计数会误判（2026-09-29 实测踩到）。
+    lastOutgoingText() {
+      const m = document.querySelector('#main');
+      if (!m) return '';
+      const all = m.querySelectorAll('div[data-id^="true_"]');
+      if (!all.length) return '';
+      return text(all[all.length - 1]);
+    }
   };
   return true;
 })()`;
@@ -1149,6 +1268,112 @@ async function simpleSendViaDebugger(tabId, groups, images) {
   }
 }
 
+// ---------- 纯文本发送（TT 告警推送用） ----------
+// 与发图共用同一条 CDP 路子：把文本写进系统剪贴板 → 在聊天输入框里 Ctrl+V → 回车。
+// 之所以不复用 Input.insertText：WhatsApp Web 是 React 应用，insertText 有概率落在
+// 已被卸载的旧节点上（simpleTypeGroupName 的注释记录过同类问题）。剪贴板粘贴走的是
+// 浏览器原生 paste 事件，React 能正确收到，与发图备注框用的是同一套已验证机制。
+async function simpleSendTextOne(tabId, body) {
+  if (!(await dbgEval(tabId, "window.__waSimple.focusChat()"))) {
+    throw new Error("群会话输入框未就绪");
+  }
+  const before = Number(await dbgEval(tabId, "window.__waSimple.outgoingCount()")) || 0;
+
+  // 先清空输入框：上一单的文本可能还残留在这里（见 clearChat 的注释与实测数据）。
+  // 不清就直接粘贴 → 两单内容叠加 → 校验不等 → 放弃发送。
+  const norm = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const left = String((await dbgEval(tabId, "window.__waSimple.clearChat()")) || "");
+  if (norm(left) !== "") {
+    // React 重渲染有延迟，给一次重试机会
+    await sleep(400);
+    const again = String((await dbgEval(tabId, "window.__waSimple.clearChat()")) || "");
+    if (norm(again) !== "") {
+      throw new Error(`聊天输入框无法清空（残留 ${norm(again).length} 字：`
+        + `「${norm(again).slice(0, 40)}…」）；已放弃发送避免内容叠加`);
+    }
+  }
+
+  await cdpClipboardText(tabId, body);
+  await cdpPasteKey(tabId);
+  // 校验粘贴是否真的进了输入框：读回文本与待发内容一致（空白差异容忍）。
+  // 单发时不允许多余内容（多 = 叠加，少 = 没进去），两种都放弃发送。
+  let typed = "";
+  for (let t = 0; t < 12; t++) {
+    await sleep(250);
+    typed = String((await dbgEval(tabId, "window.__waSimple.chatText()")) || "");
+    if (norm(typed) === norm(body)) break;
+  }
+  if (norm(typed) !== norm(body)) {
+    throw new Error(`文本未进入输入框（期望 ${norm(body).length} 字，实测 ${norm(typed).length} 字）；已放弃发送避免误发`);
+  }
+  if (!(await dbgEval(tabId, "window.__waSimple.focusChat()"))) {
+    throw new Error("回车前输入框焦点丢失，已停止");
+  }
+  // 发送成功的判据（两个信号，任一成立即算成功）：
+  //   ① 出站气泡数增加；
+  //   ② 最后一条出站气泡的文本**就是**刚发的这条。
+  //
+  // ⚠️ 为什么不能只数气泡。2026-09-29 实测：进群后立刻发送时，
+  // WhatsApp 的消息列表是虚拟列表，`outgoingCount()` 在 8 秒窗口内可能一直读到旧值
+  // → 误判「未确认发送」，于是把**其实已经发出去**的消息记成失败、
+  // `send_status` 停在 'N'，下一轮（20 分钟节流后）**再发一遍** → 群里出现重复告警。
+  // 信号 ② 直接看内容，不受列表渲染/回收影响。
+  const target = norm(body);
+  const head = target.slice(0, 60);
+  const isSent = async () => cdpWait(tabId,
+    `window.__waSimple.outgoingCount() > ${before}`
+    + ` || window.__waSimple.lastOutgoingText().replace(/\\s+/g,' ').trim().indexOf(${JSON.stringify(head)}) === 0`,
+    8000);
+
+  if (await isSent()) return;
+
+  // 8 秒没确认：若文本**仍在输入框**，说明上次回车没生效（多半是丢焦点），补按一次。
+  // 已发出的话输入框是空的，此时补按是空操作，不会造成重复消息。
+  const stillTyped = norm(String((await dbgEval(tabId, "window.__waSimple.chatText()")) || ""));
+  if (stillTyped === target) {
+    await dbgEval(tabId, "window.__waSimple.focusChat()");
+    await cdpEnterKey(tabId);
+    if (await isSent()) return;
+    throw new Error("回车后未确认文本发送（已补按一次回车仍无出站气泡）");
+  }
+  if (stillTyped === "") {
+    // 输入框已空 = 回车被 WhatsApp 接受了；只是气泡还没渲染出来。
+    // 这种情况**不能判失败** —— 判失败会导致重发、群里出现重复消息。
+    return;
+  }
+  throw new Error(`回车后输入框内容异常（残留 ${stillTyped.length} 字，期望空或原文本）`);
+}
+
+async function simpleSendTextViaDebugger(tabId, groups, messages) {
+  await dbgAttach(tabId);
+  // sent 里放的是**真正发出去的 tt_no**，后端据此把该单 send_status 置 'Y'。
+  const out = { ok: false, sent: [], errors: [] };
+  try {
+    await dbgEval(tabId, SIMPLE_HELPERS);
+    for (const group of groups) {
+      try {
+        await simpleOpenChat(tabId, group);
+        for (const msg of messages) {
+          try {
+            await simpleSendTextOne(tabId, msg.text);
+            out.sent.push(msg.tt_no);
+          } catch (e) {
+            out.errors.push(`[${group}] ${msg.tt_no} 发送失败: ${e.message || e}`);
+          }
+        }
+      } catch (e) {
+        // 进群失败：该群下所有单都记为失败，但不影响其它群
+        out.errors.push(`[${group}] ${e.message || e}`);
+        out.errors.push(`[${group}] 该群 ${messages.length} 条告警未发送`);
+      }
+    }
+    out.ok = out.errors.length === 0 && out.sent.length > 0;
+    return out;
+  } finally {
+    await dbgDetach(tabId);
+  }
+}
+
 // ---------- 后端作业（认领 / 回报） ----------
 async function tryClaimJob(cfg) {
   try {
@@ -1168,7 +1393,8 @@ async function reportJobResult(cfg, jobId, result) {
       const res = await apiFetch(cfg, "/api/whatsapp/ext/job/result", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: jobId, ...result }),
+        // kind 决定后端把结果转交给哪个作业源（发图 / TT 告警文本）。
+        body: JSON.stringify({ job_id: jobId, kind: result.kind || "image", ...result }),
       }, 15000);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return true;
@@ -1181,7 +1407,9 @@ async function reportJobResult(cfg, jobId, result) {
   return false;
 }
 
-// 认领后端作业并发送；无作业返回 false
+// 认领后端作业并发送；无作业返回 false。
+// 后端有两个作业源（发图 / TT 告警文本），统一从 /api/whatsapp/ext/job 认领，
+// 按 job.kind 分发到两条发送路径；回报时把 kind 一并带回，后端据此转交对应作业源。
 async function claimAndRunJob(cfg, trigger) {
   // 必须先查 running 再认领：认领会把后端作业置为 running，
   // 若认领后才因「发送进行中」放弃，作业会被空占直到超时判失败（消息漏发）。
@@ -1190,10 +1418,22 @@ async function claimAndRunJob(cfg, trigger) {
   if (!job) return false;
   running = true;
   try {
-    const result = await performSend(cfg, job.groups || [], job.items || [], `作业 ${job.job_id}`, job.job_id);
+    const kind = job.kind || "image";
+    let result;
+    if (kind === "text") {
+      try {
+        const { tab } = await ensureWhatsAppTab();
+        result = await simpleSendTextViaDebugger(tab.id, job.groups || [], job.messages || []);
+      } catch (e) {
+        result = { ok: false, sent: [], errors: [`无法打开 WhatsApp Web：${e.message || e}`] };
+      }
+    } else {
+      result = await performSend(cfg, job.groups || [], job.items || [], `作业 ${job.job_id}`, job.job_id);
+    }
+    result.kind = kind;
     await reportJobResult(cfg, job.job_id, result);
     const run = {
-      trigger, job_id: job.job_id,
+      trigger, job_id: job.job_id, kind,
       started_at: new Date().toISOString(),
       ...result,
     };
