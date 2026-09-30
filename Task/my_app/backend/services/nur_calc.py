@@ -17,6 +17,10 @@ NUR / SLA 看板计算引擎
 4. 分母：默认全网该制式小区总数；Project 筛选生效时按 site_caregory 与站点类型
    归一化包含匹配圈定小区数（分子分母同口径）
 5. SLA：ticket_severity 分组 Total / Within SLA(sla_status='Pass') / 达成率
+6. 站点四维过滤（trm_type / site_caregory / province_county / region，2026-09-30 新增）：
+   属性一律取自站点主数据 master_site_db，**精确匹配**；分子（TT 行）与分母
+   （cm_site_summary 小区数）走同一份属性索引，保证两侧圈定的是同一批站点。
+   站点归属规则见 attach_site_attrs（site_id 命中优先，重名站点不做站名回退）。
 
 排除名单：FTP 192.168.100.19 /webroot/WEB-INF/reportlets/excel/TT_Exclude.xlsx，
 ticket_no 或 tt_no 命中即 Exclude=Y；内存缓存 30 分钟，FTP 失败降级空集不阻断。
@@ -60,6 +64,19 @@ EXCLUDE_CACHE_TTL = 1800  # 秒
 _TT_COLS = ("title, ticket_no, tt_no, ticket_severity, sla_status, "
             "alarm_occur_time, alarm_clear_time, site_id, site_name, site_information")
 _CM_COLS = ('"Site_ID", "Site_Name", "NumberOfCells", "Tech", "site_caregory"')
+
+# ---------- 站点四维过滤（trm_type / site_caregory / province_county / region） ----------
+# 属性来源固定为站点主数据 master_site_db（与 GISMap、TT&WO Dashboard 同一个真相源）；
+# 元组顺序即前端下拉的展示顺序，也是 /options 下发的顺序。
+SITE_FILTER_COLS: Tuple[str, ...] = ("trm_type", "site_caregory", "province_county", "region")
+_SITE_COLS = "site_id, site_name, trm_type, site_caregory, province_county, region"
+# TT 行/CM 行上挂载的属性列前缀，避免与 eflow_tt 自身的 site_caregory 之类同名列冲突
+_SITE_PREFIX = "s_"
+
+
+def _site_col(col: str) -> str:
+    """站点属性列在数据帧上的列名（带前缀，见 _SITE_PREFIX）。"""
+    return _SITE_PREFIX + col
 
 
 # ============================================================
@@ -135,6 +152,122 @@ def get_project_options() -> List[str]:
         except Exception:
             return []
     return sorted(_norm_str(r[0]) for r in rows if _norm_str(r[0]))
+
+
+# ============================================================
+# 站点四维过滤：主数据加载 / 索引 / 挂载 / 候选值
+# ------------------------------------------------------------
+# 为什么属性取自 master_site_db 而不是 cm_site_summary：
+#   - cm_site_summary 只有 region / province_county / site_caregory 三列、没有
+#     trm_type（实测 app.cm_site_summary 7 列）；若三列取自 cm、一列取自主数据，
+#     分子与分母就可能落在两个不同的站点集合上，看板数字与下钻行数会对不上。
+#   - master_site_db 是 GISMap / TT&WO Dashboard 共用的站点主数据（同一口径），
+#     四列齐全（实测 827 行，site_id 无重复）。
+# ============================================================
+def load_site_master() -> pd.DataFrame:
+    """读取站点主数据 master_site_db 的四维属性；列名统一转小写。"""
+    from sqlalchemy import text
+    try:
+        df = pd.read_sql(text(f"SELECT {_SITE_COLS} FROM master_site_db"), engine)
+    except Exception as e:
+        logger.warning(f"[NUR] master_site_db 读取失败: {e}")
+        return pd.DataFrame()
+    df.columns = [c.lower() for c in df.columns]
+    return df
+
+
+def build_site_index(sm: pd.DataFrame) -> Dict[str, object]:
+    """把站点主数据编译成两套查找表（供 TT 行与 CM 行共用）。
+
+    返回 ``{"sid": {列: {site_id: 值}}, "name": {列: {站名小写: 值}},
+             "sids": set, "names": set}``。
+
+    归属规则（与 site_availability_service.build_overview 的唯一归属同源）：
+    1. ``site_id`` 命中优先 —— eflow_tt.site_id 与 master_site_db.site_id 同属一个
+       站点 ID 空间（实测 36510 行 TT 中 36040 行命中，且 site_id 在主库唯一，不产生扇出）；
+    2. 未命中时回退**站名小写**匹配，但**重名站点直接不参与回退** ——
+       主数据实测有 11 个重名站（如 'Gbarplay' 同时存在 9049=ERA / 3620=NORMAL），
+       任选一个都是静默错归。这类行按「未归属」处理：站点过滤生效时被排除，
+       不猜一个属性塞进去（宁可少一行，不可错一行）。
+    """
+    empty = {"sid": {c: {} for c in SITE_FILTER_COLS},
+             "name": {c: {} for c in SITE_FILTER_COLS}, "sids": set(), "names": set()}
+    if sm.empty or not set(SITE_FILTER_COLS).issubset(set(sm.columns)):
+        return empty
+    d = sm.copy()
+    d["_sid"] = _norm_series(d["site_id"])
+    d["_nm"] = _norm_series(d["site_name"]).str.lower()
+    d = d[(d["_sid"] != "") | (d["_nm"] != "")]
+
+    # site_id 维度：按 ID 去重（实测主库 site_id 唯一，这里只是防御性写法）
+    sid_rows = d[d["_sid"] != ""].drop_duplicates("_sid", keep="first")
+    # 站名维度：重名站整组剔除（不猜），其余按站名唯一
+    dup_names = set(d.loc[d["_nm"].duplicated(keep=False), "_nm"]) - {""}
+    nm_rows = (d[(d["_nm"] != "") & (~d["_nm"].isin(dup_names))]
+               .drop_duplicates("_nm", keep="first"))
+
+    sid_map = {c: sid_rows.set_index("_sid")[c].to_dict() for c in SITE_FILTER_COLS}
+    name_map = {c: nm_rows.set_index("_nm")[c].to_dict() for c in SITE_FILTER_COLS}
+    return {"sid": sid_map, "name": name_map,
+            "sids": set(sid_map[SITE_FILTER_COLS[0]].keys()),
+            "names": set(name_map[SITE_FILTER_COLS[0]].keys())}
+
+
+def attach_site_attrs(df: pd.DataFrame, sid_col: str, name_col: str,
+                      site_index: Dict[str, object]) -> pd.DataFrame:
+    """给数据帧挂上站点四维属性列 ``s_trm_type`` / ``s_site_caregory`` /
+    ``s_province_county`` / ``s_region`` 以及归属标志 ``s_matched``。
+
+    归属规则见 :func:`build_site_index`（site_id 优先、重名站名不回退）。
+    未归属的行属性为空串，站点过滤生效时会被自然排除。
+    """
+    out = df.copy()
+    sid = _norm_series(out[sid_col]) if sid_col in out.columns else pd.Series("", index=out.index)
+    nm = (_norm_series(out[name_col]).str.lower() if name_col in out.columns
+          else pd.Series("", index=out.index))
+    sid_map = site_index.get("sid") or {}
+    name_map = site_index.get("name") or {}
+    if not site_index.get("sids"):
+        for c in SITE_FILTER_COLS:
+            out[_site_col(c)] = ""
+        out["s_matched"] = False
+        return out
+
+    for c in SITE_FILTER_COLS:
+        v = sid.map((sid_map or {}).get(c) or {})
+        v = v.where(v.notna(), nm.map((name_map or {}).get(c) or {}))
+        out[_site_col(c)] = v.fillna("")
+    out["s_matched"] = sid.isin(site_index["sids"]) | nm.isin(site_index["names"])
+    return out
+
+
+def get_site_filter_options() -> Dict[str, List[str]]:
+    """站点四维过滤的候选值（与过滤实现同源：master_site_db 精确匹配）。
+
+    列名来自模块常量 :data:`SITE_FILTER_COLS`（**不来自请求输入**），因此这里
+    拼接列名没有注入面；每列最多 200 个候选，与 TT&WO Dashboard 的
+    ``site_filter_fields`` / ``filter_options`` 同一约定。
+    """
+    out: Dict[str, List[str]] = {}
+    try:
+        with get_raw_connection() as conn:
+            for col in SITE_FILTER_COLS:
+                try:
+                    rows = conn.execute(
+                        f"SELECT DISTINCT {col} FROM master_site_db "
+                        f"WHERE {col} IS NOT NULL AND {col} <> '' AND {col} <> 'None' "
+                        f"ORDER BY {col} LIMIT 200"
+                    ).fetchall()
+                except Exception:
+                    logger.warning(f"[NUR] 站点过滤候选列 {col} 查询失败，已跳过", exc_info=True)
+                    continue
+                vals = [_norm_str(r[0]) for r in rows]
+                vals = [v for v in vals if v]
+                if vals:
+                    out[col] = vals
+    except Exception:
+        logger.warning("[NUR] 站点过滤候选值读取失败（前端下拉将为空）", exc_info=True)
+    return out
 
 
 # ============================================================
@@ -449,32 +582,41 @@ _result_cache: Dict[str, Dict] = {}
 
 
 def get_base_data(force: bool = False):
-    """返回 (enriched_tt, cm, site_pivot, cells_all)，带 TTL 缓存。
+    """返回 (enriched_tt, cm, site_pivot, cells_all, site_index)，带 TTL 缓存。
 
-    ⚠ 调用方**不得就地修改**返回的 tt（要加列请先 ``.copy()``），否则会污染缓存。
+    - enriched_tt / cm 都已挂上站点四维属性列（``s_trm_type`` 等，见 attach_site_attrs）；
+    - site_index 是站点主数据索引，供下钻（compute_detail）等非缓存路径复用。
+
+    ⚠ 调用方**不得就地修改**返回的 tt / cm（要加列请先 ``.copy()``），否则会污染缓存。
     """
     def _fresh() -> bool:
         at = _base_cache.get("at")
         return bool(at) and (time.time() - float(at)) < BASE_CACHE_TTL  # type: ignore[arg-type]
 
     if not force and _fresh():
-        return (_base_cache["tt"], _base_cache["cm"],
-                _base_cache["site_pivot"], _base_cache["cells_all"])
+        return (_base_cache["tt"], _base_cache["cm"], _base_cache["site_pivot"],
+                _base_cache["cells_all"], _base_cache["site_index"])
     with _base_lock:
         if not force and _fresh():          # 双检：并发下只重建一次
-            return (_base_cache["tt"], _base_cache["cm"],
-                    _base_cache["site_pivot"], _base_cache["cells_all"])
+            return (_base_cache["tt"], _base_cache["cm"], _base_cache["site_pivot"],
+                    _base_cache["cells_all"], _base_cache["site_index"])
         t0 = time.time()
         tt = load_tt_df()
         cm = load_cm_summary()
+        site_index = build_site_index(load_site_master())
         site_pivot, cells_all = build_cell_pivot(cm)
+        # 站点属性：TT 行与 CM 行走**同一份索引**，分子分母必然落在同一批站点上
+        cm = attach_site_attrs(cm, "site_id", "site_name", site_index)
         if not tt.empty:
-            tt = enrich_periods(attach_cells(tt, site_pivot))
+            tt = attach_site_attrs(attach_cells(tt, site_pivot),
+                                   "site_id", "site_name", site_index)
+            tt = enrich_periods(tt)
         _base_cache.update({"at": time.time(), "tt": tt, "cm": cm,
-                            "site_pivot": site_pivot, "cells_all": cells_all})
+                            "site_pivot": site_pivot, "cells_all": cells_all,
+                            "site_index": site_index})
         logger.info("[NUR] 基础数据已重建 %.0fms (tt=%d 行)",
                     (time.time() - t0) * 1000, len(tt))
-        return tt, cm, site_pivot, cells_all
+        return tt, cm, site_pivot, cells_all, site_index
 
 
 def invalidate_base_cache() -> None:
@@ -506,16 +648,26 @@ def warmup() -> None:
 # ============================================================
 def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
                      start: str = "", end: str = "",
-                     refresh_exclude: bool = False) -> Dict:
+                     refresh_exclude: bool = False,
+                     trm_type: str = "", site_caregory: str = "",
+                     province_county: str = "", region: str = "") -> Dict:
     """一次计算 6 张表：nur/sla × daily/weekly/monthly。
 
     筛选适配原则：Vendor/时间/Exclude 只作用于分子（TT 行）；
-    Project 同时作用于分子（site_information）与分母（site_caregory 圈定小区数）。
+    Project 同时作用于分子（site_information）与分母（site_caregory 圈定小区数）；
+    站点四维（trm_type / site_caregory / province_county / region）同样**同时作用于
+    分子与分母**（属性取自主数据 master_site_db，精确匹配）—— 只筛分子会让 NUR
+    的分子分母不同口径，比值不再是「这批站点的不可用率」。
     """
     t0 = time.time()
     warnings: List[str] = []
 
-    rkey = f"{vendor}|{project}|{exclude}|{start}|{end}"
+    site_filters = {c: _norm_str(v) for c, v in zip(
+        SITE_FILTER_COLS, (trm_type, site_caregory, province_county, region))}
+    site_filters = {c: v for c, v in site_filters.items() if v}
+
+    rkey = "|".join([vendor, project, exclude, start, end,
+                     *[f"{c}={site_filters.get(c, '')}" for c in SITE_FILTER_COLS]])
     if not refresh_exclude:
         hit = _result_cache.get(rkey)
         if hit and (time.time() - hit["at"]) < RESULT_CACHE_TTL:
@@ -524,7 +676,7 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
             out["elapsed_seconds"] = round(time.time() - t0, 3)
             return out
 
-    tt, cm, site_pivot, cells_all = get_base_data()
+    tt, cm, site_pivot, cells_all, _site_index = get_base_data()
     if tt.empty:
         return {"nur": {}, "sla": {}, "cells_by_tech": {}, "denominator_cells": {},
                 "exclude": get_exclude_info(refresh_exclude), "warnings": ["eflow_tt 无数据"],
@@ -553,19 +705,33 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
         df = df[df["site_information"].map(_norm_str) == project]
     if exclude in ("Y", "N"):
         df = df[df["excluded"] == exclude]
+    # 站点四维过滤：精确匹配（与 /options 下发的候选值同源），不用 LIKE ——
+    # 概览与下钻必须逐字同口径，否则「表里的数」与「下钻的行数」对不上。
+    for c, v in site_filters.items():
+        df = df[df[_site_col(c)] == v]
     if start:
         df = df[(df["occur_dt"] >= pd.to_datetime(start))]
     if end:
         df = df[(df["occur_dt"] <= pd.to_datetime(end) + pd.Timedelta(days=1))]
 
-    # ---- 分母小区数（Project 生效时按 site_caregory 圈定）----
+    # ---- 分母小区数（Project / 站点四维生效时按同一批站点圈定）----
     # site_pivot 同时供站点级 NUR 达标占比使用（分母站点集合与全网分母同口径）
     # 注：未筛选的 site_pivot/cells_all 已随基础数据缓存，无需重复透视
-    if project and not cm.empty:
-        mask = cm["site_caregory"].map(lambda v: _cat_match(_norm_str(v), project))
+    if (project or site_filters) and not cm.empty:
+        # cm 上的站点属性已随基础数据挂好（与分子同一份索引）
+        mask = pd.Series(True, index=cm.index)
+        if project:
+            mask &= cm["site_caregory"].map(lambda v: _cat_match(_norm_str(v), project))
+        for c, v in site_filters.items():
+            mask &= (cm[_site_col(c)] == v)
         site_pivot, denom = build_cell_pivot(cm[mask])
         if sum(denom.values()) == 0:
-            warnings.append(f"Project={project} 未匹配到任何站点（site_caregory），NUR 分母为 0")
+            if project:
+                warnings.append(f"Project={project} 未匹配到任何站点（site_caregory），NUR 分母为 0")
+            else:
+                desc = " ".join(f"{c}={v}" for c, v in site_filters.items())
+                warnings.append(
+                    f"站点筛选（{desc}）未圈定到任何站点（master_site_db），NUR 分母为 0")
     else:
         denom = cells_all
 
@@ -685,6 +851,8 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
 def compute_detail(metric: str = "nur", gran: str = "daily", period: str = "",
                    tech: str = "", severity: str = "", item: str = "",
                    vendor: str = "", project: str = "", exclude: str = "",
+                   trm_type: str = "", site_caregory: str = "",
+                   province_county: str = "", region: str = "",
                    max_rows: int = 2000) -> Dict:
     """下钻：返回构成某单元格数值的 TT 明细，筛选口径与 compute_overview 完全一致。
 
@@ -707,7 +875,16 @@ def compute_detail(metric: str = "nur", gran: str = "daily", period: str = "",
     if metric not in ("nur", "sla"):
         raise ValueError(f"metric 必须是 nur/sla，got {metric}")
 
-    tt = enrich_periods(attach_cells(tt, build_cell_pivot(cm)[0]))
+    # 站点四维过滤参数（与 overview 同源同口径；空串=不筛）
+    site_filters = {c: _norm_str(v) for c, v in zip(
+        SITE_FILTER_COLS, (trm_type, site_caregory, province_county, region))}
+    site_filters = {c: v for c, v in site_filters.items() if v}
+
+    # 下钻不走基础数据缓存（明细要读全列），站点属性索引现建：与缓存路径同一实现
+    site_index = build_site_index(load_site_master())
+    tt = attach_site_attrs(attach_cells(tt, build_cell_pivot(cm)[0]),
+                           "site_id", "site_name", site_index)
+    tt = enrich_periods(tt)
 
     # ---- 排除名单标记（与 compute_overview 相同口径）----
     ex_info = get_exclude_info()
@@ -727,6 +904,8 @@ def compute_detail(metric: str = "nur", gran: str = "daily", period: str = "",
         df = df[df["site_information"].map(_norm_str) == project]
     if exclude in ("Y", "N"):
         df = df[df["excluded"] == exclude]
+    for c, v in site_filters.items():
+        df = df[df[_site_col(c)] == v]
     col = {"daily": "day", "weekly": "week", "monthly": "month"}[gran]
     if period:
         df = df[df[col] == period]

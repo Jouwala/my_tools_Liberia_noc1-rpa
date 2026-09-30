@@ -30,6 +30,34 @@ type Gran = 'daily' | 'weekly' | 'monthly'
 const GRANS: Gran[] = ['daily', 'weekly', 'monthly']
 const TECHS = ['2G', '3G', '4G', '5G']
 
+/* ---------- 站点维度筛选（2026-09-30 新增）----------
+ * 四列属性全部来自站点主数据 master_site_db（后端 /nur/options 的 site_filters 下发候选值），
+ * 顺序即界面上下拉的展示顺序；列名与后端 nur_calc.SITE_FILTER_COLS 一一对应。
+ * 过滤同时作用于分子（TT）与分母（小区数），因此切换筛选后 NUR 比值仍是「这批站点的
+ * 不可用率」，不是只筛分子得出的假象。 */
+const SITE_FILTER_COLS = ['trm_type', 'site_caregory', 'province_county', 'region'] as const
+type SiteFilterCol = typeof SITE_FILTER_COLS[number]
+// 下拉宽度（按候选值长度给：province_county 有 'Grand Cape Mount' 这类长值）
+const SITE_FILTER_WIDTH: Record<SiteFilterCol, string> = {
+  trm_type: '8.75rem', site_caregory: '7.5rem', province_county: '10.625rem', region: '7.5rem',
+}
+/**
+ * 站点筛选列的 i18n 键映射。
+ *
+ * 必须是显式 switch 返回字面量键 —— 动态拼 `t('nur.' + col)` 会被 `npm run check:i18n`
+ * 读成键名 `nur.` 而报「字典缺失」（见 Task/my_app/AGENTS.md 第三节第 1b 条 /
+ * TTWODashboard.tsx 的 advFilterLabelKey 同款处理）。
+ */
+const siteFilterLabelKey = (col: string): string => {
+  switch (col) {
+    case 'trm_type': return 'nur.trmType'
+    case 'site_caregory': return 'nur.siteCategory'
+    case 'province_county': return 'nur.provinceCounty'
+    case 'region': return 'nur.region'
+    default: return col
+  }
+}
+
 // NUR 展示口径：原始值 × 100000（后端保持原始数值，仅前端展示缩放）
 const NUR_SCALE = 100000
 
@@ -72,6 +100,8 @@ interface OptionsResp {
   vendors: string[]
   projects: string[]
   exclude_options: string[]
+  /** 站点四维筛选候选值：{trm_type|site_caregory|province_county|region: [值...]} */
+  site_filters?: Record<string, string[]>
   exclude_status: ExcludeStatus
 }
 
@@ -446,10 +476,24 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
   const [vendor, setVendor] = useState('')
   const [project, setProject] = useState('')
   const [exclude, setExclude] = useState('')
+  // 站点四维筛选（trm_type/site_caregory/province_county/region），空值=不筛。
+  // 用 Record<string,string> 而非键联合类型：与 TTWODashboard 的高级过滤一致，
+  // 避免 `{...prev, [col]: v}` 在联合键下被 TS 推成宽泛索引签名。
+  const [siteFilters, setSiteFilters] = useState<Record<string, string>>({})
   // 默认展示最近 6 个月（含今天）
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>([
     dayjs().subtract(6, 'month'), dayjs(),
   ])
+
+  /** 当前生效的站点维度筛选（只保留有值的项）——请求、下钻、导出三处共用同一份 */
+  const activeSiteFilters = useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const c of SITE_FILTER_COLS) {
+      const v = siteFilters[c]
+      if (v) out[c] = v
+    }
+    return out
+  }, [siteFilters])
 
   const fetchOverview = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -459,6 +503,7 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
       if (vendor) params.vendor = vendor
       if (project) params.project = project
       if (exclude) params.exclude = exclude
+      Object.assign(params, activeSiteFilters)
       if (range && range[0]) params.start = range[0].format('YYYY-MM-DD')
       if (range && range[1]) params.end = range[1].format('YYYY-MM-DD')
       const resp = await api.get('/nur/overview', { params })
@@ -468,7 +513,7 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
     } finally {
       setLoading(false)
     }
-  }, [vendor, project, exclude, range])
+  }, [vendor, project, exclude, activeSiteFilters, range])
 
   useEffect(() => {
     api.get('/nur/options').then(r => setOptions(r.data)).catch(() => {})
@@ -493,16 +538,18 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
     setDrillSearch('')
     setDrillTitle(title)
     setDrillKey(key)
-    // 继承看板当前筛选（vendor/project/exclude），period 已在 params 中精确定位
+    // 继承看板当前筛选（vendor/project/exclude + 站点四维），period 已在 params 中精确定位
+    // ⚠ 下钻必须与 /overview 逐条同口径，否则「表里的数字」与「下钻的行数」对不上
     const p: Record<string, string> = { ...params }
     if (vendor) p.vendor = vendor
     if (project) p.project = project
     if (exclude) p.exclude = exclude
+    Object.assign(p, activeSiteFilters)
     api.get('/nur/detail', { params: p })
       .then(res => setDrillData(res.data?.rows || []))
       .catch(() => setDrillData([]))
       .finally(() => setDrillLoading(false))
-  }, [vendor, project, exclude])
+  }, [vendor, project, exclude, activeSiteFilters])
 
   const handleNurDrill = (e: React.MouseEvent, g: Gran, tech: string, period: string) => {
     openDrill(e, { metric: 'nur', gran: g, period, tech },
@@ -584,9 +631,12 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
   const exportPageExcel = useCallback(() => {
     if (!data) return
     // 筛选条件写进每个 sheet 的副标题，便于对账「这份文件是哪个口径下导出的」
+    // 站点四维沿用筛选条同一批标签键（nur.trmType 等），不再另建 exportXxx 重复键
     const filterText = [
       `${t('nur.exportVendor')}: ${vendor || t('nur.all')}`,
       `${t('nur.exportProject')}: ${project || t('nur.all')}`,
+      ...SITE_FILTER_COLS.map((c: string) =>
+        `${t(siteFilterLabelKey(c))}: ${activeSiteFilters[c] || t('nur.all')}`),
       `${t('nur.exportExclude')}: ${exclude || t('nur.all')}`,
       `${t('nur.exportRange')}: ${range && range[0] && range[1]
         ? `${range[0].format('YYYY-MM-DD')} ${t('nur.exportTo')} ${range[1].format('YYYY-MM-DD')}`
@@ -652,7 +702,7 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
     }
     const fname = `NUR_Dashboard_${dayjs().format('YYYYMMDD_HHmmss')}`
     void exportReport(sheets, `${fname}.xlsx`)
-  }, [data, vendor, project, exclude, range, exStatus, exLoaded, granTitle, showNur, showSla, t])
+  }, [data, vendor, project, exclude, activeSiteFilters, range, exStatus, exLoaded, granTitle, showNur, showSla, t])
 
   return (
     <div style={{ padding: 'var(--wh-space-md)' }}>
@@ -671,6 +721,25 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
               onChange={v => setProject(v || '')} style={{ width: 'min(100%, 10.625rem)' as any }}
               options={(options?.projects || []).map(v => ({ value: v, label: v }))} />
           </Space>
+          {/* 站点四维筛选（trm_type / site_caregory / province_county / region）：
+              候选值由 /nur/options 的 site_filters 下发（站点主数据 master_site_db），
+              后端按精确匹配过滤，分子与分母同口径。候选为空的列不渲染下拉。 */}
+          {SITE_FILTER_COLS.map(col => {
+            const opts = options?.site_filters?.[col] || []
+            if (opts.length === 0) return null
+            return (
+              <Space key={col} wrap style={{ gap: 'var(--wh-space-xs)' }}>
+                <Text style={{ color: WH.textMuted }}>{t(siteFilterLabelKey(col))}</Text>
+                <Select allowClear showSearch placeholder={t('nur.all')}
+                  value={siteFilters[col] || undefined}
+                  onChange={v => setSiteFilters(prev => ({ ...prev, [col]: v || '' }))}
+                  style={{ width: `min(100%, ${SITE_FILTER_WIDTH[col]})` as any }}
+                  options={opts.map(v => ({ value: v, label: v }))}
+                  filterOption={(input, option) =>
+                    String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())} />
+              </Space>
+            )
+          })}
           <Space wrap style={{ gap: 'var(--wh-space-xs)' }}>
             <Text style={{ color: WH.textMuted }}>{t('nur.exclude')}</Text>
             <Select allowClear placeholder={t('nur.all')} value={exclude || undefined}
