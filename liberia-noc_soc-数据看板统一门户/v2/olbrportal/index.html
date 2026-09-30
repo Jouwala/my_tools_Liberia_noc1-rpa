@@ -44,8 +44,16 @@
     var nav = (navigator.language || navigator.userLanguage || 'zh') + '';
     return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
   }
+  /* 主题：**用户显式选择优先，未选择时跟随系统**（2026-09-30 加，与 v1 同步）。
+     原逻辑只认 'olbr.theme'，没有就一律浅色，系统深色的用户首帧会被闪白。
+     新逻辑：有 'olbr.theme' → 用它；没有 → 用 prefers-color-scheme。
+     ⚠️ 与 assets/olbr.js 的 setTheme()/detectTheme() 是一套，改这里要同改那边。 */
   try {
-    if (localStorage.getItem('olbr.theme') === 'dark') document.documentElement.classList.add('dark');
+    var saved = localStorage.getItem('olbr.theme');   // 'dark' | 'light' | null
+    var wantDark = saved
+      ? saved === 'dark'
+      : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if (wantDark) document.documentElement.classList.add('dark');
   } catch (e) { /* ignore */ }
   document.documentElement.setAttribute('lang', guessLang() === 'en' ? 'en' : 'zh-CN');
 })();

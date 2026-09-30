@@ -112,9 +112,25 @@
       navigator.userLanguage || 'zh') + '';
     return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
   }
+  /* 主题判定（2026-09-30 加），与 index.html 首帧脚本**同一套规则**：
+     用户显式选择（localStorage 'olbr.theme'）优先；未选择时跟随系统
+     prefers-color-scheme。首帧脚本已经据此把 .dark 类落到 <html> 上，
+     所以这里正常情况直接读类即可；下面这个函数只在「类没落上」时兜底
+     （例如首帧脚本被内容安全策略/异常挡掉），返回值与首帧脚本保持一致。
+     ⚠️ 改这里必须同改 index.html <head> 里那段（两边不一致会闪一下另一种主题）。 */
+  function hasThemeChoice() {
+    var v = null;
+    try { v = ls('olbr.theme', null); } catch (e) { /* ignore */ }
+    return v === 'dark' || v === 'light';
+  }
+  function detectTheme() {
+    if (root.classList.contains('dark')) return 'dark';
+    if (hasThemeChoice()) return ls('olbr.theme', 'light') === 'dark' ? 'dark' : 'light';
+    return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
   var state = {
     lang: detectLang(),
-    theme: root.classList.contains('dark') ? 'dark' : 'light',
+    theme: detectTheme(),
     q: '', group: 'all', status: 'all',
     user: null, authOk: false, booted: false, userMenuOpen: false,
     /* 登录闸门的两态（2026-09-25 加）：
@@ -1233,7 +1249,14 @@
       : '<div class="qc-card qc-card--rich' + (na ? ' is-na' : '') + '" title="' + esc(tip) + '">';
     var close = spec.page ? '</a>' : '</div>';
     return open +
-      '<div class="qc-ttl"><b>' + esc(name) + '</b><i>' + esc(spec.unit) + '</i></div>' +
+      /* 卡名加 title：英文名较长（如 "Valid Throughput of Video Download"），
+         而 .qc-ttl b 是 nowrap + ellipsis（窄卡必然截断成 "Valid Throughput o…"）。
+         悬停在**卡名本身**上显示全文，补足被省略号切掉的部分。
+         ⚠️ 这里的 title 覆盖外层卡片已有的提示 —— 那是刻意的：
+            鼠标落在卡名上时，用户想看的正是"这个被截断的标题全称"，
+            而不是整卡的说明；移出卡名、落到卡面别处时，外层提示照常。
+         同理见下方 kpiCardHtml 的可用率卡。 */
+      '<div class="qc-ttl"><b title="' + esc(name) + '">' + esc(name) + '</b><i>' + esc(spec.unit) + '</i></div>' +
       '<div class="qc-val"><span>' + esc(val(latest && latest.value, true)) + '</span>' +
         '<em>' + esc(spec.unit) + '</em></div>' +
       '<div class="qc-asof">' + esc(tf('kpi.asofFmt', { d: dateOf(latest), a: asOf || '—' })) + '</div>' +
@@ -1308,7 +1331,9 @@
          .qc-hd 这层仍然保留：它是卡内唯一撑满整宽的行，
          .qc-name 的单行省略依赖它给的 min-width:0。 */
       '<span class="qc-hd">' +
-        '<span class="qc-name">' + esc(o.name) + '</span></span>' +
+        /* 同 kpiRichHtml 的 .qc-ttl b：.qc-name 也是 nowrap+ellipsis，
+           卡名过长会被截断，故补 title 显示全文。 */
+        '<span class="qc-name" title="' + esc(o.name) + '">' + esc(o.name) + '</span></span>' +
       '<span class="qc-numrow"><span class="qc-num' + (o.na ? ' is-na' : '') + '">' +
         esc(o.value) + (o.unit ? '<span class="qc-unit"> ' + esc(o.unit) + '</span>' : '') + '</span></span>' +
       /* 趋势位（2026-09-25 加）：可用率卡此前没有走势，比同排富卡片矮 70+px。
@@ -1623,14 +1648,24 @@
         esc(win == null ? '—' : String(win)) + '</b><span>' + esc(t('kpi.mm.days')) + '</span></div>' +
       '<div><span>' + esc(t('kpi.mm.cover')) + '</span><b>' +
         esc(kpiNum(covered, 0)) + '</b><span>' + esc(t('kpi.mm.days')) + '</span></div>' +
-      /* 数据来源标识：与 Ookla 那张 logo 同一格、同一用意（说明这卡从哪来），
-         它是纯文字徽章而不是图片 —— 这里没有可用的品牌资产，
-         也不该拿 Ookla 的标识去标一份非 Ookla 的数据。 */
-      '<span class="bf-src">' + esc(t('kpi.mm.src')) + '</span>' +
+      /* 第三格按**数据源**分两种（2026-09-30 按用户要求）：
+         · 速率 / 综合评分 来自 Meta 基准报告 → 放 META_LOGO 标识，
+           与左边 3 张 Ookla 卡的 Ookla 标识同一格、同一用意（说明这卡从哪来）；
+           图形不带 aria-label，名字由外层 role="img" 给（与 speedCardHtml 同做法）；
+         · BP 是**网络侧 KPI**（Radio 侧 FDD 指标），不属于 Meta 报告那组指标 →
+           纯文字徽章。它没有可用的品牌资产，也**绝不能**拿 Meta 的标识去标一份
+           非 Meta 报告的指标。 */
+      (spec.kind === 'brand'
+        ? '<span class="bf-metalogo" role="img" aria-label="' +
+            esc(t('kpi.mm.srcAlt')) + '">' + DATA.META_LOGO + '</span>'
+        : '<span class="bf-src">' + esc(t('kpi.mm.srcNet')) + '</span>') +
     '</div>';
     /* tooltip 的顺序：来源 → 这个数是什么 → 窗口与覆盖面 → 空数据 → 打开哪一页。
-       与 Ookla 卡同一套顺序，用户在两张卡上看到的解释次序是一致的。 */
-    var tip = [tf('kpi.mm.tipName', { n: name, u: unit }), t('kpi.mm.tipSrc')];
+       与 Ookla 卡同一套顺序，用户在两张卡上看到的解释次序是一致的。
+       来源那一句按 kind 分两种：BP 卡若沿用 Meta 报告那句，
+       就会出现"徽章写网络侧 KPI、悬停说 Meta 报告"的自相矛盾。 */
+    var tip = [tf('kpi.mm.tipName', { n: name, u: unit }),
+               spec.kind === 'brand' ? t('kpi.mm.tipSrc') : t('kpi.mm.tipSrcNet')];
     if (spec.kind === 'network') tip.push(t('kpi.mm.tipBp'));
     if (spec.key === 'scores') {
       tip.push(t('kpi.mm.tipScore'));
@@ -5708,6 +5743,28 @@
       state.q = ''; state.group = 'all'; state.status = 'all'; qEl.value = ''; render();
     });
     $('#themeBtn').addEventListener('click', function () { setTheme(state.theme === 'dark' ? 'light' : 'dark'); });
+
+    /* 系统主题跟随（2026-09-30 加）：用户**没有**显式选择过主题时，页面跟着
+       操作系统的深色/浅色偏好走。三个前提，缺一不可：
+       ① 只在「无选择」时跟随 —— 一旦用户点过主题按钮，'olbr.theme' 有值，
+          这里就再也不会覆盖他的选择（setTheme 已写该键）；
+       ② 用 addEventListener('change') 而不是轮询 —— matchMedia 变化时才回调；
+       ③ 兜一层 typeof 判断：老浏览器 / 无 matchMedia 环境直接跳过，
+          不影响页面其余部分（宁可不动，也不要因为装饰性能力报错）。
+       为什么需要「运行期」跟随而不是只在首帧：用户把系统切到深色时，
+       本页若正开着，应当即时响应，而不是要刷新才变。 */
+    if (window.matchMedia) {
+      try {
+        var mqDark = window.matchMedia('(prefers-color-scheme: dark)');
+        var onSysTheme = function (ev) {
+          if (hasThemeChoice()) return;              // 用户已选，尊重选择
+          var want = ev.matches ? 'dark' : 'light';
+          if (want !== state.theme) setTheme(want);  // setTheme 会同步图标/地图/报告文件
+        };
+        if (mqDark.addEventListener) mqDark.addEventListener('change', onSysTheme);
+        else if (mqDark.addListener) mqDark.addListener(onSysTheme);  // Safari < 14 回退
+      } catch (e) { /* matchMedia 不可用则静默跳过，不影响页面 */ }
+    }
     $$('.mast .seg-b[data-lang]').forEach(function (b) {
       b.addEventListener('click', function () { setLang(b.getAttribute('data-lang')); });
     });

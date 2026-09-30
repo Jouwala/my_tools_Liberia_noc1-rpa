@@ -6,7 +6,7 @@
 
 ## 一、进度快照
 
-门户处于**活跃开发中**。近期已连续完成：QC 看板改版与指标快照历史、MS KPI/SP 报表与 UME 大屏接口、看板深色改版、静态资源补全（消除 404）、FME 工程师排名、GIS 站点下钻图表拆分、QC 弹窗拖拽。
+门户处于**活跃开发中**。近期已连续完成：QC 看板改版与指标快照历史、MS KPI/SP 报表与 UME 大屏接口、看板深色改版、静态资源补全（消除 404）、FME 工程师排名、GIS 站点下钻图表拆分、QC 弹窗拖拽、`/v1/olbrportal/` 样式系统字号令牌化与系统主题跟随（详见 `architecture.md` 九之四）。
 
 | 模块 | 状态 |
 | --- | --- |
@@ -78,6 +78,11 @@
 - [ ] **`MsPortal\` 的 `_bak_*` 备份治理。** 已积累 20+ 个时间戳备份（`index.html_bak_*`、`viewer.html_bak_*` 等）。建议定期归档，避免目录过噪。
 
 - [ ] **三份专项记录归档决策。** `MsPortal\` 下 QC 优化建议、三列对齐、配色对齐三份文档记录的是**已完成**的设计决策，考虑合并结论进 `DESIGN.md` 后归档。
+
+- [ ] **`/v1/olbrportal/` 死规则去留（2026-09-30 登记）。** `v1/olbrportal/assets/olbr.css` 里有一批「v1 无命中、但为与 `/olbrportal/`(v0) 保持类名对照而保留」的规则：等级徽章 `.qc-lv-*`/`.qc-lvchip`、`.qc-ico`、`.qc-card--lg/--sm`、L0/L1 的 `.stage`/`.vcol`/`.l0-col`/`.view-1`/`.tabs-v`/`.tabv`/`.subs-v`/`.subv`、旧抽屉 `.drawer`/`.dr-*`/`.scrim`（完整清单见 `olbr.css` 头部「无命中规则清单」）。
+      **阻塞**：v0 侧仍在用同名类（其 `renderViews()` 会调 `subLocatorHtml`/`subManageHtml` 画 `.subs-v`/`.subv`）。**验收**：先确认两门户**不再需要**类名对照，才整块删除；删除属「改结构」，需单独评审。
+
+- [ ] **v1 顶栏 rem 的路线选择（2026-09-30 登记）。** `v1/olbrportal/assets/masthead.css` 全用 `rem`，但 v1 不加载 `portal.js`（根字号缩放逻辑在 `MsPortal/assets/portal.js:1167`），故 rem 在 v1 **等效 px**。两条路二选一：① 在 `olbr.js` 落地字号缩放（照抄 portal.js 系数）让 rem 真正生效；② 把顶栏 rem 全量换算回 px（视觉不变，但放弃缩放可能性）。**当前保持 rem 不动**（文件头已注明真相）。**验收**：选定一条后同步更新 `masthead.css` 头部注释。
 
 ## 五、待定 —— 需决策
 

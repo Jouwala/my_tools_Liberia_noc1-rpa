@@ -49,8 +49,20 @@
     var nav = (navigator.language || navigator.userLanguage || 'zh') + '';
     return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
   }
+  /* 主题：**用户显式选择优先，未选择时跟随系统**（2026-09-30 加）。
+     原逻辑只认 localStorage 里的 'olbr.theme'，没有就一律浅色 ——
+     于是系统是深色主题的用户第一次打开会被闪一下白底。
+     新逻辑：读得到 'olbr.theme'（用户点过主题按钮留下的）→ 用它；
+             读不到 → 用 matchMedia('(prefers-color-scheme: dark)') 跟随系统。
+     ⚠️ 与 olbr.js 的 setTheme()/state.theme 是一套：那边 state.theme 直接读
+        root 上的 .dark 类，所以只要这里在首帧把类设对，运行期就自动一致。
+        改本段判定必须同改 olbr.js 的 detectTheme()（约 L118 起）。 */
   try {
-    if (localStorage.getItem('olbr.theme') === 'dark') document.documentElement.classList.add('dark');
+    var saved = localStorage.getItem('olbr.theme');   // 'dark' | 'light' | null
+    var wantDark = saved
+      ? saved === 'dark'
+      : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if (wantDark) document.documentElement.classList.add('dark');
   } catch (e) { /* ignore */ }
   document.documentElement.setAttribute('lang', guessLang() === 'en' ? 'en' : 'zh-CN');
 })();

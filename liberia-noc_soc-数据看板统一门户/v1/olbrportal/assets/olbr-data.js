@@ -384,12 +384,27 @@ window.OLBR_DATA = (function () {
          而这份数据是导入快照（实测数据截至 2026-09-23），最近几天根本没有数 ——
          不写清楚，读者会以为大数字覆盖了整整 30 天。 */
       'kpi.mm.win': '统计窗口', 'kpi.mm.days': '天', 'kpi.mm.cover': '覆盖',
-      /* 页脚第三格的数据来源标识。与 Ookla 那个 logo 同一个位置、同一个用意
-         （说明这 3 张卡的数从哪来），但它没有可用的品牌资产，所以是纯文字徽章。 */
-      'kpi.mm.src': 'Meta 报告',
+      /* 页脚第三格：Meta 那两张卡放**标识**（META_LOGO，见 olbr-data.js 末尾），
+         这个键是它的无障碍名（role="img" 的 aria-label）——
+         与 Ookla 标识同一个做法（图形本身不带 aria-label，名字由外层给）。
+         徽章上不再有文字，所以这个键只出现在读屏与悬停里。 */
+      'kpi.mm.srcAlt': 'Meta 报告',
+      /* BP 那张卡的来源标识（**纯文字**，2026-09-30 按用户要求改）。
+         为什么不是 Meta 报告：BP 与 FDD 吞吐 / PRB 利用率 / 流量 / RRC 用户数
+         是同一组「网络侧 KPI」（Radio 侧 FDD 指标），不属于任何一家；
+         沿用 my_app 对同一组指标的既有叫法（bmm.sec.network），
+         两个门户对同一组指标只有一个名字。 */
+      'kpi.mm.srcNet': '网络侧 KPI',
       'kpi.mm.tipName': '{n}（{u}）',
       'kpi.mm.tipSrc': '数据来源：my_app Meta 基准报告（bm_meta）· meta_data 表（Excel 导入的静态快照）。'
                      + '与左边 3 张 Ookla 卡是**两份不同的数据**，两边的数不可直接比。',
+      /* BP 等网络侧 KPI 的来源，与上面那条**分开写**：它们的来源标识不同
+         （网络侧 KPI ≠ Meta 报告），用同一句话会出现"徽章写网络侧 KPI、
+         悬停说 Meta 报告"的自相矛盾。 */
+      'kpi.mm.tipSrcNet': '数据来源：网络侧 KPI（BP、FDD 下行吞吐、DL/UL PRB 利用率、流量、RRC 用户数），'
+                        + '属 Radio 侧 FDD 指标，不属于任何一家、不参与 PK 与综合评分。'
+                        + '它与上面两张卡的「Meta 报告」**不是同一组指标**，'
+                        + '门户随 my_app bm_meta 接口的同一份快照取到它。',
       'kpi.mm.tipWin': '大数字是最近 {win} 天窗口内的**区间均值**（逐日均值再平均），不是某一天的快照。',
       'kpi.mm.tipCover': '窗口内真正有数据的是 {n} 天 —— 这份数据是导入快照，数据截至 {d}。',
       'kpi.mm.tipRange': '「区间」是该家**逐日值**的最小 ~ 最大（每格 1 天），'
@@ -407,9 +422,8 @@ window.OLBR_DATA = (function () {
          这张卡没有那个位置，就把平局放进 tooltip 说清楚。 */
       'kpi.mm.tieN': '本窗口打平 {n} 天',
       'kpi.mm.tie0': '本窗口无平局',
-      'kpi.mm.tipBp': 'BP 是**网络侧 KPI**，不属于任何一家（不做两家 PK，也不进综合评分），'
-                    + '所以这张卡里没有品牌行、没有领先方徽章，只有区间均值与逐日区间。'
-                    + '库里存的是小数比率，接口已换算成百分数。',
+      'kpi.mm.tipBp': 'BP 是**网络侧 KPI**，所以这张卡里没有品牌行、没有领先方徽章，'
+                    + '只有区间均值与逐日区间。库里存的是小数比率，接口已换算成百分数。',
       'kpi.mm.rowDays': '{n} 天有数据',
       'kpi.mm.rowScore': '综合评分 {v} {u}',
       'kpi.mm.na': '区间内无数据',
@@ -866,14 +880,30 @@ window.OLBR_DATA = (function () {
          days" while this dataset is an imported snapshot (data ends 2026-09-23),
          so without it a reader assumes the average covers all 30 days. */
       'kpi.mm.win': 'Window', 'kpi.mm.days': 'days', 'kpi.mm.cover': 'Coverage',
-      /* Footer cell 3, the source badge: same slot and same purpose as the Ookla
-         logo (it says where these numbers come from), but there is no usable
-         brand asset, so it is plain text. */
-      'kpi.mm.src': 'Meta report',
+      /* Footer cell 3 on the two Meta cards holds the LOGO (META_LOGO at the end
+         of this file); this key is its accessible name (the role="img" aria-label),
+         exactly like the Ookla badge — the artwork itself carries no aria-label.
+         The badge has no text any more, so this string only surfaces in screen
+         readers and on hover. */
+      'kpi.mm.srcAlt': 'Meta report',
+      /* Source badge of the BP card (plain text, changed 2026-09-30 on request).
+         Why not "Meta report": BP, FDD throughput, PRB utilization, traffic volume
+         and RRC users form one group of network-side KPIs (Radio-side FDD
+         counters) belonging to no operator. Reuses my_app's name for that group
+         (bmm.sec.network) so one group has one name across both portals. */
+      'kpi.mm.srcNet': 'Network-side KPIs',
       'kpi.mm.tipName': '{n} ({u})',
       'kpi.mm.tipSrc': 'Source: my_app Meta benchmark report (bm_meta) · meta_data table (static Excel import). '
                      + 'This is a DIFFERENT dataset from the three Ookla cards on the left; '
                      + 'the two sets of numbers are not directly comparable.',
+      /* Source line for the network-side KPIs, kept SEPARATE from the one above:
+         their source badge differs (Network-side KPIs ≠ Meta report), and sharing
+         one sentence would have the badge say one thing while the tooltip says
+         another. */
+      'kpi.mm.tipSrcNet': 'Source: network-side KPIs (BP, FDD DL IP throughput, DL/UL PRB utilization, traffic volume, RRC users) — '
+                        + 'Radio-side FDD counters that belong to neither operator and are excluded from the head-to-head and the composite score. '
+                        + 'They are NOT the same metric group as the "Meta report" cards above; '
+                        + 'the portal reads them from the same my_app bm_meta snapshot.',
       'kpi.mm.tipWin': 'The big number is the **range average** over the last {win} days (mean of daily means), not a single-day snapshot.',
       'kpi.mm.tipCover': 'Only {n} days in the window actually hold data — this dataset is an imported snapshot, data ends {d}.',
       'kpi.mm.tipRange': '"range" is the min ~ max of **daily values** (one slot per day), '
@@ -886,9 +916,8 @@ window.OLBR_DATA = (function () {
                       + '{tie} Ties count as a win for neither brand on either portal; they are not missing data.',
       'kpi.mm.tieN': '{n} tied days in this window',
       'kpi.mm.tie0': 'no tied days in this window',
-      'kpi.mm.tipBp': 'BP is a **network-side KPI** belonging to neither brand (no head-to-head, not part of the composite score), '
-                    + 'so this card has no brand rows and no leader badge — only the range average and the daily range. '
-                    + 'The database stores a decimal ratio; the API returns a percentage.',
+      'kpi.mm.tipBp': 'BP is a **network-side KPI**, so this card has no brand rows and no leader badge — '
+                    + 'only the range average and the daily range. The database stores a decimal ratio; the API returns a percentage.',
       'kpi.mm.rowDays': '{n} days with data',
       'kpi.mm.rowScore': 'Composite score {v} {u}',
       'kpi.mm.na': 'No data in range',
@@ -1358,6 +1387,57 @@ window.OLBR_DATA = (function () {
       '</g>' +
     '</svg>';
 
+  /* ---- Meta 基准报告标识（2026-09-30 加）-----------------------------------
+     用户要求「可以放到新增的两个 meta report」并给了参考图：
+     圆标（蓝底 + 白 f）+ Facebook 字标，摆在页脚右侧 —— 与 Ookla 标识同一格、
+     同一用意（说明这张卡的数从哪来）。字标按用户 2026-09-30 的选择写成 **Meta**
+     （与门户既有徽章文案、my_app 页面名「Meta 基准报告」同名，
+     读者在三个地方看到的是同一个来源名）。
+
+     几何取自参考图的实测像素（176×60 的 PNG，逐像素量的）：
+       · 圆标   直径 33（正圆）
+       · 间距   圆标右缘 → 字标左缘 10
+       · 字标   大写高 13、宽 85（那是 "Facebook"；本处字标是 "Meta"，
+                 宽度在**本机页面字体**下实测 18px 时 43.66 → 折到 18.6px 约 45，
+                 用 textLength 锁成 45，见下）
+       · 基线   y=22（= 圆标顶 0 + 实测大写顶 9 + 大写高 13）
+       · 整块   88 × 33
+     viewBox 同样用 **负原点 -0.5**（与 OOKLA_LOGO 同一条理由：
+     外缘正好落在 x=0/y=0 时抗锯齿会各削掉半像素）。
+
+     ⚠️ **这里嵌的是 Simple Icons（CC0）的 facebook.svg 路径，不是 Meta 官方矢量资产。**
+     路径是 24×24 的原始数据、原样内联，只在外层套 scale(1.375) 放大到 33，
+     这样"换成官方资产"只是替换 d 的值，本文件与 olbr.js 都不用动 ——
+     **对外分发/商用前应当换成官方 SVG** 并按 Meta 的品牌规范使用（与 Ookla 那段同一口径）。
+     路径本身把 f **挖空**（描的是一整个圆盘轮廓，f 是其中的缺口），
+     所以下面垫了一个白色圆：不垫的话 f 会露出卡片底色，
+     深色主题下 f 直接变成深色、对比度掉一半。
+     圆盘用 Meta 品牌蓝 #0866FF 固定值，不跟主题走 —— 它是商标的组成部分；
+     字标走 currentColor（主题墨色），因为参考图那份深海军蓝在深色主题下会看不见。
+
+     为什么用内联 SVG 而不是把参考图裁一张 PNG（与 OOKLA_LOGO 完全同一条理由）：
+     PNG 进不了版本库（根 .gitignore 忽略 *.png，换台机器拉下来就丢图），
+     而且参考图把浅色底烤进了像素、深色主题下会是一块白斑。
+
+     刻意**不**画 ® 上标、**不**给 SVG 加 aria-label：
+     前者在页脚实际尺寸下会退化成看不见的灰点；
+     后者由外层 <span class="bf-metalogo" role="img" aria-label="..."> 提供
+     （见 olbr.js 的 metaCardHtml）—— 这个文件是纯数据模块，拿不到 i18n 的 t()。 */
+  var META_LOGO =
+    '<svg class="meta-svg" viewBox="-0.5 -0.5 89 34" focusable="false">' +
+      '<g transform="scale(1.375)">' +
+        /* 白底圆：被上面的路径完整覆盖，只在 f 的缺口处露出来（见文件头的说明）。 */
+        '<circle cx="12" cy="12" r="12" fill="#fff"/>' +
+        '<path fill="#0866FF" d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/>' +
+      '</g>' +
+      /* 字标。字号 18.6 是"大写高 = 参考图实测的 13"反推的
+         （Segoe UI Bold 的大写高约 0.70em），textLength 锁成本机实测自然宽 45：
+         lengthAdjust="spacing" 只调字距、不拉伸字形，
+         换台字体不同的机器时整块外框比例不变、字母也不会粘连。 */
+      '<text x="43" y="22" font-size="18.6" font-weight="700" textLength="45" ' +
+        'lengthAdjust="spacing" fill="currentColor">Meta</text>' +
+    '</svg>';
+
   return {
     S: S, PH: PH,
     T0: T0, T1: T1, T2: T2, AUX_ROWS: AUX_ROWS, OTHER: OTHER, ARCHIVE: ARCHIVE, AUX_TITLES: AUX_TITLES,
@@ -1370,6 +1450,6 @@ window.OLBR_DATA = (function () {
     KPI_RICH: KPI_RICH, KPI_AVAIL_ROWS: KPI_AVAIL_ROWS,
     KPI_SPEED: KPI_SPEED, SPEED_ROW_LABEL: SPEED_ROW_LABEL, BENCH_BRANDS: BENCH_BRANDS,
     KPI_META: KPI_META,
-    OOKLA_LOGO: OOKLA_LOGO
+    OOKLA_LOGO: OOKLA_LOGO, META_LOGO: META_LOGO
   };
 })();

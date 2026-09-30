@@ -711,22 +711,25 @@ export default function BmMeta() {
         </Space>
       </CardBase>
 
-      {/* ① 两家 PK：综合竞争力评分（两卡等高：verdict 内容少也要与右侧评分卡齐平） */}
+      {/* ①② 两家 PK：结论 / 评分 / 速率均值 / 速率区间 —— 合并成**一行 6 张卡**。
+          此前是两行（结论+评分一行、四张速率卡一行），每张卡只有一两个数字，
+          纵向叠起来后整块很高、卡内大片留白，所以并成一行。
+          列宽：结论卡内容最多（含奖杯与三行文字）给 xl=8，其余五张各 xl=4（8+4×4=24）。
+          align="stretch" + Col 撑高 + 卡片 width:100%：三者缺一不可，否则同排不等高。 */}
       <Row gutter={[12, 12]} align="stretch" style={{ marginBottom: 12 }}>
-        <Col xs={24} lg={12} style={{ display: 'flex' }}>
+        <Col xs={24} lg={12} xl={8} style={{ display: 'flex' }}>
           <CardBase title={t('bmm.card.verdict')} level={verdict?.brand ? 'ok' : 'default'}
             style={{ width: '100%' }}>
             {verdict?.brand ? (
-              /* 结论卡内容少、左侧会留大片空白（右卡有两行大数字撑着）。
-                 这里用「奖杯徽章 + 领先方 + 两行支撑数据」把纵向空间填起来：
-                 奖杯是"谁赢了"的直观锚点，下面两行给出赢在哪、赢多少，避免只有一行文字。 */
-              <Row align="middle" gutter={16} style={{ height: '100%', minHeight: 108 }}>
+              /* 结论卡：奖杯徽章 + 领先方 + 分差 + 胜场胜率（可下钻），
+                 用真实数据填满纵向空间，避免只有一行文字时显得空旷。 */
+              <Row align="middle" gutter={16} style={{ height: '100%' }}>
                 <Col flex="none">
                   <div
                     style={{
-                      width: 72, height: 72, borderRadius: 18,
+                      width: 64, height: 64, borderRadius: 16,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 38, lineHeight: 1,
+                      fontSize: 34, lineHeight: 1,
                       color: brandColor(verdict.brand, isDark),
                       background: `color-mix(in srgb, ${brandColor(verdict.brand, isDark)} 16%, transparent)`,
                       boxShadow: `inset 0 0 18px color-mix(in srgb, ${brandColor(verdict.brand, isDark)} 22%, transparent)`,
@@ -740,7 +743,7 @@ export default function BmMeta() {
                     {t('bmm.verdict.winnerLabel')}
                   </Text>
                   <div style={{
-                    fontSize: 26, fontWeight: 700, lineHeight: 1.2,
+                    fontSize: 24, fontWeight: 700, lineHeight: 1.2,
                     color: brandColor(verdict.brand, isDark),
                   }}>
                     {t(brandLabelKey(verdict.brand))}
@@ -749,7 +752,7 @@ export default function BmMeta() {
                     {t('bmm.verdict.lead', { n: num(verdict.diff, 1) })}
                   </Text>
                   {/* 赢在哪：胜场对比，数字可点下钻，与其它区块口径一致 */}
-                  <div style={{ marginTop: 6, fontSize: 12 }}>
+                  <div style={{ marginTop: 4, fontSize: 12 }}>
                     <a
                       onClick={(e) => void openDrill(
                         { metric: 'speed', winner: verdict.brand as BrandKey },
@@ -771,9 +774,11 @@ export default function BmMeta() {
             )}
           </CardBase>
         </Col>
-        <Col xs={24} lg={12} style={{ display: 'flex' }}>
+
+        {/* 综合评分（两家并排），窄列下由上下双栏改为紧凑纵排以免挤压 */}
+        <Col xs={24} lg={12} xl={4} style={{ display: 'flex' }}>
           <CardBase title={t('bmm.card.scores')} style={{ width: '100%' }}>
-            <Row gutter={12} align="stretch">
+            <Row gutter={8} align="stretch" style={{ height: '100%' }}>
               {(['ORANGE', 'MTN'] as BrandKey[]).map(b => (
                 <Col span={12} key={b} style={{ display: 'flex' }}>
                   <div
@@ -782,16 +787,20 @@ export default function BmMeta() {
                       `${t(brandLabelKey(b))} · ${t('bmm.drill.winDays')}`,
                       e,
                     )}
-                    style={{ cursor: 'pointer', textAlign: 'center', padding: '8px 0', width: '100%' }}
+                    style={{
+                      cursor: 'pointer', textAlign: 'center', width: '100%',
+                      display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                    }}
                   >
-                    <div style={{ color: brandColor(b, isDark), fontWeight: 600, marginBottom: 4 }}>
+                    <div style={{ color: brandColor(b, isDark), fontWeight: 600, fontSize: 12 }}>
                       {t(brandLabelKey(b))}
                     </div>
-                    <div style={{ fontSize: 30, fontWeight: 700 }}>{num(scores?.[b]?.score, 1)}</div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {t('bmm.card.winDaysFmt', {
+                    <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.2 }}>
+                      {num(scores?.[b]?.score, 1)}
+                    </div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {t('bmm.card.winDaysShort', {
                         w: String(b === 'ORANGE' ? wins?.orange_wins ?? 0 : wins?.mtn_wins ?? 0),
-                        d: String(wins?.paired_days ?? 0),
                       })}
                     </Text>
                   </div>
@@ -800,18 +809,14 @@ export default function BmMeta() {
             </Row>
           </CardBase>
         </Col>
-      </Row>
 
-      {/* ② 两家 PK：速率汇总卡（均值 / 极值，全部可点下钻）
-          align="stretch" + Col 撑高 + 卡片 height:100%：三者缺一不可，
-          否则同一行里「有副标题的卡」会比「没有副标题的卡」高出一行。 */}
-      <Row gutter={[12, 12]} align="stretch" style={{ marginBottom: 12 }}>
+        {/* 速率均值 + 区间：四张卡并排 */}
         {(['ORANGE', 'MTN'] as BrandKey[]).map(b => {
           const s = summary?.[b]
           const isLeader = speedLeader === b
           const winCount = b === 'ORANGE' ? wins?.orange_wins ?? 0 : wins?.mtn_wins ?? 0
           return (
-            <Col xs={24} md={12} xl={6} key={b} style={{ display: 'flex' }}>
+            <Col xs={24} sm={12} md={12} xl={4} key={`avg-${b}`} style={{ display: 'flex' }}>
               <StatCard
                 title={`${t(brandLabelKey(b))} · ${t('bmm.metric.speed')}`}
                 value={num(s?.speed)}
@@ -820,12 +825,8 @@ export default function BmMeta() {
                 iconBg={brandColor(b, isDark)}
                 style={{ width: '100%' }}
                 subText={isLeader
-                  ? `${t('bmm.card.leaderTag')} · ${t('bmm.card.winDaysFmt', {
-                    w: String(winCount), d: String(wins?.paired_days ?? 0),
-                  })}`
-                  : t('bmm.card.winDaysFmt', {
-                    w: String(winCount), d: String(wins?.paired_days ?? 0),
-                  })}
+                  ? `${t('bmm.card.leaderTag')} · ${t('bmm.card.winDaysShort', { w: String(winCount) })}`
+                  : t('bmm.card.winDaysShort', { w: String(winCount) })}
                 onClick={(e) => void openDrill(
                   { metric: 'speed', winner: b },
                   `${t(brandLabelKey(b))} · ${t('bmm.drill.winDays')}`,
@@ -835,26 +836,18 @@ export default function BmMeta() {
             </Col>
           )
         })}
-        <Col xs={24} md={12} xl={6} style={{ display: 'flex' }}>
-          <StatCard
-            title={`${t('bmm.card.rangeLabel')} (${t('bmm.brand.orange')})`}
-            value={`${num(summary?.ORANGE?.speed_min, 1)} ~ ${num(summary?.ORANGE?.speed_max, 1)}`}
-            accentColor={brandColor('ORANGE', isDark)}
-            iconBg={brandColor('ORANGE', isDark)}
-            style={{ width: '100%' }}
-            onClick={(e) => void openDrill({ metric: 'speed' }, `${t('bmm.brand.orange')} · ${t('bmm.metric.speed')}`, e)}
-          />
-        </Col>
-        <Col xs={24} md={12} xl={6} style={{ display: 'flex' }}>
-          <StatCard
-            title={`${t('bmm.card.rangeLabel')} (${t('bmm.brand.mtn')})`}
-            value={`${num(summary?.MTN?.speed_min, 1)} ~ ${num(summary?.MTN?.speed_max, 1)}`}
-            accentColor={brandColor('MTN', isDark)}
-            iconBg={brandColor('MTN', isDark)}
-            style={{ width: '100%' }}
-            onClick={(e) => void openDrill({ metric: 'speed' }, `${t('bmm.brand.mtn')} · ${t('bmm.metric.speed')}`, e)}
-          />
-        </Col>
+        {(['ORANGE', 'MTN'] as BrandKey[]).map(b => (
+          <Col xs={24} sm={12} md={12} xl={4} key={`range-${b}`} style={{ display: 'flex' }}>
+            <StatCard
+              title={`${t('bmm.card.rangeLabel')} (${t(brandLabelKey(b))})`}
+              value={`${num(summary?.[b]?.speed_min, 1)} ~ ${num(summary?.[b]?.speed_max, 1)}`}
+              accentColor={brandColor(b, isDark)}
+              iconBg={brandColor(b, isDark)}
+              style={{ width: '100%' }}
+              onClick={(e) => void openDrill({ metric: 'speed' }, `${t(brandLabelKey(b))} · ${t('bmm.metric.speed')}`, e)}
+            />
+          </Col>
+        ))}
       </Row>
 
       {/* ③ 网络侧 KPI 汇总卡（不属于任何一家，单独一组） */}

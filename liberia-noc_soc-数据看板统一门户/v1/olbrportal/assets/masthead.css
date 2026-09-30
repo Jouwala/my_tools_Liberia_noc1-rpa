@@ -454,7 +454,13 @@ html body > header.mp-mast .mp-title { color: var(--mp-ink); }
 /* 时钟：由 olbr.js 写入 YYYY-MM-DD HH:mm:ss，这里只管样子
    （MsPortal 那边是 portal.js 的 #clock，语义相同） */
 .mp-clock {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* 2026-09-30：补齐 "Cascadia Mono" 并与 olbr.css 的 --mono 保持同一个栈 ——
+     原先这里少了 Cascadia Mono（Windows 新版默认终端字体），于是时钟的等宽
+     字体在 Win11 上会落到 Menlo(不存在)→Consolas，与页面正文数字（走 --mono、
+     含 Cascadia）**不是同一款字形**，同一屏上的数字观感不一致。
+     这里不写 var(--mono) 是为了保留本文件"可被 MsPortal 复用"的自包含性
+     （MsPortal 不加载 olbr.css，没有 --mono）；但栈的内容与 --mono 逐项对齐。 */
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
   font-size: .8125rem;
   letter-spacing: .01em;
   line-height: 1;
@@ -567,7 +573,8 @@ html.dark body > header.mp-mast .icon-btn .ic-moon { display: none; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* 同 .mp-clock：补齐 Cascadia Mono，与 --mono 对齐（见该处说明）。 */
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
   font-size: .75rem;
 }
 .mp-user-role {

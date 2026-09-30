@@ -96,9 +96,22 @@
       navigator.userLanguage || 'zh') + '';
     return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
   }
+  /* 主题判定（2026-09-30 加，与 v1 同步）：用户显式选择优先，未选择时跟随系统。
+     与 index.html 首帧脚本同一套规则；正常情况首帧已把 .dark 落到 <html>，
+     这里读类即可，函数只在类没落上时兜底。改这里要同改 index.html 那段。 */
+  function hasThemeChoice() {
+    var v = null;
+    try { v = ls('olbr.theme', null); } catch (e) { /* ignore */ }
+    return v === 'dark' || v === 'light';
+  }
+  function detectTheme() {
+    if (root.classList.contains('dark')) return 'dark';
+    if (hasThemeChoice()) return ls('olbr.theme', 'light') === 'dark' ? 'dark' : 'light';
+    return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
   var state = {
     lang: detectLang(),
-    theme: root.classList.contains('dark') ? 'dark' : 'light',
+    theme: detectTheme(),
     q: '', group: 'all', status: 'all',
     user: null, authOk: false, booted: false,
     /* 登录闸门的两态（2026-09-25 加）：
@@ -4815,6 +4828,21 @@
       state.q = ''; state.group = 'all'; state.status = 'all'; qEl.value = ''; render();
     });
     $('#themeBtn').addEventListener('click', function () { setTheme(state.theme === 'dark' ? 'light' : 'dark'); });
+
+    /* 系统主题跟随（2026-09-30 加，与 v1 同步）：无显式选择时跟随系统深/浅色。
+       用户一旦点过主题按钮（'olbr.theme' 有值），这里不再覆盖其选择。 */
+    if (window.matchMedia) {
+      try {
+        var mqDark = window.matchMedia('(prefers-color-scheme: dark)');
+        var onSysTheme = function (ev) {
+          if (hasThemeChoice()) return;
+          var want = ev.matches ? 'dark' : 'light';
+          if (want !== state.theme) setTheme(want);
+        };
+        if (mqDark.addEventListener) mqDark.addEventListener('change', onSysTheme);
+        else if (mqDark.addListener) mqDark.addListener(onSysTheme);
+      } catch (e) { /* matchMedia 不可用则静默跳过 */ }
+    }
     $$('.mast .seg-b[data-lang]').forEach(function (b) {
       b.addEventListener('click', function () { setLang(b.getAttribute('data-lang')); });
     });

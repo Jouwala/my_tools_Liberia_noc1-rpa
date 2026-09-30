@@ -27,6 +27,29 @@
    层级），文件里凡保留裸 px 的地方都加了「图标字号」或「特例」注释标明原因。
    详细归并口径见 :root 字阶块处的注释。视觉预期：几乎无变化（只归并了 0.5px
    级别的差），变的是「以后改字号只需动一处」。
+
+   ----------------------------------------------------------------------------
+   附：本文件里「当前没有任何元素会命中」的规则清单（2026-09-30 复核）
+   ----------------------------------------------------------------------------
+   成因：v1 是「只读精简版」，砍掉了 L1 分组页签面板、L0 焦点区、等级徽章、
+   QC 卡图标、右侧滑入抽屉等，但对应 CSS **刻意保留**（不是漏删）——
+   一是为了与 /olbrportal/（v0，那些功能还在用：v0 的 renderViews() 会调
+   subLocatorHtml / subManageHtml 画出 .subs-v/.subv）保持**类名可对照**，
+   二是因为「改版前长什么样」是排查显示问题的第一手依据。
+   以下选择器在 v1 屏幕上不会出现（已逐个对 index.html / olbr.js / olbr-data.js
+   核实：或零引用，或只在注释里出现）：
+     · 等级徽章：.qc-lv-ok / .qc-lv-warn / .qc-lv-crit / .qc-lv-na / .qc-lvchip
+     · 卡内图标盒：.qc-ico
+     · 卡片尺寸类：.qc-card--lg / .qc-card--sm（会盖掉 .qc-num 的 24px，见该处）
+     · L0 焦点区 / L1 页签面板：.stage / .vcol / .l0-col / .view-1 / .tabs-v /
+       .tabv / .subs-v / .subv（及 .sub-t/.sub-x/.sub-add/.sub-i 等子控件）
+     · 旧右侧抽屉：.scrim / .drawer / .dr-head / .dr-sub / .dr-tools / .dr-body /
+       .dr-foot / .dr-empty
+   判定：**保留**。它们不执行、不影响性能与首屏；删掉反而破坏与 v0 的对照约定，
+   且 v0 侧仍在用同名类。将来若确定两门户不再需要对照，可整块删除 —— 但那是
+   「改结构」不是「优化」，需单独评审（见 docs/architecture.md 九之四）。
+   ⚠️ 别被"占位"误导：.map-slot / .email-slot 是**活的**（index.html 在用），
+      不在本清单里。
    ========================================================================== */
 
 /* --------------------------------------------------------------- tokens --
@@ -52,7 +75,7 @@
      这里按"同一个标识、两套底色"处理，而不是把深蓝硬画在深底上看不见。
      ⚠️ 改这里等于改品牌标识的呈现，别顺手把它并进 --t1：
      --t1 是正文色（深色侧是近白），标识需要一个**品牌色**，两者语义不同。 */
-  --ookla-ink: #172143;
+  --logo-ink: #172143;
 
   --bg: #eaf7fb;
   --bg-deco: radial-gradient(circle at 15% 5%, rgba(103, 232, 249, .36), transparent 28rem),
@@ -163,7 +186,9 @@
         同层。图标字号另有一套 **--icon-***（见本块末尾），两者刻意分开。
      ⚠️ 六个入口卡不以本表为准：它们在自己的 .v6-grid 作用域内重定义这套令牌
         （见 .v6-grid 处的说明），字号仍随 --v6-k 缩放，但**引用的是同一批名字**。 */
-  --fs-2xs: 10px;    /* 角标 / 时间戳 / 口径脚注 */
+  --fs-2xs: 11px;    /* 角标 / 时间戳 / 口径脚注（2026-09-30 由 10px 提到 11px：
+                        10px 已低于中文正文的舒适可读下限，21 处使用点全是角标类
+                        小字，抬高 1px 不改变层级关系、只提升可读性） */
   --fs-xs:  11.5px;  /* 次要标签 / chip 计数 / 表头 */
   --fs-sm:  12.5px;  /* 正文次级：卡名 / 说明 / 表格正文 */
   --fs-md:  14px;    /* 正文 / 控件默认 */
@@ -208,8 +233,8 @@
 html.dark {
   color-scheme: dark;
 
-  /* Ookla 标识在深底上改用浅色（同 --ookla-ink 的说明）。 */
-  --ookla-ink: #ccd9f0;
+  /* 标识在深底上改用浅色（同 --logo-ink 的说明）。 */
+  --logo-ink: #ccd9f0;
 
   --bg: #02050c;
   --bg-deco: radial-gradient(circle at 50% 8%, rgba(0, 127, 255, .14), transparent 32rem),
@@ -627,7 +652,14 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   border-radius: var(--r1);
   color: var(--b); background: var(--b-tint); font-size: var(--fs-md);   /* 图标字号 */
 }
-.v6-t { min-width: 0; font-size: var(--fs-md); font-weight: 700; letter-spacing: var(--ls-tight); }
+/* 六视图卡标题。2026-09-30 修正**层级倒挂**：原先用 var(--fs-md)，在 .v6-grid
+   作用域里被重定义为 21px（= 14×1.5），**比页面分区标题 .band-k(18px) 还大** ——
+   卡片标题盖过分区标题，是「层级倒挂」最伤专业感的一处。
+   现固定为 16px（= --fs-lg 的量级）：分组标题(18) > 卡片标题(16) > 正文(14)，
+   层级方向恢复正确。刻意**不再引用 --fs-md**（那在本作用域里是给图标砖 .v6-ico
+   用的 21px）；用字面 16px 是因为它不参与六卡的 1.5 倍缩放 —— 它是"卡片标题"
+   这一全页统一层级，不该随这块卡单独放大。 */
+.v6-t { min-width: 0; font-size: 16px; font-weight: 700; letter-spacing: var(--ls-tight); }
 /* ⚠️ 2026-09-27：分组说明（gSub，如 "Back Office Expert Support"）在 v1 列头
    **已不再渲染**，所以这里不再有 .v6-t small / .v6-t-top > small 的规则。
    演进过程记一笔，免得后人以为漏写了：
@@ -874,7 +906,11 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    'EFLOW/VMAX/UME' 这类专有缩写压成 'Eflow/Vmax/Ume'，把品牌名改错。
    letter-spacing 同时从 .12em 收到 .02em：宽字距是为「全大写」配的（大写字母
    彼此更难分辨），改回混合大小写后留着会显得松散、也拉长标题占位。 */
-.band-k { font: 700 var(--fs-xl)/var(--lh-solid) var(--sans); letter-spacing: var(--ls-wide); color: var(--title); }
+/* 行高 2026-09-30 由 --lh-solid(1) 改为 --lh-tight(1.25)：分区标题是 18px 的
+   一行文字，行高=1 会让英文字母的下行笔画（g / y / p）贴着行盒底边被裁一点点，
+   尤其 'Daily Operation Overview'、'Network Overview' 这类含 g/y 的标题。
+   1.25 给下行笔画留出呼吸位，同时不改变标题行占位（容器高度由 padding 决定）。 */
+.band-k { font: 700 var(--fs-xl)/var(--lh-tight) var(--sans); letter-spacing: var(--ls-wide); color: var(--title); }
 /* 标题上挂了 title 的（目前只有 CXO Daily Dashboard 的口径说明 kpi.sub）
    给一个「可以悬浮看看」的指针形状。用属性选择器而不是另加类名：
    挂没挂提示是**结构事实**，让样式跟着它走，将来谁加/撤 title 都自动对齐，
@@ -910,7 +946,7 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .band-range-btn {
   display: inline-flex; align-items: center; gap: 4px;
   margin: 0; padding: 0; border: 0; background: none;
-  font: 700 var(--fs-xl)/var(--lh-solid) var(--sans); letter-spacing: var(--ls-wide); color: var(--title);
+  font: 700 var(--fs-xl)/var(--lh-tight) var(--sans); letter-spacing: var(--ls-wide); color: var(--title);
   text-align: left;
   cursor: pointer;
 }
@@ -1211,10 +1247,20 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .bf-hd b {
   /* ⚠️ min-width:0 不能省：flex 子项的默认 min-width 是 auto，
      内容不缩，窄断点（实测 420px 视口、卡宽 169px）下卡名会溢出容器
-     而不是走 ellipsis —— 扫描探针实测 scrollWidth 51 > clientWidth 38。 */
+     而不是走 ellipsis —— 扫描探针实测 scrollWidth 51 > clientWidth 38。
+     ⚠️ 2026-09-30：white-space 由 nowrap 改为 normal（ellipsis 随之删掉）。
+     触发点是 Meta 组那张「综合评分与胜场」：它的英文名照抄 my_app 的
+     bmm.card.scores = "Composite score and wins"，在 420px 视口下
+     （卡宽 169px、可用宽 147px）实测 159px，nowrap 只能显示成
+     "Composite score and …" —— 而本块上面已经立过口径：
+     「窄屏多占一行高度是可接受的代价，而"卡名显示不全"不是」。
+     改成按需折行后：宽卡下本来就只占一行，折行只在真的放不下时发生。
+     实测折出来的那一行落在同排最高的 Ookla 卡（219.5px）之内，**整个栅格行
+     的高度不变**，所以同排六张卡的顶/底基线仍然齐。
+     overflow:hidden 保留作硬兜底（万一某个语言来了一个超长的单字）。 */
   min-width: 0;
   font-size: var(--fs-sm); font-weight: 700; color: var(--t1); letter-spacing: var(--ls-wide);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: normal; overflow: hidden;
 }
 .bf-hd i { font-style: normal; flex: none; font-size: var(--fs-2xs); color: var(--t3); }
 /* 领先方徽章。用 --ok 绿色而不是品牌色：它表达的是"这家在这项上更强"，
@@ -1295,11 +1341,13 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 }
 /* 标识格。flex-basis 取设计宽 106px（= 174:45 的 lockup 在页脚高度下的自然宽），
    可压缩可伸展；min-width:0 保证极端窄卡下它是"按比例缩小"而不是把整行撑破。
-   color 走 --ookla-ink：SVG 内部用的是 currentColor。 */
+   color 走 --logo-ink：SVG 内部用的是 currentColor。
+   2026-09-30：令牌由 --ookla-ink 改名为 --logo-ink（这一格现在有两个标识，
+   Ookla 与 Meta，它们必须同色，见文件头令牌处的说明）。 */
 .qc-ext > .bf-ookla {
   flex: 0 1 106px; min-width: 0; align-self: center;
   display: flex; align-items: center; justify-content: flex-end;
-  color: var(--ookla-ink);
+  color: var(--logo-ink);
 }
 /* width:100% + height:auto：SVG 有 viewBox，浏览器会按 174:45 的固有比例
    算出高度。父格被压缩时整块按比例缩小，永远不溢出。
@@ -1311,11 +1359,12 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    宽度已由 SVG 内的 textLength 锁死，这里只负责字体族/字距的观感。 */
 .bf-ookla .ookla-svg text { font-family: var(--sans); }
 
-/* 页脚第三格的**纯文字**数据来源标识（Meta 基准报告那 3 张卡，2026-09-30 加）。
+/* 页脚第三格的**纯文字**来源徽章（2026-09-30 起只有 BP 那张卡用它，写「网络侧 KPI」）。
    与上面 .bf-ookla 同一格、同一用意：说明这张卡的数从哪来。
-   为什么不是图标：这一组数据来自 my_app 自研的 Meta 基准报告，没有可用的品牌资产；
-   而**绝不能**拿 Ookla 那个标识去标一份非 Ookla 的数据 —— 那是对商标的错误使用，
-   也会让用户把两组数当成同一个来源。
+   为什么 BP 用文字而不是标识：它是**网络侧 KPI**（Radio 侧 FDD 指标），
+   与 Meta 基准报告不是同一组指标，没有对应的品牌资产 ——
+   而**绝不能**拿 Ookla 或 Meta 的标识去标一份不属于它们的数据，
+   那既是对商标的错误使用，也会让用户把不同的数当成同一个来源。
    为什么不用 .bf-ookla 那个类：那个类的 flex-basis 是 106px 的**图形**宽度，
    文字徽章只要自身的自然宽（约 46~66px，中英文不同），套过去会让页脚
    在一行里凭空多出 40px 的压缩量，把左边两格文字压出省略号。 */
@@ -1324,6 +1373,24 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   white-space: nowrap; font-size: var(--fs-2xs); line-height: var(--lh-base);
   border: 1px solid var(--line-2); border-radius: 11px; padding: 1px 8px; color: var(--t3);
 }
+/* 页脚第三格的 **Meta 标识**格（速率 / 综合评分那两张卡，2026-09-30 加）。
+   与 .bf-ookla 同一格、同一用意，也共用同一套 --logo-ink 与"宽度驱动、高度按比例"
+   的缩放方式（见上面 .bf-ookla 那两条注释的完整理由，此处不重复）。
+   ⚠️ 类名刻意**不叫** .bf-meta：那个类已经被卡内每行右侧的小字占用了
+   （见上面 .bf-meta 那条规则），复用会把页脚徽章的样式串到每张卡的正文里 ——
+   而正文小字和页脚徽章是两套完全不同的东西。
+   flex-basis 取 72px：viewBox 是 89:34，按 33px 的圆标对齐 Ookla 标识的
+   实际渲染高（实测 106×27.4px）反推，两块标识在页脚里同高，观感才齐。 */
+.qc-ext > .bf-metalogo {
+  flex: 0 1 72px; min-width: 0; align-self: center;
+  display: flex; align-items: center; justify-content: flex-end;
+  color: var(--logo-ink);
+}
+/* 同 .bf-ookla .ookla-svg：必须"宽度驱动、高度按比例"，
+   写死 height 会让没有固有尺寸的 SVG 退回 300×150、把页脚撑变形。 */
+.bf-metalogo .meta-svg { display: block; width: 100%; height: auto; }
+/* 字标 "Meta" 用页面正文字体渲染（Meta 自有字体拿不到，与 Ookla 那段同一取舍）。 */
+.bf-metalogo .meta-svg text { font-family: var(--sans); }
 
 /* 极窄卡（实测 420px 视口下卡宽只剩 169px、页脚可用宽 149px）：
    「两格文字 88px + 标识 106px」装不下。此时让标识**换行独占一行**并右对齐 ——
@@ -1342,6 +1409,10 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
      与上面就地的 justify-content:flex-end 效果一致 —— 它是 span 不是 flex 容器，
      用不了 justify-content。 */
   .qc-ext > .bf-src { flex: 0 0 100%; }
+  /* Meta 标识同样换行独占一行（72px 比 Ookla 的 106px 窄，但两格中文标签
+     加它就超过 149px 的可用宽）。和 .bf-ookla 一样给 max-width，
+     否则 flex 0 0 100% 会把它拉到整行宽、圆标被放大到失真。 */
+  .qc-ext > .bf-metalogo { flex: 0 0 100%; max-width: 72px; justify-content: flex-end; }
 }
 
 /* 整卡可点的卡片（2026-09-29 加）。
@@ -2001,7 +2072,13 @@ table.grid a:hover { text-decoration: underline; }
 .aux-g { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-content: start; min-width: 0; }
 /* 必须显式写 minmax(0,1fr)：默认那条隐式 auto 轨会被 .lrow 里 nowrap 文本的 min-content
    撑到 357px（列宽只有 253），整页就跟着出横向滚动条。 */
-.aux-h { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); font-weight: 700; letter-spacing: var(--ls-wide); color: var(--t3); padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+/* 辅助区标题。2026-09-30 修正**层级倒挂**：原为 --fs-sm(12.5px)，而它下面的
+   链接行 .lrow 是 --fs-md(14px) —— 标题比正文小，读起来像"标题是脚注"。
+   现在标题升到 --fs-md(14px)，与链接同字号但靠 700 字重 + --ls-wide 字距 +
+   --t3 灰 + 下边框区分层级（同级靠字重/装饰分层，而不是靠"标题更小"）。
+   为何不进一步升到 16px：这组 L2 辅助区本就是"去卡片化"的轻量层级，
+   16px 会与 L1 面板标题(.p-t=16px)抢同一档，反而制造新的层级歧义。 */
+.aux-h { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); font-weight: 700; letter-spacing: var(--ls-wide); color: var(--t3); padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .aux-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .aux-h .cnt { margin-left: auto; }
 .aux-x { display: inline-flex; align-items: center; gap: 4px; flex: none; font: 600 var(--fs-xs)/var(--lh-solid) var(--sans); letter-spacing: var(--ls-wide); color: var(--b-ink); padding: 4px 7px; border-radius: 999px; background: var(--b-tint); transition: background .14s; }
