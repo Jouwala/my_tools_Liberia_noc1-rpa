@@ -34,6 +34,20 @@
 - [ ] **本 8 份文档体系的落地与首轮校验。** 根目录、门户 `docs\`、`Task\my_app\` 三处已建立；待办：确认三处文件名一致、互链可达，并把索引页接进门户导航。
 - [ ] **门户移动端体验复查。** 二维码扫码要求同网段 WiFi，需确认现场网络条件下可用。
 - [ ] **根目录过程产物清理。** 根目录残留大量 `tmp_qc*.txt`（76 个）、`_*` 探针与切片文件，属一次性产物。历史教训见 `7b1d33b`（98 个探针脚本误入库）。**清理前先确认无脚本引用。**
+  > 2026-09-30 复核并扩范围：实测三处都有，`development.md` 自检 ⑥ 已给出可直接跑的命令与基线。
+  > 根目录 78 个 / 359KB（其中 `tmp_qc*` 76 个，与上面一致）；`Task\my_app\` 根目录 4 个
+  > （`_p.py` `_s.py` `_slice1.txt` `_tmp_view.txt` —— 落在 venv 根，正是第四节第 7 条禁止的位置）；
+  > `Task\my_app\log\` 另有 7 个 `_probe_*.txt` / `_procs*.txt`（09-13/09-16）。门户侧已归零。
+  > 计数时**必须排除** `Lib\site-packages\`（numpy/playwright 自己的 `_*` 模块 700+ 个）和
+  > `backend\services\_playwright_utils.py`、`src\pages\_TemplatePage.tsx` 这类带下划线的真源码，
+  > 否则数字全是假的。按既有约定同盘挪进 `_quarantine_*/`，不做删除。
+
+- [ ] **版本库整洁收口（2026-09-30，三件事都只等一次提交）。**
+  1. **39 个运行时文件已退跟踪，但成果只在索引里，会被下一次 `git reset` 冲掉。** 明细：12 个 SQLite 边车（`Task\RAN\*`、`Task\ip_ran\`、`ticket_export_rpa\` 的 `.sqlite3-shm/-wal`）、`Task\my_app\backend\services\battary_kpi_fetch\output_socket\.email_send.lock`、门户 `scripts\whatsapp_analysis\reports\` 的 26 份日报。忽略规则已同时补好（根 `.gitignore` 的 `*.sqlite3-shm/wal` + `*-journal`，门户 `.gitignore` 的 `scripts/whatsapp_analysis/reports/`），**磁盘一个文件都没删**（边车与 27 份报告仍在原位）。教训见 `development.md` 自检 ⑦：本会话第一次做完就被并发会话的 `git reset` 复原过一次。
+     验收标准：`git ls-files -i -c --exclude-standard` 总数 = 3419（隔离桶）+ 32（真源码基线，一条都不许动）= **3451**；`git ls-files` 里不再出现 `sqlite3-shm/wal`、`.email_send.lock`、`whatsapp_analysis/reports/`。
+  2. **`_myapp_trash_20260913` 的 3419 条跟踪 —— 2026-09-30 已 `git rm --cached -r` 退干净，等提交。** 内容实测 3378 个在 `B_portal_profiles\`（Chrome profile 的 woff/ttf、`.tflite`、`.pb`），其余 41 个是 `A_root_junk`/`B_tmp`/`B_outputs` 的转储，没有一个是源码。退跟踪后索引从 4917 降到 **1498**，磁盘 21253 个文件原样不动（该路径是 09-25 建的符号链接，指向 `_quarantine_20260925\_myapp_trash_20260913`，**链接本身要留着** —— 它让历史记忆里记录的还原路径继续可解析）。⚠️ 顺序教训（本次验证过）：必须先 `git rm --cached -r`，再动这个链接；反了的话 git 会把它当普通目录，3419 条变成工作区删除噪声。
+  3. **`Task\_fe_dist` 剪枝**：可达性审计（`node Task\my_app\TMP\_audit_fe_dist.mjs`，只读）2026-09-30 实测总 12889 个文件 / 308.1MB，其中**在用**只有 14 个 HTML 入口 + 79 个可达 chunk（合计 10.3MB），**不可达 chunk 12749 个 / 284.7MB**，按月龄分布为 0-1天 4017 个(86.3MB)、2-7天 5991 个(136.4MB)、8-30天 2741 个(61.9MB) —— 数字每天随构建继续涨。⚠️ 该目录是**线上服务目录**（7090 由 vite preview 读它，`nginx.conf` 里没有它的 alias），只能同盘挪进隔离区、不能删；`emptyOutDir:false` 是实测约束（安全删除钩子会中断 vite 的 `prepare-out-dir`），**不许**改成 true，所以陈旧产物只能靠外部清扫 —— 建议把那个审计脚本升级出 `--prune` 模式与月龄阈值。
+     ⚠️ 两个必须先确认的点：a) 审计的可达集**只跟 `assets/` 引用与相对 chunk import**，`lib\leaflet\*`、`legacy-*.css`、`*.geo.json`、`favicon.*` 这 40 个被单独归到「其他」桶，不在剪枝候选里（好事，别手动把它们加进清单）；b) 挪走孤儿 chunk 会让**浏览器里缓存的旧 `index.html`** 报 404 直到硬刷新 —— 所以首轮只清「月龄 ≥2 天」的，0-1 天那 4017 个留给下一次构建自然淘汰。
 - [ ] **开源许可合规收尾（2026-09-28 核查后的剩余项）。** 已完成：`react-leaflet`（Hippocratic-2.1，非 OSI）连同 `@react-leaflet/core` 一并移除，改为 `Task\my_app\frontend\src\components\LeafletMap.tsx` 的原生 leaflet 封装；`@google/genai`（未使用）与 `@turf/*`（无依赖方）清理；`requirements.lock.txt` 补齐 8 个声明却缺失的运行时依赖。剩余：
   1. `Task\my_app\docs\THIRD-PARTY-NOTICES.md` 需补全 Apache-2.0 / MIT 的署名与许可全文义务，并核对 `xlsx`（SheetJS CDN 版）、`psycopg2-binary`（LGPL，动态链接）两项的表述；
   2. 把许可检查接进 lint / CI，避免再次引入非 OSI 许可（本次即为人工核查才发现）；

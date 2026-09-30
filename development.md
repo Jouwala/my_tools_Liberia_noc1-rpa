@@ -85,8 +85,29 @@ git status --porcelain | Select-String '^\?\?'
 git check-ignore -v Task\_fe_dist\assets\index-xxxx.js
 # ③ 有没有「已被跟踪、但按规则本该忽略」的漂移（输出非空就要处理）
 git ls-files -i -c --exclude-standard
+#    ⚠️ 这条命令的**基线不是 0**，别把它当回归信号一刀切。2026-09-30 实测总数 3451，
+#    由两部分组成，处置方式完全相反：
+#      a) 3419 条 = `_myapp_trash_20260913/`（隔离桶，第四节第 4 条已登记，待整体退跟踪）；
+#      b) 32 条 = **真源码被过宽的根规则误命中**，一条都不许动。按命中规则分组：
+#         `data_base/` 10（`Task\data_base\` 的 cell_group 与 db_writer 系列）、
+#         `*.ico` 8（各看板 favicon）、`*.png` 7（顶栏 logo、leaflet 图层图标）、
+#         `*.svg` 6（frontend/public 图标）、`data/` 1（门户 `src\data\initialDashboards.ts`）。
+#         它们没坏 —— gitignore 本来就不作用于已入库文件，所以是「规则写得比需要的宽，
+#         但历史已入库的源码安然无事」。看到这 32 条就 `git rm --cached` 的话，
+#         换机器 clone 出来就是缺文件破图 / 后端起不来，正是 `AGENTS.md` 第四节第 4 条
+#         反复强调的那个失败模式。
+#    所以正确的读法是：**总数减去 3419 再减去 32，余量才是新漂移**。
+#    分组命令（⚠️ 必须用 `-z`，普通 `git ls-files` 会把中文路径转成八进制引号串，
+#    后面每一步都会对不上）：
+git ls-files -z -i -c --exclude-standard | grep -zv '^_myapp_trash_20260913/' |
+  xargs -0 -n1 git check-ignore --no-index -v | cut -f1 | sed 's/.*gitignore:[0-9]*://' |
+  sort | uniq -c | sort -rn
 # ④ 门户专用：改忽略规则时，.gitignore 与 vite.config.ts 的 server.watch.ignored
 #    是同一套判断的两个副本，必须一起改
+#    （2026-09-30 补：这条不是机械的「两处都写」。同一条规则的**匹配方向**在两边可能不同 ——
+#     根 .gitignore 新加的 SQLite 边车规则就不需要往 watch 清单镜像，因为
+#     `**/scripts/**`、`**/auth-data/**` 早就把那些目录整片忽略了。先查另一侧是否已覆盖，
+#     已覆盖就不要重复登记。）
 # ⑤ 快照有没有混进库（应输出空；规则见根 .gitignore 的「备份文件 / 手工快照」段）
 git ls-files -- ':(glob)**/*_bak_*' ':(glob)**/*.bak' ':(glob)**/*.bak.*' ':(glob)**/*.bak_*' ':(glob)**/*.bak-*'
 #    ⚠️ 陷阱：git check-ignore 对**已被跟踪**的文件一律返回「未忽略」(exit 1)，
@@ -95,16 +116,43 @@ git ls-files -- ':(glob)**/*_bak_*' ':(glob)**/*.bak' ':(glob)**/*.bak.*' ':(glo
 git check-ignore -v --no-index -- Task\my_app\backend\main.py_bak_20260913_authswitch
 # ⑥ 磁盘侧的探针残留（**git 完全看不见它们** —— 规则已生效，所以 ①③⑤ 都是空的，
 #    但 `dir` 照样一屏乱码。只能直接数文件）：
-Get-ChildItem -LiteralPath 'liberia-noc_soc-数据看板统一门户' -Recurse -File |
-  Where-Object { $_.Name -match '^_|^\.?tmp_|^temp_|^seg\d.*\.txt$|^(listing|out)\.txt$' } |
-  Where-Object { $_.FullName -notmatch '\\(node_modules|dist|TMP|\.git)\\' -and
-                 $_.FullName -notmatch '\\(src|server)\\' } | Measure-Object
-#    2026-09-25 归档后基线 = **0**（220 个已整体挪到 `_quarantine_20260925\portal_probes\`，
-#    逐文件明细见该目录下 `_MANIFEST.tsv`）。非 0 就是本次会话又落了新探针，按第四节第 7 条清掉。
+$roots = 'liberia-noc_soc-数据看板统一门户','Task\my_app','.'
+foreach ($r in $roots) {
+  Get-ChildItem -LiteralPath $r -Recurse -File |
+    Where-Object { $_.Name -match '^_|^\.?tmp_|^temp_|^seg\d.*\.txt$|^(listing|out)\.txt$' } |
+    Where-Object { $_.FullName -notmatch '\\(node_modules|dist|TMP|log|\.git|\.venv|venv|Lib|Scripts|__pycache__|browser_session|chrome-win|_quarantine_[^\\]*|_myapp_trash_[^\\]*)\\' } |
+    Where-Object { $_.FullName -notmatch '\\(src|server|backend|frontend)\\' } | Measure-Object
+}
+#    2026-09-30 实测基线：门户 **0**、`Task\my_app` **4**、工作区根 **78**。
+#    门户的 0 是 2026-09-25 归档的结果（220 个挪到 `_quarantine_20260925\portal_probes\`，
+#    逐文件明细见该目录下 `_MANIFEST.tsv`）。后两处**还没有清过**，具体是什么：
+#      - `Task\my_app\` 根目录：`_p.py` `_s.py` `_slice1.txt` `_tmp_view.txt`
+#        —— 正好落在第四节第 7 条禁止的位置（venv 根目录，不是 `TMP\`）。
+#      - 工作区根：`tmp_qc*.txt` 78 个 / 359KB，最大的 7.9KB。
+#      - `Task\my_app\log\` 另有 7 个 `_probe_*.txt` / `_procs*.txt`（09-13/09-16 的），
+#        被上面的 `log` 排除项挡住了，属于「运行日志目录里的探针」，同样该清。
+#    ⚠️ 上面那两条 `Where-Object` 的排除项**不是可选的**，去掉就会拿到假的巨大数字：
+#    `Task\my_app` 是 venv 根，`Lib\site-packages\` 里 numpy/playwright/PIL 自己的
+#    `_*` 模块就有 700+ 个（实测整棵树数出来 820），全是被 git 忽略的第三方包。
+#    同理 `backend\services\_playwright_utils.py`（被 `site_outage_service.py:22` import）、
+#    门户 `src\pages\_TemplatePage.tsx` 都带下划线但是**真源码**，一条都不能算噪声 ——
+#    这也是排除列表里要写 `src|server|backend|frontend` 的原因。
+#    非 0 就是本次会话又落了新探针，按第四节第 7 条清掉。
 #    ⚠️ 上面这段粘进交互控制台可以直接跑；**存成 .ps1 就不行** —— 路径里有中文，
 #    本机 PowerShell 5.1 把无 BOM 的 UTF-8 脚本按 ANSI 读，中文路径会碎成乱码并报
 #    Cannot find path（2026-09-25 实测）。存脚本时先 ASCII 通配定位目录：
 #      Get-ChildItem -LiteralPath 'D:\01_RPA' -Directory | ? { $_.Name -like 'liberia-noc_soc*' }
+# ⑦ 本仓库是**多人 / 多会话共用一个工作区**的，`git rm --cached` 这类只动索引的改动
+#    **不持久**。2026-09-30 实测：本会话在 14:5x 退跟踪 39 个运行时文件并当场验证过
+#    （索引 4956→4917、`git status` 出现 39 条 `D `），15:02:21 另一个会话执行了
+#    `git reset: moving to HEAD` 再提交 `7244412f`，索引被重建，那 39 条**全部回到跟踪状态**，
+#    而新提交里既没有这 39 条删除、也没带上了改动过的 `.gitignore` —— 于是出现
+#    「规则已生效、文件仍被跟踪」的分叉态，比原来更隐蔽。
+#    所以：
+#      a) 做完退跟踪**立刻**重跑 ①③ 复查，不要把成果只留在索引里；
+#      b) 要么当次把它提交掉，要么在 `TODO.md` 留一条待办，否则下一次别人的 reset 就冲没了；
+#      c) `git reflog --date=iso -3` 是判断「 HEAD / 索引是不是被别的会话动过」的最快证据，
+#         数字对不上时先查它，不要以为自己在跟鬼打架。
 ```
 
 可复用的诊断脚本（**不删**，按第四节第 7 条记录用途；都在 `TMP\` 下，不入库）：
@@ -167,6 +215,9 @@ Get-ChildItem -LiteralPath 'liberia-noc_soc-数据看板统一门户' -Recurse -
 | 探针脚本写在仓库根 | 误入库（已有 98 个的历史教训） | 放 `TMP\` |
 | 探针写在门户 `TMP\` 里且带语法错 | **`npm run lint` 直接挂**：根 `tsconfig.json` 没有 `include` 且 `allowJs: true`，tsc 默认收整个项目目录，`exclude` 原本只有 `node_modules/dist/scripts` —— `TMP\` 因此在类型检查范围内（实测 `TMP/probe_color_inventory.cjs` 自 9 月 17 日起就打挂了 lint） | 已在 `exclude` 补 `TMP`/`log`/`auth-data`（2026-09-25）。跑 lint 报错时先确认报错文件属不属于自己这次的改动范围，别顺手改别人的在途代码 |
 | 快照用 `_bak_` 以外的写法命名 | **悄悄入库**。`.gitignore` 原本只有 `*.bak` / `*.bak_*` / `*_bak_*`，实测门户 134 个快照有 5 种写法（`_bak_` 99 / `.bak_` 31 / `.bak-` 2 / `.bak.` 1 / 裸后缀 `qcbak` 1），最后那种连第 ⑤ 条自检的 glob 也一起漏掉，`portal.js.qcbak` 315KB 在 HEAD 里躺到 2026-09-25 | 新快照一律 `_bak_<日期>_<说明>`；命名规则变了要**同时**改 `.gitignore` 和 `vite.config.ts` 的 `server.watch.ignored` |
+| 用 `*.wal` / `*.shm` 挡 SQLite 边车 | **挡不住，12 个边车一直在库里**。边车文件的命名是 `<主库名>-wal` / `<主库名>-shm`，主库叫 `db.sqlite3` 时边车就是 `db.sqlite3-shm` —— 结尾是**连字符**不是点，所以 `*.shm`（要求以 `.shm` 结尾）和 `*.db-shm` 两条都不命中，`git check-ignore -v` 直接无输出。更麻烦的是这类文件**会自己出现又自己消失**：SQLite 在最后一个连接正常关闭时会删掉 `-wal/-shm`，下次连接再重建，于是它们反复生成 ` D` / `??` 噪声（实测 `Task\RAN\db.sqlite3-shm/-wal` 提交时就在 ` D` 状态）。| 根 `.gitignore` 已补 `*.sqlite-shm/wal`、`*.sqlite3-shm/wal`、`*.db-journal`、`*-journal`；判断规则名能不能命中，**拿真实文件名去问 `check-ignore --no-index`**，不要看规则字面像不像 |
+| 运行产出的 `.md` 当文档入库 | **每天 +1 的提交噪声**，还把业务对话内容写进了版本历史。门户 `scripts\whatsapp_analysis\reports\` 由 node-cron 逐日生成，它自己的 README 写着「所有数据只保存在本机（`data\assistant.db` 与 `reports\`）」，实测已有 26 份在库里。同目录的 `data\` 被根规则的 `data/` 挡住了，`reports\` 因为名字里没有 data 而漏网 —— 规则按**目录名关键字**写，就会漏掉语义相同、名字不同的那一个 | 按「是不是运行产出」判，不按扩展名或目录名关键字判；数据类目录一律显式点名（见门户 `.gitignore` 的 `scripts/whatsapp_analysis/reports/`） |
+
 | 把 db/log 加进版本库 | 956M / 152M 进 git | 已被 `.gitignore` 忽略，别绕开 |
 | 模块级 `Path(...).mkdir(exist_ok=True)` 建在 `db\`、`data\` 这类被忽略目录下 | **别人 pull 完后端直接起不来**：全新克隆里没有 `db\`，`import backend.routers.upload` 在 `:20` 抛 `FileNotFoundError`，连 `init_db` 都跑不到（2026-09-27 实测，`routers/mw_links.py:27` 同病） | 一律 `mkdir(parents=True, exist_ok=True)`（Node 侧 `{recursive:true}`）；推送后跑 `Task\my_app\TMP\_pull_readiness_check.py` 验一遍 |
 

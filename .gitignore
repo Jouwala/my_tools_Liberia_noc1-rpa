@@ -25,6 +25,20 @@
 *.shm
 *.db-shm
 *.db-wal
+# 2026-09-30 补：上面 4 条**匹配不到 SQLite 的边车文件**，实测 12 个边车一直挂在版本库里。
+# 原因是命名用的是**连字符**而不是点：`db.sqlite3` 的边车叫 `db.sqlite3-shm` / `db.sqlite3-wal`，
+# 而 `*.shm` 要求文件名以 `.shm` 结尾，`*.db-shm` 要求以 `.db-shm` 结尾，两者都不命中
+# （`git check-ignore -v Task/RAN/db.sqlite3-shm` 无输出，可复现）。
+# 这类文件不是数据、也不是源码：SQLite 在最后一个连接正常关闭时**会自己把它们删掉**，
+# 下次连接再重新生成 —— 实测 `Task/RAN/db.sqlite3-shm/-wal` 就已经是「磁盘已无、仍在跟踪」的
+# ` D` 状态。也就是说它们会自己反复出现和消失，是纯粹的 diff 噪声，永远不该进库。
+# 与根 .gitignore 的 `*.log` 同理，这里补齐三套后缀 + 通用 journal，不留只覆盖一半的写法。
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-shm
+*.sqlite3-wal
+*.db-journal
+*-journal
 data_base/
 *.sql
 
