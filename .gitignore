@@ -247,3 +247,10 @@ Task/nginx_monitor.state
 *.rpltmp
 *.tsbuildinfo
 *.log.err
+
+# ow-bridge/：2026-09-30 落到工作区的 OW-Bridge 0.2.5 桌面端 Electron 发行包
+# （525MB / 510 个文件，其中主程序 `OW-Bridge/OW` 单文件 234MB）。
+# GitHub 的 100MB 单文件上限会直接拒收，整包入库等于把 push 打回；
+# 它是可重新下载的第三方运行产物，不参与本项目任何构建，也不是源码。
+# 只加忽略规则，**不动磁盘** —— 目录留着本机自用。
+/ow-bridge/
