@@ -2137,7 +2137,13 @@ created_time → last_create_time → last_schedule_time → last_accept_time
   说明卡点在审批环节，这正是「流程推进情况」漏斗存在的意义。
 
 
-## 30. BP 劣化小区报告（`?page=bp_report`）—— umlaut 口径的 Bad Performance（2026-09-29 新增，2026-09-30 口径补齐 + 下钻补全）
+## 30. BP Cells Report（`?page=bp_report`）—— umlaut 口径的 Bad Performance（2026-09-29 新增，2026-09-30 口径补齐 + 下钻补全）
+
+> **页面名（2026-09-30 改名）**：原名「BP 劣化小区」/「BP Cells」/「Bad Performance Report」，
+> 按用户要求统一为 **BP Cells Report**（`nav.bpReport` 与 `bp.title` 中英同值）。
+> 与门户 MS View 同栏的 `MS Contract KPIs` / `Availability For MS` 一致，都是产品名、不翻译。
+> 改名已同步站内帮助：标题走 `NAV_KEY_MAP` → `nav.bpReport` 自动跟随，
+> `PAGE_DOCS` 中英两份的 `desc` 与 `helpTaskDocs.ts` 任务名原先写死了旧名，已一并改掉。
 
 把 umlaut 的 BP 报告搬进平台，并从 RAN_UME 增量更新。**本页最大的特点是「三个条件跨两个数据源、
 两种时间粒度」** —— Active User 走独立的小时粒度通道。
@@ -2422,7 +2428,7 @@ Excel `BP Cells List` 的 `Cluster`/`Layer` 列有脏值（如数字 ID `'4593'`
 `GROUP_TASK_MAP` 里的 `bp_report_sync` 即可，**无需 alembic downgrade**（独立库）。
 
 
-## 31. Speedtest 竞对分析（`?page=bm_speedtest`）—— ORANGE vs MTN 两家实测对比（2026-09-30 新增）
+## 31. Speedtest 基准报告（`?page=bm_speedtest`）—— ORANGE vs MTN 两家实测对比（2026-09-30 新增）
 
 把 `speedtest_data` 表里的实测网速数据做成两家的正面对比页，回答「谁更快 / 谁时延更低 /
 领先多少 / 优势在扩大还是在缩小」。这是本平台第一个**纯竞对（两家对比）**视角的页面，

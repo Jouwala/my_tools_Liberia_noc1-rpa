@@ -33,7 +33,7 @@ APScheduler 到点 (backend 进程内)
 | `s` | 1 | SP 备件 SFTP（独立 SFTP 服务器 + UNC 镜像库）。2026-09-27 从 `n` 拆出：它是 `n` 组最大单体负载（实测 347min/天）且是已知挂死源（SFTP channel 读挂死 5.5h 曾拖停整组） | `sp_data_sync` |
 | `w` | 2 | MW UME 微波网管（凭证分组 `mw_ume`），独立会话。2026-09-27 从 `n` 拆出：`mw_ume_kpi_sync_rt` 为 `*/15` 高频任务，此前每次排在 `sp_data_sync` 后，实测队列等待 964s（全场最久） | `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
 | `v` | 3 | VMAX 门户（本机 8790 单会话代理）：三个任务共用同一个 VMAX 会话，必须彼此串行；2026-09-18 从 `n` 组拆出（原先排在 `sp_data_sync` 这类 1.5~2h 长任务后面，小时级采集滞后一个多小时） | `cxo_dashboard_cache_sync`, `vmax_cxo_daily_sync`, `vmax_multi_data_sync` |
-| `m` | 33 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `tt_alarm_whatsapp_alert`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `sp_email_details`, `sp_online_report_generate`, `sp_online_report_send`, `sp_whatsapp_report`, `sp_material_report`, `finebi_report_sync`, `pg_to_sqlite_sync`, `log_cleanup`, `tmp_cleanup`, `mttr_tt_sync`, `progress_sync`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report` |
+| `m` | 34 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `tt_alarm_whatsapp_alert`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `sp_email_details`, `sp_details_files_email`, `sp_online_report_generate`, `sp_online_report_send`, `sp_whatsapp_report`, `sp_material_report`, `finebi_report_sync`, `pg_to_sqlite_sync`, `log_cleanup`, `tmp_cleanup`, `mttr_tt_sync`, `progress_sync`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report` |
 | `c` | 2 | CN EMS 独立会话，两个任务共享 `_pmcache`/`daily_raw.json`，同组保证互斥 | `ems_kpi_cache_sync`, `ems_kpi_daily` |
 
 > **2026-09-27 拆组（`n` → `n`/`s`/`w`）的实测依据**：`n` 组近 24h 单 worker 串行占用
@@ -130,11 +130,12 @@ APScheduler 到点 (backend 进程内)
 | `tt_alarm_whatsapp_alert` | eFlow P1 告警 WhatsApp 推送（**可在「任务配置」页调级别/告警码/时间窗/群组**） | `*/15 * * * *` | m |
 | `cells_kpi_sync` | RAN Cells KPI 同步 | `50 4 * * *` | u |
 | `sp_email_details` | SP 备件明细报表邮件 | `0 7 * * *` | m |
+| `sp_details_files_email` | SP 备件明细分文件邮件（6 份 xlsx 一文件一邮件发 NOC） | `5 10 * * *` | m |
 | `sp_material_report` | SP 物料库存与消耗报表邮件 | `33 7 * * *` | m |
-| `sp_online_report_generate` | SP 在线未关闭单报表生成 | `0 6 * * *` | m |
+| `sp_online_report_generate` | SP 在线未关闭单报表生成（Inbound 读明细 xlsx；**Outbound 读库表 `sp_outbound`**，跟踪等待更新/等待归还/等待确认） | `0 6 * * *` | m |
 | `sp_online_report_send` | SP 在线未关闭单报表发送 | `20 6 * * *` | m |
 | `sp_whatsapp_report` | Comsumables&SpareParts Report Whatsapp | `15 7 * * *` | m |
-| `sp_online_sync` | SP Online 工单同步 | `35 * * * *` | n |
+| `sp_online_sync` | SP Online 工单同步（原始 filter 与状态全集 filter **取并集**，避免过滤条件与返回结果自相矛盾时静默取错数据） | `35 * * * *` | n |
 | `sp_material_sync` | SP 物料主数据同步 | `55 4 * * *` | n |
 | `ume_in_kpi_sync` | 客户业务 KPI 同步 | `45 5 * * *` | n |
 | `ume_in_osg_report` | 客户业务 KPI + OSG 周报邮件 | `30 6 * * *` | n |
@@ -144,52 +145,100 @@ APScheduler 到点 (backend 进程内)
 | `cxo_dashboard_cache_sync` | CXO看板数据缓存同步 | `*/10 * * * *` | v |
 | `vmax_cxo_daily_sync` | VMAX CXO天粒度日值归档 | `15 * * * *` | v |
 | `avail_recon_sync` | 可用率核对宽表重建 | `10 6 * * *` | u |
-| `bp_report_sync` | BP 劣化小区报告更新（RAN_UME 增量 + 周月重算） | `20 6 * * *` | u |
+| `bp_report_sync` | BP Cells Report 更新（RAN_UME 增量 + UME 小时级活跃用户 + 周月重算 + 判定回填） | `20 6 * * *` | u |
 | `tmp_cleanup` | TMP 目录清理 | `47 3 * * *` | m |
 | `mttr_tt_sync` | MTTR/TT 宽表重建 | `40 7 * * *` | m |
 | `progress_sync` | Progress 宽表重建 | `50 7 * * *` | m |
 
-### `sp_data_sync` 的两个已知缺陷（2026-09-27 实测定位）
+### `sp_data_sync` 的镜像问题（2026-09-30 已根治 + 一次 worker 挂死事故）
 
-排查「`n` 组为什么总是堵」时定位到两个独立问题。**缺陷一的"静默"部分已修复，根因待远端处理；
-缺陷二已通过拆组 + 分段计时处理。**
+排查「`n` 组为什么总是堵」时定位到两个独立问题。**缺陷一的根因已在 2026-09-30 查清并
+从代码侧彻底解决（改为本地构建+整文件推送）；缺陷二已通过拆组 + 分段计时处理。**
 
-**缺陷一：FineBI 镜像库自 2026-09-24 起 100% 失败。**
+**缺陷一（已修）：FineBI 镜像库长期写不进去，且会把 worker 永久卡死。**
 
 `sp_data_sync` 的 `result_json` 里有 `mirror_success: false` 与 `mirror_errors`（5 张表全失败），
-`detail` 统一是 `database is locked`（`get_sp_table.py` 的 `_connect_mirror`，
-`MIRROR_BUSY_TIMEOUT_MS=30000`、`MIRROR_RETRIES=2`）。实测 14 天内 **76 次执行、75 次镜像失败**，
-最早一次是 `2026-09-24T12:10`。
+`detail` 统一是 `database is locked`。
 
-根因在**远端主机**，不在本任务：镜像目标
-`\\DESKTOP-D4GF62\...\WareHouseDashBoard\inventory.db` 处于 **WAL 模式且被远端活进程长期持有**。
-2026-09-27 逐项排除后的确切结论：
+> **⚠ 修正 2026-09-27 的结论（当时判断有两处错误）。**
+> 1. **不是「WAL-over-SMB 天生不可用」。** 2026-09-30 实测：在同一 SMB 目录新建库、
+>    甚至把它切成 WAL，只要**没有远端持有者**，本机打开与读写**都正常**。
+> 2. **不是「本仓库无法单方面解决」。** 该结论建立在「`inventory.db` 的唯一写入方就是
+>    my_app」这一错误推断上；实测远端确有其它活进程持库。而绕开它并不需要远端配合。
+
+确切根因：**远端主机上有活进程长期持有该库的 `-shm` 字节范围锁**
+（`inventory.db` 处于 WAL 模式，模式持久化在文件头）。SMB 无法代理这套共享内存语义，
+于是本机**每一次** `sqlite3.connect()` 都被拒 —— 而且是以**永久阻塞**的形式，
+不是抛异常，`timeout` / `busy_timeout` 对它完全没有作用。
+
+2026-09-30 逐项排除后的实测对照：
 
 | 探测 | 结果 | 含义 |
 | --- | --- | --- |
 | 裸 `open()` 读主库 | **成功**（`SQLite format 3`） | 文件本身完好、共享可达 |
 | 复制主库到本机再打开 | **成功**，`journal_mode=wal`，5 张表齐全 | **数据库没坏** |
-| 删除远端 `-shm` / `-wal` | `WinError 33/32` 拒绝 | 远端有活进程正持锁 |
 | 在同一 SMB 目录**新建** sqlite 库 | **成功** | SMB 本身能跑 SQLite |
-| 打开**已存在的 WAL 库** | 失败，`database is locked`（`timeout`=1/30 均失败） | WAL 的共享内存锁在 SMB 上无法建立 |
+| 把该新库切成 WAL 后打开 | **成功** | WAL 本身在 SMB 上可用 |
+| 独占打开远端 `inventory.db-wal` | 被拒（`being used by another process`） | 远端有活进程持锁 |
+| 独占打开远端 `inventory.db-shm` | 被拒（`another process has locked a portion`） | **持的是 `-shm` 字节锁** |
+| 打开生产 `inventory.db` | **立即** `database is locked` | 本机永远连不上 |
+| **整文件 `copyfile` 覆盖生产库** | **成功（即使库正被占用）** | ← 这就是修法的依据 |
 
-结论：**SQLite-WAL over SMB 的架构限制**，不是锁竞争。
-`busy_timeout` 调多大都没用 —— 每次尝试都必然失败。
-真正修复需在**远端侧**改（让写库进程自己在本地落库后导出 `inventory.db`，
-或改为提供接口/定时快照），本仓库无法单方面解决。
+**修法：不再直连远端库，改为「本地构建 + 整文件推送」**
+（`backend/services/sp_mirror_push.py`）。
+在本机临时目录建一个新库（`journal_mode=delete`、单文件），再用 `shutil.copyfile`
+整文件覆盖过去 —— **整文件覆盖不需要 SMB 字节锁**，因此远端持库也不影响。
 
-> **已做的代码侧改进（2026-09-27）**：
+> 关键简化：**不再需要旧的「远端反连接增量追加」**。镜像内容直接取自 `app.db`，
+> 而 `app.db` 的 `inventory_details` 本身就是「历史累计 + 保留期清理」后的全量结果
+> （`get_sp_table._write_table` 的 APPEND 分支已完成合并去重），
+> 因此本地构建出的库与 `app.db` **天然同口径**，比旧实现更简单也更准。
+
+实测效果：本地构建 1.0s + 推送 0.5s（约 90MB/s），**一轮镜像合计约 2s**，
+对比旧路径的「永久阻塞直到人工重启」。同时生产库从 113MB（含 14.7MB 未 checkpoint 的
+`-wal`）降到 47.7MB 单文件，`integrity_check=ok`，`ocrule_details` 表此前在远端**整个缺失**，
+现已补齐。
+
+> **回滚路径**：`sp_sftp_config.json` 的 `mirror_mode` 设为 `"direct"` 可切回旧的直连实现
+> （保留在 `get_sp_table._mirror_write_all_direct`，**默认禁用**）；设为 `mirror_enabled=false`
+> 则完全关闭镜像。
+
+**并发事故（2026-09-30）：镜像挂死会把整组 worker 卡死 6 小时以上。**
+
+09:10 那轮 `sp_data_sync` 卡在镜像阶段，worker 进程 `64468` 一直存活（单线程、CPU 零增长），
+持有远端 `inventory.db` 与 `inventory.db-wal` 句柄。它直到 10:22 服务栈重启才被判失败回收，
+且它持有的句柄让后续每一轮镜像继续撞 `database is locked`。
+任务页面上的报错是 `❌ Worker 进程中断，任务未完成（启动时自动回收）`
+—— **但它并没有"中断"**，pid 一直活着。
+
+对应修复两条：
+
+1. **镜像阶段加进程级硬超时**（`get_sp_table._run_mirror_with_timeout`，
+   `MIRROR_HARD_TIMEOUT_SECONDS=900`）。`sqlite3` 的 `timeout`/`busy_timeout` 管不到
+   SMB 层的 open 与字节锁，所以必须由调用方给上限。
+2. **回收文案区分「进程已失效」与「任务挂死」**（`worker.py`）。旧文案一律写
+   `Worker 进程中断`，而实测那次 pid 存活、真实故障是**任务挂死**——
+   照字面排查会被引向"崩溃"这个错误方向。
+
+> **回滚/排障时注意**：`worker.py` 的时间阈值回收（`TASK_MAX_RUNNING_SECONDS`，默认 4h）
+> 与本次的 15min 镜像硬超时是**两层不同的兜底**，前者兜「任何任务挂死」，后者兜「镜像这一处」。
+
+> **已做的代码侧改进（2026-09-27，保留）**：
 > 1. **不再静默**：镜像失败会追加进 `result["warnings"]`，并由
 >    `task_runner.py` 在 `success=True` 时也消费 warnings 发出**降级告警**
 >    （此前告警只在 `success=False` 触发，所以看板停更半个月而监控全绿）。
-> 2. **诊断可执行**：新增 `_diagnose_mirror_failure()`，主动探测 `-shm` 可开性，
->    把 `database is locked` 翻译成"这是 WAL-over-SMB 架构限制，调超时无效"，
->    避免下一个人继续在超时参数上打转。
-> 3. 守卫用例 `tests/test_engineering_guards.py::test_mirror_failure_is_surfaced_as_warning`
->    钉住上述两条，防止退回静默。
+> 2. **诊断可执行**：`_diagnose_mirror_failure()` 把 `database is locked` 翻译成可执行结论
+>    （其旧文案里"WAL-over-SMB 架构限制、本仓库无法解决"的措辞已按上文更正）。
+> 3. 守卫用例 `tests/test_engineering_guards.py` 的
+>    `test_mirror_failure_is_surfaced_as_warning`、
+>    `test_mirror_never_connects_remote_db_directly`、
+>    `test_mirror_stage_has_hard_timeout`、
+>    `test_worker_recovery_message_distinguishes_hang_from_crash`
+>    钉住上述结论，防止退回静默或退回直连。
 
 > **排查 FineBI 仓库看板数据不动时**：不要只看任务成功状态 —— 看
 > `result_json` 的 `mirror_success`，或看是否收到过 `[降级]` 通知。
+> 2026-09-30 起还可直接看日志里的 `[耗时] 镜像本地构建 Xs` 与 `[镜像] 推送完成`。
 
 > **⚠ 2026-09-28 已修的回归（上面第 2 条改进自己引入的）。** `_diagnose_mirror_failure()`
 > 把诊断**字符串**塞进了 `_mirror_write_all()` 返回值的 `_diagnosis` 键，而消费侧

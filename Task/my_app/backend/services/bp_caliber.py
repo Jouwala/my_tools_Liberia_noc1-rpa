@@ -172,9 +172,15 @@ def assert_no_literal_fallback(rows, columns) -> None:
 # 当前 4G Cell Daily 表里**实际存在**的 UME 源表名
 UME_CELL_TABLE = "4G_Main_Kpi_Cell_Daily"
 
-#: 当前采集端能拿到的 active-user item code。
-#: `None` = 未采集到（现状）。拿到后在 main_kpi_config.json 里加码，此处同步更新。
-ACTIVE_USER_ITEM: Optional[str] = None
+#: active-user 的 UME item code。
+#: 2026-09-30 起由 `bp_active_user` 按**小时粒度**（`gr=3600`）取数，
+#: 并与 PRB/Thr 一起取**同一忙时**（AU 最大小时）的值 —— 不是只对 AU 取峰值。
+#: **注意这三个指标都不能用日均值**：口径标定实测，日均值口径只命中 17 个
+#: 小区（Excel 为 607，差 30 倍），忙时口径才与 Excel 逐小区一致（Jaccard=1.00）。
+#: 该指标不在 `4G_Main_Kpi_Cell_Daily` 里，也加不进去：那张表是日粒度写入的，
+#: 该指标在日粒度下会被 UME **静默丢弃**（原文 `0001610001 ... PDF
+#: counter/indicator dimension is illegal`）。
+ACTIVE_USER_ITEM: Optional[str] = "C373384373"
 
 # ============================================================
 # 四、Excel 侧的结构常量
@@ -356,8 +362,9 @@ def is_bp_month(bp_weeks: int, total_weeks: int = MONTH_TOTAL_WEEKS) -> Optional
 def active_user_status() -> Dict[str, Any]:
     """`Average DL Active User Number` 的采集状态，供 /meta 与页面告警条使用。
 
-    这是页面**必须常驻显示**的口径说明：只要 `available=False`，
-    重算出的 BP 数就只覆盖了两个条件，与 Excel 真值不可直接比较。
+    2026-09-30 起该指标已可取，且与 PRB/吞吐**同忙时**（AU 最大小时），
+    `available=True`。页面告警条仍应显示**口径说明**：三个条件的日值
+    都是忙时值，不是全天平均 —— 与直觉的"日均值"不同，解读时需知道。
     """
     available = ACTIVE_USER_ITEM is not None
     return {
@@ -365,6 +372,13 @@ def active_user_status() -> Dict[str, Any]:
         "item": ACTIVE_USER_ITEM,
         "threshold": THR_ACTIVE_USER,
         "fallback_column": COL_RRC_MAX,
+        "source": "ume_busy_hour" if available else None,
+        "caliber_note": (
+            "日值口径 = 忙时三值：取 AU 最大小时的 PRB / DL 吞吐 / 活跃用户"
+            "三个值判三个条件（UME 小时粒度，gr=3600）。该口径经标定与 "
+            "umlaut Excel 的 BP 名单逐小区一致（09-21，Jaccard=1.00）；"
+            "日均值口径会漏判约 97% 的 BP 小区。" if available else ""
+        ),
         "reason": "" if available else (
             "Average DL Active User Number 未采集：现有 %s 是「峰值」而非「平均值」，"
             "口径不等价。缺该条件的小区记为「不可判定」，不计入 BP。" % COL_RRC_MAX
@@ -373,14 +387,26 @@ def active_user_status() -> Dict[str, Any]:
 
 
 def caliber_snapshot() -> Dict[str, Any]:
-    """当前口径的完整快照（写入 bp_sync_meta，便于日后追溯「这版数按什么算的」）。"""
+    """当前口径的完整快照（写入 bp_sync_meta，便于日后追溯「这版数按什么算的」）。
+
+    版本沿革：
+    - `bp-v1`：只有 PRB/吞吐两个条件（日均口径），Active User 未采集，
+      走完前两条件的小区一律 `is_bp = NULL`（不可判定）。
+    - `bp-v2`（2026-09-30 上午）：第三条件接入，但 PRB/Thr 仍是日均口径、
+      AU 取当日峰值 —— 实测与 Excel 差 30 倍（607 vs 17），**已证伪**。
+    - `bp-v3`（2026-09-30）：**忙时三值口径** —— 取 AU 最大小时的
+      PRB/Thr/AU 三个值判三个条件。经标定与 Excel BP 名单逐小区一致
+      （09-21：607 vs 607，Jaccard=1.00）。各版数字不可直接比较。
+    """
     return {
-        "version": "bp-v1",
+        "version": "bp-v3",
         "daily": {
             "active_user_gt": THR_ACTIVE_USER,
             "dl_throughput_mbps_lt": THR_DL_THROUGHPUT_MBPS,
             "dl_prb_ratio_gt": THR_DL_PRB_RATIO,
-            "note": "PRB 为小数比率（0~1），阈值 0.80 等价于 80%",
+            "active_user_grain": "busy_hour(peak AU hour, all three metrics)",
+            "note": "PRB 为小数比率（0~1），阈值 0.80 等价于 80%；"
+                    "三条件均按忙时（AU 最大小时）的值判定，非全天平均",
         },
         "weekly": {"bp_days": WEEK_BP_DAYS, "of_days": WEEK_TOTAL_DAYS},
         "monthly": {"bp_weeks": MONTH_BP_WEEKS, "of_weeks": MONTH_TOTAL_WEEKS},

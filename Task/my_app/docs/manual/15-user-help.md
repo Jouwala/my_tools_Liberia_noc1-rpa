@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-29。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-30。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（67 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（68 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -78,7 +78,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（67 个）
+### 3.3 全量任务清单（68 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -98,7 +98,7 @@
 | RAN Cells KPI 同步 | `cells_kpi_sync` | `50 4 * * *` | u | `services/ran_cells_kpi_sync.py → run_cells_kpi_sync` |
 | RAN Network KPI 同步 | `network_kpi_sync` | `0 5 * * *` | u | `services/ran_ume_network_kpi.py → run_network_kpi_sync` |
 | 可用率核对宽表重建 | `avail_recon_sync` | `10 6 * * *` | u | `services/avail_recon_sync.py → run_avail_recon_sync` |
-| BP 劣化小区报告更新 | `bp_report_sync` | `20 6 * * *` | u | `services/bp_report_sync.py → run_bp_report_sync` |
+| BP Cells Report 更新 | `bp_report_sync` | `20 6 * * *` | u | `services/bp_report_sync.py → run_bp_report_sync` |
 | CNN UME KPI 同步 | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | SP 备件数据同步 | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI 同步 | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
@@ -110,6 +110,7 @@
 | Comsumables 耗材报表邮件 | `kpi_sp_consumables` | `50 9 * * *` | m | `services/kpi_email_report.py → run_sp_consumables` |
 | SP 备件报表生成 | `sp_report_generate` | `15 5 * * *` | m | `services/kpi_email_report.py → run_sp_report_generate` |
 | SP 备件明细报表邮件 | `sp_email_details` | `0 7 * * *` | m | `services/kpi_email_report.py → run_sp_details_email` |
+| SP 备件明细分文件邮件 | `sp_details_files_email` | `5 10 * * *` | m | `services/kpi_email_report.py → run_sp_details_files_email` |
 | Comsumables&SpareParts Report Whatsapp | `sp_whatsapp_report` | `15 7 * * *` | m | `services/kpi_email_report.py → run_sp_whatsapp_report` |
 | SP 物料库存与消耗报表邮件 | `sp_material_report` | `33 7 * * *` | m | `services/kpi_email_report.py → run_sp_material_stock_consumption` |
 | MS Network Availability 日报邮件 | `kpi_ran_availability` | `30 9 * * *` | m | `services/kpi_email_report.py → run_ran_availability` |
@@ -434,28 +435,31 @@
 - 看板侧经 dashboard_service.DB_ALIASES 把 avail_recon.sqlite3 解析到本机库；新增派生库照此登记
 - 本任务 2026-09-21 上线前，该表由已退役的 my-finebi 手工 ETL 维护，无人调度导致冻结在 2026-09-13、看板静默停更
 
-#### BP 劣化小区报告更新（`bp_report_sync`）
+#### BP Cells Report 更新（`bp_report_sync`）
 
 - 默认 cron: `20 6 * * *`　|　worker 组: **u**
 - 工作流脚本: `services/bp_report_sync.py → run_bp_report_sync`
 
-**功能**: 从 RAN_UME 读取 4G 小区级 PRB/吞吐/流量，按 umlaut 口径重算 BP 劣化小区（日/周/月），更新本机 data/bp_report.sqlite3 并与 Excel 真值对账
+**功能**: 从 RAN_UME 读取 4G 小区级 PRB/吞吐/流量与小时级活跃用户数，按 umlaut 忙时口径重算 BP 劣化小区（日/周/月），更新本机 data/bp_report.sqlite3 并与 Excel 真值对账
 
 **工作流与数据流**:
 
 1. 按天从远端读 4G_Main_Kpi_Cell_Daily 的 PRB 利用率 / DL IP 吞吐 / DL+UL 流量（逐日一条 SQL，避免撞远端 5 万行上限被静默截断）
+1. 经独立小时粒度通道取 Average DL Active User Number 与同小时的 PRB/吞吐（该指标日粒度不可用），按「活跃用户最大的那个小时」聚合出当天三值
 1. 关联 bp_cell_dict 补上 Cluster/Layer（RAN_UME 无此维度，字典来自 Excel 的 BP Cells List）
-1. 按口径重算每小区每日 is_bp，并重算日/周/月汇总（周 4/7 天、月 3/4 个完整周）
-1. 与 Excel 的 bp_cells_excel 逐日对账，差异与口径缺口一并写入 bp_sync_meta
+1. 按口径重算每小区每日 is_bp，并重算日/周/月汇总（周 4/7 天、月 3/4 个完整周）；周/月为纯 INSERT（只写新周期，不动 Excel 既存行），判定列另由 backfill_period_verdicts 填空
+1. 与 Excel 的 bp_cells_excel 逐日对账，差异与口径说明一并写入 bp_sync_meta
 
 **维护要点**:
 
-- 口径唯一真相源在 services/bp_caliber.py：日判定三条件、周 4/7、月 3/4
-- ⚠️ Average DL Active User Number 在 RAN_UME 侧未采集（最接近的 C373200029:Maximum Number of RRC Connection User 是峰值、不等价），故日判定实际只覆盖两个条件、结果必然低于 Excel 真值；缺口由页面常驻告警，不要隐藏
+- 口径唯一真相源在 services/bp_caliber.py：日（忙时三值）、周 4/7、月 3/4
+- ⚠️ Average DL Active User Number 只在**小时粒度**可用：日粒度下 UME 返回 HTTP 200 + 合法 queryid 但**静默丢弃该列**、无任何报错，故走 services/bp_active_user.py 的独立通道（C373384373 + 1638004469342 + 1638004469332）。取不到时该日 is_bp=NULL（不可判定），**绝不当 0**
+- ⚠️ UME 返回的数值是字符串且 PRB 带百分号（如 "2.46%"），必须去 % 再 /100；且 itemsposition 必须全为 0，写成 [0,1,2] 会返回 0001619999 拒绝查询
 - ⚠️ PRB 利用率在源表里是**小数**（0~1，实测 max 0.9751），阈值是 0.80 不是 80；写成 80 会让条件永不成立且不报错
 - ⚠️ 源表列名 "E-UTRAN\xa0FDD\xa0Cell Name" 里的分隔符是**不换行空格**；写成普通空格时 SQLite 不报错，而是把双引号标识符当字符串字面量返回，整列变成列名文本（bp_caliber.assert_columns_exist / assert_no_literal_fallback 就是为此加的守卫）
 - Excel 的 BP Cells List 最后一天（2026-09-26）只有 53 行、远少于当日真值 486，属导出未完成；对账时不要把该日差异当实现缺陷
-- 增量任务只带 2~3 天，周/月重算范围必须严格限定在这几天内，按整月重算会把 Excel 历史真值覆盖掉
+- ⚠️ 周/月重算**必须是纯 INSERT**（先查该周期是否已存在，存在就跳过）：曾经按整月聚合 + ON CONFLICT DO UPDATE，把 Excel 的 2026-W39/W40/2026-09 三行覆盖成 bp_cells=0；既存 Excel 行的指标真值一律不动，判定列为 NULL 时由 backfill_period_verdicts 单独填空
+- ⚠️ 周/月判定需要的完整周数：week_days_in_month 实测 2026-09 只有 3 个完整周、而 MONTH_TOTAL_WEEKS=4，故该月 is_bp_month 恒为 NULL（口径与日历错配，非缺数据）；界面显示成因而非仅「不可判定」
 
 #### CNN UME KPI 同步（`cnn_kpi_sync`）
 
@@ -646,6 +650,31 @@
 - 2026-09-01 上线时曾漏分组导致 pending 卡死，后补入 m 组——新增任务务必登记 GROUP_TASK_MAP
 - 本任务在 EMAIL_TASK_IDS 内：WhatsApp 侧失败时 error 只写 WHATSAPP_FAIL 固定标记，不拼底层异常原文，避免命中 EWS 关键字触发 email_recovery 整链补发（11 位收件人重复收报表）
 - 上游是 sp_report_generate（05:15）：它不产出明细文件，本任务合并即失败，邮件与群都不发
+
+#### SP 备件明细分文件邮件（`sp_details_files_email`）
+
+- 默认 cron: `5 10 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/kpi_email_report.py → run_sp_details_files_email`
+
+**功能**: 每天 10:05 把 data/sp_email/data 下的 6 份备件明细**一份文件一封邮件**逐个发给 NOC，主题 Liberia OLR W.H <文件名> <日期时间>
+
+**工作流与数据流**:
+
+1. 逐份选取明细：优先未过滤的 *_source.xlsx 原始快照（sp_report_generate 05:15 在任何过滤之前留的 SFTP 快照），缺失时回退过滤后的 *_details.xlsx
+1. 先整体校验 6 份是否齐全：缺任一份即整体失败、**一封都不发**（宁可一封不发，也不让收件人拿到不完整的一套报表）
+1. 按**对外文件名**在 TMP 下各落一份副本（磁盘上是 inband/outband，对外写成 inbound/outbound），发完即清
+1. 逐个发送，每封只挂 1 个附件，主题为「Liberia OLR W.H <附件文件名> <日期时间>」（例：Liberia OLR W.H inbound_details_source.xlsx 2026-09-30 10-05-00）
+1. 单封发送失败不中断后续：已成功的继续发完，最后把失败项汇总进 error 供人工只补发缺的那几封
+
+**维护要点**:
+
+- 默认主送 MS.NOC@zte.com.cn，抄送 li.jing132@zte.com.cn / luo.wutao@zte.com.cn，可在系统设置 → 邮件收件人 的 sp_details_files 分组覆盖
+- 对外文件名与磁盘源名不同（用户指定）：inband/outband → inbound/outbound，故附件需先按对外名落副本再发（owa_mail_report 取 Path(fp).name 作附件名）
+- 与 sp_email_details（05:00）同数据源但打包方式不同：那个合并成一个多 sheet 工作簿并发 WhatsApp 群，本任务一文件一邮件发 NOC，互不影响
+- 一文件一邮件 => 一次任务最多 6 次 EWS 会话，耗时约为单封的 6 倍；任务在 m 组串行，长时间占用会推迟同组其它轻任务
+- 单封失败时 error 只写 SEND_FAIL 固定标记 + 文件名，**不拼底层异常原文**——否则命中 EWS 关键字会让 email_recovery 把 6 封全部补发，已成功的重复投递；底层细节在 result.failed 里
+- ocrule_details 没有 *_source 快照，固定走过滤版（故对外名不带 _source）；这是预期行为，不是缺文件
+- 上游是 sp_report_generate（m 组 05:15）：明细文件缺失先查它，而不是本任务
 
 #### Comsumables&SpareParts Report Whatsapp（`sp_whatsapp_report`）
 
@@ -1191,17 +1220,20 @@
 - 默认 cron: `35 * * * *`　|　worker 组: **n**
 - 工作流脚本: `services/sp_online_sync.py → run_sp_online_sync`
 
-**功能**: 每小时从 eFlow SP 接口拉全量在线工单（sp-outbound / sp-inbound / sp-transfer），写 app.db 对应三张表
+**功能**: 每小时从 eFlow SP 接口拉在线工单（sp-outbound / sp-inbound / sp-transfer），写库表对应三张表。取「原始 filter」与「状态全集 filter」两份结果的并集，避免 filter 与其返回结果自相矛盾时静默取错数据
 
 **工作流与数据流**:
 
-1. 每小时 :35 请求 eFlow SP 三个接口拉全量在线工单
-1. 写 app.db 表 sp_outbound / sp_inbound / sp_transfer
-1. 「表浏览器」可直查，下游 sp_online_report_generate 消费明细
+1. 每小时 :35 请求 eFlow SP 三个接口，同一接口用原始 filter 与状态全集 filter 各拉一次
+1. 两份结果按 woId 合并去重后写库表 sp_outbound / sp_inbound / sp_transfer
+1. 返回行的状态若全不在 filter 枚举内则告警（过滤条件与结果自相矛盾）
+1. 「表浏览器」可直查；sp_online_report_generate 的 Outbound 支路直接消费 sp_outbound 表
 
 **维护要点**:
 
 - 上游账号走 eflow 凭据分组；eFlow 会话被踢时表现为该组任务连续 failed，由 auto_retry_failed 兜底
+- 2026-09-30 由「原始 filter 取到 0 行才回退全集」改为取并集：旧判据会把「该 filter 本就没有匹配」误判成「filter 坏了」，inbound 因此把「查在途」变成了「查历史关闭单」（282 行全 Closed）且无告警
+- 实测上游并不真正遵循 filter 的收窄语义（inbound 用 4 个在途态与 15 态全集请求返回同一份数据），故不要依赖 filter 精确性
 
 #### SP 物料主数据同步（`sp_material_sync`）
 
@@ -1225,17 +1257,18 @@
 - 默认 cron: `0 6 * * *`　|　worker 组: **m**
 - 工作流脚本: `services/kpi_email_report.py → run_sp_online_report_generate`
 
-**功能**: 基于 data/sp_email/data 最新 inband/outband 明细，过滤未关闭单生成 sp_online 下 Inbound/Outbound 报表（PNG+XLSX，Create Time 倒序）
+**功能**: 生成 sp_online 下未关闭单报表（PNG+XLSX，Create Time 倒序）：Inbound 读明细 xlsx 未关闭单，Outbound 读库表 sp_outbound 跟踪 WaitingForUpdate / WaitingForReturn / WaitingForConfirm
 
 **工作流与数据流**:
 
-1. 每天 06:00 读 data/sp_email/data 下最新 inband/outband 明细
-1. 过滤未关闭单
-1. 生成 data/sp_email/sp_online 的 Inbound/Outbound 报表（PNG + XLSX）
+1. 每天 06:00 生成 data/sp_email/sp_online 的 Inbound/Outbound 报表（PNG + XLSX）
+1. Inbound：读 data/sp_email/data 最新 inband_details.xlsx，过滤未关闭单
+1. Outbound：读库表 sp_outbound（sp_online_sync 每小时拉 eFlow），取等待更新/等待归还/等待确认三类在途单
 
 **维护要点**:
 
 - 纯生成不发信，发送由 06:20 的 sp_online_report_send 负责——两者拆开后重跑发送不必重新取数
+- Outbound 曾读 SFTP 明细 xlsx，因该导出不含 WaitingForUpdate（等待更新）而于 2026-09-30 改读库表 sp_outbound，见 sp_report_gen/README.md
 
 #### SP 在线未关闭单报表发送（`sp_online_report_send`）
 
@@ -1569,6 +1602,21 @@ FLM 可用率：只看三个 FLM 区域（Montserrado / North East / South West�
 - 4G 的 NERA 属未映射调度组：计入制式 4G 总量，但本页站点类型列只有三种，此时 4G 行会大于三列相加，页面会出现黄色口径提示条
 - 取不到数据显示「—」而不是 0；页面顶部显示「数据截至」，派生库停更时能一眼看出来
 
+#### bm_speedtest（`bm_speedtest`）
+
+Speedtest 基准报告：把两家运营商（Orange 与 Lonestar Cell MTN）的网速实测数据并排比较，回答「谁更快 / 谁时延更低 / 领先多少 / 优势在扩大还是在缩小」。数据来自 speedtest_data（Speedtest.xlsx 导入，854 行，2025-07-16 ~ 2026-09-24，全国 cellular 中位数口径）。页面分五块：综合竞争力评分 → 关键指标汇总卡（下载/上传/时延/抖动，各含均值与 P50/P90）→ 趋势对比图（可切指标、可设滚动均值窗口）→ 逐日胜负统计 → 月度对比表与逐日对决明细表。
+
+- 顶部快捷区间（近 30 / 90 / 180 天 / 近一年 / 全部区间）配合日期选择器；时间窗是**左闭右开**，界面显示的是闭区间
+- 「综合竞争力评分」是**两家的相对分**：每项指标领先方 100 分、另一方按比例得分，再按下载 35% / 上传 20% / 时延 30% / 抖动 15% 加权。它只回答「这两家谁更强、强多少」，不评价绝对水平好不好；某项指标任一方缺数据时该指标不参与、权重分给其余指标
+- 关键指标卡里每个数字都可点：点品牌数字看该品牌该指标的全部明细；点「胜率」看**该指标胜出的那些天**（行数与胜场天数严格相等，都是同一份配对比较算出来的）
+- 趋势图用分段控件切下载/上传/时延/抖动，右侧下拉设滚动均值窗口（3/7/14/30 天）。实线是逐日原始值、虚线是滚动均值；速率「越高越好」、时延「越低越好」，图下方有文字提示
+- 「逐日胜负统计」给出每项指标两家各赢多少天与胜率，同样可点开下钻
+- 点明细表里的日期可下钻那天两家各自的原始行
+- 区间内只有一家有测试数据的日子**不计入胜负**（页面顶部有蓝色提示条说明有几天）：「那天没测」不等于「那天输了」
+- 逐日曲线超过 400 天时图上只画最近 400 天，页面会有黄色提示条，完整逐日数据看下方表格或导出 Excel
+- 数据里 location / device / 制式 / 聚合方式都只有一个有效取值（全国 / cellular / median），所以**这四个维度没有筛选器**，不是漏做
+- 取不到数据显示「—」而不是 0；导出统一走页面右上角与各卡片的「导出 Excel」
+
 #### noc_analyst（`noc_analyst`）
 
 NOC 操作人分析：基于 eflow_tt.last_processer 量化每位 NOC 的根因错位率、平均处理时长、夜班单占比与 SLA 通过率，并给出红旗告警。页面按「能下钻尽下钻」设计——从人一路下钻到 TT，再下钻到告警链路。
@@ -1621,14 +1669,16 @@ PM 执行分析：按 PM 计划号（pmp_no）看预防性维护工单（PMT）�
 
 #### bp_report（`bp_report`）
 
-BP 劣化小区报告：umlaut 口径的 Bad Performance 小区统计，支持按日/周/月查看并下钻到小区明细。
+BP Cells Report：umlaut 口径的 Bad Performance 小区统计，支持按日/周/月查看并下钻到小区明细。
 
-- 口径：日 = 平均活跃用户数 > 2.5 且 DL 吞吐 < 3 Mbps 且 DL PRB 利用率 > 80%；周 = 4/7 天为 BP；月 = 3/4 个完整周为 BP
-- ⚠️ 口径不完整（页面顶部常驻黄色告警）：RAN_UME 侧没有采集「平均活跃用户数」，重算只覆盖 PRB 与吞吐两个条件，缺第三个条件的小区记为「不可判定」，不计入 BP
-- 因此本页从 RAN_UME 重算出的 BP 数会低于 Excel 原值，这是口径缺口、不是实现缺陷；但 Excel 已有的历史数据是完整的，两者并存
-- 「BP 小区数」列可点击下钻到小区明细，行数与数字严格一致；「全网小区数」列不可下钻（Excel 未提供全网小区名单）
+- 口径（忙时三值）：取「活跃用户最大的那个小时」的 PRB / DL 吞吐 / 活跃用户数判三条件 —— DL PRB 利用率 > 80% 且 DL 吞吐 < 3 Mbps 且活跃用户数 > 2.5；周 = 一周 4/7 天为 BP；月 = 一个月 3/4 个完整周为 BP
+- 该忙时口径经 Excel 标定：与 umlaut 明细逐小区一致（Jaccard=1.00）；日均值口径会漏判约 97% 的 BP 小区
+- ⚠️ 「平均活跃用户数」只在 RAN_UME 的小时粒度可用，日粒度查询会静默丢弃该列，故走独立通道按小时取数；取不到时该日记「不可判定」，绝不当 0
+- 每个数字都能点开下钻：BP 小区数、明细行数、不可判定数、趋势图柱子、四张数字卡、分区图、分层表的 BP 数，行数与展示数字严格一致（同一查询条件）
+- 「全网小区数」列仅 RAN_UME 来源的期可下钻（分母即明细行数）；Excel 来源的期未提供名单，置灰并给出提示
 - 「明细行数」列显示 Excel BP Cells List 里该期实际有多少行，括号内是与展示值的差额——上游 Excel 各 sheet 本身就不一致，差异如实展示
 - 2023 年与 2024 年部分日期在 Excel 的 BP Cells List 里没有明细，这些期的下钻入口会置灰
+- 「最新一期判定」周/月给出是/否；不可判定时会说明成因 —— 本周没过完（等待即可）与本月完整周数不足（如 2026-09 只有 3 个完整周 < 口径要求 4 个，该月永远判不出来，是口径与日历错配而非缺数据）
 - 分区（Cluster1~6 / Rural / ERA）只能在 Excel 里维护，RAN_UME 没有这套维度；新增小区若不在字典内会归为 Unknown
 - 数据由 bp_report_sync 任务每天 06:20 从 RAN_UME 增量更新
 

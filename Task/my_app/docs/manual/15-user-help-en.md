@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-29.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-30.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (67 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (68 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -78,7 +78,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (67 tasks)
+### 3.3 Full task catalog (68 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -98,7 +98,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | RAN Cells KPI Sync | `cells_kpi_sync` | `50 4 * * *` | u | `services/ran_cells_kpi_sync.py → run_cells_kpi_sync` |
 | RAN Network KPI Sync | `network_kpi_sync` | `0 5 * * *` | u | `services/ran_ume_network_kpi.py → run_network_kpi_sync` |
 | Availability Recon Rebuild | `avail_recon_sync` | `10 6 * * *` | u | `services/avail_recon_sync.py → run_avail_recon_sync` |
-| BP Report Sync | `bp_report_sync` | `20 6 * * *` | u | `services/bp_report_sync.py → run_bp_report_sync` |
+| BP Cells Report Sync | `bp_report_sync` | `20 6 * * *` | u | `services/bp_report_sync.py → run_bp_report_sync` |
 | CNN UME KPI Sync | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | SP Spare Data Sync | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI Sync | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
@@ -110,6 +110,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Comsumables Report Email | `kpi_sp_consumables` | `50 9 * * *` | m | `services/kpi_email_report.py → run_sp_consumables` |
 | SP Report Generate | `sp_report_generate` | `15 5 * * *` | m | `services/kpi_email_report.py → run_sp_report_generate` |
 | SP Spare Parts Details Report Email | `sp_email_details` | `0 7 * * *` | m | `services/kpi_email_report.py → run_sp_details_email` |
+| SP Spare Parts Details Files Email | `sp_details_files_email` | `5 10 * * *` | m | `services/kpi_email_report.py → run_sp_details_files_email` |
 | Comsumables&SpareParts Report Whatsapp | `sp_whatsapp_report` | `15 7 * * *` | m | `services/kpi_email_report.py → run_sp_whatsapp_report` |
 | SP Material Stock & Consumption Report Email | `sp_material_report` | `33 7 * * *` | m | `services/kpi_email_report.py → run_sp_material_stock_consumption` |
 | MS Network Availability Daily Report Email | `kpi_ran_availability` | `30 9 * * *` | m | `services/kpi_email_report.py → run_ran_availability` |
@@ -434,28 +435,31 @@ Workflow & maintenance notes per task:
 - The board resolves avail_recon.sqlite3 to the local file via dashboard_service.DB_ALIASES; register new derived DBs the same way
 - Before 2026-09-21 this table was maintained by a manual ETL in the retired my-finebi project; with no scheduler it froze at 2026-09-13 and the board went silently stale
 
-#### BP Report Sync（`bp_report_sync`）
+#### BP Cells Report Sync（`bp_report_sync`）
 
 - Default cron: `20 6 * * *`　|　worker group: **u**
 - Workflow script: `services/bp_report_sync.py → run_bp_report_sync`
 
-**What it does**: Read per-cell 4G PRB/throughput/traffic from RAN_UME, recompute Bad Performance cells by the umlaut caliber (daily/weekly/monthly), refresh local data/bp_report.sqlite3 and reconcile against the Excel ground truth
+**What it does**: Read per-cell 4G PRB/throughput/traffic plus hourly active users from RAN_UME, recompute Bad Performance cells by the umlaut busy-hour caliber (daily/weekly/monthly), refresh local data/bp_report.sqlite3 and reconcile against the Excel ground truth
 
 **Workflow & data flow**:
 
 1. Read PRB utilization / DL IP throughput / DL+UL traffic from remote 4G_Main_Kpi_Cell_Daily one day per SQL (avoids hitting the remote 50k row cap and being silently truncated)
+1. Fetch Average DL Active User Number together with the same hour's PRB/throughput over a dedicated hourly channel (that metric is unavailable at daily grain) and aggregate the day's three values from the hour with the highest active users
 1. Join bp_cell_dict to attach Cluster/Layer (RAN_UME has no such dimension; the dictionary comes from the Excel BP Cells List sheet)
-1. Recompute per-cell daily is_bp and the daily/weekly/monthly rollups (weekly 4/7 days, monthly 3/4 full weeks)
-1. Reconcile day by day against the Excel bp_cells_excel values; store differences and caliber gaps in bp_sync_meta
+1. Recompute per-cell daily is_bp and the daily/weekly/monthly rollups (weekly 4/7 days, monthly 3/4 full weeks); weekly/monthly are INSERT-only (new periods only, existing Excel rows untouched), while the verdict columns are filled in separately by backfill_period_verdicts
+1. Reconcile day by day against the Excel bp_cells_excel values; store differences and caliber notes in bp_sync_meta
 
 **Maintenance**:
 
-- The single source of truth for the caliber is services/bp_caliber.py: three daily conditions, weekly 4/7, monthly 3/4
-- WARNING: Average DL Active User Number is not collected on the RAN_UME side (the closest column, C373200029:Maximum Number of RRC Connection User, is a PEAK and not equivalent), so the daily rule effectively covers only two conditions and results are necessarily lower than the Excel ground truth; the gap is surfaced as a persistent page banner and must not be hidden
+- The single source of truth for the caliber is services/bp_caliber.py: daily (busy-hour three values), weekly 4/7, monthly 3/4
+- WARNING: Average DL Active User Number is available ONLY at hourly granularity. At daily grain UME returns HTTP 200 with a valid queryid but SILENTLY DROPS that column and raises no error, hence the dedicated channel in services/bp_active_user.py (C373384373 + 1638004469342 + 1638004469332). When it cannot be fetched the day stays is_bp=NULL (undecidable) and is NEVER counted as 0
+- WARNING: UME returns numeric values as strings and PRB carries a percent sign (e.g. "2.46%"), so strip the % and divide by 100; also itemsposition must be all zeros -- using [0,1,2] makes UME reject the query with 0001619999
 - WARNING: PRB utilization is a FRACTION in the source table (0-1, observed max 0.9751), so the threshold is 0.80, not 80; using 80 makes the condition never fire and raises no error
 - WARNING: the source column name "E-UTRAN\xa0FDD\xa0Cell Name" uses NO-BREAK SPACEs; with plain spaces SQLite does not error but treats the double-quoted identifier as a string literal, turning the whole column into its own name text (bp_caliber.assert_columns_exist / assert_no_literal_fallback guard exactly this)
 - The Excel BP Cells List sheet holds only 53 rows for its final day (2026-09-26) versus a true 486, i.e. an incomplete export; do not treat that day's difference as an implementation defect
-- The incremental run carries only 2-3 days, so weekly/monthly recomputation must be restricted to exactly those days; recomputing a whole month overwrites the Excel historical ground truth
+- WARNING: weekly/monthly recomputation MUST be INSERT-only (skip a period that already exists). An earlier version aggregated a whole month with ON CONFLICT DO UPDATE and overwrote the Excel rows for 2026-W39/W40/2026-09 with bp_cells=0. Never touch the metric ground truth of existing Excel rows; when a verdict column is NULL, backfill_period_verdicts fills it in separately
+- WARNING: week_days_in_month yields only 3 full weeks for 2026-09 while MONTH_TOTAL_WEEKS=4, so is_bp_month is permanently NULL for that month (a caliber-vs-calendar mismatch, not missing data); the UI shows the cause instead of a bare "Undecidable"
 
 #### CNN UME KPI Sync（`cnn_kpi_sync`）
 
@@ -646,6 +650,31 @@ Workflow & maintenance notes per task:
 - Missed its worker-group registration on 2026-09-01 and stuck pending; now in group m — always register new tasks in GROUP_TASK_MAP
 - This task is in EMAIL_TASK_IDS: on a WhatsApp-side failure the error carries only the WHATSAPP_FAIL marker, never the raw exception text — otherwise an EWS keyword would make email_recovery replay the whole chain and email the report twice to 11 recipients
 - Upstream is sp_report_generate (05:15): without the detail files the merge fails and neither channel sends
+
+#### SP Spare Parts Details Files Email（`sp_details_files_email`）
+
+- Default cron: `5 10 * * *`　|　worker group: **m**
+- Workflow script: `services/kpi_email_report.py → run_sp_details_files_email`
+
+**What it does**: Daily 10:05: send the 6 spare-part detail files under data/sp_email/data to NOC as ONE EMAIL PER FILE, subject "Liberia OLR W.H <file name> <date time>"
+
+**Workflow & data flow**:
+
+1. Resolve each detail file: prefer the unfiltered *_source.xlsx raw snapshot (the SFTP snapshot sp_report_generate keeps at 05:15 before any filtering), falling back to the filtered *_details.xlsx
+1. Check all 6 files up front: if any one is missing the whole run fails and NOTHING is sent (better no email at all than an incomplete set of reports)
+1. Stage a copy of each under TMP using the OUTBOUND name (on disk they are inband/outband, recipients see inbound/outbound); the copies are removed after sending
+1. Send one by one — each email carries exactly one attachment, subject "Liberia OLR W.H <attachment file name> <date time>" (e.g. Liberia OLR W.H inbound_details_source.xlsx 2026-09-30 10-05-00)
+1. A single send failure does not stop the rest: the remaining files still go out, and the failures are reported by name so only those need a manual resend
+
+**Maintenance**:
+
+- Default To MS.NOC@zte.com.cn, Cc li.jing132@zte.com.cn / luo.wutao@zte.com.cn; overridable in Settings → Email Recipients, group sp_details_files
+- Outbound file names differ from the on-disk source names (per user request): inband/outband become inbound/outbound, so attachments must be staged under the outbound name first (owa_mail_report uses Path(fp).name as the attachment name)
+- Same data source as sp_email_details (05:00) but a different package: that one merges into a single multi-sheet workbook and posts to the WhatsApp group, this one sends one file per email to NOC — they do not affect each other
+- One email per file means up to 6 EWS sessions per run, roughly 6x the duration of a single send; the task runs serially in group m, so a long run delays the other light tasks there
+- On a single-send failure the error carries only the SEND_FAIL marker plus file names, never the raw exception text — otherwise an EWS keyword would make email_recovery resend all 6 and duplicate the ones that already went out; the details live in result.failed
+- ocrule_details has no *_source snapshot and always uses the filtered version (hence no _source in its outbound name); that is expected, not a missing file
+- Upstream is sp_report_generate (group m, 05:15): if detail files are missing, investigate that task rather than this one
 
 #### Comsumables&SpareParts Report Whatsapp（`sp_whatsapp_report`）
 
@@ -1191,17 +1220,20 @@ Workflow & maintenance notes per task:
 - Default cron: `35 * * * *`　|　worker group: **n**
 - Workflow script: `services/sp_online_sync.py → run_sp_online_sync`
 
-**What it does**: Hourly: fetch all online tickets from the eFlow SP APIs (sp-outbound/sp-inbound/sp-transfer) into the matching app.db tables
+**What it does**: Hourly: fetch online tickets from the eFlow SP APIs (sp-outbound/sp-inbound/sp-transfer) into the matching tables. Takes the union of the original filter and the all-status filter so a filter contradicting its own results can never silently pick the wrong data
 
 **Workflow & data flow**:
 
-1. At :35 every hour call the three eFlow SP APIs
-1. Write app.db tables sp_outbound / sp_inbound / sp_transfer
-1. Queryable in Table Browser; sp_online_report_generate consumes the details
+1. At :35 every hour call the three eFlow SP APIs, each once with the original filter and once with the all-status filter
+1. Merge both result sets by woId and write tables sp_outbound / sp_inbound / sp_transfer
+1. Warn when every returned row has a status outside the filter enumeration (filter contradicts results)
+1. Queryable in Table Browser; the Outbound leg of sp_online_report_generate consumes sp_outbound directly
 
 **Maintenance**:
 
 - Upstream account comes from the eflow credential group; a kicked eFlow session shows up as consecutive failures in the group, covered by auto_retry_failed
+- Changed 2026-09-30 from "fall back to the all-status filter only when the original returns 0 rows" to a union: the old test mistook "this filter simply has no matches" for "the filter is broken", which turned inbound into a closed-ticket query (282 rows, all Closed) with no warning
+- Upstream does not truly honour filter narrowing (inbound returns the same data for a 4-status and a 15-status filter), so never rely on filter precision
 
 #### SP Material Master Sync（`sp_material_sync`）
 
@@ -1225,17 +1257,18 @@ Workflow & maintenance notes per task:
 - Default cron: `0 6 * * *`　|　worker group: **m**
 - Workflow script: `services/kpi_email_report.py → run_sp_online_report_generate`
 
-**What it does**: Build the open-ticket Inbound/Outbound reports (PNG+XLSX, sorted by Create Time desc) under data/sp_email/sp_online from the latest details
+**What it does**: Build the open-ticket Inbound/Outbound reports (PNG+XLSX, sorted by Create Time desc): Inbound from the details xlsx, Outbound from table sp_outbound tracking WaitingForUpdate / WaitingForReturn / WaitingForConfirm
 
 **Workflow & data flow**:
 
-1. Daily 06:00 read the newest inband/outband details under data/sp_email/data
-1. Filter to open tickets
-1. Emit Inbound/Outbound PNG + XLSX into data/sp_email/sp_online
+1. Daily 06:00 emit Inbound/Outbound PNG + XLSX into data/sp_email/sp_online
+1. Inbound: read the newest inband_details.xlsx under data/sp_email/data, keep open tickets
+1. Outbound: read table sp_outbound (sp_online_sync pulls eFlow hourly) for the three in-flight statuses
 
 **Maintenance**:
 
 - Generates only — sp_online_report_send (06:20) delivers, so re-sending never requires regenerating
+- Outbound used to read the SFTP details xlsx; switched to table sp_outbound on 2026-09-30 because that export carries no WaitingForUpdate — see sp_report_gen/README.md
 
 #### SP Online Open Tickets Report Send（`sp_online_report_send`）
 
@@ -1569,6 +1602,21 @@ FLM availability: covers only the three FLM regions (Montserrado / North East / 
 - 4G NERA is an unmapped dispatch group: counted in the 4G technology total, but this page lists only the three site types, so the 4G row will exceed the sum of the three columns and a yellow note appears
 - Missing data renders as "—" (never 0); the "Data through" label at the top makes a stalled derived database obvious
 
+#### bm_speedtest（`bm_speedtest`）
+
+Speedtest Benchmark Report: puts the two operators (Orange and Lonestar Cell MTN) side by side using measured speed-test data, answering "who is faster / who has lower latency / by how much / is the gap widening or narrowing". Source: speedtest_data (imported from Speedtest.xlsx, 854 rows, 2025-07-16 ~ 2026-09-24, nationwide cellular median). Five blocks: overall competitiveness score -> key metric cards (download/upload/latency/jitter with mean and P50/P90) -> trend chart (switchable metric, adjustable moving-average window) -> daily head-to-head record -> monthly table and daily detail table.
+
+- Quick ranges at the top (30 / 90 / 180 days / last year / all time) plus date pickers; the window is **half-open** internally while the UI shows a closed range
+- The competitiveness score is **relative between the two operators**: the leader on each metric scores 100 and the other scales proportionally, then weights are download 35% / upload 20% / latency 30% / jitter 15%. It answers "who is stronger and by how much", not whether the absolute level is good; if either side lacks data for a metric, that metric drops out and its weight is redistributed
+- Every figure in the key metric cards is clickable: click an operator value for all its rows on that metric, or click a win rate for **the days that operator won on that metric** (row count equals the win count, both computed from the same paired comparison)
+- Use the segmented control to switch download/upload/latency/jitter and the dropdown to set the moving-average window (3/7/14/30 days). Solid lines are daily values, dashed lines are moving averages; speed is "higher is better" and latency "lower is better", noted below the chart
+- The daily head-to-head block shows how many days each operator won per metric and the win rate, also clickable
+- Click a date in the detail table to drill into both operators' raw rows for that day
+- Days where only one operator has data are **excluded from win counts** (a blue note at the top states how many): "not tested that day" is not "lost that day"
+- When the daily series exceeds 400 days the chart plots only the latest 400 and a yellow note appears; see the table below or export to Excel for the full series
+- Location / device / technology / aggregation each have only one effective value in the data (nationwide / cellular / median), so **those four dimensions have no filters** — that is intentional, not an omission
+- Missing data renders as "—" (never 0); all exports go through the "Export Excel" buttons in the header and on each card
+
 #### noc_analyst（`noc_analyst`）
 
 NOC operator analysis: quantifies each NOC operator's root-cause mismatch rate, average handling time, night-ticket share and SLA pass rate from eflow_tt.last_processer, and raises red flags. Built around "drill down wherever possible" — from the person to the ticket, then to the alarm chain.
@@ -1621,14 +1669,16 @@ PM Execution Analysis: shows preventive-maintenance work orders (PMT) by PM plan
 
 #### bp_report（`bp_report`）
 
-Bad Performance Report: umlaut-caliber BP cell statistics, viewable by day/week/month and drillable down to cell detail.
+BP Cells Report: umlaut-caliber BP cell statistics, viewable by day/week/month and drillable down to cell detail.
 
-- Caliber: daily = avg active users > 2.5 AND DL throughput < 3 Mbps AND DL PRB utilization > 80%; weekly = BP on 4 of 7 days; monthly = BP in 3 of 4 full weeks
-- ⚠️ Incomplete caliber (a permanent yellow banner sits at the top): RAN_UME does not collect "average active users", so recomputation covers only the PRB and throughput conditions. Cells missing the third condition are marked "Undecidable" and are not counted as BP
-- Recomputed BP counts are therefore lower than the Excel figures — that is the caliber gap, not an implementation defect; the historical Excel data remains complete and both coexist
-- The "BP cells" column drills into cell detail, and the row count matches the figure exactly; the "Total cells" column cannot drill down (Excel provides no whole-network cell roster)
+- Caliber (busy-hour three values): take the hour with the highest active users and judge all three conditions on that hour's values — DL PRB utilization > 80% AND DL throughput < 3 Mbps AND active users > 2.5; weekly = BP on 4 of 7 days; monthly = BP in 3 of 4 full weeks
+- This busy-hour caliber is calibrated against the Excel: it matches the umlaut detail cell-by-cell (Jaccard = 1.00), whereas a daily-average caliber would miss about 97% of BP cells
+- ⚠️ "Average DL Active User Number" is only available at hourly granularity in RAN_UME; a daily-grain query silently drops that column, so a dedicated hourly channel fetches it. When it is unavailable the day is marked "Undecidable" and never counted as 0
+- Every figure drills down: BP counts, detail rows, undecidable counts, trend-chart bars, all four KPI cards, the region chart and the layer table BP counts — row counts match the displayed figures exactly (same query predicate)
+- The "Total cells" column drills down only for RAN_UME-sourced periods (the denominator is the detail row count); Excel-sourced periods provide no roster and are greyed out with an explanation
 - The "Detail rows" column shows how many rows the Excel BP Cells List actually holds for that period, with the difference from the displayed value in brackets — the upstream Excel sheets disagree with each other and the gap is shown as-is
 - Periods with no detail in the Excel BP Cells List (all of 2023, plus some 2024 dates) have their drill-down entry greyed out
+- The "Latest period verdict" gives yes/no for week/month; when undecidable it states the cause — a week still in progress (just wait) versus a month with too few full weeks (2026-09 has only 3 full weeks against the required 4, so that month can never be decided; a caliber-vs-calendar mismatch, not missing data)
 - Regions (Cluster1~6 / Rural / ERA) can only be maintained in Excel; RAN_UME has no such dimension, and new cells missing from the dictionary fall back to Unknown
 - Data is incrementally refreshed from RAN_UME by the bp_report_sync task daily at 06:20
 

@@ -1056,6 +1056,24 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       themeColor: 'purple',
       status: 'online'
     },
+    {
+      id: 'bp-report-79',
+      title: 'BP Cells Report',
+      description: 'umlaut 口径的 Bad Performance（劣化）小区统计。口径取「活跃用户最大的那个小时」的 PRB / DL 吞吐 / 活跃用户数三条件判定（>80% 且 <3Mbps 且 >2.5），经 Excel 明细逐小区标定一致；周 = 一周 4/7 天为 BP，月 = 一个月 3/4 个完整周为 BP。支持按日 / 周 / 月查看，每个数字都能下钻到小区明细（行数与展示值严格一致），并对照 Excel 真值展示上游口径差异；数据由 bp_report_sync 任务每天从 RAN_UME 增量更新，整页可导出 Excel。',
+      platform: 'custom',
+      url: `${MYAPP_BASE}bp_report`,
+      category: 'MS 运维管理',
+      tags: ['Bad Performance', 'umlaut', 'Day/Week/Month', 'Drill-down', 'UME'],
+      iconName: 'AlertTriangle',
+      updateFrequency: '每日0点',
+      department: 'MS 运营管理部',
+      owner: '运维经理',
+      isFavorite: false,
+      isPinned: false,
+      clickCount: 0,
+      themeColor: 'amber',
+      status: 'online',
+    },
 ];
 
 export const INITIAL_DASHBOARDS: DashboardItem[] = withRel(RAW_DASHBOARDS);

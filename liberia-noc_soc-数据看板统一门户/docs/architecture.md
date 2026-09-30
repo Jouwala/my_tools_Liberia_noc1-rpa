@@ -468,6 +468,74 @@ C2 改链接落盘且**同表单里名字未被改坏**；C3 `javascript:` 被�
 > 凡是"取一条满足某条件的条目"都要现查（`find` 谓词），并且断言要绑定**读出来的那个值**。
 
 
+## 九之二、2026-09-30 直接改目录文件「新增一张 MS View 卡」（BP Cells Report）
+
+**背景。** my_app 新增了 BP 报告页（`?page=bp_report`，页面名 **BP Cells Report**），
+要求挂进门户 **MS View**。上节讲的是**在页面上**用「选模板 → 填名字/链接」新增；
+本次是**直接改目录文件**（脚本方式），因为同一次改动还要同时更新四处真源、
+且要写较长的中英文描述（表单里填不进去）。
+
+**四处真源，与 `scripts/migrate_finebi_to_myapp.py` 头部列的前四处一致：**
+
+| # | 文件 | 角色 |
+| --- | --- | --- |
+| 1 | `Task\my_app\backend\data\portal_catalog.json` | **线上真源**（`GET /api/portal-catalog` 实时读盘） |
+| 2 | `MsPortal\assets\data.js` | MsPortal 内置兜底 |
+| 3 | `portal-default.json` | uniplam 服务端全局目录 |
+| 4 | `src\data\initialDashboards.ts` | uniplam 内置兜底 |
+
+**为什么改 1 就等于改线上、不需要重启门户：** `v1\olbrportal\assets\olbr.js:7` 写明
+`GET/PUT /api/portal-catalog → 服务端全局目录（有则覆盖内置，无则用内置）`；
+实测该端点与磁盘 `portal_catalog.json` **逐字段一致**（58 条 vs 58 条，无单边差异），
+`PUT` 走的是同一份文件的整体替换。所以落盘即生效，刷新即见。
+
+**三条必须遵守的既有约定：**
+
+1. **`no` 取 `max(no)+1`，不回收旧编号** —— 同 `addItemFromTemplate()`（见上节实现要点表）。
+   `no` 是卡片锚点与 localStorage 分组归属键，复用会串卡。本次新卡为 **`no=79`**。
+2. **url 不带 `&t=` 令牌** —— `migrate_finebi_to_myapp.py:89-90` 的原话：
+   「不带 &t= 令牌（viewer.js 用门户 token 换会话 Cookie）」。
+   目录里 `no=70/71/76` 那几条带着令牌是历史遗留（令牌会过期，且写进版本库违反
+   `AGENTS.md` 四.2 的「绝不写敏感值」）。新条目一律不带。
+3. **`order[gid]` 与 `groups` 要同时维护** —— `deleteItem()` 会顺手把该 no 从所有
+   `order[gid]` 摘掉（见上节），新增同理要 append，否则卡片有归属却不进分组显示顺序。
+
+**⚠️ 四个文件里 `initialDashboards.ts` 的 schema 与其他三处完全不同，不能照抄字段名。**
+它是 `DashboardItem`（`src\types\dashboard.ts:35`）：用
+`title` / `description` / `category`（**中文分组规范名**，本次用 `MS 运维管理`，
+与 `portal-default.json` 的 `groupLabels` 口径一致，而**不是** `MS View`）/
+`iconName` / `updateFrequency` / `department` / `themeColor` / `isFavorite` / `isPinned` /
+`clickCount`，没有 `no` / `groups` / `titleZh` / `titleEn` / `icon`。
+照抄 catalog 的字段名会直接 `tsc` 报错。
+
+**icon 键两个体系也不通用：** 线上目录用 `olbr-data.js:831` 的 `PH` 表键
+（本次 `chart-line`，该键确实在表中；写错会**静默退回方块图标**、不报错），
+`initialDashboards.ts` 用 `AVAILABLE_ICONS` 里的组件名（本次 `AlertTriangle`）。
+
+**验证（本次实测）：**
+- `GET /api/portal-catalog` 返回 59 条、含 `no=79 BP Cells Report`、`groups=["MS View"]`，
+  `order['MS View']` 末尾为 79；
+- `MsPortal\assets\data.js` 用 `node` 造 `window` 后 `eval` 解析通过，
+  且 `stats` 的 `total/online/beta/myapp/finebi/external/groups` **逐项按实际条目重算后一致**
+  （`total` 55→56、`online` 53→54、`myapp` 51→52）——
+  该 `stats` 是文件自述，不消费但仍要准；
+- `portal-default.json` 用 `JSON.parse` 通过，新条目 `platform=custom` + `rel='/myapp/?page=bp_report'`
+  （`rel` 必须一起给：运行时 `resolveUrl()` 优先用 `rel` 拼地址）；
+- 门户 `npm run lint`（`tsc --noEmit`）全绿。
+
+**⚠️ 并发写风险（本次真的遇到了）。** 改完几分钟后复查，发现目录里多了一条
+`no=80 Speedtest 基准报告`、且 `no=5/64/68` 已从 MS View 移走 —— **有人同时在页面上编辑目录**。
+本次因为只做「append 一条 + append 一个 order 编号」而未受影响，磁盘与线上始终逐字段一致
+（59 vs 59）。这与上节结尾那条教训同源：
+
+> **共享目录上不存在"我先读一遍、待会儿再整体写回"的安全操作。**
+> 能 append 就不要整体重写；非重写不可时，写完必须立刻复查线上与磁盘是否仍然一致
+> （本次的复查命令：比对 `GET /api/portal-catalog` 与磁盘文件的 `items` 编号集合，
+> 两边都应为空集）。
+
+一次性脚本落在 `Task\my_app\TMP\_add_bp_card.py`（幂等：已存在同 url 则跳过对应文件）。
+
+
 ## 十、相关文档
 
 | 内容 | 去哪里 |

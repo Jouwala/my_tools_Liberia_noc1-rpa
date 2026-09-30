@@ -3062,7 +3062,7 @@ const translations: Record<Locale, Record<string, string>> = {
 
     // ===== Speedtest 竞对分析（ORANGE vs MTN）=====
     // 数据源 speedtest_data；口径见 backend/services/bm_speedtest_caliber.py
-    'nav.bmSpeedtest': 'Speedtest 竞对分析',
+    'nav.bmSpeedtest': 'Speedtest 基准报告',
     'bms.brand.orange': 'Orange',
     'bms.brand.mtn': 'Lonestar Cell MTN',
     'bms.metric.download': '下载速率',
@@ -3360,10 +3360,13 @@ const translations: Record<Locale, Record<string, string>> = {
     'rsd.siteDrill': '站点下钻 — {site}',
     'rsd.ttDetail': 'TT 完整详情 — {tt}',
 
-    // ---- BP Report 劣化小区报告（page=bp_report）----
-    // 口径：日均三条件 / 周 4/7 天 / 月 3/4 个完整周，见 backend/services/bp_caliber.py
-    'nav.bpReport': 'BP 劣化小区',
-    'bp.title': 'BP 劣化小区报告',
+    // ---- BP Cells Report（page=bp_report）----
+    // 口径：忙时三值 / 周 4/7 天 / 月 3/4 个完整周，见 backend/services/bp_caliber.py
+    // 页面名按用户 2026-09-30 要求统一为 "BP Cells Report"（中英同值）——
+    // 与门户 MS View 里同栏的 "MS Contract KPIs" / "Availability For MS" 一致，
+    // 都是产品名，不翻译。
+    'nav.bpReport': 'BP Cells Report',
+    'bp.title': 'BP Cells Report',
     'bp.to': '至',
     'bp.refresh': '刷新',
     'bp.empty': '暂无数据',
@@ -6511,7 +6514,7 @@ const translations: Record<Locale, Record<string, string>> = {
 
     // ===== Speedtest competitor analysis (ORANGE vs MTN) =====
     // Source: speedtest_data; semantics in backend/services/bm_speedtest_caliber.py
-    'nav.bmSpeedtest': 'Speedtest Comparison',
+    'nav.bmSpeedtest': 'Speedtest Benchmark Report',
     'bms.brand.orange': 'Orange',
     'bms.brand.mtn': 'Lonestar Cell MTN',
     'bms.metric.download': 'Download',
@@ -6810,8 +6813,8 @@ const translations: Record<Locale, Record<string, string>> = {
     // ---- BP Report (page=bp_report) ----
     // Caliber: daily three conditions / weekly 4-of-7 days / monthly 3-of-4 full weeks;
     // see backend/services/bp_caliber.py
-    'nav.bpReport': 'BP Cells',
-    'bp.title': 'Bad Performance Report',
+    'nav.bpReport': 'BP Cells Report',
+    'bp.title': 'BP Cells Report',
     'bp.to': 'to',
     'bp.refresh': 'Refresh',
     'bp.empty': 'No data',

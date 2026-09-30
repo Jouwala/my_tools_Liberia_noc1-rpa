@@ -6,10 +6,10 @@ window.MS_PORTAL_DATA = {
     "generated": "2026-09-16"
   },
   "stats": {
-    "total":55,
-    "online":53,
+    "total":56,
+    "online":54,
     "beta": 2,
-    "myapp":51,
+    "myapp":52,
     "finebi": 2,
     "external": 2,
     "groups": 9,
@@ -167,6 +167,24 @@ window.MS_PORTAL_DATA = {
     }
   ],
   "items": [
+      { "no": 79,
+        "groups": ["MS View"],
+        "titleZh": "BP Cells Report",
+        "titleEn": "BP Cells Report",
+        "descZh": "umlaut 口径的 Bad Performance（劣化）小区统计。口径取「活跃用户最大的那个小时」的 PRB / DL 吞吐 / 活跃用户数三条件判定（>80% 且 <3Mbps 且 >2.5），经 Excel 明细逐小区标定一致；周 = 一周 4/7 天为 BP，月 = 一个月 3/4 个完整周为 BP。支持按日 / 周 / 月查看，每个数字都能下钻到小区明细（行数与展示值严格一致），并对照 Excel 真值展示上游口径差异；数据由 bp_report_sync 任务每天从 RAN_UME 增量更新，整页可导出 Excel。",
+        "descEn": "Bad Performance cell statistics on the umlaut caliber. All three conditions are judged on the hour with the highest active users (DL PRB utilization > 80% AND DL throughput < 3 Mbps AND active users > 2.5), calibrated cell-by-cell against the Excel detail; weekly = BP on 4 of 7 days, monthly = BP in 3 of 4 full weeks. Viewable by day / week / month with drill-down from every figure to cell detail (row counts match the displayed values exactly) and the upstream Excel difference shown alongside. Incrementally refreshed from RAN_UME by the bp_report_sync task daily; the whole page exports to Excel.",
+        "platform": "myapp",
+        "platformZh": "自研 my_app",
+        "url": "http://192.168.100.20/myapp/?page=bp_report",
+        "tags": ["Bad Performance", "umlaut", "Day/Week/Month", "Drill-down", "UME"],
+        "owner": "运维经理",
+        "ownerEn": "O&M Manager",
+        "dept": "MS 运营管理部",
+        "deptEn": "MS Operation Management Dept",
+        "status": "online",
+        "freq": "每日06:20",
+        "clicks": 0,
+        "icon": "chart-line" },
     {
       "no": 1,
       "groups": [
