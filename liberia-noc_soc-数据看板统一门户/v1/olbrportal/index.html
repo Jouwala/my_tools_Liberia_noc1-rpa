@@ -36,6 +36,11 @@
    这段和 title/meta 的覆写与 assets/olbr.js 的 detectLang() 必须保持一致，
    两边不一致会让首帧和挂载后的语言不同，表现为闪一下另一种语言。 -->
 <script>
+/* ⚠️ 2026-09-30：本脚本是「首帧语言/主题」的落点，与 assets/olbr.js 里的
+   detectLang()（约 L108）是**同一套判定规则的孪生实现** ——
+   一个在首帧前跑（防止闪一下另一种语言/白色），一个在挂载后跑。
+   改这里的 guessLang（默认语言、'zh' 前缀口径）或主题读取键名时，
+   **必须同改 olbr.js 的 detectLang / state.theme**，否则首帧与挂载后不一致。 */
 (function () {
   function guessLang() {
     var v = null;

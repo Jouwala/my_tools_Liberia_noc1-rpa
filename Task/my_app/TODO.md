@@ -19,7 +19,7 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
 | 站内使用帮助（与 MD 同源生成） | 完成 |
 | 邮件 / WhatsApp 分发 | 完成 |
 | FineBI → my_app 迁移 | **进行中** |
-| SQLite → PostgreSQL 迁移 | **规划定稿，未执行** |
+| SQLite → PostgreSQL 迁移 | **运行中已为 PG**（`backend\.env` 实测 `MY_APP_DB_MODE=pg`）；正式规划清单的前置项仍见 §5 待核 |
 | 数据访问层统一（裸连接治理） | **未启动（前置调研中）** |
 
 ## 二、P0 —— 影响正确性或可用性
@@ -49,10 +49,15 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
 - [ ] **worker 分组覆盖巡检常态化。** 未归组的任务会 **pending 卡死**且不报错。
       **验收**：`tests\test_worker_group_coverage.py` 通过；新增任务时同步 `GROUP_TASK_MAP` + `start_hidden.ps1` + `restart_workers.py` 三处。
 
-- [ ] **`db_ps_cs_cn` 本地 0 字节占位文件的处置。** 真数据在远端（HTTP `8765`），本地同名文件是空占位——被误当数据源时会得到**空结果而非报错**，极易误判为"数据为零"。
-      **动作**：要么删除，要么改名/加 README 说明。
+- [x] **`db_ps_cs_cn` 本地 0 字节占位文件的处置 —— 已完成（2026-09-30 核实）。**
+      `db_ps_cs_cn.sqlite3` 是**远端逻辑库名**（远端 `E:\01_RPA\LBR_Tools\KPI\`），
+      `RemoteDBReader`（`backend\services\remote_db_reader.py`）只把库名经 HTTP 传给远端，
+      **从不触碰本地文件**。全树已无同名本地占位（`find . -name 'db_ps_cs_cn*'` 为空），
+      误当数据源的风险不复存在。
 
-- [ ] **`backend\app.db` 空占位确认。** 该文件已在 `.gitignore` 中标注为"误建的空 sqlite 占位"（真库是 `db\app.db`）。确认无代码按此路径读取。
+- [x] **`backend\app.db` 空占位确认 —— 已完成（2026-09-30 核实）。**
+      该文件**已不存在**（已被清理）。`backend\` 下所有 `app.db` 字样均为注释或
+      `db\app.db`（真库）引用，无代码按 `backend\app.db` 路径读取。
 
 - [ ] **图表数据源裸连接登记。** 已知 `ipran_chart_service.py:233`、`fw_kpi_services.py:488` 绕过 `get_raw_connection`。
       **当前动作（不是改造）**：把已有点位登记成清单，并确保**不再新增**。
@@ -122,6 +127,15 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
       > 拆分前先建 `_bak_<日期>_bp_split` 快照；该模块的下钻契约（见
       > `docs\manual\11-feature-guide.md` §30「下钻：能下钻尽下钻」）是拆分的回归基线。
 
+- [ ] **`frontend\src\pages\BmMeta.tsx` 998 行，新建即超 500 行上限（AGENTS.md 第三节原则 2）。**
+      2026-09-30 新增 BM Meta 基准页时实测：页面本身 + 3 张竞对卡 + 趋势图 + 下钻弹窗 +
+      Excel 导出全写在同一个文件里。**不是注释膨胀**（口径说明集中在
+      `services\bm_meta_caliber.py`，页面里只有接线注释）。
+      **动作（下一个动这个页面的任务顺手做，别专门排期）**：把下钻弹窗与
+      「胜场/领先」判定块拆成 `pages/bmMeta/` 子组件，页面只留状态编排。
+      **验收**：`npm run check:i18n` 与 `npm run build` 通过，`/api/bm-meta/*` 四个端点响应不变。
+      同批新增的 `components\OoklaLogo.tsx`（97 行）不需要拆，它是内联 SVG 的单一出口。
+
 - [ ] **BP 忙时口径（bp-v3）的后续三件事（2026-09-30 已修复趋势断层，剩下的都是可选扩展）。**
       **断层根因（已定位并修复）**：bp-v2 只对 AU 取峰值、PRB/Thr 仍用日均值，
       导致重算 BP 数只有 10~31 个/天，与 Excel 真值（350~600 个/天）差 30 倍，
@@ -174,6 +188,13 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
       **日粒度不存在该问题**（两侧同源 `bp_overall_daily`，实测 5/5 完全一致）。
       需要决策：周/月概览页是否要显式标注"此值为 Excel 口径，与下钻行数不可比"，
       避免用户把它当成 bug。相关背景见 `11-feature-guide.md` §30 的两总体说明。
+
+- [ ] **TT_WO 的 `incident_overview.xlsx` 被两条链路各拉一次，待合并。**
+      `incident_overview_sync`（落 `data\incident_overview\`，版本化文件 + `current.json`）与
+      `finebi_report_sync`（落 `data\finebi_reports\TT_WO\`）**每小时各从 FTP 拉同一个文件**，
+      同一份源在两个目录各存一份，且只有前者带新鲜度巡检。前置条件：事件总览页的读取路径
+      （`incident_overview_service.py::resolve_excel_path`）要先改成能接受统一目录，否则合并会把页面打挂。
+      根因与口径见 `docs\manual\04-task-system.md` 的「FineBI `schedule/` 的重算空档」一节（2026-09-30）。
 
 - [ ] **`pyjab`（GPLv2）的分发边界认定。** `backend\services\cn_ems\cs_ems_jab.py:27` 依赖 GPLv2 的 `pyjab`，属**强传染**许可。前置条件：确认 `cn_ems\`（U31 EMS 桌面客户端 GUI 自动化）**是否随产品交付客户**——仅内网自用则 GPL「分发」未触发、风险可控；随产品交付则该脚本须 GPL 开源，与闭源定位冲突，需替换或隔离。该目录当前**无 router / `task_registry.py` 入口 import**，传染面有限。核查记录见 `docs\THIRD-PARTY-NOTICES.md` 第二节。
 

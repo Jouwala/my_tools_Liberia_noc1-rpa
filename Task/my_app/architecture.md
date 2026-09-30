@@ -108,19 +108,29 @@
 | **`app.db`** | `db\app.db` | **主库**（含 `eflow_tt`、告警表、`task_queue`、`credentials`、`task_schedule_config` 等） |
 | `eflow.sqlite3` | `data\eflow\` | 工单旧流水线快照（同步**不维护**其 `eflow_tt`） |
 | `lbr_ms_sla_kpi.sqlite3` | — | MS SLA KPI 库（**实际文件名带 `lbr_` 前缀**） |
-| `db_ps_cs_cn.sqlite3` | **远端**，HTTP `8765` | 本地同名文件是 **0 字节占位** |
-| PostgreSQL | 同机 | 迁移目标（规划），`MY_APP_DB_MODE=pg` |
+| `db_ps_cs_cn.sqlite3` | **远端**，HTTP `8765` | **纯远端逻辑库名**（本地无同名文件；`RemoteDBReader` 只传库名，不碰本地盘） |
+| PostgreSQL | 同机 | **现状主库**（`backend\.env` 实测 `MY_APP_DB_MODE=pg`） |
 
 ### 数据访问层的已知陷阱
 
 1. **存在绕过 `get_raw_connection` 的裸 `sqlite3.connect`**（如 `ipran_chart_service.py:233`、`fw_kpi_services.py:488`），它们是**图表数据源** —— 统一改造会**静默坏图**。
 2. `get_raw_connection` 调用点实测约 **76 处**。
 3. **`eflow_tt` 双库**：同步任务**只写 `app.db`**；`eflow.sqlite3` 的副本是旧流水线遗留。
-4. **`db_ps_cs_cn` 真数据在远端**（经 HTTP 8765 读），本地是 0 字节占位 —— 误当数据源得到**空结果而非报错**。
+4. **`db_ps_cs_cn` 真数据在远端**（经 HTTP 8765 读），本地**没有**同名文件 —— 误把它当本地数据源会得到**空结果而非报错**。
 5. 告警表 `realtime_alarm` / `history_alarm` 被**同时写** `app.db` 与 `eflow.sqlite3`，但**页面只读 `app.db`**。
-6. **`backend\app.db` 是误建的空占位**，真库是 `db\app.db`。
+6. ~~**`backend\app.db` 是误建的空占位**~~ —— 该占位文件**已于 2026-09-30 前清理**（现已不存在），真库仍是 `db\app.db`。
 
-> **现状仍是 SQLite 为主。** SQLite→PostgreSQL 迁移**规划定稿但未执行**（`PROJECT_DOCS.md` §2），执行前提是四项回退保证落地。
+> **⚠ 现状已是 PostgreSQL 为主（2026-09-23 实测更正）。**
+> 下表第 1~5 条陷阱来自 `PROJECT_DOCS.md` §2 的**迁移前**稽核，其中"SQLite 为主"**已过时**：
+> `backend\.env` 实际为 `MY_APP_DB_MODE=pg`，`/api/health` 返回 `db_mode=pg / database=postgresql`。
+> 但上面前 6 条**仍然成立且更要小心** —— 熔断开关（`backend\database.py:23-37`，回退方案 R7）还在，
+> `MY_APP_DB_MODE=sqlite` 一个环境变量就能切回去，所以任何改动**必须两种方言都能跑**：
+> - `get_raw_connection()` 在 pg 模式下返回 psycopg2 连接，并把 `?` 占位符自动转成 `%s`（`_qmark_to_pyformat` / `_PsycopgRawCursor`，`database.py:216-258`）；
+>   别名裸 `sqlite3.connect` 的代码在 pg 模式下**必然失败** —— 这正是不要新增裸连接的原因。
+> - 鉴权库（`auth_cache`）被硬排除在 PG 之外（R8，`database.py:39-40` 的 `_HARD_EXCLUDED_DB_PATHS`），无论 `DB_MODE` 为何值都走 SQLite。
+> - 想确认当前跑在哪个库，**不要猜**，问 `/api/health` 或看 `MY_APP_DB_MODE`。
+>
+> 与 `AGENTS.md` 第六节的说明保持同步；本节此前写"现状仍是 SQLite 为主"，2026-09-30 更正。
 
 ## 四、请求链路
 

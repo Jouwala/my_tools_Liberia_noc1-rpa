@@ -31,7 +31,7 @@
 | 层 | 技术 |
 | --- | --- |
 | 后端 | FastAPI + SQLAlchemy + Alembic + APScheduler |
-| 数据库 | SQLite（主）/ PostgreSQL（双模，`MY_APP_DB_MODE`） |
+| 数据库 | PostgreSQL（现状主库）/ SQLite（双模，`MY_APP_DB_MODE=pg`；回退改 `sqlite` 即可） |
 | 前端 | React + Vite + TypeScript + ECharts |
 | 任务执行 | 独立 worker 进程（分组）+ 双层看门狗 |
 | 队列 | SQLite `task_queue` 表（`pending/running/done/failed`） |
