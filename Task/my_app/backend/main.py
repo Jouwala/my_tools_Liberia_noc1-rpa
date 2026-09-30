@@ -91,6 +91,7 @@ from backend.routers import (
     fme_ranking,
     cr_analysis,
     pm_analysis,
+    bm_speedtest,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -265,6 +266,11 @@ app.include_router(cr_analysis.router)
 # 口径（字段名陷阱、真实流程顺序、pmt_overdue 语义、概览与下钻如何共用同一份 WHERE）
 # 见 services/pm_caliber.py 的模块 docstring。
 app.include_router(pm_analysis.router)
+
+# Speedtest 竞对分析：ORANGE vs MTN 的速率/时延/抖动/测试量对比（数据源 speedtest_data）。
+# 口径（品牌归一、左闭右开时间窗、下钻与概览如何共用同一份 WHERE）见
+# services/bm_speedtest_caliber.py 的模块 docstring。
+app.include_router(bm_speedtest.router)
 
 # Data Agent（只读 NL2SQL + 告警归因）：探索性副驾，不参与任何定时报表/看板数字的产出。
 # 定位、护栏与风险清单见 docs/DATA_AGENT_EVALUATION.md。

@@ -53,14 +53,16 @@ EWS 发送邮件（owa_mail_report.py）
 ## 明细预处理流水线（gernarate_sp_report.py main）
 
 下载 → 处理 → 生成报表。**Step 2.x 都会写回 `data\sp_email\data\` 下的明细 xlsx**，
-因此 `sp_online_report_generate`（06:00）复用的是同一份已处理数据；
+因此 `sp_online_report_generate`（06:00）的 **Inbound 支路**复用的是同一份已处理数据；
 `sp_email_details`（05:55）例外，它读 Step 1.5 留下的未过滤 `*_details_source.xlsx`。
+（`sp_online_report_generate` 的 **Outbound 支路 2026-09-30 起改读库表 `sp_outbound`**，
+不再消费这份明细，见下文「SP 在线未关闭单」。）
 
 | 步骤 | 函数 | 作用 | 写回 |
 |------|------|------|------|
 | Step 1.5 | `snapshot_raw_details()` | 下载后、任何过滤之前把 5 份明细原样复制成 `*_details_source.xlsx`（固定名，每次覆盖）；复制失败只告警，下游回退读过滤后的明细 | ➕ 新文件 |
 | Step 2.1 | `apply_exclude_to_details()` | 按 `data\sp_email\data\in&out_exclude.xlsx`（sheet `3_剔除单据Serial明细`）剔除指定单据行，分入库/出库两组 | ✅ |
-| Step 2.2 | `apply_status_filters()` | 出库明细剔除 `Status='WaitingForUpdate'`（`OUTBOUND_DROP_STATUS`） | ✅ |
+| Step 2.2 | `apply_status_filters()` | 出库明细剔除 `Status='WaitingForUpdate'`（`OUTBOUND_DROP_STATUS`）。⚠️ 这是**共享明细**过滤，影响 SpareParts/Consumables 与看板；SP Online 报表的 Outbound 支路已于 2026-09-30 改读库表，**不再受它影响**，故不必改动此处 | ✅ |
 | Step 2.3 | `apply_operation_result_filter()` | 入库/出库明细剔除 `Operation Result Status='Canceled'`（`OP_RESULT_DROP_STATUS`） | ✅ |
 | Step 2.4 | `apply_operation_result_filter_to_file()` | 转仓明细（transfer / transfer_return）剔除 `Operation Result Status='Canceled'` | ✅ |
 | Step 2.5 | `apply_inventory_fields()` | 覆盖明细的 **Material Name**（取数据库表 `sp_material`，回退 inventory）与 **Material Type**（取 inventory） | ✅ |
@@ -238,13 +240,78 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 
 ## SP 在线未关闭单（generate_sp_online_report.py）
 
-读取 `data\sp_email\data\` 最新 `inband_details.xlsx` / `outband_details.xlsx`，
-**排除** `Status` 为 `WaitingForReturn` / `Draft` / `WaitingForUpdate` / `Closed` 的数据（这些状态不要），其余保留，
-按单号去重（一单多物料行取首行），按 Create Time 倒序，各输出 PNG + XLSX（Inbound.png/.xlsx、Outbound.png/.xlsx）。
+**两条支路数据源不同（2026-09-30 起）**：
+
+| sheet | 数据源 | 跟踪状态 |
+|-------|--------|----------|
+| Inbound | `data\sp_email\data\inband_details.xlsx`（SFTP 明细） | 非 Closed/Draft（上游导出**全部为 Closed**，故通常只有表头，属预期） |
+| Outbound | **库表 `sp_outbound`**（`sp_online_sync` 每小时拉 eFlow 全量） | `WaitingForUpdate` / `WaitingForReturn` / `WaitingForConfirm` |
+
+各输出 PNG + XLSX（Inbound.png/.xlsx、Outbound.png/.xlsx），按 Create Time 倒序。
+
+### 为什么 Outbound 改读库表（2026-09-30）
+
+业务要求"把**等待更新**和**等待归还**的状态打开一并跟踪"。原实现读 SFTP 明细 xlsx，
+其 `EXCLUDED_STATUS` 排除了这两个状态；但实测证明**只放开过滤条件取不到 WaitingForUpdate**：
+
+| 数据面 | WaitingForUpdate | WaitingForReturn |
+|--------|------------------|------------------|
+| SFTP 原始快照 `outband_details_source.xlsx`（未过滤） | **0 行** | 38 行 / 33 单 |
+| 处理后 `outband_details.xlsx` | **0 行** | 38 行 / 33 单 |
+| 库表 `sp_outbound` | **37 行** | 35 行 |
+
+即上游那份导出**根本不产 WaitingForUpdate**，它在报表第 4 道过滤之前就已不存在。
+故 Outbound 支路整体改读库表 `sp_outbound`（`sp_online_sync` 每小时更新，见本目录同级
+`backend\services\sp_online_sync.py`）。
+
+改源的两个附带好处：
+- **不影响其他报表**：xlsx 支路的 Step 2.2 `apply_status_filters()` 会把 WaitingForUpdate
+  从**共享明细**里删掉，而那份明细同时供 SpareParts/Consumables 报表与看板使用。
+  SP Online 改读库表后与共享明细解耦，**不必去动那道过滤**。
+- 库表小时级同步，不受 06:00 那次 SFTP 快照时点限制；报表标题带 `synced <时间>` 便于判断新鲜度。
+
+> ⚠️ **读库必须走 `get_raw_connection()`，不要裸 `sqlite3.connect(db/app.db)`**（2026-09-30 实测踩坑）：
+> 现状 `MY_APP_DB_MODE=pg`，`sp_online_sync` 写的是 **PostgreSQL**；而 `db/app.db` 只是
+> `pg_to_sqlite_sync`（每小时 :45，见 `task_registry.py:620`）落的**离线备份快照**。
+> 直连副本会读到最多滞后约 1 小时的数据 —— 实测同一时刻副本 `_fetched_at=14:35`、
+> 真库 `15:00`，副本还多出 1 张已闭环的单。改走连接层后报表与真库逐单一致（72/72，双向零差集）。
+>
+> ⚠️ **列名必须加双引号**：`sp_online_sync.save_to_db()` 建表时用的是带引号的混合大小写列名，
+> 而 PostgreSQL 会把不加引号的标识符折叠成小写（`woNum` → `wonum`）并报「字段不存在」。
+> SQLite 不区分大小写，加引号两边通用。**不要在新的库表查询里漏掉引号。**
+
+### 列口径（库表 -> 报表）
+
+报表列名**沿用 xlsx 口径**，下游邮件模板与收件人配置无需改：
+
+| 输出列 | 库表来源 |
+|--------|----------|
+| Operation No. | `woNum` |
+| Status / Operation Type / Warehouse Name | `status` / `outboundType` / `warehouseId` |
+| Create Time / Closed Time | `createTime_str` / `closedTime_str` |
+| Approved Time | **`outboundTime_str`**（出库动作完成时间） |
+| Approval Duration | Approved − Create（未审批单为空） |
+| Close Duration | Closed − Approved（未关闭单为空） |
+| Current Operation Owner | `candidateOperatorRealName`，见下 |
+
+- ⚠️ **`outboundTime` 的语义**：实测它在 `WaitingForUpdate` / `WaitingForConfirm` 上**全为空**、
+  在 `WaitingForReturn` 与 500 条 `Closed` 单上基本都有值 —— 即"出库动作已完成"的标志，
+  与 xlsx 口径 `Verify Detail` 里最早一次 Verify 的含义一致，故映射为 Approved Time。
+  这两个状态 `Approval Duration` 留空是**预期**，不是缺数据。
+- **Current Operation Owner**：库表无 `Verify Detail`，改取 `candidateOperatorRealName`。
+  该字段是候选处理人列表，元素带 `P:`（个人）/`G:`（岗位组）前缀，由 `resolve_candidates()`
+  按 `person` 表映射为真名（`P:FE_FE_134` → `Amara Jakson`）；岗位组如 `G:WH_KP`
+  在 `person` 表里查不到，保留原 id，与 xlsx 支路"查不到保留原 ID"一致。
+- 一单一行（按 `woNum` 去重，`keep='first'`），与 xlsx 支路口径一致。
+
+### Inbound 支路（未改动）
+
+读 `data\sp_email\data\` 最新 `inband_details.xlsx`，**排除** `Status` 为
+`WaitingForReturn` / `Draft` / `WaitingForUpdate` / `Closed` 的数据，按单号去重。
 
 | 输出列 | 来源 |
 |--------|------|
-| Operation No. | Inbound No. / Outbound No. |
+| Operation No. | Inbound No. |
 | Status / Operation Type / Warehouse Name / Create Time / Closed Time | 同名列原值 |
 | Approved Time | Verify Detail 中最早的 `Operation:Verify. Operation Time:`（日志条目不保证时间序，按解析时间取最小） |
 | Approval Duration | Approved Time − Create Time（<1 天显示 `x.xh`，否则 `xd xh`） |
@@ -259,7 +326,7 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 | 任务 ID | cron | 说明 |
 |---------|------|------|
 | `sp_report_generate` | `15 5 * * *` | 每天 05:15 从 SFTP 下载数据并生成报表到 data/sp_email |
-| `sp_online_report_generate` | `0 6 * * *` | 每天 06:00 基于最新明细生成 sp_online 未关闭单报表（PNG+XLSX） |
+| `sp_online_report_generate` | `0 6 * * *` | 每天 06:00 生成 sp_online 未关闭单报表（PNG+XLSX）：Inbound 读明细 xlsx，**Outbound 读库表 `sp_outbound`** |
 | `sp_online_report_send` | `20 6 * * *` | 每天 06:20 发送 sp_online 未关闭单报表：邮件（PNG 内嵌 + XLSX 附件）+ WhatsApp 群 |
 | `kpi_sp_spareparts` | `45 5 * * *` | 05:45 发送 SpareParts 报表邮件（附件取本地 sp_email 最新总表） |
 | `kpi_sp_consumables` | `40 6 * * *` | 06:40 发送 Comsumables 报表邮件（附件取本地 sp_email 最新总表） |

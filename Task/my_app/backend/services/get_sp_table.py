@@ -510,9 +510,20 @@ def _table_exists(conn, table_name: str) -> bool:
 
 
 # ====== FineBI 镜像库写入（UNC 网络路径 inventory.db） ======
-# 远端 inventory.db 是 WareHouseDashBoard 看板的专用库（仅含 5 张 SP 表），
-# 由本任务作为唯一写入方维护；journal_mode 保持 delete（SMB 上 WAL 不可靠）。
-# 普通表整表替换；增量表（APPEND_TABLES）只追加远端没有的新行，保护远端历史。
+# ⚠ 2026-09-30 架构变更：**不再直连远端库**，改为「本地构建 + 整文件推送」。
+#
+# 旧实现从本机用 sqlite3.connect() 直接打开远端 inventory.db，实测**必然永久阻塞**：
+# 远端该库处于 WAL 模式（持久化在文件头），且远端主机上有活进程长期持有 `-shm` 的
+# 字节范围锁，而 SMB 无法代理该语义 → 本机每次 open 都 `database is locked`，
+# 且 `timeout`/`busy_timeout` 对此完全无效（连不上就是连不上，重试也走不到）。
+# 后果不只是"镜像失败"：09:10 那轮把 s 组 worker 永久卡死在 09:10，直到 10:22 人工
+# 重启才被判失败回收（`Worker 进程中断，任务未完成（启动时自动回收）`）。
+#
+# 新实现见 `backend/services/sp_mirror_push.py`：本机建一个新库（delete 模式、单文件）
+# 再整文件 copy 覆盖过去，绕开共享内存锁。整库内容直接取自 app.db 的同口径全量结果。
+#
+# 回滚：把 sp_sftp_config.json 的 `mirror_mode` 设为 "direct" 走下面保留的直连实现，
+# 或 `mirror_enabled=false` 直接关闭镜像。
 MIRROR_APPEND_TABLES = tuple(APPEND_TABLES)
 MIRROR_CONNECT_TIMEOUT = 30.0   # SMB 首次连接可能较慢
 MIRROR_BUSY_TIMEOUT_MS = 30000  # 看板进程可能正持有读锁
@@ -521,6 +532,10 @@ MIRROR_RETRY_WAIT = 5           # 重试间隔基数（秒）
 # 追加表反连接列：与 app.db 增量去重的 subset 一致（update_date + 业务键）
 MIRROR_DEDUP_COLS = ['update_date', 'Serial No.', 'Material No.',
                      'Warehouse Name', 'Material Type']
+# 镜像写入模式："push"（默认，本地构建+整文件推送）/ "direct"（旧的直连，仅回滚用）
+MIRROR_MODE = "push"
+if _SP_CONF:
+    MIRROR_MODE = str(_SP_CONF.get("mirror_mode", MIRROR_MODE) or "push").strip().lower()
 
 
 def _mirror_runtime_config():
@@ -655,15 +670,17 @@ def _mirror_coerce_values(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _diagnose_mirror_failure(db_path: str, exc: BaseException) -> str:
-    """把镜像连接失败翻译成可执行的诊断结论（2026-09-27 新增）。
+    """把镜像连接失败翻译成可执行的诊断结论。
 
     背景：远端 inventory.db 是 WAL 模式，其 `-shm` 索引文件需要在共享内存上做
-    mmap + 字节范围锁，而 SMB 不支持这套语义。当远端有活进程持续持有该库时，
-    `-shm` 在 SMB 上连 open 都失败，SQLite 于是统一报 "database is locked"。
-    这个报错会把人引向"锁竞争 → 调大 timeout"，而真正的原因是架构不兼容，
-    调超时永远无效（实测 timeout=30 / busy_timeout=30000 均失败）。
+    mmap + 字节范围锁，而 SMB 不支持这套语义。**只要远端有活进程持有该库**
+    （2026-09-30 实测确实存在这样的进程），本机**每一次** open 都会被拒。
+    这个报错会把人引向"锁竞争 → 调大 timeout"，但 `timeout`/`busy_timeout`
+    管不到 SMB 层的 open 与字节锁请求，调它们永远无效。
 
     这里主动探测 `-shm` 可开性并给出结论，避免下一次又有人在超时参数上打转。
+    注意本函数只服务于 `mirror_mode=direct` 这条**回滚路径**；默认的 push 路径
+    不碰远端库文件，不会走到这里。
     """
     base = str(db_path)
     shm = base + "-shm"
@@ -699,17 +716,24 @@ def _diagnose_mirror_failure(db_path: str, exc: BaseException) -> str:
             "WAL 所需的共享内存字节锁在 SMB 上也无法建立"
         )
     hints.append(
-        "结论：SQLite-WAL over SMB 的架构限制，调大 timeout/busy_timeout 无效"
-        "（实测 timeout=30 / busy_timeout=30000 均失败）。"
-        "需远端侧改为「本地库 + 接口/定时快照导出」，或让远端写库进程本身导出 inventory.db"
+        "结论：远端有活进程长期持有该库的 WAL 共享内存字节锁，而 SMB 无法代理该语义，"
+        "调大 timeout/busy_timeout 无效（它们管不到 SMB 层的 open/锁请求）。"
+        "修法见 backend/services/sp_mirror_push.py —— 改为「本地构建 + 整文件推送」，"
+        "整文件覆盖不需要字节锁（2026-09-30 实测即使库被占用也能覆盖成功）"
     )
     if not readable:
         hints.append("注意：当前账号对主库文件也无读权限")
     return f"{type(exc).__name__}: {exc}；诊断：" + "；".join(hints)
 
 
-def _mirror_write_all(tables_data: dict) -> dict:
-    """把本轮各表 DataFrame 写入远端镜像库，返回 {table: {rows, status, detail?}}。
+def _mirror_write_all_direct(tables_data: dict) -> dict:
+    """【回滚路径，默认不启用】旧的直连实现：从本机直接打开远端 WAL 库写入。
+
+    ⚠ 2026-09-30 实测该路径**必然永久阻塞**（远端活进程持 `-shm` 字节锁，SMB 无法
+    代理），保留它只为 `mirror_mode="direct"` 时可回退对比，不要作为默认路径。
+    默认走 `_mirror_write_all()` → `sp_mirror_push.mirror_via_push()`。
+
+    把本轮各表 DataFrame 写入远端镜像库，返回 {table: {rows, status, detail?}}。
 
     - 远端列缺失时自动对齐 app.db 的列（远端建表/补列），多余列忽略；
     - 写前核对远端表存在且结构可容纳（INSERT OR IGNORE 保底防结构漂移报错）；
@@ -826,6 +850,80 @@ def _mirror_write_all(tables_data: dict) -> dict:
     return mirror_result
 
 
+def _mirror_write_all(tables_data: dict) -> dict:
+    """镜像写入分发（2026-09-30）：默认「本地构建 + 整文件推送」。
+
+    为什么要有这一层：把"怎么把数据弄到 FineBI 那个库"与调用方解耦，
+    日后远端若提供写入接口，只改这里，不动 `run_sp_data_sync` 的流程与结果形状。
+
+    返回结构与旧实现保持一致：{table: {rows, status, ...}, "_meta": {...}}，
+    这样消费侧（`run_sp_data_sync` 的 warnings / mirror_errors 推导）无需改动。
+    """
+    enabled, db_path = _mirror_runtime_config()
+    if not enabled:
+        return {"_meta": {"status": "disabled", "detail": "mirror_enabled=false"}}
+    if not db_path or not str(db_path).strip():
+        return {"_meta": {"status": "error", "detail": "mirror_db_path 为空"}}
+
+    if MIRROR_MODE == "direct":
+        print("[镜像] mirror_mode=direct（回滚路径）：直连远端库写入")
+        return _mirror_write_all_direct(tables_data)
+
+    try:
+        from backend.services.sp_mirror_push import mirror_via_push
+    except ImportError:
+        from sp_mirror_push import mirror_via_push
+    print(f"[镜像] mirror_mode=push（默认）：本地构建后整文件推送 → {db_path}")
+    return mirror_via_push(tables_data, str(db_path))
+
+
+# 镜像阶段硬超时（2026-09-30 新增）。背景：旧的直连实现对 SMB 上被远端持有的
+# WAL 库调用 sqlite3.connect() 会**永久阻塞**（不是抛异常、不是超时返回），
+# 实测把 s 组 worker 卡死 6+ 小时，直到人工重启才由启动回收逻辑判失败。
+# 任何"网络文件系统上的无超时阻塞调用"都必须有进程级兜底，光靠 sqlite3 的
+# timeout/busy_timeout 挡不住（那两个参数管不到 SMB 层的 open/锁请求）。
+MIRROR_HARD_TIMEOUT_SECONDS = 900  # 15min：正常推送实测 ~2s，留足 SMB 抖动余量
+
+
+def _run_mirror_with_timeout(tables_data: dict, remote_path: str = "") -> dict:
+    """在独立线程里跑镜像写入，超时即放弃并返回失败结果（不阻塞 worker）。
+
+    用线程而非进程：镜像逻辑是 IO 密集且已自带重试，唯一目的是**让调用方有上限**。
+    注意 daemon 线程在超时后无法被强杀——这正是要把默认路径换成 push 的原因
+    （push 不会无限阻塞）。此兜底针对的是未来可能重新引入的阻塞调用。
+    """
+    import threading
+
+    box: dict = {}
+
+    def _worker():
+        try:
+            box["res"] = _mirror_write_all(tables_data)
+        except Exception as exc:  # noqa: BLE001
+            box["err"] = exc
+
+    th = threading.Thread(target=_worker, name="sp-mirror", daemon=True)
+    th.start()
+    th.join(MIRROR_HARD_TIMEOUT_SECONDS)
+    if th.is_alive():
+        msg = (f"镜像阶段超过 {MIRROR_HARD_TIMEOUT_SECONDS}s 未返回，已放弃等待"
+               f"（远端 {remote_path or '未知路径'} 阻塞）。app.db 数据已正常落库。")
+        print(f"[镜像][超时] {msg}")
+        return {
+            "_meta": {"status": "error", "detail": msg, "db": str(remote_path),
+                      "mode": "timeout"},
+            "_diagnosis": ("镜像调用无返回 = 典型的网络文件系统阻塞（SMB 上的 "
+                           "SQLite open/锁请求无超时语义）。不要把超时调大，"
+                           "应改用 mirror_mode=push（本地构建+整文件推送）。"),
+        }
+    if "err" in box:
+        exc = box["err"]
+        return {"_meta": {"status": "error", "db": str(remote_path),
+                          "detail": f"{type(exc).__name__}: {exc}"},
+                "_diagnosis": "镜像写入抛异常，详见任务日志 traceback。"}
+    return box.get("res") or {"_meta": {"status": "error", "detail": "镜像无返回"}}
+
+
 # ====== SFTP 连接（带 keepalive / 超时，便于断线自愈）======
 SFTP_CONNECT_TIMEOUT = 30
 SFTP_KEEPALIVE = 30
@@ -866,9 +964,13 @@ def run_sp_data_sync() -> dict:
     健壮性增强：
       - 整体 SFTP 连接/同步失败会按指数退避自动重试；
       - 单表下载中途断线会先重建连接再重试该表，避免一次网络抖动拖垮整轮；
-      - app.db 全部落库后统一镜像到 UNC 路径 inventory.db（普通表整表替换、
-        inventory_details 只追加远端没有的新行），镜像失败不影响 app.db 主结果，
-        但会在 result["mirror"]/message 中显式暴露。
+      - app.db 全部落库后统一镜像到 UNC 路径 inventory.db。**2026-09-30 起镜像改为
+        「本地构建 + 整文件推送」（mirror_mode=push）**：不再直连远端 WAL 库，
+        详见 `sp_mirror_push.py` 与 `_mirror_write_all()` 的说明。
+        镜像失败不影响 app.db 主结果，但会在 result["mirror"]/message 中显式暴露，
+        并由 warnings 触发降级告警。
+      - 镜像阶段有进程级硬超时兜底（`_run_mirror_with_timeout`），
+        绝不再让一次网络文件系统阻塞把 worker 永久卡死。
     """
     os.makedirs(SP_DATA_DIR, exist_ok=True)
     now = datetime.now()
@@ -974,7 +1076,7 @@ def run_sp_data_sync() -> dict:
             # 用会话起止粗算会把两者混在一起。有了这两行才能定位真正的耗时源。
             _t_mirror_start = time.time()
             if mirror_enabled and mirror_data:
-                mirror_res = _mirror_write_all(mirror_data)
+                mirror_res = _run_mirror_with_timeout(mirror_data, remote_path=_mirror_path)
                 result["mirror"] = {k: v for k, v in mirror_res.items()}
                 _meta = mirror_res.get("_meta") or {}
                 # 只统计「表」条目：返回值里还混着 _meta/_retention（dict）与

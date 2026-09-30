@@ -583,6 +583,11 @@ _TASK_DISPATCH = {
     "kpi_sp_consumables": ("backend.services.kpi_email_report", "run_sp_consumables"),
     "kpi_ran_availability": ("backend.services.kpi_email_report", "run_ran_availability"),
     "sp_email_details": ("backend.services.kpi_email_report", "run_sp_details_email"),
+    # 2026-09-30 新增：SP 备件明细分文件邮件（5 份 xlsx 各自作附件发 NOC）。
+    # 它的入口经 _run_script 调 owa_mail_report，故被 email_task_coverage 自动推导
+    # 纳入 EMAIL_TASK_IDS；不在此登记会命中 _UNDISPATCHED_EMAIL_TASKS 自检告警，
+    # 且邮箱降级后无法补发。
+    "sp_details_files_email": ("backend.services.kpi_email_report", "run_sp_details_files_email"),
     "sp_online_report_send": ("backend.services.kpi_email_report", "run_sp_online_report"),
     "sp_material_report": ("backend.services.kpi_email_report", "run_sp_material_stock_consumption"),
     "packet_loss_email": ("backend.services.kpi_email_report", "run_packet_loss_email"),

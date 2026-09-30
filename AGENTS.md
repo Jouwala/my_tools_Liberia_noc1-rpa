@@ -29,7 +29,7 @@
 | `liberia-noc_soc-数据看板统一门户\` | **Liberia NOC/SOC 数据看板统一门户**（聚合 FineBI 与 my_app 看板） | React 19 + Vite + Tailwind v4 | `...\AGENTS.md`、`...\README.md` |
 | `Task\` | 各类交付任务（eflow_Q&A、RAN、ORANGE、MTN_Comsal、Monthly_Report 等） | 混合 | 各任务目录内的 `README.md` |
 | `LBR_Tools\`、`Unified_Tools\`、`openclaw_api_selector\`、`ticket_export_rpa\` | 工具与 RPA 脚本集 | Python / 混合 | 各自目录 |
-| `nginx-1.28.0\`、`chrome-win\`、`whatsapp*\`、`scheduler_logs\`、`report\` | 运行时依赖与产出 | — | 一般不直接改 |
+| `chrome-win\`、`whatsapp*\`、`scheduler_logs\`、`report\` | 运行时依赖与产出 | — | 一般不直接改。nginx 不在列：本机那份重复发行包已于 2026-09-29 隔离、2026-09-30 退出版本库，生效的是 `Y:\01_RPA\nginx-1.28.0\`（见第四节第 6b 条） |
 
 ### 环境拓扑（速查）
 

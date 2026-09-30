@@ -825,20 +825,52 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .band-when { margin-top: 8px; font: 500 11px/1.5 var(--mono); color: var(--t3); }
 
 /* 心跳：绿色脉冲 = 这块面板确实在自动刷新。取不到数据时变红且不脉冲。
-   秒必须精确到秒 —— 只到分钟时，轮询叠上后端 60s 缓存会出现「一分钟没变」的错觉。 */
+   秒必须精确到秒 —— 只到分钟时，轮询叠上后端 60s 缓存会出现「一分钟没变」的错觉。
+
+   2026-09-29 三轮调整，过程本身就是这份样式为什么长这样的说明：
+   ① 用户「闪动太快，不好看」→ 我把 2.2s 放慢到 3.6s、把光晕缩到 4px/28%。
+   ② 用户「现在太慢了，并且呼吸效果不明显」→ ① 改错了方向。
+      复盘：扩散环的观感**全靠变化率**。周期拉长、幅度和浓度又一起削弱，结果是
+      「大半个周期里那颗点是静止的，动的时候又几乎看不见」—— 读起来就是「慢」+
+      「感觉不到在呼吸」。快和慢是对矛盾，靠削弱单个动画无法同时满足。
+   ③ 用户「呼吸的太快了」→ ② 里我把 qcBreathe 定成 1.25s（每秒 2.4 次）是为了让
+      呼吸"看得见"，但那个频率读起来是**抖动**（flutter），不是呼吸 ——
+      真实的一次呼吸是 3~4s，1.25s 连一半都不到。
+
+   最终做法：**把两种信号拆开**，各自用符合自身语义的节奏。
+     · 圆点本体：qcBreathe 3.6s 一轮（≈每秒 0.28 次）的柔和缩放 8px→9.4px
+       + 透明度 1→.72。这是一次真正的「吸气—呼气」，也是持续存在的"活着"信号。
+       ② 时代它只需 1.25s 就会被看见；现在**不必靠快来刷存在感**了 ——
+       因为"有节拍"这件事已经交给下面的光环去做，两者分开正是为了能各自放慢。
+     · 扩散光环：qcPulse 2.6s 一轮、扩到 6px、起始 40% 绿。
+       有节拍的那一路，比原始 2.2s 从容、比 3.6s 明确，不"闪"也不"等"。
+
+   周期比是 3.6s : 2.6s ≈ 1.38，**刻意不取整数倍**：完全同步（如 2:1）会让两个动画
+   反复在同一相位对齐，观感机械且会放大"节拍感"；非整数比让每次对齐都错开，
+   整体更像"自然的呼吸 + 偶然泛起的涟漪"。调到这一版请**不要再单独加速 qcBreathe** ——
+   它一快就退回 ③ 的抖动问题。
+
+   注意 .qc-dot 的 box-shadow 初始值必须是 `0 0 0 0 var(--ok-tint)`（半径为 0 的透明环），
+   它是 qcPulse 的起始态；两个动画分别写 box-shadow 与 transform，互不抢属性。 */
 .qc-live { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--mono); color: var(--t2); font-variant-numeric: tabular-nums; }
 .qc-live .qc-sep { color: var(--t3); }
 .qc-dot {
   display: block;
   width: 8px; height: 8px; border-radius: 50%; flex: none;
   background: var(--ok); box-shadow: 0 0 0 0 var(--ok-tint);
-  animation: qcPulse 2.2s ease-out infinite;
+  animation: qcPulse 2.6s ease-out infinite, qcBreathe 3.6s ease-in-out infinite;
 }
+/* 故障态：变红且**两个动画都停** —— 静止的红点是"这块面板不再刷新"的信号，
+   任何残余动画都会让人误以为它还在工作。 */
 .qc-dot-bad { background: var(--crit); animation: none; }
 @keyframes qcPulse {
-  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent); }
-  70%  { box-shadow: 0 0 0 7px transparent; }
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 40%, transparent); }
+  70%  { box-shadow: 0 0 0 6px transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
+}
+@keyframes qcBreathe {
+  0%, 100% { transform: scale(1);    opacity: 1; }
+  50%      { transform: scale(1.16); opacity: .75; }
 }
 
 .qc-grid {

@@ -248,17 +248,28 @@ def _recover_stale_running():
                         "UPDATE task_queue SET status = 'done', finished_at = ? WHERE id = ?",
                         (now_iso, qid),
                     )
-                    recovered.append((task_id, trigger_type, started_at, True))
+                    recovered.append((task_id, trigger_type, started_at, True, ""))
                 else:
+                    # 2026-09-30 修复措辞：旧文案一律写"Worker 进程中断"，但 pid 存活、
+                    # 只是被新 worker 判定为"不属于已知 worker"时，进程其实**没中断**
+                    # （典型：长任务挂死后人工重启服务栈，旧进程仍在后台挂着）。
+                    # 那种情况写"进程中断"会把排查引向崩溃方向，而真实原因是任务挂死。
+                    _reason = (
+                        "Worker 进程已失效（PID 已退出或被重复占用），任务未完成"
+                        if pid_dead else
+                        f"任务超过 {TASK_MAX_RUNNING_SECONDS//3600}h 未完成（判定挂死），"
+                        f"已回收队列名额"
+                    )
+                    err = f"{_reason}（启动/周期自动回收）"
                     conn.execute(
                         "UPDATE task_queue SET status = 'failed', finished_at = ?, "
-                        "error = 'Worker 进程中断，任务未完成（启动时自动回收）' WHERE id = ?",
-                        (now_iso, qid),
+                        "error = ? WHERE id = ?",
+                        (now_iso, err, qid),
                     )
-                    recovered.append((task_id, trigger_type, started_at, False))
+                    recovered.append((task_id, trigger_type, started_at, False, err))
             conn.commit()
             conn.close()
-        for task_id, trigger_type, started_at, marked_done in recovered:
+        for task_id, trigger_type, started_at, marked_done, err_text in recovered:
             if not marked_done:
                 task_runner._save_task_result({
                     "task_id": task_id,
@@ -270,7 +281,7 @@ def _recover_stale_running():
                     "completed_at": datetime.now().isoformat(),
                     "elapsed_seconds": None,
                     "result": None,
-                    "error": "Worker 进程中断，任务未完成（启动时自动回收）",
+                    "error": err_text,
                     "error_trace": None,
                 })
         if recovered:

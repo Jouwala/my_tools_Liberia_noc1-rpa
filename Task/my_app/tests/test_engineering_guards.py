@@ -305,3 +305,75 @@ def test_mirror_failure_is_surfaced_as_warning():
         "镜像失败时会抛 'str' object has no attribute 'get'，并被误报成 SFTP 故障"
     )
 
+
+# ---------------------------------------------------------------- 守卫 8
+def test_mirror_never_connects_remote_db_directly():
+    """镜像写入不得再从本机直连远端 inventory.db（2026-09-30 事故）。
+
+    背景：远端 `inventory.db` 处于 WAL 模式，且远端主机上有活进程长期持有其
+    `-shm` 字节范围锁。SMB 无法代理该语义，于是本机 `sqlite3.connect()` 对它的
+    **每一次**调用都永久阻塞（不是抛异常、不是超时返回）。实测把 `s` 组 worker
+    从 09:10 卡到 10:22 人工重启，直到启动回收逻辑才判失败，并且期间它持有的
+    句柄让后续每一轮镜像都撞 `database is locked`。
+
+    修法是 `sp_mirror_push.py` 的「本地构建 + 整文件推送」。这个守卫确保
+    默认路径不会再退回直连：直连实现只能留在 `_mirror_write_all_direct`
+    （回滚路径），且默认的 `_mirror_write_all` 必须先判 `MIRROR_MODE`。
+    """
+    sp = (BACKEND / "services" / "get_sp_table.py").read_text(encoding="utf-8", errors="replace")
+
+    assert "def _mirror_write_all_direct(" in sp, (
+        "旧的直连实现不见了 —— 若是有意删除，请同时删掉本守卫与 mirror_mode=direct 文档"
+    )
+    # 默认分发必须存在且先看 MIRROR_MODE，否则 direct 会成为默认路径。
+    assert re.search(r'if MIRROR_MODE == "direct":', sp), (
+        "get_sp_table.py 的镜像分发不再判 MIRROR_MODE —— direct(直连) 可能成为默认路径，"
+        "对 WAL 库会永久阻塞 worker"
+    )
+    assert 'MIRROR_MODE = "push"' in sp, (
+        "镜像默认模式不再是 push —— 直连远端 WAL 库会永久阻塞 worker"
+    )
+    push = (BACKEND / "services" / "sp_mirror_push.py").read_text(encoding="utf-8", errors="replace")
+    assert "shutil.copyfile(local_path, remote_path)" in push, (
+        "sp_mirror_push.py 不再用 copyfile 推送 —— 整文件推送是本方案能绕开 SMB 字节锁的关键"
+    )
+    assert re.search(r'con\.execute\("PRAGMA journal_mode=delete"\)', push), (
+        "本地构建的镜像库未显式设为 delete 模式 —— WAL 会在关闭后留下边车文件，"
+        "且推过去之后远端库会重新变成 WAL（本机就再也打不开）"
+    )
+
+
+# ---------------------------------------------------------------- 守卫 9
+def test_mirror_stage_has_hard_timeout():
+    """镜像阶段必须有进程级硬超时兜底（2026-09-30）。
+
+    `sqlite3` 的 `timeout` / `busy_timeout` 管不到 SMB 层的 open 与字节范围锁，
+    对"远端持有 WAL 库"这一场景完全无效（连不上就是永久阻塞）。因此**任何**
+    网络文件系统上的阻塞调用都必须由调用方给上限，否则一次卡死就是 6 小时。
+    """
+    sp = (BACKEND / "services" / "get_sp_table.py").read_text(encoding="utf-8", errors="replace")
+    assert "def _run_mirror_with_timeout(" in sp, (
+        "镜像阶段硬超时包装不见了 —— 一次网络文件系统阻塞会把 worker 永久卡死"
+    )
+    assert "MIRROR_HARD_TIMEOUT_SECONDS" in sp, "镜像硬超时常量被删"
+    assert re.search(r'mirror_res = _run_mirror_with_timeout\(', sp), (
+        "run_sp_data_sync 不再经硬超时包装调用镜像 —— 镜像挂死将再次无限期占住 worker"
+    )
+
+
+# ---------------------------------------------------------------- 守卫 10
+def test_worker_recovery_message_distinguishes_hang_from_crash():
+    """worker 回收文案必须区分「进程已失效」与「任务挂死」（2026-09-30）。
+
+    旧文案一律写 `Worker 进程中断，任务未完成（启动时自动回收）`。但实测
+    `sp_data_sync` 那次 pid 64468 **一直存活**（CPU 零增长的挂死），只是被
+    新 worker 判为"不属于已知 worker"而回收。照字面理解会去找崩溃原因，
+    而真实故障是任务挂死 + 长任务没有超时 —— 排查方向被文案带偏。
+    """
+    w = (BACKEND / "worker.py").read_text(encoding="utf-8", errors="replace")
+    assert "判定挂死" in w, (
+        "worker.py 回收文案不再区分挂死与崩溃 —— 排查会被引向错误方向"
+    )
+    assert "Worker 进程已失效" in w, "worker.py 缺少「进程已失效」分支的明确文案"
+
+

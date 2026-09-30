@@ -318,14 +318,18 @@ TASK_SPECS = [
     #      avail_recon_sync 同一条理由）。实测单日约 1.2s、3 天约 3.5s。
     #      ⚠️ 本任务**不新建 UME PM 模板** —— templateid 必须服务端已存在，
     #      不可臆造；只复用已物化的那张表。
-    #      ⚠️ 口径不完整：Average DL Active User Number 在 RAN_UME 侧未采集
-    #      （最接近的 C373200029:Maximum Number of RRC Connection User 是峰值，
-    #      不等价），因此每日判定实际只覆盖两个条件、结果必然低于 Excel 真值。
-    #      该缺口已写入 bp_sync_meta 并由页面常驻告警，详见 services/bp_caliber.py。
+    #      ⚠️ Active User 走**独立通道**（2026-09-30 接入）：该指标不在
+    #      4G_Main_Kpi_Cell_Daily 里，且**加不进去** —— 那张表由日粒度任务
+    #      （gr=86400）写入，而该指标只在**小时粒度**（gr=3600）可用；日粒度下
+    #      UME 返回 HTTP 200 但**静默丢弃该列**（原文 PDF counter/indicator
+    #      dimension is illegal）。故由 services/bp_active_user.py 按小时取数、
+    #      本地聚合成**当日峰值**后并入第三条件判定。实测每天约 100s。
+    #      取不到时该日 is_bp 仍记 NULL（不可判定），并在 bp_sync_meta 暴露。
+    #      因口径由「两条件」变为「三条件」，caliber 版本同步升到 bp-v2。
     dict(task_id="bp_report_sync", name="BP 劣化小区报告更新", name_en="BP Report Sync",
          loader=("backend.services.bp_report_sync", "run_bp_report_sync"),
-         description="从 RAN_UME 读取 4G 小区级 PRB/吞吐/流量，按 umlaut 口径重算 BP 劣化小区（日/周/月），更新本机 data/bp_report.sqlite3 并与 Excel 真值对账",
-         description_en="Read per-cell 4G PRB/throughput/traffic from RAN_UME, recompute Bad Performance cells by the umlaut caliber (daily/weekly/monthly), refresh local data/bp_report.sqlite3 and reconcile against the Excel ground truth",
+         description="从 RAN_UME 读取 4G 小区级 PRB/吞吐/流量，并按 UME 小时粒度取 Average DL Active User Number（当日峰值），按 umlaut 三条件口径重算 BP 劣化小区（日/周/月），更新本机 data/bp_report.sqlite3 并与 Excel 真值对账",
+         description_en="Read per-cell 4G PRB/throughput/traffic from RAN_UME plus Average DL Active User Number at hourly granularity (daily peak), recompute Bad Performance cells by the umlaut three-condition caliber (daily/weekly/monthly), refresh local data/bp_report.sqlite3 and reconcile against the Excel ground truth",
          default_cron="20 6 * * *", category="availability"),
 
     # 10c. MTTR/TT 宽表重建（每天 07:40，紧跟 eflow_sync 的 07:22 那一轮）
@@ -449,6 +453,23 @@ TASK_SPECS = [
          description="把 data/sp_email/data 下 4 份备件明细（inventory/inband/outband/transfer）合并为一个 Excel（sheet: Inventory/Inbound/Outbound/Transfer），附件名与主题携带时间戳发送；邮件主送 ansah.boadu@zte.com.cn，抄送 dong.xinmin@zte.com.cn（收件人可在 Settings → Email Recipient Settings 覆盖）；邮件发出后把同一份合并 Excel 作为文档发到 WhatsApp 群 WH&SP Management",
          description_en="Merge the 4 spare-part detail files (inventory/inband/outband/transfer) under data/sp_email/data into one Excel (sheets: Inventory/Inbound/Outbound/Transfer) with a timestamped filename and subject; email to ansah.boadu@zte.com.cn, cc dong.xinmin@zte.com.cn (recipients editable under Settings → Email Recipient Settings); after the email, also send the same merged Excel as a document to the WhatsApp group WH&SP Management",
          default_cron="0 7 * * *", category="kpi_email"),
+
+    # 19c-2. SP 备件明细分文件邮件（每天 10:05，2026-09-30 新增）
+    #        与 19c（sp_email_details，05:00）同数据源不同打包方式：19c 合并成一个多
+    #        sheet 工作簿 + 发 WhatsApp 群；本任务把 6 份明细**一文件一邮件**发给
+    #        NOC（主送 MS.NOC@zte.com.cn，抄送 li.jing132 / luo.wutao）。
+    #        主题口径（用户 2026-09-30 指定）：Liberia OLR W.H <完整文件名> <日期时间>。
+    #        为什么 10:05 而不是 10:00：整点是本组（kpi_email）邮件任务的密集时段，
+    #        错开 5 分钟避免同组 worker 排队（与 05:30/05:35、09:45/09:50 的错峰同思路）。
+    #        时序约束：数据由 sp_report_generate（05:15）产出，10:05 远在其后，
+    #        不存在读不到当天快照的抢跑风险。
+    #        ⚠️ 一文件一邮件 => 一次任务最多 6 次 EWS 会话，耗时约为单封的 6 倍。
+    dict(task_id="sp_details_files_email", name="SP 备件明细分文件邮件",
+         name_en="SP Spare Parts Details Files Email",
+         loader=("backend.services.kpi_email_report", "run_sp_details_files_email"),
+         description="每天 10:05 把 data/sp_email/data 下 6 份备件明细（inventory/inband/outband/transfer/transfer_return/ocrule）**一文件一邮件**逐个发送，主题为「Liberia OLR W.H <附件文件名> <日期时间>」；对外附件名把 inband/outband 写作 inbound/outbound（磁盘源名不变）；优先用未过滤的 *_source.xlsx 原始快照，缺失时逐份回退过滤版；任一份文件缺失即整体失败、一封都不发，单封发送失败则不中断后续并汇总点名。默认主送 MS.NOC@zte.com.cn，抄送 li.jing132@zte.com.cn / luo.wutao@zte.com.cn（收件人可在 Settings → Email Recipients 的 sp_details_files 分组覆盖）",
+         description_en="Daily 10:05: send the 6 spare-part detail files (inventory/inband/outband/transfer/transfer_return/ocrule) under data/sp_email/data as ONE EMAIL PER FILE, each with a single attachment and the subject 'Liberia OLR W.H <attachment file name> <date time>'; outbound attachment names use inbound/outbound for inband/outband (on-disk source names unchanged); prefers the unfiltered *_source.xlsx raw snapshot and falls back per-file to the filtered version; if any file is missing the whole run fails and nothing is sent, while a single send failure does not stop the rest and is reported by name. Default To MS.NOC@zte.com.cn, Cc li.jing132@zte.com.cn / luo.wutao@zte.com.cn (recipients editable in Settings → Email Recipients, group sp_details_files)",
+         default_cron="5 10 * * *", category="kpi_email"),
 
     # 19g. SP 物料库存与消耗报表邮件（每天 07:45）：2026-09-11 新增。
     #      数据与页面 myapp/?page=sp_material 同源（sp_material_summary_service 读

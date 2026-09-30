@@ -114,8 +114,7 @@ def _safe_str(val, default: str = "Unknown") -> str:
 #
 # 背景（2026-09-29 业务要求）：page=tt 的 Ticket Severity 卡不得统计与显示 Unknown。
 # 注意与邻近的 ``_safe_str`` 区分 —— ``_safe_str`` 把 NULL/空串/'None' 归并为字面量
-# 'Unknown'，因此「空值」与「真的写着 unknown」在本函数里被统一拦截；
-# **SLA 状态 / 状态 / 告警严重度的 Unknown 不受影响**，那不是同一维度。
+# 'Unknown'，因此「空值」与「真的写着 unknown」在本函数里被统一拦截。
 _EXCLUDED_TICKET_SEVERITIES = frozenset({"unknown", "unkonw"})
 
 
@@ -128,6 +127,32 @@ def _ticket_severity_key(value) -> str | None:
     """返回可用于 Ticket Severity 统计的键；Unknown 标记返回 None。"""
     severity = _safe_str(value).strip()
     return None if _is_excluded_ticket_severity(severity) else severity
+
+
+def _stat_key(value, excluded: frozenset, join_empty: bool = False) -> str | None:
+    """统计维度的通用取值归一：命中 ``excluded`` 返回 None（调用方跳过该行）。
+
+    :param excluded: 需排除的取值集合（小写比较）。
+    :param join_empty: True 时沿用 ``_safe_str`` 的语义，把 NULL/空串/'None'
+        归并为字面量 ``'Unknown'`` 再判排除；False 时保持原值（仅用于需要
+        区分「空」与「字面量 None」的维度）。
+
+    2026-09-29：SLA 状态同样要求不统计/不显示 Unknown（此前 JOIN 不上关联 TT、
+    或 TT 未算 SLA 的行会被 ``_safe_str`` 归并成 'Unknown' 单独成一类）。
+    """
+    normalized = _safe_str(value) if join_empty else _safe_str(value, "")
+    if str(normalized).strip().casefold() in excluded:
+        return None
+    return normalized
+
+
+# SLA 状态：Pass / Failed / Within SLA 之外的值（含 JOIN 不上 TT 的 Unknown）不计入统计。
+# 与 Ticket Severity 同一套排除语义，避免两个维度口径不一致。
+_EXCLUDED_SLA_STATUSES = frozenset({"unknown", "unkonw"})
+
+# 已剔除 Unknown 的维度（概览统计与下钻必须同步，否则数字与行数对不上）。
+_UNKNOWN_EXCLUDED_DIMENSIONS = frozenset({"ticket_severity", "sla_status"})
+
 
 
 # ========== ZTE / 3rd 归属过滤 ==========
@@ -362,7 +387,9 @@ def tt_wo_dashboard_overview(
             ticket_sev_val = _ticket_severity_key(r[1])
             if ticket_sev_val is not None:
                 ticket_sev[ticket_sev_val] = ticket_sev.get(ticket_sev_val, 0) + 1
-            sla_stats[_safe_str(r[2])] = sla_stats.get(_safe_str(r[2]), 0) + 1
+            sla_val = _stat_key(r[2], _EXCLUDED_SLA_STATUSES, join_empty=True)
+            if sla_val is not None:
+                sla_stats[sla_val] = sla_stats.get(sla_val, 0) + 1
             status_val = _safe_str(r[3], "")
             if status_val:
                 status_stats[status_val] = status_stats.get(status_val, 0) + 1
@@ -711,8 +738,15 @@ def tt_wo_drilldown(
             dim_cond = dim_info[1]
             extra_params: list = []
             if dim_cond and value:
+                field_name = dim_info[2]
+                # 2026-09-29：ticket_severity / sla_status 的 Unknown 已从概览统计中剔除
+                # （见 _EXCLUDED_TICKET_SEVERITIES / _EXCLUDED_SLA_STATUSES），下钻必须
+                # 同步返回空集，否则「卡片上已经没有这张卡、却还能下钻出 N 行」
+                # —— 违反「下钻 WHERE 必须与概览一致」的硬要求。
+                if field_name in _UNKNOWN_EXCLUDED_DIMENSIONS and _is_excluded_ticket_severity(value):
+                    conn.close()
+                    return {"title": f"TT - {dimension}: {value}", "count": 0, "data": []}
                 if value == "Unknown":
-                    field_name = dim_info[2]
                     tt_where += f" AND (t.{field_name} IS NULL OR t.{field_name} = '' OR t.{field_name} = 'None')"
                 else:
                     tt_where += f" AND {dim_cond}"
@@ -734,8 +768,12 @@ def tt_wo_drilldown(
             dim_cond = dim_info[1]
             extra_params = []
             if dim_cond and value:
+                field_name = dim_info[2]
+                # 与 TT 侧同规则：已剔除 Unknown 的维度不该再下钻出行
+                if field_name in _UNKNOWN_EXCLUDED_DIMENSIONS and _is_excluded_ticket_severity(value):
+                    conn.close()
+                    return {"title": f"WO - {dimension}: {value}", "count": 0, "data": []}
                 if value == "Unknown":
-                    field_name = dim_info[2]
                     wo_where += f" AND (w.{field_name} IS NULL OR w.{field_name} = '' OR w.{field_name} = 'None')"
                 else:
                     wo_where += f" AND {dim_cond}"

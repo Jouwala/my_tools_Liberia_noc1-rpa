@@ -118,6 +118,14 @@ def _default_sp_details() -> Tuple[List[str], List[str]]:
     return _parse_addrs(_SP_DETAILS_DEFAULT_TO), _parse_addrs(_SP_DETAILS_DEFAULT_CC)
 
 
+def _default_sp_details_files() -> Tuple[List[str], List[str]]:
+    from backend.services.kpi_email_report import (
+        _SP_DETAILS_FILES_DEFAULT_TO,
+        _SP_DETAILS_FILES_DEFAULT_CC,
+    )
+    return _parse_addrs(_SP_DETAILS_FILES_DEFAULT_TO), _parse_addrs(_SP_DETAILS_FILES_DEFAULT_CC)
+
+
 def _default_sp_material() -> Tuple[List[str], List[str]]:
     from backend.services.kpi_email_report import (
         _SP_MATERIAL_DEFAULT_TO,
@@ -204,6 +212,12 @@ EMAIL_RECIPIENT_GROUPS = [
         "name": "SP 备件明细报表邮件",
         "name_en": "SP Spare Parts Details Report Email",
         "default_loader": _default_sp_details,
+    },
+    {
+        "key": "sp_details_files",
+        "name": "SP 备件明细分文件邮件 (6 份 xlsx 逐个发送)",
+        "name_en": "SP Spare Parts Details Files Email (6 xlsx, one per email)",
+        "default_loader": _default_sp_details_files,
     },
     {
         "key": "sp_online_report",

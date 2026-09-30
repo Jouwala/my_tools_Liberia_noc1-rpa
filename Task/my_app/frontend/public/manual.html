@@ -82,19 +82,19 @@ footer.colophon { text-align: center; color: var(--muted); font-size: 12px; marg
 <body>
 <nav class="sidebar no-print">
   <h3>📘 my_app 手册</h3>
-  <div class="toc-part"><div class="toc-part-label">前言</div><ul><li><a class="toc-ch" href="#ch-00">关于本手册</a><ul class="toc-sub"><li><a href="#ch-00-s0">这份手册和 PROJECT_DOCS.md 有什么区别</a></li><li><a href="#ch-00-s1">三条阅读路径</a></li><li><a href="#ch-00-s2">目录</a></li><li><a href="#ch-00-s5">手册维护约定</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">设计篇</div><ul><li><a class="toc-ch" href="#ch-01">01 项目总览</a><ul class="toc-sub"><li><a href="#ch-01-s0">一句话定位</a></li><li><a href="#ch-01-s1">能力边界</a></li><li><a href="#ch-01-s2">数据从哪来、到哪去</a></li><li><a href="#ch-01-s3">术语表</a></li><li><a href="#ch-01-s4">阅读下一步</a></li></ul></li><li><a class="toc-ch" href="#ch-02">02 架构设计</a><ul class="toc-sub"><li><a href="#ch-02-s0">进程拓扑</a></li><li><a href="#ch-02-s1">后端启动序列</a></li><li><a href="#ch-02-s2">静态资源与 SPA 兜底</a></li><li><a href="#ch-02-s3">分层约定（以及实际偏差）</a></li><li><a href="#ch-02-s4">前端架构</a></li><li><a href="#ch-02-s5">构建产物</a></li></ul></li><li><a class="toc-ch" href="#ch-03">03 数据层设计</a><ul class="toc-sub"><li><a href="#ch-03-s0">双模数据库：当前跑的是 PostgreSQL</a></li><li><a href="#ch-03-s1">方言适配层</a></li><li><a href="#ch-03-s2">例外：仍然硬绑 SQLite 的代码</a></li><li><a href="#ch-03-s3">PG → SQLite 快照</a></li><li><a href="#ch-03-s4">迁移与建表：三套东西各司其职</a></li><li><a href="#ch-03-s5">运行时目录</a></li><li><a href="#ch-03-s6">给新功能作者的检查清单</a></li></ul></li><li><a class="toc-ch" href="#ch-04">04 任务与调度系统</a><ul class="toc-sub"><li><a href="#ch-04-s0">一条任务的一生</a></li><li><a href="#ch-04-s1">worker 分组：组内串行、组间并行</a></li><li><a href="#ch-04-s2">任务健康告警（漏跑不再靠人肉发现）</a></li><li><a href="#ch-04-s3">全量任务清单（默认 cron）</a></li><li><a href="#ch-04-s7">任务凭据分组对应表</a></li><li><a href="#ch-04-s9">超时、僵尸与自动重试</a></li><li><a href="#ch-04-s10">看门狗与自愈</a></li><li><a href="#ch-04-s11">加一个任务的最小步骤</a></li></ul></li><li><a class="toc-ch" href="#ch-05">05 访问控制与凭据</a><ul class="toc-sub"><li><a href="#ch-05-s0">结论先说</a></li><li><a href="#ch-05-s1">唯一的接口防护：require_protected</a></li><li><a href="#ch-05-s2">凭据存储</a></li><li><a href="#ch-05-s4">上游站点会话</a></li><li><a href="#ch-05-s5">TLS</a></li><li><a href="#ch-05-s6">仓库内的敏感文件（已验证未被 git 跟踪）</a></li><li><a href="#ch-05-s7">手册里禁止出现的内容（字段名级清单）</a></li><li><a href="#ch-05-s8">如果要提升安全性（按投入产出排序）</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">使用篇</div><ul><li><a class="toc-ch" href="#ch-10">10 快速上手</a><ul class="toc-sub"><li><a href="#ch-10-s0">环境要求</a></li><li><a href="#ch-10-s1">第一次装</a></li><li><a href="#ch-10-s3">启动</a></li><li><a href="#ch-10-s4">访问</a></li><li><a href="#ch-10-s5">停止</a></li><li><a href="#ch-10-s6">装完之后必须做的三步</a></li><li><a href="#ch-10-s7">换机器部署要改的硬编码</a></li></ul></li><li><a class="toc-ch" href="#ch-11">11 功能页使用手册</a><ul class="toc-sub"><li><a href="#ch-11-s0">1. 任务管理（?page=sync）— 全站控制中心</a></li><li><a href="#ch-11-s1">2. 任务报告文件（?page=email_reports）</a></li><li><a href="#ch-11-s2">3. 实时告警看板（?page=alarm）</a></li><li><a href="#ch-11-s3">4. TT&amp;WO 看板（?page=ttwo）</a></li><li><a href="#ch-11-s7">5. NUR 看板（?page=nur）</a></li><li><a href="#ch-11-s8">6. MS Operation KPI 看板（?page=ms_sla）</a></li><li><a href="#ch-11-s9">7. CXO 经营看板（?page=cxoDashboard）— iframe</a></li><li><a href="#ch-11-s10">8. MW 微波拓扑（?page=mwUmeTopology）— iframe</a></li><li><a href="#ch-11-s11">9. MW 微波实时（?page=mwRealTime）— iframe</a></li><li><a href="#ch-11-s12">10 / 11. GIS 地图 与 实时告警地图（?page=gis / ?page=realtime_alarm）</a></li><li><a href="#ch-11-s19">12. 告警管理看板（?page=alarmManagement）— iframe</a></li><li><a href="#ch-11-s20">13. 丢包看板（?page=packet_loss）</a></li><li><a href="#ch-11-s21">14. 电池看板（?page=battery）</a></li><li><a href="#ch-11-s22">14i. 站点可用率（?page=site_avail）</a></li><li><a href="#ch-11-s23">14j. FME 排名（?page=fme_ranking）</a></li><li><a href="#ch-11-s24">14k. RAN 小区 KPI（?page=ran_cells_kpi）</a></li><li><a href="#ch-11-s25">14l. UME 客户 KPI（?page=ume_in_kpi）</a></li><li><a href="#ch-11-s26">14m. MS Availability（可用率多维矩阵，?page=avail_ms）</a></li><li><a href="#ch-11-s27">14n. FLM 可用率（?page=avail_flm）</a></li><li><a href="#ch-11-s28">14b. NOC 操作人分析（?page=noc_analyst）—— 四层全量下钻</a></li><li><a href="#ch-11-s36">14c. TT 复盘报告 · 里程碑时间轴与偏离检测（2026-09-23 增强）</a></li><li><a href="#ch-11-s46">14d. 为什么走人工派单 —— TT Push Order Rule 逐条比对（2026-09-23 新增）</a></li><li><a href="#ch-11-s50">14e. eFlow 知识库 · TT 快速分析的「规则命中证据」（2026-09-23 新增）</a></li><li><a href="#ch-11-s56">14f. 这单指派给谁了 —— 指派归因（2026-09-23 新增）</a></li><li><a href="#ch-11-s61">14g. eFlow 全流程查询（?page=eflow_flow）</a></li><li><a href="#ch-11-s62">14h. 承接方归属：ZTE 自维 vs IPT 第三方（2026-09-24 新增）</a></li><li><a href="#ch-11-s71">15. IP 链路探测（?page=ip_trace）— iframe</a></li><li><a href="#ch-11-s72">16. 事件总览（?page=incident_overview）— iframe</a></li><li><a href="#ch-11-s73">17. 仓库看板（?page=warehouse）— iframe</a></li><li><a href="#ch-11-s74">18. 数据总览（?page=overview）</a></li><li><a href="#ch-11-s75">19. 表浏览器（?page=tables）</a></li><li><a href="#ch-11-s76">20. 数据上传（?page=upload）</a></li><li><a href="#ch-11-s77">21. 分析归档（?page=archive）</a></li><li><a href="#ch-11-s78">22. 分析仪表盘（?page=dashboard）</a></li><li><a href="#ch-11-s79">23. 系统设置（?page=settings）</a></li><li><a href="#ch-11-s80">24. 门户一键登录（?page=portalLogin）</a></li><li><a href="#ch-11-s83">25. UME iMonitor 大屏（?page=imonitor）— 原版门户页面嵌入</a></li><li><a href="#ch-11-s87">26. SP 备件 / 耗材汇总报表（?page=sp_report / ?page=com_report）</a></li><li><a href="#ch-11-s93">27. CR 变更分析（?page=cr_analysis）—— 按 change_category 看计划与完成（2026-09-25 新增）</a></li><li><a href="#ch-11-s98">28. PM 执行分析（?page=pm_analysis）—— 按 PM 计划看完成与超期（2026-09-25 新增）</a></li><li><a href="#ch-11-s105">29. FineBI 原生看板（?page=finebi_&lt;slug&gt;，共 17 个）</a></li></ul></li><li><a class="toc-ch" href="#ch-12">12 配置项与开关</a><ul class="toc-sub"><li><a href="#ch-12-s0">一、界面能改的（推荐）</a></li><li><a href="#ch-12-s1">二、.env / 环境变量（改这些要重启）</a></li><li><a href="#ch-12-s2">三、配置文件（JSON）</a></li><li><a href="#ch-12-s4">四、前端与构建</a></li><li><a href="#ch-12-s5">五、Python 依赖</a></li></ul></li><li><a class="toc-ch" href="#ch-13">13 运维手册</a><ul class="toc-sub"><li><a href="#ch-13-s0">进程与端口速查</a></li><li><a href="#ch-13-s1">日常巡检（5 分钟）</a></li><li><a href="#ch-13-s2">日志</a></li><li><a href="#ch-13-s3">排障 FAQ</a></li><li><a href="#ch-13-s6">备份与恢复</a></li><li><a href="#ch-13-s7">局域网访问</a></li><li><a href="#ch-13-s8">开机自启</a></li><li><a href="#ch-13-s9">定期清理</a></li><li><a href="#ch-13-s10">测试</a></li></ul></li><li><a class="toc-ch" href="#ch-14">14 外部系统与数据流</a><ul class="toc-sub"><li><a href="#ch-14-s0">上游（读）</a></li><li><a href="#ch-14-s1">下游（写/发）</a></li><li><a href="#ch-14-s2">发送通道选型（照抄自 EMAIL_SEND_MODES.md）</a></li><li><a href="#ch-14-s3">上游不可用时怎么表现</a></li><li><a href="#ch-14-s4">接入一个新的上游系统（检查清单）</a></li></ul></li><li><a class="toc-ch" href="#ch-15">使用帮助（一站式指南）</a><ul class="toc-sub"><li><a href="#ch-15-s0">目录</a></li><li><a href="#ch-15-s1">1. 平台简介</a></li><li><a href="#ch-15-s2">2. 通用操作</a></li><li><a href="#ch-15-s3">3. 任务管理详解</a></li><li><a href="#ch-15-s76">4. 页面指南</a></li><li><a href="#ch-15-s122">5. 运维与排障</a></li><li><a href="#ch-15-s129">6. 常见问题</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">附录</div><ul><li><a class="toc-ch" href="#ch-90">90 附录</a><ul class="toc-sub"><li><a href="#ch-90-s0">A. 后端接口前缀速查</a></li><li><a href="#ch-90-s1">B. 数据库对象速查</a></li><li><a href="#ch-90-s2">C. 页面 → 接口对照（一图速查）</a></li><li><a href="#ch-90-s3">D. 待清理的仓库残留（已验证未被代码引用）</a></li><li><a href="#ch-90-s4">E. 本手册迁移说明</a></li></ul></li></ul></div>
+  <div class="toc-part"><div class="toc-part-label">前言</div><ul><li><a class="toc-ch" href="#ch-00">关于本手册</a><ul class="toc-sub"><li><a href="#ch-00-s0">这份手册和 PROJECT_DOCS.md 有什么区别</a></li><li><a href="#ch-00-s1">三条阅读路径</a></li><li><a href="#ch-00-s2">目录</a></li><li><a href="#ch-00-s5">手册维护约定</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">设计篇</div><ul><li><a class="toc-ch" href="#ch-01">01 项目总览</a><ul class="toc-sub"><li><a href="#ch-01-s0">一句话定位</a></li><li><a href="#ch-01-s1">能力边界</a></li><li><a href="#ch-01-s2">数据从哪来、到哪去</a></li><li><a href="#ch-01-s3">术语表</a></li><li><a href="#ch-01-s4">阅读下一步</a></li></ul></li><li><a class="toc-ch" href="#ch-02">02 架构设计</a><ul class="toc-sub"><li><a href="#ch-02-s0">进程拓扑</a></li><li><a href="#ch-02-s1">后端启动序列</a></li><li><a href="#ch-02-s2">静态资源与 SPA 兜底</a></li><li><a href="#ch-02-s3">分层约定（以及实际偏差）</a></li><li><a href="#ch-02-s4">前端架构</a></li><li><a href="#ch-02-s5">构建产物</a></li></ul></li><li><a class="toc-ch" href="#ch-03">03 数据层设计</a><ul class="toc-sub"><li><a href="#ch-03-s0">双模数据库：当前跑的是 PostgreSQL</a></li><li><a href="#ch-03-s1">方言适配层</a></li><li><a href="#ch-03-s2">例外：仍然硬绑 SQLite 的代码</a></li><li><a href="#ch-03-s3">PG → SQLite 快照</a></li><li><a href="#ch-03-s4">迁移与建表：三套东西各司其职</a></li><li><a href="#ch-03-s5">运行时目录</a></li><li><a href="#ch-03-s6">给新功能作者的检查清单</a></li></ul></li><li><a class="toc-ch" href="#ch-04">04 任务与调度系统</a><ul class="toc-sub"><li><a href="#ch-04-s0">一条任务的一生</a></li><li><a href="#ch-04-s1">worker 分组：组内串行、组间并行</a></li><li><a href="#ch-04-s2">任务健康告警（漏跑不再靠人肉发现）</a></li><li><a href="#ch-04-s3">全量任务清单（默认 cron）</a></li><li><a href="#ch-04-s7">任务凭据分组对应表</a></li><li><a href="#ch-04-s9">超时、僵尸与自动重试</a></li><li><a href="#ch-04-s10">看门狗与自愈</a></li><li><a href="#ch-04-s11">加一个任务的最小步骤</a></li></ul></li><li><a class="toc-ch" href="#ch-05">05 访问控制与凭据</a><ul class="toc-sub"><li><a href="#ch-05-s0">结论先说</a></li><li><a href="#ch-05-s1">唯一的接口防护：require_protected</a></li><li><a href="#ch-05-s2">凭据存储</a></li><li><a href="#ch-05-s4">上游站点会话</a></li><li><a href="#ch-05-s5">TLS</a></li><li><a href="#ch-05-s6">仓库内的敏感文件（已验证未被 git 跟踪）</a></li><li><a href="#ch-05-s7">手册里禁止出现的内容（字段名级清单）</a></li><li><a href="#ch-05-s8">如果要提升安全性（按投入产出排序）</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">使用篇</div><ul><li><a class="toc-ch" href="#ch-10">10 快速上手</a><ul class="toc-sub"><li><a href="#ch-10-s0">环境要求</a></li><li><a href="#ch-10-s1">第一次装</a></li><li><a href="#ch-10-s3">启动</a></li><li><a href="#ch-10-s4">访问</a></li><li><a href="#ch-10-s5">停止</a></li><li><a href="#ch-10-s6">装完之后必须做的三步</a></li><li><a href="#ch-10-s7">换机器部署要改的硬编码</a></li></ul></li><li><a class="toc-ch" href="#ch-11">11 功能页使用手册</a><ul class="toc-sub"><li><a href="#ch-11-s0">1. 任务管理（?page=sync）— 全站控制中心</a></li><li><a href="#ch-11-s1">2. 任务报告文件（?page=email_reports）</a></li><li><a href="#ch-11-s2">3. 实时告警看板（?page=alarm）</a></li><li><a href="#ch-11-s3">4. TT&amp;WO 看板（?page=ttwo）</a></li><li><a href="#ch-11-s7">5. NUR 看板（?page=nur）</a></li><li><a href="#ch-11-s8">6. MS Operation KPI 看板（?page=ms_sla）</a></li><li><a href="#ch-11-s9">7. CXO 经营看板（?page=cxoDashboard）— iframe</a></li><li><a href="#ch-11-s10">8. MW 微波拓扑（?page=mwUmeTopology）— iframe</a></li><li><a href="#ch-11-s11">9. MW 微波实时（?page=mwRealTime）— iframe</a></li><li><a href="#ch-11-s12">10 / 11. GIS 地图 与 实时告警地图（?page=gis / ?page=realtime_alarm）</a></li><li><a href="#ch-11-s20">12. 告警管理看板（?page=alarmManagement）— iframe</a></li><li><a href="#ch-11-s21">13. 丢包看板（?page=packet_loss）</a></li><li><a href="#ch-11-s22">14. 电池看板（?page=battery）</a></li><li><a href="#ch-11-s23">14i. 站点可用率（?page=site_avail）</a></li><li><a href="#ch-11-s24">14j. FME 排名（?page=fme_ranking）</a></li><li><a href="#ch-11-s25">14k. RAN 小区 KPI（?page=ran_cells_kpi）</a></li><li><a href="#ch-11-s26">14l. UME 客户 KPI（?page=ume_in_kpi）</a></li><li><a href="#ch-11-s27">14m. MS Availability（可用率多维矩阵，?page=avail_ms）</a></li><li><a href="#ch-11-s28">14n. FLM 可用率（?page=avail_flm）</a></li><li><a href="#ch-11-s29">14b. NOC 操作人分析（?page=noc_analyst）—— 四层全量下钻</a></li><li><a href="#ch-11-s37">14c. TT 复盘报告 · 里程碑时间轴与偏离检测（2026-09-23 增强）</a></li><li><a href="#ch-11-s47">14d. 为什么走人工派单 —— TT Push Order Rule 逐条比对（2026-09-23 新增）</a></li><li><a href="#ch-11-s51">14e. eFlow 知识库 · TT 快速分析的「规则命中证据」（2026-09-23 新增）</a></li><li><a href="#ch-11-s57">14f. 这单指派给谁了 —— 指派归因（2026-09-23 新增）</a></li><li><a href="#ch-11-s62">14g. eFlow 全流程查询（?page=eflow_flow）</a></li><li><a href="#ch-11-s63">14h. 承接方归属：ZTE 自维 vs IPT 第三方（2026-09-24 新增）</a></li><li><a href="#ch-11-s72">15. IP 链路探测（?page=ip_trace）— iframe</a></li><li><a href="#ch-11-s73">16. 事件总览（?page=incident_overview）— iframe</a></li><li><a href="#ch-11-s74">17. 仓库看板（?page=warehouse）— iframe</a></li><li><a href="#ch-11-s75">18. 数据总览（?page=overview）</a></li><li><a href="#ch-11-s76">19. 表浏览器（?page=tables）</a></li><li><a href="#ch-11-s77">20. 数据上传（?page=upload）</a></li><li><a href="#ch-11-s78">21. 分析归档（?page=archive）</a></li><li><a href="#ch-11-s79">22. 分析仪表盘（?page=dashboard）</a></li><li><a href="#ch-11-s80">23. 系统设置（?page=settings）</a></li><li><a href="#ch-11-s81">24. 门户一键登录（?page=portalLogin）</a></li><li><a href="#ch-11-s84">25. UME iMonitor 大屏（?page=imonitor）— 原版门户页面嵌入</a></li><li><a href="#ch-11-s88">26. SP 备件 / 耗材汇总报表（?page=sp_report / ?page=com_report）</a></li><li><a href="#ch-11-s94">26b. 仓库汇总报表（?page=warehouse_summary）—— 页签 = Excel 的两个 sheet（2026-09-29 新增）</a></li><li><a href="#ch-11-s101">27. CR 变更分析（?page=cr_analysis）—— 按 change_category 看计划与完成（2026-09-25 新增）</a></li><li><a href="#ch-11-s106">28. PM 执行分析（?page=pm_analysis）—— 按 PM 计划看完成与超期（2026-09-25 新增）</a></li><li><a href="#ch-11-s113">30. BP 劣化小区报告（?page=bp_report）—— umlaut 口径的 Bad Performance（2026-09-29 新增，2026-09-30 口径补齐）</a></li><li><a href="#ch-11-s124">29. FineBI 原生看板（?page=finebi_&lt;slug&gt;，共 17 个）</a></li></ul></li><li><a class="toc-ch" href="#ch-12">12 配置项与开关</a><ul class="toc-sub"><li><a href="#ch-12-s0">一、界面能改的（推荐）</a></li><li><a href="#ch-12-s1">二、.env / 环境变量（改这些要重启）</a></li><li><a href="#ch-12-s2">三、配置文件（JSON）</a></li><li><a href="#ch-12-s4">四、前端与构建</a></li><li><a href="#ch-12-s5">五、Python 依赖</a></li></ul></li><li><a class="toc-ch" href="#ch-13">13 运维手册</a><ul class="toc-sub"><li><a href="#ch-13-s0">进程与端口速查</a></li><li><a href="#ch-13-s1">日常巡检（5 分钟）</a></li><li><a href="#ch-13-s2">日志</a></li><li><a href="#ch-13-s3">排障 FAQ</a></li><li><a href="#ch-13-s6">备份与恢复</a></li><li><a href="#ch-13-s7">局域网访问</a></li><li><a href="#ch-13-s8">开机自启</a></li><li><a href="#ch-13-s9">定期清理</a></li><li><a href="#ch-13-s10">测试</a></li></ul></li><li><a class="toc-ch" href="#ch-14">14 外部系统与数据流</a><ul class="toc-sub"><li><a href="#ch-14-s0">上游（读）</a></li><li><a href="#ch-14-s1">下游（写/发）</a></li><li><a href="#ch-14-s2">发送通道选型（照抄自 EMAIL_SEND_MODES.md）</a></li><li><a href="#ch-14-s3">上游不可用时怎么表现</a></li><li><a href="#ch-14-s4">接入一个新的上游系统（检查清单）</a></li></ul></li><li><a class="toc-ch" href="#ch-15">使用帮助（一站式指南）</a><ul class="toc-sub"><li><a href="#ch-15-s0">目录</a></li><li><a href="#ch-15-s1">1. 平台简介</a></li><li><a href="#ch-15-s2">2. 通用操作</a></li><li><a href="#ch-15-s3">3. 任务管理详解</a></li><li><a href="#ch-15-s78">4. 页面指南</a></li><li><a href="#ch-15-s130">5. 运维与排障</a></li><li><a href="#ch-15-s137">6. 常见问题</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">附录</div><ul><li><a class="toc-ch" href="#ch-90">90 附录</a><ul class="toc-sub"><li><a href="#ch-90-s0">A. 后端接口前缀速查</a></li><li><a href="#ch-90-s1">B. 数据库对象速查</a></li><li><a href="#ch-90-s2">C. 页面 → 接口对照（一图速查）</a></li><li><a href="#ch-90-s3">D. 待清理的仓库残留（已验证未被代码引用）</a></li><li><a href="#ch-90-s4">E. 本手册迁移说明</a></li></ul></li></ul></div>
 </nav>
 <div class="wrap">
   <section class="cover">
     <div class="logo">📘</div>
     <h1>my_app 项目手册</h1>
     <div class="sub">网络运维数据平台 · 设计手册 + 使用手册</div>
-    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-09-29<br>含 13 章 · 117 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
+    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-09-30<br>含 13 章 · 119 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
     <ul class="parts"><li><a href="#ch-00">前言 · 关于本手册</a></li><li><a href="#ch-01">设计篇 · 01 项目总览</a></li><li><a href="#ch-02">设计篇 · 02 架构设计</a></li><li><a href="#ch-03">设计篇 · 03 数据层设计</a></li><li><a href="#ch-04">设计篇 · 04 任务与调度系统</a></li><li><a href="#ch-05">设计篇 · 05 访问控制与凭据</a></li><li><a href="#ch-10">使用篇 · 10 快速上手</a></li><li><a href="#ch-11">使用篇 · 11 功能页使用手册</a></li><li><a href="#ch-12">使用篇 · 12 配置项与开关</a></li><li><a href="#ch-13">使用篇 · 13 运维手册</a></li><li><a href="#ch-14">使用篇 · 14 外部系统与数据流</a></li><li><a href="#ch-15">使用篇 · 使用帮助（一站式指南）</a></li><li><a href="#ch-90">附录 · 90 附录</a></li></ul>
   </section>
   <section class="toc-section">
     <h2>目录</h2>
-    <div class="toc-part"><div class="toc-part-label">前言</div><ul><li><a class="toc-ch" href="#ch-00">关于本手册</a><ul class="toc-sub"><li><a href="#ch-00-s0">这份手册和 PROJECT_DOCS.md 有什么区别</a></li><li><a href="#ch-00-s1">三条阅读路径</a></li><li><a href="#ch-00-s2">目录</a></li><li><a href="#ch-00-s5">手册维护约定</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">设计篇</div><ul><li><a class="toc-ch" href="#ch-01">01 项目总览</a><ul class="toc-sub"><li><a href="#ch-01-s0">一句话定位</a></li><li><a href="#ch-01-s1">能力边界</a></li><li><a href="#ch-01-s2">数据从哪来、到哪去</a></li><li><a href="#ch-01-s3">术语表</a></li><li><a href="#ch-01-s4">阅读下一步</a></li></ul></li><li><a class="toc-ch" href="#ch-02">02 架构设计</a><ul class="toc-sub"><li><a href="#ch-02-s0">进程拓扑</a></li><li><a href="#ch-02-s1">后端启动序列</a></li><li><a href="#ch-02-s2">静态资源与 SPA 兜底</a></li><li><a href="#ch-02-s3">分层约定（以及实际偏差）</a></li><li><a href="#ch-02-s4">前端架构</a></li><li><a href="#ch-02-s5">构建产物</a></li></ul></li><li><a class="toc-ch" href="#ch-03">03 数据层设计</a><ul class="toc-sub"><li><a href="#ch-03-s0">双模数据库：当前跑的是 PostgreSQL</a></li><li><a href="#ch-03-s1">方言适配层</a></li><li><a href="#ch-03-s2">例外：仍然硬绑 SQLite 的代码</a></li><li><a href="#ch-03-s3">PG → SQLite 快照</a></li><li><a href="#ch-03-s4">迁移与建表：三套东西各司其职</a></li><li><a href="#ch-03-s5">运行时目录</a></li><li><a href="#ch-03-s6">给新功能作者的检查清单</a></li></ul></li><li><a class="toc-ch" href="#ch-04">04 任务与调度系统</a><ul class="toc-sub"><li><a href="#ch-04-s0">一条任务的一生</a></li><li><a href="#ch-04-s1">worker 分组：组内串行、组间并行</a></li><li><a href="#ch-04-s2">任务健康告警（漏跑不再靠人肉发现）</a></li><li><a href="#ch-04-s3">全量任务清单（默认 cron）</a></li><li><a href="#ch-04-s7">任务凭据分组对应表</a></li><li><a href="#ch-04-s9">超时、僵尸与自动重试</a></li><li><a href="#ch-04-s10">看门狗与自愈</a></li><li><a href="#ch-04-s11">加一个任务的最小步骤</a></li></ul></li><li><a class="toc-ch" href="#ch-05">05 访问控制与凭据</a><ul class="toc-sub"><li><a href="#ch-05-s0">结论先说</a></li><li><a href="#ch-05-s1">唯一的接口防护：require_protected</a></li><li><a href="#ch-05-s2">凭据存储</a></li><li><a href="#ch-05-s4">上游站点会话</a></li><li><a href="#ch-05-s5">TLS</a></li><li><a href="#ch-05-s6">仓库内的敏感文件（已验证未被 git 跟踪）</a></li><li><a href="#ch-05-s7">手册里禁止出现的内容（字段名级清单）</a></li><li><a href="#ch-05-s8">如果要提升安全性（按投入产出排序）</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">使用篇</div><ul><li><a class="toc-ch" href="#ch-10">10 快速上手</a><ul class="toc-sub"><li><a href="#ch-10-s0">环境要求</a></li><li><a href="#ch-10-s1">第一次装</a></li><li><a href="#ch-10-s3">启动</a></li><li><a href="#ch-10-s4">访问</a></li><li><a href="#ch-10-s5">停止</a></li><li><a href="#ch-10-s6">装完之后必须做的三步</a></li><li><a href="#ch-10-s7">换机器部署要改的硬编码</a></li></ul></li><li><a class="toc-ch" href="#ch-11">11 功能页使用手册</a><ul class="toc-sub"><li><a href="#ch-11-s0">1. 任务管理（?page=sync）— 全站控制中心</a></li><li><a href="#ch-11-s1">2. 任务报告文件（?page=email_reports）</a></li><li><a href="#ch-11-s2">3. 实时告警看板（?page=alarm）</a></li><li><a href="#ch-11-s3">4. TT&amp;WO 看板（?page=ttwo）</a></li><li><a href="#ch-11-s7">5. NUR 看板（?page=nur）</a></li><li><a href="#ch-11-s8">6. MS Operation KPI 看板（?page=ms_sla）</a></li><li><a href="#ch-11-s9">7. CXO 经营看板（?page=cxoDashboard）— iframe</a></li><li><a href="#ch-11-s10">8. MW 微波拓扑（?page=mwUmeTopology）— iframe</a></li><li><a href="#ch-11-s11">9. MW 微波实时（?page=mwRealTime）— iframe</a></li><li><a href="#ch-11-s12">10 / 11. GIS 地图 与 实时告警地图（?page=gis / ?page=realtime_alarm）</a></li><li><a href="#ch-11-s19">12. 告警管理看板（?page=alarmManagement）— iframe</a></li><li><a href="#ch-11-s20">13. 丢包看板（?page=packet_loss）</a></li><li><a href="#ch-11-s21">14. 电池看板（?page=battery）</a></li><li><a href="#ch-11-s22">14i. 站点可用率（?page=site_avail）</a></li><li><a href="#ch-11-s23">14j. FME 排名（?page=fme_ranking）</a></li><li><a href="#ch-11-s24">14k. RAN 小区 KPI（?page=ran_cells_kpi）</a></li><li><a href="#ch-11-s25">14l. UME 客户 KPI（?page=ume_in_kpi）</a></li><li><a href="#ch-11-s26">14m. MS Availability（可用率多维矩阵，?page=avail_ms）</a></li><li><a href="#ch-11-s27">14n. FLM 可用率（?page=avail_flm）</a></li><li><a href="#ch-11-s28">14b. NOC 操作人分析（?page=noc_analyst）—— 四层全量下钻</a></li><li><a href="#ch-11-s36">14c. TT 复盘报告 · 里程碑时间轴与偏离检测（2026-09-23 增强）</a></li><li><a href="#ch-11-s46">14d. 为什么走人工派单 —— TT Push Order Rule 逐条比对（2026-09-23 新增）</a></li><li><a href="#ch-11-s50">14e. eFlow 知识库 · TT 快速分析的「规则命中证据」（2026-09-23 新增）</a></li><li><a href="#ch-11-s56">14f. 这单指派给谁了 —— 指派归因（2026-09-23 新增）</a></li><li><a href="#ch-11-s61">14g. eFlow 全流程查询（?page=eflow_flow）</a></li><li><a href="#ch-11-s62">14h. 承接方归属：ZTE 自维 vs IPT 第三方（2026-09-24 新增）</a></li><li><a href="#ch-11-s71">15. IP 链路探测（?page=ip_trace）— iframe</a></li><li><a href="#ch-11-s72">16. 事件总览（?page=incident_overview）— iframe</a></li><li><a href="#ch-11-s73">17. 仓库看板（?page=warehouse）— iframe</a></li><li><a href="#ch-11-s74">18. 数据总览（?page=overview）</a></li><li><a href="#ch-11-s75">19. 表浏览器（?page=tables）</a></li><li><a href="#ch-11-s76">20. 数据上传（?page=upload）</a></li><li><a href="#ch-11-s77">21. 分析归档（?page=archive）</a></li><li><a href="#ch-11-s78">22. 分析仪表盘（?page=dashboard）</a></li><li><a href="#ch-11-s79">23. 系统设置（?page=settings）</a></li><li><a href="#ch-11-s80">24. 门户一键登录（?page=portalLogin）</a></li><li><a href="#ch-11-s83">25. UME iMonitor 大屏（?page=imonitor）— 原版门户页面嵌入</a></li><li><a href="#ch-11-s87">26. SP 备件 / 耗材汇总报表（?page=sp_report / ?page=com_report）</a></li><li><a href="#ch-11-s93">27. CR 变更分析（?page=cr_analysis）—— 按 change_category 看计划与完成（2026-09-25 新增）</a></li><li><a href="#ch-11-s98">28. PM 执行分析（?page=pm_analysis）—— 按 PM 计划看完成与超期（2026-09-25 新增）</a></li><li><a href="#ch-11-s105">29. FineBI 原生看板（?page=finebi_&lt;slug&gt;，共 17 个）</a></li></ul></li><li><a class="toc-ch" href="#ch-12">12 配置项与开关</a><ul class="toc-sub"><li><a href="#ch-12-s0">一、界面能改的（推荐）</a></li><li><a href="#ch-12-s1">二、.env / 环境变量（改这些要重启）</a></li><li><a href="#ch-12-s2">三、配置文件（JSON）</a></li><li><a href="#ch-12-s4">四、前端与构建</a></li><li><a href="#ch-12-s5">五、Python 依赖</a></li></ul></li><li><a class="toc-ch" href="#ch-13">13 运维手册</a><ul class="toc-sub"><li><a href="#ch-13-s0">进程与端口速查</a></li><li><a href="#ch-13-s1">日常巡检（5 分钟）</a></li><li><a href="#ch-13-s2">日志</a></li><li><a href="#ch-13-s3">排障 FAQ</a></li><li><a href="#ch-13-s6">备份与恢复</a></li><li><a href="#ch-13-s7">局域网访问</a></li><li><a href="#ch-13-s8">开机自启</a></li><li><a href="#ch-13-s9">定期清理</a></li><li><a href="#ch-13-s10">测试</a></li></ul></li><li><a class="toc-ch" href="#ch-14">14 外部系统与数据流</a><ul class="toc-sub"><li><a href="#ch-14-s0">上游（读）</a></li><li><a href="#ch-14-s1">下游（写/发）</a></li><li><a href="#ch-14-s2">发送通道选型（照抄自 EMAIL_SEND_MODES.md）</a></li><li><a href="#ch-14-s3">上游不可用时怎么表现</a></li><li><a href="#ch-14-s4">接入一个新的上游系统（检查清单）</a></li></ul></li><li><a class="toc-ch" href="#ch-15">使用帮助（一站式指南）</a><ul class="toc-sub"><li><a href="#ch-15-s0">目录</a></li><li><a href="#ch-15-s1">1. 平台简介</a></li><li><a href="#ch-15-s2">2. 通用操作</a></li><li><a href="#ch-15-s3">3. 任务管理详解</a></li><li><a href="#ch-15-s76">4. 页面指南</a></li><li><a href="#ch-15-s122">5. 运维与排障</a></li><li><a href="#ch-15-s129">6. 常见问题</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">附录</div><ul><li><a class="toc-ch" href="#ch-90">90 附录</a><ul class="toc-sub"><li><a href="#ch-90-s0">A. 后端接口前缀速查</a></li><li><a href="#ch-90-s1">B. 数据库对象速查</a></li><li><a href="#ch-90-s2">C. 页面 → 接口对照（一图速查）</a></li><li><a href="#ch-90-s3">D. 待清理的仓库残留（已验证未被代码引用）</a></li><li><a href="#ch-90-s4">E. 本手册迁移说明</a></li></ul></li></ul></div>
+    <div class="toc-part"><div class="toc-part-label">前言</div><ul><li><a class="toc-ch" href="#ch-00">关于本手册</a><ul class="toc-sub"><li><a href="#ch-00-s0">这份手册和 PROJECT_DOCS.md 有什么区别</a></li><li><a href="#ch-00-s1">三条阅读路径</a></li><li><a href="#ch-00-s2">目录</a></li><li><a href="#ch-00-s5">手册维护约定</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">设计篇</div><ul><li><a class="toc-ch" href="#ch-01">01 项目总览</a><ul class="toc-sub"><li><a href="#ch-01-s0">一句话定位</a></li><li><a href="#ch-01-s1">能力边界</a></li><li><a href="#ch-01-s2">数据从哪来、到哪去</a></li><li><a href="#ch-01-s3">术语表</a></li><li><a href="#ch-01-s4">阅读下一步</a></li></ul></li><li><a class="toc-ch" href="#ch-02">02 架构设计</a><ul class="toc-sub"><li><a href="#ch-02-s0">进程拓扑</a></li><li><a href="#ch-02-s1">后端启动序列</a></li><li><a href="#ch-02-s2">静态资源与 SPA 兜底</a></li><li><a href="#ch-02-s3">分层约定（以及实际偏差）</a></li><li><a href="#ch-02-s4">前端架构</a></li><li><a href="#ch-02-s5">构建产物</a></li></ul></li><li><a class="toc-ch" href="#ch-03">03 数据层设计</a><ul class="toc-sub"><li><a href="#ch-03-s0">双模数据库：当前跑的是 PostgreSQL</a></li><li><a href="#ch-03-s1">方言适配层</a></li><li><a href="#ch-03-s2">例外：仍然硬绑 SQLite 的代码</a></li><li><a href="#ch-03-s3">PG → SQLite 快照</a></li><li><a href="#ch-03-s4">迁移与建表：三套东西各司其职</a></li><li><a href="#ch-03-s5">运行时目录</a></li><li><a href="#ch-03-s6">给新功能作者的检查清单</a></li></ul></li><li><a class="toc-ch" href="#ch-04">04 任务与调度系统</a><ul class="toc-sub"><li><a href="#ch-04-s0">一条任务的一生</a></li><li><a href="#ch-04-s1">worker 分组：组内串行、组间并行</a></li><li><a href="#ch-04-s2">任务健康告警（漏跑不再靠人肉发现）</a></li><li><a href="#ch-04-s3">全量任务清单（默认 cron）</a></li><li><a href="#ch-04-s7">任务凭据分组对应表</a></li><li><a href="#ch-04-s9">超时、僵尸与自动重试</a></li><li><a href="#ch-04-s10">看门狗与自愈</a></li><li><a href="#ch-04-s11">加一个任务的最小步骤</a></li></ul></li><li><a class="toc-ch" href="#ch-05">05 访问控制与凭据</a><ul class="toc-sub"><li><a href="#ch-05-s0">结论先说</a></li><li><a href="#ch-05-s1">唯一的接口防护：require_protected</a></li><li><a href="#ch-05-s2">凭据存储</a></li><li><a href="#ch-05-s4">上游站点会话</a></li><li><a href="#ch-05-s5">TLS</a></li><li><a href="#ch-05-s6">仓库内的敏感文件（已验证未被 git 跟踪）</a></li><li><a href="#ch-05-s7">手册里禁止出现的内容（字段名级清单）</a></li><li><a href="#ch-05-s8">如果要提升安全性（按投入产出排序）</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">使用篇</div><ul><li><a class="toc-ch" href="#ch-10">10 快速上手</a><ul class="toc-sub"><li><a href="#ch-10-s0">环境要求</a></li><li><a href="#ch-10-s1">第一次装</a></li><li><a href="#ch-10-s3">启动</a></li><li><a href="#ch-10-s4">访问</a></li><li><a href="#ch-10-s5">停止</a></li><li><a href="#ch-10-s6">装完之后必须做的三步</a></li><li><a href="#ch-10-s7">换机器部署要改的硬编码</a></li></ul></li><li><a class="toc-ch" href="#ch-11">11 功能页使用手册</a><ul class="toc-sub"><li><a href="#ch-11-s0">1. 任务管理（?page=sync）— 全站控制中心</a></li><li><a href="#ch-11-s1">2. 任务报告文件（?page=email_reports）</a></li><li><a href="#ch-11-s2">3. 实时告警看板（?page=alarm）</a></li><li><a href="#ch-11-s3">4. TT&amp;WO 看板（?page=ttwo）</a></li><li><a href="#ch-11-s7">5. NUR 看板（?page=nur）</a></li><li><a href="#ch-11-s8">6. MS Operation KPI 看板（?page=ms_sla）</a></li><li><a href="#ch-11-s9">7. CXO 经营看板（?page=cxoDashboard）— iframe</a></li><li><a href="#ch-11-s10">8. MW 微波拓扑（?page=mwUmeTopology）— iframe</a></li><li><a href="#ch-11-s11">9. MW 微波实时（?page=mwRealTime）— iframe</a></li><li><a href="#ch-11-s12">10 / 11. GIS 地图 与 实时告警地图（?page=gis / ?page=realtime_alarm）</a></li><li><a href="#ch-11-s20">12. 告警管理看板（?page=alarmManagement）— iframe</a></li><li><a href="#ch-11-s21">13. 丢包看板（?page=packet_loss）</a></li><li><a href="#ch-11-s22">14. 电池看板（?page=battery）</a></li><li><a href="#ch-11-s23">14i. 站点可用率（?page=site_avail）</a></li><li><a href="#ch-11-s24">14j. FME 排名（?page=fme_ranking）</a></li><li><a href="#ch-11-s25">14k. RAN 小区 KPI（?page=ran_cells_kpi）</a></li><li><a href="#ch-11-s26">14l. UME 客户 KPI（?page=ume_in_kpi）</a></li><li><a href="#ch-11-s27">14m. MS Availability（可用率多维矩阵，?page=avail_ms）</a></li><li><a href="#ch-11-s28">14n. FLM 可用率（?page=avail_flm）</a></li><li><a href="#ch-11-s29">14b. NOC 操作人分析（?page=noc_analyst）—— 四层全量下钻</a></li><li><a href="#ch-11-s37">14c. TT 复盘报告 · 里程碑时间轴与偏离检测（2026-09-23 增强）</a></li><li><a href="#ch-11-s47">14d. 为什么走人工派单 —— TT Push Order Rule 逐条比对（2026-09-23 新增）</a></li><li><a href="#ch-11-s51">14e. eFlow 知识库 · TT 快速分析的「规则命中证据」（2026-09-23 新增）</a></li><li><a href="#ch-11-s57">14f. 这单指派给谁了 —— 指派归因（2026-09-23 新增）</a></li><li><a href="#ch-11-s62">14g. eFlow 全流程查询（?page=eflow_flow）</a></li><li><a href="#ch-11-s63">14h. 承接方归属：ZTE 自维 vs IPT 第三方（2026-09-24 新增）</a></li><li><a href="#ch-11-s72">15. IP 链路探测（?page=ip_trace）— iframe</a></li><li><a href="#ch-11-s73">16. 事件总览（?page=incident_overview）— iframe</a></li><li><a href="#ch-11-s74">17. 仓库看板（?page=warehouse）— iframe</a></li><li><a href="#ch-11-s75">18. 数据总览（?page=overview）</a></li><li><a href="#ch-11-s76">19. 表浏览器（?page=tables）</a></li><li><a href="#ch-11-s77">20. 数据上传（?page=upload）</a></li><li><a href="#ch-11-s78">21. 分析归档（?page=archive）</a></li><li><a href="#ch-11-s79">22. 分析仪表盘（?page=dashboard）</a></li><li><a href="#ch-11-s80">23. 系统设置（?page=settings）</a></li><li><a href="#ch-11-s81">24. 门户一键登录（?page=portalLogin）</a></li><li><a href="#ch-11-s84">25. UME iMonitor 大屏（?page=imonitor）— 原版门户页面嵌入</a></li><li><a href="#ch-11-s88">26. SP 备件 / 耗材汇总报表（?page=sp_report / ?page=com_report）</a></li><li><a href="#ch-11-s94">26b. 仓库汇总报表（?page=warehouse_summary）—— 页签 = Excel 的两个 sheet（2026-09-29 新增）</a></li><li><a href="#ch-11-s101">27. CR 变更分析（?page=cr_analysis）—— 按 change_category 看计划与完成（2026-09-25 新增）</a></li><li><a href="#ch-11-s106">28. PM 执行分析（?page=pm_analysis）—— 按 PM 计划看完成与超期（2026-09-25 新增）</a></li><li><a href="#ch-11-s113">30. BP 劣化小区报告（?page=bp_report）—— umlaut 口径的 Bad Performance（2026-09-29 新增，2026-09-30 口径补齐）</a></li><li><a href="#ch-11-s124">29. FineBI 原生看板（?page=finebi_&lt;slug&gt;，共 17 个）</a></li></ul></li><li><a class="toc-ch" href="#ch-12">12 配置项与开关</a><ul class="toc-sub"><li><a href="#ch-12-s0">一、界面能改的（推荐）</a></li><li><a href="#ch-12-s1">二、.env / 环境变量（改这些要重启）</a></li><li><a href="#ch-12-s2">三、配置文件（JSON）</a></li><li><a href="#ch-12-s4">四、前端与构建</a></li><li><a href="#ch-12-s5">五、Python 依赖</a></li></ul></li><li><a class="toc-ch" href="#ch-13">13 运维手册</a><ul class="toc-sub"><li><a href="#ch-13-s0">进程与端口速查</a></li><li><a href="#ch-13-s1">日常巡检（5 分钟）</a></li><li><a href="#ch-13-s2">日志</a></li><li><a href="#ch-13-s3">排障 FAQ</a></li><li><a href="#ch-13-s6">备份与恢复</a></li><li><a href="#ch-13-s7">局域网访问</a></li><li><a href="#ch-13-s8">开机自启</a></li><li><a href="#ch-13-s9">定期清理</a></li><li><a href="#ch-13-s10">测试</a></li></ul></li><li><a class="toc-ch" href="#ch-14">14 外部系统与数据流</a><ul class="toc-sub"><li><a href="#ch-14-s0">上游（读）</a></li><li><a href="#ch-14-s1">下游（写/发）</a></li><li><a href="#ch-14-s2">发送通道选型（照抄自 EMAIL_SEND_MODES.md）</a></li><li><a href="#ch-14-s3">上游不可用时怎么表现</a></li><li><a href="#ch-14-s4">接入一个新的上游系统（检查清单）</a></li></ul></li><li><a class="toc-ch" href="#ch-15">使用帮助（一站式指南）</a><ul class="toc-sub"><li><a href="#ch-15-s0">目录</a></li><li><a href="#ch-15-s1">1. 平台简介</a></li><li><a href="#ch-15-s2">2. 通用操作</a></li><li><a href="#ch-15-s3">3. 任务管理详解</a></li><li><a href="#ch-15-s78">4. 页面指南</a></li><li><a href="#ch-15-s130">5. 运维与排障</a></li><li><a href="#ch-15-s137">6. 常见问题</a></li></ul></li></ul></div><div class="toc-part"><div class="toc-part-label">附录</div><ul><li><a class="toc-ch" href="#ch-90">90 附录</a><ul class="toc-sub"><li><a href="#ch-90-s0">A. 后端接口前缀速查</a></li><li><a href="#ch-90-s1">B. 数据库对象速查</a></li><li><a href="#ch-90-s2">C. 页面 → 接口对照（一图速查）</a></li><li><a href="#ch-90-s3">D. 待清理的仓库残留（已验证未被代码引用）</a></li><li><a href="#ch-90-s4">E. 本手册迁移说明</a></li></ul></li></ul></div>
   </section>
   
 <section class="chapter" id="ch-00">
@@ -669,9 +669,9 @@ schemas/   预留，实际为空
 <tbody>
 <tr>
 <td><code>u</code></td>
-<td>11</td>
-<td>RAN UME 单账号会话，必须串行（并发会被踢会话）</td>
-<td><code>ran_ume_daily</code>, <code>main_kpi_sync</code>, <code>cell_availability_sync</code>, <code>network_kpi_sync</code>, <code>packet_loss_sync</code>, <code>packet_loss_email</code>, <code>battery_kpi_sync</code>, <code>ipran_kpi_sync</code>, <code>cm_data_sync</code>, <code>cells_kpi_sync</code>, <code>avail_recon_sync</code></td>
+<td>12</td>
+<td>RAN UME 单账号会话，必须串行（并发会被踢会话）。<code>bp_report_sync</code> 也读 RAN UME，且必须排在 <code>main_kpi_sync</code> 之后（否则读到昨天的 KPI）</td>
+<td><code>ran_ume_daily</code>, <code>main_kpi_sync</code>, <code>cell_availability_sync</code>, <code>network_kpi_sync</code>, <code>packet_loss_sync</code>, <code>packet_loss_email</code>, <code>battery_kpi_sync</code>, <code>ipran_kpi_sync</code>, <code>cm_data_sync</code>, <code>cells_kpi_sync</code>, <code>avail_recon_sync</code>, <code>bp_report_sync</code></td>
 </tr>
 <tr>
 <td><code>n</code></td>
@@ -699,9 +699,9 @@ schemas/   预留，实际为空
 </tr>
 <tr>
 <td><code>m</code></td>
-<td>33</td>
+<td>34</td>
 <td>内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数</td>
-<td><code>site_outage_screenshot</code>, <code>whatsapp_send</code>, <code>whatsapp_send_ext</code>, <code>tt_alarm_whatsapp_alert</code>, <code>liberia_email_1h</code>, <code>liberia_email_8h</code>, <code>kpi_ms_contract</code>, <code>kpi_ms_wo_sla</code>, <code>kpi_sp_spareparts</code>, <code>kpi_sp_consumables</code>, <code>kpi_ran_availability</code>, <code>email_recovery</code>, <code>ipran_m6k_chart_email</code>, <code>ccn_free_rating_chart_email</code>, <code>battery_email</code>, <code>mailbox_cleanup</code>, <code>incident_overview_sync</code>, <code>auto_retry_failed</code>, <code>db_freshness_check</code>, <code>sp_report_generate</code>, <code>sp_email_details</code>, <code>sp_online_report_generate</code>, <code>sp_online_report_send</code>, <code>sp_whatsapp_report</code>, <code>sp_material_report</code>, <code>finebi_report_sync</code>, <code>pg_to_sqlite_sync</code>, <code>log_cleanup</code>, <code>tmp_cleanup</code>, <code>mttr_tt_sync</code>, <code>progress_sync</code>, <code>olib_soc_kpi_daily_sync</code>, <code>olib_soc_vmax_report</code></td>
+<td><code>site_outage_screenshot</code>, <code>whatsapp_send</code>, <code>whatsapp_send_ext</code>, <code>tt_alarm_whatsapp_alert</code>, <code>liberia_email_1h</code>, <code>liberia_email_8h</code>, <code>kpi_ms_contract</code>, <code>kpi_ms_wo_sla</code>, <code>kpi_sp_spareparts</code>, <code>kpi_sp_consumables</code>, <code>kpi_ran_availability</code>, <code>email_recovery</code>, <code>ipran_m6k_chart_email</code>, <code>ccn_free_rating_chart_email</code>, <code>battery_email</code>, <code>mailbox_cleanup</code>, <code>incident_overview_sync</code>, <code>auto_retry_failed</code>, <code>db_freshness_check</code>, <code>sp_report_generate</code>, <code>sp_email_details</code>, <code>sp_details_files_email</code>, <code>sp_online_report_generate</code>, <code>sp_online_report_send</code>, <code>sp_whatsapp_report</code>, <code>sp_material_report</code>, <code>finebi_report_sync</code>, <code>pg_to_sqlite_sync</code>, <code>log_cleanup</code>, <code>tmp_cleanup</code>, <code>mttr_tt_sync</code>, <code>progress_sync</code>, <code>olib_soc_kpi_daily_sync</code>, <code>olib_soc_vmax_report</code></td>
 </tr>
 <tr>
 <td><code>c</code></td>
@@ -1086,6 +1086,12 @@ schemas/   预留，实际为空
 <td>m</td>
 </tr>
 <tr>
+<td><code>sp_details_files_email</code></td>
+<td>SP 备件明细分文件邮件（6 份 xlsx 一文件一邮件发 NOC）</td>
+<td><code>5 10 * * *</code></td>
+<td>m</td>
+</tr>
+<tr>
 <td><code>sp_material_report</code></td>
 <td>SP 物料库存与消耗报表邮件</td>
 <td><code>33 7 * * *</code></td>
@@ -1170,6 +1176,12 @@ schemas/   预留，实际为空
 <td>u</td>
 </tr>
 <tr>
+<td><code>bp_report_sync</code></td>
+<td>BP 劣化小区报告更新（RAN_UME 增量 + UME 小时级活跃用户 + 周月重算）</td>
+<td><code>20 6 * * *</code></td>
+<td>u</td>
+</tr>
+<tr>
 <td><code>tmp_cleanup</code></td>
 <td>TMP 目录清理</td>
 <td><code>47 3 * * *</code></td>
@@ -1190,17 +1202,26 @@ schemas/   预留，实际为空
 </tbody>
 </table>
 <p><a id="ch-04-s4"></a></p>
-<h4><code>sp_data_sync</code> 的两个已知缺陷（2026-09-27 实测定位）</h4>
-<p>排查「<code>n</code> 组为什么总是堵」时定位到两个独立问题。<strong>缺陷一的&quot;静默&quot;部分已修复，根因待远端处理；
-缺陷二已通过拆组 + 分段计时处理。</strong></p>
-<p><strong>缺陷一：FineBI 镜像库自 2026-09-24 起 100% 失败。</strong></p>
+<h4><code>sp_data_sync</code> 的镜像问题（2026-09-30 已根治 + 一次 worker 挂死事故）</h4>
+<p>排查「<code>n</code> 组为什么总是堵」时定位到两个独立问题。<strong>缺陷一的根因已在 2026-09-30 查清并
+从代码侧彻底解决（改为本地构建+整文件推送）；缺陷二已通过拆组 + 分段计时处理。</strong></p>
+<p><strong>缺陷一（已修）：FineBI 镜像库长期写不进去，且会把 worker 永久卡死。</strong></p>
 <p><code>sp_data_sync</code> 的 <code>result_json</code> 里有 <code>mirror_success: false</code> 与 <code>mirror_errors</code>（5 张表全失败），
-<code>detail</code> 统一是 <code>database is locked</code>（<code>get_sp_table.py</code> 的 <code>_connect_mirror</code>，
-<code>MIRROR_BUSY_TIMEOUT_MS=30000</code>、<code>MIRROR_RETRIES=2</code>）。实测 14 天内 <strong>76 次执行、75 次镜像失败</strong>，
-最早一次是 <code>2026-09-24T12:10</code>。</p>
-<p>根因在<strong>远端主机</strong>，不在本任务：镜像目标
-<code>\\DESKTOP-D4GF62\...\WareHouseDashBoard\inventory.db</code> 处于 <strong>WAL 模式且被远端活进程长期持有</strong>。
-2026-09-27 逐项排除后的确切结论：</p>
+<code>detail</code> 统一是 <code>database is locked</code>。</p>
+<blockquote>
+<p><strong>⚠ 修正 2026-09-27 的结论（当时判断有两处错误）。</strong></p>
+<ol>
+<li><strong>不是「WAL-over-SMB 天生不可用」。</strong> 2026-09-30 实测：在同一 SMB 目录新建库、
+甚至把它切成 WAL，只要<strong>没有远端持有者</strong>，本机打开与读写<strong>都正常</strong>。</li>
+<li><strong>不是「本仓库无法单方面解决」。</strong> 该结论建立在「<code>inventory.db</code> 的唯一写入方就是
+my_app」这一错误推断上；实测远端确有其它活进程持库。而绕开它并不需要远端配合。</li>
+</ol>
+</blockquote>
+<p>确切根因：<strong>远端主机上有活进程长期持有该库的 <code>-shm</code> 字节范围锁</strong>
+（<code>inventory.db</code> 处于 WAL 模式，模式持久化在文件头）。SMB 无法代理这套共享内存语义，
+于是本机<strong>每一次</strong> <code>sqlite3.connect()</code> 都被拒 —— 而且是以<strong>永久阻塞</strong>的形式，
+不是抛异常，<code>timeout</code> / <code>busy_timeout</code> 对它完全没有作用。</p>
+<p>2026-09-30 逐项排除后的实测对照：</p>
 <table>
 <thead>
 <tr>
@@ -1221,42 +1242,95 @@ schemas/   预留，实际为空
 <td><strong>数据库没坏</strong></td>
 </tr>
 <tr>
-<td>删除远端 <code>-shm</code> / <code>-wal</code></td>
-<td><code>WinError 33/32</code> 拒绝</td>
-<td>远端有活进程正持锁</td>
-</tr>
-<tr>
 <td>在同一 SMB 目录<strong>新建</strong> sqlite 库</td>
 <td><strong>成功</strong></td>
 <td>SMB 本身能跑 SQLite</td>
 </tr>
 <tr>
-<td>打开<strong>已存在的 WAL 库</strong></td>
-<td>失败，<code>database is locked</code>（<code>timeout</code>=1/30 均失败）</td>
-<td>WAL 的共享内存锁在 SMB 上无法建立</td>
+<td>把该新库切成 WAL 后打开</td>
+<td><strong>成功</strong></td>
+<td>WAL 本身在 SMB 上可用</td>
+</tr>
+<tr>
+<td>独占打开远端 <code>inventory.db-wal</code></td>
+<td>被拒（<code>being used by another process</code>）</td>
+<td>远端有活进程持锁</td>
+</tr>
+<tr>
+<td>独占打开远端 <code>inventory.db-shm</code></td>
+<td>被拒（<code>another process has locked a portion</code>）</td>
+<td><strong>持的是 <code>-shm</code> 字节锁</strong></td>
+</tr>
+<tr>
+<td>打开生产 <code>inventory.db</code></td>
+<td><strong>立即</strong> <code>database is locked</code></td>
+<td>本机永远连不上</td>
+</tr>
+<tr>
+<td><strong>整文件 <code>copyfile</code> 覆盖生产库</strong></td>
+<td><strong>成功（即使库正被占用）</strong></td>
+<td>← 这就是修法的依据</td>
 </tr>
 </tbody>
 </table>
-<p>结论：<strong>SQLite-WAL over SMB 的架构限制</strong>，不是锁竞争。
-<code>busy_timeout</code> 调多大都没用 —— 每次尝试都必然失败。
-真正修复需在<strong>远端侧</strong>改（让写库进程自己在本地落库后导出 <code>inventory.db</code>，
-或改为提供接口/定时快照），本仓库无法单方面解决。</p>
+<p><strong>修法：不再直连远端库，改为「本地构建 + 整文件推送」</strong>
+（<code>backend/services/sp_mirror_push.py</code>）。
+在本机临时目录建一个新库（<code>journal_mode=delete</code>、单文件），再用 <code>shutil.copyfile</code>
+整文件覆盖过去 —— <strong>整文件覆盖不需要 SMB 字节锁</strong>，因此远端持库也不影响。</p>
 <blockquote>
-<p><strong>已做的代码侧改进（2026-09-27）</strong>：</p>
+<p>关键简化：<strong>不再需要旧的「远端反连接增量追加」</strong>。镜像内容直接取自 <code>app.db</code>，
+而 <code>app.db</code> 的 <code>inventory_details</code> 本身就是「历史累计 + 保留期清理」后的全量结果
+（<code>get_sp_table._write_table</code> 的 APPEND 分支已完成合并去重），
+因此本地构建出的库与 <code>app.db</code> <strong>天然同口径</strong>，比旧实现更简单也更准。</p>
+</blockquote>
+<p>实测效果：本地构建 1.0s + 推送 0.5s（约 90MB/s），<strong>一轮镜像合计约 2s</strong>，
+对比旧路径的「永久阻塞直到人工重启」。同时生产库从 113MB（含 14.7MB 未 checkpoint 的
+<code>-wal</code>）降到 47.7MB 单文件，<code>integrity_check=ok</code>，<code>ocrule_details</code> 表此前在远端<strong>整个缺失</strong>，
+现已补齐。</p>
+<blockquote>
+<p><strong>回滚路径</strong>：<code>sp_sftp_config.json</code> 的 <code>mirror_mode</code> 设为 <code>&quot;direct&quot;</code> 可切回旧的直连实现
+（保留在 <code>get_sp_table._mirror_write_all_direct</code>，<strong>默认禁用</strong>）；设为 <code>mirror_enabled=false</code>
+则完全关闭镜像。</p>
+</blockquote>
+<p><strong>并发事故（2026-09-30）：镜像挂死会把整组 worker 卡死 6 小时以上。</strong></p>
+<p>09:10 那轮 <code>sp_data_sync</code> 卡在镜像阶段，worker 进程 <code>64468</code> 一直存活（单线程、CPU 零增长），
+持有远端 <code>inventory.db</code> 与 <code>inventory.db-wal</code> 句柄。它直到 10:22 服务栈重启才被判失败回收，
+且它持有的句柄让后续每一轮镜像继续撞 <code>database is locked</code>。
+任务页面上的报错是 <code>❌ Worker 进程中断，任务未完成（启动时自动回收）</code>
+—— <strong>但它并没有&quot;中断&quot;</strong>，pid 一直活着。</p>
+<p>对应修复两条：</p>
+<ol>
+<li><strong>镜像阶段加进程级硬超时</strong>（<code>get_sp_table._run_mirror_with_timeout</code>，
+<code>MIRROR_HARD_TIMEOUT_SECONDS=900</code>）。<code>sqlite3</code> 的 <code>timeout</code>/<code>busy_timeout</code> 管不到
+SMB 层的 open 与字节锁，所以必须由调用方给上限。</li>
+<li><strong>回收文案区分「进程已失效」与「任务挂死」</strong>（<code>worker.py</code>）。旧文案一律写
+<code>Worker 进程中断</code>，而实测那次 pid 存活、真实故障是<strong>任务挂死</strong>——
+照字面排查会被引向&quot;崩溃&quot;这个错误方向。</li>
+</ol>
+<blockquote>
+<p><strong>回滚/排障时注意</strong>：<code>worker.py</code> 的时间阈值回收（<code>TASK_MAX_RUNNING_SECONDS</code>，默认 4h）
+与本次的 15min 镜像硬超时是<strong>两层不同的兜底</strong>，前者兜「任何任务挂死」，后者兜「镜像这一处」。</p>
+</blockquote>
+<blockquote>
+<p><strong>已做的代码侧改进（2026-09-27，保留）</strong>：</p>
 <ol>
 <li><strong>不再静默</strong>：镜像失败会追加进 <code>result[&quot;warnings&quot;]</code>，并由
 <code>task_runner.py</code> 在 <code>success=True</code> 时也消费 warnings 发出<strong>降级告警</strong>
 （此前告警只在 <code>success=False</code> 触发，所以看板停更半个月而监控全绿）。</li>
-<li><strong>诊断可执行</strong>：新增 <code>_diagnose_mirror_failure()</code>，主动探测 <code>-shm</code> 可开性，
-把 <code>database is locked</code> 翻译成&quot;这是 WAL-over-SMB 架构限制，调超时无效&quot;，
-避免下一个人继续在超时参数上打转。</li>
-<li>守卫用例 <code>tests/test_engineering_guards.py::test_mirror_failure_is_surfaced_as_warning</code>
-钉住上述两条，防止退回静默。</li>
+<li><strong>诊断可执行</strong>：<code>_diagnose_mirror_failure()</code> 把 <code>database is locked</code> 翻译成可执行结论
+（其旧文案里&quot;WAL-over-SMB 架构限制、本仓库无法解决&quot;的措辞已按上文更正）。</li>
+<li>守卫用例 <code>tests/test_engineering_guards.py</code> 的
+<code>test_mirror_failure_is_surfaced_as_warning</code>、
+<code>test_mirror_never_connects_remote_db_directly</code>、
+<code>test_mirror_stage_has_hard_timeout</code>、
+<code>test_worker_recovery_message_distinguishes_hang_from_crash</code>
+钉住上述结论，防止退回静默或退回直连。</li>
 </ol>
 </blockquote>
 <blockquote>
 <p><strong>排查 FineBI 仓库看板数据不动时</strong>：不要只看任务成功状态 —— 看
-<code>result_json</code> 的 <code>mirror_success</code>，或看是否收到过 <code>[降级]</code> 通知。</p>
+<code>result_json</code> 的 <code>mirror_success</code>，或看是否收到过 <code>[降级]</code> 通知。
+2026-09-30 起还可直接看日志里的 <code>[耗时] 镜像本地构建 Xs</code> 与 <code>[镜像] 推送完成</code>。</p>
 </blockquote>
 <blockquote>
 <p><strong>⚠ 2026-09-28 已修的回归（上面第 2 条改进自己引入的）。</strong> <code>_diagnose_mirror_failure()</code>
@@ -1326,6 +1400,64 @@ SMB 探测），单轮耗时从 ≈534s 涨到实测 <strong>1576s</strong>；
 <h4><code>tt_alarm_whatsapp_alert</code> 的口径与三个实测坑（2026-09-28）</h4>
 <p>每 15 分钟把「近 3 小时内 + 告警未清除 + 告警码在白名单内 + <code>ticket_severity</code> 命中级别」
 的 TT 单渲染成文本推送到 WhatsApp，发送状态落 <code>eflow_tt_whatsapp_alert_log</code>。</p>
+<p><strong>消息内容 = <code>whatsapp-kb-bot</code> 的完整 TT 分析</strong>（2026-09-29 按用户要求改）：</p>
+<table>
+<thead>
+<tr>
+<th>段落</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>头部 8 行</td>
+<td>单号·站点｜标题 / 告警 / 告警对象 / 影响 / 级别 / 命中规则 / 判定依据</td>
+</tr>
+<tr>
+<td><code>[Milestone timeline]</code></td>
+<td>9 个里程碑（告警发生→建单→接单→派单→填报→…），带耗时与经办人</td>
+</tr>
+<tr>
+<td><code>[Assignment basis]</code></td>
+<td>创建/派单命中了哪条规则、路由到哪个组、命中条件</td>
+</tr>
+<tr>
+<td><code>[Timeliness]</code></td>
+<td>SLA 达成情况、目标时长、截止与剩余、故障持续时长</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>不在本任务里自己拼这套格式</strong>，而是子进程调
+<code>Task/whatsapp-kb-bot/scripts/tt-analyze.py</code>（2175 行，纯标准库 + openpyxl）：
+那是<strong>群里机器人回答问题时用的同一个引擎</strong>，两份分析逻辑并存必然分叉，
+而「群里的分析」与「告警推送里的分析」不一致是最难排查的那类问题。
+封装见 <code>backend/services/tt_alarm_render.py</code>。</p>
+<p><strong>引擎读的是 SQLite 副本 <code>db/app.db</code>，不是生产的 PG</strong>（<code>tt-analyze.py:57</code>），
+而该副本由 <code>pg_to_sqlite_sync</code> <strong>每小时第 45 分</strong>才刷新一次 —— 本任务却每 15 分钟跑一次。
+2026-09-29 实测到最坏情况：副本落后 <strong>84 分钟</strong>（SQLite 最新 <code>alarm_occur_time</code> 16:17
+vs PG 17:41；17 点这一小时 PG 有 5 单、SQLite <strong>0 单</strong>）。</p>
+<p>后果：<strong>副本落后期间每一条新告警都会降级成 6 行模板</strong> —— 这不是偶发异常，
+而是这个任务的常态，也正是用户报「发的信息不是我想要的」的真正原因。</p>
+<p>修法是渲染前用 <code>tt_alarm_render._snapshot_tt()</code> 把<strong>这一单</strong>从 PG 抄进临时 SQLite，
+用 <code>MY_APP_DB</code> 指给引擎（只抄一单，开销与单量无关，实测每次 &lt;50ms）。
+拿不到快照时退回镜像库 —— 宁可降级，也不能因快照失败就漏发整条告警。
+不去改引擎本身：它是 <code>whatsapp-kb-bot</code> 的共享组件（群机器人也在用），
+且它依赖 <code>immutable=1</code> 打开 SQLite，改成 PG 会牵动全文。</p>
+<p><strong>降级会在任务结果里显式暴露</strong>（<code>degraded</code> 计数 + <code>errors</code> 里逐单原因），
+因为降级<strong>不报错、照样发得出去</strong>，只是内容从 ~30 行缩成 6 行 ——
+没有这个字段，运维只能靠群里的人问「这次信息怎么这么少」才发现。
+看到 <code>degraded &gt; 0</code>，第一件事是查快照是否失败（<code>[TTAlert] 取 PG 单行失败</code>）。</p>
+<p>⚠️ <strong>超时是踩过的坑（2026-09-29）</strong>：引擎单独跑只要 <strong>0.3~0.5 秒</strong>，
+但与 <code>pytest</code> 全量<strong>并发</strong>时曾超过 60 秒被判超时（读 1.5G 的 <code>app.db</code> + 两张 xlsx，
+抢磁盘所致，机器有 28 核并不慢）。故默认超时放宽到 <strong>120 秒</strong>
+（<code>TT_ALERT_ANALYZE_TIMEOUT</code>）—— 这个引擎的耗时<strong>对磁盘 IO 竞争极其敏感</strong>，
+正常值是秒级，一旦排队就是几十秒，余量给足远好过把完整消息降级成残篇。</p>
+<p>语言由 <code>TT_ALERT_LANG</code> 控制（默认 <code>en</code>）；超时 <code>TT_ALERT_ANALYZE_TIMEOUT</code>（默认 120s）；
+引擎路径可用 <code>TT_ALERT_ANALYZE_SCRIPT</code> 覆盖。引擎不存在时同样降级。
+契约由 <code>tests/test_tt_alarm_render.py</code> 锁定，其中真实层用真实单号逐字回放，
+新鲜度链路（快照建/删/传参/失败退回）另有 5 条单测 + 1 条突变验证防回归。</p>
+</blockquote>
 <p><strong>这张单的四个口径都可在页面上配置</strong> —— 「设置 → 任务配置 → <code>eFlow P1 Alarm WhatsApp Push</code>」
 （配置文件 <code>backend/services/tt_alert_whatsapp_config.json</code>，注册在
 <code>backend/services/task_configs_registry.py</code>，读写实现见 <code>backend/services/task_config_files.py</code>）：</p>
@@ -1464,7 +1596,11 @@ SMB 探测），单轮耗时从 ≈534s 涨到实测 <strong>1576s</strong>；
 </tr>
 <tr>
 <td><code>backend/services/tt_alarm_message.py</code></td>
-<td>消息渲染（纯函数）</td>
+<td>消息渲染（纯函数，<strong>降级模板</strong>：只出头部 6 行）</td>
+</tr>
+<tr>
+<td><code>backend/services/tt_alarm_render.py</code></td>
+<td><strong>主渲染路径</strong>：子进程调 kb-bot 分析引擎出完整消息</td>
 </tr>
 <tr>
 <td><code>backend/services/tt_alarm_job.py</code></td>
@@ -2729,7 +2865,7 @@ stop.bat all    # 连 PostgreSQL 一起停
 <ul>
 <li><strong>挂载方式</strong>：地图 <code>Card</code> 的 <code>body</code> 加 <code>position: relative</code>（<code>GISMap.tsx</code>），浮层作为 <code>MapContainer</code> 的<strong>兄弟节点</strong>绝对定位。<strong>不加包裹 div</strong> 是为了避免把地图那 200 多行整体缩进两格造成的纯噪声 diff。</li>
 <li><strong><code>z-index: 1000</code> 的依据</strong>：Leaflet pane 层级 tile 200 &lt; overlay 400 &lt; shadow 500 &lt; marker 600 &lt; tooltip 650 &lt; popup 700 &lt; control 1000。取 1000 才盖得住站点圆点(600)与常驻县名标注(650)；与 Leaflet 控件同层，而浮层在 DOM 中位于地图容器<strong>之后</strong>，同层靠后者胜，故仍在控件之上。<strong>已知代价：站点弹窗(700)会被浮层压住</strong> —— 刻意接受，Leaflet 会自动把弹窗平移进视野。<strong>挪到左下后这个代价变小</strong>：浮层只占左下角（234×340），站点集中在国土范围内，左下角被压住的概率比原先的右上更低。</li>
-<li><strong>竖排两段</strong>：上段「图例」= 站点类别（可点击）；下段「MW 链路利用率」= 6 级色阶 + 「无 KPI 数据」虚线档（不可点击，它不参与显隐控制）。两段都只列<strong>实际出现</strong>的项。</li>
+<li><strong>竖排两段</strong>：上段「图例」= 站点类别（可点击）；下段「MW 链路利用率」= 4 级色阶 + 「无 KPI 数据」虚线档（不可点击，它不参与显隐控制）。两段都只列<strong>实际出现</strong>的项。</li>
 <li><strong>点击隐藏能力必须保留</strong>：<code>role=&quot;switch&quot;</code> + <code>aria-checked</code>，点一下置灰加删除线并把该类站点从地图上过滤掉，再点恢复。这是迁移前就有的能力，换位置不能丢。迁移时顺带补了 Enter/Space 键盘操作与 <code>tabIndex</code>（迁移前没有）。</li>
 <li><strong>「History」补 hover 说明</strong>：<code>History</code> 这个名字看不出覆盖范围，故该行挂原生 <code>title</code>（<code>gis.legend.hisAlarmHint</code>）说明「历史告警 / TT工单 / WO工单 任一有数据的站点」。</li>
 <li><strong>位置：左下角（2026-09-28 用户追加要求「图例能放到左下吗」）</strong>。初始按原话「最右边」做成右上，同日改到左下。
@@ -2745,9 +2881,34 @@ stop.bat all    # 连 PostgreSQL 一起停
 <li>取舍：没有做「展开/收起」按钮 —— 那要在浮层里再加一个控件，而 ⓘ 是本项目既有约定（<code>gis.explain.note</code> 等 20 余处同款），一致性优先。</li>
 </ul>
 </li>
-<li><strong>⚠️ 浅色/深色都要看</strong>：浮层直接压在瓦片上，是最容易出「浅底浅字」的位置。它用 <code>WH.cardBg</code>（浅色档是 rgba 白渐变）+ <code>backdrop-filter: blur(8px)</code>，文字用 <code>WH.text</code>。<code>TMP/_verify_gis_toolbar.py</code> 里有浅色档断言（底色须为渐变、文字 RGB 和 &lt; 400）。</li>
+<li><strong>⚠️ 浅色/深色都要看</strong>：浮层直接压在瓦片上，是最容易出「浅底浅字」的位置。
+<ul>
+<li>⚠️ 本条曾写作「用 <code>WH.cardBg</code>（浅色档是 rgba 白渐变）+ <code>backdrop-filter: blur(8px)</code>」—— <strong>已过时</strong>。2026-10-14 用户连续三轮要求提高透明度，最终两主题的 <code>background</code> 都是 <code>transparent</code>（面板背景完全不可见，只剩文字 + 描边 + 阴影），模糊提到 <code>blur(34px) saturate(160%)</code>。完整推导、被否决的 <code>text-shadow</code> 描边方案、以及「深色下瓦片被 invert、白字可能压不住亮块」这个<strong>已知代价</strong>，都写在 <code>frontend/src/index.css</code> 的 <code>.gis-legend-overlay</code> 段与 <code>MapLegendOverlay.tsx</code> 头部注释里 —— <strong>调数值前先读那两处</strong>。</li>
+<li>判据的落点是 <code>frontend/src/pages/gismap/MapLegendOverlay.tsx</code> 的第 7 条注释：深色主题下 OSM 瓦片被 invert 反相（<code>index.css</code> 的 <code>:root[data-theme='dark'] .gis-dark-map .leaflet-tile-pane</code>），深色公路/注记会变成<strong>亮白</strong>，全透明面板的白字压上去会看不见。<strong>这是用户明确选择后的取舍，不要当成 bug 自动加回背景色</strong>；彻底解法在底图（深色主题改用真正的暗色瓦片源）。</li>
+</ul>
+</li>
 </ul>
 <p><a id="ch-11-s14"></a></p>
+<h5>10a-2. ⚠️ 门户内嵌与直开的主题一致性（2026-10-14 修，两条根因）</h5>
+<p><strong>现象</strong>：<code>http://localhost/v1/olbrportal/</code> 的 GIS Map 栏（内嵌 <code>/myapp/?page=gis&amp;mwembed=1</code>）在深色门户下，图例观感与直开 <code>/myapp/?page=gis</code> 不一致 —— 前者是一块不透明白底 + 深字，后者是透明底 + 白字。</p>
+<p><strong>实测确认的两条根因（都已在代码层修掉，勿只修一条）</strong>：</p>
+<ol>
+<li>
+<p><strong>门户只用 URL 的 <code>?theme=dark</code> 传达深色，而 my_app 原先不读这个参数。</strong>
+门户的 <code>mapItems()</code>（<code>v1/olbrportal/assets/olbr.js:1808</code>，v2/MsPortal 同款）把主题拼进 iframe 的 src，但 <code>theme.ts</code> 的 <code>detectMode()</code> 原先只认 <code>localStorage['myapp-theme']</code> + 系统偏好 —— 于是门户切深色时内嵌页仍按<strong>浅色</strong>渲染（实测 <code>data-theme</code> 停在 <code>light</code>、瓦片 invert 滤镜不生效）。
+<strong>修法</strong>：<code>theme.ts</code> 新增导出 <code>themeFromUrl()</code>，优先级改为 <strong>URL 参数 → localStorage → 系统偏好</strong>；<code>ThemeProvider</code> 的系统偏好监听在「URL 钉住主题」时<strong>必须退出</strong>（否则系统主题一变就把内嵌页翻色）。<code>frontend/index.html</code> 的首帧防闪烁内联脚本按<strong>同一优先级</strong>改写 —— 两边不一致会先画浅色再被 React 翻成深色，正好把补丁抵消成一次可见闪烁。
+<strong>⚠️ 参数只影响本次渲染，刻意不写回 <code>localStorage</code></strong>：门户与 my_app 同源、共用 <code>myapp-theme</code> 这一个键，而门户侧已有主动写它的逻辑（<code>v1/olbrportal/assets/olbr.js:3274</code> 的报告文件卡 <code>ss('myapp-theme', want)</code>、<code>MsPortal/assets/portal.js:5442</code> 的 <code>syncEmailTheme</code>）。若这里也写回，一次带参访问就会改掉用户的<strong>全局偏好</strong>，之后直开 <code>/myapp/</code> 会莫名跟着变。参数是「这一页怎么画」，偏好是「这个人怎么看」，不互相污染。
+<strong>取值口径</strong>：只认字面量 <code>dark</code> / <code>light</code>，其余（缺省、拼错、任意串）一律回落 localStorage → 系统偏好。</p>
+</li>
+<li>
+<p><strong>门户注入的 <code>MAP_STRIP_CSS</code> 有一条 <code>!important</code> 白底规则误命中图例浮层。</strong>
+该规则原意是给地图卡片里「与地图同级的小块」做贴底浮层，注释里点名的对象是 <code>Critical/Major/Minor/Warning/OK</code> 那块<strong>卡片内</strong>图例 —— 它早已不存在（GIS 图例 2026-09-28 起移到地图上，成了自带定位的绝对定位浮层）。而这条选择器<strong>恰好命中它</strong>：浮层是 <code>.ant-card-body</code> 里唯一「不是 <code>.leaflet-container</code>」的直接子元素，于是被刷上 <code>rgba(255,255,255,.88)</code> 的 <code>!important</code> 白底，<strong>盖掉</strong> <code>index.css</code> 里 <code>:root[data-theme]</code> 的 <code>transparent</code>（实测命中两条 background 规则，注入的这条胜出）。
+<strong>修法</strong>：四处<strong>全部</strong>加 <code>:not(.gis-legend-overlay)</code> —— <code>v1/olbrportal/assets/olbr-data.js</code>、<code>v2/olbrportal/assets/olbr-data.js</code>、<code>olbrportal/assets/olbr.js</code>、<code>MsPortal/assets/portal.js</code>。<strong>规则本身保留</strong>：将来若有别的小块与地图同级，仍需「贴底浮层」这个待遇，整条删掉会静默退回「被地图撑满后挤出卡片裁掉」。
+<strong>⚠️ 这四个门户共享同一份剥离样式的思路，但代码是四份副本</strong>：改一处必须改其余三处，否则四个入口立刻重新分叉（与 <code>.gitignore</code> / <code>vite.config.ts</code> watch 清单那对副本同一个道理）。</p>
+</li>
+</ol>
+<p><strong>验收</strong>：<code>TMP/_probe_gis_theme_parity.cjs</code>（12 条断言，<strong>可复用，勿删</strong>）。覆盖参数优先级（含「不写回 localStorage」「非法值回落」「参数盖过 localStorage」）、门户外壳切深色后内嵌页确实转深、瓦片 invert 与图例背景/文字色与直开一致、以及注入规则文本确实带 <code>:not(...)</code>。实测全绿。</p>
+<p><a id="ch-11-s15"></a></p>
 <h4>10a-1. 站点下钻的「统计范围」：独立选择器、默认 7 天（2026-09-28，含一轮口径返工）</h4>
 <p><strong>需求演进（两轮，最终口径以下面「结论」为准）</strong>：</p>
 <ol>
@@ -2765,7 +2926,7 @@ stop.bat all    # 连 PostgreSQL 一起停
 <li><strong>⚠️ 别拿「站点总数」验证窗口是否生效</strong>：<code>站点总数</code> 是<strong>站点表行数</strong>（827），刻意与时间窗口无关 —— 窗口只影响每个站点的告警/工单计数，不影响站点本身在不在表里。要看生效与否请看下钻数据或图例计数。</li>
 <li><strong>⚠️ 页面上有两个 <code>Segmented</code>，写验收脚本时必须区分</strong>：地图的时间窗口（<code>全部时间/近7天/近30天/近3个月/近半年/自定义范围</code>）与抽屉的统计范围（<code>近7天/近30天/近60天/近90天/近180天</code>）。档位集合不同，但「近7天」「近30天」<strong>重名</strong>，只按文本取会取错。要限定在抽屉内（<code>.ant-drawer</code>）取。</li>
 </ul>
-<p><a id="ch-11-s15"></a></p>
+<p><a id="ch-11-s16"></a></p>
 <h4>10b. 边界蒙层：大区（Voronoi）与县界（真实行政边界）</h4>
 <p>「边界」<code>Segmented</code> 提供<strong>互斥的三选一</strong>（<code>BoundaryMode = 'none' | 'region' | 'county'</code>）。两个蒙层语义不同，不可互相替代，同时开启会互相遮盖，故做成三选一而非两个开关：</p>
 <table>
@@ -2849,7 +3010,7 @@ stop.bat all    # 连 PostgreSQL 一起停
 <p><strong>性能</strong>：县界 GeoJSON 约 384KB，前端<strong>只在首次切到「县界」模式时拉取</strong>（<code>GISMap.tsx</code> 的 effect 带 <code>boundaryMode !== 'county'</code> 守卫），不影响默认打开速度。</p>
 </li>
 </ul>
-<p><a id="ch-11-s16"></a></p>
+<p><a id="ch-11-s17"></a></p>
 <h4>10c. MW 链路数据源与配色（2026-09-25 换源 + 修撞色）</h4>
 <p><strong>换源（<code>gis.py</code> 的 <code>get_topology</code>）：<code>topology</code> 表 → <code>kml_mw_links</code> 表。</strong></p>
 <table>
@@ -2890,7 +3051,7 @@ stop.bat all    # 连 PostgreSQL 一起停
 <li><strong>颜色同源约束</strong>：前端 <code>KML_LINK_COLORS</code> 与后端 <code>mw_links_store.py</code> 的 <code>STYLE_COLORS</code> 是同一组 4 色，<strong>改一处必须改另一处</strong>。</li>
 <li>链路本身由 <code>?page=mwUmeTopology</code> 的页面上传 KML 维护（写 <code>kml_mw_links</code>，见 <code>mw_links_store.py</code> 与第 8 节）。</li>
 </ul>
-<p><a id="ch-11-s17"></a></p>
+<p><a id="ch-11-s18"></a></p>
 <h4>10e. ⚠️ <code>?page=gis</code> 整页白屏事故与修复（2026-09-28）</h4>
 <p><strong>现象</strong>：打开 GIS 页一闪就没有，<code>#root</code> 被清空（innerHTML 长度 <strong>0</strong>），浏览器抛 16 个
 <code>Cannot read properties of undefined (reading 'appendChild')</code>，堆栈是
@@ -2912,7 +3073,7 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 <strong>条件展开</strong> <code>...(pane ? { pane } : {})</code>，不要写 <code>pane</code>（详见 <code>LeafletMap.tsx</code> 的 TileLayer 与 makeContentLayer 注释）。</p>
 <p><strong>排查提示</strong>：以后再遇到「GIS/丢包看板（同样用 LeafletMap）白屏」，先跑一次浏览器实测看
 <code>#root</code> 长度与 pageerror 堆栈，不要只看构建是否通过 —— 构建通过不代表不白屏。</p>
-<p><a id="ch-11-s18"></a></p>
+<p><a id="ch-11-s19"></a></p>
 <h4>10d. MW 链路利用率叠加（2026-09-28 新增，<code>?page=gis</code>）</h4>
 <p><strong>需求</strong>：把 <code>?page=mwRealTime</code> 的最新 15 分钟粒度链路利用率直接显示到 GIS 页，不必切页就能看出哪条微波链路吃紧。</p>
 <p><strong>实现</strong>：<code>GET /api/gis/topology?with_util=1</code> 在原有 844 条链路上叠加 <code>mw_ume_bw_ultilazation_rt</code> 的实时 KPI；匹配逻辑独立成 <code>backend/services/gis_mw_overlay.py</code>（不塞进已 1700+ 行的 <code>gis.py</code>）。</p>
@@ -2963,7 +3124,7 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 <tbody>
 <tr>
 <td>线色</td>
-<td>有 KPI → 复用 <code>mwRealTime</code> 的 <strong>6 级色阶</strong>（<code>UTIL_LEVEL_COLORS</code>，与 <code>mw_real_time.html:855-863</code> 深色档逐值一致）；无 KPI → KML 原色</td>
+<td>有 KPI → 复用 <code>mwRealTime</code> 的 <strong>4 级色阶</strong>（<code>UTIL_LEVEL_COLORS</code>，与 <code>mw_real_time.html</code> 的 <code>readLvlColors()</code> 深色档逐值一致）；无 KPI → KML 原色</td>
 </tr>
 <tr>
 <td>线宽</td>
@@ -2979,7 +3140,7 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 </tr>
 <tr>
 <td>图例</td>
-<td>按 6 级色阶 + 「无 KPI 数据」虚线档，展示在地图左下角浮层的下半段（见 10a）。2026-09-28 起叠加恒开，故<strong>不再有</strong>「关叠加时显示 KML 4 色档」的分支</td>
+<td>按 4 级色阶 + 「无 KPI 数据」虚线档，展示在地图左下角浮层的下半段（见 10a）。2026-09-28 起叠加恒开，故<strong>不再有</strong>「关叠加时显示 KML 4 色档」的分支</td>
 </tr>
 <tr>
 <td>口径说明</td>
@@ -3027,7 +3188,7 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 </tbody>
 </table>
 <p>两者的类别来源都是 <code>getSiteCategory</code>，最终在 <code>filteredSites</code>（<code>GISMap.tsx</code>）里合并生效。<code>normal</code> 的默认隐藏走的是 <code>hiddenLegends</code> 初值，因此它<strong>仍在图例里可见</strong>（带删除线），用户点一下就能恢复 —— 这是刻意选择：直接删掉图例项会让用户不知道还能显示普通站点。</p>
-<p><a id="ch-11-s19"></a></p>
+<p><a id="ch-11-s20"></a></p>
 <h3>12. 告警管理看板（<code>?page=alarmManagement</code>）— iframe</h3>
 <p><code>AlarmManagement.tsx:6</code> → <code>public/alarm-management.html</code>，其 <code>&lt;title&gt;</code> 是 <strong>Site Outages Monitor Dashboard · Alarm Management</strong>，即<strong>宕站（Site Outage）监控看板</strong>。菜单名&quot;告警管理&quot;容易和第 3 页混，区别是：</p>
 <table>
@@ -3052,7 +3213,7 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 </tbody>
 </table>
 <p><code>site_outage_screenshot</code> 的截图对象正是本看板的 <strong>ERA / Regular / ALL 三个视图</strong>（<code>task_registry.py:95-99</code>）。<strong>改这个 iframe 页的 DOM 会连带影响自动截图任务</strong>——改前先确认截图选择器还找得到。界面能力以该 HTML 自身为准。</p>
-<p><a id="ch-11-s20"></a></p>
+<p><a id="ch-11-s21"></a></p>
 <h3>13. 丢包看板（<code>?page=packet_loss</code>）</h3>
 <p>LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 <strong>7 个完整自然日、小时粒度</strong>，当天没过完不展示（<code>PacketLossDashboard.tsx:2-5</code>）。</p>
 <ul>
@@ -3061,7 +3222,7 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 <li>接口：<code>/api/packet-loss-dashboard/overview</code>、<code>/map-sites</code>、<code>/drilldown</code>。</li>
 <li>数据由 <code>packet_loss_sync</code>（06:30）写入 <code>lte_pl.sqlite3</code>。</li>
 </ul>
-<p><a id="ch-11-s21"></a></p>
+<p><a id="ch-11-s22"></a></p>
 <h3>14. 电池看板（<code>?page=battery</code>）</h3>
 <p>站点电池健康度 / SOC / 充放电状态。</p>
 <ul>
@@ -3070,7 +3231,7 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 <li>接口：<code>GET /api/battery-dashboard/all</code>、<code>/trend?days=</code>（:161-162）、单站下钻 <code>/api/battery-dashboard/site/{site}</code>（:315）。</li>
 <li>数据由 <code>battery_kpi_sync</code> 每小时 :05 写入 <code>data/battery/battery_kpi.sqlite3</code>。</li>
 </ul>
-<p><a id="ch-11-s22"></a></p>
+<p><a id="ch-11-s23"></a></p>
 <h3>14i. 站点可用率（<code>?page=site_avail</code>）</h3>
 <p>按站点看四个制式（2G/3G/4G/TDD）的月度可用率与未达标天数。</p>
 <ul>
@@ -3081,7 +3242,7 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 导出<strong>完全复用页面既有 <code>useMemo</code></strong>（<code>sites</code>/<code>belowSites</code>/<code>withDataSites</code>/<code>avgOfTech</code>），不在导出里另算一套。
 subtitle 写全 8 项筛选：月份 / Supervisor / FME / 制式 / 视图 / 阈值 / 仅看有数据 / 搜索词 + 生成时间。</li>
 </ul>
-<p><a id="ch-11-s23"></a></p>
+<p><a id="ch-11-s24"></a></p>
 <h3>14j. FME 排名（<code>?page=fme_ranking</code>）</h3>
 <p>按 FME（现场维护工程师）看可用率 / 工单量 / SLA 三类排名与前后三名榜单。</p>
 <ul>
@@ -3094,7 +3255,7 @@ subtitle 写全 8 项筛选：月份 / Supervisor / FME / 制式 / 视图 / 阈�
 <li><strong>此前该按钮只导排名主表，且用的是已被搜索框过滤的 <code>rows</code></strong>，6 张统计卡与三组榜单卡全都没进文件 —— 现在补齐。</li>
 <li>后端未返回的指标<strong>整行跳过</strong>，不用 <code>0</code> 冒充&quot;确实是 0&quot;；<code>availability</code>/<code>sla_rate</code> 为 <code>null</code> 时输出 <code>-</code>。</li>
 </ul>
-<p><a id="ch-11-s24"></a></p>
+<p><a id="ch-11-s25"></a></p>
 <h3>14k. RAN 小区 KPI（<code>?page=ran_cells_kpi</code>）</h3>
 <p>按制式（2G/3G/4G）看小区的逐日可用率矩阵与月度达标情况。</p>
 <ul>
@@ -3110,7 +3271,7 @@ subtitle 写全 8 项筛选：月份 / Supervisor / FME / 制式 / 视图 / 阈�
 <li>百分比以<strong>数值</strong>写出（如 <code>99.65</code>）而非字符串 <code>99.65%</code>，Excel 里可直接计算。</li>
 <li>下钻弹窗内另有导出按钮（导下钻明细），与页面级入口是两回事。</li>
 </ul>
-<p><a id="ch-11-s25"></a></p>
+<p><a id="ch-11-s26"></a></p>
 <h3>14l. UME 客户 KPI（<code>?page=ume_in_kpi</code>）</h3>
 <p>UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 / 用户侧）、资源利用率与阈值告警。</p>
 <ul>
@@ -3125,7 +3286,7 @@ subtitle 写全 8 项筛选：月份 / Supervisor / FME / 制式 / 视图 / 阈�
 <li>subtitle 为 <code>数据日期 | 统计天数 | 数据窗口</code>，把天数筛选写进文件便于对账；取不到数据显示 <code>—</code>。</li>
 <li>页面上另有一个原有的「全量导出」按钮；下钻明细不在本次页面级导出范围内（弹窗内已有）。</li>
 </ul>
-<p><a id="ch-11-s26"></a></p>
+<p><a id="ch-11-s27"></a></p>
 <h3>14m. MS Availability（可用率多维矩阵，<code>?page=avail_ms</code>）</h3>
 <blockquote>
 <p>页面标题 2026-09-28 按用户要求定为 <strong>MS Availability</strong>（<code>i18n.tsx</code> 的 <code>nav.availMs</code>，
@@ -3199,7 +3360,7 @@ TT 侧来自站点主数据 <code>site_caregory</code> 归一化（<code>avail_m
 </ul>
 </li>
 </ul>
-<p><a id="ch-11-s27"></a></p>
+<p><a id="ch-11-s28"></a></p>
 <h3>14n. FLM 可用率（<code>?page=avail_flm</code>）</h3>
 <p>同一张需求表的另一组视图：<strong>行是三个 FLM 区域（Montserrado / North East / South West），
 列分别是制式与站点类型</strong>，另加一张<strong>页面级「影响可用率的 TT 列表」</strong>（需求表 SN4）。
@@ -3279,7 +3440,22 @@ SW 的 Cool.i 分母 1.2 万，与 Regular 同一量级。那是<strong>业务�
 并落三张截图）。两个脚本都直接跑 <code>python TMP/_probe_flm_*.py</code>，需后端与前端在跑。</p>
 </li>
 <li>
-<p><strong>统一门户入口</strong>：这两页（<code>avail_ms</code> / <code>avail_flm</code>）都已挂进 Liberia NOC/SOC 统一门户 ——
+<p><strong>统一门户入口（2026-09-29 加）</strong>：本页已挂进 Liberia NOC/SOC 统一门户
+<code>/v1/olbrportal/</code>（v1 首页）的 <strong>SP View</strong> 分组，目录 <code>no=78</code>、标题 <code>仓库汇总报表</code> /
+<code>Warehouse Summary</code>，<code>url</code> 指向 <code>?page=warehouse_summary</code>；并已置入
+<code>order['SP View']</code> 的<strong>第 1 位</strong>。
+<strong>为什么必须进 <code>order</code></strong>：SP View 是 v1 首页的六个入口卡之一，而每列只露出
+<code>V6_LIMIT = 2</code> 条（<code>v1/olbrportal/assets/olbr.js:1488</code>、<code>:1552</code>），其余折在
+「展开其余 N 项」后面；<code>sorter()</code>（<code>:216-225</code>）先读 <code>order[gid]</code>，条目不在该数组里时
+才回落 <code>clicks -&gt; no</code> —— 新条目 <code>no</code> 最大（78），不进 <code>order</code> 就会<strong>排在末位被折叠</strong>，
+首屏看不到（本次第一版就踩了这个：条目加成功但默认态不显示）。
+顺序取舍：本页是 <code>Spare Parts Report</code>(no=53) / <code>Consumables Report</code>(no=54) 的<strong>合并汇总版</strong>，
+故排在前两者之前。
+加条目与排序的通用做法、以及<strong>写入前必须连读两次比对 <code>savedAt</code></strong> 的并发守卫
+（<code>PUT</code> 是整体替换，门户界面同时在写这个文件），见上文 14a 节末尾一段 —— 同一套接口与约束。</p>
+</li>
+<li>
+<p><strong>统一门户入口（FLM 侧）</strong>：这两页（<code>avail_ms</code> / <code>avail_flm</code>）都已挂进 Liberia NOC/SOC 统一门户 ——
 门户的看板列表<strong>不是写死的</strong>，来自服务端全局目录 <code>backend/data/portal_catalog.json</code>
 （<code>GET/PUT /api/portal-catalog</code>，门户上「编辑看板配置」走的就是它；该文件是运行时状态，不入库）。
 加一条的做法是往 <code>items</code> 里追加一个
@@ -3291,12 +3467,14 @@ FLM View 挪到了 MS View，两张卡的名字也被人改成了 <code>Availabi
 ⚠️ <strong>PUT 是整体替换、且门户界面同时在写这个文件</strong>，脚本改它之前必须：
 连读两次比对顶层 <code>savedAt</code>，两次不一致就说明有人正在编辑 → 放弃本次写入，
 否则会用旧快照静默覆盖掉对方的改动（手工在界面上改的卡名/分组会&quot;自己变回去&quot;）。
-可复用脚本在 <code>TMP\</code>：<code>_add_flm_portal_cards.py</code>（按同一接口追加，含令牌从既有条目原样复用的写法，
-已带上述双读守卫）、<code>_verify_portal_myapp_deeplink.py</code>（浏览器端验证：按目录现状找到该卡、
-点开后在查看器 iframe 里真的渲染出我方的 <code>?page=</code>）、<code>_verify_avail_ms_title.py</code>（标题三处暴露面回归）。</p>
+可复用脚本在 <code>Task\my_app\TMP\</code>：<code>_add_flm_portal_cards.py</code>（按同一接口追加，含令牌从既有条目原样复用的写法，
+已带上述双读守卫）、<code>_add_warehouse_summary_to_spview.py</code>（追加 / 更新条目<strong>并维护 <code>order[gid]</code></strong>，
+幂等 —— 按 url 判重，重复跑不会长出新卡）、<code>_verify_portal_myapp_deeplink.py</code>（浏览器端验证：
+按目录现状找到该卡、点开后在查看器 iframe 里真的渲染出我方的 <code>?page=</code>）、
+<code>_verify_avail_ms_title.py</code>（标题三处暴露面回归）。</p>
 </li>
 </ul>
-<p><a id="ch-11-s28"></a></p>
+<p><a id="ch-11-s29"></a></p>
 <h3>14b. NOC 操作人分析（<code>?page=noc_analyst</code>）—— 四层全量下钻</h3>
 <blockquote>
 <p>2026-09-23 重做：此前只有一张排名表和 3 条不可点的样本，<strong>做不到&quot;能下钻尽下钻&quot;</strong>；
@@ -3305,7 +3483,7 @@ FLM View 挪到了 MS View，两张卡的名字也被人改成了 <code>Availabi
 <p>基于 <code>eflow_tt.last_processer</code> 量化每位 NOC 的根因错位率、平均处理时长、夜班单占比与 SLA 通过率。
 页面 <code>frontend/src/pages/NocAnalyst.tsx</code>，后端服务 <code>backend/services/tt_postmortem/__init__.py</code>，
 路由 <code>backend/routers/eflow_qa.py</code>（<code>_tt_postmortem_noc*</code> 与 <code>_tt_postmortem_tt_detail</code>）。</p>
-<p><a id="ch-11-s29"></a></p>
+<p><a id="ch-11-s30"></a></p>
 <h4>口径（两层必须一致，否则表格数字与下钻行数对不上）</h4>
 <ul>
 <li><strong>月份归属用 <code>alarm_occur_time</code>（告警发生时间）</strong>，不是 <code>last_modified_time</code>。
@@ -3316,7 +3494,7 @@ FLM View 挪到了 MS View，两张卡的名字也被人改成了 <code>Availabi
 <code>_mismatch_of()</code></strong>，不存在两套结论。</li>
 <li>错位率分母是<strong>已填报根因的单数</strong>（<code>with_root_cause</code>），不是总单数。</li>
 </ul>
-<p><a id="ch-11-s30"></a></p>
+<p><a id="ch-11-s31"></a></p>
 <h4>四层下钻</h4>
 <table>
 <thead>
@@ -3349,13 +3527,13 @@ FLM View 挪到了 MS View，两张卡的名字也被人改成了 <code>Availabi
 </tr>
 </tbody>
 </table>
-<p><a id="ch-11-s31"></a></p>
+<p><a id="ch-11-s32"></a></p>
 <h4>为什么下钻是&quot;重查&quot;而不是&quot;前端过滤&quot;</h4>
 <p><code>build_noc_tt_drilldown</code> / <code>build_noc_site_drilldown</code> 与概览端点的 WHERE 条件<strong>完全一致</strong>
 （同一 <code>alarm_occur_time</code> 区间 + 同一 <code>last_processer</code> 精确匹配），切片在 Python 侧过滤
 ——因为错位/夜班依赖文本解析（<code>fo_accept_detail</code> 的 Operation Time），无法下推到 SQL。
 这样保证「表格里的 1978 单 == 下钻 all 的 1978 行」。</p>
-<p><a id="ch-11-s32"></a></p>
+<p><a id="ch-11-s33"></a></p>
 <h4>三个已修正的坑</h4>
 <ol>
 <li><strong><code>limit</code> 曾静默截断</strong>：站点聚合原默认 <code>limit=1000</code>，而单人月峰值实测 1978 单，
@@ -3366,7 +3544,7 @@ FLM View 挪到了 MS View，两张卡的名字也被人改成了 <code>Availabi
 <li><strong>动态拼 i18n key 会被守卫拦下</strong>：<code>t('noc.slice.' + s)</code> 让 <code>scripts/check-i18n.mjs</code>
 误报「字典缺失 <code>noc.slice.</code>」。改成 <code>sliceLabelKey()</code> / <code>linkageLabelKey()</code> 显式 switch。</li>
 </ol>
-<p><a id="ch-11-s33"></a></p>
+<p><a id="ch-11-s34"></a></p>
 <h4>界面约定</h4>
 <ul>
 <li>卡片走 <code>components/cards</code> 的 <code>CardBase</code> / <code>StatCard</code>；下钻弹窗走 <code>DraggableClickModal</code>；
@@ -3374,7 +3552,7 @@ FLM View 挪到了 MS View，两张卡的名字也被人改成了 <code>Availabi
 <li>ECharts 用 <code>useTheme()</code> 的 <code>palette.sev.*</code> 实值——<code>palette</code> 上没有 <code>ok</code>/<code>danger</code>，
 那是 <code>WH</code> 令牌，canvas 解析不了 CSS 变量。</li>
 </ul>
-<p><a id="ch-11-s34"></a></p>
+<p><a id="ch-11-s35"></a></p>
 <h4>14b-1. 时间归因区「时间都花哪了」（2026-09-23 新增）</h4>
 <blockquote>
 <p>目标是回答**&quot;时间都浪费到哪里&quot;**：把整月工单逐单按「TT 复盘报告」的口径解析一遍，
@@ -3512,7 +3690,7 @@ FLM View 挪到了 MS View，两张卡的名字也被人改成了 <code>Availabi
 本页开发中已连踩三次（<code>wo.wo_no</code>、<code>expected_actions.reason</code>、时间轴节点的
 <code>operator</code>/<code>gap_from_prev_s</code>/<code>wo_steps</code> 均不存在）。新增字段时用真实响应逐个比对，
 里程碑的&quot;距上一跳&quot;要前端按上一个有时间戳的节点现算（节点上<strong>没有</strong> gap 字段）。</p>
-<p><a id="ch-11-s35"></a></p>
+<p><a id="ch-11-s36"></a></p>
 <h4>14b-2. 现场处置及时性（WO 生命周期）与 NOC 人工动作（2026-09-23 新增）</h4>
 <blockquote>
 <p>承接 14b-1 的诉求：原来「FO 接单 → 提交关单」只是一段总时长，
@@ -3595,14 +3773,14 @@ WO 侧更直白：<strong>WO 建单 → FE 接单 中位数 11.0h、P90 41.9h、
 而接单之后（出发/在途/现场作业）中位数都只要几分钟。
 即<strong>现场动作本身很快，慢的是&quot;没人接单&quot;这一段</strong>——
 这正是本次要暴露的结论，也是原来看不出来的。</p>
-<p><a id="ch-11-s36"></a></p>
+<p><a id="ch-11-s37"></a></p>
 <h3>14c. TT 复盘报告 · 里程碑时间轴与偏离检测（2026-09-23 增强）</h3>
 <p>入口：<code>EflowQa</code> 页 →「TT 复盘报告生成」抽屉（<code>components/TtPostmortemPanel.tsx</code>），
 输入单号 → <code>GET /api/eflow-qa/_tt_postmortem/{tt_no}</code>；Markdown 导出走
 <code>POST /api/eflow-qa/_tt_postmortem_export_md/{tt_no}</code>。
 实现：<code>backend/services/tt_postmortem/__init__.py</code> 的 <code>build_tt_timeline()</code>，
 由 <code>build_tt_postmortem()</code> 以子视图方式并入返回体（构建失败不拖垮主报告）。</p>
-<p><a id="ch-11-s37"></a></p>
+<p><a id="ch-11-s38"></a></p>
 <h4>返回体新增字段</h4>
 <table>
 <thead>
@@ -3667,7 +3845,7 @@ WO 侧更直白：<strong>WO 建单 → FE 接单 中位数 11.0h、P90 41.9h、
 → ① 里程碑时间轴 → ② 该做的动作 → ③ 偏离清单 → ④ 根因对比 → ⑤ WO 派单机制 → ⑥ 阶段时长 → ⑦ 改进建议</strong>。
 Markdown 导出把「时间都花哪了」编为 <strong>0 节</strong>（复盘重点前置），其后 1~7 节编号不变。</p>
 </blockquote>
-<p><a id="ch-11-s38"></a></p>
+<p><a id="ch-11-s39"></a></p>
 <h4>时间归因（<code>time_spent</code>）的分段口径</h4>
 <p><strong>分段由真实事件链生成，不是写死的 4 个文档流程段。</strong> 做法：把时间轴上所有
 有确凿时间戳的跳 + WO 现场步骤（出发/到场/离场）按时间排序，相邻两事件之间的
@@ -3730,7 +3908,7 @@ Markdown 导出把「时间都花哪了」编为 <strong>0 节</strong>（复盘
 <li><code>bottleneck_note</code> 一句话点明瓶颈<strong>阶段名</strong>、占比、责任方、超额量。</li>
 <li><strong>单未走完流程时末段标签会说实话</strong>：没有 Confirm 就显示「… → 至今（未见关单）」。</li>
 </ul>
-<p><a id="ch-11-s39"></a></p>
+<p><a id="ch-11-s40"></a></p>
 <h4>「责任人」的取数口径</h4>
 <table>
 <thead>
@@ -3768,7 +3946,7 @@ Markdown 导出把「时间都花哪了」编为 <strong>0 节</strong>（复盘
 </tr>
 </tbody>
 </table>
-<p><a id="ch-11-s40"></a></p>
+<p><a id="ch-11-s41"></a></p>
 <h4>「执行方」与「实际动作」都是三态，不是两态（2026-09-23 修正）</h4>
 <table>
 <thead>
@@ -3797,14 +3975,14 @@ Markdown 导出把「时间都花哪了」编为 <strong>0 节</strong>（复盘
 <li>三态的出现原因见下方坑 8：<code>eflow_tt</code> 没有独立到场字段，<code>eflow_wo</code> 的现场明细又常常为空，
 此时<strong>既不能证明有人到过现场，也不能证明没人去过</strong>。</li>
 </ul>
-<p><a id="ch-11-s41"></a></p>
+<p><a id="ch-11-s42"></a></p>
 <h4>里程碑契约（<code>STAGE_CONTRACT</code>，顺序即期望顺序）</h4>
 <pre><code>告警发生 → TT 自动建单 → 派单路由决定 → FO Accept 接单 → WO 派单(*)
         → 现场处置(*) → 告警清除/自愈 → FO Process 填报 → Confirm 关单
 </code></pre>
 <p>带 <code>(*)</code> 的是<strong>条件动作</strong>（<code>expected=False</code>），缺失不计入 <code>missing_actions</code>，
 但会由偏离规则单独判定——例如&quot;高等级断站未派 WO&quot;。</p>
-<p><a id="ch-11-s42"></a></p>
+<p><a id="ch-11-s43"></a></p>
 <h4>偏离的 4 类（<code>kind</code>）与判定阈值</h4>
 <table>
 <thead>
@@ -3837,7 +4015,7 @@ Markdown 导出把「时间都花哪了」编为 <strong>0 节</strong>（复盘
 </tr>
 </tbody>
 </table>
-<p><a id="ch-11-s43"></a></p>
+<p><a id="ch-11-s44"></a></p>
 <h4>十三个已修正的坑（都会静默出错，务必留意）</h4>
 <ol>
 <li>
@@ -3967,11 +4145,11 @@ WO 派单 <code>2026-09-22 16:53:51</code>、现场到场 <code>2026-09-23 08:44
 <strong>建单环节未指派 ≠ 这单没人负责</strong>，两句话混用就是错误结论。</p>
 </li>
 </ol>
-<p><a id="ch-11-s44"></a></p>
+<p><a id="ch-11-s45"></a></p>
 <h4>每条结论都可回溯</h4>
 <p><code>timeline</code> 每跳都带 <code>source</code>（取自库中哪个字段）与 <code>raw</code>（原始 <code>*_detail</code> 文本），
 前端悬停「[原文]」可看。这是本节的设计底线：报告给出判断，但人要能自己核对到原始记录。</p>
-<p><a id="ch-11-s45"></a></p>
+<p><a id="ch-11-s46"></a></p>
 <h4>SLA 超期时长的两个口径（别混）</h4>
 <table>
 <thead>
@@ -4000,19 +4178,19 @@ WO 派单 <code>2026-09-22 16:53:51</code>、现场到场 <code>2026-09-23 08:44
 <p><code>_parse_sla_duration('0d8h0m')</code> 曾经返回 <code>None</code>（正则分组位置错位），
 导致 <code>sla.total_s</code> 恒为空。现按 d/h/m 分段可选匹配并逐单位取值。</p>
 </blockquote>
-<p><a id="ch-11-s46"></a></p>
+<p><a id="ch-11-s47"></a></p>
 <h3>14d. 为什么走人工派单 —— TT Push Order Rule 逐条比对（2026-09-23 新增）</h3>
 <p>回答「这单为什么需要人工派单、为什么没自动建 WO」。返回体字段 <code>dispatch_analysis</code>，
 报告 Markdown 落在 <strong>§5b</strong>，界面是 <strong>⑤b 卡片</strong>。
 实现：<code>backend/services/tt_postmortem/__init__.py</code> 的 <code>_analyze_dispatch_reason()</code>
 （规则目录 <code>_load_rule_catalog()</code>、特征归一 <code>_ticket_signature()</code>、目标判定 <code>_rule_target()</code>）。</p>
-<p><a id="ch-11-s47"></a></p>
+<p><a id="ch-11-s48"></a></p>
 <h4>判定链路（eFlow 三段式）</h4>
 <pre><code>1. ttDispatchRule（triggerStep=autoDispatch）决定 TT 落 BO 还是 FO 通道
 2. ttPushOrderRule（triggerStep=FOAccept）决定 FO 接单时**是否自动建 WO**
 3. 第 2 步无 ACTIVE 规则命中 → 不建 WO → FO 人工接单，现场出人无系统保证
 </code></pre>
-<p><a id="ch-11-s48"></a></p>
+<p><a id="ch-11-s49"></a></p>
 <h4><code>overall</code> 的 8 种取值</h4>
 <table>
 <thead>
@@ -4056,7 +4234,7 @@ WO 派单 <code>2026-09-22 16:53:51</code>、现场到场 <code>2026-09-23 08:44
 </tr>
 </tbody>
 </table>
-<p><a id="ch-11-s49"></a></p>
+<p><a id="ch-11-s50"></a></p>
 <h4>四个必须整词/按目标判定的坑</h4>
 <ol>
 <li><strong><code>cell</code> 必须整词匹配</strong>——站点名 <code>Qcell LMTI (Marshall)</code> 含 <code>cell</code> 子串，
@@ -4081,13 +4259,13 @@ WO / IPT / BO / MANUAL / UNKNOWN，只有 <code>WO</code> 目标才算&quot;应�
 <p><strong>口径边界</strong>：规则适用范围由规则名/描述关键词<strong>反推</strong>（看不到 eFlow 规则表达式），
 输出里始终带 <code>caveat</code> 并把规则原文并列展示，供人工复核。不要把它当成引擎的权威判定。</p>
 </blockquote>
-<p><a id="ch-11-s50"></a></p>
+<p><a id="ch-11-s51"></a></p>
 <h3>14e. eFlow 知识库 · TT 快速分析的「规则命中证据」（2026-09-23 新增）</h3>
 <p>页面 <code>?page=eflow_qa</code>（门户 <code>MsPortal/viewer.html?gid=Knowledge Q&amp;A&amp;no=47</code> 内嵌的就是它）。
 输入 TT 单号后，「AI 分析结论（TT单分析技能）」卡片在 AI 正文之下多出一块
 <strong>规则命中证据（本地规则引擎）</strong>，回答「这条结论依据哪条规则、规则在哪个文件、
 谁维护、工单谁在处理」。</p>
-<p><a id="ch-11-s51"></a></p>
+<p><a id="ch-11-s52"></a></p>
 <h4>两块内容的分工（关键）</h4>
 <table>
 <thead>
@@ -4112,7 +4290,7 @@ WO / IPT / BO / MANUAL / UNKNOWN，只有 <code>WO</code> 目标才算&quot;应�
 </table>
 <p>两者<strong>不是同一套判定</strong>，页面并列展示正是为了让 AI 结论可以直接被核对；
 证据块不会因为模型不可用而消失（<code>ai.ok=false</code> 时照样渲染）。</p>
-<p><a id="ch-11-s52"></a></p>
+<p><a id="ch-11-s53"></a></p>
 <h4>数据链路</h4>
 <pre><code>GET /api/eflow-qa/tt-ai?tt=&lt;单号&gt;&amp;lang=zh|en      （backend/routers/eflow_qa.py）
   ├─ _tt_context()                        本地库/ eFlow 实时兜底拿工单 + 告警 → report
@@ -4130,7 +4308,7 @@ WO / IPT / BO / MANUAL / UNKNOWN，只有 <code>WO</code> 目标才算&quot;应�
 （<strong>可下载</strong>，走 Email Reports 的白名单下载接口）、ACTIVE 规则条数、规则表更新时间、
 最近一次收集+匹配时间、规则维护人（创建人/更新人）、工单处理人
 （<code>last_processer</code> / <code>last_processer_group</code>，取自 <code>inspect_tt</code> 报告的「派单」段，不额外查库）。</p>
-<p><a id="ch-11-s53"></a></p>
+<p><a id="ch-11-s54"></a></p>
 <h4>三个必须知道的坑</h4>
 <ol>
 <li><strong>规则引擎判定只在本地 <code>eflow_tt</code> 有该单时有效</strong>：工单只存在于 eFlow 实时接口时
@@ -4143,7 +4321,7 @@ AI 走原有纯文本判定路径。不要把这个当成报错。</li>
 只放行 <code>backend/routers/email_reports.py</code> 中 <code>_SOURCES</code>/<code>_EFLOW_FILE_SPECS</code> 里登记过的
 文件名。新增产物文件必须两处同步登记，否则「能列出却下载 403」。</li>
 </ol>
-<p><a id="ch-11-s54"></a></p>
+<p><a id="ch-11-s55"></a></p>
 <h4>14e-1. 模型全档失败时的「程序化结论」（2026-09-23 新增）</h4>
 <p>原先模型不可用时页面只有一行
 <code>AI analysis failed: RuntimeError: 所有候选模型均失败 ['workbuddy:…','openwebui:…']</code>，
@@ -4166,7 +4344,7 @@ ai.rules                 结构化证据（页面「规则命中证据」块，�
 而技能 prompt 的部分字段（如 <code>downSiteCount</code>）取自告警行，实测同一单可能一个是 1、
 一个是 6。程序化结论里已显式标注「以逐条匹配为准」，改这里时别把两者当成同源。</p>
 </blockquote>
-<p><a id="ch-11-s55"></a></p>
+<p><a id="ch-11-s56"></a></p>
 <h4>14e-2. 推单规则证据：这单会不会自动推 WO、推给谁（2026-09-23 新增）</h4>
 <p>「规则来源与责任人」原先只有<strong>级别规则</strong>（<code>ttLevelRule</code>，回答「该是什么级别」），
 缺了<strong>推单规则</strong>（<code>ttPushOrderRule</code>，回答「会不会自动推 WO、推给谁、谁自动处理」）。
@@ -4229,12 +4407,12 @@ ai.rules                 结构化证据（页面「规则命中证据」块，�
 （见 <code>eflow_rules_matcher.build_value_frame</code>）—— 该单 <code>site_type=COOL</code>、<code>site_information=REGULAR</code>，
 所以按 <code>COOL</code> 判，<code>Regular断站故障手动到FO</code>（要求 <code>REGULAR</code>）不命中。</p>
 </blockquote>
-<p><a id="ch-11-s56"></a></p>
+<p><a id="ch-11-s57"></a></p>
 <h3>14f. 这单指派给谁了 —— 指派归因（2026-09-23 新增）</h3>
 <p>返回体字段 <code>assignment</code>，报告 Markdown 落在 <strong>§5c</strong>，界面是 <strong>⑤c 卡片</strong>。
 实现：<code>backend/services/tt_postmortem/__init__.py</code> 的 <code>_resolve_assignment()</code>
 （建单明细解析 <code>_parse_create_detail()</code>）。</p>
-<p><a id="ch-11-s57"></a></p>
+<p><a id="ch-11-s58"></a></p>
 <h4>为什么必须单独做一节</h4>
 <p>eFlow 的&quot;指派&quot;不是一条规则说了算，<strong>分三层</strong>，只看一层会得出错误结论：</p>
 <table>
@@ -4265,7 +4443,7 @@ ai.rules                 结构化证据（页面「规则命中证据」块，�
 </table>
 <p><strong>真正落到某个人</strong>要看 <code>create_detail</code> 的 <code>Assign To</code> / <code>Assignee Group</code>，以及
 <code>eflow_tt.current_handler</code>。</p>
-<p><a id="ch-11-s58"></a></p>
+<p><a id="ch-11-s59"></a></p>
 <h4>判定要同时看 TT 层和 WO 层（2026-09-23 修正）</h4>
 <p><strong>只看 <code>eflow_tt</code> 会得出错误结论。</strong> 曾经据此写下
 「建单<strong>未指派到任何人</strong>，仅落入群组池 <code>G:ZTE_NOC_FO</code>」，用户指出 <code>TT202609230055</code> 不对：</p>
@@ -4335,13 +4513,13 @@ effective_scope:   person 89 / group 19 / none 92
 而是&quot;已指派到 Stanley Biney 但未及时出发&quot;——两者是完全不同的问题，
 瓶颈建议的措辞已按 <code>assigned_persons</code> 是否为空分别给出。</p>
 </blockquote>
-<p><a id="ch-11-s59"></a></p>
+<p><a id="ch-11-s60"></a></p>
 <h4>人名去重：同一个人有两种写法</h4>
 <p>WO 的 <code>current_handler</code> 是 <code>P:Kelvin Kollie</code>（只有姓名），
 建单明细 <code>Assign To</code> 是 <code>P:Kelvin Kollie(FE_FE_120)</code>（姓名+工号）。
 直接合并会出现「Kelvin Kollie、Kelvin Kollie(FE_FE_120)」同人重复。
 <code>_dedup_people()</code> 按&quot;去掉括号工号后的姓名&quot;归并，保留信息更全的那份。</p>
-<p><a id="ch-11-s60"></a></p>
+<p><a id="ch-11-s61"></a></p>
 <h4>改进建议已改为「跟着瓶颈走」</h4>
 <p><code>suggested_actions</code> 现在除了派单规则，还从<strong>两个新来源</strong>产出：</p>
 <ol>
@@ -4354,7 +4532,7 @@ effective_scope:   person 89 / group 19 / none 92
 因为建议只跟着派单规则走，而这单的派单没问题、问题全在现场响应等待上。
 复盘的价值就在于&quot;最大的那块时间&quot;能对应到一个可执行动作。</p>
 </blockquote>
-<p><a id="ch-11-s61"></a></p>
+<p><a id="ch-11-s62"></a></p>
 <h3>14g. eFlow 全流程查询（<code>?page=eflow_flow</code>）</h3>
 <p>输入<strong>告警</strong>（告警 ID / 告警码）或 <strong>TT 单号</strong>，画出该单在 eFlow 里的全流程图 ——
 规则驱动的完整状态机 + 该单<strong>实际走过</strong>的路径高亮。与 <code>14e eFlow 知识库</code>（规则证据）、
@@ -4384,7 +4562,7 @@ history、<code>clearstatename</code> 只在 realtime。给两表写同一条 SE
 <code>Reached</code>（实际经过步骤时间轴）、<code>Alarms</code>（关联告警）。空块自动跳过（如无告警则不生成 <code>Alarms</code>）。
 走 <code>utils/excelReport</code> 的 <code>exportReport</code>（多 sheet），与 <code>noc_analyst</code> 的导出同构。</li>
 </ul>
-<p><a id="ch-11-s62"></a></p>
+<p><a id="ch-11-s63"></a></p>
 <h3>14h. 承接方归属：ZTE 自维 vs IPT 第三方（2026-09-24 新增）</h3>
 <p><strong>要解决的问题</strong>：有一类单子<strong>根本不走 WO</strong>，而是被推到第三方
 （IPT / HUAWEI / NANOTECH / OLIB）去处理。如果和 ZTE 自维的单子混在一起看，
@@ -4395,7 +4573,7 @@ history、<code>clearstatename</code> 只在 realtime。给两表写同一条 SE
 </ol>
 <p>用户原话：「排到第三方的单子没有 WO，涉及的规则为 <code>mpf-outage</code>、
 Root Alarm Code <code>SITE DOWN DUE TO POWER OFF(99933)</code>，这类要单独分开」。</p>
-<p><a id="ch-11-s63"></a></p>
+<p><a id="ch-11-s64"></a></p>
 <h4>判定：<code>_dispatch_owner()</code>（唯一真相源）</h4>
 <p><code>backend/services/tt_postmortem/__init__.py</code>，三档递进，<strong>越靠前越权威</strong>：</p>
 <table>
@@ -4431,12 +4609,12 @@ Root Alarm Code <code>SITE DOWN DUE TO POWER OFF(99933)</code>，这类要单独
 <p>⚠ 本判定<strong>只有一个真相源</strong>，不要再写第二套 <code>classify_owner()</code> ——
 两个函数对同一张单给出不同归属，比没有归属更糟。</p>
 </blockquote>
-<p><a id="ch-11-s64"></a></p>
+<p><a id="ch-11-s65"></a></p>
 <h4>⚠ 不能按规则名匹配</h4>
 <p>用户提到的 <code>mpf-outage</code> 在<strong>本地库完全查不到</strong>（全表扫描 0 命中，
 见 <code>TMP/_probe_ipt.py</code>）——它是 eFlow 侧的规则名，本地 <code>ocrule_details</code> 没有同步。
 所以只能按上面的<strong>分支/厂商特征</strong>判定，不要试图按规则名匹配。</p>
-<p><a id="ch-11-s65"></a></p>
+<p><a id="ch-11-s66"></a></p>
 <h4>实测分布（2026-09 全月，2478 单）</h4>
 <pre><code>ZTE 1260 单 / IPT 1218 单        （owner=None 与 ALL 一致）
 ZTE + IPT == 全部  ✅  （2478 == 2478）
@@ -4472,7 +4650,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 </tr>
 </tbody>
 </table>
-<p><a id="ch-11-s66"></a></p>
+<p><a id="ch-11-s67"></a></p>
 <h4>三条使用铁律</h4>
 <ol>
 <li><strong>下钻的 owner 必须跟概览一致</strong>。<code>build_noc_tt_drilldown(owner=...)</code> 与
@@ -4482,7 +4660,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 <li><strong>界面要说明口径</strong>：IPT 单不建 WO 是设计如此，不能显示成红色告警；
 <code>no_wo_zt</code>（ZTE 自维未建 WO）才用红色。界面文案见 <code>noc.ownerNote*</code>。</li>
 </ol>
-<p><a id="ch-11-s67"></a></p>
+<p><a id="ch-11-s68"></a></p>
 <h4>复盘抽屉的「Handled by」红字判据（2026-09-27 修正）</h4>
 <p>TT 复盘抽屉（<code>TtPostmortemPanel.tsx:693-710</code>）的红字
 「A ZTE in-house ticket with no WO — needs attention」判据是
@@ -4528,7 +4706,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 验证用例：<code>TT202609270029</code>（有 WO → 不出红字）；<code>TT202609270025</code> /
 <code>TT202609270013</code>（真无 WO 的 ZTE 单 → 红字仍在）。</p>
 </blockquote>
-<p><a id="ch-11-s68"></a></p>
+<p><a id="ch-11-s69"></a></p>
 <h4>「Handled by」这一格最终显示什么（2026-09-27 改）</h4>
 <p>只有分类标签答不出「到底有没有人在做」，所以按<strong>有没有 WO</strong> 分四种显示
 （<code>TtPostmortemPanel.tsx</code>，文案键 <code>ttPm.owner*</code>）：</p>
@@ -4565,7 +4743,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 </table>
 <p>处理人取 <code>assignment.assigned_persons</code>（WO 层解析结果，已去重且带工号）；
 时间轴子视图构建失败时退回 <code>eflow_wo.current_handler</code> 原文。</p>
-<p><a id="ch-11-s69"></a></p>
+<p><a id="ch-11-s70"></a></p>
 <h4>界面落点</h4>
 <table>
 <thead>
@@ -4597,7 +4775,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 </tr>
 </tbody>
 </table>
-<p><a id="ch-11-s70"></a></p>
+<p><a id="ch-11-s71"></a></p>
 <h4>告警名解析：<code>resolve_alarm_name()</code></h4>
 <p>优先级：<code>alarm_description</code>（实际告警文本）→ <code>ALARM_CODE_SEMANTICS</code> 静态表 →
 <code>fallback</code>（<code>title</code>）。界面原来只显示告警 ID（如 <code>9995.0</code>），
@@ -4606,16 +4784,16 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 <p>批量分析（<code>tt_batch_severity._row_from_match</code>）里用的是<strong>延迟导入</strong>
 <code>resolve_alarm_name</code> —— 该模块是 <code>tt_postmortem</code> 的下游，模块级导入会成环。</p>
 </blockquote>
-<p><a id="ch-11-s71"></a></p>
+<p><a id="ch-11-s72"></a></p>
 <h3>15. IP 链路探测（<code>?page=ip_trace</code>）— iframe</h3>
 <p><code>IpTrace.tsx:16</code> → <code>public/ip-trace.html</code>（<code>&lt;title&gt;</code> 为 <strong>IP Trace &amp; Node Detection Dashboard</strong>），接口由内页自调：<code>/api/ip-trace/trace</code>、<code>/status</code>、<code>/stop</code>、<code>/analyze</code>。用于从服务器侧探测到目标站点的链路连通性与路径；<code>/stop</code> 说明探测是<strong>可中断的长任务</strong>，卡住时可以手动停。</p>
-<p><a id="ch-11-s72"></a></p>
+<p><a id="ch-11-s73"></a></p>
 <h3>16. 事件总览（<code>?page=incident_overview</code>）— iframe</h3>
 <p><code>IncidentOverview.tsx:17</code> → <code>public/incident-overview.html</code>（<code>&lt;title&gt;</code> 为 <strong>OLR Incident Dashboard</strong>），接口 <code>/api/incident-overview</code>。数据由 <code>incident_overview_sync</code> <strong>每小时整点</strong>从 FineBI FTP 调度目录取最新 <code>incident_overview.xlsx</code>，以&quot;版本化文件 + <code>current.json</code> 指针&quot;落盘（<code>task_registry.py:296-301</code>）——这样即使上游 Excel 一直被打开占用，取数也不会失败。</p>
-<p><a id="ch-11-s73"></a></p>
+<p><a id="ch-11-s74"></a></p>
 <h3>17. 仓库看板（<code>?page=warehouse</code>）— iframe</h3>
 <p>备件/耗材库存看板（菜单 i18n key 是 <code>nav.sp</code>，HTML <code>&lt;title&gt;</code> 为 <strong>OLR Spare Management Dashboard</strong>）。<code>WarehouseDashboard.tsx:7-11</code> 说明它<strong>完整复用</strong> <code>Unified_Tools/WareHouseDashBoard/templates/index.html</code> 以保证与原看板&quot;完全一样&quot;，React 侧只用 <code>&lt;iframe&gt;</code> 加载 <code>public/warehouse-dashboard.html</code> 并在 <code>load</code> 事件后注入样式/DOM（:20-51）。内页调 <code>/api/data</code>、<code>/api/warehouses</code>、<code>/api/details</code>（<code>routers/sp_dashboard.py:25-55</code>）。</p>
-<p><a id="ch-11-s74"></a></p>
+<p><a id="ch-11-s75"></a></p>
 <h3>18. 数据总览（<code>?page=overview</code>）</h3>
 <p>库里有多少表、每张表多少行的<strong>体检页</strong>。<code>GET /api/db/info</code>（<code>Overview.tsx:24</code>），Top10 规模排名，「行数」列可排序（:151）。<strong>没有其它按钮</strong>——它只回答&quot;数据在不在、大不大&quot;。</p>
 <ul>
@@ -4623,7 +4801,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 （过滤掉 <code>_</code> 前缀的内部表，按行数倒序），不是页面上只显示 Top10 的那两张图。
 副标题写明表数/总行数与库名，便于对账。</li>
 </ul>
-<p><a id="ch-11-s75"></a></p>
+<p><a id="ch-11-s76"></a></p>
 <h3>19. 表浏览器（<code>?page=tables</code>）</h3>
 <p>不写 SQL 就能翻任意表、看字段画像、导文件。<strong>最常用的兜底工具</strong>。</p>
 <ul>
@@ -4634,7 +4812,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 <li><strong>导入</strong>（:412 → <code>POST /api/tables/import</code>，:149，<code>multipart/form-data</code>）。</li>
 <li><strong>画像页签</strong>：字段级统计（:572 → <code>GET /api/tables/{t}/profile</code>，:273），与&quot;数据&quot;页签并列（:548）。</li>
 </ul>
-<p><a id="ch-11-s76"></a></p>
+<p><a id="ch-11-s77"></a></p>
 <h3>20. 数据上传（<code>?page=upload</code>）</h3>
 <p>拖拽 Excel/CSV 入库，并给出<strong>数据质量评分</strong>。</p>
 <ul>
@@ -4642,7 +4820,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 <li>上传后先看<strong>问题面板 / 结论面板</strong>（:101）再决定用不用这批数据。</li>
 <li>历史列表可手动刷新（:144 → <code>GET /api/upload/history</code>）。</li>
 </ul>
-<p><a id="ch-11-s77"></a></p>
+<p><a id="ch-11-s78"></a></p>
 <h3>21. 分析归档（<code>?page=archive</code>）</h3>
 <p>历史分析结果的检索与删除，与分析仪表盘配套。</p>
 <ul>
@@ -4653,7 +4831,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 ⚠ 列表是<strong>服务端分页</strong>（每页 20 条），导出的是<strong>当前页</strong>这 20 条，
 副标题写明「第 x-y 条 / 共 N 条」与当前搜索词 —— 不要把它当成全量归档导出。</li>
 </ul>
-<p><a id="ch-11-s78"></a></p>
+<p><a id="ch-11-s79"></a></p>
 <h3>22. 分析仪表盘（<code>?page=dashboard</code>）</h3>
 <p>选一张表自动生成多维图表和结论，并可归档。</p>
 <ul>
@@ -4662,7 +4840,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 <li>接口：<code>GET /api/tables</code>（:37）、<code>POST /api/analysis</code>（:56 生成、:72 归档）。</li>
 <li>用 <code>components/MetricExplain</code> 展示指标口径，页头同步标签来自 <code>useDataTimestamps</code>。</li>
 </ul>
-<p><a id="ch-11-s79"></a></p>
+<p><a id="ch-11-s80"></a></p>
 <h3>23. 系统设置（<code>?page=settings</code>）</h3>
 <p>四个页签（<code>Settings.tsx:11-35</code>，默认打开「凭据」）：</p>
 <table>
@@ -4699,7 +4877,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 <blockquote>
 <p>⚠️ <strong>容易找错位置</strong>：「任务配置」页签在<strong>系统设置</strong>里，不在任务管理页。虽然它的文件在 <code>pages/datasync/</code> 目录下。</p>
 </blockquote>
-<p><a id="ch-11-s80"></a></p>
+<p><a id="ch-11-s81"></a></p>
 <h3>24. 门户一键登录（<code>?page=portalLogin</code>）</h3>
 <p>用已保存的凭据替你把上游门户登录好，省得逐个手输账号口令。</p>
 <ul>
@@ -4709,7 +4887,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 <li>与其他页面<strong>共用同一份凭据</strong>（<code>credential_store</code> 分组），不必重复填。</li>
 <li>会话 cookie 会缓存到 <code>backend/services/auth_cache/</code>，等价于有效登录态——按 <code>05-security-and-credentials.md</code> 的要求对待该目录。</li>
 </ul>
-<p><a id="ch-11-s81"></a></p>
+<p><a id="ch-11-s82"></a></p>
 <h4>门户清单（<code>backend/services/portal_login_service.py::PORTALS</code>）</h4>
 <table>
 <thead>
@@ -4763,7 +4941,7 @@ ZTE + IPT == 全部  ✅  （2478 == 2478）
 <p>反代端口分配：<strong>8081 ZTE UME / 8082 CCN UME / 8083 iPRAN UME / 8084 MW UME / 8085 FW UMC / 8086 VMAX CXO / 8088 UME iMonitor</strong>。
 ⚠️ <strong>8087 不能用</strong>——被 ShadowBot（RPA 工具）占用且绑在回环上，<code>localhost:8087</code> 会落到它而不是 nginx。</p>
 </blockquote>
-<p><a id="ch-11-s82"></a></p>
+<p><a id="ch-11-s83"></a></p>
 <h4>两种模式</h4>
 <p>页面右上角切换，选择存在浏览器 <code>localStorage.myapp_portal_login_mode</code>：</p>
 <ul>
@@ -4799,7 +4977,7 @@ Default Templates</em>），因为它们的前端把根地址/实时通道写死
 <code>readyState=complete</code> 但 JS 从未执行的空白页，且不会自愈。</li>
 </ol>
 </blockquote>
-<p><a id="ch-11-s83"></a></p>
+<p><a id="ch-11-s84"></a></p>
 <h3>25. UME iMonitor 大屏（<code>?page=imonitor</code>）— 原版门户页面嵌入</h3>
 <p>把 UME 门户（172.17.208.1:28808）的原版监控大屏 <code>guard-imonitor-iui</code> 的
 <code>#/screen/screen-view?screen_id=1</code> <strong>原样</strong>嵌进 myapp，并自动完成 em-portal 登录。
@@ -4810,7 +4988,7 @@ Default Templates</em>），因为它们的前端把根地址/实时通道写死
 <li>门户注册：<code>portal_login_service.py</code> 的 <code>PORTALS['ume_in']</code> + <code>PROXY_PREFIXES['ume_in']</code></li>
 <li>凭据：<code>credential_store</code> key=<code>ume_in</code>（与客户业务 KPI 看板同一套 em-portal 账号）</li>
 </ul>
-<p><a id="ch-11-s84"></a></p>
+<p><a id="ch-11-s85"></a></p>
 <h4>为什么必须走反代，不能直接 iframe 上游</h4>
 <ol>
 <li><strong>同源才能带会话</strong>：浏览器要带门户 Cookie 才能打开大屏，而 Cookie 只能由门户自己种；
@@ -4829,7 +5007,7 @@ myapp(80) 与门户(172.17.208.1:28808) 不同源 → 既种不了也读不了�
 </ul>
 </li>
 </ol>
-<p><a id="ch-11-s85"></a></p>
+<p><a id="ch-11-s86"></a></p>
 <h4>登录时序（首次访问自动发生）</h4>
 <pre><code>iframe 载入大屏 → SPA 调 /api/guard-imonitor-service/v1/largescreen/screen?_id=1
 → 401 → SPA 自己跳到 /api/oauth2/v1/authorize?redirect_uri=/iui/guard-imonitor-iui/
@@ -4841,7 +5019,7 @@ myapp(80) 与门户(172.17.208.1:28808) 不同源 → 既种不了也读不了�
 <p>⚠️ 最后一步不能省：门户登录成功只回落到 <code>redirect_uri</code> 根路径，<code>#/screen/screen-view?screen_id=1</code>
 这段 hash 路由在跳转中必然丢失。这也是 <code>build_inject_js</code> 里那条 <code>myapp-portal-autologin</code>
 postMessage 的唯一用途。自愈循环上限 4 次（<code>MAX_AUTO_RELOGIN</code>），工具条手动「刷新/重新登录」会重新武装。</p>
-<p><a id="ch-11-s86"></a></p>
+<p><a id="ch-11-s87"></a></p>
 <h4>其它注意</h4>
 <ul>
 <li>自动刷新：本页登记在 <code>AR_SOFT_REFRESH_PAGES</code>，顶栏到点时外壳广播 <code>myapp-refresh</code>、
@@ -4853,7 +5031,7 @@ postMessage 的唯一用途。自愈循环上限 4 次（<code>MAX_AUTO_RELOGIN<
 Cookie 名<strong>相同</strong>，两个门户不要在同一浏览器里同时登录。</li>
 <li>离线测试：<code>python tests/test_imonitor_screen.py</code>（不连门户、不起浏览器）。</li>
 </ul>
-<p><a id="ch-11-s87"></a></p>
+<p><a id="ch-11-s88"></a></p>
 <h3>26. SP 备件 / 耗材汇总报表（<code>?page=sp_report</code> / <code>?page=com_report</code>）</h3>
 <p>同一条代码路径服务两个页面，只是 <code>kind</code> 不同（<code>spareparts</code> / <code>consumables</code>）：
 页面包装 <code>SpReport.tsx</code> / <code>ComReport.tsx</code> → 共用 <code>SpReportBase.tsx</code>，
@@ -4865,7 +5043,7 @@ Cookie 名<strong>相同</strong>，两个门户不要在同一浏览器里同�
 <p>工作簿五张 sheet：<code>Summary-Current</code>（汇总）/ <code>Summary-Changed</code>（每日矩阵）/
 <code>Inbound</code> / <code>Outbound</code> / <code>Inventory</code>。前两张走 <code>/summary</code>，其余三张走
 <code>/rows</code>（分页 + 筛选 + 排序）。</p>
-<p><a id="ch-11-s88"></a></p>
+<p><a id="ch-11-s89"></a></p>
 <h4>Summary 表的 Outbound 拆分（2026-09-24 新增）</h4>
 <p><code>Summary-Current</code> 在 <code>Outbound Qty</code> 右侧新增两列（由<strong>生成端</strong>产出，不是页面算的，
 口径见 <code>backend/services/sp_report_gen/README.md</code> 与 <code>gernarate_sp_report.build_summary</code>）：</p>
@@ -4907,12 +5085,12 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 注意 <code>Outbound Qty</code> 与 <code>Outbound Repair Qty</code> 是一对（Site + Repair = Outbound），
 默认一并隐藏；<code>Outbound Site Qty</code> 保留显示。</p>
 </blockquote>
-<p><a id="ch-11-s89"></a></p>
+<p><a id="ch-11-s90"></a></p>
 <h4>界面的三段结构</h4>
 <p>统计卡片（汇总 KPI + 补库告警，<strong>点告警卡即筛选</strong>）→ 分表卡片（点即切表）→
 明细数据卡片（Segmented 切 5 张表）。<code>Summary-Changed</code> 渲染成「天 × 仓库」矩阵，
 不走 <code>/rows</code>，也就没有分页与列控制（<code>SpReportBase.tsx:784</code> 的分支）。</p>
-<p><a id="ch-11-s90"></a></p>
+<p><a id="ch-11-s91"></a></p>
 <h4>显示列可自定义（每个分表各记一套）</h4>
 <p>「明细数据」卡片筛选条上的<strong>显示列</strong>按钮打开 <code>components/ColumnPicker.tsx</code>：</p>
 <ul>
@@ -4935,12 +5113,12 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 <p>列偏好只在浏览器本地，不落库 —— 换机器/换浏览器不跟随，这是有意的：
 它是个人的视图偏好，不是业务配置，不该走 <code>/api</code> 与数据库。</p>
 </blockquote>
-<p><a id="ch-11-s91"></a></p>
+<p><a id="ch-11-s92"></a></p>
 <h4>分页</h4>
 <p>明细表默认<strong>每页 20 行</strong>（<code>DEFAULT_PAGE_SIZE</code>，<code>SpReportBase.tsx</code> 顶部常量），
 分页器可切 20 / 50 / 100 / 200 —— 用户切页大小会同步改后端 <code>page_size</code> 请求参数。
 导出不受分页影响：<code>exportCurrent</code> 另取一次 <code>page_size = min(total, 5000)</code> 拉全量。</p>
-<p><a id="ch-11-s92"></a></p>
+<p><a id="ch-11-s93"></a></p>
 <h4>排障</h4>
 <ul>
 <li>页面整体 404 → 工作簿不存在，按提示先跑 <code>sp_report_generate</code>；</li>
@@ -4948,7 +5126,150 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 <li>页面与 Excel 数字对不上，先看 <code>notes</code> 里的口径说明，再查
 <code>backend/services/sp_report_service.py</code>，<strong>不要</strong>在页面层改口径。</li>
 </ul>
-<p><a id="ch-11-s93"></a></p>
+<p><a id="ch-11-s94"></a></p>
+<h3>26b. 仓库汇总报表（<code>?page=warehouse_summary</code>）—— 页签 = Excel 的两个 sheet（2026-09-29 新增）</h3>
+<p>版式对齐 <code>Task/WarehouseSummaryReport.xlsx</code>：<strong>页签即该文件的两个 sheet</strong>
+（<code>Spars Parts</code> / <code>Consumables</code>），每个页签内两段表。</p>
+<ul>
+<li>页面 <code>frontend/src/pages/WarehouseSummary.tsx</code>；</li>
+<li><strong>数据源与第 26 节完全相同</strong>（<code>sp_report_generate</code> 每天 05:15 产出的汇总工作簿），
+<strong>不新增采集、不做二次加工</strong>，两个页面看的是同一份文件；</li>
+<li>复用接口 <code>/api/sp-report/summary</code>，只是多读两个键（见下）；</li>
+<li>页签<strong>加粗并居中</strong>（对齐 Excel sheet 标签的视觉权重，样式类 <code>.wh-sum-tabs</code>
+只作用于本页，见 <code>frontend/src/index.css</code>）；</li>
+<li>页面<strong>不再显示</strong>数据来源 / 报表生成时间 / 查询时间三行元信息（2026-09-29 按用户要求移除）——
+这些信息仍保留在「导出 Excel」的表头里，需要溯源时导出即可。</li>
+</ul>
+<p><a id="ch-11-s95"></a></p>
+<h4>页签与 kind 的对应</h4>
+<table>
+<thead>
+<tr>
+<th>页签（= Excel sheet）</th>
+<th><code>kind</code></th>
+<th>数据源文件前缀</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Spars Parts</code></td>
+<td><code>spareparts</code></td>
+<td><code>SpareParts Inbound&amp;Outbound&amp;Inventory &lt;时间戳&gt;.xlsx</code></td>
+</tr>
+<tr>
+<td><code>Consumables</code></td>
+<td><code>consumables</code></td>
+<td><code>Comsumables Inbound&amp;Outbound&amp;Inventory &lt;时间戳&gt;.xlsx</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⚠️ 页签名是<strong>报表业务原值</strong>，刻意不翻译（含 Excel 原有的 <code>Spars</code> 拼写，同理见
+<code>sp_report_service.py</code> 对 <code>Comsumables</code> 的处理）。与既有菜单项「备件入出库库存报表」
+用中文标题不同：那两个页面是自研看板，本页是<strong>照着交付报表 1:1 复刻</strong>的版本。</p>
+</blockquote>
+<p><a id="ch-11-s96"></a></p>
+<h4>两段表与后端字段</h4>
+<p><code>get_summary()</code> 在原返回体<strong>新增两个键</strong>（既有键一个不动，所以第 26 节的两个页面不受影响）：</p>
+<table>
+<thead>
+<tr>
+<th>返回键</th>
+<th>页面段落</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>warehouse_summary</code></td>
+<td>① WH/DOP 汇总</td>
+<td><code>WH/DOP | Current Inventory | Total Consumption | This month Consumption | This week Consumption</code>，含 <code>Total</code> 行</td>
+</tr>
+<tr>
+<td><code>frequent_materials</code></td>
+<td>② 高频消耗物料</td>
+<td><code>Domain | Material Name | Consumption Qty | Inventory Qty | Alert Level</code>，<strong>全量</strong>物料（页面每 10 行分页）+ 全量 <code>Total</code> 行</td>
+</tr>
+</tbody>
+</table>
+<p>口径（实现在 <code>sp_report_service.py</code> 的 <code>_warehouse_summary</code> / <code>_frequent_materials</code>）：</p>
+<ul>
+<li><code>current_inventory</code> 来自 <code>Inventory</code> sheet 按 <code>Warehouse Name</code> 的 <code>Stock Qty</code> 合计；</li>
+<li>三个消耗列来自 <code>Outbound</code> sheet 按 <code>Warehouse Name</code> 的 <code>Outbound Qty</code> 合计，
+<code>month/week</code> 按<strong>请求时刻</strong>的时间窗（本月 1 日 / 本周一 00:00）过滤 ——
+与 Excel 一样是&quot;打开时报&quot;的运行时口径，不是工作簿生成时口径；</li>
+<li>时间取 <code>Outbound Time</code>，为空回落 <code>Create Time</code>；两者都空的行不计入期间合计
+（不猜时间），因此 <strong><code>month/week ≤ total</code> 恒成立</strong>；</li>
+<li>仓库集合取 <code>Outbound</code> 与 <code>Inventory</code> 的<strong>并集</strong>，只在一边出现的仓库也出行、
+缺失侧计 0 —— 直接丢弃会让 <code>Total</code> 与各仓之和对不上；</li>
+<li><code>Total</code> 行<strong>由后端算</strong>，不交给前端二次求和；</li>
+<li><code>Consumption Qty</code> 映射到 <strong><code>Outbound Site Qty</code></strong>（站点出库），<strong>不是 <code>Outbound Qty</code></strong>：
+后者含报修出库与两张异常单据，与补库口径不一致。上游缺该列（旧工作簿）时回落
+<code>Outbound Qty</code>，不静默变成 0；当前口径在页面右上角以 <code>消耗口径</code> 标签显式展示；</li>
+<li>段② 的 <code>rows</code> 是<strong>全量</strong>物料（按 <code>Consumption Qty</code> 降序），页面<strong>每 10 行分页</strong>显示全部；
+<code>top_n</code>（= <code>FREQUENT_TOP_N = 10</code>）只是&quot;排在最前的若干条&quot;的<strong>展示提示</strong>，
+<strong>不用于截断</strong> <code>rows</code> —— 否则分页翻不到后面的物料（2026-09-29 修正）；</li>
+<li>段② 的 <code>Total</code> 行也是<strong>全量</strong>合计，与 <code>rows</code> 同为全量口径，因此两者天然自洽
+（已验证：spareparts 858 = 各行之和，consumables 7745 = 各行之和），且<strong>翻页时不随之变化</strong>。</li>
+</ul>
+<p><a id="ch-11-s97"></a></p>
+<h4>下钻（每个数字都可点）</h4>
+<table>
+<thead>
+<tr>
+<th>点击位置</th>
+<th>落到</th>
+<th>筛选</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>段① 仓库名 / Current Inventory</td>
+<td><code>Inventory</code> 明细</td>
+<td><code>Warehouse Name = &lt;该仓&gt;</code></td>
+</tr>
+<tr>
+<td>段① 三个消耗列</td>
+<td><code>Outbound</code> 明细</td>
+<td><code>Warehouse Name = &lt;该仓&gt;</code></td>
+</tr>
+<tr>
+<td>段② 物料名</td>
+<td><code>Summary-Current</code> 明细</td>
+<td><code>Material Name = &lt;该物料&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⚠️ <strong>消耗列的下钻是&quot;该仓全部出库&quot;，不按本月/本周再筛</strong>：后端 <code>filters</code> 只支持精确匹配、
+没有时间区间算子。这里宁可在标题里写明范围，也不能筛出与表格数字不一致的行
+（下钻口径铁律，见 <code>AGENTS.md</code> 第三节 1b）。<code>Total Consumption</code> 列与下钻合计
+<strong>精确相等</strong>（已用探针逐仓核对）；<code>month/week</code> 列因为无法二次筛时间，下钻行数会多于该列数字。</p>
+</blockquote>
+<p><a id="ch-11-s98"></a></p>
+<h4>与第 26 节两个页面的关系</h4>
+<p>三个页面<strong>并存、各有用途</strong>，不是新旧替代：</p>
+<ul>
+<li><code>?page=sp_report</code> / <code>?page=com_report</code>：五张 sheet 全量明细（筛选 / 排序 / 分页 / 列自定义）；</li>
+<li><code>?page=warehouse_summary</code>：把交付报表 <code>WarehouseSummaryReport.xlsx</code> 的两页在线上复刻，
+仓库维度一眼可见、高频物料可按每页 10 行翻完全部，每个数字可下钻。</li>
+</ul>
+<p><a id="ch-11-s99"></a></p>
+<h4>统一门户入口</h4>
+<p>已挂进 <code>/v1/olbrportal/</code> 的 <strong>SP View</strong> 分组：目录 <code>no=78</code>、标题 <code>仓库汇总报表</code> /
+<code>Warehouse Summary</code>，并置入 <code>order['SP View']</code> <strong>第 1 位</strong>（SP View 首屏只露 2 条，
+不排前面会被「展开其余 N 项」折叠掉）。做法与并发守卫见 14a 节末尾一段的通用说明。</p>
+<p><a id="ch-11-s100"></a></p>
+<h4>排障</h4>
+<ul>
+<li>报错提示找不到工作簿 → 先跑 <code>sp_report_generate</code>（页面上有对应提示）；</li>
+<li>段① / 段② 空表但接口有数据 → 确认后端已重启（新增的 <code>warehouse_summary</code> /
+<code>frequent_materials</code> 键需要新代码；旧进程返回旧结构，页面会显示空表）；</li>
+<li>本月 / 本周列为 0 → 属正常：该时间窗内确实没有出库，不是取数失败；</li>
+<li>段② 只显示 10 行翻不动页 → 后端 <code>frequent_materials.rows</code> 应为<strong>全量</strong>（不是 Top N）；
+若只见 10 行说明跑到旧代码，重启后端即可（2026-09-29 已改为全量返回）。</li>
+</ul>
+<p><a id="ch-11-s101"></a></p>
 <h3>27. CR 变更分析（<code>?page=cr_analysis</code>）—— 按 change_category 看计划与完成（2026-09-25 新增）</h3>
 <p>数据源 <code>eflow_cr</code>（eFlow 同步的动态建表），回答一个问题：<strong>各类变更计划排了多少、
 实际执行了多少、其中多少按时</strong>。</p>
@@ -4970,7 +5291,7 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 「图表/列/弹窗」分开</strong>。拆分后各文件 87~468 行，行为与拆分前逐位一致
 （63 对 category 下钻、33 对 sub_category、9 对 month 全部复测通过）。</p>
 </blockquote>
-<p><a id="ch-11-s94"></a></p>
+<p><a id="ch-11-s102"></a></p>
 <h4>口径（改口径只改 <code>cr_caliber.py</code> 一处）</h4>
 <p>时间字段用 <strong><code>request_registration_time</code></strong>（CR 登记时间），不是 <code>planned_start_time</code> ——
 计划时间会被改期，拿它做窗口会让同一个 CR 在不同月份重复出现。
@@ -5012,7 +5333,7 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 </ul>
 <p>终态：<code>Closed</code>。CR 另有 <code>Canceled</code> 也是终态（与 <code>routers/portal_qc.py:102</code> 的
 <code>_CR_OPEN</code> 约定一致），实测本表当前没有 Canceled，仍单列一类以避免上游将来出现时口径漂移。</p>
-<p><a id="ch-11-s95"></a></p>
+<p><a id="ch-11-s103"></a></p>
 <h4>全量下钻（AGENTS.md 第三节 1b 的硬要求）</h4>
 <p>页面上<strong>每个数字都可点</strong>：8 个 KPI 卡、类别表格的每一格、子类别表格、堆叠柱状图的柱子、
 按时率环、月度趋势柱 —— 全部落到明细弹窗。</p>
@@ -5029,13 +5350,13 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 卡片数字与下钻行数全部一致；子类别 33 对、月份 9 对同样全部一致；
 且 <code>sum(rows)</code> 与 <code>summary</code> 逐字段相等。（2026-09-25 实测）</p>
 </blockquote>
-<p><a id="ch-11-s96"></a></p>
+<p><a id="ch-11-s104"></a></p>
 <h4>一个真实踩坑：SQL 别名与 Python 字段名不一致</h4>
 <p>首版把 <code>SUM(CASE ...) AS open_cnt</code> 写进 SQL，但 Python 侧的字段累加元组写的是 <code>&quot;open&quot;</code>，
 于是概览里 <code>open</code> 恒为 0，而下钻（走 <code>WHERE</code> 谓词、不经过别名）返回 38 ——
 <strong>下钻把概览的 bug 暴露了出来</strong>。这正是&quot;概览与下钻口径必须一致&quot;这条规则的价值：
 两者不一致时，先怀疑口径，不要先怀疑用户。</p>
-<p><a id="ch-11-s97"></a></p>
+<p><a id="ch-11-s105"></a></p>
 <h4>已知数据特征（影响观感，不是 bug）</h4>
 <ul>
 <li>默认窗口取<strong>全表实际范围</strong>（<code>get_filters()</code> 的 <code>min_time</code>），不是&quot;今天往前 30 天&quot; ——
@@ -5044,7 +5365,7 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 <li>按时执行率整体很低（3.2%），因为多数 CR 的实际开始时间晚于计划开始时刻（常见于
 计划填 <code>00:00:00</code>、实际当天上午执行）。<strong>这是真实业务现象</strong>，页面照实呈现。</li>
 </ul>
-<p><a id="ch-11-s98"></a></p>
+<p><a id="ch-11-s106"></a></p>
 <h3>28. PM 执行分析（<code>?page=pm_analysis</code>）—— 按 PM 计划看完成与超期（2026-09-25 新增）</h3>
 <p>数据源 <code>eflow_pm</code>（eFlow 同步的动态建表），回答一个问题：<strong>各 PM 计划（预防性维护
 工单 PMT）执行到哪一步、多少超期、卡在谁那里</strong>。</p>
@@ -5061,7 +5382,7 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 <p>📁 <strong>模块划分</strong>：与第 27 节的 CR 页<strong>同构</strong>（口径层 / 取数层 / 页面 / 四件套），
 照搬已经过验证的结构，不另起一套。各文件 87~470 行，均在 500 行以内。</p>
 </blockquote>
-<p><a id="ch-11-s99"></a></p>
+<p><a id="ch-11-s107"></a></p>
 <h4>⚠️ 字段名有误导性（本节最重要的一条）</h4>
 <p><code>eflow_pm</code> 的流程时间字段<strong>按名字猜顺序会全错</strong>。实测 694 条含完整链条的记录，
 真实时序 100% 是：</p>
@@ -5078,7 +5399,7 @@ FLM 领导审批是<strong>收尾</strong>环节，不是流程起点；</li>
 </ul>
 <p>所以页面的「流程推进情况」漏斗按<strong>上述真实时序</strong>渲染
 （<code>pmTypes.ts</code> 的 <code>STEP_KEYS</code> 数组顺序即真实时序），<strong>不要</strong>改成字段名字母序。</p>
-<p><a id="ch-11-s100"></a></p>
+<p><a id="ch-11-s108"></a></p>
 <h4>口径（改口径只改 <code>pm_caliber.py</code> 一处）</h4>
 <p>时间字段用 <strong><code>created_time</code></strong>（工单生成时间），不是任务窗口
 <code>current_task_start_time</code> —— 任务窗口会被改期，拿它做窗口会让同一工单
@@ -5135,7 +5456,7 @@ FLM 领导审批是<strong>收尾</strong>环节，不是流程起点；</li>
 上游的标记还含时区与工作日历修正，自己按 <code>current_task_end_time</code> 比会与上游口径漂移。
 语义上它表示&quot;<strong>未在任务窗口内完成</strong>&quot;：已完成却标 Yes 的 229 条，其
 <code>last_accept_time</code> 都远晚于 <code>current_task_end_time</code>（属事后补录/迟交）。</p>
-<p><a id="ch-11-s101"></a></p>
+<p><a id="ch-11-s109"></a></p>
 <h4>全量下钻（AGENTS.md 第三节 1b 的硬要求）</h4>
 <p>页面上<strong>每个数字都可点</strong>：8 个 KPI 卡、3 个比率卡、计划堆叠柱、超期环、状态饼、
 月度趋势柱、流程漏斗（无下钻，仅展示）、超期站点条形图、计划表格每一格、站点表格每一格。</p>
@@ -5154,7 +5475,7 @@ FLM 领导审批是<strong>收尾</strong>环节，不是流程起点；</li>
 逐字段相等；三条口径恒等式（<code>overdue == closed_overdue + open_overdue</code>、
 <code>total == closed + open</code>、<code>open == open_overdue + open_on_time</code>）均成立。</p>
 </blockquote>
-<p><a id="ch-11-s102"></a></p>
+<p><a id="ch-11-s110"></a></p>
 <h4>计划号筛选（2026-09-25 修订）</h4>
 <p>「PM 计划执行明细」卡片右上角提供 <strong>PM Plan No. 多选筛选</strong>（可搜索、可清空）。
 选中的计划号经 <code>rows</code> 的 <code>useMemo</code> 过滤后，<strong>同时驱动表格、小计行与「各 PM 计划的
@@ -5175,13 +5496,13 @@ FLM 领导审批是<strong>收尾</strong>环节，不是流程起点；</li>
 <p>原实现是 <code>Tag.CheckableTag</code> 平铺前 8 个计划号，计划号有 27 个时其余筛不到，
 且标签占满标题行；2026-09-25 换为上述下拉控件。</p>
 </blockquote>
-<p><a id="ch-11-s103"></a></p>
+<p><a id="ch-11-s111"></a></p>
 <h4>计划号归一后二次合并</h4>
 <p><code>''</code> 与 <code>NULL</code> 在 <code>GROUP BY</code> 里是两类（PG 中 NULL 自成一类），归一到兜底名
 <code>(无计划号)</code> 后可能出现两行同名。不合并会让同一计划出现两行，且比率各用各自分母算，
 与下钻（按归一后名字精确匹配）对不上。故 <code>_shape_plan_rows()</code> 归一后<strong>再合并一次</strong>
 再算比率，<code>sites</code> 取最大值而不是相加（避免站点数虚高）。</p>
-<p><a id="ch-11-s104"></a></p>
+<p><a id="ch-11-s112"></a></p>
 <h4>已知数据特征（影响观感，不是 bug）</h4>
 <ul>
 <li>默认窗口取<strong>全表实际范围</strong>（<code>get_filters()</code> 的 <code>min_time</code>）——
@@ -5197,12 +5518,339 @@ FLM 领导审批是<strong>收尾</strong>环节，不是流程起点；</li>
 Wait FLM Leader Approve 26.4% —— <strong>等待中的工单比已完成的超期率更高</strong>，
 说明卡点在审批环节，这正是「流程推进情况」漏斗存在的意义。</li>
 </ul>
-<p><a id="ch-11-s105"></a></p>
+<p><a id="ch-11-s113"></a></p>
+<h3>30. BP 劣化小区报告（<code>?page=bp_report</code>）—— umlaut 口径的 Bad Performance（2026-09-29 新增，2026-09-30 口径补齐）</h3>
+<p>把 umlaut 的 BP 报告搬进平台，并从 RAN_UME 增量更新。<strong>本页最大的特点是「三个条件跨两个数据源、
+两种时间粒度」</strong> —— Active User 走独立的小时粒度通道，页面必须常驻说明把它讲清楚。</p>
+<p><a id="ch-11-s114"></a></p>
+<h4>口径（唯一真相源：<code>backend/services/bp_caliber.py</code>）</h4>
+<pre><code>Daily:   取「Average DL Active User Number 最大的那个小时」，
+         用该小时的三个值判三个条件：
+         AU &gt; 2.5  AND  DL IP Throughput &lt; 3 Mbps  AND  DL PRB 利用率 &gt; 80%
+         （忙时三值口径，全部取自 UME 小时粒度，gr=3600）
+Weekly:  一周内 4/7 天为 BP
+Monthly: 一个月内 3/4 个完整周为 BP
+</code></pre>
+<p>阈值常量集中在 <code>bp_caliber.py:26-40</code>（<code>THR_ACTIVE_USER</code> / <code>THR_DL_THROUGHPUT_MBPS</code> /
+<code>THR_DL_PRB_RATIO</code> / <code>WEEK_BP_DAYS</code> / <code>MONTH_BP_WEEKS</code>），<strong>改口径只改这一处</strong>。</p>
+<p>口径版本：<code>bp_caliber.caliber_snapshot()[&quot;version&quot;]</code>。
+<strong><code>bp-v1</code> = 两个条件（日均）</strong>；<strong><code>bp-v2</code> = 三条件但日均口径（已证伪）</strong>；
+<strong><code>bp-v3</code> = 忙时三值（现行，2026-09-30）</strong>。各版数字<strong>不可直接比较</strong>，故换版本号。</p>
+<p><a id="ch-11-s115"></a></p>
+<h4>⚠️ 五个必须知道的口径事实（都已在代码注释里）</h4>
+<ol>
+<li><strong>三个条件必须按「忙时」判定，不能用日均值 —— 这是标定出来的结论。</strong>
+2026-09-30 用 09-21 做标定实验：把每个小区<strong>AU 最大的那个小时</strong>的
+PRB/Thr/AU 三值拿来判三条件，命中 607 个小区，与 Excel <code>BP Cells List</code>
+明细（607 个）<strong>逐小区完全一致（Jaccard=1.00）</strong>；而日均值口径只命中
+17 个（差 30 倍，日均值把 PRB 摊平到 p95=0.616）；&quot;任一小时满足&quot;口径
+会多 41 个误命中。<strong>9 天回填验证</strong>：重算值与 Excel 真值逐日偏差稳定在
+−8~−9%（512/555、399/432、350/383、420/463、441/486），残余差异来自
+边界小区的日际波动（Excel 相邻两天名单重叠率仅 74~80%）。</li>
+<li><strong><code>Average DL Active User Number</code> 不在 <code>4G_Main_Kpi_Cell_Daily</code> 里，而且加不进去。</strong>
+该表由日粒度任务（<code>gr=86400</code>）写入，而该指标<strong>只在小时粒度（<code>gr=3600</code>）可用</strong>：
+日粒度下 UME 返回 <strong>HTTP 200 + 合法 <code>queryid</code>，但静默丢弃该列</strong>，无任何报错
+（UME 原文 <code>0001610001 ... PDF counter/indicator dimension is illegal</code>）。
+故由 <code>backend/services/bp_active_user.py</code> 走<strong>独立通道</strong>按小时一次取
+PRB+Thr+AU 三个 counter（<code>C373384373</code> / <code>1638004469342</code> / <code>1638004469332</code>），
+本地按 AU 最大小时聚合出当天三值。
+取不到时该日仍记 <code>is_bp=NULL</code>（不可判定），<strong>绝不当 0</strong>（当 0 会把可能的 BP 判成非 BP）。</li>
+<li><strong>UME 返回的数值是字符串且 PRB 带百分号（<code>'2.46%'</code>）。</strong>
+<code>_parse_num()</code> 必须去 <code>%</code> 再 <code>/100</code>；直接 <code>float()</code> 会全部抛异常、
+静默解析出 0 个小区（实测踩过）。PRB 解析后是小数比率（0~1），
+故阈值是 <code>0.80</code>；<code>is_bp_day()</code> 对 &gt;1.0 的值另有 <code>/100</code> 兜底。</li>
+<li><strong>远端列名里有不换行空格（U+00A0）。</strong> 真实列名是
+<code>'E-UTRAN\xa0FDD\xa0Cell Name'</code>，<code>bp_caliber.py:44</code> 用 <code>_NBSP</code> 常量拼。
+写成普通空格时 SQLite <strong>不报错</strong>，而是把列名字符串当数据返回，
+导致 5803 行塌缩成 1 个假小区。<code>assert_no_literal_fallback()</code> 就是拦这个的，
+取数后必须调用。</li>
+<li><strong><code>itemsposition</code> 必须全为 0</strong>（位置区分由 <code>itemsposition1</code>/<code>itempositionbusiness</code>
+承担：PRB/Thr 取 <code>2</code>/<code>1</code>，AU 取 <code>1</code>/<code>0</code>）。写成 <code>[0,1,2]</code> 时 UME 返回
+<code>0001619999</code> 拒绝查询（实测踩过）。</li>
+</ol>
+<p><a id="ch-11-s116"></a></p>
+<h4>数据来源与两条链路</h4>
+<table>
+<thead>
+<tr>
+<th>链路</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>一次性导入</strong></td>
+<td><code>bp_report_import.py</code> 把 <code>data/umlaut_data/BP Report.xlsx</code> 灌进 <code>data/bp_report.sqlite3</code>（独立派生库，不进主库、不走 Alembic）。共 460,660 行，约 28s</td>
+</tr>
+<tr>
+<td><strong>每日增量</strong></td>
+<td><code>bp_report_sync</code> 任务（<code>TASK_SPECS</code>，cron <code>20 6 * * *</code>，worker 分组 <code>u</code>）从 RAN_UME 拉最近 2 天并重算；同时调 <code>bp_active_user</code> 取这两天的忙时三值（<strong>每天约 110s</strong>，见下）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>忙时三值通道的实测特性</strong>（<code>bp_active_user.py</code>）：</p>
+<ul>
+<li>两步取数：<code>POST /api/pm-analysis/v2/history</code> <strong>只创建查询</strong>返回 <code>queryid</code>，
+再 <code>POST /api/pm-analysis/v1/history/page</code> 才<strong>取回数据行</strong>。
+⚠️ <strong>只读第一步会把「有 queryid 但列被丢弃」误判为可用</strong> ——
+<code>_assert_items_returned()</code> 专门校验返回列里确实有三个指标。</li>
+<li>分页耗时<strong>与 <code>pagesize</code> 无关</strong>（20000/50000/100000 均约 92s），是服务端约 90s 的
+固定查询准备成本，故一次大 <code>pagesize</code> 取回全天（实测 15.1 万行约 96s）。</li>
+<li>查询就绪必须轮询（<code>querystate==1 || progress&gt;=100</code>）后再读 <code>totalcount</code>：
+未等待时 <code>totalcount</code> 只有 3.6 万（实际 15.3 万），会<strong>静默取到半截数据</strong>。</li>
+<li><strong>不要带 <code>filter</code></strong>：<code>url.txt</code> 抓到的 payload 里有 <code>operation=200 value=0</code>
+是 UI 的 &quot;&gt;0&quot; 过滤，带上会漏掉 AU=0 的小区，而 BP 判定需要全部小区。</li>
+<li>UME 保留窗口实测：3 个月前仍有数据，<strong>1 年前为 0</strong>；
+Excel 覆盖的 2023–2026 历史<strong>无法从 UME 补齐</strong>。</li>
+</ul>
+<p><strong>为什么 Cluster 必须来自 Excel</strong>：RAN_UME / <code>master_site_db</code> 里<strong>完全没有</strong>
+<code>Cluster1</code>~<code>Cluster6</code>/<code>Rural</code>/<code>ERA</code> 这套分区维度（全工作区搜索零命中），
+站点名 join 也只匹配上 572/669。所以 <code>bp_cell_dict</code>（4269 个小区）是<strong>权威字典</strong>，
+字典未命中的小区归 <code>Unknown</code> 并在 <code>/meta</code> 暴露计数。</p>
+<p><a id="ch-11-s117"></a></p>
+<h4>两个必须区分的「分母」（AGENTS.md 第三节 1b 的下钻一致性）</h4>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+<th>能否下钻</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bp_cells</code></td>
+<td>BP 小区数（分子）</td>
+<td>✅ 可点，行数 = <code>trend[].detail_cells</code></td>
+</tr>
+<tr>
+<td><code>total_cells</code></td>
+<td>Excel 的<strong>全网</strong>小区数（≈6114）</td>
+<td>❌ <strong>不可</strong>下钻</td>
+</tr>
+</tbody>
+</table>
+<p><code>total_cells</code> 不可下钻的原因：Excel 未提供全网小区名单，<code>bp_cell_daily</code> 只含
+<strong>曾经出现在 <code>BP Cells List</code></strong> 的 4269 个小区。硬比会得到看似 bug 的差异。
+后端在 <code>/overview</code> 的 <code>drilldown.total_cells.comparable=false</code> 里显式声明，
+前端据此<strong>不把该列做成下钻入口</strong>（<code>BpReport.tsx</code> 用 <code>&lt;Tooltip&gt;</code> 提示原因）。</p>
+<p><a id="ch-11-s118"></a></p>
+<h4>上游 Excel 自身不一致（已实测，双向，不要试图&quot;修&quot;）</h4>
+<p><code>BP Report.xlsx</code> 的四张 sheet 互相矛盾，实测：</p>
+<table>
+<thead>
+<tr>
+<th>区间</th>
+<th><code>Overall - Daily</code></th>
+<th><code>Regional - Daily</code> 合计</th>
+<th><code>BP Cells List</code> 明细</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2025</td>
+<td>122,489</td>
+<td>124,752</td>
+<td>124,869</td>
+</tr>
+<tr>
+<td>2026</td>
+<td>143,507</td>
+<td>145,622</td>
+<td>145,622</td>
+</tr>
+<tr>
+<td>2024</td>
+<td>166,769</td>
+<td>166,989</td>
+<td><strong>153,436</strong></td>
+</tr>
+<tr>
+<td>2023</td>
+<td>19,478</td>
+<td>19,478</td>
+<td><strong>0（整年缺失）</strong></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>2025/2026</strong>：<code>Overall</code> 恒<strong>低于</strong>另外两张（2026 差 2115）—— 汇总查询口径更窄；</li>
+<li><strong>2023/2024</strong>：<code>BP Cells List</code> <strong>少于</strong>汇总 —— 明细 sheet 导出不全，
+2023 整年没有明细，2024 缺 13,553 行（1/15、1/21、1/22、1/29… 整天缺失）。</li>
+</ul>
+<p>因此设计决策是：<strong>展示值一律取 <code>Overall - Daily</code></strong>（连续、权威），
+明细表<strong>只用于下钻</strong>，逐期差异走 <code>trend[].detail_diff</code>，可下钻性走
+<code>trend[].drillable</code>。全 1058 期中 96 期 <code>drillable=false</code>（2023 全部 + 2024 缺天），
+前端对这些期<strong>置灰下钻入口</strong>（点开只会是空弹窗，比不给点更糟）。
+<strong>绝不能用明细值覆盖展示值</strong> —— 那会让 2023/2024 显示成 0，比原问题严重得多。</p>
+<p><a id="ch-11-s119"></a></p>
+<h4>脏值处理</h4>
+<p>Excel <code>BP Cells List</code> 的 <code>Cluster</code>/<code>Layer</code> 列有脏值（如数字 ID <code>'4593'</code>）：
+实测 210 行的 Cluster 非法、210 行的 Layer 非法，另有 7 行的列错位缺陷
+（<strong>无法安全自动修复</strong>，故不做猜测性修复）。处理方式统一是<strong>归 <code>Unknown</code> 并在
+<code>/meta</code> 暴露计数</strong>，不静默丢弃、不猜值。</p>
+<p>另：<code>Sheet1</code>/<code>Sheet3</code> 是透视表残留（与主 sheet 重复），<code>Regional - 1 Weekly</code>/
+<code>Regional - Monthly</code> 的 N~Q 列还有一块无关数据 —— <strong>均刻意不导入</strong>。</p>
+<p><code>L1800 10M</code>（5,078 行）是独立的第 5 个频层，采集侧没有对应物，
+<strong>保持独立、不要并进 <code>L1800 15M</code></strong>。</p>
+<p><a id="ch-11-s120"></a></p>
+<h4>已知实现坑（都已修复，改代码时别踩回去）</h4>
+<ol>
+<li>
+<p><strong>SQLite 的 <code>strftime('%Y-W%W')</code> 不是 ISO 周</strong>。实测 <code>2026-09-26</code> →
+<code>2026-W38</code>（Python ISO 是 <code>2026-W39</code>）、<code>2026-01-01</code> → <code>2026-W00</code>。
+故 <code>_recompute_week()</code> <strong>在 Python 里用 <code>cal.iso_week_key()</code> 分组</strong>，
+再 <code>WHERE day IN (...)</code> 回查，<strong>不依赖 SQLite 的周函数</strong>。</p>
+</li>
+<li>
+<p><strong>周/月重算绝不覆盖 Excel 行</strong>（2026-09-29 实测损坏后确立）。
+演变过程值得记下来，因为前两版都自认为是对的：</p>
+<ul>
+<li><strong>第一版</strong>：用 <code>substr(day,1,7)=month</code> 聚合整月 → 把 Excel 的 2026-09 覆盖成 14776；</li>
+<li><strong>第二版</strong>改成语义：「只聚合本次同步的 days」以免动历史。<strong>结果更糟</strong> ——
+增量任务每天只带 1~2 天，分母因此变成 1 天（<code>total_days=1</code>）、<code>bp_days=0</code>，
+再经 <code>ON CONFLICT DO UPDATE</code> 覆盖，<code>2026-W39</code>（真值 462）、<code>2026-W40</code>、
+<code>2026-09</code>（真值 448）三行被写成 <code>bp_cells=0, is_bp=NULL</code>。
+即<strong>保护历史的意图反而造成了静默损坏</strong>（见 <code>bp_report_sync.py:_recompute_week</code>）。</li>
+<li><strong>第三版</strong>（现行）：分母改为「该周期在库里的全部天」（幂等），
+但<strong>写入策略改成纯 <code>INSERT</code></strong>：先查该周/月是否已存在，存在就 <code>continue</code>。
+<strong>只写 Excel 尚未覆盖的新周期，已存在的 Excel 行一律不动。</strong></li>
+</ul>
+<p>之所以必须这样，是因为<strong>两套 population 的单位根本不同，无法相加</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>来源</th>
+<th>明细每天的行</th>
+<th>语义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Excel <code>BP Cells List</code></td>
+<td>约 400~500 行</td>
+<td><strong>只列被判为 BP 的小区</strong></td>
+</tr>
+<tr>
+<td>RAN_UME 同步</td>
+<td>约 5,865 行</td>
+<td><strong>列出全部被评估小区</strong>（<code>is_bp</code> 可能全 0）</td>
+</tr>
+</tbody>
+</table>
+<p>实测 Excel 的月值 <code>Sep, 2026 → BP cells=448 / Total cells=6117</code>
+（藏在 <code>Overall - Monthly</code> 的 E/F 列，<strong>表头为空、按位置取</strong>），
+与<strong>同月的周值</strong>同量级（W39 = 462/6117）—— 二者都是「小区个数」。
+把两套明细混算求 <code>SUM</code>/<code>COUNT</code>，得到的数在两种量级之间跳，
+既不是 Excel 的 &quot;BP cells&quot;，也不是可靠的任何东西。这不是调聚合函数能修好的。</p>
+</li>
+<li>
+<p><strong>周期标签不能当日期用</strong>（2026-09-29）。周/月表的 <code>week</code>/<code>month</code> 列存的是
+<code>2023-W48</code> / <code>2023-04</code> 这类<strong>标签</strong>；日明细表 <code>bp_cell_daily.day</code> 存的是<strong>真日期</strong>。
+<code>_effective_range()</code> 原本把标签直接当边界返回，于是
+<code>_range_sql(&quot;day&quot;, &quot;2023-04&quot;, &quot;2026-09&quot;)</code> 生成
+<code>day &gt;= '2023-04' AND day &lt;= '2026-09'</code> —— 字符串比较下
+<code>'2026-09-26' &lt;= '2026-09'</code> <strong>不成立</strong>，整个区间被排除，
+<code>trend[].detail_cells</code> 全成 0、<code>drillable</code> 全成 <code>False</code>。
+而 <code>/cells</code> 用真日期查询却能返回 15,270 行 —— 验收里表现为
+<strong>「声明不可下钻、实际有数据」</strong>（假声明），这类不一致最难被发现。
+现在 <code>load_overview()</code> 同时维护两套边界：<code>label_start/label_end</code>（查 trend）
+与 <code>d_start/d_end</code>（查明细），由 <code>cal.period_to_day_range()</code> 转换。</p>
+</li>
+<li>
+<p><strong>Excel 导入的残留行会造成假匹配</strong>。首轮同步后 <code>source='excel'</code> 的 53 行
+与 5792 行 UME 数据并存，按 cluster 聚合后<strong>巧合</strong>等于 Excel 值。
+<code>_reconcile()</code> 现在按天删除无 UME 对应的 excel 行（<code>stale_cleared</code>）。</p>
+</li>
+<li>
+<p><strong>同步 UPDATE 会把指标列写成 NULL</strong>（Excel 行没有 <code>prb_dl</code>）——
+清库重导 + 上面的残留清理已解决。</p>
+</li>
+</ol>
+<p><a id="ch-11-s121"></a></p>
+<h4>下钻契约（2026-09-29 加固）</h4>
+<p><code>/cells</code> 与 <code>/overview</code> 必须始终自洽，四条已验证的不变量：</p>
+<ol>
+<li><strong><code>scope=bp</code> 的行数 == <code>trend[].detail_cells</code></strong>（1132 期逐一严格比对，0 例外）；</li>
+<li><strong><code>drillable !== true</code> ⇒ <code>/cells</code> 返回 0 行</strong>（不允许&quot;声明不可下钻却有数据&quot;）；</li>
+<li><strong><code>limit</code> 必须显著大于单期最大数据量</strong> —— 实测单期最大
+<code>bp_cells=1139</code> / <code>detail_cells=1141</code>，上限 20000，余量 18,861；</li>
+<li><strong>非法周期参数不得退化成全表</strong>。<code>_day()</code> 以前把 <code>2023-W48</code>、<code>garbage</code>
+一律<strong>静默强转成 <code>&quot;&quot;</code></strong>，空区间让 <code>_range_sql_day</code> 退化成 <code>1=1</code>，
+结果返回 20,000 行、横跨 34 天 —— 用户以为看的是某一周的数据。
+现在 <code>_day()</code> 接受 <code>YYYY-MM-DD</code> / <code>YYYY-Www</code> / <code>YYYY-MM</code> 三种形态，
+其它一律 <code>raise ValueError</code>，路由捕获后返回 <strong>HTTP 200 + 0 行 + 显式 warning</strong>
+（不返回 4xx/5xx，避免页面白屏）。</li>
+</ol>
+<blockquote>
+<p><code>_day()</code> 的 docstring 里记了这次事故，改参数校验前先读它。
+<code>/overview</code>、<code>/regional</code>、<code>/layer</code> <strong>不经过</strong> <code>_day()</code>，它们天生接受周期标签。</p>
+</blockquote>
+<p><a id="ch-11-s122"></a></p>
+<h4>全量下钻</h4>
+<ul>
+<li><code>bp_cells</code>（数字卡 + 表格每期）→ <code>/api/bp-report/cells?scope=bp</code>；</li>
+<li>频层分布每行的数字 → <code>/api/bp-report/cells?layer=X&amp;scope=bp</code>；</li>
+<li><code>total_cells</code> 列<strong>刻意不可点</strong>（原因见上，用 Tooltip 说明）；</li>
+<li>下钻弹窗同时显示「共 N 行 / 其中 BP M 个 / Excel 汇总记 K 个」，
+把上游差异摆在用户面前而不是藏起来。</li>
+</ul>
+<p><a id="ch-11-s123"></a></p>
+<h4>相关文件</h4>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>backend/services/bp_caliber.py</code></td>
+<td><strong>口径唯一真相源</strong>（阈值、列名、判定函数）</td>
+</tr>
+<tr>
+<td><code>backend/services/bp_report_store.py</code></td>
+<td>物化库建表与读写（8 张表）</td>
+</tr>
+<tr>
+<td><code>backend/services/bp_report_import.py</code></td>
+<td>Excel 一次性导入</td>
+</tr>
+<tr>
+<td><code>backend/services/bp_active_user.py</code></td>
+<td><strong>三指标独立通道</strong>（UME 小时粒度 → AU 最大小时的三值）</td>
+</tr>
+<tr>
+<td><code>backend/services/bp_report_sync.py</code></td>
+<td>RAN_UME 增量更新 + 周月重算 + 对账</td>
+</tr>
+<tr>
+<td><code>backend/services/bp_report_service.py</code></td>
+<td>查询层（概览/分区/频层/明细/元信息）</td>
+</tr>
+<tr>
+<td><code>backend/routers/bp_report.py</code></td>
+<td>5 个端点</td>
+</tr>
+<tr>
+<td><code>frontend/src/pages/BpReport.tsx</code></td>
+<td>页面</td>
+</tr>
+<tr>
+<td><code>data/bp_report.sqlite3</code></td>
+<td>派生库（<strong>不入库</strong>，可整库重建）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>回滚</strong>：删 <code>data/bp_report.sqlite3</code> + 回滚前端产物 + 移除 <code>TASK_SPECS</code> 与
+<code>GROUP_TASK_MAP</code> 里的 <code>bp_report_sync</code> 即可，<strong>无需 alembic downgrade</strong>（独立库）。</p>
+<p><a id="ch-11-s124"></a></p>
 <h3>29. FineBI 原生看板（<code>?page=finebi_&lt;slug&gt;</code>，共 17 个）</h3>
 <p>由通用引擎 <code>frontend/src/pages/NativeBoard.tsx</code> 渲染，看板定义（含每条 SQL）来自
 <code>backend/services/native_catalog.py</code> 的 <code>BY_SLUG</code>，数据经 <code>GET /api/native-boards/{slug}</code>
 取本机派生库或远端只读 SQL API。迁移背景见 <code>docs/FINEBI_MIGRATION.md</code>。</p>
-<p><a id="ch-11-s106"></a></p>
+<p><a id="ch-11-s125"></a></p>
 <h4>29a. MTTR 看板（<code>?page=finebi_mttr</code>）—— 日/周/月 页签（2026-09-27 改造）</h4>
 <p><strong>改了什么</strong>：</p>
 <ul>
@@ -6181,7 +6829,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
     <h2>使用帮助（一站式指南）</h2>
   </header>
   <blockquote>
-<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-29。</p>
+<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-09-30。</p>
 </blockquote>
 <blockquote>
 <p>站内入口：侧边栏「使用帮助」，或直链 <code>http://&lt;host&gt;/myapp/?page=help</code>。</p>
@@ -6192,7 +6840,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li><a href="#1-%E5%B9%B3%E5%8F%B0%E7%AE%80%E4%BB%8B">1. 平台简介</a></li>
 <li><a href="#2-%E9%80%9A%E7%94%A8%E6%93%8D%E4%BD%9C">2. 通用操作</a></li>
-<li><a href="#3-%E4%BB%BB%E5%8A%A1%E7%AE%A1%E7%90%86%E8%AF%A6%E8%A7%A3">3. 任务管理详解（66 个任务）</a></li>
+<li><a href="#3-%E4%BB%BB%E5%8A%A1%E7%AE%A1%E7%90%86%E8%AF%A6%E8%A7%A3">3. 任务管理详解（68 个任务）</a></li>
 <li><a href="#4-%E9%A1%B5%E9%9D%A2%E6%8C%87%E5%8D%97">4. 页面指南</a></li>
 <li><a href="#5-%E8%BF%90%E7%BB%B4%E4%B8%8E%E6%8E%92%E9%9A%9C">5. 运维与排障</a></li>
 <li><a href="#6-%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98">6. 常见问题</a></li>
@@ -6299,7 +6947,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <p>⚠️ <strong>新增任务必须同时登记进 <code>worker_watchdog.py</code> 的 <code>GROUP_TASK_MAP</code></strong> —— 只写 <code>TASK_SPECS</code> 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。</p>
 </blockquote>
 <p><a id="ch-15-s6"></a></p>
-<h4>3.3 全量任务清单（66 个）</h4>
+<h4>3.3 全量任务清单（68 个）</h4>
 <table>
 <thead>
 <tr>
@@ -6424,6 +7072,13 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <td><code>services/avail_recon_sync.py → run_avail_recon_sync</code></td>
 </tr>
 <tr>
+<td>BP 劣化小区报告更新</td>
+<td><code>bp_report_sync</code></td>
+<td><code>20 6 * * *</code></td>
+<td>u</td>
+<td><code>services/bp_report_sync.py → run_bp_report_sync</code></td>
+</tr>
+<tr>
 <td>CNN UME KPI 同步</td>
 <td><code>cnn_kpi_sync</code></td>
 <td><code>0 6 * * *</code></td>
@@ -6499,6 +7154,13 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <td><code>0 7 * * *</code></td>
 <td>m</td>
 <td><code>services/kpi_email_report.py → run_sp_details_email</code></td>
+</tr>
+<tr>
+<td>SP 备件明细分文件邮件</td>
+<td><code>sp_details_files_email</code></td>
+<td><code>5 10 * * *</code></td>
+<td>m</td>
+<td><code>services/kpi_email_report.py → run_sp_details_files_email</code></td>
 </tr>
 <tr>
 <td>Comsumables&amp;SpareParts Report Whatsapp</td>
@@ -7059,6 +7721,29 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>本任务 2026-09-21 上线前，该表由已退役的 my-finebi 手工 ETL 维护，无人调度导致冻结在 2026-09-13、看板静默停更</li>
 </ul>
 <p><a id="ch-15-s23"></a></p>
+<h5>BP 劣化小区报告更新（<code>bp_report_sync</code>）</h5>
+<ul>
+<li>默认 cron: <code>20 6 * * *</code>　|　worker 组: <strong>u</strong></li>
+<li>工作流脚本: <code>services/bp_report_sync.py → run_bp_report_sync</code></li>
+</ul>
+<p><strong>功能</strong>: 从 RAN_UME 读取 4G 小区级 PRB/吞吐/流量，按 umlaut 口径重算 BP 劣化小区（日/周/月），更新本机 data/bp_report.sqlite3 并与 Excel 真值对账</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>按天从远端读 4G_Main_Kpi_Cell_Daily 的 PRB 利用率 / DL IP 吞吐 / DL+UL 流量（逐日一条 SQL，避免撞远端 5 万行上限被静默截断）</li>
+<li>关联 bp_cell_dict 补上 Cluster/Layer（RAN_UME 无此维度，字典来自 Excel 的 BP Cells List）</li>
+<li>按口径重算每小区每日 is_bp，并重算日/周/月汇总（周 4/7 天、月 3/4 个完整周）</li>
+<li>与 Excel 的 bp_cells_excel 逐日对账，差异与口径缺口一并写入 bp_sync_meta</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>口径唯一真相源在 services/bp_caliber.py：日判定三条件、周 4/7、月 3/4</li>
+<li>⚠️ Average DL Active User Number 在 RAN_UME 侧未采集（最接近的 C373200029:Maximum Number of RRC Connection User 是峰值、不等价），故日判定实际只覆盖两个条件、结果必然低于 Excel 真值；缺口由页面常驻告警，不要隐藏</li>
+<li>⚠️ PRB 利用率在源表里是<strong>小数</strong>（0~1，实测 max 0.9751），阈值是 0.80 不是 80；写成 80 会让条件永不成立且不报错</li>
+<li>⚠️ 源表列名 &quot;E-UTRAN\xa0FDD\xa0Cell Name&quot; 里的分隔符是<strong>不换行空格</strong>；写成普通空格时 SQLite 不报错，而是把双引号标识符当字符串字面量返回，整列变成列名文本（bp_caliber.assert_columns_exist / assert_no_literal_fallback 就是为此加的守卫）</li>
+<li>Excel 的 BP Cells List 最后一天（2026-09-26）只有 53 行、远少于当日真值 486，属导出未完成；对账时不要把该日差异当实现缺陷</li>
+<li>增量任务只带 2~3 天，周/月重算范围必须严格限定在这几天内，按整月重算会把 Excel 历史真值覆盖掉</li>
+</ul>
+<p><a id="ch-15-s24"></a></p>
 <h5>CNN UME KPI 同步（<code>cnn_kpi_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>0 6 * * *</code>　|　worker 组: <strong>n</strong></li>
@@ -7074,7 +7759,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>Free Rating 数据同时供 ccn_free_rating_chart_email 出图</li>
 </ul>
-<p><a id="ch-15-s24"></a></p>
+<p><a id="ch-15-s25"></a></p>
 <h5>SP 备件数据同步（<code>sp_data_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>10 * * * *</code>　|　worker 组: <strong>s</strong></li>
@@ -7098,7 +7783,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>2026-09-20 起由每天 07:00 改为每小时 :10：上游 SFTP 本就每小时 :00:03 导出一份，而 MsPortal 的 QC 面板 SPMS 卡读本任务写的 inband_details/outband_details，按天同步时那个数字最长滞后 24 小时。排 :10 是为了避开同组的 eflow_sync(:00) 与 sp_online_sync(:35)</li>
 <li>单次耗时被末尾的 FineBI 镜像拖长（UNC inventory.db 偶发 database is locked，实测 1~9min）；队列有单飞保护，上一轮没跑完会跳过本轮触发，不会堆叠，但那一小时的数据就是旧的。若 QC 面板其它指标（TT/WO/CR/PMT）跟着一起变慢，先查本任务是否占住了 n 组 worker</li>
 </ul>
-<p><a id="ch-15-s25"></a></p>
+<p><a id="ch-15-s26"></a></p>
 <h5>iPRAN UME KPI 同步（<code>ipran_kpi_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>0 8 * * *</code>　|　worker 组: <strong>u</strong></li>
@@ -7114,7 +7799,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>产出同时供 ipran_m6k_chart_email（06:45）出图；u 组内排在 08:00</li>
 </ul>
-<p><a id="ch-15-s26"></a></p>
+<p><a id="ch-15-s27"></a></p>
 <h5>Liberia 宕站 1小时报告邮件（<code>liberia_email_1h</code>）</h5>
 <ul>
 <li>默认 cron: <code>5 * * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7131,7 +7816,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>EWS 不可用时漏发由 email_recovery（每 20 分钟）自动补发</li>
 </ul>
-<p><a id="ch-15-s27"></a></p>
+<p><a id="ch-15-s28"></a></p>
 <h5>Liberia 宕站 8小时报告邮件（<code>liberia_email_8h</code>）</h5>
 <ul>
 <li>默认 cron: <code>10 */8 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7147,7 +7832,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>与 1 小时版同一脚本不同入口；收件人名单改动后两种报表同时生效</li>
 </ul>
-<p><a id="ch-15-s28"></a></p>
+<p><a id="ch-15-s29"></a></p>
 <h5>MS Contract KPIs 日报邮件（<code>kpi_ms_contract</code>）</h5>
 <ul>
 <li>默认 cron: <code>30 17 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7164,7 +7849,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>数据来自 ms_sla_full；17:30 发送时用的是 16:00 那一轮同步的数</li>
 </ul>
-<p><a id="ch-15-s29"></a></p>
+<p><a id="ch-15-s30"></a></p>
 <h5>MS WOs SLA 日报邮件（<code>kpi_ms_wo_sla</code>）</h5>
 <ul>
 <li>默认 cron: <code>35 17 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7180,7 +7865,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>与 kpi_ms_contract 同一脚本不同入口，只差 5 分钟错峰</li>
 </ul>
-<p><a id="ch-15-s30"></a></p>
+<p><a id="ch-15-s31"></a></p>
 <h5>SpareParts 备件报表邮件（<code>kpi_sp_spareparts</code>）</h5>
 <ul>
 <li>默认 cron: <code>45 9 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7196,7 +7881,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>报表文件缺失说明 05:15 的生成任务失败，先修上游再重发本任务</li>
 </ul>
-<p><a id="ch-15-s31"></a></p>
+<p><a id="ch-15-s32"></a></p>
 <h5>Comsumables 耗材报表邮件（<code>kpi_sp_consumables</code>）</h5>
 <ul>
 <li>默认 cron: <code>50 9 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7212,7 +7897,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>任务名 Comsumables 是历史拼写（实为 Consumables），注册表按此引用，勿改</li>
 </ul>
-<p><a id="ch-15-s32"></a></p>
+<p><a id="ch-15-s33"></a></p>
 <h5>SP 备件报表生成（<code>sp_report_generate</code>）</h5>
 <ul>
 <li>默认 cron: <code>15 5 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7229,7 +7914,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>是 3 个 SP 邮件任务的上游，失败会导致当天备件邮件整体缺报</li>
 </ul>
-<p><a id="ch-15-s33"></a></p>
+<p><a id="ch-15-s34"></a></p>
 <h5>SP 备件明细报表邮件（<code>sp_email_details</code>）</h5>
 <ul>
 <li>默认 cron: <code>0 7 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7248,7 +7933,32 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>本任务在 EMAIL_TASK_IDS 内：WhatsApp 侧失败时 error 只写 WHATSAPP_FAIL 固定标记，不拼底层异常原文，避免命中 EWS 关键字触发 email_recovery 整链补发（11 位收件人重复收报表）</li>
 <li>上游是 sp_report_generate（05:15）：它不产出明细文件，本任务合并即失败，邮件与群都不发</li>
 </ul>
-<p><a id="ch-15-s34"></a></p>
+<p><a id="ch-15-s35"></a></p>
+<h5>SP 备件明细分文件邮件（<code>sp_details_files_email</code>）</h5>
+<ul>
+<li>默认 cron: <code>5 10 * * *</code>　|　worker 组: <strong>m</strong></li>
+<li>工作流脚本: <code>services/kpi_email_report.py → run_sp_details_files_email</code></li>
+</ul>
+<p><strong>功能</strong>: 每天 10:05 把 data/sp_email/data 下的 6 份备件明细<strong>一份文件一封邮件</strong>逐个发给 NOC，主题 Liberia OLR W.H &lt;文件名&gt; &lt;日期时间&gt;</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>逐份选取明细：优先未过滤的 *_source.xlsx 原始快照（sp_report_generate 05:15 在任何过滤之前留的 SFTP 快照），缺失时回退过滤后的 *_details.xlsx</li>
+<li>先整体校验 6 份是否齐全：缺任一份即整体失败、<strong>一封都不发</strong>（宁可一封不发，也不让收件人拿到不完整的一套报表）</li>
+<li>按<strong>对外文件名</strong>在 TMP 下各落一份副本（磁盘上是 inband/outband，对外写成 inbound/outbound），发完即清</li>
+<li>逐个发送，每封只挂 1 个附件，主题为「Liberia OLR W.H &lt;附件文件名&gt; &lt;日期时间&gt;」（例：Liberia OLR W.H inbound_details_source.xlsx 2026-09-30 10-05-00）</li>
+<li>单封发送失败不中断后续：已成功的继续发完，最后把失败项汇总进 error 供人工只补发缺的那几封</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>默认主送 <a href="mailto:MS.NOC@zte.com.cn">MS.NOC@zte.com.cn</a>，抄送 <a href="mailto:li.jing132@zte.com.cn">li.jing132@zte.com.cn</a> / <a href="mailto:luo.wutao@zte.com.cn">luo.wutao@zte.com.cn</a>，可在系统设置 → 邮件收件人 的 sp_details_files 分组覆盖</li>
+<li>对外文件名与磁盘源名不同（用户指定）：inband/outband → inbound/outbound，故附件需先按对外名落副本再发（owa_mail_report 取 Path(fp).name 作附件名）</li>
+<li>与 sp_email_details（05:00）同数据源但打包方式不同：那个合并成一个多 sheet 工作簿并发 WhatsApp 群，本任务一文件一邮件发 NOC，互不影响</li>
+<li>一文件一邮件 =&gt; 一次任务最多 6 次 EWS 会话，耗时约为单封的 6 倍；任务在 m 组串行，长时间占用会推迟同组其它轻任务</li>
+<li>单封失败时 error 只写 SEND_FAIL 固定标记 + 文件名，<strong>不拼底层异常原文</strong>——否则命中 EWS 关键字会让 email_recovery 把 6 封全部补发，已成功的重复投递；底层细节在 result.failed 里</li>
+<li>ocrule_details 没有 *_source 快照，固定走过滤版（故对外名不带 _source）；这是预期行为，不是缺文件</li>
+<li>上游是 sp_report_generate（m 组 05:15）：明细文件缺失先查它，而不是本任务</li>
+</ul>
+<p><a id="ch-15-s36"></a></p>
 <h5>Comsumables&amp;SpareParts Report Whatsapp（<code>sp_whatsapp_report</code>）</h5>
 <ul>
 <li>默认 cron: <code>15 7 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7266,7 +7976,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>上游是 sp_report_generate（m 组 05:15），它失败会导致本任务找不到报表文件</li>
 <li>不发送邮件——邮件由 kpi_sp_consumables / kpi_sp_spareparts 负责</li>
 </ul>
-<p><a id="ch-15-s35"></a></p>
+<p><a id="ch-15-s37"></a></p>
 <h5>SP 物料库存与消耗报表邮件（<code>sp_material_report</code>）</h5>
 <ul>
 <li>默认 cron: <code>33 7 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7286,7 +7996,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>汇总表无数据行时跳过发送并记为失败（多为上游 SP 数据同步未跑）</li>
 <li>PNG 生成失败只告警不阻断，邮件仍带 Excel 发出</li>
 </ul>
-<p><a id="ch-15-s36"></a></p>
+<p><a id="ch-15-s38"></a></p>
 <h5>MS Network Availability 日报邮件（<code>kpi_ran_availability</code>）</h5>
 <ul>
 <li>默认 cron: <code>30 9 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7302,7 +8012,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>图片缺失通常是 ran_ume_daily（u 组 02:00）失败——查它而不是本任务</li>
 </ul>
-<p><a id="ch-15-s37"></a></p>
+<p><a id="ch-15-s39"></a></p>
 <h5>EWS 恢复后邮件补发（<code>email_recovery</code>）</h5>
 <ul>
 <li>默认 cron: <code>*/20 * * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7319,7 +8029,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>邮件没收到先查它的执行历史，而不是手动重跑原邮件任务</li>
 </ul>
-<p><a id="ch-15-s38"></a></p>
+<p><a id="ch-15-s40"></a></p>
 <h5>Packet Loss 丢包同步（<code>packet_loss_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>30 6 * * *</code>　|　worker 组: <strong>u</strong></li>
@@ -7337,7 +8047,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>看板与报告口径与 Packet_Loss 自动化 Excel 完全一致；当天没过完不展示</li>
 <li>目录名 packet_lost 是历史拼写，不要改名</li>
 </ul>
-<p><a id="ch-15-s39"></a></p>
+<p><a id="ch-15-s41"></a></p>
 <h5>Packet Loss 丢包日报邮件（<code>packet_loss_email</code>）</h5>
 <ul>
 <li>默认 cron: <code>45 6 * * *</code>　|　worker 组: <strong>u</strong></li>
@@ -7353,7 +8063,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>排在 06:45，紧跟 06:30 同步任务（同在 u 组串行，顺序有保证）</li>
 </ul>
-<p><a id="ch-15-s40"></a></p>
+<p><a id="ch-15-s42"></a></p>
 <h5>IP RAN M6K-FW 图表邮件（<code>ipran_m6k_chart_email</code>）</h5>
 <ul>
 <li>默认 cron: <code>45 6 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7370,7 +8080,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>依赖前一天 08:00 ipran_kpi_sync 的数据；u 组任务失败时本邮件会出空图或失败</li>
 </ul>
-<p><a id="ch-15-s41"></a></p>
+<p><a id="ch-15-s43"></a></p>
 <h5>CNN Free Rating 图表邮件（<code>ccn_free_rating_chart_email</code>）</h5>
 <ul>
 <li>默认 cron: <code>45 7 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7386,7 +8096,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>数据来自 cnn_kpi_sync（n 组，每天 06:00）写入的 DB CNN</li>
 </ul>
-<p><a id="ch-15-s42"></a></p>
+<p><a id="ch-15-s44"></a></p>
 <h5>FW 吞吐 KPI 同步+图表邮件（<code>fw_kpi_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>15 7 * * *</code>　|　worker 组: <strong>n</strong></li>
@@ -7403,7 +8113,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>同步与出图发信在同一个任务里完成，失败时整链路（入库+邮件）都停</li>
 </ul>
-<p><a id="ch-15-s43"></a></p>
+<p><a id="ch-15-s45"></a></p>
 <h5>电池 KPI 同步（<code>battery_kpi_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>5 * * * *</code>　|　worker 组: <strong>u</strong></li>
@@ -7421,7 +8131,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>电池看板默认只统计 24h 内新鲜读数（BATT_FRESH_HOURS 等环境变量控制阈值）</li>
 <li>注意模块目录名是 battary_kpi_fetch（历史拼写），勿改</li>
 </ul>
-<p><a id="ch-15-s44"></a></p>
+<p><a id="ch-15-s46"></a></p>
 <h5>电池 KPI 邮件（<code>battery_email</code>）</h5>
 <ul>
 <li>默认 cron: <code>0 7,19 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7437,7 +8147,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>与同步任务同脚本不同入口；收件人来自远程 FTP 名单</li>
 </ul>
-<p><a id="ch-15-s45"></a></p>
+<p><a id="ch-15-s47"></a></p>
 <h5>邮箱空间清理（<code>mailbox_cleanup</code>）</h5>
 <ul>
 <li>默认 cron: <code>0 * * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7453,7 +8163,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>删除的是发件箱历史（含已发报表邮件），是防止报表发不出去的守卫任务，不要停用</li>
 </ul>
-<p><a id="ch-15-s46"></a></p>
+<p><a id="ch-15-s48"></a></p>
 <h5>Incident Overview 数据同步（<code>incident_overview_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>0 * * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7470,7 +8180,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>版本化设计使上游 Excel 被打开占用时也不会取数失败——这是历史踩坑后的修复，勿改回直接覆盖</li>
 </ul>
-<p><a id="ch-15-s47"></a></p>
+<p><a id="ch-15-s49"></a></p>
 <h5>FineBI 报表文件同步（<code>finebi_report_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>10 * * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7487,7 +8197,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>2026-08-25 分组模式启用时曾因未归组而 pending 卡死断档，后补入 m 组——新增任务务必登记 GROUP_TASK_MAP</li>
 </ul>
-<p><a id="ch-15-s48"></a></p>
+<p><a id="ch-15-s50"></a></p>
 <h5>数据库数据新鲜度巡检（<code>db_freshness_check</code>）</h5>
 <ul>
 <li>默认 cron: <code>15 * * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7503,7 +8213,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>怀疑「某类数据停更」时先看它的执行历史，按给出的调用链排查，比翻任务列表快</li>
 </ul>
-<p><a id="ch-15-s49"></a></p>
+<p><a id="ch-15-s51"></a></p>
 <h5>MTTR/TT 宽表重建（<code>mttr_tt_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>40 7 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7522,7 +8232,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>参考库 excel_ds.sqlite3 是从 my-finebi 固化的静态文件（114KB，2026-08-31 后未变）；FineBI 侧 Excel 数据集若更新需重新导出覆盖</li>
 <li>2026-09-21 上线前该表由已退役 my-finebi 的手工 ETL 维护，无调度 → 冻结在 2026-08-31</li>
 </ul>
-<p><a id="ch-15-s50"></a></p>
+<p><a id="ch-15-s52"></a></p>
 <h5>Progress 宽表重建（<code>progress_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>50 7 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7541,7 +8251,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>口径在 services/progress_sync.py 的 _derive()；SWITCH 级联逐字移植，改动前先对照原脚本 TMP/etl_progress.py</li>
 <li>2026-09-21 上线前该表由已退役 my-finebi 的手工 ETL 维护，无调度 → 冻结在 2026-08-31</li>
 </ul>
-<p><a id="ch-15-s51"></a></p>
+<p><a id="ch-15-s53"></a></p>
 <h5>失败任务自动重试（<code>auto_retry_failed</code>）</h5>
 <ul>
 <li>默认 cron: <code>*/10 * * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7558,7 +8268,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>重试不是「失败就重跑」——缺口已被补上就不重投；环境变量 AUTO_RETRY_* 可调</li>
 </ul>
-<p><a id="ch-15-s52"></a></p>
+<p><a id="ch-15-s54"></a></p>
 <h5>RAN CM 小区数据同步（<code>cm_data_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>30 8 * * *</code>　|　worker 组: <strong>u</strong></li>
@@ -7575,7 +8285,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>导出流程（flows/payload/moc）在 services/cm_data/cm_flows.json 维护；网管界面改版后优先检查这里</li>
 </ul>
-<p><a id="ch-15-s53"></a></p>
+<p><a id="ch-15-s55"></a></p>
 <h5>PG→SQLite 数据快照（<code>pg_to_sqlite_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>45 * * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7591,7 +8301,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>app.db 里的业务表是「上一小时的镜像」，别在它上面做实时假设；也不要把它当垃圾删除（含凭据 + 快照，≈954MB）</li>
 </ul>
-<p><a id="ch-15-s54"></a></p>
+<p><a id="ch-15-s56"></a></p>
 <h5>MW UME KPI 同步（<code>mw_ume_kpi_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>15 5 * * *</code>　|　worker 组: <strong>w</strong></li>
@@ -7607,7 +8317,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>微波拓扑看板一天只变一次（05:15 后）；表名 ultilazation 是历史拼写，勿改</li>
 </ul>
-<p><a id="ch-15-s55"></a></p>
+<p><a id="ch-15-s57"></a></p>
 <h5>MW UME KPI 实时同步（<code>mw_ume_kpi_sync_rt</code>）</h5>
 <ul>
 <li>默认 cron: <code>*/15 * * * *</code>　|　worker 组: <strong>w</strong></li>
@@ -7624,7 +8334,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>与日粒度任务共用网管会话，同在 n 组串行；看板默认 900 秒自动刷新且支持软刷新</li>
 </ul>
-<p><a id="ch-15-s56"></a></p>
+<p><a id="ch-15-s58"></a></p>
 <h5>CN EMS KPI 缓存同步（<code>ems_kpi_cache_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>*/15 * * * *</code>　|　worker 组: <strong>c</strong></li>
@@ -7641,7 +8351,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>CN EMS 服务器只保留约 1 天原始文件——本任务是把整天数据在服务端清理前抢回来的关键，不要停用</li>
 </ul>
-<p><a id="ch-15-s57"></a></p>
+<p><a id="ch-15-s59"></a></p>
 <h5>CN EMS KPI 日粒度CSV（<code>ems_kpi_daily</code>）</h5>
 <ul>
 <li>默认 cron: <code>20 0 * * *</code>　|　worker 组: <strong>c</strong></li>
@@ -7658,7 +8368,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>与缓存同步共享 _pmcache/daily_raw.json，同在 c 组串行保证互斥</li>
 </ul>
-<p><a id="ch-15-s58"></a></p>
+<p><a id="ch-15-s60"></a></p>
 <h5>CXO 看板数据缓存同步（<code>cxo_dashboard_cache_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>*/10 * * * *</code>　|　worker 组: <strong>v</strong></li>
@@ -7677,7 +8387,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>上线时曾漏登记 GROUP_TASK_MAP → 队列 pending 卡死、看板停在旧日期（第四次踩坑）</li>
 <li>8790 会话失效时本任务失败，而看板会继续用 last-known-good 展示（看着正常其实已停更）——以任务执行历史为准</li>
 </ul>
-<p><a id="ch-15-s59"></a></p>
+<p><a id="ch-15-s61"></a></p>
 <h5>VMAX CXO 天粒度日值归档（<code>vmax_cxo_daily_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>15 * * * *</code>　|　worker 组: <strong>v</strong></li>
@@ -7695,7 +8405,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>与 cxo_dashboard_cache_sync、vmax_multi_data_sync 共用 8790 单会话，同在 v 组串行</li>
 <li>日值由小时明细聚合：错过几个小时可由 8 天窗口自动补回，无需人工回填</li>
 </ul>
-<p><a id="ch-15-s60"></a></p>
+<p><a id="ch-15-s62"></a></p>
 <h5>VMAX 多报表指标采集（<code>vmax_multi_data_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>45 * * * *</code>　|　worker 组: <strong>v</strong></li>
@@ -7713,7 +8423,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>2026-09-18 补登记分组前从未执行过（第四次踩坑），现与另两个 8790 任务同属 v 组</li>
 <li>页面取的是 latest.json 快照，任务失败时页面仍显示上一次数据，不会报错</li>
 </ul>
-<p><a id="ch-15-s61"></a></p>
+<p><a id="ch-15-s63"></a></p>
 <h5>OLIB SOC 看板 KPI 增量（<code>olib_soc_kpi_daily_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>20 6 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7732,7 +8442,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>GBase 不可达时本任务失败；链路恢复后 days_back=7 会自动补齐断档，无需人工回填</li>
 <li>上线时漏登记分组→ 90 天看板停在旧日期（2026-09-18 补录 m 组）</li>
 </ul>
-<p><a id="ch-15-s62"></a></p>
+<p><a id="ch-15-s64"></a></p>
 <h5>OLIB SOC VMAX 例行报表（<code>olib_soc_vmax_report</code>）</h5>
 <ul>
 <li>默认 cron: <code>30 7 1 * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7750,7 +8460,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>低频任务（每月一次）：健康巡检按 cron 间隔判定，不会因为“24h 没跑”被误报</li>
 <li>配置在 services/olib_soc_report/ 的 json（range_mode/days/mail.enabled）；GBase 口令走凭据分组 vmax_gbase</li>
 </ul>
-<p><a id="ch-15-s63"></a></p>
+<p><a id="ch-15-s65"></a></p>
 <h5>客户业务 KPI 同步（<code>ume_in_kpi_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>45 5 * * *</code>　|　worker 组: <strong>n</strong></li>
@@ -7768,7 +8478,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>与其它网管类任务同在 n 组串行</li>
 <li>默认回看 7 天幂等：门户侧延迟出数会自动补回</li>
 </ul>
-<p><a id="ch-15-s64"></a></p>
+<p><a id="ch-15-s66"></a></p>
 <h5>客户业务 KPI + OSG 周报邮件（<code>ume_in_osg_report</code>）</h5>
 <ul>
 <li>默认 cron: <code>30 6 * * *</code>　|　worker 组: <strong>n</strong></li>
@@ -7787,7 +8497,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>第 1 步同步失败即中止，不会把上一窗口的旧数据当新报告发出去</li>
 <li>收件人可在 Settings → Email Recipient Settings 的 ume_in_osg_report 组覆盖；产物只保留最近 10 份</li>
 </ul>
-<p><a id="ch-15-s65"></a></p>
+<p><a id="ch-15-s67"></a></p>
 <h5>SP Online 工单同步（<code>sp_online_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>35 * * * *</code>　|　worker 组: <strong>n</strong></li>
@@ -7804,7 +8514,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>上游账号走 eflow 凭据分组；eFlow 会话被踢时表现为该组任务连续 failed，由 auto_retry_failed 兜底</li>
 </ul>
-<p><a id="ch-15-s66"></a></p>
+<p><a id="ch-15-s68"></a></p>
 <h5>SP 物料主数据同步（<code>sp_material_sync</code>）</h5>
 <ul>
 <li>默认 cron: <code>55 4 * * *</code>　|　worker 组: <strong>n</strong></li>
@@ -7821,7 +8531,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>下游 sp_material_report（07:33）只读表不拉接口：本任务停更时邮件仍会正常发，但内容是旧数据</li>
 </ul>
-<p><a id="ch-15-s67"></a></p>
+<p><a id="ch-15-s69"></a></p>
 <h5>SP 在线未关闭单报表生成（<code>sp_online_report_generate</code>）</h5>
 <ul>
 <li>默认 cron: <code>0 6 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7838,7 +8548,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <ul>
 <li>纯生成不发信，发送由 06:20 的 sp_online_report_send 负责——两者拆开后重跑发送不必重新取数</li>
 </ul>
-<p><a id="ch-15-s68"></a></p>
+<p><a id="ch-15-s70"></a></p>
 <h5>SP 在线未关闭单报表发送（<code>sp_online_report_send</code>）</h5>
 <ul>
 <li>默认 cron: <code>20 6 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7856,7 +8566,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>依赖 06:00 的 sp_online_report_generate 产物，上游缺文件时本任务直接失败</li>
 <li>属邮件类任务：默认不参与漏跑补投，EWS 恢复后由 email_recovery 补发</li>
 </ul>
-<p><a id="ch-15-s69"></a></p>
+<p><a id="ch-15-s71"></a></p>
 <h5>eFlow 告警规则收集（<code>eflow_alarm_rules_collect</code>）</h5>
 <ul>
 <li>默认 cron: <code>59 23 */3 * *</code>　|　worker 组: <strong>n</strong></li>
@@ -7873,7 +8583,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>低频任务（每 3 天）：健康巡检按 cron 间隔判定，不会因“24h 未执行”被误报</li>
 <li>导出的 xlsx 是下游规则比对的输入，属代码资产，不要手工改动</li>
 </ul>
-<p><a id="ch-15-s70"></a></p>
+<p><a id="ch-15-s72"></a></p>
 <h5>eFlow 推单规则收集（<code>eflow_push_rules_collect</code>）</h5>
 <ul>
 <li>默认 cron: <code>59 23 */3 * *</code>　|　worker 组: <strong>n</strong></li>
@@ -7891,7 +8601,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>低频任务（每 3 天），与告警规则收集同组同周期</li>
 <li>与 eflow_tt_rules_check 用的规则表同处 services/eflow_rules/，目录与文件名不要改名</li>
 </ul>
-<p><a id="ch-15-s71"></a></p>
+<p><a id="ch-15-s73"></a></p>
 <h5>日志文件清理（<code>log_cleanup</code>）</h5>
 <ul>
 <li>默认 cron: <code>17 3 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7909,7 +8619,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>Windows 下被进程占用的日志无法外部重命名/删除，只能由写入方按日期分文件——这就是日志名带日期的原因</li>
 <li>db/app.db（含凭据表）、backend/services/auth_cache/、data/ 下任务产物不在清理范围</li>
 </ul>
-<p><a id="ch-15-s72"></a></p>
+<p><a id="ch-15-s74"></a></p>
 <h5>TMP 目录清理（<code>tmp_cleanup</code>）</h5>
 <ul>
 <li>默认 cron: <code>47 3 * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -7928,7 +8638,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>charts/dl/状态文件等服务在用路径在 WHITELIST 里，永不处理；新增此类路径要补白名单</li>
 <li>与 log_cleanup（03:17）错峰，避免同一时段两次全盘扫描</li>
 </ul>
-<p><a id="ch-15-s73"></a></p>
+<p><a id="ch-15-s75"></a></p>
 <h4>3.4 可靠性机制（超时 / 重试 / 自愈）</h4>
 <table>
 <thead>
@@ -7972,7 +8682,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 </tr>
 </tbody>
 </table>
-<p><a id="ch-15-s74"></a></p>
+<p><a id="ch-15-s76"></a></p>
 <h4>3.5 任务维护指南</h4>
 <p><strong>改排程（cron）</strong> 「任务管理 → 排程」弹窗修改，写入主库 task_schedule_config 表，立即生效、重启不丢；无需改代码。</p>
 <p><strong>改业务参数</strong> 「系统设置 → 任务配置」页签（注意在系统设置里，不在任务管理页）。优先级：环境变量 &gt; 配置文件 &gt; 默认值。</p>
@@ -7982,7 +8692,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <p><strong>新增一个任务</strong> ① task_registry.py 的 TASK_SPECS 追加声明（task_id/name/cron/loader）；② worker_watchdog.py 的 GROUP_TASK_MAP 登记分组（漏了永远 pending，已四次踩坑；tests/test_worker_group_coverage.py 交叉校验 task_id 覆盖与两处组集合一致）；新建组则必须同步 GROUP_TASK_MAP 键与 start_hidden.ps1 的 MY_APP_WORKER_GROUPS、$groups 两处（restart_workers.py 的 ALL_GROUPS 自动取自 GROUP_TASK_MAP）；③ 业务函数放 backend/services/ 且抛异常不吞；④ stop.bat → start.bat 重启加载注册表（只改分组清单则 python restart_workers.py --mode watchdog --force，<strong>要管理员权限</strong>）；⑤ 手动执行验证并更新文档（04-task-system.md 清单与本帮助数据 helpTaskDocs.ts，改完跑 npm run docs）。</p>
 <p><strong>改工作流脚本</strong> 脚本都在 backend/services/ 下（任务清单有对应路径）。改动时注意：① 别改历史拼写名（packet_lost、battary_kpi_fetch、ultilazation 等，多处按字符串引用）；② 动态采集表不进 Alembic；③ 同步更新 task_registry.md / WORKER.md / 本帮助数据（frontend/src/pages/helpTaskDocs.ts）。</p>
 <p><strong>任务卡 pending / failed 排查顺序</strong> ① pending 不动 → 查是否漏分组；② failed → log/worker_runtime*.log（每组 worker 一个文件）找 task_id 堆栈 → 凭据「测试连接」；③ 数据停更 → db_freshness_check 的执行历史有调用链。</p>
-<p><a id="ch-15-s75"></a></p>
+<p><a id="ch-15-s77"></a></p>
 <h4>3.6 上游不可用时怎么表现</h4>
 <table>
 <thead>
@@ -8021,12 +8731,12 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 </tbody>
 </table>
 <hr />
-<p><a id="ch-15-s76"></a></p>
+<p><a id="ch-15-s78"></a></p>
 <h3>4. 页面指南</h3>
 <p>所有页面可用 <code>?page=&lt;key&gt;</code> 直链打开，例如 <code>http://&lt;host&gt;/myapp/?page=battery</code>；或右键菜单项「在新标签页打开」。标注 iframe 的页面实际界面在 <code>frontend/public/*.html</code>，样式与 React 页面略有差异。</p>
-<p><a id="ch-15-s77"></a></p>
+<p><a id="ch-15-s79"></a></p>
 <h4>4.1 任务与数据</h4>
-<p><a id="ch-15-s78"></a></p>
+<p><a id="ch-15-s80"></a></p>
 <h5>任务管理（<code>sync</code>）</h5>
 <p>全站控制中心：查看所有定时同步/采集任务的状态与排程，手动执行、停止、启停、修改 cron 排程，查看执行历史与按天失败聚合。详见本页「任务管理详解」。</p>
 <ul>
@@ -8034,7 +8744,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>单任务「排程」弹窗修改 cron（写入 task_schedule_config，持久化，重启不丢）</li>
 <li>「全局历史」跨任务检索执行记录；任务完成后语音播报可在本页开关</li>
 </ul>
-<p><a id="ch-15-s79"></a></p>
+<p><a id="ch-15-s81"></a></p>
 <h5>任务报告文件（<code>email_reports</code>）</h5>
 <p>汇总三类任务产物并供下载：邮件发送的最新报告附件、FineBI FTP 报表、eFlow 规则检查结果。eFlow 页签底部列出<strong>从 eFlow 获取的全部规则表</strong>（TT 级别矫正规则 / 告警关联规则 / 推单·配置规则）与本次检查产物（级别矫正表 / 匹配报告）。</p>
 <ul>
@@ -8042,14 +8752,14 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>eFlow 页签三个「立即…」按钮分别手动触发对应任务：立即检查（TT 规则 + 匹配矫正）、收集告警规则、收集推单规则；触发后 3 秒自动刷新一次，任务慢时需手动再刷</li>
 <li>eFlow 页签底部表格：蓝色标签为规则表（TT 规则随每日 04:20 检查刷新；告警/推单规则原本每 3 天 23:59 刷新，可用上面的「收集…」按钮随时刷新），灰色为本次检查产物</li>
 </ul>
-<p><a id="ch-15-s80"></a></p>
+<p><a id="ch-15-s82"></a></p>
 <h5>数据上传（<code>upload</code>）</h5>
 <p>拖拽 Excel/CSV 入库，并给出数据质量评分。</p>
 <ul>
 <li>拖文件到上传区即可；上传后先看「问题面板 / 结论面板」再决定用不用这批数据</li>
 <li>历史列表可手动刷新</li>
 </ul>
-<p><a id="ch-15-s81"></a></p>
+<p><a id="ch-15-s83"></a></p>
 <h5>表浏览器（<code>tables</code>）</h5>
 <p>表浏览器：不写 SQL 就能翻看任意表、看字段画像、导入导出，是最常用的兜底工具。</p>
 <ul>
@@ -8057,22 +8767,22 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>列显隐可保存为视图模板（同一张表常看固定几列时先存模板）</li>
 <li>「画像」页签查看字段级统计；支持 Excel/CSV 导入</li>
 </ul>
-<p><a id="ch-15-s82"></a></p>
+<p><a id="ch-15-s84"></a></p>
 <h5>数据总览（<code>overview</code>）</h5>
 <p>数据库体检页：库内有多少张表、每张表多少行、Top10 规模排名。</p>
 <ul>
 <li>「行数」列可排序；页面只读——只回答「数据在不在、大不大」</li>
 </ul>
-<p><a id="ch-15-s83"></a></p>
+<p><a id="ch-15-s85"></a></p>
 <h4>4.2 监控看板</h4>
-<p><a id="ch-15-s84"></a></p>
+<p><a id="ch-15-s86"></a></p>
 <h5>实时告警看板（<code>alarm</code>）</h5>
 <p>全网当前活跃告警的综合视图：总量、级别、站点等多维统计与趋势。</p>
 <ul>
 <li>点任意数字弹出可搜索的下钻明细表</li>
 <li>「实时」数据来自 eFlow 活动告警（eflow_active_alarm 每 30 分钟同步），并非秒级推送</li>
 </ul>
-<p><a id="ch-15-s85"></a></p>
+<p><a id="ch-15-s87"></a></p>
 <h5>TT&amp;WO 看板（<code>ttwo</code>）</h5>
 <p>故障工单（TT）与工作单（WO）的处理量、时效、积压趋势分析。TT 统计的三个维度（工单严重度 / SLA 状态 / 工单状态）都用数字卡片，点卡片下钻；MTTR 趋势按 Ticket Severity（P1/P2/P3/P4）拆成 4 张图，每张图是「柱 = TT 数量 + 线 = MTTR」双轴，并用页签切 日 / 周 / 月 三档粒度。默认时间窗近 30 天。</p>
 <ul>
@@ -8087,14 +8797,14 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>点图上任意点可下钻该时段的工单明细</li>
 <li>页头显示数据最近同步时间；数据来自 eFlow 每小时同步（eflow_sync）与每日全量兜底（eflow_sync_full）</li>
 </ul>
-<p><a id="ch-15-s86"></a></p>
+<p><a id="ch-15-s88"></a></p>
 <h5>TT&amp;WO 看板（v1·仅上半部分）（<code>v1_ttwo</code>）</h5>
 <p>TT&amp;WO 看板的「只保留上半部分」版：渲染到「MTTR 趋势」（含标题、日/周/月页签，每档四张「柱=TT 数量 + 线=MTTR」双轴分级图）为止，即 汇总卡（TT 总数 / WO 总数 / WO 编号唯一）+ TT 统计（工单严重度 / SLA 状态 / 工单状态，均为数字卡片）+ MTTR 趋势（P1/P2/P3/P4 × 日/周/月）；其下的领域与根因分析、工单分析、站点信息三个区块整体不出。默认时间窗近 30 天。</p>
 <ul>
 <li>筛选条（含全部归属 ZTE/3rd 与高级过滤）、MTTR 日/周/月页签与双轴图、卡片下钻明细与导出与 TT&amp;WO 看板完全同源（共用 /tt-wo-dashboard/overview 端点），用法一致、数字必然相同</li>
 <li>直链 http://<host>/myapp/?page=v1_ttwo；完整版见 page=ttwo</li>
 </ul>
-<p><a id="ch-15-s87"></a></p>
+<p><a id="ch-15-s89"></a></p>
 <h5>TT 看板（<code>tt</code>）</h5>
 <p>TT&amp;WO 看板的「只看 TT」版（数据源 eflow_tt）：汇总卡只留「TT 总数」→ 统计（严重度 / SLA 状态 / 状态，均为数字卡片，点卡下钻）→ MTTR 趋势（P1/P2/P3/P4 × 日/周/月，每张图为「柱=TT 数量 + 线=MTTR」双轴）。MTTR 趋势之下的下半部分整体不出：领域与根因分析、工单分析（按来源统计 WO / 按状态统计 WO）、站点信息；WO 总数 / WO 编号(唯一) 两张汇总卡也不出。默认时间窗近 30 天。</p>
 <ul>
@@ -8103,7 +8813,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>筛选条（含全部归属 ZTE/3rd 与高级过滤）、卡片下钻明细、页面级 Excel 导出与 TT&amp;WO 看板完全同源（共用 /tt-wo-dashboard/overview 端点），数字必然相同；导出文件名前缀为 TTWO_tt_</li>
 <li>直链 http://<host>/myapp/?page=tt；完整版见 page=ttwo，只看 WO 见 page=wo（版式与本页相同，数据源换成 eflow_wo）</li>
 </ul>
-<p><a id="ch-15-s88"></a></p>
+<p><a id="ch-15-s90"></a></p>
 <h5>WO 看板（<code>wo</code>）</h5>
 <p>TT 看板的「WO 数据源」版：版式与 page=tt 逐块一致，只是数据来自 eflow_wo。汇总卡只留「WO 总数」→ 统计（严重度 / SLA 状态 / 状态）→ MTTR 趋势（P1/P2/P3/P4 × 日/周/月双轴图）。MTTR 趋势之下的下半部分（领域与根因分析、工单分析、站点信息）与 page=tt 一样不出。默认时间窗近 30 天。</p>
 <ul>
@@ -8115,21 +8825,21 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>筛选条（区域 / 高级过滤）、下钻明细与页面级 Excel 导出与 TT&amp;WO 看板同源，只是数据端点用 /wo-dashboard/overview；导出文件名前缀为 TTWO_wo_</li>
 <li>直链 http://<host>/myapp/?page=wo；完整版见 page=ttwo，只看 TT 见 page=tt</li>
 </ul>
-<p><a id="ch-15-s89"></a></p>
+<p><a id="ch-15-s91"></a></p>
 <h5>NUR 看板（<code>nur</code>）</h5>
 <p>网络不可用率（NUR）的日/周/月趋势、多维分析与站点达标情况。</p>
 <ul>
 <li>切换粒度与日期区间，多维下拉筛选</li>
 <li>点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel</li>
 </ul>
-<p><a id="ch-15-s90"></a></p>
+<p><a id="ch-15-s92"></a></p>
 <h5>NUR 看板（仅 NUR）（<code>ms_nur_only</code>）</h5>
 <p>NUR 看板的「只保留 NUR」版：内容与 page=nur 的 NUR 部分完全一致（NUR 日/周/月 的表格 + 趋势），不再渲染 SLA 三档，适合只看 NUR 的值班位或大屏。</p>
 <ul>
 <li>筛选条、下钻明细与导出与 NUR 看板同源，用法一致</li>
 <li>直链 http://<host>/myapp/?page=ms_nur_only；另一半内容见 page=ms_sla_only（SLA 口径，来自 MS Operation KPI 看板）</li>
 </ul>
-<p><a id="ch-15-s91"></a></p>
+<p><a id="ch-15-s93"></a></p>
 <h5>MS Operation KPI 看板（<code>ms_sla</code>）</h5>
 <p>MS 合同 KPI 与工单 SLA 达成情况：NUR / Network KPI / Per-Site / WO SLA（指标为行、期间为列）。</p>
 <ul>
@@ -8138,7 +8848,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>SLA 达成率（TTR / TTR_P1~P4）统一由 WOs SLA 区以「表格 + 趋势」呈现，不再另设 KPI List SLA 卡片</li>
 <li>下钻明细与 NUR 页一致；数字以 nur_calc 实时计算为准（ms_sla_full 每 6 小时驱动），可能与历史快照文件不一致——以本页为准</li>
 </ul>
-<p><a id="ch-15-s92"></a></p>
+<p><a id="ch-15-s94"></a></p>
 <h5>MS KPI 看板（仅 SLA）（<code>ms_sla_only</code>）</h5>
 <p>MS Operation KPI 看板的「只保留 SLA」版：WOs SLA 区的工单 SLA 达成率（TTR / TTR_P1~P4 的 Total / Within SLA / Achieve + 趋势），不渲染 NUR、Network、Per-Site。</p>
 <ul>
@@ -8146,35 +8856,35 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>粒度三档「天 / 周 / 月」：天默认当月至今、周默认最近 12 周、月默认 2026-01 至今；切档会重置时间范围（横幅上有说明）</li>
 <li>单元格与数据点可点击下钻 TT 明细，并可导出 Excel</li>
 </ul>
-<p><a id="ch-15-s93"></a></p>
+<p><a id="ch-15-s95"></a></p>
 <h5>CXO 经营看板（<code>cxoDashboard</code>，iframe 页）</h5>
 <p>Service / Network / Summary 三层经营看板（源自 VMAX 实时保障看板）。</p>
 <ul>
 <li>iframe 页面内嵌一份完整数据快照：上游不可用时仍能完整渲染，代价是看到的可能不是最新数据</li>
 <li>要最新数据需重跑对应同步任务；凭据在「系统设置 → 凭据 → vmax_cxo」</li>
 </ul>
-<p><a id="ch-15-s94"></a></p>
+<p><a id="ch-15-s96"></a></p>
 <h5>MW 微波拓扑（<code>mwUmeTopology</code>，iframe 页）</h5>
 <p>ZXMW 微波网络拓扑与带宽利用率 NOC 看板（日粒度）。</p>
 <ul>
 <li>数据每天 05:15 由 mw_ume_kpi_sync 写入 mw_ume_bw_ultilazation，本页一天只变一次</li>
 <li>风险榜、抽屉、趋势图均可交互</li>
 </ul>
-<p><a id="ch-15-s95"></a></p>
+<p><a id="ch-15-s97"></a></p>
 <h5>MW 微波实时（<code>mwRealTime</code>，iframe 页）</h5>
 <p>与微波拓扑同构的 15 分钟粒度实时版（拓扑骨架、风险榜、抽屉、趋势完全一致）。</p>
 <ul>
 <li>默认只展示最新一个 15 分钟槽位，滑杆可回看最近 2 小时窗口</li>
 <li>页面默认 900 秒自动刷新，且支持「软刷新」（不重载 iframe、不闪屏）</li>
 </ul>
-<p><a id="ch-15-s96"></a></p>
+<p><a id="ch-15-s98"></a></p>
 <h5>告警管理看板（<code>alarmManagement</code>，iframe 页）</h5>
 <p>宕站（Site Outage）监控看板：以「站点是否宕」为视角，ERA / Regular / ALL 三个视图。</p>
 <ul>
 <li>每天 01:00 site_outage_screenshot 自动对本页截图，03:00 whatsapp_send 发送到 WhatsApp 群</li>
 <li>注意：改动此页面 DOM 会连带影响自动截图任务，改前先确认截图选择器仍有效</li>
 </ul>
-<p><a id="ch-15-s97"></a></p>
+<p><a id="ch-15-s99"></a></p>
 <h5>fme_ranking（<code>fme_ranking</code>）</h5>
 <p>FME 排名看板：按 FME 统计站点可用率、工单量与 SLA 达成率，并排名。</p>
 <ul>
@@ -8183,14 +8893,14 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>条形图里的 WO 数量（蓝线）与 SLA 达成率（橙虚线）只在<strong>该组内确实存在差异</strong>时才出现；若全组数值相同则不画，避免一条贴地直线占满图例被误读成趋势</li>
 <li>点条形图的任一条可下钻到该 FME 的站点明细；下钻弹窗内还可切换到 WO 维度</li>
 </ul>
-<p><a id="ch-15-s98"></a></p>
+<p><a id="ch-15-s100"></a></p>
 <h5>site_avail（<code>site_avail</code>）</h5>
 <p>站点可用率看板：站点级可用率排名与达标情况。</p>
 <ul>
 <li>点站点名下钻该站的可用率明细</li>
 <li>可用率按站点统计口径计算，与 FME 排名页同源</li>
 </ul>
-<p><a id="ch-15-s99"></a></p>
+<p><a id="ch-15-s101"></a></p>
 <h5>avail_ms（<code>avail_ms</code>）</h5>
 <p>MS Availability（可用率多维矩阵）：把全网可用率按「区域 / 制式 / 站点类型」三个维度呈现，日 / 周 / 月用页签切换粒度。数据来自本机派生库 avail_recon.sqlite3（任务 avail_recon_sync 每天 06:10 重建，口径为站点级加权可用率 SUM(分子)/SUM(分母)）。</p>
 <ul>
@@ -8203,7 +8913,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>4G 的 NERA 属未映射调度组：计入制式 4G 总量，在站点类型维度单列「其它」，只出现在 2025-12 ~ 2026-01 的月份；此时页面会出现黄色口径提示条</li>
 <li>取不到数据显示「—」而不是 0；页面顶部显示「数据截至」，派生库停更时能一眼看出来</li>
 </ul>
-<p><a id="ch-15-s100"></a></p>
+<p><a id="ch-15-s102"></a></p>
 <h5>avail_flm（<code>avail_flm</code>）</h5>
 <p>FLM 可用率：只看三个 FLM 区域（Montserrado / North East / South West）的可用率，行是区域、列分别是制式（2G/3G/4G）与站点类型（Regular / Cooli / ERA，列名用数据原值，需求表写作 Cool.i）；日 / 周 / 月用页签切换粒度。数据与「可用率多维矩阵」同源（本机派生库 avail_recon.sqlite3，口径 SUM(分子)/SUM(分母)），另外把「影响可用率的 TT 列表」直接列在页面上。</p>
 <ul>
@@ -8219,7 +8929,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>4G 的 NERA 属未映射调度组：计入制式 4G 总量，但本页站点类型列只有三种，此时 4G 行会大于三列相加，页面会出现黄色口径提示条</li>
 <li>取不到数据显示「—」而不是 0；页面顶部显示「数据截至」，派生库停更时能一眼看出来</li>
 </ul>
-<p><a id="ch-15-s101"></a></p>
+<p><a id="ch-15-s103"></a></p>
 <h5>noc_analyst（<code>noc_analyst</code>）</h5>
 <p>NOC 操作人分析：基于 eflow_tt.last_processer 量化每位 NOC 的根因错位率、平均处理时长、夜班单占比与 SLA 通过率，并给出红旗告警。页面按「能下钻尽下钻」设计——从人一路下钻到 TT，再下钻到告警链路。</p>
 <ul>
@@ -8240,14 +8950,14 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>时间归因首次计算要逐单复盘全月工单（实测约 150 秒），结果按月份落盘缓存，之后打开是毫秒级；需要强制重算时点右上角「重新计算」</li>
 <li>弹窗内每个表格都可全字段搜索、列筛选与排序，并可导出 Excel（导出的是当前切片、当前搜索结果）</li>
 </ul>
-<p><a id="ch-15-s102"></a></p>
+<p><a id="ch-15-s104"></a></p>
 <h5>repeat_site_down（<code>repeat_site_down</code>）</h5>
 <p>重复宕站看板：识别在统计窗口内反复宕站的站点，用于定位「修不好的站」。</p>
 <ul>
 <li>按日粒度统计站点宕站次数，点数字下钻该日宕站明细</li>
 <li>数据来自 eflow_tt 与 eflow_site，与告警看板口径互补</li>
 </ul>
-<p><a id="ch-15-s103"></a></p>
+<p><a id="ch-15-s105"></a></p>
 <h5>cr_analysis（<code>cr_analysis</code>）</h5>
 <p>CR 变更分析：按变更类别（change_category）看变更计划的排期与执行情况，回答「计划了多少、执行了多少、其中多少按时」。</p>
 <ul>
@@ -8257,7 +8967,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>页面上每个数字都可点：类别表格、图表柱子、月度趋势、子类别表格都能下钻到明细，明细行数与卡片数字严格一致</li>
 <li>下钻明细被截断时会显示黄色告警条，提示缩小时间范围——不要忽略它</li>
 </ul>
-<p><a id="ch-15-s104"></a></p>
+<p><a id="ch-15-s106"></a></p>
 <h5>pm_analysis（<code>pm_analysis</code>）</h5>
 <p>PM 执行分析：按 PM 计划号（pmp_no）看预防性维护工单（PMT）的完成与超期情况，回答「计划执行到哪一步、多少超期、卡在谁那里」。</p>
 <ul>
@@ -8269,21 +8979,34 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>页面上每个数字都可点：KPI 卡、比率卡、图表柱子、月度趋势、站点条形图、计划表格都能下钻到明细，明细行数与卡片数字严格一致</li>
 <li>下钻明细被截断时会显示黄色告警条，提示缩小时间范围——不要忽略它</li>
 </ul>
-<p><a id="ch-15-s105"></a></p>
+<p><a id="ch-15-s107"></a></p>
+<h5>bp_report（<code>bp_report</code>）</h5>
+<p>BP 劣化小区报告：umlaut 口径的 Bad Performance 小区统计，支持按日/周/月查看并下钻到小区明细。</p>
+<ul>
+<li>口径：日 = 平均活跃用户数 &gt; 2.5 且 DL 吞吐 &lt; 3 Mbps 且 DL PRB 利用率 &gt; 80%；周 = 4/7 天为 BP；月 = 3/4 个完整周为 BP</li>
+<li>⚠️ 口径不完整（页面顶部常驻黄色告警）：RAN_UME 侧没有采集「平均活跃用户数」，重算只覆盖 PRB 与吞吐两个条件，缺第三个条件的小区记为「不可判定」，不计入 BP</li>
+<li>因此本页从 RAN_UME 重算出的 BP 数会低于 Excel 原值，这是口径缺口、不是实现缺陷；但 Excel 已有的历史数据是完整的，两者并存</li>
+<li>「BP 小区数」列可点击下钻到小区明细，行数与数字严格一致；「全网小区数」列不可下钻（Excel 未提供全网小区名单）</li>
+<li>「明细行数」列显示 Excel BP Cells List 里该期实际有多少行，括号内是与展示值的差额——上游 Excel 各 sheet 本身就不一致，差异如实展示</li>
+<li>2023 年与 2024 年部分日期在 Excel 的 BP Cells List 里没有明细，这些期的下钻入口会置灰</li>
+<li>分区（Cluster1~6 / Rural / ERA）只能在 Excel 里维护，RAN_UME 没有这套维度；新增小区若不在字典内会归为 Unknown</li>
+<li>数据由 bp_report_sync 任务每天 06:20 从 RAN_UME 增量更新</li>
+</ul>
+<p><a id="ch-15-s108"></a></p>
 <h5>丢包看板（<code>packet_loss</code>）</h5>
 <p>LTE 丢包看板（RAN UME SDR / IPRAN IPPD）：最近 7 个完整自然日、小时粒度，当天没过完不展示。</p>
 <ul>
 <li>口径与 Packet_Loss 自动化 Excel 报告完全一致；Popover 可查看口径说明</li>
 <li>Switch 控制是否包含 OK 站点；支持下钻明细与拓扑叠加</li>
 </ul>
-<p><a id="ch-15-s106"></a></p>
+<p><a id="ch-15-s109"></a></p>
 <h5>电池看板（<code>battery</code>）</h5>
 <p>站点电池健康度 / SOC / 充放电状态与告警明细。</p>
 <ul>
 <li>第一维度是「数据新鲜度」：默认只统计 24 小时内的新鲜读数（battery_kpi_sync 每小时 :05），关闭「仅新鲜」会混入旧数据导致失真</li>
 <li>点站点名下钻电池明细与历史读数；支持导出 Excel</li>
 </ul>
-<p><a id="ch-15-s107"></a></p>
+<p><a id="ch-15-s110"></a></p>
 <h5>ume_in_kpi（<code>ume_in_kpi</code>）</h5>
 <p>客户业务 KPI 看板：从 UME 门户（172.17.208.1:28808）抓取 Dong customer 周度业务指标，覆盖 IVR / P4M / VC / USSD / PPS / CPU / Memory 共 7 个模板（1 天粒度）。除业务量与成功率外，本页把失败按「系统侧 / 用户侧」归因——只有系统侧失败率与资源利用率会触发告警，因此像 PPS 的「余额不足」、USSD 的「用户失败」这类业务正常结果不会被误报为故障。</p>
 <ul>
@@ -8294,7 +9017,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>资源利用率以「日均」判定（≥80% 关注、≥90% 异常），峰值仅作参考——瞬时打满属正常尖峰</li>
 <li>「导出 Excel」输出 6 个 sheet：KPI 汇总 / 服务明细 / 失败分解 / 资源 / 趋势 / 告警</li>
 </ul>
-<p><a id="ch-15-s108"></a></p>
+<p><a id="ch-15-s111"></a></p>
 <h5>UME iMonitor 大屏（<code>imonitor</code>，iframe 页）</h5>
 <p>UME iMonitor 大屏（guard-imonitor-iui，screen_id=1）：把 UME 门户（172.17.208.1:28808）的原版监控大屏原样嵌进 myapp，保留其全部图表与交互。页面经 nginx 8088 反代到上游（门户独立端口方案），首次进入会由注入脚本自动完成 em-portal 登录（账号取自 Settings → 凭据的「UME 客户业务 KPI 门户」，即 ume_in），无需手工输入；登录页的 frame-bust 已在反代里中和、iframe 另加 sandbox，保证登录过程不会把 myapp 外壳冲掉。</p>
 <ul>
@@ -8305,39 +9028,77 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>自动刷新（顶栏）到点后由本页在 iframe 内原地重载，不会整页闪白；该页已登记在 AR_SOFT_REFRESH_PAGES</li>
 <li>上游把 Content-Security-Policy: frame-ancestors 设为 self，故必须走反代（nginx/portal_ume_in_8088.conf）而不能直连；反代端口 8088 与 nginx 配置、PROXY_PREFIXES 三处需保持一致</li>
 </ul>
-<p><a id="ch-15-s109"></a></p>
+<p><a id="ch-15-s112"></a></p>
 <h5>GIS地图（<code>gis</code>）</h5>
 <p>站点地图：告警/工单在地图上的分布、拓扑线、区域面与多维筛选（历史/工单口径）。</p>
 <ul>
 <li>区域下拉 + 图层 Tag 开关筛选；图例点击可隐藏该类图层；时间支持分段切换与自定义区间</li>
 <li>点站点打开右侧抽屉，四个页签明细可搜索、可导出 Excel</li>
-<li>「链路利用率」开关（默认开）：把 MW 微波实时页同一 15 分钟槽位的链路利用率叠加到地图链路线上，按 6 级着色（&gt;90% 紧急 / ≥80% 重要 / ≥70% 中等 / ≥60% 次要 / ≥50% 轻微 / &lt;50% 正常），线越粗表示利用率越高</li>
+<li>「链路利用率」开关（默认开）：把 MW 微波实时页同一 15 分钟槽位的链路利用率叠加到地图链路线上，按 4 级着色（&gt;80% 紧急 / ≥70% 重要 / ≥60% 次要 / &lt;60% 正常），线越粗表示利用率越高</li>
 <li>点链路线可看该链路的最高/发送/接收利用率与匹配到的 MW 站点；显示「无 KPI 数据」的链路表示未匹配到实时指标（保持 KML 原线色），不是 0%</li>
 <li>叠加口径见图例下方说明：844 条 KML 链路中约 360 条能匹配到实时指标，其余仍在 MW 微波实时页查看</li>
 </ul>
-<p><a id="ch-15-s110"></a></p>
+<p><a id="ch-15-s113"></a></p>
 <h5>实时告警地图（<code>realtime_alarm</code>）</h5>
 <p>GIS 地图的实时模式：当前活跃告警站点的地图分布（带红色「实时」标识）。</p>
 <ul>
 <li>操作与 GIS 地图页一致</li>
 <li>数据来自 eFlow 活动告警（eflow_active_alarm），每 30 分钟同步一次</li>
 </ul>
-<p><a id="ch-15-s111"></a></p>
+<p><a id="ch-15-s114"></a></p>
 <h5>事件总览（<code>incident_overview</code>，iframe 页）</h5>
 <p>OLR 事件（Incident）总览看板：卡片、矩阵、SLA 图表、分页明细与地图。</p>
 <ul>
 <li>数据每小时整点由 incident_overview_sync 从 FineBI FTP 取最新 incident_overview.xlsx（版本化落盘，上游文件被占用也不会取数失败）</li>
 </ul>
-<p><a id="ch-15-s112"></a></p>
+<p><a id="ch-15-s115"></a></p>
 <h5>仓库看板（<code>warehouse</code>，iframe 页）</h5>
 <p>备件/耗材库存看板（Spare Management），与原工具看板完全一致。</p>
 <ul>
 <li>数据来自 sp_data_sync（每天 07:00 从 SFTP 拉取的 5 份备件报表）</li>
 <li>按仓库/备件类型查看库存与明细</li>
 </ul>
-<p><a id="ch-15-s113"></a></p>
+<p><a id="ch-15-s116"></a></p>
+<h5>sp_material（<code>sp_material</code>）</h5>
+<p>备件物料统计汇总：按专业域/物料看入库、出库与库存的汇总分布。</p>
+<ul>
+<li>数据来自 sp_data_sync 拉取的备件报表</li>
+<li>点任意汇总数字可下钻到对应物料明细</li>
+</ul>
+<p><a id="ch-15-s117"></a></p>
+<h5>sp_details（<code>sp_details</code>）</h5>
+<p>SP 备件明细报表：与邮件任务发出的合并工作簿是同一份文件，含 Inventory / Inbound / Outbound / Transfer 四张表。</p>
+<ul>
+<li>分页 + 筛选 + 排序；「未关闭」= Status 不含 Closed 的行</li>
+<li>表格只展示常用列，点任意一行查看该表全部列</li>
+<li>导出为当前筛选结果（最多 5000 行）</li>
+</ul>
+<p><a id="ch-15-s118"></a></p>
+<h5>sp_report（<code>sp_report</code>）</h5>
+<p>备件 Inbound &amp; Outbound &amp; Inventory 汇总报表：与邮件/WhatsApp 发出去的是同一份工作簿（每天 05:15 由 sp_report_generate 产出），含 Summary-Current / Summary-Changed / Inbound / Outbound / Inventory 五张表。</p>
+<ul>
+<li>统计卡片看总量与补库告警，点告警卡即筛选</li>
+<li>Summary-Changed 渲染成「天 × 仓库」矩阵</li>
+<li>「显示列」可按分表自定义并本地记住；行详情弹窗始终显示全列</li>
+</ul>
+<p><a id="ch-15-s119"></a></p>
+<h5>com_report（<code>com_report</code>）</h5>
+<p>耗材 Inbound &amp; Outbound &amp; Inventory 汇总报表：与备件页版式一致，只是数据源换成耗材工作簿。</p>
+<ul>
+<li>口径与备件页完全相同，见页面底部「报表口径说明」</li>
+<li>页面与 Excel 数字不一致时先看口径说明，不要在页面层改口径</li>
+</ul>
+<p><a id="ch-15-s120"></a></p>
+<h5>warehouse_summary（<code>warehouse_summary</code>）</h5>
+<p>仓库汇总报表：按仓库汇总报表（WarehouseSummaryReport.xlsx）复刻，页签对应该文件的两个 sheet——Spars Parts / Consumables。每个页签含两段：WH/DOP 库存与消耗汇总（当前库存 / 累计 / 本月 / 本周消耗），以及高频消耗物料（每页 10 行，可翻完全部物料）。</p>
+<ul>
+<li>页签切换备件/耗材；两段表的每个数字都可点击下钻到明细</li>
+<li>高频物料按消耗量降序分页显示全部，Total 行是全量合计且不随翻页变化</li>
+<li>消耗口径是 Outbound Site Qty（站点出库），段②标题右侧有标签提示</li>
+</ul>
+<p><a id="ch-15-s121"></a></p>
 <h4>4.3 分析与工具</h4>
-<p><a id="ch-15-s114"></a></p>
+<p><a id="ch-15-s122"></a></p>
 <h5>eFlow 知识库（<code>eflow_qa</code>）</h5>
 <p>eFlow TT 判定规则知识库：规则/案例文档全文检索，并内置 TT 快速分析与 TT 批量核查。</p>
 <ul>
@@ -8349,7 +9110,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>TT 批量核查：上传 xlsx/csv/txt 单号清单或直接粘贴，逐单判定工单级别是否正常（正常/需调整/无法判定），可导出 Excel</li>
 <li>TT 批量核查支持「下载模板 → 填写 → 上传核查」闭环：点「下载模板」得到带表头的 xlsx，填好单号后把同一个文件传回来即可</li>
 </ul>
-<p><a id="ch-15-s115"></a></p>
+<p><a id="ch-15-s123"></a></p>
 <h5>eflow_flow（<code>eflow_flow</code>）</h5>
 <p>eFlow 全流程查询：输入告警（告警 ID / 告警码）或 TT 单号，画出该单在 eFlow 里的全流程图 —— 规则驱动的完整状态机 + 该单实际走过的路径高亮。</p>
 <ul>
@@ -8363,30 +9124,30 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>判定口径与「NOC 操作人分析」「单 TT 复盘报告」同源：规则统一读 ocrule_details，因此不会出现「流程图说 A、复盘说 B」</li>
 <li>规则表由 eflow_push_rules_collect / eflow_alarm_rules_collect 定时采集（每 3 天 23:59），规则更新后流程图自动反映</li>
 </ul>
-<p><a id="ch-15-s116"></a></p>
+<p><a id="ch-15-s124"></a></p>
 <h5>分析仪表盘（<code>dashboard</code>）</h5>
 <p>分析仪表盘：选一张表自动生成多维图表与结论，可归档保存。</p>
 <ul>
 <li>选表 → 修改分析名称 → 生成分析 → 归档</li>
 <li>开启「联动筛选」后点饼图/柱图即设置筛选，再点取消</li>
 </ul>
-<p><a id="ch-15-s117"></a></p>
+<p><a id="ch-15-s125"></a></p>
 <h5>分析归档（<code>archive</code>）</h5>
 <p>分析归档：历史分析结果的检索、详情查看与删除，与分析仪表盘配套。</p>
 <ul>
 <li>关键字搜索 + 分页浏览；详情含结论文字与图表快照</li>
 <li>删除需二次确认，谨慎操作</li>
 </ul>
-<p><a id="ch-15-s118"></a></p>
+<p><a id="ch-15-s126"></a></p>
 <h5>IP 链路探测（<code>ip_trace</code>，iframe 页）</h5>
 <p>IP 链路探测：从服务器侧探测到目标站点的链路连通性与路径节点。</p>
 <ul>
 <li>输入目标开始探测，结果表格/地图实时刷新</li>
 <li>探测是可中断的长任务，卡住时可手动停止</li>
 </ul>
-<p><a id="ch-15-s119"></a></p>
+<p><a id="ch-15-s127"></a></p>
 <h4>4.4 系统管理</h4>
-<p><a id="ch-15-s120"></a></p>
+<p><a id="ch-15-s128"></a></p>
 <h5>系统设置（<code>settings</code>）</h5>
 <p>系统设置：凭据、邮件收件人、远程主机、任务配置四个页签。</p>
 <ul>
@@ -8395,7 +9156,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>远程主机：改完即时生效无需重启（写 backend/data/settings.json）</li>
 <li>任务配置：任务的业务参数（非排程），优先级 环境变量 &gt; 配置文件 &gt; 默认值</li>
 </ul>
-<p><a id="ch-15-s121"></a></p>
+<p><a id="ch-15-s129"></a></p>
 <h5>门户一键登录（<code>portalLogin</code>）</h5>
 <p>门户一键登录：用已保存的凭据自动登录上游门户（Playwright 自动化），省去逐个手输账号口令。</p>
 <ul>
@@ -8403,9 +9164,9 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>与系统设置共用同一份凭据；会话 cookie 缓存在后端 auth_cache/，请按敏感信息对待</li>
 </ul>
 <hr />
-<p><a id="ch-15-s122"></a></p>
+<p><a id="ch-15-s130"></a></p>
 <h3>5. 运维与排障</h3>
-<p><a id="ch-15-s123"></a></p>
+<p><a id="ch-15-s131"></a></p>
 <h4>5.1 进程与端口速查</h4>
 <table>
 <thead>
@@ -8443,7 +9204,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 </tr>
 </tbody>
 </table>
-<p><a id="ch-15-s124"></a></p>
+<p><a id="ch-15-s132"></a></p>
 <h4>5.2 日常巡检（5 分钟）</h4>
 <ul>
 <li>任务管理页：有没有 failed、有没有长期 pending（失败聚合视图比翻列表快）</li>
@@ -8452,7 +9213,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>命令行：五个关键进程是否都在、心跳 heartbeat_*.json 是否新鲜（超 3 分钟会被强杀重拉）</li>
 <li>数据库新鲜度由 db_freshness_check 每小时 :15 自动巡检，滞后会给出调用链与排查方向；任务本身漏跑/停摆（未归组、无执行记录、队列滞留、成功逾期）也会在同一巡检里主动微信+邮件告警，不需要人工等看板空了才发现</li>
 </ul>
-<p><a id="ch-15-s125"></a></p>
+<p><a id="ch-15-s133"></a></p>
 <h4>5.3 日志速查</h4>
 <table>
 <thead>
@@ -8491,7 +9252,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <blockquote>
 <p>⚠️ 全仓库没有日志轮转，<code>log/</code> 只会一直涨，需人工定期清理；部分日志报错原文含账号，外发前先扫一遍。</p>
 </blockquote>
-<p><a id="ch-15-s126"></a></p>
+<p><a id="ch-15-s134"></a></p>
 <h4>5.4 备份（三处都要备，缺一不完整）</h4>
 <ul>
 <li><strong>远程 PostgreSQL（主库）</strong>: pg_dump 备份业务数据与 task_queue/task_execution_log/task_schedule_config；pg_to_sqlite_sync 每小时 :45 已提供一份镜像到 db/app.db</li>
@@ -8499,7 +9260,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li><strong>data/ + backend/data/</strong>: 各任务报表产物与 settings.json（丢 settings.json 会退回内置默认远程主机）</li>
 <li><strong>backend/services/*.json</strong>: 上游连接参数与 TT 规则表等，属代码资产随仓库走</li>
 </ul>
-<p><a id="ch-15-s127"></a></p>
+<p><a id="ch-15-s135"></a></p>
 <h4>5.5 定期清理：什么能删、什么别动</h4>
 <p><strong>可以清理</strong></p>
 <ul>
@@ -8515,7 +9276,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>backend/services/eflow_rules/eflow_TT_rules.xlsx —— 正式 TT 规则表（根目录同名文件只是副本）</li>
 <li>历史拼写目录/文件名（data/packet_lost、battary_kpi_fetch、mw_ume_bw_ultilazation 等）——多处按字符串引用，不要顺手改名</li>
 </ul>
-<p><a id="ch-15-s128"></a></p>
+<p><a id="ch-15-s136"></a></p>
 <h4>5.6 配置与凭据</h4>
 <p>三层配置，优先级从高到低：环境变量（backend/.env，203 个键，改后需重启） &gt; 数据库/配置文件（凭据、收件人、排程、远程主机、任务参数——界面改，即时生效） &gt; 代码默认值。</p>
 <ul>
@@ -8525,7 +9286,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <li>backend/services/auth_cache/ 里的会话 cookie 等同有效登录态，不外发、不入 git、不进截图</li>
 </ul>
 <hr />
-<p><a id="ch-15-s129"></a></p>
+<p><a id="ch-15-s137"></a></p>
 <h3>6. 常见问题</h3>
 <p><strong>看板数据没有更新？</strong></p>
 <p>① 先到「任务管理」查看对应任务的最近执行结果与失败聚合；② 检查顶栏「自动刷新」间隔是否被调成关闭；③ 注意部分数据本身低频同步：实时告警每 30 分钟、微波拓扑每天 05:15、丢包每天 06:30、事件总览每小时整点。仍不对可看「数据库数据新鲜度巡检」的执行日志，它会输出调用链与排查方向。</p>
@@ -8908,7 +9669,7 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 <p><strong>保留在 PROJECT_DOCS.md 不动</strong>（属于历史决策与复盘，不是&quot;现状描述&quot;）：§2 迁移计划、§3 架构评估与 Django 论证、§4 FastAPI 架构优化方案、§5–§6 i18n 审计与复查、§8 IP Trace 集成方案、§10 迁移失败复盘、§11 优化建议。</p>
 
 </section>
-  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-09-29 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
+  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-09-30 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
 </div>
 </body>
 </html>

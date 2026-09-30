@@ -89,9 +89,21 @@ my-finebi 里 `spare` 指向 `LBR_SP → inventory.db`（远端
 实测连 `SELECT 1` 都要 42.5s 才返回 `database is locked`；
 my_app 的 `task_registry.py` 也已记录该库单次锁 1~9min、最坏 2h+ 的事故。
 
-关键事实：`inventory.db` 只是**镜像库**，唯一写入方就是 my_app 自己的
-`sp_data_sync` 任务；而它镜像的源头正是本机 `db/app.db` 的
+关键事实：`inventory.db` 是**镜像库**，由 my_app 的
+`sp_data_sync` 任务写入；而它镜像的源头正是本机 `db/app.db` 的
 `inband_details` / `outband_details` / `inventory_details` 三张表。
+
+> **⚠ 2026-09-30 更正两处此前的错误论断。**
+> 1. 本节原先写「唯一写入方就是 my_app」——**与实测不符**。独占打开探测显示
+>    远端确有**其它活进程**持有该库的 `-shm` 字节范围锁
+>    （`inventory.db` 与 `-wal` 可独占打开，`-shm` 被拒 `PermissionError`）。
+> 2. 镜像写不进去的原因**不是**「WAL-over-SMB 天生不可用」。2026-09-30 实测：
+>    在同一 SMB 目录新建库、甚至切成 WAL，只要没有远端持有者，本机读写都正常。
+>    真正的症结是**远端那个持锁进程**，而 SMB 无法代理 WAL 的共享内存语义。
+>
+> 该问题已从 my_app 侧根治：镜像改为「本地构建 + 整文件推送」
+> （`backend/services/sp_mirror_push.py`），整文件覆盖**不需要**字节锁。
+> 详见 `docs/manual/04-task-system.md` 的 `sp_data_sync` 小节。
 
 因此 `spare` 直接改读本机 `app.db`：绕开远端锁、少一跳网络，
 且与既有 `sp_dashboard` 服务口径完全一致。实测 12 个组件全部通过。

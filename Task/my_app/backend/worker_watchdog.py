@@ -227,7 +227,14 @@ GROUP_TASK_MAP = {
         # 自身只写 eflow_tt_whatsapp_alert_log（本任务独占表，与同组任务无写冲突）。
         # 该组已有 */15 的 mw_ume_kpi_sync_rt 先例，可承载高频任务。
         # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
-        "tt_alarm_whatsapp_alert"),
+        "tt_alarm_whatsapp_alert,"
+        # sp_details_files_email 2026-09-30 注册：SP 备件明细分文件邮件（每天 10:05）。
+        # 归 m 组理由：与 sp_email_details / sp_material_report 同类——只读本地 xlsx
+        # （data/sp_email/data）+ 走 EWS 发信，不占任何上游业务会话，属内务轻任务。
+        # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
+        # （finebi_report_sync / whatsapp_send_ext / sp_email_details / vmax_multi_data_sync
+        #   已四次踩坑，见上）
+        "sp_details_files_email"),
     "c": (  # CN EMS (10.100.2.240) 独立会话：缓存同步与日聚合共享 _pmcache/daily_raw.json，
         # 同组串行保证互斥（ems_kpi_cache_sync 每15分钟 + ems_kpi_daily 每天00:20）
         "ems_kpi_cache_sync,ems_kpi_daily"),

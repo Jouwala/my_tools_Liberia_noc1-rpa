@@ -40,6 +40,7 @@ import logging
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -114,6 +115,39 @@ _SP_WA_REPORT_LABELS = ("Comsumables", "SpareParts")
 # SP 备件明细报表（sp_email_details）邮件发出后，同步把同一份合并 Excel
 # 作为文档发到该群（用户 2026-09-14 指定，独立于 WHATSAPP_GROUPS）
 _SP_DETAILS_WA_GROUPS = ["WH&SP Management"]
+
+# SP 明细**分文件**邮件（任务 sp_details_files_email，每天 10:05，2026-09-30 新增）：
+# 与 sp_email_details 的分工是「同一批数据、两种打包方式」——
+#   - sp_email_details   : 05 点合并成**一个**多 sheet 工作簿 + 发 WhatsApp 群；
+#   - sp_details_files_email: 10 点把 5 份明细**各自原样**作为独立附件发给 NOC
+#     （收件人不同、附件形态不同，故不复用前者的合并逻辑）。
+# 收件人由 Settings → Email Recipients 的 sp_details_files 分组维护。
+_SP_DETAILS_FILES_DEFAULT_TO = "MS.NOC@zte.com.cn"
+_SP_DETAILS_FILES_DEFAULT_CC = "li.jing132@zte.com.cn;luo.wutao@zte.com.cn"
+
+#: (明细文件名, 对外文件名) —— 顺序即发送顺序，与页面/合并报表的 sheet 顺序一致。
+#: * 第 1 项是**磁盘上的源文件基名**，由 ``_detail_attachment_path`` 决定实际读
+#:   ``*_source.xlsx`` 快照还是过滤版（两者内容口径不同，见该函数）。
+#: * 第 2 项是**收件人看到的附件名与主题里的文件名**。2026-09-30 用户指定：
+#:   inband/outband 对外要写成 **inbound/outbound**（这才是业务侧习惯叫法），
+#:   而磁盘上的源文件名（SFTP 导出名）不改——所以两者必须分开维护。
+#: * 快照后缀 ``_source`` 会原样保留在对外名里（用户 2026-09-30 明确要「实际名字」）。
+#: 2026-09-30 用户追加 inventory_details（原先漏了），现为 6 份。
+_SP_DETAILS_FILES = (
+    ("inventory_details.xlsx", "inventory_details_source.xlsx"),
+    ("inband_details.xlsx", "inbound_details_source.xlsx"),
+    ("outband_details.xlsx", "outbound_details_source.xlsx"),
+    ("transfer_details.xlsx", "transfer_details_source.xlsx"),
+    ("transfer_return_details.xlsx", "transfer_return_details_source.xlsx"),
+    ("ocrule_details.xlsx", "ocrule_details.xlsx"),
+)
+
+#: 邮件主题前缀（用户 2026-09-30 指定）：``Liberia OLR W.H <附件文件名> <日期时间>``
+_SP_DETAILS_FILES_SUBJECT_PREFIX = "Liberia OLR W.H"
+#: 附件暂存目录：对外文件名与磁盘源名不同（inband→inbound 等），而
+#: ``owa_mail_report`` 用 ``Path(fp).name`` 作附件名，故必须先按对外名落副本再发。
+#: 落在 TMP 下（已被 .gitignore 覆盖），每轮发送结束在 finally 里清掉。
+_SP_DETAILS_FILES_STAGE = MY_APP_DIR / "TMP" / "_sp_details_files_stage"
 _RAN_DATA = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE"                      # 远程 FTP
 _RAN_EMAIL = "/01_RPA/LBR_Tools/KPI/RAN/ORANGE/email"               # 远程 FTP
 
@@ -594,6 +628,180 @@ def run_sp_details_email(to: str = None, cc: str = None) -> dict:
         )
         res["error"] = f"{res['error']} | {wa_mark}" if res.get("error") else wa_mark
     return res
+
+
+# ---- SP 明细分文件邮件（sp_details_files_email，每天 10:05）----
+def _detail_attachment_path(fname: str) -> tuple:
+    """明细文件名 -> (实际路径, 是否用了未过滤原始快照)。
+
+    与 ``_merge_sp_details_workbook`` / ``sp_details_service._detail_file`` 同一套
+    选择规则：优先 ``*_source.xlsx``（sp_report_generate 05:15 在任何过滤之前原样
+    复制的 SFTP 快照），缺失才回退过滤后的 ``*_details.xlsx``。三处口径必须一致，
+    否则邮件附件与页面 page=sp_details 的数字会对不上。
+    """
+    p = _SP_DETAILS_DATA / fname
+    raw = p.with_name(f"{p.stem}_source{p.suffix}")
+    if raw.is_file():
+        return raw, True
+    return p, False
+
+
+def run_sp_details_files_email(to: str = None, cc: str = None) -> dict:
+    """SP 明细 6 份报表**逐个文件单独发信**（每天 10:05，2026-09-30 新增）。
+
+    把 ``data/sp_email/data`` 下的 6 份明细**一份一封邮件**发出（用户 2026-09-30
+    明确要求「一封一封的发」，不是一封挂 6 个附件）：
+
+        inventory_details_source.xlsx / inbound_details_source.xlsx /
+        outbound_details_source.xlsx / transfer_details_source.xlsx /
+        transfer_return_details_source.xlsx / ocrule_details.xlsx
+
+    主题：``Liberia OLR W.H <附件文件名> <日期时间>``
+        e.g. Liberia OLR W.H inbound_details_source.xlsx 2026-09-30 10-05-00
+
+    **对外文件名与磁盘源文件名不同**（用户 2026-09-30 指定）：磁盘上仍是上游 SFTP
+    导出的 ``inband_details_source.xlsx`` / ``outband_details_source.xlsx``，
+    但对收件人一律写成业务侧习惯的 **inbound / outbound**。因此附件不能用源路径
+    直接发（``owa_mail_report`` 取 ``Path(fp).name`` 作附件名），需要先在本机 TMP
+    下按对外名落一份副本再发，见 ``_stage_attachment``。
+
+    与 ``run_sp_details_email``（05 点）的区别：那个把明细合并成**一个**多 sheet
+    工作簿并发 WhatsApp 群；本任务按用户要求**一文件一邮件**发 NOC，
+    收件人/附件形态都不同，故独立成任务而不是加开关。
+
+    取数口径：优先 sp_report_generate（05:15）留的 ``*_source.xlsx`` 未过滤原始快照
+    （含 Canceled / WaitingForUpdate / 手工剔除名单行，与 SFTP 上游一致），缺失时
+    逐份回退过滤后的 ``*_details.xlsx``，回退情况写进结果与日志。
+
+    失败语义：**6 份文件任一缺失即整体失败、一封都不发**（用户口径：宁可一封不发
+    也不要收件人拿到不完整的一套报表）。逐封发送时**单封失败不中断后续**——
+    已成功的继续发完，最后把失败项汇总进 error，便于人工只补发缺的那几封。
+
+    ⚠️ 逐封发送意味着一次任务最多触发 6 次 EWS 会话，耗时约是单封的 6 倍；
+    预算由每次 ``_run_script`` 自带的 budget 兜底，不额外设总预算，避免长任务
+    占住 m 组 worker（本任务在 EMAIL_TASK_IDS 内，失败由 email_recovery 补发）。
+    """
+    from backend.services.email_recipient_store import get_email_recipients
+
+    to_arg, cc_arg = get_email_recipients("sp_details_files", to, cc)
+    if not _SP_DETAILS_DATA.is_dir():
+        return {"success": False, "error": f"数据目录不存在: {_SP_DETAILS_DATA}"}
+    if not to_arg:
+        return {
+            "success": False,
+            "error": "主送收件人为空，请在 Settings → Email Recipients 配置 sp_details_files",
+        }
+
+    # 先整体校验文件是否齐全：缺任一份就一封都不发（不做半截发送）
+    resolved: List[tuple] = []          # (对外文件名, 源路径, 是否原始快照)
+    missing: List[str] = []
+    raw_fallback: List[str] = []
+    for fname, out_name in _SP_DETAILS_FILES:
+        path, is_raw = _detail_attachment_path(fname)
+        if not path.is_file():
+            missing.append(out_name)
+            continue
+        resolved.append((out_name, path, is_raw))
+        if not is_raw:
+            note = f"{out_name}: 无 *_source.xlsx 原始快照，回退过滤后的明细"
+            logging.getLogger(__name__).warning("[sp_details_files] %s", note)
+            raw_fallback.append(note)
+
+    if missing:
+        return {
+            "success": False,
+            "error": (
+                f"明细文件缺失 {len(missing)}/{len(_SP_DETAILS_FILES)}: {missing}"
+                f"（目录 {_SP_DETAILS_DATA}，请先运行 sp_report_generate 任务；"
+                f"本次一封都不发）"
+            ),
+            "missing": missing,
+        }
+
+    stamp = time.strftime("%Y-%m-%d %H-%M-%S")
+    sent: List[str] = []
+    failed: List[dict] = []
+    sizes: dict = {}
+
+    # 按对外名落副本（TMP 下，任务结束前清掉）。失败则清理已落盘的副本后返回。
+    stage_dir = _SP_DETAILS_FILES_STAGE
+    try:
+        stage_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        return {"success": False, "error": f"暂存目录创建失败: {stage_dir} ({e})"}
+    staged: List[Path] = []
+    try:
+        for out_name, path, _is_raw in resolved:
+            dst = stage_dir / out_name
+            try:
+                shutil.copy2(path, dst)
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"附件暂存失败 {out_name}（源 {path}）: {e}；本次一封都不发",
+                }
+            staged.append(dst)
+
+        for idx, ((out_name, path, _is_raw), dst) in enumerate(zip(resolved, staged)):
+            # 主题按用户口径：前缀 + **附件实际文件名**（含 .xlsx 与 _source）+ 时间戳
+            subject = f"{_SP_DETAILS_FILES_SUBJECT_PREFIX} {out_name} {stamp}"
+            one = _run_script(
+                data_dir=_SP_DETAILS_DATA,
+                name_filter="",
+                to=to_arg,
+                cc=cc_arg,
+                no_excel=True,
+                attach=[str(dst)],
+                subject=subject,
+            )
+            if one.get("success"):
+                sent.append(out_name)
+                sizes[out_name] = dst.stat().st_size
+            else:
+                # 单封失败不中断：继续发后面的，最后统一汇总（与「一封不发」的缺文件
+                # 语义区分开——这里文件是齐的，属于发送通道问题）
+                failed.append({"file": out_name, "subject": subject,
+                               "error": one.get("error")})
+                logging.getLogger(__name__).warning(
+                    "[sp_details_files] 单封发送失败 %s: %s", out_name, one.get("error")
+                )
+    finally:
+        # 暂存副本用完即清（TMP 下的一次性产物；发送失败也要清，下次重跑重新落）
+        for s in staged:
+            try:
+                s.unlink()
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "[sp_details_files] 清理暂存附件失败: %s", s, exc_info=True
+                )
+
+    ok = not failed
+    out = {
+        "success": ok,
+        "message": (
+            f"{'OK' if ok else 'PARTIAL'} | 逐封发送 {len(sent)}/{len(resolved)} 成功"
+            + (f"，失败 {[f['file'] for f in failed]}" if failed else "")
+            + (f" 回退过滤后明细: {'; '.join(raw_fallback)}" if raw_fallback else "")
+        ),
+        "sent": sent,
+        "sent_count": len(sent),
+        "failed": failed,
+        "attachment_sizes": sizes,
+        "raw_fallback": raw_fallback,
+        "to": to_arg,
+        "cc": cc_arg,
+        "subject_stamp": stamp,
+    }
+    if failed:
+        # 本任务在 email_recovery.EMAIL_TASK_IDS 内（由 email_task_coverage 自动推导）。
+        # error 只写固定标记 + 涉及的文件名，**不拼底层异常原文**：底层原文里可能含
+        # EWS 关键字，一旦命中 email_recovery 会按「整链失败」补发**全部 6 封**，
+        # 让已成功的那几封重复投递。底层细节留在 out["failed"]["error"] 里供人工查看。
+        out["error"] = (
+            f"SEND_FAIL: 逐封发送失败 {len(failed)}/{len(resolved)}"
+            f"（{', '.join(f['file'] for f in failed)}），详情见 result.failed"
+        )
+    return out
 
 
 # =============================================================================
@@ -1127,9 +1335,14 @@ def run_sp_material_stock_consumption(to: str = None, cc: str = None) -> dict:
 
 
 def run_sp_online_report_generate() -> dict:
-    """SP 在线未关闭单报表生成（每天 06:00）：基于 data/sp_email/data 最新
-    inband/outband 明细生成 sp_online 下 Inbound/Outbound 的 PNG + XLSX，
+    """SP 在线未关闭单报表生成（每天 06:00）→ sp_online 下 Inbound/Outbound 的 PNG + XLSX，
     作为 06:20 sp_online_report_send 任务的数据来源。
+
+    两支路数据源不同（2026-09-30 起）：
+      Inbound  —— data/sp_email/data 最新 inband_details.xlsx（SFTP 明细）。
+      Outbound —— 库表 sp_outbound（`sp_online_sync` 每小时拉 eFlow），
+                  跟踪 WaitingForUpdate / WaitingForReturn / WaitingForConfirm。
+    改源原因：上游 SFTP 的 outband.xlsx 不含 WaitingForUpdate，见生成脚本头部注释。
     """
     script = _SP_ONLINE_GEN_SCRIPT
     if not script.is_file():

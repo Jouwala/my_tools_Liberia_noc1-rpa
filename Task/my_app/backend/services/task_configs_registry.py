@@ -729,6 +729,7 @@ def _sp_defaults():
         "folders": {k: (s.SP_TABLES.get(k) or {}).get("remote_folder", "") for k in keys},
         "mirror_enabled": bool(s.MIRROR_ENABLED),
         "mirror_db_path": s.MIRROR_DB_PATH,
+        "mirror_mode": getattr(s, "MIRROR_MODE", "push"),
         "inventory_retention_days": int(s._retention_days("inventory_details")),
     }
 
@@ -748,6 +749,7 @@ register_config(ConfigResource(
         },
         "mirror_enabled": True,
         "mirror_db_path": r"\\DESKTOP-D4GF62\FineBI6.0\webapps\Python\Unified_Tools\WareHouseDashBoard\inventory.db",
+        "mirror_mode": "push",
         "inventory_retention_days": 180,
     },
     schema={
@@ -765,12 +767,17 @@ register_config(ConfigResource(
         },
         "mirror_enabled": {"label_zh": "镜像写入 FineBI inventory.db", "type": "bool"},
         "mirror_db_path": {"label_zh": "镜像库路径（UNC）", "type": "str"},
+        "mirror_mode": {
+            "label_zh": "镜像写入方式（push=本地构建后整文件推送，推荐；direct=直连远端库，"
+                        "对 WAL 库会永久阻塞，仅回滚用）",
+            "type": "str",
+        },
         "inventory_retention_days": {
             "label_zh": "Inventory 历史保留天数（仓库看板趋势图的最大回溯天数）",
             "type": "int", "min": 1, "max": 3650,
         },
     },
-    description="SP 备件数据同步：SFTP 主机与各报表远程目录（凭据在「凭据管理」）；同步后镜像写入 FineBI WareHouseDashBoard inventory.db；inventory_details 按保留天数清理历史快照（app.db 与镜像库同口径）",
+    description="SP 备件数据同步：SFTP 主机与各报表远程目录（凭据在「凭据管理」）；同步后镜像写入 FineBI WareHouseDashBoard inventory.db（默认本地构建后整文件推送，绕开远端 WAL 库在 SMB 上无法加锁的问题）；inventory_details 按保留天数清理历史快照（app.db 与镜像库同口径）",
 ))
 
 # ========== VMAX 多报表指标采集（vmax_multi_data_sync） ==========

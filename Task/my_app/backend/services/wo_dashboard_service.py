@@ -33,13 +33,17 @@ from datetime import datetime
 from backend.database import get_raw_connection
 from backend.dialect_helpers import list_table_names
 from backend.routers.tt_wo_dashboard import (
+    _EXCLUDED_SLA_STATUSES,
     _MTTR_GRANULARITIES,
+    _UNKNOWN_EXCLUDED_DIMENSIONS,
     _advanced_site_filters,
     _detect_schema,
+    _is_excluded_ticket_severity,
     _mttr_series,
     _parse_adv,
     _period_label,
     _safe_str,
+    _stat_key,
     _ticket_severity_key,
     _time_filter,
 )
@@ -111,9 +115,12 @@ def wo_overview(
             sev = _ticket_severity_key(r[0])
             if sev is not None:
                 severity[sev] = severity.get(sev, 0) + 1
-            # SLA 取自关联 TT；JOIN 不上或 TT 未算 SLA 的记 Unknown，
-            # 这样「Pass + Failed + ... = WO 总数」，卡片占比分母自洽
-            sla_stats[_safe_str(r[1])] = sla_stats.get(_safe_str(r[1]), 0) + 1
+            # SLA 取自关联 TT。2026-09-29 业务要求：JOIN 不上或 TT 未算 SLA 的
+            # 行不再归并为 'Unknown' 单独成类，直接不计入该维度统计
+            # （与 Ticket Severity 的排除口径一致）。
+            sla_val = _stat_key(r[1], _EXCLUDED_SLA_STATUSES, join_empty=True)
+            if sla_val is not None:
+                sla_stats[sla_val] = sla_stats.get(sla_val, 0) + 1
             st = _safe_str(r[2], "")
             if st:
                 status_stats[st] = status_stats.get(st, 0) + 1
@@ -372,6 +379,11 @@ def wo_drilldown(
         cond = ""
         extra: list = []
         if col and value:
+            # 2026-09-29：ticket_severity / sla_status 的 Unknown 已从概览统计中剔除，
+            # 下钻必须同步返回空集（口径一致性，见 AGENTS.md 第三节第 1b 条）。
+            if dimension in _UNKNOWN_EXCLUDED_DIMENSIONS and _is_excluded_ticket_severity(value):
+                conn.close()
+                return {"title": f"WO - {dimension}: {value}", "count": 0, "data": []}
             if value == "Unknown":
                 # Unknown 是本页对 NULL/空串的归并写法（与 overview 的 _safe_str 一致），
                 # 下钻时必须还原成同一批行，否则卡片数字与行数不等

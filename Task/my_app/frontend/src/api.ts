@@ -111,6 +111,34 @@ export function getPmAnalysisDrilldown(params: {
   return api.get('/pm-analysis/drilldown', { params })
 }
 
+// ========== Speedtest 竞对分析（ORANGE vs MTN）==========
+// 数据源：speedtest_data（Speedtest.xlsx 导入）。后端 backend/routers/bm_speedtest.py，
+// 口径（品牌归一、左闭右开时间窗、概览与下钻共用同一份 WHERE）
+// 见 backend/services/bm_speedtest_caliber.py 的模块 docstring。
+export function getBmSpeedtestFilters() {
+  return api.get('/bm-speedtest/filters')
+}
+
+export function getBmSpeedtestOverview(params?: { start?: string; end?: string }) {
+  return api.get('/bm-speedtest/overview', { params })
+}
+
+// 单指标趋势 + 滚动均值；metric 非法时后端回落 download
+export function getBmSpeedtestTrend(params?: {
+  start?: string; end?: string; metric?: string; window?: number
+}) {
+  return api.get('/bm-speedtest/trend', { params })
+}
+
+// 下钻：metric + winner 组合表示「该指标更强的那一方的胜日明细」，
+// 行数与该指标的胜场天数严格相等；day / brand 是叠加的维度过滤。
+export function getBmSpeedtestDrilldown(params?: {
+  start?: string; end?: string; metric?: string
+  day?: string; brand?: string; winner?: string; limit?: number
+}) {
+  return api.get('/bm-speedtest/drilldown', { params })
+}
+
 // ========== TT 复盘报告（NOC 操作人分析 / 派单机制真相 / 单 TT 复盘 / MD 导出）==========
 // 新增于 2026-09-23；对应后端 routers/eflow_qa.py 中 _tt_postmortem_* 端点
 export function getTtPostmortem(ttNo: string) {
