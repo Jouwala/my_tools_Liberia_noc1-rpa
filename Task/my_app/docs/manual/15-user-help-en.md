@@ -123,7 +123,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Battery KPI Sync | `battery_kpi_sync` | `5 * * * *` | u | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_kpi_sync` |
 | Battery KPI Email | `battery_email` | `0 7,19 * * *` | m | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_email` |
 | Mailbox Storage Guard | `mailbox_cleanup` | `0 * * * *` | m | `services/mailbox_cleanup.py → run_mailbox_cleanup` |
-| Incident Overview Data Sync | `incident_overview_sync` | `0 * * * *` | m | `services/incident_overview_sync.py → run_incident_overview_sync` |
+| Incident Overview Data Sync | `incident_overview_sync` | `20 * * * *` | m | `services/incident_overview_sync.py → run_incident_overview_sync` |
 | FineBI Report Files Sync | `finebi_report_sync` | `10 * * * *` | m | `services/finebi_report_sync.py → run_finebi_report_sync` |
 | DB Data Freshness Check | `db_freshness_check` | `15 * * * *` | m | `services/db_freshness_check.py → run_db_freshness_check` |
 | MTTR/TT Wide Table Rebuild | `mttr_tt_sync` | `40 7 * * *` | m | `services/mttr_tt_sync.py → run_mttr_tt_sync` |
@@ -883,20 +883,21 @@ Workflow & maintenance notes per task:
 
 #### Incident Overview Data Sync（`incident_overview_sync`）
 
-- Default cron: `0 * * * *`　|　worker group: **m**
+- Default cron: `20 * * * *`　|　worker group: **m**
 - Workflow script: `services/incident_overview_sync.py → run_incident_overview_sync`
 
-**What it does**: Hourly on-the-hour: pull the latest incident_overview.xlsx from all subfolders of FineBI FTP /webroot/WEB-INF/schedule/TT_WO/, stored as versioned files + a current.json pointer
+**What it does**: Hourly at minute 20: pull the latest incident_overview.xlsx from all subfolders of FineBI FTP /webroot/WEB-INF/schedule/TT_WO/, stored as versioned files + a current.json pointer
 
 **Workflow & data flow**:
 
-1. Scan all TT_WO/ subfolders on FineBI FTP hourly
+1. Scan all TT_WO/ subfolders on FineBI FTP at minute 20 each hour
 1. Save the latest incident_overview.xlsx as a versioned file + current.json pointer
 1. Best-effort refresh of the incident_overview.xlsx snapshot for the incident overview page
 
 **Maintenance**:
 
 - The versioned design survives the upstream Excel being locked open — a hard-won fix, do not revert to direct overwrite
+- Keep the schedule at minute 20 — FineBI deletes the previous output folder at :53 and the new copy lands around :02–:05, so an on-the-hour run hits that gap and reports a false "incident_overview.xlsx not found" (seen in 2026-09); inside the gap it reuses a local copy younger than 90 minutes instead of failing
 
 #### FineBI Report Files Sync（`finebi_report_sync`）
 
@@ -1503,7 +1504,8 @@ The eflow_wo-sourced twin of the TT Dashboard: the layout matches page=tt block 
 Network Unavailability Rate (NUR) daily/weekly/monthly trends, multi-dimension analysis and site compliance.
 
 - Switch granularity and date range, filter by dimensions
-- Click numbers to drill into a detail table (in-column filters & sorting); export to Excel
+- Site dimensions can be narrowed by TRM type / Site category / Province-County / Region (attributes come from the site master, exact match; numerator and denominator share the same scope, so NUR still means this subset of sites)
+- Click numbers to drill into a detail table (in-column filters & sorting); export to Excel — the drill-down inherits every active filter
 
 #### NUR Dashboard (NUR only)（`ms_nur_only`）
 
@@ -1617,6 +1619,20 @@ Speedtest Benchmark Report: puts the two operators (Orange and MTN) side by side
 - Location / device / technology / aggregation each have only one effective value in the data (nationwide / cellular / median), so **those four dimensions have no filters** — that is intentional, not an omission
 - Missing data renders as "—" (never 0); all exports go through the "Export Excel" buttons in the header and on each card
 
+#### bm_meta（`bm_meta`）
+
+Meta Benchmark Report: based on meta_data (imported from Meta_20260923.xlsx, 612 rows, 2025-01-18 ~ 2026-09-23) it answers two questions — (1) "between Orange and MTN, who has the higher speed, by how much, and is the gap widening or narrowing"; (2) "what level are the network-side KPIs (BP / FDD DL IP throughput / DL and UL PRB utilization / traffic volume / RRC users) at over the same period". These two are **deliberately kept apart**: only "speed" is a head-to-head between the two operators, while the other six are network-side KPIs belonging to neither. The page has two layers: a head-to-head layer (composite score -> speed cards -> dual-line trend -> daily win/loss -> monthly and daily tables) and a network-KPI layer (summary cards + single-line trend).
+
+- Quick ranges at the top (90 / 180 / 365 days / all time) plus date pickers; the window is **half-open** internally while the UI shows a closed range. The default is 365 days rather than 90 because this table spans 612 days and a short window would cut off the long-term trend
+- The competitiveness score is **relative between the two operators**: the leader scores 100 and the other scales proportionally. It answers "who is stronger and by how much", not whether the absolute level is good
+- **Why the network KPIs are excluded from scoring**: mixing "how much faster Orange is than MTN" with "how high network-wide PRB utilization is" into one score would treat two different things as two contestants in the same contest, producing a false conclusion. So the six network KPIs only get trends and averages — no wins, no score
+- "Speed" is the download-speed comparison between the two operators (the fixed columns orange_liberia / mtn_liberia in the database), one row per day; when the two are equal it counts as a "tie" and is **not credited as a win to either side** (a note at the top states how many such days there are)
+- Every figure is clickable: click an operator value or "leads N of M days" for **the days that operator led** (row count equals the win count, computed by the same comparison logic); click any cell in the daily or monthly table for that day's raw records
+- The segmented control on the trend card switches among seven metrics (speed plus the six network KPIs) and the dropdown sets the moving-average window (3/7/14/30/60 days). Switching to a network KPI turns the chart into a single line with **no operator legend**, because it belongs to neither operator
+- BP and the DL/UL PRB utilization rates are stored as **decimal ratios** (e.g. 0.1956) and are converted to percentages for display (19.56%); win/loss and scoring use the raw ratios, so the display conversion does not affect results
+- Traffic (GB) and RRC user counts are shown with thousands separators; missing data renders as "—" (never 0)
+- Excel export has three sheets (summary / monthly / daily); the summary sheet groups the head-to-head and the network KPIs separately so they are not read as one thing
+
 #### noc_analyst（`noc_analyst`）
 
 NOC operator analysis: quantifies each NOC operator's root-cause mismatch rate, average handling time, night-ticket share and SLA pass rate from eflow_tt.last_processer, and raises red flags. Built around "drill down wherever possible" — from the person to the ticket, then to the alarm chain.
@@ -1682,6 +1698,8 @@ BP Cells Report: umlaut-caliber BP cell statistics, viewable by day/week/month a
 - The "BP cells (latest period)" card shows that period's BP cell count and its share of evaluated cells; the "Latest period verdict" card gives yes/no for week/month, and when undecidable it states the cause — a week still in progress (just wait) versus a month with too few full weeks (2026-09 has only 3 full weeks against the required 4, so that month can never be decided; a caliber-vs-calendar mismatch, not missing data)
 - Regions (Cluster1~6 / Rural / ERA) can only be maintained in Excel; RAN_UME has no such dimension, and new cells missing from the dictionary fall back to Unknown
 - The trend switches between day / week / month granularity; if the chart looks empty on week or month, first check that the date range covers periods that actually have data
+- ⚠️ The four drill-down columns PRB utilization / DL throughput / Active users (busy hour) / DL traffic exist only from 2026-07-22 onward: BP Report.xlsx itself stores only date / NE / cell / cluster / layer and never carried these metrics, so they must be re-fetched upstream — and upstream retains nothing for the 21 days 2026-07-01~07-21 (UME likewise only goes back to 07-02), so that range shows — and cannot be filled
+- For 2026-07-22~09-21 the four metrics have been backfilled from upstream, so those days now hold whole-network cells rather than only the cells umlaut reported; BP counts run about 13~14% below that period's original Excel values, and the share denominator follows the same caliber change
 - Data is incrementally refreshed from RAN_UME by the bp_report_sync task daily at 06:20
 
 #### Packet Loss（`packet_loss`）

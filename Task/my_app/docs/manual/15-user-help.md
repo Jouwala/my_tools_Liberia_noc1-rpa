@@ -123,7 +123,7 @@
 | 电池 KPI 同步 | `battery_kpi_sync` | `5 * * * *` | u | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_kpi_sync` |
 | 电池 KPI 邮件 | `battery_email` | `0 7,19 * * *` | m | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_email` |
 | 邮箱空间清理 | `mailbox_cleanup` | `0 * * * *` | m | `services/mailbox_cleanup.py → run_mailbox_cleanup` |
-| Incident Overview 数据同步 | `incident_overview_sync` | `0 * * * *` | m | `services/incident_overview_sync.py → run_incident_overview_sync` |
+| Incident Overview 数据同步 | `incident_overview_sync` | `20 * * * *` | m | `services/incident_overview_sync.py → run_incident_overview_sync` |
 | FineBI 报表文件同步 | `finebi_report_sync` | `10 * * * *` | m | `services/finebi_report_sync.py → run_finebi_report_sync` |
 | 数据库数据新鲜度巡检 | `db_freshness_check` | `15 * * * *` | m | `services/db_freshness_check.py → run_db_freshness_check` |
 | MTTR/TT 宽表重建 | `mttr_tt_sync` | `40 7 * * *` | m | `services/mttr_tt_sync.py → run_mttr_tt_sync` |
@@ -883,20 +883,21 @@
 
 #### Incident Overview 数据同步（`incident_overview_sync`）
 
-- 默认 cron: `0 * * * *`　|　worker 组: **m**
+- 默认 cron: `20 * * * *`　|　worker 组: **m**
 - 工作流脚本: `services/incident_overview_sync.py → run_incident_overview_sync`
 
-**功能**: 每小时整点从 FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ 所有子目录取最新 incident_overview.xlsx，版本化落盘 + current.json 指针
+**功能**: 每小时第 20 分钟从 FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ 所有子目录取最新 incident_overview.xlsx，版本化落盘 + current.json 指针
 
 **工作流与数据流**:
 
-1. 每小时整点扫描 FineBI FTP 的 TT_WO/ 全部子目录
+1. 每小时第 20 分钟扫描 FineBI FTP 的 TT_WO/ 全部子目录
 1. 取最新 incident_overview.xlsx 落盘为版本化文件 + current.json 指针
 1. best-effort 刷新 incident_overview.xlsx 快照，供事件总览页使用
 
 **维护要点**:
 
 - 版本化设计使上游 Excel 被打开占用时也不会取数失败——这是历史踩坑后的修复，勿改回直接覆盖
+- 调度必须留在 :20，不要改回整点——FineBI 每小时 :53 会先删掉上一轮输出目录，新副本约 :02–:05 才落盘，整点取数正好撞空档（2026-09 曾因此每小时误报「未找到 incident_overview.xlsx」）；撞上空档时只要本地副本不超过 90 分钟就沿用上、不判失败
 
 #### FineBI 报表文件同步（`finebi_report_sync`）
 
@@ -1503,7 +1504,8 @@ TT 看板的「WO 数据源」版：版式与 page=tt 逐块一致，只是数�
 网络不可用率（NUR）的日/周/月趋势、多维分析与站点达标情况。
 
 - 切换粒度与日期区间，多维下拉筛选
-- 点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel
+- 站点维度可再按 TRM 类型 / 站点等级 / 省县 / 区域筛选（属性取自站点主数据，精确匹配；分子与分母同口径，NUR 仍表示这批站点的不可用率）
+- 点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel；下钻自动继承当前全部筛选
 
 #### NUR 看板（仅 NUR）（`ms_nur_only`）
 
@@ -1617,6 +1619,20 @@ Speedtest 基准报告：把两家运营商（Orange 与 MTN）的网速实测�
 - 数据里 location / device / 制式 / 聚合方式都只有一个有效取值（全国 / cellular / median），所以**这四个维度没有筛选器**，不是漏做
 - 取不到数据显示「—」而不是 0；导出统一走页面右上角与各卡片的「导出 Excel」
 
+#### bm_meta（`bm_meta`）
+
+Meta 基准报告：基于 meta_data（Meta_20260923.xlsx 导入，612 行，2025-01-18 ~ 2026-09-23）回答两件事——①「Orange 与 MTN 谁的速率更高、领先多少、优势在扩大还是缩小」；②「同时段网络侧的 BP / FDD 下行吞吐 / 上下行 PRB 利用率 / 流量 / RRC 用户数是什么水平」。这两件事**刻意分开**：只有「速率」是两家的直接对比，其余 6 项是网络侧 KPI，不属于任何一家。页面分两大层：两家 PK 层（综合评分 → 速率汇总卡 → 双线趋势 → 逐日胜负 → 月度对比与逐日明细）+ 网络侧 KPI 层（汇总卡 + 单线趋势）。
+
+- 顶部快捷区间（近 90 / 180 / 365 天 / 全部）配合日期选择器；时间窗是**左闭右开**，界面显示的是闭区间。默认窗口是近 365 天而不是 90 天——本表跨度 612 天，短窗口会把长期趋势结论切掉
+- 「综合竞争力评分」是**两家的相对分**：领先方 100 分、另一方按比例得分。它只回答「这两家谁更强、强多少」，不评价绝对水平好不好
+- **为什么网络侧 KPI 不参与评分**：把「Orange 比 MTN 快多少」和「全网 PRB 利用率多高」混进同一个评分，等于把两件不同的事算成同一件事的两个选手，结论是假的。所以网络侧 6 项只做趋势与汇总，没有胜负、没有评分
+- 「速率」是两家的下载速率对比值（库中 orange_liberia / mtn_liberia 两个固定列），每天一行；两家相同时记为「持平」，**不计入任何一方胜场**（页面顶部有提示条说明有几天）
+- 页面上每个数字都可点开下钻：点品牌数字或「领先 N / M 天」看**该品牌领先的那些天**（行数与胜场天数严格相等，同一份比较逻辑算出来的）；点逐日/月度表里的任意格看当天原始明细
+- 趋势图右侧分段控件切 7 个指标（速率 + 6 项网络侧 KPI），下拉设滚动均值窗口（3/7/14/30/60 天）。切到网络侧 KPI 时图变单线且**不出现运营商图例**——因为它不属于任何一家
+- BP 与上下行 PRB 利用率在库里是**小数比率**（如 0.1956），页面统一换算成百分数显示（19.56%）；胜负与评分用原始比率算，不受显示换算影响
+- 流量（GB）与 RRC 用户数带千分位显示；取不到数据显示「—」而不是 0
+- 导出 Excel 含三张 sheet（汇总 / 月度对比 / 逐日明细），汇总 sheet 里两家 PK 与网络侧 KPI 分组列示，避免被读成同一件事
+
 #### noc_analyst（`noc_analyst`）
 
 NOC 操作人分析：基于 eflow_tt.last_processer 量化每位 NOC 的根因错位率、平均处理时长、夜班单占比与 SLA 通过率，并给出红旗告警。页面按「能下钻尽下钻」设计——从人一路下钻到 TT，再下钻到告警链路。
@@ -1682,6 +1698,8 @@ BP Cells Report：umlaut 口径的 Bad Performance 小区统计，支持按日/�
 - 「最新一期 BP 小区数」卡显示该期 BP 小区数及其占评估总数的比例；「最新一期判定」卡周/月给出是/否，不可判定时会说明成因 —— 本周没过完（等待即可）与本月完整周数不足（如 2026-09 只有 3 个完整周 < 口径要求 4 个，该月永远判不出来，是口径与日历错配而非缺数据）
 - 分区（Cluster1~6 / Rural / ERA）只能在 Excel 里维护，RAN_UME 没有这套维度；新增小区若不在字典内会归为 Unknown
 - 趋势支持按日/周/月三种粒度切换；切到周或月时若只看到空图，先确认日期范围是否覆盖了有数据的周期
+- ⚠️ 下钻明细里的 PRB 利用率 / DL 吞吐 / 活跃用户(忙时) / DL 流量 四列只有 2026-07-22 之后才有：BP Report.xlsx 本身只存日期/网元/小区/分区/频层，从不含这四个指标，只能从上游重新取；而上游对 2026-07-01~07-21 这 21 天没有留存（UME 侧同样只到 07-02 起），故该区间显示 — 且无法补
+- 2026-07-22~09-21 的四个指标已从上游补回，这些天的行数因而是「全网小区」而非「umlaut 报告过的小区」，BP 数与该期 Excel 原值相比低约 13~14%，占比分母口径也随之不同
 - 数据由 bp_report_sync 任务每天 06:20 从 RAN_UME 增量更新
 
 #### 丢包看板（`packet_loss`）

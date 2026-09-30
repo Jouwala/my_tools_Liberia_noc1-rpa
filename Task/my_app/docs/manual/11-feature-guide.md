@@ -178,13 +178,21 @@
 网络不可用率（NUR）的日/周/月趋势与站点达标情况。口径见 `01-overview.md` 术语表。
 
 - 粒度切换 `daily|weekly|monthly`（`NurDashboard.tsx:29-30`）、日期区间、多维下拉（`GET /api/nur/options`，:421）。
+- **站点四维筛选**（2026-09-30 新增）：`trm_type` / `site_caregory` / `province_county` / `region`，
+  候选值由 `/api/nur/options` 的 `site_filters` 下发（`nur_calc.get_site_filter_options`，取自站点主数据 `master_site_db`），
+  **精确匹配**、**同时作用于分子（TT）与分母（小区数）** —— 只筛分子会让 NUR 比值不再是「这批站点的不可用率」。
+  口径、归属规则与未归属行的处理见 `backend/routers/nur_dashboard.md` 的「站点四维过滤」一节。
+  站点归属 `site_id` 优先、重名站名不回退（11 个重名站，猜哪个都是静默错归）。
+  界面下拉按 `SITE_FILTER_COLS` 顺序渲染，标签走显式 `switch`（`siteFilterLabelKey`）而非动态拼 i18n 键（同 1b 条）。
 - 主数据 `GET /api/nur/overview`（:411）；点数字下钻明细表 `GET /api/nur/detail`（:448），下钻表带列内筛选与排序（`strSorter`/`getUniqueFilters`，:17-27）。
+  **下钻继承当前全部筛选（含站点四维）**，与概览逐条同口径 —— 实测 SLA Total 行与下钻行数在 5 组筛选下逐一对齐。
 - **导出**：分两级，别混淆 ——
   - **下钻弹窗内**：导出当前下钻明细行（`exportToExcel`）；
   - **页面级**（2026-09-27 新增）：导出当前筛选下的全部汇总数据。
   > 本节曾把弹窗内那个按钮记作本页的「导出」，读起来像是页面上有导出入口，**实为误记**（同 `page=ttwo` 的问题），2026-09-27 已纠正。
   - **页面级**（2026-09-27 新增）：筛选条末尾的导出按钮，多 sheet（`汇总` + `KPI List NUR/SLA` 日/周/月各一档）。
-    导出当前 Vendor / Project / Exclude / 时间范围筛选后的汇总卡与三档 NUR+SLA；四项筛选条件写进每个 sheet 的 `subtitle`（含各档粒度与 NUR 量纲说明）。
+    导出当前 Vendor / Project / 站点四维 / Exclude / 时间范围筛选后的汇总卡与三档 NUR+SLA；筛选条件写进每个 sheet 的 `subtitle`（含各档粒度与 NUR 量纲说明）。
+    站点四维在副标题里沿用筛选条同一批标签键（`nur.trmType` 等），不另建 `nur.exportXxx` 重复键。
     **派生页 `?page=ms_nur_only`（`MsNurOnly.tsx`）自动获得该按钮**（同上，参数化复用 + 顶部工具栏）。
 - 表格与趋势图复用同一套"项目统一下钻规范"，与 TT&WO / MS SLA 三页保持一致。
 
@@ -2404,6 +2412,48 @@ W35~W40 六周全对（4288/4574/4320/4061/3226/958）。
 前端对这些期**置灰下钻入口**（点开只会是空弹窗，比不给点更糟）。
 **绝不能用明细值覆盖展示值** —— 那会让 2023/2024 显示成 0，比原问题严重得多。
 
+### 四个指标只在近期有：可补范围与两个数据源的真实边界（2026-09-30 实测）
+
+用户反馈「下钻明细里 PRB 利用率 / DL 吞吐 / 活跃用户(忙时) / DL 流量 只有最近
+7 天有，能补多少就补多少」。实测结论如下，**这三条都是踩过坑才确认的**：
+
+**① Excel 从来就没有这四个指标 —— 不是"部分缺失"，是"从未采集"。**
+`BP Report.xlsx` 的 `BP Cells List` 只有 **5 列**：
+`Date | ManagedElement ID | E-UTRAN FDD Cell Name | Cluster | Layer`。
+其余 9 张 sheet 只有汇总的 BP 数/占比/总流量。所以 421,561 行 Excel 明细
+（2024-02-08 ~ 2026-09-21）**没有可"补齐"的存量**，只能从上游重新取。
+
+**② 有两个上游数据源，保留期完全不同 —— 别用一个的结论判断另一个。**
+
+| 数据源 | 用途 | 实测覆盖 |
+| --- | --- | --- |
+| UME PM API（`bp_active_user.py`） | 活跃用户(忙时)，即第三个条件 | **2026-07-02 起**完整；**06-30 只剩 192 个小区**（残日）；06-29 及更早为 0 |
+| 远端主日表 `4G_Main_Kpi_Cell_Daily`（`remote_readonly`） | PRB / DL 吞吐 / DL 流量 | **2026-06-25~06-30 与 07-22~09-29** 有数据；**07-01~07-21 整段空洞（21 天）** |
+
+> ⚠️ **踩坑记录**：先用 UME PM API 探到「保留到 07-01」，据此以为能补 82 天，
+> 结果前 21 天（07-02~07-21）走远端主日表时**取回 0 行**。两个源的保留期是
+> 独立的，补数前必须**分别**确认。
+
+**③ 能补的区间是 2026-07-22 ~ 2026-09-21（62 天），其余补不了。**
+
+- `2026-07-01 ~ 07-21`：远端主日表真实空洞，**无数据可补**；
+- `2026-06-25 ~ 06-30`：远端主日表**有**行（5,673~5,737/天），但 AU 在那个深度
+  取不到 → 全部小区判不出来 → `bp_cells` 会被写成 **0**，把原有的 532~724 抹掉。
+  **这一段必须排除**，不是"能补多少补多少"的对象。该误覆盖**真实发生过一次**
+  （06-25~06-30 六天的 BP 被清零），已从快照逐日恢复；
+- `2026-09-22` 起：库里已是 `ume` 源，四个指标本来就有。
+
+**补数的副作用（用户已确认接受）**：补进去走 bp-v3 忙时口径重算，
+会**覆盖**这些天原有的 Excel 值。实测 2026-09-15：`bp_cells` 575 → 473（−17.7%），
+明细行 581 → 5,792 —— 即 `total_cells`（BP 占比的**分母**）从"umlaut 报告过的
+小区"变成"全网小区"，历史占比曲线会整体平移。逐日偏差实测稳定在 **−13%~−14%**
+（如 07-22 −61、08-07 −94、09-15 −102）。
+
+**复用脚本**：`TMP/_bp_backfill.py`（一次性回填工具，留在 TMP 不删）。
+它自带**误覆盖守卫** —— 当天 `fetch rows == 0`、或 `bp_cells` 从有值塌成 0 时，
+自动从快照回滚该日并记为失败，避免 06-25~06-30 那类事故重演。
+用法见文件头注释；改历史数据前先 `Copy-Item data\bp_report.sqlite3 TMP\_bak_bp_report_<时间戳>.sqlite3`。
+
 ### 脏值处理
 
 Excel `BP Cells List` 的 `Cluster`/`Layer` 列有脏值（如数字 ID `'4593'`）：
@@ -2597,13 +2647,132 @@ MTN 胜 206 天；上传 ORANGE 194 / MTN 224；时延 ORANGE 胜 299 天。
 
 - `frontend/src/App.tsx`：lazy import、`PageKey` 联合类型、`VALID_PAGES`、`PAGE_META`
   （图标 `ThunderboltOutlined`、文案键 `nav.bmSpeedtest`）、render `switch` 的
-  `case 'bm_speedtest'`，以及 `DEFAULT_GROUPS` 里 `grp_monitor`（网络质量）分组的 items。
+  `case 'bm_speedtest'`，以及 `DEFAULT_GROUPS` 里 `grp_network`（网络质量）分组的 items。
 - `frontend/src/i18n.tsx`：`bms.*` 与 `nav.bmSpeedtest`，**中英两处都要加**。
 - `frontend/src/api.ts`：`getBmSpeedtest{Filters,Overview,Trend,Drilldown}`。
 - `frontend/src/pages/helpContent.ts`：`PAGE_DOCS`（zh/en 两份）+ `PAGE_LIST` +
   `NAV_KEY_MAP` + `CATEGORIES`，改完跑 `node scripts/generate-help-doc.mjs`。
 
 > **没有新增定时任务**：本页只读已导入的 `speedtest_data` 表，不做采集，
+> 因此 `backend/task_registry.py` 的 `TASK_SPECS` 无需登记。
+
+## 32. Meta 基准报告（`?page=bm_meta`）—— ORANGE vs MTN 速率 PK + FDD 网络侧 KPI（2026-10-01 新增）
+
+基于 `meta_data` 表，同时回答两个问题：①「Orange 与 MTN 谁的速率更高、领先多少」；
+②「同时段网络侧 BP / 下行吞吐 / 上下行 PRB 利用率 / 流量 / RRC 用户数是什么水平」。
+
+### 32.1 与 §31 Speedtest 基准报告的关系（**不要合并**）
+
+两张表、两套口径、两个页面，**刻意不合并**：
+
+| | §31 `bm_speedtest` | §32 `bm_meta`（本页） |
+| --- | --- | --- |
+| 表 | `speedtest_data`（`Speedtest.xlsx`） | `meta_data`（`Meta_20260923.xlsx`） |
+| 行数 / 跨度 | 854 行，2025-07-16 ~ 2026-09-24 | 612 行，2025-01-18 ~ 2026-09-23 |
+| 两家怎么分 | 一行一家，`provider` 列 + LIKE 归一 | **一行两家**，两个固定列 |
+| 指标数 | 4 个实测指标（下载/上传/时延/抖动） | 1 个 PK 指标 + 6 个网络侧 KPI |
+| 层级 | 全部指标都参与 PK | **只有速率参与 PK** |
+
+关键差异是最后两行：`meta_data` 是**一张宽表**，每天一行、两家各占一个列，
+其余 6 列是**网络侧 KPI**。因此本页与 §31 的结构不同 —— §31 是「4 个指标 × 2 家」的矩阵，
+本页是「1 个 PK 指标 + 6 个旁挂 KPI」的**两层结构**。
+
+### 32.2 数据与口径
+
+| 项 | 值 |
+| --- | --- |
+| 表 | `meta_data`（由 `Meta_20260923.xlsx` 的 `_Download speed vs competitors` 表导入，单次导入） |
+| 行数 | 612 行，日期 2025-01-18 ~ 2026-09-23 |
+| 时间字段 | `time`（**实测 612 行时间部分恒为 `00:00:00`**，按 `::date` 处理） |
+| 两家 PK 列 | `orange_liberia` / `mtn_liberia`（**每天各一个值，一行即一天**） |
+| 网络侧 KPI 列 | `bp`、`fdd_dl_ip_throughput_mbps_sdr_itbbu`、`fdd_dl_prb_utilization_rate_sdr_itbbu`、`fdd_ul_prb_utilization_rate_sdr_itbbu`、`fdd_traffic_volume_gb`、`rrc连接建立最大用户数` |
+| 空值 | **8 个指标列全部无空值**（612 行实测） |
+| 日期缺口 | 2 处（2025-04-10、2025-04-14 缺失），故全区间实际 612 天而不是连续天数 |
+
+**口径唯一真相源**：`backend/services/bm_meta_caliber.py`。数据访问在
+`backend/services/bm_meta_service.py`，路由在 `backend/routers/bm_meta.py`（前缀 `/api/bm-meta`）。
+
+**几个刻意的设计决定，改之前请先读理由**：
+
+1. **网络侧 KPI 不参与 PK、不参与评分。** 这是本页最重要的口径决定。把
+   「Orange 比 MTN 快多少」和「全网 PRB 利用率多高」放进同一个评分，等于把两件
+   不同的事当成同一件事的两个选手，**结论是假的**。因此口径层把指标分成
+   `BRAND_METRICS`（进 PK 与评分）与 `NETWORK_METRICS`（只做趋势与汇总）两组。
+   页面上网络侧 KPI 的图只有单线、**不出现运营商图例**。
+2. **比率列必须 ×100 展示，但胜负与评分用原始比率。** `bp` 与两个 PRB 利用率在库里是
+   **小数比率**（`bp` 0.0131~0.1650、DL PRB 0.1956~0.3527、UL PRB 0.1054~0.1541），
+   已实测 **612 行无一超过 1**，确认是比率而非百分数。展示层统一换算成百分数
+   （如 0.1956 → 19.56%）。若日后数据出现 >1 的取值，说明上游改成了百分数，
+   **必须改 `bm_meta_caliber` 的换算逻辑**，否则会显示成 1956%。
+3. **`rrc连接建立最大用户数` 保持中文列名不改。** PostgreSQL 允许非 ASCII 标识符，
+   该列名与 `_source_file` 那份 Excel 表头一一对应，改成拼音/英文会让
+   「这一列对应哪个表头」失去可追溯性。引用时用双引号包裹。
+4. **`day` 只能用在 SELECT 别名，不能在 WHERE 里引用。** 本表与 §31 不同 ——
+   `time::date AS day` 只是投影别名，WHERE 阶段尚不存在。**实测报
+   `字段 "day" 不存在`**，必须写 `time::date = ?`（见 `bm_meta_service.build_drilldown`）。
+5. **默认时间窗是 365 天而不是 §31 的 90 天。** 本表跨度 612 天，
+   短窗口会把「Orange 长期落后但近期收窄」这类长期结论切掉。
+6. **没有运营商/区域筛选器。** 本表没有第三列可归一的运营商维度，
+   两家就是两个固定列，不存在匹配歧义，故 `_where()` 只过滤时间。
+
+### 32.3 页面结构（两层六块）
+
+**两家 PK 层**（有胜负、有评分）：
+
+1. **综合竞争力结论 + 综合评分** —— 相对分，领先方 100、另一方按比例得分
+   （权重在 `caliber.SCORE_WEIGHTS`，当前 PK 维度只有速率一项故为 1.0）。
+   保留权重结构是为了将来 Excel 增加第二组对比列时**评分函数无需改动**。
+2. **速率汇总卡** —— 两家均值、区间范围，各带胜场天数，全部可点下钻。
+3. **双线趋势** —— 实线逐日值、虚线滚动均值，逐日标出胜者。
+4. **逐日胜负统计** —— 两家胜场与胜率（`ties` 单列）。
+5. **月度对比表 + 逐日明细表** —— 逐日表里每个网络侧 KPI 格子也可点下钻。
+
+**网络侧 KPI 层**（无胜负、无评分）：6 张汇总卡（均值 + 极值）+ 单线趋势。
+
+### 32.4 下钻（遵循 AGENTS.md 第三节 1b）
+
+页面上每个数字都可点，落到 `DraggableClickModal` 明细弹窗。三条铁律的落实方式：
+
+- **下钻 WHERE 与概览完全一致**：两者共用 `bm_meta_service._where()` 生成的同一段
+  过滤片段（同一时间列 `time::date`、同一左闭右开区间）。
+- **`winner` 过滤复用同一套胜负判定**：`build_drilldown` 用 `cal.winner_of()` 逐行
+  判胜负后再收窄，与 `/overview` 的胜负统计是**同一个函数**，因此行数与胜场天数严格相等。
+  **实测**：`winner=ORANGE` 43 行 = 43 胜场，`winner=MTN` 314 行 = 314 胜场，全量 358 行 = 区间天数。
+- **截断显式暴露**：明细先取 `limit + 1` 行做探针，`truncated = len(rows) > limit`
+  再切回 `limit` 行，`meta.limit` 一并返回，界面有黄色告警条。
+
+### 32.5 一个必须显示的口径提示
+
+**两家速率相同的天不计入任何一方胜场**，单列 `wins.ties` 并在页面顶部提示条说明。
+全区间实测 358 天中有 **1 天相平**，`paired_days` = 357。
+「打平」既不是赢也不是输 —— 归给任一方都会系统性抬高该方胜率。
+
+### 32.6 实测基线（可用于回归比对）
+
+默认 365 天窗口（2025-10-01 ~ 2026-10-01，358 天）：
+
+- 速率：ORANGE 均值 12.13（7.90~15.18），MTN 均值 14.04（11.09~16.38）；
+- 评分：**MTN 100.0 / ORANGE 86.4**；
+- 胜负：MTN 胜 **314** 天、ORANGE 胜 **43** 天、平 1 天（`paired_days` = 357）；
+- 网络侧：BP 9.53%、下行吞吐 8.37 Mbps、DL PRB 28.88%、UL PRB 12.57%、
+  流量 396,812 GB、RRC 用户 341,336。
+
+> **MTN 明显领先**（胜率 88%），与 §31 Speedtest 页「两家接近、ORANGE 略优」的
+> 结论**方向相反**。两者口径不同、时段不同，**不是矛盾**：
+> §31 是实测网速（median、cellular），本页是 Meta 口径的对比值。对账时不要互相套用。
+
+### 32.7 页面注册位置（改页名或加同级页时对照）
+
+- `frontend/src/App.tsx`：lazy import、`PageKey` 联合类型、`VALID_PAGES`、`PAGE_META`
+  （图标 `ThunderboltOutlined`、文案键 `nav.bmMeta`）、render `switch` 的
+  `case 'bm_meta'`，以及 `DEFAULT_GROUPS` 里 **`grp_network`（网络质量）** 分组的 items
+  （紧跟 `bm_speedtest` 之后）。
+- `frontend/src/i18n.tsx`：`bmm.*` 与 `nav.bmMeta`，**中英两处都要加**。
+- `frontend/src/api.ts`：`getBmMeta{Filters,Overview,Trend,Drilldown}`。
+- `frontend/src/pages/helpContent.ts`：`PAGE_DOCS`（zh/en 两份）+ `PAGE_LIST` +
+  `NAV_KEY_MAP` + `CATEGORIES`，改完跑 `node scripts/generate-help-doc.mjs`。
+
+> **没有新增定时任务**：本页只读已导入的 `meta_data` 表，不做采集，
 > 因此 `backend/task_registry.py` 的 `TASK_SPECS` 无需登记。
 
 ## 29. FineBI 原生看板（`?page=finebi_<slug>`，共 17 个）

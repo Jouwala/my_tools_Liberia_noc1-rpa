@@ -31,6 +31,7 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'avail_ms' },
   { key: 'avail_flm' },
   { key: 'bm_speedtest' },
+  { key: 'bm_meta' },
   { key: 'noc_analyst' },
   { key: 'repeat_site_down' },
   { key: 'cr_analysis' },
@@ -83,6 +84,7 @@ export const NAV_KEY_MAP: Record<string, string> = {
   avail_ms: 'nav.availMs',
   avail_flm: 'nav.availFlm',
   bm_speedtest: 'nav.bmSpeedtest',
+  bm_meta: 'nav.bmMeta',
   noc_analyst: 'noc.navLabel',
   repeat_site_down: 'nav.repeatSiteDown',
   cr_analysis: 'nav.crAnalysis',
@@ -114,7 +116,7 @@ export const CATEGORIES: { id: string; pages: string[] }[] = [
   { id: 'tasks', pages: ['sync', 'email_reports', 'upload', 'tables', 'overview'] },
   {
     id: 'boards',
-    pages: ['alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'avail_ms', 'avail_flm', 'bm_speedtest', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'bp_report', 'packet_loss', 'battery', 'ume_in_kpi', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary'],
+    pages: ['alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'avail_ms', 'avail_flm', 'bm_speedtest', 'bm_meta', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'bp_report', 'packet_loss', 'battery', 'ume_in_kpi', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary'],
   },
   { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace'] },
   { id: 'system', pages: ['settings', 'portalLogin'] },
@@ -213,7 +215,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     nur: {
       desc: '网络不可用率（NUR）的日/周/月趋势、多维分析与站点达标情况。',
-      usage: ['切换粒度与日期区间，多维下拉筛选', '点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel'],
+      usage: ['切换粒度与日期区间，多维下拉筛选', '站点维度可再按 TRM 类型 / 站点等级 / 省县 / 区域筛选（属性取自站点主数据，精确匹配；分子与分母同口径，NUR 仍表示这批站点的不可用率）', '点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel；下钻自动继承当前全部筛选'],
     },
     ms_nur_only: {
       desc: 'NUR 看板的「只保留 NUR」版：内容与 page=nur 的 NUR 部分完全一致（NUR 日/周/月 的表格 + 趋势），不再渲染 SLA 三档，适合只看 NUR 的值班位或大屏。',
@@ -373,6 +375,20 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '取不到数据显示「—」而不是 0；导出统一走页面右上角与各卡片的「导出 Excel」',
       ],
     },
+    bm_meta: {
+      desc: 'Meta 基准报告：基于 meta_data（Meta_20260923.xlsx 导入，612 行，2025-01-18 ~ 2026-09-23）回答两件事——①「Orange 与 MTN 谁的速率更高、领先多少、优势在扩大还是缩小」；②「同时段网络侧的 BP / FDD 下行吞吐 / 上下行 PRB 利用率 / 流量 / RRC 用户数是什么水平」。这两件事**刻意分开**：只有「速率」是两家的直接对比，其余 6 项是网络侧 KPI，不属于任何一家。页面分两大层：两家 PK 层（综合评分 → 速率汇总卡 → 双线趋势 → 逐日胜负 → 月度对比与逐日明细）+ 网络侧 KPI 层（汇总卡 + 单线趋势）。',
+      usage: [
+        '顶部快捷区间（近 90 / 180 / 365 天 / 全部）配合日期选择器；时间窗是**左闭右开**，界面显示的是闭区间。默认窗口是近 365 天而不是 90 天——本表跨度 612 天，短窗口会把长期趋势结论切掉',
+        '「综合竞争力评分」是**两家的相对分**：领先方 100 分、另一方按比例得分。它只回答「这两家谁更强、强多少」，不评价绝对水平好不好',
+        '**为什么网络侧 KPI 不参与评分**：把「Orange 比 MTN 快多少」和「全网 PRB 利用率多高」混进同一个评分，等于把两件不同的事算成同一件事的两个选手，结论是假的。所以网络侧 6 项只做趋势与汇总，没有胜负、没有评分',
+        '「速率」是两家的下载速率对比值（库中 orange_liberia / mtn_liberia 两个固定列），每天一行；两家相同时记为「持平」，**不计入任何一方胜场**（页面顶部有提示条说明有几天）',
+        '页面上每个数字都可点开下钻：点品牌数字或「领先 N / M 天」看**该品牌领先的那些天**（行数与胜场天数严格相等，同一份比较逻辑算出来的）；点逐日/月度表里的任意格看当天原始明细',
+        '趋势图右侧分段控件切 7 个指标（速率 + 6 项网络侧 KPI），下拉设滚动均值窗口（3/7/14/30/60 天）。切到网络侧 KPI 时图变单线且**不出现运营商图例**——因为它不属于任何一家',
+        'BP 与上下行 PRB 利用率在库里是**小数比率**（如 0.1956），页面统一换算成百分数显示（19.56%）；胜负与评分用原始比率算，不受显示换算影响',
+        '流量（GB）与 RRC 用户数带千分位显示；取不到数据显示「—」而不是 0',
+        '导出 Excel 含三张 sheet（汇总 / 月度对比 / 逐日明细），汇总 sheet 里两家 PK 与网络侧 KPI 分组列示，避免被读成同一件事',
+      ],
+    },
     repeat_site_down: {
       desc: '重复宕站看板：识别在统计窗口内反复宕站的站点，用于定位「修不好的站」。',
       usage: ['按日粒度统计站点宕站次数，点数字下钻该日宕站明细', '数据来自 eflow_tt 与 eflow_site，与告警看板口径互补'],
@@ -413,6 +429,8 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '「最新一期 BP 小区数」卡显示该期 BP 小区数及其占评估总数的比例；「最新一期判定」卡周/月给出是/否，不可判定时会说明成因 —— 本周没过完（等待即可）与本月完整周数不足（如 2026-09 只有 3 个完整周 < 口径要求 4 个，该月永远判不出来，是口径与日历错配而非缺数据）',
         '分区（Cluster1~6 / Rural / ERA）只能在 Excel 里维护，RAN_UME 没有这套维度；新增小区若不在字典内会归为 Unknown',
         '趋势支持按日/周/月三种粒度切换；切到周或月时若只看到空图，先确认日期范围是否覆盖了有数据的周期',
+        '⚠️ 下钻明细里的 PRB 利用率 / DL 吞吐 / 活跃用户(忙时) / DL 流量 四列只有 2026-07-22 之后才有：BP Report.xlsx 本身只存日期/网元/小区/分区/频层，从不含这四个指标，只能从上游重新取；而上游对 2026-07-01~07-21 这 21 天没有留存（UME 侧同样只到 07-02 起），故该区间显示 — 且无法补',
+        '2026-07-22~09-21 的四个指标已从上游补回，这些天的行数因而是「全网小区」而非「umlaut 报告过的小区」，BP 数与该期 Excel 原值相比低约 13~14%，占比分母口径也随之不同',
         '数据由 bp_report_sync 任务每天 06:20 从 RAN_UME 增量更新',
       ],
     },
@@ -558,7 +576,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     nur: {
       desc: 'Network Unavailability Rate (NUR) daily/weekly/monthly trends, multi-dimension analysis and site compliance.',
-      usage: ['Switch granularity and date range, filter by dimensions', 'Click numbers to drill into a detail table (in-column filters & sorting); export to Excel'],
+      usage: ['Switch granularity and date range, filter by dimensions', 'Site dimensions can be narrowed by TRM type / Site category / Province-County / Region (attributes come from the site master, exact match; numerator and denominator share the same scope, so NUR still means this subset of sites)', 'Click numbers to drill into a detail table (in-column filters & sorting); export to Excel — the drill-down inherits every active filter'],
     },
     ms_nur_only: {
       desc: 'The "NUR only" cut of the NUR Dashboard: identical to the NUR half of page=nur (NUR daily/weekly/monthly tables + trends), with the three SLA blocks removed — handy for a NUR-only desk or wall screen.',
@@ -718,6 +736,20 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Missing data renders as "—" (never 0); all exports go through the "Export Excel" buttons in the header and on each card',
       ],
     },
+    bm_meta: {
+      desc: 'Meta Benchmark Report: based on meta_data (imported from Meta_20260923.xlsx, 612 rows, 2025-01-18 ~ 2026-09-23) it answers two questions — (1) "between Orange and MTN, who has the higher speed, by how much, and is the gap widening or narrowing"; (2) "what level are the network-side KPIs (BP / FDD DL IP throughput / DL and UL PRB utilization / traffic volume / RRC users) at over the same period". These two are **deliberately kept apart**: only "speed" is a head-to-head between the two operators, while the other six are network-side KPIs belonging to neither. The page has two layers: a head-to-head layer (composite score -> speed cards -> dual-line trend -> daily win/loss -> monthly and daily tables) and a network-KPI layer (summary cards + single-line trend).',
+      usage: [
+        'Quick ranges at the top (90 / 180 / 365 days / all time) plus date pickers; the window is **half-open** internally while the UI shows a closed range. The default is 365 days rather than 90 because this table spans 612 days and a short window would cut off the long-term trend',
+        'The competitiveness score is **relative between the two operators**: the leader scores 100 and the other scales proportionally. It answers "who is stronger and by how much", not whether the absolute level is good',
+        '**Why the network KPIs are excluded from scoring**: mixing "how much faster Orange is than MTN" with "how high network-wide PRB utilization is" into one score would treat two different things as two contestants in the same contest, producing a false conclusion. So the six network KPIs only get trends and averages — no wins, no score',
+        '"Speed" is the download-speed comparison between the two operators (the fixed columns orange_liberia / mtn_liberia in the database), one row per day; when the two are equal it counts as a "tie" and is **not credited as a win to either side** (a note at the top states how many such days there are)',
+        'Every figure is clickable: click an operator value or "leads N of M days" for **the days that operator led** (row count equals the win count, computed by the same comparison logic); click any cell in the daily or monthly table for that day\'s raw records',
+        'The segmented control on the trend card switches among seven metrics (speed plus the six network KPIs) and the dropdown sets the moving-average window (3/7/14/30/60 days). Switching to a network KPI turns the chart into a single line with **no operator legend**, because it belongs to neither operator',
+        'BP and the DL/UL PRB utilization rates are stored as **decimal ratios** (e.g. 0.1956) and are converted to percentages for display (19.56%); win/loss and scoring use the raw ratios, so the display conversion does not affect results',
+        'Traffic (GB) and RRC user counts are shown with thousands separators; missing data renders as "—" (never 0)',
+        'Excel export has three sheets (summary / monthly / daily); the summary sheet groups the head-to-head and the network KPIs separately so they are not read as one thing',
+      ],
+    },
     repeat_site_down: {
       desc: 'Repeat site-down board: identifies sites that go down repeatedly within the window — for finding "sites that never get fixed".',
       usage: ['Counts site-downs per day; click a number to drill into that day\'s down sites', 'Data comes from eflow_tt and eflow_site, complementing the alarm board'],
@@ -758,6 +790,8 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'The "BP cells (latest period)" card shows that period\'s BP cell count and its share of evaluated cells; the "Latest period verdict" card gives yes/no for week/month, and when undecidable it states the cause — a week still in progress (just wait) versus a month with too few full weeks (2026-09 has only 3 full weeks against the required 4, so that month can never be decided; a caliber-vs-calendar mismatch, not missing data)',
         'Regions (Cluster1~6 / Rural / ERA) can only be maintained in Excel; RAN_UME has no such dimension, and new cells missing from the dictionary fall back to Unknown',
         'The trend switches between day / week / month granularity; if the chart looks empty on week or month, first check that the date range covers periods that actually have data',
+        '⚠️ The four drill-down columns PRB utilization / DL throughput / Active users (busy hour) / DL traffic exist only from 2026-07-22 onward: BP Report.xlsx itself stores only date / NE / cell / cluster / layer and never carried these metrics, so they must be re-fetched upstream — and upstream retains nothing for the 21 days 2026-07-01~07-21 (UME likewise only goes back to 07-02), so that range shows — and cannot be filled',
+        'For 2026-07-22~09-21 the four metrics have been backfilled from upstream, so those days now hold whole-network cells rather than only the cells umlaut reported; BP counts run about 13~14% below that period\'s original Excel values, and the share denominator follows the same caliber change',
         'Data is incrementally refreshed from RAN_UME by the bp_report_sync task daily at 06:20',
       ],
     },
