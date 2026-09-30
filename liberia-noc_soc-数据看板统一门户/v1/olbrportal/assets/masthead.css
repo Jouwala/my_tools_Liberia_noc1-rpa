@@ -53,7 +53,13 @@
   --mp-surface-flat: #ffffff;
   --mp-border: rgba(14, 116, 144, .18);
   --mp-hover-row: rgba(14, 165, 233, .08);
-  /* —— 次级文字 —— */
+  /* —— 次级文字 ——
+     ⚠️ 2026-09-30 交叉引用：--mp-text-2 的浅色值 #526b7d 与 olbr.css 的
+     --t2(#526b7d) **完全同值**；深色档 #aebbd4 也等于 olbr.css 的 --t2。
+     两者不是巧合，是当初互相抄的 —— 但它们是两份独立定义，改一处**不会**
+     同步另一处。顶栏是深底门面，本就该用自己的色，所以保留独立定义；
+     只是在此记一笔，免得日后改正文次级文字色时漏掉顶栏（或反之）。
+     要查另一半：v1/olbrportal/assets/olbr.css 的 :root / html.dark 里的 --t2。 */
   --mp-text-2: #526b7d;
   /* —— 品牌强调 —— */
   --mp-brand-text: #075063;
@@ -67,7 +73,7 @@ html.dark {
   --mp-surface-flat: #071027;
   --mp-border: #153db0;
   --mp-hover-row: rgba(37, 140, 255, .10);
-  /* —— 次级文字 —— */
+  /* —— 次级文字（同值说明见浅色档处） —— */
   --mp-text-2: #aebbd4;
   /* —— 品牌强调 —— */
   --mp-brand-text: #7fd2ee;
@@ -113,7 +119,21 @@ html.dark {
    正文 ≈13px、标题 ≈24px —— 与门户现有控件（32px / 13px）同一量级，故按此实现。
    一律用 rem：门户右上角的字号放大/缩小（portal.js 改 html 的 font-size）会
    连带顶栏一起缩放，不会出现「正文放大了、顶栏还是原样」的割裂。
-   ========================================================================== */
+
+   ⚠️ 2026-09-30 更正（重要，别被上面那句误导）：
+     上面「portal.js 改 html 的 font-size」这件事**在本页不成立** ——
+     那个缩放逻辑在 MsPortal/assets/portal.js:1167（`documentElement.style.fontSize`），
+     而本页（/v1/olbrportal/）**刻意不加载 portal.js**（只用 olbr.js），
+     且 olbr.js 里**没有任何**根字号缩放逻辑（已核实，grep 无命中）。
+     结论：本文件里的 rem 在当前 v1 页面上**等效于 px**（根字号恒为 16px，
+     所以 .8125rem=13px、1.5rem=24px、2.25rem=36px …）。
+     这不是 bug，只是一个「未来可能用到」的约定 —— 但读代码的人必须知道：
+       · 想让 v1 顶栏也跟着缩放 → 得**先**在 olbr.js 里补上根字号逻辑
+         （照抄 portal.js:1153-1167 的系数），否则改 rem 值只在 16px 基准下生效；
+       · 反过来，若嫌「顶栏写 rem、正文写 px」两套单位看着乱，
+         在 v1 侧把本文件 rem 全量换算成 px 也是安全的（视觉不变），
+         代价是将来真要接缩放时得一处处改回来。
+     采用哪种口径，改之前先想清楚；当前保持 rem 不动（成本为零，且保留可能性）。
 
 /* 顶栏高度：跟着品牌区的实际高度算，不再写死。
    以前四档硬编码（桌面 6rem=96px / 5.25 / 4.5 / 3.5rem），而内容（标题 + 副标题）
@@ -354,6 +374,11 @@ html.dark .mp-mast-bg {
   font-size: 1.5rem;
   font-weight: 700;
   line-height: 1.15;
+  /* ⚠️ 2026-09-30 字距口径对照：olbr.css 已把字距收成三档 --ls-tight(-.01em) /
+     --ls-base(0) / --ls-wide(.02em)。本文件的 -.005em 介于 tight 与 base 之间，
+     是顶栏自己的排版档（大标题微收），刻意**不并入** olbr.css 的字距令牌 ——
+     顶栏在这份文件里自成体系（见文件头「副本不是引用」的说明）。
+     记在这里只为对照：改 olbr.css 的字距档时，顶栏这几个值不受影响。 */
   letter-spacing: -.005em;
   white-space: nowrap;
   /* portal.css 有 `html:not(.dark) body > header h1{color:#12324a}`，
@@ -367,6 +392,8 @@ html body > header.mp-mast .mp-title { color: var(--mp-ink); }
   font-size: .75rem;
   font-style: italic;
   font-weight: 500;
+  /* .085em 是「斜体副标题」专用档，数值远超 --ls-wide(.02em)，不属同一用途，
+     故不并入。见上方 .mp-title 处的字距对照说明。 */
   letter-spacing: .085em;
   line-height: 1.2;
   white-space: nowrap;

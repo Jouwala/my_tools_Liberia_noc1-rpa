@@ -536,6 +536,71 @@ C2 改链接落盘且**同表单里名字未被改坏**；C3 `javascript:` 被�
 一次性脚本落在 `Task\my_app\TMP\_add_bp_card.py`（幂等：已存在同 url 则跳过对应文件）。
 
 
+## 九之三、2026-09-30 `Network Benchmark View` 一行装两个数据源（3 张 Ookla + 3 张 Meta）
+
+**背景。** `Network Benchmark View` 行是 2026-10-01 加的，当时只有 3 张卡（下载 / 上传 / 时延），
+数据来自 `/api/bm-speedtest/overview`（my_app `?page=bm_speedtest` 竞对分析）。
+`.qc-grid` 是 `repeat(6, minmax(0,1fr))`，3 张卡只占半行、右侧留空。
+用户要求「参考 my_app `?page=bm_meta` 的数据，在同一行再补 3 张卡」，
+信息面覆盖 Orange·Speed / MTN·Speed / 综合评分与胜场 / 区间范围(Orange) / 区间范围(MTN) / BP。
+
+**决策一：6 张卡挤一行，而不是另起一行。**
+另一行会让「橙色 vs MTN」这个对比语义被拆成上下两段、还要再写一个重复的标题；
+补齐到 6 张后，一个 `.qc-grid` 正好排满一行，两组卡同宽同高（实测 1680/1400px 下
+6 张卡高度逐张相等 = 168.4px，卡头同一 y、页脚底边同一 y）。
+
+**决策二：按「一个指标一张卡、卡里并排两家」分组，不按「一家一张卡」。**
+沿用原 3 张 Ookla 卡的分组逻辑：同一指标的对比必须在同一张卡内完成，
+否则用户要在两张卡之间来回看。BP 是**网络侧 KPI、不属于任何一家**
+（`bm_meta_caliber` 把 9 个指标分成 `BRAND_METRICS` 与 `NETWORK_METRICS`），
+所以它单独一张、卡内没有品牌行、**不挂领先方徽章** —— 塞进任何一边都是口径错误。
+
+**决策三：两组卡共用同一个窗口对象（最近 30 天），但文案与来源标识各写各的。**
+- 窗口：`loadKpi` 里 `recentWindow(30)` 只算一次，两路请求**共用返回的同一个对象**。
+  各算一次会在跨午夜或先后差一秒时得到差一天的窗口，而它们印在同一个标题底下、
+  页脚还各自写着「统计窗口 30 天」——差一天就是两个窗口，读者无法判断哪张卡能跟哪张卡比。
+- 文案：**不复用 `kpi.bf.*`**。那套第一句就是「Speedtest by Ookla」，
+  套到 Meta 卡上就是假话。新增 `kpi.mm.*`（zh/en 双字典），卡名照抄 my_app 的 `bmm.*`
+  （同一件事在两个门户不能有两个名字）。
+- 行标题 tooltip 换用新增的 `kpi.bf.subBoth`：`kpi.bf.sub` 只说得清左 3 张，
+  挂在整行标题上会让人以为 6 张都是 Ookla 的数。
+
+**⚠️ 两个数据源的数不可直接比。** 一份是 Ookla Speedtest 测试库（`bm_speedtest`），
+一份是 Excel 导入的**静态快照**（`meta_data` 表）。实测差异：
+- 窗口内 Ookla 有 1,047 次测试，Meta 只有 23 天有数据（`data_max_date=2026-09-23`，
+  而窗口取「最近 30 天」到 2026-10-01）—— 所以 Meta 卡的页脚第二格专门写「覆盖 23 天」，
+  不写清楚读者会以为大数字覆盖了 30 天；
+- 同一窗口下 Meta 的 Orange 速率 14.1 Mbps、MTN 14.3 Mbps（**MTN 略高**），
+  而 Ookla 那组下载速率 Orange 93.0 / MTN 72.7 Mbps（**Orange 大幅领先**）。
+  两组结论方向相反，正因为样本与测量方式不同 —— 这也是行标题 tooltip 必须点明
+  「数字不可直接对比」的原因。
+
+**两个易读错的点，都进了 tooltip（不靠用户自己悟）：**
+1. **综合评分是相对分**（更强的一方恒为 100，另一方按比值折算），不是绝对分；
+2. **「区间」是逐日值的 min~max**，与大数字（区间均值）不是同一个统计量，两者不必相等。
+   另外「领先 x / y 天」的分母是 `paired_days`（两家都有数据的天数），
+   两家的 x 相加**可能小于 y**，差额是打平的天数（实测该窗口 `ties=1`、
+   两家各领先 11 天、y=22，卡面看着像"两家平分"）—— 平局天数在卡级与行级
+   tooltip 里都单独说了一句（my_app 那边是把平局单列一行的，这张卡没有那个位置）。
+
+**实现要点（`v1/olbrportal/assets/`，本次只改 v1 一份）：**
+- `olbr-data.js`：新增 `KPI_META` 规格表（`key/kind/name/unit/digits/page`）与 `kpi.mm.*` 双语文案；
+  `SPEED_BRANDS` 改名为 `BENCH_BRANDS`（两组卡共用同一对品牌与顺序）；
+- `olbr.js`：`state.kpi.meta` 独立存（与 `speed` 分开，任一路失败不擦掉另一组）；
+  `loadKpi` 的并行计数 `left` 从 3 改到 **4**（漏改会永远停在骨架屏且不报错）；
+  `speedWindow`/`speedDays` 改名 `recentWindow`/`windowDays`（两组共用）；
+  新增 `metaCardHtml()`；
+- `olbr.css`：新增 `.qc-ext > .bf-src`（页脚第三格的**纯文字**来源徽章，
+  与 Ookla 那个 logo 同格同用意，但**绝不能**拿 Ookla 商标去标一份非 Ookla 的数据）。
+- Meta 卡带 `has-foot`：BP 卡只有一行，靠它把页脚沉到卡底，与同排 5 张卡页脚落在同一条基线
+  （Ookla 卡内容天然更高，不靠这个类）。
+
+**验证（本次实测）：** `npm run lint:shells` / `npm run lint` / `npm run build` 全绿；
+Playwright 实测 7 个视口（1680/1400/1200/900/760/560/420）均为 6 张卡、
+`scrollWidth > clientWidth` 的溢出元素 **0 个**；1680/1400px 下 6 张卡高度逐张相等；
+切英文界面复测无漏键（页面无 `kpi.mm.*` 键名泄漏）、无溢出。
+
+
 ## 十、相关文档
 
 | 内容 | 去哪里 |

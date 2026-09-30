@@ -226,7 +226,14 @@
   width: 100%;
   border-collapse: separate;   /* sticky 表头 + 边框要用 separate，collapse 下边框会跟着滚 */
   border-spacing: 0;
-  font-size: 13px;
+  /* 2026-09-30：正文 13px→12.5px、表头 12px→11.5px，与 v1/olbrportal 的另两张表
+     （升级机制 table.grid、用户管理 .um-table）统一到同一口径。
+     本文件是**两个门户共用**的（/MsPortal/ 与 /v1/olbrportal/ 都引它），
+     所以这次改动同时影响两边 —— 这正是想要的：下钻弹窗与页面里的表格从此同档。
+     数值取 12.5 / 11.5 而非 13/12，是因为 v1 侧的表已定为这两档
+     （见 v1/olbrportal/assets/olbr.css 顶部「字阶令牌化」说明）。
+     ⚠️ 若将来只有一侧要改，必须拆成各自的覆盖规则，不能直接改这里。 */
+  font-size: 12.5px;
 }
 .qc-table th {
   position: sticky;
@@ -235,7 +242,7 @@
   text-align: left;
   white-space: nowrap;
   font-weight: 600;
-  font-size: 12px;
+  font-size: 11.5px;
   padding: 8px 10px;
   color: var(--qc-text-3);
   background: var(--qc-surface-2);

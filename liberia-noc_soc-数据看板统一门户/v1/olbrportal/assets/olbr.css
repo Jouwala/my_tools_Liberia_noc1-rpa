@@ -13,6 +13,20 @@
      L1 主视图 白卡 + 1px 边
      L2 辅助  无卡、无边、无阴影，只有一行标题 + 条目
    容器只有三种：焦点卡 .fcard（L0）、条目卡 .card（卡片流）、辅助行 .lrow（无卡）。
+
+   ----------------------------------------------------------------------------
+   2026-09-30 · 字阶令牌化
+   ----------------------------------------------------------------------------
+   在令牌层补上**字号 / 行高 / 字距**三组令牌（见 :root 里的 --fs-* / --lh-* /
+   --ls-*），并全量替换掉散落的手写像素字号。起因是全文件曾有 18 个不同 px 值
+   出现在 160+ 处声明里，相邻 0.5px 的档位人眼不可分辨、同种语义在不同组件里
+   各写一个值（三张表三种表头字号）、改一处口径要同步多处。
+
+   归并结果：18 档 → 7 档字阶；行高 9 档 → 3 档；字距 em/px 混用 9 种 → 3 档；
+   字重去掉冗余的 800 档。**图标字号刻意不进字阶**（跟图标视觉重量，不跟文字
+   层级），文件里凡保留裸 px 的地方都加了「图标字号」或「特例」注释标明原因。
+   详细归并口径见 :root 字阶块处的注释。视觉预期：几乎无变化（只归并了 0.5px
+   级别的差），变的是「以后改字号只需动一处」。
    ========================================================================== */
 
 /* --------------------------------------------------------------- tokens --
@@ -31,6 +45,14 @@
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
           "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
   --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* Speedtest by Ookla 标识的颜色（2026-10-01 加）。
+     浅色主题取参考图实测的笔画核心色 #172143（Ookla 的深海军蓝）；
+     深色主题在 html.dark 里换成一个浅色 —— 官方对深底也提供白色版 lockup，
+     这里按"同一个标识、两套底色"处理，而不是把深蓝硬画在深底上看不见。
+     ⚠️ 改这里等于改品牌标识的呈现，别顺手把它并进 --t1：
+     --t1 是正文色（深色侧是近白），标识需要一个**品牌色**，两者语义不同。 */
+  --ookla-ink: #172143;
 
   --bg: #eaf7fb;
   --bg-deco: radial-gradient(circle at 15% 5%, rgba(103, 232, 249, .36), transparent 28rem),
@@ -112,6 +134,71 @@
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 28px; --s7: 40px;
   --ring: 0 0 0 3px rgba(14, 116, 144, .18);
 
+  /* ------------------------------------------------------------- 字阶 --
+     2026-09-30 新增。在此之前，颜色/间距/圆角/阴影早就收进令牌了，唯独**字号**
+     仍是散落的手写像素：全文件统计出 18 个不同 px 值（9.5 / 10 / 10.5 / 11 /
+     11.5 / 12 / 12.5 / 13 / 13.5 / 14 / 15 / 16 / 17 / 18 / 21 / 24 / 26 / 36），
+     共出现在 160+ 处声明里。后果有三：
+       · 相邻 0.5px 的档位挤成一堆（10/10.5/11/11.5/12/12.5/13/13.5 八档只占
+         3.5px），人眼在正常观看距离下**分辨不出 0.5px** —— 这八档在视觉上并没有
+         形成八个层级，只是让「改字号」变成一件要翻遍全文件的事；
+       · 同一种语义在不同组件里各写一个值（表头 11 / 12 / 12.5 三种、表格正文
+         12.5 / 13 / 13.5 三种），看起来像三个系统拼起来的；
+       · 改一处口径要在多处同步，漏一处就分叉（文件里已有多条注释在抱怨这件事，
+         见 .qc-name「改这里的任何一项必须同步改 .qc-ttl b」）。
+
+     现在收成 **7 档**，相邻档位至少差 1px 或约 15%，保证肉眼可分。取舍是
+     「层级更少但每一级都站得住」，而不是「层级很多但彼此看不出区别」。
+     归并口径（左=原值，右=新档）：
+       9.5 / 10 / 10.5        → --fs-2xs (10px)    角标、时间戳、口径脚注
+       11 / 11.5              → --fs-xs  (11.5px)  次要标签、chip 计数、表头
+       12 / 12.5 / 13         → --fs-sm  (12.5px)  正文次级：卡名、说明、表格正文
+       13.5 / 14              → --fs-md  (14px)    正文/控件默认
+       15 / 16                → --fs-lg  (16px)    区块标题、面板标题
+       17 / 18                → --fs-xl  (18px)    L0 决策带标题
+       21 / 24                → --fs-num (24px)    指标大数字（26/36 为卡内特例，见
+                                                    .qc-num / .qc-card--lg/--sm）
+     ⚠️ 只归并**语义字号**（文字大小）。图标字号**不进本套**：它们跟的是图标
+        视觉重量、不是文字层级，混进来会让「图标 15px」和「正文 15px」被误当成
+        同层。图标字号另有一套 **--icon-***（见本块末尾），两者刻意分开。
+     ⚠️ 六个入口卡不以本表为准：它们在自己的 .v6-grid 作用域内重定义这套令牌
+        （见 .v6-grid 处的说明），字号仍随 --v6-k 缩放，但**引用的是同一批名字**。 */
+  --fs-2xs: 10px;    /* 角标 / 时间戳 / 口径脚注 */
+  --fs-xs:  11.5px;  /* 次要标签 / chip 计数 / 表头 */
+  --fs-sm:  12.5px;  /* 正文次级：卡名 / 说明 / 表格正文 */
+  --fs-md:  14px;    /* 正文 / 控件默认 */
+  --fs-lg:  16px;    /* 区块标题 / 面板标题 */
+  --fs-xl:  18px;    /* L0 决策带标题 */
+  --fs-num: 24px;    /* 指标大数字 */
+
+  /* 行高：原先散着 1 / 1.2 / 1.3 / 1.35 / 1.4 / 1.45 / 1.5 / 1.55 / 1.6 九档，
+     其中 1.3~1.55 五档在实际排版里不可分辨。收成三档。 */
+  --lh-solid: 1;     /* 单行徽章 / 数字（高度由容器定，行高不参与） */
+  --lh-tight: 1.25;  /* 标题 / 卡名 */
+  --lh-base:  1.5;   /* 正文 */
+
+  /* 字距：原先 em 与 px 混用（.2px / .01em / .02em / .04em / .085em /
+     -.005em / -.01em / -.012em / -.02em 九种写法），而 .2px 与 .02em 语义相同。
+     统一走 em，收成三档。 */
+  --ls-tight: -.01em;  /* 大字标题收紧 */
+  --ls-base:  0;       /* 正文 */
+  --ls-wide:  .02em;   /* 小号标签 / 全大写 */
+
+  /* 图标字号（2026-09-30 加）。**刻意独立于 --fs-\* 字阶**：
+     图标的大小跟的是「它旁边那行文字 / 那个按钮的视觉重量」，不是文字层级 ——
+     把「15px 的按钮图标」和「15px 的正文」塞进同一个令牌，会让下一个人以为
+     改正文就会连带改图标。所以这里是第二套、只服务 <i> 字形的令牌。
+     取值就是原文件里实际在用的四档，**一个数值都没变**，纯粹是把散落各处的
+     同一个数字收成名字（原先 12px 写 3 遍、13px 写 4 遍、15px 写 4 遍）。
+     ⚠️ .q > i(16px) 与 .tab i(14px) 各自只用一次，没进这套令牌 ——
+        单点使用不存在「收拢」的价值，进令牌反而增加一层间接。
+     ⚠️ 若将来要统调图标大小，改这里四处即可；它们不参与 --v6-k 缩放
+        （那六卡的图标是 .v6-ico 的方砖，另有尺寸，不走本套）。 */
+  --icon-xs: 12px;   /* 紧凑行尾箭头 / 小按钮图标（.ct i / .aux-x i / .lrow .go） */
+  --icon-sm: 13px;   /* 次级图标（.band-range i / .p-x i / .esc-note--more i / .gp-tpl i） */
+  --icon-md: 15px;   /* 按钮/列表主图标（.gb i / .ib i / .rail-t i / .lrow i / .um-storage i） */
+  --icon-lg: 18px;   /* 大图标（.embed-boot > i.ph 加载态） */
+
   /* 2026-09-24：原先这里还有 --mast-h: 66px 与顶栏深门面的
      --mast-1/--mast-2/--mast-3/--mast-glow 一组令牌。顶栏换成 MsPortal 结构后，
      门面底色与高度都由 assets/masthead.css 的 --mp-* 令牌负责，这几个已无人引用，
@@ -120,6 +207,9 @@
 
 html.dark {
   color-scheme: dark;
+
+  /* Ookla 标识在深底上改用浅色（同 --ookla-ink 的说明）。 */
+  --ookla-ink: #ccd9f0;
 
   --bg: #02050c;
   --bg-deco: radial-gradient(circle at 50% 8%, rgba(0, 127, 255, .14), transparent 32rem),
@@ -179,6 +269,20 @@ html.dark {
   --ring: 0 0 0 3px rgba(0, 217, 255, .20);
 }
 
+/* ------------------------------------------------ 高对比偏好降级（a11y）--
+   2026-09-30 加。背景：--title(#FF7900) 是用户 2026-09-25 明确拍板的品牌色，
+   在浅色白底上对比度只有 2.63:1（低于 WCAG 大字档 3:1）—— 这是用户有意选择，
+   **默认档一个字都不动**。但系统开启了「高对比」偏好
+   （Windows 设置 → 辅助功能 → 对比度主题，或浏览器/扩展写入该媒体特性）时，
+   说明用户已主动声明「可读性优先」，此时把标题橙换成同色相压深版 #C25A00
+   （白底约 4.5:1，过 AA 正文档）是合适的，且不影响默认用户的观感。
+   只改 --title 一个令牌：标题橙的全部使用点（.band-k / .band-range-btn / .t-orange）
+   都是 var(--title)，一处改动整页生效，不碰任何组件规则。
+   ⚠️ 深色档不在此列：#FF7900 在深底 #02050c 上是 7.76:1，已过 AA，无需降级。 */
+@media (prefers-contrast: more) {
+  :root { --title: #c25a00; }
+}
+
 /* ---------------------------------------------------------------- base -- */
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -189,7 +293,7 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  font: 400 15px/1.5 var(--sans);
+  font: 400 var(--fs-md)/var(--lh-base) var(--sans);
   color: var(--t1);
   background-color: var(--bg);
   background-image: var(--bg-deco);
@@ -249,11 +353,11 @@ svg { display: block; }
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
   height: 30px; padding: 0 10px; border-radius: var(--r1);
   border: 1px solid var(--line-2); background: transparent; color: var(--t2);
-  font-size: 12.5px; font-weight: 600;
+  font-size: var(--fs-sm); font-weight: 600;
   transition: border-color .14s, color .14s, background .14s;
 }
 .gb:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
-.gb i { font-size: 15px; }
+.gb i { font-size: var(--icon-md); }
 .gb:disabled { opacity: .45; cursor: not-allowed; }
 .ib {
   display: inline-grid; place-items: center; width: 30px; height: 30px; flex: none;
@@ -261,7 +365,7 @@ svg { display: block; }
   transition: border-color .14s, color .14s, background .14s;
 }
 .ib:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
-.ib i { font-size: 15px; }
+.ib i { font-size: var(--icon-md); }
 
 /* 分段控件（.seg + .seg-b）：**只服务「筛选栏 #railIn 里那排状态筛选」**。
    2026-09-24 起顶栏的语言切换改用 MsPortal 的 .seg / .seg-btn（见 masthead.css），
@@ -272,7 +376,7 @@ svg { display: block; }
    把按钮压得比 MsPortal 原版矮 1px，收窄后这个泄漏也一并消除。 */
 .rail .seg { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface-3); }
 .rail .seg-b {
-  height: 26px; padding: 0 9px; border-radius: 4px; font-size: 12px; font-weight: 600;
+  height: 26px; padding: 0 9px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600;
   color: var(--t2); transition: background .14s, color .14s;
 }
 .rail .seg-b:hover { color: var(--b-ink); }
@@ -322,15 +426,15 @@ html.dark .rail { box-shadow: none; }
 .rail-t {
   flex: none; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px;
   border: 1px solid var(--line-2); border-radius: 999px; background: var(--surface);
-  font-size: 12.5px; font-weight: 600; color: var(--t2); white-space: nowrap;
+  font-size: var(--fs-sm); font-weight: 600; color: var(--t2); white-space: nowrap;
   transition: border-color .14s, background .14s, color .14s;
 }
 .rail-t:hover { border-color: var(--b-line); background: var(--b-tint); color: var(--b-ink); }
-.rail-t > i:first-child { font-size: 15px; }
-.rail-cv { font-size: 13px; opacity: .65; transition: transform .16s; }
+.rail-t > i:first-child { font-size: var(--icon-md); }
+.rail-cv { font-size: var(--fs-sm); opacity: .65; transition: transform .16s; }
 .rail.is-open .rail-t { border-color: var(--b-line); background: var(--b-tint2); color: var(--b-ink); }
 .rail.is-open .rail-cv { transform: rotate(180deg); }
-.rail-sum { min-width: 0; font: 500 12px/1.4 var(--mono); color: var(--t2); font-variant-numeric: tabular-nums; }
+.rail-sum { min-width: 0; font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t2); font-variant-numeric: tabular-nums; }
 .rail-sum b { color: var(--t1); font-weight: 700; }
 .rail-sum em { font-style: normal; color: var(--b-ink); }
 .rail-sum .dot { font-style: normal; opacity: .45; }
@@ -342,12 +446,12 @@ html.dark .rail { box-shadow: none; }
   transition: border-color .14s, box-shadow .14s;
 }
 .q:focus-within { border-color: var(--b); box-shadow: var(--ring); }
-.q > i { color: var(--t3); font-size: 16px; }
-.q input { flex: 1; min-width: 0; border: 0; background: none; font-size: 14px; }
+.q > i { color: var(--t3); font-size: 16px; }   /* 图标字号 */
+.q input { flex: 1; min-width: 0; border: 0; background: none; font-size: var(--fs-md); }
 .q input:focus { outline: none; }
 .q input::placeholder { color: var(--t3); }
 .kbd {
-  font: 600 10.5px/1 var(--mono); color: var(--t3);
+  font: 600 var(--fs-2xs)/var(--lh-solid) var(--mono); color: var(--t3);
   border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; background: var(--surface-2);
 }
 /* 分组筛选条：宁可换行也不要横向滚动。
@@ -359,15 +463,15 @@ html.dark .rail { box-shadow: none; }
 .chip {
   flex: none; height: 28px; padding: 0 10px; border-radius: 999px;
   border: 1px solid var(--line-2); background: var(--surface);
-  font-size: 12.5px; font-weight: 600; color: var(--t2); white-space: nowrap;
+  font-size: var(--fs-sm); font-weight: 600; color: var(--t2); white-space: nowrap;
   display: inline-flex; align-items: center; gap: 6px;
   transition: border-color .14s, background .14s, color .14s;
 }
 .chip:hover { border-color: var(--b-line); color: var(--b-ink); }
 .chip[aria-pressed="true"] { background: var(--b); border-color: var(--b); color: var(--b-on); }
-.chip small { font: 500 11px/1 var(--mono); opacity: .8; font-variant-numeric: tabular-nums; }
+.chip small { font: 500 var(--fs-xs)/var(--lh-solid) var(--mono); opacity: .8; font-variant-numeric: tabular-nums; }
 .rail-end { display: flex; align-items: center; gap: var(--s2); justify-self: end; flex-wrap: wrap; }
-.count { font: 500 12px/1.4 var(--mono); color: var(--t2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.count { font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .count b { color: var(--t1); font-weight: 700; }
 
 /* --------------------------------------------------------------- main -- */
@@ -402,7 +506,7 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 /* v1：这里原来写的是 `.kpi .qc-num { font-size: 24px; }`，2026-09-24 已上移成
    .qc-num 的**基础**字号。当时只写在这一行，导致告警行 #band 漏掉了这一档、
    数字只有 15px。现在两行都由 .qc-num 统一给 24px，不再各写一遍。 */
-.kpi .qc-unit { font-size: 11.5px; font-weight: 600; color: var(--t3); letter-spacing: 0; }
+.kpi .qc-unit { font-size: var(--fs-xs); font-weight: 600; color: var(--t3); letter-spacing: 0; }
 /* 口径文字允许换行：CXO 那三张的口径（哪个看板、哪一天）比 QC 的长，
    单行省略会把「这数是哪天的」正好切掉 —— 那是最要紧的半句。 */
 .kpi .qc-sub { white-space: normal; }
@@ -468,6 +572,26 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    写在父容器上，卡片通过继承同样拿得到，一处定义两处可用。 */
 .v6-grid {
   --v6-k: 1.5;
+  /* 2026-09-30：六卡的字号改为**在本作用域内重定义字阶令牌**，而不是在每条规则里
+     散写 `calc(14px * var(--v6-k))`。名字回到 --fs-*，读代码的人不必再猜
+     "21px 是哪个层级"，它写的是 --fs-md，与全页其它区块同一套语义。
+     为什么在这里重定义而不是直接用 :root 的值：六卡按 1.5 倍放大是本页唯一一处
+     "整块缩放"的设计意图（用户 2026-09-25 要求），它需要放大后的字号**互相之间**
+     以及与内部留白（padding/gap 仍按 calc 走 --v6-k）**之间**都成比例。
+
+     ⚠️ 字号**不写成 `calc(base × var(--v6-k))`，而是直接写 1.5 倍后的整数**：
+     原写法会产出 17.25 / 18.75 这类 0.25 尾数，而浏览器在 1x DPR 下会把这些
+     字号吸附到各自不同的行盒高度，一列里几行文字的基线反而对不齐；
+     整数（15/17/19/21）之间是干净的 2px 递进，且更接近「1.5 倍」的原意。
+     与原 1.5k 值的差：--fs-sm 18.75→19（+0.25）、--fs-xs 17.25→17（-0.25），
+     均在 0.25px 级别，肉眼不可辨；换成整数后整组字号落在 15/17/19/21 的
+     2px 网格上，六卡内部各行基线重新对齐。--fs-2xs 15 与 --fs-md 21 与原值相同。
+     ⚠️ 令牌定义在 .v6-grid（父容器）上：卡片通过继承拿到，一处定义整组可用；
+        定义在 .v6（卡片）上则 grid 自己的 gap 取不到值（见上方 --v6-k 的同类说明）。 */
+  --fs-2xs: 15px;   /* = 10px   × 1.5 */
+  --fs-xs:  17px;   /* = 11.5px × 1.5，取整（原 17.25） */
+  --fs-sm:  19px;   /* = 12.5px × 1.5，取整（原 18.75） */
+  --fs-md:  21px;   /* = 14px   × 1.5 */
   display: grid; gap: calc(var(--s2) * var(--v6-k));
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -501,9 +625,9 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   flex: none; display: inline-flex; align-items: center; justify-content: center;
   width: calc(24px * var(--v6-k)); height: calc(24px * var(--v6-k));
   border-radius: var(--r1);
-  color: var(--b); background: var(--b-tint); font-size: calc(14px * var(--v6-k));
+  color: var(--b); background: var(--b-tint); font-size: var(--fs-md);   /* 图标字号 */
 }
-.v6-t { min-width: 0; font-size: calc(14px * var(--v6-k)); font-weight: 700; letter-spacing: -.01em; }
+.v6-t { min-width: 0; font-size: var(--fs-md); font-weight: 700; letter-spacing: var(--ls-tight); }
 /* ⚠️ 2026-09-27：分组说明（gSub，如 "Back Office Expert Support"）在 v1 列头
    **已不再渲染**，所以这里不再有 .v6-t small / .v6-t-top > small 的规则。
    演进过程记一笔，免得后人以为漏写了：
@@ -573,7 +697,7 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .v6-t-top > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .v6-t-go {
   flex: none; margin-left: calc(5px * var(--v6-k));
-  font-size: calc(12px * var(--v6-k)); color: var(--t3);
+  font-size: var(--fs-sm); color: var(--t3);   /* 图标字号（与标题同档的箭头） */
   opacity: 0; transition: opacity .14s;
 }
 .v6-t-link:hover .v6-t-go, .v6-t-link:focus-visible .v6-t-go { opacity: .8; }
@@ -581,7 +705,7 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   margin-left: auto; flex: none;
   padding: calc(4px * var(--v6-k)) calc(7px * var(--v6-k));
   border-radius: 999px; background: var(--surface-3);
-  font: 600 calc(11px * var(--v6-k))/1 var(--mono); color: var(--t2); font-variant-numeric: tabular-nums;
+  font: 600 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--t2); font-variant-numeric: tabular-nums;
 }
 .v6-list { display: flex; flex-direction: column; padding: calc(5px * var(--v6-k)); }
 /* 列内二级子分组页签（2026-09-27 加，BO View 的 RAN/IP/MW/CN/OCS）。
@@ -623,6 +747,9 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   flex: none; height: 17px; padding: 0 4px;
   border-radius: 999px; white-space: nowrap;
   border: 1px solid var(--line-2); background: var(--surface);
+  /* ⚠️ 10px 是**不乘 --v6-k 的字面值**：子页签是卡头里的筛选项，横向空间是硬约束
+     （见上方长注释），所以刻意不走 v6 的缩放字阶。因此这里不能引用 --fs-2xs
+     （那在本作用域里已经 = 10px × 1.5 = 15px）。 */
   font-size: 10px; font-weight: 600; color: var(--t2);
   display: inline-flex; align-items: center; gap: 2.5px;
   transition: border-color .14s, background .14s, color .14s;
@@ -631,7 +758,7 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .v6-sub[aria-pressed="true"] { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
 .v6-sub:focus-visible { outline: 2px solid var(--b); outline-offset: 2px; }
 .v6-sub small {
-  font: 500 10px/1 var(--mono);
+  font: 500 10px/var(--lh-solid) var(--mono);   /* 同上：固定值，不乘 k */
   opacity: .8; font-variant-numeric: tabular-nums;
 }
 /* 空桶（该专业域下暂时没有看板）：**保留可见但压暗**，不做成隐形。
@@ -642,17 +769,20 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .v6-row {
   display: flex; align-items: center; gap: calc(7px * var(--v6-k)); min-width: 0;
   padding: calc(6px * var(--v6-k)) calc(7px * var(--v6-k));
-  border-radius: var(--r1); font-size: calc(12.5px * var(--v6-k)); color: var(--t1);
+  border-radius: var(--r1); font-size: var(--fs-sm); color: var(--t1);
   transition: background .14s, color .14s;
 }
 .v6-row:hover { background: var(--b-tint); color: var(--b-ink); }
-.v6-row i.ph { flex: none; font-size: calc(13px * var(--v6-k)); color: var(--t3); }
+/* 行首图标：原 13px×k，归到 --fs-sm(12.5×k=18.75) 与行文字同档 ——
+   13px 与 12.5px 的 0.5px 差在 1.5 倍后是 0.75px，人眼不可辨，
+   却让它成为全页唯一一个"和同行文字不等"的图标档，没有存在理由。 */
+.v6-row i.ph { flex: none; font-size: var(--fs-sm); color: var(--t3); }
 .v6-row:hover i.ph { color: var(--b-ink); }
 .v6-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.v6-row .go { margin-left: auto; flex: none; font-size: calc(12px * var(--v6-k)); opacity: 0; transition: opacity .14s; }
+.v6-row .go { margin-left: auto; flex: none; font-size: var(--fs-sm); opacity: 0; transition: opacity .14s; }  /* 图标字号 */
 .v6-row:hover .go { opacity: .8; }
 .v6-row em {
-  flex: none; font: 600 calc(10px * var(--v6-k))/1 var(--sans); font-style: normal; letter-spacing: .04em;
+  flex: none; font: 600 var(--fs-2xs)/var(--lh-solid) var(--sans); font-style: normal; letter-spacing: var(--ls-wide);
   color: var(--t3); border: 1px solid var(--line-2); border-radius: 4px;
   padding: calc(2px * var(--v6-k)) calc(4px * var(--v6-k));
 }
@@ -662,12 +792,12 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   display: inline-flex; align-items: center; gap: calc(5px * var(--v6-k)); align-self: flex-start;
   margin: calc(3px * var(--v6-k)) calc(6px * var(--v6-k)) calc(7px * var(--v6-k));
   padding: calc(3px * var(--v6-k)) calc(7px * var(--v6-k)); border-radius: 6px;
-  font-size: calc(11.5px * var(--v6-k)); font-weight: 600; color: var(--b-ink);
+  font-size: var(--fs-xs); font-weight: 600; color: var(--b-ink);
 }
 .v6-more:hover { background: var(--b-tint); }
 .v6-empty {
   padding: calc(8px * var(--v6-k)) calc(11px * var(--v6-k)) calc(11px * var(--v6-k));
-  font-size: calc(12px * var(--v6-k)); color: var(--t3);
+  font-size: var(--fs-sm); color: var(--t3);
 }
 
 /* ---------- 编辑态的六个入口卡（2026-09-26 恢复编辑能力时加）----------
@@ -693,10 +823,10 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 /* 只让标题那一颗继续单行省略；按钮里的 span 不参与省略。 */
 .v6-row.is-ed > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .v6-row.is-ed .c-ed { margin-top: calc(6px * var(--v6-k)); }
-.v6-row.is-ed .c-ed .ct { font-size: calc(11px * var(--v6-k)); }
+.v6-row.is-ed .c-ed .ct { font-size: var(--fs-xs); }
 /* 编辑态的列头多两颗分组工具，标题要能被挤窄而不是把按钮顶出去 */
 .v6-h { flex-wrap: wrap; }
-.v6-h .ct { flex: none; font-size: calc(11px * var(--v6-k)); }
+.v6-h .ct { flex: none; font-size: var(--fs-xs); }
 /* 拖拽落点高亮：.cards 下的规则（:1119-1120）选不到 .v6-list，这里补一份。 */
 .v6-list .v6-row.is-in-A { box-shadow: inset 3px 0 0 0 var(--b); }
 .v6-list .v6-row.is-in-B { box-shadow: inset -3px 0 0 0 var(--b); }
@@ -744,14 +874,14 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    'EFLOW/VMAX/UME' 这类专有缩写压成 'Eflow/Vmax/Ume'，把品牌名改错。
    letter-spacing 同时从 .12em 收到 .02em：宽字距是为「全大写」配的（大写字母
    彼此更难分辨），改回混合大小写后留着会显得松散、也拉长标题占位。 */
-.band-k { font: 700 18px/1 var(--sans); letter-spacing: .02em; color: var(--title); }
+.band-k { font: 700 var(--fs-xl)/var(--lh-solid) var(--sans); letter-spacing: var(--ls-wide); color: var(--title); }
 /* 标题上挂了 title 的（目前只有 CXO Daily Dashboard 的口径说明 kpi.sub）
    给一个「可以悬浮看看」的指针形状。用属性选择器而不是另加类名：
    挂没挂提示是**结构事实**，让样式跟着它走，将来谁加/撤 title 都自动对齐，
    不会出现「有提示但没光标」或「没提示却有光标」。 */
 .band-k[title] { cursor: help; }
-.band-n { margin-top: 6px; font-size: 16px; color: var(--t2); }
-.band-n em { font: 700 15px/1 var(--mono); font-style: normal; color: var(--t1); font-variant-numeric: tabular-nums; }
+.band-n { margin-top: 6px; font-size: var(--fs-lg); color: var(--t2); }
+.band-n em { font: 700 var(--fs-md)/var(--lh-solid) var(--mono); font-style: normal; color: var(--t1); font-variant-numeric: tabular-nums; }
 /* 数据区间行（2026-09-28 加）：标题下方一句「Data range 08-30 ~ 09-28」。
    字号比 .band-n（16px，用于 CXO 的口径说明）小得多，因为它只是**注释**、
    不是数据；也不与标题抢视线。用 --t3（三级文字色）同理。
@@ -780,7 +910,7 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .band-range-btn {
   display: inline-flex; align-items: center; gap: 4px;
   margin: 0; padding: 0; border: 0; background: none;
-  font: 700 18px/1 var(--sans); letter-spacing: .02em; color: var(--title);
+  font: 700 var(--fs-xl)/var(--lh-solid) var(--sans); letter-spacing: var(--ls-wide); color: var(--title);
   text-align: left;
   cursor: pointer;
 }
@@ -811,7 +941,7 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
      用卡片级的大阴影会显得比它承载的内容还重。 */
   background: var(--surface-2-solid); border: 1px solid var(--line);
   box-shadow: var(--sh-1);
-  font: 500 11.5px/1.3 var(--mono); color: var(--t2); font-variant-numeric: tabular-nums;
+  font: 500 var(--fs-xs)/var(--lh-tight) var(--mono); color: var(--t2); font-variant-numeric: tabular-nums;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   opacity: 0; visibility: hidden;
   transition: opacity .14s ease, visibility .14s ease;
@@ -819,10 +949,10 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 /* 展开：由 JS 切 .is-open。刻意**不**保留 :hover / :focus-within，
    否则鼠标扫过仍会自动弹一下，又变回"悬停显示"了。 */
 .band-txt.is-open > .band-range { opacity: 1; visibility: visible; }
-.band-range > i { flex: none; font-size: 13px; opacity: .8; }
+.band-range > i { flex: none; font-size: var(--icon-sm); opacity: .8; }
 .band-range > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 「未判定 N 条不计入」.band-pend 已随「30 天达标率」删除（它只出现在那一段里）。 */
-.band-when { margin-top: 8px; font: 500 11px/1.5 var(--mono); color: var(--t3); }
+.band-when { margin-top: 8px; font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t3); }
 
 /* 心跳：绿色脉冲 = 这块面板确实在自动刷新。取不到数据时变红且不脉冲。
    秒必须精确到秒 —— 只到分钟时，轮询叠上后端 60s 缓存会出现「一分钟没变」的错觉。
@@ -852,7 +982,7 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 
    注意 .qc-dot 的 box-shadow 初始值必须是 `0 0 0 0 var(--ok-tint)`（半径为 0 的透明环），
    它是 qcPulse 的起始态；两个动画分别写 box-shadow 与 transform，互不抢属性。 */
-.qc-live { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--mono); color: var(--t2); font-variant-numeric: tabular-nums; }
+.qc-live { display: inline-flex; align-items: center; gap: 6px; font: 500 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--t2); font-variant-numeric: tabular-nums; }
 .qc-live .qc-sep { color: var(--t3); }
 .qc-dot {
   display: block;
@@ -951,13 +1081,13 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    ⚠️ 改这里的任何一项，必须同步改 .qc-ttl b，否则两排标题立刻重新分叉。 */
 .qc-name {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 12.5px; font-weight: 700; color: var(--t1); letter-spacing: .2px;
+  font-size: var(--fs-sm); font-weight: 700; color: var(--t1); letter-spacing: var(--ls-wide);
 }
 /* 等级徽章独立成行：六卡并排单卡只有 ~240px，挤进标题行会把卡名截断。
    颜色之外再给一枚文字徽章 —— 只靠颜色传意对色盲和黑白打印都不可读。 */
 .qc-lvchip {
   margin-top: 5px; padding: 3px 7px; border-radius: 999px;
-  font-size: 10px; font-weight: 600; line-height: 1;
+  font-size: var(--fs-2xs); font-weight: 600; line-height: var(--lh-solid);
   color: var(--qc-accent); background: var(--qc-accent-soft);
   border: 1px solid var(--qc-accent-line);
 }
@@ -970,15 +1100,19 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    写成明确像素后，任何 .qc-card 不论放在哪一行都是这个字号，不再依赖继承。
    24px 与 CXO 行一致（用户要求告警行数字「大并且醒目」，参照 Total Traffic 那几张卡）。 */
 .qc-num {
-  font: 600 36px/1 var(--mono); color: var(--qc-accent); font-variant-numeric: tabular-nums;
-  letter-spacing: -.02em;
+  /* 36px 是 L0 告警带六卡数字的专用档：它比 --fs-num(24px) 还大一档，
+     因为这一排是"一眼看数"的主视觉，且六卡并排时每卡仍有 ~240px 容得下。
+     刻意**不并入字阶** —— 并入就得为它单开一档，而全页只有这一处用到。 */
+  font: 600 36px/var(--lh-solid) var(--mono); color: var(--qc-accent); font-variant-numeric: tabular-nums;
+  letter-spacing: var(--ls-tight);
 }
 .qc-num.is-na { color: var(--t3); }
 /* ⚠️ 下面两档 v1 **没有任何元素会命中**：qcCardHtml 已不再输出 qc-card--lg/--sm
    （就是上面那条 15px 问题的成因）。保留是为了和 /olbrportal/ 共用同一套类名，
    方便两边对照；注意它们的选择器比 .qc-num 更具体，**哪天恢复输出这两个类就会盖掉
    上面的 24px**，届时要一并重新决定字号。 */
-/* 主/次分层只靠字号这一个通道（分组标题已经去掉） */
+/* 主/次分层只靠字号这一个通道（分组标题已经去掉）。
+   ⚠️ 26/21px 同样不并入字阶：它们是 .qc-num(36px) 的两个降档，只在这两处出现。 */
 .qc-card--lg .qc-num { font-size: 26px; }
 .qc-card--sm .qc-num { font-size: 21px; }
 
@@ -1002,16 +1136,16 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .qc-spark-wrap .qc-spark { margin-top: 0; }
 .qc-spark-cap {
   display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font: 500 10.5px/1.2 var(--mono); color: var(--t3); font-variant-numeric: tabular-nums;
+  font: 500 var(--fs-2xs)/var(--lh-tight) var(--mono); color: var(--t3); font-variant-numeric: tabular-nums;
 }
 .qc-spark-empty {
   margin-top: 8px; height: 26px; display: flex; align-items: center;
-  font-size: 11px; color: var(--t3);
+  font-size: var(--fs-xs); color: var(--t3);
 }
 .qc-sub {
   display: block;   /* 卡内是 <span>：<button> 只允许短语内容，故靠 display 布局 */
   width: 100%; margin-top: 7px;
-  font-size: 11px; line-height: 1.35; color: var(--t2);
+  font-size: var(--fs-xs); line-height: var(--lh-tight); color: var(--t2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .qc-card.is-failed .qc-sub { color: var(--crit); white-space: normal; }
@@ -1019,7 +1153,7 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    会让每小时那五项看起来也是 5 分钟前刚取的。 */
 .qc-age {
   display: block; width: 100%; margin-top: 5px;
-  font: 500 10px/1.3 var(--mono); color: var(--t3); font-variant-numeric: tabular-nums;
+  font: 500 var(--fs-2xs)/var(--lh-tight) var(--mono); color: var(--t3); font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -1047,6 +1181,168 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
      所以底色仍用 .qc-card 的 var(--surface-2) 纯色，靠边框 + 内发光分层。
      渐变只保留在「迷你走势的面积」上 —— 那是图表元素，不是卡片底。 */
 .qc-card--rich { align-items: stretch; text-align: left; padding-bottom: 9px; }
+
+/* ============================================================================
+   Benchmark 行（Network Benchmark View，2026-10-01 加）
+   ----------------------------------------------------------------------------
+   三张卡 = 三个指标（下载 / 上传 / 时延），每张卡里两家并排。
+   用户要求「在 Network Status Overview 组件下面新增一行」。
+
+   为什么不复用 .qc-card--rich：那个类的排版意图是「一个大数字当主角」，
+   字号 24px + 芯片 + 走势 + 三段页脚。这一排要的是**两组数上下对齐**，
+   每张卡里有两行（Orange / MTN）而不是一个大数字 —— 同一个类装不下两种
+   排版意图，硬套会让"谁是主角"这件事在两张卡上给出不同答案。
+   复用的是**外层** .qc-card（底/边/hover/内发光/--qc-accent 一整组），
+   所以三排卡片的边框、悬停手感、页脚基线仍然一致。
+   ---------------------------------------------------------------------------- */
+.qc-card--bf { align-items: stretch; text-align: left; padding-bottom: 9px; }
+
+/* 卡头：指标名 + 单位 + 领先方徽章。左对齐，与下面两行数的起点对齐 ——
+   居中的话"品牌名"那一列就没法上下对齐，卡片会看起来是斜的。
+   ⚠️ 允许折行（flex-wrap）：六列栅格下卡宽只有 257px，到 420px 视口时
+   更是只剩 169px，「卡名 + 单位 + 徽章」一行放不下。不折行的话三者会互相挤压
+   （实测卡名 51px 塞进 45px、徽章 72px 塞进 65px，都只能靠 ellipsis 显示不全）。
+   折行后徽章落到第二行，卡名与单位保住完整 —— 窄屏多占一行高度是可接受的代价，
+   而"卡名显示不全"不是。 */
+.bf-hd {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 5px;
+  width: 100%; min-width: 0;
+}
+.bf-hd b {
+  /* ⚠️ min-width:0 不能省：flex 子项的默认 min-width 是 auto，
+     内容不缩，窄断点（实测 420px 视口、卡宽 169px）下卡名会溢出容器
+     而不是走 ellipsis —— 扫描探针实测 scrollWidth 51 > clientWidth 38。 */
+  min-width: 0;
+  font-size: var(--fs-sm); font-weight: 700; color: var(--t1); letter-spacing: var(--ls-wide);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bf-hd i { font-style: normal; flex: none; font-size: var(--fs-2xs); color: var(--t3); }
+/* 领先方徽章。用 --ok 绿色而不是品牌色：它表达的是"这家在这项上更强"，
+   不是"这是 Orange"—— 品牌归属已经由每行左边的品牌名说了。
+   绿色与 .qc-ext .hi 同色系，于是"好的一端是绿的"在整页是同一条规则。
+   折行时（窄断点）徽章落到卡名下一行、贴左显示：margin-left:auto 只在
+   与卡名同一行时才有意义，所以用 .bf-hd > * + .bf-lead 之外无法判断 ——
+   这里改成 `margin-left:auto` 保留（同行时顶右），折行后它自己占一行、
+   auto 左边距把徽章推到最右，视觉上仍是"右侧的补充信息"。 */
+.bf-lead {
+  flex: none; margin-left: auto; font-size: var(--fs-2xs); line-height: var(--lh-base);
+  border-radius: 11px; padding: 1px 8px; white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--ok) 55%, transparent);
+  color: var(--ok); background: var(--ok-tint);
+}
+
+/* 两个品牌各一行。两列：左「品牌 + 数值」，右「P50/P90 + 胜率」。
+   ⚠️ 2026-10-01 实测踩到：最初写成四列（品牌 / 数值 / P50-P90 / 胜率），
+   在 257px 的卡里（六列栅格下每张卡的实宽）**装不下** —— grid 会把
+   唯一的弹性列 minmax(0,1fr) 压到 12px，而大数字需要 35px，
+   于是 「93.0」被裁成「93.…」（scrollWidth 35 > clientWidth 12）。
+   四列各自的自然宽度加起来（46+35+90+69+3×6gap = 258px）本来就超过了 235px 的可用宽。
+   改成两列后每行只需 ~105px + ~125px，且数值不再是弹性列，不会再被压。
+   结论：卡片里的列数要按**最窄断点下的实宽**定，不能按设计稿的宽度定。 */
+.bf-rows { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; width: 100%; }
+.bf-row {
+  display: grid; align-items: baseline;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px; width: 100%;
+  font-size: var(--fs-2xs); line-height: var(--lh-base); color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+/* 左列：品牌名 + 数值同一行。品牌名给一个稳定的最小宽度，
+   让「Orange」「MTN」两行的数字左边缘对齐（不靠空格凑）。 */
+/* 左列：品牌名 + 数值同一行。品牌名给一个稳定的最小宽度，
+   让「Orange」「MTN」两行的数字左边缘对齐（不靠空格凑）。 */
+.bf-brand {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  font-weight: 600; color: var(--t2);
+}
+.bf-brand > i {
+  font-style: normal; flex: none; min-width: 30px;
+}
+/* 数值是这一行的主角：与 .qc-val 同族但小一档（15px）——
+   三张卡一行、每张卡里还有两行数，用 24px 会撑破卡片宽度。 */
+.bf-val {
+  font: 600 15px/var(--lh-tight) var(--mono); color: var(--t1);
+  font-variant-numeric: tabular-nums;
+}
+/* 领先方的数字转绿加粗，与徽章呼应；落后的保持常态 ——
+   两家都加粗就等于都没加粗。 */
+.bf-row.is-lead .bf-val { color: var(--ok); }
+/* 右列：P50/P90 与胜率上下两行，统一右对齐，两行之间能对齐 */
+.bf-meta {
+  display: flex; flex-direction: column; align-items: flex-end;
+  min-width: 0; text-align: right;
+}
+.bf-pct, .bf-win { white-space: nowrap; font-size: var(--fs-2xs); }
+/* 无数据：整卡数字转灰，与 .qc-card--rich.is-na 同一处理 */
+.qc-card--bf.is-na .bf-val { color: var(--t3); }
+
+/* Speedtest by Ookla 品牌标识（页脚第三格，2026-10-01 加）。
+   用户要求「体现 Ookla 的图标，表明是 Speedtest」，位置与参考图一致：页脚最右。
+
+   ⚠️ 这里要覆盖 .qc-ext 的**共用**排版，所以三条都限定在 .qc-card--bf 下 ——
+   同一个 .qc-ext 还被上面 3 张可用率卡用着（那边是三等分的纯文字页脚），
+   直接改共用规则会把那一排也改掉。 */
+.qc-card--bf .qc-ext > div {
+  /* 共用规则给的是 flex:1（三等分）。这一排的页脚是"两格文字 + 一个标识"，
+     文字格按内容宽就够，把余量留给标识并让 space-between 把它们摊开，
+     正好得到参考图那种「左 / 中 / 右」的分布。
+     ⚠️ flex:0 **0** auto（不压缩）是关键：让标识独自吸收压缩量。
+     实测 1400px 视口（6 列、卡宽 212px）时页脚只比内容宽少 2px，
+     若三格一起压缩，「两家合计」这种 4 字标签会被压掉 1px 而溢出
+     （扫描探针按 scrollWidth>clientWidth 抓到）。文字格不参与压缩后，
+     同一断点下是标识从 106 收到 104，肉眼无感。 */
+  flex: 0 0 auto;
+}
+/* 标识格。flex-basis 取设计宽 106px（= 174:45 的 lockup 在页脚高度下的自然宽），
+   可压缩可伸展；min-width:0 保证极端窄卡下它是"按比例缩小"而不是把整行撑破。
+   color 走 --ookla-ink：SVG 内部用的是 currentColor。 */
+.qc-ext > .bf-ookla {
+  flex: 0 1 106px; min-width: 0; align-self: center;
+  display: flex; align-items: center; justify-content: flex-end;
+  color: var(--ookla-ink);
+}
+/* width:100% + height:auto：SVG 有 viewBox，浏览器会按 174:45 的固有比例
+   算出高度。父格被压缩时整块按比例缩小，永远不溢出。
+   ⚠️ 不要写死 height（例如 height:22px）+ 让宽度自适应：
+   SVG 没有固有尺寸时那样会退回默认 300×150，把页脚撑变形。
+   写成"宽度驱动、高度按比例"是唯一稳的方向。 */
+.bf-ookla .ookla-svg { display: block; width: 100%; height: auto; }
+/* 字标用页面正文字体渲染（参考图的 Ookla 自有字体拿不到）。
+   宽度已由 SVG 内的 textLength 锁死，这里只负责字体族/字距的观感。 */
+.bf-ookla .ookla-svg text { font-family: var(--sans); }
+
+/* 页脚第三格的**纯文字**数据来源标识（Meta 基准报告那 3 张卡，2026-09-30 加）。
+   与上面 .bf-ookla 同一格、同一用意：说明这张卡的数从哪来。
+   为什么不是图标：这一组数据来自 my_app 自研的 Meta 基准报告，没有可用的品牌资产；
+   而**绝不能**拿 Ookla 那个标识去标一份非 Ookla 的数据 —— 那是对商标的错误使用，
+   也会让用户把两组数当成同一个来源。
+   为什么不用 .bf-ookla 那个类：那个类的 flex-basis 是 106px 的**图形**宽度，
+   文字徽章只要自身的自然宽（约 46~66px，中英文不同），套过去会让页脚
+   在一行里凭空多出 40px 的压缩量，把左边两格文字压出省略号。 */
+.qc-ext > .bf-src {
+  flex: 0 0 auto; min-width: 0; align-self: center; margin-left: auto;
+  white-space: nowrap; font-size: var(--fs-2xs); line-height: var(--lh-base);
+  border: 1px solid var(--line-2); border-radius: 11px; padding: 1px 8px; color: var(--t3);
+}
+
+/* 极窄卡（实测 420px 视口下卡宽只剩 169px、页脚可用宽 149px）：
+   「两格文字 88px + 标识 106px」装不下。此时让标识**换行独占一行**并右对齐 ——
+   两个文字格保住原宽、标识也保住设计尺寸，代价只是页脚多一行。
+   备选方案是继续压缩标识到 61px，但那样 "SPEEDTEST" 只剩 6px 高、认不出来，
+   而"让标识可辨认"正是这一格存在的理由。
+   阈值 560px 的来历：页脚需要 194px（88 + 106 + 2×4 gap），
+   卡宽 = 页脚宽 + 20 内边距 → 需要卡宽 ≥ 214px；
+   2 列布局下卡宽 ≈ (视口 − 48 − 16) / 2，视口 560px 时约 248px，
+   再往下就开始不够，所以在 560px 处换行。 */
+@media (max-width: 560px) {
+  .qc-card--bf .qc-ext { flex-wrap: wrap; }
+  .qc-ext > .bf-ookla { flex: 0 0 100%; max-width: 106px; justify-content: flex-end; }
+  /* 文字徽章同理换行独占一行（它比 106px 的图形窄，但两格中文标签
+     加它就超过 149px 的可用宽）。换行后靠 margin-left:auto 贴右，
+     与上面就地的 justify-content:flex-end 效果一致 —— 它是 span 不是 flex 容器，
+     用不了 justify-content。 */
+  .qc-ext > .bf-src { flex: 0 0 100%; }
+}
 
 /* 整卡可点的卡片（2026-09-29 加）。
    两处会用到这个类，都是"整张卡渲染成 <a href>"：
@@ -1085,33 +1381,33 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   width: 100%; min-width: 0;
 }
 .qc-ttl b {
-  font-size: 12.5px; font-weight: 700; color: var(--t1);
-  letter-spacing: .2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: var(--fs-sm); font-weight: 700; color: var(--t1);
+  letter-spacing: var(--ls-wide); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.qc-ttl i { font-style: normal; flex: none; font-size: 10px; color: var(--t3); }
+.qc-ttl i { font-style: normal; flex: none; font-size: var(--fs-2xs); color: var(--t3); }
 
 /* 大数字：字号跟 QC 卡那档一致（24px），不要另开一档 ——
    同一屏上两组卡片数字不一样大，会让人以为量级不同。 */
 .qc-val { display: flex; align-items: baseline; gap: 6px; margin-top: 6px; width: 100%; min-width: 0; }
 .qc-val span {
-  font: 600 24px/1.05 var(--mono); color: var(--t1);
+  font: 600 var(--fs-num)/1.05 var(--mono); color: var(--t1);
   font-variant-numeric: tabular-nums;
 }
-.qc-val em { font-style: normal; font-size: 11px; font-weight: 600; color: var(--t3); }
+.qc-val em { font-style: normal; font-size: var(--fs-xs); font-weight: 600; color: var(--t3); }
 .qc-card--rich.is-na .qc-val span { color: var(--t3); }
 
 /* 口径行：「最新 · 2026-09-23（数据截至 2026-09-23）」。
    这一行是**必须**的：四个数字都不是当天的，而本页其它看板多为实时/当日。 */
 .qc-asof {
   display: block; width: 100%; margin-top: 2px;
-  font-size: 10px; line-height: 1.35; color: var(--t3);
+  font-size: var(--fs-2xs); line-height: var(--lh-tight); color: var(--t3);
 }
 
 /* WoW / MoM 徽章。涨跌配色取「业务语义」而非红涨绿跌的股市习惯：
    指标 better=up，故涨=正面(绿)、跌=负面(红)；接口给了 better 就跟着走。 */
 .qc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .qc-chip {
-  font-size: 10px; line-height: 1.5; border-radius: 11px; padding: 1px 8px;
+  font-size: var(--fs-2xs); line-height: var(--lh-base); border-radius: 11px; padding: 1px 8px;
   border: 1px solid var(--line-2); background: transparent; color: var(--t2);
   white-space: nowrap; font-variant-numeric: tabular-nums;
 }
@@ -1130,11 +1426,11 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 }
 .qc-ext > div {
   flex: 1; min-width: 0; text-align: center;
-  font-size: 10px; line-height: 1.35; color: var(--t3);
+  font-size: var(--fs-2xs); line-height: var(--lh-tight); color: var(--t3);
   display: flex; flex-direction: column; gap: 1px;
 }
 .qc-ext > div b {
-  font: 600 11.5px/1.3 var(--mono); color: var(--t1);
+  font: 600 var(--fs-xs)/var(--lh-tight) var(--mono); color: var(--t1);
   font-variant-numeric: tabular-nums;
 }
 .qc-ext > div > span:last-child {
@@ -1246,8 +1542,12 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 .p-hd { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 auto; }
 .p-hd::before { content: ""; flex: none; width: 3px; height: 15px; border-radius: 2px; background: var(--grad); transform: translateY(1px); }
 .panel[data-tier="0"] .p-hd::before { background: var(--hi); }
-.p-t { font-size: 15px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.p-s { font-size: 12px; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 面板标题（L1）：2026-09-30 由 15px 上调到 --fs-lg(16px)，与下方 h2 级标题
+   （.fcard .ttl 16px / .um-head h3 16px / .qc-head h3 16px / .gate-c h2 18px）同频。
+   原先 15px 落在 --fs-md(14) 与 --fs-lg(16) 之间，既不与正文成档、也不与标题成档，
+   是「面板标题看起来和正文差不多大」的成因之一；归到 16px 后 L1 标题真正立起来。 */
+.p-t { font-size: var(--fs-lg); font-weight: 700; letter-spacing: var(--ls-tight); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-s { font-size: var(--fs-xs); color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ----------------------------------------------------------------------------
    入口标题橙（2026-09-25 用户要求）
@@ -1262,10 +1562,10 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    把共用类整体染色会连它们一起改掉，属超范围改动。故新增 .t-orange 逐个挂。
    ⚠️ 以后这六处若新增同类标题，记得一并挂上 .t-orange，否则颜色会不一致。 */
 .t-orange { color: var(--title); }
-.p-x { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--b-ink); flex: none; }
+.p-x { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-xs); font-weight: 600; color: var(--b-ink); flex: none; }
 .p-x:hover { text-decoration: underline; }
-.p-x i { font-size: 13px; }
-.cnt { flex: none; font: 600 11px/1 var(--mono); color: var(--t2); background: var(--surface-3); border-radius: 999px; padding: 4px 7px; font-variant-numeric: tabular-nums; }
+.p-x i { font-size: var(--icon-sm); }
+.cnt { flex: none; font: 600 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--t2); background: var(--surface-3); border-radius: 999px; padding: 4px 7px; font-variant-numeric: tabular-nums; }
 
 /* 焦点卡（L0 专用：CXO 看板） */
 .fcard {
@@ -1275,9 +1575,9 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   transition: border-color .16s, background .16s, box-shadow .16s;
 }
 .fcard:hover { border-color: var(--b-line); background: var(--b-tint); box-shadow: var(--sh-1); }
-.fcard .ttl { display: block; font-size: 16px; font-weight: 700; letter-spacing: -.012em; line-height: 1.3; }
+.fcard .ttl { display: block; font-size: var(--fs-lg); font-weight: 700; letter-spacing: var(--ls-tight); line-height: var(--lh-tight); }
 .fcard:hover .ttl { color: var(--b-ink); }
-.fcard .dsc { margin-top: 5px; font-size: 13px; line-height: 1.55; color: var(--t2);
+.fcard .dsc { margin-top: 5px; font-size: var(--fs-sm); line-height: var(--lh-base); color: var(--t2);
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .fcard .meta { margin-top: var(--s3); }
 /* 焦点卡的箭头平时收起、悬停再滑出来（条目行的箭头是常显的） */
@@ -1290,9 +1590,9 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   background: var(--b-tint2); color: var(--b-ink); font-size: 17px; flex: none;
 }
 .ic-bd { min-width: 0; }
-.meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font: 500 11px/1.4 var(--mono); color: var(--t3); letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t3); letter-spacing: var(--ls-wide); font-variant-numeric: tabular-nums; }
 .meta .dot { opacity: .45; }
-.ic-go { color: var(--t3); font-size: 14px; transition: opacity .16s, transform .16s, color .16s; }
+.ic-go { color: var(--t3); font-size: 14px; transition: opacity .16s, transform .16s, color .16s; }  /* 图标字号 */
 
 /* 条目卡：卡片流 —— 一行放得下几张就排几张，排满自动折到下一行。
    auto-fill 而不是 auto-fit：fit 会把空轨合并掉，MS View 只有 3 条时被拉成 3 张 800px
@@ -1312,11 +1612,11 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   background: var(--b-tint2); color: var(--b-ink); font-size: 16px;
 }
 .c-bd { min-width: 0; }
-.c-t { display: block; font-size: 14px; font-weight: 600; line-height: 1.35; color: var(--t1); }
+.c-t { display: block; font-size: var(--fs-md); font-weight: 600; line-height: var(--lh-tight); color: var(--t1); }
 .card:hover .c-t { color: var(--b-ink); }
 .c-d {
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
-  margin-top: 3px; font-size: 12.5px; line-height: 1.5; color: var(--t3);
+  margin-top: 3px; font-size: var(--fs-sm); line-height: var(--lh-base); color: var(--t3);
 }
 .card:hover .c-d { color: var(--t2); }
 .card .meta { margin-top: 8px; }
@@ -1328,7 +1628,9 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   .l0-col .card .meta > .dot:has(+ .ow) { display: none; }
 }
 
-.st { font: 700 9.5px/1 var(--mono); letter-spacing: .02em; padding: 3px 6px; border-radius: 4px; }
+/* 状态徽章：9.5px 归并到 --fs-2xs(10px)。0.5px 的差别人眼不可辨，
+   而独立的 9.5px 只会让人以为"这档和别的 10px 不一样"，其实一样。 */
+.st { font: 700 var(--fs-2xs)/var(--lh-solid) var(--mono); letter-spacing: var(--ls-wide); padding: 3px 6px; border-radius: 4px; }
 .st-online { color: var(--ok); background: var(--ok-tint); }
 .st-beta { color: var(--warn); background: var(--warn-tint); }
 .pf { color: var(--t2); }
@@ -1385,8 +1687,8 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    已经把它推到中间，若本段不带 auto，两颗按钮会紧贴在页签右侧而不是卡片右缘。 */
 .map-tools { display: flex; align-items: center; justify-content: flex-end; gap: var(--s2); flex: 1 1 0; min-width: 0; margin-left: auto; }
 .tabs { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface-3); }
-.tab { height: 26px; padding: 0 10px; border-radius: 4px; font-size: 12.5px; font-weight: 600; color: var(--t2); display: inline-flex; align-items: center; gap: 6px; }
-.tab i { font-size: 14px; }
+.tab { height: 26px; padding: 0 10px; border-radius: 4px; font-size: var(--fs-sm); font-weight: 600; color: var(--t2); display: inline-flex; align-items: center; gap: 6px; }
+.tab i { font-size: 14px; }   /* 图标字号：单独一档，与 --icon-* 都不等，仅此处使用 */
 .tab:hover { color: var(--b-ink); }
 .tab[aria-selected="true"] { background: var(--surface); color: var(--b-ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
 html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
@@ -1394,7 +1696,7 @@ html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
    否则用户会以为页签坏了（点了不切地图）。虚线描边 + 铅笔图标即为该暗示。 */
 .tabs.is-renaming .tab { outline: 1px dashed var(--b-line, rgba(13, 148, 136, .45)); outline-offset: -1px; }
 .tabs.is-renaming .tab:hover { color: var(--b-ink); }
-.maptab-pen { opacity: .65; font-size: 12px !important; }
+.maptab-pen { opacity: .65; font-size: var(--fs-xs) !important; }  /* 图标字号 */
 /* 面板标题在编辑态变成可点按钮（改的是这一栏的标题/副标题，与页签改名同一入口） */
 .p-t-edit {
   font: inherit; color: inherit; background: none; border: 0; padding: 0 4px; margin: 0 -4px;
@@ -1410,17 +1712,17 @@ html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
 .canvas iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .canvas-note {
   position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between;
-  gap: var(--s3); padding: 5px 10px; font: 500 11px/1.4 var(--mono); color: var(--t3);
+  gap: var(--s3); padding: 5px 10px; font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t3);
   background: var(--glass); border-top: 1px solid var(--line);
 }
 /* 内嵌 iframe 的加载遮罩 / 门禁提示（报告文件页签用）：盖在画布上，加载完成就摘掉，
    所以底色跟 .canvas 一致，不会在切换瞬间露出一块白。 */
 .embed-boot {
   position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center;
-  gap: 8px; padding: 0 var(--s4); text-align: center; font-size: 12.5px; color: var(--t3);
+  gap: 8px; padding: 0 var(--s4); text-align: center; font-size: var(--fs-sm); color: var(--t3);
   background: var(--surface-2);
 }
-.embed-boot > i.ph { font-size: 18px; }
+.embed-boot > i.ph { font-size: var(--icon-lg); }
 .embed-ring { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--b); animation: olbr-spin .8s linear infinite; }
 @keyframes olbr-spin { to { transform: rotate(360deg); } }
 
@@ -1428,26 +1730,32 @@ html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
 .esc { background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-1); overflow: hidden; }
 .esc-bar { display: flex; align-items: center; gap: var(--s3); padding: 11px var(--s4); flex-wrap: wrap; }
 .esc-bar::before { content: ""; width: 3px; height: 15px; border-radius: 2px; background: var(--grad); flex: none; }
-.esc-t { font-size: 14px; font-weight: 700; }
-.esc-s { font-size: 12px; color: var(--t3); }
+.esc-t { font-size: var(--fs-lg); font-weight: 700; }
+.esc-s { font-size: var(--fs-xs); color: var(--t3); }
 .esc-lv { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
-.lvchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-2); font: 600 11.5px/1 var(--mono); color: var(--t2); }
+.lvchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-2); font: 600 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--t2); }
 .lvchip b { color: var(--t1); }
 .lvchip[data-now="1"] { border-color: var(--b-line); background: var(--b-tint); color: var(--b-ink); }
 .esc-body { padding: 0 var(--s4) var(--s4); border-top: 1px solid var(--line); }
 .esc-scroll { max-height: 62vh; overflow: auto; margin-top: var(--s3); border: 1px solid var(--line); border-radius: var(--r2); }
 
-table.grid { font-size: 12.5px; }
+/* 三张表口径对齐（2026-09-30）：
+   本文件里有三处表格 —— 升级机制 table.grid、用户管理 .um-table、下钻弹窗 .qc-table
+   （后者在共用的 qcDrill.css 里）。原先表头分别是 11 / 12.5 / 12px、正文分别是
+   12.5 / 13.5 / 13px，同一种语义三套尺寸，看起来像三个系统拼的。
+   现在统一：表头 = --fs-xs(11.5px)，正文 = --fs-sm(12.5px)。
+   ⚠️ 升级表是数据密集表，表头沿用 --sans 的 700（不用 mono），与另两张表一致。 */
+table.grid { font-size: var(--fs-sm); }
 table.grid th, table.grid td { padding: 7px 10px; text-align: left; white-space: nowrap; }
 table.grid thead th {
   position: sticky; top: 0; z-index: 2; background: var(--surface-2-solid);
-  font: 700 11px/1 var(--sans); letter-spacing: .02em; color: var(--t2);
+  font: 700 var(--fs-xs)/var(--lh-solid) var(--sans); letter-spacing: var(--ls-wide); color: var(--t2);
   border-bottom: 1px solid var(--line-2);
 }
 table.grid td { border-bottom: 1px solid var(--line); }
 table.grid tbody tr:last-child td { border-bottom: 0; }
 table.grid tbody tr:hover { background: var(--hover); }
-table.grid td.lv { font: 700 11px/1 var(--mono); color: var(--b-ink); letter-spacing: .04em; }
+table.grid td.lv { font: 700 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--b-ink); letter-spacing: var(--ls-wide); }
 /* ---- Escalation Matrix：按 Level 上色（2026-09-28 加）----
    用户要求「表格按照 Level 显示不同的颜色，注意深浅两种主题背景」。
    数据侧由 renderEsc() 在 <tr> 上写 data-lv="1..4"，配色全部在这里，
@@ -1489,7 +1797,7 @@ html.dark table.grid tbody tr[data-lv]:hover { filter: brightness(1.35); }
 table.grid td.num, table.grid th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 table.grid a { color: var(--b-ink); }
 table.grid a:hover { text-decoration: underline; }
-.esc-note { margin-top: var(--s2); font: 500 11px/1.5 var(--mono); color: var(--t3); }
+.esc-note { margin-top: var(--s2); font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t3); }
 /* v1：默认只显示前 4 行时的那句「还有 N 条」。用 --hi（OLR 橙）而不是灰：
    它是一句**行动提示**（告诉用户去哪看剩下的），不是数据来源脚注。
    与下面的 .esc-note 挤在一起时，靠颜色和图标把两者分开。 */
@@ -1497,9 +1805,9 @@ table.grid a:hover { text-decoration: underline; }
   display: flex; align-items: center; gap: 6px;
   margin-top: var(--s3); padding: 7px 10px; border-radius: var(--r1);
   background: var(--hi-tint); color: var(--hi);
-  font-family: var(--sans); font-size: 11.5px;
+  font-family: var(--sans); font-size: var(--fs-xs);
 }
-.esc-note--more i { flex: none; font-size: 13px; }
+.esc-note--more i { flex: none; font-size: var(--icon-sm); }
 
 /* L1 主视图：一组一个页签，一次只展开一个面板，面板内是卡片流。
    页签外观照抄上面筛选 chip 的胶囊（用户要的就是这个形状），但语义是 tab：
@@ -1520,13 +1828,13 @@ table.grid a:hover { text-decoration: underline; }
 .tabv {
   flex: none; height: 28px; padding: 0 11px; border-radius: 999px;
   border: 1px solid var(--line-2); background: var(--surface);
-  font-size: 12.5px; font-weight: 600; color: var(--t2); white-space: nowrap;
+  font-size: var(--fs-sm); font-weight: 600; color: var(--t2); white-space: nowrap;
   display: inline-flex; align-items: center; gap: 6px;
   transition: border-color .14s, background .14s, color .14s;
 }
 .tabv:hover { border-color: var(--b-line); color: var(--b-ink); }
 .tabv[aria-selected="true"] { background: var(--b); border-color: var(--b); color: var(--b-on); }
-.tabv small { font: 500 11px/1 var(--mono); opacity: .8; font-variant-numeric: tabular-nums; }
+.tabv small { font: 500 var(--fs-xs)/var(--lh-solid) var(--mono); opacity: .8; font-variant-numeric: tabular-nums; }
 
 /* 二级子页签（BO View 的无线 / 核心网 / IP 承载…）：比一级页签轻一档 ——
    实心 = 一级、浅色描边 = 二级，靠填充深浅读层级，不再发明第三种形状。 */
@@ -1534,13 +1842,13 @@ table.grid a:hover { text-decoration: underline; }
 .subv {
   flex: none; height: 24px; padding: 0 9px; border-radius: 999px; white-space: nowrap;
   border: 1px solid var(--line-2); background: var(--surface);
-  font-size: 12px; font-weight: 600; color: var(--t2);
+  font-size: var(--fs-xs); font-weight: 600; color: var(--t2);
   display: inline-flex; align-items: center; gap: 5px;
   transition: border-color .14s, background .14s, color .14s;
 }
 .subv:hover { border-color: var(--b-line); color: var(--b-ink); }
 .subv[aria-pressed="true"] { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
-.subv small { font: 500 10.5px/1 var(--mono); opacity: .8; font-variant-numeric: tabular-nums; }
+.subv small { font: 500 var(--fs-2xs)/var(--lh-solid) var(--mono); opacity: .8; font-variant-numeric: tabular-nums; }
 
 /* ---------------------------------------------------------- 编辑态 -- */
 /* 顶栏那颗开关 + 一条提示带。改动写的是**全站共享**目录（/api/portal-catalog），
@@ -1551,11 +1859,11 @@ table.grid a:hover { text-decoration: underline; }
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
   margin-bottom: var(--s3); padding: 7px 10px;
   border: 1px solid var(--warn); border-radius: var(--r2); background: var(--warn-tint);
-  font-size: 12px; color: var(--t2);
+  font-size: var(--fs-xs); color: var(--t2);
 }
 .editbar .eb-k {
   display: inline-flex; align-items: center; flex: none;
-  font: 700 10.5px/1 var(--mono); letter-spacing: .02em;
+  font: 700 var(--fs-2xs)/var(--lh-solid) var(--mono); letter-spacing: var(--ls-wide);
   color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 4px 6px;
 }
 .editbar .eb-t { color: var(--t1); font-weight: 600; }
@@ -1577,11 +1885,11 @@ table.grid a:hover { text-decoration: underline; }
 .ct {
   display: inline-flex; align-items: center; gap: 5px; flex: none;
   height: 22px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 6px;
-  background: var(--surface); color: var(--t2); font-size: 11.5px; font-weight: 600;
+  background: var(--surface); color: var(--t2); font-size: var(--fs-xs); font-weight: 600;
   transition: border-color .14s, color .14s, background .14s;
 }
 .ct:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
-.ct i { font-size: 12px; }
+.ct i { font-size: var(--icon-xs); }
 .ct--rst { margin-left: var(--s3); }
 /* 「删除看板」是这条编辑带上唯一不可逆的动作，必须一眼能认出来。
    只染 hover + 图标，不做常驻红底：一排里六张卡各一颗红按钮会很吵。
@@ -1598,14 +1906,14 @@ table.grid a:hover { text-decoration: underline; }
   background: none; border: 0; font: inherit; color: inherit; cursor: pointer; border-radius: 999px; }
 .subv.is-drop.is-on { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
 .sub-x { display: inline-grid; place-items: center; width: 18px; height: 18px; flex: none;
-  border: 0; border-radius: 5px; background: none; color: var(--t3); font-size: 11px; cursor: pointer; }
+  border: 0; border-radius: 5px; background: none; color: var(--t3); font-size: 11px; cursor: pointer; }  /* 图标字号 */
 .sub-x:hover { background: var(--surface-3); color: var(--b-ink); }
 .sub-x[data-act="sub-del"]:hover { color: var(--crit); background: var(--crit-tint); }
 .subv.is-ren { padding: 3px 4px; gap: 4px; height: auto; }
 .sub-add { display: inline-flex; align-items: center; gap: 4px; }
 .sub-i {
   width: 108px; height: 22px; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px;
-  background: var(--surface-2); color: var(--t1); font-size: 11.5px; font-family: inherit;
+  background: var(--surface-2); color: var(--t1); font-size: var(--fs-xs); font-family: inherit;
 }
 .sub-i:focus { outline: none; border-color: var(--b-line); box-shadow: 0 0 0 2px var(--b-tint2); }
 
@@ -1616,10 +1924,10 @@ table.grid a:hover { text-decoration: underline; }
   background: var(--surface); box-shadow: var(--sh-2); scrollbar-width: thin;
 }
 .gp-hd { display: grid; gap: 2px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-2); }
-.gp-hd b { font-size: 13px; color: var(--t1); }
-.gp-hd span { font-size: 11.5px; color: var(--t3); }
+.gp-hd b { font-size: var(--fs-md); color: var(--t1); }
+.gp-hd span { font-size: var(--fs-xs); color: var(--t3); }
 .gp-list { display: grid; gap: 1px; }
-.gp-i { display: flex; align-items: center; gap: 8px; padding: 4px 5px; border-radius: 6px; font-size: 12.5px; color: var(--t2); cursor: pointer; }
+.gp-i { display: flex; align-items: center; gap: 8px; padding: 4px 5px; border-radius: 6px; font-size: var(--fs-sm); color: var(--t2); cursor: pointer; }
 .gp-i:hover { background: var(--b-tint); color: var(--t1); }
 .gp-i input { accent-color: var(--b); width: 14px; height: 14px; flex: none; margin: 0; }
 /* 归档那一项的计数（2026-09-29 加）。结构上是 .gp-i 里的第三个孩子，
@@ -1627,7 +1935,7 @@ table.grid a:hover { text-decoration: underline; }
    ⚠️ 不能写成 `.gp-i span:first-of-type` —— 名称永远不需要让位，
    让位的是「名字后面那个东西」，按位置写将来插元素就会错位。 */
 .gp-i > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gp-n { flex: none; font: 500 10.5px/1 var(--mono); font-style: normal; color: var(--warn); background: var(--warn-tint); padding: 3px 5px; border-radius: 4px; }
+.gp-n { flex: none; font: 500 var(--fs-2xs)/var(--lh-solid) var(--mono); font-style: normal; color: var(--warn); background: var(--warn-tint); padding: 3px 5px; border-radius: 4px; }
 /* ⚠️ 空计数不显示。为什么用 :empty 而不是在拼串处决定「要不要输出这个节点」：
    那样"0 不显示"就有两个判据（拼串 + 样式），改一处漏一处；
    这里拼串只负责"有几张"，显示与否只有这一条规则。
@@ -1638,14 +1946,14 @@ table.grid a:hover { text-decoration: underline; }
 .gp-search { margin-bottom: 6px; }
 .gp-search input {
   width: 100%; height: 26px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 6px;
-  background: var(--surface-2); color: var(--t1); font: inherit; font-size: 12.5px;
+  background: var(--surface-2); color: var(--t1); font: inherit; font-size: var(--fs-sm);
 }
 .gp-search input:focus { outline: none; border-color: var(--b-line); box-shadow: 0 0 0 2px var(--b-tint); }
 .gp-list--tpl { max-height: 220px; overflow: auto; scrollbar-width: thin; gap: 1px; }
 .gp-tpl {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 6px;
   border: 0; border-radius: 6px; background: none; color: var(--t2);
-  font: inherit; font-size: 12.5px; text-align: left; cursor: pointer;
+  font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer;
   /* ⚠️ `min-width: 0` 不能省。`.gp-list` 是 grid，而 grid/flex 子项默认
      `min-width: auto` —— 它会按内容的**最小内容宽度**撑开，`width: 100%` 管不住。
      模板名最长的那些（如 "TT&WO Dashboard (故障与运维工单流转看板)"）会把整行
@@ -1655,11 +1963,11 @@ table.grid a:hover { text-decoration: underline; }
   box-sizing: border-box;
 }
 .gp-tpl:hover { background: var(--b-tint); color: var(--t1); }
-.gp-tpl i { flex: none; font-size: 13px; color: var(--t3); }
+.gp-tpl i { flex: none; font-size: var(--icon-sm); color: var(--t3); }
 .gp-tpl:hover i { color: var(--b-ink); }
 .gp-tpl-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gp-tpl-n { flex: none; font: 500 10.5px/1 var(--mono); color: var(--t3); }
-.gp-none { padding: 10px 6px; font-size: 12.5px; color: var(--t3); }
+.gp-tpl-n { flex: none; font: 500 var(--fs-2xs)/var(--lh-solid) var(--mono); color: var(--t3); }
+.gp-none { padding: 10px 6px; font-size: var(--fs-sm); color: var(--t3); }
 
 /* 改名浮层（一级分组改名 / 新增分组 / 看板改标题）：标签在上、输入框在下 ——
    230px 宽的浮栏里并排放不下「中文名」这种三字标签 + 中文名输入框。 */
@@ -1669,10 +1977,10 @@ table.grid a:hover { text-decoration: underline; }
    只加宽度不加字段逻辑 —— 靠 :has() 命中，老浏览器不认时退回 286px，仍然可用。 */
 .gp--form:has([data-f="itemUrl"]) { width: 400px; max-width: calc(100vw - 24px); }
 .gp--form .gf { display: grid; gap: 3px; margin-bottom: 7px; }
-.gp--form .gf > span { font: 500 11px/1.2 var(--mono); color: var(--t3); }
+.gp--form .gf > span { font: 500 var(--fs-xs)/var(--lh-tight) var(--mono); color: var(--t3); }
 .gf-i {
   min-width: 0; height: 26px; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px;
-  background: var(--surface-2); color: var(--t1); font: inherit; font-size: 12.5px;
+  background: var(--surface-2); color: var(--t1); font: inherit; font-size: var(--fs-sm);
 }
 .gf-i:focus { outline: none; border-color: var(--b-line); box-shadow: 0 0 0 2px var(--b-tint); }
 .gf-b { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
@@ -1685,7 +1993,7 @@ table.grid a:hover { text-decoration: underline; }
 .gf-back:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
 /* 表单底部那行「模板：#1 NUR Dashboard」：只是让人确认继承的是哪一张，
    不是交互元素，所以刻意压低对比度，别和输入框抢注意力。 */
-.gf-note { margin-top: 7px; font: 500 10.5px/1.3 var(--mono); color: var(--t3); }
+.gf-note { margin-top: 7px; font: 500 var(--fs-2xs)/var(--lh-tight) var(--mono); color: var(--t3); }
 
 /* L2 辅助：去卡片化，默认只露 2 行，其余靠标题右侧「展开 / 收起」。
    收缩靠隐藏第 3 条起的 li，不用 max-height —— 后者会把半行裁在中间。 */
@@ -1693,37 +2001,37 @@ table.grid a:hover { text-decoration: underline; }
 .aux-g { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-content: start; min-width: 0; }
 /* 必须显式写 minmax(0,1fr)：默认那条隐式 auto 轨会被 .lrow 里 nowrap 文本的 min-content
    撑到 357px（列宽只有 253），整页就跟着出横向滚动条。 */
-.aux-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; letter-spacing: .02em; color: var(--t3); padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.aux-h { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); font-weight: 700; letter-spacing: var(--ls-wide); color: var(--t3); padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .aux-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .aux-h .cnt { margin-left: auto; }
-.aux-x { display: inline-flex; align-items: center; gap: 4px; flex: none; font: 600 11px/1 var(--sans); letter-spacing: .02em; color: var(--b-ink); padding: 4px 7px; border-radius: 999px; background: var(--b-tint); transition: background .14s; }
+.aux-x { display: inline-flex; align-items: center; gap: 4px; flex: none; font: 600 var(--fs-xs)/var(--lh-solid) var(--sans); letter-spacing: var(--ls-wide); color: var(--b-ink); padding: 4px 7px; border-radius: 999px; background: var(--b-tint); transition: background .14s; }
 .aux-x:hover { background: var(--b-tint2); }
-.aux-x i { font-size: 12px; }
+.aux-x i { font-size: var(--icon-xs); }
 .aux-g:not([data-open="1"]) ul > li:nth-child(n+3) { display: none; }
 .aux ul { list-style: none; margin: 0; padding: 0; }
 .aux li + li { margin-top: 1px; }
-.lrow { display: flex; align-items: center; gap: 9px; padding: 7px 0; font-size: 13.5px; border-bottom: 1px dotted var(--line); }
-.lrow i { color: var(--t3); font-size: 15px; flex: none; }
+.lrow { display: flex; align-items: center; gap: 9px; padding: 7px 0; font-size: var(--fs-md); border-bottom: 1px dotted var(--line); }
+.lrow i { color: var(--t3); font-size: var(--icon-md); flex: none; }
 .lrow:hover { color: var(--b-ink); }
 .lrow:hover i { color: var(--b-ink); }
 .lrow > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lrow .go { margin-left: auto; flex: none; font-size: 12px; opacity: .55; }
-.lrow em { font: 500 10.5px/1 var(--mono); font-style: normal; color: var(--warn); background: var(--warn-tint); padding: 3px 5px; border-radius: 4px; flex: none; }
+.lrow .go { margin-left: auto; flex: none; font-size: var(--icon-xs); opacity: .55; }
+.lrow em { font: 500 var(--fs-2xs)/var(--lh-solid) var(--mono); font-style: normal; color: var(--warn); background: var(--warn-tint); padding: 3px 5px; border-radius: 4px; flex: none; }
 
 /* 归档区（2026-09-28 加）。结构复用 .aux-g / .aux-h / .lrow，只有这两条是新的：
    · .arch-hint —— 一行说明。没有它，这一块看起来像"回收站"，而它其实是可逆的暂存；
    · .arch-g 的折叠规则 —— 上面那条 .aux-g:not([data-open="1"]) 只对 .aux 下的 ul 生效，
      归档区在 .aux 之外（#arch），所以必须自己再写一条，否则"收起"时仍然全列出来。 */
-.arch-hint { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--t3); }
+.arch-hint { margin: 0; font-size: var(--fs-xs); line-height: var(--lh-base); color: var(--t3); }
 #arch .arch-g:not([data-open="1"]) ul > li:nth-child(n+3) { display: none; }
 /* 归档行尾的「取消归档」：与 .lrow 的 .go 箭头抢右侧位置，所以用 margin-left:auto
    把它推到最右（箭头在它右边时靠 .go 自己的 margin-left:auto 会失效 —— 两者都
    声明 auto 时右边距由靠后出现的元素拿走，这里靠 DOM 顺序保证按钮在箭头之前）。 */
-#arch .lrow + .ct, #arch .ct { margin-left: auto; flex: none; font-size: 11px; padding: 3px 8px; }
+#arch .lrow + .ct, #arch .ct { margin-left: auto; flex: none; font-size: var(--fs-xs); padding: 3px 8px; }
 #arch .lrow .go { margin-left: 6px; }
 
 /* 空态与骨架 */
-.empty { padding: 10px 2px; font-size: 12.5px; color: var(--t3); }
+.empty { padding: 10px 2px; font-size: var(--fs-sm); color: var(--t3); }
 .empty b { color: var(--t2); font-weight: 600; }
 .sk { display: block; height: 12px; border-radius: 4px; background: linear-gradient(90deg, var(--surface-3) 25%, var(--surface-2) 37%, var(--surface-3) 63%); background-size: 400% 100%; animation: sh 1.3s ease-in-out infinite; }
 .sk.v { height: 28px; width: 62%; margin: 6px 0; }
@@ -1733,25 +2041,25 @@ table.grid a:hover { text-decoration: underline; }
 /* 门禁 / 登录 */
 .gate { display: grid; place-items: center; padding: var(--s7) 0; }
 .gate-c { width: min(420px, 100%); background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-2); padding: var(--s6); }
-.gate-c h2 { font-size: 18px; font-weight: 700; }
-.gate-c p { margin-top: 6px; font-size: 13px; color: var(--t2); line-height: 1.6; }
+.gate-c h2 { font-size: var(--fs-xl); font-weight: 700; }
+.gate-c p { margin-top: 6px; font-size: var(--fs-md); color: var(--t2); line-height: var(--lh-base); }
 .fld { display: block; margin-top: var(--s4); }
-.fld span { display: block; font-size: 12px; font-weight: 600; color: var(--t2); margin-bottom: 5px; }
+.fld span { display: block; font-size: var(--fs-xs); font-weight: 600; color: var(--t2); margin-bottom: 5px; }
 .fld input { width: 100%; height: 38px; padding: 0 11px; border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--surface-2); }
 .fld input:focus { outline: none; border-color: var(--b); box-shadow: var(--ring); }
-.gate-err { margin-top: var(--s3); font-size: 12.5px; color: var(--crit); background: var(--crit-tint); border: 1px solid var(--crit); border-radius: var(--r1); padding: 8px 10px; }
+.gate-err { margin-top: var(--s3); font-size: var(--fs-sm); color: var(--crit); background: var(--crit-tint); border: 1px solid var(--crit); border-radius: var(--r1); padding: 8px 10px; }
 /* 注册申请成功提示。与 .gate-err 同构、只换色 —— 成功不该长得像报错。 */
-.gate-ok { margin-top: var(--s3); font-size: 12.5px; color: var(--ok); background: var(--ok-tint); border: 1px solid var(--ok); border-radius: var(--r1); padding: 8px 10px; }
+.gate-ok { margin-top: var(--s3); font-size: var(--fs-sm); color: var(--ok); background: var(--ok-tint); border: 1px solid var(--ok); border-radius: var(--r1); padding: 8px 10px; }
 /* 「本页现在是免登录身份」的说明条（只在主动唤起闸门时出现）。
    用中性色而不是警告色：这不是错误，只是说明为什么把你带到这里。 */
-.gate-hint { margin-top: var(--s3); font-size: 12.5px; color: var(--t2); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r1); padding: 8px 10px; line-height: 1.5; }
+.gate-hint { margin-top: var(--s3); font-size: var(--fs-sm); color: var(--t2); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r1); padding: 8px 10px; line-height: var(--lh-base); }
 /* 两种形态之间的切换（申请一个 / 返回登录）。做成文字按钮而不是 .btn ——
    .gate-ft 里已经有两个并排按钮，再放一个会挤，且这是次要动作。 */
 .gate-alt { margin-top: var(--s3); text-align: center; }
-.gate-link { font-size: 12.5px; font-weight: 600; color: var(--b-ink); background: none; border: 0; padding: 4px 6px; cursor: pointer; }
+.gate-link { font-size: var(--fs-sm); font-weight: 600; color: var(--b-ink); background: none; border: 0; padding: 4px 6px; cursor: pointer; }
 .gate-link:hover { text-decoration: underline; }
 .gate-ft { margin-top: var(--s5); display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; padding: 0 16px; border-radius: var(--r2); font-size: 13.5px; font-weight: 600; border: 1px solid var(--line-2); color: var(--t2); transition: background .14s, border-color .14s, color .14s; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; padding: 0 16px; border-radius: var(--r2); font-size: var(--fs-md); font-weight: 600; border: 1px solid var(--line-2); color: var(--t2); transition: background .14s, border-color .14s, color .14s; }
 .btn:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
 .btn.primary { background: var(--b); border-color: var(--b); color: var(--b-on); }
 .btn.primary:hover { background: var(--b-ink); border-color: var(--b-ink); color: #fff; }
@@ -1779,15 +2087,15 @@ table.grid a:hover { text-decoration: underline; }
 .drawer.open { transform: none; }
 .dr-head { display: flex; align-items: flex-start; gap: var(--s4); padding: var(--s4) var(--s5); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .dr-t { flex: 1 1 240px; min-width: 0; }
-.dr-t h3 { font-size: 16px; font-weight: 700; }
-.dr-sub { margin-top: 3px; font: 500 11.5px/1.5 var(--mono); color: var(--t3); }
+.dr-t h3 { font-size: var(--fs-lg); font-weight: 700; }
+.dr-sub { margin-top: 3px; font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t3); }
 .dr-tools { display: flex; align-items: center; gap: var(--s2); }
-.dr-tools input { height: 30px; width: min(260px, 46vw); padding: 0 10px; border: 1px solid var(--line-2); border-radius: var(--r1); background: var(--surface-2); font-size: 13px; }
+.dr-tools input { height: 30px; width: min(260px, 46vw); padding: 0 10px; border: 1px solid var(--line-2); border-radius: var(--r1); background: var(--surface-2); font-size: var(--fs-md); }
 .dr-tools input:focus { outline: none; border-color: var(--b); box-shadow: var(--ring); }
 .dr-body { flex: 1; overflow: auto; padding: var(--s4) var(--s5); }
-.dr-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s3) var(--s5); border-top: 1px solid var(--line); font: 500 12px/1 var(--mono); color: var(--t2); }
+.dr-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s3) var(--s5); border-top: 1px solid var(--line); font: 500 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--t2); }
 .pager { display: inline-flex; align-items: center; gap: var(--s2); }
-.dr-empty { padding: var(--s6); text-align: center; color: var(--t3); font-size: 13px; }
+.dr-empty { padding: var(--s6); text-align: center; color: var(--t3); font-size: var(--fs-md); }
 
 /* 轻提示（复制升级表等动作用）：fixed 居中偏下，不抢焦点、2s 后由 JS 收起。
    z-index 压在所有浮层之上（.qc-mask 200 / .um-mask 210）：用户管理弹窗里
@@ -1797,14 +2105,14 @@ table.grid a:hover { text-decoration: underline; }
   display: flex; align-items: center; gap: 7px;
   padding: 9px 15px; border-radius: 999px;
   background: var(--toast-bg); color: var(--toast-fg); box-shadow: var(--sh-3);
-  font-size: 13px; font-weight: 600;
+  font-size: var(--fs-md); font-weight: 600;
   animation: toast-in .18s cubic-bezier(.2, .8, .2, 1);
 }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
 /* ---------------------------------------------------------------- foot -- */
 .foot { border-top: 1px solid var(--line); background: var(--surface); margin-top: var(--s6); }
-.foot-in { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); flex-wrap: wrap; padding-block: 12px; font-size: 12px; color: var(--t3); }
+.foot-in { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); flex-wrap: wrap; padding-block: 12px; font-size: var(--fs-xs); color: var(--t3); }
 .foot-r { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; font-variant-numeric: tabular-nums; }
 .foot-r .ok { color: var(--ok); display: inline-flex; align-items: center; gap: 5px; }
 .foot-r .ver { font-family: var(--mono); }
@@ -1970,8 +2278,12 @@ html.dark {
   padding: 12px 16px; border-bottom: 1px solid var(--line-2); flex: 0 0 auto;
 }
 .um-head-txt { min-width: 0; }
-.um-head h3 { margin: 0; font-size: 16px; font-weight: 800; color: var(--t1); }
-.um-sub { margin: 2px 0 0; font-size: 12.5px; color: var(--t3); }
+/* ⚠️ 800 归并到 700（2026-09-30）：全页只有这里与 .qc-head h3 用 800，
+   .um-head h3 / .um-foot-who / .um-box-head / .um-profile-head b 等其余标题全是 700。
+   同一层级的标题出现两种字重，会让它们看起来分属两套体系，而 800 与 700 在
+   这些字号（16px）下的视觉差异本就微乎其微。统一到 700。 */
+.um-head h3 { margin: 0; font-size: var(--fs-lg); font-weight: 700; color: var(--t1); }
+.um-sub { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--t3); }
 .um-head-actions { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .um-head-actions a.gb { text-decoration: none; }
 
@@ -1985,7 +2297,7 @@ html.dark {
   padding: 10px 16px; border-top: 1px solid var(--line-2);
   background: var(--surface-2); flex: 0 0 auto;
 }
-.um-foot-who { font-size: 13px; font-weight: 700; color: var(--t1); }
+.um-foot-who { font-size: var(--fs-md); font-weight: 700; color: var(--t1); }
 .um-foot-actions { display: inline-flex; align-items: center; gap: 8px; }
 
 /* ---- 按钮的两个强调档（外壳仍是 .gb）---- */
@@ -1997,7 +2309,7 @@ html.dark {
 /* ---- 提示条 ---- */
 .um-banner {
   display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px; border-radius: var(--r2); font-size: 13px;
+  padding: 8px 12px; border-radius: var(--r2); font-size: var(--fs-md);
   border: 1px solid var(--line-2);
 }
 .um-banner.is-ok { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
@@ -2007,9 +2319,9 @@ html.dark {
 .um-storage {
   display: flex; gap: 8px; padding: 9px 12px; border-radius: var(--r2);
   border: 1px solid var(--line); background: var(--surface-2);
-  font-size: 12px; color: var(--t3);
+  font-size: var(--fs-xs); color: var(--t3);
 }
-.um-storage > i { font-size: 15px; color: var(--b-ink); margin-top: 2px; }
+.um-storage > i { font-size: var(--icon-md); color: var(--b-ink); margin-top: 2px; }
 .um-storage-txt { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .um-storage-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .um-storage-row b { color: var(--t2); }
@@ -2027,22 +2339,24 @@ html.dark {
 .um-box-warn { border-color: var(--warn); }
 .um-box-head {
   display: flex; align-items: center; gap: 8px;
-  padding: 9px 12px; font-size: 13px; font-weight: 700;
+  padding: 9px 12px; font-size: var(--fs-md); font-weight: 700;
   background: var(--surface-2); border-bottom: 1px solid var(--line);
   color: var(--t1);
 }
 .um-box-warn .um-box-head { background: var(--warn-tint); color: var(--warn); }
 .um-pill {
   margin-left: auto; padding: 1px 8px; border-radius: 999px;
-  font-size: 11px; font-weight: 700; background: var(--warn); color: var(--surface);
+  font-size: var(--fs-xs); font-weight: 700; background: var(--warn); color: var(--surface);
 }
 
 /* ---- 表格 ---- */
+/* 口径同 table.grid（见该处注释）：正文 --fs-sm、表头 --fs-xs，
+   与升级机制表、下钻弹窗表三张统一。 */
 .um-scroll { overflow-x: auto; }
-.um-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.um-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .um-table th {
   text-align: left; white-space: nowrap; padding: 7px 10px;
-  font-size: 12.5px; font-weight: 600; color: var(--t2);
+  font-size: var(--fs-xs); font-weight: 600; color: var(--t2);
   /* 粘不住也不重叠，但半透明档在深色下会透出滚动内容，所以用实色档 */
   background: var(--surface-2-solid); border-bottom: 1px solid var(--line-2);
 }
@@ -2054,7 +2368,7 @@ html.dark {
 .um-table tbody tr.is-open > td { background: var(--b-tint); }
 .um-table .um-right { text-align: right; }
 .um-table select {
-  padding: 4px 6px; font-size: 12.5px; font-family: inherit;
+  padding: 4px 6px; font-size: var(--fs-sm); font-family: inherit;
   border: 1px solid var(--line-2); border-radius: 7px;
   background: var(--surface); color: var(--t1);
 }
@@ -2065,12 +2379,12 @@ html.dark {
 .um-empty { padding: 18px 10px; text-align: center; color: var(--t3); }
 
 .um-self {
-  margin-left: 6px; padding: 1px 6px; font-size: 11px; border-radius: 999px;
+  margin-left: 6px; padding: 1px 6px; font-size: var(--fs-xs); border-radius: 999px;
   background: var(--b-tint); color: var(--b-ink); border: 1px solid var(--b-line);
 }
 .um-role {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 8px; font-size: 12px; border-radius: 999px;
+  padding: 2px 8px; font-size: var(--fs-xs); border-radius: 999px;
   border: 1px solid var(--line-2); background: var(--surface-2); color: var(--t2);
 }
 .um-role.is-admin {
@@ -2082,7 +2396,7 @@ html.dark {
 .um-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .um-icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; padding: 0; font-size: 15px; cursor: pointer;
+  width: 28px; height: 28px; padding: 0; font-size: var(--icon-md); cursor: pointer;
   border: 1px solid var(--line-2); border-radius: var(--r1);
   background: var(--surface); color: var(--t2);
 }
@@ -2106,31 +2420,31 @@ html.dark {
 
 /* ---- 新增用户 ---- */
 .um-add-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
-.um-add-row input, .um-add-row select { padding: 7px 10px; font-size: 13.5px; }
+.um-add-row input, .um-add-row select { padding: 7px 10px; font-size: var(--fs-md); }
 .um-add-row input { flex: 1 1 200px; }
 
 /* ---- 行内重置密码 ---- */
 .um-inline-row > td { background: var(--surface-2); }
 .um-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.um-inline input { flex: 1 1 220px; padding: 6px 9px; font-size: 13.5px; }
+.um-inline input { flex: 1 1 220px; padding: 6px 9px; font-size: var(--fs-md); }
 
 /* ---- 页面配置面板（落地 + 可见范围）---- */
 .um-profile-row > td { padding: 0; background: var(--surface-2); }
 .um-profile { display: flex; flex-direction: column; gap: 10px; padding: var(--s3); }
 .um-profile-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--t1); }
-.um-profile-head b { font-size: 14px; }
+.um-profile-head b { font-size: var(--fs-md); }
 .um-field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .um-field-col { align-items: flex-start; }
-.um-field select { max-width: 100%; padding: 6px 9px; font-size: 13px; }
-.um-label { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--t2); }
-.um-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--t2); cursor: pointer; }
+.um-field select { max-width: 100%; padding: 6px 9px; font-size: var(--fs-md); }
+.um-label { margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--t2); }
+.um-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-md); color: var(--t2); cursor: pointer; }
 .um-check input { margin: 0; accent-color: var(--b); }
 
 .um-groups { display: flex; flex-direction: column; gap: 10px; }
 .um-group-block { display: flex; flex-direction: column; gap: 6px; }
 .um-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .um-chip {
-  padding: 3px 10px; font-size: 12.5px; cursor: pointer;
+  padding: 3px 10px; font-size: var(--fs-sm); cursor: pointer;
   border: 1px solid var(--line-2); border-radius: 999px;
   background: var(--surface); color: var(--t2);
 }
@@ -2143,7 +2457,7 @@ html.dark {
   border-color: var(--b-line); background: var(--b-tint);
   color: var(--b-ink); font-weight: 600;
 }
-.um-hint { margin: 0; font-size: 12px; line-height: 1.55; }
+.um-hint { margin: 0; font-size: var(--fs-xs); line-height: var(--lh-base); }
 
 /* 窄屏：副标题与跳转按钮让位给表格本身，别把弹窗顶宽 */
 @media (max-width: 767px) {

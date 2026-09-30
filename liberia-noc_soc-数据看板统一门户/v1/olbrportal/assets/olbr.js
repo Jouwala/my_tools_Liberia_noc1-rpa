@@ -98,7 +98,13 @@
 
   /* -------------------------------------------------------------- state -- */
   /* 默认语言跟随浏览器（与 index.html 首帧脚本的 guessLang 同一口径，
-     两边不一致会闪一下另一种语言）。有用户选择时永远以选择为准。 */
+     两边不一致会闪一下另一种语言）。有用户选择时永远以选择为准。
+     ⚠️ 2026-09-30 交叉引用：那个首帧脚本在 index.html 的 <head> 里
+        （`(function(){ function guessLang(){...} })()`，L38 起），
+        本函数是它的「运行期孪生」。**改判定规则（如默认语言、zh 前缀口径）
+        必须两处同改** —— 只改一处会让首帧与挂载后语言不同，表现为闪一下另一种。
+        另一处同源点：index.html 里那段脚本还会在首帧前写 html[lang] 与
+        html.dark；本函数的 state.theme 则读 root.classList —— 二者也须同口径。 */
   function detectLang() {
     var v = ls('olbr.lang', '');
     if (v === 'en' || v === 'zh') return v;
@@ -137,7 +143,11 @@
        2026-09-24：新增 olib 一路（90 天经营看板）。它**不是** vmax 的替代品 ——
        vmax 给的是「当日进行中」的实时值，olib 给的是「昨日完整值 + 90 天极值 +
        周/月同比 + 迷你走势」。上面四张富卡片要的是后者，所以两路都留着。 */
-    kpi: { loading: true, err: '', at: '', avail: null, olib: null },
+    /* speed  = Ookla 竞对（bm_speedtest）/ meta = Meta 基准报告（bm_meta）：
+       Benchmark 行两组卡的数**分开存**。它们来自两个接口、两份数据
+       （一份是测试库、一份是 Excel 导入的快照），混在一份 state 里
+       任一边失败都会把另一边的卡擦成 —。 */
+    kpi: { loading: true, err: '', at: '', avail: null, olib: null, speed: null, meta: null },
     /* v1 新增：六个视图入口卡里「展开其余 N 项」的开合态。
        与 auxOpen 同一套语义（键 = 视图分组 id），但**分开存** ——
        上面的 L2 辅助区与这里的入口卡是两处独立的 UI，
@@ -1353,13 +1363,314 @@
        要恢复就把 '<span class="qc-spark-cap">…</span>' 加回来。 */
     return '<span class="qc-spark-wrap" title="' + esc(tip) + '">' + svg + '</span>';
   }
+  /* ==================================================================== v1 ==
+     Benchmark 行：Network Benchmark View（2026-10-01 加）
+     ----------------------------------------------------------------------------
+     用户要求：「Network Status Overview 组件下面，新增一行，使用
+     /myapp/?page=bm_speedtest 页面的、最近 30 天、Key metrics comparison 的
+     Download / Upload / Latency 卡片来展示」。
+
+     三张卡 = 三个指标（download / upload / latency），每张卡内是两家并排。
+     ⚠️ **不是**「两个品牌 × 三个指标 = 六张卡」：
+     源页面那张卡的粒度就是「一个指标一张卡、卡里并排两家」，
+     改成六张卡会让"同一指标的对比"散到两张卡上，用户要来回看。
+
+     数据源 /api/bm-speedtest/overview?start=&end=（见 loadKpi 里的取数说明）。
+     口径唯一真相源是 my_app `backend/services/bm_speedtest_caliber.py`，
+     本处只做展示，**不重算任何指标** —— 胜者、胜率、分位数全部直接用接口给的，
+     在渲染层重新比一遍大小就等于给同一个问题造了第二个答案。
+
+     与上面两排的关系：**同一张卡的两种排布**。这一行用 .qc-card--bf
+     （左对齐、卡内多行），上面富卡片是居中的大数字。刻意不复用 .qc-card--rich：
+     那个类的字号与行数是为「一个大数字 + 芯片 + 走势 + 三段页脚」定的，
+     塞两组品牌进来会把它的排版意图搅乱；而这一排要的是"两组数上下对齐"。
+     共用的是**外层**（.qc-card 的底/边/hover/内发光/--qc-accent）与
+     .qc-ext 页脚结构，所以三排卡片的边框、悬停手感、页脚基线仍是一致的。 */
+  function speedCardHtml(spec) {
+    var sp = state.kpi.speed;
+    var rows = (sp && sp.summary) || null;
+    var win = (sp && sp.days) || null;
+    /* 窗口说明。n 取不到时不编一个数出来 —— 走 'kpi.bf.sub' 里没有 {n} 的那半边，
+       否则卡上会写着一个与数据无关的天数。 */
+    var winTxt = win != null
+      ? tf('kpi.bf.sub', { n: win })
+      : t('kpi.bf.subNone');
+    var name = t(DATA.SPEED_ROW_LABEL[spec.key]);
+    var na = true;
+    /* 逐项格式化。速度 1 位小数、时延 0 位 —— 与 my_app 页面的 digits 一致
+       （见 BmSpeedtest.tsx 的 kpiCards 与 bms.metric 的单位）；
+       latency 给 1 位小数会在卡片上多出没有信息量的尾数。 */
+    var fmt = function (v) {
+      if (v == null || v === '' || isNaN(Number(v))) return '—';
+      return kpiNum(Number(v), spec.digits);
+    };
+    /* 领先方：速率取大、时延取小。**只用来标一个徽章**，
+       与 wins（逐日胜率）是两件事 —— 一个说"区间均值谁高"，
+       另一个说"多少天里谁赢"，可能不一致（均值被单日极值拉偏时）。
+       两个都显示、且措辞分开，用户才不会把它们当成同一个结论。 */
+    var pair = DATA.BENCH_BRANDS.map(function (b) {
+      return { key: b, v: rows && rows[b] ? rows[b][spec.key] : null };
+    });
+    var lead = null;
+    if (pair[0].v != null && pair[1].v != null && Number(pair[0].v) !== Number(pair[1].v)) {
+      var a = Number(pair[0].v), c = Number(pair[1].v);
+      lead = spec.kind === 'speed' ? (a > c ? pair[0].key : pair[1].key)
+                                   : (a < c ? pair[0].key : pair[1].key);
+    }
+    if (pair.some(function (p) { return p.v != null; })) na = false;
+    var body = pair.map(function (p) {
+      var s = (rows && rows[p.key]) || {};
+      var isLead = lead === p.key;
+      var pc = (s.pcts && s.pcts[spec.key]) || {};
+      var cell = sp && sp.wins && sp.wins.metrics && sp.wins.metrics[spec.key];
+      var w = cell ? (p.key === 'ORANGE' ? cell.orange_wins : cell.mtn_wins) : null;
+      var rate = cell ? (p.key === 'ORANGE' ? cell.orange_win_rate : cell.mtn_win_rate) : null;
+      if (p.v != null) na = false;
+      /* 品牌名用后端给的 label（Orange / MTN）—— 它也是 my_app 页面上显示的写法。
+         后端没给时退回品牌键，**不在这里写死一份名字表**：那是第三份真相源。 */
+      var bl = s.label || p.key;
+      var rowTip = [tf('kpi.bf.tipName', { n: bl, u: spec.unit })];
+      if (w != null && win != null) {
+        rowTip.push(tf('kpi.bf.winTip', { m: name, n: bl, d: win, w: w, r: kpiNum(rate, 1) }));
+      }
+      rowTip.push(tf('kpi.bf.tipTests', { n: bl, t: kpiNum(s.tests, 0), dev: kpiNum(s.devices, 0) }));
+      return '<div class="bf-row' + (isLead ? ' is-lead' : '') + '" title="' + esc(rowTip.join('\n')) + '">' +
+        '<span class="bf-brand"><i>' + esc(bl) + '</i>' +
+          '<span class="bf-val">' + esc(fmt(p.v)) + '</span></span>' +
+        '<span class="bf-meta">' +
+          '<span class="bf-pct">' + esc(tf('kpi.bf.pctCap', { a: fmt(pc.p50), b: fmt(pc.p90) })) + '</span>' +
+          '<span class="bf-win">' + esc(rate == null ? '—' : tf('kpi.bf.win', { n: kpiNum(rate, 1) })) + '</span>' +
+        '</span>' +
+      '</div>';
+    }).join('');
+    /* tooltip：口径必须写全 —— 这一排的数是"区间均值"，
+       而上面两排分别是"昨日值"和"当月均值"，同屏三个区间，
+       不写清窗口就没人能判断哪个数能跟哪个比。 */
+    var tip = [tf('kpi.bf.tipName', { n: name, u: spec.unit }),
+               t('kpi.bf.tipSrc'),
+               winTxt,
+               tf('kpi.bf.tipAvg', { win: win == null ? '—' : win }),
+               t('kpi.bf.tipPcts')];
+    if (lead) tip.push(t('kpi.bf.tipLead'));
+    if (na) tip.push(t('kpi.bf.na'));
+    tip.push(tf('kpi.openTip', { n: name, b: t('kpi.bf.board') }));
+    var href = '/myapp/?page=' + encodeURIComponent(spec.page);
+    /* 整卡可点（<a> 而非 div + onclick），理由与 kpiRichHtml 那段完全一致：
+       中键新标签 / 右键复制链接 / 键盘 Enter / 读屏念成链接都是白拿的。
+       rel="noopener nofollow" 与同页其它外跳一致。 */
+    return '<a class="qc-card qc-card--bf qc-card--open' + (na ? ' is-na' : '') + '" href="' +
+        esc(href) + '" target="_blank" rel="noopener nofollow" title="' + esc(tip.join('\n')) + '">' +
+      '<div class="bf-hd"><b>' + esc(name) + '</b><i>' + esc(spec.unit) + '</i>' +
+        (lead ? '<span class="bf-lead">' + esc(tf('kpi.bf.lead', { n: (rows[lead] && rows[lead].label) || lead })) + '</span>' : '') +
+      '</div>' +
+      '<div class="bf-rows">' + body + '</div>' +
+      /* 页脚与上面两排共用 .qc-ext 结构与基线，但内容换成这一排**真正需要**的
+         「这个数是哪个窗口、覆盖多少天、两家各测了多少」——
+         不写"区间均值"这类已经在标题与 tooltip 里说过的重复话。
+         tests 取两家之和：卡上是"这次对比基于多少测试"，单看一家会让
+         测试量悬殊时（实测 Orange 562 / MTN 485）读者低估样本。
+         第三格是 Speedtest by Ookla 的品牌标识（2026-10-01 加，用户要求
+         「体现 Ookla 的图标，表明是 Speedtest」）—— 放在最右，
+         与参考图一致。它**不是** <div>：.qc-ext > div 是"上中下三行文字"的
+         排版（标签/数值/单位），logo 用 <span> 才能自带一套尺寸规则。 */
+      '<div class="qc-ext"><div><span>' + esc(t('kpi.bf.range')) + '</span><b>' +
+        esc(win == null ? '—' : String(win)) + '</b><span>' + esc(t('kpi.bf.days')) + '</span></div>' +
+      '<div><span>' + esc(t('kpi.bf.tests')) + '</span><b>' +
+        esc(kpiNum(speedTests(), 0)) + '</b><span>' + esc(t('kpi.bf.testsUnit')) + '</span></div>' +
+      '<span class="bf-ookla" role="img" aria-label="' +
+        esc(t('kpi.bf.ooklaTip')) + '">' + DATA.OOKLA_LOGO + '</span></div>' +
+    '</a>';
+  }
+  /* 两家在该窗口内的测试数之和。任一家缺失时按 0 计会把总数说小，
+     所以只要有一家没有有效值就整体返回 null（卡片显示 —），
+     与全页「取不到显示 —、不显示 0」的约定一致。 */
+  function speedTests() {
+    var rows = (state.kpi.speed && state.kpi.speed.summary) || null;
+    if (!rows) return null;
+    var total = 0;
+    for (var i = 0; i < DATA.BENCH_BRANDS.length; i++) {
+      var s = rows[DATA.BENCH_BRANDS[i]];
+      if (!s || s.tests == null || isNaN(Number(s.tests))) return null;
+      total += Number(s.tests);
+    }
+    return total;
+  }
+  /* ==================================================================== v1 ==
+     Benchmark 行第二组：Meta 基准报告（2026-09-30 加）
+     ----------------------------------------------------------------------------
+     用户要求：「参考 my_app `?page=bm_meta` 的数据，在同一行再补 3 张卡，
+     尽量包含 Orange · Speed / MTN · Speed / 综合评分与胜场 /
+     区间范围(Orange) / 区间范围(MTN) / BP；卡片与同排尽量保持一致」。
+
+     3 张卡的分工（用户 2026-09-30 选定的分组，不是随手摊的）：
+       ① 速率（kpi.mm.speed）—— 两家的区间均值 + 各自逐日区间
+       ② 综合评分与胜场     —— 两家的相对分 + 各自的「领先 x / y 天」
+       ③ BP                —— 网络侧 KPI：均值 + 逐日区间
+     为什么这么并：左边那 3 张 Ookla 卡就是「一个指标一张卡、卡里并排两家」，
+     若这一组改成「一家一张卡」，同一指标的对比就被拆到两张卡上，用户得来回看
+     （与 speedCardHtml 那段同一条理由）。而 BP 是网络侧 KPI、**不属于任何一家**，
+     所以它单独一张、卡里没有品牌行 —— 塞进任何一边都是口径错误（见
+     `bm_meta_caliber` 对 BRAND_METRICS / NETWORK_METRICS 的分组说明）。
+
+     与左边 3 张的关系：**结构一致、数据无关**。同为 .qc-card--bf
+     （左对齐、卡内多行、.qc-ext 页脚），所以六张卡的边框、悬停手感、
+     页脚基线仍是一套；但卡名与口径说明各写各的 —— 左边那套文案第一句就是
+     "Speedtest by Ookla"，套到这里就是假话，所以不复用 kpi.bf.* 的整句。
+
+     数据来源 /api/bm-meta/overview（见 loadKpi），口径唯一真相源是 my_app
+     `backend/services/bm_meta_caliber.py` + `bm_meta_service.py`：
+     本处只做展示，**不重算任何指标** —— 均值、极值、评分、胜负全用接口给的。
+     ⚠️ 两条最容易读错的必须写进 tooltip：① 综合评分是**相对分**（强者恒为 100）；
+     ② 「区间」是**逐日值**的极值，与大数字（区间均值）不是同一个统计量。 */
+  function metaCardHtml(spec) {
+    var mm = state.kpi.meta;
+    var sum = (mm && mm.summary) || null;
+    var net = (sum && sum.network) || null;
+    var scores = (mm && mm.scores) || null;
+    var wins = (mm && mm.wins) || null;
+    var win = (mm && mm.days) || null;
+    var covered = (mm && mm.covered != null) ? mm.covered : null;
+    var at = (mm && mm.at) || '';
+    var name = t(spec.name);
+    var unit = t(spec.unit);
+    /* 位数与 my_app 页面一致（速率 1 位、评分 1 位、BP 2 位）。
+       空值一律走 kpiNum → 「—」，**不显示 0**（本页硬约定）。 */
+    var fmt = function (v) { return kpiNum(v, spec.digits); };
+    /* 平局那句话（卡级与行级 tooltip 共用一份）：实测 2026-09 那个窗口
+       两家各领先 11 天、可比 22 天，两个 x 相加正好等于 y，卡面看着像
+       "两家平分"，其实是另有 1 天平局。my_app 把平局单列了一行
+       （BmMeta.tsx:496），这张卡没有那个位置，就在 tooltip 里补上。
+       ties 缺失时报"无平局"而不是留空 —— 那句话本身也是口径说明，
+       读者需要知道这一行只统计了两家分出胜负的日子。 */
+    var tieTxt = function () {
+      var tie = (wins && wins.ties != null) ? Number(wins.ties) : null;
+      return (tie != null && tie > 0)
+        ? tf('kpi.mm.tieN', { n: kpiNum(tie, 0) }) : t('kpi.mm.tie0');
+    };
+    var na = true;
+    var lead = null;
+    /* 一行 = 左「名字 + 数值」、右「补充说明」，与 Ookla 卡同一套 .bf-row 结构。
+       tip 是这一行自己的 tooltip（行数少，读屏/悬停要能单独解释一行）。 */
+    var bfRow = function (label, value, metaTxt, tip, isLead) {
+      return '<div class="bf-row' + (isLead ? ' is-lead' : '') + '" title="' + esc(tip) + '">' +
+        '<span class="bf-brand"><i>' + esc(label) + '</i>' +
+          '<span class="bf-val">' + esc(value) + '</span></span>' +
+        '<span class="bf-meta"><span class="bf-pct">' + esc(metaTxt) + '</span></span>' +
+      '</div>';
+    };
+    var body;
+    if (spec.kind === 'network') {
+      /* BP：网络侧 KPI，不属于任何一家 —— 卡里只有一行（均值 + 逐日区间），
+         没有品牌行、没有领先方徽章。这一行短，靠 .has-foot 把页脚沉到卡底，
+         与同排其余 5 张卡的页脚落在同一条基线上（见 olbr.css 的 has-foot）。 */
+      var avg = net ? net[spec.key] : null;
+      var mn = net ? net[spec.key + '_min'] : null;
+      var mx = net ? net[spec.key + '_max'] : null;
+      if (avg != null) na = false;
+      var netRange = tf('kpi.mm.obsRange', { a: fmt(mn), b: fmt(mx) });
+      body = bfRow(t('kpi.mm.avg'), fmt(avg), netRange,
+        [tf('kpi.mm.tipName', { n: name, u: unit }), netRange,
+         tf('kpi.mm.rowDays', { n: kpiNum(covered, 0) })].join('\n'), false);
+    } else {
+      /* 两家并排。领先方一律按「越大越好」定 —— 本组进 PK 的两个指标（速率、
+         综合评分）都是这个方向，与 my_app 的 score_brands 同向（强者分更高）。
+         ⚠️ 这一点**不是**照抄 KPI_SPEED 的做法：那边有时延（越小越好），
+         才需要逐条标一个 kind 方向；本组没有反向指标，多一个开关只会多一处写错。 */
+      var rowsOfBrands = DATA.BENCH_BRANDS.map(function (b) {
+        var s = (sum && sum[b]) || {};
+        var label = s.label || b;
+        var v, metaTxt, rowTip;
+        if (spec.key === 'speed') {
+          v = s.speed;
+          metaTxt = tf('kpi.mm.obsRange', { a: fmt(s.speed_min), b: fmt(s.speed_max) });
+          rowTip = [tf('kpi.mm.tipName', { n: label, u: unit }), metaTxt,
+                    tf('kpi.mm.rowDays', { n: kpiNum(covered, 0) })];
+        } else {
+          v = (scores && scores[b]) ? scores[b].score : null;
+          /* 胜场直接用接口的 orange_wins / mtn_wins 与 paired_days，
+             与 my_app 那张卡同一套字段、同一个说法（本处不重算胜率）。 */
+          var w = b === 'ORANGE' ? (wins && wins.orange_wins) : (wins && wins.mtn_wins);
+          metaTxt = tf('kpi.mm.leadDays', {
+            w: kpiNum(w, 0), d: kpiNum(wins && wins.paired_days, 0)
+          });
+          /* 行级 tooltip 也带上平局：用户是把鼠标停在这一行上问"两家怎么都是 11"，
+             答案要在这里就能看到，不必再去卡级 tooltip 找。 */
+          rowTip = [tf('kpi.mm.tipName', { n: label, u: unit }),
+                    tf('kpi.mm.rowScore', { v: fmt(v), u: unit }), metaTxt,
+                    tieTxt()];
+        }
+        if (v != null) na = false;
+        return { label: label, v: v, metaTxt: metaTxt, tip: rowTip.join('\n') };
+      });
+      /* 两家都有值且不相等才评领先方：缺一边或打平时不挂徽章 ——
+         「打平也算某方领先」是造数据，见 caliber.winner_of 的同一条处理。 */
+      if (rowsOfBrands[0].v != null && rowsOfBrands[1].v != null &&
+          Number(rowsOfBrands[0].v) !== Number(rowsOfBrands[1].v)) {
+        lead = Number(rowsOfBrands[0].v) > Number(rowsOfBrands[1].v)
+          ? DATA.BENCH_BRANDS[0] : DATA.BENCH_BRANDS[1];
+      }
+      body = rowsOfBrands.map(function (r, i) {
+        return bfRow(r.label, fmt(r.v), r.metaTxt, r.tip, lead === DATA.BENCH_BRANDS[i]);
+      }).join('');
+    }
+    /* 页脚三格与 Ookla 卡**同结构**（左窗口、中覆盖、右来源标识），但内容不同：
+       中格是「窗口里有几天真有数」—— 这份数据是导入快照（实测数据截至
+       2026-09-23），而窗口取「最近 30 天」，最近几天根本没有数；不写清这一点，
+       读者会以为大数字覆盖了整整 30 天。这一格与 Ookla 卡的中格（测试量）
+       表达的是同一件事：这次统计到底站在多少数据上。 */
+    var foot = '<div class="qc-ext">' +
+      '<div><span>' + esc(t('kpi.mm.win')) + '</span><b>' +
+        esc(win == null ? '—' : String(win)) + '</b><span>' + esc(t('kpi.mm.days')) + '</span></div>' +
+      '<div><span>' + esc(t('kpi.mm.cover')) + '</span><b>' +
+        esc(kpiNum(covered, 0)) + '</b><span>' + esc(t('kpi.mm.days')) + '</span></div>' +
+      /* 数据来源标识：与 Ookla 那张 logo 同一格、同一用意（说明这卡从哪来），
+         它是纯文字徽章而不是图片 —— 这里没有可用的品牌资产，
+         也不该拿 Ookla 的标识去标一份非 Ookla 的数据。 */
+      '<span class="bf-src">' + esc(t('kpi.mm.src')) + '</span>' +
+    '</div>';
+    /* tooltip 的顺序：来源 → 这个数是什么 → 窗口与覆盖面 → 空数据 → 打开哪一页。
+       与 Ookla 卡同一套顺序，用户在两张卡上看到的解释次序是一致的。 */
+    var tip = [tf('kpi.mm.tipName', { n: name, u: unit }), t('kpi.mm.tipSrc')];
+    if (spec.kind === 'network') tip.push(t('kpi.mm.tipBp'));
+    if (spec.key === 'scores') {
+      tip.push(t('kpi.mm.tipScore'));
+      tip.push(tf('kpi.mm.tipLead', { tie: tieTxt() }));
+    }
+    tip.push(t('kpi.mm.tipRange'));
+    tip.push(tf('kpi.mm.tipWin', { win: win == null ? '—' : win }));
+    tip.push(tf('kpi.mm.tipCover', { n: kpiNum(covered, 0), d: at || '—' }));
+    if (na) tip.push(t('kpi.mm.na'));
+    tip.push(tf('kpi.openTip', { n: name, b: t('kpi.mm.board') }));
+    var href = '/myapp/?page=' + encodeURIComponent(spec.page);
+    /* 整卡可点（<a> 而非 div + onclick）：与 speedCardHtml 同一条理由
+       （中键新标签 / 右键复制链接 / 键盘 Enter / 读屏念成链接都是白拿的）。
+       has-foot 见上面 BP 那段说明：它让内容少的卡把页脚沉到卡底。 */
+    return '<a class="qc-card qc-card--bf qc-card--open has-foot' + (na ? ' is-na' : '') +
+        '" href="' + esc(href) + '" target="_blank" rel="noopener nofollow" title="' +
+        esc(tip.join('\n')) + '">' +
+      '<div class="bf-hd"><b>' + esc(name) + '</b><i>' + esc(unit) + '</i>' +
+        (lead
+          ? '<span class="bf-lead">' + esc(tf('kpi.mm.lead', {
+              n: (sum && sum[lead] && sum[lead].label) || lead
+            })) + '</span>'
+          : '') +
+      '</div>' +
+      '<div class="bf-rows">' + body + '</div>' +
+      foot +
+    '</a>';
+  }
   function renderKpi() {
     var box = $('#kpi');
     if (!box) return;
     var k = state.kpi;
     var hasR = !!(k.olib && k.olib.cards && k.olib.cards.length);
     var hasA = !!(k.avail && k.avail.rows && k.avail.rows.length);
-    if (k.loading && !hasR && !hasA) {
+    var hasS = !!(k.speed && k.speed.summary);
+    /* Benchmark 行第二组（Meta）也是"有数据就能画"的一路：四路请求各回各的，
+       不能用 hasS 代表整行 —— 那样 speedtest 先回来、bm-meta 慢一拍时，
+       会先画出 3 张卡再整行重排成 6 张（同一行的卡数变一次，视线要跳一下）。 */
+    var hasM = !!(k.meta && k.meta.summary);
+    if (k.loading && !hasR && !hasA && !hasS && !hasM) {
       /* 骨架屏也照两排摆：上排 4 个高的（富卡片），下排 3 个矮的。
          摆成 6 个等高的话，数据一到位整块高度会跳一下。 */
       /* 口径说明（kpi.sub）不直接占一行，改挂到标题的 title 上，hover 才出。
@@ -1380,6 +1691,30 @@
           DATA.KPI_AVAIL_ROWS.map(function () {
             return '<div class="qc-card"><span class="sk" style="width:56%"></span>' +
               '<span class="sk v"></span><span class="sk s"></span></div>';
+          }).join('') +
+        '</div>' +
+        /* Benchmark 行的骨架屏（2026-10-01 加，2026-09-30 起是 6 张）。
+           它**必须**在这里就画出来：这一行是四路请求里最慢的一路
+           （speedtest 与 bm-meta 各要跑几段 SQL），
+           若等数据回来才渲染，整块的高度会在数据到位那一刻往下弹一下。
+           骨架的卡数与列数必须与真实行一致（6 张，正好排满一行），
+           这样"骨架 → 数据"是替换而不是位移。
+           ⚠️ 两个数据源各出一个 map：真实行里两组卡也是分开渲染的
+           （见下方 renderKpi 的 KPI_SPEED / KPI_META），
+           骨架跟着同一结构走，将来一组卡增减时不会漏改骨架。 */
+        '<div class="band-h"><div class="band-txt"><div class="band-k" title="' +
+          esc(tf('kpi.bf.subBoth', { n: (k.speed && k.speed.days) || '—' })) + '">' +
+          esc(t('kpi.bf.title')) + '</div></div></div>' +
+        '<div class="qc-grid">' +
+          DATA.KPI_SPEED.map(function () {
+            return '<div class="qc-card qc-card--bf"><span class="sk" style="width:44%"></span>' +
+              '<span class="sk s"></span><span class="sk s"></span>' +
+              '<span class="sk s"></span><span class="sk s"></span></div>';
+          }).join('') +
+          DATA.KPI_META.map(function () {
+            return '<div class="qc-card qc-card--bf"><span class="sk" style="width:44%"></span>' +
+              '<span class="sk s"></span><span class="sk s"></span>' +
+              '<span class="sk s"></span><span class="sk s"></span></div>';
           }).join('') +
         '</div>';
       return;
@@ -1454,6 +1789,30 @@
        取 vmax 的话会显示另一个接口的时间，与卡上数字对不上。 */
     var stamp = (k.olib && k.olib.updated_at) || '';
     var err = k.err ? '<p class="band-n" style="color:var(--crit)">' + esc(t('kpi.err') + ': ' + k.err) + '</p>' : '';
+    /* ---- Benchmark 行（2026-10-01 加）：用户要求「在 Network Status Overview
+       组件下面新增一行」。它挂在**同一个 #kpi 容器内**、紧跟第一行之后，
+       而不是新开一个 <section>：这一行是同一个组件的第二排，
+       分出去会让"Network Status Overview"这个标题与它的数据脱钩，
+       也会在 section 之间多出一道栅格间距。
+       标题行沿用与上面同款的 .band-h/.band-txt/.band-k 结构，
+       但**不挂时间戳与重试按钮** —— 那两个是整块组件的刷新状态
+       （重试会同时重拉四路），在第二行再放一套会让人以为可以单独刷这一排。
+       数据本身的时间口径（data_max_date）写在卡片的 tooltip 里。
+
+       2026-09-30：这一行由 3 张变 6 张，后 3 张来自**另一个数据源**
+       （my_app bm_meta）。两组卡共用一个 .qc-grid（6 列正好排满一行），
+       所以标题的 tooltip 换成 kpi.bf.subBoth —— kpi.bf.sub 只说得清左 3 张，
+       挂在整行标题上会让人以为 6 张都是 Ookla 的数。 */
+    var bf = '';
+    if (hasS || hasM || !k.loading) {
+      bf = '<div class="band-h"><div class="band-txt"><div class="band-k" title="' +
+          esc(tf('kpi.bf.subBoth', { n: (k.speed && k.speed.days) || '—' })) + '">' +
+          esc(t('kpi.bf.title')) + '</div></div></div>' +
+        '<div class="qc-grid">' +
+          DATA.KPI_SPEED.map(function (spec) { return speedCardHtml(spec); }).join('') +
+          DATA.KPI_META.map(function (spec) { return metaCardHtml(spec); }).join('') +
+        '</div>';
+    }
     box.innerHTML =
       '<div class="band-h">' +
         /* kpi.sub 挂 title，不占行 —— 理由见上面骨架屏那一处。
@@ -1473,7 +1832,7 @@
           '<span class="qc-when">' + esc(t('kpi.updated').replace('{t}', stamp)) + '</span></span>' : '') +
         '<button type="button" class="gb" data-act="kpi-reload" title="' + esc(t('kpi.retry')) + '">' +
           ic('refresh') + esc(t('kpi.retry')) + '</button>' +
-      '</div><div class="qc-grid">' + rich + avail + '</div>';
+      '</div><div class="qc-grid">' + rich + avail + '</div>' + bf;
   }
 
   /* ==================================================================== v1 ==
@@ -4457,7 +4816,11 @@
   function loadKpi() {
     if (kpiBusy) return;
     kpiBusy = true;
-    var left = 2;
+    /* 四路并行（第四路见下方 meta），所以计数是 4。
+       ⚠️ 漏改这个数字的后果很隐蔽：done() 永远等不到 0，
+       state.kpi.loading 一直为 true、renderKpi 不执行 ——
+       页面看上去只是"一直停在骨架屏"，不报任何错。 */
+    var left = 4;
     function done() { if (--left === 0) { kpiBusy = false; state.kpi.loading = false; renderKpi(); } }
     /* 富卡片的主数据源。它自己带 status/error。
        失败时**不清空** state.kpi.olib：把上一次的数字擦成 —，
@@ -4486,6 +4849,83 @@
       };
       done();
     }).catch(function () { done(); });
+    /* Benchmark 行第一组（2026-10-01 加）：ORANGE vs MTN 的下载/上传/时延对比。
+       窗口**由后端给**（传空 start/end，服务端按 default_window(90) 回落，
+       但我们只要最近 30 天，所以显式算一个左闭右开的窗口传过去）。
+       在**前端**算日期而不是让后端默认 90 天：卡片标题要写「最近 {n} 天」，
+       写死的 n 与后端实际窗口一旦不一致，卡上的说明就变成假的。
+       算完的 start/end 再回读做 n，两者必然同源。
+       失败时**不清空** state.kpi.speed（与 olib 同一条理由：
+       接口抖一下不该让三张卡从有数字变成「—」），但也不写 err ——
+       这一行的错误不占用标题行那颗全局错误提示，由卡片自己显示「—」。 */
+    var sw = recentWindow(30);
+    api('/api/bm-speedtest/overview?start=' + sw.start + '&end=' + sw.end).then(function (d) {
+      if (d && d.summary) {
+        state.kpi.speed = {
+          summary: d.summary,
+          wins: d.wins || null,
+          meta: d.meta || {},
+          /* 窗口天数取**接口回显的** start/end 算，不取我们请求时那个数：
+             后端在 start >= end 时会回落到默认窗口，那时请求的 30 就不是真实窗口了。 */
+          days: windowDays(d.meta, sw),
+          at: (d.meta && d.meta.data_max_date) || ''
+        };
+      }
+      done();
+    }).catch(function () { done(); });
+    /* Benchmark 行第二组（2026-09-30 加）：Meta 基准报告（my_app `?page=bm_meta`）。
+       与上面那路**共用同一个窗口对象 sw**，而不是各算一次「最近 30 天」：
+       两次 new Date() 跨过午夜时（或一先一后落在不同秒），两组卡上的窗口会差一天，
+       而它们印在同一个标题底下、页脚还分别写着「统计窗口 30 天」——
+       差一天就是两个窗口，读者无法判断哪张卡跟哪张卡能比。
+       接口默认窗口是 365 天（见 bm_meta_caliber.default_window），
+       所以这里**必须**显式传 start/end。
+       失败时同样**不清空** state.kpi.meta：接口抖一下不该让 3 张卡从有数字变成「—」；
+       错误也不写 kpi.err（理由同上：这一行由卡片自己显示「—」）。 */
+    api('/api/bm-meta/overview?start=' + sw.start + '&end=' + sw.end).then(function (d) {
+      if (d && d.summary) {
+        state.kpi.meta = {
+          summary: d.summary,
+          scores: d.scores || null,
+          wins: d.wins || null,
+          /* covered 用**实际拿到的逐日条数**，不用 meta.daily_returned：
+             后者是后端自己对同一次的表述，而卡片要说的正是"我手里有几天"。
+             两者正常情况下相等，一旦不等（例如将来加了截断），
+             页脚会跟着真正在渲染的数据走，不会出现"说 358 天、其实只画了 90 天"。 */
+          covered: (d.daily || []).length,
+          /* 窗口天数同样回读接口回显的 start/end（与 speed 一路同一套算法）。 */
+          days: windowDays(d.meta, sw),
+          at: (d.meta && d.meta.data_max_date) || ''
+        };
+      }
+      done();
+    }).catch(function () { done(); });
+  }
+  /* Benchmark 行两组的统计窗口：最近 n 天，**左闭右开**（end 为次日）。
+     与后端 caliber.default_window 完全同一套算法 —— 但这里不能复用它的返回值，
+     因为它算的是 90 / 365 天。dayjs 在本页没引，所以直接用 Date 算 UTC 日期串：
+     用本地时间的话，跨时区访问门户会得到差一天的窗口，而卡片会把那个天数写在脸上。
+     ⚠️ 两组（Ookla / Meta）共用本函数**返回的同一个对象**，见 loadKpi 的说明。 */
+  function recentWindow(n) {
+    var end = new Date();
+    end.setUTCDate(end.getUTCDate() + 1);   // 次日，构成左闭右开
+    var start = new Date(end.getTime());
+    start.setUTCDate(start.getUTCDate() - n);
+    var iso = function (d) { return d.toISOString().slice(0, 10); };
+    return { start: iso(start), end: iso(end), n: n };
+  }
+  /* 真实窗口天数 = 接口回显的 end - start。回显缺失时回落到请求时算的 n。
+     ⚠️ 只认 meta 里的 start/end：它们与 summary 出自同一次查询，
+     拿本地时间现算会和数据本身对不上（例如接口回落到 90 天时）。
+     ⚠️ 必须写 .getTime() 再相减：本文件顶部有 // @ts-check，
+     而 TS 不允许直接对两个 Date 做算术（TS2362/TS2363），
+     由 npm run lint:shells 把关 —— 直接相减会挡下整个 v1/v2 的类型检查。 */
+  function windowDays(meta, fallback) {
+    var s = meta && meta.start, e = meta && meta.end;
+    if (!s || !e) return fallback ? fallback.n : null;
+    var d = (new Date(e + 'T00:00:00Z').getTime() -
+             new Date(s + 'T00:00:00Z').getTime()) / 86400000;
+    return isFinite(d) && d > 0 ? Math.round(d) : (fallback ? fallback.n : null);
   }
 
   /* 只请求后端确实有趋势的四个（cr / pmt 回 no_trend，不必白跑一个来回）。

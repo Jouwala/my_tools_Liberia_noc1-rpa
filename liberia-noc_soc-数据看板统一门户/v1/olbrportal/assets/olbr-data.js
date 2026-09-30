@@ -309,6 +309,111 @@ window.OLBR_DATA = (function () {
                          + '注意纵轴只覆盖这段时间自身的波动范围，**不从 0 起** ——\n'
                          + '可用率长期在 97~99% 之间，从 0 起会把所有起伏压成一条直线，什么也看不出来。\n'
                          + '判断达标仍以页脚的「距阈值」为准，这条线只用来判断趋势。',
+      /* ---- Benchmark 行（Network Benchmark View，2026-10-01 加）--------------
+         ORANGE vs MTN 的下载/上传/时延对比，数据来自 /api/bm-speedtest/overview
+         （my_app `?page=bm_speedtest` 的「Key metrics comparison」那组卡）。
+         标题用用户点名的英文串，中英两份字典**照写同一串** ——
+         与 map.gis / map.open 那几次同一条约定：用户点名的写法不翻译。
+         三张卡之间用同一条口径说明（kpi.bf.sub），窗口天数由接口给，不写死。 */
+      'kpi.bf.title': 'Network Benchmark View',
+      'kpi.bf.sub': 'Orange 与 MTN 的 Speedtest 对比 · 区间均值 · 最近 {n} 天',
+      /* 天数取不到时（接口没回 meta.start/end）的兜底 —— 刻意**不说天数**，
+         也不编一个 30 出来：卡片上一个与数据无关的天数是错误信息。 */
+      'kpi.bf.subNone': 'Orange 与 MTN 的 Speedtest 对比 · 区间均值',
+      'kpi.bf.download': '下载速率', 'kpi.bf.upload': '上传速率', 'kpi.bf.latency': '时延',
+      /* 卡片大数字是**区间均值**，必须与 p50/p90（逐日分位数）在措辞上分开：
+         两个数都叫「平均」的话，用户会以为它们该相等。 */
+      'kpi.bf.avgCap': '区间均值',
+      'kpi.bf.pctCap': 'P50 {a} / P90 {b}',
+      'kpi.bf.lead': '{n} 领先',
+      'kpi.bf.win': '逐日胜率 {n}%',
+      'kpi.bf.winTip': '「{m}」上 {n} 在最近 {d} 天里胜出 {w} 天（胜率 {r}%）。\n'
+                     + '只统计**两家当天都有数据**的日子，只测了一家那天不计入胜负。',
+      'kpi.bf.tipName': '{n}（{u}）',
+      /* 数据来源。**必须点出 Speedtest by Ookla** —— 卡片右下角那个 logo
+         是 Ookla 的注册商标，标识已经画出来了，文字这边就要说明"数据来自它"，
+         这是商标的正当使用（指明来源），也免得读者以为那只是一个装饰图标。 */
+      'kpi.bf.tipSrc': '数据来源：Speedtest by Ookla · my_app bm_speedtest 竞对分析，口径与「Key metrics comparison」一致',
+      'kpi.bf.ooklaTip': 'Speedtest by Ookla',
+      /* 'kpi.bf.tipAvg' 的 {win} 是**天数**（"最近 30 天"里的 30），
+         不是整句 'kpi.bf.sub' —— 实测把整句插进来会得到
+         「大数字是Orange 与 MTN 的 Speedtest 对比 · 区间均值 · 最近 30 天内两家的…」
+         这种读不通的话。两个键各自只表达一件事，不要互相嵌套。 */
+      'kpi.bf.tipAvg': '大数字是最近 {win} 天内两家的**区间均值**（逐日均值再平均），不是某一天的快照。',
+      'kpi.bf.tipPcts': 'P50 / P90 是**逐日值**的分位数，与大数字（区间均值）不是同一个统计量，两者不必相等。',
+      'kpi.bf.tipLead': '领先方在本区间该指标上更强 —— 速率取大、时延取小。',
+      'kpi.bf.tipTests': '{n}：{t} 次测试 · {dev} 台设备',
+      /* 页脚两格：左「窗口 30 天」、右「合计测试数」。
+         单位与数字分成两行（.qc-ext 的 <b> 与 <span>），所以这里只给单位词。 */
+      'kpi.bf.range': '统计窗口', 'kpi.bf.days': '天',
+      'kpi.bf.tests': '测试量', 'kpi.bf.testsUnit': '两家合计',
+      'kpi.bf.na': '区间内无数据',
+      'kpi.bf.board': 'Speedtest 竞对分析',
+      /* 行标题（.band-k）的 tooltip。**这一行现在是两个数据源**（2026-09-30 起）：
+         上面那句 kpi.bf.sub 只说得清左 3 张 Ookla 卡，挂在整行标题上就成了假话，
+         所以标题另用这一条，把「两组各是什么、为什么不能互相比」讲全。
+         ⚠️ 卡片自己的 tooltip 仍走 kpi.bf.sub* / kpi.mm.*：那里各说各的来源，
+         混在一起会让 Ookla 卡的口径说明里冒出 Meta 的话。 */
+      'kpi.bf.subBoth': 'Orange 与 MTN 的对比 · 本行 6 张卡来自两个数据源：'
+                      + '3 张 Speedtest by Ookla（最近 {n} 天，my_app bm_speedtest 竞对分析），'
+                      + '3 张 my_app Meta 基准报告（bm_meta，同一窗口）。'
+                      + '两组都是「区间均值」，但样本与测量方式不同，**数字不可直接对比**。',
+      /* ---- Benchmark 行第二组：Meta 基准报告（2026-09-30 加）-----------------
+         数据源 /api/bm-meta/overview，即 my_app `?page=bm_meta`
+         （`meta_data` 表，Excel 导入的静态快照）。它与左边 3 张 Ookla 卡
+         **同一排、同一窗口**，但**是另一份数据** —— 所以卡名、口径说明、
+         页脚来源标识全部另立一套，不复用 kpi.bf.* 里的整句：
+         那套第一句就写着「Speedtest by Ookla」，套到 meta 卡上就是假话。
+         卡名照抄 my_app 的 bmm.* 写法（同一件事在两个门户不能有两个名字）。 */
+      'kpi.mm.speed': '速率',
+      'kpi.mm.scores': '综合评分与胜场',
+      'kpi.mm.bp': 'BP',
+      /* 单位。中英只有「评分」不同（分 / pts），另两个同值 ——
+         同值也照样进字典：渲染层一律走 t()，不留"中文里硬编码 Mbps"的分支。 */
+      'kpi.mm.unitMbps': 'Mbps', 'kpi.mm.unitScore': '分', 'kpi.mm.unitPct': '%',
+      /* 逐日区间。my_app 那张卡叫「区间范围」（bmm.card.rangeLabel），
+         这里压成行内前缀 —— 卡里是两行并排，写满四个字会把左列挤宽。 */
+      'kpi.mm.obsRange': '区间 {a} ~ {b}',
+      /* 胜场。**照抄 my_app 的 bmm.card.winDaysFmt**（领先 {w} / {d} 天）：
+         同一件事在两页必须同一个说法，否则用户会以为是两个指标。 */
+      'kpi.mm.leadDays': '领先 {w} / {d} 天',
+      'kpi.mm.avg': '均值',
+      'kpi.mm.lead': '{n} 领先',
+      /* 页脚两格：左「统计窗口 30 天」、右「覆盖 23 天」。
+         第二格是窗口内**真正有数据**的天数，存在的理由：窗口取「最近 30 天」，
+         而这份数据是导入快照（实测数据截至 2026-09-23），最近几天根本没有数 ——
+         不写清楚，读者会以为大数字覆盖了整整 30 天。 */
+      'kpi.mm.win': '统计窗口', 'kpi.mm.days': '天', 'kpi.mm.cover': '覆盖',
+      /* 页脚第三格的数据来源标识。与 Ookla 那个 logo 同一个位置、同一个用意
+         （说明这 3 张卡的数从哪来），但它没有可用的品牌资产，所以是纯文字徽章。 */
+      'kpi.mm.src': 'Meta 报告',
+      'kpi.mm.tipName': '{n}（{u}）',
+      'kpi.mm.tipSrc': '数据来源：my_app Meta 基准报告（bm_meta）· meta_data 表（Excel 导入的静态快照）。'
+                     + '与左边 3 张 Ookla 卡是**两份不同的数据**，两边的数不可直接比。',
+      'kpi.mm.tipWin': '大数字是最近 {win} 天窗口内的**区间均值**（逐日均值再平均），不是某一天的快照。',
+      'kpi.mm.tipCover': '窗口内真正有数据的是 {n} 天 —— 这份数据是导入快照，数据截至 {d}。',
+      'kpi.mm.tipRange': '「区间」是该家**逐日值**的最小 ~ 最大（每格 1 天），'
+                       + '与大数字（区间均值）不是同一个统计量，两者不必相等。',
+      'kpi.mm.tipScore': '综合评分是**相对分**：更强的一方为 100，另一方按比值折算；'
+                       + '它不是绝对分，也不代表网络质量本身。',
+      'kpi.mm.tipLead': '「领先 x / y 天」= 两家都有数据的 y 天里，这家速率更高的有 x 天；'
+                      + '两家相同的那天不计入任何一方。'
+                      + '⚠️ 所以两家的 x 相加**可能小于 y**：差额就是打平的天数。'
+                      + '{tie} —— 打平的日子在两个门户都不算任何一方赢，不是缺数据。',
+      /* {tie} 的取值见 olbr.js：有平局时报「本窗口打平 {n} 天」，无平局时报「本窗口无平局」。
+         为什么要单独有一句：实测 2026-09 那个窗口两家各领先 11 天、y=22，
+         相加正好等于 y —— 卡面看上去像"两家平分"，其实是另有 1 天平局。
+         my_app 那边把平局单列了一行（BmMeta.tsx:496），
+         这张卡没有那个位置，就把平局放进 tooltip 说清楚。 */
+      'kpi.mm.tieN': '本窗口打平 {n} 天',
+      'kpi.mm.tie0': '本窗口无平局',
+      'kpi.mm.tipBp': 'BP 是**网络侧 KPI**，不属于任何一家（不做两家 PK，也不进综合评分），'
+                    + '所以这张卡里没有品牌行、没有领先方徽章，只有区间均值与逐日区间。'
+                    + '库里存的是小数比率，接口已换算成百分数。',
+      'kpi.mm.rowDays': '{n} 天有数据',
+      'kpi.mm.rowScore': '综合评分 {v} {u}',
+      'kpi.mm.na': '区间内无数据',
+      'kpi.mm.board': 'Meta 基准报告',
       /* ---- v1 新增：六个视图入口卡（renderViews6）----
          每张卡列出的报告名就是目录里真实存在的看板标题，点击即打开。
          数量由 V6_LIMIT 控制（默认 2 条），多出来的走「展开其余 N 项」。 */
@@ -689,6 +794,105 @@ window.OLBR_DATA = (function () {
                          + 'The vertical axis covers only this window\'s own range and does NOT start at 0 —\n'
                          + 'availability sits at 97-99%, so a zero-based axis would flatten every movement into a straight line.\n'
                          + 'Use the footer\'s "gap to target" to judge compliance; this line is only for the trend.',
+      /* ---- Benchmark row (Network Benchmark View, added 2026-10-01) ----------
+         The title is the exact string the user asked for, so zh and en hold the
+         SAME value (same rule as map.gis / map.open). */
+      'kpi.bf.title': 'Network Benchmark View',
+      'kpi.bf.sub': 'Orange vs MTN Speedtest comparison · range average · last {n} days',
+      'kpi.bf.subNone': 'Orange vs MTN Speedtest comparison · range average',
+      'kpi.bf.download': 'Download', 'kpi.bf.upload': 'Upload', 'kpi.bf.latency': 'Latency',
+      /* The big number is a range average; it must read differently from
+         p50/p90 (per-day percentiles) or users will expect them to match. */
+      'kpi.bf.avgCap': 'range avg',
+      'kpi.bf.pctCap': 'P50 {a} / P90 {b}',
+      'kpi.bf.lead': '{n} leads',
+      'kpi.bf.win': 'Daily win rate {n}%',
+      'kpi.bf.winTip': 'On "{m}", {n} won {w} of the last {d} days (win rate {r}%).\n'
+                     + 'Only days where BOTH brands have data are counted; a day with one brand only is not a win or a loss.',
+      'kpi.bf.tipName': '{n} ({u})',
+      /* Data source. Naming "Speedtest by Ookla" is required: the logo in the
+         card's bottom-right corner is Ookla's registered trademark, so the text
+         states where the data comes from (nominative use) and stops readers
+         from mistaking the mark for a decorative icon. */
+      'kpi.bf.tipSrc': 'Source: Speedtest by Ookla · my_app bm_speedtest competitor analysis, same definition as "Key metrics comparison"',
+      'kpi.bf.ooklaTip': 'Speedtest by Ookla',
+      /* {win} in 'kpi.bf.tipAvg' is a DAY COUNT (the 30 of "last 30 days"),
+         NOT the whole sentence from 'kpi.bf.sub'. Nesting the full sentence
+         produced unreadable text; each key states exactly one thing. */
+      'kpi.bf.tipAvg': 'The big number is the **range average** over the last {win} days (mean of daily means), not a single day snapshot.',
+      'kpi.bf.tipPcts': 'P50 / P90 are percentiles of **daily values**, a different statistic from the range average — the two need not match.',
+      'kpi.bf.tipLead': 'The leader is the stronger brand on this metric in the range — higher speed, lower latency.',
+      'kpi.bf.tipTests': '{n}: {t} tests · {dev} devices',
+      'kpi.bf.range': 'Window', 'kpi.bf.days': 'days',
+      'kpi.bf.tests': 'Tests', 'kpi.bf.testsUnit': 'both brands',
+      'kpi.bf.na': 'No data in range',
+      'kpi.bf.board': 'Speedtest competitor analysis',
+      /* Tooltip for the row title (.band-k). The row carries TWO data sources
+         since 2026-09-30, so kpi.bf.sub (which only describes the three Ookla
+         cards) can no longer sit on the whole-row title without being wrong.
+         Card tooltips still use kpi.bf.sub* / kpi.mm.*: each card states its
+         own source, and mixing them would put Meta text on an Ookla card. */
+      'kpi.bf.subBoth': 'Orange vs MTN · the six cards in this row come from two sources: '
+                      + 'three Speedtest by Ookla cards (last {n} days, my_app bm_speedtest competitor analysis) and '
+                      + 'three my_app Meta benchmark report cards (bm_meta, same window). '
+                      + 'Both are range averages, but the samples and the test methods differ, '
+                      + 'so the numbers are **not directly comparable**.',
+      /* ---- Benchmark row, second group: Meta benchmark report (added 2026-09-30) --
+         Source /api/bm-meta/overview, i.e. my_app `?page=bm_meta` (the
+         `meta_data` table, a static Excel-imported snapshot). Same row and same
+         window as the three Ookla cards, but a DIFFERENT dataset — hence its own
+         card names, definitions and source badge instead of reusing kpi.bf.*:
+         that block's first sentence says "Speedtest by Ookla", which would be a
+         lie on a Meta card. Card names are copied from my_app's bmm.* keys so
+         one metric never has two names across the two portals. */
+      'kpi.mm.speed': 'Speed',
+      'kpi.mm.scores': 'Composite score and wins',
+      'kpi.mm.bp': 'BP',
+      /* Units. Only the score differs between languages (分 / pts); the other two
+         are identical here — they still live in the dictionary so the renderer
+         always goes through t() and never hardcodes "Mbps" on the zh branch. */
+      'kpi.mm.unitMbps': 'Mbps', 'kpi.mm.unitScore': 'pts', 'kpi.mm.unitPct': '%',
+      /* Per-day observed range. my_app calls this card "Observed range"
+         (bmm.card.rangeLabel); shortened here into an inline prefix because the
+         card holds two side-by-side rows. */
+      'kpi.mm.obsRange': 'range {a} ~ {b}',
+      /* Wins. Copied verbatim from my_app's bmm.card.winDaysFmt — one fact must
+         read the same on both pages or users will think they are two metrics. */
+      'kpi.mm.leadDays': 'leads {w} of {d} days',
+      'kpi.mm.avg': 'Average',
+      'kpi.mm.lead': '{n} leads',
+      /* Footer cells: left "Window 30 days", right "Coverage 23". The second one
+         is the number of days that actually hold data: the window is "last 30
+         days" while this dataset is an imported snapshot (data ends 2026-09-23),
+         so without it a reader assumes the average covers all 30 days. */
+      'kpi.mm.win': 'Window', 'kpi.mm.days': 'days', 'kpi.mm.cover': 'Coverage',
+      /* Footer cell 3, the source badge: same slot and same purpose as the Ookla
+         logo (it says where these numbers come from), but there is no usable
+         brand asset, so it is plain text. */
+      'kpi.mm.src': 'Meta report',
+      'kpi.mm.tipName': '{n} ({u})',
+      'kpi.mm.tipSrc': 'Source: my_app Meta benchmark report (bm_meta) · meta_data table (static Excel import). '
+                     + 'This is a DIFFERENT dataset from the three Ookla cards on the left; '
+                     + 'the two sets of numbers are not directly comparable.',
+      'kpi.mm.tipWin': 'The big number is the **range average** over the last {win} days (mean of daily means), not a single-day snapshot.',
+      'kpi.mm.tipCover': 'Only {n} days in the window actually hold data — this dataset is an imported snapshot, data ends {d}.',
+      'kpi.mm.tipRange': '"range" is the min ~ max of **daily values** (one slot per day), '
+                       + 'a different statistic from the range average — the two need not match.',
+      'kpi.mm.tipScore': 'The composite score is **relative**: the stronger brand scores 100 and the other scales by ratio. '
+                       + 'It is not an absolute score and does not describe network quality itself.',
+      'kpi.mm.tipLead': '"leads x of y days" = on the y days where both brands have data, this brand had the higher speed on x of them; '
+                      + 'a day where the two are equal counts for neither. '
+                      + 'Warning: the two x values may therefore add up to less than y — the difference is tied days. '
+                      + '{tie} Ties count as a win for neither brand on either portal; they are not missing data.',
+      'kpi.mm.tieN': '{n} tied days in this window',
+      'kpi.mm.tie0': 'no tied days in this window',
+      'kpi.mm.tipBp': 'BP is a **network-side KPI** belonging to neither brand (no head-to-head, not part of the composite score), '
+                    + 'so this card has no brand rows and no leader badge — only the range average and the daily range. '
+                    + 'The database stores a decimal ratio; the API returns a percentage.',
+      'kpi.mm.rowDays': '{n} days with data',
+      'kpi.mm.rowScore': 'Composite score {v} {u}',
+      'kpi.mm.na': 'No data in range',
+      'kpi.mm.board': 'Meta benchmark report',
       /* ---- v1 additions: six view-entry cards (renderViews6) ---- */
       'v6.title': 'Team Dashboard Overview',
       'v6.sub': 'Click a report name to open that dashboard',
@@ -1019,6 +1223,140 @@ window.OLBR_DATA = (function () {
     { key: '3G', group: '3G ALL', page: 'avail_ms' },
     { key: '4G', group: 'FDD ALL', page: 'avail_ms' }
   ];
+  /* ---- Benchmark（竞对速率）三张卡：ORANGE vs MTN 关键指标对比 ----------
+     数据源 /api/bm-speedtest/overview?start=&end=，即 my_app
+     `?page=bm_speedtest` 那个页面「Key metrics comparison」那组卡的只读接口。
+     口径（唯一真相源）在 my_app `backend/services/bm_speedtest_caliber.py`：
+     大数字是**区间均值**（summary[brand][metric]），不是某一天的快照 ——
+     所以卡上必须写明窗口（窗口天数由后端 meta 给，见 speedWinDays()）。
+     p50/p90 取 summary[brand].pcts[metric]，是**逐日值**的分位数，
+     与大数字（整体均值）不是同一个统计量，卡片上用中性的措辞区分开。
+
+     ⚠️ 只列 download / upload / latency 三项，**不含 jitter**：
+     用户点名只要这三张（源页面那张卡里还有第四张 Jitter，
+     这里是**刻意少一张**，不是漏了）。要补就把 jitter 加进这张表 ——
+     每项的 key 必须与 caliber.METRICS 的键完全一致（写错会得到一张全 — 的卡）。
+
+     kind: 'speed' 越大越好 / 'latency' 越小越好 —— 只用来决定「领先方」徽章的
+     比较方向，**不**在这里重算一遍胜负（胜率另有 wins.metrics 那份权威数据）。
+     unit: 照抄 caliber.METRICS 的单位（download/upload 是 Mbps、latency 是 ms），
+     卡片上的单位与源页面必须一致，否则两个门户对同一个数给出两种量纲。
+     page: 点这张卡打开的 my_app 页面。三张卡同源同页，但**逐条写**而不是
+     在渲染函数里写一个共用常量 —— 与 KPI_RICH.page 同一条理由
+     （将来若拆到不同页面，改动只发生在这张表里）。
+     ⚠️ 值必须是 my_app App.tsx 的 PageKey（见 VALID_PAGES 白名单），
+     写错会被静默回落到概览页，表现为「点了却打开别的页」。 */
+  var KPI_SPEED = [
+    { key: 'download', kind: 'speed',   unit: 'Mbps', digits: 1, page: 'bm_speedtest' },
+    { key: 'upload',   kind: 'speed',   unit: 'Mbps', digits: 1, page: 'bm_speedtest' },
+    { key: 'latency',  kind: 'latency', unit: 'ms',   digits: 0, page: 'bm_speedtest' }
+  ];
+  /* 卡名照抄 bms.metric.* 的中文/英文写法（my_app i18n），两个门户对同一个
+     指标不能有两个名字。{n} = 品牌展示名（Orange / MTN），由后端 BRAND_LABELS 给。 */
+  var SPEED_ROW_LABEL = { download: 'kpi.bf.download', upload: 'kpi.bf.upload', latency: 'kpi.bf.latency' };
+  /* Benchmark 行两组的品牌顺序（**两条数据源共用**，2026-09-30 由 SPEED_BRANDS 改名）：
+     Ookla 那 3 张按 download/upload/latency 比两家，Meta 那 3 张按速率/评分比两家，
+     顺序都是「先 ORANGE 后 MTN」—— 这不是巧合，两边都来自 my_app 各自的
+     caliber.BRANDS = ("ORANGE", "MTN")。所以顺序只有一处定义，改这里两组一起跟。
+     ⚠️ 若哪天两个源的品牌集不再相同（例如 meta 表多了一家），**必须**拆成两份，
+     不能在这一个数组里凑一个"两边的并集"：那会让某一组的卡里多出一行没数据的品牌。 */
+  var BENCH_BRANDS = ['ORANGE', 'MTN'];
+
+  /* ---- Benchmark 行第二组：Meta 基准报告（`?page=bm_meta`）的 3 张卡（2026-09-30 加）
+     ----------------------------------------------------------------------------
+     数据源 /api/bm-meta/overview?start=&end=，窗口由 olbr.js 统一算
+     （最近 30 天，与同排 3 张 Ookla 卡**同一档** —— 用户 2026-09-30 选定）。
+
+     key 与接口字段的对应（字段名以 my_app `bm_meta_service.build_overview` 为准）：
+       speed  → summary[brand].speed / speed_min / speed_max
+       scores → scores[brand].score + wins.orange_wins / mtn_wins / paired_days
+       bp     → summary.network.bp / bp_min / bp_max
+
+     kind：'brand' 两家 PK（卡内两行 + 领先方徽章）/ 'network' 网络侧 KPI
+     （单值 + 逐日区间，**不做两家比较**）。这条分界不是我定的，是口径模块定的：
+     `bm_meta_caliber` 把 9 个指标分成 BRAND_METRICS 与 NETWORK_METRICS，
+     后者「不属于任何一家」，混进 PK 会得到假结论 —— 所以 BP 那张卡里
+     既没有品牌行，也没有徽章。
+
+     digits：与 my_app 页面一致（速率 1 位、评分 1 位、BP 2 位）。位数不一致会让
+     两个门户对同一个数给出两种精度。
+
+     name / unit 给的是 **i18n 键**（评分单位中英不同：分 / pts），
+     逐条写而不是在渲染函数里按 key 拼字符串 —— 拼键在字典里查不到时
+     会静默显示键名本身，而这类错误只有切到英文界面才看得见。
+     page 是 my_app App.tsx 的 PageKey（见 VALID_PAGES 白名单），
+     写错会被静默回落到概览页，表现为「点了却打开别的页」。 */
+  var KPI_META = [
+    { key: 'speed',  kind: 'brand',   name: 'kpi.mm.speed',  unit: 'kpi.mm.unitMbps',  digits: 1, page: 'bm_meta' },
+    { key: 'scores', kind: 'brand',   name: 'kpi.mm.scores', unit: 'kpi.mm.unitScore', digits: 1, page: 'bm_meta' },
+    { key: 'bp',     kind: 'network', name: 'kpi.mm.bp',     unit: 'kpi.mm.unitPct',   digits: 2, page: 'bm_meta' }
+  ];
+
+  /* ---- Speedtest by Ookla 品牌标识（2026-10-01 加）-------------------------
+     用户要求「新增的 3 个卡片上体现 Ookla 的图标，表明是 Speedtest」，
+     并给了参考图：仪表盘标记 + SPEEDTEST 字标 + by OOKLA，摆在页脚右侧。
+
+     几何取自参考图的实测像素（下文的坐标都按"标记外缘左上角 = (0,0)"定，
+     与参考图逐项对齐，实测值 → 本 SVG）：
+       · 标记   宽 38 / 高 32（外缘）→ 外半径 19、描边 4.5
+       · 间距   标记右缘 → 字标左缘 11
+       · 字标   SPEEDTEST 宽 124、大写高 15（基线在 y=22）
+       · 副行   by OOKLA 宽 61、左缩进 13（x 62）、基线 y=41
+       · 整块   173 × 44
+     viewBox 用 **负原点 -0.5**：标记的外缘正好落在 x=0/y=0 上，
+     不留边距的话抗锯齿会在最左/最上各削掉半像素（实测探针报"边缘有墨=被裁"）。
+     -0.5 的四周留白只影响外框比例 1.7%，换来描边不被裁。
+
+     ⚠️ **这是按参考图比例手工复刻的字体版近似，不是 Ookla 的官方矢量资产。**
+     要换成官方资产：把官方 SVG 的内容替换掉本字符串即可（接口不变，
+     olbr.js 的 speedCardHtml 不用动）—— 对外分发/商用前应当这么做，
+     并按 Ookla 的品牌规范使用。字体复刻只保证"看起来是它"，不保证字形一致。
+
+     为什么用内联 SVG，而不是从参考图裁一张 PNG：
+       · **深浅两套主题**：本页 html.dark 一翻，卡片底色从浅青变深海军蓝。
+         SVG 用 currentColor，颜色交给 CSS 令牌（--ookla-ink），两套主题自动都对；
+         从截图裁的 PNG 会把参考图那份浅色底一起烤进去，深色主题下就是一块白斑。
+       · PNG 进不了版本库：根 .gitignore 忽略 *.png，新加的图不会被跟踪，
+         换台机器拉下来就没有这个图标（这与"忽略跟踪≠可删除"的 _fe_dist 不同，
+         它是真的会丢）。内联 SVG 是纯文本，跟着 JS 一起入库。
+       · SVG 在任意尺寸下都清晰，不依赖 2x 图。
+
+     刻意**不**画 ® 上标：参考图里那两个 ® 只有 1~2px，
+     而卡片实际渲染宽度约 106px（6 列栅格下每张卡 257px），
+     ® 会退化成看不清的灰点、像渲染瑕疵。商标归属改为写在卡片 tooltip 里
+     （kpi.bf.tipSrc）—— 那里是能读到的。
+
+     ⚠️ SVG 本身**不带 aria-label**（只带 focusable="false"，避免被 Tab 键选中）。
+     无障碍名称由外层 <span class="bf-ookla" role="img" aria-label="..."> 提供，
+     见 olbr.js 的 speedCardHtml —— 放在那边是因为要用 t('kpi.bf.ooklaTip')，
+     而这个文件是个纯数据模块，拿不到 i18n 的 t()。
+     两处都写会把"这个标识叫什么"变成两个真相源，所以这里刻意留空。 */
+  var OOKLA_LOGO =
+    '<svg class="ookla-svg" viewBox="-0.5 -0.5 174 45" focusable="false">' +
+      /* 圆弧：M 起点(左下 135°)，A 弧半径 16.75 = 外半径 19 − 半个描边 2.25，
+         large-arc=1 + sweep=1 → 走 270° 的"长边"（经过正上方），
+         缺口留在正下方 90°。圆心 (19,19) 使外缘左上角正好落在 (0,0)。 */
+      '<g fill="none" stroke="currentColor" stroke-linecap="round">' +
+        '<path d="M7.16 30.84A16.75 16.75 0 1 1 30.84 30.84" stroke-width="4.5"/>' +
+        /* 指针：自圆心指向右上 45°，长度 10（= 参考图实测的针尖距圆心 11.67
+           减去圆头半径 1.8），描边比圆环略细（参考图实测 ≈3.5 vs 4） */
+        '<path d="M19 19L26.07 11.93" stroke-width="3.6"/>' +
+      '</g>' +
+      /* 字标。textLength 把宽度锁成参考图实测值（SPEEDTEST 124 / by OOKLA 61），
+         lengthAdjust="spacing" 只调字距、不拉伸字形 —— 这样即使落在
+         Segoe UI / Roboto 这类与 Ookla 自有字体不同的字体上，
+         整块的**外框比例**仍与参考图一致，不会因为字体宽窄把卡片撑变形。
+         ⚠️ 副行字号 13 是"不与 textLength 打架"的上限：参考图那行的大写高
+         折合字号约 17，但 Segoe UI 在这个字号下自然宽 80px > 目标 61px，
+         被 textLength 压回去会让字母叠在一起。取 13 时自然宽 61.5 ≈ 目标，
+         字距几乎不用调 —— 宁可副行略小，也不要字母粘连。 */
+      '<g fill="currentColor" stroke="none">' +
+        '<text x="49" y="22" font-size="20.8" font-weight="800" ' +
+          'textLength="124" lengthAdjust="spacing">SPEEDTEST</text>' +
+        '<text x="62" y="41" font-size="13" textLength="61" lengthAdjust="spacing">' +
+          '<tspan font-weight="500">by </tspan><tspan font-weight="700">OOKLA</tspan></text>' +
+      '</g>' +
+    '</svg>';
 
   return {
     S: S, PH: PH,
@@ -1029,6 +1367,9 @@ window.OLBR_DATA = (function () {
     QC_TREND_METRICS: QC_TREND_METRICS, QC_SUB_KEY: QC_SUB_KEY, QC_LV_KEY: QC_LV_KEY,
     QC_FULL_MIN: QC_FULL_MIN, QC_FULL_OFFSET: QC_FULL_OFFSET,
     QC_ALARM_MIN: QC_ALARM_MIN, QC_ALARM_OFFSET: QC_ALARM_OFFSET,
-    KPI_RICH: KPI_RICH, KPI_AVAIL_ROWS: KPI_AVAIL_ROWS
+    KPI_RICH: KPI_RICH, KPI_AVAIL_ROWS: KPI_AVAIL_ROWS,
+    KPI_SPEED: KPI_SPEED, SPEED_ROW_LABEL: SPEED_ROW_LABEL, BENCH_BRANDS: BENCH_BRANDS,
+    KPI_META: KPI_META,
+    OOKLA_LOGO: OOKLA_LOGO
   };
 })();
