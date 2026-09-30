@@ -113,7 +113,7 @@ APScheduler 到点 (backend 进程内)
 | `battery_kpi_sync` | 电池 KPI 同步 | `5 * * * *` | u |
 | `battery_email` | 电池 KPI 邮件 | `0 7,19 * * *` | m |
 | `mailbox_cleanup` | 邮箱空间清理 | `0 * * * *` | m |
-| `incident_overview_sync` | Incident Overview 数据同步 | `0 * * * *` | m |
+| `incident_overview_sync` | Incident Overview 数据同步 | `20 * * * *` | m |
 | `finebi_report_sync` | FineBI 报表文件同步 | `10 * * * *` | m |
 | `db_freshness_check` | 数据库数据新鲜度巡检 | `15 * * * *` | m |
 | `auto_retry_failed` | 失败任务自动重试 | `*/10 * * * *` | m |
@@ -149,6 +149,44 @@ APScheduler 到点 (backend 进程内)
 | `tmp_cleanup` | TMP 目录清理 | `47 3 * * *` | m |
 | `mttr_tt_sync` | MTTR/TT 宽表重建 | `40 7 * * *` | m |
 | `progress_sync` | Progress 宽表重建 | `50 7 * * *` | m |
+
+### FineBI `schedule/` 的重算空档：读它的任务一律排在 :06 之后（2026-09-30）
+
+**现象**：`incident_overview_sync` 报 `在 /webroot/WEB-INF/schedule/TT_WO 及其子目录下未找到 incident_overview.xlsx`，
+2026-09-30 一天 18 次跑挂 8 次（05/08/09/11/12/13/16/17 点），微信+邮件每小时误报一次；
+同一天 `finebi_report_sync` 报 `NUR_SLA: 未找到 Excel`。
+
+**根因（实测，不是代码问题）**：FineBI 每小时 **:53** 触发重算，**先删掉上一轮的
+`<报表>/<YYYY-MM-DD>/<HHMM>/通用结果/` 目录**，新副本约 **:02–:05** 才落盘。任意时刻源树只保留一份副本
+（一层只有一个日期目录、再一层只有一个 HHMM 目录），因此 **:53 → :05 约 12 分钟里目录是空的**。
+该任务的 cron 存在 `task_schedule_config`（库里 `3 * * * *`，与注册表默认 `0 * * * *` 已经不一致），
+两个分钟都落在空档里。14:03/15:03 那两次"成功"是赶上落盘瞬间——远程 mtime 与任务认领时间同秒。
+旁证：跑在 :10 的 `finebi_report_sync` 同期只有 NUR_SLA 一次缺文件。
+
+**处理（三处，缺一不可）**：
+
+1. **排期避开空档**：`incident_overview_sync` 的生效 cron 改为 `20 * * * *`（经
+   `POST /api/tasks/{id}/schedule` 落到 `task_schedule_config`），注册表
+   `backend/task_registry.py` 的 `default_cron` 一并改掉，避免新环境回到整点。
+2. **把「源正在重算」与「源断了」分开判定**：`services/incident_overview_sync.py` 取不到文件时先看
+   本地最新副本年龄，`NO_SOURCE_GRACE_MINUTES=90` 内返回 `success + skipped + note`（不告警），
+   超龄才算失败并把年龄写进错误信息。`services/finebi_report_sync.py` 同理：单个目录本轮没有 Excel
+   而本机已有历史副本 → 只记进 `missing`，**不再把整任务拖红**（一个目录的空档会连带其余已同步成功的
+   报表一起被判失败）；本机连历史副本都没有才算 `error`。
+3. **让"数据陈旧"本身可见**：`services/db_freshness_check.py` 新增 `FILE_CHECKS`（第 2b 类检查），
+   按本机最新文件的落盘年龄判定文件型看板源（首条即事件总览的 `data/incident_overview/incident_overview_*.xlsx`，
+   `max_age_hours=2.0`）。**取数任务红/绿 与 页面数据是几小时前的 是两件事**——2026-09-30 那次只有人
+   看到任务告警，没人看到"页面停在 15:03 那份"。
+
+   第 2、3 条是 `services/*.py` 代码，**必须重启认领它们的 `m` 组 worker 才生效**（模块已被长驻进程
+   import，与本文件下方 `sp_data_sync` 一节「改动需重启 `s` 组 worker 才生效」同一回事）：
+   `python restart_workers.py --groups m --mode worker --reason "..."`。
+   只用 `--groups m`，**别顺手加 `--mode watchdog`**——那种模式会连 watchdog 一起杀，七组 worker 全部重来，
+   只有在改分组清单时才必要（分组清单在 watchdog 内存里）。
+
+**新增读 `/webroot/WEB-INF/schedule/` 的任务时**：cron 分钟 **≥ 06**；「未找到文件」默认按上游常态处理；
+若该文件是某个页面的真相源，同步在 `FILE_CHECKS` 里加一条。**别再加第二条链路拉同一个文件**
+（TT_WO 这份目前被 `incident_overview_sync` 与 `finebi_report_sync` 各拉一次到两个目录，属待合并的重复来源）。
 
 ### `sp_data_sync` 的镜像问题（2026-09-30 已根治 + 一次 worker 挂死事故）
 

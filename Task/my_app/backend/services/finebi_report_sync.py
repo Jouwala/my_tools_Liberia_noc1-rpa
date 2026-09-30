@@ -12,6 +12,8 @@ FINEBI report 页签）下载。
   - 每个报告文件夹只保留最新 1 份 Excel（旧的本地副本会被清理）。
   - 只递归最新 3 个日期目录，避免调度历史日积月累后全量遍历 FTP。
   - 下载经临时文件 + 原子替换，扛 Windows 文件锁。
+  - 某个文件夹本轮没有 Excel 只登记进 missing、不判任务失败：FineBI 在 :53 重算时会先删掉
+    上一轮输出目录，新副本约 :02–:05 才落盘，这是源的常态；本机连历史副本都没有才算 error。
 """
 from __future__ import annotations
 
@@ -124,15 +126,25 @@ def _prune_local(report_local_dir: Path, keep: Path) -> None:
         pass
 
 
+def _has_local_copy(report: str) -> bool:
+    """本机是否已存有该报表的历史副本（用于区分「上游正在重算」与「从没取到过」）。"""
+    d = FINEBI_LOCAL_DIR / report
+    try:
+        return any(_is_excel(f.name) for f in d.iterdir() if f.is_file())
+    except OSError:
+        return False
+
+
 def run_finebi_report_sync() -> dict:
     """任务入口：同步 schedule 下每个文件夹的最新 Excel。返回结果摘要。"""
     started = time.time()
-    result = {"success": True, "synced": [], "errors": []}
+    result = {"success": True, "synced": [], "missing": [], "errors": []}
     try:
         ftp = _connect()
     except Exception as e:
         logger.error(f"[FineBI] FTP 连接失败: {e}")
-        return {"success": False, "error": f"FTP 连接失败: {e}", "synced": [], "errors": [str(e)]}
+        return {"success": False, "error": f"FTP 连接失败: {e}", "synced": [],
+                "missing": [], "errors": [str(e)]}
 
     try:
         report_dirs, _ = _list_dir(ftp, REMOTE_BASE)
@@ -140,7 +152,15 @@ def run_finebi_report_sync() -> dict:
             try:
                 best = _find_latest_excel(ftp, f"{REMOTE_BASE}/{report}")
                 if best is None:
-                    result["errors"].append(f"{report}: 未找到 Excel")
+                    # FineBI 每小时 :53 重算时会先删掉上一轮的 <日期>/<HHMM>/ 目录，新副本约 :02–:05
+                    # 才落盘 —— 本轮取不到文件是这个源的常态（incident_overview_sync 曾在 :03 每小时
+                    # 误报一次，见该模块说明）。本机已有历史副本时只登记缺失、不判失败：单个目录的
+                    # 空档不该把整任务拖红，其余报表其实都同步成功了。本机一份都没有才是真问题。
+                    if _has_local_copy(report):
+                        result["missing"].append(report)
+                        logger.warning(f"[FineBI] {report}: 本轮无 Excel（上游重算窗口），沿用本地副本")
+                        continue
+                    result["errors"].append(f"{report}: 未找到 Excel，且本机没有历史副本")
                     continue
                 modify, name, size, remote_path = best
                 local_dir = FINEBI_LOCAL_DIR / report

@@ -3,9 +3,13 @@
 Incident Overview 数据同步服务
 ================================
 
-每小时整点（cron 0 * * * *）从远程 FineBI FTP 拉取最新的 incident_overview.xlsx，
+每小时第 20 分钟（cron 20 * * * *）从远程 FineBI FTP 拉取最新的 incident_overview.xlsx，
 落盘为「版本化文件 + current.json 指针」模型，从根本上规避“目标文件被 Excel 占用
 导致 os.replace 失败（WinError 5）”的历史故障。
+
+调度为什么不是整点：FineBI 每小时 :53 重算并把上一轮的 TT_WO/<日期>/<HHMM>/ 目录删掉，
+新副本约 :02–:05 才落盘 —— 整点取数正好撞在这个空档上（2026-09-28 起每小时误报一次
+“未找到 incident_overview.xlsx”的根因）。落在 :20 既避空档又早于下一轮重算。
 
 数据源（业务指定）：
   远程目录 /webroot/WEB-INF/schedule/TT_WO/ 下「所有子目录」中，
@@ -64,6 +68,10 @@ LOCAL_FILE = DATA_DIR / "incident_overview.xlsx"
 POINTER_FILE = DATA_DIR / "current.json"
 KEEP_VERSIONS = 1                       # 只保留最新 1 份版本化文件，旧版每次同步后清理
 VERSION_PREFIX = "incident_overview_"  # 版本化文件前缀：incident_overview_<ts>_<rand>.xlsx
+# FineBI 每小时 :53 触发重算：先把上一轮的 TT_WO/<日期>/<HHMM>/ 目录删掉，新文件约 :02–:05 才落盘。
+# 因此「远程找不到文件」在该窗口内是正常中间态，不是数据断了——本地副本距今不超过这个宽限就沿用上一份，
+# 只有超过宽限（说明上游真的没产出）才判失败，避免每小时误报一次微信/邮件告警。
+NO_SOURCE_GRACE_MINUTES = 90
 
 # ============================================================
 # 外部化配置（Settings →「任务配置」维护的 incident_overview_config.json）
@@ -157,6 +165,24 @@ def find_latest_incident_overview(ftp: ftplib.FTP):
     # 取修改时间最新者
     results.sort(key=lambda r: r["mtime"], reverse=True)
     return results[0]
+
+
+# ---------------------------------------------------------------------------
+# 本地最新副本（用于判定「源正在重算」还是「源真的断了」）
+# ---------------------------------------------------------------------------
+def _newest_local_version():
+    """返回 (距今分钟数, 路径) 形式的本地最新副本；目录里没有版本化文件时返回 None。"""
+    try:
+        cands = [
+            DATA_DIR / f for f in os.listdir(DATA_DIR)
+            if f.startswith(VERSION_PREFIX) and f.endswith(".xlsx")
+        ]
+    except OSError:
+        return None
+    if not cands:
+        return None
+    newest = max(cands, key=lambda p: p.stat().st_mtime)
+    return (time.time() - newest.stat().st_mtime) / 60.0, newest
 
 
 # ---------------------------------------------------------------------------
@@ -376,8 +402,26 @@ def run_incident_overview_sync() -> dict:
 
         latest = find_latest_incident_overview(ftp)
         if latest is None:
+            local = _newest_local_version()
+            if local is not None and local[0] <= NO_SOURCE_GRACE_MINUTES:
+                # 上游正在重算（旧副本已被删、新副本还没落盘），沿用上一份，不算失败
+                age_min, vp = local
+                result["success"] = True
+                result["skipped"] = True
+                result["local_path"] = str(vp)
+                result["size_bytes"] = vp.stat().st_size
+                result["current_version"] = vp.name
+                result["note"] = (
+                    f"{FTP_BASE_DIR} 下暂无 {TARGET_FILENAME}（FineBI 每小时 :53 重算，"
+                    f"新副本约 :02–:05 落盘），沿用 {age_min:.0f} 分钟前的本地副本 {vp.name}"
+                )
+                logger.info("远程未找到文件，本地副本距今 %.0f 分钟（宽限 %d 分钟内），判为上游重算窗口，本轮跳过",
+                            age_min, NO_SOURCE_GRACE_MINUTES)
+                ftp.quit()
+                return result
             result["errors"].append(
                 f"在 {FTP_BASE_DIR} 及其子目录下未找到 {TARGET_FILENAME}"
+                + (f"（本地最新副本距今 {local[0]:.0f} 分钟，超出宽限）" if local else "（本地也没有历史副本）")
             )
             ftp.quit()
             return result

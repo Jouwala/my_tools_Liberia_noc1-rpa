@@ -581,25 +581,26 @@ TASK_SPECS = [
          description_en="Hourly guard for Exchange mailbox (ztenoc.olr@orange.com): when count>500 AND usage>70%, hard-delete the 200 oldest emails to avoid the 'storage limit' warning",
          default_cron="0 * * * *", category="mailbox"),
 
-    # 28. Incident Overview 数据同步（每小时整点）：从远程 FineBI FTP 拉取最新 incident_overview.xlsx
+    # 28. Incident Overview 数据同步（每小时第 20 分钟）：从远程 FineBI FTP 拉取最新 incident_overview.xlsx
+    #     刻意避开 :00–:05 —— FineBI 在 :53 删掉上一轮输出目录、新副本约 :02–:05 才落盘，整点取数会撞空档
     dict(task_id="incident_overview_sync", name="Incident Overview 数据同步", name_en="Incident Overview Data Sync",
          loader=("backend.services.incident_overview_sync", "run_incident_overview_sync"),
-         description="每小时整点从远程 FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ 所有子目录取最新 incident_overview.xlsx，落盘为版本化文件 + current.json 指针（Excel 一直打开也不会失败），best-effort 刷新 incident_overview.xlsx 快照",
-         description_en="Hourly on-the-hour: pull the latest incident_overview.xlsx from remote FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ across all subfolders, store as versioned file + current.json pointer (immune to Excel lock), best-effort refresh snapshot",
-         default_cron="0 * * * *", category="incident_overview"),
+         description="每小时第 20 分钟从远程 FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ 所有子目录取最新 incident_overview.xlsx，落盘为版本化文件 + current.json 指针（Excel 一直打开也不会失败），best-effort 刷新 incident_overview.xlsx 快照；上游重算窗口内取不到文件时沿用 90 分钟内的本地副本，不判失败",
+         description_en="Hourly at minute 20: pull the latest incident_overview.xlsx from remote FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ across all subfolders, store as versioned file + current.json pointer (immune to Excel lock), best-effort refresh snapshot; while upstream is regenerating it reuses a local copy younger than 90 minutes instead of failing",
+         default_cron="20 * * * *", category="incident_overview"),
 
     # 28b. FineBI 报表文件同步（每小时第 10 分钟）：schedule 下每个文件夹取最新 Excel 供下载
     dict(task_id="finebi_report_sync", name="FineBI 报表文件同步", name_en="FineBI Report Files Sync",
          loader=("backend.services.finebi_report_sync", "run_finebi_report_sync"),
-         description="每小时从 FineBI FTP /webroot/WEB-INF/schedule 的每个子文件夹取最新一份 Excel，下载到本地 data/finebi_reports 供 Task Report Files 页面下载",
-         description_en="Hourly: pull the latest Excel from each subfolder of FineBI FTP /webroot/WEB-INF/schedule into local data/finebi_reports for the Task Report Files page",
+         description="每小时从 FineBI FTP /webroot/WEB-INF/schedule 的每个子文件夹取最新一份 Excel，下载到本地 data/finebi_reports 供 Task Report Files 页面下载；某目录本轮没有 Excel 而本机已有历史副本时只记 missing 不判失败（FineBI :53 重算空档是常态）",
+         description_en="Hourly: pull the latest Excel from each subfolder of FineBI FTP /webroot/WEB-INF/schedule into local data/finebi_reports for the Task Report Files page; a folder empty this cycle is recorded as missing instead of failing the task when a local copy already exists (FineBI deletes the previous output folder at :53)",
          default_cron="10 * * * *", category="general"),
 
-    # 29. 数据库数据新鲜度巡检（每小时第 15 分钟）
+    # 29. 数据新鲜度巡检（每小时第 15 分钟）：远程库 + 本地回退库 + 本机文件型源
     dict(task_id="db_freshness_check", name="数据库数据新鲜度巡检", name_en="DB Data Freshness Check",
          loader=("backend.services.db_freshness_check", "run_db_freshness_check"),
-         description="每小时巡检远程 DB（db_writer_api）与本地回退库各表最新数据日期，滞后时输出调用链路与检查方向",
-         description_en="Hourly freshness audit of remote DBs (via db_writer_api) and local fallback DBs; outputs call chain and troubleshooting guidance when stale",
+         description="每小时巡检远程 DB（db_writer_api）、本地回退库各表最新数据日期，以及本机文件型数据源（FTP 落盘的 Excel）的落盘年龄，滞后时输出调用链路与检查方向",
+         description_en="Hourly freshness audit of remote DBs (via db_writer_api), local fallback DBs, and local file-based sources (FTP-pulled Excel) by on-disk age; outputs call chain and troubleshooting guidance when stale",
          default_cron="15 * * * *", category="general"),
 
     # 30. 失败任务自动重试 + 漏跑补投（每 10 分钟扫描）

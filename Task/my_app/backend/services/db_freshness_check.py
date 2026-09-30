@@ -7,6 +7,7 @@ db_freshness_check.py — 数据库数据新鲜度巡检（每小时）
     1. 远程库（db_writer_api @ 192.168.100.19:8765）：逐表查询最新 Begin Time，
        与期望新鲜度（daily=昨天 / intraday=最近N小时 / monthly=最近33天）比对
     2. 本地回退库（API 失败时的兜底库）：sqlite3 直查最新 Begin Time
+    2b. 本机文件型数据源（FTP 落盘的 Excel）：按最新文件的落盘年龄判定（FILE_CHECKS）
     3. 发现滞后时输出：调用链路（任务 → 服务函数 → 写入方式 → 库文件）与检查方向
     4. 任务执行健康检查（2026-08-12 新增，2026-08-13 收紧，补齐“任务从未执行”盲区）：
        - 注册任务最近 24h 无执行记录（task_execution_log，排除已禁用任务）
@@ -166,6 +167,29 @@ DERIVED_CHECKS = [
          task_id="progress_sync", task_cron="50 7 * * *",
          service="backend/services/progress_sync.py::run_progress_sync",
          write_path="远端只读 API（TT LEFT JOIN WO）→ 原子替换本机 data/progress.sqlite3"),
+]
+
+# ============================================================
+# 文件型数据源（FTP 落盘的 Excel 等）的新鲜度判定
+# ============================================================
+# 为什么单独一类：REMOTE/LOCAL/DERIVED 三类判定的都是库表，而有些看板的真相源
+# 是**磁盘上的一个 Excel**（FineBI 每小时生成、FTP 拉到本机）。这类源此前不在
+# 任何新鲜度判定里，「任务成功但文件停在几小时前」只能等人打开页面发现。
+#
+# 事故背景（2026-09-30）：`incident_overview_sync` 的 cron 撞在 FineBI 重算空档上
+# （:53 删旧目录、新副本约 :02–:05 落盘），一天 18 次跑挂 8 次，事件总览页的数据
+# 停在 15:03 那份、滞后 2 小时以上——期间没有任何巡检项报出「数据陈旧」，只有
+# 任务失败告警在刷屏（而告警说的是「未找到文件」，不是「你看到的数是多少小时前的」）。
+# 把文件年龄纳入巡检后，滞后本身成为可见事实，不再依赖取数任务是红是绿。
+FILE_CHECKS = [
+    dict(label="Incident Overview 源文件",
+         path=str(MY_APP_DIR / "data" / "incident_overview"),
+         pattern="incident_overview_*.xlsx",
+         granularity="intraday", max_age_hours=2.0,
+         task_id="incident_overview_sync", task_cron="20 * * * *",
+         service="backend/services/incident_overview_sync.py::run_incident_overview_sync",
+         read_path="FineBI FTP schedule/TT_WO/<日期>/<HHMM>/通用结果/incident_overview.xlsx → 版本化文件 + current.json 指针",
+         consumer="事件总览页 backend/services/incident_overview_service.py::resolve_excel_path（取 mtime 最新的版本化文件）"),
 ]
 
 # 任务执行健康检查参数（2026-08-12 新增，2026-08-13 收紧）：
@@ -804,6 +828,66 @@ def _check_derived_table(check: dict, now: datetime, results: list, stale_items:
         guidance=_derived_advice(check)))
 
 
+def _file_advice(check: dict) -> list:
+    """文件型源滞后时的调用链路与检查方向（与 _derived_advice 同构）。"""
+    chain = [
+        f"定时任务 {check['task_id']} (cron: {check['task_cron']})",
+        f"→ {check['service']}",
+        f"→ {check['read_path']}",
+        f"→ 本机 {check['path']}（{check['pattern']}）",
+    ]
+    advice = [
+        f"1. Task Manager 查看任务 {check['task_id']} 最近运行历史（success/error/skipped）",
+        "2. 手动跑一次该任务的 __main__ 看真实报错（python -m backend.services.<模块名>）",
+        "3. 上游是 FineBI 调度目录：:53 会先删掉上一轮输出目录，新副本约 :02–:05 才落盘，"
+        "取数任务必须排在 :06 之后（本目录在重算窗口内列不出文件是正常的）",
+        f"4. 页面侧读法见 {check.get('consumer', '对应 service')}",
+    ]
+    return ["调用链路:"] + [f"  {c}" for c in chain] + ["检查方向:"] + [f"  {a}" for a in advice]
+
+
+def _check_source_file(check: dict, now: datetime, results: list, stale_items: list):
+    """文件型源的新鲜度判定：按本机最新一份文件的落盘年龄比对期望窗口。
+
+    只读本机 mtime，不去查远端 FTP——巡检每小时跑，为一项判定而全量遍历 FTP
+    会把巡检自己拖成瓶颈；上游断供由取数任务自己的失败告警负责。
+    """
+    label, pattern = check["label"], check["pattern"]
+    since, expected = _window_since(check["granularity"], now, check)
+    d = Path(check["path"])
+    try:
+        cands = [f for f in d.glob(pattern) if f.is_file()]
+    except OSError as e:
+        results.append(dict(scope="file", db=label, table=pattern,
+                            status="read_error", detail=str(e)[:200]))
+        stale_items.append(dict(db=label, table=pattern,
+                                reason=f"目录无法列举: {d}（{e}）",
+                                guidance=_file_advice(check)))
+        return
+
+    if not cands:
+        results.append(dict(scope="file", db=label, table=pattern,
+                            status="STALE", detail=f"目录里没有 {pattern}", expected=expected))
+        stale_items.append(dict(db=label, table=pattern,
+                                reason=f"{d} 下没有任何 {pattern}（任务 {check['task_id']} 从未成功跑过？）",
+                                guidance=_file_advice(check)))
+        return
+
+    newest = max(cands, key=lambda f: f.stat().st_mtime)
+    latest = datetime.fromtimestamp(newest.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+    age_h = (now - datetime.fromtimestamp(newest.stat().st_mtime)).total_seconds() / 3600.0
+    if latest >= since:
+        results.append(dict(scope="file", db=label, table=pattern,
+                            status="ok", latest=latest, expected=expected))
+        return
+    results.append(dict(scope="file", db=label, table=pattern,
+                        status="STALE", latest=latest, expected=expected))
+    stale_items.append(dict(
+        db=label, table=pattern,
+        reason=f"最新文件 {newest.name} 落盘于 {latest}（距今 {age_h:.1f}h），期望 {expected}",
+        guidance=_file_advice(check)))
+
+
 def run_db_freshness_check() -> dict:
     """小时级数据新鲜度巡检入口。"""
     t_start = time.time()
@@ -888,6 +972,12 @@ def run_db_freshness_check() -> dict:
     # 于是 my-finebi 退役后它们静默停更 1~3 周都没人知道。见 DERIVED_CHECKS 注释。
     for check in DERIVED_CHECKS:
         _check_derived_table(check, now, results, stale_items)
+
+    # ---------- 文件型数据源检查 ----------
+    # 2026-09-30 新增：FTP 落盘的 Excel 也是看板的唯一真相源，此前不在任何新鲜度判定里，
+    # 「任务红/绿」与「你看到的数是几小时前的」是两件事，必须分开可见（见 FILE_CHECKS 注释）。
+    for check in FILE_CHECKS:
+        _check_source_file(check, now, results, stale_items)
 
     # 汇总本地库各任务 max 日期（供远程滞后对照）
     for r in results:
