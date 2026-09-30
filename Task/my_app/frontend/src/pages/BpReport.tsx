@@ -82,6 +82,9 @@ type CellRow = {
   day: string
   cell_name: string
   me_id: string | null
+  /* 站点名：后端按 me_id 关联主库 app.cm_cell_data 得到（实测命中 98.4%）。
+   * 未命中或主库不可达时为 null —— 界面显示 —，不显示 0。 */
+  site_name: string | null
   cluster: string
   layer: string
   is_bp: number | null
@@ -332,14 +335,17 @@ export default function BpReport() {
       filename: `${name}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
       sheetName: name,
       title: name,
-      header: [t('bp.col.day'), t('bp.col.cell'), t('bp.col.meId'), t('bp.col.cluster'),
+      header: [t('bp.col.day'), t('bp.col.siteId'), t('bp.col.siteName'),
+               t('bp.col.cell'), t('bp.col.meId'), t('bp.col.cluster'),
                t('bp.col.layer'), t('bp.col.state'), t('bp.col.prb'), t('bp.col.thr'),
                t('bp.col.au'),
                t('bp.col.ratio'), t('bp.col.dl'), t('bp.col.ul')],
-      rows: list.map(r => [r.day, r.cell_name, r.me_id, r.cluster, r.layer,
+      rows: list.map(r => [r.day, r.me_id, r.site_name || '', r.cell_name, r.me_id,
+                           r.cluster, r.layer,
                            t(bpStateKey(r.is_bp)), r.prb_dl, r.thr_dl, r.active_user,
                            r.prb_ok, r.dl_gb, r.ul_gb]),
-      numericCols: [6, 7, 8, 11, 12],
+      // 数值列下标随新增两列后移：prb(8) thr(9) au(10) dl(13) ul(14)
+      numericCols: [8, 9, 10, 13, 14],
     })
   }, [t])
 
@@ -575,6 +581,13 @@ export default function BpReport() {
 
   const drillColumns = useMemo(() => [
     { title: t('bp.col.day'), dataIndex: 'day', width: 100 },
+    // Site ID = ManagedElement ID（`me_id`）。放在小区名**之前**：站点是小区名的前缀，
+    // 先站点后小区更好读；也让「同站多扇区」在视觉上连成一组。
+    { title: t('bp.col.siteId'), dataIndex: 'me_id', width: 92 },
+    // 站点名按 me_id 关联主库 app.cm_cell_data 得到（后端 _attach_site_names()）。
+    // 实测命中 98.4%；未命中/主库不可达时为 null，按 AGENTS.md 三.6 显示 —，不显示 0。
+    { title: t('bp.col.siteName'), dataIndex: 'site_name', width: 180,
+      render: (v: string | null) => v || '—' },
     { title: t('bp.col.cell'), dataIndex: 'cell_name', width: 160 },
     { title: t('bp.col.cluster'), dataIndex: 'cluster', width: 96 },
     { title: t('bp.col.layer'), dataIndex: 'layer', width: 110 },

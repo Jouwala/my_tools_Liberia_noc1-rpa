@@ -3064,7 +3064,7 @@ const translations: Record<Locale, Record<string, string>> = {
     // 数据源 speedtest_data；口径见 backend/services/bm_speedtest_caliber.py
     'nav.bmSpeedtest': 'Speedtest 基准报告',
     'bms.brand.orange': 'Orange',
-    'bms.brand.mtn': 'Lonestar Cell MTN',
+    'bms.brand.mtn': 'MTN',
     'bms.metric.download': '下载速率',
     'bms.metric.upload': '上传速率',
     'bms.metric.latency': '时延',
@@ -3439,6 +3439,12 @@ const translations: Record<Locale, Record<string, string>> = {
     'bp.col.traffic': '流量(TB)',
     'bp.col.cell': '小区名',
     'bp.col.meId': '网元 ID',
+    // Site ID 就是 ManagedElement ID（明细表 me_id 列）——二者同值，分开给键是因为
+    // 表头与导出列的语义不同：用户按「站点」理解，运维按「网元」理解。
+    'bp.col.siteId': '站点 ID',
+    // 站点名来自主库 app.cm_cell_data（按 me_id 关联，实测命中 98.4%）；
+    // 未命中时为 —，不是 0。
+    'bp.col.siteName': '站点名',
     'bp.col.cluster': '分区',
     'bp.col.layer': '频层',
     'bp.col.state': '判定',
@@ -6516,7 +6522,7 @@ const translations: Record<Locale, Record<string, string>> = {
     // Source: speedtest_data; semantics in backend/services/bm_speedtest_caliber.py
     'nav.bmSpeedtest': 'Speedtest Benchmark Report',
     'bms.brand.orange': 'Orange',
-    'bms.brand.mtn': 'Lonestar Cell MTN',
+    'bms.brand.mtn': 'MTN',
     'bms.metric.download': 'Download',
     'bms.metric.upload': 'Upload',
     'bms.metric.latency': 'Latency',
@@ -6887,6 +6893,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'bp.col.traffic': 'Traffic (TB)',
     'bp.col.cell': 'Cell name',
     'bp.col.meId': 'NE ID',
+    'bp.col.siteId': 'Site ID',
+    'bp.col.siteName': 'Site name',
     'bp.col.cluster': 'Region',
     'bp.col.layer': 'Layer',
     'bp.col.state': 'Verdict',

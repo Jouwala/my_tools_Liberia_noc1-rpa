@@ -17,6 +17,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from backend.database import get_raw_connection
 from backend.services import bp_caliber as cal
 from backend.services import bp_report_store as store
 
@@ -69,6 +70,41 @@ def _range_sql_day(col: str, start: str, end: str) -> Tuple[str, List[Any]]:
     return _range_sql(col, start, end)
 
 
+def _bound_to_label(grain: str, bound: str, is_start: bool) -> str:
+    """把一个**日期**边界转成该粒度 `time_col` 里真正存的**周期标签**。
+
+    为什么必须有这一步（2026-09-30 修的线上 bug）：
+      前端 `rangeParams()` 恒定传 `YYYY-MM-DD`（`BpReport.tsx:191`），
+      但 `bp_overall_week.week` 存的是 `2026-W40`、`bp_overall_month.month` 存的是 `2026-09`。
+      拿日期去和标签做字符串比较会**静默失配**：
+        `'2026-W35' >= '2026-08-25'` → False（第 6 位 `'W'`(0x57) > `'0'`(0x30)），
+      于是 `week` 粒度的 trend **整段为空**（实测 trend 点数 0，用户报的正是这个）；
+      `month` 更隐蔽：`'2026-09' >= '2026-08-25'` 侥幸为 True，但
+      `'2026-08' >= '2026-08-25'` 为 False —— 于是**八月被悄悄丢掉**，
+      8~9 月只返回 1 个点而不是 2 个，界面看着"有数据"，实际漏了一整月。
+
+    转换规则（start 取「不早于该边界」、end 取「不晚于该边界」）：
+      - week ：`iso_week_key(日期)`，边界日期所在 ISO 周。start 用所在周、
+               end 也用所在周 —— 因为 `period_to_day_range()` 还原时本就按整周取，
+               两者对同一周会得到同一个标签，前后一致。
+      - month：`month_key(日期)` → `YYYY-MM`。
+      - day  ：原样（`day` 列存的就是 `YYYY-MM-DD`）。
+    已经是标签形态的输入（`2026-W40` / `2026-09`）经 `day_str()` 归一后转换结果不变，
+    所以重复调用是幂等的，旧的「传标签边界」调用方也不会被破坏。
+    """
+    if not bound:
+        return bound
+    if grain == "day":
+        return bound
+    if grain == "week":
+        key = cal.iso_week_key(bound)
+        return key or bound
+    if grain == "month":
+        key = cal.month_key(bound)
+        return key or bound
+    return bound
+
+
 def _effective_range(conn, grain: str, start: str, end: str) -> Tuple[str, str]:
     """把空范围补成数据实际边界，避免前端拿到空区间。
 
@@ -76,12 +112,19 @@ def _effective_range(conn, grain: str, start: str, end: str) -> Tuple[str, str]:
     因为 trend 查询比较的 `week`/`month` 列存的就是标签。
     需要真日期时由调用方用 `cal.period_to_day_range()` 转换
     —— **不要**拿标签去和 `bp_cell_daily.day` 比较（字符串比较会静默失配）。
+
+    ⚠️ 传进来的 start/end 也可能是**日期**（前端就是），必须经 `_bound_to_label()`
+    归一，否则周粒度整段为空、月粒度静默丢月 —— 详见该函数 docstring。
     """
     table, time_col = GRAIN_SPEC[grain][0], GRAIN_SPEC[grain][1]
     if not start:
         start = store.scalar(conn, f"SELECT MIN({time_col}) FROM {table}") or ""
+    else:
+        start = _bound_to_label(grain, start, True)
     if not end:
         end = store.scalar(conn, f"SELECT MAX({time_col}) FROM {table}") or ""
+    else:
+        end = _bound_to_label(grain, end, False)
     return start, end
 
 
@@ -481,6 +524,57 @@ def _excel_cells_for(conn, day: str, start: str, end: str) -> Optional[int]:
         tuple(params))
 
 
+def _attach_site_names(rows: List[Dict[str, Any]]) -> None:
+    """给明细行补 `site_name`（按 `me_id` 关联主库的站点名表）。**尽力而为，不抛错。**
+
+    ===================== 为什么在物化库之外另查 =====================
+    BP 的物化库是**独立 sqlite**（`data/bp_report.sqlite3`，见 bp_report_store.py:4-13），
+    而站点名在主库 PG 的 `app.cm_cell_data` 里（`Site_ID` / `Site_Name` / `Cell_Name` / `Tech`）。
+    两者不同库，无法 JOIN，只能在应用层按 `me_id` 批量查一次再贴回来。
+    刻意**不**把站点名冗余进 `bp_cell_daily`：那是派生库，站点名是主库的活数据，
+    复制进来就多一份会过期的真相源（AGENTS.md 四.5）。
+
+    ===================== 关联键为什么是 me_id =====================
+    `me_id` 就是 **ManagedElement ID**，即 `cm_cell_data.Site_ID`。实测（2026-09-30）：
+      · 按 `me_id == Site_ID` 关联：BP 去重 me_id 745 个，命中 733 个 = **98.4%**；
+      · 按 `cell_name == Cell_Name` 关联：6297 个小区只命中 1340 个 = **21.3%**，
+        且**同站不同扇区会指向不同 Site_ID**（实测 `10th Street-S0` → 1300，
+        而 `-S1`/`-S2` → 5300），说明小区名不可作关联键。
+    未命中的 12 个 me_id（占明细 2499 行 / 0.53%）`site_name` 留空，
+    前端按 AGENTS.md 三.6 显示 `—`，不显示成 0。
+
+    ===================== 降级策略 =====================
+    主库不可达（PG 挂 / 连接串错 / SQLite 模式）时**只记 warning 并返回**，
+    站点名整体留空 —— 下钻的主功能（BP 明细与判定依据）不因附属字段而失败。
+    这也保证 `MY_APP_DB_MODE=sqlite` 回退路径（R7 熔断开关）下页面照常可用。
+    """
+    if not rows:
+        return
+    ids = sorted({str(r.get("me_id")).strip()
+                  for r in rows if r.get("me_id") not in (None, "")})
+    if not ids:
+        return
+    try:
+        conn = get_raw_connection()
+        try:
+            cur = conn.cursor()
+            # 占位符由 get_raw_connection 统一转换（pg 模式会 ? -> %s），与其它查询一致
+            marks = ",".join("?" for _ in ids)
+            cur.execute(
+                f'SELECT "Site_ID", "Site_Name" FROM app.cm_cell_data'
+                f' WHERE "Site_ID" IN ({marks})', tuple(ids))
+            mapping = {str(sid).strip(): str(sname or "").strip()
+                       for sid, sname in cur.fetchall() if sname}
+        finally:
+            conn.close()
+    except Exception as exc:                                 # noqa: BLE001
+        logger.warning("站点名查询失败（下钻仍返回，site_name 留空）：%s", exc)
+        return
+    for r in rows:
+        key = str(r.get("me_id") or "").strip()
+        r["site_name"] = mapping.get(key) or None
+
+
 def load_cells(day: str = "", start: str = "", end: str = "",
                region: str = "", layer: str = "", scope: str = "all",
                limit: int = MAX_DETAIL_ROWS) -> Dict[str, Any]:
@@ -571,6 +665,10 @@ def load_cells(day: str = "", start: str = "", end: str = "",
                            and r["thr_dl"] < cal.THR_DL_THROUGHPUT_MBPS)
             r["user_ok"] = None if r["active_user"] is None else (
                 r["active_user"] > cal.THR_ACTIVE_USER)
+
+        # 站点名（用户要求：Site ID 之外最好也能看到站点名）。
+        # 在**物化库之外**单独查，见 `_attach_site_names()` 的 docstring。
+        _attach_site_names(rows)
 
         truncated = len(rows) >= limit
         meta = _build_meta(conn, "day", day or start, day or end, t0)

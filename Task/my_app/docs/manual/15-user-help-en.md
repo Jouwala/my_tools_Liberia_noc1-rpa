@@ -1604,7 +1604,7 @@ FLM availability: covers only the three FLM regions (Montserrado / North East / 
 
 #### bm_speedtest（`bm_speedtest`）
 
-Speedtest Benchmark Report: puts the two operators (Orange and Lonestar Cell MTN) side by side using measured speed-test data, answering "who is faster / who has lower latency / by how much / is the gap widening or narrowing". Source: speedtest_data (imported from Speedtest.xlsx, 854 rows, 2025-07-16 ~ 2026-09-24, nationwide cellular median). Five blocks: overall competitiveness score -> key metric cards (download/upload/latency/jitter with mean and P50/P90) -> trend chart (switchable metric, adjustable moving-average window) -> daily head-to-head record -> monthly table and daily detail table.
+Speedtest Benchmark Report: puts the two operators (Orange and MTN) side by side using measured speed-test data, answering "who is faster / who has lower latency / by how much / is the gap widening or narrowing". Source: speedtest_data (imported from Speedtest.xlsx, 854 rows, 2025-07-16 ~ 2026-09-24, nationwide cellular median). Five blocks: overall competitiveness score -> key metric cards (download/upload/latency/jitter with mean and P50/P90) -> trend chart (switchable metric, adjustable moving-average window) -> daily head-to-head record -> monthly table and daily detail table.
 
 - Quick ranges at the top (30 / 90 / 180 days / last year / all time) plus date pickers; the window is **half-open** internally while the UI shows a closed range
 - The competitiveness score is **relative between the two operators**: the leader on each metric scores 100 and the other scales proportionally, then weights are download 35% / upload 20% / latency 30% / jitter 15%. It answers "who is stronger and by how much", not whether the absolute level is good; if either side lacks data for a metric, that metric drops out and its weight is redistributed
@@ -1675,11 +1675,13 @@ BP Cells Report: umlaut-caliber BP cell statistics, viewable by day/week/month a
 - This busy-hour caliber is calibrated against the Excel: it matches the umlaut detail cell-by-cell (Jaccard = 1.00), whereas a daily-average caliber would miss about 97% of BP cells
 - ⚠️ "Average DL Active User Number" is only available at hourly granularity in RAN_UME; a daily-grain query silently drops that column, so a dedicated hourly channel fetches it. When it is unavailable the day is marked "Undecidable" and never counted as 0
 - Every figure drills down: BP counts, detail rows, undecidable counts, trend-chart bars, all four KPI cards, the region chart and the layer table BP counts — row counts match the displayed figures exactly (same query predicate)
+- The drill-down detail table carries a "Site ID" column (the ManagedElement ID / NE ID) plus a "Site name" column, so each cell maps to a concrete site; site names are resolved by NE ID against the site database with about 98% coverage, and unmatched rows show —
 - The "Total cells" column drills down only for RAN_UME-sourced periods (the denominator is the detail row count); Excel-sourced periods provide no roster and are greyed out with an explanation
 - The "Detail rows" column shows how many rows the Excel BP Cells List actually holds for that period, with the difference from the displayed value in brackets — the upstream Excel sheets disagree with each other and the gap is shown as-is
 - Periods with no detail in the Excel BP Cells List (all of 2023, plus some 2024 dates) have their drill-down entry greyed out
 - The "Latest period verdict" gives yes/no for week/month; when undecidable it states the cause — a week still in progress (just wait) versus a month with too few full weeks (2026-09 has only 3 full weeks against the required 4, so that month can never be decided; a caliber-vs-calendar mismatch, not missing data)
 - Regions (Cluster1~6 / Rural / ERA) can only be maintained in Excel; RAN_UME has no such dimension, and new cells missing from the dictionary fall back to Unknown
+- The trend switches between day / week / month granularity; if the chart looks empty on week or month, first check that the date range covers periods that actually have data
 - Data is incrementally refreshed from RAN_UME by the bp_report_sync task daily at 06:20
 
 #### Packet Loss（`packet_loss`）

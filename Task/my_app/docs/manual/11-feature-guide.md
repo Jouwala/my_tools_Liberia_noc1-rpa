@@ -2264,6 +2264,65 @@ Monthly: 一个月内 3/4 个完整周为 BP
 `scope=bp` 时 N 取自 Excel `Overall` 汇总，可能 ≠ 明细行数（上游两张 sheet 不一致）；
 `scope=all` / `scope=undecidable` 时 N 本身就是明细行数，**必须**等于弹窗行数。
 
+#### 明细列：Site ID 与站点名（2026-09-30 新增）
+
+用户要求「下钻的明显表格要添加 site id，即 ManagedElement ID，最好也能找到站点名字」。
+
+| 列 | 数据来源 | 说明 |
+| --- | --- | --- |
+| `bp.col.siteId`（站点 ID） | `bp_cell_daily.me_id` | **就是 ManagedElement ID**，与导出的 `bp.col.meId`（网元 ID）**同值**；两个键并存只因表头语义不同（用户按「站点」理解、运维按「网元」理解） |
+| `bp.col.siteName`（站点名） | 主库 PG `app.cm_cell_data.Site_Name` | 按 `me_id == Site_ID` 关联，实测覆盖 **98.4%**（BP 去重 me_id 745 → 命中 733） |
+
+**为什么另外查库而不是 JOIN**：BP 的物化库是**独立 sqlite**
+（`data/bp_report.sqlite3`，`bp_report_store.py:4-13`），站点名却在主库 PG 的
+`app.cm_cell_data`（`Site_ID`/`Site_Name`/`Cell_Name`/`Tech`，15064 行），两者不同库。
+故在应用层按 `me_id` 批量查一次再贴回（`bp_report_service._attach_site_names()`）。
+**刻意不把站点名冗余进 `bp_cell_daily`** —— 那是派生库，站点名是主库活数据，
+复制进去就多一份会过期的真相源（AGENTS.md 四.5）。
+
+**关联键选 `me_id` 而不是小区名，是实测出来的**：
+
+| 关联键 | 命中率 | 问题 |
+| --- | --- | --- |
+| `me_id == Site_ID` | **98.4%** | 选用 |
+| `cell_name == Cell_Name` | 21.3% | 且**同站不同扇区会指向不同 Site_ID**（实测 `10th Street-S0` → 1300，而 `-S1`/`-S2` → 5300），不可作键 |
+
+未命中的 12 个 me_id（占明细 2499 行 / 0.53%，如 `4029` Jamaica Road、
+`4057` Front Street）`site_name` 为 `null`，界面按 AGENTS.md 三.6 显示 `—`。
+主库不可达时（PG 挂 / `MY_APP_DB_MODE=sqlite` 回退）**只记 warning 并整体留空**，
+下钻主功能不因附属字段失败。
+
+### 周/月趋势整段为空 / 静默丢月（2026-09-30 修复）
+
+用户反馈「Weekly 点击后 BP cell count trend 没有显示数据，其他正常」。根因是
+**前端恒传日期、后端拿它当周期标签比**（`_effective_range()`）：
+
+前端 `rangeParams()` 恒定产出 `YYYY-MM-DD`（`BpReport.tsx:191`），
+而 `bp_overall_week.week` 存的是 `2026-W40`、`bp_overall_month.month` 存的是 `2026-09`。
+字符串比较**静默失配**：
+
+| 粒度 | 比较 | 结果 |
+| --- | --- | --- |
+| week | `'2026-W35' >= '2026-08-25'` | **False**（第 6 位 `'W'`(0x57) > `'0'`(0x30)）→ trend **整段为空**（实测 0 点） |
+| month | `'2026-09' >= '2026-08-25'` | True（侥幸，第 7 位 `'9'` > `'2'`）→ 看着有数据 |
+| month | `'2026-08' >= '2026-08-25'` | **False**（`'8'` < `'2'`? 实为第 7 位缺失）→ **八月被悄悄丢掉**，8~9 月只返回 1 个点 |
+
+**月粒度比周粒度更危险**：周粒度空得彻底、一眼可见；月粒度只少一个点，
+不逐点核对根本发现不了 —— 属"看着正常实为错"。
+
+**修法**：新增 `_bound_to_label(grain, bound, is_start)`，在 `_effective_range()`
+里把日期边界转成该粒度 `time_col` **真正存的标签**（week → `cal.iso_week_key()`，
+month → `cal.month_key()`，day 原样）。已是标签形态的输入转换结果不变，
+因此**幂等**，原有的「传标签边界」调用方不受影响（已回归验证）。
+
+**顺带核实下钻一致性未被破坏**（AGENTS.md 三.1b）：修复后逐周比对
+`trend[].detail_cells` 与 `/cells?scope=bp` 的**行数**（不是 `total`），
+W35~W40 六周全对（4288/4574/4320/4061/3226/958）。
+
+> ⚠️ 别拿 `/cells` 的 `total` 去对概览的 `detail_cells` —— `total` 是**不带 scope
+> 过滤**的区间总行数（W39 为 35349），`detail_cells` 对应的是 `scope=bp` 的**行数**
+> （3226）。两者语义不同，对不上是正常的；`total` 的用途见 `load_cells()` docstring。
+
 ### 「最新一期判定」曾经恒为「不可判定」（2026-09-30 修复）
 
 用户反馈「最新一期判定：不可判定，如何解决」。定位到**两个独立成因**：
@@ -2442,6 +2501,7 @@ Excel `BP Cells List` 的 `Cluster`/`Layer` 列有脏值（如数字 ID `'4593'`
 | 行数 | 854 行，日期 2025-07-16 ~ 2026-09-24 |
 | 运营商取值 | 只有 `Orange`（434 行）与 `Lonestar Cell MTN`（420 行） |
 | 品牌归一 | `provider ILIKE '%orange%'` → ORANGE；`%mtn%` 或 `%lonestar%` → MTN；其余 OTHER（当前为 0 行） |
+| 展示名 | ORANGE 显示 `Orange`、MTN 显示 `MTN`。**`Lonestar Cell MTN` 只是 MTN 在利比里亚的注册全称**，页面上过长的名字会挤变形表格列宽与图表图例，故一律用简称；改名只动 `BRAND_LABELS`，**匹配 pattern 仍必须保留 `%lonestar%`**，否则 MTN 的 420 行会全部落到 OTHER |
 | 四个指标列 | 下载 `download_speed_mbps`、上传 `upload_speed_mbps`、时延 `multi_server_latency`、抖动 `multi_server_jitter` |
 | 时间字段 | `aggregate_date`（时间部分恒为 `00:00:00`） |
 | 空值 | 时延与抖动各 3 行，其余列无空值 |
