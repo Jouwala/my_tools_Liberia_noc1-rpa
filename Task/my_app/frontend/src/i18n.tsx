@@ -3388,6 +3388,11 @@ const translations: Record<Locale, Record<string, string>> = {
     'bp.kpi.weekDetail': '达标 {a} / {b} 天（口径 4/7 天）',
     'bp.kpi.monthDetail': '达标 {a} / {b} 个完整周（口径 3/4 周）',
     'bp.kpi.dayDetail': 'BP {a} / 评估 {b} 个小区',
+    // 卡片①的副行：只显示「占评估总数的比例」，**不带日期**。
+    // 日期从卡片上撤掉是有意的 —— 该卡片标题已写明「最新一期」，
+    // 再挂一个 `(2026-09-29)` 既挤占数字位、又让不同期的卡片宽度跳动；
+    // 「是哪一期」由下方趋势表与下钻弹窗标题给出（下钻标题仍带期）。
+    'bp.kpi.latestBpRatio': '占评估总数 {p}',
     'bp.kpi.pendingPeriod': '该期尚未判定，已收录 {n} 行明细',
     'bp.banner.collapse': '收起',
     // 日粒度没有「这一天是不是 BP 日」这种口径（BP 是小区级属性，日粒度只有计数），
@@ -6840,6 +6845,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'bp.kpi.weekDetail': 'Met {a} / {b} days (caliber 4/7)',
     'bp.kpi.monthDetail': 'Met {a} / {b} full weeks (caliber 3/4)',
     'bp.kpi.dayDetail': 'BP {a} / {b} cells evaluated',
+    'bp.kpi.latestBpRatio': '{p} of evaluated cells',
     'bp.kpi.pendingPeriod': 'This period is not yet decided; {n} detail rows collected',
     'bp.banner.collapse': 'Collapse',
     // A day has no BP/not-BP verdict in this caliber (BP is a per-cell property, the

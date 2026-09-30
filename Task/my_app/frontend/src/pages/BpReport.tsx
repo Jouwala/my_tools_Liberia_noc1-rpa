@@ -643,12 +643,19 @@ export default function BpReport() {
    *            —— 这个月永远判不出来，是口径与日历错配，不是数据缺失）。
    */
   const dayUndecidable = latest?.undecidable ?? 0
+  /* 日粒度**不套是/否**（没有「这一天是不是 BP 日」这种口径），只报判定完成度。
+   *
+   * 2026-09-30 按用户要求调整：全部判得出来时**不再显示「已判定」这个大标题**，
+   * 保持「标题 + BP x / 评估 y 个小区」两行即可 —— 没有判不出来的小区时，
+   * 「已判定」既无信息量又占了本行数字的位置。有判不出来的小区时仍要显式告警
+   * （「不可判定 N 个」是**异常态**，必须让人一眼看到）。
+   */
   const verdictValue = (() => {
     if (!latest) return t('bp.state.unknown')
     if (grain === 'day') {
       return dayUndecidable > 0
         ? t('bp.verdict.undecidableN', { n: dayUndecidable })
-        : t('bp.verdict.decided')
+        : ''
     }
     return t(periodStateKey(latestIsBp))
   })()
@@ -783,7 +790,9 @@ export default function BpReport() {
                  但那是「尚未判定」而不是「BP 小区为零」—— 直接显示 0 会被读成故障。
                  AGENTS.md 第三节 6：取不到值必须显示 `—`，不得显示成 0。
                  故这里显式区分：`is_bp_week/month` 为 NULL 的期显示 `—` +
-                 该期实际已有的明细行数，点进去仍是真实数据。 */}
+                 该期实际已有的明细行数，点进去仍是真实数据。
+              2026-09-30 按用户要求改版：卡片上**不再挂日期**，改为「数值 + 占比」两行。
+                 日期本就由趋势表与下钻弹窗标题给出，挂在数字旁既挤位又让卡片宽度跳动。 */}
           <div onClick={e => latest && void openDrill(
             { day: grain === 'day' ? latest.period : '',
               start: grain === 'day' ? '' : latest.period,
@@ -791,14 +800,15 @@ export default function BpReport() {
               title: `${t('bp.drill.bp')} · ${latest.period}`, clicked: latest.bp_cells },
             { x: e.clientX, y: e.clientY })}
             style={{ cursor: latest ? 'pointer' : 'default' }}>
-            {latestUndecided
-              ? <StatCard title={t('bp.kpi.latestBp')} value="—"
-                  suffix={`(${latest?.period})`} />
-              : <StatCard title={t('bp.kpi.latestBp')} value={latest?.bp_cells ?? '—'}
-                  suffix={latest ? `(${latest.period})` : ''} />}
-            {latestUndecided && (
+            <StatCard title={t('bp.kpi.latestBp')}
+              value={latestUndecided ? '—' : (latest?.bp_cells ?? '—')} />
+            {latestUndecided ? (
               <Text type="secondary" style={{ fontSize: 11 }}>
                 {t('bp.kpi.pendingPeriod', { n: fmt(latest?.detail_cells) })}
+              </Text>
+            ) : latest && (
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {t('bp.kpi.latestBpRatio', { p: fmtPct(latest.bp_ratio as number) })}
               </Text>
             )}
           </div>
@@ -830,14 +840,23 @@ export default function BpReport() {
           {/* 最新一期判定 —— **可点下钻**，且三种粒度各有可计算的结论（见上面的推导）。
               三态原则：不可判定与「否」必须区分（AGENTS.md 原则 6）。
               不可判定时**必须给出成因**（本周没过完 / 完整周数结构性不足），
-              否则用户只看到一句没有信息量的「不可判定」—— 这正是本次修复的起因。 */}
+              否则用户只看到一句没有信息量的「不可判定」—— 这正是本次修复的起因。
+              日粒度且全部判得出来时 `verdictValue` 为空串，此时**整行大标题不渲染**，
+              卡片保持「标题 + BP x / 评估 y 个小区」两行（2026-09-30 按用户要求）。 */}
           <div onClick={openVerdictDrill}
             style={{ cursor: latest ? 'pointer' : 'default' }}>
             <CardBase level={verdictLevel}
               title={t('bp.kpi.latestState')} as="div">
-              <Text strong style={{ fontSize: 20 }}>{verdictValue}</Text>
+              {verdictValue !== '' && (
+                <Text strong style={{ fontSize: 20 }}>{verdictValue}</Text>
+              )}
               {latest && (
-                <div style={{ fontSize: 12, color: WH.textMuted, marginTop: 4 }}>
+                <div style={{
+                  fontSize: verdictValue === '' ? 20 : 12,
+                  fontWeight: verdictValue === '' ? 600 : undefined,
+                  color: verdictValue === '' ? WH.text : WH.textMuted,
+                  marginTop: verdictValue === '' ? 0 : 4,
+                }}>
                   {verdictSub}
                 </div>
               )}
