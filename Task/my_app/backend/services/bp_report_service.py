@@ -202,10 +202,24 @@ def load_overview(start: str = "", end: str = "",
         # 明细表用 day 列做与 /cells 完全同源的谓词，保证行数和下钻一致。
         # ⚠️ 这里必须用 d_start/d_end（真日期），不能用 start/end（周/月是标签）。
         dwhere, dparams = _range_sql("day", d_start, d_end)
-        det_daily: Dict[str, int] = {r["day"]: r["bp"] for r in conn.execute(
-            f"SELECT day, SUM(CASE WHEN is_bp=1 THEN 1 ELSE 0 END) AS bp"
-            f" FROM bp_cell_daily WHERE {dwhere} GROUP BY day",
-            tuple(dparams)).fetchall()}
+        # 逐日的三个量一起取（同一谓词、同一次扫描）：
+        #   bp   —— is_bp=1 的行数（既有语义，下钻 scope=bp 与之相等）
+        #   und  —— is_bp IS NULL 的行数（当日「不可判定」的小区数）
+        #   tot  —— 当日明细行数（**ume 天**下它恒等于概览的 total_cells，
+        #           见 `_recompute_daily`：分母就是该口径下出现的全部小区行数。
+        #           excel 天的 total_cells 是 Excel 全网口径、无名单，不可下钻。）
+        det_daily: Dict[str, int] = {}
+        und_daily: Dict[str, int] = {}
+        tot_daily: Dict[str, int] = {}
+        for r in conn.execute(
+                f"SELECT day, COUNT(*) AS n,"
+                f" SUM(CASE WHEN is_bp=1 THEN 1 ELSE 0 END) AS bp,"
+                f" SUM(CASE WHEN is_bp IS NULL THEN 1 ELSE 0 END) AS und"
+                f" FROM bp_cell_daily WHERE {dwhere} GROUP BY day",
+                tuple(dparams)).fetchall():
+            det_daily[r["day"]] = r["bp"] or 0
+            und_daily[r["day"]] = r["und"] or 0
+            tot_daily[r["day"]] = r["n"] or 0
 
         # Excel「Overall」侧的合计（与展示值并排展示差异）——三种粒度都要算，
         # 否则周/月视图的合计行会缺一个对照值。
@@ -214,15 +228,17 @@ def load_overview(start: str = "", end: str = "",
                   + dwhere, tuple(dparams))
 
         if grain == "day":
-            det = det_daily
+            det, und, tot_rows = det_daily, und_daily, tot_daily
         else:
             # 周/月：把每天的明细数按 ISO 周键 / 月份归并（与概览 period 标签同构）
-            det = {}
+            det, und, tot_rows = {}, {}, {}
             for day_s, n in det_daily.items():
                 key = (cal.iso_week_key(day_s) if grain == "week"
                        else cal.month_key(day_s))
                 if key:
                     det[key] = det.get(key, 0) + n
+                    und[key] = und.get(key, 0) + und_daily.get(day_s, 0)
+                    tot_rows[key] = tot_rows.get(key, 0) + tot_daily.get(day_s, 0)
 
         for pt in trend:
             n = det.get(pt["period"], 0)
@@ -232,6 +248,40 @@ def load_overview(start: str = "", end: str = "",
             pt["detail_diff"] = (n - (pt["bp_cells"] or 0)) if n else None
             # 明细完全缺失的期（2023 全年、2024 部分周）只给汇总，不给下钻
             pt["drillable"] = n > 0
+            # 不可判定小区数：日粒度即当日 is_bp IS NULL 的行数；
+            # 界面据此给出「已判定 / 不可判定 N 个」的真实状态，并可下钻到这 N 行。
+            pt["undecidable"] = und.get(pt["period"], 0)
+            # total_cells 能否下钻：只有当该期的 total_cells **就是**明细表在该期的
+            # 行数时才给入口（ume 天成立；excel 天的 total_cells 是 Excel 全网口径、
+            # 未提供名单，点开必然对不上，那是比不给点更糟的体验）。
+            pt["total_drillable"] = bool(
+                tot_rows.get(pt["period"], 0) > 0
+                and pt["source"] == "ume"
+                and tot_rows.get(pt["period"]) == (pt["total_cells"] or 0))
+
+        # 周/月判定的「为什么不可判定」：三态里的 None 有两个完全不同的成因，
+        # 界面必须能分别解释，否则用户只会看到一句无信息量的「不可判定」：
+        #   ① 周期未过完（数据天数/完整周数不足）—— 等时间走完自然会出结论；
+        #   ② 结构性不足（如 2026-09 只有 3 个完整周 < 口径要求的 4 个）——
+        #      这个月**永远**判不出来，是口径与日历的错配，不是数据缺失。
+        for pt in trend:
+            if grain == "week":
+                if pt.get("is_bp_week") is None:
+                    have = pt.get("total_days") or 0
+                    pt["verdict_reason"] = ("incomplete" if have < cal.WEEK_TOTAL_DAYS
+                                            else "no_data")
+                else:
+                    pt["verdict_reason"] = ""
+            elif grain == "month":
+                if pt.get("is_bp_month") is None:
+                    have = pt.get("total_weeks") or 0
+                    pt["verdict_reason"] = ("insufficient_weeks"
+                                            if have < cal.MONTH_TOTAL_WEEKS
+                                            else "no_data")
+                else:
+                    pt["verdict_reason"] = ""
+            else:
+                pt["verdict_reason"] = ""
         detail_total = sum(det_daily.values())
 
     return {
@@ -256,13 +306,32 @@ def load_overview(start: str = "", end: str = "",
                          "note": "行数等于该期 trend[].detail_cells；与 BP Cells List 同源"},
             # ⚠️ 以下两项都不可下钻，原因不同
             # 分母：Excel 未提供全网小区名册
-            "total_cells": {"scope": "all", "comparable": False,
+            # ⚠️ `total_cells` 的可下钻性**逐期不同**，不是一个全局常量：
+            #   - `source='ume'` 的期：分母就是明细表在该期的行数（`_recompute_daily`
+            #     的定义），因此 `scope=all` 下钻行数**恰好等于** total_cells；
+            #   - `source='excel'` 的期：total_cells 是 Excel 的「全网小区数」，
+            #     未提供名单，明细只覆盖 BP Cells List 里的小区，点开必然对不上。
+            # 前端因此改用 `trend[].total_drillable` 逐期判断，而不再一律禁用。
+            "total_cells": {"scope": "all", "comparable": "per_period",
                             "detail_cells": detail_cells,
                             "note": "Excel 口径的全网小区数，未提供名单；明细表只覆盖 "
-                                    f"{detail_cells} 个曾在 BP Cells List 出现的小区，"
-                                    "两者不是同一指标，不可互相校验"},
+                                    f"{detail_cells} 个曾在 BP Cells List 出现的小区。"
+                                    "ume 来源的期可下钻（分母即明细行数），"
+                                    "excel 来源的期不可下钻 —— 见 trend[].total_drillable"},
             "traffic_tb": {"scope": "all", "comparable": False,
                            "note": "流量按明细行求和，与 Excel 的 Total Traffic 口径不同"},
+            # 判定口径的阈值：界面用它解释「为什么这期判不出来」
+            "verdict_rule": {
+                "week_bp_days": cal.WEEK_BP_DAYS,
+                "week_total_days": cal.WEEK_TOTAL_DAYS,
+                "month_bp_weeks": cal.MONTH_BP_WEEKS,
+                "month_total_weeks": cal.MONTH_TOTAL_WEEKS,
+                "note": "周判定需 7 天全有数据；月判定需 ≥4 个完整周。"
+                        "因此「本周未过完」与「本月只有 3 个完整周」都会得到"
+                        "「不可判定」，但两者性质不同：前者等时间走完即可判定，"
+                        "后者是这个月**永远**判不出来（口径与日历错配）。"
+                        "逐期成因见 trend[].verdict_reason。",
+            },
             # 明细覆盖面：2023 全部缺失、2024 部分缺失 —— 界面据此禁用下钻入口，
             # 而不是让用户点开一个空弹窗
             "detail_coverage": {

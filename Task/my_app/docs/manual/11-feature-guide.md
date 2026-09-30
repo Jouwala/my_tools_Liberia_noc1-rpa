@@ -2137,17 +2137,21 @@ created_time → last_create_time → last_schedule_time → last_accept_time
   说明卡点在审批环节，这正是「流程推进情况」漏斗存在的意义。
 
 
-## 30. BP 劣化小区报告（`?page=bp_report`）—— umlaut 口径的 Bad Performance（2026-09-29 新增）
+## 30. BP 劣化小区报告（`?page=bp_report`）—— umlaut 口径的 Bad Performance（2026-09-29 新增，2026-09-30 口径补齐 + 下钻补全）
 
-把 umlaut 的 BP 报告搬进平台，并从 RAN_UME 增量更新。**本页最大的特点是「口径本身不完整」**，
-这不是缺陷而是事实，页面必须常驻告警把它讲清楚。
+把 umlaut 的 BP 报告搬进平台，并从 RAN_UME 增量更新。**本页最大的特点是「三个条件跨两个数据源、
+两种时间粒度」** —— Active User 走独立的小时粒度通道。
+顶部口径说明条**默认收起**（只留一行可点入口，点开展开完整说明），
+但口径**不可用时**（`active_user.available=false`）改为常驻警告且**不允许收起** ——
+那种情况下所有判定都偏低、结论不可比，藏起来等于让用户自己猜口径。
 
 ### 口径（唯一真相源：`backend/services/bp_caliber.py`）
 
 ```
-Daily:   Average DL Active User Number > 2.5
-         AND [FDD]DL IP Throughput(Mbps)[SDR_ITBBU] < 3
-         AND [FDD]DL PRB Utilization Rate[SDR_ITBBU] > 80%
+Daily:   取「Average DL Active User Number 最大的那个小时」，
+         用该小时的三个值判三个条件：
+         AU > 2.5  AND  DL IP Throughput < 3 Mbps  AND  DL PRB 利用率 > 80%
+         （忙时三值口径，全部取自 UME 小时粒度，gr=3600）
 Weekly:  一周内 4/7 天为 BP
 Monthly: 一个月内 3/4 个完整周为 BP
 ```
@@ -2155,48 +2159,143 @@ Monthly: 一个月内 3/4 个完整周为 BP
 阈值常量集中在 `bp_caliber.py:26-40`（`THR_ACTIVE_USER` / `THR_DL_THROUGHPUT_MBPS` /
 `THR_DL_PRB_RATIO` / `WEEK_BP_DAYS` / `MONTH_BP_WEEKS`），**改口径只改这一处**。
 
-### ⚠️ 三个必须知道的口径事实（都已在代码注释里）
+口径版本：`bp_caliber.caliber_snapshot()["version"]`。
+**`bp-v1` = 两个条件（日均）**；**`bp-v2` = 三条件但日均口径（已证伪）**；
+**`bp-v3` = 忙时三值（现行，2026-09-30）**。各版数字**不可直接比较**，故换版本号。
 
-1. **`Average DL Active User Number` 在 RAN_UME 侧没有采集。**
-   `4G_Main_Kpi_Cell_Daily` 只有 26 列，最接近的是
-   `C373200029:Maximum Number of RRC Connection User` —— 那是**峰值**、不是平均值，
-   不等价。因此重算**只覆盖 PRB 与吞吐两个条件**，缺第三个条件的小区记为
-   **「不可判定」**（`is_bp=NULL`），不计入 BP。后果：**重算 BP 数必然低于 Excel 值**
-   （如 2026-09-26 重算 0 vs Excel 486）。`bp_report_sync._reconcile()` 会把这段
-   口径说明作为 `caliber_note` 回传，页面顶部常驻 `<Alert type="warning">`。
-   一旦拿到真实 item code，**只改 `bp_caliber.ACTIVE_USER_ITEM` 一处**即可启用第三条件。
-2. **PRB 是小数不是百分数。** 实测 min 0.0196 / max 0.9751 / avg 0.2723，
-   故阈值是 `0.80`；`is_bp_day()` 对 >1.0 的值做 `/100` 兜底
-   （防上游换单位），但正常路径不会走到。
-3. **远端列名里有不换行空格（U+00A0）。** 真实列名是
+### ⚠️ 五个必须知道的口径事实（都已在代码注释里）
+
+1. **三个条件必须按「忙时」判定，不能用日均值 —— 这是标定出来的结论。**
+   2026-09-30 用 09-21 做标定实验：把每个小区**AU 最大的那个小时**的
+   PRB/Thr/AU 三值拿来判三条件，命中 607 个小区，与 Excel `BP Cells List`
+   明细（607 个）**逐小区完全一致（Jaccard=1.00）**；而日均值口径只命中
+   17 个（差 30 倍，日均值把 PRB 摊平到 p95=0.616）；"任一小时满足"口径
+   会多 41 个误命中。**9 天回填验证**：重算值与 Excel 真值逐日偏差稳定在
+   −8~−9%（512/555、399/432、350/383、420/463、441/486），残余差异来自
+   边界小区的日际波动（Excel 相邻两天名单重叠率仅 74~80%）。
+2. **`Average DL Active User Number` 不在 `4G_Main_Kpi_Cell_Daily` 里，而且加不进去。**
+   该表由日粒度任务（`gr=86400`）写入，而该指标**只在小时粒度（`gr=3600`）可用**：
+   日粒度下 UME 返回 **HTTP 200 + 合法 `queryid`，但静默丢弃该列**，无任何报错
+   （UME 原文 `0001610001 ... PDF counter/indicator dimension is illegal`）。
+   故由 `backend/services/bp_active_user.py` 走**独立通道**按小时一次取
+   PRB+Thr+AU 三个 counter（`C373384373` / `1638004469342` / `1638004469332`），
+   本地按 AU 最大小时聚合出当天三值。
+   取不到时该日仍记 `is_bp=NULL`（不可判定），**绝不当 0**（当 0 会把可能的 BP 判成非 BP）。
+3. **UME 返回的数值是字符串且 PRB 带百分号（`'2.46%'`）。**
+   `_parse_num()` 必须去 `%` 再 `/100`；直接 `float()` 会全部抛异常、
+   静默解析出 0 个小区（实测踩过）。PRB 解析后是小数比率（0~1），
+   故阈值是 `0.80`；`is_bp_day()` 对 >1.0 的值另有 `/100` 兜底。
+4. **远端列名里有不换行空格（U+00A0）。** 真实列名是
    `'E-UTRAN\xa0FDD\xa0Cell Name'`，`bp_caliber.py:44` 用 `_NBSP` 常量拼。
    写成普通空格时 SQLite **不报错**，而是把列名字符串当数据返回，
    导致 5803 行塌缩成 1 个假小区。`assert_no_literal_fallback()` 就是拦这个的，
    取数后必须调用。
+5. **`itemsposition` 必须全为 0**（位置区分由 `itemsposition1`/`itempositionbusiness`
+   承担：PRB/Thr 取 `2`/`1`，AU 取 `1`/`0`）。写成 `[0,1,2]` 时 UME 返回
+   `0001619999` 拒绝查询（实测踩过）。
 
 ### 数据来源与两条链路
 
 | 链路 | 说明 |
 | --- | --- |
 | **一次性导入** | `bp_report_import.py` 把 `data/umlaut_data/BP Report.xlsx` 灌进 `data/bp_report.sqlite3`（独立派生库，不进主库、不走 Alembic）。共 460,660 行，约 28s |
-| **每日增量** | `bp_report_sync` 任务（`TASK_SPECS`，cron `20 6 * * *`，worker 分组 `u`）从 RAN_UME 拉最近 2 天并重算 |
+| **每日增量** | `bp_report_sync` 任务（`TASK_SPECS`，cron `20 6 * * *`，worker 分组 `u`）从 RAN_UME 拉最近 2 天并重算；同时调 `bp_active_user` 取这两天的忙时三值（**每天约 110s**，见下） |
+
+**忙时三值通道的实测特性**（`bp_active_user.py`）：
+
+- 两步取数：`POST /api/pm-analysis/v2/history` **只创建查询**返回 `queryid`，
+  再 `POST /api/pm-analysis/v1/history/page` 才**取回数据行**。
+  ⚠️ **只读第一步会把「有 queryid 但列被丢弃」误判为可用** ——
+  `_assert_items_returned()` 专门校验返回列里确实有三个指标。
+- 分页耗时**与 `pagesize` 无关**（20000/50000/100000 均约 92s），是服务端约 90s 的
+  固定查询准备成本，故一次大 `pagesize` 取回全天（实测 15.1 万行约 96s）。
+- 查询就绪必须轮询（`querystate==1 || progress>=100`）后再读 `totalcount`：
+  未等待时 `totalcount` 只有 3.6 万（实际 15.3 万），会**静默取到半截数据**。
+- **不要带 `filter`**：`url.txt` 抓到的 payload 里有 `operation=200 value=0`
+  是 UI 的 ">0" 过滤，带上会漏掉 AU=0 的小区，而 BP 判定需要全部小区。
+- UME 保留窗口实测：3 个月前仍有数据，**1 年前为 0**；
+  Excel 覆盖的 2023–2026 历史**无法从 UME 补齐**。
 
 **为什么 Cluster 必须来自 Excel**：RAN_UME / `master_site_db` 里**完全没有**
 `Cluster1`~`Cluster6`/`Rural`/`ERA` 这套分区维度（全工作区搜索零命中），
 站点名 join 也只匹配上 572/669。所以 `bp_cell_dict`（4269 个小区）是**权威字典**，
 字典未命中的小区归 `Unknown` 并在 `/meta` 暴露计数。
 
-### 两个必须区分的「分母」（AGENTS.md 第三节 1b 的下钻一致性）
+### 下钻：能下钻尽下钻（AGENTS.md 第三节 1b）
 
-| 字段 | 含义 | 能否下钻 |
+2026-09-30 按 1b「页面上每个数字都要可点」复核了一遍，把**能对上的**全部接上入口，
+并对**确实对不上的**显式置灰 + 给出原因（给一个点开必然对不上的入口比不给更糟）。
+
+| 页面元素 | 下钻参数 | 一致性 |
 | --- | --- | --- |
-| `bp_cells` | BP 小区数（分子） | ✅ 可点，行数 = `trend[].detail_cells` |
-| `total_cells` | Excel 的**全网**小区数（≈6114） | ❌ **不可**下钻 |
+| 趋势表 `bp_cells` | `scope=bp` | ✅ 行数 = `trend[].detail_cells` |
+| 趋势表 `明细行数` | `scope=bp` | ✅ 同上一行（后端契约，点它可核实差异） |
+| 趋势表 `不可判定` | `scope=undecidable` | ✅ 行数 = `trend[].undecidable` |
+| 趋势表 `total_cells`（**ume 期**） | `scope=all` | ✅ 分母就是明细行数 |
+| 趋势表 `total_cells`（**excel 期**） | — | ❌ 置灰（Excel 全网口径、无名单） |
+| 趋势图柱子 | `scope=bp` + 该期 | ✅ 与趋势表同一 WHERE |
+| 卡片①最新 BP / ③平均占比 | `scope=bp` | ✅ 按区间求和的同一 WHERE |
+| 卡片④最新一期判定 | 见下节 | ✅ 日→`scope=undecidable\|all`；周月→`scope=bp` |
+| 卡片②期数 | 滚动到明细表 | 它是「区间内有几个周期」，不是小区级指标 |
+| 分区图柱子 | `region=` + `scope=bp` | ✅ 实测混合区间/纯 ume 区间均全对 |
+| 分层表 `bp_number` | `layer=` + `scope=bp` | ✅ 同上 |
+| 分层表 `total_cell` | — | ❌ 置灰，原因见下 |
 
-`total_cells` 不可下钻的原因：Excel 未提供全网小区名单，`bp_cell_daily` 只含
-**曾经出现在 `BP Cells List`** 的 4269 个小区。硬比会得到看似 bug 的差异。
-后端在 `/overview` 的 `drilldown.total_cells.comparable=false` 里显式声明，
-前端据此**不把该列做成下钻入口**（`BpReport.tsx` 用 `<Tooltip>` 提示原因）。
+**`total_cells` 的可下钻性是「逐期」的，不是全局常量。**
+`source='ume'` 的期，分母的定义就是「该期明细表行数」（`_recompute_daily`），
+所以 `scope=all` 恰好相等（实测 09-29：5843 = 5843）；
+`source='excel'` 的期是 Excel 全网口径、未提供名单（09-21：展示 6093，明细只有 607 行）。
+后端逐期发 `trend[].total_drillable`，前端据此**逐期**决定给不给入口。
+
+**分层表的 `total_cell` 不可下钻**，原因是两套 population 相混：
+`bp_layer_daily.total_cell` 是「按天 × 层 × 区」的累加，而 Excel 来源的天在
+`bp_cell_daily` 里**只含 BP 小区**。实测（09-20..09-29，含 2 个 excel 天）
+6 个层里只有 2 个对得上；改成仅 ume 天（09-22..09-29）则 6/6 全对。
+分区表同理（1/9 → 9/9）。**BP 侧的层/区下钻则始终一致**（混合区间也是全对），
+因为分子只数 `is_bp=1` 的行，与 population 大小无关。
+
+下钻弹窗顶部的「你点的是 N」标签会**按 scope 换文案**：
+`scope=bp` 时 N 取自 Excel `Overall` 汇总，可能 ≠ 明细行数（上游两张 sheet 不一致）；
+`scope=all` / `scope=undecidable` 时 N 本身就是明细行数，**必须**等于弹窗行数。
+
+### 「最新一期判定」曾经恒为「不可判定」（2026-09-30 修复）
+
+用户反馈「最新一期判定：不可判定，如何解决」。定位到**两个独立成因**：
+
+1. **日粒度是硬编码的**（真 bug）。原实现对 `grain === 'day'` 直接返回
+   `bp.state.undecidable`，而日粒度正是页面默认视图 —— 也就是说**默认视图下
+   永远只能看到「不可判定」**，与数据完整度无关。
+   但 umlaut 口径里**根本没有**「这一天是不是 BP 日」这种东西（BP 是小区级属性，
+   日粒度只有计数），硬套一个是/否等于编造口径。
+   **修法**：日粒度改为展示**可计算的判定完成度** —— 该日 `is_bp IS NULL` 的
+   小区数（`trend[].undecidable`）。0 → 「已判定」；>0 → 「不可判定 N 个」，
+   且**可下钻**到那 N 行看是哪几个小区、缺哪个条件。
+2. **周/月的判定列一直是 NULL**（数据问题）。`_recompute_week` / `_recompute_month`
+   在 2026-09-29 那次损坏事故后改成了**纯 INSERT**（只写库里不存在的新周期），
+   于是所有**已存在**的行（Excel 导入的、早期同步建的）判定列永远停在 NULL ——
+   明明数据早就够了（如 `2026-W39`：7 天齐全、7 天都有 BP），却显示「不可判定」。
+   **修法**：新增 `backfill_period_verdicts()`（`bp_report_sync.py`），
+   **只 UPDATE 判定列、且带 `... IS NULL` 条件**（已有值一律不动），
+   Excel 的指标真值（`bp_cells`/`total_cells`/`bp_ratio`/`traffic_tb`）一个字都不碰。
+   关键在于把「Excel 的指标真值」与「Excel 从来不提供的判定列」分开：
+   后者补算是**填空**，不是覆盖。每次同步都会跑一遍（幂等）。
+   实测补算 139 个周 + 42 个月。
+
+**仍然会是「不可判定」，但这是诚实的、且现在会说明原因**：
+
+| 场景 | 结果 | `verdict_reason` | 性质 |
+| --- | --- | --- | --- |
+| 本周还没过完（如 W40 只有 2/7 天） | 不可判定 | `incomplete` | 等时间走完自然有结论 |
+| 当月完整周数 < 4（如 2026-09 只有 3 个） | 不可判定 | `insufficient_weeks` | **口径与日历错配，永远判不出来** |
+
+第二种必须单独讲清楚：**它永远判不出来，不是数据缺失。**
+实测 `week_days_in_month()`：2026-08 有 4 个完整周、**2026-09 只有 3 个**
+（W37/W38/W39）、2026-10 也只有 3 个。而 `MONTH_TOTAL_WEEKS=4`，
+`is_bp_month(bp_weeks, 3)` 恒为 `None` —— 即 2026-09 这个月**在现行口径下
+无论同步多少数据都无法判定**。界面因此显示「本月仅 3 个完整周（口径要求 ≥4 个），
+该周期无法判定」，而不是一句没有信息量的「不可判定」。
+成因由后端逐期发 `trend[].verdict_reason`，前端用**显式 switch**（不用动态拼 key，
+否则 `check:i18n` 会拦）映射到文案。
 
 ### 上游 Excel 自身不一致（已实测，双向，不要试图"修"）
 
@@ -2312,6 +2411,7 @@ Excel `BP Cells List` 的 `Cluster`/`Layer` 列有脏值（如数字 ID `'4593'`
 | `backend/services/bp_caliber.py` | **口径唯一真相源**（阈值、列名、判定函数） |
 | `backend/services/bp_report_store.py` | 物化库建表与读写（8 张表） |
 | `backend/services/bp_report_import.py` | Excel 一次性导入 |
+| `backend/services/bp_active_user.py` | **三指标独立通道**（UME 小时粒度 → AU 最大小时的三值） |
 | `backend/services/bp_report_sync.py` | RAN_UME 增量更新 + 周月重算 + 对账 |
 | `backend/services/bp_report_service.py` | 查询层（概览/分区/频层/明细/元信息） |
 | `backend/routers/bp_report.py` | 5 个端点 |
@@ -2321,6 +2421,103 @@ Excel `BP Cells List` 的 `Cluster`/`Layer` 列有脏值（如数字 ID `'4593'`
 **回滚**：删 `data/bp_report.sqlite3` + 回滚前端产物 + 移除 `TASK_SPECS` 与
 `GROUP_TASK_MAP` 里的 `bp_report_sync` 即可，**无需 alembic downgrade**（独立库）。
 
+
+## 31. Speedtest 竞对分析（`?page=bm_speedtest`）—— ORANGE vs MTN 两家实测对比（2026-09-30 新增）
+
+把 `speedtest_data` 表里的实测网速数据做成两家的正面对比页，回答「谁更快 / 谁时延更低 /
+领先多少 / 优势在扩大还是在缩小」。这是本平台第一个**纯竞对（两家对比）**视角的页面，
+其余页面都是单方内部指标。
+
+### 31.1 数据与口径
+
+| 项 | 值 |
+| --- | --- |
+| 表 | `speedtest_data`（由 `Speedtest.xlsx` 导入） |
+| 行数 | 854 行，日期 2025-07-16 ~ 2026-09-24 |
+| 运营商取值 | 只有 `Orange`（434 行）与 `Lonestar Cell MTN`（420 行） |
+| 品牌归一 | `provider ILIKE '%orange%'` → ORANGE；`%mtn%` 或 `%lonestar%` → MTN；其余 OTHER（当前为 0 行） |
+| 四个指标列 | 下载 `download_speed_mbps`、上传 `upload_speed_mbps`、时延 `multi_server_latency`、抖动 `multi_server_jitter` |
+| 时间字段 | `aggregate_date`（时间部分恒为 `00:00:00`） |
+| 空值 | 时延与抖动各 3 行，其余列无空值 |
+
+**口径唯一真相源**：`backend/services/bm_speedtest_caliber.py`。页面与接口都不含业务口径，
+改口径只改这一处。数据访问在 `backend/services/bm_speedtest_service.py`，
+路由在 `backend/routers/bm_speedtest.py`（前缀 `/api/bm-speedtest`）。
+
+**几个刻意的设计决定，改之前请先读理由**：
+
+1. **不放 location / device / 制式 / 聚合方式筛选器。** 这四列在数据里各自只有一个有效取值
+   （`location` 恒为 `Liberia`、`technology_type` 恒为 `cellular`、`metric_type` 恒为 `median`、
+   `device` 只有 `all` 与空串两种写法但表达同一件事，已在口径层合并）。
+   放一个只有单一取值的下拉框会让人误以为"筛过之后数据变少了"，所以筛选只有时间维度。
+   **这不是漏做**，若日后数据补齐了其余维度，再把筛选器加上。
+2. **`device` 的 `all` 与空串必须合并**，否则同一件事会被拆成两组、翻倍计数。
+3. **时间窗左闭右开**（`day >= start AND day < end`），界面显示的是闭区间所以要把 end 减一天显示。
+4. **`base_sql()` 子查询只投影 `day`（`aggregate_date::date`），不投影 `aggregate_date` 原列。**
+   所有上层查询必须按 `day` 过滤 —— 写 `aggregate_date` 会直接报
+   `字段 "aggregate_date" 不存在`。
+5. **LIKE 模式必须走绑定参数**（`LIKE ?` + `("%orange%",)`），不能把 `'%orange%'` 写进 SQL 字面量。
+   原因见 `backend/database.py:215` 的 `_qmark_to_pyformat`：它在有参数时**跳过字符串字面量内部的 `%`**，
+   于是字面量 `'%orange%'` 会原样传给 psycopg2 被当成格式符，报
+   `IndexError: list index out of range`。此坑已在口径模块 docstring 中标注。
+
+### 31.2 页面结构（五块）
+
+1. **综合竞争力评分** —— 两家各一个分数。这是**相对分**：每项指标领先方记 100，另一方按比例得分，
+   再按 下载 35% / 上传 20% / 时延 30% / 抖动 15% 加权（权重写在 `caliber.SCORE_WEIGHTS`）。
+   某项指标任一方缺数据时该指标不参与，权重分给其余指标并重新归一。
+   **它只回答「这两家谁更强、强多少」，不评价绝对水平**——页面上有常驻文字说明这一点。
+2. **关键指标汇总卡** —— 四个指标各一张，给出两家均值与 P50/P90（P50/P90 由 `_PCT_SQL` 的四个
+   百分位子查询并集算出）。谁领先会打标。
+3. **趋势对比图** —— 分段控件切四个指标，右侧下拉设滚动均值窗口（3/7/14/30 天）。
+   实线是逐日原始值、虚线是滚动均值。速率「越高越好」、时延「越低越好」，图下有文字提示。
+4. **逐日胜负统计** —— 四个指标各自两家的胜场天数与胜率。
+5. **月度对比表 + 逐日对决明细表** —— 均可导出 Excel。
+
+### 31.3 下钻（遵循 AGENTS.md 第三节 1b）
+
+页面上每个数字都可点，落到 `DraggableClickModal` 明细弹窗。三条铁律的落实方式：
+
+- **下钻 WHERE 与概览完全一致**：两者共用 `bm_speedtest_service._where()` 生成的同一段过滤片段，
+  时间字段、精确匹配方式完全相同。
+- **`winner` 下钻必须同时锁定品牌**：`build_drilldown` 在传了 `winner` 时会额外追加
+  `AND brand = ?`。**这一条是实测踩出来的**——早期版本不加这个条件，
+  `winner=ORANGE&metric=download` 返回 **98 行**而卡片写着 **49 天胜场**，
+  因为每个胜出日都有两家各一行。加锁后行数与胜场天数严格相等，已验证四个指标 × 两个品牌共 8 组全部一致。
+- **截断显式暴露**：明细先取 `limit + 1` 行做探针，`truncated = len(rows) > limit`，
+  再切回 `limit` 行；`meta.limit` 一并返回，界面有黄色告警条。
+  早期版本用 `len(out) >= limit` 判断，正好取满时会**误报截断**。
+
+### 31.4 两个必须显示的口径提示
+
+- **单边缺数据的天不计入胜负**：`unpaired_days` 单独统计并在页面顶部用蓝色提示条说明。
+  「那天没测」不等于「那天输了」——把缺数据当败绩会系统性高估波动。
+  默认 90 天窗口内 `unpaired_days` 为 4、`paired_days` 为 80。
+- **逐日曲线超过 400 天时只画最近 400 天**，同时给 `daily_truncated` + `daily_total`
+  并用黄色提示条说明，完整数据看表格或导出。
+
+### 31.5 实测基线（可用于回归比对）
+
+2025-07-01 ~ 2026-10-01 全区间：ORANGE 下载 62.77 / 上传 18.35 / 时延 124.13 / 抖动 24.38，
+MTN 下载 51.64 / 上传 18.66 / 时延 158.19 / 抖动 30.02；435 天里下载 ORANGE 胜 213 天、
+MTN 胜 206 天；上传 ORANGE 194 / MTN 224；时延 ORANGE 胜 299 天。
+
+默认 90 天窗口（2026-07-03 ~ 2026-10-01）：ORANGE 下载 108.84、MTN 60.92，
+时延 ORANGE 116.6、MTN 160.8；评分 ORANGE 100 / MTN 60.8；
+下载胜场 ORANGE 49 / MTN 31（`paired_days` 80）。
+
+### 31.6 页面注册位置（改页名或加同级页时对照）
+
+- `frontend/src/App.tsx`：lazy import、`PageKey` 联合类型、`VALID_PAGES`、`PAGE_META`
+  （图标 `ThunderboltOutlined`、文案键 `nav.bmSpeedtest`）、render `switch` 的
+  `case 'bm_speedtest'`，以及 `DEFAULT_GROUPS` 里 `grp_monitor`（网络质量）分组的 items。
+- `frontend/src/i18n.tsx`：`bms.*` 与 `nav.bmSpeedtest`，**中英两处都要加**。
+- `frontend/src/api.ts`：`getBmSpeedtest{Filters,Overview,Trend,Drilldown}`。
+- `frontend/src/pages/helpContent.ts`：`PAGE_DOCS`（zh/en 两份）+ `PAGE_LIST` +
+  `NAV_KEY_MAP` + `CATEGORIES`，改完跑 `node scripts/generate-help-doc.mjs`。
+
+> **没有新增定时任务**：本页只读已导入的 `speedtest_data` 表，不做采集，
+> 因此 `backend/task_registry.py` 的 `TASK_SPECS` 无需登记。
 
 ## 29. FineBI 原生看板（`?page=finebi_<slug>`，共 17 个）
 
@@ -2360,6 +2557,5 @@ AND `Site ID != 'VMAX-DC'` AND `MTTR2 >= 0.25`。每张图两列：
 **已验证**：日/周/月三档在时间窗口下均可过滤（`mttr_*_day` 的 `date_field` 自动识别为 `d`）；
 窗口 2026-08 下日粒度返回 22~31 桶。改完**需重启后端**才生效 ——
 目录在导入期加载，uvicorn 未开 `--reload`（见 `13-operations.md`）。
-
 
 

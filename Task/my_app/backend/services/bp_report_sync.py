@@ -21,14 +21,18 @@
     dl_gb  = "1638004469330:[FDD]DL Traffic Volume (GBytes)-new"
     ul_gb  = "1638004469331:[FDD]UL Traffic Volume (GBytes)-new"
 
-⚠️ **`Average DL Active User Number` 未采集**（见 `bp_caliber` 模块 docstring）。
-后果：三条件只能判两个，走完前两个条件的小区记 `is_bp = NULL`（不可判定），
-**不计入 BP**，并在 `bp_sync_meta` 暴露受影响小区数。宁可少算，不可错算。
+⚠️ **`Average DL Active User Number` 走独立通道**（2026-09-30 接入）。
+该指标**不在** `4G_Main_Kpi_Cell_Daily` 里，且**加不进去**：那张表由日粒度
+任务（`gr=86400`）写入，而该指标**只在小时粒度（`gr=3600`）可用**，日粒度下
+UME 会 HTTP 200 + 静默丢弃该列（原文 `PDF counter/indicator dimension is illegal`）。
+故改由 `bp_active_user` 按小时取数、本地聚合成**当日峰值**后并入判定。
+取不到时该日仍记 `is_bp = NULL`（不可判定），**不猜、不当 0**。
 
 =========================== 与 Excel 的关系（重要） ===========================
 
-Excel 是**上游（umlaut）按自己口径算好的结果**，本项目无法完全复现（缺 active-user）。
-因此本模块的定位是**补充更新 + 对账**，不是「覆盖 Excel」：
+Excel 是**上游（umlaut）按自己口径算好的结果**。三个条件里 PRB/吞吐取自
+RAN_UME 日表，Active User 取自 UME 小时粒度的当日峰值，故本项目是
+**可复现口径的重算**；但 Excel 的 Cluster/Layer 归类仍以它为权威。
 
 - Excel 导入的行 `source='excel'`；重算只写 `is_bp/prb_dl/thr_dl/dl_gb/ul_gb/active_user`
   这些**指标列**，`cluster/layer/region` 保持 Excel 的权威值不动；
@@ -42,6 +46,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from backend.services import bp_active_user as au_src
 from backend.services import bp_caliber as cal
 from backend.services import bp_report_store as store
 
@@ -341,6 +346,97 @@ def _recompute_month(conn, months: List[str], now: str) -> int:
 
 
 # ============================================================
+# 判定列补算（fill-only）
+# ============================================================
+
+def backfill_period_verdicts(conn, months: Optional[List[str]] = None) -> Dict[str, int]:
+    """把周/月汇总行里**空着的判定列**补算出来（只填空，绝不覆盖已有值）。
+
+    ============ 为什么需要这个函数（2026-09-30）============
+
+    `_recompute_week` / `_recompute_month` 是**纯 INSERT** 的（2026-09-29 的数据
+    损坏事故后改成这样），只写库里还不存在的周期。于是所有**已存在**的行
+    —— Excel 导入的、以及早期同步创建的 —— 判定列永远停在 NULL：
+    用户看到「最新一期判定：不可判定」，而库里其实早就有足够数据能判出来
+    （如 `2026-W39`：7 天数据齐全、7 天都有 BP → 应判为「是」）。
+
+    关键在于**把两件事分开**：
+
+      - Excel 的**指标真值**（`bp_cells` / `total_cells` / `bp_ratio` /
+        `traffic_tb`）—— 一个字都不能动。那场事故就是覆盖了它们；
+      - **判定列**（`bp_days` / `total_days` / `is_bp_week` / `bp_weeks` /
+        `total_weeks` / `is_bp_month`）—— Excel 从来不提供这些列，它们天生是
+        NULL，补算是**填空**而不是覆盖。
+
+    所以本函数只 UPDATE 判定列，且带 `... IS NULL` 条件（已有值一律不动，
+    包括 Excel 若将来提供了判定值的情况）。
+
+    判定规则完全走 `bp_caliber`，与 INSERT 路径同源；分母是**库里实际有数据的
+    天数/完整周数**，因此「本周只过了 3 天」仍会诚实地得到 NULL（不可判定）。
+
+    Returns:
+        `{"weeks": 补算的周数, "months": 补算的月数}`。
+    """
+    stat = {"weeks": 0, "months": 0}
+
+    # ---------- 周 ----------
+    weeks = [r["week"] for r in conn.execute(
+        "SELECT week FROM bp_overall_week WHERE is_bp_week IS NULL ORDER BY week"
+    ).fetchall()]
+    for week in weeks:
+        lo_hi = cal.period_to_day_range(week)
+        if lo_hi is None:
+            continue
+        wdays = [r["day"] for r in conn.execute(
+            "SELECT DISTINCT day FROM bp_cell_daily WHERE day >= ? AND day <= ?"
+            " ORDER BY day", lo_hi).fetchall()]
+        if not wdays:
+            continue
+        ph = ",".join("?" for _ in wdays)
+        # 「该日是否为 BP 日」= 当天存在 is_bp=1 的小区（与 INSERT 路径同一判据）
+        per_day = conn.execute(
+            f"SELECT day, SUM(CASE WHEN is_bp=1 THEN 1 ELSE 0 END) AS b"
+            f" FROM bp_cell_daily WHERE day IN ({ph}) GROUP BY day",
+            tuple(wdays)).fetchall()
+        total_days = len(per_day)
+        bp_days = sum(1 for r in per_day if (r["b"] or 0) > 0)
+        verdict = cal.is_bp_week(bp_days, total_days)
+        # 注意：verdict 为 None 时也要写 —— 把 total_days/bp_days 落库，
+        # 界面才能显示「本周仅 3/7 天」这种可解释的进度，而不是一个光秃秃的 NULL。
+        conn.execute(
+            "UPDATE bp_overall_week SET bp_days=?, total_days=?, is_bp_week=?"
+            " WHERE week=? AND is_bp_week IS NULL",
+            (bp_days, total_days, (None if verdict is None else int(verdict)), week))
+        stat["weeks"] += 1
+
+    # ---------- 月 ----------
+    ms = months or [r["month"] for r in conn.execute(
+        "SELECT month FROM bp_overall_month WHERE is_bp_month IS NULL ORDER BY month"
+    ).fetchall()]
+    for month in ms:
+        full_weeks = cal.week_days_in_month(month) or []
+        if not full_weeks:
+            continue
+        bp_weeks = 0
+        for w in full_weeks:
+            row = conn.execute(
+                "SELECT is_bp_week FROM bp_overall_week WHERE week=?", (w,)).fetchone()
+            if row and row["is_bp_week"] == 1:
+                bp_weeks += 1
+        verdict = cal.is_bp_month(bp_weeks, len(full_weeks))
+        # total_weeks 恒写入：即便 < 4（2026-09 只有 3 个完整周 → 永远判不出），
+        # 界面也要能显示「仅 3 个完整周（口径要求 ≥4）」，而不是「不可判定」四个字。
+        conn.execute(
+            "UPDATE bp_overall_month SET bp_weeks=?, total_weeks=?, is_bp_month=?"
+            " WHERE month=? AND is_bp_month IS NULL",
+            (bp_weeks, len(full_weeks),
+             (None if verdict is None else int(verdict)), month))
+        stat["months"] += 1
+
+    return stat
+
+
+# ============================================================
 # 对账
 # ============================================================
 
@@ -412,12 +508,13 @@ def run_bp_report_sync(window_days: int = DEFAULT_WINDOW_DAYS,
         days.reverse()  # 从早到晚，便于日志阅读
     result["days"] = days
 
-    # 口径未完备时**必须**提前告警：这不是可忽略的噪声，而是结论可信度的边界
+    # 口径完备性：Active User 现在走独立的小时粒度通道，届时若取不到会在下面
+    # 逐日记录告警。此处只反映**编译期**口径（ACTIVE_USER_ITEM 是否已认领）。
     au = cal.active_user_status()
     if not au["available"]:
         result["warnings"].append(
-            "口径不完整：Average DL Active User Number 未采集，"
-            "走完 PRB/吞吐两个条件的小区记为「不可判定」，不计入 BP。")
+            "口径未登记：Average DL Active User Number 已由 bp_active_user 取数，"
+            "但 bp_caliber.ACTIVE_USER_ITEM 仍为 None，请同步更新口径常量。")
 
     try:
         with store.write_conn() as conn:
@@ -447,6 +544,30 @@ def run_bp_report_sync(window_days: int = DEFAULT_WINDOW_DAYS,
                 rows = []
                 result["fetch"] = {"skipped": True}
 
+            # ---------- 1b) 忙时三值（小时粒度 → AU 最大小时）----------
+            # 口径标定（2026-09-30）：umlaut 的三个条件按【忙时】判定 ——
+            # 取 AU 最大小时的 PRB/Thr/AU 三值。09-21 实测该口径与 Excel
+            # 明细逐小区一致（Jaccard=1.00），日均口径只有 17 个（差 30 倍）。
+            # PRB/Thr 也必须用忙时值：日均值口径下 PRB p95=0.616，命中骤减。
+            # 取不到就让该日 is_bp = NULL（不可判定），绝不当 0 ——
+            # 当 0 会把本可能是 BP 的小区判成非 BP（错算）。
+            busy_vals: Dict[str, Dict[str, Dict[str, float]]] = {}
+            if fetch_remote and rows:
+                busy_vals, busy_errors = au_src.fetch_days_busy(days)
+                result["active_user"] = {
+                    "days_ok": sorted(busy_vals.keys()),
+                    "days_failed": busy_errors,
+                    "cells": {d: len(v) for d, v in busy_vals.items()},
+                    "caliber": "busy_hour(peak AU hour)",
+                }
+                for d, why in busy_errors.items():
+                    result["warnings"].append(
+                        f"{d} 的忙时三值取数失败，该日走完其余条件的小区记为"
+                        f"「不可判定」：{why}")
+            else:
+                result["active_user"] = {"skipped": True,
+                                         "reason": "未取远端数据"}
+
             payload: List[tuple] = []
             for r in rows:
                 # 列序由 _fetch_days 的 cols_wanted 决定：
@@ -463,15 +584,20 @@ def run_bp_report_sync(window_days: int = DEFAULT_WINDOW_DAYS,
                     unknown_cells += 1
                 else:
                     known_cells += 1
-                # active_user 传 None：该指标未采集，is_bp_day 会因此返回 None（不可判定）
-                is_bp = cal.is_bp_day(r[3], r[4], None)
+                # 该日该小区的忙时三值（AU 最大小时）；缺失 → None → 不可判定。
+                # PRB/Thr 同样用忙时值替代日均值（口径标定结论，见上方注释）。
+                bv = (busy_vals.get(d) or {}).get(cell)
+                au_val = bv["au"] if bv else None
+                prb_val = bv["prb"] if bv else r[3]
+                thr_val = bv["thr"] if bv else r[4]
+                is_bp = cal.is_bp_day(prb_val, thr_val, au_val)
                 if is_bp is None:
                     undecidable += 1
                 payload.append((
                     d, cell, str(r[1]).strip() if r[1] is not None else None,
                     cluster, layer,
                     (None if is_bp is None else int(is_bp)),
-                    r[3], r[4], None, r[5], r[6],
+                    prb_val, thr_val, au_val, r[5], r[6],
                     cluster,  # Excel Regional sheet 的原生分区语义与 cluster 同源
                     "ume", now))
 
@@ -531,7 +657,12 @@ def run_bp_report_sync(window_days: int = DEFAULT_WINDOW_DAYS,
             wk = _recompute_week(conn, days, now)
             mo = _recompute_month(conn, sorted({cal.month_key(d) for d in days
                                                 if cal.month_key(d)}), now)
-            result["recompute"] = {"daily": daily, "weeks": wk, "months": mo}
+            # 3b) 把已存在周/月行上**空着的判定列**补算出来（只填空、不覆盖指标真值）。
+            #     没有这一步，Excel 导入的周/月行永远没有判定 —— 页面的
+            #     「最新一期判定」就只剩「不可判定」可显示。详见该函数 docstring。
+            vf = backfill_period_verdicts(conn)
+            result["recompute"] = {"daily": daily, "weeks": wk, "months": mo,
+                                   "verdict_backfill": vf}
 
             # ---------- 3) 对账 ----------
             result["reconcile"] = _reconcile(conn, days)

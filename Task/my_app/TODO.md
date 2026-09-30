@@ -24,18 +24,27 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
 
 ## 二、P0 —— 影响正确性或可用性
 
-- [ ] **FineBI 仓库看板镜像库停更的远端侧改造。** `sp_data_sync` 写
-      `\\DESKTOP-D4GF62\...\WareHouseDashBoard\inventory.db` 自 **2026-09-24** 起 100% 失败
-      （`database is locked`），根因是**该库为 WAL 模式且被远端活进程持有，而 WAL 的共享内存
-      字节锁在 SMB 上无法建立** —— 属架构限制，调 `timeout`/`busy_timeout` 无效
-      （实测 30s / 30000ms 均失败，逐项排除过程见 `docs\manual\04-task-system.md` 的「`sp_data_sync`
-      的两个已知缺陷」缺陷一）。
-      **动作**：远端侧改为「本地库 + 接口/定时快照导出」，或由写库进程自己在本地落库后导出
-      `inventory.db`；本仓库无法单方面解决。
-      **验收**：`result_json.mirror_success=true`，且不再出现 `[降级] 镜像写入 FineBI inventory.db 失败` 通知。
-      > 代码侧能做的已做完（2026-09-27 降级告警 + 结构诊断；2026-09-28 修掉诊断字符串
-      > 引发的 `'str' object has no attribute 'get'` 回归 —— 它曾把镜像失败谎报成 SFTP 故障，
-      > 并把单轮耗时从 534s 推到 1576s）。
+- [x] **FineBI 仓库看板镜像库停更 —— 已根治（2026-09-30）。**
+      原判断「WAL-over-SMB 架构限制、本仓库无法单方面解决」是**错误的**（该结论建立在
+      「`inventory.db` 唯一写入方是 my_app」这一与实测不符的推断上）。2026-09-30 查清：
+      同一 SMB 目录新建库、甚至切成 WAL，只要**没有远端持有者**，本机读写都正常；
+      真正症结是远端有活进程长期持有该库 `-shm` 的**字节范围锁**，而 SMB 无法代理该语义，
+      于是本机每次 `open` 都永久阻塞（`timeout`/`busy_timeout` 对此无效）。
+      **修法**：改为「本地构建 + 整文件推送」（`backend/services/sp_mirror_push.py`）——
+      本机建新库再 `copyfile` 整文件覆盖，**整文件覆盖不需要字节锁**（实测库被占用时也能覆盖成功）。
+      **实测结果**：两轮生产运行 `mirror_success=true`、`mirror_errors=[]`、5 张表齐全，
+      镜像耗时 **507.9s（失败） → 2.6s（成功）**，整轮 525.75s → 21s。
+      生产库 113MB（含 14.7MB 未 checkpoint 的 `-wal`）→ 47.7MB 单文件，
+      `integrity_check=ok`，此前远端**整个缺失**的 `ocrule_details` 表已补齐。
+      顺带修掉同类事故：镜像挂死会把 worker 永久卡死（09:10 卡到 10:22 人工重启），
+      已加镜像阶段 15min 硬超时，并把 worker 回收文案从误导性的「进程中断」改为区分
+      「进程已失效」与「任务挂死」。
+      详见 `docs/manual/04-task-system.md` 的 `sp_data_sync` 小节。
+      > **遗留（低优先）**：远端目录仍留有陈旧的 `inventory.db-wal`(14.7MB) /
+      > `inventory.db-shm`(32KB) 边车文件。当前主库是 `delete` 模式，它们**无害**；
+      > 但 `-shm` 仍被远端进程持有，且一旦有人把该库改回 WAL，这些陈旧边车会立刻造成混淆。
+      > 建议在远端侧确认无进程使用后删除（本机无法删，`-shm` 被占用）。
+      > 还有一个 `inventory.db.bak_20260930`（113MB）本机备份，确认无需留存后可在远端删除。
 
 - [ ] **worker 分组覆盖巡检常态化。** 未归组的任务会 **pending 卡死**且不报错。
       **验收**：`tests\test_worker_group_coverage.py` 通过；新增任务时同步 `GROUP_TASK_MAP` + `start_hidden.ps1` + `restart_workers.py` 三处。
@@ -93,6 +102,9 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
 - [ ] **BP 报告模块 4 个文件超 500 行上限（AGENTS.md 第三节原则 2）。**
       2026-09-29 新增该模块时实测：`bp_caliber.py` 625 行、`bp_report_sync.py` 594 行、
       `bp_report_service.py` 585 行、`frontend\src\pages\BpReport.tsx` 619 行。
+      **2026-09-30 复测（下钻补全 + 判定修复后）**：`BP Report.tsx` 957 行、
+      `bp_report_sync.py` 630 行、`bp_report_service.py` 577 行、`bp_caliber.py` 528 行
+      —— 前两个继续变长，**拆分优先级上调**。
       注释只占 58~85 行，**不是注释导致的膨胀**，是模块本身职责较重
       （口径常量 + 判定 + Excel 周期标签解析 / 增量同步 + 三方重算 + 对账 /
       概览 + 三粒度聚合 + 下钻 / 页面 + 5 个图表 + 3 个弹窗）。
@@ -101,11 +113,67 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
          `parse_excel_week` / `resolve_excel_weeks` / `parse_excel_month` /
          `excel_period_to_iso` / `period_to_day_range` / `week_days_in_month`）；
       ② `bp_report_service.py` 拆出 `bp_report_drill.py`（`load_cells` 与下钻相关）；
-      ③ `BpReport.tsx` 把三个弹窗（明细 / 区域 / 频层）拆成同目录子组件。
+      ③ `BpReport.tsx` 把三个弹窗（明细 / 区域 / 频层）拆成同目录子组件，
+         并考虑把**四张数字卡的判定推导**（`verdictValue`/`verdictLevel`/
+         `verdictSub`/`verdictWhy`/`openVerdictDrill`）抽成 `useBpVerdict()` 自定义
+         hook —— 这 5 段是本次新增里最长的一块，且与表格列共用同一套成因文案。
       **验收**：`python TMP\_verify_drill.py` 与 `npm run check:i18n` 均通过，
       且 `/api/bp-report/*` 的 5 个端点响应逐字段不变。
       > 拆分前先建 `_bak_<日期>_bp_split` 快照；该模块的下钻契约（见
-      > `docs\manual\11-feature-guide.md` §30「下钻契约」）是拆分的回归基线。
+      > `docs\manual\11-feature-guide.md` §30「下钻：能下钻尽下钻」）是拆分的回归基线。
+
+- [ ] **BP 忙时口径（bp-v3）的后续三件事（2026-09-30 已修复趋势断层，剩下的都是可选扩展）。**
+      **断层根因（已定位并修复）**：bp-v2 只对 AU 取峰值、PRB/Thr 仍用日均值，
+      导致重算 BP 数只有 10~31 个/天，与 Excel 真值（350~600 个/天）差 30 倍，
+      趋势图出现断崖。**标定实验**（09-21）证明 umlaut 的三个条件按**忙时**判定：
+      取 AU 最大小时的 PRB/Thr/AU 三值判三条件，与 Excel 明细**逐小区一致
+      （Jaccard=1.00，607/607）**。已改为该口径（`bp-v3`）并回填
+      09-22 ~ 09-29 八天，重算值与 Excel 真值逐日偏差稳定在 −8~−9%
+      （512/555、399/432、350/383、420/463、441/486），趋势已连续。
+      取数事实与复现要点见 `docs\manual\11-feature-guide.md` §30 与
+      `bp_active_user.py` 的模块 docstring。
+
+      剩下的三件（都非阻塞）：
+      ① **−8~−9% 的系统性偏差是否要追**：方向恒定（重算略低于 Excel），
+         可能来自 Excel Overall 与 BP Cells List 的既有不一致
+         （Excel 自身相邻两天名单重叠率仅 74~80%），也可能来自
+         忙时选择/`indexfillingtype` 的细节差异。量级已可用，暂不追。
+      ② **回填窗口是否扩大**：UME 保留实测 ≥3 个月、1 年前为 0。
+         当前只回填了 8 天，可择机扩到保留窗口；**Excel 覆盖的 2023–2026
+         历史无法从 UME 补齐**，那部分永远只有 Excel 值。
+      ③ ~~**周/月的 `bp_days` / `bp_weeks` 为 NULL**~~ —— **2026-09-30 已修**。
+         原先 `bp_overall_week` / `bp_overall_month` 的既存行判定列恒为 NULL
+         （`_recompute_week/_recompute_month` 是 insert-only，只写新周期），
+         页面「最新一期判定」因此永远显示「不可判定」。
+         新增 `bp_report_sync.backfill_period_verdicts()`：**只 UPDATE 判定列、
+         且带 `... IS NULL` 条件**，Excel 的指标真值一个字不碰 ——
+         关键是把「Excel 的指标真值」与「Excel 从来不提供的判定列」分开，
+         后者补算是**填空**而非覆盖。实测补算 139 周 + 42 月。
+         **遗留（已确认，非 bug）**：`2026-09` / `2026-10` 只有 3 个完整周，
+         而口径要求 `MONTH_TOTAL_WEEKS=4`，故 `is_bp_month` 恒为 None
+         —— 这两个月**在现行口径下永远判不出来**。界面现已显示
+         「本月仅 3 个完整周（口径要求 ≥4 个）」，不再是一句「不可判定」。
+         是否要放宽该口径（如允许 3 个完整周）需业务方决策，**未经确认不要改**。
+
+- [ ] **BP 页下钻已按 1b 补全，但有两处「对不上」值得业务方决策（2026-09-30 复核）。**
+      已接上的：趋势表 `bp_cells`/`明细行数`/`不可判定`/`total_cells`(ume 期)、
+      趋势图柱子、四张数字卡、分区图柱子、分层表 `bp_number`；实测全部一致。
+      两处**刻意置灰**并给出原因：
+      ① 趋势表 `total_cells` 的 **excel 期**（Excel 全网口径、无名单）；
+      ② 分层表 `total_cell` —— `bp_layer_daily.total_cell` 是「按天 × 层」累加，
+         而 Excel 来源的天在 `bp_cell_daily` 里只含 BP 小区；
+         实测混合区间 6 个层只有 2 个对得上，仅 ume 天则 6/6 全对（分区表 1/9 → 9/9）。
+      若业务方希望这两处也能点，前置条件是**统一 population**
+      （要么把 Excel 历史期的全网小区也补进明细表，要么让分层/分区汇总只统计 ume 天）。
+
+- [ ] **周/月粒度的「概览 vs 下钻」数字对不上（既有现象，本次复核确认非 bug）。**
+      实测 2026-09-30：`/overview?granularity=week` 的 `bp_cells`（如 W39=462）
+      直接取自 `bp_overall_week`，那批行 `source=excel`，是 **Excel 汇总值**；
+      而 `/cells?start&end&scope=bp` 数的是 `bp_cell_daily` 里的小区-日行
+      （W39 范围 716 行 / 607 个去重小区）。**两个分母不同，本来就不该相等**。
+      **日粒度不存在该问题**（两侧同源 `bp_overall_daily`，实测 5/5 完全一致）。
+      需要决策：周/月概览页是否要显式标注"此值为 Excel 口径，与下钻行数不可比"，
+      避免用户把它当成 bug。相关背景见 `11-feature-guide.md` §30 的两总体说明。
 
 - [ ] **`pyjab`（GPLv2）的分发边界认定。** `backend\services\cn_ems\cs_ems_jab.py:27` 依赖 GPLv2 的 `pyjab`，属**强传染**许可。前置条件：确认 `cn_ems\`（U31 EMS 桌面客户端 GUI 自动化）**是否随产品交付客户**——仅内网自用则 GPL「分发」未触发、风险可控；随产品交付则该脚本须 GPL 开源，与闭源定位冲突，需替换或隔离。该目录当前**无 router / `task_registry.py` 入口 import**，传染面有限。核查记录见 `docs\THIRD-PARTY-NOTICES.md` 第二节。
 
