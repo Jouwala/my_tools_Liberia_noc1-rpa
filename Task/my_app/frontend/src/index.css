@@ -11,6 +11,10 @@
   --wh-zte-blue-light: #3d9be9;
   --wh-zte-orange: #ff922b;
   --wh-indigo: #7c8ff0;
+  /* Speedtest by Ookla 标识的墨色（深色主题）。官方对深底给的是白色版 lockup，
+     深蓝 #172143 画在深底上等于看不见，所以这里换成浅色。
+     与 --wh-text 刻意分开：那是正文色，这是**品牌色**，两者语义不同。 */
+  --wh-ookla-ink: #ccd9f0;
   --wh-text: #f5f7ff;
   --wh-text-muted: #aebbd4;
   --wh-text-dim: #6f8cb4;
@@ -159,6 +163,9 @@
   --wh-zte-blue-light: #2b8fd6;
   --wh-zte-orange: #ea580c;
   --wh-indigo: #6366f1;
+  /* Speedtest by Ookla 标识的墨色（浅色主题）。#172143 是从参考图上量出来的
+     笔画核心色，即 Ookla 那个深海军蓝。 */
+  --wh-ookla-ink: #172143;
   --wh-text: #16233b;
   --wh-text-muted: #3f5468;
   --wh-text-dim: #5b7288;

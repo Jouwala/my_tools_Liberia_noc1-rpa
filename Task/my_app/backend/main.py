@@ -92,6 +92,7 @@ from backend.routers import (
     cr_analysis,
     pm_analysis,
     bm_speedtest,
+    bm_meta,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -271,6 +272,12 @@ app.include_router(pm_analysis.router)
 # 口径（品牌归一、左闭右开时间窗、下钻与概览如何共用同一份 WHERE）见
 # services/bm_speedtest_caliber.py 的模块 docstring。
 app.include_router(bm_speedtest.router)
+
+# Meta 基准报告：ORANGE vs MTN 的速率 PK + FDD 网络侧 KPI（数据源 meta_data）。
+# ⚠️ 与 bm_speedtest 是**两张不同的表、两套口径**，不要合并：
+# speedtest_data 是实测网速（provider 列 + LIKE 归一），meta_data 是 Meta 口径的
+# 竞对基准（两家各占一个固定列，无运营商维度）。口径见 services/bm_meta_caliber.py。
+app.include_router(bm_meta.router)
 
 # Data Agent（只读 NL2SQL + 告警归因）：探索性副驾，不参与任何定时报表/看板数字的产出。
 # 定位、护栏与风险清单见 docs/DATA_AGENT_EVALUATION.md。

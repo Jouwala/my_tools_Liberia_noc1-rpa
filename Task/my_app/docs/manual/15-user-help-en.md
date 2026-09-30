@@ -904,33 +904,37 @@ Workflow & maintenance notes per task:
 - Default cron: `10 * * * *`　|　worker group: **m**
 - Workflow script: `services/finebi_report_sync.py → run_finebi_report_sync`
 
-**What it does**: Hourly: pull the latest Excel from each subfolder of FineBI FTP /webroot/WEB-INF/schedule into data/finebi_reports for the Task Report Files page
+**What it does**: Hourly: pull the latest Excel from each subfolder of FineBI FTP /webroot/WEB-INF/schedule into data/finebi_reports for the Task Report Files page; a folder with no file this cycle is only recorded as missing instead of failing the whole task
 
 **Workflow & data flow**:
 
 1. Hourly :10 walk every subfolder under schedule
 1. Download the latest Excel per folder into data/finebi_reports
+1. Folder empty this cycle but a local copy exists → record as missing and continue
 1. Listed & downloadable under Task Report Files → FINEBI report tab
 
 **Maintenance**:
 
 - Stuck pending and broke the chain when group mode enabled on 2026-08-25 (ungrouped); now in group m — always register new tasks in GROUP_TASK_MAP
+- FineBI deletes the previous output folder at :53 and the new copy lands around :02–:05, so one empty folder is normal: only a folder with no local copy at all counts as an error, otherwise that gap reddens every other report that synced fine
 
 #### DB Data Freshness Check（`db_freshness_check`）
 
 - Default cron: `15 * * * *`　|　worker group: **m**
 - Workflow script: `services/db_freshness_check.py → run_db_freshness_check`
 
-**What it does**: Hourly freshness audit of remote DBs (via db_writer_api) and local fallback DBs; outputs call chain and guidance when stale
+**What it does**: Hourly freshness audit of remote DBs (via db_writer_api), local fallback DBs, and local file-based sources (FTP-pulled Excel files) by their on-disk age; outputs call chain and guidance when stale
 
 **Workflow & data flow**:
 
 1. Hourly :15 check the latest data date per table in remote & local fallback DBs
+1. Also judge local file-based sources by the age of their newest file (e.g. incident_overview.xlsx for the incident overview page)
 1. When stale, log the call chain and troubleshooting direction in the execution history
 
 **Maintenance**:
 
 - Suspect stalled data? Check this task's history first and follow its call chain — faster than browsing the task list
+- A sync job succeeding and its data being hours old are two different facts: on 2026-09-30 the incident overview page sat 2h stale while only task alerts fired, so file age is now checked separately (FILE_CHECKS) — add an entry whenever a new page reads a file instead of a table
 
 #### MTTR/TT Wide Table Rebuild（`mttr_tt_sync`）
 
@@ -1759,7 +1763,7 @@ Realtime mode of the GIS map: current active-alarm sites on the map (red "realti
 
 OLR incident overview board: cards, matrix, SLA charts, paginated details and a map.
 
-- Data is fetched hourly by incident_overview_sync from the latest incident_overview.xlsx on the FineBI FTP (versioned files, resilient to the upstream file being locked)
+- Data is fetched at minute 20 each hour by incident_overview_sync from the latest incident_overview.xlsx on the FineBI FTP (versioned files, resilient to the upstream file being locked). It runs at minute 20 on purpose: FineBI deletes the previous output folder at :53 and the new copy only lands around :02–:05
 
 #### Warehouse（`warehouse`, iframe page）
 
@@ -1946,7 +1950,7 @@ Three config layers, highest first: environment variables (backend/.env, 203 key
 
 **The board data is not updating?**
 
-① Check the task's latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" was set to Off; ③ remember some data is inherently low-frequency: alarms every 30 min, microwave topology daily 05:15, packet loss daily 06:30, incident overview hourly. The "DB Data Freshness Check" task history also logs the call chain and direction when stale.
+① Check the task's latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" was set to Off; ③ remember some data is inherently low-frequency: alarms every 30 min, microwave topology daily 05:15, packet loss daily 06:30, incident overview at minute 20 each hour. The "DB Data Freshness Check" task history also logs the call chain and direction when stale (including the on-disk age of file-based sources).
 
 **Numbers do not match the expected criteria?**
 

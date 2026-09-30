@@ -1583,7 +1583,9 @@ TT 复盘抽屉（`TtPostmortemPanel.tsx:693-710`）的红字
 
 ## 16. 事件总览（`?page=incident_overview`）— iframe
 
-`IncidentOverview.tsx:17` → `public/incident-overview.html`（`<title>` 为 **OLR Incident Dashboard**），接口 `/api/incident-overview`。数据由 `incident_overview_sync` **每小时整点**从 FineBI FTP 调度目录取最新 `incident_overview.xlsx`，以"版本化文件 + `current.json` 指针"落盘（`task_registry.py:296-301`）——这样即使上游 Excel 一直被打开占用，取数也不会失败。
+`IncidentOverview.tsx:17` → `public/incident-overview.html`（`<title>` 为 **OLR Incident Dashboard**），接口 `/api/incident-overview`。数据由 `incident_overview_sync` **每小时第 20 分钟**从 FineBI FTP 调度目录取最新 `incident_overview.xlsx`，以"版本化文件 + `current.json` 指针"落盘（`backend/task_registry.py:585-591`）——这样即使上游 Excel 一直被打开占用，取数也不会失败。
+
+> **为什么排在 :20，而不是整点**（2026-09-30 实测）：FineBI 每小时 **:53** 触发重算，会**先删掉上一轮的 `TT_WO/<日期>/<HHMM>/通用结果/` 目录**，新副本约 **:02–:05** 才落盘，源树任意时刻只保留一份。整点取数正好撞在这约 12 分钟的空档里，当天 18 次跑挂 8 次、微信+邮件每小时误报一次。现在取不到文件时，只要本地副本不超过 90 分钟就沿用上并按"跳过"上报（`services/incident_overview_sync.py` 的 `NO_SOURCE_GRACE_MINUTES`），文件年龄本身另外进 `db_freshness_check` 的 `FILE_CHECKS` 巡检。完整来龙去脉见 `04-task-system.md` 的「FineBI `schedule/` 的重算空档」。
 
 ## 17. 仓库看板（`?page=warehouse`）— iframe
 
@@ -2746,6 +2748,54 @@ MTN 胜 206 天；上传 ORANGE 194 / MTN 224；时延 ORANGE 胜 299 天。
 **两家速率相同的天不计入任何一方胜场**，单列 `wins.ties` 并在页面顶部提示条说明。
 全区间实测 358 天中有 **1 天相平**，`paired_days` = 357。
 「打平」既不是赢也不是输 —— 归给任一方都会系统性抬高该方胜率。
+
+> 这段口径说明（页面上的 `Metric scope` 提示条）**默认收起**，点标题可展开。
+> 它是解释性文字、占屏高，首次进入不展开；内容仍随时可查。
+
+### 32.5a 时间范围联动（2026-10-01 修复）
+
+**任何改变时间范围的操作，页面上所有区块必须一起变**。落实方式：
+
+- **唯一触发点是 `start` / `end` 两个状态**：`load()` 只依赖这两个值，
+  概览接口一次返回 summary / scores / daily / monthly / wins / network，
+  所以只要它被触发，每个区块都会同步换数。
+  **不要另建「局部刷新」的旁路** —— 那必然造成「改了日期但部分区块没变」。
+- **快捷窗的右边界必须取数据实际最大日**（`filters.max_date`），**不是 `dayjs()`（今天）**。
+  本表快照日 2026-09-23、页面运行日 2026-09-30，两者差 7 天；若用今天做右边界，
+  「近 30 / 90 / 180 / 365 天」四档的右端会**完全相同**，只有左端在动，
+  用户会认为「点了没反应」。实测现在是
+  30 天 → 逐日 30 行、90 天 → 90 行、180 天 → 180 行、365 天 → 365 行、全部 → 612 行，各不相同。
+- **手动改日期后清掉快捷窗高亮**（落到 `custom` 档），否则会出现
+  「日期已经是自定义，分段控件仍高亮『近 365 天』」的错位显示。
+
+### 32.5b 同一行卡片等高（2026-10-01 修复）
+
+四组卡片行（结论+评分 / 四张速率卡 / 六张网络侧 KPI 卡）都做等高。
+**三个条件缺一不可**，少一个就会出现「有副标题的卡比没副标题的卡高一行」：
+
+1. `<Row align="stretch">` —— 让 Col 在同一行内被拉伸到最高者；
+2. `<Col style={{ display: 'flex' }}>` —— 让卡片成为 flex 子项，才能吃满 Col 高度；
+3. 卡片自身 `style={{ width: '100%' }}` —— 撑满 Col 宽度，否则会缩成内容宽度。
+
+网络侧 KPI 卡额外用 `display:flex; flexDirection:column` + 数值块 `marginTop:auto`，
+使指标名换行（如「RRC 连接建立最大用户数」）时各卡数值仍底部对齐。
+
+### 32.5c 结论卡的留白处理（2026-10-01）
+
+等等高之后暴露出一个新问题：**结论卡（Composite competitiveness verdict）内容只有
+「领先方名称 + 一行分差」，却要和右侧「两行大数字」的评分卡齐平**，于是左边塌出一大片空白。
+
+处理方式是给它补三项**有信息量**的内容，而不是单纯拉伸或塞装饰：
+
+- **奖杯徽章**（`TrophyFilled`，72×72 圆角方块，底色与图标取领先方品牌色）——
+  「谁赢了」的直观锚点，一眼可辨；
+- **「综合竞争力领先」小标签 + 领先方名称（26px）+ 分差行**；
+- **胜场与胜率行**（`胜 17 / 29 天 · 胜率 58.6%`），并**可点击下钻**到该方胜场明细，
+  与页面其它数字口径一致（`winner` 过滤 + 与概览同源）。
+
+> 补的内容都是**已有数据**（`wins.orange_wins` / `mtn_wins` / `paired_days` /
+> `*_win_rate`），没有为了填满而引入新指标 —— 这类「看起来空」的卡片要优先用
+> 真实的、可下钻的数字填充，否则就只是无意义的装饰。
 
 ### 32.6 实测基线（可用于回归比对）
 

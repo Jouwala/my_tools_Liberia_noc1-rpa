@@ -28,6 +28,7 @@ import ReactECharts from 'echarts-for-react'
 import { useI18n } from '../i18n'
 import { WH, useTheme, cardStyle, axisLabel, axisLine, darkTooltip, splitLine } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
+import OoklaLogo from '../components/OoklaLogo'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportAoaReport } from '../utils/excelReport'
 import {
@@ -729,26 +730,41 @@ export default function BmSpeedtest() {
                           </Space>
                         )
                       })}
-                      {/* 胜率：点它下钻「该指标胜者的那些天」，行数与胜场天数严格相等 */}
-                      <Space wrap size={4}>
-                        <Text type="secondary" style={{ fontSize: 12 }}>{t('bms.kpi.winRate')}</Text>
-                        {(['ORANGE', 'MTN'] as BrandKey[]).map(b => {
-                          const cell = wins?.metrics?.[m]
-                          const w = b === 'ORANGE' ? cell?.orange_wins : cell?.mtn_wins
-                          const rate = b === 'ORANGE' ? cell?.orange_win_rate : cell?.mtn_win_rate
-                          return (
-                            <Tooltip key={b} title={t('bms.kpi.winTip', { n: w ?? 0 })}>
-                              <Button
-                                type="link" size="small" style={{ padding: 0, height: 'auto', fontSize: 12 }}
-                                onClick={e => void openDrill({
-                                  title: `${t(brandLabelKey(b))} · ${t(metricLabelKey(m))} · ${t('bms.drill.winTitle')}`,
-                                  at: { x: e.clientX, y: e.clientY }, metric: m, winner: b,
-                                })}
-                              >{`${t(brandLabelKey(b))} ${num(rate, 1)}%`}</Button>
-                            </Tooltip>
-                          )
-                        })}
-                      </Space>
+                      {/* 胜率：点它下钻「该指标胜者的那些天」，行数与胜场天数严格相等。
+                          右端挂 Speedtest by Ookla 标识，标明这四张卡的数据来源
+                          （2026-10-01 加，与门户 v1/olbrportal 的那一行同一个标识）。
+                          为什么用 flex + marginLeft:auto 而不是把标识塞进 Space：
+                          Space 会把它当成第 4 个等距项，紧贴在胜率数字后面；
+                          这里要的是"钉在卡右端"，与参考图/门户一致。
+                          flexWrap 是给极窄卡留的退路 —— xl 断点下 4 张并排时
+                          卡宽约 285px（1680px 视口），胜率那段文字约 200px、
+                          标识约 93px，加起来会超；换行后 marginLeft:auto
+                          仍把它推到右端，而不是溢出。 */}
+                      <div style={{
+                        display: 'flex', flexWrap: 'wrap', alignItems: 'center',
+                        gap: 'var(--wh-space-xs)',
+                      }}>
+                        <Space wrap size={4}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>{t('bms.kpi.winRate')}</Text>
+                          {(['ORANGE', 'MTN'] as BrandKey[]).map(b => {
+                            const cell = wins?.metrics?.[m]
+                            const w = b === 'ORANGE' ? cell?.orange_wins : cell?.mtn_wins
+                            const rate = b === 'ORANGE' ? cell?.orange_win_rate : cell?.mtn_win_rate
+                            return (
+                              <Tooltip key={b} title={t('bms.kpi.winTip', { n: w ?? 0 })}>
+                                <Button
+                                  type="link" size="small" style={{ padding: 0, height: 'auto', fontSize: 12 }}
+                                  onClick={e => void openDrill({
+                                    title: `${t(brandLabelKey(b))} · ${t(metricLabelKey(m))} · ${t('bms.drill.winTitle')}`,
+                                    at: { x: e.clientX, y: e.clientY }, metric: m, winner: b,
+                                  })}
+                                >{`${t(brandLabelKey(b))} ${num(rate, 1)}%`}</Button>
+                              </Tooltip>
+                            )
+                          })}
+                        </Space>
+                        <OoklaLogo height={24} style={{ marginLeft: 'auto' }} />
+                      </div>
                     </Space>
                   </CardBase>
                 </Col>

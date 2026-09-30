@@ -139,6 +139,33 @@ export function getBmSpeedtestDrilldown(params?: {
   return api.get('/bm-speedtest/drilldown', { params })
 }
 
+// ========== Meta 基准报告（ORANGE vs MTN 速率 PK + FDD 网络侧 KPI）==========
+// 数据源：meta_data（Meta_20260923.xlsx 导入）。后端 backend/routers/bm_meta.py，
+// 口径见 backend/services/bm_meta_caliber.py 的模块 docstring。
+// ⚠️ 与 bm-speedtest 是两张不同的表，互不影响，不要合并。
+export function getBmMetaFilters() {
+  return api.get('/bm-meta/filters')
+}
+
+export function getBmMetaOverview(params?: { start?: string; end?: string }) {
+  return api.get('/bm-meta/overview', { params })
+}
+
+// 单指标趋势 + 滚动均值；metric 非法时后端回落 speed
+export function getBmMetaTrend(params?: {
+  start?: string; end?: string; metric?: string; window?: number
+}) {
+  return api.get('/bm-meta/trend', { params })
+}
+
+// 下钻：winner 表示「更强的那个运营商领先的那些天」，行数与胜场天数严格相等
+export function getBmMetaDrilldown(params?: {
+  start?: string; end?: string; metric?: string
+  day?: string; winner?: string; limit?: number
+}) {
+  return api.get('/bm-meta/drilldown', { params })
+}
+
 // ========== TT 复盘报告（NOC 操作人分析 / 派单机制真相 / 单 TT 复盘 / MD 导出）==========
 // 新增于 2026-09-23；对应后端 routers/eflow_qa.py 中 _tt_postmortem_* 端点
 export function getTtPostmortem(ttNo: string) {

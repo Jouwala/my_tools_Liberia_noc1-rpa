@@ -295,7 +295,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     incident_overview: {
       desc: 'OLR 事件（Incident）总览看板：卡片、矩阵、SLA 图表、分页明细与地图。',
-      usage: ['数据每小时整点由 incident_overview_sync 从 FineBI FTP 取最新 incident_overview.xlsx（版本化落盘，上游文件被占用也不会取数失败）'],
+      usage: ['数据每小时第 20 分钟由 incident_overview_sync 从 FineBI FTP 取最新 incident_overview.xlsx（版本化落盘，上游文件被占用也不会取数失败；排在这个分钟是因为 FineBI 每小时 :53 会先删掉上一轮输出目录、新副本约 :02–:05 才落盘）'],
     },
     noc_analyst: {
       desc: 'NOC 操作人分析：基于 eflow_tt.last_processer 量化每位 NOC 的根因错位率、平均处理时长、夜班单占比与 SLA 通过率，并给出红旗告警。页面按「能下钻尽下钻」设计——从人一路下钻到 TT，再下钻到告警链路。',
@@ -656,7 +656,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     incident_overview: {
       desc: 'OLR incident overview board: cards, matrix, SLA charts, paginated details and a map.',
-      usage: ['Data is fetched hourly by incident_overview_sync from the latest incident_overview.xlsx on the FineBI FTP (versioned files, resilient to the upstream file being locked)'],
+      usage: ['Data is fetched at minute 20 each hour by incident_overview_sync from the latest incident_overview.xlsx on the FineBI FTP (versioned files, resilient to the upstream file being locked). It runs at minute 20 on purpose: FineBI deletes the previous output folder at :53 and the new copy only lands around :02–:05'],
     },
     noc_analyst: {
       desc: 'NOC operator analysis: quantifies each NOC operator\'s root-cause mismatch rate, average handling time, night-ticket share and SLA pass rate from eflow_tt.last_processer, and raises red flags. Built around "drill down wherever possible" — from the person to the ticket, then to the alarm chain.',
@@ -893,7 +893,7 @@ const COMMON_ZH: CommonText = {
     { title: '数据新鲜度', body: '部分页面页头显示「最近同步」时间。看板数据由定时任务写入，各任务频率不同（告警 30 分钟、微波拓扑每天 05:15、丢包每天 06:30 等），完整清单见「任务管理详解」。' },
   ],
   faq: [
-    { q: '看板数据没有更新？', a: '① 先到「任务管理」查看对应任务的最近执行结果与失败聚合；② 检查顶栏「自动刷新」间隔是否被调成关闭；③ 注意部分数据本身低频同步：实时告警每 30 分钟、微波拓扑每天 05:15、丢包每天 06:30、事件总览每小时整点。仍不对可看「数据库数据新鲜度巡检」的执行日志，它会输出调用链与排查方向。' },
+    { q: '看板数据没有更新？', a: '① 先到「任务管理」查看对应任务的最近执行结果与失败聚合；② 检查顶栏「自动刷新」间隔是否被调成关闭；③ 注意部分数据本身低频同步：实时告警每 30 分钟、微波拓扑每天 05:15、丢包每天 06:30、事件总览每小时第 20 分钟。仍不对可看「数据库数据新鲜度巡检」的执行日志，它会输出调用链与排查方向（含文件型数据源的落盘年龄）。' },
     { q: '页面数字与预期口径不一致？', a: '注意各页口径：电池看板默认只统计 24 小时内新鲜读数；MS SLA 看板以实时计算为准（可能与快照文件不一致）；丢包看板只展示最近 7 个完整自然日；CXO 看板内嵌快照，重跑同步任务才更新。' },
     { q: '任务长期停在 pending 不执行？', a: '多半是该任务未被归入任何 worker 组（GROUP_TASK_MAP），队列里永远无人认领——这是本项目已发生过四次的事故模式（finebi_report_sync、whatsapp_send_ext、sp_email_details，以及 2026-09-18 查出的 olib_soc 看板增量与 vmax_multi_data_sync）。新增任务必须在 worker_watchdog.py 的 GROUP_TASK_MAP 登记分组；陈旧 pending 占住的单飞名额 6 小时后会被 worker 自动过期释放。2026-09-18 起这类停摆不再靠人肉发现：db_freshness_check（每小时）会把未归组 / 无执行记录 / 队列滞留 / 成功逾期四类健康异常按翻转去重主动微信+邮件通知。' },
     { q: '任务反复 failed？', a: '到 log/worker_runtime*.log 找该 task_id 的堆栈（排障首选日志；每组 worker 一个文件，任务所属组见执行认领日志）。上游不可达 → 先到「系统设置 → 凭据」点「测试连接」；口令变了 → 更新凭据。auto_retry_failed 每 10 分钟自动重试（MAX_ATTEMPTS=2，超 24 小时放弃），无需手动反复点执行。' },
@@ -940,7 +940,7 @@ const COMMON_EN: CommonText = {
     { title: 'Data freshness', body: 'Some pages show a "last synced" time in the header. Boards are fed by scheduled tasks with different frequencies (alarms every 30 min, microwave topology daily 05:15, packet loss daily 06:30...). See "Task Manager Deep Dive" for the full catalog.' },
   ],
   faq: [
-    { q: 'The board data is not updating?', a: '① Check the task\'s latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" was set to Off; ③ remember some data is inherently low-frequency: alarms every 30 min, microwave topology daily 05:15, packet loss daily 06:30, incident overview hourly. The "DB Data Freshness Check" task history also logs the call chain and direction when stale.' },
+    { q: 'The board data is not updating?', a: '① Check the task\'s latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" was set to Off; ③ remember some data is inherently low-frequency: alarms every 30 min, microwave topology daily 05:15, packet loss daily 06:30, incident overview at minute 20 each hour. The "DB Data Freshness Check" task history also logs the call chain and direction when stale (including the on-disk age of file-based sources).' },
     { q: 'Numbers do not match the expected criteria?', a: 'Watch each page\'s definition: the battery board counts only readings ≤24h fresh by default; the MS SLA board follows the live calculation (snapshot files may differ); packet loss shows only the last 7 complete days; the CXO board embeds a snapshot refreshed only by re-running its sync task.' },
     { q: 'A task stays pending forever?', a: 'Most likely the task was never assigned to a worker group (GROUP_TASK_MAP) — nobody claims it from the queue. This accident happened four times in this project (finebi_report_sync, whatsapp_send_ext, sp_email_details, and on 2026-09-18 the olib_soc dashboard sync plus vmax_multi_data_sync). New tasks MUST be registered in GROUP_TASK_MAP in worker_watchdog.py; a stale pending row holding the single-flight slot is now auto-expired by the worker after 6 hours. Since 2026-09-18 such stalls no longer need a human to spot them: db_freshness_check (hourly) pushes the four health findings (ungrouped / no execution record / stuck queue / overdue since last success) through WeChat + email, deduplicated by state flips.' },
     { q: 'A task keeps failing?', a: 'Find the stack trace for the task_id in log/worker_runtime*.log (the first log to check; one file per worker group). Upstream unreachable → run "Test Connection" in Settings → Credentials; changed password → update credentials. auto_retry_failed retries every 10 min (MAX_ATTEMPTS=2, gives up after 24h) — no need to click Run repeatedly.' },

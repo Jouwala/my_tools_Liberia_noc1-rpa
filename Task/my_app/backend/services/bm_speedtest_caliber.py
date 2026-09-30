@@ -55,7 +55,7 @@ MTN 的 420 行会全部落进 `OTHER`，页面直接变成只有一家有数据
 """
 from __future__ import annotations
 
-# 数据表
+# 数据表（表名只此一处，改名时改这里即可）
 TABLE = "speedtest_data"
 
 # 品牌键与展示名（顺序即前端固定顺序：先 ORANGE 后 MTN）

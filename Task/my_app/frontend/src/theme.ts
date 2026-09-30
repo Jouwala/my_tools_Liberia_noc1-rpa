@@ -79,6 +79,10 @@ export const WH = {
   text: 'var(--wh-text)',
   textMuted: 'var(--wh-text-muted)',
   textDim: 'var(--wh-text-dim)',
+  /* Speedtest by Ookla 标识的墨色。单独一个令牌而不是复用 text/textMuted：
+     它承载的是**第三方品牌色**，改它等于改品牌标识的呈现，
+     不该被"统一调正文色"这类改动顺手带走。见 components/OoklaLogo.tsx。 */
+  ooklaInk: 'var(--wh-ookla-ink)',
   accentGrad: 'var(--wh-accent-grad)',
   sev: {
     Critical: 'var(--wh-sev-critical)',

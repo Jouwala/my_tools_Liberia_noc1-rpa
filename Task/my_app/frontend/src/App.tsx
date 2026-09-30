@@ -131,6 +131,8 @@ const PmExecutionAnalysis = lazy(() => import('./pages/PmExecutionAnalysis'))
 const RanCellsKpi = lazy(() => import('./pages/RanCellsKpi'))
 /** Speedtest 竞对分析（ORANGE vs MTN）—— 数据源 speedtest_data */
 const BmSpeedtest = lazy(() => import('./pages/BmSpeedtest'))
+/** Meta 基准报告（ORANGE vs MTN 速率 PK + FDD 网络侧 KPI）—— 数据源 meta_data */
+const BmMeta = lazy(() => import('./pages/BmMeta'))
 // BP Report 劣化小区报告（umlaut 口径：日均三条件 / 周 4/7 天 / 月 3/4 个完整周）
 const BpReport = lazy(() => import('./pages/BpReport'))
 const CnKpi = lazy(() => import('./pages/CnKpi'))
@@ -170,9 +172,9 @@ const FINEBI_PAGE_TO_SLUG: Record<string, string> = Object.fromEntries(
   FINEBI_BOARDS.map((b) => [`finebi_${b.slug}`, b.slug]),
 )
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'tt' | 'wo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'warehouse_summary' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'avail_ms' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'bm_speedtest' | 'bp_report' | 'cn_kpi' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'tt' | 'wo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'warehouse_summary' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'avail_ms' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'bm_speedtest' | 'bm_meta' | 'bp_report' | 'cn_kpi' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'avail_ms', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'bm_speedtest', 'bp_report', 'cn_kpi', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'avail_ms', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'bm_speedtest', 'bm_meta', 'bp_report', 'cn_kpi', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -384,6 +386,8 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   ran_cells_kpi: { icon: <AreaChartOutlined />, labelKey: 'nav.ranCellsKpi' },
   // Speedtest 竞对分析：用排行/对比类图标，与"两家比高低"语义一致
   bm_speedtest: { icon: <ThunderboltOutlined />, labelKey: 'nav.bmSpeedtest' },
+  // Meta 基准报告：同样是与竞对比高低，沿用同一图标的语义，但排在 bm_speedtest 之后
+  bm_meta: { icon: <ThunderboltOutlined />, labelKey: 'nav.bmMeta' },
   // BP Cells Report：用告警类图标，与「劣化」语义一致
   bp_report: { icon: <AlertOutlined />, labelKey: 'nav.bpReport' },
   cn_kpi: { icon: <FundProjectionScreenOutlined />, labelKey: 'nav.cnKpi' },
@@ -437,7 +441,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_network',
     labelKey: 'nav.grp.network',
-    items: ['mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'packet_loss', 'battery', 'ip_trace', 'bm_speedtest'],
+    items: ['mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'packet_loss', 'battery', 'ip_trace', 'bm_speedtest', 'bm_meta'],
   },
   {
     key: 'grp_analysis',
@@ -1281,6 +1285,8 @@ function AppContent() {
         return <RanCellsKpi />
       case 'bm_speedtest':
         return <BmSpeedtest />
+      case 'bm_meta':
+        return <BmMeta />
       case 'bp_report':
         return <BpReport />
       case 'cn_kpi':
