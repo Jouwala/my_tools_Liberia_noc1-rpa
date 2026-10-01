@@ -52,15 +52,29 @@ Settings →「任务配置」→ `eFlow P1 Alarm WhatsApp Push`
 > occur 于 2026-06-24），故正常情况下**每轮通常发出 0 条消息** —— 这是数据分布
 > 决定的正常结果，不是故障。要放宽推送面（如纳入 P2 断站单）改级别配置即可。
 >
-> ⚠️ **本期交付边界**：扩展侧的**纯文本发送**尚未实现（现有扩展只发图片）。在补齐
-> 之前任务会正常投递作业但无人认领 → `send_status` 停在 `'N'` 并记录 `last_error`，
-> **不会伪造 `'Y'`**。宁可状态如实为未发送，也不写假成功。
+> ⚠️ **依赖「人开着浏览器」这条链路的脆弱性（2026-10-01 事故）**：
+> 扩展必须运行在一个**手动打开、且登录着 WhatsApp Web** 的浏览器里
+> （扩展用 `--load-extension` 加载，见 `whatsapp_sender_extension/README.md`；
+> 仓库里没有任何自启脚本）。浏览器没开时作业无人认领，任务要干等 `WAIT_SECONDS`
+> 才发现，这段时间值班群其实收不到告警 —— 实测 04:15~04:55 连续 4 轮未达、
+> 群内静默，作业还把邮箱堵死了 4.3 小时。
+>
+> **三重防护**（按发生顺序）：
+>   1. **投递前**先查扩展在线（`ext_liveness`），离线就立刻走降级告警喊人
+>      —— 把「10 分钟后才知道」压成「这一轮就知道」（见 `_check_ext_before_dispatch`）；
+>   2. 僵尸作业 **1 小时自动回收**（`job_staleness`），邮箱不再被永久堵死；
+>   3. 发送未确认时 `warnings` 报出，经 `task_runner` 走微信/邮件，不静默。
+>
+> **为什么不直接自动拉起浏览器**：扩展与发图任务（`whatsapp_service`）**共用同一个
+> profile**，而后者的 `_kill_stale_chrome()` 会按命令行里的 profile 路径**强杀**占用进程
+> —— 两者共存必然互相残杀。要自动化须先给扩展配独立 profile（需重新扫码登录），
+> 属独立议题，不在本任务范围内。
 
 ## 模块拆分
 
 本文件只保留**业务口径与调度**（取数 / 节流 / 落库 / 编排）：渲染纯函数在
 `tt_alarm_message.py`（可脱离数据库单测），作业文件状态机在 `tt_alarm_job.py`，
-配置解析在 `tt_alarm_config.py`。
+配置解析在 `tt_alarm_config.py`，扩展在线判定在 `ext_liveness.py`。
 """
 import json
 import logging
@@ -71,6 +85,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from backend.database import get_raw_connection
 from backend.dialect_helpers import list_table_names
+from backend.services import ext_liveness
 from backend.services import tt_alarm_config as config_mod
 from backend.services import tt_alarm_store as store
 from backend.services.tt_alarm_config import DEFAULT_GROUPS, load_config
@@ -308,6 +323,44 @@ def record_result(row: Dict[str, Any], ok: bool, error: str = "",
 # ==========================================================
 # 任务入口
 # ==========================================================
+def _check_ext_before_dispatch(out: Dict[str, Any], due_count: int) -> None:
+    """投递前查扩展在线状态，离线则把告警塞进 `out["warnings"]`。
+
+    这条链路依赖「浏览器开着 + 扩展加载着 + WhatsApp Web 登录着」，而那个浏览器是
+    **人手动打开**的。浏览器没开时，作业投出去没人认领，任务要干等 `WAIT_SECONDS`
+    才发现，而这 10 分钟里值班群其实一条告警都收不到 —— 2026-10-01 实测正是如此。
+
+    所以这里**不等超时**：投递前先看扩展最近有没有认领过作业，没有就立刻报出去，
+    把「10 分钟后才知道」压缩成「这一轮就知道」。
+
+    **三态语义**（`ext_liveness`）：
+      * `online`  → 静默（正常路径，不做任何额外记录以免噪声）；
+      * `offline` → 追加 warning（由 `task_runner` 汇总成微信/邮件，见模块 docstring）；
+      * `unknown` → **不告警**，仅记日志。服务刚重启时没有任何认领记录，
+        此时若判离线，每次重启都会误报一次，会让人对告警脱敏。
+
+    只写 `out`，不抛异常：在线检查属可观测性设施，不能反过来弄坏发送主流程。
+    """
+    try:
+        live = ext_liveness.check()
+    except Exception:  # noqa: BLE001
+        logger.warning("[TTAlert] 扩展在线检查异常（忽略，继续发送）", exc_info=True)
+        return
+
+    out["ext_status"] = live.get("status")
+    out["ext_last_seen_at"] = live.get("last_seen_at") or None
+
+    if live.get("status") == ext_liveness.STATUS_OFFLINE:
+        warn = (f"WhatsApp 扩展离线：{live.get('reason')}。本轮 {due_count} 单 P1 告警"
+                f"**大概率发不出去** —— 请立即打开浏览器，确认 WhatsApp Web 已登录"
+                f"且扩展已加载。未确认发送的单会在恢复后按 {RESEND_MINUTES} 分钟节流重推，"
+                f"发送状态见「设置 → 任务配置 → eFlow P1 Alarm WhatsApp Push」")
+        out["warnings"].append(warn)
+        logger.warning("[TTAlert] %s", warn)
+    elif live.get("status") == ext_liveness.STATUS_UNKNOWN:
+        logger.info("[TTAlert] 扩展在线状态未知（本轮不告警）：%s", live.get("reason"))
+
+
 def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
     """每 15 分钟执行：取 P1 未清除单 → 节流筛选 → 渲染 → 投递 → 等回报 → 落库。
 
@@ -388,11 +441,13 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
                 + "; ".join(degraded[:5])
                 + ("…" if len(degraded) > 5 else ""))
 
+        # ---------- 投递前：先确认扩展在线（2026-10-01 事故的治本项） ----------
+        _check_ext_before_dispatch(out, len(due))
+
         disp = dispatch(messages, GROUPS)
         out["job_id"] = disp.get("job_id")
         out["dispatched"] = disp.get("dispatched", 0)
         out["errors"].extend(disp.get("errors") or [])
-
         if not disp.get("ok"):
             # 作业都没投出去：全部记失败，绝不置 'Y'
             for r in due:

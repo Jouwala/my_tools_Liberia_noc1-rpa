@@ -26,6 +26,7 @@
 import logging
 from typing import Any, Callable, Dict, Optional
 
+from backend.services import ext_liveness
 from backend.services import tt_alarm_job
 from backend.services import whatsapp_ext_service as ext
 
@@ -42,7 +43,14 @@ def claim_next_job() -> Optional[Dict[str, Any]]:
     **返回体一律带 `pending: True`** —— 扩展以 `job.pending === true` 判定「有无作业」
     （`background.js` 的 `tryClaimJob`），缺这个字段文本作业会被直接丢掉。
     发图源自带该字段，文本源不带，故在这里统一补上。
+
+    本函数也是**扩展在线状态的唯一证据来源**：扩展每分钟轮询一次，无论有没有作业
+    都会走到这里（`background.js` 的 `tick()`），所以一次「空手而归」的轮询同样
+    证明它活着。故在**函数入口**就记录活动，而不是只在认领成功时记
+    —— 否则「长期没有作业可发」会被误判成「扩展离线」。
     """
+    ext_liveness.record_activity(source="poll")
+
     image_job = _claim_safely(ext.claim_pending_job, "image")
     if image_job is not None:
         image_job["kind"] = "image"

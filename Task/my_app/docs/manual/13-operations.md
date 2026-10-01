@@ -59,7 +59,7 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 | 启动即 `[FAIL] Python not found` | `start_hidden.ps1:88-103` 的探测顺序 | 装 Python 3.12 或让 `pythonw.exe` 进 PATH |
 | 某类数据全停更 | 任务管理里对应任务是否 pending；`db/app.db` 里 `select * from task_queue where status='pending'` 是否只有那一条、且 `task_execution_log` 里该任务 0 条记录 | pending 且从不执行 → **该 task_id 不在 `GROUP_TASK_MAP` 任何组**（已踩四次，`04-task-system.md`）。补登记分组后需 `python restart_workers.py --mode watchdog --force`（**要管理员权限**：分组清单在 watchdog 进程内存里，只重启子 worker 不生效；无权限时 taskkill 会 Access denied 而静默失败，必须回查 `log/worker_restart_marker.log` 确认 pids 真的变了）；陈旧 pending 占住的单飞名额会在 6h 后被 `_expire_orphan_pending` 自动释放 |
 | 任务漏跑但没人发现 | `db_freshness_check` 执行历史里搜 `[TASK-HEALTH]`；告警去重状态 `TMP/task_health_alert_state.json` | 2026-09-18 起漏跑（无执行记录/队列滞留/成功逾期/未归组）会微信+邮件主动通知，新异常与恢复各通知一次、持续超 24h 重提；维护窗口静音用 `TASK_HEALTH_ALERT_ENABLED=0` |
-| **WhatsApp 告警静默发不出去**（任务却报成功） | 作业文件 `backend\services\data\tt_alert_job.json` 的 `status` 是否长期停在 `running` | 见下方专节「僵尸作业堵死推送通道」 |
+| **WhatsApp 告警静默发不出去**（任务却报成功） | ① 作业文件 `backend\services\data\tt_alert_job.json` 的 `status` 是否长期停在 `running`；② `backend\services\data\ext_liveness.json` 的 `last_seen_at` 是否超过 5 分钟 | 见下方专节「僵尸作业堵死推送通道」与「扩展在线检查」 |
 | 任务反复 failed | `worker_runtime*.log` 找该 task_id 堆栈（分组日志，可按任务所属组直接定位） | 上游不可达→先跑"系统设置→凭据→测试连接"；口令变了→更新凭据 |
 | 任务卡在"执行中"很久 | 是否真在跑：看 worker 进程 PID 是否存活 | 无需手工干预：`STALE_RUNNING_SECONDS=30min` + PID 核对会自动回收僵尸（`worker.py:78,82,302`） |
 | 邮件没发出去 | `email_recovery`（每 20 分钟）日志 | EWS 恢复后会自动补发；确认收件人配置未被重置 |
@@ -181,9 +181,43 @@ $j | ConvertTo-Json -Depth 6 | Set-Content $p -Encoding UTF8
 2. **告警没发出去就吵** —— 有 due 单却一条都没确认发送时，任务产出 `warnings`，
    走 `task_runner.py:545-565` 的**降级告警**通道主动通知（微信+邮件）。
    否则「扩展恢复 → 下轮候选 0 → 立刻 success=True」，这段故障会被彻底埋掉。
+3. **投递前先查扩展在线** —— 见下节。把「10 分钟后超时才知道」压成「这一轮就知道」。
 
 > ⚠️ 改了这两处**必须重启后端与 worker 才生效**（`pythonw.exe` 常驻，不热加载）。
-> 回归：`python -m pytest tests\test_job_zombie_and_month_start.py -q`
+> 回归：`python -m pytest tests\test_job_zombie_and_month_start.py tests\test_ext_liveness.py -q`
+
+### 扩展在线检查（2026-10-01 新增）
+
+**为什么需要**：告警推送依赖「浏览器开着 + 扩展加载着 + WhatsApp Web 登录着」，
+而那个浏览器是**人手动打开的**（扩展用 `--load-extension` 加载，仓库里没有自启脚本）。
+浏览器没开时，作业投出去无人认领，任务要干等 `WAIT_SECONDS`（600s）才发现，
+**这 10 分钟里值班群一条告警都收不到**。
+
+**机制**：扩展每分钟轮询一次 `/api/whatsapp/ext/job`，后端在认领入口
+（`whatsapp_job_claim.claim_next_job()`）把时刻记进
+`backend/services/data/ext_liveness.json`；投递前读它判三态：
+
+| 状态 | 判据 | 行为 |
+| --- | --- | --- |
+| `online` | 阈值（默认 300s）内认领过 | 静默，正常发送 |
+| `offline` | 见过扩展但已超阈值无动静 | **立刻**产出 `warnings` 走微信+邮件喊人 |
+| `unknown` | 从未见过（服务刚起/记录被清） | **不告警**，仅记日志 |
+
+> `unknown` 不告警是**刻意的**：服务每次重启都没有记录，若判离线则每次重启都误报，
+> 会让人对告警脱敏。判离线必须**有明确证据**（曾见过扩展）。
+
+**为什么不直接自动拉起浏览器**：扩展与发图任务（`whatsapp_service`）**共用同一个
+profile**，而后者的 `_kill_stale_chrome()`（`whatsapp_service.py:188`）会按命令行里的
+profile 路径**强杀**占用进程 —— 两者共存必然互相残杀。
+要自动化须先给扩展配**独立 profile**（需重新扫码登录一次），属独立议题。
+
+**手工排查**：
+
+```powershell
+# 扩展最近一次认领是什么时候？超过 5 分钟即视为离线
+Get-Content D:\01_RPA\Task\my_app\backend\services\data\ext_liveness.json -Raw -Encoding UTF8
+# 文件不存在 = 服务重启后扩展还没来认领过（unknown，属正常冷启动）
+```
 
 ### `cells_kpi_sync` 每月 1 号报失败（2026-10-01，属预期而非故障）
 
