@@ -357,9 +357,20 @@
   function freqOf(it) { return state.lang === 'en' ? term('freq', it.freq) : it.freq; }
   function pfOf(it) { return t('pf.' + it.platform) || it.platform; }
   function stOf(it) { return it.status === 'beta' ? t('st.beta') : t('st.online'); }
+  /* 跨壳语言传递（2026-09-30 加）：本页把用户的选择存在 'olbr.lang'，而点进去的
+     下级页各有各的键 —— /MsPortal/ 与 viewer.html 只认 'msportal.lang.v1'，
+     /myapp/ 只认 'app-locale'，三个键互不相通。于是下一层的判定链退化成
+     「本站没存过 → 按浏览器语言」，中文 Windows 上就是"门户选了英文、点进去满屏中文"。
+     （主题当年没这个问题：门户给 my_app 带 &theme= 并共用 myapp-theme，见 mapItems/emailSrc。）
+     所以出链统一带 &lang=，把当前选择显式交给下一层；接收侧的优先级是
+     ?lang= > 本站点键 > olbr.lang > 浏览器语言。 */
+  function langVal() { return state.lang === 'en' ? 'en' : 'zh'; }
+  function langQs() {
+    return '&lang=' + encodeURIComponent(langVal());
+  }
   function vlink(it, gid) {
     return '/MsPortal/viewer.html?no=' + encodeURIComponent(it.no) +
-      '&gid=' + encodeURIComponent(gid || primaryGroup(it) || '');
+      '&gid=' + encodeURIComponent(gid || primaryGroup(it) || '') + langQs();
   }
   /* 高亮命中词。必须**单趟**扫描 + 分段转义，不能「先 esc 再逐词 replace」：
        · 逐词链式 replace 会让第 2 个词命中第 1 个词刚注入的 <span class="hit">
@@ -469,7 +480,7 @@
       '<span class="p-s">' + esc(gSub(gid)) + '</span></span>' +
       '<span class="cnt">' + n + '</span>' + rst + gt +
       (extraTools || '') +
-      '<a class="p-x" href="/MsPortal/viewer.html?gid=' + encodeURIComponent(gid) +
+      '<a class="p-x" href="/MsPortal/viewer.html?gid=' + encodeURIComponent(gid) + langQs() +
       '" target="_blank" rel="noopener noreferrer">' + t('v.open') + ' <i class="ph ph-arrow-up-right" aria-hidden="true"></i></a></div>';
   }
 
@@ -1201,9 +1212,15 @@
     var latest = c && c.latest ? c.latest : null;
     var max = c && c.max ? c.max : null;
     var min = c && c.min ? c.min : null;
+    /* 门户显示名：spec.label_en / label_zh（若有）最优先 —— 用于在**不改后端
+       共享口径**的前提下，把过长的接口标题在门户换成短名（见 KPI_RICH 第三张
+       的 label_en 及注释）；没有覆盖时仍用接口返回的 title / title_en。 */
     var name = c
-      ? ((state.lang === 'en' ? (c.title_en || c.title) : (c.title || c.title_en)) || spec.id)
-      : (state.lang === 'en' ? spec.en : spec.zh);
+      ? ((state.lang === 'en'
+          ? (spec.label_en || c.title_en || c.title)
+          : (spec.label_zh || c.title || c.title_en)) || spec.id)
+      : (state.lang === 'en' ? (spec.label_en || spec.en)
+                             : (spec.label_zh || spec.zh));
     var better = (c && c.better) || 'up';
     /* tooltip 说清三件事：这个指标是什么、大数字是哪天的、同比各自对比哪一天。
        只写"来源：某某看板"在这里不够用 —— 同屏三个数字都不是当天的。
@@ -1243,7 +1260,7 @@
        ------------------------------------------------------------------------ */
     var open = spec.page
       ? '<a class="qc-card qc-card--rich qc-card--open' + (na ? ' is-na' : '') + '" href="' +
-        esc('/myapp/?page=' + encodeURIComponent(spec.page)) + '" target="_blank" ' +
+        esc('/myapp/?page=' + encodeURIComponent(spec.page) + langQs()) + '" target="_blank" ' +
         'rel="noopener nofollow" title="' +
         esc(tf('kpi.openTip', { n: name, b: t('kpi.boardRich') }) + '\n\n' + tip) + '">'
       : '<div class="qc-card qc-card--rich' + (na ? ' is-na' : '') + '" title="' + esc(tip) + '">';
@@ -1273,6 +1290,91 @@
           esc(t('kpi.days').replace('{n}', String((c && c.n) != null ? c.n : '—'))) + '</span></div>' +
         '<div class="lo"><span>' + esc(t('kpi.min')) + '</span><b>' +
           esc(val(min && min.value, true)) + '</b><span>' + esc(dateOf(min)) + '</span></div>' +
+      '</div>' + close;
+  }
+  /* 2G/3G/4G 可用率「富卡片」（2026-10-01 加，用户要求 Network Status Overview
+     右边三张与左边三张在格式、内容上尽量对齐）。
+     DOM 结构与 kpiRichHtml **逐行相同**：.qc-ttl / .qc-val / .qc-asof /
+     .qc-chips / .qc-spark / .qc-ext(Max/Avg/Min)，所以外层也挂 qc-card--rich。
+     数据全部来自可用率 row（month_avg / latest / series / latest_date）与阈值，
+     **不编造**：可用率接口没有 WoW / MoM，chips 位置改放两枚真实徽章——
+     「目标阈值」与「距阈值差距」（原底部的合规信息上移到此，不丢失）；
+     底部三格改为与富卡片一致的 Max / Avg / Min，由 series 逐日值现算。 */
+  function availRichHtml(spec, row) {
+    var pct = function (x) {
+      return (x == null || isNaN(Number(x))) ? null : Number(x) * 100;
+    };
+    /* 阈值已是百分数（99.65），不走 pct()（同 renderKpi 旧逻辑的警告） */
+    var thr = (state.kpi.avail && state.kpi.avail.threshold_pct != null)
+      ? Number(state.kpi.avail.threshold_pct) : null;
+    if (thr != null && isNaN(thr)) thr = null;
+
+    /* series（0~1 小数）清洗成百分数日点 {d, v}；先挡 null/''，Number(null)===0
+       会被当成「那天可用率 0%」（同 availSpark 的既有处理）。 */
+    var pts = ((row && row.series) || []).map(function (p) {
+      if (!p || p.v == null || p.v === '') return null;
+      var n = Number(p.v) * 100;
+      return isFinite(n) ? { d: p.d, v: n } : null;
+    }).filter(Boolean);
+
+    var monthV = pct(row && row.month_avg);
+    var lastV = pct(row && row.latest);
+    var na = monthV == null || isNaN(monthV);
+
+    /* 30 天日序列现算 Max / Avg / Min。
+       ⚠️ 必须显式标注类型：tsc 的控制流分析看到 `var maxP = null`、
+       而赋值只发生在下面的回调里（它不认为回调一定会执行），
+       于是把 maxP 窄化成 never，用到 maxP.v / maxP.d 时就报
+       "Property 'v' does not exist on type 'never'"。
+       这不是运行时错误（守卫写对了），纯粹是类型标注缺失。 */
+    /** @type {{d: string, v: number}|null} */
+    var maxP = null;
+    /** @type {{d: string, v: number}|null} */
+    var minP = null;
+    var sum = 0, cnt = 0;
+    pts.forEach(function (p) {
+      if (maxP === null || p.v > maxP.v) maxP = p;
+      if (minP === null || p.v < minP.v) minP = p;
+      sum += p.v; cnt++;
+    });
+    var avgV = cnt ? sum / cnt : null;
+
+    var name = spec.key + ' ' + t('kpi.avail');
+    var gap = (lastV != null && thr != null) ? lastV - thr : null;
+    var gapCls = gap == null ? 'neu' : (gap < 0 ? 'down' : 'up');
+
+    var tip = t('kpi.tipAvail').replace('{board}', 'Daily_Availability_KPI') +
+      '\n' + t('kpi.tipAvailFoot');
+    var open = spec.page
+      ? '<a class="qc-card qc-card--rich qc-card--open' + (na ? ' is-na' : '') + '" href="' +
+        esc('/myapp/?page=' + encodeURIComponent(spec.page) + langQs()) + '" target="_blank" ' +
+        'rel="noopener nofollow" title="' +
+        esc(tf('kpi.openTip', { n: name, b: t('kpi.boardAvail') }) + '\n\n' + tip) + '">'
+      : '<div class="qc-card qc-card--rich' + (na ? ' is-na' : '') + '" title="' + esc(tip) + '">';
+    var close = spec.page ? '</a>' : '</div>';
+
+    /* chips：目标阈值（中性）+ 距阈值差距（达标绿/未达标红），复用 .qc-chip 配色，
+       替代可用率缺失的 WoW/MoM，两枚均为真实数据。 */
+    var thrChip = '<span class="qc-chip neu">' + esc(t('kpi.thr')) + ' ' +
+      (thr == null ? '—' : kpiNum(thr, 2)) + '%</span>';
+    var gapChip = '<span class="qc-chip ' + gapCls + '">' + esc(t('kpi.gapThr')) + ' ' +
+      (gap == null ? '—' : (gap > 0 ? '+' : '') + gap.toFixed(2)) + 'pp</span>';
+
+    return open +
+      '<div class="qc-ttl"><b title="' + esc(name) + '">' + esc(name) + '</b><i>%</i></div>' +
+      '<div class="qc-val"><span>' + (na ? '—' : kpiNum(monthV, 2)) + '</span><em>%</em></div>' +
+      '<div class="qc-asof">' +
+        esc(tf('kpi.availAsof', { d: (row && row.latest_date) || '—' })) + '</div>' +
+      '<div class="qc-chips">' + thrChip + gapChip + '</div>' +
+      kpiSpark(pts.map(function (p) { return p.v; })) +
+      '<div class="qc-ext">' +
+        '<div class="hi"><span>' + esc(t('kpi.max')) + '</span><b>' +
+          (maxP ? kpiNum(maxP.v, 2) : '—') + '</b><span>' + (maxP ? maxP.d : '—') + '</span></div>' +
+        '<div><span>' + esc(t('kpi.avg')) + '</span><b>' +
+          (avgV == null ? '—' : kpiNum(avgV, 2)) + '</b><span>' +
+          esc(t('kpi.days').replace('{n}', String(cnt || '—'))) + '</span></div>' +
+        '<div class="lo"><span>' + esc(t('kpi.min')) + '</span><b>' +
+          (minP ? kpiNum(minP.v, 2) : '—') + '</b><span>' + (minP ? minP.d : '—') + '</span></div>' +
       '</div>' + close;
   }
   /* 按接口自己给的 digits 格式化，绝不 toFixed(2) 一把抓：
@@ -1389,6 +1491,126 @@
     return '<span class="qc-spark-wrap" title="' + esc(tip) + '">' + svg + '</span>';
   }
   /* ==================================================================== v1 ==
+     Benchmark 行的两张走势图（2026-10-01 加，用户要求「卡片能跟 Network Status
+     Overview 里的卡片一样添加图」）
+     ----------------------------------------------------------------------------
+     上面那三张可用率卡画的是**单条**折线（availSpark → qcSparkSvg）。
+     Benchmark 这一排的卡内是**两家并排**（Orange / MTN），所以线也是两条 ——
+     这是本排与上面那排唯一的画法差异，其余（.qc-spark 类名、26px 高度、
+     preserveAspectRatio="none"、遇到 null 断开）**全部沿用**既有那一套，
+     不另开一套样式：同一屏上两组折线的粗细、圆角、面积透明度必须一致。
+
+     为什么必须是两条而不是把两家平均成一条：
+     这一排六张卡的主题就是"两家 PK"—— 卡内两行数是两家的区间均值，
+     若图只画一条，读者无法判断那条线是谁的；合成平均更是把一个
+     不存在的量画出来（口径里没有"两家平均"这个指标）。
+
+     为什么用两条 qcSparkSvg + 一个图例，而不是改 qcSparkSvg 支持多序列：
+     那个函数被上面三张可用率卡与 QC 那几条走势共用（qcTrendSlot /
+     qcStockSlot），给它加"多序列 + 配色"参数会让一个 30 行的纯画线函数
+     长出一套配色 API，而那三个调用点一个都用不上。
+     这里改成：**同一个 qcSparkSvg 调两次**（各自一份 vals），外面套一个
+     相对定位的容器把两张 SVG 叠在一起 —— 两份输入共用同一个 min/max 与
+     同一个横轴长度，所以叠加后两家的点必然落在同一像素列上，
+     不会出现"Orange 的第 12 天"与"MTN 的第 12 天"错开一格。
+     ⚠️ min/max 必须由调用方**同时**把两家的值合起来算（见 benchSpark 的
+     lo/hi 入参），否则两次调用各按自己的极值拉伸，两条线会被拉成同一条
+     形状 —— 那样看图的人会以为两家走势完全一样。 */
+  /* 叠放两张单线 SVG 的容器。两条线用绝对定位重合，
+     第二张直接铺在第一张上面（两张的 viewBox 与 padding 完全一致）。 */
+  function benchSparkLayers(a, b) {
+    if (!a || !b) return '';
+    return '<span class="bf-spark"><span class="bf-spark-l l-o">' + a + '</span>' +
+      '<span class="bf-spark-l l-m">' + b + '</span></span>';
+  }
+  /* 一条「两家 × 一个指标」的走势。
+   * spec: { key, digits, kind }，rows: 逐日记录数组，
+   *   get: function(row, brand) → 该品牌该日的原始值（null = 那天没数据）
+   * 返回 '' 表示画不出来（点数不足），调用方**不要**因此把卡片改形 ——
+   * 与 availSpark 同一降级：图这一格不占位，卡片靠 has-foot 把页脚沉底。
+   *
+   * ⚠️ 两家的点**分别**喂给 qcSparkSvg，缺的那天各自推 null（不补 0）：
+   * 实测这份数据是按天导入的，个别日子只有一家有测试 —— 补 0 会画出
+   * 「那天 MTN 速率掉到 0」的假谷底，比一段缺口严重得多（同 availSpark）。 */
+  function benchSpark(spec, rows, get, tipKey) {
+    if (!rows || !rows.length) return '';
+    var brands = DATA.BENCH_BRANDS;
+    var series = brands.map(function (b) {
+      return rows.map(function (r) {
+        var v = get(r, b);
+        /* 先挡 null/'' 再 Number()：Number(null) === 0 是有限数，
+           会被当成「那天是 0 Mbps」收进来（同 qcStockSeries 的教训）。 */
+        if (v == null || v === '') return null;
+        var n = Number(v);
+        return isFinite(n) ? n : null;
+      });
+    });
+    /* 极值取两家的**全部真实点**：只按一家算会把另一家画出界外
+       （qcSparkSvg 不裁剪，超出部分会盖到邻居头上）。 */
+    var all = series[0].concat(series[1]).filter(function (n) { return n != null; });
+    if (all.length < 2) return '';
+    /* 任一家的有效点 < 2 就整体不画：只有一条线时，读者会以为
+       "另一家这段时间没有数据"是对的，但更常见的情况是它整个窗口都没采到 ——
+       那种情况下这条线表达的是"数据缺失"而不是"趋势"。 */
+    var okBoth = series.every(function (s) {
+      return s.filter(function (n) { return n != null; }).length >= 2;
+    });
+    if (!okBoth) return '';
+    var lo = Math.min.apply(null, all), hi = Math.max.apply(null, all);
+    /* ⚠️ 两家在这段时间完全相等（实测可能出现：某窗口两家均值同分）：
+       qcSparkSvg 内部对 span 有 `|| 1` 兜底，两条线会重合成一条，
+       看起来像"只画了一家"。这是**如实**的呈现，不额外处理 ——
+       硬把两条拉开就是篡改数据。图例里仍然标出两家颜色。 */
+    var svgO = qcSparkSvg(scaleTo(series[0], lo, hi));
+    var svgM = qcSparkSvg(scaleTo(series[1], lo, hi));
+    if (!svgO || !svgM) return '';
+    var days = rows.length;
+    /* 品牌展示名取后端 label（Orange / MTN），**不直接用 brands 里的键**——
+       键是 'ORANGE'（全大写，供接口与字典用），直接塞进 tooltip / 图例会写成
+       "上排是 ORANGE"，与卡内两行显示的 "Orange" 不是同一个写法（实测：
+       第一版就是这样，图例里是 Orange、tooltip 里是 ORANGE）。
+       后端没给 label 时退回键，**不在这里写死一份名字表**：那是第三份真相源
+       （同 speedCardHtml 里那一处注释）。 */
+    var label = brandLabels();
+    var tip = tf(tipKey, { n: days, o: label[brands[0]], m: label[brands[1]] });
+    /* 图例：只写两家的名字（后端 label 与卡内每行一致），颜色点用 CSS 类给色 ——
+       ⚠️ 颜色不写在这里：它必须与 .bf-spark-l 里两条线的颜色出自**同一个令牌**，
+       写两份迟早分叉（改主题时只改了一处）。 */
+    var lg = brands.map(function (b) {
+      return '<span class="bf-spark-k k-' + (b === brands[0] ? 'o' : 'm') + '">' +
+        '<i aria-hidden="true"></i>' + esc(label[b]) + '</span>';
+    }).join('');
+    return '<span class="qc-spark-wrap bf-spark-wrap" title="' + esc(tip) + '">' +
+      benchSparkLayers(svgO, svgM) + '<span class="bf-spark-lg">' + lg + '</span></span>';
+  }
+  /* 两家的展示名（Orange / MTN）。两个接口的 summary[brand].label 都有这个字段，
+     优先取 speedtest 那份（与卡内两行数字同一次响应），取不到再用 meta 那份。
+     ⚠️ 为什么不在这里写一张 { ORANGE:'Orange', MTN:'MTN' } 的常量表：
+     那会是第三份真相源（前两份是 bm_speedtest_caliber / bm_meta_caliber 的
+     BRAND_LABELS）。后端改一次品牌写法，这里就会悄悄对不上。
+     两处调用（tooltip 与图例）**必须共用这一个函数** —— 分开取就会出现
+     "图例写 Orange、tooltip 写 ORANGE"这种同一张卡上两种写法的问题。 */
+  function brandLabels() {
+    var s = (state.kpi.speed && state.kpi.speed.summary) || null;
+    var mm = (state.kpi.meta && state.kpi.meta.summary) || null;
+    var out = {};
+    DATA.BENCH_BRANDS.forEach(function (b) {
+      out[b] = (s && s[b] && s[b].label) || (mm && mm[b] && mm[b].label) || b;
+    });
+    return out;
+  }
+  /* 把一串值线性映射到给定的 [lo, hi]。
+     为什么要这一步：qcSparkSvg 内部是**按传入值自己的 min/max** 拉伸的，
+     两次调用各拉各的，两条线就会长得一模一样（都占满整高）。
+     先在这里按统一的 lo/hi 归一化，再交给 qcSparkSvg —— 它内部那次
+     拉伸就变成"对已经同尺度的数据做同一变换"，两条线的相对高低才成立。 */
+  function scaleTo(vals, lo, hi) {
+    var span = (hi - lo) || 1;
+    return vals.map(function (n) {
+      return n == null ? null : (n - lo) / span;
+    });
+  }
+  /* ==================================================================== v1 ==
      Benchmark 行：Network Benchmark View（2026-10-01 加）
      ----------------------------------------------------------------------------
      用户要求：「Network Status Overview 组件下面，新增一行，使用
@@ -1479,7 +1701,7 @@
     if (lead) tip.push(t('kpi.bf.tipLead'));
     if (na) tip.push(t('kpi.bf.na'));
     tip.push(tf('kpi.openTip', { n: name, b: t('kpi.bf.board') }));
-    var href = '/myapp/?page=' + encodeURIComponent(spec.page);
+    var href = '/myapp/?page=' + encodeURIComponent(spec.page) + langQs();
     /* 整卡可点（<a> 而非 div + onclick），理由与 kpiRichHtml 那段完全一致：
        中键新标签 / 右键复制链接 / 键盘 Enter / 读屏念成链接都是白拿的。
        rel="noopener nofollow" 与同页其它外跳一致。 */
@@ -1489,6 +1711,17 @@
         (lead ? '<span class="bf-lead">' + esc(tf('kpi.bf.lead', { n: (rows[lead] && rows[lead].label) || lead })) + '</span>' : '') +
       '</div>' +
       '<div class="bf-rows">' + body + '</div>' +
+      /* 走势图（2026-10-01 加）：插在「两家两行数」与页脚之间 ——
+         与上面富卡片「大数字 → 走势 → 页脚」的次序一致，
+         所以三排卡片的视觉节奏都是"先读当前值、再看趋势、最后看口径"。
+         数据来自**同一次 overview 响应**的 daily（见 loadKpi 的取数说明），
+         所以线的末端就是卡上那两天数所在窗口的最后一天，不会各说各话。
+         ⚠️ 不给这条线做"再发一个 /trend 请求"：overview 已经把整个窗口的
+         逐日值带回来了（daily_returned 实测 30 = 窗口天数），
+         多打一次接口只会多一个"图与大数字不同时刻"的分叉点。 */
+      benchSpark(spec, sp && sp.daily, function (r, b) {
+        return r[b === 'ORANGE' ? 'orange_' + spec.key : 'mtn_' + spec.key];
+      }, 'kpi.bf.sparkTip') +
       /* 页脚与上面两排共用 .qc-ext 结构与基线，但内容换成这一排**真正需要**的
          「这个数是哪个窗口、覆盖多少天、两家各测了多少」——
          不写"区间均值"这类已经在标题与 tooltip 里说过的重复话。
@@ -1676,7 +1909,7 @@
     tip.push(tf('kpi.mm.tipCover', { n: kpiNum(covered, 0), d: at || '—' }));
     if (na) tip.push(t('kpi.mm.na'));
     tip.push(tf('kpi.openTip', { n: name, b: t('kpi.mm.board') }));
-    var href = '/myapp/?page=' + encodeURIComponent(spec.page);
+    var href = '/myapp/?page=' + encodeURIComponent(spec.page) + langQs();
     /* 整卡可点（<a> 而非 div + onclick）：与 speedCardHtml 同一条理由
        （中键新标签 / 右键复制链接 / 键盘 Enter / 读屏念成链接都是白拿的）。
        has-foot 见上面 BP 那段说明：它让内容少的卡把页脚沉到卡底。 */
@@ -1691,8 +1924,65 @@
           : '') +
       '</div>' +
       '<div class="bf-rows">' + body + '</div>' +
+      metaSpark(spec, mm) +
       foot +
     '</a>';
+  }
+  /* Meta 组三张卡的走势图（2026-10-01 加）。
+   * 与左边 Ookla 三张的区别只有**数据来源**，画法与容器完全相同
+   * （都走 benchSpark，所以两条线的粗细/透明度/图例排布是一套）。
+   *
+   * ⚠️ 这里**不复用** sp.daily —— 那是 bm_speedtest 的表，与 Meta 报告是两份数据。
+   * 用的是 /api/bm-meta/overview 的 daily：
+   *   · speed   → daily[].orange_speed / mtn_speed（逐日速率，与卡上大数字同源）
+   *   · scores  → daily 里**没有**逐日评分（后端只回区间汇总分），
+   *               所以这张卡的图改画**逐日速率**并明确标注 —— 见下方注释；
+   *   · bp      → daily[].bp（网络侧 KPI，单线，不属于任何一家）
+   *
+   * ⚠️ 「综合评分」那张卡为什么画速率而不是评分：
+   * 后端的 score_brands 只在**整段窗口**上算一次（bm_meta_caliber.score_brands），
+   * 逐日评分在接口里根本不存在。要在图上画"逐日评分"就必须在这里重算一遍
+   * 相对分 —— 那等于给同一个指标造第二个答案（本文件多处已立此约定：
+   * 渲染层不重算口径）。所以这张卡的图画**它真正有的逐日数据（速率）**，
+   * 并在 tooltip 里说明"这条线是速率，不是评分"，避免读者把两者当成一回事。 */
+  function metaSpark(spec, mm) {
+    var daily = (mm && mm.daily) || null;
+    if (!daily || !daily.length) return '';
+    if (spec.kind === 'network') {
+      /* BP：单线。不属于任何一家，所以既没有双线叠加、也没有图例 ——
+         画成两条会把"这是两家之一"这个错误信息传达出去。 */
+      var pts = daily.map(function (r) {
+        var v = r[spec.key];
+        if (v == null || v === '') return null;
+        var n = Number(v);
+        return isFinite(n) ? n : null;
+      });
+      var real = pts.filter(function (n) { return n != null; });
+      if (real.length < 2) return '';
+      var lo = Math.min.apply(null, real), hi = Math.max.apply(null, real);
+      var svg = qcSparkSvg(scaleTo(pts, lo, hi));
+      if (!svg) return '';
+      var tip = tf('kpi.mm.sparkTipNet', { n: real.length, m: t(spec.name) });
+      /* ⚠️ 类名必须是 `qc-spark-wrap bf-spark-wrap`（两个都要），
+         并且要补一个空的 .bf-spark-lg 占位 —— 2026-10-01 用户反馈
+         「右边的 3 个横坐标太偏上了」修的就是这里：
+           · `bf-spark-wrap` 是这一排"图沉底 + 与页脚固定 5px"那一套规则的钩子
+             （olbr.css 的 .qc-card--bf .bf-spark-wrap），BP 早先只写了
+             qc-spark-wrap，于是它**完全不参与**那套对齐，图比另外五张高 49.7px；
+           · 另外五张卡有图例（高 14.4px），BP 是单线卡没有图例，
+             整块因此矮 14.4px —— 对齐要求"图 + 图例"整块等高，
+             所以这里补一个**空的图例格**占住同样的高度。
+         空 span 不给 aria-hidden 之外的内容：它不是给读屏念的，
+         只是排版占位（BP 只有一条线，本来就没有"哪条是哪家"可标）。 */
+      return '<span class="qc-spark-wrap bf-spark-wrap" title="' + esc(tip) + '">' + svg +
+        '<span class="bf-spark-lg" aria-hidden="true"></span></span>';
+    }
+    /* 速率卡与综合评分卡：都是两家 PK 的形态，画同一份逐日速率的双线。
+       评分卡的那条提示语不同（说明画的是速率），由 tipKey 区分。 */
+    var tipKey = spec.key === 'scores' ? 'kpi.mm.sparkTipScore' : 'kpi.mm.sparkTip';
+    return benchSpark(spec, daily, function (r, b) {
+      return r[b === 'ORANGE' ? 'orange_speed' : 'mtn_speed'];
+    }, tipKey);
   }
   function renderKpi() {
     var box = $('#kpi');
@@ -1756,69 +2046,13 @@
     }
     /* ---- ① 四张富卡片（olib 90 天经营看板，昨日完整值）---- */
     var rich = DATA.KPI_RICH.map(function (spec) { return kpiRichHtml(spec, olibCard(spec.id)); }).join('');
-    /* ---- ② 三张 2G/3G/4G 当月可用率（沿用简卡片）----
-       2026-09-25 补了三段页脚：这三张没有迷你走势，内容比同排富卡片矮 70+px，
-       六张一行时底部会空出一大块。页脚用的是**接口已经返回**的数
-       （latest / network_threshold_pct），不是为填空白编出来的装饰。 */
+    /* ---- ② 三张 2G/3G/4G 当月可用率（2026-10-01 改为与左边富卡片同构）----
+       由 kpiCardHtml（简卡 + has-foot）换成 availRichHtml：结构与内容跟左边
+       三张经营卡逐行对齐（标题 / 大数字 / 日期 / 双徽章 / 趋势图 / Max·Avg·Min）。
+       可用率没有 WoW/MoM，徽章位置放真实的「目标阈值 + 距阈值差距」，
+       合规信息不丢失；底部 Max/Avg/Min 由 30 天逐日序列现算。 */
     var avail = DATA.KPI_AVAIL_ROWS.map(function (spec) {
-      var row = availRow(spec.group);
-      /* xlsx 里的 Cell Availability 是 0~1 的小数（0.97935 = 97.935%），
-         乘 100 后才与"可用率"的日常说法一致。这一步只在渲染层做，
-         不改后端返回 —— 后端那个 0~1 与 FineBI 原页一致，改了会串到别处。 */
-      var pct = function (x) {
-        return (x == null || isNaN(Number(x))) ? null : Number(x) * 100;
-      };
-      var v = pct(row && row.month_avg);
-      var na = v == null || isNaN(v);
-      /* 2026-09-28 删：这里原本取 `latest_month`（"2026-09"）拼成 sub 的
-         「2026-09 month-to-date avg」。sub 已改为空串不再渲染，
-         这个变量就没有调用点了 —— 直接删掉，不留一个无用的局部变量
-         （字段本身仍在接口响应里，本页只是不读它）。 */
-      /* ⚠️ 阈值是**已经乘过 100 的百分数**（99.65），与上面 0~1 的 latest /
-         month_avg 不是同一量纲，所以这里绝不走 pct()，否则会得到 9965%。 */
-      var thr = (state.kpi.avail && state.kpi.avail.threshold_pct != null)
-        ? Number(state.kpi.avail.threshold_pct) : null;
-      if (thr != null && isNaN(thr)) thr = null;
-      var last = pct(row && row.latest);
-      var gap = (last != null && thr != null) ? last - thr : null;
-      /* 距阈值为负 = 没达标（红），非负 = 达标（绿）；复用富卡片页脚那套配色。 */
-      var gapCls = gap == null ? '' : (gap < 0 ? 'lo' : 'hi');
-      return kpiCardHtml({
-        name: spec.key + ' ' + t('kpi.avail'), unit: '%', value: na ? '—' : kpiNum(v, 2), na: na,
-        /* 整卡可点（2026-09-29 加，用户要求）：目标页来自 spec.page
-           （KPI_AVAIL_ROWS），与富卡片同一条「页面归属属于数据、不属于渲染」。
-           相对路径的理由见 kpiRichHtml 里那段注释（写死 localhost 会在用户
-           用 IP 访问门户时指向访问者本机）。 */
-        href: spec.page ? '/myapp/?page=' + encodeURIComponent(spec.page) : '',
-        /* ⚠️ 2026-09-28（用户要求「卡片里面类似 Last 30 days 2026-09 month-to-date avg
-           的备注删除」）：这一行「2026-09 month-to-date avg」不再渲染 —— 传空串而非
-           删掉 sub 字段，因为 kpiCardHtml 对空串与 undefined 的处理不同：
-           空串仍会输出空的 .qc-sub 占位（保持三张卡与富卡片同一行高），
-           undefined 则整行不渲染、卡片变矮、与同排富卡片错位。
-           ⚠️ 口径没有丢：它仍挂在 tip（kpi.tipAvailFoot）里，hover 看得到
-           「大数字是当月均值」这句；页脚三格（昨日/阈值/距阈值）也都还在，
-           真正判断达标看的是那三格，不是这行说明。
-           要恢复就把 sub 那行写回来（键 kpi.month 仍留在字典里）。 */
-        sub: '',
-        tip: t('kpi.tipAvail').replace('{board}', 'Daily_Availability_KPI') +
-          '\n' + t('kpi.tipAvailFoot'),
-        /* 2026-09-28 删：这里原先是 `icon: 'gauge'`，卡名前的仪表图标已按要求去掉
-           （kpiCardHtml 不再读 icon），传了也没人用 —— 直接删掉，不留死参数。 */
-        /* 趋势位（2026-09-25 加）：这三张卡此前没有走势，比同排富卡片矮一大截。
-           现在用后端返回的逐日可用率画一条 30 天的线。 */
-        spark: availSpark(row),
-        /* 不再传 age：它显示的 latest_date 现在就在页脚「昨日」那一格里，
-           留着等于同一张卡两处写同一天。 */
-        foot: [
-          { label: t('kpi.yday'), num: last == null ? '—' : kpiNum(last, 2),
-            foot: (row && row.latest_date) || '—' },
-          { label: t('kpi.thr'), num: thr == null ? '—' : kpiNum(thr, 2),
-            foot: t('kpi.thrLine') },
-          { label: t('kpi.gapThr'),
-            num: gap == null ? '—' : (gap > 0 ? '+' : '') + gap.toFixed(2),
-            foot: t('kpi.pp'), cls: gapCls }
-        ]
-      });
+      return availRichHtml(spec, availRow(spec.group));
     }).join('');
     /* 顶栏时间戳取 olib 的写入时间（富卡片的主数据源）。
        取 vmax 的话会显示另一个接口的时间，与卡上数字对不上。 */
@@ -2199,7 +2433,7 @@
         /* 标题优先级：目录里的看板名 → i18n 文案键（map.gis / map.mw）。
            只认当前语言，缺值回落另一个语言是 MsPortal 的老口径，这里沿用。 */
         title: it ? (state.lang === 'en' ? (it.titleEn || it.titleZh) : (it.titleZh || it.titleEn)) : t(m.key),
-        src: '/myapp/?page=' + m.page + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '')
+        src: '/myapp/?page=' + m.page + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
       };
     });
   }
@@ -3614,7 +3848,7 @@
   function emailAllowed() { var it = emailItem(); return !!it && canSee(it); }
   /* 相对路径：门户从 localhost 还是局域网 IP 打开都自适应（与地图同一考虑）。
      深链自身就是 bare 模式（自己的侧栏 / Header 都隐藏），不用地图那套 DATA.MAP_STRIP_CSS。 */
-  function emailSrc() { return '/myapp/?page=' + DATA.EMAIL_PAGE; }
+  function emailSrc() { return '/myapp/?page=' + DATA.EMAIL_PAGE + langQs(); }
 
   function emailSectionHtml() {
     return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' + esc(t('email.title')) + '</span></span>' +
@@ -3674,9 +3908,13 @@
       host.appendChild(f);
     }
     var want = state.theme === 'dark' ? 'dark' : 'light';
-    if (!f.getAttribute('src') || f.dataset.theme !== want) {
+    /* 语言也进重建判据：my_app 只在启动时读一次 URL 的 lang（见 i18n.tsx detectLocale），
+       换语言若不重设 src，这块会停在旧语言 —— 与上面 theme 那条同一个理由。 */
+    var wantLang = langVal();
+    if (!f.getAttribute('src') || f.dataset.theme !== want || f.dataset.lang !== wantLang) {
       if (ls('myapp-theme', '') !== want) ss('myapp-theme', want);   // ⚠️ 必须在设 src 之前
       f.dataset.theme = want;
+      f.dataset.lang = wantLang;
       delete f.dataset.loaded;
       f.setAttribute('src', emailSrc());
     }
@@ -4012,7 +4250,7 @@
            真未登录时左位保持原有的「管理门户」外链。 */
         (forced
           ? '<button class="btn" type="button" id="gclose">' + esc(t('gate.cancel')) + '</button>'
-          : '<a class="btn" href="/MsPortal/">' + esc(t('mast.admin')) + '</a>') +
+          : '<a class="btn" href="/MsPortal/?lang=' + encodeURIComponent(langVal()) + '">' + esc(t('mast.admin')) + '</a>') +
         '<button class="btn primary" type="submit" id="lgo">' + esc(t('gate.go')) + '</button></div>' +
         '<div class="gate-alt"><button type="button" class="gate-link" id="gmreq">' +
         esc(t('ar.requestLink')) + '</button></div></form>';
@@ -4075,10 +4313,24 @@
         if (r.ok) return true;
         var detail = String((d && d.detail) || '');
         var e = new Error(detail || ('HTTP ' + r.status));
+        /* detail → 文案键。**必须覆盖后端所有会返回的 detail**，漏掉的那个会被
+           当成网络故障报出去。2026-09-30 实测事故：用户名带 @ 或大写时后端返回
+           400 invalid_username，这里没有对应分支 → 落到下面的 'server' → 页面显示
+           「无法连接鉴权服务，请检查网络后重试」，用户以为是网络问题，换到
+           /uniplam/ 反复试到猜对用户名为止（nginx access log 里 7 次 400、
+           每次响应体 29 字节 = {"detail":"invalid_username"}）。
+           格式类错误合并到 invalidInput 一条 —— 后端对用户名/密码规则的说法
+           （invalid_username / password_too_short / invalid JSON payload）对用户
+           没有区别，逐条翻译只会多出三个几乎同义的键。
+           最后那个 'server' 分支是**有意的兜底**：认不出的 detail 就原样显示后端
+           的话（err.message），不冒充网络故障。'net' 从此只留给真正的 fetch 失败。 */
         e.code = detail === 'username_taken' ? 'duplicate'
           : detail === 'request_pending' ? 'pendingDup'
             : detail === 'too_many_requests' ? 'tooMany'
-              : 'net';
+              : detail === 'invalid_username' ? 'invalidInput'
+                : detail === 'password_too_short' ? 'invalidInput'
+                  : detail === 'invalid JSON payload' ? 'invalidInput'
+                    : 'server';
         throw e;
       });
     }, function () {
@@ -4899,6 +5151,16 @@
         state.kpi.speed = {
           summary: d.summary,
           wins: d.wins || null,
+          /* 逐日记录（2026-10-01 加，卡片走势图要用）。
+             ⚠️ 直接存 overview 的 daily，**不再打一次 /trend**：同一个窗口下
+             /trend 的 series 与 overview 的 daily 是同一段 SQL 的结果，
+             多打一次只会多一个"图与大数字来自不同时刻"的分叉点。
+             ⚠️ overview 对超过 400 天的窗口会截断（daily_truncated），
+             本页窗口固定 30 天，够用；真被截断时图只会短一截，
+             不会画错 —— 但那时卡片标题的天数与线的长度会对不上，
+             所以这里把截断标志一起留着，将来要提示有据可依。 */
+          daily: d.daily || [],
+          dailyTruncated: !!(d.meta && d.meta.daily_truncated),
           meta: d.meta || {},
           /* 窗口天数取**接口回显的** start/end 算，不取我们请求时那个数：
              后端在 start >= end 时会回落到默认窗口，那时请求的 30 就不是真实窗口了。 */
@@ -4928,6 +5190,13 @@
              两者正常情况下相等，一旦不等（例如将来加了截断），
              页脚会跟着真正在渲染的数据走，不会出现"说 358 天、其实只画了 90 天"。 */
           covered: (d.daily || []).length,
+          /* 逐日记录（2026-10-01 加，卡片走势图要用）。与 covered 取的是
+             **同一个数组**：页脚说"覆盖 N 天"与图上画的点数必须同源，
+             分别取两次的话（一处用 d.daily.length、一处用 meta.daily_returned）
+             将来加了截断就会出现"页脚 358 天、图上只有 90 个点"。
+             speed / scores 两张卡用其中的 orange_speed / mtn_speed，
+             bp 那张用 bp 列（见 metaSpark）。 */
+          daily: d.daily || [],
           /* 窗口天数同样回读接口回显的 start/end（与 speed 一路同一套算法）。 */
           days: windowDays(d.meta, sw),
           at: (d.meta && d.meta.data_max_date) || ''
@@ -5037,12 +5306,16 @@
      注意 'tt' / 'wo' / 'ttwo' / 'v1_ttwo' 是 my_app 里**四个不同的页面**，
      四个 key 都在 VALID_PAGES 白名单内，写错哪一个都会被静默回落成概览页。
 
-     本次**只改 v1 这一份**，另外三处同名映射仍是 ttwo：
-       olbrportal/assets/olbr.js、v2/olbrportal/assets/olbr.js、
-       MsPortal/assets/portal.js
+     本次**只改 v1 这一份**，另外两处同名映射仍是 ttwo：
+       olbrportal/assets/olbr.js、MsPortal/assets/portal.js
      理由：用户实际在看的只有 /v1/olbrportal/（见 docs/user-guide.md 第六之二节），
      且上面 cr / pmt 已有「v1 独有、别处刻意不改」的先例；一并漫改会让用户没要求的
-     /olbrportal/ 与 MsPortal 跟着变行为。将来要拉齐就改上面这三处。 */
+     /olbrportal/ 与 MsPortal 跟着变行为。将来要拉齐就改上面这两处。
+
+     ⚠️ 2026-10-01：这里原先把 `v2/olbrportal/assets/olbr.js` 列为「仍是 ttwo 的第三处」。
+     v2 那份已确认弃用（改动全部落在 v1，v2 自 09-30 起停更）并整目录移入
+     `_quarantine_20261001_v2_olbrportal\`，故从清单中删除 —— 留一个已不在磁盘上的
+     路径会误导后来者去找它。 */
   var QC_BOARD_PAGE = {
     alarm: 'realtime_alarm',
     tt: 'tt',
@@ -5075,7 +5348,7 @@
       if (page) {
         /* 同源相对路径：门户与 my_app 经同一个 nginx，用相对路径就不会把
            「本机 192.168.100.20」写死进代码（换 IP / 换域名时不用改这里）。 */
-        link.href = '/myapp/?page=' + encodeURIComponent(page);
+        link.href = '/myapp/?page=' + encodeURIComponent(page) + langQs();
         link.hidden = false;
       } else {
         link.removeAttribute('href');
@@ -6000,9 +6273,15 @@
           $('#ru').value = ''; $('#rp').value = ''; $('#rp2').value = ''; $('#rn').value = '';
         }).catch(function (x) {
           /* register() 给的 code 里 'net' 要翻成 ar.networkError，其余（duplicate /
-             pendingDup / tooMany）与键名同名，直接拼。别漏了这一支，
-             否则网络故障会显示成裸 key「ar.net」。 */
-          re.textContent = t(x.code === 'net' ? 'ar.networkError' : 'ar.' + x.code);
+             pendingDup / tooMany / invalidInput）与键名同名，直接拼。别漏了这一支，
+             否则网络故障会显示成裸 key「ar.net」。
+             'server' 是 register() 的兜底档：后端返回了认不出的 detail。这一档**不能**
+             显示成 networkError（那正是 2026-09-30 那次误报的成因），也不能显示成
+             裸 key「ar.server」—— 直接把 x.message（后端原文或 "HTTP <status>"）摆出来，
+             运维至少知道是服务端在拒绝、拒绝理由是什么。 */
+          re.textContent = x.code === 'net' ? t('ar.networkError')
+            : x.code === 'server' ? (x.message || t('ar.networkError'))
+              : t('ar.' + x.code);
           re.hidden = false;
         }).then(function () {
           rgo.disabled = false; rgo.textContent = t('ar.submit');

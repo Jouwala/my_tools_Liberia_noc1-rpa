@@ -12,7 +12,6 @@ import os
 import re
 import csv
 import sys
-import glob
 import io
 import json
 import time
@@ -82,17 +81,50 @@ ZIP_TEMPLATES = [
 # ============================================================
 # 工具函数
 # ============================================================
-def find_latest_file(directory, keyword, extension):
+# 扫描噪音目录：这些目录里没有报表附件，但文件量最大（影刀 venv / CEF 缓存 / 浏览器 profile）
+SEARCH_PRUNE_DIRS = {"AppData", "node_modules", "__pycache__", "venv310", "$RECYCLE.BIN", "System Volume Information"}
+SEARCH_MAX_DEPTH = 4
+
+
+def _iter_candidate_files(directory, max_depth=SEARCH_MAX_DEPTH):
+    """有界遍历，产出 (路径, mtime)。跳过噪音目录与隐藏目录，不跟随符号链接/junction。"""
+    stack = [(directory, 0)]
+    while stack:
+        path, depth = stack.pop()
+        try:
+            with os.scandir(path) as it:
+                entries = list(it)
+        except OSError:
+            continue
+        for e in entries:
+            try:
+                if e.is_file(follow_symlinks=False):
+                    yield e.path, e.stat(follow_symlinks=False).st_mtime
+                elif e.is_dir(follow_symlinks=False):
+                    if e.name in SEARCH_PRUNE_DIRS or e.name.startswith("."):
+                        continue
+                    if depth < max_depth:
+                        stack.append((e.path, depth + 1))
+            except OSError:
+                continue
+
+
+def find_latest_files(directory, keywords, extension):
     """
-    在目录（含子目录）中查找文件名包含 keyword 且后缀为 extension 的最新文件。
-    返回文件完整路径，未找到返回 None。
+    单次遍历目录，为每个 keyword 各找出文件名含该 keyword 且后缀为 extension 的最新文件。
+    返回 {keyword: (路径, mtime)}；未命中的 keyword 不出现在结果中。
     """
-    pattern = os.path.join(directory, "**", f"*{keyword}*{extension}")
-    candidates = glob.glob(pattern, recursive=True)
-    if not candidates:
-        return None
-    # 按修改时间降序，取最新
-    return max(candidates, key=os.path.getmtime)
+    best = {}
+    suffix = extension.lower()
+    pairs = [(kw.lower(), kw) for kw in keywords]
+    for path, mtime in _iter_candidate_files(directory):
+        name = os.path.basename(path).lower()
+        if not name.endswith(suffix):
+            continue
+        for kw_l, kw in pairs:
+            if kw_l in name and (kw not in best or mtime > best[kw][1]):
+                best[kw] = (path, mtime)
+    return best
 
 
 def sanitize_table_name(name):
@@ -334,9 +366,10 @@ def main():
     # ---- 处理列表1：CSV 文件 ----
     print("\n--- 处理 CSV 文件（列表1）搜索目录: " + CSV_SEARCH_DIR + " ---")
     csv_count = 0
+    csv_hits = find_latest_files(CSV_SEARCH_DIR, CSV_TEMPLATES, ".csv")
     for template in CSV_TEMPLATES:
         print(f"\n[{template}]")
-        filepath = find_latest_file(CSV_SEARCH_DIR, template, ".csv")
+        filepath = csv_hits.get(template, (None, 0))[0]
         if not filepath:
             print(f"  [SKIP] 未找到匹配的 CSV 文件")
             continue
@@ -392,9 +425,10 @@ def main():
     # ---- 处理列表2：ZIP 文件（含 xlsx）----
     print("\n--- 处理 ZIP/XLSX 文件（列表2）搜索目录: " + ZIP_SEARCH_DIR + " ---")
     zip_count = 0
+    zip_hits = find_latest_files(ZIP_SEARCH_DIR, ZIP_TEMPLATES, ".zip")
     for template in ZIP_TEMPLATES:
         print(f"\n[{template}]")
-        filepath = find_latest_file(ZIP_SEARCH_DIR, template, ".zip")
+        filepath = zip_hits.get(template, (None, 0))[0]
         if not filepath:
             print(f"  [SKIP] 未找到匹配的 ZIP 文件")
             continue

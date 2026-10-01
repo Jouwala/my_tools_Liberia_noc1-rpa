@@ -2886,4 +2886,209 @@ AND `Site ID != 'VMAX-DC'` AND `MTTR2 >= 0.25`。每张图两列：
 窗口 2026-08 下日粒度返回 22~31 桶。改完**需重启后端**才生效 ——
 目录在导入期加载，uvicorn 未开 `--reload`（见 `13-operations.md`）。
 
+## 33. CN KPI 看板（`?page=cn_kpi`）—— 核心网 KPI 日趋势（2026-10-01 补齐文档）
+
+原 FineBI「CN KPI」看板（公开链接 iYiQ）的原生重建，18 个组件。
+**不依赖 my-finebi 进程**，只要求远端只读 SQL API（`192.168.100.19:8765`）可达。
+
+### 33.1 数据源：两套彼此独立的流水线（**本节是本页的关键**）
+
+同一个 KPI 在 `db_ps_cs_cn.sqlite3` 里可能有两张同名不同源的表：
+
+| 后缀 | 写入方 | 触发方式 | 特征 |
+| --- | --- | --- | --- |
+| `_EMS` | `Task\PS_CS_CORE_Scripts\ps_cs_core.py` | **人工**从网管导出 CSV 后运行 | 会停摆；**粒度随导出区间变化** |
+| `_UME` | `ccn_ume_kpi_service.run_cnn_kpi_sync`（任务 `cnn_kpi_sync`，每天 06:00） | 自动 | 只覆盖 8 个模板 |
+
+**三个必须知道的事实**（2026-10-01 实测，已写进 `cn_kpi_service.py` 文件头）：
+
+1. **`_EMS` 表无人跑就永远停在最后一次导入。** 实测 USSD / LOCATION_UPDATE 长期停在
+   2026-08-25~27，早已滑出「近 31 天」默认窗口 → 图表**整块空白**。
+2. **`_EMS` 表的粒度由导出时选的时间区间决定，不是固定日粒度。**
+   `ps_cs_core.write_via_api` 用的是 `mode="full_replace"`（**整表覆盖**），
+   所以人工选了「2026-04-01 ~ 10-01」导出，整表就变成 `1Month(s)` 的 6 行。
+   实测 `LICENSE_OCCUPANCY` / `DATA_SUBSCRIBERS` 就是这样被覆盖成月表的。
+3. **`_UME` 只覆盖 8 个模板**（`CNN_KPI_QUERY_CONFIGS`），
+   **USSD_RATIO 与 LOCATION_UPDATE 没有 UME 孪生表** —— 它们只有人工链路。
+
+### 33.2 三级降级取数（`_fetch_widget`，2026-10-01 新增）
+
+因为上游随时可能停摆或改粒度，本页**不再假设数据一定在**，而是逐级降级：
+
+| 级别 | 数据源 | 时间窗口 | 标记 |
+| --- | --- | --- | --- |
+| 1 | 主表 `_EMS` | 请求区间（默认近 31 天） | 无 |
+| 2 | `fallback`（`_UME`） | 同上 | `degraded="day_ume"` |
+| 3 | `monthly_table`（`1month_*`） | **近 13 个月** | `degraded="monthly"` |
+
+**三条实现铁律（改代码时别踩回去）**：
+
+- **查询报错与返回空行一样要降级。** 早期版本只在「返回 0 行」时降级，
+  主表一旦改名/被删就直接抛错开天窗 —— 而上游表被人工导出重命名正是本页常态。
+  现在每一级都独立 `try`，只有**所有**级别都失败才置 `error`。
+- **第 3 级的窗口必须重算。** 月表的点落在每月 1 号，沿用「近 31 天」最多只剩 1~2 个点
+  （2026-10-01 实测就是 2 个），降级就失去意义。故 `_apply_range(..., monthly=True)`
+  用近 13 个月。
+- **粒度靠数据推断，不写死。** `_detect_granularity()` 看**原始**时间值：
+  含 `:`/`T` → 小时级归 day 档；形如 `YYYY-MM-DD` 且日部分全为 `01` → month。
+  ⚠ **必须先看原始值再截断**：小时级 `'2026-09-01 00:00'` 截成前 10 位是 `'2026-09-01'`，
+  日部分恰好 `01`，会被误判成月粒度（c7/c8/c10 三张 xGW 图正是小时粒度）。
+
+### 33.3 已修复的口径缺陷（2026-10-01）
+
+| 组件 | 症状 | 根因 | 修复 |
+| --- | --- | --- | --- |
+| `c2` MSC Utilization | 曲线被向下拉平、不报错 | `_EMS`(月,6 行) `LEFT JOIN` `_UME`(日,93 行) → **笛卡尔积** M×N | 两段 CTE **先按天聚合再连接**，以 UME 日历为 skeleton |
+| `c1` VLR / `c4` Voice | **每天都接近翻倍** | `UNION ALL` + `SUM` 把两表**同一天**的值相加 | 同日优先 EMS、缺日取 UME（见 33.3a） |
+| `c11` USPP Utilization | 31 个点塌成 2 个点 | `MAX(v)` 是原版为日粒度表写的聚合，月表下退化成单点值 | 改 `AVG` + `GROUP BY 天` |
+| `c12`/`c13` USSD/Location | 整块空白 | `_EMS` 停在 2026-08-27，滑出默认窗口 | 三级降级 + 月粒度兜底 |
+
+> **`c2` 的 `WHERE` vs `HAVING`**：重写后外层是**非聚合**查询（聚合都在 CTE 里做完了），
+> 只能用 `WHERE`；写 `HAVING` 会被 SQLite 拒绝：`HAVING clause on a non-aggregate query`。
+
+### 33.3a EMS / UME 不可相加：重叠日会翻倍（2026-10-01 修复）
+
+`c1`(VLR) 与 `c4`(Voice) 的原版 SQL 是 `UNION ALL` 两张表**再 `SUM`**：
+
+```sql
+SELECT substr("End Time",1,10) AS t, SUM("Number of Subscribers in VLR")
+FROM (SELECT ... FROM ..._EMS UNION ALL SELECT ... FROM ..._UME)
+GROUP BY substr("End Time",1,10)
+```
+
+它隐含假设「两表**不会同一天都有数据**」。**这个假设是错的**，实测：
+
+| 表 | 行数 | 覆盖区间 |
+| --- | --- | --- |
+| `VLR_SUBSCRIBERS_TEMPLATE_OSS_EMS` | 30 | 2026-09-02 ~ 10-01 |
+| `VLR_SUBSCRIBERS_TEMPLATE_OSS_UME` | 93 | 2026-07-01 ~ 10-01 |
+
+**30 天完全重叠**，于是那 30 天**每天都是两表之和**：
+
+```
+2026-09-02   EMS=1,143,472  UME=1,133,095  →  旧结果 2,276,567（真实约 113 万）
+```
+
+`c4` 同理（`42868+40460=83329`，真实约 4.2 万）。**症状是"图异常"**：
+曲线整体抬到约 2 倍高度，且早段（只有 UME）是正常量级 →
+**曲线中间出现一个台阶式跳变**。这就是用户报的「日期不一致时图会异常」。
+
+**关键认知：EMS 与 UME 是同一个量在两套网管里的两次测量，不是两个可加的组成部分。**
+证据：两边数值本身只差约 1%（1143472 vs 1133095），
+差异来自采集口径/时点，**相加没有任何业务含义**。
+
+**正确口径：同日优先 EMS，缺失日才用 UME 补。**
+
+```sql
+SELECT e.d AS t, e.v AS "VLR Subscribers" FROM (...EMS 按天聚合...) e
+WHERE e.d >= {{LO}} AND e.d < {{HI}}
+UNION ALL
+SELECT u.d AS t, u.v AS "VLR Subscribers" FROM (...UME 按天聚合...) u
+LEFT JOIN (SELECT substr("End Time",1,10) AS d FROM ..._EMS GROUP BY 1) e2 ON e2.d = u.d
+WHERE e2.d IS NULL AND u.d >= {{LO}} AND u.d < {{HI}}
+ORDER BY t
+```
+
+**为什么用 `LEFT JOIN ... UNION ALL` 而不是 `FULL OUTER JOIN`**：
+两者实测 **93 行结果完全一致**，但 `FULL OUTER JOIN` 要求 SQLite ≥ 3.39
+（远端当前 3.50.4 支持），那是**远端服务的隐性版本依赖**，对端一降级就整页报错。
+`LEFT JOIN` 无此约束，故取此写法。
+
+**为什么选 EMS 优先而不是 UME 优先**：EMS 是人工按原看板口径导出的，更贴近 FineBI 原值；
+UME 只是自动同步的补充。**这个优先级是口径决定，不是性能决定** —— 若要改，必须业务确认。
+
+#### 33.3b 这个 bug 的典型外观：曲线中间一个「台阶」
+
+**报障原话往往是「8/31、9/1 的数值远小于后面的，图异常」** ——
+注意这个描述**把因果说反了**：那两天是**对的**，是**后面被翻倍了**。
+
+真实数据（`c1` VLR，2026-10-01 实测）：
+
+| 日期 | 线上旧代码 | 修复后 | 来源 |
+| --- | --- | --- | --- |
+| 2026-08-31 | 1,128,813 | 1,128,813 | 仅 UME |
+| 2026-09-01 | 1,143,112 | 1,143,112 | 仅 UME |
+| 2026-09-02 | **2,276,567** | 1,143,472 | 重叠 → 旧代码相加 |
+| … | … | … | |
+| 2026-10-01 | **2,238,696** | 1,122,582 | 重叠 → 旧代码相加 |
+
+- 线上序列**极差 2.03x**（肉眼即见台阶），修复后 **1.02x**（平坦）
+- 台阶位置 **= EMS 表的起始日**（这里正好是 9-02）。
+  **所以「台阶出现在哪天」直接告诉你 EMS 是从哪天开始的。**
+
+> **排查提示**：这种「前半段正常、后半段整体抬高」的形状，
+> 第一嫌疑永远是**两表重叠区间被相加**，而不是"某天缺数据"。
+> 判据：拿 `TMP\_probe_vlr_daily.py` 看两表**每天的 `COUNT(*)`** ——
+> 若都是 1 行/天，则 `SUM` 本身无错，错在把两表**跨表相加**；
+> 再用 `TMP\_probe_vlr_oldvsnew.py` 对比线上与修复后的逐日倍数，
+> **≈2.00x 且起点恰好是某表起始日 = 确诊**。
+
+> **别把「代码已修」当成「已生效」**：本次修复写于 10-01 09:59，
+> 而当时 uvicorn（PID 53728）启于 09-30 20:21 —— **进程比代码早 14 小时**，
+> 所以改完必须重启后端，否则看到的仍是旧台阶。
+> 判据：`Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'"` 看 `CreationDate`
+> 与 `Get-Item backend\services\cn_kpi_service.py` 的 `LastWriteTime` 谁更晚。
+>
+> **2026-10-01 10:28 重启后已实测确认**（新 PID 70964）：
+> `c1` 极差 2.03x → **1.02x**，MIN=1,121,544 / MAX=1,148,084，
+> 9-02 起不再是翻倍值；18 个组件**无空数据、无报错**。
+
+> ⚠ **同一处 bug 在 `native_catalog.py` 里也有一份**（那是「原生重建」页，走另一套渲染）。
+> 该文件是 `_gen_native_catalog.py` 从 `_native_catalog_raw.json` **生成**的，
+> 所以修正同时写进了生成器的 `WIDGET_SQL_OVERRIDES`（看板 id=3）——
+> **只改生成物不改生成器，下次重新生成就会把 bug 带回来。**
+> 两者的 SQL 必须**逐字节一致**（含 `\n`），校验脚本 `TMP\_probe_cnkpi_override_sync.py`。
+
+### 33.4 界面必须显示的粒度提示（不要删）
+
+上游粒度会漂移，**用户看到「9-01 / 10-01 两个点」会读成「最近两天」**。因此：
+
+- 卡片右上角：`granularity === 'month'` 显示橙色「月粒度」Tag；
+  `degraded === 'day_ume'` 显示金色「已切源」Tag。
+- 页头橙色告警条：列出所有降级/月粒度组件 + 一句成因说明。
+- 文案键：`cnkpi.monthly` / `cnkpi.monthlyHint` / `cnkpi.fallback` / `cnkpi.fallbackHint` /
+  `cnkpi.degradedTitle` / `cnkpi.degradedMonthly` / `cnkpi.degradedFallback` / `cnkpi.degradedWhy`
+  （zh/en **两份**都要有，见 AGENTS.md 第三节第 3 条）。
+
+### 33.5 页面注册位置（改页名或加同级页时对照）
+
+| 位置 | 内容 |
+| --- | --- |
+| `frontend\src\App.tsx` | `PageKey` 联合类型 + `VALID_PAGES` + 菜单 `nav.cnKpi` + `:cn_kpi` case |
+| `frontend\src\i18n.tsx` | `nav.cnKpi` 与全部 `cnkpi.*`（zh/en 各一份） |
+| `backend\routers\cn_kpi.py` | `GET /api/cn-kpi/overview`、`GET /api/cn-kpi/health` |
+| `backend\services\cn_kpi_service.py` | 组件定义 `WIDGETS` + 取数/降级/缓存 |
+| `backend\main.py` | `app.include_router(cn_kpi.router)`（约 :252） |
+
+### 33.6 排查顺序（页面空白时）
+
+1. `GET /api/cn-kpi/health` —— 远端 8765 是否可达（不通则整页报错，非本页 bug）。
+2. `GET /api/cn-kpi/overview?force=1` —— 看 `meta.failed` 与各组件 `error` / `degraded`。
+3. 单表核对：`SELECT COUNT(*), MIN(substr("End Time",1,10)), MAX(substr("End Time",1,10)),
+   "Query Granularity" FROM "<表名>" GROUP BY 5`
+   —— 一眼看出「停更」还是「粒度漂移」。
+4. 改完 `cn_kpi_service.py` **必须重启后端**（uvicorn 未开 `--reload`；见 `13-operations.md`）。
+
+### 33.7 可复用的诊断脚本（`TMP\`，**不要删**）
+
+这三个脚本绕过 HTTP 直接调服务层，比看接口更快定位问题。
+（`TMP\` 已被忽略，不入库；判分/回归时直接 `python TMP\<名字>` 即可。）
+
+| 脚本 | 用途 |
+| --- | --- |
+| `TMP\_probe_cnkpi_all.py` | 18 个组件全量跑一遍，打印 `rows / degraded / granularity / error`；**末尾直接列出空数据组件**，是最快的回归手段 |
+| `TMP\_probe_cnkpi_fetch.py` | 聚焦 6 个曾出问题的组件（c1/c2/c11/c12/c13/c7），打印列名与头尾几行，用于核对口径 |
+| `TMP\_probe_cnkpi_tier3.py` | 把主表名替换成必然不存在的表，**强制走完三级降级**，验证「上游全停」时仍不出空白 |
+| `TMP\_probe_cnkpi_overlap.py` | 量化 `_EMS`/`_UME` 的**重叠日**，直接打印「双计后 vs 真实值」对照，用于确认 33.3a 的翻倍问题是否复现 |
+| `TMP\_probe_cnkpi_joinfix.py` | 对比三种 JOIN 写法（FULL OUTER / LEFT+UNION / 旧 SUM）的结果，证明改写前后差异只发生在重叠日 |
+| `TMP\_probe_cnkpi_override_sync.py` | 校验 `_gen_native_catalog.WIDGET_SQL_OVERRIDES` 与 `native_catalog.py` 实际 SQL **逐字节一致**，并扫描三个反模式。**改这两个文件后必跑** |
+| `TMP\_probe_native_cnkpi.py` | 直查 `native_catalog.py` 里 CN KPI 的 c1/c2/c4，带量级自检（VLR 应约 115 万而非 230 万） |
+| `TMP\_probe_vlr_daily.py` | 打印 VLR 两表**每天的 `COUNT(*)` / MIN / MAX / SUM / 逐行值** —— 判断「是 SUM 错还是跨表相加错」的第一步 |
+| `TMP\_probe_vlr_window.py` | 并排对比某区间内 EMS 与 UME **各自有没有那天**，并给出「当前结果取自谁」，用于定位台阶位置 |
+| `TMP\_probe_vlr_oldvsnew.py` | **对比线上运行中的后端与修复后代码的逐日值**，直接打印倍数与极差。改完代码未重启时用它确认"是不是还没生效"（重启后两者应一致，倍数恒为 1.00x） |
+| `TMP\_probe_restart_ready.py` | 按 `main.py` 的导入顺序重新 import 相关模块，**确认重启不会起不来**；改动模块级常量后、重启前跑一次 |
+
+> 运行前记得 `$env:PYTHONIOENCODING='utf-8'`，否则中文日志在 GBK 控制台会抛
+> `UnicodeEncodeError`。
+
 

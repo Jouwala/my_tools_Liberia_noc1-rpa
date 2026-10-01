@@ -319,6 +319,11 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
         "groups": list(GROUPS), "group_fallback": GROUPS_FALLBACK,
         "job_id": None, "samples": [], "errors": [], "elapsed_seconds": 0,
         "degraded": 0,
+        # 与 task_runner 约定的**降级告警**通道（`task_runner.py:545-565`）：
+        # 任务本身 success=True，但这里报出"主链路成功、旁路失败"的事项，
+        # 由 task_runner 汇总成一条微信/邮件通知。用于「告警没发出去」这类
+        # 不该被 success=True 掩盖的情况。
+        "warnings": [],
     }
 
     def _finish() -> Dict[str, Any]:
@@ -398,6 +403,11 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
                 except Exception:  # noqa: BLE001
                     logger.warning("[TTAlert] 写失败状态异常 tt_no=%s", r.get("tt_no"),
                                    exc_info=True)
+            # 作业连投都没投出去，同样属于"告警没发出去"，必须走降级告警通道（见下）。
+            out["warnings"].append(
+                f"本轮 {len(due)} 单 P1 告警**投递失败**，值班群没有收到："
+                + "; ".join(str(e) for e in (disp.get("errors") or ["投递失败"]))
+            )
             return _finish()
 
         # 等扩展回报：只有**确认真实发出**的单才置 'Y'
@@ -435,6 +445,20 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
             out["message"] = f"扩展已回报但无成功单（成功 0 / 失败 {fail_count}）"
         else:
             out["message"] = f"作业已投递但未获扩展回报（{fail_count} 单保持未发送）"
+
+        # **告警没发出去必须吵**（2026-10-01 事故）。
+        # 走到这里说明本轮有 due 单却一条都没确认发出 —— 值班群实际收不到告警。
+        # 此前这条路径只在 `errors` 里留一行文本：任务 success=False 时固然会告警，
+        # 但**一旦扩展恢复、下一轮候选变 0，任务立刻回到 success=True**，
+        # 于是"这几小时没发出去"就此埋掉，无人复盘（实测 04:15~04:55 连续 4 轮
+        # 告警未达，群里静默，而 07:00 后监控全绿）。
+        # 故显式产出一条 warnings，交给 task_runner 的降级通道主动通知。
+        if ok_count == 0 and fail_count > 0:
+            out["warnings"].append(
+                f"本轮 {fail_count} 单 P1 告警**均未确认发送**，值班群可能没收到"
+                f"（job={disp.get('job_id')}；{out['message']}）。"
+                f"请确认 Chrome 已打开并登录 WhatsApp Web、扩展已启用且能发纯文本"
+            )
 
     except Exception as e:  # noqa: BLE001
         logger.exception("[TTAlert] 任务执行失败")

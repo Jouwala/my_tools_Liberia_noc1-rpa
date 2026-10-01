@@ -26,6 +26,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from backend.services.whatsapp_service import SITE_OUTAGE_DIR, GROUPS
+from backend.services import job_staleness
 
 logger = logging.getLogger("whatsapp_ext_service")
 
@@ -36,6 +37,9 @@ logger = logging.getLogger("whatsapp_ext_service")
 WAIT_SECONDS = int(os.environ.get("WHATSAPP_EXT_WAIT_SECONDS", "600"))
 # 任务侧轮询作业文件的间隔（秒）
 TASK_POLL_INTERVAL = float(os.environ.get("WHATSAPP_EXT_POLL_INTERVAL", "1.0"))
+# 僵尸作业判定阈值（秒）：见 `job_staleness` 与 claim_pending_job。
+# 与 TT 告警文本源的 TT_ALERT_STALE_RUNNING_SECONDS 取同一量级（默认 1h）。
+STALE_RUNNING_SECONDS = int(os.environ.get("WHATSAPP_EXT_STALE_RUNNING_SECONDS", "3600"))
 
 JOB_FILE = Path(__file__).resolve().parent / "data" / "whatsapp_ext_job.json"
 
@@ -140,10 +144,25 @@ def create_pending_job() -> dict:
 
 
 def claim_pending_job() -> dict | None:
-    """扩展认领待发作业：把状态置为 running，并附带最新的图片清单。"""
+    """扩展认领待发作业：把状态置为 running，并附带最新的图片清单。
+
+    含**僵尸回收**：`running` 且认领超过 `STALE_RUNNING_SECONDS` 未回报的作业
+    允许重新认领。与 TT 告警文本源共用 `job_staleness` 的判定口径 ——
+    两者的状态机同构，也必须同改（2026-10-01 事故，详见该模块 docstring）。
+    """
     job = _read_job()
-    if not job or job.get("status") != "pending":
+    if not job:
         return None
+
+    status = job_staleness.s(job.get("status"))
+    if status == "running":
+        if not job_staleness.is_stale_running(job, STALE_RUNNING_SECONDS):
+            return None
+        logger.warning("[WhatsAppExt] 作业 %s 自 %s 认领后 %ds 未回报，判定为僵尸并重新投递",
+                       job.get("job_id"), job.get("claimed_at"), STALE_RUNNING_SECONDS)
+    elif status != "pending":
+        return None
+
     job["status"] = "running"
     job["claimed_at"] = datetime.now().isoformat(timespec="seconds")
     outbox = build_outbox_payload()

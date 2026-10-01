@@ -59,6 +59,7 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 | 启动即 `[FAIL] Python not found` | `start_hidden.ps1:88-103` 的探测顺序 | 装 Python 3.12 或让 `pythonw.exe` 进 PATH |
 | 某类数据全停更 | 任务管理里对应任务是否 pending；`db/app.db` 里 `select * from task_queue where status='pending'` 是否只有那一条、且 `task_execution_log` 里该任务 0 条记录 | pending 且从不执行 → **该 task_id 不在 `GROUP_TASK_MAP` 任何组**（已踩四次，`04-task-system.md`）。补登记分组后需 `python restart_workers.py --mode watchdog --force`（**要管理员权限**：分组清单在 watchdog 进程内存里，只重启子 worker 不生效；无权限时 taskkill 会 Access denied 而静默失败，必须回查 `log/worker_restart_marker.log` 确认 pids 真的变了）；陈旧 pending 占住的单飞名额会在 6h 后被 `_expire_orphan_pending` 自动释放 |
 | 任务漏跑但没人发现 | `db_freshness_check` 执行历史里搜 `[TASK-HEALTH]`；告警去重状态 `TMP/task_health_alert_state.json` | 2026-09-18 起漏跑（无执行记录/队列滞留/成功逾期/未归组）会微信+邮件主动通知，新异常与恢复各通知一次、持续超 24h 重提；维护窗口静音用 `TASK_HEALTH_ALERT_ENABLED=0` |
+| **WhatsApp 告警静默发不出去**（任务却报成功） | 作业文件 `backend\services\data\tt_alert_job.json` 的 `status` 是否长期停在 `running` | 见下方专节「僵尸作业堵死推送通道」 |
 | 任务反复 failed | `worker_runtime*.log` 找该 task_id 堆栈（分组日志，可按任务所属组直接定位） | 上游不可达→先跑"系统设置→凭据→测试连接"；口令变了→更新凭据 |
 | 任务卡在"执行中"很久 | 是否真在跑：看 worker 进程 PID 是否存活 | 无需手工干预：`STALE_RUNNING_SECONDS=30min` + PID 核对会自动回收僵尸（`worker.py:78,82,302`） |
 | 邮件没发出去 | `email_recovery`（每 20 分钟）日志 | EWS 恢复后会自动补发；确认收件人配置未被重置 |
@@ -126,6 +127,108 @@ python -m pytest tests\ --ignore=tests\test_frontend_deep.py --ignore=tests\test
 
 > **改完必须重启后端才生效**（`pythonw.exe` 常驻，不会热加载）。
 > 排障时留意：**日志文件按天命名且随重启更换**，翻错文件会误判成"没报错"。
+
+### 僵尸作业堵死推送通道（2026-10-01 事故）
+
+**现象**：`tt_alarm_whatsapp_alert` 在任务管理页**显示成功**，但值班群**收不到 P1 告警**。
+最迷惑的一点是它「自己好了」—— 失效几小时后任务恢复 `success=True`，
+其实只是**候选单变成了 0**（同期的单已过 3 小时窗口，或已清除），并不是推送恢复。
+
+**先看这一处**（一行定位）：
+
+```powershell
+# 作业文件是不是长期停在 running？
+Get-Content D:\01_RPA\Task\my_app\backend\services\data\tt_alert_job.json -Encoding UTF8 |
+  ConvertFrom-Json | Select-Object job_id, status, created_at, claimed_at
+# 或者直接问扩展轮询端点：正常空闲应返回 {"pending":false}
+(Invoke-WebRequest http://127.0.0.1:7038/api/whatsapp/ext/job -UseBasicParsing).Content
+```
+
+**根因**：作业文件是**后端 ↔ Chrome 扩展**之间的邮箱（`tt_alarm_job.py`）。
+扩展认领即把状态置 `running`（乐观锁，防多实例重复发送），但**认领后可能永不回报**
+—— 浏览器被关掉、扩展崩了、或机器上根本没开 Chrome。此时：
+
+- 作业永远停在 `running`，而认领逻辑**只认领 `pending`** → **整个邮箱被永久堵死**；
+- 任务侧因为「本轮候选 0 单」提前 `return success=True` → **监控全绿**；
+- 期间所有 P1 告警全部发不出去，**群里静默**。
+
+2026-10-01 实测：04:15 起连续 4 轮告警未达（每轮干等 600s），04:55 那单被 09:11
+认领后再无回报，直到人工清理。当时机器上只有 msedge、**没有 Chrome 在跑**。
+
+**判定与处置**：
+
+| 判据 | 含义 | 处置 |
+| --- | --- | --- |
+| `status=pending` 且 `claimed_at=null` | **没有扩展在轮询** | 打开 Chrome 并登录 WhatsApp Web、确认扩展已启用 |
+| `status=running` 且 `claimed_at` 很旧 | **僵尸作业**，邮箱已堵 | 该单若已过 SLA 就直接置 `failed`（别补发过期告警）；未过期可等自动回收 |
+| `/api/whatsapp/ext/job` 返回非 `pending:false` | 有作业卡着 | 同上 |
+
+手工清理（把 `status` 改成 `failed` 即可放行，**不必重启**）：
+
+```powershell
+$p = "D:\01_RPA\Task\my_app\backend\services\data\tt_alert_job.json"
+$j = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+$j.status = "failed"; $j.completed_at = (Get-Date).ToString("s"); $j.result = @{ ok=$false; sent=@(); errors=@("人工清理僵尸作业") }
+$j | ConvertTo-Json -Depth 6 | Set-Content $p -Encoding UTF8
+```
+
+**已做的修复**（2026-10-01）：
+
+1. **僵尸自动回收** —— `running` 超过 `STALE_RUNNING_SECONDS`（默认 3600s）未回报的作业
+   允许重新认领；判定口径收敛在 `backend/services/job_staleness.py`，
+   **发图源与告警文本源共用**（两者状态机同构，必须同改）。
+   阈值必须**远大于**正常发送耗时，否则多实例会重复发同一批告警。
+2. **告警没发出去就吵** —— 有 due 单却一条都没确认发送时，任务产出 `warnings`，
+   走 `task_runner.py:545-565` 的**降级告警**通道主动通知（微信+邮件）。
+   否则「扩展恢复 → 下轮候选 0 → 立刻 success=True」，这段故障会被彻底埋掉。
+
+> ⚠️ 改了这两处**必须重启后端与 worker 才生效**（`pythonw.exe` 常驻，不热加载）。
+> 回归：`python -m pytest tests\test_job_zombie_and_month_start.py -q`
+
+### `cells_kpi_sync` 每月 1 号报失败（2026-10-01，属预期而非故障）
+
+**现象**：每月 1 号 04:50 报 `2026-10 无有效小区数据，物化 0 行`，
+连自动重试也失败，并触发微信+邮件告警；但**次日照常成功**。
+
+**这不是 bug，是月初的正常空窗** —— 但要理解它必须先纠正两个直觉：
+
+**直觉一：「按 `Begin Time` 归属月份是错的」—— 错，口径是对的。**
+`Begin Time` **就是**数据覆盖的自然日，不是"窗口起点"。实测 360 万行
+`End Time - 1day == Begin Time` 全等。所以 `Begin Time = 2026-09-30` 表示
+"这是 9/30 这一天的数据"，**这个取值是对的、也是唯一可能的**。
+
+**直觉二：「数据延迟了，等等/重试就好」—— 错，重试没有用。**
+小区可用率是**按天**统计的：一行 = 某小区在某自然日的表现。
+**一天没过完，就算不出这一天的数据**，所以任何时刻能取到的最新一天必然是**昨天**。
+这不是上游发布慢，而是「今天」这个数据点**此刻根本不存在**。
+
+于是 10/1 04:50 跑、物化 `current_month()=2026-10` 时，窗口要找的是
+「10/1 这一天」，而 10/1 还没过完 → 本月窗口内**必然一行都没有**。
+加长重试、改窗口都无济于事，必须靠**判据识别**而不是靠等待。
+
+> 用「T+1 发布 / 数据未发布」描述这件事会把人带偏（听起来像上游的问题）。
+> 准确的表述是：**天粒度数据在当天结束时才成立**。
+
+**判定**：看是不是「当前月 + 1 号」这一种组合。
+
+```sql
+-- 确认任务是否已被标记为预期空窗（PG 主库；SQLite 模式下换 db/app.db）
+SELECT started_at, success, error FROM task_execution_log
+WHERE task_id='cells_kpi_sync' ORDER BY started_at DESC LIMIT 5;
+```
+
+**已做的修复**：`ran_cells_kpi_sync._is_month_start_pending()` 把
+「当前自然月 **且** 今天 1 号」的空窗判为**预期**（`month_pending=True`、`success=True`、
+`errors` 为空），不再误报。**只豁免这一种组合** —— 历史月为空、或当月 2 号起仍为空，
+照旧按真故障处理（那时每一天都已过完，空就是漏采）。
+
+> ⚠️ **月初这天看板是空白的，这是预期**：1 号当天物化库为 0 行，
+> **从 2 号凌晨起自动产出**，无需人工干预。若有人问"Cells KPI 怎么是空的"，
+> 答案就是「本月数据自 2 号起可用」。**不要**为了"别空着"去填上月的数 ——
+> 那会让人误读成这是本月数据。
+
+> 该任务 2026-09-25 才上线，**10/1 是它第一次遇到月份边界**，故此前从未暴露。
+> 回归：`python -m pytest tests\test_job_zombie_and_month_start.py -q`
 
 ### KPI 残缺日的识别与修复（2026-09-24 事故）
 

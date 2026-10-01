@@ -1,9 +1,11 @@
 # rotate_nginx_logs.ps1 - bound the size of THIS host's nginx access log.
 #
 # Why: nginx.conf now writes the access log as logs/access-$hostname.log inside the
-# nginx install prefix. For this host that prefix is the share Y:\01_RPA\nginx-1.28.0
-# (E: on .19), and nginx never rotates logs by itself - the old shared access.log had
-# grown to 826 MB before 2026-09-21 with no rotation at all.
+# nginx install prefix. Since 2026-10-01 this host's prefix is the LOCAL path
+# D:\01_RPA\nginx-1.28.0 (nginx was moved off the network share Y: = E: on .19,
+# because SMB I/O stalls were killing nginx - see nginx_monitor.ps1 Version 4).
+# nginx never rotates logs by itself - the old shared access.log had grown to
+# 826 MB before 2026-09-21 with no rotation at all.
 #
 # How it rotates without touching nginx (nginx holds the file open, so a plain
 # Move-Item would fail with a sharing violation):
@@ -29,7 +31,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File rotate_nginx_logs.ps1
 #   powershell -NoProfile -ExecutionPolicy Bypass -File rotate_nginx_logs.ps1 -DryRun
 param(
-    [string]$Prefix = 'Y:\01_RPA\nginx-1.28.0\',
+    [string]$Prefix = 'D:\01_RPA\nginx-1.28.0\',
     [int]$MinSizeMB = 20,
     [int]$KeepDays = 14,
     [switch]$DryRun

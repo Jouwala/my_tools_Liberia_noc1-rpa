@@ -40,6 +40,7 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'packet_loss' },
   { key: 'battery' },
   { key: 'ume_in_kpi' },
+  { key: 'cn_kpi' },
   { key: 'imonitor', iframe: true },
   { key: 'ip_trace', iframe: true },
   { key: 'incident_overview', iframe: true },
@@ -93,6 +94,7 @@ export const NAV_KEY_MAP: Record<string, string> = {
   packet_loss: 'nav.packetLoss',
   battery: 'nav.battery',
   ume_in_kpi: 'nav.umeInKpi',
+  cn_kpi: 'nav.cnKpi',
   imonitor: 'nav.imonitor',
   ip_trace: 'nav.ipTrace',
   incident_overview: 'nav.incidentOverview',
@@ -116,7 +118,7 @@ export const CATEGORIES: { id: string; pages: string[] }[] = [
   { id: 'tasks', pages: ['sync', 'email_reports', 'upload', 'tables', 'overview'] },
   {
     id: 'boards',
-    pages: ['alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'avail_ms', 'avail_flm', 'bm_speedtest', 'bm_meta', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'bp_report', 'packet_loss', 'battery', 'ume_in_kpi', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary'],
+    pages: ['alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'avail_ms', 'avail_flm', 'bm_speedtest', 'bm_meta', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'bp_report', 'packet_loss', 'battery', 'ume_in_kpi', 'cn_kpi', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary'],
   },
   { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace'] },
   { id: 'system', pages: ['settings', 'portalLogin'] },
@@ -276,6 +278,15 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '「失败率构成」按归因堆叠显示各 KPI 的失败率；「成功率多日趋势」看逐日变化',
         '资源利用率以「日均」判定（≥80% 关注、≥90% 异常），峰值仅作参考——瞬时打满属正常尖峰',
         '「导出 Excel」输出 6 个 sheet：KPI 汇总 / 服务明细 / 失败分解 / 资源 / 趋势 / 告警',
+      ],
+    },
+    cn_kpi: {
+      desc: 'CN KPI 看板：原 FineBI「CN KPI」看板的原生重建，18 个组件（VLR / Voice / Data 用户数、USSD 成功率、位置更新成功率、USPP / MSC / xGW 利用率、FDD / TDD 流量、RG-6/11/12/30 等）。数据经远端只读 SQL API 读 db_ps_cs_cn，不依赖 my-finebi 进程。⚠ 本页数据来自两条彼此独立的流水线：人工导出的 _EMS 表（会停摆，且**粒度随导出区间变化**）与自动同步的 _UME 表；因此取数会逐级降级，并在卡片与页头**显式标注粒度**。',
+      usage: [
+        '默认为「近 31 天」；改时间区间后点查询，月粒度组件会自动改用近 13 个月窗口',
+        '卡片右上角橙色「月粒度」标签表示该点代表一个月，**不是某一天**；金色「已切源」表示原表停更、已改用自动同步的同名数据源',
+        '页头橙色告警条会列出所有降级组件及成因，看到它请先确认是否有人需要重新跑一次网管导出',
+        '「导出 Excel」输出各组件数据与执行口径（SQL），便于与网管侧对账',
       ],
     },
     imonitor: {
@@ -637,6 +648,15 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '"Failure-rate composition" stacks each KPI\'s failure rate by attribution; "Success-rate trend" shows the daily movement',
         'Resource utilisation is judged on the daily average (≥80% warning, ≥90% critical); peaks are informational only — brief saturation is normal',
         '"Export Excel" writes 6 sheets: KPI summary / service detail / failure breakdown / resources / trend / alerts',
+      ],
+    },
+    cn_kpi: {
+      desc: 'CN KPI dashboard: a native rebuild of the original FineBI "CN KPI" board, with 18 widgets (VLR / Voice / Data subscribers, USSD success rate, location-update success rate, USPP / MSC / xGW utilisation, FDD / TDD traffic, RG-6/11/12/30 and more). Data is read from db_ps_cs_cn through the remote read-only SQL API and does not depend on the my-finebi process. Note: this page draws on two independent pipelines — manually exported _EMS tables (which stall, and whose granularity follows the export range) and auto-synced _UME tables — so fetching degrades gracefully and the granularity is labelled on both the card and the page header.',
+      usage: [
+        'The default range is the last 31 days; after changing the range and querying, month-granularity widgets automatically widen to the last 13 months',
+        'An orange "Monthly" tag on a card means each point is one month, not one day; a gold "Switched" tag means the original table stalled and an auto-synced source of the same name is being used',
+        'The orange banner in the page header lists every degraded widget and why — if you see it, check whether someone needs to re-run the NMS export',
+        '"Export Excel" writes each widget\'s data plus the exact SQL used, so figures can be reconciled against the NMS side',
       ],
     },
     imonitor: {

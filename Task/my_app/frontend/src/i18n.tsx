@@ -3064,6 +3064,16 @@ const translations: Record<Locale, Record<string, string>> = {
     'cnkpi.exportSource': '数据源',
     'cnkpi.exportSQL': '执行口径(SQL)',
     'cnkpi.exportGenerated': '导出时间',
+    // 降级提示：上游 _EMS 表停摆/粒度漂移时，图表会自动换数据源或降到月粒度，
+    // 必须显式告知，否则月粒度的点会被当成当日值读。
+    'cnkpi.monthly': '月粒度',
+    'cnkpi.monthlyHint': '该 KPI 的日粒度数据已停更，当前显示的是月粒度数据（原表：{{table}}）。每个点代表一个月，不是某一天。',
+    'cnkpi.fallback': '已切源',
+    'cnkpi.fallbackHint': '主数据源（{{table}}）近期无数据，已自动改用自动同步的同名数据源。',
+    'cnkpi.degradedTitle': '{{n}} 个图表的数据源已降级',
+    'cnkpi.degradedMonthly': '日粒度数据缺失，已降级为月粒度（原表 {{table}}）。每个点代表一个月，请勿当作当日值。',
+    'cnkpi.degradedFallback': '原表 {{table}} 近期无数据，已自动改用同名的自动同步数据源。',
+    'cnkpi.degradedWhy': '原因：上游 _EMS 表由人工从网管导出（选择的时间区间会决定表的粒度），未导出时数据即停更。',
 
     // ===== Meta 基准报告（ORANGE vs MTN 速率 PK + FDD 网络侧 KPI）=====
     // 数据源 meta_data；口径见 backend/services/bm_meta_caliber.py
@@ -6618,6 +6628,17 @@ const translations: Record<Locale, Record<string, string>> = {
     'cnkpi.exportSource': 'Data source',
     'cnkpi.exportSQL': 'Query (SQL)',
     'cnkpi.exportGenerated': 'Generated at',
+    // Degradation notices: when the upstream _EMS table stalls or its granularity
+    // drifts, charts fall back to another source or to monthly granularity. This must
+    // be surfaced, otherwise monthly points are misread as daily values.
+    'cnkpi.monthly': 'Monthly',
+    'cnkpi.monthlyHint': 'Daily data for this KPI is no longer updated; monthly data is shown instead (original table: {{table}}). Each point is one month, not one day.',
+    'cnkpi.fallback': 'Switched',
+    'cnkpi.fallbackHint': 'The primary source ({{table}}) has no recent data; an auto-synced source of the same name is used instead.',
+    'cnkpi.degradedTitle': '{{n}} chart(s) use a degraded data source',
+    'cnkpi.degradedMonthly': 'Daily data is missing; degraded to monthly granularity (original table {{table}}). Each point is one month — do not read it as a daily value.',
+    'cnkpi.degradedFallback': 'The original table {{table}} has no recent data; an auto-synced source of the same name is used instead.',
+    'cnkpi.degradedWhy': 'Cause: upstream _EMS tables are exported manually from the NMS (the chosen range determines the table granularity), so data stalls whenever no export runs.',
 
     // ===== Meta Benchmark Report (ORANGE vs MTN speed PK + FDD network KPIs) =====
     // Source: meta_data; semantics in backend/services/bm_meta_caliber.py
@@ -7157,8 +7178,21 @@ const I18nContext = createContext<I18nContextType>({
 })
 
 function detectLocale(): Locale {
+  // 判定链（2026-09-30，与门户 /v1/olbrportal/ 及 MsPortal 同一口径）：
+  //   ?lang= > app-locale（本站点键） > olbr.lang（门户键） > 浏览器语言
+  // ?lang= 是门户出链带过来的用户选择（olbr.js 的 langQs，如 /myapp/?page=gis&lang=en）；
+  // 原先这里只看 app-locale，两个键互不相通，从门户点进来就退化成浏览器语言，
+  // 中文 Windows 上表现为「门户选了英文、地图/报告文件那块是中文」。
+  // 命中 ?lang= 顺手落库，口径同 MsPortal 侧，让书签和下次进来也一致。
+  const q = new URLSearchParams(window.location.search).get('lang')
+  if (q === 'zh' || q === 'en') {
+    try { localStorage.setItem('app-locale', q) } catch { /* 隐私模式下写不进去，不影响本次渲染 */ }
+    return q
+  }
   const saved = localStorage.getItem('app-locale')
   if (saved === 'zh' || saved === 'en') return saved
+  const portal = localStorage.getItem('olbr.lang')
+  if (portal === 'zh' || portal === 'en') return portal
   const lang = navigator.language || (navigator as any).userLanguage || 'zh'
   return lang.startsWith('zh') ? 'zh' : 'en'
 }

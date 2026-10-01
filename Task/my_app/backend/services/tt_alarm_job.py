@@ -11,6 +11,23 @@
   * `running`  —— 扩展已认领（置此态即可防止多个扩展实例重复发送）
   * `done`/`failed` —— 扩展已回报
 
+## 僵尸作业回收（2026-10-01 事故）
+
+`running` 是**认领即置**的乐观锁，但扩展认领后可能**再也不回报** —— 浏览器被关掉、
+扩展崩了、或认领请求发出后进程被杀。此时作业**永远停在 `running`**，
+而认领只认 `pending`，于是**整个作业邮箱被一个僵尸永久堵死**：
+后续每一轮告警都投递失败，而任务自己因为「本轮候选 0 单」提前返回 `success=True`，
+监控全绿、群里静默收不到告警。2026-10-01 实测正是如此（04:55 的作业被 09:11 认领后
+再无回报，中间数小时的推送全部堵住）。
+
+故 `claim_pending_job` 增加一条**基于时间的**回收：`running` 且 `claimed_at`
+超过 `STALE_RUNNING_SECONDS` 未回报的作业，视为僵尸，允许重新认领。
+
+⚠️ 为什么必须是「基于时间」而不是「认领失败即释放」：正常发送要几十秒到数分钟，
+立即释放会让多个扩展实例**重复发送同一批告警**（`test_claimed_job_is_marked_running_and_not_reclaimed`
+锁死了这一点）。阈值取得远大于正常发送耗时，重复发送的风险才可忽略。
+
+
 写文件一律用「临时文件 + `os.replace`」原子替换：队列模式下任务进程与 Web API
 进程是两个进程，非原子写会读到半截 JSON。该文件与数据库无关，sqlite / pg
 两种模式都适用。
@@ -27,6 +44,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from backend.services import job_staleness
+
 logger = logging.getLogger("tt_alarm_whatsapp")
 
 # 作业文件位置（与 whatsapp_ext_service 的作业文件刻意分开）
@@ -36,6 +55,11 @@ JOB_FILE = Path(__file__).resolve().parent / "data" / "tt_alert_job.json"
 # 每 15 分钟一轮，留足但不越界：扩展轮询约 1 分钟一次 + 实际发送耗时。
 WAIT_SECONDS = int(os.environ.get("TT_ALERT_WAIT_SECONDS", "600"))
 POLL_INTERVAL = float(os.environ.get("TT_ALERT_POLL_INTERVAL", "2.0"))
+
+# 僵尸作业判定阈值（秒）：`running` 超过此时长仍未回报即视为僵尸，允许重新认领。
+# 取 1 小时 —— 远大于正常发送耗时（轮询 ~1min + 发送数分钟），
+# 避免误判成僵尸而导致多实例重复发送；又远小于"堵到第二天"的代价。
+STALE_RUNNING_SECONDS = int(os.environ.get("TT_ALERT_STALE_RUNNING_SECONDS", "3600"))
 
 
 def _s(val: Any) -> str:
@@ -107,15 +131,35 @@ def dispatch(messages: List[Dict[str, str]], groups: List[str]) -> Dict[str, Any
     return result
 
 
+def _is_stale_running(job: Dict[str, Any], now: Optional[float] = None) -> bool:
+    """本作业是否僵尸（判定口径与发图源自共用 `job_staleness`）。"""
+    return job_staleness.is_stale_running(job, STALE_RUNNING_SECONDS, now)
+
+
 def claim_pending_job() -> Optional[Dict[str, Any]]:
     """供扩展轮询：认领一个待发作业（无则 None）。
 
     只认领 `status == 'pending'` 的作业，认领即置 `running`，
     避免多个扩展实例重复发送同一作业。
+
+    另加**僵尸回收**：`running` 但认领超过 `STALE_RUNNING_SECONDS` 未回报的作业
+    允许重新认领（详见模块 docstring 的「僵尸作业回收」）。回收时打 WARNING，
+    因为它的业务含义是「上一轮告警很可能没发出去」，值得在日志里留痕。
     """
     job = read_job()
-    if not job or job.get("status") != "pending":
+    if not job:
         return None
+
+    status = _s(job.get("status"))
+    if status == "running":
+        if not _is_stale_running(job):
+            return None
+        logger.warning("[TTAlert] 作业 %s 自 %s 认领后 %ds 未回报，判定为僵尸并重新投递",
+                       _s(job.get("job_id")), _s(job.get("claimed_at")),
+                       STALE_RUNNING_SECONDS)
+    elif status != "pending":
+        return None
+
     job["status"] = "running"
     job["claimed_at"] = datetime.now().isoformat(timespec="seconds")
     try:

@@ -44,7 +44,14 @@
   --qc-focus-ring: 0 0 0 3px rgba(11, 107, 203, .18);
   --qc-radius: 8px;
   --qc-radius-modal: 14px;
-  --qc-mono: ui-monospace, Menlo, Consolas, "Courier New", monospace;
+  /* 2026-10-01：与 olbrportal 的 --mono 对齐（补 "Cascadia Mono"、去 "Courier New"、
+     补中文回退 "Microsoft YaHei"）。改前本栈与页面主体的 --mono 不是同一款字体，
+     下钻弹窗里的等宽数字与页面其它地方字形不一致。
+     ⚠️ 本文件是**两门户共用**的（/MsPortal/ 与 /v1/olbrportal/ 都引它），
+        所以这行同时改变两边的弹窗 —— 这正是想要的（两边弹窗本就要求逐类一致）。
+     与 --mono 的唯一差别：这里不写 SFMono-Regular（那是 macOS 的 SF Mono，
+     原栈未含）；其余顺序保持一致。 */
+  --qc-mono: ui-monospace, "Cascadia Mono", Menlo, Consolas, "Microsoft YaHei", monospace;
 }
 
 /* ------------------------------------------------------------------ 遮罩 -- */

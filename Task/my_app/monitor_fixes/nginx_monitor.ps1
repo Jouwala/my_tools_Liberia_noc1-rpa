@@ -27,6 +27,17 @@
 #    10) 进程过滤保留 NginxDir 前缀，但把实际 ExecutablePath 记入日志，
 #        便于将来盘符再变时快速定位。
 #
+#   Version 3 → 4（2026-10-01 搬离网络映射盘）：
+#    11) **nginx 从 Y:（\\192.168.100.19\e 网络映射）搬到本地盘 D:**
+#        NginxExe/NginxDir 由 Y:\01_RPA\nginx-1.28.0 改为 D:\01_RPA\nginx-1.28.0。
+#        起因：2026-09-30 21:56~22:15 nginx 猝死，error.log 无 crash 痕迹，判定为
+#        SMB 网络盘 I/O 阻塞（临时文件与日志原先都写在网络盘上）。
+#        搬移方式为**复制**而非移动 —— Y: 上那份 .19 也在用，必须保持原样。
+#        搬移后 Test-NginxTreeAvailable 的「网络盘专项防御」不再触发（本地盘），
+#        保留该分支作为通用的「程序目录可达性」检查。
+#        ⚠ 改本脚本路径时必须**同步改** rotate_nginx_logs.ps1 的 -Prefix 默认值，
+#        否则日志轮转会去轮转 Y: 上的旧目录。
+#
 # 设计约束：
 #   - 探活用 TCP 连接而非 HTTP 请求：/api/* 因后端未起而 502 时 nginx 本身是
 #     健康的，不该被重启。只看端口是否在听。
@@ -34,13 +45,13 @@
 #   - 杀进程只在 $NginxDir 范围内，绝不波及别的 nginx 实例（Version 2 起的原意）。
 #
 # 相关文件：
-#   - 生效配置：Y:\01_RPA\nginx-1.28.0\conf\nginx.conf
+#   - 生效配置：D:\01_RPA\nginx-1.28.0\conf\nginx.conf
 #   - 监控日志：D:\01_RPA\Task\nginx_monitor.log
 #   - 隔离说明：D:\01_RPA\_quarantine_20260929_nginx_dup\README.md
 
 param(
-    [string]$NginxExe = "Y:\01_RPA\nginx-1.28.0\nginx.exe",
-    [string]$NginxDir = "Y:\01_RPA\nginx-1.28.0",
+    [string]$NginxExe = "D:\01_RPA\nginx-1.28.0\nginx.exe",
+    [string]$NginxDir = "D:\01_RPA\nginx-1.28.0",
     [string]$HostName = "127.0.0.1",
     [int]$NginxPort = 80,
     [int]$ConnectTimeoutMs = 5000,

@@ -725,9 +725,16 @@
   function freqOf(it) { return state.lang === 'en' ? term('freq', it.freq) : it.freq; }
   function pfOf(it) { return t('pf.' + it.platform) || it.platform; }
   function stOf(it) { return it.status === 'beta' ? t('st.beta') : t('st.online'); }
+  /* 跨壳语言传递（2026-09-30 加，口径同 v1/olbrportal/assets/olbr.js）：本页存 'olbr.lang'，
+     下级页各有各的键（/MsPortal/ 与其 viewer.html 只认 'msportal.lang.v1'、/myapp/ 只认
+     'app-locale'），键不通气时下一层只能回落到浏览器语言 —— 中文 Windows 上就是
+     「门户选了英文、点进去是中文」。出链统一带 &lang=，接收侧优先级是
+     ?lang= > 本站点键 > olbr.lang > 浏览器语言。 */
+  function langVal() { return state.lang === 'en' ? 'en' : 'zh'; }
+  function langQs() { return '&lang=' + encodeURIComponent(langVal()); }
   function vlink(it, gid) {
     return '/MsPortal/viewer.html?no=' + encodeURIComponent(it.no) +
-      '&gid=' + encodeURIComponent(gid || primaryGroup(it) || '');
+      '&gid=' + encodeURIComponent(gid || primaryGroup(it) || '') + langQs();
   }
   /* 高亮命中词。必须**单趟**扫描 + 分段转义，不能「先 esc 再逐词 replace」：
        · 逐词链式 replace 会让第 2 个词命中第 1 个词刚注入的 <span class="hit">
@@ -823,7 +830,7 @@
       '<span class="p-s">' + esc(gSub(gid)) + '</span></span>' +
       '<span class="cnt">' + n + '</span>' + rst + gt +
       (extraTools || '') +
-      '<a class="p-x" href="/MsPortal/viewer.html?gid=' + encodeURIComponent(gid) +
+      '<a class="p-x" href="/MsPortal/viewer.html?gid=' + encodeURIComponent(gid) + langQs() +
       '" target="_blank" rel="noopener noreferrer">' + t('v.open') + ' <i class="ph ph-arrow-up-right" aria-hidden="true"></i></a></div>';
   }
 
@@ -1225,7 +1232,7 @@
       return {
         page: m.page, key: m.key, icon: m.icon, item: it,
         title: it ? (state.lang === 'en' ? (it.titleEn || it.titleZh) : (it.titleZh || it.titleEn)) : m.page,
-        src: '/myapp/?page=' + m.page + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '')
+        src: '/myapp/?page=' + m.page + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
       };
     }).filter(function (m) { return !!m.item; });
   }
@@ -2150,7 +2157,7 @@
   function emailAllowed() { var it = emailItem(); return !!it && canSee(it); }
   /* 相对路径：门户从 localhost 还是局域网 IP 打开都自适应（与地图同一考虑）。
      深链自身就是 bare 模式（自己的侧栏 / Header 都隐藏），不用地图那套 MAP_STRIP_CSS。 */
-  function emailSrc() { return '/myapp/?page=' + EMAIL_PAGE; }
+  function emailSrc() { return '/myapp/?page=' + EMAIL_PAGE + langQs(); }
 
   function emailSectionHtml() {
     return '<div class="p-head"><span class="p-hd"><span class="p-t">' + esc(t('email.title')) + '</span>' +
@@ -2206,9 +2213,13 @@
       host.appendChild(f);
     }
     var want = state.theme === 'dark' ? 'dark' : 'light';
-    if (!f.getAttribute('src') || f.dataset.theme !== want) {
+    /* 语言也进重建判据：my_app 只在启动时读一次 URL 的 lang（i18n.tsx detectLocale），
+       换语言不重设 src 这块会停在旧语言 —— 与上面 theme 那条同一个理由。 */
+    var wantLang = langVal();
+    if (!f.getAttribute('src') || f.dataset.theme !== want || f.dataset.lang !== wantLang) {
       if (ls('myapp-theme', '') !== want) ss('myapp-theme', want);   // ⚠️ 必须在设 src 之前
       f.dataset.theme = want;
+      f.dataset.lang = wantLang;
       delete f.dataset.loaded;
       f.setAttribute('src', emailSrc());
     }
@@ -3160,7 +3171,7 @@
       if (page) {
         /* 同源相对路径：门户与 my_app 经同一个 nginx，用相对路径就不会把
            「本机 192.168.100.20」写死进代码（换 IP / 换域名时不用改这里）。 */
-        link.href = '/myapp/?page=' + encodeURIComponent(page);
+        link.href = '/myapp/?page=' + encodeURIComponent(page) + langQs();
         link.hidden = false;
       } else {
         link.removeAttribute('href');

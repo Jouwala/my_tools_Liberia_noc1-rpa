@@ -40,6 +40,12 @@ interface CnWidget {
   columns: string[]
   rows: (string | number | null)[][]
   error: string
+  /** 降级来源：'' = 主表原样取到；'day_ume' = 回退到自动同步表；'monthly' = 降级到月粒度表 */
+  degraded: '' | 'day_ume' | 'monthly'
+  /** 发生降级时，原来是哪张表 */
+  fallback_from: string
+  /** 实际数据的粒度：'day' | 'month' | '' */
+  granularity: 'day' | 'month' | ''
 }
 interface OverviewResp {
   meta: {
@@ -270,7 +276,24 @@ function WidgetCard({ w, height }: { w: CnWidget; height: number }) {
       style={{ ...cardStyle, height }}
       styles={{ body: { height: '100%', padding: 8, display: 'flex', flexDirection: 'column' } }}
       title={<span style={{ fontSize: 13 }}>{w.title}</span>}
-      extra={w.pct ? <Tag color="cyan" style={{ marginInlineEnd: 0 }}>%</Tag> : null}
+      extra={
+        <Space size={4}>
+          {/* 粒度/降级角标：月粒度数据必须显式标注，否则会被当成日值读。
+              注意 month 来源有两种：降级到月表（degraded='monthly'）、
+              或主表本身就是月粒度（如 USPP，degraded 为空但 granularity='month'）。 */}
+          {w.granularity === 'month' && (
+            <Tooltip title={t('cnkpi.monthlyHint', { table: w.fallback_from || w.title })}>
+              <Tag color="orange" style={{ marginInlineEnd: 0 }}>{t('cnkpi.monthly')}</Tag>
+            </Tooltip>
+          )}
+          {w.degraded === 'day_ume' && (
+            <Tooltip title={t('cnkpi.fallbackHint', { table: w.fallback_from })}>
+              <Tag color="gold" style={{ marginInlineEnd: 0 }}>{t('cnkpi.fallback')}</Tag>
+            </Tooltip>
+          )}
+          {w.pct ? <Tag color="cyan" style={{ marginInlineEnd: 0 }}>%</Tag> : null}
+        </Space>
+      }
     >
       {w.error ? (
         <Alert type="error" showIcon message={t('cnkpi.queryFail')} description={w.error} style={{ fontSize: 12 }} />
@@ -328,6 +351,14 @@ export default function CnKpi() {
   const rowKpis = kpiWidgets.filter((w) => !isHeaderKpi(w))
   const chartWidgets = widgets.filter((w) => w.chart !== 'kpi')
   const chartHeight = 320
+
+  /**
+   * 需要提示的组件：降级换源，或数据本身是月粒度。
+   * 月粒度必须提示 —— 否则「9-01 / 10-01 两个点」会被读成「最近两天」。
+   */
+  const degradedWidgets = widgets.filter(
+    (w) => w.degraded || (w.granularity === 'month' && w.rows.length > 0),
+  )
 
   /** 区间文案：优先用后端回传的实际生效区间，便于导出时写明口径 */
   const rangeLabel = useMemo(() => {
@@ -465,6 +496,31 @@ export default function CnKpi() {
             </Space>
           }
           style={{ marginBottom: 12 }}
+        />
+      )}
+
+      {/* 降级告警条：把「哪些图不是日粒度/换了数据源」一次性说清，
+          避免用户把月粒度的点误读成当日值（这是本页最容易踩的坑）。 */}
+      {degradedWidgets.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t('cnkpi.degradedTitle', { n: degradedWidgets.length })}
+          description={
+            <Space direction="vertical" size={2}>
+              {degradedWidgets.map((w) => (
+                <Text key={w.id} style={{ fontSize: 12 }}>
+                  <Text strong style={{ fontSize: 12 }}>{w.title}</Text>
+                  {' — '}
+                  {w.degraded === 'monthly' || (!w.degraded && w.granularity === 'month')
+                    ? t('cnkpi.degradedMonthly', { table: w.fallback_from || w.title })
+                    : t('cnkpi.degradedFallback', { table: w.fallback_from })}
+                </Text>
+              ))}
+              <Text type="secondary" style={{ fontSize: 12 }}>{t('cnkpi.degradedWhy')}</Text>
+            </Space>
+          }
         />
       )}
 

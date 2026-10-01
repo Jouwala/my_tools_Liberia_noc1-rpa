@@ -309,6 +309,9 @@ window.OLBR_DATA = (function () {
                          + '注意纵轴只覆盖这段时间自身的波动范围，**不从 0 起** ——\n'
                          + '可用率长期在 97~99% 之间，从 0 起会把所有起伏压成一条直线，什么也看不出来。\n'
                          + '判断达标仍以页脚的「距阈值」为准，这条线只用来判断趋势。',
+      /* 可用率卡对齐富卡片（2026-10-01 加）：大数字是当月（month-to-date）均值，
+         截至昨日，用本键填富卡片 .qc-asof 那一行（富卡片是 Latest · 日期）。 */
+      'kpi.availAsof': '当月均值 · 数据截至 {d}',
       /* ---- Benchmark 行（Network Benchmark View，2026-10-01 加）--------------
          ORANGE vs MTN 的下载/上传/时延对比，数据来自 /api/bm-speedtest/overview
          （my_app `?page=bm_speedtest` 的「Key metrics comparison」那组卡）。
@@ -349,6 +352,19 @@ window.OLBR_DATA = (function () {
       'kpi.bf.tests': '测试量', 'kpi.bf.testsUnit': '两家合计',
       'kpi.bf.na': '区间内无数据',
       'kpi.bf.board': 'Speedtest 竞对分析',
+      /* ---- 卡片走势图的 tooltip（2026-10-01 加）--------------------------------
+         用户要求「Network Benchmark View 里面的卡片能跟 Network Status Overview
+         里的卡片一样添加图」。三排卡片的图走同一套画法（.qc-spark 折线），
+         但**这一排的图是两条线**（Orange / MTN），与上面三张可用率卡的单线不同 ——
+         tooltip 必须点明这一点，否则读者会以为那是同一个指标的两次采样。
+         {o} / {m} 是两家的展示名（Orange / MTN），由后端 label 给，不写死。
+         ⚠️ 与 kpi.availTrendTip 同一条原则：不写"Last 30 days"这类下方说明行，
+         该说的都在 title 里（本排卡片比上面那排更窄，没有位置放说明行）。 */
+      'kpi.bf.sparkTip': '近 {n} 天逐日走势（每格 1 天），上排是 {o}、下排是 {m}。\n'
+                       + '与卡片上的两行大数字**同源**（同一次接口响应），'
+                       + '所以线的末端就是统计窗口的最后一天。\n'
+                       + '⚠️ 纵轴只覆盖这段时间自身两家合起来的波动范围，**不从 0 起**；'
+                       + '缺测的那天线会断开，不补 0。',
       /* 行标题（.band-k）的 tooltip。**这一行现在是两个数据源**（2026-09-30 起）：
          上面那句 kpi.bf.sub 只说得清左 3 张 Ookla 卡，挂在整行标题上就成了假话，
          所以标题另用这一条，把「两组各是什么、为什么不能互相比」讲全。
@@ -428,6 +444,35 @@ window.OLBR_DATA = (function () {
       'kpi.mm.rowScore': '综合评分 {v} {u}',
       'kpi.mm.na': '区间内无数据',
       'kpi.mm.board': 'Meta 基准报告',
+      /* ---- Meta 组三张卡的走势图 tooltip（2026-10-01 加）------------------------
+         与 kpi.bf.sparkTip 同一套画法（两条线、每格 1 天、缺测断开），
+         但**来源不同**：这三张走 bm_meta 的快照，不是 Ookla 的测试库。
+         所以整句另写，不复用 kpi.bf.sparkTip —— 那条第一句就写着 Ookla 的口径。
+         {n} 是真正有数据的点数（不是窗口天数）：这份是导入快照，
+         实测最近几天根本没有数，用窗口天数会让人以为线覆盖了整整 30 天
+         （与卡片页脚「覆盖 N 天」同一条理由，见 kpi.mm.tipCover）。 */
+      'kpi.mm.sparkTip': '近 {n} 天有数据的逐日速率（每格 1 天），上排是 {o}、下排是 {m}。\n'
+                       + '与卡片上的两行大数字**同源**（同一次接口响应）。\n'
+                       + '⚠️ 纵轴只覆盖这段时间自身两家合起来的波动范围，**不从 0 起**；'
+                       + '缺测的那天线会断开，不补 0。',
+      /* 「综合评分与胜场」那张卡专用的走势说明。
+         ⚠️ 必须与上面那条分开：这张卡的图**画的是速率，不是评分** ——
+         后端的逐日评分不存在（bm_meta_caliber.score_brands 只在整段窗口上算一次），
+         要在图上画逐日评分就得在这里重算相对分，那等于给同一个指标造第二个答案。
+         所以图画它真正有的逐日数据，并把这件事写在 tooltip 里说清楚，
+         否则读者会把这条线当成"评分在波动"。 */
+      'kpi.mm.sparkTipScore': '近 {n} 天有数据的逐日速率（每格 1 天），上排是 {o}、下排是 {m}。\n'
+                            + '⚠️ 这条线是**速率**，不是综合评分：评分是整段窗口的相对分，'
+                            + '接口没有逐日评分。两者量纲与含义都不同，不要互相对照。\n'
+                            + '纵轴只覆盖这段时间自身两家合起来的波动范围，不从 0 起；'
+                            + '缺测的那天线会断开，不补 0。',
+      /* BP 那张卡：单线（网络侧 KPI 不属于任何一家，所以没有图例、没有第二条线）。
+         {m} 是卡名，让 tooltip 自己说明画的是哪个指标。 */
+      'kpi.mm.sparkTipNet': '{m}：近 {n} 天有数据的逐日走势（每格 1 天）。\n'
+                          + '它是**网络侧 KPI**，不属于任何一家，所以这里只有一条线。\n'
+                          + '与卡片上的大数字**同源**（同一次接口响应）。\n'
+                          + '⚠️ 纵轴只覆盖这段时间自身的波动范围，**不从 0 起**；'
+                          + '缺测的那天会断开，不补 0。',
       /* ---- v1 新增：六个视图入口卡（renderViews6）----
          每张卡列出的报告名就是目录里真实存在的看板标题，点击即打开。
          数量由 V6_LIMIT 控制（默认 2 条），多出来的走「展开其余 N 项」。 */
@@ -477,6 +522,7 @@ window.OLBR_DATA = (function () {
       'ar.submit': '提交申请', 'ar.submitting': '提交中…',
       'ar.ok': '申请已提交，请等待管理员审批',
       'ar.pwdMismatch': '两次输入的密码不一致', 'ar.pwdTooShort': '密码至少需要 8 个字符',
+      'ar.invalidInput': '用户名或密码格式不符合要求',
       'ar.duplicate': '该用户名已存在，请直接登录',
       'ar.pendingDup': '该用户名已有待审批的申请，请勿重复提交',
       'ar.tooMany': '待审批申请过多或提交过于频繁，请稍后再试',
@@ -808,6 +854,7 @@ window.OLBR_DATA = (function () {
                          + 'The vertical axis covers only this window\'s own range and does NOT start at 0 —\n'
                          + 'availability sits at 97-99%, so a zero-based axis would flatten every movement into a straight line.\n'
                          + 'Use the footer\'s "gap to target" to judge compliance; this line is only for the trend.',
+      'kpi.availAsof': 'Month to date · as of {d}',
       /* ---- Benchmark row (Network Benchmark View, added 2026-10-01) ----------
          The title is the exact string the user asked for, so zh and en hold the
          SAME value (same rule as map.gis / map.open). */
@@ -841,6 +888,20 @@ window.OLBR_DATA = (function () {
       'kpi.bf.tests': 'Tests', 'kpi.bf.testsUnit': 'both brands',
       'kpi.bf.na': 'No data in range',
       'kpi.bf.board': 'Speedtest competitor analysis',
+      /* Card sparkline tooltips (added 2026-10-01). Same drawing method as the
+         Network Status Overview cards (.qc-spark line), but THIS row draws two
+         lines (Orange / MTN) instead of the single line used by the three
+         availability cards — the tooltip has to say so, otherwise a reader takes
+         it for two samples of one metric.
+         {o} / {m} are the brand labels from the backend, never hard-coded.
+         No "Last 30 days" caption line below the chart: these cards are narrower
+         than the row above, and everything the caption would say is in the title. */
+      'kpi.bf.sparkTip': 'Daily trend over the last {n} days (one cell = one day); '
+                       + '{o} on top, {m} below.\n'
+                       + 'Same response as the two big numbers on this card, so the end of the line '
+                       + 'is the last day of the window.\n'
+                       + '⚠️ The y-axis spans only this period\'s combined range for the two brands — '
+                       + 'it does **not** start at zero; a missing day breaks the line rather than plotting 0.',
       /* Tooltip for the row title (.band-k). The row carries TWO data sources
          since 2026-09-30, so kpi.bf.sub (which only describes the three Ookla
          cards) can no longer sit on the whole-row title without being wrong.
@@ -922,6 +983,40 @@ window.OLBR_DATA = (function () {
       'kpi.mm.rowScore': 'Composite score {v} {u}',
       'kpi.mm.na': 'No data in range',
       'kpi.mm.board': 'Meta benchmark report',
+      /* Sparkline tooltips for the three Meta cards (added 2026-10-01).
+         Same drawing method as kpi.bf.sparkTip, but a different data source
+         (the bm_meta snapshot, not Ookla's test database), so the wording is
+         written separately — the Ookla one names Ookla in its first sentence.
+         {n} is the number of days that actually have data, not the window
+         length: this is an imported snapshot and the last few days are empty,
+         so the window length would suggest the line covers all 30 days. */
+      'kpi.mm.sparkTip': 'Daily speed for the {n} days that have data (one cell = one day); '
+                       + '{o} on top, {m} below.\n'
+                       + 'Same response as the two big numbers on this card.\n'
+                       + '⚠️ The y-axis spans only this period\'s combined range for the two brands — '
+                       + 'it does **not** start at zero; a missing day breaks the line rather than plotting 0.',
+      /* Used only by the "Composite score and wins" card. It must differ from the
+         tooltip above: this card's chart plots SPEED, not score. A daily score
+         does not exist on the backend (bm_meta_caliber.score_brands computes a
+         single relative score for the whole window); drawing one would mean
+         recomputing the definition here, i.e. a second answer to the same
+         question. So the chart shows the daily data that does exist, and the
+         tooltip says so — otherwise the line reads as "the score fluctuating". */
+      'kpi.mm.sparkTipScore': 'Daily speed for the {n} days that have data (one cell = one day); '
+                            + '{o} on top, {m} below.\n'
+                            + '⚠️ This line is **speed**, not the composite score: the score is a '
+                            + 'relative figure for the whole window and the API has no daily score. '
+                            + 'Different units and meaning — do not read one against the other.\n'
+                            + 'The y-axis spans only this period\'s combined range, not from zero; '
+                            + 'a missing day breaks the line rather than plotting 0.',
+      /* The BP card: a single line (a network-side KPI belongs to no brand, so no
+         legend and no second line). {m} is the card name, so the tooltip names
+         the metric it draws. */
+      'kpi.mm.sparkTipNet': '{m}: daily trend for the {n} days that have data (one cell = one day).\n'
+                          + 'This is a **network-side KPI**, not brand-specific, hence a single line.\n'
+                          + 'Same response as the big number on this card.\n'
+                          + '⚠️ The y-axis spans only this period\'s own range — it does **not** start '
+                          + 'at zero; a missing day breaks the line rather than plotting 0.',
       /* ---- v1 additions: six view-entry cards (renderViews6) ---- */
       'v6.title': 'Team Dashboard Overview',
       'v6.sub': 'Click a report name to open that dashboard',
@@ -959,6 +1054,7 @@ window.OLBR_DATA = (function () {
       'ar.submit': 'Submit request', 'ar.submitting': 'Submitting…',
       'ar.ok': 'Request submitted, waiting for admin approval',
       'ar.pwdMismatch': 'The two passwords do not match', 'ar.pwdTooShort': 'Password must be at least 8 characters',
+      'ar.invalidInput': 'Invalid username or password format',
       'ar.duplicate': 'That username already exists, please sign in',
       'ar.pendingDup': 'A request for that username is already pending',
       'ar.tooMany': 'Too many pending requests, please try again later',
@@ -1227,7 +1323,13 @@ window.OLBR_DATA = (function () {
       zh: '活跃用户',         en: 'Active Users' },
     { id: 'video_thr_kbps', unit: 'Mbps', digits: 2, div: 1000,
       page: 'vmaxCxoDashboard_90Days',
-      zh: '视频下载速率',     en: 'Valid Throughput of Video Download' }
+      zh: '视频下载速率',     en: 'Video Throughput',
+      /* 门户显示名覆盖（2026-10-01 加）：后端接口返回的 title_en 是
+         "Valid Throughput of Video Download"（太长、窄卡必然截断）。
+         label_en 只在**门户**覆盖成更短的显示名，不改后端共享口径 ——
+         my_app 90 天看板页仍显示后端原名。中文「视频下载速率」本就短，
+         不设 label_zh。要恢复后端原名，删掉 label_en 这一行即可。 */
+      label_en: 'Video Throughput' }
     /* 2026-09-24：曾加过第四张 video_tb（视频流量，与源看板截图一致），
        用户随后要求去掉、恢复六张卡一行 —— 故此处只有三张。
        要恢复只需把 { id: 'video_tb', unit: 'TB', digits: 1, div: 1,

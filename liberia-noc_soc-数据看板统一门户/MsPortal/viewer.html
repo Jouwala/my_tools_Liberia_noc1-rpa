@@ -26,6 +26,11 @@
    ⚠️ 改这里要同步改 viewer.js 的 portalTheme()，反之亦然。 */
 (function () {
   function guessLang() {
+    /* 口径必须与 assets/viewer.js 的 LANG 判定**逐条一致**（?lang= > 本站点键 >
+       olbr.lang > 浏览器语言），否则首帧 <html lang> 与挂载后正文语言不同。 */
+    var q = null;
+    try { q = new URLSearchParams(location.search).get('lang'); } catch (e) { /* ignore */ }
+    if (q === 'en' || q === 'zh') return q;
     var v = null;
     try { v = localStorage.getItem('msportal.lang.v1'); } catch (e) { /* ignore */ }
     if (v === 'en' || v === 'zh') return v;

@@ -36,8 +36,24 @@
 
   var DATA = window.MS_PORTAL_DATA || { items: [], groups: [] };
   var LANG = (function () {
+    /* 判定优先级（2026-09-30 定口径，与 viewer.html 首屏脚本、portal.js 完全一致）：
+         URL 的 ?lang=  >  本站点键 msportal.lang.v1  >  门户键 olbr.lang  >  浏览器语言
+       ?lang= 是门户「打开看板」时把用户选择显式带过来的（见
+       v1/olbrportal/assets/olbr.js 的 langQs()/vlink()）：本查看器原先只认自己的键，
+       门户那边写的是 olbr.lang，两个键不通气时这里只能落到浏览器语言 ——
+       中文 Windows 上表现为「门户选了英文、点进来看板是中文」。
+       ?lang= 命中就顺手写进本站点键，口径同 portal.js 的 applyDeepLink()（:7085），
+       这样书签和之后再进来也跟着这次选择，用户仍可在 /MsPortal/ 里改回来。 */
+    var q = null;
+    try { q = new URLSearchParams(location.search).get('lang'); } catch (e) { /* ignore */ }
+    if (q === 'en' || q === 'zh') {
+      try { localStorage.setItem('msportal.lang.v1', q); } catch (e) { /* ignore */ }
+      return q;
+    }
     try {
       var v = localStorage.getItem('msportal.lang.v1');
+      if (v === 'en' || v === 'zh') return v;
+      v = localStorage.getItem('olbr.lang');
       if (v === 'en' || v === 'zh') return v;
     } catch (e) { /* ignore */ }
     /* 没切过语言时跟随浏览器 —— 与 viewer.html 首屏脚本同一口径，

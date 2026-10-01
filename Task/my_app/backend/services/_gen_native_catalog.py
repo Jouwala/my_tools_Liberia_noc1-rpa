@@ -85,6 +85,72 @@ WIDGET_DB_OVERRIDES: Dict[int, Dict[str, str]] = {
     11: {"avail_recon.sqlite3": "__local_avail_recon__"},  # Availability Dashboard (TT Related)
 }
 
+# 按「看板 id → 组件 id」**整体替换**生成出来的 SQL。
+#
+# 为什么需要这张表：native_catalog.py 是 `_gen_native_catalog.py` 从
+# `_native_catalog_raw.json` **生成**的，SQL 逐条原样搬运。凡是"FineBI 原 SQL
+# 在当下数据状态下算错"的修正，若只改生成物、不改这里，**下次重新生成就丢**。
+#
+# 背景（2026-10-01 发现，与 cn_kpi_service.py 同一根因）：
+# CN KPI（看板 id=3）的 c1/c2/c4 三个组件，其原版 SQL 假设
+# `_EMS` 与 `_UME` 两张表**不会同一天都有数据**，而现实是它们长期大幅重叠
+# （实测 VLR 两表重叠 30 天、Voice 重叠 30 天）：
+#   · c1 / c4 用 UNION ALL + SUM → 重叠日**整日翻倍**
+#     （VLR 1143472+1133095=2276567，真实约 113 万；Voice 42868+40460=83329，真实约 4.2 万）
+#   · c2 用 _EMS(月粒度,6 行) LEFT JOIN _UME(日粒度,93 行) → **M×N 笛卡尔积**，
+#     把日序列静默压成整窗均值（且不报错）
+#
+# 修正口径与 cn_kpi_service.py 保持一致：EMS/UME 是**同一个量的两次测量，不可相加**；
+# 同日取 EMS、缺日取 UME（避免 FULL OUTER JOIN，它要求 SQLite ≥ 3.39）。
+WIDGET_SQL_OVERRIDES: Dict[int, Dict[str, str]] = {
+    # CN KPI（原生重建）—— c1 VLR / c2 MSC / c4 Voice
+    # ⚠ 这三条字符串必须与 native_catalog.py 里的**逐字节一致**（含 \n 位置），
+    #   否则重新生成会产出一份「语义相同但 diff 很大」的文件。
+    #   校验脚本：TMP\_probe_cnkpi_override_sync.py
+    3: {
+        "c1": (
+            'SELECT e.d AS t, e.v AS "VLR Subscribers" FROM (\n'
+            'SELECT substr("End Time",1,10) AS d, SUM("Number of Subscribers in VLR") AS v '
+            'FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_EMS" GROUP BY 1) e\n'
+            "WHERE e.d >= date('now','-31 day')\n"
+            'UNION ALL SELECT u.d AS t, u.v AS "VLR Subscribers" FROM (\n'
+            'SELECT substr("End Time",1,10) AS d, SUM("Number of Subscribers in VLR") AS v '
+            'FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_UME" GROUP BY 1) u\n'
+            'LEFT JOIN (SELECT substr("End Time",1,10) AS d '
+            'FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_EMS" GROUP BY 1) e2 ON e2.d = u.d\n'
+            "WHERE e2.d IS NULL AND u.d >= date('now','-31 day')\n"
+            "ORDER BY t"
+        ),
+        "c2": (
+            'WITH sk AS (SELECT DISTINCT substr("End Time",1,10) AS d '
+            'FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_UME"), '
+            'e AS (SELECT substr("End Time",1,10) AS d, '
+            'ROUND(AVG("Number of Subscribers in VLR")/3000000.0*100, 2) AS v '
+            'FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_EMS" GROUP BY 1), '
+            'u AS (SELECT substr("End Time",1,10) AS d, '
+            'ROUND(AVG("Number of Subscribers in VLR")/4000000.0*100, 2) AS v '
+            'FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_UME" GROUP BY 1) '
+            'SELECT sk.d AS t, e.v AS "EMS", u.v AS "UME" FROM sk '
+            'LEFT JOIN e ON e.d = sk.d LEFT JOIN u ON u.d = sk.d '
+            "WHERE t >= date('now','-31 day')\n"
+            "ORDER BY t"
+        ),
+        "c4": (
+            'SELECT e.d AS t, e.v AS "Voice Traffic(Erl)" FROM (\n'
+            'SELECT substr("End Time",1,10) AS d, SUM("Seized Traffic(Erl)") AS v '
+            'FROM "VOICE_TRAFFIC_TEMPLATE_OSS_EMS" GROUP BY 1) e\n'
+            "WHERE e.d >= date('now','-31 day')\n"
+            'UNION ALL SELECT u.d AS t, u.v AS "Voice Traffic(Erl)" FROM (\n'
+            'SELECT substr("End Time",1,10) AS d, SUM("Seized Traffic(Erl)") AS v '
+            'FROM "VOICE_TRAFFIC_TEMPLATE_OSS_UME" GROUP BY 1) u\n'
+            'LEFT JOIN (SELECT substr("End Time",1,10) AS d '
+            'FROM "VOICE_TRAFFIC_TEMPLATE_OSS_EMS" GROUP BY 1) e2 ON e2.d = u.d\n'
+            "WHERE e2.d IS NULL AND u.d >= date('now','-31 day')\n"
+            "ORDER BY t"
+        ),
+    },
+}
+
 # 手写 slug：URL 友好、稳定、可读（不用 name 的哈希，方便用户手输）
 SLUGS = {
     3: "cn_kpi",
@@ -141,6 +207,8 @@ def main() -> int:
         use_local = LOCAL_DB_OVERRIDES.get(did) == LOCAL_APP_DB
         # 本页按原数据源做的逐条覆盖（见 WIDGET_DB_OVERRIDES 说明）
         db_map = WIDGET_DB_OVERRIDES.get(did, {})
+        # 本页按组件做的 SQL 整体替换（见 WIDGET_SQL_OVERRIDES 说明）
+        sql_map = WIDGET_SQL_OVERRIDES.get(did, {})
         for w in d["widgets"]:
             chart = w["chart"]
             src_db = w.get("db") or ""
@@ -151,7 +219,7 @@ def main() -> int:
                 "pivot": w.get("pivot") or False,
                 "pct": w.get("pct") or False,
                 "db": LOCAL_APP_DB if use_local else db_map.get(src_db, src_db),
-                "sql": (w.get("sql") or "").strip(),
+                "sql": sql_map.get(w["id"]) or (w.get("sql") or "").strip(),
                 "limit": w.get("limit"),
             }
             if chart == "text":

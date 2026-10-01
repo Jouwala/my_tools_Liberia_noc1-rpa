@@ -94,29 +94,63 @@
 - **时钟与倒计时必须定宽**（补零到 `HH:MM:SS` / `MM:SS`）。实时区块精确到秒，且解析失败时退回原字符串截取，**不显示 `Invalid Date`**。
 - 时间戳按**浏览器本地时区**重算，与页面时钟同一把尺子（后端返回的时间可能是 UTC，直接显示会差 8 小时，是"QC 好像没在自动更新"这类误判的来源之一）。
 
-### 手写静态壳的字号体系（`/v1/olbrportal/`、`/v2/olbrportal/`）
+### 手写静态壳的字号体系（`/v1/olbrportal/`）
 
 上面的 Tailwind 表针对 `src/` 内的 React 应用。两个手写静态壳（`olbrportal/`）
-**不用 Tailwind**，字号走各自 `assets/olbr.css` 里的令牌，口径如下（2026-09-30 起）：
+**不用 Tailwind**，字号走各自 `assets/olbr.css` 里的令牌，口径如下（2026-10-01 更新）：
 
 | 令牌 | 值 | 用途 |
 | --- | --- | --- |
-| `--fs-2xs` | 10px | 角标 / 时间戳 / 口径脚注 |
+| `--fs-2xs` | 11.5px | 角标 / 时间戳 / 口径脚注 |
 | `--fs-xs` | 11.5px | 次要标签 / chip 计数 / **表格表头** |
 | `--fs-sm` | 12.5px | 卡名 / 说明 / **表格正文** |
 | `--fs-md` | 14px | 正文 / 控件默认 |
-| `--fs-lg` | 16px | 区块标题 / 面板标题 |
+| `--fs-lg` | 16px | 卡片标题 / 面板标题 |
 | `--fs-xl` | 18px | L0 决策带标题 |
 | `--fs-num` | 24px | 指标大数字 |
+
+> ⚠️ `--fs-2xs` 与 `--fs-xs` **同为 11.5px**（2026-10-01 起）—— 两条相邻档只差
+> 0.5px 时人眼分不出，反而制造不一致，故合并为同值。**两个令牌名保留**：语义上
+> 仍是两类（角标/脚注 vs 标签/表头），将来若要分开仍可各调各的。
+
+**行高令牌**（标题一律走 `--lh-tight`，是"标题只有一种行高口径"的落点）：
+
+| 令牌 | 值 | 用途 |
+| --- | --- | --- |
+| `--lh-solid` | 1 | 仅单行徽章 / 大数字 |
+| `--lh-tight` | 1.25 | **所有标题 / 卡名** |
+| `--lh-base` | 1.5 | 正文 / 表格单元格 |
+
+**字距令牌**：`--ls-tight`(-.01em，大字标题) / `--ls-base`(0，正文) / `--ls-wide`(.02em，小标签、表头、卡名)。
+
+**字体栈**（2026-10-01 定稿）：
+
+- `--sans`：系统 UI 字体优先 —— `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif`。
+  **刻意不用 Web 字体**：门户要求零 CDN、断网可用，且中文 Web 字体动辄数 MB。
+- `--mono`：`ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, "Microsoft YaHei", monospace`。
+  ⚠️ **末尾的 `"Microsoft YaHei"` 不能删** —— 本页 37 处用 `--mono`，其中 6+ 处会渲染
+  **中文**（`.esc-note` 数据源说明、`.gf-note` 模板提示、`.canvas-note` 中文地图标题、
+  `.meta` 中文名…）。栈里没有中文字体时，汉字会落到 `monospace` 兜底
+  （Windows 上多为 Courier New / 宋体），与 Consolas 的拉丁等宽**字形/字宽/基线都不同**，
+  中英混排处会明显"跳"。`tabular-nums` 只作用于数字/拉丁，中文回退不影响对齐。
+  同一栈也用在顶栏时钟与用户名（`masthead.css` 两处硬编码）。
+- 下钻弹窗的 `--qc-mono`（`MsPortal/assets/qcDrill.css`，**两门户共用**）与 `--mono` 对齐
+  （含 `"Cascadia Mono"` 与中文回退；仅少了 macOS 专属的 `SFMono-Regular`）。
 
 - **图标字号单独一套** `--icon-xs/sm/md/lg`（12/13/15/18px），**不进** `--fs-*`
   —— 图标大小跟的是视觉重量、不是文字层级，混在一起会让人误以为同层。
 - 三张表格（升级机制 / 用户管理 / 下钻弹窗）表头统一 `--fs-xs`、正文统一 `--fs-sm`。
   下钻弹窗的 `MsPortal/assets/qcDrill.css` 是**两门户共用**文件，改它会同时影响
   `/MsPortal/`（有意为之，两门户弹窗要求逐类一致）。
+- 层级方向（不可倒挂）：**分区标题(18) > 卡片标题(16) > 正文(14) > 辅助文字(11.5)**。
+  `.aux-h` 辅助区标题**不小于**其下的链接（同 14px，靠 700 字重 + 灰 + 下边框分层）。
 - 六个入口卡按 `--v6-k: 1.5` 整块放大，其字号是 1.5 倍后的整数档（15/17/19/21），
-  仍在 `--fs-*` 名下、但在 `.v6-grid` 作用域内重定义。
-- 完整变更记录见 `architecture.md` 九之四。
+  仍在 `--fs-*` 名下、但在 `.v6-grid` 作用域内重定义；**卡标题 `.v6-t` 例外**
+  —— 它取 `--fs-lg`(16px)、**不随这块卡放大**（它属于全页"卡片标题"层级，
+  随放大就会盖过 18px 的分区标题，即层级倒挂）。
+- 顶栏 `masthead.css` 是**独立字阶**（`rem`，标题 22px 等），因为它是 MsPortal
+  顶栏的同步副本；不并入 `--fs-*`。
+- 完整变更记录见 `architecture.md` 九之四（首轮）与九之六（复查整改）。
 
 ## 六、动效
 
@@ -157,7 +191,7 @@
 | QC 面板优化建议 | `MsPortal\QC面板展示优化建议_20260922.md` |
 | 三列对齐实测 | `MsPortal\三列对齐_可行性方案与实测_20260918.md` |
 | 配色对齐记录 | `MsPortal\配色对齐VMAX90天看板_可行性结论与实施记录_20260918.md` |
-| 手写静态壳字号令牌化（olbrportal） | `architecture.md` 九之四 |
+| 手写静态壳字号令牌化（olbrportal） | `architecture.md` 九之四、九之六 |
 | 组件 API | `component-api.md` |
 
 > **工具负责整理，人与 AI 负责协作执行。**

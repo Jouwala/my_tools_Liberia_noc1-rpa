@@ -29,7 +29,7 @@
 | `liberia-noc_soc-数据看板统一门户\` | **Liberia NOC/SOC 数据看板统一门户**（聚合 FineBI 与 my_app 看板） | React 19 + Vite + Tailwind v4 | `...\AGENTS.md`、`...\README.md` |
 | `Task\` | 各类交付任务（eflow_Q&A、RAN、ORANGE、MTN_Comsal、Monthly_Report 等） | 混合 | 各任务目录内的 `README.md` |
 | `LBR_Tools\`、`Unified_Tools\`、`openclaw_api_selector\`、`ticket_export_rpa\` | 工具与 RPA 脚本集 | Python / 混合 | 各自目录 |
-| `chrome-win\`、`whatsapp*\`、`scheduler_logs\`、`report\` | 运行时依赖与产出 | — | 一般不直接改。nginx 不在列：本机那份重复发行包已于 2026-09-29 隔离、2026-09-30 退出版本库，生效的是 `Y:\01_RPA\nginx-1.28.0\`（见第四节第 6b 条） |
+| `chrome-win\`、`whatsapp*\`、`scheduler_logs\`、`report\` | 运行时依赖与产出 | — | 一般不直接改。nginx 也在运行时依赖之列：本机 (.20) 生效目录是 `D:\01_RPA\nginx-1.28.0\`（2026-10-01 从 Y: 网络映射盘搬回本地，已加入 `.gitignore`）；`Y:\01_RPA\nginx-1.28.0\` 是 **.19 那台**在用的，不要动（见第四节第 6b 条） |
 
 ### 环境拓扑（速查）
 
@@ -81,19 +81,24 @@
    - 提交前用 `git status --porcelain` 复查有没有被忽略规则漏掉的运行时文件混进来。
 5. **不要新增第二个真相源。** 现状文档以各子系统的 `docs/manual/` 与 `README.md` 为准；`Task\my_app\PROJECT_DOCS.md`（151KB）是**历史档案**（迁移计划、架构评估、i18n 审计、失败复盘），其自身 README 已声明「现状以 `docs/manual/` 为准」。**不要**把现状写回 `PROJECT_DOCS.md`。
 6. **破坏性操作先确认。** 删除目录、批量移动、改数据库、动 nginx 配置、重启生产服务（7038/7090/9267）前，先说明影响面并取得确认。工作区里有多个 `start.bat` / `stop.bat` / `*_ensure.bat`，误跑会打断在看板上看数据的人。
-6b. **nginx 的生效目录是 `Y:\01_RPA\nginx-1.28.0\`，不是 `D:\01_RPA\` 下的同名目录。** 这一条是 2026-09-28 一次事故的直接产物，务必按它操作：
-   - **生效位置**：`Y:\01_RPA\nginx-1.28.0\`，其中 `Y:` 是网络映射盘（`\\192.168.100.19\e`），nginx 进程的 `ExecutablePath` 实际就来自这里。**改配置只改 `Y:\01_RPA\nginx-1.28.0\conf\nginx.conf`。** 该配置 `nginx -t` 已通过。
-   - **已隔离的副本**：`D:\01_RPA\nginx-1.28.0\` 曾是同一台机器上的另一份 nginx 发行包（多一层 `nginx-1.28.0\`），配置与线上**分叉**（线上有 `/v2/olbrportal/`、它没有）。改它对线上毫无作用，已于 2026-09-29 移入 `_quarantine_20260929_nginx_dup\`，原因与对照表见该目录的 `README.md`。
-   - **执行 `-s reload` / `-s quit` 必须在 `Y:\01_RPA\nginx-1.28.0\` 目录内**。nginx 从**自己所在目录**的 `logs\nginx.pid` 读 master pid；在错误目录执行会读到已死 pid，信号发给不存在的进程——**命令不报错到操作者眼前，只在日志里留一行 `OpenEvent(...) failed`**。2026-09-28 实测：reload 打到 `91864`，真正的 master 完全未收到信号，nginx 随后停止服务直至人工重启。
+6b. **本机（MSNOC1 / .20）nginx 的生效目录是 `D:\01_RPA\nginx-1.28.0\`（本地盘）。2026-10-01 起如此。** 这条经历过两次事故，务必按现状操作：
+   - **生效位置**：`D:\01_RPA\nginx-1.28.0\`，nginx 进程的 `ExecutablePath` 就来自这里。**改本机配置只改 `D:\01_RPA\nginx-1.28.0\conf\nginx.conf`。**
+   - **为什么搬离 Y 盘（2026-10-01）**：此前本机 nginx 跑在 `Y:\01_RPA\nginx-1.28.0\`（网络映射 `\\192.168.100.19\e`，即 .19 的 E 盘），nginx.exe、conf、logs、temp **全在网络盘上**。2026-09-30 21:56~22:15 nginx 猝死，`error.log` **无 crash 痕迹**（仅 warning 级 buffered-to-temp），系统日志也无崩溃/关机事件，判定为 **SMB 网络盘 I/O 阻塞**。遂复制一份到本地 D 盘运行。
+   - **`.19` 仍使用 Y: 上那份**：搬移方式是**复制而非移动**，`Y:\01_RPA\nginx-1.28.0\` **保持原样、不要删也不要改**（那是 .19 的线上目录）。所以现在有**两份配置**，改配置前先想清楚改的是哪台机器的：
+     - 本机 .20 生效：`D:\01_RPA\nginx-1.28.0\conf\nginx.conf` ← **改这个**
+     - .19 生效：`\\192.168.100.19\e\01_RPA\nginx-1.28.0\conf\nginx.conf`
+   - **执行 `-s reload` / `-s quit` 必须先进到该 nginx 自己的目录**。nginx 从**自己所在目录**的 `logs\nginx.pid` 读 master pid；在错误目录执行会读到已死 pid，信号发给不存在的进程——**命令不报错到操作者眼前，只在日志里留一行 `OpenEvent(...) failed`**。2026-09-28 实测：reload 打到 `91864`，真正的 master 完全未收到信号，nginx 随后停止服务直至人工重启。
    - **正确写法**（先验证语法再重载）：
      ```
-     cd Y:\01_RPA\nginx-1.28.0
+     cd D:\01_RPA\nginx-1.28.0
      .\nginx.exe -t              # 改配置后先验证
      .\nginx.exe -s reload       # 平滑重载
      ```
-     等价于桌面 `olbr_app\nginx-Stop.lnk`（其 `WorkingDirectory` 已是 Y 盘该目录，`-s quit`）。
-   - **存活监控**：计划任务 `Nginx_EnsureRunning`（每 5 分钟）调 `Task\my_app\monitor_fixes\nginx_monitor.ps1` 巡检本机 80 端口，挂了自动拉起；日志在 `Task\nginx_monitor.log`。该任务于 2026-09-29 才建立——**在此之前没有任何机制会拉起 nginx**，这是一次「服务静静死掉无人发现」的根因之一。脚本对 Y 盘不可达的情况**只告警不重启**（映射盘专项防御）。
-   - **不要**把 nginx 的日志/pid 与 `D:` 盘那份混看：`D:` 盘那份的 `logs\` 停留在 2026-09-15，是历史残留，不是当前运行状态。
+     ⚠ 桌面 `olbr_app\nginx-Stop.lnk` 的 `WorkingDirectory` **仍指向 Y 盘**（2026-10-01 未同步更新），它现在停的是 .19 那台，**对本机无效**。停本机请用上面 `cd D:` 的写法。
+   - **存活监控**：计划任务 `Nginx_EnsureRunning`（每 5 分钟）调 `Task\my_app\monitor_fixes\nginx_monitor.ps1` 巡检本机 80 端口，挂了自动拉起；日志在 `Task\nginx_monitor.log`。脚本的 `NginxExe`/`NginxDir` 已同步改为 `D:\01_RPA\nginx-1.28.0`（Version 4）。**日志轮转 `门户\rotate_nginx_logs.ps1` 的 `-Prefix` 默认值必须与之一致**，否则会去轮转 Y: 上的旧目录。
+   - **已隔离的历史副本**：早期 `D:\01_RPA\nginx-1.28.0\` 曾是另一份**配置分叉**的发行包（缺 `/v2/olbrportal/`），已于 2026-09-29 移入 `_quarantine_20260929_nginx_dup\`。**注意：它与现在这份新的 D 盘目录同名但无关** —— 那份是历史遗留，这份是 2026-10-01 从 Y: 复制来的现役副本。
+   - **`D:\01_RPA\nginx-1.28.0\` 已加入根 `.gitignore`**（第三方发行包，非源码）。**忽略跟踪 ≠ 可以删除**：它是本机线上服务目录，`nginx.exe` 与 `conf\` 必须留在磁盘上。
+
 
 7. **一次性探针与转储只能落 `TMP\`，并且任务结束前自清。** 这条约定已经失效过三次，每次都有记录：`7b1d33b`（根目录 98 个探针脚本随提交入库）、`_myapp_trash_20260918\`、以及 2026-09-24 的审计（门户 506 个被跟踪文件里 347 个是探针/转储/手工快照/日志，`Task\_fe_dist` 有 5240 个构建产物入库）。所以拆成可执行的四条：
 

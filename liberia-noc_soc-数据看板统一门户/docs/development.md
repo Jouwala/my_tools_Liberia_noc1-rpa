@@ -215,6 +215,14 @@ var seq = ++qcDrillSeq;
 | `_probe_v1_dragvis.cjs` | 纯只读：拖拽视觉反馈 —— 源卡片压暗、落点高亮有真实的 inset 宽度与可见颜色、跨列不被接受、`dragend` 清干净临时类 | 不写 |
 | `_probe_v6_headref.cjs` | 纯只读（除一次改名并复原）：采样「改分组名后列标题何时刷新」，用于排查渲染时机 | **会写**（自带复原） |
 | `_shot_v1_editgrp2.cjs` | 只读 + 切一次编辑模式，出两张截图 `_shot_v1_ro.png` / `_shot_v1_ed.png` 供人眼复核 | 不写 |
+| `_probe_bf_shot.cjs` | **起一个本地预览服务**（18099 端口，静态发 `/v1/olbrportal/` + 反代 `/api/` 到 7038）。上面 5 个 `_probe_bf_*` 里的 4 个都要先跑它。后台起、用完 kill | 不写 |
+| `_probe_bf_vert.cjs` | **Network Benchmark 行六张卡的走势图对齐**（2026-10-01 那次修复的主探针）。量每张卡「图相对卡顶的偏移」并按**栅格行分组**判定（窄断点 `.qc-grid` 折成 3/2 列，跨行比较无意义）。支持 `PROBE_WIN` / `PROBE_LANG` 环境变量遍历视口与语言 | 不写 |
+| `_probe_bf_css.cjs` | 上一条的**结构版**：打印每张卡的「卡头 / 数据区 / 图 / 页脚」四段实测高度与卡片 padding。三个 `min-height`（42 / 74 / 82.5px）就是照它填的 —— **改了字号或内边距后必须重跑它重取这三个值** | 不写 |
+| `_probe_bf_render.cjs` | 从 `olbr.js` 里 eval 出 `benchSpark` / `metaSpark`，喂真实接口数据，断言双线层数 / 图例 / tooltip 文案 / 降级行为（数据不足返回空串） | 不写（只读接口） |
+| `_probe_bf_color.cjs` | Orange 橙线 / MTN 黑线的令牌与 WCAG 对比度（浅色 `#f97316`/`#1a1a1a`、深色 `#fb923c`/`#e8eaf0`），断言无 `--b`、无旧紫 `#7c3aed` 残留 | 不写 |
+| `_probe_bf_spark.cjs` | 折线几何：缺测处线**断开**不补 0、两条线共用同一横轴、`viewBox` 与起止点 | 不写 |
+| `_probe_bf_line.cjs` | 解析每条 `sp-line` 路径的首末 x，验证六张卡横轴起止一致。顺带记一个事实：Ookla 25 天 vs Meta 24 天，**各自拉伸铺满整宽**，所以"同一天"在两组里的像素列本来就不同 | 不写（只读接口） |
+| `_probe_bf_api.cjs` | 检查两个 overview 接口 `daily[]` 的字段名与条数（字段是 `orange_download` 这类全拼，不是 `orange_dl`） | 不写（只读接口） |
 
 > ⚠️ `_verify_v1_editgrp2.cjs` 与 `_verify_v1_itemadddel.cjs` 改的是**服务端全局目录 —— 共享的生产数据**。
 > 跑之前确认没有别人在编辑目录，跑完看「收尾核对」那一段是否全绿。

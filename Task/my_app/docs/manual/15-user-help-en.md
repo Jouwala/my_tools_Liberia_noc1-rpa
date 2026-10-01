@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-09-30.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-01.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -1730,6 +1730,15 @@ Customer Service KPI dashboard: pulls Dong customer weekly service KPIs from the
 - "Failure-rate composition" stacks each KPI's failure rate by attribution; "Success-rate trend" shows the daily movement
 - Resource utilisation is judged on the daily average (≥80% warning, ≥90% critical); peaks are informational only — brief saturation is normal
 - "Export Excel" writes 6 sheets: KPI summary / service detail / failure breakdown / resources / trend / alerts
+
+#### cn_kpi（`cn_kpi`）
+
+CN KPI dashboard: a native rebuild of the original FineBI "CN KPI" board, with 18 widgets (VLR / Voice / Data subscribers, USSD success rate, location-update success rate, USPP / MSC / xGW utilisation, FDD / TDD traffic, RG-6/11/12/30 and more). Data is read from db_ps_cs_cn through the remote read-only SQL API and does not depend on the my-finebi process. Note: this page draws on two independent pipelines — manually exported _EMS tables (which stall, and whose granularity follows the export range) and auto-synced _UME tables — so fetching degrades gracefully and the granularity is labelled on both the card and the page header.
+
+- The default range is the last 31 days; after changing the range and querying, month-granularity widgets automatically widen to the last 13 months
+- An orange "Monthly" tag on a card means each point is one month, not one day; a gold "Switched" tag means the original table stalled and an auto-synced source of the same name is being used
+- The orange banner in the page header lists every degraded widget and why — if you see it, check whether someone needs to re-run the NMS export
+- "Export Excel" writes each widget's data plus the exact SQL used, so figures can be reconciled against the NMS side
 
 #### UME iMonitor Screen（`imonitor`, iframe page）
 

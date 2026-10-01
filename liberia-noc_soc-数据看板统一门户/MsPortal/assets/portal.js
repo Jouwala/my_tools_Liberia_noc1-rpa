@@ -978,14 +978,28 @@
   /* ------------------------------------------------------- local storage -- */
   function readLS(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function writeLS(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
-  /* 默认语言跟随浏览器（与 index.html 首屏脚本的 guessLang 同一口径）。
-     只有用户从未手动切过语言时才生效；?lang= 深链在 applyDeepLink 里优先级更高。 */
+  /* 判定链（2026-09-30 定口径，与 MsPortal/viewer.html 的 LANG、两份 index.html
+     首屏脚本逐条一致）：
+       ?lang= > msportal.lang.v1（本站点键） > olbr.lang（门户键） > 浏览器语言
+     · ?lang= 由上游门户的出链带上（v1/olbrportal/assets/olbr.js 的 langQs/vlink），
+       真正落库在下面的 applyDeepLink()（首屏 render() 之前），这里只是让首帧判定同口径。
+     · olbr.lang 是 /v1/olbrportal/ 那份只读门户用的键：同源但**不同名**，不认它的话
+       从那边点进来只能退到浏览器语言，中文系统上就是「门户选了英文、下级页满屏中文」。 */
   function detectLang() {
+    var q = null;
+    try { q = new URLSearchParams(location.search).get('lang'); } catch (e) { /* ignore */ }
+    if (q === 'en' || q === 'zh') return q;
     var v = readLS(LS.lang);
+    if (v === 'en' || v === 'zh') return v;
+    v = readLS('olbr.lang');
     if (v === 'en' || v === 'zh') return v;
     var nav = (navigator.language || navigator.userLanguage || 'zh') + '';
     return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
-  }  function readJSON(k, d) {
+  }
+  /* 出链带语言（2026-09-30）：本页嵌/跳的 /myapp/ 用第三个键 'app-locale'，
+     不带上就退化成浏览器语言，与上面 detectLang 修的是同一件事。 */
+  function langVal() { return state.lang === 'en' ? 'en' : 'zh'; }
+  function langQs() { return '&lang=' + encodeURIComponent(langVal()); }  function readJSON(k, d) {
     try { var raw = localStorage.getItem(k); return raw ? JSON.parse(raw) : d; } catch (e) { return d; }
   }
   function writeJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } }
@@ -3319,7 +3333,7 @@
       if (page) {
         /* 同源相对路径：门户与 my_app 经同一个 nginx，用相对路径就不会把
            「本机 192.168.100.20」写死进代码（换 IP / 换域名时不用改这里）。 */
-        link.href = '/myapp/?page=' + encodeURIComponent(page);
+        link.href = '/myapp/?page=' + encodeURIComponent(page) + langQs();
         link.hidden = false;
       } else {
         link.removeAttribute('href');
@@ -3978,7 +3992,7 @@
            这两个参数留着是因为：直开本页（不经门户）时仍然有用，
            且将来若有页签直接从 URL 读，也不必再回来改。
            其余 3 个页签（React SPA）不认这两个参数，带了也无副作用。 */
-        src: '/myapp/?page=' + m.page + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '')
+        src: '/myapp/?page=' + m.page + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
       };
     });
     out = out.filter(function (m) { return m.allowed; });
@@ -5358,7 +5372,7 @@
       ?mwembed=1 或 window.self !== window.top，iframe 内两种都成立），这里带了无副作用
       但也无用，索性保持 URL 与「新窗口打开」完全一致。 */
   function emailSrc() {
-    return '/myapp/?page=' + EMAIL_PAGE;
+    return '/myapp/?page=' + EMAIL_PAGE + langQs();
   }
 
   /** 骨架：标题栏 + 画布，与 topoSection() 同构（同样的类名，保证两卡的观感一致） */
@@ -5499,9 +5513,13 @@
        变量：这样「首次建 frame」「切主题」「门禁放行后回来」三条路径共用同一段判断，
        不会出现某个入口忘了同步。 */
     var wantTheme = state.theme === 'dark' ? 'dark' : 'light';
-    if (!f.getAttribute('src') || f.dataset.theme !== wantTheme) {
+    /* 语言也进判据（2026-09-30）：emailSrc() 现在带 &lang=，而 my_app 只在启动时读一次
+       （i18n.tsx detectLocale）—— 切语言不重设 src，这块会停在旧语言。 */
+    var wantLang = langVal();
+    if (!f.getAttribute('src') || f.dataset.theme !== wantTheme || f.dataset.lang !== wantLang) {
       syncEmailTheme();
       f.dataset.theme = wantTheme;
+      f.dataset.lang = wantLang;
       delete f.dataset.loaded;
       f.setAttribute('src', emailSrc());
     }
@@ -7010,7 +7028,7 @@
         if (f) {
           delete f.dataset.loaded;
           try { f.contentWindow.location.reload(); }
-          catch (err) { f.setAttribute('src', '/myapp/?page=' + state.mapTab); }
+          catch (err) { f.setAttribute('src', '/myapp/?page=' + state.mapTab + langQs()); }
         }
         return;
       }

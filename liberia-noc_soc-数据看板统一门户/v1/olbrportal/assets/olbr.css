@@ -67,7 +67,20 @@
 
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
           "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
-  --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
+  /* 2026-10-01：末尾补中文字体 "Microsoft YaHei"（原栈到 monospace 即止）。
+     为什么必须有：本页 **37 处**用 --mono，其中至少 6 处会渲染中文 ——
+     `.esc-note`(数据源：升级机制.xlsx)、`.gf-note`(模板：#1 …)、
+     `.canvas-note`(中文地图标题)、`.meta`(含负责人/分组中文名) 等。
+     栈里没有中文字体时，这些汉字会落到最后的 `monospace` 兜底
+     （Windows 上多为 Courier New / 宋体），与前面 Consolas 的拉丁等宽
+     **字形、字宽、基线都不同**，中英混排处观感会明显"跳一下"。
+     补 "Microsoft YaHei" 后中文稳定走雅黑，与 --sans 的中文回退同一款，
+     全页中文观感统一。
+     ⚠️ 放在 monospace **之前**：等宽拉丁仍优先（Consolas 等），
+        中文才轮到雅黑；雅黑本身非等宽，但中文在等宽区里本就是"整字"，
+        对齐诉求（tabular-nums）只针对数字/拉丁，不受影响。 */
+  --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas,
+          "Microsoft YaHei", monospace;
 
   /* Speedtest by Ookla 标识的颜色（2026-10-01 加）。
      浅色主题取参考图实测的笔画核心色 #172143（Ookla 的深海军蓝）；
@@ -128,6 +141,32 @@
   --warn: #7c5e07; --warn-tint: rgba(124, 94, 7, .09);
   --crit: #a2202f; --crit-tint: rgba(162, 32, 47, .08);
 
+  /* ---- Benchmark 行两条走势线的颜色（2026-10-01 加）------------------------
+     这一排的卡片里画**两条**线（Orange / MTN），上面那排的单线卡用的是
+     --qc-accent（= --b 品牌青），所以这里要额外给两个色。
+
+     ⚠️ 2026-10-01 用户指定：「orange 使用橙色的线，MTN 使用黑色的线」——
+     按运营商自己的品牌色分配，比早先那版（青+紫，只按"色相距离最远"挑）
+     更好读：看图的人不用先查图例就知道哪条是哪家。
+     这一版**取代**了原来的 --bf-mtn: #7c3aed 紫，
+     原来的"避开 --ok/--crit 语义色"那条理由仍然成立，这两个值也没踩到它们。
+
+     Orange 用 #f97316：是 Orange 品牌橙，且在浅色白底上够亮、在深色底上
+     也分得开（下面深色档再提亮一档）。
+     它**不等于** --title(#ff7900)：那个是 ZTE 门户标题橙、只给标题用，
+     而且用户 2026-09-25 拍板"就要 #FF7900"是针对 .band-k 的，
+     把那个色借来画线会让"标题色"与"数据线色"两个语义纠缠在一起。
+
+     MTN 是黑底黄字品牌，但线不能画成品牌黄（--warn #f6cf00 在浅色白底上
+     几乎看不见，且 --warn 在本页有"关注"语义）。用户要的是黑线，就取黑：
+       · 浅色档 #1a1a1a —— 不能用纯 #000：与卡片边框/文字的深色(#163047)
+         太接近会显得"这不是一条数据线、而是卡的描边"，
+         抬一档到 #1a1a1a 仍是视觉上的黑，但能靠线宽与面积与边框区分开；
+       · 深色档**必须**反过来用浅色 #e8eaf0 —— 深底上画黑线等于看不见。
+         这是用户要求里唯一需要"按主题翻译"的地方，不是擅自改他的色。 */
+  --bf-orange: #f97316;
+  --bf-mtn: #1a1a1a;
+
   /* ---- Escalation Matrix 四级配色（2026-09-28 加）----
      用户要求「表格按照 Level 显示不同的颜色，注意深浅两种主题背景」。
      每级一对值，沿用本文件既有的 **ink + tint** 约定（同 --ok/--ok-tint）：
@@ -186,9 +225,15 @@
         同层。图标字号另有一套 **--icon-***（见本块末尾），两者刻意分开。
      ⚠️ 六个入口卡不以本表为准：它们在自己的 .v6-grid 作用域内重定义这套令牌
         （见 .v6-grid 处的说明），字号仍随 --v6-k 缩放，但**引用的是同一批名字**。 */
-  --fs-2xs: 11px;    /* 角标 / 时间戳 / 口径脚注（2026-09-30 由 10px 提到 11px：
-                        10px 已低于中文正文的舒适可读下限，21 处使用点全是角标类
-                        小字，抬高 1px 不改变层级关系、只提升可读性） */
+  /* ⚠️ 2026-10-01：--fs-2xs 与 --fs-xs **已合并为同一档 11.5px**（此前是 11 / 11.5）。
+     原因：这两档只差 0.5px，人眼在正常观看距离下分不出来，却制造了
+     「同一张 KPI 卡里 .qc-asof 是 11px、.qc-sub 是 11.5px」这类不一致观感。
+     取 11.5 而非 11：11px 偏小，抬到 11.5 对中文更友好。
+     保留两个令牌名（而不是删掉 --fs-2xs 把 21 处引用改指 --fs-xs）是**刻意**的：
+     · 「角标/脚注」与「标签/表头」在**语义**上仍是两类（将来若真要分开还能各调各的）；
+     · 21 处改指会让 diff 很大、增加误改风险，而当前值相同、行为完全一致。
+     读到两个令牌同值时不要以为是笔误 —— 见这里。 */
+  --fs-2xs: 11.5px;  /* 角标 / 时间戳 / 口径脚注（2026-10-01 起与 --fs-xs 同值） */
   --fs-xs:  11.5px;  /* 次要标签 / chip 计数 / 表头 */
   --fs-sm:  12.5px;  /* 正文次级：卡名 / 说明 / 表格正文 */
   --fs-md:  14px;    /* 正文 / 控件默认 */
@@ -271,6 +316,17 @@ html.dark {
   --ok: #0bc78c;  --ok-tint: rgba(11, 199, 140, .13);
   --warn: #f6cf00; --warn-tint: rgba(246, 207, 0, .13);
   --crit: #ff5c6c; --crit-tint: rgba(255, 92, 108, .13);
+
+  /* Benchmark 行两条走势线的深色档（2026-10-01 加，与浅色档同一条说明）。
+     ⚠️ MTN 在这里**必须从黑翻成浅灰**：深底上画黑线等于没画。
+     这不是改用户指定的颜色，而是"黑色"在深色主题下的等价物 ——
+     用户要的是"MTN 那条是中性色、一眼认得出"，深底上只有浅灰能做到。
+     ⚠️ 取值不能只求"看得见"，还要与橙线**分得开**。实测（TMP/_probe_bf_pick.cjs，
+     深色卡底 ≈ #0b1220）：#c9ced8 与橙只有 1.43:1，两条线在图上会糊成一条；
+     取 #e8eaf0 后与橙 1.88:1、与卡底 15.57:1，两个条件都过。
+     它比正文色更亮，但深色主题下"白色数据线"是常规画法，不抢橙线的主角位。 */
+  --bf-orange: #fb923c;
+  --bf-mtn: #e8eaf0;
 
   /* ---- Escalation Matrix 四级配色 · 深色档（2026-09-28 加）----
      与浅色档**同一组色相、不同的明度**（见浅色档处的完整说明）：
@@ -655,11 +711,14 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 /* 六视图卡标题。2026-09-30 修正**层级倒挂**：原先用 var(--fs-md)，在 .v6-grid
    作用域里被重定义为 21px（= 14×1.5），**比页面分区标题 .band-k(18px) 还大** ——
    卡片标题盖过分区标题，是「层级倒挂」最伤专业感的一处。
-   现固定为 16px（= --fs-lg 的量级）：分组标题(18) > 卡片标题(16) > 正文(14)，
-   层级方向恢复正确。刻意**不再引用 --fs-md**（那在本作用域里是给图标砖 .v6-ico
-   用的 21px）；用字面 16px 是因为它不参与六卡的 1.5 倍缩放 —— 它是"卡片标题"
-   这一全页统一层级，不该随这块卡单独放大。 */
-.v6-t { min-width: 0; font-size: 16px; font-weight: 700; letter-spacing: var(--ls-tight); }
+   现用 --fs-lg(16px)：分组标题(18) > 卡片标题(16) > 正文(14)，层级方向恢复正确。
+   刻意**不引用 --fs-md** —— 那个令牌在本作用域里被重定义为 21px（给图标砖 .v6-ico 用）。
+   ⚠️ 2026-10-01 由字面 16px 改为 var(--fs-lg)：两者同值、视觉零变化，但字面量会
+      在将来调 --fs-lg 时不跟随，制造新的分叉（本轮复查发现的真实隐患）。
+      --fs-lg **不在** .v6-grid 的作用域覆盖列表里（只覆盖了 2xs/xs/sm/md），
+      所以此处 var(--fs-lg) 取到的就是 :root 的 16px，与"卡片标题不随六卡放大"
+      的意图一致 —— 即：它跟随的是**全页标题层级**，不是这块卡的 1.5 倍缩放。 */
+.v6-t { min-width: 0; font-size: var(--fs-lg); line-height: var(--lh-tight); font-weight: 700; letter-spacing: var(--ls-tight); }
 /* ⚠️ 2026-09-27：分组说明（gSub，如 "Back Office Expert Support"）在 v1 列头
    **已不再渲染**，所以这里不再有 .v6-t small / .v6-t-top > small 的规则。
    演进过程记一笔，免得后人以为漏写了：
@@ -1322,6 +1381,67 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 /* 无数据：整卡数字转灰，与 .qc-card--rich.is-na 同一处理 */
 .qc-card--bf.is-na .bf-val { color: var(--t3); }
 
+/* 卡片走势图（2026-10-01 加，用户要求「卡片能跟 Network Status Overview 里的
+   卡片一样添加图」）。
+   ----------------------------------------------------------------------------
+   高度与间距**刻意与上面那排的 .qc-spark 取同一个值**（26px / margin-top 8px）：
+   三排卡片插在同一列里，走势图若高一档，六张卡的页脚基线就会错开一行。
+
+   ⚠️ .qc-card--bf 里插的这一格**不是**单个 .qc-spark，而是「两张 SVG 叠放 +
+   一行图例」——因为这一排的卡内是两家并排，线也是两条（见 olbr.js 的 benchSpark）。
+   叠放用绝对定位：两条线共用同一个坐标盒（同一个 viewBox、同一份 lo/hi），
+   所以第 N 天的两个点必然落在同一像素列上，不会左右错开。 */
+.bf-spark-wrap { display: block; margin-top: 8px; }
+/* 线区：定高 26px 作为两条线的共同容器。position:relative 是绝对定位的锚点。 */
+.bf-spark { position: relative; display: block; height: 26px; }
+/* 两条线各自铺满这一格，互相重合。
+   ⚠️ 下面两条 .bf-spark-l 都必须是 absolute + inset:0：
+   若写成 static，两张 SVG 会变成上下两行、整块高度翻倍。 */
+.bf-spark-l { position: absolute; inset: 0; display: block; }
+/* 里面那张 .qc-spark 的高度/边距由既有规则给（26px / margin-top:0，
+   因为父级 .qc-spark-wrap 已经出了 margin）。这里只需保证 SVG 撑满该格。 */
+.bf-spark-l .qc-spark { height: 26px; }
+
+/* 两条线的配色。**颜色不写死在 JS 里**：改主题只改这一处。
+   取值由用户 2026-10-01 指定：**Orange 画橙线、MTN 画黑线**（见令牌定义处的说明）。
+   这样看图的人不用先查图例就知道哪条是哪家 —— 之前那版按"色相距离"挑的青+紫
+   做不到这一点。
+   ⚠️ 面积仍压到很淡（下面 .10）：两条实色面积叠在一起会糊成第三种颜色，
+   读者反而看不出哪条是哪条。线色区分足够，面积只用来给"量感"。 */
+.bf-spark-l.l-o .sp-line { stroke: var(--bf-orange); }
+.bf-spark-l.l-m .sp-line { stroke: var(--bf-mtn); }
+/* 面积：两条都要，但压到很淡（.10）—— 单线卡（可用率那三张）用的是
+   --qc-accent-soft，那个浓度在这里叠加两次就会糊。 */
+.bf-spark-l .sp-area { fill-opacity: .10; }
+.bf-spark-l.l-o .sp-area { fill: var(--bf-orange); }
+.bf-spark-l.l-m .sp-area { fill: var(--bf-mtn); }
+/* 线宽：与单线卡同为 1.6 的观感。这里必须靠 vector-effect 锁住 ——
+   SVG 挂着 preserveAspectRatio="none"，线宽会被横向拉伸
+   （qcSparkSvg 已经在路径上写了 vector-effect="non-scaling-stroke"，
+   所以这里不必再写，记一笔是为了别在后人"顺手加个 stroke-width"时踩到）。 */
+
+/* 图例：两个色点 + 品牌名。用色点而不是只靠线的颜色 ——
+   两条线在窄卡里可能长期贴着走，颜色差异在密集处不好认；
+   有了图例就能对照。字号取 --fs-2xs，与卡内其它小字同一档。 */
+.bf-spark-lg {
+  display: flex; align-items: center; gap: 10px; margin-top: 3px;
+  font-size: var(--fs-2xs); line-height: var(--lh-tight); color: var(--t3);
+  white-space: nowrap; overflow: hidden;
+}
+.bf-spark-k { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+/* 色块。宽度 8px、高 2px 的一条短横，与折线的线宽观感呼应（比圆点更像"线"）。
+   ⚠️ 颜色写在这里，**不**靠 currentColor 从 .k-o/.k-m 继承 ——
+   那两个类的 color 是留给下一条规则的（品牌名要回到正文色）。
+   色值必须与上面 .l-o / .l-m 两条线的 stroke 是**同一个令牌**。 */
+.bf-spark-k > i {
+  flex: none; width: 8px; height: 2px; border-radius: 1px; background: var(--t3);
+}
+.bf-spark-k.k-o > i { background: var(--bf-orange); }
+.bf-spark-k.k-m > i { background: var(--bf-mtn); }
+/* 品牌名用正文次要色（继承 .bf-spark-lg 的 --t3），**不**染成品牌色：
+   染了会让这一行读起来像两个链接（本页链接色就是 --b，
+   那样 Orange 看起来可点、MTN 不可点）。色相已经由左边的色块表达了。 */
+
 /* Speedtest by Ookla 品牌标识（页脚第三格，2026-10-01 加）。
    用户要求「体现 Ookla 的图标，表明是 Speedtest」，位置与参考图一致：页脚最右。
 
@@ -1413,6 +1533,20 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
      加它就超过 149px 的可用宽）。和 .bf-ookla 一样给 max-width，
      否则 flex 0 0 100% 会把它拉到整行宽、圆标被放大到失真。 */
   .qc-ext > .bf-metalogo { flex: 0 0 100%; max-width: 72px; justify-content: flex-end; }
+
+  /* ⚠️ 页脚换行后**高度不再统一**，会把上面的走势图顶得不齐（2026-10-01 实测）：
+     这一档下页脚要么 1 行（51.1px）要么 2 行（82.5px，多出的那个标识独占一行）。
+     三格文字本身各 45.1px，差别只在"标识格有没有换行"：
+       · 有 Ookla/Meta 标识的卡（Download/Upload/…）→ 标识换行 → 页脚 82.5px；
+       · 没有标识的卡（BP 是文字徽章 21.3px）→ 页脚反而 76.4px。
+     图是**以页脚为锚**向上排的（.bf-spark-wrap 的 margin-top:auto），
+     页脚一高，图就被整体顶上去 —— 于是同排卡片的图错位 31.4px。
+
+     修法：给页脚锁一个统一的 min-height，覆盖"标识换行"这个最高的情况。
+     取值 82.5px = 本档实测的最高页脚高度（两格文字 45.1 + 换行标识行）。
+     ⚠️ 换算依据会被字号/内边距变化打破 —— 改 --fs-2xs 或 .qc-ext 的
+     padding 后要用 TMP/_probe_bf_css.cjs 重测（它会打出每张卡的页脚实高）。 */
+  .qc-card--bf .qc-ext { min-height: 82.5px; }
 }
 
 /* 整卡可点的卡片（2026-09-29 加）。
@@ -1511,6 +1645,99 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 /* 最高绿、最低红 —— 与走势线同色系，扫一眼就知道哪端是好的一端 */
 .qc-ext > div.hi b { color: var(--ok); }
 .qc-ext > div.lo b { color: var(--crit); }
+
+/* 走势图这一格**要沉底**（2026-10-01 用户反馈修）：
+   「同一行卡片里面的线图的横坐标没有对齐，左边 3 个对齐了右边的有办法对齐吗」
+   —— 实测不是横向错位，是**纵向**错位：左三张（Ookla）线底离线顶 138.2px，
+   右两张（Meta）124px、BP 只有 88.5px，最大差 49.7px。右三张的图明显偏上。
+
+   根因（两层，都要治）：
+   1) 卡片是 flex column，页脚靠 .qc-card.has-foot 的 margin-top:auto 沉到底；
+      **但图没有**——它是 .bf-rows 之后的流内元素，位置由"上面有多少内容"决定。
+   2) 更关键：**左三张（Ookla）根本没有 has-foot 类**（见 olbr.js 的
+      speedCardHtml 与 metaCardHtml 两处 class 拼接），右三张有。
+      于是"有没有把内容往下压"这件事两组本来就不一样 —— 这正是
+      "左边齐、右边不齐"的直接来源。
+   3) 即便都加上 auto，两个 auto 会平分剩余空间，图与页脚之间被拉开；
+      且 BP 那张**没有图例**（单线卡），块高天生比另外五张矮 14.4px。
+
+   修法：以**页脚**为锚，把图固定在页脚正上方 —— 用 flex 的 order + margin
+   不如直接用 `margin-top:auto` 让图吃掉它上方的全部富余量，
+   再给图与页脚之间一个固定的 5px。这样"图底到页脚顶"的间距六张卡一致，
+   而页脚本来就已对齐，所以六张卡的图必然在同一水平线上。
+   ⚠️ 图例有无造成的 14.4px 差异用**固定行高占位**抹平：给 .bf-spark-lg
+   一个统一的 min-height，没有图例的卡（BP）也留出同高的空位，
+   于是"图 + 图例"这一整块的高度六张卡相同。
+   ⚠️ 只对 .qc-card--bf 生效：上面那排可用率卡的 .qc-spark 结构不同
+   （它在 .qc-ext 内部），不应该被这条规则影响。 */
+.qc-card--bf .bf-spark-wrap { margin-top: auto; }
+/* ⚠️ 卡头与数据行在窄断点会**自己长高**，上面那条 auto 就没有富余可吃，
+   图仍会被顶下去。2026-10-01 实测 420px 档第 2 行最能说明问题：
+   Latency 与 Speed **卡高完全相同（269.4）、页脚也完全对齐（1919.6 / 1951
+   相对卡顶差 31.4 —— 注意页脚其实也不同，见下），但图差了 31.4px。
+   根因：`.bf-row` 是「品牌+数值 | P50/P90+胜率」两列栅格，
+   窄卡里右列会折行，于是**某些卡的数据区比另一些高**。
+
+   修法（两条一起，才完整）：
+   1) 数据区锁高：两行品牌 × 两行文字，给 .bf-rows 一个 min-height，
+      折行不再改变它的高度 —— 数据区的"下限"由这里定；
+   2) 图仍靠 margin-top:auto 沉底，但此时"上面"的高度已经可预测，
+      auto 一定吃得到富余，图必然落在页脚正上方。
+
+   ⚠️ 锁的是 min-height 而不是 height：数据天生可能更高（真折行到第 3 行时
+   需要显示完整），锁 height 会裁掉内容。min-height 保证"至少这么高"，
+   于是六张卡在这条线上拉平；万一某张真的更高，它是六张里唯一变高的，
+   表现为该行整体变高 —— 这是可接受的降级，且比"图错位"轻得多。
+
+   ⚠️⚠️ 取值必须 ≥ **折行后的实际高度**，否则等于没锁。
+   2026-10-01 实测 420px 档：先取 62px 完全无效 ——
+     数据区折行的卡（Latency）两行各 35.5px，合计 74px，早已超过 62px，
+     min-height 形同虚设；没折行的卡（Speed）才被撑到 62px。
+     真正需要的是覆盖"两行都折"的 74px。取 74px 后两种卡一致，
+     线条因此对齐。这个值随字号/断点变化 —— 若哪天改了 --fs-2xs 或
+     .bf-row 的行高，**必须回来重测这个数**（探针 TMP/_probe_bf_css.cjs
+     会直接打出每张卡的数据区实高，不必靠猜）。 */
+@media (max-width: 1200px) {
+  .qc-card--bf .bf-rows { min-height: 74px; }
+}
+/* ⚠️ 卡头**锁一个最小高度**，让"卡名折行"不再改变卡内其它元素的位置。
+   2026-10-01 实测（420px 档，栅格折成 2 列后的第 2、3 行）：
+     「Latency」154.5 vs 「Speed」185.9 —— Speed 卡名折成两行，多占 31.4px；
+     同理「Composite」167.7/179.7 vs BP 154.5 —— BP 折行、Composite 没折。
+   也就是说：**卡头折行**是窄屏不齐的直接原因（宽屏卡名都只占一行，
+   所以宽屏一直齐）。图靠 margin-top:auto 只能吃掉"内容不足留下的富余"，
+   一旦某个元素自己长高、富余被吃光，图就被顶下去。
+
+   ⚠️ 取值不能写成 calc(字号 × 行高 × 2) —— 那个算法在 420px 档实测得到
+   37.5px，而**真正折行后的卡头是 42px**（折行时 .bf-lead 徽章会掉到第二行，
+   它自带 padding 1px + 边框 1px，比纯文字高）。锁一个偏小的值等于没锁：
+   折行的卡仍然 42px、没折的卡被撑到 37.5px，两者依旧差 4.5px。
+   所以这里**直接量**：42px = 折行卡头的实测高度，写死并注明来源。
+   探针 TMP/_probe_bf_css.cjs 会打出每张卡的"卡头"实高，改字号后回来重测。 */
+@media (max-width: 1200px) {
+  .qc-card--bf .bf-hd { min-height: 42px; }
+}
+/* ⚠️ 页脚在 .qc-card--bf 里**必须放弃 auto**（覆盖掉下面 has-foot 那条）：
+   否则图与页脚各有一个 margin-top:auto，浏览器把富余空间**平分**给两者
+   （实测 Speed 卡：图 19.25px、页脚也 19.25px），图仍不在同一水平线上。
+   把富余量全部交给**图上方**那一个 auto，图就被推到页脚正上方，
+   于是"图底 → 页脚顶"的间距对六张卡都等于下面这个 5px。
+
+   ⚠️ 选择器要带 .has-foot 且写在 has-foot 那条**之前**不行 —— 必须赢过它。
+   `.qc-card.has-foot .qc-ext`（0,2,0）与 `.qc-card--bf .qc-ext`（0,2,0）
+   同特异性，靠源码顺序定胜负；has-foot 那条在本段之后，所以这里显式
+   用 `.qc-card--bf.has-foot`（0,2,0）+ 再叠一个 .qc-card 提到 (0,3,0)，
+   避免"以后有人把 has-foot 那段往下挪"时这条又被翻掉。 */
+.qc-card.qc-card--bf.has-foot .qc-ext { margin-top: 5px; }
+/* 左三张（Ookla）没有 has-foot，页脚本来就是流内 5px，无需覆盖；
+   但为防将来给它们加上 has-foot，这里一并写上（同一条规则覆盖两态）。 */
+.qc-card.qc-card--bf .qc-ext { margin-top: 5px; }
+/* 图例占位：六张卡统一高度。单线卡（BP）在渲染时就补了一个**空的**
+   .bf-spark-lg（见 olbr.js 的 metaSpark），所以这条同时管住两种卡：
+   "图 + 图例"整块等高，图底自然在同一水平线上。
+   ⚠️ 不再用 :has() 兜底 —— 那会让"高度从哪来"这件事分成两处（JS 一处、
+   CSS 一处），且 :has() 在旧内核上不可用。统一由渲染层给节点。 */
+.qc-card--bf .bf-spark-lg { min-height: 14.4px; }
 
 /* 带页脚的卡（可用率那三张）把页脚沉到卡底：
    六张并排时它们的页脚就与富卡片 Max/Avg/Min 那条线对齐，
@@ -1617,7 +1844,11 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    （.fcard .ttl 16px / .um-head h3 16px / .qc-head h3 16px / .gate-c h2 18px）同频。
    原先 15px 落在 --fs-md(14) 与 --fs-lg(16) 之间，既不与正文成档、也不与标题成档，
    是「面板标题看起来和正文差不多大」的成因之一；归到 16px 后 L1 标题真正立起来。 */
-.p-t { font-size: var(--fs-lg); font-weight: 700; letter-spacing: var(--ls-tight); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 行高显式给 --lh-tight（2026-10-01）：此前不写、继承 body 的 --lh-base(1.5)，
+   而分区标题 .band-k 是 --lh-tight(1.25) —— 同类标题两种行高口径。
+   统一到 --lh-tight 后，全页标题行高只有一个真相源。
+   单行标题下 1.25 与 1.5 视觉差异极小，这条是**口径**统一而非观感修正。 */
+.p-t { font-size: var(--fs-lg); line-height: var(--lh-tight); font-weight: 700; letter-spacing: var(--ls-tight); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .p-s { font-size: var(--fs-xs); color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ----------------------------------------------------------------------------
@@ -1801,7 +2032,7 @@ html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
 .esc { background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-1); overflow: hidden; }
 .esc-bar { display: flex; align-items: center; gap: var(--s3); padding: 11px var(--s4); flex-wrap: wrap; }
 .esc-bar::before { content: ""; width: 3px; height: 15px; border-radius: 2px; background: var(--grad); flex: none; }
-.esc-t { font-size: var(--fs-lg); font-weight: 700; }
+.esc-t { font-size: var(--fs-lg); line-height: var(--lh-tight); font-weight: 700; }
 .esc-s { font-size: var(--fs-xs); color: var(--t3); }
 .esc-lv { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
 .lvchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-2); font: 600 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--t2); }
@@ -1977,7 +2208,11 @@ table.grid a:hover { text-decoration: underline; }
   background: none; border: 0; font: inherit; color: inherit; cursor: pointer; border-radius: 999px; }
 .subv.is-drop.is-on { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
 .sub-x { display: inline-grid; place-items: center; width: 18px; height: 18px; flex: none;
-  border: 0; border-radius: 5px; background: none; color: var(--t3); font-size: 11px; cursor: pointer; }  /* 图标字号 */
+  border: 0; border-radius: 5px; background: none; color: var(--t3); font-size: 11px; cursor: pointer; }
+  /* ↑ 11px 是 × 号图标字号。此处**不并入 --icon-***：那套只有 12/13/15/18 四档，
+     没有 11px；硬套 12px 会让这个 18×18 小圆钮里的 × 变大 1px。
+     且 .sub-x 属「v1 无命中」的死规则（.subv/.subs-v 的渲染函数在 v1 无调用，
+     见文件头「无命中规则清单」），改与不改都不影响显示，故保留原值仅加注。 */
 .sub-x:hover { background: var(--surface-3); color: var(--b-ink); }
 .sub-x[data-act="sub-del"]:hover { color: var(--crit); background: var(--crit-tint); }
 .subv.is-ren { padding: 3px 4px; gap: 4px; height: auto; }

@@ -160,10 +160,55 @@ uvicorn 后端 (:7038)
 | 远端库本地占位 | 本地 `db_ps_cs_cn.sqlite3` 是 0 字节，误当数据源会得到空结果而非报错 |
 | 裸 `sqlite3.connect` | 绕过统一数据访问层，迁移/改造时会静默坏图 |
 | nginx 路径冲突 | `/api/` 归 my_app；门户必须走 `/uniplam/api/`，写错会 405 |
+| nginx 双份配置 | 本机 (.20) 生效配置在 `D:\01_RPA\nginx-1.28.0\conf\nginx.conf`；`Y:\01_RPA\nginx-1.28.0\conf\nginx.conf` 服务的是 **.19**。**改错一份不生效**，详见下一节 |
 | localStorage 覆盖 | 看板数据本地优先，改了 `initialDashboards.ts` 但用户没清缓存时会"看不到新数据"（需"恢复初始默认看板"） |
 | 硬编码主机 | 主机集中在 `src\config.ts` 的 `DEFAULT_HOST`，其它地方不应再出现 IP |
 
-## 八、相关文档
+## 八、架构决策记录（事实上的 ADR）
+
+> 本仓库无独立 ADR 目录，按 `AGENTS.md` 第三节第 8 条在此追加带日期的决策小节。
+
+### 2026-10-01：.20 本机 nginx 从网络映射盘 Y: 迁到本地盘 D:
+
+**背景。** MSNOC1（.20）的 nginx 原先运行在 `Y:\01_RPA\nginx-1.28.0\` —— 那是网络映射盘
+（`Y:` → `\\192.168.100.19\e`，即 .19 的 E 盘）。**nginx.exe、conf、logs、temp 全部落在 SMB
+共享上**：每写一行访问日志、每次 proxy 缓冲落盘都要走一次网络往返。
+
+**触发事件。** 2026-09-30 21:56~22:15，nginx 进程消失、80 端口拒绝连接，两个页面
+（`/myapp/`、`/v1/olbrportal/`）同时不可用。取证结论：
+
+- `logs\error.log` 在猝死前**只有 warning 级** `an upstream response is buffered to a temporary
+  file ...` 记录，**没有任何 crash / emerg 痕迹**；
+- 系统事件日志在 21:50–22:20 区间**无意外关机（41）、无服务崩溃（7031/7034）**，该机当时已连续运行 13 天；
+- 上游服务（7038 后端 / 7090 前端 / 8787 实时代理）**全程健康**，故障面严格限定在 nginx 本身。
+
+**判定：SMB 网络盘 I/O 阻塞**（进程被网络盘写入卡死/异常终止，故无 crash 日志）。
+
+**决策：** 把 nginx 复制一份到本地盘 `D:\01_RPA\nginx-1.28.0\` 并在那里运行。
+
+**为什么是「复制」而不是「移动」。** 配置注释（原 `nginx.conf:26`）载明「MSNOC1 与 .19
+两台机器的 nginx 往同一批文件里写」——**Y: 上那份 .19 自己也在用**。因此 Y: 原件必须原样保留，
+不能搬走也不能删。
+
+**代价与后续约束（重要）：**
+
+1. **配置从此有两份，必须分清改哪份**：本机改 `D:\...\conf\nginx.conf`；`Y:\...\conf\nginx.conf`
+   改动只影响 .19。这是本次决策引入的**长期维护成本**，换来的是本机不再依赖 SMB。
+2. `D:\01_RPA\nginx-1.28.0\` 是**第三方发行包**，已加入根 `.gitignore`；但它是**线上服务目录**，
+   **忽略跟踪 ≠ 可以删除**。
+3. 监控与轮转脚本的路径已同步（`nginx_monitor.ps1` Version 4 的 `NginxExe`/`NginxDir`、
+   `rotate_nginx_logs.ps1` 的 `-Prefix`）。**两者必须一起改**，否则轮转会去轮转 Y: 上的旧目录。
+4. 桌面快捷方式 `olbr_app\nginx-Stop.lnk` 的 `WorkingDirectory` **仍指向 Y:**，未同步更新 ——
+   它现在停的是 .19，对本机无效。
+5. 附带修复：原先 nginx 以 `E:\01_RPA\nginx-1.28.0` 为 prefix 解析相对路径（`root html;`），
+   而本机**不存在 E 盘**，于是 `/favicon.ico`、`/50x.html` 等相对路径请求一直在报
+   `CreateFile() ... failed`。迁到 D 盘后 prefix 自然正确，此类报错消失。
+
+**回滚路径。** 停掉 D 盘 nginx → 从 `Y:\01_RPA\nginx-1.28.0\` 启动 → 把
+`nginx_monitor.ps1` 的两个路径参数与 `rotate_nginx_logs.ps1` 的 `-Prefix` 改回 Y:。
+（服务本身无状态，回滚不涉及数据。）
+
+## 九、相关文档
 
 | 内容 | 去哪里 |
 | --- | --- |

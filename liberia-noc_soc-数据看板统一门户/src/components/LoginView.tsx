@@ -86,6 +86,13 @@ export const LoginView: React.FC = () => {
       const data = (await res.json().catch(() => null)) as { detail?: string } | null;
       if (!res.ok) {
         const detail = data?.detail || '';
+        /* detail → 文案。与 v1/olbrportal/assets/olbr.js 的 register() 保持同一套口径
+           （同一件事在两页必须说一样的话）。
+           2026-09-30 修：invalid_username / password_too_short / invalid JSON payload
+           原来落到最后那支，把机器码 invalid_username 原样摆给用户看 —— 虽然比 v1 那边
+           误报「无法连接鉴权服务」诚实，但对用户同样不可读。三者在用户看来是同一件事
+           （填的格式不合规），统一走 ar.invalidInput（该键 i18n 里早已存在、此前无人引用）。
+           最后的兜底仍保留 detail 原文：认不出的服务端理由比一句笼统的「网络错误」有用。 */
         setReqError(
           detail === 'username_taken'
             ? t('ar.duplicate')
@@ -93,9 +100,13 @@ export const LoginView: React.FC = () => {
               ? t('ar.pendingDup')
               : detail === 'too_many_requests'
                 ? t('ar.tooMany')
-                : detail.startsWith('HTTP') || detail.includes('fetch')
-                  ? t('ar.networkError')
-                  : detail || `HTTP ${res.status}`
+                : detail === 'invalid_username' ||
+                    detail === 'password_too_short' ||
+                    detail === 'invalid JSON payload'
+                  ? t('ar.invalidInput')
+                  : detail.startsWith('HTTP') || detail.includes('fetch')
+                    ? t('ar.networkError')
+                    : detail || `HTTP ${res.status}`
         );
         return;
       }

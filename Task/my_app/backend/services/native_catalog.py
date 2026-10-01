@@ -33,7 +33,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db_ps_cs_cn.sqlite3',
-                'sql': 'SELECT substr("End Time",1,10) AS t, SUM("Number of Subscribers in VLR") AS "VLR Subscribers" FROM (\nSELECT "End Time", "Number of Subscribers in VLR" FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_EMS" UNION ALL SELECT "End Time", "Number of Subscribers in VLR" FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_UME"\n)  GROUP BY substr("End Time",1,10) HAVING t >= date(\'now\',\'-31 day\') ORDER BY t',
+                'sql': 'SELECT e.d AS t, e.v AS "VLR Subscribers" FROM (\nSELECT substr("End Time",1,10) AS d, SUM("Number of Subscribers in VLR") AS v FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_EMS" GROUP BY 1) e\nWHERE e.d >= date(\'now\',\'-31 day\')\nUNION ALL SELECT u.d AS t, u.v AS "VLR Subscribers" FROM (\nSELECT substr("End Time",1,10) AS d, SUM("Number of Subscribers in VLR") AS v FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_UME" GROUP BY 1) u\nLEFT JOIN (SELECT substr("End Time",1,10) AS d FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_EMS" GROUP BY 1) e2 ON e2.d = u.d\nWHERE e2.d IS NULL AND u.d >= date(\'now\',\'-31 day\')\nORDER BY t',
                 'limit': None,
             },
             {
@@ -43,7 +43,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': True,
                 'db': 'db_ps_cs_cn.sqlite3',
-                'sql': 'SELECT substr(e."End Time",1,10) AS t, ROUND(MAX(e."Number of Subscribers in VLR")/3000000.0*100, 2) AS "EMS", ROUND(MAX(u."Number of Subscribers in VLR")/4000000.0*100, 2) AS "UME" FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_EMS" e LEFT JOIN "VLR_SUBSCRIBERS_TEMPLATE_OSS_UME" u ON substr(u."End Time",1,10) = substr(e."End Time",1,10) GROUP BY substr(e."End Time",1,10) HAVING t >= date(\'now\',\'-31 day\') ORDER BY t',
+                'sql': 'WITH sk AS (SELECT DISTINCT substr("End Time",1,10) AS d FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_UME"), e AS (SELECT substr("End Time",1,10) AS d, ROUND(AVG("Number of Subscribers in VLR")/3000000.0*100, 2) AS v FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_EMS" GROUP BY 1), u AS (SELECT substr("End Time",1,10) AS d, ROUND(AVG("Number of Subscribers in VLR")/4000000.0*100, 2) AS v FROM "VLR_SUBSCRIBERS_TEMPLATE_OSS_UME" GROUP BY 1) SELECT sk.d AS t, e.v AS "EMS", u.v AS "UME" FROM sk LEFT JOIN e ON e.d = sk.d LEFT JOIN u ON u.d = sk.d WHERE t >= date(\'now\',\'-31 day\')\nORDER BY t',
                 'limit': None,
             },
             {
@@ -63,7 +63,7 @@ DASHBOARDS: List[Dict[str, Any]] = [
                 'pivot': False,
                 'pct': False,
                 'db': 'db_ps_cs_cn.sqlite3',
-                'sql': 'SELECT substr("End Time",1,10) AS t, SUM(v) AS "Voice Traffic(Erl)" FROM (\nSELECT "End Time", "Seized Traffic(Erl)" AS v FROM "VOICE_TRAFFIC_TEMPLATE_OSS_UME" UNION ALL SELECT "End Time", "Seized Traffic(Erl)" AS v FROM "VOICE_TRAFFIC_TEMPLATE_OSS_EMS"\n)  GROUP BY substr("End Time",1,10) HAVING t >= date(\'now\',\'-31 day\') ORDER BY t',
+                'sql': 'SELECT e.d AS t, e.v AS "Voice Traffic(Erl)" FROM (\nSELECT substr("End Time",1,10) AS d, SUM("Seized Traffic(Erl)") AS v FROM "VOICE_TRAFFIC_TEMPLATE_OSS_EMS" GROUP BY 1) e\nWHERE e.d >= date(\'now\',\'-31 day\')\nUNION ALL SELECT u.d AS t, u.v AS "Voice Traffic(Erl)" FROM (\nSELECT substr("End Time",1,10) AS d, SUM("Seized Traffic(Erl)") AS v FROM "VOICE_TRAFFIC_TEMPLATE_OSS_UME" GROUP BY 1) u\nLEFT JOIN (SELECT substr("End Time",1,10) AS d FROM "VOICE_TRAFFIC_TEMPLATE_OSS_EMS" GROUP BY 1) e2 ON e2.d = u.d\nWHERE e2.d IS NULL AND u.d >= date(\'now\',\'-31 day\')\nORDER BY t',
                 'limit': None,
             },
             {

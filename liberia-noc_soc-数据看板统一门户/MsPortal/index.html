@@ -36,9 +36,18 @@
    口径必须和 portal.js 的 detectLang() 一致，两边不一致首帧和挂载后语言不同会闪一下。 */
 (function () {
   function guessLang() {
+    /* 口径与 assets/portal.js 的 detectLang() 逐条一致：
+       ?lang= > msportal.lang.v1 > olbr.lang（上游门户的键） > 浏览器语言 */
+    var q = null;
+    try { q = new URLSearchParams(location.search).get('lang'); } catch (e) { /* ignore */ }
+    if (q === 'en' || q === 'zh') return q;
     var v = null;
     try { v = localStorage.getItem('msportal.lang.v1'); } catch (e) { /* ignore */ }
     if (v === 'en' || v === 'zh') return v;
+    try {
+      v = localStorage.getItem('olbr.lang');
+      if (v === 'en' || v === 'zh') return v;
+    } catch (e) { /* ignore */ }
     var nav = (navigator.language || navigator.userLanguage || 'zh') + '';
     return nav.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
   }

@@ -11,7 +11,7 @@
 ' 相关：
 '   - 巡检脚本：同目录 nginx_monitor.ps1
 '   - 巡检日志：D:\01_RPA\Task\nginx_monitor.log
-'   - 生效 nginx：Y:\01_RPA\nginx-1.28.0\（网络映射，非 D: 盘同名目录）
+'   - 生效 nginx：D:\01_RPA\nginx-1.28.0\（本地盘，2026-10-01 从 Y: 网络映射搬来）
 
 Set ws = CreateObject("WScript.Shell")
 dir = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\"))
