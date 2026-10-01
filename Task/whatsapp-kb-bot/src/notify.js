@@ -418,14 +418,19 @@ async function start() {
   // 若不判重，每重连一次就多一个定时器，同一条告警会被发多次。
   if (!pollTimer) {
     pollTimer = setInterval(async () => {
-      if (!connected) return;
+      // 必须用全局 sockRef，且重连后必须真的 open 才投递。
+      // ⚠️ 这里不能用闭包里的局部 `sock`：重连会递归调用 start() 创建新 sock，
+      // 但 pollTimer 只在第一次 start() 建一次（上面的 if(!pollTimer)），
+      // 若不改用全局 sockRef，轮询会一直拿着已被 sock.ws.close() 杀掉的旧 sock 发包，
+      // 连接恰好在边缘时就会拿到 "Connection Closed" 而失败（2026-10-01 实测命中）。
+      if (!connected || !sockRef) return;
       const job = claimJob();
       if (!job) {
         heartbeat();
         return;
       }
       try {
-        await runJob(sock, job);
+        await runJob(sockRef, job);
       } catch (err) {
         log(`✗ 处理作业异常：${err.stack || err.message}`);
         try {
