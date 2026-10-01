@@ -55,6 +55,61 @@ const logger = P({ level: 'silent' });
 const CHECK_ONLY = process.argv.includes('--check');
 const LIST_GROUPS = process.argv.includes('--groups');
 
+/* --------------------------------- 单实例锁 --------------------------------- */
+
+/** 锁文件路径。模块级：常驻模式启动时置一次，重连不再重复获取。 */
+let lockFile = null;
+
+/**
+ * 单实例保护。
+ *
+ * 为什么必须有：告警**不可重复** —— 同一条 P1 发两遍会让值班群困惑，
+ * 严重时会掩盖真实告警。而本进程有两个来源可能把它拉起来：
+ *   * 计划任务 `WhatsAppKB_Notify_EnsureRunning` 每 5 分钟巡检；
+ *   * 人工执行 `autostart-notify.ps1`，或直接跑 node。
+ * 巡检脚本靠「扫命令行 + 读心跳」判重，但那是**尽力而为**：进程刚起、心跳还没写，
+ * 或两次拉起几乎同时发生时，两个实例会同时存活并各自轮询同一个信箱，
+ * 于是同一作业被消费两次、告警发两遍。
+ *
+ * 把判重交给操作系统才可靠。这里用带 pid 的锁文件 + 存活探测：
+ * 文件在但持有者已死（上次被硬杀）则回收，不会永久卡死。
+ */
+function acquireLock() {
+  const lf = join(ROOT, 'data', 'notify.lock');
+  try {
+    mkdirSync(dirname(lf), { recursive: true });
+    let holder = null;
+    try {
+      holder = JSON.parse(readFileSync(lf, 'utf8'));
+    } catch {
+      /* 不存在或损坏 → 视作无持有者 */
+    }
+    if (holder && Number.isInteger(holder.pid) && holder.pid !== process.pid) {
+      let alive = false;
+      try {
+        process.kill(holder.pid, 0);
+        alive = true;
+      } catch {
+        alive = false;
+      }
+      if (alive) {
+        log(`✗ 已有推送进程在运行（pid ${holder.pid}），本进程退出以避免重复发送告警。`);
+        log('  需要重启请先： powershell -NoProfile -File autostart-notify.ps1 -Stop');
+        process.exit(1);
+      }
+      log(`! 锁文件里的 pid ${holder.pid} 已不存在（上次被强杀），回收后继续。`);
+    }
+    // 注意：这里刻意不用 `wx` 独占创建 —— 若进程在写锁前崩溃会留下永久锁。
+    // 用「读-判活-覆盖」的写法，配合上面的存活探测，硬杀后能自愈。
+    writeFileSync(lf, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }), 'utf8');
+    return lf;
+  } catch (err) {
+    // 拿不到锁不阻断发送：单实例保护是尽力而为，不能反过来弄坏主功能。
+    log(`! 单实例锁建立失败（忽略，继续启动）：${err.message}`);
+    return null;
+  }
+}
+
 /* --------------------------------- 日志 --------------------------------- */
 
 let logFile = null;
@@ -265,6 +320,12 @@ let shuttingDown = false;
 let pollTimer = null;
 
 async function start() {
+  // 单实例保护只在**常驻模式**生效。--check / --groups 是一次性自检，
+  // 与常驻进程并存是正常用法（排查时正需要它），不该被锁挡住。
+  if (!CHECK_ONLY && !LIST_GROUPS && !lockFile) {
+    lockFile = acquireLock();
+  }
+
   if (!existsSync(CONFIG.authDirAbs)) {
     log(`✗ 凭据目录不存在：${CONFIG.authDirAbs}`);
     log('  请先在 whatsapp-kb-bot 目录执行 npm run relogin 扫码登录。');

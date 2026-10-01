@@ -59,7 +59,7 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 | 启动即 `[FAIL] Python not found` | `start_hidden.ps1:88-103` 的探测顺序 | 装 Python 3.12 或让 `pythonw.exe` 进 PATH |
 | 某类数据全停更 | 任务管理里对应任务是否 pending；`db/app.db` 里 `select * from task_queue where status='pending'` 是否只有那一条、且 `task_execution_log` 里该任务 0 条记录 | pending 且从不执行 → **该 task_id 不在 `GROUP_TASK_MAP` 任何组**（已踩四次，`04-task-system.md`）。补登记分组后需 `python restart_workers.py --mode watchdog --force`（**要管理员权限**：分组清单在 watchdog 进程内存里，只重启子 worker 不生效；无权限时 taskkill 会 Access denied 而静默失败，必须回查 `log/worker_restart_marker.log` 确认 pids 真的变了）；陈旧 pending 占住的单飞名额会在 6h 后被 `_expire_orphan_pending` 自动释放 |
 | 任务漏跑但没人发现 | `db_freshness_check` 执行历史里搜 `[TASK-HEALTH]`；告警去重状态 `TMP/task_health_alert_state.json` | 2026-09-18 起漏跑（无执行记录/队列滞留/成功逾期/未归组）会微信+邮件主动通知，新异常与恢复各通知一次、持续超 24h 重提；维护窗口静音用 `TASK_HEALTH_ALERT_ENABLED=0` |
-| **WhatsApp 告警静默发不出去**（任务却报成功） | ① 作业文件 `backend\services\data\tt_alert_job.json` 的 `status` 是否长期停在 `running`；② `backend\services\data\ext_liveness.json` 的 `last_seen_at` 是否超过 5 分钟 | 见下方专节「僵尸作业堵死推送通道」与「扩展在线检查」 |
+| **WhatsApp 告警静默发不出去**（任务却报成功） | ① `whatsapp-kb-bot\data\notify_heartbeat.json` 的 `at` 是否超过 5 分钟或 `connected=false`；②（发图）`backend\services\data\ext_liveness.json` 的 `last_seen_at` 是否超过 5 分钟 | 见下方专节「P1 告警推送通道」与「扩展在线检查」 |
 | 任务反复 failed | `worker_runtime*.log` 找该 task_id 堆栈（分组日志，可按任务所属组直接定位） | 上游不可达→先跑"系统设置→凭据→测试连接"；口令变了→更新凭据 |
 | 任务卡在"执行中"很久 | 是否真在跑：看 worker 进程 PID 是否存活 | 无需手工干预：`STALE_RUNNING_SECONDS=30min` + PID 核对会自动回收僵尸（`worker.py:78,82,302`） |
 | 邮件没发出去 | `email_recovery`（每 20 分钟）日志 | EWS 恢复后会自动补发；确认收件人配置未被重置 |
@@ -186,25 +186,84 @@ $j | ConvertTo-Json -Depth 6 | Set-Content $p -Encoding UTF8
 > ⚠️ 改了这两处**必须重启后端与 worker 才生效**（`pythonw.exe` 常驻，不热加载）。
 > 回归：`python -m pytest tests\test_job_zombie_and_month_start.py tests\test_ext_liveness.py -q`
 
-### 扩展在线检查（2026-10-01 新增）
+### P1 告警推送通道（2026-10-01 由扩展切换为 Baileys）
 
-**为什么需要**：告警推送依赖「浏览器开着 + 扩展加载着 + WhatsApp Web 登录着」，
-而那个浏览器是**人手动打开的**（扩展用 `--load-extension` 加载，仓库里没有自启脚本）。
-浏览器没开时，作业投出去无人认领，任务要干等 `WAIT_SECONDS`（600s）才发现，
-**这 10 分钟里值班群一条告警都收不到**。
+**通道现状**：P1 告警**不再走 Chrome 扩展**，改由
+`whatsapp-kb-bot` 的 **`src/notify.js`**（Baileys，WhatsApp WebSocket 协议）发送。
 
-**机制**：扩展每分钟轮询一次 `/api/whatsapp/ext/job`，后端在认领入口
-（`whatsapp_job_claim.claim_next_job()`）把时刻记进
-`backend/services/data/ext_liveness.json`；投递前读它判三态：
+**为什么换**：扩展通道的**全部复杂度都来自「操作网页」** —— 要浏览器常开、要页面聚焦
+（粘贴依赖焦点）、每 2~3 周人工扫码，且发送确认只能靠数 DOM 气泡去猜
+（WhatsApp 是虚拟列表，气泡会被回收，实测把「已发出」判成失败并重发，
+2026-09-29 出过重复告警事故）。Baileys 不碰页面，这些复杂度全部消失，
+且发送确认是 `sendMessage()` 返回的**服务端 message id**，不是猜的。
+
+> 发图任务（`whatsapp_send_ext` / `whatsapp_send`）**仍走原通道**，本次只改了 P1 文本告警。
+
+**投递前在线检查**：投递前读推送进程的心跳，离线立刻产出 `warnings`
+（把「几分钟后才知道」压成「这一轮就知道」）：
 
 | 状态 | 判据 | 行为 |
 | --- | --- | --- |
-| `online` | 阈值（默认 300s）内认领过 | 静默，正常发送 |
-| `offline` | 见过扩展但已超阈值无动静 | **立刻**产出 `warnings` 走微信+邮件喊人 |
-| `unknown` | 从未见过（服务刚起/记录被清） | **不告警**，仅记日志 |
+| `online` | 阈值（默认 300s）内有心跳且 `connected=true` | 静默，正常发送 |
+| `offline` | 心跳过期、`connected=false`，**或心跳里的 pid 已不存在** | **立刻**产出 `warnings` 走微信+邮件喊人 |
+| `unknown` | 从无心跳（进程刚起/从未启动） | **不告警**，仅记日志 |
 
-> `unknown` 不告警是**刻意的**：服务每次重启都没有记录，若判离线则每次重启都误报，
-> 会让人对告警脱敏。判离线必须**有明确证据**（曾见过扩展）。
+> `unknown` 不告警是**刻意的**：进程每次重启都没有心跳，若判离线则每次重启都误报，
+> 会让人对告警脱敏。判离线必须**有明确证据**。
+>
+> **为什么还要查 pid**：心跳文件是进程被强杀时**来不及更新的**。实测
+> `Stop-Process -Force` 之后文件里仍是 `connected:true` + 旧时间戳，
+> 只看时间戳会有最长 300s 的「假健康」窗口 —— 而这段时间告警投出去其实没人消费。
+> 故心跳里带了 `pid`，判活时顺手核对进程是否存在，把窗口压到一次轮询。
+
+**手工排查**：
+
+```powershell
+# 1) 状态总览（进程 / 心跳 / 健康判定一句话给全）
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\01_RPA\Task\whatsapp-kb-bot\autostart-notify.ps1 -Status
+
+# 2) 直接看心跳
+Get-Content D:\01_RPA\Task\whatsapp-kb-bot\data\notify_heartbeat.json -Raw -Encoding UTF8
+# 文件不存在 = 推送进程还没起过（unknown）
+
+# 3) 只连不发，自检凭据与连接（不会打扰任何群）
+cd D:\01_RPA\Task\whatsapp-kb-bot
+node --env-file-if-exists=.env src/notify.js --check
+
+# 4) 群名 → JID（配置里写的是群名，发送要 JID）
+node --env-file-if-exists=.env src/notify.js --groups
+```
+
+**常驻与看门狗**（2026-10-01 新增）：两个计划任务，注册脚本
+`whatsapp-kb-bot\register_notify_tasks.ps1`：
+
+| 任务 | 频率 | 作用 |
+| --- | --- | --- |
+| `WhatsAppKB_Notify_Autostart` | 登录时 | 开机自启 |
+| `WhatsAppKB_Notify_EnsureRunning` | 每 5 分钟 | 进程不在 / 心跳不健康就重启 |
+
+> 两个都要：只做自启的话，进程中途死掉**没人知道**，值班群会静默收不到 P1 告警
+> —— 这正是 2026-10-01 事故的形态（监控全绿、业务已坏）。
+>
+> 巡检脚本判「不健康」包含**活着但未连接**（如凭据失效），此时重启是正确动作。
+
+**单实例保护**：`notify.js` 启动时写 `data\notify.lock`（含 pid）。
+已有存活实例时**拒绝启动并说明原因** —— 否则两个实例会各自轮询同一个信箱，
+同一作业被消费两次、告警发两遍。锁里的 pid 已死（上次被强杀）会自动回收，不会永久卡死。
+
+**凭据失效怎么办**：推送进程是隐藏运行的，二维码打出来也没人看得见。
+心跳会显示 `connected: false`，此时执行 `cd whatsapp-kb-bot` → `npm run relogin` 重新扫码，
+再 `autostart-notify.ps1 -Stop` 后重新拉起（或等 5 分钟看门狗）。
+
+### 扩展在线检查（2026-10-01 新增，仅发图通道仍适用）
+
+> ⚠️ **P1 文本告警已不走扩展**（见上一节）。本节只对**发图任务**有效：
+> 浏览器没开时图片发不出去，任务会干等 `WAIT_SECONDS` 才发现。
+
+**机制**：扩展每 ~17 秒轮询一次 `/api/whatsapp/ext/job`，后端在认领入口
+（`whatsapp_job_claim.claim_next_job()`）把时刻记进
+`backend/services/data/ext_liveness.json`；三态判定与上表同构
+（`online` 静默 / `offline` 立刻告警 / `unknown` 不告警）。
 
 **为什么不直接自动拉起浏览器**：扩展与发图任务（`whatsapp_service`）**共用同一个
 profile**，而后者的 `_kill_stale_chrome()`（`whatsapp_service.py:188`）会按命令行里的
