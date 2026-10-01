@@ -69,19 +69,39 @@ async function main() {
     console.log('✓ 对话 provider：本地 Ollama');
   }
 
-  // 2. 本地 Ollama 自检（嵌入始终在本地）
+  // 2. Ollama 自检（嵌入始终走 Ollama；.20 那台没有本地 Ollama，配置指向内网 .27）
+  //
+  // ⚠️ **这里刻意不 exit(1)**（2026-10-01 改，停机 29 小时事故的治本项）。
+  //
+  // 原因：Ollama 只影响**问答**（嵌入检索），而机器人还会收发消息、执行内置命令
+  // （ping / help）。原先 Ollama 一不可用就 `process.exit(1)`，等于让一个旁路依赖
+  // 的可用性决定整条链路的生死 —— 实测后果是：.20 那台**从未安装** Ollama
+  // （`ollama.exe` 不存在），配置里的 `127.0.0.1:11434` 永远连不上，于是机器人
+  // 自 2026-09-30 09:49 起再没起来过，且**没有任何告警**，直到 10-01 排查才发现
+  // 「它已经停了 29 小时」。
+  //
+  // 改为：不可用时只标记 `qaAvailable = false`，进程照常连接并响应；
+  // 真正提问时再回一句明确的故障话术。这样「能不能收发消息」与「能不能查知识库」
+  // 解耦，坏一半不会拖垮全部。
+  let qaAvailable = true;
   try {
     const h = await healthCheck();
-    if (!h.embedModelPresent || !h.chatModelPresent) {
-      console.error('✗ Ollama 缺少所需模型：');
-      if (!h.embedModelPresent) console.error(`   ollama pull ${CONFIG.embedModel}`);
-      if (!h.chatModelPresent) console.error(`   ollama pull ${CONFIG.chatModel}`);
-      process.exit(1);
+    const needChat = CONFIG.chatProvider === 'ollama';
+    if (!h.embedModelPresent || (needChat && !h.chatModelPresent)) {
+      qaAvailable = false;
+      const missing = [];
+      if (!h.embedModelPresent) missing.push(CONFIG.embedModel);
+      if (needChat && !h.chatModelPresent) missing.push(CONFIG.chatModel);
+      console.error(`! Ollama（${CONFIG.ollamaUrl}）缺模型：${missing.join(', ')}`);
+      console.error(`  问答将不可用；收发消息与内置命令 ping/help 不受影响。`);
+      console.error(`  修复：在该机执行 ollama pull ${missing.join(' && ollama pull ')}`);
+    } else {
+      console.log(`✓ Ollama 就绪（${CONFIG.ollamaUrl}，嵌入模型 ${CONFIG.embedModel}）`);
     }
-    console.log(`✓ Ollama 就绪（嵌入模型 ${CONFIG.embedModel}）`);
   } catch (err) {
-    console.error(`✗ ${err.message}`);
-    process.exit(1);
+    qaAvailable = false;
+    console.error(`! Ollama 连接失败（${CONFIG.ollamaUrl}）：${err.message}`);
+    console.error('  问答将不可用；收发消息与内置命令 ping/help 不受影响。');
   }
 
   // 3. 预热本地模型，并检查常驻情况（直接决定每次回答的延迟）
@@ -113,9 +133,9 @@ async function main() {
 
   // TT 单分析：实时查 my_app 工单库，与知识库是两条独立通道
   if (ttAvailable()) {
-    console.log('✓ TT 单分析就绪：消息里带 TT 单号（如 TT202609150073）会实时查工单库\n');
+    console.log('✓ 工单分析就绪：消息里带 TT / WO 单号（如 TT202609150073、WO202609220055）会实时查工单库\n');
   } else {
-    console.log('! TT 单分析不可用（缺 scripts/tt-analyze.py 或 Python 解释器），TT 类问题将走知识库\n');
+    console.log('! 工单分析不可用（缺 scripts/tt-analyze.py 或 Python 解释器），TT 类问题将走知识库\n');
   }
 
   // 回复语言：按**提问语言**自动切换（见 src/lang.js）。
@@ -137,7 +157,7 @@ async function main() {
         'pong ✅ 机器人在线',
         `知识库：${index.meta.chunks} 块 / ${index.meta.files} 个文件`,
         `对话模型：[${info.provider}] ${info.model}`,
-        `嵌入模型：${CONFIG.embedModel}（本地）`,
+        `嵌入模型：${CONFIG.embedModel}（${CONFIG.ollamaUrl}）`,
         '回复语言：中 / 英自动适配',
       ];
       if (info.provider === 'openai') {
@@ -165,23 +185,45 @@ async function main() {
         '找得到就直接答；找不到我会明说没有依据，不会编。',
         '',
         '两类问题走的是不同通道：',
-        '  · 带 TT 单号（如 TT202609150073）→ 实时查工单库，给出级别判定与命中规则',
+        '  · 带 TT / WO 单号（如 TT202609150073、WO202609220055）→ 实时查工单库，给出级别判定与命中规则',
         '  · 其他（告警压缩、级别规则、告警码含义）→ 查知识库',
+        '一次可以贴多个单号（最多 3 个），我会逐个分析。',
         '内置命令：ping（测在线）、help（看这段）',
       ].join('\n'),
   };
 
   await startWhatsApp({
     builtins,
-    onQuestion: async (question, { lang } = {}) => {
+    onQuestion: async (question, { lang, onRetry, onLive } = {}) => {
       const t0 = Date.now();
+
+      // 嵌入不可用时**不要**硬着头皮往下走：`routeAnswer` 会去调 Ollama 做嵌入，
+      // 每次都要等连接超时，用户干等几十秒最后收到一句含糊的错误。
+      // 直接回一句说清原因的话，比超时后再报错有用得多。
+      // （TT 单分析通道不依赖嵌入，但它复用同一个 routeAnswer，故一并短路；
+      //   若将来要让 TT 通道在无嵌入时仍可用，需在这里按 ttNo 分流。）
+      if (!qaAvailable) {
+        return {
+          answered: false,
+          text:
+            lang === 'en'
+              ? "My knowledge base is unavailable right now (the embedding service is down), so I can't look this up. Please try again later."
+              : '我这边的知识库暂时不可用（嵌入服务连不上），查不了这个问题，稍后再试试～',
+        };
+      }
+
       const result = await routeAnswer(question, index, {
         // 语言由接入层按提问原文判定后传下来（见 whatsapp.js / lang.js），
         // 这里只负责转发 —— 避免两处各判一次、口径还可能不一致。
         lang,
-        onRoute: ({ channel, ttNo, ms, ok }) => {
+        // 工单通道失败自动重试前，先把垫话发出去（透传到接入层）
+        onRetry,
+        // 本地库查不到、要去 eFlow 实时查之前，同样先垫一句
+        onLive,
+        onRoute: ({ channel, ttNo, ttNos, count, okCount, ms, ok }) => {
           if (channel === 'tt') {
-            console.log(`[TT分析] ${ttNo}｜${ms}ms｜${ok ? '成功' : '失败'}`);
+            const multi = count > 1 ? `（${okCount}/${count} 个单成功）` : '';
+            console.log(`[TT分析] ${(ttNos || [ttNo]).join(', ')}｜${ms}ms｜${ok ? '成功' : '失败'}${multi}`);
           }
         },
         onDebug: DEBUG

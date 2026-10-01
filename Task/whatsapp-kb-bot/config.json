@@ -1,7 +1,7 @@
 {
   "$comment": "本文件是机器人的唯一配置源。改完保存后重启进程生效（索引相关改动需重跑 npm run ingest）。",
 
-  "$providers": "嵌入始终走本地 Ollama（资料不出本机）；对话可走本地或任意 OpenAI 兼容的云端接口。chatProvider: ollama | openai",
+  "$providers": "嵌入走 Ollama（本机没有，见下方 $ollamaUrl 指向 .27）；对话可走本地或任意 OpenAI 兼容的云端接口。chatProvider: ollama | openai",
   "chatProvider": "openai",
   "chatModel": "agnes-3.0-flash",
   "chatBaseUrl": "https://apihub.agnes-ai.com/v1",
@@ -12,7 +12,8 @@
   "$enableThinking": "false=显式关闭思维链；true=显式开启；删除本行=不传该参数，用服务端默认。知识库问答不需要思维链，开启只会白烧 token 预算，极端情况下思考把预算吃光会导致 content 返回空串。",
   "enableThinking": false,
 
-  "ollamaUrl": "http://127.0.0.1:11434",
+  "$ollamaUrl": "嵌入用的 Ollama 地址。本机（192.168.100.20）**从未安装** Ollama（ollama.exe 不存在），故指向内网的 192.168.100.27:11434 —— 原来写 127.0.0.1 时永远连不上，而机器人把「Ollama 不可用」当致命错误直接退出，导致整机静默停机 29 小时（2026-10-01 事故）。指向 .27 后 doctor 与完整启动均通过（bge-m3 已在那台就位）。",
+  "ollamaUrl": "http://192.168.100.27:11434",
   "embedModel": "bge-m3:latest",
   "keepAlive": "30m",
 
@@ -55,8 +56,26 @@
   "pendingText": "正在查知识库和工单库，请稍等，马上回复你～",
   "pendingTextEn": "Searching the knowledge base and ticket DB — will get back to you in a moment.",
 
+  "$ttLiveFallback": "工单实时兜底：本地 app.db 查不到单号时（数据还没同步过来），改去 eFlow 实时按单号拉这一单。实现见 scripts/eflow-live-tt.py —— 它复用 my_app 的 fetch_tt_live，凭据也只读 my_app 那一份（backend/services/eflow_config.json 与 EFLOW_* 环境变量），机器人侧不另存密码。桥接脚本会自己探测一个装齐 pandas + sqlalchemy 的解释器；探测不到就优雅降级回「本地库没有找到」，绝不影响本地查询。置 false 关闭实时兜底。",
+  "ttLiveFallback": true,
+  "$ttLiveTimeoutMs": "实时查询超时（毫秒）。比本地宽松：要探测解释器 + 登录 eFlow（OAuth2+RSA）+ 分页扫描。可用环境变量 TT_LIVE_TIMEOUT_MS 覆盖。",
+  "ttLiveTimeoutMs": 240000,
+
   "$rewriteRetry": "二跳检索：第一跳未命中时，让对话模型把用户的口语提问改写成「知识库文档里可能会出现的表述」（中英各一条）再检索一次，任一跳命中就用它回答。治两类病：① 用户问法与文档标题差异大（如「端到端链路」vs 文档用词）；② 英文问法召回偏到无关块。只重试一次；改写失败或仍不命中 → 维持 notFoundText 兜底。置 false 关闭。",
   "rewriteRetry": true,
+
+  "$memory": "会话记忆：按「群 + 提问人」记住最近 memoryMaxTurns 轮问答，让「那第二种情况呢」「刚才说的时效是多少」这类追问接得上（改造前每条提问都是全新会话，指代必然丢）。memoryTtlMs 是空闲超时，超过就没有上下文了；memoryMaxChats 是最多同时记多少个会话，超了淘汰最久没用的。只存内存，重启即清空。置 memoryEnabled=false 回到单轮行为。",
+  "memoryEnabled": true,
+  "memoryMaxTurns": 3,
+  "memoryTtlMs": 600000,
+  "memoryMaxChats": 200,
+  "$memoryResolve": "追问消解：有记忆时先花一次小模型调用，把口语追问补全成「能拿去检索的独立问题」（否则「那第二种呢」这几个字压根召不回正确的块），同时判断这句是不是在延续上一话题——是新话题就不带历史，避免旧上下文污染。这一步失败会自动退回原句，不影响回答。置 false 关闭。",
+  "memoryResolve": true,
+
+  "$webUiFallback": "网页版兜底：知识库确实没找到依据时，除了那句固定文案，再附一个网页版助手的地址，让提问人去那里追问（那边能用模型通用知识、也能多轮聊）。URL 置空则不追加这一段。注意这是**给同事看的地址**，需要本机能被那个地址访问到。",
+  "webUiFallbackUrl": "http://192.168.100.27:3000/",
+  "webUiFallbackText": "想继续追问可以到网页版问我：{url}",
+  "webUiFallbackTextEn": "For follow-up questions, ask the web assistant here: {url}",
 
   "systemPrompt": "你是一个只依据「资料」回答问题的助手，服务于一个 WhatsApp 群。\n\n硬性规则：\n1. 只使用「资料」中的内容作答，不得引入资料之外的知识，不得编造。\n2. 资料足以回答时，直接给结论，再补必要细节；「用与提问相同的语言回答」（英文提问就用英文，中文提问就用中文），口语化、简短，适合聊天窗口阅读。\n3. 不要复述问题，不要说“根据资料显示”这类套话，直接说答案。\n4. 若资料只覆盖了问题的一部分，就只回答被覆盖的那部分，并明确说明哪部分没有依据。\n5. 不要输出 Markdown 标题、表格、代码块；可用短横线列点，控制在 5 行以内。"
 }

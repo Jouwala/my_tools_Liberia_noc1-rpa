@@ -122,44 +122,49 @@ class TestRecordActivity:
 
 # ==========================================================
 # 三、投递前告警（只在该喊时喊）
+#
+# 发送通道已于 2026-10-01 由 Chrome 扩展切换为 Baileys 推送进程
+# （`whatsapp-kb-bot/src/notify.js`），故这里改测 `_check_channel_before_dispatch`。
+# 三态语义不变（离线才喊、未知不喊），只是证据来源从「扩展认领时刻」换成「推送进程心跳」。
 # ==========================================================
-class TestCheckExtBeforeDispatch:
+class TestCheckChannelBeforeDispatch:
     def _run(self, status, monkeypatch):
-        monkeypatch.setattr(svc.ext_liveness, "check",
-                            lambda: {"status": status, "last_seen_at": "x",
-                                     "reason": "测试原因"})
+        monkeypatch.setattr(svc.wa_notify, "is_online",
+                            lambda *a, **k: {"status": status, "at": "x",
+                                             "reason": "测试原因"})
         out = {"warnings": [], "errors": []}
-        svc._check_ext_before_dispatch(out, due_count=3)
+        svc._check_channel_before_dispatch(out, due_count=3)
         return out
 
     def test_offline_时告警且写明影响面(self, monkeypatch):
-        out = self._run(L.STATUS_OFFLINE, monkeypatch)
+        out = self._run("offline", monkeypatch)
         assert len(out["warnings"]) == 1
         w = out["warnings"][0]
         assert "离线" in w
         assert "3 单" in w          # 必须写明本轮有多少单受影响
         assert "大概率发不出去" in w  # 必须说清后果，不能只报状态
+        assert "notify.js" in w      # 必须给出可执行的排查动作
 
     def test_unknown_不告警(self, monkeypatch):
-        """刻意：服务刚重启时无记录，若告警则每次重启都误报一次。"""
-        out = self._run(L.STATUS_UNKNOWN, monkeypatch)
+        """刻意：推送进程刚重启时心跳还没写，若告警则每次重启都误报一次。"""
+        out = self._run("unknown", monkeypatch)
         assert out["warnings"] == []
 
     def test_online_不告警(self, monkeypatch):
-        out = self._run(L.STATUS_ONLINE, monkeypatch)
+        out = self._run("online", monkeypatch)
         assert out["warnings"] == []
 
     def test_状态落进_out_供页面展示(self, monkeypatch):
-        out = self._run(L.STATUS_OFFLINE, monkeypatch)
-        assert out["ext_status"] == L.STATUS_OFFLINE
-        assert out["ext_last_seen_at"] == "x"
+        out = self._run("offline", monkeypatch)
+        assert out["channel_status"] == "offline"
+        assert out["channel_heartbeat_at"] == "x"
 
     def test_检查本身异常时不阻断发送(self, monkeypatch):
-        def _boom():
-            raise RuntimeError("读记录炸了")
-        monkeypatch.setattr(svc.ext_liveness, "check", _boom)
+        def _boom(*a, **k):
+            raise RuntimeError("读心跳炸了")
+        monkeypatch.setattr(svc.wa_notify, "is_online", _boom)
         out = {"warnings": [], "errors": []}
-        svc._check_ext_before_dispatch(out, due_count=1)  # 不应抛
+        svc._check_channel_before_dispatch(out, due_count=1)  # 不应抛
         assert out["warnings"] == []
 
 

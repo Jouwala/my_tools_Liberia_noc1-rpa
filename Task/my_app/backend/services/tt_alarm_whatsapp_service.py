@@ -52,29 +52,30 @@ Settings →「任务配置」→ `eFlow P1 Alarm WhatsApp Push`
 > occur 于 2026-06-24），故正常情况下**每轮通常发出 0 条消息** —— 这是数据分布
 > 决定的正常结果，不是故障。要放宽推送面（如纳入 P2 断站单）改级别配置即可。
 >
-> ⚠️ **依赖「人开着浏览器」这条链路的脆弱性（2026-10-01 事故）**：
-> 扩展必须运行在一个**手动打开、且登录着 WhatsApp Web** 的浏览器里
-> （扩展用 `--load-extension` 加载，见 `whatsapp_sender_extension/README.md`；
-> 仓库里没有任何自启脚本）。浏览器没开时作业无人认领，任务要干等 `WAIT_SECONDS`
-> 才发现，这段时间值班群其实收不到告警 —— 实测 04:15~04:55 连续 4 轮未达、
-> 群内静默，作业还把邮箱堵死了 4.3 小时。
+> ⚠️ **发送通道已于 2026-10-01 切换为 Baileys（不再依赖浏览器）**：
+> 原通道是 Chrome 扩展，它必须运行在一个**手动打开、且登录着 WhatsApp Web** 的浏览器里，
+> 于是「浏览器没开」时作业无人认领，任务要干等超时才发现，这段时间值班群收不到告警
+> —— 实测 04:15~04:55 连续 4 轮未达、群内静默，作业还把邮箱堵死 4.3 小时。
 >
-> **三重防护**（按发生顺序）：
->   1. **投递前**先查扩展在线（`ext_liveness`），离线就立刻走降级告警喊人
->      —— 把「10 分钟后才知道」压成「这一轮就知道」（见 `_check_ext_before_dispatch`）；
->   2. 僵尸作业 **1 小时自动回收**（`job_staleness`），邮箱不再被永久堵死；
+> 现改为 `whatsapp-kb-bot/src/notify.js`（Baileys，走 WhatsApp WebSocket 协议）：
+> **不需要浏览器、不需要页面聚焦、不需要人工扫码**，且发送确认是
+> `sendMessage()` 返回的**服务端 message id**，而不是数 DOM 气泡猜出来的。
+>
+> **防护**（按发生顺序）：
+>   1. **投递前**先查推送进程心跳，离线就立刻走降级告警喊人
+>      —— 把「几分钟后才知道」压成「这一轮就知道」（见 `_check_channel_before_dispatch`）；
+>   2. 消费端超时未回报有上限（`wa_notify_service.WAIT_SECONDS`），不无限占用 worker；
 >   3. 发送未确认时 `warnings` 报出，经 `task_runner` 走微信/邮件，不静默。
 >
-> **为什么不直接自动拉起浏览器**：扩展与发图任务（`whatsapp_service`）**共用同一个
-> profile**，而后者的 `_kill_stale_chrome()` 会按命令行里的 profile 路径**强杀**占用进程
-> —— 两者共存必然互相残杀。要自动化须先给扩展配独立 profile（需重新扫码登录），
-> 属独立议题，不在本任务范围内。
+> 切换理由与两条通道的逐项对比见 `backend/services/wa_notify_service.py` 的模块 docstring。
+> 扩展通道的代码（`whatsapp_ext_service.py`、`tt_alarm_job.py`、`ext_liveness.py`）**保留**
+> 但已不在本任务的调用路径上 —— 发图任务仍走扩展，只有 P1 文本告警改了道。
 
 ## 模块拆分
 
 本文件只保留**业务口径与调度**（取数 / 节流 / 落库 / 编排）：渲染纯函数在
-`tt_alarm_message.py`（可脱离数据库单测），作业文件状态机在 `tt_alarm_job.py`，
-配置解析在 `tt_alarm_config.py`，扩展在线判定在 `ext_liveness.py`。
+`tt_alarm_message.py`（可脱离数据库单测），配置解析在 `tt_alarm_config.py`，
+发送通道在 `wa_notify_service.py`（Baileys）。
 """
 import json
 import logging
@@ -85,15 +86,16 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from backend.database import get_raw_connection
 from backend.dialect_helpers import list_table_names
-from backend.services import ext_liveness
 from backend.services import tt_alarm_config as config_mod
 from backend.services import tt_alarm_store as store
+from backend.services import wa_notify_service as wa_notify
 from backend.services.tt_alarm_config import DEFAULT_GROUPS, load_config
-from backend.services.tt_alarm_job import (
-    JOB_FILE,
+# 发送通道已于 2026-10-01 由「Chrome 扩展」切换为「Baileys 推送进程」。
+# 两者的作业文件不同（`tt_alert_job.json` vs `whatsapp-kb-bot/data/notify_job.json`），
+# 但**接口同名同形**（dispatch / read_job / wait_for_job_result / WAIT_SECONDS），
+# 故业务层只需换 import 来源，取数、节流、渲染、落库逻辑完全不动。
+from backend.services.wa_notify_service import (
     WAIT_SECONDS,
-    claim_pending_job,
-    complete_job,
     dispatch,
     read_job,
     wait_for_job_result,
@@ -323,42 +325,46 @@ def record_result(row: Dict[str, Any], ok: bool, error: str = "",
 # ==========================================================
 # 任务入口
 # ==========================================================
-def _check_ext_before_dispatch(out: Dict[str, Any], due_count: int) -> None:
-    """投递前查扩展在线状态，离线则把告警塞进 `out["warnings"]`。
+def _check_channel_before_dispatch(out: Dict[str, Any], due_count: int) -> None:
+    """投递前查推送通道在线状态，离线则把告警塞进 `out["warnings"]`。
 
-    这条链路依赖「浏览器开着 + 扩展加载着 + WhatsApp Web 登录着」，而那个浏览器是
-    **人手动打开**的。浏览器没开时，作业投出去没人认领，任务要干等 `WAIT_SECONDS`
-    才发现，而这 10 分钟里值班群其实一条告警都收不到 —— 2026-10-01 实测正是如此。
+    ## 为什么不等超时
 
-    所以这里**不等超时**：投递前先看扩展最近有没有认领过作业，没有就立刻报出去，
-    把「10 分钟后才知道」压缩成「这一轮就知道」。
+    告警链路依赖一个**常驻的推送进程**。它没在跑时，作业投出去没人消费，
+    任务要干等 `WAIT_SECONDS` 才发现，而这段时间值班群其实一条告警都收不到 ——
+    2026-10-01 实测正是如此（04:15~04:55 连续 4 轮未达、群内静默，
+    作业还把邮箱堵死 4.3 小时）。
 
-    **三态语义**（`ext_liveness`）：
-      * `online`  → 静默（正常路径，不做任何额外记录以免噪声）；
-      * `offline` → 追加 warning（由 `task_runner` 汇总成微信/邮件，见模块 docstring）；
-      * `unknown` → **不告警**，仅记日志。服务刚重启时没有任何认领记录，
+    所以这里**不等超时**：投递前先看推送进程的心跳，没有就立刻报出去，
+    把「几分钟后才知道」压缩成「这一轮就知道」。
+
+    ## 三态语义（与 `ext_liveness` 同口径）
+
+      * `online`  → 静默（正常路径）；
+      * `offline` → 追加 warning，经 `task_runner` 汇总成微信/邮件喊人；
+      * `unknown` → **不告警**，仅记日志。推送进程刚重启时心跳还没写，
         此时若判离线，每次重启都会误报一次，会让人对告警脱敏。
 
     只写 `out`，不抛异常：在线检查属可观测性设施，不能反过来弄坏发送主流程。
     """
     try:
-        live = ext_liveness.check()
+        live = wa_notify.is_online()
     except Exception:  # noqa: BLE001
-        logger.warning("[TTAlert] 扩展在线检查异常（忽略，继续发送）", exc_info=True)
+        logger.warning("[TTAlert] 推送通道在线检查异常（忽略，继续发送）", exc_info=True)
         return
 
-    out["ext_status"] = live.get("status")
-    out["ext_last_seen_at"] = live.get("last_seen_at") or None
+    out["channel_status"] = live.get("status")
+    out["channel_heartbeat_at"] = live.get("at") or None
 
-    if live.get("status") == ext_liveness.STATUS_OFFLINE:
-        warn = (f"WhatsApp 扩展离线：{live.get('reason')}。本轮 {due_count} 单 P1 告警"
-                f"**大概率发不出去** —— 请立即打开浏览器，确认 WhatsApp Web 已登录"
-                f"且扩展已加载。未确认发送的单会在恢复后按 {RESEND_MINUTES} 分钟节流重推，"
-                f"发送状态见「设置 → 任务配置 → eFlow P1 Alarm WhatsApp Push」")
+    if live.get("status") == "offline":
+        warn = (f"P1 告警推送通道离线：{live.get('reason')}。本轮 {due_count} 单告警"
+                f"**大概率发不出去** —— 请在 whatsapp-kb-bot 目录确认推送进程在运行"
+                f"（`node src/notify.js --check` 可自检），必要时 `npm run relogin` 重新扫码。"
+                f"未确认发送的单会在恢复后按 {RESEND_MINUTES} 分钟节流重推")
         out["warnings"].append(warn)
         logger.warning("[TTAlert] %s", warn)
-    elif live.get("status") == ext_liveness.STATUS_UNKNOWN:
-        logger.info("[TTAlert] 扩展在线状态未知（本轮不告警）：%s", live.get("reason"))
+    elif live.get("status") == "unknown":
+        logger.info("[TTAlert] 推送通道状态未知（本轮不告警）：%s", live.get("reason"))
 
 
 def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
@@ -441,8 +447,8 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
                 + "; ".join(degraded[:5])
                 + ("…" if len(degraded) > 5 else ""))
 
-        # ---------- 投递前：先确认扩展在线（2026-10-01 事故的治本项） ----------
-        _check_ext_before_dispatch(out, len(due))
+        # ---------- 投递前：先确认推送通道在线（2026-10-01 事故的治本项） ----------
+        _check_channel_before_dispatch(out, len(due))
 
         disp = dispatch(messages, GROUPS)
         out["job_id"] = disp.get("job_id")
@@ -465,8 +471,8 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
             )
             return _finish()
 
-        # 等扩展回报：只有**确认真实发出**的单才置 'Y'
-        logger.info("[TTAlert] 作业 %s 已投递，等待扩展回报（最长 %ds）…",
+        # 等推送进程回报：只有**确认真实发出**的单才置 'Y'
+        logger.info("[TTAlert] 作业 %s 已投递，等待推送进程回报（最长 %ds）…",
                     disp["job_id"], WAIT_SECONDS)
         rep = wait_for_job_result(disp["job_id"])
         out["confirmed"] = rep["confirmed"]
@@ -484,7 +490,7 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
                     ok_count += 1
                 else:
                     err = ("; ".join(rep["errors"])
-                           or ("扩展未确认该单发送成功" if rep["confirmed"] else "未获扩展回报"))
+                           or ("推送进程未确认该单发送成功" if rep["confirmed"] else "未获推送进程回报"))
                     record_result(r, ok=False, error=err, existing=records.get(tt_no))
                     fail_count += 1
             except Exception:  # noqa: BLE001
@@ -497,9 +503,9 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
         if out["success"]:
             out["message"] = f"已确认发送 {ok_count} 条（job={disp['job_id']}），状态已置 Y"
         elif rep["confirmed"]:
-            out["message"] = f"扩展已回报但无成功单（成功 0 / 失败 {fail_count}）"
+            out["message"] = f"推送进程已回报但无成功单（成功 0 / 失败 {fail_count}）"
         else:
-            out["message"] = f"作业已投递但未获扩展回报（{fail_count} 单保持未发送）"
+            out["message"] = f"作业已投递但未获推送进程回报（{fail_count} 单保持未发送）"
 
         # **告警没发出去必须吵**（2026-10-01 事故）。
         # 走到这里说明本轮有 due 单却一条都没确认发出 —— 值班群实际收不到告警。
@@ -525,11 +531,13 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
 __all__ = [
     "GROUPS", "WINDOW_MINUTES", "RESEND_MINUTES", "QUERY_LIMIT", "SEVERITIES",
     "ALARM_CODES", "DEFAULT_GROUPS", "GROUPS_FALLBACK", "CONFIG_FILE", "CONFIG_SOURCES",
-    "LOG_TABLE", "JOB_FILE", "UNCLEARED_SQL", "SAMPLE_LIMIT", "CONFIG_FILE",
+    "LOG_TABLE", "UNCLEARED_SQL", "SAMPLE_LIMIT", "CONFIG_FILE",
     "ensure_log_table", "fetch_candidate_tts", "is_due", "select_due_tts", "load_records",
     "record_result", "run_tt_alarm_whatsapp_alert", "norm_alarm_code",
-    "claim_pending_job", "complete_job", "read_job", "dispatch",
-    "wait_for_job_result", "_s", "_dash", "_parse_ts", "ANALYZE_LANG",
+    # 发送通道转发（实现在 wa_notify_service；调用方常只 import 本模块）。
+    # `claim_pending_job` / `complete_job` 是扩展通道的认领语义，Baileys 侧不需要
+    # （单进程消费，不存多实例争抢），故已随通道切换一并移除。
+    "read_job", "dispatch", "wait_for_job_result", "_s", "_dash", "_parse_ts", "ANALYZE_LANG",
     # 渲染入口转发（实现在 tt_alarm_render；调用方常只 import 本模块）
     "render_message_ex", "render_tt_analysis", "render_with_reason",
     # 降级模板（实现在 tt_alarm_message；对外保留别名，既有测试与调用方依赖它）
