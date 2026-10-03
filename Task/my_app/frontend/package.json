@@ -5,11 +5,12 @@
   "type": "module",
   "//xlsxNote": "Apache-2.0，仅供 EflowQa.tsx / TableBrowser.tsx 解析用户上传的 xlsx/xls。勿改成 npm 上的 `xlsx`——registry 版停留在 0.18.5 且带已知 CVE；SheetJS 新版只从自家 CDN 分发。升级前须人工核验 tarball 完整性，并同步更新 docs/THIRD-PARTY-NOTICES.md。注意 exceljs 读不了旧版 .xls（BIFF8），故不能简单替换。详见 docs/THIRD-PARTY-NOTICES.md 第一节。",
   "//xlsxNote为什么放这里": "这段说明原先是 dependencies 里的 \"//xlsx\" 键。npm 会校验 dependencies 的**每一个键**，非法键名会让**任何** npm install 直接报 EINVALIDPACKAGENAME 失败（2026-10-02 实测），等于整个前端依赖树无法安装/更新。放到顶层后 npm 不再校验，说明得以保留。此键在 dependencies 外，不构成依赖，也不参与安装。",
+  "//devPreview为什么直调vite": "dev/preview 原先经 ../scripts/start-app.mjs 包装，但 my_app 根下的 scripts\\ 是运行时 venv 目录（.gitignore 的 /Scripts/ 刻意忽略，.20 上还装着 8787 FMS 代理的 venv）——包装脚本因此从未入库，新克隆 `npm run preview` 必报 MODULE_NOT_FOUND，7090 缺位、nginx /myapp/ 502（2026-10-03 在开发机 zte_NOC 复现；同日 scripts\\ 三脚本迁 tools\\ 后 .20 磁盘上也已无此文件）。端口、host、base 与 /api 反代全部在 vite.config.ts，npm 层直调 vite 即可，勿再引入包装脚本；需要「代理+前端」一体编排时用 tools/start-app.mjs（独立入口，不属于 npm scripts）。",
   "scripts": {
-    "dev": "node ../scripts/start-app.mjs dev",
+    "dev": "vite",
     "build": "node scripts/check-i18n.mjs && tsc && vite build",
     "check:i18n": "node scripts/check-i18n.mjs",
-    "preview": "node ../scripts/start-app.mjs",
+    "preview": "vite preview",
     "docs:help": "node scripts/generate-help-doc.mjs",
     "docs:manual": "node scripts/generate-manual-html.mjs",
     "docs": "node scripts/generate-help-doc.mjs && node scripts/generate-manual-html.mjs"
